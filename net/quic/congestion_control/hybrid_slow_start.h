@@ -8,6 +8,8 @@
 // congestion algorithm. The key feaure of hybrid slow start is that it tries to
 // avoid running into the wall too hard during the slow start phase, which
 // the traditional TCP implementation does.
+// This does not implement ack train detection because it interacts poorly with
+// pacing.
 // http://netsrv.csc.ncsu.edu/export/hybridstart_pfldnet08.pdf
 // http://research.csc.ncsu.edu/netsrv/sites/default/files/hystart_techreport_2008.pdf
 
@@ -16,7 +18,6 @@
 
 #include "base/basictypes.h"
 #include "net/base/net_export.h"
-#include "net/quic/quic_clock.h"
 #include "net/quic/quic_protocol.h"
 #include "net/quic/quic_time.h"
 
@@ -24,7 +25,7 @@ namespace net {
 
 class NET_EXPORT_PRIVATE HybridSlowStart {
  public:
-  explicit HybridSlowStart(const QuicClock* clock);
+  HybridSlowStart();
 
   void OnPacketAcked(QuicPacketSequenceNumber acked_sequence_number,
                      bool in_slow_start);
@@ -38,7 +39,7 @@ class NET_EXPORT_PRIVATE HybridSlowStart {
   // congestion_window: the congestion window in packets.
   bool ShouldExitSlowStart(QuicTime::Delta rtt,
                            QuicTime::Delta min_rtt,
-                           int64 congestion_window);
+                           QuicPacketCount congestion_window);
 
   // Start a new slow start phase.
   void Restart();
@@ -62,11 +63,9 @@ class NET_EXPORT_PRIVATE HybridSlowStart {
   // Whether a condition for exiting slow start has been found.
   enum HystartState {
     NOT_FOUND,
-    ACK_TRAIN,  // A closely spaced ack train is too long.
     DELAY,  // Too much increase in the round's min_rtt was observed.
   };
 
-  const QuicClock* clock_;
   // Whether the hybrid slow start has been started.
   bool started_;
   HystartState hystart_found_;
@@ -74,11 +73,7 @@ class NET_EXPORT_PRIVATE HybridSlowStart {
   QuicPacketSequenceNumber last_sent_sequence_number_;
 
   // Variables for tracking acks received during a slow start round.
-  QuicTime round_start_;  // Beginning of each slow start receive round.
   QuicPacketSequenceNumber end_sequence_number_;  // End of the receive round.
-  // Last time when the spacing between ack arrivals was less than 2 ms.
-  // Defaults to the beginning of the round.
-  QuicTime last_close_ack_pair_time_;
   uint32 rtt_sample_count_;  // Number of rtt samples in the current round.
   QuicTime::Delta current_min_rtt_;  // The minimum rtt of current round.
 

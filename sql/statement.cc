@@ -51,34 +51,63 @@ bool Statement::CheckValid() const {
   return is_valid();
 }
 
-bool Statement::Run() {
-  DCHECK(!stepped_);
+int Statement::StepInternal(bool timer_flag) {
   ref_->AssertIOAllowed();
   if (!CheckValid())
-    return false;
+    return SQLITE_ERROR;
 
+  const bool was_stepped = stepped_;
   stepped_ = true;
-  return CheckError(sqlite3_step(ref_->stmt())) == SQLITE_DONE;
+  int ret = SQLITE_ERROR;
+  if (!ref_->connection()) {
+    ret = sqlite3_step(ref_->stmt());
+  } else {
+    if (!timer_flag) {
+      ret = sqlite3_step(ref_->stmt());
+    } else {
+      const base::TimeTicks before = ref_->connection()->Now();
+      ret = sqlite3_step(ref_->stmt());
+      const base::TimeTicks after = ref_->connection()->Now();
+      const bool read_only = !!sqlite3_stmt_readonly(ref_->stmt());
+      ref_->connection()->RecordTimeAndChanges(after - before, read_only);
+    }
+
+    if (!was_stepped)
+      ref_->connection()->RecordOneEvent(Connection::EVENT_STATEMENT_RUN);
+
+    if (ret == SQLITE_ROW)
+      ref_->connection()->RecordOneEvent(Connection::EVENT_STATEMENT_ROWS);
+  }
+  return CheckError(ret);
+}
+
+bool Statement::Run() {
+  DCHECK(!stepped_);
+  return StepInternal(true) == SQLITE_DONE;
+}
+
+bool Statement::RunWithoutTimers() {
+  DCHECK(!stepped_);
+  return StepInternal(false) == SQLITE_DONE;
 }
 
 bool Statement::Step() {
-  ref_->AssertIOAllowed();
-  if (!CheckValid())
-    return false;
-
-  stepped_ = true;
-  return CheckError(sqlite3_step(ref_->stmt())) == SQLITE_ROW;
+  return StepInternal(true) == SQLITE_ROW;
 }
 
 void Statement::Reset(bool clear_bound_vars) {
   ref_->AssertIOAllowed();
   if (is_valid()) {
-    // We don't call CheckError() here because sqlite3_reset() returns
-    // the last error that Step() caused thereby generating a second
-    // spurious error callback.
     if (clear_bound_vars)
       sqlite3_clear_bindings(ref_->stmt());
-    sqlite3_reset(ref_->stmt());
+
+    // StepInternal() cannot track success because statements may be reset
+    // before reaching SQLITE_DONE.  Don't call CheckError() because
+    // sqlite3_reset() returns the last step error, which StepInternal() already
+    // checked.
+    const int rc =sqlite3_reset(ref_->stmt());
+    if (rc == SQLITE_OK && ref_->connection())
+      ref_->connection()->RecordOneEvent(Connection::EVENT_STATEMENT_SUCCESS);
   }
 
   succeeded_ = false;
@@ -112,7 +141,7 @@ bool Statement::BindInt(int col, int val) {
   return CheckOk(sqlite3_bind_int(ref_->stmt(), col + 1, val));
 }
 
-bool Statement::BindInt64(int col, int64 val) {
+bool Statement::BindInt64(int col, int64_t val) {
   DCHECK(!stepped_);
   if (!is_valid())
     return false;
@@ -171,11 +200,11 @@ int Statement::ColumnCount() const {
 
 ColType Statement::ColumnType(int col) const {
   // Verify that our enum matches sqlite's values.
-  COMPILE_ASSERT(COLUMN_TYPE_INTEGER == SQLITE_INTEGER, integer_no_match);
-  COMPILE_ASSERT(COLUMN_TYPE_FLOAT == SQLITE_FLOAT, float_no_match);
-  COMPILE_ASSERT(COLUMN_TYPE_TEXT == SQLITE_TEXT, integer_no_match);
-  COMPILE_ASSERT(COLUMN_TYPE_BLOB == SQLITE_BLOB, blob_no_match);
-  COMPILE_ASSERT(COLUMN_TYPE_NULL == SQLITE_NULL, null_no_match);
+  static_assert(COLUMN_TYPE_INTEGER == SQLITE_INTEGER, "integer no match");
+  static_assert(COLUMN_TYPE_FLOAT == SQLITE_FLOAT, "float no match");
+  static_assert(COLUMN_TYPE_TEXT == SQLITE_TEXT, "integer no match");
+  static_assert(COLUMN_TYPE_BLOB == SQLITE_BLOB, "blob no match");
+  static_assert(COLUMN_TYPE_NULL == SQLITE_NULL, "null no match");
 
   return static_cast<ColType>(sqlite3_column_type(ref_->stmt(), col));
 }
@@ -207,7 +236,7 @@ int Statement::ColumnInt(int col) const {
   return sqlite3_column_int(ref_->stmt(), col);
 }
 
-int64 Statement::ColumnInt64(int col) const {
+int64_t Statement::ColumnInt64(int col) const {
   if (!CheckValid())
     return 0;
 

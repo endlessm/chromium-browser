@@ -6,6 +6,8 @@
 #define CHROME_TEST_BASE_TESTING_PROFILE_H_
 
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/ref_counted.h"
@@ -17,10 +19,7 @@
 namespace content {
 class MockResourceContext;
 class SSLHostStateDelegate;
-}
-
-namespace history {
-class TopSites;
+class ZoomLevelDelegate;
 }
 
 namespace net {
@@ -177,18 +176,6 @@ class TestingProfile : public Profile {
   // Shuts down and nulls out the reference to HistoryService.
   void DestroyHistoryService();
 
-  // Creates TopSites. This returns immediately, and top sites may not be
-  // loaded. Use BlockUntilTopSitesLoaded to ensure TopSites has finished
-  // loading.
-  void CreateTopSites();
-
-  // Allows to set a test implementation |top_sites|. Testing profile owns
-  // the reference and is responsible for releasing memory.
-  void SetTopSites(history::TopSites* top_sites);
-
-  // Shuts down and nulls out the reference to TopSites.
-  void DestroyTopSites();
-
   // Creates the BookmarkBarModel. If not invoked the bookmark bar model is
   // NULL. If |delete_file| is true, the bookmarks file is deleted first, then
   // the model is created. As TestingProfile deletes the directory containing
@@ -206,9 +193,6 @@ class TestingProfile : public Profile {
   // This is NOT invoked from CreateHistoryService.
   void BlockUntilHistoryIndexIsRefreshed();
 
-  // Blocks until TopSites finishes loading.
-  void BlockUntilTopSitesLoaded();
-
   // Allow setting a profile as Guest after-the-fact to simplify some tests.
   void SetGuestSession(bool guest);
 
@@ -219,8 +203,12 @@ class TestingProfile : public Profile {
   // to provide an OffTheRecordProfileImpl instance.
   void SetOffTheRecordProfile(scoped_ptr<Profile> profile);
 
+  void SetSupervisedUserId(const std::string& id);
+
   // content::BrowserContext
   base::FilePath GetPath() const override;
+  scoped_ptr<content::ZoomLevelDelegate> CreateZoomLevelDelegate(
+      const base::FilePath& partition_path) override;
   scoped_refptr<base::SequencedTaskRunner> GetIOTaskRunner() override;
   bool IsOffTheRecord() const override;
   content::DownloadManagerDelegate* GetDownloadManagerDelegate() override;
@@ -235,11 +223,12 @@ class TestingProfile : public Profile {
   storage::SpecialStoragePolicy* GetSpecialStoragePolicy() override;
   content::PushMessagingService* GetPushMessagingService() override;
   content::SSLHostStateDelegate* GetSSLHostStateDelegate() override;
+  content::PermissionManager* GetPermissionManager() override;
 
   TestingProfile* AsTestingProfile() override;
 
   // Profile
-  std::string GetProfileName() override;
+  std::string GetProfileUserName() const override;
   ProfileType GetProfileType() const override;
 
   // DEPRECATED, because it's fragile to change a profile from non-incognito
@@ -264,6 +253,8 @@ class TestingProfile : public Profile {
   bool HasOffTheRecordProfile() override;
   Profile* GetOriginalProfile() override;
   bool IsSupervised() override;
+  bool IsChild() override;
+  bool IsLegacySupervised() override;
 #if defined(ENABLE_EXTENSIONS)
   void SetExtensionSpecialStoragePolicy(
       ExtensionSpecialStoragePolicy* extension_special_storage_policy);
@@ -275,9 +266,8 @@ class TestingProfile : public Profile {
   net::CookieMonster* GetCookieMonster();
 
   PrefService* GetPrefs() override;
-
-  history::TopSites* GetTopSites() override;
-  history::TopSites* GetTopSitesWithoutCreating() override;
+  const PrefService* GetPrefs() const override;
+  chrome::ChromeZoomLevelPrefs* GetZoomLevelPrefs() override;
 
   net::URLRequestContextGetter* GetMediaRequestContext() override;
   net::URLRequestContextGetter* GetMediaRequestContextForRenderProcess(
@@ -305,13 +295,9 @@ class TestingProfile : public Profile {
   void SetExitType(ExitType exit_type) override {}
   ExitType GetLastSessionExitType() override;
 #if defined(OS_CHROMEOS)
-  virtual void ChangeAppLocale(const std::string&,
-                               AppLocaleChangedVia) override {
-  }
-  virtual void OnLogin() override {
-  }
-  virtual void InitChromeOSPreferences() override {
-  }
+  void ChangeAppLocale(const std::string&, AppLocaleChangedVia) override {}
+  void OnLogin() override {}
+  void InitChromeOSPreferences() override {}
 #endif  // defined(OS_CHROMEOS)
 
   PrefProxyConfigTracker* GetProxyConfigTracker() override;
@@ -378,7 +364,6 @@ class TestingProfile : public Profile {
   scoped_refptr<HostContentSettingsMap> host_content_settings_map_;
 
   base::FilePath last_selected_directory_;
-  scoped_refptr<history::TopSites> top_sites_;  // For history and thumbnails.
 
 #if defined(ENABLE_EXTENSIONS)
   scoped_refptr<ExtensionSpecialStoragePolicy>
@@ -395,6 +380,8 @@ class TestingProfile : public Profile {
   // The path to this profile. This will be valid in either of the two above
   // cases.
   base::FilePath profile_path_;
+
+  base::FilePath extensions_path_;
 
   // We keep a weak pointer to the dependency manager we want to notify on our
   // death. Defaults to the Singleton implementation but overridable for

@@ -5,7 +5,9 @@
 #include "chrome/browser/ui/sync/one_click_signin_sync_observer.h"
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/signin_promo.h"
 #include "chrome/browser/sync/profile_sync_service.h"
@@ -42,10 +44,9 @@ OneClickSigninSyncObserver::OneClickSigninSyncObserver(
     // important to pass a weak pointer rather than base::Unretained(this)
     // because it's possible for e.g. WebContentsDestroyed() to be called
     // before this task has a chance to run.
-    base::MessageLoop::current()->PostTask(
-        FROM_HERE,
-        base::Bind(&OneClickSigninSyncObserver::DeleteObserver,
-                   weak_ptr_factory_.GetWeakPtr()));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(&OneClickSigninSyncObserver::DeleteObserver,
+                              weak_ptr_factory_.GetWeakPtr()));
   }
 }
 
@@ -69,18 +70,17 @@ void OneClickSigninSyncObserver::OnStateChanged() {
   if (signin::IsAutoCloseEnabledInURL(continue_url_)) {
     // Close the Gaia sign-in tab via a task to make sure we aren't in the
     // middle of any WebUI handler code.
-    base::MessageLoop::current()->PostTask(
-        FROM_HERE,
-        base::Bind(&CloseTab, base::Unretained(web_contents())));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(&CloseTab, base::Unretained(web_contents())));
   } else {
     if (sync_service->FirstSetupInProgress()) {
       // Sync setup has not completed yet. Wait for it to complete.
       return;
     }
 
-    if (sync_service->SyncActive() &&
+    if (sync_service->IsSyncActive() &&
         signin::GetSourceForPromoURL(continue_url_)
-            != signin::SOURCE_SETTINGS) {
+            != signin_metrics::SOURCE_SETTINGS) {
       // TODO(isherman): Having multiple settings pages open can cause issues
       // redirecting after Sync is set up: http://crbug.com/355885
       LoadContinueUrl();

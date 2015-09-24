@@ -31,7 +31,7 @@
 #include "config.h"
 #include "core/inspector/InspectorMemoryAgent.h"
 
-#include "core/inspector/InspectorCounters.h"
+#include "core/inspector/InstanceCounters.h"
 #include "wtf/OwnPtr.h"
 
 namespace blink {
@@ -42,26 +42,14 @@ InspectorMemoryAgent::~InspectorMemoryAgent()
 
 void InspectorMemoryAgent::getDOMCounters(ErrorString*, int* documents, int* nodes, int* jsEventListeners)
 {
-    *documents = InspectorCounters::counterValue(InspectorCounters::DocumentCounter);
-    *nodes = InspectorCounters::counterValue(InspectorCounters::NodeCounter);
-    *jsEventListeners = InspectorCounters::counterValue(InspectorCounters::JSEventListenerCounter);
+    *documents = InstanceCounters::counterValue(InstanceCounters::DocumentCounter);
+    *nodes = InstanceCounters::counterValue(InstanceCounters::NodeCounter);
+    *jsEventListeners = InstanceCounters::counterValue(InstanceCounters::JSEventListenerCounter);
 }
 
 InspectorMemoryAgent::InspectorMemoryAgent()
-    : InspectorBaseAgent<InspectorMemoryAgent>("Memory")
-    , m_frontend(0)
+    : InspectorBaseAgent<InspectorMemoryAgent, InspectorFrontend::Memory>("Memory")
 {
-}
-
-void InspectorMemoryAgent::setFrontend(InspectorFrontend* frontend)
-{
-    ASSERT(!m_frontend);
-    m_frontend = frontend->memory();
-}
-
-void InspectorMemoryAgent::clearFrontend()
-{
-    m_frontend = 0;
 }
 
 } // namespace blink

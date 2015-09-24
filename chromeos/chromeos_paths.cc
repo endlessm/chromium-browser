@@ -21,19 +21,22 @@ const base::FilePath::CharType kDefaultAppOrderFileName[] =
 #endif  // defined(GOOGLE_CHROME_BUILD)
 
 const base::FilePath::CharType kDefaultUserPolicyKeysDir[] =
-    FILE_PATH_LITERAL("/var/run/user_policy");
+    FILE_PATH_LITERAL("/run/user_policy");
 
 const base::FilePath::CharType kOwnerKeyFileName[] =
     FILE_PATH_LITERAL("/var/lib/whitelist/owner.key");
 
 const base::FilePath::CharType kInstallAttributesFileName[] =
-    FILE_PATH_LITERAL("/var/run/lockbox/install_attributes.pb");
+    FILE_PATH_LITERAL("/run/lockbox/install_attributes.pb");
+
+const base::FilePath::CharType kMachineHardwareInfoFileName[] =
+    FILE_PATH_LITERAL("/tmp/machine-info");
 
 const base::FilePath::CharType kUptimeFileName[] =
     FILE_PATH_LITERAL("/proc/uptime");
 
 const base::FilePath::CharType kUpdateRebootNeededUptimeFile[] =
-    FILE_PATH_LITERAL("/var/run/chrome/update_reboot_needed_uptime");
+    FILE_PATH_LITERAL("/run/chrome/update_reboot_needed_uptime");
 
 const base::FilePath::CharType kDeviceLocalAccountExtensionDir[] =
     FILE_PATH_LITERAL("/var/cache/device_local_account_extensions");
@@ -43,6 +46,9 @@ const base::FilePath::CharType kDeviceLocalAccountExternalDataDir[] =
 
 const base::FilePath::CharType kDeviceLocalAccountComponentPolicy[] =
     FILE_PATH_LITERAL("/var/cache/device_local_account_component_policy");
+
+const base::FilePath::CharType kDeviceColorProfileDirectory[] =
+    FILE_PATH_LITERAL("/usr/share/color/icc");
 
 bool PathProvider(int key, base::FilePath* result) {
   switch (key) {
@@ -58,6 +64,9 @@ bool PathProvider(int key, base::FilePath* result) {
     case FILE_INSTALL_ATTRIBUTES:
       *result = base::FilePath(kInstallAttributesFileName);
       break;
+    case FILE_MACHINE_INFO:
+      *result = base::FilePath(kMachineHardwareInfoFileName);
+      break;
     case FILE_UPTIME:
       *result = base::FilePath(kUptimeFileName);
       break;
@@ -72,6 +81,9 @@ bool PathProvider(int key, base::FilePath* result) {
       break;
     case DIR_DEVICE_LOCAL_ACCOUNT_COMPONENT_POLICY:
       *result = base::FilePath(kDeviceLocalAccountComponentPolicy);
+      break;
+    case DIR_DEVICE_COLOR_CALIBRATION_PROFILES:
+      *result = base::FilePath(kDeviceColorProfileDirectory);
       break;
     default:
       return false;
@@ -103,6 +115,11 @@ void RegisterStubPathOverrides(const base::FilePath& stubs_dir) {
   PathService::OverrideAndCreateIfNeeded(
       FILE_INSTALL_ATTRIBUTES,
       parent.AppendASCII("stub_install_attributes.pb"),
+      is_absolute,
+      create);
+  PathService::OverrideAndCreateIfNeeded(
+      FILE_MACHINE_INFO,
+      parent.AppendASCII("stub_machine-info"),
       is_absolute,
       create);
   PathService::Override(

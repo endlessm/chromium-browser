@@ -2,7 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/message_loop/message_loop_proxy.h"
+#include <set>
+#include <vector>
+
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "cc/layers/solid_color_layer.h"
 #include "cc/layers/surface_layer.h"
 #include "cc/test/fake_impl_proxy.h"
@@ -11,7 +16,7 @@
 #include "cc/test/fake_layer_tree_host_impl.h"
 #include "cc/test/fake_output_surface.h"
 #include "cc/test/layer_tree_test.h"
-#include "cc/test/test_shared_bitmap_manager.h"
+#include "cc/test/test_task_graph_runner.h"
 #include "cc/trees/layer_tree_host.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -26,21 +31,23 @@ class SurfaceLayerTest : public testing::Test {
             FakeLayerTreeHostClient(FakeLayerTreeHostClient::DIRECT_3D)) {}
 
  protected:
-  virtual void SetUp() {
-    layer_tree_host_ = FakeLayerTreeHost::Create(&fake_client_);
+  void SetUp() override {
+    layer_tree_host_ =
+        FakeLayerTreeHost::Create(&fake_client_, &task_graph_runner_);
     layer_tree_host_->SetViewportSize(gfx::Size(10, 10));
   }
 
-  virtual void TearDown() {
+  void TearDown() override {
     if (layer_tree_host_) {
       layer_tree_host_->SetRootLayer(nullptr);
       layer_tree_host_ = nullptr;
     }
   }
 
-  scoped_ptr<FakeLayerTreeHost> layer_tree_host_;
   FakeLayerTreeHostClient fake_client_;
-  TestSharedBitmapManager shared_bitmap_manager_;
+  TestTaskGraphRunner task_graph_runner_;
+  scoped_ptr<FakeLayerTreeHost> layer_tree_host_;
+  LayerSettings layer_settings_;
 };
 
 void SatisfyCallback(SurfaceSequence* out, SurfaceSequence in) {
@@ -63,18 +70,18 @@ TEST_F(SurfaceLayerTest, MultipleFramesOneSurface) {
   SurfaceId required_id;
   std::set<SurfaceSequence> required_seq;
   scoped_refptr<SurfaceLayer> layer(SurfaceLayer::Create(
-      base::Bind(&SatisfyCallback, &blank_change),
+      layer_settings_, base::Bind(&SatisfyCallback, &blank_change),
       base::Bind(&RequireCallback, &required_id, &required_seq)));
-  layer->SetSurfaceId(SurfaceId(1), gfx::Size(1, 1));
+  layer->SetSurfaceId(SurfaceId(1), 1.f, gfx::Size(1, 1));
   layer_tree_host_->set_surface_id_namespace(1);
   layer_tree_host_->SetRootLayer(layer);
 
   scoped_ptr<FakeLayerTreeHost> layer_tree_host2 =
-      FakeLayerTreeHost::Create(&fake_client_);
+      FakeLayerTreeHost::Create(&fake_client_, &task_graph_runner_);
   scoped_refptr<SurfaceLayer> layer2(SurfaceLayer::Create(
-      base::Bind(&SatisfyCallback, &blank_change),
+      layer_settings_, base::Bind(&SatisfyCallback, &blank_change),
       base::Bind(&RequireCallback, &required_id, &required_seq)));
-  layer2->SetSurfaceId(SurfaceId(1), gfx::Size(1, 1));
+  layer2->SetSurfaceId(SurfaceId(1), 1.f, gfx::Size(1, 1));
   layer_tree_host2->set_surface_id_namespace(2);
   layer_tree_host2->SetRootLayer(layer2);
 
@@ -110,33 +117,6 @@ TEST_F(SurfaceLayerTest, MultipleFramesOneSurface) {
   EXPECT_EQ(2u, required_seq.size());
 }
 
-// Check that setting content scale on the surface works.
-TEST_F(SurfaceLayerTest, ScaleSurface) {
-  SurfaceSequence blank_change;
-  SurfaceId required_id;
-  std::set<SurfaceSequence> required_seq;
-  scoped_refptr<SurfaceLayer> layer(SurfaceLayer::Create(
-      base::Bind(&SatisfyCallback, &blank_change),
-      base::Bind(&RequireCallback, &required_id, &required_seq)));
-  gfx::Size surface_size(10, 15);
-  layer->SetSurfaceId(SurfaceId(1), surface_size);
-  layer->SetBounds(gfx::Size(25, 45));
-
-  float scale_x;
-  float scale_y;
-  gfx::Size bounds;
-  layer->CalculateContentsScale(2.f, &scale_x, &scale_y, &bounds);
-  EXPECT_EQ(10.f / 25.f, scale_x);
-  EXPECT_EQ(15.f / 45.f, scale_y);
-  EXPECT_EQ(surface_size.ToString(), bounds.ToString());
-
-  layer->SetBounds(gfx::Size(0, 0));
-  layer->CalculateContentsScale(2.f, &scale_x, &scale_y, &bounds);
-  EXPECT_EQ(1.f, scale_x);
-  EXPECT_EQ(1.f, scale_y);
-  EXPECT_EQ(surface_size.ToString(), bounds.ToString());
-}
-
 // Check that SurfaceSequence is sent through swap promise.
 class SurfaceLayerSwapPromise : public LayerTreeTest {
  public:
@@ -146,9 +126,9 @@ class SurfaceLayerSwapPromise : public LayerTreeTest {
   void BeginTest() override {
     layer_tree_host()->set_surface_id_namespace(1);
     layer_ = SurfaceLayer::Create(
-        base::Bind(&SatisfyCallback, &satisfied_sequence_),
+        layer_settings(), base::Bind(&SatisfyCallback, &satisfied_sequence_),
         base::Bind(&RequireCallback, &required_id_, &required_set_));
-    layer_->SetSurfaceId(SurfaceId(1), gfx::Size(1, 1));
+    layer_->SetSurfaceId(SurfaceId(1), 1.f, gfx::Size(1, 1));
 
     // Layer hasn't been added to tree so no SurfaceSequence generated yet.
     EXPECT_EQ(0u, required_set_.size());
@@ -166,8 +146,8 @@ class SurfaceLayerSwapPromise : public LayerTreeTest {
     PostSetNeedsCommitToMainThread();
   }
 
-  void DidCommit() override {
-    base::MessageLoopProxy::current()->PostTask(
+  void DidCommitAndDrawFrame() override {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(&SurfaceLayerSwapPromise::ChangeTree,
                               base::Unretained(this)));
   }
@@ -177,7 +157,7 @@ class SurfaceLayerSwapPromise : public LayerTreeTest {
     switch (commit_count_) {
       case 1:
         // Remove SurfaceLayer from tree to cause SwapPromise to be created.
-        blank_layer_ = SolidColorLayer::Create();
+        blank_layer_ = SolidColorLayer::Create(layer_settings());
         blank_layer_->SetIsDrawable(true);
         blank_layer_->SetBounds(gfx::Size(10, 10));
         layer_tree_host()->SetRootLayer(blank_layer_);

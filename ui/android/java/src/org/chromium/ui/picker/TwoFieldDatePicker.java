@@ -4,17 +4,22 @@
 
 package org.chromium.ui.picker;
 
+import android.annotation.TargetApi;
 import android.content.Context;
+import android.os.Build;
+import android.text.format.DateFormat;
 import android.text.format.DateUtils;
 import android.view.LayoutInflater;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.NumberPicker;
 import android.widget.NumberPicker.OnValueChangeListener;
 
 import org.chromium.ui.R;
 
 import java.util.Calendar;
+import java.util.Locale;
 import java.util.TimeZone;
 
 /**
@@ -107,6 +112,62 @@ public abstract class TwoFieldDatePicker extends FrameLayout {
         mYearSpinner = (NumberPicker) findViewById(R.id.year);
         mYearSpinner.setOnLongPressUpdateInterval(100);
         mYearSpinner.setOnValueChangedListener(onChangeListener);
+
+        reorderSpinners();
+    }
+
+    /**
+     * Reorder the date picker spinners to match the order suggested by the locale.
+     * Assumes that the order of month and year in the locale is also the right order
+     * for the spinner columns.
+     */
+    @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR2)
+    private void reorderSpinners() {
+        boolean posInserted = false;
+        boolean yearInserted = false;
+
+        LinearLayout pickers = (LinearLayout) findViewById(R.id.pickers);
+
+        pickers.removeView(mPositionInYearSpinner);
+        pickers.removeView(mYearSpinner);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
+            // logic duplicated from android.widget.DatePicker
+            String pattern = DateFormat.getBestDateTimePattern(Locale.getDefault(), "yyyyMMMdd");
+
+            for (int i = 0; i < pattern.length(); ++i) {
+                char ch = pattern.charAt(i);
+                if (ch == '\'') {
+                    i = pattern.indexOf('\'', i + 1);
+                    if (i == -1) {
+                        throw new IllegalArgumentException("Bad quoting in " + pattern);
+                    }
+                } else if ((ch == 'M' || ch == 'L') && !posInserted) {
+                    pickers.addView(mPositionInYearSpinner);
+                    posInserted = true;
+                } else if (ch == 'y' && !yearInserted) {
+                    pickers.addView(mYearSpinner);
+                    yearInserted = true;
+                }
+            }
+        } else {
+            // This method was used to order android.widget.DatePicker
+            // fields in JB prior to the availability of
+            // getBestDateTimePattern.
+            char[] order = DateFormat.getDateFormatOrder(getContext());
+            for (int i = 0; i < order.length; ++i) {
+                if (order[i] == 'M') {
+                    pickers.addView(mPositionInYearSpinner);
+                    posInserted = true;
+                } else if (order[i] == 'y') {
+                    pickers.addView(mYearSpinner);
+                    yearInserted = true;
+                }
+            }
+        }
+
+        if (!posInserted) pickers.addView(mPositionInYearSpinner);
+        if (!yearInserted) pickers.addView(mYearSpinner);
     }
 
     /**

@@ -6,9 +6,12 @@
 
 #include "base/callback.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/metrics/histogram.h"
 #include "base/strings/utf_string_conversions.h"
+#include "components/dom_distiller/content/distiller_javascript_utils.h"
 #include "components/dom_distiller/content/web_contents_main_frame_observer.h"
 #include "components/dom_distiller/core/distiller_page.h"
+#include "components/dom_distiller/core/dom_distiller_constants.h"
 #include "components/dom_distiller/core/dom_distiller_service.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/navigation_controller.h"
@@ -22,16 +25,15 @@
 namespace dom_distiller {
 
 SourcePageHandleWebContents::SourcePageHandleWebContents(
-    scoped_ptr<content::WebContents> web_contents)
-    : web_contents_(web_contents.Pass()) {
-  DCHECK(web_contents_);
+    content::WebContents* web_contents,
+    bool owned)
+    : web_contents_(web_contents), owned_(owned) {
 }
 
 SourcePageHandleWebContents::~SourcePageHandleWebContents() {
-}
-
-scoped_ptr<content::WebContents> SourcePageHandleWebContents::GetWebContents() {
-  return web_contents_.Pass();
+  if (owned_) {
+    delete web_contents_;
+  }
 }
 
 scoped_ptr<DistillerPage> DistillerPageWebContentsFactory::CreateDistillerPage(
@@ -57,18 +59,28 @@ DistillerPageWebContents::DistillerPageWebContents(
     content::BrowserContext* browser_context,
     const gfx::Size& render_view_size,
     scoped_ptr<SourcePageHandleWebContents> optional_web_contents_handle)
-    : state_(IDLE), browser_context_(browser_context),
-      render_view_size_(render_view_size) {
+    : state_(IDLE),
+      source_page_handle_(nullptr),
+      browser_context_(browser_context),
+      render_view_size_(render_view_size),
+      weak_factory_(this) {
   if (optional_web_contents_handle) {
-    web_contents_ = optional_web_contents_handle->GetWebContents().Pass();
+    source_page_handle_ = optional_web_contents_handle.Pass();
     if (render_view_size.IsEmpty())
-      render_view_size_ = web_contents_->GetContainerBounds().size();
+      render_view_size_ =
+          source_page_handle_->web_contents()->GetContainerBounds().size();
   }
 }
 
 DistillerPageWebContents::~DistillerPageWebContents() {
-  if (web_contents_)
-    web_contents_->SetDelegate(NULL);
+}
+
+bool DistillerPageWebContents::StringifyOutput() {
+ return false;
+}
+
+bool DistillerPageWebContents::CreateNewContext() {
+ return true;
 }
 
 void DistillerPageWebContents::DistillPageImpl(const GURL& url,
@@ -78,9 +90,11 @@ void DistillerPageWebContents::DistillPageImpl(const GURL& url,
   state_ = LOADING_PAGE;
   script_ = script;
 
-  if (web_contents_ && web_contents_->GetLastCommittedURL() == url) {
+  if (source_page_handle_ && source_page_handle_->web_contents() &&
+      source_page_handle_->web_contents()->GetLastCommittedURL() == url) {
     WebContentsMainFrameObserver* main_frame_observer =
-        WebContentsMainFrameObserver::FromWebContents(web_contents_.get());
+        WebContentsMainFrameObserver::FromWebContents(
+            source_page_handle_->web_contents());
     if (main_frame_observer && main_frame_observer->is_initialized()) {
       if (main_frame_observer->is_document_loaded_in_main_frame()) {
         // Main frame has already loaded for the current WebContents, so execute
@@ -90,7 +104,8 @@ void DistillerPageWebContents::DistillPageImpl(const GURL& url,
         // Main frame document has not loaded yet, so wait until it has before
         // executing JavaScript. It will trigger after DocumentLoadedInFrame is
         // called for the main frame.
-        content::WebContentsObserver::Observe(web_contents_.get());
+        content::WebContentsObserver::Observe(
+            source_page_handle_->web_contents());
       }
     } else {
       // The WebContentsMainFrameObserver has not been correctly initialized,
@@ -106,15 +121,19 @@ void DistillerPageWebContents::CreateNewWebContents(const GURL& url) {
   // Create new WebContents to use for distilling the content.
   content::WebContents::CreateParams create_params(browser_context_);
   create_params.initially_hidden = true;
-  web_contents_.reset(content::WebContents::Create(create_params));
-  DCHECK(web_contents_.get());
+  content::WebContents* web_contents =
+      content::WebContents::Create(create_params);
+  DCHECK(web_contents);
 
-  web_contents_->SetDelegate(this);
+  web_contents->SetDelegate(this);
 
   // Start observing WebContents and load the requested URL.
-  content::WebContentsObserver::Observe(web_contents_.get());
+  content::WebContentsObserver::Observe(web_contents);
   content::NavigationController::LoadURLParams params(url);
-  web_contents_->GetController().LoadURLWithParams(params);
+  web_contents->GetController().LoadURLWithParams(params);
+
+  source_page_handle_.reset(
+      new SourcePageHandleWebContents(web_contents, true));
 }
 
 gfx::Size DistillerPageWebContents::GetSizeForNewRenderView(
@@ -133,7 +152,8 @@ gfx::Size DistillerPageWebContents::GetSizeForNewRenderView(
 
 void DistillerPageWebContents::DocumentLoadedInFrame(
     content::RenderFrameHost* render_frame_host) {
-  if (render_frame_host == web_contents_->GetMainFrame()) {
+  if (render_frame_host ==
+      source_page_handle_->web_contents()->GetMainFrame()) {
     ExecuteJavaScript();
   }
 }
@@ -142,36 +162,50 @@ void DistillerPageWebContents::DidFailLoad(
     content::RenderFrameHost* render_frame_host,
     const GURL& validated_url,
     int error_code,
-    const base::string16& error_description) {
+    const base::string16& error_description,
+    bool was_ignored_by_handler) {
   if (!render_frame_host->GetParent()) {
     content::WebContentsObserver::Observe(NULL);
     DCHECK(state_ == LOADING_PAGE || state_ == EXECUTING_JAVASCRIPT);
     state_ = PAGELOAD_FAILED;
-    scoped_ptr<base::Value> empty(base::Value::CreateNullValue());
-    OnWebContentsDistillationDone(GURL(), empty.get());
+    scoped_ptr<base::Value> empty = base::Value::CreateNullValue();
+    OnWebContentsDistillationDone(GURL(), base::TimeTicks(), empty.get());
   }
 }
 
 void DistillerPageWebContents::ExecuteJavaScript() {
-  content::RenderFrameHost* frame = web_contents_->GetMainFrame();
+  content::RenderFrameHost* frame =
+      source_page_handle_->web_contents()->GetMainFrame();
   DCHECK(frame);
   DCHECK_EQ(LOADING_PAGE, state_);
   state_ = EXECUTING_JAVASCRIPT;
   content::WebContentsObserver::Observe(NULL);
-  web_contents_->Stop();
+  // Stop any pending navigation since the intent is to distill the current
+  // page.
+  source_page_handle_->web_contents()->Stop();
   DVLOG(1) << "Beginning distillation";
-  frame->ExecuteJavaScript(
-      base::UTF8ToUTF16(script_),
+  RunIsolatedJavaScript(
+      frame, script_,
       base::Bind(&DistillerPageWebContents::OnWebContentsDistillationDone,
-                 base::Unretained(this),
-                 web_contents_->GetLastCommittedURL()));
+                 weak_factory_.GetWeakPtr(),
+                 source_page_handle_->web_contents()->GetLastCommittedURL(),
+                 base::TimeTicks::Now()));
 }
 
 void DistillerPageWebContents::OnWebContentsDistillationDone(
     const GURL& page_url,
+    const base::TimeTicks& javascript_start,
     const base::Value* value) {
-  DCHECK(state_ == PAGELOAD_FAILED || state_ == EXECUTING_JAVASCRIPT);
+  DCHECK(state_ == IDLE || state_ == LOADING_PAGE ||  // TODO(nyquist): 493795.
+         state_ == PAGELOAD_FAILED || state_ == EXECUTING_JAVASCRIPT);
   state_ = IDLE;
+
+  if (!javascript_start.is_null()) {
+    base::TimeDelta javascript_time = base::TimeTicks::Now() - javascript_start;
+    UMA_HISTOGRAM_TIMES("DomDistiller.Time.RunJavaScript", javascript_time);
+    DVLOG(1) << "DomDistiller.Time.RunJavaScript = " << javascript_time;
+  }
+
   DistillerPage::OnDistillationDone(page_url, value);
 }
 

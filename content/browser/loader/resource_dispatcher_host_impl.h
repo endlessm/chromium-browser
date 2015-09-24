@@ -90,6 +90,7 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
       int child_id,
       int route_id,
       bool prefer_cache,
+      bool do_not_prompt_for_login,
       scoped_ptr<DownloadSaveInfo> save_info,
       uint32 download_id,
       const DownloadStartedCallback& started_callback) override;
@@ -106,9 +107,6 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
 
   // Notify the ResourceDispatcherHostImpl of a resource context destruction.
   void RemoveResourceContext(ResourceContext* context);
-
-  // Resumes a request that deferred at response start.
-  void ResumeResponseDeferredAtStart(const GlobalRequestID& id);
 
   // Force cancels any pending requests for the given |context|. This is
   // necessary to ensure that before |context| goes away, all requests
@@ -226,8 +224,8 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
   // Must be called after the ResourceRequestInfo has been created
   // and associated with the request.
   // |id| should be |content::DownloadItem::kInvalidId| to request automatic
-  // assignment.
-  scoped_ptr<ResourceHandler> CreateResourceHandlerForDownload(
+  // assignment. This is marked virtual so it can be overriden in testing.
+  virtual scoped_ptr<ResourceHandler> CreateResourceHandlerForDownload(
       net::URLRequest* request,
       bool is_content_initiated,
       bool must_download,
@@ -238,13 +236,12 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
   // Must be called after the ResourceRequestInfo has been created
   // and associated with the request.  If |payload| is set to a non-empty value,
   // the value will be sent to the old resource handler instead of canceling
-  // it, except on HTTP errors.
-  scoped_ptr<ResourceHandler> MaybeInterceptAsStream(
+  // it, except on HTTP errors. This is marked virtual so it can be overriden in
+  // testing.
+  virtual scoped_ptr<ResourceHandler> MaybeInterceptAsStream(
       net::URLRequest* request,
       ResourceResponse* response,
       std::string* payload);
-
-  void ClearSSLClientAuthHandlerForRequest(net::URLRequest* request);
 
   ResourceScheduler* scheduler() { return scheduler_.get(); }
 
@@ -262,10 +259,8 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
   // PlzNavigate: Begins a request for NavigationURLLoader. |loader| is the
   // loader to attach to the leaf resource handler.
   void BeginNavigationRequest(ResourceContext* resource_context,
-                              int64 frame_tree_node_id,
-                              const CommonNavigationParams& common_params,
+                              int frame_tree_node_id,
                               const NavigationRequestInfo& info,
-                              scoped_refptr<ResourceRequestBody> request_body,
                               NavigationURLLoaderImplCore* loader);
 
  private:
@@ -280,8 +275,6 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
   FRIEND_TEST_ALL_PREFIXES(ResourceDispatcherHostTest,
                            TestProcessCancelDetachableTimesOut);
 
-  class ShutdownTask;
-
   struct OustandingRequestsStats {
     int memory_cost;
     int num_requests;
@@ -289,6 +282,17 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
 
   friend class ShutdownTask;
   friend class ResourceMessageDelegate;
+
+  // Information about status of a ResourceLoader.
+  struct LoadInfo {
+    GURL url;
+    net::LoadStateWithParam load_state;
+    uint64 upload_position;
+    uint64 upload_size;
+  };
+
+  // Map from ProcessID+RouteID pair to the "most interesting" LoadState.
+  typedef std::map<GlobalRoutingID, LoadInfo> LoadInfoMap;
 
   // ResourceLoaderDelegate implementation:
   ResourceDispatcherHostLoginDelegate* CreateLoginDelegate(
@@ -365,9 +369,33 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
   // not rely on this iterator being valid on return.
   void RemovePendingLoader(const LoaderMap::iterator& iter);
 
-  // Checks all pending requests and updates the load states and upload
-  // progress if necessary.
-  void UpdateLoadStates();
+  // This function returns true if the LoadInfo of |a| is "more interesting"
+  // than the LoadInfo of |b|.  The load that is currently sending the larger
+  // request body is considered more interesting.  If neither request is
+  // sending a body (Neither request has a body, or any request that has a body
+  // is not currently sending the body), the request that is further along is
+  // considered more interesting.
+  //
+  // This takes advantage of the fact that the load states are an enumeration
+  // listed in the order in which they usually occur during the lifetime of a
+  // request, so states with larger numeric values are generally further along
+  // toward completion.
+  //
+  // For example, by this measure "tranferring data" is a more interesting state
+  // than "resolving host" because when transferring data something is being
+  // done that corresponds to changes that the user might observe, whereas
+  // waiting for a host name to resolve implies being stuck.
+  static bool LoadInfoIsMoreInteresting(const LoadInfo& a, const LoadInfo& b);
+
+  // Used to marshal calls to LoadStateChanged from the IO to UI threads.  All
+  // are done as a single callback to avoid spamming the UI thread.
+  static void UpdateLoadInfoOnUIThread(scoped_ptr<LoadInfoMap> info_map);
+
+  // Gets the most interesting LoadInfo for each GlobalRoutingID.
+  scoped_ptr<LoadInfoMap> GetLoadInfoForAllRoutes();
+
+  // Checks all pending requests and updates the load info if necessary.
+  void UpdateLoadInfo();
 
   // Resumes or cancels (if |cancel_requests| is true) any blocked requests.
   void ProcessBlockedRequestsForRoute(int child_id,
@@ -406,7 +434,7 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
       ResourceContext* resource_context);
 
   // Wraps |handler| in the standard resource handlers for normal resource
-  // loading and navigation requests. This adds BufferedResourceHandler and
+  // loading and navigation requests. This adds MimeTypeResourceHandler and
   // ResourceThrottles.
   scoped_ptr<ResourceHandler> AddStandardHandlers(
       net::URLRequest* request,
@@ -474,8 +502,8 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
       RegisteredTempFiles;  // key is child process id
   RegisteredTempFiles registered_temp_files_;
 
-  // A timer that periodically calls UpdateLoadStates while pending_requests_
-  // is not empty.
+  // A timer that periodically calls UpdateLoadInfo while pending_loaders_ is
+  // not empty and at least one RenderViewHost is loading.
   scoped_ptr<base::RepeatingTimer<ResourceDispatcherHostImpl> >
       update_load_states_timer_;
 
@@ -546,7 +574,7 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
   std::set<const ResourceContext*> active_resource_contexts_;
 
   typedef std::map<GlobalRequestID,
-                   ObserverList<ResourceMessageDelegate>*> DelegateMap;
+                   base::ObserverList<ResourceMessageDelegate>*> DelegateMap;
   DelegateMap delegate_map_;
 
   scoped_ptr<ResourceScheduler> scheduler_;

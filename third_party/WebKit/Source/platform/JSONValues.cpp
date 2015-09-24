@@ -88,6 +88,13 @@ void writeIndent(int depth, StringBuilder* output)
 
 } // anonymous namespace
 
+String JSONValue::quoteString(const String& input)
+{
+    StringBuilder builder;
+    doubleQuoteString(input, &builder);
+    return builder.toString();
+}
+
 bool JSONValue::asBoolean(bool*) const
 {
     return false;
@@ -121,12 +128,6 @@ bool JSONValue::asNumber(unsigned*) const
 bool JSONValue::asString(String*) const
 {
     return false;
-}
-
-bool JSONValue::asValue(RefPtr<JSONValue>* output)
-{
-    *output = this;
-    return true;
 }
 
 bool JSONValue::asObject(RefPtr<JSONObject>*)
@@ -265,7 +266,7 @@ JSONObjectBase::~JSONObjectBase()
 
 bool JSONObjectBase::asObject(RefPtr<JSONObject>* output)
 {
-    COMPILE_ASSERT(sizeof(JSONObject) == sizeof(JSONObjectBase), cannot_cast);
+    static_assert(sizeof(JSONObject) == sizeof(JSONObjectBase), "cannot cast");
     *output = static_cast<JSONObject*>(this);
     return true;
 }
@@ -313,7 +314,7 @@ void JSONObjectBase::setArray(const String& name, PassRefPtr<JSONArray> value)
 
 JSONObject* JSONObjectBase::openAccessors()
 {
-    COMPILE_ASSERT(sizeof(JSONObject) == sizeof(JSONObjectBase), cannot_cast);
+    static_assert(sizeof(JSONObject) == sizeof(JSONObjectBase), "cannot cast");
     return static_cast<JSONObject*>(this);
 }
 
@@ -424,21 +425,21 @@ JSONArrayBase::~JSONArrayBase()
 
 bool JSONArrayBase::asArray(RefPtr<JSONArray>* output)
 {
-    COMPILE_ASSERT(sizeof(JSONArrayBase) == sizeof(JSONArray), cannot_cast);
+    static_assert(sizeof(JSONArrayBase) == sizeof(JSONArray), "cannot cast");
     *output = static_cast<JSONArray*>(this);
     return true;
 }
 
 PassRefPtr<JSONArray> JSONArrayBase::asArray()
 {
-    COMPILE_ASSERT(sizeof(JSONArrayBase) == sizeof(JSONArray), cannot_cast);
+    static_assert(sizeof(JSONArrayBase) == sizeof(JSONArray), "cannot cast");
     return static_cast<JSONArray*>(this);
 }
 
 void JSONArrayBase::writeJSON(StringBuilder* output) const
 {
     output->append('[');
-    for (Vector<RefPtr<JSONValue> >::const_iterator it = m_data.begin(); it != m_data.end(); ++it) {
+    for (Vector<RefPtr<JSONValue>>::const_iterator it = m_data.begin(); it != m_data.end(); ++it) {
         if (it != m_data.begin())
             output->append(',');
         (*it)->writeJSON(output);
@@ -449,17 +450,17 @@ void JSONArrayBase::writeJSON(StringBuilder* output) const
 void JSONArrayBase::prettyWriteJSONInternal(StringBuilder* output, int depth) const
 {
     output->append('[');
-    bool lastIsArrayOrObject = false;
-    for (Vector<RefPtr<JSONValue> >::const_iterator it = m_data.begin(); it != m_data.end(); ++it) {
-        bool isArrayOrObject = (*it)->type() == JSONValue::TypeObject || (*it)->type() == JSONValue::TypeArray;
+    bool lastInsertedNewLine = false;
+    for (Vector<RefPtr<JSONValue>>::const_iterator it = m_data.begin(); it != m_data.end(); ++it) {
+        bool insertNewLine = (*it)->type() == JSONValue::TypeObject || (*it)->type() == JSONValue::TypeArray || (*it)->type() == JSONValue::TypeString;
         if (it == m_data.begin()) {
-            if (isArrayOrObject) {
+            if (insertNewLine) {
                 output->append('\n');
                 writeIndent(depth + 1, output);
             }
         } else {
             output->append(',');
-            if (lastIsArrayOrObject) {
+            if (lastInsertedNewLine) {
                 output->append('\n');
                 writeIndent(depth + 1, output);
             } else {
@@ -467,9 +468,9 @@ void JSONArrayBase::prettyWriteJSONInternal(StringBuilder* output, int depth) co
             }
         }
         (*it)->prettyWriteJSONInternal(output, depth + 1);
-        lastIsArrayOrObject = isArrayOrObject;
+        lastInsertedNewLine = insertNewLine;
     }
-    if (lastIsArrayOrObject) {
+    if (lastInsertedNewLine) {
         output->append('\n');
         writeIndent(depth, output);
     }

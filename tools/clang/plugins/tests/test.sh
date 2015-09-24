@@ -12,6 +12,8 @@ E_FAILEDTEST=1
 
 failed_any_test=
 
+THIS_DIR="$(dirname "${0}")"
+
 # Prints usage information.
 usage() {
   echo "Usage: $(basename "${0}")" \
@@ -29,11 +31,20 @@ do_testcase() {
     flags="$(cat "${3}")"
   fi
 
-  if [ "$(uname -s)" = "Darwin" ]; then
-    flags="${flags} -isysroot $(xcrun --show-sdk-path) -stdlib=libstdc++"
+  # TODO(thakis): Remove once the tests are standalone, http://crbug.com/486559
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    flags="${flags} -isysroot $(xcrun --show-sdk-path)"
+  fi
+  if [[ "$(uname -s)" == "Darwin" && "${flags}" != *-target* ]]; then
+    flags="${flags} -stdlib=libstdc++"
   fi
 
+  flags="${flags} -Xclang -plugin-arg-find-bad-constructs \
+      -Xclang with-ast-visitor"
+
   local output="$("${CLANG_PATH}" -fsyntax-only -Wno-c++11-extensions \
+      -Wno-inconsistent-missing-override \
+      -isystem ${THIS_DIR}/system \
       -Xclang -load -Xclang "${PLUGIN_PATH}" \
       -Xclang -add-plugin -Xclang find-bad-constructs ${flags} ${1} 2>&1)"
   local diffout="$(echo "${output}" | diff - "${2}")"
@@ -77,7 +88,7 @@ else
 
   # The golden files assume that the cwd is this directory. To make the script
   # work no matter what the cwd is, explicitly cd to there.
-  cd "$(dirname "${0}")"
+  cd "${THIS_DIR}"
 fi
 
 for input in *.cpp; do

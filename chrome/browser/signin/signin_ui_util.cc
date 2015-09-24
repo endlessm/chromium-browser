@@ -9,7 +9,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/account_tracker_service_factory.h"
-#include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
+#include "chrome/browser/signin/signin_error_controller_factory.h"
 #include "chrome/browser/signin/signin_global_error.h"
 #include "chrome/browser/signin/signin_global_error_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
@@ -22,7 +22,6 @@
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/signin/core/browser/account_tracker_service.h"
-#include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -59,7 +58,7 @@ std::vector<GlobalError*> GetSignedInServiceErrors(Profile* profile) {
   // No auth error - now try other services. Currently the list is just hard-
   // coded but in the future if we add more we can create some kind of
   // registration framework.
-  if (profile->IsSyncAccessible()) {
+  if (profile->IsSyncAllowed()) {
     SyncGlobalError* error = SyncGlobalErrorFactory::GetForProfile(profile);
     if (error && error->HasMenuItem())
       errors.push_back(error);
@@ -75,7 +74,7 @@ base::string16 GetSigninMenuLabel(Profile* profile) {
     return error->MenuItemLabel();
 
   // No errors, so just display the signed in user, if any.
-  ProfileSyncService* service = profile->IsSyncAccessible() ?
+  ProfileSyncService* service = profile->IsSyncAllowed() ?
       ProfileSyncServiceFactory::GetForProfile(profile) : NULL;
 
   // Even if the user is signed in, don't display the "signed in as..."
@@ -107,8 +106,8 @@ void GetStatusLabelsForAuthError(Profile* profile,
     link_label->assign(l10n_util::GetStringUTF16(IDS_SYNC_RELOGIN_LINK_LABEL));
 
   const GoogleServiceAuthError::State state =
-      ProfileOAuth2TokenServiceFactory::GetForProfile(profile)->
-          signin_error_controller()->auth_error().state();
+      SigninErrorControllerFactory::GetForProfile(profile)->
+          auth_error().state();
   switch (state) {
     case GoogleServiceAuthError::INVALID_GAIA_CREDENTIALS:
     case GoogleServiceAuthError::SERVICE_ERROR:
@@ -158,10 +157,15 @@ void GetStatusLabelsForAuthError(Profile* profile,
 }
 
 void InitializePrefsForProfile(Profile* profile) {
-  // Suppresses the upgrade tutorial for a new profile.
   if (profile->IsNewProfile() && switches::IsNewAvatarMenu()) {
+    // Suppresses the upgrade tutorial for a new profile.
     profile->GetPrefs()->SetInteger(
         prefs::kProfileAvatarTutorialShown, kUpgradeWelcomeTutorialShowMax + 1);
+
+#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS) && !defined(OS_IOS)
+    profile->GetPrefs()->SetInteger(
+        prefs::kAccountIdMigrationState, AccountTrackerService::MIGRATION_DONE);
+#endif
   }
 }
 

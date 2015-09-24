@@ -4,19 +4,31 @@
 
 #include "chrome/browser/ui/views/tabs/tab_renderer_data.h"
 
+#include "base/process/kill.h"
+
 TabRendererData::TabRendererData()
     : network_state(NETWORK_STATE_NONE),
       loading(false),
       crashed_status(base::TERMINATION_STATUS_STILL_RUNNING),
       incognito(false),
       show_icon(true),
-      mini(false),
+      pinned(false),
       blocked(false),
       app(false),
       media_state(TAB_MEDIA_STATE_NONE) {
 }
 
 TabRendererData::~TabRendererData() {}
+
+bool TabRendererData::IsCrashed() const {
+  return (crashed_status == base::TERMINATION_STATUS_PROCESS_WAS_KILLED ||
+#if defined(OS_CHROMEOS)
+          crashed_status ==
+          base::TERMINATION_STATUS_PROCESS_WAS_KILLED_BY_OOM ||
+#endif
+          crashed_status == base::TERMINATION_STATUS_PROCESS_CRASHED ||
+          crashed_status == base::TERMINATION_STATUS_ABNORMAL_TERMINATION);
+}
 
 bool TabRendererData::Equals(const TabRendererData& data) {
   return
@@ -28,7 +40,7 @@ bool TabRendererData::Equals(const TabRendererData& data) {
       crashed_status == data.crashed_status &&
       incognito == data.incognito &&
       show_icon == data.show_icon &&
-      mini == data.mini &&
+      pinned == data.pinned &&
       blocked == data.blocked &&
       app == data.app &&
       media_state == data.media_state;

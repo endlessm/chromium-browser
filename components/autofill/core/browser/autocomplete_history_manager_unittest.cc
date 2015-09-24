@@ -5,12 +5,12 @@
 #include <vector>
 
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/thread_task_runner_handle.h"
 #include "components/autofill/core/browser/autocomplete_history_manager.h"
 #include "components/autofill/core/browser/autofill_external_delegate.h"
 #include "components/autofill/core/browser/autofill_manager.h"
@@ -19,10 +19,10 @@
 #include "components/autofill/core/browser/test_autofill_driver.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
 #include "components/autofill/core/common/form_data.h"
-#include "components/webdata/common/web_data_service_test_util.h"
+#include "components/webdata_services/web_data_service_test_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
 using base::ASCIIToUTF16;
 using testing::_;
@@ -34,8 +34,8 @@ namespace {
 class MockWebDataService : public AutofillWebDataService {
  public:
   MockWebDataService()
-      : AutofillWebDataService(base::MessageLoopProxy::current(),
-                               base::MessageLoopProxy::current()) {}
+      : AutofillWebDataService(base::ThreadTaskRunnerHandle::Get(),
+                               base::ThreadTaskRunnerHandle::Get()) {}
 
   MOCK_METHOD1(AddFormFields, void(const std::vector<FormFieldData>&));
 
@@ -166,7 +166,9 @@ TEST_F(AutocompleteHistoryManagerTest, SearchField) {
 }
 
 // Tests that text entered into fields specifying autocomplete="off" is not sent
-// to the WebDatabase to be saved.
+// to the WebDatabase to be saved. Note this is also important as the mechanism
+// for preventing CVCs from being saved.
+// See AutofillManagerTest.DontSaveCvcInAutocompleteHistory
 TEST_F(AutocompleteHistoryManagerTest, FieldWithAutocompleteOff) {
   FormData form;
   form.name = ASCIIToUTF16("MyForm");
@@ -196,12 +198,9 @@ class MockAutofillExternalDelegate : public AutofillExternalDelegate {
       : AutofillExternalDelegate(autofill_manager, autofill_driver) {}
   virtual ~MockAutofillExternalDelegate() {}
 
-  MOCK_METHOD5(OnSuggestionsReturned,
+  MOCK_METHOD2(OnSuggestionsReturned,
                void(int query_id,
-                    const std::vector<base::string16>& autofill_values,
-                    const std::vector<base::string16>& autofill_labels,
-                    const std::vector<base::string16>& autofill_icons,
-                    const std::vector<int>& autofill_unique_ids));
+                    const std::vector<Suggestion>& suggestions));
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockAutofillExternalDelegate);
@@ -214,6 +213,11 @@ class TestAutocompleteHistoryManager : public AutocompleteHistoryManager {
 
   using AutocompleteHistoryManager::SendSuggestions;
 };
+
+// Predicate for GMock.
+bool IsEmptySuggestionVector(const std::vector<Suggestion>& suggestions) {
+  return suggestions.empty();
+}
 
 }  // namespace
 
@@ -233,7 +237,7 @@ TEST_F(AutocompleteHistoryManagerTest, ExternalDelegate) {
   autocomplete_history_manager.SetExternalDelegate(&external_delegate);
 
   // Should trigger a call to OnSuggestionsReturned, verified by the mock.
-  EXPECT_CALL(external_delegate, OnSuggestionsReturned(_, _, _, _, _));
+  EXPECT_CALL(external_delegate, OnSuggestionsReturned(_, _));
   autocomplete_history_manager.SendSuggestions(NULL);
 }
 
@@ -263,19 +267,13 @@ TEST_F(AutocompleteHistoryManagerTest, NoAutocompleteSuggestionsForTextarea) {
 
   EXPECT_CALL(external_delegate,
               OnSuggestionsReturned(0,
-                                    std::vector<base::string16>(),
-                                    std::vector<base::string16>(),
-                                    std::vector<base::string16>(),
-                                    std::vector<int>()));
+                                    testing::Truly(IsEmptySuggestionVector)));
   autocomplete_history_manager.OnGetAutocompleteSuggestions(
       0,
       field.name,
       field.value,
       field.form_control_type,
-      std::vector<base::string16>(),
-      std::vector<base::string16>(),
-      std::vector<base::string16>(),
-      std::vector<int>());
+      std::vector<Suggestion>());
 }
 
 }  // namespace autofill

@@ -11,7 +11,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "device/bluetooth/bluetooth_device.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 
 using content::WebContents;
 using content::WebUIMessageHandler;
@@ -32,7 +32,8 @@ const int kDefaultHeight = 280;
 BluetoothPairingDialog::BluetoothPairingDialog(
     gfx::NativeWindow parent_window,
     const device::BluetoothDevice* device)
-    : parent_window_(parent_window) {
+    : parent_window_(parent_window),
+      webui_(nullptr) {
   device_data_.SetString("address", device->GetAddress());
   device_data_.SetString("name", device->GetName());
   device_data_.SetBoolean("paired", device->IsPaired());
@@ -76,8 +77,14 @@ void BluetoothPairingDialog::GetDialogSize(gfx::Size* size) const {
 
 std::string BluetoothPairingDialog::GetDialogArgs() const {
   std::string data;
-  base::JSONWriter::Write(&device_data_, &data);
+  base::JSONWriter::Write(device_data_, &data);
   return data;
+}
+
+void BluetoothPairingDialog::OnDialogShown(
+    content::WebUI* webui,
+    content::RenderViewHost* render_view_host) {
+  webui_ = webui;
 }
 
 void BluetoothPairingDialog::OnDialogClosed(const std::string& json_retval) {
@@ -86,8 +93,7 @@ void BluetoothPairingDialog::OnDialogClosed(const std::string& json_retval) {
 
 void BluetoothPairingDialog::OnCloseContents(WebContents* source,
                                              bool* out_close_dialog) {
-  if (out_close_dialog)
-    *out_close_dialog = true;
+  *out_close_dialog = true;
 }
 
 bool BluetoothPairingDialog::ShouldShowDialogTitle() const {

@@ -22,15 +22,6 @@
 #include "extensions/common/constants.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-#if defined(OS_ANDROID)
-#include "base/android/jni_android.h"
-#include "chrome/browser/android/chrome_jni_registrar.h"
-#include "net/android/net_jni_registrar.h"
-#include "ui/base/android/ui_base_jni_registrar.h"
-#include "ui/gfx/android/gfx_jni_registrar.h"
-#include "ui/gl/android/gl_jni_registrar.h"
-#endif
-
 #if defined(OS_CHROMEOS)
 #include "base/process/process_metrics.h"
 #include "chromeos/chromeos_paths.h"
@@ -40,7 +31,6 @@
 #include "base/mac/bundle_locations.h"
 #include "base/mac/scoped_nsautorelease_pool.h"
 #if !defined(OS_IOS)
-#include "base/mac/mac_util.h"
 #include "chrome/browser/chrome_browser_application_mac.h"
 #endif  // !defined(OS_IOS)
 #endif
@@ -82,15 +72,6 @@ void ChromeTestSuite::Initialize() {
 #endif  // !defined(OS_IOS)
 #endif
 
-#if defined(OS_ANDROID)
-  // Register JNI bindings for android.
-  gfx::android::RegisterJni(base::android::AttachCurrentThread());
-  net::android::RegisterJni(base::android::AttachCurrentThread());
-  ui::android::RegisterJni(base::android::AttachCurrentThread());
-  ui::gl::android::RegisterJni(base::android::AttachCurrentThread());
-  chrome::android::RegisterJni(base::android::AttachCurrentThread());
-#endif
-
   if (!browser_dir_.empty()) {
     PathService::Override(base::DIR_EXE, browser_dir_);
     PathService::Override(base::DIR_MODULE, browser_dir_);
@@ -101,7 +82,7 @@ void ChromeTestSuite::Initialize() {
   // ChromeOS.  That means we are autotest and, if ASAN is used,
   // external libraries load crashes.
   if (!IsCrosPythonProcess())
-    media::InitializeMediaLibraryForTesting();
+    media::InitializeMediaLibrary();
 #endif
 
   // Initialize after overriding paths as some content paths depend on correct

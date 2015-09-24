@@ -12,9 +12,9 @@
 #include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/time/time.h"
-#include "chrome/browser/sync/profile_sync_service_observer.h"
-#include "components/invalidation/invalidation_util.h"
+#include "components/invalidation/public/invalidation_util.h"
 #include "components/sync_driver/sync_prefs.h"
+#include "components/sync_driver/sync_service_observer.h"
 #include "google/cacheinvalidation/include/types.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 
@@ -26,7 +26,7 @@ class ProfileSyncService;
 // a single instance of this wrapper. The name of the Java class is
 // ProfileSyncService.
 // This class should only be accessed from the UI thread.
-class ProfileSyncServiceAndroid : public ProfileSyncServiceObserver {
+class ProfileSyncServiceAndroid : public sync_driver::SyncServiceObserver {
  public:
 
   ProfileSyncServiceAndroid(JNIEnv* env, jobject obj);
@@ -35,13 +35,10 @@ class ProfileSyncServiceAndroid : public ProfileSyncServiceObserver {
   void Init();
 
   // Called from Java when the user manually enables sync
-  void EnableSync(JNIEnv* env, jobject obj);
+  void RequestStart(JNIEnv* env, jobject obj);
 
   // Called from Java when the user manually disables sync
-  void DisableSync(JNIEnv* env, jobject obj);
-
-  // Called from Java when the user signs in to Chrome. Starts up sync.
-  void SignInSync(JNIEnv* env, jobject obj);
+  void RequestStop(JNIEnv* env, jobject obj);
 
   // Called from Java when the user signs out of Chrome
   void SignOutSync(JNIEnv* env, jobject obj);
@@ -52,6 +49,10 @@ class ProfileSyncServiceAndroid : public ProfileSyncServiceObserver {
   // Returns a string version of browser_sync::SyncBackendHost::StatusSummary
   base::android::ScopedJavaLocalRef<jstring> QuerySyncStatusSummary(
       JNIEnv* env, jobject obj);
+
+  // Retrieves all Sync data as JSON. This method is asynchronous; all data is
+  // passed to |callback| upon completion.
+  void GetAllNodes(JNIEnv* env, jobject obj, jobject callback);
 
   // Called from Java early during startup to ensure we use the correct
   // unique machine tag in session sync. Returns true if the machine tag was
@@ -137,11 +138,17 @@ class ProfileSyncServiceAndroid : public ProfileSyncServiceObserver {
   // Returns true if sync has been migrated.
   jboolean IsSyncKeystoreMigrationDone(JNIEnv* env, jobject obj);
 
-  // Get the set of enabled data types. These are the types currently both
-  // registered and preferred. Note that control types are always included here.
+  // Get the set of active data types. These are the types currently being
+  // synced. Note that control types are always included here.
   // Returns a bit map of the values from
   // profile_sync_service_model_type_selection_android.h.
-  jlong GetEnabledDataTypes(JNIEnv* env, jobject obj);
+  jlong GetActiveDataTypes(JNIEnv* env, jobject obj);
+
+  // Get the set of preferred data types. These are the types that the user
+  // has requested be synced.
+  // Returns a bit map of the values from
+  // profile_sync_service_model_type_selection_android.h.
+  jlong GetPreferredDataTypes(JNIEnv* env, jobject obj);
 
   // Enables the passed data types.
   // If |sync_everything| is true, then all data types are enabled and the
@@ -164,8 +171,11 @@ class ProfileSyncServiceAndroid : public ProfileSyncServiceObserver {
   // Returns true if sync setup has been completed.
   jboolean HasSyncSetupCompleted(JNIEnv* env, jobject obj);
 
-  // Returns true if sync startup is currently suppressed.
-  jboolean IsStartSuppressed(JNIEnv* env, jobject obj);
+  // See ProfileSyncService::IsSyncRequested().
+  jboolean IsSyncRequested(JNIEnv* env, jobject obj);
+
+  // See ProfileSyncService::IsSyncActive().
+  jboolean IsSyncActive(JNIEnv* env, jobject obj);
 
   // Returns true if sync is configured to "sync everything".
   jboolean HasKeepEverythingSynced(JNIEnv* env, jobject obj);
@@ -186,8 +196,12 @@ class ProfileSyncServiceAndroid : public ProfileSyncServiceObserver {
   // (GoogleServiceAuthError.State).
   jint GetAuthError(JNIEnv* env, jobject obj);
 
-  // ProfileSyncServiceObserver:
-  virtual void OnStateChanged() override;
+  // sync_driver::SyncServiceObserver:
+  void OnStateChanged() override;
+
+  // Getter/setter for out of band (system notification) passphrase prompt.
+  jboolean IsPassphrasePrompted(JNIEnv* env, jobject obj);
+  void SetPassphrasePrompted(JNIEnv* env, jobject obj, jboolean prompted);
 
   // Returns a timestamp for when a sync was last executed. The return value is
   // the internal value of base::Time.
@@ -217,7 +231,7 @@ class ProfileSyncServiceAndroid : public ProfileSyncServiceObserver {
                    int64,
                    syncer::ObjectIdLessThan> ObjectIdVersionMap;
 
-  virtual ~ProfileSyncServiceAndroid();
+  ~ProfileSyncServiceAndroid() override;
   // Remove observers to profile sync service.
   void RemoveObserver();
 

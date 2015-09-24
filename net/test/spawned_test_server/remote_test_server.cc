@@ -95,13 +95,15 @@ bool RemoteTestServer::Start() {
   if (!GenerateArguments(&arguments_dict))
     return false;
 
+  arguments_dict.Set("on-remote-server", base::Value::CreateNullValue());
+
   // Append the 'server-type' argument which is used by spawner server to
   // pass right server type to Python test server.
   arguments_dict.SetString("server-type", GetServerTypeString(type()));
 
   // Generate JSON-formatted argument string.
   std::string arguments_string;
-  base::JSONWriter::Write(&arguments_dict, &arguments_string);
+  base::JSONWriter::Write(arguments_dict, &arguments_string);
   if (arguments_string.empty())
     return false;
 
@@ -121,7 +123,7 @@ bool RemoteTestServer::Start() {
   // the remote server.
   server_data_dict.SetInteger("port", test_server_port);
   std::string server_data;
-  base::JSONWriter::Write(&server_data_dict, &server_data);
+  base::JSONWriter::Write(server_data_dict, &server_data);
   if (server_data.empty() || !ParseServerData(server_data)) {
     LOG(ERROR) << "Could not parse server_data: " << server_data;
     return false;
@@ -174,8 +176,8 @@ bool RemoteTestServer::Init(const base::FilePath& document_root) {
     return false;
   }
 
-  std::vector<std::string> ports;
-  base::SplitString(port_info, ':', &ports);
+  std::vector<std::string> ports = base::SplitString(
+      port_info, ":", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   if (ports.size() != 2u)
     return false;
 

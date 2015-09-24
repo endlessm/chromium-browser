@@ -5,8 +5,7 @@
 #include "components/metrics/metrics_reporting_scheduler.h"
 
 #include "base/compiler_specific.h"
-#include "base/metrics/field_trial.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "components/variations/variations_associated_data.h"
 
@@ -33,13 +32,6 @@ const int kInitialUploadIntervalSeconds = 60;
 const int kUnsentLogsIntervalSeconds = 3;
 #else
 const int kUnsentLogsIntervalSeconds = 15;
-#endif
-
-// Standard interval between log uploads, in seconds.
-#if defined(OS_ANDROID) || defined(OS_IOS)
-const int kStandardUploadIntervalSeconds = 5 * 60;  // Five minutes.
-#else
-const int kStandardUploadIntervalSeconds = 30 * 60;  // Thirty minutes.
 #endif
 
 // When uploading metrics to the server fails, we progressively wait longer and
@@ -70,35 +62,23 @@ void LogActualUploadInterval(TimeDelta interval) {
                              50);
 }
 
-// Returns upload interval specified for the current experiment running.
-// TODO(gayane): Only for experimenting with upload interval for Android
-// (bug: 17391128). Should be removed once the experiments are done.
-base::TimeDelta GetUploadIntervalFromExperiment() {
-  std::string interval_str = variations::GetVariationParamValue(
-      "UMALogUploadInterval", "interval");
-  int interval;
-  if (interval_str.empty() || !base::StringToInt(interval_str, &interval))
-    return TimeDelta::FromSeconds(kStandardUploadIntervalSeconds);
-
-  return TimeDelta::FromMinutes(interval);
-}
-
 }  // anonymous namespace
 
 MetricsReportingScheduler::MetricsReportingScheduler(
-    const base::Closure& upload_callback)
+    const base::Closure& upload_callback,
+    const base::Callback<base::TimeDelta(void)>& upload_interval_callback)
     : upload_callback_(upload_callback),
       upload_interval_(TimeDelta::FromSeconds(kInitialUploadIntervalSeconds)),
       running_(false),
       callback_pending_(false),
       init_task_complete_(false),
-      waiting_for_init_task_complete_(false) {
+      waiting_for_init_task_complete_(false),
+      upload_interval_callback_(upload_interval_callback) {
 }
 
 MetricsReportingScheduler::~MetricsReportingScheduler() {}
 
 void MetricsReportingScheduler::Start() {
-  GetUploadIntervalFromExperiment();
   running_ = true;
   ScheduleNextUpload();
 }
@@ -193,11 +173,7 @@ void MetricsReportingScheduler::BackOffUploadInterval() {
 }
 
 base::TimeDelta MetricsReportingScheduler::GetStandardUploadInterval() {
-#if defined(OS_ANDROID)
-  return GetUploadIntervalFromExperiment();
-#else
-  return TimeDelta::FromSeconds(kStandardUploadIntervalSeconds);
-#endif
+  return upload_interval_callback_.Run();
 }
 
 }  // namespace metrics

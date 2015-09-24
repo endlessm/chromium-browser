@@ -14,7 +14,6 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/web_resource/notification_promo.h"
 #include "chrome/browser/web_resource/promo_resource_service.h"
@@ -22,8 +21,6 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/scoped_testing_local_state.h"
 #include "chrome/test/base/testing_browser_process.h"
-#include "content/public/browser/notification_registrar.h"
-#include "content/public/browser/notification_service.h"
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/icu/source/i18n/unicode/smpdtfmt.h"
@@ -65,7 +62,7 @@ class PromoResourceServiceTest : public testing::Test {
 
  protected:
   ScopedTestingLocalState local_state_;
-  scoped_refptr<PromoResourceService> promo_resource_service_;
+  scoped_ptr<PromoResourceService> promo_resource_service_;
   base::MessageLoop loop_;
 };
 
@@ -97,7 +94,7 @@ class NotificationPromoTest {
 
     std::string json_with_end_date(
         ReplaceStringPlaceholders(json, replacements, NULL));
-    base::Value* value(base::JSONReader::Read(json_with_end_date));
+    base::Value* value(base::JSONReader::DeprecatedRead(json_with_end_date));
     ASSERT_TRUE(value);
 
     base::DictionaryValue* dict = NULL;
@@ -576,7 +573,7 @@ TEST_F(PromoResourceServiceTest, AppLauncherPromoTest) {
                   933672366,  // unix epoch for 3 Aug 1999 9:26:06 GMT.
                   1000, 200, 100, 3600, 400, 30);
   promo_test.InitPromoFromJson(true);
-  local_state_.Get()->SetBoolean(prefs::kAppLauncherIsEnabled, true);
+  local_state_.Get()->SetBoolean(prefs::kAppLauncherHasBeenEnabled, true);
   EXPECT_FALSE(promo_test.promo().CanShow());
 }
 #endif

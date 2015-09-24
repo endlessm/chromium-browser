@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/pdfwindow/PDFWindow.h"
@@ -27,7 +27,7 @@ CFX_ByteString CPWL_PushButton::GetClassName() const
 
 CPDF_Rect CPWL_PushButton::GetFocusRect() const
 {
-	return CPWL_Utils::DeflateRect(this->GetWindowRect(),(FX_FLOAT)GetBorderWidth());
+    return CPWL_Utils::DeflateRect(GetWindowRect(), (FX_FLOAT)GetBorderWidth());
 }
 
 /* --------------------------- CPWL_CheckBox ---------------------------- */

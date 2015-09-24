@@ -11,20 +11,21 @@
 #include "base/callback.h"
 #include "base/containers/hash_tables.h"
 #include "cc/base/cc_export.h"
+#include "cc/base/list_container.h"
 #include "cc/base/scoped_ptr_vector.h"
-#include "cc/quads/list_container.h"
 #include "cc/quads/render_pass_id.h"
+#include "cc/surfaces/surface_id.h"
 #include "skia/ext/refptr.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/transform.h"
 
 namespace base {
-namespace debug {
+namespace trace_event {
 class TracedValue;
 }
 class Value;
-};
+}
 
 namespace cc {
 
@@ -77,7 +78,7 @@ class CC_EXPORT RenderPass {
               const gfx::Transform& transform_to_root_target,
               bool has_transparent_background);
 
-  void AsValueInto(base::debug::TracedValue* dict) const;
+  void AsValueInto(base::trace_event::TracedValue* dict) const;
 
   SharedQuadState* CreateAndAppendSharedQuadState();
 
@@ -116,6 +117,10 @@ class CC_EXPORT RenderPass {
   QuadList quad_list;
   SharedQuadStateList shared_quad_state_list;
 
+  // This vector contains the complete set of SurfaceIds referenced by
+  // DrawQuads in quad_list.
+  std::vector<SurfaceId> referenced_surfaces;
+
  protected:
   explicit RenderPass(size_t num_layers);
   RenderPass();
@@ -136,7 +141,7 @@ namespace BASE_HASH_NAMESPACE {
 template <>
 struct hash<cc::RenderPassId> {
   size_t operator()(cc::RenderPassId key) const {
-    return base::HashPair(key.layer_id, key.index);
+    return base::HashPair(key.layer_id, static_cast<int>(key.index));
   }
 };
 }  // namespace BASE_HASH_NAMESPACE

@@ -32,14 +32,14 @@
 #include "wtf/Noncopyable.h"
 #include "wtf/PassRefPtr.h"
 #include "wtf/RefCounted.h"
-#include "wtf/unicode/Unicode.h"
+#include "wtf/text/Unicode.h"
 
 namespace blink {
 
 class SimpleFontData;
 
 class PLATFORM_EXPORT FontData : public RefCounted<FontData> {
-    WTF_MAKE_NONCOPYABLE(FontData); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_NONCOPYABLE(FontData); WTF_MAKE_FAST_ALLOCATED(FontData);
 public:
     FontData()
         : m_maxGlyphPageTreeLevel(0)

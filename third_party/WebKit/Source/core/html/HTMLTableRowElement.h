@@ -26,13 +26,14 @@
 #ifndef HTMLTableRowElement_h
 #define HTMLTableRowElement_h
 
+#include "core/CoreExport.h"
 #include "core/html/HTMLTablePartElement.h"
 
 namespace blink {
 
 class ExceptionState;
 
-class HTMLTableRowElement final : public HTMLTablePartElement {
+class CORE_EXPORT HTMLTableRowElement final : public HTMLTablePartElement {
     DEFINE_WRAPPERTYPEINFO();
 public:
     DECLARE_NODE_FACTORY(HTMLTableRowElement);
@@ -49,8 +50,8 @@ public:
 private:
     explicit HTMLTableRowElement(Document&);
 
-    virtual bool hasLegalLinkAttribute(const QualifiedName&) const override;
-    virtual const QualifiedName& subResourceAttributeName() const override;
+    bool hasLegalLinkAttribute(const QualifiedName&) const override;
+    const QualifiedName& subResourceAttributeName() const override;
 };
 
 } // namespace blink

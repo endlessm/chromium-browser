@@ -31,24 +31,33 @@
 
 namespace blink {
 
-const WrapperTypeInfo V8ArrayBufferView::wrapperTypeInfo = { gin::kEmbedderBlink, 0, V8ArrayBufferView::refObject, V8ArrayBufferView::derefObject, V8ArrayBufferView::trace, 0, 0, 0, V8ArrayBufferView::installConditionallyEnabledMethods, V8ArrayBufferView::installConditionallyEnabledProperties, 0, WrapperTypeInfo::WrapperTypeObjectPrototype, WrapperTypeInfo::ObjectClassId, WrapperTypeInfo::Independent, WrapperTypeInfo::RefCountedObject };
+// Suppress warning: global constructors, because struct WrapperTypeInfo is trivial
+// and does not depend on another global objects.
+#if defined(COMPONENT_BUILD) && defined(WIN32) && COMPILER(CLANG)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wglobal-constructors"
+#endif
+const WrapperTypeInfo V8ArrayBufferView::wrapperTypeInfo = { gin::kEmbedderBlink, 0, V8ArrayBufferView::refObject, V8ArrayBufferView::derefObject, V8ArrayBufferView::trace, 0, 0, V8ArrayBufferView::preparePrototypeObject, V8ArrayBufferView::installConditionallyEnabledProperties, "ArrayBufferView", 0, WrapperTypeInfo::WrapperTypeObjectPrototype, WrapperTypeInfo::ObjectClassId, WrapperTypeInfo::NotInheritFromEventTarget, WrapperTypeInfo::Independent, WrapperTypeInfo::RefCountedObject };
+#if defined(COMPONENT_BUILD) && defined(WIN32) && COMPILER(CLANG)
+#pragma clang diagnostic pop
+#endif
 
 // This static member must be declared by DEFINE_WRAPPERTYPEINFO in TestArrayBufferView.h.
 // For details, see the comment of DEFINE_WRAPPERTYPEINFO in
 // bindings/core/v8/ScriptWrappable.h.
 const WrapperTypeInfo& TestArrayBufferView::s_wrapperTypeInfo = V8ArrayBufferView::wrapperTypeInfo;
 
-bool V8ArrayBufferView::hasInstance(v8::Handle<v8::Value> v8Value, v8::Isolate* isolate)
+bool V8ArrayBufferView::hasInstance(v8::Local<v8::Value> v8Value, v8::Isolate* isolate)
 {
     return v8Value->IsArrayBufferView();
 }
 
-TestArrayBufferView* V8ArrayBufferView::toImpl(v8::Handle<v8::Object> object)
+TestArrayBufferView* V8ArrayBufferView::toImpl(v8::Local<v8::Object> object)
 {
     ASSERT(object->IsArrayBufferView());
-    ScriptWrappableBase* scriptWrappableBase = blink::toScriptWrappableBase(object);
-    if (scriptWrappableBase)
-        return scriptWrappableBase->toImpl<TestArrayBufferView>();
+    ScriptWrappable* scriptWrappable = toScriptWrappable(object);
+    if (scriptWrappable)
+        return scriptWrappable->toImpl<TestArrayBufferView>();
 
     if (object->IsInt8Array())
         return V8Int8Array::toImpl(object);
@@ -75,25 +84,19 @@ TestArrayBufferView* V8ArrayBufferView::toImpl(v8::Handle<v8::Object> object)
     return 0;
 }
 
-TestArrayBufferView* V8ArrayBufferView::toImplWithTypeCheck(v8::Isolate* isolate, v8::Handle<v8::Value> value)
+TestArrayBufferView* V8ArrayBufferView::toImplWithTypeCheck(v8::Isolate* isolate, v8::Local<v8::Value> value)
 {
-    return hasInstance(value, isolate) ? toImpl(v8::Handle<v8::Object>::Cast(value)) : 0;
+    return hasInstance(value, isolate) ? toImpl(v8::Local<v8::Object>::Cast(value)) : 0;
 }
 
-void V8ArrayBufferView::refObject(ScriptWrappableBase* scriptWrappableBase)
+void V8ArrayBufferView::refObject(ScriptWrappable* scriptWrappable)
 {
-    scriptWrappableBase->toImpl<TestArrayBufferView>()->ref();
+    scriptWrappable->toImpl<TestArrayBufferView>()->ref();
 }
 
-void V8ArrayBufferView::derefObject(ScriptWrappableBase* scriptWrappableBase)
+void V8ArrayBufferView::derefObject(ScriptWrappable* scriptWrappable)
 {
-    scriptWrappableBase->toImpl<TestArrayBufferView>()->deref();
-}
-
-template<>
-v8::Handle<v8::Value> toV8NoInline(TestArrayBufferView* impl, v8::Handle<v8::Object> creationContext, v8::Isolate* isolate)
-{
-    return toV8(impl, creationContext, isolate);
+    scriptWrappable->toImpl<TestArrayBufferView>()->deref();
 }
 
 } // namespace blink

@@ -18,6 +18,7 @@
 #include "ui/base/win/internal_constants.h"
 #include "ui/base/win/window_event_target.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/win/direct_manipulation.h"
 #include "ui/gfx/win/dpi.h"
 
 namespace content {
@@ -33,7 +34,7 @@ LegacyRenderWidgetHostHWND* LegacyRenderWidgetHostHWND::Create(
   // content_unittests passes in the desktop window as the parent. We allow
   // the LegacyRenderWidgetHostHWND instance to be created in this case for
   // these tests to pass.
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kDisableLegacyIntermediateWindow) ||
       (!GetWindowEventTarget(parent) && parent != ::GetDesktopWindow()))
     return nullptr;
@@ -56,6 +57,8 @@ void LegacyRenderWidgetHostHWND::Destroy() {
 }
 
 void LegacyRenderWidgetHostHWND::UpdateParent(HWND parent) {
+  if (GetWindowEventTarget(GetParent()))
+    GetWindowEventTarget(GetParent())->HandleParentChanged();
   ::SetParent(hwnd(), parent);
   // If the new parent is the desktop Window, then we disable the child window
   // to ensure that it does not receive any input events. It should not because
@@ -84,6 +87,8 @@ void LegacyRenderWidgetHostHWND::SetBounds(const gfx::Rect& bounds) {
   ::SetWindowPos(hwnd(), NULL, bounds_in_pixel.x(), bounds_in_pixel.y(),
                  bounds_in_pixel.width(), bounds_in_pixel.height(),
                  SWP_NOREDRAW);
+  if (direct_manipulation_helper_)
+    direct_manipulation_helper_->SetBounds(bounds_in_pixel);
 }
 
 void LegacyRenderWidgetHostHWND::OnFinalMessage(HWND hwnd) {
@@ -123,6 +128,13 @@ bool LegacyRenderWidgetHostHWND::Init() {
     NotifyWinEvent(EVENT_SYSTEM_ALERT, hwnd(), kIdScreenReaderHoneyPot,
                    CHILDID_SELF);
   }
+
+  // Direct Manipulation is enabled on Windows 10+. The CreateInstance function
+  // returns NULL if Direct Manipulation is not available.
+  direct_manipulation_helper_ =
+      gfx::win::DirectManipulationHelper::CreateInstance();
+  if (direct_manipulation_helper_)
+    direct_manipulation_helper_->Initialize(hwnd());
 
   return !!SUCCEEDED(hr);
 }
@@ -239,6 +251,12 @@ LRESULT LegacyRenderWidgetHostHWND::OnMouseRange(UINT message,
       ret = ::DefWindowProc(GetParent(), message, w_param, l_param);
       handled = TRUE;
     }
+  }
+
+  if (direct_manipulation_helper_ &&
+      (message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL)) {
+    direct_manipulation_helper_->HandleMouseWheel(hwnd(), message, w_param,
+        l_param);
   }
   return ret;
 }
@@ -374,6 +392,21 @@ LRESULT LegacyRenderWidgetHostHWND::OnSize(UINT message,
   long current_style = ::GetWindowLong(hwnd(), GWL_STYLE);
   ::SetWindowLong(hwnd(), GWL_STYLE,
                   current_style | WS_VSCROLL | WS_HSCROLL);
+  return 0;
+}
+
+LRESULT LegacyRenderWidgetHostHWND::OnWindowPosChanged(UINT message,
+                                                       WPARAM w_param,
+                                                       LPARAM l_param) {
+  WINDOWPOS* window_pos = reinterpret_cast<WINDOWPOS*>(l_param);
+  if (direct_manipulation_helper_) {
+    if (window_pos->flags & SWP_SHOWWINDOW) {
+      direct_manipulation_helper_->Activate(hwnd());
+    } else if (window_pos->flags & SWP_HIDEWINDOW) {
+      direct_manipulation_helper_->Deactivate(hwnd());
+    }
+  }
+  SetMsgHandled(FALSE);
   return 0;
 }
 

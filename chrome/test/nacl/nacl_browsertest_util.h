@@ -123,16 +123,46 @@ class NaClBrowserTestPnacl : public NaClBrowserTestBase {
   bool IsAPnaclTest() override;
 };
 
+// TODO(jvoung): We can remove this and test the Subzero translator
+// with NaClBrowserTestPnacl once Subzero is automatically chosen
+// (not behind a flag).
+class NaClBrowserTestPnaclSubzero : public NaClBrowserTestPnacl {
+ public:
+  void SetUpCommandLine(base::CommandLine* command_line) override;
+};
+
 class NaClBrowserTestPnaclNonSfi : public NaClBrowserTestBase {
  public:
   void SetUpCommandLine(base::CommandLine* command_line) override;
   base::FilePath::StringType Variant() override;
 };
 
+// "Transitional" here means that this uses nacl_helper in Non-SFI mode.
+// nacl_helper_nonsfi, which is replacing nacl_helper in Non-SFI mode, is being
+// launched. In the meanwhile, nacl_helper in Non-SFI is still kept just in
+// case. When the launching is successfully done, it will be removed.
+// "Transitional" tests are for ensuring compatibility between those two
+// binaries.
+// TODO(hidehiko): Remove the tests when nacl_helper in Non-SFI mode is
+// removed.
+class NaClBrowserTestPnaclTransitionalNonSfi
+    : public NaClBrowserTestPnaclNonSfi {
+ public:
+  void SetUpCommandLine(base::CommandLine* command_line) override;
+};
+
 class NaClBrowserTestNonSfiMode : public NaClBrowserTestBase {
  public:
   void SetUpCommandLine(base::CommandLine* command_line) override;
   base::FilePath::StringType Variant() override;
+};
+
+// TODO(hidehiko): Remove this when clean-up to drop Non-SFI support from
+// nacl_helper is done. See NaClBrowserTestPnaclTransitionalNonSfi
+// for more details.
+class NaClBrowserTestTransitionalNonSfi : public NaClBrowserTestNonSfiMode {
+ public:
+  void SetUpCommandLine(base::CommandLine* command_line) override;
 };
 
 // A NaCl browser test only using static files.
@@ -172,22 +202,43 @@ class NaClBrowserTestGLibcExtension : public NaClBrowserTestGLibc {
 #  define MAYBE_GLIBC(test_name) DISABLED_##test_name
 #endif
 
-// Sanitizers internally use some syscalls which non-SFI NaCl disallows.
+// Currently, we only support it on x86-32 or ARM architecture.
+// TODO(hidehiko,mazda): Enable this on x86-64, too, when it is supported.
 #if defined(OS_LINUX) && !defined(ADDRESS_SANITIZER) && \
     !defined(THREAD_SANITIZER) && !defined(MEMORY_SANITIZER) && \
-    !defined(LEAK_SANITIZER)
+    !defined(LEAK_SANITIZER) && \
+    (defined(ARCH_CPU_X86) || defined(ARCH_CPU_ARMEL))
 #  define MAYBE_NONSFI(test_case) test_case
 #else
 #  define MAYBE_NONSFI(test_case) DISABLED_##test_case
 #endif
 
-// Currently, translation from pexe to non-sfi nexe is supported only for
-// x86-32 binary.
-#if defined(OS_LINUX) && defined(ARCH_CPU_X86)
+// Sanitizers internally use some syscalls which non-SFI NaCl disallows.
+#if defined(OS_LINUX) && !defined(ADDRESS_SANITIZER) && \
+    !defined(THREAD_SANITIZER) && !defined(MEMORY_SANITIZER) && \
+    !defined(LEAK_SANITIZER)
+#  define MAYBE_TRANSITIONAL_NONSFI(test_case) test_case
+#else
+#  define MAYBE_TRANSITIONAL_NONSFI(test_case) DISABLED_##test_case
+#endif
+
+// Similar to MAYBE_NONSFI, this is available only on x86-32, x86-64 or
+// ARM linux.
+#if defined(OS_LINUX) && \
+    (defined(ARCH_CPU_X86_FAMILY) || defined(ARCH_CPU_ARMEL))
 #  define MAYBE_PNACL_NONSFI(test_case) test_case
 #else
 #  define MAYBE_PNACL_NONSFI(test_case) DISABLED_##test_case
 #endif
+
+// Currently, translation from pexe to non-sfi nexe is supported only for
+// x86-32 or ARM binary.
+#if defined(OS_LINUX) && (defined(ARCH_CPU_X86) || defined(ARCH_CPU_ARMEL))
+#  define MAYBE_PNACL_TRANSITIONAL_NONSFI(test_case) test_case
+#else
+#  define MAYBE_PNACL_TRANSITIONAL_NONSFI(test_case) DISABLED_##test_case
+#endif
+
 
 #define NACL_BROWSER_TEST_F(suite, name, body) \
 IN_PROC_BROWSER_TEST_F(suite##Newlib, name) \

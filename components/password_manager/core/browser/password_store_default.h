@@ -17,14 +17,25 @@ namespace password_manager {
 // the LoginDatabase.
 class PasswordStoreDefault : public PasswordStore {
  public:
-  // Takes ownership of |login_db|.
+  // The |login_db| must not have been Init()-ed yet. It will be initialized in
+  // a deferred manner on the DB thread.
   PasswordStoreDefault(
       scoped_refptr<base::SingleThreadTaskRunner> main_thread_runner,
       scoped_refptr<base::SingleThreadTaskRunner> db_thread_runner,
-      LoginDatabase* login_db);
+      scoped_ptr<LoginDatabase> login_db);
+
+  bool Init(const syncer::SyncableService::StartSyncFlare& flare) override;
+
+  void Shutdown() override;
+
+  // To be used only for testing.
+  LoginDatabase* login_db() const { return login_db_.get(); }
 
  protected:
   ~PasswordStoreDefault() override;
+
+  // Opens |login_db_| on the DB thread.
+  void InitOnDBThread();
 
   // Implements PasswordStore interface.
   void ReportMetricsImpl(const std::string& sync_username,
@@ -41,22 +52,34 @@ class PasswordStoreDefault : public PasswordStore {
   PasswordStoreChangeList RemoveLoginsSyncedBetweenImpl(
       base::Time delete_begin,
       base::Time delete_end) override;
-  void GetLoginsImpl(const autofill::PasswordForm& form,
-                     AuthorizationPromptPolicy prompt_policy,
-                     const ConsumerCallbackRunner& callback_runner) override;
-  void GetAutofillableLoginsImpl(GetLoginsRequest* request) override;
-  void GetBlacklistLoginsImpl(GetLoginsRequest* request) override;
+  ScopedVector<autofill::PasswordForm> FillMatchingLogins(
+      const autofill::PasswordForm& form,
+      AuthorizationPromptPolicy prompt_policy) override;
   bool FillAutofillableLogins(
-      std::vector<autofill::PasswordForm*>* forms) override;
+      ScopedVector<autofill::PasswordForm>* forms) override;
   bool FillBlacklistLogins(
-      std::vector<autofill::PasswordForm*>* forms) override;
+      ScopedVector<autofill::PasswordForm>* forms) override;
+  void AddSiteStatsImpl(const InteractionsStats& stats) override;
+  void RemoveSiteStatsImpl(const GURL& origin_domain) override;
+  scoped_ptr<InteractionsStats> GetSiteStatsImpl(
+      const GURL& origin_domain) override;
 
- protected:
   inline bool DeleteAndRecreateDatabaseFile() {
     return login_db_->DeleteAndRecreateDatabaseFile();
   }
 
+  void set_login_db(scoped_ptr<password_manager::LoginDatabase> login_db) {
+    login_db_.swap(login_db);
+  }
+
  private:
+  // Resets |login_db_| on the background thread.
+  void ResetLoginDB();
+
+  // The login SQL database. The LoginDatabase instance is received via the
+  // in an uninitialized state, so as to allow injecting mocks, then Init() is
+  // called on the DB thread in a deferred manner. If opening the DB fails,
+  // |login_db_| will be reset and stay NULL for the lifetime of |this|.
   scoped_ptr<LoginDatabase> login_db_;
 
   DISALLOW_COPY_AND_ASSIGN(PasswordStoreDefault);

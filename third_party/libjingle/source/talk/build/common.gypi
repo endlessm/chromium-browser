@@ -1,6 +1,6 @@
 #
 # libjingle
-# Copyright 2012, Google Inc.
+# Copyright 2012 Google Inc.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -30,23 +30,32 @@
 {
   'variables': {
     'webrtc_root%': '<(DEPTH)/webrtc',
-    # TODO(ronghuawu): Chromium build will need a different libjingle_root.
     'libjingle_tests_additional_deps%': [],
-    'libjingle_root%': '<(DEPTH)',
     # TODO(ronghuawu): For now, disable the Chrome plugins, which causes a
     # flood of chromium-style warnings.
     'clang_use_chrome_plugins%': 0,
-    'libpeer_target_type%': 'static_library',
     'conditions': [
       ['OS=="android" or OS=="linux"', {
         'java_home%': '<!(python -c "import os; dir=os.getenv(\'JAVA_HOME\', \'/usr/lib/jvm/java-7-openjdk-amd64\'); assert os.path.exists(os.path.join(dir, \'include/jni.h\')), \'Point \\$JAVA_HOME or the java_home gyp variable to a directory containing include/jni.h!\'; print dir")',
       }],
     ],
+    # Disable these to not build components which can be externally provided.
+    'build_expat%': 1,
+    'build_icu%': 1,
+    'build_json%': 1,
+    'build_libsrtp%': 1,
+    'build_libyuv%': 1,
+    'build_usrsctp%': 1,
+    # Make it possible to provide custom locations for some libraries.
+    'libyuv_dir%': '<(DEPTH)/third_party/libyuv',
+
+    # Disable this to skip building source requiring GTK.
+    'use_gtk%': 1,
   },
   'target_defaults': {
     'include_dirs': [
-      '<(libjingle_root)',
       '<(DEPTH)',
+      '../..',
       '../../third_party',
       '../../third_party/webrtc',
       '../../webrtc',
@@ -67,29 +76,36 @@
       'HAVE_SRTP',
       'HAVE_WEBRTC_VIDEO',
       'HAVE_WEBRTC_VOICE',
-      'USE_WEBRTC_DEV_BRANCH',
     ],
     'conditions': [
-      # TODO(ronghuawu): Support dynamic library build.
-      ['"<(libpeer_target_type)"=="static_library"', {
-        'defines': [ 'LIBPEERCONNECTION_LIB=1' ],
-      }],
       ['OS=="linux"', {
         'defines': [
           'LINUX',
           'WEBRTC_LINUX',
+        ],
+        # Remove Chromium's disabling of the -Wformat warning.
+        'cflags!': [
+          '-Wno-format',
         ],
         'conditions': [
           ['clang==1', {
             'cflags': [
               '-Wall',
               '-Wextra',
+              '-Wformat',
+              '-Wformat-security',
+              '-Wimplicit-fallthrough',
+              '-Wmissing-braces',
+              '-Wreorder',
               '-Wunused-variable',
               # TODO(ronghuawu): Fix the warning caused by
               # LateBindingSymbolTable::TableInfo from
               # latebindingsymboltable.cc.def and remove below flag.
               '-Wno-address-of-array-temporary',
               '-Wthread-safety',
+            ],
+            'cflags_cc': [
+              '-Wunused-private-field',
             ],
           }],
         ],
@@ -136,7 +152,6 @@
         },
         'defines': [
           'HASH_NAMESPACE=__gnu_cxx',
-          'POSIX',
           'WEBRTC_POSIX',
           'DISABLE_DYNAMIC_CAST',
           # The POSIX standard says we have to define this.

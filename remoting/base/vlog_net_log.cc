@@ -35,18 +35,19 @@ void VlogNetLog::Observer::OnAddEntry(const net::NetLog::Entry& entry) {
   if (VLOG_IS_ON(4)) {
     scoped_ptr<base::Value> value(entry.ToValue());
     std::string json;
-    base::JSONWriter::Write(value.get(), &json);
+    base::JSONWriter::Write(*value, &json);
     VLOG(4) << json;
   }
 }
 
 VlogNetLog::VlogNetLog()
     : observer_(new Observer()) {
-  AddThreadSafeObserver(observer_.get(), LOG_ALL_BUT_BYTES);
+  DeprecatedAddObserver(observer_.get(),
+                        net::NetLogCaptureMode::IncludeCookiesAndCredentials());
 }
 
 VlogNetLog::~VlogNetLog() {
-  RemoveThreadSafeObserver(observer_.get());
+  DeprecatedRemoveObserver(observer_.get());
 }
 
 }  // namespace remoting

@@ -1,13 +1,12 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/fpdfapi/fpdf_pageobj.h"
-#include "../../include/fpdftext/fpdf_text.h"
 #include "../../include/fpdfapi/fpdf_page.h"
-class CPDF_TextStream : public CFX_Object
+class CPDF_TextStream
 {
 public:
     CPDF_TextStream(CFX_WideTextBuf& buffer, FX_BOOL bUseLF, CFX_PtrArray* pObjArray);
@@ -266,14 +265,14 @@ FX_BOOL CPDF_TextStream::ProcessObject(const CPDF_TextObject* pObj, FX_BOOL bFir
             m_Buffer.AppendChar((FX_WCHAR)item.m_CharCode);
             if (m_pObjArray) {
                 m_pObjArray->Add((void*)pObj);
-                m_pObjArray->Add((void*)(FX_INTPTR)item_index);
+                m_pObjArray->Add((void*)(intptr_t)item_index);
             }
         } else {
             m_Buffer << unicode_str;
             if (m_pObjArray) {
                 for (int i = 0; i < unicode_str.GetLength(); i ++) {
                     m_pObjArray->Add((void*)pObj);
-                    m_pObjArray->Add((void*)(FX_INTPTR)item_index);
+                    m_pObjArray->Add((void*)(intptr_t)item_index);
                 }
             }
         }

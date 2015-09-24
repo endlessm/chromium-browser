@@ -4,22 +4,22 @@
 
 #include "media/filters/fake_video_decoder.h"
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/location.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/test_helpers.h"
 
 namespace media {
 
 FakeVideoDecoder::FakeVideoDecoder(int decoding_delay,
-                                   int max_parallel_decoding_requests)
+                                   int max_parallel_decoding_requests,
+                                   const BytesDecodedCB& bytes_decoded_cb)
     : decoding_delay_(decoding_delay),
       max_parallel_decoding_requests_(max_parallel_decoding_requests),
+      bytes_decoded_cb_(bytes_decoded_cb),
       state_(STATE_UNINITIALIZED),
       hold_decode_(false),
       total_bytes_decoded_(0),
+      fail_to_initialize_(false),
       weak_factory_(this) {
   DCHECK_GE(decoding_delay, 0);
 }
@@ -46,7 +46,7 @@ std::string FakeVideoDecoder::GetDisplayName() const {
 
 void FakeVideoDecoder::Initialize(const VideoDecoderConfig& config,
                                   bool low_delay,
-                                  const PipelineStatusCB& status_cb,
+                                  const InitCB& init_cb,
                                   const OutputCB& output_cb) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(config.IsValidConfig());
@@ -55,7 +55,7 @@ void FakeVideoDecoder::Initialize(const VideoDecoderConfig& config,
   DCHECK(reset_cb_.IsNull()) << "No reinitialization during pending reset.";
 
   current_config_ = config;
-  init_cb_.SetCallback(BindToCurrentLoop(status_cb));
+  init_cb_.SetCallback(BindToCurrentLoop(init_cb));
 
   // Don't need BindToCurrentLoop() because |output_cb_| is only called from
   // RunDecodeCallback() which is posted from Decode().
@@ -66,8 +66,13 @@ void FakeVideoDecoder::Initialize(const VideoDecoderConfig& config,
     decoded_frames_.clear();
   }
 
-  state_ = STATE_NORMAL;
-  init_cb_.RunOrHold(PIPELINE_OK);
+  if (fail_to_initialize_) {
+    state_ = STATE_ERROR;
+    init_cb_.RunOrHold(false);
+  } else {
+    state_ = STATE_NORMAL;
+    init_cb_.RunOrHold(true);
+  }
 }
 
 void FakeVideoDecoder::Decode(const scoped_refptr<DecoderBuffer>& buffer,
@@ -180,6 +185,10 @@ void FakeVideoDecoder::SimulateError() {
   decoded_frames_.clear();
 }
 
+void FakeVideoDecoder::SimulateFailureToInit() {
+  fail_to_initialize_ = true;
+}
+
 int FakeVideoDecoder::GetMaxDecodeRequests() const {
   return max_parallel_decoding_requests_;
 }
@@ -189,8 +198,10 @@ void FakeVideoDecoder::OnFrameDecoded(int buffer_size,
                                       Status status) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  if (status == kOk)
+  if (status == kOk) {
     total_bytes_decoded_ += buffer_size;
+    bytes_decoded_cb_.Run(buffer_size);
+  }
   decode_cb.Run(status);
 }
 

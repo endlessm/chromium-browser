@@ -12,12 +12,14 @@
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/stub_cros_settings_provider.h"
+#include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "chromeos/settings/cros_settings_names.h"
+#include "components/signin/core/browser/signin_manager.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
@@ -47,11 +49,10 @@ class StubAccountSettingsProvider : public StubCrosSettingsProvider {
   StubAccountSettingsProvider() {
   }
 
-  virtual ~StubAccountSettingsProvider() {
-  }
+  ~StubAccountSettingsProvider() override {}
 
   // StubCrosSettingsProvider implementation.
-  virtual bool HandlesSetting(const std::string& path) const override {
+  bool HandlesSetting(const std::string& path) const override {
     const char** end = kKnownSettings + arraysize(kKnownSettings);
     return std::find(kKnownSettings, end, path) != end;
   }
@@ -87,10 +88,9 @@ class SharedOptionsTest : public LoginManagerTest {
     stub_settings_provider_.Set(kDeviceOwner, base::StringValue(kTestOwner));
   }
 
-  virtual ~SharedOptionsTest() {
-  }
+  ~SharedOptionsTest() override {}
 
-  virtual void SetUpOnMainThread() override {
+  void SetUpOnMainThread() override {
     LoginManagerTest::SetUpOnMainThread();
 
     CrosSettings* settings = CrosSettings::Get();
@@ -103,7 +103,7 @@ class SharedOptionsTest : public LoginManagerTest {
     settings->AddSettingsProvider(device_settings_provider_);
   }
 
-  virtual void TearDownOnMainThread() override {
+  void TearDownOnMainThread() override {
     CrosSettings* settings = CrosSettings::Get();
     settings->RemoveSettingsProvider(&stub_settings_provider_);
     LoginManagerTest::TearDownOnMainThread();
@@ -118,11 +118,17 @@ class SharedOptionsTest : public LoginManagerTest {
         browser->tab_strip_model()->GetActiveWebContents();
 
     for (size_t i = 0; i < sizeof(kPrefTests) / sizeof(kPrefTests[0]); i++) {
-      CheckPreference(contents,
-                      kPrefTests[i].pref_name,
-                      !is_owner && kPrefTests[i].owner_only,
-                      !is_owner && kPrefTests[i].indicator ? "owner" :
-                                                             std::string());
+      bool disabled = !is_owner && kPrefTests[i].owner_only;
+      if (strcmp(kPrefTests[i].pref_name, kSystemTimezone) == 0) {
+        disabled = ProfileHelper::Get()
+                       ->GetProfileByUserUnsafe(user)
+                       ->GetPrefs()
+                       ->GetBoolean(prefs::kResolveTimezoneByGeolocation);
+      }
+
+      CheckPreference(
+          contents, kPrefTests[i].pref_name, disabled,
+          !is_owner && kPrefTests[i].indicator ? "owner" : std::string());
     }
     CheckBanner(contents, is_primary);
     CheckSharedSections(contents, is_primary);
@@ -132,8 +138,9 @@ class SharedOptionsTest : public LoginManagerTest {
   // Creates a browser and navigates to the Settings page.
   Browser* CreateBrowserForUser(const user_manager::User* user) {
     Profile* profile = ProfileHelper::Get()->GetProfileByUserUnsafe(user);
-    profile->GetPrefs()->SetString(prefs::kGoogleServicesUsername,
-                                   user->email());
+    SigninManagerFactory::GetForProfile(profile)->
+        SetAuthenticatedAccountInfo(GetGaiaIDForUserID(user->email()),
+                                    user->email());
 
     ui_test_utils::BrowserAddedObserver observer;
     Browser* browser = CreateBrowser(profile);
@@ -369,9 +376,7 @@ IN_PROC_BROWSER_TEST_F(SharedOptionsTest, PRE_ScreenLockPreferenceSecondary) {
 // (The checkbox is unset if the current user's preference is false, but if any
 // other signed-in user has enabled this preference, the shared setting
 // indicator explains this.)
-// crbug.com/421498
-IN_PROC_BROWSER_TEST_F(SharedOptionsTest,
-                       DISABLED_ScreenLockPreferenceSecondary) {
+IN_PROC_BROWSER_TEST_F(SharedOptionsTest, ScreenLockPreferenceSecondary) {
   LoginUser(kTestOwner);
   UserAddingScreen::Get()->Start();
   content::RunAllPendingInMessageLoop();

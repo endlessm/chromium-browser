@@ -9,9 +9,8 @@
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "chrome/common/chrome_icon_resources_win.h"
+#include "chrome/installer/util/installer_util_strings.h"
 #include "chrome/installer/util/updating_app_registration_data.h"
-
-#include "installer_util_strings.h"  // NOLINT
 
 namespace {
 
@@ -108,10 +107,6 @@ bool GoogleChromeSxSDistribution::GetCommandExecuteImplClsid(
   if (handler_class_uuid)
     *handler_class_uuid = kCommandExecuteImplUuid;
   return true;
-}
-
-bool GoogleChromeSxSDistribution::AppHostIsSupported() {
-  return false;
 }
 
 bool GoogleChromeSxSDistribution::ShouldSetExperimentLabels() {

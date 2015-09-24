@@ -4,9 +4,10 @@
 
 #include "components/autofill/content/browser/risk/fingerprint.h"
 
+#include <stdint.h>
+
 #include "base/bind.h"
 #include "base/message_loop/message_loop.h"
-#include "base/port.h"
 #include "components/autofill/content/browser/risk/proto/fingerprint.pb.h"
 #include "content/public/browser/geolocation_provider.h"
 #include "content/public/browser/gpu_data_manager.h"
@@ -17,7 +18,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/WebKit/public/platform/WebRect.h"
 #include "third_party/WebKit/public/platform/WebScreenInfo.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
 using testing::ElementsAre;
 
@@ -28,7 +29,7 @@ namespace internal {
 
 // Defined in the implementation file corresponding to this test.
 void GetFingerprintInternal(
-    uint64 obfuscated_gaia_id,
+    uint64_t obfuscated_gaia_id,
     const gfx::Rect& window_bounds,
     const gfx::Rect& content_bounds,
     const blink::WebScreenInfo& screen_info,
@@ -45,7 +46,7 @@ void GetFingerprintInternal(
 
 // Constants that are passed verbatim to the fingerprinter code and should be
 // serialized into the resulting protocol buffer.
-const uint64 kObfuscatedGaiaId = GG_UINT64_C(16571487432910023183);
+const uint64_t kObfuscatedGaiaId = UINT64_C(16571487432910023183);
 const char kCharset[] = "UTF-8";
 const char kAcceptLanguages[] = "en-US,en";
 const int kScreenColorDepth = 53;
@@ -180,8 +181,15 @@ class AutofillRiskFingerprintTest : public content::ContentBrowserTest {
   base::MessageLoopForUI message_loop_;
 };
 
+#if defined(OS_WIN)
+// http://crbug.com/503821
+#define MAYBE_GetFingerprint DISABLED_GetFingerprint
+#else
+#define MAYBE_GetFingerprint GetFingerprint
+#endif
+
 // Test that getting a fingerprint works on some basic level.
-IN_PROC_BROWSER_TEST_F(AutofillRiskFingerprintTest, GetFingerprint) {
+IN_PROC_BROWSER_TEST_F(AutofillRiskFingerprintTest, MAYBE_GetFingerprint) {
   content::Geoposition position;
   position.latitude = kLatitude;
   position.longitude = kLongitude;

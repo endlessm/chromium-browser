@@ -16,7 +16,7 @@
 namespace base {
 class BinaryValue;
 class DictionaryValue;
-class MessageLoopProxy;
+class SingleThreadTaskRunner;
 }  // namespace base
 
 namespace media {
@@ -71,7 +71,8 @@ class CastSession : public base::RefCounted<CastSession> {
   // udp transport.
   // Must be called before initialization of audio or video.
   void StartUDP(const net::IPEndPoint& remote_endpoint,
-                scoped_ptr<base::DictionaryValue> options);
+                scoped_ptr<base::DictionaryValue> options,
+                const ErrorCallback& error_callback);
 
   // Creates or destroys event subscriber for the audio or video stream.
   // |is_audio|: true if the event subscriber is for audio. Video otherwise.
@@ -99,8 +100,8 @@ class CastSession : public base::RefCounted<CastSession> {
   // because it is owned by this object.
   scoped_ptr<CastSessionDelegate> delegate_;
 
-  // Proxy to the IO message loop.
-  const scoped_refptr<base::MessageLoopProxy> io_message_loop_proxy_;
+  // Proxy to the IO task runner.
+  const scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
 
   DISALLOW_COPY_AND_ASSIGN(CastSession);
 };

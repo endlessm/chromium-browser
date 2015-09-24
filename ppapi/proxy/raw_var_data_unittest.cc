@@ -7,6 +7,7 @@
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/message_loop/message_loop.h"
 #include "base/values.h"
 #include "ppapi/c/pp_bool.h"
 #include "ppapi/c/pp_var.h"
@@ -17,7 +18,7 @@
 #include "ppapi/shared_impl/resource_var.h"
 #include "ppapi/shared_impl/scoped_pp_var.h"
 #include "ppapi/shared_impl/test_globals.h"
-#include "ppapi/shared_impl/unittest_utils.h"
+#include "ppapi/shared_impl/test_utils.h"
 #include "ppapi/shared_impl/var.h"
 #include "ppapi/shared_impl/var_tracker.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -38,7 +39,6 @@ class RawVarDataTest : public testing::Test {
 
   // testing::Test implementation.
   virtual void SetUp() {
-    ProxyLock::EnableLockingOnThreadForTest();
     ProxyLock::Acquire();
   }
   virtual void TearDown() {
@@ -47,6 +47,7 @@ class RawVarDataTest : public testing::Test {
   }
 
  private:
+  base::MessageLoop message_loop_;  // Required to receive callbacks.
   TestGlobals globals_;
 };
 
@@ -58,7 +59,7 @@ bool WriteAndRead(const PP_Var& var, PP_Var* result) {
     return false;
   IPC::Message m;
   expected_data->Write(&m, base::Bind(&DefaultHandleWriter));
-  PickleIterator iter(m);
+  base::PickleIterator iter(m);
   scoped_ptr<RawVarDataGraph> actual_data(RawVarDataGraph::Read(&m, &iter));
   *result = actual_data->CreatePPVar(dummy_instance);
   return true;
@@ -97,7 +98,7 @@ TEST_F(RawVarDataTest, StringTest) {
 TEST_F(RawVarDataTest, ArrayBufferTest) {
   std::string data = "hello world!";
   PP_Var var = PpapiGlobals::Get()->GetVarTracker()->MakeArrayBufferPPVar(
-      data.size(), data.data());
+      static_cast<uint32_t>(data.size()), data.data());
   EXPECT_TRUE(WriteReadAndCompare(var));
   var = PpapiGlobals::Get()->GetVarTracker()->MakeArrayBufferPPVar(
       0, static_cast<void*>(NULL));
@@ -114,25 +115,25 @@ TEST_F(RawVarDataTest, DictionaryArrayTest) {
   size_t index = 0;
 
   // Array with primitives.
-  array->Set(index++, PP_MakeUndefined());
-  array->Set(index++, PP_MakeNull());
-  array->Set(index++, PP_MakeInt32(100));
-  array->Set(index++, PP_MakeBool(PP_FALSE));
-  array->Set(index++, PP_MakeDouble(0.123));
+  array->Set(static_cast<uint32_t>(index++), PP_MakeUndefined());
+  array->Set(static_cast<uint32_t>(index++), PP_MakeNull());
+  array->Set(static_cast<uint32_t>(index++), PP_MakeInt32(100));
+  array->Set(static_cast<uint32_t>(index++), PP_MakeBool(PP_FALSE));
+  array->Set(static_cast<uint32_t>(index++), PP_MakeDouble(0.123));
   EXPECT_TRUE(WriteReadAndCompare(array->GetPPVar()));
 
   // Array with 2 references to the same string.
   ScopedPPVar release_string(
       ScopedPPVar::PassRef(), StringVar::StringToPPVar("abc"));
-  array->Set(index++, release_string.get());
-  array->Set(index++, release_string.get());
+  array->Set(static_cast<uint32_t>(index++), release_string.get());
+  array->Set(static_cast<uint32_t>(index++), release_string.get());
   EXPECT_TRUE(WriteReadAndCompare(array->GetPPVar()));
 
   // Array with nested array that references the same string.
   scoped_refptr<ArrayVar> array2(new ArrayVar);
   ScopedPPVar release_array2(ScopedPPVar::PassRef(), array2->GetPPVar());
   array2->Set(0, release_string.get());
-  array->Set(index++, release_array2.get());
+  array->Set(static_cast<uint32_t>(index++), release_array2.get());
   EXPECT_TRUE(WriteReadAndCompare(array->GetPPVar()));
 
   // Empty dictionary.
@@ -163,7 +164,7 @@ TEST_F(RawVarDataTest, DictionaryArrayTest) {
   EXPECT_TRUE(WriteReadAndCompare(dictionary->GetPPVar()));
 
   // Array with dictionary.
-  array->Set(index++, release_dictionary.get());
+  array->Set(static_cast<uint32_t>(index++), release_dictionary.get());
   EXPECT_TRUE(WriteReadAndCompare(array->GetPPVar()));
 
   // Array with dictionary with array.
@@ -181,10 +182,10 @@ TEST_F(RawVarDataTest, DictionaryArrayTest) {
   dictionary->DeleteWithStringKey("10");
 
   // Array with self references.
-  array->Set(index, release_array.get());
+  array->Set(static_cast<uint32_t>(index), release_array.get());
   ASSERT_FALSE(WriteAndRead(release_array.get(), &result));
   // Break the self reference.
-  array->Set(index, PP_MakeUndefined());
+  array->Set(static_cast<uint32_t>(index), PP_MakeUndefined());
 }
 
 TEST_F(RawVarDataTest, ResourceTest) {

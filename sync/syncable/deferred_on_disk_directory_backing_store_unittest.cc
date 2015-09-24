@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/files/scoped_temp_dir.h"
+#include "base/message_loop/message_loop.h"
 #include "base/stl_util.h"
 #include "sync/syncable/deferred_on_disk_directory_backing_store.h"
 #include "sync/syncable/directory.h"
@@ -20,19 +21,19 @@ static const base::FilePath::CharType kSyncDataFolderName[] =
 
 class DeferredOnDiskDirectoryBackingStoreTest : public testing::Test {
  protected:
-  virtual void SetUp() override {
+  void SetUp() override {
     CHECK(temp_dir_.CreateUniqueTempDir());
     db_path_ = temp_dir_.path().Append(kSyncDataFolderName);
   }
 
-  virtual void TearDown() override {
-    STLDeleteValues(&handles_map_);
-  }
+  void TearDown() override { STLDeleteValues(&handles_map_); }
 
+  base::MessageLoop message_loop_;
   base::ScopedTempDir temp_dir_;
   base::FilePath db_path_;
   Directory::MetahandlesMap handles_map_;
   JournalIndex delete_journals_;
+  MetahandleSet metahandles_to_purge_;
   Directory::KernelLoadInfo kernel_load_info_;
 };
 
@@ -40,8 +41,9 @@ class DeferredOnDiskDirectoryBackingStoreTest : public testing::Test {
 TEST_F(DeferredOnDiskDirectoryBackingStoreTest, Load) {
   DeferredOnDiskDirectoryBackingStore store("test", db_path_);
   EXPECT_EQ(OPENED, store.Load(&handles_map_, &delete_journals_,
-                               &kernel_load_info_));
+                               &metahandles_to_purge_, &kernel_load_info_));
   EXPECT_TRUE(delete_journals_.empty());
+  EXPECT_TRUE(metahandles_to_purge_.empty());
   ASSERT_EQ(1u, handles_map_.size());   // root node
   ASSERT_TRUE(handles_map_.count(1));
   EntryKernel* root = handles_map_[1];
@@ -57,7 +59,7 @@ TEST_F(DeferredOnDiskDirectoryBackingStoreTest,
     // Open and close.
     DeferredOnDiskDirectoryBackingStore store("test", db_path_);
     EXPECT_EQ(OPENED, store.Load(&handles_map_, &delete_journals_,
-                                 &kernel_load_info_));
+                                 &metahandles_to_purge_, &kernel_load_info_));
   }
 
   EXPECT_FALSE(base::PathExists(db_path_));
@@ -70,7 +72,7 @@ TEST_F(DeferredOnDiskDirectoryBackingStoreTest,
     // Open and close.
     DeferredOnDiskDirectoryBackingStore store("test", db_path_);
     EXPECT_EQ(OPENED, store.Load(&handles_map_, &delete_journals_,
-                                 &kernel_load_info_));
+                                 &metahandles_to_purge_, &kernel_load_info_));
 
     Directory::SaveChangesSnapshot snapshot;
     store.SaveChanges(snapshot);
@@ -85,7 +87,7 @@ TEST_F(DeferredOnDiskDirectoryBackingStoreTest, PersistWhenSavingValidChanges) {
     // Open and close.
     DeferredOnDiskDirectoryBackingStore store("test", db_path_);
     EXPECT_EQ(OPENED, store.Load(&handles_map_, &delete_journals_,
-                                 &kernel_load_info_));
+                                 &metahandles_to_purge_, &kernel_load_info_));
 
     Directory::SaveChangesSnapshot snapshot;
     EntryKernel* entry = new EntryKernel();
@@ -100,8 +102,9 @@ TEST_F(DeferredOnDiskDirectoryBackingStoreTest, PersistWhenSavingValidChanges) {
 
   ASSERT_TRUE(base::PathExists(db_path_));
   OnDiskDirectoryBackingStore read_store("test", db_path_);
-  EXPECT_EQ(OPENED, read_store.Load(&handles_map_, &delete_journals_,
-                                    &kernel_load_info_));
+  EXPECT_EQ(OPENED,
+            read_store.Load(&handles_map_, &delete_journals_,
+                            &metahandles_to_purge_, &kernel_load_info_));
   ASSERT_EQ(2u, handles_map_.size());
   ASSERT_TRUE(handles_map_.count(1));     // root node
   ASSERT_TRUE(handles_map_.count(2));

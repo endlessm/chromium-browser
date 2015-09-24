@@ -36,14 +36,14 @@ namespace {
 //
 // The solution is to make a new object for each deserialized item, and then
 // add it to the vector one at a time.
-template<typename T>
+template <typename T>
 bool ReadVectorWithoutCopy(const Message* m,
-                           PickleIterator* iter,
+                           base::PickleIterator* iter,
                            std::vector<T>* output) {
   // This part is just a copy of the the default ParamTraits vector Read().
   int size;
   // ReadLength() checks for < 0 itself.
-  if (!m->ReadLength(iter, &size))
+  if (!iter->ReadLength(&size))
     return false;
   // Resizing beforehand is not safe, see BUG 1006367 for details.
   if (INT_MAX / sizeof(T) <= static_cast<size_t>(size))
@@ -81,7 +81,7 @@ void ParamTraits<PP_Bool>::Write(Message* m, const param_type& p) {
 
 // static
 bool ParamTraits<PP_Bool>::Read(const Message* m,
-                                PickleIterator* iter,
+                                base::PickleIterator* iter,
                                 param_type* r) {
   // We specifically want to be strict here about what types of input we accept,
   // which ParamTraits<bool> does for us. We don't want to deserialize "2" into
@@ -97,6 +97,52 @@ bool ParamTraits<PP_Bool>::Read(const Message* m,
 void ParamTraits<PP_Bool>::Log(const param_type& p, std::string* l) {
 }
 
+// PP_KeyInformation -------------------------------------------------------
+
+// static
+void ParamTraits<PP_KeyInformation>::Write(Message* m, const param_type& p) {
+  WriteParam(m, p.key_id_size);
+  m->WriteBytes(p.key_id, static_cast<int>(p.key_id_size));
+  WriteParam(m, p.key_status);
+  WriteParam(m, p.system_code);
+}
+
+// static
+bool ParamTraits<PP_KeyInformation>::Read(const Message* m,
+                                          base::PickleIterator* iter,
+                                          param_type* p) {
+  uint32_t size;
+  if (!ReadParam(m, iter, &size))
+    return false;
+  if (size > sizeof(p->key_id))
+    return false;
+  p->key_id_size = size;
+
+  const char* data;
+  if (!iter->ReadBytes(&data, size))
+    return false;
+  memcpy(p->key_id, data, size);
+
+  PP_CdmKeyStatus key_status;
+  if (!ReadParam(m, iter, &key_status))
+    return false;
+  p->key_status = key_status;
+
+  uint32_t system_code;
+  if (!ReadParam(m, iter, &system_code))
+    return false;
+  p->system_code = system_code;
+
+  return true;
+}
+
+// static
+void ParamTraits<PP_KeyInformation>::Log(const param_type& p, std::string* l) {
+  l->append("<PP_KeyInformation (");
+  LogParam(p.key_id_size, l);
+  l->append(" bytes)>");
+}
+
 // PP_NetAddress_Private -------------------------------------------------------
 
 // static
@@ -108,7 +154,7 @@ void ParamTraits<PP_NetAddress_Private>::Write(Message* m,
 
 // static
 bool ParamTraits<PP_NetAddress_Private>::Read(const Message* m,
-                                              PickleIterator* iter,
+                                              base::PickleIterator* iter,
                                               param_type* p) {
   uint16 size;
   if (!ReadParam(m, iter, &size))
@@ -118,7 +164,7 @@ bool ParamTraits<PP_NetAddress_Private>::Read(const Message* m,
   p->size = size;
 
   const char* data;
-  if (!m->ReadBytes(iter, &data, size))
+  if (!iter->ReadBytes(&data, size))
     return false;
   memcpy(p->data, data, size);
   return true;
@@ -143,7 +189,7 @@ void ParamTraits<ppapi::HostResource>::Write(Message* m,
 
 // static
 bool ParamTraits<ppapi::HostResource>::Read(const Message* m,
-                                            PickleIterator* iter,
+                                            base::PickleIterator* iter,
                                             param_type* r) {
   PP_Instance instance;
   PP_Resource resource;
@@ -169,7 +215,7 @@ void ParamTraits<ppapi::proxy::SerializedVar>::Write(Message* m,
 
 // static
 bool ParamTraits<ppapi::proxy::SerializedVar>::Read(const Message* m,
-                                                    PickleIterator* iter,
+                                                    base::PickleIterator* iter,
                                                     param_type* r) {
   return r->ReadFromMessage(m, iter);
 }
@@ -188,9 +234,9 @@ void ParamTraits< std::vector<ppapi::proxy::SerializedVar> >::Write(
 }
 
 // static
-bool ParamTraits< std::vector<ppapi::proxy::SerializedVar> >::Read(
+bool ParamTraits<std::vector<ppapi::proxy::SerializedVar>>::Read(
     const Message* m,
-    PickleIterator* iter,
+    base::PickleIterator* iter,
     param_type* r) {
   return ReadVectorWithoutCopy(m, iter, r);
 }
@@ -210,7 +256,7 @@ void ParamTraits<ppapi::PpapiPermissions>::Write(Message* m,
 
 // static
 bool ParamTraits<ppapi::PpapiPermissions>::Read(const Message* m,
-                                                PickleIterator* iter,
+                                                base::PickleIterator* iter,
                                                 param_type* r) {
   uint32_t bits;
   if (!ParamTraits<uint32_t>::Read(m, iter, &bits))
@@ -245,9 +291,10 @@ void ParamTraits<ppapi::proxy::SerializedHandle>::Write(Message* m,
 }
 
 // static
-bool ParamTraits<ppapi::proxy::SerializedHandle>::Read(const Message* m,
-                                                       PickleIterator* iter,
-                                                       param_type* r) {
+bool ParamTraits<ppapi::proxy::SerializedHandle>::Read(
+    const Message* m,
+    base::PickleIterator* iter,
+    param_type* r) {
   ppapi::proxy::SerializedHandle::Header header;
   if (!ppapi::proxy::SerializedHandle::ReadHeader(iter, &header))
     return false;
@@ -305,7 +352,7 @@ void ParamTraits<ppapi::proxy::PPBURLLoader_UpdateProgress_Params>::Write(
 // static
 bool ParamTraits<ppapi::proxy::PPBURLLoader_UpdateProgress_Params>::Read(
     const Message* m,
-    PickleIterator* iter,
+    base::PickleIterator* iter,
     param_type* r) {
   return
       ParamTraits<PP_Instance>::Read(m, iter, &r->instance) &&
@@ -351,7 +398,7 @@ void ParamTraits<ppapi::proxy::PPBFlash_DrawGlyphs_Params>::Write(
 // static
 bool ParamTraits<ppapi::proxy::PPBFlash_DrawGlyphs_Params>::Read(
     const Message* m,
-    PickleIterator* iter,
+    base::PickleIterator* iter,
     param_type* r) {
   return
       ParamTraits<PP_Instance>::Read(m, iter, &r->instance) &&
@@ -392,9 +439,10 @@ void ParamTraits<ppapi::proxy::SerializedDirEntry>::Write(Message* m,
 }
 
 // static
-bool ParamTraits<ppapi::proxy::SerializedDirEntry>::Read(const Message* m,
-                                                         PickleIterator* iter,
-                                                         param_type* r) {
+bool ParamTraits<ppapi::proxy::SerializedDirEntry>::Read(
+    const Message* m,
+    base::PickleIterator* iter,
+    param_type* r) {
   return ParamTraits<std::string>::Read(m, iter, &r->name) &&
          ParamTraits<bool>::Read(m, iter, &r->is_dir);
 }
@@ -423,7 +471,7 @@ void ParamTraits<ppapi::proxy::SerializedFontDescription>::Write(
 // static
 bool ParamTraits<ppapi::proxy::SerializedFontDescription>::Read(
     const Message* m,
-    PickleIterator* iter,
+    base::PickleIterator* iter,
     param_type* r) {
   return
       ParamTraits<std::string>::Read(m, iter, &r->face) &&
@@ -460,7 +508,7 @@ void ParamTraits<ppapi::proxy::SerializedTrueTypeFontDesc>::Write(
 // static
 bool ParamTraits<ppapi::proxy::SerializedTrueTypeFontDesc>::Read(
     const Message* m,
-    PickleIterator* iter,
+    base::PickleIterator* iter,
     param_type* r) {
   return
       ParamTraits<std::string>::Read(m, iter, &r->family) &&
@@ -490,7 +538,7 @@ void ParamTraits<ppapi::PepperFilePath>::Write(Message* m,
 
 // static
 bool ParamTraits<ppapi::PepperFilePath>::Read(const Message* m,
-                                              PickleIterator* iter,
+                                              base::PickleIterator* iter,
                                               param_type* p) {
   unsigned domain;
   base::FilePath path;
@@ -524,9 +572,10 @@ void ParamTraits<ppapi::proxy::SerializedFlashMenu>::Write(
 }
 
 // static
-bool ParamTraits<ppapi::proxy::SerializedFlashMenu>::Read(const Message* m,
-                                                          PickleIterator* iter,
-                                                          param_type* r) {
+bool ParamTraits<ppapi::proxy::SerializedFlashMenu>::Read(
+    const Message* m,
+    base::PickleIterator* iter,
+    param_type* r) {
   return r->ReadFromMessage(m, iter);
 }
 
@@ -546,9 +595,10 @@ void ParamTraits<ppapi::PPB_X509Certificate_Fields>::Write(
 }
 
 // static
-bool ParamTraits<ppapi::PPB_X509Certificate_Fields>::Read(const Message* m,
-                                                          PickleIterator* iter,
-                                                          param_type* r) {
+bool ParamTraits<ppapi::PPB_X509Certificate_Fields>::Read(
+    const Message* m,
+    base::PickleIterator* iter,
+    param_type* r) {
   return ParamTraits<base::ListValue>::Read(m, iter, &(r->values_));
 }
 
@@ -594,7 +644,7 @@ void ParamTraits<ppapi::SocketOptionData>::Write(Message* m,
 
 // static
 bool ParamTraits<ppapi::SocketOptionData>::Read(const Message* m,
-                                                PickleIterator* iter,
+                                                base::PickleIterator* iter,
                                                 param_type* r) {
   *r = ppapi::SocketOptionData();
   int32_t type = 0;
@@ -646,7 +696,7 @@ void ParamTraits<ppapi::CompositorLayerData::Transform>::Write(
 // static
 bool ParamTraits<ppapi::CompositorLayerData::Transform>::Read(
     const Message* m,
-    PickleIterator* iter,
+    base::PickleIterator* iter,
     param_type* r) {
   for (size_t i = 0; i < arraysize(r->matrix);i++) {
     if (!ParamTraits<float>::Read(m, iter, &r->matrix[i]))

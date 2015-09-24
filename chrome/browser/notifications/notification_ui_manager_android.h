@@ -7,32 +7,43 @@
 
 #include <jni.h>
 #include <map>
-#include <set>
 #include <string>
 
 #include "base/android/scoped_java_ref.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 
-class ProfileNotification;
-
 // Implementation of the Notification UI Manager for Android, which defers to
 // the Android framework for displaying notifications.
+//
+// Android does not support getting the notifications currently shown by an
+// app without very intrusive permissions, which means that it's not possible
+// to provide reliable implementations for methods which have to iterate over
+// the existing notifications. Because of this, these have not been implemented.
+//
+// The UI manager implementation *is* reliable for adding and canceling single
+// notifications based on their delegate id. Finally, events for persistent Web
+// Notifications will be forwarded directly to the associated event handlers,
+// as such notifications may outlive the browser process on Android.
 class NotificationUIManagerAndroid : public NotificationUIManager {
  public:
   NotificationUIManagerAndroid();
   ~NotificationUIManagerAndroid() override;
 
-  // Called by the Java implementation when a notification has been clicked on.
-  void OnNotificationClicked(JNIEnv* env,
+  // Called by the Java implementation when the notification has been clicked.
+  bool OnNotificationClicked(JNIEnv* env,
                              jobject java_object,
-                             jstring notification_id);
+                             jlong persistent_notification_id,
+                             jstring java_origin,
+                             jstring java_tag);
 
-  // Called by the Java implementation when a notification has been closed.
-  void OnNotificationClosed(JNIEnv* env,
+  // Called by the Java implementation when the notification has been closed.
+  bool OnNotificationClosed(JNIEnv* env,
                             jobject java_object,
-                            jstring notification_id);
+                            jlong persistent_notification_id,
+                            jstring java_origin,
+                            jstring java_tag);
 
-  // NotificationUIManager implementation;
+  // NotificationUIManager implementation.
   void Add(const Notification& notification, Profile* profile) override;
   bool Update(const Notification& notification,
               Profile* profile) override;
@@ -40,9 +51,10 @@ class NotificationUIManagerAndroid : public NotificationUIManager {
                                ProfileID profile_id) const override;
   bool CancelById(const std::string& delegate_id,
                   ProfileID profile_id) override;
-  std::set<std::string> GetAllIdsByProfileAndSourceOrigin(Profile* profile,
-                                                          const GURL& source)
-      override;
+  std::set<std::string> GetAllIdsByProfileAndSourceOrigin(
+      ProfileID profile_id,
+      const GURL& source) override;
+  std::set<std::string> GetAllIdsByProfile(ProfileID profile_id) override;
   bool CancelAllBySourceOrigin(const GURL& source_origin) override;
   bool CancelAllByProfile(ProfileID profile_id) override;
   void CancelAll() override;
@@ -50,23 +62,17 @@ class NotificationUIManagerAndroid : public NotificationUIManager {
   static bool RegisterNotificationUIManager(JNIEnv* env);
 
  private:
-  // Closes the Notification as displayed on the Android system.
-  void PlatformCloseNotification(ProfileNotification* profile_notification);
+  // Pair containing the information necessary in order to enable closing
+  // notifications that were not created by this instance of the manager: the
+  // notification's origin and tag. This list may not contain the notifications
+  // that have not been interacted with since the last restart of Chrome.
+  using RegeneratedNotificationInfo = std::pair<std::string, std::string>;
 
-  // Helpers that add/remove the notification from local map.
-  // The local map takes ownership of profile_notification object.
-  void AddProfileNotification(ProfileNotification* profile_notification);
-  void RemoveProfileNotification(ProfileNotification* profile_notification);
-
-  // Returns the ProfileNotification for the |id|, or NULL if no such
-  // notification is found.
-  ProfileNotification* FindProfileNotification(const std::string& id) const;
-
-  // Map from a notification id to the associated ProfileNotification*.
-  std::map<std::string, ProfileNotification*> profile_notifications_;
-
-  // Map from notification id to the associated platform Id.
-  std::map<std::string, int> platform_notifications_;
+  // Mapping of a persistent notification id to renegerated notification info.
+  // TODO(peter): Remove this map once notification delegate ids for Web
+  // notifications are created by the content/ layer.
+  std::map<int64_t, RegeneratedNotificationInfo>
+      regenerated_notification_infos_;
 
   base::android::ScopedJavaGlobalRef<jobject> java_object_;
 

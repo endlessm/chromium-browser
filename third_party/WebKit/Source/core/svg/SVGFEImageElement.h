@@ -28,6 +28,7 @@
 #include "core/svg/SVGAnimatedPreserveAspectRatio.h"
 #include "core/svg/SVGFilterPrimitiveStandardAttributes.h"
 #include "core/svg/SVGURIReference.h"
+#include "platform/heap/Handle.h"
 
 namespace blink {
 
@@ -35,32 +36,35 @@ class SVGFEImageElement final : public SVGFilterPrimitiveStandardAttributes,
                                 public SVGURIReference,
                                 public ImageResourceClient {
     DEFINE_WRAPPERTYPEINFO();
+    WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(SVGFEImageElement);
 public:
     DECLARE_NODE_FACTORY(SVGFEImageElement);
 
     bool currentFrameHasSingleSecurityOrigin() const;
 
-    virtual ~SVGFEImageElement();
+    ~SVGFEImageElement() override;
     SVGAnimatedPreserveAspectRatio* preserveAspectRatio() { return m_preserveAspectRatio.get(); }
+
+    // Promptly remove as a ImageResource client.
+    EAGERLY_FINALIZE();
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     explicit SVGFEImageElement(Document&);
 
-    bool isSupportedAttribute(const QualifiedName&);
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void svgAttributeChanged(const QualifiedName&) override;
-    virtual void notifyFinished(Resource*) override;
+    void svgAttributeChanged(const QualifiedName&) override;
+    void notifyFinished(Resource*) override;
 
-    virtual PassRefPtr<FilterEffect> build(SVGFilterBuilder*, Filter*) override;
+    PassRefPtrWillBeRawPtr<FilterEffect> build(SVGFilterBuilder*, Filter*) override;
 
     void clearResourceReferences();
     void fetchImageResource();
 
-    virtual void buildPendingResource() override;
-    virtual InsertionNotificationRequest insertedInto(ContainerNode*) override;
-    virtual void removedFrom(ContainerNode*) override;
+    void buildPendingResource() override;
+    InsertionNotificationRequest insertedInto(ContainerNode*) override;
+    void removedFrom(ContainerNode*) override;
 
-    RefPtr<SVGAnimatedPreserveAspectRatio> m_preserveAspectRatio;
+    RefPtrWillBeMember<SVGAnimatedPreserveAspectRatio> m_preserveAspectRatio;
 
     ResourcePtr<ImageResource> m_cachedImage;
 };

@@ -4,22 +4,23 @@
 
 #include "android_webview/browser/net/aw_network_delegate.h"
 
+#include "android_webview/browser/aw_contents_io_thread_client.h"
 #include "android_webview/browser/aw_cookie_access_policy.h"
 #include "base/android/build_info.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_auth_request_handler.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_protocol.h"
-#include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
+#include "content/public/browser/browser_thread.h"
+#include "content/public/browser/resource_request_info.h"
 #include "net/base/net_errors.h"
 #include "net/base/completion_callback.h"
+#include "net/http/http_response_headers.h"
 #include "net/proxy/proxy_info.h"
 #include "net/proxy/proxy_server.h"
 #include "net/url_request/url_request.h"
 
+using content::BrowserThread;
+
 namespace android_webview {
 
-AwNetworkDelegate::AwNetworkDelegate()
-    : data_reduction_proxy_params_(NULL),
-      data_reduction_proxy_auth_request_handler_(NULL) {
+AwNetworkDelegate::AwNetworkDelegate() {
 }
 
 AwNetworkDelegate::~AwNetworkDelegate() {
@@ -44,16 +45,6 @@ int AwNetworkDelegate::OnBeforeSendHeaders(
   return net::OK;
 }
 
-void AwNetworkDelegate::OnBeforeSendProxyHeaders(
-    net::URLRequest* request,
-    const net::ProxyInfo& proxy_info,
-    net::HttpRequestHeaders* headers) {
-  if (data_reduction_proxy_auth_request_handler_) {
-    data_reduction_proxy_auth_request_handler_->MaybeAddRequestHeader(
-        request, proxy_info.proxy_server(), headers);
-  }
-}
-
 void AwNetworkDelegate::OnSendHeaders(net::URLRequest* request,
                                       const net::HttpRequestHeaders& headers) {
 }
@@ -64,6 +55,17 @@ int AwNetworkDelegate::OnHeadersReceived(
     const net::HttpResponseHeaders* original_response_headers,
     scoped_refptr<net::HttpResponseHeaders>* override_response_headers,
     GURL* allowed_unsafe_redirect_url) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  int render_process_id, render_frame_id;
+  if (original_response_headers->response_code() >= 400 &&
+      content::ResourceRequestInfo::GetRenderFrameForRequest(
+          request, &render_process_id, &render_frame_id)) {
+    scoped_ptr<AwContentsIoThreadClient> io_thread_client =
+        AwContentsIoThreadClient::FromID(render_process_id, render_frame_id);
+    if (io_thread_client.get()) {
+      io_thread_client->OnReceivedHttpError(request, original_response_headers);
+    }
+  }
   return net::OK;
 }
 
@@ -113,17 +115,6 @@ bool AwNetworkDelegate::OnCanSetCookie(const net::URLRequest& request,
 bool AwNetworkDelegate::OnCanAccessFile(const net::URLRequest& request,
                                         const base::FilePath& path) const {
   return true;
-}
-
-bool AwNetworkDelegate::OnCanThrottleRequest(
-    const net::URLRequest& request) const {
-  return false;
-}
-
-int AwNetworkDelegate::OnBeforeSocketStreamConnect(
-    net::SocketStream* stream,
-    const net::CompletionCallback& callback) {
-  return net::OK;
 }
 
 }  // namespace android_webview

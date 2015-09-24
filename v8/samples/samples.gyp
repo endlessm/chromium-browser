@@ -40,6 +40,10 @@
     'include_dirs': [
       '..',
     ],
+    'defines': [
+      # TODO(jochen): Remove again after this is globally turned on.
+      'V8_IMMINENT_DEPRECATION_WARNINGS',
+    ],
     'conditions': [
       ['v8_enable_i18n_support==1', {
         'dependencies': [
@@ -62,16 +66,16 @@
       ],
     },
     {
+      'target_name': 'hello-world',
+      'sources': [
+        'hello-world.cc',
+      ],
+    },
+    {
       'target_name': 'process',
       'sources': [
         'process.cc',
       ],
     },
-    {
-      'target_name': 'lineprocessor',
-      'sources': [
-        'lineprocessor.cc',
-      ],
-    }
   ],
 }

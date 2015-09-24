@@ -1,15 +1,19 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../thirdparties/freetype/ft2build.h"
-#include "../thirdparties/freetype/freetype/freetype.h"
-#include "../thirdparties/freetype/freetype/ftoutln.h"
-#include "../thirdparties/freetype/freetype/ftmm.h"
-#include "../thirdparties/freetype/freetype/internal/ftobjs.h"
-#include "../thirdparties/freetype/freetype/tttables.h"
+#ifndef CORE_INCLUDE_FXGE_FX_FREETYPE_H_
+#define CORE_INCLUDE_FXGE_FX_FREETYPE_H_
+
+#include <ft2build.h>
+#include <freetype.h>
+#include <ftglyph.h>
+#include <ftlcdfil.h>
+#include <ftmm.h>
+#include <ftoutln.h>
+#include <tttables.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -111,8 +115,6 @@ typedef FT_CharMap		FXFT_CharMap;
 #define FXFT_Get_MM_Axis_Min(axis) ((FT_Var_Axis*)axis)->minimum
 #define FXFT_Get_MM_Axis_Max(axis) ((FT_Var_Axis*)axis)->maximum
 #define FXFT_Get_MM_Axis_Def(axis) ((FT_Var_Axis*)axis)->def
-#define FXFT_Get_Face_Internal_Flag(face) ((FT_Face)face)->internal->transform_flags
-#define FXFT_Set_Face_Internal_Flag(face, flag) (((FT_Face)face)->internal->transform_flags = flag)
 #define FXFT_Alloc(library, size) ((FT_Library)library)->memory->alloc(((FT_Library)library)->memory, size)
 #define FXFT_Free(face, p) ((FT_Face)face)->memory->free(((FT_Face)face)->memory, p)
 #define FXFT_Get_Glyph_Outline(face) &((FT_Face)face)->glyph->outline
@@ -137,8 +139,10 @@ typedef FT_CharMap		FXFT_CharMap;
 #define FXFT_Glyph_Get_CBox(glyph, bbox_mode, acbox) FT_Glyph_Get_CBox(glyph, bbox_mode, acbox)
 #define FXFT_Done_Glyph(glyph)	FT_Done_Glyph(glyph)
 #define FXFT_Library_SetLcdFilter(library, filter) FT_Library_SetLcdFilter((FT_Library)(library), filter)
-int FXFT_unicode_from_adobe_name(const char* name);
-void FXFT_adobe_name_from_unicode(char* name, unsigned int unicode);
+int FXFT_unicode_from_adobe_name(const char*  glyph_name);
+void FXFT_adobe_name_from_unicode(char* name, wchar_t unicode);
 #ifdef __cplusplus
 };
 #endif
+
+#endif  // CORE_INCLUDE_FXGE_FX_FREETYPE_H_

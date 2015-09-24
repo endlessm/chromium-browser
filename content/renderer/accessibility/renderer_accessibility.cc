@@ -7,8 +7,10 @@
 #include <queue>
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/renderer/accessibility/blink_ax_enum_conversion.h"
 #include "content/renderer/render_frame_impl.h"
 #include "content/renderer/render_view_impl.h"
@@ -25,10 +27,34 @@ using blink::WebLocalFrame;
 using blink::WebNode;
 using blink::WebPoint;
 using blink::WebRect;
+using blink::WebScopedAXContext;
 using blink::WebSettings;
 using blink::WebView;
 
 namespace content {
+
+// Cap the number of nodes returned in an accessibility
+// tree snapshot to avoid outrageous memory or bandwidth
+// usage.
+const size_t kMaxSnapshotNodeCount = 5000;
+
+// static
+void RendererAccessibility::SnapshotAccessibilityTree(
+    RenderFrameImpl* render_frame,
+    ui::AXTreeUpdate* response) {
+  DCHECK(render_frame);
+  DCHECK(response);
+  if (!render_frame->GetWebFrame())
+    return;
+
+  WebDocument document = render_frame->GetWebFrame()->document();
+  WebScopedAXContext context(document);
+  BlinkAXTreeSource tree_source(render_frame);
+  tree_source.SetRoot(context.root());
+  ui::AXTreeSerializer<blink::WebAXObject> serializer(&tree_source);
+  serializer.set_max_node_count(kMaxSnapshotNodeCount);
+  serializer.SerializeChanges(context.root(), response);
+}
 
 RendererAccessibility::RendererAccessibility(RenderFrameImpl* render_frame)
     : RenderFrameObserver(render_frame),
@@ -74,8 +100,10 @@ bool RendererAccessibility::OnMessageReceived(const IPC::Message& message) {
     IPC_MESSAGE_HANDLER(AccessibilityMsg_ScrollToMakeVisible,
                         OnScrollToMakeVisible)
     IPC_MESSAGE_HANDLER(AccessibilityMsg_ScrollToPoint, OnScrollToPoint)
+    IPC_MESSAGE_HANDLER(AccessibilityMsg_SetScrollOffset, OnSetScrollOffset)
     IPC_MESSAGE_HANDLER(AccessibilityMsg_SetTextSelection, OnSetTextSelection)
     IPC_MESSAGE_HANDLER(AccessibilityMsg_SetValue, OnSetValue)
+    IPC_MESSAGE_HANDLER(AccessibilityMsg_ShowContextMenu, OnShowContextMenu)
     IPC_MESSAGE_HANDLER(AccessibilityMsg_HitTest, OnHitTest)
     IPC_MESSAGE_HANDLER(AccessibilityMsg_SetAccessibilityFocus,
                         OnSetAccessibilityFocus)
@@ -108,7 +136,8 @@ void RendererAccessibility::HandleAccessibilityFindInPageResult(
   Send(new AccessibilityHostMsg_FindInPageResult(routing_id(), params));
 }
 
-void RendererAccessibility::FocusedNodeChanged(const WebNode& node) {
+void RendererAccessibility::AccessibilityFocusedNodeChanged(
+    const WebNode& node) {
   const WebDocument& document = GetMainDocument();
   if (document.isNull())
     return;
@@ -174,7 +203,7 @@ void RendererAccessibility::HandleAXEvent(
     // When no accessibility events are in-flight post a task to send
     // the events to the browser. We use PostTask so that we can queue
     // up additional events.
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(&RendererAccessibility::SendPendingAccessibilityEvents,
                    weak_factory_.GetWeakPtr()));
@@ -234,13 +263,6 @@ void RendererAccessibility::SendPendingAccessibilityEvents() {
     if (!tree_source_.IsInTree(obj))
       continue;
 
-    // When we get a "selected children changed" event, Blink
-    // doesn't also send us events for each child that changed
-    // selection state, so make sure we re-send that whole subtree.
-    if (event.event_type == ui::AX_EVENT_SELECTED_CHILDREN_CHANGED) {
-      serializer_.DeleteClientSubtree(obj);
-    }
-
     AccessibilityHostMsg_EventParams event_msg;
     tree_source_.CollectChildFrameIdMapping(
         &event_msg.node_to_frame_routing_id_map,
@@ -257,9 +279,9 @@ void RendererAccessibility::SendPendingAccessibilityEvents() {
           event_msg.update.nodes[i].location;
     }
 
-    VLOG(0) << "Accessibility event: " << ui::ToString(event.event_type)
-            << " on node id " << event_msg.id
-            << "\n" << event_msg.update.ToString();
+    DVLOG(0) << "Accessibility event: " << ui::ToString(event.event_type)
+             << " on node id " << event_msg.id
+             << "\n" << event_msg.update.ToString();
   }
 
   Send(new AccessibilityHostMsg_Events(routing_id(), event_msgs, reset_token_));
@@ -375,8 +397,13 @@ void RendererAccessibility::OnReset(int reset_token) {
   pending_events_.clear();
 
   const WebDocument& document = GetMainDocument();
-  if (!document.isNull())
-    HandleAXEvent(document.accessibilityObject(), ui::AX_EVENT_LAYOUT_COMPLETE);
+  if (!document.isNull()) {
+    // Tree-only mode gets used by the automation extension API which requires a
+    // load complete event to invoke listener callbacks.
+    ui::AXEvent evt = document.accessibilityObject().isLoaded()
+        ? ui::AX_EVENT_LOAD_COMPLETE : ui::AX_EVENT_LAYOUT_COMPLETE;
+    HandleAXEvent(document.accessibilityObject(), evt);
+  }
 }
 
 void RendererAccessibility::OnScrollToMakeVisible(
@@ -423,6 +450,19 @@ void RendererAccessibility::OnScrollToPoint(int acc_obj_id, gfx::Point point) {
   // TODO(dmazzoni): remove this once this bug is fixed:
   // https://bugs.webkit.org/show_bug.cgi?id=73460
   HandleAXEvent(document.accessibilityObject(), ui::AX_EVENT_LAYOUT_COMPLETE);
+}
+
+void RendererAccessibility::OnSetScrollOffset(int acc_obj_id,
+                                              gfx::Point offset) {
+  const WebDocument& document = GetMainDocument();
+  if (document.isNull())
+    return;
+
+  WebAXObject obj = document.accessibilityObjectFromID(acc_obj_id);
+  if (obj.isDetached())
+    return;
+
+  obj.setScrollOffset(WebPoint(offset.x(), offset.y()));
 }
 
 void RendererAccessibility::OnSetFocus(int acc_obj_id) {
@@ -489,6 +529,22 @@ void RendererAccessibility::OnSetValue(
 
   obj.setValue(value);
   HandleAXEvent(obj, ui::AX_EVENT_VALUE_CHANGED);
+}
+
+void RendererAccessibility::OnShowContextMenu(int acc_obj_id) {
+  const WebDocument& document = GetMainDocument();
+  if (document.isNull())
+    return;
+
+  WebAXObject obj = document.accessibilityObjectFromID(acc_obj_id);
+  if (obj.isDetached()) {
+#ifndef NDEBUG
+    LOG(WARNING) << "ShowContextMenu on invalid object id " << acc_obj_id;
+#endif
+    return;
+  }
+
+  obj.showContextMenu();
 }
 
 }  // namespace content

@@ -17,10 +17,13 @@
 #include "base/prefs/pref_service.h"
 #include "base/prefs/pref_service_factory.h"
 #include "components/autofill/core/browser/autofill_popup_delegate.h"
+#include "components/autofill/core/browser/suggestion.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
 #include "components/autofill/core/common/autofill_pref_names.h"
 #include "components/user_prefs/user_prefs.h"
+#include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/ssl_status.h"
 #include "jni/AwAutofillClient_jni.h"
 
 using base::android::AttachCurrentThread;
@@ -65,8 +68,16 @@ PrefService* AwAutofillClient::GetPrefs() {
       AwContentBrowserClient::GetAwBrowserContext());
 }
 
+IdentityProvider* AwAutofillClient::GetIdentityProvider() {
+  return nullptr;
+}
+
+rappor::RapporService* AwAutofillClient::GetRapporService() {
+  return nullptr;
+}
+
 autofill::PersonalDataManager* AwAutofillClient::GetPersonalDataManager() {
-  return NULL;
+  return nullptr;
 }
 
 scoped_refptr<autofill::AutofillWebDataService>
@@ -80,13 +91,9 @@ AwAutofillClient::GetDatabase() {
 void AwAutofillClient::ShowAutofillPopup(
     const gfx::RectF& element_bounds,
     base::i18n::TextDirection text_direction,
-    const std::vector<base::string16>& values,
-    const std::vector<base::string16>& labels,
-    const std::vector<base::string16>& icons,
-    const std::vector<int>& identifiers,
+    const std::vector<autofill::Suggestion>& suggestions,
     base::WeakPtr<autofill::AutofillPopupDelegate> delegate) {
-  values_ = values;
-  identifiers_ = identifiers;
+  suggestions_ = suggestions;
   delegate_ = delegate;
 
   // Convert element_bounds to be in screen space.
@@ -96,34 +103,32 @@ void AwAutofillClient::ShowAutofillPopup(
 
   ShowAutofillPopupImpl(element_bounds_in_screen_space,
                         text_direction == base::i18n::RIGHT_TO_LEFT,
-                        values,
-                        labels,
-                        identifiers);
+                        suggestions);
 }
 
 void AwAutofillClient::ShowAutofillPopupImpl(
     const gfx::RectF& element_bounds,
     bool is_rtl,
-    const std::vector<base::string16>& values,
-    const std::vector<base::string16>& labels,
-    const std::vector<int>& identifiers) {
+    const std::vector<autofill::Suggestion>& suggestions) {
   JNIEnv* env = AttachCurrentThread();
   ScopedJavaLocalRef<jobject> obj = java_ref_.get(env);
   if (obj.is_null())
     return;
 
   // We need an array of AutofillSuggestion.
-  size_t count = values.size();
+  size_t count = suggestions.size();
 
   ScopedJavaLocalRef<jobjectArray> data_array =
       Java_AwAutofillClient_createAutofillSuggestionArray(env, count);
 
   for (size_t i = 0; i < count; ++i) {
-    ScopedJavaLocalRef<jstring> name = ConvertUTF16ToJavaString(env, values[i]);
+    ScopedJavaLocalRef<jstring> name =
+        ConvertUTF16ToJavaString(env, suggestions[i].value);
     ScopedJavaLocalRef<jstring> label =
-        ConvertUTF16ToJavaString(env, labels[i]);
+        ConvertUTF16ToJavaString(env, suggestions[i].label);
     Java_AwAutofillClient_addToAutofillSuggestionArray(
-        env, data_array.obj(), i, name.obj(), label.obj(), identifiers[i]);
+        env, data_array.obj(), i, name.obj(), label.obj(),
+        suggestions[i].frontend_id);
   }
 
   Java_AwAutofillClient_showAutofillPopup(env,
@@ -157,8 +162,10 @@ bool AwAutofillClient::IsAutocompleteEnabled() {
   return GetSaveFormData();
 }
 
-void AwAutofillClient::DetectAccountCreationForms(
+void AwAutofillClient::PropagateAutofillPredictions(
+    content::RenderFrameHost* rfh,
     const std::vector<autofill::FormStructure*>& forms) {
+
 }
 
 void AwAutofillClient::DidFillOrPreviewField(
@@ -166,11 +173,39 @@ void AwAutofillClient::DidFillOrPreviewField(
     const base::string16& profile_full_name) {
 }
 
+void AwAutofillClient::OnFirstUserGestureObserved() {
+  NOTIMPLEMENTED();
+}
+
+void AwAutofillClient::LinkClicked(const GURL& url,
+                                   WindowOpenDisposition disposition) {
+  NOTIMPLEMENTED();
+}
+
+bool AwAutofillClient::IsContextSecure(const GURL& form_origin) {
+  content::SSLStatus ssl_status;
+  content::NavigationEntry* navigation_entry =
+      web_contents_->GetController().GetLastCommittedEntry();
+  if (!navigation_entry)
+     return false;
+
+  ssl_status = navigation_entry->GetSSL();
+  // Note: The implementation below is a copy of the one in
+  // ChromeAutofillClient::IsContextSecure, and should be kept in sync
+  // until crbug.com/505388 gets implemented.
+  return ssl_status.security_style ==
+      content::SECURITY_STYLE_AUTHENTICATED &&
+      ssl_status.content_status == content::SSLStatus::NORMAL_CONTENT;
+}
+
 void AwAutofillClient::SuggestionSelected(JNIEnv* env,
                                           jobject object,
                                           jint position) {
-  if (delegate_)
-    delegate_->DidAcceptSuggestion(values_[position], identifiers_[position]);
+  if (delegate_) {
+    delegate_->DidAcceptSuggestion(suggestions_[position].value,
+                                   suggestions_[position].frontend_id,
+                                   position);
+  }
 }
 
 void AwAutofillClient::HideRequestAutocompleteDialog() {
@@ -181,15 +216,32 @@ void AwAutofillClient::ShowAutofillSettings() {
   NOTIMPLEMENTED();
 }
 
+void AwAutofillClient::ShowUnmaskPrompt(
+    const autofill::CreditCard& card,
+    base::WeakPtr<autofill::CardUnmaskDelegate> delegate) {
+  NOTIMPLEMENTED();
+}
+
+void AwAutofillClient::OnUnmaskVerificationResult(GetRealPanResult result) {
+  NOTIMPLEMENTED();
+}
+
 void AwAutofillClient::ConfirmSaveCreditCard(
-    const autofill::AutofillMetrics& metric_logger,
     const base::Closure& save_card_callback) {
+  NOTIMPLEMENTED();
+}
+
+bool AwAutofillClient::HasCreditCardScanFeature() {
+  return false;
+}
+
+void AwAutofillClient::ScanCreditCard(const CreditCardScanCallback& callback) {
   NOTIMPLEMENTED();
 }
 
 void AwAutofillClient::ShowRequestAutocompleteDialog(
     const autofill::FormData& form,
-    const GURL& source_url,
+    content::RenderFrameHost* rfh,
     const ResultCallback& callback) {
   NOTIMPLEMENTED();
 }

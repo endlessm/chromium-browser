@@ -100,10 +100,12 @@ AttributedStringCoder::FontAttribute::FontAttribute()
 AttributedStringCoder::FontAttribute::~FontAttribute() {
 }
 
-NSDictionary* AttributedStringCoder::FontAttribute::ToAttributesDictionary(
-    void) const {
+NSDictionary*
+AttributedStringCoder::FontAttribute::ToAttributesDictionary() const {
   DCHECK(ShouldEncode());
   NSFont* font = font_descriptor_.ToNSFont();
+  if (!font)
+    return [NSDictionary dictionary];
   return [NSDictionary dictionaryWithObject:font forKey:NSFontAttributeName];
 }
 
@@ -126,7 +128,9 @@ void ParamTraits<AttributedStringCoder::EncodedString>::Write(
 }
 
 bool ParamTraits<AttributedStringCoder::EncodedString>::Read(
-    const Message* m, PickleIterator* iter, param_type* p) {
+    const Message* m,
+    base::PickleIterator* iter,
+    param_type* p) {
   bool success = true;
 
   base::string16 result;
@@ -149,7 +153,9 @@ void ParamTraits<AttributedStringCoder::FontAttribute>::Write(
 }
 
 bool ParamTraits<AttributedStringCoder::FontAttribute>::Read(
-    const Message* m, PickleIterator* iter, param_type* p) {
+    const Message* m,
+    base::PickleIterator* iter,
+    param_type* p) {
   bool success = true;
 
   FontDescriptor font;

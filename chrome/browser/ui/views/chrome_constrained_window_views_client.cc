@@ -4,29 +4,22 @@
 
 #include "chrome/browser/ui/views/chrome_constrained_window_views_client.h"
 
+#include "chrome/browser/platform_util.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "components/web_modal/web_contents_modal_dialog_host.h"
-#include "extensions/browser/guest_view/guest_view_base.h"
 
 namespace {
 
 class ChromeConstrainedWindowViewsClient
-    : public ConstrainedWindowViewsClient {
+    : public constrained_window::ConstrainedWindowViewsClient {
  public:
   ChromeConstrainedWindowViewsClient() {}
   ~ChromeConstrainedWindowViewsClient() override {}
 
  private:
   // ConstrainedWindowViewsClient:
-  content::WebContents* GetEmbedderWebContents(
-      content::WebContents* initiator_web_contents) override {
-    extensions::GuestViewBase* guest_view =
-        extensions::GuestViewBase::FromWebContents(initiator_web_contents);
-    return guest_view && guest_view->embedder_web_contents() ?
-        guest_view->embedder_web_contents() : initiator_web_contents;
-  }
   web_modal::ModalDialogHost* GetModalDialogHost(
-      gfx::NativeView parent) override {
+      gfx::NativeWindow parent) override {
     // Get the browser dialog management and hosting components from |parent|.
     Browser* browser = chrome::FindBrowserWithWindow(parent);
     if (browser) {
@@ -35,13 +28,16 @@ class ChromeConstrainedWindowViewsClient
     }
     return nullptr;
   }
+  gfx::NativeView GetDialogHostView(gfx::NativeWindow parent) override {
+    return platform_util::GetViewForWindow(parent);
+  }
 
   DISALLOW_COPY_AND_ASSIGN(ChromeConstrainedWindowViewsClient);
 };
 
 }  // namespace
 
-scoped_ptr<ConstrainedWindowViewsClient>
+scoped_ptr<constrained_window::ConstrainedWindowViewsClient>
 CreateChromeConstrainedWindowViewsClient() {
   return make_scoped_ptr(new ChromeConstrainedWindowViewsClient);
 }

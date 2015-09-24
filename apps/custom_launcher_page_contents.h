@@ -7,8 +7,6 @@
 
 #include "base/memory/scoped_ptr.h"
 #include "content/public/browser/web_contents_delegate.h"
-#include "content/public/browser/web_contents_observer.h"
-#include "extensions/browser/extension_function_dispatcher.h"
 
 class GURL;
 
@@ -27,10 +25,7 @@ namespace apps {
 // implementation for this class should create and maintain the WebContents for
 // the page, and handle any message passing between the web contents and the
 // extension system.
-class CustomLauncherPageContents
-    : public content::WebContentsDelegate,
-      public content::WebContentsObserver,
-      public extensions::ExtensionFunctionDispatcher::Delegate {
+class CustomLauncherPageContents : public content::WebContentsDelegate {
  public:
   CustomLauncherPageContents(scoped_ptr<extensions::AppDelegate> app_delegate,
                              const std::string& extension_id);
@@ -48,11 +43,11 @@ class CustomLauncherPageContents
   void AddNewContents(content::WebContents* source,
                       content::WebContents* new_contents,
                       WindowOpenDisposition disposition,
-                      const gfx::Rect& initial_pos,
+                      const gfx::Rect& initial_rect,
                       bool user_gesture,
                       bool* was_blocked) override;
   bool IsPopupOrPanel(const content::WebContents* source) const override;
-  bool ShouldSuppressDialogs() override;
+  bool ShouldSuppressDialogs(content::WebContents* source) override;
   bool PreHandleGestureEvent(content::WebContents* source,
                              const blink::WebGestureEvent& event) override;
   content::ColorChooser* OpenColorChooser(
@@ -73,18 +68,7 @@ class CustomLauncherPageContents
                                   content::MediaStreamType type) override;
 
  private:
-  // content::WebContentsObserver overrides:
-  bool OnMessageReceived(const IPC::Message& message) override;
-
-  // extensions::ExtensionFunctionDispatcher::Delegate overrides:
-  extensions::WindowController* GetExtensionWindowController() const override;
-  content::WebContents* GetAssociatedWebContents() const override;
-
-  void OnRequest(const ExtensionHostMsg_Request_Params& params);
-
   scoped_ptr<content::WebContents> web_contents_;
-  scoped_ptr<extensions::ExtensionFunctionDispatcher>
-      extension_function_dispatcher_;
   scoped_ptr<extensions::AppDelegate> app_delegate_;
   scoped_ptr<extensions::AppWebContentsHelper> helper_;
 

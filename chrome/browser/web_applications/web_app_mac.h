@@ -11,6 +11,7 @@
 #include "base/basictypes.h"
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "extensions/common/manifest_handlers/file_handler_info.h"
 
@@ -30,10 +31,16 @@ namespace web_app {
 base::FilePath GetAppInstallPath(const ShortcutInfo& shortcut_info);
 
 // If necessary, launch the shortcut for an app.
-void MaybeLaunchShortcut(const ShortcutInfo& shortcut_info);
+void MaybeLaunchShortcut(scoped_ptr<ShortcutInfo> shortcut_info);
 
 // Rebuild the shortcut and relaunch it.
 bool MaybeRebuildShortcut(const base::CommandLine& command_line);
+
+// Reveals app shim in Finder given a profile and app.
+// Calls RevealAppShimInFinderForAppOnFileThread and schedules it
+// on the FILE thread.
+void RevealAppShimInFinderForApp(Profile* profile,
+                                 const extensions::Extension* app);
 
 // Creates a shortcut for a web application. The shortcut is a stub app
 // that simply loads the browser framework and runs the given app.
@@ -42,8 +49,10 @@ class WebAppShortcutCreator {
   // Creates a new shortcut based on information in |shortcut_info|.
   // A copy of the shortcut is placed in |app_data_dir|.
   // |chrome_bundle_id| is the CFBundleIdentifier of the Chrome browser bundle.
+  // Retains the pointer |shortcut_info|; the ShortcutInfo object must outlive
+  // the WebAppShortcutCreator.
   WebAppShortcutCreator(const base::FilePath& app_data_dir,
-                        const ShortcutInfo& shortcut_info,
+                        const ShortcutInfo* shortcut_info,
                         const extensions::FileHandlersInfo& file_handlers_info);
 
   virtual ~WebAppShortcutCreator();
@@ -66,14 +75,14 @@ class WebAppShortcutCreator {
   void DeleteShortcuts();
   bool UpdateShortcuts();
 
+  // Show the bundle we just generated in the Finder.
+  virtual void RevealAppShimInFinder() const;
+
  protected:
   // Returns a path to an app bundle with the given id. Or an empty path if no
   // matching bundle was found.
   // Protected and virtual so it can be mocked out for testing.
   virtual base::FilePath GetAppBundleById(const std::string& bundle_id) const;
-
-  // Show the bundle we just generated in the Finder.
-  virtual void RevealAppShimInFinder() const;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(WebAppShortcutCreatorTest, DeleteShortcuts);
@@ -111,8 +120,8 @@ class WebAppShortcutCreator {
   // ~/Library/Application Support/Chromium/Default/Web Applications/_crx_abc/
   base::FilePath app_data_dir_;
 
-  // Information about the app.
-  ShortcutInfo info_;
+  // Information about the app. Owned by the caller of the constructor.
+  const ShortcutInfo* info_;
 
   // The app's file handlers.
   extensions::FileHandlersInfo file_handlers_info_;

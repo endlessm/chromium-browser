@@ -201,6 +201,11 @@ standardize Portable Native Client when it gains more traction. A good
 example is our :doc:`PNaCl bitcode reference manual
 <reference/pnacl-bitcode-abi>`.
 
+How can I contribute to Native Client?
+--------------------------------------
+
+Read about :doc:`contributor ideas <reference/ideas>`.
+
 What are the supported instruction set architectures?
 -----------------------------------------------------
 
@@ -233,10 +238,16 @@ Native Client. Moreover, there are several ongoing projects to support
 additional language runtimes (e.g. `naclports supports Lua, Python and Ruby`_)
 as well as to compile more languages to LLVM's intermediate representation
 (e.g. support Halide_, Haskell with GHC_ or support Fortran with flang_), or
-transpile languages to C/C++ (source-to-source compilation).
+transpile languages to C/C++ (source-to-source compilation). Even JavaScript is
+supported by compiling V8_ to target PNaCl.
+
+The PNaCl toolchain is built on LLVM and can therefore generate code from
+languages such as Rust_, Go_, or Objective-C, but there may still be a few rough
+edges.
 
 If you're interested in getting other languages working, please contact the
-Native Client team by way of the native-client-discuss_ mailing list.
+Native Client team by way of the native-client-discuss_ mailing list, and read
+through :doc:`contributor ideas <reference/ideas>`.
 
 Do you only support Chrome? What about other browsers?
 ------------------------------------------------------
@@ -266,11 +277,11 @@ NPAPI is not supported by the Native Client SDK, and is `deprecated in Chrome`_.
 Does Native Client support SIMD vector instructions?
 ----------------------------------------------------
 
-Native Client currently supports SSE on x86 and NEON on ARM. Support for
-AVX on x86 is under way.
-
 Portable Native Client supports portable SIMD vectors, as detailed in
 :ref:`Portable SIMD Vectors <portable_simd_vectors>`.
+
+Native Client supports SSE, AVX1, FMA3 and AVX2 (except for `VGATHER`) on x86
+and NEON on ARM.
 
 Can I use Native Client for 3D graphics?
 ----------------------------------------
@@ -445,7 +456,9 @@ Is my favorite third-party library available for Native Client?
 Google has ported several third-party libraries to Native Client; such libraries
 are available in the naclports_ project. We encourage you to contribute
 libraries to naclports, and/or to host your own ported libraries, and to let the
-team know about it on native-client-discuss_ when you do.
+team know about it on native-client-discuss_ when you do. You can also read
+through :doc:`contributor ideas <reference/ideas>` to find ideas of new projects
+to port.
 
 Do all the files in an application need to be served from the same domain?
 --------------------------------------------------------------------------
@@ -488,21 +501,28 @@ source change.
 
 The following kinds of code may be more challenging to port:
 
-* Code that does direct TCP/IP or UDP networking. For security reasons
-  these APIs are only available to packaged applications, not on the
-  open web, after asking for the appropriate permissions. Native Client
-  is otherwise restricted to the networking APIs available in the
-  browser.
-* Code that creates processes, including UNIX forks. Creating processes
-  is not supported for security reasons. However, threads are supported.
-* Code that needs to do local file I/O. Native Client is restricted to
-  accessing URLs and to local storage in the browser (the Pepper file I/O API
-  has access to the same per-application storage that JavaScript has via Local
-  Storage). HTML5 File System can be used, among others. For POSIX compatabiliy
-  the Native Client SDK includes a library called nacl_io which allows the
-  application to interact with all these types of files via standard POSIX I/O
-  functions (e.g. open/fopen/read/write/...). See :doc:`Using NaCl I/O
-  <devguide/coding/nacl_io>` for more details.
+* Code that does direct `TCP <pepper_stable/cpp/classpp_1_1_t_c_p_socket>`_ or
+  `UDP <pepper_stable/cpp/classpp_1_1_u_d_p_socket>`_ networking. For security
+  reasons these APIs are only available to `Chrome apps </apps>`_ after asking
+  for the appropriate permissions, not on the open web. Native Client is
+  otherwise restricted to the networking APIs available in the browser. You may
+  want to use to `nacl_io library <nacl_io>`_ to use POSIX-like sockets.
+* Code that creates processes, including UNIX ``fork``, won't function
+  as-is. However, threads are supported. You can nonetheless create new
+  ``<embed>`` tags in your HTML page to launch new PNaCl processes. You can even
+  use new ``.pexe`` files that your existing ``.pexe`` saved in a local
+  filesystem. This is somewhat akin to ``execve``, but the process management
+  has to go through ``postMessage`` to JavaScript in order to create the new
+  ``<embed>``.
+* Code that needs to do local file I/O. Native Client is restricted to accessing
+  URLs and to local storage in the browser (the Pepper :doc:`File IO API
+  <devguide/coding/file-io>` has access to the same per-application storage that
+  JavaScript has via Local Storage). HTML5 File System can be used, among
+  others. For POSIX compatabiliy the Native Client SDK includes a library called
+  nacl_io which allows the application to interact with all these types of files
+  via standard POSIX I/O functions (e.g. ``open`` / ``fopen`` / ``read`` /
+  ``write`` / ...). See :doc:`Using NaCl I/O <devguide/coding/nacl_io>` for more
+  details.
 
 .. _faq_troubleshooting:
 
@@ -513,10 +533,11 @@ My ``.pexe`` isn't loading, help!
 ---------------------------------
 
 * You must use Google Chrome version 31 or greater for Portable Native
-  Client. Please `upgrade now <http://www.google.com/chrome/>`_ if you are
-  not. If you're already using a recent version,  open ``about:components`` and
-  "Check for update" for PNaCl. Find your version of chrome by openning 
-  ``about:chrome``.
+  Client. Find your version of chrome by opening ``about:chrome``, and `update
+  Chrome <http://www.google.com/chrome/>`_ if you are on an older version. If
+  you're already using a recent version, open ``about:components`` and "Check
+  for update" for PNaCl. Note that on ChromeOS PNaCl is always up to date,
+  whereas on other operating systems it updates shortly after Chrome updates.
 * A PNaCl ``.pexe`` must be compiled with pepper_31 SDK or higher. :ref:`Update
   your bundles <updating-bundles>` and make sure you're using a version of
   Chrome that matches the SDK version. 
@@ -570,6 +591,9 @@ Here are ways to resolve some common problems that can prevent loading:
 .. _Halide: http://halide-lang.org/
 .. _GHC: http://www.haskell.org/ghc/docs/latest/html/users_guide/code-generators.html
 .. _flang: https://flang-gsoc.blogspot.ie/2013/09/end-of-gsoc-report.html
+.. _V8: https://code.google.com/p/v8/
+.. _Rust: http://www.rust-lang.org/
+.. _Go: https://golang.org
 .. _native-client-discuss: https://groups.google.com/group/native-client-discuss
 .. _deprecated in Chrome: http://blog.chromium.org/2013/09/saying-goodbye-to-our-old-friend-npapi.html
 .. _OpenGL ES 2.0: https://www.khronos.org/opengles/

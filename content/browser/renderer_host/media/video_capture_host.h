@@ -33,7 +33,7 @@
 //      |                                        |
 //      |             ... (resolution change)    |
 //      | < VideoCaptureMsg_FreeBuffer(1)        |  Buffers are re-allocated
-//      | < VideoCaptureMsg_NewBuffer(4)         |  at a larger size, as
+//      | < VideoCaptureMsg_NewBuffer(4)         |  with a larger size, as
 //      | < VideoCaptureMsg_BufferReady(4)       |  needed.
 //      | VideoCaptureHostMsg_BufferReady(2) >   |
 //      | < VideoCaptureMsg_FreeBuffer(2)        |
@@ -57,6 +57,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/sequenced_task_runner_helpers.h"
 #include "content/browser/renderer_host/media/video_capture_controller.h"
+#include "content/browser/renderer_host/media/video_capture_controller_event_handler.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/browser_message_filter.h"
 #include "ipc/ipc_message.h"
@@ -76,24 +77,18 @@ class CONTENT_EXPORT VideoCaptureHost
   bool OnMessageReceived(const IPC::Message& message) override;
 
   // VideoCaptureControllerEventHandler implementation.
-  void OnError(const VideoCaptureControllerID& id) override;
-  void OnBufferCreated(const VideoCaptureControllerID& id,
+  void OnError(VideoCaptureControllerID id) override;
+  void OnBufferCreated(VideoCaptureControllerID id,
                        base::SharedMemoryHandle handle,
                        int length,
                        int buffer_id) override;
-  void OnBufferDestroyed(const VideoCaptureControllerID& id,
+  void OnBufferDestroyed(VideoCaptureControllerID id,
                          int buffer_id) override;
-  void OnBufferReady(const VideoCaptureControllerID& id,
+  void OnBufferReady(VideoCaptureControllerID id,
                      int buffer_id,
-                     const media::VideoCaptureFormat& format,
-                     const gfx::Rect& visible_rect,
-                     base::TimeTicks timestamp) override;
-  void OnMailboxBufferReady(const VideoCaptureControllerID& id,
-                            int buffer_id,
-                            const gpu::MailboxHolder& mailbox_holder,
-                            const media::VideoCaptureFormat& format,
-                            base::TimeTicks timestamp) override;
-  void OnEnded(const VideoCaptureControllerID& id) override;
+                     const scoped_refptr<media::VideoFrame>& frame,
+                     const base::TimeTicks& timestamp) override;
+  void OnEnded(VideoCaptureControllerID id) override;
 
  private:
   friend class BrowserThread;
@@ -101,19 +96,19 @@ class CONTENT_EXPORT VideoCaptureHost
   friend class MockVideoCaptureHost;
   friend class VideoCaptureHostTest;
 
+  void DoError(VideoCaptureControllerID id);
+  void DoEnded(VideoCaptureControllerID id);
+
   ~VideoCaptureHost() override;
 
   // IPC message: Start capture on the VideoCaptureDevice referenced by
-  // |session_id|. |device_id| is an id created by VideoCaptureMessageFilter
+  // |device_id|. |session_id| is an id created by VideoCaptureMessageFilter
   // to identify a session between a VideoCaptureMessageFilter and a
   // VideoCaptureHost.
   void OnStartCapture(int device_id,
                       media::VideoCaptureSessionId session_id,
                       const media::VideoCaptureParams& params);
   void OnControllerAdded(
-      int device_id,
-      const base::WeakPtr<VideoCaptureController>& controller);
-  void DoControllerAddedOnIOThread(
       int device_id,
       const base::WeakPtr<VideoCaptureController>& controller);
 
@@ -127,9 +122,12 @@ class CONTENT_EXPORT VideoCaptureHost
                        media::VideoCaptureSessionId session_id,
                        const media::VideoCaptureParams& params);
 
-  // IPC message: Receive an empty buffer from renderer. Send it to device
-  // referenced by |device_id|.
-  void OnReceiveEmptyBuffer(int device_id, int buffer_id, uint32 sync_point);
+  // IPC message: Called when a renderer is finished using a buffer. Notifies
+  // the controller.
+  void OnRendererFinishedWithBuffer(int device_id,
+                                    int buffer_id,
+                                    uint32 sync_point,
+                                    double consumer_resource_utilization);
 
   // IPC message: Get supported formats referenced by |capture_session_id|.
   // |device_id| is needed for message back-routing purposes.
@@ -140,51 +138,18 @@ class CONTENT_EXPORT VideoCaptureHost
   // IPC message: Get a device's currently in use format(s), referenced by
   // |capture_session_id|. |device_id| is needed for message back-routing
   // purposes.
-  void OnGetDeviceFormatsInUse(
-      int device_id,
-      media::VideoCaptureSessionId capture_session_id);
-
-  // Sends a newly created buffer to the VideoCaptureMessageFilter.
-  void DoSendNewBufferOnIOThread(
-      const VideoCaptureControllerID& controller_id,
-      base::SharedMemoryHandle handle,
-      int length,
-      int buffer_id);
-
-  void DoSendFreeBufferOnIOThread(
-      const VideoCaptureControllerID& controller_id,
-      int buffer_id);
-
-  // Sends a filled buffer to the VideoCaptureMessageFilter.
-  void DoSendFilledBufferOnIOThread(
-      const VideoCaptureControllerID& controller_id,
-      int buffer_id,
-      const media::VideoCaptureFormat& format,
-      const gfx::Rect& visible_rect,
-      base::TimeTicks timestamp);
-
-  // Sends a filled texture mailbox buffer to the VideoCaptureMessageFilter.
-  void DoSendFilledMailboxBufferOnIOThread(
-      const VideoCaptureControllerID& controller_id,
-      int buffer_id,
-      const gpu::MailboxHolder& mailbox_holder,
-      const media::VideoCaptureFormat& format,
-      base::TimeTicks timestamp);
-
-  // Handles error coming from VideoCaptureDevice.
-  void DoHandleErrorOnIOThread(const VideoCaptureControllerID& controller_id);
-
-  void DoEndedOnIOThread(const VideoCaptureControllerID& controller_id);
+  void OnGetDeviceFormatsInUse(int device_id,
+                               media::VideoCaptureSessionId capture_session_id);
 
   // Deletes the controller and notifies the VideoCaptureManager. |on_error| is
   // true if this is triggered by VideoCaptureControllerEventHandler::OnError.
-  void DeleteVideoCaptureControllerOnIOThread(
-      const VideoCaptureControllerID& controller_id, bool on_error);
+  void DeleteVideoCaptureController(VideoCaptureControllerID controller_id,
+                                    bool on_error);
 
-  MediaStreamManager* media_stream_manager_;
+  MediaStreamManager* const media_stream_manager_;
 
   typedef std::map<VideoCaptureControllerID,
-                   base::WeakPtr<VideoCaptureController> > EntryMap;
+                   base::WeakPtr<VideoCaptureController>> EntryMap;
 
   // A map of VideoCaptureControllerID to the VideoCaptureController to which it
   // is connected. An entry in this map holds a null controller while it is in

@@ -5,28 +5,34 @@
 #include <string>
 
 #include "android_webview/common/url_constants.h"
-#include "android_webview/native/aw_assets.h"
 #include "android_webview/native/aw_media_url_interceptor.h"
+#include "base/android/apk_assets.h"
 #include "base/strings/string_util.h"
 #include "content/public/common/url_constants.h"
 
 namespace android_webview {
 
 bool AwMediaUrlInterceptor::Intercept(const std::string& url,
-              int* fd, int64* offset, int64* size) const{
-  const std::string asset_file_prefix(
-      std::string(url::kFileScheme) +
-      std::string(url::kStandardSchemeSeparator) +
-      android_webview::kAndroidAssetPath);
+                                      int* fd,
+                                      int64* offset,
+                                      int64* size) const{
+  std::string asset_file_prefix(url::kFileScheme);
+  asset_file_prefix.append(url::kStandardSchemeSeparator);
+  asset_file_prefix.append(android_webview::kAndroidAssetPath);
 
-  if (StartsWithASCII(url, asset_file_prefix, true)) {
+  if (base::StartsWithASCII(url, asset_file_prefix, true)) {
     std::string filename(url);
-    ReplaceFirstSubstringAfterOffset(&filename, 0, asset_file_prefix, "");
-    return AwAssets::OpenAsset(filename, fd, offset, size);
+    base::ReplaceFirstSubstringAfterOffset(
+        &filename, 0, asset_file_prefix, "assets/");
+    base::MemoryMappedFile::Region region =
+        base::MemoryMappedFile::Region::kWholeFile;
+    *fd = base::android::OpenApkAsset(filename, &region);
+    *offset = region.offset;
+    *size = region.size;
+    return *fd != -1;
   }
 
   return false;
 }
 
 }  // namespace android_webview
-

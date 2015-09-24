@@ -15,10 +15,13 @@
 #include "SkMask.h"
 #include "SkPaint.h"
 
+class GrClip;
 class GrContext;
 class GrPaint;
+class GrRenderTarget;
 class SkBitmap;
 class SkBlitter;
+class SkCachedData;
 class SkMatrix;
 class SkPath;
 class SkRasterClip;
@@ -38,8 +41,6 @@ class SkStrokeRec;
 */
 class SK_API SkMaskFilter : public SkFlattenable {
 public:
-    SK_DECLARE_INST_COUNT(SkMaskFilter)
-
     /** Returns the format of the resulting mask that this subclass will return
         when its filterMask() method is called.
     */
@@ -96,7 +97,10 @@ public:
      *  true if drawing was successful.
      */
     virtual bool directFilterMaskGPU(GrContext* context,
+                                     GrRenderTarget* rt,
                                      GrPaint* grp,
+                                     const GrClip&,
+                                     const SkMatrix& viewMatrix,
                                      const SkStrokeRec& strokeRec,
                                      const SkPath& path) const;
     /**
@@ -104,7 +108,10 @@ public:
      *  true if drawing was successful.
      */
     virtual bool directFilterRRectMaskGPU(GrContext* context,
+                                          GrRenderTarget* rt,
                                           GrPaint* grp,
+                                          const GrClip&,
+                                          const SkMatrix& viewMatrix,
                                           const SkStrokeRec& strokeRec,
                                           const SkRRect& rrect) const;
 
@@ -153,10 +160,6 @@ public:
 
 protected:
     SkMaskFilter() {}
-#ifdef SK_SUPPORT_LEGACY_DEEPFLATTENING
-    // empty for now, but lets get our subclass to remember to init us for the future
-    SkMaskFilter(SkReadBuffer& buffer) : INHERITED(buffer) {}
-#endif
 
     enum FilterReturn {
         kFalse_FilterReturn,
@@ -164,10 +167,17 @@ protected:
         kUnimplemented_FilterReturn
     };
 
-    struct NinePatch {
+    class NinePatch : ::SkNoncopyable {
+    public:
+        NinePatch() : fCache(NULL) {
+            fMask.fImage = NULL;
+        }
+        ~NinePatch();
+
         SkMask      fMask;      // fBounds must have [0,0] in its top-left
         SkIRect     fOuterRect; // width/height must be >= fMask.fBounds'
         SkIPoint    fCenter;    // identifies center row/col for stretching
+        SkCachedData* fCache;
     };
 
     /**

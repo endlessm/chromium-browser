@@ -5,7 +5,7 @@
 #include "components/signin/core/browser/signin_metrics.h"
 
 #include "base/logging.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/time/time.h"
 
@@ -64,6 +64,10 @@ void LogSigninProfile(bool is_first_run, base::Time install_date) {
                        elapsed_time.InMinutes());
 }
 
+void LogSigninSource(Source source) {
+  UMA_HISTOGRAM_ENUMERATION("Signin.SigninSource", source, HISTOGRAM_MAX);
+}
+
 void LogSigninAddAccount() {
   // Account signin may fail for a wide variety of reasons. There is no
   // explicit false, but one can compare this value with the various UI
@@ -91,6 +95,40 @@ void LogExternalCcResultFetches(
         "Signin.Reconciler.ExternalCcResultTime.NotCompleted",
         time_to_check_connections);
   }
+}
+
+void LogAuthError(GoogleServiceAuthError::State auth_error) {
+  UMA_HISTOGRAM_ENUMERATION("Signin.AuthError", auth_error,
+      GoogleServiceAuthError::State::NUM_STATES);
+}
+
+void LogSigninConfirmHistogramValue(int action) {
+  UMA_HISTOGRAM_ENUMERATION("Signin.OneClickConfirmation", action,
+                            signin_metrics::HISTOGRAM_CONFIRM_MAX);
+}
+
+void LogXDevicePromoEligible(CrossDevicePromoEligibility metric) {
+  UMA_HISTOGRAM_ENUMERATION(
+      "Signin.XDevicePromo.Eligibility", metric,
+      NUM_CROSS_DEVICE_PROMO_ELIGIBILITY_METRICS);
+}
+
+void LogXDevicePromoInitialized(CrossDevicePromoInitialized metric) {
+  UMA_HISTOGRAM_ENUMERATION(
+      "Signin.XDevicePromo.Initialized", metric,
+      NUM_CROSS_DEVICE_PROMO_INITIALIZED_METRICS);
+}
+
+void LogBrowsingSessionDuration(const base::Time& previous_activity_time) {
+  UMA_HISTOGRAM_CUSTOM_COUNTS(
+      "Signin.XDevicePromo.BrowsingSessionDuration",
+      (base::Time::Now() - previous_activity_time).InMinutes(), 1,
+      base::TimeDelta::FromDays(30).InMinutes(), 50);
+}
+
+void LogAccountReconcilorStateOnGaiaResponse(AccountReconcilorState state) {
+  UMA_HISTOGRAM_ENUMERATION("Signin.AccountReconcilorState.OnGaiaResponse",
+                            state, ACCOUNT_RECONCILOR_HISTOGRAM_COUNT);
 }
 
 }  // namespace signin_metrics

@@ -124,6 +124,10 @@ namespace usb {
 
     // The data to transmit (required only by output transfers).
     ArrayBuffer? data;
+
+    // Request timeout (in milliseconds). The default value <code>0</code>
+    // indicates no timeout.
+    long? timeout;
   };
 
   dictionary GenericTransferInfo {
@@ -139,6 +143,10 @@ namespace usb {
 
     // The data to transmit (required only by output transfers).
     ArrayBuffer? data;
+
+    // Request timeout (in milliseconds). The default value <code>0</code>
+    // indicates no timeout.
+    long? timeout;
   };
 
   dictionary IsochronousTransferInfo {
@@ -268,6 +276,17 @@ namespace usb {
     static void closeDevice(ConnectionHandle handle,
                             optional CloseDeviceCallback callback);
 
+    // Select a device configuration.
+    //
+    // This function effectively resets the device by selecting one of the
+    // device's available configurations. Only configuration values greater
+    // than <code>0</code> are valid however some buggy devices have a working
+    // configuration <code>0</code> and so this value is allowed.
+    // |handle|: An open connection to the device.
+    static void setConfiguration(ConnectionHandle handle,
+                                 long configurationValue,
+                                 VoidCallback callback);
+
     // Gets the configuration descriptor for the currently selected
     // configuration.
     // |handle|: An open connection to the device.
@@ -349,5 +368,18 @@ namespace usb {
     // |handle|: A connection handle to reset.
     static void resetDevice(ConnectionHandle handle,
                             ResetDeviceCallback callback);
+  };
+
+  interface Events {
+    // Event generated when a device is added to the system. Events are only
+    // broadcast to apps and extensions that have permission to access the
+    // device. Permission may have been granted at install time, when the user
+    // accepted an optional permission (see $(ref:permissions.request)), or
+    // through $(ref:getUserSelectedDevices).
+    static void onDeviceAdded(Device device);
+
+    // Event generated when a device is removed from the system. See
+    // $(ref:onDeviceAdded) for which events are delivered.
+    static void onDeviceRemoved(Device device);
   };
 };

@@ -9,18 +9,22 @@
 #include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/browsing_data/browsing_data_helper.h"
+#include "chrome/browser/browsing_data/browsing_data_remover.h"
 #include "chrome/browser/profiles/gaia_info_update_service.h"
 #include "chrome/browser/profiles/gaia_info_update_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_info_cache.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
+#include "chrome/browser/signin/signin_error_controller_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/common/profile_management_switches.h"
+#include "content/public/browser/resource_dispatcher_host.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/text_elider.h"
 
@@ -49,6 +53,9 @@ void RegisterPrefs(PrefRegistrySimple* registry) {
   // Preferences about the user manager.
   registry->RegisterBooleanPref(prefs::kBrowserGuestModeEnabled, true);
   registry->RegisterBooleanPref(prefs::kBrowserAddPersonEnabled, true);
+
+  registry->RegisterBooleanPref(
+      prefs::kProfileAvatarRightClickTutorialDismissed, false);
 }
 
 base::string16 GetAvatarNameForProfile(const base::FilePath& profile_path) {
@@ -89,11 +96,21 @@ base::string16 GetAvatarButtonTextForProfile(Profile* profile) {
   name = gfx::TruncateString(name,
                              kMaxCharactersToDisplay,
                              gfx::CHARACTER_BREAK);
-  if (profile->IsSupervised()) {
+  if (profile->IsLegacySupervised()) {
     name = l10n_util::GetStringFUTF16(IDS_SUPERVISED_USER_NEW_AVATAR_LABEL,
                                       name);
   }
   return name;
+}
+
+base::string16 GetProfileSwitcherTextForItem(const AvatarMenu::Item& item) {
+  if (item.legacy_supervised) {
+    return l10n_util::GetStringFUTF16(IDS_SUPERVISED_USER_NEW_AVATAR_LABEL,
+                                      item.name);
+  }
+  if (item.child_account)
+    return l10n_util::GetStringFUTF16(IDS_CHILD_AVATAR_LABEL, item.name);
+  return item.name;
 }
 
 void UpdateProfileName(Profile* profile,
@@ -140,6 +157,17 @@ bool IsRegularOrGuestSession(Browser* browser) {
   return profile->IsGuestSession() || !profile->IsOffTheRecord();
 }
 
+bool IsProfileLocked(const base::FilePath& path) {
+  const ProfileInfoCache& cache =
+      g_browser_process->profile_manager()->GetProfileInfoCache();
+  size_t profile_index = cache.GetIndexOfProfileWithPath(path);
+
+  if (profile_index == std::string::npos)
+    return false;
+
+  return cache.ProfileIsSigninRequiredAtIndex(profile_index);
+}
+
 void UpdateIsProfileLockEnabledIfNeeded(Profile* profile) {
   DCHECK(switches::IsNewProfileManagement());
 
@@ -167,34 +195,57 @@ void UpdateGaiaProfileInfoIfNeeded(Profile* profile) {
 }
 
 SigninErrorController* GetSigninErrorController(Profile* profile) {
-  ProfileOAuth2TokenService* token_service =
-      ProfileOAuth2TokenServiceFactory::GetForProfile(profile);
-  return token_service ? token_service->signin_error_controller() : NULL;
+  return SigninErrorControllerFactory::GetForProfile(profile);
 }
 
-Profile* SetActiveProfileToGuestIfLocked() {
-  Profile* active_profile = ProfileManager::GetLastUsedProfile();
-  DCHECK(active_profile);
-
-  if (active_profile->IsGuestSession())
-    return active_profile;
-
+bool SetActiveProfileToGuestIfLocked() {
   ProfileManager* profile_manager = g_browser_process->profile_manager();
-  const ProfileInfoCache& cache = profile_manager->GetProfileInfoCache();
-  size_t index = cache.GetIndexOfProfileWithPath(active_profile->GetPath());
-  if (!cache.ProfileIsSigninRequiredAtIndex(index))
-    return NULL;
 
-  // The guest profile must have been loaded already.
-  Profile* guest_profile = profile_manager->GetProfile(
-      ProfileManager::GetGuestProfilePath());
-  DCHECK(guest_profile);
+  const base::FilePath& active_profile_path =
+      profile_manager->GetLastUsedProfileDir(profile_manager->user_data_dir());
+  const base::FilePath& guest_path = ProfileManager::GetGuestProfilePath();
+  if (active_profile_path == guest_path)
+    return true;
+
+  const ProfileInfoCache& cache = profile_manager->GetProfileInfoCache();
+  size_t index = cache.GetIndexOfProfileWithPath(active_profile_path);
+  if (!cache.ProfileIsSigninRequiredAtIndex(index))
+    return false;
+
+  SetLastUsedProfile(guest_path.BaseName().MaybeAsASCII());
+
+  return true;
+}
+
+void RemoveBrowsingDataForProfile(const base::FilePath& profile_path) {
+  // The BrowsingDataRemover relies on the ResourceDispatcherHost, which is
+  // null in unit tests.
+  if (!content::ResourceDispatcherHost::Get())
+    return;
+
+  Profile* profile = g_browser_process->profile_manager()->GetProfileByPath(
+      profile_path);
+  if (!profile)
+    return;
+
+  // For guest the browsing data is in the OTR profile.
+  if (profile->IsGuestSession())
+    profile = profile->GetOffTheRecordProfile();
+
+  BrowsingDataRemover::CreateForUnboundedRange(profile)->Remove(
+      BrowsingDataRemover::REMOVE_WIPE_PROFILE, BrowsingDataHelper::ALL);
+  // BrowsingDataRemover deletes itself.
+}
+
+void SetLastUsedProfile(const std::string& profile_dir) {
+  // We should never be saving the System Profile as the last one used since it
+  // shouldn't have a browser.
+  if (profile_dir == base::FilePath(chrome::kSystemProfileDir).AsUTF8Unsafe())
+    return;
 
   PrefService* local_state = g_browser_process->local_state();
   DCHECK(local_state);
-  local_state->SetString(prefs::kProfileLastUsed,
-                         guest_profile->GetPath().BaseName().MaybeAsASCII());
-  return guest_profile;
+  local_state->SetString(prefs::kProfileLastUsed, profile_dir);
 }
 
 }  // namespace profiles

@@ -8,49 +8,30 @@
 #include <string>
 
 #include "base/compiler_specific.h"
-#include "chrome/browser/chromeos/login/screens/update_screen_actor.h"
+#include "chrome/browser/chromeos/login/screens/update_view.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/network_dropdown_handler.h"
 
 namespace chromeos {
 
-class UpdateScreenHandler : public UpdateScreenActor,
-                            public BaseScreenHandler,
-                            public NetworkDropdownHandler::Observer {
+class UpdateScreenHandler : public UpdateView, public BaseScreenHandler {
  public:
   UpdateScreenHandler();
-  virtual ~UpdateScreenHandler();
+  ~UpdateScreenHandler() override;
 
-  // BaseScreenHandler implementation:
-  virtual void DeclareLocalizedValues(LocalizedValuesBuilder* builder) override;
-  virtual void Initialize() override;
+  // UpdateView:
+  void PrepareToShow() override;
+  void Show() override;
+  void Hide() override;
+  void Bind(UpdateModel& model) override;
+  void Unbind() override;
 
-  // UpdateScreenActor implementation:
-  virtual void SetDelegate(UpdateScreenActor::Delegate* screen) override;
-  virtual void Show() override;
-  virtual void Hide() override;
-  virtual void PrepareToShow() override;
-  virtual void ShowManualRebootInfo() override;
-  virtual void SetProgress(int progress) override;
-  virtual void ShowEstimatedTimeLeft(bool visible) override;
-  virtual void SetEstimatedTimeLeft(const base::TimeDelta& time) override;
-  virtual void ShowProgressMessage(bool visible) override;
-  virtual void SetProgressMessage(ProgressMessage message) override;
-  virtual void ShowCurtain(bool visible) override;
-
-  // WebUIMessageHandler implementation:
-  virtual void RegisterMessages() override;
+  // BaseScreenHandler:
+  void DeclareLocalizedValues(
+      ::login::LocalizedValuesBuilder* builder) override;
+  void Initialize() override;
 
  private:
-  // NetworkDropdownHandler::Observer implementation:
-  virtual void OnConnectToNetworkRequested() override;
-
-#if !defined(OFFICIAL_BUILD)
-  // Called when user presses Escape to cancel update.
-  void HandleUpdateCancel();
-#endif
-
-  UpdateScreenActor::Delegate* screen_;
+  UpdateModel* model_;
 
   // Keeps whether screen should be shown right after initialization.
   bool show_on_init_;

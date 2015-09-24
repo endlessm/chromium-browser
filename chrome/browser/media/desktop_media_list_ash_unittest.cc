@@ -5,7 +5,10 @@
 #include "chrome/browser/media/desktop_media_list_ash.h"
 
 #include "ash/test/ash_test_base.h"
+#include "base/location.h"
 #include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/media/desktop_media_list_observer.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -45,7 +48,7 @@ class DesktopMediaListAshTest : public ash::test::AshTestBase {
 };
 
 ACTION(QuitMessageLoop) {
-  base::MessageLoop::current()->PostTask(
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::MessageLoop::QuitClosure());
 }
 
@@ -95,7 +98,14 @@ TEST_F(DesktopMediaListAshTest, ScreenOnly) {
   base::MessageLoop::current()->Run();
 }
 
-TEST_F(DesktopMediaListAshTest, WindowOnly) {
+// Times out on Win DrMemory bot. http://crbug.com/493187
+#if defined(OS_WIN)
+#define MAYBE_WindowOnly DISABLED_WindowOnly
+#else
+#define MAYBE_WindowOnly WindowOnly
+#endif
+
+TEST_F(DesktopMediaListAshTest, MAYBE_WindowOnly) {
   CreateList(DesktopMediaListAsh::WINDOWS);
 
   scoped_ptr<aura::Window> window(CreateTestWindowInShellWithId(0));

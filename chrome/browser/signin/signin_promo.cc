@@ -38,14 +38,13 @@
 #include "net/base/url_util.h"
 #include "url/gurl.h"
 
+#if defined(OS_WIN)
+#include "base/win/windows_version.h"
+#endif
+
 using content::WebContents;
 
 namespace {
-
-// Gaia cannot support about:blank as a continue URL, so using a hosted blank
-// page instead.
-const char kSignInLandingUrlPrefix[] =
-    "https://www.google.com/intl/%s/chrome/blank.html";
 
 // The maximum number of times we want to show the sign in promo at startup.
 const int kSignInPromoShowAtStartupMaximum = 10;
@@ -120,6 +119,12 @@ bool ShouldShowPromoAtStartup(Profile* profile, bool is_new_profile) {
       return false;
   }
 
+#if defined(OS_WIN)
+  // Do not show the promo on first run on Win10 and newer.
+  if (is_new_profile && base::win::GetVersion() >= base::win::VERSION_WIN10)
+    return false;
+#endif
+
   if (HasUserSkippedPromo(profile))
     return false;
 
@@ -161,63 +166,29 @@ void SetUserSkippedPromo(Profile* profile) {
 }
 
 GURL GetLandingURL(const char* option, int value) {
-  std::string url;
-  if (switches::IsEnableWebBasedSignin()) {
-    const std::string& locale = g_browser_process->GetApplicationLocale();
-    url = base::StringPrintf(kSignInLandingUrlPrefix, locale.c_str());
-  } else {
-    url = base::StringPrintf(
-        "%s/success.html", extensions::kGaiaAuthExtensionOrigin);
-  }
-  base::StringAppendF(&url, "?%s=%d", option, value);
+  std::string url = base::StringPrintf("%s/success.html?%s=%d",
+                                       extensions::kGaiaAuthExtensionOrigin,
+                                       option,
+                                       value);
   return GURL(url);
 }
 
-GURL GetPromoURL(Source source, bool auto_close) {
+GURL GetPromoURL(signin_metrics::Source source, bool auto_close) {
   return GetPromoURL(source, auto_close, false /* is_constrained */);
 }
 
-GURL GetPromoURL(Source source, bool auto_close, bool is_constrained) {
-  DCHECK_NE(SOURCE_UNKNOWN, source);
+GURL GetPromoURL(signin_metrics::Source source,
+                 bool auto_close,
+                 bool is_constrained) {
+  DCHECK_NE(signin_metrics::SOURCE_UNKNOWN, source);
 
-  if (!switches::IsEnableWebBasedSignin()) {
-    std::string url(chrome::kChromeUIChromeSigninURL);
-    base::StringAppendF(&url, "?%s=%d", kSignInPromoQueryKeySource, source);
-    if (auto_close)
-      base::StringAppendF(&url, "&%s=1", kSignInPromoQueryKeyAutoClose);
-    if (is_constrained)
-      base::StringAppendF(&url, "&%s=1", kSignInPromoQueryKeyConstrained);
-    return GURL(url);
-  }
-
-  // Build a Gaia-based URL that can be used to sign the user into chrome.
-  // There are required request parameters:
-  //
-  //  - tell Gaia which service the user is signing into.  In this case,
-  //    a chrome sign in uses the service "chromiumsync"
-  //  - provide a continue URL.  This is the URL that Gaia will redirect to
-  //    once the sign is complete.
-  //
-  // The continue URL includes a source parameter that can be extracted using
-  // the function GetSourceForSignInPromoURL() below.  This is used to know
-  // which of the chrome sign in access points was used to sign the user in.
-  // It is also parsed for the |auto_close| flag, which indicates that the tab
-  // must be closed after sync setup is successful.
-  // See OneClickSigninHelper for details.
-  std::string query_string = "?service=chromiumsync&sarp=1";
-
-  std::string continue_url = GetLandingURL(kSignInPromoQueryKeySource,
-                                           static_cast<int>(source)).spec();
+  std::string url(chrome::kChromeUIChromeSigninURL);
+  base::StringAppendF(&url, "?%s=%d", kSignInPromoQueryKeySource, source);
   if (auto_close)
-    base::StringAppendF(&continue_url, "&%s=1", kSignInPromoQueryKeyAutoClose);
-
-  base::StringAppendF(
-      &query_string,
-      "&%s=%s",
-      kSignInPromoQueryKeyContinue,
-      net::EscapeQueryParamValue(continue_url, false).c_str());
-
-  return GaiaUrls::GetInstance()->service_login_url().Resolve(query_string);
+    base::StringAppendF(&url, "&%s=1", kSignInPromoQueryKeyAutoClose);
+  if (is_constrained)
+    base::StringAppendF(&url, "&%s=1", kSignInPromoQueryKeyConstrained);
+  return GURL(url);
 }
 
 GURL GetReauthURL(Profile* profile, const std::string& account_id) {
@@ -225,15 +196,8 @@ GURL GetReauthURL(Profile* profile, const std::string& account_id) {
       AccountTrackerServiceFactory::GetForProfile(profile)->
           GetAccountInfo(account_id);
 
-  if (switches::IsEnableWebBasedSignin()) {
-    return net::AppendQueryParameter(
-        signin::GetPromoURL(signin::SOURCE_SETTINGS, true),
-        "Email",
-        account_id);
-  }
-
-  signin::Source source = switches::IsNewAvatarMenu() ?
-      signin::SOURCE_REAUTH : signin::SOURCE_SETTINGS;
+  signin_metrics::Source source = switches::IsNewAvatarMenu() ?
+      signin_metrics::SOURCE_REAUTH : signin_metrics::SOURCE_SETTINGS;
 
   GURL url = signin::GetPromoURL(
       source, true /* auto_close */,
@@ -254,16 +218,21 @@ GURL GetNextPageURLForPromoURL(const GURL& url) {
   return GURL();
 }
 
-Source GetSourceForPromoURL(const GURL& url) {
+GURL GetSigninPartitionURL() {
+  return GURL("chrome-guest://chrome-signin/?");
+}
+
+signin_metrics::Source GetSourceForPromoURL(const GURL& url) {
   std::string value;
   if (net::GetValueForKeyInQuery(url, kSignInPromoQueryKeySource, &value)) {
     int source = 0;
-    if (base::StringToInt(value, &source) && source >= SOURCE_START_PAGE &&
-        source < SOURCE_UNKNOWN) {
-      return static_cast<Source>(source);
+    if (base::StringToInt(value, &source) &&
+        source >= signin_metrics::SOURCE_START_PAGE &&
+        source < signin_metrics::SOURCE_UNKNOWN) {
+      return static_cast<signin_metrics::Source>(source);
     }
   }
-  return SOURCE_UNKNOWN;
+  return signin_metrics::SOURCE_UNKNOWN;
 }
 
 bool IsAutoCloseEnabledInURL(const GURL& url) {
@@ -287,43 +256,16 @@ bool ShouldShowAccountManagement(const GURL& url) {
   return false;
 }
 
-bool IsContinueUrlForWebBasedSigninFlow(const GURL& url) {
-  GURL::Replacements replacements;
-  replacements.ClearQuery();
-  const std::string& locale = g_browser_process->GetApplicationLocale();
-  GURL continue_url =
-      GURL(base::StringPrintf(kSignInLandingUrlPrefix, locale.c_str()));
-  return (
-      google_util::IsGoogleDomainUrl(
-          url,
-          google_util::ALLOW_SUBDOMAIN,
-          google_util::DISALLOW_NON_STANDARD_PORTS) &&
-      url.ReplaceComponents(replacements).path() ==
-        continue_url.ReplaceComponents(replacements).path());
-}
-
 void ForceWebBasedSigninFlowForTesting(bool force) {
   g_force_web_based_signin_flow = force;
 }
 
 void RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterIntegerPref(
-      prefs::kSignInPromoStartupCount,
-      0,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kSignInPromoUserSkipped,
-      false,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kSignInPromoShowOnFirstRunAllowed,
-      true,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kSignInPromoShowNTPBubble,
-      false,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterIntegerPref(prefs::kSignInPromoStartupCount, 0);
+  registry->RegisterBooleanPref(prefs::kSignInPromoUserSkipped, false);
+  registry->RegisterBooleanPref(prefs::kSignInPromoShowOnFirstRunAllowed, true);
+  registry->RegisterBooleanPref(prefs::kSignInPromoShowNTPBubble, false);
 }
 
 }  // namespace signin

@@ -5,11 +5,11 @@
 package org.chromium.android_webview.permission;
 
 import android.net.Uri;
-import android.util.Log;
 
 import org.chromium.base.CalledByNative;
 import org.chromium.base.JNINamespace;
 import org.chromium.base.ThreadUtils;
+import org.chromium.content.common.CleanupReference;
 
 /**
  * This class wraps permission request in Chromium side, and can only be created
@@ -17,14 +17,34 @@ import org.chromium.base.ThreadUtils;
  */
 @JNINamespace("android_webview")
 public class AwPermissionRequest {
-    private static final String TAG = "AwPermissionRequest";
-
     private Uri mOrigin;
     private long mResources;
     private boolean mProcessed;
 
     // AwPermissionRequest native instance.
     private long mNativeAwPermissionRequest;
+
+    // Responsible for deleting native peer.
+    private CleanupReference mCleanupReference;
+
+    // This should be same as corresponding definition in PermissionRequest.
+    // We duplicate definition because it is used in Android L and afterwards, but is only
+    // defined in M.
+    // TODO(michaelbai) : Replace "android.webkit.resoruce.MIDI_SYSEX" with
+    // PermissionRequest.RESOURCE_MIDI_SYSEX once Android M SDK is used.
+    public static final String RESOURCE_MIDI_SYSEX = "android.webkit.resource.MIDI_SYSEX";
+
+    private static final class DestroyRunnable implements Runnable {
+        private final long mNativeAwPermissionRequest;
+
+        private DestroyRunnable(long nativeAwPermissionRequest) {
+            mNativeAwPermissionRequest = nativeAwPermissionRequest;
+        }
+        @Override
+        public void run() {
+            nativeDestroy(mNativeAwPermissionRequest);
+        }
+    }
 
     @CalledByNative
     private static AwPermissionRequest create(long nativeAwPermissionRequest, String url,
@@ -39,6 +59,8 @@ public class AwPermissionRequest {
         mNativeAwPermissionRequest = nativeAwPermissionRequest;
         mOrigin = origin;
         mResources = resources;
+        mCleanupReference =
+                new CleanupReference(this, new DestroyRunnable(mNativeAwPermissionRequest));
     }
 
     public Uri getOrigin() {
@@ -51,29 +73,27 @@ public class AwPermissionRequest {
 
     public void grant() {
         validate();
-        if (mNativeAwPermissionRequest != 0)
+        if (mNativeAwPermissionRequest != 0) {
             nativeOnAccept(mNativeAwPermissionRequest, true);
+            destroyNative();
+        }
         mProcessed = true;
     }
 
     public void deny() {
         validate();
-        if (mNativeAwPermissionRequest != 0)
+        if (mNativeAwPermissionRequest != 0) {
             nativeOnAccept(mNativeAwPermissionRequest, false);
+            destroyNative();
+        }
         mProcessed = true;
     }
 
     @CalledByNative
-    private void detachNativeInstance() {
+    private void destroyNative() {
+        mCleanupReference.cleanupNow();
+        mCleanupReference = null;
         mNativeAwPermissionRequest = 0;
-    }
-
-    @Override
-    protected void finalize() throws Throwable {
-        if (mNativeAwPermissionRequest == 0) return;
-        Log.e(TAG, "Neither grant() nor deny() has been called, "
-                + "the permission request is denied by default.");
-        deny();
     }
 
     private void validate() {
@@ -86,4 +106,5 @@ public class AwPermissionRequest {
     }
 
     private native void nativeOnAccept(long nativeAwPermissionRequest, boolean allowed);
+    private static native void nativeDestroy(long nativeAwPermissionRequest);
 }

@@ -91,33 +91,25 @@ WebInspector.SourceMap = function(sourceMappingURL, payload)
  */
 WebInspector.SourceMap.load = function(sourceMapURL, compiledURL, callback)
 {
-    var resourceTreeModel = WebInspector.resourceTreeModel;
-    if (resourceTreeModel.cachedResourcesLoaded())
-        loadResource();
-    else
-        resourceTreeModel.addEventListener(WebInspector.ResourceTreeModel.EventTypes.CachedResourcesLoaded, cachedResourcesLoaded);
-
-    function cachedResourcesLoaded()
-    {
-        resourceTreeModel.removeEventListener(WebInspector.ResourceTreeModel.EventTypes.CachedResourcesLoaded, cachedResourcesLoaded);
-        loadResource();
+    var parsedURL = new WebInspector.ParsedURL(sourceMapURL);
+    if (parsedURL.isDataURL()) {
+        var xhr = new XMLHttpRequest();
+        xhr.open("GET", sourceMapURL, false);
+        xhr.send(null);
+        contentLoaded(xhr.status, {}, xhr.responseText);
+        return;
     }
 
-    function loadResource()
-    {
-        var headers = {};
-        NetworkAgent.loadResourceForFrontend(resourceTreeModel.mainFrame.id, sourceMapURL, headers, contentLoaded);
-    }
+    WebInspector.ResourceLoader.loadUsingTargetUA(sourceMapURL, null, contentLoaded);
 
     /**
-     * @param {?Protocol.Error} error
      * @param {number} statusCode
-     * @param {!NetworkAgent.Headers} headers
+     * @param {!Object.<string, string>} headers
      * @param {string} content
      */
-    function contentLoaded(error, statusCode, headers, content)
+    function contentLoaded(statusCode, headers, content)
     {
-        if (error || !content || statusCode >= 400) {
+        if (!content || statusCode >= 400) {
             callback(null);
             return;
         }
@@ -231,6 +223,8 @@ WebInspector.SourceMap.prototype = {
     findEntryReversed: function(sourceURL, lineNumber, span)
     {
         var mappings = this._reverseMappingsBySourceURL[sourceURL];
+        if (!mappings)
+            return null;
         var maxLineNumber = typeof span === "number" ? Math.min(lineNumber + span + 1, mappings.length) : mappings.length;
         for ( ; lineNumber < maxLineNumber; ++lineNumber) {
             var mapping = mappings[lineNumber];
@@ -241,7 +235,9 @@ WebInspector.SourceMap.prototype = {
     },
 
     /**
-     * @override
+     * @param {!SourceMapV3} map
+     * @param {number} lineNumber
+     * @param {number} columnNumber
      */
     _parseMap: function(map, lineNumber, columnNumber)
     {

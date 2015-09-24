@@ -40,7 +40,7 @@ using namespace HTMLNames;
 
 static String emptyValueAXText()
 {
-    return Locale::defaultLocale().queryString(blink::WebLocalizedString::AXDateTimeFieldEmptyValueText);
+    return Locale::defaultLocale().queryString(WebLocalizedString::AXDateTimeFieldEmptyValueText);
 }
 
 DateTimeFieldElement::FieldOwner::~FieldOwner()
@@ -53,7 +53,7 @@ DateTimeFieldElement::DateTimeFieldElement(Document& document, FieldOwner& field
 {
 }
 
-void DateTimeFieldElement::trace(Visitor* visitor)
+DEFINE_TRACE(DateTimeFieldElement)
 {
     visitor->trace(m_fieldOwner);
     HTMLSpanElement::trace(visitor);

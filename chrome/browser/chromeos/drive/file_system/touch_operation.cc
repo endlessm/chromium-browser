@@ -11,10 +11,8 @@
 #include "chrome/browser/chromeos/drive/file_change.h"
 #include "chrome/browser/chromeos/drive/file_errors.h"
 #include "chrome/browser/chromeos/drive/file_system/operation_delegate.h"
+#include "chrome/browser/chromeos/drive/job_scheduler.h"
 #include "chrome/browser/chromeos/drive/resource_metadata.h"
-#include "content/public/browser/browser_thread.h"
-
-using content::BrowserThread;
 
 namespace drive {
 namespace file_system {
@@ -26,12 +24,10 @@ FileError UpdateLocalState(internal::ResourceMetadata* metadata,
                            const base::FilePath& file_path,
                            const base::Time& last_access_time,
                            const base::Time& last_modified_time,
-                           ResourceEntry* entry,
-                           std::string* local_id) {
+                           ResourceEntry* entry) {
   FileError error = metadata->GetResourceEntryByPath(file_path, entry);
   if (error != FILE_ERROR_OK)
     return error;
-  *local_id = entry->local_id();
 
   PlatformFileInfoProto* file_info = entry->mutable_file_info();
   if (!last_access_time.is_null())
@@ -61,48 +57,37 @@ void TouchOperation::TouchFile(const base::FilePath& file_path,
                                const base::Time& last_access_time,
                                const base::Time& last_modified_time,
                                const FileOperationCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
-  std::string* local_id = new std::string;
   ResourceEntry* entry = new ResourceEntry;
   base::PostTaskAndReplyWithResult(
-      blocking_task_runner_.get(),
-      FROM_HERE,
-      base::Bind(&UpdateLocalState,
-                 metadata_,
-                 file_path,
-                 last_access_time,
-                 last_modified_time,
-                 entry,
-                 local_id),
+      blocking_task_runner_.get(), FROM_HERE,
+      base::Bind(&UpdateLocalState, metadata_, file_path, last_access_time,
+                 last_modified_time, entry),
       base::Bind(&TouchOperation::TouchFileAfterUpdateLocalState,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 file_path,
-                 callback,
-                 base::Owned(entry),
-                 base::Owned(local_id)));
+                 weak_ptr_factory_.GetWeakPtr(), file_path, callback,
+                 base::Owned(entry)));
 }
 
 void TouchOperation::TouchFileAfterUpdateLocalState(
     const base::FilePath& file_path,
     const FileOperationCallback& callback,
     const ResourceEntry* entry,
-    const std::string* local_id,
     FileError error) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   FileChange changed_files;
-  changed_files.Update(
-      file_path,
-      entry->file_info().is_directory() ?
-          FileChange::FILE_TYPE_DIRECTORY : FileChange::FILE_TYPE_FILE,
-      FileChange::ADD_OR_UPDATE);
+  changed_files.Update(file_path, entry->file_info().is_directory()
+                                      ? FileChange::FILE_TYPE_DIRECTORY
+                                      : FileChange::FILE_TYPE_FILE,
+                       FileChange::CHANGE_TYPE_ADD_OR_UPDATE);
 
   if (error == FILE_ERROR_OK) {
     delegate_->OnFileChangedByOperation(changed_files);
-    delegate_->OnEntryUpdatedByOperation(*local_id);
+    delegate_->OnEntryUpdatedByOperation(ClientContext(USER_INITIATED),
+                                         entry->local_id());
   }
   callback.Run(error);
 }

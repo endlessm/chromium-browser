@@ -7,6 +7,7 @@
 #include <sstream>
 
 #include "base/logging.h"
+#include "ui/events/base_event_utils.h"
 #include "ui/events/gesture_detection/bitset_32.h"
 #include "ui/events/gesture_detection/motion_event.h"
 
@@ -77,6 +78,7 @@ MockMotionEvent::MockMotionEvent(Action action,
                                  const std::vector<gfx::PointF>& positions) {
   set_action(action);
   set_event_time(time);
+  set_unique_event_id(ui::GetNextTouchEventId());
   if (action == ACTION_POINTER_UP || action == ACTION_POINTER_DOWN)
     set_action_index(static_cast<int>(positions.size()) - 1);
   for (size_t i = 0; i < positions.size(); ++i)
@@ -90,8 +92,8 @@ MockMotionEvent::MockMotionEvent(const MockMotionEvent& other)
 MockMotionEvent::~MockMotionEvent() {
 }
 
-void MockMotionEvent::PressPoint(float x, float y) {
-  ResolvePointers();
+MockMotionEvent& MockMotionEvent::PressPoint(float x, float y) {
+  UpdatePointersAndID();
   PushPointer(x, y);
   if (GetPointerCount() > 1) {
     set_action_index(static_cast<int>(GetPointerCount()) - 1);
@@ -99,10 +101,11 @@ void MockMotionEvent::PressPoint(float x, float y) {
   } else {
     set_action(ACTION_DOWN);
   }
+  return *this;
 }
 
-void MockMotionEvent::MovePoint(size_t index, float x, float y) {
-  ResolvePointers();
+MockMotionEvent& MockMotionEvent::MovePoint(size_t index, float x, float y) {
+  UpdatePointersAndID();
   DCHECK_LT(index, GetPointerCount());
   PointerProperties& p = pointer(index);
   float dx = x - p.x;
@@ -112,10 +115,11 @@ void MockMotionEvent::MovePoint(size_t index, float x, float y) {
   p.raw_x += dx;
   p.raw_y += dy;
   set_action(ACTION_MOVE);
+  return *this;
 }
 
-void MockMotionEvent::ReleasePoint() {
-  ResolvePointers();
+MockMotionEvent& MockMotionEvent::ReleasePoint() {
+  UpdatePointersAndID();
   DCHECK_GT(GetPointerCount(), 0U);
   if (GetPointerCount() > 1) {
     set_action_index(static_cast<int>(GetPointerCount()) - 1);
@@ -123,29 +127,36 @@ void MockMotionEvent::ReleasePoint() {
   } else {
     set_action(ACTION_UP);
   }
+  return *this;
 }
 
-void MockMotionEvent::CancelPoint() {
-  ResolvePointers();
+MockMotionEvent& MockMotionEvent::CancelPoint() {
+  UpdatePointersAndID();
   DCHECK_GT(GetPointerCount(), 0U);
   set_action(ACTION_CANCEL);
+  return *this;
 }
 
-void MockMotionEvent::SetTouchMajor(float new_touch_major) {
+MockMotionEvent& MockMotionEvent::SetTouchMajor(float new_touch_major) {
   for (size_t i = 0; i < GetPointerCount(); ++i)
     pointer(i).touch_major = new_touch_major;
+  return *this;
 }
 
-void MockMotionEvent::SetRawOffset(float raw_offset_x, float raw_offset_y) {
+MockMotionEvent& MockMotionEvent::SetRawOffset(float raw_offset_x,
+                                               float raw_offset_y) {
   for (size_t i = 0; i < GetPointerCount(); ++i) {
     pointer(i).raw_x = pointer(i).x + raw_offset_x;
     pointer(i).raw_y = pointer(i).y + raw_offset_y;
   }
+  return *this;
 }
 
-void MockMotionEvent::SetToolType(size_t pointer_index, ToolType tool_type) {
+MockMotionEvent& MockMotionEvent::SetToolType(size_t pointer_index,
+                                              ToolType tool_type) {
   DCHECK_LT(pointer_index, GetPointerCount());
   pointer(pointer_index).tool_type = tool_type;
+  return *this;
 }
 
 void MockMotionEvent::PushPointer(float x, float y) {
@@ -153,8 +164,9 @@ void MockMotionEvent::PushPointer(float x, float y) {
       CreatePointer(x, y, static_cast<int>(GetPointerCount())));
 }
 
-void MockMotionEvent::ResolvePointers() {
+void MockMotionEvent::UpdatePointersAndID() {
   set_action_index(-1);
+  set_unique_event_id(ui::GetNextTouchEventId());
   switch (GetAction()) {
     case ACTION_UP:
     case ACTION_POINTER_UP:
@@ -166,12 +178,20 @@ void MockMotionEvent::ResolvePointers() {
   }
 }
 
+MockMotionEvent& MockMotionEvent::SetPrimaryPointerId(int id) {
+  DCHECK_GT(GetPointerCount(), 0U);
+  pointer(0).id = id;
+  return *this;
+}
+
 std::string ToString(const MotionEvent& event) {
   std::stringstream ss;
   ss << "MotionEvent {"
-     << "\n ID: " << event.GetId() << "\n Action: " << event.GetAction()
-     << "\n ActionIndex: " << event.GetActionIndex()
-     << "\n Flags: " << event.GetFlags()
+     << "\n Action: " << event.GetAction();
+  if (event.GetAction() == MotionEvent::ACTION_POINTER_DOWN ||
+      event.GetAction() == MotionEvent::ACTION_POINTER_UP)
+    ss << "\n ActionIndex: " << event.GetActionIndex();
+  ss << "\n Flags: " << event.GetFlags()
      << "\n ButtonState: " << event.GetButtonState() << "\n Pointers: [";
   const size_t pointer_count = event.GetPointerCount();
   const size_t history_size = event.GetHistorySize();
@@ -186,12 +206,13 @@ std::string ToString(const MotionEvent& event) {
       DCHECK_GE(pi, 0);
       pointer_ids.clear_first_marked_bit();
       ss << "{"
+         << "\n  PointerId: (" << event.GetPointerId(pi) << ")"
          << "\n  Pos: (" << event.GetX(pi) << ", " << event.GetY(pi) << ")"
          << "\n  RawPos: (" << event.GetX(pi) << ", " << event.GetY(pi) << ")"
          << "\n  Size: (" << event.GetTouchMajor(pi) << ", "
          << event.GetTouchMinor(pi) << ")"
          << "\n  Orientation: " << event.GetOrientation(pi)
-         << "\n  Pressure: " << event.GetOrientation(pi)
+         << "\n  Pressure: " << event.GetPressure(pi)
          << "\n  Tool: " << event.GetToolType(pi);
       if (history_size) {
         ss << "\n  History: [";

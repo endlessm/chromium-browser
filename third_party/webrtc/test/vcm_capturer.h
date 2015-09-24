@@ -20,20 +20,21 @@ namespace test {
 
 class VcmCapturer : public VideoCapturer, public VideoCaptureDataCallback {
  public:
-  static VcmCapturer* Create(VideoSendStreamInput* input, size_t width,
-                             size_t height, size_t target_fps);
+  static VcmCapturer* Create(VideoCaptureInput* input,
+                             size_t width,
+                             size_t height,
+                             size_t target_fps);
   virtual ~VcmCapturer();
 
-  virtual void Start() OVERRIDE;
-  virtual void Stop() OVERRIDE;
+  void Start() override;
+  void Stop() override;
 
-  virtual void OnIncomingCapturedFrame(
-      const int32_t id, I420VideoFrame& frame) OVERRIDE;  // NOLINT
-  virtual void OnCaptureDelayChanged(const int32_t id, const int32_t delay)
-      OVERRIDE;
+  void OnIncomingCapturedFrame(const int32_t id,
+                               const VideoFrame& frame) override;  // NOLINT
+  void OnCaptureDelayChanged(const int32_t id, const int32_t delay) override;
 
  private:
-  explicit VcmCapturer(VideoSendStreamInput* input);
+  explicit VcmCapturer(VideoCaptureInput* input);
   bool Init(size_t width, size_t height, size_t target_fps);
   void Destroy();
 

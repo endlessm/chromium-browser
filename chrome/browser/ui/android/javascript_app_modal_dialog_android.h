@@ -8,23 +8,26 @@
 #include "base/android/jni_weak_ref.h"
 #include "base/android/scoped_java_ref.h"
 #include "base/memory/scoped_ptr.h"
-#include "components/app_modal_dialogs/native_app_modal_dialog.h"
+#include "components/app_modal/native_app_modal_dialog.h"
 
 class JavaScriptAppModalDialog;
 
-class JavascriptAppModalDialogAndroid : public NativeAppModalDialog {
+class JavascriptAppModalDialogAndroid
+    : public app_modal::NativeAppModalDialog {
  public:
-  JavascriptAppModalDialogAndroid(JNIEnv* env,
-                                  JavaScriptAppModalDialog* dialog,
-                                  gfx::NativeWindow parent);
+  JavascriptAppModalDialogAndroid(
+      JNIEnv* env,
+      app_modal::JavaScriptAppModalDialog* dialog,
+      gfx::NativeWindow parent);
 
   // NativeAppModalDialog:
-  virtual int GetAppModalDialogButtons() const override;
-  virtual void ShowAppModalDialog() override;
-  virtual void ActivateAppModalDialog() override;
-  virtual void CloseAppModalDialog() override;
-  virtual void AcceptAppModalDialog() override;
-  virtual void CancelAppModalDialog() override;
+  int GetAppModalDialogButtons() const override;
+  void ShowAppModalDialog() override;
+  void ActivateAppModalDialog() override;
+  void CloseAppModalDialog() override;
+  void AcceptAppModalDialog() override;
+  void CancelAppModalDialog() override;
+  bool IsShowing() const override;
 
   // Called when java confirms or cancels the dialog.
   void DidAcceptAppModalDialog(JNIEnv* env,
@@ -39,9 +42,9 @@ class JavascriptAppModalDialogAndroid : public NativeAppModalDialog {
 
  private:
   // The object deletes itself.
-  virtual ~JavascriptAppModalDialogAndroid();
+  ~JavascriptAppModalDialogAndroid() override;
 
-  scoped_ptr<JavaScriptAppModalDialog> dialog_;
+  scoped_ptr<app_modal::JavaScriptAppModalDialog> dialog_;
   base::android::ScopedJavaGlobalRef<jobject> dialog_jobject_;
   JavaObjectWeakGlobalRef parent_jobject_weak_ref_;
 

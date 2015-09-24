@@ -20,12 +20,15 @@
 #include "content/common/gpu/gpu_result_codes.h"
 #include "content/common/message_router.h"
 #include "gpu/config/gpu_info.h"
+#include "ipc/attachment_broker.h"
 #include "ipc/ipc_channel_handle.h"
 #include "ipc/ipc_sync_channel.h"
 #include "ipc/message_filter.h"
+#include "media/video/jpeg_decode_accelerator.h"
+#include "ui/events/latency_info.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/gpu_memory_buffer.h"
 #include "ui/gfx/native_widget_types.h"
-#include "ui/gfx/size.h"
 #include "ui/gl/gpu_preference.h"
 
 class GURL;
@@ -34,7 +37,6 @@ struct GPUCreateCommandBufferConfig;
 
 namespace base {
 class MessageLoop;
-class MessageLoopProxy;
 class WaitableEvent;
 }
 
@@ -43,6 +45,7 @@ class SyncMessageFilter;
 }
 
 namespace media {
+class JpegDecodeAccelerator;
 class VideoDecodeAccelerator;
 class VideoEncodeAccelerator;
 }
@@ -60,16 +63,28 @@ struct GpuListenerInfo {
   ~GpuListenerInfo();
 
   base::WeakPtr<IPC::Listener> listener;
-  scoped_refptr<base::MessageLoopProxy> loop;
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner;
 };
 
-class CONTENT_EXPORT GpuChannelHostFactory {
+struct ProxyFlushInfo {
+  ProxyFlushInfo();
+  ~ProxyFlushInfo();
+
+  bool flush_pending;
+  int route_id;
+  int32 put_offset;
+  unsigned int flush_count;
+  std::vector<ui::LatencyInfo> latency_info;
+};
+
+class CONTENT_EXPORT GpuChannelHostFactory
+    : virtual public IPC::SupportsAttachmentBrokering {
  public:
   virtual ~GpuChannelHostFactory() {}
 
   virtual bool IsMainThread() = 0;
-  virtual base::MessageLoop* GetMainLoop() = 0;
-  virtual scoped_refptr<base::MessageLoopProxy> GetIOLoopProxy() = 0;
+  virtual scoped_refptr<base::SingleThreadTaskRunner>
+  GetIOThreadTaskRunner() = 0;
   virtual scoped_ptr<base::SharedMemory> AllocateSharedMemory(size_t size) = 0;
   virtual CreateCommandBufferResult CreateViewCommandBuffer(
       int32 surface_id,
@@ -103,6 +118,15 @@ class GpuChannelHost : public IPC::Sender,
   // IPC::Sender implementation:
   bool Send(IPC::Message* msg) override;
 
+  // Set an ordering barrier.  AsyncFlushes any pending barriers on other
+  // routes. Combines multiple OrderingBarriers into a single AsyncFlush.
+  void OrderingBarrier(int route_id,
+                       int32 put_offset,
+                       unsigned int flush_count,
+                       const std::vector<ui::LatencyInfo>& latency_info,
+                       bool put_offset_changed,
+                       bool do_flush);
+
   // Create and connect to a command buffer in the GPU process.
   CommandBufferProxyImpl* CreateViewCommandBuffer(
       int32 surface_id,
@@ -127,8 +151,16 @@ class GpuChannelHost : public IPC::Sender,
   scoped_ptr<media::VideoEncodeAccelerator> CreateVideoEncoder(
       int command_buffer_route_id);
 
+  // Creates a JPEG decoder in the GPU process.
+  scoped_ptr<media::JpegDecodeAccelerator> CreateJpegDecoder(
+      media::JpegDecodeAccelerator::Client* client);
+
   // Destroy a command buffer created by this channel.
   void DestroyCommandBuffer(CommandBufferProxyImpl* command_buffer);
+
+  // Destroy this channel. Must be called on the main thread, before
+  // destruction.
+  void DestroyChannel();
 
   // Add a route for the current message loop.
   void AddRoute(int route_id, base::WeakPtr<IPC::Listener> listener);
@@ -170,6 +202,8 @@ class GpuChannelHost : public IPC::Sender,
   ~GpuChannelHost() override;
   void Connect(const IPC::ChannelHandle& channel_handle,
                base::WaitableEvent* shutdown_event);
+  bool InternalSend(IPC::Message* msg);
+  void InternalFlush();
 
   // A filter used internally to route incoming messages from the IO thread
   // to the correct message loop. It also maintains some shared state between
@@ -181,7 +215,7 @@ class GpuChannelHost : public IPC::Sender,
     // Called on the IO thread.
     void AddRoute(int route_id,
                   base::WeakPtr<IPC::Listener> listener,
-                  scoped_refptr<base::MessageLoopProxy> loop);
+                  scoped_refptr<base::SingleThreadTaskRunner> task_runner);
     // Called on the IO thread.
     void RemoveRoute(int route_id);
 
@@ -220,7 +254,6 @@ class GpuChannelHost : public IPC::Sender,
 
   const gpu::GPUInfo gpu_info_;
 
-  scoped_ptr<IPC::SyncChannel> channel_;
   scoped_refptr<MessageFilter> channel_filter_;
 
   gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager_;
@@ -237,11 +270,13 @@ class GpuChannelHost : public IPC::Sender,
   // Route IDs are allocated in sequence.
   base::AtomicSequenceNumber next_route_id_;
 
-  // Protects proxies_.
+  // Protects channel_ and proxies_.
   mutable base::Lock context_lock_;
+  scoped_ptr<IPC::SyncChannel> channel_;
   // Used to look up a proxy from its routing id.
   typedef base::hash_map<int, CommandBufferProxyImpl*> ProxyMap;
   ProxyMap proxies_;
+  ProxyFlushInfo flush_info_;
 
   DISALLOW_COPY_AND_ASSIGN(GpuChannelHost);
 };

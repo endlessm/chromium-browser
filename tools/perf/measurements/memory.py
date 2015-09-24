@@ -2,13 +2,15 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from telemetry.page import page_test
+
 from metrics import memory
 from metrics import power
-from telemetry.page import page_test
+
 
 class Memory(page_test.PageTest):
   def __init__(self):
-    super(Memory, self).__init__('RunPageInteractions')
+    super(Memory, self).__init__()
     self._memory_metric = None
     self._power_metric = None
 
@@ -21,6 +23,9 @@ class Memory(page_test.PageTest):
   def DidNavigateToPage(self, page, tab):
     self._memory_metric.Start(page, tab)
     self._power_metric.Start(page, tab)
+
+  def CleanUpAfterPage(self, page, tab):
+    tab.CollectGarbage()
 
   def CustomizeBrowserOptions(self, options):
     memory.MemoryMetric.CustomizeBrowserOptions(options)

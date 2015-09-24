@@ -7,15 +7,13 @@
 #ifndef EXTENSIONS_BROWSER_GUEST_VIEW_WEB_VIEW_WEB_VIEW_CONSTANTS_H_
 #define EXTENSIONS_BROWSER_GUEST_VIEW_WEB_VIEW_WEB_VIEW_CONSTANTS_H_
 
+#include "base/basictypes.h"
+
 namespace webview {
 
 // Attributes.
 extern const char kAttributeAllowTransparency[];
-extern const char kAttributeAutoSize[];
-extern const char kAttributeMaxHeight[];
-extern const char kAttributeMaxWidth[];
-extern const char kAttributeMinHeight[];
-extern const char kAttributeMinWidth[];
+extern const char kAttributeAllowScaling[];
 extern const char kAttributeName[];
 extern const char kAttributeSrc[];
 
@@ -32,9 +30,11 @@ extern const char kAPILoadDataInvalidVirtualURL[];
 extern const char kEventClose[];
 extern const char kEventConsoleMessage[];
 extern const char kEventContentLoad[];
-extern const char kEventContextMenu[];
+extern const char kEventContextMenuShow[];
 extern const char kEventDialog[];
+extern const char kEventDropLink[];
 extern const char kEventExit[];
+extern const char kEventExitFullscreen[];
 extern const char kEventFindReply[];
 extern const char kEventFrameNameChanged[];
 extern const char kEventLoadAbort[];
@@ -73,10 +73,12 @@ extern const char kNewURL[];
 extern const char kNewWidth[];
 extern const char kOldHeight[];
 extern const char kOldURL[];
+extern const char kOrigin[];
 extern const char kPermission[];
 extern const char kPermissionTypeDialog[];
 extern const char kPermissionTypeDownload[];
 extern const char kPermissionTypeFileSystem[];
+extern const char kPermissionTypeFullscreen[];
 extern const char kPermissionTypeGeolocation[];
 extern const char kPermissionTypeLoadPlugin[];
 extern const char kPermissionTypeMedia[];
@@ -87,6 +89,7 @@ extern const char kProcessId[];
 extern const char kProgress[];
 extern const char kReason[];
 extern const char kRequestId[];
+extern const char kRequestInfo[];
 extern const char kSourceId[];
 extern const char kTargetURL[];
 extern const char kWindowID[];
@@ -112,6 +115,7 @@ extern const char kFindCanceled[];
 extern const char kFindDone[];
 
 // Initialization parameters.
+extern const char kInitialZoomFactor[];
 extern const char kParameterUserAgentOverride[];
 
 // Miscellaneous.
@@ -121,6 +125,21 @@ extern const char kPersistPrefix[];
 extern const char kStoragePartitionId[];
 extern const unsigned int kMaxOutstandingPermissionRequests;
 extern const int kInvalidPermissionRequestID;
+
+// ClearData API constants.
+//
+// Note that these are not in an enum because using enums to declare bitmasks
+// results in the enum values being signed.
+extern const uint32 WEB_VIEW_REMOVE_DATA_MASK_APPCACHE;
+extern const uint32 WEB_VIEW_REMOVE_DATA_MASK_CACHE;
+extern const uint32 WEB_VIEW_REMOVE_DATA_MASK_COOKIES;
+extern const uint32 WEB_VIEW_REMOVE_DATA_MASK_FILE_SYSTEMS;
+extern const uint32 WEB_VIEW_REMOVE_DATA_MASK_INDEXEDDB;
+extern const uint32 WEB_VIEW_REMOVE_DATA_MASK_LOCAL_STORAGE;
+extern const uint32 WEB_VIEW_REMOVE_DATA_MASK_WEBSQL;
+
+// Other.
+extern const char kWebViewContentScriptManagerKeyName[];
 
 }  // namespace webview
 

@@ -4,8 +4,9 @@
    "EAP.UseSystemCAs": true,
    "GUID": "{77db0089-0bc8-4358-929c-123xcv}",
    "Mode": "managed",
+   "ProxyConfig": "{\"mode\":\"pac_script\",\"pac_mandatory\":false,\"pac_url\":\"https://proxycfg.my.domain.com/proxy.dat\"}",
    "SaveCredentials": true,
-   "Security": "802_1x",
+   "SecurityClass": "802_1x",
    "Type": "wifi",
-   "WiFi.HexSSID": "536F6D65576966692D5859" // "SomeWifi-XY"
+   "WiFi.HexSSID": "4F70656E577274", // "OpenWrt"
 }

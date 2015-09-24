@@ -26,9 +26,6 @@ VolumeManagerCommon.RootType = {
   // Root for a drive volume.
   DRIVE: 'drive',
 
-  // Root for a privet storage volume.
-  CLOUD_DEVICE: 'cloud_device',
-
   // Root for a MTP volume.
   MTP: 'mtp',
 
@@ -123,10 +120,34 @@ VolumeManagerCommon.VolumeType = {
   DOWNLOADS: 'downloads',
   REMOVABLE: 'removable',
   ARCHIVE: 'archive',
-  CLOUD_DEVICE: 'cloud_device',
   MTP: 'mtp',
   PROVIDED: 'provided'
 };
+
+/**
+ * Source of each volume's data.
+ * @enum {string}
+ * @const
+ */
+VolumeManagerCommon.Source = {
+  FILE: 'file',
+  DEVICE: 'device',
+  NETWORK: 'network',
+  SYSTEM: 'system'
+};
+
+/**
+ * Returns if the volume is linux native file system or not. Non-native file
+ * system does not support few operations (e.g. load unpacked extension).
+ * @param {VolumeManagerCommon.VolumeType} type
+ * @return {boolean}
+ */
+VolumeManagerCommon.VolumeType.isNative = function(type) {
+  return type === VolumeManagerCommon.VolumeType.DOWNLOADS ||
+      type === VolumeManagerCommon.VolumeType.REMOVABLE ||
+      type === VolumeManagerCommon.VolumeType.ARCHIVE;
+};
+
 Object.freeze(VolumeManagerCommon.VolumeType);
 
 /**
@@ -148,8 +169,6 @@ VolumeManagerCommon.getVolumeTypeFromRootType = function(rootType) {
     case VolumeManagerCommon.RootType.DRIVE_SHARED_WITH_ME:
     case VolumeManagerCommon.RootType.DRIVE_RECENT:
       return VolumeManagerCommon.VolumeType.DRIVE;
-    case VolumeManagerCommon.RootType.CLOUD_DEVICE:
-      return VolumeManagerCommon.VolumeType.CLOUD_DEVICE;
     case VolumeManagerCommon.RootType.MTP:
       return VolumeManagerCommon.VolumeType.MTP;
     case VolumeManagerCommon.RootType.PROVIDED:
@@ -165,3 +184,29 @@ VolumeManagerCommon.getVolumeTypeFromRootType = function(rootType) {
  * }}
  */
 VolumeManagerCommon.DriveConnectionState;
+
+/**
+ * Interface for classes providing access to {@code VolumeInfo}
+ * for {@code Entry} instances.
+ *
+ * @interface
+ */
+VolumeManagerCommon.VolumeInfoProvider = function() {};
+
+/**
+ * Obtains a volume info containing the passed entry.
+ * @param {Entry|Object} entry Entry on the volume to be returned. Can be fake.
+ * @return {?VolumeInfo} The VolumeInfo instance or null if not found.
+ */
+VolumeManagerCommon.VolumeInfoProvider.prototype.getVolumeInfo;
+
+/**
+ * Fake entries for Google Drive's virtual folders.
+ * (OFFLINE, RECENT, and SHARED_WITH_ME)
+ * @typedef {?{
+ *   isDirectory: boolean,
+ *   rootType: VolumeManagerCommon.RootType,
+ *   toURL: function(): string
+ * }}
+ */
+var FakeEntry;

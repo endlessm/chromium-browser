@@ -8,8 +8,8 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "ui/base/ime/mock_input_method.h"
 #include "ui/base/ime/text_input_client.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/range/range.h"
-#include "ui/gfx/rect.h"
 
 namespace content {
 class WebContents;
@@ -21,9 +21,10 @@ namespace chromeos {
 class TextInputTestBase : public InProcessBrowserTest {
  public:
   TextInputTestBase() {}
-  virtual ~TextInputTestBase() {}
+  ~TextInputTestBase() override {}
 
-  virtual void SetUpInProcessBrowserTestFixture() override;
+  void SetUpInProcessBrowserTestFixture() override;
+
  private:
   DISALLOW_COPY_AND_ASSIGN(TextInputTestBase);
 };
@@ -32,7 +33,7 @@ class TextInputTestBase : public InProcessBrowserTest {
 class TextInputTestHelper : public ui::InputMethodObserver {
  public:
   TextInputTestHelper();
-  virtual ~TextInputTestHelper();
+  ~TextInputTestHelper() override;
 
   // Returns the latest status notified to ui::InputMethod
   base::string16 GetSurroundingText() const;
@@ -71,16 +72,13 @@ class TextInputTestHelper : public ui::InputMethodObserver {
   };
 
   // ui::InputMethodObserver overrides.
-  virtual void OnTextInputTypeChanged(
-      const ui::TextInputClient* client) override;
-  virtual void OnFocus() override;
-  virtual void OnBlur() override;
-  virtual void OnCaretBoundsChanged(const ui::TextInputClient* client) override;
-  virtual void OnTextInputStateChanged(
-      const ui::TextInputClient* client) override;
-  virtual void OnShowImeIfNeeded() override;
-  virtual void OnInputMethodDestroyed(
-      const ui::InputMethod* input_method) override;
+  void OnTextInputTypeChanged(const ui::TextInputClient* client) override;
+  void OnFocus() override;
+  void OnBlur() override;
+  void OnCaretBoundsChanged(const ui::TextInputClient* client) override;
+  void OnTextInputStateChanged(const ui::TextInputClient* client) override;
+  void OnShowImeIfNeeded() override;
+  void OnInputMethodDestroyed(const ui::InputMethod* input_method) override;
 
   // Represents waiting type of text input event.
   WaitImeEventType waiting_type_;

@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_HUNG_RENDERER_VIEW_H_
 
 #include "base/memory/scoped_vector.h"
-#include "chrome/browser/favicon/favicon_tab_helper.h"
+#include "components/favicon/content/content_favicon_driver.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "ui/base/models/table_model.h"
 #include "ui/views/controls/button/button.h"
@@ -19,6 +19,7 @@ class WebContents;
 }
 
 namespace views {
+class Label;
 class LabelButton;
 }
 
@@ -64,8 +65,8 @@ class HungPagesTableModel : public ui::TableModel, public views::TableGrouper {
     WebContentsObserverImpl(HungPagesTableModel* model,
                             content::WebContents* tab);
 
-    FaviconTabHelper* favicon_tab_helper() {
-      return FaviconTabHelper::FromWebContents(web_contents());
+    favicon::FaviconDriver* favicon_driver() {
+      return favicon::ContentFaviconDriver::FromWebContents(web_contents());
     }
 
     // WebContentsObserver overrides:
@@ -99,14 +100,18 @@ class HungRendererDialogView : public views::DialogDelegateView,
  public:
   // Factory function for creating an instance of the HungRendererDialogView
   // class. At any given point only one instance can be active.
-  static HungRendererDialogView* Create(gfx::NativeView context);
+  static HungRendererDialogView* Create(gfx::NativeWindow context);
 
   // Returns a pointer to the singleton instance if any.
   static HungRendererDialogView* GetInstance();
 
+  // Shows or hides the hung renderer dialog for the given WebContents.
+  static void Show(content::WebContents* contents);
+  static void Hide(content::WebContents* contents);
+
   // Platform specific function to kill the renderer process identified by the
-  // handle passed in.
-  static void KillRendererProcess(base::ProcessHandle process_handle);
+  // render process host passed in.
+  static void KillRendererProcess(content::RenderProcessHost* rph);
 
   // Returns true if the frame is in the foreground.
   static bool IsFrameActive(content::WebContents* contents);
@@ -145,6 +150,12 @@ class HungRendererDialogView : public views::DialogDelegateView,
 
   static void InitClass();
 
+  // An amusing icon image.
+  static gfx::ImageSkia* frozen_icon_;
+
+  // The label describing the list.
+  views::Label* info_label_;
+
   // Controls within the dialog box.
   views::TableView* hung_pages_table_;
 
@@ -157,9 +168,6 @@ class HungRendererDialogView : public views::DialogDelegateView,
 
   // Whether or not we've created controls for ourself.
   bool initialized_;
-
-  // An amusing icon image.
-  static gfx::ImageSkia* frozen_icon_;
 
   DISALLOW_COPY_AND_ASSIGN(HungRendererDialogView);
 };

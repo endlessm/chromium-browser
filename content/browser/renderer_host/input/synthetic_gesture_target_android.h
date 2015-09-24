@@ -18,42 +18,46 @@ class SyntheticGestureTargetAndroid : public SyntheticGestureTargetBase {
   SyntheticGestureTargetAndroid(
       RenderWidgetHostImpl* host,
       base::android::ScopedJavaLocalRef<jobject> touch_event_synthesizer);
-  virtual ~SyntheticGestureTargetAndroid();
+  ~SyntheticGestureTargetAndroid() override;
 
-  static bool RegisterTouchEventSynthesizer(JNIEnv* env);
+  static bool RegisterMotionEventSynthesizer(JNIEnv* env);
 
   // SyntheticGestureTargetBase:
-  virtual void DispatchWebTouchEventToPlatform(
+  void DispatchWebTouchEventToPlatform(
       const blink::WebTouchEvent& web_touch,
       const ui::LatencyInfo& latency_info) override;
-  virtual void DispatchWebMouseWheelEventToPlatform(
+  void DispatchWebMouseWheelEventToPlatform(
       const blink::WebMouseWheelEvent& web_wheel,
       const ui::LatencyInfo& latency_info) override;
-  virtual void DispatchWebMouseEventToPlatform(
+  void DispatchWebMouseEventToPlatform(
       const blink::WebMouseEvent& web_mouse,
       const ui::LatencyInfo& latency_info) override;
 
   // SyntheticGestureTarget:
-  virtual SyntheticGestureParams::GestureSourceType
-      GetDefaultSyntheticGestureSourceType() const override;
+  SyntheticGestureParams::GestureSourceType
+  GetDefaultSyntheticGestureSourceType() const override;
 
-  virtual float GetTouchSlopInDips() const override;
+  float GetTouchSlopInDips() const override;
 
-  virtual float GetMinScalingSpanInDips() const override;
+  float GetMinScalingSpanInDips() const override;
 
  private:
-  // Enum values below need to be kept in sync with TouchEventSynthesizer.java
+  // Enum values below need to be kept in sync with MotionEventSynthesizer.java.
   enum Action {
     ActionInvalid = -1,
     ActionStart = 0,
     ActionMove = 1,
     ActionCancel = 2,
-    ActionEnd = 3
+    ActionEnd = 3,
+    ActionScroll = 4
   };
 
   void TouchSetPointer(JNIEnv* env, int index, int x, int y, int id);
-  void TouchInject(
-      JNIEnv* env, Action action, int pointer_count, int64 time_in_ms);
+  void TouchSetScrollDeltas(JNIEnv* env, int x, int y, int dx, int dy);
+  void TouchInject(JNIEnv* env,
+                   Action action,
+                   int pointer_count,
+                   int64 time_in_ms);
 
   base::android::ScopedJavaGlobalRef<jobject> touch_event_synthesizer_;
 

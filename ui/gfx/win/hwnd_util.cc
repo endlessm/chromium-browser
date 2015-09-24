@@ -6,11 +6,12 @@
 
 #include "base/i18n/rtl.h"
 #include "base/strings/string_util.h"
+#include "base/tracked_objects.h"
 #include "base/win/metro.h"
 #include "base/win/win_util.h"
-#include "ui/gfx/point.h"
-#include "ui/gfx/rect.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace gfx {
 
@@ -78,8 +79,8 @@ base::string16 GetClassName(HWND window) {
   DWORD buffer_size = MAX_PATH;
   while (true) {
     std::wstring output;
-    DWORD size_ret =
-        GetClassNameW(window, WriteInto(&output, buffer_size), buffer_size);
+    DWORD size_ret = GetClassNameW(
+        window, base::WriteInto(&output, buffer_size), buffer_size);
     if (size_ret == 0)
       break;
     if (size_ret < (buffer_size - 1)) {
@@ -222,8 +223,15 @@ void ShowSystemMenuAtPoint(HWND window, const Point& point) {
   if (base::i18n::IsRTL())
     flags |= TPM_RIGHTALIGN;
   HMENU menu = GetSystemMenu(window, FALSE);
+
+  // Use task stopwatch to exclude the time while the context menu is open from
+  // the current task, if any.
+  tracked_objects::TaskStopwatch stopwatch;
+  stopwatch.Start();
   const int command =
       TrackPopupMenu(menu, flags, point.x(), point.y(), 0, window, NULL);
+  stopwatch.Stop();
+
   if (command)
     SendMessage(window, WM_SYSCOMMAND, command, 0);
 }

@@ -3,8 +3,8 @@
 # found in the LICENSE file.
 """A wrapper around ssh for common operations on a CrOS-based device"""
 import logging
-import re
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -13,8 +13,8 @@ import tempfile
 # Some developers' workflow includes running the Chrome process from
 # /usr/local/... instead of the default location. We have to check for both
 # paths in order to support this workflow.
-_CHROME_PATHS = ['/opt/google/chrome/chrome ',
-                '/usr/local/opt/google/chrome/chrome ']
+_CHROME_PROCESS_REGEX = [re.compile(r'^/opt/google/chrome/chrome '),
+                         re.compile(r'^/usr/local/?.*/chrome/chrome ')]
 
 def RunCmd(args, cwd=None, quiet=False):
   """Opens a subprocess to execute a program and returns its return value.
@@ -76,8 +76,10 @@ class KeylessLoginRequiredException(LoginException):
 
 class CrOSInterface(object):
   # pylint: disable=R0923
-  def __init__(self, hostname = None, ssh_identity = None):
+  def __init__(self, hostname=None, ssh_port=None, ssh_identity=None):
     self._hostname = hostname
+    self._ssh_port = ssh_port
+
     # List of ports generated from GetRemotePort() that may not be in use yet.
     self._reserved_ports = []
 
@@ -118,7 +120,13 @@ class CrOSInterface(object):
   def hostname(self):
     return self._hostname
 
+  @property
+  def ssh_port(self):
+    return self._ssh_port
+
   def FormSSHCommandLine(self, args, extra_ssh_args=None):
+    """Constructs a subprocess-suitable command line for `ssh'.
+    """
     if self.local:
       # We run the command through the shell locally for consistency with
       # how commands are run through SSH (crbug.com/239161). This work
@@ -135,8 +143,40 @@ class CrOSInterface(object):
     if extra_ssh_args:
       full_args.extend(extra_ssh_args)
     full_args.append('root@%s' % self._hostname)
+    full_args.append('-p%d' % self._ssh_port)
     full_args.extend(args)
     return full_args
+
+  def _FormSCPCommandLine(self, src, dst, extra_scp_args=None):
+    """Constructs a subprocess-suitable command line for `scp'.
+
+    Note: this function is not designed to work with IPv6 addresses, which need
+    to have their addresses enclosed in brackets and a '-6' flag supplied
+    in order to be properly parsed by `scp'.
+    """
+    assert not self.local, "Cannot use SCP on local target."
+
+    args = ['scp',
+            '-P', str(self._ssh_port)] + self._ssh_args
+    if self._ssh_identity:
+      args.extend(['-i', self._ssh_identity])
+    if extra_scp_args:
+      args.extend(extra_scp_args)
+    args += [src, dst]
+    return args
+
+  def _FormSCPToRemote(self, source, remote_dest, extra_scp_args=None,
+                      user='root'):
+    return self._FormSCPCommandLine(source,
+                                    '%s@%s:%s' % (user, self._hostname,
+                                                  remote_dest),
+                                    extra_scp_args=extra_scp_args)
+
+  def _FormSCPFromRemote(self, remote_source, dest, extra_scp_args=None,
+                        user='root'):
+    return self._FormSCPCommandLine('%s@%s:%s' % (user, self._hostname,
+                                                  remote_source),
+                                    dest, extra_scp_args=extra_scp_args)
 
   def _RemoveSSHWarnings(self, toClean):
     """Removes specific ssh warning lines from a string.
@@ -148,8 +188,9 @@ class CrOSInterface(object):
       A copy of toClean with all the Warning lines removed.
     """
     # Remove the Warning about connecting to a new host for the first time.
-    return re.sub('Warning: Permanently added [^\n]* to the list of known '
-                  'hosts.\s\n', '', toClean)
+    return re.sub(
+        r'Warning: Permanently added [^\n]* to the list of known hosts.\s\n',
+        '', toClean)
 
   def RunCmdOnDevice(self, args, cwd=None, quiet=False):
     stdout, stderr = GetAllCmdOutput(
@@ -210,12 +251,8 @@ class CrOSInterface(object):
         raise OSError('No such file or directory %s' % stderr)
       return
 
-    args = ['scp', '-r' ] + self._ssh_args
-    if self._ssh_identity:
-      args.extend(['-i', self._ssh_identity])
-
-    args.extend([os.path.abspath(filename),
-                 'root@%s:%s' % (self._hostname, remote_filename)])
+    args = self._FormSCPToRemote(os.path.abspath(filename), remote_filename,
+                                 extra_scp_args=['-r'])
 
     stdout, stderr = GetAllCmdOutput(args, quiet=True)
     stderr = self._RemoveSSHWarnings(stderr)
@@ -246,12 +283,8 @@ class CrOSInterface(object):
 
     if destfile is None:
       destfile = os.path.basename(filename)
-    args = ['scp'] + self._ssh_args
-    if self._ssh_identity:
-      args.extend(['-i', self._ssh_identity])
+    args = self._FormSCPFromRemote(filename, os.path.abspath(destfile))
 
-    args.extend(['root@%s:%s' % (self._hostname, filename),
-                 os.path.abspath(destfile)])
     stdout, stderr = GetAllCmdOutput(args, quiet=True)
     stderr = self._RemoveSSHWarnings(stderr)
     if stderr != '':
@@ -287,7 +320,7 @@ class CrOSInterface(object):
     for l in stdout.split('\n'): # pylint: disable=E1103
       if l == '':
         continue
-      m = re.match('^\s*(\d+)\s+(\d+)\s+(.+)\s+(.+)', l, re.DOTALL)
+      m = re.match(r'^\s*(\d+)\s+(\d+)\s+(.+)\s+(.+)', l, re.DOTALL)
       assert m
       procs.append((int(m.group(1)), m.group(3).rstrip(),
                     int(m.group(2)), m.group(4)))
@@ -324,9 +357,10 @@ class CrOSInterface(object):
     for pid, process, ppid, _ in procs:
       if ppid != session_manager_pid:
         continue
-      for path in _CHROME_PATHS:
-        if process.startswith(path):
-          return {'pid': pid, 'path': path, 'args': process}
+      for regex in _CHROME_PROCESS_REGEX:
+        path_match = re.match(regex, process)
+        if path_match is not None:
+          return {'pid': pid, 'path': path_match.group(), 'args': process}
     return None
 
   def GetChromePid(self):
@@ -429,10 +463,7 @@ class CrOSInterface(object):
                          (SCREENSHOT_DIR, screenshot_prefix, i, SCREENSHOT_EXT))
       if not self.FileExistsOnDevice(screenshot_file):
         self.RunCmdOnDevice([
-            'DISPLAY=:0.0 XAUTHORITY=/home/chronos/.Xauthority '
-            '/usr/local/bin/import',
-            '-window root',
-            '-depth 8',
+            '/usr/local/autotest/bin/screenshot.py',
             screenshot_file])
         return
     logging.warning('screenshot directory full.')
@@ -442,7 +473,7 @@ class CrOSInterface(object):
     if clear_enterprise_policy:
       self.RunCmdOnDevice(['stop', 'ui'])
       self.RmRF('/var/lib/whitelist/*')
-      self.RmRF('/home/chronos/Local\ State')
+      self.RmRF(r'/home/chronos/Local\ State')
 
     if self.IsServiceRunning('ui'):
       self.RunCmdOnDevice(['restart', 'ui'])

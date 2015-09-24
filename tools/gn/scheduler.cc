@@ -8,14 +8,16 @@
 #include "base/command_line.h"
 #include "base/strings/string_number_conversions.h"
 #include "tools/gn/standard_out.h"
+#include "tools/gn/switches.h"
 
-Scheduler* g_scheduler = NULL;
+Scheduler* g_scheduler = nullptr;
 
 namespace {
 
 int GetThreadCount() {
   std::string thread_count =
-      CommandLine::ForCurrentProcess()->GetSwitchValueASCII("threads");
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          switches::kThreads);
 
   int result;
   if (thread_count.empty() || !base::StringToInt(thread_count, &result))
@@ -38,7 +40,7 @@ Scheduler::Scheduler()
 Scheduler::~Scheduler() {
   if (!has_been_shutdown_)
     pool_->Shutdown();
-  g_scheduler = NULL;
+  g_scheduler = nullptr;
 }
 
 bool Scheduler::Run() {
@@ -104,6 +106,39 @@ void Scheduler::AddGenDependency(const base::FilePath& file) {
 std::vector<base::FilePath> Scheduler::GetGenDependencies() const {
   base::AutoLock lock(lock_);
   return gen_dependencies_;
+}
+
+void Scheduler::AddWrittenFile(const SourceFile& file) {
+  base::AutoLock lock(lock_);
+  written_files_.push_back(file);
+}
+
+void Scheduler::AddUnknownGeneratedInput(const Target* target,
+                                         const SourceFile& file) {
+  base::AutoLock lock(lock_);
+  unknown_generated_inputs_.insert(std::make_pair(file, target));
+}
+
+std::multimap<SourceFile, const Target*>
+    Scheduler::GetUnknownGeneratedInputs() const {
+  base::AutoLock lock(lock_);
+
+  // Remove all unknown inputs that were written files. These are OK as inputs
+  // to build steps since they were written as a side-effect of running GN.
+  //
+  // It's assumed that this function is called once during cleanup to check for
+  // errors, so performing this work in the lock doesn't matter.
+  std::multimap<SourceFile, const Target*> filtered = unknown_generated_inputs_;
+  for (const SourceFile& file : written_files_)
+    filtered.erase(file);
+
+  return filtered;
+}
+
+void Scheduler::ClearUnknownGeneratedInputsAndWrittenFiles() {
+  base::AutoLock lock(lock_);
+  unknown_generated_inputs_.clear();
+  written_files_.clear();
 }
 
 void Scheduler::IncrementWorkCount() {

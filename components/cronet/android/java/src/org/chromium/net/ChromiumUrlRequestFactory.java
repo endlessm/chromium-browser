@@ -7,26 +7,30 @@ package org.chromium.net;
 import android.content.Context;
 import android.os.Build;
 
-import org.chromium.base.UsedByReflection;
+import org.chromium.base.annotations.UsedByReflection;
 
 import java.nio.channels.WritableByteChannel;
 import java.util.Map;
 
 /**
  * Network request factory using the native http stack implementation.
+ * @deprecated Use {@link CronetUrlRequestContext} instead.
  */
 @UsedByReflection("HttpUrlRequestFactory.java")
+@Deprecated
 public class ChromiumUrlRequestFactory extends HttpUrlRequestFactory {
     private ChromiumUrlRequestContext mRequestContext;
 
     @UsedByReflection("HttpUrlRequestFactory.java")
     public ChromiumUrlRequestFactory(
-            Context context, HttpUrlRequestFactoryConfig config) {
+            Context context, UrlRequestContextConfig config) {
         if (isEnabled()) {
-            System.loadLibrary(config.libraryName());
-            mRequestContext = new ChromiumUrlRequestContext(
-                    context.getApplicationContext(), UserAgent.from(context),
-                    config.toString());
+            String userAgent = config.userAgent();
+            if (userAgent.isEmpty()) {
+                userAgent = UserAgent.from(context);
+            }
+            mRequestContext = new ChromiumUrlRequestContext(context,
+                    userAgent, config);
         }
     }
 
@@ -56,8 +60,8 @@ public class ChromiumUrlRequestFactory extends HttpUrlRequestFactory {
     }
 
     @Override
-    public void startNetLogToFile(String fileName) {
-        mRequestContext.startNetLogToFile(fileName);
+    public void startNetLogToFile(String fileName, boolean logAll) {
+        mRequestContext.startNetLogToFile(fileName, logAll);
     }
 
     @Override

@@ -12,6 +12,7 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "components/google/core/browser/google_util.h"
+#include "components/search_engines/search_terms_data.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_prepopulate_data.h"
 #include "components/search_engines/template_url_service.h"
@@ -36,9 +37,11 @@ TemplateUrlServiceAndroid::TemplateUrlServiceAndroid(JNIEnv* env,
       template_url_service_->RegisterOnLoadedCallback(
           base::Bind(&TemplateUrlServiceAndroid::OnTemplateURLServiceLoaded,
                      base::Unretained(this)));
+  template_url_service_->AddObserver(this);
 }
 
 TemplateUrlServiceAndroid::~TemplateUrlServiceAndroid() {
+  template_url_service_->RemoveObserver(this);
 }
 
 void TemplateUrlServiceAndroid::Load(JNIEnv* env, jobject obj) {
@@ -138,6 +141,15 @@ void TemplateUrlServiceAndroid::OnTemplateURLServiceLoaded() {
       env, weak_java_obj_.get(env).obj());
 }
 
+void TemplateUrlServiceAndroid::OnTemplateURLServiceChanged() {
+  JNIEnv* env = base::android::AttachCurrentThread();
+  if (weak_java_obj_.get(env).is_null())
+    return;
+
+  Java_TemplateUrlService_onTemplateURLServiceChanged(
+      env, weak_java_obj_.get(env).obj());
+}
+
 base::android::ScopedJavaLocalRef<jstring>
 TemplateUrlServiceAndroid::GetUrlForSearchQuery(JNIEnv* env,
                                                 jobject obj,
@@ -230,6 +242,18 @@ TemplateUrlServiceAndroid::GetUrlForContextualSearchQuery(
     url = gurl.spec();
   }
 
+  return base::android::ConvertUTF8ToJavaString(env, url);
+}
+
+base::android::ScopedJavaLocalRef<jstring>
+TemplateUrlServiceAndroid::GetSearchEngineUrlFromTemplateUrl(
+    JNIEnv* env,
+    jobject obj,
+    jint index) {
+  TemplateURL* template_url = template_url_service_->GetTemplateURLs()[index];
+  std::string url(template_url->url_ref().ReplaceSearchTerms(
+      TemplateURLRef::SearchTermsArgs(
+          base::ASCIIToUTF16("query")), SearchTermsData(), nullptr));
   return base::android::ConvertUTF8ToJavaString(env, url);
 }
 

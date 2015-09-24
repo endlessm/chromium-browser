@@ -15,6 +15,9 @@
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
 
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
+
 namespace extensions {
 
 namespace keys = bookmark_api_constants;
@@ -73,8 +76,11 @@ BookmarkTreeNode* GetBookmarkTreeNode(ChromeBookmarkClient* client,
         new double(floor(node->date_added().ToDoubleT() * 1000)));
   }
 
-  if (client->IsDescendantOfManagedNode(node))
-    bookmark_tree_node->unmodifiable = BookmarkTreeNode::UNMODIFIABLE_MANAGED;
+  if (bookmarks::IsDescendantOf(node, client->managed_node()) ||
+      bookmarks::IsDescendantOf(node, client->supervised_node())) {
+    bookmark_tree_node->unmodifiable =
+        api::bookmarks::BOOKMARK_TREE_NODE_UNMODIFIABLE_MANAGED;
+  }
 
   if (recurse && node->is_folder()) {
     std::vector<linked_ptr<BookmarkTreeNode> > children;
@@ -120,7 +126,8 @@ bool RemoveNode(BookmarkModel* model,
     *error = keys::kModifySpecialError;
     return false;
   }
-  if (client->IsDescendantOfManagedNode(node)) {
+  if (bookmarks::IsDescendantOf(node, client->managed_node()) ||
+      bookmarks::IsDescendantOf(node, client->supervised_node())) {
     *error = keys::kModifyManagedError;
     return false;
   }
@@ -129,8 +136,7 @@ bool RemoveNode(BookmarkModel* model,
     return false;
   }
 
-  const BookmarkNode* parent = node->parent();
-  model->Remove(parent, parent->GetIndexOf(node));
+  model->Remove(node);
   return true;
 }
 

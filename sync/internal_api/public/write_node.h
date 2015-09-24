@@ -15,16 +15,10 @@
 #include "sync/internal_api/public/base_node.h"
 
 namespace sync_pb {
-class AppSpecifics;
-class AutofillSpecifics;
-class AutofillProfileSpecifics;
 class BookmarkSpecifics;
 class EntitySpecifics;
-class ExtensionSpecifics;
-class SessionSpecifics;
 class NigoriSpecifics;
 class PasswordSpecificsData;
-class ThemeSpecifics;
 class TypedUrlSpecifics;
 }
 
@@ -34,6 +28,7 @@ class Cryptographer;
 class WriteTransaction;
 
 namespace syncable {
+class Id;
 class Entry;
 class MutableEntry;
 }
@@ -46,8 +41,6 @@ class SYNC_EXPORT WriteNode : public BaseNode {
     INIT_SUCCESS,
     // The tag passed into this method was empty.
     INIT_FAILED_EMPTY_TAG,
-    // An entry with this tag already exists.
-    INIT_FAILED_ENTRY_ALREADY_EXISTS,
     // The constructor for a new MutableEntry with the specified data failed.
     INIT_FAILED_COULD_NOT_CREATE_ENTRY,
     // Setting the predecessor failed
@@ -76,12 +69,18 @@ class SYNC_EXPORT WriteNode : public BaseNode {
   // Create nodes using this function if they're unique items that
   // you want to fetch using client_tag. Note that the behavior of these
   // items is slightly different than that of normal items.
-  // Most importantly, if it exists locally, this function will
-  // actually undelete it
+  // Most importantly, if it exists locally but is deleted, this function will
+  // actually undelete it. Otherwise it will reuse the existing node.
   // Client unique tagged nodes must NOT be folders.
   InitUniqueByCreationResult InitUniqueByCreation(
       ModelType model_type,
       const BaseNode& parent,
+      const std::string& client_tag);
+
+  // InitUniqueByCreation overload for model types without hierarchy.
+  // The parent node isn't stored but is assumed to be the type root folder.
+  InitUniqueByCreationResult InitUniqueByCreation(
+      ModelType model_type,
       const std::string& client_tag);
 
   // Looks up the type's root folder.  This is usually created by the sync
@@ -124,17 +123,6 @@ class SYNC_EXPORT WriteNode : public BaseNode {
   // TODO(sync): Remove the setters below when the corresponding data
   // types are ported to the new sync service API.
 
-  // Set the app specifics (id, update url, enabled state, etc).
-  // Should only be called if GetModelType() == APPS.
-  void SetAppSpecifics(const sync_pb::AppSpecifics& specifics);
-
-  // Set the autofill specifics (name and value).
-  // Should only be called if GetModelType() == AUTOFILL.
-  void SetAutofillSpecifics(const sync_pb::AutofillSpecifics& specifics);
-
-  void SetAutofillProfileSpecifics(
-      const sync_pb::AutofillProfileSpecifics& specifics);
-
   // Set the nigori specifics.
   // Should only be called if GetModelType() == NIGORI.
   void SetNigoriSpecifics(const sync_pb::NigoriSpecifics& specifics);
@@ -143,34 +131,9 @@ class SYNC_EXPORT WriteNode : public BaseNode {
   // Should only be called if GetModelType() == PASSWORD.
   void SetPasswordSpecifics(const sync_pb::PasswordSpecificsData& specifics);
 
-  // Set the theme specifics (name and value).
-  // Should only be called if GetModelType() == THEME.
-  void SetThemeSpecifics(const sync_pb::ThemeSpecifics& specifics);
-
   // Set the typed_url specifics (url, title, typed_count, etc).
   // Should only be called if GetModelType() == TYPED_URLS.
   void SetTypedUrlSpecifics(const sync_pb::TypedUrlSpecifics& specifics);
-
-  // Set the extension specifics (id, update url, enabled state, etc).
-  // Should only be called if GetModelType() == EXTENSIONS.
-  void SetExtensionSpecifics(const sync_pb::ExtensionSpecifics& specifics);
-
-  // Set the session specifics (windows, tabs, navigations etc.).
-  // Should only be called if GetModelType() == SESSIONS.
-  void SetSessionSpecifics(const sync_pb::SessionSpecifics& specifics);
-
-  // Set the device info specifics.
-  // Should only be called if GetModelType() == DEVICE_INFO.
-  void SetDeviceInfoSpecifics(const sync_pb::DeviceInfoSpecifics& specifics);
-
-  // Set the experiments specifics.
-  // Should only be called if GetModelType() == EXPERIMENTS.
-  void SetExperimentsSpecifics(const sync_pb::ExperimentsSpecifics& specifics);
-
-  // Set the priority preference specifics.
-  // Should only be called if GetModelType() == PRIORITY_PREFERENCE.
-  void SetPriorityPreferenceSpecifics(
-      const sync_pb::PriorityPreferenceSpecifics& specifics);
 
   // Set the attachment metadata.
   void SetAttachmentMetadata(
@@ -187,6 +150,11 @@ class SYNC_EXPORT WriteNode : public BaseNode {
   FRIEND_TEST_ALL_PREFIXES(SyncManagerTest, EncryptBookmarksWithLegacyData);
 
   void* operator new(size_t size);  // Node is meant for stack use only.
+
+  InitUniqueByCreationResult InitUniqueByCreationImpl(
+      ModelType model_type,
+      const syncable::Id& parent_id,
+      const std::string& client_tag);
 
   // Helper to set the previous node.
   bool PutPredecessor(const BaseNode* predecessor) WARN_UNUSED_RESULT;

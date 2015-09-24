@@ -31,7 +31,7 @@ _readelf = None
 _library_dirs = None
 
 _library_re = re.compile(
-    '.*NEEDED.*Shared library: \[(?P<library_name>[\w/.]+)\]')
+    '.*NEEDED.*Shared library: \[(?P<library_name>.+)\]')
 
 
 def SetReadelfPath(path):
@@ -128,7 +128,6 @@ def main():
     build_utils.Touch(options.stamp)
 
   if options.depfile:
-    print libraries
     build_utils.WriteDepfile(
         options.depfile,
         libraries + build_utils.GetPythonDependencies())

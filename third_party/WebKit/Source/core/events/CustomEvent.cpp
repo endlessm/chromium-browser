@@ -37,6 +37,8 @@ CustomEvent::CustomEvent()
 CustomEvent::CustomEvent(const AtomicString& type, const CustomEventInit& initializer)
     : Event(type, initializer)
 {
+    if (initializer.hasDetail())
+        m_detail = initializer.detail();
 }
 
 CustomEvent::~CustomEvent()
@@ -58,7 +60,7 @@ const AtomicString& CustomEvent::interfaceName() const
     return EventNames::CustomEvent;
 }
 
-void CustomEvent::trace(Visitor* visitor)
+DEFINE_TRACE(CustomEvent)
 {
     Event::trace(visitor);
 }

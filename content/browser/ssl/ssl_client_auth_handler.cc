@@ -5,121 +5,198 @@
 #include "content/browser/ssl/ssl_client_auth_handler.h"
 
 #include "base/bind.h"
-#include "content/browser/loader/resource_dispatcher_host_impl.h"
-#include "content/browser/loader/resource_request_info_impl.h"
+#include "base/logging.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/client_certificate_delegate.h"
 #include "content/public/browser/content_browser_client.h"
+#include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/resource_request_info.h"
+#include "content/public/browser/web_contents.h"
 #include "net/cert/x509_certificate.h"
-#include "net/http/http_transaction_factory.h"
 #include "net/ssl/client_cert_store.h"
 #include "net/url_request/url_request.h"
-#include "net/url_request/url_request_context.h"
 
 namespace content {
+
+namespace {
+
+class ClientCertificateDelegateImpl : public ClientCertificateDelegate {
+ public:
+  explicit ClientCertificateDelegateImpl(
+      const base::WeakPtr<SSLClientAuthHandler>& handler)
+      : handler_(handler), continue_called_(false) {}
+
+  ~ClientCertificateDelegateImpl() override {
+    if (!continue_called_) {
+      BrowserThread::PostTask(
+          BrowserThread::IO, FROM_HERE,
+          base::Bind(&SSLClientAuthHandler::CancelCertificateSelection,
+                     handler_));
+    }
+  }
+
+  // ClientCertificateDelegate implementation:
+  void ContinueWithCertificate(net::X509Certificate* cert) override {
+    DCHECK(!continue_called_);
+    continue_called_ = true;
+    BrowserThread::PostTask(
+        BrowserThread::IO, FROM_HERE,
+        base::Bind(&SSLClientAuthHandler::ContinueWithCertificate, handler_,
+                   make_scoped_refptr(cert)));
+  }
+
+ private:
+  base::WeakPtr<SSLClientAuthHandler> handler_;
+  bool continue_called_;
+
+  DISALLOW_COPY_AND_ASSIGN(ClientCertificateDelegateImpl);
+};
+
+void SelectCertificateOnUIThread(
+    int render_process_host_id,
+    int render_frame_host_id,
+    net::SSLCertRequestInfo* cert_request_info,
+    const base::WeakPtr<SSLClientAuthHandler>& handler) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  scoped_ptr<ClientCertificateDelegate> delegate(
+      new ClientCertificateDelegateImpl(handler));
+
+  RenderFrameHost* rfh =
+      RenderFrameHost::FromID(render_process_host_id, render_frame_host_id);
+  WebContents* web_contents = WebContents::FromRenderFrameHost(rfh);
+  if (!web_contents)
+    return;
+
+  GetContentClient()->browser()->SelectClientCertificate(
+      web_contents, cert_request_info, delegate.Pass());
+}
+
+}  // namespace
+
+// A reference-counted core to allow the ClientCertStore and SSLCertRequestInfo
+// to outlive SSLClientAuthHandler if needbe.
+class SSLClientAuthHandler::Core : public base::RefCountedThreadSafe<Core> {
+ public:
+  Core(const base::WeakPtr<SSLClientAuthHandler>& handler,
+       scoped_ptr<net::ClientCertStore> client_cert_store,
+       net::SSLCertRequestInfo* cert_request_info)
+      : handler_(handler),
+        client_cert_store_(client_cert_store.Pass()),
+        cert_request_info_(cert_request_info) {}
+
+  bool has_client_cert_store() const { return client_cert_store_; }
+
+  void GetClientCerts() {
+    if (client_cert_store_) {
+      // TODO(davidben): This is still a cyclical ownership where
+      // GetClientCerts' requirement that |client_cert_store_| remains alive
+      // until the call completes is maintained by the reference held in the
+      // callback.
+      client_cert_store_->GetClientCerts(
+          *cert_request_info_, &cert_request_info_->client_certs,
+          base::Bind(&SSLClientAuthHandler::Core::DidGetClientCerts, this));
+    } else {
+      DidGetClientCerts();
+    }
+  }
+
+ private:
+  friend class base::RefCountedThreadSafe<Core>;
+
+  ~Core() {}
+
+  // Called when |client_cert_store_| is done retrieving the cert list.
+  void DidGetClientCerts() {
+    if (handler_)
+      handler_->DidGetClientCerts();
+  }
+
+  base::WeakPtr<SSLClientAuthHandler> handler_;
+  scoped_ptr<net::ClientCertStore> client_cert_store_;
+  scoped_refptr<net::SSLCertRequestInfo> cert_request_info_;
+};
 
 SSLClientAuthHandler::SSLClientAuthHandler(
     scoped_ptr<net::ClientCertStore> client_cert_store,
     net::URLRequest* request,
-    net::SSLCertRequestInfo* cert_request_info)
+    net::SSLCertRequestInfo* cert_request_info,
+    SSLClientAuthHandler::Delegate* delegate)
     : request_(request),
-      http_network_session_(
-          request_->context()->http_transaction_factory()->GetSession()),
       cert_request_info_(cert_request_info),
-      client_cert_store_(client_cert_store.Pass()) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+      delegate_(delegate),
+      weak_factory_(this) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+
+  core_ = new Core(weak_factory_.GetWeakPtr(), client_cert_store.Pass(),
+                   cert_request_info_.get());
 }
 
 SSLClientAuthHandler::~SSLClientAuthHandler() {
-  // If we were simply dropped, then act as if we selected no certificate.
-  DoCertificateSelected(NULL);
-}
-
-void SSLClientAuthHandler::OnRequestCancelled() {
-  request_ = NULL;
 }
 
 void SSLClientAuthHandler::SelectCertificate() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
-  DCHECK(request_);
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  if (client_cert_store_) {
-    client_cert_store_->GetClientCerts(
-        *cert_request_info_,
-        &cert_request_info_->client_certs,
-        base::Bind(&SSLClientAuthHandler::DidGetClientCerts, this));
-  } else {
-    DidGetClientCerts();
-  }
+  // |core_| will call DidGetClientCerts when done.
+  core_->GetClientCerts();
 }
 
-void SSLClientAuthHandler::CertificateSelected(net::X509Certificate* cert) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+// static
+void SSLClientAuthHandler::ContinueWithCertificate(
+    const base::WeakPtr<SSLClientAuthHandler>& handler,
+    net::X509Certificate* cert) {
+  if (handler)
+    handler->delegate_->ContinueWithCertificate(cert);
+}
 
-  DVLOG(1) << this << " CertificateSelected " << cert;
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::Bind(
-          &SSLClientAuthHandler::DoCertificateSelected, this,
-          make_scoped_refptr(cert)));
+// static
+void SSLClientAuthHandler::CancelCertificateSelection(
+    const base::WeakPtr<SSLClientAuthHandler>& handler) {
+  if (handler)
+    handler->delegate_->CancelCertificateSelection();
 }
 
 void SSLClientAuthHandler::DidGetClientCerts() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
-  // Request may have cancelled while we were getting client certs.
-  if (!request_)
-    return;
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   // Note that if |client_cert_store_| is NULL, we intentionally fall through to
-  // DoCertificateSelected. This is for platforms where the client cert matching
-  // is not performed by Chrome, the platform can handle the cert matching
-  // before showing the dialog.
-  if (client_cert_store_ && cert_request_info_->client_certs.empty()) {
+  // SelectCertificateOnUIThread. This is for platforms where the client cert
+  // matching is not performed by Chrome. Those platforms handle the cert
+  // matching before showing the dialog.
+  if (core_->has_client_cert_store() &&
+      cert_request_info_->client_certs.empty()) {
     // No need to query the user if there are no certs to choose from.
-    DoCertificateSelected(NULL);
+    //
+    // TODO(davidben): The WebContents-less check on the UI thread should come
+    // before checking ClientCertStore; ClientCertStore itself should probably
+    // be handled by the embedder (https://crbug.com/394131), especially since
+    // this doesn't work on Android (https://crbug.com/345641).
+    BrowserThread::PostTask(
+        BrowserThread::IO, FROM_HERE,
+        base::Bind(&SSLClientAuthHandler::ContinueWithCertificate,
+                   weak_factory_.GetWeakPtr(),
+                   scoped_refptr<net::X509Certificate>()));
     return;
   }
 
   int render_process_host_id;
   int render_frame_host_id;
   if (!ResourceRequestInfo::ForRequest(request_)->GetAssociatedRenderFrame(
-          &render_process_host_id,
-          &render_frame_host_id))
+          &render_process_host_id, &render_frame_host_id)) {
     NOTREACHED();
+    BrowserThread::PostTask(
+        BrowserThread::IO, FROM_HERE,
+        base::Bind(&SSLClientAuthHandler::CancelCertificateSelection,
+                   weak_factory_.GetWeakPtr()));
+    return;
+  }
 
-  // If the RVH does not exist by the time this task gets run, then the task
-  // will be dropped and the scoped_refptr to SSLClientAuthHandler will go
-  // away, so we do not leak anything. The destructor takes care of ensuring
-  // the net::URLRequest always gets a response.
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
-      base::Bind(
-          &SSLClientAuthHandler::DoSelectCertificate, this,
-          render_process_host_id, render_frame_host_id));
-}
-
-void SSLClientAuthHandler::DoCertificateSelected(net::X509Certificate* cert) {
-  VLOG(1) << this << " DoCertificateSelected " << cert;
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
-  // request_ could have been NULLed if the request was cancelled while the
-  // user was choosing a cert, or because we have already responded to the
-  // certificate.
-  if (request_) {
-    request_->ContinueWithCertificate(cert);
-
-    ResourceDispatcherHostImpl::Get()->
-        ClearSSLClientAuthHandlerForRequest(request_);
-    request_ = NULL;
-  }
-}
-
-void SSLClientAuthHandler::DoSelectCertificate(
-    int render_process_host_id, int render_frame_host_id) {
-  GetContentClient()->browser()->SelectClientCertificate(
-      render_process_host_id,
-      render_frame_host_id,
-      http_network_session_,
-      cert_request_info_.get(),
-      base::Bind(&SSLClientAuthHandler::CertificateSelected, this));
+      base::Bind(&SelectCertificateOnUIThread, render_process_host_id,
+                 render_frame_host_id, cert_request_info_,
+                 weak_factory_.GetWeakPtr()));
 }
 
 }  // namespace content

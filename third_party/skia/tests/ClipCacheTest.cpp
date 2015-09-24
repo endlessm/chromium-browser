@@ -8,7 +8,7 @@
 #include "Test.h"
 // This is a GR test
 #if SK_SUPPORT_GPU
-#include "../../src/gpu/GrClipMaskManager.h"
+#include "GrClipMaskManager.h"
 #include "GrContextFactory.h"
 #include "SkGpuDevice.h"
 
@@ -17,7 +17,7 @@ static const int Y_SIZE = 12;
 
 ////////////////////////////////////////////////////////////////////////////////
 // note: this is unused
-static GrTexture* createTexture(GrContext* context) {
+static GrTexture* create_texture(GrContext* context) {
     unsigned char textureData[X_SIZE][Y_SIZE][4];
 
     memset(textureData, 0, 4* X_SIZE * Y_SIZE);
@@ -31,7 +31,7 @@ static GrTexture* createTexture(GrContext* context) {
     desc.fHeight    = Y_SIZE;
 
     // We are initializing the texture with zeros here
-    GrTexture* texture = context->createUncachedTexture(desc, textureData, 0);
+    GrTexture* texture = context->textureProvider()->createTexture(desc, false, textureData, 0);
     if (!texture) {
         return NULL;
     }
@@ -52,7 +52,7 @@ static void test_clip_bounds(skiatest::Reporter* reporter, GrContext* context) {
     desc.fWidth     = kXSize;
     desc.fHeight    = kYSize;
 
-    GrTexture* texture = context->createUncachedTexture(desc, NULL, 0);
+    GrTexture* texture = context->textureProvider()->createTexture(desc, false, NULL, 0);
     if (!texture) {
         return;
     }
@@ -84,17 +84,17 @@ static void test_clip_bounds(skiatest::Reporter* reporter, GrContext* context) {
     REPORTER_ASSERT(reporter, screen == devStackBounds);
     REPORTER_ASSERT(reporter, isIntersectionOfRects);
 
-    // wrap the SkClipStack in a GrClipData
-    GrClipData clipData;
-    clipData.fClipStack = &stack;
+    // wrap the SkClipStack in a GrClip
+    GrClip clipData;
+    clipData.setClipStack(&stack);
 
-    SkIRect devGrClipDataBound;
+    SkIRect devGrClipBound;
     clipData.getConservativeBounds(texture,
-                                   &devGrClipDataBound,
+                                   &devGrClipBound,
                                    &isIntersectionOfRects);
 
-    // make sure that GrClipData is behaving itself
-    REPORTER_ASSERT(reporter, intScreen == devGrClipDataBound);
+    // make sure that GrClip is behaving itself
+    REPORTER_ASSERT(reporter, intScreen == devGrClipBound);
     REPORTER_ASSERT(reporter, isIntersectionOfRects);
 }
 
@@ -133,11 +133,9 @@ static void check_empty_state(skiatest::Reporter* reporter,
 static void test_cache(skiatest::Reporter* reporter, GrContext* context) {
 
     if (false) { // avoid bit rot, suppress warning
-        createTexture(context);
+        create_texture(context);
     }
-    GrClipMaskCache cache;
-
-    cache.setContext(context);
+    GrClipMaskCache cache(context->resourceProvider());
 
     // check initial state
     check_empty_state(reporter, cache);

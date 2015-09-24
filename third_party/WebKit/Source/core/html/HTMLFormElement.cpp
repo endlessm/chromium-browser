@@ -52,10 +52,10 @@
 #include "core/html/RadioNodeList.h"
 #include "core/html/forms/FormController.h"
 #include "core/inspector/ConsoleMessage.h"
+#include "core/layout/LayoutTextControl.h"
 #include "core/loader/FrameLoader.h"
 #include "core/loader/FrameLoaderClient.h"
 #include "core/loader/MixedContentChecker.h"
-#include "core/rendering/RenderTextControl.h"
 #include "platform/UserGestureIndicator.h"
 #include "wtf/text/AtomicString.h"
 #include <limits>
@@ -98,7 +98,7 @@ HTMLFormElement::~HTMLFormElement()
 #endif
 }
 
-void HTMLFormElement::trace(Visitor* visitor)
+DEFINE_TRACE(HTMLFormElement)
 {
 #if ENABLE(OILPAN)
     visitor->trace(m_pastNamesMap);
@@ -120,22 +120,22 @@ bool HTMLFormElement::isValidElement()
     return !checkInvalidControlsAndCollectUnhandled(0, CheckValidityDispatchNoEvent);
 }
 
-bool HTMLFormElement::rendererIsNeeded(const RenderStyle& style)
+bool HTMLFormElement::layoutObjectIsNeeded(const ComputedStyle& style)
 {
     if (!m_wasDemoted)
-        return HTMLElement::rendererIsNeeded(style);
+        return HTMLElement::layoutObjectIsNeeded(style);
 
     ContainerNode* node = parentNode();
-    if (!node || !node->renderer())
-        return HTMLElement::rendererIsNeeded(style);
-    RenderObject* parentRenderer = node->renderer();
+    if (!node || !node->layoutObject())
+        return HTMLElement::layoutObjectIsNeeded(style);
+    LayoutObject* parentLayoutObject = node->layoutObject();
     // FIXME: Shouldn't we also check for table caption (see |formIsTablePart| below).
     // FIXME: This check is not correct for Shadow DOM.
-    bool parentIsTableElementPart = (parentRenderer->isTable() && isHTMLTableElement(*node))
-        || (parentRenderer->isTableRow() && isHTMLTableRowElement(*node))
-        || (parentRenderer->isTableSection() && node->hasTagName(tbodyTag))
-        || (parentRenderer->isRenderTableCol() && node->hasTagName(colTag))
-        || (parentRenderer->isTableCell() && isHTMLTableRowElement(*node));
+    bool parentIsTableElementPart = (parentLayoutObject->isTable() && isHTMLTableElement(*node))
+        || (parentLayoutObject->isTableRow() && isHTMLTableRowElement(*node))
+        || (parentLayoutObject->isTableSection() && node->hasTagName(tbodyTag))
+        || (parentLayoutObject->isLayoutTableCol() && node->hasTagName(colTag))
+        || (parentLayoutObject->isTableCell() && isHTMLTableRowElement(*node));
 
     if (!parentIsTableElementPart)
         return true;
@@ -208,11 +208,11 @@ void HTMLFormElement::removedFrom(ContainerNode* insertionPoint)
     HTMLElement::removedFrom(insertionPoint);
 }
 
-void HTMLFormElement::handleLocalEvents(Event* event)
+void HTMLFormElement::handleLocalEvents(Event& event)
 {
-    Node* targetNode = event->target()->toNode();
-    if (event->eventPhase() != Event::CAPTURING_PHASE && targetNode && targetNode != this && (event->type() == EventTypeNames::submit || event->type() == EventTypeNames::reset)) {
-        event->stopPropagation();
+    Node* targetNode = event.target()->toNode();
+    if (event.eventPhase() != Event::CAPTURING_PHASE && targetNode && targetNode != this && (event.type() == EventTypeNames::submit || event.type() == EventTypeNames::reset)) {
+        event.stopPropagation();
         return;
     }
     HTMLElement::handleLocalEvents(event);
@@ -250,7 +250,8 @@ void HTMLFormElement::submitImplicitly(Event* event, bool fromImplicitSubmission
             if (control->isSuccessfulSubmitButton()) {
                 control->dispatchSimulatedClick(event);
                 return;
-            } else if (fromImplicitSubmissionTrigger) {
+            }
+            if (fromImplicitSubmissionTrigger) {
                 // Default (submit) button is not activated; no implicit submission.
                 return;
             }
@@ -287,7 +288,7 @@ bool HTMLFormElement::validateInteractively()
     // show a validation message on a focusable form control.
 
     // Needs to update layout now because we'd like to call isFocusable(), which
-    // has !renderer()->needsLayout() assertion.
+    // has !layoutObject()->needsLayout() assertion.
     document().updateLayoutIgnorePendingStylesheets();
 
     RefPtrWillBeRawPtr<HTMLFormElement> protector(this);
@@ -341,17 +342,12 @@ void HTMLFormElement::prepareForSubmission(Event* event)
     m_isSubmittingOrInUserJSSubmitEvent = false;
 
     if (m_shouldSubmit)
-        submit(event, true, true, NotSubmittedByJavaScript);
-}
-
-void HTMLFormElement::submit()
-{
-    submit(0, false, true, NotSubmittedByJavaScript);
+        submit(event, true, true);
 }
 
 void HTMLFormElement::submitFromJavaScript()
 {
-    submit(0, false, UserGestureIndicator::processingUserGesture(), SubmittedByJavaScript);
+    submit(0, false, UserGestureIndicator::processingUserGesture());
 }
 
 void HTMLFormElement::submitDialog(PassRefPtrWillBeRawPtr<FormSubmission> formSubmission)
@@ -364,7 +360,7 @@ void HTMLFormElement::submitDialog(PassRefPtrWillBeRawPtr<FormSubmission> formSu
     }
 }
 
-void HTMLFormElement::submit(Event* event, bool activateSubmitButton, bool processingUserGesture, FormSubmissionTrigger formSubmissionTrigger)
+void HTMLFormElement::submit(Event* event, bool activateSubmitButton, bool processingUserGesture)
 {
     FrameView* view = document().view();
     LocalFrame* frame = document().frame();
@@ -399,7 +395,7 @@ void HTMLFormElement::submit(Event* event, bool activateSubmitButton, bool proce
     if (needButtonActivation && firstSuccessfulSubmitButton)
         firstSuccessfulSubmitButton->setActivatedSubmit(true);
 
-    RefPtrWillBeRawPtr<FormSubmission> formSubmission = FormSubmission::create(this, m_attributes, event, formSubmissionTrigger);
+    RefPtrWillBeRawPtr<FormSubmission> formSubmission = FormSubmission::create(this, m_attributes, event);
     EventQueueScope scopeForDialogClose; // Delay dispatching 'close' to dialog until done submitting.
     if (formSubmission->method() == FormSubmission::DialogMethod)
         submitDialog(formSubmission.release());
@@ -417,7 +413,7 @@ void HTMLFormElement::scheduleFormSubmission(PassRefPtrWillBeRawPtr<FormSubmissi
 {
     ASSERT(submission->method() == FormSubmission::PostMethod || submission->method() == FormSubmission::GetMethod);
     ASSERT(submission->data());
-    ASSERT(submission->state());
+    ASSERT(submission->form());
     if (submission->action().isEmpty())
         return;
     if (document().isSandboxed(SandboxForms)) {
@@ -433,7 +429,7 @@ void HTMLFormElement::scheduleFormSubmission(PassRefPtrWillBeRawPtr<FormSubmissi
         return;
     }
 
-    LocalFrame* targetFrame = document().frame()->loader().findFrameForNavigation(submission->target(), submission->state()->sourceDocument());
+    Frame* targetFrame = document().frame()->findFrameForNavigation(submission->target(), *document().frame());
     if (!targetFrame) {
         if (!LocalDOMWindow::allowPopUp(*document().frame()) && !UserGestureIndicator::processingUserGesture())
             return;
@@ -441,18 +437,16 @@ void HTMLFormElement::scheduleFormSubmission(PassRefPtrWillBeRawPtr<FormSubmissi
     } else {
         submission->clearTarget();
     }
-    if (!targetFrame->page())
+    if (!targetFrame->host())
         return;
 
-    if (MixedContentChecker::isMixedContent(document().securityOrigin(), submission->action())) {
-        UseCounter::count(document(), UseCounter::MixedContentFormsSubmitted);
-        if (!document().frame()->loader().mixedContentChecker()->canSubmitToInsecureForm(document().securityOrigin(), submission->action()))
-            return;
-    } else {
-        UseCounter::count(document(), UseCounter::FormsSubmitted);
-    }
+    UseCounter::count(document(), UseCounter::FormsSubmitted);
+    if (MixedContentChecker::isMixedFormAction(document().frame(), submission->action()))
+        UseCounter::count(document().frame(), UseCounter::MixedContentFormsSubmitted);
 
-    targetFrame->navigationScheduler().scheduleFormSubmission(submission);
+    // FIXME: Plumb form submission for remote frames.
+    if (targetFrame->isLocalFrame())
+        toLocalFrame(targetFrame)->navigationScheduler().scheduleFormSubmission(&document(), submission);
 }
 
 void HTMLFormElement::reset()
@@ -521,22 +515,23 @@ void HTMLFormElement::parseAttribute(const QualifiedName& name, const AtomicStri
         // If the new action attribute is pointing to insecure "action" location from a secure page
         // it is marked as "passive" mixed content.
         KURL actionURL = document().completeURL(m_attributes.action().isEmpty() ? document().url().string() : m_attributes.action());
-        if (document().frame() && MixedContentChecker::isMixedContent(document().securityOrigin(), actionURL))
-            document().frame()->loader().mixedContentChecker()->canSubmitToInsecureForm(document().securityOrigin(), actionURL);
-    } else if (name == targetAttr)
+        if (MixedContentChecker::isMixedFormAction(document().frame(), actionURL))
+            UseCounter::count(document().frame(), UseCounter::MixedContentFormPresent);
+    } else if (name == targetAttr) {
         m_attributes.setTarget(value);
-    else if (name == methodAttr)
+    } else if (name == methodAttr) {
         m_attributes.updateMethodType(value);
-    else if (name == enctypeAttr)
+    } else if (name == enctypeAttr) {
         m_attributes.updateEncodingType(value);
-    else if (name == accept_charsetAttr)
+    } else if (name == accept_charsetAttr) {
         m_attributes.setAcceptCharset(value);
-    else if (name == onautocompleteAttr)
+    } else if (name == onautocompleteAttr) {
         setAttributeEventListener(EventTypeNames::autocomplete, createAttributeEventListener(this, name, value, eventParameterName()));
-    else if (name == onautocompleteerrorAttr)
+    } else if (name == onautocompleteerrorAttr) {
         setAttributeEventListener(EventTypeNames::autocompleteerror, createAttributeEventListener(this, name, value, eventParameterName()));
-    else
+    } else {
         HTMLElement::parseAttribute(name, value);
+    }
 }
 
 void HTMLFormElement::attributeWillChange(const QualifiedName& name, const AtomicString& oldValue, const AtomicString& newValue)
@@ -715,15 +710,6 @@ HTMLFormControlElement* HTMLFormElement::defaultButton() const
     return 0;
 }
 
-void HTMLFormElement::setNeedsValidityCheck()
-{
-    // For now unconditionally order style recalculation, which triggers
-    // validity recalculation. In the near future, implement validity cache and
-    // recalculate style only if it changed.
-    pseudoStateChanged(CSSSelector::PseudoValid);
-    pseudoStateChanged(CSSSelector::PseudoInvalid);
-}
-
 bool HTMLFormElement::checkValidity()
 {
     return !checkInvalidControlsAndCollectUnhandled(0, CheckValidityDispatchInvalidEvent);
@@ -739,15 +725,18 @@ bool HTMLFormElement::checkInvalidControlsAndCollectUnhandled(WillBeHeapVector<R
     elements.reserveCapacity(associatedElements.size());
     for (unsigned i = 0; i < associatedElements.size(); ++i)
         elements.append(associatedElements[i]);
-    bool hasInvalidControls = false;
+    int invalidControlsCount = 0;
     for (unsigned i = 0; i < elements.size(); ++i) {
         if (elements[i]->form() == this && elements[i]->isFormControlElement()) {
             HTMLFormControlElement* control = toHTMLFormControlElement(elements[i].get());
-            if (!control->checkValidity(unhandledInvalidControls, eventBehavior) && control->formOwner() == this)
-                hasInvalidControls = true;
+            if (control->isSubmittableElement() && !control->checkValidity(unhandledInvalidControls, eventBehavior) && control->formOwner() == this) {
+                ++invalidControlsCount;
+                if (!unhandledInvalidControls && eventBehavior == CheckValidityDispatchNoEvent)
+                    return true;
+            }
         }
     }
-    return hasInvalidControls;
+    return invalidControlsCount;
 }
 
 bool HTMLFormElement::reportValidity()

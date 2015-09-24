@@ -49,11 +49,12 @@ const char* kServiceAccountRedirectUri = "oob";
 // Features supported in addition to the base protocol.
 const char* kSupportedFeatures[] = {
   "pairingRegistry",
-  "oauthClient"
+  "oauthClient",
+  "getRefreshTokenFromAuthCode",
 };
 
 // Helper to extract the "config" part of a message as a DictionaryValue.
-// Returns NULL on failure, and logs an error message.
+// Returns nullptr on failure, and logs an error message.
 scoped_ptr<base::DictionaryValue> ConfigDictionaryFromMessage(
     scoped_ptr<base::DictionaryValue> message) {
   scoped_ptr<base::DictionaryValue> result;
@@ -78,7 +79,9 @@ Me2MeNativeMessagingHost::Me2MeNativeMessagingHost(
     scoped_refptr<protocol::PairingRegistry> pairing_registry,
     scoped_ptr<OAuthClient> oauth_client)
     : needs_elevation_(needs_elevation),
+#if defined(OS_WIN)
       parent_window_handle_(parent_window_handle),
+#endif
       channel_(channel.Pass()),
       daemon_controller_(daemon_controller),
       pairing_registry_(pairing_registry),
@@ -158,7 +161,11 @@ void Me2MeNativeMessagingHost::OnMessage(scoped_ptr<base::Value> message) {
   } else if (type == "getHostClientId") {
     ProcessGetHostClientId(message_dict.Pass(), response.Pass());
   } else if (type == "getCredentialsFromAuthCode") {
-    ProcessGetCredentialsFromAuthCode(message_dict.Pass(), response.Pass());
+    ProcessGetCredentialsFromAuthCode(
+        message_dict.Pass(), response.Pass(), true);
+  } else if (type == "getRefreshTokenFromAuthCode") {
+    ProcessGetCredentialsFromAuthCode(
+        message_dict.Pass(), response.Pass(), false);
   } else {
     LOG(ERROR) << "Unsupported request type: " << type;
     OnError();
@@ -278,6 +285,12 @@ void Me2MeNativeMessagingHost::ProcessUpdateDaemonConfig(
     scoped_ptr<base::DictionaryValue> response) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
+  if (needs_elevation_) {
+    if (!DelegateToElevatedHost(message.Pass()))
+      SendAsyncResult(response.Pass(), DaemonController::RESULT_FAILED);
+    return;
+  }
+
   scoped_ptr<base::DictionaryValue> config_dict =
       ConfigDictionaryFromMessage(message.Pass());
   if (!config_dict) {
@@ -331,6 +344,12 @@ void Me2MeNativeMessagingHost::ProcessStartDaemon(
     scoped_ptr<base::DictionaryValue> response) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
+  if (needs_elevation_) {
+    if (!DelegateToElevatedHost(message.Pass()))
+      SendAsyncResult(response.Pass(), DaemonController::RESULT_FAILED);
+    return;
+  }
+
   bool consent;
   if (!message->GetBoolean("consent", &consent)) {
     LOG(ERROR) << "'consent' not found.";
@@ -356,6 +375,12 @@ void Me2MeNativeMessagingHost::ProcessStopDaemon(
     scoped_ptr<base::DictionaryValue> response) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
+  if (needs_elevation_) {
+    if (!DelegateToElevatedHost(message.Pass()))
+      SendAsyncResult(response.Pass(), DaemonController::RESULT_FAILED);
+    return;
+  }
+
   daemon_controller_->Stop(
       base::Bind(&Me2MeNativeMessagingHost::SendAsyncResult, weak_ptr_,
                  base::Passed(&response)));
@@ -370,12 +395,6 @@ void Me2MeNativeMessagingHost::ProcessGetDaemonState(
   switch (state) {
     case DaemonController::STATE_NOT_IMPLEMENTED:
       response->SetString("state", "NOT_IMPLEMENTED");
-      break;
-    case DaemonController::STATE_NOT_INSTALLED:
-      response->SetString("state", "NOT_INSTALLED");
-      break;
-    case DaemonController::STATE_INSTALLING:
-      response->SetString("state", "INSTALLING");
       break;
     case DaemonController::STATE_STOPPED:
       response->SetString("state", "STOPPED");
@@ -408,7 +427,8 @@ void Me2MeNativeMessagingHost::ProcessGetHostClientId(
 
 void Me2MeNativeMessagingHost::ProcessGetCredentialsFromAuthCode(
     scoped_ptr<base::DictionaryValue> message,
-    scoped_ptr<base::DictionaryValue> response) {
+    scoped_ptr<base::DictionaryValue> response,
+    bool need_user_email) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
   std::string auth_code;
@@ -425,7 +445,7 @@ void Me2MeNativeMessagingHost::ProcessGetCredentialsFromAuthCode(
   };
 
   oauth_client_->GetCredentialsFromAuthCode(
-      oauth_client_info, auth_code, base::Bind(
+      oauth_client_info, auth_code, need_user_email, base::Bind(
           &Me2MeNativeMessagingHost::SendCredentialsResponse, weak_ptr_,
           base::Passed(&response)));
 }
@@ -499,13 +519,15 @@ void Me2MeNativeMessagingHost::SendCredentialsResponse(
     const std::string& refresh_token) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  response->SetString("userEmail", user_email);
+  if (!user_email.empty()) {
+    response->SetString("userEmail", user_email);
+  }
   response->SetString("refreshToken", refresh_token);
   channel_->SendMessage(response.Pass());
 }
 
 void Me2MeNativeMessagingHost::OnError() {
-  // Trigger a host shutdown by sending a NULL message.
+  // Trigger a host shutdown by sending a nullptr message.
   channel_->SendMessage(nullptr);
 }
 
@@ -544,7 +566,7 @@ bool Me2MeNativeMessagingHost::DelegateToElevatedHost(
   if (elevated_channel_)
     elevated_channel_->SendMessage(message.Pass());
 
-  return elevated_channel_ != NULL;
+  return elevated_channel_ != nullptr;
 }
 
 void Me2MeNativeMessagingHost::EnsureElevatedHostCreated() {
@@ -564,8 +586,10 @@ void Me2MeNativeMessagingHost::EnsureElevatedHostCreated() {
 
   // Create a security descriptor that gives full access to the caller and
   // denies access by anyone else.
-  std::string security_descriptor = base::StringPrintf(
-      "O:%1$sG:%1$sD:(A;;GA;;;%1$s)", base::UTF16ToASCII(user_sid).c_str());
+  std::string user_sid_ascii = base::UTF16ToASCII(user_sid);
+  std::string security_descriptor =
+      base::StringPrintf("O:%sG:%sD:(A;;GA;;;%s)", user_sid_ascii.c_str(),
+                         user_sid_ascii.c_str(), user_sid_ascii.c_str());
 
   ScopedSd sd = ConvertSddlToSd(security_descriptor);
   if (!sd) {
@@ -667,7 +691,7 @@ void Me2MeNativeMessagingHost::EnsureElevatedHostCreated() {
     return;
   }
 
-  if (!::ConnectNamedPipe(delegate_write_handle.Get(), NULL)) {
+  if (!::ConnectNamedPipe(delegate_write_handle.Get(), nullptr)) {
     DWORD error = ::GetLastError();
     if (error != ERROR_PIPE_CONNECTED) {
       PLOG(ERROR) << "Unable to connect '" << input_pipe_name << "'";
@@ -676,7 +700,7 @@ void Me2MeNativeMessagingHost::EnsureElevatedHostCreated() {
     }
   }
 
-  if (!::ConnectNamedPipe(delegate_read_handle.Get(), NULL)) {
+  if (!::ConnectNamedPipe(delegate_read_handle.Get(), nullptr)) {
     DWORD error = ::GetLastError();
     if (error != ERROR_PIPE_CONNECTED) {
       PLOG(ERROR) << "Unable to connect '" << output_pipe_name << "'";

@@ -30,9 +30,6 @@
 
     '../third_party/skia/src/ports/SkImageDecoder_empty.cpp',
     '../third_party/skia/src/images/SkScaledBitmapSampler.cpp',
-    '../third_party/skia/src/images/SkScaledBitmapSampler.h',
-
-    '../third_party/skia/src/opts/opts_check_x86.cpp',
 
     '../third_party/skia/src/ports/SkFontConfigInterface_direct.cpp',
 
@@ -43,114 +40,59 @@
     '../third_party/skia/src/fonts/SkRemotableFontMgr.cpp',
     '../third_party/skia/src/ports/SkRemotableFontMgr_win_dw.cpp',
 
+    '../third_party/skia/src/ports/SkImageGenerator_none.cpp',
+
     '../third_party/skia/src/ports/SkFontHost_FreeType.cpp',
     '../third_party/skia/src/ports/SkFontHost_FreeType_common.cpp',
-    '../third_party/skia/src/ports/SkFontHost_FreeType_common.h',
-    '../third_party/skia/src/ports/SkFontConfigParser_android.cpp',
     '../third_party/skia/src/ports/SkFontHost_mac.cpp',
     '../third_party/skia/src/ports/SkFontHost_win.cpp',
     "../third_party/skia/src/ports/SkFontMgr_android.cpp",
+    "../third_party/skia/src/ports/SkFontMgr_android_factory.cpp",
+    '../third_party/skia/src/ports/SkFontMgr_android_parser.cpp',
     '../third_party/skia/src/ports/SkFontMgr_win_dw.cpp',
     '../third_party/skia/src/ports/SkGlobalInitialization_chromium.cpp',
     '../third_party/skia/src/ports/SkOSFile_posix.cpp',
     '../third_party/skia/src/ports/SkOSFile_stdio.cpp',
     '../third_party/skia/src/ports/SkOSFile_win.cpp',
     '../third_party/skia/src/ports/SkScalerContext_win_dw.cpp',
-    '../third_party/skia/src/ports/SkScalerContext_win_dw.h',
     '../third_party/skia/src/ports/SkTime_Unix.cpp',
     '../third_party/skia/src/ports/SkTLS_pthread.cpp',
     '../third_party/skia/src/ports/SkTLS_win.cpp',
     '../third_party/skia/src/ports/SkTypeface_win_dw.cpp',
-    '../third_party/skia/src/ports/SkTypeface_win_dw.h',
 
     '../third_party/skia/src/sfnt/SkOTTable_name.cpp',
-    '../third_party/skia/src/sfnt/SkOTTable_name.h',
     '../third_party/skia/src/sfnt/SkOTUtils.cpp',
-    '../third_party/skia/src/sfnt/SkOTUtils.h',
-
-    '../third_party/skia/src/utils/debugger/SkDebugCanvas.cpp',
-    '../third_party/skia/src/utils/debugger/SkDebugCanvas.h',
-    '../third_party/skia/src/utils/debugger/SkDrawCommand.cpp',
-    '../third_party/skia/src/utils/debugger/SkDrawCommand.h',
-    '../third_party/skia/src/utils/debugger/SkObjectParser.cpp',
-    '../third_party/skia/src/utils/debugger/SkObjectParser.h',
-
-    '../third_party/skia/include/images/SkMovie.h',
-    '../third_party/skia/include/images/SkPageFlipper.h',
-
-    '../third_party/skia/include/ports/SkFontConfigInterface.h',
-    '../third_party/skia/include/ports/SkFontMgr.h',
-    '../third_party/skia/include/ports/SkFontMgr_indirect.h',
-    '../third_party/skia/include/ports/SkFontStyle.h',
-    '../third_party/skia/include/ports/SkRemotableFontMgr.h',
-    '../third_party/skia/include/ports/SkTypeface_win.h',
   ],
 
   # Exclude all unused files in skia utils.gypi file
   'sources!': [
-  '../third_party/skia/include/utils/SkBoundaryPatch.h',
-  '../third_party/skia/include/utils/SkFrontBufferedStream.h',
-  '../third_party/skia/include/utils/SkCamera.h',
-  '../third_party/skia/include/utils/SkCanvasStateUtils.h',
-  '../third_party/skia/include/utils/SkCubicInterval.h',
-  '../third_party/skia/include/utils/SkCullPoints.h',
-  '../third_party/skia/include/utils/SkDebugUtils.h',
-  '../third_party/skia/include/utils/SkDumpCanvas.h',
-  '../third_party/skia/include/utils/SkEventTracer.h',
-  '../third_party/skia/include/utils/SkInterpolator.h',
-  '../third_party/skia/include/utils/SkLayer.h',
-  '../third_party/skia/include/utils/SkMeshUtils.h',
-  '../third_party/skia/include/utils/SkNinePatch.h',
-  '../third_party/skia/include/utils/SkParse.h',
-  '../third_party/skia/include/utils/SkParsePaint.h',
-  '../third_party/skia/include/utils/SkParsePath.h',
-  '../third_party/skia/include/utils/SkRandom.h',
-  '../third_party/skia/include/utils/SkWGL.h',
-
   '../third_party/skia/src/utils/SkBitmapHasher.cpp',
-  '../third_party/skia/src/utils/SkBitmapHasher.h',
   '../third_party/skia/src/utils/SkBoundaryPatch.cpp',
   '../third_party/skia/src/utils/SkFrontBufferedStream.cpp',
   '../third_party/skia/src/utils/SkCamera.cpp',
-  '../third_party/skia/src/utils/SkCanvasStack.h',
   '../third_party/skia/src/utils/SkCubicInterval.cpp',
   '../third_party/skia/src/utils/SkCullPoints.cpp',
   '../third_party/skia/src/utils/SkDumpCanvas.cpp',
-  '../third_party/skia/src/utils/SkFloatUtils.h',
-  '../third_party/skia/src/utils/SkGatherPixelRefsAndRects.cpp',
-  '../third_party/skia/src/utils/SkGatherPixelRefsAndRects.h',
   '../third_party/skia/src/utils/SkInterpolator.cpp',
   '../third_party/skia/src/utils/SkLayer.cpp',
   '../third_party/skia/src/utils/SkMD5.cpp',
-  '../third_party/skia/src/utils/SkMD5.h',
   '../third_party/skia/src/utils/SkMeshUtils.cpp',
   '../third_party/skia/src/utils/SkNinePatch.cpp',
   '../third_party/skia/src/utils/SkOSFile.cpp',
-  '../third_party/skia/src/utils/SkParse.cpp',
-  '../third_party/skia/src/utils/SkParseColor.cpp',
   '../third_party/skia/src/utils/SkParsePath.cpp',
-  '../third_party/skia/src/utils/SkPathUtils.cpp',
   '../third_party/skia/src/utils/SkSHA1.cpp',
-  '../third_party/skia/src/utils/SkSHA1.h',
-  '../third_party/skia/src/utils/SkTFitsIn.h',
-  '../third_party/skia/src/utils/SkTLogic.h',
 
   # We don't currently need to change thread affinity, so leave out this complexity for now.
   "../third_party/skia/src/utils/SkThreadUtils_pthread_mach.cpp",
   "../third_party/skia/src/utils/SkThreadUtils_pthread_linux.cpp",
 
 #windows
-  '../third_party/skia/include/utils/win/SkAutoCoInitialize.h',
-  '../third_party/skia/include/utils/win/SkHRESULT.h',
-  '../third_party/skia/include/utils/win/SkIStream.h',
-  '../third_party/skia/include/utils/win/SkTScopedComPtr.h',
   '../third_party/skia/src/utils/win/SkAutoCoInitialize.cpp',
   '../third_party/skia/src/utils/win/SkIStream.cpp',
   '../third_party/skia/src/utils/win/SkWGL_win.cpp',
 
 #testing
   '../third_party/skia/src/fonts/SkGScalerContext.cpp',
-  '../third_party/skia/src/fonts/SkGScalerContext.h',
   ],
 
   'include_dirs': [
@@ -163,11 +105,12 @@
     '../third_party/skia/include/pdf',
     '../third_party/skia/include/pipe',
     '../third_party/skia/include/ports',
-    '../third_party/skia/include/record',
+    '../third_party/skia/include/private',
     '../third_party/skia/include/utils',
     '../third_party/skia/src/core',
     '../third_party/skia/src/opts',
     '../third_party/skia/src/image',
+    '../third_party/skia/src/pdf',
     '../third_party/skia/src/ports',
     '../third_party/skia/src/sfnt',
     '../third_party/skia/src/utils',
@@ -189,7 +132,8 @@
     }],
     ['skia_support_pdf == 0', {
       'sources/': [
-        ['exclude', '../third_party/skia/src/pdf/']
+        ['exclude', '../third_party/skia/src/doc/SkDocument_PDF.cpp'],
+        ['exclude', '../third_party/skia/src/pdf/'],
       ],
     }],
     ['skia_support_pdf == 1', {
@@ -220,14 +164,8 @@
       'sources': [
         '../third_party/skia/src/core/SkUtilsArm.cpp',
       ],
-      'includes': [
-        '../build/android/cpufeatures.gypi',
-      ],
-    }],
-    [ 'target_arch == "arm" or target_arch == "arm64" or \
-       target_arch == "mipsel" or target_arch == "mips64el"', {
-      'sources!': [
-        '../third_party/skia/src/opts/opts_check_x86.cpp'
+      'dependencies': [
+        '../build/android/ndk.gyp:cpu_features',
       ],
     }],
     [ 'desktop_linux == 1 or chromeos == 1', {
@@ -241,7 +179,7 @@
         '-Wno-unused-function',
       ],
     }],
-    [ 'use_cairo == 1', {
+    [ 'use_cairo == 1 and use_pango == 1', {
       'dependencies': [
         '../build/linux/system.gyp:pangocairo',
       ],
@@ -263,13 +201,18 @@
     [ 'OS == "android"', {
       'dependencies': [
         '../third_party/expat/expat.gyp:expat',
-        '../third_party/freetype/freetype.gyp:ft2',
+        '../third_party/freetype-android/freetype.gyp:ft2',
       ],
       # This exports a hard dependency because it needs to run its
       # symlink action in order to expose the skia header files.
       'hard_dependency': 1,
       'include_dirs': [
         '../third_party/expat/files/lib',
+      ],
+    },{ # not 'OS == "android"'
+      'sources!': [
+        "../third_party/skia/src/ports/SkFontMgr_android_factory.cpp",
+        '../third_party/skia/src/ports/SkFontMgr_android_parser.cpp',
       ],
     }],
     [ 'OS == "ios"', {
@@ -287,9 +230,6 @@
         #  from the ios and mac conditions and moved into the main sources
         #  list.
         '../third_party/skia/src/utils/mac/SkStream_mac.cpp',
-      ],
-      'sources/': [
-        ['exclude', 'opts_check_x86\\.cpp$'],
       ],
 
       # The main skia_opts target does not currently work on iOS because the
@@ -337,16 +277,11 @@
         '../third_party/skia/src/ports/SkFontMgr_win_dw.cpp',
         '../third_party/skia/src/ports/SkRemotableFontMgr_win_dw.cpp',
         '../third_party/skia/src/ports/SkScalerContext_win_dw.cpp',
-        '../third_party/skia/src/ports/SkScalerContext_win_dw.h',
         '../third_party/skia/src/ports/SkTypeface_win_dw.cpp',
-        '../third_party/skia/src/ports/SkTypeface_win_dw.h',
 
-        '../third_party/skia/src/utils/win/SkDWrite.h',
         '../third_party/skia/src/utils/win/SkDWrite.cpp',
         '../third_party/skia/src/utils/win/SkDWriteFontFileStream.cpp',
-        '../third_party/skia/src/utils/win/SkDWriteFontFileStream.h',
         '../third_party/skia/src/utils/win/SkDWriteGeometrySink.cpp',
-        '../third_party/skia/src/utils/win/SkDWriteGeometrySink.h',
         '../third_party/skia/src/utils/win/SkHRESULT.cpp',
       ],
     }],
@@ -360,14 +295,18 @@
         ['include', 'SkStream_mac\\.cpp$',],
         ['include', 'SkCreateCGImageRef\\.cpp$',],
       ],
+      'xcode_settings' : {
+        'WARNING_CFLAGS': [
+          # SkFontHost_mac.cpp uses API deprecated in iOS 7.
+          # crbug.com/408571
+          '-Wno-deprecated-declarations',
+        ],
+      },
     }],
   ],
 
   'direct_dependent_settings': {
     'include_dirs': [
-      #temporary until we can hide SkFontHost
-      '../third_party/skia/src/core',
-
       '../third_party/skia/include/core',
       '../third_party/skia/include/effects',
       '../third_party/skia/include/pdf',

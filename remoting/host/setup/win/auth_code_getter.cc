@@ -17,7 +17,7 @@ const int kUrlPollIntervalMs = 100;
 namespace remoting {
 
 AuthCodeGetter::AuthCodeGetter() :
-    browser_(NULL),
+    browser_(nullptr),
     timer_interval_(base::TimeDelta::FromMilliseconds(kUrlPollIntervalMs)) {
 }
 
@@ -27,12 +27,12 @@ AuthCodeGetter::~AuthCodeGetter() {
 
 void AuthCodeGetter::GetAuthCode(
     base::Callback<void(const std::string&)> on_auth_code) {
-  if (browser_) {
+  if (browser_.get()) {
     on_auth_code.Run("");
     return;
   }
   on_auth_code_ = on_auth_code;
-  HRESULT hr = browser_.CreateInstance(CLSID_InternetExplorer, NULL,
+  HRESULT hr = browser_.CreateInstance(CLSID_InternetExplorer, nullptr,
                                        CLSCTX_LOCAL_SERVER);
   if (FAILED(hr)) {
     on_auth_code_.Run("");
@@ -67,7 +67,7 @@ void AuthCodeGetter::OnTimer() {
 
 bool AuthCodeGetter::TestBrowserUrl(std::string* auth_code) {
   *auth_code = "";
-  if (!browser_) {
+  if (!browser_.get()) {
     return true;
   }
   base::win::ScopedBstr url;
@@ -86,7 +86,7 @@ bool AuthCodeGetter::TestBrowserUrl(std::string* auth_code) {
 }
 
 void AuthCodeGetter::KillBrowser() {
-  if (browser_) {
+  if (browser_.get()) {
     browser_->Quit();
     browser_.Release();
   }

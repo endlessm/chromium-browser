@@ -3,25 +3,18 @@
 // found in the LICENSE file.
 
 /**
- * Watches for changes in the tracked directory, including local metadata
- * changes.
+ * Watches for changes in the tracked directory.
  *
- * @param {MetadataCache} metadataCache Instance of MetadataCache.
  * @extends {cr.EventTarget}
  * @constructor
  */
-function FileWatcher(metadataCache) {
+function FileWatcher() {
   this.queue_ = new AsyncUtil.Queue();
-  this.metadataCache_ = metadataCache;
   this.watchedDirectoryEntry_ = null;
 
   this.onDirectoryChangedBound_ = this.onDirectoryChanged_.bind(this);
   chrome.fileManagerPrivate.onDirectoryChanged.addListener(
       this.onDirectoryChangedBound_);
-
-  this.filesystemMetadataObserverId_ = null;
-  this.thumbnailMetadataObserverId_ = null;
-  this.externalMetadataObserverId_ = null;
 }
 
 /**
@@ -36,7 +29,7 @@ FileWatcher.prototype.dispose = function() {
   chrome.fileManagerPrivate.onDirectoryChanged.removeListener(
       this.onDirectoryChangedBound_);
   if (this.watchedDirectoryEntry_)
-    this.resetWatchedEntry_(function() {}, function() {});
+    this.resetWatchedEntry_();
 };
 
 /**
@@ -73,168 +66,85 @@ FileWatcher.prototype.onDirectoryChanged_ = function(event) {
 };
 
 /**
- * Called when general metadata in the watched directory has been changed.
- *
- * @param {Array.<Entry>} entries Array of entries.
- * @param {Object.<string, Object>} properties Map from entry URLs to metadata
- *     properties.
- * @private
- */
-FileWatcher.prototype.onFilesystemMetadataChanged_ = function(
-    entries, properties) {
-  this.dispatchMetadataEvent_('filesystem', entries, properties);
-};
-
-/**
- * Called when thumbnail metadata in the watched directory has been changed.
- *
- * @param {Array.<Entry>} entries Array of entries.
- * @param {Object.<string, Object>} properties Map from entry URLs to metadata
- *     properties.
- * @private
- */
-FileWatcher.prototype.onThumbnailMetadataChanged_ = function(
-    entries, properties) {
-  this.dispatchMetadataEvent_('thumbnail', entries, properties);
-};
-
-/**
- * Called when external metadata in the watched directory has been changed.
- *
- * @param {Array.<Entry>} entries Array of entries.
- * @param {Object.<string, Object>} properties Map from entry URLs to metadata
- *     properties.
- * @private
- */
-FileWatcher.prototype.onExternalMetadataChanged_ = function(
-    entries, properties) {
-  this.dispatchMetadataEvent_('external', entries, properties);
-};
-
-/**
- * Dispatches an event about detected change in metadata within the tracked
- * directory.
- *
- * @param {string} type Type of the metadata change.
- * @param {Array.<Entry>} entries Array of entries.
- * @param {Object.<string, Object>} properties Map from entry URLs to metadata
- *     properties.
- * @private
- */
-FileWatcher.prototype.dispatchMetadataEvent_ = function(
-    type, entries, properties) {
-  var e = new Event('watcher-metadata-changed');
-  e.metadataType = type;
-  e.entries = entries;
-  e.properties = properties;
-  this.dispatchEvent(e);
-};
-
-/**
  * Changes the watched directory. In case of a fake entry, the watch is
  * just released, since there is no reason to track a fake directory.
  *
- * @param {!DirectoryEntry|!Object} entry Directory entry to be tracked, or the
- *     fake entry.
- * @param {function()} callback Completion callback.
+ * @param {!DirectoryEntry|!FakeEntry} entry Directory entry to be tracked, or
+ *     the fake entry.
+ * @return {!Promise}
  */
-FileWatcher.prototype.changeWatchedDirectory = function(entry, callback) {
-  if (!util.isFakeEntry(entry)) {
-    this.changeWatchedEntry_(
-        /** @type {!DirectoryEntry} */ (entry),
-        callback,
-        function() {
-          console.error(
-              'Unable to change the watched directory to: ' + entry.toURL());
-          callback();
-        });
-  } else {
-    this.resetWatchedEntry_(
-        callback,
-        function() {
-          console.error('Unable to reset the watched directory.');
-          callback();
-        });
-  }
+FileWatcher.prototype.changeWatchedDirectory = function(entry) {
+  if (!util.isFakeEntry(entry))
+    return this.changeWatchedEntry_(/** @type {!DirectoryEntry} */ (entry));
+  else
+    return this.resetWatchedEntry_();
 };
 
 /**
- * Resets the watched entry to the passed directory.
- *
- * @param {function()} onSuccess Success callback.
- * @param {function()} onError Error callback.
+ * Resets the watched entry. It's a best effort method.
+ * @return {!Promise}
  * @private
  */
-FileWatcher.prototype.resetWatchedEntry_ = function(onSuccess, onError) {
+FileWatcher.prototype.resetWatchedEntry_ = function() {
   // Run the tasks in the queue to avoid races.
-  this.queue_.run(function(callback) {
-    // Release the watched directory.
-    if (this.watchedDirectoryEntry_) {
-      chrome.fileManagerPrivate.removeFileWatch(
-          this.watchedDirectoryEntry_.toURL(),
-          function(result) {
-            this.watchedDirectoryEntry_ = null;
-            if (result)
-              onSuccess();
-            else
-              onError();
-            callback();
-          }.bind(this));
-      this.metadataCache_.removeObserver(this.filesystemMetadataObserverId_);
-      this.metadataCache_.removeObserver(this.thumbnailMetadataObserverId_);
-      this.metadataCache_.removeObserver(this.externalMetadataObserverId_);
-    } else {
-      onSuccess();
-      callback();
-    }
+  return new Promise(function(fulfill, reject) {
+    this.queue_.run(function(callback) {
+      // Release the watched directory.
+      if (this.watchedDirectoryEntry_) {
+        chrome.fileManagerPrivate.removeFileWatch(
+            this.watchedDirectoryEntry_,
+            function(result) {
+              if (chrome.runtime.lastError) {
+                console.error('Failed to remove the watcher because of: ' +
+                    chrome.runtime.lastError.message);
+              }
+              // Even on error reset the watcher locally, so at least the
+              // notifications are discarded.
+              this.watchedDirectoryEntry_ = null;
+              fulfill();
+              callback();
+            }.bind(this));
+      } else {
+        fulfill();
+        callback();
+      }
+    }.bind(this));
   }.bind(this));
 };
 
 /**
- * Sets the watched entry to the passed directory.
- *
+ * Sets the watched entry to the passed directory. It's a best effort method.
  * @param {!DirectoryEntry} entry Directory to be watched.
- * @param {function()} onSuccess Success callback.
- * @param {function()} onError Error callback.
+ * @return {!Promise}
  * @private
  */
-FileWatcher.prototype.changeWatchedEntry_ = function(
-    entry, onSuccess, onError) {
-  var setEntryClosure = function() {
-    // Run the tasks in the queue to avoid races.
-    this.queue_.run(function(callback) {
-      chrome.fileManagerPrivate.addFileWatch(
-          entry.toURL(),
-          function(result) {
-            if (!result) {
-              this.watchedDirectoryEntry_ = null;
-              onError();
-            } else {
-              this.watchedDirectoryEntry_ = entry;
-              onSuccess();
-            }
-            callback();
-          }.bind(this));
-      this.filesystemMetadataObserverId_ = this.metadataCache_.addObserver(
-          entry,
-          MetadataCache.CHILDREN,
-          'filesystem',
-          this.onFilesystemMetadataChanged_.bind(this));
-      this.thumbnailMetadataObserverId_ = this.metadataCache_.addObserver(
-          entry,
-          MetadataCache.CHILDREN,
-          'thumbnail',
-          this.onThumbnailMetadataChanged_.bind(this));
-      this.externalMetadataObserverId_ = this.metadataCache_.addObserver(
-          entry,
-          MetadataCache.CHILDREN,
-          'external',
-          this.onExternalMetadataChanged_.bind(this));
-    }.bind(this));
-  }.bind(this);
+FileWatcher.prototype.changeWatchedEntry_ = function(entry) {
+  return new Promise(function(fulfill, reject) {
+    var setEntryClosure = function() {
+      // Run the tasks in the queue to avoid races.
+      this.queue_.run(function(callback) {
+        chrome.fileManagerPrivate.addFileWatch(
+            entry,
+            function(result) {
+              if (chrome.runtime.lastError) {
+                // Most probably setting the watcher is not supported on the
+                // file system type.
+                console.info('File watchers not supported for: ' +
+                    entry.toURL());
+                this.watchedDirectoryEntry_ = null;
+                fulfill();
+              } else {
+                this.watchedDirectoryEntry_ = assert(entry);
+                fulfill();
+              }
+              callback();
+            }.bind(this));
+      }.bind(this));
+    }.bind(this);
 
-  // Reset the watched directory first, then set the new watched directory.
-  this.resetWatchedEntry_(setEntryClosure, onError);
+    // Reset the watched directory first, then set the new watched directory.
+    return this.resetWatchedEntry_().then(setEntryClosure);
+  }.bind(this));
 };
 
 /**

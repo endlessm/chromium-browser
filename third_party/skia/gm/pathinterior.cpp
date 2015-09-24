@@ -21,15 +21,15 @@ static SkRect inset(const SkRect& r) {
 class PathInteriorGM : public skiagm::GM {
 public:
     PathInteriorGM() {
-        this->setBGColor(0xFFDDDDDD);
+        this->setBGColor(sk_tool_utils::color_to_565(0xFFDDDDDD));
     }
 
 protected:
-    virtual SkISize onISize() {
+    SkISize onISize() override {
         return SkISize::Make(770, 770);
     }
 
-    virtual SkString onShortName() SK_OVERRIDE {
+    SkString onShortName() override {
         return SkString("pathinterior");
     }
 
@@ -57,7 +57,7 @@ protected:
         }
     }
 
-    virtual void onDraw(SkCanvas* canvas) SK_OVERRIDE {
+    void onDraw(SkCanvas* canvas) override {
         canvas->translate(8.5f, 8.5f);
 
         const SkRect rect = { 0, 0, 80, 80 };

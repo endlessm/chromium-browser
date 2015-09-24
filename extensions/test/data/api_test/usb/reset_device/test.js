@@ -17,13 +17,12 @@ function resetDevice() {
       usb.interruptTransfer(devices[0], transfer, function(result) {
         // This is designed to fail.
         usb.resetDevice(devices[0], function(result) {
-          chrome.test.assertEq(result, false);
+          chrome.test.assertLastError(
+              'Error resetting the device. The device has been closed.');
+          chrome.test.assertEq(false, result);
           usb.interruptTransfer(devices[0], transfer, function(result) {
-            chrome.test.assertEq(result, undefined);
-            chrome.test.assertEq(
-                chrome.runtime.lastError && chrome.runtime.lastError.message,
-                'No such device.'
-            );
+            chrome.test.assertEq(undefined, result);
+            chrome.test.assertLastError('No such connection.');
             chrome.test.succeed();
           });
         });

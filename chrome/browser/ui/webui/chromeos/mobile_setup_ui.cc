@@ -20,6 +20,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/mobile/mobile_activator.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_list.h"
@@ -107,7 +108,7 @@ void GetDeviceInfo(const base::DictionaryValue& properties,
   value->SetString("activation_type", activation_type);
   value->SetString("carrier", name);
   value->SetString("payment_url", payment_url);
-  if (LowerCaseEqualsASCII(post_method, "post") && !post_data.empty())
+  if (base::LowerCaseEqualsASCII(post_method, "post") && !post_data.empty())
     value->SetString("post_data", post_data);
 
   // Use the cached DeviceState properties.
@@ -143,21 +144,19 @@ class MobileSetupUIHTMLSource : public content::URLDataSource {
   MobileSetupUIHTMLSource();
 
   // content::URLDataSource implementation.
-  virtual std::string GetSource() const override;
-  virtual void StartDataRequest(
+  std::string GetSource() const override;
+  void StartDataRequest(
       const std::string& path,
       int render_process_id,
       int render_frame_id,
       const content::URLDataSource::GotDataCallback& callback) override;
-  virtual std::string GetMimeType(const std::string&) const override {
+  std::string GetMimeType(const std::string&) const override {
     return "text/html";
   }
-  virtual bool ShouldAddContentSecurityPolicy() const override {
-    return false;
-  }
+  bool ShouldAddContentSecurityPolicy() const override { return false; }
 
  private:
-  virtual ~MobileSetupUIHTMLSource() {}
+  ~MobileSetupUIHTMLSource() override {}
 
   void GetPropertiesAndStartDataRequest(
       const content::URLDataSource::GotDataCallback& callback,
@@ -182,10 +181,10 @@ class MobileSetupHandler
     public base::SupportsWeakPtr<MobileSetupHandler> {
  public:
   MobileSetupHandler();
-  virtual ~MobileSetupHandler();
+  ~MobileSetupHandler() override;
 
   // WebUIMessageHandler implementation.
-  virtual void RegisterMessages() override;
+  void RegisterMessages() override;
 
  private:
   enum Type {
@@ -201,10 +200,9 @@ class MobileSetupHandler
   };
 
   // MobileActivator::Observer.
-  virtual void OnActivationStateChanged(
-      const NetworkState* network,
-      MobileActivator::PlanActivationState new_state,
-      const std::string& error_description) override;
+  void OnActivationStateChanged(const NetworkState* network,
+                                MobileActivator::PlanActivationState new_state,
+                                const std::string& error_description) override;
 
   // Callbacks for NetworkConfigurationHandler::GetProperties.
   void GetPropertiesAndCallStatusChanged(
@@ -228,10 +226,8 @@ class MobileSetupHandler
   void HandleGetDeviceInfo(const base::ListValue* args);
 
   // NetworkStateHandlerObserver implementation.
-  virtual void NetworkConnectionStateChanged(
-      const NetworkState* network) override;
-  virtual void DefaultNetworkChanged(
-      const NetworkState* default_network) override;
+  void NetworkConnectionStateChanged(const NetworkState* network) override;
+  void DefaultNetworkChanged(const NetworkState* default_network) override;
 
   // Updates |lte_portal_reachable_| for lte network |network| and notifies
   // webui of the new state if the reachability changed or |force_notification|
@@ -272,14 +268,12 @@ void MobileSetupUIHTMLSource::StartDataRequest(
     int render_process_id,
     int render_frame_id,
     const content::URLDataSource::GotDataCallback& callback) {
-  NetworkHandler::Get()->network_configuration_handler()->GetProperties(
+  NetworkHandler::Get()->network_configuration_handler()->GetShillProperties(
       path,
       base::Bind(&MobileSetupUIHTMLSource::GetPropertiesAndStartDataRequest,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 callback),
+                 weak_ptr_factory_.GetWeakPtr(), callback),
       base::Bind(&MobileSetupUIHTMLSource::GetPropertiesFailure,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 callback, path));
+                 weak_ptr_factory_.GetWeakPtr(), callback, path));
 }
 
 void MobileSetupUIHTMLSource::GetPropertiesAndStartDataRequest(
@@ -335,7 +329,9 @@ void MobileSetupUIHTMLSource::GetPropertiesAndStartDataRequest(
                     l10n_util::GetStringUTF16(IDS_CANCEL));
   strings.SetString("ok_button",
                     l10n_util::GetStringUTF16(IDS_OK));
-  webui::SetFontAndTextDirection(&strings);
+
+  const std::string& app_locale = g_browser_process->GetApplicationLocale();
+  webui::SetLoadTimeDataDefaults(app_locale, &strings);
 
   // The webui differs based on whether the network is activated or not. If the
   // network is activated, the webui goes straight to portal. Otherwise the
@@ -401,15 +397,12 @@ void MobileSetupHandler::OnActivationStateChanged(
     return;
   }
 
-  NetworkHandler::Get()->network_configuration_handler()->GetProperties(
+  NetworkHandler::Get()->network_configuration_handler()->GetShillProperties(
       network->path(),
       base::Bind(&MobileSetupHandler::GetPropertiesAndCallStatusChanged,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 state,
-                 error_description),
+                 weak_ptr_factory_.GetWeakPtr(), state, error_description),
       base::Bind(&MobileSetupHandler::GetPropertiesFailure,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 network->path(),
+                 weak_ptr_factory_.GetWeakPtr(), network->path(),
                  kJsDeviceStatusChangedCallback));
 }
 
@@ -471,7 +464,7 @@ void MobileSetupHandler::HandleSetTransactionStatus(
     return;
 
   MobileActivator::GetInstance()->OnSetTransactionStatus(
-      LowerCaseEqualsASCII(status, kJsApiResultOK));
+      base::LowerCaseEqualsASCII(status, kJsApiResultOK));
 }
 
 void MobileSetupHandler::HandlePaymentPortalLoad(const base::ListValue* args) {
@@ -488,7 +481,7 @@ void MobileSetupHandler::HandlePaymentPortalLoad(const base::ListValue* args) {
     return;
 
   MobileActivator::GetInstance()->OnPortalLoaded(
-      LowerCaseEqualsASCII(result, kJsApiResultOK));
+      base::LowerCaseEqualsASCII(result, kJsApiResultOK));
 }
 
 void MobileSetupHandler::HandleGetDeviceInfo(const base::ListValue* args) {
@@ -531,13 +524,12 @@ void MobileSetupHandler::HandleGetDeviceInfo(const base::ListValue* args) {
     }
   }
 
-  NetworkHandler::Get()->network_configuration_handler()->GetProperties(
+  NetworkHandler::Get()->network_configuration_handler()->GetShillProperties(
       network->path(),
       base::Bind(&MobileSetupHandler::GetPropertiesAndCallGetDeviceInfo,
                  weak_ptr_factory_.GetWeakPtr()),
       base::Bind(&MobileSetupHandler::GetPropertiesFailure,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 network->path(),
+                 weak_ptr_factory_.GetWeakPtr(), network->path(),
                  kJsGetDeviceInfoCallback));
 }
 
@@ -648,7 +640,8 @@ void MobileSetupUI::DidFailProvisionalLoad(
     content::RenderFrameHost* render_frame_host,
     const GURL& validated_url,
     int error_code,
-    const base::string16& error_description) {
+    const base::string16& error_description,
+    bool was_ignored_by_handler) {
   if (render_frame_host->GetFrameName() != "paymentForm")
     return;
 

@@ -16,24 +16,25 @@
 #include "chrome/browser/prerender/prerender_manager_factory.h"
 #include "chrome/browser/prerender/prerender_origin.h"
 #include "chrome/browser/prerender/prerender_tab_helper.h"
-#include "chrome/browser/prerender/prerender_tracker.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search/instant_service.h"
 #include "chrome/browser/search/instant_unittest_base.h"
 #include "chrome/browser/search/search.h"
+#include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/ui/browser_instant_controller.h"
 #include "chrome/browser/ui/search/search_tab_helper.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/instant_types.h"
 #include "chrome/common/render_messages.h"
-#include "components/omnibox/autocomplete_match.h"
+#include "components/omnibox/browser/autocomplete_match.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_test_sink.h"
-#include "ui/gfx/size.h"
+#include "testing/gmock/include/gmock/gmock.h"
+#include "ui/gfx/geometry/size.h"
 
 using base::ASCIIToUTF16;
 
@@ -55,14 +56,11 @@ class DummyPrerenderContents : public PrerenderContents {
       const GURL& url,
       const Referrer& referrer,
       Origin origin,
-      bool call_did_finish_load,
-      const content::SessionStorageNamespaceMap& session_storage_namespace_map);
+      bool call_did_finish_load);
 
   void StartPrerendering(
-      int creator_child_id,
       const gfx::Size& size,
-      content::SessionStorageNamespace* session_storage_namespace,
-      net::URLRequestContextGetter* request_context) override;
+      content::SessionStorageNamespace* session_storage_namespace) override;
   bool GetChildId(int* child_id) const override;
   bool GetRouteId(int* route_id) const override;
 
@@ -70,18 +68,14 @@ class DummyPrerenderContents : public PrerenderContents {
   Profile* profile_;
   const GURL url_;
   bool call_did_finish_load_;
-  content::SessionStorageNamespaceMap session_storage_namespace_map_;
 
   DISALLOW_COPY_AND_ASSIGN(DummyPrerenderContents);
 };
 
 class DummyPrerenderContentsFactory : public PrerenderContents::Factory {
  public:
-  DummyPrerenderContentsFactory(
-      bool call_did_finish_load,
-      const content::SessionStorageNamespaceMap& session_storage_namespace_map)
-      : call_did_finish_load_(call_did_finish_load),
-        session_storage_namespace_map_(session_storage_namespace_map) {
+  explicit DummyPrerenderContentsFactory(bool call_did_finish_load)
+      : call_did_finish_load_(call_did_finish_load) {
   }
 
   PrerenderContents* CreatePrerenderContents(
@@ -89,12 +83,10 @@ class DummyPrerenderContentsFactory : public PrerenderContents::Factory {
       Profile* profile,
       const GURL& url,
       const Referrer& referrer,
-      Origin origin,
-      uint8 experiment_id) override;
+      Origin origin) override;
 
  private:
   bool call_did_finish_load_;
-  content::SessionStorageNamespaceMap session_storage_namespace_map_;
 
   DISALLOW_COPY_AND_ASSIGN(DummyPrerenderContentsFactory);
 };
@@ -105,26 +97,22 @@ DummyPrerenderContents::DummyPrerenderContents(
     const GURL& url,
     const Referrer& referrer,
     Origin origin,
-    bool call_did_finish_load,
-    const content::SessionStorageNamespaceMap& session_storage_namespace_map)
-    : PrerenderContents(prerender_manager, profile, url, referrer, origin,
-                        PrerenderManager::kNoExperiment),
+    bool call_did_finish_load)
+    : PrerenderContents(prerender_manager, profile, url, referrer, origin),
       profile_(profile),
       url_(url),
-      call_did_finish_load_(call_did_finish_load),
-      session_storage_namespace_map_(session_storage_namespace_map) {
+      call_did_finish_load_(call_did_finish_load) {
 }
 
 void DummyPrerenderContents::StartPrerendering(
-    int creator_child_id,
     const gfx::Size& size,
-    content::SessionStorageNamespace* session_storage_namespace,
-    net::URLRequestContextGetter* request_context) {
+    content::SessionStorageNamespace* session_storage_namespace) {
+  content::SessionStorageNamespaceMap session_storage_namespace_map;
+  session_storage_namespace_map[std::string()] = session_storage_namespace;
   prerender_contents_.reset(content::WebContents::CreateWithSessionStorage(
       content::WebContents::CreateParams(profile_),
-      session_storage_namespace_map_));
-  PrerenderTabHelper::CreateForWebContentsWithPasswordManager(
-      prerender_contents_.get(), NULL);
+      session_storage_namespace_map));
+  PrerenderTabHelper::CreateForWebContents(prerender_contents_.get());
   content::NavigationController::LoadURLParams params(url_);
   prerender_contents_->GetController().LoadURLWithParams(params);
   SearchTabHelper::CreateForWebContents(prerender_contents_.get());
@@ -153,11 +141,9 @@ PrerenderContents* DummyPrerenderContentsFactory::CreatePrerenderContents(
     Profile* profile,
     const GURL& url,
     const Referrer& referrer,
-    Origin origin,
-    uint8 experiment_id) {
+    Origin origin) {
   return new DummyPrerenderContents(prerender_manager, profile, url, referrer,
-                                    origin, call_did_finish_load_,
-                                    session_storage_namespace_map_);
+                                    origin, call_did_finish_load_);
 }
 
 }  // namespace
@@ -177,19 +163,15 @@ class InstantSearchPrerendererTest : public InstantUnitTestBase {
             bool call_did_finish_load) {
     AddTab(browser(), GURL(url::kAboutBlankURL));
 
-    content::SessionStorageNamespaceMap session_storage_namespace_map;
-    session_storage_namespace_map[std::string()] =
-        GetActiveWebContents()->GetController().
-            GetDefaultSessionStorageNamespace();
     PrerenderManagerFactory::GetForProfile(browser()->profile())->
         SetPrerenderContentsFactory(
-            new DummyPrerenderContentsFactory(call_did_finish_load,
-                                              session_storage_namespace_map));
-    PrerenderManagerFactory::GetForProfile(browser()->profile())->
-        OnCookieStoreLoaded();
+            new DummyPrerenderContentsFactory(call_did_finish_load));
     if (prerender_search_results_base_page) {
+      content::SessionStorageNamespace* session_storage_namespace =
+          GetActiveWebContents()->GetController().
+              GetDefaultSessionStorageNamespace();
       InstantSearchPrerenderer* prerenderer = GetInstantSearchPrerenderer();
-      prerenderer->Init(session_storage_namespace_map, gfx::Size(640, 480));
+      prerenderer->Init(session_storage_namespace, gfx::Size(640, 480));
       EXPECT_NE(static_cast<PrerenderHandle*>(NULL), prerender_handle());
     }
   }
@@ -331,8 +313,30 @@ TEST_F(InstantSearchPrerendererTest, PrerenderingAllowed) {
   // Allow prerendering only for search type AutocompleteMatch suggestions.
   AutocompleteMatch search_type_match(NULL, 1100, false,
                                       AutocompleteMatchType::SEARCH_SUGGEST);
+  search_type_match.keyword = ASCIIToUTF16("{google:baseurl}");
   EXPECT_TRUE(AutocompleteMatch::IsSearchType(search_type_match.type));
   EXPECT_TRUE(prerenderer->IsAllowed(search_type_match, active_tab));
+
+  // Do not allow prerendering for custom search provider requests.
+  TemplateURLData data;
+  data.SetURL("https://www.dummyurl.com/search?q=%s&img=1");
+  data.SetShortName(ASCIIToUTF16("t"));
+  data.SetKeyword(ASCIIToUTF16("k"));
+  TemplateURL* t_url = new TemplateURL(data);
+  TemplateURLService* service =
+      TemplateURLServiceFactory::GetForProfile(profile());
+  service->Add(t_url);
+  service->Load();
+  AutocompleteMatch custom_search_type_match(
+      NULL, 1100, false, AutocompleteMatchType::SEARCH_SUGGEST);
+  custom_search_type_match.keyword = ASCIIToUTF16("k");
+  custom_search_type_match.destination_url =
+      GURL("https://www.dummyurl.com/search?q=fan&img=1");
+  TemplateURL* template_url =
+      custom_search_type_match.GetTemplateURL(service, false);
+  EXPECT_TRUE(template_url);
+  EXPECT_TRUE(AutocompleteMatch::IsSearchType(custom_search_type_match.type));
+  EXPECT_FALSE(prerenderer->IsAllowed(custom_search_type_match, active_tab));
 
   AutocompleteMatch url_type_match(NULL, 1100, true,
                                    AutocompleteMatchType::URL_WHAT_YOU_TYPED);
@@ -496,6 +500,18 @@ TEST_F(TestUsePrerenderPage, ExtractSearchTermsAndUsePrerenderPage) {
   EXPECT_EQ(static_cast<PrerenderHandle*>(NULL), prerender_handle());
 }
 
+TEST_F(TestUsePrerenderPage, DoNotUsePrerenderPage) {
+  PrerenderSearchQuery(ASCIIToUTF16("foo"));
+
+  // Do not use prerendered page for renderer initiated search request.
+  GURL url("https://www.google.com/alt#quux=foo");
+  browser()->OpenURL(content::OpenURLParams(url, Referrer(), CURRENT_TAB,
+                                            ui::PAGE_TRANSITION_LINK,
+                                            true  /* is_renderer_initiated */));
+  EXPECT_NE(GetPrerenderURL(), GetActiveWebContents()->GetURL());
+  EXPECT_EQ(static_cast<PrerenderHandle*>(NULL), prerender_handle());
+}
+
 TEST_F(TestUsePrerenderPage, SetEmbeddedSearchRequestParams) {
   PrerenderSearchQuery(ASCIIToUTF16("foo"));
   EXPECT_TRUE(browser()->instant_controller());
@@ -513,12 +529,13 @@ TEST_F(TestUsePrerenderPage, SetEmbeddedSearchRequestParams) {
   ASSERT_TRUE(message);
 
   // Verify the IPC message params.
-  Tuple2<base::string16, EmbeddedSearchRequestParams> params;
+  base::Tuple<base::string16, EmbeddedSearchRequestParams> params;
   ChromeViewMsg_SearchBoxSubmit::Read(message, &params);
-  EXPECT_EQ("foo", base::UTF16ToASCII(params.a));
-  EXPECT_EQ("f", base::UTF16ToASCII(params.b.original_query));
-  EXPECT_EQ("utf-8", base::UTF16ToASCII(params.b.input_encoding));
-  EXPECT_EQ("", base::UTF16ToASCII(params.b.rlz_parameter_value));
-  EXPECT_EQ("chrome...0", base::UTF16ToASCII(params.b.assisted_query_stats));
+  EXPECT_EQ("foo", base::UTF16ToASCII(base::get<0>(params)));
+  EXPECT_EQ("f", base::UTF16ToASCII(base::get<1>(params).original_query));
+  EXPECT_EQ("utf-8", base::UTF16ToASCII(base::get<1>(params).input_encoding));
+  EXPECT_EQ("", base::UTF16ToASCII(base::get<1>(params).rlz_parameter_value));
+  EXPECT_EQ("chrome...0",
+            base::UTF16ToASCII(base::get<1>(params).assisted_query_stats));
 }
 #endif

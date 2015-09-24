@@ -11,7 +11,6 @@
 #include <sys/wait.h>
 
 #include "base/command_line.h"
-#include "base/debug/trace_event.h"
 #include "base/files/file_util.h"
 #include "base/linux_util.h"
 #include "base/logging.h"
@@ -22,6 +21,10 @@
 #include "base/posix/global_descriptors.h"
 #include "base/posix/unix_domain_socket_linux.h"
 #include "base/process/kill.h"
+#include "base/process/launch.h"
+#include "base/process/process.h"
+#include "base/process/process_handle.h"
+#include "base/trace_event/trace_event.h"
 #include "content/common/child_process_sandbox_support_impl_linux.h"
 #include "content/common/sandbox_linux/sandbox_linux.h"
 #include "content/common/set_process_title.h"
@@ -29,13 +32,12 @@
 #include "content/public/common/content_descriptors.h"
 #include "content/public/common/result_codes.h"
 #include "content/public/common/sandbox_linux.h"
+#include "content/public/common/send_zygote_child_ping_linux.h"
 #include "content/public/common/zygote_fork_delegate_linux.h"
 #include "ipc/ipc_channel.h"
 #include "ipc/ipc_switches.h"
-
-#if defined(ADDRESS_SANITIZER)
-#include <sanitizer/asan_interface.h>
-#endif
+#include "sandbox/linux/services/credentials.h"
+#include "sandbox/linux/services/namespace_sandbox.h"
 
 // See http://code.google.com/p/chromium/wiki/LinuxZygote
 
@@ -49,8 +51,8 @@ void SIGCHLDHandler(int signal) {
 
 int LookUpFd(const base::GlobalDescriptors::Mapping& fd_mapping, uint32_t key) {
   for (size_t index = 0; index < fd_mapping.size(); ++index) {
-    if (fd_mapping[index].first == key)
-      return fd_mapping[index].second;
+    if (fd_mapping[index].key == key)
+      return fd_mapping[index].fd;
   }
   return -1;
 }
@@ -104,15 +106,15 @@ bool Zygote::ProcessRequests() {
   struct sigaction action;
   memset(&action, 0, sizeof(action));
   action.sa_handler = &SIGCHLDHandler;
-  CHECK(sigaction(SIGCHLD, &action, NULL) == 0);
+  PCHECK(sigaction(SIGCHLD, &action, NULL) == 0);
 
-  if (UsingSUIDSandbox()) {
+  if (UsingSUIDSandbox() || UsingNSSandbox()) {
     // Let the ZygoteHost know we are ready to go.
     // The receiving code is in content/browser/zygote_host_linux.cc.
-    bool r = UnixDomainSocket::SendMsg(kZygoteSocketPairFd,
-                                       kZygoteHelloMessage,
-                                       sizeof(kZygoteHelloMessage),
-                                       std::vector<int>());
+    bool r = base::UnixDomainSocket::SendMsg(kZygoteSocketPairFd,
+                                             kZygoteHelloMessage,
+                                             sizeof(kZygoteHelloMessage),
+                                             std::vector<int>());
 #if defined(OS_CHROMEOS)
     LOG_IF(WARNING, !r) << "Sending zygote magic failed";
     // Exit normally on chromeos because session manager may send SIGTERM
@@ -147,10 +149,15 @@ bool Zygote::UsingSUIDSandbox() const {
   return sandbox_flags_ & kSandboxLinuxSUID;
 }
 
+bool Zygote::UsingNSSandbox() const {
+  return sandbox_flags_ & kSandboxLinuxUserNS;
+}
+
 bool Zygote::HandleRequestFromBrowser(int fd) {
   ScopedVector<base::ScopedFD> fds;
   char buf[kZygoteMaxMessageLength];
-  const ssize_t len = UnixDomainSocket::RecvMsg(fd, buf, sizeof(buf), &fds);
+  const ssize_t len = base::UnixDomainSocket::RecvMsg(
+      fd, buf, sizeof(buf), &fds);
 
   if (len == 0 || (len == -1 && errno == ECONNRESET)) {
     // EOF from the browser. We should die.
@@ -161,8 +168,9 @@ bool Zygote::HandleRequestFromBrowser(int fd) {
          it < extra_fds_.end(); ++it) {
       PCHECK(0 == IGNORE_EINTR(close(*it)));
     }
-#if !defined(ADDRESS_SANITIZER)
-    // TODO(earthdok): add watchdog thread before using this in non-ASAN builds.
+#if !defined(SANITIZER_COVERAGE)
+    // TODO(earthdok): add watchdog thread before using this in builds not
+    // using sanitizer coverage.
     CHECK(extra_children_.empty());
 #endif
     for (std::vector<base::ProcessHandle>::iterator it =
@@ -179,28 +187,28 @@ bool Zygote::HandleRequestFromBrowser(int fd) {
     return false;
   }
 
-  Pickle pickle(buf, len);
-  PickleIterator iter(pickle);
+  base::Pickle pickle(buf, len);
+  base::PickleIterator iter(pickle);
 
   int kind;
-  if (pickle.ReadInt(&iter, &kind)) {
+  if (iter.ReadInt(&kind)) {
     switch (kind) {
       case kZygoteCommandFork:
         // This function call can return multiple times, once per fork().
-        return HandleForkRequest(fd, pickle, iter, fds.Pass());
+        return HandleForkRequest(fd, iter, fds.Pass());
 
       case kZygoteCommandReap:
         if (!fds.empty())
           break;
-        HandleReapRequest(fd, pickle, iter);
+        HandleReapRequest(fd, iter);
         return false;
       case kZygoteCommandGetTerminationStatus:
         if (!fds.empty())
           break;
-        HandleGetTerminationStatus(fd, pickle, iter);
+        HandleGetTerminationStatus(fd, iter);
         return false;
       case kZygoteCommandGetSandboxStatus:
-        HandleGetSandboxStatus(fd, pickle, iter);
+        HandleGetSandboxStatus(fd, iter);
         return false;
       case kZygoteCommandForkRealPID:
         // This shouldn't happen in practice, but some failure paths in
@@ -220,12 +228,10 @@ bool Zygote::HandleRequestFromBrowser(int fd) {
 }
 
 // TODO(jln): remove callers to this broken API. See crbug.com/274855.
-void Zygote::HandleReapRequest(int fd,
-                               const Pickle& pickle,
-                               PickleIterator iter) {
+void Zygote::HandleReapRequest(int fd, base::PickleIterator iter) {
   base::ProcessId child;
 
-  if (!pickle.ReadInt(&iter, &child)) {
+  if (!iter.ReadInt(&child)) {
     LOG(WARNING) << "Error parsing reap request from browser";
     return;
   }
@@ -247,7 +253,7 @@ void Zygote::HandleReapRequest(int fd,
     // with this for now.
 #if !defined(THREAD_SANITIZER)
     // TODO(jln): this old code is completely broken. See crbug.com/274855.
-    base::EnsureProcessTerminated(child_info.internal_pid);
+    base::EnsureProcessTerminated(base::Process(child_info.internal_pid));
 #else
     LOG(WARNING) << "Zygote process omitting a call to "
         << "base::EnsureProcessTerminated() for child pid " << child
@@ -301,17 +307,23 @@ bool Zygote::GetTerminationStatus(base::ProcessHandle real_pid,
     // Time to forget about this process.
     process_info_map_.erase(real_pid);
   }
+
+  if (WIFEXITED(*exit_code)) {
+    const int exit_status = WEXITSTATUS(*exit_code);
+    if (exit_status == sandbox::NamespaceSandbox::SignalExitCode(SIGINT) ||
+        exit_status == sandbox::NamespaceSandbox::SignalExitCode(SIGTERM)) {
+      *status = base::TERMINATION_STATUS_PROCESS_WAS_KILLED;
+    }
+  }
+
   return true;
 }
 
-void Zygote::HandleGetTerminationStatus(int fd,
-                                        const Pickle& pickle,
-                                        PickleIterator iter) {
+void Zygote::HandleGetTerminationStatus(int fd, base::PickleIterator iter) {
   bool known_dead;
   base::ProcessHandle child_requested;
 
-  if (!pickle.ReadBool(&iter, &known_dead) ||
-      !pickle.ReadInt(&iter, &child_requested)) {
+  if (!iter.ReadBool(&known_dead) || !iter.ReadInt(&child_requested)) {
     LOG(WARNING) << "Error parsing GetTerminationStatus request "
                  << "from browser";
     return;
@@ -330,7 +342,7 @@ void Zygote::HandleGetTerminationStatus(int fd,
     exit_code = RESULT_CODE_NORMAL_EXIT;
   }
 
-  Pickle write_pickle;
+  base::Pickle write_pickle;
   write_pickle.WriteInt(static_cast<int>(status));
   write_pickle.WriteInt(exit_code);
   ssize_t written =
@@ -373,10 +385,27 @@ int Zygote::ForkWithRealPid(const std::string& process_type,
     CHECK_NE(pid, 0);
   } else {
     CreatePipe(&read_pipe, &write_pipe);
-    pid = fork();
+    if (sandbox_flags_ & kSandboxLinuxPIDNS &&
+        sandbox_flags_ & kSandboxLinuxUserNS) {
+      pid = sandbox::NamespaceSandbox::ForkInNewPidNamespace(
+          /*drop_capabilities_in_child=*/true);
+    } else {
+      pid = sandbox::Credentials::ForkAndDropCapabilitiesInChild();
+    }
   }
 
   if (pid == 0) {
+    // If the process is the init process inside a PID namespace, it must have
+    // explicit signal handlers.
+    if (getpid() == 1) {
+      static const int kTerminationSignals[] = {
+          SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGABRT, SIGPIPE, SIGUSR1, SIGUSR2};
+      for (const int sig : kTerminationSignals) {
+        sandbox::NamespaceSandbox::InstallTerminationSignalHandler(
+            sig, sandbox::NamespaceSandbox::SignalExitCode(sig));
+      }
+    }
+
     // In the child process.
     write_pipe.reset();
 
@@ -399,7 +428,7 @@ int Zygote::ForkWithRealPid(const std::string& process_type,
     IPC::Channel::SetGlobalPid(real_pid);
     // Force the real PID so chrome event data have a PID that corresponds
     // to system trace event data.
-    base::debug::TraceLog::GetInstance()->SetProcessID(
+    base::trace_event::TraceLog::GetInstance()->SetProcessID(
         static_cast<int>(real_pid));
 #endif
     return 0;
@@ -415,18 +444,18 @@ int Zygote::ForkWithRealPid(const std::string& process_type,
   {
     ScopedVector<base::ScopedFD> recv_fds;
     char buf[kZygoteMaxMessageLength];
-    const ssize_t len = UnixDomainSocket::RecvMsg(
+    const ssize_t len = base::UnixDomainSocket::RecvMsg(
         kZygoteSocketPairFd, buf, sizeof(buf), &recv_fds);
     CHECK_GT(len, 0);
     CHECK(recv_fds.empty());
 
-    Pickle pickle(buf, len);
-    PickleIterator iter(pickle);
+    base::Pickle pickle(buf, len);
+    base::PickleIterator iter(pickle);
 
     int kind;
-    CHECK(pickle.ReadInt(&iter, &kind));
+    CHECK(iter.ReadInt(&kind));
     CHECK(kind == kZygoteCommandForkRealPID);
-    CHECK(pickle.ReadInt(&iter, &real_pid));
+    CHECK(iter.ReadInt(&real_pid));
   }
 
   // Fork failed.
@@ -462,8 +491,7 @@ int Zygote::ForkWithRealPid(const std::string& process_type,
   return real_pid;
 }
 
-base::ProcessId Zygote::ReadArgsAndFork(const Pickle& pickle,
-                                        PickleIterator iter,
+base::ProcessId Zygote::ReadArgsAndFork(base::PickleIterator iter,
                                         ScopedVector<base::ScopedFD> fds,
                                         std::string* uma_name,
                                         int* uma_sample,
@@ -477,21 +505,21 @@ base::ProcessId Zygote::ReadArgsAndFork(const Pickle& pickle,
   const std::string channel_id_prefix = std::string("--")
       + switches::kProcessChannelID + std::string("=");
 
-  if (!pickle.ReadString(&iter, &process_type))
+  if (!iter.ReadString(&process_type))
     return -1;
-  if (!pickle.ReadInt(&iter, &argc))
+  if (!iter.ReadInt(&argc))
     return -1;
 
   for (int i = 0; i < argc; ++i) {
     std::string arg;
-    if (!pickle.ReadString(&iter, &arg))
+    if (!iter.ReadString(&arg))
       return -1;
     args.push_back(arg);
     if (arg.compare(0, channel_id_prefix.length(), channel_id_prefix) == 0)
       channel_id = arg.substr(channel_id_prefix.length());
   }
 
-  if (!pickle.ReadInt(&iter, &numfds))
+  if (!iter.ReadInt(&numfds))
     return -1;
   if (numfds != static_cast<int>(fds.size()))
     return -1;
@@ -504,12 +532,12 @@ base::ProcessId Zygote::ReadArgsAndFork(const Pickle& pickle,
   // Remaining FDs are for the global descriptor mapping.
   for (int i = 1; i < numfds; ++i) {
     base::GlobalDescriptors::Key key;
-    if (!pickle.ReadUInt32(&iter, &key))
+    if (!iter.ReadUInt32(&key))
       return -1;
-    mapping.push_back(std::make_pair(key, fds[i]->get()));
+    mapping.push_back(base::GlobalDescriptors::Descriptor(key, fds[i]->get()));
   }
 
-  mapping.push_back(std::make_pair(
+  mapping.push_back(base::GlobalDescriptors::Descriptor(
       static_cast<uint32_t>(kSandboxIPCChannel), GetSandboxFD()));
 
   // Returns twice, once per process.
@@ -533,9 +561,9 @@ base::ProcessId Zygote::ReadArgsAndFork(const Pickle& pickle,
     base::GlobalDescriptors::GetInstance()->Reset(mapping);
 
     // Reset the process-wide command line to our new command line.
-    CommandLine::Reset();
-    CommandLine::Init(0, NULL);
-    CommandLine::ForCurrentProcess()->InitFromArgv(args);
+    base::CommandLine::Reset();
+    base::CommandLine::Init(0, NULL);
+    base::CommandLine::ForCurrentProcess()->InitFromArgv(args);
 
     // Update the process title. The argv was already cached by the call to
     // SetProcessTitleFromCommandLine in ChromeMain, so we can pass NULL here
@@ -549,14 +577,13 @@ base::ProcessId Zygote::ReadArgsAndFork(const Pickle& pickle,
 }
 
 bool Zygote::HandleForkRequest(int fd,
-                               const Pickle& pickle,
-                               PickleIterator iter,
+                               base::PickleIterator iter,
                                ScopedVector<base::ScopedFD> fds) {
   std::string uma_name;
   int uma_sample;
   int uma_boundary_value;
   base::ProcessId child_pid = ReadArgsAndFork(
-      pickle, iter, fds.Pass(), &uma_name, &uma_sample, &uma_boundary_value);
+      iter, fds.Pass(), &uma_name, &uma_sample, &uma_boundary_value);
   if (child_pid == 0)
     return true;
   // If there's no UMA report for this particular fork, then check if any
@@ -566,7 +593,7 @@ bool Zygote::HandleForkRequest(int fd,
         &uma_name, &uma_sample, &uma_boundary_value);
   }
   // Must always send reply, as ZygoteHost blocks while waiting for it.
-  Pickle reply_pickle;
+  base::Pickle reply_pickle;
   reply_pickle.WriteInt(child_pid);
   reply_pickle.WriteString(uma_name);
   if (!uma_name.empty()) {
@@ -579,9 +606,7 @@ bool Zygote::HandleForkRequest(int fd,
   return false;
 }
 
-bool Zygote::HandleGetSandboxStatus(int fd,
-                                    const Pickle& pickle,
-                                    PickleIterator iter) {
+bool Zygote::HandleGetSandboxStatus(int fd, base::PickleIterator iter) {
   if (HANDLE_EINTR(write(fd, &sandbox_flags_, sizeof(sandbox_flags_))) !=
                    sizeof(sandbox_flags_)) {
     PLOG(ERROR) << "write";

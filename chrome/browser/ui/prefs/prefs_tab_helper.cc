@@ -4,23 +4,30 @@
 
 #include "chrome/browser/ui/prefs/prefs_tab_helper.h"
 
+#include <set>
 #include <string>
 
+#include "base/memory/singleton.h"
 #include "base/prefs/overlay_user_pref_store.h"
+#include "base/prefs/pref_change_registrar.h"
 #include "base/prefs/pref_service.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_preferences_util.h"
 #include "chrome/browser/ui/zoom/chrome_zoom_level_prefs.h"
-#include "chrome/browser/ui/zoom/zoom_controller.h"
 #include "chrome/common/pref_font_webkit_names.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/pref_names_util.h"
 #include "chrome/grit/locale_settings.h"
+#include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "components/keyed_service/content/browser_context_keyed_service_factory.h"
+#include "components/keyed_service/core/keyed_service.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
@@ -51,6 +58,9 @@ namespace {
 
 // The list of prefs we want to observe.
 const char* kPrefsToObserve[] = {
+#if defined(ENABLE_EXTENSIONS)
+  prefs::kAnimationPolicy,
+#endif
   prefs::kDefaultCharset,
   prefs::kDisable3DAPIs,
   prefs::kEnableHyperlinkAuditing,
@@ -71,7 +81,6 @@ const char* kPrefsToObserve[] = {
   prefs::kWebKitMinimumFontSize,
   prefs::kWebKitMinimumLogicalFontSize,
   prefs::kWebKitPluginsEnabled,
-  prefs::kWebKitShrinksStandaloneImagesToFit,
   prefs::kWebkitTabsToLinks,
   prefs::kWebKitTextAreasAreResizable,
   prefs::kWebKitUsesUniversalDetector,
@@ -92,7 +101,6 @@ const int kPrefsToObserveLength = arraysize(kPrefsToObserve);
 // API cannot be used), so we can avoid registering them altogether.
 void RegisterFontFamilyPrefs(user_prefs::PrefRegistrySyncable* registry,
                              const std::set<std::string>& fonts_with_defaults) {
-
   // Expand the font concatenated with script name so this stays at RO memory
   // rather than allocated in heap.
   static const char* const kFontFamilyMap[] = {
@@ -115,10 +123,7 @@ ALL_FONT_SCRIPTS(WEBKIT_WEBPREFS_FONTS_STANDARD)
     if (fonts_with_defaults.find(pref_name) == fonts_with_defaults.end()) {
       // We haven't already set a default value for this font preference, so set
       // an empty string as the default.
-      registry->RegisterStringPref(
-          pref_name,
-          std::string(),
-          user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+      registry->RegisterStringPref(pref_name, std::string());
     }
   }
 }
@@ -132,11 +137,12 @@ void RegisterFontFamilyMapObserver(
     PrefChangeRegistrar* registrar,
     const char* map_name,
     const PrefChangeRegistrar::NamedChangeCallback& obs) {
-  DCHECK(StartsWithASCII(map_name, "webkit.webprefs.", true));
+  DCHECK(base::StartsWith(map_name, "webkit.webprefs.",
+                          base::CompareCase::SENSITIVE));
+
   for (size_t i = 0; i < prefs::kWebKitScriptsForFontFamilyMapsLength; ++i) {
     const char* script = prefs::kWebKitScriptsForFontFamilyMaps[i];
-    std::string pref_name = base::StringPrintf("%s.%s", map_name, script);
-    registrar->Add(pref_name.c_str(), obs);
+    registrar->Add(base::StringPrintf("%s.%s", map_name, script), obs);
   }
 }
 
@@ -144,7 +150,8 @@ void RegisterFontFamilyMapObserver(
 // On Windows with antialising we want to use an alternate fixed font like
 // Consolas, which looks much better than Courier New.
 bool ShouldUseAlternateDefaultFixedFont(const std::string& script) {
-  if (!StartsWithASCII(script, "courier", false))
+  if (!base::StartsWith(script, "courier",
+                        base::CompareCase::INSENSITIVE_ASCII))
     return false;
   UINT smooth_type = 0;
   SystemParametersInfo(SPI_GETFONTSMOOTHINGTYPE, 0, &smooth_type, 0);
@@ -205,6 +212,7 @@ const FontDefault kFontDefaults[] = {
   { prefs::kWebKitFixedFontFamilyTraditionalHan,
     IDS_FIXED_FONT_FAMILY_TRADITIONAL_HAN },
 #elif defined(OS_WIN)
+  { prefs::kWebKitFixedFontFamilyArabic, IDS_FIXED_FONT_FAMILY_ARABIC },
   { prefs::kWebKitSansSerifFontFamilyArabic,
     IDS_SANS_SERIF_FONT_FAMILY_ARABIC },
   { prefs::kWebKitStandardFontFamilyCyrillic,
@@ -315,37 +323,43 @@ void OverrideFontFamily(WebPreferences* prefs,
   (*map)[script] = base::UTF8ToUTF16(pref_value);
 }
 
+void RegisterLocalizedFontPref(user_prefs::PrefRegistrySyncable* registry,
+                               const char* path,
+                               int default_message_id) {
+  int val = 0;
+  bool success = base::StringToInt(l10n_util::GetStringUTF8(
+      default_message_id), &val);
+  DCHECK(success);
+  registry->RegisterIntegerPref(path, val);
+}
+
 }  // namespace
 
-PrefsTabHelper::PrefsTabHelper(WebContents* contents)
-    : web_contents_(contents),
-      weak_ptr_factory_(this) {
-  PrefService* prefs = GetProfile()->GetPrefs();
-  pref_change_registrar_.Init(prefs);
-  if (prefs) {
-    // TODO(wjmaclean): Convert this to use the content-specific zoom-level
-    // prefs when HostZoomMap moves to StoragePartition.
-    chrome::ChromeZoomLevelPrefs* zoom_level_prefs =
-        GetProfile()->GetZoomLevelPrefs();
+// Watching all these settings per tab is slow when a user has a lot of tabs and
+// and they use session restore. So watch them once per profile.
+// http://crbug.com/452693
+class PrefWatcher : public KeyedService {
+ public:
+  explicit PrefWatcher(Profile* profile) : profile_(profile) {
+    pref_change_registrar_.Init(profile_->GetPrefs());
 
     base::Closure renderer_callback = base::Bind(
-        &PrefsTabHelper::UpdateRendererPreferences, base::Unretained(this));
-    // Incognito mode does not have a zoom_level_prefs, and not all tests
-    // should need to create one either.
-    if (zoom_level_prefs) {
-      default_zoom_level_subscription_ =
-          zoom_level_prefs->RegisterDefaultZoomLevelCallback(renderer_callback);
-    }
+        &PrefWatcher::UpdateRendererPreferences, base::Unretained(this));
     pref_change_registrar_.Add(prefs::kAcceptLanguages, renderer_callback);
     pref_change_registrar_.Add(prefs::kEnableDoNotTrack, renderer_callback);
     pref_change_registrar_.Add(prefs::kEnableReferrers, renderer_callback);
+
+#if defined(ENABLE_WEBRTC)
+    pref_change_registrar_.Add(prefs::kWebRTCMultipleRoutesEnabled,
+                               renderer_callback);
+#endif
 
 #if !defined(OS_MACOSX)
     pref_change_registrar_.Add(prefs::kFullscreenAllowed, renderer_callback);
 #endif
 
     PrefChangeRegistrar::NamedChangeCallback webkit_callback = base::Bind(
-        &PrefsTabHelper::OnWebPrefChanged, base::Unretained(this));
+        &PrefWatcher::OnWebPrefChanged, base::Unretained(this));
     for (int i = 0; i < kPrefsToObserveLength; ++i) {
       const char* pref_name = kPrefsToObserve[i];
       pref_change_registrar_.Add(pref_name, webkit_callback);
@@ -374,17 +388,109 @@ PrefsTabHelper::PrefsTabHelper(WebContents* contents)
                                   webkit_callback);
   }
 
+  static PrefWatcher* Get(Profile* profile);
+
+  void RegisterHelper(PrefsTabHelper* helper) {
+    helpers_.insert(helper);
+  }
+
+  void UnregisterHelper(PrefsTabHelper* helper) {
+    helpers_.erase(helper);
+  }
+
+ private:
+  // KeyedService overrides:
+  void Shutdown() override {
+    pref_change_registrar_.RemoveAll();
+  }
+
+  void UpdateRendererPreferences() {
+    for (const auto& helper : helpers_)
+      helper->UpdateRendererPreferences();
+  }
+
+  void OnWebPrefChanged(const std::string& pref_name) {
+    for (const auto& helper : helpers_)
+      helper->OnWebPrefChanged(pref_name);
+  }
+
+  Profile* profile_;
+  PrefChangeRegistrar pref_change_registrar_;
+  std::set<PrefsTabHelper*> helpers_;
+};
+
+class PrefWatcherFactory : public BrowserContextKeyedServiceFactory {
+ public:
+  static PrefWatcher* GetForProfile(Profile* profile) {
+    return static_cast<PrefWatcher*>(
+        GetInstance()->GetServiceForBrowserContext(profile, true));
+  }
+
+  static PrefWatcherFactory* GetInstance() {
+    return Singleton<PrefWatcherFactory>::get();
+  }
+
+ private:
+  friend struct DefaultSingletonTraits<PrefWatcherFactory>;
+
+  PrefWatcherFactory() : BrowserContextKeyedServiceFactory(
+      "PrefWatcher",
+      BrowserContextDependencyManager::GetInstance()) {
+  }
+
+  ~PrefWatcherFactory() override {}
+
+  // BrowserContextKeyedServiceFactory:
+  KeyedService* BuildServiceInstanceFor(
+      content::BrowserContext* browser_context) const override {
+    return new PrefWatcher(Profile::FromBrowserContext(browser_context));
+  }
+
+  content::BrowserContext* GetBrowserContextToUse(
+      content::BrowserContext* context) const override {
+    return chrome::GetBrowserContextOwnInstanceInIncognito(context);
+  }
+};
+
+// static
+PrefWatcher* PrefWatcher::Get(Profile* profile) {
+  return PrefWatcherFactory::GetForProfile(profile);
+}
+
+PrefsTabHelper::PrefsTabHelper(WebContents* contents)
+    : web_contents_(contents),
+      profile_(Profile::FromBrowserContext(web_contents_->GetBrowserContext())),
+      weak_ptr_factory_(this) {
+  PrefService* prefs = profile_->GetPrefs();
+  if (prefs) {
+    // If the tab is in an incognito profile, we track changes in the default
+    // zoom level of the parent profile instead.
+    Profile* profile_to_track = profile_->GetOriginalProfile();
+    chrome::ChromeZoomLevelPrefs* zoom_level_prefs =
+        profile_to_track->GetZoomLevelPrefs();
+
+    base::Closure renderer_callback = base::Bind(
+        &PrefsTabHelper::UpdateRendererPreferences, base::Unretained(this));
+    // Tests should not need to create a ZoomLevelPrefs.
+    if (zoom_level_prefs) {
+      default_zoom_level_subscription_ =
+          zoom_level_prefs->RegisterDefaultZoomLevelCallback(renderer_callback);
+    }
+
+    PrefWatcher::Get(profile_)->RegisterHelper(this);
+  }
+
   content::RendererPreferences* render_prefs =
       web_contents_->GetMutableRendererPrefs();
   renderer_preferences_util::UpdateFromSystemSettings(render_prefs,
-                                                      GetProfile(),
+                                                      profile_,
                                                       web_contents_);
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX) && defined(ENABLE_THEMES)
   registrar_.Add(this,
                  chrome::NOTIFICATION_BROWSER_THEME_CHANGED,
                  content::Source<ThemeService>(
-                     ThemeServiceFactory::GetForProfile(GetProfile())));
+                     ThemeServiceFactory::GetForProfile(profile_)));
 #endif
 #if defined(USE_AURA)
   registrar_.Add(this,
@@ -394,6 +500,7 @@ PrefsTabHelper::PrefsTabHelper(WebContents* contents)
 }
 
 PrefsTabHelper::~PrefsTabHelper() {
+  PrefWatcher::Get(profile_)->UnregisterHelper(this);
 }
 
 // static
@@ -413,79 +520,43 @@ void PrefsTabHelper::InitIncognitoUserPrefStore(
 void PrefsTabHelper::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
   WebPreferences pref_defaults;
+  registry->RegisterBooleanPref(prefs::kWebKitJavascriptEnabled,
+                                pref_defaults.javascript_enabled);
+  registry->RegisterBooleanPref(prefs::kWebKitWebSecurityEnabled,
+                                pref_defaults.web_security_enabled);
   registry->RegisterBooleanPref(
-      prefs::kWebKitJavascriptEnabled,
-      pref_defaults.javascript_enabled,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kWebKitWebSecurityEnabled,
-      pref_defaults.web_security_enabled,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kWebKitJavascriptCanOpenWindowsAutomatically,
-      true,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kWebKitLoadsImagesAutomatically,
-      pref_defaults.loads_images_automatically,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kWebKitPluginsEnabled,
-      pref_defaults.plugins_enabled,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kWebKitDomPasteEnabled,
-      pref_defaults.dom_paste_enabled,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kWebKitShrinksStandaloneImagesToFit,
-      pref_defaults.shrinks_standalone_images_to_fit,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kWebKitTextAreasAreResizable,
-      pref_defaults.text_areas_are_resizable,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kWebKitJavaEnabled,
-      pref_defaults.java_enabled,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kWebkitTabsToLinks,
-      pref_defaults.tabs_to_links,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kWebKitAllowRunningInsecureContent,
-      false,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kWebKitAllowDisplayingInsecureContent,
-      true,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kEnableReferrers,
-      true,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+      prefs::kWebKitJavascriptCanOpenWindowsAutomatically, true);
+  registry->RegisterBooleanPref(prefs::kWebKitLoadsImagesAutomatically,
+                                pref_defaults.loads_images_automatically);
+  registry->RegisterBooleanPref(prefs::kWebKitPluginsEnabled,
+                                pref_defaults.plugins_enabled);
+  registry->RegisterBooleanPref(prefs::kWebKitDomPasteEnabled,
+                                pref_defaults.dom_paste_enabled);
+  registry->RegisterBooleanPref(prefs::kWebKitTextAreasAreResizable,
+                                pref_defaults.text_areas_are_resizable);
+  registry->RegisterBooleanPref(prefs::kWebKitJavaEnabled,
+                                pref_defaults.java_enabled);
+  registry->RegisterBooleanPref(prefs::kWebkitTabsToLinks,
+                                pref_defaults.tabs_to_links);
+  registry->RegisterBooleanPref(prefs::kWebKitAllowRunningInsecureContent,
+                                false);
+  registry->RegisterBooleanPref(prefs::kWebKitAllowDisplayingInsecureContent,
+                                true);
+  registry->RegisterBooleanPref(prefs::kEnableReferrers, true);
 #if defined(OS_ANDROID)
-  registry->RegisterDoublePref(
-      prefs::kWebKitFontScaleFactor,
-      1.0,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kWebKitForceEnableZoom,
-      pref_defaults.force_enable_zoom,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kWebKitPasswordEchoEnabled,
-      pref_defaults.password_echo_enabled,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterDoublePref(prefs::kWebKitFontScaleFactor, 1.0);
+  registry->RegisterBooleanPref(prefs::kWebKitForceEnableZoom,
+                                pref_defaults.force_enable_zoom);
+  registry->RegisterBooleanPref(prefs::kWebKitPasswordEchoEnabled,
+                                pref_defaults.password_echo_enabled);
 #endif
-  registry->RegisterLocalizedStringPref(
+  registry->RegisterStringPref(
       prefs::kAcceptLanguages,
-      IDS_ACCEPT_LANGUAGES,
+      l10n_util::GetStringUTF8(IDS_ACCEPT_LANGUAGES),
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
-  registry->RegisterLocalizedStringPref(
+  registry->RegisterStringPref(
       prefs::kDefaultCharset,
-      IDS_DEFAULT_ENCODING,
+      l10n_util::GetStringUTF8(IDS_DEFAULT_ENCODING),
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
 
   // Register font prefs that have defaults.
@@ -517,10 +588,8 @@ void PrefsTabHelper::RegisterProfilePrefs(
     // prefs (e.g., via the extensions workflow), or the problem turns out to
     // not be really critical after all.
     if (browser_script != pref_script) {
-      registry->RegisterLocalizedStringPref(
-          pref.pref_name,
-          pref.resource_id,
-          user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+      registry->RegisterStringPref(pref.pref_name,
+                                   l10n_util::GetStringUTF8(pref.resource_id));
       fonts_with_defaults.insert(pref.pref_name);
     }
   }
@@ -530,34 +599,27 @@ void PrefsTabHelper::RegisterProfilePrefs(
   RegisterFontFamilyPrefs(registry, fonts_with_defaults);
 #endif
 
-  registry->RegisterLocalizedIntegerPref(
-      prefs::kWebKitDefaultFontSize,
-      IDS_DEFAULT_FONT_SIZE,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterLocalizedIntegerPref(
-      prefs::kWebKitDefaultFixedFontSize,
-      IDS_DEFAULT_FIXED_FONT_SIZE,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterLocalizedIntegerPref(
-      prefs::kWebKitMinimumFontSize,
-      IDS_MINIMUM_FONT_SIZE,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterLocalizedIntegerPref(
-      prefs::kWebKitMinimumLogicalFontSize,
-      IDS_MINIMUM_LOGICAL_FONT_SIZE,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterLocalizedBooleanPref(
+  RegisterLocalizedFontPref(registry, prefs::kWebKitDefaultFontSize,
+                            IDS_DEFAULT_FONT_SIZE);
+  RegisterLocalizedFontPref(registry, prefs::kWebKitDefaultFixedFontSize,
+                            IDS_DEFAULT_FIXED_FONT_SIZE);
+  RegisterLocalizedFontPref(registry, prefs::kWebKitMinimumFontSize,
+                            IDS_MINIMUM_FONT_SIZE);
+  RegisterLocalizedFontPref(registry, prefs::kWebKitMinimumLogicalFontSize,
+                            IDS_MINIMUM_LOGICAL_FONT_SIZE);
+  registry->RegisterBooleanPref(
       prefs::kWebKitUsesUniversalDetector,
-      IDS_USES_UNIVERSAL_DETECTOR,
+      l10n_util::GetStringUTF8(IDS_USES_UNIVERSAL_DETECTOR) == "true",
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
-  registry->RegisterLocalizedStringPref(
-      prefs::kStaticEncodings,
-      IDS_STATIC_ENCODING_LIST,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
   registry->RegisterStringPref(
-      prefs::kRecentlySelectedEncoding,
-      std::string(),
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+      prefs::kStaticEncodings,
+      l10n_util::GetStringUTF8(IDS_STATIC_ENCODING_LIST));
+  registry->RegisterStringPref(prefs::kRecentlySelectedEncoding, std::string());
+}
+
+// static
+void PrefsTabHelper::GetServiceInstance() {
+  PrefWatcherFactory::GetInstance();
 }
 
 void PrefsTabHelper::Observe(int type,
@@ -589,14 +651,9 @@ void PrefsTabHelper::UpdateRendererPreferences() {
   content::RendererPreferences* prefs =
       web_contents_->GetMutableRendererPrefs();
   renderer_preferences_util::UpdateFromSystemSettings(
-      prefs, GetProfile(), web_contents_);
+      prefs, profile_, web_contents_);
   web_contents_->GetRenderViewHost()->SyncRendererPrefs();
 }
-
-Profile* PrefsTabHelper::GetProfile() {
-  return Profile::FromBrowserContext(web_contents_->GetBrowserContext());
-}
-
 void PrefsTabHelper::OnFontFamilyPrefChanged(const std::string& pref_name) {
   // When a font family pref's value goes from non-empty to the empty string, we
   // must add it to the usual WebPreferences struct passed to the renderer.
@@ -615,8 +672,8 @@ void PrefsTabHelper::OnFontFamilyPrefChanged(const std::string& pref_name) {
   if (pref_names_util::ParseFontNamePrefPath(pref_name,
                                              &generic_family,
                                              &script)) {
-    PrefService* prefs = GetProfile()->GetPrefs();
-    std::string pref_value = prefs->GetString(pref_name.c_str());
+    PrefService* prefs = profile_->GetPrefs();
+    std::string pref_value = prefs->GetString(pref_name);
     if (pref_value.empty()) {
       WebPreferences web_prefs =
           web_contents_->GetRenderViewHost()->GetWebkitPreferences();

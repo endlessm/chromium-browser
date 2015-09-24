@@ -51,16 +51,10 @@ class Forwarder(object):
   _DEVICE_FORWARDER_PATH = (constants.TEST_EXECUTABLE_DIR +
                             '/forwarder/device_forwarder')
   _LOCK_PATH = '/tmp/chrome.forwarder.lock'
-  _MULTIPROCESSING_ENV_VAR = 'CHROME_FORWARDER_USE_MULTIPROCESSING'
   # Defined in host_forwarder_main.cc
   _HOST_FORWARDER_LOG = '/tmp/host_forwarder_log'
 
   _instance = None
-
-  @staticmethod
-  def UseMultiprocessing():
-    """Tells the forwarder that multiprocessing is used."""
-    os.environ[Forwarder._MULTIPROCESSING_ENV_VAR] = '1'
 
   @staticmethod
   def Map(port_pairs, device, tool=None):
@@ -90,8 +84,10 @@ class Forwarder(object):
 
       device_serial = str(device)
       redirection_commands = [
-          ['--serial-id=' + device_serial, '--map', str(device_port),
-           str(host_port)] for device_port, host_port in port_pairs]
+          ['--adb=' + constants.GetAdbPath(),
+           '--serial-id=' + device_serial,
+           '--map', str(device_port), str(host_port)]
+          for device_port, host_port in port_pairs]
       logging.info('Forwarding using commands: %s', redirection_commands)
 
       for redirection_command in redirection_commands:
@@ -227,7 +223,9 @@ class Forwarder(object):
     if not serial_with_port in instance._device_to_host_port_map:
       logging.error('Trying to unmap non-forwarded port %d' % device_port)
       return
-    redirection_command = ['--serial-id=' + serial, '--unmap', str(device_port)]
+    redirection_command = ['--adb=' + constants.GetAdbPath(),
+                           '--serial-id=' + serial,
+                           '--unmap', str(device_port)]
     (exit_code, output) = cmd_helper.GetCmdStatusAndOutput(
         [instance._host_forwarder_path] + redirection_command)
     if exit_code != 0:
@@ -241,13 +239,10 @@ class Forwarder(object):
   def _GetPidForLock():
     """Returns the PID used for host_forwarder initialization.
 
-    In case multi-process sharding is used, the PID of the "sharder" is used.
-    The "sharder" is the initial process that forks that is the parent process.
-    By default, multi-processing is not used. In that case the PID of the
-    current process is returned.
+    The PID of the "sharder" is used to handle multiprocessing. The "sharder"
+    is the initial process that forks that is the parent process.
     """
-    use_multiprocessing = Forwarder._MULTIPROCESSING_ENV_VAR in os.environ
-    return os.getpgrp() if use_multiprocessing else os.getpid()
+    return os.getpgrp()
 
   def _InitHostLocked(self):
     """Initializes the host forwarder daemon.
@@ -270,6 +265,7 @@ class Forwarder(object):
       pid_file.seek(0)
       pid_file.write(
           '%s:%s' % (pid_for_lock, str(_GetProcessStartTime(pid_for_lock))))
+      pid_file.truncate()
 
   def _InitDeviceLocked(self, device, tool):
     """Initializes the device_forwarder daemon for a specific device (once).
@@ -292,11 +288,9 @@ class Forwarder(object):
         self._device_forwarder_path_on_host,
         Forwarder._DEVICE_FORWARDER_FOLDER)])
     cmd = '%s %s' % (tool.GetUtilWrapper(), Forwarder._DEVICE_FORWARDER_PATH)
-    (exit_code, output) = device.old_interface.GetAndroidToolStatusAndOutput(
-        cmd, lib_path=Forwarder._DEVICE_FORWARDER_FOLDER)
-    if exit_code != 0:
-      raise Exception(
-          'Failed to start device forwarder:\n%s' % '\n'.join(output))
+    device.RunShellCommand(
+        cmd, env={'LD_LIBRARY_PATH': Forwarder._DEVICE_FORWARDER_FOLDER},
+        check_return=True)
     self._initialized_devices.add(device_serial)
 
   def _KillHostLocked(self):
@@ -332,5 +326,6 @@ class Forwarder(object):
 
     cmd = '%s %s --kill-server' % (tool.GetUtilWrapper(),
                                    Forwarder._DEVICE_FORWARDER_PATH)
-    device.old_interface.GetAndroidToolStatusAndOutput(
-        cmd, lib_path=Forwarder._DEVICE_FORWARDER_FOLDER)
+    device.RunShellCommand(
+        cmd, env={'LD_LIBRARY_PATH': Forwarder._DEVICE_FORWARDER_FOLDER},
+        check_return=True)

@@ -4,6 +4,7 @@
 
 package org.chromium.content.browser.input;
 
+import android.content.res.Configuration;
 import android.os.Handler;
 import android.os.ResultReceiver;
 import android.os.SystemClock;
@@ -20,9 +21,11 @@ import android.view.inputmethod.EditorInfo;
 import org.chromium.base.CalledByNative;
 import org.chromium.base.JNINamespace;
 import org.chromium.base.VisibleForTesting;
+import org.chromium.blink_public.web.WebInputEventModifier;
+import org.chromium.blink_public.web.WebInputEventType;
+import org.chromium.blink_public.web.WebTextInputFlags;
+import org.chromium.ui.base.ime.TextInputType;
 import org.chromium.ui.picker.InputDialogContainer;
-
-import java.lang.CharSequence;
 
 /**
  * Adapts and plumbs android IME service onto the chrome text input API.
@@ -58,9 +61,14 @@ public class ImeAdapter {
         void onImeEvent();
 
         /**
-         * Called when a request to hide the keyboard is sent to InputMethodManager.
+         * Called when the keyboard could not be shown due to the hardware keyboard being present.
          */
-        void onDismissInput();
+        void onKeyboardBoundsUnchanged();
+
+        /**
+         * @see BaseInputConnection#performContextMenuAction(int)
+         */
+        boolean performContextMenuAction(int id);
 
         /**
          * @return View that the keyboard should be attached to.
@@ -73,27 +81,6 @@ public class ImeAdapter {
         ResultReceiver getNewShowKeyboardReceiver();
     }
 
-    private class DelayedDismissInput implements Runnable {
-        private long mNativeImeAdapter;
-
-        DelayedDismissInput(long nativeImeAdapter) {
-            mNativeImeAdapter = nativeImeAdapter;
-        }
-
-        // http://crbug.com/413744
-        void detach() {
-            mNativeImeAdapter = 0;
-        }
-
-        @Override
-        public void run() {
-            if (mNativeImeAdapter != 0) {
-                attach(mNativeImeAdapter, sTextInputTypeNone, sTextInputFlagNone);
-            }
-            dismissInput(true);
-        }
-    }
-
     private static final int COMPOSITION_KEY_CODE = 229;
 
     // Delay introduced to avoid hiding the keyboard if new show requests are received.
@@ -102,34 +89,13 @@ public class ImeAdapter {
     // The value here should be higher enough to cover these cases, but not too high to avoid
     // letting the user perceiving important delays.
     private static final int INPUT_DISMISS_DELAY = 150;
+    private final Runnable mDismissInputRunnable = new Runnable() {
+        @Override
+        public void run() {
+            dismissInput(true);
+        }
+    };
 
-    // All the constants that are retrieved from the C++ code.
-    // They get set through initializeWebInputEvents and initializeTextInputTypes calls.
-    static int sEventTypeRawKeyDown;
-    static int sEventTypeKeyUp;
-    static int sEventTypeChar;
-    static int sTextInputTypeNone;
-    static int sTextInputTypeText;
-    static int sTextInputTypeTextArea;
-    static int sTextInputTypePassword;
-    static int sTextInputTypeSearch;
-    static int sTextInputTypeUrl;
-    static int sTextInputTypeEmail;
-    static int sTextInputTypeTel;
-    static int sTextInputTypeNumber;
-    static int sTextInputTypeContentEditable;
-    static int sTextInputFlagNone = 0;
-    static int sTextInputFlagAutocompleteOn;
-    static int sTextInputFlagAutocompleteOff;
-    static int sTextInputFlagAutocorrectOn;
-    static int sTextInputFlagAutocorrectOff;
-    static int sTextInputFlagSpellcheckOn;
-    static int sTextInputFlagSpellcheckOff;
-    static int sModifierShift;
-    static int sModifierAlt;
-    static int sModifierCtrl;
-    static int sModifierCapsLockOn;
-    static int sModifierNumLockOn;
     static char[] sSingleCharArray = new char[1];
     static KeyCharacterMap sKeyCharacterMap;
 
@@ -138,7 +104,6 @@ public class ImeAdapter {
     private AdapterInputConnection mInputConnection;
     private final ImeAdapterDelegate mViewEmbedder;
     private final Handler mHandler;
-    private DelayedDismissInput mDismissInput = null;
     private int mTextInputType;
     private int mTextInputFlags;
     private String mLastComposeText;
@@ -214,29 +179,22 @@ public class ImeAdapter {
         return mTextInputFlags;
     }
 
-    /**
-     * @return Constant representing that a focused node is not an input field.
-     */
-    public static int getTextInputTypeNone() {
-        return sTextInputTypeNone;
-    }
-
     private static int getModifiers(int metaState) {
         int modifiers = 0;
         if ((metaState & KeyEvent.META_SHIFT_ON) != 0) {
-            modifiers |= sModifierShift;
+            modifiers |= WebInputEventModifier.ShiftKey;
         }
         if ((metaState & KeyEvent.META_ALT_ON) != 0) {
-            modifiers |= sModifierAlt;
+            modifiers |= WebInputEventModifier.AltKey;
         }
         if ((metaState & KeyEvent.META_CTRL_ON) != 0) {
-            modifiers |= sModifierCtrl;
+            modifiers |= WebInputEventModifier.ControlKey;
         }
         if ((metaState & KeyEvent.META_CAPS_LOCK_ON) != 0) {
-            modifiers |= sModifierCapsLockOn;
+            modifiers |= WebInputEventModifier.CapsLockOn;
         }
         if ((metaState & KeyEvent.META_NUM_LOCK_ON) != 0) {
-            modifiers |= sModifierNumLockOn;
+            modifiers |= WebInputEventModifier.NumLockOn;
         }
         return modifiers;
     }
@@ -249,47 +207,54 @@ public class ImeAdapter {
      */
     public void updateKeyboardVisibility(long nativeImeAdapter, int textInputType,
             int textInputFlags, boolean showIfNeeded) {
-        mHandler.removeCallbacks(mDismissInput);
-
         // If current input type is none and showIfNeeded is false, IME should not be shown
         // and input type should remain as none.
-        if (mTextInputType == sTextInputTypeNone && !showIfNeeded) {
+        if (mTextInputType == TextInputType.NONE && !showIfNeeded) {
             return;
         }
 
         if (mNativeImeAdapterAndroid != nativeImeAdapter || mTextInputType != textInputType) {
-            // Set a delayed task to perform unfocus. This avoids hiding the keyboard when tabbing
-            // through text inputs or when JS rapidly changes focus to another text element.
-            if (textInputType == sTextInputTypeNone) {
-                mDismissInput = new DelayedDismissInput(nativeImeAdapter);
-                mHandler.postDelayed(mDismissInput, INPUT_DISMISS_DELAY);
-                return;
-            }
+            // We have to attach immediately, even if we're going to delay the dismissing of
+            // currently visible keyboard because otherwise we have a race condition: If the
+            // native IME adapter gets destructed before the delayed-dismiss fires, we'll access
+            // an object that has been already released.  http://crbug.com/447287
+            attach(nativeImeAdapter, textInputType, textInputFlags, true);
 
-            attach(nativeImeAdapter, textInputType, textInputFlags);
-
-            mInputMethodManagerWrapper.restartInput(mViewEmbedder.getAttachedView());
-            if (showIfNeeded) {
-                showKeyboard();
+            if (mTextInputType != TextInputType.NONE) {
+                mInputMethodManagerWrapper.restartInput(mViewEmbedder.getAttachedView());
+                if (showIfNeeded) {
+                    showKeyboard();
+                }
             }
         } else if (hasInputType() && showIfNeeded) {
             showKeyboard();
         }
     }
 
-    public void attach(long nativeImeAdapter, int textInputType, int textInputFlags) {
+    private void attach(long nativeImeAdapter, int textInputType, int textInputFlags,
+            boolean delayDismissInput) {
         if (mNativeImeAdapterAndroid != 0) {
             nativeResetImeAdapter(mNativeImeAdapterAndroid);
         }
-        mNativeImeAdapterAndroid = nativeImeAdapter;
-        mTextInputType = textInputType;
-        mTextInputFlags = textInputFlags;
-        mLastComposeText = null;
         if (nativeImeAdapter != 0) {
-            nativeAttachImeAdapter(mNativeImeAdapterAndroid);
+            nativeAttachImeAdapter(nativeImeAdapter);
         }
-        if (mTextInputType == sTextInputTypeNone) {
-            dismissInput(false);
+        mNativeImeAdapterAndroid = nativeImeAdapter;
+        mLastComposeText = null;
+        mTextInputFlags = textInputFlags;
+        if (textInputType == mTextInputType) return;
+        mTextInputType = textInputType;
+        mHandler.removeCallbacks(mDismissInputRunnable);  // okay if not found
+        if (mTextInputType == TextInputType.NONE) {
+            if (delayDismissInput) {
+                // Set a delayed task to do unfocus. This avoids hiding the keyboard when tabbing
+                // through text inputs or when JS rapidly changes focus to another text element.
+                mHandler.postDelayed(mDismissInputRunnable, INPUT_DISMISS_DELAY);
+                mIsShowWithoutHideOutstanding = false;
+            } else {
+                // Some things (including tests) expect the keyboard to be dismissed immediately.
+                dismissInput(true);
+            }
         }
     }
 
@@ -299,31 +264,34 @@ public class ImeAdapter {
      * @param nativeImeAdapter The pointer to the native ImeAdapter object.
      */
     public void attach(long nativeImeAdapter) {
-        attach(nativeImeAdapter, sTextInputTypeNone, sTextInputFlagNone);
+        attach(nativeImeAdapter, TextInputType.NONE, WebTextInputFlags.None, false);
     }
 
     private void showKeyboard() {
         mIsShowWithoutHideOutstanding = true;
-        mInputMethodManagerWrapper.showSoftInput(mViewEmbedder.getAttachedView(), 0,
-                mViewEmbedder.getNewShowKeyboardReceiver());
+        mInputMethodManagerWrapper.showSoftInput(
+                mViewEmbedder.getAttachedView(), 0, mViewEmbedder.getNewShowKeyboardReceiver());
+        if (mViewEmbedder.getAttachedView().getResources().getConfiguration().keyboard
+                != Configuration.KEYBOARD_NOKEYS) {
+            mViewEmbedder.onKeyboardBoundsUnchanged();
+        }
     }
 
     private void dismissInput(boolean unzoomIfNeeded) {
-        mIsShowWithoutHideOutstanding  = false;
+        mIsShowWithoutHideOutstanding = false;
         View view = mViewEmbedder.getAttachedView();
         if (mInputMethodManagerWrapper.isActive(view)) {
             mInputMethodManagerWrapper.hideSoftInputFromWindow(view.getWindowToken(), 0,
                     unzoomIfNeeded ? mViewEmbedder.getNewShowKeyboardReceiver() : null);
         }
-        mViewEmbedder.onDismissInput();
     }
 
     private boolean hasInputType() {
-        return mTextInputType != sTextInputTypeNone;
+        return mTextInputType != TextInputType.NONE;
     }
 
     private static boolean isTextInputType(int type) {
-        return type != sTextInputTypeNone && !InputDialogContainer.isDialogInputType(type);
+        return type != TextInputType.NONE && !InputDialogContainer.isDialogInputType(type);
     }
 
     public boolean hasTextInputType() {
@@ -334,24 +302,26 @@ public class ImeAdapter {
      * @return true if the selected text is of password.
      */
     public boolean isSelectionPassword() {
-        return mTextInputType == sTextInputTypePassword;
+        return mTextInputType == TextInputType.PASSWORD;
     }
 
     public boolean dispatchKeyEvent(KeyEvent event) {
-        // Physical keyboards have their events come through here instead of
-        // AdapterInputConnection.
         if (mInputConnection != null) {
             return mInputConnection.sendKeyEvent(event);
         }
-        return translateAndSendNativeEvents(event, 0);
+        return translateAndSendNativeEvents(event);
     }
 
     private int shouldSendKeyEventWithKeyCode(String text) {
         if (text.length() != 1) return COMPOSITION_KEY_CODE;
 
-        if (text.equals("\n")) return KeyEvent.KEYCODE_ENTER;
-        else if (text.equals("\t")) return KeyEvent.KEYCODE_TAB;
-        else return COMPOSITION_KEY_CODE;
+        if (text.equals("\n")) {
+            return KeyEvent.KEYCODE_ENTER;
+        } else if (text.equals("\t")) {
+            return KeyEvent.KEYCODE_TAB;
+        } else {
+            return COMPOSITION_KEY_CODE;
+        }
     }
 
     /**
@@ -371,13 +341,20 @@ public class ImeAdapter {
         }
 
         for (int i = 0; i < events.length; ++i) {
-            if (events[i].getAction() == KeyEvent.ACTION_DOWN &&
-                    !KeyEvent.isModifierKey(events[i].getKeyCode())) {
+            if (events[i].getAction() == KeyEvent.ACTION_DOWN
+                    && !KeyEvent.isModifierKey(events[i].getKeyCode())) {
                 return events[i];
             }
         }
 
         return null;  // No printing characters were found.
+    }
+
+    /**
+     * @see BaseInputConnection#performContextMenuAction(int)
+     */
+    public boolean performContextMenuAction(int id) {
+        return mViewEmbedder.performContextMenuAction(id);
     }
 
     @VisibleForTesting
@@ -394,12 +371,14 @@ public class ImeAdapter {
         }
 
         // The content has grown in length: assume the last character is the key that caused it.
-        if (newtext.length() > oldtext.length() && newtext.startsWith(oldtext))
+        if (newtext.length() > oldtext.length() && newtext.startsWith(oldtext)) {
             return androidKeyEventForCharacter(newtext.charAt(newtext.length() - 1));
+        }
 
         // The content has shrunk in length: assume that backspace was pressed.
-        if (oldtext.length() > newtext.length() && oldtext.startsWith(newtext))
+        if (oldtext.length() > newtext.length() && oldtext.startsWith(newtext)) {
             return new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL);
+        }
 
         // The content is unchanged or has undergone a complex change (i.e. not a simple tail
         // modification) so return an unknown key-code.
@@ -412,11 +391,11 @@ public class ImeAdapter {
         translateAndSendNativeEvents(new KeyEvent(eventTime, eventTime,
                 KeyEvent.ACTION_DOWN, keyCode, 0, 0,
                 KeyCharacterMap.VIRTUAL_KEYBOARD, 0,
-                flags), 0);
+                flags));
         translateAndSendNativeEvents(new KeyEvent(SystemClock.uptimeMillis(), eventTime,
                 KeyEvent.ACTION_UP, keyCode, 0, 0,
                 KeyCharacterMap.VIRTUAL_KEYBOARD, 0,
-                flags), 0);
+                flags));
     }
 
     // Calls from Java to C++
@@ -451,21 +430,14 @@ public class ImeAdapter {
             // composition below.
             if (keyCode > 0 && isCommit && mLastComposeText == null && textStr.length() == 1) {
                 mLastSyntheticKeyCode = keyCode;
-                return translateAndSendNativeEvents(keyEvent, 0)
+                return translateAndSendNativeEvents(keyEvent)
                         && translateAndSendNativeEvents(
-                                KeyEvent.changeAction(keyEvent, KeyEvent.ACTION_UP), 0);
+                                KeyEvent.changeAction(keyEvent, KeyEvent.ACTION_UP));
             }
 
-            // FIXME: Use WebTextInputFlags.AutocompleteOff. We need this hack to enable merge into
-            // into Beta to fix http://crbug.com/422685 .
-            final int textInputFlagAutocompleteOff = 1 << 1;
-
-            // If we do not have autocomplete=off, then always send compose events rather than a
-            // guessed keyCode. This addresses http://crbug.com/422685 .
-            if ((mTextInputFlags & textInputFlagAutocompleteOff) == 0) {
-                keyCode = COMPOSITION_KEY_CODE;
-                modifiers = 0;
-            }
+            // Always send compose events. This is a quick fix for http://crbug.com/476497.
+            keyCode = COMPOSITION_KEY_CODE;
+            modifiers = 0;
 
             // When typing, there is no issue sending KeyDown and KeyUp events around the
             // composition event because those key events do nothing (other than call JS
@@ -486,7 +458,7 @@ public class ImeAdapter {
             // into the alternate solution should there be problems in the field.  --bcwhite
 
             if (keyCode >= 0) {
-                nativeSendSyntheticKeyEvent(mNativeImeAdapterAndroid, sEventTypeRawKeyDown,
+                nativeSendSyntheticKeyEvent(mNativeImeAdapterAndroid, WebInputEventType.RawKeyDown,
                         timeStampMs, keyCode, modifiers, 0);
             }
 
@@ -498,7 +470,7 @@ public class ImeAdapter {
             }
 
             if (keyCode >= 0) {
-                nativeSendSyntheticKeyEvent(mNativeImeAdapterAndroid, sEventTypeKeyUp,
+                nativeSendSyntheticKeyEvent(mNativeImeAdapterAndroid, WebInputEventType.KeyUp,
                         timeStampMs, keyCode, modifiers, 0);
             }
 
@@ -509,13 +481,14 @@ public class ImeAdapter {
         return true;
     }
 
-    void finishComposingText() {
+    @VisibleForTesting
+    protected void finishComposingText() {
         mLastComposeText = null;
         if (mNativeImeAdapterAndroid == 0) return;
         nativeFinishComposingText(mNativeImeAdapterAndroid);
     }
 
-    boolean translateAndSendNativeEvents(KeyEvent event, int accentChar) {
+    boolean translateAndSendNativeEvents(KeyEvent event) {
         if (mNativeImeAdapterAndroid == 0) return false;
 
         int action = event.getAction();
@@ -533,11 +506,9 @@ public class ImeAdapter {
             return false;
         }
         mViewEmbedder.onImeEvent();
-        int unicodeChar = AdapterInputConnection.maybeAddAccentToCharacter(
-                accentChar, event.getUnicodeChar());
         return nativeSendKeyEvent(mNativeImeAdapterAndroid, event, event.getAction(),
                 getModifiers(event.getMetaState()), event.getEventTime(), event.getKeyCode(),
-                             /*isSystemKey=*/false, unicodeChar);
+                             /*isSystemKey=*/false, event.getUnicodeChar());
     }
 
     boolean sendSyntheticKeyEvent(int eventType, long timestampMs, int keyCode, int modifiers,
@@ -589,101 +560,7 @@ public class ImeAdapter {
         return true;
     }
 
-    /**
-     * Send a request to the native counterpart to unselect text.
-     * @return Whether the native counterpart of ImeAdapter received the call.
-     */
-    public boolean unselect() {
-        if (mNativeImeAdapterAndroid == 0) return false;
-        nativeUnselect(mNativeImeAdapterAndroid);
-        return true;
-    }
-
-    /**
-     * Send a request to the native counterpart of ImeAdapter to select all the text.
-     * @return Whether the native counterpart of ImeAdapter received the call.
-     */
-    public boolean selectAll() {
-        if (mNativeImeAdapterAndroid == 0) return false;
-        nativeSelectAll(mNativeImeAdapterAndroid);
-        return true;
-    }
-
-    /**
-     * Send a request to the native counterpart of ImeAdapter to cut the selected text.
-     * @return Whether the native counterpart of ImeAdapter received the call.
-     */
-    public boolean cut() {
-        if (mNativeImeAdapterAndroid == 0) return false;
-        nativeCut(mNativeImeAdapterAndroid);
-        return true;
-    }
-
-    /**
-     * Send a request to the native counterpart of ImeAdapter to copy the selected text.
-     * @return Whether the native counterpart of ImeAdapter received the call.
-     */
-    public boolean copy() {
-        if (mNativeImeAdapterAndroid == 0) return false;
-        nativeCopy(mNativeImeAdapterAndroid);
-        return true;
-    }
-
-    /**
-     * Send a request to the native counterpart of ImeAdapter to paste the text from the clipboard.
-     * @return Whether the native counterpart of ImeAdapter received the call.
-     */
-    public boolean paste() {
-        if (mNativeImeAdapterAndroid == 0) return false;
-        nativePaste(mNativeImeAdapterAndroid);
-        return true;
-    }
-
     // Calls from C++ to Java
-
-    @CalledByNative
-    private static void initializeWebInputEvents(int eventTypeRawKeyDown, int eventTypeKeyUp,
-            int eventTypeChar, int modifierShift, int modifierAlt, int modifierCtrl,
-            int modifierCapsLockOn, int modifierNumLockOn) {
-        sEventTypeRawKeyDown = eventTypeRawKeyDown;
-        sEventTypeKeyUp = eventTypeKeyUp;
-        sEventTypeChar = eventTypeChar;
-        sModifierShift = modifierShift;
-        sModifierAlt = modifierAlt;
-        sModifierCtrl = modifierCtrl;
-        sModifierCapsLockOn = modifierCapsLockOn;
-        sModifierNumLockOn = modifierNumLockOn;
-    }
-
-    @CalledByNative
-    private static void initializeTextInputTypes(int textInputTypeNone, int textInputTypeText,
-            int textInputTypeTextArea, int textInputTypePassword, int textInputTypeSearch,
-            int textInputTypeUrl, int textInputTypeEmail, int textInputTypeTel,
-            int textInputTypeNumber, int textInputTypeContentEditable) {
-        sTextInputTypeNone = textInputTypeNone;
-        sTextInputTypeText = textInputTypeText;
-        sTextInputTypeTextArea = textInputTypeTextArea;
-        sTextInputTypePassword = textInputTypePassword;
-        sTextInputTypeSearch = textInputTypeSearch;
-        sTextInputTypeUrl = textInputTypeUrl;
-        sTextInputTypeEmail = textInputTypeEmail;
-        sTextInputTypeTel = textInputTypeTel;
-        sTextInputTypeNumber = textInputTypeNumber;
-        sTextInputTypeContentEditable = textInputTypeContentEditable;
-    }
-
-    @CalledByNative
-    private static void initializeTextInputFlags(
-            int textInputFlagAutocompleteOn, int textInputFlagAutocompleteOff,
-            int textInputFlagAutocorrectOn, int textInputFlagAutocorrectOff,
-            int textInputFlagSpellcheckOn, int textInputFlagSpellcheckOff) {
-        sTextInputFlagAutocompleteOn = textInputFlagAutocompleteOn;
-        sTextInputFlagAutocompleteOff = textInputFlagAutocompleteOff;
-        sTextInputFlagAutocorrectOn = textInputFlagAutocorrectOn;
-        sTextInputFlagAutocorrectOff = textInputFlagAutocorrectOff;
-        sTextInputFlagSpellcheckOn = textInputFlagSpellcheckOn;
-        sTextInputFlagSpellcheckOff = textInputFlagSpellcheckOff;
-    }
 
     @CalledByNative
     private void focusedNodeChanged(boolean isEditable) {
@@ -716,16 +593,8 @@ public class ImeAdapter {
     }
 
     @CalledByNative
-    private void setCharacterBounds(float[] characterBounds) {
-        // TODO(yukawa): Implement this.
-    }
-
-    @CalledByNative
     void detach() {
-        if (mDismissInput != null) {
-            mHandler.removeCallbacks(mDismissInput);
-            mDismissInput.detach();
-        }
+        mHandler.removeCallbacks(mDismissInputRunnable);
         mNativeImeAdapterAndroid = 0;
         mTextInputType = 0;
     }
@@ -759,10 +628,5 @@ public class ImeAdapter {
     private native void nativeDeleteSurroundingText(long nativeImeAdapterAndroid,
             int before, int after);
 
-    private native void nativeUnselect(long nativeImeAdapterAndroid);
-    private native void nativeSelectAll(long nativeImeAdapterAndroid);
-    private native void nativeCut(long nativeImeAdapterAndroid);
-    private native void nativeCopy(long nativeImeAdapterAndroid);
-    private native void nativePaste(long nativeImeAdapterAndroid);
     private native void nativeResetImeAdapter(long nativeImeAdapterAndroid);
 }

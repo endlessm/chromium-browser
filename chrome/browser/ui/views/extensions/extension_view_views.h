@@ -56,7 +56,6 @@ class ExtensionViewViews : public views::NativeViewHost,
   void SetIsClipped(bool is_clipped);
 
   // extensions::ExtensionView:
-  void Init() override;
   Browser* GetBrowser() override;
   gfx::NativeView GetNativeView() override;
   void ResizeDueToAutoResize(const gfx::Size& new_size) override;
@@ -74,6 +73,7 @@ class ExtensionViewViews : public views::NativeViewHost,
   void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
   void PreferredSizeChanged() override;
   void OnFocus() override;
+  void AboutToRequestFocusFromTabTraversal(bool reverse) override;
 
   // Initializes the RenderWidgetHostView for this object.
   void CreateWidgetHostView();

@@ -4,11 +4,21 @@
 
 #include "remoting/host/chromoting_host_context.h"
 
-#include "content/public/browser/browser_thread.h"
+#include "base/bind.h"
+#include "base/threading/thread_restrictions.h"
 #include "remoting/base/auto_thread.h"
 #include "remoting/base/url_request_context_getter.h"
 
 namespace remoting {
+
+namespace {
+
+void DisallowBlockingOperations() {
+  base::ThreadRestrictions::SetIOAllowed(false);
+  base::ThreadRestrictions::DisallowWaiting();
+}
+
+}  // namespace
 
 ChromotingHostContext::ChromotingHostContext(
     scoped_refptr<AutoThreadTaskRunner> ui_task_runner,
@@ -39,43 +49,43 @@ scoped_ptr<ChromotingHostContext> ChromotingHostContext::Copy() {
       video_encode_task_runner_, url_request_context_getter_));
 }
 
-scoped_refptr<AutoThreadTaskRunner>
-ChromotingHostContext::audio_task_runner() {
+scoped_refptr<AutoThreadTaskRunner> ChromotingHostContext::audio_task_runner()
+    const {
   return audio_task_runner_;
 }
 
-scoped_refptr<AutoThreadTaskRunner>
-ChromotingHostContext::file_task_runner() {
+scoped_refptr<AutoThreadTaskRunner> ChromotingHostContext::file_task_runner()
+    const {
   return file_task_runner_;
 }
 
-scoped_refptr<AutoThreadTaskRunner>
-ChromotingHostContext::input_task_runner() {
+scoped_refptr<AutoThreadTaskRunner> ChromotingHostContext::input_task_runner()
+    const {
   return input_task_runner_;
 }
 
-scoped_refptr<AutoThreadTaskRunner>
-ChromotingHostContext::network_task_runner() {
+scoped_refptr<AutoThreadTaskRunner> ChromotingHostContext::network_task_runner()
+    const {
   return network_task_runner_;
 }
 
-scoped_refptr<AutoThreadTaskRunner>
-ChromotingHostContext::ui_task_runner() {
+scoped_refptr<AutoThreadTaskRunner> ChromotingHostContext::ui_task_runner()
+    const {
   return ui_task_runner_;
 }
 
 scoped_refptr<AutoThreadTaskRunner>
-ChromotingHostContext::video_capture_task_runner() {
+ChromotingHostContext::video_capture_task_runner() const {
   return video_capture_task_runner_;
 }
 
 scoped_refptr<AutoThreadTaskRunner>
-ChromotingHostContext::video_encode_task_runner() {
+ChromotingHostContext::video_encode_task_runner() const {
   return video_encode_task_runner_;
 }
 
 scoped_refptr<net::URLRequestContextGetter>
-ChromotingHostContext::url_request_context_getter() {
+ChromotingHostContext::url_request_context_getter() const {
   return url_request_context_getter_;
 }
 
@@ -96,9 +106,12 @@ scoped_ptr<ChromotingHostContext> ChromotingHostContext::Create(
   scoped_refptr<AutoThreadTaskRunner> file_task_runner =
       AutoThread::CreateWithType("ChromotingFileThread", ui_task_runner,
                                  base::MessageLoop::TYPE_IO);
+
   scoped_refptr<AutoThreadTaskRunner> network_task_runner =
       AutoThread::CreateWithType("ChromotingNetworkThread", ui_task_runner,
                                  base::MessageLoop::TYPE_IO);
+  network_task_runner->PostTask(FROM_HERE,
+                                base::Bind(&DisallowBlockingOperations));
 
   return make_scoped_ptr(new ChromotingHostContext(
       ui_task_runner,
@@ -114,50 +127,39 @@ scoped_ptr<ChromotingHostContext> ChromotingHostContext::Create(
 }
 
 #if defined(OS_CHROMEOS)
-namespace {
-// Retrieves the task_runner from the browser thread with |id|.
-scoped_refptr<AutoThreadTaskRunner> WrapBrowserThread(
-    content::BrowserThread::ID id) {
-  // AutoThreadTaskRunner is a TaskRunner with the special property that it will
-  // continue to process tasks until no references remain, at least. The
-  // QuitClosure we usually pass does the simple thing of stopping the
-  // underlying TaskRunner.  Since we are re-using the ui_task_runner of the
-  // browser thread, we cannot stop it explicitly.  Therefore, base::DoNothing
-  // is passed in as the quit closure.
-  // TODO(kelvinp): Fix this (See crbug.com/428187).
-  return new AutoThreadTaskRunner(
-      content::BrowserThread::GetMessageLoopProxyForThread(id).get(),
-      base::Bind(&base::DoNothing));
-}
-
-}  // namespace
 
 // static
 scoped_ptr<ChromotingHostContext> ChromotingHostContext::CreateForChromeOS(
-    scoped_refptr<net::URLRequestContextGetter> url_request_context_getter) {
+    scoped_refptr<net::URLRequestContextGetter> url_request_context_getter,
+    scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
+    scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner,
+    scoped_refptr<base::SingleThreadTaskRunner> file_task_runner) {
   DCHECK(url_request_context_getter.get());
 
-  // Use BrowserThread::FILE as the joiner as it is the only browser-thread
+
+  // AutoThreadTaskRunner is a TaskRunner with the special property that it will
+  // continue to process tasks until no references remain, at least. The
+  // QuitClosure we usually pass does the simple thing of stopping the
+  // underlying TaskRunner. Since we are re-using browser's threads, we cannot
+  // stop them explicitly. Therefore, base::DoNothing is passed in as the quit
+  // closure.
+  scoped_refptr<AutoThreadTaskRunner> io_auto_task_runner =
+      new AutoThreadTaskRunner(io_task_runner, base::Bind(&base::DoNothing));
+  scoped_refptr<AutoThreadTaskRunner> file_auto_task_runner =
+      new AutoThreadTaskRunner(file_task_runner, base::Bind(&base::DoNothing));
+  scoped_refptr<AutoThreadTaskRunner> ui_auto_task_runner =
+      new AutoThreadTaskRunner(ui_task_runner, base::Bind(&base::DoNothing));
+
+  // Use browser's file thread as the joiner as it is the only browser-thread
   // that allows blocking I/O, which is required by thread joining.
-  // TODO(kelvinp): Fix AutoThread so that it can be joinable on task runners
-  // that disallow I/O (crbug.com/428466).
-  scoped_refptr<AutoThreadTaskRunner> file_task_runner =
-      WrapBrowserThread(content::BrowserThread::FILE);
-
-  scoped_refptr<AutoThreadTaskRunner> ui_task_runner =
-      WrapBrowserThread(content::BrowserThread::UI);
-
   return make_scoped_ptr(new ChromotingHostContext(
-      ui_task_runner,
-      AutoThread::CreateWithType("ChromotingAudioThread", file_task_runner,
-                                 base::MessageLoop::TYPE_IO),
-      file_task_runner,
-      AutoThread::CreateWithType("ChromotingInputThread", file_task_runner,
-                                 base::MessageLoop::TYPE_IO),
-      WrapBrowserThread(content::BrowserThread::IO),  // network_task_runner
-      ui_task_runner,  // video_capture_task_runner
-      AutoThread::CreateWithType("ChromotingEncodeThread", file_task_runner,
-                                 base::MessageLoop::TYPE_IO),
+      ui_auto_task_runner,
+      AutoThread::Create("ChromotingAudioThread", file_auto_task_runner),
+      file_auto_task_runner,
+      ui_auto_task_runner,  // input_task_runner
+      io_auto_task_runner,  // network_task_runner
+      ui_auto_task_runner,  // video_capture_task_runner
+      AutoThread::Create("ChromotingEncodeThread", file_auto_task_runner),
       url_request_context_getter));
 }
 #endif  // defined(OS_CHROMEOS)

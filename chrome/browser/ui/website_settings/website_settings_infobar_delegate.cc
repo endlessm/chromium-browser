@@ -16,8 +16,8 @@
 
 // static
 void WebsiteSettingsInfoBarDelegate::Create(InfoBarService* infobar_service) {
-  infobar_service->AddInfoBar(ConfirmInfoBarDelegate::CreateInfoBar(
-      scoped_ptr<ConfirmInfoBarDelegate>(
+  infobar_service->AddInfoBar(
+      infobar_service->CreateConfirmInfoBar(scoped_ptr<ConfirmInfoBarDelegate>(
           new WebsiteSettingsInfoBarDelegate())));
 }
 
@@ -28,13 +28,13 @@ WebsiteSettingsInfoBarDelegate::WebsiteSettingsInfoBarDelegate()
 WebsiteSettingsInfoBarDelegate::~WebsiteSettingsInfoBarDelegate() {
 }
 
-int WebsiteSettingsInfoBarDelegate::GetIconID() const {
-  return IDR_INFOBAR_ALT_NAV_URL;
+infobars::InfoBarDelegate::Type
+WebsiteSettingsInfoBarDelegate::GetInfoBarType() const {
+  return PAGE_ACTION_TYPE;
 }
 
-infobars::InfoBarDelegate::Type WebsiteSettingsInfoBarDelegate::GetInfoBarType()
-    const {
-  return PAGE_ACTION_TYPE;
+int WebsiteSettingsInfoBarDelegate::GetIconID() const {
+  return IDR_INFOBAR_ALT_NAV_URL;
 }
 
 base::string16 WebsiteSettingsInfoBarDelegate::GetMessageText() const {

@@ -18,28 +18,35 @@
 
 namespace commands {
 
+const char kSwitchDryRun[] = "dry-run";
 const char kSwitchDumpTree[] = "dump-tree";
 const char kSwitchInPlace[] = "in-place";
 const char kSwitchStdin[] = "stdin";
 
 const char kFormat[] = "format";
 const char kFormat_HelpShort[] =
-    "format: Format .gn file. (ALPHA, WILL DESTROY DATA!)";
+    "format: Format .gn file.";
 const char kFormat_Help[] =
     "gn format [--dump-tree] [--in-place] [--stdin] BUILD.gn\n"
     "\n"
-    "  Formats .gn file to a standard format. THIS IS NOT FULLY IMPLEMENTED\n"
-    "  YET! IT WILL EAT YOUR BEAUTIFUL .GN FILES. AND YOUR LAUNDRY.\n"
-    "  At a minimum, make sure everything is `git commit`d so you can\n"
-    "  `git checkout -f` to recover.\n"
+    "  Formats .gn file to a standard format.\n"
     "\n"
     "Arguments\n"
+    "  --dry-run\n"
+    "      Does not change or output anything, but sets the process exit code\n"
+    "      based on whether output would be different than what's on disk.\n"
+    "      This is useful for presubmit/lint-type checks.\n"
+    "      - Exit code 0: successful format, matches on disk.\n"
+    "      - Exit code 1: general failure (parse error, etc.)\n"
+    "      - Exit code 2: successful format, but differs from on disk.\n"
+    "\n"
     "  --dump-tree\n"
     "      For debugging only, dumps the parse tree.\n"
     "\n"
     "  --in-place\n"
-    "      Instead writing the formatted file to stdout, replace the input\n"
-    "      with the formatted output.\n"
+    "      Instead of writing the formatted file to stdout, replace the input\n"
+    "      file with the formatted output. If no reformatting is required,\n"
+    "      the input file will not be touched, and nothing printed.\n"
     "\n"
     "  --stdin\n"
     "      Read input from stdin (and write to stdout). Not compatible with\n"
@@ -56,6 +63,11 @@ namespace {
 const int kIndentSize = 2;
 const int kMaximumWidth = 80;
 
+const int kPenaltyLineBreak = 500;
+const int kPenaltyHorizontalSeparation = 100;
+const int kPenaltyExcess = 10000;
+const int kPenaltyBrokenLineOnOneLiner = 5000;
+
 enum Precedence {
   kPrecedenceLowest,
   kPrecedenceAssign,
@@ -63,9 +75,15 @@ enum Precedence {
   kPrecedenceAnd,
   kPrecedenceCompare,
   kPrecedenceAdd,
-  kPrecedenceSuffix,
   kPrecedenceUnary,
+  kPrecedenceSuffix,
 };
+
+int CountLines(const std::string& str) {
+  std::vector<std::string> lines;
+  base::SplitStringDontTrim(str, '\n', &lines);
+  return static_cast<int>(lines.size());
+}
 
 class Printer {
  public:
@@ -82,11 +100,6 @@ class Printer {
     kSequenceStyleList,
     kSequenceStyleBlock,
     kSequenceStyleBracedBlock,
-  };
-
-  enum ExprStyle {
-    kExprStyleRegular,
-    kExprStyleComment,
   };
 
   struct Metrics {
@@ -113,7 +126,11 @@ class Printer {
   // Whether there's a blank separator line at the current position.
   bool HaveBlankLine();
 
-  bool IsAssignment(const ParseNode* node);
+  // Flag assignments to sources, deps, etc. to make their RHSs multiline.
+  void AnnotatePreferredMultilineAssignment(const BinaryOpNode* binop);
+
+  // Alphabetically a list on the RHS if the LHS is 'sources'.
+  void SortIfSources(const BinaryOpNode* binop);
 
   // Heuristics to decide if there should be a blank line added between two
   // items. For various "small" items, it doesn't look nice if there's too much
@@ -121,7 +138,10 @@ class Printer {
   bool ShouldAddBlankLineInBetween(const ParseNode* a, const ParseNode* b);
 
   // Get the 0-based x position on the current line.
-  int CurrentColumn();
+  int CurrentColumn() const;
+
+  // Get the current line in the output;
+  int CurrentLine() const;
 
   // Adds an opening ( if prec is less than the outers (to maintain evalution
   // order for a subexpression). If an opening paren is emitted, *parenthesized
@@ -132,11 +152,13 @@ class Printer {
   // added to the output. The value of outer_prec gives the precedence of the
   // operator outside this Expr. If that operator binds tighter than root's,
   // Expr must introduce parentheses.
-  ExprStyle Expr(const ParseNode* root, int outer_prec);
+  int Expr(const ParseNode* root, int outer_prec, const std::string& suffix);
 
-  // Use a sub-Printer recursively to figure out the size that an expression
-  // would be before actually adding it to the output.
-  Metrics GetLengthOfExpr(const ParseNode* expr, int outer_prec);
+  // Generic penalties for exceeding maximum width, adding more lines, etc.
+  int AssessPenalty(const std::string& output);
+
+  // Tests if any lines exceed the maximum width.
+  bool ExceedsMaximumWidth(const std::string& output);
 
   // Format a list of values using the given style.
   // |end| holds any trailing comments to be printed just before the closing
@@ -144,13 +166,51 @@ class Printer {
   template <class PARSENODE>  // Just for const covariance.
   void Sequence(SequenceStyle style,
                 const std::vector<PARSENODE*>& list,
-                const ParseNode* end);
+                const ParseNode* end,
+                bool force_multiline);
 
-  void FunctionCall(const FunctionCallNode* func_call);
+  // Returns the penalty.
+  int FunctionCall(const FunctionCallNode* func_call,
+                   const std::string& suffix);
+
+  // Create a clone of this Printer in a similar state (other than the output,
+  // but including margins, etc.) to be used for dry run measurements.
+  void InitializeSub(Printer* sub);
+
+  template <class PARSENODE>
+  bool ListWillBeMultiline(const std::vector<PARSENODE*>& list,
+                           const ParseNode* end);
 
   std::string output_;           // Output buffer.
   std::vector<Token> comments_;  // Pending end-of-line comments.
-  int margin_;                   // Left margin (number of spaces).
+  int margin() const { return stack_.back().margin; }
+
+  int penalty_depth_;
+  int GetPenaltyForLineBreak() const {
+    return penalty_depth_ * kPenaltyLineBreak;
+  }
+
+  struct IndentState {
+    IndentState()
+        : margin(0),
+          continuation_requires_indent(false),
+          parent_is_boolean_or(false) {}
+    IndentState(int margin,
+                bool continuation_requires_indent,
+                bool parent_is_boolean_or)
+        : margin(margin),
+          continuation_requires_indent(continuation_requires_indent),
+          parent_is_boolean_or(parent_is_boolean_or) {}
+
+    // The left margin (number of spaces).
+    int margin;
+
+    bool continuation_requires_indent;
+
+    bool parent_is_boolean_or;
+  };
+  // Stack used to track
+  std::vector<IndentState> stack_;
 
   // Gives the precedence for operators in a BinaryOpNode.
   std::map<base::StringPiece, Precedence> precedence_;
@@ -158,7 +218,7 @@ class Printer {
   DISALLOW_COPY_AND_ASSIGN(Printer);
 };
 
-Printer::Printer() : margin_(0) {
+Printer::Printer() : penalty_depth_(0) {
   output_.reserve(100 << 10);
   precedence_["="] = kPrecedenceAssign;
   precedence_["+="] = kPrecedenceAssign;
@@ -174,6 +234,7 @@ Printer::Printer() : margin_(0) {
   precedence_["+"] = kPrecedenceAdd;
   precedence_["-"] = kPrecedenceAdd;
   precedence_["!"] = kPrecedenceUnary;
+  stack_.push_back(IndentState());
 }
 
 Printer::~Printer() {
@@ -184,7 +245,7 @@ void Printer::Print(base::StringPiece str) {
 }
 
 void Printer::PrintMargin() {
-  output_ += std::string(margin_, ' ');
+  output_ += std::string(margin(), ' ');
 }
 
 void Printer::TrimAndPrintToken(const Token& token) {
@@ -196,15 +257,13 @@ void Printer::TrimAndPrintToken(const Token& token) {
 void Printer::Newline() {
   if (!comments_.empty()) {
     Print("  ");
-    int i = 0;
     // Save the margin, and temporarily set it to where the first comment
     // starts so that multiple suffix comments are vertically aligned. This
     // will need to be fancier once we enforce 80 col.
-    int old_margin = margin_;
+    stack_.push_back(IndentState(CurrentColumn(), false, false));
+    int i = 0;
     for (const auto& c : comments_) {
-      if (i == 0)
-        margin_ = CurrentColumn();
-      else {
+      if (i > 0) {
         Trim();
         Print("\n");
         PrintMargin();
@@ -212,7 +271,7 @@ void Printer::Newline() {
       TrimAndPrintToken(c);
       ++i;
     }
-    margin_ = old_margin;
+    stack_.pop_back();
     comments_.clear();
   }
   Trim();
@@ -234,11 +293,34 @@ bool Printer::HaveBlankLine() {
   return n > 2 && output_[n - 1] == '\n' && output_[n - 2] == '\n';
 }
 
-bool Printer::IsAssignment(const ParseNode* node) {
-  return node->AsBinaryOp() && (node->AsBinaryOp()->op().value() == "=" ||
-                                node->AsBinaryOp()->op().value() == "+=" ||
-                                node->AsBinaryOp()->op().value() == "-=");
+void Printer::AnnotatePreferredMultilineAssignment(const BinaryOpNode* binop) {
+  const IdentifierNode* ident = binop->left()->AsIdentifier();
+  const ListNode* list = binop->right()->AsList();
+  // This is somewhat arbitrary, but we include the 'deps'- and 'sources'-like
+  // things, but not flags things.
+  if (binop->op().value() == "=" && ident && list) {
+    const base::StringPiece lhs = ident->value().value();
+    if (lhs == "data" || lhs == "datadeps" || lhs == "deps" ||
+        lhs == "inputs" || lhs == "outputs" || lhs == "public" ||
+        lhs == "public_deps" || lhs == "sources") {
+      const_cast<ListNode*>(list)->set_prefer_multiline(true);
+    }
+  }
 }
+
+void Printer::SortIfSources(const BinaryOpNode* binop) {
+  const IdentifierNode* ident = binop->left()->AsIdentifier();
+  const ListNode* list = binop->right()->AsList();
+  // TODO(scottmg): Sort more than 'sources'?
+  if ((binop->op().value() == "=" || binop->op().value() == "+=" ||
+       binop->op().value() == "-=") &&
+      ident && list) {
+    const base::StringPiece lhs = ident->value().value();
+    if (lhs == "sources")
+      const_cast<ListNode*>(list)->SortAsStringsList();
+  }
+}
+
 
 bool Printer::ShouldAddBlankLineInBetween(const ParseNode* a,
                                           const ParseNode* b) {
@@ -246,16 +328,27 @@ bool Printer::ShouldAddBlankLineInBetween(const ParseNode* a,
   LocationRange b_range = b->GetRange();
   // If they're already separated by 1 or more lines, then we want to keep a
   // blank line.
-  return b_range.begin().line_number() > a_range.end().line_number() + 1;
+  return (b_range.begin().line_number() > a_range.end().line_number() + 1) ||
+         // Always put a blank line before a block comment.
+         b->AsBlockComment();
 }
 
-int Printer::CurrentColumn() {
+int Printer::CurrentColumn() const {
   int n = 0;
   while (n < static_cast<int>(output_.size()) &&
          output_[output_.size() - 1 - n] != '\n') {
     ++n;
   }
   return n;
+}
+
+int Printer::CurrentLine() const {
+  int count = 1;
+  for (const char* p = output_.c_str(); (p = strchr(p, '\n')) != nullptr;) {
+    ++count;
+    ++p;
+  }
+  return count;
 }
 
 void Printer::Block(const ParseNode* root) {
@@ -270,7 +363,7 @@ void Printer::Block(const ParseNode* root) {
 
   size_t i = 0;
   for (const auto& stmt : block->statements()) {
-    Expr(stmt, kPrecedenceLowest);
+    Expr(stmt, kPrecedenceLowest, std::string());
     Newline();
     if (stmt->comments()) {
       // Why are before() not printed here too? before() are handled inside
@@ -299,20 +392,26 @@ void Printer::Block(const ParseNode* root) {
   }
 }
 
-Printer::Metrics Printer::GetLengthOfExpr(const ParseNode* expr,
-                                          int outer_prec) {
-  Metrics result;
-  Printer sub;
-  sub.Expr(expr, outer_prec);
+int Printer::AssessPenalty(const std::string& output) {
+  int penalty = 0;
   std::vector<std::string> lines;
-  base::SplitStringDontTrim(sub.String(), '\n', &lines);
-  result.multiline = lines.size() > 1;
-  result.first_length = static_cast<int>(lines[0].size());
+  base::SplitStringDontTrim(output, '\n', &lines);
+  penalty += static_cast<int>(lines.size() - 1) * GetPenaltyForLineBreak();
   for (const auto& line : lines) {
-    result.longest_length =
-        std::max(result.longest_length, static_cast<int>(line.size()));
+    if (line.size() > kMaximumWidth)
+      penalty += static_cast<int>(line.size() - kMaximumWidth) * kPenaltyExcess;
   }
-  return result;
+  return penalty;
+}
+
+bool Printer::ExceedsMaximumWidth(const std::string& output) {
+  std::vector<std::string> lines;
+  base::SplitStringDontTrim(output, '\n', &lines);
+  for (const auto& line : lines) {
+    if (line.size() > kMaximumWidth)
+      return true;
+  }
+  return false;
 }
 
 void Printer::AddParen(int prec, int outer_prec, bool* parenthesized) {
@@ -322,8 +421,13 @@ void Printer::AddParen(int prec, int outer_prec, bool* parenthesized) {
   }
 }
 
-Printer::ExprStyle Printer::Expr(const ParseNode* root, int outer_prec) {
-  ExprStyle result = kExprStyleRegular;
+int Printer::Expr(const ParseNode* root,
+                  int outer_prec,
+                  const std::string& suffix) {
+  std::string at_end = suffix;
+  int penalty = 0;
+  penalty_depth_++;
+
   if (root->comments()) {
     if (!root->comments()->before().empty()) {
       Trim();
@@ -346,73 +450,159 @@ Printer::ExprStyle Printer::Expr(const ParseNode* root, int outer_prec) {
     Print(accessor->base().value());
     if (accessor->member()) {
       Print(".");
-      Expr(accessor->member(), kPrecedenceLowest);
+      Expr(accessor->member(), kPrecedenceLowest, std::string());
     } else {
       CHECK(accessor->index());
       Print("[");
-      Expr(accessor->index(), kPrecedenceLowest);
-      Print("]");
+      Expr(accessor->index(), kPrecedenceLowest, "]");
     }
   } else if (const BinaryOpNode* binop = root->AsBinaryOp()) {
     CHECK(precedence_.find(binop->op().value()) != precedence_.end());
+    AnnotatePreferredMultilineAssignment(binop);
+
+    SortIfSources(binop);
+
     Precedence prec = precedence_[binop->op().value()];
-    AddParen(prec, outer_prec, &parenthesized);
-    Metrics right = GetLengthOfExpr(binop->right(), prec + 1);
-    int op_length = static_cast<int>(binop->op().value().size()) + 2;
-    Expr(binop->left(), prec);
-    if (CurrentColumn() + op_length + right.first_length <= kMaximumWidth) {
-      // If it just fits normally, put it here.
+
+    // Since binary operators format left-to-right, it is ok for the left side
+    // use the same operator without parentheses, so the left uses prec. For the
+    // same reason, the right side cannot reuse the same operator, or else "x +
+    // (y + z)" would format as "x + y + z" which means "(x + y) + z". So, treat
+    // the right expression as appearing one precedence level higher.
+    // However, because the source parens are not in the parse tree, as a
+    // special case for && and || we insert strictly-redundant-but-helpful-for-
+    // human-readers parentheses.
+    int prec_left = prec;
+    int prec_right = prec + 1;
+    if (binop->op().value() == "&&" && stack_.back().parent_is_boolean_or) {
+      Print("(");
+      parenthesized = true;
+    } else {
+      AddParen(prec_left, outer_prec, &parenthesized);
+    }
+
+    int start_line = CurrentLine();
+    int start_column = CurrentColumn();
+    bool is_assignment = binop->op().value() == "=" ||
+                         binop->op().value() == "+=" ||
+                         binop->op().value() == "-=";
+    // A sort of funny special case for the long lists that are common in .gn
+    // files, don't indent them + 4, even though they're just continuations when
+    // they're simple lists like "x = [ a, b, c, ... ]"
+    const ListNode* right_as_list = binop->right()->AsList();
+    int indent_column =
+        (is_assignment &&
+         (!right_as_list || (!right_as_list->prefer_multiline() &&
+                             !ListWillBeMultiline(right_as_list->contents(),
+                                                  right_as_list->End()))))
+            ? margin() + kIndentSize * 2
+            : start_column;
+    if (stack_.back().continuation_requires_indent)
+      indent_column += kIndentSize * 2;
+
+    stack_.push_back(IndentState(indent_column,
+                                 stack_.back().continuation_requires_indent,
+                                 binop->op().value() == "||"));
+    Printer sub_left;
+    InitializeSub(&sub_left);
+    sub_left.Expr(binop->left(),
+                  prec_left,
+                  std::string(" ") + binop->op().value().as_string());
+    bool left_is_multiline = CountLines(sub_left.String()) > 1;
+    // Avoid walking the whole left redundantly times (see timing of Format.046)
+    // so pull the output and comments from subprinter.
+    Print(sub_left.String().substr(start_column));
+    std::copy(sub_left.comments_.begin(),
+              sub_left.comments_.end(),
+              std::back_inserter(comments_));
+
+    // Single line.
+    Printer sub1;
+    InitializeSub(&sub1);
+    sub1.Print(" ");
+    int penalty_current_line =
+        sub1.Expr(binop->right(), prec_right, std::string());
+    sub1.Print(suffix);
+    penalty_current_line += AssessPenalty(sub1.String());
+    if (!is_assignment && left_is_multiline) {
+      // In e.g. xxx + yyy, if xxx is already multiline, then we want a penalty
+      // for trying to continue as if this were one line.
+      penalty_current_line +=
+          (CountLines(sub1.String()) - 1) * kPenaltyBrokenLineOnOneLiner;
+    }
+
+    // Break after operator.
+    Printer sub2;
+    InitializeSub(&sub2);
+    sub2.Newline();
+    int penalty_next_line =
+        sub2.Expr(binop->right(), prec_right, std::string());
+    sub2.Print(suffix);
+    penalty_next_line += AssessPenalty(sub2.String());
+
+    // If in both cases it was forced past 80col, then we don't break to avoid
+    // breaking after '=' in the case of:
+    //   variable = "... very long string ..."
+    // as breaking and indenting doesn't make things much more readable, even
+    // though there's less characters past the maximum width.
+    bool exceeds_maximum_either_way = ExceedsMaximumWidth(sub1.String()) &&
+                                      ExceedsMaximumWidth(sub2.String());
+
+    if (penalty_current_line < penalty_next_line ||
+        exceeds_maximum_either_way) {
       Print(" ");
-      Print(binop->op().value());
-      Print(" ");
-      Expr(binop->right(), prec + 1);
+      Expr(binop->right(), prec_right, std::string());
     } else {
       // Otherwise, put first argument and op, and indent next.
-      Print(" ");
-      Print(binop->op().value());
-      int old_margin = margin_;
-      margin_ += kIndentSize * 2;
       Newline();
-      Expr(binop->right(), prec + 1);
-      margin_ = old_margin;
+      penalty += std::abs(CurrentColumn() - start_column) *
+                 kPenaltyHorizontalSeparation;
+      Expr(binop->right(), prec_right, std::string());
     }
+    stack_.pop_back();
+    penalty += (CurrentLine() - start_line) * GetPenaltyForLineBreak();
   } else if (const BlockNode* block = root->AsBlock()) {
-    Sequence(kSequenceStyleBracedBlock, block->statements(), block->End());
+    Sequence(
+        kSequenceStyleBracedBlock, block->statements(), block->End(), false);
   } else if (const ConditionNode* condition = root->AsConditionNode()) {
     Print("if (");
-    Expr(condition->condition(), kPrecedenceLowest);
-    Print(") ");
+    // TODO(scottmg): The { needs to be included in the suffix here.
+    Expr(condition->condition(), kPrecedenceLowest, ") ");
     Sequence(kSequenceStyleBracedBlock,
              condition->if_true()->statements(),
-             condition->if_true()->End());
+             condition->if_true()->End(),
+             false);
     if (condition->if_false()) {
       Print(" else ");
       // If it's a block it's a bare 'else', otherwise it's an 'else if'. See
       // ConditionNode::Execute.
-      bool is_else_if = condition->if_false()->AsBlock() == NULL;
+      bool is_else_if = condition->if_false()->AsBlock() == nullptr;
       if (is_else_if) {
-        Expr(condition->if_false(), kPrecedenceLowest);
+        Expr(condition->if_false(), kPrecedenceLowest, std::string());
       } else {
         Sequence(kSequenceStyleBracedBlock,
                  condition->if_false()->AsBlock()->statements(),
-                 condition->if_false()->AsBlock()->End());
+                 condition->if_false()->AsBlock()->End(),
+                 false);
       }
     }
   } else if (const FunctionCallNode* func_call = root->AsFunctionCall()) {
-    FunctionCall(func_call);
+    penalty += FunctionCall(func_call, at_end);
+    at_end = "";
   } else if (const IdentifierNode* identifier = root->AsIdentifier()) {
     Print(identifier->value().value());
   } else if (const ListNode* list = root->AsList()) {
-    Sequence(kSequenceStyleList, list->contents(), list->End());
+    bool force_multiline =
+        list->prefer_multiline() && !list->contents().empty();
+    Sequence(
+        kSequenceStyleList, list->contents(), list->End(), force_multiline);
   } else if (const LiteralNode* literal = root->AsLiteral()) {
-    // TODO(scottmg): Quoting?
     Print(literal->value().value());
   } else if (const UnaryOpNode* unaryop = root->AsUnaryOp()) {
     Print(unaryop->op().value());
-    Expr(unaryop->operand(), kPrecedenceUnary);
+    Expr(unaryop->operand(), kPrecedenceUnary, std::string());
   } else if (const BlockCommentNode* block_comment = root->AsBlockComment()) {
     Print(block_comment->comment().value());
-    result = kExprStyleComment;
   } else if (const EndNode* end = root->AsEnd()) {
     Print(end->value().value());
   } else {
@@ -429,14 +619,17 @@ Printer::ExprStyle Printer::Expr(const ParseNode* root, int outer_prec) {
               std::back_inserter(comments_));
   }
 
-  return result;
+  Print(at_end);
+
+  penalty_depth_--;
+  return penalty;
 }
 
 template <class PARSENODE>
 void Printer::Sequence(SequenceStyle style,
                        const std::vector<PARSENODE*>& list,
-                       const ParseNode* end) {
-  bool force_multiline = false;
+                       const ParseNode* end,
+                       bool force_multiline) {
   if (style == kSequenceStyleList)
     Print("[");
   else if (style == kSequenceStyleBracedBlock)
@@ -445,24 +638,19 @@ void Printer::Sequence(SequenceStyle style,
   if (style == kSequenceStyleBlock || style == kSequenceStyleBracedBlock)
     force_multiline = true;
 
-  if (end && end->comments() && !end->comments()->before().empty())
-    force_multiline = true;
-
-  // If there's before line comments, make sure we have a place to put them.
-  for (const auto& i : list) {
-    if (i->comments() && !i->comments()->before().empty())
-      force_multiline = true;
-  }
+  force_multiline |= ListWillBeMultiline(list, end);
 
   if (list.size() == 0 && !force_multiline) {
     // No elements, and not forcing newlines, print nothing.
   } else if (list.size() == 1 && !force_multiline) {
     Print(" ");
-    Expr(list[0], kPrecedenceLowest);
+    Expr(list[0], kPrecedenceLowest, std::string());
     CHECK(!list[0]->comments() || list[0]->comments()->after().empty());
     Print(" ");
   } else {
-    margin_ += kIndentSize;
+    stack_.push_back(IndentState(margin() + kIndentSize,
+                                 style == kSequenceStyleList,
+                                 false));
     size_t i = 0;
     for (const auto& x : list) {
       Newline();
@@ -475,22 +663,21 @@ void Printer::Sequence(SequenceStyle style,
           !HaveBlankLine()) {
         Newline();
       }
-      ExprStyle expr_style = Expr(x, kPrecedenceLowest);
+      bool body_of_list = i < list.size() - 1 || style == kSequenceStyleList;
+      bool want_comma =
+          body_of_list && (style == kSequenceStyleList && !x->AsBlockComment());
+      Expr(x, kPrecedenceLowest, want_comma ? "," : std::string());
       CHECK(!x->comments() || x->comments()->after().empty());
-      if (i < list.size() - 1 || style == kSequenceStyleList) {
-        if (style == kSequenceStyleList && expr_style == kExprStyleRegular) {
-          Print(",");
-        } else {
-          if (i < list.size() - 1 &&
-              ShouldAddBlankLineInBetween(list[i], list[i + 1]))
-            Newline();
-        }
+      if (body_of_list) {
+        if (i < list.size() - 1 &&
+            ShouldAddBlankLineInBetween(list[i], list[i + 1]))
+          Newline();
       }
       ++i;
     }
 
     // Trailing comments.
-    if (end->comments()) {
+    if (end->comments() && !end->comments()->before().empty()) {
       if (list.size() >= 2)
         Newline();
       for (const auto& c : end->comments()->before()) {
@@ -499,7 +686,7 @@ void Printer::Sequence(SequenceStyle style,
       }
     }
 
-    margin_ -= kIndentSize;
+    stack_.pop_back();
     Newline();
 
     // Defer any end of line comment until we reach the newline.
@@ -516,11 +703,13 @@ void Printer::Sequence(SequenceStyle style,
     Print("}");
 }
 
-void Printer::FunctionCall(const FunctionCallNode* func_call) {
+int Printer::FunctionCall(const FunctionCallNode* func_call,
+                          const std::string& suffix) {
+  int start_line = CurrentLine();
+  int start_column = CurrentColumn();
   Print(func_call->function().value());
   Print("(");
 
-  int old_margin = margin_;
   bool have_block = func_call->block() != nullptr;
   bool force_multiline = false;
 
@@ -536,107 +725,175 @@ void Printer::FunctionCall(const FunctionCallNode* func_call) {
       force_multiline = true;
   }
 
-  // Calculate the length of the items for function calls so we can decide to
-  // compress them in various nicer ways.
-  std::vector<int> natural_lengths;
-  bool fits_on_current_line = true;
-  int max_item_width = 0;
-  int total_length = 0;
-  natural_lengths.reserve(list.size());
+  // Calculate the penalties for 3 possible layouts:
+  // 1. all on same line;
+  // 2. starting on same line, broken at each comma but paren aligned;
+  // 3. broken to next line + 4, broken at each comma.
   std::string terminator = ")";
   if (have_block)
     terminator += " {";
+  terminator += suffix;
+
+  // Special case to make function calls of one arg taking a long list of
+  // boolean operators not indent.
+  bool continuation_requires_indent =
+      list.size() != 1 || !list[0]->AsBinaryOp();
+
+  // 1: Same line.
+  Printer sub1;
+  InitializeSub(&sub1);
+  sub1.stack_.push_back(
+      IndentState(CurrentColumn(), continuation_requires_indent, false));
+  int penalty_one_line = 0;
   for (size_t i = 0; i < list.size(); ++i) {
-    Metrics sub = GetLengthOfExpr(list[i], kPrecedenceLowest);
-    if (sub.multiline)
-      fits_on_current_line = false;
-    natural_lengths.push_back(sub.longest_length);
-    total_length += sub.longest_length;
+    penalty_one_line += sub1.Expr(list[i], kPrecedenceLowest,
+                                  i < list.size() - 1 ? ", " : std::string());
+  }
+  sub1.Print(terminator);
+  penalty_one_line += AssessPenalty(sub1.String());
+  // This extra penalty prevents a short second argument from being squeezed in
+  // after a first argument that went multiline (and instead preferring a
+  // variant below).
+  penalty_one_line +=
+      (CountLines(sub1.String()) - 1) * kPenaltyBrokenLineOnOneLiner;
+
+  // 2: Starting on same line, broken at commas.
+  Printer sub2;
+  InitializeSub(&sub2);
+  sub2.stack_.push_back(
+      IndentState(CurrentColumn(), continuation_requires_indent, false));
+  int penalty_multiline_start_same_line = 0;
+  for (size_t i = 0; i < list.size(); ++i) {
+    penalty_multiline_start_same_line += sub2.Expr(
+        list[i], kPrecedenceLowest, i < list.size() - 1 ? "," : std::string());
     if (i < list.size() - 1) {
-      total_length += static_cast<int>(strlen(", "));
+      sub2.Newline();
     }
   }
-  fits_on_current_line =
-      fits_on_current_line &&
-      CurrentColumn() + total_length + terminator.size() <= kMaximumWidth;
-  if (natural_lengths.size() > 0) {
-    max_item_width =
-        *std::max_element(natural_lengths.begin(), natural_lengths.end());
+  sub2.Print(terminator);
+  penalty_multiline_start_same_line += AssessPenalty(sub2.String());
+
+  // 3: Starting on next line, broken at commas.
+  Printer sub3;
+  InitializeSub(&sub3);
+  sub3.stack_.push_back(IndentState(margin() + kIndentSize * 2,
+                                    continuation_requires_indent, false));
+  sub3.Newline();
+  int penalty_multiline_start_next_line = 0;
+  for (size_t i = 0; i < list.size(); ++i) {
+    if (i == 0) {
+      penalty_multiline_start_next_line +=
+          std::abs(sub3.CurrentColumn() - start_column) *
+          kPenaltyHorizontalSeparation;
+    }
+    penalty_multiline_start_next_line += sub3.Expr(
+        list[i], kPrecedenceLowest, i < list.size() - 1 ? "," : std::string());
+    if (i < list.size() - 1) {
+      sub3.Newline();
+    }
+  }
+  sub3.Print(terminator);
+  penalty_multiline_start_next_line += AssessPenalty(sub3.String());
+
+  int penalty = penalty_multiline_start_next_line;
+  bool fits_on_current_line = false;
+  if (penalty_one_line < penalty_multiline_start_next_line ||
+      penalty_multiline_start_same_line < penalty_multiline_start_next_line) {
+    fits_on_current_line = true;
+    penalty = penalty_one_line;
+    if (penalty_multiline_start_same_line < penalty_one_line) {
+      penalty = penalty_multiline_start_same_line;
+      force_multiline = true;
+    }
+  } else {
+    force_multiline = true;
   }
 
   if (list.size() == 0 && !force_multiline) {
     // No elements, and not forcing newlines, print nothing.
-  } else if (list.size() == 1 && !force_multiline && fits_on_current_line) {
-    Expr(list[0], kPrecedenceLowest);
-    CHECK(!list[0]->comments() || list[0]->comments()->after().empty());
   } else {
-    // Function calls get to be single line even with multiple arguments, if
-    // they fit inside the maximum width.
-    if (!force_multiline && fits_on_current_line) {
-      for (size_t i = 0; i < list.size(); ++i) {
-        Expr(list[i], kPrecedenceLowest);
-        if (i < list.size() - 1)
-          Print(", ");
-      }
+    if (penalty_multiline_start_next_line < penalty_multiline_start_same_line) {
+      stack_.push_back(IndentState(margin() + kIndentSize * 2,
+                                   continuation_requires_indent,
+                                   false));
+      Newline();
     } else {
-      bool should_break_to_next_line = true;
-      int indent = kIndentSize * 2;
-      if (CurrentColumn() + max_item_width + terminator.size() <=
-              kMaximumWidth ||
-          CurrentColumn() < margin_ + indent) {
-        should_break_to_next_line = false;
-        margin_ = CurrentColumn();
-      } else {
-        margin_ += indent;
-      }
-      size_t i = 0;
-      for (const auto& x : list) {
-        // Function calls where all the arguments would fit at the current
-        // position should do that instead of going back to margin+4.
-        if (i > 0 || should_break_to_next_line)
-          Newline();
-        ExprStyle expr_style = Expr(x, kPrecedenceLowest);
-        CHECK(!x->comments() || x->comments()->after().empty());
-        if (i < list.size() - 1) {
-          if (expr_style == kExprStyleRegular) {
-            Print(",");
-          } else {
-            Newline();
-          }
-        }
-        ++i;
-      }
+      stack_.push_back(
+          IndentState(CurrentColumn(), continuation_requires_indent, false));
+    }
 
-      // Trailing comments.
-      if (end->comments()) {
-        if (!list.empty())
+    for (size_t i = 0; i < list.size(); ++i) {
+      const auto& x = list[i];
+      if (i > 0) {
+        if (fits_on_current_line && !force_multiline)
+          Print(" ");
+        else
           Newline();
-        for (const auto& c : end->comments()->before()) {
-          Newline();
-          TrimAndPrintToken(c);
-        }
-        if (!end->comments()->before().empty())
+      }
+      bool want_comma = i < list.size() - 1 && !x->AsBlockComment();
+      Expr(x, kPrecedenceLowest, want_comma ? "," : std::string());
+      CHECK(!x->comments() || x->comments()->after().empty());
+      if (i < list.size() - 1) {
+        if (!want_comma)
           Newline();
       }
     }
+
+    // Trailing comments.
+    if (end->comments() && !end->comments()->before().empty()) {
+      if (!list.empty())
+        Newline();
+      for (const auto& c : end->comments()->before()) {
+        Newline();
+        TrimAndPrintToken(c);
+      }
+      Newline();
+    }
+    stack_.pop_back();
   }
 
   // Defer any end of line comment until we reach the newline.
   if (end->comments() && !end->comments()->suffix().empty()) {
     std::copy(end->comments()->suffix().begin(),
-              end->comments()->suffix().end(),
-              std::back_inserter(comments_));
+              end->comments()->suffix().end(), std::back_inserter(comments_));
   }
 
   Print(")");
-  margin_ = old_margin;
+  Print(suffix);
 
   if (have_block) {
     Print(" ");
     Sequence(kSequenceStyleBracedBlock,
              func_call->block()->statements(),
-             func_call->block()->End());
+             func_call->block()->End(),
+             false);
   }
+  return penalty + (CurrentLine() - start_line) * GetPenaltyForLineBreak();
+}
+
+void Printer::InitializeSub(Printer* sub) {
+  sub->stack_ = stack_;
+  sub->comments_ = comments_;
+  sub->penalty_depth_ = penalty_depth_;
+  sub->Print(std::string(CurrentColumn(), 'x'));
+}
+
+template <class PARSENODE>
+bool Printer::ListWillBeMultiline(const std::vector<PARSENODE*>& list,
+                                  const ParseNode* end) {
+  if (list.size() > 1)
+    return true;
+
+  if (end && end->comments() && !end->comments()->before().empty())
+    return true;
+
+  // If there's before line comments, make sure we have a place to put them.
+  for (const auto& i : list) {
+    if (i->comments() && !i->comments()->before().empty())
+      return true;
+  }
+
+  return false;
 }
 
 void DoFormat(const ParseNode* root, bool dump_tree, std::string* output) {
@@ -659,9 +916,9 @@ std::string ReadStdin() {
   char buffer[kBufferSize];
   std::string result;
   while (true) {
-    char* input = NULL;
+    char* input = nullptr;
     input = fgets(buffer, kBufferSize, stdin);
-    if (input == NULL && feof(stdin))
+    if (input == nullptr && feof(stdin))
       return result;
     int length = static_cast<int>(strlen(buffer));
     if (length == 0)
@@ -715,11 +972,20 @@ bool FormatStringToString(const std::string& input,
 }
 
 int RunFormat(const std::vector<std::string>& args) {
+  bool dry_run =
+      base::CommandLine::ForCurrentProcess()->HasSwitch(kSwitchDryRun);
   bool dump_tree =
       base::CommandLine::ForCurrentProcess()->HasSwitch(kSwitchDumpTree);
-
   bool from_stdin =
       base::CommandLine::ForCurrentProcess()->HasSwitch(kSwitchStdin);
+  bool in_place =
+    base::CommandLine::ForCurrentProcess()->HasSwitch(kSwitchInPlace);
+
+  if (dry_run) {
+    // --dry-run only works with an actual file to compare to.
+    from_stdin = false;
+    in_place = true;
+  }
 
   if (from_stdin) {
     if (args.size() != 0) {
@@ -746,23 +1012,39 @@ int RunFormat(const std::vector<std::string>& args) {
   Setup setup;
   SourceDir source_dir =
       SourceDirForCurrentDirectory(setup.build_settings().root_path());
-  SourceFile file = source_dir.ResolveRelativeFile(args[0]);
+
+  Err err;
+  SourceFile file = source_dir.ResolveRelativeFile(Value(nullptr, args[0]),
+                                                   &err);
+  if (err.has_error()) {
+    err.PrintToStdout();
+    return 1;
+  }
 
   std::string output_string;
   if (FormatFileToString(&setup, file, dump_tree, &output_string)) {
-    bool in_place =
-        base::CommandLine::ForCurrentProcess()->HasSwitch(kSwitchInPlace);
     if (in_place) {
       base::FilePath to_write = setup.build_settings().GetFullPath(file);
-      if (base::WriteFile(to_write,
-                          output_string.data(),
-                          static_cast<int>(output_string.size())) == -1) {
-        Err(Location(),
-            std::string("Failed to write formatted output back to \"") +
-                to_write.AsUTF8Unsafe() + std::string("\".")).PrintToStdout();
+      std::string original_contents;
+      if (!base::ReadFileToString(to_write, &original_contents)) {
+        Err(Location(), std::string("Couldn't read \"") +
+                            to_write.AsUTF8Unsafe() +
+                            std::string("\" for comparison.")).PrintToStdout();
         return 1;
       }
-      printf("Wrote formatted to '%s'.\n", to_write.AsUTF8Unsafe().c_str());
+      if (dry_run)
+        return original_contents == output_string ? 0 : 2;
+      if (original_contents != output_string) {
+        if (base::WriteFile(to_write,
+                            output_string.data(),
+                            static_cast<int>(output_string.size())) == -1) {
+          Err(Location(),
+              std::string("Failed to write formatted output back to \"") +
+                  to_write.AsUTF8Unsafe() + std::string("\".")).PrintToStdout();
+          return 1;
+        }
+        printf("Wrote formatted to '%s'.\n", to_write.AsUTF8Unsafe().c_str());
+      }
     } else {
       printf("%s", output_string.c_str());
     }

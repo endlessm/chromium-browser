@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2011 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -8,18 +7,17 @@
 from __future__ import print_function
 
 import cStringIO
-import os
 import sys
 import tempfile
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))))
 from chromite.lib import cros_test_lib
-from chromite.lib import osutils
 from chromite.lib import table
 
-# pylint: disable=W0212,R0904
-class TableTest(cros_test_lib.TestCase):
+
+# pylint: disable=protected-access
+
+
+class TableTest(cros_test_lib.TempDirTestCase):
   """Unit tests for the Table class."""
 
   COL0 = 'Column1'
@@ -33,6 +31,7 @@ class TableTest(cros_test_lib.TestCase):
   ROW2 = {COL0: 'Abc', COL1: 'Nop', COL2: 'Wxy', COL3: 'Bar'}
 
   EXTRAROW = {COL1: 'Walk', COL2: 'The', COL3: 'Line'}
+  EXTRAROWOUT = {COL0: '', COL1: 'Walk', COL2: 'The', COL3: 'Line'}
 
   ROW0a = {COL0: 'Xyz', COL1: 'Bcd', COL2: 'Cde', COL3: 'Yay'}
   ROW0b = {COL0: 'Xyz', COL1: 'Bcd', COL2: 'Cde', COL3: 'Boo'}
@@ -49,7 +48,7 @@ class TableTest(cros_test_lib.TestCase):
     """Take |row| dict and return correctly ordered values in a list."""
     vals = []
     for col in self.COLUMNS:
-      vals.append(row.get(col, ""))
+      vals.append(row.get(col, ''))
 
     return vals
 
@@ -127,24 +126,24 @@ class TableTest(cros_test_lib.TestCase):
     self.assertEquals([1], indices)
 
   def testAppendRowDict(self):
-    self._table.AppendRow(self.EXTRAROW)
+    self._table.AppendRow(dict(self.EXTRAROW))
     self.assertEquals(4, self._table.GetNumRows())
-    self.assertEquals(self.EXTRAROW, self._table[len(self._table) - 1])
+    self.assertEquals(self.EXTRAROWOUT, self._table[len(self._table) - 1])
 
   def testAppendRowList(self):
     self._table.AppendRow(self._GetRowValsInOrder(self.EXTRAROW))
     self.assertEquals(4, self._table.GetNumRows())
-    self.assertEquals(self.EXTRAROW, self._table[len(self._table) - 1])
+    self.assertEquals(self.EXTRAROWOUT, self._table[len(self._table) - 1])
 
   def testSetRowDictByIndex(self):
-    self._table.SetRowByIndex(1, self.EXTRAROW)
+    self._table.SetRowByIndex(1, dict(self.EXTRAROW))
     self.assertEquals(3, self._table.GetNumRows())
-    self.assertEquals(self.EXTRAROW, self._table[1])
+    self.assertEquals(self.EXTRAROWOUT, self._table[1])
 
   def testSetRowListByIndex(self):
     self._table.SetRowByIndex(1, self._GetRowValsInOrder(self.EXTRAROW))
     self.assertEquals(3, self._table.GetNumRows())
-    self.assertEquals(self.EXTRAROW, self._table[1])
+    self.assertEquals(self.EXTRAROWOUT, self._table[1])
 
   def testRemoveRowByIndex(self):
     self._table.RemoveRowByIndex(1)
@@ -176,19 +175,19 @@ class TableTest(cros_test_lib.TestCase):
 
     # Merge but stick with current row where different.
     self._table._MergeRow(self.ROW0a, self.COL0,
-                          merge_rules = { self.COL3: 'accept_this_val' })
+                          merge_rules={self.COL3: 'accept_this_val'})
     self.assertEquals(3, len(self._table))
     self.assertRowsEqual(self.ROW0, self._table[0])
 
     # Merge and use new row where different.
     self._table._MergeRow(self.ROW0a, self.COL0,
-                          merge_rules = { self.COL3: 'accept_other_val' })
+                          merge_rules={self.COL3: 'accept_other_val'})
     self.assertEquals(3, len(self._table))
     self.assertRowsEqual(self.ROW0a, self._table[0])
 
     # Merge and combine column values where different
     self._table._MergeRow(self.ROW1a, self.COL2,
-                          merge_rules = { self.COL3: 'join_with: ' })
+                          merge_rules={self.COL3: 'join_with: '})
     self.assertEquals(3, len(self._table))
     final_row = dict(self.ROW1a)
     final_row[self.COL3] = self.ROW1[self.COL3] + ' ' + self.ROW1a[self.COL3]
@@ -199,7 +198,7 @@ class TableTest(cros_test_lib.TestCase):
                                             [self.ROW0b, self.ROW1a, self.ROW2])
 
     self._table.MergeTable(other_table, self.COL2,
-                           merge_rules = { self.COL3: 'join_with: ' })
+                           merge_rules={self.COL3: 'join_with: '})
 
     final_row0 = self.ROW0b
     final_row1 = dict(self.ROW1a)
@@ -217,7 +216,7 @@ class TableTest(cros_test_lib.TestCase):
 
     self._table.MergeTable(other_table, self.COL2,
                            allow_new_columns=True,
-                           merge_rules = { self.COL3: 'join_by_space' })
+                           merge_rules={self.COL3: 'join_by_space'})
 
     self.assertTrue(self._table.HasColumn(self.EXTRACOL))
     self.assertEquals(5, self._table.GetNumColumns())
@@ -239,7 +238,7 @@ class TableTest(cros_test_lib.TestCase):
     self.assertRowsEqual(self.ROW2, self._table[2])
 
     # Sort by COL3
-    self._table.Sort(lambda row : row[self.COL3])
+    self._table.Sort(lambda row: row[self.COL3])
 
     self.assertEquals(3, len(self._table))
     self.assertRowsEqual(self.ROW0, self._table[0])
@@ -247,7 +246,7 @@ class TableTest(cros_test_lib.TestCase):
     self.assertRowsEqual(self.ROW1, self._table[2])
 
     # Reverse sort by COL3
-    self._table.Sort(lambda row : row[self.COL3], reverse=True)
+    self._table.Sort(lambda row: row[self.COL3], reverse=True)
 
     self.assertEquals(3, len(self._table))
     self.assertRowsEqual(self.ROW1, self._table[0])
@@ -280,25 +279,25 @@ class TableTest(cros_test_lib.TestCase):
 
   def testSplitCSVLine(self):
     """Test splitting of csv line."""
-    tests = {'a,b,c,d':           ['a', 'b', 'c', 'd'],
-             'a, b, c, d':        ['a', ' b', ' c', ' d'],
-             'a,b,c,':            ['a', 'b', 'c', ''],
-             'a,"b c",d':         ['a', 'b c', 'd'],
-             'a,"b, c",d':        ['a', 'b, c', 'd'],
-             'a,"b, c, d",e':     ['a', 'b, c, d', 'e'],
-             'a,"""b, c""",d':    ['a', '"b, c"', 'd'],
-             'a,"""b, c"", d",e': ['a', '"b, c", d', 'e'],
+    tests = {
+        'a,b,c,d':           ['a', 'b', 'c', 'd'],
+        'a, b, c, d':        ['a', ' b', ' c', ' d'],
+        'a,b,c,':            ['a', 'b', 'c', ''],
+        'a,"b c",d':         ['a', 'b c', 'd'],
+        'a,"b, c",d':        ['a', 'b, c', 'd'],
+        'a,"b, c, d",e':     ['a', 'b, c, d', 'e'],
+        'a,"""b, c""",d':    ['a', '"b, c"', 'd'],
+        'a,"""b, c"", d",e': ['a', '"b, c", d', 'e'],
 
-             # Following not real Google Spreadsheet cases.
-             'a,b\,c,d':          ['a', 'b,c', 'd'],
-             'a,",c':             ['a', '",c'],
-             'a,"",c':            ['a', '', 'c'],
-             }
+        # Following not real Google Spreadsheet cases.
+        r'a,b\,c,d':         ['a', 'b,c', 'd'],
+        'a,",c':             ['a', '",c'],
+        'a,"",c':            ['a', '', 'c'],
+    }
     for line in tests:
       vals = table.Table._SplitCSVLine(line)
       self.assertEquals(vals, tests[line])
 
-  @osutils.TempDirDecorator
   def testWriteReadCSV(self):
     """Write and Read CSV and verify contents preserved."""
     # This also tests the Table == and != operators.
@@ -327,18 +326,15 @@ class TableTest(cros_test_lib.TestCase):
 
   def testProcessRows(self):
     def Processor(row):
-      row[self.COL0] = row[self.COL0] + " processed"
+      row[self.COL0] = row[self.COL0] + ' processed'
     self._table.ProcessRows(Processor)
 
     final_row0 = dict(self.ROW0)
-    final_row0[self.COL0] += " processed"
+    final_row0[self.COL0] += ' processed'
     final_row1 = dict(self.ROW1)
-    final_row1[self.COL0] += " processed"
+    final_row1[self.COL0] += ' processed'
     final_row2 = dict(self.ROW2)
-    final_row2[self.COL0] += " processed"
+    final_row2[self.COL0] += ' processed'
     self.assertRowsEqual(final_row0, self._table[0])
     self.assertRowsEqual(final_row1, self._table[1])
     self.assertRowsEqual(final_row2, self._table[2])
-
-if __name__ == "__main__":
-  cros_test_lib.main()

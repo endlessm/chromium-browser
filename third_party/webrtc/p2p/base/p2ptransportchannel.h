@@ -59,10 +59,10 @@ class P2PTransportChannel : public TransportChannelImpl,
 
   // From TransportChannelImpl:
   virtual Transport* GetTransport() { return transport_; }
+  virtual TransportChannelState GetState() const;
   virtual void SetIceRole(IceRole role);
   virtual IceRole GetIceRole() const { return ice_role_; }
   virtual void SetIceTiebreaker(uint64 tiebreaker);
-  virtual size_t GetConnectionCount() const { return connections_.size(); }
   virtual bool GetIceProtocolType(IceProtocolType* type) const;
   virtual void SetIceProtocolType(IceProtocolType type);
   virtual void SetIceCredentials(const std::string& ice_ufrag,
@@ -71,7 +71,6 @@ class P2PTransportChannel : public TransportChannelImpl,
                                        const std::string& ice_pwd);
   virtual void SetRemoteIceMode(IceMode mode);
   virtual void Connect();
-  virtual void Reset();
   virtual void OnSignalingReady();
   virtual void OnCandidate(const Candidate& candidate);
 
@@ -79,15 +78,20 @@ class P2PTransportChannel : public TransportChannelImpl,
   virtual int SendPacket(const char *data, size_t len,
                          const rtc::PacketOptions& options, int flags);
   virtual int SetOption(rtc::Socket::Option opt, int value);
+  virtual bool GetOption(rtc::Socket::Option opt, int* value);
   virtual int GetError() { return error_; }
   virtual bool GetStats(std::vector<ConnectionInfo>* stats);
 
   const Connection* best_connection() const { return best_connection_; }
   void set_incoming_only(bool value) { incoming_only_ = value; }
 
+  // Sets the receiving timeout in milliseconds.
+  // This also sets the check_receiving_delay proportionally.
+  void set_receiving_timeout(int receiving_timeout_ms);
+
   // Note: This is only for testing purpose.
   // |ports_| should not be changed from outside.
-  const std::vector<PortInterface *>& ports() { return ports_; }
+  const std::vector<PortInterface*>& ports() { return ports_; }
 
   IceMode remote_ice_mode() const { return remote_ice_mode_; }
 
@@ -108,8 +112,13 @@ class P2PTransportChannel : public TransportChannelImpl,
     return false;
   }
 
-  // Find out which DTLS-SRTP cipher was negotiated
+  // Find out which DTLS-SRTP cipher was negotiated.
   virtual bool GetSrtpCipher(std::string* cipher) {
+    return false;
+  }
+
+  // Find out which DTLS cipher was negotiated.
+  virtual bool GetSslCipher(std::string* cipher) {
     return false;
   }
 
@@ -145,8 +154,14 @@ class P2PTransportChannel : public TransportChannelImpl,
     return false;
   }
 
+  int receiving_timeout() const { return receiving_timeout_; }
+  int check_receiving_delay() const { return check_receiving_delay_; }
+
   // Helper method used only in unittest.
   rtc::DiffServCodePoint DefaultDscpValue() const;
+
+  // Public for unit tests.
+  Connection* FindNextPingableConnection();
 
  private:
   rtc::Thread* thread() { return worker_thread_; }
@@ -164,7 +179,7 @@ class P2PTransportChannel : public TransportChannelImpl,
   void HandleNotWritable();
   void HandleAllTimedOut();
 
-  Connection* GetBestConnectionOnNetwork(rtc::Network* network);
+  Connection* GetBestConnectionOnNetwork(rtc::Network* network) const;
   bool CreateConnections(const Candidate &remote_candidate,
                          PortInterface* origin_port, bool readable);
   bool CreateConnection(PortInterface* port, const Candidate& remote_candidate,
@@ -176,7 +191,6 @@ class P2PTransportChannel : public TransportChannelImpl,
   void RememberRemoteCandidate(const Candidate& remote_candidate,
                                PortInterface* origin_port);
   bool IsPingable(Connection* conn);
-  Connection* FindNextPingableConnection();
   void PingConnection(Connection* conn);
   void AddAllocatorSession(PortAllocatorSession* session);
   void AddConnection(Connection* connection);
@@ -206,6 +220,8 @@ class P2PTransportChannel : public TransportChannelImpl,
   void OnSort();
   void OnPing();
 
+  void OnCheckReceiving();
+
   P2PTransport* transport_;
   PortAllocator *allocator_;
   rtc::Thread *worker_thread_;
@@ -234,7 +250,10 @@ class P2PTransportChannel : public TransportChannelImpl,
   uint64 tiebreaker_;
   uint32 remote_candidate_generation_;
 
-  DISALLOW_EVIL_CONSTRUCTORS(P2PTransportChannel);
+  int check_receiving_delay_;
+  int receiving_timeout_;
+
+  DISALLOW_COPY_AND_ASSIGN(P2PTransportChannel);
 };
 
 }  // namespace cricket

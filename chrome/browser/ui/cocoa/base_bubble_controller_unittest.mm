@@ -6,6 +6,8 @@
 
 #include "base/mac/mac_util.h"
 #import "base/mac/scoped_nsobject.h"
+#import "base/mac/scoped_objc_class_swizzler.h"
+#import "base/mac/sdk_forward_declarations.h"
 #import "chrome/browser/ui/cocoa/cocoa_test_helper.h"
 #import "chrome/browser/ui/cocoa/info_bubble_view.h"
 #import "chrome/browser/ui/cocoa/info_bubble_window.h"
@@ -16,6 +18,8 @@ const CGFloat kBubbleWindowWidth = 100;
 const CGFloat kBubbleWindowHeight = 50;
 const CGFloat kAnchorPointX = 400;
 const CGFloat kAnchorPointY = 300;
+
+NSWindow* g_key_window = nil;
 }  // namespace
 
 @interface ContextMenuController : NSObject<NSMenuDelegate> {
@@ -84,17 +88,29 @@ const CGFloat kAnchorPointY = 300;
 
 @end
 
+// A helper class to swizzle [NSApplication keyWindow].
+@interface FakeKeyWindow : NSObject
+@property(readonly) NSWindow* keyWindow;
+@end
+
+@implementation FakeKeyWindow
+- (NSWindow*)keyWindow {
+  return g_key_window;
+}
+@end
+
+
 class BaseBubbleControllerTest : public CocoaTest {
  public:
   BaseBubbleControllerTest() : controller_(nil) {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     bubble_window_.reset([[InfoBubbleWindow alloc]
         initWithContentRect:NSMakeRect(0, 0, kBubbleWindowWidth,
                                        kBubbleWindowHeight)
                   styleMask:NSBorderlessWindowMask
                     backing:NSBackingStoreBuffered
-                      defer:YES]);
+                      defer:NO]);
     [bubble_window_ setAllowedAnimations:0];
 
     // The bubble controller will release itself when the window closes.
@@ -106,7 +122,7 @@ class BaseBubbleControllerTest : public CocoaTest {
     EXPECT_EQ(bubble_window_.get(), [controller_ window]);
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     // Close our windows.
     [controller_ close];
     bubble_window_.reset();
@@ -253,7 +269,7 @@ TEST_F(BaseBubbleControllerTest, ResignKeyCloses) {
       [[NSWindow alloc] initWithContentRect:NSMakeRect(500, 500, 500, 500)
                                   styleMask:NSTitledWindowMask
                                     backing:NSBackingStoreBuffered
-                                      defer:YES]);
+                                      defer:NO]);
 
   base::scoped_nsobject<BaseBubbleController> keep_alive = ShowBubble();
   EXPECT_FALSE([other_window isVisible]);
@@ -364,7 +380,7 @@ TEST_F(BaseBubbleControllerTest, BubbleStaysOpenWithSheet) {
       [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 100, 50)
                                  styleMask:NSTitledWindowMask
                                    backing:NSBackingStoreBuffered
-                                     defer:YES]);
+                                     defer:NO]);
   EXPECT_FALSE([panel isReleasedWhenClosed]);  // scoped_nsobject releases it.
 
   // With a NSOpenPanel, we would call -[NSSavePanel beginSheetModalForWindow]
@@ -394,4 +410,59 @@ TEST_F(BaseBubbleControllerTest, BubbleStaysOpenWithSheet) {
   // Now that the sheet is gone, a key status change should close the bubble.
   SimulateKeyStatusChange();
   EXPECT_FALSE([bubble_window_ isVisible]);
+}
+
+// Tests that a bubble will close when a window enters fullscreen.
+TEST_F(BaseBubbleControllerTest, EnterFullscreen) {
+  base::scoped_nsobject<BaseBubbleController> keep_alive = ShowBubble();
+
+  EXPECT_TRUE([bubble_window_ isVisible]);
+
+  // Post the "enter fullscreen" notification.
+  NSNotificationCenter* center = [NSNotificationCenter defaultCenter];
+  [center postNotificationName:NSWindowWillEnterFullScreenNotification
+                        object:test_window()];
+
+  EXPECT_FALSE([bubble_window_ isVisible]);
+}
+
+// Tests that a bubble will close when a window exits fullscreen.
+TEST_F(BaseBubbleControllerTest, ExitFullscreen) {
+  base::scoped_nsobject<BaseBubbleController> keep_alive = ShowBubble();
+
+  EXPECT_TRUE([bubble_window_ isVisible]);
+
+  // Post the "exit fullscreen" notification.
+  NSNotificationCenter* center = [NSNotificationCenter defaultCenter];
+  [center postNotificationName:NSWindowWillExitFullScreenNotification
+                        object:test_window()];
+
+  EXPECT_FALSE([bubble_window_ isVisible]);
+}
+
+// Tests that a bubble will not close when it's becoming a key window.
+TEST_F(BaseBubbleControllerTest, StayOnFocus) {
+  // The event tap is only installed on 10.7+.
+  if (!base::mac::IsOSLionOrLater())
+    return;
+
+  [controller_ setShouldOpenAsKeyWindow:NO];
+  base::scoped_nsobject<BaseBubbleController> keep_alive = ShowBubble();
+
+  EXPECT_TRUE([bubble_window_ isVisible]);
+  EXPECT_TRUE([controller_ shouldCloseOnResignKey]);  // Verify default value.
+
+  // Make the bubble a key window.
+  g_key_window = [controller_ window];
+  base::mac::ScopedObjCClassSwizzler swizzler(
+      [NSApplication class], [FakeKeyWindow class], @selector(keyWindow));
+
+  // Post the "resign key" notification for another window.
+  NSNotification* notif =
+      [NSNotification notificationWithName:NSWindowDidResignKeyNotification
+                                    object:test_window()];
+  [[NSNotificationCenter defaultCenter] postNotification:notif];
+
+  EXPECT_TRUE([bubble_window_ isVisible]);
+  g_key_window = nil;
 }

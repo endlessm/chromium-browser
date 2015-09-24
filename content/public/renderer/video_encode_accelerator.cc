@@ -7,7 +7,7 @@
 #include "base/task_runner_util.h"
 #include "content/common/gpu/client/gpu_video_encode_accelerator_host.h"
 #include "content/renderer/render_thread_impl.h"
-#include "media/filters/gpu_video_accelerator_factories.h"
+#include "media/renderers/gpu_video_accelerator_factories.h"
 
 namespace content {
 
@@ -17,7 +17,7 @@ void CreateVideoEncodeAccelerator(
 
   scoped_refptr<media::GpuVideoAcceleratorFactories> gpu_factories =
         RenderThreadImpl::current()->GetGpuFactories();
-  if (!gpu_factories.get()) {
+  if (!gpu_factories || !gpu_factories->IsGpuVideoAcceleratorEnabled()) {
     callback.Run(NULL, scoped_ptr<media::VideoEncodeAccelerator>());
     return;
   }
@@ -33,12 +33,12 @@ void CreateVideoEncodeAccelerator(
       base::Bind(callback, encode_task_runner));
 }
 
-std::vector<media::VideoEncodeAccelerator::SupportedProfile>
+media::VideoEncodeAccelerator::SupportedProfiles
 GetSupportedVideoEncodeAcceleratorProfiles() {
   scoped_refptr<media::GpuVideoAcceleratorFactories> gpu_factories =
       RenderThreadImpl::current()->GetGpuFactories();
-  if (!gpu_factories.get())
-    return std::vector<media::VideoEncodeAccelerator::SupportedProfile>();
+  if (!gpu_factories || !gpu_factories->IsGpuVideoAcceleratorEnabled())
+    return media::VideoEncodeAccelerator::SupportedProfiles();
   return gpu_factories->GetVideoEncodeAcceleratorSupportedProfiles();
 }
 

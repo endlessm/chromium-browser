@@ -3,13 +3,19 @@
 // found in the LICENSE file.
 
 #include "content/renderer/p2p/ipc_network_manager.h"
+
 #include <string>
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/location.h"
 #include "base/metrics/histogram.h"
+#include "base/single_thread_task_runner.h"
 #include "base/sys_byteorder.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/public/common/content_switches.h"
+#include "net/base/ip_address_number.h"
 #include "net/base/net_util.h"
+#include "net/base/network_change_notifier.h"
 
 namespace content {
 
@@ -51,10 +57,9 @@ IpcNetworkManager::~IpcNetworkManager() {
 void IpcNetworkManager::StartUpdating() {
   if (network_list_received_) {
     // Post a task to avoid reentrancy.
-    base::MessageLoop::current()->PostTask(
-        FROM_HERE,
-        base::Bind(&IpcNetworkManager::SendNetworksChangedSignal,
-                   weak_factory_.GetWeakPtr()));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(&IpcNetworkManager::SendNetworksChangedSignal,
+                              weak_factory_.GetWeakPtr()));
   }
   ++start_count_;
 }
@@ -74,8 +79,6 @@ void IpcNetworkManager::OnNetworkListChanged(
   // rtc::Network uses these prefix_length to compare network
   // interfaces discovered.
   std::vector<rtc::Network*> networks;
-  int ipv4_interfaces = 0;
-  int ipv6_interfaces = 0;
   for (net::NetworkInterfaceList::const_iterator it = list.begin();
        it != list.end(); it++) {
     if (it->address.size() == net::kIPv4AddressSize) {
@@ -83,45 +86,37 @@ void IpcNetworkManager::OnNetworkListChanged(
       memcpy(&address, &it->address[0], sizeof(uint32));
       address = rtc::NetworkToHost32(address);
       rtc::IPAddress prefix =
-          rtc::TruncateIP(rtc::IPAddress(address), it->network_prefix);
+          rtc::TruncateIP(rtc::IPAddress(address), it->prefix_length);
       rtc::Network* network =
-          new rtc::Network(it->name,
-                           it->name,
-                           prefix,
-                           it->network_prefix,
+          new rtc::Network(it->name, it->name, prefix, it->prefix_length,
                            ConvertConnectionTypeToAdapterType(it->type));
       network->AddIP(rtc::IPAddress(address));
       networks.push_back(network);
-      ++ipv4_interfaces;
     } else if (it->address.size() == net::kIPv6AddressSize) {
       in6_addr address;
       memcpy(&address, &it->address[0], sizeof(in6_addr));
-      rtc::IPAddress ip6_addr(address);
+      rtc::InterfaceAddress ip6_addr(address, it->ip_address_attributes);
+
+      // Only allow non-deprecated IPv6 addresses which don't contain MAC.
+      if (rtc::IPIsMacBased(ip6_addr) ||
+          (it->ip_address_attributes & net::IP_ADDRESS_ATTRIBUTE_DEPRECATED)) {
+        continue;
+      }
+
       if (!rtc::IPIsPrivate(ip6_addr)) {
         rtc::IPAddress prefix =
-            rtc::TruncateIP(rtc::IPAddress(ip6_addr), it->network_prefix);
+            rtc::TruncateIP(rtc::IPAddress(ip6_addr), it->prefix_length);
         rtc::Network* network =
-            new rtc::Network(it->name,
-                             it->name,
-                             prefix,
-                             it->network_prefix,
+            new rtc::Network(it->name, it->name, prefix, it->prefix_length,
                              ConvertConnectionTypeToAdapterType(it->type));
         network->AddIP(ip6_addr);
         networks.push_back(network);
-        ++ipv6_interfaces;
       }
     }
   }
 
-
-  // Send interface counts to UMA.
-  UMA_HISTOGRAM_COUNTS_100("WebRTC.PeerConnection.IPv4Interfaces",
-                           ipv4_interfaces);
-  UMA_HISTOGRAM_COUNTS_100("WebRTC.PeerConnection.IPv6Interfaces",
-                           ipv6_interfaces);
-
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kAllowLoopbackInPeerConnection)) {
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAllowLoopbackInPeerConnection)) {
     std::string name_v4("loopback_ipv4");
     rtc::IPAddress ip_address_v4(INADDR_LOOPBACK);
     rtc::Network* network_v4 = new rtc::Network(
@@ -138,9 +133,16 @@ void IpcNetworkManager::OnNetworkListChanged(
   }
 
   bool changed = false;
-  MergeNetworkList(networks, &changed);
+  NetworkManager::Stats stats;
+  MergeNetworkList(networks, &changed, &stats);
   if (changed)
     SignalNetworksChanged();
+
+  // Send interface counts to UMA.
+  UMA_HISTOGRAM_COUNTS_100("WebRTC.PeerConnection.IPv4Interfaces",
+                           stats.ipv4_network_count);
+  UMA_HISTOGRAM_COUNTS_100("WebRTC.PeerConnection.IPv6Interfaces",
+                           stats.ipv6_network_count);
 }
 
 void IpcNetworkManager::SendNetworksChangedSignal() {

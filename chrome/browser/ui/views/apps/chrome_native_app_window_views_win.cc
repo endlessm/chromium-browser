@@ -11,6 +11,7 @@
 #include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/sequenced_worker_pool.h"
+#include "chrome/browser/apps/ephemeral_app_launcher.h"
 #include "chrome/browser/apps/per_app_settings_service.h"
 #include "chrome/browser/apps/per_app_settings_service_factory.h"
 #include "chrome/browser/jumplist_updater_win.h"
@@ -36,7 +37,10 @@
 #include "ui/views/win/hwnd_util.h"
 
 ChromeNativeAppWindowViewsWin::ChromeNativeAppWindowViewsWin()
-    : glass_frame_view_(NULL), weak_ptr_factory_(this) {
+    : glass_frame_view_(NULL), is_translucent_(false), weak_ptr_factory_(this) {
+}
+
+ChromeNativeAppWindowViewsWin::~ChromeNativeAppWindowViewsWin() {
 }
 
 void ChromeNativeAppWindowViewsWin::ActivateParentDesktopIfNecessary() {
@@ -74,8 +78,12 @@ void ChromeNativeAppWindowViewsWin::EnsureCaptionStyleSet() {
 }
 
 void ChromeNativeAppWindowViewsWin::OnBeforeWidgetInit(
+    const extensions::AppWindow::CreateParams& create_params,
     views::Widget::InitParams* init_params,
     views::Widget* widget) {
+  ChromeNativeAppWindowViewsAura::OnBeforeWidgetInit(create_params, init_params,
+                                                     widget);
+
   content::BrowserContext* browser_context = app_window()->browser_context();
   std::string extension_id = app_window()->extension_id();
   // If an app has any existing windows, ensure new ones are created on the
@@ -102,11 +110,14 @@ void ChromeNativeAppWindowViewsWin::OnBeforeWidgetInit(
     init_params->context = ash::Shell::GetPrimaryRootWindow();
   else
     init_params->native_widget = new AppWindowDesktopNativeWidgetAuraWin(this);
+
+  is_translucent_ =
+      init_params->opacity == views::Widget::InitParams::TRANSLUCENT_WINDOW;
 }
 
 void ChromeNativeAppWindowViewsWin::InitializeDefaultWindow(
     const extensions::AppWindow::CreateParams& create_params) {
-  ChromeNativeAppWindowViews::InitializeDefaultWindow(create_params);
+  ChromeNativeAppWindowViewsAura::InitializeDefaultWindow(create_params);
 
   // Remaining initialization is for Windows shell integration, which doesn't
   // apply to app windows in Ash.
@@ -141,17 +152,24 @@ ChromeNativeAppWindowViewsWin::CreateStandardDesktopAppFrame() {
     glass_frame_view_ = new GlassAppWindowFrameViewWin(this, widget());
     return glass_frame_view_;
   }
-  return ChromeNativeAppWindowViews::CreateStandardDesktopAppFrame();
+  return ChromeNativeAppWindowViewsAura::CreateStandardDesktopAppFrame();
 }
 
 void ChromeNativeAppWindowViewsWin::Show() {
   ActivateParentDesktopIfNecessary();
-  ChromeNativeAppWindowViews::Show();
+  ChromeNativeAppWindowViewsAura::Show();
 }
 
 void ChromeNativeAppWindowViewsWin::Activate() {
   ActivateParentDesktopIfNecessary();
-  ChromeNativeAppWindowViews::Activate();
+  ChromeNativeAppWindowViewsAura::Activate();
+}
+
+bool ChromeNativeAppWindowViewsWin::CanMinimize() const {
+  // Resizing on Windows breaks translucency if the window also has shape.
+  // See http://crbug.com/417947.
+  return ChromeNativeAppWindowViewsAura::CanMinimize() &&
+         !(WidgetHasHitTestMask() && is_translucent_);
 }
 
 void ChromeNativeAppWindowViewsWin::UpdateShelfMenu() {
@@ -160,10 +178,8 @@ void ChromeNativeAppWindowViewsWin::UpdateShelfMenu() {
 
   // Currently the only option is related to ephemeral apps, so avoid updating
   // the app's jump list when the feature is not enabled.
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableEphemeralApps)) {
+  if (!EphemeralAppLauncher::IsFeatureEnabled())
     return;
-  }
 
   const extensions::Extension* extension = app_window()->GetExtension();
   if (!extension)

@@ -14,7 +14,7 @@
 #include "base/basictypes.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string16.h"
-#include "chrome/browser/history/history_service.h"
+#include "components/history/core/browser/history_service.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -26,12 +26,14 @@
 #include "ui/gfx/native_widget_types.h"
 #include "url/gurl.h"
 
-class AppModalDialog;
 class Browser;
 class LocationBar;
 class Profile;
-class SkBitmap;
 class TemplateURLService;
+
+namespace app_modal {
+class AppModalDialog;
+}
 
 namespace base {
 class FilePath;
@@ -42,15 +44,11 @@ struct NavigateParams;
 }
 
 namespace content {
-class MessageLoopRunner;
-class RenderViewHost;
-class RenderWidgetHost;
 class WebContents;
 }
 
 namespace gfx {
 class Rect;
-class Size;
 }
 
 // A collections of functions designed for use with InProcessBrowserTest.
@@ -110,6 +108,17 @@ void NavigateToURLBlockUntilNavigationsComplete(Browser* browser,
                                                 const GURL& url,
                                                 int number_of_navigations);
 
+// Navigates the specified tab (via |disposition|) of |browser| to |url|,
+// blocking until the |number_of_navigations| specified complete.
+// |disposition| indicates what tab the download occurs in, and
+// |browser_test_flags| controls what to wait for before continuing.
+void NavigateToURLWithDispositionBlockUntilNavigationsComplete(
+    Browser* browser,
+    const GURL& url,
+    int number_of_navigations,
+    WindowOpenDisposition disposition,
+    int browser_test_flags);
+
 // Generate the file path for testing a particular test.
 // The file for the tests is all located in
 // test_root_directory/dir/<file>
@@ -127,7 +136,7 @@ GURL GetTestUrl(const base::FilePath& dir, const base::FilePath& file);
 bool GetRelativeBuildDirectory(base::FilePath* build_dir);
 
 // Blocks until an application modal dialog is showns and returns it.
-AppModalDialog* WaitForAppModalDialog();
+app_modal::AppModalDialog* WaitForAppModalDialog();
 
 // Performs a find in the page of the specified tab. Returns the number of
 // matches found.  |ordinal| is an optional parameter which is set to the index
@@ -144,7 +153,7 @@ int FindInPage(content::WebContents* tab,
 void WaitForTemplateURLServiceToLoad(TemplateURLService* service);
 
 // Blocks until the |history_service|'s history finishes loading.
-void WaitForHistoryToLoad(HistoryService* history_service);
+void WaitForHistoryToLoad(history::HistoryService* history_service);
 
 // Download the given file and waits for the download to complete.
 void DownloadURL(Browser* browser, const GURL& download_url);
@@ -210,9 +219,9 @@ class WindowedNotificationObserverWithDetails
     return true;
   }
 
-  virtual void Observe(int type,
-                       const content::NotificationSource& source,
-                       const content::NotificationDetails& details) override {
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override {
     const U* details_ptr = content::Details<U>(details).ptr();
     if (details_ptr)
       details_[source.map_key()] = *details_ptr;
@@ -263,12 +272,6 @@ class BrowserAddedObserver {
 
   DISALLOW_COPY_AND_ASSIGN(BrowserAddedObserver);
 };
-
-// Takes a snapshot of the entire page, according to the width and height
-// properties of the DOM's document. Returns true on success. DOMAutomation
-// must be enabled.
-bool TakeEntirePageSnapshot(content::RenderViewHost* rvh,
-                            SkBitmap* bitmap) WARN_UNUSED_RESULT;
 
 // Configures the geolocation provider to always return the given position.
 void OverrideGeolocation(double latitude, double longitude);

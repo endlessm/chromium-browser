@@ -5,6 +5,7 @@
 #include "config.h"
 #include "public/web/WebHelperPlugin.h"
 
+#include "platform/testing/UnitTestHelpers.h"
 #include "public/web/WebFrameClient.h"
 #include "public/web/WebLocalFrame.h"
 #include "web/tests/FakeWebPlugin.h"
@@ -21,17 +22,17 @@ public:
         : FakeWebPlugin(frame, params)
     {
     }
-    virtual ~FakePlaceholderWebPlugin() { }
+    ~FakePlaceholderWebPlugin() override {}
 
-    virtual bool isPlaceholder() override { return true; }
+    bool isPlaceholder() override { return true; }
 };
 
 class WebHelperPluginFrameClient : public FrameTestHelpers::TestWebFrameClient {
 public:
-    WebHelperPluginFrameClient() : m_createPlaceholder(false) { }
-    virtual ~WebHelperPluginFrameClient() { }
+    WebHelperPluginFrameClient() : m_createPlaceholder(false) {}
+    ~WebHelperPluginFrameClient() override {}
 
-    virtual WebPlugin* createPlugin(WebLocalFrame* frame, const WebPluginParams& params) override
+    WebPlugin* createPlugin(WebLocalFrame* frame, const WebPluginParams& params) override
     {
         return m_createPlaceholder ? new FakePlaceholderWebPlugin(frame, params) : new FakeWebPlugin(frame, params);
     }
@@ -42,9 +43,9 @@ private:
     bool m_createPlaceholder;
 };
 
-class WebHelperPluginTest : public testing::Test {
+class WebHelperPluginTest : public ::testing::Test {
 protected:
-    virtual void SetUp() override
+    void SetUp() override
     {
         m_helper.initializeAndLoad("about:blank", false, &m_frameClient);
     }
@@ -54,7 +55,7 @@ protected:
     {
         m_plugin.clear();
         // WebHelperPlugin is destroyed by a task posted to the message loop.
-        FrameTestHelpers::runPendingTasks();
+        testing::runPendingTasks();
     }
 
     FrameTestHelpers::WebViewHelper m_helper;

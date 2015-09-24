@@ -13,6 +13,7 @@
 #include "base/time/time.h"
 #include "media/base/android/media_player_listener.h"
 #include "media/base/media_export.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gl/android/scoped_java_surface.h"
 #include "url/gurl.h"
 
@@ -38,6 +39,10 @@ class MEDIA_EXPORT MediaPlayerAndroid {
 
   // Callback when the player needs decoding resources.
   typedef base::Callback<void(int player_id)> RequestMediaResourcesCB;
+
+  // Virtual destructor.
+  // For most subclasses we can delete on the caller thread.
+  virtual void DeleteOnCorrectThread();
 
   // Passing an external java surface object to the player.
   virtual void SetVideoSurface(gfx::ScopedJavaSurface surface) = 0;
@@ -75,9 +80,23 @@ class MEDIA_EXPORT MediaPlayerAndroid {
   // Associates the |cdm| with this player.
   virtual void SetCdm(BrowserCdm* cdm);
 
+  // Overridden in MediaCodecPlayer to pass data between threads.
+  virtual void OnMediaMetadataChanged(base::TimeDelta duration,
+                                      const gfx::Size& video_size) {}
+
+  // Overridden in MediaCodecPlayer to pass data between threads.
+  virtual void OnTimeUpdate(base::TimeDelta current_timestamp,
+                            base::TimeTicks current_time_ticks) {}
+
   int player_id() { return player_id_; }
 
   GURL frame_url() { return frame_url_; }
+
+  // Attach/Detaches |listener_| for listening to all the media events. If
+  // |j_media_player| is NULL, |listener_| only listens to the system media
+  // events. Otherwise, it also listens to the events from |j_media_player|.
+  void AttachListener(jobject j_media_player);
+  void DetachListener();
 
  protected:
   MediaPlayerAndroid(int player_id,
@@ -97,13 +116,15 @@ class MEDIA_EXPORT MediaPlayerAndroid {
   virtual void OnSeekComplete();
   virtual void OnMediaPrepared();
 
-  // Attach/Detaches |listener_| for listening to all the media events. If
-  // |j_media_player| is NULL, |listener_| only listens to the system media
-  // events. Otherwise, it also listens to the events from |j_media_player|.
-  void AttachListener(jobject j_media_player);
-  void DetachListener();
+  // When destroying a subclassed object on a non-UI thread
+  // it is still required to destroy the |listener_| related stuff
+  // on the UI thread.
+  void DestroyListenerOnUIThread();
+  void SetAudible(bool is_audible);
 
   MediaPlayerManager* manager() { return manager_; }
+
+  base::WeakPtr<MediaPlayerAndroid> WeakPtrForUIThread();
 
   RequestMediaResourcesCB request_media_resources_cb_;
 
@@ -121,6 +142,9 @@ class MEDIA_EXPORT MediaPlayerAndroid {
 
   // Listener object that listens to all the media player events.
   scoped_ptr<MediaPlayerListener> listener_;
+
+  // Maintains the audible state of the player, true if it is playing sound.
+  bool is_audible_;
 
   // Weak pointer passed to |listener_| for callbacks.
   // NOTE: Weak pointers must be invalidated before all other member variables.

@@ -23,17 +23,16 @@
  */
 
 #include "config.h"
-
 #include "web/LinkHighlight.h"
 
 #include "bindings/core/v8/ExceptionStatePlaceholder.h"
 #include "core/dom/Node.h"
 #include "core/frame/FrameView.h"
-#include "core/page/EventHandler.h"
+#include "core/input/EventHandler.h"
 #include "core/page/Page.h"
 #include "core/page/TouchDisambiguation.h"
-#include "core/testing/URLTestHelpers.h"
 #include "platform/geometry/IntRect.h"
+#include "platform/testing/URLTestHelpers.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebContentLayer.h"
 #include "public/platform/WebFloatPoint.h"
@@ -50,9 +49,7 @@
 #include "wtf/PassOwnPtr.h"
 #include <gtest/gtest.h>
 
-using namespace blink;
-
-namespace {
+namespace blink {
 
 GestureEventWithHitTestResults getTargetedEvent(WebViewImpl* webViewImpl, WebGestureEvent& touchEvent)
 {
@@ -110,6 +107,8 @@ TEST(LinkHighlightTest, verifyWebViewImplIntegration)
     Platform::current()->unitTestSupport()->unregisterAllMockedURLs();
 }
 
+namespace {
+
 class FakeWebFrameClient : public WebFrameClient {
     // To make the destructor public.
 };
@@ -119,11 +118,13 @@ public:
     FakeWebFrameClient m_fakeWebFrameClient;
 };
 
-static WebViewClient* compositingWebViewClient()
+WebViewClient* compositingWebViewClient()
 {
     DEFINE_STATIC_LOCAL(FakeCompositingWebViewClient, client, ());
     return &client;
 }
+
+} // anonymous namespace
 
 TEST(LinkHighlightTest, resetDuringNodeRemoval)
 {
@@ -183,7 +184,7 @@ TEST(LinkHighlightTest, multipleHighlights)
     touchEvent.data.tap.height = 30;
 
     Vector<IntRect> goodTargets;
-    WillBeHeapVector<RawPtrWillBeMember<Node> > highlightNodes;
+    WillBeHeapVector<RawPtrWillBeMember<Node>> highlightNodes;
     IntRect boundingBox(touchEvent.x - touchEvent.data.tap.width / 2, touchEvent.y - touchEvent.data.tap.height / 2, touchEvent.data.tap.width, touchEvent.data.tap.height);
     findGoodTouchTargets(boundingBox, webViewImpl->mainFrameImpl()->frame(), goodTargets, highlightNodes);
 
@@ -193,4 +194,4 @@ TEST(LinkHighlightTest, multipleHighlights)
     Platform::current()->unitTestSupport()->unregisterAllMockedURLs();
 }
 
-} // namespace
+} // namespace blink

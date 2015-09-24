@@ -10,6 +10,8 @@
 #include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
 #include "remoting/host/host_status_observer.h"
+#include "remoting/host/it2me/it2me_confirmation_dialog.h"
+#include "remoting/host/it2me/it2me_confirmation_dialog_proxy.h"
 #include "remoting/signaling/xmpp_signal_strategy.h"
 
 namespace base {
@@ -28,12 +30,9 @@ class DesktopEnvironmentFactory;
 class HostEventLogger;
 class HostNPScriptObject;
 class HostStatusLogger;
+class PolicyWatcher;
 class RegisterSupportHostRequest;
 class RsaKeyPair;
-
-namespace policy_hack {
-class PolicyWatcher;
-}  // namespace policy_hack
 
 // These state values are duplicated in host_session.js. Remember to update
 // both copies when making changes.
@@ -58,12 +57,14 @@ class It2MeHost : public base::RefCountedThreadSafe<It2MeHost>,
     virtual void OnStoreAccessCode(const std::string& access_code,
                                    base::TimeDelta access_code_lifetime) = 0;
     virtual void OnNatPolicyChanged(bool nat_traversal_enabled) = 0;
-    virtual void OnStateChanged(It2MeHostState state) = 0;
+    virtual void OnStateChanged(It2MeHostState state,
+                                const std::string& error_message) = 0;
   };
 
   It2MeHost(
       scoped_ptr<ChromotingHostContext> context,
-      scoped_ptr<policy_hack::PolicyWatcher> policy_watcher,
+      scoped_ptr<PolicyWatcher> policy_watcher,
+      scoped_ptr<It2MeConfirmationDialogFactory> confirmation_dialog_factory,
       base::WeakPtr<It2MeHost::Observer> observer,
       const XmppSignalStrategy::XmppServerConfig& xmpp_server_config,
       const std::string& directory_bot_jid);
@@ -86,7 +87,10 @@ class It2MeHost : public base::RefCountedThreadSafe<It2MeHost>,
   void OnClientAuthenticated(const std::string& jid) override;
   void OnClientDisconnected(const std::string& jid) override;
 
-  void SetStateForTesting(It2MeHostState state) { SetState(state); }
+  void SetStateForTesting(It2MeHostState state,
+                          const std::string& error_message) {
+    SetState(state, error_message);
+  }
 
  protected:
   friend class base::RefCountedThreadSafe<It2MeHost>;
@@ -101,10 +105,17 @@ class It2MeHost : public base::RefCountedThreadSafe<It2MeHost>,
 
  private:
   // Updates state of the host. Can be called only on the network thread.
-  void SetState(It2MeHostState state);
+  void SetState(It2MeHostState state, const std::string& error_message);
 
   // Returns true if the host is connected.
   bool IsConnected() const;
+
+  // Presents a confirmation dialog to the user before starting the connection
+  // process.
+  void ShowConfirmationPrompt();
+
+  // Processes the result of the confirmation dialog.
+  void OnConfirmationResult(It2MeConfirmationDialog::Result result);
 
   // Called by Connect() to check for policies and start connection process.
   void ReadPolicyAndConnect();
@@ -113,9 +124,9 @@ class It2MeHost : public base::RefCountedThreadSafe<It2MeHost>,
   void FinishConnect();
 
   // Called when the support host registration completes.
-  void OnReceivedSupportID(bool success,
-                           const std::string& support_id,
-                           const base::TimeDelta& lifetime);
+  void OnReceivedSupportID(const std::string& support_id,
+                           const base::TimeDelta& lifetime,
+                           const std::string& error_message);
 
   // Shuts down |host_| on the network thread and posts ShutdownOnUiThread()
   // to shut down UI thread resources.
@@ -125,12 +136,11 @@ class It2MeHost : public base::RefCountedThreadSafe<It2MeHost>,
   // the UI thread.
   void ShutdownOnUiThread();
 
-  // Called when |policy_watcher_| has stopped listening for changes and it is
-  // safe to delete it.
-  void OnPolicyWatcherShutdown();
-
   // Called when initial policies are read, and when they change.
   void OnPolicyUpdate(scoped_ptr<base::DictionaryValue> policies);
+
+  // Called when malformed policies are detected.
+  void OnPolicyError();
 
   // Handlers for NAT traversal and host domain policies.
   void UpdateNatPolicy(bool nat_traversal_enabled);
@@ -155,7 +165,9 @@ class It2MeHost : public base::RefCountedThreadSafe<It2MeHost>,
   scoped_ptr<ChromotingHost> host_;
   int failed_login_attempts_;
 
-  scoped_ptr<policy_hack::PolicyWatcher> policy_watcher_;
+  scoped_ptr<PolicyWatcher> policy_watcher_;
+  scoped_ptr<It2MeConfirmationDialogFactory> confirmation_dialog_factory_;
+  scoped_ptr<It2MeConfirmationDialogProxy> confirmation_dialog_proxy_;
 
   // Host the current nat traversal policy setting.
   bool nat_traversal_enabled_;

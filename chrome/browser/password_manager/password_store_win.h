@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_PASSWORD_MANAGER_PASSWORD_STORE_WIN_H_
 
 #include "base/memory/scoped_ptr.h"
+#include "base/memory/scoped_vector.h"
 #include "components/password_manager/core/browser/password_store_default.h"
 
 class PasswordWebDataService;
@@ -22,33 +23,30 @@ class LoginDatabase;
 // but also uses IE7 passwords if no others found.
 class PasswordStoreWin : public password_manager::PasswordStoreDefault {
  public:
-  // PasswordWebDataService is only used for IE7 password fetching.
+  // The |login_db| must not have been Init()-ed yet. It will be initialized in
+  // a deferred manner on the DB thread. The |web_data_service| is only used for
+  // IE7 password fetching.
   PasswordStoreWin(
       scoped_refptr<base::SingleThreadTaskRunner> main_thread_runner,
       scoped_refptr<base::SingleThreadTaskRunner> db_thread_runner,
-      password_manager::LoginDatabase* login_database,
-      PasswordWebDataService* web_data_service);
+      scoped_ptr<password_manager::LoginDatabase> login_db,
+      const scoped_refptr<PasswordWebDataService>& web_data_service);
 
   // PasswordStore:
-  virtual void Shutdown() override;
+  void Shutdown() override;
 
  private:
   class DBHandler;
 
-  virtual ~PasswordStoreWin();
+  ~PasswordStoreWin() override;
 
   // Invoked from Shutdown, but run on the DB thread.
   void ShutdownOnDBThread();
 
-  virtual void GetLoginsImpl(
-      const autofill::PasswordForm& form,
-      AuthorizationPromptPolicy prompt_policy,
-      const ConsumerCallbackRunner& callback_runner) override;
-
-  void GetIE7LoginIfNecessary(
-    const autofill::PasswordForm& form,
-    const ConsumerCallbackRunner& callback_runner,
-    const std::vector<autofill::PasswordForm*>& matched_forms);
+  // password_manager::PasswordStore:
+  void GetLoginsImpl(const autofill::PasswordForm& form,
+                     AuthorizationPromptPolicy prompt_policy,
+                     scoped_ptr<GetLoginsRequest> request) override;
 
   scoped_ptr<DBHandler> db_handler_;
 

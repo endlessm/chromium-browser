@@ -33,10 +33,10 @@ public:
 protected:
     explicit SVGGElement(Document&, ConstructionType = CreateSVGElement);
 
-    virtual RenderObject* createRenderer(RenderStyle*) override;
+    LayoutObject* createLayoutObject(const ComputedStyle&) override;
 
 private:
-    virtual bool rendererIsNeeded(const RenderStyle&) override;
+    bool layoutObjectIsNeeded(const ComputedStyle&) override;
 };
 
 } // namespace blink

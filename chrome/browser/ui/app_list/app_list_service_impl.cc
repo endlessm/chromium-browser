@@ -8,9 +8,12 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/location.h"
 #include "base/metrics/histogram.h"
 #include "base/prefs/pref_service.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string16.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_shutdown.h"
@@ -19,9 +22,9 @@
 #include "chrome/browser/ui/app_list/profile_loader.h"
 #include "chrome/browser/ui/app_list/profile_store.h"
 #include "chrome/common/chrome_constants.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "ui/app_list/app_list_model.h"
+#include "ui/app_list/app_list_switches.h"
 
 namespace {
 
@@ -123,11 +126,16 @@ class ProfileStoreImpl : public ProfileStore {
   }
 
   Profile* GetProfileByPath(const base::FilePath& path) override {
+    DCHECK(!IsProfileLocked(path));
     return profile_manager_->GetProfileByPath(path);
   }
 
   base::FilePath GetUserDataDir() override {
     return profile_manager_->user_data_dir();
+  }
+
+  std::string GetLastUsedProfileName() override {
+    return profile_manager_->GetLastUsedProfileName();
   }
 
   bool IsProfileSupervised(const base::FilePath& profile_path) override {
@@ -136,6 +144,14 @@ class ProfileStoreImpl : public ProfileStore {
     size_t profile_index = profile_info.GetIndexOfProfileWithPath(profile_path);
     return profile_index != std::string::npos &&
         profile_info.ProfileIsSupervisedAtIndex(profile_index);
+  }
+
+  bool IsProfileLocked(const base::FilePath& profile_path) override {
+    ProfileInfoCache& profile_info =
+        g_browser_process->profile_manager()->GetProfileInfoCache();
+    size_t profile_index = profile_info.GetIndexOfProfileWithPath(profile_path);
+    return profile_index != std::string::npos &&
+        profile_info.ProfileIsSigninRequiredAtIndex(profile_index);
   }
 
  private:
@@ -164,11 +180,9 @@ void RecordAppListDiscoverability(PrefService* local_state,
         base::TimeDelta::FromMinutes(kDiscoverabilityTimeoutMinutes) -
         base::Time::Now();
     if (time_remaining > base::TimeDelta()) {
-      base::MessageLoop::current()->PostDelayedTask(
-          FROM_HERE,
-          base::Bind(&RecordAppListDiscoverability,
-                     base::Unretained(local_state),
-                     false),
+      base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+          FROM_HERE, base::Bind(&RecordAppListDiscoverability,
+                                base::Unretained(local_state), false),
           time_remaining);
       return;
     }
@@ -197,6 +211,17 @@ void RecordAppListDiscoverability(PrefService* local_state,
                             AppListService::ENABLE_NUM_ENABLE_SOURCES);
 }
 
+// Checks whether a profile name is valid for the app list. Returns false if the
+// name is empty, or represents a guest profile.
+bool IsValidProfileName(const std::string& profile_name) {
+  if (profile_name.empty())
+    return false;
+
+  return
+      profile_name != base::FilePath(chrome::kGuestProfileDir).AsUTF8Unsafe() &&
+      profile_name != base::FilePath(chrome::kSystemProfileDir).AsUTF8Unsafe();
+}
+
 }  // namespace
 
 void AppListServiceImpl::RecordAppListLaunch() {
@@ -204,6 +229,7 @@ void AppListServiceImpl::RecordAppListLaunch() {
                             prefs::kAppListLaunchCount,
                             &SendAppListLaunch);
   RecordAppListDiscoverability(local_state_, false);
+  RecordAppListLastLaunch();
 }
 
 // static
@@ -211,6 +237,19 @@ void AppListServiceImpl::RecordAppListAppLaunch() {
   RecordDailyEventFrequency(prefs::kLastAppListAppLaunchPing,
                             prefs::kAppListAppLaunchCount,
                             &SendAppListAppLaunch);
+}
+
+// static
+void AppListServiceImpl::RecordAppListLastLaunch() {
+  if (!g_browser_process)
+    return;  // In a unit test.
+
+  PrefService* local_state = g_browser_process->local_state();
+  if (!local_state)
+    return;  // In a unit test.
+
+  local_state->SetInt64(prefs::kAppListLastLaunchTime,
+                        base::Time::Now().ToInternalValue());
 }
 
 // static
@@ -229,14 +268,14 @@ void AppListServiceImpl::SendAppListStats() {
 AppListServiceImpl::AppListServiceImpl()
     : profile_store_(
           new ProfileStoreImpl(g_browser_process->profile_manager())),
-      command_line_(*CommandLine::ForCurrentProcess()),
+      command_line_(*base::CommandLine::ForCurrentProcess()),
       local_state_(g_browser_process->local_state()),
       profile_loader_(new ProfileLoader(profile_store_.get())),
       weak_factory_(this) {
   profile_store_->AddProfileObserver(this);
 }
 
-AppListServiceImpl::AppListServiceImpl(const CommandLine& command_line,
+AppListServiceImpl::AppListServiceImpl(const base::CommandLine& command_line,
                                        PrefService* local_state,
                                        scoped_ptr<ProfileStore> profile_store)
     : profile_store_(profile_store.Pass()),
@@ -258,28 +297,11 @@ AppListViewDelegate* AppListServiceImpl::GetViewDelegate(Profile* profile) {
 
 void AppListServiceImpl::SetAppListNextPaintCallback(void (*callback)()) {}
 
-void AppListServiceImpl::HandleFirstRun() {}
-
 void AppListServiceImpl::Init(Profile* initial_profile) {}
 
 base::FilePath AppListServiceImpl::GetProfilePath(
     const base::FilePath& user_data_dir) {
-  std::string app_list_profile;
-  if (local_state_->HasPrefPath(prefs::kAppListProfile))
-    app_list_profile = local_state_->GetString(prefs::kAppListProfile);
-
-  // If the user has no profile preference for the app launcher, default to the
-  // last browser profile used.
-  if (app_list_profile.empty() &&
-      local_state_->HasPrefPath(prefs::kProfileLastUsed)) {
-    app_list_profile = local_state_->GetString(prefs::kProfileLastUsed);
-  }
-
-  // If there is no last used profile recorded, use the initial profile.
-  if (app_list_profile.empty())
-    app_list_profile = chrome::kInitialProfile;
-
-  return user_data_dir.AppendASCII(app_list_profile);
+  return user_data_dir.AppendASCII(GetProfileName());
 }
 
 void AppListServiceImpl::SetProfilePath(const base::FilePath& profile_path) {
@@ -289,6 +311,23 @@ void AppListServiceImpl::SetProfilePath(const base::FilePath& profile_path) {
 }
 
 void AppListServiceImpl::CreateShortcut() {}
+
+std::string AppListServiceImpl::GetProfileName() {
+  std::string app_list_profile =
+      local_state_->GetString(prefs::kAppListProfile);
+  if (IsValidProfileName(app_list_profile))
+    return app_list_profile;
+
+  // If the user has no profile preference for the app launcher, default to the
+  // last browser profile used.
+  app_list_profile = profile_store_->GetLastUsedProfileName();
+  if (IsValidProfileName(app_list_profile))
+    return app_list_profile;
+
+  // If the last profile used was invalid (ie, guest profile), use the initial
+  // profile.
+  return chrome::kInitialProfile;
+}
 
 void AppListServiceImpl::OnProfileWillBeRemoved(
     const base::FilePath& profile_path) {
@@ -329,9 +368,11 @@ void AppListServiceImpl::Show() {
                  weak_factory_.GetWeakPtr()));
 }
 
-void AppListServiceImpl::ShowForVoiceSearch(Profile* profile) {
+void AppListServiceImpl::ShowForVoiceSearch(
+    Profile* profile,
+    const scoped_refptr<content::SpeechRecognitionSessionPreamble>& preamble) {
   ShowForProfile(profile);
-  view_delegate_->ToggleSpeechRecognition();
+  view_delegate_->ToggleSpeechRecognitionForHotword(preamble);
 }
 
 void AppListServiceImpl::ShowForAppInstall(Profile* profile,
@@ -377,14 +418,12 @@ void AppListServiceImpl::EnableAppList(Profile* initial_profile,
   local_state_->SetInt64(prefs::kAppListEnableTime,
                          base::Time::Now().ToInternalValue());
   local_state_->SetInteger(prefs::kAppListEnableMethod, enable_source);
-  if (base::MessageLoop::current()) {
+  if (base::ThreadTaskRunnerHandle::IsSet()) {
     // Ensure a value is recorded if the user "never" shows the app list. Note
     // there is no message loop in unit tests.
-    base::MessageLoop::current()->PostDelayedTask(
-        FROM_HERE,
-        base::Bind(&RecordAppListDiscoverability,
-                   base::Unretained(local_state_),
-                   false),
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE, base::Bind(&RecordAppListDiscoverability,
+                              base::Unretained(local_state_), false),
         base::TimeDelta::FromMinutes(kDiscoverabilityTimeoutMinutes));
   }
 }
@@ -398,19 +437,18 @@ void AppListServiceImpl::PerformStartupChecks(Profile* initial_profile) {
   // returns.
   RecordAppListDiscoverability(local_state_, true);
 
-  if (command_line_.HasSwitch(switches::kResetAppListInstallState))
+  if (command_line_.HasSwitch(app_list::switches::kResetAppListInstallState))
     local_state_->SetBoolean(prefs::kAppLauncherHasBeenEnabled, false);
 
-  if (command_line_.HasSwitch(switches::kEnableAppList))
+  if (command_line_.HasSwitch(app_list::switches::kEnableAppList))
     EnableAppList(initial_profile, ENABLE_VIA_COMMAND_LINE);
 
-  if (!base::MessageLoop::current())
+  if (!base::ThreadTaskRunnerHandle::IsSet())
     return;  // In a unit test.
 
   // Send app list usage stats after a delay.
   const int kSendUsageStatsDelay = 5;
-  base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::Bind(&AppListServiceImpl::SendAppListStats),
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, base::Bind(&AppListServiceImpl::SendAppListStats),
       base::TimeDelta::FromSeconds(kSendUsageStatsDelay));
 }

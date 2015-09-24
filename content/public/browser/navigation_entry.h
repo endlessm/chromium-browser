@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/memory/ref_counted_memory.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
 #include "content/common/content_export.h"
@@ -31,8 +32,7 @@ class NavigationEntry {
  public:
   virtual ~NavigationEntry() {}
 
-  CONTENT_EXPORT static NavigationEntry* Create();
-  CONTENT_EXPORT static NavigationEntry* Create(const NavigationEntry& copy);
+  CONTENT_EXPORT static scoped_ptr<NavigationEntry> Create();
 
   // Page-related stuff --------------------------------------------------------
 
@@ -97,7 +97,7 @@ class NavigationEntry {
 
   // Returns the title to be displayed on the tab. This could be the title of
   // the page if it is available or the URL. |languages| is the list of
-  // accpeted languages (e.g., prefs::kAcceptLanguages) or empty if proper
+  // accepted languages (e.g., prefs::kAcceptLanguages) or empty if proper
   // URL formatting isn't needed (e.g., unit tests).
   virtual const base::string16& GetTitleForDisplay(
       const std::string& languages) const = 0;
@@ -145,7 +145,7 @@ class NavigationEntry {
   // Note, this field:
   // 1) is not persisted in session restore.
   // 2) is shallow copied with the static copy Create method above.
-  // 3) may be NULL so check before use.
+  // 3) may be nullptr so check before use.
   virtual void SetBrowserInitiatedPostData(
       const base::RefCountedMemory* data) = 0;
   virtual const base::RefCountedMemory* GetBrowserInitiatedPostData() const = 0;
@@ -183,12 +183,6 @@ class NavigationEntry {
   // resources.
   virtual void SetCanLoadLocalResources(bool allow) = 0;
   virtual bool GetCanLoadLocalResources() const = 0;
-
-  // Used to specify which frame to navigate. If empty, the main frame is
-  // navigated. This is currently not persisted in session restore, because it
-  // is currently only used in tests.
-  virtual void SetFrameToNavigate(const std::string& frame_name) = 0;
-  virtual const std::string& GetFrameToNavigate() const = 0;
 
   // Set extra data on this NavigationEntry according to the specified |key|.
   // This data is not persisted by default.

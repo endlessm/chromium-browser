@@ -5,10 +5,11 @@
 #include "chrome/browser/ui/views/apps/shaped_app_window_targeter.h"
 
 #include "apps/ui/views/app_window_frame_view.h"
-#include "chrome/browser/ui/views/apps/chrome_native_app_window_views.h"
+#include "chrome/browser/ui/views/apps/chrome_native_app_window_views_aura.h"
 #include "ui/aura/test/aura_test_base.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher.h"
+#include "ui/events/event_utils.h"
 #include "ui/views/controls/webview/webview.h"
 #include "ui/wm/core/default_activation_client.h"
 #include "ui/wm/core/easy_resize_window_targeter.h"
@@ -24,7 +25,7 @@ class ShapedAppWindowTargeterTest : public aura::test::AuraTestBase {
   views::Widget* widget() { return widget_.get(); }
 
   extensions::NativeAppWindow* app_window() { return &app_window_; }
-  ChromeNativeAppWindowViews* app_window_views() { return &app_window_; }
+  ChromeNativeAppWindowViewsAura* app_window_views() { return &app_window_; }
 
  protected:
   void SetUp() override {
@@ -52,7 +53,7 @@ class ShapedAppWindowTargeterTest : public aura::test::AuraTestBase {
  private:
   views::WebView web_view_;
   scoped_ptr<views::Widget> widget_;
-  ChromeNativeAppWindowViews app_window_;
+  ChromeNativeAppWindowViewsAura app_window_;
 
   DISALLOW_COPY_AND_ASSIGN(ShapedAppWindowTargeterTest);
 };
@@ -62,9 +63,9 @@ TEST_F(ShapedAppWindowTargeterTest, HitTestBasic) {
   {
     // Without any custom shapes, the event should be targeted correctly to the
     // window.
-    ui::MouseEvent move(ui::ET_MOUSE_MOVED,
-                        gfx::Point(40, 40), gfx::Point(40, 40),
-                        ui::EF_NONE, ui::EF_NONE);
+    ui::MouseEvent move(ui::ET_MOUSE_MOVED, gfx::Point(40, 40),
+                        gfx::Point(40, 40), ui::EventTimeForNow(), ui::EF_NONE,
+                        ui::EF_NONE);
     ui::EventDispatchDetails details =
         event_processor()->OnEventFromSource(&move);
     ASSERT_FALSE(details.dispatcher_destroyed);
@@ -77,9 +78,9 @@ TEST_F(ShapedAppWindowTargeterTest, HitTestBasic) {
   {
     // With an empty custom shape, all events within the window should fall
     // through to the root window.
-    ui::MouseEvent move(ui::ET_MOUSE_MOVED,
-                        gfx::Point(40, 40), gfx::Point(40, 40),
-                        ui::EF_NONE, ui::EF_NONE);
+    ui::MouseEvent move(ui::ET_MOUSE_MOVED, gfx::Point(40, 40),
+                        gfx::Point(40, 40), ui::EventTimeForNow(), ui::EF_NONE,
+                        ui::EF_NONE);
     ui::EventDispatchDetails details =
         event_processor()->OnEventFromSource(&move);
     ASSERT_FALSE(details.dispatcher_destroyed);
@@ -102,18 +103,18 @@ TEST_F(ShapedAppWindowTargeterTest, HitTestBasic) {
   {
     // With the custom shape, the events that don't fall within the custom shape
     // will go through to the root window.
-    ui::MouseEvent move(ui::ET_MOUSE_MOVED,
-                        gfx::Point(40, 40), gfx::Point(40, 40),
-                        ui::EF_NONE, ui::EF_NONE);
+    ui::MouseEvent move(ui::ET_MOUSE_MOVED, gfx::Point(40, 40),
+                        gfx::Point(40, 40), ui::EventTimeForNow(), ui::EF_NONE,
+                        ui::EF_NONE);
     ui::EventDispatchDetails details =
         event_processor()->OnEventFromSource(&move);
     ASSERT_FALSE(details.dispatcher_destroyed);
     EXPECT_EQ(root_window(), move.target());
 
     // But events within the shape will still reach the window.
-    ui::MouseEvent move2(ui::ET_MOUSE_MOVED,
-                         gfx::Point(80, 80), gfx::Point(80, 80),
-                         ui::EF_NONE, ui::EF_NONE);
+    ui::MouseEvent move2(ui::ET_MOUSE_MOVED, gfx::Point(80, 80),
+                         gfx::Point(80, 80), ui::EventTimeForNow(), ui::EF_NONE,
+                         ui::EF_NONE);
     details = event_processor()->OnEventFromSource(&move2);
     ASSERT_FALSE(details.dispatcher_destroyed);
     EXPECT_EQ(window, move2.target());
@@ -132,9 +133,9 @@ TEST_F(ShapedAppWindowTargeterTest, HitTestOnlyForShapedWindow) {
   {
     // Without any custom shapes, an event within the window bounds should be
     // targeted correctly to the window.
-    ui::MouseEvent move(ui::ET_MOUSE_MOVED,
-                        gfx::Point(40, 40), gfx::Point(40, 40),
-                        ui::EF_NONE, ui::EF_NONE);
+    ui::MouseEvent move(ui::ET_MOUSE_MOVED, gfx::Point(40, 40),
+                        gfx::Point(40, 40), ui::EventTimeForNow(), ui::EF_NONE,
+                        ui::EF_NONE);
     ui::EventDispatchDetails details =
         event_processor()->OnEventFromSource(&move);
     ASSERT_FALSE(details.dispatcher_destroyed);
@@ -144,9 +145,9 @@ TEST_F(ShapedAppWindowTargeterTest, HitTestOnlyForShapedWindow) {
     // Without any custom shapes, an event that falls just outside the window
     // bounds should also be targeted correctly to the window, because of the
     // targeter installed on the root-window.
-    ui::MouseEvent move(ui::ET_MOUSE_MOVED,
-                        gfx::Point(10, 10), gfx::Point(10, 10),
-                        ui::EF_NONE, ui::EF_NONE);
+    ui::MouseEvent move(ui::ET_MOUSE_MOVED, gfx::Point(10, 10),
+                        gfx::Point(10, 10), ui::EventTimeForNow(), ui::EF_NONE,
+                        ui::EF_NONE);
     ui::EventDispatchDetails details =
         event_processor()->OnEventFromSource(&move);
     ASSERT_FALSE(details.dispatcher_destroyed);
@@ -160,9 +161,9 @@ TEST_F(ShapedAppWindowTargeterTest, HitTestOnlyForShapedWindow) {
   {
     // With the custom shape, the events that don't fall within the custom shape
     // will go through to the root window.
-    ui::MouseEvent move(ui::ET_MOUSE_MOVED,
-                        gfx::Point(10, 10), gfx::Point(10, 10),
-                        ui::EF_NONE, ui::EF_NONE);
+    ui::MouseEvent move(ui::ET_MOUSE_MOVED, gfx::Point(10, 10),
+                        gfx::Point(10, 10), ui::EventTimeForNow(), ui::EF_NONE,
+                        ui::EF_NONE);
     ui::EventDispatchDetails details =
         event_processor()->OnEventFromSource(&move);
     ASSERT_FALSE(details.dispatcher_destroyed);
@@ -173,9 +174,9 @@ TEST_F(ShapedAppWindowTargeterTest, HitTestOnlyForShapedWindow) {
   // app window for events just outside its bounds.
   app_window()->UpdateShape(scoped_ptr<SkRegion>());
   {
-    ui::MouseEvent move(ui::ET_MOUSE_MOVED,
-                        gfx::Point(10, 10), gfx::Point(10, 10),
-                        ui::EF_NONE, ui::EF_NONE);
+    ui::MouseEvent move(ui::ET_MOUSE_MOVED, gfx::Point(10, 10),
+                        gfx::Point(10, 10), ui::EventTimeForNow(), ui::EF_NONE,
+                        ui::EF_NONE);
     ui::EventDispatchDetails details =
         event_processor()->OnEventFromSource(&move);
     ASSERT_FALSE(details.dispatcher_destroyed);
@@ -190,9 +191,9 @@ TEST_F(ShapedAppWindowTargeterTest, ResizeInsetsWithinBounds) {
   {
     // An event in the center of the window should always have
     // |window| as its target.
-    ui::MouseEvent move(ui::ET_MOUSE_MOVED,
-                        gfx::Point(80, 80), gfx::Point(80, 80),
-                        ui::EF_NONE, ui::EF_NONE);
+    ui::MouseEvent move(ui::ET_MOUSE_MOVED, gfx::Point(80, 80),
+                        gfx::Point(80, 80), ui::EventTimeForNow(), ui::EF_NONE,
+                        ui::EF_NONE);
     ui::EventDispatchDetails details =
         event_processor()->OnEventFromSource(&move);
     ASSERT_FALSE(details.dispatcher_destroyed);
@@ -202,9 +203,9 @@ TEST_F(ShapedAppWindowTargeterTest, ResizeInsetsWithinBounds) {
     // Without an EasyResizeTargeter on the container, an event
     // inside the window and within 5px of an edge should have
     // |window| as its target.
-    ui::MouseEvent move(ui::ET_MOUSE_MOVED,
-                        gfx::Point(32, 37), gfx::Point(32, 37),
-                        ui::EF_NONE, ui::EF_NONE);
+    ui::MouseEvent move(ui::ET_MOUSE_MOVED, gfx::Point(32, 37),
+                        gfx::Point(32, 37), ui::EventTimeForNow(), ui::EF_NONE,
+                        ui::EF_NONE);
     ui::EventDispatchDetails details =
         event_processor()->OnEventFromSource(&move);
     ASSERT_FALSE(details.dispatcher_destroyed);
@@ -213,7 +214,7 @@ TEST_F(ShapedAppWindowTargeterTest, ResizeInsetsWithinBounds) {
 
 #if !defined(OS_CHROMEOS)
   // The non standard app frame has a easy resize targetter installed.
-  scoped_ptr<apps::AppWindowFrameView> frame(
+  scoped_ptr<views::NonClientFrameView> frame(
       app_window_views()->CreateNonStandardAppFrame());
   {
     // Ensure that the window has an event targeter (there should be an
@@ -231,9 +232,9 @@ TEST_F(ShapedAppWindowTargeterTest, ResizeInsetsWithinBounds) {
     // RenderWidgetHostViewAura, we cannot differentiate the two cases. Fix
     // the test environment so that the test can assert that non-border events
     // bubble down to a child of |window|.
-    ui::MouseEvent move(ui::ET_MOUSE_MOVED,
-                        gfx::Point(80, 80), gfx::Point(80, 80),
-                        ui::EF_NONE, ui::EF_NONE);
+    ui::MouseEvent move(ui::ET_MOUSE_MOVED, gfx::Point(80, 80),
+                        gfx::Point(80, 80), ui::EventTimeForNow(), ui::EF_NONE,
+                        ui::EF_NONE);
     ui::EventDispatchDetails details =
         event_processor()->OnEventFromSource(&move);
     ASSERT_FALSE(details.dispatcher_destroyed);
@@ -243,9 +244,9 @@ TEST_F(ShapedAppWindowTargeterTest, ResizeInsetsWithinBounds) {
     // With an EasyResizeTargeter on the container, an event
     // inside the window and within 5px of an edge should have
     // |window| as its target.
-    ui::MouseEvent move(ui::ET_MOUSE_MOVED,
-                        gfx::Point(32, 37), gfx::Point(32, 37),
-                        ui::EF_NONE, ui::EF_NONE);
+    ui::MouseEvent move(ui::ET_MOUSE_MOVED, gfx::Point(32, 37),
+                        gfx::Point(32, 37), ui::EventTimeForNow(), ui::EF_NONE,
+                        ui::EF_NONE);
     ui::EventDispatchDetails details =
         event_processor()->OnEventFromSource(&move);
     ASSERT_FALSE(details.dispatcher_destroyed);

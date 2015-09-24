@@ -3,14 +3,13 @@
 # found in the LICENSE file.
 
 from telemetry.page import page as page_module
-from telemetry.page import page_set as page_set_module
+from telemetry import story
 
 
 class SmokePage(page_module.Page):
 
   def __init__(self, url, page_set, name=''):
     super(SmokePage, self).__init__(url=url, page_set=page_set, name=name)
-    self.archive_data_file = '../data/chrome_proxy_smoke.json'
 
 
 class Page1(SmokePage):
@@ -21,7 +20,7 @@ class Page1(SmokePage):
 
   def __init__(self, page_set):
     super(Page1, self).__init__(
-      url='http://aws1.mdw.la/fw/',
+      url='http://check.googlezip.net/test.html',
       page_set=page_set,
       name='header validation')
 
@@ -34,7 +33,7 @@ class Page2(SmokePage):
 
   def __init__(self, page_set):
     super(Page2, self).__init__(
-      url='http://aws1.mdw.la/static/',
+      url='http://check.googlezip.net/static/',
       page_set=page_set,
       name='compression: image')
 
@@ -47,10 +46,9 @@ class Page3(SmokePage):
 
   def __init__(self, page_set):
     super(Page3, self).__init__(
-      url='http://aws1.mdw.la/bypass/',
+      url='http://check.googlezip.net/block/',
       page_set=page_set,
       name='bypass')
-    self.restart_after = True
 
 
 class Page4(SmokePage):
@@ -61,7 +59,7 @@ class Page4(SmokePage):
 
   def __init__(self, page_set):
     super(Page4, self).__init__(
-      url='http://aws1.mdw.la/static/',
+      url='http://check.googlezip.net/static/',
       page_set=page_set,
       name='compression: javascript')
 
@@ -74,39 +72,21 @@ class Page5(SmokePage):
 
   def __init__(self, page_set):
     super(Page5, self).__init__(
-      url='http://aws1.mdw.la/static/',
+      url='http://check.googlezip.net/static/',
       page_set=page_set,
       name='compression: css')
 
 
-class Page6(SmokePage):
 
-  """
-  Why: Expect 'malware ahead' page. Use a short navigation timeout because no
-  response will be received.
-  """
-
-  def __init__(self, page_set):
-    super(Page6, self).__init__(
-      url='http://www.ianfette.org/',
-      page_set=page_set,
-      name='safebrowsing')
-
-  def RunNavigateSteps(self, action_runner):
-    action_runner.NavigateToPage(self, timeout_in_seconds=5)
-
-
-class SmokePageSet(page_set_module.PageSet):
+class SmokeStorySet(story.StorySet):
 
   """ Chrome proxy test sites """
 
   def __init__(self):
-    super(SmokePageSet, self).__init__(
-      archive_data_file='../data/chrome_proxy_smoke.json')
+    super(SmokeStorySet, self).__init__()
 
-    self.AddPage(Page1(self))
-    self.AddPage(Page2(self))
-    self.AddPage(Page3(self))
-    self.AddPage(Page4(self))
-    self.AddPage(Page5(self))
-    self.AddPage(Page6(self))
+    self.AddStory(Page1(self))
+    self.AddStory(Page2(self))
+    self.AddStory(Page3(self))
+    self.AddStory(Page4(self))
+    self.AddStory(Page5(self))

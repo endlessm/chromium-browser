@@ -1,11 +1,14 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include <limits>
+
 #include "../../include/fxcrt/fx_ext.h"
+#include "../../include/fxcrt/fx_string.h"
+
 template <class T, class STR_T>
 T FXSYS_StrToInt(STR_T str)
 {
@@ -30,57 +33,64 @@ T FXSYS_StrToInt(STR_T str)
     }
     return neg ? -num : num;
 }
-template <typename T, typename STR_T>
+
+template <typename T, typename UT, typename STR_T>
 STR_T FXSYS_IntToStr(T value, STR_T string, int radix)
 {
-    int i = 0;
-    if (value < 0) {
-        string[i++] = '-';
-        value = -value;
-    } else if (value == 0) {
+    if (radix < 2 || radix > 16) {
+        string[0] = 0;
+        return string;
+    }
+    if (value == 0) {
         string[0] = '0';
         string[1] = 0;
         return string;
     }
+    int i = 0;
+    UT uvalue;
+    if (value < 0) {
+        string[i++] = '-';
+        // Standard trick to avoid undefined behaviour when negating INT_MIN.
+        uvalue = static_cast<UT>(-(value + 1)) + 1;
+    } else {
+        uvalue = value;
+    }
     int digits = 1;
-    T order = value / 10;
+    T order = uvalue / radix;
     while(order > 0) {
         digits++;
-        order = order / 10;
+        order = order / radix;
     }
     for (int d = digits - 1; d > -1; d--) {
-        string[d + i] = "0123456789abcdef"[value % 10];
-        value /= 10;
+        string[d + i] = "0123456789abcdef"[uvalue % radix];
+        uvalue /= radix;
     }
     string[digits + i] = 0;
     return string;
 }
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-FX_INT32 FXSYS_atoi(FX_LPCSTR str)
+int32_t FXSYS_atoi(const FX_CHAR* str)
 {
-    return FXSYS_StrToInt<FX_INT32, FX_LPCSTR>(str);
+    return FXSYS_StrToInt<int32_t, const FX_CHAR*>(str);
 }
-FX_INT32 FXSYS_wtoi(FX_LPCWSTR str)
+int32_t FXSYS_wtoi(const FX_WCHAR* str)
 {
-    return FXSYS_StrToInt<FX_INT32, FX_LPCWSTR>(str);
+    return FXSYS_StrToInt<int32_t, const FX_WCHAR*>(str);
 }
-FX_INT64 FXSYS_atoi64(FX_LPCSTR str)
+int64_t FXSYS_atoi64(const FX_CHAR* str)
 {
-    return FXSYS_StrToInt<FX_INT64, FX_LPCSTR>(str);
+    return FXSYS_StrToInt<int64_t, const FX_CHAR*>(str);
 }
-FX_INT64 FXSYS_wtoi64(FX_LPCWSTR str)
+int64_t FXSYS_wtoi64(const FX_WCHAR* str)
 {
-    return FXSYS_StrToInt<FX_INT64, FX_LPCWSTR>(str);
+    return FXSYS_StrToInt<int64_t, const FX_WCHAR*>(str);
 }
-FX_LPCSTR FXSYS_i64toa(FX_INT64 value, FX_LPSTR str, int radix)
+const FX_CHAR* FXSYS_i64toa(int64_t value, FX_CHAR* str, int radix)
 {
-    return FXSYS_IntToStr<FX_INT64, FX_LPSTR>(value, str, radix);
-}
-FX_LPCWSTR FXSYS_i64tow(FX_INT64 value, FX_LPWSTR str, int radix)
-{
-    return FXSYS_IntToStr<FX_INT64, FX_LPWSTR>(value, str, radix);
+    return FXSYS_IntToStr<int64_t, uint64_t, FX_CHAR*>(value, str, radix);
 }
 #ifdef __cplusplus
 }
@@ -93,7 +103,7 @@ int FXSYS_GetACP()
 {
     return 0;
 }
-FX_DWORD FXSYS_GetFullPathName(FX_LPCSTR filename, FX_DWORD buflen, FX_LPSTR buf, FX_LPSTR* filepart)
+FX_DWORD FXSYS_GetFullPathName(const FX_CHAR* filename, FX_DWORD buflen, FX_CHAR* buf, FX_CHAR** filepart)
 {
     int srclen = FXSYS_strlen(filename);
     if (buf == NULL || (int)buflen < srclen + 1) {
@@ -102,7 +112,7 @@ FX_DWORD FXSYS_GetFullPathName(FX_LPCSTR filename, FX_DWORD buflen, FX_LPSTR buf
     FXSYS_strcpy(buf, filename);
     return srclen;
 }
-FX_DWORD FXSYS_GetModuleFileName(FX_LPVOID hModule, char* buf, FX_DWORD bufsize)
+FX_DWORD FXSYS_GetModuleFileName(void* hModule, char* buf, FX_DWORD bufsize)
 {
     return (FX_DWORD) - 1;
 }
@@ -114,7 +124,7 @@ FX_DWORD FXSYS_GetModuleFileName(FX_LPVOID hModule, char* buf, FX_DWORD bufsize)
 #ifdef __cplusplus
 extern "C" {
 #endif
-FXSYS_FILE* FXSYS_wfopen(FX_LPCWSTR filename, FX_LPCWSTR mode)
+FXSYS_FILE* FXSYS_wfopen(const FX_WCHAR* filename, const FX_WCHAR* mode)
 {
     return FXSYS_fopen(CFX_ByteString::FromUnicode(filename), CFX_ByteString::FromUnicode(mode));
 }
@@ -194,7 +204,7 @@ int FXSYS_wcsicmp(const FX_WCHAR *dst, const FX_WCHAR *src)
 }
 char* FXSYS_itoa(int value, char* string, int radix)
 {
-    return FXSYS_IntToStr<FX_INT32, FX_LPSTR>(value, string, radix);
+    return FXSYS_IntToStr<int32_t, uint32_t, FX_CHAR*>(value, string, radix);
 }
 #ifdef __cplusplus
 }
@@ -204,8 +214,8 @@ char* FXSYS_itoa(int value, char* string, int radix)
 #ifdef __cplusplus
 extern "C" {
 #endif
-int FXSYS_WideCharToMultiByte(FX_DWORD codepage, FX_DWORD dwFlags, FX_LPCWSTR wstr, int wlen,
-                              FX_LPSTR buf, int buflen, FX_LPCSTR default_str, FX_BOOL* pUseDefault)
+int FXSYS_WideCharToMultiByte(FX_DWORD codepage, FX_DWORD dwFlags, const FX_WCHAR* wstr, int wlen,
+                              FX_CHAR* buf, int buflen, const FX_CHAR* default_str, FX_BOOL* pUseDefault)
 {
     int len = 0;
     for (int i = 0; i < wlen; i ++) {
@@ -218,8 +228,8 @@ int FXSYS_WideCharToMultiByte(FX_DWORD codepage, FX_DWORD dwFlags, FX_LPCWSTR ws
     }
     return len;
 }
-int FXSYS_MultiByteToWideChar(FX_DWORD codepage, FX_DWORD dwFlags, FX_LPCSTR bstr, int blen,
-                              FX_LPWSTR buf, int buflen)
+int FXSYS_MultiByteToWideChar(FX_DWORD codepage, FX_DWORD dwFlags, const FX_CHAR* bstr, int blen,
+                              FX_WCHAR* buf, int buflen)
 {
     int wlen = 0;
     for (int i = 0; i < blen; i ++) {

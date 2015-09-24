@@ -42,18 +42,17 @@ class AutolaunchInfoBarDelegate : public ConfirmInfoBarDelegate {
 
  private:
   explicit AutolaunchInfoBarDelegate(Profile* profile);
-  virtual ~AutolaunchInfoBarDelegate();
+  ~AutolaunchInfoBarDelegate() override;
 
   void set_should_expire() { should_expire_ = true; }
 
   // ConfirmInfoBarDelegate:
-  virtual int GetIconID() const override;
-  virtual base::string16 GetMessageText() const override;
-  virtual base::string16 GetButtonLabel(InfoBarButton button) const override;
-  virtual bool Accept() override;
-  virtual bool Cancel() override;
-  virtual bool ShouldExpireInternal(
-      const NavigationDetails& details) const override;
+  int GetIconID() const override;
+  bool ShouldExpire(const NavigationDetails& details) const override;
+  base::string16 GetMessageText() const override;
+  base::string16 GetButtonLabel(InfoBarButton button) const override;
+  bool Accept() override;
+  bool Cancel() override;
 
   // Weak pointer to the profile, not owned by us.
   Profile* profile_;
@@ -70,8 +69,8 @@ class AutolaunchInfoBarDelegate : public ConfirmInfoBarDelegate {
 // static
 void AutolaunchInfoBarDelegate::Create(InfoBarService* infobar_service,
                                        Profile* profile) {
-  infobar_service->AddInfoBar(ConfirmInfoBarDelegate::CreateInfoBar(
-      scoped_ptr<ConfirmInfoBarDelegate>(
+  infobar_service->AddInfoBar(
+      infobar_service->CreateConfirmInfoBar(scoped_ptr<ConfirmInfoBarDelegate>(
           new AutolaunchInfoBarDelegate(profile))));
 }
 
@@ -101,6 +100,11 @@ int AutolaunchInfoBarDelegate::GetIconID() const {
   return IDR_PRODUCT_LOGO_32;
 }
 
+bool AutolaunchInfoBarDelegate::ShouldExpire(
+    const NavigationDetails& details) const {
+  return should_expire_ && ConfirmInfoBarDelegate::ShouldExpire(details);
+}
+
 base::string16 AutolaunchInfoBarDelegate::GetMessageText() const {
   return l10n_util::GetStringUTF16(IDS_AUTO_LAUNCH_INFOBAR_TEXT);
 }
@@ -121,11 +125,6 @@ bool AutolaunchInfoBarDelegate::Cancel() {
       base::Bind(&auto_launch_util::DisableForegroundStartAtLogin,
                  profile_->GetPath().BaseName().value()));
   return true;
-}
-
-bool AutolaunchInfoBarDelegate::ShouldExpireInternal(
-    const NavigationDetails& details) const {
-  return should_expire_;
 }
 
 }  // namespace
@@ -152,7 +151,8 @@ bool ShowAutolaunchPrompt(Browser* browser) {
   if (infobar_shown >= kMaxTimesToShowInfoBar)
     return false;
 
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
   if (!command_line.HasSwitch(switches::kAutoLaunchAtStartup) &&
       !first_run::IsChromeFirstRun()) {
     return false;
@@ -167,9 +167,7 @@ bool ShowAutolaunchPrompt(Browser* browser) {
 }
 
 void RegisterAutolaunchUserPrefs(user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterIntegerPref(
-      prefs::kShownAutoLaunchInfobar, 0,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterIntegerPref(prefs::kShownAutoLaunchInfobar, 0);
 }
 
 }  // namespace chrome

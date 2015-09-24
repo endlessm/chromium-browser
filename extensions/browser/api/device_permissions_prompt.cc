@@ -4,10 +4,14 @@
 
 #include "extensions/browser/api/device_permissions_prompt.h"
 
+#include "base/bind.h"
+#include "base/scoped_observer.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "content/public/browser/browser_thread.h"
 #include "device/core/device_client.h"
+#include "device/hid/hid_device_filter.h"
+#include "device/hid/hid_device_info.h"
+#include "device/hid/hid_service.h"
 #include "device/usb/usb_device.h"
 #include "device/usb/usb_device_filter.h"
 #include "device/usb/usb_ids.h"
@@ -17,46 +21,290 @@
 #include "extensions/strings/grit/extensions_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 
-namespace extensions {
+#if defined(OS_CHROMEOS)
+#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/dbus/permission_broker_client.h"
+#include "device/hid/hid_device_info_linux.h"
+#endif  // defined(OS_CHROMEOS)
 
+using device::HidDeviceFilter;
+using device::HidService;
 using device::UsbDevice;
 using device::UsbDeviceFilter;
 using device::UsbService;
 
-DevicePermissionsPrompt::Prompt::DeviceInfo::DeviceInfo(
-    scoped_refptr<UsbDevice> device,
-    const base::string16& name,
-    const base::string16& product_string,
-    const base::string16& manufacturer_string,
-    const base::string16& serial_number)
-    : device(device),
-      name(name),
-      product_string(product_string),
-      manufacturer_string(manufacturer_string),
-      serial_number(serial_number) {
+namespace extensions {
+
+namespace {
+
+class UsbDeviceInfo : public DevicePermissionsPrompt::Prompt::DeviceInfo {
+ public:
+  UsbDeviceInfo(scoped_refptr<UsbDevice> device) : device_(device) {
+    name_ = DevicePermissionsManager::GetPermissionMessage(
+        device->vendor_id(), device->product_id(),
+        device->manufacturer_string(), device->product_string(),
+        base::string16(),  // Serial number is displayed separately.
+        true);
+    serial_number_ = device->serial_number();
+  }
+
+  ~UsbDeviceInfo() override {}
+
+  const scoped_refptr<UsbDevice>& device() const { return device_; }
+
+ private:
+  // TODO(reillyg): Convert this to a weak reference when UsbDevice has a
+  // connected flag.
+  scoped_refptr<UsbDevice> device_;
+};
+
+class UsbDevicePermissionsPrompt : public DevicePermissionsPrompt::Prompt,
+                                   public device::UsbService::Observer {
+ public:
+  UsbDevicePermissionsPrompt(
+      const Extension* extension,
+      content::BrowserContext* context,
+      bool multiple,
+      const std::vector<UsbDeviceFilter>& filters,
+      const DevicePermissionsPrompt::UsbDevicesCallback& callback)
+      : Prompt(extension, context, multiple),
+        filters_(filters),
+        callback_(callback),
+        service_observer_(this) {}
+
+ private:
+  ~UsbDevicePermissionsPrompt() override {}
+
+  // DevicePermissionsPrompt::Prompt implementation:
+  void SetObserver(
+      DevicePermissionsPrompt::Prompt::Observer* observer) override {
+    DevicePermissionsPrompt::Prompt::SetObserver(observer);
+
+    if (observer) {
+      UsbService* service = device::DeviceClient::Get()->GetUsbService();
+      if (service && !service_observer_.IsObserving(service)) {
+        service->GetDevices(
+            base::Bind(&UsbDevicePermissionsPrompt::OnDevicesEnumerated, this));
+        service_observer_.Add(service);
+      }
+    }
+  }
+
+  base::string16 GetHeading() const override {
+    return l10n_util::GetStringUTF16(
+        multiple() ? IDS_USB_DEVICE_PERMISSIONS_PROMPT_TITLE_MULTIPLE
+                   : IDS_USB_DEVICE_PERMISSIONS_PROMPT_TITLE_SINGLE);
+  }
+
+  void Dismissed() override {
+    DevicePermissionsManager* permissions_manager =
+        DevicePermissionsManager::Get(browser_context());
+    std::vector<scoped_refptr<UsbDevice>> devices;
+    for (const DeviceInfo* device : devices_) {
+      if (device->granted()) {
+        const UsbDeviceInfo* usb_device =
+            static_cast<const UsbDeviceInfo*>(device);
+        devices.push_back(usb_device->device());
+        if (permissions_manager) {
+          permissions_manager->AllowUsbDevice(extension()->id(),
+                                              usb_device->device());
+        }
+      }
+    }
+    DCHECK(multiple() || devices.size() <= 1);
+    callback_.Run(devices);
+    callback_.Reset();
+  }
+
+  // device::UsbService::Observer implementation:
+  void OnDeviceAdded(scoped_refptr<UsbDevice> device) override {
+    if (!(filters_.empty() || UsbDeviceFilter::MatchesAny(device, filters_))) {
+      return;
+    }
+
+    scoped_ptr<DeviceInfo> device_info(new UsbDeviceInfo(device));
+    device->CheckUsbAccess(
+        base::Bind(&UsbDevicePermissionsPrompt::AddCheckedDevice, this,
+                   base::Passed(&device_info)));
+  }
+
+  void OnDeviceRemoved(scoped_refptr<UsbDevice> device) override {
+    for (auto it = devices_.begin(); it != devices_.end(); ++it) {
+      const UsbDeviceInfo* entry = static_cast<const UsbDeviceInfo*>(*it);
+      if (entry->device() == device) {
+        devices_.erase(it);
+        if (observer()) {
+          observer()->OnDevicesChanged();
+        }
+        return;
+      }
+    }
+  }
+
+  void OnDevicesEnumerated(
+      const std::vector<scoped_refptr<UsbDevice>>& devices) {
+    for (const auto& device : devices) {
+      OnDeviceAdded(device);
+    }
+  }
+
+  std::vector<UsbDeviceFilter> filters_;
+  DevicePermissionsPrompt::UsbDevicesCallback callback_;
+  ScopedObserver<UsbService, UsbService::Observer> service_observer_;
+};
+
+class HidDeviceInfo : public DevicePermissionsPrompt::Prompt::DeviceInfo {
+ public:
+  HidDeviceInfo(scoped_refptr<device::HidDeviceInfo> device) : device_(device) {
+    name_ = DevicePermissionsManager::GetPermissionMessage(
+        device->vendor_id(), device->product_id(),
+        base::string16(),  // HID devices include manufacturer in product name.
+        base::UTF8ToUTF16(device->product_name()),
+        base::string16(),  // Serial number is displayed separately.
+        false);
+    serial_number_ = base::UTF8ToUTF16(device->serial_number());
+  }
+
+  ~HidDeviceInfo() override {}
+
+  const scoped_refptr<device::HidDeviceInfo>& device() const { return device_; }
+
+ private:
+  scoped_refptr<device::HidDeviceInfo> device_;
+};
+
+class HidDevicePermissionsPrompt : public DevicePermissionsPrompt::Prompt,
+                                   public device::HidService::Observer {
+ public:
+  HidDevicePermissionsPrompt(
+      const Extension* extension,
+      content::BrowserContext* context,
+      bool multiple,
+      const std::vector<HidDeviceFilter>& filters,
+      const DevicePermissionsPrompt::HidDevicesCallback& callback)
+      : Prompt(extension, context, multiple),
+        filters_(filters),
+        callback_(callback),
+        service_observer_(this) {}
+
+ private:
+  ~HidDevicePermissionsPrompt() override {}
+
+  // DevicePermissionsPrompt::Prompt implementation:
+  void SetObserver(
+      DevicePermissionsPrompt::Prompt::Observer* observer) override {
+    DevicePermissionsPrompt::Prompt::SetObserver(observer);
+
+    if (observer) {
+      HidService* service = device::DeviceClient::Get()->GetHidService();
+      if (service && !service_observer_.IsObserving(service)) {
+        service->GetDevices(
+            base::Bind(&HidDevicePermissionsPrompt::OnDevicesEnumerated, this));
+        service_observer_.Add(service);
+      }
+    }
+  }
+
+  base::string16 GetHeading() const override {
+    return l10n_util::GetStringUTF16(
+        multiple() ? IDS_HID_DEVICE_PERMISSIONS_PROMPT_TITLE_MULTIPLE
+                   : IDS_HID_DEVICE_PERMISSIONS_PROMPT_TITLE_SINGLE);
+  }
+
+  void Dismissed() override {
+    DevicePermissionsManager* permissions_manager =
+        DevicePermissionsManager::Get(browser_context());
+    std::vector<scoped_refptr<device::HidDeviceInfo>> devices;
+    for (const DeviceInfo* device : devices_) {
+      if (device->granted()) {
+        const HidDeviceInfo* hid_device =
+            static_cast<const HidDeviceInfo*>(device);
+        devices.push_back(hid_device->device());
+        if (permissions_manager) {
+          permissions_manager->AllowHidDevice(extension()->id(),
+                                              hid_device->device());
+        }
+      }
+    }
+    DCHECK(multiple() || devices.size() <= 1);
+    callback_.Run(devices);
+    callback_.Reset();
+  }
+
+  // device::HidService::Observer implementation:
+  void OnDeviceAdded(scoped_refptr<device::HidDeviceInfo> device) override {
+    if (HasUnprotectedCollections(device) &&
+        (filters_.empty() || HidDeviceFilter::MatchesAny(device, filters_))) {
+      scoped_ptr<DeviceInfo> device_info(new HidDeviceInfo(device));
+#if defined(OS_CHROMEOS)
+      chromeos::PermissionBrokerClient* client =
+          chromeos::DBusThreadManager::Get()->GetPermissionBrokerClient();
+      DCHECK(client) << "Could not get permission broker client.";
+      device::HidDeviceInfoLinux* linux_device_info =
+          static_cast<device::HidDeviceInfoLinux*>(device.get());
+      client->CheckPathAccess(
+          linux_device_info->device_node(),
+          base::Bind(&HidDevicePermissionsPrompt::AddCheckedDevice, this,
+                     base::Passed(&device_info)));
+#else
+      AddCheckedDevice(device_info.Pass(), true);
+#endif  // defined(OS_CHROMEOS)
+    }
+  }
+
+  void OnDeviceRemoved(scoped_refptr<device::HidDeviceInfo> device) override {
+    for (auto it = devices_.begin(); it != devices_.end(); ++it) {
+      const HidDeviceInfo* entry = static_cast<const HidDeviceInfo*>(*it);
+      if (entry->device() == device) {
+        devices_.erase(it);
+        if (observer()) {
+          observer()->OnDevicesChanged();
+        }
+        return;
+      }
+    }
+  }
+
+  void OnDevicesEnumerated(
+      const std::vector<scoped_refptr<device::HidDeviceInfo>>& devices) {
+    for (const auto& device : devices) {
+      OnDeviceAdded(device);
+    }
+  }
+
+  bool HasUnprotectedCollections(scoped_refptr<device::HidDeviceInfo> device) {
+    for (const auto& collection : device->collections()) {
+      if (!collection.usage.IsProtected()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  std::vector<HidDeviceFilter> filters_;
+  DevicePermissionsPrompt::HidDevicesCallback callback_;
+  ScopedObserver<HidService, HidService::Observer> service_observer_;
+};
+
+}  // namespace
+
+DevicePermissionsPrompt::Prompt::DeviceInfo::DeviceInfo() {
 }
 
 DevicePermissionsPrompt::Prompt::DeviceInfo::~DeviceInfo() {
 }
 
-DevicePermissionsPrompt::Prompt::Prompt()
-    : extension_(nullptr),
-      browser_context_(nullptr),
-      multiple_(false),
-      observer_(nullptr) {
+DevicePermissionsPrompt::Prompt::Observer::~Observer() {
+}
+
+DevicePermissionsPrompt::Prompt::Prompt(const Extension* extension,
+                                        content::BrowserContext* context,
+                                        bool multiple)
+    : extension_(extension), browser_context_(context), multiple_(multiple) {
 }
 
 void DevicePermissionsPrompt::Prompt::SetObserver(Observer* observer) {
   observer_ = observer;
-
-  content::BrowserThread::PostTask(
-      content::BrowserThread::FILE,
-      FROM_HERE,
-      base::Bind(&DevicePermissionsPrompt::Prompt::DoDeviceQuery, this));
-}
-
-base::string16 DevicePermissionsPrompt::Prompt::GetHeading() const {
-  return l10n_util::GetStringUTF16(IDS_DEVICE_PERMISSIONS_PROMPT_HEADING);
 }
 
 base::string16 DevicePermissionsPrompt::Prompt::GetPromptMessage() const {
@@ -66,135 +314,64 @@ base::string16 DevicePermissionsPrompt::Prompt::GetPromptMessage() const {
                                     base::UTF8ToUTF16(extension_->name()));
 }
 
-scoped_refptr<UsbDevice> DevicePermissionsPrompt::Prompt::GetDevice(
+base::string16 DevicePermissionsPrompt::Prompt::GetDeviceName(
     size_t index) const {
   DCHECK_LT(index, devices_.size());
-  return devices_[index].device;
+  return devices_[index]->name();
 }
 
-void DevicePermissionsPrompt::Prompt::GrantDevicePermission(
+base::string16 DevicePermissionsPrompt::Prompt::GetDeviceSerialNumber(
     size_t index) const {
   DCHECK_LT(index, devices_.size());
-  DevicePermissionsManager* permissions_manager =
-      DevicePermissionsManager::Get(browser_context_);
-  if (permissions_manager) {
-    const DeviceInfo& device = devices_[index];
-    permissions_manager->AllowUsbDevice(extension_->id(),
-                                        device.device,
-                                        device.product_string,
-                                        device.manufacturer_string,
-                                        device.serial_number);
-  }
+  return devices_[index]->serial_number();
 }
 
-void DevicePermissionsPrompt::Prompt::set_filters(
-    const std::vector<UsbDeviceFilter>& filters) {
-  filters_ = filters;
+void DevicePermissionsPrompt::Prompt::GrantDevicePermission(size_t index) {
+  DCHECK_LT(index, devices_.size());
+  devices_[index]->set_granted();
 }
 
 DevicePermissionsPrompt::Prompt::~Prompt() {
 }
 
-void DevicePermissionsPrompt::Prompt::DoDeviceQuery() {
-  UsbService* service = device::DeviceClient::Get()->GetUsbService();
-  if (!service) {
-    return;
-  }
-
-  std::vector<scoped_refptr<UsbDevice>> devices;
-  service->GetDevices(&devices);
-
-  std::vector<DeviceInfo> device_info;
-  for (const auto& device : devices) {
-    if (!(filters_.empty() || UsbDeviceFilter::MatchesAny(device, filters_))) {
-      continue;
+void DevicePermissionsPrompt::Prompt::AddCheckedDevice(
+    scoped_ptr<DeviceInfo> device,
+    bool allowed) {
+  if (allowed) {
+    devices_.push_back(device.Pass());
+    if (observer_) {
+      observer_->OnDevicesChanged();
     }
-
-    base::string16 manufacturer_string;
-    base::string16 original_manufacturer_string;
-    if (device->GetManufacturer(&original_manufacturer_string)) {
-      manufacturer_string = original_manufacturer_string;
-    } else {
-      const char* vendor_name =
-          device::UsbIds::GetVendorName(device->vendor_id());
-      if (vendor_name) {
-        manufacturer_string = base::UTF8ToUTF16(vendor_name);
-      } else {
-        base::string16 vendor_id = base::ASCIIToUTF16(
-            base::StringPrintf("0x%04x", device->vendor_id()));
-        manufacturer_string =
-            l10n_util::GetStringFUTF16(IDS_DEVICE_UNKNOWN_VENDOR, vendor_id);
-      }
-    }
-
-    base::string16 product_string;
-    base::string16 original_product_string;
-    if (device->GetProduct(&original_product_string)) {
-      product_string = original_product_string;
-    } else {
-      const char* product_name = device::UsbIds::GetProductName(
-          device->vendor_id(), device->product_id());
-      if (product_name) {
-        product_string = base::UTF8ToUTF16(product_name);
-      } else {
-        base::string16 product_id = base::ASCIIToUTF16(
-            base::StringPrintf("0x%04x", device->product_id()));
-        product_string =
-            l10n_util::GetStringFUTF16(IDS_DEVICE_UNKNOWN_PRODUCT, product_id);
-      }
-    }
-
-    base::string16 serial_number;
-    if (!device->GetSerialNumber(&serial_number)) {
-      serial_number.clear();
-    }
-
-    device_info.push_back(DeviceInfo(
-        device,
-        l10n_util::GetStringFUTF16(IDS_DEVICE_PERMISSIONS_DEVICE_NAME,
-                                   product_string,
-                                   manufacturer_string),
-        original_product_string,
-        original_manufacturer_string,
-        serial_number));
-  }
-
-  content::BrowserThread::PostTask(
-      content::BrowserThread::UI,
-      FROM_HERE,
-      base::Bind(
-          &DevicePermissionsPrompt::Prompt::SetDevices, this, device_info));
-}
-
-void DevicePermissionsPrompt::Prompt::SetDevices(
-    const std::vector<DeviceInfo>& devices) {
-  devices_ = devices;
-  if (observer_) {
-    observer_->OnDevicesChanged();
   }
 }
 
 DevicePermissionsPrompt::DevicePermissionsPrompt(
     content::WebContents* web_contents)
-    : web_contents_(web_contents), delegate_(nullptr) {
+    : web_contents_(web_contents) {
 }
 
 DevicePermissionsPrompt::~DevicePermissionsPrompt() {
 }
 
 void DevicePermissionsPrompt::AskForUsbDevices(
-    Delegate* delegate,
     const Extension* extension,
     content::BrowserContext* context,
     bool multiple,
-    const std::vector<UsbDeviceFilter>& filters) {
-  prompt_ = new Prompt();
-  prompt_->set_extension(extension);
-  prompt_->set_browser_context(context);
-  prompt_->set_multiple(multiple);
-  prompt_->set_filters(filters);
-  delegate_ = delegate;
+    const std::vector<UsbDeviceFilter>& filters,
+    const UsbDevicesCallback& callback) {
+  prompt_ = new UsbDevicePermissionsPrompt(extension, context, multiple,
+                                           filters, callback);
+  ShowDialog();
+}
 
+void DevicePermissionsPrompt::AskForHidDevices(
+    const Extension* extension,
+    content::BrowserContext* context,
+    bool multiple,
+    const std::vector<HidDeviceFilter>& filters,
+    const HidDevicesCallback& callback) {
+  prompt_ = new HidDevicePermissionsPrompt(extension, context, multiple,
+                                           filters, callback);
   ShowDialog();
 }
 

@@ -8,7 +8,13 @@
 #include <string>
 
 #include "components/user_manager/user.h"
+#include "components/user_manager/user_id.h"
 #include "components/user_manager/user_manager_export.h"
+#include "components/user_manager/user_type.h"
+
+namespace base {
+class DictionaryValue;
+}
 
 namespace chromeos {
 class ScopedUserManagerEnabler;
@@ -51,8 +57,8 @@ class USER_MANAGER_EXPORT UserManager {
     // on user_id hash would be accessing up-to-date value.
     virtual void ActiveUserHashChanged(const std::string& hash);
 
-    // Called when supervised status has changed.
-    virtual void UserChangedSupervisedStatus(User* user);
+    // Called when child status has changed.
+    virtual void UserChangedChildStatus(User* user);
 
    protected:
     virtual ~UserSessionStateObserver();
@@ -113,7 +119,7 @@ class USER_MANAGER_EXPORT UserManager {
   // multi-profile session will still be part of this list as long as they
   // are regular users (i.e. not a public session/supervised etc.).
   // Returns an empty list in case when primary user is not a regular one or
-  // has a policy that prohibids it to be part of multi-profile session.
+  // has a policy that prohibits it to be part of multi-profile session.
   virtual UserList GetUsersAllowedForMultiProfile() const = 0;
 
   // Returns a list of users who are currently logged in.
@@ -235,6 +241,11 @@ class USER_MANAGER_EXPORT UserManager {
   // Otherwise, returns |user_id| itself.
   virtual std::string GetUserDisplayEmail(const std::string& user_id) const = 0;
 
+  // Saves user's type for user |user_id| into local state preferences.
+  // Ignored If there is no such user.
+  virtual void SaveUserType(const std::string& user_id,
+                            const UserType& user_type) = 0;
+
   // Returns true if current user is an owner.
   virtual bool IsCurrentUserOwner() const = 0;
 
@@ -253,11 +264,11 @@ class USER_MANAGER_EXPORT UserManager {
   // Returns true if at least one user has signed in.
   virtual bool IsUserLoggedIn() const = 0;
 
-  // Returns true if we're logged in as a regular user.
-  virtual bool IsLoggedInAsRegularUser() const = 0;
+  // Returns true if we're logged in as a user with gaia account.
+  virtual bool IsLoggedInAsUserWithGaiaAccount() const = 0;
 
-  // Returns true if we're logged in as a demo user.
-  virtual bool IsLoggedInAsDemoUser() const = 0;
+  // Returns true if we're logged in as a child user.
+  virtual bool IsLoggedInAsChildUser() const = 0;
 
   // Returns true if we're logged in as a public account.
   virtual bool IsLoggedInAsPublicAccount() const = 0;
@@ -265,7 +276,7 @@ class USER_MANAGER_EXPORT UserManager {
   // Returns true if we're logged in as a Guest.
   virtual bool IsLoggedInAsGuest() const = 0;
 
-  // Returns true if we're logged in as a supervised user.
+  // Returns true if we're logged in as a legacy supervised user.
   virtual bool IsLoggedInAsSupervisedUser() const = 0;
 
   // Returns true if we're logged in as a kiosk app.
@@ -293,12 +304,99 @@ class USER_MANAGER_EXPORT UserManager {
 
   virtual void NotifyLocalStateChanged() = 0;
 
-  // Makes the supervised status change and notifies observers.
-  virtual void ChangeUserSupervisedStatus(User* user, bool is_supervised) = 0;
+  // Changes the child status and notifies observers.
+  virtual void ChangeUserChildStatus(User* user, bool is_child) = 0;
 
 
   // Returns true if supervised users allowed.
   virtual bool AreSupervisedUsersAllowed() const = 0;
+
+  // Methods for storage/retrieval of per-user properties in Local State.
+
+  // Performs a lookup of properties associated with |user_id|. If found,
+  // returns |true| and fills |out_value|. |out_value| can be NULL, if
+  // only existence check is required.
+  virtual bool FindKnownUserPrefs(const UserID& user_id,
+                                  const base::DictionaryValue** out_value) = 0;
+
+  // Updates (or creates) properties associated with |user_id| based
+  // on |values|. |clear| defines if existing properties are cleared (|true|)
+  // or if it is just a incremental update (|false|).
+  virtual void UpdateKnownUserPrefs(const UserID& user_id,
+                                    const base::DictionaryValue& values,
+                                    bool clear) = 0;
+
+  // Returns true if |user_id| preference by |path| does exist,
+  // fills in |out_value|. Otherwise returns false.
+  virtual bool GetKnownUserStringPref(const UserID& user_id,
+                                      const std::string& path,
+                                      std::string* out_value) = 0;
+
+  // Updates user's identified by |user_id| string preference |path|.
+  virtual void SetKnownUserStringPref(const UserID& user_id,
+                                      const std::string& path,
+                                      const std::string& in_value) = 0;
+
+  // Returns true if |user_id| preference by |path| does exist,
+  // fills in |out_value|. Otherwise returns false.
+  virtual bool GetKnownUserBooleanPref(const UserID& user_id,
+                                       const std::string& path,
+                                       bool* out_value) = 0;
+
+  // Updates user's identified by |user_id| boolean preference |path|.
+  virtual void SetKnownUserBooleanPref(const UserID& user_id,
+                                       const std::string& path,
+                                       const bool in_value) = 0;
+
+  // Returns true if |user_id| preference by |path| does exist,
+  // fills in |out_value|. Otherwise returns false.
+  virtual bool GetKnownUserIntegerPref(const UserID& user_id,
+                                       const std::string& path,
+                                       int* out_value) = 0;
+
+  // Updates user's identified by |user_id| integer preference |path|.
+  virtual void SetKnownUserIntegerPref(const UserID& user_id,
+                                       const std::string& path,
+                                       const int in_value) = 0;
+
+  // Updates |gaia_id| for user with |user_id|.
+  // TODO(antrim): Update this once UserID contains GAIA ID.
+  virtual void UpdateGaiaID(const UserID& user_id,
+                            const std::string& gaia_id) = 0;
+
+  // Find GAIA ID for user with |user_id|, fill in |out_value| and return true
+  // if GAIA ID was found or false otherwise.
+  // TODO(antrim): Update this once UserID contains GAIA ID.
+  virtual bool FindGaiaID(const UserID& user_id, std::string* out_value) = 0;
+
+  // Saves whether the user authenticates using SAML.
+  virtual void UpdateUsingSAML(const UserID& user_id,
+                               const bool using_saml) = 0;
+
+  // Returns if SAML needs to be used for authentication of the user with
+  // |user_id|, if it is known (was set by a |UpdateUsingSaml| call). Otherwise
+  // returns false.
+  virtual bool FindUsingSAML(const UserID& user_id) = 0;
+
+  // Setter and getter for DeviceId known user string preference.
+  virtual void SetKnownUserDeviceId(const UserID& user_id,
+                                    const std::string& device_id) = 0;
+  virtual std::string GetKnownUserDeviceId(const UserID& user_id) = 0;
+
+  // Setter and getter for GAPSCookie known user string preference.
+  virtual void SetKnownUserGAPSCookie(const UserID& user_id,
+                                      const std::string& gaps_cookie) = 0;
+
+  virtual std::string GetKnownUserGAPSCookie(const UserID& user_id) = 0;
+
+  // Saves why the user has to go through re-auth flow.
+  virtual void UpdateReauthReason(const UserID& user_id,
+                                  const int reauth_reason) = 0;
+
+  // Returns the reason why the user with |user_id| has to go through the
+  // re-auth flow. Returns true if such a reason was recorded or false
+  // otherwise.
+  virtual bool FindReauthReason(const UserID& user_id, int* out_value) = 0;
 
  protected:
   // Sets UserManager instance.

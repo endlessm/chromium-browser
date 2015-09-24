@@ -43,10 +43,15 @@ namespace blink {
 
 namespace {
 
-int runHelper(TestSuite* testSuite, void (*preTestHook)(void), void (*postTestHook)(void))
+int runHelper(base::TestSuite* testSuite, void (*preTestHook)(void), void (*postTestHook)(void))
 {
     preTestHook();
     int result = testSuite->Run();
+
+    // Tickle EndOfTaskRunner which among other things will flush the queue
+    // of error messages via V8Initializer::reportRejectedPromisesOnMainThread.
+    base::MessageLoop::current()->PostTask(FROM_HERE, base::Bind(&base::DoNothing));
+    base::RunLoop().RunUntilIdle();
 
     // Collect garbage in order to release mock objects referred from v8 or
     // Oilpan heap. Otherwise false mock leaks will be reported.
@@ -62,7 +67,7 @@ int runHelper(TestSuite* testSuite, void (*preTestHook)(void), void (*postTestHo
 
 int runWebTests(int argc, char** argv, void (*preTestHook)(void), void (*postTestHook)(void))
 {
-    TestSuite testSuite(argc, argv);
+    base::TestSuite testSuite(argc, argv);
     return base::LaunchUnitTests(argc, argv, base::Bind(&runHelper, base::Unretained(&testSuite), preTestHook, postTestHook));
 }
 

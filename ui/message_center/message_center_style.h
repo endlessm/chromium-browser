@@ -7,7 +7,7 @@
 
 #include "base/basictypes.h"
 #include "third_party/skia/include/core/SkColor.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/message_center/message_center_export.h"
 
 namespace message_center {
@@ -77,9 +77,9 @@ extern const SkColor kIconBackgroundColor;         // Used behind icons smaller
 extern const SkColor kRegularTextColor;            // Title, message, ...
 extern const SkColor kDimTextColor;
 extern const SkColor kFocusBorderColor;  // The focus border.
-extern const SkColor
+MESSAGE_CENTER_EXPORT extern const SkColor
     kSmallImageMaskForegroundColor;  // Foreground of small icon image.
-extern const SkColor
+MESSAGE_CENTER_EXPORT extern const SkColor
     kSmallImageMaskBackgroundColor;  // Background of small icon image.
 
 // Limits.

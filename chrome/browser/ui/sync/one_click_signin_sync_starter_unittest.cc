@@ -8,18 +8,23 @@
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
+#include "chrome/browser/signin/account_tracker_service_factory.h"
 #include "chrome/browser/signin/fake_signin_manager.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/signin/core/browser/account_tracker_service.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
+
+const char* kTestingGaiaId = "gaia_id";
 const char* kTestingUsername = "fake_username";
+
 }  // namespace
 
 class OneClickSigninSyncStarterTest : public ChromeRenderViewHostTestHarness {
@@ -34,13 +39,15 @@ class OneClickSigninSyncStarterTest : public ChromeRenderViewHostTestHarness {
     ChromeRenderViewHostTestHarness::SetUp();
 
     // Disable sync to simplify the creation of a OneClickSigninSyncStarter.
-    CommandLine::ForCurrentProcess()->AppendSwitch(switches::kDisableSync);
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
+        switches::kDisableSync);
 
     SigninManagerBase* signin_manager = static_cast<FakeSigninManager*>(
         SigninManagerFactory::GetForProfile(profile()));
 
     signin_manager->Initialize(NULL);
-    signin_manager->SetAuthenticatedUsername(kTestingUsername);
+    signin_manager->SetAuthenticatedAccountInfo(kTestingGaiaId,
+                                                kTestingUsername);
   }
 
   void Callback(OneClickSigninSyncStarter::SyncSetupResult result) {
@@ -66,6 +73,7 @@ class OneClickSigninSyncStarterTest : public ChromeRenderViewHostTestHarness {
     sync_starter_ = new OneClickSigninSyncStarter(
         profile(),
         NULL,
+        kTestingGaiaId,
         kTestingUsername,
         std::string(),
         "refresh_token",
@@ -86,8 +94,10 @@ class OneClickSigninSyncStarterTest : public ChromeRenderViewHostTestHarness {
   int succeeded_count_;
 
  private:
-  static KeyedService* BuildSigninManager(content::BrowserContext* profile) {
-    return new FakeSigninManager(static_cast<Profile*>(profile));
+  static scoped_ptr<KeyedService> BuildSigninManager(
+      content::BrowserContext* profile) {
+    return make_scoped_ptr(
+        new FakeSigninManager(static_cast<Profile*>(profile)));
   }
 
   DISALLOW_COPY_AND_ASSIGN(OneClickSigninSyncStarterTest);
@@ -122,7 +132,7 @@ TEST_F(OneClickSigninSyncStarterTest, LoadContinueUrl) {
   CreateSyncStarter(base::Bind(&OneClickSigninSyncStarterTest::Callback,
                                base::Unretained(this)),
                     kTestURL);
-  sync_starter_->MergeSessionComplete(
+  sync_starter_->AccountAddedToCookie(
       GoogleServiceAuthError(GoogleServiceAuthError::NONE));
   EXPECT_EQ(1, succeeded_count_);
   EXPECT_EQ(kTestURL, controller.GetPendingEntry()->GetURL());

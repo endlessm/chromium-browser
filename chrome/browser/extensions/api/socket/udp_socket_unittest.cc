@@ -6,9 +6,11 @@
 
 #include <string>
 
+#include "base/location.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/test/test_timeouts.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "net/base/io_buffer.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -27,12 +29,18 @@ static void OnConnected(int result) {
 static void OnCompleted(int bytes_read,
                         scoped_refptr<net::IOBuffer> io_buffer,
                         const std::string& address,
-                        int port) {
+                        uint16 port) {
   // Do nothing; don't care.
 }
 
 static const char test_message[] = "$$TESTMESSAGETESTMESSAGETESTMESSAGETEST$$";
 static const int test_message_length = arraysize(test_message);
+
+net::AddressList CreateAddressList(const char* address_string, int port) {
+  net::IPAddressNumber ip;
+  EXPECT_TRUE(net::ParseIPLiteralToNumber(address_string, &ip));
+  return net::AddressList::CreateFromIPAddress(ip, port);
+}
 
 static void OnSendCompleted(int result) {
   EXPECT_EQ(test_message_length, result);
@@ -44,7 +52,8 @@ TEST(UDPSocketUnitTest, TestUDPSocketRecvFrom) {
 
   // Confirm that we can call two RecvFroms in quick succession without
   // triggering crbug.com/146606.
-  socket.Connect("127.0.0.1", 40000, base::Bind(&OnConnected));
+  socket.Connect(CreateAddressList("127.0.0.1", 40000),
+                 base::Bind(&OnConnected));
   socket.RecvFrom(4096, base::Bind(&OnCompleted));
   socket.RecvFrom(4096, base::Bind(&OnCompleted));
 }
@@ -70,14 +79,14 @@ TEST(UDPSocketUnitTest, TestUDPMulticastTimeToLive) {
   UDPSocket socket("abcdefghijklmnopqrst");
   EXPECT_NE(0, socket.SetMulticastTimeToLive(-1));  // Negative TTL shall fail.
   EXPECT_EQ(0, socket.SetMulticastTimeToLive(3));
-  socket.Connect(kGroup, 13333, base::Bind(&OnConnected));
+  socket.Connect(CreateAddressList(kGroup, 13333), base::Bind(&OnConnected));
 }
 
 TEST(UDPSocketUnitTest, TestUDPMulticastLoopbackMode) {
   const char kGroup[] = "237.132.100.17";
   UDPSocket socket("abcdefghijklmnopqrst");
   EXPECT_EQ(0, socket.SetMulticastLoopbackMode(false));
-  socket.Connect(kGroup, 13333, base::Bind(&OnConnected));
+  socket.Connect(CreateAddressList(kGroup, 13333), base::Bind(&OnConnected));
 }
 
 static void QuitMessageLoop() {
@@ -90,9 +99,9 @@ static void SendMulticastPacket(UDPSocket* src, int result) {
   if (result == 0) {
     scoped_refptr<net::IOBuffer> data = new net::WrappedIOBuffer(test_message);
     src->Write(data, test_message_length, base::Bind(&OnSendCompleted));
-    base::MessageLoopForIO::current()->PostDelayedTask(FROM_HERE,
-          base::Bind(&SendMulticastPacket, src, result),
-          base::TimeDelta::FromSeconds(1));
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE, base::Bind(&SendMulticastPacket, src, result),
+        base::TimeDelta::FromSeconds(1));
   } else {
     QuitMessageLoop();
     FAIL() << "Failed to connect to multicast address. Error code: " << result;
@@ -123,12 +132,12 @@ TEST(UDPSocketUnitTest, TestUDPMulticastRecv) {
 
   // Sender
   EXPECT_EQ(0, src.SetMulticastTimeToLive(0));
-  src.Connect(kGroup, kPort, base::Bind(&SendMulticastPacket, &src));
+  src.Connect(CreateAddressList(kGroup, kPort),
+              base::Bind(&SendMulticastPacket, &src));
 
   // If not received within the test action timeout, quit the message loop.
-  io_loop.PostDelayedTask(FROM_HERE,
-                          base::Bind(&QuitMessageLoop),
-                          TestTimeouts::action_timeout());
+  io_loop.task_runner()->PostDelayedTask(
+      FROM_HERE, base::Bind(&QuitMessageLoop), TestTimeouts::action_timeout());
 
   io_loop.Run();
 

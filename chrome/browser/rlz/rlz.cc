@@ -12,24 +12,26 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/debug/trace_event.h"
 #include "base/message_loop/message_loop.h"
 #include "base/prefs/pref_service.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/trace_event/trace_event.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/google/google_brand.h"
-#include "chrome/browser/omnibox/omnibox_log.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "components/google/core/browser/google_util.h"
+#include "components/omnibox/browser/omnibox_log.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/navigation_controller.h"
+#include "content/public/browser/navigation_details.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_service.h"
 #include "net/http/http_util.h"
@@ -57,6 +59,7 @@ static bool ClearReferral() {
 
 using content::BrowserThread;
 using content::NavigationEntry;
+using content::NavigationController;
 
 namespace {
 
@@ -250,7 +253,7 @@ bool RLZTracker::InitRlzFromProfileDelayed(Profile* profile,
   // iOS does not have a notion of startpages.
   SessionStartupPref session_startup_prefs =
       StartupBrowserCreator::GetSessionStartupPref(
-          *CommandLine::ForCurrentProcess(), profile);
+          *base::CommandLine::ForCurrentProcess(), profile);
   if (session_startup_prefs.type == SessionStartupPref::URLS) {
     is_google_in_startpages =
         std::count_if(session_startup_prefs.urls.begin(),
@@ -288,7 +291,7 @@ bool RLZTracker::Init(bool first_run,
   send_ping_immediately_ = send_ping_immediately;
 
   // Enable zero delays for testing.
-  if (CommandLine::ForCurrentProcess()->HasSwitch(::switches::kTestType))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(::switches::kTestType))
     EnableZeroDelayForTesting();
 
   delay = std::min(kMaxInitDelay, std::max(min_init_delay_, delay));
@@ -302,7 +305,7 @@ bool RLZTracker::Init(bool first_run,
 #if !defined(OS_IOS)
     // Register for notifications from navigations, to see if the user has used
     // the home page.
-    registrar_.Add(this, content::NOTIFICATION_NAV_ENTRY_PENDING,
+    registrar_.Add(this, content::NOTIFICATION_NAV_ENTRY_COMMITTED,
                    content::NotificationService::AllSources());
 #endif  // !defined(OS_IOS)
   }
@@ -421,15 +424,43 @@ void RLZTracker::Observe(int type,
                         content::NotificationService::AllSources());
       break;
 #if !defined(OS_IOS)
-    case content::NOTIFICATION_NAV_ENTRY_PENDING: {
-      const NavigationEntry* entry =
-          content::Details<content::NavigationEntry>(details).ptr();
-      if (entry != NULL &&
-          ((entry->GetTransitionType() &
-            ui::PAGE_TRANSITION_HOME_PAGE) != 0)) {
-        RecordFirstSearch(ChromeHomePage());
-        registrar_.Remove(this, content::NOTIFICATION_NAV_ENTRY_PENDING,
-                          content::NotificationService::AllSources());
+    case content::NOTIFICATION_NAV_ENTRY_COMMITTED: {
+      // Firstly check if it is a Google search.
+      content::LoadCommittedDetails* load_details =
+          content::Details<content::LoadCommittedDetails>(details).ptr();
+      if (load_details == NULL)
+        break;
+
+      NavigationEntry* entry = load_details->entry;
+      if (entry == NULL)
+        break;
+
+      if (google_util::IsGoogleSearchUrl(entry->GetURL())) {
+        // If it is a Google search, check if it originates from HOMEPAGE by
+        // getting the previous NavigationEntry.
+        NavigationController* controller =
+            content::Source<NavigationController>(source).ptr();
+        if (controller == NULL)
+          break;
+
+        int entry_index = controller->GetLastCommittedEntryIndex();
+        if (entry_index < 1)
+          break;
+
+        const NavigationEntry* previous_entry = controller->GetEntryAtIndex(
+            entry_index - 1);
+
+        if (previous_entry == NULL)
+          break;
+
+        // Make sure it is a Google web page originated from HOMEPAGE.
+        if (google_util::IsGoogleHomePageUrl(previous_entry->GetURL()) &&
+            ((previous_entry->GetTransitionType() &
+                  ui::PAGE_TRANSITION_HOME_PAGE) != 0)) {
+            RecordFirstSearch(ChromeHomePage());
+            registrar_.Remove(this, content::NOTIFICATION_NAV_ENTRY_COMMITTED,
+                              content::NotificationService::AllSources());
+        }
       }
       break;
     }
@@ -570,7 +601,7 @@ bool RLZTracker::GetAccessPointRlzImpl(rlz_lib::AccessPoint point,
   if (!rlz_lib::GetAccessPointRlz(point, str_rlz, rlz_lib::kMaxRlzLength))
     return false;
 
-  base::string16 rlz_local(base::ASCIIToUTF16(std::string(str_rlz)));
+  base::string16 rlz_local(base::ASCIIToUTF16(str_rlz));
   if (rlz)
     *rlz = rlz_local;
 

@@ -7,9 +7,10 @@
 #include "ash/display/cursor_window_controller.h"
 #include "ash/display/display_controller.h"
 #include "ash/display/mirror_window_controller.h"
+#include "ash/display/root_window_transformers.h"
 #include "ash/host/root_window_transformer.h"
 #include "ash/shell.h"
-#include "ui/gfx/point.h"
+#include "ui/gfx/geometry/point.h"
 
 namespace ash {
 namespace test {
@@ -32,15 +33,21 @@ const gfx::Point& MirrorWindowTestApi::GetCursorHotPoint() const {
       cursor_window_controller()->hot_point_;
 }
 
+gfx::Point MirrorWindowTestApi::GetCursorHotPointLocationInRootWindow() const {
+  return GetCursorWindow()->GetBoundsInRootWindow().origin() +
+         GetCursorHotPoint().OffsetFromOrigin();
+}
+
 const aura::Window* MirrorWindowTestApi::GetCursorWindow() const {
   return Shell::GetInstance()->display_controller()->
       cursor_window_controller()->cursor_window_.get();
 }
 
-scoped_ptr<RootWindowTransformer>
-MirrorWindowTestApi::CreateCurrentRootWindowTransformer() const {
-  return Shell::GetInstance()->display_controller()->
-      mirror_window_controller()->CreateRootWindowTransformer();
+gfx::Point MirrorWindowTestApi::GetCursorLocation() const {
+  gfx::Point point = GetCursorWindow()->GetBoundsInScreen().origin();
+  const gfx::Point hot_point = GetCursorHotPoint();
+  point.Offset(hot_point.x(), hot_point.y());
+  return point;
 }
 
 }  // namespace test

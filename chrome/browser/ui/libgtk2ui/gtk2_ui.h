@@ -25,12 +25,12 @@ typedef struct _GdkColor GdkColor;
 typedef struct _GtkBorder GtkBorder;
 typedef struct _GtkStyle GtkStyle;
 typedef struct _GtkWidget GtkWidget;
+typedef struct _PangoFontDescription PangoFontDescription;
 
 class SkBitmap;
 
 namespace gfx {
 class Image;
-class ScopedPangoFontDescription;
 }
 
 namespace libgtk2ui {
@@ -64,13 +64,16 @@ class Gtk2UI : public views::LinuxUI {
 
   // ui::LinuxInputMethodContextFactory:
   scoped_ptr<ui::LinuxInputMethodContext> CreateInputMethodContext(
-      ui::LinuxInputMethodContextDelegate* delegate) const override;
+      ui::LinuxInputMethodContextDelegate* delegate,
+      bool is_simple) const override;
 
   // gfx::LinuxFontDelegate:
   gfx::FontRenderParams GetDefaultFontRenderParams() const override;
-  scoped_ptr<gfx::ScopedPangoFontDescription> GetDefaultPangoFontDescription()
-      const override;
-  double GetFontDPI() const override;
+  void GetDefaultFontDescription(
+      std::string* family_out,
+      int* size_pixels_out,
+      int* style_out,
+      gfx::FontRenderParams* params_out) const override;
 
   // ui::LinuxShellDialog:
   ui::SelectFileDialog* CreateSelectFileDialog(
@@ -116,6 +119,10 @@ class Gtk2UI : public views::LinuxUI {
   // ui::TextEditKeybindingDelegate:
   bool MatchEvent(const ui::Event& event,
                   std::vector<ui::TextEditCommandAuraLinux>* commands) override;
+
+  // ui::Views::LinuxUI:
+  void UpdateDeviceScaleFactor(float device_scale_factor) override;
+  float GetDeviceScaleFactor() const override;
 
  private:
   typedef std::map<int, SkColor> ColorMap;
@@ -192,6 +199,9 @@ class Gtk2UI : public views::LinuxUI {
   // Frees all calculated images and color data.
   void ClearAllThemeData();
 
+  // Updates |default_font_*| based on |desc|.
+  void UpdateDefaultFont(const PangoFontDescription* desc);
+
   // Handles signal from GTK that our theme has been changed.
   CHROMEGTK_CALLBACK_1(Gtk2UI, void, OnStyleSet, GtkStyle*);
 
@@ -224,8 +234,11 @@ class Gtk2UI : public views::LinuxUI {
   SkColor inactive_selection_bg_color_;
   SkColor inactive_selection_fg_color_;
 
-  // Pango description for the default UI font.
-  scoped_ptr<gfx::ScopedPangoFontDescription> default_font_description_;
+  // Details about the default UI font.
+  std::string default_font_family_;
+  int default_font_size_pixels_;
+  int default_font_style_;  // Bitfield of gfx::Font::Style values.
+  gfx::FontRenderParams default_font_render_params_;
 
 #if defined(USE_GCONF)
   // Currently, the only source of window button configuration. This will
@@ -241,7 +254,7 @@ class Gtk2UI : public views::LinuxUI {
   scoped_ptr<Gtk2KeyBindingsHandler> key_bindings_handler_;
 
   // Objects to notify when the window frame button order changes.
-  ObserverList<views::WindowButtonOrderObserver> observer_list_;
+  base::ObserverList<views::WindowButtonOrderObserver> observer_list_;
 
   // Whether we should lower the window on a middle click to the non client
   // area.
@@ -254,6 +267,8 @@ class Gtk2UI : public views::LinuxUI {
   // or the callback returns NULL, Gtk2UI will default to a NativeThemeGtk2
   // instance.
   NativeThemeGetter native_theme_overrider_;
+
+  float device_scale_factor_;
 
   DISALLOW_COPY_AND_ASSIGN(Gtk2UI);
 };

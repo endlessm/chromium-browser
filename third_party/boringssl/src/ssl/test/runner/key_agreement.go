@@ -12,7 +12,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/asn1"
 	"errors"
@@ -25,13 +24,77 @@ var errServerKeyExchange = errors.New("tls: invalid ServerKeyExchange message")
 
 // rsaKeyAgreement implements the standard TLS key agreement where the client
 // encrypts the pre-master secret to the server's public key.
-type rsaKeyAgreement struct{}
-
-func (ka rsaKeyAgreement) generateServerKeyExchange(config *Config, cert *Certificate, clientHello *clientHelloMsg, hello *serverHelloMsg) (*serverKeyExchangeMsg, error) {
-	return nil, nil
+type rsaKeyAgreement struct {
+	version       uint16
+	clientVersion uint16
+	exportKey     *rsa.PrivateKey
 }
 
-func (ka rsaKeyAgreement) processClientKeyExchange(config *Config, cert *Certificate, ckx *clientKeyExchangeMsg, version uint16) ([]byte, error) {
+func (ka *rsaKeyAgreement) generateServerKeyExchange(config *Config, cert *Certificate, clientHello *clientHelloMsg, hello *serverHelloMsg) (*serverKeyExchangeMsg, error) {
+	// Save the client version for comparison later.
+	ka.clientVersion = versionToWire(clientHello.vers, clientHello.isDTLS)
+
+	if !config.Bugs.RSAEphemeralKey {
+		return nil, nil
+	}
+
+	// Generate an ephemeral RSA key to use instead of the real
+	// one, as in RSA_EXPORT.
+	key, err := rsa.GenerateKey(config.rand(), 512)
+	if err != nil {
+		return nil, err
+	}
+	ka.exportKey = key
+
+	modulus := key.N.Bytes()
+	exponent := big.NewInt(int64(key.E)).Bytes()
+	serverRSAParams := make([]byte, 0, 2+len(modulus)+2+len(exponent))
+	serverRSAParams = append(serverRSAParams, byte(len(modulus)>>8), byte(len(modulus)))
+	serverRSAParams = append(serverRSAParams, modulus...)
+	serverRSAParams = append(serverRSAParams, byte(len(exponent)>>8), byte(len(exponent)))
+	serverRSAParams = append(serverRSAParams, exponent...)
+
+	var tls12HashId uint8
+	if ka.version >= VersionTLS12 {
+		if tls12HashId, err = pickTLS12HashForSignature(signatureRSA, clientHello.signatureAndHashes, config.signatureAndHashesForServer()); err != nil {
+			return nil, err
+		}
+	}
+
+	digest, hashFunc, err := hashForServerKeyExchange(signatureRSA, tls12HashId, ka.version, clientHello.random, hello.random, serverRSAParams)
+	if err != nil {
+		return nil, err
+	}
+	privKey, ok := cert.PrivateKey.(*rsa.PrivateKey)
+	if !ok {
+		return nil, errors.New("RSA ephemeral key requires an RSA server private key")
+	}
+	sig, err := rsa.SignPKCS1v15(config.rand(), privKey, hashFunc, digest)
+	if err != nil {
+		return nil, errors.New("failed to sign RSA parameters: " + err.Error())
+	}
+
+	skx := new(serverKeyExchangeMsg)
+	sigAndHashLen := 0
+	if ka.version >= VersionTLS12 {
+		sigAndHashLen = 2
+	}
+	skx.key = make([]byte, len(serverRSAParams)+sigAndHashLen+2+len(sig))
+	copy(skx.key, serverRSAParams)
+	k := skx.key[len(serverRSAParams):]
+	if ka.version >= VersionTLS12 {
+		k[0] = tls12HashId
+		k[1] = signatureRSA
+		k = k[2:]
+	}
+	k[0] = byte(len(sig) >> 8)
+	k[1] = byte(len(sig))
+	copy(k[2:], sig)
+
+	return skx, nil
+}
+
+func (ka *rsaKeyAgreement) processClientKeyExchange(config *Config, cert *Certificate, ckx *clientKeyExchangeMsg, version uint16) ([]byte, error) {
 	preMasterSecret := make([]byte, 48)
 	_, err := io.ReadFull(config.rand(), preMasterSecret[2:])
 	if err != nil {
@@ -51,24 +114,29 @@ func (ka rsaKeyAgreement) processClientKeyExchange(config *Config, cert *Certifi
 		ciphertext = ckx.ciphertext[2:]
 	}
 
-	err = rsa.DecryptPKCS1v15SessionKey(config.rand(), cert.PrivateKey.(*rsa.PrivateKey), ciphertext, preMasterSecret)
+	key := cert.PrivateKey.(*rsa.PrivateKey)
+	if ka.exportKey != nil {
+		key = ka.exportKey
+	}
+	err = rsa.DecryptPKCS1v15SessionKey(config.rand(), key, ciphertext, preMasterSecret)
 	if err != nil {
 		return nil, err
 	}
-	// We don't check the version number in the premaster secret.  For one,
-	// by checking it, we would leak information about the validity of the
-	// encrypted pre-master secret. Secondly, it provides only a small
-	// benefit against a downgrade attack and some implementations send the
-	// wrong version anyway. See the discussion at the end of section
-	// 7.4.7.1 of RFC 4346.
+	// This check should be done in constant-time, but this is a testing
+	// implementation. See the discussion at the end of section 7.4.7.1 of
+	// RFC 4346.
+	vers := uint16(preMasterSecret[0])<<8 | uint16(preMasterSecret[1])
+	if ka.clientVersion != vers {
+		return nil, errors.New("tls: invalid version in RSA premaster")
+	}
 	return preMasterSecret, nil
 }
 
-func (ka rsaKeyAgreement) processServerKeyExchange(config *Config, clientHello *clientHelloMsg, serverHello *serverHelloMsg, cert *x509.Certificate, skx *serverKeyExchangeMsg) error {
+func (ka *rsaKeyAgreement) processServerKeyExchange(config *Config, clientHello *clientHelloMsg, serverHello *serverHelloMsg, cert *x509.Certificate, skx *serverKeyExchangeMsg) error {
 	return errors.New("tls: unexpected ServerKeyExchange")
 }
 
-func (ka rsaKeyAgreement) generateClientKeyExchange(config *Config, clientHello *clientHelloMsg, cert *x509.Certificate) ([]byte, *clientKeyExchangeMsg, error) {
+func (ka *rsaKeyAgreement) generateClientKeyExchange(config *Config, clientHello *clientHelloMsg, cert *x509.Certificate) ([]byte, *clientKeyExchangeMsg, error) {
 	preMasterSecret := make([]byte, 48)
 	vers := clientHello.vers
 	if config.Bugs.RsaClientKeyExchangeVersion != 0 {
@@ -120,28 +188,20 @@ func md5SHA1Hash(slices [][]byte) []byte {
 	return md5sha1
 }
 
-// sha256Hash implements TLS 1.2's hash function.
-func sha256Hash(slices [][]byte) []byte {
-	h := sha256.New()
-	for _, slice := range slices {
-		h.Write(slice)
-	}
-	return h.Sum(nil)
-}
-
 // hashForServerKeyExchange hashes the given slices and returns their digest
 // and the identifier of the hash function used. The hashFunc argument is only
 // used for >= TLS 1.2 and precisely identifies the hash function to use.
 func hashForServerKeyExchange(sigType, hashFunc uint8, version uint16, slices ...[]byte) ([]byte, crypto.Hash, error) {
 	if version >= VersionTLS12 {
-		switch hashFunc {
-		case hashSHA256:
-			return sha256Hash(slices), crypto.SHA256, nil
-		case hashSHA1:
-			return sha1Hash(slices), crypto.SHA1, nil
-		default:
-			return nil, crypto.Hash(0), errors.New("tls: unknown hash function used by peer")
+		hash, err := lookupTLSHash(hashFunc)
+		if err != nil {
+			return nil, 0, err
 		}
+		h := hash.New()
+		for _, slice := range slices {
+			h.Write(slice)
+		}
+		return h.Sum(nil), hash, nil
 	}
 	if sigType == signatureECDSA {
 		return sha1Hash(slices), crypto.SHA1, nil
@@ -152,20 +212,19 @@ func hashForServerKeyExchange(sigType, hashFunc uint8, version uint16, slices ..
 // pickTLS12HashForSignature returns a TLS 1.2 hash identifier for signing a
 // ServerKeyExchange given the signature type being used and the client's
 // advertized list of supported signature and hash combinations.
-func pickTLS12HashForSignature(sigType uint8, clientSignatureAndHashes []signatureAndHash) (uint8, error) {
-	if len(clientSignatureAndHashes) == 0 {
+func pickTLS12HashForSignature(sigType uint8, clientList, serverList []signatureAndHash) (uint8, error) {
+	if len(clientList) == 0 {
 		// If the client didn't specify any signature_algorithms
 		// extension then we can assume that it supports SHA1. See
 		// http://tools.ietf.org/html/rfc5246#section-7.4.1.4.1
 		return hashSHA1, nil
 	}
 
-	for _, sigAndHash := range clientSignatureAndHashes {
+	for _, sigAndHash := range clientList {
 		if sigAndHash.signature != sigType {
 			continue
 		}
-		switch sigAndHash.hash {
-		case hashSHA1, hashSHA256:
+		if isSupportedSignatureAndHash(sigAndHash, serverList) {
 			return sigAndHash.hash, nil
 		}
 	}
@@ -175,6 +234,8 @@ func pickTLS12HashForSignature(sigType uint8, clientSignatureAndHashes []signatu
 
 func curveForCurveID(id CurveID) (elliptic.Curve, bool) {
 	switch id {
+	case CurveP224:
+		return elliptic.P224(), true
 	case CurveP256:
 		return elliptic.P256(), true
 	case CurveP384:
@@ -219,7 +280,7 @@ func (ka *signedKeyAgreement) signParameters(config *Config, cert *Certificate, 
 	var tls12HashId uint8
 	var err error
 	if ka.version >= VersionTLS12 {
-		if tls12HashId, err = pickTLS12HashForSignature(ka.sigType, clientHello.signatureAndHashes); err != nil {
+		if tls12HashId, err = pickTLS12HashForSignature(ka.sigType, clientHello.signatureAndHashes, config.signatureAndHashesForServer()); err != nil {
 			return nil, err
 		}
 	}
@@ -301,6 +362,10 @@ func (ka *signedKeyAgreement) verifyParameters(config *Config, clientHello *clie
 		tls12HashId = sigAndHash[0]
 		if len(sig) < 2 {
 			return errServerKeyExchange
+		}
+
+		if !isSupportedSignatureAndHash(signatureAndHash{ka.sigType, tls12HashId}, config.signatureAndHashesForClient()) {
+			return errors.New("tls: unsupported hash function for ServerKeyExchange")
 		}
 	}
 	sigLen := int(sig[0])<<8 | int(sig[1])
@@ -496,11 +561,18 @@ type dheKeyAgreement struct {
 }
 
 func (ka *dheKeyAgreement) generateServerKeyExchange(config *Config, cert *Certificate, clientHello *clientHelloMsg, hello *serverHelloMsg) (*serverKeyExchangeMsg, error) {
-	// 2048-bit MODP Group with 256-bit Prime Order Subgroup (RFC
-	// 5114, Section 2.3)
-	ka.p, _ = new(big.Int).SetString("87A8E61DB4B6663CFFBBD19C651959998CEEF608660DD0F25D2CEED4435E3B00E00DF8F1D61957D4FAF7DF4561B2AA3016C3D91134096FAA3BF4296D830E9A7C209E0C6497517ABD5A8A9D306BCF67ED91F9E6725B4758C022E0B1EF4275BF7B6C5BFC11D45F9088B941F54EB1E59BB8BC39A0BF12307F5C4FDB70C581B23F76B63ACAE1CAA6B7902D52526735488A0EF13C6D9A51BFA4AB3AD8347796524D8EF6A167B5A41825D967E144E5140564251CCACB83E6B486F6B3CA3F7971506026C0B857F689962856DED4010ABD0BE621C3A3960A54E710C375F26375D7014103A4B54330C198AF126116D2276E11715F693877FAD7EF09CADB094AE91E1A1597", 16)
-	ka.g, _ = new(big.Int).SetString("3FB32C9B73134D0B2E77506660EDBD484CA7B18F21EF205407F4793A1A0BA12510DBC15077BE463FFF4FED4AAC0BB555BE3A6C1B0C6B47B1BC3773BF7E8C6F62901228F8C28CBB18A55AE31341000A650196F931C77A57F2DDF463E5E9EC144B777DE62AAAB8A8628AC376D282D6ED3864E67982428EBC831D14348F6F2F9193B5045AF2767164E1DFC967C1FB3F2E55A4BD1BFFE83B9C80D052B985D182EA0ADB2A3B7313D3FE14C8484B1E052588B9B7D2BBD2DF016199ECD06E1557CD0915B3353BBB64E0EC377FD028370DF92B52C7891428CDC67EB6184B523D1DB246C32F63078490F00EF8D647D148D47954515E2327CFEF98C582664B4C0F6CC41659", 16)
-	q, _ := new(big.Int).SetString("8CF83642A709A097B447997640129DA299B1A47D1EB3750BA308B0FE64F5FBD3", 16)
+	var q *big.Int
+	if p := config.Bugs.DHGroupPrime; p != nil {
+		ka.p = p
+		ka.g = big.NewInt(2)
+		q = p
+	} else {
+		// 2048-bit MODP Group with 256-bit Prime Order Subgroup (RFC
+		// 5114, Section 2.3)
+		ka.p, _ = new(big.Int).SetString("87A8E61DB4B6663CFFBBD19C651959998CEEF608660DD0F25D2CEED4435E3B00E00DF8F1D61957D4FAF7DF4561B2AA3016C3D91134096FAA3BF4296D830E9A7C209E0C6497517ABD5A8A9D306BCF67ED91F9E6725B4758C022E0B1EF4275BF7B6C5BFC11D45F9088B941F54EB1E59BB8BC39A0BF12307F5C4FDB70C581B23F76B63ACAE1CAA6B7902D52526735488A0EF13C6D9A51BFA4AB3AD8347796524D8EF6A167B5A41825D967E144E5140564251CCACB83E6B486F6B3CA3F7971506026C0B857F689962856DED4010ABD0BE621C3A3960A54E710C375F26375D7014103A4B54330C198AF126116D2276E11715F693877FAD7EF09CADB094AE91E1A1597", 16)
+		ka.g, _ = new(big.Int).SetString("3FB32C9B73134D0B2E77506660EDBD484CA7B18F21EF205407F4793A1A0BA12510DBC15077BE463FFF4FED4AAC0BB555BE3A6C1B0C6B47B1BC3773BF7E8C6F62901228F8C28CBB18A55AE31341000A650196F931C77A57F2DDF463E5E9EC144B777DE62AAAB8A8628AC376D282D6ED3864E67982428EBC831D14348F6F2F9193B5045AF2767164E1DFC967C1FB3F2E55A4BD1BFFE83B9C80D052B985D182EA0ADB2A3B7313D3FE14C8484B1E052588B9B7D2BBD2DF016199ECD06E1557CD0915B3353BBB64E0EC377FD028370DF92B52C7891428CDC67EB6184B523D1DB246C32F63078490F00EF8D647D148D47954515E2327CFEF98C582664B4C0F6CC41659", 16)
+		q, _ = new(big.Int).SetString("8CF83642A709A097B447997640129DA299B1A47D1EB3750BA308B0FE64F5FBD3", 16)
+	}
 
 	var err error
 	ka.xOurs, err = rand.Int(config.rand(), q)

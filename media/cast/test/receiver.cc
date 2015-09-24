@@ -65,14 +65,14 @@ const char* kVideoWindowWidth = "1280";
 const char* kVideoWindowHeight = "720";
 #endif  // defined(USE_X11)
 
-void GetPorts(int* tx_port, int* rx_port) {
+void GetPorts(uint16* tx_port, uint16* rx_port) {
   test::InputBuilder tx_input(
-      "Enter send port.", DEFAULT_SEND_PORT, 1, INT_MAX);
-  *tx_port = tx_input.GetIntInput();
+      "Enter send port.", DEFAULT_SEND_PORT, 1, 65535);
+  *tx_port = static_cast<uint16>(tx_input.GetIntInput());
 
   test::InputBuilder rx_input(
-      "Enter receive port.", DEFAULT_RECEIVE_PORT, 1, INT_MAX);
-  *rx_port = rx_input.GetIntInput();
+      "Enter receive port.", DEFAULT_RECEIVE_PORT, 1, 65535);
+  *rx_port = static_cast<uint16>(rx_input.GetIntInput());
 }
 
 std::string GetIpAddress(const std::string display_text) {
@@ -89,21 +89,21 @@ std::string GetIpAddress(const std::string display_text) {
 void GetAudioSsrcs(FrameReceiverConfig* audio_config) {
   test::InputBuilder input_tx(
       "Choose audio sender SSRC.", DEFAULT_AUDIO_FEEDBACK_SSRC, 1, INT_MAX);
-  audio_config->feedback_ssrc = input_tx.GetIntInput();
+  audio_config->receiver_ssrc = input_tx.GetIntInput();
 
   test::InputBuilder input_rx(
       "Choose audio receiver SSRC.", DEFAULT_AUDIO_INCOMING_SSRC, 1, INT_MAX);
-  audio_config->incoming_ssrc = input_rx.GetIntInput();
+  audio_config->sender_ssrc = input_rx.GetIntInput();
 }
 
 void GetVideoSsrcs(FrameReceiverConfig* video_config) {
   test::InputBuilder input_tx(
       "Choose video sender SSRC.", DEFAULT_VIDEO_FEEDBACK_SSRC, 1, INT_MAX);
-  video_config->feedback_ssrc = input_tx.GetIntInput();
+  video_config->receiver_ssrc = input_tx.GetIntInput();
 
   test::InputBuilder input_rx(
       "Choose video receiver SSRC.", DEFAULT_VIDEO_INCOMING_SSRC, 1, INT_MAX);
-  video_config->incoming_ssrc = input_rx.GetIntInput();
+  video_config->sender_ssrc = input_rx.GetIntInput();
 }
 
 #if defined(USE_X11)
@@ -152,10 +152,10 @@ FrameReceiverConfig GetVideoReceiverConfig() {
 }
 
 AudioParameters ToAudioParameters(const FrameReceiverConfig& config) {
-  const int samples_in_10ms = config.frequency / 100;
+  const int samples_in_10ms = config.rtp_timebase / 100;
   return AudioParameters(AudioParameters::AUDIO_PCM_LOW_LATENCY,
                          GuessChannelLayout(config.channels),
-                         config.frequency, 32, samples_in_10ms);
+                         config.rtp_timebase, 32, samples_in_10ms);
 }
 
 // An InProcessReceiver that renders video frames to a LinuxOutputWindow and
@@ -194,7 +194,7 @@ class NaivePlayer : public InProcessReceiver,
         // Maximum age is the duration of 3 video frames.  3 was chosen
         // arbitrarily, but seems to work well.
         max_frame_age_(base::TimeDelta::FromSeconds(1) * 3 /
-                           video_config.max_frame_rate),
+                           video_config.target_frame_rate),
 #if defined(USE_X11)
         render_(0, 0, window_width, window_height, "Cast_receiver"),
 #endif  // defined(USE_X11)
@@ -202,9 +202,9 @@ class NaivePlayer : public InProcessReceiver,
         num_audio_frames_processed_(0),
         currently_playing_audio_frame_start_(-1) {}
 
-  ~NaivePlayer() override {}
+  ~NaivePlayer() final {}
 
-  void Start() override {
+  void Start() final {
     AudioManager::Get()->GetTaskRunner()->PostTask(
         FROM_HERE,
         base::Bind(&NaivePlayer::StartAudioOutputOnAudioManagerThread,
@@ -214,7 +214,7 @@ class NaivePlayer : public InProcessReceiver,
     InProcessReceiver::Start();
   }
 
-  void Stop() override {
+  void Stop() final {
     // First, stop audio output to the Chromium audio stack.
     base::WaitableEvent done(false, false);
     DCHECK(!AudioManager::Get()->GetTaskRunner()->BelongsToCurrentThread());
@@ -263,11 +263,11 @@ class NaivePlayer : public InProcessReceiver,
   }
 
   ////////////////////////////////////////////////////////////////////
-  // InProcessReceiver overrides.
+  // InProcessReceiver finals.
 
   void OnVideoFrame(const scoped_refptr<VideoFrame>& video_frame,
                     const base::TimeTicks& playout_time,
-                    bool is_continuous) override {
+                    bool is_continuous) final {
     DCHECK(cast_env()->CurrentlyOn(CastEnvironment::MAIN));
     LOG_IF(WARNING, !is_continuous)
         << "Video: Discontinuity in received frames.";
@@ -284,7 +284,7 @@ class NaivePlayer : public InProcessReceiver,
 
   void OnAudioFrame(scoped_ptr<AudioBus> audio_frame,
                     const base::TimeTicks& playout_time,
-                    bool is_continuous) override {
+                    bool is_continuous) final {
     DCHECK(cast_env()->CurrentlyOn(CastEnvironment::MAIN));
     LOG_IF(WARNING, !is_continuous)
         << "Audio: Discontinuity in received frames.";
@@ -310,13 +310,13 @@ class NaivePlayer : public InProcessReceiver,
         std::make_pair(playout_time, audio_frame.release()));
   }
 
-  // End of InProcessReceiver overrides.
+  // End of InProcessReceiver finals.
   ////////////////////////////////////////////////////////////////////
 
   ////////////////////////////////////////////////////////////////////
   // AudioSourceCallback implementation.
 
-  int OnMoreData(AudioBus* dest, uint32 total_bytes_delay) override {
+  int OnMoreData(AudioBus* dest, uint32 total_bytes_delay) final {
     // Note: This method is being invoked by a separate thread unknown to us
     // (i.e., outside of CastEnvironment).
 
@@ -376,7 +376,7 @@ class NaivePlayer : public InProcessReceiver,
     return dest->frames();
   }
 
-  void OnError(AudioOutputStream* stream) override {
+  void OnError(AudioOutputStream* stream) final {
     LOG(ERROR) << "AudioOutputStream reports an error.  "
                << "Playback is unlikely to continue.";
   }
@@ -540,7 +540,7 @@ class NaivePlayer : public InProcessReceiver,
 
 int main(int argc, char** argv) {
   base::AtExitManager at_exit;
-  CommandLine::Init(argc, argv);
+  base::CommandLine::Init(argc, argv);
   InitLogging(logging::LoggingSettings());
 
   scoped_refptr<media::cast::CastEnvironment> cast_environment(
@@ -558,7 +558,7 @@ int main(int argc, char** argv) {
       media::cast::GetVideoReceiverConfig();
 
   // Determine local and remote endpoints.
-  int remote_port, local_port;
+  uint16 remote_port, local_port;
   media::cast::GetPorts(&remote_port, &local_port);
   if (!local_port) {
     LOG(ERROR) << "Invalid local port.";

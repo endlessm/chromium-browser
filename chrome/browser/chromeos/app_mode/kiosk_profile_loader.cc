@@ -12,7 +12,6 @@
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/chromeos/login/auth/chrome_login_performer.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_app_launcher.h"
-#include "chrome/browser/chromeos/login/login_utils.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
@@ -128,7 +127,7 @@ KioskProfileLoader::KioskProfileLoader(const std::string& app_user_id,
 KioskProfileLoader::~KioskProfileLoader() {}
 
 void KioskProfileLoader::Start() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   login_performer_.reset();
   cryptohomed_checker_.reset(new CryptohomedChecker(this));
   cryptohomed_checker_->StartCheck();
@@ -140,7 +139,7 @@ void KioskProfileLoader::LoginAsKioskAccount() {
 }
 
 void KioskProfileLoader::ReportLaunchResult(KioskAppLaunchError::Error error) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (error != KioskAppLaunchError::NONE) {
     delegate_->OnProfileLoadFailed(error);
@@ -160,10 +159,11 @@ void KioskProfileLoader::OnAuthSuccess(const UserContext& user_context) {
   UserContext context = user_context;
   if (context.GetUserID() == chromeos::login::kGuestUserName)
     context.SetUserID(DemoAppLauncher::kDemoUserName);
-  LoginUtils::Get()->PrepareProfile(context,
-                                    false,  // has_auth_cookies
-                                    false,  // has_active_session
-                                    this);
+  UserSessionManager::GetInstance()->StartSession(
+      context, UserSessionManager::PRIMARY_USER_SESSION,
+      false,  // has_auth_cookies
+      false,  // Start session for user.
+      this);
 }
 
 void KioskProfileLoader::OnAuthFailure(const AuthFailure& error) {
@@ -186,8 +186,8 @@ void KioskProfileLoader::OnOnlineChecked(
 void KioskProfileLoader::OnProfilePrepared(Profile* profile,
                                            bool browser_launched) {
   // This object could be deleted any time after successfully reporting
-  // a profile load, so invalidate the LoginUtils delegate now.
-  LoginUtils::Get()->DelegateDeleted(this);
+  // a profile load, so invalidate the delegate now.
+  UserSessionManager::GetInstance()->DelegateDeleted(this);
 
   delegate_->OnProfileLoaded(profile);
   ReportLaunchResult(KioskAppLaunchError::NONE);

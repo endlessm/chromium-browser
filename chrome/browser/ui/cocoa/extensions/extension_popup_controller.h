@@ -11,16 +11,11 @@
 #include "base/memory/scoped_ptr.h"
 #import "chrome/browser/ui/cocoa/base_bubble_controller.h"
 #import "chrome/browser/ui/cocoa/info_bubble_view.h"
-#include "url/gurl.h"
-
+#include "content/public/browser/notification_registrar.h"
 
 class Browser;
-class DevtoolsNotificationBridge;
+class ExtensionPopupNotificationBridge;
 class ExtensionPopupContainer;
-
-namespace content {
-class NotificationRegistrar;
-}
 
 namespace extensions {
 class ExtensionViewHost;
@@ -45,8 +40,8 @@ class ExtensionViewHost;
   // The extension host object.
   scoped_ptr<extensions::ExtensionViewHost> host_;
 
-  scoped_ptr<content::NotificationRegistrar> registrar_;
-  scoped_ptr<DevtoolsNotificationBridge> notificationBridge_;
+  content::NotificationRegistrar registrar_;
+  scoped_ptr<ExtensionPopupNotificationBridge> notificationBridge_;
   scoped_ptr<ExtensionPopupContainer> container_;
 
   std::string extensionId_;
@@ -62,9 +57,6 @@ class ExtensionViewHost;
   NSSize pendingSize_;
 }
 
-// Returns the ExtensionViewHost object associated with this popup.
-- (extensions::ExtensionViewHost*)extensionViewHost;
-
 // Starts the process of showing the given popup URL. Instantiates an
 // ExtensionPopupController with the parent window retrieved from |browser|, a
 // host for the popup created by the extension process manager specific to the
@@ -76,12 +68,13 @@ class ExtensionViewHost;
 // Passing YES to |devMode| will launch the webkit inspector for the popup,
 // and prevent the popup from closing when focus is lost.  It will be closed
 // after the inspector is closed, or another popup is opened.
-+ (ExtensionPopupController*)showURL:(GURL)url
-                           inBrowser:(Browser*)browser
-                          anchoredAt:(NSPoint)anchoredAt
-                       arrowLocation:(info_bubble::BubbleArrowLocation)
-                                         arrowLocation
-                             devMode:(BOOL)devMode;
++ (ExtensionPopupController*)host:(scoped_ptr<extensions::ExtensionViewHost>)
+                                      host
+                        inBrowser:(Browser*)browser
+                       anchoredAt:(NSPoint)anchoredAt
+                    arrowLocation:(info_bubble::BubbleArrowLocation)
+                                      arrowLocation
+                          devMode:(BOOL)devMode;
 
 // Returns the controller used to display the popup being shown. If no popup is
 // currently open, then nil is returned. Static because only one extension popup

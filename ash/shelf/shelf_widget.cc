@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,6 +36,7 @@
 #include "ui/views/accessible_pane_view.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
+#include "ui/wm/core/coordinate_conversion.h"
 #include "ui/wm/core/easy_resize_window_targeter.h"
 #include "ui/wm/public/activation_client.h"
 
@@ -171,9 +172,9 @@ void DimmerView::ForceUndimming(bool force) {
 
 void DimmerView::OnPaintBackground(gfx::Canvas* canvas) {
   SkPaint paint;
-  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
+  ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
   gfx::ImageSkia shelf_background =
-      *rb.GetImageNamed(IDR_ASH_SHELF_DIMMING).ToImageSkia();
+      *rb->GetImageNamed(IDR_ASH_SHELF_DIMMING).ToImageSkia();
 
   if (shelf_->GetAlignment() != ash::SHELF_ALIGNMENT_BOTTOM) {
     shelf_background = gfx::ImageSkiaOperations::CreateRotatedImage(
@@ -213,7 +214,11 @@ void DimmerView::DimmerEventFilter::OnMouseEvent(ui::MouseEvent* event) {
   if (event->type() != ui::ET_MOUSE_MOVED &&
       event->type() != ui::ET_MOUSE_DRAGGED)
     return;
-  bool inside = owner_->GetBoundsInScreen().Contains(event->root_location());
+
+  gfx::Point screen_point(event->location());
+  ::wm::ConvertPointToScreen(static_cast<aura::Window*>(event->target()),
+                             &screen_point);
+  bool inside = owner_->GetBoundsInScreen().Contains(screen_point);
   if (mouse_inside_ || touch_inside_ != inside || touch_inside_)
     owner_->SetHovered(inside || touch_inside_);
   mouse_inside_ = inside;
@@ -222,8 +227,12 @@ void DimmerView::DimmerEventFilter::OnMouseEvent(ui::MouseEvent* event) {
 void DimmerView::DimmerEventFilter::OnTouchEvent(ui::TouchEvent* event) {
   bool touch_inside = false;
   if (event->type() != ui::ET_TOUCH_RELEASED &&
-      event->type() != ui::ET_TOUCH_CANCELLED)
-    touch_inside = owner_->GetBoundsInScreen().Contains(event->root_location());
+      event->type() != ui::ET_TOUCH_CANCELLED) {
+    gfx::Point screen_point(event->location());
+    ::wm::ConvertPointToScreen(static_cast<aura::Window*>(event->target()),
+                               &screen_point);
+    touch_inside = owner_->GetBoundsInScreen().Contains(screen_point);
+  }
 
   if (mouse_inside_ || touch_inside_ != mouse_inside_ || touch_inside)
     owner_->SetHovered(mouse_inside_ || touch_inside);
@@ -454,9 +463,9 @@ void ShelfWidget::DelegateView::SetParentLayer(ui::Layer* layer) {
 }
 
 void ShelfWidget::DelegateView::OnPaintBackground(gfx::Canvas* canvas) {
-  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
+  ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
   gfx::ImageSkia shelf_background =
-      *rb.GetImageSkiaNamed(IDR_ASH_SHELF_BACKGROUND);
+      *rb->GetImageSkiaNamed(IDR_ASH_SHELF_BACKGROUND);
   if (SHELF_ALIGNMENT_BOTTOM != shelf_->GetAlignment())
     shelf_background = gfx::ImageSkiaOperations::CreateRotatedImage(
         shelf_background,
@@ -489,7 +498,7 @@ void ShelfWidget::DelegateView::OnPaintBackground(gfx::Canvas* canvas) {
     // The part of the shelf background that is in the corner below the docked
     // windows close to the work area is an arched gradient that blends
     // vertically oriented docked background and horizontal shelf.
-    gfx::ImageSkia shelf_corner = *rb.GetImageSkiaNamed(IDR_ASH_SHELF_CORNER);
+    gfx::ImageSkia shelf_corner = *rb->GetImageSkiaNamed(IDR_ASH_SHELF_CORNER);
     if (dock_bounds.x() == 0) {
       shelf_corner = gfx::ImageSkiaOperations::CreateRotatedImage(
           shelf_corner, SkBitmapOperations::ROTATION_90_CW);
@@ -710,14 +719,15 @@ bool ShelfWidget::ShelfAlignmentAllowed() {
       Shell::GetInstance()->system_tray_delegate()->GetUserLoginStatus();
 
   switch (login_status) {
+    case user::LOGGED_IN_LOCKED:
+      // Shelf alignment changes can be requested while being locked, but will
+      // be applied upon unlock.
     case user::LOGGED_IN_USER:
     case user::LOGGED_IN_OWNER:
       return true;
-    case user::LOGGED_IN_LOCKED:
     case user::LOGGED_IN_PUBLIC:
     case user::LOGGED_IN_SUPERVISED:
     case user::LOGGED_IN_GUEST:
-    case user::LOGGED_IN_RETAIL_MODE:
     case user::LOGGED_IN_KIOSK_APP:
     case user::LOGGED_IN_NONE:
       return false;

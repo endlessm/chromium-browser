@@ -64,8 +64,8 @@ public:
             return adoptRef(new FastMallocAllocator);
         }
 
-        virtual void* allocate(size_t size) override { return fastMalloc(size); }
-        virtual void free(void* ptr) override { fastFree(ptr); }
+        void* allocate(size_t size) override { return fastMalloc(size); }
+        void free(void* ptr) override { fastFree(ptr); }
 
     protected:
         FastMallocAllocator() { }
@@ -192,7 +192,7 @@ protected:
     RefPtr<Allocator> m_allocator;
     Chunk* m_current;
     size_t m_currentChunkSize;
-    Vector<OwnPtr<Chunk> > m_chunks;
+    Vector<OwnPtr<Chunk>> m_chunks;
 };
 
 } // namespace blink

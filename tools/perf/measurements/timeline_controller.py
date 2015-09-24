@@ -1,12 +1,14 @@
 # Copyright 2014 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
-from measurements import smooth_gesture_util
 
-from telemetry.core.platform import tracing_category_filter
-from telemetry.core.platform import tracing_options
+from telemetry.page import action_runner
+from telemetry.page import page_test
 from telemetry.timeline.model import TimelineModel
-from telemetry.page.actions import action_runner
+from telemetry.timeline import tracing_category_filter
+from telemetry.timeline import tracing_options
+from telemetry.value import trace
+from telemetry.web_perf import smooth_gesture_util
 from telemetry.web_perf import timeline_interaction_record as tir_module
 
 
@@ -14,13 +16,14 @@ RUN_SMOOTH_ACTIONS = 'RunSmoothAllActions'
 
 
 class TimelineController(object):
-  def __init__(self):
+  def __init__(self, enable_auto_issuing_record=True):
     super(TimelineController, self).__init__()
     self.trace_categories = None
     self._model = None
     self._renderer_process = None
     self._smooth_records = []
     self._interaction = None
+    self._enable_auto_issuing_record = enable_auto_issuing_record
 
   def SetUp(self, page, tab):
     """Starts gathering timeline data.
@@ -29,8 +32,7 @@ class TimelineController(object):
     # Resets these member variables incase this object is reused.
     self._model = None
     self._renderer_process = None
-    if not tab.browser.platform.tracing_controller.IsChromeTracingSupported(
-      tab.browser):
+    if not tab.browser.platform.tracing_controller.IsChromeTracingSupported():
       raise Exception('Not supported')
     category_filter = tracing_category_filter.TracingCategoryFilter(
         filter_string=self.trace_categories)
@@ -43,14 +45,19 @@ class TimelineController(object):
   def Start(self, tab):
     # Start the smooth marker for all actions.
     runner = action_runner.ActionRunner(tab)
-    self._interaction = runner.BeginInteraction(
-        RUN_SMOOTH_ACTIONS, is_smooth=True)
+    if self._enable_auto_issuing_record:
+      self._interaction = runner.CreateInteraction(
+          RUN_SMOOTH_ACTIONS)
+      self._interaction.Begin()
 
-  def Stop(self, tab):
+  def Stop(self, tab, results):
     # End the smooth marker for all actions.
-    self._interaction.End()
+    if self._enable_auto_issuing_record:
+      self._interaction.End()
     # Stop tracing.
     timeline_data = tab.browser.platform.tracing_controller.Stop()
+    results.AddValue(trace.TraceValue(
+        results.current_page, timeline_data))
     self._model = TimelineModel(timeline_data)
     self._renderer_process = self._model.GetRendererProcessFromTabId(tab.id)
     renderer_thread = self.model.GetRendererThreadFromTabId(tab.id)
@@ -66,7 +73,7 @@ class TimelineController(object):
           'TimelineController cannot issue more than 1 %s record' %
           RUN_SMOOTH_ACTIONS)
         run_smooth_actions_record = r
-      elif r.is_smooth:
+      else:
         self._smooth_records.append(
           smooth_gesture_util.GetAdjustedInteractionIfContainGesture(
             self.model, r))
@@ -77,6 +84,9 @@ class TimelineController(object):
     # page sets are responsible for issueing the markers themselves.
     if len(self._smooth_records) == 0 and run_smooth_actions_record:
       self._smooth_records = [run_smooth_actions_record]
+
+    if len(self._smooth_records) == 0:
+      raise page_test.Failure('No interaction record was created.')
 
 
   def CleanUp(self, tab):

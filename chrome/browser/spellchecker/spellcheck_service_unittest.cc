@@ -2,109 +2,101 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <vector>
-
-#include "base/files/scoped_temp_dir.h"
-#include "base/message_loop/message_loop.h"
-#include "chrome/browser/spellchecker/spellcheck_custom_dictionary.h"
-#include "chrome/browser/spellchecker/spellcheck_factory.h"
 #include "chrome/browser/spellchecker/spellcheck_service.h"
-#include "chrome/common/spellcheck_common.h"
-#include "chrome/test/base/testing_profile.h"
-#include "content/public/test/test_browser_thread_bundle.h"
-#include "testing/gmock/include/gmock/gmock.h"
+
+#include "base/command_line.h"
+#include "base/message_loop/message_loop.h"
+#include "base/prefs/pref_registry_simple.h"
+#include "base/prefs/testing_pref_service.h"
+#include "base/strings/string_split.h"
+#include "base/supports_user_data.h"
+#include "chrome/common/chrome_switches.h"
+#include "chrome/common/pref_names.h"
+#include "components/user_prefs/user_prefs.h"
+#include "content/public/test/test_browser_thread.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-using chrome::spellcheck_common::WordList;
-
-static KeyedService* BuildSpellcheckService(content::BrowserContext* profile) {
-  return new SpellcheckService(static_cast<Profile*>(profile));
-}
-
-class SpellcheckServiceTest : public testing::Test {
- protected:
-  void SetUp() override {
-    // Use SetTestingFactoryAndUse to force creation and initialization.
-    SpellcheckServiceFactory::GetInstance()->SetTestingFactoryAndUse(
-        &profile_, &BuildSpellcheckService);
+struct SpellcheckLanguageTestCase {
+  SpellcheckLanguageTestCase(const std::string& accept_languages,
+                             const std::string& unsplit_spellcheck_dictionaries,
+                             size_t num_expected_enabled_spellcheck_languages,
+                             const std::string& unsplit_expected_languages)
+      : accept_languages(accept_languages),
+        num_expected_enabled_spellcheck_languages(
+            num_expected_enabled_spellcheck_languages) {
+    base::SplitString(unsplit_spellcheck_dictionaries, ',',
+                      &spellcheck_dictionaries);
+    base::SplitString(unsplit_expected_languages, ',',
+                      &expected_spellcheck_languages);
   }
+  ~SpellcheckLanguageTestCase() {}
 
- private:
-  content::TestBrowserThreadBundle thread_bundle_;
-  TestingProfile profile_;
+  std::string accept_languages;
+  std::vector<std::string> spellcheck_dictionaries;
+  size_t num_expected_enabled_spellcheck_languages;
+  std::vector<std::string> expected_spellcheck_languages;
 };
 
-TEST_F(SpellcheckServiceTest, GetSpellCheckLanguages1) {
-  std::vector<std::string> accept_languages;
-  accept_languages.push_back("en");
-  accept_languages.push_back("en-US");
-  std::vector<std::string> languages;
+class SpellcheckServiceUnitTest
+    : public testing::TestWithParam<SpellcheckLanguageTestCase> {
+ public:
+  SpellcheckServiceUnitTest()
+      : ui_thread_(content::BrowserThread::UI, &message_loop_) {
+    user_prefs::UserPrefs::Set(&context_, &prefs_);
+  }
+  ~SpellcheckServiceUnitTest() override {}
 
-  SpellcheckService::GetSpellCheckLanguagesFromAcceptLanguages(
-      accept_languages, "en-US", &languages);
+  void SetUp() override {
+    prefs()->registry()->RegisterListPref(prefs::kSpellCheckDictionaries);
+    prefs()->registry()->RegisterStringPref(prefs::kAcceptLanguages,
+                                            std::string());
+  }
 
-  EXPECT_EQ(1U, languages.size());
-  EXPECT_EQ("en-US", languages[0]);
-}
+  base::SupportsUserData* context() { return &context_; }
+  TestingPrefServiceSimple* prefs() { return &prefs_; }
 
-TEST_F(SpellcheckServiceTest, GetSpellCheckLanguages2) {
-  std::vector<std::string> accept_languages;
-  accept_languages.push_back("en-US");
-  accept_languages.push_back("en");
-  std::vector<std::string> languages;
+ private:
+  struct : public base::SupportsUserData {} context_;
+  TestingPrefServiceSimple prefs_;
+  base::MessageLoop message_loop_;
+  content::TestBrowserThread ui_thread_;
 
-  SpellcheckService::GetSpellCheckLanguagesFromAcceptLanguages(
-      accept_languages, "en-US", &languages);
+  DISALLOW_COPY_AND_ASSIGN(SpellcheckServiceUnitTest);
+};
 
-  EXPECT_EQ(1U, languages.size());
-  EXPECT_EQ("en-US", languages[0]);
-}
+INSTANTIATE_TEST_CASE_P(
+    SpellcheckLanguageTestCases,
+    SpellcheckServiceUnitTest,
+    testing::Values(
+        SpellcheckLanguageTestCase("en,en-US", "en-US", 1UL, "en-US"),
+        SpellcheckLanguageTestCase("en-US,en", "en-US", 1UL, "en-US"),
+        SpellcheckLanguageTestCase("en,en-US,en-AU",
+                                   "en-US",
+                                   1UL,
+                                   "en-US,en-AU"),
+        SpellcheckLanguageTestCase("en,en-US,fr", "en-US", 1UL, "en-US,fr"),
+        SpellcheckLanguageTestCase("en,en-JP,fr,aa", "fr", 1UL, "fr"),
+        SpellcheckLanguageTestCase("en,en-US", "en-US", 1UL, "en-US"),
+        SpellcheckLanguageTestCase("en-US,en", "en-US", 1UL, "en-US"),
+        SpellcheckLanguageTestCase("en,fr,en-US,en-AU",
+                                   "en-US,fr",
+                                   2UL,
+                                   "en-US,fr,en-AU"),
+        SpellcheckLanguageTestCase("en,en-JP,fr,zz,en-US",
+                                   "fr",
+                                   1UL,
+                                   "fr,en-US")));
 
-TEST_F(SpellcheckServiceTest, GetSpellCheckLanguages3) {
-  std::vector<std::string> accept_languages;
-  accept_languages.push_back("en");
-  accept_languages.push_back("en-US");
-  accept_languages.push_back("en-AU");
-  std::vector<std::string> languages;
+TEST_P(SpellcheckServiceUnitTest, GetSpellcheckLanguages) {
+  prefs()->SetString(prefs::kAcceptLanguages, GetParam().accept_languages);
+  base::ListValue dictionaries;
+  dictionaries.AppendStrings(GetParam().spellcheck_dictionaries);
+  prefs()->Set(prefs::kSpellCheckDictionaries, dictionaries);
 
-  SpellcheckService::GetSpellCheckLanguagesFromAcceptLanguages(
-      accept_languages, "en-US", &languages);
+  std::vector<std::string> spellcheck_languages;
+  EXPECT_EQ(GetParam().num_expected_enabled_spellcheck_languages,
+            SpellcheckService::GetSpellCheckLanguages(context(),
+                                                      &spellcheck_languages));
 
-  EXPECT_EQ(2U, languages.size());
-
-  std::sort(languages.begin(), languages.end());
-  EXPECT_EQ("en-AU", languages[0]);
-  EXPECT_EQ("en-US", languages[1]);
-}
-
-TEST_F(SpellcheckServiceTest, GetSpellCheckLanguages4) {
-  std::vector<std::string> accept_languages;
-  accept_languages.push_back("en");
-  accept_languages.push_back("en-US");
-  accept_languages.push_back("fr");
-  std::vector<std::string> languages;
-
-  SpellcheckService::GetSpellCheckLanguagesFromAcceptLanguages(
-      accept_languages, "en-US", &languages);
-
-  EXPECT_EQ(2U, languages.size());
-
-  std::sort(languages.begin(), languages.end());
-  EXPECT_EQ("en-US", languages[0]);
-  EXPECT_EQ("fr", languages[1]);
-}
-
-TEST_F(SpellcheckServiceTest, GetSpellCheckLanguages5) {
-  std::vector<std::string> accept_languages;
-  accept_languages.push_back("en");
-  accept_languages.push_back("en-JP");  // Will not exist.
-  accept_languages.push_back("fr");
-  accept_languages.push_back("aa");  // Will not exist.
-  std::vector<std::string> languages;
-
-  SpellcheckService::GetSpellCheckLanguagesFromAcceptLanguages(
-      accept_languages, "fr", &languages);
-
-  EXPECT_EQ(1U, languages.size());
-  EXPECT_EQ("fr", languages[0]);
+  EXPECT_EQ(GetParam().expected_spellcheck_languages, spellcheck_languages);
 }

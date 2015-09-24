@@ -18,8 +18,8 @@
 #include "net/base/escape.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/gfx/rect.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace {
 
@@ -37,11 +37,11 @@ int CalculateSize(int screen_size, int min_comfortable, float desired_ratio) {
   return std::min(screen_size, desired_size);
 }
 
-GURL GetURLForProxySettings(const std::string& service_path) {
+GURL GetURLForProxySettings(const std::string& guid) {
   std::string url(chrome::kChromeUIProxySettingsURL);
   url += base::StringPrintf(
       kProxySettingsURLParam,
-      net::EscapeUrlEncodedData(service_path, true).c_str());
+      net::EscapeUrlEncodedData(guid, true).c_str());
   return GURL(url);
 }
 
@@ -61,8 +61,8 @@ ProxySettingsDialog::ProxySettingsDialog(
                      delegate,
                      window,
                      base::string16(),
-                     GetURLForProxySettings(network.path())) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+                     GetURLForProxySettings(network.guid())) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   ++instance_count_;
 
   gfx::Rect screen_bounds(chromeos::CalculateScreenBounds(gfx::Size()));
@@ -84,7 +84,7 @@ ProxySettingsDialog::ProxySettingsDialog(
 }
 
 ProxySettingsDialog::~ProxySettingsDialog() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   --instance_count_;
 }
 

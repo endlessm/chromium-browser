@@ -4,21 +4,25 @@
 
 group("all_cpu_features") {
   deps = [
-    ":cpu_features"
+    ":cpu_features",
   ]
 }
 
 static_library("cpu_features") {
-  include_dirs = ["."]
+  include_dirs = [ "." ]
   sources = [
     "arch/arm/cpu_arm.c",
     "arch/mips/cpu_mips.c",
   ]
 
-  if (cpu_arch == "x64" || cpu_arch == "x86") {
+  if (current_cpu == "x64" || current_cpu == "x86") {
     sources += [
       "arch/x86/cpu_x86.c",
       "arch/x86/cpu_xgetbv.S",
     ]
   }
+
+  deps = [
+    "//native_client/build/config/nacl:nacl_base",
+  ]
 }

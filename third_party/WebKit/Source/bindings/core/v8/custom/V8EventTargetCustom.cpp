@@ -32,22 +32,36 @@
 #include "bindings/core/v8/V8EventTarget.h"
 
 #include "bindings/core/v8/V8Window.h"
-#include "core/EventTargetNames.h"
+#include "core/frame/UseCounter.h"
 
 namespace blink {
 
-v8::Handle<v8::Value> toV8(EventTarget* impl, v8::Handle<v8::Object> creationContext, v8::Isolate* isolate)
+void V8EventTarget::addEventListenerMethodPrologueCustom(const v8::FunctionCallbackInfo<v8::Value>& info, EventTarget*)
 {
-    if (UNLIKELY(!impl))
-        return v8::Null(isolate);
+    if (info.Length() < 2) {
+        UseCounter::countIfNotPrivateScript(info.GetIsolate(), callingExecutionContext(info.GetIsolate()),
+            info.Length() == 0 ? UseCounter::AddEventListenerNoArguments : UseCounter::AddEventListenerOneArgument);
+    }
+}
 
-    if (impl->interfaceName() == EventTargetNames::LocalDOMWindow)
-        return toV8(static_cast<LocalDOMWindow*>(impl), creationContext, isolate);
+void V8EventTarget::addEventListenerMethodEpilogueCustom(const v8::FunctionCallbackInfo<v8::Value>& info, EventTarget* impl)
+{
+    if (info.Length() >= 2 && info[1]->IsObject() && !impl->toNode())
+        addHiddenValueToArray(info.GetIsolate(), info.Holder(), info[1], V8EventTarget::eventListenerCacheIndex);
+}
 
-    v8::Handle<v8::Value> wrapper = DOMDataStore::getWrapper(impl, isolate);
-    if (!wrapper.IsEmpty())
-        return wrapper;
-    return impl->wrap(creationContext, isolate);
+void V8EventTarget::removeEventListenerMethodPrologueCustom(const v8::FunctionCallbackInfo<v8::Value>& info, EventTarget*)
+{
+    if (info.Length() < 2) {
+        UseCounter::countIfNotPrivateScript(info.GetIsolate(), callingExecutionContext(info.GetIsolate()),
+            info.Length() == 0 ? UseCounter::RemoveEventListenerNoArguments : UseCounter::RemoveEventListenerOneArgument);
+    }
+}
+
+void V8EventTarget::removeEventListenerMethodEpilogueCustom(const v8::FunctionCallbackInfo<v8::Value>& info, EventTarget* impl)
+{
+    if (info.Length() >= 2 && info[1]->IsObject() && !impl->toNode())
+        removeHiddenValueFromArray(info.GetIsolate(), info.Holder(), info[1], V8EventTarget::eventListenerCacheIndex);
 }
 
 } // namespace blink

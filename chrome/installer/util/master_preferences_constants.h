@@ -22,10 +22,6 @@ extern const char kAltShortcutText[];
 extern const char kAutoLaunchChrome[];
 // Boolean. This is to be a Chrome install. (When using MultiInstall)
 extern const char kChrome[];
-// Boolean. This is to be a Chrome App Host install.
-extern const char kChromeAppHostDeprecated[];  // TODO(huangs): Remove by M27.
-// Boolean. This is to be a Chrome App Launcher install.
-extern const char kChromeAppLauncher[];
 // Integer. Icon index from chrome.exe to use for shortcuts.
 extern const char kChromeShortcutIconIndex[];
 // Boolean. This is a legacy preference and should no longer be used; it is
@@ -56,6 +52,10 @@ extern const char kDistroPingDelay[];
 extern const char kDistroSuppressDefaultBrowserPromptPref[];
 // Boolean. Do not show first run bubble, even if it would otherwise be shown.
 extern const char kDistroSuppressFirstRunBubble[];
+// Boolean that specifies whether or not showing the welcome page following an
+// OS upgrade is enabled. True by default. May be overridden by the
+// WelcomePageOnOSUpgradeEnabled policy setting.
+extern const char kDistroWelcomePageOnOSUpgradeEnabled[];
 // Boolean. Prevent creation of all shortcuts to chrome, including the
 // desktop, quick launch, taskbar and the start menu shortcuts.
 extern const char kDoNotCreateAnyShortcuts[];

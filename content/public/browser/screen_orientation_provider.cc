@@ -9,12 +9,12 @@
 #include "content/public/browser/screen_orientation_delegate.h"
 #include "content/public/browser/screen_orientation_dispatcher_host.h"
 #include "content/public/browser/web_contents.h"
-#include "third_party/WebKit/public/platform/WebLockOrientationError.h"
 #include "third_party/WebKit/public/platform/WebScreenInfo.h"
+#include "third_party/WebKit/public/platform/modules/screen_orientation/WebLockOrientationError.h"
 
 namespace content {
 
-ScreenOrientationDelegate* ScreenOrientationProvider::delegate_ = NULL;
+ScreenOrientationDelegate* ScreenOrientationProvider::delegate_ = nullptr;
 
 ScreenOrientationProvider::LockInformation::LockInformation(int request_id,
     blink::WebScreenOrientationLockType lock)
@@ -73,7 +73,7 @@ void ScreenOrientationProvider::LockOrientation(int request_id,
   }
 
   lock_applied_ = true;
-  delegate_->Lock(lock_orientation);
+  delegate_->Lock(web_contents(), lock_orientation);
 
   // If two calls happen close to each other some platforms will ignore the
   // first. A successful lock will be once orientation matches the latest
@@ -94,7 +94,7 @@ void ScreenOrientationProvider::UnlockOrientation() {
   if (!lock_applied_ || !delegate_)
     return;
 
-  delegate_->Unlock();
+  delegate_->Unlock(web_contents());
 
   lock_applied_ = false;
   pending_lock_.reset();

@@ -4,215 +4,242 @@
 
 #include "chrome/browser/media/protected_media_identifier_permission_context.h"
 
-#include <functional>
-#include <string>
-#include <vector>
-
-#include "base/bind.h"
+#include "base/command_line.h"
 #include "base/prefs/pref_service.h"
-#include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/common/pref_names.h"
-#include "components/content_settings/core/browser/host_content_settings_map.h"
-#include "components/content_settings/core/common/permission_request_id.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/render_process_host.h"
-#include "content/public/browser/render_view_host.h"
+#include "content/public/browser/user_metrics.h"
 #include "content/public/browser/web_contents.h"
+#if defined(OS_CHROMEOS)
+#include <utility>
 
-#if defined(ENABLE_EXTENSIONS)
-#include "chrome/browser/extensions/extension_service.h"
-#include "extensions/browser/extension_system.h"
-#include "extensions/browser/suggest_permission_util.h"
-#include "extensions/browser/view_type_utils.h"
-#include "extensions/common/extension.h"
+#include "chrome/browser/chromeos/attestation/platform_verification_dialog.h"
+#include "chrome/browser/chromeos/settings/cros_settings.h"
+#include "chromeos/chromeos_switches.h"
+#include "chromeos/settings/cros_settings_names.h"
+#include "components/pref_registry/pref_registry_syncable.h"
+#include "components/user_prefs/user_prefs.h"
+#include "ui/views/widget/widget.h"
+#elif !defined(OS_ANDROID)
+#error This file currently only supports Chrome OS and Android.
+#endif
 
-using extensions::APIPermission;
+#if defined(OS_CHROMEOS)
+using chromeos::attestation::PlatformVerificationDialog;
 #endif
 
 ProtectedMediaIdentifierPermissionContext::
     ProtectedMediaIdentifierPermissionContext(Profile* profile)
-    : profile_(profile), shutting_down_(false) {}
+    : PermissionContextBase(profile,
+                            CONTENT_SETTINGS_TYPE_PROTECTED_MEDIA_IDENTIFIER)
+#if defined(OS_CHROMEOS)
+      ,
+      weak_factory_(this)
+#endif
+{
+}
 
 ProtectedMediaIdentifierPermissionContext::
     ~ProtectedMediaIdentifierPermissionContext() {
-  // ProtectedMediaIdentifierPermissionContext may be destroyed on either
-  // the UI thread or the IO thread, but the PermissionQueueController must have
-  // been destroyed on the UI thread.
-  DCHECK(!permission_queue_controller_.get());
 }
 
-void ProtectedMediaIdentifierPermissionContext::
-    RequestProtectedMediaIdentifierPermission(
-        content::WebContents* web_contents,
-        const GURL& origin,
-        base::Callback<void(bool)> result_callback) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-  if (shutting_down_)
-    return;
-
-  int render_process_id = web_contents->GetRenderProcessHost()->GetID();
-  int render_view_id = web_contents->GetRenderViewHost()->GetRoutingID();
-
-  const PermissionRequestID id(
-      render_process_id, render_view_id, 0, origin);
-
-#if defined(ENABLE_EXTENSIONS)
-  if (extensions::GetViewType(web_contents) !=
-      extensions::VIEW_TYPE_TAB_CONTENTS) {
-    // The tab may have gone away, or the request may not be from a tab at all.
-    LOG(WARNING)
-        << "Attempt to use protected media identifier in tabless renderer: "
-        << id.ToString()
-        << " (can't prompt user without a visible tab)";
-    NotifyPermissionSet(id, origin, result_callback, false);
-    return;
-  }
-#endif
-
-  GURL embedder = web_contents->GetLastCommittedURL();
-  if (!origin.is_valid() || !embedder.is_valid()) {
-    LOG(WARNING)
-        << "Attempt to use protected media identifier from an invalid URL: "
-        << origin << "," << embedder
-        << " (proteced media identifier is not supported in popups)";
-    NotifyPermissionSet(id, origin, result_callback, false);
-    return;
-  }
-
-  content::RenderViewHost* rvh = web_contents->GetRenderViewHost();
-  DecidePermission(id, origin, embedder, rvh, result_callback);
-}
-
-void ProtectedMediaIdentifierPermissionContext::
-    CancelProtectedMediaIdentifierPermissionRequests(
-        int render_process_id,
-        int render_view_id,
-        const GURL& origin) {
-  CancelPendingInfobarRequests(
-      render_process_id, render_view_id, origin);
-}
-
-void ProtectedMediaIdentifierPermissionContext::DecidePermission(
+void ProtectedMediaIdentifierPermissionContext::RequestPermission(
+    content::WebContents* web_contents,
     const PermissionRequestID& id,
-    const GURL& origin,
-    const GURL& embedder,
-    content::RenderViewHost* rvh,
-    const base::Callback<void(bool)>& callback) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+    const GURL& requesting_origin,
+    bool user_gesture,
+    const BrowserPermissionCallback& callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-#if defined(OS_ANDROID)
-  // Check if the protected media identifier master switch is disabled.
-  if (!profile()->GetPrefs()->GetBoolean(
-        prefs::kProtectedMediaIdentifierEnabled)) {
-    PermissionDecided(id, origin, embedder, callback, false);
-    return;
-  }
-#endif
+  GURL embedding_origin = web_contents->GetLastCommittedURL().GetOrigin();
+
+  DVLOG(1) << __FUNCTION__ << ": (" << requesting_origin.spec() << ", "
+           << embedding_origin.spec() << ")";
 
   ContentSetting content_setting =
-     profile_->GetHostContentSettingsMap()->GetContentSetting(
-          origin,
-          embedder,
-          CONTENT_SETTINGS_TYPE_PROTECTED_MEDIA_IDENTIFIER,
-          std::string());
-  switch (content_setting) {
-    case CONTENT_SETTING_BLOCK:
-      PermissionDecided(id, origin, embedder, callback, false);
-      break;
-    case CONTENT_SETTING_ALLOW:
-      PermissionDecided(id, origin, embedder, callback, true);
-      break;
-    case CONTENT_SETTING_ASK:
-      QueueController()->CreateInfoBarRequest(
-          id,
-          origin,
-          embedder,
-          base::Bind(&ProtectedMediaIdentifierPermissionContext::
-                          NotifyPermissionSet,
-                     base::Unretained(this),
-                     id,
-                     origin,
-                     callback));
-      break;
-    default:
-      NOTREACHED();
+      GetPermissionStatus(requesting_origin, embedding_origin);
+
+  if (content_setting == CONTENT_SETTING_ALLOW ||
+      content_setting == CONTENT_SETTING_BLOCK) {
+    NotifyPermissionSet(id, requesting_origin, embedding_origin, callback,
+                        false /* persist */, content_setting);
+    return;
   }
+
+  DCHECK_EQ(CONTENT_SETTING_ASK, content_setting);
+
+#if defined(OS_CHROMEOS)
+  // Since the dialog is modal, we only support one prompt per |web_contents|.
+  // Reject the new one if there is already one pending. See
+  // http://crbug.com/447005
+  if (pending_requests_.count(web_contents)) {
+    callback.Run(CONTENT_SETTING_ASK);
+    return;
+  }
+
+  // On ChromeOS, we don't use PermissionContextBase::RequestPermission() which
+  // uses the standard permission infobar/bubble UI. See http://crbug.com/454847
+  // Instead, we show the existing platform verification UI.
+  // TODO(xhwang): Remove when http://crbug.com/454847 is fixed.
+  views::Widget* widget = PlatformVerificationDialog::ShowDialog(
+      web_contents, requesting_origin,
+      base::Bind(&ProtectedMediaIdentifierPermissionContext::
+                     OnPlatformVerificationConsentResponse,
+                 weak_factory_.GetWeakPtr(), web_contents, id,
+                 requesting_origin, embedding_origin, callback));
+  pending_requests_.insert(
+      std::make_pair(web_contents, std::make_pair(widget, id)));
+#else
+  PermissionContextBase::RequestPermission(web_contents, id, requesting_origin,
+                                           user_gesture, callback);
+#endif
 }
 
-void ProtectedMediaIdentifierPermissionContext::ShutdownOnUIThread() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-  permission_queue_controller_.reset();
-  shutting_down_ = true;
+ContentSetting ProtectedMediaIdentifierPermissionContext::GetPermissionStatus(
+      const GURL& requesting_origin,
+      const GURL& embedding_origin) const {
+  DVLOG(1) << __FUNCTION__ << ": (" << requesting_origin.spec() << ", "
+           << embedding_origin.spec() << ")";
+
+  if (!requesting_origin.is_valid() || !embedding_origin.is_valid() ||
+      !IsProtectedMediaIdentifierEnabled()) {
+    return CONTENT_SETTING_BLOCK;
+  }
+
+  ContentSetting content_setting = PermissionContextBase::GetPermissionStatus(
+      requesting_origin, embedding_origin);
+  DCHECK(content_setting == CONTENT_SETTING_ALLOW ||
+         content_setting == CONTENT_SETTING_BLOCK ||
+         content_setting == CONTENT_SETTING_ASK);
+
+  return content_setting;
 }
 
-void ProtectedMediaIdentifierPermissionContext::PermissionDecided(
+void ProtectedMediaIdentifierPermissionContext::CancelPermissionRequest(
+    content::WebContents* web_contents,
+    const PermissionRequestID& id) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+#if defined(OS_CHROMEOS)
+  PendingRequestMap::iterator request = pending_requests_.find(web_contents);
+  if (request == pending_requests_.end() || (request->second.second != id))
+    return;
+
+  views::Widget* widget = request->second.first;
+  pending_requests_.erase(request);
+
+  // If |web_contents| is being destroyed, |widget| could be invalid. No need to
+  // manually close it here. Otherwise, close the |widget| here.
+  // OnPlatformVerificationConsentResponse() will be fired during this process,
+  // but since |web_contents| is removed from |pending_requests_|, the callback
+  // will simply be dropped.
+  if (!web_contents->IsBeingDestroyed())
+    widget->Close();
+#else
+  PermissionContextBase::CancelPermissionRequest(web_contents, id);
+#endif
+}
+
+void ProtectedMediaIdentifierPermissionContext::UpdateTabContext(
     const PermissionRequestID& id,
-    const GURL& origin,
-    const GURL& embedder,
-    const base::Callback<void(bool)>& callback,
+    const GURL& requesting_frame,
     bool allowed) {
-  NotifyPermissionSet(id, origin, callback, allowed);
-}
-
-void ProtectedMediaIdentifierPermissionContext::NotifyPermissionSet(
-    const PermissionRequestID& id,
-    const GURL& origin,
-    const base::Callback<void(bool)>& callback,
-    bool allowed) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   // WebContents may have gone away.
   TabSpecificContentSettings* content_settings =
-      TabSpecificContentSettings::Get(id.render_process_id(),
-                                      id.render_view_id());
+      TabSpecificContentSettings::GetForFrame(id.render_process_id(),
+                                              id.render_frame_id());
   if (content_settings) {
     content_settings->OnProtectedMediaIdentifierPermissionSet(
-        origin.GetOrigin(), allowed);
+        requesting_frame.GetOrigin(), allowed);
+  }
+}
+
+bool
+ProtectedMediaIdentifierPermissionContext::IsRestrictedToSecureOrigins() const {
+  return false;
+}
+
+// TODO(xhwang): We should consolidate the "protected content" related pref
+// across platforms.
+bool ProtectedMediaIdentifierPermissionContext::
+    IsProtectedMediaIdentifierEnabled() const {
+#if defined(OS_CHROMEOS)
+  // Platform verification is not allowed in incognito or guest mode.
+  if (profile()->IsOffTheRecord() || profile()->IsGuestSession()) {
+    DVLOG(1) << "Protected media identifier disabled in incognito or guest "
+                "mode.";
+    return false;
   }
 
-  callback.Run(allowed);
-}
-
-PermissionQueueController*
-    ProtectedMediaIdentifierPermissionContext::QueueController() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-  DCHECK(!shutting_down_);
-  if (!permission_queue_controller_)
-    permission_queue_controller_.reset(CreateQueueController());
-  return permission_queue_controller_.get();
-}
-
-PermissionQueueController*
-    ProtectedMediaIdentifierPermissionContext::CreateQueueController() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-  return new PermissionQueueController(
-      profile(), CONTENT_SETTINGS_TYPE_PROTECTED_MEDIA_IDENTIFIER);
-}
-
-void
-ProtectedMediaIdentifierPermissionContext::CancelPendingInfobarRequests(
-    int render_process_id,
-    int render_view_id,
-    const GURL& origin) {
-  if (!content::BrowserThread::CurrentlyOn(content::BrowserThread::UI)) {
-    content::BrowserThread::PostTask(
-        content::BrowserThread::UI,
-        FROM_HERE,
-        base::Bind(&ProtectedMediaIdentifierPermissionContext::
-                        CancelPendingInfobarRequests,
-                   this,
-                   render_process_id,
-                   render_view_id,
-                   origin));
-    return;
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch(chromeos::switches::kSystemDevMode) &&
+      !command_line->HasSwitch(chromeos::switches::kAllowRAInDevMode)) {
+    DVLOG(1) << "Protected media identifier disabled in dev mode.";
+    return false;
   }
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-  if (shutting_down_)
-    return;
-  QueueController()->CancelInfoBarRequest(
-      PermissionRequestID(render_process_id, render_view_id, 0,
-                          origin));
+
+  // This could be disabled by the device policy or by user's master switch.
+  bool enabled_for_device = false;
+  if (!chromeos::CrosSettings::Get()->GetBoolean(
+          chromeos::kAttestationForContentProtectionEnabled,
+          &enabled_for_device) ||
+      !enabled_for_device ||
+      !profile()->GetPrefs()->GetBoolean(prefs::kEnableDRM)) {
+    DVLOG(1) << "Protected media identifier disabled by the user or by device "
+                "policy.";
+    return false;
+  }
+#endif
+
+  return true;
 }
+
+#if defined(OS_CHROMEOS)
+void ProtectedMediaIdentifierPermissionContext::
+    OnPlatformVerificationConsentResponse(
+        content::WebContents* web_contents,
+        const PermissionRequestID& id,
+        const GURL& requesting_origin,
+        const GURL& embedding_origin,
+        const BrowserPermissionCallback& callback,
+        PlatformVerificationDialog::ConsentResponse response) {
+  // The request may have been canceled. Drop the callback in that case.
+  PendingRequestMap::iterator request = pending_requests_.find(web_contents);
+  if (request == pending_requests_.end())
+    return;
+
+  DCHECK(request->second.second == id);
+  pending_requests_.erase(request);
+
+  ContentSetting content_setting = CONTENT_SETTING_ASK;
+  bool persist = false; // Whether the ContentSetting should be saved.
+  switch (response) {
+    case PlatformVerificationDialog::CONSENT_RESPONSE_NONE:
+      content_setting = CONTENT_SETTING_ASK;
+      persist = false;
+      break;
+    case PlatformVerificationDialog::CONSENT_RESPONSE_ALLOW:
+      VLOG(1) << "Platform verification accepted by user.";
+      content::RecordAction(
+          base::UserMetricsAction("PlatformVerificationAccepted"));
+      content_setting = CONTENT_SETTING_ALLOW;
+      persist = true;
+      break;
+    case PlatformVerificationDialog::CONSENT_RESPONSE_DENY:
+      VLOG(1) << "Platform verification denied by user.";
+      content::RecordAction(
+          base::UserMetricsAction("PlatformVerificationRejected"));
+      content_setting = CONTENT_SETTING_BLOCK;
+      persist = true;
+      break;
+  }
+
+  NotifyPermissionSet(
+      id, requesting_origin, embedding_origin, callback,
+      persist, content_setting);
+}
+#endif

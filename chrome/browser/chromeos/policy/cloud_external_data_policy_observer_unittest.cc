@@ -11,10 +11,9 @@
 #include "base/files/file_util.h"
 #include "base/json/json_writer.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/policy/cloud_external_data_manager_base_test_util.h"
@@ -22,6 +21,7 @@
 #include "chrome/browser/chromeos/policy/device_local_account_external_data_manager.h"
 #include "chrome/browser/chromeos/policy/device_local_account_policy_provider.h"
 #include "chrome/browser/chromeos/policy/device_local_account_policy_service.h"
+#include "chrome/browser/chromeos/policy/fake_affiliated_invalidation_service_provider.h"
 #include "chrome/browser/chromeos/policy/proto/chrome_device_policy.pb.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
@@ -82,8 +82,7 @@ void ConstructAvatarPolicy(const std::string& file_name,
       test_data_dir.Append("chromeos").Append(file_name),
       policy_data));
   base::JSONWriter::Write(
-      test::ConstructExternalDataReference(url, *policy_data).get(),
-      policy);
+      *test::ConstructExternalDataReference(url, *policy_data), policy);
 }
 
 }  // namespace
@@ -95,20 +94,20 @@ class CloudExternalDataPolicyObserverTest
   typedef std::pair<std::string, std::string> FetchedCall;
 
   CloudExternalDataPolicyObserverTest();
-  virtual ~CloudExternalDataPolicyObserverTest();
+  ~CloudExternalDataPolicyObserverTest() override;
 
   // chromeos::DeviceSettingsTestBase:
-  virtual void SetUp() override;
-  virtual void TearDown() override;
+  void SetUp() override;
+  void TearDown() override;
 
   // CloudExternalDataPolicyObserver::Delegate:
-  virtual void OnExternalDataSet(const std::string& policy,
-                                 const std::string& user_id) override;
-  virtual void OnExternalDataCleared(const std::string& policy,
-                                     const std::string& user_id) override;
-  virtual void OnExternalDataFetched(const std::string& policy,
-                                     const std::string& user_id,
-                                     scoped_ptr<std::string> data) override;
+  void OnExternalDataSet(const std::string& policy,
+                         const std::string& user_id) override;
+  void OnExternalDataCleared(const std::string& policy,
+                             const std::string& user_id) override;
+  void OnExternalDataFetched(const std::string& policy,
+                             const std::string& user_id,
+                             scoped_ptr<std::string> data) override;
 
   void CreateObserver();
 
@@ -140,6 +139,8 @@ class CloudExternalDataPolicyObserverTest
   chromeos::CrosSettings cros_settings_;
   scoped_ptr<DeviceLocalAccountPolicyService>
       device_local_account_policy_service_;
+  FakeAffiliatedInvalidationServiceProvider
+      affiliated_invalidation_service_provider_;
   net::TestURLFetcherFactory url_fetcher_factory_;
 
   scoped_ptr<DeviceLocalAccountPolicyProvider>
@@ -177,16 +178,17 @@ CloudExternalDataPolicyObserverTest::~CloudExternalDataPolicyObserverTest() {
 
 void CloudExternalDataPolicyObserverTest::SetUp() {
   chromeos::DeviceSettingsTestBase::SetUp();
+
   ASSERT_TRUE(profile_manager_.SetUp());
+
   device_local_account_policy_service_.reset(
-      new DeviceLocalAccountPolicyService(&device_settings_test_helper_,
-                                          &device_settings_service_,
-                                          &cros_settings_,
-                                          base::MessageLoopProxy::current(),
-                                          base::MessageLoopProxy::current(),
-                                          base::MessageLoopProxy::current(),
-                                          base::MessageLoopProxy::current(),
-                                          NULL));
+      new DeviceLocalAccountPolicyService(
+          &device_settings_test_helper_, &device_settings_service_,
+          &cros_settings_, &affiliated_invalidation_service_provider_,
+          base::ThreadTaskRunnerHandle::Get(),
+          base::ThreadTaskRunnerHandle::Get(),
+          base::ThreadTaskRunnerHandle::Get(),
+          base::ThreadTaskRunnerHandle::Get(), nullptr));
   url_fetcher_factory_.set_remove_fetcher_on_delete(true);
 
   EXPECT_CALL(user_policy_provider_, IsInitializationComplete(_))

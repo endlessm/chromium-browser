@@ -49,9 +49,9 @@
           ],
         }],
         [ 'OS == "android"', {
-            'includes': [
-              '../build/android/cpufeatures.gypi',
-            ],
+          'dependencies': [
+            '../build/android/ndk.gyp:cpu_features',
+          ],
         }],
         [ 'os_bsd==1', {
           'link_settings': {
@@ -104,13 +104,12 @@
             # TODO(joth): Use a glob to match exclude patterns once the
             #             OpenSSL file set is complete.
             'sources!': [
+              'aes_128_gcm_helpers_nss.cc',
+              'aes_128_gcm_helpers_nss.h',
               'ec_private_key_nss.cc',
               'ec_signature_creator_nss.cc',
               'encryptor_nss.cc',
               'hmac_nss.cc',
-              'nss_util.cc',
-              'nss_util.h',
-              'nss_util_internal.h',
               'rsa_private_key_nss.cc',
               'secure_hash_default.cc',
               'signature_creator_nss.cc',
@@ -128,6 +127,8 @@
             ],
           }, {
             'sources!': [
+              'aead_openssl.cc',
+              'aead_openssl.h',
               'ec_private_key_openssl.cc',
               'ec_signature_creator_openssl.cc',
               'encryptor_openssl.cc',
@@ -143,6 +144,17 @@
               'symmetric_key_openssl.cc',
             ],
         },],
+        [ 'use_openssl==1 and use_nss_certs==0', {
+            # Some files are built when NSS is used at all, either for the
+            # internal crypto library or the platform certificate library.
+            'sources!': [
+              'nss_key_util.cc',
+              'nss_key_util.h',
+              'nss_util.cc',
+              'nss_util.h',
+              'nss_util_internal.h',
+            ],
+        },],
       ],
       'sources': [
         '<@(crypto_sources)',
@@ -152,6 +164,8 @@
       'target_name': 'crypto_unittests',
       'type': 'executable',
       'sources': [
+        'aead_openssl_unittest.cc',
+        'aes_128_gcm_helpers_nss_unittest.cc',
         'curve25519_unittest.cc',
         'ec_private_key_unittest.cc',
         'ec_signature_creator_unittest.cc',
@@ -159,13 +173,13 @@
         'ghash_unittest.cc',
         'hkdf_unittest.cc',
         'hmac_unittest.cc',
+        'nss_key_util_unittest.cc',
         'nss_util_unittest.cc',
         'openssl_bio_string_unittest.cc',
         'p224_unittest.cc',
         'p224_spake_unittest.cc',
         'random_unittest.cc',
         'rsa_private_key_unittest.cc',
-        'rsa_private_key_nss_unittest.cc',
         'secure_hash_unittest.cc',
         'sha2_unittest.cc',
         'signature_creator_unittest.cc',
@@ -182,7 +196,7 @@
         '../testing/gtest.gyp:gtest',
       ],
       'conditions': [
-        [ 'os_posix == 1 and OS != "mac" and OS != "android" and OS != "ios"', {
+        [ 'use_nss_certs == 1', {
           'conditions': [
             [ 'use_allocator!="none"', {
                 'dependencies': [
@@ -194,10 +208,14 @@
           'dependencies': [
             '../build/linux/system.gyp:ssl',
           ],
-        }, {  # os_posix != 1 or OS == "mac" or OS == "android" or OS == "ios"
+        }],
+        [ 'use_openssl == 1 and use_nss_certs == 0', {
+          # Some files are built when NSS is used at all, either for the
+          # internal crypto library or the platform certificate library.
           'sources!': [
-            'rsa_private_key_nss_unittest.cc',
-          ]
+            'nss_key_util_unittest.cc',
+            'nss_util_unittest.cc',
+          ],
         }],
         [ 'use_openssl == 0 and (OS == "mac" or OS == "ios" or OS == "win")', {
           'dependencies': [
@@ -213,8 +231,7 @@
             '../third_party/boringssl/boringssl.gyp:boringssl',
           ],
           'sources!': [
-            'nss_util_unittest.cc',
-            'rsa_private_key_nss_unittest.cc',
+            'aes_128_gcm_helpers_nss_unittest.cc',
           ],
         }, {
           'sources!': [
@@ -238,7 +255,7 @@
             '../base/third_party/dynamic_annotations/dynamic_annotations.gyp:dynamic_annotations_win64',
           ],
           'sources': [
-            '<@(hmac_win64_related_sources)',
+            '<@(nacl_win64_sources)',
           ],
           'defines': [
            'CRYPTO_IMPLEMENTATION',
@@ -255,7 +272,7 @@
         },
       ],
     }],
-    ['use_nss==1', {
+    ['use_nss_certs==1', {
       'targets': [
         {
           'target_name': 'crypto_test_support',
@@ -273,7 +290,7 @@
             'scoped_test_system_nss_key_slot.h',
           ],
           'conditions': [
-            ['use_nss==0', {
+            ['use_nss_certs==0', {
               'sources!': [
                 'scoped_test_nss_db.cc',
                 'scoped_test_nss_db.h',
@@ -289,7 +306,7 @@
             }],
           ],
         }
-      ]}, {  # use_nss==0
+      ]}, {  # use_nss_certs==0
       'targets': [
         {
           'target_name': 'crypto_test_support',
@@ -297,5 +314,22 @@
           'sources': [],
         }
     ]}],
+    ['test_isolation_mode != "noop"', {
+      'targets': [
+        {
+          'target_name': 'crypto_unittests_run',
+          'type': 'none',
+          'dependencies': [
+            'crypto_unittests',
+          ],
+          'includes': [
+            '../build/isolate.gypi',
+                      ],
+          'sources': [
+            'crypto_unittests.isolate',
+          ],
+        },
+      ],
+    }],
   ],
 }

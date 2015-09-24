@@ -89,18 +89,12 @@ class LogoutButton : public TrayPopupLabelButton {
                const base::string16& text,
                bool placeholder)
       : TrayPopupLabelButton(listener, text), placeholder_(placeholder) {
-    SetEnabled(!placeholder_);
+    SetVisible(!placeholder_);
   }
 
   ~LogoutButton() override {}
 
  private:
-  void Paint(gfx::Canvas* canvas, const views::CullSet& cull_set) override {
-    // Just skip paint if this button used as a placeholder.
-    if (!placeholder_)
-      TrayPopupLabelButton::Paint(canvas, cull_set);
-  }
-
   bool placeholder_;
   DISALLOW_COPY_AND_ASSIGN(LogoutButton);
 };
@@ -438,8 +432,6 @@ void UserView::AddUserCard(user::LoginStatus login) {
                                   this,
                                   !multiprofile_index_,
                                   insets);
-      // TODO(skuhne): For accessibility we need to call |SetAccessibleName|
-      // with a useful name (string freeze for M37 has passed).
     } else {
       // We want user card for detailed view to have exactly the same look
       // as user card for default view. That's why we wrap it in a button

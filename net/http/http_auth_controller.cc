@@ -6,7 +6,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/platform_thread.h"
@@ -70,12 +70,12 @@ enum AuthTarget {
 AuthTarget DetermineAuthTarget(const HttpAuthHandler* handler) {
   switch (handler->target()) {
     case HttpAuth::AUTH_PROXY:
-      if (handler->origin().SchemeIsSecure())
+      if (handler->origin().SchemeIsCryptographic())
         return AUTH_TARGET_SECURE_PROXY;
       else
         return AUTH_TARGET_PROXY;
     case HttpAuth::AUTH_SERVER:
-      if (handler->origin().SchemeIsSecure())
+      if (handler->origin().SchemeIsCryptographic())
         return AUTH_TARGET_SECURE_SERVER;
       else
         return AUTH_TARGET_SERVER;

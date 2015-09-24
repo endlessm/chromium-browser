@@ -27,6 +27,8 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
 
+using bookmarks::BookmarkModel;
+
 namespace {
 const char kPersistBookmarkURL[] = "http://www.cnn.com/";
 const char kPersistBookmarkTitle[] = "CNN";
@@ -157,8 +159,16 @@ IN_PROC_BROWSER_TEST_F(BookmarkBrowsertest, DISABLED_MultiProfile) {
 
 #endif
 
+// Flaky on Linux: http://crbug.com/504869.
+#if defined(OS_LINUX)
+#define MAYBE_HideStarOnNonbookmarkedInterstitial \
+    DISABLED_HideStarOnNonbookmarkedInterstitial
+#else
+#define MAYBE_HideStarOnNonbookmarkedInterstitial \
+    HideStarOnNonbookmarkedInterstitial
+#endif
 IN_PROC_BROWSER_TEST_F(BookmarkBrowsertest,
-                       HideStarOnNonbookmarkedInterstitial) {
+                       MAYBE_HideStarOnNonbookmarkedInterstitial) {
   // Start an HTTPS server with a certificate error.
   net::SpawnedTestServer::SSLOptions https_options;
   https_options.server_certificate =

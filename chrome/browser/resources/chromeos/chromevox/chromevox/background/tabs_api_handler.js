@@ -12,6 +12,7 @@ goog.provide('cvox.TabsApiHandler');
 goog.require('cvox.AbstractEarcons');
 goog.require('cvox.AbstractTts');
 goog.require('cvox.BrailleInterface');
+goog.require('cvox.ChromeVox');
 goog.require('cvox.NavBraille');
 
 
@@ -31,7 +32,7 @@ cvox.TabsApiHandler = function(tts, braille, earcons) {
   this.braille_ = braille;
   /** @type {cvox.AbstractEarcons} @private */
   this.earcons_ = earcons;
-  /** @type {function(string)} @private */
+  /** @type {function(string, Array<string>=)} @private */
   this.msg_ = cvox.ChromeVox.msgs.getMsg.bind(cvox.ChromeVox.msgs);
   /**
    * Tracks whether the active tab has finished loading.
@@ -134,9 +135,10 @@ cvox.TabsApiHandler.prototype = {
       return;
     }
     chrome.windows.get(windowId, function(window) {
-      chrome.tabs.getSelected(windowId, function(tab) {
+      chrome.tabs.query({active: true, windowId: windowId}, function(tabs) {
         var msgId = window.incognito ? 'chrome_incognito_window_selected' :
-          'chrome_normal_window_selected';
+            'chrome_normal_window_selected';
+        var tab = tabs[0] || {};
         var title = tab.title ? tab.title : tab.url;
         this.tts_.speak(this.msg_(msgId, [title]),
                        cvox.QueueMode.FLUSH,

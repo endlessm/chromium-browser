@@ -4,12 +4,22 @@
 
 import("//third_party/protobuf/proto_library.gni")
 
-proto_library("protocol") {
+# This must be a component for the dependency structure we have now, but the
+# proto_library generates a source set. Link those into a component.
+component("protocol") {
+  public_deps = [
+    ":protocol_internal",
+  ]
+}
+
+proto_library("protocol_internal") {
+  visibility = [ ":protocol" ]
+
   sources = [
+    "app_list_specifics.proto",
     "app_notification_specifics.proto",
     "app_setting_specifics.proto",
     "app_specifics.proto",
-    "app_list_specifics.proto",
     "article_specifics.proto",
     "attachments.proto",
     "autofill_specifics.proto",
@@ -27,10 +37,11 @@ proto_library("protocol") {
     "favicon_tracking_specifics.proto",
     "get_updates_caller_info.proto",
     "history_delete_directive_specifics.proto",
-    "nigori_specifics.proto",
     "managed_user_setting_specifics.proto",
     "managed_user_shared_setting_specifics.proto",
     "managed_user_specifics.proto",
+    "managed_user_whitelist_specifics.proto",
+    "nigori_specifics.proto",
     "password_specifics.proto",
     "preference_specifics.proto",
     "priority_preference_specifics.proto",
@@ -39,8 +50,6 @@ proto_library("protocol") {
     "sync.proto",
     "sync_enums.proto",
     "synced_notification_app_info_specifics.proto",
-    "synced_notification_data.proto",
-    "synced_notification_render.proto",
     "synced_notification_specifics.proto",
     "test.proto",
     "theme_specifics.proto",

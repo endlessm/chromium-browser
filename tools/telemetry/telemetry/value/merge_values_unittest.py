@@ -4,7 +4,8 @@
 import os
 import unittest
 
-from telemetry.page import page_set
+from telemetry import story
+from telemetry import page as page_module
 from telemetry.value import list_of_scalar_values
 from telemetry.value import merge_values
 from telemetry.value import scalar
@@ -12,14 +13,18 @@ from telemetry.value import scalar
 
 class TestBase(unittest.TestCase):
   def setUp(self):
-    self.page_set = page_set.PageSet(file_path=os.path.dirname(__file__))
-    self.page_set.AddPageWithDefaultRunNavigate("http://www.bar.com/")
-    self.page_set.AddPageWithDefaultRunNavigate("http://www.baz.com/")
-    self.page_set.AddPageWithDefaultRunNavigate("http://www.foo.com/")
+    story_set = story.StorySet(base_dir=os.path.dirname(__file__))
+    story_set.AddStory(
+        page_module.Page('http://www.bar.com/', story_set, story_set.base_dir))
+    story_set.AddStory(
+        page_module.Page('http://www.baz.com/', story_set, story_set.base_dir))
+    story_set.AddStory(
+        page_module.Page('http://www.foo.com/', story_set, story_set.base_dir))
+    self.story_set = story_set
 
   @property
   def pages(self):
-    return self.page_set.pages
+    return self.story_set.stories
 
 class MergeValueTest(TestBase):
   def testSamePageMergeBasic(self):
@@ -57,6 +62,18 @@ class MergeValueTest(TestBase):
     self.assertEquals(1, len(merged_values))
     self.assertEquals(all_values[0].name, merged_values[0].name)
     self.assertEquals(all_values[0].units, merged_values[0].units)
+
+  def testSamePageMergeWithInteractionRecord(self):
+    page0 = self.pages[0]
+
+    all_values = [scalar.ScalarValue(page0, 'foo-x', 'units', 1,
+                                     tir_label='foo'),
+                  scalar.ScalarValue(page0, 'foo-x', 'units', 4,
+                                     tir_label='foo')]
+
+    merged_values = merge_values.MergeLikeValuesFromSamePage(all_values)
+    self.assertEquals(1, len(merged_values))
+    self.assertEquals('foo', merged_values[0].tir_label)
 
   def testDifferentPageMergeBasic(self):
     page0 = self.pages[0]
@@ -96,20 +113,3 @@ class MergeValueTest(TestBase):
     self.assertTrue(
         isinstance(merged_values[0], list_of_scalar_values.ListOfScalarValues))
     self.assertEquals([1], merged_values[0].values)
-
-  def testDifferentPageMergeBasicIgnoreTraceName(self):
-    page0 = self.pages[0]
-    page1 = self.pages[1]
-
-    all_values = [scalar.ScalarValue(page0, 'x.score', 'units', 1),
-                  scalar.ScalarValue(page1, 'y.score', 'units', 2)]
-    # Sort the results so that their order is predictable for the subsequent
-    # assertions.
-    merged_values = merge_values.MergeLikeValuesFromDifferentPages(
-        all_values,
-        group_by_name_suffix=True)
-    self.assertEquals(1, len(merged_values))
-
-    self.assertEquals((None, 'score'),
-                      (merged_values[0].page, merged_values[0].name))
-    self.assertEquals([1, 2], merged_values[0].values)

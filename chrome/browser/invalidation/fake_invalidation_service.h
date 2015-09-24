@@ -11,9 +11,9 @@
 #include "base/basictypes.h"
 #include "base/callback_forward.h"
 #include "chrome/browser/signin/fake_profile_oauth2_token_service.h"
-#include "components/invalidation/invalidation_service.h"
-#include "components/invalidation/invalidator_registrar.h"
-#include "components/invalidation/mock_ack_handler.h"
+#include "components/invalidation/impl/invalidator_registrar.h"
+#include "components/invalidation/impl/mock_ack_handler.h"
+#include "components/invalidation/public/invalidation_service.h"
 #include "google_apis/gaia/fake_identity_provider.h"
 
 namespace syncer {
@@ -33,7 +33,7 @@ class FakeInvalidationService : public InvalidationService {
 
   void RegisterInvalidationHandler(
       syncer::InvalidationHandler* handler) override;
-  void UpdateRegisteredInvalidationIds(syncer::InvalidationHandler* handler,
+  bool UpdateRegisteredInvalidationIds(syncer::InvalidationHandler* handler,
                                        const syncer::ObjectIdSet& ids) override;
   void UnregisterInvalidationHandler(
       syncer::InvalidationHandler* handler) override;

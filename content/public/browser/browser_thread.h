@@ -11,7 +11,7 @@
 #include "base/callback.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/single_thread_task_runner.h"
 #include "base/task_runner_util.h"
 #include "base/time/time.h"
 #include "content/common/content_export.h"
@@ -81,12 +81,14 @@ class CONTENT_EXPORT BrowserThread {
     // This is the thread to handle slow HTTP cache operations.
     CACHE,
 
-    // This is the thread that processes IPC and network messages.
+    // This is the thread that processes non-blocking IO, i.e. IPC and network.
+    // Blocking IO should happen on other threads like DB, FILE,
+    // FILE_USER_BLOCKING and CACHE depending on the usage.
     IO,
 
     // NOTE: do not add new threads here that are only used by a small number of
     // files. Instead you should just use a Thread class and pass its
-    // MessageLoopProxy around. Named threads there are only for threads that
+    // task runner around. Named threads there are only for threads that
     // are used in many places.
 
     // This identifier does not represent a thread.  Instead it counts the
@@ -128,10 +130,10 @@ class CONTENT_EXPORT BrowserThread {
       const tracked_objects::Location& from_here,
       const base::Callback<ReturnType(void)>& task,
       const base::Callback<void(ReplyArgType)>& reply) {
-    scoped_refptr<base::MessageLoopProxy> message_loop_proxy =
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner =
         GetMessageLoopProxyForThread(identifier);
-    return base::PostTaskAndReplyWithResult(
-        message_loop_proxy.get(), from_here, task, reply);
+    return base::PostTaskAndReplyWithResult(task_runner.get(), from_here, task,
+                                            reply);
   }
 
   template <class T>
@@ -182,6 +184,16 @@ class CONTENT_EXPORT BrowserThread {
       const tracked_objects::Location& from_here,
       const base::Closure& task);
 
+  // For use with scheduling non-critical tasks for execution after startup.
+  // The order or execution of tasks posted here is unspecified even when
+  // posting to a SequencedTaskRunner and tasks are not guaranteed to be run
+  // prior to browser shutdown.
+  // Note: see related ContentBrowserClient::PostAfterStartupTask.
+  static void PostAfterStartupTask(
+      const tracked_objects::Location& from_here,
+      const scoped_refptr<base::TaskRunner>& task_runner,
+      const base::Closure& task);
+
   // Returns the thread pool used for blocking file I/O. Use this object to
   // perform random blocking operations such as file writes or querying the
   // Windows registry.
@@ -204,10 +216,10 @@ class CONTENT_EXPORT BrowserThread {
   // sets identifier to its ID.  Otherwise returns false.
   static bool GetCurrentThreadIdentifier(ID* identifier) WARN_UNUSED_RESULT;
 
-  // Callers can hold on to a refcounted MessageLoopProxy beyond the lifetime
+  // Callers can hold on to a refcounted task runner beyond the lifetime
   // of the thread.
-  static scoped_refptr<base::MessageLoopProxy> GetMessageLoopProxyForThread(
-      ID identifier);
+  static scoped_refptr<base::SingleThreadTaskRunner>
+  GetMessageLoopProxyForThread(ID identifier);
 
   // Returns a pointer to the thread's message loop, which will become
   // invalid during shutdown, so you probably shouldn't hold onto it.
@@ -222,7 +234,7 @@ class CONTENT_EXPORT BrowserThread {
   // Sets the delegate for the specified BrowserThread.
   //
   // Only one delegate may be registered at a time.  Delegates may be
-  // unregistered by providing a NULL pointer.
+  // unregistered by providing a nullptr pointer.
   //
   // If the caller unregisters a delegate before CleanUp has been
   // called, it must perform its own locking to ensure the delegate is

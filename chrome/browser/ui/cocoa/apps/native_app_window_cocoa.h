@@ -17,11 +17,11 @@
 #include "extensions/browser/app_window/size_constraints.h"
 #include "extensions/common/draggable_region.h"
 #include "ui/base/accelerators/accelerator_manager.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
+@class AppNSWindow;
 class ExtensionKeybindingRegistryCocoa;
 class NativeAppWindowCocoa;
-@class ShellNSWindow;
 class SkRegion;
 
 // A window controller for a minimal window to host a web app view. Passes
@@ -124,7 +124,6 @@ class NativeAppWindowCocoa : public extensions::NativeAppWindow,
   bool IsFullscreenOrPending() const override;
   void UpdateWindowIcon() override;
   void UpdateWindowTitle() override;
-  void UpdateBadgeIcon() override;
   void UpdateShape(scoped_ptr<SkRegion> region) override;
   void UpdateDraggableRegions(
       const std::vector<extensions::DraggableRegion>& regions) override;
@@ -137,6 +136,7 @@ class NativeAppWindowCocoa : public extensions::NativeAppWindow,
   SkColor InactiveFrameColor() const override;
   gfx::Insets GetFrameInsets() const override;
   bool CanHaveAlphaEnabled() const override;
+  void SetInterceptAllKeys(bool want_all_keys) override;
 
   // These are used to simulate Mac-style hide/show. Since windows can be hidden
   // and shown using the app.window API, this sets is_hidden_with_app_ to
@@ -165,7 +165,7 @@ class NativeAppWindowCocoa : public extensions::NativeAppWindow,
  private:
   ~NativeAppWindowCocoa() override;
 
-  ShellNSWindow* window() const;
+  AppNSWindow* window() const;
   content::WebContents* WebContents() const;
 
   // Returns the WindowStyleMask based on the type of window frame.
@@ -213,6 +213,9 @@ class NativeAppWindowCocoa : public extensions::NativeAppWindow,
   // The Extension Command Registry used to determine which keyboard events to
   // handle.
   scoped_ptr<ExtensionKeybindingRegistryCocoa> extension_keybinding_registry_;
+
+  // Tracks the last time the extension asked the window to activate.
+  base::Time last_activate_;
 
   DISALLOW_COPY_AND_ASSIGN(NativeAppWindowCocoa);
 };

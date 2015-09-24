@@ -23,18 +23,18 @@
 #include "WTFString.h"
 
 #include "IntegerToStringConversion.h"
-#include <stdarg.h>
 #include "wtf/ASCIICType.h"
 #include "wtf/DataLog.h"
 #include "wtf/HexNumber.h"
 #include "wtf/MathExtras.h"
-#include "wtf/text/CString.h"
 #include "wtf/StringExtras.h"
 #include "wtf/Vector.h"
 #include "wtf/dtoa.h"
-#include "wtf/unicode/CharacterNames.h"
-#include "wtf/unicode/UTF8.h"
-#include "wtf/unicode/Unicode.h"
+#include "wtf/text/CString.h"
+#include "wtf/text/CharacterNames.h"
+#include "wtf/text/UTF8.h"
+#include "wtf/text/Unicode.h"
+#include <stdarg.h>
 
 using namespace std;
 
@@ -450,8 +450,6 @@ String String::format(const char *format, ...)
     va_list args;
     va_start(args, format);
 
-    Vector<char, 256> buffer;
-
     // Do the format once to get the length.
 #if COMPILER(MSVC)
     int result = _vscprintf(format, args);
@@ -464,17 +462,19 @@ String String::format(const char *format, ...)
     //
     // Not calling va_end/va_start here happens to work on lots of
     // systems, but fails e.g. on 64bit Linux.
-    va_end(args);
-    va_start(args, format);
 #endif
+    va_end(args);
 
     if (result == 0)
         return String("");
     if (result < 0)
         return String();
+
+    Vector<char, 256> buffer;
     unsigned len = result;
     buffer.grow(len + 1);
 
+    va_start(args, format);
     // Now do the formatting again, guaranteed to fit.
     vsnprintf(buffer.data(), buffer.size(), format, args);
 

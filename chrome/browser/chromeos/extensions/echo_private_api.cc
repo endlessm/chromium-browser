@@ -17,15 +17,14 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chromeos/kiosk_mode/kiosk_mode_settings.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/ui/echo_dialog_view.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/extensions/api/echo_private.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/system/statistics_provider.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/web_contents.h"
 #include "extensions/common/extension.h"
 
 namespace echo_api = extensions::api::echo_private;
@@ -61,12 +60,6 @@ EchoPrivateGetRegistrationCodeFunction::
 
 void EchoPrivateGetRegistrationCodeFunction::GetRegistrationCode(
     const std::string& type) {
-  if (!chromeos::KioskModeSettings::Get()->is_initialized()) {
-    chromeos::KioskModeSettings::Get()->Initialize(base::Bind(
-        &EchoPrivateGetRegistrationCodeFunction::GetRegistrationCode,
-        this, type));
-    return;
-  }
   // Possible ECHO code type and corresponding key name in StatisticsProvider.
   const std::string kCouponType = "COUPON_CODE";
   const std::string kGroupType = "GROUP_CODE";
@@ -74,16 +67,12 @@ void EchoPrivateGetRegistrationCodeFunction::GetRegistrationCode(
   chromeos::system::StatisticsProvider* provider =
       chromeos::system::StatisticsProvider::GetInstance();
   std::string result;
-  if (!chromeos::KioskModeSettings::Get()->IsKioskModeEnabled()) {
-    // In Kiosk mode, we effectively disable the registration API
-    // by always returning an empty code.
-    if (type == kCouponType) {
-      provider->GetMachineStatistic(chromeos::system::kOffersCouponCodeKey,
-                                    &result);
-    } else if (type == kGroupType) {
-      provider->GetMachineStatistic(chromeos::system::kOffersGroupCodeKey,
-                                    &result);
-    }
+  if (type == kCouponType) {
+    provider->GetMachineStatistic(chromeos::system::kOffersCouponCodeKey,
+                                  &result);
+  } else if (type == kGroupType) {
+    provider->GetMachineStatistic(chromeos::system::kOffersGroupCodeKey,
+                                  &result);
   }
 
   results_ = echo_api::GetRegistrationCode::Results::Create(result);
@@ -108,12 +97,12 @@ bool EchoPrivateSetOfferInfoFunction::RunSync() {
   EXTENSION_FUNCTION_VALIDATE(params);
 
   const std::string& service_id = params->id;
-  base::DictionaryValue* dict = params->offer_info.
-      additional_properties.DeepCopyWithoutEmptyChildren();
+  scoped_ptr<base::DictionaryValue> dict =
+      params->offer_info.additional_properties.DeepCopyWithoutEmptyChildren();
 
   PrefService* local_state = g_browser_process->local_state();
   DictionaryPrefUpdate offer_update(local_state, prefs::kEchoCheckedOffers);
-  offer_update->SetWithoutPathExpansion("echo." + service_id, dict);
+  offer_update->SetWithoutPathExpansion("echo." + service_id, dict.Pass());
   return true;
 }
 
@@ -166,7 +155,7 @@ bool EchoPrivateGetOobeTimestampFunction::RunAsync() {
 // If we can get the timestamp info, return it as yyyy-mm-dd, otherwise, return
 // an empty string.
 bool EchoPrivateGetOobeTimestampFunction::GetOobeTimestampOnFileThread() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
 
   const char kOobeTimestampFile[] = "/home/chronos/.oobe_completed";
   std::string timestamp = "";
@@ -251,6 +240,13 @@ void EchoPrivateGetUserConsentFunction::OnRedeemOffersAllowedChecked(
     return;
   }
 
+  content::WebContents* web_contents = GetAssociatedWebContents();
+  if (!web_contents) {
+    error_ = "No web contents.";
+    SendResponse(false);
+    return;
+  }
+
   // Add ref to ensure the function stays around until the dialog listener is
   // called. The reference is release in |Finalize|.
   AddRef();
@@ -264,7 +260,7 @@ void EchoPrivateGetUserConsentFunction::OnRedeemOffersAllowedChecked(
   } else {
     dialog->InitForDisabledEcho();
   }
-  dialog->Show(GetCurrentBrowser()->window()->GetNativeWindow());
+  dialog->Show(web_contents->GetTopLevelNativeWindow());
 
   // If there is a dialog_shown_callback_, invoke it with the created dialog.
   if (!dialog_shown_callback_.is_null())

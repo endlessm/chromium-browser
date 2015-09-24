@@ -27,7 +27,7 @@
 #include "chrome/browser/sync_file_system/sync_file_system_test_util.h"
 #include "chrome/browser/sync_file_system/syncable_file_system_util.h"
 #include "content/public/test/test_browser_thread_bundle.h"
-#include "google_apis/drive/gdata_errorcode.h"
+#include "google_apis/drive/drive_api_error_codes.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/leveldatabase/src/helpers/memenv/memenv.h"
 #include "third_party/leveldatabase/src/include/leveldb/env.h"
@@ -71,9 +71,10 @@ class RemoteToLocalSyncerTest : public testing::Test {
 
     context_.reset(new SyncEngineContext(fake_drive_service.Pass(),
                                          drive_uploader.Pass(),
-                                         nullptr,
+                                         nullptr /* task_logger */,
                                          base::ThreadTaskRunnerHandle::Get(),
-                                         base::ThreadTaskRunnerHandle::Get()));
+                                         base::ThreadTaskRunnerHandle::Get(),
+                                         nullptr /* worker_pool*/));
     context_->SetRemoteChangeProcessor(remote_change_processor_.get());
 
     RegisterSyncableFileSystem();
@@ -81,7 +82,8 @@ class RemoteToLocalSyncerTest : public testing::Test {
     sync_task_manager_.reset(new SyncTaskManager(
         base::WeakPtr<SyncTaskManager::Client>(),
         10 /* max_parallel_task */,
-        base::ThreadTaskRunnerHandle::Get()));
+        base::ThreadTaskRunnerHandle::Get(),
+        nullptr /* worker_pool */));
     sync_task_manager_->Initialize(SYNC_STATUS_OK);
   }
 

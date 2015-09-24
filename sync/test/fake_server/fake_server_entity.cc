@@ -14,6 +14,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "net/base/net_errors.h"
@@ -57,6 +58,27 @@ const std::string& FakeServerEntity::GetName() const {
   return name_;
 }
 
+void FakeServerEntity::SetName(std::string name) {
+  name_ = name;
+}
+
+void FakeServerEntity::SetSpecifics(
+    const sync_pb::EntitySpecifics& updated_specifics) {
+  specifics_ = updated_specifics;
+}
+
+bool FakeServerEntity::IsDeleted() const {
+  return false;
+}
+
+bool FakeServerEntity::IsFolder() const {
+  return false;
+}
+
+bool FakeServerEntity::IsPermanent() const {
+  return false;
+}
+
 // static
 string FakeServerEntity::CreateId(const ModelType& model_type,
                                   const string& inner_id) {
@@ -76,11 +98,11 @@ std::string FakeServerEntity::GetTopLevelId(const ModelType& model_type) {
 
 // static
 ModelType FakeServerEntity::GetModelTypeFromId(const string& id) {
-  vector<string> tokens;
-  size_t token_count = Tokenize(id, kIdSeparator, &tokens);
+  vector<base::StringPiece> tokens = base::SplitStringPiece(
+      id, kIdSeparator, base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
 
   int field_number;
-  if (token_count != 2 || !base::StringToInt(tokens[0], &field_number)) {
+  if (tokens.size() != 2 || !base::StringToInt(tokens[0], &field_number)) {
     return syncer::UNSPECIFIED;
   }
 
@@ -91,13 +113,16 @@ FakeServerEntity::FakeServerEntity(const string& id,
                                    const ModelType& model_type,
                                    int64 version,
                                    const string& name)
-      : model_type_(model_type),
-        id_(id),
+      : id_(id),
+        model_type_(model_type),
         version_(version),
         name_(name) {}
 
 void FakeServerEntity::SerializeBaseProtoFields(
-    sync_pb::SyncEntity* sync_entity) {
+    sync_pb::SyncEntity* sync_entity) const {
+  sync_pb::EntitySpecifics* specifics = sync_entity->mutable_specifics();
+  specifics->CopyFrom(specifics_);
+
   // FakeServerEntity fields
   sync_entity->set_id_string(id_);
   sync_entity->set_version(version_);

@@ -11,11 +11,11 @@
 #include "base/logging.h"  // For CHECK macros.
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/sys_info.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/test/chromedriver/alert_commands.h"
 #include "chrome/test/chromedriver/chrome/adb_impl.h"
@@ -96,6 +96,12 @@ HttpHandler::HttpHandler(
                                                       device_manager_.get(),
                                                       port_server_.get(),
                                                       port_manager_.get()))))),
+      CommandMapping(kGet,
+                     "sessions",
+                     base::Bind(&ExecuteGetSessions,
+                               WrapToCommand("GetSessions",
+                               base::Bind(&ExecuteGetSessionCapabilities)),
+                               &session_thread_map_)),
       CommandMapping(kGet,
                      "session/:sessionId",
                      WrapToCommand("GetSessionCapabilities",
@@ -364,6 +370,21 @@ HttpHandler::HttpHandler(
           kPost,
           "session/:sessionId/location",
           WrapToCommand("SetGeolocation", base::Bind(&ExecuteSetLocation))),
+      CommandMapping(
+          kGet,
+          "session/:sessionId/chromium/network_conditions",
+          WrapToCommand("GetNetworkConditions",
+                        base::Bind(&ExecuteGetNetworkConditions))),
+      CommandMapping(
+          kPost,
+          "session/:sessionId/chromium/network_conditions",
+          WrapToCommand("SetNetworkConditions",
+                        base::Bind(&ExecuteSetNetworkConditions))),
+      CommandMapping(
+          kDelete,
+          "session/:sessionId/chromium/network_conditions",
+          WrapToCommand("DeleteNetworkConditions",
+                        base::Bind(&ExecuteDeleteNetworkConditions))),
       CommandMapping(kGet,
                      "session/:sessionId/application_cache/status",
                      base::Bind(&ExecuteGetStatus)),
@@ -491,13 +512,16 @@ HttpHandler::HttpHandler(
                      WrapToCommand("TouchMove", base::Bind(&ExecuteTouchMove))),
       CommandMapping(kPost,
                      "session/:sessionId/touch/scroll",
-                     base::Bind(&UnimplementedCommand)),
+                     WrapToCommand("TouchScroll",
+                                   base::Bind(&ExecuteTouchScroll))),
       CommandMapping(kPost,
                      "session/:sessionId/touch/doubleclick",
-                     base::Bind(&UnimplementedCommand)),
+                     WrapToCommand("TouchDoubleTap",
+                                   base::Bind(&ExecuteTouchDoubleTap))),
       CommandMapping(kPost,
                      "session/:sessionId/touch/longclick",
-                     base::Bind(&UnimplementedCommand)),
+                     WrapToCommand("TouchLongPress",
+                                   base::Bind(&ExecuteTouchLongPress))),
       CommandMapping(kPost,
                      "session/:sessionId/touch/flick",
                      WrapToCommand("TouchFlick", base::Bind(&ExecuteFlick))),
@@ -537,6 +561,10 @@ HttpHandler::HttpHandler(
                      WrapToCommand(
                          "SetAutoReporting",
                          base::Bind(&ExecuteSetAutoReporting))),
+      CommandMapping(kPost,
+                     "session/:sessionId/touch/pinch",
+                     WrapToCommand("TouchPinch",
+                                   base::Bind(&ExecuteTouchPinch))),
   };
   command_map_.reset(
       new CommandMap(commands, commands + arraysize(commands)));
@@ -552,7 +580,7 @@ void HttpHandler::Handle(const net::HttpServerRequestInfo& request,
     return;
 
   std::string path = request.path;
-  if (!StartsWithASCII(path, url_base_, true)) {
+  if (!base::StartsWith(path, url_base_, base::CompareCase::SENSITIVE)) {
     scoped_ptr<net::HttpServerResponseInfo> response(
         new net::HttpServerResponseInfo(net::HTTP_BAD_REQUEST));
     response->SetBody("unhandled request", "text/plain");
@@ -615,7 +643,7 @@ void HttpHandler::HandleCommand(
 
   if (request.data.length()) {
     base::DictionaryValue* body_params;
-    scoped_ptr<base::Value> parsed_body(base::JSONReader::Read(request.data));
+    scoped_ptr<base::Value> parsed_body = base::JSONReader::Read(request.data);
     if (!parsed_body || !parsed_body->GetAsDictionary(&body_params)) {
       scoped_ptr<net::HttpServerResponseInfo> response(
           new net::HttpServerResponseInfo(net::HTTP_BAD_REQUEST));
@@ -673,7 +701,7 @@ scoped_ptr<net::HttpServerResponseInfo> HttpHandler::PrepareResponseHelper(
     value.reset(error.release());
   }
   if (!value)
-    value.reset(base::Value::CreateNullValue());
+    value = base::Value::CreateNullValue();
 
   base::DictionaryValue body_params;
   body_params.SetInteger("status", status.code());
@@ -681,7 +709,7 @@ scoped_ptr<net::HttpServerResponseInfo> HttpHandler::PrepareResponseHelper(
   body_params.SetString("sessionId", session_id);
   std::string body;
   base::JSONWriter::WriteWithOptions(
-      &body_params, base::JSONWriter::OPTIONS_OMIT_DOUBLE_TYPE_PRESERVATION,
+      body_params, base::JSONWriter::OPTIONS_OMIT_DOUBLE_TYPE_PRESERVATION,
       &body);
   scoped_ptr<net::HttpServerResponseInfo> response(
       new net::HttpServerResponseInfo(net::HTTP_OK));

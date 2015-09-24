@@ -3,13 +3,13 @@
 // found in the LICENSE file.
 #include "chromeos/dbus/modem_messaging_client.h"
 
-#include <map>
 #include <utility>
 
 #include "base/bind.h"
+#include "base/containers/scoped_ptr_map.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/stl_util.h"
 #include "base/values.h"
 #include "dbus/bus.h"
 #include "dbus/message.h"
@@ -31,8 +31,7 @@ class ModemMessagingProxy {
   ModemMessagingProxy(dbus::Bus* bus,
            const std::string& service_name,
            const dbus::ObjectPath& object_path)
-      : bus_(bus),
-        proxy_(bus->GetObjectProxy(service_name, object_path)),
+      : proxy_(bus->GetObjectProxy(service_name, object_path)),
         service_name_(service_name),
         weak_ptr_factory_(this) {
     proxy_->ConnectToSignal(
@@ -121,7 +120,6 @@ class ModemMessagingProxy {
                               << signal << " failed.";
   }
 
-  dbus::Bus* bus_;
   dbus::ObjectProxy* proxy_;
   std::string service_name_;
   SmsReceivedHandler sms_received_handler_;
@@ -135,64 +133,57 @@ class ModemMessagingProxy {
 
 class CHROMEOS_EXPORT ModemMessagingClientImpl : public ModemMessagingClient {
  public:
-  ModemMessagingClientImpl()
-      : bus_(NULL),
-        proxies_deleter_(&proxies_) {
-  }
+  ModemMessagingClientImpl() : bus_(NULL) {}
 
-  virtual void SetSmsReceivedHandler(
-      const std::string& service_name,
-      const dbus::ObjectPath& object_path,
-      const SmsReceivedHandler& handler) override {
+  void SetSmsReceivedHandler(const std::string& service_name,
+                             const dbus::ObjectPath& object_path,
+                             const SmsReceivedHandler& handler) override {
     GetProxy(service_name, object_path)->SetSmsReceivedHandler(handler);
   }
 
-  virtual void ResetSmsReceivedHandler(
-      const std::string& service_name,
-      const dbus::ObjectPath& object_path) override {
+  void ResetSmsReceivedHandler(const std::string& service_name,
+                               const dbus::ObjectPath& object_path) override {
     GetProxy(service_name, object_path)->ResetSmsReceivedHandler();
   }
 
-  virtual void Delete(const std::string& service_name,
-                      const dbus::ObjectPath& object_path,
-                      const dbus::ObjectPath& sms_path,
-                      const DeleteCallback& callback) override {
+  void Delete(const std::string& service_name,
+              const dbus::ObjectPath& object_path,
+              const dbus::ObjectPath& sms_path,
+              const DeleteCallback& callback) override {
     GetProxy(service_name, object_path)->Delete(sms_path, callback);
   }
 
-  virtual void List(const std::string& service_name,
-                    const dbus::ObjectPath& object_path,
-                    const ListCallback& callback) override {
+  void List(const std::string& service_name,
+            const dbus::ObjectPath& object_path,
+            const ListCallback& callback) override {
     GetProxy(service_name, object_path)->List(callback);
   }
 
  protected:
-  virtual void Init(dbus::Bus* bus) override {
-    bus_ = bus;
-  };
+  void Init(dbus::Bus* bus) override { bus_ = bus; };
 
  private:
-  typedef std::map<std::pair<std::string, std::string>, ModemMessagingProxy*>
-      ProxyMap;
+  typedef base::ScopedPtrMap<std::pair<std::string, std::string>,
+                             scoped_ptr<ModemMessagingProxy>> ProxyMap;
 
   // Returns a SMSProxy for the given service name and object path.
   ModemMessagingProxy* GetProxy(const std::string& service_name,
                                 const dbus::ObjectPath& object_path) {
     const ProxyMap::key_type key(service_name, object_path.value());
-    ProxyMap::iterator it = proxies_.find(key);
+    ProxyMap::const_iterator it = proxies_.find(key);
     if (it != proxies_.end())
       return it->second;
 
     // There is no proxy for the service_name and object_path, create it.
-    ModemMessagingProxy* proxy
-        = new ModemMessagingProxy(bus_, service_name, object_path);
-    proxies_.insert(ProxyMap::value_type(key, proxy));
-    return proxy;
+    scoped_ptr<ModemMessagingProxy> proxy(
+        new ModemMessagingProxy(bus_, service_name, object_path));
+    ModemMessagingProxy* proxy_ptr = proxy.get();
+    proxies_.insert(key, proxy.Pass());
+    return proxy_ptr;
   }
 
   dbus::Bus* bus_;
   ProxyMap proxies_;
-  STLValueDeleter<ProxyMap> proxies_deleter_;
 
   DISALLOW_COPY_AND_ASSIGN(ModemMessagingClientImpl);
 };

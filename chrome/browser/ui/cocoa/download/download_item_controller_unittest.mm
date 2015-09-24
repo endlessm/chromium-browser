@@ -8,6 +8,7 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/run_loop.h"
 #include "chrome/browser/ui/cocoa/cocoa_profile_test.h"
+#import "chrome/browser/ui/cocoa/download/download_item_button.h"
 #import "chrome/browser/ui/cocoa/download/download_item_controller.h"
 #import "chrome/browser/ui/cocoa/download/download_shelf_controller.h"
 #include "content/public/test/mock_download_item.h"
@@ -44,6 +45,13 @@ using ::testing::ReturnRefOfCopy;
 - (void)awakeFromNib;
 @end
 
+@interface DownloadItemButton(DownloadItemButtonTest)
+
+- (BOOL)showingContextMenu;
+
+@end
+
+
 @implementation DownloadItemControllerWithInitCallback
 
 - (id)initWithDownload:(content::DownloadItem*)downloadItem
@@ -64,7 +72,7 @@ namespace {
 
 class DownloadItemControllerTest : public CocoaProfileTest {
  public:
-  virtual void SetUp() override {
+  void SetUp() override {
     CocoaProfileTest::SetUp();
     ASSERT_TRUE(browser());
 
@@ -90,23 +98,29 @@ class DownloadItemControllerTest : public CocoaProfileTest {
         Return(content::DownloadItem::TARGET_DISPOSITION_OVERWRITE));
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     download_item_.reset();
     [(id)shelf_ verify];
     CocoaProfileTest::TearDown();
   }
 
   DownloadItemController* CreateItemController() {
-    base::RunLoop run_loop;
-    base::scoped_nsobject<DownloadItemController> item(
-        [[DownloadItemControllerWithInitCallback alloc]
-            initWithDownload:download_item_.get()
-                       shelf:shelf_.get()
-                initCallback:run_loop.QuitClosure()]);
+    // In OSX 10.10, the owner of a nib file is retain/autoreleased during the
+    // initialization of the nib. Wrapping the constructor in an
+    // autoreleasepool ensures that tests can control the destruction timing of
+    // the DownloadItemController.
+    @autoreleasepool {
+      base::RunLoop run_loop;
+      base::scoped_nsobject<DownloadItemController> item(
+          [[DownloadItemControllerWithInitCallback alloc]
+              initWithDownload:download_item_.get()
+                         shelf:shelf_.get()
+                  initCallback:run_loop.QuitClosure()]);
 
-    [[test_window() contentView] addSubview:[item view]];
-    run_loop.Run();
-    return item.release();
+      [[test_window() contentView] addSubview:[item view]];
+      run_loop.Run();
+      return item.release();
+    }
   }
 
  protected:
@@ -172,5 +186,32 @@ TEST_F(DownloadItemControllerTest, NormalDownloadBecomesDangerous) {
   [item verifyDangerousDownloadPromptIsVisible:false];
   [(id)shelf_ verify];
 }
+
+TEST_F(DownloadItemControllerTest, DismissesContextMenuWhenRemovedFromWindow) {
+  base::scoped_nsobject<DownloadItemController> item(CreateItemController());
+  DownloadItemButton* downloadItemButton = nil;
+  for (NSView *nextSubview in [[item view] subviews]) {
+    if ([nextSubview isKindOfClass:[DownloadItemButton class]]) {
+      downloadItemButton = static_cast<DownloadItemButton *>(nextSubview);
+      break;
+    }
+  }
+
+  // showContextMenu: calls [NSMenu popUpContextMenu:...], which blocks until
+  // the menu is dismissed. Use a block to cancel the menu while waiting for
+  // [NSMenu popUpContextMenu:...] to return (this block will execute on the
+  // main thread, on the next pass through the run loop).
+  [[NSOperationQueue mainQueue] addOperationWithBlock:^{
+    EXPECT_TRUE([downloadItemButton showingContextMenu]);
+    // Simulate the item's removal from the shelf. Ideally we would call an
+    // actual shelf removal method like [item remove] but the shelf and
+    // download item are mock objects.
+    [downloadItemButton removeFromSuperview];
+  }];
+  // The unit test will stop here until the block causes the DownloadItemButton
+  // to dismiss the menu.
+  [item showContextMenu:nil];
+}
+
 
 }  // namespace

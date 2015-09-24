@@ -5,7 +5,7 @@
 #include "content/child/service_worker/service_worker_network_provider.h"
 
 #include "base/atomic_sequence_num.h"
-#include "content/child/child_thread.h"
+#include "content/child/child_thread_impl.h"
 #include "content/child/service_worker/service_worker_provider_context.h"
 #include "content/common/service_worker/service_worker_messages.h"
 
@@ -19,6 +19,15 @@ const char kUserDataKey[] = "SWProviderKey";
 int GetNextProviderId() {
   static base::StaticAtomicSequenceNumber sequence;
   return sequence.GetNext();  // We start at zero.
+}
+
+// When the provider is for a sandboxed iframe we use
+// kInvalidServiceWorkerProviderId as the provider type and we don't create
+// ServiceWorkerProviderContext and ServiceWorkerProviderHost.
+int GenerateProviderIdForType(const ServiceWorkerProviderType provider_type) {
+  if (provider_type == SERVICE_WORKER_PROVIDER_FOR_SANDBOXED_FRAME)
+    return kInvalidServiceWorkerProviderId;
+  return GetNextProviderId();
 }
 
 }  // namespace
@@ -35,27 +44,34 @@ ServiceWorkerNetworkProvider* ServiceWorkerNetworkProvider::FromDocumentState(
       datasource_userdata->GetUserData(&kUserDataKey));
 }
 
-ServiceWorkerNetworkProvider::ServiceWorkerNetworkProvider()
-    : provider_id_(GetNextProviderId()),
-      context_(new ServiceWorkerProviderContext(provider_id_)) {
-  if (!ChildThread::current())
+ServiceWorkerNetworkProvider::ServiceWorkerNetworkProvider(
+    int route_id,
+    ServiceWorkerProviderType provider_type)
+    : provider_id_(GenerateProviderIdForType(provider_type)) {
+  if (provider_id_ == kInvalidServiceWorkerProviderId)
+    return;
+  context_ = new ServiceWorkerProviderContext(provider_id_);
+  if (!ChildThreadImpl::current())
     return;  // May be null in some tests.
-  ChildThread::current()->Send(
-      new ServiceWorkerHostMsg_ProviderCreated(provider_id_));
+  ChildThreadImpl::current()->Send(new ServiceWorkerHostMsg_ProviderCreated(
+      provider_id_, route_id, provider_type));
 }
 
 ServiceWorkerNetworkProvider::~ServiceWorkerNetworkProvider() {
-  if (!ChildThread::current())
+  if (provider_id_ == kInvalidServiceWorkerProviderId)
+    return;
+  if (!ChildThreadImpl::current())
     return;  // May be null in some tests.
-  ChildThread::current()->Send(
+  ChildThreadImpl::current()->Send(
       new ServiceWorkerHostMsg_ProviderDestroyed(provider_id_));
 }
 
 void ServiceWorkerNetworkProvider::SetServiceWorkerVersionId(
     int64 version_id) {
-  if (!ChildThread::current())
+  DCHECK_NE(kInvalidServiceWorkerProviderId, provider_id_);
+  if (!ChildThreadImpl::current())
     return;  // May be null in some tests.
-  ChildThread::current()->Send(
+  ChildThreadImpl::current()->Send(
       new ServiceWorkerHostMsg_SetVersionId(provider_id_, version_id));
 }
 

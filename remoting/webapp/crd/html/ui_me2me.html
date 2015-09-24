@@ -41,56 +41,45 @@ found in the LICENSE file.
               id="host-list-refresh-failed-button"></button>
     </div>
 
-    <div id="host-list-empty" hidden>
-      <div id="host-list-empty-hosting-supported"
-           class="host-list-empty-instructions"
-           i18n-content="HOST_LIST_EMPTY_HOSTING_SUPPORTED"
-           i18n-value-name-1="HOME_DAEMON_START_BUTTON">
-      </div>
-      <div id="host-list-empty-hosting-unsupported"
-           class="host-list-empty-instructions"
-           i18n-content="HOST_LIST_EMPTY_HOSTING_UNSUPPORTED"
-           i18n-value-name-1="HOME_DAEMON_START_BUTTON">
-      </div>
+    <div id="host-list-empty"
+         class="host-list-empty-instructions" hidden>
     </div>
 
-    <div id="daemon-control" data-daemon-state="enabled disabled" hidden>
-      <div class="section-row no-non-local-hosts"
+    <div class="daemon-control"
+         data-daemon-state="enabled disabled enabled-other-account" hidden>
+      <div class="section-row daemon-disabled"
            data-daemon-state="disabled">
         <img src="icon_host.webp" class="host-list-main-icon">
-        <div class="box-spacer host-list-label"
-             id="start-daemon-message"
+        <div class="box-spacer"
+             class="no-daemon-message"
              i18n-content="HOME_DAEMON_START_MESSAGE"></div>
         <button type="button"
-                id="start-daemon"
+                class="start-daemon"
                 i18n-content="HOME_DAEMON_START_BUTTON">
         </button>
       </div> <!-- disabled -->
-      <div id="this-host-connect"
-           class="section-row clickable no-non-local-hosts"
-           data-daemon-state="enabled">
-        <div class="host-list-main-icon">
-          <span id="this-host-warning" hidden></span>
-          <img id="this-host-icon"
-               src="icon_host.webp">
-        </div>
-        <div id="this-host-name" class="box-spacer"></div>
-        <span id="this-host-rename"
-              class="host-list-edit"
-              tabIndex="0"
-              i18n-title="TOOLTIP_RENAME">
-          <img class="host-list-rename-icon"
-               src="icon_pencil.webp">
-        </span>
+      <div class="section-row host-enabled-other-account"
+           data-daemon-state="enabled-other-account">
+        <img src="icon_host.webp" class="host-list-main-icon">
+        <div class="box-spacer"
+             i18n-content="HOME_DAEMON_HOST_ENABLED_OTHER_ACCOUNT"></div>
         <button type="button"
-                id="stop-daemon"
+                class="stop-daemon"
+                i18n-content="HOME_DAEMON_STOP_BUTTON">
+        </button>
+      </div> <!-- enabled-other-account -->
+      <div id="this-host-connect"
+           data-daemon-state="enabled">
+        <div class="host-entry"></div>
+        <button type="button"
+                class="stop-local-daemon"
                 i18n-content="HOME_DAEMON_STOP_BUTTON">
         </button>
       </div> <!-- this-host-connect -->
       <div data-daemon-state="enabled">
         <div>
           <span i18n-content="HOME_DAEMON_ACTIVE_MESSAGE"></span>
-          <a id="change-daemon-pin"
+          <a class="change-daemon-pin"
              href="#"
              i18n-content="HOME_DAEMON_CHANGE_PIN_LINK"></a>
         </div>

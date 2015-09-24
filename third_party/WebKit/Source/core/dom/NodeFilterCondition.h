@@ -36,9 +36,9 @@ class Node;
 class NodeFilterCondition : public RefCountedWillBeGarbageCollectedFinalized<NodeFilterCondition> {
 public:
     virtual ~NodeFilterCondition() { }
-    virtual short acceptNode(Node*, ExceptionState&) const = 0;
+    virtual unsigned acceptNode(Node*, ExceptionState&) const = 0;
 
-    virtual void trace(Visitor*) { }
+    DEFINE_INLINE_VIRTUAL_TRACE() { }
 };
 
 } // namespace blink

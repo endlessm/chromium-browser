@@ -37,7 +37,7 @@ class APP_LIST_EXPORT FolderImageObserver {
 class APP_LIST_EXPORT FolderImage : public AppListItemListObserver,
                                     public AppListItemObserver {
  public:
-  FolderImage(AppListItemList* item_list);
+  explicit FolderImage(AppListItemList* item_list);
   ~FolderImage() override;
 
   // Generates the folder's icon from the icons of the items in the item list,
@@ -47,7 +47,7 @@ class APP_LIST_EXPORT FolderImage : public AppListItemListObserver,
   const gfx::ImageSkia& icon() const { return icon_; }
 
   // Returns the icon of one of the top items with |item_index|.
-  const gfx::ImageSkia& GetTopIcon(size_t item_index);
+  const gfx::ImageSkia& GetTopIcon(size_t item_index) const;
 
   // Calculates the top item icons' bounds inside |folder_icon_bounds|.
   // Returns the bounds of top item icons in sequence of top left, top right,
@@ -63,7 +63,7 @@ class APP_LIST_EXPORT FolderImage : public AppListItemListObserver,
   // The Rect returned is in the same coordinates of |folder_icon_bounds|.
   gfx::Rect GetTargetIconRectInFolderForItem(
       AppListItem* item,
-      const gfx::Rect& folder_icon_bounds);
+      const gfx::Rect& folder_icon_bounds) const;
 
   void AddObserver(FolderImageObserver* observer);
   void RemoveObserver(FolderImageObserver* observer);
@@ -93,7 +93,7 @@ class APP_LIST_EXPORT FolderImage : public AppListItemListObserver,
   // Top items for generating folder icon.
   std::vector<AppListItem*> top_items_;
 
-  ObserverList<FolderImageObserver> observers_;
+  base::ObserverList<FolderImageObserver> observers_;
 };
 
 }  // namespace app_list

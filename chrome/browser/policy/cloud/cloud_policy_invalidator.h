@@ -10,12 +10,13 @@
 #include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
-#include "components/invalidation/invalidation.h"
-#include "components/invalidation/invalidation_handler.h"
+#include "components/invalidation/public/invalidation.h"
+#include "components/invalidation/public/invalidation_handler.h"
 #include "components/policy/core/common/cloud/cloud_policy_core.h"
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
 #include "google/cacheinvalidation/include/types.h"
@@ -92,6 +93,10 @@ class CloudPolicyInvalidator : public syncer::InvalidationHandler,
   // The highest invalidation version that was handled already.
   int64 highest_handled_invalidation_version() const {
     return highest_handled_invalidation_version_;
+  }
+
+  invalidation::InvalidationService* invalidation_service_for_test() const {
+    return invalidation_service_;
   }
 
   // syncer::InvalidationHandler:

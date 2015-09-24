@@ -1,3 +1,8 @@
+# Copyright 2015 Google Inc.
+#
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
 # This GYP file stores the dependencies necessary to build Skia on the Android
 # platform. The OS doesn't provide many stable libraries as part of the
 # distribution so we have to build a few of them ourselves.
@@ -13,6 +18,22 @@
     'skia_warnings_as_errors': 0,
   },
   'targets': [
+    {
+      'target_name': 'native_app_glue',
+      'type': 'static_library',
+      'direct_dependent_settings': {
+        'include_dirs': [
+          '../third_party/native_app_glue',
+        ],
+      },
+      'sources': [
+        '../third_party/native_app_glue/android_native_app_glue.c',
+        '../third_party/native_app_glue/android_native_app_glue.h',
+      ],
+      'cflags': [
+        '-w',
+      ],
+    }, 
     {
       'target_name': 'cpu_features',
       'type': 'static_library',
@@ -30,6 +51,19 @@
       ],
     },
     {
+      'target_name': 'ashmem',
+      'type': 'static_library',
+      'sources': [
+        '../third_party/ashmem/cutils/ashmem.h',
+        '../third_party/ashmem/cutils/ashmem-dev.c'
+      ],
+      'direct_dependent_settings': {
+        'include_dirs': [
+          '../third_party/ashmem',
+        ]
+      },
+    },
+    {
       'target_name': 'expat',
       'type': 'static_library',
       'sources': [
@@ -44,32 +78,13 @@
       'cflags': [
         '-w',
         '-fexceptions',
-        '-DHAVE_EXPAT_CONFIG_H',
+      ],
+      'defines': [
+        'HAVE_EXPAT_CONFIG_H',
       ],
       'direct_dependent_settings': {
         'include_dirs': [
           '../third_party/externals/expat/lib',  # For expat.h
-        ],
-      }
-    },
-    {
-      'target_name': 'gif',
-      'type': 'static_library',
-      'sources': [
-        '../third_party/externals/gif/dgif_lib.c',
-        '../third_party/externals/gif/gifalloc.c',
-        '../third_party/externals/gif/gif_err.c',
-      ],
-      'include_dirs': [
-        '../third_party/externals/gif',
-      ],
-      'cflags': [
-        '-w',
-        '-DHAVE_CONFIG_H',
-      ],
-      'direct_dependent_settings': {
-        'include_dirs': [
-          '../third_party/externals/gif',
         ],
       }
     },
@@ -116,6 +131,9 @@
     {
       'target_name': 'jpeg',
       'type': 'static_library',
+      'dependencies': [
+        'ashmem'
+      ],
       'sources': [
         '../third_party/externals/jpeg/jcapimin.c',
         '../third_party/externals/jpeg/jcapistd.c',
@@ -158,11 +176,46 @@
         '../third_party/externals/jpeg/jidctfst.c',
         '../third_party/externals/jpeg/jidctint.c',
         '../third_party/externals/jpeg/jidctred.c',
+        '../third_party/externals/jpeg/jmem-ashmem.c',
+        '../third_party/externals/jpeg/jmemmgr.c',
         '../third_party/externals/jpeg/jquant1.c',
         '../third_party/externals/jpeg/jquant2.c',
         '../third_party/externals/jpeg/jutils.c',
-        '../third_party/externals/jpeg/jmemmgr.c',
-        '../third_party/externals/jpeg/jmem-android.c', # ashmem is also available
+      ],
+      'conditions': [
+        [ 'arm_neon == 1 and skia_clang_build == 0',
+          {
+            'sources' : [
+              '../third_party/externals/jpeg/armv6_idct.S',
+              '../third_party/externals/jpeg/jsimd_arm_neon.S',
+              '../third_party/externals/jpeg/jsimd_neon.c',
+            ],
+            'defines' : [
+              'NV_ARM_NEON',
+            ],
+          },
+        ],
+        [ 'skia_arch_type == "mips" and mips_dsp == 2',
+          {
+            'sources' : [
+              '../third_party/externals/jpeg/mips_jidctfst.c',
+              '../third_party/externals/jpeg/mips_idct_le.S',
+            ],
+            'defines' : [
+              'ANDROID_MIPS_IDCT',
+            ],
+          },
+        ],
+        [ '"x86" in skia_arch_type',
+          {
+            'sources' : [
+              '../third_party/externals/jpeg/jidctintelsse.c',
+            ],
+            'defines' : [
+              'ANDROID_INTELSSE2_IDCT',
+            ],
+          },
+        ],
       ],
       'include_dirs': [
         '../third_party/externals/jpeg',
@@ -171,6 +224,7 @@
         '-w',
         '-fvisibility=hidden',
         '-DAVOID_TABLES',
+        '-DUSE_ANDROID_ASHMEM',
         '-O3',
         '-fstrict-aliasing',
         '-fprefetch-loop-arrays',
@@ -236,7 +290,40 @@
           '../app/jni/com_skia_SkiaSampleRenderer.cpp',
         ],
       },
-
+    },
+    {
+      # This target is a dependency for VisualBench application which runs on
+      # Android.  Since Android requires us to load native code in shared
+      # libraries, we need a common entry point to wrap around main(). Here
+      # we also change the type of all would-be executables to be shared
+      # libraries.  The alternative would be to introduce a condition in every
+      # executable target which changes to a shared library if the target OS is
+      # Android.  This is nicer because the switch is in one place.
+      'target_name': 'Android_VisualBench',
+      'type': 'static_library',
+      'direct_dependent_settings': {
+        'target_conditions': [
+          # '_type' is an 'automatic variable' which is defined for any
+          # target which defines a key-value pair with 'type' as the key (so,
+          # all of them).  Conditionals inside 'target_conditions' are evaluated
+          # *after* all other definitions and conditionals are evaluated, so
+          # we're guaranteed that '_type' will be defined when we get here.
+          # For more info, see:
+          # - http://code.google.com/p/gyp/wiki/InputFormatReference#Variables
+          # - http://codereview.appspot.com/6353065/
+          ['_type == "executable"', {
+            'type': 'shared_library',
+          }],
+        ],
+        'include_dirs': [
+          '../../../tools/timer/',
+          '../../../tools/VisualBench/',
+        ],
+        'sources': [
+          '../visualbench/jni/SkOSWindow_AndroidNative.cpp',
+          '../visualbench/jni/main.cpp',
+        ],
+      },
     },
   ]
 }

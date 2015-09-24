@@ -66,21 +66,21 @@ std::string RiskCapabilityToString(
 WalletClient::ErrorType StringToErrorType(const std::string& error_type) {
   std::string trimmed;
   base::TrimWhitespaceASCII(error_type, base::TRIM_ALL, &trimmed);
-  if (LowerCaseEqualsASCII(trimmed, "buyer_account_error"))
+  if (base::LowerCaseEqualsASCII(trimmed, "buyer_account_error"))
     return WalletClient::BUYER_ACCOUNT_ERROR;
-  if (LowerCaseEqualsASCII(trimmed, "unsupported_merchant"))
+  if (base::LowerCaseEqualsASCII(trimmed, "unsupported_merchant"))
     return WalletClient::UNSUPPORTED_MERCHANT;
-  if (LowerCaseEqualsASCII(trimmed, "internal_error"))
+  if (base::LowerCaseEqualsASCII(trimmed, "internal_error"))
     return WalletClient::INTERNAL_ERROR;
-  if (LowerCaseEqualsASCII(trimmed, "invalid_params"))
+  if (base::LowerCaseEqualsASCII(trimmed, "invalid_params"))
     return WalletClient::INVALID_PARAMS;
-  if (LowerCaseEqualsASCII(trimmed, "service_unavailable"))
+  if (base::LowerCaseEqualsASCII(trimmed, "service_unavailable"))
     return WalletClient::SERVICE_UNAVAILABLE;
-  if (LowerCaseEqualsASCII(trimmed, "unsupported_api_version"))
+  if (base::LowerCaseEqualsASCII(trimmed, "unsupported_api_version"))
     return WalletClient::UNSUPPORTED_API_VERSION;
-  if (LowerCaseEqualsASCII(trimmed, "unsupported_user_agent"))
+  if (base::LowerCaseEqualsASCII(trimmed, "unsupported_user_agent"))
     return WalletClient::UNSUPPORTED_USER_AGENT_OR_API_KEY;
-  if (LowerCaseEqualsASCII(trimmed, "spending_limit_exceeded"))
+  if (base::LowerCaseEqualsASCII(trimmed, "spending_limit_exceeded"))
     return WalletClient::SPENDING_LIMIT_EXCEEDED;
 
   DVLOG(1) << "Unknown wallet error string: \"" << error_type << '"';
@@ -93,9 +93,9 @@ WalletClient::ErrorType BuyerErrorStringToErrorType(
     const std::string& message_type_for_buyer) {
   std::string trimmed;
   base::TrimWhitespaceASCII(message_type_for_buyer, base::TRIM_ALL, &trimmed);
-  if (LowerCaseEqualsASCII(trimmed, "bla_country_not_supported"))
+  if (base::LowerCaseEqualsASCII(trimmed, "bla_country_not_supported"))
     return WalletClient::BUYER_LEGAL_ADDRESS_NOT_SUPPORTED;
-  if (LowerCaseEqualsASCII(trimmed, "buyer_kyc_error"))
+  if (base::LowerCaseEqualsASCII(trimmed, "buyer_kyc_error"))
     return WalletClient::UNVERIFIED_KNOW_YOUR_CUSTOMER_STATUS;
 
   return WalletClient::BUYER_ACCOUNT_ERROR;
@@ -295,7 +295,7 @@ void WalletClient::AuthenticateInstrument(
   request_dict.SetString(kInstrumentIdKey, instrument_id);
 
   std::string json_payload;
-  base::JSONWriter::Write(&request_dict, &json_payload);
+  base::JSONWriter::Write(request_dict, &json_payload);
 
   std::string escaped_card_verification_number = net::EscapeUrlEncodedData(
       card_verification_number, true);
@@ -339,7 +339,7 @@ void WalletClient::GetFullWallet(const FullWalletRequest& full_wallet_request) {
   request_dict.Set(kRiskCapabilitiesKey, risk_capabilities_list.release());
 
   std::string json_payload;
-  base::JSONWriter::Write(&request_dict, &json_payload);
+  base::JSONWriter::Write(request_dict, &json_payload);
 
   crypto::RandBytes(&(one_time_pad_[0]), one_time_pad_.size());
 
@@ -431,7 +431,7 @@ void WalletClient::SaveToWallet(
   }
 
   std::string json_payload;
-  base::JSONWriter::Write(&request_dict, &json_payload);
+  base::JSONWriter::Write(request_dict, &json_payload);
 
   if (!card_verification_number.empty()) {
     std::string post_body;
@@ -476,7 +476,7 @@ void WalletClient::GetWalletItems(const base::string16& amount,
     request_dict.SetString(kTransactionCurrencyKey, currency);
 
   std::string post_body;
-  base::JSONWriter::Write(&request_dict, &post_body);
+  base::JSONWriter::Write(request_dict, &post_body);
 
   MakeWalletRequest(GetGetWalletItemsUrl(user_index_),
                     post_body,
@@ -515,7 +515,7 @@ void WalletClient::DoAcceptLegalDocuments(
   request_dict.Set(kAcceptedLegalDocumentKey, docs_list.release());
 
   std::string post_body;
-  base::JSONWriter::Write(&request_dict, &post_body);
+  base::JSONWriter::Write(request_dict, &post_body);
 
   MakeWalletRequest(GetAcceptLegalDocumentsUrl(user_index_),
                     post_body,
@@ -530,8 +530,7 @@ void WalletClient::MakeWalletRequest(const GURL& url,
   DCHECK_EQ(request_type_, NO_REQUEST);
   request_type_ = request_type;
 
-  request_.reset(net::URLFetcher::Create(
-      0, url, net::URLFetcher::POST, this));
+  request_ = net::URLFetcher::Create(0, url, net::URLFetcher::POST, this);
   request_->SetRequestContext(context_getter_.get());
   DVLOG(1) << "Making request to " << url << " with post_body=" << post_body;
   request_->SetUploadData(mime_type, post_body);
@@ -542,16 +541,16 @@ void WalletClient::MakeWalletRequest(const GURL& url,
   request_started_timestamp_ = base::Time::Now();
   request_->Start();
 
-  delegate_->GetMetricLogger().LogWalletErrorMetric(
+  AutofillMetrics::LogWalletErrorMetric(
       AutofillMetrics::WALLET_ERROR_BASELINE_ISSUED_REQUEST);
-  delegate_->GetMetricLogger().LogWalletRequiredActionMetric(
+  AutofillMetrics::LogWalletRequiredActionMetric(
       AutofillMetrics::WALLET_REQUIRED_ACTION_BASELINE_ISSUED_REQUEST);
 }
 
 // TODO(ahutter): Add manual retry logic if it's necessary.
 void WalletClient::OnURLFetchComplete(
     const net::URLFetcher* source) {
-  delegate_->GetMetricLogger().LogWalletApiCallDuration(
+  AutofillMetrics::LogWalletApiCallDuration(
       RequestTypeToUmaMetric(request_type_),
       base::Time::Now() - request_started_timestamp_);
 
@@ -569,7 +568,7 @@ void WalletClient::OnURLFetchComplete(
   scoped_ptr<base::DictionaryValue> response_dict;
 
   int response_code = source->GetResponseCode();
-  delegate_->GetMetricLogger().LogWalletResponseCode(response_code);
+  AutofillMetrics::LogWalletResponseCode(response_code);
 
   switch (response_code) {
     // HTTP_BAD_REQUEST means the arguments are invalid. No point retrying.
@@ -581,7 +580,7 @@ void WalletClient::OnURLFetchComplete(
 
     // Valid response.
     case net::HTTP_OK: {
-      scoped_ptr<base::Value> message_value(base::JSONReader::Read(data));
+      scoped_ptr<base::Value> message_value = base::JSONReader::Read(data);
       if (message_value.get() &&
           message_value->IsType(base::Value::TYPE_DICTIONARY)) {
         response_dict.reset(
@@ -593,7 +592,7 @@ void WalletClient::OnURLFetchComplete(
     // Response contains an error to show the user.
     case net::HTTP_FORBIDDEN:
     case net::HTTP_INTERNAL_SERVER_ERROR: {
-      scoped_ptr<base::Value> message_value(base::JSONReader::Read(data));
+      scoped_ptr<base::Value> message_value = base::JSONReader::Read(data);
       if (message_value.get() &&
           message_value->IsType(base::Value::TYPE_DICTIONARY)) {
         response_dict.reset(
@@ -650,7 +649,7 @@ void WalletClient::OnURLFetchComplete(
         std::string trimmed;
         base::TrimWhitespaceASCII(auth_result, base::TRIM_ALL, &trimmed);
         delegate_->OnDidAuthenticateInstrument(
-            LowerCaseEqualsASCII(trimmed, "success"));
+            base::LowerCaseEqualsASCII(trimmed, "success"));
       } else {
         HandleMalformedResponse(type, scoped_request.get());
       }
@@ -715,8 +714,8 @@ void WalletClient::HandleMalformedResponse(RequestType request_type,
   // Called to inform exponential backoff logic of the error.
   request->ReceivedContentWasMalformed();
   // Record failed API call in metrics.
-  delegate_->GetMetricLogger().LogWalletMalformedResponseMetric(
-    RequestTypeToUmaMetric(request_type));
+  AutofillMetrics::LogWalletMalformedResponseMetric(
+      RequestTypeToUmaMetric(request_type));
   HandleWalletError(MALFORMED_RESPONSE);
 }
 
@@ -770,15 +769,14 @@ void WalletClient::HandleWalletError(WalletClient::ErrorType error_type) {
   DVLOG(1) << "Wallet encountered a " << error_message;
 
   delegate_->OnWalletError(error_type);
-  delegate_->GetMetricLogger().LogWalletErrorMetric(
-      ErrorTypeToUmaMetric(error_type));
+  AutofillMetrics::LogWalletErrorMetric(ErrorTypeToUmaMetric(error_type));
 }
 
 // Logs an UMA metric for each of the |required_actions|.
 void WalletClient::LogRequiredActions(
     const std::vector<RequiredAction>& required_actions) const {
   for (size_t i = 0; i < required_actions.size(); ++i) {
-    delegate_->GetMetricLogger().LogWalletRequiredActionMetric(
+    AutofillMetrics::LogWalletRequiredActionMetric(
         RequiredActionToUmaMetric(required_actions[i]));
   }
 }

@@ -12,11 +12,10 @@
 #include "base/android/memory_pressure_listener_android.h"
 #include "base/logging.h"
 #include "base/posix/global_descriptors.h"
-#include "content/child/child_thread.h"
+#include "content/child/child_thread_impl.h"
 #include "content/common/android/surface_texture_manager.h"
 #include "content/common/android/surface_texture_peer.h"
 #include "content/common/gpu/gpu_surface_lookup.h"
-#include "content/public/app/android_library_loader_hooks.h"
 #include "content/public/common/content_descriptors.h"
 #include "ipc/ipc_descriptors.h"
 #include "jni/ChildProcessService_jni.h"
@@ -44,16 +43,15 @@ class SurfaceTextureManagerImpl : public SurfaceTextureManager,
     SurfaceTexturePeer::InitInstance(this);
     GpuSurfaceLookup::InitInstance(this);
   }
-  virtual ~SurfaceTextureManagerImpl() {
+  ~SurfaceTextureManagerImpl() override {
     SurfaceTexturePeer::InitInstance(NULL);
     GpuSurfaceLookup::InitInstance(NULL);
   }
 
   // Overridden from SurfaceTextureManager:
-  virtual void RegisterSurfaceTexture(
-      int surface_texture_id,
-      int client_id,
-      gfx::SurfaceTexture* surface_texture) override {
+  void RegisterSurfaceTexture(int surface_texture_id,
+                              int client_id,
+                              gfx::SurfaceTexture* surface_texture) override {
     JNIEnv* env = base::android::AttachCurrentThread();
     Java_ChildProcessService_createSurfaceTextureSurface(
         env,
@@ -62,13 +60,13 @@ class SurfaceTextureManagerImpl : public SurfaceTextureManager,
         client_id,
         surface_texture->j_surface_texture().obj());
   }
-  virtual void UnregisterSurfaceTexture(int surface_texture_id,
-                                        int client_id) override {
+  void UnregisterSurfaceTexture(int surface_texture_id,
+                                int client_id) override {
     JNIEnv* env = base::android::AttachCurrentThread();
     Java_ChildProcessService_destroySurfaceTextureSurface(
         env, service_.obj(), surface_texture_id, client_id);
   }
-  virtual gfx::AcceleratedWidget AcquireNativeWidgetForSurfaceTexture(
+  gfx::AcceleratedWidget AcquireNativeWidgetForSurfaceTexture(
       int surface_texture_id) override {
     JNIEnv* env = base::android::AttachCurrentThread();
     gfx::ScopedJavaSurface surface(
@@ -89,7 +87,7 @@ class SurfaceTextureManagerImpl : public SurfaceTextureManager,
   }
 
   // Overridden from SurfaceTexturePeer:
-  virtual void EstablishSurfaceTexturePeer(
+  void EstablishSurfaceTexturePeer(
       base::ProcessHandle pid,
       scoped_refptr<gfx::SurfaceTexture> surface_texture,
       int primary_id,
@@ -105,7 +103,7 @@ class SurfaceTextureManagerImpl : public SurfaceTextureManager,
   }
 
   // Overridden from GpuSurfaceLookup:
-  virtual gfx::AcceleratedWidget AcquireNativeWidget(int surface_id) override {
+  gfx::AcceleratedWidget AcquireNativeWidget(int surface_id) override {
     JNIEnv* env = base::android::AttachCurrentThread();
     gfx::ScopedJavaSurface surface(
         content::Java_ChildProcessService_getViewSurface(
@@ -133,9 +131,7 @@ class SurfaceTextureManagerImpl : public SurfaceTextureManager,
 
 // Chrome actually uses the renderer code path for all of its child
 // processes such as renderers, plugins, etc.
-void InternalInitChildProcess(const std::vector<int>& file_ids,
-                              const std::vector<int>& file_fds,
-                              JNIEnv* env,
+void InternalInitChildProcess(JNIEnv* env,
                               jclass clazz,
                               jobject context,
                               jobject service_in,
@@ -145,36 +141,31 @@ void InternalInitChildProcess(const std::vector<int>& file_ids,
 
   // Set the CPU properties.
   android_setCpu(cpu_count, cpu_features);
-  // Register the file descriptors.
-  // This includes the IPC channel, the crash dump signals and resource related
-  // files.
-  DCHECK(file_fds.size() == file_ids.size());
-  for (size_t i = 0; i < file_ids.size(); ++i)
-    base::GlobalDescriptors::GetInstance()->Set(file_ids[i], file_fds[i]);
-
-  SurfaceTextureManager::InitInstance(new SurfaceTextureManagerImpl(service));
+  SurfaceTextureManager::SetInstance(new SurfaceTextureManagerImpl(service));
 
   base::android::MemoryPressureListenerAndroid::RegisterSystemCallback(env);
 }
 
 }  // namespace <anonymous>
 
+void RegisterGlobalFileDescriptor(JNIEnv* env,
+                                  jclass clazz,
+                                  jint id,
+                                  jint fd,
+                                  jlong offset,
+                                  jlong size) {
+  base::MemoryMappedFile::Region region = {offset, size};
+  base::GlobalDescriptors::GetInstance()->Set(id, fd, region);
+}
+
 void InitChildProcess(JNIEnv* env,
                       jclass clazz,
                       jobject context,
                       jobject service,
-                      jintArray j_file_ids,
-                      jintArray j_file_fds,
                       jint cpu_count,
                       jlong cpu_features) {
-  std::vector<int> file_ids;
-  std::vector<int> file_fds;
-  JavaIntArrayToIntVector(env, j_file_ids, &file_ids);
-  JavaIntArrayToIntVector(env, j_file_fds, &file_fds);
-
-  InternalInitChildProcess(
-      file_ids, file_fds, env, clazz, context, service,
-      cpu_count, cpu_features);
+  InternalInitChildProcess(env, clazz, context, service, cpu_count,
+                           cpu_features);
 }
 
 void ExitChildProcess(JNIEnv* env, jclass clazz) {
@@ -188,7 +179,7 @@ bool RegisterChildProcessService(JNIEnv* env) {
 }
 
 void ShutdownMainThread(JNIEnv* env, jobject obj) {
-  ChildThread::ShutdownThread();
+  ChildThreadImpl::ShutdownThread();
 }
 
 }  // namespace content

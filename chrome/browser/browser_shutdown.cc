@@ -24,6 +24,7 @@
 #include "chrome/browser/first_run/upgrade_util.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/crash_keys.h"
@@ -43,7 +44,7 @@
 #endif
 
 #if defined(OS_CHROMEOS)
-#include "chrome/browser/chromeos/boot_times_loader.h"
+#include "chrome/browser/chromeos/boot_times_recorder.h"
 #endif
 
 #if defined(ENABLE_PRINT_PREVIEW)
@@ -140,7 +141,7 @@ base::FilePath GetShutdownMsPath() {
 
 bool ShutdownPreThreadsStop() {
 #if defined(OS_CHROMEOS)
-  chromeos::BootTimesLoader::Get()->AddLogoutTimeMarker(
+  chromeos::BootTimesRecorder::Get()->AddLogoutTimeMarker(
       "BrowserShutdownStarted", false);
 #endif
 #if defined(ENABLE_PRINT_PREVIEW)
@@ -152,6 +153,9 @@ bool ShutdownPreThreadsStop() {
   // time to get here. If you have something that *must* happen on end session,
   // consider putting it in BrowserProcessImpl::EndSession.
   PrefService* prefs = g_browser_process->local_state();
+
+  // Log the amount of times the user switched profiles during this session.
+  ProfileMetrics::LogNumberOfProfileSwitches();
 
   metrics::MetricsService* metrics = g_browser_process->metrics_service();
   if (metrics)
@@ -203,7 +207,7 @@ void ShutdownPostThreadsStop(bool restart_last_session) {
   ProfileManager::NukeDeletedProfilesFromDisk();
 
 #if defined(OS_CHROMEOS)
-  chromeos::BootTimesLoader::Get()->AddLogoutTimeMarker("BrowserDeleted",
+  chromeos::BootTimesRecorder::Get()->AddLogoutTimeMarker("BrowserDeleted",
                                                         true);
 #endif
 
@@ -223,17 +227,20 @@ void ShutdownPostThreadsStop(bool restart_last_session) {
     // which prevents us from appending to the command line directly (issue
     // 46182). We therefore use GetSwitches to copy the command line (it stops
     // at the switch argument terminator).
-    CommandLine old_cl(*CommandLine::ForCurrentProcess());
-    scoped_ptr<CommandLine> new_cl(new CommandLine(old_cl.GetProgram()));
-    std::map<std::string, CommandLine::StringType> switches =
+    base::CommandLine old_cl(*base::CommandLine::ForCurrentProcess());
+    scoped_ptr<base::CommandLine> new_cl(
+        new base::CommandLine(old_cl.GetProgram()));
+    std::map<std::string, base::CommandLine::StringType> switches =
         old_cl.GetSwitches();
     // Remove the switches that shouldn't persist across restart.
     about_flags::RemoveFlagsSwitches(&switches);
     switches::RemoveSwitchesForAutostart(&switches);
     // Append the old switches to the new command line.
-    for (std::map<std::string, CommandLine::StringType>::const_iterator i =
-        switches.begin(); i != switches.end(); ++i) {
-      CommandLine::StringType switch_value = i->second;
+    for (
+        std::map<std::string, base::CommandLine::StringType>::const_iterator i =
+            switches.begin();
+        i != switches.end(); ++i) {
+      base::CommandLine::StringType switch_value = i->second;
       if (!switch_value.empty())
         new_cl->AppendSwitchNative(i->first, i->second);
       else

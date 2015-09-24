@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 # Copyright (c) 2012 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -8,8 +8,8 @@
 Currently this produces a simple stack trace.
 """
 
+import argparse
 import json
-import optparse
 import os
 import posixpath
 import subprocess
@@ -134,7 +134,6 @@ class CoreDecoder(object):
       frame['scopes'] = self._Addr2Line(core['segments'], frame['prog_ctr'])
     return core
 
-
   def LoadAndDecode(self, core_path):
     """Given a core.json file, load and embellish with decoded addresses.
 
@@ -176,34 +175,32 @@ class CoreDecoder(object):
           scope['lineno']))
 
 
-def Main(args):
-  parser = optparse.OptionParser(
-      usage='USAGE: %prog [options] <core.json>')
-  parser.add_option('-m', '--main-nexe', dest='main_nexe',
-                    help='nexe to resolve NaClMain references from')
-  parser.add_option('-n', '--nmf', dest='nmf_filename', default='-',
-                    help='nmf to resolve references from')
-  parser.add_option('-a', '--addr2line', dest='addr2line',
-                    help='path to appropriate addr2line')
-  parser.add_option('-L', '--library-path', dest='library_paths',
-                    action='append', default=[],
-                    help='path to search for shared libraries')
-  parser.add_option('-p', '--platform', dest='platform',
-                    help='platform in a style match nmf files')
-  options, args = parser.parse_args(args)
-  if len(args) != 1:
-    parser.print_help()
-    sys.exit(1)
+def main(args):
+  parser = argparse.ArgumentParser(description=__doc__)
+  parser.add_argument('-m', '--main-nexe',
+                      help='nexe to resolve NaClMain references from')
+  parser.add_argument('-n', '--nmf', default='-',
+                      help='nmf to resolve references from')
+  parser.add_argument('-a', '--addr2line',
+                      help='path to appropriate addr2line')
+  parser.add_argument('-L', '--library-path', dest='library_paths',
+                      action='append', default=[],
+                      help='path to search for shared libraries')
+  parser.add_argument('-p', '--platform',
+                      help='platform in a style match nmf files')
+  parser.add_argument('core_json')
+  options = parser.parse_args(args)
   decoder = CoreDecoder(
       main_nexe=options.main_nexe,
-      nmf_filename=options.nmf_filename,
-      addr2line=options.add2line,
+      nmf_filename=options.nmf,
+      addr2line=options.addr2line,
       library_paths=options.library_paths,
       platform=options.platform)
-  info = decoder.LoadAndDecode(args[0])
+  info = decoder.LoadAndDecode(options.core_json)
   trace = decoder.StackTrace(info)
   decoder.PrintTrace(trace, sys.stdout)
+  return 0
 
 
 if __name__ == '__main__':
-  Main(sys.argv[1:])
+  sys.exit(main(sys.argv[1:]))

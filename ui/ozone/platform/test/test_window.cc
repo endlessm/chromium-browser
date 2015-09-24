@@ -19,7 +19,7 @@ TestWindow::TestWindow(PlatformWindowDelegate* delegate,
                        const gfx::Rect& bounds)
     : delegate_(delegate), manager_(manager), bounds_(bounds) {
   widget_ = manager_->AddWindow(this);
-  delegate_->OnAcceleratedWidgetAvailable(widget_);
+  delegate_->OnAcceleratedWidgetAvailable(widget_, 1.f);
 }
 
 TestWindow::~TestWindow() {
@@ -75,6 +75,9 @@ void TestWindow::SetCursor(PlatformCursor cursor) {
 }
 
 void TestWindow::MoveCursorTo(const gfx::Point& location) {
+}
+
+void TestWindow::ConfineCursorToBounds(const gfx::Rect& bounds) {
 }
 
 }  // namespace ui

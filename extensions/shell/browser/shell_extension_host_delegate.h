@@ -23,7 +23,7 @@ class ShellExtensionHostDelegate : public ExtensionHostDelegate {
   void CreateTab(content::WebContents* web_contents,
                  const std::string& extension_id,
                  WindowOpenDisposition disposition,
-                 const gfx::Rect& initial_pos,
+                 const gfx::Rect& initial_rect,
                  bool user_gesture) override;
   void ProcessMediaAccessRequest(content::WebContents* web_contents,
                                  const content::MediaStreamRequest& request,
@@ -33,6 +33,7 @@ class ShellExtensionHostDelegate : public ExtensionHostDelegate {
                                   const GURL& security_origin,
                                   content::MediaStreamType type,
                                   const Extension* extension) override;
+  ExtensionHostQueue* GetExtensionHostQueue() const override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ShellExtensionHostDelegate);

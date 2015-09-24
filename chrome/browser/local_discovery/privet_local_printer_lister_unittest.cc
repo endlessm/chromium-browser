@@ -2,12 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/message_loop/message_loop.h"
 #include "chrome/browser/local_discovery/privet_local_printer_lister.h"
+
+#include "base/run_loop.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/local_discovery/test_service_discovery_client.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "net/url_request/url_request_test_util.h"
-
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -108,7 +110,7 @@ class PrivetLocalPrinterListerTest : public testing::Test {
     test_service_discovery_client_ = new TestServiceDiscoveryClient();
     test_service_discovery_client_->Start();
     url_request_context_ = new net::TestURLRequestContextGetter(
-        base::MessageLoopProxy::current());
+        base::ThreadTaskRunnerHandle::Get());
     local_printer_lister_.reset(new PrivetLocalPrinterLister(
         test_service_discovery_client_.get(),
         url_request_context_.get(),
@@ -137,7 +139,7 @@ class PrivetLocalPrinterListerTest : public testing::Test {
 
   void SimulateReceive(const uint8* packet, size_t size) {
     test_service_discovery_client_->SimulateReceive(packet, size);
-    message_loop_.RunUntilIdle();
+    base::RunLoop().RunUntilIdle();
   }
 
   void ExpectAnyPacket() {
@@ -146,7 +148,7 @@ class PrivetLocalPrinterListerTest : public testing::Test {
   }
 
  protected:
-  base::MessageLoop message_loop_;
+  content::TestBrowserThreadBundle test_thread_bundle;
   scoped_refptr<TestServiceDiscoveryClient> test_service_discovery_client_;
   scoped_refptr<net::TestURLRequestContextGetter> url_request_context_;
   scoped_ptr<PrivetLocalPrinterLister> local_printer_lister_;

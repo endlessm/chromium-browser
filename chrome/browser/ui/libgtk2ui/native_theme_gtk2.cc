@@ -10,10 +10,11 @@
 #include "chrome/browser/ui/libgtk2ui/gtk2_ui.h"
 #include "chrome/browser/ui/libgtk2ui/gtk2_util.h"
 #include "chrome/browser/ui/libgtk2ui/skia_utils_gtk2.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/color_utils.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/path.h"
-#include "ui/gfx/rect.h"
-#include "ui/gfx/size.h"
 #include "ui/gfx/skia_util.h"
 #include "ui/native_theme/common_theme.h"
 
@@ -22,7 +23,7 @@ namespace {
 // Theme colors returned by GetSystemColor().
 const SkColor kInvalidColorIdColor = SkColorSetRGB(255, 0, 128);
 
-const GdkColor kURLTextColor = GDK_COLOR_RGB(0x00, 0x88, 0x00);
+const GdkColor kURLTextColor = GDK_COLOR_RGB(0x0b, 0x80, 0x43);
 
 GdkColor GdkAlphaBlend(GdkColor foreground,
                        GdkColor background,
@@ -91,6 +92,11 @@ GdkColor SelectedURLColor(GdkColor foreground, GdkColor background) {
 
   color_utils::HSL output = { hue_hsl.h, s, l };
   return libgtk2ui::SkColorToGdkColor(color_utils::HSLToSkColor(output, 255));
+}
+
+GdkColor GetReadableColor(SkColor color, const GdkColor& background) {
+  return libgtk2ui::SkColorToGdkColor(color_utils::GetReadableColor(
+      color, libgtk2ui::GdkColorToSkColor(background)));
 }
 
 }  // namespace
@@ -208,6 +214,8 @@ void NativeThemeGtk2::PaintMenuItemBackground(
 }
 
 GdkColor NativeThemeGtk2::GetSystemGdkColor(ColorId color_id) const {
+  const SkColor kPositiveTextColor = SkColorSetRGB(0x0b, 0x80, 0x43);
+  const SkColor kNegativeTextColor = SkColorSetRGB(0xc5, 0x39, 0x29);
   switch (color_id) {
     // Windows
     case kColorId_WindowBackground:
@@ -373,6 +381,42 @@ GdkColor NativeThemeGtk2::GetSystemGdkColor(ColorId color_id) const {
       return GdkAlphaBlend(win_style->text[GTK_STATE_SELECTED],
                            win_style->bg[GTK_STATE_SELECTED], 0x34);
     }
+    case kColorId_ResultsTablePositiveText: {
+      return GetReadableColor(kPositiveTextColor,
+                              GetEntryStyle()->base[GTK_STATE_NORMAL]);
+    }
+    case kColorId_ResultsTablePositiveHoveredText: {
+      return GetReadableColor(kPositiveTextColor,
+                              GetEntryStyle()->base[GTK_STATE_PRELIGHT]);
+    }
+    case kColorId_ResultsTablePositiveSelectedText: {
+      return GetReadableColor(kPositiveTextColor,
+                              GetEntryStyle()->base[GTK_STATE_SELECTED]);
+    }
+    case kColorId_ResultsTableNegativeText: {
+      return GetReadableColor(kNegativeTextColor,
+                              GetEntryStyle()->base[GTK_STATE_NORMAL]);
+    }
+    case kColorId_ResultsTableNegativeHoveredText: {
+      return GetReadableColor(kNegativeTextColor,
+                              GetEntryStyle()->base[GTK_STATE_PRELIGHT]);
+    }
+    case kColorId_ResultsTableNegativeSelectedText: {
+      return GetReadableColor(kNegativeTextColor,
+                              GetEntryStyle()->base[GTK_STATE_SELECTED]);
+    }
+
+    // Throbber
+    case kColorId_ThrobberSpinningColor:
+    case kColorId_ThrobberLightColor: {
+      return GetEntryStyle()->bg[GTK_STATE_SELECTED];
+    }
+
+    case kColorId_ThrobberWaitingColor: {
+      return GdkAlphaBlend(GetEntryStyle()->bg[GTK_STATE_SELECTED],
+                           GetWindowStyle()->bg[GTK_STATE_NORMAL], 0xff / 2);
+    }
+
     case kColorId_NumColors:
       NOTREACHED();
       break;

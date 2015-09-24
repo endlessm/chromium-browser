@@ -1,26 +1,30 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _PWL_WND_H_
-#define _PWL_WND_H_
+#ifndef FPDFSDK_INCLUDE_PDFWINDOW_PWL_WND_H_
+#define FPDFSDK_INCLUDE_PDFWINDOW_PWL_WND_H_
 
-class IPWL_Provider;
-class CPWL_Wnd;
+#include "../../../core/include/fxcrt/fx_basic.h"
+#include "../../../core/include/fpdfdoc/fpdf_doc.h"
+#include "../fx_systemhandler.h"
+
 class CPWL_MsgControl;
-class CPWL_Wnd;
 class CPWL_ScrollBar;
 class CPWL_Timer;
 class CPWL_TimerHandler;
-class IPWL_SpellCheck;
+class CPWL_Wnd;
+class IFX_Edit_FontMap;
 class IFX_SystemHandler;
+class IPWL_Provider;
+class IPWL_SpellCheck;
 
 #ifdef FX_READER_DLL
 	#ifdef PWL_EXPORT
 			#define PWL_CLASS		__declspec(dllexport)
-			#define PWL_FUNCTION	PWL_CLASS	
+			#define PWL_FUNCTION	PWL_CLASS
 		#else
 			#define PWL_CLASS
 			#define PWL_FUNCTION
@@ -103,25 +107,25 @@ class IFX_SystemHandler;
 
 struct CPWL_Dash
 {
-	CPWL_Dash(FX_INT32 dash, FX_INT32 gap, FX_INT32 phase) : nDash(dash), nGap(gap), nPhase(phase)
+	CPWL_Dash(int32_t dash, int32_t gap, int32_t phase) : nDash(dash), nGap(gap), nPhase(phase)
 	{}
 
-	FX_INT32			nDash;
-	FX_INT32			nGap;
-	FX_INT32			nPhase;
+	int32_t			nDash;
+	int32_t			nGap;
+	int32_t			nPhase;
 };
 
 struct PWL_CLASS CPWL_Color
 {
-	CPWL_Color(FX_INT32 type = COLORTYPE_TRANSPARENT, FX_FLOAT color1 = 0.0f, FX_FLOAT color2 = 0.0f, FX_FLOAT color3 = 0.0f, FX_FLOAT color4 = 0.0f)
+	CPWL_Color(int32_t type = COLORTYPE_TRANSPARENT, FX_FLOAT color1 = 0.0f, FX_FLOAT color2 = 0.0f, FX_FLOAT color3 = 0.0f, FX_FLOAT color4 = 0.0f)
 		: nColorType(type), fColor1(color1), fColor2(color2), fColor3(color3), fColor4(color4)
 	{}
 
-	CPWL_Color(FX_INT32 r, FX_INT32 g, FX_INT32 b) :
+	CPWL_Color(int32_t r, int32_t g, int32_t b) :
 		nColorType(COLORTYPE_RGB), fColor1(r/255.0f), fColor2(g/255.0f), fColor3(b/255.0f), fColor4(0)
 	{}
-	
-	void ConvertColorType(FX_INT32 nColorType);
+
+	void ConvertColorType(int32_t other_nColorType);
 
 	/*
 	COLORTYPE_TRANSPARENT
@@ -129,13 +133,13 @@ struct PWL_CLASS CPWL_Color
 	COLORTYPE_CMYK
 	COLORTYPE_GRAY
 	*/
-	FX_INT32					nColorType; 
+	int32_t					nColorType;
 	FX_FLOAT					fColor1,fColor2,fColor3,fColor4;
 };
 
 inline FX_BOOL operator == (const CPWL_Color &c1, const CPWL_Color &c2)
 {
-	return c1.nColorType == c2.nColorType && 
+	return c1.nColorType == c2.nColorType &&
 		c1.fColor1 - c2.fColor1 < 0.0001 && c1.fColor1 - c2.fColor1 > -0.0001 &&
 		c1.fColor2 - c2.fColor2 < 0.0001 && c1.fColor2 - c2.fColor2 > -0.0001 &&
 		c1.fColor3 - c2.fColor3 < 0.0001 && c1.fColor3 - c2.fColor3 > -0.0001 &&
@@ -168,13 +172,16 @@ inline FX_BOOL operator != (const CPWL_Color &c1, const CPWL_Color &c2)
 class IPWL_SpellCheck
 {
 public:
-	virtual FX_BOOL							CheckWord(FX_LPCSTR sWord) = 0;
-	virtual void							SuggestWords(FX_LPCSTR sWord, CFX_ByteStringArray & sSuggest) = 0;	
+        virtual ~IPWL_SpellCheck() { }
+	virtual FX_BOOL							CheckWord(const FX_CHAR* sWord) = 0;
+	virtual void							SuggestWords(const FX_CHAR* sWord, CFX_ByteStringArray & sSuggest) = 0;
 };
 
 class IPWL_Provider
 {
 public:
+        virtual ~IPWL_Provider() { }
+
 	//get a matrix which map user space to CWnd client space
 	virtual CPDF_Matrix						GetWindowMatrix(void* pAttachedData) = 0;
 
@@ -187,12 +194,13 @@ public:
 	5 L"&Delete"
 	6  L"&Select All\tCtrl+A"
 	*/
-	virtual CFX_WideString					LoadPopupMenuString(FX_INT32 nIndex) = 0;
+	virtual CFX_WideString					LoadPopupMenuString(int32_t nIndex) = 0;
 };
 
 class IPWL_FocusHandler
 {
 public:
+        virtual ~IPWL_FocusHandler() { }
 	virtual void							OnSetFocus(CPWL_Wnd* pWnd) = 0;
 	virtual void							OnKillFocus(CPWL_Wnd* pWnd) = 0;
 };
@@ -216,7 +224,7 @@ public:
 		sTextStrokeColor(),
 		nTransparency(255),
 		fFontSize(PWL_DEFAULT_FONTSIZE),
-		sDash(3,0,0),	
+		sDash(3,0,0),
 		pAttachedData(NULL),
 		pParentWnd(NULL),
 		pMsgControl(NULL),
@@ -225,7 +233,7 @@ public:
 	{
 	}
 
-	CPDF_Rect				rcRectWnd;				//required	
+	CPDF_Rect				rcRectWnd;				//required
 	IFX_SystemHandler*		pSystemHandler;			//required
 	IFX_Edit_FontMap*		pFontMap;				//required for text window
 	IPWL_Provider*			pProvider;				//required for self coordinate
@@ -234,18 +242,18 @@ public:
 	CPWL_Color				sBackgroundColor;		//optional
 	FX_HWND					hAttachedWnd;			//required for no-reader framework
 	IPWL_SpellCheck*		pSpellCheck;			//required for spellchecking
-	FX_INT32				nBorderStyle;			//optional
-	FX_INT32				dwBorderWidth;			//optional
+	int32_t				nBorderStyle;			//optional
+	int32_t				dwBorderWidth;			//optional
 	CPWL_Color				sBorderColor;			//optional
 	CPWL_Color				sTextColor;				//optional
 	CPWL_Color				sTextStrokeColor;		//optional
-	FX_INT32				nTransparency;			//optional
+	int32_t				nTransparency;			//optional
 	FX_FLOAT				fFontSize;				//optional
 	CPWL_Dash				sDash;					//optional
 	void*					pAttachedData;			//optional
 	CPWL_Wnd*				pParentWnd;				//ignore
 	CPWL_MsgControl*		pMsgControl;			//ignore
-	FX_INT32				eCursorType;			//ignore
+	int32_t				eCursorType;			//ignore
 	CPDF_Matrix				mtChild;				//ignore
 };
 
@@ -255,12 +263,12 @@ public:
 	CPWL_Timer(CPWL_TimerHandler* pAttached, IFX_SystemHandler* pSystemHandler);
 	virtual ~CPWL_Timer();
 
-	FX_INT32							SetPWLTimer(FX_INT32 nElapse);
+	int32_t							SetPWLTimer(int32_t nElapse);
 	void								KillPWLTimer();
-	static void 						TimerProc(FX_INT32 idEvent);
+	static void 						TimerProc(int32_t idEvent);
 
 private:
-	FX_INT32							m_nTimerID;	
+	int32_t							m_nTimerID;
 	CPWL_TimerHandler*					m_pAttached;
 	IFX_SystemHandler*					m_pSystemHandler;
 };
@@ -271,7 +279,7 @@ public:
 	CPWL_TimerHandler();
 	virtual ~CPWL_TimerHandler();
 
-	void								BeginTimer(FX_INT32 nElapse);
+	void								BeginTimer(int32_t nElapse);
 	void								EndTimer();
 	virtual void						TimerProc();
 	virtual IFX_SystemHandler*			GetSystemHandler() const = 0;
@@ -288,7 +296,7 @@ public:
 	virtual ~CPWL_Wnd();
 
 	void							Create(const PWL_CREATEPARAM & cp);
-	virtual CFX_ByteString			GetClassName() const;	
+	virtual CFX_ByteString			GetClassName() const;
 	void							Destroy();
 	void							Move(const CPDF_Rect & rcNew,FX_BOOL bReset,FX_BOOL bRefresh);
 	virtual void					InvalidateRect(CPDF_Rect* pRect = NULL);
@@ -305,7 +313,6 @@ public:
 	virtual FX_BOOL					OnMButtonDblClk(const CPDF_Point & point, FX_DWORD nFlag);
 	virtual FX_BOOL					OnMButtonDown(const CPDF_Point & point, FX_DWORD nFlag);
 	virtual FX_BOOL					OnMButtonUp(const CPDF_Point & point, FX_DWORD nFlag);
-	virtual FX_BOOL					OnRButtonDblClk(const CPDF_Point & point, FX_DWORD nFlag);
 	virtual FX_BOOL					OnRButtonDown(const CPDF_Point & point, FX_DWORD nFlag);
 	virtual FX_BOOL					OnRButtonUp(const CPDF_Point & point, FX_DWORD nFlag);
 	virtual FX_BOOL					OnMouseMove(const CPDF_Point & point, FX_DWORD nFlag);
@@ -316,7 +323,7 @@ public:
 	void							SetCapture();
 	void							ReleaseCapture();
 
-	virtual void					OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, FX_INTPTR wParam = 0, FX_INTPTR lParam = 0);
+	virtual void					OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, intptr_t wParam = 0, intptr_t lParam = 0);
 	virtual void					SetTextColor(const CPWL_Color & color);
 	virtual void					SetTextStrokeColor(const CPWL_Color & color);
 	virtual void					SetVisible(FX_BOOL bVisible);
@@ -327,19 +334,19 @@ public:
 	virtual CPWL_Color				GetTextColor() const;
 	virtual CPWL_Color				GetTextStrokeColor() const;
 	virtual FX_FLOAT				GetFontSize() const;
-	virtual FX_INT32				GetInnerBorderWidth() const;
-	virtual CPWL_Color				GetBorderLeftTopColor(FX_INT32 nBorderStyle) const;
-	virtual CPWL_Color				GetBorderRightBottomColor(FX_INT32 nBorderStyle) const;
+	virtual int32_t				GetInnerBorderWidth() const;
+	virtual CPWL_Color				GetBorderLeftTopColor(int32_t nBorderStyle) const;
+	virtual CPWL_Color				GetBorderRightBottomColor(int32_t nBorderStyle) const;
 
 	virtual FX_BOOL					IsModified() const {return FALSE;}
 
-	virtual void					SetFontSize(FX_FLOAT fFontSize);	
+	virtual void					SetFontSize(FX_FLOAT fFontSize);
 
-	void							SetBackgroundColor(const CPWL_Color & color);		
+	void							SetBackgroundColor(const CPWL_Color & color);
 	void							SetBorderColor(const CPWL_Color & color);
-	void							SetBorderWidth(FX_INT32 nBorderWidth);
+	void							SetBorderWidth(int32_t nBorderWidth);
 	void							SetClipRect(const CPDF_Rect & rect);
-	void							SetBorderStyle(FX_INT32 eBorderStyle);	
+	void							SetBorderStyle(int32_t eBorderStyle);
 	void							SetBorderDash(const CPWL_Dash & sDash);
 
 	CPDF_Rect						GetOriginWindowRect() const;
@@ -347,18 +354,18 @@ public:
 	virtual CPDF_Rect				GetClientRect() const;
 	CPDF_Point						GetCenterPoint() const;
 	CPDF_Rect						GetClientCenterSquare() const;
-	CPDF_Rect						GetWindowCenterSquare() const;		
-	FX_INT32						GetBorderWidth() const;		
-	FX_BOOL							IsVisible() const {return m_bVisible;}	
+	CPDF_Rect						GetWindowCenterSquare() const;
+	int32_t						GetBorderWidth() const;
+	FX_BOOL							IsVisible() const {return m_bVisible;}
 	FX_BOOL							HasFlag(FX_DWORD dwFlags) const;
 	void							AddFlag(FX_DWORD dwFlags);
 	void							RemoveFlag(FX_DWORD dwFlags);
-	CPDF_Rect						GetClipRect() const;		
-	CPWL_Wnd*						GetParentWindow() const;		
-	FX_INT32						GetBorderStyle() const;	
+	CPDF_Rect						GetClipRect() const;
+	CPWL_Wnd*						GetParentWindow() const;
+	int32_t						GetBorderStyle() const;
 	CPWL_Dash						GetBorderDash() const;
 	void*							GetAttachedData() const;
-	
+
 	FX_BOOL							WndHitTest(const CPDF_Point & point) const;
 	FX_BOOL							ClientHitTest(const CPDF_Point & point) const;
 	FX_BOOL							IsCaptureMouse() const;
@@ -372,9 +379,9 @@ public:
 	IPWL_Provider*					GetProvider() const;
 	virtual IFX_SystemHandler*		GetSystemHandler() const;
 	IPWL_FocusHandler*				GetFocusHandler() const;
-	
-	FX_INT32						GetTransparency();
-	void							SetTransparency(FX_INT32 nTransparency);
+
+	int32_t						GetTransparency();
+	void							SetTransparency(int32_t nTransparency);
 
 	CPDF_Matrix						GetChildToRoot() const;
 	CPDF_Matrix						GetChildMatrix() const;
@@ -387,15 +394,15 @@ public:
 	virtual CPDF_Rect				ParentToChild(const CPDF_Rect& rect) const;
 
 	//those methods only implemented by listctrl item
-	virtual FX_FLOAT				GetItemHeight(FX_FLOAT fLimitWidth) {return 0;} 
-	virtual FX_FLOAT				GetItemLeftMargin() {return 0;} 
-	virtual FX_FLOAT				GetItemRightMargin() {return 0;} 
+	virtual FX_FLOAT				GetItemHeight(FX_FLOAT fLimitWidth) {return 0;}
+	virtual FX_FLOAT				GetItemLeftMargin() {return 0;}
+	virtual FX_FLOAT				GetItemRightMargin() {return 0;}
 
 	void							EnableWindow(FX_BOOL bEnable);
 	FX_BOOL							IsEnabled();
 	virtual void					SetCursor();
 
-protected:	
+protected:
 	virtual void					CreateChildWnd(const PWL_CREATEPARAM & cp);
 	virtual void					RePosChildWnd();
 	void							GetAppearanceStream(CFX_ByteTextBuf & sAppStream);
@@ -416,20 +423,20 @@ protected:
 	virtual void					OnDisabled();
 
 	void							SetNotifyFlag(FX_BOOL bNotifying = TRUE){m_bNotifying = bNotifying;};
- 
+
 	FX_BOOL							IsValid() const;
-	PWL_CREATEPARAM					GetCreationParam() const;		
-	FX_BOOL							IsNotifying() const {return m_bNotifying;}	
-	
+	PWL_CREATEPARAM					GetCreationParam() const;
+	FX_BOOL							IsNotifying() const {return m_bNotifying;}
+
 	void							InvalidateRectMove(const CPDF_Rect & rcOld, const CPDF_Rect & rcNew);
 
-	void							PWLtoWnd(const CPDF_Point & point, FX_INT32& x, FX_INT32& y) const;
-	FX_RECT							PWLtoWnd(const CPDF_Rect & rect) const;	
+	void							PWLtoWnd(const CPDF_Point & point, int32_t& x, int32_t& y) const;
+	FX_RECT							PWLtoWnd(const CPDF_Rect & rect) const;
 	FX_HWND							GetAttachedHWnd() const;
-	
+
 	FX_BOOL							IsWndCaptureMouse(const CPWL_Wnd * pWnd) const;
-	FX_BOOL							IsWndCaptureKeyboard(const CPWL_Wnd * pWnd) const;	
-	const CPWL_Wnd*					GetRootWnd() const;	
+	FX_BOOL							IsWndCaptureKeyboard(const CPWL_Wnd * pWnd) const;
+	const CPWL_Wnd*					GetRootWnd() const;
 
 	FX_BOOL							IsCTRLpressed(FX_DWORD nFlag) const;
 	FX_BOOL							IsSHIFTpressed(FX_DWORD nFlag) const;
@@ -441,53 +448,29 @@ private:
 	void							RemoveChild(CPWL_Wnd * pWnd);
 
 	void							CreateScrollBar(const PWL_CREATEPARAM & cp);
-	void							CreateVScrollBar(const PWL_CREATEPARAM & cp);	
+	void							CreateVScrollBar(const PWL_CREATEPARAM & cp);
 
-	void							AjustStyle();	
+	void							AjustStyle();
 	void							CreateMsgControl();
 	void							DestroyMsgControl();
-	
-	CPWL_MsgControl*				GetMsgControl() const;	
-	
+
+	CPWL_MsgControl*				GetMsgControl() const;
+
 protected:
 	CFX_ArrayTemplate<CPWL_Wnd*>	m_aChildren;
 
 private:
 	PWL_CREATEPARAM					m_sPrivateParam;
-	
+
 	CPWL_ScrollBar*					m_pVScrollBar;
 
 	CPDF_Rect						m_rcWindow;
 	CPDF_Rect						m_rcClip;
 
-	FX_BOOL							m_bCreated;			
+	FX_BOOL							m_bCreated;
 	FX_BOOL							m_bVisible;
-	FX_BOOL							m_bNotifying;	
+	FX_BOOL							m_bNotifying;
 	FX_BOOL							m_bEnabled;
 };
 
-// #ifndef VK_END
-// 
-// #define VK_END            0x23
-// #define VK_HOME           0x24
-// #define VK_LEFT           0x25
-// #define VK_UP             0x26
-// #define VK_RIGHT          0x27
-// #define VK_DOWN           0x28
-// #define VK_INSERT         0x2D
-// #define VK_DELETE         0x2E
-// 
-// #define VK_BACK           0x08
-// #define VK_TAB            0x09
-// 
-// #define VK_CLEAR          0x0C
-// #define VK_RETURN         0x0D
-// #define VK_ESCAPE         0x1B
-// #define VK_SPACE          0x20
-// #endif
-// 
-// #define VK_NONE			  0
-
-#endif // !defined(AFX_PWL_WND_H__D32812AD_A875_4E08_9D3C_0A57020987C6__INCLUDED_)
-
-
+#endif  // FPDFSDK_INCLUDE_PDFWINDOW_PWL_WND_H_

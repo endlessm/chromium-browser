@@ -12,7 +12,6 @@
   var logging = requireNative('logging');
   var messagingNatives = requireNative('messaging_natives');
   var processNatives = requireNative('process');
-  var unloadEvent = require('unload_event');
   var utils = require('utils');
   var messagingUtils = require('messaging_utils');
 
@@ -24,10 +23,6 @@
 
   // Map of port IDs to port object.
   var ports = {};
-
-  // Map of port IDs to unloadEvent listeners. Keep track of these to free the
-  // unloadEvent listeners when ports are closed.
-  var portReleasers = {};
 
   // Change even to odd and vice versa, to get the other side of a given
   // channel.
@@ -77,18 +72,12 @@
   };
 
   PortImpl.prototype.destroy_ = function() {
-    var portId = this.portId_;
-
     if (this.onDestroy_)
       this.onDestroy_();
     privates(this.onDisconnect).impl.destroy_();
     privates(this.onMessage).impl.destroy_();
-
-    messagingNatives.PortRelease(portId);
-    unloadEvent.removeListener(portReleasers[portId]);
-
-    delete ports[portId];
-    delete portReleasers[portId];
+    messagingNatives.PortRelease(this.portId_);
+    delete ports[this.portId_];
   };
 
   // Returns true if the specified port id is in this context. This is used by
@@ -105,10 +94,6 @@
       throw new Error("Port '" + portId + "' already exists.");
     var port = new Port(portId, opt_name);
     ports[portId] = port;
-    portReleasers[portId] = $Function.bind(messagingNatives.PortRelease,
-                                           this,
-                                           portId);
-    unloadEvent.addListener(portReleasers[portId]);
     messagingNatives.PortAddRef(portId);
     return port;
   };
@@ -179,12 +164,18 @@
       // doesn't keep a reference to it, we need to clean up the port. Do
       // so by attaching to the garbage collection of the responseCallback
       // using some native hackery.
+      //
+      // If the context is destroyed before this has a chance to execute,
+      // BindToGC knows to release |portId| (important for updating C++ state
+      // both in this renderer and on the other end). We don't need to clear
+      // any JavaScript state, as calling destroy_() would usually do - but
+      // the context has been destroyed, so there isn't any JS state to clear.
       messagingNatives.BindToGC(responseCallback, function() {
         if (port) {
           privates(port).impl.destroy_();
           port = null;
         }
-      });
+      }, portId);
       var rv = requestEvent.dispatch(request, sender, responseCallback);
       if (isSendMessage) {
         responseCallbackPreserved =
@@ -216,6 +207,9 @@
   function dispatchOnConnect(portId,
                              channelName,
                              sourceTab,
+                             sourceFrameId,
+                             guestProcessId,
+                             guestRenderFrameRoutingId,
                              sourceExtensionId,
                              targetExtensionId,
                              sourceUrl,
@@ -244,7 +238,19 @@
       sender.url = sourceUrl;
     if (sourceTab)
       sender.tab = sourceTab;
-    if (tlsChannelId !== undefined)
+    if (sourceFrameId >= 0)
+      sender.frameId = sourceFrameId;
+    if (typeof guestProcessId !== 'undefined' &&
+        typeof guestRenderFrameRoutingId !== 'undefined') {
+      // Note that |guestProcessId| and |guestRenderFrameRoutingId| are not
+      // standard fields on MessageSender and should not be exposed to drive-by
+      // extensions; it is only exposed to component extensions.
+      logging.CHECK(processNatives.IsComponentExtension(),
+          "GuestProcessId can only be exposed to component extensions.");
+      sender.guestProcessId = guestProcessId;
+      sender.guestRenderFrameRoutingId = guestRenderFrameRoutingId;
+    }
+    if (typeof tlsChannelId != 'undefined')
       sender.tlsChannelId = tlsChannelId;
 
     // Special case for sendRequest/onRequest and sendMessage/onMessage.

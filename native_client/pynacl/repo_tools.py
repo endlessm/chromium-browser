@@ -43,14 +43,6 @@ def CheckGitOutput(args):
   return log_tools.CheckOutput(GitCmd() + args)
 
 
-def SvnCmd():
-  """Return the svn command to execute for the host platform."""
-  if platform.IsWindows():
-    return ['cmd.exe', '/c', 'svn.bat']
-  else:
-    return ['svn']
-
-
 def ValidateGitRepo(url, directory, clobber_mismatch=False, logger=None):
   """Validates a git repository tracks a particular URL.
 
@@ -251,32 +243,14 @@ def GitRevInfo(directory):
   Args:
     directory: Existing git working directory.
 """
-  url = log_tools.CheckOutput(GitCmd() + ['ls-remote', '--get-url', 'origin'],
-                              cwd=directory)
+  get_url_command = GitCmd() + ['ls-remote', '--get-url', 'origin']
+  url = log_tools.CheckOutput(get_url_command, cwd=directory).strip()
+  # If the URL is actually a directory, it might be a git-cache directory.
+  # Re-run from that directory to get the actual remote URL.
+  if os.path.isdir(url):
+    url = log_tools.CheckOutput(get_url_command, cwd=url).strip()
   rev = log_tools.CheckOutput(GitCmd() + ['rev-parse', 'HEAD'],
-                              cwd=directory)
-  return url.strip(), rev.strip()
-
-
-def SvnRevInfo(directory):
-  """Get the SVN revision information of an existing svn/gclient checkout.
-
-  Args:
-     directory: Directory where the svn repo is currently checked out
-  """
-  info = log_tools.CheckOutput(SvnCmd() + ['info'], cwd=directory)
-  url = ''
-  rev = ''
-  for line in info.splitlines():
-    pieces = line.split(':', 1)
-    if len(pieces) != 2:
-      continue
-    if pieces[0] == 'URL':
-      url = pieces[1].strip()
-    elif pieces[0] == 'Revision':
-      rev = pieces[1].strip()
-  if not url or not rev:
-    raise RuntimeError('Missing svn info url: %s and rev: %s' % (url, rev))
+                              cwd=directory).strip()
   return url, rev
 
 

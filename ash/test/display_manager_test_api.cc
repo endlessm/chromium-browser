@@ -6,11 +6,20 @@
 
 #include <vector>
 
+#include "ash/ash_switches.h"
 #include "ash/display/display_info.h"
+#include "ash/display/display_layout_store.h"
 #include "ash/display/display_manager.h"
+#include "ash/display/display_util.h"
+#include "ash/display/extended_mouse_warp_controller.h"
+#include "ash/display/mouse_cursor_event_filter.h"
+#include "ash/display/unified_mouse_warp_controller.h"
 #include "ash/shell.h"
+#include "base/command_line.h"
 #include "base/strings/string_split.h"
+#include "ui/aura/env.h"
 #include "ui/aura/window_event_dispatcher.h"
+#include "ui/events/test/event_generator.h"
 #include "ui/gfx/display.h"
 
 namespace ash {
@@ -28,11 +37,16 @@ std::vector<DisplayInfo> CreateDisplayInfoListFromString(
   std::vector<std::string> parts;
   base::SplitString(specs, ',', &parts);
   size_t index = 0;
+
+  DisplayManager::DisplayList list =
+      display_manager->IsInUnifiedMode()
+          ? display_manager->software_mirroring_display_list()
+          : display_manager->active_display_list();
+
   for (std::vector<std::string>::const_iterator iter = parts.begin();
        iter != parts.end(); ++iter, ++index) {
-    int64 id = index < display_manager->GetNumDisplays() ?
-        display_manager->GetDisplayAt(index).id() :
-        gfx::Display::kInvalidDisplayID;
+    int64 id = (index < list.size()) ? list[index].id()
+                                     : gfx::Display::kInvalidDisplayID;
     display_info_list.push_back(
         DisplayInfo::CreateFromSpecWithID(*iter, id));
   }
@@ -40,6 +54,58 @@ std::vector<DisplayInfo> CreateDisplayInfoListFromString(
 }
 
 }  // namespace
+
+// static
+bool DisplayManagerTestApi::TestIfMouseWarpsAt(
+    ui::test::EventGenerator& event_generator,
+    const gfx::Point& point_in_screen) {
+  aura::Window* context = Shell::GetAllRootWindows()[0];
+  DisplayManager* display_manager = Shell::GetInstance()->display_manager();
+  if (display_manager->IsInUnifiedMode()) {
+    static_cast<UnifiedMouseWarpController*>(
+        Shell::GetInstance()
+            ->mouse_cursor_filter()
+            ->mouse_warp_controller_for_test())
+        ->allow_non_native_event_for_test();
+    int orig_index = FindDisplayIndexContainingPoint(
+        display_manager->software_mirroring_display_list(), point_in_screen);
+    if (orig_index < 0)
+      return false;
+    event_generator.MoveMouseTo(point_in_screen);
+
+    int new_index = FindDisplayIndexContainingPoint(
+        display_manager->software_mirroring_display_list(),
+        aura::Env::GetInstance()->last_mouse_location());
+    if (new_index < 0)
+      return false;
+    return orig_index != new_index;
+  } else {
+    static_cast<ExtendedMouseWarpController*>(
+        Shell::GetInstance()
+            ->mouse_cursor_filter()
+            ->mouse_warp_controller_for_test())
+        ->allow_non_native_event_for_test();
+    gfx::Screen* screen = gfx::Screen::GetScreenFor(context);
+    gfx::Display original_display =
+        screen->GetDisplayNearestPoint(point_in_screen);
+    event_generator.MoveMouseTo(point_in_screen);
+    return original_display.id() !=
+           screen->GetDisplayNearestPoint(
+                       aura::Env::GetInstance()->last_mouse_location()).id();
+  }
+}
+
+// static
+void DisplayManagerTestApi::EnableUnifiedDesktopForTest() {
+#if defined(OS_CHROMEOS)
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      switches::kAshEnableUnifiedDesktop);
+  Shell::GetInstance()
+      ->display_manager()
+      ->layout_store()
+      ->SetDefaultDisplayLayout(DisplayLayout());
+#endif
+}
 
 DisplayManagerTestApi::DisplayManagerTestApi(DisplayManager* display_manager)
     : display_manager_(display_manager) {}
@@ -78,12 +144,18 @@ void DisplayManagerTestApi::UpdateDisplay(
   }
 
   display_manager_->OnNativeDisplaysChanged(display_info_list);
+  display_manager_->UpdateInternalDisplayModeListForTest();
 }
 
 int64 DisplayManagerTestApi::SetFirstDisplayAsInternalDisplay() {
-  const gfx::Display& internal = display_manager_->displays_[0];
-  gfx::Display::SetInternalDisplayId(internal.id());
+  const gfx::Display& internal = display_manager_->active_display_list_[0];
+  SetInternalDisplayId(internal.id());
   return gfx::Display::InternalDisplayId();
+}
+
+void DisplayManagerTestApi::SetInternalDisplayId(int64 id) {
+  gfx::Display::SetInternalDisplayId(id);
+  display_manager_->UpdateInternalDisplayModeListForTest();
 }
 
 void DisplayManagerTestApi::DisableChangeDisplayUponHostResize() {

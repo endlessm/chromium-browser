@@ -29,9 +29,9 @@
 
 namespace blink {
 
-// This has no counterpart in DOM.
-// It is an internal representation of the node value of an Attr.
-// The actual Attr with its value as a Text child is allocated only if needed.
+// This is the internal representation of an attribute, consisting of a name and
+// value. It is distinct from the web-exposed Attr, which also knows of the
+// element to which it attached, if any.
 class Attribute {
 public:
     Attribute(const QualifiedName& name, const AtomicString& value)
@@ -54,7 +54,6 @@ public:
     bool matches(const QualifiedName&) const;
 
     void setValue(const AtomicString& value) { m_value = value; }
-    void setPrefix(const AtomicString& prefix) { m_name.setPrefix(prefix); }
 
     // Note: This API is only for HTMLTreeBuilder.  It is not safe to change the
     // name of an attribute once parseAttribute has been called as DOM

@@ -8,6 +8,7 @@
 #include "base/bind_helpers.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
@@ -114,70 +115,95 @@ class AppCacheDiskCache::EntryImpl : public Entry {
 
 // Separate object to hold state for each Create, Delete, or Doom call
 // while the call is in-flight and to produce an EntryImpl upon completion.
-class AppCacheDiskCache::ActiveCall {
+class AppCacheDiskCache::ActiveCall
+    : public base::RefCounted<AppCacheDiskCache::ActiveCall> {
  public:
-  explicit ActiveCall(AppCacheDiskCache* owner)
-      : entry_(NULL),
-        owner_(owner),
-        entry_ptr_(NULL) {
+  static int CreateEntry(const base::WeakPtr<AppCacheDiskCache>& owner,
+                         int64 key, Entry** entry,
+                         const net::CompletionCallback& callback) {
+    scoped_refptr<ActiveCall> active_call(
+        new ActiveCall(owner, entry, callback));
+    int rv = owner->disk_cache()->CreateEntry(
+        base::Int64ToString(key), &active_call->entry_ptr_,
+        base::Bind(&ActiveCall::OnAsyncCompletion, active_call));
+    return active_call->HandleImmediateReturnValue(rv);
   }
 
-  int CreateEntry(int64 key, Entry** entry,
-                  const net::CompletionCallback& callback) {
-    int rv = owner_->disk_cache()->CreateEntry(
-        base::Int64ToString(key), &entry_ptr_,
-        base::Bind(&ActiveCall::OnAsyncCompletion, base::Unretained(this)));
-    return HandleImmediateReturnValue(rv, entry, callback);
+  static int OpenEntry(const base::WeakPtr<AppCacheDiskCache>& owner,
+                       int64 key, Entry** entry,
+                       const net::CompletionCallback& callback) {
+    scoped_refptr<ActiveCall> active_call(
+        new ActiveCall(owner, entry, callback));
+    int rv = owner->disk_cache()->OpenEntry(
+        base::Int64ToString(key), &active_call->entry_ptr_,
+        base::Bind(&ActiveCall::OnAsyncCompletion, active_call));
+    return active_call->HandleImmediateReturnValue(rv);
   }
 
-  int OpenEntry(int64 key, Entry** entry,
-                const net::CompletionCallback& callback) {
-    int rv = owner_->disk_cache()->OpenEntry(
-        base::Int64ToString(key), &entry_ptr_,
-        base::Bind(&ActiveCall::OnAsyncCompletion, base::Unretained(this)));
-    return HandleImmediateReturnValue(rv, entry, callback);
-  }
-
-  int DoomEntry(int64 key, const net::CompletionCallback& callback) {
-    int rv = owner_->disk_cache()->DoomEntry(
+  static int DoomEntry(const base::WeakPtr<AppCacheDiskCache>& owner,
+                       int64 key, const net::CompletionCallback& callback) {
+    scoped_refptr<ActiveCall> active_call(
+        new ActiveCall(owner, nullptr, callback));
+    int rv = owner->disk_cache()->DoomEntry(
         base::Int64ToString(key),
-        base::Bind(&ActiveCall::OnAsyncCompletion, base::Unretained(this)));
-    return HandleImmediateReturnValue(rv, NULL, callback);
+        base::Bind(&ActiveCall::OnAsyncCompletion, active_call));
+    return active_call->HandleImmediateReturnValue(rv);
   }
 
  private:
-  int HandleImmediateReturnValue(int rv, Entry** entry,
-                                 const net::CompletionCallback& callback) {
+  friend class base::RefCounted<AppCacheDiskCache::ActiveCall>;
+
+  ActiveCall(const base::WeakPtr<AppCacheDiskCache>& owner,
+             Entry** entry,
+             const net::CompletionCallback& callback)
+      : owner_(owner),
+        entry_(entry),
+        callback_(callback),
+        entry_ptr_(nullptr) {
+    DCHECK(owner_);
+  }
+
+  ~ActiveCall() {}
+
+  int HandleImmediateReturnValue(int rv) {
     if (rv == net::ERR_IO_PENDING) {
       // OnAsyncCompletion will be called later.
-      callback_ = callback;
-      entry_ = entry;
-      owner_->AddActiveCall(this);
-      return net::ERR_IO_PENDING;
+      return rv;
     }
-    if (rv == net::OK && entry)
-      *entry = new EntryImpl(entry_ptr_, owner_);
-    delete this;
+
+    if (rv == net::OK && entry_) {
+      DCHECK(entry_ptr_);
+      *entry_ = new EntryImpl(entry_ptr_, owner_.get());
+    }
     return rv;
   }
 
   void OnAsyncCompletion(int rv) {
-    owner_->RemoveActiveCall(this);
-    if (rv == net::OK && entry_)
-      *entry_ = new EntryImpl(entry_ptr_, owner_);
+    if (rv == net::OK && entry_) {
+      DCHECK(entry_ptr_);
+      if (owner_) {
+        *entry_ = new EntryImpl(entry_ptr_, owner_.get());
+      } else {
+        entry_ptr_->Close();
+        rv = net::ERR_ABORTED;
+      }
+    }
     callback_.Run(rv);
-    callback_.Reset();
-    delete this;
   }
 
+  base::WeakPtr<AppCacheDiskCache> owner_;
   Entry** entry_;
   net::CompletionCallback callback_;
-  AppCacheDiskCache* owner_;
   disk_cache::Entry* entry_ptr_;
 };
 
 AppCacheDiskCache::AppCacheDiskCache()
-    : is_disabled_(false) {
+#if defined(APPCACHE_USE_SIMPLE_CACHE)
+    : AppCacheDiskCache(true)
+#else
+    : AppCacheDiskCache(false)
+#endif
+{
 }
 
 AppCacheDiskCache::~AppCacheDiskCache() {
@@ -225,7 +251,6 @@ void AppCacheDiskCache::Disable() {
   }
   open_entries_.clear();
   disk_cache_.reset();
-  STLDeleteElements(&active_calls_);
 }
 
 int AppCacheDiskCache::CreateEntry(int64 key, Entry** entry,
@@ -235,7 +260,7 @@ int AppCacheDiskCache::CreateEntry(int64 key, Entry** entry,
   if (is_disabled_)
     return net::ERR_ABORTED;
 
-  if (is_initializing()) {
+  if (is_initializing_or_waiting_to_initialize()) {
     pending_calls_.push_back(PendingCall(CREATE, key, entry, callback));
     return net::ERR_IO_PENDING;
   }
@@ -243,7 +268,8 @@ int AppCacheDiskCache::CreateEntry(int64 key, Entry** entry,
   if (!disk_cache_)
     return net::ERR_FAILED;
 
-  return (new ActiveCall(this))->CreateEntry(key, entry, callback);
+  return ActiveCall::CreateEntry(
+      weak_factory_.GetWeakPtr(), key, entry, callback);
 }
 
 int AppCacheDiskCache::OpenEntry(int64 key, Entry** entry,
@@ -253,7 +279,7 @@ int AppCacheDiskCache::OpenEntry(int64 key, Entry** entry,
   if (is_disabled_)
     return net::ERR_ABORTED;
 
-  if (is_initializing()) {
+  if (is_initializing_or_waiting_to_initialize()) {
     pending_calls_.push_back(PendingCall(OPEN, key, entry, callback));
     return net::ERR_IO_PENDING;
   }
@@ -261,7 +287,8 @@ int AppCacheDiskCache::OpenEntry(int64 key, Entry** entry,
   if (!disk_cache_)
     return net::ERR_FAILED;
 
-  return (new ActiveCall(this))->OpenEntry(key, entry, callback);
+  return ActiveCall::OpenEntry(
+      weak_factory_.GetWeakPtr(), key, entry, callback);
 }
 
 int AppCacheDiskCache::DoomEntry(int64 key,
@@ -270,7 +297,7 @@ int AppCacheDiskCache::DoomEntry(int64 key,
   if (is_disabled_)
     return net::ERR_ABORTED;
 
-  if (is_initializing()) {
+  if (is_initializing_or_waiting_to_initialize()) {
     pending_calls_.push_back(PendingCall(DOOM, key, NULL, callback));
     return net::ERR_IO_PENDING;
   }
@@ -278,7 +305,14 @@ int AppCacheDiskCache::DoomEntry(int64 key,
   if (!disk_cache_)
     return net::ERR_FAILED;
 
-  return (new ActiveCall(this))->DoomEntry(key, callback);
+  return ActiveCall::DoomEntry(weak_factory_.GetWeakPtr(), key, callback);
+}
+
+AppCacheDiskCache::AppCacheDiskCache(bool use_simple_cache)
+    : use_simple_cache_(use_simple_cache),
+      is_disabled_(false),
+      is_waiting_to_initialize_(false),
+      weak_factory_(this) {
 }
 
 AppCacheDiskCache::PendingCall::PendingCall()
@@ -306,18 +340,14 @@ int AppCacheDiskCache::Init(
     bool force,
     const scoped_refptr<base::SingleThreadTaskRunner>& cache_thread,
     const net::CompletionCallback& callback) {
-  DCHECK(!is_initializing() && !disk_cache_.get());
+  DCHECK(!is_initializing_or_waiting_to_initialize() && !disk_cache_.get());
   is_disabled_ = false;
   create_backend_callback_ = new CreateBackendCallbackShim(this);
 
-#if defined(APPCACHE_USE_SIMPLE_CACHE)
-  const net::BackendType backend_type = net::CACHE_BACKEND_SIMPLE;
-#else
-  const net::BackendType backend_type = net::CACHE_BACKEND_DEFAULT;
-#endif
   int rv = disk_cache::CreateCacheBackend(
       cache_type,
-      backend_type,
+      use_simple_cache_ ? net::CACHE_BACKEND_SIMPLE
+                        : net::CACHE_BACKEND_DEFAULT,
       cache_directory,
       cache_size,
       force,

@@ -5,7 +5,9 @@
 #include "content/renderer/gpu/compositor_output_surface.h"
 
 #include "base/command_line.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "cc/output/compositor_frame.h"
 #include "cc/output/compositor_frame_ack.h"
 #include "cc/output/managed_memory_policy.h"
@@ -19,78 +21,51 @@
 #include "content/renderer/render_thread_impl.h"
 #include "gpu/command_buffer/client/context_support.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
-#include "ipc/ipc_forwarding_message_filter.h"
 #include "ipc/ipc_sync_channel.h"
 
-namespace {
-// There are several compositor surfaces in a process, but they share the same
-// compositor thread, so we use a simple int here to track prefer-smoothness.
-int g_prefer_smoothness_count = 0;
-} // namespace
-
 namespace content {
-
-//------------------------------------------------------------------------------
-
-// static
-IPC::ForwardingMessageFilter* CompositorOutputSurface::CreateFilter(
-    base::TaskRunner* target_task_runner)
-{
-  uint32 messages_to_filter[] = {
-    ViewMsg_UpdateVSyncParameters::ID,
-    ViewMsg_SwapCompositorFrameAck::ID,
-    ViewMsg_ReclaimCompositorResources::ID,
-#if defined(OS_ANDROID)
-    ViewMsg_BeginFrame::ID
-#endif
-  };
-
-  return new IPC::ForwardingMessageFilter(
-      messages_to_filter, arraysize(messages_to_filter),
-      target_task_runner);
-}
 
 CompositorOutputSurface::CompositorOutputSurface(
     int32 routing_id,
     uint32 output_surface_id,
     const scoped_refptr<ContextProviderCommandBuffer>& context_provider,
+    const scoped_refptr<ContextProviderCommandBuffer>& worker_context_provider,
     scoped_ptr<cc::SoftwareOutputDevice> software_device,
     scoped_refptr<FrameSwapMessageQueue> swap_frame_message_queue,
     bool use_swap_compositor_frame_message)
-    : OutputSurface(context_provider, software_device.Pass()),
+    : OutputSurface(context_provider,
+                    worker_context_provider,
+                    software_device.Pass()),
       output_surface_id_(output_surface_id),
       use_swap_compositor_frame_message_(use_swap_compositor_frame_message),
       output_surface_filter_(
-          RenderThreadImpl::current()->compositor_output_surface_filter()),
+          RenderThreadImpl::current()->compositor_message_filter()),
       frame_swap_message_queue_(swap_frame_message_queue),
       routing_id_(routing_id),
+#if defined(OS_ANDROID)
       prefers_smoothness_(false),
-#if defined(OS_WIN)
-      // TODO(epenner): Implement PlatformThread::CurrentHandle() on windows.
-      main_thread_handle_(base::PlatformThreadHandle()),
-#else
-      main_thread_handle_(base::PlatformThread::CurrentHandle()),
+      main_thread_runner_(base::MessageLoop::current()->task_runner()),
 #endif
       layout_test_mode_(RenderThreadImpl::current()->layout_test_mode()),
       weak_ptrs_(this) {
   DCHECK(output_surface_filter_.get());
   DCHECK(frame_swap_message_queue_.get());
   DetachFromThread();
+  capabilities_.max_frames_pending = 1;
   message_sender_ = RenderThreadImpl::current()->sync_message_filter();
   DCHECK(message_sender_.get());
-  if (OutputSurface::software_device())
-    capabilities_.max_frames_pending = 1;
 }
 
 CompositorOutputSurface::~CompositorOutputSurface() {
   DCHECK(CalledOnValidThread());
-  SetNeedsBeginFrame(false);
   if (!HasClient())
     return;
   UpdateSmoothnessTakesPriority(false);
   if (output_surface_proxy_.get())
     output_surface_proxy_->ClearOutputSurface();
-  output_surface_filter_->RemoveRoute(routing_id_);
+  output_surface_filter_->RemoveHandlerOnCompositorThread(
+                              routing_id_,
+                              output_surface_filter_handler_);
 }
 
 bool CompositorOutputSurface::BindToClient(
@@ -101,10 +76,12 @@ bool CompositorOutputSurface::BindToClient(
     return false;
 
   output_surface_proxy_ = new CompositorOutputSurfaceProxy(this);
-  output_surface_filter_->AddRoute(
-      routing_id_,
+  output_surface_filter_handler_ =
       base::Bind(&CompositorOutputSurfaceProxy::OnMessageReceived,
-                 output_surface_proxy_));
+                 output_surface_proxy_);
+  output_surface_filter_->AddHandlerOnCompositorThread(
+                              routing_id_,
+                              output_surface_filter_handler_);
 
   if (!context_provider()) {
     // Without a GPU context, the memory policy otherwise wouldn't be set.
@@ -161,7 +138,7 @@ void CompositorOutputSurface::SwapBuffers(cc::CompositorFrame* frame) {
       context_provider()->ContextSupport()->SignalSyncPoint(sync_point,
                                                             closure);
     } else {
-      base::MessageLoopProxy::current()->PostTask(FROM_HERE, closure);
+      base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, closure);
     }
     client_->DidSwapBuffers();
     return;
@@ -193,9 +170,6 @@ void CompositorOutputSurface::OnMessageReceived(const IPC::Message& message) {
                         OnUpdateVSyncParametersFromBrowser);
     IPC_MESSAGE_HANDLER(ViewMsg_SwapCompositorFrameAck, OnSwapAck);
     IPC_MESSAGE_HANDLER(ViewMsg_ReclaimCompositorResources, OnReclaimResources);
-#if defined(OS_ANDROID)
-    IPC_MESSAGE_HANDLER(ViewMsg_BeginFrame, OnBeginFrame);
-#endif
   IPC_END_MESSAGE_MAP()
 }
 
@@ -205,18 +179,6 @@ void CompositorOutputSurface::OnUpdateVSyncParametersFromBrowser(
   DCHECK(CalledOnValidThread());
   CommitVSyncParameters(timebase, interval);
 }
-
-#if defined(OS_ANDROID)
-void CompositorOutputSurface::SetNeedsBeginFrame(bool enable) {
-  DCHECK(CalledOnValidThread());
-  Send(new ViewHostMsg_SetNeedsBeginFrame(routing_id_, enable));
-}
-
-void CompositorOutputSurface::OnBeginFrame(const cc::BeginFrameArgs& args) {
-  DCHECK(CalledOnValidThread());
-  client_->BeginFrame(args);
-}
-#endif  // defined(OS_ANDROID)
 
 void CompositorOutputSurface::OnSwapAck(uint32 output_surface_id,
                                         const cc::CompositorFrameAck& ack) {
@@ -242,45 +204,33 @@ bool CompositorOutputSurface::Send(IPC::Message* message) {
   return message_sender_->Send(message);
 }
 
-namespace {
 #if defined(OS_ANDROID)
-  void SetThreadPriorityToIdle(base::PlatformThreadHandle handle) {
-    base::PlatformThread::SetThreadPriority(
-       handle, base::kThreadPriority_Background);
-  }
-  void SetThreadPriorityToDefault(base::PlatformThreadHandle handle) {
-    base::PlatformThread::SetThreadPriority(
-       handle, base::kThreadPriority_Normal);
-  }
-#else
-  void SetThreadPriorityToIdle(base::PlatformThreadHandle handle) {}
-  void SetThreadPriorityToDefault(base::PlatformThreadHandle handle) {}
-#endif
+namespace {
+void SetThreadPriorityToIdle() {
+  base::PlatformThread::SetThreadPriority(base::PlatformThread::CurrentHandle(),
+                                          base::ThreadPriority::BACKGROUND);
 }
+void SetThreadPriorityToDefault() {
+  base::PlatformThread::SetThreadPriority(base::PlatformThread::CurrentHandle(),
+                                          base::ThreadPriority::NORMAL);
+}
+}  // namespace
+#endif
 
 void CompositorOutputSurface::UpdateSmoothnessTakesPriority(
     bool prefers_smoothness) {
-#ifndef NDEBUG
-  // If we use different compositor threads, we need to
-  // use an atomic int to track prefer smoothness count.
-  base::PlatformThreadId g_last_thread = base::PlatformThread::CurrentId();
-  DCHECK_EQ(g_last_thread, base::PlatformThread::CurrentId());
-#endif
+#if defined(OS_ANDROID)
   if (prefers_smoothness_ == prefers_smoothness)
     return;
-  // If this is the first surface to start preferring smoothness,
-  // Throttle the main thread's priority.
-  if (prefers_smoothness_ == false &&
-      ++g_prefer_smoothness_count == 1) {
-    SetThreadPriorityToIdle(main_thread_handle_);
-  }
-  // If this is the last surface to stop preferring smoothness,
-  // Reset the main thread's priority to the default.
-  if (prefers_smoothness_ == true &&
-      --g_prefer_smoothness_count == 0) {
-    SetThreadPriorityToDefault(main_thread_handle_);
-  }
   prefers_smoothness_ = prefers_smoothness;
+  if (prefers_smoothness) {
+    main_thread_runner_->PostTask(FROM_HERE,
+                                  base::Bind(&SetThreadPriorityToIdle));
+  } else {
+    main_thread_runner_->PostTask(FROM_HERE,
+                                  base::Bind(&SetThreadPriorityToDefault));
+  }
+#endif
 }
 
 }  // namespace content

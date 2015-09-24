@@ -4,14 +4,20 @@
 
 #include "chrome/browser/ui/views/global_error_bubble_view.h"
 
+#include <vector>
+
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/global_error/global_error.h"
 #include "chrome/browser/ui/global_error/global_error_service.h"
 #include "chrome/browser/ui/global_error/global_error_service_factory.h"
+#include "chrome/browser/ui/views/elevation_icon_setter.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+#include "chrome/browser/ui/views/toolbar/wrench_toolbar_button.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/image/image.h"
+#include "ui/views/bubble/bubble_frame_view.h"
+#include "ui/views/controls/button/blue_button.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
@@ -27,13 +33,13 @@ enum {
 
 const int kMaxBubbleViewWidth = 262;
 
-// The horizontal padding between the title and the icon.
-const int kTitleHorizontalPadding = 5;
-
 // The vertical inset of the wrench bubble anchor from the wrench menu button.
 const int kAnchorVerticalInset = 5;
 
-const int kBubblePadding = 6;
+const int kBubblePadding = 19;
+
+// Spacing between bubble text and buttons.
+const int kLabelToButtonVerticalSpacing = 14;
 
 }  // namespace
 
@@ -65,21 +71,13 @@ GlobalErrorBubbleView::GlobalErrorBubbleView(
     : BubbleDelegateView(anchor_view, arrow),
       browser_(browser),
       error_(error) {
+  // Set content margins to left-align the bubble text with the title.
+  // BubbleFrameView adds enough padding below title, no top padding needed.
+  set_margins(gfx::Insets(0, kBubblePadding, kBubblePadding, kBubblePadding));
+
   // Compensate for built-in vertical padding in the anchor view's image.
   set_anchor_view_insets(
       gfx::Insets(kAnchorVerticalInset, 0, kAnchorVerticalInset, 0));
-
-  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
-  gfx::Image image = error_->GetBubbleViewIcon();
-  CHECK(!image.IsEmpty());
-  scoped_ptr<views::ImageView> image_view(new views::ImageView());
-  image_view->SetImage(image.ToImageSkia());
-
-  base::string16 title_string(error_->GetBubbleViewTitle());
-  scoped_ptr<views::Label> title_label(new views::Label(title_string));
-  title_label->SetMultiLine(true);
-  title_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  title_label->SetFontList(rb.GetFontList(ui::ResourceBundle::MediumFont));
 
   std::vector<base::string16> message_strings(error_->GetBubbleViewMessages());
   std::vector<views::Label*> message_labels;
@@ -92,11 +90,18 @@ GlobalErrorBubbleView::GlobalErrorBubbleView(
   }
 
   base::string16 accept_string(error_->GetBubbleViewAcceptButtonLabel());
-  scoped_ptr<views::LabelButton> accept_button(
-      new views::LabelButton(this, accept_string));
+  scoped_ptr<views::BlueButton> accept_button(
+      new views::BlueButton(this, accept_string));
   accept_button->SetStyle(views::Button::STYLE_BUTTON);
   accept_button->SetIsDefault(true);
   accept_button->set_tag(TAG_ACCEPT_BUTTON);
+
+  if (error_->ShouldAddElevationIconToAcceptButton())
+    elevation_icon_setter_.reset(
+        new ElevationIconSetter(
+            accept_button.get(),
+            base::Bind(&GlobalErrorBubbleView::SizeToContents,
+                       base::Unretained(this))));
 
   base::string16 cancel_string(error_->GetBubbleViewCancelButtonLabel());
   scoped_ptr<views::LabelButton> cancel_button;
@@ -108,24 +113,14 @@ GlobalErrorBubbleView::GlobalErrorBubbleView(
 
   views::GridLayout* layout = new views::GridLayout(this);
   SetLayoutManager(layout);
-  layout->SetInsets(kBubblePadding, kBubblePadding,
-                    kBubblePadding, kBubblePadding);
 
-  // Top row, icon and title.
+  // First row, message labels.
   views::ColumnSet* cs = layout->AddColumnSet(0);
-  cs->AddColumn(views::GridLayout::LEADING, views::GridLayout::LEADING,
-                0, views::GridLayout::USE_PREF, 0, 0);
-  cs->AddPaddingColumn(0, kTitleHorizontalPadding);
   cs->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL,
                 1, views::GridLayout::USE_PREF, 0, 0);
 
-  // Middle rows, message labels.
+  // Second row, accept and cancel button.
   cs = layout->AddColumnSet(1);
-  cs->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL,
-                1, views::GridLayout::USE_PREF, 0, 0);
-
-  // Bottom row, accept and cancel button.
-  cs = layout->AddColumnSet(2);
   cs->AddPaddingColumn(1, views::kRelatedControlHorizontalSpacing);
   cs->AddColumn(views::GridLayout::TRAILING, views::GridLayout::LEADING,
                 0, views::GridLayout::USE_PREF, 0, 0);
@@ -135,20 +130,15 @@ GlobalErrorBubbleView::GlobalErrorBubbleView(
                   0, views::GridLayout::USE_PREF, 0, 0);
   }
 
-  layout->StartRow(1, 0);
-  layout->AddView(image_view.release());
-  layout->AddView(title_label.release());
-  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
-
   for (size_t i = 0; i < message_labels.size(); ++i) {
-    layout->StartRow(1, 1);
+    layout->StartRow(1, 0);
     layout->AddView(message_labels[i]);
     if (i < message_labels.size() - 1)
       layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   }
-  layout->AddPaddingRow(0, views::kLabelToControlVerticalSpacing);
+  layout->AddPaddingRow(0, kLabelToButtonVerticalSpacing);
 
-  layout->StartRow(0, 2);
+  layout->StartRow(0, 1);
   layout->AddView(accept_button.release());
   if (cancel_button.get())
     layout->AddView(cancel_button.release());
@@ -164,6 +154,9 @@ GlobalErrorBubbleView::GlobalErrorBubbleView(
 }
 
 GlobalErrorBubbleView::~GlobalErrorBubbleView() {
+  // |elevation_icon_setter_| references |accept_button_|, so make sure it is
+  // destroyed before |accept_button_|.
+  elevation_icon_setter_.reset();
 }
 
 void GlobalErrorBubbleView::ButtonPressed(views::Button* sender,
@@ -179,9 +172,27 @@ void GlobalErrorBubbleView::ButtonPressed(views::Button* sender,
   GetWidget()->Close();
 }
 
+base::string16 GlobalErrorBubbleView::GetWindowTitle() const {
+  return error_->GetBubbleViewTitle();
+}
+
+gfx::ImageSkia GlobalErrorBubbleView::GetWindowIcon() {
+  gfx::Image image = error_->GetBubbleViewIcon();
+  DCHECK(!image.IsEmpty());
+  return *image.ToImageSkia();
+}
+
+bool GlobalErrorBubbleView::ShouldShowWindowIcon() const {
+  return true;
+}
+
 void GlobalErrorBubbleView::WindowClosing() {
   if (error_)
     error_->BubbleViewDidClose(browser_);
+}
+
+bool GlobalErrorBubbleView::ShouldShowCloseButton() const {
+  return error_ && error_->ShouldShowCloseButton();
 }
 
 void GlobalErrorBubbleView::CloseBubbleView() {

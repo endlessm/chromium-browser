@@ -5,14 +5,12 @@
 #include "chromeos/login/auth/test_attempt_state.h"
 
 #include "components/user_manager/user_type.h"
-#include "google_apis/gaia/gaia_auth_consumer.h"
 
 namespace chromeos {
 
 TestAttemptState::TestAttemptState(const UserContext& credentials,
                                    const bool user_is_new)
     : AuthAttemptState(credentials,
-                       user_manager::USER_TYPE_REGULAR,
                        false,  // unlock
                        false,  // online_complete
                        user_is_new) {

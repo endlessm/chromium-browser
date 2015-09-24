@@ -36,6 +36,7 @@
         # sources
         'unit_test/basictypes_test.cc',
         'unit_test/compare_test.cc',
+        'unit_test/color_test.cc',
         'unit_test/convert_test.cc',
         'unit_test/cpu_test.cc',
         'unit_test/math_test.cc',
@@ -43,6 +44,7 @@
         'unit_test/rotate_argb_test.cc',
         'unit_test/rotate_test.cc',
         'unit_test/scale_argb_test.cc',
+        'unit_test/scale_color_test.cc',
         'unit_test/scale_test.cc',
         'unit_test/unit_test.cc',
         'unit_test/video_common_test.cc',
@@ -75,6 +77,16 @@
             'HAVE_JPEG',
           ],
         }],
+        # TODO(YangZhang): These lines can be removed when high accuracy
+        # YUV to RGB to Neon is ported.
+        [ '(target_arch == "armv7" or target_arch == "armv7s" \
+          or (target_arch == "arm" and arm_version >= 7) \
+          or target_arch == "arm64") \
+          and (arm_neon == 1 or arm_neon_optional == 1)', {
+          'defines': [
+            'LIBYUV_NEON'
+          ],
+       }],
       ], # conditions
     },
 

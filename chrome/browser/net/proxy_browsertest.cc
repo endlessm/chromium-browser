@@ -85,7 +85,7 @@ class ProxyBrowserTest : public InProcessBrowserTest {
     InProcessBrowserTest::SetUp();
   }
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitchASCII(switches::kProxyServer,
                                     proxy_server_.host_port_pair().ToString());
   }
@@ -105,7 +105,8 @@ class ProxyBrowserTest : public InProcessBrowserTest {
 #define MAYBE_BasicAuthWSConnect BasicAuthWSConnect
 #endif
 // Test that the browser can establish a WebSocket connection via a proxy
-// that requires basic authentication.
+// that requires basic authentication. This test also checks the headers
+// arrive at WebSocket server.
 IN_PROC_BROWSER_TEST_F(ProxyBrowserTest, MAYBE_BasicAuthWSConnect) {
   // Launch WebSocket server.
   net::SpawnedTestServer ws_server(net::SpawnedTestServer::TYPE_WS,
@@ -128,15 +129,14 @@ IN_PROC_BROWSER_TEST_F(ProxyBrowserTest, MAYBE_BasicAuthWSConnect) {
 
   // Visit a page that tries to establish WebSocket connection. The title
   // of the page will be 'PASS' on success.
-  std::string scheme("http");
   GURL::Replacements replacements;
-  replacements.SetSchemeStr(scheme);
-  ui_test_utils::NavigateToURL(
-      browser(),
-      ws_server.GetURL("connect_check.html").ReplaceComponents(replacements));
+  replacements.SetSchemeStr("http");
+  ui_test_utils::NavigateToURL(browser(),
+                               ws_server.GetURL("proxied_request_check.html")
+                                   .ReplaceComponents(replacements));
 
   const base::string16 result = watcher.WaitAndGetTitle();
-  EXPECT_TRUE(EqualsASCII(result, "PASS"));
+  EXPECT_TRUE(base::EqualsASCII(result, "PASS"));
   EXPECT_TRUE(observer.auth_handled());
 }
 
@@ -155,7 +155,7 @@ class HttpProxyScriptBrowserTest : public InProcessBrowserTest {
     InProcessBrowserTest::SetUp();
   }
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     base::FilePath pac_script_path(FILE_PATH_LITERAL("files"));
     command_line->AppendSwitchASCII(switches::kProxyPacUrl, http_server_.GetURL(
         pac_script_path.Append(kPACScript).MaybeAsASCII()).spec());
@@ -177,7 +177,7 @@ class FileProxyScriptBrowserTest : public InProcessBrowserTest {
   FileProxyScriptBrowserTest() {}
   ~FileProxyScriptBrowserTest() override {}
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitchASCII(switches::kProxyPacUrl,
         ui_test_utils::GetTestUrl(
             base::FilePath(base::FilePath::kCurrentDirectory),
@@ -207,7 +207,7 @@ class FtpProxyScriptBrowserTest : public InProcessBrowserTest {
     InProcessBrowserTest::SetUp();
   }
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     base::FilePath pac_script_path(kPACScript);
     command_line->AppendSwitchASCII(
         switches::kProxyPacUrl,
@@ -230,7 +230,7 @@ class DataProxyScriptBrowserTest : public InProcessBrowserTest {
   DataProxyScriptBrowserTest() {}
   ~DataProxyScriptBrowserTest() override {}
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     std::string contents;
     // Read in kPACScript contents.
     ASSERT_TRUE(base::ReadFileToString(ui_test_utils::GetTestFilePath(
@@ -246,6 +246,32 @@ class DataProxyScriptBrowserTest : public InProcessBrowserTest {
 };
 
 IN_PROC_BROWSER_TEST_F(DataProxyScriptBrowserTest, Verify) {
+  VerifyProxyScript(browser());
+}
+
+// Fetch PAC script via a data: URL and run out-of-process using Mojo.
+class OutOfProcessProxyResolverBrowserTest : public InProcessBrowserTest {
+ public:
+  OutOfProcessProxyResolverBrowserTest() {}
+  ~OutOfProcessProxyResolverBrowserTest() override {}
+
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    std::string contents;
+    // Read in kPACScript contents.
+    ASSERT_TRUE(base::ReadFileToString(ui_test_utils::GetTestFilePath(
+        base::FilePath(base::FilePath::kCurrentDirectory),
+        base::FilePath(kPACScript)),
+        &contents));
+    command_line->AppendSwitchASCII(
+        switches::kProxyPacUrl, "data:," + contents);
+    command_line->AppendSwitch(switches::kV8PacMojoOutOfProcess);
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(OutOfProcessProxyResolverBrowserTest);
+};
+
+IN_PROC_BROWSER_TEST_F(OutOfProcessProxyResolverBrowserTest, Verify) {
   VerifyProxyScript(browser());
 }
 

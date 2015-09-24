@@ -39,6 +39,7 @@ public:
     virtual ~SkReadBuffer();
 
     enum Version {
+        /*
         kFilterLevelIsEnum_Version         = 23,
         kGradientFlippedFlag_Version       = 24,
         kDashWritesPhaseIntervals_Version  = 25,
@@ -49,8 +50,15 @@ public:
         kImageFilterUniqueID_Version       = 31,
         kRemoveAndroidPaintOpts_Version    = 32,
         kFlattenCreateProc_Version         = 33,
+        */
         kRemoveColorTableAlpha_Version     = 36,
         kDropShadowMode_Version            = 37,
+        kPictureImageFilterResolution_Version = 38,
+        kPictureImageFilterLevel_Version   = 39,
+        kImageFilterNoUniqueID_Version     = 40,
+        kBitmapSourceFilterQuality_Version = 41,
+        kPictureShaderHasPictureBool_Version = 42,
+        kHasDrawImageOpCodes_Version       = 43,
     };
 
     /**
@@ -112,7 +120,7 @@ public:
     virtual void readIRect(SkIRect* rect);
     virtual void readRect(SkRect* rect);
     virtual void readRegion(SkRegion* region);
-    
+
     virtual void readPath(SkPath* path);
     void readPaint(SkPaint* paint) { paint->unflatten(*this); }
 

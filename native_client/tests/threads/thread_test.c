@@ -310,16 +310,20 @@ void TestDoubleUnlockReturnValue(void) {
   int rv;
   TEST_FUNCTION_START;
 
-  CHECK_OK(pthread_mutex_init(&mutex, NULL));
+  /*
+   * Calling pthread_mutex_unlock on an unlocked mutex is actually
+   * undefined behavior under POSIX unless it's an ERRORCHECK mutex.
+   */
+  pthread_mutexattr_t attr;
+  CHECK_OK(pthread_mutexattr_init(&attr));
+  CHECK_OK(pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_ERRORCHECK));
+  CHECK_OK(pthread_mutex_init(&mutex, &attr));
+
   CHECK_OK(pthread_mutex_lock(&mutex));
   CHECK_OK(pthread_mutex_unlock(&mutex));
   rv = pthread_mutex_unlock(&mutex);
 
-  /* glibc does not return an error in this case.  TODO(mseaborn): We
-     could fix this, but this happens with Linux glibc too. */
-#ifndef __GLIBC__
   EXPECT_EQ(EPERM, rv);
-#endif
 
   TEST_FUNCTION_END;
 }
@@ -329,14 +333,18 @@ void TestUnlockUninitializedReturnValue(void) {
   int rv;
   TEST_FUNCTION_START;
 
-  CHECK_OK(pthread_mutex_init(&mutex, NULL));
+  /*
+   * Calling pthread_mutex_unlock on an unlocked mutex is actually
+   * undefined behavior under POSIX unless it's an ERRORCHECK mutex.
+   */
+  pthread_mutexattr_t attr;
+  CHECK_OK(pthread_mutexattr_init(&attr));
+  CHECK_OK(pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_ERRORCHECK));
+  CHECK_OK(pthread_mutex_init(&mutex, &attr));
+
   rv = pthread_mutex_unlock(&mutex);
 
-  /* glibc does not return an error in this case.  TODO(mseaborn): We
-     could fix this, but this happens with Linux glibc too. */
-#ifndef __GLIBC__
   EXPECT_EQ(EPERM, rv);
-#endif
 
   TEST_FUNCTION_END;
 }
@@ -778,6 +786,85 @@ static void TestCondvar(void) {
   TEST_FUNCTION_END;
 }
 
+static void TestMutexAttrs(void) {
+  TEST_FUNCTION_START;
+  int shared = -1;
+  pthread_mutex_t mutex;
+  pthread_mutexattr_t attr;
+
+  /* Verify default attribute settings */
+  CHECK_OK(pthread_mutexattr_init(&attr));
+  CHECK_OK(pthread_mutexattr_getpshared(&attr, &shared));
+  EXPECT_EQ(PTHREAD_PROCESS_PRIVATE, shared);
+  CHECK_OK(pthread_mutex_init(&mutex, &attr));
+  CHECK_OK(pthread_mutex_destroy(&mutex));
+
+  /* Verify we can set attributes to their default value. */
+  CHECK_OK(pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_PRIVATE));
+  CHECK_OK(pthread_mutex_init(&mutex, &attr));
+  CHECK_OK(pthread_mutex_destroy(&mutex));
+  CHECK_OK(pthread_mutexattr_destroy(&attr));
+
+  /*
+   * Verify that setting attributes to unsupported values fails.
+   */
+  CHECK_OK(pthread_mutexattr_init(&attr));
+#ifndef __GLIBC__
+  /*
+   * glibc's pthread_mutexattr_setpshared doesn't currently fail
+   * with PTHREAD_PROCESS_SHARED. TODO(sbc): remove this once
+   * we fix the glibc bug:
+   * https://code.google.com/p/nativeclient/issues/detail?id=4142
+   */
+  EXPECT_EQ(EINVAL,
+            pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED));
+#endif
+  CHECK_OK(pthread_mutexattr_destroy(&attr));
+
+  TEST_FUNCTION_END;
+}
+
+static void TestCondvarAttrs(void) {
+  TEST_FUNCTION_START;
+  clockid_t clock_id = -1;
+  int shared = -1;
+  pthread_cond_t cv;
+  pthread_condattr_t attr;
+
+  /* Verify default attribute settings */
+  CHECK_OK(pthread_condattr_init(&attr));
+  CHECK_OK(pthread_condattr_getclock(&attr, &clock_id));
+  EXPECT_EQ(CLOCK_REALTIME, clock_id);
+  CHECK_OK(pthread_condattr_getpshared(&attr, &shared));
+  EXPECT_EQ(PTHREAD_PROCESS_PRIVATE, shared);
+
+  CHECK_OK(pthread_cond_init(&cv, &attr));
+  CHECK_OK(pthread_cond_destroy(&cv));
+
+  /* Verify we can set attributes to their default value. */
+  CHECK_OK(pthread_condattr_setclock(&attr, CLOCK_REALTIME));
+  CHECK_OK(pthread_condattr_setpshared(&attr, PTHREAD_PROCESS_PRIVATE));
+  CHECK_OK(pthread_cond_init(&cv, &attr));
+  CHECK_OK(pthread_cond_destroy(&cv));
+  CHECK_OK(pthread_condattr_destroy(&attr));
+
+  /*
+   * Verify that setting attributes to unsupported values fails.
+   */
+  CHECK_OK(pthread_condattr_init(&attr));
+  EXPECT_EQ(EINVAL, pthread_condattr_setclock(&attr, CLOCK_MONOTONIC));
+#ifndef __GLIBC__
+  /*
+   * Under glibc pthread_condattr_setpshared with PTHREAD_PROCESS_SHARED
+   * doesn't fail.  This is arguably a bug in NaCl's glibc.
+   */
+  EXPECT_EQ(EINVAL, pthread_condattr_setpshared(&attr, PTHREAD_PROCESS_SHARED));
+#endif
+  CHECK_OK(pthread_condattr_destroy(&attr));
+
+  TEST_FUNCTION_END;
+}
+
 void AddNanosecondsToTimespec(struct timespec *time, unsigned int nanoseconds) {
   EXPECT_LE(nanoseconds, 1000000000);
   time->tv_nsec += nanoseconds;
@@ -840,9 +927,32 @@ static void TestCondvarTimeout(void) {
   TEST_FUNCTION_END;
 }
 
+void TestScope(void) {
+  pthread_attr_t attr;
+  int scope;
+
+  TEST_FUNCTION_START;
+
+  /* Check that the default scope is PTHREAD_SCOPE_SYSTEM */
+  CHECK_OK(pthread_attr_init(&attr));
+  CHECK_OK(pthread_attr_getscope(&attr, &scope));
+  EXPECT_EQ(PTHREAD_SCOPE_SYSTEM, scope);
+
+  /* Setting to PTHREAD_SCOPE_PROCESS is invalid */
+  EXPECT_EQ(ENOTSUP, pthread_attr_setscope(&attr, PTHREAD_SCOPE_PROCESS));
+  EXPECT_EQ(EINVAL, pthread_attr_setscope(&attr, 0xff));
+
+  /* Setting to PTHREAD_SCOPE_SYSTEM should work (no-op) */
+  CHECK_OK(pthread_attr_setscope(&attr, PTHREAD_SCOPE_SYSTEM));
+
+  TEST_FUNCTION_END;
+}
+
 void TestStackSize(void) {
   pthread_attr_t attr;
   size_t stack_size, stack_size2;
+
+  TEST_FUNCTION_START;
 
   CHECK_OK(pthread_attr_init(&attr));
   CHECK_OK(pthread_attr_getstacksize(&attr, &stack_size));
@@ -852,6 +962,8 @@ void TestStackSize(void) {
   CHECK_OK(pthread_attr_getstacksize(&attr, &stack_size2));
 
   EXPECT_EQ(stack_size, stack_size2);
+
+  TEST_FUNCTION_END;
 }
 
 struct MutexClaimerThreadArgs {
@@ -955,9 +1067,12 @@ int main(int argc, char *argv[]) {
   /* We have disabled this test by default since it is flaky under VMWARE. */
   if (g_run_intrinsic) TestIntrinsics();
 
+  TestMutexAttrs();
   TestCondvar();
+  TestCondvarAttrs();
   TestCondvarTimeout();
   TestStackSize();
+  TestScope();
   TestErrorcheckMutexWorksWithCondvarTimeout();
 
   return g_errors;

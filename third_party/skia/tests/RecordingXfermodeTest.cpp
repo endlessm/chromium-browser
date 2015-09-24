@@ -107,15 +107,14 @@ class PictureStrategy : public RecordingStrategy {
     virtual const SkBitmap& recordAndReplay(const Drawer& drawer,
                                             const SkRect& intoClip,
                                             SkXfermode::Mode mode) {
-        SkTileGridFactory::TileGridInfo tileGridInfo = { {100,100}, {0,0}, {0,0} };
-        SkTileGridFactory factory(tileGridInfo);
+        SkRTreeFactory factory;
         SkPictureRecorder recorder;
         SkRect canvasRect(SkRect::MakeWH(SkIntToScalar(fWidth),SkIntToScalar(fHeight)));
         SkCanvas* canvas = recorder.beginRecording(SkIntToScalar(fWidth),
                                                    SkIntToScalar(fHeight),
                                                    &factory);
         drawer.draw(canvas, canvasRect, mode);
-        SkAutoTDelete<SkPicture> picture(recorder.endRecording());
+        SkAutoTUnref<SkPicture> picture(recorder.endRecording());
 
         SkCanvas replayCanvas(fBitmap);
         replayCanvas.clear(0xffffffff);

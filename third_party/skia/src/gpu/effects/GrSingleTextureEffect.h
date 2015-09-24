@@ -9,8 +9,9 @@
 #define GrSingleTextureEffect_DEFINED
 
 #include "GrFragmentProcessor.h"
-#include "SkMatrix.h"
 #include "GrCoordTransform.h"
+#include "GrInvariantOutput.h"
+#include "SkMatrix.h"
 
 class GrTexture;
 
@@ -24,11 +25,14 @@ public:
 
 protected:
     /** unfiltered, clamp mode */
-    GrSingleTextureEffect(GrTexture*, const SkMatrix&, GrCoordSet = kLocal_GrCoordSet);
-    /** clamp mode */
-    GrSingleTextureEffect(GrTexture*, const SkMatrix&, GrTextureParams::FilterMode filterMode,
+    GrSingleTextureEffect(GrProcessorDataManager*, GrTexture*, const SkMatrix&,
                           GrCoordSet = kLocal_GrCoordSet);
-    GrSingleTextureEffect(GrTexture*,
+    /** clamp mode */
+    GrSingleTextureEffect(GrProcessorDataManager*, GrTexture*, const SkMatrix&,
+                          GrTextureParams::FilterMode filterMode,
+                          GrCoordSet = kLocal_GrCoordSet);
+    GrSingleTextureEffect(GrProcessorDataManager*,
+                          GrTexture*,
                           const SkMatrix&,
                           const GrTextureParams&,
                           GrCoordSet = kLocal_GrCoordSet);
@@ -38,11 +42,13 @@ protected:
      * the subclass output color will be a modulation of the input color with a value read from the
      * texture.
      */
-    void updateInvariantOutputForModulation(InvariantOutput* inout) const {
-        if (GrPixelConfigIsOpaque(this->texture(0)->config())) {
-            inout->mulByUnknownOpaqueColor();
+    void updateInvariantOutputForModulation(GrInvariantOutput* inout) const {
+        if (GrPixelConfigIsAlphaOnly(this->texture(0)->config())) {
+            inout->mulByUnknownSingleComponent();
+        } else if (GrPixelConfigIsOpaque(this->texture(0)->config())) {
+            inout->mulByUnknownOpaqueFourComponents();
         } else {
-            inout->mulByUnknownColor();
+            inout->mulByUnknownFourComponents();
         }
     }
 

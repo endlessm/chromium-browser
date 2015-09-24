@@ -5,24 +5,26 @@
 #include "base/at_exit.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
 #include "base/observer_list.h"
 #include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/value_conversions.h"
 #include "chrome/browser/download/chrome_download_manager_delegate.h"
 #include "chrome/browser/download/download_extensions.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/download/download_target_determiner.h"
 #include "chrome/browser/download/download_target_info.h"
-#include "chrome/browser/history/history_service.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_pref_service_syncable.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_types.h"
 #include "content/public/browser/download_interrupt_reasons.h"
 #include "content/public/browser/render_process_host.h"
@@ -43,6 +45,10 @@
 
 #if defined(ENABLE_EXTENSIONS)
 #include "extensions/common/extension.h"
+#endif
+
+#if defined(OS_ANDROID)
+#include "chrome/browser/android/download/mock_download_controller_android.h"
 #endif
 
 using ::testing::AnyNumber;
@@ -78,12 +84,13 @@ class NullWebContentsDelegate : public content::WebContentsDelegate {
 //   EXPECT_CALL(mock_fooclass_instance, Foo(callback))
 //     .WillOnce(ScheduleCallback(false));
 ACTION_P(ScheduleCallback, result0) {
-  base::MessageLoop::current()->PostTask(FROM_HERE, base::Bind(arg0, result0));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
+                                                base::Bind(arg0, result0));
 }
 
 // Similar to ScheduleCallback, but binds 2 arguments.
 ACTION_P2(ScheduleCallback2, result0, result1) {
-  base::MessageLoop::current()->PostTask(
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::Bind(arg0, result0, result1));
 }
 
@@ -194,8 +201,8 @@ class MockDownloadTargetDeterminerDelegate
 class DownloadTargetDeterminerTest : public ChromeRenderViewHostTestHarness {
  public:
   // ::testing::Test
-  virtual void SetUp() override;
-  virtual void TearDown() override;
+  void SetUp() override;
+  void TearDown() override;
 
   // Creates MockDownloadItem and sets up default expectations.
   content::MockDownloadItem* CreateActiveDownloadItem(
@@ -254,12 +261,21 @@ class DownloadTargetDeterminerTest : public ChromeRenderViewHostTestHarness {
     return download_prefs_.get();
   }
 
+#if defined(OS_ANDROID)
+  chrome::android::MockDownloadControllerAndroid* download_controller() {
+    return &download_controller_;
+  }
+#endif
+
  private:
   scoped_ptr<DownloadPrefs> download_prefs_;
   ::testing::NiceMock<MockDownloadTargetDeterminerDelegate> delegate_;
   NullWebContentsDelegate web_contents_delegate_;
   base::ScopedTempDir test_download_dir_;
   base::FilePath test_virtual_dir_;
+#if defined(OS_ANDROID)
+  chrome::android::MockDownloadControllerAndroid download_controller_;
+#endif
 };
 
 void DownloadTargetDeterminerTest::SetUp() {
@@ -271,10 +287,17 @@ void DownloadTargetDeterminerTest::SetUp() {
   test_virtual_dir_ = test_download_dir().Append(FILE_PATH_LITERAL("virtual"));
   download_prefs_->SetDownloadPath(test_download_dir());
   delegate_.SetupDefaults();
+#if defined(OS_ANDROID)
+  content::DownloadControllerAndroid::SetDownloadControllerAndroid(
+     &download_controller_);
+#endif
 }
 
 void DownloadTargetDeterminerTest::TearDown() {
   download_prefs_.reset();
+#if defined(OS_ANDROID)
+  content::DownloadControllerAndroid::SetDownloadControllerAndroid(nullptr);
+#endif
   ChromeRenderViewHostTestHarness::TearDown();
 }
 
@@ -376,7 +399,7 @@ void CompletionCallbackWrapper(
     scoped_ptr<DownloadTargetInfo>* target_info_receiver,
     scoped_ptr<DownloadTargetInfo> target_info) {
   target_info_receiver->swap(target_info);
-  base::MessageLoop::current()->PostTask(FROM_HERE, closure);
+  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, closure);
 }
 
 scoped_ptr<DownloadTargetInfo>
@@ -1088,8 +1111,9 @@ TEST_F(DownloadTargetDeterminerTest, TargetDeterminer_VisitedReferrer) {
   // midnight.
   base::Time time_of_visit(
       base::Time::Now().LocalMidnight() - base::TimeDelta::FromSeconds(10));
-  HistoryService* history_service =
-      HistoryServiceFactory::GetForProfile(profile(), Profile::EXPLICIT_ACCESS);
+  history::HistoryService* history_service =
+      HistoryServiceFactory::GetForProfile(profile(),
+                                           ServiceAccessType::EXPLICIT_ACCESS);
   ASSERT_TRUE(history_service);
   history_service->AddPage(url, time_of_visit, history::SOURCE_BROWSED);
 
@@ -1149,6 +1173,30 @@ TEST_F(DownloadTargetDeterminerTest, TargetDeterminer_PromptAlways) {
   RunTestCasesWithActiveItem(kPromptingTestCases,
                              arraysize(kPromptingTestCases));
 }
+
+#if defined(OS_ANDROID)
+TEST_F(DownloadTargetDeterminerTest,
+       TargetDeterminer_DisapprovePromptForUserPermission) {
+  const DownloadTestCase kUserPermissionTestCases[] = {
+    {
+      // 0: Automatic Safe
+      AUTOMATIC,
+      content::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS,
+      "http://example.com/foo.txt", "text/plain",
+      FILE_PATH_LITERAL(""),
+
+      FILE_PATH_LITERAL(""),
+      DownloadItem::TARGET_DISPOSITION_OVERWRITE,
+
+      EXPECT_LOCAL_PATH
+    },
+  };
+  content::DownloadControllerAndroid::Get()->
+      SetApproveFileAccessRequestForTesting(false);
+  RunTestCasesWithActiveItem(kUserPermissionTestCases,
+                             arraysize(kUserPermissionTestCases));
+}
+#endif
 
 #if defined(ENABLE_EXTENSIONS)
 // These test cases are run with "Prompt for download" user preference set to
@@ -1951,17 +1999,17 @@ class MockPluginServiceFilter : public content::PluginServiceFilter {
  public:
   MOCK_METHOD1(MockPluginAvailable, bool(const base::FilePath&));
 
-  virtual bool IsPluginAvailable(int render_process_id,
-                                 int render_view_id,
-                                 const void* context,
-                                 const GURL& url,
-                                 const GURL& policy_url,
-                                 content::WebPluginInfo* plugin) override {
+  bool IsPluginAvailable(int render_process_id,
+                         int render_view_id,
+                         const void* context,
+                         const GURL& url,
+                         const GURL& policy_url,
+                         content::WebPluginInfo* plugin) override {
     return MockPluginAvailable(plugin->path);
   }
 
-  virtual bool CanLoadPlugin(int render_process_id,
-                             const base::FilePath& path) override {
+  bool CanLoadPlugin(int render_process_id,
+                     const base::FilePath& path) override {
     return true;
   }
 };
@@ -2013,17 +2061,17 @@ class DownloadTargetDeterminerTestWithPlugin
   DownloadTargetDeterminerTestWithPlugin()
       : old_plugin_service_filter_(NULL) {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
+    DownloadTargetDeterminerTest::SetUp();
     content::PluginService* plugin_service =
         content::PluginService::GetInstance();
     plugin_service->Init();
     plugin_service->DisablePluginsDiscoveryForTesting();
     old_plugin_service_filter_ = plugin_service->GetFilter();
     plugin_service->SetFilter(&mock_plugin_filter_);
-    DownloadTargetDeterminerTest::SetUp();
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     content::PluginService::GetInstance()->SetFilter(
         old_plugin_service_filter_);
     DownloadTargetDeterminerTest::TearDown();
@@ -2103,19 +2151,72 @@ TEST_F(DownloadTargetDeterminerTestWithPlugin,
   target_info = RunDownloadTargetDeterminer(
       GetPathInDownloadDir(kInitialPath), item.get());
   EXPECT_FALSE(target_info->is_filetype_handled_safely);
+}
 
-  // Now register an unsandboxed PPAPI plug-in. This plugin should not be
-  // considered secure.
-  ScopedRegisterInternalPlugin ppapi_unsandboxed_plugin(
+// Check if secure handling of filetypes is determined correctly for
+// BrowserPlugins.
+TEST_F(DownloadTargetDeterminerTestWithPlugin,
+       TargetDeterminer_CheckForSecureHandling_BrowserPlugin) {
+  // All test cases run with GetPathInDownloadDir(kInitialPath) as the inital
+  // path.
+  const base::FilePath::CharType kInitialPath[] =
+      FILE_PATH_LITERAL("some_path/bar.txt");
+  const char kTestMIMEType[] = "application/x-example-should-not-exist";
+
+  DownloadTestCase kSecureHandlingTestCase = {
+    AUTOMATIC,
+    content::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS,
+    "http://example.com/foo.fakeext", "",
+    FILE_PATH_LITERAL(""),
+
+    FILE_PATH_LITERAL("foo.fakeext"),
+    DownloadItem::TARGET_DISPOSITION_OVERWRITE,
+
+    EXPECT_CRDOWNLOAD
+  };
+
+  content::PluginService* plugin_service =
+      content::PluginService::GetInstance();
+
+  // Verify our test assumptions.
+  {
+    ForceRefreshOfPlugins();
+    std::vector<content::WebPluginInfo> info;
+    ASSERT_FALSE(plugin_service->GetPluginInfoArray(
+        GURL(), kTestMIMEType, false, &info, NULL));
+    ASSERT_EQ(0u, info.size())
+        << "Name: " << info[0].name << ", Path: " << info[0].path.value();
+  }
+
+  ON_CALL(*delegate(), GetFileMimeType(
+      GetPathInDownloadDir(FILE_PATH_LITERAL("foo.fakeext")), _))
+      .WillByDefault(WithArg<1>(
+          ScheduleCallback(kTestMIMEType)));
+  scoped_ptr<content::MockDownloadItem> item(
+      CreateActiveDownloadItem(1, kSecureHandlingTestCase));
+  scoped_ptr<DownloadTargetInfo> target_info =
+      RunDownloadTargetDeterminer(GetPathInDownloadDir(kInitialPath),
+                                  item.get());
+  EXPECT_FALSE(target_info->is_filetype_handled_safely);
+
+  // Register a BrowserPlugin. This should count as handling the filetype
+  // securely.
+  ScopedRegisterInternalPlugin browser_plugin(
       plugin_service,
-      content::WebPluginInfo::PLUGIN_TYPE_PEPPER_UNSANDBOXED,
-      test_download_dir().AppendASCII("ppapi-nosandbox"),
+      content::WebPluginInfo::PLUGIN_TYPE_BROWSER_PLUGIN,
+      test_download_dir().AppendASCII("browser_plugin"),
       kTestMIMEType,
       "fakeext");
-  EXPECT_CALL(mock_plugin_filter_,
-              MockPluginAvailable(ppapi_unsandboxed_plugin.path()))
+  EXPECT_CALL(mock_plugin_filter_, MockPluginAvailable(browser_plugin.path()))
       .WillRepeatedly(Return(true));
 
+  target_info = RunDownloadTargetDeterminer(
+      GetPathInDownloadDir(kInitialPath), item.get());
+  EXPECT_TRUE(target_info->is_filetype_handled_safely);
+
+  // Try disabling the plugin. Handling should no longer be considered secure.
+  EXPECT_CALL(mock_plugin_filter_, MockPluginAvailable(browser_plugin.path()))
+      .WillRepeatedly(Return(false));
   target_info = RunDownloadTargetDeterminer(
       GetPathInDownloadDir(kInitialPath), item.get());
   EXPECT_FALSE(target_info->is_filetype_handled_safely);

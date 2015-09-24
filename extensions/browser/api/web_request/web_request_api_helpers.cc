@@ -24,10 +24,10 @@
 #include "extensions/browser/runtime_data.h"
 #include "extensions/browser/warning_set.h"
 #include "extensions/common/extension_messages.h"
-#include "net/base/net_log.h"
 #include "net/cookies/cookie_util.h"
 #include "net/cookies/parsed_cookie.h"
 #include "net/http/http_util.h"
+#include "net/log/net_log.h"
 #include "net/url_request/url_request.h"
 #include "url/url_constants.h"
 
@@ -217,11 +217,10 @@ net::NetLog::ParametersCallback CreateNetLogExtensionIdCallback(
 }
 
 // Creates NetLog parameters to indicate that an extension modified a request.
-// Caller takes ownership of returned value.
-base::Value* NetLogModificationCallback(
+scoped_ptr<base::Value> NetLogModificationCallback(
     const EventResponseDelta* delta,
-    net::NetLog::LogLevel log_level) {
-  base::DictionaryValue* dict = new base::DictionaryValue();
+    net::NetLogCaptureMode capture_mode) {
+  scoped_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   dict->SetString("extension_id", delta->extension_id);
 
   base::ListValue* modified_headers = new base::ListValue();
@@ -241,7 +240,7 @@ base::Value* NetLogModificationCallback(
     deleted_headers->Append(new base::StringValue(*key));
   }
   dict->Set("deleted_headers", deleted_headers);
-  return dict;
+  return dict.Pass();
 }
 
 bool InDecreasingExtensionInstallationTimeOrder(
@@ -351,7 +350,7 @@ EventResponseDelta* CalculateOnHeadersReceivedDelta(
       bool header_found = false;
       for (ResponseHeaders::const_iterator i = new_response_headers->begin();
            i != new_response_headers->end(); ++i) {
-        if (LowerCaseEqualsASCII(i->first, name_lowercase.c_str()) &&
+        if (base::LowerCaseEqualsASCII(i->first, name_lowercase.c_str()) &&
             value == i->second) {
           header_found = true;
           break;
@@ -1194,9 +1193,9 @@ void ClearCacheOnNavigation() {
   }
 }
 
-void NotifyWebRequestAPIUsed(
-    void* browser_context_id,
-    scoped_refptr<const extensions::Extension> extension) {
+void NotifyWebRequestAPIUsed(void* browser_context_id,
+                             const std::string& extension_id) {
+  DCHECK(!extension_id.empty());
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   content::BrowserContext* browser_context =
       reinterpret_cast<content::BrowserContext*>(browser_context_id);
@@ -1206,11 +1205,9 @@ void NotifyWebRequestAPIUsed(
 
   extensions::RuntimeData* runtime_data =
       extensions::ExtensionSystem::Get(browser_context)->runtime_data();
-  if (extension.get()) {
-    if (runtime_data->HasUsedWebRequest(extension.get()))
-      return;
-    runtime_data->SetHasUsedWebRequest(extension.get(), true);
-  }
+  if (runtime_data->HasUsedWebRequest(extension_id))
+    return;
+  runtime_data->SetHasUsedWebRequest(extension_id, true);
 
   for (content::RenderProcessHost::iterator it =
            content::RenderProcessHost::AllHostsIterator();
@@ -1234,7 +1231,7 @@ void SendExtensionWebRequestStatusToHost(content::RenderProcessHost* host) {
   for (extensions::ExtensionSet::const_iterator it = extensions.begin();
        !webrequest_used && it != extensions.end();
        ++it) {
-    webrequest_used |= runtime_data->HasUsedWebRequest(it->get());
+    webrequest_used |= runtime_data->HasUsedWebRequest((*it)->id());
   }
 
   host->Send(new ExtensionMsg_UsingWebRequestAPI(webrequest_used));

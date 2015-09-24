@@ -45,7 +45,7 @@ class FontSizePrefsAndroid {
 
   scoped_ptr<PrefChangeRegistrar> pref_change_registrar_;
   PrefService* const pref_service_;
-  ObserverList<Observer> observers_;
+  base::ObserverList<Observer> observers_;
   base::android::ScopedJavaGlobalRef<jobject> java_ref_;
 
   DISALLOW_COPY_AND_ASSIGN(FontSizePrefsAndroid);
@@ -64,8 +64,8 @@ class FontSizePrefsObserverAndroid : public FontSizePrefsAndroid::Observer {
   static bool Register(JNIEnv* env);
 
   // FontSizePrefs::Observer implementation.
-  virtual void OnChangeFontSize(float font) override;
-  virtual void OnChangeForceEnableZoom(bool enabled) override;
+  void OnChangeFontSize(float font) override;
+  void OnChangeForceEnableZoom(bool enabled) override;
 
  private:
   base::android::ScopedJavaGlobalRef<jobject> java_ref_;

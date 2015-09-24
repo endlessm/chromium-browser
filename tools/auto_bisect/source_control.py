@@ -12,22 +12,6 @@ def IsInGitRepository():
   return output.strip() == 'true'
 
 
-def SyncToRevisionWithGClient(revision):
-  """Uses gclient to sync to the specified revision.
-
-  This is like running gclient sync --revision <revision>.
-
-  Args:
-    revision: A git SHA1 hash or SVN revision number (depending on workflow).
-
-  Returns:
-    The return code of the call.
-  """
-  return bisect_utils.RunGClient(
-      ['sync', '--verbose', '--reset', '--force',
-      '--delete_unversioned_trees', '--nohooks', '--revision', revision])
-
-
 def GetRevisionList(end_revision_hash, start_revision_hash, cwd=None):
   """Retrieves a list of git commit hashes in a range.
 
@@ -50,14 +34,30 @@ def GetRevisionList(end_revision_hash, start_revision_hash, cwd=None):
 
 
 def SyncToRevision(revision, sync_client=None):
+  """Syncs or checks out a revision based on sync_client argument.
+
+  Args:
+    revision: Git hash for the solutions with the format <repo>@rev.
+        E.g., "src@2ae43f...", "src/third_party/webkit@asr1234" etc.
+    sync_client: Syncs to revision when this is True otherwise checks out
+        the revision.
+
+  Returns:
+    True if sync or checkout is successful, False otherwise.
+  """
   if not sync_client:
     _, return_code = bisect_utils.RunGit(['checkout', revision])
   elif sync_client == 'gclient':
-    return_code = SyncToRevisionWithGClient(revision)
+    return_code = bisect_utils.RunGClientAndSync([revision])
   else:
     raise NotImplementedError('Unsupported sync_client: "%s"' % sync_client)
 
   return not return_code
+
+
+def GetCurrentRevision(cwd=None):
+  """Gets current revision of the given repository."""
+  return bisect_utils.CheckRunGit(['rev-parse', 'HEAD'], cwd=cwd).strip()
 
 
 def ResolveToRevision(revision_to_check, depot, depot_deps_dict,
@@ -125,7 +125,7 @@ def IsInProperBranch():
 
 
 def GetCommitPosition(git_revision, cwd=None):
-  """Finds git commit postion for the given git hash.
+  """Finds git commit position for the given git hash.
 
   This function executes "git footer --position-num <git hash>" command to get
   commit position the given revision.
@@ -137,14 +137,22 @@ def GetCommitPosition(git_revision, cwd=None):
   Returns:
     Git commit position as integer or None.
   """
+  # Some of the repositories are pure git based, unlike other repositories
+  # they doesn't have commit position. e.g., skia, angle.
   cmd = ['footers', '--position-num', git_revision]
-  output = bisect_utils.CheckRunGit(cmd, cwd)
-  commit_position = output.strip()
-
-  if bisect_utils.IsStringInt(commit_position):
-    return int(commit_position)
-
+  output, return_code = bisect_utils.RunGit(cmd, cwd)
+  if not return_code:
+    commit_position = output.strip()
+    if bisect_utils.IsStringInt(commit_position):
+      return int(commit_position)
   return None
+
+
+def GetCommitTime(git_revision, cwd=None):
+  """Returns commit time for the given revision in UNIX timestamp."""
+  cmd = ['log', '--format=%ct', '-1', git_revision]
+  output = bisect_utils.CheckRunGit(cmd, cwd=cwd)
+  return int(output)
 
 
 def QueryRevisionInfo(revision, cwd=None):
@@ -222,4 +230,3 @@ def QueryFileRevisionHistory(filename, revision_start, revision_end):
   output = bisect_utils.CheckRunGit(cmd)
   lines = output.split('\n')
   return [o for o in lines if o]
-

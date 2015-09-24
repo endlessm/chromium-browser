@@ -4,15 +4,15 @@
 
 #include "chrome/browser/sync/glue/favicon_cache.h"
 
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
 #include "base/metrics/histogram.h"
-#include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/favicon/favicon_service.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
-#include "chrome/browser/history/history_notifications.h"
+#include "chrome/browser/history/history_service_factory.h"
+#include "components/favicon/core/favicon_service.h"
+#include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_types.h"
-#include "content/public/browser/notification_details.h"
-#include "content/public/browser/notification_source.h"
 #include "sync/api/time.h"
 #include "sync/protocol/favicon_image_specifics.pb.h"
 #include "sync/protocol/favicon_tracking_specifics.pb.h"
@@ -226,10 +226,15 @@ bool FaviconInfoHasValidTypeData(const SyncedFaviconInfo& favicon_info,
 FaviconCache::FaviconCache(Profile* profile, int max_sync_favicon_limit)
     : profile_(profile),
       max_sync_favicon_limit_(max_sync_favicon_limit),
+      history_service_observer_(this),
       weak_ptr_factory_(this) {
-  notification_registrar_.Add(this,
-                              chrome::NOTIFICATION_HISTORY_URLS_DELETED,
-                              content::Source<Profile>(profile_));
+  history::HistoryService* hs = NULL;
+  if (profile_) {
+    hs = HistoryServiceFactory::GetForProfile(
+        profile_, ServiceAccessType::EXPLICIT_ACCESS);
+  }
+  if (hs)
+    history_service_observer_.Add(hs);
   DVLOG(1) << "Setting favicon limit to " << max_sync_favicon_limit;
 }
 
@@ -434,8 +439,9 @@ void FaviconCache::OnPageFaviconUpdated(const GURL& page_url) {
     page_task_map_[page_url] = 0;  // For testing only.
     return;
   }
-  FaviconService* favicon_service =
-      FaviconServiceFactory::GetForProfile(profile_, Profile::EXPLICIT_ACCESS);
+  favicon::FaviconService* favicon_service =
+      FaviconServiceFactory::GetForProfile(profile_,
+                                           ServiceAccessType::EXPLICIT_ACCESS);
   if (!favicon_service)
     return;
   // TODO(zea): This appears to only fetch one favicon (best match based on
@@ -529,13 +535,10 @@ void FaviconCache::OnReceivedSyncFavicon(const GURL& page_url,
 
   // Post a task to do the actual association because this method may have been
   // called while in a transaction.
-  base::MessageLoop::current()->PostTask(
-      FROM_HERE,
-      base::Bind(&FaviconCache::OnReceivedSyncFaviconImpl,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 icon_url,
-                 icon_bytes,
-                 visit_time_ms));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&FaviconCache::OnReceivedSyncFaviconImpl,
+                            weak_ptr_factory_.GetWeakPtr(), icon_url,
+                            icon_bytes, visit_time_ms));
 }
 
 void FaviconCache::OnReceivedSyncFaviconImpl(
@@ -569,41 +572,6 @@ void FaviconCache::OnReceivedSyncFaviconImpl(
                   (added_tracking ?
                    syncer::SyncChange::ACTION_ADD :
                    syncer::SyncChange::ACTION_UPDATE));
-}
-
-void FaviconCache::Observe(int type,
-                           const content::NotificationSource& source,
-                           const content::NotificationDetails& details) {
-  DCHECK_EQ(type, chrome::NOTIFICATION_HISTORY_URLS_DELETED);
-
-  content::Details<history::URLsDeletedDetails> deleted_details(details);
-
-  // We only care about actual user (or sync) deletions.
-  if (deleted_details->expired)
-    return;
-
-  if (!deleted_details->all_history) {
-    DeleteSyncedFavicons(deleted_details->favicon_urls);
-    return;
-  }
-
-  // All history was cleared: just delete all favicons.
-  DVLOG(1) << "History clear detected, deleting all synced favicons.";
-  syncer::SyncChangeList image_deletions, tracking_deletions;
-  while (!synced_favicons_.empty()) {
-    DeleteSyncedFavicon(synced_favicons_.begin(),
-                        &image_deletions,
-                        &tracking_deletions);
-  }
-
-  if (favicon_images_sync_processor_.get()) {
-    favicon_images_sync_processor_->ProcessSyncChanges(FROM_HERE,
-                                                       image_deletions);
-  }
-  if (favicon_tracking_sync_processor_.get()) {
-    favicon_tracking_sync_processor_->ProcessSyncChanges(FROM_HERE,
-                                                         tracking_deletions);
-  }
 }
 
 bool FaviconCache::FaviconRecencyFunctor::operator()(
@@ -1063,6 +1031,38 @@ size_t FaviconCache::NumFaviconsForTest() const {
 
 size_t FaviconCache::NumTasksForTest() const {
   return page_task_map_.size();
+}
+
+void FaviconCache::OnURLsDeleted(history::HistoryService* history_service,
+                                 bool all_history,
+                                 bool expired,
+                                 const history::URLRows& deleted_rows,
+                                 const std::set<GURL>& favicon_urls) {
+  // We only care about actual user (or sync) deletions.
+  if (expired)
+    return;
+
+  if (!all_history) {
+    DeleteSyncedFavicons(favicon_urls);
+    return;
+  }
+
+  // All history was cleared: just delete all favicons.
+  DVLOG(1) << "History clear detected, deleting all synced favicons.";
+  syncer::SyncChangeList image_deletions, tracking_deletions;
+  while (!synced_favicons_.empty()) {
+    DeleteSyncedFavicon(synced_favicons_.begin(), &image_deletions,
+                        &tracking_deletions);
+  }
+
+  if (favicon_images_sync_processor_.get()) {
+    favicon_images_sync_processor_->ProcessSyncChanges(FROM_HERE,
+                                                       image_deletions);
+  }
+  if (favicon_tracking_sync_processor_.get()) {
+    favicon_tracking_sync_processor_->ProcessSyncChanges(FROM_HERE,
+                                                         tracking_deletions);
+  }
 }
 
 }  // namespace browser_sync

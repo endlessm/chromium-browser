@@ -6,7 +6,6 @@
 
 #include "base/hash.h"
 #include "base/message_loop/message_loop.h"
-#include "base/metrics/histogram.h"
 #include "base/strings/string_util.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
@@ -62,7 +61,7 @@ class SyncCallback: public disk_cache::FileIOCallback {
 void SyncCallback::OnFileIOComplete(int bytes_copied) {
   entry_->DecrementIoCount();
   if (!callback_.is_null()) {
-    if (entry_->net_log().IsLogging()) {
+    if (entry_->net_log().IsCapturing()) {
       entry_->net_log().EndEvent(
           end_event_type_,
           disk_cache::CreateNetLogReadWriteCompleteCallback(bytes_copied));
@@ -315,7 +314,7 @@ void EntryImpl::DoomImpl() {
 
 int EntryImpl::ReadDataImpl(int index, int offset, IOBuffer* buf, int buf_len,
                             const CompletionCallback& callback) {
-  if (net_log_.IsLogging()) {
+  if (net_log_.IsCapturing()) {
     net_log_.BeginEvent(
         net::NetLog::TYPE_ENTRY_READ_DATA,
         CreateNetLogReadWriteDataCallback(index, offset, buf_len, false));
@@ -323,7 +322,7 @@ int EntryImpl::ReadDataImpl(int index, int offset, IOBuffer* buf, int buf_len,
 
   int result = InternalReadData(index, offset, buf, buf_len, callback);
 
-  if (result != net::ERR_IO_PENDING && net_log_.IsLogging()) {
+  if (result != net::ERR_IO_PENDING && net_log_.IsCapturing()) {
     net_log_.EndEvent(
         net::NetLog::TYPE_ENTRY_READ_DATA,
         CreateNetLogReadWriteCompleteCallback(result));
@@ -334,7 +333,7 @@ int EntryImpl::ReadDataImpl(int index, int offset, IOBuffer* buf, int buf_len,
 int EntryImpl::WriteDataImpl(int index, int offset, IOBuffer* buf, int buf_len,
                              const CompletionCallback& callback,
                              bool truncate) {
-  if (net_log_.IsLogging()) {
+  if (net_log_.IsCapturing()) {
     net_log_.BeginEvent(
         net::NetLog::TYPE_ENTRY_WRITE_DATA,
         CreateNetLogReadWriteDataCallback(index, offset, buf_len, truncate));
@@ -343,7 +342,7 @@ int EntryImpl::WriteDataImpl(int index, int offset, IOBuffer* buf, int buf_len,
   int result = InternalWriteData(index, offset, buf, buf_len, callback,
                                  truncate);
 
-  if (result != net::ERR_IO_PENDING && net_log_.IsLogging()) {
+  if (result != net::ERR_IO_PENDING && net_log_.IsCapturing()) {
     net_log_.EndEvent(
         net::NetLog::TYPE_ENTRY_WRITE_DATA,
         CreateNetLogReadWriteCompleteCallback(result));
@@ -776,7 +775,7 @@ std::string EntryImpl::GetKey() const {
   if (address.is_block_file())
     offset = address.start_block() * address.BlockSize() + kBlockHeaderSize;
 
-  COMPILE_ASSERT(kNumStreams == kKeyFileIndex, invalid_key_index);
+  static_assert(kNumStreams == kKeyFileIndex, "invalid key index");
   File* key_file = const_cast<EntryImpl*>(this)->GetBackingFile(address,
                                                                 kKeyFileIndex);
   if (!key_file)
@@ -786,7 +785,7 @@ std::string EntryImpl::GetKey() const {
   if (!offset && key_file->GetLength() != static_cast<size_t>(key_len))
     return std::string();
 
-  if (!key_file->Read(WriteInto(&key_, key_len), key_len, offset))
+  if (!key_file->Read(base::WriteInto(&key_, key_len), key_len, offset))
     key_.clear();
   return key_;
 }

@@ -18,21 +18,16 @@
 using std::numeric_limits;
 using base::CheckedNumeric;
 using base::checked_cast;
+using base::SizeT;
+using base::StrictNumeric;
 using base::saturated_cast;
+using base::strict_cast;
 using base::internal::MaxExponent;
 using base::internal::RANGE_VALID;
 using base::internal::RANGE_INVALID;
 using base::internal::RANGE_OVERFLOW;
 using base::internal::RANGE_UNDERFLOW;
 using base::enable_if;
-
-// MSVS 2013 ia32 may not reset the FPU between calculations, and the test
-// framework masks the exceptions. So we just force a manual reset after NaN.
-inline void ResetFloatingPointUnit() {
-#if defined(COMPILER_MSVC) && defined(ARCH_CPU_32_BITS)
-  _mm_empty();
-#endif
-}
 
 // These tests deliberately cause arithmetic overflows. If the compiler is
 // aggressive enough, it can const fold these overflows. Disable warnings about
@@ -247,6 +242,9 @@ static void TestArithmetic(const char* dst, int line) {
   TEST_EXPECTED_VALUE(0, (CheckedNumeric<Dst>() * 1));
   TEST_EXPECTED_VALUE(1, (CheckedNumeric<Dst>(1) * 1));
   TEST_EXPECTED_VALUE(-2, (CheckedNumeric<Dst>(-1) * 2));
+  TEST_EXPECTED_VALUE(0, (CheckedNumeric<Dst>(0) * 0));
+  TEST_EXPECTED_VALUE(0, (CheckedNumeric<Dst>(-1) * 0));
+  TEST_EXPECTED_VALUE(0, (CheckedNumeric<Dst>(0) * -1));
   TEST_EXPECTED_VALIDITY(
       RANGE_OVERFLOW, CheckedNumeric<Dst>(DstLimits::max()) * DstLimits::max());
 
@@ -341,7 +339,6 @@ struct TestNumericConversion<Dst, Src, SIGN_PRESERVING_VALUE_PRESERVING> {
       TEST_EXPECTED_RANGE(RANGE_OVERFLOW, SrcLimits::infinity());
       TEST_EXPECTED_RANGE(RANGE_UNDERFLOW, SrcLimits::infinity() * -1);
       TEST_EXPECTED_RANGE(RANGE_INVALID, SrcLimits::quiet_NaN());
-      ResetFloatingPointUnit();
     } else if (numeric_limits<Src>::is_signed) {
       TEST_EXPECTED_RANGE(RANGE_VALID, static_cast<Src>(-1));
       TEST_EXPECTED_RANGE(RANGE_VALID, SrcLimits::min());
@@ -373,7 +370,6 @@ struct TestNumericConversion<Dst, Src, SIGN_PRESERVING_NARROW> {
       TEST_EXPECTED_RANGE(RANGE_OVERFLOW, SrcLimits::infinity());
       TEST_EXPECTED_RANGE(RANGE_UNDERFLOW, SrcLimits::infinity() * -1);
       TEST_EXPECTED_RANGE(RANGE_INVALID, SrcLimits::quiet_NaN());
-      ResetFloatingPointUnit();
     } else if (SrcLimits::is_signed) {
       TEST_EXPECTED_VALUE(-1, checked_dst - static_cast<Src>(1));
       TEST_EXPECTED_RANGE(RANGE_UNDERFLOW, SrcLimits::min());
@@ -432,7 +428,6 @@ struct TestNumericConversion<Dst, Src, SIGN_TO_UNSIGN_NARROW> {
       TEST_EXPECTED_RANGE(RANGE_OVERFLOW, SrcLimits::infinity());
       TEST_EXPECTED_RANGE(RANGE_UNDERFLOW, SrcLimits::infinity() * -1);
       TEST_EXPECTED_RANGE(RANGE_INVALID, SrcLimits::quiet_NaN());
-      ResetFloatingPointUnit();
     } else {
       TEST_EXPECTED_RANGE(RANGE_UNDERFLOW, SrcLimits::min());
     }
@@ -567,9 +562,27 @@ TEST(SafeNumerics, CastTests) {
   double double_small = 1.0;
   double double_large = numeric_limits<double>::max();
   double double_infinity = numeric_limits<float>::infinity();
+  double double_large_int = numeric_limits<int>::max();
+  double double_small_int = numeric_limits<int>::min();
 
-  // Just test that the cast compiles, since the other tests cover logic.
+  // Just test that the casts compile, since the other tests cover logic.
   EXPECT_EQ(0, checked_cast<int>(static_cast<size_t>(0)));
+  EXPECT_EQ(0, strict_cast<int>(static_cast<char>(0)));
+  EXPECT_EQ(0, strict_cast<int>(static_cast<unsigned char>(0)));
+  EXPECT_EQ(0U, strict_cast<unsigned>(static_cast<unsigned char>(0)));
+  EXPECT_EQ(1ULL, static_cast<uint64_t>(StrictNumeric<size_t>(1U)));
+  EXPECT_EQ(1ULL, static_cast<uint64_t>(SizeT(1U)));
+  EXPECT_EQ(1U, static_cast<size_t>(StrictNumeric<unsigned>(1U)));
+
+  EXPECT_TRUE(CheckedNumeric<uint64_t>(StrictNumeric<unsigned>(1U)).IsValid());
+  EXPECT_TRUE(CheckedNumeric<int>(StrictNumeric<unsigned>(1U)).IsValid());
+  EXPECT_FALSE(CheckedNumeric<unsigned>(StrictNumeric<int>(-1)).IsValid());
+
+  // These casts and coercions will fail to compile:
+  // EXPECT_EQ(0, strict_cast<int>(static_cast<size_t>(0)));
+  // EXPECT_EQ(0, strict_cast<size_t>(static_cast<int>(0)));
+  // EXPECT_EQ(1ULL, StrictNumeric<size_t>(1));
+  // EXPECT_EQ(1, StrictNumeric<size_t>(1U));
 
   // Test various saturation corner cases.
   EXPECT_EQ(saturated_cast<int>(small_negative),
@@ -583,5 +596,7 @@ TEST(SafeNumerics, CastTests) {
   EXPECT_EQ(saturated_cast<int>(double_large), numeric_limits<int>::max());
   EXPECT_EQ(saturated_cast<float>(double_large), double_infinity);
   EXPECT_EQ(saturated_cast<float>(-double_large), -double_infinity);
+  EXPECT_EQ(numeric_limits<int>::min(), saturated_cast<int>(double_small_int));
+  EXPECT_EQ(numeric_limits<int>::max(), saturated_cast<int>(double_large_int));
 }
 

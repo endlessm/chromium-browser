@@ -13,7 +13,12 @@
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webrtc/base/md5digest.h"
+#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/base/thread_annotations.h"
+#include "webrtc/modules/audio_coding/codecs/audio_encoder.h"
+#include "webrtc/modules/audio_coding/codecs/g711/include/audio_encoder_pcm.h"
+#include "webrtc/modules/audio_coding/codecs/isac/main/interface/audio_encoder_isac.h"
+#include "webrtc/modules/audio_coding/codecs/mock/mock_audio_encoder.h"
 #include "webrtc/modules/audio_coding/main/acm2/acm_receive_test_oldapi.h"
 #include "webrtc/modules/audio_coding/main/acm2/acm_send_test_oldapi.h"
 #include "webrtc/modules/audio_coding/main/interface/audio_coding_module.h"
@@ -27,23 +32,27 @@
 #include "webrtc/modules/audio_coding/neteq/tools/rtp_file_source.h"
 #include "webrtc/modules/interface/module_common_types.h"
 #include "webrtc/system_wrappers/interface/clock.h"
-#include "webrtc/system_wrappers/interface/compile_assert.h"
 #include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
 #include "webrtc/system_wrappers/interface/event_wrapper.h"
-#include "webrtc/system_wrappers/interface/scoped_ptr.h"
 #include "webrtc/system_wrappers/interface/sleep.h"
 #include "webrtc/system_wrappers/interface/thread_wrapper.h"
 #include "webrtc/test/testsupport/fileutils.h"
 #include "webrtc/test/testsupport/gtest_disable.h"
 
+using ::testing::AtLeast;
+using ::testing::Invoke;
+using ::testing::_;
+
 namespace webrtc {
 
+namespace {
 const int kSampleRateHz = 16000;
 const int kNumSamples10ms = kSampleRateHz / 100;
 const int kFrameSizeMs = 10;  // Multiple of 10.
 const int kFrameSizeSamples = kFrameSizeMs / 10 * kNumSamples10ms;
 const int kPayloadSizeBytes = kFrameSizeSamples * sizeof(int16_t);
 const uint8_t kPayloadType = 111;
+}  // namespace
 
 class RtpUtility {
  public:
@@ -76,21 +85,26 @@ class RtpUtility {
   uint8_t payload_type_;
 };
 
-class PacketizationCallbackStub : public AudioPacketizationCallback {
+class PacketizationCallbackStubOldApi : public AudioPacketizationCallback {
  public:
-  PacketizationCallbackStub()
+  PacketizationCallbackStubOldApi()
       : num_calls_(0),
+        last_frame_type_(kFrameEmpty),
+        last_payload_type_(-1),
+        last_timestamp_(0),
         crit_sect_(CriticalSectionWrapper::CreateCriticalSection()) {}
 
-  virtual int32_t SendData(
-      FrameType frame_type,
-      uint8_t payload_type,
-      uint32_t timestamp,
-      const uint8_t* payload_data,
-      uint16_t payload_len_bytes,
-      const RTPFragmentationHeader* fragmentation) OVERRIDE {
+  int32_t SendData(FrameType frame_type,
+                   uint8_t payload_type,
+                   uint32_t timestamp,
+                   const uint8_t* payload_data,
+                   size_t payload_len_bytes,
+                   const RTPFragmentationHeader* fragmentation) override {
     CriticalSectionScoped lock(crit_sect_.get());
     ++num_calls_;
+    last_frame_type_ = frame_type;
+    last_payload_type_ = payload_type;
+    last_timestamp_ = timestamp;
     last_payload_vec_.assign(payload_data, payload_data + payload_len_bytes);
     return 0;
   }
@@ -105,6 +119,21 @@ class PacketizationCallbackStub : public AudioPacketizationCallback {
     return last_payload_vec_.size();
   }
 
+  FrameType last_frame_type() const {
+    CriticalSectionScoped lock(crit_sect_.get());
+    return last_frame_type_;
+  }
+
+  int last_payload_type() const {
+    CriticalSectionScoped lock(crit_sect_.get());
+    return last_payload_type_;
+  }
+
+  uint32_t last_timestamp() const {
+    CriticalSectionScoped lock(crit_sect_.get());
+    return last_timestamp_;
+  }
+
   void SwapBuffers(std::vector<uint8_t>* payload) {
     CriticalSectionScoped lock(crit_sect_.get());
     last_payload_vec_.swap(*payload);
@@ -112,8 +141,11 @@ class PacketizationCallbackStub : public AudioPacketizationCallback {
 
  private:
   int num_calls_ GUARDED_BY(crit_sect_);
+  FrameType last_frame_type_ GUARDED_BY(crit_sect_);
+  int last_payload_type_ GUARDED_BY(crit_sect_);
+  uint32_t last_timestamp_ GUARDED_BY(crit_sect_);
   std::vector<uint8_t> last_payload_vec_ GUARDED_BY(crit_sect_);
-  const scoped_ptr<CriticalSectionWrapper> crit_sect_;
+  const rtc::scoped_ptr<CriticalSectionWrapper> crit_sect_;
 };
 
 class AudioCodingModuleTestOldApi : public ::testing::Test {
@@ -130,27 +162,29 @@ class AudioCodingModuleTestOldApi : public ::testing::Test {
   void SetUp() {
     acm_.reset(AudioCodingModule::Create(id_, clock_));
 
-    RegisterCodec();
-
     rtp_utility_->Populate(&rtp_header_);
 
     input_frame_.sample_rate_hz_ = kSampleRateHz;
     input_frame_.num_channels_ = 1;
     input_frame_.samples_per_channel_ = kSampleRateHz * 10 / 1000;  // 10 ms.
-    COMPILE_ASSERT(kSampleRateHz * 10 / 1000 <= AudioFrame::kMaxDataSizeSamples,
-                   audio_frame_too_small);
+    static_assert(kSampleRateHz * 10 / 1000 <= AudioFrame::kMaxDataSizeSamples,
+                  "audio frame too small");
     memset(input_frame_.data_,
            0,
            input_frame_.samples_per_channel_ * sizeof(input_frame_.data_[0]));
 
     ASSERT_EQ(0, acm_->RegisterTransportCallback(&packet_cb_));
+
+    SetUpL16Codec();
+  }
+
+  // Set up L16 codec.
+  virtual void SetUpL16Codec() {
+    ASSERT_EQ(0, AudioCodingModule::Codec("L16", &codec_, kSampleRateHz, 1));
+    codec_.pltype = kPayloadType;
   }
 
   virtual void RegisterCodec() {
-    AudioCodingModule::Codec("L16", &codec_, kSampleRateHz, 1);
-    codec_.pltype = kPayloadType;
-
-    // Register L16 codec in ACM.
     ASSERT_EQ(0, acm_->RegisterReceiveCodec(codec_));
     ASSERT_EQ(0, acm_->RegisterSendCodec(codec_));
   }
@@ -173,21 +207,25 @@ class AudioCodingModuleTestOldApi : public ::testing::Test {
   }
 
   virtual void InsertAudio() {
-    ASSERT_EQ(0, acm_->Add10MsData(input_frame_));
+    ASSERT_GE(acm_->Add10MsData(input_frame_), 0);
     input_frame_.timestamp_ += kNumSamples10ms;
   }
 
-  virtual void Encode() {
-    int32_t encoded_bytes = acm_->Process();
-    // Expect to get one packet with two bytes per sample, or no packet at all,
-    // depending on how many 10 ms blocks go into |codec_.pacsize|.
-    EXPECT_TRUE(encoded_bytes == 2 * codec_.pacsize || encoded_bytes == 0);
+  virtual void VerifyEncoding() {
+    int last_length = packet_cb_.last_payload_len_bytes();
+    EXPECT_TRUE(last_length == 2 * codec_.pacsize || last_length == 0)
+        << "Last encoded packet was " << last_length << " bytes.";
+  }
+
+  virtual void InsertAudioAndVerifyEncoding() {
+    InsertAudio();
+    VerifyEncoding();
   }
 
   const int id_;
-  scoped_ptr<RtpUtility> rtp_utility_;
-  scoped_ptr<AudioCodingModule> acm_;
-  PacketizationCallbackStub packet_cb_;
+  rtc::scoped_ptr<RtpUtility> rtp_utility_;
+  rtc::scoped_ptr<AudioCodingModule> acm_;
+  PacketizationCallbackStubOldApi packet_cb_;
   WebRtcRTPHeader rtp_header_;
   AudioFrame input_frame_;
   CodecInst codec_;
@@ -197,6 +235,7 @@ class AudioCodingModuleTestOldApi : public ::testing::Test {
 // Check if the statistics are initialized correctly. Before any call to ACM
 // all fields have to be zero.
 TEST_F(AudioCodingModuleTestOldApi, DISABLED_ON_ANDROID(InitializedToZero)) {
+  RegisterCodec();
   AudioDecodingCallStats stats;
   acm_->GetDecodingCallStatistics(&stats);
   EXPECT_EQ(0, stats.calls_to_neteq);
@@ -211,6 +250,7 @@ TEST_F(AudioCodingModuleTestOldApi, DISABLED_ON_ANDROID(InitializedToZero)) {
 // should result in generating silence, check the associated field.
 TEST_F(AudioCodingModuleTestOldApi,
        DISABLED_ON_ANDROID(SilenceGeneratorCalled)) {
+  RegisterCodec();
   AudioDecodingCallStats stats;
   const int kInitialDelay = 100;
 
@@ -234,6 +274,7 @@ TEST_F(AudioCodingModuleTestOldApi,
 // simulate packet loss and check if PLC and PLC-to-CNG statistics are
 // correctly updated.
 TEST_F(AudioCodingModuleTestOldApi, DISABLED_ON_ANDROID(NetEqCalls)) {
+  RegisterCodec();
   AudioDecodingCallStats stats;
   const int kNumNormalCalls = 10;
 
@@ -280,6 +321,146 @@ TEST_F(AudioCodingModuleTestOldApi, FailOnZeroDesiredFrequency) {
   EXPECT_EQ(-1, acm_->PlayoutData10Ms(0, &audio_frame));
 }
 
+// Checks that the transport callback is invoked once for each speech packet.
+// Also checks that the frame type is kAudioFrameSpeech.
+TEST_F(AudioCodingModuleTestOldApi, TransportCallbackIsInvokedForEachPacket) {
+  const int k10MsBlocksPerPacket = 3;
+  codec_.pacsize = k10MsBlocksPerPacket * kSampleRateHz / 100;
+  RegisterCodec();
+  const int kLoops = 10;
+  for (int i = 0; i < kLoops; ++i) {
+    EXPECT_EQ(i / k10MsBlocksPerPacket, packet_cb_.num_calls());
+    if (packet_cb_.num_calls() > 0)
+      EXPECT_EQ(kAudioFrameSpeech, packet_cb_.last_frame_type());
+    InsertAudioAndVerifyEncoding();
+  }
+  EXPECT_EQ(kLoops / k10MsBlocksPerPacket, packet_cb_.num_calls());
+  EXPECT_EQ(kAudioFrameSpeech, packet_cb_.last_frame_type());
+}
+
+// Verifies that the RTP timestamp series is not reset when the codec is
+// changed.
+TEST_F(AudioCodingModuleTestOldApi, TimestampSeriesContinuesWhenCodecChanges) {
+  RegisterCodec();  // This registers the default codec.
+  uint32_t expected_ts = input_frame_.timestamp_;
+  int blocks_per_packet = codec_.pacsize / (kSampleRateHz / 100);
+  // Encode 5 packets of the first codec type.
+  const int kNumPackets1 = 5;
+  for (int j = 0; j < kNumPackets1; ++j) {
+    for (int i = 0; i < blocks_per_packet; ++i) {
+      EXPECT_EQ(j, packet_cb_.num_calls());
+      InsertAudio();
+    }
+    EXPECT_EQ(j + 1, packet_cb_.num_calls());
+    EXPECT_EQ(expected_ts, packet_cb_.last_timestamp());
+    expected_ts += codec_.pacsize;
+  }
+
+  // Change codec.
+  ASSERT_EQ(0, AudioCodingModule::Codec("ISAC", &codec_, kSampleRateHz, 1));
+  RegisterCodec();
+  blocks_per_packet = codec_.pacsize / (kSampleRateHz / 100);
+  // Encode another 5 packets.
+  const int kNumPackets2 = 5;
+  for (int j = 0; j < kNumPackets2; ++j) {
+    for (int i = 0; i < blocks_per_packet; ++i) {
+      EXPECT_EQ(kNumPackets1 + j, packet_cb_.num_calls());
+      InsertAudio();
+    }
+    EXPECT_EQ(kNumPackets1 + j + 1, packet_cb_.num_calls());
+    EXPECT_EQ(expected_ts, packet_cb_.last_timestamp());
+    expected_ts += codec_.pacsize;
+  }
+}
+
+// Introduce this class to set different expectations on the number of encoded
+// bytes. This class expects all encoded packets to be 9 bytes (matching one
+// CNG SID frame) or 0 bytes. This test depends on |input_frame_| containing
+// (near-)zero values. It also introduces a way to register comfort noise with
+// a custom payload type.
+class AudioCodingModuleTestWithComfortNoiseOldApi
+    : public AudioCodingModuleTestOldApi {
+ protected:
+  void RegisterCngCodec(int rtp_payload_type) {
+    CodecInst codec;
+    AudioCodingModule::Codec("CN", &codec, kSampleRateHz, 1);
+    codec.pltype = rtp_payload_type;
+    ASSERT_EQ(0, acm_->RegisterReceiveCodec(codec));
+    ASSERT_EQ(0, acm_->RegisterSendCodec(codec));
+  }
+
+  void VerifyEncoding() override {
+    int last_length = packet_cb_.last_payload_len_bytes();
+    EXPECT_TRUE(last_length == 9 || last_length == 0)
+        << "Last encoded packet was " << last_length << " bytes.";
+  }
+
+  void DoTest(int blocks_per_packet, int cng_pt) {
+    const int kLoops = 40;
+    // This array defines the expected frame types, and when they should arrive.
+    // We expect a frame to arrive each time the speech encoder would have
+    // produced a packet, and once every 100 ms the frame should be non-empty,
+    // that is contain comfort noise.
+    const struct {
+      int ix;
+      FrameType type;
+    } expectation[] = {{2, kAudioFrameCN},
+                       {5, kFrameEmpty},
+                       {8, kFrameEmpty},
+                       {11, kAudioFrameCN},
+                       {14, kFrameEmpty},
+                       {17, kFrameEmpty},
+                       {20, kAudioFrameCN},
+                       {23, kFrameEmpty},
+                       {26, kFrameEmpty},
+                       {29, kFrameEmpty},
+                       {32, kAudioFrameCN},
+                       {35, kFrameEmpty},
+                       {38, kFrameEmpty}};
+    for (int i = 0; i < kLoops; ++i) {
+      int num_calls_before = packet_cb_.num_calls();
+      EXPECT_EQ(i / blocks_per_packet, num_calls_before);
+      InsertAudioAndVerifyEncoding();
+      int num_calls = packet_cb_.num_calls();
+      if (num_calls == num_calls_before + 1) {
+        EXPECT_EQ(expectation[num_calls - 1].ix, i);
+        EXPECT_EQ(expectation[num_calls - 1].type, packet_cb_.last_frame_type())
+            << "Wrong frame type for lap " << i;
+        EXPECT_EQ(cng_pt, packet_cb_.last_payload_type());
+      } else {
+        EXPECT_EQ(num_calls, num_calls_before);
+      }
+    }
+  }
+};
+
+// Checks that the transport callback is invoked once per frame period of the
+// underlying speech encoder, even when comfort noise is produced.
+// Also checks that the frame type is kAudioFrameCN or kFrameEmpty.
+// This test and the next check the same thing, but differ in the order of
+// speech codec and CNG registration.
+TEST_F(AudioCodingModuleTestWithComfortNoiseOldApi,
+       TransportCallbackTestForComfortNoiseRegisterCngLast) {
+  const int k10MsBlocksPerPacket = 3;
+  codec_.pacsize = k10MsBlocksPerPacket * kSampleRateHz / 100;
+  RegisterCodec();
+  const int kCngPayloadType = 105;
+  RegisterCngCodec(kCngPayloadType);
+  ASSERT_EQ(0, acm_->SetVAD(true, true));
+  DoTest(k10MsBlocksPerPacket, kCngPayloadType);
+}
+
+TEST_F(AudioCodingModuleTestWithComfortNoiseOldApi,
+       TransportCallbackTestForComfortNoiseRegisterCngFirst) {
+  const int k10MsBlocksPerPacket = 3;
+  codec_.pacsize = k10MsBlocksPerPacket * kSampleRateHz / 100;
+  const int kCngPayloadType = 105;
+  RegisterCngCodec(kCngPayloadType);
+  RegisterCodec();
+  ASSERT_EQ(0, acm_->SetVAD(true, true));
+  DoTest(k10MsBlocksPerPacket, kCngPayloadType);
+}
+
 // A multi-threaded test for ACM. This base class is using the PCM16b 16 kHz
 // codec, while the derive class AcmIsacMtTest is using iSAC.
 class AudioCodingModuleMtTestOldApi : public AudioCodingModuleTestOldApi {
@@ -289,18 +470,11 @@ class AudioCodingModuleMtTestOldApi : public AudioCodingModuleTestOldApi {
 
   AudioCodingModuleMtTestOldApi()
       : AudioCodingModuleTestOldApi(),
-        send_thread_(ThreadWrapper::CreateThread(CbSendThread,
-                                                 this,
-                                                 kRealtimePriority,
-                                                 "send")),
-        insert_packet_thread_(ThreadWrapper::CreateThread(CbInsertPacketThread,
-                                                          this,
-                                                          kRealtimePriority,
-                                                          "insert_packet")),
-        pull_audio_thread_(ThreadWrapper::CreateThread(CbPullAudioThread,
-                                                       this,
-                                                       kRealtimePriority,
-                                                       "pull_audio")),
+        send_thread_(ThreadWrapper::CreateThread(CbSendThread, this, "send")),
+        insert_packet_thread_(ThreadWrapper::CreateThread(
+            CbInsertPacketThread, this, "insert_packet")),
+        pull_audio_thread_(ThreadWrapper::CreateThread(
+            CbPullAudioThread, this, "pull_audio")),
         test_complete_(EventWrapper::Create()),
         send_count_(0),
         insert_packet_count_(0),
@@ -313,14 +487,17 @@ class AudioCodingModuleMtTestOldApi : public AudioCodingModuleTestOldApi {
 
   void SetUp() {
     AudioCodingModuleTestOldApi::SetUp();
+    RegisterCodec();  // Must be called before the threads start below.
     StartThreads();
   }
 
   void StartThreads() {
-    unsigned int thread_id = 0;
-    ASSERT_TRUE(send_thread_->Start(thread_id));
-    ASSERT_TRUE(insert_packet_thread_->Start(thread_id));
-    ASSERT_TRUE(pull_audio_thread_->Start(thread_id));
+    ASSERT_TRUE(send_thread_->Start());
+    send_thread_->SetPriority(kRealtimePriority);
+    ASSERT_TRUE(insert_packet_thread_->Start());
+    insert_packet_thread_->SetPriority(kRealtimePriority);
+    ASSERT_TRUE(pull_audio_thread_->Start());
+    pull_audio_thread_->SetPriority(kRealtimePriority);
   }
 
   void TearDown() {
@@ -359,8 +536,7 @@ class AudioCodingModuleMtTestOldApi : public AudioCodingModuleTestOldApi {
       test_complete_->Set();
     }
     ++send_count_;
-    InsertAudio();
-    Encode();
+    InsertAudioAndVerifyEncoding();
     if (TestDone()) {
       test_complete_->Set();
     }
@@ -408,19 +584,19 @@ class AudioCodingModuleMtTestOldApi : public AudioCodingModuleTestOldApi {
     return true;
   }
 
-  scoped_ptr<ThreadWrapper> send_thread_;
-  scoped_ptr<ThreadWrapper> insert_packet_thread_;
-  scoped_ptr<ThreadWrapper> pull_audio_thread_;
-  const scoped_ptr<EventWrapper> test_complete_;
+  rtc::scoped_ptr<ThreadWrapper> send_thread_;
+  rtc::scoped_ptr<ThreadWrapper> insert_packet_thread_;
+  rtc::scoped_ptr<ThreadWrapper> pull_audio_thread_;
+  const rtc::scoped_ptr<EventWrapper> test_complete_;
   int send_count_;
   int insert_packet_count_;
   int pull_audio_count_ GUARDED_BY(crit_sect_);
-  const scoped_ptr<CriticalSectionWrapper> crit_sect_;
+  const rtc::scoped_ptr<CriticalSectionWrapper> crit_sect_;
   int64_t next_insert_packet_time_ms_ GUARDED_BY(crit_sect_);
-  scoped_ptr<SimulatedClock> fake_clock_;
+  rtc::scoped_ptr<SimulatedClock> fake_clock_;
 };
 
-TEST_F(AudioCodingModuleMtTestOldApi, DoTest) {
+TEST_F(AudioCodingModuleMtTestOldApi, DISABLED_ON_IOS(DoTest)) {
   EXPECT_EQ(kEventSignaled, RunTest());
 }
 
@@ -441,6 +617,7 @@ class AcmIsacMtTestOldApi : public AudioCodingModuleMtTestOldApi {
 
   void SetUp() {
     AudioCodingModuleTestOldApi::SetUp();
+    RegisterCodec();  // Must be called before the threads start below.
 
     // Set up input audio source to read from specified file, loop after 5
     // seconds, and deliver blocks of 10 ms.
@@ -452,7 +629,6 @@ class AcmIsacMtTestOldApi : public AudioCodingModuleMtTestOldApi {
     int loop_counter = 0;
     while (packet_cb_.last_payload_len_bytes() == 0) {
       InsertAudio();
-      Encode();
       ASSERT_LT(loop_counter++, 10);
     }
     // Set |last_packet_number_| to one less that |num_calls| so that the packet
@@ -462,8 +638,8 @@ class AcmIsacMtTestOldApi : public AudioCodingModuleMtTestOldApi {
     StartThreads();
   }
 
-  virtual void RegisterCodec() {
-    COMPILE_ASSERT(kSampleRateHz == 16000, test_designed_for_isac_16khz);
+  void RegisterCodec() override {
+    static_assert(kSampleRateHz == 16000, "test designed for iSAC 16 kHz");
     AudioCodingModule::Codec("ISAC", &codec_, kSampleRateHz, 1);
     codec_.pltype = kPayloadType;
 
@@ -497,7 +673,9 @@ class AcmIsacMtTestOldApi : public AudioCodingModuleMtTestOldApi {
     AudioCodingModuleTestOldApi::InsertAudio();
   }
 
-  void Encode() { ASSERT_GE(acm_->Process(), 0); }
+  // Override the verification function with no-op, since iSAC produces variable
+  // payload sizes.
+  void VerifyEncoding() override {}
 
   // This method is the same as AudioCodingModuleMtTestOldApi::TestDone(), but
   // here it is using the constants defined in this class (i.e., shorter test
@@ -518,9 +696,167 @@ class AcmIsacMtTestOldApi : public AudioCodingModuleMtTestOldApi {
   test::AudioLoop audio_loop_;
 };
 
-TEST_F(AcmIsacMtTestOldApi, DoTest) {
+TEST_F(AcmIsacMtTestOldApi, DISABLED_ON_IOS(DoTest)) {
   EXPECT_EQ(kEventSignaled, RunTest());
 }
+
+class AcmReRegisterIsacMtTestOldApi : public AudioCodingModuleTestOldApi {
+ protected:
+  static const int kRegisterAfterNumPackets = 5;
+  static const int kNumPackets = 10;
+  static const int kPacketSizeMs = 30;
+  static const int kPacketSizeSamples = kPacketSizeMs * 16;
+
+  AcmReRegisterIsacMtTestOldApi()
+      : AudioCodingModuleTestOldApi(),
+        receive_thread_(
+            ThreadWrapper::CreateThread(CbReceiveThread, this, "receive")),
+        codec_registration_thread_(
+            ThreadWrapper::CreateThread(CbCodecRegistrationThread,
+                                        this,
+                                        "codec_registration")),
+        test_complete_(EventWrapper::Create()),
+        crit_sect_(CriticalSectionWrapper::CreateCriticalSection()),
+        codec_registered_(false),
+        receive_packet_count_(0),
+        next_insert_packet_time_ms_(0),
+        fake_clock_(new SimulatedClock(0)) {
+    AudioEncoderDecoderIsac::Config config;
+    config.payload_type = kPayloadType;
+    isac_encoder_.reset(new AudioEncoderDecoderIsac(config));
+    clock_ = fake_clock_.get();
+  }
+
+  void SetUp() {
+    AudioCodingModuleTestOldApi::SetUp();
+    // Set up input audio source to read from specified file, loop after 5
+    // seconds, and deliver blocks of 10 ms.
+    const std::string input_file_name =
+        webrtc::test::ResourcePath("audio_coding/speech_mono_16kHz", "pcm");
+    audio_loop_.Init(input_file_name, 5 * kSampleRateHz, kNumSamples10ms);
+    RegisterCodec();  // Must be called before the threads start below.
+    StartThreads();
+  }
+
+  void RegisterCodec() override {
+    static_assert(kSampleRateHz == 16000, "test designed for iSAC 16 kHz");
+    AudioCodingModule::Codec("ISAC", &codec_, kSampleRateHz, 1);
+    codec_.pltype = kPayloadType;
+
+    // Register iSAC codec in ACM, effectively unregistering the PCM16B codec
+    // registered in AudioCodingModuleTestOldApi::SetUp();
+    // Only register the decoder for now. The encoder is registered later.
+    ASSERT_EQ(0, acm_->RegisterReceiveCodec(codec_));
+  }
+
+  void StartThreads() {
+    ASSERT_TRUE(receive_thread_->Start());
+    receive_thread_->SetPriority(kRealtimePriority);
+    ASSERT_TRUE(codec_registration_thread_->Start());
+    codec_registration_thread_->SetPriority(kRealtimePriority);
+  }
+
+  void TearDown() {
+    AudioCodingModuleTestOldApi::TearDown();
+    receive_thread_->Stop();
+    codec_registration_thread_->Stop();
+  }
+
+  EventTypeWrapper RunTest() {
+    return test_complete_->Wait(10 * 60 * 1000);  // 10 minutes' timeout.
+  }
+
+  static bool CbReceiveThread(void* context) {
+    return reinterpret_cast<AcmReRegisterIsacMtTestOldApi*>(context)
+        ->CbReceiveImpl();
+  }
+
+  bool CbReceiveImpl() {
+    SleepMs(1);
+    const size_t max_encoded_bytes = isac_encoder_->MaxEncodedBytes();
+    rtc::scoped_ptr<uint8_t[]> encoded(new uint8_t[max_encoded_bytes]);
+    AudioEncoder::EncodedInfo info;
+    {
+      CriticalSectionScoped lock(crit_sect_.get());
+      if (clock_->TimeInMilliseconds() < next_insert_packet_time_ms_) {
+        return true;
+      }
+      next_insert_packet_time_ms_ += kPacketSizeMs;
+      ++receive_packet_count_;
+
+      // Encode new frame.
+      uint32_t input_timestamp = rtp_header_.header.timestamp;
+      while (info.encoded_bytes == 0) {
+        info = isac_encoder_->Encode(
+            input_timestamp, audio_loop_.GetNextBlock(), kNumSamples10ms,
+            max_encoded_bytes, encoded.get());
+        input_timestamp += 160;  // 10 ms at 16 kHz.
+      }
+      EXPECT_EQ(rtp_header_.header.timestamp + kPacketSizeSamples,
+                input_timestamp);
+      EXPECT_EQ(rtp_header_.header.timestamp, info.encoded_timestamp);
+      EXPECT_EQ(rtp_header_.header.payloadType, info.payload_type);
+    }
+    // Now we're not holding the crit sect when calling ACM.
+
+    // Insert into ACM.
+    EXPECT_EQ(0, acm_->IncomingPacket(encoded.get(), info.encoded_bytes,
+                                      rtp_header_));
+
+    // Pull audio.
+    for (int i = 0; i < rtc::CheckedDivExact(kPacketSizeMs, 10); ++i) {
+      AudioFrame audio_frame;
+      EXPECT_EQ(0, acm_->PlayoutData10Ms(-1 /* default output frequency */,
+                                         &audio_frame));
+      fake_clock_->AdvanceTimeMilliseconds(10);
+    }
+    rtp_utility_->Forward(&rtp_header_);
+    return true;
+  }
+
+  static bool CbCodecRegistrationThread(void* context) {
+    return reinterpret_cast<AcmReRegisterIsacMtTestOldApi*>(context)
+        ->CbCodecRegistrationImpl();
+  }
+
+  bool CbCodecRegistrationImpl() {
+    SleepMs(1);
+    if (HasFatalFailure()) {
+      // End the test early if a fatal failure (ASSERT_*) has occurred.
+      test_complete_->Set();
+    }
+    CriticalSectionScoped lock(crit_sect_.get());
+    if (!codec_registered_ &&
+        receive_packet_count_ > kRegisterAfterNumPackets) {
+      // Register the iSAC encoder.
+      EXPECT_EQ(0, acm_->RegisterSendCodec(codec_));
+      codec_registered_ = true;
+    }
+    if (codec_registered_ && receive_packet_count_ > kNumPackets) {
+      test_complete_->Set();
+    }
+    return true;
+  }
+
+  rtc::scoped_ptr<ThreadWrapper> receive_thread_;
+  rtc::scoped_ptr<ThreadWrapper> codec_registration_thread_;
+  const rtc::scoped_ptr<EventWrapper> test_complete_;
+  const rtc::scoped_ptr<CriticalSectionWrapper> crit_sect_;
+  bool codec_registered_ GUARDED_BY(crit_sect_);
+  int receive_packet_count_ GUARDED_BY(crit_sect_);
+  int64_t next_insert_packet_time_ms_ GUARDED_BY(crit_sect_);
+  rtc::scoped_ptr<AudioEncoderDecoderIsac> isac_encoder_;
+  rtc::scoped_ptr<SimulatedClock> fake_clock_;
+  test::AudioLoop audio_loop_;
+};
+
+TEST_F(AcmReRegisterIsacMtTestOldApi, DISABLED_ON_IOS(DoTest)) {
+  EXPECT_EQ(kEventSignaled, RunTest());
+}
+
+// Disabling all of these tests on iOS until file support has been added.
+// See https://code.google.com/p/webrtc/issues/detail?id=4752 for details.
+#if !defined(WEBRTC_IOS)
 
 class AcmReceiverBitExactnessOldApi : public ::testing::Test {
  public:
@@ -540,7 +876,7 @@ class AcmReceiverBitExactnessOldApi : public ::testing::Test {
   void Run(int output_freq_hz, const std::string& checksum_ref) {
     const std::string input_file_name =
         webrtc::test::ResourcePath("audio_coding/neteq_universal_new", "rtp");
-    scoped_ptr<test::RtpFileSource> packet_source(
+    rtc::scoped_ptr<test::RtpFileSource> packet_source(
         test::RtpFileSource::Create(input_file_name));
 #ifdef WEBRTC_ANDROID
     // Filter out iLBC and iSAC-swb since they are not supported on Android.
@@ -572,32 +908,56 @@ class AcmReceiverBitExactnessOldApi : public ::testing::Test {
   }
 };
 
-TEST_F(AcmReceiverBitExactnessOldApi, 8kHzOutput) {
+// Fails Android ARM64. https://code.google.com/p/webrtc/issues/detail?id=4199
+#if defined(WEBRTC_ANDROID) && defined(WEBRTC_ARCH_ARM64)
+#define MAYBE_8kHzOutput DISABLED_8kHzOutput
+#else
+#define MAYBE_8kHzOutput 8kHzOutput
+#endif
+TEST_F(AcmReceiverBitExactnessOldApi, MAYBE_8kHzOutput) {
   Run(8000,
-      PlatformChecksum("bd6f8d9602cd82444ea2539e674df747",
-                       "6ac89c7145072c26bfeba602cd661afb",
-                       "8a8440f5511eb729221b9aac25cda3a0"));
+      PlatformChecksum("dcee98c623b147ebe1b40dd30efa896e",
+                       "adc92e173f908f93b96ba5844209815a",
+                       "908002dc01fc4eb1d2be24eb1d3f354b"));
 }
 
-TEST_F(AcmReceiverBitExactnessOldApi, 16kHzOutput) {
+// Fails Android ARM64. https://code.google.com/p/webrtc/issues/detail?id=4199
+#if defined(WEBRTC_ANDROID) && defined(WEBRTC_ARCH_ARM64)
+#define MAYBE_16kHzOutput DISABLED_16kHzOutput
+#else
+#define MAYBE_16kHzOutput 16kHzOutput
+#endif
+TEST_F(AcmReceiverBitExactnessOldApi, MAYBE_16kHzOutput) {
   Run(16000,
-      PlatformChecksum("a39bc6ee0c4eb15f3ad2f43cebcc571d",
-                       "3e888eb04f57db2c6ef952fe64f17fe6",
-                       "7be583092c5adbcb0f6cd66eca20ea63"));
+      PlatformChecksum("f790e7a8cce4e2c8b7bb5e0e4c5dac0d",
+                       "8cffa6abcb3e18e33b9d857666dff66a",
+                       "a909560b5ca49fa472b17b7b277195e9"));
 }
 
-TEST_F(AcmReceiverBitExactnessOldApi, 32kHzOutput) {
+// Fails Android ARM64. https://code.google.com/p/webrtc/issues/detail?id=4199
+#if defined(WEBRTC_ANDROID) && defined(WEBRTC_ARCH_ARM64)
+#define MAYBE_32kHzOutput DISABLED_32kHzOutput
+#else
+#define MAYBE_32kHzOutput 32kHzOutput
+#endif
+TEST_F(AcmReceiverBitExactnessOldApi, MAYBE_32kHzOutput) {
   Run(32000,
-      PlatformChecksum("80964572aaa2dc92f9e34896dd3802b3",
-                       "aeca37e963310f5b6552b7edea23c2f1",
-                       "3a84188abe9fca25fedd6034760f3e22"));
+      PlatformChecksum("306e0d990ee6e92de3fbecc0123ece37",
+                       "3e126fe894720c3f85edadcc91964ba5",
+                       "441aab4b347fb3db4e9244337aca8d8e"));
 }
 
-TEST_F(AcmReceiverBitExactnessOldApi, 48kHzOutput) {
+// Fails Android ARM64. https://code.google.com/p/webrtc/issues/detail?id=4199
+#if defined(WEBRTC_ANDROID) && defined(WEBRTC_ARCH_ARM64)
+#define MAYBE_48kHzOutput DISABLED_48kHzOutput
+#else
+#define MAYBE_48kHzOutput 48kHzOutput
+#endif
+TEST_F(AcmReceiverBitExactnessOldApi, MAYBE_48kHzOutput) {
   Run(48000,
-      PlatformChecksum("8aacde91f390e0d5a9c2ed571a25fd37",
-                       "76b9e99e0a3998aa28355e7a2bd836f7",
-                       "89b4b19bdb4de40f1d88302ef8cb9f9b"));
+      PlatformChecksum("aa7c232f63a67b2a72703593bdd172e0",
+                       "0155665e93067c4e89256b944dd11999",
+                       "4ee2730fa1daae755e8a8fd3abd779ec"));
 }
 
 // This test verifies bit exactness for the send-side of ACM. The test setup is
@@ -655,6 +1015,15 @@ class AcmSenderBitExactnessOldApi : public ::testing::Test,
                                      frame_size_samples);
   }
 
+  bool RegisterExternalSendCodec(AudioEncoderMutable* external_speech_encoder,
+                                 int payload_type) {
+    payload_type_ = payload_type;
+    frame_size_rtp_timestamps_ =
+        external_speech_encoder->Num10MsFramesInNextPacket() *
+        external_speech_encoder->RtpTimestampRateHz() / 100;
+    return send_test_->RegisterExternalCodec(external_speech_encoder);
+  }
+
   // Runs the test. SetUpSender() and RegisterSendCodec() must have been called
   // before calling this method.
   void Run(const std::string& audio_checksum_ref,
@@ -699,7 +1068,7 @@ class AcmSenderBitExactnessOldApi : public ::testing::Test,
   // Returns a pointer to the next packet. Returns NULL if the source is
   // depleted (i.e., the test duration is exceeded), or if an error occurred.
   // Inherited from test::PacketSource.
-  test::Packet* NextPacket() OVERRIDE {
+  test::Packet* NextPacket() override {
     // Get the next packet from AcmSendTest. Ownership of |packet| is
     // transferred to this method.
     test::Packet* packet = send_test_->NextPacket();
@@ -748,8 +1117,15 @@ class AcmSenderBitExactnessOldApi : public ::testing::Test,
                                   codec_frame_size_rtp_timestamps));
   }
 
-  scoped_ptr<test::AcmSendTestOldApi> send_test_;
-  scoped_ptr<test::InputAudioFile> audio_source_;
+  void SetUpTestExternalEncoder(AudioEncoderMutable* external_speech_encoder,
+                                int payload_type) {
+    ASSERT_TRUE(SetUpSender());
+    ASSERT_TRUE(
+        RegisterExternalSendCodec(external_speech_encoder, payload_type));
+  }
+
+  rtc::scoped_ptr<test::AcmSendTestOldApi> send_test_;
+  rtc::scoped_ptr<test::InputAudioFile> audio_source_;
   uint32_t frame_size_rtp_timestamps_;
   int packet_count_;
   uint8_t payload_type_;
@@ -758,7 +1134,13 @@ class AcmSenderBitExactnessOldApi : public ::testing::Test,
   rtc::Md5Digest payload_checksum_;
 };
 
-TEST_F(AcmSenderBitExactnessOldApi, IsacWb30ms) {
+// Fails Android ARM64. https://code.google.com/p/webrtc/issues/detail?id=4199
+#if defined(WEBRTC_ANDROID) && defined(WEBRTC_ARCH_ARM64)
+#define MAYBE_IsacWb30ms DISABLED_IsacWb30ms
+#else
+#define MAYBE_IsacWb30ms IsacWb30ms
+#endif
+TEST_F(AcmSenderBitExactnessOldApi, MAYBE_IsacWb30ms) {
   ASSERT_NO_FATAL_FAILURE(SetUpTest("ISAC", 16000, 1, 103, 480, 480));
   Run(AcmReceiverBitExactnessOldApi::PlatformChecksum(
           "c7e5bdadfa2871df95639fcc297cf23d",
@@ -772,7 +1154,13 @@ TEST_F(AcmSenderBitExactnessOldApi, IsacWb30ms) {
       test::AcmReceiveTestOldApi::kMonoOutput);
 }
 
-TEST_F(AcmSenderBitExactnessOldApi, IsacWb60ms) {
+// Fails Android ARM64. https://code.google.com/p/webrtc/issues/detail?id=4199
+#if defined(WEBRTC_ANDROID) && defined(WEBRTC_ARCH_ARM64)
+#define MAYBE_IsacWb60ms DISABLED_IsacWb60ms
+#else
+#define MAYBE_IsacWb60ms IsacWb60ms
+#endif
+TEST_F(AcmSenderBitExactnessOldApi, MAYBE_IsacWb60ms) {
   ASSERT_NO_FATAL_FAILURE(SetUpTest("ISAC", 16000, 1, 103, 960, 960));
   Run(AcmReceiverBitExactnessOldApi::PlatformChecksum(
           "14d63c5f08127d280e722e3191b73bdd",
@@ -789,15 +1177,14 @@ TEST_F(AcmSenderBitExactnessOldApi, IsacWb60ms) {
 TEST_F(AcmSenderBitExactnessOldApi, DISABLED_ON_ANDROID(IsacSwb30ms)) {
   ASSERT_NO_FATAL_FAILURE(SetUpTest("ISAC", 32000, 1, 104, 960, 960));
   Run(AcmReceiverBitExactnessOldApi::PlatformChecksum(
-          "98d960600eb4ddb3fcbe11f5057ddfd7",
+          "2b3c387d06f00b7b7aad4c9be56fb83d",
           "",
-          "2f6dfe142f735f1d96f6bd86d2526f42"),
+          "5683b58da0fbf2063c7adc2e6bfb3fb8"),
       AcmReceiverBitExactnessOldApi::PlatformChecksum(
-          "cc9d2d86a71d6f99f97680a5c27e2762",
+          "bcc2041e7744c7ebd9f701866856849c",
           "",
-          "7b214fc3a5e33d68bf30e77969371f31"),
-      33,
-      test::AcmReceiveTestOldApi::kMonoOutput);
+          "ce86106a93419aefb063097108ec94ab"),
+      33, test::AcmReceiveTestOldApi::kMonoOutput);
 }
 
 TEST_F(AcmSenderBitExactnessOldApi, Pcm16_8000khz_10ms) {
@@ -922,7 +1309,13 @@ TEST_F(AcmSenderBitExactnessOldApi, DISABLED_ON_ANDROID(G722_stereo_20ms)) {
       test::AcmReceiveTestOldApi::kStereoOutput);
 }
 
-TEST_F(AcmSenderBitExactnessOldApi, Opus_stereo_20ms) {
+// Fails Android ARM64. https://code.google.com/p/webrtc/issues/detail?id=4199
+#if defined(WEBRTC_ANDROID) && defined(WEBRTC_ARCH_ARM64)
+#define MAYBE_Opus_stereo_20ms DISABLED_Opus_stereo_20ms
+#else
+#define MAYBE_Opus_stereo_20ms Opus_stereo_20ms
+#endif
+TEST_F(AcmSenderBitExactnessOldApi, MAYBE_Opus_stereo_20ms) {
   ASSERT_NO_FATAL_FAILURE(SetUpTest("opus", 48000, 2, 120, 960, 960));
   Run(AcmReceiverBitExactnessOldApi::PlatformChecksum(
           "855041f2490b887302bce9d544731849",
@@ -934,6 +1327,251 @@ TEST_F(AcmSenderBitExactnessOldApi, Opus_stereo_20ms) {
           "d781cce1ab986b618d0da87226cdde30"),
       50,
       test::AcmReceiveTestOldApi::kStereoOutput);
+}
+
+// Fails Android ARM64. https://code.google.com/p/webrtc/issues/detail?id=4199
+#if defined(WEBRTC_ANDROID) && defined(WEBRTC_ARCH_ARM64)
+#define MAYBE_Opus_stereo_20ms_voip DISABLED_Opus_stereo_20ms_voip
+#else
+#define MAYBE_Opus_stereo_20ms_voip Opus_stereo_20ms_voip
+#endif
+TEST_F(AcmSenderBitExactnessOldApi, MAYBE_Opus_stereo_20ms_voip) {
+  ASSERT_NO_FATAL_FAILURE(SetUpTest("opus", 48000, 2, 120, 960, 960));
+  // If not set, default will be kAudio in case of stereo.
+  EXPECT_EQ(0, send_test_->acm()->SetOpusApplication(kVoip));
+  Run(AcmReceiverBitExactnessOldApi::PlatformChecksum(
+          "9b9e12bc3cc793740966e11cbfa8b35b",
+          "57412a4b5771d19ff03ec35deffe7067",
+          "9b9e12bc3cc793740966e11cbfa8b35b"),
+      AcmReceiverBitExactnessOldApi::PlatformChecksum(
+          "c7340b1189652ab6b5e80dade7390cb4",
+          "cdfe85939c411d12b61701c566e22d26",
+          "c7340b1189652ab6b5e80dade7390cb4"),
+      50,
+      test::AcmReceiveTestOldApi::kStereoOutput);
+}
+
+// This test is for verifying the SetBitRate function. The bitrate is changed at
+// the beginning, and the number of generated bytes are checked.
+class AcmSetBitRateOldApi : public ::testing::Test {
+ protected:
+  static const int kTestDurationMs = 1000;
+
+  // Sets up the test::AcmSendTest object. Returns true on success, otherwise
+  // false.
+  bool SetUpSender() {
+    const std::string input_file_name =
+        webrtc::test::ResourcePath("audio_coding/testfile32kHz", "pcm");
+    // Note that |audio_source_| will loop forever. The test duration is set
+    // explicitly by |kTestDurationMs|.
+    audio_source_.reset(new test::InputAudioFile(input_file_name));
+    static const int kSourceRateHz = 32000;
+    send_test_.reset(new test::AcmSendTestOldApi(
+        audio_source_.get(), kSourceRateHz, kTestDurationMs));
+    return send_test_.get();
+  }
+
+  // Registers a send codec in the test::AcmSendTest object. Returns true on
+  // success, false on failure.
+  virtual bool RegisterSendCodec(const char* payload_name,
+                                 int sampling_freq_hz,
+                                 int channels,
+                                 int payload_type,
+                                 int frame_size_samples,
+                                 int frame_size_rtp_timestamps) {
+    return send_test_->RegisterCodec(payload_name, sampling_freq_hz, channels,
+                                     payload_type, frame_size_samples);
+  }
+
+  // Runs the test. SetUpSender() and RegisterSendCodec() must have been called
+  // before calling this method.
+  void Run(int target_bitrate_bps, int expected_total_bits) {
+    ASSERT_TRUE(send_test_->acm());
+    send_test_->acm()->SetBitRate(target_bitrate_bps);
+    int nr_bytes = 0;
+    while (test::Packet* next_packet = send_test_->NextPacket()) {
+      nr_bytes += next_packet->payload_length_bytes();
+      delete next_packet;
+    }
+    EXPECT_EQ(expected_total_bits, nr_bytes * 8);
+  }
+
+  void SetUpTest(const char* codec_name,
+                 int codec_sample_rate_hz,
+                 int channels,
+                 int payload_type,
+                 int codec_frame_size_samples,
+                 int codec_frame_size_rtp_timestamps) {
+    ASSERT_TRUE(SetUpSender());
+    ASSERT_TRUE(RegisterSendCodec(codec_name, codec_sample_rate_hz, channels,
+                                  payload_type, codec_frame_size_samples,
+                                  codec_frame_size_rtp_timestamps));
+  }
+
+  rtc::scoped_ptr<test::AcmSendTestOldApi> send_test_;
+  rtc::scoped_ptr<test::InputAudioFile> audio_source_;
+};
+
+TEST_F(AcmSetBitRateOldApi, Opus_48khz_20ms_10kbps) {
+  ASSERT_NO_FATAL_FAILURE(SetUpTest("opus", 48000, 1, 107, 960, 960));
+#if defined(WEBRTC_ANDROID)
+  Run(10000, 9328);
+#else
+  Run(10000, 9072);
+#endif // WEBRTC_ANDROID
+
+}
+
+TEST_F(AcmSetBitRateOldApi, Opus_48khz_20ms_50kbps) {
+  ASSERT_NO_FATAL_FAILURE(SetUpTest("opus", 48000, 1, 107, 960, 960));
+#if defined(WEBRTC_ANDROID)
+  Run(50000, 47952);
+#else
+  Run(50000, 49600);
+#endif // WEBRTC_ANDROID
+}
+
+// The result on the Android platforms is inconsistent for this test case.
+// On android_rel the result is different from android and android arm64 rel.
+TEST_F(AcmSetBitRateOldApi, DISABLED_ON_ANDROID(Opus_48khz_20ms_100kbps)) {
+  ASSERT_NO_FATAL_FAILURE(SetUpTest("opus", 48000, 1, 107, 960, 960));
+  Run(100000, 100888);
+}
+
+// These next 2 tests ensure that the SetBitRate function has no effect on PCM
+TEST_F(AcmSetBitRateOldApi, Pcm16_8khz_10ms_8kbps) {
+  ASSERT_NO_FATAL_FAILURE(SetUpTest("L16", 8000, 1, 107, 80, 80));
+  Run(8000, 128000);
+}
+
+TEST_F(AcmSetBitRateOldApi, Pcm16_8khz_10ms_32kbps) {
+  ASSERT_NO_FATAL_FAILURE(SetUpTest("L16", 8000, 1, 107, 80, 80));
+  Run(32000, 128000);
+}
+
+// This test is for verifying the SetBitRate function. The bitrate is changed
+// in the middle, and the number of generated bytes are before and after the
+// change are checked.
+class AcmChangeBitRateOldApi : public AcmSetBitRateOldApi {
+ protected:
+  AcmChangeBitRateOldApi() : sampling_freq_hz_(0), frame_size_samples_(0) {}
+
+  // Registers a send codec in the test::AcmSendTest object. Returns true on
+  // success, false on failure.
+  bool RegisterSendCodec(const char* payload_name,
+                         int sampling_freq_hz,
+                         int channels,
+                         int payload_type,
+                         int frame_size_samples,
+                         int frame_size_rtp_timestamps) override {
+    frame_size_samples_ = frame_size_samples;
+    sampling_freq_hz_ = sampling_freq_hz;
+    return AcmSetBitRateOldApi::RegisterSendCodec(
+        payload_name, sampling_freq_hz, channels, payload_type,
+        frame_size_samples, frame_size_rtp_timestamps);
+  }
+
+  // Runs the test. SetUpSender() and RegisterSendCodec() must have been called
+  // before calling this method.
+  void Run(int target_bitrate_bps,
+           int expected_before_switch_bits,
+           int expected_after_switch_bits) {
+    ASSERT_TRUE(send_test_->acm());
+    int nr_packets =
+        sampling_freq_hz_ * kTestDurationMs / (frame_size_samples_ * 1000);
+    int nr_bytes_before = 0, nr_bytes_after = 0;
+    int packet_counter = 0;
+    while (test::Packet* next_packet = send_test_->NextPacket()) {
+      if (packet_counter == nr_packets / 2)
+        send_test_->acm()->SetBitRate(target_bitrate_bps);
+      if (packet_counter < nr_packets / 2)
+        nr_bytes_before += next_packet->payload_length_bytes();
+      else
+        nr_bytes_after += next_packet->payload_length_bytes();
+      packet_counter++;
+      delete next_packet;
+    }
+    EXPECT_EQ(expected_before_switch_bits, nr_bytes_before * 8);
+    EXPECT_EQ(expected_after_switch_bits, nr_bytes_after * 8);
+  }
+
+  uint32_t sampling_freq_hz_;
+  uint32_t frame_size_samples_;
+};
+
+TEST_F(AcmChangeBitRateOldApi, Opus_48khz_20ms_10kbps) {
+  ASSERT_NO_FATAL_FAILURE(SetUpTest("opus", 48000, 1, 107, 960, 960));
+#if defined(WEBRTC_ANDROID)
+  Run(10000, 32200, 5496);
+#else
+  Run(10000, 32200, 5432);
+#endif // WEBRTC_ANDROID
+}
+
+TEST_F(AcmChangeBitRateOldApi, Opus_48khz_20ms_50kbps) {
+  ASSERT_NO_FATAL_FAILURE(SetUpTest("opus", 48000, 1, 107, 960, 960));
+#if defined(WEBRTC_ANDROID)
+  Run(50000, 32200, 24912);
+#else
+  Run(50000, 32200, 24792);
+#endif // WEBRTC_ANDROID
+}
+
+TEST_F(AcmChangeBitRateOldApi, Opus_48khz_20ms_100kbps) {
+  ASSERT_NO_FATAL_FAILURE(SetUpTest("opus", 48000, 1, 107, 960, 960));
+#if defined(WEBRTC_ANDROID)
+  Run(100000, 32200, 51480);
+#else
+  Run(100000, 32200, 50584);
+#endif // WEBRTC_ANDROID
+}
+
+// These next 2 tests ensure that the SetBitRate function has no effect on PCM
+TEST_F(AcmChangeBitRateOldApi, Pcm16_8khz_10ms_8kbps) {
+  ASSERT_NO_FATAL_FAILURE(SetUpTest("L16", 8000, 1, 107, 80, 80));
+  Run(8000, 64000, 64000);
+}
+
+TEST_F(AcmChangeBitRateOldApi, Pcm16_8khz_10ms_32kbps) {
+  ASSERT_NO_FATAL_FAILURE(SetUpTest("L16", 8000, 1, 107, 80, 80));
+  Run(32000, 64000, 64000);
+}
+
+TEST_F(AcmSenderBitExactnessOldApi, External_Pcmu_20ms) {
+  CodecInst codec_inst;
+  codec_inst.channels = 1;
+  codec_inst.pacsize = 160;
+  codec_inst.pltype = 0;
+  AudioEncoderMutablePcmU encoder(codec_inst);
+  MockAudioEncoderMutable mock_encoder;
+  // Set expectations on the mock encoder and also delegate the calls to the
+  // real encoder.
+  EXPECT_CALL(mock_encoder, Num10MsFramesInNextPacket())
+      .Times(AtLeast(1))
+      .WillRepeatedly(Invoke(
+          &encoder, &AudioEncoderMutablePcmU::Num10MsFramesInNextPacket));
+  EXPECT_CALL(mock_encoder, Max10MsFramesInAPacket())
+      .Times(AtLeast(1))
+      .WillRepeatedly(
+          Invoke(&encoder, &AudioEncoderMutablePcmU::Max10MsFramesInAPacket));
+  EXPECT_CALL(mock_encoder, SampleRateHz())
+      .Times(AtLeast(1))
+      .WillRepeatedly(Invoke(&encoder, &AudioEncoderMutablePcmU::SampleRateHz));
+  EXPECT_CALL(mock_encoder, NumChannels())
+      .Times(AtLeast(1))
+      .WillRepeatedly(Invoke(&encoder, &AudioEncoderMutablePcmU::NumChannels));
+  EXPECT_CALL(mock_encoder, EncodeInternal(_, _, _, _))
+      .Times(AtLeast(1))
+      .WillRepeatedly(
+          Invoke(&encoder, &AudioEncoderMutablePcmU::EncodeInternal));
+  EXPECT_CALL(mock_encoder, GetTargetBitrate())
+      .Times(AtLeast(1))
+      .WillRepeatedly(Invoke(
+          &encoder, &AudioEncoderMutablePcmU::GetTargetBitrate));
+  ASSERT_NO_FATAL_FAILURE(
+      SetUpTestExternalEncoder(&mock_encoder, codec_inst.pltype));
+  Run("81a9d4c0bb72e9becc43aef124c981e9", "8f9b8750bd80fe26b6cbf6659b89f0f9",
+      50, test::AcmReceiveTestOldApi::kMonoOutput);
 }
 
 // This test fixture is implemented to run ACM and change the desired output
@@ -990,7 +1628,7 @@ class AcmSwitchingOutputFrequencyOldApi : public ::testing::Test,
   }
 
   // Inherited from test::PacketSource.
-  test::Packet* NextPacket() OVERRIDE {
+  test::Packet* NextPacket() override {
     // Check if it is time to terminate the test. The packet source is of type
     // ConstantPcmPacketSource, which is infinite, so we must end the test
     // "manually".
@@ -1049,4 +1687,7 @@ TEST_F(AcmSwitchingOutputFrequencyOldApi, Toggle16KhzTo8Khz) {
 TEST_F(AcmSwitchingOutputFrequencyOldApi, Toggle8KhzTo16Khz) {
   Run(8000, 16000, 1000);
 }
+
+#endif
+
 }  // namespace webrtc

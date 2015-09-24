@@ -14,14 +14,15 @@
 class ImeController : public ash::ImeControlDelegate {
  public:
   ImeController() {}
-  virtual ~ImeController() {}
+  ~ImeController() override {}
 
   // Overridden from ash::ImeControlDelegate:
-  virtual void HandleNextIme() override;
-  virtual bool HandlePreviousIme(const ui::Accelerator& accelerator) override;
-  virtual bool HandleSwitchIme(const ui::Accelerator& accelerator) override;
-  virtual ui::Accelerator RemapAccelerator(
-      const ui::Accelerator& accelerator) override;
+  bool CanCycleIme() override;
+  void HandleNextIme() override;
+  void HandlePreviousIme() override;
+  bool CanSwitchIme(const ui::Accelerator& accelerator) override;
+  void HandleSwitchIme(const ui::Accelerator& accelerator) override;
+  ui::Accelerator RemapAccelerator(const ui::Accelerator& accelerator) override;
 
  private:
   bool UsingFrenchInputMethod() const;

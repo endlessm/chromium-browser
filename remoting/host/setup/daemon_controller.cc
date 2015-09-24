@@ -47,16 +47,6 @@ void DaemonController::GetConfig(const GetConfigCallback& done) {
   ServiceOrQueueRequest(request);
 }
 
-void DaemonController::InstallHost(const CompletionCallback& done) {
-  DCHECK(caller_task_runner_->BelongsToCurrentThread());
-
-  DaemonController::CompletionCallback wrapped_done = base::Bind(
-      &DaemonController::InvokeCompletionCallbackAndScheduleNext, this, done);
-  base::Closure request = base::Bind(
-      &DaemonController::DoInstallHost, this, wrapped_done);
-  ServiceOrQueueRequest(request);
-}
-
 void DaemonController::SetConfigAndStart(
     scoped_ptr<base::DictionaryValue> config,
     bool consent,
@@ -93,25 +83,6 @@ void DaemonController::Stop(const CompletionCallback& done) {
   ServiceOrQueueRequest(request);
 }
 
-void DaemonController::SetWindow(void* window_handle) {
-  DCHECK(caller_task_runner_->BelongsToCurrentThread());
-
-  base::Closure done = base::Bind(&DaemonController::ScheduleNext, this);
-  base::Closure request = base::Bind(
-      &DaemonController::DoSetWindow, this, window_handle, done);
-  ServiceOrQueueRequest(request);
-}
-
-void DaemonController::GetVersion(const GetVersionCallback& done) {
-  DCHECK(caller_task_runner_->BelongsToCurrentThread());
-
-  DaemonController::GetVersionCallback wrapped_done = base::Bind(
-      &DaemonController::InvokeVersionCallbackAndScheduleNext, this, done);
-  base::Closure request = base::Bind(
-      &DaemonController::DoGetVersion, this, wrapped_done);
-  ServiceOrQueueRequest(request);
-}
-
 void DaemonController::GetUsageStatsConsent(
     const GetUsageStatsConsentCallback& done) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
@@ -128,7 +99,7 @@ DaemonController::~DaemonController() {
   delegate_task_runner_->DeleteSoon(FROM_HERE, delegate_.release());
 
   // Stop the thread.
-  delegate_task_runner_ = NULL;
+  delegate_task_runner_ = nullptr;
   caller_task_runner_->DeleteSoon(FROM_HERE, delegate_thread_.release());
 }
 
@@ -138,12 +109,6 @@ void DaemonController::DoGetConfig(const GetConfigCallback& done) {
   scoped_ptr<base::DictionaryValue> config = delegate_->GetConfig();
   caller_task_runner_->PostTask(FROM_HERE,
                                 base::Bind(done, base::Passed(&config)));
-}
-
-void DaemonController::DoInstallHost(const CompletionCallback& done) {
-  DCHECK(delegate_task_runner_->BelongsToCurrentThread());
-
-  delegate_->InstallHost(done);
 }
 
 void DaemonController::DoSetConfigAndStart(
@@ -167,21 +132,6 @@ void DaemonController::DoStop(const CompletionCallback& done) {
   DCHECK(delegate_task_runner_->BelongsToCurrentThread());
 
   delegate_->Stop(done);
-}
-
-void DaemonController::DoSetWindow(void* window_handle,
-                                   const base::Closure& done) {
-  DCHECK(delegate_task_runner_->BelongsToCurrentThread());
-
-  delegate_->SetWindow(window_handle);
-  caller_task_runner_->PostTask(FROM_HERE, done);
-}
-
-void DaemonController::DoGetVersion(const GetVersionCallback& done) {
-  DCHECK(delegate_task_runner_->BelongsToCurrentThread());
-
-  std::string version = delegate_->GetVersion();
-  caller_task_runner_->PostTask(FROM_HERE, base::Bind(done, version));
 }
 
 void DaemonController::DoGetUsageStatsConsent(
@@ -223,15 +173,6 @@ void DaemonController::InvokeConsentCallbackAndScheduleNext(
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
   done.Run(consent);
-  ScheduleNext();
-}
-
-void DaemonController::InvokeVersionCallbackAndScheduleNext(
-    const GetVersionCallback& done,
-    const std::string& version) {
-  DCHECK(caller_task_runner_->BelongsToCurrentThread());
-
-  done.Run(version);
   ScheduleNext();
 }
 

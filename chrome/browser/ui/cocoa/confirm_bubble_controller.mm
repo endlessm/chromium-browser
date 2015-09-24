@@ -4,23 +4,22 @@
 
 #import "chrome/browser/ui/cocoa/confirm_bubble_controller.h"
 
-#include "base/mac/mac_util.h"
 #include "base/strings/sys_string_conversions.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/confirm_bubble_cocoa.h"
 #import "chrome/browser/ui/confirm_bubble_model.h"
+#include "ui/gfx/geometry/point.h"
 #include "ui/gfx/image/image.h"
-#include "ui/gfx/point.h"
 
 @implementation ConfirmBubbleController
 
 - (id)initWithParent:(NSView*)parent
               origin:(CGPoint)origin
-               model:(ConfirmBubbleModel*)model {
+               model:(scoped_ptr<ConfirmBubbleModel>)model {
   if ((self = [super initWithNibName:nil bundle:nil])) {
     parent_ = parent;
     origin_ = origin;
-    model_.reset(model);
+    model_ = model.Pass();
   }
   return self;
 }

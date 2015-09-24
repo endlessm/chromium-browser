@@ -12,7 +12,7 @@
 #include "base/files/file_path.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/single_thread_task_runner.h"
 #include "base/threading/thread.h"
 #include "base/time/time.h"
 #include "chrome/service/cloud_print/cloud_print_url_fetcher.h"
@@ -268,8 +268,6 @@ class PrinterJobHandler : public base::RefCountedThreadSafe<PrinterJobHandler>,
   // DataHandler (depending on the current request being made).
   JSONDataHandler next_json_data_handler_;
   DataHandler next_data_handler_;
-  // The number of consecutive times that connecting to the server failed.
-  int server_error_count_;
   // The thread on which the actual print operation happens
   base::Thread print_thread_;
   // The Job spooler object. This is only non-NULL during a print operation.
@@ -277,7 +275,7 @@ class PrinterJobHandler : public base::RefCountedThreadSafe<PrinterJobHandler>,
   scoped_refptr<PrintSystem::JobSpooler> job_spooler_;
   // The message loop proxy representing the thread on which this object
   // was created. Used by the print thread.
-  scoped_refptr<base::MessageLoopProxy> job_handler_message_loop_proxy_;
+  scoped_refptr<base::SingleThreadTaskRunner> job_handler_task_runner_;
 
   // There may be pending tasks in the message queue when Shutdown is called.
   // We set this flag so as to do nothing in those tasks.
@@ -289,9 +287,6 @@ class PrinterJobHandler : public base::RefCountedThreadSafe<PrinterJobHandler>,
   // Flags that specify various pending server updates
   bool job_check_pending_;
   bool printer_update_pending_;
-
-  // Number of seconds between XMPP pings (for server registration)
-  int xmpp_ping_interval_;
 
   // Some task in the state machine is in progress.
   bool task_in_progress_;

@@ -8,6 +8,7 @@
 #include "chrome/browser/prefs/pref_model_associator.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_profile.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 class AbstractPreferenceMergeTest : public testing::Test {
@@ -45,6 +46,7 @@ class AbstractPreferenceMergeTest : public testing::Test {
     pref_service_->Set(pref_name.c_str(), *empty_value);
   }
 
+  content::TestBrowserThreadBundle thread_bundle_;
   TestingProfile profile_;
   PrefService* pref_service_;
 };
@@ -94,7 +96,7 @@ TEST_F(ListPreferenceMergeTest, LocalEmpty) {
 }
 
 TEST_F(ListPreferenceMergeTest, ServerNull) {
-  scoped_ptr<base::Value> null_value(base::Value::CreateNullValue());
+  scoped_ptr<base::Value> null_value = base::Value::CreateNullValue();
   {
     ListPrefUpdate update(pref_service_, prefs::kURLsToRestoreOnStartup);
     base::ListValue* local_list_value = update.Get();
@@ -231,7 +233,7 @@ TEST_F(DictionaryPreferenceMergeTest, LocalEmpty) {
 }
 
 TEST_F(DictionaryPreferenceMergeTest, ServerNull) {
-  scoped_ptr<base::Value> null_value(base::Value::CreateNullValue());
+  scoped_ptr<base::Value> null_value = base::Value::CreateNullValue();
   {
     DictionaryPrefUpdate update(pref_service_,
                                 prefs::kContentSettingsPatternPairs);

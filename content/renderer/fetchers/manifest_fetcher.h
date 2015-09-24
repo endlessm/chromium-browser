@@ -38,7 +38,9 @@ class CONTENT_EXPORT ManifestFetcher {
   explicit ManifestFetcher(const GURL& url);
   virtual ~ManifestFetcher();
 
-  void Start(blink::WebFrame* frame, const Callback& callback);
+  void Start(blink::WebFrame* frame,
+             bool use_credentials,
+             const Callback& callback);
   void Cancel();
 
  private:
@@ -54,4 +56,4 @@ class CONTENT_EXPORT ManifestFetcher {
 
 } // namespace content
 
-#endif // CONTENT_RENDERER_FETCHERS_MANIFEST_FETCHER_H_
+#endif  // CONTENT_RENDERER_FETCHERS_MANIFEST_FETCHER_H_

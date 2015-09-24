@@ -13,27 +13,24 @@
 #include "SkCanvas.h"
 #include "SkColor.h"
 #include "SkImageFilter.h"
+#include "SkSurfaceProps.h"
 
 class SkClipStack;
 class SkDraw;
+class SkDrawFilter;
 struct SkIRect;
 class SkMatrix;
 class SkMetaData;
 class SkRegion;
-struct SkDeviceProperties;
 class GrRenderTarget;
 
 class SK_API SkBaseDevice : public SkRefCnt {
 public:
-    SK_DECLARE_INST_COUNT(SkBaseDevice)
-
     /**
      *  Construct a new device.
     */
-    SkBaseDevice();
+    explicit SkBaseDevice(const SkSurfaceProps&);
     virtual ~SkBaseDevice();
-
-    SkBaseDevice* createCompatibleDevice(const SkImageInfo&);
 
     SkMetaData& getMetaData();
 
@@ -52,6 +49,12 @@ public:
         SkASSERT(bounds);
         const SkIPoint& origin = this->getOrigin();
         bounds->setXYWH(origin.x(), origin.y(), this->width(), this->height());
+    }
+
+    SkIRect getGlobalBounds() const {
+        SkIRect bounds;
+        this->getGlobalBounds(&bounds);
+        return bounds;
     }
 
     int width() const {
@@ -76,7 +79,22 @@ public:
 
     bool writePixels(const SkImageInfo&, const void*, size_t rowBytes, int x, int y);
 
-    void* accessPixels(SkImageInfo* info, size_t* rowBytes);
+    /**
+     *  Try to get write-access to the pixels behind the device. If successful, this returns true
+     *  and fills-out the pixmap parameter. On success it also bumps the genID of the underlying
+     *  bitmap.
+     *
+     *  On failure, returns false and ignores the pixmap parameter.
+     */
+    bool accessPixels(SkPixmap* pmap);
+
+    /**
+     *  Try to get read-only-access to the pixels behind the device. If successful, this returns
+     *  true and fills-out the pixmap parameter.
+     *
+     *  On failure, returns false and ignores the pixmap parameter.
+     */
+    bool peekPixels(SkPixmap*);
 
     /**
      * Return the device's associated gpu render target, or NULL.
@@ -98,7 +116,6 @@ public:
      */
     virtual void onAttachToCanvas(SkCanvas*) {
         SkASSERT(!fAttachedToCanvas);
-        this->lockPixels();
 #ifdef SK_DEBUG
         fAttachedToCanvas = true;
 #endif
@@ -112,17 +129,15 @@ public:
      */
     virtual void onDetachFromCanvas() {
         SkASSERT(fAttachedToCanvas);
-        this->unlockPixels();
 #ifdef SK_DEBUG
         fAttachedToCanvas = false;
 #endif
     };
 
 protected:
-    enum Usage {
-       kGeneral_Usage,
-       kSaveLayer_Usage,  // <! internal use only
-       kImageFilter_Usage // <! internal use only
+    enum TileUsage {
+        kPossible_TileUsage,    //!< the created device may be drawn tiled
+        kNever_TileUsage,       //!< the created device will never be drawn tiled
     };
 
     struct TextFlags {
@@ -130,12 +145,12 @@ protected:
     };
 
     /**
-     *  Device may filter the text flags for drawing text here. If it wants to
-     *  make a change to the specified values, it should write them into the
-     *  textflags parameter (output) and return true. If the paint is fine as
-     *  is, then ignore the textflags parameter and return false.
+     * Returns the text-related flags, possibly modified based on the state of the
+     * device (e.g. support for LCD).
      */
-    virtual bool filterTextFlags(const SkPaint& paint, TextFlags*) { return false; }
+    uint32_t filterTextFlags(const SkPaint&) const;
+
+    virtual bool onShouldDisableLCD(const SkPaint&) const { return false; }
 
     /**
      *
@@ -155,14 +170,6 @@ protected:
      */
      virtual void setMatrixClip(const SkMatrix&, const SkRegion&,
                                 const SkClipStack&) {};
-
-    /** Clears the entire device to the specified color (including alpha).
-     *  Ignores the clip.
-     */
-    virtual void clear(SkColor color) = 0;
-
-    SK_ATTR_DEPRECATED("use clear() instead")
-    void eraseColor(SkColor eraseColor) { this->clear(eraseColor); }
 
     /** These are called inside the per-device-layer loop for each draw call.
      When these are called, we have already applied any saveLayer operations,
@@ -211,6 +218,14 @@ protected:
                                 const SkRect* srcOrNull, const SkRect& dst,
                                 const SkPaint& paint,
                                 SkCanvas::DrawBitmapRectFlags flags) = 0;
+    virtual void drawBitmapNine(const SkDraw&, const SkBitmap&, const SkIRect& center,
+                               const SkRect& dst, const SkPaint&);
+
+    virtual void drawImage(const SkDraw&, const SkImage*, SkScalar x, SkScalar y, const SkPaint&);
+    virtual void drawImageRect(const SkDraw&, const SkImage*, const SkRect* src, const SkRect& dst,
+                               const SkPaint&);
+    virtual void drawImageNine(const SkDraw&, const SkImage*, const SkIRect& center,
+                               const SkRect& dst, const SkPaint&);
 
     /**
      *  Does not handle text decoration.
@@ -221,9 +236,6 @@ protected:
     virtual void drawPosText(const SkDraw&, const void* text, size_t len,
                              const SkScalar pos[], int scalarsPerPos,
                              const SkPoint& offset, const SkPaint& paint) = 0;
-    virtual void drawTextOnPath(const SkDraw&, const void* text, size_t len,
-                                const SkPath& path, const SkMatrix* matrix,
-                                const SkPaint& paint) = 0;
     virtual void drawVertices(const SkDraw&, SkCanvas::VertexMode, int vertexCount,
                               const SkPoint verts[], const SkPoint texs[],
                               const SkColor colors[], SkXfermode* xmode,
@@ -231,15 +243,23 @@ protected:
                               const SkPaint& paint) = 0;
     // default implementation unrolls the blob runs.
     virtual void drawTextBlob(const SkDraw&, const SkTextBlob*, SkScalar x, SkScalar y,
-                              const SkPaint& paint);
+                              const SkPaint& paint, SkDrawFilter* drawFilter);
     // default implementation calls drawVertices
     virtual void drawPatch(const SkDraw&, const SkPoint cubics[12], const SkColor colors[4],
                            const SkPoint texCoords[4], SkXfermode* xmode, const SkPaint& paint);
+
+    // default implementation calls drawPath
+    virtual void drawAtlas(const SkDraw&, const SkImage* atlas, const SkRSXform[], const SkRect[],
+                           const SkColor[], int count, SkXfermode::Mode, const SkPaint&);
+
     /** The SkDevice passed will be an SkDevice which was returned by a call to
-        onCreateDevice on this device with kSaveLayer_Usage.
+        onCreateDevice on this device with kNeverTile_TileExpectation.
      */
     virtual void drawDevice(const SkDraw&, SkBaseDevice*, int x, int y,
                             const SkPaint&) = 0;
+
+    virtual void drawTextOnPath(const SkDraw&, const void* text, size_t len, const SkPath&,
+                                const SkMatrix*, const SkPaint&);
 
     bool readPixels(const SkImageInfo&, void* dst, size_t rowBytes, int x, int y);
 
@@ -250,20 +270,6 @@ protected:
         @return The device contents as a bitmap
     */
     virtual const SkBitmap& onAccessBitmap() = 0;
-
-    /** Called when this device is installed into a Canvas. Balanced by a call
-        to unlockPixels() when the device is removed from a Canvas.
-    */
-    virtual void lockPixels() {}
-    virtual void unlockPixels() {}
-
-    /**
-     *  Returns true if the device allows processing of this imagefilter. If
-     *  false is returned, then the filter is ignored. This may happen for
-     *  some subclasses that do not support pixel manipulations after drawing
-     *  has occurred (e.g. printing). The default implementation returns true.
-     */
-    virtual bool allowImageFilter(const SkImageFilter*) { return true; }
 
     /**
      *  Override and return true for filters that the device can handle
@@ -282,17 +288,14 @@ protected:
      *  it just returns false and leaves result and offset unchanged.
      */
     virtual bool filterImage(const SkImageFilter*, const SkBitmap&,
-                             const SkImageFilter::Context& ctx,
-                             SkBitmap* result, SkIPoint* offset) {
+                             const SkImageFilter::Context&,
+                             SkBitmap* /*result*/, SkIPoint* /*offset*/) {
         return false;
     }
 
 protected:
-    // default impl returns NULL
-    virtual SkSurface* newSurface(const SkImageInfo&, const SkSurfaceProps&);
-
-    // default impl returns NULL
-    virtual const void* peekPixels(SkImageInfo*, size_t* rowBytes);
+    virtual SkSurface* newSurface(const SkImageInfo&, const SkSurfaceProps&) { return NULL; }
+    virtual bool onPeekPixels(SkPixmap*) { return false; }
 
     /**
      *  The caller is responsible for "pre-clipping" the dst. The impl can assume that the dst
@@ -310,26 +313,11 @@ protected:
      */
     virtual bool onWritePixels(const SkImageInfo&, const void*, size_t, int x, int y);
 
-    /**
-     *  Default impl returns NULL.
-     */
-    virtual void* onAccessPixels(SkImageInfo* info, size_t* rowBytes);
+    virtual bool onAccessPixels(SkPixmap*) { return false; }
 
-    /**
-     *  Leaky properties are those which the device should be applying but it isn't.
-     *  These properties will be applied by the draw, when and as it can.
-     *  If the device does handle a property, that property should be set to the identity value
-     *  for that property, effectively making it non-leaky.
-     */
-    const SkDeviceProperties& getLeakyProperties() const {
-        return *fLeakyProperties;
+    const SkSurfaceProps& surfaceProps() const {
+        return fSurfaceProps;
     }
-
-    /**
-     *  PRIVATE / EXPERIMENTAL -- do not call
-     *  Construct an acceleration object and attach it to 'picture'
-     */
-    virtual void EXPERIMENTAL_optimize(const SkPicture* picture);
 
     /**
      *  PRIVATE / EXPERIMENTAL -- do not call
@@ -344,7 +332,39 @@ protected:
     virtual bool EXPERIMENTAL_drawPicture(SkCanvas*, const SkPicture*, const SkMatrix*,
                                           const SkPaint*);
 
-    void setPixelGeometry(SkPixelGeometry geo);
+    struct CreateInfo {
+        static SkPixelGeometry AdjustGeometry(const SkImageInfo&, TileUsage, SkPixelGeometry);
+
+        // The constructor may change the pixel geometry based on other parameters.
+        CreateInfo(const SkImageInfo& info,
+                   TileUsage tileUsage,
+                   SkPixelGeometry geo,
+                   bool forImageFilter = false)
+            : fInfo(info)
+            , fTileUsage(tileUsage)
+            , fPixelGeometry(AdjustGeometry(info, tileUsage, geo))
+            , fForImageFilter(forImageFilter) {}
+
+        const SkImageInfo       fInfo;
+        const TileUsage         fTileUsage;
+        const SkPixelGeometry   fPixelGeometry;
+        const bool              fForImageFilter;
+    };
+
+    /**
+     *  Create a new device based on CreateInfo. If the paint is not null, then it represents a
+     *  preview of how the new device will be composed with its creator device (this).
+     *
+     *  The subclass may be handed this device in drawDevice(), so it must always return
+     *  a device that it knows how to draw, and that it knows how to identify if it is not of the
+     *  same subclass (since drawDevice is passed a SkBaseDevice*). If the subclass cannot fulfill
+     *  that contract (e.g. PDF cannot support some settings on the paint) it should return NULL,
+     *  and the caller may then decide to explicitly create a bitmapdevice, knowing that later
+     *  it could not call drawDevice with it (but it could call drawSprite or drawBitmap).
+     */
+    virtual SkBaseDevice* onCreateDevice(const CreateInfo&, const SkPaint*) {
+        return NULL;
+    }
 
 private:
     friend class SkCanvas;
@@ -352,8 +372,9 @@ private:
     friend class SkDraw;
     friend class SkDrawIter;
     friend class SkDeviceFilteredPaint;
-    friend class SkDeviceImageFilterProxy;
+    friend class SkImageFilter::Proxy;
     friend class SkDeferredDevice;    // for newSurface
+    friend class SkNoPixelsBitmapDevice;
 
     friend class SkSurface_Raster;
 
@@ -367,14 +388,6 @@ private:
 
     // just called by SkCanvas when built as a layer
     void setOrigin(int x, int y) { fOrigin.set(x, y); }
-    // just called by SkCanvas for saveLayer
-    SkBaseDevice* createCompatibleDeviceForSaveLayer(const SkImageInfo&);
-    // just called by SkCanvas for imagefilter
-    SkBaseDevice* createCompatibleDeviceForImageFilter(const SkImageInfo&);
-
-    virtual SkBaseDevice* onCreateDevice(const SkImageInfo&, Usage) {
-        return NULL;
-    }
 
     /** Causes any deferred drawing to the device to be completed.
      */
@@ -384,7 +397,7 @@ private:
 
     SkIPoint    fOrigin;
     SkMetaData* fMetaData;
-    SkDeviceProperties* fLeakyProperties;   // will always exist.
+    SkSurfaceProps fSurfaceProps;
 
 #ifdef SK_DEBUG
     bool        fAttachedToCanvas;

@@ -9,6 +9,7 @@
 
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/resource_dispatcher_host.h"
@@ -28,9 +29,6 @@ void AppWindowContentsImpl::Initialize(content::BrowserContext* context,
                                        const GURL& url) {
   url_ = url;
 
-  extension_function_dispatcher_.reset(
-      new ExtensionFunctionDispatcher(context, this));
-
   web_contents_.reset(
       content::WebContents::Create(content::WebContents::CreateParams(
           context, content::SiteInstance::CreateForURL(context, url_))));
@@ -46,12 +44,12 @@ void AppWindowContentsImpl::LoadContents(int32 creator_process_id) {
   // RVH from loading anything until the background page has had a chance to
   // do any initialization it wants. If it's a different process, the new RVH
   // shouldn't communicate with the background page anyway (e.g. sandboxed).
-  if (web_contents_->GetRenderViewHost()->GetProcess()->GetID() ==
+  if (web_contents_->GetMainFrame()->GetProcess()->GetID() ==
       creator_process_id) {
-    SuspendRenderViewHost(web_contents_->GetRenderViewHost());
+    SuspendRenderFrameHost(web_contents_->GetMainFrame());
   } else {
     VLOG(1) << "AppWindow created in new process ("
-            << web_contents_->GetRenderViewHost()->GetProcess()->GetID()
+            << web_contents_->GetMainFrame()->GetProcess()->GetID()
             << ") != creator (" << creator_process_id << "). Routing disabled.";
   }
 
@@ -67,13 +65,10 @@ void AppWindowContentsImpl::NativeWindowChanged(
   args.Append(dictionary);
   host_->GetSerializedState(dictionary);
 
-  content::RenderViewHost* rvh = web_contents_->GetRenderViewHost();
-  rvh->Send(new ExtensionMsg_MessageInvoke(rvh->GetRoutingID(),
-                                           host_->extension_id(),
-                                           "app.window",
-                                           "updateAppWindowProperties",
-                                           args,
-                                           false));
+  content::RenderFrameHost* rfh = web_contents_->GetMainFrame();
+  rfh->Send(new ExtensionMsg_MessageInvoke(
+      rfh->GetRoutingID(), host_->extension_id(), "app.window",
+      "updateAppWindowProperties", args, false));
 }
 
 void AppWindowContentsImpl::NativeWindowClosed() {
@@ -83,23 +78,23 @@ void AppWindowContentsImpl::NativeWindowClosed() {
 
 void AppWindowContentsImpl::DispatchWindowShownForTests() const {
   base::ListValue args;
-  content::RenderViewHost* rvh = web_contents_->GetRenderViewHost();
-  rvh->Send(new ExtensionMsg_MessageInvoke(rvh->GetRoutingID(),
-                                           host_->extension_id(),
-                                           "app.window",
-                                           "appWindowShownForTests",
-                                           args,
-                                           false));
+  content::RenderFrameHost* rfh = web_contents_->GetMainFrame();
+  rfh->Send(new ExtensionMsg_MessageInvoke(
+      rfh->GetRoutingID(), host_->extension_id(), "app.window",
+      "appWindowShownForTests", args, false));
 }
 
 content::WebContents* AppWindowContentsImpl::GetWebContents() const {
   return web_contents_.get();
 }
 
+WindowController* AppWindowContentsImpl::GetWindowController() const {
+  return nullptr;
+}
+
 bool AppWindowContentsImpl::OnMessageReceived(const IPC::Message& message) {
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(AppWindowContentsImpl, message)
-    IPC_MESSAGE_HANDLER(ExtensionHostMsg_Request, OnRequest)
     IPC_MESSAGE_HANDLER(ExtensionHostMsg_UpdateDraggableRegions,
                         UpdateDraggableRegions)
     IPC_MESSAGE_UNHANDLED(handled = false)
@@ -107,33 +102,22 @@ bool AppWindowContentsImpl::OnMessageReceived(const IPC::Message& message) {
   return handled;
 }
 
-WindowController* AppWindowContentsImpl::GetExtensionWindowController() const {
-  return NULL;
-}
-
-content::WebContents* AppWindowContentsImpl::GetAssociatedWebContents() const {
-  return web_contents_.get();
-}
-
-void AppWindowContentsImpl::OnRequest(
-    const ExtensionHostMsg_Request_Params& params) {
-  extension_function_dispatcher_->Dispatch(
-      params, web_contents_->GetRenderViewHost());
-}
-
 void AppWindowContentsImpl::UpdateDraggableRegions(
     const std::vector<DraggableRegion>& regions) {
   host_->UpdateDraggableRegions(regions);
 }
 
-void AppWindowContentsImpl::SuspendRenderViewHost(
-    content::RenderViewHost* rvh) {
-  DCHECK(rvh);
+void AppWindowContentsImpl::SuspendRenderFrameHost(
+    content::RenderFrameHost* rfh) {
+  DCHECK(rfh);
+  // The ResourceDispatcherHost only accepts RenderViewHost child ids.
+  // TODO(devlin): This will need to change for site isolation.
   content::BrowserThread::PostTask(
       content::BrowserThread::IO, FROM_HERE,
       base::Bind(&content::ResourceDispatcherHost::BlockRequestsForRoute,
                  base::Unretained(content::ResourceDispatcherHost::Get()),
-                 rvh->GetProcess()->GetID(), rvh->GetRoutingID()));
+                 rfh->GetProcess()->GetID(),
+                 rfh->GetRenderViewHost()->GetRoutingID()));
 }
 
 }  // namespace extensions

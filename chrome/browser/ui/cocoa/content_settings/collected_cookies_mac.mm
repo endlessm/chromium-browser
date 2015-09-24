@@ -11,17 +11,18 @@
 #include "base/prefs/pref_service.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/content_settings/cookie_settings.h"
+#include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/browser_dialogs.h"
 #import "chrome/browser/ui/cocoa/constrained_window/constrained_window_custom_sheet.h"
 #import "chrome/browser/ui/cocoa/content_settings/cookie_details_view_controller.h"
 #import "chrome/browser/ui/cocoa/vertical_gradient_view.h"
 #include "chrome/browser/ui/collected_cookies_infobar_delegate.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/content_settings/core/browser/cookie_settings.h"
+#include "components/content_settings/core/common/pref_names.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/web_contents.h"
@@ -49,16 +50,6 @@ enum TabViewItemIndices {
 };
 
 } // namespace
-
-namespace chrome {
-
-// Declared in browser_dialogs.h so others don't have to depend on our header.
-void ShowCollectedCookiesDialog(content::WebContents* web_contents) {
-  // Deletes itself on close.
-  new CollectedCookiesMac(web_contents);
-}
-
-}  // namespace chrome
 
 #pragma mark Constrained window delegate
 
@@ -204,7 +195,13 @@ void CollectedCookiesMac::OnConstrainedWindowClosed(
 }
 
 - (void)windowWillClose:(NSNotification*)notif {
-  if (contentSettingsChanged_) {
+  // If the user closes our parent tab while we're still open, this method will
+  // (eventually) be called in response to a WebContentsDestroyed() call from
+  // the WebContentsImpl to its observers.  But since the InfoBarService is also
+  // torn down in response to WebContentsDestroyed(), it may already be null.
+  // Since the tab is going away anyway, we can just omit showing an infobar,
+  // which prevents any attempt to access a null InfoBarService.
+  if (contentSettingsChanged_ && !webContents_->IsBeingDestroyed()) {
     CollectedCookiesInfoBarDelegate::Create(
         InfoBarService::FromWebContents(webContents_));
   }
@@ -234,7 +231,7 @@ void CollectedCookiesMac::OnConstrainedWindowClosed(
     CookieTreeHostNode* host_node =
         static_cast<CookieTreeHostNode*>(cookie);
     host_node->CreateContentException(
-        CookieSettings::Factory::GetForProfile(profile).get(), setting);
+        CookieSettingsFactory::GetForProfile(profile).get(), setting);
     if (!lastDomain.empty())
       multipleDomainsChanged = YES;
     lastDomain = host_node->GetTitle();

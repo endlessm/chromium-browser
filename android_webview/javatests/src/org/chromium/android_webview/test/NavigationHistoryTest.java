@@ -4,12 +4,15 @@
 
 package org.chromium.android_webview.test;
 
+import android.os.Build;
 import android.test.suitebuilder.annotation.SmallTest;
 
 import org.chromium.android_webview.AwContents;
 import org.chromium.android_webview.test.util.CommonResources;
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.base.test.util.DisabledTest;
+import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.content.browser.test.util.HistoryUtils;
 import org.chromium.content.browser.test.util.TestCallbackHelperContainer;
 import org.chromium.content_public.browser.NavigationEntry;
@@ -21,6 +24,7 @@ import java.util.concurrent.Callable;
 /**
  * Navigation history tests.
  */
+@MinAndroidSdkLevel(Build.VERSION_CODES.KITKAT)
 public class NavigationHistoryTest extends AwTestBase {
 
     private static final String PAGE_1_PATH = "/page1.html";
@@ -221,23 +225,23 @@ public class NavigationHistoryTest extends AwTestBase {
     private String addNoncacheableLoginPageToServer(TestWebServer webServer) {
         final String submitButtonId = "submit";
         final String loginPageHtml =
-                "<html>" +
-                "  <head>" +
-                "    <title>" + LOGIN_PAGE_TITLE + "</title>" +
-                "    <script>" +
-                "      function startAction() {" +
-                "        button = document.getElementById('" + submitButtonId + "');" +
-                "        button.click();" +
-                "      }" +
-                "    </script>" +
-                "  </head>" +
-                "  <body onload='setTimeout(startAction, 0)'>" +
-                "    <form action='" + LOGIN_RESPONSE_PAGE_PATH.substring(1) + "' method='post'>" +
-                "      <input type='text' name='login'>" +
-                "      <input id='" + submitButtonId + "' type='submit' value='Submit'>" +
-                "    </form>" +
-                "  </body>" +
-                "</html>";
+                "<html>"
+                + "  <head>"
+                + "    <title>" + LOGIN_PAGE_TITLE + "</title>"
+                + "    <script>"
+                + "      function startAction() {"
+                + "        button = document.getElementById('" + submitButtonId + "');"
+                + "        button.click();"
+                + "      }"
+                + "    </script>"
+                + "  </head>"
+                + "  <body onload='setTimeout(startAction, 0)'>"
+                + "    <form action='" + LOGIN_RESPONSE_PAGE_PATH.substring(1) + "' method='post'>"
+                + "      <input type='text' name='login'>"
+                + "      <input id='" + submitButtonId + "' type='submit' value='Submit'>"
+                + "    </form>"
+                + "  </body>"
+                + "</html>";
         return mWebServer.setResponse(LOGIN_PAGE_PATH,
                 loginPageHtml,
                 CommonResources.getTextHtmlHeaders(true));
@@ -245,16 +249,16 @@ public class NavigationHistoryTest extends AwTestBase {
 
     private String addNoncacheableLoginResponsePageToServer(TestWebServer webServer) {
         final String loginResponsePageHtml =
-                "<html>" +
-                "  <head>" +
-                "    <title>" + LOGIN_RESPONSE_PAGE_TITLE + "</title>" +
-                "  </head>" +
-                "  <body>" +
-                "    Login incorrect" +
-                "    <div><a id='" + LOGIN_RESPONSE_PAGE_HELP_LINK_ID + "' href='" +
-                PAGE_1_PATH.substring(1) + "'>Help</a></div>'" +
-                "  </body>" +
-                "</html>";
+                "<html>"
+                + "  <head>"
+                + "    <title>" + LOGIN_RESPONSE_PAGE_TITLE + "</title>"
+                + "  </head>"
+                + "  <body>"
+                + "    Login incorrect"
+                + "    <div><a id='" + LOGIN_RESPONSE_PAGE_HELP_LINK_ID + "' href='"
+                + PAGE_1_PATH.substring(1) + "'>Help</a></div>'"
+                + "  </body>"
+                + "</html>";
         return mWebServer.setResponse(LOGIN_RESPONSE_PAGE_PATH,
                 loginResponsePageHtml,
                 CommonResources.getTextHtmlHeaders(true));
@@ -273,6 +277,7 @@ public class NavigationHistoryTest extends AwTestBase {
      * @MediumTest
      * @Feature({"AndroidWebView"})
      */
+    @SuppressFBWarnings("DLS_DEAD_LOCAL_STORE")
     @DisabledTest
     public void testNavigateBackToNoncacheableLoginPage() throws Throwable {
         final TestCallbackHelperContainer.OnPageFinishedHelper onPageFinishedHelper =
@@ -294,8 +299,8 @@ public class NavigationHistoryTest extends AwTestBase {
         });
         executeJavaScriptAndWaitForResult(mAwContents,
                 mContentsClient,
-                "link = document.getElementById('" + LOGIN_RESPONSE_PAGE_HELP_LINK_ID + "');" +
-                "link.click();");
+                "link = document.getElementById('" + LOGIN_RESPONSE_PAGE_HELP_LINK_ID + "');"
+                + "link.click();");
         pollOnUiThread(new Callable<Boolean>() {
             @Override
             public Boolean call() {
@@ -314,5 +319,35 @@ public class NavigationHistoryTest extends AwTestBase {
                 return LOGIN_RESPONSE_PAGE_TITLE.equals(title);
             }
         });
+    }
+
+    // See http://crbug.com/481570
+    @SmallTest
+    public void testTitleUpdatedWhenGoingBack() throws Throwable {
+        final TestCallbackHelperContainer.OnPageFinishedHelper onPageFinishedHelper =
+                mContentsClient.getOnPageFinishedHelper();
+        NavigationHistory list = getNavigationHistory(mAwContents);
+        assertEquals(0, list.getEntryCount());
+
+        final String page1Url = addPage1ToServer(mWebServer);
+        final String page2Url = addPage2ToServer(mWebServer);
+
+        TestAwContentsClient.OnReceivedTitleHelper onReceivedTitleHelper =
+                mContentsClient.getOnReceivedTitleHelper();
+        // It would be unreliable to retrieve the call count after the first loadUrlSync,
+        // as it is not synchronous with respect to updating the title. Instead, we capture
+        // the initial call count (zero?) here, and keep waiting until we receive the update
+        // from the second page load.
+        int onReceivedTitleCallCount = onReceivedTitleHelper.getCallCount();
+        loadUrlSync(mAwContents, onPageFinishedHelper, page1Url);
+        loadUrlSync(mAwContents, onPageFinishedHelper, page2Url);
+        do {
+            onReceivedTitleHelper.waitForCallback(onReceivedTitleCallCount);
+            onReceivedTitleCallCount = onReceivedTitleHelper.getCallCount();
+        } while(!PAGE_2_TITLE.equals(onReceivedTitleHelper.getTitle()));
+        HistoryUtils.goBackSync(getInstrumentation(), mAwContents.getWebContents(),
+                onPageFinishedHelper);
+        onReceivedTitleHelper.waitForCallback(onReceivedTitleCallCount);
+        assertEquals(PAGE_1_TITLE, onReceivedTitleHelper.getTitle());
     }
 }

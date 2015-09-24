@@ -11,13 +11,18 @@
 
 namespace net {
 
+class AckNotifierManager;
+
 // Class which tracks unacked packets for three purposes:
 // 1) Track retransmittable data, including multiple transmissions of frames.
 // 2) Track packets and bytes in flight for congestion control.
 // 3) Track sent time of packets to provide RTT measurements from acks.
 class NET_EXPORT_PRIVATE QuicUnackedPacketMap {
  public:
-  QuicUnackedPacketMap();
+  // Initialize an instance of UnackedPacketMap.  The AckNotifierManager
+  // provided to the constructor will be notified whenever a packet is removed
+  // from the map.
+  explicit QuicUnackedPacketMap(AckNotifierManager* ack_notifier_manager);
   ~QuicUnackedPacketMap();
 
   // Adds |serialized_packet| to the map and marks it as sent at |sent_time|.
@@ -38,10 +43,13 @@ class NET_EXPORT_PRIVATE QuicUnackedPacketMap {
 
   // Sets the nack count to the max of the current nack count and |min_nacks|.
   void NackPacket(QuicPacketSequenceNumber sequence_number,
-                  size_t min_nacks);
+                  QuicPacketCount min_nacks);
 
   // Marks |sequence_number| as no longer in flight.
   void RemoveFromInFlight(QuicPacketSequenceNumber sequence_number);
+
+  // No longer retransmit data for |stream_id|.
+  void CancelRetransmissionsForStream(QuicStreamId stream_id);
 
   // Returns true if the unacked packet |sequence_number| has retransmittable
   // frames.  This will return false if the packet has been acked, if a
@@ -76,9 +84,6 @@ class NET_EXPORT_PRIVATE QuicUnackedPacketMap {
   // been acked by the peer.  If there are no unacked packets, returns 0.
   QuicPacketSequenceNumber GetLeastUnacked() const;
 
-  // Restores the in flight status for a packet that was previously sent.
-  void RestoreInFlight(QuicPacketSequenceNumber sequence_number);
-
   // Clears all previous transmissions in order to make room in the ack frame
   // for newly acked packets.
   void ClearAllPreviousRetransmissions();
@@ -100,9 +105,6 @@ class NET_EXPORT_PRIVATE QuicUnackedPacketMap {
 
   // Returns the time that the last unacked packet was sent.
   QuicTime GetLastPacketSentTime() const;
-
-  // Returns the time that the first in flight packet was sent.
-  QuicTime GetFirstInFlightPacketSentTime() const;
 
   // Returns the number of unacked packets.
   size_t GetNumUnackedPacketsDebugOnly() const;
@@ -141,13 +143,28 @@ class NET_EXPORT_PRIVATE QuicUnackedPacketMap {
 
   void MaybeRemoveRetransmittableFrames(TransmissionInfo* transmission_info);
 
+  // Returns true if packet may be useful for an RTT measurement.
+  bool IsPacketUsefulForMeasuringRtt(QuicPacketSequenceNumber sequence_number,
+                                     const TransmissionInfo& info) const;
+
+  // Returns true if packet may be useful for congestion control purposes.
+  bool IsPacketUsefulForCongestionControl(const TransmissionInfo& info) const;
+
+  // Returns true if packet may be associated with retransmittable data
+  // directly or through retransmissions.
+  bool IsPacketUsefulForRetransmittableData(const TransmissionInfo& info) const;
+
   // Returns true if the packet no longer has a purpose in the map.
   bool IsPacketUseless(QuicPacketSequenceNumber sequence_number,
                        const TransmissionInfo& info) const;
+
   // Returns true if the packet is useless or it's only purpose is RTT
   // measurement, and it's old enough that is unlikely to ever happen.
   bool IsPacketRemovable(QuicPacketSequenceNumber sequence_number,
                          const TransmissionInfo& info) const;
+
+  // Removes the packet with lowest sequence number from the map.
+  void PopLeastUnacked();
 
   QuicPacketSequenceNumber largest_sent_packet_;
   QuicPacketSequenceNumber largest_observed_;
@@ -164,9 +181,13 @@ class NET_EXPORT_PRIVATE QuicUnackedPacketMap {
   // The packet at the 0th index of unacked_packets_.
   QuicPacketSequenceNumber least_unacked_;
 
-  size_t bytes_in_flight_;
+  QuicByteCount bytes_in_flight_;
   // Number of retransmittable crypto handshake packets.
   size_t pending_crypto_packet_count_;
+
+  // Notifier manager for ACK packets.  We notify it every time we abandon a
+  // packet.
+  AckNotifierManager* ack_notifier_manager_;
 
   DISALLOW_COPY_AND_ASSIGN(QuicUnackedPacketMap);
 };

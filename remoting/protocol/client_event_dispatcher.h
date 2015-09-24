@@ -6,7 +6,6 @@
 #define REMOTING_PROTOCOL_CLIENT_EVENT_DISPATCHER_H_
 
 #include "base/memory/ref_counted.h"
-#include "remoting/protocol/buffered_socket_writer.h"
 #include "remoting/protocol/channel_dispatcher_base.h"
 #include "remoting/protocol/input_stub.h"
 
@@ -24,14 +23,9 @@ class ClientEventDispatcher : public ChannelDispatcherBase, public InputStub {
   void InjectKeyEvent(const KeyEvent& event) override;
   void InjectTextEvent(const TextEvent& event) override;
   void InjectMouseEvent(const MouseEvent& event) override;
-
- protected:
-  // ChannelDispatcherBase overrides.
-  void OnInitialized() override;
+  void InjectTouchEvent(const TouchEvent& event) override;
 
  private:
-  BufferedSocketWriter writer_;
-
   DISALLOW_COPY_AND_ASSIGN(ClientEventDispatcher);
 };
 

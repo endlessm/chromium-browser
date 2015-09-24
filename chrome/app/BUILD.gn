@@ -4,7 +4,6 @@
 
 import("//tools/grit/grit_rule.gni")
 
-
 if (is_android) {
   import("//build/config/android/rules.gni")
   android_generated_java_resources = [
@@ -127,11 +126,11 @@ grit("generated_resources") {
 if (is_android) {
   java_strings_grd_prebuilt("java_strings_grd") {
     grit_output_dir = "$root_gen_dir/chrome/java/res"
-    generated_files = rebase_path(
-        android_generated_java_resources,
-        "java/res",
-        "."
-    )
+    generated_files =
+        rebase_path(android_generated_java_resources, "java/res", ".")
+    deps = [
+      ":generated_resources",
+    ]
   }
 }
 
@@ -142,13 +141,19 @@ action("make_generated_resources_map") {
 
   script = "//chrome/browser/metrics/variations/generate_resources_map.py"
 
-  inputs = [ "$root_gen_dir/chrome/grit/generated_resources.h" ]
-  outputs = [ "$root_gen_dir/chrome/generated_resources_map.cc" ]
+  inputs = [
+    "$root_gen_dir/chrome/grit/generated_resources.h",
+  ]
+  outputs = [
+    "$root_gen_dir/chrome/generated_resources_map.cc",
+  ]
 
-  args = rebase_path(inputs, root_build_dir) +
-      rebase_path(outputs, root_build_dir)
+  args =
+      rebase_path(inputs, root_build_dir) + rebase_path(outputs, root_build_dir)
 
-  deps = [ ":generated_resources" ]
+  deps = [
+    ":generated_resources",
+  ]
 }
 
 # Collect the generated .cc file from make_generated_resources_map and put it
@@ -156,6 +161,9 @@ action("make_generated_resources_map") {
 # specifying it manually. This doesn't happen in the GYP build.
 source_set("generated_resources_map") {
   sources = get_target_outputs(":make_generated_resources_map")
+  deps = [
+    ":make_generated_resources_map",
+  ]
 }
 
 # GYP version: chrome/chrome_resources.gyp:chrome_strings
@@ -302,6 +310,7 @@ source_set("test_support") {
   deps = [
     "//base",
     "//chrome/browser",
+    "//chrome/child",
     "//chrome/common",
     "//chrome/plugin",
     "//chrome/renderer",
@@ -312,10 +321,14 @@ source_set("test_support") {
   ]
 
   if (is_mac) {
-    sources += [
-      "chrome_breakpad_client.cc",
-      "chrome_breakpad_client_mac.mm",
-      "chrome_main_mac.mm",
-    ]
+    sources += [ "chrome_main_mac.mm" ]
+  }
+
+  if (enable_plugins && enable_nacl) {
+    deps += [ "//components/nacl/renderer/plugin:nacl_trusted_plugin" ]
+  }
+
+  if (enable_remoting) {
+    deps += [ "//remoting/client/plugin" ]
   }
 }

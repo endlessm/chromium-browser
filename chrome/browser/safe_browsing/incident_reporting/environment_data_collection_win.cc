@@ -6,8 +6,11 @@
 
 #include <windows.h>
 #include <set>
+#include <string>
 
 #include "base/i18n/case_conversion.h"
+#include "base/memory/ref_counted.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/registry.h"
@@ -16,6 +19,7 @@
 #include "chrome/browser/net/service_providers_win.h"
 #include "chrome/browser/safe_browsing/incident_reporting/module_integrity_verifier_win.h"
 #include "chrome/browser/safe_browsing/path_sanitizer.h"
+#include "chrome/common/safe_browsing/binary_feature_extractor.h"
 #include "chrome/common/safe_browsing/csd.pb.h"
 #include "chrome_elf/chrome_elf_constants.h"
 
@@ -37,7 +41,7 @@ std::wstring ExpandEnvironmentVariables(const std::wstring& path) {
   DWORD path_len = MAX_PATH;
   do {
     DWORD result = ExpandEnvironmentStrings(
-        path.c_str(), WriteInto(&path_expanded, path_len), path_len);
+        path.c_str(), base::WriteInto(&path_expanded, path_len), path_len);
     if (!result) {
       // Failed to expand variables. Return the original string.
       DPLOG(ERROR) << path;
@@ -59,18 +63,29 @@ bool CollectDlls(ClientIncidentReport_EnvironmentData_Process* process) {
   if (!GetLoadedModules(&loaded_modules))
     return false;
 
-  // Sanitize path of each module and add it to the incident report.
+  // Sanitize path of each module and add it to the incident report along with
+  // its headers.
   PathSanitizer path_sanitizer;
-  for (std::set<ModuleInfo>::const_iterator it = loaded_modules.begin();
-       it != loaded_modules.end();
-       ++it) {
-    base::FilePath dll_path(it->name);
-    path_sanitizer.StripHomeDirectory(&dll_path);
+  scoped_refptr<BinaryFeatureExtractor> feature_extractor(
+      new BinaryFeatureExtractor());
+  for (const auto& module : loaded_modules) {
+    base::FilePath dll_path(module.name);
+    base::FilePath sanitized_path(dll_path);
+    path_sanitizer.StripHomeDirectory(&sanitized_path);
 
     ClientIncidentReport_EnvironmentData_Process_Dll* dll = process->add_dll();
-    dll->set_path(base::WideToUTF8(base::i18n::ToLower(dll_path.value())));
-    dll->set_base_address(it->base_address);
-    dll->set_length(it->size);
+    dll->set_path(
+        base::WideToUTF8(base::i18n::ToLower(sanitized_path.value())));
+    dll->set_base_address(module.base_address);
+    dll->set_length(module.size);
+    // TODO(grt): Consider skipping this for valid system modules.
+    if (!feature_extractor->ExtractImageFeatures(
+            dll_path,
+            BinaryFeatureExtractor::kOmitExports,
+            dll->mutable_image_headers(),
+            nullptr /* signed_data */)) {
+      dll->clear_image_headers();
+    }
   }
 
   return true;
@@ -114,29 +129,35 @@ void CollectModuleVerificationData(
     const wchar_t* const modules_to_verify[],
     size_t num_modules_to_verify,
     ClientIncidentReport_EnvironmentData_Process* process) {
-  for (size_t i = 0; i < num_modules_to_verify; ++i) {
-    std::set<std::string> modified_exports;
-    int modified = VerifyModule(modules_to_verify[i], &modified_exports);
+#if !defined(_WIN64)
+  using ModuleState = ClientIncidentReport_EnvironmentData_Process_ModuleState;
 
-    if (modified == MODULE_STATE_UNMODIFIED)
+  for (size_t i = 0; i < num_modules_to_verify; ++i) {
+    scoped_ptr<ModuleState> module_state(new ModuleState());
+
+    int num_bytes_different = 0;
+    bool scan_complete = VerifyModule(modules_to_verify[i],
+                                      module_state.get(),
+                                      &num_bytes_different);
+
+    if (module_state->modified_state() == ModuleState::MODULE_STATE_UNMODIFIED)
       continue;
 
-    ClientIncidentReport_EnvironmentData_Process_ModuleState* module_state =
-        process->add_module_state();
-
-    module_state->set_name(
-        base::WideToUTF8(std::wstring(modules_to_verify[i])));
-    // Add 1 to the ModuleState enum to get the corresponding value in the
-    // protobuf's ModuleState enum.
-    module_state->set_modified_state(static_cast<
-        ClientIncidentReport_EnvironmentData_Process_ModuleState_ModifiedState>(
-        modified + 1));
-    for (std::set<std::string>::iterator it = modified_exports.begin();
-         it != modified_exports.end();
-         ++it) {
-      module_state->add_modified_export(*it);
+    if (module_state->modified_state() == ModuleState::MODULE_STATE_MODIFIED) {
+      UMA_HISTOGRAM_COUNTS_10000(
+          "ModuleIntegrityVerification.BytesModified.WithoutByteSet",
+          num_bytes_different);
     }
+
+    if (!scan_complete) {
+      UMA_HISTOGRAM_ENUMERATION(
+          "ModuleIntegrityVerification.RelocationsUnordered", i,
+          num_modules_to_verify);
+    }
+
+    process->mutable_module_state()->AddAllocated(module_state.release());
   }
+#endif  // _WIN64
 }
 
 void CollectPlatformProcessData(

@@ -4,8 +4,8 @@
 
 #include "ui/aura/window_tree_host.h"
 
-#include "base/debug/trace_event.h"
 #include "base/thread_task_runner_handle.h"
+#include "base/trace_event/trace_event.h"
 #include "ui/aura/client/capture_client.h"
 #include "ui/aura/client/cursor_client.h"
 #include "ui/aura/env.h"
@@ -13,16 +13,18 @@
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/aura/window_targeter.h"
 #include "ui/aura/window_tree_host_observer.h"
+#include "ui/base/ime/input_method.h"
+#include "ui/base/ime/input_method_factory.h"
 #include "ui/base/view_prop.h"
 #include "ui/compositor/dip_util.h"
 #include "ui/compositor/layer.h"
 #include "ui/gfx/display.h"
-#include "ui/gfx/insets.h"
-#include "ui/gfx/point.h"
-#include "ui/gfx/point3_f.h"
-#include "ui/gfx/point_conversions.h"
+#include "ui/gfx/geometry/insets.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/gfx/geometry/point3_f.h"
+#include "ui/gfx/geometry/point_conversions.h"
+#include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/screen.h"
-#include "ui/gfx/size_conversions.h"
 
 namespace aura {
 
@@ -41,6 +43,10 @@ float GetDeviceScaleFactorFromDisplay(Window* window) {
 
 WindowTreeHost::~WindowTreeHost() {
   DCHECK(!compositor_) << "compositor must be destroyed before root window";
+  if (owned_input_method_) {
+    delete input_method_;
+    input_method_ = nullptr;
+  }
 }
 
 #if defined(OS_ANDROID)
@@ -50,7 +56,7 @@ WindowTreeHost* WindowTreeHost::Create(const gfx::Rect& bounds) {
   // adding the CHECK.
   // TODO(sky): decide if we want a factory.
   CHECK(false);
-  return NULL;
+  return nullptr;
 }
 #endif
 
@@ -152,7 +158,7 @@ void WindowTreeHost::OnCursorVisibilityChanged(bool show) {
   // will trigger its own mouse enter.
   if (!show) {
     ui::EventDispatchDetails details = dispatcher()->DispatchMouseExitAtPoint(
-        dispatcher()->GetLastMouseLocationInRoot());
+        nullptr, dispatcher()->GetLastMouseLocationInRoot());
     if (details.dispatcher_destroyed)
       return;
   }
@@ -172,12 +178,53 @@ void WindowTreeHost::MoveCursorToHostLocation(const gfx::Point& host_location) {
   MoveCursorToInternal(root_location, host_location);
 }
 
+ui::InputMethod* WindowTreeHost::GetInputMethod() {
+  if (!input_method_) {
+    input_method_ =
+        ui::CreateInputMethod(this, GetAcceleratedWidget()).release();
+    // Makes sure the input method is focused by default when created, because
+    // some environment doesn't have activated/focused state in WindowTreeHost.
+    // TODO(shuchen): move this to DisplayController so it's only for Ash.
+    input_method_->OnFocus();
+    owned_input_method_ = true;
+  }
+  return input_method_;
+}
+
+void WindowTreeHost::SetSharedInputMethod(ui::InputMethod* input_method) {
+  DCHECK(!input_method_);
+  input_method_ = input_method;
+  owned_input_method_ = false;
+}
+
+bool WindowTreeHost::DispatchKeyEventPostIME(const ui::KeyEvent& event) {
+  ui::KeyEvent copied_event(event);
+  ui::EventDispatchDetails details =
+      event_processor()->OnEventFromSource(&copied_event);
+  DCHECK(!details.dispatcher_destroyed);
+  return copied_event.handled();
+}
+
+void WindowTreeHost::Show() {
+  if (compositor())
+    compositor()->SetVisible(true);
+  ShowImpl();
+}
+
+void WindowTreeHost::Hide() {
+  HideImpl();
+  if (compositor())
+    compositor()->SetVisible(false);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // WindowTreeHost, protected:
 
 WindowTreeHost::WindowTreeHost()
-    : window_(new Window(NULL)),
-      last_cursor_(ui::kCursorNull) {
+    : window_(new Window(nullptr)),
+      last_cursor_(ui::kCursorNull),
+      input_method_(nullptr),
+      owned_input_method_(false) {
 }
 
 void WindowTreeHost::DestroyCompositor() {
@@ -186,7 +233,7 @@ void WindowTreeHost::DestroyCompositor() {
 
 void WindowTreeHost::DestroyDispatcher() {
   delete window_;
-  window_ = NULL;
+  window_ = nullptr;
   dispatcher_.reset();
 
   // TODO(beng): this comment is no longer quite valid since this function
@@ -211,7 +258,7 @@ void WindowTreeHost::CreateCompositor(
   // TODO(beng): I think this setup should probably all move to a "accelerated
   // widget available" function.
   if (!dispatcher()) {
-    window()->Init(WINDOW_LAYER_NOT_DRAWN);
+    window()->Init(ui::LAYER_NOT_DRAWN);
     window()->set_host(this);
     window()->SetName("RootWindow");
     window()->SetEventTargeter(
@@ -257,6 +304,24 @@ void WindowTreeHost::OnHostLostWindowCapture() {
   Window* capture_window = client::GetCaptureWindow(window());
   if (capture_window && capture_window->GetRootWindow() == window())
     capture_window->ReleaseCapture();
+}
+
+ui::EventProcessor* WindowTreeHost::GetEventProcessor() {
+  return event_processor();
+}
+
+ui::EventDispatchDetails WindowTreeHost::DeliverEventToProcessor(
+    ui::Event* event) {
+  if (event->IsKeyEvent()) {
+    if (GetInputMethod()->DispatchKeyEvent(
+            *static_cast<ui::KeyEvent*>(event))) {
+      event->StopPropagation();
+      // TODO(shuchen): pass around the EventDispatchDetails from
+      // DispatchKeyEventPostIME instead of creating new from here.
+      return ui::EventDispatchDetails();
+    }
+  }
+  return ui::EventSource::DeliverEventToProcessor(event);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -30,25 +30,34 @@ WindowsEventRouter::WindowsEventRouter(Profile* profile)
   DCHECK(!profile->IsOffTheRecord());
 
   WindowControllerList::GetInstance()->AddObserver(this);
-#if defined(TOOLKIT_VIEWS)
-  views::WidgetFocusManager::GetInstance()->AddFocusChangeListener(this);
-#elif defined(OS_MACOSX)
   // Needed for when no suitable window can be passed to an extension as the
-  // currently focused window.
+  // currently focused window. On Mac (even in a toolkit-views build) always
+  // rely on the notification sent by AppControllerMac after AppKit sends
+  // NSWindowDidBecomeKeyNotification and there is no [NSApp keyWindow]. This
+  // allows windows not created by toolkit-views to be tracked.
+  // TODO(tapted): Remove the ifdefs (and NOTIFICATION_NO_KEY_WINDOW) when
+  // Chrome on Mac only makes windows with toolkit-views.
+#if defined(OS_MACOSX)
   registrar_.Add(this, chrome::NOTIFICATION_NO_KEY_WINDOW,
                  content::NotificationService::AllSources());
+#elif defined(TOOLKIT_VIEWS)
+  views::WidgetFocusManager::GetInstance()->AddFocusChangeListener(this);
+#else
+#error Unsupported
 #endif
 }
 
 WindowsEventRouter::~WindowsEventRouter() {
   WindowControllerList::GetInstance()->RemoveObserver(this);
-#if defined(TOOLKIT_VIEWS)
+#if !defined(OS_MACOSX)
   views::WidgetFocusManager::GetInstance()->RemoveFocusChangeListener(this);
 #endif
 }
 
 void WindowsEventRouter::OnWindowControllerAdded(
     WindowController* window_controller) {
+  if (!HasEventListener(windows::OnCreated::kEventName))
+    return;
   if (!profile_->IsSameProfile(window_controller->profile()))
     return;
 
@@ -62,6 +71,8 @@ void WindowsEventRouter::OnWindowControllerAdded(
 
 void WindowsEventRouter::OnWindowControllerRemoved(
     WindowController* window_controller) {
+  if (!HasEventListener(windows::OnRemoved::kEventName))
+    return;
   if (!profile_->IsSameProfile(window_controller->profile()))
     return;
 
@@ -73,10 +84,8 @@ void WindowsEventRouter::OnWindowControllerRemoved(
                 args.Pass());
 }
 
-#if defined(TOOLKIT_VIEWS)
-void WindowsEventRouter::OnNativeFocusChange(
-    gfx::NativeView focused_before,
-    gfx::NativeView focused_now) {
+#if !defined(OS_MACOSX)
+void WindowsEventRouter::OnNativeFocusChanged(gfx::NativeView focused_now) {
   if (!focused_now)
     OnActiveWindowChanged(NULL);
 }
@@ -94,7 +103,7 @@ void WindowsEventRouter::Observe(
 #endif
 }
 
-static void WillDispatchWindowFocusedEvent(BrowserContext* new_active_context,
+static bool WillDispatchWindowFocusedEvent(BrowserContext* new_active_context,
                                            int window_id,
                                            BrowserContext* context,
                                            const Extension* extension,
@@ -112,6 +121,7 @@ static void WillDispatchWindowFocusedEvent(BrowserContext* new_active_context,
     event_args->Clear();
     event_args->Append(new base::FundamentalValue(window_id));
   }
+  return true;
 }
 
 void WindowsEventRouter::OnActiveWindowChanged(
@@ -132,7 +142,11 @@ void WindowsEventRouter::OnActiveWindowChanged(
   focused_profile_ = window_profile;
   focused_window_id_ = window_id;
 
-  scoped_ptr<Event> event(new Event(windows::OnFocusChanged::kEventName,
+  if (!HasEventListener(windows::OnFocusChanged::kEventName))
+    return;
+
+  scoped_ptr<Event> event(new Event(events::UNKNOWN,
+                                    windows::OnFocusChanged::kEventName,
                                     make_scoped_ptr(new base::ListValue())));
   event->will_dispatch_callback =
       base::Bind(&WillDispatchWindowFocusedEvent,
@@ -144,9 +158,13 @@ void WindowsEventRouter::OnActiveWindowChanged(
 void WindowsEventRouter::DispatchEvent(const std::string& event_name,
                                       Profile* profile,
                                       scoped_ptr<base::ListValue> args) {
-  scoped_ptr<Event> event(new Event(event_name, args.Pass()));
+  scoped_ptr<Event> event(new Event(events::UNKNOWN, event_name, args.Pass()));
   event->restrict_to_browser_context = profile;
   EventRouter::Get(profile)->BroadcastEvent(event.Pass());
+}
+
+bool WindowsEventRouter::HasEventListener(const std::string& event_name) {
+  return EventRouter::Get(profile_)->HasEventListener(event_name);
 }
 
 }  // namespace extensions

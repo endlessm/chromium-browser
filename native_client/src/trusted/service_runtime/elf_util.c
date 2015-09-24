@@ -8,6 +8,7 @@
  * NaCl helper functions to deal with elf images
  */
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/portability.h"
 
 #include <stdio.h>
@@ -27,6 +28,7 @@
 #include "native_client/src/shared/platform/nacl_host_desc.h"
 #include "native_client/src/shared/platform/nacl_log.h"
 
+#include "native_client/src/trusted/desc/nacl_desc_base.h"
 #include "native_client/src/trusted/desc/nacl_desc_effector_trusted_mem.h"
 #include "native_client/src/trusted/fault_injection/fault_injection.h"
 #include "native_client/src/trusted/perf_counter/nacl_perf_counter.h"
@@ -359,7 +361,7 @@ struct NaClElfImage *NaClElfImageNew(struct NaClDesc *ndp,
   struct NaClElfImage image;
   union {
     Elf32_Ehdr ehdr32;
-#if NACL_TARGET_SUBARCH == 64
+#if NACL_BUILD_SUBARCH == 64
     Elf64_Ehdr ehdr64;
 #endif
   } ehdr;
@@ -379,7 +381,7 @@ struct NaClElfImage *NaClElfImageNew(struct NaClDesc *ndp,
     return 0;
   }
 
-#if NACL_TARGET_SUBARCH == 64
+#if NACL_BUILD_SUBARCH == 64
   if (ELFCLASS64 == ehdr.ehdr64.e_ident[EI_CLASS]) {
     /*
      * Convert ELFCLASS64 format to ELFCLASS32 format.
@@ -432,7 +434,7 @@ struct NaClElfImage *NaClElfImageNew(struct NaClDesc *ndp,
     return 0;
   }
 
-#if NACL_TARGET_SUBARCH == 64
+#if NACL_BUILD_SUBARCH == 64
   if (ELFCLASS64 == ehdr.ehdr64.e_ident[EI_CLASS]) {
     /*
      * We'll load the 64-bit phdrs and convert them to 32-bit format.
@@ -902,6 +904,15 @@ NaClErrorCode NaClElfImageLoadDynamically(
     Elf_Off filesz = php->p_offset + php->p_filesz - offset;
     Elf_Off memsz = php->p_offset + php->p_memsz - offset;
     int32_t result;
+
+    /*
+     * By checking if filesz is larger than memsz, we no longer run the risk of
+     * a malicious ELF object overrunning into the trusted address space when
+     * reading data of size "filez" into a buffer of size "memsz".
+     */
+    if (filesz > memsz) {
+      return LOAD_UNLOADABLE;
+    }
 
     /*
      * We check for PT_LOAD directly rather than using the "loadable"

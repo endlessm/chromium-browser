@@ -21,6 +21,11 @@ namespace ash {
 class StickyKeysController;
 }
 
+namespace ui {
+enum class DomCode;
+enum class DomKey;
+};
+
 namespace chromeos {
 namespace input_method {
 class ImeKeyboard;
@@ -45,11 +50,20 @@ class EventRewriter : public ui::EventRewriter {
     kDeviceVirtualCoreKeyboard,  // X-server generated events.
   };
 
+  // Things that keyboard-related rewriter phases can change about an Event.
+  struct MutableKeyState {
+    int flags;
+    ui::DomCode code;
+    ui::DomKey key;
+    base::char16 character;
+    ui::KeyboardCode key_code;
+  };
+
   // Does not take ownership of the |sticky_keys_controller|, which may also
   // be NULL (for testing without ash), in which case sticky key operations
   // don't happen.
   explicit EventRewriter(ash::StickyKeysController* sticky_keys_controller);
-  virtual ~EventRewriter();
+  ~EventRewriter() override;
 
   // Calls KeyboardDeviceAddedInternal.
   DeviceType KeyboardDeviceAddedForTesting(int device_id,
@@ -75,35 +89,20 @@ class EventRewriter : public ui::EventRewriter {
   }
 
   // EventRewriter overrides:
-  virtual ui::EventRewriteStatus RewriteEvent(
+  ui::EventRewriteStatus RewriteEvent(
       const ui::Event& event,
       scoped_ptr<ui::Event>* rewritten_event) override;
-  virtual ui::EventRewriteStatus NextDispatchEvent(
+  ui::EventRewriteStatus NextDispatchEvent(
       const ui::Event& last_event,
       scoped_ptr<ui::Event>* new_event) override;
 
   // Generate a new key event from an original key event and the replacement
-  // key code and flags determined by a key rewriter.
+  // state determined by a key rewriter.
   static void BuildRewrittenKeyEvent(const ui::KeyEvent& key_event,
-                                     ui::KeyboardCode key_code,
-                                     int flags,
+                                     const MutableKeyState& state,
                                      scoped_ptr<ui::Event>* rewritten_event);
 
  private:
-  // Things that keyboard-related rewriter phases can change about an Event.
-  struct MutableKeyState {
-    int flags;
-    ui::KeyboardCode key_code;
-  };
-
-  // Tables of direct remappings for |RewriteWithKeyboardRemappingsByKeyCode()|.
-  struct KeyboardRemapping {
-    ui::KeyboardCode input_key_code;
-    int input_flags;
-    ui::KeyboardCode output_key_code;
-    int output_flags;
-  };
-
   void DeviceKeyPressedOrReleased(int device_id);
 
   // Returns the PrefService that should be used.
@@ -138,15 +137,6 @@ class EventRewriter : public ui::EventRewriter {
                                const ui::Event& event,
                                int original_flags) const;
 
-  // Given a set of KeyboardRemapping structs, it finds a matching struct
-  // if possible, and updates the remapped event values. Returns true if a
-  // remapping was found and remapped values were updated.
-  bool RewriteWithKeyboardRemappingsByKeyCode(
-      const KeyboardRemapping* remappings,
-      size_t num_remappings,
-      const MutableKeyState& input,
-      MutableKeyState* remapped_state);
-
   // Rewrite a particular kind of event.
   ui::EventRewriteStatus RewriteKeyEvent(
       const ui::KeyEvent& key_event,
@@ -166,7 +156,7 @@ class EventRewriter : public ui::EventRewriter {
 
   // Rewriter phases. These can inspect the original |event|, but operate using
   // the current |state|, which may have been modified by previous phases.
-  void RewriteModifierKeys(const ui::KeyEvent& event, MutableKeyState* state);
+  bool RewriteModifierKeys(const ui::KeyEvent& event, MutableKeyState* state);
   void RewriteNumPadKeys(const ui::KeyEvent& event, MutableKeyState* state);
   void RewriteExtendedKeys(const ui::KeyEvent& event, MutableKeyState* state);
   void RewriteFunctionKeys(const ui::KeyEvent& event, MutableKeyState* state);
@@ -196,6 +186,24 @@ class EventRewriter : public ui::EventRewriter {
   // While the Diamond key is down, this holds the corresponding modifier
   // ui::EventFlags; otherwise it is EF_NONE.
   int current_diamond_key_modifier_flags_;
+
+  // Some keyboard layouts have 'latching' keys, which either apply
+  // a modifier while held down (like normal modifiers), or, if no
+  // non-modifier is pressed while the latching key is down, apply the
+  // modifier to the next non-modifier keypress. Under Ozone the stateless
+  // layout model requires this to be handled explicitly. See crbug.com/518237
+  // Pragmatically this, like the Diamond key, is handled here in
+  // EventRewriter, but modifier state management is scattered between
+  // here, sticky keys, and the system layer (X11 or Ozone), and could
+  // do with refactoring.
+  // - |pressed_modifier_latches_| records the latching keys currently pressed.
+  // - |latched_modifier_latches_| records the latching keys just released,
+  //   to be applied to the next non-modifier key.
+  // - |used_modifier_latches_| records the latching keys applied to a non-
+  //   modifier while pressed, so that they do not get applied after release.
+  int pressed_modifier_latches_;
+  int latched_modifier_latches_;
+  int used_modifier_latches_;
 
   DISALLOW_COPY_AND_ASSIGN(EventRewriter);
 };

@@ -47,7 +47,6 @@ NativeMessageProcessHost::NativeMessageProcessHost(
       native_host_name_(native_host_name),
       launcher_(launcher.Pass()),
       closed_(false),
-      process_handle_(base::kNullProcessHandle),
 #if defined(OS_POSIX)
       read_file_(-1),
 #endif
@@ -62,6 +61,19 @@ NativeMessageProcessHost::NativeMessageProcessHost(
 
 NativeMessageProcessHost::~NativeMessageProcessHost() {
   DCHECK(task_runner_->BelongsToCurrentThread());
+
+  if (process_.IsValid()) {
+    // Kill the host process if necessary to make sure we don't leave zombies.
+    // On OSX base::EnsureProcessTerminated() may block, so we have to post a
+    // task on the blocking pool.
+#if defined(OS_MACOSX)
+    content::BrowserThread::PostBlockingPoolTask(
+        FROM_HERE,
+        base::Bind(&base::EnsureProcessTerminated, Passed(&process_)));
+#else
+    base::EnsureProcessTerminated(process_.Pass());
+#endif
+  }
 }
 
 // static
@@ -103,7 +115,7 @@ void NativeMessageProcessHost::LaunchHostProcess() {
 
 void NativeMessageProcessHost::OnHostProcessLaunched(
     NativeProcessLauncher::LaunchResult result,
-    base::ProcessHandle process_handle,
+    base::Process process,
     base::File read_file,
     base::File write_file) {
   DCHECK(task_runner_->BelongsToCurrentThread());
@@ -125,7 +137,7 @@ void NativeMessageProcessHost::OnHostProcessLaunched(
       break;
   }
 
-  process_handle_ = process_handle;
+  process_ = process.Pass();
 #if defined(OS_POSIX)
   // This object is not the owner of the file so it should not keep an fd.
   read_file_ = read_file.GetPlatformFile();
@@ -154,7 +166,8 @@ void NativeMessageProcessHost::OnMessage(const std::string& json) {
       new net::IOBufferWithSize(json.size() + kMessageHeaderSize);
 
   // Copy size and content of the message to the buffer.
-  COMPILE_ASSERT(sizeof(uint32) == kMessageHeaderSize, incorrect_header_size);
+  static_assert(sizeof(uint32) == kMessageHeaderSize,
+                "kMessageHeaderSize is incorrect");
   *reinterpret_cast<uint32*>(buffer->data()) = json.size();
   memcpy(buffer->data() + kMessageHeaderSize, json.data(), json.size());
 
@@ -347,19 +360,6 @@ void NativeMessageProcessHost::Close(const std::string& error_message) {
     read_stream_.reset();
     write_stream_.reset();
     client_->CloseChannel(error_message);
-  }
-
-  if (process_handle_ != base::kNullProcessHandle) {
-    // Kill the host process if necessary to make sure we don't leave zombies.
-    // On OSX base::EnsureProcessTerminated() may block, so we have to post a
-    // task on the blocking pool.
-#if defined(OS_MACOSX)
-    content::BrowserThread::PostBlockingPoolTask(
-        FROM_HERE, base::Bind(&base::EnsureProcessTerminated, process_handle_));
-#else
-    base::EnsureProcessTerminated(process_handle_);
-#endif
-    process_handle_ = base::kNullProcessHandle;
   }
 }
 

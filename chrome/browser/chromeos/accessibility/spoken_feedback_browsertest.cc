@@ -9,10 +9,13 @@
 #include "ash/shell.h"
 #include "ash/system/tray/system_tray.h"
 #include "base/command_line.h"
+#include "base/strings/pattern.h"
 #include "base/strings/string_util.h"
 #include "chrome/app/chrome_command_ids.h"
+#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/accessibility/speech_monitor.h"
+#include "chrome/browser/chromeos/login/login_manager_test.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
 #include "chrome/browser/chromeos/login/ui/webui_login_view.h"
@@ -38,7 +41,9 @@
 #include "extensions/browser/extension_host.h"
 #include "extensions/browser/process_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/app_list/app_list_switches.h"
 #include "ui/base/test/ui_controls.h"
+#include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/views/widget/widget.h"
 
 using extensions::api::braille_display_private::StubBrailleController;
@@ -51,36 +56,31 @@ namespace chromeos {
 
 class LoggedInSpokenFeedbackTest : public InProcessBrowserTest {
  protected:
-  LoggedInSpokenFeedbackTest() {}
-  virtual ~LoggedInSpokenFeedbackTest() {}
+  LoggedInSpokenFeedbackTest()
+      : animation_mode_(ui::ScopedAnimationDurationScaleMode::ZERO_DURATION) {}
+  ~LoggedInSpokenFeedbackTest() override {}
 
-  virtual void SetUpInProcessBrowserTestFixture() override {
+  void SetUpInProcessBrowserTestFixture() override {
     AccessibilityManager::SetBrailleControllerForTest(&braille_controller_);
   }
 
-  virtual void TearDownOnMainThread() override {
-    AccessibilityManager::SetBrailleControllerForTest(NULL);
+  void TearDownOnMainThread() override {
+    AccessibilityManager::SetBrailleControllerForTest(nullptr);
   }
 
   void SendKeyPress(ui::KeyboardCode key) {
-    ASSERT_NO_FATAL_FAILURE(
-        ASSERT_TRUE(
-            ui_test_utils::SendKeyPressToWindowSync(
-                NULL, key, false, false, false, false)));
+    ASSERT_NO_FATAL_FAILURE(ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
+        nullptr, key, false, false, false, false)));
   }
 
   void SendKeyPressWithControl(ui::KeyboardCode key) {
-    ASSERT_NO_FATAL_FAILURE(
-        ASSERT_TRUE(
-            ui_test_utils::SendKeyPressToWindowSync(
-                NULL, key, true, false, false, false)));
+    ASSERT_NO_FATAL_FAILURE(ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
+        nullptr, key, true, false, false, false)));
   }
 
   void SendKeyPressWithSearchAndShift(ui::KeyboardCode key) {
-    ASSERT_NO_FATAL_FAILURE(
-        ASSERT_TRUE(
-            ui_test_utils::SendKeyPressToWindowSync(
-                NULL, key, false, true, false, true)));
+    ASSERT_NO_FATAL_FAILURE(ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
+        nullptr, key, false, true, false, true)));
   }
 
   void RunJavaScriptInChromeVoxBackgroundPage(const std::string& script) {
@@ -99,10 +99,10 @@ class LoggedInSpokenFeedbackTest : public InProcessBrowserTest {
         "window.ontouchstart = function() {};");
   }
 
- bool PerformAcceleratorAction(int action) {
+  bool PerformAcceleratorAction(ash::AcceleratorAction action) {
     ash::AcceleratorController* controller =
         ash::Shell::GetInstance()->accelerator_controller();
-    return controller->PerformAction(action, ui::Accelerator());
+    return controller->PerformActionIfEnabled(action);
   }
 
   void DisableEarcons() {
@@ -173,19 +173,23 @@ class LoggedInSpokenFeedbackTest : public InProcessBrowserTest {
 
  private:
   StubBrailleController braille_controller_;
+  ui::ScopedAnimationDurationScaleMode animation_mode_;
+
   DISALLOW_COPY_AND_ASSIGN(LoggedInSpokenFeedbackTest);
 };
 
-IN_PROC_BROWSER_TEST_F(LoggedInSpokenFeedbackTest, AddBookmark) {
+// This test is very flakey with ChromeVox Next since we generate a lot more
+// utterances for text fields.
+// TODO(dtseng): Fix properly.
+IN_PROC_BROWSER_TEST_F(LoggedInSpokenFeedbackTest, DISABLED_AddBookmark) {
   EnableChromeVox();
   chrome::ExecuteCommand(browser(), IDC_SHOW_BOOKMARK_BAR);
 
   // Create a bookmark with title "foo".
   chrome::ExecuteCommand(browser(), IDC_BOOKMARK_PAGE);
-  EXPECT_EQ("Bookmark added!,", speech_monitor_.GetNextUtterance());
-  EXPECT_EQ("about blank,", speech_monitor_.GetNextUtterance());
-  EXPECT_EQ("Bookmark name,", speech_monitor_.GetNextUtterance());
-  EXPECT_EQ("text box", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Bookmark added! dialog Bookmark name about:blank Edit text",
+            speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("about:blank", speech_monitor_.GetNextUtterance());
 
   SendKeyPress(ui::VKEY_F);
   EXPECT_EQ("f", speech_monitor_.GetNextUtterance());
@@ -195,13 +199,13 @@ IN_PROC_BROWSER_TEST_F(LoggedInSpokenFeedbackTest, AddBookmark) {
   EXPECT_EQ("o", speech_monitor_.GetNextUtterance());
 
   SendKeyPress(ui::VKEY_TAB);
-  EXPECT_EQ("Bookmarks bar,", speech_monitor_.GetNextUtterance());
-  EXPECT_EQ("Bookmark folder,", speech_monitor_.GetNextUtterance());
-  EXPECT_TRUE(MatchPattern(speech_monitor_.GetNextUtterance(), "combo box*"));
+  EXPECT_EQ("Bookmark folder combo Box Bookmarks bar",
+            speech_monitor_.GetNextUtterance());
 
   SendKeyPress(ui::VKEY_RETURN);
 
-  EXPECT_TRUE(MatchPattern(speech_monitor_.GetNextUtterance(), "*oolbar*"));
+  EXPECT_TRUE(
+      base::MatchPattern(speech_monitor_.GetNextUtterance(), "*oolbar*"));
   // Wait for active window change to be announced to avoid interference from
   // that below.
   while (speech_monitor_.GetNextUtterance() != "window about blank tab") {
@@ -236,7 +240,7 @@ class SpokenFeedbackTest
   SpokenFeedbackTest() {}
   virtual ~SpokenFeedbackTest() {}
 
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     if (GetParam() == kTestAsGuestUser) {
       command_line->AppendSwitch(chromeos::switches::kGuestSession);
       command_line->AppendSwitch(::switches::kIncognito);
@@ -260,25 +264,26 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, EnableSpokenFeedback) {
 
 IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, FocusToolbar) {
   EnableChromeVox();
-
   chrome::ExecuteCommand(browser(), IDC_FOCUS_TOOLBAR);
-  // Might be "Google Chrome Toolbar" or "Chromium Toolbar".
-  EXPECT_TRUE(MatchPattern(speech_monitor_.GetNextUtterance(), "*oolbar*"));
-  EXPECT_EQ("Reload,", speech_monitor_.GetNextUtterance());
-  EXPECT_EQ("button", speech_monitor_.GetNextUtterance());
+  EXPECT_TRUE(
+      base::MatchPattern(speech_monitor_.GetNextUtterance(), "about:blank*"));
+  EXPECT_EQ("main", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Tool bar", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Reload", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Button", speech_monitor_.GetNextUtterance());
 }
 
 IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, TypeInOmnibox) {
   EnableChromeVox();
 
-  // Wait for ChromeVox to finish speaking.
   chrome::ExecuteCommand(browser(), IDC_FOCUS_LOCATION);
-  while (true) {
-    std::string utterance = speech_monitor_.GetNextUtterance();
-    VLOG(0) << "Got utterance: " << utterance;
-    if (utterance == "text box")
-      break;
-  }
+  EXPECT_TRUE(
+      base::MatchPattern(speech_monitor_.GetNextUtterance(), "*about:blank*"));
+  EXPECT_EQ("main", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Tool bar", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Address and search bar", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("about:blank", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Edit text", speech_monitor_.GetNextUtterance());
 
   SendKeyPress(ui::VKEY_X);
   EXPECT_EQ("x", speech_monitor_.GetNextUtterance());
@@ -297,12 +302,17 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, FocusShelf) {
   EnableChromeVox();
 
   EXPECT_TRUE(PerformAcceleratorAction(ash::FOCUS_SHELF));
-  EXPECT_EQ("Shelf,", speech_monitor_.GetNextUtterance());
-  EXPECT_EQ("Apps,", speech_monitor_.GetNextUtterance());
-  EXPECT_EQ("button", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Shelf", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Tool bar", speech_monitor_.GetNextUtterance());
+  if (app_list::switches::IsExperimentalAppListEnabled())
+    EXPECT_EQ("Launcher", speech_monitor_.GetNextUtterance());
+  else
+    EXPECT_EQ("Apps", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Button", speech_monitor_.GetNextUtterance());
 
   SendKeyPress(ui::VKEY_TAB);
-  EXPECT_TRUE(MatchPattern(speech_monitor_.GetNextUtterance(), "*, button"));
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(), "*"));
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(), "Button"));
 }
 
 IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, NavigateAppLauncher) {
@@ -311,27 +321,32 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, NavigateAppLauncher) {
   EXPECT_TRUE(PerformAcceleratorAction(ash::FOCUS_SHELF));
   while (true) {
     std::string utterance = speech_monitor_.GetNextUtterance();
-    if (utterance == "button")
+    if (base::MatchPattern(utterance, "Button"))
       break;
   }
 
   SendKeyPress(ui::VKEY_RETURN);
-  EXPECT_TRUE(MatchPattern(speech_monitor_.GetNextUtterance(), "Chrom*,"));
-  EXPECT_EQ("text box", speech_monitor_.GetNextUtterance());
+
+  EXPECT_EQ("Search or type U R L", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Edit text", speech_monitor_.GetNextUtterance());
 
   SendKeyPress(ui::VKEY_DOWN);
-  EXPECT_TRUE(MatchPattern(speech_monitor_.GetNextUtterance(), "*, button"));
+  EXPECT_EQ("Dialog", speech_monitor_.GetNextUtterance());
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(), "*"));
+  EXPECT_EQ("Button", speech_monitor_.GetNextUtterance());
 }
 
 IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, OpenStatusTray) {
   EnableChromeVox();
 
   EXPECT_TRUE(PerformAcceleratorAction(ash::SHOW_SYSTEM_TRAY_BUBBLE));
-  EXPECT_EQ("Status tray,", speech_monitor_.GetNextUtterance());
-  EXPECT_TRUE(MatchPattern(speech_monitor_.GetNextUtterance(), "time *"));
-  EXPECT_TRUE(MatchPattern(speech_monitor_.GetNextUtterance(),
-                           "Battery is*full."));
-  EXPECT_TRUE(MatchPattern(speech_monitor_.GetNextUtterance(), "*, button"));
+  EXPECT_TRUE(
+      base::MatchPattern(speech_monitor_.GetNextUtterance(), "Status tray*"));
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(), "time *"));
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(),
+                                 "Battery is*full."));
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(), "*"));
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(), "Button"));
 }
 
 IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, NavigateSystemTray) {
@@ -340,15 +355,32 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, NavigateSystemTray) {
   EXPECT_TRUE(PerformAcceleratorAction(ash::SHOW_SYSTEM_TRAY_BUBBLE));
   while (true) {
     std::string utterance = speech_monitor_.GetNextUtterance();
-    if (MatchPattern(utterance, "*, button"))
+    if (base::MatchPattern(utterance, "Button"))
       break;
   }
+
+  SendKeyPress(ui::VKEY_TAB);
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(), "*"));
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(), "Button"));
+
+  // Compat next element.
+  SendKeyPressWithSearchAndShift(ui::VKEY_RIGHT);
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(), "*"));
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(), "Button"));
+
+  // Compat next button.
+  SendKeyPressWithSearchAndShift(ui::VKEY_N);
+  SendKeyPressWithSearchAndShift(ui::VKEY_B);
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(), "*"));
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(), "Button"));
 
   // Navigate to Bluetooth sub-menu and open it.
   while (true) {
     SendKeyPress(ui::VKEY_TAB);
-    std::string utterance = speech_monitor_.GetNextUtterance();
-    if (MatchPattern(utterance, "*Bluetooth*, button"))
+    std::string content = speech_monitor_.GetNextUtterance();
+    std::string role = speech_monitor_.GetNextUtterance();
+    if (base::MatchPattern(content, "*Bluetooth*") &&
+        base::MatchPattern(role, "Button"))
       break;
   }
   SendKeyPress(ui::VKEY_RETURN);
@@ -357,31 +389,37 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, NavigateSystemTray) {
   while (true) {
     SendKeyPress(ui::VKEY_TAB);
     std::string utterance = speech_monitor_.GetNextUtterance();
-    if (MatchPattern(utterance, "Previous menu, button"))
+    if (base::MatchPattern(utterance, "Previous menu"))
       break;
   }
   SendKeyPress(ui::VKEY_RETURN);
-  EXPECT_TRUE(MatchPattern(speech_monitor_.GetNextUtterance(),
-                           "*Bluetooth*, button"));
+
+  while (true) {
+    std::string utterance = speech_monitor_.GetNextUtterance();
+    if (base::MatchPattern(speech_monitor_.GetNextUtterance(), "*Bluetooth"))
+      break;
+  }
 }
 
-IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, ScreenBrightness) {
+// See http://crbug.com/443608
+IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, DISABLED_ScreenBrightness) {
   EnableChromeVox();
 
   EXPECT_TRUE(PerformAcceleratorAction(ash::BRIGHTNESS_UP));
-  EXPECT_TRUE(MatchPattern(speech_monitor_.GetNextUtterance(),
-                           "Brightness * percent"));
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(),
+                                 "Brightness * percent"));
 
   EXPECT_TRUE(PerformAcceleratorAction(ash::BRIGHTNESS_DOWN));
-  EXPECT_TRUE(MatchPattern(speech_monitor_.GetNextUtterance(),
-                           "Brightness * percent"));
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(),
+                                 "Brightness * percent"));
 }
 
 IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, VolumeSlider) {
   EnableChromeVox();
 
   EXPECT_TRUE(PerformAcceleratorAction(ash::VOLUME_UP));
-  EXPECT_TRUE(MatchPattern(speech_monitor_.GetNextUtterance(), "*%,"));
+  EXPECT_TRUE(
+      base::MatchPattern(speech_monitor_.GetNextUtterance(), "* percent*"));
   EXPECT_EQ("Volume,", speech_monitor_.GetNextUtterance());
   EXPECT_EQ("slider", speech_monitor_.GetNextUtterance());
 }
@@ -390,15 +428,22 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, OverviewMode) {
   EnableChromeVox();
 
   EXPECT_TRUE(PerformAcceleratorAction(ash::TOGGLE_OVERVIEW));
-  EXPECT_EQ("Alert Entered window overview mode",
-            speech_monitor_.GetNextUtterance());
-  EXPECT_EQ(", text box", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Edit text", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Alert", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Entered window overview mode", speech_monitor_.GetNextUtterance());
 
   SendKeyPress(ui::VKEY_TAB);
-  EXPECT_EQ("about blank, button", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("about:blank", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Button", speech_monitor_.GetNextUtterance());
 }
 
-IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, ChromeVoxShiftSearch) {
+#if defined(MEMORY_SANITIZER)
+// Fails under MemorySanitizer: http://crbug.com/472125
+#define MAYBE_ChromeVoxShiftSearch DISABLED_ChromeVoxShiftSearch
+#else
+#define MAYBE_ChromeVoxShiftSearch ChromeVoxShiftSearch
+#endif
+IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, MAYBE_ChromeVoxShiftSearch) {
   LoadChromeVoxAndThenNavigateToURL(
       GURL("data:text/html;charset=utf-8,<button autofocus>Click me</button>"));
   while (true) {
@@ -414,7 +459,13 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, ChromeVoxShiftSearch) {
   EXPECT_EQ("Enter a search query.", speech_monitor_.GetNextUtterance());
 }
 
-IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, ChromeVoxPrefixKey) {
+#if defined(MEMORY_SANITIZER)
+// Fails under MemorySanitizer: http://crbug.com/472125
+#define MAYBE_ChromeVoxPrefixKey DISABLED_ChromeVoxPrefixKey
+#else
+#define MAYBE_ChromeVoxPrefixKey ChromeVoxPrefixKey
+#endif
+IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, MAYBE_ChromeVoxPrefixKey) {
   LoadChromeVoxAndThenNavigateToURL(
       GURL("data:text/html;charset=utf-8,<button autofocus>Click me</button>"));
   while (true) {
@@ -432,7 +483,13 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, ChromeVoxPrefixKey) {
   EXPECT_EQ("Enter a search query.", speech_monitor_.GetNextUtterance());
 }
 
-IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, ChromeVoxNavigateAndSelect) {
+#if defined(MEMORY_SANITIZER)
+// Fails under MemorySanitizer: http://crbug.com/472125
+#define MAYBE_ChromeVoxNavigateAndSelect DISABLED_ChromeVoxNavigateAndSelect
+#else
+#define MAYBE_ChromeVoxNavigateAndSelect ChromeVoxNavigateAndSelect
+#endif
+IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, MAYBE_ChromeVoxNavigateAndSelect) {
   LoadChromeVoxAndThenNavigateToURL(
       GURL("data:text/html;charset=utf-8,"
            "<h1>Title</h1>"
@@ -514,9 +571,10 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, TouchExploreStatusTray) {
   tray->NotifyAccessibilityEvent(ui::AX_EVENT_HOVER, true);
 
   EXPECT_EQ("Status tray,", speech_monitor_.GetNextUtterance());
-  EXPECT_TRUE(MatchPattern(speech_monitor_.GetNextUtterance(), "time*,"));
-  EXPECT_TRUE(MatchPattern(speech_monitor_.GetNextUtterance(), "Battery*,"));
-  EXPECT_EQ("button", speech_monitor_.GetNextUtterance());
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(), "time*,"));
+  EXPECT_TRUE(
+      base::MatchPattern(speech_monitor_.GetNextUtterance(), "Battery*"));
+  EXPECT_EQ("Button", speech_monitor_.GetNextUtterance());
 }
 
 //
@@ -526,9 +584,9 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, TouchExploreStatusTray) {
 class GuestSpokenFeedbackTest : public LoggedInSpokenFeedbackTest {
  protected:
   GuestSpokenFeedbackTest() {}
-  virtual ~GuestSpokenFeedbackTest() {}
+  ~GuestSpokenFeedbackTest() override {}
 
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(chromeos::switches::kGuestSession);
     command_line->AppendSwitch(::switches::kIncognito);
     command_line->AppendSwitchASCII(chromeos::switches::kLoginProfile, "user");
@@ -544,30 +602,29 @@ IN_PROC_BROWSER_TEST_F(GuestSpokenFeedbackTest, FocusToolbar) {
   EnableChromeVox();
 
   chrome::ExecuteCommand(browser(), IDC_FOCUS_TOOLBAR);
-  // Might be "Google Chrome Toolbar" or "Chromium Toolbar".
-  EXPECT_TRUE(MatchPattern(speech_monitor_.GetNextUtterance(), "*oolbar*"));
-  EXPECT_EQ("Reload,", speech_monitor_.GetNextUtterance());
-  EXPECT_EQ("button", speech_monitor_.GetNextUtterance());
+
+  EXPECT_TRUE(
+      base::MatchPattern(speech_monitor_.GetNextUtterance(), "about:blank*"));
+  EXPECT_EQ("main", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Tool bar", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Reload", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Button", speech_monitor_.GetNextUtterance());
 }
 
 //
 // Spoken feedback tests of the out-of-box experience.
 //
 
-class OobeSpokenFeedbackTest : public InProcessBrowserTest {
+class OobeSpokenFeedbackTest : public LoginManagerTest {
  protected:
-  OobeSpokenFeedbackTest() {}
-  virtual ~OobeSpokenFeedbackTest() {}
+  OobeSpokenFeedbackTest() : LoginManagerTest(false) {}
+  ~OobeSpokenFeedbackTest() override {}
 
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
-    command_line->AppendSwitch(chromeos::switches::kLoginManager);
-    command_line->AppendSwitch(chromeos::switches::kForceLoginManagerInTests);
-    command_line->AppendSwitchASCII(chromeos::switches::kLoginProfile, "user");
-  }
-
-  virtual void SetUpOnMainThread() override {
-    AccessibilityManager::Get()->
-        SetProfileForTest(ProfileHelper::GetSigninProfile());
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    LoginManagerTest::SetUpCommandLine(command_line);
+    // Many bots don't have keyboard/mice which triggers the HID detection
+    // dialog in the OOBE.  Avoid confusing the tests with that.
+    command_line->AppendSwitch(chromeos::switches::kDisableHIDDetectionOnOOBE);
   }
 
   SpeechMonitor speech_monitor_;
@@ -586,18 +643,31 @@ IN_PROC_BROWSER_TEST_F(OobeSpokenFeedbackTest, DISABLED_SpokenFeedbackInOobe) {
   views::Widget* widget = web_ui_login_view->GetWidget();
   gfx::NativeWindow window = widget->GetNativeWindow();
 
+  // We expect to be in the language select dropdown for this test to work,
+  // so make sure that's the case.
+  js_checker().Execute("$('language-select').focus()");
   AccessibilityManager::Get()->EnableSpokenFeedback(
       true, ui::A11Y_NOTIFICATION_NONE);
-  EXPECT_TRUE(speech_monitor_.SkipChromeVoxEnabledMessage());
+  ASSERT_TRUE(speech_monitor_.SkipChromeVoxEnabledMessage());
+  // There's no guarantee that ChromeVox speaks anything when injected after
+  // the page loads, which is by design.  Tab forward and then backward
+  // to make sure we get the right feedback from the language and keyboard
+  // selection fields.
+  ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
+      window, ui::VKEY_TAB, false, false, false, false));
 
-  EXPECT_EQ("Select your language:", speech_monitor_.GetNextUtterance());
+  while (speech_monitor_.GetNextUtterance() != "Select your keyboard:") {
+  }
+  EXPECT_EQ("U S", speech_monitor_.GetNextUtterance());
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(),
+                                 "Combo box * of *"));
+  ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
+      window, ui::VKEY_TAB, false, true /*shift*/, false, false));
+  while (speech_monitor_.GetNextUtterance() != "Select your language:") {
+  }
   EXPECT_EQ("English ( United States)", speech_monitor_.GetNextUtterance());
-  EXPECT_TRUE(MatchPattern(speech_monitor_.GetNextUtterance(),
-                           "Combo box * of *"));
-  ASSERT_TRUE(
-      ui_test_utils::SendKeyPressToWindowSync(
-          window, ui::VKEY_TAB, false, false, false, false));
-  EXPECT_EQ("Select your keyboard:", speech_monitor_.GetNextUtterance());
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(),
+                                 "Combo box * of *"));
 }
 
 }  // namespace chromeos

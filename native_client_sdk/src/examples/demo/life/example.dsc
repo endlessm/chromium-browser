@@ -1,5 +1,5 @@
 {
-  'TOOLS': ['newlib', 'glibc', 'pnacl'],
+  'TOOLS': ['newlib', 'glibc', 'pnacl', 'linux', 'mac', 'clang-newlib'],
   'TARGETS': [
     {
       'NAME' : 'life',
@@ -8,7 +8,7 @@
         'life.c',
       ],
       'DEPS': ['ppapi_simple', 'nacl_io'],
-      'LIBS': ['ppapi_simple', 'nacl_io', 'ppapi_cpp', 'ppapi', 'pthread']
+      'LIBS': ['ppapi_simple', 'nacl_io', 'ppapi', 'pthread']
     }
   ],
   'DEST': 'examples/demo',

@@ -52,9 +52,8 @@
 #include "extensions/browser/extensions_browser_client.h"
 #include "extensions/common/extension.h"
 #include "google_apis/drive/drive_api_url_generator.h"
-#include "google_apis/drive/gdata_wapi_url_generator.h"
 #include "net/url_request/url_request_context_getter.h"
-#include "storage/common/blob/scoped_file.h"
+#include "storage/browser/blob/scoped_file.h"
 #include "storage/common/fileapi/file_system_util.h"
 
 namespace sync_file_system {
@@ -76,7 +75,6 @@ SyncEngine::DriveServiceFactory::CreateDriveService(
           GURL(google_apis::DriveApiUrlGenerator::kBaseUrlForProduction),
           GURL(google_apis::DriveApiUrlGenerator::
                kBaseDownloadUrlForProduction),
-          GURL(google_apis::GDataWapiUrlGenerator::kBaseUrlForProduction),
           std::string() /* custom_user_agent */));
 }
 
@@ -166,25 +164,6 @@ void DidRegisterOrigin(const base::TimeTicks& start_time,
   callback.Run(status);
 }
 
-template <typename T>
-void DeleteSoonHelper(scoped_ptr<T>) {}
-
-template <typename T>
-void DeleteSoon(const tracked_objects::Location& from_here,
-                base::TaskRunner* task_runner,
-                scoped_ptr<T> obj) {
-  if (!obj)
-    return;
-
-  T* obj_ptr = obj.get();
-  base::Closure deleter =
-      base::Bind(&DeleteSoonHelper<T>, base::Passed(&obj));
-  if (!task_runner->PostTask(from_here, deleter)) {
-    obj_ptr->DetachFromSequence();
-    deleter.Run();
-  }
-}
-
 }  // namespace
 
 scoped_ptr<SyncEngine> SyncEngine::CreateForBrowserContext(
@@ -220,6 +199,7 @@ scoped_ptr<SyncEngine> SyncEngine::CreateForBrowserContext(
       new SyncEngine(ui_task_runner.get(),
                      worker_task_runner.get(),
                      drive_task_runner.get(),
+                     worker_pool.get(),
                      GetSyncFileSystemDir(context->GetPath()),
                      task_logger,
                      notification_manager,
@@ -258,11 +238,10 @@ void SyncEngine::Reset() {
   if (drive_service_)
     drive_service_->RemoveObserver(this);
 
-  DeleteSoon(FROM_HERE, worker_task_runner_.get(), sync_worker_.Pass());
-  DeleteSoon(FROM_HERE, worker_task_runner_.get(), worker_observer_.Pass());
-  DeleteSoon(FROM_HERE,
-             worker_task_runner_.get(),
-             remote_change_processor_on_worker_.Pass());
+  worker_task_runner_->DeleteSoon(FROM_HERE, sync_worker_.release());
+  worker_task_runner_->DeleteSoon(FROM_HERE, worker_observer_.release());
+  worker_task_runner_->DeleteSoon(FROM_HERE,
+                                  remote_change_processor_on_worker_.release());
 
   drive_service_wrapper_.reset();
   drive_service_.reset();
@@ -328,7 +307,8 @@ void SyncEngine::InitializeInternal(
                             drive_uploader_on_worker.Pass(),
                             task_logger_,
                             ui_task_runner_.get(),
-                            worker_task_runner_.get()));
+                            worker_task_runner_.get(),
+                            worker_pool_.get()));
 
   worker_observer_.reset(new WorkerObserver(ui_task_runner_.get(),
                                             weak_ptr_factory_.GetWeakPtr()));
@@ -738,6 +718,7 @@ SyncEngine::SyncEngine(
     const scoped_refptr<base::SingleThreadTaskRunner>& ui_task_runner,
     const scoped_refptr<base::SequencedTaskRunner>& worker_task_runner,
     const scoped_refptr<base::SequencedTaskRunner>& drive_task_runner,
+    const scoped_refptr<base::SequencedWorkerPool>& worker_pool,
     const base::FilePath& sync_file_system_dir,
     TaskLogger* task_logger,
     drive::DriveNotificationManager* notification_manager,
@@ -750,6 +731,7 @@ SyncEngine::SyncEngine(
     : ui_task_runner_(ui_task_runner),
       worker_task_runner_(worker_task_runner),
       drive_task_runner_(drive_task_runner),
+      worker_pool_(worker_pool),
       sync_file_system_dir_(sync_file_system_dir),
       task_logger_(task_logger),
       notification_manager_(notification_manager),

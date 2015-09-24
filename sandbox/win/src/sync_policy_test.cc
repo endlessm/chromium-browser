@@ -29,7 +29,8 @@ SBOX_TESTS_COMMAND int Event_Open(int argc, wchar_t **argv) {
     return SBOX_TEST_SUCCEEDED;
 
   if (ERROR_ACCESS_DENIED == error_open ||
-      ERROR_BAD_PATHNAME == error_open)
+      ERROR_BAD_PATHNAME == error_open ||
+      ERROR_FILE_NOT_FOUND == error_open)
     return SBOX_TEST_DENIED;
 
   return SBOX_TEST_FAILED;
@@ -71,9 +72,10 @@ SBOX_TESTS_COMMAND int Event_CreateOpen(int argc, wchar_t **argv) {
     if (event_open.IsValid() && event_create.IsValid())
       return SBOX_TEST_SUCCEEDED;
 
-    if (event_open.IsValid() && !event_create.IsValid() ||
-        !event_open.IsValid() && event_create.IsValid())
+    if ((event_open.IsValid() && !event_create.IsValid()) ||
+        (!event_open.IsValid() && event_create.IsValid())) {
       return SBOX_TEST_FAILED;
+    }
   } else {
     // Only event_create has to be valid.
     if (event_create.Get())

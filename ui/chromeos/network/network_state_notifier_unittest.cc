@@ -30,7 +30,7 @@ class NetworkConnectTestDelegate : public NetworkConnect::Delegate {
 
   // NetworkConnect::Delegate
   void ShowNetworkConfigure(const std::string& network_id) override {}
-  void ShowNetworkSettings(const std::string& network_id) override {}
+  void ShowNetworkSettingsForGuid(const std::string& network_id) override {}
   bool ShowEnrollNetwork(const std::string& network_id) override {
     return false;
   }
@@ -87,7 +87,7 @@ class NetworkStateNotifierTest : public testing::Test {
     service_test->AddService("/service/wifi1", "wifi1_guid", "wifi1",
                              shill::kTypeWifi, shill::kStateIdle,
                              add_to_visible);
-    service_test->SetServiceProperty("wifi1", shill::kSecurityProperty,
+    service_test->SetServiceProperty("wifi1", shill::kSecurityClassProperty,
                                      base::StringValue(shill::kSecurityWep));
     service_test->SetServiceProperty("wifi1", shill::kConnectableProperty,
                                      base::FundamentalValue(true));

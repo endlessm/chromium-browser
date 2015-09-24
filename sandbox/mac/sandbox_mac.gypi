@@ -10,8 +10,6 @@
       'sources': [
         'bootstrap_sandbox.cc',
         'bootstrap_sandbox.h',
-        'dispatch_source_mach.cc',
-        'dispatch_source_mach.h',
         'launchd_interception_server.cc',
         'launchd_interception_server.h',
         'mach_message_server.cc',
@@ -93,7 +91,6 @@
       'type': 'executable',
       'sources': [
         'bootstrap_sandbox_unittest.mm',
-        'dispatch_source_mach_unittest.cc',
         'policy_unittest.cc',
         'xpc_message_server_unittest.cc',
       ],
@@ -113,5 +110,20 @@
         ],
       },
     },
+  ],
+  'conditions': [
+    ['test_isolation_mode != "noop"', {
+      'targets': [
+        {
+          'target_name': 'sandbox_mac_unittests_run',
+          'type': 'none',
+          'dependencies': [
+            'sandbox_mac_unittests',
+          ],
+          'includes': [ '../../build/isolate.gypi' ],
+          'sources': [ '../sandbox_mac_unittests.isolate' ],
+        },
+      ],
+    }],
   ],
 }

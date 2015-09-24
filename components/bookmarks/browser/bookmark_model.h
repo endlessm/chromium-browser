@@ -5,12 +5,13 @@
 #ifndef COMPONENTS_BOOKMARKS_BROWSER_BOOKMARK_MODEL_H_
 #define COMPONENTS_BOOKMARKS_BROWSER_BOOKMARK_MODEL_H_
 
+#include <stdint.h>
 #include <map>
 #include <set>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
@@ -23,23 +24,11 @@
 #include "ui/gfx/image/image.h"
 #include "url/gurl.h"
 
-class BookmarkModelObserver;
 class PrefService;
 
 namespace base {
 class FilePath;
 class SequencedTaskRunner;
-}
-
-namespace bookmarks {
-class BookmarkCodecTest;
-class BookmarkExpandedStateTracker;
-class BookmarkIndex;
-class BookmarkLoadDetails;
-class BookmarkStorage;
-class ScopedGroupBookmarkActions;
-class TestBookmarkClient;
-struct BookmarkMatch;
 }
 
 namespace favicon_base {
@@ -49,6 +38,18 @@ struct FaviconImageResult;
 namespace query_parser {
 enum class MatchingAlgorithm;
 }
+
+namespace bookmarks {
+
+class BookmarkCodecTest;
+class BookmarkExpandedStateTracker;
+class BookmarkIndex;
+class BookmarkLoadDetails;
+class BookmarkModelObserver;
+class BookmarkStorage;
+class ScopedGroupBookmarkActions;
+class TestBookmarkClient;
+struct BookmarkMatch;
 
 // BookmarkModel --------------------------------------------------------------
 
@@ -67,7 +68,7 @@ class BookmarkModel : public KeyedService {
     base::string16 title;
   };
 
-  explicit BookmarkModel(bookmarks::BookmarkClient* client);
+  explicit BookmarkModel(BookmarkClient* client);
   ~BookmarkModel() override;
 
   // KeyedService:
@@ -127,9 +128,9 @@ class BookmarkModel : public KeyedService {
   // state during their own initializer, such as the NTP.
   bool IsDoingExtensiveChanges() const { return extensive_changes_ > 0; }
 
-  // Removes the node at the given |index| from |parent|. Removing a folder node
+  // Removes |node| from the model and deletes it. Removing a folder node
   // recursively removes all nodes. Observers are notified immediately.
-  void Remove(const BookmarkNode* parent, int index);
+  void Remove(const BookmarkNode* node);
 
   // Removes all the non-permanent bookmark nodes that are editable by the user.
   // Observers are only notified when all nodes have been removed. There is no
@@ -242,15 +243,14 @@ class BookmarkModel : public KeyedService {
   // in either the title or the URL. It uses default matching algorithm.
   void GetBookmarksMatching(const base::string16& text,
                             size_t max_count,
-                            std::vector<bookmarks::BookmarkMatch>* matches);
+                            std::vector<BookmarkMatch>* matches);
 
   // Returns up to |max_count| of bookmarks containing each term from |text|
   // in either the title or the URL.
-  void GetBookmarksMatching(
-      const base::string16& text,
-      size_t max_count,
-      query_parser::MatchingAlgorithm matching_algorithm,
-      std::vector<bookmarks::BookmarkMatch>* matches);
+  void GetBookmarksMatching(const base::string16& text,
+                            size_t max_count,
+                            query_parser::MatchingAlgorithm matching_algorithm,
+                            std::vector<BookmarkMatch>* matches);
 
   // Sets the store to NULL, making it so the BookmarkModel does not persist
   // any changes to disk. This is only useful during testing to speed up
@@ -258,11 +258,11 @@ class BookmarkModel : public KeyedService {
   void ClearStore();
 
   // Returns the next node ID.
-  int64 next_node_id() const { return next_node_id_; }
+  int64_t next_node_id() const { return next_node_id_; }
 
   // Returns the object responsible for tracking the set of expanded nodes in
   // the bookmark editor.
-  bookmarks::BookmarkExpandedStateTracker* expanded_state_tracker() {
+  BookmarkExpandedStateTracker* expanded_state_tracker() {
     return expanded_state_tracker_.get();
   }
 
@@ -283,22 +283,37 @@ class BookmarkModel : public KeyedService {
   void DeleteNodeMetaInfo(const BookmarkNode* node,
                           const std::string& key);
 
+  // Adds |key| to the set of meta info keys that are not copied when a node is
+  // cloned.
+  void AddNonClonedKey(const std::string& key);
+
+  // Returns the set of meta info keys that should not be copied when a node is
+  // cloned.
+  const std::set<std::string>& non_cloned_keys() const {
+    return non_cloned_keys_;
+  }
+
   // Sets the sync transaction version of |node|.
   void SetNodeSyncTransactionVersion(const BookmarkNode* node,
-                                     int64 sync_transaction_version);
+                                     int64_t sync_transaction_version);
 
-  // Notify BookmarkModel that the favicons for |urls| have changed and have to
-  // be refetched. This notification is sent by BookmarkClient.
-  void OnFaviconChanged(const std::set<GURL>& urls);
+  // Notify BookmarkModel that the favicons for the given page URLs (e.g.
+  // http://www.google.com) and the given icon URL (e.g.
+  // http://www.google.com/favicon.ico) have changed. It is valid to call
+  // OnFaviconsChanged() with non-empty |page_urls| and an empty |icon_url| and
+  // vice versa.
+  void OnFaviconsChanged(const std::set<GURL>& page_urls,
+                         const GURL& icon_url);
 
   // Returns the client used by this BookmarkModel.
-  bookmarks::BookmarkClient* client() const { return client_; }
+  BookmarkClient* client() const { return client_; }
 
  private:
-  friend class bookmarks::BookmarkCodecTest;
-  friend class bookmarks::BookmarkStorage;
-  friend class bookmarks::ScopedGroupBookmarkActions;
-  friend class bookmarks::TestBookmarkClient;
+  friend class BookmarkCodecTest;
+  friend class BookmarkModelFaviconTest;
+  friend class BookmarkStorage;
+  friend class ScopedGroupBookmarkActions;
+  friend class TestBookmarkClient;
 
   // Used to order BookmarkNodes by URL.
   class NodeURLComparator {
@@ -320,7 +335,7 @@ class BookmarkModel : public KeyedService {
 
   // Invoked when loading is finished. Sets |loaded_| and notifies observers.
   // BookmarkModel takes ownership of |details|.
-  void DoneLoading(scoped_ptr<bookmarks::BookmarkLoadDetails> details);
+  void DoneLoading(scoped_ptr<BookmarkLoadDetails> details);
 
   // Populates |nodes_ordered_by_url_set_| from root.
   void PopulateNodesByURL(BookmarkNode* node);
@@ -378,19 +393,19 @@ class BookmarkModel : public KeyedService {
   void EndGroupedChanges();
 
   // Generates and returns the next node ID.
-  int64 generate_next_node_id();
+  int64_t generate_next_node_id();
 
   // Sets the maximum node ID to the given value.
   // This is used by BookmarkCodec to report the maximum ID after it's done
   // decoding since during decoding codec assigns node IDs.
-  void set_next_node_id(int64 id) { next_node_id_ = id; }
+  void set_next_node_id(int64_t id) { next_node_id_ = id; }
 
   // Creates and returns a new BookmarkLoadDetails. It's up to the caller to
   // delete the returned object.
-  scoped_ptr<bookmarks::BookmarkLoadDetails> CreateLoadDetails(
+  scoped_ptr<BookmarkLoadDetails> CreateLoadDetails(
       const std::string& accept_languages);
 
-  bookmarks::BookmarkClient* const client_;
+  BookmarkClient* const client_;
 
   // Whether the initial set of data has been loaded.
   bool loaded_;
@@ -404,10 +419,10 @@ class BookmarkModel : public KeyedService {
   BookmarkPermanentNode* mobile_node_;
 
   // The maximum ID assigned to the bookmark nodes in the model.
-  int64 next_node_id_;
+  int64_t next_node_id_;
 
   // The observers.
-  ObserverList<BookmarkModelObserver> observers_;
+  base::ObserverList<BookmarkModelObserver> observers_;
 
   // Set of nodes ordered by URL. This is not a map to avoid copying the
   // urls.
@@ -421,18 +436,22 @@ class BookmarkModel : public KeyedService {
   base::CancelableTaskTracker cancelable_task_tracker_;
 
   // Reads/writes bookmarks to disk.
-  scoped_ptr<bookmarks::BookmarkStorage> store_;
+  scoped_ptr<BookmarkStorage> store_;
 
-  scoped_ptr<bookmarks::BookmarkIndex> index_;
+  scoped_ptr<BookmarkIndex> index_;
 
   base::WaitableEvent loaded_signal_;
 
   // See description of IsDoingExtensiveChanges above.
   int extensive_changes_;
 
-  scoped_ptr<bookmarks::BookmarkExpandedStateTracker> expanded_state_tracker_;
+  scoped_ptr<BookmarkExpandedStateTracker> expanded_state_tracker_;
+
+  std::set<std::string> non_cloned_keys_;
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkModel);
 };
+
+}  // namespace bookmarks
 
 #endif  // COMPONENTS_BOOKMARKS_BROWSER_BOOKMARK_MODEL_H_

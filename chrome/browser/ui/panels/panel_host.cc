@@ -5,41 +5,41 @@
 #include "chrome/browser/ui/panels/panel_host.h"
 
 #include "base/bind.h"
+#include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/chrome_page_zoom.h"
 #include "chrome/browser/extensions/chrome_extension_web_contents_observer.h"
 #include "chrome/browser/extensions/window_controller.h"
-#include "chrome/browser/favicon/favicon_tab_helper.h"
+#include "chrome/browser/favicon/favicon_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/panels/panel.h"
 #include "chrome/browser/ui/prefs/prefs_tab_helper.h"
-#include "chrome/browser/ui/zoom/zoom_controller.h"
+#include "components/favicon/content/content_favicon_driver.h"
+#include "components/ui/zoom/page_zoom.h"
+#include "components/ui/zoom/zoom_controller.h"
 #include "content/public/browser/invalidate_type.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/notification_types.h"
-#include "content/public/browser/render_view_host.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/browser/user_metrics.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/view_type_utils.h"
-#include "extensions/common/extension_messages.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_message_macros.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/image/image.h"
-#include "ui/gfx/rect.h"
 
 using base::UserMetricsAction;
 
 PanelHost::PanelHost(Panel* panel, Profile* profile)
     : panel_(panel),
       profile_(profile),
-      extension_function_dispatcher_(profile, this),
       weak_factory_(this) {
 }
 
@@ -55,9 +55,9 @@ void PanelHost::Init(const GURL& url) {
   web_contents_.reset(content::WebContents::Create(create_params));
   extensions::SetViewType(web_contents_.get(), extensions::VIEW_TYPE_PANEL);
   web_contents_->SetDelegate(this);
-  // web_contents_ may be passed to chrome_page_zoom::Zoom(), so it needs
+  // web_contents_ may be passed to PageZoom::Zoom(), so it needs
   // a ZoomController.
-  ZoomController::CreateForWebContents(web_contents_.get());
+  ui_zoom::ZoomController::CreateForWebContents(web_contents_.get());
   content::WebContentsObserver::Observe(web_contents_.get());
 
   // Needed to give the web contents a Tab ID. Extension APIs
@@ -66,10 +66,12 @@ void PanelHost::Init(const GURL& url) {
   SessionTabHelper::FromWebContents(web_contents_.get())->SetWindowID(
       panel_->session_id());
 
-  FaviconTabHelper::CreateForWebContents(web_contents_.get());
+  favicon::CreateContentFaviconDriverForWebContents(web_contents_.get());
   PrefsTabHelper::CreateForWebContents(web_contents_.get());
   extensions::ChromeExtensionWebContentsObserver::CreateForWebContents(
       web_contents_.get());
+  extensions::ExtensionWebContentsObserver::GetForWebContents(
+      web_contents_.get())->dispatcher()->set_delegate(this);
 
   web_contents_->GetController().LoadURL(
       url, content::Referrer(), ui::PAGE_TRANSITION_LINK, std::string());
@@ -88,10 +90,10 @@ gfx::Image PanelHost::GetPageIcon() const {
   if (!web_contents_.get())
     return gfx::Image();
 
-  FaviconTabHelper* favicon_tab_helper =
-      FaviconTabHelper::FromWebContents(web_contents_.get());
-  CHECK(favicon_tab_helper);
-  return favicon_tab_helper->GetFavicon();
+  favicon::FaviconDriver* favicon_driver =
+      favicon::ContentFaviconDriver::FromWebContents(web_contents_.get());
+  CHECK(favicon_driver);
+  return favicon_driver->GetFavicon();
 }
 
 content::WebContents* PanelHost::OpenURLFromTab(
@@ -125,7 +127,7 @@ content::WebContents* PanelHost::OpenURLFromTab(
   return navigate_params.target_contents;
 }
 
-void PanelHost::NavigationStateChanged(const content::WebContents* source,
+void PanelHost::NavigationStateChanged(content::WebContents* source,
                                        content::InvalidateTypes changed_flags) {
   // Only need to update the title if the title changed while not loading,
   // because the title is also updated when loading state changes.
@@ -138,7 +140,7 @@ void PanelHost::NavigationStateChanged(const content::WebContents* source,
 void PanelHost::AddNewContents(content::WebContents* source,
                                content::WebContents* new_contents,
                                WindowOpenDisposition disposition,
-                               const gfx::Rect& initial_pos,
+                               const gfx::Rect& initial_rect,
                                bool user_gesture,
                                bool* was_blocked) {
   chrome::NavigateParams navigate_params(profile_, new_contents->GetURL(),
@@ -150,7 +152,7 @@ void PanelHost::AddNewContents(content::WebContents* source,
   navigate_params.disposition =
       disposition == NEW_BACKGROUND_TAB ? disposition : NEW_FOREGROUND_TAB;
 
-  navigate_params.window_bounds = initial_pos;
+  navigate_params.window_bounds = initial_rect;
   navigate_params.user_gesture = user_gesture;
   navigate_params.extension_app_id = panel_->extension_id();
   chrome::Navigate(&navigate_params);
@@ -193,19 +195,9 @@ void PanelHost::HandleKeyboardEvent(
   return panel_->HandleKeyboardEvent(event);
 }
 
-void PanelHost::WebContentsFocused(content::WebContents* contents) {
-  panel_->WebContentsFocused(contents);
-}
-
 void PanelHost::ResizeDueToAutoResize(content::WebContents* web_contents,
                                       const gfx::Size& new_size) {
   panel_->OnContentsAutoResized(new_size);
-}
-
-void PanelHost::RenderViewCreated(content::RenderViewHost* render_view_host) {
-  extensions::WindowController* window = GetExtensionWindowController();
-  render_view_host->Send(new ExtensionMsg_UpdateBrowserWindowId(
-      render_view_host->GetRoutingID(), window->GetWindowId()));
 }
 
 void PanelHost::RenderProcessGone(base::TerminationStatus status) {
@@ -219,30 +211,13 @@ void PanelHost::WebContentsDestroyed() {
   // Close the panel after we return to the message loop (not immediately,
   // otherwise, it may destroy this object before the stack has a chance
   // to cleanly unwind.)
-  base::MessageLoop::current()->PostTask(
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::Bind(&PanelHost::ClosePanel, weak_factory_.GetWeakPtr()));
 }
 
 void PanelHost::ClosePanel() {
   panel_->Close();
-}
-
-bool PanelHost::OnMessageReceived(const IPC::Message& message) {
-  bool handled = true;
-  IPC_BEGIN_MESSAGE_MAP(PanelHost, message)
-    IPC_MESSAGE_HANDLER(ExtensionHostMsg_Request, OnRequest)
-    IPC_MESSAGE_UNHANDLED(handled = false)
-  IPC_END_MESSAGE_MAP()
-  return handled;
-}
-
-void PanelHost::OnRequest(const ExtensionHostMsg_Request_Params& params) {
-  if (!web_contents_.get())
-    return;
-
-  extension_function_dispatcher_.Dispatch(params,
-                                          web_contents_->GetRenderViewHost());
 }
 
 extensions::WindowController* PanelHost::GetExtensionWindowController() const {
@@ -269,5 +244,5 @@ void PanelHost::StopLoading() {
 }
 
 void PanelHost::Zoom(content::PageZoom zoom) {
-  chrome_page_zoom::Zoom(web_contents_.get(), zoom);
+  ui_zoom::PageZoom::Zoom(web_contents_.get(), zoom);
 }

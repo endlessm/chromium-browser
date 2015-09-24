@@ -29,7 +29,6 @@
 #if defined(OS_CHROMEOS)
 #include "chromeos/audio/cras_audio_handler.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
-#include "ui/keyboard/keyboard.h"
 #endif
 
 #if defined(OS_WIN)
@@ -46,9 +45,11 @@ namespace test {
 AshTestHelper::AshTestHelper(base::MessageLoopForUI* message_loop)
     : message_loop_(message_loop),
       test_shell_delegate_(NULL),
-      test_screenshot_delegate_(NULL),
-      dbus_thread_manager_initialized_(false) {
+      test_screenshot_delegate_(NULL) {
   CHECK(message_loop_);
+#if defined(OS_CHROMEOS)
+  dbus_thread_manager_initialized_ = false;
+#endif
 #if defined(USE_X11)
   aura::test::SetUseOverrideRedirectWindowByDefault(true);
 #endif
@@ -97,10 +98,8 @@ void AshTestHelper::SetUp(bool start_session) {
 
   Shell* shell = Shell::GetInstance();
   if (start_session) {
-    test_shell_delegate_->test_session_state_delegate()->
-        SetActiveUserSessionStarted(true);
-    test_shell_delegate_->test_session_state_delegate()->
-        SetHasActiveUser(true);
+    GetTestSessionStateDelegate()->SetActiveUserSessionStarted(true);
+    GetTestSessionStateDelegate()->SetHasActiveUser(true);
   }
 
   test::DisplayManagerTestApi(shell->display_manager()).
@@ -126,7 +125,6 @@ void AshTestHelper::TearDown() {
     chromeos::DBusThreadManager::Shutdown();
     dbus_thread_manager_initialized_ = false;
   }
-  keyboard::ResetKeyboardForTesting();
 #endif
 
   aura::Env::DeleteInstance();
@@ -148,6 +146,13 @@ void AshTestHelper::RunAllPendingInMessageLoop() {
   aura::Env::CreateInstance(true);
   base::RunLoop run_loop;
   run_loop.RunUntilIdle();
+}
+
+// static
+TestSessionStateDelegate* AshTestHelper::GetTestSessionStateDelegate() {
+  CHECK(Shell::HasInstance());
+  return static_cast<TestSessionStateDelegate*>(
+      Shell::GetInstance()->session_state_delegate());
 }
 
 aura::Window* AshTestHelper::CurrentContext() {

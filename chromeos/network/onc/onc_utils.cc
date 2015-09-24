@@ -8,6 +8,7 @@
 #include "base/json/json_reader.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
 #include "chromeos/network/network_event_log.h"
@@ -15,14 +16,18 @@
 #include "chromeos/network/onc/onc_signature.h"
 #include "chromeos/network/onc/onc_utils.h"
 #include "chromeos/network/onc/onc_validator.h"
+#include "components/device_event_log/device_event_log.h"
+#include "components/proxy_config/proxy_config_dictionary.h"
 #include "crypto/encryptor.h"
 #include "crypto/hmac.h"
 #include "crypto/symmetric_key.h"
+#include "net/base/host_port_pair.h"
 #include "net/cert/pem_tokenizer.h"
 #include "net/cert/x509_certificate.h"
-
-#define ONC_LOG_WARNING(message) NET_LOG_WARNING("ONC", message)
-#define ONC_LOG_ERROR(message) NET_LOG_ERROR("ONC", message)
+#include "net/proxy/proxy_bypass_rules.h"
+#include "net/proxy/proxy_config.h"
+#include "net/proxy/proxy_server.h"
+#include "url/url_constants.h"
 
 using namespace ::onc;
 
@@ -43,12 +48,12 @@ const char kEmptyUnencryptedConfiguration[] =
 scoped_ptr<base::DictionaryValue> ReadDictionaryFromJson(
     const std::string& json) {
   std::string error;
-  base::Value* root = base::JSONReader::ReadAndReturnError(
-      json, base::JSON_ALLOW_TRAILING_COMMAS, NULL, &error);
+  base::Value* root = base::JSONReader::DeprecatedReadAndReturnError(
+      json, base::JSON_ALLOW_TRAILING_COMMAS, nullptr, &error);
 
-  base::DictionaryValue* dict_ptr = NULL;
+  base::DictionaryValue* dict_ptr = nullptr;
   if (!root || !root->GetAsDictionary(&dict_ptr)) {
-    ONC_LOG_ERROR("Invalid JSON Dictionary: " + error);
+    NET_LOG(ERROR) << "Invalid JSON Dictionary: " << error;
     delete root;
   }
 
@@ -79,34 +84,33 @@ scoped_ptr<base::DictionaryValue> Decrypt(const std::string& passphrase,
       !root.GetString(encrypted::kStretch, &stretch_method) ||
       !root.GetString(toplevel_config::kType, &onc_type) ||
       onc_type != toplevel_config::kEncryptedConfiguration) {
-
-    ONC_LOG_ERROR("Encrypted ONC malformed.");
-    return scoped_ptr<base::DictionaryValue>();
+    NET_LOG(ERROR) << "Encrypted ONC malformed.";
+    return nullptr;
   }
 
   if (hmac_method != encrypted::kSHA1 ||
       cipher != encrypted::kAES256 ||
       stretch_method != encrypted::kPBKDF2) {
-    ONC_LOG_ERROR("Encrypted ONC unsupported encryption scheme.");
-    return scoped_ptr<base::DictionaryValue>();
+    NET_LOG(ERROR) << "Encrypted ONC unsupported encryption scheme.";
+    return nullptr;
   }
 
   // Make sure iterations != 0, since that's not valid.
   if (iterations == 0) {
-    ONC_LOG_ERROR(kUnableToDecrypt);
-    return scoped_ptr<base::DictionaryValue>();
+    NET_LOG(ERROR) << kUnableToDecrypt;
+    return nullptr;
   }
 
   // Simply a sanity check to make sure we can't lock up the machine
   // for too long with a huge number (or a negative number).
   if (iterations < 0 || iterations > kMaxIterationCount) {
-    ONC_LOG_ERROR("Too many iterations in encrypted ONC");
-    return scoped_ptr<base::DictionaryValue>();
+    NET_LOG(ERROR) << "Too many iterations in encrypted ONC";
+    return nullptr;
   }
 
   if (!base::Base64Decode(salt, &salt)) {
-    ONC_LOG_ERROR(kUnableToDecode);
-    return scoped_ptr<base::DictionaryValue>();
+    NET_LOG(ERROR) << kUnableToDecode;
+    return nullptr;
   }
 
   scoped_ptr<crypto::SymmetricKey> key(
@@ -117,42 +121,42 @@ scoped_ptr<base::DictionaryValue> Decrypt(const std::string& passphrase,
                                                   kKeySizeInBits));
 
   if (!base::Base64Decode(initial_vector, &initial_vector)) {
-    ONC_LOG_ERROR(kUnableToDecode);
-    return scoped_ptr<base::DictionaryValue>();
+    NET_LOG(ERROR) << kUnableToDecode;
+    return nullptr;
   }
   if (!base::Base64Decode(ciphertext, &ciphertext)) {
-    ONC_LOG_ERROR(kUnableToDecode);
-    return scoped_ptr<base::DictionaryValue>();
+    NET_LOG(ERROR) << kUnableToDecode;
+    return nullptr;
   }
   if (!base::Base64Decode(hmac, &hmac)) {
-    ONC_LOG_ERROR(kUnableToDecode);
-    return scoped_ptr<base::DictionaryValue>();
+    NET_LOG(ERROR) << kUnableToDecode;
+    return nullptr;
   }
 
   crypto::HMAC hmac_verifier(crypto::HMAC::SHA1);
   if (!hmac_verifier.Init(key.get()) ||
       !hmac_verifier.Verify(ciphertext, hmac)) {
-    ONC_LOG_ERROR(kUnableToDecrypt);
-    return scoped_ptr<base::DictionaryValue>();
+    NET_LOG(ERROR) << kUnableToDecrypt;
+    return nullptr;
   }
 
   crypto::Encryptor decryptor;
   if (!decryptor.Init(key.get(), crypto::Encryptor::CBC, initial_vector))  {
-    ONC_LOG_ERROR(kUnableToDecrypt);
-    return scoped_ptr<base::DictionaryValue>();
+    NET_LOG(ERROR) << kUnableToDecrypt;
+    return nullptr;
   }
 
   std::string plaintext;
   if (!decryptor.Decrypt(ciphertext, &plaintext)) {
-    ONC_LOG_ERROR(kUnableToDecrypt);
-    return scoped_ptr<base::DictionaryValue>();
+    NET_LOG(ERROR) << kUnableToDecrypt;
+    return nullptr;
   }
 
   scoped_ptr<base::DictionaryValue> new_root =
       ReadDictionaryFromJson(plaintext);
-  if (new_root.get() == NULL) {
-    ONC_LOG_ERROR("Property dictionary malformed.");
-    return scoped_ptr<base::DictionaryValue>();
+  if (!new_root) {
+    NET_LOG(ERROR) << "Property dictionary malformed.";
+    return nullptr;
   }
 
   return new_root.Pass();
@@ -184,16 +188,16 @@ void ExpandField(const std::string& fieldname,
 
   std::string login_id;
   if (substitution.GetSubstitute(substitutes::kLoginIDField, &login_id)) {
-    ReplaceSubstringsAfterOffset(&user_string, 0,
-                                 substitutes::kLoginIDField,
-                                 login_id);
+    base::ReplaceSubstringsAfterOffset(&user_string, 0,
+                                       substitutes::kLoginIDField,
+                                       login_id);
   }
 
   std::string email;
   if (substitution.GetSubstitute(substitutes::kEmailField, &email)) {
-    ReplaceSubstringsAfterOffset(&user_string, 0,
-                                 substitutes::kEmailField,
-                                 email);
+    base::ReplaceSubstringsAfterOffset(&user_string, 0,
+                                       substitutes::kEmailField,
+                                       email);
   }
 
   onc_object->SetStringWithoutPathExpansion(fieldname, user_string);
@@ -214,7 +218,7 @@ void ExpandStringsInOncObject(
   // Recurse into nested objects.
   for (base::DictionaryValue::Iterator it(*onc_object); !it.IsAtEnd();
        it.Advance()) {
-    base::DictionaryValue* inner_object = NULL;
+    base::DictionaryValue* inner_object = nullptr;
     if (!onc_object->GetDictionaryWithoutPathExpansion(it.key(), &inner_object))
       continue;
 
@@ -230,14 +234,51 @@ void ExpandStringsInOncObject(
 
 void ExpandStringsInNetworks(const StringSubstitution& substitution,
                              base::ListValue* network_configs) {
-  for (base::ListValue::iterator it = network_configs->begin();
-       it != network_configs->end(); ++it) {
-    base::DictionaryValue* network = NULL;
-    (*it)->GetAsDictionary(&network);
+  for (base::Value* entry : *network_configs) {
+    base::DictionaryValue* network = nullptr;
+    entry->GetAsDictionary(&network);
     DCHECK(network);
     ExpandStringsInOncObject(
         kNetworkConfigurationSignature, substitution, network);
   }
+}
+
+void FillInHexSSIDFieldsInOncObject(const OncValueSignature& signature,
+                                    base::DictionaryValue* onc_object) {
+  if (&signature == &kWiFiSignature)
+    FillInHexSSIDField(onc_object);
+
+  // Recurse into nested objects.
+  for (base::DictionaryValue::Iterator it(*onc_object); !it.IsAtEnd();
+       it.Advance()) {
+    base::DictionaryValue* inner_object = nullptr;
+    if (!onc_object->GetDictionaryWithoutPathExpansion(it.key(), &inner_object))
+      continue;
+
+    const OncFieldSignature* field_signature =
+        GetFieldSignature(signature, it.key());
+    if (!field_signature)
+      continue;
+
+    FillInHexSSIDFieldsInOncObject(*field_signature->value_signature,
+                                   inner_object);
+  }
+}
+
+void FillInHexSSIDField(base::DictionaryValue* wifi_fields) {
+  std::string ssid_string;
+  if (wifi_fields->HasKey(::onc::wifi::kHexSSID) ||
+      !wifi_fields->GetStringWithoutPathExpansion(::onc::wifi::kSSID,
+                                                  &ssid_string)) {
+    return;
+  }
+  if (ssid_string.empty()) {
+    NET_LOG(ERROR) << "Found empty SSID field.";
+    return;
+  }
+  wifi_fields->SetStringWithoutPathExpansion(
+      ::onc::wifi::kHexSSID,
+      base::HexEncode(ssid_string.c_str(), ssid_string.size()));
 }
 
 namespace {
@@ -258,12 +299,11 @@ class OncMaskValues : public Mapper {
       : mask_(mask) {
   }
 
-  virtual scoped_ptr<base::Value> MapField(
-      const std::string& field_name,
-      const OncValueSignature& object_signature,
-      const base::Value& onc_value,
-      bool* found_unknown_field,
-      bool* error) override {
+  scoped_ptr<base::Value> MapField(const std::string& field_name,
+                                   const OncValueSignature& object_signature,
+                                   const base::Value& onc_value,
+                                   bool* found_unknown_field,
+                                   bool* error) override {
     if (FieldIsCredential(object_signature, field_name)) {
       return scoped_ptr<base::Value>(new base::StringValue(mask_));
     } else {
@@ -317,10 +357,9 @@ std::string DecodePEM(const std::string& pem_encoded) {
 CertPEMsByGUIDMap GetServerAndCACertsByGUID(
     const base::ListValue& certificates) {
   CertPEMsByGUIDMap certs_by_guid;
-  for (base::ListValue::const_iterator it = certificates.begin();
-      it != certificates.end(); ++it) {
-    base::DictionaryValue* cert = NULL;
-    (*it)->GetAsDictionary(&cert);
+  for (const base::Value* entry : certificates) {
+    const base::DictionaryValue* cert = nullptr;
+    entry->GetAsDictionary(&cert);
 
     std::string guid;
     cert->GetStringWithoutPathExpansion(certificate::kGUID, &guid);
@@ -346,6 +385,15 @@ CertPEMsByGUIDMap GetServerAndCACertsByGUID(
   return certs_by_guid;
 }
 
+void FillInHexSSIDFieldsInNetworks(base::ListValue* network_configs) {
+  for (base::Value* entry : *network_configs) {
+    base::DictionaryValue* network = nullptr;
+    entry->GetAsDictionary(&network);
+    DCHECK(network);
+    FillInHexSSIDFieldsInOncObject(kNetworkConfigurationSignature, network);
+  }
+}
+
 }  // namespace
 
 bool ParseAndValidateOncForImport(const std::string& onc_blob,
@@ -362,7 +410,7 @@ bool ParseAndValidateOncForImport(const std::string& onc_blob,
 
   scoped_ptr<base::DictionaryValue> toplevel_onc =
       ReadDictionaryFromJson(onc_blob);
-  if (toplevel_onc.get() == NULL) {
+  if (!toplevel_onc) {
     LOG(ERROR) << "ONC loaded from " << GetSourceAsString(onc_source)
                << " is not a valid JSON dictionary.";
     return false;
@@ -374,7 +422,7 @@ bool ParseAndValidateOncForImport(const std::string& onc_blob,
                                               &onc_type);
   if (onc_type == toplevel_config::kEncryptedConfiguration) {
     toplevel_onc = Decrypt(passphrase, *toplevel_onc);
-    if (toplevel_onc.get() == NULL) {
+    if (!toplevel_onc) {
       LOG(ERROR) << "Couldn't decrypt the ONC from "
                  << GetSourceAsString(onc_source);
       return false;
@@ -408,21 +456,23 @@ bool ParseAndValidateOncForImport(const std::string& onc_blob,
     LOG(WARNING) << "ONC from " << GetSourceAsString(onc_source)
                  << " produced warnings.";
     success = false;
-  } else if (validation_result == Validator::INVALID || toplevel_onc == NULL) {
+  } else if (validation_result == Validator::INVALID || !toplevel_onc) {
     LOG(ERROR) << "ONC from " << GetSourceAsString(onc_source)
                << " is invalid and couldn't be repaired.";
     return false;
   }
 
-  base::ListValue* validated_certs = NULL;
+  base::ListValue* validated_certs = nullptr;
   if (toplevel_onc->GetListWithoutPathExpansion(toplevel_config::kCertificates,
                                                 &validated_certs)) {
     certificates->Swap(validated_certs);
   }
 
-  base::ListValue* validated_networks = NULL;
+  base::ListValue* validated_networks = nullptr;
   if (toplevel_onc->GetListWithoutPathExpansion(
           toplevel_config::kNetworkConfigurations, &validated_networks)) {
+    FillInHexSSIDFieldsInNetworks(validated_networks);
+
     CertPEMsByGUIDMap server_and_ca_certs =
         GetServerAndCACertsByGUID(*certificates);
 
@@ -436,7 +486,7 @@ bool ParseAndValidateOncForImport(const std::string& onc_blob,
     network_configs->Swap(validated_networks);
   }
 
-  base::DictionaryValue* validated_global_config = NULL;
+  base::DictionaryValue* validated_global_config = nullptr;
   if (toplevel_onc->GetDictionaryWithoutPathExpansion(
           toplevel_config::kGlobalNetworkConfiguration,
           &validated_global_config)) {
@@ -486,7 +536,7 @@ bool ResolveSingleCertRef(const CertPEMsByGUIDMap& certs_by_guid,
   if (!GUIDRefToPEMEncoding(certs_by_guid, guid_ref, &pem_encoded))
     return false;
 
-  onc_object->RemoveWithoutPathExpansion(key_guid_ref, NULL);
+  onc_object->RemoveWithoutPathExpansion(key_guid_ref, nullptr);
   onc_object->SetStringWithoutPathExpansion(key_pem, pem_encoded);
   return true;
 }
@@ -495,17 +545,16 @@ bool ResolveCertRefList(const CertPEMsByGUIDMap& certs_by_guid,
                         const std::string& key_guid_ref_list,
                         const std::string& key_pem_list,
                         base::DictionaryValue* onc_object) {
-  const base::ListValue* guid_ref_list = NULL;
+  const base::ListValue* guid_ref_list = nullptr;
   if (!onc_object->GetListWithoutPathExpansion(key_guid_ref_list,
                                                &guid_ref_list)) {
     return true;
   }
 
   scoped_ptr<base::ListValue> pem_list(new base::ListValue);
-  for (base::ListValue::const_iterator it = guid_ref_list->begin();
-       it != guid_ref_list->end(); ++it) {
+  for (const base::Value* entry : *guid_ref_list) {
     std::string guid_ref;
-    (*it)->GetAsString(&guid_ref);
+    entry->GetAsString(&guid_ref);
 
     std::string pem_encoded;
     if (!GUIDRefToPEMEncoding(certs_by_guid, guid_ref, &pem_encoded))
@@ -514,7 +563,7 @@ bool ResolveCertRefList(const CertPEMsByGUIDMap& certs_by_guid,
     pem_list->AppendString(pem_encoded);
   }
 
-  onc_object->RemoveWithoutPathExpansion(key_guid_ref_list, NULL);
+  onc_object->RemoveWithoutPathExpansion(key_guid_ref_list, nullptr);
   onc_object->SetWithoutPathExpansion(key_pem_list, pem_list.release());
   return true;
 }
@@ -533,7 +582,7 @@ bool ResolveSingleCertRefToList(const CertPEMsByGUIDMap& certs_by_guid,
 
   scoped_ptr<base::ListValue> pem_list(new base::ListValue);
   pem_list->AppendString(pem_encoded);
-  onc_object->RemoveWithoutPathExpansion(key_guid_ref, NULL);
+  onc_object->RemoveWithoutPathExpansion(key_guid_ref, nullptr);
   onc_object->SetWithoutPathExpansion(key_pem_list, pem_list.release());
   return true;
 }
@@ -550,7 +599,7 @@ bool ResolveCertRefsOrRefToList(const CertPEMsByGUIDMap& certs_by_guid,
     if (onc_object->HasKey(key_guid_ref)) {
       LOG(ERROR) << "Found both " << key_guid_refs << " and " << key_guid_ref
                  << ". Ignoring and removing the latter.";
-      onc_object->RemoveWithoutPathExpansion(key_guid_ref, NULL);
+      onc_object->RemoveWithoutPathExpansion(key_guid_ref, nullptr);
     }
     return ResolveCertRefList(
         certs_by_guid, key_guid_refs, key_pem_list, onc_object);
@@ -605,7 +654,7 @@ bool ResolveServerCertRefsInObject(const CertPEMsByGUIDMap& certs_by_guid,
   // Recurse into nested objects.
   for (base::DictionaryValue::Iterator it(*onc_object); !it.IsAtEnd();
        it.Advance()) {
-    base::DictionaryValue* inner_object = NULL;
+    base::DictionaryValue* inner_object = nullptr;
     if (!onc_object->GetDictionaryWithoutPathExpansion(it.key(), &inner_object))
       continue;
 
@@ -630,7 +679,7 @@ bool ResolveServerCertRefsInNetworks(const CertPEMsByGUIDMap& certs_by_guid,
   bool success = true;
   for (base::ListValue::iterator it = network_configs->begin();
        it != network_configs->end(); ) {
-    base::DictionaryValue* network = NULL;
+    base::DictionaryValue* network = nullptr;
     (*it)->GetAsDictionary(&network);
     if (!ResolveServerCertRefsInNetwork(certs_by_guid, network)) {
       std::string guid;
@@ -639,7 +688,7 @@ bool ResolveServerCertRefsInNetworks(const CertPEMsByGUIDMap& certs_by_guid,
       // certificate couldn't be imported.
       LOG(ERROR) << "Couldn't resolve some certificate reference of network "
                  << guid;
-      it = network_configs->Erase(it, NULL);
+      it = network_configs->Erase(it, nullptr);
       success = false;
       continue;
     }
@@ -670,7 +719,7 @@ NetworkTypePattern NetworkTypePatternFromOncType(const std::string& type) {
     return NetworkTypePattern::Wimax();
   if (type == ::onc::network_type::kWireless)
     return NetworkTypePattern::Wireless();
-  NOTREACHED();
+  NOTREACHED() << "Unrecognized ONC type: " << type;
   return NetworkTypePattern::Default();
 }
 
@@ -689,10 +738,250 @@ bool IsRecommendedValue(const base::DictionaryValue* onc,
     recommended_property_key = ::onc::kRecommended;
   }
 
-  const base::ListValue* recommended_keys = NULL;
+  const base::ListValue* recommended_keys = nullptr;
   return (onc->GetList(recommended_property_key, &recommended_keys) &&
           recommended_keys->Find(base::StringValue(property_basename)) !=
           recommended_keys->end());
+}
+
+namespace {
+
+const char kDirectScheme[] = "direct";
+const char kQuicScheme[] = "quic";
+const char kSocksScheme[] = "socks";
+const char kSocks4Scheme[] = "socks4";
+const char kSocks5Scheme[] = "socks5";
+
+net::ProxyServer ConvertOncProxyLocationToHostPort(
+    net::ProxyServer::Scheme default_proxy_scheme,
+    const base::DictionaryValue& onc_proxy_location) {
+  std::string host;
+  onc_proxy_location.GetStringWithoutPathExpansion(::onc::proxy::kHost, &host);
+  // Parse |host| according to the format [<scheme>"://"]<server>[":"<port>].
+  net::ProxyServer proxy_server =
+      net::ProxyServer::FromURI(host, default_proxy_scheme);
+  int port = 0;
+  onc_proxy_location.GetIntegerWithoutPathExpansion(::onc::proxy::kPort, &port);
+
+  // Replace the port parsed from |host| by the provided |port|.
+  return net::ProxyServer(
+      proxy_server.scheme(),
+      net::HostPortPair(proxy_server.host_port_pair().host(),
+                        static_cast<uint16>(port)));
+}
+
+void AppendProxyServerForScheme(const base::DictionaryValue& onc_manual,
+                                const std::string& onc_scheme,
+                                std::string* spec) {
+  const base::DictionaryValue* onc_proxy_location = nullptr;
+  if (!onc_manual.GetDictionaryWithoutPathExpansion(onc_scheme,
+                                                    &onc_proxy_location)) {
+    return;
+  }
+
+  net::ProxyServer::Scheme default_proxy_scheme = net::ProxyServer::SCHEME_HTTP;
+  std::string url_scheme;
+  if (onc_scheme == ::onc::proxy::kFtp) {
+    url_scheme = url::kFtpScheme;
+  } else if (onc_scheme == ::onc::proxy::kHttp) {
+    url_scheme = url::kHttpScheme;
+  } else if (onc_scheme == ::onc::proxy::kHttps) {
+    url_scheme = url::kHttpsScheme;
+  } else if (onc_scheme == ::onc::proxy::kSocks) {
+    default_proxy_scheme = net::ProxyServer::SCHEME_SOCKS4;
+    url_scheme = kSocksScheme;
+  } else {
+    NOTREACHED();
+  }
+
+  net::ProxyServer proxy_server = ConvertOncProxyLocationToHostPort(
+      default_proxy_scheme, *onc_proxy_location);
+
+  ProxyConfigDictionary::EncodeAndAppendProxyServer(url_scheme, proxy_server,
+                                                    spec);
+}
+
+net::ProxyBypassRules ConvertOncExcludeDomainsToBypassRules(
+    const base::ListValue& onc_exclude_domains) {
+  net::ProxyBypassRules rules;
+  for (base::ListValue::const_iterator it = onc_exclude_domains.begin();
+       it != onc_exclude_domains.end(); ++it) {
+    std::string rule;
+    (*it)->GetAsString(&rule);
+    rules.AddRuleFromString(rule);
+  }
+  return rules;
+}
+
+std::string SchemeToString(net::ProxyServer::Scheme scheme) {
+  switch (scheme) {
+    case net::ProxyServer::SCHEME_DIRECT:
+      return kDirectScheme;
+    case net::ProxyServer::SCHEME_HTTP:
+      return url::kHttpScheme;
+    case net::ProxyServer::SCHEME_SOCKS4:
+      return kSocks4Scheme;
+    case net::ProxyServer::SCHEME_SOCKS5:
+      return kSocks5Scheme;
+    case net::ProxyServer::SCHEME_HTTPS:
+      return url::kHttpsScheme;
+    case net::ProxyServer::SCHEME_QUIC:
+      return kQuicScheme;
+    case net::ProxyServer::SCHEME_INVALID:
+      break;
+  }
+  NOTREACHED();
+  return "";
+}
+
+void SetProxyForScheme(const net::ProxyConfig::ProxyRules& proxy_rules,
+                       const std::string& scheme,
+                       const std::string& onc_scheme,
+                       base::DictionaryValue* dict) {
+  const net::ProxyList* proxy_list = nullptr;
+  if (proxy_rules.type == net::ProxyConfig::ProxyRules::TYPE_SINGLE_PROXY) {
+    proxy_list = &proxy_rules.single_proxies;
+  } else if (proxy_rules.type ==
+             net::ProxyConfig::ProxyRules::TYPE_PROXY_PER_SCHEME) {
+    proxy_list = proxy_rules.MapUrlSchemeToProxyList(scheme);
+  }
+  if (!proxy_list || proxy_list->IsEmpty())
+    return;
+  const net::ProxyServer& server = proxy_list->Get();
+  scoped_ptr<base::DictionaryValue> url_dict(new base::DictionaryValue);
+  std::string host = server.host_port_pair().host();
+
+  // For all proxy types except SOCKS, the default scheme of the proxy host is
+  // HTTP.
+  net::ProxyServer::Scheme default_scheme =
+      (onc_scheme == ::onc::proxy::kSocks) ? net::ProxyServer::SCHEME_SOCKS4
+                                           : net::ProxyServer::SCHEME_HTTP;
+  // Only prefix the host with a non-default scheme.
+  if (server.scheme() != default_scheme)
+    host = SchemeToString(server.scheme()) + "://" + host;
+  url_dict->SetStringWithoutPathExpansion(::onc::proxy::kHost, host);
+  url_dict->SetIntegerWithoutPathExpansion(::onc::proxy::kPort,
+                                           server.host_port_pair().port());
+  dict->SetWithoutPathExpansion(onc_scheme, url_dict.release());
+}
+
+}  // namespace
+
+scoped_ptr<base::DictionaryValue> ConvertOncProxySettingsToProxyConfig(
+    const base::DictionaryValue& onc_proxy_settings) {
+  std::string type;
+  onc_proxy_settings.GetStringWithoutPathExpansion(::onc::proxy::kType, &type);
+  scoped_ptr<base::DictionaryValue> proxy_dict;
+
+  if (type == ::onc::proxy::kDirect) {
+    proxy_dict.reset(ProxyConfigDictionary::CreateDirect());
+  } else if (type == ::onc::proxy::kWPAD) {
+    proxy_dict.reset(ProxyConfigDictionary::CreateAutoDetect());
+  } else if (type == ::onc::proxy::kPAC) {
+    std::string pac_url;
+    onc_proxy_settings.GetStringWithoutPathExpansion(::onc::proxy::kPAC,
+                                                     &pac_url);
+    GURL url(pac_url);
+    DCHECK(url.is_valid()) << "Invalid URL in ProxySettings.PAC";
+    proxy_dict.reset(ProxyConfigDictionary::CreatePacScript(url.spec(), false));
+  } else if (type == ::onc::proxy::kManual) {
+    const base::DictionaryValue* manual_dict = nullptr;
+    onc_proxy_settings.GetDictionaryWithoutPathExpansion(::onc::proxy::kManual,
+                                                         &manual_dict);
+    std::string manual_spec;
+    AppendProxyServerForScheme(*manual_dict, ::onc::proxy::kFtp, &manual_spec);
+    AppendProxyServerForScheme(*manual_dict, ::onc::proxy::kHttp, &manual_spec);
+    AppendProxyServerForScheme(*manual_dict, ::onc::proxy::kSocks,
+                               &manual_spec);
+    AppendProxyServerForScheme(*manual_dict, ::onc::proxy::kHttps,
+                               &manual_spec);
+
+    const base::ListValue* exclude_domains = nullptr;
+    net::ProxyBypassRules bypass_rules;
+    if (onc_proxy_settings.GetListWithoutPathExpansion(
+            ::onc::proxy::kExcludeDomains, &exclude_domains)) {
+      bypass_rules.AssignFrom(
+          ConvertOncExcludeDomainsToBypassRules(*exclude_domains));
+    }
+    proxy_dict.reset(ProxyConfigDictionary::CreateFixedServers(
+        manual_spec, bypass_rules.ToString()));
+  } else {
+    NOTREACHED();
+  }
+  return proxy_dict.Pass();
+}
+
+scoped_ptr<base::DictionaryValue> ConvertProxyConfigToOncProxySettings(
+    const base::DictionaryValue& proxy_config_value) {
+  // Create a ProxyConfigDictionary from the DictionaryValue.
+  scoped_ptr<ProxyConfigDictionary> proxy_config(
+      new ProxyConfigDictionary(&proxy_config_value));
+
+  // Create the result DictionaryValue and populate it.
+  scoped_ptr<base::DictionaryValue> proxy_settings(new base::DictionaryValue);
+  ProxyPrefs::ProxyMode mode;
+  if (!proxy_config->GetMode(&mode))
+    return nullptr;
+  switch (mode) {
+    case ProxyPrefs::MODE_DIRECT: {
+      proxy_settings->SetStringWithoutPathExpansion(::onc::proxy::kType,
+                                                    ::onc::proxy::kDirect);
+      break;
+    }
+    case ProxyPrefs::MODE_AUTO_DETECT: {
+      proxy_settings->SetStringWithoutPathExpansion(::onc::proxy::kType,
+                                                    ::onc::proxy::kWPAD);
+      break;
+    }
+    case ProxyPrefs::MODE_PAC_SCRIPT: {
+      proxy_settings->SetStringWithoutPathExpansion(::onc::proxy::kType,
+                                                    ::onc::proxy::kPAC);
+      std::string pac_url;
+      proxy_config->GetPacUrl(&pac_url);
+      proxy_settings->SetStringWithoutPathExpansion(::onc::proxy::kPAC,
+                                                    pac_url);
+      break;
+    }
+    case ProxyPrefs::MODE_FIXED_SERVERS: {
+      proxy_settings->SetString(::onc::proxy::kType, ::onc::proxy::kManual);
+      scoped_ptr<base::DictionaryValue> manual(new base::DictionaryValue);
+      std::string proxy_rules_string;
+      if (proxy_config->GetProxyServer(&proxy_rules_string)) {
+        net::ProxyConfig::ProxyRules proxy_rules;
+        proxy_rules.ParseFromString(proxy_rules_string);
+        SetProxyForScheme(proxy_rules, url::kFtpScheme, ::onc::proxy::kFtp,
+                          manual.get());
+        SetProxyForScheme(proxy_rules, url::kHttpScheme, ::onc::proxy::kHttp,
+                          manual.get());
+        SetProxyForScheme(proxy_rules, url::kHttpsScheme, ::onc::proxy::kHttps,
+                          manual.get());
+        SetProxyForScheme(proxy_rules, kSocksScheme, ::onc::proxy::kSocks,
+                          manual.get());
+      }
+      proxy_settings->SetWithoutPathExpansion(::onc::proxy::kManual,
+                                              manual.release());
+
+      // Convert the 'bypass_list' string into dictionary entries.
+      std::string bypass_rules_string;
+      if (proxy_config->GetBypassList(&bypass_rules_string)) {
+        net::ProxyBypassRules bypass_rules;
+        bypass_rules.ParseFromString(bypass_rules_string);
+        scoped_ptr<base::ListValue> exclude_domains(new base::ListValue);
+        for (const net::ProxyBypassRules::Rule* rule : bypass_rules.rules())
+          exclude_domains->AppendString(rule->ToString());
+        if (!exclude_domains->empty()) {
+          proxy_settings->SetWithoutPathExpansion(::onc::proxy::kExcludeDomains,
+                                                  exclude_domains.release());
+        }
+      }
+      break;
+    }
+    default: {
+      LOG(ERROR) << "Unexpected proxy mode in Shill config: " << mode;
+      return nullptr;
+    }
+  }
+  return proxy_settings.Pass();
 }
 
 }  // namespace onc

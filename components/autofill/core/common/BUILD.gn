@@ -8,8 +8,12 @@ static_library("common") {
     "autofill_constants.h",
     "autofill_data_validation.cc",
     "autofill_data_validation.h",
+    "autofill_l10n_util.cc",
+    "autofill_l10n_util.h",
     "autofill_pref_names.cc",
     "autofill_pref_names.h",
+    "autofill_regexes.cc",
+    "autofill_regexes.h",
     "autofill_switches.cc",
     "autofill_switches.h",
     "form_data.cc",
@@ -34,6 +38,7 @@ static_library("common") {
 
   deps = [
     "//base",
+    "//base:i18n",
     "//ui/base",
     "//ui/gfx",
     "//url",
@@ -42,11 +47,14 @@ static_library("common") {
   if (is_android) {
     # deps += [ 'autofill_jni_headers' ]  TODO(GYP)
   }
+
+  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 }
 
 source_set("unit_tests") {
   testonly = true
   sources = [
+    "autofill_regexes_unittest.cc",
     "form_data_unittest.cc",
     "form_field_data_unittest.cc",
     "password_form_fill_data_unittest.cc",
@@ -55,7 +63,11 @@ source_set("unit_tests") {
 
   deps = [
     ":common",
+    "//base",
+    "//base:i18n",
+    "//components/autofill/core/browser",
     "//testing/gmock",
     "//testing/gtest",
+    "//url",
   ]
 }

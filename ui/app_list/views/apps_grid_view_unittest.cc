@@ -24,6 +24,7 @@
 #include "ui/app_list/views/app_list_item_view.h"
 #include "ui/app_list/views/apps_grid_view_folder_delegate.h"
 #include "ui/app_list/views/test/apps_grid_view_test_api.h"
+#include "ui/events/event_utils.h"
 #include "ui/views/test/views_test_base.h"
 
 namespace app_list {
@@ -34,9 +35,6 @@ namespace {
 const int kCols = 2;
 const int kRows = 2;
 const int kTilesPerPage = kCols * kRows;
-
-const int kWidth = 320;
-const int kHeight = 240;
 
 class PageFlipWaiter : public PaginationModelObserver {
  public:
@@ -96,7 +94,8 @@ class AppsGridViewTest : public views::ViewsTestBase {
 
     apps_grid_view_.reset(new AppsGridView(NULL));
     apps_grid_view_->SetLayout(kCols, kRows);
-    apps_grid_view_->SetBoundsRect(gfx::Rect(gfx::Size(kWidth, kHeight)));
+    apps_grid_view_->SetBoundsRect(
+        gfx::Rect(apps_grid_view_->GetPreferredSize()));
     apps_grid_view_->SetModel(model_.get());
     apps_grid_view_->SetItemList(model_->top_level_item_list());
 
@@ -109,9 +108,11 @@ class AppsGridViewTest : public views::ViewsTestBase {
 
  protected:
   void EnsureFoldersEnabled() {
-    // Folders require AppList sync to be enabled.
-    CommandLine::ForCurrentProcess()->AppendSwitch(
-        switches::kEnableSyncAppList);
+#if defined(OS_MACOSX)
+    // Folders require toolkit-views app list to be enabled.
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
+        switches::kEnableMacViewsAppList);
+#endif
   }
 
   AppListItemView* GetItemViewAt(int index) {
@@ -133,7 +134,7 @@ class AppsGridViewTest : public views::ViewsTestBase {
 
     gfx::Insets insets(apps_grid_view_->GetInsets());
     gfx::Rect rect(gfx::Point(insets.left(), insets.top()),
-                   GetItemViewAt(0)->bounds().size());
+                   AppsGridView::GetTotalTileSize());
     rect.Offset(col * rect.width(), row * rect.height());
     return rect;
   }
@@ -154,12 +155,12 @@ class AppsGridViewTest : public views::ViewsTestBase {
     gfx::Point translated_to = gfx::PointAtOffsetFromOrigin(
         to - view->bounds().origin());
 
-    ui::MouseEvent pressed_event(ui::ET_MOUSE_PRESSED,
-                                 translated_from, from, 0, 0);
+    ui::MouseEvent pressed_event(ui::ET_MOUSE_PRESSED, translated_from, from,
+                                 ui::EventTimeForNow(), 0, 0);
     apps_grid_view_->InitiateDrag(view, pointer, pressed_event);
 
-    ui::MouseEvent drag_event(ui::ET_MOUSE_DRAGGED,
-                              translated_to, to, 0, 0);
+    ui::MouseEvent drag_event(ui::ET_MOUSE_DRAGGED, translated_to, to,
+                              ui::EventTimeForNow(), 0, 0);
     apps_grid_view_->UpdateDragFromItem(pointer, drag_event);
     return view;
   }
@@ -305,8 +306,8 @@ TEST_F(AppsGridViewTest, MouseDragWithFolderDisabled) {
   EXPECT_FALSE(apps_grid_view_->has_dragged_view());
   // Even though cancelled, mouse move events can still arrive via the item
   // view. Ensure that behaves sanely, and doesn't start a new drag.
-  ui::MouseEvent drag_event(
-      ui::ET_MOUSE_DRAGGED, gfx::Point(1, 1), gfx::Point(2, 2), 0, 0);
+  ui::MouseEvent drag_event(ui::ET_MOUSE_DRAGGED, gfx::Point(1, 1),
+                            gfx::Point(2, 2), ui::EventTimeForNow(), 0, 0);
   apps_grid_view_->UpdateDragFromItem(AppsGridView::MOUSE, drag_event);
   EXPECT_FALSE(apps_grid_view_->has_dragged_view());
 
@@ -437,6 +438,7 @@ TEST_F(AppsGridViewTest, MouseDragMaxItemsInFolderWithMovement) {
   // Drag the new item to the left so that the grid reorders.
   gfx::Point from = GetItemTileRectAt(0, 1).CenterPoint();
   gfx::Point to = GetItemTileRectAt(0, 0).bottom_left();
+  to.Offset(0, -1);  // Get a point inside the rect.
   AppListItemView* dragged_view = SimulateDrag(AppsGridView::MOUSE, from, to);
   test_api_->LayoutToIdealBounds();
 
@@ -449,7 +451,8 @@ TEST_F(AppsGridViewTest, MouseDragMaxItemsInFolderWithMovement) {
   to = GetItemTileRectAt(0, 1).CenterPoint();
   gfx::Point translated_to =
       gfx::PointAtOffsetFromOrigin(to - dragged_view->bounds().origin());
-  ui::MouseEvent drag_event(ui::ET_MOUSE_DRAGGED, translated_to, to, 0, 0);
+  ui::MouseEvent drag_event(ui::ET_MOUSE_DRAGGED, translated_to, to,
+                            ui::EventTimeForNow(), 0, 0);
   apps_grid_view_->UpdateDragFromItem(AppsGridView::MOUSE, drag_event);
   apps_grid_view_->EndDrag(false);
 
@@ -733,7 +736,7 @@ TEST_F(AppsGridViewTest, HighlightWithKeyboard) {
   EXPECT_TRUE(apps_grid_view_->IsSelectedView(GetItemViewAt(
       first_index_on_page2)));
 
-  // Moving onto a a page with too few apps to support the expected index snaps
+  // Moving onto a page with too few apps to support the expected index snaps
   // to the last available index.
   apps_grid_view_->SetSelectedView(GetItemViewAt(last_index_on_page2_last_row));
   SimulateKeyPress(ui::VKEY_RIGHT);
@@ -744,12 +747,10 @@ TEST_F(AppsGridViewTest, HighlightWithKeyboard) {
   EXPECT_TRUE(apps_grid_view_->IsSelectedView(GetItemViewAt(
       last_index)));
 
-
-
   // After page switch, arrow keys select first item on current page.
   apps_grid_view_->SetSelectedView(GetItemViewAt(first_index));
   GetPaginationModel()->SelectPage(1, false);
-  SimulateKeyPress(ui::VKEY_UP);
+  SimulateKeyPress(ui::VKEY_LEFT);
   EXPECT_TRUE(apps_grid_view_->IsSelectedView(GetItemViewAt(
       first_index_on_page2)));
 }
@@ -766,8 +767,8 @@ TEST_F(AppsGridViewTest, ItemLabelShortNameOverride) {
   AppListItemView* item_view = GetItemViewAt(0);
   ASSERT_TRUE(item_view);
   const views::Label* title_label = item_view->title();
-  EXPECT_TRUE(title_label->GetTooltipText(
-      title_label->bounds().CenterPoint(), &actual_tooltip));
+  EXPECT_TRUE(item_view->GetTooltipText(title_label->bounds().CenterPoint(),
+                                        &actual_tooltip));
   EXPECT_EQ(expected_tooltip, base::UTF16ToUTF8(actual_tooltip));
   EXPECT_EQ(expected_text, base::UTF16ToUTF8(title_label->text()));
 }

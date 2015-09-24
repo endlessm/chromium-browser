@@ -5,7 +5,7 @@
 #include "chrome/browser/chromeos/login/screens/kiosk_enable_screen.h"
 
 #include "base/logging.h"
-#include "chrome/browser/chromeos/customization_document.h"
+#include "chrome/browser/chromeos/customization/customization_document.h"
 #include "chrome/browser/chromeos/login/screens/base_screen_delegate.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 
@@ -34,8 +34,7 @@ std::string KioskEnableScreen::GetName() const {
 }
 
 void KioskEnableScreen::OnExit() {
-  get_base_screen_delegate()->OnExit(
-      BaseScreenDelegate::KIOSK_ENABLE_COMPLETED);
+  Finish(BaseScreenDelegate::KIOSK_ENABLE_COMPLETED);
 }
 
 void KioskEnableScreen::OnActorDestroyed(KioskEnableScreenActor* actor) {

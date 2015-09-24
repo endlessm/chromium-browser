@@ -10,10 +10,13 @@
 
 #include "base/basictypes.h"
 #include "base/callback.h"
+#include "base/location.h"
 #include "base/logging.h"
 #include "base/rand_util.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/extensions/api/dial/dial_device_data.h"
 #include "chrome/common/chrome_version_info.h"
@@ -39,7 +42,6 @@ using net::HttpResponseHeaders;
 using net::HttpUtil;
 using net::IOBufferWithSize;
 using net::IPAddressNumber;
-using net::IPEndPoint;
 using net::NetworkInterface;
 using net::NetworkInterfaceList;
 using net::StringIOBuffer;
@@ -65,7 +67,7 @@ const int kDialResponseTimeoutSecs = 2;
 const char kDialRequestAddress[] = "239.255.255.250";
 
 // The UDP port number for discovery.
-const int kDialRequestPort = 1900;
+const uint16 kDialRequestPort = 1900;
 
 // The DIAL service type as part of the search request.
 const char kDialSearchType[] = "urn:dial-multiscreen-org:service:dial:1";
@@ -91,7 +93,7 @@ std::string BuildRequest() {
   chrome::VersionInfo version;
   std::string request(base::StringPrintf(
       "M-SEARCH * HTTP/1.1\r\n"
-      "HOST: %s:%i\r\n"
+      "HOST: %s:%u\r\n"
       "MAN: \"ssdp:discover\"\r\n"
       "MX: %d\r\n"
       "ST: %s\r\n"
@@ -111,7 +113,7 @@ std::string BuildRequest() {
 
 #if !defined(OS_CHROMEOS)
 void GetNetworkListOnFileThread(
-    const scoped_refptr<base::MessageLoopProxy>& loop,
+    const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
     const base::Callback<void(const NetworkInterfaceList& networks)>& cb) {
   NetworkInterfaceList list;
   bool success = net::GetNetworkList(
@@ -119,7 +121,7 @@ void GetNetworkListOnFileThread(
   if (!success)
     VLOG(1) << "Could not retrieve network list!";
 
-  loop->PostTask(FROM_HERE, base::Bind(cb, list));
+  task_runner->PostTask(FROM_HERE, base::Bind(cb, list));
 }
 
 #else
@@ -173,13 +175,16 @@ bool DialServiceImpl::DialSocket::CreateAndBindSocket(
                               rand_cb,
                               net_log,
                               net_log_source));
-  socket_->AllowBroadcast();
 
   // 0 means bind a random port
-  IPEndPoint address(bind_ip_address, 0);
+  net::IPEndPoint address(bind_ip_address, 0);
 
-  if (!CheckResult("Bind", socket_->Bind(address)))
+  if (socket_->Open(address.GetFamily()) != net::OK ||
+      socket_->SetBroadcast(true) != net::OK ||
+      !CheckResult("Bind", socket_->Bind(address))) {
+    socket_.reset();
     return false;
+  }
 
   DCHECK(socket_.get());
 
@@ -386,7 +391,7 @@ DialServiceImpl::DialServiceImpl(net::NetLog* net_log)
   IPAddressNumber address;
   bool success = net::ParseIPLiteralToNumber(kDialRequestAddress, &address);
   DCHECK(success);
-  send_address_ = IPEndPoint(address, kDialRequestPort);
+  send_address_ = net::IPEndPoint(address, kDialRequestPort);
   send_buffer_ = new StringIOBuffer(BuildRequest());
   net_log_ = net_log;
   net_log_source_.type = net::NetLog::SOURCE_UDP_SOCKET;
@@ -407,7 +412,7 @@ void DialServiceImpl::RemoveObserver(Observer* observer) {
   observer_list_.RemoveObserver(observer);
 }
 
-bool DialServiceImpl::HasObserver(Observer* observer) {
+bool DialServiceImpl::HasObserver(const Observer* observer) const {
   DCHECK(thread_checker_.CalledOnValidThread());
   return observer_list_.HasObserver(observer);
 }
@@ -446,10 +451,11 @@ void DialServiceImpl::StartDiscovery() {
   DiscoverOnAddresses(chrome_os_address_list);
 
 #else
-  BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE, base::Bind(
-      &GetNetworkListOnFileThread,
-      base::MessageLoopProxy::current(), base::Bind(
-          &DialServiceImpl::SendNetworkList, AsWeakPtr())));
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
+      base::Bind(&GetNetworkListOnFileThread,
+                 base::ThreadTaskRunnerHandle::Get(),
+                 base::Bind(&DialServiceImpl::SendNetworkList, AsWeakPtr())));
 #endif
 }
 

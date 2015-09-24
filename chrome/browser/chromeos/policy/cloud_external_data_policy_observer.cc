@@ -40,12 +40,12 @@ class CloudExternalDataPolicyObserver::PolicyServiceObserver
   PolicyServiceObserver(CloudExternalDataPolicyObserver* parent,
                         const std::string& user_id,
                         PolicyService* policy_service);
-  virtual ~PolicyServiceObserver();
+  ~PolicyServiceObserver() override;
 
   // PolicyService::Observer:
-  virtual void OnPolicyUpdated(const PolicyNamespace& ns,
-                               const PolicyMap& previous,
-                               const PolicyMap& current) override;
+  void OnPolicyUpdated(const PolicyNamespace& ns,
+                       const PolicyMap& previous,
+                       const PolicyMap& current) override;
 
  private:
   CloudExternalDataPolicyObserver* parent_;
@@ -182,7 +182,7 @@ void CloudExternalDataPolicyObserver::Observe(
   }
 
   ProfilePolicyConnector* policy_connector =
-      ProfilePolicyConnectorFactory::GetForProfile(profile);
+      ProfilePolicyConnectorFactory::GetForBrowserContext(profile);
   logged_in_user_observers_[user_id] = make_linked_ptr(
       new PolicyServiceObserver(this,
                                 user_id,

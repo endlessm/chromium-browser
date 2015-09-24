@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,14 +13,16 @@
 #include "base/callback_forward.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
+#include "components/audio_modem/public/audio_modem_types.h"
 #include "components/copresence/proto/enums.pb.h"
+#include "components/copresence/public/copresence_constants.h"
 #include "components/copresence/public/copresence_delegate.h"
 #include "components/copresence/timed_map.h"
 
 namespace copresence {
 
-struct AudioToken;
 class CopresenceDelegate;
+class CopresenceStateImpl;
 class DirectiveHandler;
 class GCMHandler;
 class HttpPost;
@@ -28,19 +30,54 @@ class ReportRequest;
 class RequestHeader;
 class SubscribedMessage;
 
-// This class currently handles all communication with the copresence server.
-class RpcHandler {
+// This class handles all communication with the copresence server.
+// Clients provide a ReportRequest proto containing publishes, subscribes,
+// and token observations they want to send to the server. The RpcHandler
+// will fill in details like the RequestHeader and DeviceCapabilities,
+// and dispatch the results of the server call to the appropriate parts
+// of the system.
+//
+// To create an RpcHandler, clients will need to provide a few other classes
+// that support its functionality. Notable among them is the CopresenceDelegate,
+// an interface clients must implement to provide settings and functionality
+// that may depend on the environment. See the definition in
+// //components/copresence/public/copresence_delegate.h.
+//
+// Here is an example of creating and using an RpcHandler.
+// The GCMHandler and CopresenceStateImpl are optional.
+//
+// MyDelegate delegate(...);
+// copresence::DirectiveHandlerImpl directive_handler;
+//
+// RpcHandler handler(&delegate,
+//                    &directive_handler,
+//                    nullptr,
+//                    nullptr,
+//                    base::Bind(&HandleMessages));
+//
+// scoped_ptr<ReportRequest> request(new ReportRequest);
+// (Fill in ReportRequest.)
+//
+// handler.SendReportRequest(request.Pass(),
+//                           "my_app_id",
+//                           "",
+//                           base::Bind(&HandleStatus));
+//
+// The server will respond with directives, which get passed to the
+// DirectiveHandlerImpl.
+//
+// Tokens from the audio modem should also be forwarded
+// via ReportTokens() so that messages get delivered properly.
+class RpcHandler final {
  public:
-  // A callback to indicate whether handler initialization succeeded.
-  typedef base::Callback<void(bool)> SuccessCallback;
-
   // An HttpPost::ResponseCallback along with an HttpPost object to be deleted.
   // Arguments:
   // HttpPost*: The handler should take ownership of (i.e. delete) this object.
   // int: The HTTP status code of the response.
   // string: The contents of the response.
-  typedef base::Callback<void(HttpPost*, int, const std::string&)>
-      PostCleanupCallback;
+  using PostCleanupCallback = base::Callback<void(HttpPost*,
+                                                  int,
+                                                  const std::string&)>;
 
   // Callback to allow tests to stub out HTTP POST behavior.
   // Arguments:
@@ -51,48 +88,55 @@ class RpcHandler {
   // MessageLite: Contents of POST request to be sent. This needs to be
   //     a (scoped) pointer to ease handling of the abstract MessageLite class.
   // PostCleanupCallback: Receives the response to the request.
-  typedef base::Callback<void(net::URLRequestContextGetter*,
-                              const std::string&,
-                              const std::string&,
-                              const std::string&,
-                              scoped_ptr<google::protobuf::MessageLite>,
-                              const PostCleanupCallback&)> PostCallback;
+  using PostCallback = base::Callback<void(
+      net::URLRequestContextGetter*,
+      const std::string&,
+      const std::string&,
+      const std::string&,
+      scoped_ptr<google::protobuf::MessageLite>,
+      const PostCleanupCallback&)>;
 
   // Report rpc name to send to Apiary.
   static const char kReportRequestRpcName[];
 
-  // Constructor. |delegate| and |directive_handler|
-  // are owned by the caller and must outlive the RpcHandler.
-  // |server_post_callback| should be set only by tests.
+  // Constructor. The CopresenceStateImpl and GCMHandler may be null.
+  // The first four parameters are owned by the caller and (if not null)
+  // must outlive the RpcHandler.
   RpcHandler(CopresenceDelegate* delegate,
              DirectiveHandler* directive_handler,
+             CopresenceStateImpl* state,
              GCMHandler* gcm_handler,
+             const MessagesCallback& new_messages_callback,
              const PostCallback& server_post_callback = PostCallback());
 
-  virtual ~RpcHandler();
+  // Not copyable.
+  RpcHandler(const RpcHandler&) = delete;
+  void operator=(const RpcHandler&) = delete;
 
-  // Send a ReportRequest from a specific app, and get notified of completion.
+  ~RpcHandler();
+
+  // Sends a ReportRequest from a specific app, and get notified of completion.
   void SendReportRequest(scoped_ptr<ReportRequest> request,
                          const std::string& app_id,
                          const std::string& auth_token,
                          const StatusCallback& callback);
 
-  // Report a set of tokens to the server for a given medium.
+  // Reports a set of tokens to the server for a given medium.
   // Uses all active auth tokens (if any).
-  void ReportTokens(const std::vector<AudioToken>& tokens);
+  void ReportTokens(const std::vector<audio_modem::AudioToken>& tokens);
 
  private:
   // A queued ReportRequest along with its metadata.
   struct PendingRequest {
     PendingRequest(scoped_ptr<ReportRequest> report,
                    const std::string& app_id,
-                   const std::string& auth_token,
+                   bool authenticated,
                    const StatusCallback& callback);
     ~PendingRequest();
 
     scoped_ptr<ReportRequest> report;
     const std::string app_id;
-    const std::string auth_token;
+    const bool authenticated;
     const StatusCallback callback;
   };
 
@@ -100,20 +144,19 @@ class RpcHandler {
 
   // Before accepting any other calls, the server requires registration,
   // which is tied to the auth token (or lack thereof) used to call Report.
-  void RegisterForToken(const std::string& auth_token);
+  void RegisterDevice(bool authenticated);
 
   // Device registration has completed. Send the requests that it was blocking.
-  void ProcessQueuedRequests(const std::string& auth_token);
+  void ProcessQueuedRequests(bool authenticated);
 
-  // Send a ReportRequest from Chrome itself, i.e. no app id.
-  void SendReportRequest(scoped_ptr<ReportRequest> request,
-                         const std::string& auth_token);
+  // Sends a ReportRequest from Chrome itself, i.e. no app id.
+  void ReportOnAllDevices(scoped_ptr<ReportRequest> request);
 
-  // Store a GCM ID and send it to the server if needed.
+  // Stores a GCM ID and send it to the server if needed.
   void RegisterGcmId(const std::string& gcm_id);
 
   // Server call response handlers.
-  void RegisterResponseHandler(const std::string& auth_token,
+  void RegisterResponseHandler(bool authenticated,
                                bool gcm_pending,
                                HttpPost* completed_post,
                                int http_status_code,
@@ -123,11 +166,10 @@ class RpcHandler {
                              int http_status_code,
                              const std::string& response_data);
 
-  // If the request has any unpublish or unsubscribe operations, it removes
-  // them from our directive handlers.
+  // Removes unpublished or unsubscribed operations from the directive handlers.
   void ProcessRemovedOperations(const ReportRequest& request);
 
-  // Add all currently playing tokens to the update signals in this report
+  // Adds all currently playing tokens to the update signals in this report
   // request. This ensures that the server doesn't keep issueing new tokens to
   // us when we're already playing valid tokens.
   void AddPlayingTokens(ReportRequest* request);
@@ -136,17 +178,8 @@ class RpcHandler {
       const google::protobuf::RepeatedPtrField<SubscribedMessage>&
       subscribed_messages);
 
-  RequestHeader* CreateRequestHeader(const std::string& client_name,
+  RequestHeader* CreateRequestHeader(const std::string& app_id,
                                      const std::string& device_id) const;
-
-  // Post a request to the server. The request should be in proto format.
-  template <class T>
-  void SendServerRequest(const std::string& rpc_name,
-                         const std::string& device_id,
-                         const std::string& app_id,
-                         const std::string& auth_token,
-                         scoped_ptr<T> request,
-                         const PostCleanupCallback& response_handler);
 
   // Wrapper for the http post constructor. This is the default way
   // to contact the server, but it can be overridden for testing.
@@ -160,17 +193,18 @@ class RpcHandler {
   // These belong to the caller.
   CopresenceDelegate* const delegate_;
   DirectiveHandler* const directive_handler_;
+  CopresenceStateImpl* state_;
   GCMHandler* const gcm_handler_;
 
+  MessagesCallback new_messages_callback_;
   PostCallback server_post_callback_;
 
   ScopedVector<PendingRequest> pending_requests_queue_;
   TimedMap<std::string, bool> invalid_audio_token_cache_;
-  std::map<std::string, std::string> device_id_by_auth_token_;
   std::set<HttpPost*> pending_posts_;
+  std::set<bool> pending_registrations_;
+  std::string auth_token_;
   std::string gcm_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(RpcHandler);
 };
 
 }  // namespace copresence

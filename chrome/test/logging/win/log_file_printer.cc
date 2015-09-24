@@ -14,11 +14,11 @@
 
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
-#include "base/debug/trace_event.h"
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/time/time.h"
+#include "base/trace_event/trace_event.h"
 #include "chrome/test/logging/win/log_file_reader.h"
 
 namespace {
@@ -87,34 +87,34 @@ const char* GetTraceTypeString(char event_type) {
 class EventPrinter : public logging_win::LogFileDelegate {
  public:
   explicit EventPrinter(std::ostream* out);
-  virtual ~EventPrinter();
+  ~EventPrinter() override;
 
-  virtual void OnUnknownEvent(const EVENT_TRACE* event) override;
+  void OnUnknownEvent(const EVENT_TRACE* event) override;
 
-  virtual void OnUnparsableEvent(const EVENT_TRACE* event) override;
+  void OnUnparsableEvent(const EVENT_TRACE* event) override;
 
-  virtual void OnFileHeader(const EVENT_TRACE* event,
-                            const TRACE_LOGFILE_HEADER* header) override;
+  void OnFileHeader(const EVENT_TRACE* event,
+                    const TRACE_LOGFILE_HEADER* header) override;
 
-  virtual void OnLogMessage(const EVENT_TRACE* event,
-                            logging::LogSeverity severity,
-                            const base::StringPiece& message) override;
+  void OnLogMessage(const EVENT_TRACE* event,
+                    logging::LogSeverity severity,
+                    const base::StringPiece& message) override;
 
-  virtual void OnLogMessageFull(const EVENT_TRACE* event,
-                                logging::LogSeverity severity,
-                                DWORD stack_depth,
-                                const intptr_t* backtrace,
-                                int line,
-                                const base::StringPiece& file,
-                                const base::StringPiece& message) override;
+  void OnLogMessageFull(const EVENT_TRACE* event,
+                        logging::LogSeverity severity,
+                        DWORD stack_depth,
+                        const intptr_t* backtrace,
+                        int line,
+                        const base::StringPiece& file,
+                        const base::StringPiece& message) override;
 
-  virtual void OnTraceEvent(const EVENT_TRACE* event,
-                            const base::StringPiece& name,
-                            char type,
-                            intptr_t id,
-                            const base::StringPiece& extra,
-                            DWORD stack_depth,
-                            const intptr_t* backtrace) override;
+  void OnTraceEvent(const EVENT_TRACE* event,
+                    const base::StringPiece& name,
+                    char type,
+                    intptr_t id,
+                    const base::StringPiece& extra,
+                    DWORD stack_depth,
+                    const intptr_t* backtrace) override;
 
  private:
   void PrintTimeStamp(LARGE_INTEGER time_stamp);

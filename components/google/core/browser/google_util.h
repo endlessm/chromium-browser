@@ -4,8 +4,8 @@
 //
 // Some Google related utility functions.
 
-#ifndef COMPONENTS_GOOGLE_CORE_BROWSER_GOOGLE_UTIL_H__
-#define COMPONENTS_GOOGLE_CORE_BROWSER_GOOGLE_UTIL_H__
+#ifndef COMPONENTS_GOOGLE_CORE_BROWSER_GOOGLE_UTIL_H_
+#define COMPONENTS_GOOGLE_CORE_BROWSER_GOOGLE_UTIL_H_
 
 #include <string>
 
@@ -16,8 +16,8 @@ class GURL;
 // This namespace provides various helpers around handling Google-related URLs.
 namespace google_util {
 
-// True iff |str| contains a "q=" query parameter with a non-empty value.
-// |str| should be a query or a hash fragment, without the ? or # (as
+// True iff |str| contains a "q=" or "as_q=" query parameter with a non-empty
+// value. |str| should be a query or a hash fragment, without the ? or # (as
 // returned by GURL::query() or GURL::ref().
 bool HasGoogleSearchQueryParam(const std::string& str);
 
@@ -111,4 +111,4 @@ bool IsYoutubeDomainUrl(const GURL& url,
 
 }  // namespace google_util
 
-#endif  // COMPONENTS_GOOGLE_CORE_BROWSER_GOOGLE_UTIL_H__
+#endif  // COMPONENTS_GOOGLE_CORE_BROWSER_GOOGLE_UTIL_H_

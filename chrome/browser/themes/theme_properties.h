@@ -88,7 +88,9 @@ class ThemeProperties {
     COLOR_NTP_SECTION_HEADER_RULE,
     COLOR_NTP_SECTION_HEADER_RULE_LIGHT,
     COLOR_NTP_TEXT_LIGHT,
-#if defined(ENABLE_MANAGED_USERS)
+    COLOR_THROBBER_SPINNING,
+    COLOR_THROBBER_WAITING,
+#if defined(ENABLE_SUPERVISED_USERS)
     COLOR_SUPERVISED_USER_LABEL,
     COLOR_SUPERVISED_USER_LABEL_BACKGROUND,
     COLOR_SUPERVISED_USER_LABEL_BORDER,
@@ -109,8 +111,17 @@ class ThemeProperties {
     GRADIENT_TOOLBAR_BUTTON,
     GRADIENT_TOOLBAR_BUTTON_INACTIVE,
     GRADIENT_TOOLBAR_BUTTON_PRESSED,
-    GRADIENT_TOOLBAR_BUTTON_PRESSED_INACTIVE
+    GRADIENT_TOOLBAR_BUTTON_PRESSED_INACTIVE,
 #endif  // OS_MACOSX
+
+    // TODO(jonross): Upon the completion of Material Design work, evaluate
+    // which of these properties can be moved out of ThemeProperties.
+
+    // Layout Properties for the Toolbar
+    PROPERTY_TOOLBAR_VIEW_LEFT_EDGE_SPACING,
+    PROPERTY_TOOLBAR_VIEW_RIGHT_EDGE_SPACING,
+    PROPERTY_TOOLBAR_VIEW_CONTENT_SHADOW_HEIGHT_ASH,
+    PROPERTY_TOOLBAR_VIEW_CONTENT_SHADOW_HEIGHT,
   };
 
   // Used by the browser theme pack to parse alignments from something like
@@ -128,9 +139,6 @@ class ThemeProperties {
   // Converts a Tiling into a string like "no-repeat". The result is used to
   // generate a CSS value.
   static std::string TilingToString(int tiling);
-
-  // Returns true if the image is themeable.
-  static bool IsThemeableImage(int resource_id);
 
   // Returns the set of IDR_* resources that should be tinted.
   // This method is not thread safe.

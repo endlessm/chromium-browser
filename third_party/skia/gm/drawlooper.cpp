@@ -19,7 +19,7 @@
 class DrawLooperGM : public skiagm::GM {
 public:
     DrawLooperGM() : fLooper(NULL) {
-        this->setBGColor(0xFFDDDDDD);
+        this->setBGColor(sk_tool_utils::color_to_565(0xFFDDDDDD));
     }
 
     virtual ~DrawLooperGM() {
@@ -27,20 +27,20 @@ public:
     }
 
 protected:
-    virtual SkISize onISize() {
+    virtual SkISize onISize() override {
         return SkISize::Make(520, 160);
     }
 
-    virtual SkString onShortName() SK_OVERRIDE {
+    SkString onShortName() override {
         return SkString("drawlooper");
     }
 
-    virtual void onDraw(SkCanvas* canvas) SK_OVERRIDE {
+    void onDraw(SkCanvas* canvas) override {
         this->init();
 
         SkPaint  paint;
         paint.setAntiAlias(true);
-        sk_tool_utils::set_portable_typeface(&paint);
+        sk_tool_utils::set_portable_typeface_always(&paint);
         paint.setTextSize(SkIntToScalar(72));
         paint.setLooper(fLooper);
 

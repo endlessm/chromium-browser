@@ -25,15 +25,12 @@ public:
     }
 
 protected:
-    virtual uint32_t onGetFlags() const SK_OVERRIDE {
-        return kSkipTiled_Flag;
-    }
 
-    virtual SkString onShortName() SK_OVERRIDE {
+    SkString onShortName() override {
         return SkString("rects");
     }
 
-    virtual SkISize onISize() SK_OVERRIDE {
+    SkISize onISize() override {
         return SkISize::Make(1200, 900);
     }
 
@@ -254,14 +251,10 @@ protected:
                           SK_Scalar1 * 100 * (testCount / 10) + 3 * SK_Scalar1 / 4);
     }
 
-    virtual void onDraw(SkCanvas* canvas) SK_OVERRIDE {
-        SkAutoCommentBlock acb(canvas, "onDraw");
-
+    void onDraw(SkCanvas* canvas) override {
         canvas->translate(20 * SK_Scalar1, 20 * SK_Scalar1);
 
         int testCount = 0;
-
-        canvas->addComment("Test", "Various Paints");
 
         for (int i = 0; i < fPaints.count(); ++i) {
             for (int j = 0; j < fRects.count(); ++j, ++testCount) {
@@ -271,8 +264,6 @@ protected:
                 canvas->restore();
             }
         }
-
-        canvas->addComment("Test", "Matrices");
 
         SkPaint paint;
         paint.setColor(SK_ColorWHITE);

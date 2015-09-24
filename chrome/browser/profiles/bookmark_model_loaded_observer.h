@@ -11,14 +11,16 @@
 
 class Profile;
 
-class BookmarkModelLoadedObserver : public BaseBookmarkModelObserver {
+class BookmarkModelLoadedObserver
+    : public bookmarks::BaseBookmarkModelObserver {
  public:
   explicit BookmarkModelLoadedObserver(Profile* profile);
 
  private:
   void BookmarkModelChanged() override;
-  void BookmarkModelLoaded(BookmarkModel* model, bool ids_reassigned) override;
-  void BookmarkModelBeingDeleted(BookmarkModel* model) override;
+  void BookmarkModelLoaded(bookmarks::BookmarkModel* model,
+                           bool ids_reassigned) override;
+  void BookmarkModelBeingDeleted(bookmarks::BookmarkModel* model) override;
 
   Profile* profile_;
 

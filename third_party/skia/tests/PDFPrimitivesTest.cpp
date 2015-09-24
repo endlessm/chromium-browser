@@ -8,10 +8,11 @@
 #include "SkBitmap.h"
 #include "SkCanvas.h"
 #include "SkData.h"
+#include "SkDocument.h"
 #include "SkFlate.h"
 #include "SkImageEncoder.h"
 #include "SkMatrix.h"
-#include "SkPDFCatalog.h"
+#include "SkPDFCanon.h"
 #include "SkPDFDevice.h"
 #include "SkPDFStream.h"
 #include "SkPDFTypes.h"
@@ -21,116 +22,74 @@
 #include "SkTypes.h"
 #include "Test.h"
 
-class SkPDFTestDict : public SkPDFDict {
-public:
-  virtual void getResources(const SkTSet<SkPDFObject*>& knownResourceObjects,
-                            SkTSet<SkPDFObject*>* newResourceObjects) {
-        for (int i = 0; i < fResources.count(); i++) {
-            newResourceObjects->add(fResources[i]);
-            fResources[i]->ref();
-        }
-    }
-
-    void addResource(SkPDFObject* object) {
-        fResources.append(1, &object);
-    }
-
-private:
-    SkTDArray<SkPDFObject*> fResources;
-};
-
 #define DUMMY_TEXT "DCT compessed stream."
 
-static SkData* encode_to_dct_data(size_t* pixelRefOffset, const SkBitmap& bitmap) {
-    *pixelRefOffset = 0;
-    return SkData::NewWithProc(DUMMY_TEXT, sizeof(DUMMY_TEXT) - 1, NULL, NULL);
-}
+namespace {
+struct Catalog {
+    SkPDFSubstituteMap substitutes;
+    SkPDFObjNumMap numbers;
+};
+}  // namespace
 
-static bool stream_equals(const SkDynamicMemoryWStream& stream, size_t offset,
-                          const void* buffer, size_t len) {
-    SkAutoDataUnref data(stream.copyToData());
-    if (offset + len > data->size()) {
-        return false;
-    }
-    return memcmp(data->bytes() + offset, buffer, len) == 0;
-}
-
-static bool stream_contains(const SkDynamicMemoryWStream& stream,
-                            const char* buffer) {
-    SkAutoDataUnref data(stream.copyToData());
-    int len = strlen(buffer);  // our buffer does not have EOSs.
-
-    for (int offset = 0 ; offset < (int)data->size() - len; offset++) {
-        if (memcmp(data->bytes() + offset, buffer, len) == 0) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-static void CheckObjectOutput(skiatest::Reporter* reporter, SkPDFObject* obj,
-                              const char* expectedData, size_t expectedSize,
-                              bool indirect, bool compression) {
-    SkPDFDocument::Flags docFlags = (SkPDFDocument::Flags) 0;
-    if (!compression) {
-        docFlags = SkTBitOr(docFlags, SkPDFDocument::kFavorSpeedOverSize_Flags);
-    }
-    SkPDFCatalog catalog(docFlags);
-    size_t directSize = obj->getOutputSize(&catalog, false);
-    REPORTER_ASSERT(reporter, directSize == expectedSize);
-
+template <typename T>
+static SkString emit_to_string(T& obj, Catalog* catPtr = NULL) {
+    Catalog catalog;
     SkDynamicMemoryWStream buffer;
-    obj->emit(&buffer, &catalog, false);
-    REPORTER_ASSERT(reporter, directSize == buffer.getOffset());
-    REPORTER_ASSERT(reporter, stream_equals(buffer, 0, expectedData,
-                                            directSize));
-
-    if (indirect) {
-        // Indirect output.
-        static char header[] = "1 0 obj\n";
-        static size_t headerLen = strlen(header);
-        static char footer[] = "\nendobj\n";
-        static size_t footerLen = strlen(footer);
-
-        catalog.addObject(obj, false);
-
-        size_t indirectSize = obj->getOutputSize(&catalog, true);
-        REPORTER_ASSERT(reporter,
-                        indirectSize == directSize + headerLen + footerLen);
-
-        buffer.reset();
-        obj->emit(&buffer, &catalog, true);
-        REPORTER_ASSERT(reporter, indirectSize == buffer.getOffset());
-        REPORTER_ASSERT(reporter, stream_equals(buffer, 0, header, headerLen));
-        REPORTER_ASSERT(reporter, stream_equals(buffer, headerLen, expectedData,
-                                                directSize));
-        REPORTER_ASSERT(reporter, stream_equals(buffer, headerLen + directSize,
-                                                footer, footerLen));
+    if (!catPtr) {
+        catPtr = &catalog;
     }
+    obj.emitObject(&buffer, catPtr->numbers, catPtr->substitutes);
+    SkAutoTDelete<SkStreamAsset> asset(buffer.detachAsStream());
+    SkString tmp(asset->getLength());
+    asset->read(tmp.writable_str(), asset->getLength());
+    return tmp;
 }
 
-static void SimpleCheckObjectOutput(skiatest::Reporter* reporter,
-                                    SkPDFObject* obj,
-                                    const char* expectedResult) {
-    CheckObjectOutput(reporter, obj, expectedResult,
-                      strlen(expectedResult), true, false);
+static bool eq(const SkString& str, const char* strPtr, size_t len) {
+    return len == str.size() && 0 == memcmp(str.c_str(), strPtr, len);
 }
+
+#define ASSERT_EQL(REPORTER, SKSTRING, STRING, LEN)                     \
+    do {                                                                \
+        const char* strptr = STRING;                                    \
+        const SkString& sks = SKSTRING;                                 \
+        if (!eq(sks, strptr, LEN)) {                                    \
+            REPORT_FAILURE(                                             \
+                    REPORTER,                                           \
+                    "",                                                 \
+                    SkStringPrintf("'%s' != '%s'", strptr, sks.c_str()));  \
+        }                                                               \
+    } while (false)
+
+#define ASSERT_EQ(REPORTER, SKSTRING, STRING)             \
+    do {                                                  \
+        const char* str = STRING;                         \
+        ASSERT_EQL(REPORTER, SKSTRING, str, strlen(str)); \
+    } while (false)
+
+#define ASSERT_EMIT_EQ(REPORTER, OBJECT, STRING)          \
+    do {                                                  \
+        SkString result = emit_to_string(OBJECT);         \
+        ASSERT_EQ(REPORTER, result, STRING);              \
+    } while (false)
+
+
 
 static void TestPDFStream(skiatest::Reporter* reporter) {
     char streamBytes[] = "Test\nFoo\tBar";
-    SkAutoTUnref<SkMemoryStream> streamData(new SkMemoryStream(
+    SkAutoTDelete<SkMemoryStream> streamData(new SkMemoryStream(
         streamBytes, strlen(streamBytes), true));
     SkAutoTUnref<SkPDFStream> stream(new SkPDFStream(streamData.get()));
-    SimpleCheckObjectOutput(
-        reporter, stream.get(),
-        "<</Length 12\n>> stream\nTest\nFoo\tBar\nendstream");
-    stream->insert("Attribute", new SkPDFInt(42))->unref();
-    SimpleCheckObjectOutput(reporter, stream.get(),
-                            "<</Length 12\n/Attribute 42\n>> stream\n"
-                                "Test\nFoo\tBar\nendstream");
+    ASSERT_EMIT_EQ(reporter,
+                   *stream,
+                   "<</Length 12>> stream\nTest\nFoo\tBar\nendstream");
+    stream->insertInt("Attribute", 42);
+    ASSERT_EMIT_EQ(reporter,
+                   *stream,
+                   "<</Length 12\n/Attribute 42>> stream\n"
+                   "Test\nFoo\tBar\nendstream");
 
-    if (SkFlate::HaveFlate()) {
+    {
         char streamBytes2[] = "This is a longer string, so that compression "
                               "can do something with it. With shorter strings, "
                               "the short circuit logic cuts in and we end up "
@@ -143,184 +102,68 @@ static void TestPDFStream(skiatest::Reporter* reporter) {
         SkFlate::Deflate(streamData2.get(), &compressedByteStream);
         SkAutoDataUnref compressedData(compressedByteStream.copyToData());
 
-        // Check first without compression.
-        SkDynamicMemoryWStream expectedResult1;
-        expectedResult1.writeText("<</Length 167\n>> stream\n");
-        expectedResult1.writeText(streamBytes2);
-        expectedResult1.writeText("\nendstream");
-        SkAutoDataUnref expectedResultData1(expectedResult1.copyToData());
-        CheckObjectOutput(reporter, stream.get(),
-                          (const char*) expectedResultData1->data(),
-                          expectedResultData1->size(), true, false);
-
-        // Then again with compression.
-        SkDynamicMemoryWStream expectedResult2;
-        expectedResult2.writeText("<</Filter /FlateDecode\n/Length 116\n"
-                                 ">> stream\n");
-        expectedResult2.write(compressedData->data(), compressedData->size());
-        expectedResult2.writeText("\nendstream");
-        SkAutoDataUnref expectedResultData2(expectedResult2.copyToData());
-        CheckObjectOutput(reporter, stream.get(),
-                          (const char*) expectedResultData2->data(),
-                          expectedResultData2->size(), true, true);
+        SkDynamicMemoryWStream expected;
+        expected.writeText("<</Filter /FlateDecode\n/Length 116>> stream\n");
+        expected.write(compressedData->data(), compressedData->size());
+        expected.writeText("\nendstream");
+        SkAutoDataUnref expectedResultData2(expected.copyToData());
+        SkString result = emit_to_string(*stream);
+        ASSERT_EQL(reporter,
+                   result,
+                   (const char*)expectedResultData2->data(),
+                   expectedResultData2->size());
     }
 }
 
-static void TestCatalog(skiatest::Reporter* reporter) {
-    SkPDFCatalog catalog((SkPDFDocument::Flags)0);
-    SkAutoTUnref<SkPDFInt> int1(new SkPDFInt(1));
-    SkAutoTUnref<SkPDFInt> int2(new SkPDFInt(2));
-    SkAutoTUnref<SkPDFInt> int3(new SkPDFInt(3));
-    int1.get()->ref();
-    SkAutoTUnref<SkPDFInt> int1Again(int1.get());
+static void TestObjectNumberMap(skiatest::Reporter* reporter) {
+    SkPDFObjNumMap objNumMap;
+    SkAutoTUnref<SkPDFArray> a1(new SkPDFArray);
+    SkAutoTUnref<SkPDFArray> a2(new SkPDFArray);
+    SkAutoTUnref<SkPDFArray> a3(new SkPDFArray);
 
-    catalog.addObject(int1.get(), false);
-    catalog.addObject(int2.get(), false);
-    catalog.addObject(int3.get(), false);
+    objNumMap.addObject(a1.get());
+    objNumMap.addObject(a2.get());
+    objNumMap.addObject(a3.get());
 
-    REPORTER_ASSERT(reporter, catalog.getObjectNumberSize(int1.get()) == 3);
-    REPORTER_ASSERT(reporter, catalog.getObjectNumberSize(int2.get()) == 3);
-    REPORTER_ASSERT(reporter, catalog.getObjectNumberSize(int3.get()) == 3);
-
-    SkDynamicMemoryWStream buffer;
-    catalog.emitObjectNumber(&buffer, int1.get());
-    catalog.emitObjectNumber(&buffer, int2.get());
-    catalog.emitObjectNumber(&buffer, int3.get());
-    catalog.emitObjectNumber(&buffer, int1Again.get());
-    char expectedResult[] = "1 02 03 01 0";
-    REPORTER_ASSERT(reporter, stream_equals(buffer, 0, expectedResult,
-                                            strlen(expectedResult)));
+    // The objects should be numbered in the order they are added,
+    // starting with 1.
+    REPORTER_ASSERT(reporter, objNumMap.getObjectNumber(a1.get()) == 1);
+    REPORTER_ASSERT(reporter, objNumMap.getObjectNumber(a2.get()) == 2);
+    REPORTER_ASSERT(reporter, objNumMap.getObjectNumber(a3.get()) == 3);
+    // Assert that repeated calls to get the object number return
+    // consistent result.
+    REPORTER_ASSERT(reporter, objNumMap.getObjectNumber(a1.get()) == 1);
 }
 
 static void TestObjectRef(skiatest::Reporter* reporter) {
-    SkAutoTUnref<SkPDFInt> int1(new SkPDFInt(1));
-    SkAutoTUnref<SkPDFInt> int2(new SkPDFInt(2));
-    SkAutoTUnref<SkPDFObjRef> int2ref(new SkPDFObjRef(int2.get()));
+    SkAutoTUnref<SkPDFArray> a1(new SkPDFArray);
+    SkAutoTUnref<SkPDFArray> a2(new SkPDFArray);
+    a2->appendObjRef(SkRef(a1.get()));
 
-    SkPDFCatalog catalog((SkPDFDocument::Flags)0);
-    catalog.addObject(int1.get(), false);
-    catalog.addObject(int2.get(), false);
-    REPORTER_ASSERT(reporter, catalog.getObjectNumberSize(int1.get()) == 3);
-    REPORTER_ASSERT(reporter, catalog.getObjectNumberSize(int2.get()) == 3);
+    Catalog catalog;
+    catalog.numbers.addObject(a1.get());
+    REPORTER_ASSERT(reporter, catalog.numbers.getObjectNumber(a1.get()) == 1);
 
-    char expectedResult[] = "2 0 R";
-    SkDynamicMemoryWStream buffer;
-    int2ref->emitObject(&buffer, &catalog, false);
-    REPORTER_ASSERT(reporter, buffer.getOffset() == strlen(expectedResult));
-    REPORTER_ASSERT(reporter, stream_equals(buffer, 0, expectedResult,
-                                            buffer.getOffset()));
+    SkString result = emit_to_string(*a2, &catalog);
+    // If appendObjRef misbehaves, then the result would
+    // be [[]], not [1 0 R].
+    ASSERT_EQ(reporter, result, "[1 0 R]");
 }
 
 static void TestSubstitute(skiatest::Reporter* reporter) {
-    SkAutoTUnref<SkPDFTestDict> proxy(new SkPDFTestDict());
-    SkAutoTUnref<SkPDFTestDict> stub(new SkPDFTestDict());
-    SkAutoTUnref<SkPDFInt> int33(new SkPDFInt(33));
-    SkAutoTUnref<SkPDFDict> stubResource(new SkPDFDict());
-    SkAutoTUnref<SkPDFInt> int44(new SkPDFInt(44));
+    SkAutoTUnref<SkPDFDict> proxy(new SkPDFDict());
+    SkAutoTUnref<SkPDFDict> stub(new SkPDFDict());
 
-    stub->insert("Value", int33.get());
-    stubResource->insert("InnerValue", int44.get());
-    stub->addResource(stubResource.get());
+    proxy->insertInt("Value", 33);
+    stub->insertInt("Value", 44);
 
-    SkPDFCatalog catalog((SkPDFDocument::Flags)0);
-    catalog.addObject(proxy.get(), false);
-    catalog.setSubstitute(proxy.get(), stub.get());
+    SkPDFSubstituteMap substituteMap;
+    substituteMap.setSubstitute(proxy.get(), stub.get());
+    SkPDFObjNumMap catalog;
+    catalog.addObject(proxy.get());
 
-    SkDynamicMemoryWStream buffer;
-    proxy->emit(&buffer, &catalog, false);
-    catalog.emitSubstituteResources(&buffer, false);
-
-    char objectResult[] = "2 0 obj\n<</Value 33\n>>\nendobj\n";
-    REPORTER_ASSERT(
-        reporter,
-        catalog.setFileOffset(proxy.get(), 0) == strlen(objectResult));
-
-    char expectedResult[] =
-        "<</Value 33\n>>1 0 obj\n<</InnerValue 44\n>>\nendobj\n";
-    REPORTER_ASSERT(reporter, buffer.getOffset() == strlen(expectedResult));
-    REPORTER_ASSERT(reporter, stream_equals(buffer, 0, expectedResult,
-                                            buffer.getOffset()));
-}
-
-// Create a bitmap that would be very eficiently compressed in a ZIP.
-static void setup_bitmap(SkBitmap* bitmap, int width, int height) {
-    bitmap->allocN32Pixels(width, height);
-    bitmap->eraseColor(SK_ColorWHITE);
-}
-
-static void TestImage(skiatest::Reporter* reporter, const SkBitmap& bitmap,
-                      const char* expected, bool useDCTEncoder) {
-    SkISize pageSize = SkISize::Make(bitmap.width(), bitmap.height());
-    SkAutoTUnref<SkPDFDevice> dev(new SkPDFDevice(pageSize, pageSize, SkMatrix::I()));
-
-    if (useDCTEncoder) {
-        dev->setDCTEncoder(encode_to_dct_data);
-    }
-
-    SkCanvas c(dev);
-    c.drawBitmap(bitmap, 0, 0, NULL);
-
-    SkPDFDocument doc;
-    doc.appendPage(dev);
-
-    SkDynamicMemoryWStream stream;
-    doc.emitPDF(&stream);
-
-    REPORTER_ASSERT(reporter, stream_contains(stream, expected));
-}
-
-static void TestUncompressed(skiatest::Reporter* reporter) {
-    SkBitmap bitmap;
-    setup_bitmap(&bitmap, 1, 1);
-    TestImage(reporter, bitmap,
-              "/Subtype /Image\n"
-              "/Width 1\n"
-              "/Height 1\n"
-              "/ColorSpace /DeviceRGB\n"
-              "/BitsPerComponent 8\n"
-              "/Length 3\n"
-              ">> stream",
-              true);
-}
-
-static void TestFlateDecode(skiatest::Reporter* reporter) {
-    if (!SkFlate::HaveFlate()) {
-        return;
-    }
-    SkBitmap bitmap;
-    setup_bitmap(&bitmap, 10, 10);
-    TestImage(reporter, bitmap,
-              "/Subtype /Image\n"
-              "/Width 10\n"
-              "/Height 10\n"
-              "/ColorSpace /DeviceRGB\n"
-              "/BitsPerComponent 8\n"
-              "/Filter /FlateDecode\n"
-              "/Length 13\n"
-              ">> stream",
-              false);
-}
-
-static void TestDCTDecode(skiatest::Reporter* reporter) {
-    SkBitmap bitmap;
-    setup_bitmap(&bitmap, 32, 32);
-    TestImage(reporter, bitmap,
-              "/Subtype /Image\n"
-              "/Width 32\n"
-              "/Height 32\n"
-              "/ColorSpace /DeviceRGB\n"
-              "/BitsPerComponent 8\n"
-              "/Filter /DCTDecode\n"
-              "/ColorTransform 0\n"
-              "/Length 21\n"
-              ">> stream",
-              true);
-}
-
-static void TestImages(skiatest::Reporter* reporter) {
-    TestUncompressed(reporter);
-    TestFlateDecode(reporter);
-    TestDCTDecode(reporter);
+    REPORTER_ASSERT(reporter, stub.get() == substituteMap.getSubstitute(proxy));
+    REPORTER_ASSERT(reporter, proxy.get() != substituteMap.getSubstitute(stub));
 }
 
 // This test used to assert without the fix submitted for
@@ -328,106 +171,191 @@ static void TestImages(skiatest::Reporter* reporter) {
 // SKP files might have invalid glyph ids. This test ensures they are ignored,
 // and there is no assert on input data in Debug mode.
 static void test_issue1083() {
-    SkISize pageSize = SkISize::Make(100, 100);
-    SkAutoTUnref<SkPDFDevice> dev(new SkPDFDevice(pageSize, pageSize, SkMatrix::I()));
-
-    SkCanvas c(dev);
+    SkDynamicMemoryWStream outStream;
+    SkAutoTUnref<SkDocument> doc(SkDocument::CreatePDF(&outStream));
+    SkCanvas* canvas = doc->beginPage(100.0f, 100.0f);
     SkPaint paint;
     paint.setTextEncoding(SkPaint::kGlyphID_TextEncoding);
 
     uint16_t glyphID = 65000;
-    c.drawText(&glyphID, 2, 0, 0, paint);
+    canvas->drawText(&glyphID, 2, 0, 0, paint);
 
-    SkPDFDocument doc;
-    doc.appendPage(dev);
+    doc->close();
+}
 
-    SkDynamicMemoryWStream stream;
-    doc.emitPDF(&stream);
+static void TestPDFUnion(skiatest::Reporter* reporter) {
+    SkPDFUnion boolTrue = SkPDFUnion::Bool(true);
+    ASSERT_EMIT_EQ(reporter, boolTrue, "true");
+
+    SkPDFUnion boolFalse = SkPDFUnion::Bool(false);
+    ASSERT_EMIT_EQ(reporter, boolFalse, "false");
+
+    SkPDFUnion int42 = SkPDFUnion::Int(42);
+    ASSERT_EMIT_EQ(reporter, int42, "42");
+
+    SkPDFUnion realHalf = SkPDFUnion::Scalar(SK_ScalarHalf);
+    ASSERT_EMIT_EQ(reporter, realHalf, "0.5");
+
+    SkPDFUnion bigScalar = SkPDFUnion::Scalar(110999.75f);
+#if !defined(SK_ALLOW_LARGE_PDF_SCALARS)
+    ASSERT_EMIT_EQ(reporter, bigScalar, "111000");
+#else
+    ASSERT_EMIT_EQ(reporter, bigScalar, "110999.75");
+
+    SkPDFUnion biggerScalar = SkPDFUnion::Scalar(50000000.1);
+    ASSERT_EMIT_EQ(reporter, biggerScalar, "50000000");
+
+    SkPDFUnion smallestScalar = SkPDFUnion::Scalar(1.0 / 65536);
+    ASSERT_EMIT_EQ(reporter, smallestScalar, "0.00001526");
+#endif
+
+    SkPDFUnion stringSimple = SkPDFUnion::String("test ) string ( foo");
+    ASSERT_EMIT_EQ(reporter, stringSimple, "(test \\) string \\( foo)");
+
+    SkString stringComplexInput("\ttest ) string ( foo");
+    SkPDFUnion stringComplex = SkPDFUnion::String(stringComplexInput);
+    ASSERT_EMIT_EQ(reporter,
+                   stringComplex,
+                   "<0974657374202920737472696E67202820666F6F>");
+
+    SkString nameInput("Test name\twith#tab");
+    SkPDFUnion name = SkPDFUnion::Name(nameInput);
+    ASSERT_EMIT_EQ(reporter, name, "/Test#20name#09with#23tab");
+
+    SkString nameInput2("A#/%()<>[]{}B");
+    SkPDFUnion name2 = SkPDFUnion::Name(nameInput2);
+    ASSERT_EMIT_EQ(reporter, name2, "/A#23#2F#25#28#29#3C#3E#5B#5D#7B#7DB");
+
+    SkPDFUnion name3 = SkPDFUnion::Name("SimpleNameWithOnlyPrintableASCII");
+    ASSERT_EMIT_EQ(reporter, name3, "/SimpleNameWithOnlyPrintableASCII");
+
+    // Test that we correctly handle characters with the high-bit set.
+    SkString highBitString("\xDE\xAD" "be\xEF");
+    SkPDFUnion highBitName = SkPDFUnion::Name(highBitString);
+    ASSERT_EMIT_EQ(reporter, highBitName, "/#DE#ADbe#EF");
+}
+
+static void TestPDFArray(skiatest::Reporter* reporter) {
+    SkAutoTUnref<SkPDFArray> array(new SkPDFArray);
+    ASSERT_EMIT_EQ(reporter, *array, "[]");
+
+    array->appendInt(42);
+    ASSERT_EMIT_EQ(reporter, *array, "[42]");
+
+    array->appendScalar(SK_ScalarHalf);
+    ASSERT_EMIT_EQ(reporter, *array, "[42 0.5]");
+
+    array->appendInt(0);
+    ASSERT_EMIT_EQ(reporter, *array, "[42 0.5 0]");
+
+    array->appendBool(true);
+    ASSERT_EMIT_EQ(reporter, *array, "[42 0.5 0 true]");
+
+    array->appendName("ThisName");
+    ASSERT_EMIT_EQ(reporter, *array, "[42 0.5 0 true /ThisName]");
+
+    array->appendName(SkString("AnotherName"));
+    ASSERT_EMIT_EQ(reporter, *array, "[42 0.5 0 true /ThisName /AnotherName]");
+
+    array->appendString("This String");
+    ASSERT_EMIT_EQ(reporter, *array,
+                   "[42 0.5 0 true /ThisName /AnotherName (This String)]");
+
+    array->appendString(SkString("Another String"));
+    ASSERT_EMIT_EQ(reporter, *array,
+                   "[42 0.5 0 true /ThisName /AnotherName (This String) "
+                   "(Another String)]");
+
+    SkAutoTUnref<SkPDFArray> innerArray(new SkPDFArray);
+    innerArray->appendInt(-1);
+    array->appendObject(innerArray.detach());
+    ASSERT_EMIT_EQ(reporter, *array,
+                   "[42 0.5 0 true /ThisName /AnotherName (This String) "
+                   "(Another String) [-1]]");
+
+    SkAutoTUnref<SkPDFArray> referencedArray(new SkPDFArray);
+    Catalog catalog;
+    catalog.numbers.addObject(referencedArray.get());
+    REPORTER_ASSERT(reporter, catalog.numbers.getObjectNumber(
+                            referencedArray.get()) == 1);
+    array->appendObjRef(referencedArray.detach());
+
+    SkString result = emit_to_string(*array, &catalog);
+    ASSERT_EQ(reporter, result,
+              "[42 0.5 0 true /ThisName /AnotherName (This String) "
+              "(Another String) [-1] 1 0 R]");
+}
+
+static void TestPDFDict(skiatest::Reporter* reporter) {
+    SkAutoTUnref<SkPDFDict> dict(new SkPDFDict);
+    ASSERT_EMIT_EQ(reporter, *dict, "<<>>");
+
+    dict->insertInt("n1", SkToSizeT(42));
+    ASSERT_EMIT_EQ(reporter, *dict, "<</n1 42>>");
+
+    dict.reset(new SkPDFDict);
+    ASSERT_EMIT_EQ(reporter, *dict, "<<>>");
+
+    dict->insertInt("n1", 42);
+    ASSERT_EMIT_EQ(reporter, *dict, "<</n1 42>>");
+
+    dict->insertScalar("n2", SK_ScalarHalf);
+
+    SkString n3("n3");
+    SkAutoTUnref<SkPDFArray> innerArray(new SkPDFArray);
+    innerArray->appendInt(-100);
+    dict->insertObject(n3, innerArray.detach());
+    ASSERT_EMIT_EQ(reporter, *dict, "<</n1 42\n/n2 0.5\n/n3 [-100]>>");
+
+    dict.reset(new SkPDFDict);
+    ASSERT_EMIT_EQ(reporter, *dict, "<<>>");
+
+    dict->insertInt("n1", 24);
+    ASSERT_EMIT_EQ(reporter, *dict, "<</n1 24>>");
+
+    dict->insertInt("n2", SkToSizeT(99));
+    ASSERT_EMIT_EQ(reporter, *dict, "<</n1 24\n/n2 99>>");
+
+    dict->insertScalar("n3", SK_ScalarHalf);
+    ASSERT_EMIT_EQ(reporter, *dict, "<</n1 24\n/n2 99\n/n3 0.5>>");
+
+    dict->insertName("n4", "AName");
+    ASSERT_EMIT_EQ(reporter, *dict, "<</n1 24\n/n2 99\n/n3 0.5\n/n4 /AName>>");
+
+    dict->insertName("n5", SkString("AnotherName"));
+    ASSERT_EMIT_EQ(reporter, *dict, "<</n1 24\n/n2 99\n/n3 0.5\n/n4 /AName\n"
+                   "/n5 /AnotherName>>");
+
+    dict->insertString("n6", "A String");
+    ASSERT_EMIT_EQ(reporter, *dict, "<</n1 24\n/n2 99\n/n3 0.5\n/n4 /AName\n"
+                   "/n5 /AnotherName\n/n6 (A String)>>");
+
+    dict->insertString("n7", SkString("Another String"));
+    ASSERT_EMIT_EQ(reporter, *dict, "<</n1 24\n/n2 99\n/n3 0.5\n/n4 /AName\n"
+                   "/n5 /AnotherName\n/n6 (A String)\n/n7 (Another String)>>");
+
+    dict.reset(new SkPDFDict("DType"));
+    ASSERT_EMIT_EQ(reporter, *dict, "<</Type /DType>>");
+    
+    SkAutoTUnref<SkPDFArray> referencedArray(new SkPDFArray);
+    Catalog catalog;
+    catalog.numbers.addObject(referencedArray.get());
+    REPORTER_ASSERT(reporter, catalog.numbers.getObjectNumber(
+                            referencedArray.get()) == 1);
+    dict->insertObjRef("n1", referencedArray.detach());
+    SkString result = emit_to_string(*dict, &catalog);
+    ASSERT_EQ(reporter, result, "<</Type /DType\n/n1 1 0 R>>");
 }
 
 DEF_TEST(PDFPrimitives, reporter) {
-    SkAutoTUnref<SkPDFInt> int42(new SkPDFInt(42));
-    SimpleCheckObjectOutput(reporter, int42.get(), "42");
-
-    SkAutoTUnref<SkPDFScalar> realHalf(new SkPDFScalar(SK_ScalarHalf));
-    SimpleCheckObjectOutput(reporter, realHalf.get(), "0.5");
-
-    SkAutoTUnref<SkPDFScalar> bigScalar(new SkPDFScalar(110999.75f));
-#if !defined(SK_ALLOW_LARGE_PDF_SCALARS)
-    SimpleCheckObjectOutput(reporter, bigScalar.get(), "111000");
-#else
-    SimpleCheckObjectOutput(reporter, bigScalar.get(), "110999.75");
-
-    SkAutoTUnref<SkPDFScalar> biggerScalar(new SkPDFScalar(50000000.1));
-    SimpleCheckObjectOutput(reporter, biggerScalar.get(), "50000000");
-
-    SkAutoTUnref<SkPDFScalar> smallestScalar(new SkPDFScalar(1.0/65536));
-    SimpleCheckObjectOutput(reporter, smallestScalar.get(), "0.00001526");
-#endif
-
-    SkAutoTUnref<SkPDFString> stringSimple(
-        new SkPDFString("test ) string ( foo"));
-    SimpleCheckObjectOutput(reporter, stringSimple.get(),
-                            "(test \\) string \\( foo)");
-    SkAutoTUnref<SkPDFString> stringComplex(
-        new SkPDFString("\ttest ) string ( foo"));
-    SimpleCheckObjectOutput(reporter, stringComplex.get(),
-                            "<0974657374202920737472696E67202820666F6F>");
-
-    SkAutoTUnref<SkPDFName> name(new SkPDFName("Test name\twith#tab"));
-    const char expectedResult[] = "/Test#20name#09with#23tab";
-    CheckObjectOutput(reporter, name.get(), expectedResult,
-                      strlen(expectedResult), false, false);
-
-    SkAutoTUnref<SkPDFName> escapedName(new SkPDFName("A#/%()<>[]{}B"));
-    const char escapedNameExpected[] = "/A#23#2F#25#28#29#3C#3E#5B#5D#7B#7DB";
-    CheckObjectOutput(reporter, escapedName.get(), escapedNameExpected,
-                      strlen(escapedNameExpected), false, false);
-
-    // Test that we correctly handle characters with the high-bit set.
-    const unsigned char highBitCString[] = {0xDE, 0xAD, 'b', 'e', 0xEF, 0};
-    SkAutoTUnref<SkPDFName> highBitName(
-        new SkPDFName((const char*)highBitCString));
-    const char highBitExpectedResult[] = "/#DE#ADbe#EF";
-    CheckObjectOutput(reporter, highBitName.get(), highBitExpectedResult,
-                      strlen(highBitExpectedResult), false, false);
-
-    SkAutoTUnref<SkPDFArray> array(new SkPDFArray);
-    SimpleCheckObjectOutput(reporter, array.get(), "[]");
-    array->append(int42.get());
-    SimpleCheckObjectOutput(reporter, array.get(), "[42]");
-    array->append(realHalf.get());
-    SimpleCheckObjectOutput(reporter, array.get(), "[42 0.5]");
-    SkAutoTUnref<SkPDFInt> int0(new SkPDFInt(0));
-    array->append(int0.get());
-    SimpleCheckObjectOutput(reporter, array.get(), "[42 0.5 0]");
-    SkAutoTUnref<SkPDFInt> int1(new SkPDFInt(1));
-    array->setAt(0, int1.get());
-    SimpleCheckObjectOutput(reporter, array.get(), "[1 0.5 0]");
-
-    SkAutoTUnref<SkPDFDict> dict(new SkPDFDict);
-    SimpleCheckObjectOutput(reporter, dict.get(), "<<>>");
-    SkAutoTUnref<SkPDFName> n1(new SkPDFName("n1"));
-    dict->insert(n1.get(), int42.get());
-    SimpleCheckObjectOutput(reporter, dict.get(), "<</n1 42\n>>");
-    SkAutoTUnref<SkPDFName> n2(new SkPDFName("n2"));
-    SkAutoTUnref<SkPDFName> n3(new SkPDFName("n3"));
-    dict->insert(n2.get(), realHalf.get());
-    dict->insert(n3.get(), array.get());
-    SimpleCheckObjectOutput(reporter, dict.get(),
-                            "<</n1 42\n/n2 0.5\n/n3 [1 0.5 0]\n>>");
-
+    TestPDFUnion(reporter);
+    TestPDFArray(reporter);
+    TestPDFDict(reporter);
     TestPDFStream(reporter);
-
-    TestCatalog(reporter);
-
+    TestObjectNumberMap(reporter);
     TestObjectRef(reporter);
-
     TestSubstitute(reporter);
-
     test_issue1083();
-
-    TestImages(reporter);
 }
 
 namespace {
@@ -435,20 +363,16 @@ namespace {
 class DummyImageFilter : public SkImageFilter {
 public:
     DummyImageFilter(bool visited = false) : SkImageFilter(0, NULL), fVisited(visited) {}
-    virtual ~DummyImageFilter() SK_OVERRIDE {}
+    ~DummyImageFilter() override {}
     virtual bool onFilterImage(Proxy*, const SkBitmap& src, const Context&,
-                               SkBitmap* result, SkIPoint* offset) const {
+                               SkBitmap* result, SkIPoint* offset) const override {
         fVisited = true;
         offset->fX = offset->fY = 0;
         *result = src;
         return true;
     }
+    SK_TO_STRING_OVERRIDE()
     SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(DummyImageFilter)
-#ifdef SK_SUPPORT_LEGACY_DEEPFLATTENING
-    explicit DummyImageFilter(SkReadBuffer& buffer) : SkImageFilter(0, NULL) {
-        fVisited = buffer.readBool();
-    }
-#endif
     bool visited() const { return fVisited; }
 
 private:
@@ -461,21 +385,30 @@ SkFlattenable* DummyImageFilter::CreateProc(SkReadBuffer& buffer) {
     return SkNEW_ARGS(DummyImageFilter, (visited));
 }
 
+#ifndef SK_IGNORE_TO_STRING
+void DummyImageFilter::toString(SkString* str) const {
+    str->appendf("DummyImageFilter: (");
+    str->append(")");
+}
+#endif
+
 };
 
 // Check that PDF rendering of image filters successfully falls back to
 // CPU rasterization.
 DEF_TEST(PDFImageFilter, reporter) {
-    SkISize pageSize = SkISize::Make(100, 100);
-    SkAutoTUnref<SkPDFDevice> device(new SkPDFDevice(pageSize, pageSize, SkMatrix::I()));
-    SkCanvas canvas(device.get());
+    SkDynamicMemoryWStream stream;
+    SkAutoTUnref<SkDocument> doc(SkDocument::CreatePDF(&stream));
+    SkCanvas* canvas = doc->beginPage(100.0f, 100.0f);
+
     SkAutoTUnref<DummyImageFilter> filter(new DummyImageFilter());
 
     // Filter just created; should be unvisited.
     REPORTER_ASSERT(reporter, !filter->visited());
     SkPaint paint;
     paint.setImageFilter(filter.get());
-    canvas.drawRect(SkRect::MakeWH(100, 100), paint);
+    canvas->drawRect(SkRect::MakeWH(100, 100), paint);
+    doc->close();
 
     // Filter was used in rendering; should be visited.
     REPORTER_ASSERT(reporter, filter->visited());

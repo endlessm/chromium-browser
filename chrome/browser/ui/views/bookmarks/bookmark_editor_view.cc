@@ -12,7 +12,6 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
-#include "chrome/browser/history/history_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/bookmarks/bookmark_utils.h"
 #include "chrome/grit/generated_resources.h"
@@ -20,6 +19,7 @@
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
 #include "components/constrained_window/constrained_window_views.h"
+#include "components/history/core/browser/history_service.h"
 #include "components/url_fixer/url_fixer.h"
 #include "components/user_prefs/user_prefs.h"
 #include "ui/accessibility/ax_view_state.h"
@@ -39,6 +39,8 @@
 #include "url/gurl.h"
 
 using bookmarks::BookmarkExpandedStateTracker;
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
 using views::GridLayout;
 
 namespace {
@@ -229,7 +231,7 @@ void BookmarkEditorView::ExecuteCommand(int command_id, int event_flags) {
 }
 
 void BookmarkEditorView::Show(gfx::NativeWindow parent) {
-  CreateBrowserModalDialogViews(this, parent);
+  constrained_window::CreateBrowserModalDialogViews(this, parent);
   UserInputChanged();
   if (show_tree_ && bb_model_->loaded())
     ExpandAndSelect();
@@ -263,6 +265,52 @@ void BookmarkEditorView::ShowContextMenuForView(
       views::MenuRunner::MENU_DELETED) {
     return;
   }
+}
+
+const char* BookmarkEditorView::GetClassName() const {
+  return "BookmarkEditorView";
+}
+
+void BookmarkEditorView::BookmarkNodeMoved(BookmarkModel* model,
+                                           const BookmarkNode* old_parent,
+                                           int old_index,
+                                           const BookmarkNode* new_parent,
+                                           int new_index) {
+  Reset();
+}
+
+void BookmarkEditorView::BookmarkNodeAdded(BookmarkModel* model,
+                                           const BookmarkNode* parent,
+                                           int index) {
+  Reset();
+}
+
+void BookmarkEditorView::BookmarkNodeRemoved(
+    BookmarkModel* model,
+    const BookmarkNode* parent,
+    int index,
+    const BookmarkNode* node,
+    const std::set<GURL>& removed_urls) {
+  if ((details_.type == EditDetails::EXISTING_NODE &&
+       details_.existing_node->HasAncestor(node)) ||
+      (parent_ && parent_->HasAncestor(node))) {
+    // The node, or its parent was removed. Close the dialog.
+    GetWidget()->Close();
+  } else {
+    Reset();
+  }
+}
+
+void BookmarkEditorView::BookmarkAllUserNodesRemoved(
+    BookmarkModel* model,
+    const std::set<GURL>& removed_urls) {
+  Reset();
+}
+
+void BookmarkEditorView::BookmarkNodeChildrenReordered(
+    BookmarkModel* model,
+    const BookmarkNode* node) {
+  Reset();
 }
 
 void BookmarkEditorView::Init() {
@@ -362,48 +410,6 @@ void BookmarkEditorView::Init() {
 
   if (!show_tree_ || bb_model_->loaded())
     Reset();
-}
-
-void BookmarkEditorView::BookmarkNodeMoved(BookmarkModel* model,
-                                           const BookmarkNode* old_parent,
-                                           int old_index,
-                                           const BookmarkNode* new_parent,
-                                           int new_index) {
-  Reset();
-}
-
-void BookmarkEditorView::BookmarkNodeAdded(BookmarkModel* model,
-                                           const BookmarkNode* parent,
-                                           int index) {
-  Reset();
-}
-
-void BookmarkEditorView::BookmarkNodeRemoved(
-    BookmarkModel* model,
-    const BookmarkNode* parent,
-    int index,
-    const BookmarkNode* node,
-    const std::set<GURL>& removed_urls) {
-  if ((details_.type == EditDetails::EXISTING_NODE &&
-       details_.existing_node->HasAncestor(node)) ||
-      (parent_ && parent_->HasAncestor(node))) {
-    // The node, or its parent was removed. Close the dialog.
-    GetWidget()->Close();
-  } else {
-    Reset();
-  }
-}
-
-void BookmarkEditorView::BookmarkAllUserNodesRemoved(
-    BookmarkModel* model,
-    const std::set<GURL>& removed_urls) {
-  Reset();
-}
-
-void BookmarkEditorView::BookmarkNodeChildrenReordered(
-    BookmarkModel* model,
-    const BookmarkNode* node) {
-  Reset();
 }
 
 void BookmarkEditorView::Reset() {

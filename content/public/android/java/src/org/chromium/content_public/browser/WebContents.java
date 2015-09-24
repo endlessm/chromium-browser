@@ -4,12 +4,45 @@
 
 package org.chromium.content_public.browser;
 
+import android.os.Parcelable;
+
 import org.chromium.base.VisibleForTesting;
 
 /**
  * The WebContents Java wrapper to allow communicating with the native WebContents object.
+ *
+ * Note about serialization and {@link Parcelable}:
+ *   This object is serializable and deserializable as long as it is done in the same process.  That
+ * means it can be passed between Activities inside this process, but not preserved beyond the
+ * process lifetime.  This class will automatically deserialize into {@code null} if a deserialize
+ * attempt happens in another process.
+ *
+ * To properly deserialize a custom Parcelable the right class loader must be used.  See below for
+ * some examples.
+ *
+ * Intent Serialization/Deserialization Example:
+ * intent.putExtra("WEBCONTENTSKEY", webContents);
+ * // ... send to other location ...
+ * intent.setExtrasClassLoader(WebContents.class.getClassLoader());
+ * webContents = intent.getParcelableExtra("WEBCONTENTSKEY");
+ *
+ * Bundle Serialization/Deserialization Example:
+ * bundle.putParcelable("WEBCONTENTSKEY", webContents);
+ * // ... send to other location ...
+ * bundle.setClassLoader(WebContents.class.getClassLoader());
+ * webContents = bundle.get("WEBCONTENTSKEY");
  */
-public interface WebContents {
+public interface WebContents extends Parcelable {
+    /**
+     * Deletes the Web Contents object.
+     */
+    void destroy();
+
+    /**
+     * @return Whether or not the native object associated with this WebContent is destroyed.
+     */
+    boolean isDestroyed();
+
     /**
      * @return The navigation controller associated with this WebContents.
      */
@@ -42,49 +75,69 @@ public interface WebContents {
     void stop();
 
     /**
+     * Cut the selected content.
+     */
+    void cut();
+
+    /**
+     * Copy the selected content.
+     */
+    void copy();
+
+    /**
+     * Paste content from the clipboard.
+     */
+    void paste();
+
+    /**
+     * Select all content.
+     */
+    void selectAll();
+
+    /**
+     * Clear the selection.
+     */
+    void unselect();
+
+    /**
      * Inserts css into main frame's document.
      */
     void insertCSS(String css);
+
     /**
      * To be called when the ContentView is hidden.
      */
-    public void onHide();
+    void onHide();
 
     /**
      * To be called when the ContentView is shown.
      */
-    public void onShow();
+    void onShow();
 
     /**
      * Stops all media players for this WebContents.
      */
-    public void releaseMediaPlayers();
+    void releaseMediaPlayers();
 
     /**
      * Get the Background color from underlying RenderWidgetHost for this WebContent.
      */
-    public int getBackgroundColor();
-
-    /**
-     * Requests the renderer insert a link to the specified stylesheet in the
-     * main frame's document.
-     */
-    void addStyleSheetByURL(String url);
+    int getBackgroundColor();
 
     /**
      * Shows an interstitial page driven by the passed in delegate.
      *
      * @param url The URL being blocked by the interstitial.
-     * @param delegate The delegate handling the interstitial.
+     * @param interstitialPageDelegateAndroid The delegate handling the interstitial.
      */
     @VisibleForTesting
-    public void showInterstitialPage(
+    void showInterstitialPage(
             String url, long interstitialPageDelegateAndroid);
 
     /**
      * @return Whether the page is currently showing an interstitial, such as a bad HTTPS page.
      */
-    public boolean isShowingInterstitialPage();
+    boolean isShowingInterstitialPage();
 
     /**
      * If the view is ready to draw contents to the screen. In hardware mode,
@@ -92,12 +145,12 @@ public interface WebContents {
      * view has been added to the layout. This method will return {@code true}
      * once the texture is actually ready.
      */
-    public boolean isReady();
+    boolean isReady();
 
      /**
      * Inform WebKit that Fullscreen mode has been exited by the user.
      */
-    public void exitFullscreen();
+    void exitFullscreen();
 
     /**
      * Changes whether hiding the top controls is enabled.
@@ -106,69 +159,60 @@ public interface WebContents {
      * @param enableShowing Whether showing the top controls should be enabled or not.
      * @param animate Whether the transition should be animated or not.
      */
-    public void updateTopControlsState(boolean enableHiding, boolean enableShowing,
+    void updateTopControlsState(boolean enableHiding, boolean enableShowing,
             boolean animate);
 
     /**
      * Shows the IME if the focused widget could accept text input.
      */
-    public void showImeIfNeeded();
+    void showImeIfNeeded();
 
     /**
      * Brings the Editable to the visible area while IME is up to make easier for inputing text.
      */
-    public void scrollFocusedEditableNodeIntoView();
+    void scrollFocusedEditableNodeIntoView();
 
     /**
      * Selects the word around the caret, if any.
      * The caller can check if selection actually occurred by listening to OnSelectionChanged.
      */
-    public void selectWordAroundCaret();
+    void selectWordAroundCaret();
+
+    /**
+     * Adjusts the selection starting and ending points by the given amount.
+     * A negative amount moves the selection towards the beginning of the document, a positive
+     * amount moves the selection towards the end of the document.
+     * @param startAdjust The amount to adjust the start of the selection.
+     * @param endAdjust The amount to adjust the end of the selection.
+     */
+    public void adjustSelectionByCharacterOffset(int startAdjust, int endAdjust);
 
     /**
      * Get the URL of the current page.
      *
      * @return The URL of the current page.
      */
-    public String getUrl();
+    String getUrl();
+
+    /**
+     * Gets the last committed URL. It represents the current page that is
+     * displayed in this WebContents. It represents the current security context.
+     *
+     * @return The last committed URL.
+     */
+    String getLastCommittedUrl();
 
     /**
      * Get the InCognito state of WebContents.
      *
      * @return whether this WebContents is in InCognito mode or not
      */
-    public boolean isIncognito();
+    boolean isIncognito();
 
     /**
-     * Resumes the response which is deferred during start.
+     * Resumes the requests for a newly created window.
      */
-    public void resumeResponseDeferredAtStart();
-
-    /**
-     * Set pending Navigation for transition testing on this WebContents.
-     */
-    public void setHasPendingNavigationTransitionForTesting();
-
-    /**
-     * Set delegate for notifying navigation transition.
-     */
-    public void setNavigationTransitionDelegate(NavigationTransitionDelegate delegate);
-
-    /**
-     * Inserts the provided markup sandboxed into the frame.
-     */
-    public void setupTransitionView(String markup);
-
-    /**
-     * Hides transition elements specified by the selector, and activates any
-     * exiting-transition stylesheets.
-     */
-    public void beginExitTransition(String cssSelector);
-
-    /**
-     * Clear the navigation transition data.
-     */
-    public void clearNavigationTransitionData();
+    void resumeLoadingCreatedWebContents();
 
     /**
      * Injects the passed Javascript code in the current page and evaluates it.
@@ -180,18 +224,63 @@ public interface WebContents {
      *                 will be made on the main thread.
      *                 If no result is required, pass null.
      */
-    public void evaluateJavaScript(String script, JavaScriptCallback callback);
+    @VisibleForTesting
+    void evaluateJavaScript(String script, JavaScriptCallback callback);
 
     /**
-     * Post a message to a frame.
-     * TODO(sgurun) also add support for transferring a message channel port.
-     *
-     * @param frameName The name of the frame. If the name is null the message is posted
-     *                  to the main frame.
-     * @param message   The message
-     * @param sourceOrigin  The source origin
-     * @param targetOrigin  The target origin
+     * Adds a log message to dev tools console. |level| must be a value of
+     * org.chromium.content_public.common.ConsoleMessageLevel.
      */
-    public void postMessageToFrame(String frameName, String message,
-            String sourceOrigin, String targetOrigin);
+    void addMessageToDevToolsConsole(int level, String message);
+
+    /**
+     * Returns whether the initial empty page has been accessed by a script from another
+     * page. Always false after the first commit.
+     *
+     * @return Whether the initial empty page has been accessed by a script.
+     */
+    boolean hasAccessedInitialDocument();
+
+    /**
+     * This returns the theme color as set by the theme-color meta tag after getting rid of the
+     * alpha.
+     * @param defaultColor The default color to be returned if the cached color is not valid.
+     * @return The theme color for the content as set by the theme-color meta tag.
+     */
+    int getThemeColor(int defaultColor);
+
+    /**
+     * Requests a snapshop of accessibility tree. The result is provided asynchronously
+     * using the callback
+     * @param callback The callback to be called when the snapshot is ready. The callback
+     *                 cannot be null.
+     * @param offsetY The Physical on-screen Y offset amount below the top controls.
+     * @param scrollX Horizontal scroll offset in physical pixels
+     */
+    void requestAccessibilitySnapshot(AccessibilitySnapshotCallback callback, float offsetY,
+            float scrollX);
+
+    /**
+     * Resumes the current media session.
+     */
+    void resumeMediaSession();
+
+    /**
+     * Suspends the current media session.
+     */
+    void suspendMediaSession();
+
+    /**
+     * Add an observer to the WebContents
+     *
+     * @param observer The observer to add.
+     */
+    void addObserver(WebContentsObserver observer);
+
+    /**
+     * Remove an observer from the WebContents
+     *
+     * @param observer The observer to remove.
+     */
+    void removeObserver(WebContentsObserver observer);
 }

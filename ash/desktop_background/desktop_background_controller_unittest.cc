@@ -17,8 +17,6 @@
 #include "ash/test/test_user_wallpaper_delegate.h"
 #include "base/message_loop/message_loop.h"
 #include "base/threading/sequenced_worker_pool.h"
-#include "content/public/browser/browser_thread.h"
-#include "content/public/test/test_browser_thread.h"
 #include "content/public/test/test_utils.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -28,6 +26,11 @@
 
 using aura::RootWindow;
 using aura::Window;
+using wallpaper::WallpaperLayout;
+using wallpaper::WALLPAPER_LAYOUT_CENTER;
+using wallpaper::WALLPAPER_LAYOUT_CENTER_CROPPED;
+using wallpaper::WALLPAPER_LAYOUT_STRETCH;
+using wallpaper::WALLPAPER_LAYOUT_TILE;
 
 namespace ash {
 namespace {
@@ -108,7 +111,7 @@ class DesktopBackgroundControllerTest : public test::AshTestBase {
         Shell::GetPrimaryRootWindowController()
             ->animating_wallpaper_controller()
             ->GetController(false);
-    EXPECT_TRUE(!!controller);
+    EXPECT_TRUE(controller);
     ASSERT_NO_FATAL_FAILURE(RunAnimationForWidget(controller->widget()));
   }
 

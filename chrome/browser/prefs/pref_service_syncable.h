@@ -89,9 +89,7 @@ class PrefServiceSyncable : public PrefService {
  private:
   friend class PrefModelAssociator;
 
-  void AddRegisteredSyncablePreference(
-      const char* path,
-      const user_prefs::PrefRegistrySyncable::PrefSyncStatus sync_status);
+  void AddRegisteredSyncablePreference(const std::string& path, uint32 flags);
 
   // Invoked internally when the IsSyncing() state changes.
   void OnIsSyncingChanged();
@@ -107,7 +105,7 @@ class PrefServiceSyncable : public PrefService {
   PrefModelAssociator pref_sync_associator_;
   PrefModelAssociator priority_pref_sync_associator_;
 
-  ObserverList<PrefServiceSyncableObserver> observer_list_;
+  base::ObserverList<PrefServiceSyncableObserver> observer_list_;
 
   DISALLOW_COPY_AND_ASSIGN(PrefServiceSyncable);
 };

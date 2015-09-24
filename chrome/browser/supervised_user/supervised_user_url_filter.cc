@@ -10,7 +10,6 @@
 #include "base/containers/hash_tables.h"
 #include "base/files/file_path.h"
 #include "base/json/json_file_value_serializer.h"
-#include "base/metrics/histogram.h"
 #include "base/sha1.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -18,6 +17,7 @@
 #include "base/threading/sequenced_worker_pool.h"
 #include "chrome/browser/supervised_user/experimental/supervised_user_async_url_checker.h"
 #include "chrome/browser/supervised_user/experimental/supervised_user_blacklist.h"
+#include "chrome/grit/generated_resources.h"
 #include "components/policy/core/browser/url_blacklist_manager.h"
 #include "components/url_fixer/url_fixer.h"
 #include "components/url_matcher/url_matcher.h"
@@ -53,7 +53,6 @@ const char* kFilteredSchemes[] = {
   "wss"
 };
 
-
 // This class encapsulates all the state that is required during construction of
 // a new SupervisedUserURLFilter::Contents.
 class FilterBuilder {
@@ -68,7 +67,7 @@ class FilterBuilder {
   void AddHostnameHash(const std::string& hash, int site_id);
 
   // Adds all the sites in |site_list|, with URL patterns and hostname hashes.
-  void AddSiteList(SupervisedUserSiteList* site_list);
+  void AddSiteList(const scoped_refptr<SupervisedUserSiteList>& site_list);
 
   // Finalizes construction of the SupervisedUserURLFilter::Contents and returns
   // them. This method should be called before this object is destroyed.
@@ -89,7 +88,6 @@ FilterBuilder::~FilterBuilder() {
 }
 
 bool FilterBuilder::AddPattern(const std::string& pattern, int site_id) {
-  DCHECK(BrowserThread::GetBlockingPool()->RunsTasksOnCurrentThread());
   std::string scheme;
   std::string host;
   uint16 port;
@@ -115,15 +113,14 @@ bool FilterBuilder::AddPattern(const std::string& pattern, int site_id) {
 }
 
 void FilterBuilder::AddHostnameHash(const std::string& hash, int site_id) {
-  contents_->hash_site_map.insert(std::make_pair(StringToUpperASCII(hash),
+  contents_->hash_site_map.insert(std::make_pair(base::StringToUpperASCII(hash),
                                                  site_id));
 }
 
-void FilterBuilder::AddSiteList(SupervisedUserSiteList* site_list) {
-  std::vector<SupervisedUserSiteList::Site> sites;
-  site_list->GetSites(&sites);
+void FilterBuilder::AddSiteList(
+    const scoped_refptr<SupervisedUserSiteList>& site_list) {
   int site_id = contents_->sites.size();
-  for (const SupervisedUserSiteList::Site& site : sites) {
+  for (const SupervisedUserSiteList::Site& site : site_list->sites()) {
     contents_->sites.push_back(site);
 
     for (const std::string& pattern : site.patterns)
@@ -137,15 +134,12 @@ void FilterBuilder::AddSiteList(SupervisedUserSiteList* site_list) {
 }
 
 scoped_ptr<SupervisedUserURLFilter::Contents> FilterBuilder::Build() {
-  DCHECK(BrowserThread::GetBlockingPool()->RunsTasksOnCurrentThread());
   contents_->url_matcher.AddConditionSets(all_conditions_);
   return contents_.Pass();
 }
 
 scoped_ptr<SupervisedUserURLFilter::Contents> CreateWhitelistFromPatterns(
     const std::vector<std::string>& patterns) {
-  DCHECK(BrowserThread::GetBlockingPool()->RunsTasksOnCurrentThread());
-
   FilterBuilder builder;
   for (const std::string& pattern : patterns) {
     // TODO(bauerb): We should create a fake site for the whitelist.
@@ -157,11 +151,9 @@ scoped_ptr<SupervisedUserURLFilter::Contents> CreateWhitelistFromPatterns(
 
 scoped_ptr<SupervisedUserURLFilter::Contents>
 LoadWhitelistsOnBlockingPoolThread(
-    ScopedVector<SupervisedUserSiteList> site_lists) {
-  DCHECK(BrowserThread::GetBlockingPool()->RunsTasksOnCurrentThread());
-
+    const std::vector<scoped_refptr<SupervisedUserSiteList> >& site_lists) {
   FilterBuilder builder;
-  for (SupervisedUserSiteList* site_list : site_lists)
+  for (const scoped_refptr<SupervisedUserSiteList>& site_list : site_lists)
     builder.AddSiteList(site_list);
 
   return builder.Build();
@@ -172,7 +164,11 @@ LoadWhitelistsOnBlockingPoolThread(
 SupervisedUserURLFilter::SupervisedUserURLFilter()
     : default_behavior_(ALLOW),
       contents_(new Contents()),
-      blacklist_(NULL) {
+      blacklist_(nullptr),
+      blocking_task_runner_(
+          BrowserThread::GetBlockingPool()
+              ->GetTaskRunnerWithShutdownBehavior(
+                  base::SequencedWorkerPool::CONTINUE_ON_SHUTDOWN).get()) {
   // Detach from the current thread so we can be constructed on a different
   // thread than the one where we're used.
   DetachFromThread();
@@ -188,6 +184,28 @@ SupervisedUserURLFilter::BehaviorFromInt(int behavior_value) {
   DCHECK_GE(behavior_value, ALLOW);
   DCHECK_LE(behavior_value, BLOCK);
   return static_cast<FilteringBehavior>(behavior_value);
+}
+
+// static
+int SupervisedUserURLFilter::GetBlockMessageID(FilteringBehaviorReason reason) {
+  switch (reason) {
+    case DEFAULT:
+      return IDS_SUPERVISED_USER_BLOCK_MESSAGE_DEFAULT;
+    case ASYNC_CHECKER:
+      return IDS_SUPERVISED_USER_BLOCK_MESSAGE_ASYNC_CHECKER;
+    case BLACKLIST:
+      return IDS_SUPERVISED_USER_BLOCK_MESSAGE_BLACKLIST;
+    case MANUAL:
+      return IDS_SUPERVISED_USER_BLOCK_MESSAGE_MANUAL;
+  }
+  NOTREACHED();
+  return 0;
+}
+
+// static
+bool SupervisedUserURLFilter::ReasonIsAutomatic(
+    FilteringBehaviorReason reason) {
+  return reason == ASYNC_CHECKER || reason == BLACKLIST;
 }
 
 // static
@@ -221,7 +239,7 @@ bool SupervisedUserURLFilter::HostMatchesPattern(const std::string& host,
                                                  const std::string& pattern) {
   std::string trimmed_pattern = pattern;
   std::string trimmed_host = host;
-  if (EndsWith(pattern, ".*", true)) {
+  if (base::EndsWith(pattern, ".*", true)) {
     size_t registry_length = GetRegistryLength(
         trimmed_host, EXCLUDE_UNKNOWN_REGISTRIES, EXCLUDE_PRIVATE_REGISTRIES);
     // A host without a known registry part does not match.
@@ -232,7 +250,7 @@ bool SupervisedUserURLFilter::HostMatchesPattern(const std::string& host,
     trimmed_host.erase(trimmed_host.length() - (registry_length + 1));
   }
 
-  if (StartsWithASCII(trimmed_pattern, "*.", true)) {
+  if (base::StartsWith(trimmed_pattern, "*.", base::CompareCase::SENSITIVE)) {
     trimmed_pattern.erase(0, 2);
 
     // The remaining pattern should be non-empty, and it should not contain
@@ -240,7 +258,7 @@ bool SupervisedUserURLFilter::HostMatchesPattern(const std::string& host,
     // pattern.
     if (trimmed_pattern.empty() ||
         trimmed_pattern.find('*') != std::string::npos ||
-        !EndsWith(trimmed_host, trimmed_pattern, true)) {
+        !base::EndsWith(trimmed_host, trimmed_pattern, true)) {
       return false;
     }
 
@@ -256,25 +274,25 @@ bool SupervisedUserURLFilter::HostMatchesPattern(const std::string& host,
 
 SupervisedUserURLFilter::FilteringBehavior
 SupervisedUserURLFilter::GetFilteringBehaviorForURL(const GURL& url) const {
-  FilteringBehaviorSource source;
-  return GetFilteringBehaviorForURL(url, false, &source);
+  FilteringBehaviorReason reason;
+  return GetFilteringBehaviorForURL(url, false, &reason);
 }
 
 bool SupervisedUserURLFilter::GetManualFilteringBehaviorForURL(
     const GURL& url, FilteringBehavior* behavior) const {
-  FilteringBehaviorSource source;
-  *behavior = GetFilteringBehaviorForURL(url, true, &source);
-  return source == MANUAL;
+  FilteringBehaviorReason reason;
+  *behavior = GetFilteringBehaviorForURL(url, true, &reason);
+  return reason == MANUAL;
 }
 
 SupervisedUserURLFilter::FilteringBehavior
 SupervisedUserURLFilter::GetFilteringBehaviorForURL(
     const GURL& url,
     bool manual_only,
-    FilteringBehaviorSource* source) const {
+    FilteringBehaviorReason* reason) const {
   DCHECK(CalledOnValidThread());
 
-  *source = MANUAL;
+  *reason = MANUAL;
 
   // URLs with a non-standard scheme (e.g. chrome://) are always allowed.
   if (!HasFilteredScheme(url))
@@ -293,7 +311,7 @@ SupervisedUserURLFilter::GetFilteringBehaviorForURL(
 
   // Look for patterns matching the hostname, with a value that is different
   // from the default (a value of true in the map meaning allowed).
-  for (const std::pair<std::string, bool>& host_entry : host_map_) {
+  for (const auto& host_entry : host_map_) {
     if ((host_entry.second == (default_behavior_ == BLOCK)) &&
         HostMatchesPattern(host, host_entry.first)) {
       return host_entry.second ? ALLOW : BLOCK;
@@ -310,25 +328,27 @@ SupervisedUserURLFilter::GetFilteringBehaviorForURL(
   if (contents_->hash_site_map.count(GetHostnameHash(url)))
     return ALLOW;
 
-  // Check the static blacklist.
-  if (!manual_only && blacklist_ && blacklist_->HasURL(url)) {
-    *source = BLACKLIST;
+  // Check the static blacklist, unless the default is to block anyway.
+  if (!manual_only && default_behavior_ != BLOCK &&
+      blacklist_ && blacklist_->HasURL(url)) {
+    *reason = BLACKLIST;
     return BLOCK;
   }
 
   // Fall back to the default behavior.
-  *source = DEFAULT;
+  *reason = DEFAULT;
   return default_behavior_;
 }
 
 bool SupervisedUserURLFilter::GetFilteringBehaviorForURLWithAsyncChecks(
     const GURL& url,
     const FilteringBehaviorCallback& callback) const {
-  FilteringBehaviorSource source = DEFAULT;
-  FilteringBehavior behavior =
-      GetFilteringBehaviorForURL(url, false, &source);
-  if (source != DEFAULT || !async_url_checker_) {
-    callback.Run(behavior, source, false);
+  FilteringBehaviorReason reason = DEFAULT;
+  FilteringBehavior behavior = GetFilteringBehaviorForURL(url, false, &reason);
+  // Any non-default reason trumps the async checker.
+  // Also, if we're blocking anyway, then there's no need to check it.
+  if (reason != DEFAULT || behavior == BLOCK || !async_url_checker_) {
+    callback.Run(behavior, reason, false);
     return true;
   }
 
@@ -354,14 +374,9 @@ void SupervisedUserURLFilter::GetSites(
     sites->push_back(&contents_->sites[entry->second]);
   }
 
-  typedef base::hash_multimap<std::string, int>::const_iterator
-      hash_site_map_iterator;
-  std::pair<hash_site_map_iterator, hash_site_map_iterator> bounds =
-      contents_->hash_site_map.equal_range(GetHostnameHash(url));
-  for (hash_site_map_iterator hash_it = bounds.first;
-       hash_it != bounds.second; hash_it++) {
+  auto bounds = contents_->hash_site_map.equal_range(GetHostnameHash(url));
+  for (auto hash_it = bounds.first; hash_it != bounds.second; hash_it++)
     sites->push_back(&contents_->sites[hash_it->second]);
-  }
 }
 
 void SupervisedUserURLFilter::SetDefaultFilteringBehavior(
@@ -371,14 +386,13 @@ void SupervisedUserURLFilter::SetDefaultFilteringBehavior(
 }
 
 void SupervisedUserURLFilter::LoadWhitelists(
-    ScopedVector<SupervisedUserSiteList> site_lists) {
+    const std::vector<scoped_refptr<SupervisedUserSiteList> >& site_lists) {
   DCHECK(CalledOnValidThread());
 
   base::PostTaskAndReplyWithResult(
-      BrowserThread::GetBlockingPool(),
+      blocking_task_runner_.get(),
       FROM_HERE,
-      base::Bind(&LoadWhitelistsOnBlockingPoolThread,
-                 base::Passed(&site_lists)),
+      base::Bind(&LoadWhitelistsOnBlockingPoolThread, site_lists),
       base::Bind(&SupervisedUserURLFilter::SetContents, this));
 }
 
@@ -395,7 +409,7 @@ void SupervisedUserURLFilter::SetFromPatterns(
   DCHECK(CalledOnValidThread());
 
   base::PostTaskAndReplyWithResult(
-      BrowserThread::GetBlockingPool(),
+      blocking_task_runner_.get(),
       FROM_HERE,
       base::Bind(&CreateWhitelistFromPatterns, patterns),
       base::Bind(&SupervisedUserURLFilter::SetContents, this));
@@ -405,28 +419,30 @@ void SupervisedUserURLFilter::SetManualHosts(
     const std::map<std::string, bool>* host_map) {
   DCHECK(CalledOnValidThread());
   host_map_ = *host_map;
-  UMA_HISTOGRAM_CUSTOM_COUNTS("ManagedMode.ManualHostsEntries",
-                              host_map->size(), 1, 1000, 50);
 }
 
 void SupervisedUserURLFilter::SetManualURLs(
     const std::map<GURL, bool>* url_map) {
   DCHECK(CalledOnValidThread());
   url_map_ = *url_map;
-  UMA_HISTOGRAM_CUSTOM_COUNTS("ManagedMode.ManualURLsEntries",
-                              url_map->size(), 1, 1000, 50);
 }
 
 void SupervisedUserURLFilter::InitAsyncURLChecker(
-    net::URLRequestContextGetter* context,
-    const std::string& cx,
-    const std::string& api_key) {
-  async_url_checker_.reset(new SupervisedUserAsyncURLChecker(
-      context, cx, api_key));
+    net::URLRequestContextGetter* context) {
+  async_url_checker_.reset(new SupervisedUserAsyncURLChecker(context));
 }
 
 bool SupervisedUserURLFilter::HasAsyncURLChecker() const {
   return !!async_url_checker_;
+}
+
+void SupervisedUserURLFilter::Clear() {
+  default_behavior_ = ALLOW;
+  SetContents(make_scoped_ptr(new Contents()));
+  url_map_.clear();
+  host_map_.clear();
+  blacklist_ = nullptr;
+  async_url_checker_.reset();
 }
 
 void SupervisedUserURLFilter::AddObserver(Observer* observer) {
@@ -435,6 +451,11 @@ void SupervisedUserURLFilter::AddObserver(Observer* observer) {
 
 void SupervisedUserURLFilter::RemoveObserver(Observer* observer) {
   observers_.RemoveObserver(observer);
+}
+
+void SupervisedUserURLFilter::SetBlockingTaskRunnerForTesting(
+    const scoped_refptr<base::TaskRunner>& task_runner) {
+  blocking_task_runner_ = task_runner;
 }
 
 void SupervisedUserURLFilter::SetContents(scoped_ptr<Contents> contents) {
@@ -448,12 +469,7 @@ void SupervisedUserURLFilter::CheckCallback(
     const GURL& url,
     FilteringBehavior behavior,
     bool uncertain) const {
-  // If we passed the async checker, but the default is to block, fall back to
-  // the default behavior.
-  if (behavior != BLOCK && default_behavior_ == BLOCK) {
-    callback.Run(default_behavior_, DEFAULT, uncertain);
-    return;
-  }
+  DCHECK(default_behavior_ != BLOCK);
 
   callback.Run(behavior, ASYNC_CHECKER, uncertain);
 }

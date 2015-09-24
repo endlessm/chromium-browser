@@ -41,13 +41,13 @@
 #include "chrome/browser/chromeos/policy/stub_enterprise_install_attributes.h"
 #include "chrome/browser/chromeos/proxy_cros_settings_parser.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
-#include "chrome/browser/prefs/proxy_config_dictionary.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/shill_profile_client.h"
 #include "chromeos/dbus/shill_service_client.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
 #include "chromeos/settings/cros_settings_names.h"
+#include "components/proxy_config/proxy_config_dictionary.h"
 #include "content/public/test/test_utils.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 #endif
@@ -68,7 +68,7 @@ bool operator==(const base::Value& first, const base::Value& second) {
 // Helper for pretty-printing the contents of base::Value in case of failures.
 void PrintTo(const base::Value& value, std::ostream* stream) {
   std::string json;
-  JSONWriter::Write(&value, &json);
+  JSONWriter::Write(value, &json);
   *stream << json;
 }
 
@@ -192,7 +192,7 @@ void PreferencesBrowserTest::SetUpInProcessBrowserTestFixture() {
       .WillRepeatedly(Return(true));
   policy::BrowserPolicyConnector::SetPolicyProviderForTesting(
       &policy_provider_);
-};
+}
 
 void PreferencesBrowserTest::SetUserPolicies(
     const std::vector<std::string>& names,
@@ -261,7 +261,7 @@ void PreferencesBrowserTest::VerifyObservedPref(const std::string& json,
                                                 const std::string& controlledBy,
                                                 bool disabled,
                                                 bool uncommitted) {
-  scoped_ptr<base::Value> observed_value_ptr(base::JSONReader::Read(json));
+  scoped_ptr<base::Value> observed_value_ptr = base::JSONReader::Read(json);
   const base::DictionaryValue* observed_dict;
   ASSERT_TRUE(observed_value_ptr.get());
   ASSERT_TRUE(observed_value_ptr->GetAsDictionary(&observed_dict));
@@ -275,7 +275,7 @@ void PreferencesBrowserTest::VerifyObservedPrefs(
     const std::string& controlledBy,
     bool disabled,
     bool uncommitted) {
-  scoped_ptr<base::Value> observed_value_ptr(base::JSONReader::Read(json));
+  scoped_ptr<base::Value> observed_value_ptr = base::JSONReader::Read(json);
   const base::DictionaryValue* observed_dict;
   ASSERT_TRUE(observed_value_ptr.get());
   ASSERT_TRUE(observed_value_ptr->GetAsDictionary(&observed_dict));
@@ -376,9 +376,8 @@ void PreferencesBrowserTest::VerifyClearPref(const std::string& name,
     ExpectClearCommit(name);
   else
     ExpectNoCommit(name);
-  scoped_ptr<base::Value> commit_ptr(new base::FundamentalValue(commit));
   std::string commit_json;
-  base::JSONWriter::Write(commit_ptr.get(), &commit_json);
+  base::JSONWriter::Write(base::FundamentalValue(commit), &commit_json);
   std::stringstream javascript;
   javascript << "testEnv.runAndReply(function() {"
              << "    Preferences.clearPref("
@@ -715,7 +714,7 @@ IN_PROC_BROWSER_TEST_F(PreferencesBrowserTest,
 class ManagedPreferencesBrowserTest : public PreferencesBrowserTest {
  protected:
   // PreferencesBrowserTest implementation:
-  virtual void SetUpInProcessBrowserTestFixture() override {
+  void SetUpInProcessBrowserTestFixture() override {
     // Set up fake install attributes.
     scoped_ptr<policy::StubEnterpriseInstallAttributes> attributes(
         new policy::StubEnterpriseInstallAttributes());
@@ -813,7 +812,7 @@ const char* kUserProfilePath = "user_profile";
 
 class ProxyPreferencesBrowserTest : public PreferencesBrowserTest {
  public:
-  virtual void SetUpOnMainThread() override {
+  void SetUpOnMainThread() override {
     SetupNetworkEnvironment();
     content::RunAllPendingInMessageLoop();
 
@@ -829,7 +828,7 @@ class ProxyPreferencesBrowserTest : public PreferencesBrowserTest {
 
     std::string url = base::StringPrintf("%s?network=%s",
                                          chrome::kChromeUIProxySettingsURL,
-                                         network->path().c_str());
+                                         network->guid().c_str());
 
     ui_test_utils::NavigateToURL(browser(), GURL(url));
     SetUpPrefs();

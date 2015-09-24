@@ -8,6 +8,7 @@
   ],
   'variables': {
     'sources_for_standard_interfaces': [
+      '_exit.c',
       'abort.c',
       'access.c',
       'chdir.c',
@@ -17,7 +18,6 @@
       'clock_gettime.c',
       'close.c',
       'dup.c',
-      '_exit.c',
       'eaccess.c',
       'fchdir.c',
       'fchmod.c',
@@ -26,6 +26,7 @@
       'fsync.c',
       'ftruncate.c',
       'getcwd.c',
+      'getcwd_without_malloc.c',
       'getdents.c',
       'gethostname.c',
       'getpagesize.c',
@@ -43,22 +44,23 @@
       'mmap.c',
       'mprotect.c',
       'munmap.c',
-      'nanosleep.c',
+      'nacl_add_tp.c',
       'nacl_ext_supply.c',
       'nacl_interface_query.c',
       'nacl_irt_fdio.c',
       'nacl_irt_filename.c',
       'nacl_read_tp.c',
-      'nacl_add_tp.c',
+      'nanosleep.c',
       'ntohl.c',
       'ntohs.c',
       'open.c',
+      'pthread_initialize_minimal.c',
+      'pthread_stubs.c',
+      'random.c',
       'read.c',
       'readlink.c',
       'rename.c',
       'rmdir.c',
-      'pthread_initialize_minimal.c',
-      'pthread_stubs.c',
       'sbrk.c',
       'sched_yield.c',
       'sigblock.c',
@@ -66,6 +68,7 @@
       'sigmask.c',
       'sigprocmask.c',
       'sigsetmask.c',
+      'srandom.c',
       'stacktrace.c',
       'start.c',
       'stat.c',
@@ -73,7 +76,9 @@
       'sysconf.c',
       'tls.c',
       'truncate.c',
+      'uname.c',
       'unlink.c',
+      'utime.c',
       'utimes.c',
       'write.c',
     ],
@@ -122,6 +127,7 @@
       'stubs/getpwuid_r.c',
       'stubs/getrlimit.c',
       'stubs/getrusage.c',
+      'stubs/getservbyname.c',
       'stubs/getservbyport.c',
       'stubs/getsockname.c',
       'stubs/getsockopt.c',
@@ -196,7 +202,6 @@
       'stubs/ttyname.c',
       'stubs/ttyname_r.c',
       'stubs/umask.c',
-      'stubs/utime.c',
       'stubs/vfork.c',
       'stubs/wait.c',
       'stubs/waitpid.c',
@@ -205,9 +210,9 @@
       'gc_hooks.c',
       'nacl_irt.c',
       'nacl_irt_init.c',
+      'nacl_random.c',
       'nacl_tls_get.c',
       'nacl_tls_init.c',
-      'random.c',
     ],
     'imc_syscalls': [
       'imc_accept.c',
@@ -217,7 +222,6 @@
       'imc_recvmsg.c',
       'imc_sendmsg.c',
       'imc_socketpair.c',
-      'nameservice.c',
     ],
   },
 
@@ -227,17 +231,9 @@
       'type': 'none',
       'dependencies': [
         'nacl_lib_newlib',
-      ],
-      'conditions': [
-        # NOTE: We do not support glibc on arm and mips yet.
-        ['target_arch!="arm" and target_arch!="mipsel"', {
-           'dependencies': [
-             'nacl_lib_glibc'
-           ]
-         }],
+        'nacl_lib_glibc'
       ],
     },
-
     {
       'target_name': 'nacl_lib_glibc',
       'type': 'none',
@@ -247,9 +243,6 @@
         'build_newlib': 0,
       },
       'sources': ['<@(sources_for_nacl_extensions)'],
-      'dependencies': [
-        '<(DEPTH)/native_client/tools.gyp:prep_toolchain',
-      ],
     },
     {
       'target_name': 'nacl_lib_newlib',
@@ -276,9 +269,6 @@
           }
         }],
       ],
-      'dependencies': [
-        '<(DEPTH)/native_client/tools.gyp:prep_toolchain',
-      ],
     },
     {
       'target_name': 'nacl_dynacode_lib',
@@ -291,9 +281,6 @@
         'build_pnacl_newlib': 1,
       },
       'sources': ['dyncode.c'],
-      'dependencies': [
-        '<(DEPTH)/native_client/tools.gyp:prep_toolchain',
-      ],
     },
     {
       'target_name': 'nacl_dyncode_private_lib',
@@ -305,9 +292,6 @@
         'build_pnacl_newlib': 1,
       },
       'sources': ['dyncode_private.c'],
-      'dependencies': [
-        '<(DEPTH)/native_client/tools.gyp:prep_toolchain',
-      ],
     },
     {
       'target_name': 'nacl_exception_lib',
@@ -320,9 +304,6 @@
         'build_pnacl_newlib': 1,
       },
       'sources': ['nacl_exception.c'],
-      'dependencies': [
-        '<(DEPTH)/native_client/tools.gyp:prep_toolchain',
-      ],
     },
     {
       'target_name': 'nacl_exception_private_lib',
@@ -334,9 +315,6 @@
         'build_pnacl_newlib': 1,
       },
       'sources': ['nacl_exception_private.c'],
-      'dependencies': [
-        '<(DEPTH)/native_client/tools.gyp:prep_toolchain',
-      ],
     },
     {
       'target_name': 'nacl_list_mappings_lib',
@@ -349,9 +327,6 @@
         'build_pnacl_newlib': 1,
       },
       'sources': ['list_mappings.c'],
-      'dependencies': [
-        '<(DEPTH)/native_client/tools.gyp:prep_toolchain',
-      ],
     },
     {
       'target_name': 'nacl_list_mappings_private_lib',
@@ -362,9 +337,6 @@
         'build_newlib': 1,
       },
       'sources': ['list_mappings_private.c'],
-      'dependencies': [
-        '<(DEPTH)/native_client/tools.gyp:prep_toolchain',
-      ],
     },
     {
       'target_name': 'imc_syscalls_lib',
@@ -378,9 +350,6 @@
         'build_irt': 1,
       },
       'sources': ['<@(imc_syscalls)'],
-      'dependencies': [
-        '<(DEPTH)/native_client/tools.gyp:prep_toolchain',
-      ],
     },
   ],
 }

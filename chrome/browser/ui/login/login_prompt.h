@@ -18,6 +18,7 @@ class GURL;
 namespace content {
 class RenderViewHostDelegate;
 class NotificationRegistrar;
+class WebContents;
 }  // namespace content
 
 namespace net {
@@ -25,6 +26,10 @@ class AuthChallengeInfo;
 class HttpNetworkSession;
 class URLRequest;
 }  // namespace net
+
+namespace password_manager {
+class ContentPasswordManagerDriver;
+}  // namespace password_manager
 
 // This is the base implementation for the OS-specific classes that route
 // authentication info to the net::URLRequest that needs it. These functions
@@ -55,6 +60,10 @@ class LoginHandler : public content::ResourceDispatcherHostLoginDelegate,
 
   // Returns the WebContents that needs authentication.
   content::WebContents* GetWebContentsForLogin() const;
+
+  // Returns the PasswordManager for the render frame that needs login.
+  password_manager::ContentPasswordManagerDriver*
+  GetPasswordManagerDriverForLogin();
 
   // Resend the request with authentication credentials.
   // This function can be called from either thread.

@@ -28,6 +28,8 @@ class MockUserManager : public ChromeUserManager {
   MOCK_METHOD0(Shutdown, void(void));
   MOCK_CONST_METHOD0(GetUsersAllowedForMultiProfile,
                      user_manager::UserList(void));
+  MOCK_CONST_METHOD0(GetUsersAllowedForSupervisedUsersCreation,
+                     user_manager::UserList(void));
   MOCK_CONST_METHOD0(GetLoggedInUsers, const user_manager::UserList&(void));
   MOCK_CONST_METHOD0(GetLRULoggedInUsers, const user_manager::UserList&(void));
   MOCK_METHOD3(UserLoggedIn, void(
@@ -56,8 +58,7 @@ class MockUserManager : public ChromeUserManager {
   MOCK_CONST_METHOD0(IsCurrentUserNonCryptohomeDataEphemeral, bool(void));
   MOCK_CONST_METHOD0(CanCurrentUserLock, bool(void));
   MOCK_CONST_METHOD0(IsUserLoggedIn, bool(void));
-  MOCK_CONST_METHOD0(IsLoggedInAsRegularUser, bool(void));
-  MOCK_CONST_METHOD0(IsLoggedInAsDemoUser, bool(void));
+  MOCK_CONST_METHOD0(IsLoggedInAsUserWithGaiaAccount, bool(void));
   MOCK_CONST_METHOD0(IsLoggedInAsPublicAccount, bool(void));
   MOCK_CONST_METHOD0(IsLoggedInAsGuest, bool(void));
   MOCK_CONST_METHOD0(IsLoggedInAsSupervisedUser, bool(void));
@@ -93,29 +94,28 @@ class MockUserManager : public ChromeUserManager {
   MOCK_METHOD0(DemoAccountLoggedIn, void(void));
   MOCK_METHOD1(KioskAppLoggedIn, void(const std::string&));
   MOCK_METHOD1(PublicAccountUserLoggedIn, void(user_manager::User*));
-  MOCK_METHOD0(RetailModeUserLoggedIn, void(void));
   MOCK_METHOD1(SupervisedUserLoggedIn, void(const std::string&));
 
   // You can't mock these functions easily because nobody can create
   // User objects but the ChromeUserManager and us.
-  virtual const user_manager::UserList& GetUsers() const override;
-  virtual const user_manager::User* GetLoggedInUser() const override;
-  virtual user_manager::UserList GetUnlockUsers() const override;
-  virtual const std::string& GetOwnerEmail() const override;
-  virtual user_manager::User* GetLoggedInUser() override;
-  virtual const user_manager::User* GetActiveUser() const override;
-  virtual user_manager::User* GetActiveUser() override;
-  virtual const user_manager::User* GetPrimaryUser() const override;
+  const user_manager::UserList& GetUsers() const override;
+  const user_manager::User* GetLoggedInUser() const override;
+  user_manager::UserList GetUnlockUsers() const override;
+  const std::string& GetOwnerEmail() const override;
+  user_manager::User* GetLoggedInUser() override;
+  const user_manager::User* GetActiveUser() const override;
+  user_manager::User* GetActiveUser() override;
+  const user_manager::User* GetPrimaryUser() const override;
 
   // ChromeUserManager overrides:
-  virtual MultiProfileUserController* GetMultiProfileUserController() override;
-  virtual UserImageManager* GetUserImageManager(
-      const std::string& user_id) override;
-  virtual SupervisedUserManager* GetSupervisedUserManager() override;
+  BootstrapManager* GetBootstrapManager() override;
+  MultiProfileUserController* GetMultiProfileUserController() override;
+  UserImageManager* GetUserImageManager(const std::string& user_id) override;
+  SupervisedUserManager* GetSupervisedUserManager() override;
   MOCK_METHOD2(SetUserFlow, void(const std::string&, UserFlow*));
   MOCK_METHOD1(ResetUserFlow, void(const std::string&));
-  virtual UserFlow* GetCurrentUserFlow() const override;
-  virtual UserFlow* GetUserFlow(const std::string&) const override;
+  UserFlow* GetCurrentUserFlow() const override;
+  UserFlow* GetUserFlow(const std::string&) const override;
 
   // Sets a new User instance. Users previously created by this MockUserManager
   // become invalid.
@@ -124,6 +124,10 @@ class MockUserManager : public ChromeUserManager {
   // Creates a new public session user. Users previously created by this
   // MockUserManager become invalid.
   user_manager::User* CreatePublicAccountUser(const std::string& email);
+
+  // Creates a new kiosk app user. Users previously created by this
+  // MockUserManager become invalid.
+  user_manager::User* CreateKioskAppUser(const std::string& user_id);
 
   // Adds a new User instance to the back of the user list. Users previously
   // created by this MockUserManager remain valid.

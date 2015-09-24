@@ -7,28 +7,25 @@
 
 #include <string>
 
-#include "chrome/browser/chromeos/version_loader.h"
+#include "base/memory/weak_ptr.h"
 #include "chrome/browser/ui/webui/version_handler.h"
+#include "chromeos/system/version_loader.h"
 
 // VersionHandlerChromeOS is responsible for loading the Chrome OS
 // version.
 class VersionHandlerChromeOS : public VersionHandler {
  public:
   VersionHandlerChromeOS();
-  virtual ~VersionHandlerChromeOS();
+  ~VersionHandlerChromeOS() override;
 
   // VersionHandler overrides:
-  virtual void HandleRequestVersionInfo(const base::ListValue* args) override;
+  void HandleRequestVersionInfo(const base::ListValue* args) override;
 
   // Callback from chromeos::VersionLoader giving the version.
   void OnVersion(const std::string& version);
 
  private:
-  // Handles asynchronously loading the version.
-  chromeos::VersionLoader loader_;
-
-  // Used to request the version.
-  base::CancelableTaskTracker tracker_;
+  base::WeakPtrFactory<VersionHandlerChromeOS> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(VersionHandlerChromeOS);
 };

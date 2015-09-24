@@ -56,12 +56,12 @@ class RdpClient::Core
   void InjectSas();
 
   // RdpClientWindow::EventHandler interface.
-  virtual void OnConnected() override;
-  virtual void OnDisconnected() override;
+  void OnConnected() override;
+  void OnDisconnected() override;
 
  private:
   friend class base::RefCountedThreadSafe<Core>;
-  virtual ~Core();
+  ~Core() override;
 
   // Helpers for the event handler's methods that make sure that OnRdpClosed()
   // is the last notification delivered and is delevered only once.
@@ -130,20 +130,22 @@ void RdpClient::Core::Connect(const webrtc::DesktopSize& screen_size,
 
   DCHECK(base::MessageLoopForUI::IsCurrent());
   DCHECK(!rdp_client_window_);
-  DCHECK(!self_);
+  DCHECK(!self_.get());
 
   // Read the port number used by RDP.
   DWORD server_port;
   base::win::RegKey key(HKEY_LOCAL_MACHINE, kRdpPortKeyName, KEY_READ);
   if (!key.Valid() ||
-      (key.ReadValueDW(kRdpPortValueName, &server_port) != ERROR_SUCCESS)) {
+      (key.ReadValueDW(kRdpPortValueName, &server_port) != ERROR_SUCCESS) ||
+      server_port > 65535) {
     server_port = kDefaultRdpPort;
   }
 
   net::IPAddressNumber server_address(
       kRdpLoopbackAddress,
       kRdpLoopbackAddress + arraysize(kRdpLoopbackAddress));
-  net::IPEndPoint server_endpoint(server_address, server_port);
+  net::IPEndPoint server_endpoint(server_address,
+                                  static_cast<uint16>(server_port));
 
   // Create the ActiveX control window.
   rdp_client_window_.reset(new RdpClientWindow(server_endpoint, terminal_id,
@@ -164,7 +166,7 @@ void RdpClient::Core::Disconnect() {
 
   // The caller does not expect any notifications to be delivered after this
   // point.
-  event_handler_ = NULL;
+  event_handler_ = nullptr;
 
   // Gracefully shutdown the RDP connection.
   if (rdp_client_window_) {
@@ -198,7 +200,7 @@ void RdpClient::Core::OnDisconnected() {
 
   // Delay window destruction until no ActiveX control's code is on the stack.
   ui_task_runner_->DeleteSoon(FROM_HERE, rdp_client_window_.release());
-  self_ = NULL;
+  self_ = nullptr;
 }
 
 RdpClient::Core::~Core() {
@@ -226,7 +228,7 @@ void RdpClient::Core::NotifyClosed() {
 
   if (event_handler_) {
     RdpClient::EventHandler* event_handler = event_handler_;
-    event_handler_ = NULL;
+    event_handler_ = nullptr;
     event_handler->OnRdpClosed();
   }
 }

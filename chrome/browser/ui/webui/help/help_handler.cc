@@ -10,12 +10,14 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
+#include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task_runner_util.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -29,10 +31,10 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "chrome/grit/google_chrome_strings.h"
 #include "components/google/core/browser/google_util.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/common/user_agent.h"
 #include "grit/components_strings.h"
@@ -49,7 +51,10 @@
 #include "base/prefs/pref_service.h"
 #include "base/sys_info.h"
 #include "base/task_runner_util.h"
+#include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos.h"
+#include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos_factory.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
+#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/chromeos/image_source.h"
@@ -58,6 +63,7 @@
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/power_manager_client.h"
+#include "chromeos/system/statistics_provider.h"
 #include "components/user_manager/user_manager.h"
 #endif
 
@@ -68,7 +74,17 @@ namespace {
 
 #if defined(OS_CHROMEOS)
 
-const char kFCCLabelTextPath[] = "fcc/label.txt";
+// Directory containing the regulatory labels for supported regions.
+const char kRegulatoryLabelsDirectory[] = "regulatory_labels";
+
+// File names of the image file and the file containing alt text for the label.
+const char kRegulatoryLabelImageFilename[] = "label.png";
+const char kRegulatoryLabelTextFilename[] = "label.txt";
+
+struct RegulatoryLabel {
+  const std::string label_text;
+  const std::string image_url;
+};
 
 // Returns message that informs user that for update it's better to
 // connect to a network of one of the allowed types.
@@ -89,7 +105,7 @@ bool IsEnterpriseManaged() {
 }
 
 // Returns true if current user can change channel, false otherwise.
-bool CanChangeChannel() {
+bool CanChangeChannel(Profile* profile) {
   bool value = false;
   chromeos::CrosSettings::Get()->GetBoolean(chromeos::kReleaseChannelDelegated,
                                             &value);
@@ -101,31 +117,60 @@ bool CanChangeChannel() {
       return false;
     // Get the currently logged in user and strip the domain part only.
     std::string domain = "";
-    std::string user =
-        user_manager::UserManager::Get()->GetLoggedInUser()->email();
-    size_t at_pos = user.find('@');
-    if (at_pos != std::string::npos && at_pos + 1 < user.length())
-      domain = user.substr(user.find('@') + 1);
+    const user_manager::User* user =
+        profile ? chromeos::ProfileHelper::Get()->GetUserByProfile(profile)
+                : nullptr;
+    std::string email = user ? user->email() : std::string();
+    size_t at_pos = email.find('@');
+    if (at_pos != std::string::npos && at_pos + 1 < email.length())
+      domain = email.substr(email.find('@') + 1);
     policy::BrowserPolicyConnectorChromeOS* connector =
         g_browser_process->platform_part()->browser_policy_connector_chromeos();
     return domain == connector->GetEnterpriseDomain();
-  } else if (user_manager::UserManager::Get()->IsCurrentUserOwner()) {
+  } else {
+    chromeos::OwnerSettingsServiceChromeOS* service =
+        chromeos::OwnerSettingsServiceChromeOSFactory::GetInstance()
+            ->GetForBrowserContext(profile);
     // On non managed machines we have local owner who is the only one to change
     // anything. Ensure that ReleaseChannelDelegated is false.
-    return !value;
+    if (service && service->IsOwner())
+      return !value;
   }
   return false;
 }
 
-// Reads the file containing the FCC label text, if found. Must be called from
-// the blocking pool.
-std::string ReadFCCLabelText() {
-  const base::FilePath asset_dir(FILE_PATH_LITERAL(chrome::kChromeOSAssetPath));
-  const base::FilePath label_file_path =
-      asset_dir.AppendASCII(kFCCLabelTextPath);
+// Finds the directory for the regulatory label, using the VPD region code.
+// Must be called from the blocking pool.
+base::FilePath FindRegulatoryLabelDir() {
+  DCHECK(BrowserThread::GetBlockingPool()->RunsTasksOnCurrentThread());
+
+  std::string region;
+  if (chromeos::system::StatisticsProvider::GetInstance()->GetMachineStatistic(
+          "region", &region)) {
+    base::FilePath region_path =
+        base::FilePath(kRegulatoryLabelsDirectory).AppendASCII(region);
+
+    const base::FilePath asset_dir(
+        FILE_PATH_LITERAL(chrome::kChromeOSAssetPath));
+    if (base::PathExists(asset_dir.Append(region_path)
+                             .AppendASCII(kRegulatoryLabelImageFilename))) {
+      return region_path;
+    }
+  }
+
+  return base::FilePath();
+}
+
+// Reads the file containing the regulatory label text, if found, relative to
+// the asset directory. Must be called from the blocking pool.
+std::string ReadRegulatoryLabelText(const base::FilePath& path) {
+  DCHECK(BrowserThread::GetBlockingPool()->RunsTasksOnCurrentThread());
+  base::FilePath text_path(chrome::kChromeOSAssetPath);
+  text_path = text_path.Append(path);
+  text_path = text_path.AppendASCII(kRegulatoryLabelTextFilename);
 
   std::string contents;
-  if (base::ReadFileToString(label_file_path, &contents))
+  if (base::ReadFileToString(text_path, &contents))
     return contents;
   return std::string();
 }
@@ -135,8 +180,7 @@ std::string ReadFCCLabelText() {
 }  // namespace
 
 HelpHandler::HelpHandler()
-    : version_updater_(VersionUpdater::Create()),
-      weak_factory_(this) {
+    : weak_factory_(this) {
 }
 
 HelpHandler::~HelpHandler() {
@@ -267,8 +311,8 @@ void HelpHandler::GetLocalizedValues(base::DictionaryValue* localized_strings) {
           IDS_ABOUT_PAGE_CHANNEL_CHANGE_PAGE_UNSTABLE_MESSAGE,
           product_name));
 
-  if (CommandLine::ForCurrentProcess()->
-      HasSwitch(chromeos::switches::kDisableNewChannelSwitcherUI)) {
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          chromeos::switches::kDisableNewChannelSwitcherUI)) {
     localized_strings->SetBoolean("disableNewChannelSwitcherUI", true);
   }
 #endif
@@ -284,12 +328,13 @@ void HelpHandler::GetLocalizedValues(base::DictionaryValue* localized_strings) {
 
   localized_strings->SetString("userAgentInfo", GetUserAgent());
 
-  CommandLine::StringType command_line =
-      CommandLine::ForCurrentProcess()->GetCommandLineString();
+  base::CommandLine::StringType command_line =
+      base::CommandLine::ForCurrentProcess()->GetCommandLineString();
   localized_strings->SetString("commandLineInfo", command_line);
 }
 
 void HelpHandler::RegisterMessages() {
+  version_updater_.reset(VersionUpdater::Create(web_ui()->GetWebContents()));
   registrar_.Add(this, chrome::NOTIFICATION_UPGRADE_RECOMMENDED,
                  content::NotificationService::AllSources());
 
@@ -354,18 +399,23 @@ base::string16 HelpHandler::BuildBrowserVersionString() {
 
 void HelpHandler::OnPageLoaded(const base::ListValue* args) {
 #if defined(OS_CHROMEOS)
-  // Version information is loaded from a callback
-  loader_.GetVersion(
-      chromeos::VersionLoader::VERSION_FULL,
-      base::Bind(&HelpHandler::OnOSVersion, base::Unretained(this)),
-      &tracker_);
-  loader_.GetFirmware(
-      base::Bind(&HelpHandler::OnOSFirmware, base::Unretained(this)),
-      &tracker_);
+  base::PostTaskAndReplyWithResult(
+      content::BrowserThread::GetBlockingPool(),
+      FROM_HERE,
+      base::Bind(&chromeos::version_loader::GetVersion,
+                 chromeos::version_loader::VERSION_FULL),
+      base::Bind(&HelpHandler::OnOSVersion,
+                 weak_factory_.GetWeakPtr()));
+  base::PostTaskAndReplyWithResult(
+      content::BrowserThread::GetBlockingPool(),
+      FROM_HERE,
+      base::Bind(&chromeos::version_loader::GetFirmware),
+      base::Bind(&HelpHandler::OnOSFirmware,
+                 weak_factory_.GetWeakPtr()));
 
   web_ui()->CallJavascriptFunction(
       "help.HelpPage.updateEnableReleaseChannel",
-      base::FundamentalValue(CanChangeChannel()));
+      base::FundamentalValue(CanChangeChannel(Profile::FromWebUI(web_ui()))));
 
   base::Time build_time = base::SysInfo::GetLsbReleaseTime();
   base::string16 build_date = base::TimeFormatFriendlyDate(build_time);
@@ -407,8 +457,8 @@ void HelpHandler::OnPageLoaded(const base::ListValue* args) {
   base::PostTaskAndReplyWithResult(
       content::BrowserThread::GetBlockingPool(),
       FROM_HERE,
-      base::Bind(&ReadFCCLabelText),
-      base::Bind(&HelpHandler::OnFCCLabelTextRead,
+      base::Bind(&FindRegulatoryLabelDir),
+      base::Bind(&HelpHandler::OnRegulatoryLabelDirFound,
                  weak_factory_.GetWeakPtr()));
 #endif
 }
@@ -443,7 +493,7 @@ void HelpHandler::OpenHelpPage(const base::ListValue* args) {
 void HelpHandler::SetChannel(const base::ListValue* args) {
   DCHECK(args->GetSize() == 2);
 
-  if (!CanChangeChannel()) {
+  if (!CanChangeChannel(Profile::FromWebUI(web_ui()))) {
     LOG(WARNING) << "Non-owner tried to change release track.";
     return;
   }
@@ -591,10 +641,31 @@ void HelpHandler::OnTargetChannel(const std::string& channel) {
       "help.HelpPage.updateTargetChannel", base::StringValue(channel));
 }
 
-void HelpHandler::OnFCCLabelTextRead(const std::string& text) {
+void HelpHandler::OnRegulatoryLabelDirFound(const base::FilePath& path) {
+  if (path.empty())
+    return;
+
+  base::PostTaskAndReplyWithResult(
+      content::BrowserThread::GetBlockingPool(), FROM_HERE,
+      base::Bind(&ReadRegulatoryLabelText, path),
+      base::Bind(&HelpHandler::OnRegulatoryLabelTextRead,
+                 weak_factory_.GetWeakPtr()));
+
+  // Send the image path to the WebUI.
+  OnRegulatoryLabelImageFound(path.AppendASCII(kRegulatoryLabelImageFilename));
+}
+
+void HelpHandler::OnRegulatoryLabelImageFound(const base::FilePath& path) {
+  std::string url = std::string("chrome://") + chrome::kChromeOSAssetHost +
+      "/" + path.MaybeAsASCII();
+  web_ui()->CallJavascriptFunction("help.HelpPage.setRegulatoryLabelPath",
+                                   base::StringValue(url));
+}
+
+void HelpHandler::OnRegulatoryLabelTextRead(const std::string& text) {
   // Remove unnecessary whitespace.
   web_ui()->CallJavascriptFunction(
-      "help.HelpPage.setProductLabelText",
+      "help.HelpPage.setRegulatoryLabelText",
       base::StringValue(base::CollapseWhitespaceASCII(text, true)));
 }
 

@@ -53,22 +53,23 @@
   "oauth2": {
     "client_id": "{{ REMOTING_IDENTITY_API_CLIENT_ID }}",
     "scopes": [
-      "https://www.googleapis.com/auth/chromoting https://www.googleapis.com/auth/googletalk https://www.googleapis.com/auth/userinfo#email"
+      {% if USE_GCD %}
+      "https://www.googleapis.com/auth/clouddevices",
+      {% endif %}
+      "https://www.googleapis.com/auth/chromoting",
+      "https://www.googleapis.com/auth/googletalk",
+      "https://www.googleapis.com/auth/userinfo#email"
     ]
   },
   "sandbox": {
     "pages": [ "wcs_sandbox.html" ]
   },
 {% endif %}
-  "externally_connectable": {
-    "matches": [
-        "https://*.talkgadget.google.com/*"
-    ]
-  },
   "permissions": [
     "{{ OAUTH2_ACCOUNTS_HOST }}/*",
     "{{ OAUTH2_API_BASE_URL }}/*",
     "{{ DIRECTORY_API_BASE_URL }}/*",
+    "{{ TELEMETRY_API_BASE_URL }}/*",
     "{{ TALK_GADGET_HOST }}/talkgadget/*",
     "https://relay.google.com/*",
     "storage",
@@ -83,11 +84,9 @@
     "contextMenus",
     "overrideEscFullscreen"
 {% endif %}
-{% if webapp_type == 'v2_pnacl' %}
+{% if webapp_type != 'v1' %}
     ,{
       "socket": [
-        "tcp-connect",
-        "tcp-listen",
         "udp-send-to",
         "udp-bind",
         "udp-multicast-membership",
@@ -97,4 +96,11 @@
     }
 {% endif %}
   ]
+{% if webapp_type != 'v1' %}
+  ,"sockets": {
+    "tcp": {
+      "connect": "{{ XMPP_SERVER }}"
+    }
+  }
+{% endif %}
 }

@@ -23,7 +23,7 @@ static const int kTimeoutMultiplier = 6;
 #elif defined(ADDRESS_SANITIZER) && defined(OS_WIN)
 // Asan/Win has not been optimized yet, give it a higher
 // timeout multiplier. See http://crbug.com/412471
-static const int kTimeoutMultiplier = 8;
+static const int kTimeoutMultiplier = 3;
 #elif defined(ADDRESS_SANITIZER) || defined(THREAD_SANITIZER) || \
     defined(SYZYASAN)
 static const int kTimeoutMultiplier = 2;
@@ -41,9 +41,9 @@ const int kAlmostInfiniteTimeoutMs = 100000000;
 // by kTimeoutMultiplier.
 void InitializeTimeout(const char* switch_name, int min_value, int* value) {
   DCHECK(value);
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switch_name)) {
-    std::string string_value(
-        CommandLine::ForCurrentProcess()->GetSwitchValueASCII(switch_name));
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(switch_name)) {
+    std::string string_value(base::CommandLine::ForCurrentProcess()->
+         GetSwitchValueASCII(switch_name));
     int timeout;
     base::StringToInt(string_value, &timeout);
     *value = std::max(*value, timeout);

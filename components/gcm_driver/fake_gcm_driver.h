@@ -23,7 +23,6 @@ class FakeGCMDriver : public GCMDriver {
   void RemoveAppHandler(const std::string& app_id) override;
   void OnSignedIn() override;
   void OnSignedOut() override;
-  void Purge() override;
   void AddConnectionObserver(GCMConnectionObserver* observer) override;
   void RemoveConnectionObserver(GCMConnectionObserver* observer) override;
   void Enable() override;
@@ -41,10 +40,15 @@ class FakeGCMDriver : public GCMDriver {
   void RemoveAccountMapping(const std::string& account_id) override;
   base::Time GetLastTokenFetchTime() override;
   void SetLastTokenFetchTime(const base::Time& time) override;
+  void WakeFromSuspendForHeartbeat(bool wake) override;
+  InstanceIDHandler* GetInstanceIDHandler() override;
+  void AddHeartbeatInterval(const std::string& scope, int interval_ms) override;
+  void RemoveHeartbeatInterval(const std::string& scope) override;
 
  protected:
   // GCMDriver implementation:
-  GCMClient::Result EnsureStarted() override;
+  GCMClient::Result EnsureStarted(
+      GCMClient::StartMode start_mode) override;
   void RegisterImpl(const std::string& app_id,
                     const std::vector<std::string>& sender_ids) override;
   void UnregisterImpl(const std::string& app_id) override;

@@ -5,7 +5,7 @@
 import unittest
 
 from telemetry.core.platform.power_monitor import android_temperature_monitor
-from telemetry.unittest import simple_mock
+from telemetry.testing import simple_mock
 
 _ = simple_mock.DONT_CARE
 
@@ -59,10 +59,8 @@ class AndroidTemperatureMonitorTest(unittest.TestCase):
   def testSysfsReadFailed(self):
     mock_power_monitor = simple_mock.MockObject()
     mock_power_monitor.ExpectCall('CanMonitorPower').WillReturn(False)
-    mock_adb = simple_mock.MockObject()
     mock_device_utils = simple_mock.MockObject()
-    mock_device_utils.ExpectCall('ReadFile', _).WillReturn([])
-    setattr(mock_device_utils, 'old_interface', mock_adb)
+    mock_device_utils.ExpectCall('ReadFile', _).WillReturn('')
 
     monitor = android_temperature_monitor.AndroidTemperatureMonitor(
         mock_power_monitor, mock_device_utils)

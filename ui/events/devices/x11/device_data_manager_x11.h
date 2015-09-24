@@ -63,7 +63,7 @@ class EVENTS_DEVICES_EXPORT DeviceDataManagerX11 : public DeviceDataManager {
     DT_CMT_FLING_X,        // Fling amount on the X (horizontal) direction.
     DT_CMT_FLING_Y,        // Fling amount on the Y (vertical) direction.
     DT_CMT_FLING_STATE,    // The state of fling gesture (whether the user just
-                           // start flinging or that he/she taps down).
+                           // started flinging or they tapped down).
     DT_CMT_METRICS_TYPE,   // Metrics type of the metrics gesture, which are
                            // used to wrap interesting patterns that we would
                            // like to track via the UMA system.
@@ -124,6 +124,9 @@ class EVENTS_DEVICES_EXPORT DeviceDataManagerX11 : public DeviceDataManager {
   // for |xiev| can be found and it is saved in |slot|, returns false if
   // no slot can be found.
   bool GetSlotNumber(const XIDeviceEvent* xiev, int* slot);
+
+  // Check if an XI event contains data of the specified type.
+  bool HasEventData(const XIDeviceEvent* xiev, const DataType type) const;
 
   // Get all event data in one pass. We extract only data types that we know
   // about (defined in enum DataType). The data is not processed (e.g. not
@@ -204,13 +207,13 @@ class EVENTS_DEVICES_EXPORT DeviceDataManagerX11 : public DeviceDataManager {
   // *value = (*value - min_value_of_tp) / (max_value_of_tp - min_value_of_tp)
   // Returns true and sets the normalized value in|value| if normalization is
   // successful. Returns false and |value| is unchanged otherwise.
-  bool NormalizeData(unsigned int deviceid,
+  bool NormalizeData(int deviceid,
                      const DataType type,
                      double* value);
 
   // Extract the range of the data type. Return true if the range is available
   // and written into min & max, false if the range is not available.
-  bool GetDataRange(unsigned int deviceid,
+  bool GetDataRange(int deviceid,
                     const DataType type,
                     double* min,
                     double* max);
@@ -219,25 +222,30 @@ class EVENTS_DEVICES_EXPORT DeviceDataManagerX11 : public DeviceDataManager {
   // This function is only for test purpose. It does not query the X server for
   // the actual device info, but rather inits the relevant valuator structures
   // to have safe default values for testing.
-  void SetDeviceListForTest(const std::vector<unsigned int>& touchscreen,
-                            const std::vector<unsigned int>& cmt_devices);
+  void SetDeviceListForTest(const std::vector<int>& touchscreen,
+                            const std::vector<int>& cmt_devices,
+                            const std::vector<int>& other_devices);
 
   void SetValuatorDataForTest(XIDeviceEvent* xievent,
                               DataType type,
                               double value);
 
-  bool TouchEventNeedsCalibrate(unsigned int touch_device_id) const;
+  bool TouchEventNeedsCalibrate(int touch_device_id) const;
 
   // Sets the keys which are still allowed on a disabled keyboard device.
   void SetDisabledKeyboardAllowedKeys(
       scoped_ptr<std::set<KeyboardCode> > excepted_keys);
 
   // Disables and enables events from devices by device id.
-  void DisableDevice(unsigned int deviceid);
-  void EnableDevice(unsigned int deviceid);
+  void DisableDevice(int deviceid);
+  void EnableDevice(int deviceid);
 
   // Returns true if |native_event| should be blocked.
   bool IsEventBlocked(const base::NativeEvent& native_event);
+
+  const std::vector<int>& master_pointers() const {
+    return master_pointers_;
+  }
 
  protected:
   // DeviceHotplugEventObserver:
@@ -250,9 +258,6 @@ class EVENTS_DEVICES_EXPORT DeviceDataManagerX11 : public DeviceDataManager {
 
   // Initialize the XInput related system information.
   bool InitializeXInputInternal();
-
-  // Check if an XI event contains data of the specified type.
-  bool HasEventData(const XIDeviceEvent* xiev, const DataType type) const;
 
   void InitializeValuatorsForTest(int deviceid,
                                   int start_valuator,
@@ -273,6 +278,9 @@ class EVENTS_DEVICES_EXPORT DeviceDataManagerX11 : public DeviceDataManager {
   // should be processed.
   std::bitset<kMaxDeviceNum> cmt_devices_;
   std::bitset<kMaxDeviceNum> touchpads_;
+
+  // List of the master pointer devices.
+  std::vector<int> master_pointers_;
 
   // A quick lookup table for determining if events from the XI device
   // should be blocked.
@@ -308,7 +316,7 @@ class EVENTS_DEVICES_EXPORT DeviceDataManagerX11 : public DeviceDataManager {
 
   // Map that stores meta-data for blocked keyboards. This is needed to restore
   // devices when they are re-enabled.
-  std::map<unsigned int, ui::KeyboardDevice> blocked_keyboards_;
+  std::map<int, ui::KeyboardDevice> blocked_keyboards_;
 
   // X11 atoms cache.
   X11AtomCache atom_cache_;

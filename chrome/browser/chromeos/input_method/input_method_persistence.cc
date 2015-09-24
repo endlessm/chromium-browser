@@ -79,16 +79,16 @@ static void SetUserLRUInputMethod(
   PrefService* const local_state = g_browser_process->local_state();
 
   SetUserLRUInputMethodPreference(
-      profile->GetProfileName(), input_method, local_state);
+      profile->GetProfileUserName(), input_method, local_state);
 }
 
 void PersistUserInputMethod(const std::string& input_method,
-                            InputMethodManager* const manager) {
+                            InputMethodManager* const manager,
+                            Profile* profile) {
   PrefService* user_prefs = NULL;
   // Persist the method on a per user basis. Note that the keyboard settings are
   // stored per user desktop and a visiting window will use the same input
   // method as the desktop it is on (and not of the owner of the window).
-  Profile* profile = ProfileManager::GetActiveUserProfile();
   if (profile)
     user_prefs = profile->GetPrefs();
   if (!user_prefs)
@@ -119,8 +119,9 @@ InputMethodPersistence::~InputMethodPersistence() {
   input_method_manager_->RemoveObserver(this);
 }
 
-void InputMethodPersistence::InputMethodChanged(
-    InputMethodManager* manager, bool show_message) {
+void InputMethodPersistence::InputMethodChanged(InputMethodManager* manager,
+                                                Profile* profile,
+                                                bool show_message) {
   DCHECK_EQ(input_method_manager_, manager);
   const std::string current_input_method =
       manager->GetActiveIMEState()->GetCurrentInputMethod().id();
@@ -135,7 +136,7 @@ void InputMethodPersistence::InputMethodChanged(
       PersistSystemInputMethod(current_input_method);
       return;
     case InputMethodManager::STATE_BROWSER_SCREEN:
-      PersistUserInputMethod(current_input_method, manager);
+      PersistUserInputMethod(current_input_method, manager, profile);
       return;
     case InputMethodManager::STATE_LOCK_SCREEN:
       // We use a special set of input methods on the screen. Do not update.

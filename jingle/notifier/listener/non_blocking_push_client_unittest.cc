@@ -9,6 +9,7 @@
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
+#include "base/thread_task_runner_handle.h"
 #include "jingle/notifier/base/fake_base_task.h"
 #include "jingle/notifier/listener/fake_push_client.h"
 #include "jingle/notifier/listener/fake_push_client_observer.h"
@@ -24,12 +25,12 @@ class NonBlockingPushClientTest : public testing::Test {
  protected:
   NonBlockingPushClientTest() : fake_push_client_(NULL) {}
 
-  virtual ~NonBlockingPushClientTest() {}
+  ~NonBlockingPushClientTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     push_client_.reset(
         new NonBlockingPushClient(
-            base::MessageLoopProxy::current(),
+            base::ThreadTaskRunnerHandle::Get(),
             base::Bind(&NonBlockingPushClientTest::CreateFakePushClient,
                        base::Unretained(this))));
     push_client_->AddObserver(&fake_observer_);
@@ -37,7 +38,7 @@ class NonBlockingPushClientTest : public testing::Test {
     message_loop_.RunUntilIdle();
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     // Clear out any pending notifications before removing observers.
     message_loop_.RunUntilIdle();
     push_client_->RemoveObserver(&fake_observer_);

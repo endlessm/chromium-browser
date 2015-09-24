@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/autocomplete/history_quick_provider.h"
+#include "components/omnibox/browser/history_quick_provider.h"
 
 #include <algorithm>
 #include <functional>
@@ -16,29 +16,30 @@
 #include "base/prefs/pref_service.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/autocomplete/chrome_autocomplete_provider_client.h"
 #include "chrome/browser/autocomplete/chrome_autocomplete_scheme_classifier.h"
-#include "chrome/browser/autocomplete/history_url_provider.h"
+#include "chrome/browser/autocomplete/in_memory_url_index_factory.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
-#include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/history/history_backend.h"
-#include "chrome/browser/history/history_database.h"
-#include "chrome/browser/history/history_service.h"
 #include "chrome/browser/history/history_service_factory.h"
-#include "chrome/browser/history/in_memory_url_index.h"
-#include "chrome/browser/history/url_index_private_data.h"
 #include "chrome/browser/search_engines/chrome_template_url_service_client.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/bookmarks/test/bookmark_test_helpers.h"
+#include "components/history/core/browser/history_backend.h"
+#include "components/history/core/browser/history_database.h"
+#include "components/history/core/browser/history_service.h"
+#include "components/history/core/browser/history_service_observer.h"
 #include "components/history/core/browser/url_database.h"
 #include "components/metrics/proto/omnibox_event.pb.h"
-#include "components/omnibox/autocomplete_match.h"
-#include "components/omnibox/autocomplete_result.h"
+#include "components/omnibox/browser/autocomplete_match.h"
+#include "components/omnibox/browser/autocomplete_result.h"
+#include "components/omnibox/browser/history_url_provider.h"
+#include "components/omnibox/browser/in_memory_url_index.h"
+#include "components/omnibox/browser/url_index_private_data.h"
 #include "components/search_engines/search_terms_data.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
-#include "content/public/browser/notification_service.h"
 #include "content/public/test/test_browser_thread.h"
 #include "content/public/test/test_utils.h"
 #include "sql/transaction.h"
@@ -104,6 +105,51 @@ struct TestURLInfo {
    "83.A6.E4.BD.93.E5.88.B6", "Title Unimportant", 2, 2, 0}
 };
 
+// Waits for OnURLsDeletedNotification and when run quits the supplied run loop.
+class WaitForURLsDeletedObserver : public history::HistoryServiceObserver {
+ public:
+  explicit WaitForURLsDeletedObserver(base::RunLoop* runner);
+  ~WaitForURLsDeletedObserver() override;
+
+ private:
+  // history::HistoryServiceObserver:
+  void OnURLsDeleted(history::HistoryService* service,
+                     bool all_history,
+                     bool expired,
+                     const history::URLRows& deleted_rows,
+                     const std::set<GURL>& favicon_urls) override;
+
+  // Weak. Owned by our owner.
+  base::RunLoop* runner_;
+
+  DISALLOW_COPY_AND_ASSIGN(WaitForURLsDeletedObserver);
+};
+
+WaitForURLsDeletedObserver::WaitForURLsDeletedObserver(base::RunLoop* runner)
+    : runner_(runner) {
+}
+
+WaitForURLsDeletedObserver::~WaitForURLsDeletedObserver() {
+}
+
+void WaitForURLsDeletedObserver::OnURLsDeleted(
+    history::HistoryService* service,
+    bool all_history,
+    bool expired,
+    const history::URLRows& deleted_rows,
+    const std::set<GURL>& favicon_urls) {
+  runner_->Quit();
+}
+
+void WaitForURLsDeletedNotification(history::HistoryService* history_service) {
+  base::RunLoop runner;
+  WaitForURLsDeletedObserver observer(&runner);
+  ScopedObserver<history::HistoryService, history::HistoryServiceObserver>
+      scoped_observer(&observer);
+  scoped_observer.Add(history_service);
+  runner.Run();
+}
+
 class HistoryQuickProviderTest : public testing::Test {
  public:
   HistoryQuickProviderTest()
@@ -124,16 +170,15 @@ class HistoryQuickProviderTest : public testing::Test {
     std::set<std::string> matches_;
   };
 
-  static KeyedService* CreateTemplateURLService(
+  static scoped_ptr<KeyedService> CreateTemplateURLService(
       content::BrowserContext* context) {
     Profile* profile = static_cast<Profile*>(context);
-    return new TemplateURLService(
+    return make_scoped_ptr(new TemplateURLService(
         profile->GetPrefs(), make_scoped_ptr(new SearchTermsData), NULL,
-        scoped_ptr<TemplateURLServiceClient>(
-            new ChromeTemplateURLServiceClient(
-                HistoryServiceFactory::GetForProfile(
-                    profile, Profile::EXPLICIT_ACCESS))),
-        NULL, NULL, base::Closure());
+        scoped_ptr<TemplateURLServiceClient>(new ChromeTemplateURLServiceClient(
+            HistoryServiceFactory::GetForProfile(
+                profile, ServiceAccessType::EXPLICIT_ACCESS))),
+        NULL, NULL, base::Closure()));
   }
 
   void SetUp() override;
@@ -172,7 +217,8 @@ class HistoryQuickProviderTest : public testing::Test {
   content::TestBrowserThread file_thread_;
 
   scoped_ptr<TestingProfile> profile_;
-  HistoryService* history_service_;
+  scoped_ptr<ChromeAutocompleteProviderClient> client_;
+  history::HistoryService* history_service_;
 
   ACMatches ac_matches_;  // The resulting matches after running RunTest.
 
@@ -181,20 +227,23 @@ class HistoryQuickProviderTest : public testing::Test {
 
 void HistoryQuickProviderTest::SetUp() {
   profile_.reset(new TestingProfile());
+  client_.reset(new ChromeAutocompleteProviderClient(profile_.get()));
   ASSERT_TRUE(profile_->CreateHistoryService(true, false));
   profile_->CreateBookmarkModel(true);
   bookmarks::test::WaitForBookmarkModelToLoad(
       BookmarkModelFactory::GetForProfile(profile_.get()));
   profile_->BlockUntilHistoryIndexIsRefreshed();
-  history_service_ =
-      HistoryServiceFactory::GetForProfile(profile_.get(),
-                                           Profile::EXPLICIT_ACCESS);
+  history_service_ = HistoryServiceFactory::GetForProfile(
+      profile_.get(), ServiceAccessType::EXPLICIT_ACCESS);
   EXPECT_TRUE(history_service_);
-  provider_ = new HistoryQuickProvider(profile_.get());
+  provider_ = new HistoryQuickProvider(client_.get());
   TemplateURLServiceFactory::GetInstance()->SetTestingFactoryAndUse(
       profile_.get(), &HistoryQuickProviderTest::CreateTemplateURLService);
   FillData();
-  provider_->GetIndex()->RebuildFromHistory(history_backend()->db());
+  InMemoryURLIndex* index =
+      InMemoryURLIndexFactory::GetForProfile(profile_.get());
+  EXPECT_TRUE(index);
+  index->RebuildFromHistory(history_backend()->db());
 }
 
 void HistoryQuickProviderTest::TearDown() {
@@ -290,7 +339,7 @@ void HistoryQuickProviderTest::RunTestWithCursor(
   base::MessageLoop::current()->RunUntilIdle();
   AutocompleteInput input(text, cursor_position, std::string(), GURL(),
                           metrics::OmniboxEventProto::INVALID_SPEC,
-                          prevent_inline_autocomplete, false, true, true,
+                          prevent_inline_autocomplete, false, true, true, false,
                           ChromeAutocompleteSchemeClassifier(profile_.get()));
   provider_->Start(input, false);
   EXPECT_TRUE(provider_->done());
@@ -509,14 +558,14 @@ TEST_F(HistoryQuickProviderTest, EncodingLimitMatch) {
 
 TEST_F(HistoryQuickProviderTest, Spans) {
   // Test SpansFromTermMatch
-  history::TermMatches matches_a;
+  TermMatches matches_a;
   // Simulates matches: '.xx.xxx..xx...xxxxx..' which will test no match at
   // either beginning or end as well as adjacent matches.
-  matches_a.push_back(history::TermMatch(1, 1, 2));
-  matches_a.push_back(history::TermMatch(2, 4, 3));
-  matches_a.push_back(history::TermMatch(3, 9, 1));
-  matches_a.push_back(history::TermMatch(3, 10, 1));
-  matches_a.push_back(history::TermMatch(4, 14, 5));
+  matches_a.push_back(TermMatch(1, 1, 2));
+  matches_a.push_back(TermMatch(2, 4, 3));
+  matches_a.push_back(TermMatch(3, 9, 1));
+  matches_a.push_back(TermMatch(3, 10, 1));
+  matches_a.push_back(TermMatch(4, 14, 5));
   ACMatchClassifications spans_a =
       HistoryQuickProvider::SpansFromTermMatch(matches_a, 20, false);
   // ACMatch spans should be: 'NM-NM---N-M-N--M----N-'
@@ -541,9 +590,9 @@ TEST_F(HistoryQuickProviderTest, Spans) {
   EXPECT_EQ(ACMatchClassification::NONE, spans_a[8].style);
   // Simulates matches: 'xx.xx' which will test matches at both beginning and
   // end.
-  history::TermMatches matches_b;
-  matches_b.push_back(history::TermMatch(1, 0, 2));
-  matches_b.push_back(history::TermMatch(2, 3, 2));
+  TermMatches matches_b;
+  matches_b.push_back(TermMatch(1, 0, 2));
+  matches_b.push_back(TermMatch(2, 3, 2));
   ACMatchClassifications spans_b =
       HistoryQuickProvider::SpansFromTermMatch(matches_b, 5, true);
   // ACMatch spans should be: 'M-NM-'
@@ -576,10 +625,7 @@ TEST_F(HistoryQuickProviderTest, DeleteMatch) {
   // InMemoryURLIndex) will drop any data they might have pertaining to the URL.
   // To ensure that the deletion has been propagated everywhere before we start
   // verifying post-deletion states, first wait until we see the notification.
-  content::WindowedNotificationObserver observer(
-        chrome::NOTIFICATION_HISTORY_URLS_DELETED,
-        content::NotificationService::AllSources());
-  observer.Wait();
+  WaitForURLsDeletedNotification(history_service_);
   EXPECT_FALSE(history_backend()->GetURL(test_url, NULL));
 
   // Just to be on the safe side, explicitly verify that we have deleted enough
@@ -594,7 +640,7 @@ TEST_F(HistoryQuickProviderTest, PreventBeatingURLWhatYouTypedMatch) {
 
   expected_urls.clear();
   expected_urls.push_back("http://popularsitewithroot.com/");
-  // If the user enters a hostname (no path) that he/she has visited
+  // If the user enters a hostname (no path) that they have visited
   // before, we should make sure that all HistoryQuickProvider results
   // have scores less than what HistoryURLProvider will assign the
   // URL-what-you-typed match.
@@ -613,7 +659,7 @@ TEST_F(HistoryQuickProviderTest, PreventBeatingURLWhatYouTypedMatch) {
 
   expected_urls.clear();
   expected_urls.push_back("http://popularsitewithpathonly.com/moo");
-  // If the user enters a hostname of a host that he/she has visited
+  // If the user enters a hostname of a host that they have visited
   // but never visited the root page of, we should make sure that all
   // HistoryQuickProvider results have scores less than what the
   // HistoryURLProvider will assign the URL-what-you-typed match.
@@ -640,7 +686,7 @@ TEST_F(HistoryQuickProviderTest, PreventBeatingURLWhatYouTypedMatch) {
   EXPECT_GE(ac_matches_[0].relevance,
             HistoryURLProvider::kScoreForWhatYouTypedResult);
 
-  // If the user enters a hostname + path that he/she has not visited
+  // If the user enters a hostname + path that they have not visited
   // before (but visited other things on the host), we can allow
   // inline autocompletions.
   RunTest(ASCIIToUTF16("popularsitewithpathonly.com/mo"), false, expected_urls,
@@ -650,7 +696,7 @@ TEST_F(HistoryQuickProviderTest, PreventBeatingURLWhatYouTypedMatch) {
   EXPECT_GE(ac_matches_[0].relevance,
             HistoryURLProvider::kScoreForWhatYouTypedResult);
 
-  // If the user enters a hostname + path that he/she has visited
+  // If the user enters a hostname + path that they have visited
   // before, we should make sure that all HistoryQuickProvider results
   // have scores less than what the HistoryURLProvider will assign
   // the URL-what-you-typed match.
@@ -691,6 +737,7 @@ TEST_F(HistoryQuickProviderTest, PreventInlineAutocomplete) {
 TEST_F(HistoryQuickProviderTest, CullSearchResults) {
   // Set up a default search engine.
   TemplateURLData data;
+  data.SetShortName(ASCIIToUTF16("TestEngine"));
   data.SetKeyword(ASCIIToUTF16("TestEngine"));
   data.SetURL("http://testsearch.com/?q={searchTerms}");
   TemplateURLService* template_url_service =
@@ -712,6 +759,15 @@ TEST_F(HistoryQuickProviderTest, CullSearchResults) {
   RunTest(ASCIIToUTF16("testsearch"), false, expected_urls, true,
           ASCIIToUTF16("testsearch.com"),
                     ASCIIToUTF16(".com"));
+}
+
+TEST_F(HistoryQuickProviderTest, DoesNotProvideMatchesOnFocus) {
+  AutocompleteInput input(
+      ASCIIToUTF16("popularsite"), base::string16::npos, std::string(), GURL(),
+      metrics::OmniboxEventProto::INVALID_SPEC, false, false, true, true, true,
+      ChromeAutocompleteSchemeClassifier(profile_.get()));
+  provider_->Start(input, false);
+  EXPECT_TRUE(provider_->matches().empty());
 }
 
 // HQPOrderingTest -------------------------------------------------------------

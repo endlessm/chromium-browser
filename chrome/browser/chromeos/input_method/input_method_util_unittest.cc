@@ -9,11 +9,11 @@
 #include "base/bind.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chromeos/ime/extension_ime_util.h"
-#include "chromeos/ime/fake_input_method_delegate.h"
-#include "chromeos/ime/input_method_manager.h"
-#include "chromeos/ime/input_method_whitelist.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/ime/chromeos/extension_ime_util.h"
+#include "ui/base/ime/chromeos/fake_input_method_delegate.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
+#include "ui/base/ime/chromeos/input_method_whitelist.h"
 #include "ui/base/l10n/l10n_util.h"
 
 using base::ASCIIToUTF16;
@@ -53,7 +53,7 @@ class InputMethodUtilTest : public testing::Test {
         base::Bind(&InputMethodUtilTest::GetDisplayLanguageName));
   }
 
-  virtual void SetUp() override {
+  void SetUp() override {
     InputMethodDescriptors input_methods;
 
     std::vector<std::string> layouts;
@@ -412,6 +412,42 @@ TEST_F(InputMethodUtilTest, TestGetFirstLoginInputMethodIds_Us_And_Vi) {
   ASSERT_EQ(2U, input_method_ids.size());
   EXPECT_EQ(Id("xkb:us::eng"), input_method_ids[0]);
   EXPECT_EQ(Id("vkd_vi_tcvn"), input_method_ids[1]);  // TCVN6064.
+}
+
+// US keyboard + Japanese = US keyboard + mozc(us).
+TEST_F(InputMethodUtilTest, TestGetFirstLoginInputMethodIds_Us_And_Jp) {
+  const InputMethodDescriptor* descriptor =
+      util_.GetInputMethodDescriptorFromId(Id("xkb:us::eng"));  // US keyboard.
+  ASSERT_TRUE(NULL != descriptor);  // ASSERT_NE doesn't compile.
+  std::vector<std::string> input_method_ids;
+  util_.GetFirstLoginInputMethodIds("ja", *descriptor, &input_method_ids);
+  ASSERT_EQ(2U, input_method_ids.size());
+  EXPECT_EQ(Id("xkb:us::eng"), input_method_ids[0]);
+  EXPECT_EQ(Id("nacl_mozc_us"), input_method_ids[1]);
+}
+
+// JP keyboard + Japanese = JP keyboard + mozc(jp).
+TEST_F(InputMethodUtilTest, TestGetFirstLoginInputMethodIds_Jp_And_Jp) {
+  const InputMethodDescriptor* descriptor =
+      util_.GetInputMethodDescriptorFromId(Id("xkb:jp::jpn"));  // JP keyboard.
+  ASSERT_TRUE(NULL != descriptor);  // ASSERT_NE doesn't compile.
+  std::vector<std::string> input_method_ids;
+  util_.GetFirstLoginInputMethodIds("ja", *descriptor, &input_method_ids);
+  ASSERT_EQ(2U, input_method_ids.size());
+  EXPECT_EQ(Id("xkb:jp::jpn"), input_method_ids[0]);
+  EXPECT_EQ(Id("nacl_mozc_jp"), input_method_ids[1]);
+}
+
+// US keyboard + Hebrew = US keyboard + Hebrew keyboard.
+TEST_F(InputMethodUtilTest, TestGetFirstLoginInputMethodIds_Us_And_He) {
+  const InputMethodDescriptor* descriptor =
+      util_.GetInputMethodDescriptorFromId(Id("xkb:us::eng"));  // US keyboard.
+  ASSERT_TRUE(NULL != descriptor);  // ASSERT_NE doesn't compile.
+  std::vector<std::string> input_method_ids;
+  util_.GetFirstLoginInputMethodIds("he", *descriptor, &input_method_ids);
+  ASSERT_EQ(2U, input_method_ids.size());
+  EXPECT_EQ(Id("xkb:us::eng"), input_method_ids[0]);
+  EXPECT_EQ(Id("xkb:il::heb"), input_method_ids[1]);
 }
 
 TEST_F(InputMethodUtilTest, TestGetLanguageCodesFromInputMethodIds) {

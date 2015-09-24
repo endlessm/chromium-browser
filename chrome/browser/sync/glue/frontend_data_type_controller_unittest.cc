@@ -7,8 +7,11 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/location.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/tracked_objects.h"
 #include "chrome/browser/sync/glue/frontend_data_type_controller.h"
 #include "chrome/browser/sync/glue/frontend_data_type_controller_mock.h"
@@ -41,7 +44,7 @@ class FrontendDataTypeControllerFake : public FrontendDataTypeController {
       Profile* profile,
       ProfileSyncService* sync_service,
       FrontendDataTypeControllerMock* mock)
-      : FrontendDataTypeController(base::MessageLoopProxy::current(),
+      : FrontendDataTypeController(base::ThreadTaskRunnerHandle::Get(),
                                    base::Closure(),
                                    profile_sync_factory,
                                    profile,
@@ -140,6 +143,7 @@ class SyncFrontendDataTypeControllerTest : public testing::Test {
     frontend_dtc_->StartAssociating(
         base::Bind(&StartCallbackMock::Run,
                    base::Unretained(&start_callback_)));
+    PumpLoop();
   }
 
   void PumpLoop() { base::MessageLoop::current()->RunUntilIdle(); }
@@ -178,6 +182,17 @@ TEST_F(SyncFrontendDataTypeControllerTest, StartFirstRun) {
   EXPECT_EQ(DataTypeController::NOT_RUNNING, frontend_dtc_->state());
   Start();
   EXPECT_EQ(DataTypeController::RUNNING, frontend_dtc_->state());
+}
+
+TEST_F(SyncFrontendDataTypeControllerTest, StartStopBeforeAssociation) {
+  EXPECT_CALL(*dtc_mock_.get(), StartModels()).WillOnce(Return(true));
+  EXPECT_CALL(*dtc_mock_.get(), CleanUpState());
+  EXPECT_CALL(model_load_callback_, Run(_, _));
+  EXPECT_EQ(DataTypeController::NOT_RUNNING, frontend_dtc_->state());
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&FrontendDataTypeController::Stop, frontend_dtc_));
+  Start();
+  EXPECT_EQ(DataTypeController::NOT_RUNNING, frontend_dtc_->state());
 }
 
 TEST_F(SyncFrontendDataTypeControllerTest, AbortDuringStartModels) {

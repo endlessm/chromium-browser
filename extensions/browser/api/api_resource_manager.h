@@ -10,6 +10,7 @@
 #include "base/containers/hash_tables.h"
 #include "base/memory/linked_ptr.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/scoped_observer.h"
 #include "base/threading/non_thread_safe.h"
 #include "components/keyed_service/core/keyed_service.h"
@@ -22,6 +23,7 @@
 #include "extensions/common/extension.h"
 
 namespace extensions {
+class CastChannelAsyncApiFunction;
 
 namespace core_api {
 class BluetoothSocketApiFunction;
@@ -119,13 +121,12 @@ class ApiResourceManager : public BrowserContextKeyedAPI,
     process_manager_observer_.Add(ProcessManager::Get(context));
   }
   // For Testing.
-  static ApiResourceManager<T, TestThreadTraits<T> >*
+  static scoped_ptr<ApiResourceManager<T, TestThreadTraits<T>>>
   CreateApiResourceManagerForTest(content::BrowserContext* context,
                                   content::BrowserThread::ID thread_id) {
     TestThreadTraits<T>::thread_id_ = thread_id;
-    ApiResourceManager<T, TestThreadTraits<T> >* manager =
-        new ApiResourceManager<T, TestThreadTraits<T> >(context);
-    return manager;
+    return make_scoped_ptr(
+        new ApiResourceManager<T, TestThreadTraits<T>>(context));
   }
 
   virtual ~ApiResourceManager() {
@@ -192,6 +193,7 @@ class ApiResourceManager : public BrowserContextKeyedAPI,
   // TODO(rockot): ApiResourceData could be moved out of ApiResourceManager and
   // we could avoid maintaining a friends list here.
   friend class BluetoothAPI;
+  friend class CastChannelAsyncApiFunction;
   friend class core_api::BluetoothSocketApiFunction;
   friend class core_api::BluetoothSocketEventDispatcher;
   friend class core_api::SerialEventDispatcher;

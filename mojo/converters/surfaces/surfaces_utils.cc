@@ -5,6 +5,7 @@
 #include "mojo/converters/surfaces/surfaces_utils.h"
 
 #include "mojo/converters/geometry/geometry_type_converters.h"
+#include "mojo/converters/transform/transform_type_converters.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/transform.h"
@@ -13,9 +14,9 @@ namespace mojo {
 
 SharedQuadStatePtr CreateDefaultSQS(const gfx::Size& size) {
   SharedQuadStatePtr sqs = SharedQuadState::New();
-  sqs->content_to_target_transform = Transform::From(gfx::Transform());
-  sqs->content_bounds = Size::From(size);
-  sqs->visible_content_rect = Rect::From(gfx::Rect(size));
+  sqs->quad_to_target_transform = Transform::From(gfx::Transform());
+  sqs->quad_layer_bounds = Size::From(size);
+  sqs->visible_quad_layer_rect = Rect::From(gfx::Rect(size));
   sqs->clip_rect = Rect::From(gfx::Rect(size));
   sqs->is_clipped = false;
   sqs->opacity = 1.f;
@@ -26,7 +27,10 @@ SharedQuadStatePtr CreateDefaultSQS(const gfx::Size& size) {
 
 PassPtr CreateDefaultPass(int id, const gfx::Rect& rect) {
   PassPtr pass = Pass::New();
-  pass->id = id;
+  RenderPassId render_pass_id;
+  render_pass_id.layer_id = 1;
+  render_pass_id.index = id;
+  pass->id = render_pass_id.Clone();
   pass->output_rect = Rect::From(rect);
   pass->damage_rect = Rect::From(rect);
   pass->transform_to_root_target = Transform::From(gfx::Transform());

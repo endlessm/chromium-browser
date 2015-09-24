@@ -26,9 +26,8 @@ using namespace password_manager::mac::ui;
 
 - (id)initWithModel:(ManagePasswordsBubbleModel*)model
            delegate:(id<ManagePasswordsBubbleContentViewDelegate>)delegate {
-  if ((self = [super initWithNibName:nil bundle:nil])) {
+  if (([super initWithDelegate:delegate])) {
     model_ = model;
-    delegate_ = delegate;
   }
   return self;
 }
@@ -47,7 +46,7 @@ using namespace password_manager::mac::ui;
 }
 
 - (void)loadView {
-  self.view = [[[NSView alloc] initWithFrame:NSZeroRect] autorelease];
+  base::scoped_nsobject<NSView> view([[NSView alloc] initWithFrame:NSZeroRect]);
 
   // -----------------------------------
   // |  Title                          |
@@ -61,7 +60,8 @@ using namespace password_manager::mac::ui;
 
   // Title.
   NSTextField* titleLabel =
-      [self addTitleLabel:base::SysUTF16ToNSString(model_->title())];
+      [self addTitleLabel:base::SysUTF16ToNSString(model_->title())
+                   toView:view];
 
   // Text.
   confirmationText_.reset([[HyperlinkTextView alloc] initWithFrame:NSZeroRect]);
@@ -94,10 +94,11 @@ using namespace password_manager::mac::ui;
   [text addAttribute:NSUnderlineStyleAttributeName
                value:[NSNumber numberWithInt:NSUnderlineStyleNone]
                range:model_->save_confirmation_link_range().ToNSRange()];
-  [[self view] addSubview:confirmationText_];
+  [view addSubview:confirmationText_];
 
   // OK button.
   okButton_.reset([[self addButton:l10n_util::GetNSString(IDS_OK)
+                            toView:view
                             target:self
                             action:@selector(onOKClicked:)] retain]);
 
@@ -120,7 +121,9 @@ using namespace password_manager::mac::ui;
 
   // Update the bubble size.
   const CGFloat height = NSMaxY([titleLabel frame]) + kFramePadding;
-  [self.view setFrame:NSMakeRect(0, 0, width, height)];
+  [view setFrame:NSMakeRect(0, 0, width, height)];
+
+  [self setView:view];
 }
 
 @end

@@ -14,13 +14,13 @@ var FILE_MANAGER_HOST = 'chrome-extension://hhaomjibdihmijegdhdafkllkbggdgoj';
 // line.
 importScripts(FILE_MANAGER_HOST + '/foreground/js/metadata/metadata_parser.js');
 importScripts(FILE_MANAGER_HOST + '/foreground/js/metadata/byte_reader.js');
-importScripts(FILE_MANAGER_HOST + '/common/js/util.js');
 
 /**
  * Dispatches metadata requests to the correct parser.
  *
  * @param {Object} port Worker port.
  * @constructor
+ * @struct
  */
 function MetadataDispatcher(port) {
   this.port_ = port;
@@ -58,7 +58,8 @@ function MetadataDispatcher(port) {
 MetadataDispatcher.parserClasses_ = [];
 
 /**
- * @param {function} parserClass Parser constructor function.
+ * @param {function(!MetadataDispatcher)} parserClass Parser constructor
+ *     function.
  */
 MetadataDispatcher.registerParserClass = function(parserClass) {
   MetadataDispatcher.parserClasses_.push(parserClass);
@@ -79,7 +80,7 @@ MetadataDispatcher.prototype.init_ = function() {
   // Inform our owner that we're done initializing.
   // If we need to pass more data back, we can add it to the param array.
   this.postMessage('initialized', [this.parserRegexp_]);
-  this.log('initialized with URL filter ' + this.parserRegexp_);
+  this.vlog('initialized with URL filter ' + this.parserRegexp_);
 };
 
 /**
@@ -101,7 +102,7 @@ MetadataDispatcher.prototype.request_ = function(fileURL) {
  * Indicate to the caller that an operation has failed.
  *
  * No other messages relating to the failed operation should be sent.
- * @param {...Object} var_args Arguments.
+ * @param {...(Object|string)} var_args Arguments.
  */
 MetadataDispatcher.prototype.error = function(var_args) {
   var ary = Array.apply(null, arguments);
@@ -112,7 +113,7 @@ MetadataDispatcher.prototype.error = function(var_args) {
  * Send a log message to the caller.
  *
  * Callers must not parse log messages for control flow.
- * @param {...Object} var_args Arguments.
+ * @param {...(Object|string)} var_args Arguments.
  */
 MetadataDispatcher.prototype.log = function(var_args) {
   var ary = Array.apply(null, arguments);
@@ -121,7 +122,7 @@ MetadataDispatcher.prototype.log = function(var_args) {
 
 /**
  * Send a log message to the caller only if this.verbose is true.
- * @param {...Object} var_args Arguments.
+ * @param {...(Object|string)} var_args Arguments.
  */
 MetadataDispatcher.prototype.vlog = function(var_args) {
   if (this.verbose)
@@ -131,7 +132,7 @@ MetadataDispatcher.prototype.vlog = function(var_args) {
 /**
  * Post a properly formatted message to the caller.
  * @param {string} verb Message type descriptor.
- * @param {Array.<Object>} args Arguments array.
+ * @param {Array<Object>} args Arguments array.
  */
 MetadataDispatcher.prototype.postMessage = function(verb, args) {
   this.port_.postMessage({verb: verb, arguments: args});
@@ -159,6 +160,9 @@ MetadataDispatcher.prototype.processOneFile = function(fileURL, callback) {
   var self = this;
   var currentStep = -1;
 
+  /**
+   * @param {...} var_args Arguments.
+   */
   function nextStep(var_args) {
     self.vlog('nextStep: ' + steps[currentStep + 1].name);
     steps[++currentStep].apply(self, arguments);
@@ -166,8 +170,12 @@ MetadataDispatcher.prototype.processOneFile = function(fileURL, callback) {
 
   var metadata;
 
-  function onError(err, stepName) {
-    self.error(fileURL, stepName || steps[currentStep].name, err.toString(),
+  /**
+   * @param {*} err An error.
+   * @param {string=} opt_stepName Step name.
+   */
+  function onError(err, opt_stepName) {
+    self.error(fileURL, opt_stepName || steps[currentStep].name, err.toString(),
         metadata);
   }
 
@@ -191,13 +199,13 @@ MetadataDispatcher.prototype.processOneFile = function(fileURL, callback) {
     function getEntry(parser) {
       webkitResolveLocalFileSystemURL(
           fileURL,
-          function(entry) { nextStep(entry, parser) },
+          function(entry) { nextStep(entry, parser); },
           onError);
     },
 
     // Step three, turn the entry into a file.
     function getFile(entry, parser) {
-      entry.file(function(file) { nextStep(file, parser) }, onError);
+      entry.file(function(file) { nextStep(file, parser); }, onError);
     },
 
     // Step four, parse the file content.

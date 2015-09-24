@@ -155,7 +155,7 @@ ByteReader.readNullTerminatedStringUTF16 = function(
 
 /**
  * @const
- * @type {Array.<string>}
+ * @type {Array<string>}
  * @private
  */
 ByteReader.base64Alphabet_ =
@@ -310,7 +310,7 @@ ByteReader.prototype.validateRead = function(size, opt_end) {
  * @param {number} width Number of bytes to read.
  * @param {boolean=} opt_signed True if signed, false otherwise.
  * @param {number=} opt_end Maximum position to read from.
- * @return {string} Scalar value.
+ * @return {number} Scalar value.
  */
 ByteReader.prototype.readScalar = function(width, opt_signed, opt_end) {
   var method = opt_signed ? 'getInt' : 'getUint';
@@ -428,8 +428,8 @@ ByteReader.prototype.readNullTerminatedStringUTF16 =
  *
  * @param {number} size Number of bytes to read.
  * @param {number=} opt_end Maximum position to read from.
- * @param {function(new:Array.<*>)=} opt_arrayConstructor Array constructor.
- * @return {Array.<*>} Array of bytes.
+ * @param {function(new:Array<*>)=} opt_arrayConstructor Array constructor.
+ * @return {Array<*>} Array of bytes.
  */
 ByteReader.prototype.readSlice = function(size, opt_end,
                                           opt_arrayConstructor) {

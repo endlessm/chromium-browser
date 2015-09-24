@@ -4,14 +4,17 @@
 
 #include "content/test/test_blink_web_unit_test_support.h"
 
-#include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/metrics/stats_counters.h"
 #include "base/path_service.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
-#include "content/public/common/content_switches.h"
+#include "base/thread_task_runner_handle.h"
+#include "base/threading/platform_thread.h"
+#include "components/scheduler/renderer/renderer_scheduler_impl.h"
+#include "components/scheduler/renderer/webthread_impl_for_renderer_scheduler.h"
+#include "components/scheduler/test/lazy_scheduler_message_loop_delegate_for_tests.h"
 #include "content/test/mock_webclipboard_impl.h"
 #include "content/test/web_gesture_curve_mock.h"
 #include "content/test/web_layer_tree_view_impl_for_testing.h"
@@ -22,6 +25,7 @@
 #include "storage/browser/database/vfs_backend.h"
 #include "third_party/WebKit/public/platform/WebData.h"
 #include "third_party/WebKit/public/platform/WebFileSystem.h"
+#include "third_party/WebKit/public/platform/WebPluginListBuilder.h"
 #include "third_party/WebKit/public/platform/WebStorageArea.h"
 #include "third_party/WebKit/public/platform/WebStorageNamespace.h"
 #include "third_party/WebKit/public/platform/WebString.h"
@@ -34,13 +38,47 @@
 #include "v8/include/v8.h"
 
 #if defined(OS_MACOSX)
-#include "base/mac/mac_util.h"
+#include "base/mac/foundation_util.h"
 #include "base/mac/scoped_nsautorelease_pool.h"
 #endif
 
 #ifdef V8_USE_EXTERNAL_STARTUP_DATA
-#include "gin/public/isolate_holder.h"
+#include "gin/v8_initializer.h"
 #endif
+
+namespace {
+
+class DummyTaskRunner : public base::SingleThreadTaskRunner {
+ public:
+  DummyTaskRunner() : thread_id_(base::PlatformThread::CurrentId()) {}
+
+  bool PostDelayedTask(const tracked_objects::Location& from_here,
+                       const base::Closure& task,
+                       base::TimeDelta delay) override {
+    // Drop the delayed task.
+    return false;
+  }
+
+  bool PostNonNestableDelayedTask(const tracked_objects::Location& from_here,
+                                  const base::Closure& task,
+                                  base::TimeDelta delay) override {
+    // Drop the delayed task.
+    return false;
+  }
+
+  bool RunsTasksOnCurrentThread() const override {
+    return thread_id_ == base::PlatformThread::CurrentId();
+  }
+
+ protected:
+  ~DummyTaskRunner() override {}
+
+  base::PlatformThreadId thread_id_;
+
+  DISALLOW_COPY_AND_ASSIGN(DummyTaskRunner);
+};
+
+}  // namespace
 
 namespace content {
 
@@ -52,46 +90,40 @@ TestBlinkWebUnitTestSupport::TestBlinkWebUnitTestSupport() {
   url_loader_factory_.reset(new WebURLLoaderMockFactory());
   mock_clipboard_.reset(new MockWebClipboardImpl());
 
-  // Create an anonymous stats table since we don't need to share between
-  // processes.
-  stats_table_.reset(
-      new base::StatsTable(base::StatsTable::TableIdentifier(), 20, 200));
-  base::StatsTable::set_current(stats_table_.get());
-
 #ifdef V8_USE_EXTERNAL_STARTUP_DATA
-  gin::IsolateHolder::LoadV8Snapshot();
+  gin::V8Initializer::LoadV8Snapshot();
+  gin::V8Initializer::LoadV8Natives();
 #endif
 
+  scoped_refptr<base::SingleThreadTaskRunner> dummy_task_runner;
+  scoped_ptr<base::ThreadTaskRunnerHandle> dummy_task_runner_handle;
+  if (!base::ThreadTaskRunnerHandle::IsSet()) {
+    // Dummy task runner is initialized here because the blink::initialize
+    // creates IsolateHolder which needs the current task runner handle. There
+    // should be no task posted to this task runner. The message loop is not
+    // created before this initialization because some tests need specific kinds
+    // of message loops, and their types are not known upfront. Some tests also
+    // create their own thread bundles or message loops, and doing the same in
+    // TestBlinkWebUnitTestSupport would introduce a conflict.
+    dummy_task_runner = make_scoped_refptr(new DummyTaskRunner());
+    dummy_task_runner_handle.reset(
+        new base::ThreadTaskRunnerHandle(dummy_task_runner));
+  }
+  renderer_scheduler_ = make_scoped_ptr(new scheduler::RendererSchedulerImpl(
+      scheduler::LazySchedulerMessageLoopDelegateForTests::Create()));
+  web_thread_.reset(new scheduler::WebThreadImplForRendererScheduler(
+      renderer_scheduler_.get()));
+
   blink::initialize(this);
-  blink::mainThreadIsolate()->SetCounterFunction(
-      base::StatsTable::FindLocation);
   blink::setLayoutTestMode(true);
-  blink::WebSecurityPolicy::registerURLSchemeAsLocal(
-      blink::WebString::fromUTF8("test-shell-resource"));
-  blink::WebSecurityPolicy::registerURLSchemeAsNoAccess(
-      blink::WebString::fromUTF8("test-shell-resource"));
-  blink::WebSecurityPolicy::registerURLSchemeAsDisplayIsolated(
-      blink::WebString::fromUTF8("test-shell-resource"));
-  blink::WebSecurityPolicy::registerURLSchemeAsEmptyDocument(
-      blink::WebString::fromUTF8("test-shell-resource"));
   blink::WebRuntimeFeatures::enableApplicationCache(true);
   blink::WebRuntimeFeatures::enableDatabase(true);
   blink::WebRuntimeFeatures::enableNotifications(true);
   blink::WebRuntimeFeatures::enableTouch(true);
 
-  // Load libraries for media and enable the media player.
-  bool enable_media = false;
-  base::FilePath module_path;
-  if (PathService::Get(base::DIR_MODULE, &module_path)) {
-#if defined(OS_MACOSX)
-    if (base::mac::AmIBundled())
-      module_path = module_path.DirName().DirName().DirName();
-#endif
-    if (media::InitializeMediaLibrary(module_path))
-      enable_media = true;
-  }
-  blink::WebRuntimeFeatures::enableMediaPlayer(enable_media);
-  LOG_IF(WARNING, !enable_media) << "Failed to initialize the media library.\n";
+  // Initialize libraries for media and enable the media player.
+  media::InitializeMediaLibrary();
+  blink::WebRuntimeFeatures::enableMediaPlayer(true);
 
   file_utilities_.set_sandbox_enabled(false);
 
@@ -106,8 +138,6 @@ TestBlinkWebUnitTestSupport::TestBlinkWebUnitTestSupport() {
   SetThemeEngine(NULL);
 #endif
 
-  CommandLine::ForCurrentProcess()->AppendSwitch(switches::kEnableFileCookies);
-
   // Test shell always exposes the GC.
   std::string flags("--expose-gc");
   v8::V8::SetFlagsFromString(flags.c_str(), static_cast<int>(flags.size()));
@@ -116,9 +146,9 @@ TestBlinkWebUnitTestSupport::TestBlinkWebUnitTestSupport() {
 TestBlinkWebUnitTestSupport::~TestBlinkWebUnitTestSupport() {
   url_loader_factory_.reset();
   mock_clipboard_.reset();
+  if (renderer_scheduler_)
+    renderer_scheduler_->Shutdown();
   blink::shutdown();
-  base::StatsTable::set_current(NULL);
-  stats_table_.reset();
 }
 
 blink::WebBlobRegistry* TestBlinkWebUnitTestSupport::blobRegistry() {
@@ -310,6 +340,34 @@ blink::WebData TestBlinkWebUnitTestSupport::readFromFile(
   base::ReadFileToString(file_path, &buffer);
 
   return blink::WebData(buffer.data(), buffer.size());
+}
+
+bool TestBlinkWebUnitTestSupport::getBlobItems(
+    const blink::WebString& uuid,
+    blink::WebVector<blink::WebBlobData::Item*>* items) {
+  return blob_registry_.GetBlobItems(uuid, items);
+}
+
+blink::WebThread* TestBlinkWebUnitTestSupport::currentThread() {
+  if (web_thread_ && web_thread_->isCurrentThread())
+    return web_thread_.get();
+  return BlinkPlatformImpl::currentThread();
+}
+
+void TestBlinkWebUnitTestSupport::enterRunLoop() {
+  DCHECK(base::MessageLoop::current());
+  DCHECK(!base::MessageLoop::current()->is_running());
+  base::MessageLoop::current()->Run();
+}
+
+void TestBlinkWebUnitTestSupport::exitRunLoop() {
+  base::MessageLoop::current()->Quit();
+}
+
+void TestBlinkWebUnitTestSupport::getPluginList(
+    bool refresh, blink::WebPluginListBuilder* builder) {
+  builder->addPlugin("pdf", "pdf", "pdf-files");
+  builder->addMediaTypeToLastPlugin("application/pdf", "pdf");
 }
 
 }  // namespace content

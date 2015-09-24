@@ -100,10 +100,10 @@ void BindURLToStatement(const TemplateURLData& data,
   for (size_t i = 0; i < data.alternate_urls.size(); ++i)
     alternate_urls_value.AppendString(data.alternate_urls[i]);
   std::string alternate_urls;
-  base::JSONWriter::Write(&alternate_urls_value, &alternate_urls);
+  base::JSONWriter::Write(alternate_urls_value, &alternate_urls);
 
   s->BindInt64(id_column, data.id);
-  s->BindString16(starting_column, data.short_name);
+  s->BindString16(starting_column, data.short_name());
   s->BindString16(starting_column + 1, data.keyword());
   s->BindString(starting_column + 2, data.favicon_url.is_valid() ?
       history::URLDatabase::GURLToDatabaseURL(data.favicon_url) :
@@ -193,45 +193,6 @@ bool KeywordTable::MigrateToVersion(int version,
                                     bool* update_compatible_version) {
   // Migrate if necessary.
   switch (version) {
-    case 21:
-      *update_compatible_version = true;
-      return MigrateToVersion21AutoGenerateKeywordColumn();
-    case 25:
-      *update_compatible_version = true;
-      return MigrateToVersion25AddLogoIDColumn();
-    case 26:
-      *update_compatible_version = true;
-      return MigrateToVersion26AddCreatedByPolicyColumn();
-    case 28:
-      *update_compatible_version = true;
-      return MigrateToVersion28SupportsInstantColumn();
-    case 29:
-      *update_compatible_version = true;
-      return MigrateToVersion29InstantURLToSupportsInstant();
-    case 38:
-      *update_compatible_version = true;
-      return MigrateToVersion38AddLastModifiedColumn();
-    case 39:
-      *update_compatible_version = true;
-      return MigrateToVersion39AddSyncGUIDColumn();
-    case 44:
-      *update_compatible_version = true;
-      return MigrateToVersion44AddDefaultSearchProviderBackup();
-    case 45:
-      *update_compatible_version = true;
-      return MigrateToVersion45RemoveLogoIDAndAutogenerateColumns();
-    case 47:
-      *update_compatible_version = true;
-      return MigrateToVersion47AddAlternateURLsColumn();
-    case 48:
-      *update_compatible_version = true;
-      return MigrateToVersion48RemoveKeywordsBackup();
-    case 49:
-      *update_compatible_version = true;
-      return MigrateToVersion49AddSearchTermsReplacementKeyColumn();
-    case 52:
-      *update_compatible_version = true;
-      return MigrateToVersion52AddImageSearchAndPOSTSupport();
     case 53:
       *update_compatible_version = true;
       return MigrateToVersion53AddNewTabURLColumn();
@@ -315,140 +276,6 @@ std::string KeywordTable::GetKeywordColumns() {
   return ColumnsForVersion(WebDatabase::kCurrentVersionNumber, false);
 }
 
-bool KeywordTable::MigrateToVersion21AutoGenerateKeywordColumn() {
-  return db_->Execute("ALTER TABLE keywords ADD COLUMN autogenerate_keyword "
-                      "INTEGER DEFAULT 0");
-}
-
-bool KeywordTable::MigrateToVersion25AddLogoIDColumn() {
-  return db_->Execute(
-      "ALTER TABLE keywords ADD COLUMN logo_id INTEGER DEFAULT 0");
-}
-
-bool KeywordTable::MigrateToVersion26AddCreatedByPolicyColumn() {
-  return db_->Execute("ALTER TABLE keywords ADD COLUMN created_by_policy "
-                      "INTEGER DEFAULT 0");
-}
-
-bool KeywordTable::MigrateToVersion28SupportsInstantColumn() {
-  return db_->Execute("ALTER TABLE keywords ADD COLUMN supports_instant "
-                      "INTEGER DEFAULT 0");
-}
-
-bool KeywordTable::MigrateToVersion29InstantURLToSupportsInstant() {
-  sql::Transaction transaction(db_);
-  return transaction.Begin() &&
-      db_->Execute("ALTER TABLE keywords ADD COLUMN instant_url VARCHAR") &&
-      db_->Execute("CREATE TABLE keywords_temp ("
-                   "id INTEGER PRIMARY KEY,"
-                   "short_name VARCHAR NOT NULL,"
-                   "keyword VARCHAR NOT NULL,"
-                   "favicon_url VARCHAR NOT NULL,"
-                   "url VARCHAR NOT NULL,"
-                   "safe_for_autoreplace INTEGER,"
-                   "originating_url VARCHAR,"
-                   "date_created INTEGER DEFAULT 0,"
-                   "usage_count INTEGER DEFAULT 0,"
-                   "input_encodings VARCHAR,"
-                   "show_in_default_list INTEGER,"
-                   "suggest_url VARCHAR,"
-                   "prepopulate_id INTEGER DEFAULT 0,"
-                   "autogenerate_keyword INTEGER DEFAULT 0,"
-                   "logo_id INTEGER DEFAULT 0,"
-                   "created_by_policy INTEGER DEFAULT 0,"
-                   "instant_url VARCHAR)") &&
-      db_->Execute("INSERT INTO keywords_temp SELECT id, short_name, keyword, "
-                   "favicon_url, url, safe_for_autoreplace, originating_url, "
-                   "date_created, usage_count, input_encodings, "
-                   "show_in_default_list, suggest_url, prepopulate_id, "
-                   "autogenerate_keyword, logo_id, created_by_policy, "
-                   "instant_url FROM keywords") &&
-      db_->Execute("DROP TABLE keywords") &&
-      db_->Execute("ALTER TABLE keywords_temp RENAME TO keywords") &&
-      transaction.Commit();
-}
-
-bool KeywordTable::MigrateToVersion38AddLastModifiedColumn() {
-  return db_->Execute(
-      "ALTER TABLE keywords ADD COLUMN last_modified INTEGER DEFAULT 0");
-}
-
-bool KeywordTable::MigrateToVersion39AddSyncGUIDColumn() {
-  return db_->Execute("ALTER TABLE keywords ADD COLUMN sync_guid VARCHAR");
-}
-
-bool KeywordTable::MigrateToVersion44AddDefaultSearchProviderBackup() {
-  std::string query("CREATE TABLE keywords_backup AS SELECT " +
-      ColumnsForVersion(44, false) + " FROM keywords ORDER BY id ASC");
-  sql::Transaction transaction(db_);
-  return transaction.Begin() &&
-      meta_table_->SetValue("Default Search Provider ID Backup",
-                            GetDefaultSearchProviderID()) &&
-      (!db_->DoesTableExist("keywords_backup") ||
-       db_->Execute("DROP TABLE keywords_backup")) &&
-      db_->Execute(query.c_str()) &&
-      transaction.Commit();
-}
-
-bool KeywordTable::MigrateToVersion45RemoveLogoIDAndAutogenerateColumns() {
-  sql::Transaction transaction(db_);
-  if (!transaction.Begin())
-    return false;
-
-  // The version 43 migration should have been written to do this, but since it
-  // wasn't, we'll do it now.  Unfortunately a previous change deleted this for
-  // some users, so we can't be sure this will succeed (so don't bail on error).
-  meta_table_->DeleteKey("Default Search Provider Backup");
-
-  return MigrateKeywordsTableForVersion45("keywords") &&
-      MigrateKeywordsTableForVersion45("keywords_backup") &&
-      meta_table_->SetValue("Default Search Provider ID Backup Signature",
-                            std::string()) &&
-      transaction.Commit();
-}
-
-bool KeywordTable::MigrateToVersion47AddAlternateURLsColumn() {
-  sql::Transaction transaction(db_);
-  return transaction.Begin() &&
-      db_->Execute("ALTER TABLE keywords ADD COLUMN "
-                   "alternate_urls VARCHAR DEFAULT ''") &&
-      db_->Execute("ALTER TABLE keywords_backup ADD COLUMN "
-                   "alternate_urls VARCHAR DEFAULT ''") &&
-      meta_table_->SetValue("Default Search Provider ID Backup Signature",
-                            std::string()) &&
-      transaction.Commit();
-}
-
-bool KeywordTable::MigrateToVersion48RemoveKeywordsBackup() {
-  sql::Transaction transaction(db_);
-  return transaction.Begin() &&
-      meta_table_->DeleteKey("Default Search Provider ID Backup") &&
-      meta_table_->DeleteKey("Default Search Provider ID Backup Signature") &&
-      db_->Execute("DROP TABLE keywords_backup") &&
-      transaction.Commit();
-}
-
-bool KeywordTable::MigrateToVersion49AddSearchTermsReplacementKeyColumn() {
-  return db_->Execute("ALTER TABLE keywords ADD COLUMN "
-                      "search_terms_replacement_key VARCHAR DEFAULT ''");
-}
-
-bool KeywordTable::MigrateToVersion52AddImageSearchAndPOSTSupport() {
-  sql::Transaction transaction(db_);
-  return transaction.Begin() &&
-      db_->Execute("ALTER TABLE keywords ADD COLUMN image_url "
-                   "VARCHAR DEFAULT ''") &&
-      db_->Execute("ALTER TABLE keywords ADD COLUMN search_url_post_params "
-                   "VARCHAR DEFAULT ''") &&
-      db_->Execute("ALTER TABLE keywords ADD COLUMN suggest_url_post_params "
-                   "VARCHAR DEFAULT ''") &&
-      db_->Execute("ALTER TABLE keywords ADD COLUMN instant_url_post_params "
-                   "VARCHAR DEFAULT ''") &&
-      db_->Execute("ALTER TABLE keywords ADD COLUMN image_url_post_params "
-                   "VARCHAR DEFAULT ''") &&
-      transaction.Commit();
-}
-
 bool KeywordTable::MigrateToVersion53AddNewTabURLColumn() {
   return db_->Execute("ALTER TABLE keywords ADD COLUMN new_tab_url "
                       "VARCHAR DEFAULT ''");
@@ -464,7 +291,7 @@ bool KeywordTable::GetKeywordDataFromStatement(const sql::Statement& s,
                                                TemplateURLData* data) {
   DCHECK(data);
 
-  data->short_name = s.ColumnString16(1);
+  data->SetShortName(s.ColumnString16(1));
   data->SetKeyword(s.ColumnString16(2));
   // Due to past bugs, we might have persisted entries with empty URLs.  Avoid
   // reading these out.  (GetKeywords() will delete these entries on return.)

@@ -5,6 +5,7 @@
 package org.chromium.chrome.browser.infobar;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.view.View;
 
 import org.chromium.base.CalledByNative;
@@ -35,7 +36,12 @@ public abstract class InfoBar implements InfoBarView {
     public static final int ACTION_TYPE_TRANSLATE = 3;
     public static final int ACTION_TYPE_TRANSLATE_SHOW_ORIGINAL = 4;
 
+    // Download Overwrite InfoBar
+    public static final int ACTION_TYPE_OVERWRITE = 5;
+    public static final int ACTION_TYPE_CREATE_NEW_FILE = 6;
+
     private final int mIconDrawableId;
+    private final Bitmap mIconBitmap;
     private final CharSequence mMessage;
 
     private InfoBarListeners.Dismiss mListener;
@@ -46,11 +52,10 @@ public abstract class InfoBar implements InfoBarView {
     private boolean mExpireOnNavigation;
     private boolean mIsDismissed;
     private boolean mControlsEnabled;
+    private boolean mIsJavaOnlyInfoBar = true;
 
-    // This cannot be private until the swap in place infrastructure is
-    // improved since subclasses need to access a possibly replaced native
-    // pointer.
-    protected long mNativeInfoBarPtr;
+    // This points to the InfoBarAndroid class not any of its subclasses.
+    private long mNativeInfoBarPtr;
 
     // Used by tests to reference infobars.
     private final int mId;
@@ -64,33 +69,33 @@ public abstract class InfoBar implements InfoBarView {
      * @param iconDrawableId ID of the resource to use for the Icon.  If 0, no icon will be shown.
      * @param message The message to show in the infobar.
      */
-    public InfoBar(InfoBarListeners.Dismiss listener, int iconDrawableId, CharSequence message) {
+    public InfoBar(InfoBarListeners.Dismiss listener, int iconDrawableId, Bitmap iconBitmap,
+            CharSequence message) {
         mListener = listener;
         mId = generateId();
         mIconDrawableId = iconDrawableId;
+        mIconBitmap = iconBitmap;
         mMessage = message;
         mExpireOnNavigation = true;
     }
 
     /**
      * Stores a pointer to the native-side counterpart of this InfoBar.
-     * @param nativeInfoBarPtr Pointer to the NativeInfoBar.
+     * @param nativeInfoBarPtr Pointer to the native InfoBarAndroid, not to its subclass.
      */
-    protected void setNativeInfoBar(long nativeInfoBarPtr) {
+    @CalledByNative
+    private void setNativeInfoBar(long nativeInfoBarPtr) {
         if (nativeInfoBarPtr != 0) {
             // The native code takes care of expiring infobars on navigations.
             mExpireOnNavigation = false;
             mNativeInfoBarPtr = nativeInfoBarPtr;
+            mIsJavaOnlyInfoBar = false;
         }
     }
 
-    /**
-     * Change the pointer to the native-side counterpart of this InfoBar.  Native-side code is
-     * responsible for managing the cleanup of the pointer.
-     * @param newInfoBarPtr Pointer to the NativeInfoBar.
-     */
-    protected void replaceNativePointer(long newInfoBarPtr) {
-        mNativeInfoBarPtr = newInfoBarPtr;
+    @CalledByNative
+    protected void onNativeDestroyed() {
+        mNativeInfoBarPtr = 0;
     }
 
     /**
@@ -101,26 +106,12 @@ public abstract class InfoBar implements InfoBarView {
      * It should really be removed once all infobars have a C++ counterpart.
      */
     public final boolean shouldExpire() {
-        return mExpireOnNavigation && mNativeInfoBarPtr == 0;
+        return mExpireOnNavigation && mIsJavaOnlyInfoBar;
     }
 
     // Sets whether the bar should be dismissed when a navigation occurs.
     public void setExpireOnNavigation(boolean expireOnNavigation) {
         mExpireOnNavigation = expireOnNavigation;
-    }
-
-    /**
-     * @return true if this java infobar owns this {@code nativePointer}
-     */
-    boolean ownsNativeInfoBar(long nativePointer) {
-        return mNativeInfoBarPtr == nativePointer;
-    }
-
-    /**
-     * @return whether or not the InfoBar has been dismissed.
-     */
-    protected boolean isDismissed() {
-        return mIsDismissed;
     }
 
     /**
@@ -145,8 +136,10 @@ public abstract class InfoBar implements InfoBarView {
     protected final View createView() {
         assert mContext != null;
 
-        InfoBarLayout layout = new InfoBarLayout(mContext, this, mIconDrawableId, mMessage);
+        InfoBarLayout layout =
+                new InfoBarLayout(mContext, this, mIconDrawableId, mIconBitmap, mMessage);
         createContent(layout);
+        layout.onContentCreated();
         return layout;
     }
 
@@ -227,8 +220,25 @@ public abstract class InfoBar implements InfoBarView {
 
     @Override
     public void onLinkClicked() {
-        if (mNativeInfoBarPtr != 0) {
-            nativeOnLinkClicked(mNativeInfoBarPtr);
+        if (mNativeInfoBarPtr != 0) nativeOnLinkClicked(mNativeInfoBarPtr);
+    }
+
+    /**
+     * Performs some action related to the button being clicked.
+     *
+     * @param action The type of action defined as ACTION_* in this class.
+     * @param actionValue An additional string associated with the action if any. "" if none.
+     */
+    protected void onButtonClicked(int action, String actionValue) {
+        if (mNativeInfoBarPtr != 0) nativeOnButtonClicked(mNativeInfoBarPtr, action, actionValue);
+    }
+
+    @Override
+    public void onCloseButtonClicked() {
+        if (mIsJavaOnlyInfoBar) {
+            dismissJavaOnlyInfoBar();
+        } else {
+            if (mNativeInfoBarPtr != 0) nativeOnCloseButtonClicked(mNativeInfoBarPtr);
         }
     }
 
@@ -253,8 +263,8 @@ public abstract class InfoBar implements InfoBarView {
         mListener = listener;
     }
 
-    protected native void nativeOnLinkClicked(long nativeInfoBarAndroid);
-    protected native void nativeOnButtonClicked(
+    private native void nativeOnLinkClicked(long nativeInfoBarAndroid);
+    private native void nativeOnButtonClicked(
             long nativeInfoBarAndroid, int action, String actionValue);
-    protected native void nativeOnCloseButtonClicked(long nativeInfoBarAndroid);
+    private native void nativeOnCloseButtonClicked(long nativeInfoBarAndroid);
 }

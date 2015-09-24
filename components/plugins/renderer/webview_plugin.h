@@ -13,6 +13,7 @@
 #include "third_party/WebKit/public/platform/WebString.h"
 #include "third_party/WebKit/public/platform/WebURLResponse.h"
 #include "third_party/WebKit/public/web/WebFrameClient.h"
+#include "third_party/WebKit/public/web/WebKit.h"
 #include "third_party/WebKit/public/web/WebPlugin.h"
 #include "third_party/WebKit/public/web/WebViewClient.h"
 
@@ -23,6 +24,10 @@ class WebMouseEvent;
 namespace content {
 class RenderView;
 struct WebPreferences;
+}
+
+namespace gfx {
+class Size;
 }
 
 // This class implements the WebPlugin interface by forwarding drawing and
@@ -38,21 +43,26 @@ class WebViewPlugin : public blink::WebPlugin,
  public:
   class Delegate {
    public:
-    // Bind |frame| to a Javascript object, enabling the delegate to receive
-    // callback methods from Javascript inside the WebFrame.
-    // This method is called from WebFrameClient::didClearWindowObject.
-    virtual void BindWebFrame(blink::WebFrame* frame) = 0;
+    // Called to get the V8 handle used to bind the lifetime to the frame.
+    virtual v8::Local<v8::Value> GetV8Handle(v8::Isolate*) = 0;
 
     // Called upon a context menu event.
     virtual void ShowContextMenu(const blink::WebMouseEvent&) = 0;
 
     // Called when the WebViewPlugin is destroyed.
     virtual void PluginDestroyed() = 0;
+
+    // Called to enable JavaScript pass-through to a throttled plugin, which is
+    // loaded but idle. Doesn't work for blocked plugins, which is not loaded.
+    virtual v8::Local<v8::Object> GetV8ScriptableObject(v8::Isolate*) const = 0;
+
+    // Called when the unobscured rect of the plugin is updated.
+    virtual void OnUnobscuredRectUpdate(const gfx::Rect& unobscured_rect) {}
   };
 
   // Convenience method to set up a new WebViewPlugin using |preferences|
-  // and displaying |html_data|. |url| should be a (fake) chrome:// URL; it is
-  // only used for navigation and never actually resolved.
+  // and displaying |html_data|. |url| should be a (fake) data:text/html URL;
+  // it is only used for navigation and never actually resolved.
   static WebViewPlugin* Create(Delegate* delegate,
                                const content::WebPreferences& preferences,
                                const std::string& html_data,
@@ -60,9 +70,9 @@ class WebViewPlugin : public blink::WebPlugin,
 
   blink::WebView* web_view() { return web_view_; }
 
-  // When loading a plug-in document (i.e. a full page plug-in not embedded in
+  // When loading a plugin document (i.e. a full page plugin not embedded in
   // another page), we save all data that has been received, and replay it with
-  // this method on the actual plug-in.
+  // this method on the actual plugin.
   void ReplayReceivedData(blink::WebPlugin* plugin);
 
   void RestoreTitleText();
@@ -72,21 +82,21 @@ class WebViewPlugin : public blink::WebPlugin,
   virtual bool initialize(blink::WebPluginContainer*);
   virtual void destroy();
 
-  virtual NPObject* scriptableObject();
-  virtual struct _NPP* pluginNPP();
+  virtual v8::Local<v8::Object> v8ScriptableObject(v8::Isolate* isolate);
 
-  virtual bool getFormValue(blink::WebString& value);
-
-  virtual void paint(blink::WebCanvas* canvas, const blink::WebRect& rect);
+  virtual void layoutIfNeeded() override;
+  virtual void paint(blink::WebCanvas* canvas,
+                     const blink::WebRect& rect) override;
 
   // Coordinates are relative to the containing window.
   virtual void updateGeometry(
-      const blink::WebRect& frame_rect,
+      const blink::WebRect& window_rect,
       const blink::WebRect& clip_rect,
-      const blink::WebVector<blink::WebRect>& cut_out_rects,
+      const blink::WebRect& unobscured_rect,
+      const blink::WebVector<blink::WebRect>& cut_outs_rects,
       bool is_visible);
 
-  virtual void updateFocus(bool);
+  virtual void updateFocus(bool foucsed, blink::WebFocusType focus_type);
   virtual void updateVisibility(bool) {}
 
   virtual bool acceptsInputEvents();
@@ -123,6 +133,7 @@ class WebViewPlugin : public blink::WebPlugin,
 
   // WebWidgetClient methods:
   virtual void didInvalidateRect(const blink::WebRect&);
+  virtual void didUpdateLayoutSize(const blink::WebSize&);
   virtual void didChangeCursor(const blink::WebCursorInfo& cursor);
   virtual void scheduleAnimation();
 
@@ -159,9 +170,9 @@ class WebViewPlugin : public blink::WebPlugin,
 
   blink::WebURLResponse response_;
   std::list<std::string> data_;
-  bool finished_loading_;
   scoped_ptr<blink::WebURLError> error_;
   blink::WebString old_title_;
+  bool finished_loading_;
   bool focused_;
 };
 

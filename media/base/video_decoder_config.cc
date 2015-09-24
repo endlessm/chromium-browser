@@ -25,8 +25,9 @@ VideoDecoderConfig::VideoDecoderConfig(VideoCodec codec,
                                        const uint8* extra_data,
                                        size_t extra_data_size,
                                        bool is_encrypted) {
-  Initialize(codec, profile, format, coded_size, visible_rect, natural_size,
-             extra_data, extra_data_size, is_encrypted, true);
+  Initialize(codec, profile, format, VideoFrame::COLOR_SPACE_UNSPECIFIED,
+             coded_size, visible_rect, natural_size, extra_data,
+             extra_data_size, is_encrypted, true);
 }
 
 VideoDecoderConfig::~VideoDecoderConfig() {}
@@ -56,6 +57,7 @@ static void UmaHistogramAspectRatio(const char* name, const T& size) {
 void VideoDecoderConfig::Initialize(VideoCodec codec,
                                     VideoCodecProfile profile,
                                     VideoFrame::Format format,
+                                    VideoFrame::ColorSpace color_space,
                                     const gfx::Size& coded_size,
                                     const gfx::Rect& visible_rect,
                                     const gfx::Size& natural_size,
@@ -76,8 +78,10 @@ void VideoDecoderConfig::Initialize(VideoCodec codec,
     UmaHistogramAspectRatio("Media.VideoCodedAspectRatio", coded_size);
     UMA_HISTOGRAM_COUNTS_10000("Media.VideoVisibleWidth", visible_rect.width());
     UmaHistogramAspectRatio("Media.VideoVisibleAspectRatio", visible_rect);
-    UMA_HISTOGRAM_ENUMERATION(
-        "Media.VideoPixelFormat", format, VideoFrame::FORMAT_MAX + 1);
+    UMA_HISTOGRAM_ENUMERATION("Media.VideoFramePixelFormat", format,
+                              VideoFrame::FORMAT_MAX + 1);
+    UMA_HISTOGRAM_ENUMERATION("Media.VideoFrameColorSpace", color_space,
+                              VideoFrame::COLOR_SPACE_MAX + 1);
   }
 
   codec_ = codec;
@@ -94,8 +98,8 @@ bool VideoDecoderConfig::IsValidConfig() const {
   return codec_ != kUnknownVideoCodec &&
       natural_size_.width() > 0 &&
       natural_size_.height() > 0 &&
-      VideoFrame::IsValidConfig(format_, coded_size_, visible_rect_,
-          natural_size_);
+      VideoFrame::IsValidConfig(format_, VideoFrame::STORAGE_UNOWNED_MEMORY,
+                                coded_size_, visible_rect_, natural_size_);
 }
 
 bool VideoDecoderConfig::Matches(const VideoDecoderConfig& config) const {
@@ -113,7 +117,7 @@ bool VideoDecoderConfig::Matches(const VideoDecoderConfig& config) const {
 
 std::string VideoDecoderConfig::AsHumanReadableString() const {
   std::ostringstream s;
-  s << "codec: " << codec()
+  s << "codec: " << GetHumanReadableCodecName()
     << " format: " << format()
     << " profile: " << profile()
     << " coded size: [" << coded_size().width()
@@ -127,6 +131,30 @@ std::string VideoDecoderConfig::AsHumanReadableString() const {
     << " has extra data? " << (extra_data() ? "true" : "false")
     << " encrypted? " << (is_encrypted() ? "true" : "false");
   return s.str();
+}
+
+// The names come from src/third_party/ffmpeg/libavcodec/codec_desc.c
+std::string VideoDecoderConfig::GetHumanReadableCodecName() const {
+  switch (codec()) {
+    case kUnknownVideoCodec:
+      return "unknown";
+    case kCodecH264:
+      return "h264";
+    case kCodecVC1:
+      return "vc1";
+    case kCodecMPEG2:
+      return "mpeg2video";
+    case kCodecMPEG4:
+      return "mpeg4";
+    case kCodecTheora:
+      return "theora";
+    case kCodecVP8:
+      return "vp8";
+    case kCodecVP9:
+      return "vp9";
+  }
+  NOTREACHED();
+  return "";
 }
 
 VideoCodec VideoDecoderConfig::codec() const {

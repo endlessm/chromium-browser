@@ -8,10 +8,12 @@
 syntax = "proto2";
 
 option optimize_for = LITE_RUNTIME;
+option java_outer_classname = "SystemProfileProtos";
+option java_package = "org.chromium.components.metrics";
 
 package metrics;
 
-// Next tag: 20
+// Next tag: 21
 message SystemProfileProto {
   // The time when the client was compiled/linked, in seconds since the epoch.
   optional int64 build_timestamp = 1;
@@ -55,6 +57,9 @@ message SystemProfileProto {
   }
   optional Channel channel = 10;
 
+  // True if Chrome build is ASan-instrumented.
+  optional bool is_asan_build = 20 [default = false];
+
   // The date the user enabled UMA, in seconds since the epoch.
   // If the user has toggled the UMA enabled state multiple times, this will
   // be the most recent date on which UMA was enabled.
@@ -72,7 +77,12 @@ message SystemProfileProto {
 
   // Information on the user's operating system.
   message OS {
-    // The user's operating system.
+    // The user's operating system. This should be one of:
+    // - Android
+    // - Windows NT
+    // - Linux (includes ChromeOS)
+    // - iPhone OS
+    // - Mac OS X
     optional string name = 1;
 
     // The version of the OS.  The meaning of this field is OS-dependent.
@@ -89,7 +99,7 @@ message SystemProfileProto {
   }
   optional OS os = 5;
 
-  // Next tag for Hardware: 16
+  // Next tag for Hardware: 18
   // Information on the user's hardware.
   message Hardware {
     // The CPU architecture (x86, PowerPC, x86_64, ...)
@@ -134,6 +144,9 @@ message SystemProfileProto {
 
       // The signature reported by CPUID (from EAX).
       optional uint32 signature = 2;
+
+      // Number of logical processors/cores on the current machine.
+      optional uint32 num_cores = 3;
     }
     optional CPU cpu = 13;
 
@@ -150,16 +163,6 @@ message SystemProfileProto {
 
       // The driver date on the GPU.
       optional string driver_date = 4;
-
-      // The GPU performance statistics.
-      // See http://src.chromium.org/viewvc/chrome/trunk/src/content/public/common/gpu_performance_stats.h?view=markup
-      // for details.  Currently logged only on Windows.
-      message PerformanceStatistics {
-        optional float graphics_score = 1;
-        optional float gaming_score = 2;
-        optional float overall_score = 3;
-      }
-      optional PerformanceStatistics performance_statistics = 5;
 
       // The GL_VENDOR string. An example of a gl_vendor string is
       // "Imagination Technologies". "" if we are not using OpenGL.
@@ -258,6 +261,18 @@ message SystemProfileProto {
     // Lists vendor and product ids of external touchscreens.
     // Logged on ChromeOS only.
     repeated TouchScreen external_touchscreen = 15;
+
+    // Drive messages are currently logged on Windows 7+, iOS, and Android.
+    message Drive {
+      // Whether this drive incurs a time penalty when randomly accessed. This
+      // should be true for spinning disks but false for SSDs or other
+      // flash-based drives.
+      optional bool has_seek_penalty = 1;
+    }
+    // The drive that the application executable was loaded from.
+    optional Drive app_drive = 16;
+    // The drive that the current user data directory was loaded from.
+    optional Drive user_data_drive = 17;
   }
   optional Hardware hardware = 6;
 
@@ -438,9 +453,8 @@ message SystemProfileProto {
     optional int32 renderer_crash_count = 3;
     optional int32 renderer_hang_count = 4;
 
-    // Number of renderer crashes that were for extensions.
-    // TODO(isherman): Figure out whether this is also counted in
-    // |renderer_crash_count|.
+    // Number of renderer crashes that were for extensions. These crashes are
+    // not counted in renderer_crash_count.
     optional int32 extension_renderer_crash_count = 5;
 
     // Number of non-renderer child process crashes.

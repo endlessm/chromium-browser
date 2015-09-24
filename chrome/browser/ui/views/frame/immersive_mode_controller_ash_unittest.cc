@@ -13,8 +13,8 @@
 #include "base/command_line.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/ui/browser_commands.h"
-#include "chrome/browser/ui/fullscreen/fullscreen_controller.h"
-#include "chrome/browser/ui/fullscreen/fullscreen_controller_test.h"
+#include "chrome/browser/ui/exclusive_access/fullscreen_controller.h"
+#include "chrome/browser/ui/exclusive_access/fullscreen_controller_test.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/test_with_browser_view.h"
 #include "chrome/browser/ui/views/frame/top_container_view.h"
@@ -38,10 +38,10 @@ class ImmersiveModeControllerAshTest : public TestWithBrowserView {
                             host_desktop_type,
                             hosted_app) {
   }
-  virtual ~ImmersiveModeControllerAshTest() {}
+  ~ImmersiveModeControllerAshTest() override {}
 
   // TestWithBrowserView override:
-  virtual void SetUp() override {
+  void SetUp() override {
     TestWithBrowserView::SetUp();
 
     browser()->window()->Show();
@@ -73,8 +73,17 @@ class ImmersiveModeControllerAshTest : public TestWithBrowserView {
         browser_view()->GetContentsWebViewForTest()->GetWebContents();
     scoped_ptr<FullscreenNotificationObserver> waiter(
         new FullscreenNotificationObserver());
-    browser()->fullscreen_controller()->ToggleFullscreenModeForTab(
-        web_contents, tab_fullscreen);
+    if (tab_fullscreen) {
+      browser()
+          ->exclusive_access_manager()
+          ->fullscreen_controller()
+          ->EnterFullscreenModeForTab(web_contents, GURL());
+    } else {
+      browser()
+          ->exclusive_access_manager()
+          ->fullscreen_controller()
+          ->ExitFullscreenModeForTab(web_contents);
+    }
     waiter->Wait();
   }
 
@@ -270,7 +279,7 @@ class ImmersiveModeControllerAshTestHostedApp
                                        chrome::HOST_DESKTOP_TYPE_ASH,
                                        true) {
   }
-  virtual ~ImmersiveModeControllerAshTestHostedApp() {}
+  ~ImmersiveModeControllerAshTestHostedApp() override {}
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ImmersiveModeControllerAshTestHostedApp);

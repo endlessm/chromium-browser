@@ -3,6 +3,23 @@
      Everything in this file is wrapped in <if expr="chromeos">. -->
 <grit-part>
 
+  <!-- Device types -->
+  <message name="IDS_ASH_CHROMEBASE" desc="The device name for a Chromebase (versus say Chromebox)">
+    Chromebase
+  </message>
+  <message name="IDS_ASH_CHROMEBIT" desc="The device name for a Chromebit (versus say Chromebox)">
+    Chromebit
+  </message>
+  <message name="IDS_ASH_CHROMEBOOK" desc="The device name for a Chromebook (versus say Chromebox)">
+    Chromebook
+  </message>
+  <message name="IDS_ASH_CHROMEBOX" desc="The device name for a Chromebox (versus say Chromebook)">
+    Chromebox
+  </message>
+  <message name="IDS_ASH_CHROMEDEVICE" desc="The device name for a generic Chrome device">
+    Chrome device
+  </message>
+
   <!-- Status tray charging strings. -->
   <message name="IDS_ASH_STATUS_TRAY_LOW_POWER_CHARGER_TITLE" desc="The title of a notification indicating that a low-current USB charger has been connected.">
     Low-power charger connected
@@ -52,8 +69,8 @@
   <message name="IDS_ASH_STATUS_TRAY_OTHER_WIFI" desc="The label used for the item to display other Wi-Fi networks.">
     Join other...
   </message>
-  <message name="IDS_ASH_STATUS_TRAY_OTHER_VPN" desc="The label used for the item to configure other private networks.">
-    Join other...
+  <message name="IDS_ASH_STATUS_TRAY_EXTENSION_CONTROLLED_WIFI" desc="The accessible text for the badge in the detailed network list indicating that the respective network's configuration may be controlled by an extension.">
+    The extension "<ph name="EXTENSION_NAME">$1<ex>Nexus S</ex></ph>" can help connect to this network.
   </message>
   <message name="IDS_ASH_STATUS_TRAY_TURN_ON_WIFI" desc="The label used for the item to turn on Wi-Fi networks.">
     Turn Wi-Fi on...
@@ -97,6 +114,9 @@
   <message name="IDS_ASH_STATUS_TRAY_BLUETOOTH_PAIRED" desc="Notification shown when a new device is paired with the computer.">
     Bluetooth device "<ph name="DEVICE_NAME">$1<ex>Nexus S</ex></ph>" has been paired and is now available to all users. You may remove this pairing using Settings.
   </message>
+  <message name="IDS_ASH_STATUS_TRAY_VPN_DISCONNECT" desc="Message on button that disconnects from the current VPN.">
+    Disconnect
+  </message>
 
   <!-- Ash multi-user warning dialog -->
   <message name="IDS_DESKTOP_CASTING_ACTIVE_TITLE" desc="The title for the dialog which tells the user that desktop casting is in progress, asking if the casting should be stopped before switching - or - the switch should be aborted.">
@@ -133,10 +153,10 @@
     Stop
   </message>
   <message name="IDS_ASH_STATUS_TRAY_SCREEN_SHARE_BEING_HELPED" desc="label for screen sharing notification">
-    Sharing control of your screen via Hangouts.
+    Sharing control of your screen via Remote Assistance.
   </message>
   <message name="IDS_ASH_STATUS_TRAY_SCREEN_SHARE_BEING_HELPED_NAME" desc="label for screen sharing notification with name">
-    Sharing control of your screen with <ph name="HELPER_NAME">$1<ex>Walder Frey</ex></ph> via Hangouts.
+    Sharing control of your screen with <ph name="HELPER_NAME">$1<ex>Walder Frey</ex></ph> via Remote Assistance.
   </message>
 
   <!-- Status tray audio strings. -->
@@ -161,7 +181,11 @@
   </message>
 
   <message name="IDS_ASH_STATUS_TRAY_AUDIO_HDMI_DEVICE" desc="label used for hdmi audio device">
-    <ph name="device_name">$1<ex>Speaker</ex></ph> (HDMI)
+    <ph name="device_name">$1<ex>Speaker</ex></ph> (HDMI/DP)
+  </message>
+  
+  <message name="IDS_ASH_STATUS_TRAY_AUDIO_MIC_JACK_DEVICE" desc="label used for mic jack device">
+    Mic Jack
   </message>
 
   <message name="IDS_AURA_SET_DESKTOP_WALLPAPER" desc="The label used for change wallpaper in context menu">
@@ -245,6 +269,9 @@
   </message>
   <message name="IDS_ASH_STATUS_TRAY_DISPLAY_ORIENTATION_270" desc="The value of display orientation option item: 270-degree rotated">
     270&#x00B0;
+  </message>
+  <message name="IDS_ASH_STATUS_TRAY_DISPLAY_UNIFIED" desc="The title of the notification indicating that the system is in unified desktop mode.">
+    Unified desktop mode
   </message>
   <message name="IDS_ASH_STATUS_TRAY_CAPS_LOCK_ENABLED" desc="The label used for the tray item to indicate caps lock is on and to toggle caps lock by the click.">
     CAPS LOCK is on
@@ -334,17 +361,23 @@ Press Shift + Alt to switch.
   <message name="IDS_ASH_STATUS_TRAY_NOTIFICATION_SESSION_LENGTH_LIMIT" desc="Notification shown to inform the user that the session length is limited.">
     Session ends in <ph name="session_time_remaining">$1<ex>4 minutes 23 seconds</ex></ph>. You will be signed out.
   </message>
-  <message name="IDS_ASH_STATUS_TRAY_ROTATION_LOCK_AUTO" desc="The text shown in the tray menu when rotation is set to auto.">
-    Rotation on (Tap here to change)
+  <message name="IDS_ASH_STATUS_TRAY_ROTATION_LOCK_AUTO" desc="The text shown in the tray menu when rotation is set to auto and the user can enable the rotation lock by tapping.">
+    Enable rotation lock
   </message>
-  <message name="IDS_ASH_STATUS_TRAY_ROTATION_LOCK_LOCKED" desc="The text shown in the tray menu when rotation is set to locked.">
-    Rotation locked (Tap here to change)
+  <message name="IDS_ASH_STATUS_TRAY_ROTATION_LOCK_LOCKED" desc="The text shown in the tray menu when rotation is set to locked and tapping will disable the lock.">
+    Disable rotation lock
   </message>
   <message name="IDS_ASH_STATUS_TRAY_KEYBOARD_DISABLED" desc="The text shown in the tray menu when the virtual keyboard is disabled.">
     On-screen keyboard disabled
   </message>
   <message name="IDS_ASH_STATUS_TRAY_KEYBOARD_ENABLED" desc="The text shown in the tray menu when the virtual keyboard is enabled.">
     On-screen keyboard enabled
+  </message>
+  <message name="IDS_ASH_STATUS_TRAY_ENABLE_KEYBOARD" desc="A button label in the tray menu to enable the keyboard.">
+    Enable on-screen keyboard
+  </message>
+  <message name="IDS_ASH_STATUS_TRAY_DISABLE_KEYBOARD" desc="A button label in the tray menu to disable the keyboard.">
+    Disable on-screen keyboard
   </message>
   <message name="IDS_ASH_VIRTUAL_KEYBOARD_TRAY_ACCESSIBLE_NAME" desc="The accessible text for virtual keyboard icon in status tray.">
     Show on-screen keyboard
@@ -402,5 +435,11 @@ Press Shift + Alt to switch.
   </message>
   <message name="IDS_ASH_LOGOUT_CONFIRMATION_BUTTON" desc="The text for okay button of the logout confirmation dialog.">
     Sign out now
+  </message>
+  <message name="IDS_ASH_STATUS_TRAY_NEW_LOGIN_UI_ENABLED" desc="The text shown in the tray menu when the WebView-based sign-in is enabled.">
+    New login UI is ON
+  </message>
+  <message name="IDS_ASH_STATUS_TRAY_NEW_LOGIN_UI_DISABLED" desc="The text shown in the tray menu when the WebView-based sign-in is disabled.">
+    New login UI is OFF
   </message>
 </grit-part>

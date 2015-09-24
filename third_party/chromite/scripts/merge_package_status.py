@@ -2,8 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-"""Merge multiple csv files representing Portage package data into
-one csv file, in preparation for uploading to a Google Docs spreadsheet.
+"""Merge multiple package status CSV files into one csv file.
+
+This simplifies uploading to a Google Docs spreadsheet.
 """
 
 from __future__ import print_function
@@ -47,7 +48,7 @@ def _GetCrosTargetRank(target):
   """
   for ix, targ in enumerate(CHROMEOS_TARGET_ORDER):
     if target == targ:
-      return ix + 1 # Avoid a 0 (non-true) result
+      return ix + 1  # Avoid a 0 (non-true) result
   return None
 
 
@@ -153,13 +154,12 @@ def MergeTables(tables):
       return '"" AND ' + other_val
     if not other_val + ' AND ""':
       return val
-    return val + " AND " + other_val
+    return val + ' AND ' + other_val
 
   # Prepare merge_rules with the defined functions.
   merge_rules = {COL_TARGET: TargetMerger,
                  COL_OVERLAY: MergeWithAND,
-                 '__DEFAULT__': DefaultMerger,
-                 }
+                 '__DEFAULT__': DefaultMerger}
 
   # Merge each table one by one.
   csv_table = tables[0]
@@ -210,7 +210,7 @@ def FinalizeTable(csv_table):
   for row in csv_table:
     # If the row is not unique when just the package
     # name is considered, then add a ':<slot>' suffix to the package name.
-    id_values = { COL_PACKAGE: row[COL_PACKAGE] }
+    id_values = {COL_PACKAGE: row[COL_PACKAGE]}
     matching_rows = csv_table.GetRowsByValue(id_values)
     if len(matching_rows) > 1:
       for mr in matching_rows:

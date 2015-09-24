@@ -10,9 +10,7 @@ import socket
 import sys
 import time
 
-
-class TimeoutException(Exception):
-  pass
+from telemetry.core import exceptions
 
 
 def GetBaseDir():
@@ -28,8 +26,14 @@ def GetTelemetryDir():
       __file__, os.pardir, os.pardir, os.pardir))
 
 
+def GetTelemetryThirdPartyDir():
+  return os.path.normpath(os.path.join(
+      __file__, os.pardir, os.pardir, os.pardir, 'third_party'))
+
+
 def GetUnittestDataDir():
-  return os.path.join(GetTelemetryDir(), 'unittest_data')
+  return os.path.join(GetTelemetryDir(),
+                      'telemetry', 'internal', 'testing')
 
 
 def GetChromiumSrcDir():
@@ -58,9 +62,9 @@ def WaitFor(condition, timeout):
   Returns:
     Result of |condition| function (if present).
   """
-  min_poll_interval =   0.1
-  max_poll_interval =   5
-  output_interval   = 300
+  min_poll_interval = 0.1
+  max_poll_interval = 5
+  output_interval = 300
 
   def GetConditionString():
     if condition.__name__ == '<lambda>':
@@ -80,8 +84,8 @@ def WaitFor(condition, timeout):
     elapsed_time = now - start_time
     last_output_elapsed_time = now - last_output_time
     if elapsed_time > timeout:
-      raise TimeoutException('Timed out while waiting %ds for %s.' %
-                             (timeout, GetConditionString()))
+      raise exceptions.TimeoutException('Timed out while waiting %ds for %s.' %
+                                        (timeout, GetConditionString()))
     if last_output_elapsed_time > output_interval:
       logging.info('Continuing to wait %ds for %s. Elapsed: %ds.',
                    timeout, GetConditionString(), elapsed_time)
@@ -103,15 +107,6 @@ def GetUnreservedAvailableLocalPort():
   tmp.close()
 
   return port
-
-
-def CloseConnections(tab):
-  """Closes all TCP sockets held open by the browser."""
-  try:
-    tab.ExecuteJavaScript("""window.chrome && chrome.benchmarking &&
-                             chrome.benchmarking.closeConnections()""")
-  except Exception:
-    pass
 
 
 def GetBuildDirectories():
@@ -143,3 +138,13 @@ def GetSequentialFileName(base_name):
       break
     index = index + 1
   return output_name
+
+def IsRunningOnCrosDevice():
+  """Returns True if we're on a ChromeOS device."""
+  lsb_release = '/etc/lsb-release'
+  if sys.platform.startswith('linux') and os.path.exists(lsb_release):
+    with open(lsb_release, 'r') as f:
+      res = f.read()
+      if res.count('CHROMEOS_RELEASE_NAME'):
+        return True
+  return False

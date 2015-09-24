@@ -44,12 +44,8 @@
 namespace blink {
 
 class Blob;
-class CanvasRenderingContext2D;
 class EventTarget;
 class ExceptionState;
-class HTMLCanvasElement;
-class HTMLImageElement;
-class HTMLVideoElement;
 class ImageBitmap;
 class ImageData;
 class ExecutionContext;
@@ -58,14 +54,6 @@ class ImageBitmapFactories final : public NoBaseWillBeGarbageCollectedFinalized<
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(ImageBitmapFactories);
 
 public:
-    static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, HTMLImageElement*, ExceptionState&);
-    static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, HTMLImageElement*, int sx, int sy, int sw, int sh, ExceptionState&);
-    static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, HTMLVideoElement*, ExceptionState&);
-    static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, HTMLVideoElement*, int sx, int sy, int sw, int sh, ExceptionState&);
-    static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, CanvasRenderingContext2D*, ExceptionState&);
-    static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, CanvasRenderingContext2D*, int sx, int sy, int sw, int sh, ExceptionState&);
-    static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, HTMLCanvasElement*, ExceptionState&);
-    static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, HTMLCanvasElement*, int sx, int sy, int sw, int sh, ExceptionState&);
     static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, Blob*, ExceptionState&);
     static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, Blob*, int sx, int sy, int sw, int sh, ExceptionState&);
     static ScriptPromise createImageBitmap(ScriptState*, EventTarget&, ImageData*, ExceptionState&);
@@ -75,7 +63,7 @@ public:
 
     virtual ~ImageBitmapFactories() { }
 
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
 protected:
     static const char* supplementName();
@@ -91,7 +79,7 @@ private:
         void loadBlobAsync(ExecutionContext*, Blob*);
         ScriptPromise promise() { return m_resolver->promise(); }
 
-        void trace(Visitor*);
+        DECLARE_TRACE();
 
         virtual ~ImageBitmapLoader() { }
 
@@ -108,7 +96,7 @@ private:
 
         FileReaderLoader m_loader;
         RawPtrWillBeMember<ImageBitmapFactories> m_factory;
-        RefPtr<ScriptPromiseResolver> m_resolver;
+        RefPtrWillBeMember<ScriptPromiseResolver> m_resolver;
         IntRect m_cropRect;
     };
 
@@ -120,7 +108,7 @@ private:
     void addLoader(ImageBitmapLoader*);
     void didFinishLoading(ImageBitmapLoader*);
 
-    PersistentHeapHashSetWillBeHeapHashSet<Member<ImageBitmapLoader> > m_pendingLoaders;
+    PersistentHeapHashSetWillBeHeapHashSet<Member<ImageBitmapLoader>> m_pendingLoaders;
 };
 
 } // namespace blink

@@ -4,6 +4,8 @@
 
 #include "components/copresence/copresence_switches.h"
 
+// TODO(ckehoe): Move these flags to the chrome://copresence page.
+
 namespace switches {
 
 // Address for calls to the Copresence server (via Apiary).

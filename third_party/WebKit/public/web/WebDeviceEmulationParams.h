@@ -5,22 +5,30 @@
 #ifndef WebDeviceEmulationParams_h
 #define WebDeviceEmulationParams_h
 
-#include "public/platform/WebFloatPoint.h"
-#include "public/platform/WebRect.h"
-#include "public/platform/WebSize.h"
+#include "../platform/WebFloatPoint.h"
+#include "../platform/WebPoint.h"
+#include "../platform/WebRect.h"
+#include "../platform/WebSize.h"
 
 namespace blink {
 
 // All sizes are measured in device independent pixels.
 struct WebDeviceEmulationParams {
-    // For mobile, screen has the same size as view, which is positioned at (0;0).
+    // For mobile, |screenSize| and |viewPosition| are used.
     // For desktop, screen size and view position are preserved.
     enum ScreenPosition {
         Desktop,
-        Mobile
+        Mobile,
+        ScreenPositionLast = Mobile
     };
 
     ScreenPosition screenPosition;
+
+    // Emulated screen size. Used with |screenPosition == Mobile|.
+    WebSize screenSize;
+
+    // Position of view on the screen. Used with |screenPosition == Mobile|.
+    WebPoint viewPosition;
 
     // If zero, the original device scale factor is preserved.
     float deviceScaleFactor;
@@ -43,6 +51,16 @@ struct WebDeviceEmulationParams {
         , fitToView(false)
         , scale(1) { }
 };
+
+inline bool operator==(const WebDeviceEmulationParams& a, const WebDeviceEmulationParams& b)
+{
+    return a.screenPosition == b.screenPosition && a.screenSize == b.screenSize && a.viewPosition == b.viewPosition && a.deviceScaleFactor == b.deviceScaleFactor && a.viewSize == b.viewSize && a.fitToView == b.fitToView && a.offset == b.offset && a.scale == b.scale;
+}
+
+inline bool operator!=(const WebDeviceEmulationParams& a, const WebDeviceEmulationParams& b)
+{
+    return !(a == b);
+}
 
 } // namespace blink
 

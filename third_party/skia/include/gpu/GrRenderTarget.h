@@ -11,7 +11,8 @@
 #include "GrSurface.h"
 #include "SkRect.h"
 
-class GrStencilBuffer;
+class GrStencilAttachment;
+class GrRenderTargetPriv;
 
 /**
  * GrRenderTarget represents a 2D buffer of pixels that can be rendered to.
@@ -22,36 +23,71 @@ class GrStencilBuffer;
  */
 class GrRenderTarget : virtual public GrSurface {
 public:
-    SK_DECLARE_INST_COUNT(GrRenderTarget)
-
     // GrSurface overrides
-    virtual GrRenderTarget* asRenderTarget() SK_OVERRIDE { return this; }
-    virtual const GrRenderTarget* asRenderTarget() const  SK_OVERRIDE { return this; }
+    GrRenderTarget* asRenderTarget() override { return this; }
+    const GrRenderTarget* asRenderTarget() const  override { return this; }
 
     // GrRenderTarget
     /**
-     * If this RT is multisampled, this is the multisample buffer
-     * @return the 3D API's handle to this object (e.g. FBO ID in OpenGL)
-     */
-    virtual GrBackendObject getRenderTargetHandle() const = 0;
+     * On some hardware it is possible for a render target to have multisampling
+     * only in certain buffers.
+     * Enforce only two legal sample configs.
+     * kUnified_SampleConfig signifies multisampling in both color and stencil
+     * buffers and is available across all hardware.
+     * kStencil_SampleConfig means multisampling is present in stencil buffer
+     * only; this config requires hardware support of
+     * NV_framebuffer_mixed_samples.
+    */
+    enum SampleConfig {
+        kUnified_SampleConfig = 0,
+        kStencil_SampleConfig = 1
+    };
 
     /**
-     * If this RT is multisampled, this is the buffer it is resolved to.
-     * Otherwise, same as getRenderTargetHandle().
-     * (In GL a separate FBO ID is used for the MSAA and resolved buffers)
-     * @return the 3D API's handle to this object (e.g. FBO ID in OpenGL)
+     * @return true if the surface is multisampled in all buffers,
+     *         false otherwise
      */
-    virtual GrBackendObject getRenderTargetResolvedHandle() const = 0;
+    bool isUnifiedMultisampled() const {
+        if (fSampleConfig != kUnified_SampleConfig) {
+            return false;
+        }
+        return 0 != fDesc.fSampleCnt;
+    }
 
     /**
-     * @return true if the surface is multisampled, false otherwise
+     * @return true if the surface is multisampled in the stencil buffer,
+     *         false otherwise
      */
-    bool isMultisampled() const { return 0 != fDesc.fSampleCnt; }
+    bool isStencilBufferMultisampled() const {
+        return 0 != fDesc.fSampleCnt;
+    }
 
     /**
-     * @return the number of samples-per-pixel or zero if non-MSAA.
+     * @return the number of color samples-per-pixel, or zero if non-MSAA or
+     *         multisampled in the stencil buffer only.
      */
-    int numSamples() const { return fDesc.fSampleCnt; }
+    int numColorSamples() const {
+        if (fSampleConfig == kUnified_SampleConfig) {
+            return fDesc.fSampleCnt;
+        }
+        return 0;
+    }
+
+    /**
+     * @return the number of stencil samples-per-pixel, or zero if non-MSAA.
+     */
+    int numStencilSamples() const {
+        return fDesc.fSampleCnt;
+    }
+
+    /**
+     * @return true if the surface is mixed sampled, false otherwise.
+     */
+    bool hasMixedSamples() const {
+        SkASSERT(kStencil_SampleConfig != fSampleConfig ||
+                 this->isStencilBufferMultisampled());
+        return kStencil_SampleConfig == fSampleConfig;
+    }
 
     /**
      * Call to indicate the multisample contents were modified such that the
@@ -103,30 +139,41 @@ public:
     virtual ResolveType getResolveType() const = 0;
 
     /**
-     * GrStencilBuffer is not part of the public API.
+     *  Return the native ID or handle to the rendertarget, depending on the
+     *  platform. e.g. on OpenGL, return the FBO ID.
      */
-    GrStencilBuffer* getStencilBuffer() const { return fStencilBuffer; }
-    void setStencilBuffer(GrStencilBuffer* stencilBuffer);
+    virtual GrBackendObject getRenderTargetHandle() const = 0;
+
+    // Provides access to functions that aren't part of the public API.
+    GrRenderTargetPriv renderTargetPriv();
+    const GrRenderTargetPriv renderTargetPriv() const;
 
 protected:
-    GrRenderTarget(GrGpu* gpu,
-                   bool isWrapped,
-                   const GrSurfaceDesc& desc)
-        : INHERITED(gpu, isWrapped, desc)
-        , fStencilBuffer(NULL) {
+    GrRenderTarget(GrGpu* gpu, LifeCycle lifeCycle, const GrSurfaceDesc& desc,
+                   SampleConfig sampleConfig)
+        : INHERITED(gpu, lifeCycle, desc)
+        , fStencilAttachment(NULL)
+        , fSampleConfig(sampleConfig) {
         fResolveRect.setLargestInverted();
     }
 
     // override of GrResource
-    virtual void onAbandon() SK_OVERRIDE;
-    virtual void onRelease() SK_OVERRIDE;
+    void onAbandon() override;
+    void onRelease() override;
 
 private:
-    GrStencilBuffer*  fStencilBuffer;
+    // Checked when this object is asked to attach a stencil buffer.
+    virtual bool canAttemptStencilAttachment() const = 0;
 
-    SkIRect           fResolveRect;
+    friend class GrRenderTargetPriv;
+
+    GrStencilAttachment*  fStencilAttachment;
+    SampleConfig          fSampleConfig;
+
+    SkIRect               fResolveRect;
 
     typedef GrSurface INHERITED;
 };
+
 
 #endif

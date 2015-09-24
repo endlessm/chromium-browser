@@ -15,9 +15,9 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
-#include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
 #include "base/values.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -26,12 +26,9 @@
 #include "chrome/browser/extensions/test_extension_service.h"
 #include "chrome/browser/extensions/test_extension_system.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/services/gcm/fake_signin_manager.h"
 #include "chrome/browser/services/gcm/gcm_profile_service.h"
 #include "chrome/browser/services/gcm/gcm_profile_service_factory.h"
-#include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/gcm_driver/fake_gcm_app_handler.h"
 #include "components/gcm_driver/fake_gcm_client.h"
@@ -64,7 +61,6 @@ namespace extensions {
 namespace {
 
 const char kTestExtensionName[] = "FooBar";
-const char kTestingUsername[] = "user1@example.com";
 
 }  // namespace
 
@@ -103,13 +99,13 @@ class Waiter {
 
  private:
   void PumpIOLoopCompleted() {
-    DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
     SignalCompleted();
   }
 
   void OnIOLoopPump() {
-    DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+    DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
     content::BrowserThread::PostTask(
         content::BrowserThread::IO,
@@ -118,7 +114,7 @@ class Waiter {
   }
 
   void OnIOLoopPumpCompleted() {
-    DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+    DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
     content::BrowserThread::PostTask(
         content::BrowserThread::UI,
@@ -137,6 +133,7 @@ class FakeExtensionGCMAppHandler : public ExtensionGCMAppHandler {
       : ExtensionGCMAppHandler(profile),
         waiter_(waiter),
         unregistration_result_(gcm::GCMClient::UNKNOWN_ERROR),
+        delete_id_result_(instance_id::InstanceID::UNKNOWN_ERROR),
         app_handler_count_drop_to_zero_(false) {
   }
 
@@ -153,8 +150,15 @@ class FakeExtensionGCMAppHandler : public ExtensionGCMAppHandler {
 
   void OnUnregisterCompleted(const std::string& app_id,
                              gcm::GCMClient::Result result) override {
+    ExtensionGCMAppHandler::OnUnregisterCompleted(app_id, result);
     unregistration_result_ = result;
     waiter_->SignalCompleted();
+  }
+
+  void OnDeleteIDCompleted(const std::string& app_id,
+                           instance_id::InstanceID::Result result) override {
+    delete_id_result_ = result;
+    ExtensionGCMAppHandler::OnDeleteIDCompleted(app_id, result);
   }
 
   void RemoveAppHandler(const std::string& app_id) override {
@@ -166,6 +170,9 @@ class FakeExtensionGCMAppHandler : public ExtensionGCMAppHandler {
   gcm::GCMClient::Result unregistration_result() const {
     return unregistration_result_;
   }
+  instance_id::InstanceID::Result delete_id_result() const {
+    return delete_id_result_;
+  }
   bool app_handler_count_drop_to_zero() const {
     return app_handler_count_drop_to_zero_;
   }
@@ -173,6 +180,7 @@ class FakeExtensionGCMAppHandler : public ExtensionGCMAppHandler {
  private:
   Waiter* waiter_;
   gcm::GCMClient::Result unregistration_result_;
+  instance_id::InstanceID::Result delete_id_result_;
   bool app_handler_count_drop_to_zero_;
 
   DISALLOW_COPY_AND_ASSIGN(FakeExtensionGCMAppHandler);
@@ -180,16 +188,15 @@ class FakeExtensionGCMAppHandler : public ExtensionGCMAppHandler {
 
 class ExtensionGCMAppHandlerTest : public testing::Test {
  public:
-  static KeyedService* BuildGCMProfileService(
+  static scoped_ptr<KeyedService> BuildGCMProfileService(
       content::BrowserContext* context) {
-    return new gcm::GCMProfileService(
+    return make_scoped_ptr(new gcm::GCMProfileService(
         Profile::FromBrowserContext(context),
         scoped_ptr<gcm::GCMClientFactory>(new gcm::FakeGCMClientFactory(
-            gcm::FakeGCMClient::NO_DELAY_START,
             content::BrowserThread::GetMessageLoopProxyForThread(
                 content::BrowserThread::UI),
             content::BrowserThread::GetMessageLoopProxyForThread(
-                content::BrowserThread::IO))));
+                content::BrowserThread::IO)))));
   }
 
   ExtensionGCMAppHandlerTest()
@@ -223,11 +230,7 @@ class ExtensionGCMAppHandlerTest : public testing::Test {
 
     // Create a new profile.
     TestingProfile::Builder builder;
-    builder.AddTestingFactory(SigninManagerFactory::GetInstance(),
-                              gcm::FakeSigninManager::Build);
     profile_ = builder.Build();
-    signin_manager_ = static_cast<gcm::FakeSigninManager*>(
-        SigninManagerFactory::GetInstance()->GetForProfile(profile_.get()));
 
     // Create extension service in order to uninstall the extension.
     TestExtensionSystem* extension_system(
@@ -235,14 +238,11 @@ class ExtensionGCMAppHandlerTest : public testing::Test {
     base::FilePath extensions_install_dir =
         temp_dir_.path().Append(FILE_PATH_LITERAL("Extensions"));
     extension_system->CreateExtensionService(
-        CommandLine::ForCurrentProcess(), extensions_install_dir, false);
+        base::CommandLine::ForCurrentProcess(), extensions_install_dir, false);
     extension_service_ = extension_system->Get(profile())->extension_service();
     extension_service_->set_extensions_enabled(true);
     extension_service_->set_show_extensions_prompts(false);
     extension_service_->set_install_updates_when_idle_for_test(false);
-
-    // Enable GCM such that tests could be run on all channels.
-    profile()->GetPrefs()->SetBoolean(prefs::kGCMChannelEnabled, true);
 
     // Create GCMProfileService that talks with fake GCMClient.
     gcm::GCMProfileServiceFactory::GetInstance()->SetTestingFactoryAndUse(
@@ -314,7 +314,7 @@ class ExtensionGCMAppHandlerTest : public testing::Test {
         extensions::NOTIFICATION_CRX_INSTALLER_DONE,
         base::Bind(&IsCrxInstallerDone, &installer));
     extension_service_->UpdateExtension(
-        extension->id(), path, true, &installer);
+        extensions::CRXFileInfo(extension->id(), path), true, &installer);
 
     if (installer)
       observer.Wait();
@@ -335,16 +335,6 @@ class ExtensionGCMAppHandlerTest : public testing::Test {
         extensions::UNINSTALL_REASON_FOR_TESTING,
         base::Bind(&base::DoNothing),
         NULL);
-  }
-
-  void SignIn(const std::string& username) {
-    signin_manager_->SignIn(username);
-    waiter_.PumpIOLoop();
-  }
-
-  void SignOut() {
-    signin_manager_->SignOut(signin_metrics::SIGNOUT_TEST);
-    waiter_.PumpIOLoop();
   }
 
   void Register(const std::string& app_id,
@@ -388,7 +378,6 @@ class ExtensionGCMAppHandlerTest : public testing::Test {
       in_process_utility_thread_helper_;
   scoped_ptr<TestingProfile> profile_;
   ExtensionService* extension_service_;  // Not owned.
-  gcm::FakeSigninManager* signin_manager_;  // Not owned.
   base::ScopedTempDir temp_dir_;
 
   // This is needed to create extension service under CrOS.
@@ -426,16 +415,13 @@ TEST_F(ExtensionGCMAppHandlerTest, AddAndRemoveAppHandler) {
 
   // App handler is removed when extension is uninstalled.
   UninstallExtension(extension.get());
-  waiter()->PumpUILoop();
+  waiter()->WaitUntilCompleted();
   EXPECT_FALSE(HasAppHandlers(extension->id()));
 }
 
 TEST_F(ExtensionGCMAppHandlerTest, UnregisterOnExtensionUninstall) {
   scoped_refptr<Extension> extension(CreateExtension());
   LoadExtension(extension.get());
-
-  // Sign-in is needed for registration.
-  SignIn(kTestingUsername);
 
   // Kick off registration.
   std::vector<std::string> sender_ids;
@@ -444,19 +430,14 @@ TEST_F(ExtensionGCMAppHandlerTest, UnregisterOnExtensionUninstall) {
   waiter()->WaitUntilCompleted();
   EXPECT_EQ(gcm::GCMClient::SUCCESS, registration_result());
 
-  // Add another app handler in order to prevent the GCM service from being
-  // stopped when the extension is uninstalled. This is needed because otherwise
-  // we are not able to receive the unregistration result.
-  GetGCMDriver()->AddAppHandler("Foo", gcm_app_handler());
-
-  // Unregistration should be triggered when the extension is uninstalled.
+  // Both token deletion and unregistration should be triggered when the
+  // extension is uninstalled.
   UninstallExtension(extension.get());
   waiter()->WaitUntilCompleted();
+  EXPECT_EQ(instance_id::InstanceID::SUCCESS,
+            gcm_app_handler()->delete_id_result());
   EXPECT_EQ(gcm::GCMClient::SUCCESS,
             gcm_app_handler()->unregistration_result());
-
-  // Clean up.
-  GetGCMDriver()->RemoveAppHandler("Foo");
 }
 
 TEST_F(ExtensionGCMAppHandlerTest, UpdateExtensionWithGcmPermissionKept) {

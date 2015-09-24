@@ -44,10 +44,10 @@ class ShellContentBrowserClient : public ContentBrowserClient {
       ProtocolHandlerMap* protocol_handlers,
       URLRequestInterceptorScopedVector request_interceptors) override;
   bool IsHandledURL(const GURL& url) override;
+  bool IsNPAPIEnabled() override;
   void AppendExtraCommandLineSwitches(base::CommandLine* command_line,
                                       int child_process_id) override;
   void OverrideWebkitPrefs(RenderViewHost* render_view_host,
-                           const GURL& url,
                            WebPreferences* prefs) override;
   void ResourceDispatcherHostCreated() override;
   AccessTokenStore* CreateAccessTokenStore() override;
@@ -55,7 +55,12 @@ class ShellContentBrowserClient : public ContentBrowserClient {
   WebContentsViewDelegate* GetWebContentsViewDelegate(
       WebContents* web_contents) override;
   QuotaPermissionContext* CreateQuotaPermissionContext() override;
-  SpeechRecognitionManagerDelegate* GetSpeechRecognitionManagerDelegate()
+  void SelectClientCertificate(
+      WebContents* web_contents,
+      net::SSLCertRequestInfo* cert_request_info,
+      scoped_ptr<ClientCertificateDelegate> delegate) override;
+
+  SpeechRecognitionManagerDelegate* CreateSpeechRecognitionManagerDelegate()
       override;
   net::NetLog* GetNetLog() override;
   bool ShouldSwapProcessesForRedirect(ResourceContext* resource_context,
@@ -63,15 +68,24 @@ class ShellContentBrowserClient : public ContentBrowserClient {
                                       const GURL& new_url) override;
   DevToolsManagerDelegate* GetDevToolsManagerDelegate() override;
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX)
+  void OpenURL(BrowserContext* browser_context,
+               const OpenURLParams& params,
+               const base::Callback<void(WebContents*)>& callback) override;
+
+#if defined(OS_ANDROID)
   void GetAdditionalMappedFilesForChildProcess(
       const base::CommandLine& command_line,
       int child_process_id,
-      FileDescriptorInfo* mappings) override;
-#endif
+      content::FileDescriptorInfo* mappings,
+      std::map<int, base::MemoryMappedFile::Region>* regions) override;
+#elif defined(OS_POSIX) && !defined(OS_MACOSX)
+  void GetAdditionalMappedFilesForChildProcess(
+      const base::CommandLine& command_line,
+      int child_process_id,
+      content::FileDescriptorInfo* mappings) override;
+#endif  // defined(OS_ANDROID)
 #if defined(OS_WIN)
-  virtual void PreSpawnRenderer(sandbox::TargetPolicy* policy,
-                                bool* success) override;
+  void PreSpawnRenderer(sandbox::TargetPolicy* policy, bool* success) override;
 #endif
 
   ShellBrowserContext* browser_context();
@@ -83,12 +97,20 @@ class ShellContentBrowserClient : public ContentBrowserClient {
     return shell_browser_main_parts_;
   }
 
+  // Used for content_browsertests.
+  void set_select_client_certificate_callback(
+      base::Closure select_client_certificate_callback) {
+    select_client_certificate_callback_ = select_client_certificate_callback;
+  }
+
  private:
   ShellBrowserContext* ShellBrowserContextForBrowserContext(
       BrowserContext* content_browser_context);
 
   scoped_ptr<ShellResourceDispatcherHostDelegate>
       resource_dispatcher_host_delegate_;
+
+  base::Closure select_client_certificate_callback_;
 
   ShellBrowserMainParts* shell_browser_main_parts_;
 };

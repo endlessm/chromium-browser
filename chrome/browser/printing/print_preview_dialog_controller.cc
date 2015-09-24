@@ -14,7 +14,6 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/chrome_extension_web_contents_observer.h"
-#include "chrome/browser/plugins/chrome_plugin_service_filter.h"
 #include "chrome/browser/printing/print_view_manager.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -24,22 +23,19 @@
 #include "chrome/browser/ui/webui/chrome_web_contents_handler.h"
 #include "chrome/browser/ui/webui/constrained_web_dialog_ui.h"
 #include "chrome/browser/ui/webui/print_preview/print_preview_ui.h"
-#include "chrome/common/chrome_content_client.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/url_constants.h"
+#include "components/guest_view/browser/guest_view_base.h"
 #include "components/web_modal/web_contents_modal_dialog_host.h"
+#include "content/public/browser/host_zoom_map.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_source.h"
-#include "content/public/browser/plugin_service.h"
-#include "content/public/browser/render_frame_host.h"
-#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
-#include "content/public/common/webplugininfo.h"
 #include "ui/web_dialogs/web_dialog_delegate.h"
 
 using content::NavigationController;
@@ -47,23 +43,6 @@ using content::WebContents;
 using content::WebUIMessageHandler;
 
 namespace {
-
-void EnableInternalPDFPluginForContents(WebContents* preview_dialog) {
-  // Always enable the internal PDF plugin for the print preview page.
-  base::FilePath pdf_plugin_path;
-  if (!PathService::Get(chrome::FILE_PDF_PLUGIN, &pdf_plugin_path))
-    return;
-
-  content::WebPluginInfo pdf_plugin;
-  if (!content::PluginService::GetInstance()->GetPluginInfoByPath(
-      pdf_plugin_path, &pdf_plugin))
-    return;
-
-  ChromePluginServiceFilter::GetInstance()->OverridePluginForFrame(
-      preview_dialog->GetRenderProcessHost()->GetID(),
-      preview_dialog->GetMainFrame()->GetRoutingID(),
-      GURL(), pdf_plugin);
-}
 
 // A ui::WebDialogDelegate that specifies the print preview dialog appearance.
 class PrintPreviewDialogDelegate : public ui::WebDialogDelegate {
@@ -122,17 +101,17 @@ void PrintPreviewDialogDelegate::GetDialogSize(gfx::Size* size) const {
   *size = kMinDialogSize;
 
   web_modal::WebContentsModalDialogHost* host = NULL;
-  Browser* browser = chrome::FindBrowserWithWebContents(initiator_);
+  content::WebContents* outermost_web_contents =
+      guest_view::GuestViewBase::GetTopLevelWebContents(initiator_);
+  Browser* browser = chrome::FindBrowserWithWebContents(outermost_web_contents);
   if (browser)
     host = browser->window()->GetWebContentsModalDialogHost();
 
-  if (host) {
+  if (host)
     size->SetToMax(host->GetMaximumDialogSize());
-    size->Enlarge(-2 * kBorder, -kBorder);
-  } else {
-    size->SetToMax(initiator_->GetContainerBounds().size());
-    size->Enlarge(-2 * kBorder, -2 * kBorder);
-  }
+  else
+    size->SetToMax(outermost_web_contents->GetContainerBounds().size());
+  size->Enlarge(-2 * kBorder, -kBorder);
 
 #if defined(OS_MACOSX)
   // Limit the maximum size on MacOS X.
@@ -152,8 +131,7 @@ void PrintPreviewDialogDelegate::OnDialogClosed(
 
 void PrintPreviewDialogDelegate::OnCloseContents(WebContents* /* source */,
                                                  bool* out_close_dialog) {
-  if (out_close_dialog)
-    *out_close_dialog = true;
+  *out_close_dialog = true;
 }
 
 bool PrintPreviewDialogDelegate::ShouldShowDialogTitle() const {
@@ -370,12 +348,18 @@ WebContents* PrintPreviewDialogController::CreatePrintPreviewDialog(
 
   // The dialog delegates are deleted when the dialog is closed.
   ConstrainedWebDialogDelegate* web_dialog_delegate =
-      CreateConstrainedWebDialog(initiator->GetBrowserContext(),
-                                 new PrintPreviewDialogDelegate(initiator),
-                                 initiator);
+      ShowConstrainedWebDialog(initiator->GetBrowserContext(),
+                               new PrintPreviewDialogDelegate(initiator),
+                               initiator);
 
   WebContents* preview_dialog = web_dialog_delegate->GetWebContents();
-  EnableInternalPDFPluginForContents(preview_dialog);
+
+  // Clear the zoom level for the print preview dialog so it isn't affected by
+  // the default zoom level. This also controls the zoom level of the OOP PDF
+  // extension when iframed by the print preview dialog.
+  GURL print_url(chrome::kChromeUIPrintURL);
+  content::HostZoomMap::Get(preview_dialog->GetSiteInstance())
+      ->SetZoomLevelForHostAndScheme(print_url.scheme(), print_url.host(), 0);
   PrintViewManager::CreateForWebContents(preview_dialog);
   extensions::ChromeExtensionWebContentsObserver::CreateForWebContents(
       preview_dialog);

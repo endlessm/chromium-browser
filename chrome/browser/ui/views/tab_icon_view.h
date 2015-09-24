@@ -7,6 +7,7 @@
 
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/time/time.h"
 #include "ui/views/controls/button/menu_button.h"
 #include "ui/views/view.h"
 
@@ -33,33 +34,24 @@ class TabIconView : public views::MenuButton {
   // Set the throbber to the light style (for use on dark backgrounds).
   void set_is_light(bool is_light) { is_light_ = is_light; }
 
-  // Overridden from View
-  void OnPaint(gfx::Canvas* canvas) override;
-  gfx::Size GetPreferredSize() const override;
-
  private:
+  // views::MenuButton:
+  gfx::Size GetPreferredSize() const override;
+  const char* GetClassName() const override;
+  void OnPaint(gfx::Canvas* canvas) override;
+
   void PaintThrobber(gfx::Canvas* canvas);
   void PaintFavicon(gfx::Canvas* canvas, const gfx::ImageSkia& image);
-  void PaintIcon(gfx::Canvas* canvas,
-                 const gfx::ImageSkia& image,
-                 int src_x,
-                 int src_y,
-                 int src_w,
-                 int src_h,
-                 bool filter);
 
   // Our model.
   chrome::TabIconViewModel* model_;
 
-  // Whether the throbber is running.
-  bool throbber_running_;
-
   // Whether we should display our light or dark style.
   bool is_light_;
 
-  // Current frame of the throbber being painted. This is only used if
-  // throbber_running_ is true.
-  int throbber_frame_;
+  // Time we painted the first frame of the current throbber animation, or
+  // 0 if not painting the throbber.
+  base::TimeTicks throbber_start_time_;
 
   DISALLOW_COPY_AND_ASSIGN(TabIconView);
 };

@@ -7,17 +7,20 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
-#include "base/debug/trace_event.h"
+#include "base/debug/crash_logging.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/trace_event/trace_event.h"
 #include "chrome/common/chrome_constants.h"
+#include "chrome/common/chrome_isolated_world_ids.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/crash_keys.h"
 #include "chrome/common/prerender_messages.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/url_constants.h"
-#include "chrome/renderer/isolated_world_ids.h"
 #include "chrome/renderer/prerender/prerender_helper.h"
 #include "chrome/renderer/safe_browsing/phishing_classifier_delegate.h"
 #include "chrome/renderer/web_apps.h"
@@ -29,7 +32,6 @@
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_view.h"
 #include "extensions/common/constants.h"
-#include "extensions/renderer/extension_groups.h"
 #include "net/base/data_url.h"
 #include "skia/ext/platform_canvas.h"
 #include "third_party/WebKit/public/platform/WebCString.h"
@@ -49,8 +51,8 @@
 #include "third_party/WebKit/public/web/WebView.h"
 #include "ui/base/ui_base_switches_util.h"
 #include "ui/gfx/favicon_size.h"
-#include "ui/gfx/size.h"
-#include "ui/gfx/size_f.h"
+#include "ui/gfx/geometry/size.h"
+#include "ui/gfx/geometry/size_f.h"
 #include "ui/gfx/skbitmap_operations.h"
 #include "v8/include/v8-testing.h"
 
@@ -163,11 +165,12 @@ ChromeRenderViewObserver::ChromeRenderViewObserver(
       translate_helper_(new translate::TranslateHelper(
           render_view,
           chrome::ISOLATED_WORLD_ID_TRANSLATE,
-          extensions::EXTENSION_GROUP_INTERNAL_TRANSLATE_SCRIPTS,
+          0,
           extensions::kExtensionScheme)),
       phishing_classifier_(NULL),
       capture_timer_(false, false) {
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
   if (!command_line.HasSwitch(switches::kDisableClientSidePhishingDetection))
     OnSetClientSidePhishingDetection(true);
 }
@@ -334,6 +337,11 @@ void ChromeRenderViewObserver::DidStartLoading() {
 
 void ChromeRenderViewObserver::DidStopLoading() {
   WebFrame* main_frame = render_view()->GetWebView()->mainFrame();
+
+  // Remote frames don't host a document, so return early if that's the case.
+  if (main_frame->isWebRemoteFrame())
+    return;
+
   GURL osdd_url = main_frame->document().openSearchDescriptionURL();
   if (!osdd_url.is_empty()) {
     Send(new ChromeViewHostMsg_PageHasOSDD(
@@ -357,6 +365,10 @@ void ChromeRenderViewObserver::DidCommitProvisionalLoad(
   // Don't capture pages being not new, or including refresh meta tag.
   if (!is_new_navigation || HasRefreshMetaTag(frame))
     return;
+
+  base::debug::SetCrashKeyValue(
+      crash_keys::kViewCount,
+      base::SizeTToString(content::RenderView::GetRenderViewCount()));
 
   CapturePageInfoLater(
       true,  // preliminary_capture
@@ -473,7 +485,7 @@ bool ChromeRenderViewObserver::HasRefreshMetaTag(WebFrame* frame) {
     if (!element.hasHTMLTagName(tag_name))
       continue;
     WebString value = element.getAttribute(attribute_name);
-    if (value.isNull() || !LowerCaseEqualsASCII(value, "refresh"))
+    if (value.isNull() || !base::LowerCaseEqualsASCII(value, "refresh"))
       continue;
     return true;
   }

@@ -9,13 +9,10 @@ from __future__ import print_function
 import base64
 import datetime
 import errno
-import logging
 import os
 import re
 
-import fixup_path
-fixup_path.FixupPath()
-
+from chromite.lib import cros_logging as logging
 from chromite.lib import gs
 from chromite.lib import osutils
 from chromite.lib.paygen import filelib
@@ -47,8 +44,7 @@ def FindGsUtil():
   """
   # TODO(dgarrett): This is a hack. Merge chromite and crostools to fix.
 
-  # pylint: disable=W0603
-  global GSUTIL
+  global GSUTIL  # pylint: disable=global-statement
   if GSUTIL is None:
     GSUTIL = gs.GSContext.GetDefaultGSUtilBin()
 
@@ -61,6 +57,7 @@ class GsutilError(Exception):
 
 class GsutilMissingError(GsutilError):
   """Returned when the gsutil utility is missing from PATH."""
+
   def __init__(self, msg='The gsutil utility must be installed.'):
     GsutilError.__init__(self, msg)
 
@@ -230,9 +227,10 @@ def RunGsutilCommand(args,
     args.insert(0, '-d')
     assert redirect_stderr
   cmd = [gsutil] + args
-  run_opts = {'redirect_stdout': redirect_stdout,
-              'redirect_stderr': redirect_stderr,
-              }
+  run_opts = {
+      'redirect_stdout': redirect_stdout,
+      'redirect_stderr': redirect_stderr,
+  }
   run_opts.update(kwargs)
 
   # Always use RunCommand with return_result on, which will be the default
@@ -251,7 +249,7 @@ def RunGsutilCommand(args,
     raise failed_exception('%r failed' % cmd if headers else e)
 
   if headers is not None and result is not None:
-    assert (redirect_stdout if get_headers_from_stdout else redirect_stderr)
+    assert redirect_stdout if get_headers_from_stdout else redirect_stderr
     # Parse headers that look like this:
     # header: x-goog-generation: 1359148994758000
     # header: x-goog-metageneration: 1
@@ -473,10 +471,9 @@ def Move(src_path, dest_path, **kwargs):
   args = ['mv', src_path, dest_path]
   RunGsutilCommand(args, failed_exception=MoveFail, **kwargs)
 
-# pylint: disable-msg=C9011
 
 @RetryGSLib
-def Remove(*paths, **kwargs):
+def Remove(*paths, **kwargs):  # pylint: disable=docstring-misnamed-args
   """Run gsutil rm on path supporting GS globs.
 
   Args:

@@ -6,6 +6,7 @@
 
 #include <string>
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/metrics/field_trial.h"
@@ -18,7 +19,7 @@
 #include "base/time/time.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/renderer/chrome_content_renderer_client.h"
-#include "components/data_reduction_proxy/core/common/data_reduction_proxy_headers.h"
+#include "components/data_reduction_proxy/content/common/data_reduction_proxy_messages.h"
 #include "content/public/common/content_constants.h"
 #include "content/public/renderer/document_state.h"
 #include "content/public/renderer/render_thread.h"
@@ -179,17 +180,21 @@ bool ViaHeaderContains(WebFrame* frame, const std::string& via_value) {
 // purposes.
 // TODO(pmeenan): Remove the fuzzy logic when the referrer is reliable
 bool IsFromGoogleSearchResult(const GURL& url, const GURL& referrer) {
-  if (!StartsWithASCII(referrer.host(), "www.google.", true))
+  if (!base::StartsWith(referrer.host(), "www.google.",
+                        base::CompareCase::SENSITIVE))
     return false;
-  if (StartsWithASCII(referrer.path(), "/url", true))
+  if (base::StartsWith(referrer.path(), "/url",
+                       base::CompareCase::SENSITIVE))
     return true;
   bool is_possible_search_referrer =
-      referrer.path().empty() ||
-      referrer.path() == "/" ||
-      StartsWithASCII(referrer.path(), "/search", true) ||
-      StartsWithASCII(referrer.path(), "/webhp", true);
+      referrer.path().empty() || referrer.path() == "/" ||
+      base::StartsWith(referrer.path(), "/search",
+                       base::CompareCase::SENSITIVE) ||
+      base::StartsWith(referrer.path(), "/webhp",
+                       base::CompareCase::SENSITIVE);
   if (is_possible_search_referrer &&
-      !StartsWithASCII(url.host(), "www.google", true))
+      !base::StartsWith(url.host(), "www.google",
+                        base::CompareCase::SENSITIVE))
     return true;
   return false;
 }
@@ -213,6 +218,7 @@ int GetQueryStringBasedExperiment(const GURL& referrer) {
 void DumpHistograms(const WebPerformance& performance,
                     DocumentState* document_state,
                     bool data_reduction_proxy_was_used,
+                    data_reduction_proxy::LoFiStatus lofi_status,
                     bool came_from_websearch,
                     int websearch_chrome_joint_experiment_id,
                     bool is_preview,
@@ -244,6 +250,7 @@ void DumpHistograms(const WebPerformance& performance,
   Time load_event_start = Time::FromDoubleT(performance.loadEventStart());
   Time load_event_end = Time::FromDoubleT(performance.loadEventEnd());
   Time begin = (request.is_null() ? navigation_start : request_start);
+  Time first_paint = document_state->first_paint_time();
 
   DCHECK(!navigation_start.is_null());
 
@@ -412,6 +419,35 @@ void DumpHistograms(const WebPerformance& performance,
                       load_event_end - navigation_start);
         PLT_HISTOGRAM("PLT.PT_StartToFinish_DataReductionProxy",
                       load_event_end - request_start);
+        if (lofi_status == data_reduction_proxy::LOFI_STATUS_ACTIVE) {
+          PLT_HISTOGRAM("PLT.PT_BeginToFinish_DataReductionProxy_AutoLoFiOn",
+                        load_event_end - begin);
+          PLT_HISTOGRAM("PLT.PT_CommitToFinish_DataReductionProxy_AutoLoFiOn",
+                        load_event_end - response_start);
+          PLT_HISTOGRAM("PLT.PT_RequestToFinish_DataReductionProxy_AutoLoFiOn",
+                        load_event_end - navigation_start);
+          PLT_HISTOGRAM("PLT.PT_StartToFinish_DataReductionProxy_AutoLoFiOn",
+                        load_event_end - request_start);
+          if (!first_paint.is_null()) {
+            PLT_HISTOGRAM("PLT.BeginToFirstPaint_DataReductionProxy_AutoLoFiOn",
+                          first_paint - begin);
+          }
+        } else if (lofi_status ==
+                   data_reduction_proxy::LOFI_STATUS_ACTIVE_CONTROL) {
+          PLT_HISTOGRAM("PLT.PT_BeginToFinish_DataReductionProxy_AutoLoFiOff",
+                        load_event_end - begin);
+          PLT_HISTOGRAM("PLT.PT_CommitToFinish_DataReductionProxy_AutoLoFiOff",
+                        load_event_end - response_start);
+          PLT_HISTOGRAM("PLT.PT_RequestToFinish_DataReductionProxy_AutoLoFiOff",
+                        load_event_end - navigation_start);
+          PLT_HISTOGRAM("PLT.PT_StartToFinish_DataReductionProxy_AutoLoFiOff",
+                        load_event_end - request_start);
+          if (!first_paint.is_null()) {
+            PLT_HISTOGRAM(
+                "PLT.BeginToFirstPaint_DataReductionProxy_AutoLoFiOff",
+                first_paint - begin);
+          }
+        }
       } else {
         PLT_HISTOGRAM("PLT.PT_BeginToFinish_HTTPS_DataReductionProxy",
                       load_event_end - begin);
@@ -421,6 +457,44 @@ void DumpHistograms(const WebPerformance& performance,
                       load_event_end - navigation_start);
         PLT_HISTOGRAM("PLT.PT_StartToFinish_HTTPS_DataReductionProxy",
                       load_event_end - request_start);
+        if (lofi_status == data_reduction_proxy::LOFI_STATUS_ACTIVE) {
+          PLT_HISTOGRAM(
+              "PLT.PT_BeginToFinish_HTTPS_DataReductionProxy_AutoLoFiOn",
+              load_event_end - begin);
+          PLT_HISTOGRAM(
+              "PLT.PT_CommitToFinish_HTTPS_DataReductionProxy_AutoLoFiOn",
+              load_event_end - response_start);
+          PLT_HISTOGRAM(
+              "PLT.PT_RequestToFinish_HTTPS_DataReductionProxy_AutoLoFiOn",
+              load_event_end - navigation_start);
+          PLT_HISTOGRAM(
+              "PLT.PT_StartToFinish_HTTPS_DataReductionProxy_AutoLoFiOn",
+              load_event_end - request_start);
+          if (!first_paint.is_null()) {
+            PLT_HISTOGRAM(
+                "PLT.BeginToFirstPaint_HTTPS_DataReductionProxy_AutoLoFiOn",
+                first_paint - begin);
+          }
+        } else if (lofi_status ==
+                   data_reduction_proxy::LOFI_STATUS_ACTIVE_CONTROL) {
+          PLT_HISTOGRAM(
+              "PLT.PT_BeginToFinish_HTTPS_DataReductionProxy_AutoLoFiOff",
+              load_event_end - begin);
+          PLT_HISTOGRAM(
+              "PLT.PT_CommitToFinish_HTTPS_DataReductionProxy_AutoLoFiOff",
+              load_event_end - response_start);
+          PLT_HISTOGRAM(
+              "PLT.PT_RequestToFinish_HTTPS_DataReductionProxy_AutoLoFiOff",
+              load_event_end - navigation_start);
+          PLT_HISTOGRAM(
+              "PLT.PT_StartToFinish_HTTPS_DataReductionProxy_AutoLoFiOff",
+              load_event_end - request_start);
+          if (!first_paint.is_null()) {
+            PLT_HISTOGRAM(
+                "PLT.BeginToFirstPaint_HTTPS_DataReductionProxy_AutoLoFiOff",
+                first_paint - begin);
+          }
+        }
       }
     }
   }
@@ -452,10 +526,32 @@ void DumpHistograms(const WebPerformance& performance,
       if ((scheme_type & URLPattern::SCHEME_HTTPS) == 0) {
         PLT_HISTOGRAM("PLT.PT_RequestToDomContentLoaded_DataReductionProxy",
                       dom_content_loaded_start - navigation_start);
+        if (lofi_status == data_reduction_proxy::LOFI_STATUS_ACTIVE) {
+          PLT_HISTOGRAM(
+              "PLT.PT_RequestToDomContentLoaded_DataReductionProxy_AutoLoFiOn",
+              dom_content_loaded_start - navigation_start);
+        } else if (lofi_status ==
+                   data_reduction_proxy::LOFI_STATUS_ACTIVE_CONTROL) {
+          PLT_HISTOGRAM(
+              "PLT.PT_RequestToDomContentLoaded_DataReductionProxy_AutoLoFiOff",
+              dom_content_loaded_start - navigation_start);
+        }
       } else {
         PLT_HISTOGRAM(
             "PLT.PT_RequestToDomContentLoaded_HTTPS_DataReductionProxy",
             dom_content_loaded_start - navigation_start);
+        if (lofi_status == data_reduction_proxy::LOFI_STATUS_ACTIVE) {
+          PLT_HISTOGRAM(
+              "PLT.PT_RequestToDomContentLoaded_HTTPS_DataReductionProxy_"
+              "AutoLoFiOn",
+              dom_content_loaded_start - navigation_start);
+        } else if (lofi_status ==
+                   data_reduction_proxy::LOFI_STATUS_ACTIVE_CONTROL) {
+          PLT_HISTOGRAM(
+              "PLT.PT_RequestToDomContentLoaded_HTTPS_DataReductionProxy_"
+              "AutoLoFiOff",
+              dom_content_loaded_start - navigation_start);
+        }
       }
     }
   }
@@ -587,6 +683,14 @@ void DumpDeprecatedHistograms(const WebPerformance& performance,
                                      came_from_websearch,
                                      websearch_chrome_joint_experiment_id,
                                      is_preview);
+    } else {
+      // Track the frequency and magnitude of cases where first_paint precedes
+      // begin. The current hypothesis is that this is due to using the
+      // non-monotonic timer. If that's the case, we expect first_paint
+      // preceding begin to be rare, and the delta between values to be close to
+      // zero. This is a temporary addition that we will remove once we better
+      // understand the frequency and magnitude of first_paint preceding begin.
+      PLT_HISTOGRAM("PLT.BeginToFirstPaint_Negative", begin - first_paint);
     }
 
     // Conditional was previously a DCHECK. Changed due to multiple bot
@@ -725,34 +829,56 @@ void DumpDeprecatedHistograms(const WebPerformance& performance,
 
 PageLoadHistograms::PageLoadHistograms(content::RenderView* render_view)
     : content::RenderViewObserver(render_view),
-      data_reduction_proxy_params_(
-          data_reduction_proxy::DataReductionProxyParams::kAllowed |
-          data_reduction_proxy::DataReductionProxyParams::kFallbackAllowed |
-          data_reduction_proxy::DataReductionProxyParams::kAlternativeAllowed) {
+      dumped_first_layout_histograms_(false),
+      weak_factory_(this) {
 }
 
-void PageLoadHistograms::Dump(WebFrame* frame) {
+PageLoadHistograms::~PageLoadHistograms() {
+}
+
+bool PageLoadHistograms::ShouldDump(WebFrame* frame) {
   // We only dump histograms for main frames.
   // In the future, it may be interesting to tag subframes and dump them too.
   if (!frame || frame->parent())
-    return;
+    return false;
+
+  // If the main frame lives in a different process, don't do anything.
+  // Histogram data will be recorded by the real main frame.
+  if (frame->isWebRemoteFrame())
+    return false;
 
   // Only dump for supported schemes.
   URLPattern::SchemeMasks scheme_type =
       GetSupportedSchemeType(frame->document().url());
   if (scheme_type == 0)
-    return;
+    return false;
 
   // Ignore multipart requests.
   if (frame->dataSource()->response().isMultipartPayload())
+    return false;
+
+  return true;
+}
+
+void PageLoadHistograms::Dump(WebFrame* frame) {
+  if (!ShouldDump(frame))
     return;
+
+  URLPattern::SchemeMasks scheme_type =
+      GetSupportedSchemeType(frame->document().url());
 
   DocumentState* document_state =
       DocumentState::FromDataSource(frame->dataSource());
 
-  bool data_reduction_proxy_was_used =
-      data_reduction_proxy_params_.IsDataReductionProxy(
-          document_state->proxy_server(), NULL);
+  bool data_reduction_proxy_was_used = false;
+  data_reduction_proxy::LoFiStatus lofi_status =
+      data_reduction_proxy::LOFI_STATUS_TEMPORARILY_OFF;
+  if (!document_state->proxy_server().IsEmpty()) {
+    Send(new DataReductionProxyViewHostMsg_DataReductionProxyStatus(
+        document_state->proxy_server(), &data_reduction_proxy_was_used,
+        &lofi_status));
+  }
+
   bool came_from_websearch =
       IsFromGoogleSearchResult(frame->document().url(),
                                GURL(frame->document().referrer()));
@@ -764,14 +890,14 @@ void PageLoadHistograms::Dump(WebFrame* frame) {
     is_preview = ViaHeaderContains(frame, "1.1 Google Instant Proxy Preview");
   }
 
+  MaybeDumpFirstLayoutHistograms();
+
   // Metrics based on the timing information recorded for the Navigation Timing
   // API - http://www.w3.org/TR/navigation-timing/.
   DumpHistograms(frame->performance(), document_state,
-                 data_reduction_proxy_was_used,
-                 came_from_websearch,
-                 websearch_chrome_joint_experiment_id,
-                 is_preview,
-                 scheme_type);
+                 data_reduction_proxy_was_used, lofi_status,
+                 came_from_websearch, websearch_chrome_joint_experiment_id,
+                 is_preview, scheme_type);
 
   // Old metrics based on the timing information stored in DocumentState. These
   // are deprecated and should go away.
@@ -797,6 +923,29 @@ void PageLoadHistograms::Dump(WebFrame* frame) {
       content::kHistogramSynchronizerReservedSequenceNumber);
 }
 
+void PageLoadHistograms::MaybeDumpFirstLayoutHistograms() {
+  if (dumped_first_layout_histograms_)
+    return;
+
+  const WebPerformance& performance =
+    render_view()->GetWebView()->mainFrame()->performance();
+  Time first_layout = Time::FromDoubleT(performance.firstLayout());
+  if (first_layout.is_null())
+    return;
+
+  Time navigation_start = Time::FromDoubleT(performance.navigationStart());
+  if (!navigation_start.is_null())
+    PLT_HISTOGRAM("PLT.PT.NavigationStartToFirstLayout",
+                  first_layout - navigation_start);
+
+  Time response_start = Time::FromDoubleT(performance.responseStart());
+  if (!response_start.is_null())
+    PLT_HISTOGRAM("PLT.PT.ResponseStartToFirstLayout",
+                  first_layout - response_start);
+
+  dumped_first_layout_histograms_ = true;
+}
+
 void PageLoadHistograms::FrameWillClose(WebFrame* frame) {
   Dump(frame);
 }
@@ -806,6 +955,48 @@ void PageLoadHistograms::ClosePage() {
   // called when a page is destroyed. page_load_histograms_.Dump() is safe
   // to call multiple times for the same frame, but it will simplify things.
   Dump(render_view()->GetWebView()->mainFrame());
+}
+
+void PageLoadHistograms::DidUpdateLayout() {
+  // Normally, PageLoadHistograms dumps all histograms in the FrameWillClose or
+  // ClosePage callbacks, which happen as a page is being torn down. However,
+  // renderers that are killed by fast shutdown (for example, renderers closed
+  // due to the user closing a tab) don't get a chance to run these callbacks
+  // (see crbug.com/382542 for details).
+  //
+  // Longer term, we need to migrate histogram recording to happen earlier in
+  // the page load life cycle, so histograms aren't lost when tabs are
+  // closed. As a first step, we use the RenderViewObserver::DidUpdateLayout
+  // callback to log first layout histograms earlier in the page load life
+  // cycle.
+
+  if (dumped_first_layout_histograms_)
+    return;
+
+  WebFrame* frame = render_view()->GetWebView()->mainFrame();
+  if (!ShouldDump(frame))
+    return;
+
+  // The canonical source for the 'first layout time' is the
+  // blink::WebPerformance object, so we need to read the first layout timestamp
+  // from that object, rather than taking our own timestamp in this
+  // callback.
+  //
+  // This DidUpdateLayout callback gets invoked in the midst of the
+  // layout process. The logic that records the first layout time in the
+  // blink::WebPerformance object may run later in the layout process, after
+  // DidUpdateLayout gets invoked. Thus, we schedule a callback to run
+  // MaybeDumpFirstLayoutHistograms asynchronously, after the layout process is
+  // complete.
+  //
+  // Note, too, that some layouts are performed with pending stylesheets, and
+  // blink will not record firstLayout during those layouts, so firstLayout may
+  // not be populated during the layout associated with the first
+  // DidUpdateLayout callback.
+  content::RenderThread::Get()->GetTaskRunner()->PostTask(
+      FROM_HERE,
+      base::Bind(&PageLoadHistograms::MaybeDumpFirstLayoutHistograms,
+                 weak_factory_.GetWeakPtr()));
 }
 
 void PageLoadHistograms::LogPageLoadTime(const DocumentState* document_state,

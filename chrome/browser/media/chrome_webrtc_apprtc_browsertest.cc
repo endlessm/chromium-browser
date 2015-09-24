@@ -9,11 +9,14 @@
 #include "base/rand_util.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/infobars/infobar_responder.h"
+#include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/media/webrtc_browsertest_base.h"
 #include "chrome/browser/media/webrtc_browsertest_common.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/website_settings/permission_bubble_manager.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/test/browser_test_utils.h"
@@ -27,10 +30,17 @@ const char kAdviseOnGclientSolution[] =
     "You need to add this solution to your .gclient to run this test:\n"
     "{\n"
     "  \"name\"        : \"webrtc.DEPS\",\n"
-    "  \"url\"         : \"svn://svn.chromium.org/chrome/trunk/deps/"
-    "third_party/webrtc/webrtc.DEPS\",\n"
+    "  \"url\"         : \"https://chromium.googlesource.com/chromium/deps/"
+    "webrtc/webrtc.DEPS\",\n"
     "}";
 const char kTitlePageOfAppEngineAdminPage[] = "Instances";
+
+const char kIsApprtcCallUpJavascript[] =
+    "var remoteVideo = document.querySelector('#remote-video');"
+    "var remoteVideoActive ="
+    "    remoteVideo != null &&"
+    "    remoteVideo.classList.contains('active');"
+    "window.domAutomationController.send(remoteVideoActive.toString());";
 
 
 // WebRTC-AppRTC integration test. Requires a real webcam and microphone
@@ -43,33 +53,32 @@ const char kTitlePageOfAppEngineAdminPage[] = "Instances";
 // call gets up when connecting to the same room from two tabs in a browser.
 class WebRtcApprtcBrowserTest : public WebRtcTestBase {
  public:
-  WebRtcApprtcBrowserTest()
-      : dev_appserver_(base::kNullProcessHandle),
-        firefox_(base::kNullProcessHandle) {
-  }
+  WebRtcApprtcBrowserTest() {}
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     EXPECT_FALSE(command_line->HasSwitch(switches::kUseFakeUIForMediaStream));
 
     // The video playback will not work without a GPU, so force its use here.
     command_line->AppendSwitch(switches::kUseGpuInTests);
-    CommandLine::ForCurrentProcess()->AppendSwitch(
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
         switches::kUseFakeDeviceForMediaStream);
   }
 
   void TearDown() override {
-    // Kill any processes we may have brought up.
+    // Kill any processes we may have brought up. Note: this isn't perfect,
+    // especially if the test hangs or if we're on Windows.
     LOG(INFO) << "Entering TearDown";
-    if (dev_appserver_ != base::kNullProcessHandle)
-      base::KillProcess(dev_appserver_, 0, false);
-    // TODO(phoglund): Find some way to shut down Firefox cleanly on Windows.
-    if (firefox_ != base::kNullProcessHandle)
-      base::KillProcess(firefox_, 0, false);
+    if (dev_appserver_.IsValid())
+      dev_appserver_.Terminate(0, false);
+    if (collider_server_.IsValid())
+      collider_server_.Terminate(0, false);
+    if (firefox_.IsValid())
+      firefox_.Terminate(0, false);
     LOG(INFO) << "Exiting TearDown";
   }
 
  protected:
-  bool LaunchApprtcInstanceOnLocalhost() {
+  bool LaunchApprtcInstanceOnLocalhost(const std::string& port) {
     base::FilePath appengine_dev_appserver =
         GetSourceDir().Append(
             FILE_PATH_LITERAL("../google_appengine/dev_appserver.py"));
@@ -80,25 +89,61 @@ class WebRtcApprtcBrowserTest : public WebRtcTestBase {
     }
 
     base::FilePath apprtc_dir =
-        GetSourceDir().Append(FILE_PATH_LITERAL("out/apprtc"));
+        GetSourceDir().Append(FILE_PATH_LITERAL("out/apprtc/out/app_engine"));
     if (!base::PathExists(apprtc_dir)) {
-      LOG(ERROR) << "Missing AppRTC code at " <<
+      LOG(ERROR) << "Missing AppRTC AppEngine app at " <<
           apprtc_dir.value() << ". " << kAdviseOnGclientSolution;
       return false;
     }
+    if (!base::PathExists(apprtc_dir.Append(FILE_PATH_LITERAL("app.yaml")))) {
+      LOG(ERROR) << "The AppRTC AppEngine app at " <<
+          apprtc_dir.value() << " appears to have not been built." <<
+          "This should have been done by webrtc.DEPS scripts which invoke " <<
+          "'grunt build' on AppRTC.";
+      return false;
+    }
 
-    CommandLine command_line(CommandLine::NO_PROGRAM);
+    base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
     EXPECT_TRUE(GetPythonCommand(&command_line));
 
     command_line.AppendArgPath(appengine_dev_appserver);
     command_line.AppendArgPath(apprtc_dir);
-    command_line.AppendArg("--port=9999");
+    command_line.AppendArg("--port=" + port);
     command_line.AppendArg("--admin_port=9998");
     command_line.AppendArg("--skip_sdk_update_check");
+    command_line.AppendArg("--clear_datastore=yes");
 
     DVLOG(1) << "Running " << command_line.GetCommandLineString();
-    return base::LaunchProcess(command_line, base::LaunchOptions(),
-                               &dev_appserver_);
+    dev_appserver_ = base::LaunchProcess(command_line, base::LaunchOptions());
+    return dev_appserver_.IsValid();
+  }
+
+  bool LaunchColliderOnLocalHost(const std::string& apprtc_url,
+                                 const std::string& collider_port) {
+    // The go workspace should be created, and collidermain built, at the
+    // runhooks stage when webrtc.DEPS/build_apprtc_collider.py runs.
+#if defined(OS_WIN)
+    base::FilePath collider_server = GetSourceDir().Append(
+        FILE_PATH_LITERAL("out/go-workspace/bin/collidermain.exe"));
+#else
+    base::FilePath collider_server = GetSourceDir().Append(
+        FILE_PATH_LITERAL("out/go-workspace/bin/collidermain"));
+#endif
+    if (!base::PathExists(collider_server)) {
+      LOG(ERROR) << "Missing Collider server binary at " <<
+          collider_server.value() << ". " << kAdviseOnGclientSolution;
+      return false;
+    }
+
+    base::CommandLine command_line(collider_server);
+
+    command_line.AppendArg("-tls=false");
+    command_line.AppendArg("-port=" + collider_port);
+    command_line.AppendArg("-room-server=" + apprtc_url);
+
+    DVLOG(1) << "Running " << command_line.GetCommandLineString();
+    collider_server_ = base::LaunchProcess(command_line, base::LaunchOptions());
+    return collider_server_.IsValid();
   }
 
   bool LocalApprtcInstanceIsUp() {
@@ -117,17 +162,8 @@ class WebRtcApprtcBrowserTest : public WebRtcTestBase {
   }
 
   bool WaitForCallToComeUp(content::WebContents* tab_contents) {
-    // Apprtc will set remoteVideo.style.opacity to 1 when the call comes up.
-    std::string javascript =
-        "window.domAutomationController.send(remoteVideo.style.opacity)";
-    return test::PollingWaitUntil(javascript, "1", tab_contents);
-  }
-
-  bool WaitForCallToHangUp(content::WebContents* tab_contents) {
-    // Apprtc will set remoteVideo.style.opacity to 1 when the call comes up.
-    std::string javascript =
-        "window.domAutomationController.send(remoteVideo.style.opacity)";
-    return test::PollingWaitUntil(javascript, "0", tab_contents);
+    return test::PollingWaitUntil(kIsApprtcCallUpJavascript, "true",
+                                  tab_contents);
   }
 
   bool EvalInJavascriptFile(content::WebContents* tab_contents,
@@ -155,14 +191,9 @@ class WebRtcApprtcBrowserTest : public WebRtcTestBase {
       return false;
 
     // The remote video tag is called remoteVideo in the AppRTC code.
-    StartDetectingVideo(tab_contents, "remoteVideo");
+    StartDetectingVideo(tab_contents, "remote-video");
     WaitForVideoToPlay(tab_contents);
     return true;
-  }
-
-  bool HangUpApprtcCall(content::WebContents* tab_contents) {
-    // This is the same as clicking the Hangup button in the AppRTC call.
-    return content::ExecuteScript(tab_contents, "onHangup()");
   }
 
   base::FilePath GetSourceDir() {
@@ -189,34 +220,19 @@ class WebRtcApprtcBrowserTest : public WebRtcTestBase {
       return false;
     }
 
-    CommandLine command_line(firefox_launcher);
+    base::CommandLine command_line(firefox_launcher);
     command_line.AppendSwitchPath("--binary", firefox_binary);
     command_line.AppendSwitchASCII("--webpage", url.spec());
 
     DVLOG(1) << "Running " << command_line.GetCommandLineString();
-    return base::LaunchProcess(command_line, base::LaunchOptions(),
-                               &firefox_);
-  }
-
-  bool HasWebcamOnSystem() {
-#if defined(OS_LINUX)
-    // Implementation note: normally we would be able to figure this out with
-    // MediaStreamTrack.getSources, but we can't ask Chrome since it runs in
-    // fake device mode where it will not enumerate webcams on the system.
-    // Therefore, look for /dev/video* entries directly since this test only
-    // runs on Linux for now anyway.
-    base::FileEnumerator dev_video(base::FilePath(FILE_PATH_LITERAL("/dev")),
-                                   false, base::FileEnumerator::FILES,
-                                   FILE_PATH_LITERAL("video*"));
-    return !dev_video.Next().empty();
-#endif
-    NOTREACHED();
-    return false;
+    firefox_ = base::LaunchProcess(command_line, base::LaunchOptions());
+    return firefox_.IsValid();
   }
 
  private:
-  base::ProcessHandle dev_appserver_;
-  base::ProcessHandle firefox_;
+  base::Process dev_appserver_;
+  base::Process firefox_;
+  base::Process collider_server_;
 };
 
 IN_PROC_BROWSER_TEST_F(WebRtcApprtcBrowserTest, MANUAL_WorksOnApprtc) {
@@ -225,29 +241,39 @@ IN_PROC_BROWSER_TEST_F(WebRtcApprtcBrowserTest, MANUAL_WorksOnApprtc) {
     return;
 
   DetectErrorsInJavaScript();
-  ASSERT_TRUE(LaunchApprtcInstanceOnLocalhost());
+  ASSERT_TRUE(LaunchApprtcInstanceOnLocalhost("9999"));
+  ASSERT_TRUE(LaunchColliderOnLocalHost("http://localhost:9999", "8089"));
   while (!LocalApprtcInstanceIsUp())
     DVLOG(1) << "Waiting for AppRTC to come up...";
 
-  GURL room_url = GURL(base::StringPrintf("localhost:9999?r=room_%d",
-                                          base::RandInt(0, 65536)));
+  GURL room_url = GURL("http://localhost:9999/r/some_room"
+                       "?wshpp=localhost:8089&wstls=false");
 
+  // Set up the left tab.
   chrome::AddTabAt(browser(), GURL(), -1, true);
-  content::WebContents* left_tab = OpenPageAndAcceptUserMedia(room_url);
+  content::WebContents* left_tab =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  PermissionBubbleManager::FromWebContents(left_tab)
+      ->set_auto_response_for_test(PermissionBubbleManager::ACCEPT_ALL);
+  InfoBarResponder left_infobar_responder(
+      InfoBarService::FromWebContents(left_tab), InfoBarResponder::ACCEPT);
+  ui_test_utils::NavigateToURL(browser(), room_url);
 
+  // Set up the right tab.
   chrome::AddTabAt(browser(), GURL(), -1, true);
-  content::WebContents* right_tab = OpenPageAndAcceptUserMedia(room_url);
+  content::WebContents* right_tab =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  PermissionBubbleManager::FromWebContents(right_tab)
+      ->set_auto_response_for_test(PermissionBubbleManager::ACCEPT_ALL);
+  InfoBarResponder right_infobar_responder(
+      InfoBarService::FromWebContents(right_tab), InfoBarResponder::ACCEPT);
+  ui_test_utils::NavigateToURL(browser(), room_url);
 
   ASSERT_TRUE(WaitForCallToComeUp(left_tab));
   ASSERT_TRUE(WaitForCallToComeUp(right_tab));
 
   ASSERT_TRUE(DetectRemoteVideoPlaying(left_tab));
   ASSERT_TRUE(DetectRemoteVideoPlaying(right_tab));
-
-  ASSERT_TRUE(HangUpApprtcCall(left_tab));
-
-  ASSERT_TRUE(WaitForCallToHangUp(left_tab));
-  ASSERT_TRUE(WaitForCallToHangUp(right_tab));
 
   chrome::CloseWebContents(browser(), left_tab, false);
   chrome::CloseWebContents(browser(), right_tab, false);
@@ -267,13 +293,22 @@ IN_PROC_BROWSER_TEST_F(WebRtcApprtcBrowserTest,
     return;
 
   DetectErrorsInJavaScript();
-  ASSERT_TRUE(LaunchApprtcInstanceOnLocalhost());
+  ASSERT_TRUE(LaunchApprtcInstanceOnLocalhost("9999"));
+  ASSERT_TRUE(LaunchColliderOnLocalHost("http://localhost:9999", "8089"));
   while (!LocalApprtcInstanceIsUp())
     DVLOG(1) << "Waiting for AppRTC to come up...";
 
-  GURL room_url = GURL(
-      "http://localhost:9999?r=some_room_id&firefox_fake_device=1");
-  content::WebContents* chrome_tab = OpenPageAndAcceptUserMedia(room_url);
+  GURL room_url = GURL("http://localhost:9999/r/some_room"
+                       "?wshpp=localhost:8089&wstls=false"
+                       "&firefox_fake_device=1");
+  chrome::AddTabAt(browser(), GURL(), -1, true);
+  content::WebContents* chrome_tab =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  PermissionBubbleManager::FromWebContents(chrome_tab)
+      ->set_auto_response_for_test(PermissionBubbleManager::ACCEPT_ALL);
+  InfoBarResponder infobar_responder(
+      InfoBarService::FromWebContents(chrome_tab), InfoBarResponder::ACCEPT);
+  ui_test_utils::NavigateToURL(browser(), room_url);
 
   ASSERT_TRUE(LaunchFirefoxWithUrl(room_url));
 

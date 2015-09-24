@@ -6,7 +6,9 @@
 
 #include <algorithm>
 
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/command_line.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "remoting/base/capabilities.h"
 #include "remoting/base/logging.h"
 #include "remoting/codec/audio_encoder.h"
@@ -16,24 +18,64 @@
 #include "remoting/codec/video_encoder_verbatim.h"
 #include "remoting/codec/video_encoder_vpx.h"
 #include "remoting/host/audio_capturer.h"
-#include "remoting/host/audio_scheduler.h"
+#include "remoting/host/audio_pump.h"
+#include "remoting/host/desktop_capturer_proxy.h"
 #include "remoting/host/desktop_environment.h"
 #include "remoting/host/host_extension_session.h"
 #include "remoting/host/input_injector.h"
+#include "remoting/host/mouse_shape_pump.h"
 #include "remoting/host/screen_controls.h"
 #include "remoting/host/screen_resolution.h"
-#include "remoting/host/video_scheduler.h"
+#include "remoting/host/video_frame_pump.h"
 #include "remoting/proto/control.pb.h"
 #include "remoting/proto/event.pb.h"
 #include "remoting/protocol/client_stub.h"
 #include "remoting/protocol/clipboard_thread_proxy.h"
 #include "remoting/protocol/pairing_registry.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_capturer.h"
+#include "third_party/webrtc/modules/desktop_capture/mouse_cursor_monitor.h"
 
 // Default DPI to assume for old clients that use notifyClientDimensions.
 const int kDefaultDPI = 96;
 
 namespace remoting {
+
+namespace {
+
+// Name of command-line flag to disable use of I444 by default.
+const char kDisableI444SwitchName[] = "disable-i444";
+
+scoped_ptr<VideoEncoder> CreateVideoEncoder(
+    const protocol::SessionConfig& config) {
+  const protocol::ChannelConfig& video_config = config.video_config();
+
+  if (video_config.codec == protocol::ChannelConfig::CODEC_VP8) {
+    return VideoEncoderVpx::CreateForVP8().Pass();
+  } else if (video_config.codec == protocol::ChannelConfig::CODEC_VP9) {
+    return VideoEncoderVpx::CreateForVP9().Pass();
+  } else if (video_config.codec == protocol::ChannelConfig::CODEC_VERBATIM) {
+    return make_scoped_ptr(new VideoEncoderVerbatim());
+  }
+
+  NOTREACHED();
+  return nullptr;
+}
+
+scoped_ptr<AudioEncoder> CreateAudioEncoder(
+    const protocol::SessionConfig& config) {
+  const protocol::ChannelConfig& audio_config = config.audio_config();
+
+  if (audio_config.codec == protocol::ChannelConfig::CODEC_VERBATIM) {
+    return make_scoped_ptr(new AudioEncoderVerbatim());
+  } else if (audio_config.codec == protocol::ChannelConfig::CODEC_OPUS) {
+    return make_scoped_ptr(new AudioEncoderOpus());
+  }
+
+  NOTREACHED();
+  return nullptr;
+}
+
+}  // namespace
 
 ClientSession::ClientSession(
     EventHandler* event_handler,
@@ -57,8 +99,6 @@ ClientSession::ClientSession(
       mouse_clamping_filter_(&remote_input_filter_),
       disable_input_filter_(mouse_clamping_filter_.input_filter()),
       disable_clipboard_filter_(clipboard_echo_filter_.host_filter()),
-      auth_input_filter_(&disable_input_filter_),
-      auth_clipboard_filter_(&disable_clipboard_filter_),
       client_clipboard_factory_(clipboard_echo_filter_.client_filter()),
       max_duration_(max_duration),
       audio_task_runner_(audio_task_runner),
@@ -68,22 +108,15 @@ ClientSession::ClientSession(
       network_task_runner_(network_task_runner),
       ui_task_runner_(ui_task_runner),
       pairing_registry_(pairing_registry),
+      is_authenticated_(false),
       pause_video_(false),
       lossless_video_encode_(false),
-      lossless_video_color_(false),
+      // Note that |lossless_video_color_| defaults to true, but actually only
+      // controls VP9 video stream color quality.
+      lossless_video_color_(!base::CommandLine::ForCurrentProcess()->HasSwitch(
+          kDisableI444SwitchName)),
       weak_factory_(this) {
   connection_->SetEventHandler(this);
-
-  // TODO(sergeyu): Currently ConnectionToClient expects stubs to be
-  // set before channels are connected. Make it possible to set stubs
-  // later and set them only when connection is authenticated.
-  connection_->set_clipboard_stub(&auth_clipboard_filter_);
-  connection_->set_host_stub(this);
-  connection_->set_input_stub(&auth_input_filter_);
-
-  // |auth_*_filter_|'s states reflect whether the session is authenticated.
-  auth_input_filter_.set_enabled(false);
-  auth_clipboard_filter_.set_enabled(false);
 
   // Create a manager for the configured extensions, if any.
   extension_manager_.reset(new HostExtensionSessionManager(extensions, this));
@@ -97,11 +130,11 @@ ClientSession::ClientSession(
 
 ClientSession::~ClientSession() {
   DCHECK(CalledOnValidThread());
-  DCHECK(!audio_scheduler_.get());
+  DCHECK(!audio_pump_);
   DCHECK(!desktop_environment_);
   DCHECK(!input_injector_);
   DCHECK(!screen_controls_);
-  DCHECK(!video_scheduler_.get());
+  DCHECK(!video_frame_pump_);
 
   connection_.reset();
 }
@@ -136,28 +169,28 @@ void ClientSession::NotifyClientResolution(
 void ClientSession::ControlVideo(const protocol::VideoControl& video_control) {
   DCHECK(CalledOnValidThread());
 
-  // Note that |video_scheduler_| may be NULL, depending upon whether extensions
-  // choose to wrap or "steal" the video capturer or encoder.
+  // Note that |video_frame_pump_| may be null, depending upon whether
+  // extensions choose to wrap or "steal" the video capturer or encoder.
   if (video_control.has_enable()) {
     VLOG(1) << "Received VideoControl (enable="
             << video_control.enable() << ")";
     pause_video_ = !video_control.enable();
-    if (video_scheduler_.get())
-      video_scheduler_->Pause(pause_video_);
+    if (video_frame_pump_)
+      video_frame_pump_->Pause(pause_video_);
   }
   if (video_control.has_lossless_encode()) {
     VLOG(1) << "Received VideoControl (lossless_encode="
             << video_control.lossless_encode() << ")";
     lossless_video_encode_ = video_control.lossless_encode();
-    if (video_scheduler_.get())
-      video_scheduler_->SetLosslessEncode(lossless_video_encode_);
+    if (video_frame_pump_)
+      video_frame_pump_->SetLosslessEncode(lossless_video_encode_);
   }
   if (video_control.has_lossless_color()) {
     VLOG(1) << "Received VideoControl (lossless_color="
             << video_control.lossless_color() << ")";
     lossless_video_color_ = video_control.lossless_color();
-    if (video_scheduler_.get())
-      video_scheduler_->SetLosslessColor(lossless_video_color_);
+    if (video_frame_pump_)
+      video_frame_pump_->SetLosslessColor(lossless_video_color_);
   }
 }
 
@@ -167,8 +200,8 @@ void ClientSession::ControlAudio(const protocol::AudioControl& audio_control) {
   if (audio_control.has_enable()) {
     VLOG(1) << "Received AudioControl (enable="
             << audio_control.enable() << ")";
-    if (audio_scheduler_.get())
-      audio_scheduler_->Pause(!audio_control.enable());
+    if (audio_pump_)
+      audio_pump_->Pause(!audio_control.enable());
   }
 }
 
@@ -246,17 +279,13 @@ void ClientSession::OnConnectionAuthenticated(
     protocol::ConnectionToClient* connection) {
   DCHECK(CalledOnValidThread());
   DCHECK_EQ(connection_.get(), connection);
-  DCHECK(!audio_scheduler_.get());
+  DCHECK(!audio_pump_);
   DCHECK(!desktop_environment_);
   DCHECK(!input_injector_);
   DCHECK(!screen_controls_);
-  DCHECK(!video_scheduler_.get());
+  DCHECK(!video_frame_pump_);
 
-  auth_input_filter_.set_enabled(true);
-  auth_clipboard_filter_.set_enabled(true);
-
-  clipboard_echo_filter_.set_client_stub(connection_->client_stub());
-  mouse_clamping_filter_.set_video_stub(connection_->video_stub());
+  is_authenticated_ = true;
 
   if (max_duration_ > base::TimeDelta()) {
     // TODO(simonmorris): Let Disconnect() tell the client that the
@@ -280,6 +309,12 @@ void ClientSession::OnConnectionAuthenticated(
     return;
   }
 
+  // Connect host stub.
+  connection_->set_host_stub(this);
+
+  // Connect video stub.
+  mouse_clamping_filter_.set_video_stub(connection_->video_stub());
+
   // Collate the set of capabilities to offer the client, if it supports them.
   host_capabilities_ = desktop_environment_->GetCapabilities();
   if (!host_capabilities_.empty())
@@ -292,21 +327,14 @@ void ClientSession::OnConnectionAuthenticated(
   // Create the event executor.
   input_injector_ = desktop_environment_->CreateInputInjector();
 
-  // Connect the host clipboard and input stubs.
+  // Connect the host input stubs.
+  connection_->set_input_stub(&disable_input_filter_);
   host_input_filter_.set_input_stub(input_injector_.get());
-  clipboard_echo_filter_.set_host_stub(input_injector_.get());
 
-  // Create an AudioScheduler if audio is enabled, to pump audio samples.
-  if (connection_->session()->config().is_audio_enabled()) {
-    scoped_ptr<AudioEncoder> audio_encoder =
-        CreateAudioEncoder(connection_->session()->config());
-    audio_scheduler_ = new AudioScheduler(
-        audio_task_runner_,
-        network_task_runner_,
-        desktop_environment_->CreateAudioCapturer(),
-        audio_encoder.Pass(),
-        connection_->audio_stub());
-  }
+  // Connect the clipboard stubs.
+  connection_->set_clipboard_stub(&disable_clipboard_filter_);
+  clipboard_echo_filter_.set_host_stub(input_injector_.get());
+  clipboard_echo_filter_.set_client_stub(connection_->client_stub());
 
   // Create a GnubbyAuthHandler to proxy gnubbyd messages.
   gnubby_auth_handler_ = desktop_environment_->CreateGnubbyAuthHandler(
@@ -320,7 +348,6 @@ void ClientSession::OnConnectionChannelsConnected(
 
   // Negotiate capabilities with the client.
   VLOG(1) << "Host capabilities: " << host_capabilities_;
-
   protocol::Capabilities capabilities;
   capabilities.set_capabilities(host_capabilities_);
   connection_->client_stub()->SetCapabilities(capabilities);
@@ -332,9 +359,14 @@ void ClientSession::OnConnectionChannelsConnected(
   // Start recording video.
   ResetVideoPipeline();
 
-  // Start recording audio.
-  if (connection_->session()->config().is_audio_enabled())
-    audio_scheduler_->Start();
+  // Create an AudioPump if audio is enabled, to pump audio samples.
+  if (connection_->session()->config().is_audio_enabled()) {
+    scoped_ptr<AudioEncoder> audio_encoder =
+        CreateAudioEncoder(connection_->session()->config());
+    audio_pump_.reset(new AudioPump(
+        audio_task_runner_, desktop_environment_->CreateAudioCapturer(),
+        audio_encoder.Pass(), connection_->audio_stub()));
+  }
 
   // Notify the event handler that all our channels are now connected.
   event_handler_->OnSessionChannelsConnected(this);
@@ -346,50 +378,39 @@ void ClientSession::OnConnectionClosed(
   DCHECK(CalledOnValidThread());
   DCHECK_EQ(connection_.get(), connection);
 
+  HOST_LOG << "Client disconnected: " << client_jid_ << "; error = " << error;
+
   // Ignore any further callbacks.
   weak_factory_.InvalidateWeakPtrs();
 
   // If the client never authenticated then the session failed.
-  if (!auth_input_filter_.enabled())
+  if (!is_authenticated_)
     event_handler_->OnSessionAuthenticationFailed(this);
-
-  // Block any further input events from the client.
-  // TODO(wez): Fix ChromotingHost::OnSessionClosed not to check our
-  // is_authenticated(), so that we can disable |auth_*_filter_| here.
-  disable_input_filter_.set_enabled(false);
-  disable_clipboard_filter_.set_enabled(false);
 
   // Ensure that any pressed keys or buttons are released.
   input_tracker_.ReleaseAll();
 
   // Stop components access the client, audio or video stubs, which are no
   // longer valid once ConnectionToClient calls OnConnectionClosed().
-  if (audio_scheduler_.get()) {
-    audio_scheduler_->Stop();
-    audio_scheduler_ = NULL;
-  }
-  if (video_scheduler_.get()) {
-    video_scheduler_->Stop();
-    video_scheduler_ = NULL;
-  }
-
+  audio_pump_.reset();
+  video_frame_pump_.reset();
+  mouse_shape_pump_.reset();
   client_clipboard_factory_.InvalidateWeakPtrs();
   input_injector_.reset();
   screen_controls_.reset();
   desktop_environment_.reset();
 
   // Notify the ChromotingHost that this client is disconnected.
-  // TODO(sergeyu): Log failure reason?
   event_handler_->OnSessionClosed(this);
 }
 
-void ClientSession::OnSequenceNumberUpdated(
-    protocol::ConnectionToClient* connection, int64 sequence_number) {
+void ClientSession::OnEventTimestamp(protocol::ConnectionToClient* connection,
+                                     int64 timestamp) {
   DCHECK(CalledOnValidThread());
   DCHECK_EQ(connection_.get(), connection);
 
-  if (video_scheduler_.get())
-    video_scheduler_->UpdateSequenceNumber(sequence_number);
+  if (video_frame_pump_.get())
+    video_frame_pump_->SetLatestEventTimestamp(timestamp);
 }
 
 void ClientSession::OnRouteChange(
@@ -434,10 +455,9 @@ void ClientSession::SetDisableInputs(bool disable_inputs) {
 void ClientSession::ResetVideoPipeline() {
   DCHECK(CalledOnValidThread());
 
-  if (video_scheduler_.get()) {
-    video_scheduler_->Stop();
-    video_scheduler_ = NULL;
-  }
+  mouse_shape_pump_.reset();
+  connection_->set_video_feedback_stub(nullptr);
+  video_frame_pump_.reset();
 
   // Create VideoEncoder and DesktopCapturer to match the session's video
   // channel configuration.
@@ -448,28 +468,35 @@ void ClientSession::ResetVideoPipeline() {
       CreateVideoEncoder(connection_->session()->config());
   extension_manager_->OnCreateVideoEncoder(&video_encoder);
 
-  // Don't start the VideoScheduler if either capturer or encoder are missing.
+  // Don't start the VideoFramePump if either capturer or encoder are missing.
   if (!video_capturer || !video_encoder)
     return;
 
-  // Create a VideoScheduler to pump frames from the capturer to the client.
-  video_scheduler_ = new VideoScheduler(
-      video_capture_task_runner_,
-      video_encode_task_runner_,
-      network_task_runner_,
-      video_capturer.Pass(),
-      desktop_environment_->CreateMouseCursorMonitor(),
-      video_encoder.Pass(),
-      connection_->client_stub(),
-      &mouse_clamping_filter_);
+  // Create MouseShapePump to send mouse cursor shape.
+  mouse_shape_pump_.reset(
+      new MouseShapePump(video_capture_task_runner_,
+                         desktop_environment_->CreateMouseCursorMonitor(),
+                         connection_->client_stub()));
+
+  // Create a VideoFramePump to pump frames from the capturer to the client.'
+  //
+  // TODO(sergeyu): Move DesktopCapturerProxy creation to DesktopEnvironment.
+  // When using IpcDesktopCapturer the capture thread is not useful.
+  scoped_ptr<DesktopCapturerProxy> capturer_proxy(new DesktopCapturerProxy(
+      video_capture_task_runner_, video_capturer.Pass()));
+  video_frame_pump_.reset(
+      new VideoFramePump(video_encode_task_runner_, capturer_proxy.Pass(),
+                         video_encoder.Pass(), &mouse_clamping_filter_));
 
   // Apply video-control parameters to the new scheduler.
-  video_scheduler_->Pause(pause_video_);
-  video_scheduler_->SetLosslessEncode(lossless_video_encode_);
-  video_scheduler_->SetLosslessColor(lossless_video_color_);
+  video_frame_pump_->SetLosslessEncode(lossless_video_encode_);
+  video_frame_pump_->SetLosslessColor(lossless_video_color_);
 
-  // Start capturing the screen.
-  video_scheduler_->Start();
+  // Pause capturing if necessary.
+  video_frame_pump_->Pause(pause_video_);
+
+  connection_->set_video_feedback_stub(
+      video_frame_pump_->video_feedback_stub());
 }
 
 void ClientSession::SetGnubbyAuthHandlerForTesting(
@@ -483,40 +510,7 @@ scoped_ptr<protocol::ClipboardStub> ClientSession::CreateClipboardProxy() {
 
   return make_scoped_ptr(
       new protocol::ClipboardThreadProxy(client_clipboard_factory_.GetWeakPtr(),
-                                         base::MessageLoopProxy::current()));
-}
-
-// TODO(sergeyu): Move this to SessionManager?
-// static
-scoped_ptr<VideoEncoder> ClientSession::CreateVideoEncoder(
-    const protocol::SessionConfig& config) {
-  const protocol::ChannelConfig& video_config = config.video_config();
-
-  if (video_config.codec == protocol::ChannelConfig::CODEC_VP8) {
-    return remoting::VideoEncoderVpx::CreateForVP8().Pass();
-  } else if (video_config.codec == protocol::ChannelConfig::CODEC_VP9) {
-    return remoting::VideoEncoderVpx::CreateForVP9().Pass();
-  } else if (video_config.codec == protocol::ChannelConfig::CODEC_VERBATIM) {
-    return make_scoped_ptr(new remoting::VideoEncoderVerbatim());
-  }
-
-  NOTREACHED();
-  return nullptr;
-}
-
-// static
-scoped_ptr<AudioEncoder> ClientSession::CreateAudioEncoder(
-    const protocol::SessionConfig& config) {
-  const protocol::ChannelConfig& audio_config = config.audio_config();
-
-  if (audio_config.codec == protocol::ChannelConfig::CODEC_VERBATIM) {
-    return make_scoped_ptr(new AudioEncoderVerbatim());
-  } else if (audio_config.codec == protocol::ChannelConfig::CODEC_OPUS) {
-    return make_scoped_ptr(new AudioEncoderOpus());
-  }
-
-  NOTREACHED();
-  return nullptr;
+                                         base::ThreadTaskRunnerHandle::Get()));
 }
 
 }  // namespace remoting

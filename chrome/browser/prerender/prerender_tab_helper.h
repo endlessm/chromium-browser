@@ -32,29 +32,13 @@ class PrerenderTabHelper
     : public content::WebContentsObserver,
       public content::WebContentsUserData<PrerenderTabHelper> {
  public:
-  enum Event {
-    EVENT_LOGGED_IN_TABLE_REQUESTED = 0,
-    EVENT_LOGGED_IN_TABLE_PRESENT = 1,
-    EVENT_MAINFRAME_CHANGE = 2,
-    EVENT_MAINFRAME_CHANGE_DOMAIN_LOGGED_IN = 3,
-    EVENT_MAINFRAME_COMMIT = 4,
-    EVENT_MAINFRAME_COMMIT_DOMAIN_LOGGED_IN = 5,
-    EVENT_LOGIN_ACTION_ADDED = 6,
-    EVENT_LOGIN_ACTION_ADDED_PW_EMPTY = 7,
-    EVENT_MAX_VALUE
-  };
-
-  static void CreateForWebContentsWithPasswordManager(
-      content::WebContents* web_contents,
-      password_manager::PasswordManager* password_manager);
-
   ~PrerenderTabHelper() override;
 
   // content::WebContentsObserver implementation.
   void DidGetRedirectForResourceRequest(
-      content::RenderViewHost* render_view_host,
+      content::RenderFrameHost* render_frame_host,
       const content::ResourceRedirectDetails& details) override;
-  void DidStopLoading(content::RenderViewHost* render_view_host) override;
+  void DidStopLoading() override;
   void DidStartProvisionalLoadForFrame(
       content::RenderFrameHost* render_frame_host,
       const GURL& validated_url,
@@ -69,9 +53,6 @@ class PrerenderTabHelper
   // commits, or a redirect happens.
   void MainFrameUrlDidChange(const GURL& url);
 
-  // Called when a password form has been submitted.
-  void PasswordSubmitted(const autofill::PasswordForm& form);
-
   // Called when this prerendered WebContents has just been swapped in.
   void PrerenderSwappedIn();
 
@@ -79,14 +60,8 @@ class PrerenderTabHelper
   void WouldHavePrerenderedNextLoad(Origin origin);
 
  private:
-  PrerenderTabHelper(content::WebContents* web_contents,
-                     password_manager::PasswordManager* password_manager);
+  explicit PrerenderTabHelper(content::WebContents* web_contents);
   friend class content::WebContentsUserData<PrerenderTabHelper>;
-
-  void RecordEvent(Event event) const;
-  void RecordEventIfLoggedInURL(Event event, const GURL& url);
-  void RecordEventIfLoggedInURLResult(Event event, scoped_ptr<bool> is_present,
-                                      scoped_ptr<bool> lookup_succeeded);
 
   void RecordPerceivedPageLoadTime(
       base::TimeDelta perceived_page_load_time,

@@ -59,7 +59,7 @@ Value ParseValueOrScope(const Settings* settings,
 
   // Parse the file according to what we're looking for.
   if (what == PARSE_VALUE)
-    *parse_root_ptr = Parser::ParseExpression(*tokens, err);
+    *parse_root_ptr = Parser::ParseValue(*tokens, err);
   else
     *parse_root_ptr = Parser::Parse(*tokens, err);  // Will return a Block.
   if (err->has_error())
@@ -71,15 +71,7 @@ Value ParseValueOrScope(const Settings* settings,
   if (!parse_root)
     return Value();
 
-  // When parsing as a value, the result should either be a list or a literal,
-  // anything else is invalid.
-  if (what == PARSE_VALUE) {
-    if (!parse_root->AsList() && !parse_root->AsLiteral())
-      return Value();
-  }
-
   scoped_ptr<Scope> scope(new Scope(settings));
-
   Value result = parse_root->Execute(scope.get(), err);
   if (err->has_error())
     return Value();
@@ -124,7 +116,7 @@ Value DoConvertInputToValue(const Settings* settings,
     return Value();  // Empty string means discard the result.
 
   const char kTrimPrefix[] = "trim ";
-  if (StartsWithASCII(input_conversion, kTrimPrefix, true)) {
+  if (base::StartsWithASCII(input_conversion, kTrimPrefix, true)) {
     std::string trimmed;
     base::TrimWhitespaceASCII(input, base::TRIM_ALL, &trimmed);
 

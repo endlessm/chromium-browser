@@ -26,15 +26,10 @@ class SYNC_EXPORT_PRIVATE InMemoryDirectoryBackingStore
   explicit InMemoryDirectoryBackingStore(const std::string& dir_name);
   DirOpenResult Load(Directory::MetahandlesMap* handles_map,
                      JournalIndex* delete_journals,
+                     MetahandleSet* metahandles_to_purge,
                      Directory::KernelLoadInfo* kernel_load_info) override;
 
-  void request_consistent_cache_guid() {
-    consistent_cache_guid_requested_ = true;
-  }
-
  private:
-  bool consistent_cache_guid_requested_;
-
   DISALLOW_COPY_AND_ASSIGN(InMemoryDirectoryBackingStore);
 };
 

@@ -20,7 +20,7 @@ class CertVerifyProcChromeOSTest : public testing::Test {
  public:
   CertVerifyProcChromeOSTest() : user_1_("user1"), user_2_("user2") {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     // Initialize nss_util slots.
     ASSERT_TRUE(user_1_.constructed_successfully());
     ASSERT_TRUE(user_2_.constructed_successfully());
@@ -80,12 +80,9 @@ class CertVerifyProcChromeOSTest : public testing::Test {
       std::string* root_subject_name) {
     int flags = 0;
     net::CertVerifyResult verify_result;
-    int error = verify_proc->Verify(cert,
-                                    "127.0.0.1",
-                                    flags,
-                                    NULL,
-                                    additional_trust_anchors,
-                                    &verify_result);
+    int error =
+        verify_proc->Verify(cert, "127.0.0.1", std::string(), flags, NULL,
+                            additional_trust_anchors, &verify_result);
     if (verify_result.verified_cert.get() &&
         !verify_result.verified_cert->GetIntermediateCertificates().empty()) {
       net::X509Certificate::OSCertHandle root =

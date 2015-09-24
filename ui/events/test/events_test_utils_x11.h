@@ -9,7 +9,7 @@
 #include "ui/events/devices/x11/device_data_manager_x11.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/keycodes/keyboard_codes.h"
-#include "ui/gfx/point.h"
+#include "ui/gfx/geometry/point.h"
 #include "ui/gfx/x/x11_types.h"
 
 typedef union _XEvent XEvent;
@@ -90,10 +90,13 @@ class ScopedXI2Event {
 };
 
 // Initializes a test touchpad device for scroll events.
-void SetUpTouchPadForTest(unsigned int deviceid);
+void SetUpTouchPadForTest(int deviceid);
 
 // Initializes a list of touchscreen devices for touch events.
-void SetUpTouchDevicesForTest(const std::vector<unsigned int>& devices);
+void SetUpTouchDevicesForTest(const std::vector<int>& devices);
+
+// Initializes a list of non-touch, non-cmt pointer devices.
+void SetUpPointerDevicesForTest(const std::vector<int>& devices);
 
 }  // namespace ui
 

@@ -76,23 +76,6 @@ typedef unsigned __int64 uint64_t;
 #include <stdint.h>
 #endif
 
-/*
- *  The "user config" file can be empty, and everything should work. It is
- *  meant to store a given platform/client's overrides of our guess-work.
- *
- *  A alternate user config file can be specified by defining
- *  GR_USER_CONFIG_FILE. It should be defined relative to GrConfig.h
- *
- *  e.g. it can change the BUILD target or supply its own defines for anything
- *  else (e.g. GR_DEFAULT_RESOURCE_CACHE_MB_LIMIT)
- */
-#if !defined(GR_USER_CONFIG_FILE)
-    #include "GrUserConfig.h"
-#else
-    #include GR_USER_CONFIG_FILE
-#endif
-
-
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 // postconfig section:
@@ -203,51 +186,11 @@ typedef unsigned __int64 uint64_t;
 #endif
 
 /**
- * GR_GEOM_BUFFER_MAP_THRESHOLD gives a threshold (in bytes) for when Gr should
- * map a GrGeometryBuffer to update its contents. It will use map() if the
- * size of the updated region is greater than the threshold. Otherwise it will
- * use updateData().
+ * GR_FORCE_GPU_TRACE_DEBUGGING will force gpu tracing/debug markers to be turned on. The trace
+ * markers will be printed out instead of making the backend calls to push and pop them.
  */
-#if !defined(GR_GEOM_BUFFER_MAP_THRESHOLD)
-    #define GR_GEOM_BUFFER_MAP_THRESHOLD (1 << 15)
-#endif
-
-/**
- * GR_DEFAULT_RESOURCE_CACHE_MB_LIMIT gives a threshold (in megabytes) for the
- * maximum size of the texture cache in vram. The value is only a default and
- * can be overridden at runtime.
- */
-#if !defined(GR_DEFAULT_RESOURCE_CACHE_MB_LIMIT)
-    #define GR_DEFAULT_RESOURCE_CACHE_MB_LIMIT 96
-#endif
-
-/**
- * GR_DEFAULT_RESOURCE_CACHE_COUNT_LIMIT specifies the maximum number of
- * textures the texture cache can hold in vram. The value is only a default and
- * can be overridden at runtime.
- */
-#if !defined(GR_DEFAULT_RESOURCE_CACHE_COUNT_LIMIT)
-    #define GR_DEFAULT_RESOURCE_CACHE_COUNT_LIMIT 2048
-#endif
-
-/**
- * GR_STROKE_PATH_RENDERING controls whether or not the GrStrokePathRenderer can be selected
- * as a path renderer. GrStrokePathRenderer is currently an experimental path renderer.
- */
-#if !defined(GR_STROKE_PATH_RENDERING)
-    #define GR_STROKE_PATH_RENDERING                 0
-#endif
-
-/**
- * GR_ALWAYS_ALLOCATE_ON_HEAP determines whether various temporary buffers created
- * in the GPU backend are always allocated on the heap or are allowed to be
- * allocated on the stack for smaller memory requests.
- *
- * This is only used for memory buffers that are created and then passed through to the
- * 3D API (e.g. as texture or geometry data)
- */
-#if !defined(GR_ALWAYS_ALLOCATE_ON_HEAP)
-    #define GR_ALWAYS_ALLOCATE_ON_HEAP 0
+#if !defined(GR_FORCE_GPU_TRACE_DEBUGGING)
+    #define GR_FORCE_GPU_TRACE_DEBUGGING 0
 #endif
 
 #endif

@@ -10,7 +10,7 @@
 #include "base/path_service.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chromeos/drive/file_system_util.h"
+#include "chrome/browser/chromeos/drive/file_system_core_util.h"
 #include "chrome/browser/chromeos/file_manager/filesystem_api_util.h"
 #include "chrome/browser/chromeos/fileapi/external_file_url_util.h"
 #include "chrome/browser/drive/drive_api_util.h"
@@ -21,6 +21,7 @@
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
+#include "chrome/common/chrome_content_client.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "content/public/browser/browser_thread.h"
@@ -86,8 +87,8 @@ bool IsPepperPluginEnabled(Profile* profile,
 bool IsPdfPluginEnabled(Profile* profile) {
   DCHECK(profile);
 
-  base::FilePath plugin_path;
-  PathService::Get(chrome::FILE_PDF_PLUGIN, &plugin_path);
+  base::FilePath plugin_path = base::FilePath::FromUTF8Unsafe(
+      ChromeContentClient::kPDFPluginPath);
   return IsPepperPluginEnabled(profile, plugin_path);
 }
 
@@ -95,7 +96,7 @@ bool IsFlashPluginEnabled(Profile* profile) {
   DCHECK(profile);
 
   base::FilePath plugin_path(
-      CommandLine::ForCurrentProcess()->GetSwitchValueNative(
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueNative(
           switches::kPpapiFlashPath));
   if (plugin_path.empty())
     PathService::Get(chrome::FILE_PEPPER_FLASH_PLUGIN, &plugin_path);

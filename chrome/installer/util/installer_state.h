@@ -74,6 +74,8 @@ class InstallerState {
   // Constructs an initialized but empty instance.
   explicit InstallerState(Level level);
 
+  ~InstallerState();
+
   // Initializes this object based on the current operation.
   void Initialize(const base::CommandLine& command_line,
                   const MasterPreferences& prefs,
@@ -112,12 +114,6 @@ class InstallerState {
   // A convenience method returning package_type() == MULTI_PACKAGE.
   // TODO(grt): Eradicate the bool in favor of the enum.
   bool is_multi_install() const;
-
-  // A convenient method returning the presence of the
-  // --ensure-google-update-present switch.
-  bool ensure_google_update_present() const {
-    return ensure_google_update_present_;
-  }
 
   // The full path to the place where the operand resides.
   const base::FilePath& target_path() const { return target_path_; }
@@ -191,8 +187,6 @@ class InstallerState {
   // Adds to |com_dll_list| the list of COM DLLs that are to be registered
   // and/or unregistered. The list may be empty.
   void AddComDllList(std::vector<base::FilePath>* com_dll_list) const;
-
-  bool SetChannelFlags(bool set, ChannelInfo* channel_info) const;
 
   // See InstallUtil::UpdateInstallerStage.
   void UpdateStage(installer::InstallerStage stage) const;
@@ -274,7 +268,6 @@ class InstallerState {
 #endif
   bool msi_;
   bool verbose_logging_;
-  bool ensure_google_update_present_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(InstallerState);

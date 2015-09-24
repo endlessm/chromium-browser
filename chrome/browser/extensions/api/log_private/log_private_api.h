@@ -8,6 +8,7 @@
 #include <set>
 #include <string>
 
+#include "base/files/scoped_file.h"
 #include "base/scoped_observer.h"
 #include "chrome/browser/extensions/api/log_private/filter_handler.h"
 #include "chrome/browser/extensions/api/log_private/log_parser.h"
@@ -18,8 +19,8 @@
 #include "extensions/browser/api/api_resource_manager.h"
 #include "extensions/browser/browser_context_keyed_api_factory.h"
 #include "extensions/browser/extension_registry_observer.h"
-#include "net/base/net_log.h"
-#include "net/base/net_log_logger.h"
+#include "net/log/net_log.h"
+#include "net/log/write_to_file_net_log_observer.h"
 
 class IOThread;
 
@@ -35,10 +36,10 @@ class FileResource : public ApiResource {
  public:
   FileResource(const std::string& owner_extension_id,
                const base::FilePath& path);
-  virtual ~FileResource();
+  ~FileResource() override;
 
   // ApiResource overrides.
-  virtual bool IsPersistent() const override;
+  bool IsPersistent() const override;
 
   static const char kSequenceToken[];
   static const base::SequencedWorkerPool::WorkerShutdown kShutdownBehavior =
@@ -58,7 +59,7 @@ class LogPrivateAPI : public BrowserContextKeyedAPI,
   static LogPrivateAPI* Get(content::BrowserContext* context);
 
   explicit LogPrivateAPI(content::BrowserContext* context);
-  virtual ~LogPrivateAPI();
+  ~LogPrivateAPI() override;
 
   void StartNetInternalsWatch(const std::string& extension_id,
                               api::log_private::EventSink event_sink,
@@ -78,25 +79,22 @@ class LogPrivateAPI : public BrowserContextKeyedAPI,
 
   void Initialize();
   // ExtensionRegistryObserver implementation.
-  virtual void OnExtensionUnloaded(
-      content::BrowserContext* browser_context,
-      const Extension* extension,
-      UnloadedExtensionInfo::Reason reason) override;
+  void OnExtensionUnloaded(content::BrowserContext* browser_context,
+                           const Extension* extension,
+                           UnloadedExtensionInfo::Reason reason) override;
 
   // ChromeNetLog::ThreadSafeObserver implementation:
-  virtual void OnAddEntry(const net::NetLog::Entry& entry) override;
+  void OnAddEntry(const net::NetLog::Entry& entry) override;
 
   void PostPendingEntries();
   void AddEntriesOnUI(scoped_ptr<base::ListValue> value);
 
-  // Initializes a new instance of net::NetLogLogger and passes it back via
-  // |net_logger| param.
-  void InitializeNetLogger(const std::string& owner_extension_id,
-                           net::NetLogLogger** net_logger);
+  // Creates a file that will be written to by net::WriteToFileNetLogObserver.
+  void CreateTempNetLogFile(const std::string& owner_extension_id,
+                            base::ScopedFILE* file);
 
   // Starts observing network events with a new |net_logger| instance.
-  void StartObservingNetEvents(IOThread* io_thread,
-                               net::NetLogLogger** net_logger);
+  void StartObservingNetEvents(IOThread* io_thread, base::ScopedFILE* file);
   void MaybeStartNetInternalLogging(const std::string& caller_extension_id,
                                     IOThread* io_thread,
                                     api::log_private::EventSink event_sink);
@@ -115,7 +113,7 @@ class LogPrivateAPI : public BrowserContextKeyedAPI,
   api::log_private::EventSink event_sink_;
   std::set<std::string> net_internal_watches_;
   scoped_ptr<base::ListValue> pending_entries_;
-  scoped_ptr<net::NetLogLogger> net_log_logger_;
+  scoped_ptr<net::WriteToFileNetLogObserver> write_to_file_observer_;
   // Listen to extension unloaded notifications.
   ScopedObserver<ExtensionRegistry, ExtensionRegistryObserver>
       extension_registry_observer_;
@@ -133,8 +131,8 @@ class LogPrivateGetHistoricalFunction : public AsyncExtensionFunction {
                              LOGPRIVATE_GETHISTORICAL);
 
  protected:
-  virtual ~LogPrivateGetHistoricalFunction();
-  virtual bool RunAsync() override;
+  ~LogPrivateGetHistoricalFunction() override;
+  bool RunAsync() override;
 
  private:
   void OnSystemLogsLoaded(scoped_ptr<system_logs::SystemLogsResponse> sys_info);
@@ -151,8 +149,8 @@ class LogPrivateStartEventRecorderFunction : public AsyncExtensionFunction {
                              LOGPRIVATE_STARTEVENTRECODER);
 
  protected:
-  virtual ~LogPrivateStartEventRecorderFunction();
-  virtual bool RunAsync() override;
+  ~LogPrivateStartEventRecorderFunction() override;
+  bool RunAsync() override;
 
  private:
   void OnEventRecorderStarted();
@@ -167,10 +165,10 @@ class LogPrivateStopEventRecorderFunction : public AsyncExtensionFunction {
                              LOGPRIVATE_STOPEVENTRECODER);
 
  protected:
-  virtual ~LogPrivateStopEventRecorderFunction();
+  ~LogPrivateStopEventRecorderFunction() override;
 
   // AsyncExtensionFunction overrides.
-  virtual bool RunAsync() override;
+  bool RunAsync() override;
 
  private:
   void OnEventRecorderStopped();
@@ -184,10 +182,10 @@ class LogPrivateDumpLogsFunction : public AsyncExtensionFunction {
   DECLARE_EXTENSION_FUNCTION("logPrivate.dumpLogs", LOGPRIVATE_DUMPLOGS);
 
  protected:
-  virtual ~LogPrivateDumpLogsFunction();
+  ~LogPrivateDumpLogsFunction() override;
 
   // AsyncExtensionFunction overrides.
-  virtual bool RunAsync() override;
+  bool RunAsync() override;
 
  private:
   // Callback for DebugLogWriter::StoreLogs() call.

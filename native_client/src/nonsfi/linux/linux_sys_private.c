@@ -27,12 +27,19 @@
 #include "native_client/src/nonsfi/linux/linux_syscall_defines.h"
 #include "native_client/src/nonsfi/linux/linux_syscall_structs.h"
 #include "native_client/src/nonsfi/linux/linux_syscall_wrappers.h"
-#include "native_client/src/nonsfi/linux/linux_syscalls.h"
+#include "native_client/src/public/linux_syscalls/linux/net.h"
 #include "native_client/src/public/linux_syscalls/poll.h"
+#include "native_client/src/public/linux_syscalls/sched.h"
 #include "native_client/src/public/linux_syscalls/sys/prctl.h"
+#include "native_client/src/public/linux_syscalls/sys/resource.h"
 #include "native_client/src/public/linux_syscalls/sys/socket.h"
+#include "native_client/src/public/linux_syscalls/sys/syscall.h"
+#include "native_client/src/untrusted/nacl/getcwd.h"
 #include "native_client/src/untrusted/nacl/tls.h"
 
+
+/* Used in openat() and fstatat(). */
+#define LINUX_AT_FDCWD (-100)
 
 /*
  * Note that Non-SFI NaCl uses a 4k page size, in contrast to SFI NaCl's
@@ -46,6 +53,20 @@ static uintptr_t errno_value_call(uintptr_t result) {
     return -1;
   }
   return result;
+}
+
+int syscall(int number, ...) {
+  va_list ap;
+  va_start(ap, number);
+  uint32_t arg1 = va_arg(ap, uint32_t);
+  uint32_t arg2 = va_arg(ap, uint32_t);
+  uint32_t arg3 = va_arg(ap, uint32_t);
+  uint32_t arg4 = va_arg(ap, uint32_t);
+  uint32_t arg5 = va_arg(ap, uint32_t);
+  uint32_t arg6 = va_arg(ap, uint32_t);
+  va_end(ap);
+  return errno_value_call(
+      linux_syscall6(number, arg1, arg2, arg3, arg4, arg5, arg6));
 }
 
 void _exit(int status) {
@@ -174,11 +195,17 @@ int write(int fd, const void *buf, size_t count) {
                                          (uintptr_t) buf, count));
 }
 
-int open(char const *pathname, int oflag, ...) {
+int open(const char *pathname, int oflag, ...) {
   mode_t cmode;
-  va_list ap;
 
-  if (oflag & O_CREAT) {
+  oflag = nacl_oflags_to_linux_oflags(oflag);
+  if (oflag == -1) {
+    errno = EINVAL;
+    return -1;
+  }
+
+  if (oflag & LINUX_O_CREAT) {
+    va_list ap;
     va_start(ap, oflag);
     cmode = va_arg(ap, mode_t);
     va_end(ap);
@@ -188,6 +215,31 @@ int open(char const *pathname, int oflag, ...) {
 
   return errno_value_call(
       linux_syscall3(__NR_open, (uintptr_t) pathname, oflag, cmode));
+}
+
+int openat(int dirfd, const char *pathname, int oflag, ...) {
+  mode_t cmode;
+
+  if (dirfd == AT_FDCWD)
+    dirfd = LINUX_AT_FDCWD;
+
+  oflag = nacl_oflags_to_linux_oflags(oflag);
+  if (oflag == -1) {
+    errno = EINVAL;
+    return -1;
+  }
+
+  if (oflag & LINUX_O_CREAT) {
+    va_list ap;
+    va_start(ap, oflag);
+    cmode = va_arg(ap, mode_t);
+    va_end(ap);
+  } else {
+    cmode = 0;
+  }
+
+  return errno_value_call(
+      linux_syscall4(__NR_openat, dirfd, (uintptr_t) pathname, oflag, cmode));
 }
 
 int close(int fd) {
@@ -285,6 +337,18 @@ int lstat(const char *file, struct stat *st) {
   return 0;
 }
 
+int fstatat(int dirfd, const char *file, struct stat *st, int flags) {
+  struct linux_abi_stat64 linux_st;
+  if (dirfd == AT_FDCWD)
+    dirfd = LINUX_AT_FDCWD;
+  int rc = errno_value_call(linux_syscall4(
+      __NR_fstatat64, dirfd, (uintptr_t) file, (uintptr_t) &linux_st, flags));
+  if (rc == -1)
+    return -1;
+  linux_stat_to_nacl_stat(&linux_st, st);
+  return 0;
+}
+
 int mkdir(const char *path, mode_t mode) {
   return errno_value_call(linux_syscall2(__NR_mkdir, (uintptr_t) path, mode));
 }
@@ -297,7 +361,7 @@ int chdir(const char *path) {
   return errno_value_call(linux_syscall1(__NR_chdir, (uintptr_t) path));
 }
 
-char *getcwd(char *buffer, size_t len) {
+char *__getcwd_without_malloc(char *buffer, size_t len) {
   int rc = errno_value_call(
       linux_syscall2(__NR_getcwd, (uintptr_t) buffer, len));
   if (rc == -1)
@@ -362,14 +426,32 @@ int readlink(const char *path, char *buf, int bufsize) {
 }
 
 int fcntl(int fd, int cmd, ...) {
-  if (cmd == F_GETFL || cmd == F_GETFD) {
+  if (cmd == F_GETFD) {
     return errno_value_call(linux_syscall2(__NR_fcntl64, fd, cmd));
   }
-  if (cmd == F_SETFL || cmd == F_SETFD) {
+  if (cmd == F_GETFL) {
+    int rc = errno_value_call(linux_syscall2(__NR_fcntl64, fd, cmd));
+    if (rc == -1)
+      return -1;
+    return linux_oflags_to_nacl_oflags(rc);
+  }
+  if (cmd == F_SETFD) {
     va_list ap;
     va_start(ap, cmd);
     int32_t arg = va_arg(ap, int32_t);
     va_end(ap);
+    return errno_value_call(linux_syscall3(__NR_fcntl64, fd, cmd, arg));
+  }
+  if (cmd == F_SETFL) {
+    va_list ap;
+    va_start(ap, cmd);
+    int32_t arg = va_arg(ap, int32_t);
+    va_end(ap);
+    arg = nacl_oflags_to_linux_oflags(arg);
+    if (arg == -1) {
+      errno = EINVAL;
+      return -1;
+    }
     return errno_value_call(linux_syscall3(__NR_fcntl64, fd, cmd, arg));
   }
   /* We only support the fcntl commands above. */
@@ -416,8 +498,15 @@ int poll(struct pollfd *fds, nfds_t nfds, int timeout) {
       linux_syscall3(__NR_poll, (uintptr_t) fds, nfds, timeout));
 }
 
-int prctl(int option, uintptr_t arg2, uintptr_t arg3,
-          uintptr_t arg4, uintptr_t arg5) {
+int prctl(int option, ...) {
+  va_list ap;
+  va_start(ap, option);
+  uintptr_t arg2 = va_arg(ap, uintptr_t);
+  uintptr_t arg3 = va_arg(ap, uintptr_t);
+  uintptr_t arg4 = va_arg(ap, uintptr_t);
+  uintptr_t arg5 = va_arg(ap, uintptr_t);
+  va_end(ap);
+
   return errno_value_call(
       linux_syscall5(__NR_prctl, option, arg2, arg3, arg4, arg5));
 }
@@ -480,6 +569,21 @@ pid_t waitpid(pid_t pid, int *status, int options) {
   return errno_value_call(
       linux_syscall4(__NR_wait4, pid, (uintptr_t) status, options,
                      0  /* rusage */));
+}
+
+int getrlimit(int resource, struct rlimit *rlim) {
+  return errno_value_call(
+      linux_syscall2(__NR_ugetrlimit, resource, (uintptr_t) rlim));
+}
+
+int setrlimit(int resource, const struct rlimit *rlim) {
+  return errno_value_call(
+      linux_syscall2(__NR_setrlimit, resource, (uintptr_t) rlim));
+}
+
+int linux_getdents64(int fd, struct linux_abi_dirent64 *dirp, int count) {
+  return errno_value_call(
+      linux_syscall3(__NR_getdents64, fd, (uintptr_t) dirp, count));
 }
 
 int linux_sigaction(int signum, const struct linux_sigaction *act,
@@ -608,4 +712,149 @@ void *nacl_tls_get(void) {
   __asm__("mrc p15, 0, %0, c13, c0, 3" : "=r"(result));
 #endif
   return result;
+}
+
+int linux_clone_wrapper(uintptr_t fn, uintptr_t arg,
+                        int flags, void *child_stack,
+                        void *ptid, void *thread_ptr, void *ctid) {
+  /*
+   * The prototype of clone(2) is
+   *
+   * clone(int flags, void *stack, pid_t *ptid, void *tls, pid_t *ctid);
+   *
+   * See linux_syscall_wrappers.h for syscalls' calling conventions.
+   */
+
+#if defined(__i386__)
+  /* On i386 architecture, we need to wrap thread_ptr by user_desc. */
+  struct linux_user_desc desc;
+  if (flags & CLONE_SETTLS) {
+    desc = create_linux_user_desc(
+        0 /* allocate_new_entry */, thread_ptr);
+    thread_ptr = &desc;
+  }
+#endif
+
+  /*
+   * This function is called only from clone() below or
+   * nacl_irt_thread_create() defined in linux_pthread_private.c.
+   * In both cases, |child_stack| will never be NULL, although it is allowed
+   * for direct clone() syscall. So, we skip that case's implementation for
+   * simplicity here.
+   *
+   * Here we reserve 6 * 4 bytes for three purposes described below:
+   * 1) At the beginning of the child process, we call fn(arg). To pass
+   *    the function pointer and arguments, we use |stack| for |arg|,
+   *    |stack - 4| for |fn|. Here, we need 4-byte extra memory on top of
+   *    stack for |arg|.
+   * 2) Our syscall() implementation reads six 4-byte arguments regardless
+   *    of its actual arguments.
+   * 3) Similar to 2), our clone() implementation reads three 4-byte arguments
+   *    regardless of its actual arguments.
+   * So, here we need max size of those three cases (= 6 * 4 bytes) on top of
+   * the stack, with 16-byte alignment.
+   */
+  static const int kStackAlignmentMask = ~15;
+  void *stack = (void *) (((uintptr_t) child_stack - sizeof(uintptr_t) * 6) &
+                          kStackAlignmentMask);
+  /* Put |fn| and |arg| on child process's stack. */
+  ((uintptr_t *) stack)[-1] = fn;
+  ((uintptr_t *) stack)[0] = arg;
+
+#if defined(__i386__)
+  uint32_t result;
+  __asm__ __volatile__("int $0x80\n"
+                       /*
+                        * If the return value of clone is non-zero, we are
+                        * in the parent thread of clone.
+                        */
+                       "cmp $0, %%eax\n"
+                       "jne 0f\n"
+                       /*
+                        * In child thread. Clear the frame pointer to
+                        * prevent debuggers from unwinding beyond this.
+                        */
+                       "mov $0, %%ebp\n"
+                       /*
+                        * Call fn(arg). Note that |arg| is already ready on top
+                        * of the stack, here.
+                        */
+                       "call *-4(%%esp)\n"
+                       /* Then call _exit(2) with the return value. */
+                       "mov %%eax, %%ebx\n"
+                       "mov %[exit_sysno], %%eax\n"
+                       "int $0x80\n"
+                       /* _exit(2) will never return. */
+                       "hlt\n"
+                       "0:\n"
+                       : "=a"(result)
+                       : "a"(__NR_clone), "b"(flags), "c"(stack),
+                         "d"(ptid), "S"(&desc), "D"(ctid),
+                         [exit_sysno] "I"(__NR_exit)
+                       : "memory");
+#elif defined(__arm__)
+  register uint32_t result __asm__("r0");
+  register uint32_t sysno __asm__("r7") = __NR_clone;
+  register uint32_t a1 __asm__("r0") = flags;
+  register uint32_t a2 __asm__("r1") = (uint32_t) stack;
+  register uint32_t a3 __asm__("r2") = (uint32_t) ptid;
+  register uint32_t a4 __asm__("r3") = (uint32_t) thread_ptr;
+  register uint32_t a5 __asm__("r4") = (uint32_t) ctid;
+  __asm__ __volatile__("svc #0\n"
+                       /*
+                        * If the return value of clone is non-zero, we are
+                        * in the parent thread of clone.
+                        */
+                       "cmp r0, #0\n"
+                       "bne 0f\n"
+                       /*
+                        * In child thread. Clear the frame pointer to
+                        * prevent debuggers from unwinding beyond this,
+                        * load start_func from the stack and call it.
+                        */
+                       "mov fp, #0\n"
+                       /* Load |arg| to r0 register, then call |fn|. */
+                       "ldr r0, [sp]\n"
+                       "ldr r1, [sp, #-4]\n"
+                       "blx r1\n"
+                       /*
+                        * Then, call _exit(2) with the returned value.
+                        * r0 keeps the return value of |fn(arg)|.
+                        */
+                       "mov r7, %[exit_sysno]\n"
+                       "svc #0\n"
+                       /* _exit(2) will never return. */
+                       "bkpt #0\n"
+                       "0:\n"
+                       : "=r"(result)
+                       : "r"(sysno),
+                         "r"(a1), "r"(a2), "r"(a3), "r"(a4), "r"(a5),
+                         [exit_sysno] "i"(__NR_exit)
+                       : "memory");
+#else
+# error Unsupported architecture
+#endif
+  return result;
+}
+
+int clone(int (*fn)(void *), void *child_stack, int flags, void *arg, ...) {
+  if (child_stack == NULL) {
+    /*
+     * NULL child_stack is not allowed, although it is on direct clone()
+     * syscall.
+     */
+    errno = EINVAL;
+    return -1;
+  }
+
+  /* Read three arguments regardless whether the caller passes it or not. */
+  va_list ap;
+  va_start(ap, arg);
+  void *ptid = va_arg(ap, void *);
+  void *tls = va_arg(ap, void *);
+  void *ctid = va_arg(ap, void *);
+  va_end(ap);
+
+  return errno_value_call(linux_clone_wrapper(
+      (uintptr_t) fn, (uintptr_t) arg, flags, child_stack, ptid, tls, ctid));
 }

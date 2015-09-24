@@ -6,8 +6,8 @@
 #define GPU_COMMAND_BUFFER_CLIENT_CONTEXT_SUPPORT_H_
 
 #include "base/callback.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/overlay_transform.h"
-#include "ui/gfx/rect.h"
 
 namespace gpu {
 
@@ -24,6 +24,12 @@ class ContextSupport {
   // For onscreen contexts, indicates that the surface visibility has changed.
   // Clients aren't expected to draw to an invisible surface.
   virtual void SetSurfaceVisible(bool visible) = 0;
+
+  // Indicates whether the context should aggressively free allocated resources.
+  // If set to true, the context will purge all temporary resources when
+  // flushed.
+  virtual void SetAggressivelyFreeResources(
+      bool aggressively_free_resources) = 0;
 
   virtual void Swap() = 0;
   virtual void PartialSwapBuffers(const gfx::Rect& sub_buffer) = 0;

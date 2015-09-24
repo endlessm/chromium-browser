@@ -5,7 +5,6 @@
 #include "remoting/codec/video_encoder_vpx.h"
 
 #include "base/bind.h"
-#include "base/command_line.h"
 #include "base/logging.h"
 #include "base/sys_info.h"
 #include "remoting/base/util.h"
@@ -25,9 +24,6 @@ namespace remoting {
 
 namespace {
 
-// Name of command-line flag to enable VP9 to use I444 by default.
-const char kEnableI444SwitchName[] = "enable-i444";
-
 // Number of bytes in an RGBx pixel.
 const int kBytesPerRgbPixel = 4;
 
@@ -39,15 +35,15 @@ const int kMacroBlockSize = 16;
 const int kVp9I420ProfileNumber = 0;
 const int kVp9I444ProfileNumber = 1;
 
-void SetCommonCodecParameters(const webrtc::DesktopSize& size,
-                              vpx_codec_enc_cfg_t* config) {
+// Magic encoder constants for adaptive quantization strategy.
+const int kVp9AqModeNone = 0;
+const int kVp9AqModeCyclicRefresh = 3;
+
+void SetCommonCodecParameters(vpx_codec_enc_cfg_t* config,
+                              const webrtc::DesktopSize& size) {
   // Use millisecond granularity time base.
   config->g_timebase.num = 1;
   config->g_timebase.den = 1000;
-
-  // Adjust default target bit-rate to account for actual desktop size.
-  config->rc_target_bitrate = size.width() * size.height() *
-      config->rc_target_bitrate / config->g_w / config->g_h;
 
   config->g_w = size.width();
   config->g_h = size.height();
@@ -69,89 +65,100 @@ void SetCommonCodecParameters(const webrtc::DesktopSize& size,
   config->g_threads = (base::SysInfo::NumberOfProcessors() > 2) ? 2 : 1;
 }
 
-ScopedVpxCodec CreateVP8Codec(const webrtc::DesktopSize& size) {
-  ScopedVpxCodec codec(new vpx_codec_ctx_t);
+void SetVp8CodecParameters(vpx_codec_enc_cfg_t* config,
+                           const webrtc::DesktopSize& size) {
+  // Adjust default target bit-rate to account for actual desktop size.
+  config->rc_target_bitrate = size.width() * size.height() *
+      config->rc_target_bitrate / config->g_w / config->g_h;
 
-  // Configure the encoder.
-  vpx_codec_enc_cfg_t config;
-  const vpx_codec_iface_t* algo = vpx_codec_vp8_cx();
-  CHECK(algo);
-  vpx_codec_err_t ret = vpx_codec_enc_config_default(algo, &config, 0);
-  if (ret != VPX_CODEC_OK)
-    return ScopedVpxCodec();
-
-  SetCommonCodecParameters(size, &config);
+  SetCommonCodecParameters(config, size);
 
   // Value of 2 means using the real time profile. This is basically a
   // redundant option since we explicitly select real time mode when doing
   // encoding.
-  config.g_profile = 2;
+  config->g_profile = 2;
 
   // Clamping the quantizer constrains the worst-case quality and CPU usage.
-  config.rc_min_quantizer = 20;
-  config.rc_max_quantizer = 30;
-
-  if (vpx_codec_enc_init(codec.get(), algo, &config, 0))
-    return ScopedVpxCodec();
-
-  // Value of 16 will have the smallest CPU load. This turns off subpixel
-  // motion search.
-  if (vpx_codec_control(codec.get(), VP8E_SET_CPUUSED, 16))
-    return ScopedVpxCodec();
-
-  // Use the lowest level of noise sensitivity so as to spend less time
-  // on motion estimation and inter-prediction mode.
-  if (vpx_codec_control(codec.get(), VP8E_SET_NOISE_SENSITIVITY, 0))
-    return ScopedVpxCodec();
-
-  return codec.Pass();
+  config->rc_min_quantizer = 20;
+  config->rc_max_quantizer = 30;
 }
 
-ScopedVpxCodec CreateVP9Codec(const webrtc::DesktopSize& size,
-                              bool lossless_color,
-                              bool lossless_encode) {
-  ScopedVpxCodec codec(new vpx_codec_ctx_t);
-
-  // Configure the encoder.
-  vpx_codec_enc_cfg_t config;
-  const vpx_codec_iface_t* algo = vpx_codec_vp9_cx();
-  CHECK(algo);
-  vpx_codec_err_t ret = vpx_codec_enc_config_default(algo, &config, 0);
-  if (ret != VPX_CODEC_OK)
-    return ScopedVpxCodec();
-
-  SetCommonCodecParameters(size, &config);
+void SetVp9CodecParameters(vpx_codec_enc_cfg_t* config,
+                           const webrtc::DesktopSize& size,
+                           bool lossless_color,
+                           bool lossless_encode) {
+  SetCommonCodecParameters(config, size);
 
   // Configure VP9 for I420 or I444 source frames.
-  config.g_profile =
+  config->g_profile =
       lossless_color ? kVp9I444ProfileNumber : kVp9I420ProfileNumber;
 
   if (lossless_encode) {
     // Disable quantization entirely, putting the encoder in "lossless" mode.
-    config.rc_min_quantizer = 0;
-    config.rc_max_quantizer = 0;
+    config->rc_min_quantizer = 0;
+    config->rc_max_quantizer = 0;
+    config->rc_end_usage = VPX_VBR;
   } else {
-    // Lossy encode using the same settings as for VP8.
-    config.rc_min_quantizer = 20;
-    config.rc_max_quantizer = 30;
+    // TODO(wez): Set quantization range to 4-40, once the libvpx encoder is
+    // updated not to output any bits if nothing needs topping-off.
+    config->rc_min_quantizer = 20;
+    config->rc_max_quantizer = 30;
+    config->rc_end_usage = VPX_CBR;
+    // In the absence of a good bandwidth estimator set the target bitrate to a
+    // conservative default.
+    config->rc_target_bitrate = 500;
   }
+}
 
-  if (vpx_codec_enc_init(codec.get(), algo, &config, 0))
-    return ScopedVpxCodec();
+void SetVp8CodecOptions(vpx_codec_ctx_t* codec) {
+  // CPUUSED of 16 will have the smallest CPU load. This turns off sub-pixel
+  // motion search.
+  vpx_codec_err_t ret = vpx_codec_control(codec, VP8E_SET_CPUUSED, 16);
+  DCHECK_EQ(VPX_CODEC_OK, ret) << "Failed to set CPUUSED";
 
+  // Use the lowest level of noise sensitivity so as to spend less time
+  // on motion estimation and inter-prediction mode.
+  ret = vpx_codec_control(codec, VP8E_SET_NOISE_SENSITIVITY, 0);
+  DCHECK_EQ(VPX_CODEC_OK, ret) << "Failed to set noise sensitivity";
+}
+
+void SetVp9CodecOptions(vpx_codec_ctx_t* codec, bool lossless_encode) {
   // Request the lowest-CPU usage that VP9 supports, which depends on whether
   // we are encoding lossy or lossless.
   // Note that this is configured via the same parameter as for VP8.
   int cpu_used = lossless_encode ? 5 : 6;
-  if (vpx_codec_control(codec.get(), VP8E_SET_CPUUSED, cpu_used))
-    return ScopedVpxCodec();
+  vpx_codec_err_t ret = vpx_codec_control(codec, VP8E_SET_CPUUSED, cpu_used);
+  DCHECK_EQ(VPX_CODEC_OK, ret) << "Failed to set CPUUSED";
 
   // Use the lowest level of noise sensitivity so as to spend less time
   // on motion estimation and inter-prediction mode.
-  if (vpx_codec_control(codec.get(), VP9E_SET_NOISE_SENSITIVITY, 0))
-    return ScopedVpxCodec();
+  ret = vpx_codec_control(codec, VP9E_SET_NOISE_SENSITIVITY, 0);
+  DCHECK_EQ(VPX_CODEC_OK, ret) << "Failed to set noise sensitivity";
 
-  return codec.Pass();
+  // Configure the codec to tune it for screen media.
+  ret = vpx_codec_control(
+      codec, VP9E_SET_TUNE_CONTENT, VP9E_CONTENT_SCREEN);
+  DCHECK_EQ(VPX_CODEC_OK, ret) << "Failed to set screen content mode";
+
+  // Set cyclic refresh (aka "top-off") only for lossy encoding.
+  int aq_mode = lossless_encode ? kVp9AqModeNone : kVp9AqModeCyclicRefresh;
+  ret = vpx_codec_control(codec, VP9E_SET_AQ_MODE, aq_mode);
+  DCHECK_EQ(VPX_CODEC_OK, ret) << "Failed to set aq mode";
+}
+
+void FreeImageIfMismatched(bool use_i444,
+                           const webrtc::DesktopSize& size,
+                           scoped_ptr<vpx_image_t>* out_image,
+                           scoped_ptr<uint8[]>* out_image_buffer) {
+  if (*out_image) {
+    const vpx_img_fmt_t desired_fmt =
+        use_i444 ? VPX_IMG_FMT_I444 : VPX_IMG_FMT_I420;
+    if (!size.equals(webrtc::DesktopSize((*out_image)->w, (*out_image)->h)) ||
+        (*out_image)->fmt != desired_fmt) {
+      out_image_buffer->reset();
+      out_image->reset();
+    }
+  }
 }
 
 void CreateImage(bool use_i444,
@@ -159,6 +166,8 @@ void CreateImage(bool use_i444,
                  scoped_ptr<vpx_image_t>* out_image,
                  scoped_ptr<uint8[]>* out_image_buffer) {
   DCHECK(!size.is_empty());
+  DCHECK(!*out_image_buffer);
+  DCHECK(!*out_image);
 
   scoped_ptr<vpx_image_t> image(new vpx_image_t());
   memset(image.get(), 0, sizeof(vpx_image_t));
@@ -192,7 +201,7 @@ void CreateImage(bool use_i444,
   // Pad the Y, U and V planes' height out to compensate.
   // Assuming macroblocks are 16x16, aligning the planes' strides above also
   // macroblock aligned them.
-  DCHECK_EQ(16, kMacroBlockSize);
+  static_assert(kMacroBlockSize == 16, "macroblock_size_not_16");
   const int y_rows = ((image->h - 1) & ~(kMacroBlockSize-1)) + kMacroBlockSize;
   const int uv_rows = y_rows >> image->y_chroma_shift;
 
@@ -234,14 +243,21 @@ VideoEncoderVpx::~VideoEncoderVpx() {}
 void VideoEncoderVpx::SetLosslessEncode(bool want_lossless) {
   if (use_vp9_ && (want_lossless != lossless_encode_)) {
     lossless_encode_ = want_lossless;
-    codec_.reset(); // Force encoder re-initialization.
+    if (codec_)
+      Configure(webrtc::DesktopSize(codec_->config.enc->g_w,
+                                    codec_->config.enc->g_h));
   }
 }
 
 void VideoEncoderVpx::SetLosslessColor(bool want_lossless) {
   if (use_vp9_ && (want_lossless != lossless_color_)) {
     lossless_color_ = want_lossless;
-    codec_.reset(); // Force encoder re-initialization.
+    // TODO(wez): Switch to ConfigureCodec() path once libvpx supports it.
+    // See https://code.google.com/p/webm/issues/detail?id=913.
+    //if (codec_)
+    //  Configure(webrtc::DesktopSize(codec_->config.enc->g_w,
+    //                                codec_->config.enc->g_h));
+    codec_.reset();
   }
 }
 
@@ -250,16 +266,17 @@ scoped_ptr<VideoPacket> VideoEncoderVpx::Encode(
   DCHECK_LE(32, frame.size().width());
   DCHECK_LE(32, frame.size().height());
 
+  // If there is nothing to encode, and nothing to top-off, then return nothing.
+  if (frame.updated_region().is_empty() && !encode_unchanged_frame_)
+    return nullptr;
+
   base::TimeTicks encode_start_time = base::TimeTicks::Now();
 
+  // Create or reconfigure the codec to match the size of |frame|.
   if (!codec_ ||
-      !frame.size().equals(webrtc::DesktopSize(image_->w, image_->h))) {
-    bool ret = Initialize(frame.size());
-    // TODO(hclam): Handle error better.
-    CHECK(ret) << "Initialization of encoder failed";
-
-    // Set now as the base for timestamp calculation.
-    timestamp_base_ = encode_start_time;
+      (image_ &&
+       !frame.size().equals(webrtc::DesktopSize(image_->w, image_->h)))) {
+    Configure(frame.size());
   }
 
   // Convert the updated capture data ready for encode.
@@ -267,12 +284,12 @@ scoped_ptr<VideoPacket> VideoEncoderVpx::Encode(
   PrepareImage(frame, &updated_region);
 
   // Update active map based on updated region.
-  PrepareActiveMap(updated_region);
+  SetActiveMapFromRegion(updated_region);
 
   // Apply active map to the encoder.
   vpx_active_map_t act_map;
-  act_map.rows = active_map_height_;
-  act_map.cols = active_map_width_;
+  act_map.rows = active_map_size_.height();
+  act_map.cols = active_map_size_.width();
   act_map.active_map = active_map_.get();
   if (vpx_codec_control(codec_.get(), VP8E_SET_ACTIVEMAP, &act_map)) {
     LOG(ERROR) << "Unable to apply active map";
@@ -286,6 +303,17 @@ scoped_ptr<VideoPacket> VideoEncoderVpx::Encode(
       << "Encoding error: " << vpx_codec_err_to_string(ret) << "\n"
       << "Details: " << vpx_codec_error(codec_.get()) << "\n"
       << vpx_codec_error_detail(codec_.get());
+
+  if (use_vp9_ && !lossless_encode_) {
+    ret = vpx_codec_control(codec_.get(), VP9E_GET_ACTIVEMAP, &act_map);
+    DCHECK_EQ(ret, VPX_CODEC_OK)
+        << "Failed to fetch active map: "
+        << vpx_codec_err_to_string(ret) << "\n";
+    UpdateRegionFromActiveMap(&updated_region);
+
+    // If the encoder output no changes then there's nothing left to top-off.
+    encode_unchanged_frame_ = !updated_region.is_empty();
+  }
 
   // Read the encoded data.
   vpx_codec_iter_t iter = NULL;
@@ -321,41 +349,70 @@ scoped_ptr<VideoPacket> VideoEncoderVpx::Encode(
 }
 
 VideoEncoderVpx::VideoEncoderVpx(bool use_vp9)
-    : use_vp9_(use_vp9),
-      lossless_encode_(false),
-      lossless_color_(false),
-      active_map_width_(0),
-      active_map_height_(0) {
-  if (use_vp9_) {
-    // Use I444 colour space, by default, if specified on the command-line.
-    if (CommandLine::ForCurrentProcess()->HasSwitch(kEnableI444SwitchName)) {
-      SetLosslessColor(true);
-    }
-  }
+    : use_vp9_(use_vp9), encode_unchanged_frame_(false) {
 }
 
-bool VideoEncoderVpx::Initialize(const webrtc::DesktopSize& size) {
+void VideoEncoderVpx::Configure(const webrtc::DesktopSize& size) {
   DCHECK(use_vp9_ || !lossless_color_);
   DCHECK(use_vp9_ || !lossless_encode_);
 
-  codec_.reset();
-
-  // (Re)Create the VPX image structure and pixel buffer.
-  CreateImage(lossless_color_, size, &image_, &image_buffer_);
+  // Tear down |image_| if it no longer matches the size and color settings.
+  // PrepareImage() will then create a new buffer of the required dimensions if
+  // |image_| is not allocated.
+  FreeImageIfMismatched(lossless_color_, size, &image_, &image_buffer_);
 
   // Initialize active map.
-  active_map_width_ = (image_->w + kMacroBlockSize - 1) / kMacroBlockSize;
-  active_map_height_ = (image_->h + kMacroBlockSize - 1) / kMacroBlockSize;
-  active_map_.reset(new uint8[active_map_width_ * active_map_height_]);
+  active_map_size_ = webrtc::DesktopSize(
+      (size.width() + kMacroBlockSize - 1) / kMacroBlockSize,
+      (size.height() + kMacroBlockSize - 1) / kMacroBlockSize);
+  active_map_.reset(
+      new uint8[active_map_size_.width() * active_map_size_.height()]);
 
-  // (Re)Initialize the codec.
-  if (use_vp9_) {
-    codec_ = CreateVP9Codec(size, lossless_color_, lossless_encode_);
-  } else {
-    codec_ = CreateVP8Codec(size);
+  // TODO(wez): Remove this hack once VPX can handle frame size reconfiguration.
+  // See https://code.google.com/p/webm/issues/detail?id=912.
+  if (codec_) {
+    // If the frame size has changed then force re-creation of the codec.
+    if (codec_->config.enc->g_w != static_cast<unsigned int>(size.width()) ||
+        codec_->config.enc->g_h != static_cast<unsigned int>(size.height())) {
+      codec_.reset();
+    }
   }
 
-  return codec_;
+  // (Re)Set the base for frame timestamps if the codec is being (re)created.
+  if (!codec_) {
+    timestamp_base_ = base::TimeTicks::Now();
+  }
+
+  // Fetch a default configuration for the desired codec.
+  const vpx_codec_iface_t* interface =
+      use_vp9_ ? vpx_codec_vp9_cx() : vpx_codec_vp8_cx();
+  vpx_codec_enc_cfg_t config;
+  vpx_codec_err_t ret = vpx_codec_enc_config_default(interface, &config, 0);
+  DCHECK_EQ(VPX_CODEC_OK, ret) << "Failed to fetch default configuration";
+
+  // Customize the default configuration to our needs.
+  if (use_vp9_) {
+    SetVp9CodecParameters(&config, size, lossless_color_, lossless_encode_);
+  } else {
+    SetVp8CodecParameters(&config, size);
+  }
+
+  // Initialize or re-configure the codec with the custom configuration.
+  if (!codec_) {
+    codec_.reset(new vpx_codec_ctx_t);
+    ret = vpx_codec_enc_init(codec_.get(), interface, &config, 0);
+    CHECK_EQ(VPX_CODEC_OK, ret) << "Failed to initialize codec";
+  } else {
+    ret = vpx_codec_enc_config_set(codec_.get(), &config);
+    CHECK_EQ(VPX_CODEC_OK, ret) << "Failed to reconfigure codec";
+  }
+
+  // Apply further customizations to the codec now it's initialized.
+  if (use_vp9_) {
+    SetVp9CodecOptions(codec_.get(), lossless_encode_);
+  } else {
+    SetVp8CodecOptions(codec_.get());
+  }
 }
 
 void VideoEncoderVpx::PrepareImage(const webrtc::DesktopFrame& frame,
@@ -365,25 +422,35 @@ void VideoEncoderVpx::PrepareImage(const webrtc::DesktopFrame& frame,
     return;
   }
 
-  // Align the region to macroblocks, to avoid encoding artefacts.
-  // This also ensures that all rectangles have even-aligned top-left, which
-  // is required for ConvertRGBToYUVWithRect() to work.
-  std::vector<webrtc::DesktopRect> aligned_rects;
-  for (webrtc::DesktopRegion::Iterator r(frame.updated_region());
-       !r.IsAtEnd(); r.Advance()) {
-    const webrtc::DesktopRect& rect = r.rect();
-    aligned_rects.push_back(AlignRect(webrtc::DesktopRect::MakeLTRB(
-        rect.left(), rect.top(), rect.right(), rect.bottom())));
-  }
-  DCHECK(!aligned_rects.empty());
   updated_region->Clear();
-  updated_region->AddRects(&aligned_rects[0], aligned_rects.size());
+  if (image_) {
+    // Pad each rectangle to avoid the block-artefact filters in libvpx from
+    // introducing artefacts; VP9 includes up to 8px either side, and VP8 up to
+    // 3px, so unchanged pixels up to that far out may still be affected by the
+    // changes in the updated region, and so must be listed in the active map.
+    // After padding we align each rectangle to 16x16 active-map macroblocks.
+    // This implicitly ensures all rects have even top-left coords, which is
+    // is required by ConvertRGBToYUVWithRect().
+    // TODO(wez): Do we still need 16x16 align, or is even alignment sufficient?
+    int padding = use_vp9_ ? 8 : 3;
+    for (webrtc::DesktopRegion::Iterator r(frame.updated_region());
+         !r.IsAtEnd(); r.Advance()) {
+      const webrtc::DesktopRect& rect = r.rect();
+      updated_region->AddRect(AlignRect(webrtc::DesktopRect::MakeLTRB(
+          rect.left() - padding, rect.top() - padding, rect.right() + padding,
+          rect.bottom() + padding)));
+    }
+    DCHECK(!updated_region->is_empty());
 
-  // Clip back to the screen dimensions, in case they're not macroblock aligned.
-  // The conversion routines don't require even width & height, so this is safe
-  // even if the source dimensions are not even.
-  updated_region->IntersectWith(
-      webrtc::DesktopRect::MakeWH(image_->w, image_->h));
+    // Clip back to the screen dimensions, in case they're not macroblock
+    // aligned. The conversion routines don't require even width & height,
+    // so this is safe even if the source dimensions are not even.
+    updated_region->IntersectWith(
+        webrtc::DesktopRect::MakeWH(image_->w, image_->h));
+  } else {
+    CreateImage(lossless_color_, frame.size(), &image_, &image_buffer_);
+    updated_region->AddRect(webrtc::DesktopRect::MakeWH(image_->w, image_->h));
+  }
 
   // Convert the updated region to YUV ready for encoding.
   const uint8* rgb_data = frame.data();
@@ -431,10 +498,11 @@ void VideoEncoderVpx::PrepareImage(const webrtc::DesktopFrame& frame,
   }
 }
 
-void VideoEncoderVpx::PrepareActiveMap(
+void VideoEncoderVpx::SetActiveMapFromRegion(
     const webrtc::DesktopRegion& updated_region) {
   // Clear active map first.
-  memset(active_map_.get(), 0, active_map_width_ * active_map_height_);
+  memset(active_map_.get(), 0,
+         active_map_size_.width() * active_map_size_.height());
 
   // Mark updated areas active.
   for (webrtc::DesktopRegion::Iterator r(updated_region); !r.IsAtEnd();
@@ -444,16 +512,38 @@ void VideoEncoderVpx::PrepareActiveMap(
     int right = (rect.right() - 1) / kMacroBlockSize;
     int top = rect.top() / kMacroBlockSize;
     int bottom = (rect.bottom() - 1) / kMacroBlockSize;
-    DCHECK_LT(right, active_map_width_);
-    DCHECK_LT(bottom, active_map_height_);
+    DCHECK_LT(right, active_map_size_.width());
+    DCHECK_LT(bottom, active_map_size_.height());
 
-    uint8* map = active_map_.get() + top * active_map_width_;
+    uint8* map = active_map_.get() + top * active_map_size_.width();
     for (int y = top; y <= bottom; ++y) {
       for (int x = left; x <= right; ++x)
         map[x] = 1;
-      map += active_map_width_;
+      map += active_map_size_.width();
     }
   }
+}
+
+void VideoEncoderVpx::UpdateRegionFromActiveMap(
+    webrtc::DesktopRegion* updated_region) {
+  const uint8* map = active_map_.get();
+  for (int y = 0; y < active_map_size_.height(); ++y) {
+    for (int x0 = 0; x0 < active_map_size_.width();) {
+      int x1 = x0;
+      for (; x1 < active_map_size_.width(); ++x1) {
+        if (map[y * active_map_size_.width() + x1] == 0)
+          break;
+      }
+      if (x1 > x0) {
+        updated_region->AddRect(webrtc::DesktopRect::MakeLTRB(
+            kMacroBlockSize * x0, kMacroBlockSize * y, kMacroBlockSize * x1,
+            kMacroBlockSize * (y + 1)));
+      }
+      x0 = x1 + 1;
+    }
+  }
+  updated_region->IntersectWith(
+      webrtc::DesktopRect::MakeWH(image_->w, image_->h));
 }
 
 }  // namespace remoting

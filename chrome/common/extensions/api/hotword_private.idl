@@ -10,7 +10,7 @@
 //
 // For an FYI, visit http://goo.gl/AyHbkH
 
-[nodoc] namespace hotwordPrivate {
+namespace hotwordPrivate {
 
   dictionary StatusDetails {
     // Whether the hotword preference has been set.
@@ -21,21 +21,30 @@
     boolean enabled;
 
     // Whether the hotword extension is available to be enabled
+    // Optional field, only valid when getStatus() is called with
+    // |getOptionalFields| = true. Otherwise, set to false.
     boolean available;
+
+    // Whether always-on is available to be enabled
+    // Optional field, only valid when getStatus() is called with
+    // |getOptionalFields| = true. Otherwise, set to false.
+    boolean alwaysOnAvailable;
 
     // Whether the sound of "Ok, Google" plus a few seconds before is sent
     // back to Google.
     boolean audioLoggingEnabled;
-
-    // Whether experimental hotwording functionality is enabled. Mirrors the
-    // "enable-experimental-hotwording" flag.
-    boolean experimentalHotwordEnabled;
 
     // Whether always-on hotwording is enabled.
     boolean alwaysOnEnabled;
 
     // Whether training mode is enabled.
     boolean trainingEnabled;
+
+    // Whether the user corresponding to this profile is the active user.
+    boolean userIsActive;
+
+    // Whether hotword hardware is available if requested.
+    boolean hotwordHardwareAvailable;
   };
 
   dictionary LaunchState {
@@ -46,6 +55,29 @@
     long launchMode;
   };
 
+  dictionary LogDetails {
+    // Number of audio channels. i.e. 1 = mono, 2 = stereo
+    long channels;
+
+    // Bytes per sample per channel.
+    long bytes_per_sample;
+
+    // Sample rate. Usually 32000 or 44100, but may be any integer.
+    long sample_rate;
+
+    // Array containing audio data. Length is
+    // (channels * bytes_per_sample * sample_rate * <seconds of log>).
+    ArrayBuffer buffer;
+  };
+
+  dictionary AudioHistoryState {
+    // Whether the call to set or get this state was successful.
+    boolean success;
+
+    // The current value of the audio history opt-in state after this
+    // call.
+    boolean enabled;
+  };
 
   // The type of the recognized hotword. Right now it only has 'search' but
   // could be expanded to other types of actions in the future.
@@ -53,7 +85,9 @@
 
   callback GenericDoneCallback = void ();
   callback LaunchStateCallback = void(LaunchState result);
+  callback LocalizeStringsCallback = void(object result);
   callback StatusDetailsCallback = void(StatusDetails result);
+  callback AudioHistoryCallback = void(AudioHistoryState result);
 
   interface Functions {
     // Sets the current enabled state of hotword search.
@@ -63,7 +97,14 @@
 
     // Retrieves the current state of hotword search.
     // The result is put into a StatusDetails object.
-    static void getStatus(StatusDetailsCallback callback);
+    // |getOptionalFields|: If true, fills in fields tagged as optional in
+    // StatusDetails with valid values. These fields are not valid by default
+    // since their current implementations may cause blocking operations.
+    static void getStatus(optional boolean getOptionalFields,
+                          StatusDetailsCallback callback);
+
+    // Retrieves a dictionary mapping names to localized resource strings.
+    static void getLocalizedStrings(LocalizeStringsCallback callback);
 
     // Sets the current enabled state of audio logging in the extension.
     // True: logging enabled. False: no logging.
@@ -83,6 +124,7 @@
     // Notifies that a hotword has been recognized in the browser-requested
     // hotword session.
     static void notifyHotwordRecognition(HotwordType type,
+                                         optional LogDetails log,
                                          optional GenericDoneCallback callback);
 
     // Retrieves the state that the Hotword Audio Verification app was
@@ -95,8 +137,22 @@
     // Finalizess the speaker model.
     static void finalizeSpeakerModel(optional GenericDoneCallback callback);
 
+    // Notifies that the speaker model has been saved.
+    static void notifySpeakerModelSaved(optional GenericDoneCallback callback);
+
     // Stops the speaker model training.
     static void stopTraining(optional GenericDoneCallback callback);
+
+    // Sets the audio history opt-in state.
+    static void setAudioHistoryEnabled(boolean enabled,
+                                       optional AudioHistoryCallback callback);
+
+    // Gets the audio history opt-in state.
+    static void getAudioHistoryEnabled(optional AudioHistoryCallback callback);
+
+    // Sends the result of whether a speaker model exists to the browser.
+    static void speakerModelExistsResult(boolean exists,
+                                         optional GenericDoneCallback callback);
   };
 
   interface Events {
@@ -114,7 +170,20 @@
     // Fired when the speaker model should be finalized.
     static void onFinalizeSpeakerModel();
 
+    // Fired when the speaker model has been saved.
+    static void onSpeakerModelSaved();
+
     // Fired when a hotword has triggered.
     static void onHotwordTriggered();
+
+    // Fired when the speaker model should be deleted.
+    static void onDeleteSpeakerModel();
+
+    // Fired when the browser wants to find out whether the speaker model
+    // exists.
+    static void onSpeakerModelExists();
+
+    // Fired when the microphone state changes.
+    static void onMicrophoneStateChanged(boolean enabled);
   };
 };

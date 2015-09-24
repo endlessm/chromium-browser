@@ -6,6 +6,7 @@
 #define CHROME_RENDERER_NET_NET_ERROR_PAGE_CONTROLLER_H_
 
 #include "base/macros.h"
+#include "components/error_page/renderer/net_error_helper_core.h"
 #include "content/public/renderer/render_frame_observer.h"
 #include "gin/arguments.h"
 #include "gin/wrappable.h"
@@ -30,8 +31,8 @@ class NetErrorPageController
   explicit NetErrorPageController(content::RenderFrame* render_frame);
   ~NetErrorPageController() override;
 
-  // Execute a "Load Stale" button click.
-  bool LoadStaleButtonClick();
+  // Execute a "Show saved copy" button click.
+  bool ShowSavedCopyButtonClick();
 
   // Execute a "Reload" button click.
   bool ReloadButtonClick();
@@ -39,9 +40,18 @@ class NetErrorPageController
   // Execute a "Details" button click.
   bool DetailsButtonClick();
 
+  // Track easter egg plays.
+  bool TrackEasterEgg();
+
+  // Track "Show cached copy/page" button clicks.
+  bool TrackCachedCopyButtonClick(bool is_default_label);
+
   // Track a click when the page has suggestions from the navigation correction
   // service.
   bool TrackClick(const gin::Arguments& args);
+
+  // Used internally by other button click methods.
+  bool ButtonClick(error_page::NetErrorHelperCore::Button button);
 
   // gin::WrappableBase
   gin::ObjectTemplateBuilder GetObjectTemplateBuilder(

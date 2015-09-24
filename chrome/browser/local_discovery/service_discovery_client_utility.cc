@@ -4,7 +4,10 @@
 
 #include "chrome/browser/local_discovery/service_discovery_client_utility.h"
 
+#include "base/location.h"
 #include "base/metrics/histogram.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/local_discovery/service_discovery_host_client.h"
 #include "content/public/browser/browser_thread.h"
 
@@ -21,7 +24,7 @@ const int kReportSuccessAfterSeconds = 10;
 scoped_ptr<ServiceWatcher> ServiceDiscoveryClientUtility::CreateServiceWatcher(
     const std::string& service_type,
     const ServiceWatcher::UpdatedCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   return host_client_->CreateServiceWatcher(service_type, callback);
 }
 
@@ -29,7 +32,7 @@ scoped_ptr<ServiceResolver>
 ServiceDiscoveryClientUtility::CreateServiceResolver(
     const std::string& service_name,
     const ServiceResolver::ResolveCompleteCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   return host_client_->CreateServiceResolver(service_name, callback);
 }
 
@@ -38,7 +41,7 @@ ServiceDiscoveryClientUtility::CreateLocalDomainResolver(
     const std::string& domain,
     net::AddressFamily address_family,
     const LocalDomainResolver::IPAddressCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   return host_client_->CreateLocalDomainResolver(domain, address_family,
                                                  callback);
 }
@@ -46,38 +49,37 @@ ServiceDiscoveryClientUtility::CreateLocalDomainResolver(
 ServiceDiscoveryClientUtility::ServiceDiscoveryClientUtility()
     : restart_attempts_(kMaxRestartAttempts),
       weak_ptr_factory_(this) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   net::NetworkChangeNotifier::AddNetworkChangeObserver(this);
   StartNewClient();
 }
 
 ServiceDiscoveryClientUtility::~ServiceDiscoveryClientUtility() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   net::NetworkChangeNotifier::RemoveNetworkChangeObserver(this);
   host_client_->Shutdown();
 }
 
 void ServiceDiscoveryClientUtility::OnNetworkChanged(
     net::NetworkChangeNotifier::ConnectionType type) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   // Only network changes resets kMaxRestartAttempts.
   restart_attempts_ = kMaxRestartAttempts;
   ScheduleStartNewClient();
 }
 
 void ServiceDiscoveryClientUtility::ScheduleStartNewClient() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   host_client_->Shutdown();
   weak_ptr_factory_.InvalidateWeakPtrs();
-  base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::Bind(&ServiceDiscoveryClientUtility::StartNewClient,
-                 weak_ptr_factory_.GetWeakPtr()),
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, base::Bind(&ServiceDiscoveryClientUtility::StartNewClient,
+                            weak_ptr_factory_.GetWeakPtr()),
       base::TimeDelta::FromSeconds(kRestartDelayOnNetworkChangeSeconds));
 }
 
 void ServiceDiscoveryClientUtility::StartNewClient() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   scoped_refptr<ServiceDiscoveryHostClient> old_client = host_client_;
   if ((restart_attempts_--) > 0) {
     host_client_ = new ServiceDiscoveryHostClient();
@@ -85,10 +87,9 @@ void ServiceDiscoveryClientUtility::StartNewClient() {
         base::Bind(&ServiceDiscoveryClientUtility::ScheduleStartNewClient,
                    weak_ptr_factory_.GetWeakPtr()));
 
-    base::MessageLoop::current()->PostDelayedTask(
-        FROM_HERE,
-        base::Bind(&ServiceDiscoveryClientUtility::ReportSuccess,
-                   weak_ptr_factory_.GetWeakPtr()),
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE, base::Bind(&ServiceDiscoveryClientUtility::ReportSuccess,
+                              weak_ptr_factory_.GetWeakPtr()),
         base::TimeDelta::FromSeconds(kReportSuccessAfterSeconds));
   } else {
     restart_attempts_ = -1;

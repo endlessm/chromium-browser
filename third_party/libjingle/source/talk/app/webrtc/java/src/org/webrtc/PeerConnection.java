@@ -1,6 +1,6 @@
 /*
  * libjingle
- * Copyright 2013, Google Inc.
+ * Copyright 2013 Google Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -28,6 +28,7 @@
 
 package org.webrtc;
 
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -64,6 +65,9 @@ public class PeerConnection {
 
     /** Triggered when the IceConnectionState changes. */
     public void onIceConnectionChange(IceConnectionState newState);
+
+    /** Triggered when the ICE connection receiving status changes. */
+    public void onIceConnectionReceivingChange(boolean receiving);
 
     /** Triggered when the IceGatheringState changes. */
     public void onIceGatheringChange(IceGatheringState newState);
@@ -105,6 +109,46 @@ public class PeerConnection {
       return uri + "[" + username + ":" + password + "]";
     }
   }
+
+  /** Java version of PeerConnectionInterface.IceTransportsType */
+  public enum IceTransportsType {
+    NONE, RELAY, NOHOST, ALL
+  };
+
+  /** Java version of PeerConnectionInterface.BundlePolicy */
+  public enum BundlePolicy {
+    BALANCED, MAXBUNDLE, MAXCOMPAT
+  };
+
+  /** Java version of PeerConnectionInterface.RtcpMuxPolicy */
+  public enum RtcpMuxPolicy {
+    NEGOTIATE, REQUIRE
+  };
+  /** Java version of PeerConnectionInterface.TcpCandidatePolicy */
+  public enum TcpCandidatePolicy {
+    ENABLED, DISABLED
+  };
+
+  /** Java version of PeerConnectionInterface.RTCConfiguration */
+  public static class RTCConfiguration {
+    public IceTransportsType iceTransportsType;
+    public List<IceServer> iceServers;
+    public BundlePolicy bundlePolicy;
+    public RtcpMuxPolicy rtcpMuxPolicy;
+    public TcpCandidatePolicy tcpCandidatePolicy;
+    public int audioJitterBufferMaxPackets;
+    public boolean audioJitterBufferFastAccelerate;
+
+    public RTCConfiguration(List<IceServer> iceServers) {
+      iceTransportsType = IceTransportsType.ALL;
+      bundlePolicy = BundlePolicy.BALANCED;
+      rtcpMuxPolicy = RtcpMuxPolicy.NEGOTIATE;
+      tcpCandidatePolicy = TcpCandidatePolicy.ENABLED;
+      this.iceServers = iceServers;
+      audioJitterBufferMaxPackets = 50;
+      audioJitterBufferFastAccelerate = false;
+    }
+  };
 
   private final List<MediaStream> localStreams;
   private final long nativePeerConnection;

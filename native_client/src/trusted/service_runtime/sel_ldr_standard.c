@@ -8,6 +8,7 @@
  * NaCl Simple/secure ELF loader (NaCl SEL).
  */
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/portability.h"
 
 #include <stdio.h>
@@ -25,9 +26,8 @@
 
 #include "native_client/src/shared/srpc/nacl_srpc.h"
 
+#include "native_client/src/trusted/desc/nacl_desc_base.h"
 #include "native_client/src/trusted/perf_counter/nacl_perf_counter.h"
-
-#include "native_client/src/trusted/reverse_service/reverse_control_rpc.h"
 
 #include "native_client/src/trusted/service_runtime/include/sys/errno.h"
 #include "native_client/src/trusted/service_runtime/include/sys/fcntl.h"
@@ -35,8 +35,6 @@
 #include "native_client/src/trusted/service_runtime/arch/sel_ldr_arch.h"
 #include "native_client/src/trusted/service_runtime/elf_util.h"
 #include "native_client/src/trusted/service_runtime/nacl_app_thread.h"
-#include "native_client/src/trusted/service_runtime/nacl_kernel_service.h"
-#include "native_client/src/trusted/service_runtime/nacl_runtime_host_interface.h"
 #include "native_client/src/trusted/service_runtime/nacl_signal.h"
 #include "native_client/src/trusted/service_runtime/nacl_switch_to_app.h"
 #include "native_client/src/trusted/service_runtime/nacl_syscall_common.h"
@@ -461,6 +459,10 @@ NaClErrorCode NaClAppLoadFileDynamically(
   }
   nap->user_entry_pt = nap->initial_entry_pt;
   nap->initial_entry_pt = NaClElfImageGetEntryPoint(image);
+  if (!NaClAddrIsValidIrtEntryPt(nap, nap->initial_entry_pt)) {
+    ret = LOAD_BAD_ENTRY;
+    goto done;
+  }
 
  done:
   NaClElfImageDelete(image);
@@ -476,99 +478,16 @@ int NaClAddrIsValidEntryPt(struct NaClApp *nap,
   return addr < nap->static_text_end;
 }
 
-int NaClAppLaunchServiceThreads(struct NaClApp *nap) {
-  struct NaClKernelService  *kernel_service = NULL;
-  int                       rv = 0;
-
-  NaClLog(4, "NaClAppLaunchServiceThreads: Entered, nap 0x%"NACL_PRIxPTR"\n",
-          (uintptr_t) nap);
-
-  NaClNameServiceLaunch(nap->name_service);
-
-  if (LOAD_OK != NaClWaitForStartModuleCommand(nap)) {
-    return rv;
+int NaClAddrIsValidIrtEntryPt(struct NaClApp *nap,
+                              uintptr_t      addr) {
+  if (0 != (addr & (nap->bundle_size - 1))) {
+    return 0;
   }
 
-  NaClXMutexLock(&nap->mu);
-  if (NULL == nap->runtime_host_interface) {
-    nap->runtime_host_interface = malloc(sizeof *nap->runtime_host_interface);
-    if (NULL == nap->runtime_host_interface ||
-        !NaClRuntimeHostInterfaceCtor_protected(nap->runtime_host_interface)) {
-      NaClLog(LOG_ERROR, "NaClAppLaunchServiceThreads:"
-              " Failed to initialise runtime host interface\n");
-      goto done;
-    }
-  }
-  NaClXMutexUnlock(&nap->mu);
-
-  kernel_service = (struct NaClKernelService *) malloc(sizeof *kernel_service);
-  if (NULL == kernel_service) {
-    NaClLog(LOG_ERROR,
-            "NaClAppLaunchServiceThreads: No memory for kern service\n");
-    goto done;
-  }
-
-  if (!NaClKernelServiceCtor(kernel_service,
-                             NaClAddrSpSquattingThreadIfFactoryFunction,
-                             (void *) nap,
-                             nap->runtime_host_interface)) {
-    NaClLog(LOG_ERROR,
-            "NaClAppLaunchServiceThreads: KernServiceCtor failed\n");
-    free(kernel_service);
-    kernel_service = NULL;
-    goto done;
-  }
-
-  if (!NaClSimpleServiceStartServiceThread((struct NaClSimpleService *)
-                                           kernel_service)) {
-    NaClLog(LOG_ERROR,
-            "NaClAppLaunchServiceThreads: KernService start service failed\n");
-    goto done;
-  }
-  /*
-   * NB: StartServiceThread grabbed another reference to kernel_service,
-   * used by the service thread.  Closing the connection capability
-   * should cause the service thread to shut down and in turn release
-   * that reference.
-   */
-
-  NaClXMutexLock(&nap->mu);
-  CHECK(NULL == nap->kernel_service);
-
-  nap->kernel_service = kernel_service;
-  kernel_service = NULL;
-  NaClXMutexUnlock(&nap->mu);
-  rv = 1;
-
-done:
-  NaClXMutexLock(&nap->mu);
-  if (NULL != nap->kernel_service) {
-    NaClLog(3,
-            ("NaClAppLaunchServiceThreads: adding kernel service to"
-             " name service\n"));
-    (*NACL_VTBL(NaClNameService, nap->name_service)->
-     CreateDescEntry)(nap->name_service,
-                      "KernelService", NACL_ABI_O_RDWR,
-                      NaClDescRef(nap->kernel_service->base.bound_and_cap[1]));
-  }
-  NaClXMutexUnlock(&nap->mu);
-
-  /*
-   * Single exit path.
-   *
-   * Error cleanup invariant.  No service thread should be running
-   * (modulo asynchronous shutdown).  Automatic variables refer to
-   * fully constructed objects if non-NULL, and when ownership is
-   * transferred to the NaClApp object the corresponding automatic
-   * variable is set to NULL.
-   */
-  NaClRefCountSafeUnref((struct NaClRefCount *) kernel_service);
-  return rv;
+  return addr < nap->dynamic_text_end;
 }
 
 int NaClReportExitStatus(struct NaClApp *nap, int exit_status) {
-  int rv = 0;
-
   NaClXMutexLock(&nap->mu);
   /*
    * If several threads are exiting/reporting signals at once, we should
@@ -580,25 +499,13 @@ int NaClReportExitStatus(struct NaClApp *nap, int exit_status) {
     return 0;
   }
 
-  if (NULL != nap->runtime_host_interface) {
-    /* TODO(halyavin) update NaCl plugin to accept full exit_status value */
-    if (NACL_ABI_WIFEXITED(exit_status)) {
-    rv = (*NACL_VTBL(NaClRuntimeHostInterface, nap->runtime_host_interface)->
-          ReportExitStatus)(nap->runtime_host_interface,
-                            NACL_ABI_WEXITSTATUS(exit_status));
-    }
-    /*
-     * Due to cross-repository checkins, the Cr-side might not yet
-     * implement this RPC.  We return whether shutdown was reported.
-     */
-  }
   nap->exit_status = exit_status;
   nap->running = 0;
   NaClXCondVarSignal(&nap->cv);
 
   NaClXMutexUnlock(&nap->mu);
 
-  return rv;
+  return 0;
 }
 
 uintptr_t NaClGetInitialStackTop(struct NaClApp *nap) {

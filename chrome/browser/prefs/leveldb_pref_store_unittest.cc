@@ -7,7 +7,6 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/values.h"
@@ -43,8 +42,8 @@ class LevelDBPrefStoreTest : public testing::Test {
   void TearDown() override { Close(); }
 
   void Open() {
-    pref_store_ = new LevelDBPrefStore(
-        temp_dir_.path(), message_loop_.message_loop_proxy().get());
+    pref_store_ = new LevelDBPrefStore(temp_dir_.path(),
+                                       message_loop_.task_runner().get());
     EXPECT_EQ(LevelDBPrefStore::PREF_READ_ERROR_NONE, pref_store_->ReadPrefs());
   }
 
@@ -71,7 +70,8 @@ class LevelDBPrefStoreTest : public testing::Test {
 TEST_F(LevelDBPrefStoreTest, PutAndGet) {
   Open();
   const std::string key = "some.key";
-  pref_store_->SetValue(key, new base::FundamentalValue(5));
+  pref_store_->SetValue(key, make_scoped_ptr(new base::FundamentalValue(5)),
+                        WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
   base::FundamentalValue orig_value(5);
   const base::Value* actual_value;
   EXPECT_TRUE(pref_store_->GetValue(key, &actual_value));
@@ -81,7 +81,8 @@ TEST_F(LevelDBPrefStoreTest, PutAndGet) {
 TEST_F(LevelDBPrefStoreTest, PutAndGetPersistent) {
   Open();
   const std::string key = "some.key";
-  pref_store_->SetValue(key, new base::FundamentalValue(5));
+  pref_store_->SetValue(key, make_scoped_ptr(new base::FundamentalValue(5)),
+                        WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
 
   CloseAndReopen();
   const base::Value* actual_value = NULL;
@@ -91,8 +92,8 @@ TEST_F(LevelDBPrefStoreTest, PutAndGetPersistent) {
 }
 
 TEST_F(LevelDBPrefStoreTest, BasicObserver) {
-  scoped_refptr<LevelDBPrefStore> pref_store = new LevelDBPrefStore(
-      temp_dir_.path(), message_loop_.message_loop_proxy().get());
+  scoped_refptr<LevelDBPrefStore> pref_store =
+      new LevelDBPrefStore(temp_dir_.path(), message_loop_.task_runner().get());
   MockPrefStoreObserver mock_observer;
   pref_store->AddObserver(&mock_observer);
   EXPECT_CALL(mock_observer, OnInitializationCompleted(true)).Times(1);
@@ -101,7 +102,8 @@ TEST_F(LevelDBPrefStoreTest, BasicObserver) {
 
   const std::string key = "some.key";
   EXPECT_CALL(mock_observer, OnPrefValueChanged(key)).Times(1);
-  pref_store->SetValue(key, new base::FundamentalValue(5));
+  pref_store->SetValue(key, make_scoped_ptr(new base::FundamentalValue(5)),
+                       WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
 
   pref_store->RemoveObserver(&mock_observer);
 }
@@ -113,7 +115,9 @@ TEST_F(LevelDBPrefStoreTest, SetValueSilently) {
   pref_store_->AddObserver(&mock_observer);
   const std::string key = "some.key";
   EXPECT_CALL(mock_observer, OnPrefValueChanged(key)).Times(0);
-  pref_store_->SetValueSilently(key, new base::FundamentalValue(30));
+  pref_store_->SetValueSilently(key,
+                                make_scoped_ptr(new base::FundamentalValue(30)),
+                                WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
   pref_store_->RemoveObserver(&mock_observer);
 
   CloseAndReopen();
@@ -127,17 +131,20 @@ TEST_F(LevelDBPrefStoreTest, GetMutableValue) {
   Open();
 
   const std::string key = "some.key";
-  base::DictionaryValue* orig_value = new base::DictionaryValue;
+  scoped_ptr<base::DictionaryValue> orig_value(new base::DictionaryValue);
+  base::DictionaryValue* orig_value_unowned = orig_value.get();
   orig_value->SetInteger("key2", 25);
-  pref_store_->SetValue(key, orig_value);
+  pref_store_->SetValue(key, orig_value.Pass(),
+                        WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
 
   base::Value* actual_value;
   EXPECT_TRUE(pref_store_->GetMutableValue(key, &actual_value));
-  EXPECT_TRUE(orig_value->Equals(actual_value));
+  EXPECT_TRUE(orig_value_unowned->Equals(actual_value));
   base::DictionaryValue* dict_value;
   ASSERT_TRUE(actual_value->GetAsDictionary(&dict_value));
   dict_value->SetInteger("key2", 30);
-  pref_store_->ReportValueChanged(key);
+  pref_store_->ReportValueChanged(key,
+                                  WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
 
   // Ensure the new value is stored in memory.
   const base::Value* retrieved_value;
@@ -155,12 +162,13 @@ TEST_F(LevelDBPrefStoreTest, GetMutableValue) {
 TEST_F(LevelDBPrefStoreTest, RemoveFromMemory) {
   Open();
   const std::string key = "some.key";
-  pref_store_->SetValue(key, new base::FundamentalValue(5));
+  pref_store_->SetValue(key, make_scoped_ptr(new base::FundamentalValue(5)),
+                        WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
 
   MockPrefStoreObserver mock_observer;
   pref_store_->AddObserver(&mock_observer);
   EXPECT_CALL(mock_observer, OnPrefValueChanged(key)).Times(1);
-  pref_store_->RemoveValue(key);
+  pref_store_->RemoveValue(key, WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
   pref_store_->RemoveObserver(&mock_observer);
 
   const base::Value* retrieved_value;
@@ -170,11 +178,12 @@ TEST_F(LevelDBPrefStoreTest, RemoveFromMemory) {
 TEST_F(LevelDBPrefStoreTest, RemoveFromDisk) {
   Open();
   const std::string key = "some.key";
-  pref_store_->SetValue(key, new base::FundamentalValue(5));
+  pref_store_->SetValue(key, make_scoped_ptr(new base::FundamentalValue(5)),
+                        WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
 
   CloseAndReopen();
 
-  pref_store_->RemoveValue(key);
+  pref_store_->RemoveValue(key, WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
 
   CloseAndReopen();
 
@@ -186,11 +195,12 @@ TEST_F(LevelDBPrefStoreTest, OpenAsync) {
   // First set a key/value with a synchronous connection.
   Open();
   const std::string key = "some.key";
-  pref_store_->SetValue(key, new base::FundamentalValue(5));
+  pref_store_->SetValue(key, make_scoped_ptr(new base::FundamentalValue(5)),
+                        WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
   Close();
 
   scoped_refptr<LevelDBPrefStore> pref_store(new LevelDBPrefStore(
-      temp_dir_.path(), message_loop_.message_loop_proxy().get()));
+      temp_dir_.path(), message_loop_.task_runner().get()));
   MockReadErrorDelegate* delegate = new MockReadErrorDelegate;
   pref_store->ReadPrefsAsync(delegate);
 
@@ -215,7 +225,7 @@ TEST_F(LevelDBPrefStoreTest, OpenAsyncError) {
 
   // Try to open an async connection to the same database.
   scoped_refptr<LevelDBPrefStore> pref_store(new LevelDBPrefStore(
-      temp_dir_.path(), message_loop_.message_loop_proxy().get()));
+      temp_dir_.path(), message_loop_.task_runner().get()));
   MockReadErrorDelegate* delegate = new MockReadErrorDelegate;
   pref_store->ReadPrefsAsync(delegate);
 
@@ -242,39 +252,49 @@ TEST_F(LevelDBPrefStoreTest, RepairCorrupt) {
   base::FilePath dest = temp_dir_.path().AppendASCII("corrupted_leveldb");
   const bool kRecursive = true;
   ASSERT_TRUE(CopyDirectory(corrupted_dir, dest, kRecursive));
-  pref_store_ =
-      new LevelDBPrefStore(dest, message_loop_.message_loop_proxy().get());
+  pref_store_ = new LevelDBPrefStore(dest, message_loop_.task_runner().get());
   EXPECT_EQ(LevelDBPrefStore::PREF_READ_ERROR_LEVELDB_CORRUPTION,
             pref_store_->ReadPrefs());
 }
 
 TEST_F(LevelDBPrefStoreTest, Values) {
   Open();
-  pref_store_->SetValue("boolean", new base::FundamentalValue(false));
-  pref_store_->SetValue("integer", new base::FundamentalValue(10));
-  pref_store_->SetValue("double", new base::FundamentalValue(10.3));
-  pref_store_->SetValue("string", new base::StringValue("some string"));
+  pref_store_->SetValue("boolean",
+                        make_scoped_ptr(new base::FundamentalValue(false)),
+                        WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
+  pref_store_->SetValue("integer",
+                        make_scoped_ptr(new base::FundamentalValue(10)),
+                        WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
+  pref_store_->SetValue("double",
+                        make_scoped_ptr(new base::FundamentalValue(10.3)),
+                        WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
+  pref_store_->SetValue("string",
+                        make_scoped_ptr(new base::StringValue("some string")),
+                        WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
 
-  base::DictionaryValue* dict_value = new base::DictionaryValue;
+  scoped_ptr<base::DictionaryValue> dict_value(new base::DictionaryValue);
   dict_value->Set("boolean", new base::FundamentalValue(true));
   scoped_ptr<base::DictionaryValue> golden_dict_value(dict_value->DeepCopy());
-  pref_store_->SetValue("dictionary", dict_value);
+  pref_store_->SetValue("dictionary", dict_value.Pass(),
+                        WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
 
-  base::ListValue* list_value = new base::ListValue;
+  scoped_ptr<base::ListValue> list_value(new base::ListValue);
   list_value->Set(2, new base::StringValue("string in list"));
   scoped_ptr<base::ListValue> golden_list_value(list_value->DeepCopy());
-  pref_store_->SetValue("list", list_value);
+  pref_store_->SetValue("list", list_value.Pass(),
+                        WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
 
   // Do something nontrivial as well.
-  base::DictionaryValue* compound_value = new base::DictionaryValue;
-  base::ListValue* outer_list = new base::ListValue;
-  base::ListValue* inner_list = new base::ListValue;
-  inner_list->Set(0, new base::FundamentalValue(5));
-  outer_list->Set(1, inner_list);
-  compound_value->Set("compound_lists", outer_list);
+  scoped_ptr<base::DictionaryValue> compound_value(new base::DictionaryValue);
+  scoped_ptr<base::ListValue> outer_list(new base::ListValue);
+  scoped_ptr<base::ListValue> inner_list(new base::ListValue);
+  inner_list->Set(0, make_scoped_ptr(new base::FundamentalValue(5)));
+  outer_list->Set(1, inner_list.Pass());
+  compound_value->Set("compound_lists", outer_list.Pass());
   scoped_ptr<base::DictionaryValue> golden_compound_value(
-      compound_value->DeepCopy());
-  pref_store_->SetValue("compound_value", compound_value);
+      compound_value->CreateDeepCopy());
+  pref_store_->SetValue("compound_value", compound_value.Pass(),
+                        WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
 
   CloseAndReopen();
 

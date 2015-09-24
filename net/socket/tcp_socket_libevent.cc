@@ -9,9 +9,10 @@
 #include <sys/socket.h>
 
 #include "base/bind.h"
+#include "base/files/file_path.h"
+#include "base/files/file_util.h"
 #include "base/logging.h"
-#include "base/metrics/histogram.h"
-#include "base/metrics/stats_counters.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/task_runner_util.h"
 #include "base/threading/worker_pool.h"
@@ -21,6 +22,7 @@
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_util.h"
+#include "net/base/network_activity_monitor.h"
 #include "net/base/network_change_notifier.h"
 #include "net/socket/socket_libevent.h"
 #include "net/socket/socket_net_log_params.h"
@@ -54,6 +56,7 @@ bool SetTCPNoDelay(int fd, bool no_delay) {
 
 // SetTCPKeepAlive sets SO_KEEPALIVE.
 bool SetTCPKeepAlive(int fd, bool enable, int delay) {
+  // Enabling TCP keepalives is the same on all platforms.
   int on = enable ? 1 : 0;
   if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &on, sizeof(on))) {
     PLOG(ERROR) << "Failed to set SO_KEEPALIVE on fd: " << fd;
@@ -65,6 +68,8 @@ bool SetTCPKeepAlive(int fd, bool enable, int delay) {
     return true;
 
 #if defined(OS_LINUX) || defined(OS_ANDROID)
+  // Setting the keepalive interval varies by platform.
+
   // Set seconds until first TCP keep alive.
   if (setsockopt(fd, SOL_TCP, TCP_KEEPIDLE, &delay, sizeof(delay))) {
     PLOG(ERROR) << "Failed to set TCP_KEEPIDLE on fd: " << fd;
@@ -73,6 +78,11 @@ bool SetTCPKeepAlive(int fd, bool enable, int delay) {
   // Set seconds between TCP keep alives.
   if (setsockopt(fd, SOL_TCP, TCP_KEEPINTVL, &delay, sizeof(delay))) {
     PLOG(ERROR) << "Failed to set TCP_KEEPINTVL on fd: " << fd;
+    return false;
+  }
+#elif defined(OS_MACOSX) || defined(OS_IOS)
+  if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE, &delay, sizeof(delay))) {
+    PLOG(ERROR) << "Failed to set TCP_KEEPALIVE on fd: " << fd;
     return false;
   }
 #endif
@@ -103,6 +113,14 @@ void RegisterTCPFastOpenIntentAndSupport(bool user_enabled,
   g_tcp_fastopen_user_enabled = user_enabled;
 }
 #endif
+
+#if defined(TCP_INFO)
+bool GetTcpInfo(SocketDescriptor fd, tcp_info* info) {
+  socklen_t info_len = sizeof(tcp_info);
+  return getsockopt(fd, IPPROTO_TCP, TCP_INFO, info, &info_len) == 0 &&
+         info_len == sizeof(tcp_info);
+}
+#endif  // defined(TCP_INFO)
 
 }  // namespace
 
@@ -537,9 +555,6 @@ int TCPSocketLibevent::HandleConnectCompleted(int rv) const {
 }
 
 void TCPSocketLibevent::LogConnectBegin(const AddressList& addresses) const {
-  base::StatsCounter connects("tcp.connect");
-  connects.Increment();
-
   net_log_.BeginEvent(NetLog::TYPE_TCP_CONNECT,
                       addresses.CreateNetLogCallback());
 }
@@ -596,11 +611,10 @@ int TCPSocketLibevent::HandleReadCompleted(IOBuffer* buf, int rv) {
                       CreateNetLogSocketErrorCallback(rv, errno));
     return rv;
   }
-
-  base::StatsCounter read_bytes("tcp.read_bytes");
-  read_bytes.Add(rv);
   net_log_.AddByteTransferEvent(NetLog::TYPE_SOCKET_BYTES_RECEIVED, rv,
                                 buf->data());
+  NetworkActivityMonitor::GetInstance()->IncrementBytesReceived(rv);
+
   return rv;
 }
 
@@ -628,11 +642,9 @@ int TCPSocketLibevent::HandleWriteCompleted(IOBuffer* buf, int rv) {
                       CreateNetLogSocketErrorCallback(rv, errno));
     return rv;
   }
-
-  base::StatsCounter write_bytes("tcp.write_bytes");
-  write_bytes.Add(rv);
   net_log_.AddByteTransferEvent(NetLog::TYPE_SOCKET_BYTES_SENT, rv,
                                 buf->data());
+  NetworkActivityMonitor::GetInstance()->IncrementBytesSent(rv);
   return rv;
 }
 
@@ -716,13 +728,10 @@ void TCPSocketLibevent::UpdateTCPFastOpenStatusAfterRead() {
 #if defined(TCP_INFO)
   // Probe to see the if the socket used TCP FastOpen.
   tcp_info info;
-  socklen_t info_len = sizeof(tcp_info);
-  getsockopt_success = getsockopt(socket_->socket_fd(), IPPROTO_TCP, TCP_INFO,
-                                  &info, &info_len) == 0 &&
-                       info_len == sizeof(tcp_info);
-  server_acked_data = getsockopt_success &&
-                      (info.tcpi_options & TCPI_OPT_SYN_DATA);
-#endif
+  getsockopt_success = GetTcpInfo(socket_->socket_fd(), &info);
+  server_acked_data =
+      getsockopt_success && (info.tcpi_options & TCPI_OPT_SYN_DATA);
+#endif  // defined(TCP_INFO)
 
   if (getsockopt_success) {
     if (tcp_fastopen_status_ == TCP_FASTOPEN_FAST_CONNECT_RETURN) {
@@ -740,6 +749,26 @@ void TCPSocketLibevent::UpdateTCPFastOpenStatusAfterRead() {
          TCP_FASTOPEN_SYN_DATA_GETSOCKOPT_FAILED :
          TCP_FASTOPEN_NO_SYN_DATA_GETSOCKOPT_FAILED);
   }
+}
+
+bool TCPSocketLibevent::GetEstimatedRoundTripTime(
+    base::TimeDelta* out_rtt) const {
+  DCHECK(out_rtt);
+  if (!socket_)
+    return false;
+
+#if defined(TCP_INFO)
+  tcp_info info;
+  if (GetTcpInfo(socket_->socket_fd(), &info)) {
+    // tcpi_rtt is zero when the kernel doesn't have an RTT estimate,
+    // and possibly in other cases such as connections to localhost.
+    if (info.tcpi_rtt > 0) {
+      *out_rtt = base::TimeDelta::FromMicroseconds(info.tcpi_rtt);
+      return true;
+    }
+  }
+#endif  // defined(TCP_INFO)
+  return false;
 }
 
 }  // namespace net

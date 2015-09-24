@@ -27,12 +27,8 @@
 #include "ui/aura/test/test_windows.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher.h"
-#include "ui/base/ime/dummy_text_input_client.h"
-#include "ui/base/ime/input_method.h"
-#include "ui/base/ime/text_input_focus_manager.h"
-#include "ui/base/ui_base_switches_util.h"
 #include "ui/base/ui_base_types.h"
-#include "ui/gfx/insets.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/screen.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
@@ -188,7 +184,7 @@ TEST_F(WorkspaceLayoutManagerTest, KeepRestoredWindowInDisplay) {
   EXPECT_TRUE(
       Shell::GetPrimaryRootWindow()->bounds().Intersects(window->bounds()));
   // Y bounds should not be negative.
-  EXPECT_EQ("-20,0 30x40", window->bounds().ToString());
+  EXPECT_EQ("-5,0 30x40", window->bounds().ToString());
 
   // Minimized -> Normal transition.
   window->SetBounds(gfx::Rect(-100, -100, 30, 40));
@@ -200,7 +196,7 @@ TEST_F(WorkspaceLayoutManagerTest, KeepRestoredWindowInDisplay) {
   EXPECT_TRUE(
       Shell::GetPrimaryRootWindow()->bounds().Intersects(window->bounds()));
   // Y bounds should not be negative.
-  EXPECT_EQ("-20,0 30x40", window->bounds().ToString());
+  EXPECT_EQ("-5,0 30x40", window->bounds().ToString());
 
   // Fullscreen -> Normal transition.
   window->SetBounds(gfx::Rect(0, 0, 30, 40));  // reset bounds.
@@ -212,7 +208,7 @@ TEST_F(WorkspaceLayoutManagerTest, KeepRestoredWindowInDisplay) {
   EXPECT_TRUE(
       Shell::GetPrimaryRootWindow()->bounds().Intersects(window->bounds()));
   // Y bounds should not be negative.
-  EXPECT_EQ("-20,0 30x40", window->bounds().ToString());
+  EXPECT_EQ("-5,0 30x40", window->bounds().ToString());
 }
 
 TEST_F(WorkspaceLayoutManagerTest, MaximizeInDisplayToBeRestored) {
@@ -240,14 +236,14 @@ TEST_F(WorkspaceLayoutManagerTest, MaximizeInDisplayToBeRestored) {
 
   // If the restore bounds intersects with the current display,
   // don't move.
-  window_state->SetRestoreBoundsInScreen(gfx::Rect(280, 0, 30, 40));
+  window_state->SetRestoreBoundsInScreen(gfx::Rect(295, 0, 30, 40));
   window_state->Maximize();
   EXPECT_EQ(root_windows[1], window->GetRootWindow());
   EXPECT_EQ("300,0 400x453", window->GetBoundsInScreen().ToString());
 
   window_state->Restore();
   EXPECT_EQ(root_windows[1], window->GetRootWindow());
-  EXPECT_EQ("280,0 30x40", window->GetBoundsInScreen().ToString());
+  EXPECT_EQ("295,0 30x40", window->GetBoundsInScreen().ToString());
 
   // Restoring widget state.
   scoped_ptr<views::Widget> w1(new views::Widget);
@@ -291,7 +287,7 @@ TEST_F(WorkspaceLayoutManagerTest, FullscreenInDisplayToBeRestored) {
 
   // If the restore bounds intersects with the current display,
   // don't move.
-  window_state->SetRestoreBoundsInScreen(gfx::Rect(280, 0, 30, 40));
+  window_state->SetRestoreBoundsInScreen(gfx::Rect(295, 0, 30, 40));
   window->SetProperty(aura::client::kShowStateKey,
                       ui::SHOW_STATE_FULLSCREEN);
   EXPECT_EQ(root_windows[1], window->GetRootWindow());
@@ -299,7 +295,7 @@ TEST_F(WorkspaceLayoutManagerTest, FullscreenInDisplayToBeRestored) {
 
   window_state->Restore();
   EXPECT_EQ(root_windows[1], window->GetRootWindow());
-  EXPECT_EQ("280,0 30x40", window->GetBoundsInScreen().ToString());
+  EXPECT_EQ("295,0 30x40", window->GetBoundsInScreen().ToString());
 }
 
 // WindowObserver implementation used by DontClobberRestoreBoundsWindowObserver.
@@ -343,7 +339,7 @@ TEST_F(WorkspaceLayoutManagerTest, DontClobberRestoreBounds) {
   DontClobberRestoreBoundsWindowObserver window_observer;
   scoped_ptr<aura::Window> window(new aura::Window(NULL));
   window->SetType(ui::wm::WINDOW_TYPE_NORMAL);
-  window->Init(aura::WINDOW_LAYER_TEXTURED);
+  window->Init(ui::LAYER_TEXTURED);
   window->SetBounds(gfx::Rect(10, 20, 30, 40));
   // NOTE: for this test to exercise the failure the observer needs to be added
   // before the parent set. This mimics what BrowserFrameAsh does.
@@ -647,6 +643,34 @@ TEST_F(WorkspaceLayoutManagerSoloTest, Fullscreen) {
   EXPECT_EQ(bounds.ToString(), window->bounds().ToString());
 }
 
+// Tests that fullscreen window causes always_on_top windows to stack below.
+TEST_F(WorkspaceLayoutManagerSoloTest, FullscreenSuspendsAlwaysOnTop) {
+  gfx::Rect bounds(100, 100, 200, 200);
+  scoped_ptr<aura::Window> fullscreen_window(CreateTestWindow(bounds));
+  scoped_ptr<aura::Window> always_on_top_window1(CreateTestWindow(bounds));
+  scoped_ptr<aura::Window> always_on_top_window2(CreateTestWindow(bounds));
+  always_on_top_window1->SetProperty(aura::client::kAlwaysOnTopKey, true);
+  always_on_top_window2->SetProperty(aura::client::kAlwaysOnTopKey, true);
+  // Making a window fullscreen temporarily suspends always on top state.
+  fullscreen_window->SetProperty(aura::client::kShowStateKey,
+                                 ui::SHOW_STATE_FULLSCREEN);
+  EXPECT_FALSE(
+      always_on_top_window1->GetProperty(aura::client::kAlwaysOnTopKey));
+  EXPECT_FALSE(
+      always_on_top_window2->GetProperty(aura::client::kAlwaysOnTopKey));
+  EXPECT_NE(nullptr, GetRootWindowController(fullscreen_window->GetRootWindow())
+                         ->GetWindowForFullscreenMode());
+  // Making fullscreen window normal restores always on top windows.
+  fullscreen_window->SetProperty(aura::client::kShowStateKey,
+                                 ui::SHOW_STATE_NORMAL);
+  EXPECT_TRUE(
+      always_on_top_window1->GetProperty(aura::client::kAlwaysOnTopKey));
+  EXPECT_TRUE(
+      always_on_top_window2->GetProperty(aura::client::kAlwaysOnTopKey));
+  EXPECT_EQ(nullptr, GetRootWindowController(fullscreen_window->GetRootWindow())
+                         ->GetWindowForFullscreenMode());
+}
+
 // Tests fullscreen window size during root window resize.
 TEST_F(WorkspaceLayoutManagerSoloTest, FullscreenRootWindowResize) {
   gfx::Rect bounds(100, 100, 200, 200);
@@ -769,14 +793,17 @@ TEST_F(WorkspaceLayoutManagerSoloTest, NotResizeWhenScreenIsLocked) {
       ScreenUtil::GetMaximizedWindowBoundsInParent(window.get()).ToString(),
       window_bounds.ToString());
 
+  // The window size should not get touched while we are in lock screen.
   Shell::GetInstance()->session_state_delegate()->LockScreen();
   shelf->UpdateVisibilityState();
-  EXPECT_NE(
-      ScreenUtil::GetMaximizedWindowBoundsInParent(window.get()).ToString(),
-      window_bounds.ToString());
+  EXPECT_EQ(window_bounds.ToString(), window->bounds().ToString());
 
+  // Coming out of the lock screen the window size should still remain.
   Shell::GetInstance()->session_state_delegate()->UnlockScreen();
   shelf->UpdateVisibilityState();
+  EXPECT_EQ(
+      ScreenUtil::GetMaximizedWindowBoundsInParent(window.get()).ToString(),
+      window_bounds.ToString());
   EXPECT_EQ(window_bounds.ToString(), window->bounds().ToString());
 }
 
@@ -1010,51 +1037,12 @@ class WorkspaceLayoutManagerKeyboardTest : public test::AshTestBase {
     keyboard_bounds_ = bounds;
   }
 
-  void Focus(ui::TextInputClient* text_input_client) {
-    if (switches::IsTextInputFocusManagerEnabled()) {
-      ui::TextInputFocusManager::GetInstance()->FocusTextInputClient(
-          text_input_client);
-    } else {
-      aura::Window* root_window =
-          ash::Shell::GetInstance()->GetPrimaryRootWindow();
-      ui::InputMethod* input_method =
-          root_window->GetProperty(aura::client::kRootWindowInputMethodKey);
-      input_method->SetFocusedTextInputClient(text_input_client);
-    }
-  }
-
-  void Blur(ui::TextInputClient* text_input_client) {
-    if (switches::IsTextInputFocusManagerEnabled()) {
-      ui::TextInputFocusManager::GetInstance()->BlurTextInputClient(
-          text_input_client);
-    } else {
-      aura::Window* root_window =
-          ash::Shell::GetInstance()->GetPrimaryRootWindow();
-      ui::InputMethod* input_method =
-          root_window->GetProperty(aura::client::kRootWindowInputMethodKey);
-      input_method->SetFocusedTextInputClient(NULL);
-    }
-  }
-
  private:
   gfx::Insets restore_work_area_insets_;
   gfx::Rect keyboard_bounds_;
   WorkspaceLayoutManager* layout_manager_;
 
   DISALLOW_COPY_AND_ASSIGN(WorkspaceLayoutManagerKeyboardTest);
-};
-
-class FakeTextInputClient : public ui::DummyTextInputClient {
- public:
-  explicit FakeTextInputClient(gfx::NativeWindow window) : window_(window) {}
-  ~FakeTextInputClient() override {}
-
-  gfx::NativeWindow GetAttachedWindow() const override { return window_; }
-
- private:
-  gfx::NativeWindow window_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeTextInputClient);
 };
 
 // Tests that when a child window gains focus the top level window containing it
@@ -1077,8 +1065,7 @@ TEST_F(WorkspaceLayoutManagerKeyboardTest, ChildWindowFocused) {
       &delegate2, -1, work_area));
   parent_window->AddChild(window.get());
 
-  FakeTextInputClient text_input_client(window.get());
-  Focus(&text_input_client);
+  wm::ActivateWindow(window.get());
 
   int available_height =
       Shell::GetScreen()->GetPrimaryDisplay().bounds().height() -
@@ -1094,8 +1081,6 @@ TEST_F(WorkspaceLayoutManagerKeyboardTest, ChildWindowFocused) {
   HideKeyboard();
   EXPECT_EQ(initial_window_bounds.ToString(),
             parent_window->bounds().ToString());
-
-  Blur(&text_input_client);
 }
 
 TEST_F(WorkspaceLayoutManagerKeyboardTest, AdjustWindowForA11yKeyboard) {
@@ -1112,12 +1097,11 @@ TEST_F(WorkspaceLayoutManagerKeyboardTest, AdjustWindowForA11yKeyboard) {
   scoped_ptr<aura::Window> window(CreateTestWindowInShellWithDelegate(
       &delegate, -1, work_area));
 
-  FakeTextInputClient text_input_client(window.get());
-  Focus(&text_input_client);
-
   int available_height =
       Shell::GetScreen()->GetPrimaryDisplay().bounds().height() -
       keyboard_bounds.height();
+
+  wm::ActivateWindow(window.get());
 
   EXPECT_EQ(gfx::Rect(work_area).ToString(), window->bounds().ToString());
   ShowKeyboard();
@@ -1150,8 +1134,6 @@ TEST_F(WorkspaceLayoutManagerKeyboardTest, AdjustWindowForA11yKeyboard) {
             window->bounds().ToString());
   HideKeyboard();
   EXPECT_EQ(occluded_window_bounds.ToString(), window->bounds().ToString());
-
-  Blur(&text_input_client);
 }
 
 }  // namespace ash

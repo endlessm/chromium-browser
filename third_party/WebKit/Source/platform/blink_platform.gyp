@@ -143,14 +143,12 @@
             # such as:
             # com.google.Chrome[] objc[]: Class ScrollbarPrefsObserver is implemented in both .../Google Chrome.app/Contents/Versions/.../Google Chrome Helper.app/Contents/MacOS/../../../Google Chrome Framework.framework/Google Chrome Framework and /System/Library/Frameworks/WebKit.framework/Versions/A/Frameworks/WebCore.framework/Versions/A/WebCore. One of the two will be used. Which one is undefined.
             'WebCascadeList=ChromiumWebCoreObjCWebCascadeList',
-            'WebFontCache=ChromiumWebCoreObjCWebFontCache',
             'WebScrollAnimationHelperDelegate=ChromiumWebCoreObjCWebScrollAnimationHelperDelegate',
             'WebScrollbarPainterControllerDelegate=ChromiumWebCoreObjCWebScrollbarPainterControllerDelegate',
             'WebScrollbarPainterDelegate=ChromiumWebCoreObjCWebScrollbarPainterDelegate',
             'WebScrollbarPartAnimation=ChromiumWebCoreObjCWebScrollbarPartAnimation',
             'WebCoreFlippedView=ChromiumWebCoreObjCWebCoreFlippedView',
             'WebCoreTextFieldCell=ChromiumWebCoreObjCWebCoreTextFieldCell',
-            'WebCoreRenderThemeNotificationObserver=ChromiumWebCoreObjCWebCoreRenderThemeNotificationObserver',
           ],
           'postbuilds': [
             {
@@ -159,7 +157,7 @@
               'postbuild_name': 'Check Objective-C Rename',
               'variables': {
                 'class_whitelist_regex':
-                    'ChromiumWebCoreObjC|TCMVisibleView|RTCMFlippedView|ScrollerStyleObserver',
+                    'ChromiumWebCoreObjC|TCMVisibleView|RTCMFlippedView|ScrollerStyleObserver|LayoutThemeNotificationObserver',
                 'category_whitelist_regex':
                     'WebCoreFocusRingDrawing|WebCoreTheme',
               },
@@ -248,6 +246,11 @@
     # compiler optimizations, see crbug.com/237063
     'msvs_disabled_warnings': [ 4267, 4334, 4724 ],
     'conditions': [
+      ['target_arch == "ia32" or target_arch == "x64"', {
+        'sources/': [
+          ['include', 'graphics/cpu/x86/WebGLImageConversionSSE\\.h$'],
+        ],
+      }],
       ['OS=="linux" or OS=="android" or OS=="win"', {
         'sources/': [
           # Cherry-pick files excluded by the broader regular expressions above.
@@ -309,7 +312,6 @@
           ['include', 'mac/LocalCurrentGraphicsContext\\.mm$'],
           ['include', 'mac/NSScrollerImpDetails\\.mm$'],
           ['include', 'mac/ScrollAnimatorMac\\.mm$'],
-          ['include', 'mac/ScrollElasticityController\\.mm$'],
           ['include', 'mac/ThemeMac\\.h$'],
           ['include', 'mac/ThemeMac\\.mm$'],
           ['include', 'mac/WebCoreNSCellExtras\\.h$'],
@@ -319,10 +321,6 @@
           ['exclude', 'scroll/ScrollbarThemeNonMacCommon\\.(cpp|h)$'],
           ['exclude', 'scroll/ScrollAnimatorNone\\.cpp$'],
           ['exclude', 'scroll/ScrollAnimatorNone\\.h$'],
-
-          # The Mac currently uses FontCustomPlatformDataMac.cpp,
-          # included by regex above, instead.
-          ['exclude', 'fonts/skia/FontCustomPlatformDataSkia\\.cpp$'],
 
           ['exclude', 'fonts/skia/FontCacheSkia\\.cpp$'],
 
@@ -338,9 +336,6 @@
           ['include', 'geometry/cg/IntPointCG\\.cpp$'],
           ['include', 'geometry/cg/IntRectCG\\.cpp$'],
           ['include', 'geometry/cg/IntSizeCG\\.cpp$'],
-        ],
-        'defines': [
-        'WebFontCache=ChromiumWebCoreObjCWebFontCache',
         ],
       }, { # OS!="mac"
         'sources/': [
@@ -364,8 +359,6 @@
           ['include', 'clipboard/ClipboardUtilitiesWin\\.(cpp|h)$'],
 
           ['include', 'fonts/opentype/'],
-          ['include', 'fonts/skia/FontCustomPlatformDataSkia\\.cpp$'],
-          ['include', 'fonts/skia/FontCustomPlatformDataSkia\\.cpp$'],
           ['include', 'fonts/win/FontCacheSkiaWin\\.cpp$'],
           ['include', 'fonts/win/FontFallbackWin\\.(cpp|h)$'],
           ['include', 'fonts/win/FontPlatformDataWin\\.cpp$'],

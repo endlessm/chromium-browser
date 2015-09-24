@@ -26,15 +26,6 @@ void ProxyGetOrDownloadCallback(
       FROM_HERE, base::Bind(callback, result, base::Passed(&attachments)));
 }
 
-// Invokes |callback| with |result| and |attachments| in the |task_runner|
-// thread.
-void ProxyDropCallback(
-    const scoped_refptr<base::SequencedTaskRunner>& task_runner,
-    const AttachmentService::DropCallback& callback,
-    const AttachmentService::DropResult& result) {
-  task_runner->PostTask(FROM_HERE, base::Bind(callback, result));
-}
-
 }  // namespace
 
 AttachmentServiceProxy::AttachmentServiceProxy() {
@@ -58,10 +49,6 @@ AttachmentServiceProxy::AttachmentServiceProxy(
 AttachmentServiceProxy::~AttachmentServiceProxy() {
 }
 
-AttachmentStore* AttachmentServiceProxy::GetStore() {
-  return NULL;
-}
-
 void AttachmentServiceProxy::GetOrDownloadAttachments(
     const AttachmentIdList& attachment_ids,
     const GetOrDownloadCallback& callback) {
@@ -78,21 +65,8 @@ void AttachmentServiceProxy::GetOrDownloadAttachments(
                  proxy_callback));
 }
 
-void AttachmentServiceProxy::DropAttachments(
-    const AttachmentIdList& attachment_ids,
-    const DropCallback& callback) {
-  DCHECK(wrapped_task_runner_.get());
-  DropCallback proxy_callback = base::Bind(
-      &ProxyDropCallback, base::ThreadTaskRunnerHandle::Get(), callback);
-  wrapped_task_runner_->PostTask(FROM_HERE,
-                                 base::Bind(&AttachmentService::DropAttachments,
-                                            core_,
-                                            attachment_ids,
-                                            proxy_callback));
-}
-
 void AttachmentServiceProxy::UploadAttachments(
-    const AttachmentIdSet& attachment_ids) {
+    const AttachmentIdList& attachment_ids) {
   DCHECK(wrapped_task_runner_.get());
   wrapped_task_runner_->PostTask(
       FROM_HERE,
@@ -107,10 +81,6 @@ AttachmentServiceProxy::Core::Core(
 AttachmentServiceProxy::Core::~Core() {
 }
 
-AttachmentStore* AttachmentServiceProxy::Core::GetStore() {
-  return NULL;
-}
-
 void AttachmentServiceProxy::Core::GetOrDownloadAttachments(
     const AttachmentIdList& attachment_ids,
     const GetOrDownloadCallback& callback) {
@@ -120,17 +90,8 @@ void AttachmentServiceProxy::Core::GetOrDownloadAttachments(
   wrapped_->GetOrDownloadAttachments(attachment_ids, callback);
 }
 
-void AttachmentServiceProxy::Core::DropAttachments(
-    const AttachmentIdList& attachment_ids,
-    const DropCallback& callback) {
-  if (!wrapped_) {
-    return;
-  }
-  wrapped_->DropAttachments(attachment_ids, callback);
-}
-
 void AttachmentServiceProxy::Core::UploadAttachments(
-    const AttachmentIdSet& attachment_ids) {
+    const AttachmentIdList& attachment_ids) {
   if (!wrapped_) {
     return;
   }

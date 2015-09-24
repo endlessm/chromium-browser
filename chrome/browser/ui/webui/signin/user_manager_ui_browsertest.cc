@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/command_line.h"
+#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -32,14 +33,14 @@ class UserManagerUIBrowserTest : public InProcessBrowserTest,
     DCHECK(switches::IsNewAvatarMenu());
   }
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     switches::EnableNewAvatarMenuForTesting(command_line);
   }
 };
 
 IN_PROC_BROWSER_TEST_F(UserManagerUIBrowserTest, PageLoads) {
-  ui_test_utils::NavigateToURLBlockUntilNavigationsComplete(
-      browser(), GURL(chrome::kChromeUIUserManagerURL), 1);
+  ui_test_utils::NavigateToURL(
+      browser(), GURL(chrome::kChromeUIUserManagerURL));
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
 
@@ -71,17 +72,18 @@ IN_PROC_BROWSER_TEST_F(UserManagerUIBrowserTest, PageRedirectsToAboutChrome) {
   std::string user_manager_url = chrome::kChromeUIUserManagerURL;
   user_manager_url += profiles::kUserManagerSelectProfileAboutChrome;
 
-  ui_test_utils::NavigateToURLBlockUntilNavigationsComplete(
-      browser(), GURL(user_manager_url), 1);
+  ui_test_utils::NavigateToURL(browser(), GURL(user_manager_url));
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
 
-  base::string16 profile_name =
-      profiles::GetAvatarNameForProfile(browser()->profile()->GetPath());
+  // If this is a Windows style path, escape all the slashes.
+  std::string profile_path;
+  base::ReplaceChars(browser()->profile()->GetPath().MaybeAsASCII(),
+      "\\", "\\\\", &profile_path);
 
   std::string launch_js =
-      base::StringPrintf("Oobe.launchUser('', '%s')",
-                         base::UTF16ToUTF8(profile_name).c_str());
+      base::StringPrintf("Oobe.launchUser('%s')", profile_path.c_str());
+
   bool result = content::ExecuteScript(web_contents, launch_js);
   EXPECT_TRUE(result);
   base::RunLoop().RunUntilIdle();
@@ -91,3 +93,6 @@ IN_PROC_BROWSER_TEST_F(UserManagerUIBrowserTest, PageRedirectsToAboutChrome) {
   GURL current_URL = about_chrome_contents->GetVisibleURL();
   EXPECT_EQ(GURL(chrome::kChromeUIUberURL), current_URL);
 }
+
+// TODO(mlerman): Test that unlocking a locked profile causes the extensions
+// service to become unblocked.

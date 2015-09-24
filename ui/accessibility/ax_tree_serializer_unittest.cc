@@ -50,7 +50,7 @@ void AXTreeSerializerTest::CreateTreeSerializer() {
   tree0_source_.reset(tree0_->CreateTreeSource());
   serializer_.reset(new AXTreeSerializer<const AXNode*>(tree0_source_.get()));
   AXTreeUpdate unused_update;
-  serializer_->SerializeChanges(tree0_->GetRoot(), &unused_update);
+  serializer_->SerializeChanges(tree0_->root(), &unused_update);
 
   // Pretend that tree0_ turned into tree1_. The next call to
   // AXTreeSerializer will force it to consider these changes to
@@ -177,6 +177,101 @@ TEST_F(AXTreeSerializerTest, ReparentingUpdatesSubtree) {
   EXPECT_EQ(3, update.nodes[1].id);
   EXPECT_EQ(4, update.nodes[2].id);
   EXPECT_EQ(5, update.nodes[3].id);
+}
+
+// A variant of AXTreeSource that returns true for IsValid() for one
+// particular id.
+class AXTreeSourceWithInvalidId : public AXTreeSource<const AXNode*> {
+ public:
+  AXTreeSourceWithInvalidId(AXTree* tree, int invalid_id)
+      : tree_(tree),
+        invalid_id_(invalid_id) {}
+  ~AXTreeSourceWithInvalidId() override {}
+
+  // AXTreeSource implementation.
+  AXNode* GetRoot() const override { return tree_->root(); }
+  AXNode* GetFromId(int32 id) const override { return tree_->GetFromId(id); }
+  int32 GetId(const AXNode* node) const override { return node->id(); }
+  void GetChildren(const AXNode* node,
+                   std::vector<const AXNode*>* out_children) const override {
+    for (int i = 0; i < node->child_count(); ++i)
+      out_children->push_back(node->ChildAtIndex(i));
+  }
+  AXNode* GetParent(const AXNode* node) const override {
+    return node->parent();
+  }
+  bool IsValid(const AXNode* node) const override {
+    return node != NULL && node->id() != invalid_id_;
+  }
+  bool IsEqual(const AXNode* node1, const AXNode* node2) const override {
+    return node1 == node2;
+  }
+  const AXNode* GetNull() const override { return NULL; }
+  void SerializeNode(const AXNode* node, AXNodeData* out_data) const override {
+    *out_data = node->data();
+    if (node->id() == invalid_id_)
+      out_data->id = -1;
+  }
+
+ private:
+  AXTree* tree_;
+  int invalid_id_;
+
+  DISALLOW_COPY_AND_ASSIGN(AXTreeSourceWithInvalidId);
+};
+
+// Test that the serializer skips invalid children.
+TEST(AXTreeSerializerInvalidTest, InvalidChild) {
+  // (1 (2 3))
+  AXTreeUpdate treedata;
+  treedata.nodes.resize(3);
+  treedata.nodes[0].id = 1;
+  treedata.nodes[0].role = AX_ROLE_ROOT_WEB_AREA;
+  treedata.nodes[0].child_ids.push_back(2);
+  treedata.nodes[0].child_ids.push_back(3);
+  treedata.nodes[1].id = 2;
+  treedata.nodes[2].id = 3;
+
+  AXTree tree(treedata);
+  AXTreeSourceWithInvalidId source(&tree, 3);
+
+  AXTreeSerializer<const AXNode*> serializer(&source);
+  AXTreeUpdate update;
+  serializer.SerializeChanges(tree.root(), &update);
+
+  ASSERT_EQ(2U, update.nodes.size());
+  EXPECT_EQ(1, update.nodes[0].id);
+  EXPECT_EQ(2, update.nodes[1].id);
+}
+
+// Test that we can set a maximum number of nodes to serialize.
+TEST_F(AXTreeSerializerTest, MaximumSerializedNodeCount) {
+  // (1 (2 (3 4) 5 (6 7)))
+  treedata0_.nodes.resize(7);
+  treedata0_.nodes[0].id = 1;
+  treedata0_.nodes[0].role = AX_ROLE_ROOT_WEB_AREA;
+  treedata0_.nodes[0].child_ids.push_back(2);
+  treedata0_.nodes[0].child_ids.push_back(5);
+  treedata0_.nodes[1].id = 2;
+  treedata0_.nodes[1].child_ids.push_back(3);
+  treedata0_.nodes[1].child_ids.push_back(4);
+  treedata0_.nodes[2].id = 3;
+  treedata0_.nodes[3].id = 4;
+  treedata0_.nodes[4].id = 5;
+  treedata0_.nodes[4].child_ids.push_back(6);
+  treedata0_.nodes[4].child_ids.push_back(7);
+  treedata0_.nodes[5].id = 6;
+  treedata0_.nodes[6].id = 7;
+
+  tree0_.reset(new AXSerializableTree(treedata0_));
+  tree0_source_.reset(tree0_->CreateTreeSource());
+  serializer_.reset(new AXTreeSerializer<const AXNode*>(tree0_source_.get()));
+  serializer_->set_max_node_count(4);
+  AXTreeUpdate update;
+  serializer_->SerializeChanges(tree0_->root(), &update);
+  // It actually serializes 5 nodes, not 4 - to be consistent.
+  // It skips the children of node 5.
+  ASSERT_EQ(static_cast<size_t>(5), update.nodes.size());
 }
 
 }  // namespace ui

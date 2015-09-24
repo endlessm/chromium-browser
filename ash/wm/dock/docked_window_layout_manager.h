@@ -20,7 +20,7 @@
 #include "base/time/time.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_observer.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/keyboard/keyboard_controller_observer.h"
 #include "ui/wm/public/activation_change_observer.h"
 
@@ -179,8 +179,10 @@ class ASH_EXPORT DockedWindowLayoutManager
   void OnWindowDestroying(aura::Window* window) override;
 
   // aura::client::ActivationChangeObserver:
-  void OnWindowActivated(aura::Window* gained_active,
-                         aura::Window* lost_active) override;
+  void OnWindowActivated(
+      aura::client::ActivationChangeObserver::ActivationReason reason,
+      aura::Window* gained_active,
+      aura::Window* lost_active) override;
 
  private:
   class ShelfWindowObserver;
@@ -324,7 +326,7 @@ class ASH_EXPORT DockedWindowLayoutManager
   scoped_ptr<DockedBackgroundWidget> background_widget_;
 
   // Observers of dock bounds changes.
-  ObserverList<DockedWindowLayoutManagerObserver> observer_list_;
+  base::ObserverList<DockedWindowLayoutManagerObserver> observer_list_;
 
   DISALLOW_COPY_AND_ASSIGN(DockedWindowLayoutManager);
 };

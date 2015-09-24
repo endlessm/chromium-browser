@@ -7,9 +7,6 @@
 
 #include "base/basictypes.h"
 #include "base/command_line.h"
-#if defined(OS_MACOSX)
-#include "base/mac/mac_util.h"
-#endif
 #include "base/strings/stringprintf.h"
 #include "base/test/trace_event_analyzer.h"
 #include "base/time/default_tick_clock.h"
@@ -18,7 +15,7 @@
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/fullscreen/fullscreen_controller.h"
+#include "chrome/browser/ui/exclusive_access/fullscreen_controller.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/chrome_version_info.h"
 #include "chrome/test/base/test_launcher_utils.h"
@@ -48,7 +45,7 @@
 #include "net/base/net_errors.h"
 #include "net/base/net_util.h"
 #include "net/base/rand_callback.h"
-#include "net/udp/udp_socket.h"
+#include "net/udp/udp_server_socket.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/perf/perf_test.h"
 #include "ui/compositor/compositor_switches.h"
@@ -295,7 +292,7 @@ class CastV2PerformanceTest
   }
 
   bool IsGpuAvailable() const {
-    return CommandLine::ForCurrentProcess()->HasSwitch("enable-gpu");
+    return base::CommandLine::ForCurrentProcess()->HasSwitch("enable-gpu");
   }
 
   std::string GetSuffixForTestFlags() {
@@ -343,13 +340,10 @@ class CastV2PerformanceTest
     localhost.push_back(0);
     localhost.push_back(0);
     localhost.push_back(1);
-    scoped_ptr<net::UDPSocket> receive_socket(
-        new net::UDPSocket(net::DatagramSocket::DEFAULT_BIND,
-                           net::RandIntCallback(),
-                           NULL,
-                           net::NetLog::Source()));
+    scoped_ptr<net::UDPServerSocket> receive_socket(
+        new net::UDPServerSocket(NULL, net::NetLog::Source()));
     receive_socket->AllowAddressReuse();
-    CHECK_EQ(net::OK, receive_socket->Bind(net::IPEndPoint(localhost, 0)));
+    CHECK_EQ(net::OK, receive_socket->Listen(net::IPEndPoint(localhost, 0)));
     net::IPEndPoint endpoint;
     CHECK_EQ(net::OK, receive_socket->GetLocalAddress(&endpoint));
     return endpoint;
@@ -360,7 +354,7 @@ class CastV2PerformanceTest
     ExtensionApiTest::SetUp();
   }
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     // Some of the tests may launch http requests through JSON or AJAX
     // which causes a security error (cross domain request) when the page
     // is loaded from the local file system ( file:// ). The following switch
@@ -503,6 +497,7 @@ class CastV2PerformanceTest
 
     trace_analyzer::TraceEventVector capture_events;
     GetTraceEvents(analyzer, "Capture" , &capture_events);
+    EXPECT_GT(capture_events.size(), 0UL);
     std::vector<std::vector<double> > traced_frames;
     for (size_t i = kSkipEvents; i < capture_events.size(); i++) {
       std::vector<double> times;
@@ -616,7 +611,8 @@ class CastV2PerformanceTest
     }
 
     std::string json_events;
-    ASSERT_TRUE(tracing::BeginTracing("test_fps,mirroring,cast_perf_test"));
+    ASSERT_TRUE(tracing::BeginTracing(
+        "test_fps,mirroring,gpu.capture,cast_perf_test"));
     const std::string page_url = base::StringPrintf(
         "performance%d.html?port=%d",
         getfps(),
@@ -634,7 +630,7 @@ class CastV2PerformanceTest
 
     MeanAndError frame_data = AnalyzeTraceDistance(
         analyzer.get(),
-        TRACE_DISABLED_BY_DEFAULT("OnSwapCompositorFrame"));
+        "OnSwapCompositorFrame");
 
     EXPECT_GT(frame_data.num_values, 0UL);
     // Lower is better.

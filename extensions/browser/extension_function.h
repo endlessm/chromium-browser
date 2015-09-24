@@ -41,7 +41,7 @@ class WebContents;
 
 namespace extensions {
 class ExtensionFunctionDispatcher;
-class ExtensionMessageFilter;
+class IOThreadExtensionMessageFilter;
 class QuotaLimitHeuristic;
 }
 
@@ -100,9 +100,11 @@ class ExtensionFunction
     BAD_MESSAGE
   };
 
-  typedef base::Callback<void(ResponseType type,
-                              const base::ListValue& results,
-                              const std::string& error)> ResponseCallback;
+  using ResponseCallback = base::Callback<void(
+      ResponseType type,
+      const base::ListValue& results,
+      const std::string& error,
+      extensions::functions::HistogramValue histogram_value)>;
 
   ExtensionFunction();
 
@@ -141,6 +143,15 @@ class ExtensionFunction
     virtual void Execute() = 0;
   };
   typedef scoped_ptr<ResponseActionObject> ResponseAction;
+
+  // Helper class for tests to force all ExtensionFunction::user_gesture()
+  // calls to return true as long as at least one instance of this class
+  // exists.
+  class ScopedUserGestureForTests {
+   public:
+    ScopedUserGestureForTests();
+    ~ScopedUserGestureForTests();
+  };
 
   // Runs the function and returns the action to take when the caller is ready
   // to respond.
@@ -189,6 +200,8 @@ class ExtensionFunction
   virtual void SetArgs(const base::ListValue* args);
 
   // Sets a single Value as the results of the function.
+  void SetResult(scoped_ptr<base::Value> result);
+  // As above, but deprecated. TODO(estade): remove.
   void SetResult(base::Value* result);
 
   // Sets multiple Values as the results of the function.
@@ -206,9 +219,10 @@ class ExtensionFunction
   // Sets the function's bad message state.
   void set_bad_message(bool bad_message) { bad_message_ = bad_message; }
 
-  // Specifies the name of the function.
-  void set_name(const std::string& name) { name_ = name; }
-  const std::string& name() const { return name_; }
+  // Specifies the name of the function. A long-lived string (such as a string
+  // literal) must be provided.
+  void set_name(const char* name) { name_ = name; }
+  const char* name() const { return name_; }
 
   void set_profile_id(void* profile_id) { profile_id_ = profile_id; }
   void* profile_id() const { return profile_id_; }
@@ -239,8 +253,10 @@ class ExtensionFunction
   void set_include_incognito(bool include) { include_incognito_ = include; }
   bool include_incognito() const { return include_incognito_; }
 
+  // Note: consider using ScopedUserGestureForTests instead of calling
+  // set_user_gesture directly.
   void set_user_gesture(bool user_gesture) { user_gesture_ = user_gesture; }
-  bool user_gesture() const { return user_gesture_; }
+  bool user_gesture() const;
 
   void set_histogram_value(
       extensions::functions::HistogramValue histogram_value) {
@@ -262,6 +278,13 @@ class ExtensionFunction
     return source_context_type_;
   }
 
+  void set_source_process_id(int source_process_id) {
+    source_process_id_ = source_process_id;
+  }
+  int source_process_id() const {
+    return source_process_id_;
+  }
+
  protected:
   friend struct ExtensionFunctionDeleteTraits;
 
@@ -273,6 +296,8 @@ class ExtensionFunction
   // raw pointer for convenience, since callers usually construct the argument
   // to this by hand.
   ResponseValue OneArgument(base::Value* arg);
+  // Success, a single argument |arg| to pass to caller.
+  ResponseValue OneArgument(scoped_ptr<base::Value> arg);
   // Success, two arguments |arg1| and |arg2| to pass to caller. TAKES
   // OWNERSHIP - raw pointers for convenience, since callers usually construct
   // the argument to this by hand. Note that use of this function may imply you
@@ -297,24 +322,38 @@ class ExtensionFunction
                       const std::string& s1,
                       const std::string& s2,
                       const std::string& s3);
+  // Error with a list of arguments |args| to pass to caller. TAKES OWNERSHIP.
+  // Using this ResponseValue indicates something is wrong with the API.
+  // It shouldn't be possible to have both an error *and* some arguments.
+  // Some legacy APIs do rely on it though, like webstorePrivate.
+  ResponseValue ErrorWithArguments(scoped_ptr<base::ListValue> args,
+                                   const std::string& error);
   // Bad message. A ResponseValue equivalent to EXTENSION_FUNCTION_VALIDATE(),
   // so this will actually kill the renderer and not respond at all.
   ResponseValue BadMessage();
 
   // ResponseActions.
   //
+  // These are exclusively used as return values from Run(). Call Respond(...)
+  // to respond at any other time - but as described below, only after Run()
+  // has already executed, and only if it returned RespondLater().
+  //
   // Respond to the extension immediately with |result|.
-  ResponseAction RespondNow(ResponseValue result);
+  ResponseAction RespondNow(ResponseValue result) WARN_UNUSED_RESULT;
   // Don't respond now, but promise to call Respond(...) later.
-  ResponseAction RespondLater();
+  ResponseAction RespondLater() WARN_UNUSED_RESULT;
 
   // This is the return value of the EXTENSION_FUNCTION_VALIDATE macro, which
   // needs to work from Run(), RunAsync(), and RunSync(). The former of those
   // has a different return type (ResponseAction) than the latter two (bool).
-  static ResponseAction ValidationFailure(ExtensionFunction* function);
+  static ResponseAction ValidationFailure(ExtensionFunction* function)
+      WARN_UNUSED_RESULT;
 
-  // If RespondLater() was used, functions must at some point call Respond()
-  // with |result| as their result.
+  // If RespondLater() was returned from Run(), functions must at some point
+  // call Respond() with |result| as their result.
+  //
+  // More specifically: call this iff Run() has already executed, it returned
+  // RespondLater(), and Respond(...) hasn't already been called.
   void Respond(ResponseValue result);
 
   virtual ~ExtensionFunction();
@@ -346,7 +385,7 @@ class ExtensionFunction
   scoped_refptr<const extensions::Extension> extension_;
 
   // The name of this function.
-  std::string name_;
+  const char* name_;
 
   // The URL of the frame which is making this request
   GURL source_url_;
@@ -392,6 +431,10 @@ class ExtensionFunction
   // The type of the JavaScript context where this call originated.
   extensions::Feature::Context source_context_type_;
 
+  // The process ID of the page that triggered this function call, or -1
+  // if unknown.
+  int source_process_id_;
+
  private:
   void OnRespondingLater(ResponseValue response);
 
@@ -431,10 +474,11 @@ class UIThreadExtensionFunction : public ExtensionFunction {
   }
   content::BrowserContext* browser_context() const { return context_; }
 
-  void SetRenderViewHost(content::RenderViewHost* render_view_host);
-  content::RenderViewHost* render_view_host() const {
-    return render_view_host_;
-  }
+  // DEPRECATED: Please use render_frame_host().
+  // TODO(devlin): Remove this once all callers are updated to use
+  // render_frame_host().
+  content::RenderViewHost* render_view_host_do_not_use() const;
+
   void SetRenderFrameHost(content::RenderFrameHost* render_frame_host);
   content::RenderFrameHost* render_frame_host() const {
     return render_frame_host_;
@@ -450,7 +494,13 @@ class UIThreadExtensionFunction : public ExtensionFunction {
 
   // Gets the "current" web contents if any. If there is no associated web
   // contents then defaults to the foremost one.
+  // NOTE: "current" can mean different things in different contexts. You
+  // probably want to use GetSenderWebContents().
   virtual content::WebContents* GetAssociatedWebContents();
+
+  // Returns the web contents associated with the sending |render_frame_host_|.
+  // This can be null.
+  content::WebContents* GetSenderWebContents();
 
  protected:
   // Emits a message to the extension's devtools console.
@@ -468,35 +518,29 @@ class UIThreadExtensionFunction : public ExtensionFunction {
   // Sets the Blob UUIDs whose ownership is being transferred to the renderer.
   void SetTransferredBlobUUIDs(const std::vector<std::string>& blob_uuids);
 
-  // The dispatcher that will service this extension function call.
-  base::WeakPtr<extensions::ExtensionFunctionDispatcher> dispatcher_;
-
-  // The RenderViewHost we will send responses to.
-  content::RenderViewHost* render_view_host_;
-
-  // The RenderFrameHost we will send responses to.
-  // NOTE: either render_view_host_ or render_frame_host_ will be set, as we
-  // port code to use RenderFrames for OOPIF. See http://crbug.com/304341.
-  content::RenderFrameHost* render_frame_host_;
-
-  // The content::BrowserContext of this function's extension.
+  // The BrowserContext of this function's extension.
+  // TODO(devlin): Grr... protected members. Move this to be private.
   content::BrowserContext* context_;
 
  private:
-  class RenderHostTracker;
+  class RenderFrameHostTracker;
 
   void Destruct() const override;
 
-  // TODO(tommycli): Remove once RenderViewHost is gone.
-  IPC::Sender* GetIPCSender();
-  int GetRoutingID();
+  // The dispatcher that will service this extension function call.
+  base::WeakPtr<extensions::ExtensionFunctionDispatcher> dispatcher_;
 
-  scoped_ptr<RenderHostTracker> tracker_;
+  // The RenderFrameHost we will send responses to.
+  content::RenderFrameHost* render_frame_host_;
+
+  scoped_ptr<RenderFrameHostTracker> tracker_;
 
   DelegateForTests* delegate_;
 
   // The blobs transferred to the renderer process.
   std::vector<std::string> transferred_blob_uuids_;
+
+  DISALLOW_COPY_AND_ASSIGN(UIThreadExtensionFunction);
 };
 
 // Extension functions that run on the IO thread. This type of function avoids
@@ -512,13 +556,14 @@ class IOThreadExtensionFunction : public ExtensionFunction {
   IOThreadExtensionFunction* AsIOThreadExtensionFunction() override;
 
   void set_ipc_sender(
-      base::WeakPtr<extensions::ExtensionMessageFilter> ipc_sender,
+      base::WeakPtr<extensions::IOThreadExtensionMessageFilter> ipc_sender,
       int routing_id) {
     ipc_sender_ = ipc_sender;
     routing_id_ = routing_id;
   }
 
-  base::WeakPtr<extensions::ExtensionMessageFilter> ipc_sender_weak() const {
+  base::WeakPtr<extensions::IOThreadExtensionMessageFilter> ipc_sender_weak()
+      const {
     return ipc_sender_;
   }
 
@@ -543,10 +588,12 @@ class IOThreadExtensionFunction : public ExtensionFunction {
   void SendResponse(bool success) override;
 
  private:
-  base::WeakPtr<extensions::ExtensionMessageFilter> ipc_sender_;
+  base::WeakPtr<extensions::IOThreadExtensionMessageFilter> ipc_sender_;
   int routing_id_;
 
   scoped_refptr<const extensions::InfoMap> extension_info_map_;
+
+  DISALLOW_COPY_AND_ASSIGN(IOThreadExtensionFunction);
 };
 
 // Base class for an extension function that runs asynchronously *relative to
@@ -569,7 +616,12 @@ class AsyncExtensionFunction : public UIThreadExtensionFunction {
   static bool ValidationFailure(AsyncExtensionFunction* function);
 
  private:
-  ResponseAction Run() override;
+  // If you're hitting a compile error here due to "final" - great! You're
+  // doing the right thing, you just need to extend UIThreadExtensionFunction
+  // instead of AsyncExtensionFunction.
+  ResponseAction Run() final;
+
+  DISALLOW_COPY_AND_ASSIGN(AsyncExtensionFunction);
 };
 
 // A SyncExtensionFunction is an ExtensionFunction that runs synchronously
@@ -596,7 +648,12 @@ class SyncExtensionFunction : public UIThreadExtensionFunction {
   static bool ValidationFailure(SyncExtensionFunction* function);
 
  private:
-  ResponseAction Run() override;
+  // If you're hitting a compile error here due to "final" - great! You're
+  // doing the right thing, you just need to extend UIThreadExtensionFunction
+  // instead of SyncExtensionFunction.
+  ResponseAction Run() final;
+
+  DISALLOW_COPY_AND_ASSIGN(SyncExtensionFunction);
 };
 
 class SyncIOThreadExtensionFunction : public IOThreadExtensionFunction {
@@ -617,7 +674,12 @@ class SyncIOThreadExtensionFunction : public IOThreadExtensionFunction {
   static bool ValidationFailure(SyncIOThreadExtensionFunction* function);
 
  private:
-  ResponseAction Run() override;
+  // If you're hitting a compile error here due to "final" - great! You're
+  // doing the right thing, you just need to extend IOThreadExtensionFunction
+  // instead of SyncIOExtensionFunction.
+  ResponseAction Run() final;
+
+  DISALLOW_COPY_AND_ASSIGN(SyncIOThreadExtensionFunction);
 };
 
 #endif  // EXTENSIONS_BROWSER_EXTENSION_FUNCTION_H_

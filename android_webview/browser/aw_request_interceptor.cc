@@ -36,9 +36,8 @@ AwRequestInterceptor::~AwRequestInterceptor() {
 
 scoped_ptr<AwWebResourceResponse>
 AwRequestInterceptor::QueryForAwWebResourceResponse(
-    const GURL& location,
     net::URLRequest* request) const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   int render_process_id, render_frame_id;
   if (!ResourceRequestInfo::GetRenderFrameForRequest(
       request, &render_process_id, &render_frame_id))
@@ -50,13 +49,19 @@ AwRequestInterceptor::QueryForAwWebResourceResponse(
   if (!io_thread_client.get())
     return scoped_ptr<AwWebResourceResponse>();
 
-  return io_thread_client->ShouldInterceptRequest(location, request).Pass();
+  GURL referrer(request->referrer());
+  if (referrer.is_valid() &&
+      (!request->is_pending() || request->is_redirecting())) {
+    request->SetExtraRequestHeaderByName(net::HttpRequestHeaders::kReferer,
+                                         referrer.spec(), true);
+  }
+  return io_thread_client->ShouldInterceptRequest(request).Pass();
 }
 
 net::URLRequestJob* AwRequestInterceptor::MaybeInterceptRequest(
     net::URLRequest* request,
     net::NetworkDelegate* network_delegate) const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   // See if we've already found out the aw_web_resource_response for this
   // request.
@@ -71,7 +76,7 @@ net::URLRequestJob* AwRequestInterceptor::MaybeInterceptRequest(
                        new base::SupportsUserData::Data());
 
   scoped_ptr<AwWebResourceResponse> aw_web_resource_response =
-      QueryForAwWebResourceResponse(request->url(), request);
+      QueryForAwWebResourceResponse(request);
 
   if (!aw_web_resource_response)
     return NULL;

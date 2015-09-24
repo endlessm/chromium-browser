@@ -9,9 +9,9 @@
 #include "chrome/browser/profile_resetter/resettable_settings_snapshot.h"
 #include "chrome/browser/ui/global_error/global_error_service.h"
 #include "chrome/browser/ui/global_error/global_error_service_factory.h"
-#include "chrome/browser/ui/profile_reset_bubble.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+#include "chrome/browser/ui/views/toolbar/wrench_toolbar_button.h"
 #include "chrome/common/url_constants.h"
 #include "components/google/core/browser/google_util.h"
 #include "content/public/browser/page_navigator.h"
@@ -434,14 +434,4 @@ void ProfileResetBubbleView::CloseBubbleView() {
 void ProfileResetBubbleView::UpdateFeedbackDetails() {
   if (show_help_pane_)
     SetupLayoutManager(controls_.report_settings_checkbox->checked());
-}
-
-bool IsProfileResetBubbleSupported() {
-  return true;
-}
-
-GlobalErrorBubbleViewBase* ShowProfileResetBubble(
-    const base::WeakPtr<ProfileResetGlobalError>& global_error,
-    Browser* browser) {
-  return ProfileResetBubbleView::ShowBubble(global_error, browser);
 }

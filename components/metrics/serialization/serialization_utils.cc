@@ -36,10 +36,11 @@ bool ReadMessage(int fd, std::string* message) {
   CHECK(message);
 
   int result;
-  int32 message_size;
-  // The file containing the metrics do not leave the device so the writer and
+  int32_t message_size;
+  const int32_t message_header_size = sizeof(message_size);
+  // The file containing the metrics does not leave the device so the writer and
   // the reader will always have the same endianness.
-  result = HANDLE_EINTR(read(fd, &message_size, sizeof(message_size)));
+  result = HANDLE_EINTR(read(fd, &message_size, message_header_size));
   if (result < 0) {
     DPLOG(ERROR) << "reading metrics message header";
     return false;
@@ -48,7 +49,7 @@ bool ReadMessage(int fd, std::string* message) {
     // This indicates a normal EOF.
     return false;
   }
-  if (result < static_cast<int>(sizeof(message_size))) {
+  if (result < message_header_size) {
     DLOG(ERROR) << "bad read size " << result << ", expecting "
                 << sizeof(message_size);
     return false;
@@ -68,7 +69,12 @@ bool ReadMessage(int fd, std::string* message) {
     return true;
   }
 
-  message_size -= sizeof(message_size);  // The message size includes itself.
+  if (message_size < message_header_size) {
+    DLOG(ERROR) << "message too short : " << message_size;
+    return false;
+  }
+
+  message_size -= message_header_size;  // The message size includes itself.
   char buffer[SerializationUtils::kMessageMaxLength];
   if (!base::ReadFromFD(fd, buffer, message_size)) {
     DPLOG(ERROR) << "reading metrics message body";
@@ -97,15 +103,15 @@ scoped_ptr<MetricSample> SerializationUtils::ParseSample(
   const std::string& name = parts[0];
   const std::string& value = parts[1];
 
-  if (LowerCaseEqualsASCII(name, "crash")) {
+  if (base::LowerCaseEqualsASCII(name, "crash")) {
     return MetricSample::CrashSample(value);
-  } else if (LowerCaseEqualsASCII(name, "histogram")) {
+  } else if (base::LowerCaseEqualsASCII(name, "histogram")) {
     return MetricSample::ParseHistogram(value);
-  } else if (LowerCaseEqualsASCII(name, "linearhistogram")) {
+  } else if (base::LowerCaseEqualsASCII(name, "linearhistogram")) {
     return MetricSample::ParseLinearHistogram(value);
-  } else if (LowerCaseEqualsASCII(name, "sparsehistogram")) {
+  } else if (base::LowerCaseEqualsASCII(name, "sparsehistogram")) {
     return MetricSample::ParseSparseHistogram(value);
-  } else if (LowerCaseEqualsASCII(name, "useraction")) {
+  } else if (base::LowerCaseEqualsASCII(name, "useraction")) {
     return MetricSample::UserActionSample(value);
   } else {
     DLOG(ERROR) << "invalid event type: " << name << ", value: " << value;
@@ -122,7 +128,7 @@ void SerializationUtils::ReadAndTruncateMetricsFromFile(
   result = stat(filename.c_str(), &stat_buf);
   if (result < 0) {
     if (errno != ENOENT)
-      DPLOG(ERROR) << filename << ": bad metrics file stat";
+      DPLOG(ERROR) << "bad metrics file stat: " << filename;
 
     // Nothing to collect---try later.
     return;
@@ -133,12 +139,12 @@ void SerializationUtils::ReadAndTruncateMetricsFromFile(
   }
   base::ScopedFD fd(open(filename.c_str(), O_RDWR));
   if (fd.get() < 0) {
-    DPLOG(ERROR) << filename << ": cannot open";
+    DPLOG(ERROR) << "cannot open: " << filename;
     return;
   }
   result = flock(fd.get(), LOCK_EX);
   if (result < 0) {
-    DPLOG(ERROR) << filename << ": cannot lock";
+    DPLOG(ERROR) << "cannot lock: " << filename;
     return;
   }
 
@@ -152,16 +158,16 @@ void SerializationUtils::ReadAndTruncateMetricsFromFile(
 
     scoped_ptr<MetricSample> sample = ParseSample(message);
     if (sample)
-      metrics->push_back(sample.release());
+      metrics->push_back(sample.Pass());
   }
 
   result = ftruncate(fd.get(), 0);
   if (result < 0)
-    DPLOG(ERROR) << "truncate metrics log";
+    DPLOG(ERROR) << "truncate metrics log: " << filename;
 
   result = flock(fd.get(), LOCK_UN);
   if (result < 0)
-    DPLOG(ERROR) << "unlock metrics log";
+    DPLOG(ERROR) << "unlock metrics log: " << filename;
 }
 
 bool SerializationUtils::WriteMetricToFile(const MetricSample& sample,
@@ -174,7 +180,7 @@ bool SerializationUtils::WriteMetricToFile(const MetricSample& sample,
                                       READ_WRITE_ALL_FILE_FLAGS));
 
   if (file_descriptor.get() < 0) {
-    DLOG(ERROR) << "error openning the file";
+    DPLOG(ERROR) << "error openning the file: " << filename;
     return false;
   }
 
@@ -183,14 +189,14 @@ bool SerializationUtils::WriteMetricToFile(const MetricSample& sample,
   // underneath us. Keep the file locked as briefly as possible.
   // Freeing file_descriptor will close the file and and remove the lock.
   if (HANDLE_EINTR(flock(file_descriptor.get(), LOCK_EX)) < 0) {
-    DLOG(ERROR) << "error locking" << filename << " : " << errno;
+    DPLOG(ERROR) << "error locking: " << filename;
     return false;
   }
 
   std::string msg = sample.ToString();
   int32 size = msg.length() + sizeof(int32);
   if (size > kMessageMaxLength) {
-    DLOG(ERROR) << "cannot write message: too long";
+    DPLOG(ERROR) << "cannot write message: too long: " << filename;
     return false;
   }
 
@@ -199,13 +205,13 @@ bool SerializationUtils::WriteMetricToFile(const MetricSample& sample,
   if (!base::WriteFileDescriptor(file_descriptor.get(),
                                  reinterpret_cast<char*>(&size),
                                  sizeof(size))) {
-    DPLOG(ERROR) << "error writing message length";
+    DPLOG(ERROR) << "error writing message length: " << filename;
     return false;
   }
 
   if (!base::WriteFileDescriptor(
           file_descriptor.get(), msg.c_str(), msg.size())) {
-    DPLOG(ERROR) << "error writing message";
+    DPLOG(ERROR) << "error writing message: " << filename;
     return false;
   }
 

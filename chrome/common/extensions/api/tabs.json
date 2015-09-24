@@ -20,6 +20,9 @@
           "highlighted": {"type": "boolean", "description": "Whether the tab is highlighted."},
           "active": {"type": "boolean", "description": "Whether the tab is active in its window. (Does not necessarily mean the window is focused.)"},
           "pinned": {"type": "boolean", "description": "Whether the tab is pinned."},
+          "audible": {"type": "boolean", "optional": true, "description": "Whether the tab has produced sound over the past couple of seconds (but it might not be heard if also muted). Equivalent to whether the speaker audio indicator is showing."},
+          "muted": {"type": "boolean", "optional": true, "description": "Whether the tab is prevented from playing sound (but hasn't necessarily recently produced sound). Equivalent to whether the muted audio indicator is showing."},
+          "mutedCause": {"type": "string", "optional": true, "description": "Indicates what caused the muted setting ('', 'user', 'capture', or an extension id)."},
           "url": {"type": "string", "optional": true, "description": "The URL the tab is displaying. This property is only present if the extension's manifest includes the <code>\"tabs\"</code> permission."},
           "title": {"type": "string", "optional": true, "optional": true, "description": "The title of the tab. This property is only present if the extension's manifest includes the <code>\"tabs\"</code> permission."},
           "favIconUrl": {"type": "string", "optional": true, "optional": true, "description": "The URL of the tab's favicon. This property is only present if the extension's manifest includes the <code>\"tabs\"</code> permission. It may also be an empty string if the tab is loading."},
@@ -31,45 +34,72 @@
         }
       },
       {
+        "id": "ZoomSettingsMode",
+        "type": "string",
+        "description": "Defines how zoom changes are handled, i.e. which entity is responsible for the actual scaling of the page; defaults to <code>automatic</code>.",
+        "enum": [
+          {
+            "name": "automatic",
+            "description": "Zoom changes are handled automatically by the browser."
+          },
+          {
+            "name": "manual",
+            "description": "Overrides the automatic handling of zoom changes. The <code>onZoomChange</code> event will still be dispatched, and it is the responsibility of the extension to listen for this event and manually scale the page. This mode does not support <code>per-origin</code> zooming, and will thus ignore the <code>scope</code> zoom setting and assume <code>per-tab</code>."
+          },
+          {
+            "name": "disabled",
+            "description": "Disables all zooming in the tab. The tab will revert to the default zoom level, and all attempted zoom changes will be ignored."
+          }
+        ]
+      },
+      {
+        "id": "ZoomSettingsScope",
+        "type": "string",
+        "description": "Defines whether zoom changes will persist for the page's origin, or only take effect in this tab; defaults to <code>per-origin</code> when in <code>automatic</code> mode, and <code>per-tab</code> otherwise.",
+        "enum": [
+          {
+            "name": "per-origin",
+            "description": "Zoom changes will persist in the zoomed page's origin, i.e. all other tabs navigated to that same origin will be zoomed as well. Moreover, <code>per-origin</code> zoom changes are saved with the origin, meaning that when navigating to other pages in the same origin, they will all be zoomed to the same zoom factor. The <code>per-origin</code> scope is only available in the <code>automatic</code> mode."
+          },
+          {
+            "name": "per-tab",
+            "description": "Zoom changes only take effect in this tab, and zoom changes in other tabs will not affect the zooming of this tab. Also, <code>per-tab</code> zoom changes are reset on navigation; navigating a tab will always load pages with their <code>per-origin</code> zoom factors."
+          }
+        ]
+      },
+      {
         "id": "ZoomSettings",
         "type": "object",
         "description": "Defines how zoom changes in a tab are handled and at what scope.",
         "properties": {
           "mode": {
-            "type": "string",
+            "$ref": "ZoomSettingsMode",
             "description": "Defines how zoom changes are handled, i.e. which entity is responsible for the actual scaling of the page; defaults to <code>automatic</code>.",
-            "optional": true,
-            "enum": [
-              {
-                "name": "automatic",
-                "description": "Zoom changes are handled automatically by the browser."
-              },
-              {
-                "name": "manual",
-                "description": "Overrides the automatic handling of zoom changes. The <code>onZoomChange</code> event will still be dispatched, and it is the responsibility of the extension to listen for this event and manually scale the page. This mode does not support <code>per-origin</code> zooming, and will thus ignore the <code>scope</code> zoom setting and assume <code>per-tab</code>."
-              },
-              {
-                "name": "disabled",
-                "description": "Disables all zooming in the tab. The tab will revert to default (100%) zoom, and all attempted zoom changes will be ignored."
-              }
-            ]
+            "optional": true
           },
           "scope": {
-            "type": "string",
+            "$ref": "ZoomSettingsScope",
             "description": "Defines whether zoom changes will persist for the page's origin, or only take effect in this tab; defaults to <code>per-origin</code> when in <code>automatic</code> mode, and <code>per-tab</code> otherwise.",
+            "optional": true
+          },
+          "defaultZoomFactor": {
+            "type": "number",
             "optional": true,
-            "enum": [
-              {
-                "name": "per-origin",
-                "description": "Zoom changes will persist in the zoomed page's origin, i.e. all other tabs navigated to that same origin will be zoomed as well. Moreover, <code>per-origin</code> zoom changes are saved with the origin, meaning that when navigating to other pages in the same origin, they will all be zoomed to the same zoom factor. The <code>per-origin</code> scope is only available in the <code>automatic</code> mode."
-              },
-              {
-                "name": "per-tab",
-                "description": "Zoom changes only take effect in this tab, and zoom changes in other tabs will not affect the zooming of this tab. Also, <code>per-tab</code> zoom changes are reset on navigation; navigating a tab will always load pages with their <code>per-origin</code> zoom factors."
-              }
-            ]
+            "description": "Used to return the default zoom level for the current tab in calls to tabs.getZoomSettings."
           }
         }
+      },
+      {
+        "id": "TabStatus",
+        "type": "string",
+        "enum": ["loading", "complete"],
+        "description": "Whether the tabs have completed loading."
+      },
+      {
+        "id": "WindowType",
+        "type": "string",
+        "enum": ["normal", "popup", "panel", "app"],
+        "description": "The type of window."
       }
     ],
     "functions": [
@@ -125,7 +155,13 @@
             "type": "object",
             "name": "connectInfo",
             "properties": {
-              "name": { "type": "string", "optional": true, "description": "Will be passed into onConnect for content scripts that are listening for the connection event." }
+              "name": { "type": "string", "optional": true, "description": "Will be passed into onConnect for content scripts that are listening for the connection event." },
+              "frameId": {
+                "type": "integer",
+                "optional": true,
+                "minimum": 0,
+                "description": "Open a port to a specific <a href='webNavigation#frame_ids'>frame</a> identified by <code>frameId</code> instead of all frames in the tab."
+              }
             },
             "optional": true
           }
@@ -179,6 +215,19 @@
           {
             "type": "any",
             "name": "message"
+          },
+          {
+            "type": "object",
+            "name": "options",
+            "properties": {
+              "frameId": {
+                "type": "integer",
+                "optional": true,
+                "minimum": 0,
+                "description": "Send a message to a specific <a href='webNavigation#frame_ids'>frame</a> identified by <code>frameId</code> instead of all frames in the tab."
+              }
+            },
+            "optional": true
           },
           {
             "type": "function",
@@ -347,6 +396,16 @@
                 "optional": true,
                 "description": "Whether the tabs are pinned."
               },
+              "audible": {
+                "type": "boolean",
+                "optional": true,
+                "description": "Whether the tabs are audible."
+              },
+              "muted": {
+                "type": "boolean",
+                "optional": true,
+                "description": "Whether the tabs are muted."
+              },
               "highlighted": {
                 "type": "boolean",
                 "optional": true,
@@ -363,9 +422,8 @@
                 "description": "Whether the tabs are in the last focused window."
               },
               "status": {
-                "type": "string",
+                "$ref": "TabStatus",
                 "optional": true,
-                "enum": ["loading", "complete"],
                 "description": "Whether the tabs have completed loading."
               },
               "title": {
@@ -388,9 +446,8 @@
                 "description": "The ID of the parent window, or $(ref:windows.WINDOW_ID_CURRENT) for the <a href='windows#current-window'>current window</a>."
               },
               "windowType": {
-                "type": "string",
+                "$ref": "WindowType",
                 "optional": true,
-                "enum": ["normal", "popup", "panel", "app"],
                 "description": "The type of window the tabs are in."
               },
               "index": {
@@ -443,6 +500,7 @@
            {
              "type": "function",
              "name": "callback",
+             "optional": true,
              "parameters": [
                {
                  "name": "window",
@@ -494,6 +552,11 @@
                 "type": "boolean",
                 "optional": true,
                 "description": "Whether the tab should be pinned."
+              },
+              "muted": {
+                "type": "boolean",
+                "optional": true,
+                "description": "Whether the tab should be muted."
               },
               "openerTabId": {
                 "type": "integer",
@@ -714,7 +777,7 @@
           {
             "type": "number",
             "name": "zoomFactor",
-            "description": "The new zoom factor."
+            "description": "The new zoom factor. Use a value of 0 here to set the tab to its current default zoom factor. Values greater than zero specify a (possibly non-default) zoom factor for the tab."
           },
           {
             "type": "function",
@@ -771,6 +834,7 @@
           {
             "type": "function",
             "name": "callback",
+            "optional": true,
             "description": "Called after the zoom settings have been changed.",
             "parameters": []
           }
@@ -841,6 +905,21 @@
                 "type": "boolean",
                 "optional": true,
                 "description": "The tab's new pinned state."
+              },
+              "audible": {
+                "type": "boolean",
+                "optional": true,
+                "description": "The tab's new audible state."
+              },
+              "muted": {
+                "type": "boolean",
+                "optional": true,
+                "description": "The tab's new muted state."
+              },
+              "mutedCause": {
+                "type": "string",
+                "optional": true,
+                "description": "When the muted state changes, indicates what caused it ('', 'user', 'capture', or an extension id)."
               },
               "favIconUrl": {
                 "type": "string",

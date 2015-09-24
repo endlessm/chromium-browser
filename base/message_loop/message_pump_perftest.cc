@@ -20,7 +20,6 @@
 #endif
 
 namespace base {
-namespace {
 
 class ScheduleWorkTest : public testing::Test {
  public:
@@ -29,20 +28,20 @@ class ScheduleWorkTest : public testing::Test {
   void Increment(uint64_t amount) { counter_ += amount; }
 
   void Schedule(int index) {
-    base::TimeTicks start = base::TimeTicks::HighResNow();
-    base::TimeTicks thread_start;
-    if (TimeTicks::IsThreadNowSupported())
-      thread_start = base::TimeTicks::ThreadNow();
+    base::TimeTicks start = base::TimeTicks::Now();
+    base::ThreadTicks thread_start;
+    if (ThreadTicks::IsSupported())
+      thread_start = base::ThreadTicks::Now();
     base::TimeDelta minimum = base::TimeDelta::Max();
     base::TimeDelta maximum = base::TimeDelta();
     base::TimeTicks now, lastnow = start;
     uint64_t schedule_calls = 0u;
     do {
       for (size_t i = 0; i < kBatchSize; ++i) {
-        target_message_loop()->ScheduleWork(true);
+        target_message_loop()->ScheduleWork();
         schedule_calls++;
       }
-      now = base::TimeTicks::HighResNow();
+      now = base::TimeTicks::Now();
       base::TimeDelta laptime = now - lastnow;
       lastnow = now;
       minimum = std::min(minimum, laptime);
@@ -50,9 +49,9 @@ class ScheduleWorkTest : public testing::Test {
     } while (now - start < base::TimeDelta::FromSeconds(kTargetTimeSec));
 
     scheduling_times_[index] = now - start;
-    if (TimeTicks::IsThreadNowSupported())
+    if (ThreadTicks::IsSupported())
       scheduling_thread_times_[index] =
-          base::TimeTicks::ThreadNow() - thread_start;
+          base::ThreadTicks::Now() - thread_start;
     min_batch_times_[index] = minimum;
     max_batch_times_[index] = maximum;
     target_message_loop()->PostTask(FROM_HERE,
@@ -140,7 +139,7 @@ class ScheduleWorkTest : public testing::Test {
         max_batch_time.InMicroseconds() / static_cast<double>(kBatchSize),
         "us/task",
         false);
-    if (TimeTicks::IsThreadNowSupported()) {
+    if (ThreadTicks::IsSupported()) {
       perf_test::PrintResult(
           "task",
           "_thread_time",
@@ -224,9 +223,6 @@ TEST_F(ScheduleWorkTest, ThreadTimeToJavaFromFourThreads) {
 }
 #endif
 
-static void DoNothing() {
-}
-
 class FakeMessagePump : public MessagePump {
  public:
   FakeMessagePump() {}
@@ -242,7 +238,7 @@ class FakeMessagePump : public MessagePump {
 class PostTaskTest : public testing::Test {
  public:
   void Run(int batch_size, int tasks_per_reload) {
-    base::TimeTicks start = base::TimeTicks::HighResNow();
+    base::TimeTicks start = base::TimeTicks::Now();
     base::TimeTicks now;
     MessageLoop loop(scoped_ptr<MessagePump>(new FakeMessagePump));
     scoped_refptr<internal::IncomingTaskQueue> queue(
@@ -264,7 +260,7 @@ class PostTaskTest : public testing::Test {
         }
       }
 
-      now = base::TimeTicks::HighResNow();
+      now = base::TimeTicks::Now();
     } while (now - start < base::TimeDelta::FromSeconds(5));
     std::string trace = StringPrintf("%d_tasks_per_reload", tasks_per_reload);
     perf_test::PrintResult(
@@ -289,5 +285,4 @@ TEST_F(PostTaskTest, OneHundredTasksPerReload) {
   Run(1000, 100);
 }
 
-}  // namespace
 }  // namespace base

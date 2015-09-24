@@ -12,7 +12,7 @@
 namespace net {
 
 CertDatabase::CertDatabase()
-    : observer_list_(new ObserverListThreadSafe<Observer>) {
+    : observer_list_(new base::ObserverListThreadSafe<Observer>) {
 }
 
 CertDatabase::~CertDatabase() {}
@@ -48,7 +48,7 @@ void CertDatabase::OnAndroidKeyStoreChanged() {
 }
 
 void CertDatabase::OnAndroidKeyChainChanged() {
-  observer_list_->Notify(&Observer::OnCACertChanged,
+  observer_list_->Notify(FROM_HERE, &Observer::OnCACertChanged,
                          scoped_refptr<X509Certificate>());
 }
 

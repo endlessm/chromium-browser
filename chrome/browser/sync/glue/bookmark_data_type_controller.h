@@ -8,53 +8,52 @@
 #include <string>
 
 #include "base/compiler_specific.h"
+#include "base/scoped_observer.h"
 #include "chrome/browser/sync/glue/frontend_data_type_controller.h"
 #include "components/bookmarks/browser/base_bookmark_model_observer.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_registrar.h"
+#include "components/history/core/browser/history_service_observer.h"
 
 namespace browser_sync {
 
 // A class that manages the startup and shutdown of bookmark sync.
 class BookmarkDataTypeController : public FrontendDataTypeController,
-                                   public content::NotificationObserver,
-                                   public BaseBookmarkModelObserver {
+                                   public bookmarks::BaseBookmarkModelObserver,
+                                   public history::HistoryServiceObserver {
  public:
   BookmarkDataTypeController(ProfileSyncComponentsFactory* profile_sync_factory,
                              Profile* profile,
                              ProfileSyncService* sync_service);
 
-  // FrontendDataTypeController interface.
+  // FrontendDataTypeController:
   syncer::ModelType type() const override;
-
-  // content::NotificationObserver interface.
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override;
 
  private:
   ~BookmarkDataTypeController() override;
 
-  // FrontendDataTypeController interface.
+  // FrontendDataTypeController:
   bool StartModels() override;
   void CleanUpState() override;
   void CreateSyncComponents() override;
 
-  // BaseBookmarkModelObserver interface.
+  // bookmarks::BaseBookmarkModelObserver:
   void BookmarkModelChanged() override;
-  void BookmarkModelLoaded(BookmarkModel* model, bool ids_reassigned) override;
-  void BookmarkModelBeingDeleted(BookmarkModel* model) override;
+  void BookmarkModelLoaded(bookmarks::BookmarkModel* model,
+                           bool ids_reassigned) override;
+  void BookmarkModelBeingDeleted(bookmarks::BookmarkModel* model) override;
 
   // Helper that returns true iff both the bookmark model and the history
   // service have finished loading.
   bool DependentsLoaded();
 
-  content::NotificationRegistrar registrar_;
+  // history::HistoryServiceObserver:
+  void OnHistoryServiceLoaded(history::HistoryService* service) override;
+  void HistoryServiceBeingDeleted(
+      history::HistoryService* history_service) override;
 
-  BookmarkModel* bookmark_model_;
-
-  // Have we installed ourselves as a BookmarkModel observer?
-  bool installed_bookmark_observer_;
+  ScopedObserver<history::HistoryService, history::HistoryServiceObserver>
+      history_service_observer_;
+  ScopedObserver<bookmarks::BookmarkModel, BaseBookmarkModelObserver>
+      bookmark_model_observer_;
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkDataTypeController);
 };

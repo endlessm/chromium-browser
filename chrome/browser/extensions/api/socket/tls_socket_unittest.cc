@@ -53,6 +53,9 @@ class MockSSLClientSocket : public net::SSLClientSocket {
   MOCK_CONST_METHOD0(WasEverUsed, bool());
   MOCK_CONST_METHOD0(UsingTCPFastOpen, bool());
   MOCK_METHOD1(GetSSLInfo, bool(net::SSLInfo*));
+  MOCK_CONST_METHOD1(GetConnectionAttempts, void(net::ConnectionAttempts*));
+  MOCK_METHOD0(ClearConnectionAttempts, void());
+  MOCK_METHOD1(AddConnectionAttempts, void(const net::ConnectionAttempts&));
   MOCK_METHOD5(ExportKeyingMaterial,
                int(const StringPiece&,
                    bool,
@@ -60,16 +63,14 @@ class MockSSLClientSocket : public net::SSLClientSocket {
                    unsigned char*,
                    unsigned int));
   MOCK_METHOD1(GetTLSUniqueChannelBinding, int(std::string*));
-  MOCK_CONST_METHOD0(GetSessionCacheKey, std::string());
-  MOCK_CONST_METHOD0(InSessionCache, bool());
-  MOCK_METHOD1(SetHandshakeCompletionCallback, void(const base::Closure&));
   MOCK_METHOD1(GetSSLCertRequestInfo, void(net::SSLCertRequestInfo*));
-  MOCK_METHOD1(GetNextProto,
-               net::SSLClientSocket::NextProtoStatus(std::string*));
+  MOCK_CONST_METHOD1(GetNextProto,
+                     net::SSLClientSocket::NextProtoStatus(std::string*));
   MOCK_CONST_METHOD0(GetUnverifiedServerCertificateChain,
                      scoped_refptr<net::X509Certificate>());
   MOCK_CONST_METHOD0(GetChannelIDService, net::ChannelIDService*());
-  virtual bool IsConnected() const override { return true; }
+  MOCK_CONST_METHOD0(GetSSLFailureState, net::SSLFailureState());
+  bool IsConnected() const override { return true; }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockSSLClientSocket);
@@ -91,7 +92,7 @@ class MockTCPSocket : public net::TCPClientSocket {
   MOCK_METHOD2(SetKeepAlive, bool(bool enable, int delay));
   MOCK_METHOD1(SetNoDelay, bool(bool no_delay));
 
-  virtual bool IsConnected() const override { return true; }
+  bool IsConnected() const override { return true; }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockTCPSocket);

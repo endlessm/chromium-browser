@@ -17,11 +17,11 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/importer/imported_bookmark_entry.h"
-#include "chrome/common/importer/imported_favicon_usage.h"
 #include "chrome/common/importer/importer_data_types.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "components/autofill/core/browser/webdata/autofill_entry.h"
 #include "components/autofill/core/common/password_form.h"
+#include "components/favicon_base/favicon_usage_data.h"
 #include "components/search_engines/template_url.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -106,6 +106,11 @@ const KeywordInfo kFirefoxKeywords[] = {
      "http://www.webster.com/cgi-bin/dictionary?va={searchTerms}"},
     // Search keywords.
     {L"\x4E2D\x6587", L"\x4E2D\x6587", "http://www.google.com/"},
+    {L"keyword", L"keyword", "http://example.{searchTerms}.com/"},
+    // in_process_importer_bridge.cc:CreateTemplateURL() will return NULL for
+    // the following bookmark. Consequently, it won't be imported as a search
+    // engine.
+    {L"", L"", "http://%x.example.{searchTerms}.com/"},
 };
 
 const AutofillFormDataInfo kFirefoxAutofillEntries[] = {
@@ -143,7 +148,11 @@ class FirefoxObserver : public ProfileWriter,
     EXPECT_EQ(arraysize(kFirefoxBookmarks), bookmark_count_);
     EXPECT_EQ(1U, history_count_);
     EXPECT_EQ(arraysize(kFirefoxPasswords), password_count_);
-    EXPECT_EQ(arraysize(kFirefoxKeywords), keyword_count_);
+    // The following test case from |kFirefoxKeywords| won't be imported:
+    //   "http://%x.example.{searchTerms}.com/"}.
+    // Hence, value of |keyword_count_| should be lower than size of
+    // |kFirefoxKeywords| by 1.
+    EXPECT_EQ(arraysize(kFirefoxKeywords) - 1, keyword_count_);
   }
 
   bool BookmarkModelIsLoaded() const override {
@@ -227,8 +236,8 @@ class FirefoxObserver : public ProfileWriter,
     }
   }
 
-  void AddFavicons(const std::vector<ImportedFaviconUsage>& favicons) override {
-  }
+  void AddFavicons(
+      const favicon_base::FaviconUsageDataList& favicons) override {}
 
  private:
   ~FirefoxObserver() override {}

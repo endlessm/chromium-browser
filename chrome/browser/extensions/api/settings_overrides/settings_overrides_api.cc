@@ -35,7 +35,7 @@ using api::manifest_types::ChromeSettingsOverrides;
 
 std::string SubstituteInstallParam(std::string str,
                                    const std::string& install_parameter) {
-  ReplaceSubstringsAfterOffset(&str, 0, "__PARAM__", install_parameter);
+  base::ReplaceSubstringsAfterOffset(&str, 0, "__PARAM__", install_parameter);
   return str;
 }
 
@@ -72,7 +72,7 @@ TemplateURLData ConvertSearchProvider(
   }
 
   if (search_provider.name)
-    data.short_name = base::UTF8ToUTF16(*search_provider.name);
+    data.SetShortName(base::UTF8ToUTF16(*search_provider.name));
   if (search_provider.keyword)
     data.SetKeyword(base::UTF8ToUTF16(*search_provider.keyword));
   data.SetURL(SubstituteInstallParam(search_provider.search_url,

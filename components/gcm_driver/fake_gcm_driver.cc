@@ -28,9 +28,6 @@ void FakeGCMDriver::OnSignedIn() {
 void FakeGCMDriver::OnSignedOut() {
 }
 
-void FakeGCMDriver::Purge() {
-}
-
 void FakeGCMDriver::AddConnectionObserver(GCMConnectionObserver* observer) {
 }
 
@@ -63,7 +60,8 @@ void FakeGCMDriver::SetGCMRecording(const GetGCMStatisticsCallback& callback,
                                     bool recording) {
 }
 
-GCMClient::Result FakeGCMDriver::EnsureStarted() {
+GCMClient::Result FakeGCMDriver::EnsureStarted(
+    GCMClient::StartMode start_mode) {
   return GCMClient::SUCCESS;
 }
 
@@ -95,6 +93,20 @@ base::Time FakeGCMDriver::GetLastTokenFetchTime() {
 }
 
 void FakeGCMDriver::SetLastTokenFetchTime(const base::Time& time) {
+}
+
+void FakeGCMDriver::WakeFromSuspendForHeartbeat(bool wake) {
+}
+
+InstanceIDHandler* FakeGCMDriver::GetInstanceIDHandler() {
+  return NULL;
+}
+
+void FakeGCMDriver::AddHeartbeatInterval(const std::string& scope,
+                                         int interval_ms) {
+}
+
+void FakeGCMDriver::RemoveHeartbeatInterval(const std::string& scope) {
 }
 
 }  // namespace gcm

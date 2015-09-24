@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,9 @@
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
+#include "base/location.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/message_loop/message_loop.h"
 #include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/sys_info.h"
@@ -20,17 +22,19 @@
 #include "chrome/browser/devtools/devtools_window_testing.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_info_cache.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/search/search.h"
-#include "chrome/browser/sessions/session_backend.h"
 #include "chrome/browser/sessions/session_service_factory.h"
 #include "chrome/browser/translate/chrome_translate_client.h"
 #include "chrome/browser/translate/cld_data_harness.h"
+#include "chrome/browser/translate/cld_data_harness_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_command_controller.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -40,6 +44,7 @@
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_ui_prefs.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
@@ -55,11 +60,12 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/test_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "components/app_modal_dialogs/app_modal_dialog.h"
-#include "components/app_modal_dialogs/app_modal_dialog_queue.h"
-#include "components/app_modal_dialogs/javascript_app_modal_dialog.h"
-#include "components/app_modal_dialogs/native_app_modal_dialog.h"
+#include "components/app_modal/app_modal_dialog.h"
+#include "components/app_modal/app_modal_dialog_queue.h"
+#include "components/app_modal/javascript_app_modal_dialog.h"
+#include "components/app_modal/native_app_modal_dialog.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/sessions/base_session_service_test_helper.h"
 #include "components/translate/core/browser/language_state.h"
 #include "components/translate/core/common/language_detection_details.h"
 #include "content/public/browser/favicon_status.h"
@@ -73,6 +79,8 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/resource_context.h"
+#include "content/public/browser/security_style_explanation.h"
+#include "content/public/browser/security_style_explanations.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/frame_navigate_params.h"
@@ -80,10 +88,13 @@
 #include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/uninstall_reason.h"
+#include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_set.h"
+#include "net/base/net_errors.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/spawned_test_server/spawned_test_server.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -100,6 +111,9 @@
 #include "chrome/browser/browser_process.h"
 #endif
 
+using app_modal::AppModalDialog;
+using app_modal::AppModalDialogQueue;
+using app_modal::JavaScriptAppModalDialog;
 using base::ASCIIToUTF16;
 using content::InterstitialPage;
 using content::HostZoomMap;
@@ -196,7 +210,7 @@ void CloseWindowCallback(Browser* browser) {
 // menu.
 void RunCloseWithAppMenuCallback(Browser* browser) {
   // ShowAppMenu is modal under views. Schedule a task that closes the window.
-  base::MessageLoop::current()->PostTask(
+  base::MessageLoop::current()->task_runner()->PostTask(
       FROM_HERE, base::Bind(&CloseWindowCallback, browser));
   chrome::ShowAppMenu(browser);
 }
@@ -308,6 +322,88 @@ class RenderViewSizeObserver : public content::WebContentsObserver {
   DISALLOW_COPY_AND_ASSIGN(RenderViewSizeObserver);
 };
 
+void ProceedThroughInterstitial(content::WebContents* web_contents) {
+  InterstitialPage* interstitial_page = web_contents->GetInterstitialPage();
+  ASSERT_TRUE(interstitial_page);
+
+  content::WindowedNotificationObserver observer(
+      content::NOTIFICATION_LOAD_STOP,
+      content::Source<NavigationController>(&web_contents->GetController()));
+  interstitial_page->Proceed();
+  observer.Wait();
+}
+
+bool GetFilePathWithHostAndPortReplacement(
+    const std::string& original_file_path,
+    const net::HostPortPair& host_port_pair,
+    std::string* replacement_path) {
+  std::vector<net::SpawnedTestServer::StringPair> replacement_text;
+  replacement_text.push_back(
+      make_pair("REPLACE_WITH_HOST_AND_PORT", host_port_pair.ToString()));
+  return net::SpawnedTestServer::GetFilePathWithReplacements(
+      original_file_path, replacement_text, replacement_path);
+}
+
+// A WebContentsObserver useful for testing the SecurityStyleChanged()
+// method: it keeps track of the latest security style and explanation
+// that was fired.
+class SecurityStyleTestObserver : public WebContentsObserver {
+ public:
+  explicit SecurityStyleTestObserver(content::WebContents* web_contents)
+      : content::WebContentsObserver(web_contents),
+        latest_security_style_(content::SECURITY_STYLE_UNKNOWN) {}
+  ~SecurityStyleTestObserver() override {}
+
+  void SecurityStyleChanged(content::SecurityStyle security_style,
+                            const content::SecurityStyleExplanations&
+                                security_style_explanations) override {
+    latest_security_style_ = security_style;
+    latest_explanations_ = security_style_explanations;
+  }
+
+  content::SecurityStyle latest_security_style() const {
+    return latest_security_style_;
+  }
+
+  const content::SecurityStyleExplanations& latest_explanations() const {
+    return latest_explanations_;
+  }
+
+  void ClearLatestSecurityStyleAndExplanations() {
+    latest_security_style_ = content::SECURITY_STYLE_UNKNOWN;
+    latest_explanations_.warning_explanations.clear();
+    latest_explanations_.broken_explanations.clear();
+  }
+
+ private:
+  content::SecurityStyle latest_security_style_;
+  content::SecurityStyleExplanations latest_explanations_;
+
+  DISALLOW_COPY_AND_ASSIGN(SecurityStyleTestObserver);
+};
+
+// Check that |observer|'s latest event was for an expired certificate
+// and that it saw the proper SecurityStyle and explanations.
+void CheckExpiredSecurityStyle(const SecurityStyleTestObserver& observer) {
+  EXPECT_EQ(content::SECURITY_STYLE_AUTHENTICATION_BROKEN,
+            observer.latest_security_style());
+
+  const content::SecurityStyleExplanations& expired_explanation =
+      observer.latest_explanations();
+  EXPECT_EQ(0u, expired_explanation.warning_explanations.size());
+  ASSERT_EQ(1u, expired_explanation.broken_explanations.size());
+
+  // Check that the summary and description are as expected.
+  EXPECT_EQ(l10n_util::GetStringUTF8(IDS_CERTIFICATE_CHAIN_ERROR),
+            expired_explanation.broken_explanations[0].summary);
+
+  base::string16 error_string =
+      base::UTF8ToUTF16(net::ErrorToString(net::ERR_CERT_DATE_INVALID));
+  EXPECT_EQ(l10n_util::GetStringFUTF8(
+                IDS_CERTIFICATE_CHAIN_ERROR_DESCRIPTION_FORMAT, error_string),
+            expired_explanation.broken_explanations[0].description);
+}
+
 }  // namespace
 
 class BrowserTest : public ExtensionBrowserTest {
@@ -333,13 +429,12 @@ class BrowserTest : public ExtensionBrowserTest {
 
   // Returns the app extension aptly named "App Test".
   const Extension* GetExtension() {
-    const extensions::ExtensionSet* extensions =
-        extensions::ExtensionSystem::Get(
-            browser()->profile())->extension_service()->extensions();
-    for (extensions::ExtensionSet::const_iterator it = extensions->begin();
-         it != extensions->end(); ++it) {
-      if ((*it)->name() == "App Test")
-        return it->get();
+    extensions::ExtensionRegistry* registry =
+        extensions::ExtensionRegistry::Get(browser()->profile());
+    for (const scoped_refptr<const extensions::Extension>& extension :
+         registry->enabled_extensions()) {
+      if (extension->name() == "App Test")
+        return extension.get();
     }
     NOTREACHED();
     return NULL;
@@ -351,7 +446,8 @@ class BrowserTest : public ExtensionBrowserTest {
 IN_PROC_BROWSER_TEST_F(BrowserTest, NoTitle) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -366,12 +462,64 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, NoTitle) {
   EXPECT_EQ(ASCIIToUTF16("title1.html"), tab_title);
 }
 
+// Check that a file:// URL displays the filename, but no path, with any ref or
+// query parameters following it if the content does not have a <title> tag.
+// Specifically verify the cases where the ref or query parameters have a '/'
+// character in them. This is a regression test for
+// https://crbug.com/503003.
+IN_PROC_BROWSER_TEST_F(BrowserTest, NoTitleFileUrl) {
+#if defined(OS_WIN) && defined(USE_ASH)
+  // Disable this test in Metro+Ash for now (http://crbug.com/262796).
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
+    return;
+#endif
+
+  // Note that the host names used and the order of these cases are by design.
+  // There must be unique query parameters and references per case (i.e. the
+  // indexed foo*.com hosts) because if the same query parameter is repeated in
+  // a row, then the navigation may not actually happen, as it will only appear
+  // as a reference change.  Additionally, cases with references first must
+  // appear after a query parameter case since otherwise it will not be a
+  // navigation.
+  struct {
+    std::string suffix;
+    std::string message;
+  } cases[]{
+      {"#https://foo1.com", "file:/// URL with slash in ref"},
+      {"?x=https://foo2.com", "file:/// URL with slash in query parameter"},
+      {"?x=https://foo3.com#https://foo3.com",
+       "file:/// URL with slashes in query parameter and ref"},
+      {"#https://foo4.com?x=https://foo4.com",
+       "file:/// URL with slashes in ref and query parameter"},
+      {"?x=https://foo6.com?x=https://foo6.com",
+       "file:/// URL with slashes in multiple query parameter"},
+      {"#https://foo5.com#https://foo5.com",
+       "file:/// URL with slashes in multiple refs"}};
+
+  GURL prefix_url = ui_test_utils::GetTestUrl(
+      base::FilePath(base::FilePath::kCurrentDirectory),
+      base::FilePath(kTitle1File));
+  base::string16 tab_title;
+  base::string16 test_title;
+  for (const auto& c : cases) {
+    SCOPED_TRACE(c.message);
+    GURL url(prefix_url.spec() + c.suffix);
+    test_title = ASCIIToUTF16("title1.html" + c.suffix);
+    content::TitleWatcher title_watcher(
+        browser()->tab_strip_model()->GetActiveWebContents(), test_title);
+    ui_test_utils::NavigateToURL(browser(), url);
+    EXPECT_EQ(test_title, title_watcher.WaitAndGetTitle());
+  }
+}
+
 // Launch the app, navigate to a page with a title, check that the app title
 // was set correctly.
 IN_PROC_BROWSER_TEST_F(BrowserTest, Title) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -492,7 +640,8 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, ClearPendingOnFailUnlessNTP) {
 
 // Test for crbug.com/297289.  Ensure that modal dialogs are closed when a
 // cross-process navigation is ready to commit.
-IN_PROC_BROWSER_TEST_F(BrowserTest, CrossProcessNavCancelsDialogs) {
+// Flaky test, see https://crbug.com/445155.
+IN_PROC_BROWSER_TEST_F(BrowserTest, DISABLED_CrossProcessNavCancelsDialogs) {
   ASSERT_TRUE(test_server()->Start());
   host_resolver()->AddRule("www.example.com", "127.0.0.1");
   GURL url(test_server()->GetURL("empty.html"));
@@ -540,7 +689,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, SadTabCancelsDialogs) {
   content::RenderProcessHostWatcher crash_observer(
       child_process,
       content::RenderProcessHostWatcher::WATCH_FOR_PROCESS_EXIT);
-  base::KillProcess(child_process->GetHandle(), 0, false);
+  child_process->Shutdown(0, false);
   crash_observer.Wait();
   EXPECT_FALSE(dialog_queue->HasActiveDialog());
 
@@ -567,13 +716,39 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, SadTabCancelsSubframeDialogs) {
   content::RenderProcessHostWatcher crash_observer(
       child_process,
       content::RenderProcessHostWatcher::WATCH_FOR_PROCESS_EXIT);
-  base::KillProcess(child_process->GetHandle(), 0, false);
+  child_process->Shutdown(0, false);
   crash_observer.Wait();
   EXPECT_FALSE(dialog_queue->HasActiveDialog());
 
   // Make sure subsequent navigations work.
   GURL url2("data:text/html,foo");
   ui_test_utils::NavigateToURL(browser(), url2);
+}
+
+// Make sure modal dialogs within a guestview are closed when an interstitial
+// page is showing. See crbug.com/482380.
+IN_PROC_BROWSER_TEST_F(BrowserTest, InterstitialCancelsGuestViewDialogs) {
+  // Navigate to a PDF, which is loaded within a guestview.
+  ASSERT_TRUE(test_server()->Start());
+  GURL pdf_with_dialog(test_server()->GetURL("files/alert_dialog.pdf"));
+  ui_test_utils::NavigateToURL(browser(), pdf_with_dialog);
+
+  AppModalDialog* alert = ui_test_utils::WaitForAppModalDialog();
+  EXPECT_TRUE(alert->IsValid());
+  AppModalDialogQueue* dialog_queue = AppModalDialogQueue::GetInstance();
+  EXPECT_TRUE(dialog_queue->HasActiveDialog());
+
+  WebContents* contents = browser()->tab_strip_model()->GetActiveWebContents();
+
+  TestInterstitialPage* interstitial =
+      new TestInterstitialPage(contents, false, GURL());
+  content::WaitForInterstitialAttach(contents);
+
+  // The interstitial should have closed the dialog.
+  EXPECT_TRUE(contents->ShowingInterstitialPage());
+  EXPECT_FALSE(dialog_queue->HasActiveDialog());
+
+  interstitial->DontProceed();
 }
 
 // Test for crbug.com/22004.  Reloading a page with a before unload handler and
@@ -761,14 +936,22 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, CancelBeforeUnloadResetsURL) {
 // http://crbug.com/410891
 IN_PROC_BROWSER_TEST_F(BrowserTest,
                        DISABLED_SingleBeforeUnloadAfterWindowClose) {
-  browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame()->
-      ExecuteJavaScriptForTests(ASCIIToUTF16(kOpenNewBeforeUnloadPage));
+  browser()
+      ->tab_strip_model()
+      ->GetActiveWebContents()
+      ->GetMainFrame()
+      ->ExecuteJavaScriptWithUserGestureForTests(
+          ASCIIToUTF16(kOpenNewBeforeUnloadPage));
 
   // Close the new window with JavaScript, which should show a single
   // beforeunload dialog.  Then show another alert, to make it easy to verify
   // that a second beforeunload dialog isn't shown.
-  browser()->tab_strip_model()->GetWebContentsAt(0)->GetMainFrame()->
-      ExecuteJavaScriptForTests(ASCIIToUTF16("w.close(); alert('bar');"));
+  browser()
+      ->tab_strip_model()
+      ->GetWebContentsAt(0)
+      ->GetMainFrame()
+      ->ExecuteJavaScriptWithUserGestureForTests(
+          ASCIIToUTF16("w.close(); alert('bar');"));
   AppModalDialog* alert = ui_test_utils::WaitForAppModalDialog();
   alert->native_dialog()->AcceptAppModalDialog();
 
@@ -829,8 +1012,8 @@ class BeforeUnloadAtQuitWithTwoWindows : public InProcessBrowserTest {
 
     // Run the application event loop to completion, which will cycle the
     // native MessagePump on all platforms.
-    base::MessageLoop::current()->PostTask(FROM_HERE,
-                                           base::MessageLoop::QuitClosure());
+    base::MessageLoop::current()->task_runner()->PostTask(
+        FROM_HERE, base::MessageLoop::QuitClosure());
     base::MessageLoop::current()->Run();
 
     // Take care of any remaining Cocoa work.
@@ -893,7 +1076,7 @@ IN_PROC_BROWSER_TEST_F(BeforeUnloadAtQuitWithTwoWindows,
 // it to a cross-site URL.  It should also work for meta-refreshes.
 // See http://crbug.com/93517.
 IN_PROC_BROWSER_TEST_F(BrowserTest, NullOpenerRedirectForksProcess) {
-  CommandLine::ForCurrentProcess()->AppendSwitch(
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kDisablePopupBlocking);
 
   // Create http and https servers for a cross-site transition.
@@ -925,7 +1108,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, NullOpenerRedirectForksProcess) {
       content::NOTIFICATION_NAV_ENTRY_COMMITTED,
       content::NotificationService::AllSources());
   oldtab->GetMainFrame()->
-      ExecuteJavaScriptForTests(ASCIIToUTF16(redirect_popup));
+      ExecuteJavaScriptWithUserGestureForTests(ASCIIToUTF16(redirect_popup));
 
   // Wait for popup window to appear and finish navigating.
   popup_observer.Wait();
@@ -959,7 +1142,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, NullOpenerRedirectForksProcess) {
       content::NOTIFICATION_NAV_ENTRY_COMMITTED,
       content::NotificationService::AllSources());
   oldtab->GetMainFrame()->
-      ExecuteJavaScriptForTests(ASCIIToUTF16(refresh_popup));
+      ExecuteJavaScriptWithUserGestureForTests(ASCIIToUTF16(refresh_popup));
 
   // Wait for popup window to appear and finish navigating.
   popup_observer2.Wait();
@@ -982,7 +1165,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, NullOpenerRedirectForksProcess) {
 // http://www.google.com/chrome/intl/en/webmasters-faq.html#newtab will not
 // fork a new renderer process.
 IN_PROC_BROWSER_TEST_F(BrowserTest, OtherRedirectsDontForkProcess) {
-  CommandLine::ForCurrentProcess()->AppendSwitch(
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kDisablePopupBlocking);
 
   // Create http and https servers for a cross-site transition.
@@ -1013,7 +1196,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, OtherRedirectsDontForkProcess) {
       content::NOTIFICATION_NAV_ENTRY_COMMITTED,
       content::NotificationService::AllSources());
   oldtab->GetMainFrame()->
-      ExecuteJavaScriptForTests(ASCIIToUTF16(dont_fork_popup));
+      ExecuteJavaScriptWithUserGestureForTests(ASCIIToUTF16(dont_fork_popup));
 
   // Wait for popup window to appear and finish navigating.
   popup_observer.Wait();
@@ -1039,7 +1222,8 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, OtherRedirectsDontForkProcess) {
   content::WindowedNotificationObserver nav_observer2(
         content::NOTIFICATION_NAV_ENTRY_COMMITTED,
         content::NotificationService::AllSources());
-  oldtab->GetMainFrame()->ExecuteJavaScriptForTests(ASCIIToUTF16(navigate_str));
+  oldtab->GetMainFrame()->ExecuteJavaScriptWithUserGestureForTests(
+      ASCIIToUTF16(navigate_str));
   nav_observer2.Wait();
   ASSERT_TRUE(oldtab->GetController().GetLastCommittedEntry());
   EXPECT_EQ(https_url.spec(),
@@ -1289,42 +1473,43 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, MAYBE_TabClosingWhenRemovingExtension) {
   ASSERT_EQ(1, browser()->tab_strip_model()->count());
 }
 
-#if !defined(OS_MACOSX)
-// Open with --app-id=<id>, and see that an app window opens.
+// Open with --app-id=<id>, and see that an application tab opens by default.
 IN_PROC_BROWSER_TEST_F(BrowserTest, AppIdSwitch) {
   ASSERT_TRUE(test_server()->Start());
+
+  // There should be one tab to start with.
+  ASSERT_EQ(1, browser()->tab_strip_model()->count());
 
   // Load an app.
   host_resolver()->AddRule("www.example.com", "127.0.0.1");
   ASSERT_TRUE(LoadExtension(test_data_dir_.AppendASCII("app/")));
   const Extension* extension_app = GetExtension();
 
-  CommandLine command_line(CommandLine::NO_PROGRAM);
+  base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
   command_line.AppendSwitchASCII(switches::kAppId, extension_app->id());
 
   chrome::startup::IsFirstRun first_run = first_run::IsChromeFirstRun() ?
       chrome::startup::IS_FIRST_RUN : chrome::startup::IS_NOT_FIRST_RUN;
   StartupBrowserCreatorImpl launch(base::FilePath(), command_line, first_run);
-  ASSERT_TRUE(launch.OpenApplicationWindow(browser()->profile(), NULL));
 
-  // Check that the new browser has an app name.
-  // The launch should have created a new browser.
-  ASSERT_EQ(2u, chrome::GetBrowserCount(browser()->profile(),
-                                        browser()->host_desktop_type()));
+  bool new_bookmark_apps_enabled = extensions::util::IsNewBookmarkAppsEnabled();
 
-  // Find the new browser.
-  Browser* new_browser = NULL;
-  for (chrome::BrowserIterator it; !it.done() && !new_browser; it.Next()) {
-    if (*it != browser())
-      new_browser = *it;
-  }
-  ASSERT_TRUE(new_browser);
-  ASSERT_TRUE(new_browser != browser());
+  // If the new bookmark app flow is enabled, the app should open as an tab.
+  // Otherwise the app should open as an app window.
+  EXPECT_EQ(!new_bookmark_apps_enabled,
+            launch.OpenApplicationWindow(browser()->profile(), NULL));
+  EXPECT_EQ(new_bookmark_apps_enabled,
+            launch.OpenApplicationTab(browser()->profile()));
 
-  // The browser's app_name should include the app's ID.
-  ASSERT_NE(
-      new_browser->app_name_.find(extension_app->id()),
-      std::string::npos) << new_browser->app_name_;
+  // Check that a the number of browsers and tabs is correct.
+  unsigned int expected_browsers = 1;
+  int expected_tabs = 1;
+  new_bookmark_apps_enabled ? expected_tabs++ : expected_browsers++;
+
+  EXPECT_EQ(expected_browsers,
+            chrome::GetBrowserCount(browser()->profile(),
+                                    browser()->host_desktop_type()));
+  EXPECT_EQ(expected_tabs, browser()->tab_strip_model()->count());
 }
 
 // Open an app window and the dev tools window and ensure that the location
@@ -1338,11 +1523,9 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, ShouldShowLocationBar) {
   const Extension* extension_app = GetExtension();
 
   // Launch it in a window, as AppLauncherHandler::HandleLaunchApp() would.
-  WebContents* app_window =
-      OpenApplication(AppLaunchParams(browser()->profile(),
-                                      extension_app,
-                                      extensions::LAUNCH_CONTAINER_WINDOW,
-                                      NEW_WINDOW));
+  WebContents* app_window = OpenApplication(AppLaunchParams(
+      browser()->profile(), extension_app, extensions::LAUNCH_CONTAINER_WINDOW,
+      NEW_WINDOW, extensions::SOURCE_TEST));
   ASSERT_TRUE(app_window);
 
   DevToolsWindow* devtools_window =
@@ -1371,17 +1554,19 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, ShouldShowLocationBar) {
 
   EXPECT_FALSE(
       dev_tools_browser->SupportsWindowFeature(Browser::FEATURE_LOCATIONBAR));
-  EXPECT_FALSE(
+
+  // App windows can show location bars, for example when they navigate away
+  // from their starting origin.
+  EXPECT_TRUE(
       app_browser->SupportsWindowFeature(Browser::FEATURE_LOCATIONBAR));
 
   DevToolsWindowTesting::CloseDevToolsWindowSync(devtools_window);
 }
-#endif
 
 // Tests that the CLD (Compact Language Detection) works properly.
 IN_PROC_BROWSER_TEST_F(BrowserTest, PageLanguageDetection) {
   scoped_ptr<test::CldDataHarness> cld_data_harness =
-      test::CreateCldDataHarness();
+      test::CldDataHarnessFactory::Get()->CreateCldDataHarness();
   ASSERT_NO_FATAL_FAILURE(cld_data_harness->Init());
   ASSERT_TRUE(test_server()->Start());
 
@@ -1437,28 +1622,18 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, PageLanguageDetection) {
 IN_PROC_BROWSER_TEST_F(BrowserTest, RestorePinnedTabs) {
   ASSERT_TRUE(test_server()->Start());
 
-  // Add an pinned app tab.
+  // Add a pinned tab.
   host_resolver()->AddRule("www.example.com", "127.0.0.1");
   GURL url(test_server()->GetURL("empty.html"));
   TabStripModel* model = browser()->tab_strip_model();
-  ASSERT_TRUE(LoadExtension(test_data_dir_.AppendASCII("app/")));
-  const Extension* extension_app = GetExtension();
   ui_test_utils::NavigateToURL(browser(), url);
-  WebContents* app_contents = WebContents::Create(
-      WebContents::CreateParams(browser()->profile()));
-  extensions::TabHelper::CreateForWebContents(app_contents);
-  extensions::TabHelper* extensions_tab_helper =
-      extensions::TabHelper::FromWebContents(app_contents);
-  extensions_tab_helper->SetExtensionApp(extension_app);
-  model->AddWebContents(app_contents, 0, ui::PageTransitionFromInt(0),
-                        TabStripModel::ADD_NONE);
   model->SetTabPinned(0, true);
-  ui_test_utils::NavigateToURL(browser(), url);
 
   // Add a non pinned tab.
   chrome::NewTab(browser());
+  ui_test_utils::NavigateToURL(browser(), url);
 
-  // Add a pinned non-app tab.
+  // Add another pinned tab.
   chrome::NewTab(browser());
   ui_test_utils::NavigateToURL(browser(), GURL(url::kAboutBlankURL));
   model->SetTabPinned(2, true);
@@ -1467,7 +1642,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, RestorePinnedTabs) {
   PinnedTabCodec::WritePinnedTabs(browser()->profile());
 
   // Simulate launching again.
-  CommandLine dummy(CommandLine::NO_PROGRAM);
+  base::CommandLine dummy(base::CommandLine::NO_PROGRAM);
   chrome::startup::IsFirstRun first_run = first_run::IsChromeFirstRun() ?
       chrome::startup::IS_FIRST_RUN : chrome::startup::IS_NOT_FIRST_RUN;
   StartupBrowserCreatorImpl launch(base::FilePath(), dummy, first_run);
@@ -1494,20 +1669,12 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, RestorePinnedTabs) {
 
   // Make sure the state matches.
   TabStripModel* new_model = new_browser->tab_strip_model();
-  EXPECT_TRUE(new_model->IsAppTab(0));
-  EXPECT_FALSE(new_model->IsAppTab(1));
-  EXPECT_FALSE(new_model->IsAppTab(2));
-
   EXPECT_TRUE(new_model->IsTabPinned(0));
   EXPECT_TRUE(new_model->IsTabPinned(1));
   EXPECT_FALSE(new_model->IsTabPinned(2));
 
   EXPECT_EQ(GURL(chrome::kChromeUINewTabURL),
             new_model->GetWebContentsAt(2)->GetURL());
-
-  EXPECT_TRUE(
-      extensions::TabHelper::FromWebContents(
-          new_model->GetWebContentsAt(0))->extension_app() == extension_app);
 }
 #endif  // !defined(OS_CHROMEOS)
 
@@ -1518,7 +1685,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, CloseWithAppMenuOpen) {
     return;
 
   // We need a message loop running for menus on windows.
-  base::MessageLoop::current()->PostTask(
+  base::MessageLoop::current()->task_runner()->PostTask(
       FROM_HERE, base::Bind(&RunCloseWithAppMenuCallback, browser()));
 }
 
@@ -1532,9 +1699,9 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, OpenAppWindowLikeNtp) {
   const Extension* extension_app = GetExtension();
 
   // Launch it in a window, as AppLauncherHandler::HandleLaunchApp() would.
-  WebContents* app_window = OpenApplication(
-      AppLaunchParams(browser()->profile(), extension_app,
-                      extensions::LAUNCH_CONTAINER_WINDOW, NEW_WINDOW));
+  WebContents* app_window = OpenApplication(AppLaunchParams(
+      browser()->profile(), extension_app, extensions::LAUNCH_CONTAINER_WINDOW,
+      NEW_WINDOW, extensions::SOURCE_TEST));
   ASSERT_TRUE(app_window);
 
   // Apps launched in a window from the NTP have an extensions tab helper but
@@ -1787,7 +1954,8 @@ namespace {
 int GetZoomPercent(const content::WebContents* contents,
                    bool* enable_plus,
                    bool* enable_minus) {
-  int percent = ZoomController::FromWebContents(contents)->GetZoomPercent();
+  int percent =
+      ui_zoom::ZoomController::FromWebContents(contents)->GetZoomPercent();
   *enable_plus = percent < contents->GetMaximumZoomPercent();
   *enable_minus = percent > contents->GetMinimumZoomPercent();
   return percent;
@@ -1862,6 +2030,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, InterstitialCommandDisable) {
   EXPECT_TRUE(command_updater->IsCommandEnabled(IDC_PRINT));
   EXPECT_TRUE(command_updater->IsCommandEnabled(IDC_SAVE_PAGE));
   EXPECT_TRUE(command_updater->IsCommandEnabled(IDC_ENCODING_MENU));
+  EXPECT_TRUE(command_updater->IsCommandEnabled(IDC_DUPLICATE_TAB));
 
   WebContents* contents = browser()->tab_strip_model()->GetActiveWebContents();
 
@@ -1875,6 +2044,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, InterstitialCommandDisable) {
   EXPECT_FALSE(command_updater->IsCommandEnabled(IDC_PRINT));
   EXPECT_FALSE(command_updater->IsCommandEnabled(IDC_SAVE_PAGE));
   EXPECT_FALSE(command_updater->IsCommandEnabled(IDC_ENCODING_MENU));
+  EXPECT_FALSE(command_updater->IsCommandEnabled(IDC_DUPLICATE_TAB));
 
   // Proceed and wait for interstitial to detach. This doesn't destroy
   // |contents|.
@@ -1886,6 +2056,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, InterstitialCommandDisable) {
   EXPECT_TRUE(command_updater->IsCommandEnabled(IDC_PRINT));
   EXPECT_TRUE(command_updater->IsCommandEnabled(IDC_SAVE_PAGE));
   EXPECT_TRUE(command_updater->IsCommandEnabled(IDC_ENCODING_MENU));
+  EXPECT_TRUE(command_updater->IsCommandEnabled(IDC_DUPLICATE_TAB));
 }
 
 // Ensure that creating an interstitial page closes any JavaScript dialogs
@@ -2066,7 +2237,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest2, NoTabsInPopups) {
 #endif
 
 IN_PROC_BROWSER_TEST_F(BrowserTest, WindowOpenClose) {
-  CommandLine::ForCurrentProcess()->AppendSwitch(
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kDisablePopupBlocking);
   GURL url = ui_test_utils::GetTestUrl(
       base::FilePath(), base::FilePath().AppendASCII("window.close.html"));
@@ -2085,7 +2256,8 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, WindowOpenClose) {
 IN_PROC_BROWSER_TEST_F(BrowserTest, FullscreenBookmarkBar) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -2122,7 +2294,7 @@ class KioskModeTest : public BrowserTest {
  public:
   KioskModeTest() {}
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(switches::kKioskMode);
   }
 };
@@ -2147,7 +2319,7 @@ class LaunchBrowserWithNonAsciiUserDatadir : public BrowserTest {
  public:
   LaunchBrowserWithNonAsciiUserDatadir() {}
 
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
     base::FilePath tmp_profile = temp_dir_.path().AppendASCII("tmp_profile");
     tmp_profile = tmp_profile.Append(L"Test Chrome G\u00E9raldine");
@@ -2163,6 +2335,40 @@ IN_PROC_BROWSER_TEST_F(LaunchBrowserWithNonAsciiUserDatadir,
                        TestNonAsciiUserDataDir) {
   // Verify that the window is present.
   ASSERT_TRUE(browser());
+  ASSERT_TRUE(browser()->profile());
+  // Verify that the profile has been added correctly to the ProfileInfoCache.
+  ASSERT_EQ(1u, g_browser_process->profile_manager()->
+      GetProfileInfoCache().GetNumberOfProfiles());
+}
+#endif  // defined(OS_WIN)
+
+#if defined(OS_WIN)
+// This test verifies that Chrome can be launched with a user-data-dir path
+// which trailing slashes.
+class LaunchBrowserWithTrailingSlashDatadir : public BrowserTest {
+ public:
+  LaunchBrowserWithTrailingSlashDatadir() {}
+
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
+    base::FilePath tmp_profile = temp_dir_.path().AppendASCII("tmp_profile");
+    tmp_profile = tmp_profile.Append(L"Test Chrome\\");
+
+    ASSERT_TRUE(base::CreateDirectory(tmp_profile));
+    command_line->AppendSwitchPath(switches::kUserDataDir, tmp_profile);
+  }
+
+  base::ScopedTempDir temp_dir_;
+};
+
+IN_PROC_BROWSER_TEST_F(LaunchBrowserWithTrailingSlashDatadir,
+                       TestTrailingSlashUserDataDir) {
+  // Verify that the window is present.
+  ASSERT_TRUE(browser());
+  ASSERT_TRUE(browser()->profile());
+  // Verify that the profile has been added correctly to the ProfileInfoCache.
+  ASSERT_EQ(1u, g_browser_process->profile_manager()->
+      GetProfileInfoCache().GetNumberOfProfiles());
 }
 #endif  // defined(OS_WIN)
 
@@ -2172,7 +2378,7 @@ class RunInBackgroundTest : public BrowserTest {
  public:
   RunInBackgroundTest() {}
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(switches::kKeepAliveForTest);
   }
 };
@@ -2202,21 +2408,24 @@ class NoStartupWindowTest : public BrowserTest {
  public:
   NoStartupWindowTest() {}
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(switches::kNoStartupWindow);
     command_line->AppendSwitch(switches::kKeepAliveForTest);
   }
 
   // Returns true if any commands were processed.
-  bool ProcessedAnyCommands(BaseSessionService* base_session_service) {
-    return base_session_service->ProcessedAnyCommandsForTest();
+  bool ProcessedAnyCommands(
+      sessions::BaseSessionService* base_session_service) {
+    sessions::BaseSessionServiceTestHelper test_helper(base_session_service);
+    return test_helper.ProcessedAnyCommands();
   }
 };
 
 IN_PROC_BROWSER_TEST_F(NoStartupWindowTest, NoStartupWindowBasicTest) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // kNoStartupWindow doesn't make sense in Metro+Ash.
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -2237,7 +2446,8 @@ IN_PROC_BROWSER_TEST_F(NoStartupWindowTest, NoStartupWindowBasicTest) {
 IN_PROC_BROWSER_TEST_F(NoStartupWindowTest, DontInitSessionServiceForApps) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // kNoStartupWindow doesn't make sense in Metro+Ash.
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -2245,7 +2455,7 @@ IN_PROC_BROWSER_TEST_F(NoStartupWindowTest, DontInitSessionServiceForApps) {
 
   SessionService* session_service =
       SessionServiceFactory::GetForProfile(profile);
-  BaseSessionService* base_session_service =
+  sessions::BaseSessionService* base_session_service =
       session_service->GetBaseSessionServiceForTest();
   ASSERT_FALSE(ProcessedAnyCommands(base_session_service));
 
@@ -2263,7 +2473,7 @@ class AppModeTest : public BrowserTest {
  public:
   AppModeTest() {}
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     GURL url = ui_test_utils::GetTestUrl(
        base::FilePath(), base::FilePath().AppendASCII("title1.html"));
     command_line->AppendSwitchASCII(switches::kApp, url.spec());
@@ -2273,7 +2483,8 @@ class AppModeTest : public BrowserTest {
 IN_PROC_BROWSER_TEST_F(AppModeTest, EnableAppModeTest) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -2525,6 +2736,12 @@ IN_PROC_BROWSER_TEST_F(ClickModifierTest, DISABLED_HrefShiftMiddleClickTest) {
 }
 
 IN_PROC_BROWSER_TEST_F(BrowserTest, GetSizeForNewRenderView) {
+#if defined(OS_MACOSX) && !defined(OS_IOS)
+  // TODO(erikchen): This behavior has regressed on OSX 10.7 and 10.8 and should
+  // be fixed. http://crbug.com/503185
+  if (base::mac::IsOSMountainLion() || base::mac::IsOSLion())
+    return;
+#endif  // defined(OS_MACOSX) && !defined(OS_IOS)
   // The instant extended NTP has javascript that does not work with
   // ui_test_utils::NavigateToURL.  The NTP rvh reloads when the browser tries
   // to navigate away from the page, which causes the WebContents to end up in
@@ -2654,4 +2871,137 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, GetSizeForNewRenderView) {
   EXPECT_EQ(exp_final_size,
             web_contents->GetRenderWidgetHostView()->GetViewBounds().size());
   EXPECT_EQ(exp_final_size, web_contents->GetContainerBounds().size());
+}
+
+IN_PROC_BROWSER_TEST_F(BrowserTest, CanDuplicateTab) {
+  GURL url(ui_test_utils::GetTestUrl(
+      base::FilePath(base::FilePath::kCurrentDirectory),
+      base::FilePath(kTitle1File)));
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  AddTabAtIndex(0, url, ui::PAGE_TRANSITION_TYPED);
+
+  int active_index = browser()->tab_strip_model()->active_index();
+  EXPECT_EQ(0, active_index);
+
+  EXPECT_TRUE(chrome::CanDuplicateTab(browser()));
+  EXPECT_TRUE(chrome::CanDuplicateTabAt(browser(), 0));
+  EXPECT_TRUE(chrome::CanDuplicateTabAt(browser(), 1));
+
+  content::WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  TestInterstitialPage* interstitial =
+      new TestInterstitialPage(web_contents, false, GURL());
+  content::WaitForInterstitialAttach(web_contents);
+
+  EXPECT_TRUE(web_contents->ShowingInterstitialPage());
+
+  // Verify that the "Duplicate tab" command is disabled on interstitial
+  // pages. Regression test for crbug.com/310812
+  EXPECT_FALSE(chrome::CanDuplicateTab(browser()));
+  EXPECT_FALSE(chrome::CanDuplicateTabAt(browser(), 0));
+  EXPECT_TRUE(chrome::CanDuplicateTabAt(browser(), 1));
+
+  // Don't proceed and wait for interstitial to detach. This doesn't
+  // destroy |contents|.
+  interstitial->DontProceed();
+  content::WaitForInterstitialDetach(web_contents);
+  // interstitial is deleted now.
+
+  EXPECT_TRUE(chrome::CanDuplicateTab(browser()));
+  EXPECT_TRUE(chrome::CanDuplicateTabAt(browser(), 0));
+  EXPECT_TRUE(chrome::CanDuplicateTabAt(browser(), 1));
+}
+
+// Tests that the WebContentsObserver::SecurityStyleChanged event fires
+// with the current style on HTTP, broken HTTPS, and valid HTTPS pages.
+IN_PROC_BROWSER_TEST_F(BrowserTest, SecurityStyleChangedObserver) {
+  net::SpawnedTestServer https_test_server(net::SpawnedTestServer::TYPE_HTTPS,
+                                           net::SpawnedTestServer::kLocalhost,
+                                           base::FilePath(kDocRoot));
+  net::SpawnedTestServer https_test_server_expired(
+      net::SpawnedTestServer::TYPE_HTTPS,
+      net::SpawnedTestServer::SSLOptions(
+          net::SpawnedTestServer::SSLOptions::CERT_EXPIRED),
+      base::FilePath(kDocRoot));
+
+  ASSERT_TRUE(https_test_server.Start());
+  ASSERT_TRUE(https_test_server_expired.Start());
+  ASSERT_TRUE(test_server()->Start());
+
+  content::WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  SecurityStyleTestObserver observer(web_contents);
+
+  // Visit an HTTP url.
+  GURL http_url(test_server()->GetURL(std::string()));
+  ui_test_utils::NavigateToURL(browser(), http_url);
+  EXPECT_EQ(content::SECURITY_STYLE_UNAUTHENTICATED,
+            observer.latest_security_style());
+  EXPECT_EQ(0u, observer.latest_explanations().warning_explanations.size());
+  EXPECT_EQ(0u, observer.latest_explanations().broken_explanations.size());
+
+  // Visit a valid HTTPS url.
+  GURL valid_https_url(https_test_server.GetURL(std::string()));
+  ui_test_utils::NavigateToURL(browser(), valid_https_url);
+  EXPECT_EQ(content::SECURITY_STYLE_AUTHENTICATED,
+            observer.latest_security_style());
+  EXPECT_EQ(0u, observer.latest_explanations().warning_explanations.size());
+  EXPECT_EQ(0u, observer.latest_explanations().broken_explanations.size());
+
+  // Visit an (otherwise valid) HTTPS page that displays mixed content.
+  std::string replacement_path;
+  ASSERT_TRUE(GetFilePathWithHostAndPortReplacement(
+      "files/ssl/page_displays_insecure_content.html",
+      test_server()->host_port_pair(), &replacement_path));
+
+  GURL mixed_content_url(https_test_server.GetURL(replacement_path));
+  ui_test_utils::NavigateToURL(browser(), mixed_content_url);
+  EXPECT_EQ(content::SECURITY_STYLE_WARNING, observer.latest_security_style());
+
+  const content::SecurityStyleExplanations& mixed_content_explanation =
+      observer.latest_explanations();
+  ASSERT_EQ(1u, mixed_content_explanation.warning_explanations.size());
+  EXPECT_EQ(l10n_util::GetStringUTF8(IDS_PASSIVE_MIXED_CONTENT),
+            mixed_content_explanation.warning_explanations[0].summary);
+  EXPECT_EQ(l10n_util::GetStringUTF8(IDS_PASSIVE_MIXED_CONTENT_DESCRIPTION),
+            mixed_content_explanation.warning_explanations[0].description);
+  EXPECT_EQ(0u, mixed_content_explanation.broken_explanations.size());
+
+  // Visit a broken HTTPS url.
+  GURL expired_url(https_test_server_expired.GetURL(std::string()));
+  ui_test_utils::NavigateToURL(browser(), expired_url);
+
+  // An interstitial should show, and an event for the lock icon on the
+  // interstitial should fire.
+  content::WaitForInterstitialAttach(web_contents);
+  EXPECT_TRUE(web_contents->ShowingInterstitialPage());
+  CheckExpiredSecurityStyle(observer);
+
+  // Before clicking through, navigate to a different page, and then go
+  // back to the interstitial.
+  ui_test_utils::NavigateToURL(browser(), valid_https_url);
+  EXPECT_EQ(content::SECURITY_STYLE_AUTHENTICATED,
+            observer.latest_security_style());
+  EXPECT_EQ(0u, observer.latest_explanations().warning_explanations.size());
+  EXPECT_EQ(0u, observer.latest_explanations().broken_explanations.size());
+
+  // After going back to the interstitial, an event for a broken lock
+  // icon should fire again.
+  ui_test_utils::NavigateToURL(browser(), expired_url);
+  content::WaitForInterstitialAttach(web_contents);
+  EXPECT_TRUE(web_contents->ShowingInterstitialPage());
+  CheckExpiredSecurityStyle(observer);
+
+  // Since the next expected style is the same as the previous, clear
+  // the observer (to make sure that the event fires twice and we don't
+  // just see the previous event's style).
+  observer.ClearLatestSecurityStyleAndExplanations();
+
+  // Other conditions cannot be tested after clicking through because
+  // once the interstitial is clicked through, all URLs for this host
+  // will remain in a broken state.
+  ProceedThroughInterstitial(web_contents);
+  CheckExpiredSecurityStyle(observer);
 }

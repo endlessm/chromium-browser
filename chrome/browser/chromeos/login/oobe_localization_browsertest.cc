@@ -8,23 +8,25 @@
 #include "base/task_runner.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/chromeos/customization_document.h"
+#include "chrome/browser/chromeos/customization/customization_document.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
 #include "chrome/browser/chromeos/login/login_manager_test.h"
 #include "chrome/browser/chromeos/login/login_wizard.h"
+#include "chrome/browser/chromeos/login/screens/network_screen.h"
 #include "chrome/browser/chromeos/login/test/js_checker.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
+#include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "chromeos/ime/extension_ime_util.h"
-#include "chromeos/ime/input_method_manager.h"
-#include "chromeos/ime/input_method_whitelist.h"
 #include "chromeos/system/fake_statistics_provider.h"
 #include "chromeos/system/statistics_provider.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
+#include "ui/base/ime/chromeos/extension_ime_util.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
+#include "ui/base/ime/chromeos/input_method_whitelist.h"
 
 namespace base {
 class TaskRunner;
@@ -40,7 +42,32 @@ const char kKeyboardSelect[] = "keyboard-select";
 
 const char kUSLayout[] = "xkb:us::eng";
 
-}
+class LanguageListWaiter : public NetworkScreen::Observer {
+ public:
+  explicit LanguageListWaiter(base::RunLoop& loop)
+      : network_screen_(
+            NetworkScreen::Get(WizardController::default_controller())),
+        loop_(loop) {
+    network_screen_->AddObserver(this);
+    CheckLanguageList();
+  }
+
+  ~LanguageListWaiter() override { network_screen_->RemoveObserver(this); }
+
+  // NetworkScreen::Observer implementation:
+  void OnLanguageListReloaded() override { CheckLanguageList(); }
+
+ private:
+  void CheckLanguageList() {
+    if (network_screen_->GetLanguageList())
+      loop_.Quit();
+  }
+
+  NetworkScreen* network_screen_;
+  base::RunLoop& loop_;
+};
+
+}  // namespace
 
 struct LocalizationTestParams {
   const char* initial_locale;
@@ -66,7 +93,7 @@ struct LocalizationTestParams {
        "en-US",
        "xkb:is::ice",
        "xkb:is::ice,[xkb:us::eng,xkb:us:intl:eng,xkb:us:altgr-intl:eng,"
-           "xkb:us:dvorak:eng,xkb:us:colemak:eng]"},
+           "xkb:us:dvorak:eng,xkb:us:dvp:eng,xkb:us:colemak:eng]"},
       // ------------------ Full Latin setup
       // French Swiss keyboard.
       {"fr",
@@ -277,6 +304,12 @@ void OobeLocalizationTest::RunLocalizationTest() {
 
   const std::string expected_keyboard_select =
       TranslateXKB2Extension(expected_keyboard_select_control);
+
+  {
+    base::RunLoop loop;
+    LanguageListWaiter waiter(loop);
+    loop.Run();
+  }
 
   WaitUntilJSIsReady();
 

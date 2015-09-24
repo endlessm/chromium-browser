@@ -13,7 +13,7 @@ import ctypes
 import ctypes.util
 import datetime
 import errno
-import logging
+import glob
 import operator
 import os
 import pwd
@@ -22,6 +22,7 @@ import shutil
 import tempfile
 
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import retry_util
 
 
@@ -51,12 +52,34 @@ def GetNonRootUser():
     return user
 
 
+def IsChildProcess(pid, name=None):
+  """Return True if pid is a child of the current process.
+
+  Args:
+    pid: Child pid to search for in current process's pstree.
+    name: Name of the child process.
+
+  Note:
+    This function is not fool proof. If the process tree contains wierd names,
+    an incorrect match might be possible.
+  """
+  cmd = ['pstree', '-Ap', str(os.getpid())]
+  pstree = cros_build_lib.RunCommand(
+      cmd, capture_output=True, print_cmd=False).output
+  if name is None:
+    match = '(%d)' % pid
+  else:
+    match = '-%s(%d)' % (name, pid)
+  return match in pstree
+
+
 def ExpandPath(path):
   """Returns path after passing through realpath and expanduser."""
   return os.path.realpath(os.path.expanduser(path))
 
 
-def WriteFile(path, content, mode='w', atomic=False, makedirs=False):
+def WriteFile(path, content, mode='w', atomic=False, makedirs=False,
+              sudo=False):
   """Write the given content to disk.
 
   Args:
@@ -67,25 +90,53 @@ def WriteFile(path, content, mode='w', atomic=False, makedirs=False):
     atomic: If the updating of the file should be done atomically.  Note this
             option is incompatible w/ append mode.
     makedirs: If True, create missing leading directories in the path.
+    sudo: If True, write the file as root.
   """
-  write_path = path
-  if atomic:
-    write_path = path + '.tmp'
+  if sudo and ('a' in mode or '+' in mode):
+    raise ValueError('append mode does not work in sudo mode')
 
   if makedirs:
-    SafeMakedirs(os.path.dirname(path))
+    SafeMakedirs(os.path.dirname(path), sudo=sudo)
 
-  with open(write_path, mode) as f:
-    f.writelines(cros_build_lib.iflatten_instance(content))
+  # If the file needs to be written as root and we are not root, write to a temp
+  # file, move it and change the permission.
+  if sudo and os.getuid() != 0:
+    with tempfile.NamedTemporaryFile(mode=mode, delete=False) as temp:
+      write_path = temp.name
+      temp.writelines(cros_build_lib.iflatten_instance(content))
+    os.chmod(write_path, 0o644)
 
-  if not atomic:
-    return
+    try:
+      mv_target = path if not atomic else path + '.tmp'
+      cros_build_lib.SudoRunCommand(['mv', write_path, mv_target],
+                                    print_cmd=False, redirect_stderr=True)
+      cros_build_lib.SudoRunCommand(['chown', 'root:root', mv_target],
+                                    print_cmd=False, redirect_stderr=True)
+      if atomic:
+        cros_build_lib.SudoRunCommand(['mv', mv_target, path],
+                                      print_cmd=False, redirect_stderr=True)
 
-  try:
-    os.rename(write_path, path)
-  except EnvironmentError:
-    SafeUnlink(write_path)
-    raise
+    except cros_build_lib.RunCommandError:
+      SafeUnlink(write_path)
+      SafeUnlink(mv_target)
+      raise
+
+  else:
+    # We have the right permissions, simply write the file in python.
+    write_path = path
+    if atomic:
+      write_path = path + '.tmp'
+    with open(write_path, mode) as f:
+      f.writelines(cros_build_lib.iflatten_instance(content))
+
+    if not atomic:
+      return
+
+    try:
+      os.rename(write_path, path)
+    except EnvironmentError:
+      SafeUnlink(write_path)
+      raise
 
 
 def Touch(path, makedirs=False, mode=None):
@@ -114,6 +165,25 @@ def ReadFile(path, mode='r'):
     return f.read()
 
 
+def SafeSymlink(source, dest, sudo=False):
+  """Create a symlink at |dest| pointing to |source|.
+
+  This will override the |dest| if the symlink exists. This operation is not
+  atomic.
+
+  Args:
+    source: source path.
+    dest: destination path.
+    sudo: If True, create the link as root.
+  """
+  if sudo and os.getuid() != 0:
+    cros_build_lib.SudoRunCommand(['ln', '-sfT', source, dest],
+                                  print_cmd=False, redirect_stderr=True)
+  else:
+    SafeUnlink(dest)
+    os.symlink(source, dest)
+
+
 def SafeUnlink(path, sudo=False):
   """Unlink a file from disk, ignoring if it doesn't exist.
 
@@ -123,7 +193,7 @@ def SafeUnlink(path, sudo=False):
   if sudo:
     try:
       cros_build_lib.SudoRunCommand(
-          ['rm', '--',  path], print_cmd=False, redirect_stderr=True)
+          ['rm', '--', path], print_cmd=False, redirect_stderr=True)
       return True
     except cros_build_lib.RunCommandError:
       if os.path.exists(path):
@@ -153,10 +223,10 @@ def SafeMakedirs(path, mode=0o775, sudo=False, user='root'):
     True if the directory had to be created, False if otherwise.
 
   Raises:
-    EnvironmentError: if the makedir failed and it was non sudo.
-    RunCommandError: If sudo mode, and the command failed for any reason.
+    EnvironmentError: If the makedir failed.
+    RunCommandError: If using RunCommand and the command failed for any reason.
   """
-  if sudo:
+  if sudo and not (os.getuid() == 0 and user == 'root'):
     if os.path.isdir(path):
       return False
     cros_build_lib.SudoRunCommand(
@@ -272,6 +342,20 @@ def DirectoryIterator(base_path):
       yield os.path.join(root, e)
 
 
+def IteratePaths(end_path):
+  """Generator that iterates down to |end_path| from root /.
+
+  Args:
+    end_path: The destination. If this is a relative path, it will be resolved
+        to absolute path. In all cases, it will be normalized.
+
+  Yields:
+    All the paths gradually constructed from / to |end_path|. For example:
+    IteratePaths("/this/path") yields "/", "/this", and "/this/path".
+  """
+  return reversed(list(IteratePathParents(end_path)))
+
+
 def IteratePathParents(start_path):
   """Generator that iterates through a directory's parents.
 
@@ -280,16 +364,19 @@ def IteratePathParents(start_path):
 
   Yields:
     The passed-in path, along with its parents.  i.e.,
-    IteratePathParents('/usr/local') would yield '/usr/local', '/usr/', and '/'.
+    IteratePathParents('/usr/local') would yield '/usr/local', '/usr', and '/'.
   """
   path = os.path.abspath(start_path)
+  # There's a bug that abspath('//') returns '//'. We need to renormalize it.
+  if path == '//':
+    path = '/'
   yield path
   while path.strip('/'):
     path = os.path.dirname(path)
     yield path
 
 
-def FindInPathParents(path_to_find, start_path, test_func=None):
+def FindInPathParents(path_to_find, start_path, test_func=None, end_path=None):
   """Look for a relative path, ascending through parent directories.
 
   Ascend through parent directories of current path looking for a relative
@@ -316,17 +403,21 @@ def FindInPathParents(path_to_find, start_path, test_func=None):
       os.path.exists.  The function will be passed one argument - the target
       path to test.  A True return value will cause AscendingLookup to return
       the target.
+    end_path: The path to stop searching.
   """
+  if end_path is not None:
+    end_path = os.path.abspath(end_path)
   if test_func is None:
     test_func = os.path.exists
   for path in IteratePathParents(start_path):
+    if path == end_path:
+      return None
     target = os.path.join(path, path_to_find)
     if test_func(target):
       return target
   return None
 
 
-# pylint: disable=W0212,R0904,W0702
 def SetGlobalTempDir(tempdir_value, tempdir_env=None):
   """Set the global temp directory to the specified |tempdir_value|
 
@@ -344,8 +435,9 @@ def SetGlobalTempDir(tempdir_value, tempdir_env=None):
       environment and were set prior to this function. If the environment
       variable was not set, it is recorded as None.
   """
+  # pylint: disable=protected-access
   with tempfile._once_lock:
-    old_tempdir_value = tempfile._get_default_tempdir()
+    old_tempdir_value = GetGlobalTempDir()
     old_tempdir_env = tuple((x, os.environ.get(x)) for x in _TEMPDIR_ENV_VARS)
 
     # Now update TMPDIR/TEMP/TMP, and poke the python
@@ -369,6 +461,15 @@ def SetGlobalTempDir(tempdir_value, tempdir_env=None):
   return (old_tempdir_value, old_tempdir_env)
 
 
+def GetGlobalTempDir():
+  """Get the path to the current global tempdir.
+
+  The global tempdir path can be modified through calls to SetGlobalTempDir.
+  """
+  # pylint: disable=protected-access
+  return tempfile._get_default_tempdir()
+
+
 def _TempDirSetup(self, prefix='tmp', set_global=False, base_dir=None):
   """Generate a tempdir, modifying the object, and env to use it.
 
@@ -387,12 +488,12 @@ def _TempDirSetup(self, prefix='tmp', set_global=False, base_dir=None):
         SetGlobalTempDir(self.tempdir)
 
 
-def _TempDirTearDown(self, force_sudo):
+def _TempDirTearDown(self, force_sudo, delete=True):
   # Note that _TempDirSetup may have failed, resulting in these attributes
   # not being set; this is why we use getattr here (and must).
   tempdir = getattr(self, 'tempdir', None)
   try:
-    if tempdir is not None:
+    if tempdir is not None and delete:
       RmDir(tempdir, ignore_missing=True, sudo=force_sudo)
   except EnvironmentError as e:
     # Suppress ENOENT since we may be invoked
@@ -404,6 +505,7 @@ def _TempDirTearDown(self, force_sudo):
   # Restore environment modification if necessary.
   orig_tempdir_value = getattr(self, '_orig_tempdir_value', None)
   if orig_tempdir_value is not None:
+    # pylint: disable=protected-access
     SetGlobalTempDir(orig_tempdir_value, self._orig_tempdir_env)
 
 
@@ -423,9 +525,13 @@ class TempDir(object):
       base_dir: The directory to place the temporary directory.
       set_global: Set this directory as the global temporary directory.
       storage: The object that will have its 'tempdir' attribute set.
+      delete: Whether the temporary dir should be deleted as part of cleanup.
+          (default: True)
       sudo_rm: Whether the temporary dir will need root privileges to remove.
+          (default: False)
     """
     self.kwargs = kwargs.copy()
+    self.delete = kwargs.pop('delete', True)
     self.sudo_rm = kwargs.pop('sudo_rm', False)
     self.tempdir = None
     _TempDirSetup(self, **kwargs)
@@ -434,7 +540,7 @@ class TempDir(object):
     """Clean up the temporary directory."""
     if self.tempdir is not None:
       try:
-        _TempDirTearDown(self, self.sudo_rm)
+        _TempDirTearDown(self, self.sudo_rm, delete=self.delete)
       finally:
         self.tempdir = None
 
@@ -449,24 +555,24 @@ class TempDir(object):
       if exc_type:
         # If an exception from inside the context was already in progress,
         # log our cleanup exception, then allow the original to resume.
-        cros_build_lib.Error('While exiting %s:', self, exc_info=True)
+        logging.error('While exiting %s:', self, exc_info=True)
 
         if self.tempdir:
           # Log all files in tempdir at the time of the failure.
           try:
-            cros_build_lib.Error('Directory contents were:')
+            logging.error('Directory contents were:')
             for name in os.listdir(self.tempdir):
-              cros_build_lib.Error('  %s', name)
+              logging.error('  %s', name)
           except OSError:
-            cros_build_lib.Error('  Directory did not exist.')
+            logging.error('  Directory did not exist.')
 
           # Log all mounts at the time of the failure, since that's the most
           # common cause.
           mount_results = cros_build_lib.RunCommand(
               ['mount'], redirect_stdout=True, combine_stdout_stderr=True,
               error_code_ok=True)
-          cros_build_lib.Error('Mounts were:')
-          cros_build_lib.Error('  %s', mount_results.output)
+          logging.error('Mounts were:')
+          logging.error('  %s', mount_results.output)
 
       else:
         # If there was not an exception from the context, raise ours.
@@ -476,7 +582,6 @@ class TempDir(object):
     self.Cleanup()
 
 
-# pylint: disable=W0212,R0904,W0702
 def TempDirDecorator(func):
   """Populates self.tempdir with path to a temporary writeable directory."""
   def f(self, *args, **kwargs):
@@ -525,7 +630,7 @@ MS_SLAVE = 1 << 19
 MS_SHARED = 1 << 20
 MS_RELATIME = 1 << 21
 MS_KERNMOUNT = 1 << 22
-MS_I_VERSION =  1 << 23
+MS_I_VERSION = 1 << 23
 MS_STRICTATIME = 1 << 24
 MS_ACTIVE = 1 << 30
 MS_NOUSER = 1 << 31
@@ -616,12 +721,15 @@ def UmountDir(path, lazy=True, sudo=True, cleanup=True):
       # that rm failed.  Assume it's this issue as -rf will ignore most things.
       if isinstance(e, cros_build_lib.RunCommandError):
         return True
-      else:
+      elif isinstance(e, OSError):
         # When we aren't using sudo, we do the unlink ourselves, so the exact
         # errno is bubbled up to us and we can detect it specifically without
         # potentially ignoring all other possible failures.
         return e.errno == errno.EBUSY
-    retry_util.GenericRetry(_retry, 30, RmDir, path, sudo=sudo, sleep=60)
+      else:
+        # Something else, we don't know so do not retry.
+        return False
+    retry_util.GenericRetry(_retry, 60, RmDir, path, sudo=sudo, sleep=1)
 
 
 def SetEnvironment(env):
@@ -652,8 +760,11 @@ def SourceEnvironment(script, whitelist, ifs=',', env=None, multiline=False):
   dump_script = ['source "%s" >/dev/null' % script,
                  'IFS="%s"' % ifs]
   for var in whitelist:
+    # Note: If we want to get more exact results out of bash, we should switch
+    # to using `declare -p "${var}"`.  It would require writing a custom parser
+    # here, but it would be more robust.
     dump_script.append(
-        '[[ "${%(var)s+set}" == "set" ]] && echo %(var)s="${%(var)s[*]}"'
+        '[[ "${%(var)s+set}" == "set" ]] && echo "%(var)s=\\"${%(var)s[*]}\\""'
         % {'var': var})
   dump_script.append('exit 0')
 
@@ -746,23 +857,6 @@ def GetDeviceSize(device_path, in_bytes=False):
       return int(d.SIZE) if in_bytes else d.SIZE
 
   raise ValueError('No size info of %s is found.' % device_path)
-
-
-def GetExitStatus(status):
-  """Get the exit status of a child from an os.waitpid call.
-
-  Args:
-    status: The return value of os.waitpid(pid, 0)[1]
-
-  Returns:
-    The exit status of the process. If the process exited with a signal,
-    the return value will be 128 plus the signal number.
-  """
-  if os.WIFSIGNALED(status):
-    return 128 + os.WTERMSIG(status)
-  else:
-    assert os.WIFEXITED(status), 'Unexpected exit status %r' % status
-    return os.WEXITSTATUS(status)
 
 
 FileInfo = collections.namedtuple(
@@ -971,8 +1065,8 @@ class MountImageContext(object):
       to_be_rmdir.append(dest_number)
     # Because _Unmount did not RmDir the mount points, we do that here.
     for path in to_be_rmdir:
-      retry_util.RetryException(cros_build_lib.RunCommandError, 30,
-                                RmDir, path, sudo=True, sleep=60)
+      retry_util.RetryException(cros_build_lib.RunCommandError, 60,
+                                RmDir, path, sudo=True, sleep=1)
 
   def __enter__(self):
     for selector in self._part_selects:
@@ -998,7 +1092,93 @@ class MountImageContext(object):
     self._CleanUp()
 
 
-MountInfo = collections.namedtuple('MountInfo',
+def _SameFileSystem(path1, path2):
+  """Determine whether two paths are on the same filesystem.
+
+  Be resilient to nonsense paths. Return False instead of blowing up.
+  """
+  try:
+    return os.stat(path1).st_dev == os.stat(path2).st_dev
+  except OSError:
+    return False
+
+
+class MountOverlayContext(object):
+  """A context manager for mounting an OverlayFS directory.
+
+  An overlay filesystem will be mounted at |mount_dir|, and will be unmounted
+  when the context exits.
+
+  Args:
+    lower_dir: The lower directory (read-only).
+    upper_dir: The upper directory (read-write).
+    mount_dir: The mount point for the merged overlay.
+    cleanup: Whether to remove the mount point after unmounting. This uses an
+        internal retry logic for cases where unmount is successful but the
+        directory still appears busy, and is generally more resilient than
+        removing it independently.
+  """
+
+  OVERLAY_FS_MOUNT_ERRORS = (32,)
+  def __init__(self, lower_dir, upper_dir, mount_dir, cleanup=False):
+    self._lower_dir = lower_dir
+    self._upper_dir = upper_dir
+    self._mount_dir = mount_dir
+    self._cleanup = cleanup
+    self.tempdir = None
+
+  def __enter__(self):
+    # Upstream Kernel 3.18 and the ubuntu backport of overlayfs have different
+    # APIs. We must support both.
+    try_legacy = False
+    stashed_e_overlay_str = None
+
+    # We must ensure that upperdir and workdir are on the same filesystem.
+    if _SameFileSystem(self._upper_dir, GetGlobalTempDir()):
+      _TempDirSetup(self)
+    elif _SameFileSystem(self._upper_dir, os.path.dirname(self._upper_dir)):
+      _TempDirSetup(self, base_dir=os.path.dirname(self._upper_dir))
+    else:
+      logging.debug('Could create find a workdir on the same filesystem as %s. '
+                    'Trying legacy API instead.',
+                    self._upper_dir)
+      try_legacy = True
+
+    if not try_legacy:
+      try:
+        MountDir('overlay', self._mount_dir, fs_type='overlay', makedirs=False,
+                 mount_opts=('lowerdir=%s' % self._lower_dir,
+                             'upperdir=%s' % self._upper_dir,
+                             'workdir=%s' % self.tempdir))
+      except cros_build_lib.RunCommandError as e_overlay:
+        if e_overlay.result.returncode not in self.OVERLAY_FS_MOUNT_ERRORS:
+          raise
+        logging.debug('Failed to mount overlay filesystem. Trying legacy API.')
+        stashed_e_overlay_str = str(e_overlay)
+        try_legacy = True
+
+    if try_legacy:
+      try:
+        MountDir('overlayfs', self._mount_dir, fs_type='overlayfs',
+                 makedirs=False,
+                 mount_opts=('lowerdir=%s' % self._lower_dir,
+                             'upperdir=%s' % self._upper_dir))
+      except cros_build_lib.RunCommandError as e_overlayfs:
+        logging.error('All attempts at mounting overlay filesystem failed.')
+        if stashed_e_overlay_str is not None:
+          logging.error('overlay: %s', stashed_e_overlay_str)
+        logging.error('overlayfs: %s', str(e_overlayfs))
+        raise
+
+    return self
+
+  def __exit__(self, exc_type, exc_value, traceback):
+    UmountDir(self._mount_dir, cleanup=self._cleanup)
+    _TempDirTearDown(self, force_sudo=True)
+
+
+MountInfo = collections.namedtuple(
+    'MountInfo',
     'source destination filesystem options')
 
 
@@ -1012,7 +1192,7 @@ def IterateMountPoints(proc_file='/proc/mounts'):
   Returns:
     A generator that yields MountInfo objects.
   """
-  with open(proc_file, 'rt') as f:
+  with open(proc_file) as f:
     for line in f:
       # Escape any \xxx to a char.
       source, destination, filesystem, options, _, _ = [
@@ -1053,3 +1233,17 @@ def ResolveSymlink(file_name, root='/'):
     else:
       file_name = os.path.join(os.path.dirname(file_name), link)
   return file_name
+
+
+def IsInsideVm():
+  """Return True if we are running inside a virtual machine.
+
+  The detection is based on the model of the hard drive.
+  """
+  for blk_model in glob.glob('/sys/block/*/device/model'):
+    if os.path.isfile(blk_model):
+      model = ReadFile(blk_model)
+      if model.startswith('VBOX') or model.startswith('VMware'):
+        return True
+
+  return False

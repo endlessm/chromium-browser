@@ -9,6 +9,7 @@
 #include "base/hash.h"
 #include "base/strings/string_util.h"
 #include "base/sys_byteorder.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace ui {
 
@@ -28,26 +29,41 @@ int64_t GetID(uint16_t manufacturer_id,
           (static_cast<int64_t>(product_code_hash) << 8) | output_index);
 }
 
+// Returns a 32-bit identifier for this model of display, using
+// |manufacturer_id| and |product_code|.
+uint32_t GetProductID(uint16_t manufacturer_id, uint16_t product_code) {
+  return ((static_cast<uint32_t>(manufacturer_id) << 16) |
+          (static_cast<uint32_t>(product_code)));
+}
+
 }  // namespace
 
 bool GetDisplayIdFromEDID(const std::vector<uint8_t>& edid,
                           uint8_t output_index,
-                          int64_t* display_id_out) {
+                          int64_t* display_id_out,
+                          int64_t* product_id_out) {
   uint16_t manufacturer_id = 0;
+  uint16_t product_code = 0;
   std::string product_name;
 
   // ParseOutputDeviceData fails if it doesn't have product_name.
-  ParseOutputDeviceData(edid, &manufacturer_id, &product_name);
+  ParseOutputDeviceData(edid, &manufacturer_id, &product_code, &product_name,
+                        nullptr, nullptr);
 
-  // Generates product specific value from product_name instead of product code.
-  // See crbug.com/240341
-  uint32_t product_code_hash = product_name.empty() ?
-      0 : base::Hash(product_name);
   if (manufacturer_id != 0) {
+    // Generates product specific value from product_name instead of product
+    // code.
+    // See crbug.com/240341
+    uint32_t product_code_hash =
+        product_name.empty() ? 0 : base::Hash(product_name);
     // An ID based on display's index will be assigned later if this call
     // fails.
     *display_id_out = GetID(
         manufacturer_id, product_code_hash, output_index);
+    // product_id is 64-bit signed so it can store -1 as kInvalidProductID and
+    // not match a valid product id which will all be in the lowest 32-bits.
+    if (product_id_out)
+      *product_id_out = GetProductID(manufacturer_id, product_code);
     return true;
   }
   return false;
@@ -55,14 +71,20 @@ bool GetDisplayIdFromEDID(const std::vector<uint8_t>& edid,
 
 bool ParseOutputDeviceData(const std::vector<uint8_t>& edid,
                            uint16_t* manufacturer_id,
-                           std::string* human_readable_name) {
+                           uint16_t* product_code,
+                           std::string* human_readable_name,
+                           gfx::Size* active_pixel_out,
+                           gfx::Size* physical_display_size_out) {
   // See http://en.wikipedia.org/wiki/Extended_display_identification_data
   // for the details of EDID data format.  We use the following data:
   //   bytes 8-9: manufacturer EISA ID, in big-endian
+  //   bytes 10-11: manufacturer product code, in little-endian
   //   bytes 54-125: four descriptors (18-bytes each) which may contain
   //     the display name.
   const unsigned int kManufacturerOffset = 8;
   const unsigned int kManufacturerLength = 2;
+  const unsigned int kProductCodeOffset = 10;
+  const unsigned int kProductCodeLength = 2;
   const unsigned int kDescriptorOffset = 54;
   const unsigned int kNumDescriptors = 4;
   const unsigned int kDescriptorLength = 18;
@@ -71,7 +93,7 @@ bool ParseOutputDeviceData(const std::vector<uint8_t>& edid,
 
   if (manufacturer_id) {
     if (edid.size() < kManufacturerOffset + kManufacturerLength) {
-      LOG(ERROR) << "too short EDID data: manifacturer id";
+      LOG(ERROR) << "too short EDID data: manufacturer id";
       return false;
     }
 
@@ -82,15 +104,67 @@ bool ParseOutputDeviceData(const std::vector<uint8_t>& edid,
 #endif
   }
 
-  if (!human_readable_name)
-    return true;
+  if (product_code) {
+    if (edid.size() < kProductCodeOffset + kProductCodeLength) {
+      LOG(ERROR) << "too short EDID data: manufacturer product code";
+      return false;
+    }
 
-  human_readable_name->clear();
+    *product_code =
+        *reinterpret_cast<const uint16_t*>(&edid[kProductCodeOffset]);
+  }
+
+  if (human_readable_name)
+    human_readable_name->clear();
+
   for (unsigned int i = 0; i < kNumDescriptors; ++i) {
     if (edid.size() < kDescriptorOffset + (i + 1) * kDescriptorLength)
       break;
 
     size_t offset = kDescriptorOffset + i * kDescriptorLength;
+
+    // Detailed Timing Descriptor:
+    if (edid[offset] != 0 && edid[offset + 1] != 0) {
+      const int kMaxResolution = 10080;  // 8k display.
+
+      if (active_pixel_out) {
+        const int kHorizontalPixelLsbOffset = 2;
+        const int kHorizontalPixelMsbOffset = 4;
+        const int kVerticalPixelLsbOffset = 5;
+        const int kVerticalPixelMsbOffset = 7;
+
+        int h_lsb = edid[offset + kHorizontalPixelLsbOffset];
+        int h_msb = edid[offset + kHorizontalPixelMsbOffset];
+        int h_pixel = std::min(h_lsb + ((h_msb & 0xF0) << 4), kMaxResolution);
+
+        int v_lsb = edid[offset + kVerticalPixelLsbOffset];
+        int v_msb = edid[offset + kVerticalPixelMsbOffset];
+        int v_pixel = std::min(v_lsb + ((v_msb & 0xF0) << 4), kMaxResolution);
+
+        active_pixel_out->SetSize(h_pixel, v_pixel);
+        // EDID may contain multiple DTD. Use first one that
+        // contains the highest resolution.
+        active_pixel_out = nullptr;
+      }
+
+      if (physical_display_size_out) {
+        const int kHorizontalSizeLsbOffset = 12;
+        const int kVerticalSizeLsbOffset = 13;
+        const int kSizeMsbOffset = 14;
+
+        int h_lsb = edid[offset + kHorizontalSizeLsbOffset];
+        int v_lsb = edid[offset + kVerticalSizeLsbOffset];
+
+        int msb = edid[offset + kSizeMsbOffset];
+        int h_size = h_lsb + ((msb & 0xF0) << 4);
+        int v_size = v_lsb + ((msb & 0x0F) << 8);
+        physical_display_size_out->SetSize(h_size, v_size);
+        physical_display_size_out = nullptr;
+      }
+      continue;
+    }
+
+    // EDID Other Monitor Descriptors:
     // If the descriptor contains the display name, it has the following
     // structure:
     //   bytes 0-2, 4: \0
@@ -99,22 +173,26 @@ bool ParseOutputDeviceData(const std::vector<uint8_t>& edid,
     // we should check bytes 0-2 and 4, since it may have other values in
     // case that the descriptor contains other type of data.
     if (edid[offset] == 0 && edid[offset + 1] == 0 && edid[offset + 2] == 0 &&
-        edid[offset + 3] == kMonitorNameDescriptor && edid[offset + 4] == 0) {
+        edid[offset + 3] == kMonitorNameDescriptor && edid[offset + 4] == 0 &&
+        human_readable_name) {
       std::string found_name(reinterpret_cast<const char*>(&edid[offset + 5]),
                              kDescriptorLength - 5);
       base::TrimWhitespaceASCII(
           found_name, base::TRIM_TRAILING, human_readable_name);
-      break;
+      continue;
     }
   }
 
   // Verify if the |human_readable_name| consists of printable characters only.
-  for (size_t i = 0; i < human_readable_name->size(); ++i) {
-    char c = (*human_readable_name)[i];
-    if (!isascii(c) || !isprint(c)) {
-      human_readable_name->clear();
-      LOG(ERROR) << "invalid EDID: human unreadable char in name";
-      return false;
+  // TODO(oshima|muka): Consider replacing unprintable chars with white space.
+  if (human_readable_name) {
+    for (size_t i = 0; i < human_readable_name->size(); ++i) {
+      char c = (*human_readable_name)[i];
+      if (!isascii(c) || !isprint(c)) {
+        human_readable_name->clear();
+        LOG(ERROR) << "invalid EDID: human unreadable char in name";
+        return false;
+      }
     }
   }
 

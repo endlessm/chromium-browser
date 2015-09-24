@@ -29,29 +29,29 @@ scoped_ptr<LayerImpl> SolidColorLayerImpl::CreateLayerImpl(
 
 void SolidColorLayerImpl::AppendSolidQuads(
     RenderPass* render_pass,
-    const Occlusion& occlusion_in_content_space,
+    const Occlusion& occlusion_in_layer_space,
     SharedQuadState* shared_quad_state,
-    const gfx::Rect& visible_content_rect,
+    const gfx::Rect& visible_layer_rect,
     SkColor color,
     AppendQuadsData* append_quads_data) {
   // We create a series of smaller quads instead of just one large one so that
   // the culler can reduce the total pixels drawn.
-  int right = visible_content_rect.right();
-  int bottom = visible_content_rect.bottom();
-  for (int x = visible_content_rect.x(); x < visible_content_rect.right();
+  int right = visible_layer_rect.right();
+  int bottom = visible_layer_rect.bottom();
+  for (int x = visible_layer_rect.x(); x < visible_layer_rect.right();
        x += kSolidQuadTileSize) {
-    for (int y = visible_content_rect.y(); y < visible_content_rect.bottom();
+    for (int y = visible_layer_rect.y(); y < visible_layer_rect.bottom();
          y += kSolidQuadTileSize) {
       gfx::Rect quad_rect(x,
                           y,
                           std::min(right - x, kSolidQuadTileSize),
                           std::min(bottom - y, kSolidQuadTileSize));
       gfx::Rect visible_quad_rect =
-          occlusion_in_content_space.GetUnoccludedContentRect(quad_rect);
+          occlusion_in_layer_space.GetUnoccludedContentRect(quad_rect);
       if (visible_quad_rect.IsEmpty())
         continue;
 
-      append_quads_data->visible_content_area +=
+      append_quads_data->visible_layer_area +=
           visible_quad_rect.width() * visible_quad_rect.height();
 
       SolidColorDrawQuad* quad =
@@ -64,22 +64,18 @@ void SolidColorLayerImpl::AppendSolidQuads(
 
 void SolidColorLayerImpl::AppendQuads(
     RenderPass* render_pass,
-    const Occlusion& occlusion_in_content_space,
     AppendQuadsData* append_quads_data) {
   SharedQuadState* shared_quad_state =
       render_pass->CreateAndAppendSharedQuadState();
   PopulateSharedQuadState(shared_quad_state);
 
-  AppendDebugBorderQuad(
-      render_pass, content_bounds(), shared_quad_state, append_quads_data);
+  AppendDebugBorderQuad(render_pass, bounds(), shared_quad_state,
+                        append_quads_data);
 
   // TODO(hendrikw): We need to pass the visible content rect rather than
-  // |content_bounds()| here.
-  AppendSolidQuads(render_pass,
-                   occlusion_in_content_space,
-                   shared_quad_state,
-                   gfx::Rect(content_bounds()),
-                   background_color(),
+  // |bounds()| here.
+  AppendSolidQuads(render_pass, draw_properties().occlusion_in_content_space,
+                   shared_quad_state, gfx::Rect(bounds()), background_color(),
                    append_quads_data);
 }
 

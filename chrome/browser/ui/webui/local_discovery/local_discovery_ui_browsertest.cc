@@ -7,6 +7,7 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
+#include "base/location.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "chrome/browser/local_discovery/test_service_discovery_client.h"
@@ -15,6 +16,7 @@
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/webui/local_discovery/local_discovery_ui_handler.h"
+#include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/ui_test_utils.h"
@@ -31,6 +33,7 @@
 #if defined(OS_CHROMEOS)
 #include "base/prefs/pref_service.h"
 #include "chrome/common/pref_names.h"
+#include "chromeos/chromeos_switches.h"
 #endif
 
 using testing::InvokeWithoutArgs;
@@ -270,9 +273,7 @@ const char kURLCloudPrintConfirm[] =
 const char kURLRegisterComplete[] =
     "http://1.2.3.4:8888/privet/register?action=complete&user=user%40host.com";
 
-const char kURLGaiaToken[] =
-    "https://accounts.google.com/o/oauth2/token";
-
+const char kSampleGaiaId[] = "12345";
 const char kSampleUser[] = "user@host.com";
 
 class TestMessageLoopCondition {
@@ -342,10 +343,10 @@ class LocalDiscoveryUITest : public WebUIBrowserTest {
       &fetcher_impl_factory_,
       fake_url_fetcher_creator_.callback()) {
   }
-  virtual ~LocalDiscoveryUITest() {
+  ~LocalDiscoveryUITest() override {
   }
 
-  virtual void SetUpOnMainThread() override {
+  void SetUpOnMainThread() override {
     WebUIBrowserTest::SetUpOnMainThread();
 
     test_service_discovery_client_ = new TestServiceDiscoveryClient();
@@ -361,14 +362,8 @@ class LocalDiscoveryUITest : public WebUIBrowserTest {
     SigninManagerBase* signin_manager =
         SigninManagerFactory::GetForProfile(browser()->profile());
 
-#if defined(OS_CHROMEOS)
-    // Chrome OS initializes prefs::kGoogleServicesUsername to "stub user" so
-    // we need to override it as well.
-    browser()->profile()->GetPrefs()->
-        SetString(prefs::kGoogleServicesUsername, kSampleUser);
-#endif
     DCHECK(signin_manager);
-    signin_manager->SetAuthenticatedUsername(kSampleUser);
+    signin_manager->SetAuthenticatedAccountInfo(kSampleGaiaId, kSampleUser);
 
     fake_fetcher_factory().SetFakeResponse(
         GURL(kURLInfo),
@@ -401,13 +396,13 @@ class LocalDiscoveryUITest : public WebUIBrowserTest {
         net::URLRequestStatus::SUCCESS);
 
     fake_fetcher_factory().SetFakeResponse(
-        GURL(kURLGaiaToken),
+        GaiaUrls::GetInstance()->oauth2_token_url(),
         kResponseGaiaToken,
         net::HTTP_OK,
         net::URLRequestStatus::SUCCESS);
 
     EXPECT_CALL(fake_url_fetcher_creator(), OnCreateFakeURLFetcher(
-        kURLGaiaToken))
+        GaiaUrls::GetInstance()->oauth2_token_url().spec()))
         .Times(AnyNumber());
 
     fake_fetcher_factory().SetFakeResponse(
@@ -423,12 +418,21 @@ class LocalDiscoveryUITest : public WebUIBrowserTest {
     ProfileOAuth2TokenService* token_service =
         ProfileOAuth2TokenServiceFactory::GetForProfile(browser()->profile());
 
-    token_service->UpdateCredentials("user@host.com", "MyFakeToken");
+    token_service->UpdateCredentials(
+        signin_manager->GetAuthenticatedAccountId(), "MyFakeToken");
 
     AddLibrary(base::FilePath(FILE_PATH_LITERAL("local_discovery_ui_test.js")));
   }
 
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+#if defined(OS_CHROMEOS)
+    // On chromeos, don't sign in with the stub-user automatically.  Use the
+    // kLoginUser instead.
+    command_line->AppendSwitchASCII(chromeos::switches::kLoginUser,
+                                    kSampleUser);
+    command_line->AppendSwitchASCII(chromeos::switches::kLoginProfile,
+                                    chrome::kTestUserProfileDir);
+#endif
     WebUIBrowserTest::SetUpCommandLine(command_line);
   }
 
@@ -436,7 +440,7 @@ class LocalDiscoveryUITest : public WebUIBrowserTest {
     base::CancelableCallback<void()> callback(base::Bind(
         &base::MessageLoop::Quit, base::Unretained(
             base::MessageLoop::current())));
-    base::MessageLoop::current()->PostDelayedTask(
+    base::MessageLoop::current()->task_runner()->PostDelayedTask(
         FROM_HERE, callback.callback(), time_period);
 
     base::MessageLoop::current()->Run();

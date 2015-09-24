@@ -83,7 +83,8 @@ class FakeSyncManager : public SyncManager {
       ModelTypeSet types) override;
   bool PurgePartiallySyncedTypes() override;
   void UpdateCredentials(const SyncCredentials& credentials) override;
-  void StartSyncingNormally(const ModelSafeRoutingInfo& routing_info) override;
+  void StartSyncingNormally(const ModelSafeRoutingInfo& routing_info,
+                            base::Time last_poll_time) override;
   void ConfigureSyncer(ConfigureReason reason,
                        ModelTypeSet to_download,
                        ModelTypeSet to_purge,
@@ -118,7 +119,7 @@ class FakeSyncManager : public SyncManager {
  private:
   scoped_refptr<base::SequencedTaskRunner> sync_task_runner_;
 
-  ObserverList<SyncManager::Observer> observers_;
+  base::ObserverList<SyncManager::Observer> observers_;
 
   // Faked directory state.
   ModelTypeSet initial_sync_ended_types_;

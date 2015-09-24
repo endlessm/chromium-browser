@@ -15,7 +15,7 @@ using content::BrowserThread;
 }  // namespace
 
 DeviceEventRouter::DeviceEventRouter()
-    : resume_time_delta_(base::TimeDelta::FromSeconds(5)),
+    : resume_time_delta_(base::TimeDelta::FromSeconds(10)),
       startup_time_delta_(base::TimeDelta::FromSeconds(10)),
       is_starting_up_(false),
       is_resuming_(false),
@@ -87,16 +87,15 @@ void DeviceEventRouter::OnDiskRemoved(
 }
 
 void DeviceEventRouter::OnVolumeMounted(chromeos::MountError error_code,
-                                        const VolumeInfo& volume_info) {
+                                        const Volume& volume) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  const std::string& device_path =
-      volume_info.system_path_prefix.AsUTF8Unsafe();
+  const std::string& device_path = volume.system_path_prefix().AsUTF8Unsafe();
   SetDeviceState(device_path, DEVICE_STATE_USUAL);
 }
 
 void DeviceEventRouter::OnVolumeUnmounted(chromeos::MountError error_code,
-                                          const VolumeInfo& volume_info) {
+                                          const Volume& volume) {
   // Do nothing.
 }
 

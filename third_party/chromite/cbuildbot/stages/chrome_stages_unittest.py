@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,14 +6,12 @@
 
 from __future__ import print_function
 
-import mox
+import mock
 import os
-import sys
 
-sys.path.insert(0, os.path.abspath('%s/../../..' % os.path.dirname(__file__)))
 from chromite.cbuildbot import commands
 from chromite.cbuildbot import constants
-from chromite.cbuildbot.cbuildbot_unittest import BuilderRunMock
+from chromite.cbuildbot import cbuildbot_unittest
 from chromite.cbuildbot.stages import chrome_stages
 from chromite.cbuildbot.stages import generic_stages_unittest
 from chromite.lib import cidb
@@ -25,22 +22,25 @@ from chromite.lib import osutils
 from chromite.lib import parallel_unittest
 
 
-# pylint: disable=R0901,W0212
-class ChromeSDKStageTest(generic_stages_unittest.AbstractStageTest,
+# pylint: disable=too-many-ancestors
+
+
+class ChromeSDKStageTest(cbuildbot_unittest.SimpleBuilderTestCase,
+                         generic_stages_unittest.AbstractStageTestCase,
                          cros_test_lib.LoggingTestCase):
   """Verify stage that creates the chrome-sdk and builds chrome with it."""
   BOT_ID = 'link-paladin'
   RELEASE_TAG = ''
 
+  # pylint: disable=protected-access
+
   def setUp(self):
-    self.StartPatcher(BuilderRunMock())
     self.StartPatcher(parallel_unittest.ParallelMock())
 
     # Set up a general purpose cidb mock. Tests with more specific
     # mock requirements can replace this with a separate call to
     # SetupMockCidb
-    mock_cidb = mox.MockObject(cidb.CIDBConnection)
-    cidb.CIDBConnectionFactory.SetupMockCidb(mock_cidb)
+    cidb.CIDBConnectionFactory.SetupMockCidb(mock.MagicMock())
 
     self._Prepare()
 
@@ -49,7 +49,7 @@ class ChromeSDKStageTest(generic_stages_unittest.AbstractStageTest,
 
     self._run.options.chrome_root = '/tmp/non-existent'
     self._run.attrs.metadata.UpdateWithDict({'toolchain-tuple': ['target'],
-                                            'toolchain-url' : 'some-url'})
+                                             'toolchain-url' : 'some-url'})
 
   def ConstructStage(self):
     self._run.GetArchive().SetupArchivePath()
@@ -87,7 +87,7 @@ class ChromeSDKStageTest(generic_stages_unittest.AbstractStageTest,
     cros_test_lib.VerifyTarball(env_tar, ['./', 'environment'])
 
 
-class PatchChromeStageTest(generic_stages_unittest.AbstractStageTest):
+class PatchChromeStageTest(generic_stages_unittest.AbstractStageTestCase):
   """Tests for PatchChromeStage."""
 
   def setUp(self):
@@ -105,7 +105,3 @@ class PatchChromeStageTest(generic_stages_unittest.AbstractStageTest):
     """Verify requested patches are applied."""
     stage = self.ConstructStage()
     stage.PerformStage()
-
-
-if __name__ == '__main__':
-  cros_test_lib.main()

@@ -10,8 +10,8 @@
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/command_line.h"
-#include "base/debug/leak_tracker.h"
 #include "base/lazy_instance.h"
+#include "base/metrics/field_trial.h"
 #include "base/path_service.h"
 #include "base/prefs/pref_change_registrar.h"
 #include "base/prefs/pref_service.h"
@@ -27,9 +27,6 @@
 #include "chrome/browser/safe_browsing/client_side_detection_service.h"
 #include "chrome/browser/safe_browsing/database_manager.h"
 #include "chrome/browser/safe_browsing/download_protection_service.h"
-#include "chrome/browser/safe_browsing/incident_reporting/binary_integrity_analyzer.h"
-#include "chrome/browser/safe_browsing/incident_reporting/blacklist_load_analyzer.h"
-#include "chrome/browser/safe_browsing/incident_reporting/incident_reporting_service.h"
 #include "chrome/browser/safe_browsing/malware_details.h"
 #include "chrome/browser/safe_browsing/ping_manager.h"
 #include "chrome/browser/safe_browsing/protocol_manager.h"
@@ -40,13 +37,11 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
-#include "components/metrics/metrics_service.h"
-#include "components/startup_metric_utils/startup_metric_utils.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/cookie_crypto_delegate.h"
 #include "content/public/browser/cookie_store_factory.h"
 #include "content/public/browser/notification_service.h"
 #include "net/cookies/cookie_monster.h"
+#include "net/extras/sqlite/cookie_crypto_delegate.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
 
@@ -54,9 +49,19 @@
 #include "chrome/installer/util/browser_distribution.h"
 #endif
 
-#if defined(OS_ANDROID)
-#include <string>
-#include "base/metrics/field_trial.h"
+#if defined(SAFE_BROWSING_DB_LOCAL)
+#include "chrome/browser/safe_browsing/local_database_manager.h"
+#elif defined(SAFE_BROWSING_DB_REMOTE)
+#include "chrome/browser/safe_browsing/remote_database_manager.h"
+#endif
+
+#if defined(FULL_SAFE_BROWSING)
+#include "chrome/browser/safe_browsing/incident_reporting/binary_integrity_analyzer.h"
+#include "chrome/browser/safe_browsing/incident_reporting/blacklist_load_analyzer.h"
+#include "chrome/browser/safe_browsing/incident_reporting/incident_reporting_service.h"
+#include "chrome/browser/safe_browsing/incident_reporting/off_domain_inclusion_detector.h"
+#include "chrome/browser/safe_browsing/incident_reporting/resource_request_detector.h"
+#include "chrome/browser/safe_browsing/incident_reporting/variations_seed_signature_analyzer.h"
 #endif
 
 using content::BrowserThread;
@@ -112,14 +117,16 @@ class SafeBrowsingURLRequestContextGetter
   scoped_refptr<base::SingleThreadTaskRunner> GetNetworkTaskRunner()
       const override;
 
+  // Shuts down any pending requests using the getter, and nulls out
+  // |sb_service_|.
+  void SafeBrowsingServiceShuttingDown();
+
  protected:
   ~SafeBrowsingURLRequestContextGetter() override;
 
  private:
-  SafeBrowsingService* const sb_service_;  // Owned by BrowserProcess.
+  SafeBrowsingService* sb_service_;  // Owned by BrowserProcess.
   scoped_refptr<base::SingleThreadTaskRunner> network_task_runner_;
-
-  base::debug::LeakTracker<SafeBrowsingURLRequestContextGetter> leak_tracker_;
 };
 
 SafeBrowsingURLRequestContextGetter::SafeBrowsingURLRequestContextGetter(
@@ -129,13 +136,15 @@ SafeBrowsingURLRequestContextGetter::SafeBrowsingURLRequestContextGetter(
           BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO)) {
 }
 
-SafeBrowsingURLRequestContextGetter::~SafeBrowsingURLRequestContextGetter() {}
-
 net::URLRequestContext*
 SafeBrowsingURLRequestContextGetter::GetURLRequestContext() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
-  DCHECK(sb_service_->url_request_context_.get());
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
+  // Check if the service has been shut down.
+  if (!sb_service_)
+    return nullptr;
+
+  DCHECK(sb_service_->url_request_context_.get());
   return sb_service_->url_request_context_.get();
 }
 
@@ -143,6 +152,13 @@ scoped_refptr<base::SingleThreadTaskRunner>
 SafeBrowsingURLRequestContextGetter::GetNetworkTaskRunner() const {
   return network_task_runner_;
 }
+
+void SafeBrowsingURLRequestContextGetter::SafeBrowsingServiceShuttingDown() {
+  sb_service_ = nullptr;
+  URLRequestContextGetter::NotifyContextShuttingDown();
+}
+
+SafeBrowsingURLRequestContextGetter::~SafeBrowsingURLRequestContextGetter() {}
 
 // static
 SafeBrowsingServiceFactory* SafeBrowsingService::factory_ = NULL;
@@ -187,19 +203,12 @@ SafeBrowsingService* SafeBrowsingService::CreateSafeBrowsingService() {
   return factory_->CreateSafeBrowsingService();
 }
 
-#if defined(OS_ANDROID) && defined(FULL_SAFE_BROWSING)
-// static
-bool SafeBrowsingService::IsEnabledByFieldTrial() {
-  const std::string experiment_name =
-      base::FieldTrialList::FindFullName("SafeBrowsingAndroid");
-  return experiment_name == "Enabled";
-}
-#endif
 
 SafeBrowsingService::SafeBrowsingService()
     : protocol_manager_(NULL),
       ping_manager_(NULL),
-      enabled_(false) {
+      enabled_(false),
+      enabled_by_prefs_(false) {
 }
 
 SafeBrowsingService::~SafeBrowsingService() {
@@ -209,9 +218,6 @@ SafeBrowsingService::~SafeBrowsingService() {
 }
 
 void SafeBrowsingService::Initialize() {
-  startup_metric_utils::ScopedSlowStartupUMA
-      scoped_timer("Startup.SlowStartupSafeBrowsingServiceInitialize");
-
   url_request_context_getter_ =
       new SafeBrowsingURLRequestContextGetter(this);
 
@@ -226,12 +232,17 @@ void SafeBrowsingService::Initialize() {
           make_scoped_refptr(g_browser_process->system_request_context())));
 
 #if defined(FULL_SAFE_BROWSING)
-#if !defined(OS_ANDROID)
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(
+#if defined(SAFE_BROWSING_CSD)
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kDisableClientSidePhishingDetection)) {
     csd_service_.reset(safe_browsing::ClientSideDetectionService::Create(
         url_request_context_getter_.get()));
   }
+#endif  // defined(SAFE_BROWSING_CSD)
+
+// TODO(nparker): Adding SAFE_BROWSING_SERVICE_DOWNLOAD to control this might
+// allow removing FULL_SAFE_BROWSING above.
+#if !defined(OS_ANDROID)
   download_service_.reset(new safe_browsing::DownloadProtectionService(
       this, url_request_context_getter_.get()));
 #endif
@@ -239,8 +250,13 @@ void SafeBrowsingService::Initialize() {
   if (IsIncidentReportingServiceEnabled()) {
     incident_service_.reset(new safe_browsing::IncidentReportingService(
         this, url_request_context_getter_));
+    resource_request_detector_.reset(new safe_browsing::ResourceRequestDetector(
+        incident_service_->GetIncidentReceiver()));
   }
-#endif
+
+  off_domain_inclusion_detector_.reset(
+      new safe_browsing::OffDomainInclusionDetector(database_manager_));
+#endif  // !defined(FULL_SAFE_BROWSING)
 
   // Track the safe browsing preference of existing profiles.
   // The SafeBrowsingService will be started if any existing profile has the
@@ -280,19 +296,30 @@ void SafeBrowsingService::ShutDown() {
   // dtor executes now since it may call the dtor of URLFetcher which relies
   // on it.
   csd_service_.reset();
+
+#if defined(FULL_SAFE_BROWSING)
+  off_domain_inclusion_detector_.reset();
+  resource_request_detector_.reset();
   incident_service_.reset();
+#endif
+
   download_service_.reset();
 
-  url_request_context_getter_ = NULL;
   BrowserThread::PostNonNestableTask(
       BrowserThread::IO, FROM_HERE,
       base::Bind(&SafeBrowsingService::DestroyURLRequestContextOnIOThread,
-                 this));
+                 this, url_request_context_getter_));
+
+  // Release the URLRequestContextGetter after passing it to the IOThread.  It
+  // has to be released now rather than in the destructor because it can only
+  // be deleted on the IOThread, and the SafeBrowsingService outlives the IO
+  // thread.
+  url_request_context_getter_ = nullptr;
 }
 
 // Binhash verification is only enabled for UMA users for now.
 bool SafeBrowsingService::DownloadBinHashNeeded() const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
 #if defined(FULL_SAFE_BROWSING)
   return (database_manager_->download_protection_enabled() &&
@@ -305,7 +332,7 @@ bool SafeBrowsingService::DownloadBinHashNeeded() const {
 }
 
 net::URLRequestContextGetter* SafeBrowsingService::url_request_context() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   return url_request_context_getter_.get();
 }
 
@@ -320,12 +347,12 @@ SafeBrowsingService::database_manager() const {
 }
 
 SafeBrowsingProtocolManager* SafeBrowsingService::protocol_manager() const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   return protocol_manager_;
 }
 
 SafeBrowsingPingManager* SafeBrowsingService::ping_manager() const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   return ping_manager_;
 }
 
@@ -339,13 +366,13 @@ SafeBrowsingService::CreatePreferenceValidationDelegate(
   return scoped_ptr<TrackedPreferenceValidationDelegate>();
 }
 
+#if defined(FULL_SAFE_BROWSING)
 void SafeBrowsingService::RegisterDelayedAnalysisCallback(
     const safe_browsing::DelayedAnalysisCallback& callback) {
-#if defined(FULL_SAFE_BROWSING)
   if (incident_service_)
     incident_service_->RegisterDelayedAnalysisCallback(callback);
-#endif
 }
+#endif
 
 void SafeBrowsingService::AddDownloadManager(
     content::DownloadManager* download_manager) {
@@ -355,13 +382,24 @@ void SafeBrowsingService::AddDownloadManager(
 #endif
 }
 
+void SafeBrowsingService::OnResourceRequest(const net::URLRequest* request) {
+#if defined(FULL_SAFE_BROWSING)
+  if (off_domain_inclusion_detector_)
+    off_domain_inclusion_detector_->OnResourceRequest(request);
+  if (resource_request_detector_)
+    resource_request_detector_->OnResourceRequest(request);
+#endif
+}
+
 SafeBrowsingUIManager* SafeBrowsingService::CreateUIManager() {
   return new SafeBrowsingUIManager(this);
 }
 
 SafeBrowsingDatabaseManager* SafeBrowsingService::CreateDatabaseManager() {
-#if defined(FULL_SAFE_BROWSING)
-  return new SafeBrowsingDatabaseManager(this);
+#if defined(SAFE_BROWSING_DB_LOCAL)
+  return new LocalSafeBrowsingDatabaseManager(this);
+#elif defined(SAFE_BROWSING_DB_REMOTE)
+  return new RemoteSafeBrowsingDatabaseManager();
 #else
   return NULL;
 #endif
@@ -371,6 +409,7 @@ void SafeBrowsingService::RegisterAllDelayedAnalysis() {
 #if defined(FULL_SAFE_BROWSING)
   safe_browsing::RegisterBinaryIntegrityAnalysis();
   safe_browsing::RegisterBlacklistLoadAnalysis();
+  safe_browsing::RegisterVariationsSeedSignatureAnalysis();
 #else
   NOTREACHED();
 #endif
@@ -378,7 +417,7 @@ void SafeBrowsingService::RegisterAllDelayedAnalysis() {
 
 void SafeBrowsingService::InitURLRequestContextOnIOThread(
     net::URLRequestContextGetter* system_url_request_context_getter) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK(!url_request_context_.get());
 
   scoped_refptr<net::CookieStore> cookie_store(
@@ -398,17 +437,11 @@ void SafeBrowsingService::InitURLRequestContextOnIOThread(
   url_request_context_->set_cookie_store(cookie_store.get());
 }
 
-void SafeBrowsingService::DestroyURLRequestContextOnIOThread() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+void SafeBrowsingService::DestroyURLRequestContextOnIOThread(
+    scoped_refptr<SafeBrowsingURLRequestContextGetter> context_getter) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  url_request_context_->AssertNoURLRequests();
-
-  // Need to do the CheckForLeaks on IOThread instead of in ShutDown where
-  // url_request_context_getter_ is cleared,  since the URLRequestContextGetter
-  // will PostTask to IOTread to delete itself.
-  using base::debug::LeakTracker;
-  LeakTracker<SafeBrowsingURLRequestContextGetter>::CheckForLeaks();
-
+  context_getter->SafeBrowsingServiceShuttingDown();
   url_request_context_.reset();
 }
 
@@ -435,7 +468,7 @@ SafeBrowsingProtocolConfig SafeBrowsingService::GetProtocolConfig() const {
 #endif
 
 #endif  // defined(OS_WIN)
-  CommandLine* cmdline = CommandLine::ForCurrentProcess();
+  base::CommandLine* cmdline = base::CommandLine::ForCurrentProcess();
   config.disable_auto_update =
       cmdline->HasSwitch(switches::kSbDisableAutoUpdate) ||
       cmdline->HasSwitch(switches::kDisableBackgroundNetworking);
@@ -447,23 +480,41 @@ SafeBrowsingProtocolConfig SafeBrowsingService::GetProtocolConfig() const {
   return config;
 }
 
+// Any tests that create a DatabaseManager that isn't derived from
+// LocalSafeBrowsingDatabaseManager should override this to return NULL.
+SafeBrowsingProtocolManagerDelegate*
+SafeBrowsingService::GetProtocolManagerDelegate() {
+#if defined(SAFE_BROWSING_DB_LOCAL)
+  return static_cast<LocalSafeBrowsingDatabaseManager*>(
+      database_manager_.get());
+#else
+  NOTREACHED();
+  return NULL;
+#endif
+}
+
 void SafeBrowsingService::StartOnIOThread(
     net::URLRequestContextGetter* url_request_context_getter) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (enabled_)
     return;
   enabled_ = true;
 
   SafeBrowsingProtocolConfig config = GetProtocolConfig();
 
-#if defined(FULL_SAFE_BROWSING)
+#if defined(SAFE_BROWSING_DB_LOCAL) || defined(SAFE_BROWSING_DB_REMOTE)
   DCHECK(database_manager_.get());
   database_manager_->StartOnIOThread();
+#endif
 
-  DCHECK(!protocol_manager_);
-  protocol_manager_ = SafeBrowsingProtocolManager::Create(
-      database_manager_.get(), url_request_context_getter, config);
-  protocol_manager_->Initialize();
+#if defined(SAFE_BROWSING_DB_LOCAL)
+  SafeBrowsingProtocolManagerDelegate* protocol_manager_delegate =
+      GetProtocolManagerDelegate();
+  if (protocol_manager_delegate) {
+    protocol_manager_ = SafeBrowsingProtocolManager::Create(
+        protocol_manager_delegate, url_request_context_getter, config);
+    protocol_manager_->Initialize();
+  }
 #endif
 
   DCHECK(!ping_manager_);
@@ -472,9 +523,9 @@ void SafeBrowsingService::StartOnIOThread(
 }
 
 void SafeBrowsingService::StopOnIOThread(bool shutdown) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-#if defined(FULL_SAFE_BROWSING)
+#if defined(SAFE_BROWSING_DB_LOCAL) || defined(SAFE_BROWSING_DB_REMOTE)
   database_manager_->StopOnIOThread(shutdown);
 #endif
   ui_manager_->StopOnIOThread(shutdown);
@@ -482,12 +533,14 @@ void SafeBrowsingService::StopOnIOThread(bool shutdown) {
   if (enabled_) {
     enabled_ = false;
 
-#if defined(FULL_SAFE_BROWSING)
+#if defined(SAFE_BROWSING_DB_LOCAL)
     // This cancels all in-flight GetHash requests. Note that database_manager_
     // relies on the protocol_manager_ so if the latter is destroyed, the
     // former must be stopped.
-    delete protocol_manager_;
-    protocol_manager_ = NULL;
+    if (protocol_manager_) {
+      delete protocol_manager_;
+      protocol_manager_ = NULL;
+    }
 #endif
     delete ping_manager_;
     ping_manager_ = NULL;
@@ -495,7 +548,7 @@ void SafeBrowsingService::StopOnIOThread(bool shutdown) {
 }
 
 void SafeBrowsingService::Start() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
@@ -514,14 +567,14 @@ void SafeBrowsingService::Observe(int type,
                                   const content::NotificationDetails& details) {
   switch (type) {
     case chrome::NOTIFICATION_PROFILE_CREATED: {
-      DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+      DCHECK_CURRENTLY_ON(BrowserThread::UI);
       Profile* profile = content::Source<Profile>(source).ptr();
       if (!profile->IsOffTheRecord())
         AddPrefService(profile->GetPrefs());
       break;
     }
     case chrome::NOTIFICATION_PROFILE_DESTROYED: {
-      DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+      DCHECK_CURRENTLY_ON(BrowserThread::UI);
       Profile* profile = content::Source<Profile>(source).ptr();
       if (!profile->IsOffTheRecord())
         RemovePrefService(profile->GetPrefs());
@@ -539,6 +592,11 @@ void SafeBrowsingService::AddPrefService(PrefService* pref_service) {
   registrar->Add(prefs::kSafeBrowsingEnabled,
                  base::Bind(&SafeBrowsingService::RefreshState,
                             base::Unretained(this)));
+  // ClientSideDetectionService will need to be refresh the models
+  // renderers have if extended-reporting changes.
+  registrar->Add(prefs::kSafeBrowsingExtendedReportingEnabled,
+                 base::Bind(&SafeBrowsingService::RefreshState,
+                            base::Unretained(this)));
   prefs_map_[pref_service] = registrar;
   RefreshState();
 }
@@ -553,7 +611,15 @@ void SafeBrowsingService::RemovePrefService(PrefService* pref_service) {
   }
 }
 
+scoped_ptr<SafeBrowsingService::StateSubscription>
+SafeBrowsingService::RegisterStateCallback(
+      const base::Callback<void(void)>& callback) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  return state_callback_list_.Add(callback);
+}
+
 void SafeBrowsingService::RefreshState() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   // Check if any profile requires the service to be active.
   bool enable = false;
   std::map<PrefService*, PrefChangeRegistrar*>::iterator iter;
@@ -564,10 +630,14 @@ void SafeBrowsingService::RefreshState() {
     }
   }
 
+  enabled_by_prefs_ = enable;
+
   if (enable)
     Start();
   else
     Stop(false);
+
+  state_callback_list_.Notify();
 
 #if defined(FULL_SAFE_BROWSING)
   if (csd_service_)

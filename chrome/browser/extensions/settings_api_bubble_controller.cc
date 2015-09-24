@@ -1,12 +1,12 @@
-// Copyright (c) 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/extensions/settings_api_bubble_controller.h"
 
 #include "base/metrics/histogram.h"
+#include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/extensions/extension_service.h"
-#include "chrome/browser/extensions/extension_toolbar_model.h"
 #include "chrome/browser/extensions/settings_api_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
@@ -45,15 +45,16 @@ class SettingsApiBubbleDelegate
       const std::string& extension_id,
       ExtensionMessageBubbleController::BubbleAction user_action) override;
   void PerformAction(const ExtensionIdList& list) override;
-  void OnClose() override;
   base::string16 GetTitle() const override;
-  base::string16 GetMessageBody(bool anchored_to_browser_action) const override;
+  base::string16 GetMessageBody(bool anchored_to_browser_action,
+                                int extension_count) const override;
   base::string16 GetOverflowText(
       const base::string16& overflow_count) const override;
   GURL GetLearnMoreUrl() const override;
   base::string16 GetActionButtonLabel() const override;
   base::string16 GetDismissButtonLabel() const override;
   bool ShouldShowExtensionList() const override;
+  bool ShouldHighlightExtensions() const override;
   void LogExtensionCount(size_t count) override;
   void LogAction(
       ExtensionMessageBubbleController::BubbleAction action) override;
@@ -132,12 +133,6 @@ void SettingsApiBubbleDelegate::PerformAction(const ExtensionIdList& list) {
   }
 }
 
-void SettingsApiBubbleDelegate::OnClose() {
-  ExtensionToolbarModel* toolbar_model = ExtensionToolbarModel::Get(profile());
-  if (toolbar_model)
-    toolbar_model->StopHighlighting();
-}
-
 base::string16 SettingsApiBubbleDelegate::GetTitle() const {
   switch (type_) {
     case BUBBLE_TYPE_HOME_PAGE:
@@ -155,7 +150,8 @@ base::string16 SettingsApiBubbleDelegate::GetTitle() const {
 }
 
 base::string16 SettingsApiBubbleDelegate::GetMessageBody(
-    bool anchored_to_browser_action) const {
+    bool anchored_to_browser_action,
+    int extension_count) const {
   ExtensionRegistry* registry = ExtensionRegistry::Get(profile());
   const Extension* extension =
       registry->GetExtensionById(extension_id_, ExtensionRegistry::ENABLED);
@@ -170,54 +166,60 @@ base::string16 SettingsApiBubbleDelegate::GetMessageBody(
   bool startup_change = !settings->startup_pages.empty();
   bool search_change = settings->search_engine != NULL;
 
+  int first_line_id = 0;
+  int second_line_id = 0;
+
   base::string16 body;
   switch (type_) {
     case BUBBLE_TYPE_HOME_PAGE:
-      body = l10n_util::GetStringUTF16(
-          IDS_EXTENSIONS_SETTINGS_API_FIRST_LINE_HOME_PAGE);
+      first_line_id = anchored_to_browser_action ?
+          IDS_EXTENSIONS_SETTINGS_API_FIRST_LINE_HOME_PAGE_SPECIFIC :
+          IDS_EXTENSIONS_SETTINGS_API_FIRST_LINE_HOME_PAGE;
       if (startup_change && search_change) {
-        body += l10n_util::GetStringUTF16(
-            IDS_EXTENSIONS_SETTINGS_API_SECOND_LINE_START_AND_SEARCH);
+        second_line_id =
+            IDS_EXTENSIONS_SETTINGS_API_SECOND_LINE_START_AND_SEARCH;
       } else if (startup_change) {
-        body += l10n_util::GetStringUTF16(
-            IDS_EXTENSIONS_SETTINGS_API_SECOND_LINE_START_PAGES);
+        second_line_id = IDS_EXTENSIONS_SETTINGS_API_SECOND_LINE_START_PAGES;
       } else if (search_change) {
-        body += l10n_util::GetStringUTF16(
-            IDS_EXTENSIONS_SETTINGS_API_SECOND_LINE_SEARCH_ENGINE);
+        second_line_id = IDS_EXTENSIONS_SETTINGS_API_SECOND_LINE_SEARCH_ENGINE;
       }
       break;
     case BUBBLE_TYPE_STARTUP_PAGES:
-      body = l10n_util::GetStringUTF16(
-          IDS_EXTENSIONS_SETTINGS_API_FIRST_LINE_START_PAGES);
+      first_line_id = anchored_to_browser_action ?
+          IDS_EXTENSIONS_SETTINGS_API_FIRST_LINE_START_PAGES_SPECIFIC :
+          IDS_EXTENSIONS_SETTINGS_API_FIRST_LINE_START_PAGES;
       if (home_change && search_change) {
-        body += l10n_util::GetStringUTF16(
-            IDS_EXTENSIONS_SETTINGS_API_SECOND_LINE_HOME_AND_SEARCH);
+        second_line_id =
+            IDS_EXTENSIONS_SETTINGS_API_SECOND_LINE_HOME_AND_SEARCH;
       } else if (home_change) {
-        body += l10n_util::GetStringUTF16(
-            IDS_EXTENSIONS_SETTINGS_API_SECOND_LINE_HOME_PAGE);
+        second_line_id = IDS_EXTENSIONS_SETTINGS_API_SECOND_LINE_HOME_PAGE;
       } else if (search_change) {
-        body += l10n_util::GetStringUTF16(
-            IDS_EXTENSIONS_SETTINGS_API_SECOND_LINE_SEARCH_ENGINE);
+        second_line_id = IDS_EXTENSIONS_SETTINGS_API_SECOND_LINE_SEARCH_ENGINE;
       }
       break;
     case BUBBLE_TYPE_SEARCH_ENGINE:
-      body = l10n_util::GetStringUTF16(
-          IDS_EXTENSIONS_SETTINGS_API_FIRST_LINE_SEARCH_ENGINE);
-      if (startup_change && home_change) {
-        body += l10n_util::GetStringUTF16(
-            IDS_EXTENSIONS_SETTINGS_API_SECOND_LINE_START_AND_HOME);
-      } else if (startup_change) {
-        body += l10n_util::GetStringUTF16(
-            IDS_EXTENSIONS_SETTINGS_API_SECOND_LINE_START_PAGES);
-      } else if (home_change) {
-        body += l10n_util::GetStringUTF16(
-            IDS_EXTENSIONS_SETTINGS_API_SECOND_LINE_HOME_PAGE);
-      }
+      first_line_id = anchored_to_browser_action ?
+          IDS_EXTENSIONS_SETTINGS_API_FIRST_LINE_SEARCH_ENGINE_SPECIFIC :
+          IDS_EXTENSIONS_SETTINGS_API_FIRST_LINE_SEARCH_ENGINE;
+      if (startup_change && home_change)
+        second_line_id = IDS_EXTENSIONS_SETTINGS_API_SECOND_LINE_START_AND_HOME;
+      else if (startup_change)
+        second_line_id = IDS_EXTENSIONS_SETTINGS_API_SECOND_LINE_START_PAGES;
+      else if (home_change)
+        second_line_id = IDS_EXTENSIONS_SETTINGS_API_SECOND_LINE_HOME_PAGE;
       break;
   }
-  if (!body.empty())
-    body += l10n_util::GetStringUTF16(
-            IDS_EXTENSIONS_SETTINGS_API_THIRD_LINE_CONFIRMATION);
+  DCHECK_NE(0, first_line_id);
+  body = anchored_to_browser_action ?
+      l10n_util::GetStringUTF16(first_line_id) :
+      l10n_util::GetStringFUTF16(first_line_id,
+                                 base::UTF8ToUTF16(extension->name()));
+  if (second_line_id)
+    body += l10n_util::GetStringUTF16(second_line_id);
+
+  body += l10n_util::GetStringUTF16(
+      IDS_EXTENSIONS_SETTINGS_API_THIRD_LINE_CONFIRMATION);
+
   return body;
 }
 
@@ -242,6 +244,10 @@ base::string16 SettingsApiBubbleDelegate::GetDismissButtonLabel() const {
 
 bool SettingsApiBubbleDelegate::ShouldShowExtensionList() const {
   return false;
+}
+
+bool SettingsApiBubbleDelegate::ShouldHighlightExtensions() const {
+  return type_ == BUBBLE_TYPE_STARTUP_PAGES;
 }
 
 void SettingsApiBubbleDelegate::LogExtensionCount(size_t count) {
@@ -290,11 +296,27 @@ SettingsApiBubbleController::SettingsApiBubbleController(
 
 SettingsApiBubbleController::~SettingsApiBubbleController() {}
 
-bool SettingsApiBubbleController::ShouldShow(const std::string& extension_id) {
-  if (delegate()->HasBubbleInfoBeenAcknowledged(extension_id))
+bool SettingsApiBubbleController::ShouldShow() {
+  const Extension* extension = nullptr;
+  switch (type_) {
+    case BUBBLE_TYPE_HOME_PAGE:
+      extension = GetExtensionOverridingHomepage(profile_);
+      break;
+    case BUBBLE_TYPE_SEARCH_ENGINE:
+      extension = GetExtensionOverridingSearchEngine(profile_);
+      break;
+    case BUBBLE_TYPE_STARTUP_PAGES:
+      extension = GetExtensionOverridingStartupPages(profile_);
+      break;
+  }
+
+  if (!extension)
     return false;
 
-  if (!delegate()->ShouldIncludeExtension(extension_id))
+  if (delegate()->HasBubbleInfoBeenAcknowledged(extension->id()))
+    return false;
+
+  if (!delegate()->ShouldIncludeExtension(extension->id()))
     return false;
 
   // If the browser is showing the 'Chrome crashed' infobar, it won't be showing

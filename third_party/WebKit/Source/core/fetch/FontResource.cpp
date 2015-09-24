@@ -27,9 +27,9 @@
 #include "config.h"
 #include "core/fetch/FontResource.h"
 
-#include "core/dom/TagCollection.h"
+#include "core/fetch/FetchRequest.h"
 #include "core/fetch/ResourceClientWalker.h"
-#include "core/html/parser/TextResourceDecoder.h"
+#include "core/fetch/ResourceFetcher.h"
 #include "platform/SharedBuffer.h"
 #include "platform/fonts/FontCustomPlatformData.h"
 #include "platform/fonts/FontPlatformData.h"
@@ -64,7 +64,14 @@ static FontPackageFormat packageFormatOf(SharedBuffer* buffer)
 
 static void recordPackageFormatHistogram(FontPackageFormat format)
 {
-    blink::Platform::current()->histogramEnumeration("WebFont.PackageFormat", format, PackageFormatEnumMax);
+    Platform::current()->histogramEnumeration("WebFont.PackageFormat", format, PackageFormatEnumMax);
+}
+
+ResourcePtr<FontResource> FontResource::fetch(FetchRequest& request, ResourceFetcher* fetcher)
+{
+    ASSERT(request.resourceRequest().frameType() == WebURLRequest::FrameTypeNone);
+    request.mutableResourceRequest().setRequestContext(WebURLRequest::RequestContextFont);
+    return toFontResource(fetcher->requestResource(request, FontResourceFactory()));
 }
 
 FontResource::FontResource(const ResourceRequest& resourceRequest)
@@ -124,7 +131,7 @@ bool FontResource::ensureCustomFontData()
 {
     if (!m_fontData && !errorOccurred() && !isLoading()) {
         if (m_data)
-            m_fontData = FontCustomPlatformData::create(m_data.get());
+            m_fontData = FontCustomPlatformData::create(m_data.get(), m_otsParsingMessage);
 
         if (m_fontData) {
             recordPackageFormatHistogram(packageFormatOf(m_data.get()));
@@ -136,10 +143,10 @@ bool FontResource::ensureCustomFontData()
     return m_fontData;
 }
 
-FontPlatformData FontResource::platformDataFromCustomData(float size, bool bold, bool italic, FontOrientation orientation, FontWidthVariant widthVariant)
+FontPlatformData FontResource::platformDataFromCustomData(float size, bool bold, bool italic, FontOrientation orientation)
 {
     ASSERT(m_fontData);
-    return m_fontData->fontPlatformData(size, bold, italic, orientation, widthVariant);
+    return m_fontData->fontPlatformData(size, bold, italic, orientation);
 }
 
 bool FontResource::isSafeToUnlock() const

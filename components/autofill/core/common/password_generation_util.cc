@@ -6,7 +6,7 @@
 
 #include "base/command_line.h"
 #include "base/metrics/field_trial.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "components/autofill/core/common/autofill_switches.h"
 
 namespace autofill {
@@ -48,7 +48,7 @@ bool IsPasswordGenerationEnabled() {
   std::string group_name =
       base::FieldTrialList::FindFullName("PasswordGeneration");
 
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kDisablePasswordGeneration))
     return false;
 

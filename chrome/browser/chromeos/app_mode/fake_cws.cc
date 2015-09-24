@@ -104,16 +104,15 @@ int FakeCWS::GetUpdateCheckCountAndReset() {
 }
 
 void FakeCWS::SetupWebStoreURL(const GURL& test_server_url) {
-  std::string webstore_host(kWebstoreDomain);
   GURL::Replacements replace_webstore_host;
-  replace_webstore_host.SetHostStr(webstore_host);
+  replace_webstore_host.SetHostStr(kWebstoreDomain);
   web_store_url_ = test_server_url.ReplaceComponents(replace_webstore_host);
 }
 
 void FakeCWS::OverrideGalleryCommandlineSwitches() {
   DCHECK(web_store_url_.is_valid());
 
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
 
   command_line->AppendSwitchASCII(
       ::switches::kAppsGalleryURL,
@@ -142,12 +141,14 @@ void FakeCWS::SetUpdateCheckContent(const std::string& update_check_file,
       test_data_dir.AppendASCII(update_check_file.c_str());
   ASSERT_TRUE(base::ReadFileToString(update_file, update_check_content));
 
-  ReplaceSubstringsAfterOffset(update_check_content, 0, "$AppId", app_id);
-  ReplaceSubstringsAfterOffset(
+  base::ReplaceSubstringsAfterOffset(update_check_content, 0, "$AppId", app_id);
+  base::ReplaceSubstringsAfterOffset(
       update_check_content, 0, "$CrxDownloadUrl", crx_download_url.spec());
-  ReplaceSubstringsAfterOffset(update_check_content, 0, "$FP", crx_fp);
-  ReplaceSubstringsAfterOffset(update_check_content, 0, "$Size", crx_size);
-  ReplaceSubstringsAfterOffset(update_check_content, 0, "$Version", version);
+  base::ReplaceSubstringsAfterOffset(update_check_content, 0, "$FP", crx_fp);
+  base::ReplaceSubstringsAfterOffset(update_check_content, 0,
+                                     "$Size", crx_size);
+  base::ReplaceSubstringsAfterOffset(update_check_content, 0,
+                                     "$Version", version);
 }
 
 scoped_ptr<HttpResponse> FakeCWS::HandleRequest(const HttpRequest& request) {

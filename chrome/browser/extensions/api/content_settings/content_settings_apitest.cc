@@ -2,16 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/location.h"
 #include "base/prefs/pref_service.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/content_settings/cookie_settings.h"
+#include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/extensions/api/content_settings/content_settings_api.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_switches.h"
+#include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/plugin_service.h"
@@ -34,7 +38,7 @@ class ExtensionContentSettingsApiTest : public ExtensionApiTest {
  public:
   ExtensionContentSettingsApiTest() : profile_(NULL) {}
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionApiTest::SetUpCommandLine(command_line);
     command_line->AppendSwitch(switches::kDisablePluginsDiscovery);
   }
@@ -55,7 +59,7 @@ class ExtensionContentSettingsApiTest : public ExtensionApiTest {
   void TearDownOnMainThread() override {
     // ReleaseBrowserProcessModule() needs to be called in a message loop, so we
     // post a task to do it, then run the message loop.
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(&ReleaseBrowserProcessModule));
     content::RunAllPendingInMessageLoop();
 
@@ -66,8 +70,8 @@ class ExtensionContentSettingsApiTest : public ExtensionApiTest {
   void CheckContentSettingsSet() {
     HostContentSettingsMap* map =
         profile_->GetHostContentSettingsMap();
-    CookieSettings* cookie_settings =
-        CookieSettings::Factory::GetForProfile(profile_).get();
+    content_settings::CookieSettings* cookie_settings =
+        CookieSettingsFactory::GetForProfile(profile_).get();
 
     // Check default content settings by using an unknown URL.
     GURL example_url("http://www.example.com");
@@ -96,19 +100,35 @@ class ExtensionContentSettingsApiTest : public ExtensionApiTest {
                                      example_url,
                                      CONTENT_SETTINGS_TYPE_POPUPS,
                                      std::string()));
-#if 0
-    // TODO(bauerb): Enable once geolocation settings are integrated into the
-    // HostContentSettingsMap.
-    EXPECT_EQ(CONTENT_SETTING_ALLOW,
+    EXPECT_EQ(CONTENT_SETTING_ASK,
               map->GetContentSetting(example_url,
                                      example_url,
                                      CONTENT_SETTINGS_TYPE_GEOLOCATION,
                                      std::string()));
-#endif
     EXPECT_EQ(CONTENT_SETTING_ASK,
               map->GetContentSetting(example_url,
                                      example_url,
                                      CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
+                                     std::string()));
+    EXPECT_EQ(CONTENT_SETTING_ASK,
+              map->GetContentSetting(example_url,
+                                     example_url,
+                                     CONTENT_SETTINGS_TYPE_FULLSCREEN,
+                                     std::string()));
+    EXPECT_EQ(CONTENT_SETTING_ASK,
+              map->GetContentSetting(example_url,
+                                     example_url,
+                                     CONTENT_SETTINGS_TYPE_MOUSELOCK,
+                                     std::string()));
+    EXPECT_EQ(CONTENT_SETTING_ASK,
+              map->GetContentSetting(example_url,
+                                     example_url,
+                                     CONTENT_SETTINGS_TYPE_PPAPI_BROKER,
+                                     std::string()));
+    EXPECT_EQ(CONTENT_SETTING_ASK,
+              map->GetContentSetting(example_url,
+                                     example_url,
+                                     CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS,
                                      std::string()));
 
     // Check content settings for www.google.com
@@ -120,28 +140,39 @@ class ExtensionContentSettingsApiTest : public ExtensionApiTest {
     EXPECT_EQ(CONTENT_SETTING_BLOCK,
               map->GetContentSetting(
                   url, url, CONTENT_SETTINGS_TYPE_JAVASCRIPT, std::string()));
-    EXPECT_EQ(CONTENT_SETTING_BLOCK,
+    EXPECT_EQ(CONTENT_SETTING_DETECT_IMPORTANT_CONTENT,
               map->GetContentSetting(
                   url, url, CONTENT_SETTINGS_TYPE_PLUGINS, std::string()));
     EXPECT_EQ(CONTENT_SETTING_ALLOW,
               map->GetContentSetting(
                   url, url, CONTENT_SETTINGS_TYPE_POPUPS, std::string()));
-#if 0
     EXPECT_EQ(CONTENT_SETTING_BLOCK,
               map->GetContentSetting(
                   url, url, CONTENT_SETTINGS_TYPE_GEOLOCATION, std::string()));
-#endif
     EXPECT_EQ(
         CONTENT_SETTING_BLOCK,
         map->GetContentSetting(
             url, url, CONTENT_SETTINGS_TYPE_NOTIFICATIONS, std::string()));
+    EXPECT_EQ(CONTENT_SETTING_ALLOW,
+        map->GetContentSetting(
+            url, url, CONTENT_SETTINGS_TYPE_FULLSCREEN, std::string()));
+    EXPECT_EQ(CONTENT_SETTING_BLOCK,
+        map->GetContentSetting(
+            url, url, CONTENT_SETTINGS_TYPE_MOUSELOCK, std::string()));
+    EXPECT_EQ(CONTENT_SETTING_BLOCK,
+        map->GetContentSetting(
+            url, url, CONTENT_SETTINGS_TYPE_PPAPI_BROKER, std::string()));
+    EXPECT_EQ(CONTENT_SETTING_BLOCK,
+        map->GetContentSetting(
+            url, url, CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS,
+            std::string()));
   }
 
   void CheckContentSettingsDefault() {
     HostContentSettingsMap* map =
         profile_->GetHostContentSettingsMap();
-    CookieSettings* cookie_settings =
-        CookieSettings::Factory::GetForProfile(profile_).get();
+    content_settings::CookieSettings* cookie_settings =
+        CookieSettingsFactory::GetForProfile(profile_).get();
 
     // Check content settings for www.google.com
     GURL url("http://www.google.com");
@@ -160,17 +191,26 @@ class ExtensionContentSettingsApiTest : public ExtensionApiTest {
     EXPECT_EQ(CONTENT_SETTING_BLOCK,
               map->GetContentSetting(
                   url, url, CONTENT_SETTINGS_TYPE_POPUPS, std::string()));
-#if 0
-    // TODO(bauerb): Enable once geolocation settings are integrated into the
-    // HostContentSettingsMap.
-    EXPECT_EQ(CONTENT_SETTING_ALLOW,
+    EXPECT_EQ(CONTENT_SETTING_ASK,
               map->GetContentSetting(
                   url, url, CONTENT_SETTINGS_TYPE_GEOLOCATION, std::string()));
-#endif
     EXPECT_EQ(
         CONTENT_SETTING_ASK,
         map->GetContentSetting(
             url, url, CONTENT_SETTINGS_TYPE_NOTIFICATIONS, std::string()));
+    EXPECT_EQ(CONTENT_SETTING_ASK,
+        map->GetContentSetting(
+            url, url, CONTENT_SETTINGS_TYPE_FULLSCREEN, std::string()));
+    EXPECT_EQ(CONTENT_SETTING_ASK,
+        map->GetContentSetting(
+            url, url, CONTENT_SETTINGS_TYPE_MOUSELOCK, std::string()));
+    EXPECT_EQ(CONTENT_SETTING_ASK,
+        map->GetContentSetting(
+            url, url, CONTENT_SETTINGS_TYPE_PPAPI_BROKER, std::string()));
+    EXPECT_EQ(CONTENT_SETTING_ASK,
+        map->GetContentSetting(
+            url, url, CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS,
+            std::string()));
   }
 
  private:

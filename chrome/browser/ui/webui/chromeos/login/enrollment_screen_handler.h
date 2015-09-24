@@ -6,23 +6,19 @@
 #define CHROME_BROWSER_UI_WEBUI_CHROMEOS_LOGIN_ENROLLMENT_SCREEN_HANDLER_H_
 
 #include <string>
-#include <vector>
 
 #include "base/basictypes.h"
-#include "base/callback_forward.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
-#include "chrome/browser/browsing_data/browsing_data_remover.h"
 #include "chrome/browser/chromeos/login/enrollment/enrollment_screen_actor.h"
-#include "chrome/browser/chromeos/login/screens/error_screen_actor.h"
+#include "chrome/browser/chromeos/login/enrollment/enterprise_enrollment_helper.h"
+#include "chrome/browser/chromeos/login/screens/network_error_model.h"
 #include "chrome/browser/chromeos/login/ui/webui_login_view.h"
+#include "chrome/browser/chromeos/policy/enrollment_config.h"
 #include "chrome/browser/extensions/signin/scoped_gaia_auth_extension.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/network_state_informer.h"
-
-namespace policy {
-class PolicyOAuth2TokenFetcher;
-}
+#include "net/base/net_errors.h"
 
 namespace chromeos {
 
@@ -33,60 +29,59 @@ class ErrorScreensHistogramHelper;
 class EnrollmentScreenHandler
     : public BaseScreenHandler,
       public EnrollmentScreenActor,
-      public BrowsingDataRemover::Observer,
       public NetworkStateInformer::NetworkStateInformerObserver,
       public WebUILoginView::FrameObserver {
  public:
   EnrollmentScreenHandler(
       const scoped_refptr<NetworkStateInformer>& network_state_informer,
-      ErrorScreenActor* error_screen_actor);
-  virtual ~EnrollmentScreenHandler();
+      NetworkErrorModel* network_error_model);
+  ~EnrollmentScreenHandler() override;
 
   // Implements WebUIMessageHandler:
-  virtual void RegisterMessages() override;
+  void RegisterMessages() override;
 
   // Implements EnrollmentScreenActor:
-  virtual void SetParameters(Controller* controller,
-                             EnrollmentMode enrollment_mode,
-                             const std::string& management_domain) override;
-  virtual void PrepareToShow() override;
-  virtual void Show() override;
-  virtual void Hide() override;
-  virtual void FetchOAuthToken() override;
-  virtual void ResetAuth(const base::Closure& callback) override;
-  virtual void ShowSigninScreen() override;
-  virtual void ShowEnrollmentSpinnerScreen() override;
-  virtual void ShowLoginSpinnerScreen() override;
-  virtual void ShowAuthError(const GoogleServiceAuthError& error) override;
-  virtual void ShowEnrollmentStatus(policy::EnrollmentStatus status) override;
-  virtual void ShowUIError(UIError error_code) override;
+  void SetParameters(Controller* controller,
+                     const policy::EnrollmentConfig& config) override;
+  void PrepareToShow() override;
+  void Show() override;
+  void Hide() override;
+  void ShowSigninScreen() override;
+  void ShowAttributePromptScreen(const std::string& asset_id,
+                                 const std::string& location) override;
+  void ShowEnrollmentSpinnerScreen() override;
+  void ShowAuthError(const GoogleServiceAuthError& error) override;
+  void ShowEnrollmentStatus(policy::EnrollmentStatus status) override;
+  void ShowOtherError(
+      EnterpriseEnrollmentHelper::OtherError error_code) override;
 
   // Implements BaseScreenHandler:
-  virtual void Initialize() override;
-  virtual void DeclareLocalizedValues(LocalizedValuesBuilder* builder) override;
-
-  // Implements BrowsingDataRemover::Observer:
-  virtual void OnBrowsingDataRemoverDone() override;
+  void Initialize() override;
+  void DeclareLocalizedValues(
+      ::login::LocalizedValuesBuilder* builder) override;
 
   // Implements NetworkStateInformer::NetworkStateInformerObserver
-  virtual void UpdateState(ErrorScreenActor::ErrorReason reason) override;
+  void UpdateState(NetworkError::ErrorReason reason) override;
 
   // Implements WebUILoginView::FrameObserver
-  virtual void OnFrameError(const std::string& frame_unique_name) override;
+  void OnFrameError(const std::string& frame_unique_name) override;
 
  private:
   // Handlers for WebUI messages.
   void HandleClose(const std::string& reason);
-  void HandleCompleteLogin(const std::string& user);
+  void HandleCompleteLogin(const std::string& user,
+                           const std::string& auth_code);
   void HandleRetry();
   void HandleFrameLoadingCompleted(int status);
+  void HandleDeviceAttributesProvided(const std::string& asset_id,
+                          const std::string& location);
+  void HandleOnLearnMore();
 
-  void UpdateStateInternal(ErrorScreenActor::ErrorReason reason,
-                           bool force_update);
+  void UpdateStateInternal(NetworkError::ErrorReason reason, bool force_update);
   void SetupAndShowOfflineMessage(NetworkStateInformer::State state,
-                                  ErrorScreenActor::ErrorReason reason);
+                                  NetworkError::ErrorReason reason);
   void HideOfflineMessage(NetworkStateInformer::State state,
-                          ErrorScreenActor::ErrorReason reason);
+                          NetworkError::ErrorReason reason);
 
   net::Error frame_error() const { return frame_error_; }
   // Shows a given enrollment step.
@@ -100,10 +95,6 @@ class EnrollmentScreenHandler
 
   // Display the given i18n string as a progress message.
   void ShowWorking(int message_id);
-
-  // Handles completion of the OAuth2 token fetch attempt.
-  void OnTokenFetched(const std::string& token,
-                      const GoogleServiceAuthError& error);
 
   // Shows the screen.
   void DoShow();
@@ -123,24 +114,8 @@ class EnrollmentScreenHandler
 
   bool show_on_init_;
 
-  // The enrollment mode.
-  EnrollmentMode enrollment_mode_;
-
-  // The management domain, if applicable.
-  std::string management_domain_;
-
-  // Whether an enrollment attempt has failed.
-  bool enrollment_failed_once_;
-
-  // This intentionally lives here and not in the controller, since it needs to
-  // execute requests in the context of the profile that displays the webui.
-  scoped_ptr<policy::PolicyOAuth2TokenFetcher> oauth_fetcher_;
-
-  // The browsing data remover instance currently active, if any.
-  BrowsingDataRemover* browsing_data_remover_;
-
-  // The callbacks to invoke after browsing data has been cleared.
-  std::vector<base::Closure> auth_reset_callbacks_;
+  // The enrollment configuration.
+  policy::EnrollmentConfig config_;
 
   // Latest enrollment frame error.
   net::Error frame_error_;
@@ -148,15 +123,22 @@ class EnrollmentScreenHandler
   // True if screen was not shown yet.
   bool first_show_;
 
+  // Whether we should handle network errors on enrollment screen.
+  // True when signin screen step is shown.
+  bool observe_network_failure_;
+
   // Network state informer used to keep signin screen up.
   scoped_refptr<NetworkStateInformer> network_state_informer_;
 
-  ErrorScreenActor* error_screen_actor_;
+  NetworkErrorModel* network_error_model_;
 
   scoped_ptr<ErrorScreensHistogramHelper> histogram_helper_;
 
   // GAIA extension loader.
   scoped_ptr<ScopedGaiaAuthExtension> auth_extension_;
+
+  // Help application used for help dialogs.
+  scoped_refptr<HelpAppLauncher> help_app_;
 
   base::WeakPtrFactory<EnrollmentScreenHandler> weak_ptr_factory_;
 

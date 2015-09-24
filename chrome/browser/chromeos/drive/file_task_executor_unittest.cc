@@ -32,22 +32,22 @@ class TestDelegate : public FileTaskExecutorDelegate {
   }
 
   // FileTaskExecutorDelegate overrides.
-  virtual FileSystemInterface* GetFileSystem() override {
+  FileSystemInterface* GetFileSystem() override {
     return fake_file_system_.get();
   }
 
-  virtual DriveServiceInterface* GetDriveService() override {
+  DriveServiceInterface* GetDriveService() override {
     return fake_drive_service_.get();
   }
 
-  virtual void OpenBrowserWindow(const GURL& open_link) override {
+  void OpenBrowserWindow(const GURL& open_link) override {
     opend_urls_->insert(open_link.spec());
   }
 
   // Sets up files on the fake Drive service.
   bool SetUpTestFiles() {
     {
-      google_apis::GDataErrorCode result = google_apis::GDATA_OTHER_ERROR;
+      google_apis::DriveApiErrorCode result = google_apis::DRIVE_OTHER_ERROR;
       scoped_ptr<google_apis::FileResource> file;
       fake_drive_service_->AddNewFileWithResourceId(
           "id1",
@@ -62,7 +62,7 @@ class TestDelegate : public FileTaskExecutorDelegate {
         return false;
     }
     {
-      google_apis::GDataErrorCode result = google_apis::GDATA_OTHER_ERROR;
+      google_apis::DriveApiErrorCode result = google_apis::DRIVE_OTHER_ERROR;
       scoped_ptr<google_apis::FileResource> file;
       fake_drive_service_->AddNewFileWithResourceId(
           "id2",

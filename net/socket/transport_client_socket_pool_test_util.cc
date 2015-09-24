@@ -6,9 +6,12 @@
 
 #include <string>
 
+#include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/load_timing_info.h"
 #include "net/base/load_timing_info_test_util.h"
@@ -69,6 +72,11 @@ class MockConnectClientSocket : public StreamSocket {
   bool WasNpnNegotiated() const override { return false; }
   NextProto GetNegotiatedProtocol() const override { return kProtoUnknown; }
   bool GetSSLInfo(SSLInfo* ssl_info) override { return false; }
+  void GetConnectionAttempts(ConnectionAttempts* out) const override {
+    out->clear();
+  }
+  void ClearConnectionAttempts() override {}
+  void AddConnectionAttempts(const ConnectionAttempts& attempts) override {}
 
   // Socket implementation.
   int Read(IOBuffer* buf,
@@ -125,6 +133,13 @@ class MockFailingClientSocket : public StreamSocket {
   bool WasNpnNegotiated() const override { return false; }
   NextProto GetNegotiatedProtocol() const override { return kProtoUnknown; }
   bool GetSSLInfo(SSLInfo* ssl_info) override { return false; }
+  void GetConnectionAttempts(ConnectionAttempts* out) const override {
+    out->clear();
+    for (const auto& addr : addrlist_)
+      out->push_back(ConnectionAttempt(addr, ERR_CONNECTION_FAILED));
+  }
+  void ClearConnectionAttempts() override {}
+  void AddConnectionAttempts(const ConnectionAttempts& attempts) override {}
 
   // Socket implementation.
   int Read(IOBuffer* buf,
@@ -177,8 +192,8 @@ class MockTriggerableClientSocket : public StreamSocket {
       net::NetLog* net_log) {
     scoped_ptr<MockTriggerableClientSocket> socket(
         new MockTriggerableClientSocket(addrlist, should_connect, net_log));
-    base::MessageLoop::current()->PostTask(FROM_HERE,
-                                           socket->GetConnectCallback());
+    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
+                                                  socket->GetConnectCallback());
     return socket.Pass();
   }
 
@@ -189,16 +204,23 @@ class MockTriggerableClientSocket : public StreamSocket {
       net::NetLog* net_log) {
     scoped_ptr<MockTriggerableClientSocket> socket(
         new MockTriggerableClientSocket(addrlist, should_connect, net_log));
-    base::MessageLoop::current()->PostDelayedTask(
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE, socket->GetConnectCallback(), delay);
     return socket.Pass();
   }
 
   static scoped_ptr<StreamSocket> MakeMockStalledClientSocket(
       const AddressList& addrlist,
-      net::NetLog* net_log) {
+      net::NetLog* net_log,
+      bool failing) {
     scoped_ptr<MockTriggerableClientSocket> socket(
         new MockTriggerableClientSocket(addrlist, true, net_log));
+    if (failing) {
+      DCHECK_LE(1u, addrlist.size());
+      ConnectionAttempts attempts;
+      attempts.push_back(ConnectionAttempt(addrlist[0], ERR_CONNECTION_FAILED));
+      socket->AddConnectionAttempts(attempts);
+    }
     return socket.Pass();
   }
 
@@ -236,6 +258,14 @@ class MockTriggerableClientSocket : public StreamSocket {
   bool WasNpnNegotiated() const override { return false; }
   NextProto GetNegotiatedProtocol() const override { return kProtoUnknown; }
   bool GetSSLInfo(SSLInfo* ssl_info) override { return false; }
+  void GetConnectionAttempts(ConnectionAttempts* out) const override {
+    *out = connection_attempts_;
+  }
+  void ClearConnectionAttempts() override { connection_attempts_.clear(); }
+  void AddConnectionAttempts(const ConnectionAttempts& attempts) override {
+    connection_attempts_.insert(connection_attempts_.begin(), attempts.begin(),
+                                attempts.end());
+  }
 
   // Socket implementation.
   int Read(IOBuffer* buf,
@@ -264,6 +294,7 @@ class MockTriggerableClientSocket : public StreamSocket {
   BoundNetLog net_log_;
   CompletionCallback callback_;
   bool use_tcp_fastopen_;
+  ConnectionAttempts connection_attempts_;
 
   base::WeakPtrFactory<MockTriggerableClientSocket> weak_factory_;
 
@@ -364,8 +395,11 @@ MockTransportClientSocketFactory::CreateTransportClientSocket(
       return MockTriggerableClientSocket::MakeMockDelayedClientSocket(
           addresses, false, delay_, net_log_);
     case MOCK_STALLED_CLIENT_SOCKET:
-      return MockTriggerableClientSocket::MakeMockStalledClientSocket(addresses,
-                                                                      net_log_);
+      return MockTriggerableClientSocket::MakeMockStalledClientSocket(
+          addresses, net_log_, false);
+    case MOCK_STALLED_FAILING_CLIENT_SOCKET:
+      return MockTriggerableClientSocket::MakeMockStalledClientSocket(
+          addresses, net_log_, true);
     case MOCK_TRIGGERABLE_CLIENT_SOCKET: {
       scoped_ptr<MockTriggerableClientSocket> rv(
           new MockTriggerableClientSocket(addresses, true, net_log_));

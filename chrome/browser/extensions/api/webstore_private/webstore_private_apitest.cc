@@ -10,6 +10,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/api/webstore_private/webstore_private_api.h"
+#include "chrome/browser/extensions/bundle_installer.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_function_test_utils.h"
 #include "chrome/browser/extensions/extension_install_prompt.h"
@@ -25,11 +26,13 @@
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/test/browser_test_utils.h"
 #include "extensions/browser/api/management/management_api.h"
+#include "extensions/browser/extension_dialog_auto_confirm.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/install/extension_install_ui.h"
 #include "gpu/config/gpu_feature_type.h"
 #include "gpu/config/gpu_info.h"
 #include "net/dns/mock_host_resolver.h"
+#include "ui/app_list/app_list_switches.h"
 #include "ui/gl/gl_switches.h"
 
 using gpu::GpuFeatureType;
@@ -95,7 +98,7 @@ class ExtensionWebstorePrivateApiTest : public ExtensionApiTest {
   ExtensionWebstorePrivateApiTest() {}
   ~ExtensionWebstorePrivateApiTest() override {}
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionApiTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII(
         switches::kAppsGalleryURL,
@@ -115,8 +118,8 @@ class ExtensionWebstorePrivateApiTest : public ExtensionApiTest {
   void SetUpOnMainThread() override {
     ExtensionApiTest::SetUpOnMainThread();
 
-    ExtensionInstallPrompt::g_auto_confirm_for_tests =
-        ExtensionInstallPrompt::ACCEPT;
+    auto_confirm_install_.reset(
+        new ScopedTestDialogAutoConfirm(ScopedTestDialogAutoConfirm::ACCEPT));
 
     ASSERT_TRUE(webstore_install_dir_.CreateUniqueTempDir());
     webstore_install_dir_copy_ = webstore_install_dir_.path();
@@ -133,8 +136,7 @@ class ExtensionWebstorePrivateApiTest : public ExtensionApiTest {
     // Replace the host with 'www.example.com' so it matches the web store
     // app's extent.
     GURL::Replacements replace_host;
-    std::string host_str("www.example.com");
-    replace_host.SetHostStr(host_str);
+    replace_host.SetHostStr("www.example.com");
 
     return url.ReplaceComponents(replace_host);
   }
@@ -147,14 +149,12 @@ class ExtensionWebstorePrivateApiTest : public ExtensionApiTest {
   // Navigates to |page| and runs the Extension API test there. Any downloads
   // of extensions will return the contents of |crx_file|.
   bool RunInstallTest(const std::string& page, const std::string& crx_file) {
-    // Auto-confirm the uninstallation dialog.
-    ManagementUninstallFunction::SetAutoConfirmForTest(true);
 #if defined(OS_WIN) && !defined(NDEBUG)
     // See http://crbug.com/177163 for details.
     return true;
 #else
     GURL crx_url = GetTestServerURL(crx_file);
-    CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+    base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
         switches::kAppsGalleryUpdateURL, crx_url.spec());
 
     GURL page_url = GetTestServerURL(page);
@@ -175,6 +175,10 @@ class ExtensionWebstorePrivateApiTest : public ExtensionApiTest {
   // WebstoreInstaller needs a reference to a FilePath when setting the download
   // directory for testing.
   base::FilePath webstore_install_dir_copy_;
+
+  scoped_ptr<ScopedTestDialogAutoConfirm> auto_confirm_install_;
+
+  DISALLOW_COPY_AND_ASSIGN(ExtensionWebstorePrivateApiTest);
 };
 
 // Test cases for webstore origin frame blocking.
@@ -237,8 +241,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionWebstorePrivateApiTest, InstallLocalized) {
 
 // Now test the case where the user cancels the confirmation dialog.
 IN_PROC_BROWSER_TEST_F(ExtensionWebstorePrivateApiTest, InstallCancelled) {
-  ExtensionInstallPrompt::g_auto_confirm_for_tests =
-      ExtensionInstallPrompt::CANCEL;
+  ScopedTestDialogAutoConfirm auto_cancel(ScopedTestDialogAutoConfirm::CANCEL);
   ASSERT_TRUE(RunInstallTest("cancelled.html", "extension.crx"));
 }
 
@@ -406,7 +409,7 @@ class EphemeralAppWebstorePrivateApiTest
         "http://www.example.com:%d/files/extensions/platform_apps/"
         "ephemeral_launcher",
         host_port.port());
-    CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+    base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
         switches::kAppsGalleryURL, test_gallery_url);
   }
 
@@ -420,14 +423,67 @@ class EphemeralAppWebstorePrivateApiTest
 // Run tests when the --enable-ephemeral-apps switch is not enabled.
 IN_PROC_BROWSER_TEST_F(EphemeralAppWebstorePrivateApiTest,
                        EphemeralAppsFeatureDisabled) {
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      app_list::switches::kDisableExperimentalAppList);
   ASSERT_TRUE(RunInstallTest("webstore_launch_disabled.html", "app.crx"));
 }
 
 // Run tests when the --enable-ephemeral-apps switch is enabled.
 IN_PROC_BROWSER_TEST_F(EphemeralAppWebstorePrivateApiTest, LaunchEphemeralApp) {
-  CommandLine::ForCurrentProcess()->AppendSwitch(
-      switches::kEnableEphemeralApps);
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      switches::kEnableEphemeralAppsInWebstore);
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      app_list::switches::kEnableExperimentalAppList);
   ASSERT_TRUE(RunInstallTest("webstore_launch_app.html", "app.crx"));
+}
+
+class BundleWebstorePrivateApiTest
+    : public ExtensionWebstorePrivateApiTest {
+ public:
+  void SetUpInProcessBrowserTestFixture() override {
+    ExtensionWebstorePrivateApiTest::SetUpInProcessBrowserTestFixture();
+
+    test_data_dir_ = test_data_dir_.AppendASCII("webstore_private/bundle");
+
+    // The test server needs to have already started, so setup the switch here
+    // rather than in SetUpCommandLine.
+    base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+        switches::kAppsGalleryDownloadURL,
+        GetTestServerURL("bundle/%s.crx").spec());
+  }
+};
+
+// Tests successfully installing a bundle of 2 apps and 2 extensions.
+IN_PROC_BROWSER_TEST_F(BundleWebstorePrivateApiTest, InstallBundle) {
+  extensions::BundleInstaller::SetAutoApproveForTesting(true);
+  ASSERT_TRUE(RunPageTest(GetTestServerURL("install_bundle.html").spec()));
+}
+
+// Tests that bundles can be installed from incognito windows.
+IN_PROC_BROWSER_TEST_F(BundleWebstorePrivateApiTest, InstallBundleIncognito) {
+  extensions::BundleInstaller::SetAutoApproveForTesting(true);
+
+  ASSERT_TRUE(RunPageTest(GetTestServerURL("install_bundle.html").spec(),
+                          ExtensionApiTest::kFlagUseIncognito));
+}
+
+// Tests the user canceling the bundle install prompt.
+IN_PROC_BROWSER_TEST_F(BundleWebstorePrivateApiTest, InstallBundleCancel) {
+  // We don't need to create the CRX files since we are aborting the install.
+  extensions::BundleInstaller::SetAutoApproveForTesting(false);
+
+  ASSERT_TRUE(
+      RunPageTest(GetTestServerURL("install_bundle_cancel.html").spec()));
+}
+
+// Tests partially installing a bundle (1 succeeds, 1 fails due to an invalid
+// CRX, 1 fails due to the manifests not matching, and 1 fails due to a missing
+// crx file).
+IN_PROC_BROWSER_TEST_F(BundleWebstorePrivateApiTest, InstallBundleInvalid) {
+  extensions::BundleInstaller::SetAutoApproveForTesting(true);
+
+  ASSERT_TRUE(
+      RunPageTest(GetTestServerURL("install_bundle_invalid.html").spec()));
 }
 
 }  // namespace extensions

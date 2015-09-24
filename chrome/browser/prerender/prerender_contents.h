@@ -21,7 +21,7 @@
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/referrer.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 
 class Profile;
 
@@ -39,10 +39,6 @@ namespace history {
 struct HistoryAddPageArgs;
 }
 
-namespace net {
-class URLRequestContextGetter;
-}
-
 namespace prerender {
 
 class PrerenderHandle;
@@ -50,8 +46,7 @@ class PrerenderManager;
 class PrerenderResourceThrottle;
 
 class PrerenderContents : public content::NotificationObserver,
-                          public content::WebContentsObserver,
-                          public base::SupportsWeakPtr<PrerenderContents> {
+                          public content::WebContentsObserver {
  public:
   // PrerenderContents::Create uses the currently registered Factory to create
   // the PrerenderContents. Factory is intended for testing.
@@ -60,15 +55,14 @@ class PrerenderContents : public content::NotificationObserver,
     Factory() {}
     virtual ~Factory() {}
 
-    // Ownership is not transfered through this interface as prerender_manager,
-    // prerender_tracker, and profile are stored as weak pointers.
+    // Ownership is not transfered through this interface as prerender_manager
+    // and profile are stored as weak pointers.
     virtual PrerenderContents* CreatePrerenderContents(
         PrerenderManager* prerender_manager,
         Profile* profile,
         const GURL& url,
         const content::Referrer& referrer,
-        Origin origin,
-        uint8 experiment_id) = 0;
+        Origin origin) = 0;
 
    private:
     DISALLOW_COPY_AND_ASSIGN(Factory);
@@ -146,18 +140,13 @@ class PrerenderContents : public content::NotificationObserver,
 
   // Start rendering the contents in the prerendered state. If
   // |is_control_group| is true, this will go through some of the mechanics of
-  // starting a prerender, without actually creating the RenderView.
-  // |creator_child_id| is the id of the child process that caused the prerender
-  // to be created, and is needed so that the prerendered URLs can be sent to it
-  // so render-initiated navigations will swap in the prerendered page. |size|
+  // starting a prerender, without actually creating the RenderView. |size|
   // indicates the rectangular dimensions that the prerendered page should be.
   // |session_storage_namespace| indicates the namespace that the prerendered
   // page should be part of.
   virtual void StartPrerendering(
-      int creator_child_id,
       const gfx::Size& size,
-      content::SessionStorageNamespace* session_storage_namespace,
-      net::URLRequestContextGetter* request_context);
+      content::SessionStorageNamespace* session_storage_namespace);
 
   // Verifies that the prerendering is not using too many resources, and kills
   // it if not.
@@ -193,8 +182,6 @@ class PrerenderContents : public content::NotificationObserver,
   FinalStatus final_status() const { return final_status_; }
 
   Origin origin() const { return origin_; }
-  uint8 experiment_id() const { return experiment_id_; }
-  int child_id() const { return child_id_; }
 
   base::TimeTicks load_start_time() const { return load_start_time_; }
 
@@ -206,7 +193,7 @@ class PrerenderContents : public content::NotificationObserver,
 
   // content::WebContentsObserver implementation.
   void RenderFrameCreated(content::RenderFrameHost* render_frame_host) override;
-  void DidStopLoading(content::RenderViewHost* render_view_host) override;
+  void DidStopLoading() override;
   void DocumentLoadedInFrame(
       content::RenderFrameHost* render_frame_host) override;
   void DidStartProvisionalLoadForFrame(
@@ -220,7 +207,7 @@ class PrerenderContents : public content::NotificationObserver,
       const content::LoadCommittedDetails& details,
       const content::FrameNavigateParams& params) override;
   void DidGetRedirectForResourceRequest(
-      content::RenderViewHost* render_view_host,
+      content::RenderFrameHost* render_frame_host,
       const content::ResourceRedirectDetails& details) override;
   bool OnMessageReceived(const IPC::Message& message) override;
 
@@ -270,27 +257,6 @@ class PrerenderContents : public content::NotificationObserver,
   // Marks prerender as used and releases any throttled resource requests.
   void PrepareForUse();
 
-  content::SessionStorageNamespace* GetSessionStorageNamespace() const;
-
-  // Cookie events
-  enum CookieEvent {
-    COOKIE_EVENT_SEND = 0,
-    COOKIE_EVENT_CHANGE = 1,
-    COOKIE_EVENT_MAX
-  };
-
-  // Record a cookie transaction for this prerender contents.
-  // In the event of cookies being sent, |earliest_create_date| contains
-  // the time that the earliest of the cookies sent was created.
-  void RecordCookieEvent(CookieEvent event,
-                         bool is_main_frame_http_request,
-                         bool is_third_party_cookie,
-                         bool is_for_blocking_resource,
-                         base::Time earliest_create_date);
-
-  static const int kNumCookieStatuses;
-  static const int kNumCookieSendTypes;
-
   // Called when a PrerenderResourceThrottle defers a request. If the prerender
   // is used it'll be resumed on the IO thread, otherwise they will get
   // cancelled automatically if prerendering is cancelled.
@@ -305,8 +271,7 @@ class PrerenderContents : public content::NotificationObserver,
                     Profile* profile,
                     const GURL& url,
                     const content::Referrer& referrer,
-                    Origin origin,
-                    uint8 experiment_id);
+                    Origin origin);
 
   // Set the final status for how the PrerenderContents was used. This
   // should only be called once, and should be called before the prerender
@@ -353,10 +318,6 @@ class PrerenderContents : public content::NotificationObserver,
   // we won't have a RenderViewHost.
   int64 session_storage_namespace_id_;
 
-  // The time at which we started prerendering, for the purpose of comparing
-  // cookie creation times.
-  base::Time start_time_;
-
  private:
   class WebContentsDelegateImpl;
 
@@ -369,7 +330,7 @@ class PrerenderContents : public content::NotificationObserver,
   // Message handlers.
   void OnCancelPrerenderForPrinting();
 
-  ObserverList<Observer> observer_list_;
+  base::ObserverList<Observer> observer_list_;
 
   // The prerender manager owning this object.
   PrerenderManager* prerender_manager_;
@@ -403,8 +364,6 @@ class PrerenderContents : public content::NotificationObserver,
   // True when the main frame has finished loading.
   bool has_finished_loading_;
 
-  // This must be the same value as the PrerenderTracker has recorded for
-  // |this|, when |this| has a RenderView.
   FinalStatus final_status_;
 
   // The MatchComplete status of the prerender, indicating how it relates
@@ -429,12 +388,6 @@ class PrerenderContents : public content::NotificationObserver,
   // Origin for this prerender.
   Origin origin_;
 
-  // Experiment during which this prerender is performed.
-  uint8 experiment_id_;
-
-  // The process that created the child id.
-  int creator_child_id_;
-
   // The size of the WebView from the launching page.
   gfx::Size size_;
 
@@ -442,19 +395,6 @@ class PrerenderContents : public content::NotificationObserver,
 
   // Caches pages to be added to the history.
   AddPageVector add_page_vector_;
-
-  // The alias session storage namespace for this prerender.
-  scoped_refptr<content::SessionStorageNamespace>
-      alias_session_storage_namespace;
-
-  // Indicates what internal cookie events (see prerender_contents.cc) have
-  // occurred, using 1 bit for each possible InternalCookieEvent.
-  int cookie_status_;
-
-  // Indicates whether existing cookies were sent for this prerender, and
-  // whether they were third-party cookies, and whether they were for blocking
-  // resources. See the enum CookieSendType in prerender_contents.cc
-  int cookie_send_type_;
 
   // Resources that are throttled, pending a prerender use. Can only access a
   // throttle on the IO thread.

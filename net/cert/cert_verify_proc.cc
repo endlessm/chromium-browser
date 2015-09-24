@@ -4,22 +4,26 @@
 
 #include "net/cert/cert_verify_proc.h"
 
-#include "base/basictypes.h"
+#include <stdint.h>
+
 #include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/sha1.h"
 #include "base/strings/stringprintf.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_util.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/cert/cert_status_flags.h"
 #include "net/cert/cert_verifier.h"
+#include "net/cert/cert_verify_proc_whitelist.h"
 #include "net/cert/cert_verify_result.h"
 #include "net/cert/crl_set.h"
 #include "net/cert/x509_certificate.h"
 #include "url/url_canon.h"
 
-#if defined(USE_NSS) || defined(OS_IOS)
+#if defined(USE_NSS_CERTS) || defined(OS_IOS)
 #include "net/cert/cert_verify_proc_nss.h"
 #elif defined(USE_OPENSSL_CERTS) && !defined(OS_ANDROID)
 #include "net/cert/cert_verify_proc_openssl.h"
@@ -32,7 +36,6 @@
 #else
 #error Implement certificate verification.
 #endif
-
 
 namespace net {
 
@@ -123,11 +126,11 @@ bool ExaminePublicKeys(const scoped_refptr<X509Certificate>& cert,
   // The effective date of the CA/Browser Forum's Baseline Requirements -
   // 2012-07-01 00:00:00 UTC.
   const base::Time kBaselineEffectiveDate =
-      base::Time::FromInternalValue(GG_INT64_C(12985574400000000));
+      base::Time::FromInternalValue(INT64_C(12985574400000000));
   // The effective date of the key size requirements from Appendix A, v1.1.5
   // 2014-01-01 00:00:00 UTC.
   const base::Time kBaselineKeysizeEffectiveDate =
-      base::Time::FromInternalValue(GG_INT64_C(13033008000000000));
+      base::Time::FromInternalValue(INT64_C(13033008000000000));
 
   size_t size_bits = 0;
   X509Certificate::PublicKeyType type = X509Certificate::kPublicKeyTypeUnknown;
@@ -166,7 +169,7 @@ bool ExaminePublicKeys(const scoped_refptr<X509Certificate>& cert,
 
 // static
 CertVerifyProc* CertVerifyProc::CreateDefault() {
-#if defined(USE_NSS) || defined(OS_IOS)
+#if defined(USE_NSS_CERTS) || defined(OS_IOS)
   return new CertVerifyProcNSS();
 #elif defined(USE_OPENSSL_CERTS) && !defined(OS_ANDROID)
   return new CertVerifyProcOpenSSL();
@@ -187,6 +190,7 @@ CertVerifyProc::~CertVerifyProc() {}
 
 int CertVerifyProc::Verify(X509Certificate* cert,
                            const std::string& hostname,
+                           const std::string& ocsp_response,
                            int flags,
                            CRLSet* crl_set,
                            const CertificateList& additional_trust_anchors,
@@ -206,7 +210,7 @@ int CertVerifyProc::Verify(X509Certificate* cert,
   if (flags & CertVerifier::VERIFY_EV_CERT)
     flags |= CertVerifier::VERIFY_REV_CHECKING_ENABLED_EV_ONLY;
 
-  int rv = VerifyInternal(cert, hostname, flags, crl_set,
+  int rv = VerifyInternal(cert, hostname, ocsp_response, flags, crl_set,
                           additional_trust_anchors, verify_result);
 
   UMA_HISTOGRAM_BOOLEAN("Net.CertCommonNameFallback",
@@ -230,6 +234,12 @@ int CertVerifyProc::Verify(X509Certificate* cert,
                                   dns_names,
                                   ip_addrs)) {
     verify_result->cert_status |= CERT_STATUS_NAME_CONSTRAINT_VIOLATION;
+    rv = MapCertStatusToNetError(verify_result->cert_status);
+  }
+
+  if (IsNonWhitelistedCertificate(*verify_result->verified_cert,
+                                  verify_result->public_key_hashes)) {
+    verify_result->cert_status |= CERT_STATUS_AUTHORITY_INVALID;
     rv = MapCertStatusToNetError(verify_result->cert_status);
   }
 
@@ -276,13 +286,20 @@ int CertVerifyProc::Verify(X509Certificate* cert,
     // now treat it as a warning and do not map it to an error return value.
   }
 
+  // Flag certificates using too long validity periods.
+  if (verify_result->is_issued_by_known_root && HasTooLongValidity(*cert)) {
+    verify_result->cert_status |= CERT_STATUS_VALIDITY_TOO_LONG;
+    if (rv == OK)
+      rv = MapCertStatusToNetError(verify_result->cert_status);
+  }
+
   return rv;
 }
 
 // static
 bool CertVerifyProc::IsBlacklisted(X509Certificate* cert) {
   static const unsigned kComodoSerialBytes = 16;
-  static const uint8 kComodoSerials[][kComodoSerialBytes] = {
+  static const uint8_t kComodoSerials[][kComodoSerialBytes] = {
     // Not a real certificate. For testing only.
     {0x07,0x7a,0x59,0xbc,0xd5,0x34,0x59,0x60,0x1c,0xa6,0x90,0x72,0x67,0xa6,0xdd,0x1c},
 
@@ -355,7 +372,7 @@ bool CertVerifyProc::IsBlacklisted(X509Certificate* cert) {
   static const char kCloudFlareCNSuffix[] = ".cloudflare.com";
   // kCloudFlareEpoch is the base::Time internal value for midnight at the
   // beginning of April 2nd, 2014, UTC.
-  static const int64 kCloudFlareEpoch = INT64_C(13040870400000000);
+  static const int64_t kCloudFlareEpoch = INT64_C(13040870400000000);
   if (cn.size() > arraysize(kCloudFlareCNSuffix) - 1 &&
       cn.compare(cn.size() - (arraysize(kCloudFlareCNSuffix) - 1),
                  arraysize(kCloudFlareCNSuffix) - 1,
@@ -372,7 +389,7 @@ bool CertVerifyProc::IsBlacklisted(X509Certificate* cert) {
 bool CertVerifyProc::IsPublicKeyBlacklisted(
     const HashValueVector& public_key_hashes) {
   static const unsigned kNumHashes = 17;
-  static const uint8 kHashes[kNumHashes][base::kSHA1Length] = {
+  static const uint8_t kHashes[kNumHashes][base::kSHA1Length] = {
     // Subject: CN=DigiNotar Root CA
     // Issuer: CN=Entrust.net x2 and self-signed
     {0x41, 0x0f, 0x36, 0x36, 0x32, 0x58, 0xf3, 0x0b, 0x34, 0x7d,
@@ -512,7 +529,7 @@ static bool CheckNameConstraints(const std::vector<std::string>& dns_names,
 // array of fixed-length strings that contain the domains that the SPKI is
 // allowed to issue for.
 struct PublicKeyDomainLimitation {
-  uint8 public_key[base::kSHA1Length];
+  uint8_t public_key[base::kSHA1Length];
   const char (*domains)[kMaxDomainLength];
 };
 
@@ -610,6 +627,52 @@ bool CertVerifyProc::HasNameConstraintsViolation(
       }
     }
   }
+
+  return false;
+}
+
+// static
+bool CertVerifyProc::HasTooLongValidity(const X509Certificate& cert) {
+  const base::Time& start = cert.valid_start();
+  const base::Time& expiry = cert.valid_expiry();
+  if (start.is_max() || start.is_null() || expiry.is_max() ||
+      expiry.is_null() || start > expiry) {
+    return true;
+  }
+
+  base::Time::Exploded exploded_start;
+  base::Time::Exploded exploded_expiry;
+  cert.valid_start().UTCExplode(&exploded_start);
+  cert.valid_expiry().UTCExplode(&exploded_expiry);
+
+  if (exploded_expiry.year - exploded_start.year > 10)
+    return true;
+
+  int month_diff = (exploded_expiry.year - exploded_start.year) * 12 +
+                   (exploded_expiry.month - exploded_start.month);
+
+  // Add any remainder as a full month.
+  if (exploded_expiry.day_of_month > exploded_start.day_of_month)
+    ++month_diff;
+
+  static const base::Time time_2012_07_01 =
+      base::Time::FromUTCExploded({2012, 7, 0, 1, 0, 0, 0, 0});
+  static const base::Time time_2015_04_01 =
+      base::Time::FromUTCExploded({2015, 4, 0, 1, 0, 0, 0, 0});
+  static const base::Time time_2019_07_01 =
+      base::Time::FromUTCExploded({2019, 7, 0, 1, 0, 0, 0, 0});
+
+  // For certificates issued before the BRs took effect.
+  if (start < time_2012_07_01 && (month_diff > 120 || expiry > time_2019_07_01))
+    return true;
+
+  // For certificates issued after 1 July 2012: 60 months.
+  if (start >= time_2012_07_01 && month_diff > 60)
+    return true;
+
+  // For certificates issued after 1 April 2015: 39 months.
+  if (start >= time_2015_04_01 && month_diff > 39)
+    return true;
 
   return false;
 }

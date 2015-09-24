@@ -6,8 +6,8 @@
 #define CHROME_BROWSER_UI_PANELS_PANEL_COLLECTION_H_
 
 #include "chrome/browser/ui/panels/panel_constants.h"
-#include "ui/gfx/point.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/gfx/geometry/rect.h"
 
 class Panel;
 

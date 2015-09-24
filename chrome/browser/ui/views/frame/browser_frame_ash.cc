@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/views/frame/browser_frame_ash.h"
 
+#include "ash/shell.h"
 #include "ash/wm/window_properties.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_state_delegate.h"
@@ -16,8 +17,6 @@
 #include "ui/aura/window.h"
 #include "ui/aura/window_observer.h"
 #include "ui/views/view.h"
-
-using aura::Window;
 
 namespace {
 
@@ -99,8 +98,8 @@ void BrowserFrameAsh::OnWindowTargetVisibilityChanged(bool visible) {
 }
 
 bool BrowserFrameAsh::ShouldSaveWindowPlacement() const {
-  return NULL == GetWidget()->GetNativeWindow()->GetProperty(
-                     ash::kRestoreBoundsOverrideKey);
+  return nullptr == GetWidget()->GetNativeWindow()->GetProperty(
+                        ash::kRestoreBoundsOverrideKey);
 }
 
 void BrowserFrameAsh::GetWindowPlacement(
@@ -122,17 +121,40 @@ void BrowserFrameAsh::GetWindowPlacement(
       *show_state != ui::SHOW_STATE_MINIMIZED) {
     *show_state = ui::SHOW_STATE_NORMAL;
   }
+
+  if (ash::wm::GetWindowState(GetNativeWindow())->IsDocked()) {
+    if (browser_view_->browser()->is_app()) {
+      // Only web app windows (not tabbed browser windows) persist docked state.
+      *show_state = ui::SHOW_STATE_DOCKED;
+    } else {
+      // Restore original restore bounds for tabbed browser windows ignoring
+      // the docked origin.
+      gfx::Rect* restore_bounds = GetWidget()->GetNativeWindow()->GetProperty(
+          aura::client::kRestoreBoundsKey);
+      if (restore_bounds)
+        *bounds = *restore_bounds;
+    }
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // BrowserFrameAsh, NativeBrowserFrame implementation:
 
-views::NativeWidget* BrowserFrameAsh::AsNativeWidget() {
-  return this;
+views::Widget::InitParams BrowserFrameAsh::GetWidgetParams() {
+  views::Widget::InitParams params;
+  params.native_widget = this;
+
+  params.context = ash::Shell::GetPrimaryRootWindow();
+#if defined(OS_WIN)
+  // If this window is under ASH on Windows, we need it to be translucent.
+  params.opacity = views::Widget::InitParams::TRANSLUCENT_WINDOW;
+#endif
+
+  return params;
 }
 
-const views::NativeWidget* BrowserFrameAsh::AsNativeWidget() const {
-  return this;
+bool BrowserFrameAsh::UseCustomFrame() const {
+  return true;
 }
 
 bool BrowserFrameAsh::UsesNativeSystemMenu() const {

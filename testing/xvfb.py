@@ -50,7 +50,7 @@ def start_xvfb(xvfb_path, display):
     xvfb_path: Path to Xvfb.
   """
   cmd = [xvfb_path, display, '-screen', '0', '1024x768x24', '-ac',
-         '-nolisten', 'tcp']
+         '-nolisten', 'tcp', '-dpi', '96']
   try:
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -94,7 +94,7 @@ def run_executable(cmd, build_dir, env):
     # No need to recurse.
     return test_env.run_executable(cmd, env)
 
-  pid = None
+  xvfb_proc = None
   xvfb = 'Xvfb'
   try:
     if sys.platform == 'linux2':
@@ -130,8 +130,9 @@ def run_executable(cmd, build_dir, env):
         return 1
     return test_env.run_executable(cmd, env)
   finally:
-    if pid:
-      kill(pid)
+    # When the X server dies, it takes down the window manager with it.
+    if xvfb_proc and xvfb_proc.pid:
+      kill(xvfb_proc.pid)
 
 
 def main():

@@ -63,6 +63,9 @@ class DownloadItemModelData : public base::SupportsUserData::Data {
   // come up with a verdict.
   bool is_dangerous_file_based_on_type_;
 
+  // Whether the download is currently being revived.
+  bool is_being_revived_;
+
  private:
   DownloadItemModelData();
   ~DownloadItemModelData() override {}
@@ -95,7 +98,8 @@ DownloadItemModelData::DownloadItemModelData()
     : should_show_in_shelf_(true),
       was_ui_notified_(false),
       should_prefer_opening_in_browser_(false),
-      is_dangerous_file_based_on_type_(false) {
+      is_dangerous_file_based_on_type_(false),
+      is_being_revived_(false) {
 }
 
 base::string16 InterruptReasonStatusMessage(int reason) {
@@ -162,6 +166,9 @@ base::string16 InterruptReasonStatusMessage(int reason) {
       break;
     case content::DOWNLOAD_INTERRUPT_REASON_SERVER_CERT_PROBLEM:
       string_id = IDS_DOWNLOAD_INTERRUPTED_STATUS_SERVER_CERT_PROBLEM;
+      break;
+    case content::DOWNLOAD_INTERRUPT_REASON_SERVER_FORBIDDEN:
+      string_id = IDS_DOWNLOAD_INTERRUPTED_STATUS_FORBIDDEN;
       break;
     case content::DOWNLOAD_INTERRUPT_REASON_NONE:
       NOTREACHED();
@@ -240,6 +247,9 @@ base::string16 InterruptReasonMessage(int reason) {
       break;
     case content::DOWNLOAD_INTERRUPT_REASON_SERVER_CERT_PROBLEM:
       string_id = IDS_DOWNLOAD_INTERRUPTED_DESCRIPTION_SERVER_CERT_PROBLEM;
+      break;
+    case content::DOWNLOAD_INTERRUPT_REASON_SERVER_FORBIDDEN:
+      string_id = IDS_DOWNLOAD_INTERRUPTED_DESCRIPTION_FORBIDDEN;
       break;
     case content::DOWNLOAD_INTERRUPT_REASON_NONE:
       NOTREACHED();
@@ -608,6 +618,16 @@ bool DownloadItemModel::IsDangerousFileBasedOnType() const {
 void DownloadItemModel::SetIsDangerousFileBasedOnType(bool dangerous) {
   DownloadItemModelData* data = DownloadItemModelData::GetOrCreate(download_);
   data->is_dangerous_file_based_on_type_ = dangerous;
+}
+
+bool DownloadItemModel::IsBeingRevived() const {
+  const DownloadItemModelData* data = DownloadItemModelData::Get(download_);
+  return data && data->is_being_revived_;
+}
+
+void DownloadItemModel::SetIsBeingRevived(bool is_being_revived) {
+  DownloadItemModelData* data = DownloadItemModelData::GetOrCreate(download_);
+  data->is_being_revived_ = is_being_revived;
 }
 
 base::string16 DownloadItemModel::GetProgressSizesString() const {

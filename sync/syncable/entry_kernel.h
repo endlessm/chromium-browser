@@ -13,9 +13,8 @@
 #include "sync/internal_api/public/base/model_type.h"
 #include "sync/internal_api/public/base/unique_position.h"
 #include "sync/internal_api/public/util/immutable.h"
-#include "sync/protocol/attachments.pb.h"
-#include "sync/protocol/sync.pb.h"
 #include "sync/syncable/metahandle_set.h"
+#include "sync/syncable/proto_value_ptr.h"
 #include "sync/syncable/syncable_id.h"
 #include "sync/util/time.h"
 
@@ -178,9 +177,13 @@ enum {
 };
 
 enum BitTemp {
-  // Not to be confused with IS_UNSYNCED, this bit is used to detect local
-  // changes to items that happen during the server Commit operation.
+  // Whether a server commit operation was started and has not yet completed
+  // for this entity.
   SYNCING = BIT_TEMPS_BEGIN,
+  // Whether a local change was made to an entity that had SYNCING set to true,
+  // and was therefore in the middle of a commit operation.
+  // Note: must only be set if SYNCING is true.
+  DIRTY_SYNC,
   BIT_TEMPS_END,
 };
 
@@ -193,12 +196,12 @@ enum {
 struct SYNC_EXPORT_PRIVATE EntryKernel {
  private:
   std::string string_fields[STRING_FIELDS_COUNT];
-  sync_pb::EntitySpecifics specifics_fields[PROTO_FIELDS_COUNT];
+  EntitySpecificsPtr specifics_fields[PROTO_FIELDS_COUNT];
   int64 int64_fields[INT64_FIELDS_COUNT];
   base::Time time_fields[TIME_FIELDS_COUNT];
   Id id_fields[ID_FIELDS_COUNT];
   UniquePosition unique_position_fields[UNIQUE_POSITION_FIELDS_COUNT];
-  sync_pb::AttachmentMetadata
+  AttachmentMetadataPtr
       attachment_metadata_fields[ATTACHMENT_METADATA_FIELDS_COUNT];
   std::bitset<BIT_FIELDS_COUNT> bit_fields;
   std::bitset<BIT_TEMPS_COUNT> bit_temps;
@@ -265,15 +268,15 @@ struct SYNC_EXPORT_PRIVATE EntryKernel {
     string_fields[field - STRING_FIELDS_BEGIN] = value;
   }
   inline void put(ProtoField field, const sync_pb::EntitySpecifics& value) {
-    specifics_fields[field - PROTO_FIELDS_BEGIN].CopyFrom(value);
+    specifics_fields[field - PROTO_FIELDS_BEGIN].set_value(value);
   }
   inline void put(UniquePositionField field, const UniquePosition& value) {
     unique_position_fields[field - UNIQUE_POSITION_FIELDS_BEGIN] = value;
   }
   inline void put(AttachmentMetadataField field,
                   const sync_pb::AttachmentMetadata& value) {
-    attachment_metadata_fields[field - ATTACHMENT_METADATA_FIELDS_BEGIN] =
-        value;
+    attachment_metadata_fields[field - ATTACHMENT_METADATA_FIELDS_BEGIN]
+        .set_value(value);
   }
   inline void put(BitTemp field, bool value) {
     bit_temps[field - BIT_TEMPS_BEGIN] = value;
@@ -308,14 +311,15 @@ struct SYNC_EXPORT_PRIVATE EntryKernel {
     return string_fields[field - STRING_FIELDS_BEGIN];
   }
   inline const sync_pb::EntitySpecifics& ref(ProtoField field) const {
-    return specifics_fields[field - PROTO_FIELDS_BEGIN];
+    return specifics_fields[field - PROTO_FIELDS_BEGIN].value();
   }
   inline const UniquePosition& ref(UniquePositionField field) const {
     return unique_position_fields[field - UNIQUE_POSITION_FIELDS_BEGIN];
   }
   inline const sync_pb::AttachmentMetadata& ref(
       AttachmentMetadataField field) const {
-    return attachment_metadata_fields[field - ATTACHMENT_METADATA_FIELDS_BEGIN];
+    return attachment_metadata_fields[field - ATTACHMENT_METADATA_FIELDS_BEGIN]
+        .value();
   }
   inline bool ref(BitTemp field) const {
     return bit_temps[field - BIT_TEMPS_BEGIN];
@@ -325,18 +329,24 @@ struct SYNC_EXPORT_PRIVATE EntryKernel {
   inline std::string& mutable_ref(StringField field) {
     return string_fields[field - STRING_FIELDS_BEGIN];
   }
-  inline sync_pb::EntitySpecifics& mutable_ref(ProtoField field) {
-    return specifics_fields[field - PROTO_FIELDS_BEGIN];
-  }
   inline Id& mutable_ref(IdField field) {
     return id_fields[field - ID_FIELDS_BEGIN];
   }
   inline UniquePosition& mutable_ref(UniquePositionField field) {
     return unique_position_fields[field - UNIQUE_POSITION_FIELDS_BEGIN];
   }
-  inline sync_pb::AttachmentMetadata& mutable_ref(
-      AttachmentMetadataField field) {
-    return attachment_metadata_fields[field - ATTACHMENT_METADATA_FIELDS_BEGIN];
+
+  // Sharing data methods for ::google::protobuf::MessageLite derived types.
+  inline void copy(ProtoField src, ProtoField dest) {
+    DCHECK_NE(src, dest);
+    specifics_fields[dest - PROTO_FIELDS_BEGIN] =
+        specifics_fields[src - PROTO_FIELDS_BEGIN];
+  }
+
+  inline void copy(AttachmentMetadataField src, AttachmentMetadataField dest) {
+    DCHECK_NE(src, dest);
+    attachment_metadata_fields[dest - ATTACHMENT_METADATA_FIELDS_BEGIN] =
+        attachment_metadata_fields[src - ATTACHMENT_METADATA_FIELDS_BEGIN];
   }
 
   ModelType GetModelType() const;

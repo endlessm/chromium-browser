@@ -5,19 +5,22 @@
 import os
 import unittest
 
+from telemetry import story
+from telemetry import page as page_module
 from telemetry import value
-from telemetry.page import page_set
 from telemetry.value import skip
 
 
 class TestBase(unittest.TestCase):
   def setUp(self):
-    self.page_set = page_set.PageSet(file_path=os.path.dirname(__file__))
-    self.page_set.AddPageWithDefaultRunNavigate("http://www.bar.com/")
+    story_set = story.StorySet(base_dir=os.path.dirname(__file__))
+    story_set.AddStory(
+        page_module.Page('http://www.bar.com/', story_set, story_set.base_dir))
+    self.story_set = story_set
 
   @property
   def pages(self):
-    return self.page_set.pages
+    return self.story_set.stories
 
 class ValueTest(TestBase):
   def testBuildbotAndRepresentativeValue(self):

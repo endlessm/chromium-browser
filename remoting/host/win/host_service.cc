@@ -206,7 +206,7 @@ void HostService::CreateLauncher(
   scoped_refptr<AutoThreadTaskRunner> io_task_runner =
       AutoThread::CreateWithType(
           kIoThreadName, task_runner, base::MessageLoop::TYPE_IO);
-  if (!io_task_runner) {
+  if (!io_task_runner.get()) {
     LOG(FATAL) << "Failed to start the I/O thread";
     return;
   }
@@ -220,7 +220,7 @@ void HostService::CreateLauncher(
 int HostService::RunAsService() {
   SERVICE_TABLE_ENTRYW dispatch_table[] = {
     { const_cast<LPWSTR>(kWindowsServiceName), &HostService::ServiceMain },
-    { NULL, NULL }
+    { nullptr, nullptr }
   };
 
   if (!StartServiceCtrlDispatcherW(dispatch_table)) {
@@ -239,7 +239,7 @@ int HostService::RunAsService() {
 void HostService::RunAsServiceImpl() {
   base::MessageLoopForUI message_loop;
   base::RunLoop run_loop;
-  main_task_runner_ = message_loop.message_loop_proxy();
+  main_task_runner_ = message_loop.task_runner();
   weak_ptr_ = weak_factory_.GetWeakPtr();
 
   // Register the service control handler.
@@ -297,7 +297,7 @@ void HostService::RunAsServiceImpl() {
 int HostService::RunInConsole() {
   base::MessageLoopForUI message_loop;
   base::RunLoop run_loop;
-  main_task_runner_ = message_loop.message_loop_proxy();
+  main_task_runner_ = message_loop.task_runner();
   weak_ptr_ = weak_factory_.GetWeakPtr();
 
   int result = kInitializationFailed;

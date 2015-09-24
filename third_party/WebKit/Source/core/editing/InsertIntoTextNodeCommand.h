@@ -39,13 +39,13 @@ public:
         return adoptRefWillBeNoop(new InsertIntoTextNodeCommand(node, offset, text));
     }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     InsertIntoTextNodeCommand(PassRefPtrWillBeRawPtr<Text> node, unsigned offset, const String& text);
 
-    virtual void doApply() override;
-    virtual void doUnapply() override;
+    void doApply() override;
+    void doUnapply() override;
 
     RefPtrWillBeMember<Text> m_node;
     unsigned m_offset;

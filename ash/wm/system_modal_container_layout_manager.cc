@@ -30,8 +30,6 @@
 #include "ui/views/widget/widget.h"
 #include "ui/wm/core/compound_event_filter.h"
 
-DECLARE_EXPORTED_WINDOW_PROPERTY_TYPE(ASH_EXPORT, bool);
-
 namespace ash {
 
 // If this is set to true, the window will get centered.
@@ -114,8 +112,11 @@ void SystemModalContainerLayoutManager::OnWindowPropertyChanged(
 
 void SystemModalContainerLayoutManager::OnWindowDestroying(
     aura::Window* window) {
-  if (modal_background_ && modal_background_->GetNativeView() == window)
+  if (modal_background_ && modal_background_->GetNativeView() == window) {
+    if (keyboard::KeyboardController::GetInstance())
+      keyboard::KeyboardController::GetInstance()->RemoveObserver(this);
     modal_background_ = NULL;
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

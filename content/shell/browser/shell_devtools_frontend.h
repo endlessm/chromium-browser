@@ -9,9 +9,16 @@
 #include "base/compiler_specific.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/memory/weak_ptr.h"
+#include "base/values.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/devtools_frontend_host.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "net/url_request/url_fetcher_delegate.h"
+
+namespace base {
+class Value;
+}
 
 namespace content {
 
@@ -21,7 +28,8 @@ class WebContents;
 
 class ShellDevToolsFrontend : public WebContentsObserver,
                               public DevToolsFrontendHost::Delegate,
-                              public DevToolsAgentHostClient {
+                              public DevToolsAgentHostClient,
+                              public net::URLFetcherDelegate {
  public:
   static ShellDevToolsFrontend* Show(WebContents* inspected_contents);
 
@@ -30,16 +38,29 @@ class ShellDevToolsFrontend : public WebContentsObserver,
   void InspectElementAt(int x, int y);
   void Close();
 
+  void DisconnectFromTarget();
+
   Shell* frontend_shell() const { return frontend_shell_; }
 
+  void CallClientFunction(const std::string& function_name,
+                          const base::Value* arg1,
+                          const base::Value* arg2,
+                          const base::Value* arg3);
+
  protected:
-  ShellDevToolsFrontend(Shell* frontend_shell, DevToolsAgentHost* agent_host);
+  ShellDevToolsFrontend(Shell* frontend_shell, WebContents* inspected_contents);
   ~ShellDevToolsFrontend() override;
+
+  // content::DevToolsAgentHostClient implementation.
+  void AgentHostClosed(DevToolsAgentHost* agent_host, bool replaced) override;
+  void DispatchProtocolMessage(DevToolsAgentHost* agent_host,
+                               const std::string& message) override;
+  base::DictionaryValue* preferences() { return &preferences_; }
 
  private:
   // WebContentsObserver overrides
   void RenderViewCreated(RenderViewHost* render_view_host) override;
-  void DocumentOnLoadCompletedInMainFrame() override;
+  void DocumentAvailableInMainFrame() override;
   void WebContentsDestroyed() override;
 
   // content::DevToolsFrontendHost::Delegate implementation.
@@ -47,14 +68,20 @@ class ShellDevToolsFrontend : public WebContentsObserver,
   void HandleMessageFromDevToolsFrontendToBackend(
       const std::string& message) override;
 
-  // content::DevToolsAgentHostClient implementation.
-  void DispatchProtocolMessage(DevToolsAgentHost* agent_host,
-                               const std::string& message) override;
-  void AgentHostClosed(DevToolsAgentHost* agent_host, bool replaced) override;
+  // net::URLFetcherDelegate overrides.
+  void OnURLFetchComplete(const net::URLFetcher* source) override;
+
+  void SendMessageAck(int request_id,
+                      const base::Value* arg1);
 
   Shell* frontend_shell_;
+  WebContents* inspected_contents_;
   scoped_refptr<DevToolsAgentHost> agent_host_;
   scoped_ptr<DevToolsFrontendHost> frontend_host_;
+  using PendingRequestsMap = std::map<const net::URLFetcher*, int>;
+  PendingRequestsMap pending_requests_;
+  base::DictionaryValue preferences_;
+  base::WeakPtrFactory<ShellDevToolsFrontend> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(ShellDevToolsFrontend);
 };

@@ -4,6 +4,11 @@
 
 #include "ash/wm/overview/window_grid.h"
 
+#include <algorithm>
+#include <functional>
+#include <set>
+#include <vector>
+
 #include "ash/ash_switches.h"
 #include "ash/screen_util.h"
 #include "ash/shell.h"
@@ -11,8 +16,6 @@
 #include "ash/wm/overview/scoped_transform_overview_window.h"
 #include "ash/wm/overview/window_selector.h"
 #include "ash/wm/overview/window_selector_item.h"
-#include "ash/wm/overview/window_selector_panels.h"
-#include "ash/wm/overview/window_selector_window.h"
 #include "ash/wm/window_state.h"
 #include "base/command_line.h"
 #include "base/i18n/string_search.h"
@@ -22,14 +25,17 @@
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/animation/tween.h"
-#include "ui/gfx/vector2d.h"
+#include "ui/gfx/geometry/vector2d.h"
 #include "ui/views/background.h"
+#include "ui/views/border.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 #include "ui/wm/core/window_animations.h"
 
 namespace ash {
 namespace {
+
+typedef std::vector<aura::Window*> Windows;
 
 // An observer which holds onto the passed widget until the animation is
 // complete.
@@ -69,21 +75,7 @@ struct WindowSelectorItemComparator
   }
 
   bool operator()(WindowSelectorItem* window) const {
-    return window->HasSelectableWindow(target);
-  }
-
-  const aura::Window* target;
-};
-
-// A comparator for locating a WindowSelectorItem given a targeted window.
-struct WindowSelectorItemTargetComparator
-    : public std::unary_function<WindowSelectorItem*, bool> {
-  explicit WindowSelectorItemTargetComparator(const aura::Window* target_window)
-      : target(target_window) {
-  }
-
-  bool operator()(WindowSelectorItem* window) const {
-    return window->Contains(target);
+    return window->GetWindow() == target;
   }
 
   const aura::Window* target;
@@ -101,8 +93,9 @@ const int kMinCardsMajor = 3;
 const int kOverviewSelectorTransitionMilliseconds = 100;
 
 // The color and opacity of the overview selector.
-const SkColor kWindowOverviewSelectionColor = SK_ColorBLACK;
-const unsigned char kWindowOverviewSelectorOpacity = 128;
+const SkColor kWindowSelectionColor = SkColorSetARGB(128, 0, 0, 0);
+const SkColor kWindowSelectionBorderColor = SkColorSetARGB(38, 255, 255, 255);
+const int kWindowSelectionBorderThickness = 2;
 
 // The minimum amount of spacing between the bottom of the text filtering
 // text field and the top of the selection widget on the first row of items.
@@ -129,6 +122,86 @@ gfx::Vector2d GetSlideVectorForFadeIn(WindowSelector::Direction direction,
   return vector;
 }
 
+// Given |root_window|, calculates the item size necessary to fit |items|
+// items in the window selection. |bounding_rect| is set to the centered
+// rectangle containing the grid and |item_size| is set to the size of each
+// individual item.
+void CalculateOverviewSizes(aura::Window* root_window,
+                            size_t items,
+                            gfx::Rect* bounding_rect,
+                            gfx::Size* item_size) {
+  gfx::Rect total_bounds = ScreenUtil::ConvertRectToScreen(
+      root_window,
+      ScreenUtil::GetDisplayWorkAreaBoundsInParent(
+          Shell::GetContainer(root_window, kShellWindowId_DefaultContainer)));
+
+  // Reserve space at the top for the text filtering textbox to appear.
+  total_bounds.Inset(
+      0, WindowSelector::kTextFilterBottomEdge + kTextFilterBottomMargin, 0, 0);
+
+  // Find the minimum number of windows per row that will fit all of the
+  // windows on screen.
+  int num_columns = std::max(
+      total_bounds.width() > total_bounds.height() ? kMinCardsMajor : 1,
+      static_cast<int>(ceil(sqrt(total_bounds.width() * items /
+                                 (kCardAspectRatio * total_bounds.height())))));
+  int num_rows = ((items + num_columns - 1) / num_columns);
+  item_size->set_width(std::min(
+      static_cast<int>(total_bounds.width() / num_columns),
+      static_cast<int>(total_bounds.height() * kCardAspectRatio / num_rows)));
+  item_size->set_height(item_size->width() / kCardAspectRatio);
+
+  bounding_rect->set_width(std::min(static_cast<int>(items), num_columns) *
+                           item_size->width());
+  bounding_rect->set_height(num_rows * item_size->height());
+  // Calculate the X and Y offsets necessary to center the grid.
+  bounding_rect->set_x(total_bounds.x() +
+                       (total_bounds.width() - bounding_rect->width()) / 2);
+  bounding_rect->set_y(total_bounds.y() +
+                       (total_bounds.height() - bounding_rect->height()) / 2);
+}
+
+// Reorders the list of windows |items| in |root_window| in an attempt to
+// minimize the distance each window will travel to enter overview. For
+// equidistant windows preserves a stable order between overview sessions
+// by comparing window pointers.
+void ReorderItemsGreedyLeastMovement(std::vector<aura::Window*>* items,
+                                     aura::Window* root_window) {
+  if (items->empty())
+    return;
+  gfx::Rect bounding_rect;
+  gfx::Size item_size;
+  CalculateOverviewSizes(root_window, items->size(), &bounding_rect,
+                         &item_size);
+  int num_columns = std::min(static_cast<int>(items->size()),
+                             bounding_rect.width() / item_size.width());
+  for (size_t i = 0; i < items->size(); ++i) {
+    int column = i % num_columns;
+    int row = i / num_columns;
+    gfx::Point overview_item_center(
+        bounding_rect.x() + column * item_size.width() + item_size.width() / 2,
+        bounding_rect.y() + row * item_size.height() + item_size.height() / 2);
+    // Find the nearest window for this position.
+    size_t swap_index = i;
+    int64 shortest_distance = std::numeric_limits<int64>::max();
+    for (size_t j = i; j < items->size(); ++j) {
+      aura::Window* window = (*items)[j];
+      int64 distance = (ScreenUtil::ConvertRectToScreen(
+                            window, window->GetTargetBounds()).CenterPoint() -
+                        overview_item_center).LengthSquared();
+      // We compare raw pointers to create a stable ordering given two windows
+      // with the same center point.
+      if (distance < shortest_distance ||
+          (distance == shortest_distance && window < (*items)[swap_index])) {
+        shortest_distance = distance;
+        swap_index = j;
+      }
+    }
+    if (swap_index > i)
+      std::swap((*items)[i], (*items)[swap_index]);
+  }
+}
+
 }  // namespace
 
 WindowGrid::WindowGrid(aura::Window* root_window,
@@ -136,29 +209,23 @@ WindowGrid::WindowGrid(aura::Window* root_window,
                        WindowSelector* window_selector)
     : root_window_(root_window),
       window_selector_(window_selector) {
-  WindowSelectorPanels* panels_item = NULL;
-  for (aura::Window::Windows::const_iterator iter = windows.begin();
-       iter != windows.end(); ++iter) {
-    if ((*iter)->GetRootWindow() != root_window)
-      continue;
-    (*iter)->AddObserver(this);
-    observed_windows_.insert(*iter);
-
-    if ((*iter)->type() == ui::wm::WINDOW_TYPE_PANEL &&
-        wm::GetWindowState(*iter)->panel_attached()) {
-      // Attached panel windows are grouped into a single overview item per
-      // grid.
-      if (!panels_item) {
-        panels_item = new WindowSelectorPanels(root_window_);
-        window_list_.push_back(panels_item);
-      }
-      panels_item->AddWindow(*iter);
-    } else {
-      window_list_.push_back(new WindowSelectorWindow(*iter));
-    }
+  std::vector<aura::Window*> windows_in_root;
+  for (auto window : windows) {
+    if (window->GetRootWindow() == root_window)
+      windows_in_root.push_back(window);
   }
-  if (window_list_.empty())
-    return;
+
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshEnableStableOverviewOrder)) {
+    // Reorder windows to try to minimize movement to target overview positions.
+    // This also creates a stable window ordering.
+    ReorderItemsGreedyLeastMovement(&windows_in_root, root_window_);
+  }
+  for (auto window : windows_in_root) {
+    window->AddObserver(this);
+    observed_windows_.insert(window);
+    window_list_.push_back(new WindowSelectorItem(window, window_selector_));
+  }
 }
 
 WindowGrid::~WindowGrid() {
@@ -177,58 +244,23 @@ void WindowGrid::PrepareForOverview() {
 
 void WindowGrid::PositionWindows(bool animate) {
   CHECK(!window_list_.empty());
-
-  gfx::Size window_size;
-  gfx::Rect total_bounds = ScreenUtil::ConvertRectToScreen(
-      root_window_,
-      ScreenUtil::GetDisplayWorkAreaBoundsInParent(
-          Shell::GetContainer(root_window_, kShellWindowId_DefaultContainer)));
-
-  // If the text filtering feature is enabled, reserve space at the top for the
-  // text filtering textbox to appear.
-  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kAshDisableTextFilteringInOverviewMode)) {
-    total_bounds.Inset(
-        0,
-        WindowSelector::kTextFilterBottomEdge + kTextFilterBottomMargin,
-        0,
-        0);
-  }
-
-  // Find the minimum number of windows per row that will fit all of the
-  // windows on screen.
-  num_columns_ = std::max(
-      total_bounds.width() > total_bounds.height() ? kMinCardsMajor : 1,
-      static_cast<int>(ceil(sqrt(total_bounds.width() * window_list_.size() /
-                                 (kCardAspectRatio * total_bounds.height())))));
-  int num_rows = ((window_list_.size() + num_columns_ - 1) / num_columns_);
-  window_size.set_width(std::min(
-      static_cast<int>(total_bounds.width() / num_columns_),
-      static_cast<int>(total_bounds.height() * kCardAspectRatio / num_rows)));
-  window_size.set_height(window_size.width() / kCardAspectRatio);
-
-  // Calculate the X and Y offsets necessary to center the grid.
-  int x_offset = total_bounds.x() + ((window_list_.size() >= num_columns_ ? 0 :
-      (num_columns_ - window_list_.size()) * window_size.width()) +
-      (total_bounds.width() - num_columns_ * window_size.width())) / 2;
-  int y_offset = total_bounds.y() + (total_bounds.height() -
-      num_rows * window_size.height()) / 2;
-
+  gfx::Rect bounding_rect;
+  gfx::Size item_size;
+  CalculateOverviewSizes(root_window_, window_list_.size(), &bounding_rect,
+                         &item_size);
+  num_columns_ = std::min(static_cast<int>(window_list_.size()),
+                          bounding_rect.width() / item_size.width());
   for (size_t i = 0; i < window_list_.size(); ++i) {
     gfx::Transform transform;
     int column = i % num_columns_;
     int row = i / num_columns_;
-    gfx::Rect target_bounds(window_size.width() * column + x_offset,
-                            window_size.height() * row + y_offset,
-                            window_size.width(),
-                            window_size.height());
-    window_list_[i]->SetBounds(root_window_, target_bounds, animate);
+    gfx::Rect target_bounds(item_size.width() * column + bounding_rect.x(),
+                            item_size.height() * row + bounding_rect.y(),
+                            item_size.width(), item_size.height());
+    window_list_[i]->SetBounds(target_bounds, animate ?
+        OverviewAnimationType::OVERVIEW_ANIMATION_LAY_OUT_SELECTOR_ITEMS :
+        OverviewAnimationType::OVERVIEW_ANIMATION_NONE);
   }
-
-  // If we have less than |kMinCardsMajor| windows, adjust the column_ value to
-  // reflect how many "real" columns we have.
-  if (num_columns_ > window_list_.size())
-    num_columns_ = window_list_.size();
 
   // If the selection widget is active, reposition it without any animation.
   if (selection_widget_)
@@ -238,6 +270,7 @@ void WindowGrid::PositionWindows(bool animate) {
 bool WindowGrid::Move(WindowSelector::Direction direction, bool animate) {
   bool recreate_selection_widget = false;
   bool out_of_bounds = false;
+  bool changed_selection_index = false;
   if (!selection_widget_) {
     switch (direction) {
      case WindowSelector::LEFT:
@@ -251,9 +284,11 @@ bool WindowGrid::Move(WindowSelector::Direction direction, bool animate) {
      case WindowSelector::DOWN:
        selected_index_ = 0;
        break;
-     }
+    }
+    changed_selection_index = true;
   }
-  while (SelectedWindow()->dimmed() || selection_widget_) {
+  while (!changed_selection_index ||
+         (!out_of_bounds && window_list_[selected_index_]->dimmed())) {
     switch (direction) {
       case WindowSelector::RIGHT:
         if (selected_index_ >= window_list_.size() - 1)
@@ -290,9 +325,7 @@ bool WindowGrid::Move(WindowSelector::Direction direction, bool animate) {
         }
         break;
     }
-    // Exit the loop if we broke free from the grid or found an active item.
-    if (out_of_bounds || !SelectedWindow()->dimmed())
-      break;
+    changed_selection_index = true;
   }
 
   MoveSelectionWidget(direction, recreate_selection_widget,
@@ -301,21 +334,25 @@ bool WindowGrid::Move(WindowSelector::Direction direction, bool animate) {
 }
 
 WindowSelectorItem* WindowGrid::SelectedWindow() const {
+  if (!selection_widget_)
+    return nullptr;
   CHECK(selected_index_ < window_list_.size());
   return window_list_[selected_index_];
 }
 
 bool WindowGrid::Contains(const aura::Window* window) const {
-  return std::find_if(window_list_.begin(), window_list_.end(),
-                      WindowSelectorItemTargetComparator(window)) !=
-                          window_list_.end();
+  for (const WindowSelectorItem* window_item : window_list_) {
+    if (window_item->Contains(window))
+      return true;
+  }
+  return false;
 }
 
 void WindowGrid::FilterItems(const base::string16& pattern) {
   base::i18n::FixedPatternStringSearchIgnoringCaseAndAccents finder(pattern);
   for (ScopedVector<WindowSelectorItem>::iterator iter = window_list_.begin();
        iter != window_list_.end(); iter++) {
-    if (finder.Search((*iter)->SelectionWindow()->title(), NULL, NULL)) {
+    if (finder.Search((*iter)->GetWindow()->title(), nullptr, nullptr)) {
       (*iter)->SetDimmed(false);
     } else {
       (*iter)->SetDimmed(true);
@@ -333,13 +370,6 @@ void WindowGrid::OnWindowDestroying(aura::Window* window) {
                    WindowSelectorItemComparator(window));
 
   DCHECK(iter != window_list_.end());
-
-  (*iter)->RemoveWindow(window);
-
-  // If there are still windows in this selector entry then the overview is
-  // still active and the active selection remains the same.
-  if (!(*iter)->empty())
-    return;
 
   size_t removed_index = iter - window_list_.begin();
   window_list_.erase(iter);
@@ -368,7 +398,7 @@ void WindowGrid::OnWindowBoundsChanged(aura::Window* window,
                                        const gfx::Rect& new_bounds) {
   ScopedVector<WindowSelectorItem>::const_iterator iter =
       std::find_if(window_list_.begin(), window_list_.end(),
-                   WindowSelectorItemTargetComparator(window));
+                   WindowSelectorItemComparator(window));
   DCHECK(iter != window_list_.end());
 
   // Immediately finish any active bounds animation.
@@ -395,12 +425,14 @@ void WindowGrid::InitSelectionWidget(WindowSelector::Direction direction) {
   ::wm::SetWindowVisibilityAnimationTransition(
       selection_widget_->GetNativeWindow(), ::wm::ANIMATE_NONE);
   // The selection widget should not activate the shelf when passing under it.
-  ash::wm::GetWindowState(selection_widget_->GetNativeWindow())->
+  wm::GetWindowState(selection_widget_->GetNativeWindow())->
       set_ignored_by_shelf(true);
 
   views::View* content_view = new views::View;
   content_view->set_background(
-      views::Background::CreateSolidBackground(kWindowOverviewSelectionColor));
+      views::Background::CreateSolidBackground(kWindowSelectionColor));
+  content_view->SetBorder(views::Border::CreateSolidBorder(
+      kWindowSelectionBorderThickness, kWindowSelectionBorderColor));
   selection_widget_->SetContentsView(content_view);
   selection_widget_->GetNativeWindow()->parent()->StackChildAtBottom(
       selection_widget_->GetNativeWindow());
@@ -470,11 +502,11 @@ void WindowGrid::MoveSelectionWidgetToTarget(bool animate) {
     animation_settings.SetPreemptionStrategy(
         ui::LayerAnimator::IMMEDIATELY_ANIMATE_TO_NEW_TARGET);
     selection_widget_->SetBounds(SelectedWindow()->target_bounds());
-    selection_widget_->SetOpacity(kWindowOverviewSelectorOpacity);
+    selection_widget_->SetOpacity(255);
     return;
   }
   selection_widget_->SetBounds(SelectedWindow()->target_bounds());
-  selection_widget_->SetOpacity(kWindowOverviewSelectorOpacity);
+  selection_widget_->SetOpacity(255);
 }
 
 }  // namespace ash

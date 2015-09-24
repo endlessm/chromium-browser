@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../../include/fxge/fx_ge.h"
@@ -17,13 +17,9 @@ CFX_GEModule::CFX_GEModule()
 }
 CFX_GEModule::~CFX_GEModule()
 {
-    if (m_pFontCache) {
-        delete m_pFontCache;
-    }
+    delete m_pFontCache;
     m_pFontCache = NULL;
-    if (m_pFontMgr) {
-        delete m_pFontMgr;
-    }
+    delete m_pFontMgr;
     m_pFontMgr = NULL;
     DestroyPlatform();
 }
@@ -33,11 +29,8 @@ CFX_GEModule* CFX_GEModule::Get()
 }
 void CFX_GEModule::Create()
 {
-    g_pGEModule = FX_NEW CFX_GEModule;
-    if (!g_pGEModule) {
-        return;
-    }
-    g_pGEModule->m_pFontMgr = FX_NEW CFX_FontMgr;
+    g_pGEModule = new CFX_GEModule;
+    g_pGEModule->m_pFontMgr = new CFX_FontMgr;
     g_pGEModule->InitPlatform();
     g_pGEModule->SetTextGamma(2.2f);
 }
@@ -47,15 +40,13 @@ void CFX_GEModule::Use(CFX_GEModule* pModule)
 }
 void CFX_GEModule::Destroy()
 {
-    if (g_pGEModule) {
-        delete g_pGEModule;
-    }
+    delete g_pGEModule;
     g_pGEModule = NULL;
 }
 CFX_FontCache* CFX_GEModule::GetFontCache()
 {
     if (m_pFontCache == NULL) {
-        m_pFontCache = FX_NEW CFX_FontCache();
+        m_pFontCache = new CFX_FontCache();
     }
     return m_pFontCache;
 }
@@ -64,11 +55,11 @@ void CFX_GEModule::SetTextGamma(FX_FLOAT gammaValue)
     gammaValue /= 2.2f;
     int i = 0;
     while (i < 256) {
-        m_GammaValue[i] = (FX_BYTE)(FXSYS_pow((FX_FLOAT)i / 255, gammaValue) * 255.0f + 0.5f);
+        m_GammaValue[i] = (uint8_t)(FXSYS_pow((FX_FLOAT)i / 255, gammaValue) * 255.0f + 0.5f);
         i++;
     }
 }
-FX_LPCBYTE CFX_GEModule::GetTextGammaTable()
+const uint8_t* CFX_GEModule::GetTextGammaTable()
 {
     return m_GammaValue;
 }

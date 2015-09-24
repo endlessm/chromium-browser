@@ -89,9 +89,9 @@ void Toolchain::SetTool(ToolType type, scoped_ptr<Tool> t) {
 
 void Toolchain::ToolchainSetupComplete() {
   // Collect required bits from all tools.
-  for (size_t i = 0; i < TYPE_NUMTYPES; i++) {
-    if (tools_[i])
-      substitution_bits_.MergeFrom(tools_[i]->substitution_bits());
+  for (const auto& tool : tools_) {
+    if (tool)
+      substitution_bits_.MergeFrom(tool->substitution_bits());
   }
 
   setup_complete_ = true;
@@ -102,7 +102,7 @@ Toolchain::ToolType Toolchain::GetToolTypeForSourceType(SourceFileType type) {
   switch (type) {
     case SOURCE_C:
       return TYPE_CC;
-    case SOURCE_CC:
+    case SOURCE_CPP:
       return TYPE_CXX;
     case SOURCE_M:
       return TYPE_OBJC;
@@ -116,6 +116,7 @@ Toolchain::ToolType Toolchain::GetToolTypeForSourceType(SourceFileType type) {
     case SOURCE_UNKNOWN:
     case SOURCE_H:
     case SOURCE_O:
+    case SOURCE_DEF:
       return TYPE_NONE;
     default:
       NOTREACHED();

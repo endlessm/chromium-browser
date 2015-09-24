@@ -5,13 +5,16 @@
 #include "components/sync_driver/ui_data_type_controller.h"
 
 #include "base/bind.h"
+#include "base/location.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/tracked_objects.h"
 #include "components/sync_driver/data_type_controller_mock.h"
 #include "components/sync_driver/fake_generic_change_processor.h"
 #include "sync/api/fake_syncable_service.h"
 #include "sync/internal_api/public/attachments/attachment_service_impl.h"
+#include "sync/internal_api/public/base/model_type.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using testing::_;
@@ -34,12 +37,8 @@ class SyncUIDataTypeControllerTest : public testing::Test,
         change_processor_(NULL) {}
 
   void SetUp() override {
-    preference_dtc_ =
-        new UIDataTypeController(
-            base::MessageLoopProxy::current(),
-            base::Closure(),
-            type_,
-            this);
+    preference_dtc_ = new UIDataTypeController(
+        base::ThreadTaskRunnerHandle::Get(), base::Closure(), type_, this);
     SetStartExpectations();
   }
 
@@ -56,8 +55,10 @@ class SyncUIDataTypeControllerTest : public testing::Test,
   }
 
   scoped_ptr<syncer::AttachmentService> CreateAttachmentService(
-      const scoped_refptr<syncer::AttachmentStore>& attachment_store,
+      scoped_ptr<syncer::AttachmentStoreForSync> attachment_store,
       const syncer::UserShare& user_share,
+      const std::string& store_birthday,
+      syncer::ModelType model_type,
       syncer::AttachmentService::Delegate* delegate) override {
     return syncer::AttachmentServiceImpl::CreateForTest();
   }
@@ -80,6 +81,7 @@ class SyncUIDataTypeControllerTest : public testing::Test,
     preference_dtc_->StartAssociating(
         base::Bind(&StartCallbackMock::Run,
                    base::Unretained(&start_callback_)));
+    PumpLoop();
   }
 
   void PumpLoop() {
@@ -119,6 +121,18 @@ TEST_F(SyncUIDataTypeControllerTest, StartStop) {
   EXPECT_EQ(DataTypeController::RUNNING, preference_dtc_->state());
   EXPECT_TRUE(syncable_service_.syncing());
   preference_dtc_->Stop();
+  EXPECT_EQ(DataTypeController::NOT_RUNNING, preference_dtc_->state());
+  EXPECT_FALSE(syncable_service_.syncing());
+}
+
+// Start and then stop the DTC before the Start had a chance to perform
+// association. Verify that the service never started and is NOT_RUNNING.
+TEST_F(SyncUIDataTypeControllerTest, StartStopBeforeAssociation) {
+  EXPECT_EQ(DataTypeController::NOT_RUNNING, preference_dtc_->state());
+  EXPECT_FALSE(syncable_service_.syncing());
+  message_loop_.task_runner()->PostTask(
+      FROM_HERE, base::Bind(&UIDataTypeController::Stop, preference_dtc_));
+  Start();
   EXPECT_EQ(DataTypeController::NOT_RUNNING, preference_dtc_->state());
   EXPECT_FALSE(syncable_service_.syncing());
 }

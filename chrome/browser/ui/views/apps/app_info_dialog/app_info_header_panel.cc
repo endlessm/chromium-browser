@@ -139,5 +139,10 @@ void AppInfoHeaderPanel::ShowAppInWebStore() {
 }
 
 bool AppInfoHeaderPanel::CanShowAppInWebStore() const {
-  return app_->from_webstore();
+  // Hide the webstore link for apps which were installed by default,
+  // since this could leak user counts for OEM-specific apps.
+  // Also hide Shared Modules because they are automatically installed
+  // by Chrome when dependent Apps are installed.
+  return app_->from_webstore() && !app_->was_installed_by_default() &&
+      !app_->is_shared_module();
 }

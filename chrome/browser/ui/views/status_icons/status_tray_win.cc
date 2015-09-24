@@ -7,12 +7,17 @@
 #include <commctrl.h>
 
 #include "base/bind.h"
+#include "base/location.h"
+#include "base/profiler/scoped_tracker.h"
+#include "base/single_thread_task_runner.h"
 #include "base/threading/non_thread_safe.h"
 #include "base/threading/thread.h"
 #include "base/win/wrapped_window_proc.h"
+#include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/ui/views/status_icons/status_icon_win.h"
 #include "chrome/browser/ui/views/status_icons/status_tray_state_changer_win.h"
 #include "chrome/common/chrome_constants.h"
+#include "components/browser_watcher/exit_funnel_win.h"
 #include "ui/gfx/screen.h"
 #include "ui/gfx/win/hwnd_util.h"
 
@@ -25,6 +30,32 @@ const UINT kBaseIconId = 2;
 UINT ReservedIconId(StatusTray::StatusIconType type) {
   return kBaseIconId + static_cast<UINT>(type);
 }
+
+// See http://crbug.com/412384.
+void TraceSessionEnding(LPARAM lparam) {
+  browser_watcher::ExitFunnel funnel;
+  if (!funnel.Init(chrome::kBrowserExitCodesRegistryPath,
+                   base::GetCurrentProcessHandle())) {
+    return;
+  }
+
+  // This exit path is the prime suspect for most our unclean shutdowns.
+  // Trace all the possible options to WM_ENDSESSION. This may result in
+  // multiple events for a single shutdown, but that's fine.
+  funnel.RecordEvent(L"TraybarEndSession");
+
+  if (lparam & ENDSESSION_CLOSEAPP)
+    funnel.RecordEvent(L"ES_CloseApp");
+  if (lparam & ENDSESSION_CRITICAL)
+    funnel.RecordEvent(L"ES_Critical");
+  if (lparam & ENDSESSION_LOGOFF)
+    funnel.RecordEvent(L"ES_Logoff");
+  const LPARAM kKnownBits =
+      ENDSESSION_CLOSEAPP | ENDSESSION_CRITICAL | ENDSESSION_LOGOFF;
+  if (lparam & ~kKnownBits)
+    funnel.RecordEvent(L"ES_Other");
+}
+
 }  // namespace
 
 // Default implementation for StatusTrayStateChanger that communicates to
@@ -41,18 +72,17 @@ class StatusTrayStateChangerProxyImpl : public StatusTrayStateChangerProxy,
     worker_thread_.init_com_with_mta(false);
   }
 
-  virtual void EnqueueChange(UINT icon_id, HWND window) override {
+  void EnqueueChange(UINT icon_id, HWND window) override {
     DCHECK(CalledOnValidThread());
     if (pending_requests_ == 0)
       worker_thread_.Start();
 
     ++pending_requests_;
-    worker_thread_.message_loop_proxy()->PostTaskAndReply(
+    worker_thread_.task_runner()->PostTaskAndReply(
         FROM_HERE,
         base::Bind(
             &StatusTrayStateChangerProxyImpl::EnqueueChangeOnWorkerThread,
-            icon_id,
-            window),
+            icon_id, window),
         base::Bind(&StatusTrayStateChangerProxyImpl::ChangeDone,
                    weak_factory_.GetWeakPtr()));
   }
@@ -193,6 +223,12 @@ LRESULT CALLBACK StatusTrayWin::WndProc(HWND hwnd,
         win_icon->HandleClickEvent(cursor_pos, lparam == WM_LBUTTONDOWN);
         return TRUE;
     }
+  } else if (message == WM_ENDSESSION) {
+    // If Chrome is in background-only mode, this is the only notification
+    // it gets that Windows is exiting. Make sure we shutdown in an orderly
+    // fashion.
+    TraceSessionEnding(lparam);
+    chrome::SessionEnding();
   }
   return ::DefWindowProc(hwnd, message, wparam, lparam);
 }

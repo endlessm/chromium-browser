@@ -23,13 +23,18 @@ class ServiceUrls {
   // Remoting directory REST API URLs.
   const std::string& directory_base_url() const;
   const std::string& directory_hosts_url() const;
+  const std::string& gcd_base_url() const;
 
   // XMPP Server configuration.
   const std::string& xmpp_server_address() const;
+  const std::string& xmpp_server_address_for_me2me_host() const;
   bool xmpp_server_use_tls() const;
 
   // Remoting directory bot JID (for registering hosts, logging, heartbeats).
   const std::string& directory_bot_jid() const;
+
+  // JID for communicating with GCD.
+  const std::string& gcd_jid() const;
 
  private:
   friend struct DefaultSingletonTraits<ServiceUrls>;
@@ -39,9 +44,12 @@ class ServiceUrls {
 
   std::string directory_base_url_;
   std::string directory_hosts_url_;
+  std::string gcd_base_url_;
   std::string xmpp_server_address_;
+  std::string xmpp_server_address_for_me2me_host_;
   bool xmpp_server_use_tls_;
   std::string directory_bot_jid_;
+  std::string gcd_jid_;
 
   DISALLOW_COPY_AND_ASSIGN(ServiceUrls);
 };

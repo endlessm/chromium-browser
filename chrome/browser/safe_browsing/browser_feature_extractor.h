@@ -29,10 +29,12 @@
 #include "url/gurl.h"
 
 
-class HistoryService;
-
 namespace content {
 class WebContents;
+}
+
+namespace history {
+class HistoryService;
 }
 
 namespace safe_browsing {
@@ -79,9 +81,6 @@ struct BrowseInfo {
 
   // The HTTP status code from this navigation.
   int http_status_code;
-
-  // The page ID of the navigation.  This comes from FrameNavigateParams.
-  int32 page_id;
 
   BrowseInfo();
   ~BrowseInfo();
@@ -172,7 +171,7 @@ class BrowserFeatureExtractor {
 
   // Helper function which gets the history server if possible.  If the pointer
   // is set it will return true and false otherwise.
-  bool GetHistoryService(HistoryService** history);
+  bool GetHistoryService(history::HistoryService** history);
 
   // Helper function which is called when we're done filtering out benign IPs
   // on the IO thread.  This function is called on the UI thread.

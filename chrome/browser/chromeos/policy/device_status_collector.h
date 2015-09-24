@@ -5,9 +5,12 @@
 #ifndef CHROME_BROWSER_CHROMEOS_POLICY_DEVICE_STATUS_COLLECTOR_H_
 #define CHROME_BROWSER_CHROMEOS_POLICY_DEVICE_STATUS_COLLECTOR_H_
 
+#include <deque>
 #include <string>
+#include <vector>
 
 #include "base/basictypes.h"
+#include "base/callback_forward.h"
 #include "base/callback_list.h"
 #include "base/compiler_specific.h"
 #include "base/memory/ref_counted.h"
@@ -17,11 +20,11 @@
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
-#include "chrome/browser/chromeos/version_loader.h"
-#include "chrome/browser/idle.h"
-#include "components/policy/core/common/cloud/cloud_policy_client.h"
+#include "chromeos/system/version_loader.h"
 #include "content/public/browser/geolocation_provider.h"
 #include "content/public/common/geoposition.h"
+#include "policy/proto/device_management_backend.pb.h"
+#include "ui/base/idle/idle.h"
 
 namespace chromeos {
 class CrosSettings;
@@ -35,17 +38,15 @@ class NotificationDetails;
 class NotificationSource;
 }
 
-namespace enterprise_management {
-class DeviceStatusReportRequest;
-}
-
 class PrefRegistrySimple;
 class PrefService;
 
 namespace policy {
 
+struct DeviceLocalAccount;
+
 // Collects and summarizes the status of an enterprised-managed ChromeOS device.
-class DeviceStatusCollector : public CloudPolicyClient::StatusProvider {
+class DeviceStatusCollector {
  public:
   // TODO(bartfab): Remove this once crbug.com/125931 is addressed and a proper
   // way to mock geolocation exists.
@@ -53,25 +54,58 @@ class DeviceStatusCollector : public CloudPolicyClient::StatusProvider {
       const content::GeolocationProvider::LocationUpdateCallback& callback)>
           LocationUpdateRequester;
 
+  using VolumeInfoFetcher = base::Callback<
+    std::vector<enterprise_management::VolumeInfo>(
+        const std::vector<std::string>& mount_points)>;
+
+  // Reads the first CPU line from /proc/stat. Returns an empty string if
+  // the cpu data could not be read. Broken out into a callback to enable
+  // mocking for tests.
+  //
+  // The format of this line from /proc/stat is:
+  //   cpu  user_time nice_time system_time idle_time
+  using CPUStatisticsFetcher = base::Callback<std::string(void)>;
+
+  // Constructor. Callers can inject their own VolumeInfoFetcher and
+  // CPUStatisticsFetcher. A null callback can be passed for either parameter,
+  // to use the default implementation.
   DeviceStatusCollector(
       PrefService* local_state,
       chromeos::system::StatisticsProvider* provider,
-      LocationUpdateRequester* location_update_requester);
+      const LocationUpdateRequester& location_update_requester,
+      const VolumeInfoFetcher& volume_info_fetcher,
+      const CPUStatisticsFetcher& cpu_statistics_fetcher);
   virtual ~DeviceStatusCollector();
 
-  void GetStatus(enterprise_management::DeviceStatusReportRequest* request);
-
-  // CloudPolicyClient::StatusProvider:
+  // Fills in the passed proto with device status information. Will return
+  // false if no status information is filled in (because status reporting
+  // is disabled).
   virtual bool GetDeviceStatus(
-      enterprise_management::DeviceStatusReportRequest* status) override;
-  virtual bool GetSessionStatus(
-      enterprise_management::SessionStatusReportRequest* status) override;
-  virtual void OnSubmittedSuccessfully() override;
+      enterprise_management::DeviceStatusReportRequest* status);
+
+  // Fills in the passed proto with session status information. Will return
+  // false if no status information is filled in (because status reporting
+  // is disabled, or because the active session is not a kiosk session).
+  virtual bool GetDeviceSessionStatus(
+      enterprise_management::SessionStatusReportRequest* status);
+
+  // Called after the status information has successfully been submitted to
+  // the server.
+  void OnSubmittedSuccessfully();
 
   static void RegisterPrefs(PrefRegistrySimple* registry);
 
+  // Returns the DeviceLocalAccount associated with the currently active
+  // kiosk session, if the session was auto-launched with zero delay
+  // (this enables functionality such as network reporting).
+  // Virtual to allow mocking.
+  virtual scoped_ptr<DeviceLocalAccount> GetAutoLaunchedKioskSessionInfo();
+
   // How often, in seconds, to poll to see if the user is idle.
   static const unsigned int kIdlePollIntervalSeconds = 30;
+
+  // The total number of hardware resource usage samples cached internally.
+  static const unsigned int kMaxResourceUsageSamples = 10;
 
  protected:
   // Check whether the user has been idle for a certain period of time.
@@ -81,7 +115,14 @@ class DeviceStatusCollector : public CloudPolicyClient::StatusProvider {
   virtual base::Time GetCurrentTime();
 
   // Callback which receives the results of the idle state check.
-  void IdleStateCallback(IdleState state);
+  void IdleStateCallback(ui::IdleState state);
+
+  // Gets the version of the passed app. Virtual to allow mocking.
+  virtual std::string GetAppVersion(const std::string& app_id);
+
+  // Samples the current hardware status to be sent up with the next device
+  // status update.
+  void SampleHardwareStatus();
 
   // The number of days in the past to store device activity.
   // This is kept in case device status uploads fail for a number of days.
@@ -106,6 +147,9 @@ class DeviceStatusCollector : public CloudPolicyClient::StatusProvider {
 
   void AddActivePeriod(base::Time start, base::Time end);
 
+  // Clears the cached hardware status.
+  void ClearCachedHardwareStatus();
+
   // Callbacks from chromeos::VersionLoader.
   void OnOSVersion(const std::string& version);
   void OnOSFirmware(const std::string& version);
@@ -123,6 +167,8 @@ class DeviceStatusCollector : public CloudPolicyClient::StatusProvider {
       enterprise_management::DeviceStatusReportRequest* request);
   void GetUsers(
       enterprise_management::DeviceStatusReportRequest* request);
+  void GetHardwareStatus(
+      enterprise_management::DeviceStatusReportRequest* request);
 
   // Update the cached values of the reporting settings.
   void UpdateReportingSettings();
@@ -132,8 +178,16 @@ class DeviceStatusCollector : public CloudPolicyClient::StatusProvider {
   // content::GeolocationUpdateCallback implementation.
   void ReceiveGeolocationUpdate(const content::Geoposition&);
 
-  // How often to poll to see if the user is idle.
-  int poll_interval_seconds_;
+  // Callback invoked to update our cached disk information.
+  void ReceiveVolumeInfo(
+      const std::vector<enterprise_management::VolumeInfo>& info);
+
+  // Callback invoked to update our cpu usage information.
+  void ReceiveCPUStatistics(const std::string& statistics);
+
+  // Helper routine to convert from Shill-provided signal strength (percent)
+  // to dBm units expected by server.
+  int ConvertWifiSignalStrength(int signal_strength);
 
   PrefService* local_state_;
 
@@ -151,19 +205,43 @@ class DeviceStatusCollector : public CloudPolicyClient::StatusProvider {
   bool geolocation_update_in_progress_;
 
   base::RepeatingTimer<DeviceStatusCollector> idle_poll_timer_;
+  base::RepeatingTimer<DeviceStatusCollector> hardware_status_sampling_timer_;
   base::OneShotTimer<DeviceStatusCollector> geolocation_update_timer_;
-
-  chromeos::VersionLoader version_loader_;
-  base::CancelableTaskTracker tracker_;
 
   std::string os_version_;
   std::string firmware_version_;
 
   content::Geoposition position_;
 
+  // Cached disk volume information.
+  std::vector<enterprise_management::VolumeInfo> volume_info_;
+
+  struct ResourceUsage {
+    // Sample of percentage-of-CPU-used.
+    int cpu_usage_percent;
+
+    // Amount of free RAM (measures raw memory used by processes, not internal
+    // memory waiting to be reclaimed by GC).
+    int64 bytes_of_ram_free;
+  };
+
+  // Samples of resource usage (contains multiple samples taken
+  // periodically every kHardwareStatusSampleIntervalSeconds).
+  std::deque<ResourceUsage> resource_usage_;
+
+  // Callback invoked to fetch information about the mounted disk volumes.
+  VolumeInfoFetcher volume_info_fetcher_;
+
+  // Callback invoked to fetch information about cpu usage.
+  CPUStatisticsFetcher cpu_statistics_fetcher_;
+
   chromeos::system::StatisticsProvider* statistics_provider_;
 
   chromeos::CrosSettings* cros_settings_;
+
+  // The most recent CPU readings.
+  uint64 last_cpu_active_;
+  uint64 last_cpu_idle_;
 
   // TODO(bartfab): Remove this once crbug.com/125931 is addressed and a proper
   // way to mock geolocation exists.
@@ -179,6 +257,8 @@ class DeviceStatusCollector : public CloudPolicyClient::StatusProvider {
   bool report_location_;
   bool report_network_interfaces_;
   bool report_users_;
+  bool report_hardware_status_;
+  bool report_session_status_;
 
   scoped_ptr<chromeos::CrosSettings::ObserverSubscription>
       version_info_subscription_;
@@ -192,6 +272,10 @@ class DeviceStatusCollector : public CloudPolicyClient::StatusProvider {
       network_interfaces_subscription_;
   scoped_ptr<chromeos::CrosSettings::ObserverSubscription>
       users_subscription_;
+  scoped_ptr<chromeos::CrosSettings::ObserverSubscription>
+      hardware_status_subscription_;
+  scoped_ptr<chromeos::CrosSettings::ObserverSubscription>
+      session_status_subscription_;
 
   base::WeakPtrFactory<DeviceStatusCollector> weak_factory_;
 

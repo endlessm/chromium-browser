@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ash/accelerators/accelerator_commands.h"
+#include "ash/accelerators/debug_commands.h"
 
-#include "ash/accelerators/accelerator_table.h"
+#include "ash/accelerators/accelerator_commands.h"
 #include "ash/ash_switches.h"
 #include "ash/debug.h"
 #include "ash/desktop_background/desktop_background_controller.h"
@@ -108,17 +108,17 @@ void HandleToggleDesktopBackgroundMode() {
     case 1:
       desktop_background_controller->SetWallpaperImage(
           CreateWallpaperImage(SK_ColorRED, SK_ColorBLUE),
-          WALLPAPER_LAYOUT_STRETCH);
+          wallpaper::WALLPAPER_LAYOUT_STRETCH);
       break;
     case 2:
       desktop_background_controller->SetWallpaperImage(
           CreateWallpaperImage(SK_ColorBLUE, SK_ColorGREEN),
-          WALLPAPER_LAYOUT_CENTER);
+          wallpaper::WALLPAPER_LAYOUT_CENTER);
       break;
     case 3:
       desktop_background_controller->SetWallpaperImage(
           CreateWallpaperImage(SK_ColorGREEN, SK_ColorRED),
-          WALLPAPER_LAYOUT_CENTER_CROPPED);
+          wallpaper::WALLPAPER_LAYOUT_CENTER_CROPPED);
       break;
   }
 }
@@ -139,9 +139,9 @@ bool DebugAcceleratorsEnabled() {
       switches::kAshDebugShortcuts);
 }
 
-bool PerformDebugAction(int action) {
+void PerformDebugActionIfEnabled(AcceleratorAction action) {
   if (!DebugAcceleratorsEnabled())
-    return false;
+    return;
 
   switch (action) {
 #if defined(OS_CHROMEOS)
@@ -177,9 +177,8 @@ bool PerformDebugAction(int action) {
       ToggleShowPaintRects();
       break;
     default:
-      return false;
+      break;
   }
-  return true;
 }
 
 }  // namespace debug

@@ -9,32 +9,23 @@ namespace syncable {
 
 InMemoryDirectoryBackingStore::InMemoryDirectoryBackingStore(
     const std::string& dir_name)
-    : DirectoryBackingStore(dir_name),
-      consistent_cache_guid_requested_(false) {
+    : DirectoryBackingStore(dir_name) {
 }
 
 DirOpenResult InMemoryDirectoryBackingStore::Load(
     Directory::MetahandlesMap* handles_map,
     JournalIndex* delete_journals,
+    MetahandleSet* metahandles_to_purge,
     Directory::KernelLoadInfo* kernel_load_info) {
-  if (!db_->is_open()) {
-    if (!db_->OpenInMemory())
+  if (!IsOpen()) {
+    if (!OpenInMemory())
       return FAILED_OPEN_DATABASE;
   }
 
   if (!InitializeTables())
     return FAILED_OPEN_DATABASE;
 
-  if (consistent_cache_guid_requested_) {
-    if (!db_->Execute("UPDATE share_info "
-                      "SET cache_guid = 'IrcjZ2jyzHDV9Io4+zKcXQ=='")) {
-      return FAILED_OPEN_DATABASE;
-    }
-  }
-
-  if (!DropDeletedEntries())
-    return FAILED_DATABASE_CORRUPT;
-  if (!LoadEntries(handles_map))
+  if (!LoadEntries(handles_map, metahandles_to_purge))
     return FAILED_DATABASE_CORRUPT;
   if (!LoadDeleteJournals(delete_journals))
     return FAILED_DATABASE_CORRUPT;

@@ -17,6 +17,7 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "content/public/common/media_stream_request.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -31,7 +32,8 @@ void NotifyTabSpecificContentSettings(
   // permissions state to the TabSpecificContentSettings. Deny() and Accept()
   // differ in their effect on the controller itself, but that is not important
   // in the tests calling this.
-  controller->Accept(false);
+  if (controller->IsAskingForAudio() || controller->IsAskingForVideo())
+    controller->PermissionGranted();
 }
 
 }  // namespace
@@ -39,9 +41,17 @@ void NotifyTabSpecificContentSettings(
 class MediaStreamDevicesControllerTest : public WebRtcTestBase {
  public:
   MediaStreamDevicesControllerTest()
-      : example_url_("about:blank"),
-        example_audio_id_("example audio ID"),
-        example_video_id_("example video ID") {}
+      : example_audio_id_("fake_audio_dev"),
+        example_video_id_("fake_video_dev"),
+        media_stream_result_(content::NUM_MEDIA_REQUEST_RESULTS) {}
+
+  // Dummy callback for when we deny the current request directly.
+  void OnMediaStreamResponse(const content::MediaStreamDevices& devices,
+                             content::MediaStreamRequestResult result,
+                             scoped_ptr<content::MediaStreamUI> ui) {
+    media_stream_devices_ = devices;
+    media_stream_result_ = result;
+  }
 
  protected:
   enum DeviceType { DEVICE_TYPE_AUDIO, DEVICE_TYPE_VIDEO };
@@ -55,6 +65,10 @@ class MediaStreamDevicesControllerTest : public WebRtcTestBase {
 
   const std::string& example_audio_id() const { return example_audio_id_; }
   const std::string& example_video_id() const { return example_video_id_; }
+
+  content::MediaStreamRequestResult media_stream_result() const {
+    return media_stream_result_;
+  }
 
   // Sets the device policy-controlled |access| for |example_url_| to be for the
   // selected |device_type|.
@@ -71,6 +85,37 @@ class MediaStreamDevicesControllerTest : public WebRtcTestBase {
         break;
     }
     prefs->SetBoolean(policy_name, access == ACCESS_ALLOWED);
+  }
+
+  // Set the content settings for mic/cam.
+  void SetContentSettings(ContentSetting mic_setting,
+                          ContentSetting cam_setting) {
+    HostContentSettingsMap* content_settings =
+        Profile::FromBrowserContext(GetWebContents()->GetBrowserContext())
+            ->GetHostContentSettingsMap();
+    ContentSettingsPattern pattern =
+        ContentSettingsPattern::FromURLNoWildcard(example_url_);
+    content_settings->SetContentSetting(pattern, pattern,
+                                        CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC,
+                                        std::string(), mic_setting);
+    content_settings->SetContentSetting(
+        pattern, pattern, CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA,
+        std::string(), cam_setting);
+  }
+
+  // Checks whether the devices returned in OnMediaStreamResponse contains a
+  // microphone and/or camera device.
+  bool DevicesContains(bool needs_mic, bool needs_cam) {
+    bool has_mic = false;
+    bool has_cam = false;
+    for (const auto& device : media_stream_devices_) {
+      if (device.type == content::MEDIA_DEVICE_AUDIO_CAPTURE)
+        has_mic = true;
+      if (device.type == content::MEDIA_DEVICE_VIDEO_CAPTURE)
+        has_cam = true;
+    }
+
+    return needs_mic == has_mic && needs_cam == has_cam;
   }
 
   content::WebContents* GetWebContents() {
@@ -99,32 +144,55 @@ class MediaStreamDevicesControllerTest : public WebRtcTestBase {
                                        video_type);
   }
 
-  // Dummy callback for when we deny the current request directly.
-  static void OnMediaStreamResponse(const content::MediaStreamDevices& devices,
-                                    content::MediaStreamRequestResult result,
-                                    scoped_ptr<content::MediaStreamUI> ui) {}
-
- private:
-  void SetUpOnMainThread() override {
-    WebRtcTestBase::SetUpOnMainThread();
+  void InitWithUrl(const GURL& url) {
+    DCHECK(example_url_.is_empty());
+    example_url_ = url;
     ui_test_utils::NavigateToURL(browser(), example_url_);
-
     EXPECT_EQ(TabSpecificContentSettings::MICROPHONE_CAMERA_NOT_ACCESSED,
               GetContentSettings()->GetMicrophoneCameraState());
   }
 
-  const GURL example_url_;
+ private:
+  void SetUpOnMainThread() override {
+    WebRtcTestBase::SetUpOnMainThread();
+
+    // Cleanup.
+    media_stream_devices_.clear();
+    media_stream_result_ = content::NUM_MEDIA_REQUEST_RESULTS;
+
+    content::MediaStreamDevices audio_devices;
+    content::MediaStreamDevice fake_audio_device(
+        content::MEDIA_DEVICE_AUDIO_CAPTURE, example_audio_id_,
+        "Fake Audio Device");
+    audio_devices.push_back(fake_audio_device);
+    MediaCaptureDevicesDispatcher::GetInstance()->SetTestAudioCaptureDevices(
+        audio_devices);
+
+    content::MediaStreamDevices video_devices;
+    content::MediaStreamDevice fake_video_device(
+        content::MEDIA_DEVICE_VIDEO_CAPTURE, example_video_id_,
+        "Fake Video Device");
+    video_devices.push_back(fake_video_device);
+    MediaCaptureDevicesDispatcher::GetInstance()->SetTestVideoCaptureDevices(
+        video_devices);
+  }
+
+  GURL example_url_;
   const std::string example_audio_id_;
   const std::string example_video_id_;
+
+  content::MediaStreamDevices media_stream_devices_;
+  content::MediaStreamRequestResult media_stream_result_;
 };
 
 // Request and allow microphone access.
 IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest, RequestAndAllowMic) {
+  InitWithUrl(GURL("https://www.example.com"));
   SetDevicePolicy(DEVICE_TYPE_AUDIO, ACCESS_ALLOWED);
   MediaStreamDevicesController controller(
-      GetWebContents(),
-      CreateRequest(example_audio_id(), std::string()),
-      base::Bind(&OnMediaStreamResponse));
+      GetWebContents(), CreateRequest(example_audio_id(), std::string()),
+      base::Bind(&MediaStreamDevicesControllerTest::OnMediaStreamResponse,
+                 this));
   NotifyTabSpecificContentSettings(&controller);
 
   EXPECT_TRUE(GetContentSettings()->IsContentAllowed(
@@ -145,11 +213,12 @@ IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest, RequestAndAllowMic) {
 
 // Request and allow camera access.
 IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest, RequestAndAllowCam) {
+  InitWithUrl(GURL("https://www.example.com"));
   SetDevicePolicy(DEVICE_TYPE_VIDEO, ACCESS_ALLOWED);
   MediaStreamDevicesController controller(
-      GetWebContents(),
-      CreateRequest(std::string(), example_video_id()),
-      base::Bind(&OnMediaStreamResponse));
+      GetWebContents(), CreateRequest(std::string(), example_video_id()),
+      base::Bind(&MediaStreamDevicesControllerTest::OnMediaStreamResponse,
+                 this));
   NotifyTabSpecificContentSettings(&controller);
 
   EXPECT_TRUE(GetContentSettings()->IsContentAllowed(
@@ -170,11 +239,12 @@ IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest, RequestAndAllowCam) {
 
 // Request and block microphone access.
 IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest, RequestAndBlockMic) {
+  InitWithUrl(GURL("https://www.example.com"));
   SetDevicePolicy(DEVICE_TYPE_AUDIO, ACCESS_DENIED);
   MediaStreamDevicesController controller(
-      GetWebContents(),
-      CreateRequest(example_audio_id(), std::string()),
-      base::Bind(&OnMediaStreamResponse));
+      GetWebContents(), CreateRequest(example_audio_id(), std::string()),
+      base::Bind(&MediaStreamDevicesControllerTest::OnMediaStreamResponse,
+                 this));
   NotifyTabSpecificContentSettings(&controller);
 
   EXPECT_FALSE(GetContentSettings()->IsContentAllowed(
@@ -196,11 +266,12 @@ IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest, RequestAndBlockMic) {
 
 // Request and block camera access.
 IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest, RequestAndBlockCam) {
+  InitWithUrl(GURL("https://www.example.com"));
   SetDevicePolicy(DEVICE_TYPE_VIDEO, ACCESS_DENIED);
   MediaStreamDevicesController controller(
-      GetWebContents(),
-      CreateRequest(std::string(), example_video_id()),
-      base::Bind(&OnMediaStreamResponse));
+      GetWebContents(), CreateRequest(std::string(), example_video_id()),
+      base::Bind(&MediaStreamDevicesControllerTest::OnMediaStreamResponse,
+                 this));
   NotifyTabSpecificContentSettings(&controller);
 
   EXPECT_FALSE(GetContentSettings()->IsContentAllowed(
@@ -223,12 +294,13 @@ IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest, RequestAndBlockCam) {
 // Request and allow microphone and camera access.
 IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
                        RequestAndAllowMicCam) {
+  InitWithUrl(GURL("https://www.example.com"));
   SetDevicePolicy(DEVICE_TYPE_AUDIO, ACCESS_ALLOWED);
   SetDevicePolicy(DEVICE_TYPE_VIDEO, ACCESS_ALLOWED);
   MediaStreamDevicesController controller(
-      GetWebContents(),
-      CreateRequest(example_audio_id(), example_video_id()),
-      base::Bind(&OnMediaStreamResponse));
+      GetWebContents(), CreateRequest(example_audio_id(), example_video_id()),
+      base::Bind(&MediaStreamDevicesControllerTest::OnMediaStreamResponse,
+                 this));
   NotifyTabSpecificContentSettings(&controller);
 
   EXPECT_TRUE(GetContentSettings()->IsContentAllowed(
@@ -255,12 +327,13 @@ IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
 // Request and block microphone and camera access.
 IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
                        RequestAndBlockMicCam) {
+  InitWithUrl(GURL("https://www.example.com"));
   SetDevicePolicy(DEVICE_TYPE_AUDIO, ACCESS_DENIED);
   SetDevicePolicy(DEVICE_TYPE_VIDEO, ACCESS_DENIED);
   MediaStreamDevicesController controller(
-      GetWebContents(),
-      CreateRequest(example_audio_id(), example_video_id()),
-      base::Bind(&OnMediaStreamResponse));
+      GetWebContents(), CreateRequest(example_audio_id(), example_video_id()),
+      base::Bind(&MediaStreamDevicesControllerTest::OnMediaStreamResponse,
+                 this));
   NotifyTabSpecificContentSettings(&controller);
 
   EXPECT_FALSE(GetContentSettings()->IsContentAllowed(
@@ -289,12 +362,13 @@ IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
 // Request microphone and camera access. Allow microphone, block camera.
 IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
                        RequestMicCamBlockCam) {
+  InitWithUrl(GURL("https://www.example.com"));
   SetDevicePolicy(DEVICE_TYPE_AUDIO, ACCESS_ALLOWED);
   SetDevicePolicy(DEVICE_TYPE_VIDEO, ACCESS_DENIED);
   MediaStreamDevicesController controller(
-      GetWebContents(),
-      CreateRequest(example_audio_id(), example_video_id()),
-      base::Bind(&OnMediaStreamResponse));
+      GetWebContents(), CreateRequest(example_audio_id(), example_video_id()),
+      base::Bind(&MediaStreamDevicesControllerTest::OnMediaStreamResponse,
+                 this));
   NotifyTabSpecificContentSettings(&controller);
 
   EXPECT_TRUE(GetContentSettings()->IsContentAllowed(
@@ -322,12 +396,13 @@ IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
 // Request microphone and camera access. Block microphone, allow camera.
 IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
                        RequestMicCamBlockMic) {
+  InitWithUrl(GURL("https://www.example.com"));
   SetDevicePolicy(DEVICE_TYPE_AUDIO, ACCESS_DENIED);
   SetDevicePolicy(DEVICE_TYPE_VIDEO, ACCESS_ALLOWED);
   MediaStreamDevicesController controller(
-      GetWebContents(),
-      CreateRequest(example_audio_id(), example_video_id()),
-      base::Bind(&OnMediaStreamResponse));
+      GetWebContents(), CreateRequest(example_audio_id(), example_video_id()),
+      base::Bind(&MediaStreamDevicesControllerTest::OnMediaStreamResponse,
+                 this));
   NotifyTabSpecificContentSettings(&controller);
 
   EXPECT_FALSE(GetContentSettings()->IsContentAllowed(
@@ -356,12 +431,13 @@ IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
 // state.
 IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
                        RequestCamDoesNotChangeMic) {
+  InitWithUrl(GURL("https://www.example.com"));
   // Request mic and deny.
   SetDevicePolicy(DEVICE_TYPE_AUDIO, ACCESS_DENIED);
   MediaStreamDevicesController mic_controller(
-      GetWebContents(),
-      CreateRequest(example_audio_id(), std::string()),
-      base::Bind(&OnMediaStreamResponse));
+      GetWebContents(), CreateRequest(example_audio_id(), std::string()),
+      base::Bind(&MediaStreamDevicesControllerTest::OnMediaStreamResponse,
+                 this));
   NotifyTabSpecificContentSettings(&mic_controller);
   EXPECT_FALSE(GetContentSettings()->IsContentAllowed(
       CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC));
@@ -375,9 +451,9 @@ IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
   // Request cam and allow
   SetDevicePolicy(DEVICE_TYPE_VIDEO, ACCESS_ALLOWED);
   MediaStreamDevicesController cam_controller(
-      GetWebContents(),
-      CreateRequest(std::string(), example_video_id()),
-      base::Bind(&OnMediaStreamResponse));
+      GetWebContents(), CreateRequest(std::string(), example_video_id()),
+      base::Bind(&MediaStreamDevicesControllerTest::OnMediaStreamResponse,
+                 this));
   NotifyTabSpecificContentSettings(&cam_controller);
   EXPECT_TRUE(GetContentSettings()->IsContentAllowed(
       CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA));
@@ -402,12 +478,13 @@ IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
 // Denying mic access after camera access should still show the camera as state.
 IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
                        DenyMicDoesNotChangeCam) {
+  InitWithUrl(GURL("https://www.example.com"));
   // Request cam and allow
   SetDevicePolicy(DEVICE_TYPE_VIDEO, ACCESS_ALLOWED);
   MediaStreamDevicesController cam_controller(
-      GetWebContents(),
-      CreateRequest(std::string(), example_video_id()),
-      base::Bind(&OnMediaStreamResponse));
+      GetWebContents(), CreateRequest(std::string(), example_video_id()),
+      base::Bind(&MediaStreamDevicesControllerTest::OnMediaStreamResponse,
+                 this));
   NotifyTabSpecificContentSettings(&cam_controller);
   EXPECT_TRUE(GetContentSettings()->IsContentAllowed(
       CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA));
@@ -436,9 +513,9 @@ IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
   // Request mic and deny.
   SetDevicePolicy(DEVICE_TYPE_AUDIO, ACCESS_DENIED);
   MediaStreamDevicesController mic_controller(
-      GetWebContents(),
-      CreateRequest(example_audio_id(), std::string()),
-      base::Bind(&OnMediaStreamResponse));
+      GetWebContents(), CreateRequest(example_audio_id(), std::string()),
+      base::Bind(&MediaStreamDevicesControllerTest::OnMediaStreamResponse,
+                 this));
   NotifyTabSpecificContentSettings(&mic_controller);
   EXPECT_FALSE(GetContentSettings()->IsContentAllowed(
       CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC));
@@ -469,4 +546,137 @@ IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
   EXPECT_EQ(TabSpecificContentSettings::MICROPHONE_ACCESSED |
                 TabSpecificContentSettings::MICROPHONE_BLOCKED,
             GetContentSettings()->GetMicrophoneCameraState());
+}
+
+// Stores the ContentSettings inputs for a particular test and has functions
+// which return the expected outputs for that test.
+struct ContentSettingsTestData {
+  // The initial value of the mic/cam content settings.
+  ContentSetting mic;
+  ContentSetting cam;
+  // Whether the infobar should be accepted if it's shown.
+  bool accept_infobar;
+
+  // Whether the infobar should be displayed to request mic/cam for the given
+  // content settings inputs.
+  bool ExpectMicInfobar() const { return mic == CONTENT_SETTING_ASK; }
+  bool ExpectCamInfobar() const { return cam == CONTENT_SETTING_ASK; }
+
+  // Whether or not the mic/cam should be allowed after clicking accept/deny for
+  // the given inputs.
+  bool ExpectMicAllowed() const {
+    return mic == CONTENT_SETTING_ALLOW ||
+           (mic == CONTENT_SETTING_ASK && accept_infobar);
+  }
+  bool ExpectCamAllowed() const {
+    return cam == CONTENT_SETTING_ALLOW ||
+           (cam == CONTENT_SETTING_ASK && accept_infobar);
+  }
+
+  // The expected media stream result after clicking accept/deny for the given
+  // inputs.
+  content::MediaStreamRequestResult ExpectedMediaStreamResult() const {
+    if (ExpectMicAllowed() || ExpectCamAllowed())
+      return content::MEDIA_DEVICE_OK;
+    return content::MEDIA_DEVICE_PERMISSION_DENIED;
+  }
+};
+
+// Test all combinations of cam/mic content settings. Then tests the result of
+// clicking both accept/deny on the infobar. Both cam/mic are requested.
+IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest, ContentSettings) {
+  InitWithUrl(GURL("https://www.example.com"));
+  static const ContentSettingsTestData tests[] = {
+      // Settings that won't result in an infobar.
+      {CONTENT_SETTING_ALLOW, CONTENT_SETTING_ALLOW, false},
+      {CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK, false},
+      {CONTENT_SETTING_BLOCK, CONTENT_SETTING_ALLOW, false},
+      {CONTENT_SETTING_BLOCK, CONTENT_SETTING_BLOCK, false},
+
+      // Settings that will result in an infobar. Test both accept and deny.
+      {CONTENT_SETTING_ALLOW, CONTENT_SETTING_ASK, false},
+      {CONTENT_SETTING_ALLOW, CONTENT_SETTING_ASK, true},
+
+      {CONTENT_SETTING_ASK, CONTENT_SETTING_ASK, false},
+      {CONTENT_SETTING_ASK, CONTENT_SETTING_ASK, true},
+
+      {CONTENT_SETTING_BLOCK, CONTENT_SETTING_ASK, false},
+      {CONTENT_SETTING_BLOCK, CONTENT_SETTING_ASK, true},
+
+      {CONTENT_SETTING_ASK, CONTENT_SETTING_ALLOW, false},
+      {CONTENT_SETTING_ASK, CONTENT_SETTING_ALLOW, true},
+
+      {CONTENT_SETTING_ASK, CONTENT_SETTING_BLOCK, false},
+      {CONTENT_SETTING_ASK, CONTENT_SETTING_BLOCK, true},
+  };
+
+  for (auto& test : tests) {
+    SetContentSettings(test.mic, test.cam);
+    MediaStreamDevicesController controller(
+        GetWebContents(), CreateRequest(example_audio_id(), example_video_id()),
+        base::Bind(&MediaStreamDevicesControllerTest::OnMediaStreamResponse,
+                   this));
+
+    // Check that the infobar is requesting the expected cam/mic values.
+    ASSERT_EQ(test.ExpectMicInfobar(), controller.IsAskingForAudio());
+    ASSERT_EQ(test.ExpectCamInfobar(), controller.IsAskingForVideo());
+
+    // Accept or deny the infobar if it's showing.
+    if (test.ExpectMicInfobar() || test.ExpectCamInfobar()) {
+      if (test.accept_infobar)
+        controller.PermissionGranted();
+      else
+        controller.PermissionDenied();
+    }
+
+    // Check the media stream result is expected and the devices returned are
+    // expected;
+    ASSERT_EQ(test.ExpectedMediaStreamResult(), media_stream_result());
+    ASSERT_TRUE(
+        DevicesContains(test.ExpectMicAllowed(), test.ExpectCamAllowed()));
+  }
+}
+
+// Request and allow camera access on WebUI pages without prompting.
+IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
+                       WebUIRequestAndAllowCam) {
+  InitWithUrl(GURL("chrome://test-page"));
+  MediaStreamDevicesController controller(
+      GetWebContents(), CreateRequest(std::string(), example_video_id()),
+      base::Bind(&MediaStreamDevicesControllerTest::OnMediaStreamResponse,
+                 this));
+
+  ASSERT_FALSE(controller.IsAskingForAudio());
+  ASSERT_FALSE(controller.IsAskingForVideo());
+
+  ASSERT_EQ(content::MEDIA_DEVICE_OK, media_stream_result());
+  ASSERT_TRUE(DevicesContains(false, true));
+}
+
+IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
+                       ExtensionRequestMicCam) {
+  InitWithUrl(GURL("chrome-extension://test-page"));
+  // Test that a prompt is required.
+  MediaStreamDevicesController controller(
+      GetWebContents(), CreateRequest(example_audio_id(), example_video_id()),
+      base::Bind(&MediaStreamDevicesControllerTest::OnMediaStreamResponse,
+                 this));
+  ASSERT_TRUE(controller.IsAskingForAudio());
+  ASSERT_TRUE(controller.IsAskingForVideo());
+
+  // Accept the prompt.
+  controller.PermissionGranted();
+  ASSERT_EQ(content::MEDIA_DEVICE_OK, media_stream_result());
+  ASSERT_TRUE(DevicesContains(true, true));
+
+  // Check that re-requesting allows without prompting.
+  MediaStreamDevicesController controller2(
+      GetWebContents(), CreateRequest(example_audio_id(), example_video_id()),
+      base::Bind(&MediaStreamDevicesControllerTest::OnMediaStreamResponse,
+                 this));
+  ASSERT_FALSE(controller2.IsAskingForAudio());
+  ASSERT_FALSE(controller2.IsAskingForVideo());
+
+  ASSERT_EQ(content::MEDIA_DEVICE_OK, media_stream_result());
+  ASSERT_TRUE(DevicesContains(true, true));
 }

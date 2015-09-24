@@ -12,10 +12,10 @@
 
 #include "base/basictypes.h"
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
-#include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/mac/foundation_util.h"
 #include "base/mac/launchd.h"
@@ -25,7 +25,7 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "remoting/host/constants_mac.h"
-#include "remoting/host/json_host_config.h"
+#include "remoting/host/host_config.h"
 #include "remoting/host/usage_stats_consent.h"
 
 namespace remoting {
@@ -40,7 +40,7 @@ DaemonControllerDelegateMac::~DaemonControllerDelegateMac() {
 DaemonController::State DaemonControllerDelegateMac::GetState() {
   pid_t job_pid = base::mac::PIDForJob(kServiceName);
   if (job_pid < 0) {
-    return DaemonController::STATE_NOT_INSTALLED;
+    return DaemonController::STATE_UNKNOWN;
   } else if (job_pid == 0) {
     // Service is stopped, or a start attempt failed.
     return DaemonController::STATE_STOPPED;
@@ -51,24 +51,18 @@ DaemonController::State DaemonControllerDelegateMac::GetState() {
 
 scoped_ptr<base::DictionaryValue> DaemonControllerDelegateMac::GetConfig() {
   base::FilePath config_path(kHostConfigFilePath);
-  JsonHostConfig host_config(config_path);
-  scoped_ptr<base::DictionaryValue> config;
+  scoped_ptr<base::DictionaryValue> host_config(
+      HostConfigFromJsonFile(config_path));
+  if (!host_config)
+    return nullptr;
 
-  if (host_config.Read()) {
-    config.reset(new base::DictionaryValue());
-    std::string value;
-    if (host_config.GetString(kHostIdConfigPath, &value))
-      config.get()->SetString(kHostIdConfigPath, value);
-    if (host_config.GetString(kXmppLoginConfigPath, &value))
-      config.get()->SetString(kXmppLoginConfigPath, value);
-  }
-
+  scoped_ptr<base::DictionaryValue> config(new base::DictionaryValue);
+  std::string value;
+  if (host_config->GetString(kHostIdConfigPath, &value))
+    config->SetString(kHostIdConfigPath, value);
+  if (host_config->GetString(kXmppLoginConfigPath, &value))
+    config->SetString(kXmppLoginConfigPath, value);
   return config.Pass();
-}
-
-void DaemonControllerDelegateMac::InstallHost(
-    const DaemonController::CompletionCallback& done) {
-  NOTREACHED();
 }
 
 void DaemonControllerDelegateMac::SetConfigAndStart(
@@ -76,62 +70,27 @@ void DaemonControllerDelegateMac::SetConfigAndStart(
     bool consent,
     const DaemonController::CompletionCallback& done) {
   config->SetBoolean(kUsageStatsConsentConfigPath, consent);
-  std::string config_data;
-  base::JSONWriter::Write(config.get(), &config_data);
-  ShowPreferencePane(config_data, done);
+  ShowPreferencePane(HostConfigToJson(*config), done);
 }
 
 void DaemonControllerDelegateMac::UpdateConfig(
     scoped_ptr<base::DictionaryValue> config,
     const DaemonController::CompletionCallback& done) {
   base::FilePath config_file_path(kHostConfigFilePath);
-  JsonHostConfig config_file(config_file_path);
-  if (!config_file.Read()) {
-    done.Run(DaemonController::RESULT_FAILED);
-    return;
-  }
-  if (!config_file.CopyFrom(config.get())) {
-    LOG(ERROR) << "Failed to update configuration.";
+  scoped_ptr<base::DictionaryValue> host_config(
+      HostConfigFromJsonFile(config_file_path));
+  if (!host_config) {
     done.Run(DaemonController::RESULT_FAILED);
     return;
   }
 
-  std::string config_data = config_file.GetSerializedData();
-  ShowPreferencePane(config_data, done);
+  host_config->MergeDictionary(config.get());
+  ShowPreferencePane(HostConfigToJson(*host_config), done);
 }
 
 void DaemonControllerDelegateMac::Stop(
     const DaemonController::CompletionCallback& done) {
   ShowPreferencePane("", done);
-}
-
-void DaemonControllerDelegateMac::SetWindow(void* window_handle) {
-  // noop
-}
-
-std::string DaemonControllerDelegateMac::GetVersion() {
-  std::string version = "";
-  std::string command_line = remoting::kHostHelperScriptPath;
-  command_line += " --host-version";
-  FILE* script_output = popen(command_line.c_str(), "r");
-  if (script_output) {
-    char buffer[100];
-    char* result = fgets(buffer, sizeof(buffer), script_output);
-    pclose(script_output);
-    if (result) {
-      // The string is guaranteed to be null-terminated, but probably contains
-      // a newline character, which we don't want.
-      for (int i = 0; result[i]; ++i) {
-        if (result[i] < ' ') {
-          result[i] = 0;
-          break;
-        }
-      }
-      version = result;
-    }
-  }
-
-  return version;
 }
 
 DaemonController::UsageStatsConsent
@@ -143,9 +102,10 @@ DaemonControllerDelegateMac::GetUsageStatsConsent() {
   consent.set_by_policy = false;
 
   base::FilePath config_file_path(kHostConfigFilePath);
-  JsonHostConfig host_config(config_file_path);
-  if (host_config.Read()) {
-    host_config.GetBoolean(kUsageStatsConsentConfigPath, &consent.allowed);
+  scoped_ptr<base::DictionaryValue> host_config(
+      HostConfigFromJsonFile(config_file_path));
+  if (host_config) {
+    host_config->GetBoolean(kUsageStatsConsentConfigPath, &consent.allowed);
   }
 
   return consent;
@@ -178,14 +138,14 @@ void DaemonControllerDelegateMac::RegisterForPreferencePaneNotifications(
       this,
       &DaemonControllerDelegateMac::PreferencePaneCallback,
       CFSTR(UPDATE_SUCCEEDED_NOTIFICATION_NAME),
-      NULL,
+      nullptr,
       CFNotificationSuspensionBehaviorDeliverImmediately);
   CFNotificationCenterAddObserver(
       CFNotificationCenterGetDistributedCenter(),
       this,
       &DaemonControllerDelegateMac::PreferencePaneCallback,
       CFSTR(UPDATE_FAILED_NOTIFICATION_NAME),
-      NULL,
+      nullptr,
       CFNotificationSuspensionBehaviorDeliverImmediately);
 }
 
@@ -194,12 +154,12 @@ void DaemonControllerDelegateMac::DeregisterForPreferencePaneNotifications() {
       CFNotificationCenterGetDistributedCenter(),
       this,
       CFSTR(UPDATE_SUCCEEDED_NOTIFICATION_NAME),
-      NULL);
+      nullptr);
   CFNotificationCenterRemoveObserver(
       CFNotificationCenterGetDistributedCenter(),
       this,
       CFSTR(UPDATE_FAILED_NOTIFICATION_NAME),
-      NULL);
+      nullptr);
 }
 
 void DaemonControllerDelegateMac::PreferencePaneCallbackDelegate(
@@ -216,12 +176,10 @@ void DaemonControllerDelegateMac::PreferencePaneCallbackDelegate(
     return;
   }
 
-  DCHECK(!current_callback_.is_null());
-  DaemonController::CompletionCallback done = current_callback_;
-  current_callback_.Reset();
-  done.Run(result);
-
   DeregisterForPreferencePaneNotifications();
+
+  DCHECK(!current_callback_.is_null());
+  base::ResetAndReturn(&current_callback_).Run(result);
 }
 
 // static
@@ -258,7 +216,7 @@ bool DaemonControllerDelegateMac::DoShowPreferencePane(
     LOG(ERROR) << "Failed to create FSRef";
     return false;
   }
-  OSStatus status = LSOpenFSRef(&pane_path_ref, NULL);
+  OSStatus status = LSOpenFSRef(&pane_path_ref, nullptr);
   if (status != noErr) {
     OSSTATUS_LOG(ERROR, status) << "LSOpenFSRef failed for path: "
                                 << pane_path.value();
@@ -269,7 +227,7 @@ bool DaemonControllerDelegateMac::DoShowPreferencePane(
       CFNotificationCenterGetDistributedCenter();
   base::ScopedCFTypeRef<CFStringRef> service_name(CFStringCreateWithCString(
       kCFAllocatorDefault, remoting::kServiceName, kCFStringEncodingUTF8));
-  CFNotificationCenterPostNotification(center, service_name, NULL, NULL,
+  CFNotificationCenterPostNotification(center, service_name, nullptr, nullptr,
                                        TRUE);
   return true;
 }
@@ -284,7 +242,7 @@ void DaemonControllerDelegateMac::PreferencePaneCallback(
   DaemonControllerDelegateMac* self =
       reinterpret_cast<DaemonControllerDelegateMac*>(observer);
   if (!self) {
-    LOG(WARNING) << "Ignoring notification with NULL observer: " << name;
+    LOG(WARNING) << "Ignoring notification with nullptr observer: " << name;
     return;
   }
 

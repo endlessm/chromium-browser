@@ -11,8 +11,13 @@
 
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string_piece.h"
+#include "extensions/common/permissions/api_permission_set.h"
 
 class GURL;
+
+namespace base {
+class FilePath;
+}
 
 namespace extensions {
 
@@ -62,10 +67,20 @@ class ExtensionsClient {
   // Takes the list of all hosts and filters out those with special
   // permission strings. Adds the regular hosts to |new_hosts|,
   // and adds the special permission messages to |messages|.
+  // TODO(sashab): Deprecate this in favour of FilterHostPermissions() below.
   virtual void FilterHostPermissions(
       const URLPatternSet& hosts,
       URLPatternSet* new_hosts,
       std::set<PermissionMessage>* messages) const = 0;
+
+  // Takes the list of all hosts and filters out those with special
+  // permission strings. Adds the regular hosts to |new_hosts|,
+  // and adds any additional permissions to |permissions|.
+  // TODO(sashab): Split this function in two: One to filter out ignored host
+  // permissions, and one to get permissions for the given hosts.
+  virtual void FilterHostPermissions(const URLPatternSet& hosts,
+                                     URLPatternSet* new_hosts,
+                                     PermissionIDSet* permissions) const = 0;
 
   // Replaces the scripting whitelist with |whitelist|. Used in the renderer;
   // only used for testing in the browser process.
@@ -97,6 +112,11 @@ class ExtensionsClient {
   // (i.e., only logged) or allowed (i.e., logged before crashing).
   virtual bool ShouldSuppressFatalErrors() const = 0;
 
+  // Records that a fatal error was caught and suppressed. It is expected that
+  // embedders will only do so if ShouldSuppressFatalErrors at some point
+  // returned true.
+  virtual void RecordDidSuppressFatalError() = 0;
+
   // Returns the base webstore URL prefix.
   virtual std::string GetWebstoreBaseURL() const = 0;
 
@@ -106,6 +126,19 @@ class ExtensionsClient {
   // Returns a flag indicating whether or not a given URL is a valid
   // extension blacklist URL.
   virtual bool IsBlacklistUpdateURL(const GURL& url) const = 0;
+
+  // Returns the set of file paths corresponding to any images within an
+  // extension's contents that may be displayed directly within the browser UI
+  // or WebUI, such as icons or theme images. This set of paths is used by the
+  // extension unpacker to determine which assets should be transcoded safely
+  // within the utility sandbox.
+  //
+  // The default implementation returns the images used as icons for the
+  // extension itself, so implementors of ExtensionsClient overriding this may
+  // want to call the base class version and then add additional paths to that
+  // result.
+  virtual std::set<base::FilePath> GetBrowserImagePaths(
+      const Extension* extension);
 
   // Return the extensions client.
   static ExtensionsClient* Get();

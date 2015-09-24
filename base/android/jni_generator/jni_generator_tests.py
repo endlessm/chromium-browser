@@ -13,6 +13,7 @@ file.
 
 import difflib
 import inspect
+import optparse
 import os
 import sys
 import unittest
@@ -43,6 +44,7 @@ class TestOptions(object):
     self.cpp = 'cpp'
     self.javap = 'javap'
     self.native_exports = False
+    self.native_exports_optional = False
 
 class TestGenerator(unittest.TestCase):
   def assertObjEquals(self, first, second):
@@ -722,7 +724,7 @@ public abstract class java.util.HashSet<T> extends java.util.AbstractSet<E>
     self.assertEquals(1, len(jni_from_javap.called_by_natives))
     self.assertGoldenTextEquals(jni_from_javap.GetContent())
 
-  def testSnippnetJavap6_7(self):
+  def testSnippnetJavap6_7_8(self):
     content_javap6 = """
 public class java.util.HashSet {
 public boolean add(java.lang.Object);
@@ -736,16 +738,30 @@ public boolean add(E);
   Signature: (Ljava/lang/Object;)Z
 }
 """
+
+    content_javap8 = """
+public class java.util.HashSet {
+  public boolean add(E);
+    descriptor: (Ljava/lang/Object;)Z
+}
+"""
+
     jni_from_javap6 = jni_generator.JNIFromJavaP(content_javap6.split('\n'),
                                                  TestOptions())
     jni_from_javap7 = jni_generator.JNIFromJavaP(content_javap7.split('\n'),
                                                  TestOptions())
+    jni_from_javap8 = jni_generator.JNIFromJavaP(content_javap8.split('\n'),
+                                                 TestOptions())
     self.assertTrue(jni_from_javap6.GetContent())
     self.assertTrue(jni_from_javap7.GetContent())
+    self.assertTrue(jni_from_javap8.GetContent())
     # Ensure the javap7 is correctly parsed and uses the Signature field rather
     # than the "E" parameter.
     self.assertTextEquals(jni_from_javap6.GetContent(),
                           jni_from_javap7.GetContent())
+    # Ensure the javap8 is correctly parsed and uses the descriptor field.
+    self.assertTextEquals(jni_from_javap7.GetContent(),
+                          jni_from_javap8.GetContent())
 
   def testFromJavaP(self):
     contents = self._ReadGoldenFile(os.path.join(os.path.dirname(sys.argv[0]),
@@ -1005,7 +1021,7 @@ class Foo {
         test_data, 'org/chromium/example/jni_generator/Test', options)
     self.assertGoldenTextEquals(jni_from_java.GetContent())
 
-  def testNativeExportsOption(self):
+  def runNativeExportsOption(self, optional):
     test_data = """
     package org.chromium.example.jni_generator;
 
@@ -1040,9 +1056,18 @@ class Foo {
     options = TestOptions()
     options.jni_init_native_name = 'nativeInitNativeClass'
     options.native_exports = True
+    options.native_exports_optional = optional
     jni_from_java = jni_generator.JNIFromJavaSource(
         test_data, 'org/chromium/example/jni_generator/SampleForTests', options)
-    self.assertGoldenTextEquals(jni_from_java.GetContent())
+    return jni_from_java.GetContent()
+
+  def testNativeExportsOption(self):
+    content = self.runNativeExportsOption(False)
+    self.assertGoldenTextEquals(content)
+
+  def testNativeExportsOptionalOption(self):
+    content = self.runNativeExportsOption(True)
+    self.assertGoldenTextEquals(content)
 
   def testOuterInnerRaises(self):
     test_data = """
@@ -1059,29 +1084,6 @@ class Foo {
           'org/chromium/media/VideoCaptureFactory',
           TestOptions())
     self.assertRaises(SyntaxError, willRaise)
-
-  def testImplicitImport(self):
-    test_data = """
-    package org.chromium.android_webview;
-
-    %(IMPORT)s
-
-    @CalledByNative
-    private static void clientCertificatesCleared(Runnable callback) {
-        if (callbaback == null) return;
-        callback.run();
-    }
-    """
-    def generate(import_clause):
-      jni_generator.JNIFromJavaSource(
-          test_data % {'IMPORT': import_clause},
-          'org/chromium/android_webview/AwContentStatics',
-          TestOptions())
-    # Ensure it raises without the import.
-    self.assertRaises(SyntaxError, lambda: generate(''))
-
-    # Ensure it's fine with the import.
-    generate('import java.lang.Runnable;')
 
   def testSingleJNIAdditionalImport(self):
     test_data = """
@@ -1124,5 +1126,27 @@ class Foo {
     self.assertGoldenTextEquals(jni_from_java.GetContent())
 
 
+def TouchStamp(stamp_path):
+  dir_name = os.path.dirname(stamp_path)
+  if not os.path.isdir(dir_name):
+    os.makedirs()
+
+  with open(stamp_path, 'a'):
+    os.utime(stamp_path, None)
+
+
+def main(argv):
+  parser = optparse.OptionParser()
+  parser.add_option('--stamp', help='Path to touch on success.')
+  options, _ = parser.parse_args(argv[1:])
+
+  test_result = unittest.main(argv=argv[0:1], exit=False)
+
+  if test_result.result.wasSuccessful() and options.stamp:
+    TouchStamp(options.stamp)
+
+  return not test_result.result.wasSuccessful()
+
+
 if __name__ == '__main__':
-  unittest.main()
+  sys.exit(main(sys.argv))

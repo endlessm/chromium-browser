@@ -16,47 +16,13 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkColorPriv.h"
 #include "ui/gfx/canvas.h"
+#include "ui/gfx/geometry/size_conversions.h"
 #include "ui/surface/transport_dib.h"
 
 using content::WebContents;
 using thumbnails::SimpleThumbnailCrop;
 
 typedef testing::Test SimpleThumbnailCropTest;
-
-TEST_F(SimpleThumbnailCropTest, CalculateBoringScore_Empty) {
-  SkBitmap bitmap;
-  EXPECT_DOUBLE_EQ(1.0, SimpleThumbnailCrop::CalculateBoringScore(bitmap));
-}
-
-TEST_F(SimpleThumbnailCropTest, CalculateBoringScore_SingleColor) {
-  const gfx::Size kSize(20, 10);
-  gfx::Canvas canvas(kSize, 1.0f, true);
-  // Fill all pixels in black.
-  canvas.FillRect(gfx::Rect(kSize), SK_ColorBLACK);
-
-  SkBitmap bitmap =
-      skia::GetTopDevice(*canvas.sk_canvas())->accessBitmap(false);
-  // The thumbnail should deserve the highest boring score.
-  EXPECT_DOUBLE_EQ(1.0, SimpleThumbnailCrop::CalculateBoringScore(bitmap));
-}
-
-TEST_F(SimpleThumbnailCropTest, CalculateBoringScore_TwoColors) {
-  const gfx::Size kSize(20, 10);
-
-  gfx::Canvas canvas(kSize, 1.0f, true);
-  // Fill all pixels in black.
-  canvas.FillRect(gfx::Rect(kSize), SK_ColorBLACK);
-  // Fill the left half pixels in white.
-  canvas.FillRect(gfx::Rect(0, 0, kSize.width() / 2, kSize.height()),
-                  SK_ColorWHITE);
-
-  SkBitmap bitmap =
-      skia::GetTopDevice(*canvas.sk_canvas())->accessBitmap(false);
-  ASSERT_EQ(kSize.width(), bitmap.width());
-  ASSERT_EQ(kSize.height(), bitmap.height());
-  // The thumbnail should be less boring because two colors are used.
-  EXPECT_DOUBLE_EQ(0.5, SimpleThumbnailCrop::CalculateBoringScore(bitmap));
-}
 
 TEST_F(SimpleThumbnailCropTest, GetClippedBitmap_TallerThanWide) {
   // The input bitmap is vertically long.
@@ -145,6 +111,8 @@ TEST_F(SimpleThumbnailCropTest, GetClippedBitmap_NonSquareOutput) {
 
 TEST_F(SimpleThumbnailCropTest, GetCanvasCopyInfo) {
   gfx::Size thumbnail_size(200, 120);
+  gfx::Size expected_2x_size =
+      gfx::ToFlooredSize(gfx::ScaleSize(thumbnail_size, 2.0));
   float desired_aspect =
       static_cast<float>(thumbnail_size.width()) / thumbnail_size.height();
   scoped_refptr<thumbnails::ThumbnailingAlgorithm> algorithm(
@@ -161,7 +129,7 @@ TEST_F(SimpleThumbnailCropTest, GetCanvasCopyInfo) {
   float clip_aspect =
       static_cast<float>(clipping_size.width()) / clipping_size.height();
   EXPECT_EQ(thumbnails::CLIP_RESULT_WIDER_THAN_TALL, clip_result);
-  EXPECT_EQ(thumbnail_size, target_size_result);
+  EXPECT_EQ(expected_2x_size, target_size_result);
   EXPECT_NEAR(desired_aspect, clip_aspect, 0.01);
 
   clip_result = algorithm->GetCanvasCopyInfo(
@@ -173,7 +141,7 @@ TEST_F(SimpleThumbnailCropTest, GetCanvasCopyInfo) {
   clip_aspect =
       static_cast<float>(clipping_size.width()) / clipping_size.height();
   EXPECT_EQ(thumbnails::CLIP_RESULT_MUCH_WIDER_THAN_TALL, clip_result);
-  EXPECT_EQ(thumbnail_size, target_size_result);
+  EXPECT_EQ(expected_2x_size, target_size_result);
   EXPECT_NEAR(desired_aspect, clip_aspect, 0.01);
 
   clip_result = algorithm->GetCanvasCopyInfo(
@@ -185,7 +153,7 @@ TEST_F(SimpleThumbnailCropTest, GetCanvasCopyInfo) {
   clip_aspect =
       static_cast<float>(clipping_size.width()) / clipping_size.height();
   EXPECT_EQ(thumbnails::CLIP_RESULT_TALLER_THAN_WIDE, clip_result);
-  EXPECT_EQ(thumbnail_size, target_size_result);
+  EXPECT_EQ(expected_2x_size, target_size_result);
   EXPECT_NEAR(desired_aspect, clip_aspect, 0.01);
 
   clip_result = algorithm->GetCanvasCopyInfo(
@@ -194,7 +162,36 @@ TEST_F(SimpleThumbnailCropTest, GetCanvasCopyInfo) {
       &clipping_rect_result,
       &target_size_result);
   EXPECT_EQ(thumbnails::CLIP_RESULT_SOURCE_IS_SMALLER, clip_result);
-  EXPECT_EQ(thumbnail_size, target_size_result);
+  EXPECT_EQ(expected_2x_size, target_size_result);
+}
+
+TEST_F(SimpleThumbnailCropTest, GetCanvasCopyInfoDifferentScales) {
+  gfx::Size thumbnail_size(200, 120);
+  scoped_refptr<thumbnails::ThumbnailingAlgorithm> algorithm(
+      new SimpleThumbnailCrop(thumbnail_size));
+
+  gfx::Rect clipping_rect_result;
+  gfx::Size target_size_result;
+
+  gfx::Size expected_2x_size =
+      gfx::ToFlooredSize(gfx::ScaleSize(thumbnail_size, 2.0));
+
+  // Test at 1x scale. Expect a 2x thumbnail (we do this for quality).
+  algorithm->GetCanvasCopyInfo(gfx::Size(400, 210), ui::SCALE_FACTOR_100P,
+                               &clipping_rect_result, &target_size_result);
+  EXPECT_EQ(expected_2x_size, target_size_result);
+
+  // Test at 2x scale.
+  algorithm->GetCanvasCopyInfo(gfx::Size(400, 210), ui::SCALE_FACTOR_200P,
+                               &clipping_rect_result, &target_size_result);
+  EXPECT_EQ(expected_2x_size, target_size_result);
+
+  // Test at 3x scale.
+  gfx::Size expected_3x_size =
+      gfx::ToFlooredSize(gfx::ScaleSize(thumbnail_size, 3.0));
+  algorithm->GetCanvasCopyInfo(gfx::Size(400, 210), ui::SCALE_FACTOR_300P,
+                               &clipping_rect_result, &target_size_result);
+  EXPECT_EQ(expected_3x_size, target_size_result);
 }
 
 TEST_F(SimpleThumbnailCropTest, GetClippingRect) {

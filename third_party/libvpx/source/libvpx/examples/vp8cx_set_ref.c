@@ -53,12 +53,12 @@
 #include "vpx/vp8cx.h"
 #include "vpx/vpx_encoder.h"
 
-#include "./tools_common.h"
-#include "./video_writer.h"
+#include "../tools_common.h"
+#include "../video_writer.h"
 
 static const char *exec_name;
 
-void usage_exit() {
+void usage_exit(void) {
   fprintf(stderr, "Usage: %s <width> <height> <infile> <outfile> <frame>\n",
           exec_name);
   exit(EXIT_FAILURE);

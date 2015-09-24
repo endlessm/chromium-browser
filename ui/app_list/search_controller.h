@@ -31,7 +31,7 @@ class APP_LIST_EXPORT SearchController {
                    History* history);
   virtual ~SearchController();
 
-  void Start();
+  void Start(bool is_voice_query);
   void Stop();
 
   void OpenResult(SearchResult* result, int event_flags);
@@ -39,9 +39,14 @@ class APP_LIST_EXPORT SearchController {
                           int action_index,
                           int event_flags);
 
+  // Adds a new mixer group. See Mixer::AddGroup.
+  size_t AddGroup(size_t max_results, double boost, double multiplier);
+
+  // Adds a new mixer group. See Mixer::AddOmniboxGroup.
+  size_t AddOmniboxGroup(size_t max_results, double boost, double multiplier);
+
   // Takes ownership of |provider| and associates it with given mixer group.
-  void AddProvider(Mixer::GroupId group,
-                   scoped_ptr<SearchProvider> provider);
+  void AddProvider(size_t group_id, scoped_ptr<SearchProvider> provider);
 
  private:
   typedef ScopedVector<SearchProvider> Providers;
@@ -55,6 +60,8 @@ class APP_LIST_EXPORT SearchController {
   Providers providers_;
   scoped_ptr<Mixer> mixer_;
   History* history_;  // KeyedService, not owned.
+
+  bool is_voice_query_;
 
   base::OneShotTimer<SearchController> stop_timer_;
 

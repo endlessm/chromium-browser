@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include "chrome/browser/prefs/proxy_prefs.h"
+#include "components/proxy_config/proxy_prefs.h"
 #include "net/proxy/proxy_bypass_rules.h"
 #include "net/proxy/proxy_server.h"
 #include "url/gurl.h"
@@ -78,11 +78,6 @@ struct UIProxyConfig {
   // Map |scheme| (one of "http", "https", "ftp" or "socks") to the correct
   // ManualProxy.  Returns NULL if scheme is invalid.
   ManualProxy* MapSchemeToProxy(const std::string& scheme);
-
-  // Encodes the proxy server as "<url-scheme>=<proxy-scheme>://<proxy>"
-  static void EncodeAndAppendProxyServer(const std::string& url_scheme,
-                                         const net::ProxyServer& server,
-                                         std::string* spec);
 
   Mode mode;
 

@@ -13,18 +13,13 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "chrome/browser/chromeos/login/screens/error_screen_actor.h"
+#include "chrome/browser/chromeos/login/screens/network_error.h"
+#include "chrome/browser/chromeos/login/ui/captive_portal_window_proxy.h"
 #include "chromeos/network/network_state_handler_observer.h"
 #include "chromeos/network/portal_detector/network_portal_detector.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/notification_service.h"
-
-#if !defined(USE_ATHENA)
-// TODO(ygorshenin): Figure out what the captive portal should look like
-// on athena (crbug.com/430300)
-#include "chrome/browser/chromeos/login/ui/captive_portal_window_proxy.h"
-#endif
 
 namespace chromeos {
 
@@ -35,9 +30,7 @@ class NetworkStateInformer
     : public chromeos::NetworkStateHandlerObserver,
       public chromeos::NetworkPortalDetector::Observer,
       public content::NotificationObserver,
-#if !defined(USE_ATHENA)
       public CaptivePortalWindowProxyDelegate,
-#endif
       public base::RefCounted<NetworkStateInformer> {
  public:
   enum State {
@@ -54,7 +47,7 @@ class NetworkStateInformer
     NetworkStateInformerObserver() {}
     virtual ~NetworkStateInformerObserver() {}
 
-    virtual void UpdateState(ErrorScreenActor::ErrorReason reason) = 0;
+    virtual void UpdateState(NetworkError::ErrorReason reason) = 0;
     virtual void OnNetworkReady() {}
   };
 
@@ -69,22 +62,20 @@ class NetworkStateInformer
   void RemoveObserver(NetworkStateInformerObserver* observer);
 
   // NetworkStateHandlerObserver implementation:
-  virtual void DefaultNetworkChanged(const NetworkState* network) override;
+  void DefaultNetworkChanged(const NetworkState* network) override;
 
   // NetworkPortalDetector::Observer implementation:
-  virtual void OnPortalDetectionCompleted(
+  void OnPortalDetectionCompleted(
       const NetworkState* network,
       const NetworkPortalDetector::CaptivePortalState& state) override;
 
   // content::NotificationObserver implementation.
-  virtual void Observe(int type,
-                       const content::NotificationSource& source,
-                       const content::NotificationDetails& details) override;
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override;
 
-#if !defined(USE_ATHENA)
   // CaptivePortalWindowProxyDelegate implementation:
-  virtual void OnPortalDetected() override;
-#endif
+  void OnPortalDetected() override;
 
   State state() const { return state_; }
   std::string network_path() const { return network_path_; }
@@ -95,19 +86,19 @@ class NetworkStateInformer
  private:
   friend class base::RefCounted<NetworkStateInformer>;
 
-  virtual ~NetworkStateInformer();
+  ~NetworkStateInformer() override;
 
   bool UpdateState();
 
   void UpdateStateAndNotify();
 
-  void SendStateToObservers(ErrorScreenActor::ErrorReason reason);
+  void SendStateToObservers(NetworkError::ErrorReason reason);
 
   State state_;
   std::string network_path_;
   std::string network_type_;
 
-  ObserverList<NetworkStateInformerObserver> observers_;
+  base::ObserverList<NetworkStateInformerObserver> observers_;
   content::NotificationRegistrar registrar_;
 
   base::WeakPtrFactory<NetworkStateInformer> weak_ptr_factory_;

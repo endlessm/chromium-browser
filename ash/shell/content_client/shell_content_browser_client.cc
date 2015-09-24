@@ -5,6 +5,7 @@
 #include "ash/shell/content_client/shell_content_browser_client.h"
 
 #include "ash/shell/content_client/shell_browser_main_parts.h"
+#include "base/command_line.h"
 #include "content/shell/browser/shell_browser_context.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
@@ -12,7 +13,7 @@ namespace ash {
 namespace shell {
 
 ShellContentBrowserClient::ShellContentBrowserClient()
-    : shell_browser_main_parts_(NULL) {
+    : shell_browser_main_parts_(nullptr) {
 }
 
 ShellContentBrowserClient::~ShellContentBrowserClient() {

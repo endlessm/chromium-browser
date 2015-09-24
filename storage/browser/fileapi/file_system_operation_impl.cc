@@ -10,26 +10,44 @@
 #include "base/time/time.h"
 #include "net/base/escape.h"
 #include "net/url_request/url_request.h"
+#include "storage/browser/blob/shareable_file_reference.h"
 #include "storage/browser/fileapi/async_file_util.h"
 #include "storage/browser/fileapi/copy_or_move_operation_delegate.h"
 #include "storage/browser/fileapi/file_observers.h"
 #include "storage/browser/fileapi/file_system_backend.h"
 #include "storage/browser/fileapi/file_system_context.h"
 #include "storage/browser/fileapi/file_system_file_util.h"
-#include "storage/browser/fileapi/file_system_operation_context.h"
-#include "storage/browser/fileapi/file_system_url.h"
-#include "storage/browser/fileapi/file_writer_delegate.h"
 #include "storage/browser/fileapi/remove_operation_delegate.h"
 #include "storage/browser/fileapi/sandbox_file_system_backend.h"
 #include "storage/browser/quota/quota_manager_proxy.h"
-#include "storage/common/blob/shareable_file_reference.h"
 #include "storage/common/fileapi/file_system_types.h"
 #include "storage/common/fileapi/file_system_util.h"
-#include "storage/common/quota/quota_types.h"
 
 using storage::ScopedFile;
 
 namespace storage {
+
+namespace {
+
+// Takes ownership and destruct on the target thread.
+void Destruct(base::File file) {}
+
+void DidOpenFile(
+    scoped_refptr<FileSystemContext> context,
+    base::WeakPtr<FileSystemOperationImpl> operation,
+    const FileSystemOperationImpl::OpenFileCallback& callback,
+    base::File file,
+    const base::Closure& on_close_callback) {
+  if (!operation) {
+    context->default_file_task_runner()->PostTask(
+        FROM_HERE,
+        base::Bind(&Destruct, base::Passed(&file)));
+    return;
+  }
+  callback.Run(file.Pass(), on_close_callback);
+}
+
+}  // namespace
 
 FileSystemOperation* FileSystemOperation::Create(
     const FileSystemURL& url,
@@ -70,21 +88,18 @@ void FileSystemOperationImpl::Copy(
     const FileSystemURL& src_url,
     const FileSystemURL& dest_url,
     CopyOrMoveOption option,
+    ErrorBehavior error_behavior,
     const CopyProgressCallback& progress_callback,
     const StatusCallback& callback) {
   DCHECK(SetPendingOperationType(kOperationCopy));
   DCHECK(!recursive_operation_delegate_);
 
-  // TODO(hidehiko): Support |progress_callback|. (crbug.com/278038).
-  recursive_operation_delegate_.reset(
-      new CopyOrMoveOperationDelegate(
-          file_system_context(),
-          src_url, dest_url,
-          CopyOrMoveOperationDelegate::OPERATION_COPY,
-          option,
-          progress_callback,
-          base::Bind(&FileSystemOperationImpl::DidFinishOperation,
-                     weak_factory_.GetWeakPtr(), callback)));
+  recursive_operation_delegate_.reset(new CopyOrMoveOperationDelegate(
+      file_system_context(), src_url, dest_url,
+      CopyOrMoveOperationDelegate::OPERATION_COPY, option, error_behavior,
+      progress_callback,
+      base::Bind(&FileSystemOperationImpl::DidFinishOperation,
+                 weak_factory_.GetWeakPtr(), callback)));
   recursive_operation_delegate_->RunRecursively();
 }
 
@@ -94,15 +109,12 @@ void FileSystemOperationImpl::Move(const FileSystemURL& src_url,
                                    const StatusCallback& callback) {
   DCHECK(SetPendingOperationType(kOperationMove));
   DCHECK(!recursive_operation_delegate_);
-  recursive_operation_delegate_.reset(
-      new CopyOrMoveOperationDelegate(
-          file_system_context(),
-          src_url, dest_url,
-          CopyOrMoveOperationDelegate::OPERATION_MOVE,
-          option,
-          FileSystemOperation::CopyProgressCallback(),
-          base::Bind(&FileSystemOperationImpl::DidFinishOperation,
-                     weak_factory_.GetWeakPtr(), callback)));
+  recursive_operation_delegate_.reset(new CopyOrMoveOperationDelegate(
+      file_system_context(), src_url, dest_url,
+      CopyOrMoveOperationDelegate::OPERATION_MOVE, option, ERROR_BEHAVIOR_ABORT,
+      FileSystemOperation::CopyProgressCallback(),
+      base::Bind(&FileSystemOperationImpl::DidFinishOperation,
+                 weak_factory_.GetWeakPtr(), callback)));
   recursive_operation_delegate_->RunRecursively();
 }
 
@@ -449,8 +461,8 @@ void FileSystemOperationImpl::DoOpenFile(const FileSystemURL& url,
                                          int file_flags) {
   async_file_util_->CreateOrOpen(
       operation_context_.Pass(), url, file_flags,
-      base::Bind(&FileSystemOperationImpl::DidOpenFile,
-                 weak_factory_.GetWeakPtr(), callback));
+      base::Bind(&DidOpenFile,
+                 file_system_context_, weak_factory_.GetWeakPtr(), callback));
 }
 
 void FileSystemOperationImpl::DidEnsureFileExistsExclusive(
@@ -533,20 +545,13 @@ void FileSystemOperationImpl::DidWrite(
   if (complete && write_status != FileWriterDelegate::ERROR_WRITE_NOT_STARTED) {
     DCHECK(operation_context_);
     operation_context_->change_observers()->Notify(
-        &FileChangeObserver::OnModifyFile, MakeTuple(url));
+        &FileChangeObserver::OnModifyFile, base::MakeTuple(url));
   }
 
   StatusCallback cancel_callback = cancel_callback_;
   write_callback.Run(rv, bytes, complete);
   if (!cancel_callback.is_null())
     cancel_callback.Run(base::File::FILE_OK);
-}
-
-void FileSystemOperationImpl::DidOpenFile(
-    const OpenFileCallback& callback,
-    base::File file,
-    const base::Closure& on_close_callback) {
-  callback.Run(file.Pass(), on_close_callback);
 }
 
 bool FileSystemOperationImpl::SetPendingOperationType(OperationType type) {

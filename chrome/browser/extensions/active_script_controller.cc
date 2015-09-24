@@ -13,7 +13,6 @@
 #include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
 #include "chrome/browser/extensions/extension_action.h"
 #include "chrome/browser/extensions/extension_action_manager.h"
-#include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/permissions_updater.h"
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
@@ -37,31 +36,12 @@
 
 namespace extensions {
 
-namespace {
-
-// Returns true if the extension should be regarded as a "permitted" extension
-// for the case of metrics. We need this because we only actually withhold
-// permissions if the switch is enabled, but want to record metrics in all
-// cases.
-// "ExtensionWouldHaveHadHostPermissionsWithheldIfSwitchWasOn()" would be
-// more accurate, but too long.
-bool ShouldRecordExtension(const Extension* extension) {
-  return extension->ShouldDisplayInExtensionSettings() &&
-         !Manifest::IsPolicyLocation(extension->location()) &&
-         !Manifest::IsComponentLocation(extension->location()) &&
-         !PermissionsData::CanExecuteScriptEverywhere(extension) &&
-         extension->permissions_data()
-             ->active_permissions()
-             ->ShouldWarnAllHosts();
-}
-
-}  // namespace
-
 ActiveScriptController::ActiveScriptController(
     content::WebContents* web_contents)
     : content::WebContentsObserver(web_contents),
+      num_page_requests_(0),
       browser_context_(web_contents->GetBrowserContext()),
-      enabled_(FeatureSwitch::scripts_require_action()->IsEnabled()),
+      was_used_on_page_(false),
       extension_registry_observer_(this) {
   CHECK(web_contents);
   extension_registry_observer_.Add(ExtensionRegistry::Get(browser_context_));
@@ -143,7 +123,7 @@ void ActiveScriptController::OnClicked(const Extension* extension) {
 }
 
 bool ActiveScriptController::WantsToRun(const Extension* extension) {
-  return enabled_ && pending_requests_.count(extension->id()) > 0;
+  return pending_requests_.count(extension->id()) > 0;
 }
 
 PermissionsData::AccessType
@@ -151,11 +131,6 @@ ActiveScriptController::RequiresUserConsentForScriptInjection(
     const Extension* extension,
     UserScript::InjectionType type) {
   CHECK(extension);
-
-  // If the feature is not enabled, we automatically allow all extensions to
-  // run scripts.
-  if (!enabled_)
-    permitted_extensions_.insert(extension->id());
 
   // Allow the extension if it's been explicitly granted permission.
   if (permitted_extensions_.count(extension->id()) > 0)
@@ -166,10 +141,10 @@ ActiveScriptController::RequiresUserConsentForScriptInjection(
   switch (type) {
     case UserScript::CONTENT_SCRIPT:
       return extension->permissions_data()->GetContentScriptAccess(
-          extension, url, url, tab_id, -1, NULL);
+          extension, url, tab_id, -1, NULL);
     case UserScript::PROGRAMMATIC_SCRIPT:
       return extension->permissions_data()->GetPageAccess(
-          extension, url, url, tab_id, -1, NULL);
+          extension, url, tab_id, -1, NULL);
   }
 
   NOTREACHED();
@@ -187,6 +162,8 @@ void ActiveScriptController::RequestScriptInjection(
   // to run.
   if (list.size() == 1u)
     NotifyChange(extension);
+
+  was_used_on_page_ = true;
 }
 
 void ActiveScriptController::RunPendingForExtension(
@@ -253,12 +230,15 @@ void ActiveScriptController::OnRequestScriptInjectionPermission(
   // ran (because this feature is not enabled). Add the extension to the list of
   // permitted extensions (for metrics), and return immediately.
   if (request_id == -1) {
-    if (ShouldRecordExtension(extension)) {
-      DCHECK(!enabled_);
+    if (PermissionsData::ScriptsMayRequireActionForExtension(
+            extension,
+            extension->permissions_data()->active_permissions().get())) {
       permitted_extensions_.insert(extension->id());
     }
     return;
   }
+
+  ++num_page_requests_;
 
   switch (RequiresUserConsentForScriptInjection(extension, script_type)) {
     case PermissionsData::ACCESS_ALLOWED:
@@ -284,12 +264,12 @@ void ActiveScriptController::OnRequestScriptInjectionPermission(
 void ActiveScriptController::PermitScriptInjection(int64 request_id) {
   // This only sends the response to the renderer - the process of adding the
   // extension to the list of |permitted_extensions_| is done elsewhere.
-  content::RenderViewHost* render_view_host =
-      web_contents()->GetRenderViewHost();
-  if (render_view_host) {
-    render_view_host->Send(new ExtensionMsg_PermitScriptInjection(
-        render_view_host->GetRoutingID(), request_id));
-  }
+  // TODO(devlin): Instead of sending this to all frames, we should include the
+  // routing_id in the permission request message, and send only to the proper
+  // frame (sending it to all frames doesn't hurt, but isn't as efficient).
+  web_contents()->SendToAllFrames(new ExtensionMsg_PermitScriptInjection(
+      MSG_ROUTING_NONE,  // Routing id is set by the |web_contents|.
+      request_id));
 }
 
 void ActiveScriptController::NotifyChange(const Extension* extension) {
@@ -309,13 +289,9 @@ void ActiveScriptController::NotifyChange(const Extension* extension) {
 }
 
 void ActiveScriptController::LogUMA() const {
-  UMA_HISTOGRAM_COUNTS_100(
-      "Extensions.ActiveScriptController.ShownActiveScriptsOnPage",
-      pending_requests_.size());
-
-  // We only log the permitted extensions metric if the feature is enabled,
-  // because otherwise the data will be boring (100% allowed).
-  if (enabled_) {
+  // We only log the permitted extensions metric if the feature was used at all
+  // on the page, because otherwise the data will be boring.
+  if (was_used_on_page_) {
     UMA_HISTOGRAM_COUNTS_100(
         "Extensions.ActiveScriptController.PermittedExtensions",
         permitted_extensions_.size());
@@ -325,7 +301,9 @@ void ActiveScriptController::LogUMA() const {
   }
 }
 
-bool ActiveScriptController::OnMessageReceived(const IPC::Message& message) {
+bool ActiveScriptController::OnMessageReceived(
+    const IPC::Message& message,
+    content::RenderFrameHost* render_frame_host) {
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(ActiveScriptController, message)
     IPC_MESSAGE_HANDLER(ExtensionHostMsg_RequestScriptInjectionPermission,
@@ -342,8 +320,10 @@ void ActiveScriptController::DidNavigateMainFrame(
     return;
 
   LogUMA();
+  num_page_requests_ = 0;
   permitted_extensions_.clear();
   pending_requests_.clear();
+  was_used_on_page_ = false;
 }
 
 void ActiveScriptController::OnExtensionUnloaded(

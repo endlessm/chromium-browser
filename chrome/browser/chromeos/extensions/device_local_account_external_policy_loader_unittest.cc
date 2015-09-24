@@ -10,10 +10,10 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "base/version.h"
 #include "chrome/browser/extensions/external_provider_impl.h"
@@ -41,6 +41,11 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/settings/cros_settings.h"
+#include "chrome/browser/chromeos/settings/device_settings_service.h"
+#endif  // defined(OS_CHROMEOS)
+
 using ::testing::InvokeWithoutArgs;
 using ::testing::Mock;
 using ::testing::_;
@@ -63,12 +68,13 @@ class MockExternalPolicyProviderVisitor
   MockExternalPolicyProviderVisitor();
   virtual ~MockExternalPolicyProviderVisitor();
 
-  MOCK_METHOD6(OnExternalExtensionFileFound,
+  MOCK_METHOD7(OnExternalExtensionFileFound,
                bool(const std::string&,
                     const base::Version*,
                     const base::FilePath&,
                     extensions::Manifest::Location,
                     int,
+                    bool,
                     bool));
   MOCK_METHOD6(OnExternalExtensionUpdateUrlFound,
                bool(const std::string&,
@@ -95,10 +101,10 @@ MockExternalPolicyProviderVisitor::~MockExternalPolicyProviderVisitor() {
 class DeviceLocalAccountExternalPolicyLoaderTest : public testing::Test {
  protected:
   DeviceLocalAccountExternalPolicyLoaderTest();
-  virtual ~DeviceLocalAccountExternalPolicyLoaderTest();
+  ~DeviceLocalAccountExternalPolicyLoaderTest() override;
 
-  virtual void SetUp() override;
-  virtual void TearDown() override;
+  void SetUp() override;
+  void TearDown() override;
 
   void VerifyAndResetVisitorCallExpectations();
   void SetForceInstallListPolicy();
@@ -115,6 +121,11 @@ class DeviceLocalAccountExternalPolicyLoaderTest : public testing::Test {
   scoped_ptr<extensions::ExternalProviderImpl> provider_;
 
   content::InProcessUtilityThreadHelper in_process_utility_thread_helper_;
+
+#if defined(OS_CHROMEOS)
+  chromeos::ScopedTestDeviceSettingsService test_device_settings_service_;
+  chromeos::ScopedTestCrosSettings test_cros_settings_;
+#endif // defined(OS_CHROMEOS)
 };
 
 DeviceLocalAccountExternalPolicyLoaderTest::
@@ -131,7 +142,7 @@ void DeviceLocalAccountExternalPolicyLoaderTest::SetUp() {
   cache_dir_ = temp_dir_.path().Append(kCacheDir);
   ASSERT_TRUE(base::CreateDirectoryAndGetError(cache_dir_, NULL));
   request_context_getter_ =
-      new net::TestURLRequestContextGetter(base::MessageLoopProxy::current());
+      new net::TestURLRequestContextGetter(base::ThreadTaskRunnerHandle::Get());
   TestingBrowserProcess::GetGlobal()->SetSystemRequestContext(
       request_context_getter_.get());
   ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &test_dir_));
@@ -155,7 +166,7 @@ void DeviceLocalAccountExternalPolicyLoaderTest::TearDown() {
 void DeviceLocalAccountExternalPolicyLoaderTest::
     VerifyAndResetVisitorCallExpectations() {
   Mock::VerifyAndClearExpectations(&visitor_);
-  EXPECT_CALL(visitor_, OnExternalExtensionFileFound(_, _, _, _, _, _))
+  EXPECT_CALL(visitor_, OnExternalExtensionFileFound(_, _, _, _, _, _, _))
       .Times(0);
   EXPECT_CALL(visitor_, OnExternalExtensionUpdateUrlFound(_, _, _, _, _, _))
       .Times(0);
@@ -200,7 +211,7 @@ TEST_F(DeviceLocalAccountExternalPolicyLoaderTest, ForceInstallListEmpty) {
   // Start the cache. Verify that the loader announces an empty extension list.
   EXPECT_CALL(visitor_, OnExternalProviderReady(provider_.get()))
       .Times(1);
-  loader_->StartCache(base::MessageLoopProxy::current());
+  loader_->StartCache(base::ThreadTaskRunnerHandle::Get());
   base::RunLoop().RunUntilIdle();
   VerifyAndResetVisitorCallExpectations();
 
@@ -226,7 +237,7 @@ TEST_F(DeviceLocalAccountExternalPolicyLoaderTest, ForceInstallListSet) {
   SetForceInstallListPolicy();
 
   // Start the cache.
-  loader_->StartCache(base::MessageLoopProxy::current());
+  loader_->StartCache(base::ThreadTaskRunnerHandle::Get());
 
   // Spin the loop, allowing the loader to process the force-install list.
   // Verify that the loader announces an empty extension list.
@@ -279,6 +290,7 @@ TEST_F(DeviceLocalAccountExternalPolicyLoaderTest, ForceInstallListSet) {
       _,
       cached_crx_path,
       extensions::Manifest::EXTERNAL_POLICY,
+      _,
       _,
       _));
   EXPECT_CALL(visitor_, OnExternalProviderReady(provider_.get()))

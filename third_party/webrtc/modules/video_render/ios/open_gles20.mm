@@ -151,7 +151,7 @@ bool OpenGles20::SetCoordinates(const float z_order,
   return true;
 }
 
-bool OpenGles20::Render(const I420VideoFrame& frame) {
+bool OpenGles20::Render(const VideoFrame& frame) {
   if (texture_width_ != (GLsizei)frame.width() ||
       texture_height_ != (GLsizei)frame.height()) {
     SetupTextures(frame);
@@ -249,6 +249,7 @@ static void InitializeTexture(int name, int id, int width, int height) {
   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
   glTexImage2D(GL_TEXTURE_2D,
                0,
                GL_LUMINANCE,
@@ -260,7 +261,7 @@ static void InitializeTexture(int name, int id, int width, int height) {
                NULL);
 }
 
-void OpenGles20::SetupTextures(const I420VideoFrame& frame) {
+void OpenGles20::SetupTextures(const VideoFrame& frame) {
   const GLsizei width = frame.width();
   const GLsizei height = frame.height();
 
@@ -309,7 +310,7 @@ static void GlTexSubImage2D(GLsizei width,
   }
 }
 
-void OpenGles20::UpdateTextures(const I420VideoFrame& frame) {
+void OpenGles20::UpdateTextures(const VideoFrame& frame) {
   const GLsizei width = frame.width();
   const GLsizei height = frame.height();
 

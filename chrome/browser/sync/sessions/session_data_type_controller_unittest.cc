@@ -47,6 +47,8 @@ class MockSyncedWindowDelegate : public SyncedWindowDelegate {
     return is_restore_in_progress_;
   }
 
+  bool ShouldSync() const override { return false; }
+
   void SetSessionRestoreInProgress(bool is_restore_in_progress) {
     is_restore_in_progress_ = is_restore_in_progress;
 
@@ -65,7 +67,7 @@ class MockSyncedWindowDelegate : public SyncedWindowDelegate {
 
 class MockSyncedWindowDelegatesGetter : public SyncedWindowDelegatesGetter {
  public:
-  const std::set<SyncedWindowDelegate*> GetSyncedWindowDelegates() override {
+  std::set<const SyncedWindowDelegate*> GetSyncedWindowDelegates() override {
     return delegates_;
   }
 
@@ -74,7 +76,7 @@ class MockSyncedWindowDelegatesGetter : public SyncedWindowDelegatesGetter {
   }
 
  private:
-  std::set<SyncedWindowDelegate*> delegates_;
+  std::set<const SyncedWindowDelegate*> delegates_;
 };
 
 class SessionDataTypeControllerTest
@@ -83,8 +85,8 @@ class SessionDataTypeControllerTest
   SessionDataTypeControllerTest()
       : load_finished_(false),
         thread_bundle_(content::TestBrowserThreadBundle::DEFAULT),
-        weak_ptr_factory_(this),
-        last_type_(syncer::UNSPECIFIED) {}
+        last_type_(syncer::UNSPECIFIED),
+        weak_ptr_factory_(this) {}
   ~SessionDataTypeControllerTest() override {}
 
   void SetUp() override {
@@ -162,9 +164,9 @@ class SessionDataTypeControllerTest
   content::TestBrowserThreadBundle thread_bundle_;
   ProfileSyncComponentsFactoryMock profile_sync_factory_;
   TestingProfile profile_;
-  base::WeakPtrFactory<SessionDataTypeControllerTest> weak_ptr_factory_;
   syncer::ModelType last_type_;
   syncer::SyncError last_error_;
+  base::WeakPtrFactory<SessionDataTypeControllerTest> weak_ptr_factory_;
 };
 
 TEST_F(SessionDataTypeControllerTest, StartModels) {

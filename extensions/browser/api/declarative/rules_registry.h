@@ -31,6 +31,7 @@ class Value;
 
 namespace extensions {
 
+class Extension;
 class RulesCacheDelegate;
 
 // A base class for RulesRegistries that takes care of storing the
@@ -40,18 +41,6 @@ class RulesCacheDelegate;
 class RulesRegistry : public base::RefCountedThreadSafe<RulesRegistry> {
  public:
   typedef extensions::core_api::events::Rule Rule;
-  struct WebViewKey {
-    int embedder_process_id;
-    int webview_instance_id;
-    WebViewKey(int embedder_process_id, int webview_instance_id)
-        : embedder_process_id(embedder_process_id),
-          webview_instance_id(webview_instance_id) {}
-    bool operator<(const WebViewKey& other) const {
-      return embedder_process_id < other.embedder_process_id ||
-          ((embedder_process_id == other.embedder_process_id) &&
-           (webview_instance_id < other.webview_instance_id));
-    }
-  };
 
   enum Defaults { DEFAULT_PRIORITY = 100 };
   // After the RulesCacheDelegate object (the part of the registry which runs on
@@ -63,7 +52,7 @@ class RulesRegistry : public base::RefCountedThreadSafe<RulesRegistry> {
                 const std::string& event_name,
                 content::BrowserThread::ID owner_thread,
                 RulesCacheDelegate* cache_delegate,
-                const WebViewKey& webview_key);
+                int id);
 
   const OneShotEvent& ready() const {
     return ready_;
@@ -122,9 +111,9 @@ class RulesRegistry : public base::RefCountedThreadSafe<RulesRegistry> {
 
   // Called to notify the RulesRegistry that the extension availability has
   // changed, so that the registry can update which rules are active.
-  void OnExtensionUnloaded(const std::string& extension_id);
-  void OnExtensionUninstalled(const std::string& extension_id);
-  void OnExtensionLoaded(const std::string& extension_id);
+  void OnExtensionUnloaded(const Extension* extension);
+  void OnExtensionUninstalled(const Extension* extension);
+  void OnExtensionLoaded(const Extension* extension);
 
   // Returns the number of entries in used_rule_identifiers_ for leak detection.
   // Every ExtensionId counts as one entry, even if it contains no rules.
@@ -136,7 +125,7 @@ class RulesRegistry : public base::RefCountedThreadSafe<RulesRegistry> {
   }
 
   // Returns the context where the rules registry lives.
-  content::BrowserContext* browser_context() { return browser_context_; }
+  content::BrowserContext* browser_context() const { return browser_context_; }
 
   // Returns the ID of the thread on which the rules registry lives.
   // It is safe to call this function from any thread.
@@ -145,25 +134,11 @@ class RulesRegistry : public base::RefCountedThreadSafe<RulesRegistry> {
   // The name of the event with which rules are registered.
   const std::string& event_name() const { return event_name_; }
 
-  // The key that identifies the webview (or tabs) in which these rules apply.
-  // If the rules apply to the main browser, then this returns the tuple (0, 0).
-  const WebViewKey& webview_key() const {
-    return webview_key_;
-  }
+  // The unique identifier for this RulesRegistry object.
+  int id() const { return id_; }
 
  protected:
   virtual ~RulesRegistry();
-
-  // The precondition for calling this method is that all rules have unique IDs.
-  // AddRules establishes this precondition and calls into this method.
-  // Stored rules already meet this precondition and so they avoid calling
-  // CheckAndFillInOptionalRules for improved performance.
-  //
-  // Returns an empty string if the function is successful or an error
-  // message otherwise.
-  std::string AddRulesNoFill(
-      const std::string& extension_id,
-      const std::vector<linked_ptr<RulesRegistry::Rule> >& rules);
 
   // These functions need to apply the rules to the browser, while the base
   // class will handle defaulting empty fields before calling *Impl, and will
@@ -202,6 +177,31 @@ class RulesRegistry : public base::RefCountedThreadSafe<RulesRegistry> {
     return weak_ptr_factory_.GetWeakPtr();
   }
 
+  // Internal implementation of the AddRules interface which adds
+  // |from_manifest| which is true when the source is the manifest.
+  std::string AddRulesInternal(
+      const std::string& extension_id,
+      const std::vector<linked_ptr<RulesRegistry::Rule>>& rules,
+      RulesDictionary* out);
+
+  // The precondition for calling this method is that all rules have unique IDs.
+  // AddRules establishes this precondition and calls into this method.
+  // Stored rules already meet this precondition and so they avoid calling
+  // CheckAndFillInOptionalRules for improved performance.
+  //
+  // Returns an empty string if the function is successful or an error
+  // message otherwise.
+  std::string AddRulesNoFill(
+      const std::string& extension_id,
+      const std::vector<linked_ptr<RulesRegistry::Rule>>& rules,
+      RulesDictionary* out);
+
+  // Same as GetRules but returns all rules owned by |extension_id| for a given
+  // |rules| dictionary.
+  void GetRules(const std::string& extension_id,
+                RulesDictionary& rules,
+                std::vector<linked_ptr<RulesRegistry::Rule>>* out);
+
   // Common processing after extension's rules have changed.
   void ProcessChangedRules(const std::string& extension_id);
 
@@ -214,7 +214,10 @@ class RulesRegistry : public base::RefCountedThreadSafe<RulesRegistry> {
   // calling MaybeProcessChangedRules. That way updating the rules store and
   // extension prefs is avoided. This method is called when an extension is
   // uninstalled, that way there is no clash with the preferences being wiped.
-  std::string RemoveAllRulesNoStoreUpdate(const std::string& extension_id);
+  // Set |remove_manifest_rules| to true if |manifest_rules_| should be cleared
+  // along with |rules_|.
+  std::string RemoveAllRulesNoStoreUpdate(const std::string& extension_id,
+                                          bool remove_manifest_rules);
 
   void MarkReady(base::Time storage_init_time);
 
@@ -222,6 +225,11 @@ class RulesRegistry : public base::RefCountedThreadSafe<RulesRegistry> {
   // RulesRegistry.
   void DeserializeAndAddRules(const std::string& extension_id,
                               scoped_ptr<base::Value> rules);
+
+  // Reports an internal error with the specified params to the extensions
+  // client.
+  void ReportInternalError(const std::string& extension_id,
+                           const std::string& error);
 
   // The context to which this rules registry belongs.
   content::BrowserContext* browser_context_;
@@ -233,26 +241,15 @@ class RulesRegistry : public base::RefCountedThreadSafe<RulesRegistry> {
   const std::string event_name_;
 
   // The key that identifies the context in which these rules apply.
-  WebViewKey webview_key_;
+  int id_;
 
   RulesDictionary rules_;
+
+  RulesDictionary manifest_rules_;
 
   // Signaled when we have finished reading from storage for all extensions that
   // are loaded on startup.
   OneShotEvent ready_;
-
-  // The factory needs to be declared before |cache_delegate_|, so that it can
-  // produce a pointer as a construction argument for |cache_delegate_|.
-  base::WeakPtrFactory<RulesRegistry> weak_ptr_factory_;
-
-  // |cache_delegate_| is owned by the registry service. If |cache_delegate_| is
-  // NULL, then the storage functionality is disabled (this is used in tests).
-  // This registry cannot own |cache_delegate_| because during the time after
-  // rules registry service shuts down on UI thread, and the registry is
-  // destroyed on its thread, the use of the |cache_delegate_| would not be
-  // safe. The registry only ever associates with one RulesCacheDelegate
-  // instance.
-  base::WeakPtr<RulesCacheDelegate> cache_delegate_;
 
   ProcessStateMap process_changed_rules_requested_;
 
@@ -287,6 +284,17 @@ class RulesRegistry : public base::RefCountedThreadSafe<RulesRegistry> {
   typedef std::map<ExtensionId, std::set<RuleIdentifier> > RuleIdentifiersMap;
   RuleIdentifiersMap used_rule_identifiers_;
   int last_generated_rule_identifier_id_;
+
+  // |cache_delegate_| is owned by the registry service. If |cache_delegate_| is
+  // NULL, then the storage functionality is disabled (this is used in tests).
+  // This registry cannot own |cache_delegate_| because during the time after
+  // rules registry service shuts down on UI thread, and the registry is
+  // destroyed on its thread, the use of the |cache_delegate_| would not be
+  // safe. The registry only ever associates with one RulesCacheDelegate
+  // instance.
+  base::WeakPtr<RulesCacheDelegate> cache_delegate_;
+
+  base::WeakPtrFactory<RulesRegistry> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(RulesRegistry);
 };

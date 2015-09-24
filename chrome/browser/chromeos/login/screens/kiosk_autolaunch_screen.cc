@@ -5,7 +5,7 @@
 #include "chrome/browser/chromeos/login/screens/kiosk_autolaunch_screen.h"
 
 #include "base/logging.h"
-#include "chrome/browser/chromeos/customization_document.h"
+#include "chrome/browser/chromeos/customization/customization_document.h"
 #include "chrome/browser/chromeos/login/screens/base_screen_delegate.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 
@@ -35,9 +35,8 @@ std::string KioskAutolaunchScreen::GetName() const {
 }
 
 void KioskAutolaunchScreen::OnExit(bool confirmed) {
-  get_base_screen_delegate()->OnExit(
-      confirmed ? BaseScreenDelegate::KIOSK_AUTOLAUNCH_CONFIRMED
-                : BaseScreenDelegate::KIOSK_AUTOLAUNCH_CANCELED);
+  Finish(confirmed ? BaseScreenDelegate::KIOSK_AUTOLAUNCH_CONFIRMED
+                   : BaseScreenDelegate::KIOSK_AUTOLAUNCH_CANCELED);
 }
 
 void KioskAutolaunchScreen::OnActorDestroyed(

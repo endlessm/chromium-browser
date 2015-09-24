@@ -10,6 +10,7 @@
  * @param {string} name Name of the group.
  * @param {boolean} quiet Whether the group is for quiet items or not.
  * @constructor
+ * @struct
  */
 function ProgressCenterItemGroup(name, quiet) {
   /**
@@ -35,7 +36,7 @@ function ProgressCenterItemGroup(name, quiet) {
   /**
    * Items that are progressing, or completed but still animated.
    * Key is item ID.
-   * @type {Object.<string, ProgressCenterItem>}
+   * @type {Object<ProgressCenterItem>}
    * @private
    */
   this.items_ = {};
@@ -43,7 +44,7 @@ function ProgressCenterItemGroup(name, quiet) {
   /**
    * Set of animated state of items. Key is item ID and value is whether the
    * item is animated or not.
-   * @type {Object.<string, boolean>}
+   * @type {Object<boolean>}
    * @private
    */
   this.animated_ = {};
@@ -77,8 +78,6 @@ function ProgressCenterItemGroup(name, quiet) {
    * @private
    */
   this.totalProgressValue_ = 0;
-
-  Object.seal(this);
 }
 
 /**
@@ -94,7 +93,6 @@ ProgressCenterItemGroup.State = {
   // Group has no progressing items but still shows error items.
   INACTIVE: 'inactive'
 };
-Object.freeze(ProgressCenterItemGroup.State);
 
 /**
  * Makes the summarized item for the groups.
@@ -132,17 +130,25 @@ ProgressCenterItemGroup.getSummarizedErrorItem = function(var_args) {
 };
 
 /**
- * Obtains Whether the item should be animated or not.
+ * Obtains whether the item should be animated or not.
  * @param {boolean} previousAnimated Whether the item is previously animated or
  *     not.
  * @param {ProgressCenterItem} previousItem Item before updating.
  * @param {ProgressCenterItem} item New item.
+ * @param {boolean} summarized If the item is summarized one or not.
  * @return {boolean} Whether the item should be animated or not.
  * @private
  */
 ProgressCenterItemGroup.shouldAnimate_ = function(
-    previousAnimated, previousItem, item) {
-  if (!previousItem || !item || previousItem.quiet || item.quiet)
+    previousAnimated, previousItem, item, summarized) {
+  // Check visibility of previous and current progress bar.
+  var previousShow =
+      previousItem && (!summarized || !previousItem.quiet);
+  var currentShow =
+      item && (!summarized || !item.quiet);
+  // If previous or current item does not show progress bar, we should not
+  // animate.
+  if (!previousShow || !currentShow)
     return false;
   if (previousItem.progressRateInPercent < item.progressRateInPercent)
     return true;
@@ -152,7 +158,7 @@ ProgressCenterItemGroup.shouldAnimate_ = function(
   return false;
 };
 
-ProgressCenterItemGroup.prototype = {
+ProgressCenterItemGroup.prototype = /** @struct */ {
   /**
    * @return {ProgressCenterItemGroup.State} State of the group.
    */
@@ -235,7 +241,8 @@ ProgressCenterItemGroup.prototype.update = function(item) {
       this.animated_[item.id] = ProgressCenterItemGroup.shouldAnimate_(
           !!this.animated_[item.id],
           previousItem,
-          item);
+          item,
+          /* summarized */ false);
       if (!this.animated_[item.id])
         this.completeItemAnimation(item.id);
       break;
@@ -255,7 +262,8 @@ ProgressCenterItemGroup.prototype.update = function(item) {
   this.summarizedItemAnimated_ = ProgressCenterItemGroup.shouldAnimate_(
       !!this.summarizedItemAnimated_,
       previousSummarizedItem,
-      this.summarizedItem_);
+      this.summarizedItem_,
+      /* summarized */ true);
   if (!this.summarizedItemAnimated_)
     this.completeSummarizedItemAnimation();
 };

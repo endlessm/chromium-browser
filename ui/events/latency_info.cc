@@ -2,13 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/debug/trace_event.h"
-#include "base/json/json_writer.h"
-#include "base/memory/scoped_ptr.h"
-#include "base/strings/stringprintf.h"
 #include "ui/events/latency_info.h"
 
 #include <algorithm>
+#include <string>
+
+#include "base/json/json_writer.h"
+#include "base/lazy_instance.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/strings/stringprintf.h"
+#include "base/trace_event/trace_event.h"
 
 namespace {
 
@@ -19,16 +22,20 @@ const char* GetComponentName(ui::LatencyComponentType type) {
   switch (type) {
     CASE_TYPE(INPUT_EVENT_LATENCY_BEGIN_RWH_COMPONENT);
     CASE_TYPE(INPUT_EVENT_LATENCY_BEGIN_PLUGIN_COMPONENT);
-    CASE_TYPE(INPUT_EVENT_LATENCY_BEGIN_SCROLL_UPDATE_MAIN_COMPONENT);
-    CASE_TYPE(INPUT_EVENT_LATENCY_SCROLL_UPDATE_RWH_COMPONENT);
+    CASE_TYPE(LATENCY_BEGIN_SCROLL_LISTENER_UPDATE_MAIN_COMPONENT);
     CASE_TYPE(INPUT_EVENT_LATENCY_SCROLL_UPDATE_ORIGINAL_COMPONENT);
+    CASE_TYPE(INPUT_EVENT_LATENCY_FIRST_SCROLL_UPDATE_ORIGINAL_COMPONENT);
     CASE_TYPE(INPUT_EVENT_LATENCY_ORIGINAL_COMPONENT);
     CASE_TYPE(INPUT_EVENT_LATENCY_UI_COMPONENT);
-    CASE_TYPE(INPUT_EVENT_LATENCY_RENDERING_SCHEDULED_COMPONENT);
+    CASE_TYPE(INPUT_EVENT_LATENCY_RENDERING_SCHEDULED_MAIN_COMPONENT);
+    CASE_TYPE(INPUT_EVENT_LATENCY_RENDERING_SCHEDULED_IMPL_COMPONENT);
     CASE_TYPE(INPUT_EVENT_LATENCY_FORWARD_SCROLL_UPDATE_TO_MAIN_COMPONENT);
     CASE_TYPE(INPUT_EVENT_LATENCY_ACK_RWH_COMPONENT);
     CASE_TYPE(WINDOW_SNAPSHOT_FRAME_NUMBER_COMPONENT);
-    CASE_TYPE(WINDOW_OLD_SNAPSHOT_FRAME_NUMBER_COMPONENT);
+    CASE_TYPE(TAB_SHOW_COMPONENT);
+    CASE_TYPE(INPUT_EVENT_LATENCY_RENDERER_SWAP_COMPONENT);
+    CASE_TYPE(INPUT_EVENT_BROWSER_RECEIVED_RENDERER_SWAP_COMPONENT);
+    CASE_TYPE(INPUT_EVENT_GPU_SWAP_BUFFER_COMPONENT);
     CASE_TYPE(INPUT_EVENT_LATENCY_TERMINATED_MOUSE_COMPONENT);
     CASE_TYPE(INPUT_EVENT_LATENCY_TERMINATED_TOUCH_COMPONENT);
     CASE_TYPE(INPUT_EVENT_LATENCY_TERMINATED_GESTURE_COMPONENT);
@@ -64,11 +71,17 @@ bool IsTerminalComponent(ui::LatencyComponentType type) {
 bool IsBeginComponent(ui::LatencyComponentType type) {
   return (type == ui::INPUT_EVENT_LATENCY_BEGIN_RWH_COMPONENT ||
           type == ui::INPUT_EVENT_LATENCY_BEGIN_PLUGIN_COMPONENT ||
-          type == ui::INPUT_EVENT_LATENCY_BEGIN_SCROLL_UPDATE_MAIN_COMPONENT);
+          type == ui::LATENCY_BEGIN_SCROLL_LISTENER_UPDATE_MAIN_COMPONENT);
+}
+
+bool IsInputLatencyBeginComponent(ui::LatencyComponentType type) {
+  return (type == ui::INPUT_EVENT_LATENCY_BEGIN_RWH_COMPONENT ||
+          type == ui::INPUT_EVENT_LATENCY_BEGIN_PLUGIN_COMPONENT);
 }
 
 // This class is for converting latency info to trace buffer friendly format.
-class LatencyInfoTracedValue : public base::debug::ConvertableToTraceFormat {
+class LatencyInfoTracedValue
+    : public base::trace_event::ConvertableToTraceFormat {
  public:
   static scoped_refptr<ConvertableToTraceFormat> FromValue(
       scoped_ptr<base::Value> value);
@@ -84,9 +97,9 @@ class LatencyInfoTracedValue : public base::debug::ConvertableToTraceFormat {
   DISALLOW_COPY_AND_ASSIGN(LatencyInfoTracedValue);
 };
 
-scoped_refptr<base::debug::ConvertableToTraceFormat>
+scoped_refptr<base::trace_event::ConvertableToTraceFormat>
 LatencyInfoTracedValue::FromValue(scoped_ptr<base::Value> value) {
-  return scoped_refptr<base::debug::ConvertableToTraceFormat>(
+  return scoped_refptr<base::trace_event::ConvertableToTraceFormat>(
       new LatencyInfoTracedValue(value.release()));
 }
 
@@ -95,7 +108,7 @@ LatencyInfoTracedValue::~LatencyInfoTracedValue() {
 
 void LatencyInfoTracedValue::AppendAsTraceFormat(std::string* out) const {
   std::string tmp;
-  base::JSONWriter::Write(value_.get(), &tmp);
+  base::JSONWriter::Write(*value_, &tmp);
   *out += tmp;
 }
 
@@ -104,7 +117,7 @@ LatencyInfoTracedValue::LatencyInfoTracedValue(base::Value* value)
 }
 
 // Converts latencyinfo into format that can be dumped into trace buffer.
-scoped_refptr<base::debug::ConvertableToTraceFormat> AsTraceableData(
+scoped_refptr<base::trace_event::ConvertableToTraceFormat> AsTraceableData(
     const ui::LatencyInfo& latency) {
   scoped_ptr<base::DictionaryValue> record_data(new base::DictionaryValue());
   for (ui::LatencyInfo::LatencyMap::const_iterator it =
@@ -115,6 +128,7 @@ scoped_refptr<base::debug::ConvertableToTraceFormat> AsTraceableData(
     component_info->SetDouble(
         "time", static_cast<double>(it->second.event_time.ToInternalValue()));
     component_info->SetDouble("count", it->second.event_count);
+    component_info->SetDouble("sequence_number", it->second.sequence_number);
     record_data->Set(GetComponentName(it->first.first), component_info);
   }
   record_data->SetDouble("trace_id", static_cast<double>(latency.trace_id));
@@ -130,6 +144,18 @@ scoped_refptr<base::debug::ConvertableToTraceFormat> AsTraceableData(
   record_data->Set("coordinates", coordinates.release());
   return LatencyInfoTracedValue::FromValue(record_data.Pass());
 }
+
+struct BenchmarkEnabledInitializer {
+  BenchmarkEnabledInitializer() :
+      benchmark_enabled(TRACE_EVENT_API_GET_CATEGORY_GROUP_ENABLED(
+          "benchmark")) {
+  }
+
+  const unsigned char* benchmark_enabled;
+};
+
+static base::LazyInstance<BenchmarkEnabledInitializer>::Leaky
+  g_benchmark_enabled = LAZY_INSTANCE_INITIALIZER;
 
 }  // namespace
 
@@ -198,8 +224,17 @@ void LatencyInfo::AddNewLatencyFrom(const LatencyInfo& other) {
 void LatencyInfo::AddLatencyNumber(LatencyComponentType component,
                                    int64 id,
                                    int64 component_sequence_number) {
-  AddLatencyNumberWithTimestamp(component, id, component_sequence_number,
-                                base::TimeTicks::HighResNow(), 1);
+  AddLatencyNumberWithTimestampImpl(component, id, component_sequence_number,
+                                    base::TimeTicks::Now(), 1, nullptr);
+}
+
+void LatencyInfo::AddLatencyNumberWithTraceName(
+    LatencyComponentType component,
+    int64 id,
+    int64 component_sequence_number,
+    const char* trace_name_str) {
+  AddLatencyNumberWithTimestampImpl(component, id, component_sequence_number,
+                                    base::TimeTicks::Now(), 1, trace_name_str);
 }
 
 void LatencyInfo::AddLatencyNumberWithTimestamp(LatencyComponentType component,
@@ -207,9 +242,20 @@ void LatencyInfo::AddLatencyNumberWithTimestamp(LatencyComponentType component,
                                                 int64 component_sequence_number,
                                                 base::TimeTicks time,
                                                 uint32 event_count) {
+  AddLatencyNumberWithTimestampImpl(component, id, component_sequence_number,
+                                    time, event_count, nullptr);
+}
 
-  static const unsigned char* benchmark_enabled =
-      TRACE_EVENT_API_GET_CATEGORY_GROUP_ENABLED("benchmark");
+void LatencyInfo::AddLatencyNumberWithTimestampImpl(
+    LatencyComponentType component,
+    int64 id,
+    int64 component_sequence_number,
+    base::TimeTicks time,
+    uint32 event_count,
+    const char* trace_name_str) {
+
+  const unsigned char* benchmark_enabled =
+      g_benchmark_enabled.Get().benchmark_enabled;
 
   if (IsBeginComponent(component)) {
     // Should only ever add begin component once.
@@ -222,35 +268,44 @@ void LatencyInfo::AddLatencyNumberWithTimestamp(LatencyComponentType component,
       // for an input event, we want to draw the beginning as when the event is
       // originally created, e.g. the timestamp of its ORIGINAL/UI_COMPONENT,
       // not when we actually issue the ASYNC_BEGIN trace event.
-      LatencyComponent component;
+      LatencyComponent begin_component;
       int64 ts = 0;
       if (FindLatency(INPUT_EVENT_LATENCY_ORIGINAL_COMPONENT,
                       0,
-                      &component) ||
+                      &begin_component) ||
           FindLatency(INPUT_EVENT_LATENCY_UI_COMPONENT,
                       0,
-                      &component)) {
+                      &begin_component)) {
         // The timestamp stored in ORIGINAL/UI_COMPONENT is using clock
         // CLOCK_MONOTONIC while TRACE_EVENT_ASYNC_BEGIN_WITH_TIMESTAMP0
         // expects timestamp using CLOCK_MONOTONIC or CLOCK_SYSTEM_TRACE (on
         // CrOS). So we need to adjust the diff between in CLOCK_MONOTONIC and
         // CLOCK_SYSTEM_TRACE. Note that the diff is drifting overtime so we
         // can't use a static value.
-        int64 diff = base::TimeTicks::HighResNow().ToInternalValue() -
-            base::TimeTicks::NowFromSystemTraceTime().ToInternalValue();
-        ts = component.event_time.ToInternalValue() - diff;
+        base::TimeDelta diff = (base::TimeTicks::Now() - base::TimeTicks()) -
+            (base::TraceTicks::Now() - base::TraceTicks());
+        ts = (begin_component.event_time - diff).ToInternalValue();
       } else {
-        ts = base::TimeTicks::NowFromSystemTraceTime().ToInternalValue();
+        ts = base::TraceTicks::Now().ToInternalValue();
       }
-      TRACE_EVENT_ASYNC_BEGIN_WITH_TIMESTAMP0(
-          "benchmark",
-          "InputLatency",
+
+      if (trace_name_str) {
+        if (IsInputLatencyBeginComponent(component))
+          trace_name = std::string("InputLatency::") + trace_name_str;
+        else
+          trace_name = std::string("Latency::") + trace_name_str;
+      }
+
+      TRACE_EVENT_COPY_ASYNC_BEGIN_WITH_TIMESTAMP0(
+          "benchmark,latencyInfo",
+          trace_name.c_str(),
           TRACE_ID_DONT_MANGLE(trace_id),
           ts);
     }
 
-    TRACE_EVENT_FLOW_BEGIN0(
-        "input", "LatencyInfo.Flow", TRACE_ID_DONT_MANGLE(trace_id));
+    TRACE_EVENT_FLOW_BEGIN1(
+        "input,benchmark", "LatencyInfo.Flow", TRACE_ID_DONT_MANGLE(trace_id),
+        "trace_id", trace_id);
   }
 
   LatencyMap::key_type key = std::make_pair(component, id);
@@ -278,14 +333,14 @@ void LatencyInfo::AddLatencyNumberWithTimestamp(LatencyComponentType component,
     terminated = true;
 
     if (*benchmark_enabled) {
-      TRACE_EVENT_ASYNC_END1("benchmark",
-                             "InputLatency",
-                             TRACE_ID_DONT_MANGLE(trace_id),
-                             "data", AsTraceableData(*this));
+      TRACE_EVENT_COPY_ASYNC_END1("benchmark,latencyInfo",
+                                  trace_name.c_str(),
+                                  TRACE_ID_DONT_MANGLE(trace_id),
+                                  "data", AsTraceableData(*this));
     }
 
-    TRACE_EVENT_FLOW_END0(
-        "input", "LatencyInfo.Flow", TRACE_ID_DONT_MANGLE(trace_id));
+    TRACE_EVENT_FLOW_END_BIND_TO_ENCLOSING0(
+        "input,benchmark", "LatencyInfo.Flow", TRACE_ID_DONT_MANGLE(trace_id));
   }
 }
 
@@ -316,13 +371,6 @@ void LatencyInfo::RemoveLatency(LatencyComponentType type) {
 
 void LatencyInfo::Clear() {
   latency_components.clear();
-}
-
-void LatencyInfo::TraceEventType(const char* event_type) {
-  TRACE_EVENT_ASYNC_STEP_INTO0("benchmark",
-                               "InputLatency",
-                               TRACE_ID_DONT_MANGLE(trace_id),
-                               event_type);
 }
 
 }  // namespace ui

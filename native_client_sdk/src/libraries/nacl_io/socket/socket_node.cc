@@ -355,11 +355,16 @@ Error SocketNode::RecvHelper(const HandleAttr& attr,
   if (0 == socket_resource_)
     return EBADF;
 
+  if (TestStreamFlags(SSF_RECV_ENDOFSTREAM)) {
+    *out_len = 0;
+    return 0;
+  }
+
   int ms = read_timeout_;
   if ((flags & MSG_DONTWAIT) || !attr.IsBlocking())
     ms = 0;
 
-  // TODO(noelallen) BUG=295177
+  // TODO(bradnelson) BUG=295177
   // For UDP we should support filtering packets when using connect
   EventListenerLock wait(GetEventEmitter());
   Error err = wait.WaitOnEvent(POLLIN, ms);
@@ -443,7 +448,7 @@ Error SocketNode::SendHelper(const HandleAttr& attr,
 void SocketNode::SetError_Locked(int pp_error_num) {
   SetStreamFlags(SSF_ERROR | SSF_CLOSED);
   ClearStreamFlags(SSF_CAN_SEND | SSF_CAN_RECV);
-  last_errno_ = PPErrorToErrno(pp_error_num);
+  last_errno_ = PPERROR_TO_ERRNO(pp_error_num);
 }
 
 Error SocketNode::Shutdown(int how) {

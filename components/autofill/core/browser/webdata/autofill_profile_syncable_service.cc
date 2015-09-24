@@ -120,7 +120,6 @@ AutofillProfileSyncableService::MergeDataAndStartSyncing(
 
   GUIDToProfileMap remaining_profiles;
   CreateGUIDToProfileMap(profiles_.get(), &remaining_profiles);
-
   DataBundle bundle;
   // Go through and check for all the profiles that sync already knows about.
   for (syncer::SyncDataList::const_iterator sync_iter =
@@ -389,6 +388,16 @@ bool AutofillProfileSyncableService::OverwriteProfileWithServerData(
     diff = true;
   }
 
+  if (static_cast<size_t>(specifics.use_count()) != profile->use_count()) {
+    profile->set_use_count(specifics.use_count());
+    diff = true;
+  }
+
+  if (specifics.use_date() != profile->use_date().ToTimeT()) {
+    profile->set_use_date(base::Time::FromTimeT(specifics.use_date()));
+    diff = true;
+  }
+
   return diff;
 }
 
@@ -411,28 +420,18 @@ void AutofillProfileSyncableService::WriteAutofillProfile(
 
   specifics->set_guid(profile.guid());
   specifics->set_origin(profile.origin());
+  specifics->set_use_count(profile.use_count());
+  specifics->set_use_date(profile.use_date().ToTimeT());
 
-  std::vector<base::string16> values;
-  profile.GetRawMultiInfo(NAME_FIRST, &values);
-  for (size_t i = 0; i < values.size(); ++i) {
-    specifics->add_name_first(LimitData(UTF16ToUTF8(values[i])));
-  }
-
-  profile.GetRawMultiInfo(NAME_MIDDLE, &values);
-  for (size_t i = 0; i < values.size(); ++i) {
-    specifics->add_name_middle(LimitData(UTF16ToUTF8(values[i])));
-  }
-
-  profile.GetRawMultiInfo(NAME_LAST, &values);
-  for (size_t i = 0; i < values.size(); ++i) {
-    specifics->add_name_last(LimitData(UTF16ToUTF8(values[i])));
-  }
-
-  profile.GetRawMultiInfo(NAME_FULL, &values);
-  for (size_t i = 0; i < values.size(); ++i) {
-    specifics->add_name_full(LimitData(UTF16ToUTF8(values[i])));
-  }
-
+  // TODO(estade): this should be set_name_first.
+  specifics->add_name_first(
+      LimitData(UTF16ToUTF8(profile.GetRawInfo(NAME_FIRST))));
+  specifics->add_name_middle(
+      LimitData(UTF16ToUTF8(profile.GetRawInfo(NAME_MIDDLE))));
+  specifics->add_name_last(
+      LimitData(UTF16ToUTF8(profile.GetRawInfo(NAME_LAST))));
+  specifics->add_name_full(
+      LimitData(UTF16ToUTF8(profile.GetRawInfo(NAME_FULL))));
   specifics->set_address_home_line1(
       LimitData(UTF16ToUTF8(profile.GetRawInfo(ADDRESS_HOME_LINE1))));
   specifics->set_address_home_line2(
@@ -454,18 +453,17 @@ void AutofillProfileSyncableService::WriteAutofillProfile(
           UTF16ToUTF8(profile.GetRawInfo(ADDRESS_HOME_DEPENDENT_LOCALITY))));
   specifics->set_address_home_language_code(LimitData(profile.language_code()));
 
-  profile.GetRawMultiInfo(EMAIL_ADDRESS, &values);
-  for (size_t i = 0; i < values.size(); ++i) {
-    specifics->add_email_address(LimitData(UTF16ToUTF8(values[i])));
-  }
+  // TODO(estade): this should be set_email_address.
+  specifics->add_email_address(
+      LimitData(UTF16ToUTF8(profile.GetRawInfo(EMAIL_ADDRESS))));
+  std::vector<base::string16> values;
 
   specifics->set_company_name(
       LimitData(UTF16ToUTF8(profile.GetRawInfo(COMPANY_NAME))));
 
-  profile.GetRawMultiInfo(PHONE_HOME_WHOLE_NUMBER, &values);
-  for (size_t i = 0; i < values.size(); ++i) {
-    specifics->add_phone_home_whole_number(LimitData(UTF16ToUTF8(values[i])));
-  }
+  // TODO(estade): this should be set_phone_home_whole_number.
+  specifics->add_phone_home_whole_number(
+      LimitData(UTF16ToUTF8(profile.GetRawInfo(PHONE_HOME_WHOLE_NUMBER))));
 }
 
 void AutofillProfileSyncableService::CreateGUIDToProfileMap(
@@ -501,7 +499,6 @@ AutofillProfileSyncableService::CreateOrUpdateProfile(
     }
     return existing_profile;
   }
-
 
   // New profile synced.
   AutofillProfile* new_profile = new AutofillProfile(
@@ -550,10 +547,17 @@ AutofillProfileSyncableService::CreateOrUpdateProfile(
 
 void AutofillProfileSyncableService::ActOnChange(
      const AutofillProfileChange& change) {
-  DCHECK((change.type() == AutofillProfileChange::REMOVE &&
-          !change.profile()) ||
-         (change.type() != AutofillProfileChange::REMOVE && change.profile()));
+  DCHECK(
+      (change.type() == AutofillProfileChange::REMOVE &&
+       !change.data_model()) ||
+      (change.type() != AutofillProfileChange::REMOVE && change.data_model()));
   DCHECK(sync_processor_.get());
+
+  if (change.data_model() &&
+      change.data_model()->record_type() != AutofillProfile::LOCAL_PROFILE) {
+    return;
+  }
+
   syncer::SyncChangeList new_changes;
   DataBundle bundle;
   switch (change.type()) {
@@ -561,21 +565,21 @@ void AutofillProfileSyncableService::ActOnChange(
       new_changes.push_back(
           syncer::SyncChange(FROM_HERE,
                              syncer::SyncChange::ACTION_ADD,
-                             CreateData(*(change.profile()))));
-      DCHECK(profiles_map_.find(change.profile()->guid()) ==
+                             CreateData(*(change.data_model()))));
+      DCHECK(profiles_map_.find(change.data_model()->guid()) ==
              profiles_map_.end());
-      profiles_.push_back(new AutofillProfile(*(change.profile())));
-      profiles_map_[change.profile()->guid()] = profiles_.get().back();
+      profiles_.push_back(new AutofillProfile(*(change.data_model())));
+      profiles_map_[change.data_model()->guid()] = profiles_.get().back();
       break;
     case AutofillProfileChange::UPDATE: {
       GUIDToProfileMap::iterator it = profiles_map_.find(
-          change.profile()->guid());
+          change.data_model()->guid());
       DCHECK(it != profiles_map_.end());
-      *(it->second) = *(change.profile());
+      *(it->second) = *(change.data_model());
       new_changes.push_back(
           syncer::SyncChange(FROM_HERE,
                              syncer::SyncChange::ACTION_UPDATE,
-                             CreateData(*(change.profile()))));
+                             CreateData(*(change.data_model()))));
       break;
     }
     case AutofillProfileChange::REMOVE: {
@@ -620,39 +624,23 @@ bool AutofillProfileSyncableService::UpdateField(
   return true;
 }
 
+// TODO(estade): remove this function.
 bool AutofillProfileSyncableService::UpdateMultivaluedField(
     ServerFieldType field_type,
     const ::google::protobuf::RepeatedPtrField<std::string>& new_values,
     AutofillProfile* autofill_profile) {
-  std::vector<base::string16> values;
-  autofill_profile->GetRawMultiInfo(field_type, &values);
-  bool changed = false;
-  if (static_cast<size_t>(new_values.size()) != values.size()) {
-    values.clear();
-    values.resize(static_cast<size_t>(new_values.size()));
-    changed = true;
-  }
-  for (size_t i = 0; i < values.size(); ++i) {
-    base::string16 synced_value(
-        UTF8ToUTF16(new_values.Get(static_cast<int>(i))));
-    if (values[i] != synced_value) {
-      values[i] = synced_value;
-      changed = true;
-    }
-  }
-  if (changed)
-    autofill_profile->SetRawMultiInfo(field_type, values);
-  return changed;
+  return UpdateField(field_type,
+                     new_values.size() < 1 ? std::string() : new_values.Get(0),
+                     autofill_profile);
 }
 
 bool AutofillProfileSyncableService::MergeProfile(
     const AutofillProfile& merge_from,
     AutofillProfile* merge_into,
     const std::string& app_locale) {
-  // Overwrites all single values and adds to mutli-values. Does not overwrite
-  // GUID.
-  merge_into->OverwriteWithOrAddTo(merge_from, app_locale);
-  return !merge_into->EqualsSansGuid(merge_from);
+  // Overwrites all values. Does not overwrite GUID.
+  merge_into->OverwriteWith(merge_from, app_locale);
+  return !merge_into->EqualsForSyncPurposes(merge_from);
 }
 
 AutofillTable* AutofillProfileSyncableService::GetAutofillTable() const {

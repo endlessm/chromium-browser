@@ -6,6 +6,7 @@
 
 #include "ash/shell.h"
 #include "ash/shell_init_params.h"
+#include "ash/test/ash_test_helper.h"
 #include "ash/test/test_session_state_delegate.h"
 #include "ash/test/test_shell_delegate.h"
 #include "chromeos/audio/cras_audio_handler.h"
@@ -23,10 +24,10 @@ class ViewEventTestPlatformPartChromeOS : public ViewEventTestPlatformPart {
  public:
   explicit ViewEventTestPlatformPartChromeOS(
       ui::ContextFactory* context_factory);
-  virtual ~ViewEventTestPlatformPartChromeOS();
+  ~ViewEventTestPlatformPartChromeOS() override;
 
   // Overridden from ViewEventTestPlatformPart:
-  virtual gfx::NativeWindow GetContext() override {
+  gfx::NativeWindow GetContext() override {
     return ash::Shell::GetPrimaryRootWindow();
   }
 
@@ -50,8 +51,8 @@ ViewEventTestPlatformPartChromeOS::ViewEventTestPlatformPartChromeOS(
   init_params.delegate = shell_delegate;
   init_params.context_factory = context_factory;
   ash::Shell::CreateInstance(init_params);
-  shell_delegate->test_session_state_delegate()->SetActiveUserSessionStarted(
-      true);
+  ash::test::AshTestHelper::GetTestSessionStateDelegate()->
+      SetActiveUserSessionStarted(true);
   GetContext()->GetHost()->Show();
 }
 

@@ -16,9 +16,11 @@ import re
 from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot import constants
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import git
 from chromite.lib import gs
 from chromite.lib import osutils
+from chromite.lib import path_util
 from chromite.lib import timeout_util
 
 
@@ -127,7 +129,7 @@ def GSUploadIfNotPresent(gs_context, src, dest):
     True if file was uploaded. False otherwise.
   """
   if gs_context.Exists(dest):
-    cros_build_lib.Warning('File %s already in GS', dest)
+    logging.warning('File %s already in GS', dest)
     return False
   else:
     gs_context.Copy(src, dest, acl='public-read')
@@ -159,14 +161,14 @@ def CheckAFDOPerfData(arch, cpv, buildroot, gs_context):
                  'version': version_number}
   url = CHROME_PERF_AFDO_URL % chrome_spec
   if not gs_context.Exists(url):
-    cros_build_lib.Info('Could not find AFDO perf data')
+    logging.info('Could not find AFDO perf data')
     return False
   dest_dir = AFDO_BUILDROOT_LOCAL % {'build_root': buildroot}
   dest_path = os.path.join(dest_dir, url.rsplit('/', 1)[1])
   gs_context.Copy(url, dest_path)
 
   UncompressAFDOFile(dest_path, buildroot)
-  cros_build_lib.Info('Found and retrieved AFDO perf data')
+  logging.info('Found and retrieved AFDO perf data')
   return True
 
 
@@ -202,7 +204,7 @@ def PatchChromeEbuildAFDOFile(ebuild_file, arch_profiles):
     ebuild_file: path of the ebuild file within the chroot.
     arch_profiles: {arch: afdo_file} pairs to put into the ebuild.
   """
-  original_ebuild = cros_build_lib.FromChrootPath(ebuild_file)
+  original_ebuild = path_util.FromChrootPath(ebuild_file)
   modified_ebuild = '%s.new' % original_ebuild
 
   arch_patterns = {}
@@ -275,11 +277,11 @@ def UpdateChromeEbuildAFDOFile(board, arch_profiles):
   # chrome ebuild.
   if AFDO_BASE_URL == AFDO_TEST_URL:
     ebuild_gs_dir = {'AFDO_GS_DIRECTORY': AFDO_TEST_URL}
-  gen_manifest_cmd = [ebuild_prog,  ebuild_file, 'manifest', '--force']
+  gen_manifest_cmd = [ebuild_prog, ebuild_file, 'manifest', '--force']
   cros_build_lib.RunCommand(gen_manifest_cmd, enter_chroot=True,
                             extra_env=ebuild_gs_dir, print_cmd=True)
 
-  ebuild_dir = cros_build_lib.FromChrootPath(os.path.dirname(ebuild_file))
+  ebuild_dir = path_util.FromChrootPath(os.path.dirname(ebuild_file))
   git.RunGit(ebuild_dir, ['add', 'Manifest'])
 
   # Check if anything changed compared to the previous version.
@@ -289,8 +291,8 @@ def UpdateChromeEbuildAFDOFile(board, arch_profiles):
                              ['status', '--porcelain', '--'] + mod_files,
                              capture_output=True, print_cmd=True).output
   if not modifications:
-    cros_build_lib.Info('AFDO info for the Chrome ebuild did not change. '
-                        'Nothing to commit')
+    logging.info('AFDO info for the Chrome ebuild did not change. '
+                 'Nothing to commit')
     return
 
   # If there are changes to ebuild or Manifest, commit them.
@@ -325,8 +327,7 @@ def VerifyLatestAFDOFile(afdo_release_spec, buildroot, gs_context):
   try:
     latest_detail = gs_context.List(latest_afdo_url, details=True)
   except gs.GSNoSuchKey:
-    cros_build_lib.Info('Could not find latest AFDO info file %s' %
-                        latest_afdo_url)
+    logging.info('Could not find latest AFDO info file %s' % latest_afdo_url)
     return None
 
   # Verify the AFDO profile file is not too stale.
@@ -334,12 +335,12 @@ def VerifyLatestAFDOFile(afdo_release_spec, buildroot, gs_context):
   curr_date = datetime.datetime.now()
   allowed_stale_days = datetime.timedelta(days=AFDO_ALLOWED_STALE)
   if (curr_date - mod_date) > allowed_stale_days:
-    cros_build_lib.Info('Found latest AFDO info file %s but it is too old' %
-                        latest_afdo_url)
+    logging.info('Found latest AFDO info file %s but it is too old' %
+                 latest_afdo_url)
     return None
 
   # Then get the name of the latest valid AFDO profile file.
-  local_dir = AFDO_BUILDROOT_LOCAL % {'build_root': buildroot }
+  local_dir = AFDO_BUILDROOT_LOCAL % {'build_root': buildroot}
   latest_afdo_file = LATEST_CHROME_AFDO_FILE % afdo_release_spec
   latest_afdo_path = os.path.join(local_dir, latest_afdo_file)
   gs_context.Copy(latest_afdo_url, latest_afdo_path)
@@ -412,15 +413,15 @@ def GenerateAFDOData(cpv, arch, board, buildroot, gs_context):
   afdo_spec = {'package': cpv.package,
                'arch': arch,
                'version': version_number}
-  chroot_root = AFDO_CHROOT_ROOT % {'build_root': buildroot }
-  local_dir = AFDO_LOCAL_DIR % {'root': chroot_root }
-  in_chroot_local_dir = AFDO_LOCAL_DIR % {'root': '' }
+  chroot_root = AFDO_CHROOT_ROOT % {'build_root': buildroot}
+  local_dir = AFDO_LOCAL_DIR % {'root': chroot_root}
+  in_chroot_local_dir = AFDO_LOCAL_DIR % {'root': ''}
 
   # Upload compressed chrome debug binary to GS for triaging purposes.
   # TODO(llozano): This simplifies things in case of need of triaging
   # problems but is it really necessary?
   debug_bin = CHROME_DEBUG_BIN % {'root': chroot_root,
-                                  'board': board }
+                                  'board': board}
   comp_debug_bin_path = CompressAFDOFile(debug_bin, buildroot)
   GSUploadIfNotPresent(gs_context, comp_debug_bin_path,
                        CHROME_DEBUG_BIN_URL % afdo_spec)
@@ -429,7 +430,7 @@ def GenerateAFDOData(cpv, arch, board, buildroot, gs_context):
   # the name of the unstripped binary or it is named 'chrome.unstripped'.
   # So create a symbolic link with the appropriate name.
   local_debug_sym = os.path.join(local_dir, CHROME_UNSTRIPPED_NAME)
-  in_chroot_debug_bin = CHROME_DEBUG_BIN % {'root': '', 'board': board }
+  in_chroot_debug_bin = CHROME_DEBUG_BIN % {'root': '', 'board': board}
   osutils.SafeUnlink(local_debug_sym)
   os.symlink(in_chroot_debug_bin, local_debug_sym)
 
@@ -478,52 +479,3 @@ def GenerateAFDOData(cpv, arch, board, buildroot, gs_context):
 def CanGenerateAFDOData(board):
   """Does this board has the capability of generating its own AFDO data?."""
   return board in AFDO_DATA_GENERATORS
-
-
-def GenerateOrFindAFDOData(cpv, arch, board, buildroot):
-  """Generate or find the appropriate AFDO profile for the given architecture.
-
-  For the architectures that can generate a 'perf' tool profile, wait for
-  it to be generated by the autotest AFDO_generate and generate an AFDO
-  profile for it. In the generation of the 'perf' profile failed, use
-  a previously generated AFDO profile that is not too stale.
-  For the architectures that cannot generate a 'perf' tool profile, use
-  the AFDO profile from another architecture (e.g.: ARM can use a profile
-  from AMD64).
-  Once we have an adequate AFDO profile, put this information in the
-  chrome ebuild.
-
-  Args:
-    cpv: cpv object for Chrome.
-    arch: architecture for which we are looking for AFDO profile.
-    board: board we are building for.
-    buildroot: buildroot where AFDO data should be stored.
-  """
-  gs_context = gs.GSContext()
-  afdo_file = None
-  if CanGenerateAFDOData(board):
-    # Generation of AFDO could fail for different reasons. Try to be
-    # resilient about this and in case of failure just find an
-    # older AFDO profile.
-    try:
-      if WaitForAFDOPerfData(cpv, arch, buildroot, gs_context):
-        afdo_file = GenerateAFDOData(cpv, arch, board, buildroot, gs_context)
-        assert afdo_file
-        cros_build_lib.Info('Generated %s AFDO profile %s',
-                            arch, afdo_file)
-    # Will let system-exiting exceptions through.
-    except Exception:
-      cros_build_lib.PrintBuildbotStepWarnings()
-      cros_build_lib.Warning('AFDO profile generation failed with exception ',
-                             exc_info=True)
-  if not afdo_file:
-    cros_build_lib.Info('Trying to find previous appropriate AFDO profile')
-    afdo_file = GetLatestAFDOFile(cpv, arch, buildroot, gs_context)
-    if afdo_file:
-      cros_build_lib.Info('Found previous %s AFDO profile %s',
-                          arch, afdo_file)
-  if not afdo_file:
-    raise MissingAFDOData('Could not generate or find appropriate AFDO profile')
-
-  # We found an AFDO profile. Lets put the info in the chrome ebuild.
-  UpdateChromeEbuildAFDOFile(board, {arch: afdo_file})

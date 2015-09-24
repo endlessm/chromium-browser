@@ -6,6 +6,7 @@
 
 #include "base/logging.h"
 #include "base/stl_util.h"
+#include "base/trace_event/trace_event.h"
 #include "components/keyed_service/core/dependency_manager.h"
 #include "components/keyed_service/core/keyed_service.h"
 
@@ -58,6 +59,7 @@ KeyedService* KeyedServiceFactory::SetTestingFactoryAndUse(
 KeyedService* KeyedServiceFactory::GetServiceForContext(
     base::SupportsUserData* context,
     bool create) {
+  TRACE_EVENT0("browser,startup", "KeyedServiceFactory::GetServiceForContext");
   context = GetContextToUse(context);
   if (!context)
     return nullptr;
@@ -75,7 +77,7 @@ KeyedService* KeyedServiceFactory::GetServiceForContext(
   // Create new object.
   // Check to see if we have a per-context testing factory that we should use
   // instead of default behavior.
-  KeyedService* service = nullptr;
+  scoped_ptr<KeyedService> service;
   const auto& jt = testing_factories_.find(context);
   if (jt != testing_factories_.end()) {
     if (jt->second) {
@@ -87,14 +89,14 @@ KeyedService* KeyedServiceFactory::GetServiceForContext(
     service = BuildServiceInstanceFor(context);
   }
 
-  Associate(context, service);
-  return service;
+  Associate(context, service.Pass());
+  return mapping_[context];
 }
 
 void KeyedServiceFactory::Associate(base::SupportsUserData* context,
-                                    KeyedService* service) {
+                                    scoped_ptr<KeyedService> service) {
   DCHECK(!ContainsKey(mapping_, context));
-  mapping_.insert(std::make_pair(context, service));
+  mapping_.insert(std::make_pair(context, service.release()));
 }
 
 void KeyedServiceFactory::Disassociate(base::SupportsUserData* context) {

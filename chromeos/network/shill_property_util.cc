@@ -4,6 +4,8 @@
 
 #include "chromeos/network/shill_property_util.h"
 
+#include <set>
+
 #include "base/i18n/icu_encoding_detection.h"
 #include "base/i18n/icu_string_conversions.h"
 #include "base/json/json_writer.h"
@@ -12,9 +14,9 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversion_utils.h"
 #include "base/values.h"
-#include "chromeos/network/network_event_log.h"
 #include "chromeos/network/network_ui_data.h"
 #include "chromeos/network/onc/onc_utils.h"
+#include "components/device_event_log/device_event_log.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
 namespace chromeos {
@@ -57,16 +59,6 @@ bool CopyStringFromDictionary(const base::DictionaryValue& source,
   return true;
 }
 
-// This is the same normalization that Shill applies to security types for the
-// sake of comparing/identifying WiFi networks. See Shill's
-// WiFiService::GetSecurityClass.
-std::string GetSecurityClass(const std::string& security) {
-  if (security == shill::kSecurityRsn || security == shill::kSecurityWpa)
-    return shill::kSecurityPsk;
-  else
-    return security;
-}
-
 }  // namespace
 
 void SetSSID(const std::string ssid, base::DictionaryValue* properties) {
@@ -75,12 +67,10 @@ void SetSSID(const std::string ssid, base::DictionaryValue* properties) {
 }
 
 std::string GetSSIDFromProperties(const base::DictionaryValue& properties,
+                                  bool verbose_logging,
                                   bool* unknown_encoding) {
-  bool verbose_logging = false;
-  if (unknown_encoding) {
+  if (unknown_encoding)
     *unknown_encoding = false;
-    verbose_logging = true;
-  }
 
   // Get name for debugging.
   std::string name;
@@ -91,7 +81,7 @@ std::string GetSSIDFromProperties(const base::DictionaryValue& properties,
 
   if (hex_ssid.empty()) {
     if (verbose_logging)
-      NET_LOG_DEBUG("GetSSIDFromProperties: No HexSSID set.", name);
+      NET_LOG(DEBUG) << "GetSSIDFromProperties: No HexSSID set: " << name;
     return std::string();
   }
 
@@ -99,14 +89,11 @@ std::string GetSSIDFromProperties(const base::DictionaryValue& properties,
   std::vector<uint8> raw_ssid_bytes;
   if (base::HexStringToBytes(hex_ssid, &raw_ssid_bytes)) {
     ssid = std::string(raw_ssid_bytes.begin(), raw_ssid_bytes.end());
-    if (verbose_logging) {
-      NET_LOG_DEBUG(base::StringPrintf("GetSSIDFromProperties: %s, SSID: %s",
-                                       hex_ssid.c_str(), ssid.c_str()), name);
-    }
+    VLOG(2) << "GetSSIDFromProperties: " << name << " HexSsid=" << hex_ssid
+            << " SSID=" << ssid;
   } else {
-    NET_LOG_ERROR(
-        base::StringPrintf("GetSSIDFromProperties: Error processing: %s",
-                           hex_ssid.c_str()), name);
+    NET_LOG(ERROR) << "GetSSIDFromProperties: " << name
+                   << " Error processing HexSsid: " << hex_ssid;
     return std::string();
   }
 
@@ -127,9 +114,9 @@ std::string GetSSIDFromProperties(const base::DictionaryValue& properties,
       base::ConvertToUtf8AndNormalize(ssid, encoding, &utf8_ssid)) {
     if (utf8_ssid != ssid) {
       if (verbose_logging) {
-        NET_LOG_DEBUG(
-            base::StringPrintf("GetSSIDFromProperties: Encoding=%s: %s",
-                               encoding.c_str(), utf8_ssid.c_str()), name);
+        NET_LOG(DEBUG) << "GetSSIDFromProperties: " << name
+                       << " Encoding=" << encoding << " SSID=" << ssid
+                       << " UTF8 SSID=" << utf8_ssid;
       }
     }
     return utf8_ssid;
@@ -138,9 +125,8 @@ std::string GetSSIDFromProperties(const base::DictionaryValue& properties,
   if (unknown_encoding)
     *unknown_encoding = true;
   if (verbose_logging) {
-    NET_LOG_DEBUG(
-        base::StringPrintf("GetSSIDFromProperties: Unrecognized Encoding=%s",
-                           encoding.c_str()), name);
+    NET_LOG(DEBUG) << "GetSSIDFromProperties: " << name
+                   << " Unrecognized Encoding=" << encoding;
   }
   return ssid;
 }
@@ -168,25 +154,26 @@ std::string GetNameFromProperties(const std::string& service_path,
 
   std::string validated_name = ValidateUTF8(name);
   if (validated_name != name) {
-    NET_LOG_DEBUG("GetNameFromProperties",
-                  base::StringPrintf("Validated name %s: UTF8: %s",
-                                     service_path.c_str(),
-                                     validated_name.c_str()));
+    NET_LOG(DEBUG) << "GetNameFromProperties: " << service_path
+                   << " Validated name=" << validated_name << " name=" << name;
   }
 
   std::string type;
   properties.GetStringWithoutPathExpansion(shill::kTypeProperty, &type);
   if (type.empty()) {
-    NET_LOG_ERROR("GetNameFromProperties: No type", service_path);
+    NET_LOG(ERROR) << "GetNameFromProperties: " << service_path << " No type.";
     return validated_name;
   }
   if (!NetworkTypePattern::WiFi().MatchesType(type))
     return validated_name;
 
   bool unknown_ssid_encoding = false;
-  std::string ssid = GetSSIDFromProperties(properties, &unknown_ssid_encoding);
-  if (ssid.empty())
-    NET_LOG_ERROR("GetNameFromProperties", "No SSID set: " + service_path);
+  std::string ssid = GetSSIDFromProperties(
+      properties, true /* verbose_logging */, &unknown_ssid_encoding);
+  if (ssid.empty()) {
+    NET_LOG(ERROR) << "GetNameFromProperties: " << service_path
+                   << " No SSID set";
+  }
 
   // Use |validated_name| if |ssid| is empty.
   // And if the encoding of the SSID is unknown, use |ssid|, which contains raw
@@ -195,11 +182,8 @@ std::string GetNameFromProperties(const std::string& service_path,
     return validated_name;
 
   if (ssid != validated_name) {
-    NET_LOG_DEBUG("GetNameFromProperties",
-                  base::StringPrintf("%s: SSID: %s, Name: %s",
-                                     service_path.c_str(),
-                                     ssid.c_str(),
-                                     validated_name.c_str()));
+    NET_LOG(DEBUG) << "GetNameFromProperties: " << service_path
+                   << " SSID=" << ssid << " Validated name=" << validated_name;
   }
   return ssid;
 }
@@ -237,7 +221,7 @@ void SetUIData(const NetworkUIData& ui_data,
   base::DictionaryValue ui_data_dict;
   ui_data.FillDictionary(&ui_data_dict);
   std::string ui_data_blob;
-  base::JSONWriter::Write(&ui_data_dict, &ui_data_blob);
+  base::JSONWriter::Write(ui_data_dict, &ui_data_blob);
   shill_dictionary->SetStringWithoutPathExpansion(shill::kUIDataProperty,
                                                   ui_data_blob);
 }
@@ -255,19 +239,16 @@ bool CopyIdentifyingProperties(const base::DictionaryValue& service_properties,
   success &= !type.empty();
   dest->SetStringWithoutPathExpansion(shill::kTypeProperty, type);
   if (type == shill::kTypeWifi) {
-    std::string security;
-    service_properties.GetStringWithoutPathExpansion(shill::kSecurityProperty,
-                                                     &security);
-    if (security.empty()) {
-      success = false;
-    } else {
-      dest->SetStringWithoutPathExpansion(shill::kSecurityProperty,
-                                          GetSecurityClass(security));
-    }
+    success &=
+        CopyStringFromDictionary(
+            service_properties, shill::kSecurityClassProperty, dest);
     success &=
         CopyStringFromDictionary(service_properties, shill::kWifiHexSsid, dest);
     success &= CopyStringFromDictionary(
         service_properties, shill::kModeProperty, dest);
+  } else if (type == shill::kTypeCellular) {
+    success &= CopyStringFromDictionary(
+        service_properties, shill::kNetworkTechnologyProperty, dest);
   } else if (type == shill::kTypeVPN) {
     success &= CopyStringFromDictionary(
         service_properties, shill::kNameProperty, dest);
@@ -281,8 +262,8 @@ bool CopyIdentifyingProperties(const base::DictionaryValue& service_properties,
       const base::DictionaryValue* provider_properties = NULL;
       if (!service_properties.GetDictionaryWithoutPathExpansion(
               shill::kProviderProperty, &provider_properties)) {
-        NET_LOG_ERROR("Missing VPN provider dict",
-                      GetNetworkIdFromProperties(service_properties));
+        NET_LOG(ERROR) << "Missing VPN provider dict: "
+                       << GetNetworkIdFromProperties(service_properties);
       }
       provider_properties->GetStringWithoutPathExpansion(shill::kTypeProperty,
                                                          &vpn_provider_type);
@@ -309,8 +290,8 @@ bool CopyIdentifyingProperties(const base::DictionaryValue& service_properties,
     success = false;
   }
   if (!success) {
-    NET_LOG_ERROR("Missing required properties",
-                  GetNetworkIdFromProperties(service_properties));
+    NET_LOG(ERROR) << "Missing required properties: "
+                   << GetNetworkIdFromProperties(service_properties);
   }
   return success;
 }
@@ -334,18 +315,38 @@ bool DoIdentifyingPropertiesMatch(const base::DictionaryValue& new_properties,
   return new_identifying.Equals(&old_identifying);
 }
 
-bool IsPassphraseKey(const std::string& key) {
-  return key == shill::kEapPrivateKeyPasswordProperty ||
-      key == shill::kEapPasswordProperty ||
-      key == shill::kL2tpIpsecPasswordProperty ||
-      key == shill::kOpenVPNPasswordProperty ||
-      key == shill::kOpenVPNAuthUserPassProperty ||
-      key == shill::kOpenVPNTLSAuthContentsProperty ||
-      key == shill::kPassphraseProperty ||
-      key == shill::kOpenVPNOTPProperty ||
-      key == shill::kEapPrivateKeyProperty ||
-      key == shill::kEapPinProperty ||
-      key == shill::kApnPasswordProperty;
+bool IsLoggableShillProperty(const std::string& key) {
+  static std::set<std::string>* s_skip_properties = nullptr;
+  if (!s_skip_properties) {
+    s_skip_properties = new std::set<std::string>;
+    s_skip_properties->insert(shill::kApnPasswordProperty);
+    s_skip_properties->insert(shill::kEapCaCertNssProperty);
+    s_skip_properties->insert(shill::kEapCaCertPemProperty);
+    s_skip_properties->insert(shill::kEapCaCertProperty);
+    s_skip_properties->insert(shill::kEapClientCertNssProperty);
+    s_skip_properties->insert(shill::kEapClientCertProperty);
+    s_skip_properties->insert(shill::kEapPasswordProperty);
+    s_skip_properties->insert(shill::kEapPinProperty);
+    s_skip_properties->insert(shill::kEapPrivateKeyPasswordProperty);
+    s_skip_properties->insert(shill::kEapPrivateKeyProperty);
+    s_skip_properties->insert(shill::kL2tpIpsecCaCertPemProperty);
+    s_skip_properties->insert(shill::kL2tpIpsecPasswordProperty);
+    s_skip_properties->insert(shill::kL2tpIpsecPinProperty);
+    s_skip_properties->insert(shill::kL2tpIpsecPskProperty);
+    s_skip_properties->insert(shill::kOpenVPNAuthUserPassProperty);
+    s_skip_properties->insert(shill::kOpenVPNCaCertNSSProperty);
+    s_skip_properties->insert(shill::kOpenVPNCaCertPemProperty);
+    s_skip_properties->insert(shill::kOpenVPNCaCertProperty);
+    s_skip_properties->insert(shill::kOpenVPNCertProperty);
+    s_skip_properties->insert(shill::kOpenVPNExtraCertPemProperty);
+    s_skip_properties->insert(shill::kOpenVPNOTPProperty);
+    s_skip_properties->insert(shill::kOpenVPNPasswordProperty);
+    s_skip_properties->insert(shill::kOpenVPNPinProperty);
+    s_skip_properties->insert(shill::kOpenVPNTLSAuthContentsProperty);
+    s_skip_properties->insert(shill::kPPPoEPasswordProperty);
+    s_skip_properties->insert(shill::kPassphraseProperty);
+  }
+  return s_skip_properties->count(key) == 0;
 }
 
 bool GetHomeProviderFromProperty(const base::Value& value,

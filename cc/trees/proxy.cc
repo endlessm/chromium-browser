@@ -4,7 +4,6 @@
 
 #include "cc/trees/proxy.h"
 
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/single_thread_task_runner.h"
 #include "cc/trees/blocking_task_runner.h"
 
@@ -21,7 +20,7 @@ base::SingleThreadTaskRunner* Proxy::ImplThreadTaskRunner() const {
 }
 
 bool Proxy::IsMainThread() const {
-#if DCHECK_IS_ON
+#if DCHECK_IS_ON()
   if (impl_thread_is_overridden_)
     return false;
 
@@ -36,7 +35,7 @@ bool Proxy::IsMainThread() const {
 }
 
 bool Proxy::IsImplThread() const {
-#if DCHECK_IS_ON
+#if DCHECK_IS_ON()
   if (impl_thread_is_overridden_)
     return true;
   if (!impl_task_runner_.get())
@@ -47,21 +46,21 @@ bool Proxy::IsImplThread() const {
 #endif
 }
 
-#if DCHECK_IS_ON
+#if DCHECK_IS_ON()
 void Proxy::SetCurrentThreadIsImplThread(bool is_impl_thread) {
   impl_thread_is_overridden_ = is_impl_thread;
 }
 #endif
 
 bool Proxy::IsMainThreadBlocked() const {
-#if DCHECK_IS_ON
+#if DCHECK_IS_ON()
   return is_main_thread_blocked_;
 #else
   return true;
 #endif
 }
 
-#if DCHECK_IS_ON
+#if DCHECK_IS_ON()
 void Proxy::SetMainThreadBlocked(bool is_main_thread_blocked) {
   is_main_thread_blocked_ = is_main_thread_blocked;
 }
@@ -69,7 +68,7 @@ void Proxy::SetMainThreadBlocked(bool is_main_thread_blocked) {
 
 Proxy::Proxy(scoped_refptr<base::SingleThreadTaskRunner> main_task_runner,
              scoped_refptr<base::SingleThreadTaskRunner> impl_task_runner)
-#if !DCHECK_IS_ON
+#if !DCHECK_IS_ON()
     : main_task_runner_(main_task_runner),
       impl_task_runner_(impl_task_runner),
       blocking_main_thread_task_runner_(

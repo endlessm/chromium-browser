@@ -42,14 +42,14 @@ class ExceptionState;
 
 class InspectorHistory final : public NoBaseWillBeGarbageCollected<InspectorHistory> {
     WTF_MAKE_NONCOPYABLE(InspectorHistory);
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
+    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(InspectorHistory);
 public:
     class Action : public RefCountedWillBeGarbageCollectedFinalized<Action> {
-        WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
+        WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(Action);
     public:
         explicit Action(const String& name);
         virtual ~Action();
-        virtual void trace(Visitor*);
+        DECLARE_VIRTUAL_TRACE();
         virtual String toString();
 
         virtual String mergeId();
@@ -60,13 +60,15 @@ public:
         virtual bool undo(ExceptionState&) = 0;
         virtual bool redo(ExceptionState&) = 0;
 
+        virtual bool isNoop() { return false; }
+
         virtual bool isUndoableStateMark();
     private:
         String m_name;
     };
 
     InspectorHistory();
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
     bool perform(PassRefPtrWillBeRawPtr<Action>, ExceptionState&);
     void markUndoableState();

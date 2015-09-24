@@ -12,15 +12,14 @@
 #include "base/compiler_specific.h"
 #include "base/scoped_observer.h"
 #include "base/strings/string16.h"
+#include "chrome/browser/profiles/profile_info_cache_observer.h"
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/ui/host_desktop.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "ui/gfx/image/image.h"
 
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
 #include "chrome/browser/supervised_user/supervised_user_service_observer.h"
 #endif
 
@@ -38,10 +37,10 @@ class SupervisedUserService;
 // data changes, and the view for this model should forward actions
 // back to it in response to user events.
 class AvatarMenu :
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
     public SupervisedUserServiceObserver,
 #endif
-    public content::NotificationObserver {
+    public ProfileInfoCacheObserver {
  public:
   // Represents an item in the menu.
   struct Item {
@@ -57,8 +56,9 @@ class AvatarMenu :
     // The name of this profile.
     base::string16 name;
 
-    // A string representing the sync state of the profile.
-    base::string16 sync_state;
+    // A string representing the username of the profile, if signed in.  Empty
+    // when not signed in.
+    base::string16 username;
 
     // Whether or not the current profile is signed in. If true, |sync_state| is
     // expected to be the email of the signed in user.
@@ -67,9 +67,13 @@ class AvatarMenu :
     // Whether or not the current profile requires sign-in before use.
     bool signin_required;
 
-    // Whether or not the current profile is a supervised user
+    // Whether or not the current profile is a legacy supervised user profile
     // (see SupervisedUserService).
-    bool supervised;
+    bool legacy_supervised;
+
+    // Whether or not the profile is associated with a child account
+    // (see SupervisedUserService).
+    bool child_account;
 
     // The index in the menu of this profile, used by views to refer to
     // profiles.
@@ -92,9 +96,10 @@ class AvatarMenu :
   // True if avatar menu should be displayed.
   static bool ShouldShowAvatarMenu();
 
-  // Sets |image| to the image corresponding to the given profile, and
-  // sets |is_rectangle| to true unless |image| is a built-in profile avatar.
-  static void GetImageForMenuButton(Profile* profile,
+  // Sets |image| to the avatar corresponding to the profile at |profile_path|
+  // and sets |is_rectangle| to true unless |image| is a built-in profile
+  // avatar. For built-in profile avatars, returns the non-high res version.
+  static void GetImageForMenuButton(const base::FilePath& profile_path,
                                     gfx::Image* image,
                                     bool* is_rectangle);
 
@@ -146,16 +151,28 @@ class AvatarMenu :
   // Returns true if the edit profile link should be shown.
   bool ShouldShowEditProfileLink() const;
 
-  // content::NotificationObserver:
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override;
-
  private:
-#if defined(ENABLE_MANAGED_USERS)
+  // ProfileInfoCacheObserver:
+  void OnProfileAdded(const base::FilePath& profile_path) override;
+  void OnProfileWasRemoved(const base::FilePath& profile_path,
+      const base::string16& profile_name) override;
+  void OnProfileNameChanged(const base::FilePath& profile_path,
+      const base::string16& old_profile_name) override;
+  void OnProfileAuthInfoChanged(const base::FilePath& profile_path) override;
+  void OnProfileAvatarChanged(const base::FilePath& profile_path) override;
+  void OnProfileHighResAvatarLoaded(
+      const base::FilePath& profile_path) override;
+  void OnProfileSigninRequiredChanged(
+      const base::FilePath& profile_path) override;
+  void OnProfileIsOmittedChanged(const base::FilePath& profile_path) override;
+
+#if defined(ENABLE_SUPERVISED_USERS)
   // SupervisedUserServiceObserver:
   void OnCustodianInfoChanged() override;
 #endif
+
+  // Rebuilds the menu and notifies any observers that an update occured.
+  void Update();
 
   // The model that provides the list of menu items.
   scoped_ptr<ProfileList> profile_list_;
@@ -163,7 +180,7 @@ class AvatarMenu :
   // The controller for avatar menu actions.
   scoped_ptr<AvatarMenuActions> menu_actions_;
 
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
   // Observes changes to a supervised user's custodian info.
   ScopedObserver<SupervisedUserService, SupervisedUserServiceObserver>
       supervised_user_observer_;
@@ -177,9 +194,6 @@ class AvatarMenu :
 
   // Browser in which this avatar menu resides. Weak.
   Browser* browser_;
-
-  // Listens for notifications from the ProfileInfoCache.
-  content::NotificationRegistrar registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(AvatarMenu);
 };

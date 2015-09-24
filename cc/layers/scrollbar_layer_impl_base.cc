@@ -33,8 +33,10 @@ ScrollbarLayerImplBase::~ScrollbarLayerImplBase() {}
 
 void ScrollbarLayerImplBase::PushPropertiesTo(LayerImpl* layer) {
   float active_opacity = layer->opacity();
+  bool active_hidden = layer->hide_layer_and_subtree();
   LayerImpl::PushPropertiesTo(layer);
   layer->SetOpacity(active_opacity);
+  layer->SetHideLayerAndSubtree(active_hidden);
   DCHECK(layer->ToScrollbarLayer());
   layer->ToScrollbarLayer()->set_is_overlay_scrollbar(is_overlay_scrollbar_);
   PushScrollClipPropertiesTo(layer);
@@ -69,11 +71,7 @@ void RegisterScrollbarWithLayers(ScrollbarLayerImplBase* scrollbar,
   for (LayerImpl* current_layer = scroll_layer;
        current_layer && current_layer != container_layer->parent();
        current_layer = current_layer->parent()) {
-    // TODO(wjmaclean) We shouldn't need to exempt the scroll_layer from the
-    // scrollable() test below. https://crbug.com/367858.
-    if (current_layer->scrollable() || current_layer == container_layer ||
-        current_layer == scroll_layer)
-      (current_layer->*operation)(scrollbar);
+    (current_layer->*operation)(scrollbar);
   }
 }
 }  // namespace
@@ -94,16 +92,6 @@ void ScrollbarLayerImplBase::SetScrollLayerAndClipLayerByIds(
       this, clip_layer_, scroll_layer_, &LayerImpl::AddScrollbar);
 
   ScrollbarParametersDidChange(false);
-}
-
-gfx::Rect ScrollbarLayerImplBase::ScrollbarLayerRectToContentRect(
-    const gfx::RectF& layer_rect) const {
-  // Don't intersect with the bounds as in LayerRectToContentRect() because
-  // layer_rect here might be in coordinates of the containing layer.
-  gfx::RectF content_rect = gfx::ScaleRect(layer_rect,
-      contents_scale_x(),
-      contents_scale_y());
-  return gfx::ToEnclosingRect(content_rect);
 }
 
 bool ScrollbarLayerImplBase::SetCurrentPos(float current_pos) {
@@ -251,7 +239,7 @@ gfx::Rect ScrollbarLayerImplBase::ComputeThumbQuadRect() const {
         thumb_length);
   }
 
-  return ScrollbarLayerRectToContentRect(thumb_rect);
+  return gfx::ToEnclosingRect(thumb_rect);
 }
 
 void ScrollbarLayerImplBase::ScrollbarParametersDidChange(bool on_resize) {

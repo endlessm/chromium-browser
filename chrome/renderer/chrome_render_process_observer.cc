@@ -11,25 +11,29 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
+#include "base/location.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/statistics_recorder.h"
-#include "base/native_library.h"
 #include "base/path_service.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/platform_thread.h"
 #include "chrome/common/child_process_logging.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/net/net_resource_provider.h"
 #include "chrome/common/render_messages.h"
+#include "chrome/common/resource_usage_reporter.mojom.h"
+#include "chrome/common/resource_usage_reporter_type_converters.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/common/variations/variations_util.h"
 #include "chrome/renderer/content_settings_observer.h"
 #include "chrome/renderer/security_filter_peer.h"
 #include "content/public/child/resource_dispatcher_delegate.h"
+#include "content/public/common/service_registry.h"
 #include "content/public/renderer/render_thread.h"
 #include "content/public/renderer/render_view.h"
 #include "content/public/renderer/render_view_visitor.h"
@@ -42,10 +46,7 @@
 #include "third_party/WebKit/public/web/WebRuntimeFeatures.h"
 #include "third_party/WebKit/public/web/WebSecurityPolicy.h"
 #include "third_party/WebKit/public/web/WebView.h"
-
-#if defined(OS_WIN)
-#include "base/win/iat_patch_function.h"
-#endif
+#include "third_party/mojo/src/mojo/public/cpp/bindings/strong_binding.h"
 
 #if defined(ENABLE_EXTENSIONS)
 #include "chrome/renderer/extensions/extension_localization_peer.h"
@@ -73,7 +74,7 @@ class RendererResourceDelegate : public content::ResourceDispatcherDelegate {
     // Update the browser about our cache.
     // Rate limit informing the host of our cache stats.
     if (!weak_factory_.HasWeakPtrs()) {
-      base::MessageLoop::current()->PostDelayedTask(
+      base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
           FROM_HERE,
           base::Bind(&RendererResourceDelegate::InformHostOfCacheStats,
                      weak_factory_.GetWeakPtr()),
@@ -112,155 +113,126 @@ class RendererResourceDelegate : public content::ResourceDispatcherDelegate {
   DISALLOW_COPY_AND_ASSIGN(RendererResourceDelegate);
 };
 
-#if defined(OS_WIN)
-static base::win::IATPatchFunction g_iat_patch_createdca;
-HDC WINAPI CreateDCAPatch(LPCSTR driver_name,
-                          LPCSTR device_name,
-                          LPCSTR output,
-                          const void* init_data) {
-  DCHECK(std::string("DISPLAY") == std::string(driver_name));
-  DCHECK(!device_name);
-  DCHECK(!output);
-  DCHECK(!init_data);
-
-  // CreateDC fails behind the sandbox, but not CreateCompatibleDC.
-  return CreateCompatibleDC(NULL);
-}
-
-static base::win::IATPatchFunction g_iat_patch_get_font_data;
-DWORD WINAPI GetFontDataPatch(HDC hdc,
-                              DWORD table,
-                              DWORD offset,
-                              LPVOID buffer,
-                              DWORD length) {
-  int rv = GetFontData(hdc, table, offset, buffer, length);
-  if (rv == GDI_ERROR && hdc) {
-    HFONT font = static_cast<HFONT>(GetCurrentObject(hdc, OBJ_FONT));
-
-    LOGFONT logfont;
-    if (GetObject(font, sizeof(LOGFONT), &logfont)) {
-      std::vector<char> font_data;
-      RenderThread::Get()->PreCacheFont(logfont);
-      rv = GetFontData(hdc, table, offset, buffer, length);
-      RenderThread::Get()->ReleaseCachedFonts();
-    }
-  }
-  return rv;
-}
-#endif  // OS_WIN
-
 static const int kWaitForWorkersStatsTimeoutMS = 20;
 
-class HeapStatisticsCollector {
+class ResourceUsageReporterImpl : public ResourceUsageReporter {
  public:
-  HeapStatisticsCollector() : round_id_(0) {}
-
-  void InitiateCollection();
-  static HeapStatisticsCollector* Instance();
+  ResourceUsageReporterImpl(
+      base::WeakPtr<ChromeRenderProcessObserver> observer,
+      mojo::InterfaceRequest<ResourceUsageReporter> req)
+      : binding_(this, req.Pass()), observer_(observer), weak_factory_(this) {}
+  ~ResourceUsageReporterImpl() override {}
 
  private:
-  void CollectOnWorkerThread(scoped_refptr<base::TaskRunner> master,
-                             int round_id);
-  void ReceiveStats(int round_id, size_t total_size, size_t used_size);
-  void SendStatsToBrowser(int round_id);
+  static void CollectOnWorkerThread(
+      const scoped_refptr<base::TaskRunner>& master,
+      base::WeakPtr<ResourceUsageReporterImpl> impl) {
+    size_t total_bytes = 0;
+    size_t used_bytes = 0;
+    v8::Isolate* isolate = v8::Isolate::GetCurrent();
+    if (isolate) {
+      v8::HeapStatistics heap_stats;
+      isolate->GetHeapStatistics(&heap_stats);
+      total_bytes = heap_stats.total_heap_size();
+      used_bytes = heap_stats.used_heap_size();
+    }
+    master->PostTask(FROM_HERE,
+                     base::Bind(&ResourceUsageReporterImpl::ReceiveStats, impl,
+                                total_bytes, used_bytes));
+  }
 
-  size_t total_bytes_;
-  size_t used_bytes_;
+  void ReceiveStats(size_t total_bytes, size_t used_bytes) {
+    usage_data_->v8_bytes_allocated += total_bytes;
+    usage_data_->v8_bytes_used += used_bytes;
+    workers_to_go_--;
+    if (!workers_to_go_)
+      SendResults();
+  }
+
+  void SendResults() {
+    if (!callback_.is_null())
+      callback_.Run(usage_data_.Pass());
+    callback_.reset();
+    weak_factory_.InvalidateWeakPtrs();
+    workers_to_go_ = 0;
+  }
+
+  void GetUsageData(
+      const mojo::Callback<void(ResourceUsageDataPtr)>& callback) override {
+    DCHECK(callback_.is_null());
+    weak_factory_.InvalidateWeakPtrs();
+    usage_data_ = ResourceUsageData::New();
+    usage_data_->reports_v8_stats = true;
+    callback_ = callback;
+
+    // Since it is not safe to call any Blink or V8 functions until Blink has
+    // been initialized (which also initializes V8), early out and send 0 back
+    // for all resources.
+    if (!observer_ || !observer_->webkit_initialized()) {
+      SendResults();
+      return;
+    }
+
+    WebCache::ResourceTypeStats stats;
+    WebCache::getResourceTypeStats(&stats);
+    usage_data_->web_cache_stats = ResourceTypeStats::From(stats);
+
+    v8::Isolate* isolate = v8::Isolate::GetCurrent();
+    if (isolate) {
+      v8::HeapStatistics heap_stats;
+      isolate->GetHeapStatistics(&heap_stats);
+      usage_data_->v8_bytes_allocated = heap_stats.total_heap_size();
+      usage_data_->v8_bytes_used = heap_stats.used_heap_size();
+    }
+    base::Closure collect = base::Bind(
+        &ResourceUsageReporterImpl::CollectOnWorkerThread,
+        base::ThreadTaskRunnerHandle::Get(), weak_factory_.GetWeakPtr());
+    workers_to_go_ = RenderThread::Get()->PostTaskToAllWebWorkers(collect);
+    if (workers_to_go_) {
+      // The guard task to send out partial stats
+      // in case some workers are not responsive.
+      base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+          FROM_HERE, base::Bind(&ResourceUsageReporterImpl::SendResults,
+                                weak_factory_.GetWeakPtr()),
+          base::TimeDelta::FromMilliseconds(kWaitForWorkersStatsTimeoutMS));
+    } else {
+      // No worker threads so just send out the main thread data right away.
+      SendResults();
+    }
+  }
+
+  ResourceUsageDataPtr usage_data_;
+  mojo::Callback<void(ResourceUsageDataPtr)> callback_;
   int workers_to_go_;
-  int round_id_;
+  mojo::StrongBinding<ResourceUsageReporter> binding_;
+  base::WeakPtr<ChromeRenderProcessObserver> observer_;
+
+  base::WeakPtrFactory<ResourceUsageReporterImpl> weak_factory_;
 };
 
-HeapStatisticsCollector* HeapStatisticsCollector::Instance() {
-  CR_DEFINE_STATIC_LOCAL(HeapStatisticsCollector, instance, ());
-  return &instance;
-}
-
-void HeapStatisticsCollector::InitiateCollection() {
-  v8::HeapStatistics heap_stats;
-  v8::Isolate::GetCurrent()->GetHeapStatistics(&heap_stats);
-  total_bytes_ = heap_stats.total_heap_size();
-  used_bytes_ = heap_stats.used_heap_size();
-  base::Closure collect = base::Bind(
-      &HeapStatisticsCollector::CollectOnWorkerThread,
-      base::Unretained(this),
-      base::MessageLoopProxy::current(),
-      round_id_);
-  workers_to_go_ = RenderThread::Get()->PostTaskToAllWebWorkers(collect);
-  if (workers_to_go_) {
-    // The guard task to send out partial stats
-    // in case some workers are not responsive.
-    base::MessageLoopProxy::current()->PostDelayedTask(
-        FROM_HERE,
-        base::Bind(&HeapStatisticsCollector::SendStatsToBrowser,
-                   base::Unretained(this),
-                   round_id_),
-        base::TimeDelta::FromMilliseconds(kWaitForWorkersStatsTimeoutMS));
-  } else {
-    // No worker threads so just send out the main thread data right away.
-    SendStatsToBrowser(round_id_);
-  }
-}
-
-void HeapStatisticsCollector::CollectOnWorkerThread(
-    scoped_refptr<base::TaskRunner> master,
-    int round_id) {
-
-  size_t total_bytes = 0;
-  size_t used_bytes = 0;
-  v8::Isolate* isolate = v8::Isolate::GetCurrent();
-  if (isolate) {
-    v8::HeapStatistics heap_stats;
-    isolate->GetHeapStatistics(&heap_stats);
-    total_bytes = heap_stats.total_heap_size();
-    used_bytes = heap_stats.used_heap_size();
-  }
-  master->PostTask(
-      FROM_HERE,
-      base::Bind(&HeapStatisticsCollector::ReceiveStats,
-                 base::Unretained(this),
-                 round_id,
-                 total_bytes,
-                 used_bytes));
-}
-
-void HeapStatisticsCollector::ReceiveStats(int round_id,
-                                           size_t total_bytes,
-                                           size_t used_bytes) {
-  if (round_id != round_id_)
-    return;
-  total_bytes_ += total_bytes;
-  used_bytes_ += used_bytes;
-  if (!--workers_to_go_)
-    SendStatsToBrowser(round_id);
-}
-
-void HeapStatisticsCollector::SendStatsToBrowser(int round_id) {
-  if (round_id != round_id_)
-    return;
-  // TODO(alph): Do caching heap stats and use the cache if we haven't got
-  //             reply from a worker.
-  //             Currently a busy worker stats are not counted.
-  RenderThread::Get()->Send(new ChromeViewHostMsg_V8HeapStats(
-      total_bytes_, used_bytes_));
-  ++round_id_;
+void CreateResourceUsageReporter(
+    base::WeakPtr<ChromeRenderProcessObserver> observer,
+    mojo::InterfaceRequest<ResourceUsageReporter> request) {
+  new ResourceUsageReporterImpl(observer, request.Pass());
 }
 
 }  // namespace
 
 bool ChromeRenderProcessObserver::is_incognito_process_ = false;
 
-ChromeRenderProcessObserver::ChromeRenderProcessObserver(
-    ChromeContentRendererClient* client)
-    : client_(client),
-      webkit_initialized_(false) {
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+ChromeRenderProcessObserver::ChromeRenderProcessObserver()
+    : webkit_initialized_(false), weak_factory_(this) {
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
 
 #if defined(ENABLE_AUTOFILL_DIALOG)
   WebRuntimeFeatures::enableRequestAutocomplete(true);
 #endif
 
-  if (command_line.HasSwitch(switches::kEnableShowModalDialog))
-    WebRuntimeFeatures::enableShowModalDialog(true);
+  if (command_line.HasSwitch(switches::kDisableJavaScriptHarmonyShipping)) {
+    std::string flag("--noharmony-shipping");
+    v8::V8::SetFlagsFromString(flag.c_str(), static_cast<int>(flag.size()));
+  }
 
   if (command_line.HasSwitch(switches::kJavaScriptHarmony)) {
     std::string flag("--harmony");
@@ -271,34 +243,26 @@ ChromeRenderProcessObserver::ChromeRenderProcessObserver(
   resource_delegate_.reset(new RendererResourceDelegate());
   thread->SetResourceDispatcherDelegate(resource_delegate_.get());
 
+  content::ServiceRegistry* service_registry = thread->GetServiceRegistry();
+  if (service_registry) {
+    service_registry->AddService<ResourceUsageReporter>(
+        base::Bind(CreateResourceUsageReporter, weak_factory_.GetWeakPtr()));
+  }
+
   // Configure modules that need access to resources.
   net::NetModule::SetResourceProvider(chrome_common_net::NetResourceProvider);
 
-#if defined(OS_WIN)
-  // Need to patch a few functions for font loading to work correctly.
-  base::FilePath pdf;
-  if (PathService::Get(chrome::FILE_PDF_PLUGIN, &pdf) &&
-      base::PathExists(pdf)) {
-    g_iat_patch_createdca.Patch(
-        pdf.value().c_str(), "gdi32.dll", "CreateDCA", CreateDCAPatch);
-    g_iat_patch_get_font_data.Patch(
-        pdf.value().c_str(), "gdi32.dll", "GetFontData", GetFontDataPatch);
-  }
-#endif
-
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && defined(USE_NSS)
+#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(USE_OPENSSL)
   // On platforms where we use system NSS shared libraries,
   // initialize NSS now because it won't be able to load the .so's
   // after we engage the sandbox.
   if (!command_line.HasSwitch(switches::kSingleProcess))
     crypto::InitNSSSafely();
-#elif defined(OS_WIN)
-  // crypt32.dll is used to decode X509 certificates for Chromoting.
-  // Only load this library when the feature is enabled.
-  base::LoadNativeLibrary(base::FilePath(L"crypt32.dll"), NULL);
 #endif
   // Setup initial set of crash dump data for Field Trials in this renderer.
   chrome_variations::SetChildProcessLoggingVariationList();
+  // Listen for field trial activations to report them to the browser.
+  base::FieldTrialList::AddObserver(this);
 }
 
 ChromeRenderProcessObserver::~ChromeRenderProcessObserver() {
@@ -311,9 +275,6 @@ bool ChromeRenderProcessObserver::OnControlMessageReceived(
     IPC_MESSAGE_HANDLER(ChromeViewMsg_SetIsIncognitoProcess,
                         OnSetIsIncognitoProcess)
     IPC_MESSAGE_HANDLER(ChromeViewMsg_SetFieldTrialGroup, OnSetFieldTrialGroup)
-    IPC_MESSAGE_HANDLER(ChromeViewMsg_GetV8HeapStats, OnGetV8HeapStats)
-    IPC_MESSAGE_HANDLER(ChromeViewMsg_GetCacheResourceStats,
-                        OnGetCacheResourceStats)
     IPC_MESSAGE_HANDLER(ChromeViewMsg_SetContentSettingRules,
                         OnSetContentSettingRules)
     IPC_MESSAGE_UNHANDLED(handled = false)
@@ -351,13 +312,6 @@ void ChromeRenderProcessObserver::OnSetContentSettingRules(
   content_setting_rules_ = rules;
 }
 
-void ChromeRenderProcessObserver::OnGetCacheResourceStats() {
-  WebCache::ResourceTypeStats stats;
-  if (webkit_initialized_)
-    WebCache::getResourceTypeStats(&stats);
-  RenderThread::Get()->Send(new ChromeViewHostMsg_ResourceTypeStats(stats));
-}
-
 void ChromeRenderProcessObserver::OnSetFieldTrialGroup(
     const std::string& field_trial_name,
     const std::string& group_name) {
@@ -365,17 +319,20 @@ void ChromeRenderProcessObserver::OnSetFieldTrialGroup(
       base::FieldTrialList::CreateFieldTrial(field_trial_name, group_name);
   // TODO(mef): Remove this check after the investigation of 359406 is complete.
   CHECK(trial) << field_trial_name << ":" << group_name;
-  // Ensure the trial is marked as "used" by calling group() on it. This is
-  // needed to ensure the trial is properly reported in renderer crash reports.
+  // Ensure the trial is marked as "used" by calling group() on it if it is
+  // marked as activated.
   trial->group();
   chrome_variations::SetChildProcessLoggingVariationList();
-}
-
-void ChromeRenderProcessObserver::OnGetV8HeapStats() {
-  HeapStatisticsCollector::Instance()->InitiateCollection();
 }
 
 const RendererContentSettingRules*
 ChromeRenderProcessObserver::content_setting_rules() const {
   return &content_setting_rules_;
+}
+
+void ChromeRenderProcessObserver::OnFieldTrialGroupFinalized(
+    const std::string& trial_name,
+    const std::string& group_name) {
+  content::RenderThread::Get()->Send(
+      new ChromeViewHostMsg_FieldTrialActivated(trial_name));
 }

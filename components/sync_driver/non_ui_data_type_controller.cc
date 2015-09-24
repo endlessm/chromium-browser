@@ -6,6 +6,7 @@
 
 #include "base/logging.h"
 #include "base/memory/weak_ptr.h"
+#include "base/thread_task_runner_handle.h"
 #include "components/sync_driver/generic_change_processor_factory.h"
 #include "components/sync_driver/shared_change_processor_ref.h"
 #include "components/sync_driver/sync_api_component_factory.h"
@@ -22,7 +23,7 @@ NonUIDataTypeController::CreateSharedChangeProcessor() {
 }
 
 NonUIDataTypeController::NonUIDataTypeController(
-    scoped_refptr<base::MessageLoopProxy> ui_thread,
+    scoped_refptr<base::SingleThreadTaskRunner> ui_thread,
     const base::Closure& error_callback,
     SyncApiComponentFactory* sync_factory)
     : DataTypeController(ui_thread, error_callback),
@@ -122,6 +123,7 @@ void NonUIDataTypeController::Stop() {
       return;  // The datatype was never activated, we're done.
     case ASSOCIATING:
       state_ = STOPPING;
+      StopModels();
       // We continue on to deactivate the datatype and stop the local service.
       break;
     case MODEL_LOADED:
@@ -170,7 +172,7 @@ void NonUIDataTypeController::OnSingleDataTypeUnrecoverableError(
 }
 
 NonUIDataTypeController::NonUIDataTypeController()
-    : DataTypeController(base::MessageLoopProxy::current(), base::Closure()),
+    : DataTypeController(base::ThreadTaskRunnerHandle::Get(), base::Closure()),
       sync_factory_(NULL) {}
 
 NonUIDataTypeController::~NonUIDataTypeController() {}
@@ -241,9 +243,9 @@ void NonUIDataTypeController::RecordStartFailure(ConfigureResult result) {
   UMA_HISTOGRAM_ENUMERATION("Sync.DataTypeStartFailures",
                             ModelTypeToHistogramInt(type()),
                             syncer::MODEL_TYPE_COUNT);
-#define PER_DATA_TYPE_MACRO(type_str) \
-    UMA_HISTOGRAM_ENUMERATION("Sync." type_str "StartFailure", result, \
-                              MAX_START_RESULT);
+#define PER_DATA_TYPE_MACRO(type_str)                                    \
+  UMA_HISTOGRAM_ENUMERATION("Sync." type_str "ConfigureFailure", result, \
+                            MAX_CONFIGURE_RESULT);
   SYNC_DATA_TYPE_HISTOGRAM(type());
 #undef PER_DATA_TYPE_MACRO
 }

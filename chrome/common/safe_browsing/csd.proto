@@ -15,6 +15,18 @@ option optimize_for = LITE_RUNTIME;
 
 package safe_browsing;
 
+// Protocol buffer describing the Chrome user population of the user reporting
+// data.
+message ChromeUserPopulation {
+  enum UserPopulation {
+    UNKNOWN_USER_POPULATION = 0;
+    SAFE_BROWSING = 1;
+    EXTENDED_REPORTING = 2;
+  }
+  optional UserPopulation user_population = 1;
+}
+
+
 message ClientPhishingRequest {
   // URL that the client visited.  The CGI parameters are stripped by the
   // client.
@@ -71,6 +83,12 @@ message ClientPhishingRequest {
 
   // List of shingle hashes we extracted.
   repeated uint32 shingle_hashes = 12 [packed = true];
+
+  // The model filename (basename) that was used by the client.
+  optional string model_filename = 13;
+
+  // Population that the reporting user is part of.
+  optional ChromeUserPopulation population = 14;
 }
 
 message ClientPhishingResponse {
@@ -117,6 +135,9 @@ message ClientMalwareRequest {
 
   // List of resource urls that match the malware IP list.
   repeated UrlInfo bad_ip_url_info = 7;
+
+  // Population that the reporting user is part of.
+  optional ChromeUserPopulation population = 9;
 }
 
 message ClientMalwareResponse {
@@ -188,13 +209,20 @@ message ClientDownloadRequest {
   }
 
   message SignatureInfo {
-    // All of the certificate chains for the binary's signing certificate.
-    // If no chains are present, the binary is not signed.  Multiple chains
-    // may be present if any certificate has multiple signers.
+    // All certificate chains for each of the binary's signers.  Multiple chains
+    // may be present if the binary or any certificate has multiple signers.
+    // Absence of certificate chains does not imply that the binary is not
+    // signed (in that case, SignedData blobs extracted from the binary may be
+    // preset), but does mean that trust has not been verified.
     repeated CertificateChain certificate_chain = 1;
 
     // True if the signature was trusted on the client.
     optional bool trusted = 2;
+
+    // PKCS#7 SignedData blobs extracted from a portable executable image's
+    // attribute certificate table. The presence of these does not imply that
+    // the signatures were deemed trusted by the client.
+    repeated bytes signed_data = 3;
   }
 
   // This field will only be set if the binary is signed.
@@ -217,7 +245,9 @@ message ClientDownloadRequest {
     ANDROID_APK = 2;       // .apk files.
     // .zip files containing one of the other executable types.
     ZIPPED_EXECUTABLE = 3;
-    MAC_EXECUTABLE = 4;    // .dmg, .pkg, etc.
+    MAC_EXECUTABLE = 4;  // .dmg, .pkg, etc.
+    ZIPPED_ARCHIVE = 5;  // .zip file containing another archive.
+    ARCHIVE = 6;         // Archive that doesn't have a specific DownloadType.
   }
   optional DownloadType download_type = 10 [default = WIN_EXECUTABLE];
 
@@ -247,15 +277,52 @@ message ClientDownloadRequest {
     repeated DebugData debug_data = 7;
   }
 
+  message MachOHeaders {
+    // The mach_header or mach_header_64 struct.
+    required bytes mach_header = 1;
+
+    message LoadCommand {
+      // |command_id| is the first uint32 of |command| as well, but is
+      // extracted for easier processing.
+      required uint32 command_id = 1;
+      // The entire data stream of the load command.
+      required bytes command = 2;
+    }
+
+    // All the load commands of the Mach-O file.
+    repeated LoadCommand load_commands = 2;
+  }
+
   message ImageHeaders {
     // Windows Portable Executable image headers.
     optional PEImageHeaders pe_headers = 1;
+
+    // OS X Mach-O image headers.
+    optional MachOHeaders mach_o_headers = 2;
   };
 
   // Fields 12-17 are reserved for server-side use and are never sent by the
   // client.
 
   optional ImageHeaders image_headers = 18;
+
+  // Fields 19-21 are reserved for server-side use and are never sent by the
+  // client.
+
+  // A binary contained in an archive (e.g., a .zip archive).
+  message ArchivedBinary {
+    optional string file_basename = 1;
+    optional DownloadType download_type = 2;
+    optional Digests digests = 3;
+    optional int64 length = 4;
+    optional SignatureInfo signature = 5;
+    optional ImageHeaders image_headers = 6;
+  }
+
+  repeated ArchivedBinary archived_binary = 22;
+
+  // Population that the reporting user is part of.
+  optional ChromeUserPopulation population = 24;
 }
 
 message ClientDownloadResponse {
@@ -361,11 +428,29 @@ message ClientIncidentReport {
       optional ClientDownloadRequest.Digests digest = 2;
       optional string version = 3;
       optional bool blacklist_initialized = 4;
+      optional ClientDownloadRequest.SignatureInfo signature = 5;
+      optional ClientDownloadRequest.ImageHeaders image_headers = 6;
+    }
+    message VariationsSeedSignatureIncident {
+      optional string variations_seed_signature = 1;
+    }
+    message ResourceRequestIncident {
+      enum Type {
+        UNKNOWN = 0;
+        TYPE_SCRIPT = 1;
+        TYPE_DOMAIN = 2;
+      }
+      optional bytes digest = 1;
+      optional string origin = 2;
+      optional Type type = 3 [default = UNKNOWN];
     }
     optional int64 incident_time_msec = 1;
     optional TrackedPreferenceIncident tracked_preference = 2;
     optional BinaryIntegrityIncident binary_integrity = 3;
     optional BlacklistLoadIncident blacklist_load = 4;
+    // Note: skip tag 5 because it was previously used.
+    optional VariationsSeedSignatureIncident variations_seed_signature = 6;
+    optional ResourceRequestIncident resource_request = 7;
   }
 
   repeated IncidentData incident = 1;
@@ -421,6 +506,7 @@ message ClientIncidentReport {
         optional uint64 base_address = 2;
         optional uint32 length = 3;
         repeated Feature feature = 4;
+        optional ClientDownloadRequest.ImageHeaders image_headers = 5;
       }
       repeated Dll dll = 9;
       repeated string blacklisted_dll = 10;
@@ -433,7 +519,15 @@ message ClientIncidentReport {
         }
         optional string name = 1;
         optional ModifiedState modified_state = 2;
-        repeated string modified_export = 3;
+        repeated string OBSOLETE_modified_export = 3;
+
+        message Modification {
+          optional uint32 file_offset = 1;
+          optional int32 byte_count = 2;
+          optional bytes modified_bytes = 3;
+          optional string export_name = 4;
+        }
+        repeated Modification modification = 4;
       }
       repeated ModuleState module_state = 11;
     }
@@ -441,6 +535,9 @@ message ClientIncidentReport {
   }
 
   optional EnvironmentData environment = 3;
+
+  // Population that the reporting user is part of.
+  optional ChromeUserPopulation population = 7;
 }
 
 message ClientIncidentResponse {

@@ -10,21 +10,21 @@
 # it a properly-rebased path to //components so it can properly join the
 # paths relative to that and find the JSON files.
 
-baked_in_configs_gypi = exec_script(
-    "//build/gypi_to_gn.py",
-    [ rebase_path("baked_in_configs.gypi") ],
-    "scope",
-    [ "baked_in_configs.gypi" ])
-baked_in_configs = rebase_path(
-    baked_in_configs_gypi.baked_in_configs,
-    "domain_reliability")
+baked_in_configs_gypi = exec_script("//build/gypi_to_gn.py",
+                                    [ rebase_path("baked_in_configs.gypi") ],
+                                    "scope",
+                                    [ "baked_in_configs.gypi" ])
+baked_in_configs =
+    rebase_path(baked_in_configs_gypi.baked_in_configs, "domain_reliability")
 
 action("bake_in_configs") {
   visibility = [ ":*" ]
   script = "bake_in_configs.py"
 
   inputs = baked_in_configs
-  outputs = [ "$target_gen_dir/baked_in_configs.cc" ]
+  outputs = [
+    "$target_gen_dir/baked_in_configs.cc",
+  ]
 
   # The actual list of JSON files will overflow the command line length limit
   # on Windows, so pass the name of the .gypi file and bake_in_configs.py will
@@ -44,6 +44,8 @@ component("domain_reliability") {
     "config.h",
     "context.cc",
     "context.h",
+    "context_manager.cc",
+    "context_manager.h",
     "dispatcher.cc",
     "dispatcher.h",
     "domain_reliability_export.h",
@@ -86,8 +88,13 @@ source_set("unit_tests") {
     "util_unittest.cc",
   ]
 
+  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
+
   deps = [
     ":domain_reliability",
+    "//base",
+    "//base/test:test_support",
+    "//net:test_support",
     "//testing/gtest",
   ]
 }

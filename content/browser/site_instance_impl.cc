@@ -236,8 +236,7 @@ SiteInstance* SiteInstance::Create(BrowserContext* browser_context) {
 /*static*/
 SiteInstance* SiteInstance::CreateForURL(BrowserContext* browser_context,
                                          const GURL& url) {
-  // This BrowsingInstance may be deleted if it returns an existing
-  // SiteInstance.
+  // This will create a new SiteInstance and BrowsingInstance.
   scoped_refptr<BrowsingInstance> instance(
       new BrowsingInstance(browser_context));
   return instance->GetSiteInstanceForURL(url);
@@ -292,17 +291,11 @@ GURL SiteInstance::GetSiteForURL(BrowserContext* browser_context,
 
   GURL url = SiteInstanceImpl::GetEffectiveURL(browser_context, real_url);
 
-  // URLs with no host should have an empty site.
-  GURL site;
-
-  // TODO(creis): For many protocols, we should just treat the scheme as the
-  // site, since there is no host.  e.g., file:, about:, chrome:
-
   // If the url has a host, then determine the site.
   if (url.has_host()) {
     // Only keep the scheme and registered domain as given by GetOrigin.  This
     // may also include a port, which we need to drop.
-    site = url.GetOrigin();
+    GURL site = url.GetOrigin();
 
     // Remove port, if any.
     if (site.has_port()) {
@@ -321,8 +314,17 @@ GURL SiteInstance::GetSiteForURL(BrowserContext* browser_context,
       rep.SetHostStr(domain);
       site = site.ReplaceComponents(rep);
     }
+    return site;
   }
-  return site;
+
+  // If there is no host but there is a scheme, return the scheme.
+  // This is useful for cases like file URLs.
+  if (url.has_scheme())
+    return GURL(url.scheme() + ":");
+
+  // Otherwise the URL should be invalid; return an empty site.
+  DCHECK(!url.is_valid());
+  return GURL();
 }
 
 /*static*/
@@ -339,12 +341,19 @@ void SiteInstanceImpl::RenderProcessHostDestroyed(RenderProcessHost* host) {
 }
 
 void SiteInstanceImpl::LockToOrigin() {
-  // We currently only restrict this process to a particular site if the
-  // --enable-strict-site-isolation or --site-per-process flags are present.
+  // We currently only restrict this process to a particular site if --site-per-
+  // process flag is present.
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
-  if (command_line.HasSwitch(switches::kEnableStrictSiteIsolation) ||
-      command_line.HasSwitch(switches::kSitePerProcess)) {
+  if (command_line.HasSwitch(switches::kSitePerProcess)) {
+    // Guest processes cannot be locked to its site because guests always have
+    // a fixed SiteInstance. The site of GURLs a guest loads doesn't match that
+    // SiteInstance. So we skip locking the guest process to the site.
+    // TODO(ncarter): Remove this exclusion once we can make origin lock per
+    // RenderFrame routing id.
+    if (site_.SchemeIs(content::kGuestScheme))
+      return;
+
     ChildProcessSecurityPolicyImpl* policy =
         ChildProcessSecurityPolicyImpl::GetInstance();
     policy->LockToOrigin(process_->GetID(), site_);

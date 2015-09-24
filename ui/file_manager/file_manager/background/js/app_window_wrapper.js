@@ -17,20 +17,21 @@
  * @param {string} id App window id.
  * @param {Object} options Options object to create it.
  * @constructor
+ * @struct
  */
 function AppWindowWrapper(url, id, options) {
   this.url_ = url;
   this.id_ = id;
   // Do deep copy for the template of options to assign customized params later.
-  this.options_ = JSON.parse(JSON.stringify(options));
+  this.options_ = /** @type chrome.app.window.CreateWindowOptions */(
+      JSON.parse(JSON.stringify(options)));
   this.window_ = null;
   this.appState_ = null;
   this.openingOrOpened_ = false;
   this.queue = new AsyncUtil.Queue();
-  Object.seal(this);
 }
 
-AppWindowWrapper.prototype = {
+AppWindowWrapper.prototype = /** @struct */ {
   /**
    * @return {chrome.app.window.AppWindow} Wrapped application window.
    */
@@ -53,31 +54,6 @@ AppWindowWrapper.MAXIMIZED_KEY_ = 'isMaximized';
  */
 AppWindowWrapper.makeGeometryKey = function(url) {
   return 'windowGeometry' + ':' + url;
-};
-
-/**
- * Focuses the window on the specified desktop.
- * @param {chrome.app.window.AppWindow} appWindow Application window.
- * @param {string=} opt_profileId The profiled ID of the target window. If it is
- *     dropped, the window is focused on the current window.
- */
-AppWindowWrapper.focusOnDesktop = function(appWindow, opt_profileId) {
-  new Promise(function(onFulfilled, onRejected) {
-    if (opt_profileId) {
-      onFulfilled(opt_profileId);
-    } else {
-      chrome.fileManagerPrivate.getProfiles(
-          function(profiles, currentId, displayedId) {
-            onFulfilled(currentId);
-          });
-    }
-  }).then(function(profileId) {
-    appWindow.contentWindow.chrome.fileManagerPrivate.visitDesktop(
-        profileId,
-        function() {
-          appWindow.focus();
-        });
-  });
 };
 
 /**
@@ -165,6 +141,11 @@ AppWindowWrapper.prototype.launch = function(appState, reopen, opt_callback) {
 
     // Create a window.
     chrome.app.window.create(this.url_, this.options_, function(appWindow) {
+      // This is a temporary workaround for crbug.com/452737.
+      // {state: 'maximized'} in CreateWindowOptions is ignored when a window is
+      // launched with hidden option, so we maximize the window manually here.
+      if (this.options_.hidden && this.options_.state === 'maximized')
+        appWindow.maximize();
       this.window_ = appWindow;
       callback();
     }.bind(this));
@@ -249,11 +230,6 @@ AppWindowWrapper.prototype.onClosed_ = function() {
 
   // Remove the window from the set.
   delete window.background.appWindows[this.id_];
-
-  // If there is no application window, reset window ID.
-  if (!Object.keys(window.background.appWindows).length)
-    nextFileManagerWindowID = 0;
-  window.background.tryClose();
 };
 
 /**
@@ -334,7 +310,7 @@ SingletonAppWindowWrapper.prototype.reopen = function(opt_callback) {
     }
 
     try {
-      var appState = JSON.parse(value);
+      var appState = assertInstanceof(JSON.parse(value), Object);
     } catch (e) {
       console.error('Corrupt launch data for ' + this.id_, value);
       opt_callback && opt_callback();

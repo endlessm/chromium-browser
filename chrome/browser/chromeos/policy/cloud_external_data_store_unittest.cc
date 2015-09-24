@@ -31,7 +31,7 @@ class CouldExternalDataStoreTest : public testing::Test {
  public:
   CouldExternalDataStoreTest();
 
-  virtual void SetUp() override;
+  void SetUp() override;
 
  protected:
   const std::string kData1Hash;
@@ -41,6 +41,7 @@ class CouldExternalDataStoreTest : public testing::Test {
   base::ScopedTempDir temp_dir_;
   scoped_ptr<ResourceCache> resource_cache_;
 
+ private:
   DISALLOW_COPY_AND_ASSIGN(CouldExternalDataStoreTest);
 };
 

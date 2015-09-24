@@ -20,7 +20,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/api/proxy/proxy_api_constants.h"
-#include "chrome/browser/prefs/proxy_config_dictionary.h"
+#include "components/proxy_config/proxy_config_dictionary.h"
 #include "extensions/common/error_utils.h"
 #include "net/base/data_url.h"
 #include "net/proxy/proxy_config.h"
@@ -220,7 +220,7 @@ bool GetProxyRulesStringFromExtensionPref(
     }
   }
 
-  COMPILE_ASSERT(keys::SCHEME_ALL == 0, singleProxy_must_be_first_option);
+  static_assert(keys::SCHEME_ALL == 0, "SCHEME_ALL must be the first value");
 
   // Handle case that only singleProxy is specified.
   if (has_proxy[keys::SCHEME_ALL]) {
@@ -409,9 +409,10 @@ base::DictionaryValue* CreateProxyRulesDict(
       break;
   }
 
-  // If we add a new scheme some time, we need to also store a new dictionary
+  // If we add a new scheme sometime, we need to also store a new dictionary
   // representing this scheme in the code above.
-  COMPILE_ASSERT(keys::SCHEME_MAX == 4, SCHEME_FORGOTTEN);
+  static_assert(keys::SCHEME_MAX == 4,
+                "rules need to be updated along with schemes");
 
   if (proxy_config.HasBypassList()) {
     std::string bypass_list_string;

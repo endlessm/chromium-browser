@@ -10,18 +10,20 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/thread_restrictions.h"
 #include "content/public/browser/browser_main_runner.h"
 #include "content/public/common/url_constants.h"
+#include "content/shell/browser/blink_test_controller.h"
 #include "content/shell/browser/shell.h"
-#include "content/shell/browser/webkit_test_controller.h"
 #include "content/shell/common/shell_switches.h"
-#include "content/shell/common/webkit_test_helpers.h"
+#include "content/shell/renderer/layout_test/blink_test_helpers.h"
 #include "net/base/filename_util.h"
 
 #if defined(OS_ANDROID)
@@ -92,7 +94,7 @@ GURL GetURLForLayoutTest(const std::string& test_name,
   return test_url;
 }
 
-bool GetNextTest(const CommandLine::StringVector& args,
+bool GetNextTest(const base::CommandLine::StringVector& args,
                  size_t* position,
                  std::string* test) {
   if (*position >= args.size())
@@ -120,7 +122,7 @@ bool RunOneTest(const std::string& test_string,
   base::FilePath cwd;
   GURL test_url =
       GetURLForLayoutTest(test_string, &cwd, &enable_pixel_dumps, &pixel_hash);
-  if (!content::WebKitTestController::Get()->PrepareForLayoutTest(
+  if (!content::BlinkTestController::Get()->PrepareForLayoutTest(
           test_url, cwd, enable_pixel_dumps, pixel_hash)) {
     return false;
   }
@@ -136,7 +138,7 @@ bool RunOneTest(const std::string& test_string,
   main_runner->Run();
 #endif
 
-  if (!content::WebKitTestController::Get()->ResetAfterLayoutTest())
+  if (!content::BlinkTestController::Get()->ResetAfterLayoutTest())
     return false;
 
 #if defined(OS_ANDROID)
@@ -148,7 +150,7 @@ bool RunOneTest(const std::string& test_string,
 }
 
 int RunTests(const scoped_ptr<content::BrowserMainRunner>& main_runner) {
-  content::WebKitTestController test_controller;
+  content::BlinkTestController test_controller;
   {
     // We're outside of the message loop here, and this is a test.
     base::ThreadRestrictions::ScopedAllowIO allow_io;
@@ -157,7 +159,8 @@ int RunTests(const scoped_ptr<content::BrowserMainRunner>& main_runner) {
     test_controller.SetTempPath(temp_path);
   }
   std::string test_string;
-  CommandLine::StringVector args = CommandLine::ForCurrentProcess()->GetArgs();
+  base::CommandLine::StringVector args =
+      base::CommandLine::ForCurrentProcess()->GetArgs();
   size_t command_line_position = 0;
   bool ran_at_least_once = false;
 
@@ -169,8 +172,8 @@ int RunTests(const scoped_ptr<content::BrowserMainRunner>& main_runner) {
       break;
   }
   if (!ran_at_least_once) {
-    base::MessageLoop::current()->PostTask(FROM_HERE,
-                                           base::MessageLoop::QuitClosure());
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::MessageLoop::QuitClosure());
     main_runner->Run();
   }
 
@@ -194,7 +197,7 @@ int LayoutTestBrowserMain(
 
   CHECK(browser_context_path_for_layout_tests.CreateUniqueTempDir());
   CHECK(!browser_context_path_for_layout_tests.path().MaybeAsASCII().empty());
-  CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
       switches::kContentShellDataPath,
       browser_context_path_for_layout_tests.path().MaybeAsASCII());
 
@@ -209,10 +212,10 @@ int LayoutTestBrowserMain(
   if (exit_code >= 0)
     return exit_code;
 
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kCheckLayoutTestSysDeps)) {
-    base::MessageLoop::current()->PostTask(FROM_HERE,
-                                           base::MessageLoop::QuitClosure());
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::MessageLoop::QuitClosure());
     main_runner->Run();
     content::Shell::CloseAllWindows();
     main_runner->Shutdown();

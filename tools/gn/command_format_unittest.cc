@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/files/file_util.h"
+#include "base/path_service.h"
 #include "base/strings/string_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "tools/gn/commands.h"
@@ -15,22 +16,23 @@ bool FormatFileToString(Setup* setup,
                         std::string* output);
 }  // namespace commands
 
-#define FORMAT_TEST(n)                                                 \
-  TEST(Format, n) {                                                    \
-    ::Setup setup;                                                     \
-    std::string out;                                                   \
-    std::string expected;                                              \
-    EXPECT_TRUE(commands::FormatFileToString(                          \
-        &setup,                                                        \
-        SourceFile("//tools/gn/format_test_data/" #n ".gn"),           \
-        false,                                                         \
-        &out));                                                        \
-    ASSERT_TRUE(base::ReadFileToString(                                \
-        base::FilePath(FILE_PATH_LITERAL("tools/gn/format_test_data/") \
-                           FILE_PATH_LITERAL(#n)                       \
-                               FILE_PATH_LITERAL(".golden")),          \
-        &expected));                                                   \
-    EXPECT_EQ(expected, out);                                          \
+#define FORMAT_TEST(n)                                                      \
+  TEST(Format, n) {                                                         \
+    ::Setup setup;                                                          \
+    std::string out;                                                        \
+    std::string expected;                                                   \
+    base::FilePath src_dir;                                                 \
+    PathService::Get(base::DIR_SOURCE_ROOT, &src_dir);                      \
+    base::SetCurrentDirectory(src_dir);                                     \
+    EXPECT_TRUE(commands::FormatFileToString(                               \
+        &setup, SourceFile("//tools/gn/format_test_data/" #n ".gn"), false, \
+        &out));                                                             \
+    ASSERT_TRUE(base::ReadFileToString(                                     \
+        base::FilePath(FILE_PATH_LITERAL("tools/gn/format_test_data/")      \
+                           FILE_PATH_LITERAL(#n)                            \
+                               FILE_PATH_LITERAL(".golden")),               \
+        &expected));                                                        \
+    EXPECT_EQ(expected, out);                                               \
   }
 
 // These are expanded out this way rather than a runtime loop so that
@@ -66,13 +68,35 @@ FORMAT_TEST(028)
 FORMAT_TEST(029)
 FORMAT_TEST(030)
 FORMAT_TEST(031)
-// TODO(scottmg): Continued conditions aren't aligned properly: FORMAT_TEST(032)
+FORMAT_TEST(032)
 FORMAT_TEST(033)
 // TODO(scottmg): args+rebase_path unnecessarily split: FORMAT_TEST(034)
 FORMAT_TEST(035)
 FORMAT_TEST(036)
-// TODO(scottmg): Ugly line breaking: FORMAT_TEST(037)
+FORMAT_TEST(037)
 FORMAT_TEST(038)
-// TODO(scottmg): Bad break, exceeding 80 col: FORMAT_TEST(039)
+FORMAT_TEST(039)
 // TODO(scottmg): Bad break, exceeding 80 col: FORMAT_TEST(040)
 FORMAT_TEST(041)
+FORMAT_TEST(042)
+FORMAT_TEST(043)
+// TODO(scottmg): Dewrapped caused exceeding 80 col: FORMAT_TEST(044)
+FORMAT_TEST(045)
+FORMAT_TEST(046)
+FORMAT_TEST(047)
+FORMAT_TEST(048)
+// TODO(scottmg): Eval is broken (!) and comment output might have extra ,
+//                FORMAT_TEST(049)
+FORMAT_TEST(050)
+FORMAT_TEST(051)
+FORMAT_TEST(052)
+FORMAT_TEST(053)
+FORMAT_TEST(054)
+FORMAT_TEST(055)
+FORMAT_TEST(056)
+FORMAT_TEST(057)
+FORMAT_TEST(058)
+FORMAT_TEST(059)
+FORMAT_TEST(060)
+FORMAT_TEST(061)
+FORMAT_TEST(062)

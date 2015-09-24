@@ -21,21 +21,21 @@ PNACL_TRANSLATE := $(shell $(NACL_CONFIG) -t $(TOOLCHAIN) --tool=translate)
 #
 # Compile Macro
 #
-# $1 = Source Name
-# $2 = Compile Flags
-# $3 = Include Directories
+# $1 = Source name
+# $2 = Compile flags
+# $3 = Include directories
 #
 define C_COMPILER_RULE
 -include $(call SRC_TO_DEP,$(1))
 $(call SRC_TO_OBJ,$(1)): $(1) $(TOP_MAKE) | $(dir $(call SRC_TO_OBJ,$(1)))dir.stamp
-	$(call LOG,CC  ,$$@,$(PNACL_CC) -o $$@ -c $$< $(POSIX_FLAGS) $(2) $(NACL_CFLAGS))
+	$(call LOG,CC  ,$$@,$(PNACL_CC) -o $$@ -c $$< $(POSIX_CFLAGS) $(NACL_CFLAGS) $(CFLAGS) $(2))
 	@$(FIXDEPS) $(call SRC_TO_DEP_PRE_FIXUP,$(1))
 endef
 
 define CXX_COMPILER_RULE
 -include $(call SRC_TO_DEP,$(1))
 $(call SRC_TO_OBJ,$(1)): $(1) $(TOP_MAKE) | $(dir $(call SRC_TO_OBJ,$(1)))dir.stamp
-	$(call LOG,CXX ,$$@,$(PNACL_CXX) -o $$@ -c $$< $(POSIX_FLAGS) $(2) $(NACL_CFLAGS))
+	$(call LOG,CXX ,$$@,$(PNACL_CXX) -o $$@ -c $$< $(POSIX_CFLAGS) $(NACL_CFLAGS) $(CXXFLAGS) $(2))
 	@$(FIXDEPS) $(call SRC_TO_DEP_PRE_FIXUP,$(1))
 endef
 
@@ -100,7 +100,7 @@ $(1).pexe: $(1).bc
 	$(call LOG,FINALIZE,$$@,$(PNACL_FINALIZE) -o $$@ $$^)
 
 $(1).bc: $(2) $(foreach dep,$(4),$(STAMPDIR)/$(dep).stamp)
-	$(call LOG,LINK,$$@,$(PNACL_LINK) -o $$@ $(2) $(PNACL_LDFLAGS) $(foreach path,$(5),-L$(path)/pnacl/$(CONFIG)) $(foreach lib,$(3),-l$(lib)) $(6))
+	$(call LOG,LINK,$$@,$(PNACL_LINK) -o $$@ $(2) $(PNACL_LDFLAGS) $(LDFLAGS) $(foreach path,$(5),-L$(path)/pnacl/$(CONFIG)) $(foreach lib,$(3),-l$(lib)) $(6))
 
 $(1)_x86_32.nexe: $(1).bc
 	$(call LOG,TRANSLATE,$$@,$(PNACL_TRANSLATE) --allow-llvm-bitcode-input -arch x86-32 $$^ -o $$@)

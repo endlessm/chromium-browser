@@ -35,12 +35,18 @@ class FakeServerEntity {
   int64 GetVersion() const;
   void SetVersion(int64 version);
   const std::string& GetName() const;
+  void SetName(std::string name);
+
+  // Replaces |specifics_| with |updated_specifics|. This method is meant to be
+  // used to mimic a client commit.
+  void SetSpecifics(const sync_pb::EntitySpecifics& updated_specifics);
 
   // Common data items needed by server
   virtual std::string GetParentId() const = 0;
-  virtual void SerializeAsProto(sync_pb::SyncEntity* proto) = 0;
-  virtual bool IsDeleted() const = 0;
-  virtual bool IsFolder() const = 0;
+  virtual void SerializeAsProto(sync_pb::SyncEntity* proto) const = 0;
+  virtual bool IsDeleted() const;
+  virtual bool IsFolder() const;
+  virtual bool IsPermanent() const;
 
  protected:
   // Extracts the ModelType from |id|. If |id| is malformed or does not contain
@@ -52,20 +58,23 @@ class FakeServerEntity {
                    int64 version,
                    const std::string& name);
 
-  void SerializeBaseProtoFields(sync_pb::SyncEntity* sync_entity);
-
-  // The ModelType that categorizes this entity.
-  syncer::ModelType model_type_;
+  void SerializeBaseProtoFields(sync_pb::SyncEntity* sync_entity) const;
 
  private:
   // The entity's ID.
   std::string id_;
+
+  // The ModelType that categorizes this entity.
+  syncer::ModelType model_type_;
 
   // The version of this entity.
   int64 version_;
 
   // The name of the entity.
   std::string name_;
+
+  // The EntitySpecifics for the entity.
+  sync_pb::EntitySpecifics specifics_;
 };
 
 }  // namespace fake_server

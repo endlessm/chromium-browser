@@ -10,11 +10,11 @@
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/mac/sdk_forward_declarations.h"
-#include "ui/native_theme/common_theme.h"
 #import "skia/ext/skia_utils_mac.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/skia_util.h"
+#include "ui/native_theme/common_theme.h"
 
 namespace {
 
@@ -56,7 +56,7 @@ SkColor GetSystemColorUsingSwatch(NSColor* color) {
   base::ScopedCFTypeRef<CGColorSpaceRef> color_space(
       CGColorSpaceCreateWithName(kCGColorSpaceGenericRGB));
   const size_t bytes_per_row = 4;
-  COMPILE_ASSERT(sizeof(swatch) == bytes_per_row, skcolor_not_4_bytes);
+  static_assert(sizeof(swatch) == bytes_per_row, "skcolor should be 4 bytes");
   CGBitmapInfo bitmap_info =
       kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host;
   base::ScopedCFTypeRef<CGContextRef> context(CGBitmapContextCreate(

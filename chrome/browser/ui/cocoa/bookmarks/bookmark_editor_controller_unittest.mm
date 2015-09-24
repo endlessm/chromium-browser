@@ -17,6 +17,8 @@
 #include "testing/platform_test.h"
 
 using base::ASCIIToUTF16;
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
 
 class BookmarkEditorControllerTest : public CocoaProfileTest {
  public:
@@ -26,7 +28,7 @@ class BookmarkEditorControllerTest : public CocoaProfileTest {
   base::string16 default_title_;
   BookmarkEditorController* controller_;
 
-  virtual void SetUp() override {
+  void SetUp() override {
     CocoaProfileTest::SetUp();
     ASSERT_TRUE(profile());
 
@@ -48,7 +50,7 @@ class BookmarkEditorControllerTest : public CocoaProfileTest {
     [controller_ runAsModalSheet];
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     controller_ = NULL;
     CocoaProfileTest::TearDown();
   }
@@ -94,7 +96,7 @@ TEST_F(BookmarkEditorControllerTest, NodeDeleted) {
   // Delete the bookmark being edited and verify the sheet cancels itself:
   ASSERT_TRUE([test_window() attachedSheet]);
   BookmarkModel* model = BookmarkModelFactory::GetForProfile(profile());
-  model->Remove(default_parent_, 0);
+  model->Remove(default_parent_->GetChild(0));
   ASSERT_FALSE([test_window() attachedSheet]);
 }
 
@@ -140,7 +142,7 @@ class BookmarkEditorControllerNoNodeTest : public CocoaProfileTest {
  public:
   BookmarkEditorController* controller_;
 
-  virtual void SetUp() override {
+  void SetUp() override {
     CocoaProfileTest::SetUp();
     ASSERT_TRUE(profile());
 
@@ -158,7 +160,7 @@ class BookmarkEditorControllerNoNodeTest : public CocoaProfileTest {
     [controller_ runAsModalSheet];
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     controller_ = NULL;
     CocoaProfileTest::TearDown();
   }
@@ -176,7 +178,7 @@ class BookmarkEditorControllerYesNodeTest : public CocoaProfileTest {
   base::string16 default_title_;
   BookmarkEditorController* controller_;
 
-  virtual void SetUp() override {
+  void SetUp() override {
     CocoaProfileTest::SetUp();
     ASSERT_TRUE(profile());
 
@@ -198,7 +200,7 @@ class BookmarkEditorControllerYesNodeTest : public CocoaProfileTest {
     [controller_ runAsModalSheet];
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     controller_ = NULL;
     CocoaProfileTest::TearDown();
   }
@@ -218,7 +220,7 @@ class BookmarkEditorControllerUtf8NodeTest : public CocoaProfileTest {
  public:
   BookmarkEditorController* controller_;
 
-  virtual void SetUp() override {
+  void SetUp() override {
     CocoaProfileTest::SetUp();
     ASSERT_TRUE(profile());
 
@@ -239,7 +241,7 @@ class BookmarkEditorControllerUtf8NodeTest : public CocoaProfileTest {
     [controller_ runAsModalSheet];
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     controller_ = NULL;
     CocoaProfileTest::TearDown();
   }
@@ -321,7 +323,7 @@ class BookmarkEditorControllerTreeTest : public CocoaProfileTest {
                       configuration:BookmarkEditor::SHOW_TREE];
   }
 
-  virtual void SetUp() override {
+  void SetUp() override {
     CocoaProfileTest::SetUp();
     ASSERT_TRUE(profile());
 
@@ -330,7 +332,7 @@ class BookmarkEditorControllerTreeTest : public CocoaProfileTest {
     [controller_ runAsModalSheet];
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     controller_ = NULL;
     CocoaProfileTest::TearDown();
   }

@@ -25,6 +25,8 @@ const char kNoCodeOrFileToExecuteError[] = "No source code or file specified.";
 const char kMoreThanOneValuesError[] =
     "Code and file should not be specified "
     "at the same time in the second argument.";
+const char kBadFileEncodingError[] =
+    "Could not load file '*' for content script. It isn't UTF-8 encoded.";
 const char kLoadFileError[] = "Failed to load file: \"*\". ";
 
 }
@@ -41,7 +43,8 @@ ExecuteCodeFunction::~ExecuteCodeFunction() {
 
 void ExecuteCodeFunction::DidLoadFile(bool success, const std::string& data) {
   if (!success || !details_->file) {
-    DidLoadAndLocalizeFile(success, data);
+    DidLoadAndLocalizeFile(
+        resource_.relative_path().AsUTF8Unsafe(), success, data);
     return;
   }
 
@@ -100,20 +103,24 @@ void ExecuteCodeFunction::GetFileURLAndLocalizeCSS(
       FROM_HERE,
       base::Bind(&ExecuteCodeFunction::DidLoadAndLocalizeFile,
                  this,
+                 resource_.relative_path().AsUTF8Unsafe(),
                  true,
                  localized_data));
 }
 
-void ExecuteCodeFunction::DidLoadAndLocalizeFile(bool success,
+void ExecuteCodeFunction::DidLoadAndLocalizeFile(const std::string& file,
+                                                 bool success,
                                                  const std::string& data) {
   if (success) {
-    if (!Execute(data))
+    if (!base::IsStringUTF8(data)) {
+      error_ = ErrorUtils::FormatErrorMessage(kBadFileEncodingError, file);
+      SendResponse(false);
+    } else if (!Execute(data))
       SendResponse(false);
   } else {
     // TODO(viettrungluu): bug: there's no particular reason the path should be
     // UTF-8, in which case this may fail.
-    error_ = ErrorUtils::FormatErrorMessage(
-        kLoadFileError, resource_.relative_path().AsUTF8Unsafe());
+    error_ = ErrorUtils::FormatErrorMessage(kLoadFileError, file);
     SendResponse(false);
   }
 }
@@ -123,7 +130,7 @@ bool ExecuteCodeFunction::Execute(const std::string& code_string) {
   if (!executor)
     return false;
 
-  if (!extension())
+  if (!extension() && !IsWebView())
     return false;
 
   ScriptExecutor::ScriptType script_type = ScriptExecutor::JAVASCRIPT;
@@ -142,21 +149,21 @@ bool ExecuteCodeFunction::Execute(const std::string& code_string) {
 
   UserScript::RunLocation run_at = UserScript::UNDEFINED;
   switch (details_->run_at) {
-    case InjectDetails::RUN_AT_NONE:
-    case InjectDetails::RUN_AT_DOCUMENT_IDLE:
+    case core_api::extension_types::RUN_AT_NONE:
+    case core_api::extension_types::RUN_AT_DOCUMENT_IDLE:
       run_at = UserScript::DOCUMENT_IDLE;
       break;
-    case InjectDetails::RUN_AT_DOCUMENT_START:
+    case core_api::extension_types::RUN_AT_DOCUMENT_START:
       run_at = UserScript::DOCUMENT_START;
       break;
-    case InjectDetails::RUN_AT_DOCUMENT_END:
+    case core_api::extension_types::RUN_AT_DOCUMENT_END:
       run_at = UserScript::DOCUMENT_END;
       break;
   }
   CHECK_NE(UserScript::UNDEFINED, run_at);
 
   executor->ExecuteScript(
-      extension()->id(),
+      host_id_,
       script_type,
       code_string,
       frame_scope,
@@ -198,7 +205,12 @@ bool ExecuteCodeFunction::RunAsync() {
 
   if (!details_->file.get())
     return false;
-  resource_ = extension()->GetResource(*details_->file);
+
+  return LoadFile(*details_->file);
+}
+
+bool ExecuteCodeFunction::LoadFile(const std::string& file) {
+  resource_ = extension()->GetResource(file);
 
   if (resource_.extension_root().empty() || resource_.relative_path().empty()) {
     error_ = kNoCodeOrFileToExecuteError;
@@ -206,8 +218,10 @@ bool ExecuteCodeFunction::RunAsync() {
   }
 
   int resource_id;
-  ComponentExtensionResourceManager* component_extension_resource_manager =
-      ExtensionsBrowserClient::Get()->GetComponentExtensionResourceManager();
+  const ComponentExtensionResourceManager*
+      component_extension_resource_manager =
+          ExtensionsBrowserClient::Get()
+              ->GetComponentExtensionResourceManager();
   if (component_extension_resource_manager &&
       component_extension_resource_manager->IsComponentExtensionResource(
           resource_.extension_root(),

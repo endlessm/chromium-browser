@@ -28,8 +28,8 @@
 
 #include "wtf/LeakAnnotations.h"
 #include "wtf/PartitionAlloc.h"
+#include "wtf/Partitions.h"
 #include "wtf/PrintStream.h"
-#include "wtf/WTF.h"
 #include <algorithm>
 #include <string.h>
 
@@ -80,14 +80,14 @@ BitVector::OutOfLineBits* BitVector::OutOfLineBits::create(size_t numBits)
     WTF_ANNOTATE_SCOPED_MEMORY_LEAK;
     numBits = (numBits + bitsInPointer() - 1) & ~(bitsInPointer() - 1);
     size_t size = sizeof(OutOfLineBits) + sizeof(uintptr_t) * (numBits / bitsInPointer());
-    void* allocation = partitionAllocGeneric(Partitions::getBufferPartition(), size);
+    void* allocation = partitionAllocGeneric(Partitions::bufferPartition(), size);
     OutOfLineBits* result = new (NotNull, allocation) OutOfLineBits(numBits);
     return result;
 }
 
 void BitVector::OutOfLineBits::destroy(OutOfLineBits* outOfLineBits)
 {
-    partitionFreeGeneric(Partitions::getBufferPartition(), outOfLineBits);
+    partitionFreeGeneric(Partitions::bufferPartition(), outOfLineBits);
 }
 
 void BitVector::resizeOutOfLine(size_t numBits)

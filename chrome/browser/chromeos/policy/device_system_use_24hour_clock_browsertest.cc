@@ -8,11 +8,14 @@
 #include "ash/system/user/login_status.h"
 #include "base/command_line.h"
 #include "base/message_loop/message_loop.h"
+#include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
 #include "chrome/browser/chromeos/policy/device_policy_cros_browser_test.h"
 #include "chrome/browser/chromeos/policy/proto/chrome_device_policy.pb.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
+#include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/ui/ash/system_tray_delegate_chromeos.h"
 #include "chromeos/chromeos_switches.h"
+#include "content/public/test/test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace em = enterprise_management;
@@ -25,15 +28,24 @@ class SystemUse24HourClockPolicyTest
   SystemUse24HourClockPolicyTest() {
   }
 
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(switches::kLoginManager);
     command_line->AppendSwitch(chromeos::switches::kForceLoginManagerInTests);
   }
 
-  virtual void SetUpInProcessBrowserTestFixture() override {
+  void SetUpInProcessBrowserTestFixture() override {
     InstallOwnerKey();
     MarkAsEnterpriseOwned();
     DevicePolicyCrosBrowserTest::SetUpInProcessBrowserTestFixture();
+  }
+
+  void TearDownOnMainThread() override {
+    // If the login display is still showing, exit gracefully.
+    if (LoginDisplayHostImpl::default_host()) {
+      base::MessageLoop::current()->PostTask(FROM_HERE,
+                                             base::Bind(&chrome::AttemptExit));
+      content::RunMessageLoop();
+    }
   }
 
  protected:
@@ -93,6 +105,7 @@ class SystemUse24HourClockPolicyTest
   DISALLOW_COPY_AND_ASSIGN(SystemUse24HourClockPolicyTest);
 };
 
+// Disabled due to flakiness - http://crbug.com/450651.
 IN_PROC_BROWSER_TEST_F(SystemUse24HourClockPolicyTest, CheckUnset) {
   bool system_use_24hour_clock;
   EXPECT_FALSE(CrosSettings::Get()->GetBoolean(kSystemUse24HourClock,
@@ -106,6 +119,7 @@ IN_PROC_BROWSER_TEST_F(SystemUse24HourClockPolicyTest, CheckUnset) {
   EXPECT_EQ(base::k12HourClock, TestGetPrimarySystemTrayDateHourType());
 }
 
+// Disabled due to flakiness - http://crbug.com/450651.
 IN_PROC_BROWSER_TEST_F(SystemUse24HourClockPolicyTest, CheckTrue) {
   bool system_use_24hour_clock = true;
   EXPECT_FALSE(CrosSettings::Get()->GetBoolean(kSystemUse24HourClock,
@@ -132,6 +146,7 @@ IN_PROC_BROWSER_TEST_F(SystemUse24HourClockPolicyTest, CheckTrue) {
   EXPECT_EQ(base::k24HourClock, TestGetPrimarySystemTrayDateHourType());
 }
 
+// Disabled due to flakiness - http://crbug.com/450651.
 IN_PROC_BROWSER_TEST_F(SystemUse24HourClockPolicyTest, CheckFalse) {
   bool system_use_24hour_clock = true;
   EXPECT_FALSE(CrosSettings::Get()->GetBoolean(kSystemUse24HourClock,

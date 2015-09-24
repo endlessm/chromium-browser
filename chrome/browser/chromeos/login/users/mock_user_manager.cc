@@ -12,16 +12,16 @@ namespace {
 
 class FakeTaskRunner : public base::TaskRunner {
  public:
-  virtual bool PostDelayedTask(const tracked_objects::Location& from_here,
-                               const base::Closure& task,
-                               base::TimeDelta delay) override {
+  bool PostDelayedTask(const tracked_objects::Location& from_here,
+                       const base::Closure& task,
+                       base::TimeDelta delay) override {
     task.Run();
     return true;
   }
-  virtual bool RunsTasksOnCurrentThread() const override { return true; }
+  bool RunsTasksOnCurrentThread() const override { return true; }
 
  protected:
-  virtual ~FakeTaskRunner() {}
+  ~FakeTaskRunner() override {}
 };
 
 }  // namespace
@@ -72,6 +72,10 @@ const user_manager::User* MockUserManager::GetPrimaryUser() const {
   return GetLoggedInUser();
 }
 
+BootstrapManager* MockUserManager::GetBootstrapManager() {
+  return NULL;
+}
+
 MultiProfileUserController* MockUserManager::GetMultiProfileUserController() {
   return NULL;
 }
@@ -105,6 +109,14 @@ user_manager::User* MockUserManager::CreatePublicAccountUser(
   user_manager::User* user = user_manager::User::CreatePublicAccountUser(email);
   user_list_.push_back(user);
   ProfileHelper::Get()->SetProfileToUserMappingForTesting(user);
+  return user_list_.back();
+}
+
+user_manager::User* MockUserManager::CreateKioskAppUser(
+    const std::string& email) {
+  ClearUserList();
+  user_list_.push_back(user_manager::User::CreateKioskAppUser(email));
+  ProfileHelper::Get()->SetProfileToUserMappingForTesting(user_list_.back());
   return user_list_.back();
 }
 

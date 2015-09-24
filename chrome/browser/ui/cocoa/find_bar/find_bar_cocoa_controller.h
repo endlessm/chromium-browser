@@ -6,7 +6,8 @@
 
 #include "base/mac/scoped_nsobject.h"
 #include "base/strings/string16.h"
-#include "ui/gfx/point.h"
+#import "chrome/browser/ui/cocoa/has_weak_browser_pointer.h"
+#include "ui/gfx/geometry/point.h"
 
 class Browser;
 class FindBarBridge;
@@ -20,7 +21,7 @@ class FindNotificationDetails;
 // to the cross-platform FindBarController, so be sure to call
 // setFindBarBridge: after creating this controller.
 
-@interface FindBarCocoaController : NSViewController {
+@interface FindBarCocoaController : NSViewController<HasWeakBrowserPointer> {
  @private
   IBOutlet NSView* findBarView_;
   IBOutlet FindBarTextField* findText_;

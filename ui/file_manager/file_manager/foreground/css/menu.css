@@ -4,39 +4,54 @@
 
 /* Derived from /ui/webui/resources/css/menu.css. */
 
-menu {
+cr-menu {
   position: fixed;
   white-space: nowrap;
   z-index: 3;
 }
 
-menu:not(.decorated) {
+cr-menu:not(.decorated) {
   display: none;
 }
 
-menu > * {
+cr-menu > * {
   box-sizing: border-box;
   display: block;
   text-align: start;
   width: 100%;
 }
 
-menu > hr {
+cr-menu > hr {
   border: 0;
   height: 1px;
 }
 
-menu > [hidden] {
+cr-menu > [hidden] {
   display: none;
 }
 
-menu > [shortcutText]::after {
+cr-menu > [shortcutText]::after {
   -webkit-padding-start: 30px;
-  color: #999;
+  color: rgb(100, 100, 100);
   content: attr(shortcutText);
   float: right;
 }
 
-html[dir='rtl'] menu > [shortcutText]::after {
+html[dir='rtl'] cr-menu > [shortcutText]::after {
   float: left;
+}
+
+/* Icon on the left of the item label for cr.ui.ProvidersMenuItem.
+   TODO(mtomasz): Upstream to cr.ui.MenuItem. */
+cr-menu-item.providers-menu-item .menu-icon {
+  -webkit-margin-end: 8px;
+  background: no-repeat 0 center;
+  display: inline-block;
+  float: left;
+  height: 32px;
+  width: 16px;
+}
+
+html[dir='rtl'] cr-menu-item.providers-menu-item .menu-icon {
+  float: right;
 }

@@ -18,6 +18,7 @@
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "content/public/test/test_browser_thread.h"
+#include "net/socket/ssl_client_socket.h"
 #include "net/ssl/ssl_config_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -127,7 +128,7 @@ TEST_F(SSLConfigServiceManagerPrefTest, BadDisabledCipherSuites) {
 }
 
 // Test that without command-line settings for minimum and maximum SSL versions,
-// TLS 1.0 ~ kDefaultSSLVersionMax are enabled.
+// TLS versions from 1.0 up to 1.1 or 1.2 are enabled.
 TEST_F(SSLConfigServiceManagerPrefTest, NoCommandLinePrefs) {
   scoped_refptr<TestingPrefStore> local_state_store(new TestingPrefStore());
 
@@ -146,10 +147,12 @@ TEST_F(SSLConfigServiceManagerPrefTest, NoCommandLinePrefs) {
 
   SSLConfig ssl_config;
   config_service->GetSSLConfig(&ssl_config);
-  // The default value in the absence of command-line options is that
-  // SSL 3.0 ~ kDefaultSSLVersionMax are enabled.
+  // In the absence of command-line options, TLS versions from 1.0 up to 1.1 or
+  // 1.2 (depending on the underlying library and cryptographic implementation)
+  // are enabled.
   EXPECT_EQ(net::SSL_PROTOCOL_VERSION_TLS1, ssl_config.version_min);
-  EXPECT_EQ(net::kDefaultSSLVersionMax, ssl_config.version_max);
+  EXPECT_EQ(net::SSLClientSocket::GetMaxSupportedSSLVersion(),
+            ssl_config.version_max);
 
   // The settings should not be added to the local_state.
   EXPECT_FALSE(local_state->HasPrefPath(prefs::kSSLVersionMin));
@@ -169,9 +172,9 @@ TEST_F(SSLConfigServiceManagerPrefTest, NoCommandLinePrefs) {
 TEST_F(SSLConfigServiceManagerPrefTest, CommandLinePrefs) {
   scoped_refptr<TestingPrefStore> local_state_store(new TestingPrefStore());
 
-  CommandLine command_line(CommandLine::NO_PROGRAM);
-  command_line.AppendSwitchASCII(switches::kSSLVersionMin, "tls1");
-  command_line.AppendSwitchASCII(switches::kSSLVersionMax, "ssl3");
+  base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
+  command_line.AppendSwitchASCII(switches::kSSLVersionMin, "tls1.1");
+  command_line.AppendSwitchASCII(switches::kSSLVersionMax, "tls1");
 
   PrefServiceMockFactory factory;
   factory.set_user_prefs(local_state_store);
@@ -190,8 +193,8 @@ TEST_F(SSLConfigServiceManagerPrefTest, CommandLinePrefs) {
   SSLConfig ssl_config;
   config_service->GetSSLConfig(&ssl_config);
   // Command-line flags should be respected.
-  EXPECT_EQ(net::SSL_PROTOCOL_VERSION_TLS1, ssl_config.version_min);
-  EXPECT_EQ(net::SSL_PROTOCOL_VERSION_SSL3, ssl_config.version_max);
+  EXPECT_EQ(net::SSL_PROTOCOL_VERSION_TLS1_1, ssl_config.version_min);
+  EXPECT_EQ(net::SSL_PROTOCOL_VERSION_TLS1, ssl_config.version_max);
 
   // Explicitly double-check the settings are not in the preference store.
   const PrefService::Preference* version_min_pref =
@@ -208,4 +211,31 @@ TEST_F(SSLConfigServiceManagerPrefTest, CommandLinePrefs) {
                                             &version_min_str));
   EXPECT_FALSE(local_state_store->GetString(prefs::kSSLVersionMax,
                                             &version_max_str));
+}
+
+// Tests that "ssl3" is not treated as a valid minimum version.
+TEST_F(SSLConfigServiceManagerPrefTest, NoSSL3) {
+  scoped_refptr<TestingPrefStore> local_state_store(new TestingPrefStore());
+
+  base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
+  command_line.AppendSwitchASCII(switches::kSSLVersionMin, "ssl3");
+
+  PrefServiceMockFactory factory;
+  factory.set_user_prefs(local_state_store);
+  factory.SetCommandLine(&command_line);
+  scoped_refptr<PrefRegistrySimple> registry = new PrefRegistrySimple;
+  scoped_ptr<PrefService> local_state(factory.Create(registry.get()));
+
+  SSLConfigServiceManager::RegisterPrefs(registry.get());
+
+  scoped_ptr<SSLConfigServiceManager> config_manager(
+      SSLConfigServiceManager::CreateDefaultManager(local_state.get()));
+  ASSERT_TRUE(config_manager.get());
+  scoped_refptr<SSLConfigService> config_service(config_manager->Get());
+  ASSERT_TRUE(config_service.get());
+
+  SSLConfig ssl_config;
+  config_service->GetSSLConfig(&ssl_config);
+  // The command-line option must not have been honored.
+  EXPECT_LE(net::SSL_PROTOCOL_VERSION_TLS1, ssl_config.version_min);
 }

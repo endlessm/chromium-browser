@@ -9,15 +9,18 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/location.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_vector.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/condition_variable.h"
 #include "base/synchronization/lock.h"
 #include "base/test/test_timeouts.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "net/base/address_list.h"
 #include "net/base/net_errors.h"
@@ -25,6 +28,7 @@
 #include "net/dns/dns_client.h"
 #include "net/dns/dns_test_util.h"
 #include "net/dns/mock_host_resolver.h"
+#include "net/log/test_net_log.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
@@ -181,7 +185,7 @@ class MockHostResolverProc : public HostResolverProc {
 };
 
 bool AddressListContains(const AddressList& list, const std::string& address,
-                         int port) {
+                         uint16 port) {
   IPAddressNumber ip;
   bool rv = ParseIPLiteralToNumber(address, &ip);
   DCHECK(rv);
@@ -249,7 +253,7 @@ class Request {
   bool completed() const { return result_ != ERR_IO_PENDING; }
   bool pending() const { return handle_ != NULL; }
 
-  bool HasAddress(const std::string& address, int port) const {
+  bool HasAddress(const std::string& address, uint16 port) const {
     return AddressListContains(list_, address, port);
   }
 
@@ -258,7 +262,7 @@ class Request {
     return list_.size();
   }
 
-  bool HasOneAddress(const std::string& address, int port) const {
+  bool HasOneAddress(const std::string& address, uint16 port) const {
     return HasAddress(address, port) && (NumberOfAddresses() == 1u);
   }
 
@@ -267,7 +271,7 @@ class Request {
     if (completed())
       return result_;
     base::CancelableClosure closure(base::MessageLoop::QuitClosure());
-    base::MessageLoop::current()->PostDelayedTask(
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE, closure.callback(), TestTimeouts::action_max_timeout());
     quit_on_complete_ = true;
     base::MessageLoop::current()->Run();
@@ -415,6 +419,30 @@ class LookupAttemptHostResolverProc : public HostResolverProc {
   base::ConditionVariable all_done_;
 };
 
+// TestHostResolverImpl's sole purpose is to mock the IPv6 reachability test.
+// By default, this pretends that IPv6 is globally reachable.
+// This class is necessary so unit tests run the same on dual-stack machines as
+// well as IPv4 only machines.
+class TestHostResolverImpl : public HostResolverImpl {
+ public:
+  TestHostResolverImpl(const Options& options, NetLog* net_log)
+      : TestHostResolverImpl(options, net_log, true) {}
+
+  TestHostResolverImpl(const Options& options,
+                       NetLog* net_log,
+                       bool ipv6_reachable)
+      : HostResolverImpl(options, net_log), ipv6_reachable_(ipv6_reachable) {}
+
+  ~TestHostResolverImpl() override {}
+
+ private:
+  const bool ipv6_reachable_;
+
+  bool IsIPv6Reachable(const BoundNetLog& net_log) override {
+    return ipv6_reachable_;
+  }
+};
+
 }  // namespace
 
 class HostResolverImplTest : public testing::Test {
@@ -473,7 +501,7 @@ class HostResolverImplTest : public testing::Test {
       const HostResolverImpl::ProcTaskParams& params) {
     HostResolverImpl::Options options = DefaultOptions();
     options.max_concurrent_resolves = max_concurrent_resolves;
-    resolver_.reset(new HostResolverImpl(options, NULL));
+    resolver_.reset(new TestHostResolverImpl(options, NULL));
     resolver_->set_proc_params_for_test(params);
   }
 
@@ -530,6 +558,10 @@ class HostResolverImplTest : public testing::Test {
     return HostResolverImpl::kMaximumDnsFailures;
   }
 
+  bool IsIPv6Reachable(const BoundNetLog& net_log) {
+    return resolver_->IsIPv6Reachable(net_log);
+  }
+
   scoped_refptr<MockHostResolverProc> proc_;
   scoped_ptr<HostResolverImpl> resolver_;
   ScopedVector<Request> requests_;
@@ -548,6 +580,53 @@ TEST_F(HostResolverImplTest, AsynchronousLookup) {
   EXPECT_TRUE(req->HasOneAddress("192.168.1.42", 80));
 
   EXPECT_EQ("just.testing", proc_->GetCaptureList()[0].hostname);
+}
+
+// RFC 6761 localhost names should always resolve to loopback.
+TEST_F(HostResolverImplTest, LocalhostLookup) {
+  // Add a rule resolving localhost names to a non-loopback IP and test
+  // that they still resolves to loopback.
+  proc_->AddRuleForAllFamilies("foo.localhost", "192.168.1.42");
+  proc_->AddRuleForAllFamilies("localhost", "192.168.1.42");
+  proc_->AddRuleForAllFamilies("localhost.", "192.168.1.42");
+
+  Request* req0 = CreateRequest("foo.localhost", 80);
+  EXPECT_EQ(OK, req0->Resolve());
+  EXPECT_TRUE(req0->HasAddress("127.0.0.1", 80));
+  EXPECT_TRUE(req0->HasAddress("::1", 80));
+
+  Request* req1 = CreateRequest("localhost", 80);
+  EXPECT_EQ(OK, req1->Resolve());
+  EXPECT_TRUE(req1->HasAddress("127.0.0.1", 80));
+  EXPECT_TRUE(req1->HasAddress("::1", 80));
+
+  Request* req2 = CreateRequest("localhost.", 80);
+  EXPECT_EQ(OK, req2->Resolve());
+  EXPECT_TRUE(req2->HasAddress("127.0.0.1", 80));
+  EXPECT_TRUE(req2->HasAddress("::1", 80));
+}
+
+TEST_F(HostResolverImplTest, LocalhostIPV4IPV6Lookup) {
+  Request* req1 = CreateRequest("localhost6", 80, MEDIUM, ADDRESS_FAMILY_IPV4);
+  EXPECT_EQ(OK, req1->Resolve());
+  EXPECT_EQ(0u, req1->NumberOfAddresses());
+
+  Request* req2 = CreateRequest("localhost6", 80, MEDIUM, ADDRESS_FAMILY_IPV6);
+  EXPECT_EQ(OK, req2->Resolve());
+  EXPECT_TRUE(req2->HasOneAddress("::1", 80));
+
+  Request* req3 =
+      CreateRequest("localhost6", 80, MEDIUM, ADDRESS_FAMILY_UNSPECIFIED);
+  EXPECT_EQ(OK, req3->Resolve());
+  EXPECT_TRUE(req3->HasOneAddress("::1", 80));
+
+  Request* req4 = CreateRequest("localhost", 80, MEDIUM, ADDRESS_FAMILY_IPV4);
+  EXPECT_EQ(OK, req4->Resolve());
+  EXPECT_TRUE(req4->HasOneAddress("127.0.0.1", 80));
+
+  Request* req5 = CreateRequest("localhost", 80, MEDIUM, ADDRESS_FAMILY_IPV6);
+  EXPECT_EQ(OK, req5->Resolve());
+  EXPECT_TRUE(req5->HasOneAddress("::1", 80));
 }
 
 TEST_F(HostResolverImplTest, EmptyListMeansNameNotResolved) {
@@ -767,8 +846,8 @@ TEST_F(HostResolverImplTest, DeleteWithinCallback) {
 
       // Quit after returning from OnCompleted (to give it a chance at
       // incorrectly running the cancelled tasks).
-      base::MessageLoop::current()->PostTask(FROM_HERE,
-                                             base::MessageLoop::QuitClosure());
+      base::ThreadTaskRunnerHandle::Get()->PostTask(
+          FROM_HERE, base::MessageLoop::QuitClosure());
     }
   };
   set_handler(new MyHandler());
@@ -793,8 +872,8 @@ TEST_F(HostResolverImplTest, DeleteWithinAbortedCallback) {
 
       // Quit after returning from OnCompleted (to give it a chance at
       // incorrectly running the cancelled tasks).
-      base::MessageLoop::current()->PostTask(FROM_HERE,
-                                             base::MessageLoop::QuitClosure());
+      base::ThreadTaskRunnerHandle::Get()->PostTask(
+          FROM_HERE, base::MessageLoop::QuitClosure());
     }
   };
   set_handler(new MyHandler());
@@ -838,7 +917,7 @@ TEST_F(HostResolverImplTest, StartWithinCallback) {
   // Turn off caching for this host resolver.
   HostResolver::Options options = DefaultOptions();
   options.enable_caching = false;
-  resolver_.reset(new HostResolverImpl(options, NULL));
+  resolver_.reset(new TestHostResolverImpl(options, NULL));
   resolver_->set_proc_params_for_test(DefaultParams(proc_.get()));
 
   for (size_t i = 0; i < 4; ++i) {
@@ -888,7 +967,8 @@ TEST_F(HostResolverImplTest, BypassCache) {
   EXPECT_EQ(2u, proc_->GetCaptureList().size());
 }
 
-// Test that IP address changes flush the cache.
+// Test that IP address changes flush the cache but initial DNS config reads do
+// not.
 TEST_F(HostResolverImplTest, FlushCacheOnIPAddressChange) {
   proc_->SignalMultiple(2u);  // One before the flush, one after.
 
@@ -896,6 +976,11 @@ TEST_F(HostResolverImplTest, FlushCacheOnIPAddressChange) {
   EXPECT_EQ(ERR_IO_PENDING, req->Resolve());
   EXPECT_EQ(OK, req->WaitForResult());
 
+  req = CreateRequest("host1", 75);
+  EXPECT_EQ(OK, req->Resolve());  // Should complete synchronously.
+
+  // Verify initial DNS config read does not flush cache.
+  NetworkChangeNotifier::NotifyObserversOfInitialDNSConfigReadForTests();
   req = CreateRequest("host1", 75);
   EXPECT_EQ(OK, req->Resolve());  // Should complete synchronously.
 
@@ -923,6 +1008,20 @@ TEST_F(HostResolverImplTest, AbortOnIPAddressChanged) {
 
   EXPECT_EQ(ERR_NETWORK_CHANGED, req->WaitForResult());
   EXPECT_EQ(0u, resolver_->GetHostCache()->size());
+}
+
+// Test that initial DNS config read signals do not abort pending requests.
+TEST_F(HostResolverImplTest, DontAbortOnInitialDNSConfigRead) {
+  Request* req = CreateRequest("host1", 70);
+  EXPECT_EQ(ERR_IO_PENDING, req->Resolve());
+
+  EXPECT_TRUE(proc_->WaitFor(1u));
+  // Triggering initial DNS config read signal.
+  NetworkChangeNotifier::NotifyObserversOfInitialDNSConfigReadForTests();
+  base::MessageLoop::current()->RunUntilIdle();  // Notification happens async.
+  proc_->SignalAll();
+
+  EXPECT_EQ(OK, req->WaitForResult());
 }
 
 // Obey pool constraints after IP address has changed.
@@ -1140,100 +1239,6 @@ TEST_F(HostResolverImplTest, QueueOverflow) {
   }
 }
 
-// Tests that after changing the default AddressFamily to IPV4, requests
-// with UNSPECIFIED address family map to IPV4.
-TEST_F(HostResolverImplTest, SetDefaultAddressFamily_IPv4) {
-  CreateSerialResolver();  // To guarantee order of resolutions.
-
-  proc_->AddRule("h1", ADDRESS_FAMILY_IPV4, "1.0.0.1");
-  proc_->AddRule("h1", ADDRESS_FAMILY_IPV6, "::2");
-
-  resolver_->SetDefaultAddressFamily(ADDRESS_FAMILY_IPV4);
-
-  CreateRequest("h1", 80, MEDIUM, ADDRESS_FAMILY_UNSPECIFIED);
-  CreateRequest("h1", 80, MEDIUM, ADDRESS_FAMILY_IPV4);
-  CreateRequest("h1", 80, MEDIUM, ADDRESS_FAMILY_IPV6);
-
-  // Start all of the requests.
-  for (size_t i = 0; i < requests_.size(); ++i) {
-    EXPECT_EQ(ERR_IO_PENDING, requests_[i]->Resolve()) << i;
-  }
-
-  proc_->SignalMultiple(requests_.size());
-
-  // Wait for all the requests to complete.
-  for (size_t i = 0u; i < requests_.size(); ++i) {
-    EXPECT_EQ(OK, requests_[i]->WaitForResult()) << i;
-  }
-
-  // Since the requests all had the same priority and we limited the thread
-  // count to 1, they should have completed in the same order as they were
-  // requested. Moreover, request0 and request1 will have been serviced by
-  // the same job.
-
-  MockHostResolverProc::CaptureList capture_list = proc_->GetCaptureList();
-  ASSERT_EQ(2u, capture_list.size());
-
-  EXPECT_EQ("h1", capture_list[0].hostname);
-  EXPECT_EQ(ADDRESS_FAMILY_IPV4, capture_list[0].address_family);
-
-  EXPECT_EQ("h1", capture_list[1].hostname);
-  EXPECT_EQ(ADDRESS_FAMILY_IPV6, capture_list[1].address_family);
-
-  // Now check that the correct resolved IP addresses were returned.
-  EXPECT_TRUE(requests_[0]->HasOneAddress("1.0.0.1", 80));
-  EXPECT_TRUE(requests_[1]->HasOneAddress("1.0.0.1", 80));
-  EXPECT_TRUE(requests_[2]->HasOneAddress("::2", 80));
-}
-
-// This is the exact same test as SetDefaultAddressFamily_IPv4, except the
-// default family is set to IPv6 and the family of requests is flipped where
-// specified.
-TEST_F(HostResolverImplTest, SetDefaultAddressFamily_IPv6) {
-  CreateSerialResolver();  // To guarantee order of resolutions.
-
-  // Don't use IPv6 replacements here since some systems don't support it.
-  proc_->AddRule("h1", ADDRESS_FAMILY_IPV4, "1.0.0.1");
-  proc_->AddRule("h1", ADDRESS_FAMILY_IPV6, "::2");
-
-  resolver_->SetDefaultAddressFamily(ADDRESS_FAMILY_IPV6);
-
-  CreateRequest("h1", 80, MEDIUM, ADDRESS_FAMILY_UNSPECIFIED);
-  CreateRequest("h1", 80, MEDIUM, ADDRESS_FAMILY_IPV6);
-  CreateRequest("h1", 80, MEDIUM, ADDRESS_FAMILY_IPV4);
-
-  // Start all of the requests.
-  for (size_t i = 0; i < requests_.size(); ++i) {
-    EXPECT_EQ(ERR_IO_PENDING, requests_[i]->Resolve()) << i;
-  }
-
-  proc_->SignalMultiple(requests_.size());
-
-  // Wait for all the requests to complete.
-  for (size_t i = 0u; i < requests_.size(); ++i) {
-    EXPECT_EQ(OK, requests_[i]->WaitForResult()) << i;
-  }
-
-  // Since the requests all had the same priority and we limited the thread
-  // count to 1, they should have completed in the same order as they were
-  // requested. Moreover, request0 and request1 will have been serviced by
-  // the same job.
-
-  MockHostResolverProc::CaptureList capture_list = proc_->GetCaptureList();
-  ASSERT_EQ(2u, capture_list.size());
-
-  EXPECT_EQ("h1", capture_list[0].hostname);
-  EXPECT_EQ(ADDRESS_FAMILY_IPV6, capture_list[0].address_family);
-
-  EXPECT_EQ("h1", capture_list[1].hostname);
-  EXPECT_EQ(ADDRESS_FAMILY_IPV4, capture_list[1].address_family);
-
-  // Now check that the correct resolved IP addresses were returned.
-  EXPECT_TRUE(requests_[0]->HasOneAddress("::2", 80));
-  EXPECT_TRUE(requests_[1]->HasOneAddress("::2", 80));
-  EXPECT_TRUE(requests_[2]->HasOneAddress("1.0.0.1", 80));
-}
-
 // Make sure that the address family parameter is respected when raw IPs are
 // passed in.
 TEST_F(HostResolverImplTest, AddressFamilyWithRawIPs) {
@@ -1300,7 +1305,7 @@ TEST_F(HostResolverImplTest, MultipleAttempts) {
   // (500ms * 3).
   params.unresponsive_delay = base::TimeDelta::FromMilliseconds(500);
 
-  resolver_.reset(new HostResolverImpl(DefaultOptions(), NULL));
+  resolver_.reset(new TestHostResolverImpl(DefaultOptions(), NULL));
   resolver_->set_proc_params_for_test(params);
 
   // Resolve "host1".
@@ -1317,6 +1322,84 @@ TEST_F(HostResolverImplTest, MultipleAttempts) {
 
   EXPECT_EQ(resolver_proc->total_attempts_resolved(), kTotalAttempts);
   EXPECT_EQ(resolver_proc->resolved_attempt_number(), kAttemptNumberToResolve);
+}
+
+// If a host resolves to a list that includes 127.0.53.53, this is treated as
+// an error. 127.0.53.53 is a localhost address, however it has been given a
+// special significance by ICANN to help surfance name collision resulting from
+// the new gTLDs.
+TEST_F(HostResolverImplTest, NameCollision127_0_53_53) {
+  proc_->AddRuleForAllFamilies("single", "127.0.53.53");
+  proc_->AddRuleForAllFamilies("multiple", "127.0.0.1,127.0.53.53");
+  proc_->AddRuleForAllFamilies("ipv6", "::127.0.53.53");
+  proc_->AddRuleForAllFamilies("not_reserved1", "53.53.0.127");
+  proc_->AddRuleForAllFamilies("not_reserved2", "127.0.53.54");
+  proc_->AddRuleForAllFamilies("not_reserved3", "10.0.53.53");
+  proc_->SignalMultiple(6u);
+
+  Request* request;
+
+  request = CreateRequest("single");
+  EXPECT_EQ(ERR_IO_PENDING, request->Resolve());
+  EXPECT_EQ(ERR_ICANN_NAME_COLLISION, request->WaitForResult());
+
+  request = CreateRequest("multiple");
+  EXPECT_EQ(ERR_IO_PENDING, request->Resolve());
+  EXPECT_EQ(ERR_ICANN_NAME_COLLISION, request->WaitForResult());
+
+  // Resolving an IP literal of 127.0.53.53 however is allowed.
+  EXPECT_EQ(OK, CreateRequest("127.0.53.53")->Resolve());
+
+  // Moreover the address should not be recognized when embedded in an IPv6
+  // address.
+  request = CreateRequest("ipv6");
+  EXPECT_EQ(ERR_IO_PENDING, request->Resolve());
+  EXPECT_EQ(OK, request->WaitForResult());
+
+  // Try some other IPs which are similar, but NOT an exact match on
+  // 127.0.53.53.
+  request = CreateRequest("not_reserved1");
+  EXPECT_EQ(ERR_IO_PENDING, request->Resolve());
+  EXPECT_EQ(OK, request->WaitForResult());
+
+  request = CreateRequest("not_reserved2");
+  EXPECT_EQ(ERR_IO_PENDING, request->Resolve());
+  EXPECT_EQ(OK, request->WaitForResult());
+
+  request = CreateRequest("not_reserved3");
+  EXPECT_EQ(ERR_IO_PENDING, request->Resolve());
+  EXPECT_EQ(OK, request->WaitForResult());
+}
+
+TEST_F(HostResolverImplTest, IsIPv6Reachable) {
+  // The real HostResolverImpl is needed since TestHostResolverImpl will
+  // bypass the IPv6 reachability tests.
+  resolver_.reset(new HostResolverImpl(DefaultOptions(), nullptr));
+
+  // Verify that two consecutive calls return the same value.
+  TestNetLog net_log;
+  BoundNetLog bound_net_log = BoundNetLog::Make(&net_log, NetLog::SOURCE_NONE);
+  bool result1 = IsIPv6Reachable(bound_net_log);
+  bool result2 = IsIPv6Reachable(bound_net_log);
+  EXPECT_EQ(result1, result2);
+
+  // Filter reachability check events and verify that there are two of them.
+  TestNetLogEntry::List event_list;
+  net_log.GetEntries(&event_list);
+  TestNetLogEntry::List probe_event_list;
+  for (const auto& event : event_list) {
+    if (event.type == NetLog::TYPE_HOST_RESOLVER_IMPL_IPV6_REACHABILITY_CHECK) {
+      probe_event_list.push_back(event);
+    }
+  }
+  ASSERT_EQ(2U, probe_event_list.size());
+
+  // Verify that the first request was not cached and the second one was.
+  bool cached;
+  EXPECT_TRUE(probe_event_list[0].GetBooleanValue("cached", &cached));
+  EXPECT_FALSE(cached);
+  EXPECT_TRUE(probe_event_list[1].GetBooleanValue("cached", &cached));
+  EXPECT_TRUE(cached);
 }
 
 DnsConfig CreateValidDnsConfig() {
@@ -1382,10 +1465,8 @@ class HostResolverImplDnsTest : public HostResolverImplTest {
       const HostResolverImpl::ProcTaskParams& params) override {
     HostResolverImpl::Options options = DefaultOptions();
     options.max_concurrent_resolves = max_concurrent_resolves;
-    resolver_.reset(new HostResolverImpl(options, NULL));
+    resolver_.reset(new TestHostResolverImpl(options, NULL));
     resolver_->set_proc_params_for_test(params);
-    // Disable IPv6 support probing.
-    resolver_->SetDefaultAddressFamily(ADDRESS_FAMILY_UNSPECIFIED);
     dns_client_ = new MockDnsClient(DnsConfig(), dns_rules_);
     resolver_->SetDnsClient(scoped_ptr<DnsClient>(dns_client_));
   }
@@ -1415,8 +1496,6 @@ class HostResolverImplDnsTest : public HostResolverImplTest {
 
 // Test successful and fallback resolutions in HostResolverImpl::DnsTask.
 TEST_F(HostResolverImplDnsTest, DnsTask) {
-  resolver_->SetDefaultAddressFamily(ADDRESS_FAMILY_IPV4);
-
   proc_->AddRuleForAllFamilies("nx_succeed", "192.168.1.102");
   // All other hostnames will fail in proc_.
 
@@ -1428,9 +1507,12 @@ TEST_F(HostResolverImplDnsTest, DnsTask) {
 
   ChangeDnsConfig(CreateValidDnsConfig());
 
-  EXPECT_EQ(ERR_IO_PENDING, CreateRequest("ok_fail", 80)->Resolve());
-  EXPECT_EQ(ERR_IO_PENDING, CreateRequest("nx_fail", 80)->Resolve());
-  EXPECT_EQ(ERR_IO_PENDING, CreateRequest("nx_succeed", 80)->Resolve());
+  EXPECT_EQ(ERR_IO_PENDING, CreateRequest("ok_fail", 80, MEDIUM,
+                                          ADDRESS_FAMILY_IPV4)->Resolve());
+  EXPECT_EQ(ERR_IO_PENDING, CreateRequest("nx_fail", 80, MEDIUM,
+                                          ADDRESS_FAMILY_IPV4)->Resolve());
+  EXPECT_EQ(ERR_IO_PENDING, CreateRequest("nx_succeed", 80, MEDIUM,
+                                          ADDRESS_FAMILY_IPV4)->Resolve());
 
   proc_->SignalMultiple(requests_.size());
 
@@ -1449,7 +1531,6 @@ TEST_F(HostResolverImplDnsTest, DnsTask) {
 // Test successful and failing resolutions in HostResolverImpl::DnsTask when
 // fallback to ProcTask is disabled.
 TEST_F(HostResolverImplDnsTest, NoFallbackToProcTask) {
-  resolver_->SetDefaultAddressFamily(ADDRESS_FAMILY_IPV4);
   set_fallback_to_proctask(false);
 
   proc_->AddRuleForAllFamilies("nx_succeed", "192.168.1.102");
@@ -1469,8 +1550,10 @@ TEST_F(HostResolverImplDnsTest, NoFallbackToProcTask) {
 
   ChangeDnsConfig(CreateValidDnsConfig());
 
-  EXPECT_EQ(ERR_IO_PENDING, CreateRequest("ok_abort", 80)->Resolve());
-  EXPECT_EQ(ERR_IO_PENDING, CreateRequest("nx_abort", 80)->Resolve());
+  EXPECT_EQ(ERR_IO_PENDING, CreateRequest("ok_abort", 80, MEDIUM,
+                                          ADDRESS_FAMILY_IPV4)->Resolve());
+  EXPECT_EQ(ERR_IO_PENDING, CreateRequest("nx_abort", 80, MEDIUM,
+                                          ADDRESS_FAMILY_IPV4)->Resolve());
 
   // Simulate the case when the preference or policy has disabled the DNS client
   // causing AbortDnsTasks.
@@ -1480,8 +1563,10 @@ TEST_F(HostResolverImplDnsTest, NoFallbackToProcTask) {
 
   // First request is resolved by MockDnsClient, others should fail due to
   // disabled fallback to ProcTask.
-  EXPECT_EQ(ERR_IO_PENDING, CreateRequest("ok_fail", 80)->Resolve());
-  EXPECT_EQ(ERR_IO_PENDING, CreateRequest("nx_fail", 80)->Resolve());
+  EXPECT_EQ(ERR_IO_PENDING, CreateRequest("ok_fail", 80, MEDIUM,
+                                          ADDRESS_FAMILY_IPV4)->Resolve());
+  EXPECT_EQ(ERR_IO_PENDING, CreateRequest("nx_fail", 80, MEDIUM,
+                                          ADDRESS_FAMILY_IPV4)->Resolve());
   proc_->SignalMultiple(requests_.size());
 
   // Aborted due to Network Change.
@@ -1496,7 +1581,6 @@ TEST_F(HostResolverImplDnsTest, NoFallbackToProcTask) {
 
 // Test behavior of OnDnsTaskFailure when Job is aborted.
 TEST_F(HostResolverImplDnsTest, OnDnsTaskFailureAbortedJob) {
-  resolver_->SetDefaultAddressFamily(ADDRESS_FAMILY_IPV4);
   ChangeDnsConfig(CreateValidDnsConfig());
   EXPECT_EQ(ERR_IO_PENDING, CreateRequest("nx_abort", 80)->Resolve());
   // Abort all jobs here.
@@ -1508,7 +1592,6 @@ TEST_F(HostResolverImplDnsTest, OnDnsTaskFailureAbortedJob) {
   EXPECT_EQ(ERR_IO_PENDING, requests_[0]->result());
 
   // Repeat test with Fallback to ProcTask disabled
-  resolver_->SetDefaultAddressFamily(ADDRESS_FAMILY_IPV4);
   set_fallback_to_proctask(false);
   ChangeDnsConfig(CreateValidDnsConfig());
   EXPECT_EQ(ERR_IO_PENDING, CreateRequest("nx_abort", 80)->Resolve());
@@ -1713,12 +1796,11 @@ TEST_F(HostResolverImplDnsTest, DontDisableDnsClientOnSporadicFailure) {
 TEST_F(HostResolverImplDnsTest, DualFamilyLocalhost) {
   // Use regular SystemHostResolverCall!
   scoped_refptr<HostResolverProc> proc(new SystemHostResolverProc());
-  resolver_.reset(new HostResolverImpl(DefaultOptions(), NULL));
+  resolver_.reset(new TestHostResolverImpl(DefaultOptions(), NULL, false));
   resolver_->set_proc_params_for_test(DefaultParams(proc.get()));
 
   resolver_->SetDnsClient(
       scoped_ptr<DnsClient>(new MockDnsClient(DnsConfig(), dns_rules_)));
-  resolver_->SetDefaultAddressFamily(ADDRESS_FAMILY_IPV4);
 
   // Get the expected output.
   AddressList addrlist;
@@ -1735,22 +1817,22 @@ TEST_F(HostResolverImplDnsTest, DualFamilyLocalhost) {
   if (!saw_ipv4 && !saw_ipv6)
     return;
 
-  HostResolver::RequestInfo info(HostPortPair("localhost", 80));
-  info.set_address_family(ADDRESS_FAMILY_UNSPECIFIED);
-  info.set_host_resolver_flags(HOST_RESOLVER_DEFAULT_FAMILY_SET_DUE_TO_NO_IPV6);
-
   // Try without DnsClient.
-  ChangeDnsConfig(DnsConfig());
-  Request* req = CreateRequest(info, DEFAULT_PRIORITY);
-  // It is resolved via getaddrinfo, so expect asynchronous result.
-  EXPECT_EQ(ERR_IO_PENDING, req->Resolve());
-  EXPECT_EQ(OK, req->WaitForResult());
+  DnsConfig config = CreateValidDnsConfig();
+  config.use_local_ipv6 = false;
+  ChangeDnsConfig(config);
+  HostResolver::RequestInfo info_proc(HostPortPair("localhost", 80));
+  info_proc.set_address_family(ADDRESS_FAMILY_UNSPECIFIED);
+  info_proc.set_host_resolver_flags(HOST_RESOLVER_SYSTEM_ONLY);
+  Request* req = CreateRequest(info_proc, DEFAULT_PRIORITY);
 
-  EXPECT_EQ(saw_ipv4, req->HasAddress("127.0.0.1", 80));
-  EXPECT_EQ(saw_ipv6, req->HasAddress("::1", 80));
+  EXPECT_EQ(OK, req->Resolve());
+
+  EXPECT_TRUE(req->HasAddress("127.0.0.1", 80));
+  EXPECT_TRUE(req->HasAddress("::1", 80));
 
   // Configure DnsClient with dual-host HOSTS file.
-  DnsConfig config = CreateValidDnsConfig();
+  DnsConfig config_hosts = CreateValidDnsConfig();
   DnsHosts hosts;
   IPAddressNumber local_ipv4, local_ipv6;
   ASSERT_TRUE(ParseIPLiteralToNumber("127.0.0.1", &local_ipv4));
@@ -1759,10 +1841,12 @@ TEST_F(HostResolverImplDnsTest, DualFamilyLocalhost) {
     hosts[DnsHostsKey("localhost", ADDRESS_FAMILY_IPV4)] = local_ipv4;
   if (saw_ipv6)
     hosts[DnsHostsKey("localhost", ADDRESS_FAMILY_IPV6)] = local_ipv6;
-  config.hosts = hosts;
+  config_hosts.hosts = hosts;
 
-  ChangeDnsConfig(config);
-  req = CreateRequest(info, DEFAULT_PRIORITY);
+  ChangeDnsConfig(config_hosts);
+  HostResolver::RequestInfo info_hosts(HostPortPair("localhost", 80));
+  info_hosts.set_address_family(ADDRESS_FAMILY_UNSPECIFIED);
+  req = CreateRequest(info_hosts, DEFAULT_PRIORITY);
   // Expect synchronous resolution from DnsHosts.
   EXPECT_EQ(OK, req->Resolve());
 
@@ -1772,10 +1856,10 @@ TEST_F(HostResolverImplDnsTest, DualFamilyLocalhost) {
 
 // Cancel a request with a single DNS transaction active.
 TEST_F(HostResolverImplDnsTest, CancelWithOneTransactionActive) {
-  resolver_->SetDefaultAddressFamily(ADDRESS_FAMILY_IPV4);
   ChangeDnsConfig(CreateValidDnsConfig());
 
-  EXPECT_EQ(ERR_IO_PENDING, CreateRequest("ok", 80)->Resolve());
+  EXPECT_EQ(ERR_IO_PENDING,
+            CreateRequest("ok", 80, MEDIUM, ADDRESS_FAMILY_IPV4)->Resolve());
   EXPECT_EQ(1u, num_running_dispatcher_jobs());
   requests_[0]->Cancel();
 
@@ -1785,7 +1869,6 @@ TEST_F(HostResolverImplDnsTest, CancelWithOneTransactionActive) {
 // Cancel a request with a single DNS transaction active and another pending.
 TEST_F(HostResolverImplDnsTest, CancelWithOneTransactionActiveOnePending) {
   CreateSerialResolver();
-  resolver_->SetDefaultAddressFamily(ADDRESS_FAMILY_UNSPECIFIED);
   ChangeDnsConfig(CreateValidDnsConfig());
 
   EXPECT_EQ(ERR_IO_PENDING, CreateRequest("ok", 80)->Resolve());
@@ -1797,7 +1880,6 @@ TEST_F(HostResolverImplDnsTest, CancelWithOneTransactionActiveOnePending) {
 
 // Cancel a request with two DNS transactions active.
 TEST_F(HostResolverImplDnsTest, CancelWithTwoTransactionsActive) {
-  resolver_->SetDefaultAddressFamily(ADDRESS_FAMILY_UNSPECIFIED);
   ChangeDnsConfig(CreateValidDnsConfig());
 
   EXPECT_EQ(ERR_IO_PENDING, CreateRequest("ok", 80)->Resolve());
@@ -1812,7 +1894,6 @@ TEST_F(HostResolverImplDnsTest, DeleteWithActiveTransactions) {
   // At most 10 Jobs active at once.
   CreateResolverWithLimitsAndParams(10u, DefaultParams(proc_.get()));
 
-  resolver_->SetDefaultAddressFamily(ADDRESS_FAMILY_UNSPECIFIED);
   ChangeDnsConfig(CreateValidDnsConfig());
 
   // First active job is an IPv4 request.
@@ -1833,7 +1914,6 @@ TEST_F(HostResolverImplDnsTest, DeleteWithActiveTransactions) {
 
 // Cancel a request with only the IPv6 transaction active.
 TEST_F(HostResolverImplDnsTest, CancelWithIPv6TransactionActive) {
-  resolver_->SetDefaultAddressFamily(ADDRESS_FAMILY_UNSPECIFIED);
   ChangeDnsConfig(CreateValidDnsConfig());
 
   EXPECT_EQ(ERR_IO_PENDING, CreateRequest("6slow_ok", 80)->Resolve());
@@ -1850,7 +1930,6 @@ TEST_F(HostResolverImplDnsTest, CancelWithIPv6TransactionActive) {
 // Cancel a request with only the IPv4 transaction pending.
 TEST_F(HostResolverImplDnsTest, CancelWithIPv4TransactionPending) {
   set_fallback_to_proctask(false);
-  resolver_->SetDefaultAddressFamily(ADDRESS_FAMILY_UNSPECIFIED);
   ChangeDnsConfig(CreateValidDnsConfig());
 
   EXPECT_EQ(ERR_IO_PENDING, CreateRequest("4slow_ok", 80)->Resolve());
@@ -1866,7 +1945,6 @@ TEST_F(HostResolverImplDnsTest, CancelWithIPv4TransactionPending) {
 // Test cases where AAAA completes first.
 TEST_F(HostResolverImplDnsTest, AAAACompletesFirst) {
   set_fallback_to_proctask(false);
-  resolver_->SetDefaultAddressFamily(ADDRESS_FAMILY_UNSPECIFIED);
   ChangeDnsConfig(CreateValidDnsConfig());
 
   EXPECT_EQ(ERR_IO_PENDING, CreateRequest("4slow_ok", 80)->Resolve());
@@ -1904,7 +1982,6 @@ TEST_F(HostResolverImplDnsTest, AAAACompletesFirst) {
 TEST_F(HostResolverImplDnsTest, SerialResolver) {
   CreateSerialResolver();
   set_fallback_to_proctask(false);
-  resolver_->SetDefaultAddressFamily(ADDRESS_FAMILY_UNSPECIFIED);
   ChangeDnsConfig(CreateValidDnsConfig());
 
   EXPECT_EQ(ERR_IO_PENDING, CreateRequest("ok", 80)->Resolve());
@@ -1923,7 +2000,6 @@ TEST_F(HostResolverImplDnsTest, SerialResolver) {
 TEST_F(HostResolverImplDnsTest, AAAAStartsAfterOtherJobFinishes) {
   CreateResolverWithLimitsAndParams(2u, DefaultParams(proc_.get()));
   set_fallback_to_proctask(false);
-  resolver_->SetDefaultAddressFamily(ADDRESS_FAMILY_UNSPECIFIED);
   ChangeDnsConfig(CreateValidDnsConfig());
 
   EXPECT_EQ(ERR_IO_PENDING, CreateRequest("ok", 80, MEDIUM,
@@ -1982,7 +2058,6 @@ TEST_F(HostResolverImplDnsTest, InvalidDnsConfigWithPendingRequests) {
   // prioritized dispatcher slot.
   CreateResolverWithLimitsAndParams(3u, DefaultParams(proc_.get()));
 
-  resolver_->SetDefaultAddressFamily(ADDRESS_FAMILY_UNSPECIFIED);
   ChangeDnsConfig(CreateValidDnsConfig());
 
   proc_->AddRuleForAllFamilies("slow_nx1", "192.168.0.1");
@@ -2023,7 +2098,6 @@ TEST_F(HostResolverImplDnsTest,
   for (size_t limit = 1u; limit < 6u; ++limit) {
     CreateResolverWithLimitsAndParams(limit, DefaultParams(proc_.get()));
 
-    resolver_->SetDefaultAddressFamily(ADDRESS_FAMILY_UNSPECIFIED);
     ChangeDnsConfig(CreateValidDnsConfig());
 
     // Queue up enough failures to disable DnsTasks.  These will all fall back
@@ -2070,7 +2144,6 @@ TEST_F(HostResolverImplDnsTest, ManuallyDisableDnsClientWithPendingRequests) {
   // prioritized dispatcher slot.
   CreateResolverWithLimitsAndParams(3u, DefaultParams(proc_.get()));
 
-  resolver_->SetDefaultAddressFamily(ADDRESS_FAMILY_UNSPECIFIED);
   ChangeDnsConfig(CreateValidDnsConfig());
 
   proc_->AddRuleForAllFamilies("slow_ok1", "192.168.0.1");

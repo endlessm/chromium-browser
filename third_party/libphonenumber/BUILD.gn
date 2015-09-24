@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//testing/test.gni")
 import("//third_party/protobuf/proto_library.gni")
 
 proto_library("proto") {
@@ -44,10 +45,21 @@ static_library("libphonenumber_without_metadata") {
     "src/phonenumbers/utf/unilib.cc",
   ]
 
-  # TODO(scottmg): Temporary until https://codereview.appspot.com/134650043/
-  # lands and rolls. http://crbug.com/335824
+  # libphonenumber's base/logging.h is a minimal implementation where DCHECKs
+  # do not consume their arguments. This leads to unused variable warnings in
+  # release builds.
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [ "//build/config/compiler:no_chromium_code" ]
+
+  config("libphonenumber_without_metadata_warnings") {
+    if (is_clang) {
+      cflags = [
+        # https://github.com/googlei18n/libphonenumber/pull/741
+        "-Wno-unused-private-field",
+      ]
+    }
+  }
+  configs += [ ":libphonenumber_without_metadata_warnings" ]
 
   public_configs = [ ":libphonenumber_config" ]
 

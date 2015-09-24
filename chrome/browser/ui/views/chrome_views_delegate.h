@@ -6,7 +6,9 @@
 #define CHROME_BROWSER_UI_VIEWS_CHROME_VIEWS_DELEGATE_H_
 
 #include "base/basictypes.h"
+#include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/location.h"
 #include "build/build_config.h"
 #include "ui/accessibility/ax_enums.h"
 #include "ui/views/views_delegate.h"
@@ -27,14 +29,10 @@ class ChromeViewsDelegate : public views::ViewsDelegate {
                                ui::WindowShowState* show_state) const override;
   void NotifyAccessibilityEvent(views::View* view,
                                 ui::AXEvent event_type) override;
-  void NotifyMenuItemFocused(const base::string16& menu_name,
-                             const base::string16& menu_item_name,
-                             int item_index,
-                             int item_count,
-                             bool has_submenu) override;
 #if defined(OS_WIN)
-  virtual HICON GetDefaultWindowIcon() const override;
-  virtual bool IsWindowInMetro(gfx::NativeWindow window) const override;
+  HICON GetDefaultWindowIcon() const override;
+  HICON GetSmallWindowIcon() const override;
+  bool IsWindowInMetro(gfx::NativeWindow window) const override;
 #elif defined(OS_LINUX) && !defined(OS_CHROMEOS)
   gfx::ImageSkia* GetDefaultWindowIcon() const override;
 #endif
@@ -51,13 +49,13 @@ class ChromeViewsDelegate : public views::ViewsDelegate {
 #if defined(OS_LINUX) && !defined(OS_CHROMEOS)
   bool WindowManagerProvidesTitleBar(bool maximized) override;
 #endif
-#if defined(USE_AURA)
   ui::ContextFactory* GetContextFactory() override;
-#endif
+  std::string GetApplicationName() override;
 #if defined(OS_WIN)
-  virtual int GetAppbarAutohideEdges(HMONITOR monitor,
-                                     const base::Closure& callback) override;
+  int GetAppbarAutohideEdges(HMONITOR monitor,
+                             const base::Closure& callback) override;
 #endif
+  scoped_refptr<base::TaskRunner> GetBlockingPoolTaskRunner() override;
 
  private:
 #if defined(OS_WIN)

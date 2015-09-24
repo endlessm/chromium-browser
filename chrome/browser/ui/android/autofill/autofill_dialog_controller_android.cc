@@ -27,7 +27,11 @@
 #include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/credit_card.h"
+#include "components/autofill/core/browser/detail_input.h"
+#include "components/autofill/core/browser/dialog_section.h"
+#include "components/autofill/core/browser/field_types.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
+#include "components/autofill/core/browser/server_field_types_util.h"
 #include "components/autofill/core/common/form_data.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "content/public/browser/navigation_controller.h"
@@ -35,11 +39,11 @@
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
 #include "jni/AutofillDialogControllerAndroid_jni.h"
-#include "ui/base/android/window_android.h"
+#include "ui/android/window_android.h"
 #include "ui/base/models/combobox_model.h"
 #include "ui/base/models/menu_model.h"
 #include "ui/gfx/android/java_bitmap.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
 
 namespace autofill {
@@ -72,7 +76,7 @@ void BuildCcBillingInputs(DetailInputs* inputs) {
     { DetailInput::LONG, CREDIT_CARD_EXP_4_DIGIT_YEAR },
     { DetailInput::LONG, CREDIT_CARD_VERIFICATION_CODE },
   };
-  common::BuildInputs(kCcBillingInputs, arraysize(kCcBillingInputs), inputs);
+  BuildInputs(kCcBillingInputs, arraysize(kCcBillingInputs), inputs);
 }
 
 // Constructs |inputs| for the SECTION_SHIPPING section.
@@ -88,7 +92,7 @@ void BuildShippingInputs(DetailInputs* inputs) {
     { DetailInput::LONG, ADDRESS_HOME_COUNTRY },
     { DetailInput::LONG, PHONE_HOME_WHOLE_NUMBER },
   };
-  common::BuildInputs(kShippingInputs, arraysize(kShippingInputs), inputs);
+  BuildInputs(kShippingInputs, arraysize(kShippingInputs), inputs);
 }
 
 base::string16 NullGetInfo(const AutofillType& type) {
@@ -112,7 +116,7 @@ void FillOutputForSectionWithComparator(
                  base::Unretained(full_wallet),
                  g_browser_process->GetApplicationLocale());
 
-  std::vector<ServerFieldType> types = common::TypesFromInputs(inputs);
+  std::vector<ServerFieldType> types = TypesFromInputs(inputs);
   form_structure.FillFields(
       types,
       compare,
@@ -136,8 +140,7 @@ void FillOutputForSection(
     BuildShippingInputs(&inputs);
 
   FillOutputForSectionWithComparator(
-      section, inputs,
-      base::Bind(common::ServerTypeMatchesField, section),
+      section, inputs, base::Bind(ServerTypeMatchesField, section),
       form_structure, full_wallet, email_address);
 
   if (section == SECTION_CC_BILLING) {
@@ -156,7 +159,7 @@ bool IsSectionInputUsedInFormStructure(DialogSection section,
                                        const FormStructure& form_structure) {
   for (size_t i = 0; i < form_structure.field_count(); ++i) {
     const AutofillField* field = form_structure.field(i);
-    if (field && common::ServerTypeMatchesField(section, input_type, *field))
+    if (field && ServerTypeMatchesField(section, input_type, *field))
       return true;
   }
   return false;
@@ -292,13 +295,13 @@ void AutofillDialogControllerAndroid::Show() {
   }
 
   // Log any relevant UI metrics and security exceptions.
-  GetMetricLogger().LogDialogUiEvent(AutofillMetrics::DIALOG_UI_SHOWN);
+  AutofillMetrics::LogDialogUiEvent(AutofillMetrics::DIALOG_UI_SHOWN);
 
-  GetMetricLogger().LogDialogSecurityMetric(
+  AutofillMetrics::LogDialogSecurityMetric(
       AutofillMetrics::SECURITY_METRIC_DIALOG_SHOWN);
 
   if (!invoked_from_same_origin_) {
-    GetMetricLogger().LogDialogSecurityMetric(
+    AutofillMetrics::LogDialogSecurityMetric(
         AutofillMetrics::SECURITY_METRIC_CROSS_ORIGIN_FRAME);
   }
 
@@ -344,10 +347,9 @@ void AutofillDialogControllerAndroid::Show() {
     DetailInputs inputs;
     BuildShippingInputs(&inputs);
     request_shipping_address = form_structure_.FillFields(
-        common::TypesFromInputs(inputs),
-        base::Bind(common::ServerTypeMatchesField, SECTION_SHIPPING),
-        base::Bind(NullGetInfo),
-        std::string(),
+        TypesFromInputs(inputs),
+        base::Bind(ServerTypeMatchesField, SECTION_SHIPPING),
+        base::Bind(NullGetInfo), std::string(),
         g_browser_process->GetApplicationLocale());
   }
 
@@ -520,19 +522,19 @@ AutofillDialogControllerAndroid::AutofillDialogControllerAndroid(
 }
 
 void AutofillDialogControllerAndroid::LogOnFinishSubmitMetrics() {
-  GetMetricLogger().LogDialogUiDuration(
+  AutofillMetrics::LogDialogUiDuration(
       base::Time::Now() - dialog_shown_timestamp_,
       AutofillMetrics::DIALOG_ACCEPTED);
 
-  GetMetricLogger().LogDialogUiEvent(AutofillMetrics::DIALOG_UI_ACCEPTED);
+  AutofillMetrics::LogDialogUiEvent(AutofillMetrics::DIALOG_UI_ACCEPTED);
 }
 
 void AutofillDialogControllerAndroid::LogOnCancelMetrics() {
-  GetMetricLogger().LogDialogUiDuration(
+  AutofillMetrics::LogDialogUiDuration(
       base::Time::Now() - dialog_shown_timestamp_,
       AutofillMetrics::DIALOG_CANCELED);
 
-  GetMetricLogger().LogDialogUiEvent(AutofillMetrics::DIALOG_UI_CANCELED);
+  AutofillMetrics::LogDialogUiEvent(AutofillMetrics::DIALOG_UI_CANCELED);
 }
 
 }  // namespace autofill

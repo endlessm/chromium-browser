@@ -13,7 +13,7 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/time_format.h"
 #include "ui/base/ui_base_types.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/text_constants.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/label.h"
@@ -33,9 +33,9 @@ const int kCountdownUpdateIntervalMs = 1000;  // 1 second.
 class FixedWidthLabel : public views::Label {
  public:
   explicit FixedWidthLabel(int width);
-  virtual ~FixedWidthLabel();
+  ~FixedWidthLabel() override;
 
-  virtual gfx::Size GetPreferredSize() const override;
+  gfx::Size GetPreferredSize() const override;
 
  private:
   int width_;

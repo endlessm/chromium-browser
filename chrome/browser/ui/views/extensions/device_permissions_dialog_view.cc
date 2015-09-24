@@ -4,10 +4,15 @@
 
 #include "chrome/browser/ui/views/extensions/device_permissions_dialog_view.h"
 
+#include "base/bind.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/extensions/api/chrome_device_permissions_prompt.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/constrained_window/constrained_window_views.h"
+#include "components/web_modal/popup_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "device/usb/usb_device.h"
 #include "extensions/common/extension.h"
@@ -44,7 +49,7 @@ class DevicePermissionsTableModel
 
  private:
   scoped_refptr<DevicePermissionsPrompt::Prompt> prompt_;
-  ui::TableModelObserver* observer_;
+  ui::TableModelObserver* observer_ = nullptr;
 };
 
 int DevicePermissionsTableModel::RowCount() {
@@ -75,9 +80,8 @@ void DevicePermissionsTableModel::OnDevicesChanged() {
 }
 
 DevicePermissionsDialogView::DevicePermissionsDialogView(
-    DevicePermissionsPrompt::Delegate* delegate,
     scoped_refptr<DevicePermissionsPrompt::Prompt> prompt)
-    : delegate_(delegate), prompt_(prompt) {
+    : prompt_(prompt) {
   views::BoxLayout* layout =
       new views::BoxLayout(views::BoxLayout::kVertical,
                            views::kButtonHEdgeMarginNew,
@@ -87,6 +91,7 @@ DevicePermissionsDialogView::DevicePermissionsDialogView(
 
   views::Label* label = new views::Label(prompt_->GetPromptMessage());
   label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+  label->SetMultiLine(true);
   AddChildView(label);
 
   std::vector<ui::TableColumn> table_columns;
@@ -120,19 +125,17 @@ DevicePermissionsDialogView::~DevicePermissionsDialogView() {
   RemoveAllChildViews(true);
 }
 
-bool DevicePermissionsDialogView::Cancel() {
-  std::vector<scoped_refptr<UsbDevice>> empty;
-  delegate_->OnUsbDevicesChosen(empty);
-  return true;
+void DevicePermissionsDialogView::DeleteDelegate() {
+  // Calling prompt_->Dismissed() here ensures it will be called regardless of
+  // how the view is closed, including shutdown of the entire view hierarchy.
+  prompt_->Dismissed();
+  delete this;
 }
 
 bool DevicePermissionsDialogView::Accept() {
-  std::vector<scoped_refptr<UsbDevice>> devices;
   for (int index : table_view_->selection_model().selected_indices()) {
     prompt_->GrantDevicePermission(index);
-    devices.push_back(prompt_->GetDevice(index));
   }
-  delegate_->OnUsbDevicesChosen(devices);
   return true;
 }
 
@@ -158,6 +161,15 @@ gfx::Size DevicePermissionsDialogView::GetPreferredSize() const {
 
 void ChromeDevicePermissionsPrompt::ShowDialog() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  ShowWebModalDialogViews(new DevicePermissionsDialogView(delegate(), prompt()),
-                          web_contents());
+
+  web_modal::PopupManager* popup_manager =
+      web_modal::PopupManager::FromWebContents(web_contents());
+  if (popup_manager) {
+    constrained_window::ShowWebModalDialogViews(
+        new DevicePermissionsDialogView(prompt()), web_contents());
+  } else {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::Bind(&DevicePermissionsPrompt::Prompt::Dismissed, prompt()));
+  }
 }

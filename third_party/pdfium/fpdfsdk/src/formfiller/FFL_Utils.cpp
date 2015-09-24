@@ -1,8 +1,10 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
+
+#include <algorithm>
 
 #include "../../include/formfiller/FormFiller.h"
 #include "../../include/formfiller/FFL_Utils.h"
@@ -11,10 +13,10 @@ CPDF_Rect CFFL_Utils::MaxRect(const CPDF_Rect & rect1,const CPDF_Rect & rect2)
 {
 	CPDF_Rect rcRet;
 
-	rcRet.left = FFL_MIN(rect1.left,rect2.left);
-	rcRet.bottom = FFL_MIN(rect1.bottom,rect2.bottom);
-	rcRet.right = FFL_MAX(rect1.right,rect2.right);
-	rcRet.top = FFL_MAX(rect1.top,rect2.top);
+	rcRet.left = std::min(rect1.left, rect2.left);
+	rcRet.bottom = std::min(rect1.bottom, rect2.bottom);
+	rcRet.right = std::max(rect1.right, rect2.right);
+	rcRet.top = std::max(rect1.top, rect2.top);
 
 	return rcRet;
 }
@@ -39,27 +41,6 @@ CPDF_Rect CFFL_Utils::DeflateRect(const CPDF_Rect & crRect,const FX_FLOAT & fSiz
 	return crNew;
 }
 
-/*
-FX_BOOL CFFL_Utils::RectContainsRect(const CPDF_Rect & father,const CPDF_Rect & son)
-{
-	return (father.left <= son.left && father.right >= son.right && 
-				father.bottom <= son.bottom && father.top >= son.top);
-
-}
-
-FX_BOOL CFFL_Utils::RectContainsPoint(const CPDF_Rect & father,const CPDF_Point & son)
-{
-	return (father.left <= son.x && father.right >= son.x && 
-				father.bottom <= son.y && father.top >= son.y);
-}
-
-FX_BOOL CFFL_Utils::RectContainsXY(const CPDF_Rect & father,FX_FLOAT x,FX_FLOAT y)
-{
-	return (father.left <= x && father.right >= x && 
-				father.bottom <= y && father.top >= y);
-}
-*/
-
 FX_BOOL CFFL_Utils::TraceObject(CPDF_Object* pObj)
 {
 	if (!pObj) return FALSE;
@@ -72,7 +53,7 @@ FX_BOOL CFFL_Utils::TraceObject(CPDF_Object* pObj)
 			CPDF_Array* pArray = (CPDF_Array*)pObj;
 			for (FX_DWORD i = 0; i < pArray->GetCount(); i ++)
 			{
-				CPDF_Object* pElement = pArray->GetElementValue(i);				
+				CPDF_Object* pElement = pArray->GetElementValue(i);
 				TraceObject(pElement);
 			}
 		}
@@ -112,7 +93,7 @@ FX_BOOL CFFL_Utils::TraceObject(CPDF_Object* pObj)
 	case PDFOBJ_BOOLEAN:
 		break;
 	case PDFOBJ_NUMBER:
-		//TRACE("%d\n",(FX_INT32)pObj);
+		//TRACE("%d\n",(int32_t)pObj);
 		break;
 	case PDFOBJ_STRING:
 		//TRACE(((CPDF_String*)pObj)->GetString() + "\n");

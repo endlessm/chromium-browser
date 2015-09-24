@@ -14,6 +14,7 @@
 #include "base/values.h"
 #include "chrome/browser/chromeos/file_system_provider/operations/test_util.h"
 #include "chrome/common/extensions/api/file_system_provider.h"
+#include "chrome/common/extensions/api/file_system_provider_capabilities/file_system_provider_capabilities_handler.h"
 #include "chrome/common/extensions/api/file_system_provider_internal.h"
 #include "extensions/browser/event_router.h"
 #include "net/base/io_buffer.h"
@@ -64,7 +65,6 @@ class CallbackLogger {
 
  private:
   ScopedVector<Event> events_;
-  bool dispatch_reply_;
 
   DISALLOW_COPY_AND_ASSIGN(CallbackLogger);
 };
@@ -74,13 +74,13 @@ class CallbackLogger {
 class FileSystemProviderOperationsReadFileTest : public testing::Test {
  protected:
   FileSystemProviderOperationsReadFileTest() {}
-  virtual ~FileSystemProviderOperationsReadFileTest() {}
+  ~FileSystemProviderOperationsReadFileTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     file_system_info_ = ProvidedFileSystemInfo(
-        kExtensionId,
-        MountOptions(kFileSystemId, "" /* display_name */),
-        base::FilePath());
+        kExtensionId, MountOptions(kFileSystemId, "" /* display_name */),
+        base::FilePath(), false /* configurable */, true /* watchable */,
+        extensions::SOURCE_FILE);
     io_buffer_ = make_scoped_refptr(new net::IOBuffer(kOffset + kLength));
   }
 

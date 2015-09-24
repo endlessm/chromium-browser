@@ -5,74 +5,60 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "SkColorMatrixFilter.h"
-#include "SkColorFilterImageFilter.h"
-#include "SkTileImageFilter.h"
+#include "sk_tool_utils.h"
 #include "SkBitmapSource.h"
+#include "SkColorFilterImageFilter.h"
+#include "SkColorMatrixFilter.h"
+#include "SkTileImageFilter.h"
+#include "gm.h"
 
 #define WIDTH 400
 #define HEIGHT 100
 #define MARGIN 12
 
+static SkBitmap make_bitmap() {
+    SkBitmap bitmap;
+    bitmap.allocN32Pixels(50, 50);
+    SkCanvas canvas(bitmap);
+    canvas.clear(0xFF000000);
+    SkPaint paint;
+    paint.setAntiAlias(true);
+    sk_tool_utils::set_portable_typeface(&paint);
+    paint.setColor(0xD000D000);
+    paint.setTextSize(SkIntToScalar(50));
+    const char* str = "e";
+    canvas.drawText(str, strlen(str), SkIntToScalar(10), SkIntToScalar(45), paint);
+    return bitmap;
+}
+
+
 namespace skiagm {
 
 class TileImageFilterGM : public GM {
 public:
-    TileImageFilterGM() : fInitialized(false) {
+    TileImageFilterGM() {
         this->setBGColor(0xFF000000);
     }
 
 protected:
-    virtual SkString onShortName() {
+    SkString onShortName() override {
         return SkString("tileimagefilter");
     }
 
-    void make_bitmap() {
-        fBitmap.allocN32Pixels(50, 50);
-        SkCanvas canvas(fBitmap);
-        canvas.clear(0xFF000000);
-        SkPaint paint;
-        paint.setAntiAlias(true);
-        sk_tool_utils::set_portable_typeface(&paint);
-        paint.setColor(0xD000D000);
-        paint.setTextSize(SkIntToScalar(50));
-        const char* str = "e";
-        canvas.drawText(str, strlen(str), SkIntToScalar(10), SkIntToScalar(45), paint);
-    }
-
-    void make_checkerboard() {
-        fCheckerboard.allocN32Pixels(80, 80);
-        SkCanvas canvas(fCheckerboard);
-        canvas.clear(0x00000000);
-        SkPaint darkPaint;
-        darkPaint.setColor(0xFF404040);
-        SkPaint lightPaint;
-        lightPaint.setColor(0xFFA0A0A0);
-        for (int y = 0; y < 80; y += 16) {
-          for (int x = 0; x < 80; x += 16) {
-            canvas.save();
-            canvas.translate(SkIntToScalar(x), SkIntToScalar(y));
-            canvas.drawRect(SkRect::MakeXYWH(0, 0, 8, 8), darkPaint);
-            canvas.drawRect(SkRect::MakeXYWH(8, 0, 8, 8), lightPaint);
-            canvas.drawRect(SkRect::MakeXYWH(0, 8, 8, 8), lightPaint);
-            canvas.drawRect(SkRect::MakeXYWH(8, 8, 8, 8), darkPaint);
-            canvas.restore();
-          }
-        }
-    }
-
-    virtual SkISize onISize() {
+    SkISize onISize() override{
         return SkISize::Make(WIDTH, HEIGHT);
     }
 
-    virtual void onDraw(SkCanvas* canvas) {
-        if (!fInitialized) {
-            make_bitmap();
-            make_checkerboard();
-            fInitialized = true;
-        }
-        canvas->clear(0x00000000);
+    void onOnceBeforeDraw() override {
+        fBitmap = make_bitmap();
+
+        fCheckerboard.allocN32Pixels(80, 80);
+        SkCanvas checkerboardCanvas(fCheckerboard);
+        sk_tool_utils::draw_checkerboard(&checkerboardCanvas, 0xFFA0A0A0, 0xFF404040, 8);
+    }
+
+    void onDraw(SkCanvas* canvas) override {
+        canvas->clear(SK_ColorBLACK);
 
         int x = 0, y = 0;
         for (size_t i = 0; i < 4; i++) {
@@ -125,14 +111,14 @@ protected:
         canvas->restore();
     }
 private:
+    SkBitmap fBitmap;
+    SkBitmap fCheckerboard;
+
     typedef GM INHERITED;
-    SkBitmap fBitmap, fCheckerboard;
-    bool fInitialized;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static GM* MyFactory(void*) { return new TileImageFilterGM; }
-static GMRegistry reg(MyFactory);
+DEF_GM( return SkNEW(TileImageFilterGM); )
 
 }

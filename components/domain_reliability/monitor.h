@@ -16,6 +16,7 @@
 #include "components/domain_reliability/clear_mode.h"
 #include "components/domain_reliability/config.h"
 #include "components/domain_reliability/context.h"
+#include "components/domain_reliability/context_manager.h"
 #include "components/domain_reliability/dispatcher.h"
 #include "components/domain_reliability/domain_reliability_export.h"
 #include "components/domain_reliability/scheduler.h"
@@ -24,6 +25,7 @@
 #include "net/base/load_timing_info.h"
 #include "net/base/network_change_notifier.h"
 #include "net/http/http_response_info.h"
+#include "net/socket/connection_attempts.h"
 #include "net/url_request/url_request_status.h"
 
 namespace base {
@@ -42,26 +44,27 @@ namespace domain_reliability {
 // The top-level object that measures requests and hands off the measurements
 // to the proper |DomainReliabilityContext|.
 class DOMAIN_RELIABILITY_EXPORT DomainReliabilityMonitor
-    : public net::NetworkChangeNotifier::NetworkChangeObserver {
+    : public net::NetworkChangeNotifier::NetworkChangeObserver,
+      DomainReliabilityContext::Factory {
  public:
   // Creates a Monitor. |local_state_pref_service| must live on |pref_thread|
   // (which should be the current thread); |network_thread| is the thread
   // on which requests will actually be monitored and reported.
   DomainReliabilityMonitor(
       const std::string& upload_reporter_string,
-      scoped_refptr<base::SingleThreadTaskRunner> pref_thread,
-      scoped_refptr<base::SingleThreadTaskRunner> network_thread);
+      const scoped_refptr<base::SingleThreadTaskRunner>& pref_thread,
+      const scoped_refptr<base::SingleThreadTaskRunner>& network_thread);
 
   // Same, but specifies a mock interface for time functions for testing.
   DomainReliabilityMonitor(
       const std::string& upload_reporter_string,
-      scoped_refptr<base::SingleThreadTaskRunner> pref_thread,
-      scoped_refptr<base::SingleThreadTaskRunner> network_thread,
+      const scoped_refptr<base::SingleThreadTaskRunner>& pref_thread,
+      const scoped_refptr<base::SingleThreadTaskRunner>& network_thread,
       scoped_ptr<MockableTime> time);
 
   // Must be called from the pref thread if |MoveToNetworkThread| was not
   // called, or from the network thread if it was called.
-  virtual ~DomainReliabilityMonitor();
+  ~DomainReliabilityMonitor() override;
 
   // Must be called before |InitURLRequestContext| on the same thread on which
   // the Monitor was constructed. Moves (most of) the Monitor to the network
@@ -78,7 +81,8 @@ class DOMAIN_RELIABILITY_EXPORT DomainReliabilityMonitor
 
   // Same, but for unittests where the Getter is readily available.
   void InitURLRequestContext(
-      scoped_refptr<net::URLRequestContextGetter> url_request_context_getter);
+      const scoped_refptr<net::URLRequestContextGetter>&
+          url_request_context_getter);
 
   // Populates the monitor with contexts that were configured at compile time.
   void AddBakedInConfigs();
@@ -99,7 +103,7 @@ class DOMAIN_RELIABILITY_EXPORT DomainReliabilityMonitor
   void OnCompleted(net::URLRequest* request, bool started);
 
   // net::NetworkChangeNotifier::NetworkChangeObserver implementation:
-  virtual void OnNetworkChanged(
+  void OnNetworkChanged(
       net::NetworkChangeNotifier::ConnectionType type) override;
 
   // Called to remove browsing data. With CLEAR_BEACONS, leaves contexts in
@@ -114,7 +118,13 @@ class DOMAIN_RELIABILITY_EXPORT DomainReliabilityMonitor
   DomainReliabilityContext* AddContextForTesting(
       scoped_ptr<const DomainReliabilityConfig> config);
 
-  size_t contexts_size_for_testing() const { return contexts_.size(); }
+  size_t contexts_size_for_testing() const {
+    return context_manager_.contexts_size_for_testing();
+  }
+
+  // DomainReliabilityContext::Factory implementation:
+  scoped_ptr<DomainReliabilityContext> CreateContextForConfig(
+      scoped_ptr<const DomainReliabilityConfig> config) override;
 
  private:
   friend class DomainReliabilityMonitorTest;
@@ -128,25 +138,18 @@ class DOMAIN_RELIABILITY_EXPORT DomainReliabilityMonitor
     explicit RequestInfo(const net::URLRequest& request);
     ~RequestInfo();
 
-    bool AccessedNetwork() const;
+    static bool ShouldReportRequest(const RequestInfo& request);
 
     GURL url;
     net::URLRequestStatus status;
     net::HttpResponseInfo response_info;
     int load_flags;
     net::LoadTimingInfo load_timing_info;
+    net::ConnectionAttempts connection_attempts;
     bool is_upload;
   };
 
-  // Creates a context, adds it to the monitor, and returns a pointer to it.
-  // (The pointer is only valid until the Monitor is destroyed.)
-  DomainReliabilityContext* AddContext(
-      scoped_ptr<const DomainReliabilityConfig> config);
-  // Deletes all contexts from |contexts_| and clears the map.
-  void ClearContexts();
   void OnRequestLegComplete(const RequestInfo& info);
-
-  DomainReliabilityContext* GetContextForHost(const std::string& host) const;
 
   bool OnPrefThread() const {
     return pref_task_runner_->BelongsToCurrentThread();
@@ -163,7 +166,7 @@ class DOMAIN_RELIABILITY_EXPORT DomainReliabilityMonitor
   DomainReliabilityScheduler::Params scheduler_params_;
   DomainReliabilityDispatcher dispatcher_;
   scoped_ptr<DomainReliabilityUploader> uploader_;
-  ContextMap contexts_;
+  DomainReliabilityContextManager context_manager_;
 
   scoped_refptr<base::SingleThreadTaskRunner> pref_task_runner_;
   scoped_refptr<base::SingleThreadTaskRunner> network_task_runner_;

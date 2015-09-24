@@ -11,44 +11,67 @@
 
 namespace drive {
 
+JobQueue::Item::Item() : batchable(false), size(0) {
+}
+
+JobQueue::Item::Item(JobID id, bool batchable, uint64 size)
+    : id(id), batchable(batchable), size(size) {
+}
+
+JobQueue::Item::~Item() {
+}
+
 JobQueue::JobQueue(size_t num_max_concurrent_jobs,
-                   size_t num_priority_levels)
+                   size_t num_priority_levels,
+                   size_t num_max_batch_jobs,
+                   size_t max_batch_size)
     : num_max_concurrent_jobs_(num_max_concurrent_jobs),
-      queue_(num_priority_levels) {
+      queue_(num_priority_levels),
+      num_max_batch_jobs_(num_max_batch_jobs),
+      max_batch_size_(max_batch_size) {
 }
 
 JobQueue::~JobQueue() {
 }
 
-bool JobQueue::PopForRun(int accepted_priority, JobID* id) {
+void JobQueue::PopForRun(int accepted_priority, std::vector<JobID>* jobs) {
   DCHECK_LT(accepted_priority, static_cast<int>(queue_.size()));
+  jobs->clear();
 
   // Too many jobs are running already.
   if (running_.size() >= num_max_concurrent_jobs_)
-    return false;
+    return;
 
   // Looks up the queue in the order of priority upto |accepted_priority|.
+  uint64 total_size = 0;
+  bool batchable = true;
   for (int priority = 0; priority <= accepted_priority; ++priority) {
-    if (!queue_[priority].empty()) {
-      *id = queue_[priority].front();
+    while (!queue_[priority].empty()) {
+      const auto& item = queue_[priority].front();
+      total_size += item.size;
+      batchable = batchable && item.batchable &&
+                  jobs->size() < num_max_batch_jobs_ &&
+                  total_size <= max_batch_size_;
+      if (!(jobs->empty() || batchable))
+        return;
+      jobs->push_back(item.id);
+      running_.insert(item.id);
       queue_[priority].pop_front();
-      running_.insert(*id);
-      return true;
     }
   }
-  return false;
 }
 
 void JobQueue::GetQueuedJobs(int priority, std::vector<JobID>* jobs) const {
   DCHECK_LT(priority, static_cast<int>(queue_.size()));
-
-  jobs->assign(queue_[priority].begin(), queue_[priority].end());
+  jobs->clear();
+  for (const Item& item : queue_[priority]) {
+    jobs->push_back(item.id);
+  }
 }
 
-void JobQueue::Push(JobID id, int priority) {
+void JobQueue::Push(JobID id, int priority, bool batchable, uint64 size) {
   DCHECK_LT(priority, static_cast<int>(queue_.size()));
-
-  queue_[priority].push_back(id);
+  queue_[priority].push_back(Item(id, batchable, size));
 }
 
 void JobQueue::MarkFinished(JobID id) {
@@ -74,11 +97,11 @@ size_t JobQueue::GetNumberOfJobs() const {
 
 void JobQueue::Remove(JobID id) {
   for (size_t i = 0; i < queue_.size(); ++i) {
-    std::deque<JobID>::iterator iter =
-        std::find(queue_[i].begin(), queue_[i].end(), id);
-    if (iter != queue_[i].end()) {
-      queue_[i].erase(iter);
-      break;
+    for (auto it = queue_[i].begin(); it != queue_[i].end(); ++it) {
+      if (it->id == id) {
+        queue_[i].erase(it);
+        break;
+      }
     }
   }
 }

@@ -15,8 +15,9 @@
 #include "base/strings/utf_string_conversions.h"
 #include "remoting/base/util.h"
 #include "remoting/host/clipboard.h"
+#include "remoting/host/touch_injector_win.h"
 #include "remoting/proto/event.pb.h"
-#include "ui/events/keycodes/dom4/keycode_converter.h"
+#include "ui/events/keycodes/dom/keycode_converter.h"
 
 namespace remoting {
 
@@ -51,24 +52,26 @@ using protocol::ClipboardEvent;
 using protocol::KeyEvent;
 using protocol::TextEvent;
 using protocol::MouseEvent;
+using protocol::TouchEvent;
 
 // A class to generate events on Windows.
 class InputInjectorWin : public InputInjector {
  public:
   InputInjectorWin(scoped_refptr<base::SingleThreadTaskRunner> main_task_runner,
                    scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner);
-  virtual ~InputInjectorWin();
+  ~InputInjectorWin() override;
 
   // ClipboardStub interface.
-  virtual void InjectClipboardEvent(const ClipboardEvent& event) override;
+  void InjectClipboardEvent(const ClipboardEvent& event) override;
 
   // InputStub interface.
-  virtual void InjectKeyEvent(const KeyEvent& event) override;
-  virtual void InjectTextEvent(const TextEvent& event) override;
-  virtual void InjectMouseEvent(const MouseEvent& event) override;
+  void InjectKeyEvent(const KeyEvent& event) override;
+  void InjectTextEvent(const TextEvent& event) override;
+  void InjectMouseEvent(const MouseEvent& event) override;
+  void InjectTouchEvent(const TouchEvent& event) override;
 
   // InputInjector interface.
-  virtual void Start(
+  void Start(
       scoped_ptr<protocol::ClipboardStub> client_clipboard) override;
 
  private:
@@ -85,6 +88,7 @@ class InputInjectorWin : public InputInjector {
     void InjectKeyEvent(const KeyEvent& event);
     void InjectTextEvent(const TextEvent& event);
     void InjectMouseEvent(const MouseEvent& event);
+    void InjectTouchEvent(const TouchEvent& event);
 
     // Mirrors the InputInjector interface.
     void Start(scoped_ptr<protocol::ClipboardStub> client_clipboard);
@@ -98,10 +102,12 @@ class InputInjectorWin : public InputInjector {
     void HandleKey(const KeyEvent& event);
     void HandleText(const TextEvent& event);
     void HandleMouse(const MouseEvent& event);
+    void HandleTouch(const TouchEvent& event);
 
     scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
     scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner_;
     scoped_ptr<Clipboard> clipboard_;
+    TouchInjectorWin touch_injector_;
 
     DISALLOW_COPY_AND_ASSIGN(Core);
   };
@@ -135,6 +141,10 @@ void InputInjectorWin::InjectTextEvent(const TextEvent& event) {
 
 void InputInjectorWin::InjectMouseEvent(const MouseEvent& event) {
   core_->InjectMouseEvent(event);
+}
+
+void InputInjectorWin::InjectTouchEvent(const TouchEvent& event) {
+  core_->InjectTouchEvent(event);
 }
 
 void InputInjectorWin::Start(
@@ -191,6 +201,16 @@ void InputInjectorWin::Core::InjectMouseEvent(const MouseEvent& event) {
   HandleMouse(event);
 }
 
+void InputInjectorWin::Core::InjectTouchEvent(const TouchEvent& event) {
+  if (!main_task_runner_->BelongsToCurrentThread()) {
+    main_task_runner_->PostTask(
+        FROM_HERE, base::Bind(&Core::InjectTouchEvent, this, event));
+    return;
+  }
+
+  HandleTouch(event);
+}
+
 void InputInjectorWin::Core::Start(
     scoped_ptr<protocol::ClipboardStub> client_clipboard) {
   if (!ui_task_runner_->BelongsToCurrentThread()) {
@@ -201,6 +221,7 @@ void InputInjectorWin::Core::Start(
   }
 
   clipboard_->Start(client_clipboard.Pass());
+  touch_injector_.Init();
 }
 
 void InputInjectorWin::Core::Stop() {
@@ -209,7 +230,8 @@ void InputInjectorWin::Core::Stop() {
     return;
   }
 
-  clipboard_->Stop();
+  clipboard_.reset();
+  touch_injector_.Deinitialize();
 }
 
 InputInjectorWin::Core::~Core() {}
@@ -320,13 +342,23 @@ void InputInjectorWin::Core::HandleMouse(const MouseEvent& event) {
   }
 }
 
+void InputInjectorWin::Core::HandleTouch(const TouchEvent& event) {
+  touch_injector_.InjectTouchEvent(event);
+}
+
 }  // namespace
 
+// static
 scoped_ptr<InputInjector> InputInjector::Create(
     scoped_refptr<base::SingleThreadTaskRunner> main_task_runner,
     scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner) {
   return make_scoped_ptr(
       new InputInjectorWin(main_task_runner, ui_task_runner));
+}
+
+// static
+bool InputInjector::SupportsTouchEvents() {
+  return TouchInjectorWinDelegate::Create();
 }
 
 }  // namespace remoting

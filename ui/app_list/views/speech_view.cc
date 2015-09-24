@@ -6,6 +6,7 @@
 
 #include "base/strings/utf_string_conversions.h"
 #include "third_party/skia/include/core/SkPath.h"
+#include "ui/app_list/app_list_constants.h"
 #include "ui/app_list/app_list_model.h"
 #include "ui/app_list/app_list_view_delegate.h"
 #include "ui/app_list/speech_ui_model.h"
@@ -13,6 +14,7 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/path.h"
+#include "ui/gfx/shadow_value.h"
 #include "ui/resources/grit/ui_resources.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/animation/bounds_animator.h"
@@ -28,8 +30,6 @@ namespace app_list {
 
 namespace {
 
-const int kShadowOffset = 1;
-const int kShadowBlur = 4;
 const int kSpeechViewMaxHeight = 300;
 const int kMicButtonMargin = 12;
 const int kTextMargin = 32;
@@ -41,7 +41,6 @@ const int kIndicatorCenterOffsetY = -1;
 const int kIndicatorRadiusMinOffset = -3;
 const int kIndicatorRadiusMax = 100;
 const int kIndicatorAnimationDuration = 100;
-const SkColor kShadowColor = SkColorSetARGB(0.3 * 255, 0, 0, 0);
 const SkColor kHintTextColor = SkColorSetRGB(119, 119, 119);
 const SkColor kResultTextColor = SkColorSetRGB(178, 178, 178);
 const SkColor kSoundLevelIndicatorColor = SkColorSetRGB(219, 219, 219);
@@ -111,10 +110,7 @@ SpeechView::SpeechView(AppListViewDelegate* delegate)
     : delegate_(delegate),
       logo_(NULL) {
   SetBorder(scoped_ptr<views::Border>(
-      new views::ShadowBorder(kShadowBlur,
-                              kShadowColor,
-                              kShadowOffset,  // Vertical offset.
-                              0)));
+      new views::ShadowBorder(GetShadowForZHeight(1))));
 
   // To keep the painting order of the border and the background, this class
   // actually has a single child of 'container' which has white background and
@@ -144,9 +140,9 @@ SpeechView::SpeechView(AppListViewDelegate* delegate)
   ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
   speech_result_ = new views::Label(
       base::string16(), bundle.GetFontList(ui::ResourceBundle::LargeFont));
+  speech_result_->SetMultiLine(true);
   speech_result_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
 
-  speech_result_->SetMultiLine(true);
   container->AddChildView(speech_result_);
 
   AddChildView(container);
@@ -188,7 +184,6 @@ void SpeechView::Layout() {
   mic_button_->SetBoundsRect(gfx::Rect(mic_origin, mic_size));
 
   int speech_width = contents_bounds.width() - kTextMargin * 2;
-  speech_result_->SizeToFit(speech_width);
   int speech_height = speech_result_->GetHeightForWidth(speech_width);
   speech_result_->SetBounds(
       contents_bounds.x() + kTextMargin,
@@ -227,6 +222,7 @@ void SpeechView::OnSpeechResult(const base::string16& result,
                                 bool is_final) {
   speech_result_->SetText(result);
   speech_result_->SetEnabledColor(kResultTextColor);
+  Layout();
 }
 
 void SpeechView::OnSpeechRecognitionStateChanged(

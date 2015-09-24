@@ -13,7 +13,7 @@ import android.widget.PopupWindow;
 import org.chromium.base.CalledByNative;
 import org.chromium.base.JNINamespace;
 import org.chromium.ui.DropdownPopupWindow;
-import org.chromium.ui.base.ViewAndroid;
+import org.chromium.ui.R;
 import org.chromium.ui.base.ViewAndroidDelegate;
 import org.chromium.ui.base.WindowAndroid;
 
@@ -36,9 +36,8 @@ public class PasswordGenerationPopupBridge implements AdapterView.OnItemClickLis
      */
     @CalledByNative
     private static PasswordGenerationPopupBridge create(long nativePopup,
-            WindowAndroid windowAndroid, ViewAndroid viewAndroid) {
-        return new PasswordGenerationPopupBridge(nativePopup, windowAndroid,
-                viewAndroid.getViewAndroidDelegate());
+            WindowAndroid windowAndroid, ViewAndroidDelegate viewAndroidDelegate) {
+        return new PasswordGenerationPopupBridge(nativePopup, windowAndroid, viewAndroidDelegate);
     }
 
     /**
@@ -66,6 +65,9 @@ public class PasswordGenerationPopupBridge implements AdapterView.OnItemClickLis
             mPopup = new DropdownPopupWindow(mContext, containerViewDelegate);
             mPopup.setOnItemClickListener(this);
             mPopup.setOnDismissListener(this);
+            mPopup.disableHideOnOutsideTap();
+            mPopup.setContentDescriptionForAccessibility(
+                    mContext.getString(R.string.password_generation_popup_content_description));
         }
         mAnchorWidth = 0;
     }

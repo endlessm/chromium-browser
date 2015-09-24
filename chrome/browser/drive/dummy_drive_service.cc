@@ -124,6 +124,7 @@ CancelCallback DummyDriveService::UpdateResource(
     const std::string& new_title,
     const base::Time& last_modified,
     const base::Time& last_viewed_by_me,
+    const google_apis::drive::Properties& properties,
     const google_apis::FileResourceCallback& callback) {
   return CancelCallback();
 }
@@ -149,15 +150,19 @@ CancelCallback DummyDriveService::InitiateUploadNewFile(
     int64 content_length,
     const std::string& parent_resource_id,
     const std::string& title,
-    const InitiateUploadNewFileOptions& options,
-    const InitiateUploadCallback& callback) { return CancelCallback(); }
+    const UploadNewFileOptions& options,
+    const InitiateUploadCallback& callback) {
+  return CancelCallback();
+}
 
 CancelCallback DummyDriveService::InitiateUploadExistingFile(
     const std::string& content_type,
     int64 content_length,
     const std::string& resource_id,
-    const InitiateUploadExistingFileOptions& options,
-    const InitiateUploadCallback& callback) { return CancelCallback(); }
+    const UploadExistingFileOptions& options,
+    const InitiateUploadCallback& callback) {
+  return CancelCallback();
+}
 
 CancelCallback DummyDriveService::ResumeUpload(
     const GURL& upload_url,
@@ -174,6 +179,29 @@ CancelCallback DummyDriveService::GetUploadStatus(
     int64 content_length,
     const UploadRangeCallback& callback) { return CancelCallback(); }
 
+CancelCallback DummyDriveService::MultipartUploadNewFile(
+    const std::string& content_type,
+    int64 content_length,
+    const std::string& parent_resource_id,
+    const std::string& title,
+    const base::FilePath& local_file_path,
+    const UploadNewFileOptions& options,
+    const FileResourceCallback& callback,
+    const ProgressCallback& progress_callback) {
+  return CancelCallback();
+}
+
+CancelCallback DummyDriveService::MultipartUploadExistingFile(
+    const std::string& content_type,
+    int64 content_length,
+    const std::string& resource_id,
+    const base::FilePath& local_file_path,
+    const UploadExistingFileOptions& options,
+    const FileResourceCallback& callback,
+    const ProgressCallback& progress_callback) {
+  return CancelCallback();
+}
+
 CancelCallback DummyDriveService::AuthorizeApp(
     const std::string& resource_id,
     const std::string& app_id,
@@ -188,5 +216,9 @@ CancelCallback DummyDriveService::AddPermission(
     const std::string& email,
     google_apis::drive::PermissionRole role,
     const EntryActionCallback& callback) { return CancelCallback(); }
+scoped_ptr<BatchRequestConfiguratorInterface>
+DummyDriveService::StartBatchRequest() {
+  return scoped_ptr<BatchRequestConfiguratorInterface>();
+}
 
 }  // namespace drive

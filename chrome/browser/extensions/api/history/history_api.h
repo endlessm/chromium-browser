@@ -12,11 +12,8 @@
 #include "base/scoped_observer.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "chrome/browser/extensions/chrome_extension_function.h"
-#include "chrome/browser/history/history_notifications.h"
-#include "chrome/browser/history/history_service.h"
 #include "chrome/common/extensions/api/history.h"
 #include "components/history/core/browser/history_service_observer.h"
-#include "content/public/browser/notification_registrar.h"
 #include "extensions/browser/browser_context_keyed_api_factory.h"
 #include "extensions/browser/event_router.h"
 
@@ -24,40 +21,39 @@ namespace base {
 class ListValue;
 }
 
+namespace history {
+class HistoryService;
+}
+
 namespace extensions {
 
 // Observes History service and routes the notifications as events to the
 // extension system.
-class HistoryEventRouter : public content::NotificationObserver,
-                           public history::HistoryServiceObserver {
+class HistoryEventRouter : public history::HistoryServiceObserver {
  public:
-  HistoryEventRouter(Profile* profile, HistoryService* history_service);
+  HistoryEventRouter(Profile* profile,
+                     history::HistoryService* history_service);
   ~HistoryEventRouter() override;
 
  private:
-  // content::NotificationObserver::Observe.
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override;
-
   // history::HistoryServiceObserver.
-  void OnURLVisited(HistoryService* history_service,
+  void OnURLVisited(history::HistoryService* history_service,
                     ui::PageTransition transition,
                     const history::URLRow& row,
                     const history::RedirectList& redirects,
                     base::Time visit_time) override;
-
-  void HistoryUrlsRemoved(Profile* profile,
-                          const history::URLsDeletedDetails* details);
+  void OnURLsDeleted(history::HistoryService* history_service,
+                     bool all_history,
+                     bool expired,
+                     const history::URLRows& deleted_rows,
+                     const std::set<GURL>& favicon_urls) override;
 
   void DispatchEvent(Profile* profile,
                      const std::string& event_name,
                      scoped_ptr<base::ListValue> event_args);
 
-  // Used for tracking registrations to history service notifications.
-  content::NotificationRegistrar registrar_;
   Profile* profile_;
-  ScopedObserver<HistoryService, HistoryServiceObserver>
+  ScopedObserver<history::HistoryService, history::HistoryServiceObserver>
       history_service_observer_;
 
   DISALLOW_COPY_AND_ASSIGN(HistoryEventRouter);

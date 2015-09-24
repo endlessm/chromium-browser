@@ -117,9 +117,9 @@ extern bool gEnableControlledThrow;
 
 bool SkWindow::update(SkIRect* updateArea) {
     if (!fDirtyRgn.isEmpty()) {
+#if defined(SK_BUILD_FOR_WINCE) && defined(USE_GX_SCREEN)
         SkBitmap bm = this->getBitmap();
 
-#if defined(SK_BUILD_FOR_WINCE) && defined(USE_GX_SCREEN)
         char* buffer = (char*)GXBeginDraw();
         SkASSERT(buffer);
 
@@ -134,8 +134,9 @@ bool SkWindow::update(SkIRect* updateArea) {
         SkCanvas* canvas = surface->getCanvas();
 
         canvas->clipRegion(fDirtyRgn);
-        if (updateArea)
+        if (updateArea) {
             *updateArea = fDirtyRgn.getBounds();
+        }
 
         SkAutoCanvasRestore acr(canvas, true);
         canvas->concat(fMatrix);
@@ -341,3 +342,26 @@ bool SkWindow::onDispatchClick(int x, int y, Click::State state,
     }
     return handled;
 }
+
+#if SK_SUPPORT_GPU
+
+#include "gl/GrGLInterface.h"
+#include "gl/GrGLUtil.h"
+#include "SkGr.h"
+
+GrRenderTarget* SkWindow::renderTarget(const AttachmentInfo& attachmentInfo,
+        const GrGLInterface* interface, GrContext* grContext) {
+    GrBackendRenderTargetDesc desc;
+    desc.fWidth = SkScalarRoundToInt(this->width());
+    desc.fHeight = SkScalarRoundToInt(this->height());
+    desc.fConfig = kSkia8888_GrPixelConfig;
+    desc.fOrigin = kBottomLeft_GrSurfaceOrigin;
+    desc.fSampleCnt = attachmentInfo.fSampleCount;
+    desc.fStencilBits = attachmentInfo.fStencilBits;
+    GrGLint buffer;
+    GR_GL_GetIntegerv(interface, GR_GL_FRAMEBUFFER_BINDING, &buffer);
+    desc.fRenderTargetHandle = buffer;
+    return grContext->textureProvider()->wrapBackendRenderTarget(desc);
+}
+
+#endif

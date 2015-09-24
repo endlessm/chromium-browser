@@ -157,6 +157,52 @@ void DistillerImpl::OnPageDistillationFinished(
       page_data->distilled_page_proto->data.set_html(
           distiller_result->distilled_content().html());
     }
+
+    if (distiller_result->has_timing_info()) {
+      const proto::TimingInfo& distiller_timing_info =
+          distiller_result->timing_info();
+      DistilledPageProto::TimingInfo timing_info;
+      if (distiller_timing_info.has_markup_parsing_time()) {
+        timing_info.set_name("markup_parsing");
+        timing_info.set_time(distiller_timing_info.markup_parsing_time());
+        *page_data->distilled_page_proto->data.add_timing_info() = timing_info;
+      }
+
+      if (distiller_timing_info.has_document_construction_time()) {
+        timing_info.set_name("document_construction");
+        timing_info.set_time(
+            distiller_timing_info.document_construction_time());
+        *page_data->distilled_page_proto->data.add_timing_info() = timing_info;
+      }
+
+      if (distiller_timing_info.has_article_processing_time()) {
+        timing_info.set_name("article_processing");
+        timing_info.set_time(
+            distiller_timing_info.article_processing_time());
+        *page_data->distilled_page_proto->data.add_timing_info() = timing_info;
+      }
+
+      if (distiller_timing_info.has_formatting_time()) {
+        timing_info.set_name("formatting");
+        timing_info.set_time(
+            distiller_timing_info.formatting_time());
+        *page_data->distilled_page_proto->data.add_timing_info() = timing_info;
+      }
+
+      if (distiller_timing_info.has_total_time()) {
+        timing_info.set_name("total");
+        timing_info.set_time(
+            distiller_timing_info.total_time());
+        *page_data->distilled_page_proto->data.add_timing_info() = timing_info;
+      }
+
+      for (int i = 0; i < distiller_timing_info.other_times_size(); i++) {
+        timing_info.set_name(distiller_timing_info.other_times(i).name());
+        timing_info.set_time(distiller_timing_info.other_times(i).time());
+        *page_data->distilled_page_proto->data.add_timing_info() = timing_info;
+      }
+    }
+
     if (distiller_result->has_debug_info() &&
         distiller_result->debug_info().has_log()) {
       page_data->distilled_page_proto->data.mutable_debug_info()->set_log(
@@ -171,7 +217,7 @@ void DistillerImpl::OnPageDistillationFinished(
     }
 
     if (distiller_result->has_pagination_info()) {
-      proto::PaginationInfo pagination_info =
+      const proto::PaginationInfo& pagination_info =
           distiller_result->pagination_info();
       if (pagination_info.has_next_page()) {
         GURL next_page_url(pagination_info.next_page());
@@ -203,11 +249,12 @@ void DistillerImpl::OnPageDistillationFinished(
       }
     }
 
-    for (int img_num = 0; img_num < distiller_result->image_urls_size();
+    for (int img_num = 0; img_num < distiller_result->content_images_size();
          ++img_num) {
       std::string image_id =
           base::IntToString(page_num + 1) + "_" + base::IntToString(img_num);
-      FetchImage(page_num, image_id, distiller_result->image_urls(img_num));
+      FetchImage(page_num, image_id,
+          distiller_result->content_images(img_num).url());
     }
 
     AddPageIfDone(page_num);
@@ -220,24 +267,27 @@ void DistillerImpl::OnPageDistillationFinished(
 
 void DistillerImpl::FetchImage(int page_num,
                                const std::string& image_id,
-                               const std::string& item) {
+                               const std::string& image_url) {
+  if (!GURL(image_url).is_valid()) return;
   DCHECK(started_pages_index_.find(page_num) != started_pages_index_.end());
   DistilledPageData* page_data = GetPageAtIndex(started_pages_index_[page_num]);
   DistillerURLFetcher* fetcher =
       distiller_url_fetcher_factory_.CreateDistillerURLFetcher();
   page_data->image_fetchers_.push_back(fetcher);
 
-  fetcher->FetchURL(item,
+  fetcher->FetchURL(image_url,
                     base::Bind(&DistillerImpl::OnFetchImageDone,
                                weak_factory_.GetWeakPtr(),
                                page_num,
                                base::Unretained(fetcher),
-                               image_id));
+                               image_id,
+                               image_url));
 }
 
 void DistillerImpl::OnFetchImageDone(int page_num,
                                      DistillerURLFetcher* url_fetcher,
                                      const std::string& id,
+                                     const std::string& original_url,
                                      const std::string& response) {
   DCHECK(started_pages_index_.find(page_num) != started_pages_index_.end());
   DistilledPageData* page_data = GetPageAtIndex(started_pages_index_[page_num]);
@@ -258,6 +308,7 @@ void DistillerImpl::OnFetchImageDone(int page_num,
       page_data->distilled_page_proto->data.add_image();
   image->set_name(id);
   image->set_data(response);
+  image->set_url(original_url);
 
   AddPageIfDone(page_num);
 }

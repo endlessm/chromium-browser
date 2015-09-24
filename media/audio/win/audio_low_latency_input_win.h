@@ -92,26 +92,23 @@ class MEDIA_EXPORT WASAPIAudioInputStream
 
   // The dtor is typically called by the AudioManager only and it is usually
   // triggered by calling AudioInputStream::Close().
-  virtual ~WASAPIAudioInputStream();
+  ~WASAPIAudioInputStream() override;
 
   // Implementation of AudioInputStream.
-  virtual bool Open() override;
-  virtual void Start(AudioInputCallback* callback) override;
-  virtual void Stop() override;
-  virtual void Close() override;
-  virtual double GetMaxVolume() override;
-  virtual void SetVolume(double volume) override;
-  virtual double GetVolume() override;
-  virtual bool IsMuted() override;
+  bool Open() override;
+  void Start(AudioInputCallback* callback) override;
+  void Stop() override;
+  void Close() override;
+  double GetMaxVolume() override;
+  void SetVolume(double volume) override;
+  double GetVolume() override;
+  bool IsMuted() override;
 
   bool started() const { return started_; }
 
-  // Returns the default hardware audio parameters of the specific device.
-  static AudioParameters GetInputStreamParameters(const std::string& device_id);
-
  private:
   // DelegateSimpleThread::Delegate implementation.
-  virtual void Run() override;
+  void Run() override;
 
   // Issues the OnError() callback to the |sink_|.
   void HandleError(HRESULT err);
@@ -122,14 +119,6 @@ class MEDIA_EXPORT WASAPIAudioInputStream
   HRESULT GetAudioEngineStreamFormat();
   bool DesiredFormatIsSupported();
   HRESULT InitializeAudioEngine();
-
-  // Retrieves the stream format that the audio engine uses for its internal
-  // processing/mixing of shared-mode streams.
-  // |effects| is a an AudioParameters::effects() flag that will have the
-  // DUCKING flag raised for only the default communication device.
-  static HRESULT GetMixFormat(const std::string& device_id,
-                              WAVEFORMATEX** device_format,
-                              int* effects);
 
   // Our creator, the audio manager needs to be notified when we close.
   AudioManagerWin* manager_;

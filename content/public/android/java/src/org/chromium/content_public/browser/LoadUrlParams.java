@@ -4,8 +4,10 @@
 
 package org.chromium.content_public.browser;
 
-import org.chromium.base.CalledByNative;
 import org.chromium.base.JNINamespace;
+import org.chromium.base.annotations.SuppressFBWarnings;
+import org.chromium.content_public.browser.navigation_controller.LoadURLType;
+import org.chromium.content_public.browser.navigation_controller.UserAgentOverrideOption;
 import org.chromium.content_public.common.Referrer;
 import org.chromium.ui.base.PageTransition;
 
@@ -19,20 +21,6 @@ import java.util.Map;
  */
 @JNINamespace("content")
 public class LoadUrlParams {
-    // Should match NavigationController::LoadUrlType exactly. See comments
-    // there for proper usage. initializeConstants() checks that the values
-    // are correct.
-    public static final int LOAD_TYPE_DEFAULT = 0;
-    public static final int LOAD_TYPE_BROWSER_INITIATED_HTTP_POST = 1;
-    public static final int LOAD_TYPE_DATA = 2;
-
-    // Should match NavigationController::UserAgentOverrideOption exactly.
-    // See comments there for proper usage. initializeConstants() checks that
-    // the values are correct.
-    public static final int UA_OVERRIDE_INHERIT = 0;
-    public static final int UA_OVERRIDE_FALSE = 1;
-    public static final int UA_OVERRIDE_TRUE = 2;
-
     // Fields with counterparts in NavigationController::LoadURLParams.
     // Package private so that ContentViewCore.loadUrl can pass them down to
     // native code. Should not be accessed directly anywhere else outside of
@@ -49,6 +37,7 @@ public class LoadUrlParams {
     String mVirtualUrlForDataUrl;
     boolean mCanLoadLocalResources;
     boolean mIsRendererInitiated;
+    long mIntentReceivedTimestamp;
 
     /**
      * Creates an instance with default page transition type.
@@ -69,8 +58,8 @@ public class LoadUrlParams {
 
         // Initialize other fields to defaults matching defaults of the native
         // NavigationController::LoadUrlParams.
-        mLoadUrlType = LOAD_TYPE_DEFAULT;
-        mUaOverrideOption = UA_OVERRIDE_INHERIT;
+        mLoadUrlType = LoadURLType.DEFAULT;
+        mUaOverrideOption = UserAgentOverrideOption.INHERIT;
         mPostData = null;
         mBaseUrlForDataUrl = null;
         mVirtualUrlForDataUrl = null;
@@ -109,7 +98,7 @@ public class LoadUrlParams {
         dataUrl.append(data);
 
         LoadUrlParams params = new LoadUrlParams(dataUrl.toString());
-        params.setLoadType(LoadUrlParams.LOAD_TYPE_DATA);
+        params.setLoadType(LoadURLType.DATA);
         params.setTransitionType(PageTransition.TYPED);
         return params;
     }
@@ -173,7 +162,7 @@ public class LoadUrlParams {
     public static LoadUrlParams createLoadHttpPostParams(
             String url, byte[] postData) {
         LoadUrlParams params = new LoadUrlParams(url);
-        params.setLoadType(LOAD_TYPE_BROWSER_INITIATED_HTTP_POST);
+        params.setLoadType(LoadURLType.BROWSER_INITIATED_HTTP_POST);
         params.setTransitionType(PageTransition.TYPED);
         params.setPostData(postData);
         return params;
@@ -201,7 +190,7 @@ public class LoadUrlParams {
     }
 
     /**
-     * Set load type of this load. Defaults to LOAD_TYPE_DEFAULT.
+     * Set load type of this load. Defaults to LoadURLType.DEFAULT.
      * @param loadType One of LOAD_TYPE static constants above.
      */
     public void setLoadType(int loadType) {
@@ -285,8 +274,7 @@ public class LoadUrlParams {
             headerBuilder.append(":");
             headerBuilder.append(header.getValue());
         }
-        if (addTerminator)
-            headerBuilder.append(delimiter);
+        if (addTerminator) headerBuilder.append(delimiter);
 
         return headerBuilder.toString();
     }
@@ -307,7 +295,7 @@ public class LoadUrlParams {
     }
 
     /**
-     * Set user agent override option of this load. Defaults to UA_OVERRIDE_INHERIT.
+     * Set user agent override option of this load. Defaults to UserAgentOverrideOption.INHERIT.
      * @param uaOption One of UA_OVERRIDE static constants above.
      */
     public void setOverrideUserAgent(int uaOption) {
@@ -315,7 +303,7 @@ public class LoadUrlParams {
     }
 
     /**
-     * Get user agent override option of this load. Defaults to UA_OVERRIDE_INHERIT.
+     * Get user agent override option of this load. Defaults to UserAgentOverrideOption.INHERIT.
      * @param uaOption One of UA_OVERRIDE static constants above.
      */
     public int getUserAgentOverrideOption() {
@@ -324,9 +312,10 @@ public class LoadUrlParams {
 
     /**
      * Set the post data of this load. This field is ignored unless load type is
-     * LOAD_TYPE_BROWSER_INITIATED_HTTP_POST.
+     * LoadURLType.BROWSER_INITIATED_HTTP_POST.
      * @param postData Post data for this http post load.
      */
+    @SuppressFBWarnings("EI_EXPOSE_REP2")
     public void setPostData(byte[] postData) {
         mPostData = postData;
     }
@@ -334,6 +323,7 @@ public class LoadUrlParams {
     /**
      * @return the data to be sent through POST
      */
+    @SuppressFBWarnings("EI_EXPOSE_REP")
     public byte[] getPostData() {
         return mPostData;
     }
@@ -341,7 +331,7 @@ public class LoadUrlParams {
     /**
      * Set the base url for data load. It is used both to resolve relative URLs
      * and when applying JavaScript's same origin policy. It is ignored unless
-     * load type is LOAD_TYPE_DATA.
+     * load type is LoadURLType.DATA.
      * @param baseUrl The base url for this data load.
      */
     public void setBaseUrlForDataUrl(String baseUrl) {
@@ -350,7 +340,7 @@ public class LoadUrlParams {
 
     /**
      * Get the virtual url for data load. It is the url displayed to the user.
-     * It is ignored unless load type is LOAD_TYPE_DATA.
+     * It is ignored unless load type is LoadURLType.DATA.
      * @return The virtual url for this data load.
      */
     public String getVirtualUrlForDataUrl() {
@@ -359,7 +349,7 @@ public class LoadUrlParams {
 
     /**
      * Set the virtual url for data load. It is the url displayed to the user.
-     * It is ignored unless load type is LOAD_TYPE_DATA.
+     * It is ignored unless load type is LoadURLType.DATA.
      * @param virtualUrl The virtual url for this data load.
      */
     public void setVirtualUrlForDataUrl(String virtualUrl) {
@@ -400,30 +390,28 @@ public class LoadUrlParams {
         return mIsRendererInitiated;
     }
 
+    /**
+     * @param intentReceivedTimestamp the timestamp at which Chrome received the intent that
+     *                                triggered this URL load, as returned by System.currentMillis.
+     */
+    public void setIntentReceivedTimestamp(long intentReceivedTimestamp) {
+        mIntentReceivedTimestamp = intentReceivedTimestamp;
+    }
+
+    /**
+     * @return The timestamp at which Chrome received the intent that triggered this URL load.
+     */
+    public long getIntentReceivedTimestamp() {
+        return mIntentReceivedTimestamp;
+    }
+
     public boolean isBaseUrlDataScheme() {
         // If there's no base url set, but this is a data load then
         // treat the scheme as data:.
-        if (mBaseUrlForDataUrl == null && mLoadUrlType == LOAD_TYPE_DATA) {
+        if (mBaseUrlForDataUrl == null && mLoadUrlType == LoadURLType.DATA) {
             return true;
         }
         return nativeIsDataScheme(mBaseUrlForDataUrl);
-    }
-
-    @SuppressWarnings("unused")
-    @CalledByNative
-    private static void initializeConstants(
-            int loadTypeDefault,
-            int loadTypeBrowserInitiatedHttpPost,
-            int loadTypeData,
-            int uaOverrideInherit,
-            int uaOverrideFalse,
-            int uaOverrideTrue) {
-        assert LOAD_TYPE_DEFAULT == loadTypeDefault;
-        assert LOAD_TYPE_BROWSER_INITIATED_HTTP_POST == loadTypeBrowserInitiatedHttpPost;
-        assert LOAD_TYPE_DATA == loadTypeData;
-        assert UA_OVERRIDE_INHERIT == uaOverrideInherit;
-        assert UA_OVERRIDE_FALSE == uaOverrideFalse;
-        assert UA_OVERRIDE_TRUE == uaOverrideTrue;
     }
 
     /**

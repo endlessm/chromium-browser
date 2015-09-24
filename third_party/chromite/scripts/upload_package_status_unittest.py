@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2011 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -16,6 +15,7 @@ from chromite.lib import osutils
 from chromite.lib import table as tablelib
 from chromite.scripts import merge_package_status as mps
 from chromite.scripts import upload_package_status as ups
+
 
 # pylint: disable=W0212,R0904,E1120,E1101
 
@@ -70,43 +70,47 @@ class UploaderTest(cros_test_lib.MoxOutputTestCase):
   SS_COL_LATEST_UP = gdata_lib.PrepColNameForSS(COL_LATEST_UP)
   SS_COL_TARGET = gdata_lib.PrepColNameForSS(COL_TARGET)
 
-  COLS = [COL_PKG,
-          COL_SLOT,
-          COL_OVERLAY,
-          COL_STATUS,
-          COL_VER,
-          COL_STABLE_UP,
-          COL_LATEST_UP,
-          COL_TARGET,
-          ]
+  COLS = [
+      COL_PKG,
+      COL_SLOT,
+      COL_OVERLAY,
+      COL_STATUS,
+      COL_VER,
+      COL_STABLE_UP,
+      COL_LATEST_UP,
+      COL_TARGET,
+  ]
 
-  ROW0 = {COL_PKG: 'lib/foo',
-          COL_SLOT: '0',
-          COL_OVERLAY: 'portage',
-          COL_STATUS: 'needs upgrade',
-          COL_VER: '3.0.2',
-          COL_STABLE_UP: '3.0.9',
-          COL_LATEST_UP: '3.0.11',
-          COL_TARGET: 'virtual/target-os',
-          }
-  ROW1 = {COL_PKG: 'sys-dev/bar',
-          COL_SLOT: '0',
-          COL_OVERLAY: 'chromiumos-overlay',
-          COL_STATUS: 'needs upgrade',
-          COL_VER: '1.2.3-r1',
-          COL_STABLE_UP: '1.2.3-r2',
-          COL_LATEST_UP: '1.2.4',
-          COL_TARGET: 'virtual/target-os-dev',
-          }
-  ROW2 = {COL_PKG: 'sys-dev/raster',
-          COL_SLOT: '1',
-          COL_OVERLAY: 'chromiumos-overlay',
-          COL_STATUS: 'current',
-          COL_VER: '1.2.3',
-          COL_STABLE_UP: '1.2.3',
-          COL_LATEST_UP: '1.2.4',
-          COL_TARGET: 'virtual/target-os-test',
-          }
+  ROW0 = {
+      COL_PKG: 'lib/foo',
+      COL_SLOT: '0',
+      COL_OVERLAY: 'portage',
+      COL_STATUS: 'needs upgrade',
+      COL_VER: '3.0.2',
+      COL_STABLE_UP: '3.0.9',
+      COL_LATEST_UP: '3.0.11',
+      COL_TARGET: 'virtual/target-os',
+  }
+  ROW1 = {
+      COL_PKG: 'sys-dev/bar',
+      COL_SLOT: '0',
+      COL_OVERLAY: 'chromiumos-overlay',
+      COL_STATUS: 'needs upgrade',
+      COL_VER: '1.2.3-r1',
+      COL_STABLE_UP: '1.2.3-r2',
+      COL_LATEST_UP: '1.2.4',
+      COL_TARGET: 'virtual/target-os-dev',
+  }
+  ROW2 = {
+      COL_PKG: 'sys-dev/raster',
+      COL_SLOT: '1',
+      COL_OVERLAY: 'chromiumos-overlay',
+      COL_STATUS: 'current',
+      COL_VER: '1.2.3',
+      COL_STABLE_UP: '1.2.3',
+      COL_LATEST_UP: '1.2.4',
+      COL_TARGET: 'virtual/target-os-test',
+  }
 
   SS_ROW0 = dict([(gdata_lib.PrepColNameForSS(c), v) for c, v in ROW0.items()])
   SS_ROW1 = dict([(gdata_lib.PrepColNameForSS(c), v) for c, v in ROW1.items()])
@@ -219,8 +223,8 @@ class UploaderTest(cros_test_lib.MoxOutputTestCase):
     ws_name = 'Some ws_name'
 
     # Replay script
-    gdata_lib.SpreadsheetComm.__new__(gdata_lib.SpreadsheetComm
-                                      ).AndReturn(mocked_scomm)
+    gdata_lib.SpreadsheetComm.__new__(
+        gdata_lib.SpreadsheetComm).AndReturn(mocked_scomm)
     mocked_scomm.Connect(mocked_uploader._creds, ss_key, ws_name,
                          source='Upload Package Status')
     mocked_scomm.GetRowCacheByCol(self.SS_COL_PKG).AndReturn('RowCache')
@@ -280,7 +284,7 @@ class UploaderTest(cros_test_lib.MoxOutputTestCase):
     # pretend that it has a different value that needs to be changed
     # by an upload.
     row1_pkg = self.ROW1[self.COL_PKG]
-    row1_reverse_delta = { self.SS_COL_VER: '1.2.3' }
+    row1_reverse_delta = {self.SS_COL_VER: '1.2.3'}
     ss_row1 = dict(self.SS_ROW1)
     for col in row1_reverse_delta:
       ss_row1[col] = row1_reverse_delta[col]
@@ -289,17 +293,18 @@ class UploaderTest(cros_test_lib.MoxOutputTestCase):
     # Prepare verfication for row.
     g_col_set1 = set(row1_reverse_delta.keys())
     g_row1 = gdata_lib.PrepRowForSS(self.SS_ROW1)
-    row1_verifier = lambda rdelta : RowVerifier(rdelta, g_col_set1, g_row1)
+    row1_verifier = lambda rdelta: RowVerifier(rdelta, g_col_set1, g_row1)
     mocked_uploader._scomm.UpdateRowCellByCell(3, mox.Func(row1_verifier))
 
     # Third Row.
     # Pretend third row does already exist in online spreadsheet, and
     # pretend that several values need to be changed by an upload.
     row2_pkg = self.ROW2[self.COL_PKG]
-    row2_reverse_delta = { self.SS_COL_STATUS: 'needs upgrade',
-                           self.SS_COL_VER: '0.5',
-                           self.SS_COL_TARGET: 'chromeos-foo',
-                           }
+    row2_reverse_delta = {
+        self.SS_COL_STATUS: 'needs upgrade',
+        self.SS_COL_VER: '0.5',
+        self.SS_COL_TARGET: 'chromeos-foo',
+    }
     ss_row2 = dict(self.SS_ROW2)
     for col in row2_reverse_delta:
       ss_row2[col] = row2_reverse_delta[col]
@@ -308,7 +313,7 @@ class UploaderTest(cros_test_lib.MoxOutputTestCase):
     # Prepare verification for row.
     g_col_set2 = set(row2_reverse_delta.keys())
     g_row2 = gdata_lib.PrepRowForSS(self.SS_ROW2)
-    row2_verifier = lambda rdelta : RowVerifier(rdelta, g_col_set2, g_row2)
+    row2_verifier = lambda rdelta: RowVerifier(rdelta, g_col_set2, g_row2)
     mocked_uploader._scomm.UpdateRowCellByCell(4, mox.Func(row2_verifier))
 
     self.mox.ReplayAll()
@@ -365,20 +370,18 @@ class MainTest(cros_test_lib.MoxOutputTestCase):
     self.AssertOutputEndsInError(check_stdout=True)
 
   def testPrepareCredsEmailPassword(self):
+    """Verify that creating creds w/an e-mail is used over other args."""
     email = 'foo@g.com'
     password = 'shh'
     creds_file = 'bogus'
     token_file = 'boguser'
 
-    mocked_creds = self.mox.CreateMock(gdata_lib.Creds)
-    self.mox.StubOutWithMock(gdata_lib.Creds, '__new__')
+    creds = gdata_lib.Creds()
+    creds.SetCreds(email, password)
 
-    gdata_lib.Creds.__new__(gdata_lib.Creds).AndReturn(mocked_creds)
-    mocked_creds.SetCreds(email, password)
-    self.mox.ReplayAll()
-
-    ups.PrepareCreds(creds_file, token_file, email, password)
-    self.mox.VerifyAll()
+    creds = ups.PrepareCreds(creds_file, token_file, email, password)
+    self.assertEqual(creds.user, email)
+    self.assertEqual(creds.password, password)
 
   def testMainEmailPassword(self):
     """Verify that running main with email/password follows flow."""
@@ -386,7 +389,7 @@ class MainTest(cros_test_lib.MoxOutputTestCase):
     email = 'foo@g.com'
     password = '123'
 
-    mocked_creds = self.mox.CreateMock(gdata_lib.Creds)
+    creds = gdata_lib.Creds()
     creds_file = 'non-existing-file'
 
     self.mox.StubOutWithMock(ups, 'PrepareCreds')
@@ -394,18 +397,19 @@ class MainTest(cros_test_lib.MoxOutputTestCase):
     self.mox.StubOutWithMock(mps, 'FinalizeTable')
     self.mox.StubOutWithMock(ups.Uploader, 'Upload')
 
-    ups.PrepareCreds(creds_file, None, email, password).AndReturn(mocked_creds)
+    ups.PrepareCreds(creds_file, None, email, password).AndReturn(creds)
     ups.LoadTable(csv).AndReturn('csv_table')
     mps.FinalizeTable('csv_table')
     ups.Uploader.Upload(mox.IgnoreArg(), ws_name='Packages')
     ups.Uploader.Upload(mox.IgnoreArg(), ws_name='Dependencies')
-    mocked_creds.StoreCredsIfNeeded(creds_file)
     self.mox.ReplayAll()
 
-    ups.main(['--email=%s' % email,
-              '--password=%s' % password,
-              '--cred-file=%s' % creds_file,
-               csv])
+    ups.main([
+        '--email=%s' % email,
+        '--password=%s' % password,
+        '--cred-file=%s' % creds_file,
+        csv,
+    ])
 
     self.mox.VerifyAll()
 
@@ -416,29 +420,27 @@ class MainTest(cros_test_lib.MoxOutputTestCase):
     creds_file = self.tempfile
     token_file = 'non-existing-file'
 
-    mocked_creds = self.mox.CreateMock(gdata_lib.Creds)
-    mocked_creds.auth_token_loaded = False
+    creds = gdata_lib.Creds()
 
     self.mox.StubOutWithMock(ups, 'PrepareCreds')
     self.mox.StubOutWithMock(ups, 'LoadTable')
     self.mox.StubOutWithMock(mps, 'FinalizeTable')
     self.mox.StubOutWithMock(ups.Uploader, 'Upload')
 
-    ups.PrepareCreds(creds_file, token_file, None, None).AndReturn(mocked_creds)
+    ups.PrepareCreds(creds_file, token_file, None, None).AndReturn(creds)
     ups.LoadTable(csv).AndReturn('csv_table')
     mps.FinalizeTable('csv_table')
     ups.Uploader.Upload(mox.IgnoreArg(), ws_name=ups.PKGS_WS_NAME)
     ups.Uploader.Upload(mox.IgnoreArg(), ws_name=ups.DEPS_WS_NAME)
-    mocked_creds.StoreCredsIfNeeded(creds_file)
-    mocked_creds.StoreAuthTokenIfNeeded(token_file)
     self.mox.ReplayAll()
 
-    ups.main(['--cred-file=%s' % creds_file,
-              '--auth-token-file=%s' % token_file,
-              csv])
+    ups.main([
+        '--cred-file=%s' % creds_file,
+        '--auth-token-file=%s' % token_file,
+        csv,
+    ])
 
     self.mox.VerifyAll()
-
 
   @osutils.TempFileDecorator
   def testMainTokenFile(self):
@@ -447,29 +449,24 @@ class MainTest(cros_test_lib.MoxOutputTestCase):
     token_file = self.tempfile
     creds_file = 'non-existing-file'
 
-    mocked_creds = self.mox.CreateMock(gdata_lib.Creds)
-    mocked_creds.auth_token_loaded = True
+    creds = gdata_lib.Creds()
 
     self.mox.StubOutWithMock(ups, 'PrepareCreds')
     self.mox.StubOutWithMock(ups, 'LoadTable')
     self.mox.StubOutWithMock(mps, 'FinalizeTable')
     self.mox.StubOutWithMock(ups.Uploader, 'Upload')
 
-    ups.PrepareCreds(creds_file, token_file, None, None).AndReturn(mocked_creds)
+    ups.PrepareCreds(creds_file, token_file, None, None).AndReturn(creds)
     ups.LoadTable(csv).AndReturn('csv_table')
     mps.FinalizeTable('csv_table')
     ups.Uploader.Upload(mox.IgnoreArg(), ws_name=ups.PKGS_WS_NAME)
     ups.Uploader.Upload(mox.IgnoreArg(), ws_name=ups.DEPS_WS_NAME)
-    mocked_creds.StoreCredsIfNeeded(creds_file)
-    mocked_creds.StoreAuthTokenIfNeeded(token_file)
     self.mox.ReplayAll()
 
-    ups.main(['--cred-file=%s' % creds_file,
-              '--auth-token-file=%s' % token_file,
-              csv])
+    ups.main([
+        '--cred-file=%s' % creds_file,
+        '--auth-token-file=%s' % token_file,
+        csv,
+    ])
 
     self.mox.VerifyAll()
-
-
-if __name__ == '__main__':
-  cros_test_lib.main()

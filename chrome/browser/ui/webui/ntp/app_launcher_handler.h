@@ -13,12 +13,13 @@
 #include "base/prefs/pref_change_registrar.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "chrome/browser/extensions/extension_uninstall_dialog.h"
-#include "chrome/browser/favicon/favicon_service.h"
 #include "chrome/browser/ui/extensions/extension_enable_flow_delegate.h"
 #include "chrome/common/extensions/extension_constants.h"
+#include "components/favicon/core/favicon_service.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/web_ui_message_handler.h"
+#include "extensions/browser/extension_registry_observer.h"
 #include "extensions/common/extension.h"
 #include "sync/api/string_ordinal.h"
 
@@ -36,7 +37,8 @@ class AppLauncherHandler
     : public content::WebUIMessageHandler,
       public extensions::ExtensionUninstallDialog::Delegate,
       public ExtensionEnableFlowDelegate,
-      public content::NotificationObserver {
+      public content::NotificationObserver,
+      public extensions::ExtensionRegistryObserver {
  public:
   explicit AppLauncherHandler(ExtensionService* extension_service);
   ~AppLauncherHandler() override;
@@ -47,13 +49,24 @@ class AppLauncherHandler
       ExtensionService* service,
       base::DictionaryValue* value);
 
-  // WebUIMessageHandler implementation.
+  // WebUIMessageHandler:
   void RegisterMessages() override;
 
-  // content::NotificationObserver
+  // content::NotificationObserver:
   void Observe(int type,
                const content::NotificationSource& source,
                const content::NotificationDetails& details) override;
+
+  // extensions::ExtensionRegistryObserver:
+  void OnExtensionLoaded(content::BrowserContext* browser_context,
+                         const extensions::Extension* extension) override;
+  void OnExtensionUnloaded(
+      content::BrowserContext* browser_context,
+      const extensions::Extension* extension,
+      extensions::UnloadedExtensionInfo::Reason reason) override;
+  void OnExtensionUninstalled(content::BrowserContext* browser_context,
+                              const extensions::Extension* extension,
+                              extensions::UninstallReason reason) override;
 
   // Populate the given dictionary with all installed app info.
   void FillAppDictionary(base::DictionaryValue* value);
@@ -86,6 +99,9 @@ class AppLauncherHandler
   // Handles the "createAppShortcut" message with |args| containing
   // [extension_id].
   void HandleCreateAppShortcut(const base::ListValue* args);
+
+  // Handles the "showAppInfo" message with |args| containing [extension_id].
+  void HandleShowAppInfo(const base::ListValue* args);
 
   // Handles the "reorderApps" message with |args| containing [dragged_app_id,
   // app_order].
@@ -124,8 +140,8 @@ class AppLauncherHandler
   void PromptToEnableApp(const std::string& extension_id);
 
   // ExtensionUninstallDialog::Delegate:
-  void ExtensionUninstallAccepted() override;
-  void ExtensionUninstallCanceled() override;
+  void OnExtensionUninstallDialogClosed(bool did_start_uninstall,
+                                        const base::string16& error) override;
 
   // ExtensionEnableFlowDelegate:
   void ExtensionEnableFlowFinished() override;
@@ -145,6 +161,12 @@ class AppLauncherHandler
   void OnExtensionPreferenceChanged();
 
   void OnLocalStatePreferenceChanged();
+
+  // Called when an app is removed (unloaded or uninstalled). Updates the UI.
+  void AppRemoved(const extensions::Extension* extension, bool is_uninstall);
+
+  // True if the extension should be displayed.
+  bool ShouldShow(const extensions::Extension* extension) const;
 
   // The apps are represented in the extensions model, which
   // outlives us since it's owned by our containing profile.

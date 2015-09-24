@@ -9,16 +9,31 @@ var remoting = remoting || {};
 
 /** @constructor */
 remoting.HostController = function() {
-  this.hostDaemonFacade_ = this.createDaemonFacade_();
+  /** @type {remoting.HostDaemonFacade} @private */
+  this.hostDaemonFacade_ = new remoting.HostDaemonFacade();
+
+  /** @param {string} version */
+  var printVersion = function(version) {
+    if (version == '') {
+      console.log('Host not installed.');
+    } else {
+      console.log('Host version: ' + version);
+    }
+  };
+
+  this.getLocalHostVersion()
+      .then(printVersion)
+      .catch(function() {
+        console.log('Host version not available.');
+      });
 };
 
-// Note that the values in the enums below are copied from
-// daemon_controller.h and must be kept in sync.
+// The values in the enums below are duplicated in daemon_controller.h except
+// for NOT_INSTALLED.
 /** @enum {number} */
 remoting.HostController.State = {
-  NOT_IMPLEMENTED: -1,
-  NOT_INSTALLED: 0,
-  INSTALLING: 1,
+  NOT_IMPLEMENTED: 0,
+  NOT_INSTALLED: 1,
   STOPPED: 2,
   STARTING: 3,
   STARTED: 4,
@@ -57,30 +72,6 @@ remoting.HostController.AsyncResult.fromString = function(result) {
 }
 
 /**
- * @return {remoting.HostDaemonFacade}
- * @private
- */
-remoting.HostController.prototype.createDaemonFacade_ = function() {
-  /** @type {remoting.HostDaemonFacade} @private */
-  var hostDaemonFacade = new remoting.HostDaemonFacade();
-
-  /** @param {string} version */
-  var printVersion = function(version) {
-    if (version == '') {
-      console.log('Host not installed.');
-    } else {
-      console.log('Host version: ' + version);
-    }
-  };
-
-  hostDaemonFacade.getDaemonVersion(printVersion, function() {
-    console.log('Host version not available.');
-  });
-
-  return hostDaemonFacade;
-};
-
-/**
  * Set of features for which hasFeature() can be used to test.
  *
  * @enum {string}
@@ -91,24 +82,54 @@ remoting.HostController.Feature = {
 };
 
 /**
- * @param {remoting.HostController.Feature} feature The feature to test for.
- * @param {function(boolean):void} callback
- * @return {void}
+ * Information relating to user consent to collect usage stats.  The
+ * fields are:
+ *
+ *   supported: True if crash dump reporting is supported by the host.
+ *
+ *   allowed: True if crash dump reporting is allowed.
+ *
+ *   setByPolicy: True if crash dump reporting is controlled by policy.
+ *
+ * @typedef {{
+ *   supported:boolean,
+ *   allowed:boolean,
+ *   setByPolicy:boolean
+ * }}
  */
-remoting.HostController.prototype.hasFeature = function(feature, callback) {
+remoting.UsageStatsConsent;
+
+/**
+ * @typedef {{
+ *   userEmail:string,
+ *   refreshToken:string
+ * }}
+ */
+remoting.XmppCredentials;
+
+/**
+ * @typedef {{
+ *   privateKey:string,
+ *   publicKey:string
+ * }}
+ */
+remoting.KeyPair;
+
+/**
+ * @param {remoting.HostController.Feature} feature The feature to test for.
+ * @return {!Promise<boolean>} A promise that always resolves.
+ */
+remoting.HostController.prototype.hasFeature = function(feature) {
   // TODO(rmsousa): This could synchronously return a boolean, provided it were
   // only called after native messaging is completely initialized.
-  this.hostDaemonFacade_.hasFeature(feature, callback);
+  return this.hostDaemonFacade_.hasFeature(feature);
 };
 
 /**
- * @param {function(boolean, boolean, boolean):void} onDone Callback to be
- *     called when done.
- * @param {function(remoting.Error):void} onError Callback to be called on
- *     error.
+ * @return {!Promise<remoting.UsageStatsConsent>}
  */
-remoting.HostController.prototype.getConsent = function(onDone, onError) {
-  this.hostDaemonFacade_.getUsageStatsConsent(onDone, onError);
+remoting.HostController.prototype.getConsent = function() {
+  return this.hostDaemonFacade_.getUsageStatsConsent();
 };
 
 /**
@@ -116,247 +137,145 @@ remoting.HostController.prototype.getConsent = function(onDone, onError) {
  *
  * @param {string} hostPin Host PIN.
  * @param {boolean} consent The user's consent to crash dump reporting.
- * @param {function():void} onDone Callback to be called when done.
- * @param {function(remoting.Error):void} onError Callback to be called on
- *     error.
- * @return {void} Nothing.
+ * @return {!Promise<void>} A promise resolved once the host is started.
  */
-remoting.HostController.prototype.start = function(hostPin, consent, onDone,
-                                                   onError) {
+remoting.HostController.prototype.start = function(hostPin, consent) {
   /** @type {remoting.HostController} */
   var that = this;
 
-  /** @return {string} */
-  function generateUuid() {
-    var random = new Uint16Array(8);
-    window.crypto.getRandomValues(random);
-    /** @type {Array.<string>} */
-    var e = new Array();
-    for (var i = 0; i < 8; i++) {
-      e[i] = (/** @type {number} */random[i] + 0x10000).
-          toString(16).substring(1);
-    }
-    return e[0] + e[1] + '-' + e[2] + '-' + e[3] + '-' +
-        e[4] + '-' + e[5] + e[6] + e[7];
-  };
-
-  var newHostId = generateUuid();
-
-  /** @param {remoting.Error} error */
-  function onStartError(error) {
-    // Unregister the host if we failed to start it.
-    remoting.HostList.unregisterHostById(newHostId);
-    onError(error);
-  }
-
-  /**
-   * @param {string} hostName
-   * @param {string} publicKey
-   * @param {remoting.HostController.AsyncResult} result
-   */
-  function onStarted(hostName, publicKey, result) {
-    if (result == remoting.HostController.AsyncResult.OK) {
-      remoting.hostList.onLocalHostStarted(hostName, newHostId, publicKey);
-      onDone();
-    } else if (result == remoting.HostController.AsyncResult.CANCELLED) {
-      onStartError(remoting.Error.CANCELLED);
+  // Start a bunch of requests with no side-effects.
+  var hostNamePromise = this.hostDaemonFacade_.getHostName();
+  var hasOauthPromise =
+      this.hasFeature(remoting.HostController.Feature.OAUTH_CLIENT);
+  var keyPairPromise = this.hostDaemonFacade_.generateKeyPair();
+  var hostClientIdPromise = hasOauthPromise.then(function(hasOauth) {
+    if (hasOauth) {
+      return that.hostDaemonFacade_.getHostClientId();
     } else {
-      onStartError(remoting.Error.UNEXPECTED);
+      return null;
     }
-  }
+  });
+  var hostOwnerPromise = this.getClientBaseJid_();
 
-  /**
-   * @param {string} hostName
-   * @param {string} publicKey
-   * @param {string} privateKey
-   * @param {string} xmppLogin
-   * @param {string} refreshToken
-   * @param {string} clientBaseJid
-   * @param {string} hostSecretHash
-   */
-  function startHostWithHash(hostName, publicKey, privateKey, xmppLogin,
-                             refreshToken, clientBaseJid, hostSecretHash) {
+  // Register the host and extract an auth code from the host response
+  // and, optionally an email address for the robot account.
+  /** @type {!Promise<remoting.HostListApi.RegisterResult>} */
+  var registerResultPromise = Promise.all([
+    hostClientIdPromise,
+    hostNamePromise,
+    keyPairPromise
+  ]).then(function(/** Array */ a) {
+    var hostClientId = /** @type {string} */ (a[0]);
+    var hostName = /** @type {string} */ (a[1]);
+    var keyPair = /** @type {remoting.KeyPair} */ (a[2]);
+
+    return remoting.HostListApi.getInstance().register(
+        hostName, keyPair.publicKey, hostClientId);
+  });
+
+  // For convenience, make the host ID available as a separate promise.
+  /** @type {!Promise<string>} */
+  var hostIdPromise = registerResultPromise.then(function(registerResult) {
+    return registerResult.hostId;
+  });
+
+  // Get the PIN hash based on the host ID.
+  /** @type {!Promise<string>} */
+  var pinHashPromise = hostIdPromise.then(function(hostId) {
+    return that.hostDaemonFacade_.getPinHash(hostId, hostPin);
+  });
+
+  // Get XMPP creditials.
+  var xmppCredsPromise = registerResultPromise.then(function(registerResult) {
+    console.assert(registerResult.authCode != '', '|authCode| is empty.');
+    if (registerResult.email) {
+      // Use auth code and email supplied by GCD.
+      return that.hostDaemonFacade_.getRefreshTokenFromAuthCode(
+          registerResult.authCode).then(function(token) {
+            return {
+              userEmail: registerResult.email,
+              refreshToken: token
+            };
+          });
+    } else {
+      // Use auth code supplied by Chromoting registry.
+      return that.hostDaemonFacade_.getCredentialsFromAuthCode(
+          registerResult.authCode);
+    }
+  });
+
+  // Build the host configuration.
+  /** @type {!Promise<!Object>} */
+  var hostConfigPromise = Promise.all([
+    hostNamePromise,
+    pinHashPromise,
+    xmppCredsPromise,
+    keyPairPromise,
+    hostOwnerPromise,
+    remoting.identity.getEmail(),
+    registerResultPromise
+  ]).then(function(/** Array */ a) {
+    var hostName = /** @type {string} */ (a[0]);
+    var hostSecretHash = /** @type {string} */ (a[1]);
+    var xmppCreds = /** @type {remoting.XmppCredentials} */ (a[2]);
+    var keyPair = /** @type {remoting.KeyPair} */ (a[3]);
+    var hostOwner = /** @type {string} */ (a[4]);
+    var hostOwnerEmail = /** @type {string} */ (a[5]);
+    var registerResult =
+        /** @type {remoting.HostListApi.RegisterResult} */ (a[6]);
     var hostConfig = {
-      xmpp_login: xmppLogin,
-      oauth_refresh_token: refreshToken,
-      host_id: newHostId,
+      xmpp_login: xmppCreds.userEmail,
+      oauth_refresh_token: xmppCreds.refreshToken,
       host_name: hostName,
       host_secret_hash: hostSecretHash,
-      private_key: privateKey
+      private_key: keyPair.privateKey,
+      host_owner: hostOwner
     };
-    var hostOwner = clientBaseJid;
-    var hostOwnerEmail = remoting.identity.getCachedEmail();
-    if (hostOwner != xmppLogin) {
-      hostConfig['host_owner'] = hostOwner;
-      if (hostOwnerEmail != hostOwner) {
-        hostConfig['host_owner_email'] = hostOwnerEmail;
-      }
+    if (hostOwnerEmail != hostOwner) {
+      hostConfig['host_owner_email'] = hostOwnerEmail;
     }
-    that.hostDaemonFacade_.startDaemon(
-        hostConfig, consent, onStarted.bind(null, hostName, publicKey),
-        onStartError);
-  }
+    if (registerResult.isLegacy) {
+      hostConfig['host_id'] = registerResult.hostId;
+    }
+    else {
+      hostConfig['gcd_device_id'] = registerResult.hostId;
+    }
+    return hostConfig;
+  });
 
-  /**
-   * @param {string} hostName
-   * @param {string} publicKey
-   * @param {string} privateKey
-   * @param {string} email
-   * @param {string} refreshToken
-   * @param {string} clientBaseJid
-   */
-  function onClientBaseJid(
-      hostName, publicKey, privateKey, email, refreshToken, clientBaseJid) {
-    that.hostDaemonFacade_.getPinHash(
-        newHostId, hostPin,
-        startHostWithHash.bind(null, hostName, publicKey, privateKey,
-                               email, refreshToken, clientBaseJid),
-        onError);
-  }
+  // Start the daemon.
+  /** @type {!Promise<remoting.HostController.AsyncResult>} */
+  var startDaemonResultPromise =
+      hostConfigPromise.then(function(hostConfig) {
+        return that.hostDaemonFacade_.startDaemon(hostConfig, consent);
+      });
 
-  /**
-   * @param {string} hostName
-   * @param {string} publicKey
-   * @param {string} privateKey
-   * @param {string} email
-   * @param {string} refreshToken
-   */
-  function onServiceAccountCredentials(
-      hostName, publicKey, privateKey, email, refreshToken) {
-    that.getClientBaseJid_(
-        onClientBaseJid.bind(
-            null, hostName, publicKey, privateKey, email, refreshToken),
-        onStartError);
-  }
-
-  /**
-   * @param {string} hostName
-   * @param {string} publicKey
-   * @param {string} privateKey
-   * @param {XMLHttpRequest} xhr
-   */
-  function onRegistered(
-      hostName, publicKey, privateKey, xhr) {
-    var success = (xhr.status == 200);
-
-    if (success) {
-      var result = base.jsonParseSafe(xhr.responseText);
-      if ('data' in result && 'authorizationCode' in result['data']) {
-        that.hostDaemonFacade_.getCredentialsFromAuthCode(
-            result['data']['authorizationCode'],
-            onServiceAccountCredentials.bind(
-                null, hostName, publicKey, privateKey),
-            onError);
+  // Update the UI or report an error.
+  return hostIdPromise.then(function(hostId) {
+    return startDaemonResultPromise.then(function(result) {
+      if (result == remoting.HostController.AsyncResult.OK) {
+        return hostNamePromise.then(function(hostName) {
+          return keyPairPromise.then(function(keyPair) {
+            remoting.hostList.onLocalHostStarted(
+                hostName, hostId, keyPair.publicKey);
+          });
+        });
+      } else if (result == remoting.HostController.AsyncResult.CANCELLED) {
+        throw new remoting.Error(remoting.Error.Tag.CANCELLED);
       } else {
-        // No authorization code returned, use regular user credential flow.
-        that.hostDaemonFacade_.getPinHash(
-            newHostId, hostPin, startHostWithHash.bind(
-                null, hostName, publicKey, privateKey,
-                remoting.identity.getCachedEmail(),
-                remoting.oauth2.getRefreshToken(),
-                remoting.identity.getCachedEmail()),
-          onError);
+        throw remoting.Error.unexpected();
       }
-    } else {
-      console.log('Failed to register the host. Status: ' + xhr.status +
-                  ' response: ' + xhr.responseText);
-      onError(remoting.Error.REGISTRATION_FAILED);
-    }
-  }
-
-  /**
-   * @param {string} hostName
-   * @param {string} privateKey
-   * @param {string} publicKey
-   * @param {string} hostClientId
-   * @param {string} oauthToken
-   */
-  function doRegisterHost(
-      hostName, privateKey, publicKey, hostClientId, oauthToken) {
-    var headers = {
-      'Authorization': 'OAuth ' + oauthToken,
-      'Content-type' : 'application/json; charset=UTF-8'
-    };
-
-    var newHostDetails = { data: {
-       hostId: newHostId,
-       hostName: hostName,
-       publicKey: publicKey
-    } };
-
-    var registerHostUrl =
-        remoting.settings.DIRECTORY_API_BASE_URL + '/@me/hosts';
-
-    if (hostClientId) {
-      registerHostUrl += '?' + remoting.xhr.urlencodeParamHash(
-          { hostClientId: hostClientId });
-    }
-
-    remoting.xhr.post(
-        registerHostUrl,
-        onRegistered.bind(null, hostName, publicKey, privateKey),
-        JSON.stringify(newHostDetails),
-        headers);
-  }
-
-  /**
-   * @param {string} hostName
-   * @param {string} privateKey
-   * @param {string} publicKey
-   * @param {string} hostClientId
-   */
-  function onHostClientId(
-      hostName, privateKey, publicKey, hostClientId) {
-    remoting.identity.callWithToken(
-        doRegisterHost.bind(
-            null, hostName, privateKey, publicKey, hostClientId), onError);
-  }
-
-  /**
-   * @param {string} hostName
-   * @param {string} privateKey
-   * @param {string} publicKey
-   * @param {boolean} hasFeature
-   */
-  function onHasFeatureOAuthClient(
-      hostName, privateKey, publicKey, hasFeature) {
-    if (hasFeature) {
-      that.hostDaemonFacade_.getHostClientId(
-          onHostClientId.bind(null, hostName, privateKey, publicKey), onError);
-    } else {
-      remoting.identity.callWithToken(
-          doRegisterHost.bind(
-              null, hostName, privateKey, publicKey, null), onError);
-    }
-  }
-
-  /**
-   * @param {string} hostName
-   * @param {string} privateKey
-   * @param {string} publicKey
-   */
-  function onKeyGenerated(hostName, privateKey, publicKey) {
-    that.hasFeature(
-        remoting.HostController.Feature.OAUTH_CLIENT,
-        onHasFeatureOAuthClient.bind(null, hostName, privateKey, publicKey));
-  }
-
-  /**
-   * @param {string} hostName
-   * @return {void} Nothing.
-   */
-  function startWithHostname(hostName) {
-    that.hostDaemonFacade_.generateKeyPair(onKeyGenerated.bind(null, hostName),
-                                         onError);
-  }
-
-  this.hostDaemonFacade_.getHostName(startWithHostname, onError);
+    }).catch(function(error) {
+      remoting.hostList.unregisterHostById(hostId);
+      throw error;
+    });
+  });
 };
 
 /**
  * Stop the daemon process.
  * @param {function():void} onDone Callback to be called when done.
- * @param {function(remoting.Error):void} onError Callback to be called on
+ * @param {function(!remoting.Error):void} onError Callback to be called on
  *     error.
  * @return {void} Nothing.
  */
@@ -367,7 +286,8 @@ remoting.HostController.prototype.stop = function(onDone, onError) {
   /** @param {string?} hostId The host id of the local host. */
   function unregisterHost(hostId) {
     if (hostId) {
-      remoting.HostList.unregisterHostById(hostId);
+      remoting.hostList.unregisterHostById(hostId, onDone);
+      return;
     }
     onDone();
   }
@@ -377,13 +297,14 @@ remoting.HostController.prototype.stop = function(onDone, onError) {
     if (result == remoting.HostController.AsyncResult.OK) {
       that.getLocalHostId(unregisterHost);
     } else if (result == remoting.HostController.AsyncResult.CANCELLED) {
-      onError(remoting.Error.CANCELLED);
+      onError(new remoting.Error(remoting.Error.Tag.CANCELLED));
     } else {
-      onError(remoting.Error.UNEXPECTED);
+      onError(remoting.Error.unexpected());
     }
   }
 
-  this.hostDaemonFacade_.stopDaemon(onStopped, onError);
+  this.hostDaemonFacade_.stopDaemon().then(
+      onStopped, remoting.Error.handler(onError));
 };
 
 /**
@@ -400,7 +321,7 @@ function isHostConfigValid_(config) {
 /**
  * @param {string} newPin The new PIN to set
  * @param {function():void} onDone Callback to be called when done.
- * @param {function(remoting.Error):void} onError Callback to be called on
+ * @param {function(!remoting.Error):void} onError Callback to be called on
  *     error.
  * @return {void} Nothing.
  */
@@ -412,11 +333,11 @@ remoting.HostController.prototype.updatePin = function(newPin, onDone,
   /** @param {remoting.HostController.AsyncResult} result */
   function onConfigUpdated(result) {
     if (result == remoting.HostController.AsyncResult.OK) {
-      onDone();
+      that.clearPairedClients(onDone, onError);
     } else if (result == remoting.HostController.AsyncResult.CANCELLED) {
-      onError(remoting.Error.CANCELLED);
+      onError(new remoting.Error(remoting.Error.Tag.CANCELLED));
     } else {
-      onError(remoting.Error.UNEXPECTED);
+      onError(remoting.Error.unexpected());
     }
   }
 
@@ -425,25 +346,26 @@ remoting.HostController.prototype.updatePin = function(newPin, onDone,
     var newConfig = {
       host_secret_hash: pinHash
     };
-    that.hostDaemonFacade_.updateDaemonConfig(newConfig, onConfigUpdated,
-                                            onError);
+    that.hostDaemonFacade_.updateDaemonConfig(newConfig).then(
+        onConfigUpdated, remoting.Error.handler(onError));
   }
 
   /** @param {Object} config */
   function onConfig(config) {
     if (!isHostConfigValid_(config)) {
-      onError(remoting.Error.UNEXPECTED);
+      onError(remoting.Error.unexpected());
       return;
     }
     /** @type {string} */
     var hostId = config['host_id'];
-    that.hostDaemonFacade_.getPinHash(
-        hostId, newPin, updateDaemonConfigWithHash, onError);
+    that.hostDaemonFacade_.getPinHash(hostId, newPin).then(
+        updateDaemonConfigWithHash, remoting.Error.handler(onError));
   }
 
   // TODO(sergeyu): When crbug.com/121518 is fixed: replace this call
   // with an unprivileged version if that is necessary.
-  this.hostDaemonFacade_.getDaemonConfig(onConfig, onError);
+  this.hostDaemonFacade_.getDaemonConfig().then(
+      onConfig, remoting.Error.handler(onError));
 };
 
 /**
@@ -453,13 +375,14 @@ remoting.HostController.prototype.updatePin = function(newPin, onDone,
  *     callback.
  */
 remoting.HostController.prototype.getLocalHostState = function(onDone) {
-  /** @param {remoting.Error} error */
+  /** @param {!remoting.Error} error */
   function onError(error) {
-    onDone((error == remoting.Error.MISSING_PLUGIN) ?
+    onDone((error.hasTag(remoting.Error.Tag.MISSING_PLUGIN)) ?
                remoting.HostController.State.NOT_INSTALLED :
                remoting.HostController.State.UNKNOWN);
   }
-  this.hostDaemonFacade_.getDaemonState(onDone, onError);
+  this.hostDaemonFacade_.getDaemonState().then(
+      onDone, remoting.Error.handler(onError));
 };
 
 /**
@@ -474,26 +397,38 @@ remoting.HostController.prototype.getLocalHostId = function(onDone) {
   function onConfig(config) {
     var hostId = null;
     if (isHostConfigValid_(config)) {
-      hostId = /** @type {string} */ config['host_id'];
+      // Use the |gcd_device_id| field if it exists, or the |host_id|
+      // field otherwise.
+      hostId = base.getStringAttr(
+          config, 'gcd_device_id', base.getStringAttr(config, 'host_id'));
     }
     onDone(hostId);
   };
 
-  this.hostDaemonFacade_.getDaemonConfig(onConfig, function(error) {
+  this.hostDaemonFacade_.getDaemonConfig().then(onConfig, function(error) {
     onDone(null);
   });
 };
 
 /**
+ * @return {Promise<string>} Promise that resolves with the host version, if
+ *     installed, or rejects otherwise.
+ */
+remoting.HostController.prototype.getLocalHostVersion = function() {
+  return this.hostDaemonFacade_.getDaemonVersion();
+};
+
+/**
  * Fetch the list of paired clients for this host.
  *
- * @param {function(Array.<remoting.PairedClient>):void} onDone
- * @param {function(remoting.Error):void} onError
+ * @param {function(Array<remoting.PairedClient>):void} onDone
+ * @param {function(!remoting.Error):void} onError
  * @return {void}
  */
 remoting.HostController.prototype.getPairedClients = function(onDone,
                                                               onError) {
-  this.hostDaemonFacade_.getPairedClients(onDone, onError);
+  this.hostDaemonFacade_.getPairedClients().then(
+      onDone, remoting.Error.handler(onError));
 };
 
 /**
@@ -501,24 +436,26 @@ remoting.HostController.prototype.getPairedClients = function(onDone,
  *
  * @param {string} client The client id of the pairing to delete.
  * @param {function():void} onDone Completion callback.
- * @param {function(remoting.Error):void} onError Error callback.
+ * @param {function(!remoting.Error):void} onError Error callback.
  * @return {void}
  */
 remoting.HostController.prototype.deletePairedClient = function(
     client, onDone, onError) {
-  this.hostDaemonFacade_.deletePairedClient(client, onDone, onError);
+  this.hostDaemonFacade_.deletePairedClient(client).then(
+      onDone, remoting.Error.handler(onError));
 };
 
 /**
  * Delete all paired clients.
  *
  * @param {function():void} onDone Completion callback.
- * @param {function(remoting.Error):void} onError Error callback.
+ * @param {function(!remoting.Error):void} onError Error callback.
  * @return {void}
  */
 remoting.HostController.prototype.clearPairedClients = function(
     onDone, onError) {
-  this.hostDaemonFacade_.clearPairedClients(onDone, onError);
+  this.hostDaemonFacade_.clearPairedClients().then(
+      onDone, remoting.Error.handler(onError));
 };
 
 /**
@@ -527,51 +464,45 @@ remoting.HostController.prototype.clearPairedClients = function(
  * non-Gmail accounts, it may be different.
  *
  * @private
- * @param {function(string): void} onSuccess
- * @param {function(remoting.Error): void} onError
+ * @return {!Promise<string>}
  */
-remoting.HostController.prototype.getClientBaseJid_ = function(
-    onSuccess, onError) {
+remoting.HostController.prototype.getClientBaseJid_ = function() {
   /** @type {remoting.SignalStrategy} */
   var signalStrategy = null;
 
-  /** @param {remoting.SignalStrategy.State} state */
-  var onState = function(state) {
-    switch (state) {
-      case remoting.SignalStrategy.State.CONNECTED:
+  var result = new Promise(function(resolve, reject) {
+    /** @param {remoting.SignalStrategy.State} state */
+    var onState = function(state) {
+      switch (state) {
+        case remoting.SignalStrategy.State.CONNECTED:
         var jid = signalStrategy.getJid().split('/')[0].toLowerCase();
         base.dispose(signalStrategy);
         signalStrategy = null;
-        onSuccess(jid);
+        resolve(jid);
         break;
 
-      case remoting.SignalStrategy.State.FAILED:
+        case remoting.SignalStrategy.State.FAILED:
         var error = signalStrategy.getError();
         base.dispose(signalStrategy);
         signalStrategy = null;
-        onError(error);
+        reject(error);
         break;
-    }
-  };
+      }
+    };
 
-  signalStrategy = remoting.SignalStrategy.create(onState);
+    signalStrategy = remoting.SignalStrategy.create();
+    signalStrategy.setStateChangedCallback(onState);
+  });
 
-  /** @param {string} token */
-  function connectSignalingWithToken(token) {
-    remoting.identity.getEmail(
-        connectSignalingWithTokenAndEmail.bind(null, token), onError);
-  }
+  var tokenPromise = remoting.identity.getToken();
+  var emailPromise = remoting.identity.getEmail();
+  tokenPromise.then(function(/** string */ token) {
+    emailPromise.then(function(/** string */ email) {
+      signalStrategy.connect(remoting.settings.XMPP_SERVER, email, token);
+    });
+  });
 
-  /**
-   * @param {string} token
-   * @param {string} email
-   */
-  function connectSignalingWithTokenAndEmail(token, email) {
-    signalStrategy.connect(
-        remoting.settings.XMPP_SERVER_ADDRESS, email, token);
-  }
-
-  remoting.identity.callWithToken(connectSignalingWithToken, onError);
+  return result;
 };
 
 /** @type {remoting.HostController} */

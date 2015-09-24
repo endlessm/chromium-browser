@@ -23,7 +23,7 @@
 #include "content/public/common/referrer.h"
 #include "jni/WebContentsDelegateAndroid_jni.h"
 #include "ui/base/window_open_disposition.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
 
 using base::android::AttachCurrentThread;
@@ -139,7 +139,7 @@ WebContents* WebContentsDelegateAndroid::OpenURLFromTab(
 }
 
 void WebContentsDelegateAndroid::NavigationStateChanged(
-    const WebContents* source, content::InvalidateTypes changed_flags) {
+    WebContents* source, content::InvalidateTypes changed_flags) {
   JNIEnv* env = AttachCurrentThread();
   ScopedJavaLocalRef<jobject> obj = GetJavaDelegate(env);
   if (obj.is_null())
@@ -216,20 +216,12 @@ void WebContentsDelegateAndroid::RendererResponsive(WebContents* source) {
   Java_WebContentsDelegateAndroid_rendererResponsive(env, obj.obj());
 }
 
-void WebContentsDelegateAndroid::DidNavigateToPendingEntry(
-    WebContents* source) {
-  JNIEnv* env = AttachCurrentThread();
-  ScopedJavaLocalRef<jobject> obj = GetJavaDelegate(env);
-  if (obj.is_null())
-    return;
-  Java_WebContentsDelegateAndroid_didNavigateToPendingEntry(env, obj.obj());
-}
-
 bool WebContentsDelegateAndroid::ShouldCreateWebContents(
     WebContents* web_contents,
     int route_id,
+    int main_frame_route_id,
     WindowContainerType window_container_type,
-    const base::string16& frame_name,
+    const std::string& frame_name,
     const GURL& target_url,
     const std::string& partition_id,
     content::SessionStorageNamespace* session_storage_namespace) {
@@ -254,18 +246,28 @@ bool WebContentsDelegateAndroid::OnGoToEntryOffset(int offset) {
 
 void WebContentsDelegateAndroid::WebContentsCreated(
     WebContents* source_contents, int opener_render_frame_id,
-    const base::string16& frame_name, const GURL& target_url,
+    const std::string& frame_name, const GURL& target_url,
     WebContents* new_contents) {
   JNIEnv* env = AttachCurrentThread();
   ScopedJavaLocalRef<jobject> obj = GetJavaDelegate(env);
   if (obj.is_null())
     return;
-  Java_WebContentsDelegateAndroid_webContentsCreated(env, obj.obj(),
-      reinterpret_cast<intptr_t>(source_contents),
+
+  ScopedJavaLocalRef<jobject> jsource_contents;
+  if (source_contents)
+    jsource_contents = source_contents->GetJavaWebContents();
+  ScopedJavaLocalRef<jobject> jnew_contents;
+  if (new_contents)
+    jnew_contents = new_contents->GetJavaWebContents();
+
+  Java_WebContentsDelegateAndroid_webContentsCreated(
+      env,
+      obj.obj(),
+      jsource_contents.obj(),
       opener_render_frame_id,
-      base::android::ConvertUTF16ToJavaString(env, frame_name).Release(),
+      base::android::ConvertUTF8ToJavaString(env, frame_name).Release(),
       base::android::ConvertUTF8ToJavaString(env, target_url.spec()).Release(),
-      reinterpret_cast<intptr_t>(new_contents));
+      jnew_contents.obj());
 }
 
 void WebContentsDelegateAndroid::CloseContents(WebContents* source) {
@@ -373,15 +375,25 @@ void WebContentsDelegateAndroid::ShowRepostFormWarningDialog(
   Java_WebContentsDelegateAndroid_showRepostFormWarningDialog(env, obj.obj());
 }
 
-void WebContentsDelegateAndroid::ToggleFullscreenModeForTab(
+void WebContentsDelegateAndroid::EnterFullscreenModeForTab(
     WebContents* web_contents,
-    bool enter_fullscreen) {
+    const GURL& origin) {
   JNIEnv* env = AttachCurrentThread();
   ScopedJavaLocalRef<jobject> obj = GetJavaDelegate(env);
   if (obj.is_null())
     return;
-  Java_WebContentsDelegateAndroid_toggleFullscreenModeForTab(
-      env, obj.obj(), enter_fullscreen);
+  Java_WebContentsDelegateAndroid_toggleFullscreenModeForTab(env, obj.obj(),
+                                                             true);
+}
+
+void WebContentsDelegateAndroid::ExitFullscreenModeForTab(
+    WebContents* web_contents) {
+  JNIEnv* env = AttachCurrentThread();
+  ScopedJavaLocalRef<jobject> obj = GetJavaDelegate(env);
+  if (obj.is_null())
+    return;
+  Java_WebContentsDelegateAndroid_toggleFullscreenModeForTab(env, obj.obj(),
+                                                             false);
 }
 
 bool WebContentsDelegateAndroid::IsFullscreenForTabOrPending(

@@ -45,6 +45,12 @@ class InfoBarService : public infobars::InfoBarManager,
   // changes.
   void set_ignore_next_reload() { ignore_next_reload_ = true; }
 
+  // InfoBarManager:
+  // TODO(sdefresne): Change clients to invoke this on infobars::InfoBarManager
+  // and turn the method override private.
+  scoped_ptr<infobars::InfoBar> CreateConfirmInfoBar(
+      scoped_ptr<ConfirmInfoBarDelegate> delegate) override;
+
  private:
   friend class content::WebContentsUserData<InfoBarService>;
 
@@ -70,7 +76,6 @@ class InfoBarService : public infobars::InfoBarManager,
 
   // Message handlers.
   void OnDidBlockDisplayingInsecureContent();
-  void OnDidBlockRunningInsecureContent();
 
   // See description in set_ignore_next_reload().
   bool ignore_next_reload_;

@@ -14,7 +14,7 @@
 #include "media/audio/audio_input_ipc.h"
 
 namespace base {
-class MessageLoopProxy;
+class SingleThreadTaskRunner;
 }
 
 namespace content {
@@ -26,25 +26,25 @@ namespace content {
 class CONTENT_EXPORT AudioInputMessageFilter : public IPC::MessageFilter {
  public:
   explicit AudioInputMessageFilter(
-      const scoped_refptr<base::MessageLoopProxy>& io_message_loop);
+      scoped_refptr<base::SingleThreadTaskRunner> io_task_runner);
 
   // Getter for the one AudioInputMessageFilter object.
   static AudioInputMessageFilter* Get();
 
-  // Create an AudioInputIPC to be owned by one delegate.  |render_view_id| is
-  // the render view containing the entity consuming the audio.
+  // Create an AudioInputIPC to be owned by one delegate.  |render_frame_id|
+  // refers to the RenderFrame containing the entity consuming the audio.
   //
   // The returned object is not thread-safe, and must be used on
-  // |io_message_loop|.
-  scoped_ptr<media::AudioInputIPC> CreateAudioInputIPC(int render_view_id);
+  // |io_task_runner|.
+  scoped_ptr<media::AudioInputIPC> CreateAudioInputIPC(int render_frame_id);
 
-  scoped_refptr<base::MessageLoopProxy> io_message_loop() const {
-    return io_message_loop_;
+  scoped_refptr<base::SingleThreadTaskRunner> io_task_runner() const {
+    return io_task_runner_;
   }
 
  private:
   // Implementation of media::AudioInputIPC which augments IPC calls with
-  // stream_id and the destination render_view_id.
+  // stream_id and the destination render_frame_id.
   class AudioInputIPCImpl;
 
   ~AudioInputMessageFilter() override;
@@ -52,7 +52,7 @@ class CONTENT_EXPORT AudioInputMessageFilter : public IPC::MessageFilter {
   // Sends an IPC message using |channel_|.
   void Send(IPC::Message* message);
 
-  // IPC::MessageFilter override. Called on |io_message_loop_|.
+  // IPC::MessageFilter override. Called on |io_task_runner_|.
   bool OnMessageReceived(const IPC::Message& message) override;
   void OnFilterAdded(IPC::Sender* sender) override;
   void OnFilterRemoved() override;
@@ -75,16 +75,16 @@ class CONTENT_EXPORT AudioInputMessageFilter : public IPC::MessageFilter {
   // Received when internal state of browser process' audio input stream has
   // changed.
   void OnStreamStateChanged(int stream_id,
-                            media::AudioInputIPCDelegate::State state);
+                            media::AudioInputIPCDelegateState state);
 
   // A map of stream ids to delegates.
   IDMap<media::AudioInputIPCDelegate> delegates_;
 
-  // IPC sender for Send(), must only be accesed on |io_message_loop_|.
+  // IPC sender for Send(), must only be accesed on |io_task_runner_|.
   IPC::Sender* sender_;
 
-  // Message loop on which IPC calls are driven.
-  const scoped_refptr<base::MessageLoopProxy> io_message_loop_;
+  // Task runner on which IPC calls are executed.
+  const scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
 
   // The singleton instance for this filter.
   static AudioInputMessageFilter* g_filter;

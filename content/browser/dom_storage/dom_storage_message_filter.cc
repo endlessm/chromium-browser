@@ -9,6 +9,7 @@
 #include "base/strings/nullable_string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/sequenced_worker_pool.h"
+#include "content/browser/bad_message.h"
 #include "content/browser/dom_storage/dom_storage_area.h"
 #include "content/browser/dom_storage/dom_storage_context_wrapper.h"
 #include "content/browser/dom_storage/dom_storage_host.h"
@@ -21,10 +22,8 @@
 namespace content {
 
 DOMStorageMessageFilter::DOMStorageMessageFilter(
-    int render_process_id,
     DOMStorageContextWrapper* context)
     : BrowserMessageFilter(DOMStorageMsgStart),
-      render_process_id_(render_process_id),
       context_(context->context()),
       connection_dispatching_message_for_(0) {
 }
@@ -35,7 +34,7 @@ DOMStorageMessageFilter::~DOMStorageMessageFilter() {
 
 void DOMStorageMessageFilter::InitializeInSequence() {
   DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::IO));
-  host_.reset(new DOMStorageHost(context_.get(), render_process_id_));
+  host_.reset(new DOMStorageHost(context_.get()));
   context_->AddEventObserver(this);
 }
 
@@ -80,7 +79,6 @@ bool DOMStorageMessageFilter::OnMessageReceived(const IPC::Message& message) {
     IPC_MESSAGE_HANDLER(DOMStorageHostMsg_CloseStorageArea, OnCloseStorageArea)
     IPC_MESSAGE_HANDLER(DOMStorageHostMsg_LoadStorageArea, OnLoadStorageArea)
     IPC_MESSAGE_HANDLER(DOMStorageHostMsg_SetItem, OnSetItem)
-    IPC_MESSAGE_HANDLER(DOMStorageHostMsg_LogGetItem, OnLogGetItem)
     IPC_MESSAGE_HANDLER(DOMStorageHostMsg_RemoveItem, OnRemoveItem)
     IPC_MESSAGE_HANDLER(DOMStorageHostMsg_Clear, OnClear)
     IPC_MESSAGE_HANDLER(DOMStorageHostMsg_FlushMessages, OnFlushMessages)
@@ -94,8 +92,8 @@ void DOMStorageMessageFilter::OnOpenStorageArea(int connection_id,
                                                 const GURL& origin) {
   DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::IO));
   if (!host_->OpenStorageArea(connection_id, namespace_id, origin)) {
-    RecordAction(base::UserMetricsAction("BadMessageTerminate_DSMF_1"));
-    BadMessageReceived();
+    bad_message::ReceivedBadMessage(this, bad_message::DSMF_OPEN_STORAGE);
+    return;
   }
 }
 
@@ -105,12 +103,11 @@ void DOMStorageMessageFilter::OnCloseStorageArea(int connection_id) {
 }
 
 void DOMStorageMessageFilter::OnLoadStorageArea(int connection_id,
-                                                DOMStorageValuesMap* map,
-                                                bool* send_log_get_messages) {
+                                                DOMStorageValuesMap* map) {
   DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::IO));
-  if (!host_->ExtractAreaValues(connection_id, map, send_log_get_messages)) {
-    RecordAction(base::UserMetricsAction("BadMessageTerminate_DSMF_2"));
-    BadMessageReceived();
+  if (!host_->ExtractAreaValues(connection_id, map)) {
+    bad_message::ReceivedBadMessage(this, bad_message::DSMF_LOAD_STORAGE);
+    return;
   }
   Send(new DOMStorageMsg_AsyncOperationComplete(true));
 }
@@ -126,13 +123,6 @@ void DOMStorageMessageFilter::OnSetItem(
   bool success = host_->SetAreaItem(connection_id, key, value,
                                     page_url, &not_used);
   Send(new DOMStorageMsg_AsyncOperationComplete(success));
-}
-
-void DOMStorageMessageFilter::OnLogGetItem(
-    int connection_id, const base::string16& key,
-    const base::NullableString16& value) {
-  DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::IO));
-  host_->LogGetAreaItem(connection_id, key, value);
 }
 
 void DOMStorageMessageFilter::OnRemoveItem(
@@ -193,11 +183,6 @@ void DOMStorageMessageFilter::OnDOMStorageAreaCleared(
                       base::NullableString16());
 }
 
-void DOMStorageMessageFilter::OnDOMSessionStorageReset(int64 namespace_id) {
-  if (host_->ResetOpenAreasForNamespace(namespace_id))
-    Send(new DOMStorageMsg_ResetCachedValues(namespace_id));
-}
-
 void DOMStorageMessageFilter::SendDOMStorageEvent(
     const DOMStorageArea* area,
     const GURL& page_url,
@@ -207,10 +192,8 @@ void DOMStorageMessageFilter::SendDOMStorageEvent(
   DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::IO));
   // Only send mutation events to processes which have the area open.
   bool originated_in_process = connection_dispatching_message_for_ != 0;
-  int64 alias_namespace_id = area->namespace_id();
-  if (host_->HasAreaOpen(area->namespace_id(), area->origin(),
-                         &alias_namespace_id) ||
-      originated_in_process) {
+  if (originated_in_process ||
+      host_->HasAreaOpen(area->namespace_id(), area->origin())) {
     DOMStorageMsg_Event_Params params;
     params.origin = area->origin();
     params.page_url = page_url;
@@ -218,7 +201,7 @@ void DOMStorageMessageFilter::SendDOMStorageEvent(
     params.key = key;
     params.new_value = new_value;
     params.old_value = old_value;
-    params.namespace_id = alias_namespace_id;
+    params.namespace_id = area->namespace_id();
     Send(new DOMStorageMsg_Event(params));
   }
 }

@@ -23,6 +23,8 @@ bool SignedCertificateTimestamp::LessThan::operator()(
     return lhs->timestamp < rhs->timestamp;
   if (lhs->extensions != rhs->extensions)
     return lhs->extensions < rhs->extensions;
+  if (lhs->origin != rhs->origin)
+    return lhs->origin < rhs->origin;
   return lhs->version < rhs->version;
 }
 
@@ -30,7 +32,7 @@ SignedCertificateTimestamp::SignedCertificateTimestamp() {}
 
 SignedCertificateTimestamp::~SignedCertificateTimestamp() {}
 
-void SignedCertificateTimestamp::Persist(Pickle* pickle) {
+void SignedCertificateTimestamp::Persist(base::Pickle* pickle) {
   CHECK(pickle->WriteInt(version));
   CHECK(pickle->WriteString(log_id));
   CHECK(pickle->WriteInt64(timestamp.ToInternalValue()));
@@ -44,9 +46,9 @@ void SignedCertificateTimestamp::Persist(Pickle* pickle) {
 
 // static
 scoped_refptr<SignedCertificateTimestamp>
-SignedCertificateTimestamp::CreateFromPickle(PickleIterator* iter) {
+SignedCertificateTimestamp::CreateFromPickle(base::PickleIterator* iter) {
   int version;
-  int64 timestamp;
+  int64_t timestamp;
   int hash_algorithm;
   int sig_algorithm;
   scoped_refptr<SignedCertificateTimestamp> sct(

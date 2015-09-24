@@ -8,9 +8,9 @@
 #include <string>
 
 #include "base/callback.h"
-#include "base/debug/trace_event_argument.h"
 #include "base/location.h"
 #include "base/time/time.h"
+#include "base/trace_event/trace_event_argument.h"
 
 namespace base {
 
@@ -57,8 +57,8 @@ struct TestPendingTask {
 
   // Functions for using test pending task with tracing, useful in unit
   // testing.
-  void AsValueInto(base::debug::TracedValue* state) const;
-  scoped_refptr<base::debug::ConvertableToTraceFormat> AsValue() const;
+  void AsValueInto(base::trace_event::TracedValue* state) const;
+  scoped_refptr<base::trace_event::ConvertableToTraceFormat> AsValue() const;
   std::string ToString() const;
 };
 

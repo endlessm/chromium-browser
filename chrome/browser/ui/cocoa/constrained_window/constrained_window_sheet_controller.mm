@@ -9,7 +9,7 @@
 #include "base/logging.h"
 #import "chrome/browser/ui/cocoa/constrained_window/constrained_window_sheet.h"
 #include "chrome/browser/ui/cocoa/constrained_window/constrained_window_sheet_info.h"
-#import "chrome/browser/ui/cocoa/tabs/tab_strip_controller.h"
+#import "chrome/browser/ui/cocoa/web_contents_modal_dialog_host_cocoa.h"
 
 namespace {
 
@@ -19,6 +19,19 @@ NSMutableDictionary* g_sheetControllers;
 // Get a value for the given window that can be used as a key in a dictionary.
 NSValue* GetKeyForParentWindow(NSWindow* parent_window) {
   return [NSValue valueWithNonretainedObject:parent_window];
+}
+
+// Returns the bounds to use when showing a sheet for a given parent view. This
+// returns a rect in window coordinates.
+NSRect GetSheetParentBoundsForParentView(NSView* view) {
+  // If the devtools view is open, it shrinks the size of the WebContents, so go
+  // up the hierarchy to the devtools container view to avoid that. Note that
+  // the devtools view is always in the hierarchy even if it is not open or it
+  // is detached.
+  NSView* devtools_view = [[[view superview] superview] superview];
+  if (devtools_view)
+    view = devtools_view;
+  return [view convertRect:[view bounds] toView:nil];
 }
 
 }  // namespace
@@ -124,6 +137,16 @@ NSValue* GetKeyForParentWindow(NSWindow* parent_window) {
   return self;
 }
 
+- (web_modal::WebContentsModalDialogHost*)dialogHost {
+  if (!dialogHost_)
+    dialogHost_.reset(new WebContentsModalDialogHostCocoa(self));
+  return dialogHost_.get();
+}
+
+- (NSWindow*)parentWindow {
+  return parentWindow_.get();
+}
+
 - (void)showSheet:(id<ConstrainedWindowSheet>)sheet
     forParentView:(NSView*)parentView {
   DCHECK(sheet);
@@ -192,6 +215,10 @@ NSValue* GetKeyForParentWindow(NSWindow* parent_window) {
   return [sheets_ count];
 }
 
+- (NSSize)overlayWindowSizeForParentView:(NSView*)parentView {
+  return [self overlayWindowFrameForParentView:parentView].size;
+}
+
 - (ConstrainedWindowSheetInfo*)findSheetInfoForParentView:(NSView*)parentView {
   for (ConstrainedWindowSheetInfo* info in sheets_.get()) {
     if ([parentView isEqual:[info parentView]])
@@ -219,6 +246,8 @@ NSValue* GetKeyForParentWindow(NSWindow* parent_window) {
   NSArray* sheets = [NSArray arrayWithArray:sheets_];
   for (ConstrainedWindowSheetInfo* info in sheets)
     [self closeSheet:info withAnimation:NO];
+
+  dialogHost_.reset();
 
   // Delete this instance.
   [g_sheetControllers removeObjectForKey:GetKeyForParentWindow(parentWindow_)];

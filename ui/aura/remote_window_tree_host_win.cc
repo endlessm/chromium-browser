@@ -11,7 +11,6 @@
 #include "base/message_loop/message_loop.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_sender.h"
-#include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/cursor_client.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/aura/window_property.h"
@@ -23,7 +22,7 @@
 #include "ui/base/view_prop.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/keycodes/keyboard_code_conversion_win.h"
-#include "ui/gfx/insets.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/win/dpi.h"
 #include "ui/metro_viewer/metro_viewer_messages.h"
 
@@ -205,14 +204,14 @@ gfx::AcceleratedWidget RemoteWindowTreeHostWin::GetAcceleratedWidget() {
   return ::GetDesktopWindow();
 }
 
-void RemoteWindowTreeHostWin::Show() {
+void RemoteWindowTreeHostWin::ShowImpl() {
   ui::RemoteInputMethodPrivateWin* remote_input_method_private =
       GetRemoteInputMethodPrivate();
   if (remote_input_method_private)
     remote_input_method_private->SetRemoteDelegate(this);
 }
 
-void RemoteWindowTreeHostWin::Hide() {
+void RemoteWindowTreeHostWin::HideImpl() {
   NOTIMPLEMENTED();
 }
 
@@ -271,10 +270,6 @@ void RemoteWindowTreeHostWin::OnCursorVisibilityChangedNative(bool show) {
   NOTIMPLEMENTED();
 }
 
-ui::EventProcessor* RemoteWindowTreeHostWin::GetEventProcessor() {
-  return dispatcher();
-}
-
 void RemoteWindowTreeHostWin::CancelComposition() {
   if (!host_)
     return;
@@ -311,16 +306,17 @@ void RemoteWindowTreeHostWin::OnMouseMoved(int32 x, int32 y, int32 flags) {
     return;
 
   gfx::Point location = PointFromNativeEvent(x, y);
-  ui::MouseEvent event(ui::ET_MOUSE_MOVED, location, location, flags, 0);
+  ui::MouseEvent event(ui::ET_MOUSE_MOVED, location, location,
+                       ui::EventTimeForNow(), flags, 0);
   SendEventToProcessor(&event);
 }
 
 void RemoteWindowTreeHostWin::OnMouseButton(
     const MetroViewerHostMsg_MouseButtonParams& params) {
   gfx::Point location = PointFromNativeEvent(params.x, params.y);
-  ui::MouseEvent mouse_event(params.event_type, location, location,
-                             static_cast<int>(params.flags),
-                             static_cast<int>(params.changed_button));
+  ui::MouseEvent mouse_event(
+      params.event_type, location, location, ui::EventTimeForNow(),
+      static_cast<int>(params.flags), static_cast<int>(params.changed_button));
 
   SetEventFlags(params.flags | key_event_flags());
   if (params.event_type == ui::ET_MOUSEWHEEL) {
@@ -432,9 +428,7 @@ void RemoteWindowTreeHostWin::OnSetCursorPosAck() {
 
 ui::RemoteInputMethodPrivateWin*
 RemoteWindowTreeHostWin::GetRemoteInputMethodPrivate() {
-  ui::InputMethod* input_method = GetAshWindow()->GetProperty(
-      aura::client::kRootWindowInputMethodKey);
-  return ui::RemoteInputMethodPrivateWin::Get(input_method);
+  return ui::RemoteInputMethodPrivateWin::Get(GetInputMethod());
 }
 
 void RemoteWindowTreeHostWin::OnImeCandidatePopupChanged(bool visible) {

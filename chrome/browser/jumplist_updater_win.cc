@@ -73,7 +73,7 @@ bool AddShellLink(base::win::ScopedComPtr<IObjectCollection> collection,
   }
 
   // Add this IShellLink object to the given collection.
-  return SUCCEEDED(collection->AddObject(link));
+  return SUCCEEDED(collection->AddObject(link.get()));
 }
 
 }  // namespace
@@ -82,8 +82,7 @@ bool AddShellLink(base::win::ScopedComPtr<IObjectCollection> collection,
 // ShellLinkItem
 
 ShellLinkItem::ShellLinkItem()
-    : command_line_(CommandLine::NO_PROGRAM),
-      icon_index_(0) {
+    : command_line_(base::CommandLine::NO_PROGRAM), icon_index_(0) {
 }
 
 ShellLinkItem::~ShellLinkItem() {}
@@ -92,7 +91,7 @@ std::wstring ShellLinkItem::GetArguments() const {
   return command_line_.GetArgumentsString();
 }
 
-CommandLine* ShellLinkItem::GetCommandLine() {
+base::CommandLine* ShellLinkItem::GetCommandLine() {
   return &command_line_;
 }
 
@@ -112,7 +111,8 @@ bool JumpListUpdater::IsEnabled() {
   // JumpList is implemented only on Windows 7 or later.
   // Do not create custom JumpLists in tests. See http://crbug.com/389375.
   return base::win::GetVersion() >= base::win::VERSION_WIN7 &&
-         !CommandLine::ForCurrentProcess()->HasSwitch(switches::kTestType);
+         !base::CommandLine::ForCurrentProcess()->HasSwitch(
+             switches::kTestType);
 }
 
 bool JumpListUpdater::BeginUpdate() {
@@ -191,7 +191,7 @@ bool JumpListUpdater::AddTasks(const ShellLinkItemList& link_items) {
   if (FAILED(result))
     return false;
 
-  return SUCCEEDED(destination_list_->AddUserTasks(object_array));
+  return SUCCEEDED(destination_list_->AddUserTasks(object_array.get()));
 }
 
 bool JumpListUpdater::AddCustomCategory(const std::wstring& category_name,
@@ -239,5 +239,5 @@ bool JumpListUpdater::AddCustomCategory(const std::wstring& category_name,
     return false;
 
   return SUCCEEDED(destination_list_->AppendCategory(category_name.c_str(),
-                                                     object_array));
+                                                     object_array.get()));
 }

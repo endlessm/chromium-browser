@@ -14,10 +14,10 @@
 #include "chrome/browser/ui/autofill/password_generation_popup_controller.h"
 #include "content/public/browser/android/content_view_core.h"
 #include "jni/PasswordGenerationPopupBridge_jni.h"
-#include "ui/base/android/view_android.h"
-#include "ui/base/android/window_android.h"
+#include "ui/android/view_android.h"
+#include "ui/android/window_android.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/range/range.h"
-#include "ui/gfx/rect.h"
 
 namespace autofill {
 
@@ -58,10 +58,9 @@ void PasswordGenerationPopupViewAndroid::Show() {
   DCHECK(view_android);
 
   java_object_.Reset(Java_PasswordGenerationPopupBridge_create(
-      env,
-      reinterpret_cast<intptr_t>(this),
+      env, reinterpret_cast<intptr_t>(this),
       view_android->GetWindowAndroid()->GetJavaObject().obj(),
-      view_android->GetJavaObject().obj()));
+      view_android->GetViewAndroidDelegate().obj()));
 
   UpdateBoundsAndRedrawPopup();
 }

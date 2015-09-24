@@ -16,13 +16,11 @@
     </module>
     <module name="RedundantImport">
       <message key="import.redundant" value="Redundant import: {0}. Use :JavaImportOrganize (ECLIM) or Ctrl+Shift+O (Eclipse) to sort imports"/>
-      <!-- This check is set to a warning because JNI generator sometimes requires to leave an unused import -->
-      <property name="severity" value="warning"/>
+      <property name="severity" value="error"/>
     </module>
     <module name="UnusedImports">
       <message key="import.unused" value="Unused import: {0}. Use :JavaImportOrganize (ECLIM) or Ctrl+Shift+O (Eclipse) to sort imports"/>
-      <!-- This check is set to a warning because JNI generator sometimes requires to leave an unused import -->
-      <property name="severity" value="warning"/>
+      <property name="severity" value="error"/>
       <property name="processJavadoc" value="true"/>
     </module>
     <module name="JavadocType">
@@ -91,7 +89,7 @@
     </module>
     <module name="LineLength">
       <property name="severity" value="error"/>
-      <property name="ignorePattern" value="^import.*$" />
+      <property name="ignorePattern" value="^package.*|^import.*|a href|href|http://|https://|ftp://"/>
       <property name="max" value="100"/>
     </module>
     <module name="LeftCurly">
@@ -101,8 +99,10 @@
       <property name="severity" value="error"/>
     </module>
     <module name="NeedBraces">
-      <property name="severity" value="info"/>
-      <property name="tokens" value="LITERAL_FOR, LITERAL_WHILE, LITERAL_DO"/>
+      <message key="needBraces" value="if, for, while, and do require curly braces unless they are single-line statements."/>
+      <property name="severity" value="error"/>
+      <property name="tokens" value="LITERAL_FOR, LITERAL_WHILE, LITERAL_DO, LITERAL_IF"/>
+      <property name="allowSingleLineStatement" value="true"/>
     </module>
     <module name="EmptyBlock">
       <property name="severity" value="error"/>
@@ -138,6 +138,17 @@
       <property name="allowLineBreaks" value="true"/>
       <property name="tokens" value="SEMI, DOT, POST_DEC, POST_INC"/>
     </module>
+    <module name="GenericWhitespace">
+      <property name="severity" value="error"/>
+      <message key="ws.followed"
+       value="GenericWhitespace ''{0}'' is followed by whitespace."/>
+       <message key="ws.preceded"
+       value="GenericWhitespace ''{0}'' is preceded with whitespace."/>
+       <message key="ws.illegalFollow"
+       value="GenericWhitespace ''{0}'' should followed by whitespace."/>
+       <message key="ws.notPreceded"
+       value="GenericWhitespace ''{0}'' is not preceded with whitespace."/>
+    </module>
     <module name="EmptyStatement">
       <property name="severity" value="error"/>
     </module>
@@ -166,22 +177,22 @@
     </module>
     <!-- TODO(aurimas): make OperatorWrap into an error once all the warnings are fixed. -->
     <module name="OperatorWrap">
-      <property name="severity" value="warning"/>
+      <property name="severity" value="error"/>
       <property name="option" value="NL" />
       <property name="tokens" value="BAND, BOR, BSR, BXOR, DIV, EQUAL, GE, GT, LAND, LE, LITERAL_INSTANCEOF, LOR, LT, MINUS, MOD, NOT_EQUAL, PLUS, QUESTION, SL, SR, STAR " />
     </module>
     <module name="OperatorWrap">
-     <property name="severity" value="warning"/>
+     <property name="severity" value="error"/>
      <property name="option" value="eol"/>
      <property name="tokens" value="ASSIGN"/>
     </module>
     <module name="SeparatorWrap">
-      <property name="severity" value="warning"/>
+      <property name="severity" value="error"/>
       <property name="tokens" value="DOT"/>
       <property name="option" value="nl"/>
     </module>
     <module name="SeparatorWrap">
-      <property name="severity" value="warning"/>
+      <property name="severity" value="error"/>
       <property name="tokens" value="COMMA"/>
       <property name="option" value="EOL"/>
     </module>

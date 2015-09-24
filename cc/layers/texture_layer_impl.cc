@@ -23,6 +23,7 @@ TextureLayerImpl::TextureLayerImpl(LayerTreeImpl* tree_impl, int id)
       premultiplied_alpha_(true),
       blend_background_color_(false),
       flipped_(true),
+      nearest_neighbor_(false),
       uv_top_left_(0.f, 0.f),
       uv_bottom_right_(1.f, 1.f),
       own_mailbox_(false),
@@ -62,6 +63,7 @@ void TextureLayerImpl::PushPropertiesTo(LayerImpl* layer) {
   texture_layer->SetVertexOpacity(vertex_opacity_);
   texture_layer->SetPremultipliedAlpha(premultiplied_alpha_);
   texture_layer->SetBlendBackgroundColor(blend_background_color_);
+  texture_layer->SetNearestNeighbor(nearest_neighbor_);
   if (own_mailbox_) {
     texture_layer->SetTextureMailbox(texture_mailbox_,
                                      release_callback_.Pass());
@@ -97,20 +99,19 @@ bool TextureLayerImpl::WillDraw(DrawMode draw_mode,
     // hardware draw.
     if (!texture_copy_)
       texture_copy_ = ScopedResource::Create(resource_provider);
-    if (texture_copy_->size() != texture_mailbox_.shared_memory_size() ||
+    if (texture_copy_->size() != texture_mailbox_.size_in_pixels() ||
         resource_provider->InUseByConsumer(texture_copy_->id()))
       texture_copy_->Free();
 
     if (!texture_copy_->id()) {
-      texture_copy_->Allocate(texture_mailbox_.shared_memory_size(),
-                              ResourceProvider::TextureHintImmutable,
+      texture_copy_->Allocate(texture_mailbox_.size_in_pixels(),
+                              ResourceProvider::TEXTURE_HINT_IMMUTABLE,
                               resource_provider->best_texture_format());
     }
 
     if (texture_copy_->id()) {
       std::vector<uint8> swizzled;
-      uint8* pixels =
-          static_cast<uint8*>(texture_mailbox_.shared_memory()->memory());
+      uint8* pixels = texture_mailbox_.shared_bitmap()->pixels();
 
       if (!PlatformColor::SameComponentOrder(texture_copy_->format())) {
         // Swizzle colors. This is slow, but should be really uncommon.
@@ -125,12 +126,8 @@ bool TextureLayerImpl::WillDraw(DrawMode draw_mode,
         pixels = &swizzled[0];
       }
 
-      resource_provider->SetPixels(
-          texture_copy_->id(),
-          pixels,
-          gfx::Rect(texture_mailbox_.shared_memory_size()),
-          gfx::Rect(texture_mailbox_.shared_memory_size()),
-          gfx::Vector2d());
+      resource_provider->CopyToResource(texture_copy_->id(), pixels,
+                                        texture_mailbox_.size_in_pixels());
 
       valid_texture_copy_ = true;
     }
@@ -140,7 +137,6 @@ bool TextureLayerImpl::WillDraw(DrawMode draw_mode,
 }
 
 void TextureLayerImpl::AppendQuads(RenderPass* render_pass,
-                                   const Occlusion& occlusion_in_content_space,
                                    AppendQuadsData* append_quads_data) {
   DCHECK(external_texture_resource_ || valid_texture_copy_);
 
@@ -148,23 +144,24 @@ void TextureLayerImpl::AppendQuads(RenderPass* render_pass,
       render_pass->CreateAndAppendSharedQuadState();
   PopulateSharedQuadState(shared_quad_state);
 
-  AppendDebugBorderQuad(
-      render_pass, content_bounds(), shared_quad_state, append_quads_data);
+  AppendDebugBorderQuad(render_pass, bounds(), shared_quad_state,
+                        append_quads_data);
 
   SkColor bg_color = blend_background_color_ ?
       background_color() : SK_ColorTRANSPARENT;
   bool opaque = contents_opaque() || (SkColorGetA(bg_color) == 0xFF);
 
-  gfx::Rect quad_rect(content_bounds());
+  gfx::Rect quad_rect(bounds());
   gfx::Rect opaque_rect = opaque ? quad_rect : gfx::Rect();
   gfx::Rect visible_quad_rect =
-      occlusion_in_content_space.GetUnoccludedContentRect(quad_rect);
+      draw_properties().occlusion_in_content_space.GetUnoccludedContentRect(
+          quad_rect);
   if (visible_quad_rect.IsEmpty())
     return;
 
   TextureDrawQuad* quad =
       render_pass->CreateAndAppendDrawQuad<TextureDrawQuad>();
-  ResourceProvider::ResourceId id =
+  ResourceId id =
       valid_texture_copy_ ? texture_copy_->id() : external_texture_resource_;
   quad->SetNew(shared_quad_state,
                quad_rect,
@@ -176,15 +173,21 @@ void TextureLayerImpl::AppendQuads(RenderPass* render_pass,
                uv_bottom_right_,
                bg_color,
                vertex_opacity_,
-               flipped_);
+               flipped_,
+               nearest_neighbor_);
+  if (!valid_texture_copy_) {
+    quad->set_resource_size_in_pixels(texture_mailbox_.size_in_pixels());
+    quad->set_allow_overlay(texture_mailbox_.allow_overlay());
+  }
+  ValidateQuadResources(quad);
 }
 
-SimpleEnclosedRegion TextureLayerImpl::VisibleContentOpaqueRegion() const {
+SimpleEnclosedRegion TextureLayerImpl::VisibleOpaqueRegion() const {
   if (contents_opaque())
-    return SimpleEnclosedRegion(visible_content_rect());
+    return SimpleEnclosedRegion(visible_layer_rect());
 
   if (blend_background_color_ && (SkColorGetA(background_color()) == 0xFF))
-    return SimpleEnclosedRegion(visible_content_rect());
+    return SimpleEnclosedRegion(visible_layer_rect());
 
   return SimpleEnclosedRegion();
 }
@@ -211,12 +214,17 @@ void TextureLayerImpl::SetFlipped(bool flipped) {
   SetNeedsPushProperties();
 }
 
-void TextureLayerImpl::SetUVTopLeft(const gfx::PointF top_left) {
+void TextureLayerImpl::SetNearestNeighbor(bool nearest_neighbor) {
+  nearest_neighbor_ = nearest_neighbor;
+  SetNeedsPushProperties();
+}
+
+void TextureLayerImpl::SetUVTopLeft(const gfx::PointF& top_left) {
   uv_top_left_ = top_left;
   SetNeedsPushProperties();
 }
 
-void TextureLayerImpl::SetUVBottomRight(const gfx::PointF bottom_right) {
+void TextureLayerImpl::SetUVBottomRight(const gfx::PointF& bottom_right) {
   uv_bottom_right_ = bottom_right;
   SetNeedsPushProperties();
 }

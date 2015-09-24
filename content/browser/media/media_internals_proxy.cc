@@ -5,7 +5,9 @@
 #include "content/browser/media/media_internals_proxy.h"
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/browser/media/media_internals_handler.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/notification_service.h"
@@ -33,7 +35,7 @@ MediaInternalsProxy::MediaInternalsProxy() {
 void MediaInternalsProxy::Observe(int type,
                                   const NotificationSource& source,
                                   const NotificationDetails& details) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK_EQ(type, NOTIFICATION_RENDERER_PROCESS_TERMINATED);
   RenderProcessHost* process = Source<RenderProcessHost>(source).ptr();
   CallJavaScriptFunctionOnUIThread("media.onRendererTerminated",
@@ -41,16 +43,23 @@ void MediaInternalsProxy::Observe(int type,
 }
 
 void MediaInternalsProxy::Attach(MediaInternalsMessageHandler* handler) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
   handler_ = handler;
+  update_callback_ = base::Bind(&MediaInternalsProxy::UpdateUIOnUIThread, this);
+  MediaInternals::GetInstance()->AddUpdateCallback(update_callback_);
+
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       base::Bind(&MediaInternalsProxy::ObserveMediaInternalsOnIOThread, this));
 }
 
 void MediaInternalsProxy::Detach() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
   handler_ = NULL;
+  MediaInternals::GetInstance()->RemoveUpdateCallback(update_callback_);
+
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       base::Bind(
@@ -58,22 +67,17 @@ void MediaInternalsProxy::Detach() {
 }
 
 void MediaInternalsProxy::GetEverything() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  // Ask MediaInternals for all its data.
+  MediaInternals::GetInstance()->SendHistoricalMediaEvents();
+
+  // Ask MediaInternals for its data on IO thread.
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       base::Bind(&MediaInternalsProxy::GetEverythingOnIOThread, this));
 
   // Send the page names for constants.
   CallJavaScriptFunctionOnUIThread("media.onReceiveConstants", GetConstants());
-}
-
-void MediaInternalsProxy::OnUpdate(const base::string16& update) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
-      base::Bind(&MediaInternalsProxy::UpdateUIOnUIThread, this, update));
 }
 
 void MediaInternalsProxy::OnAddEntry(const net::NetLog::Entry& entry) {
@@ -116,46 +120,44 @@ base::Value* MediaInternalsProxy::GetConstants() {
 }
 
 void MediaInternalsProxy::ObserveMediaInternalsOnIOThread() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
-  update_callback_ = base::Bind(&MediaInternalsProxy::OnUpdate,
-                                base::Unretained(this));
-  MediaInternals::GetInstance()->AddUpdateCallback(update_callback_);
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (GetContentClient()->browser()->GetNetLog()) {
     net::NetLog* net_log = GetContentClient()->browser()->GetNetLog();
-    net_log->AddThreadSafeObserver(this, net::NetLog::LOG_ALL_BUT_BYTES);
+    net_log->DeprecatedAddObserver(
+        this, net::NetLogCaptureMode::IncludeCookiesAndCredentials());
   }
 }
 
 void MediaInternalsProxy::StopObservingMediaInternalsOnIOThread() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
-  MediaInternals::GetInstance()->RemoveUpdateCallback(update_callback_);
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (GetContentClient()->browser()->GetNetLog()) {
     net::NetLog* net_log = GetContentClient()->browser()->GetNetLog();
-    net_log->RemoveThreadSafeObserver(this);
+    net_log->DeprecatedRemoveObserver(this);
   }
 }
 
 void MediaInternalsProxy::GetEverythingOnIOThread() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  // TODO(xhwang): Investigate whether we can update on UI thread directly.
   MediaInternals::GetInstance()->SendAudioStreamData();
   MediaInternals::GetInstance()->SendVideoCaptureDeviceCapabilities();
 }
 
 void MediaInternalsProxy::UpdateUIOnUIThread(const base::string16& update) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   // Don't forward updates to a destructed UI.
   if (handler_)
     handler_->OnUpdate(update);
 }
 
 void MediaInternalsProxy::AddNetEventOnUIThread(base::Value* entry) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   // Send the updates to the page in kMediaInternalsProxyEventDelayMilliseconds
   // if an update is not already pending.
   if (!pending_net_updates_) {
     pending_net_updates_.reset(new base::ListValue());
-    base::MessageLoop::current()->PostDelayedTask(
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE,
         base::Bind(&MediaInternalsProxy::SendNetEventsOnUIThread, this),
         base::TimeDelta::FromMilliseconds(
@@ -165,14 +167,14 @@ void MediaInternalsProxy::AddNetEventOnUIThread(base::Value* entry) {
 }
 
 void MediaInternalsProxy::SendNetEventsOnUIThread() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   CallJavaScriptFunctionOnUIThread("media.onNetUpdate",
                                    pending_net_updates_.release());
 }
 
 void MediaInternalsProxy::CallJavaScriptFunctionOnUIThread(
     const std::string& function, base::Value* args) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   scoped_ptr<base::Value> args_value(args);
   std::vector<const base::Value*> args_vector;
   args_vector.push_back(args_value.get());

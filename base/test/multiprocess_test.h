@@ -9,7 +9,7 @@
 
 #include "base/basictypes.h"
 #include "base/process/launch.h"
-#include "base/process/process_handle.h"
+#include "base/process/process.h"
 #include "build/build_config.h"
 #include "testing/platform_test.h"
 
@@ -33,16 +33,15 @@ class CommandLine;
 //     // Maybe set some options (e.g., |start_hidden| on Windows)....
 //
 //     // Start a child process and run |a_test_func|.
-//     base::ProcessHandle test_child_handle =
+//     base::Process test_child_process =
 //         base::SpawnMultiProcessTestChild("a_test_func", command_line,
 //                                          options);
 //
-//     // Do stuff involving |test_child_handle| and the child process....
+//     // Do stuff involving |test_child_process| and the child process....
 //
 //     int rv = -1;
-//     ASSERT_TRUE(base::WaitForExitCodeWithTimeout(
-//         test_child_handle, &rv, TestTimeouts::action_timeout()));
-//     base::CloseProcessHandle(test_child_handle);
+//     ASSERT_TRUE(test_child_process.WaitForExitWithTimeout(
+//         TestTimeouts::action_timeout(), &rv));
 //     EXPECT_EQ(0, rv);
 //   }
 //
@@ -58,7 +57,7 @@ class CommandLine;
 // |command_line| should be as provided by
 // |GetMultiProcessTestChildBaseCommandLine()| (below), possibly with arguments
 // added. Note: On Windows, you probably want to set |options.start_hidden|.
-ProcessHandle SpawnMultiProcessTestChild(
+Process SpawnMultiProcessTestChild(
     const std::string& procname,
     const CommandLine& command_line,
     const LaunchOptions& options);
@@ -105,14 +104,14 @@ class MultiProcessTest : public PlatformTest {
   //         // do client work here
   //    }
   //
-  // Returns the handle to the child, or NULL on failure
-  ProcessHandle SpawnChild(const std::string& procname);
+  // Returns the child process.
+  Process SpawnChild(const std::string& procname);
 
   // Run a child process using the given launch options.
   //
   // Note: On Windows, you probably want to set |options.start_hidden|.
-  ProcessHandle SpawnChildWithOptions(const std::string& procname,
-                                      const LaunchOptions& options);
+  Process SpawnChildWithOptions(const std::string& procname,
+                                const LaunchOptions& options);
 
   // Set up the command line used to spawn the child process.
   // Override this to add things to the command line (calling this first in the

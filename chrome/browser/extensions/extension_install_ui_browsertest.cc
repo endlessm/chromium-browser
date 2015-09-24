@@ -82,7 +82,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionInstallUIBrowserTest,
                        MAYBE_TestThemeInstallUndoResetsToDefault) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -112,7 +113,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionInstallUIBrowserTest,
                        TestThemeInstallUndoResetsToPreviousTheme) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -159,8 +161,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionInstallUIBrowserTest,
     WebContents* web_contents =
         browser()->tab_strip_model()->GetActiveWebContents();
     ASSERT_TRUE(web_contents);
-    EXPECT_TRUE(StartsWithASCII(web_contents->GetURL().spec(),
-                                "chrome://newtab/", false));
+    EXPECT_TRUE(base::StartsWith(web_contents->GetURL().spec(),
+                                 "chrome://newtab/",
+                                 base::CompareCase::INSENSITIVE_ASCII));
   } else {
     // TODO(xiyuan): Figure out how to test extension installed bubble?
   }
@@ -185,8 +188,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionInstallUIBrowserTest,
     WebContents* web_contents =
         browser()->tab_strip_model()->GetActiveWebContents();
     ASSERT_TRUE(web_contents);
-    EXPECT_TRUE(StartsWithASCII(web_contents->GetURL().spec(),
-                                "chrome://newtab/", false));
+    EXPECT_TRUE(base::StartsWith(web_contents->GetURL().spec(),
+                                 "chrome://newtab/",
+                                 base::CompareCase::INSENSITIVE_ASCII));
   } else {
     // TODO(xiyuan): Figure out how to test extension installed bubble?
   }

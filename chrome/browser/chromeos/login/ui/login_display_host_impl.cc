@@ -6,46 +6,53 @@
 
 #include <vector>
 
+#include "ash/audio/sounds.h"
+#include "ash/desktop_background/desktop_background_controller.h"
+#include "ash/desktop_background/user_wallpaper_delegate.h"
+#include "ash/shell.h"
+#include "ash/shell_window_ids.h"
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/debug/trace_event.h"
 #include "base/logging.h"
 #include "base/prefs/pref_service.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
-#include "base/values.h"
+#include "base/trace_event/trace_event.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/chromeos/base/locale_util.h"
-#include "chrome/browser/chromeos/boot_times_loader.h"
-#include "chrome/browser/chromeos/charger_replace/charger_replacement_dialog.h"
+#include "chrome/browser/chromeos/boot_times_recorder.h"
 #include "chrome/browser/chromeos/first_run/drive_first_run_controller.h"
 #include "chrome/browser/chromeos/first_run/first_run.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
-#include "chrome/browser/chromeos/kiosk_mode/kiosk_mode_settings.h"
 #include "chrome/browser/chromeos/language_preferences.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_app_launcher.h"
+#include "chrome/browser/chromeos/login/enrollment/auto_enrollment_controller.h"
 #include "chrome/browser/chromeos/login/existing_user_controller.h"
 #include "chrome/browser/chromeos/login/helper.h"
-#include "chrome/browser/chromeos/login/login_utils.h"
 #include "chrome/browser/chromeos/login/login_wizard.h"
 #include "chrome/browser/chromeos/login/screens/core_oobe_actor.h"
+#include "chrome/browser/chromeos/login/signin/token_handle_util.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/login/ui/input_events_blocker.h"
+#include "chrome/browser/chromeos/login/ui/keyboard_driven_oobe_key_handler.h"
 #include "chrome/browser/chromeos/login/ui/oobe_display.h"
 #include "chrome/browser/chromeos/login/ui/webui_login_display.h"
 #include "chrome/browser/chromeos/login/ui/webui_login_view.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/chromeos/mobile_config.h"
 #include "chrome/browser/chromeos/net/delay_network_call.h"
-#include "chrome/browser/chromeos/policy/auto_enrollment_client.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
+#include "chrome/browser/chromeos/policy/enrollment_config.h"
+#include "chrome/browser/chromeos/settings/cros_settings.h"
+#include "chrome/browser/chromeos/system/device_disabling_manager.h"
 #include "chrome/browser/chromeos/system/input_device_settings.h"
+#include "chrome/browser/chromeos/system/timezone_util.h"
 #include "chrome/browser/chromeos/ui/focus_ring_controller.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -59,11 +66,13 @@
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/session_manager_client.h"
-#include "chromeos/ime/extension_ime_util.h"
-#include "chromeos/ime/input_method_manager.h"
 #include "chromeos/login/login_state.h"
+#include "chromeos/settings/cros_settings_names.h"
+#include "chromeos/settings/cros_settings_provider.h"
 #include "chromeos/settings/timezone_settings.h"
+#include "chromeos/timezone/timezone_resolver.h"
 #include "components/session_manager/core/session_manager.h"
+#include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
@@ -71,16 +80,17 @@
 #include "content/public/browser/web_ui.h"
 #include "media/audio/sounds/sounds_manager.h"
 #include "ui/aura/window.h"
+#include "ui/base/ime/chromeos/extension_ime_util.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
 #include "ui/base/resource/resource_bundle.h"
-#include "ui/base/ui_base_switches_util.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/events/event_utils.h"
 #include "ui/gfx/display.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/screen.h"
-#include "ui/gfx/size.h"
 #include "ui/gfx/transform.h"
 #include "ui/keyboard/keyboard_controller.h"
 #include "ui/keyboard/keyboard_util.h"
@@ -88,21 +98,6 @@
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "url/gurl.h"
-
-#if !defined(USE_ATHENA)
-#include "ash/audio/sounds.h"
-#include "ash/desktop_background/desktop_background_controller.h"
-#include "ash/desktop_background/user_wallpaper_delegate.h"
-#include "ash/shell.h"
-#include "ash/shell_window_ids.h"
-#include "chrome/browser/chromeos/login/ui/keyboard_driven_oobe_key_handler.h"
-#endif
-
-#if defined(USE_ATHENA)
-#include "athena/screen/public/screen_manager.h"
-#include "athena/util/container_priorities.h"
-#include "athena/util/fill_layout_manager.h"
-#endif
 
 namespace {
 
@@ -146,11 +141,11 @@ class AnimationObserver : public ui::ImplicitAnimationObserver {
  public:
   explicit AnimationObserver(const base::Closure& callback)
       : callback_(callback) {}
-  virtual ~AnimationObserver() {}
+  ~AnimationObserver() override {}
 
  private:
   // ui::ImplicitAnimationObserver implementation:
-  virtual void OnImplicitAnimationsCompleted() override {
+  void OnImplicitAnimationsCompleted() override {
     callback_.Run();
     delete this;
   }
@@ -169,8 +164,7 @@ void ShowLoginWizardFinish(
     chromeos::LoginDisplayHost* display_host) {
   TRACE_EVENT0("chromeos", "ShowLoginWizard::ShowLoginWizardFinish");
 
-  scoped_ptr<base::DictionaryValue> params;
-  display_host->StartWizard(first_screen_name, params.Pass());
+  display_host->StartWizard(first_screen_name);
 
   // Set initial timezone if specified by customization.
   const std::string timezone_name = startup_manifest->initial_timezone();
@@ -202,11 +196,10 @@ struct ShowLoginWizardSwitchLanguageCallbackData {
 
 void OnLanguageSwitchedCallback(
     scoped_ptr<ShowLoginWizardSwitchLanguageCallbackData> self,
-    const std::string& locale,
-    const std::string& loaded_locale,
-    const bool success) {
-  if (!success)
-    LOG(WARNING) << "Locale could not be found for '" << locale << "'";
+    const chromeos::locale_util::LanguageSwitchResult& result) {
+  if (!result.success)
+    LOG(WARNING) << "Locale could not be found for '" << result.requested_locale
+                 << "'";
 
   ShowLoginWizardFinish(
       self->first_screen_name, self->startup_manifest, self->display_host);
@@ -221,24 +214,14 @@ class LoginWidgetDelegate : public views::WidgetDelegate {
  public:
   explicit LoginWidgetDelegate(views::Widget* widget) : widget_(widget) {
   }
-  virtual ~LoginWidgetDelegate() {}
+  ~LoginWidgetDelegate() override {}
 
   // Overridden from WidgetDelegate:
-  virtual void DeleteDelegate() override {
-    delete this;
-  }
-  virtual views::Widget* GetWidget() override {
-    return widget_;
-  }
-  virtual const views::Widget* GetWidget() const override {
-    return widget_;
-  }
-  virtual bool CanActivate() const override {
-    return true;
-  }
-  virtual bool ShouldAdvanceFocusToTopLevelWidget() const override {
-    return true;
-  }
+  void DeleteDelegate() override { delete this; }
+  views::Widget* GetWidget() override { return widget_; }
+  const views::Widget* GetWidget() const override { return widget_; }
+  bool CanActivate() const override { return true; }
+  bool ShouldAdvanceFocusToTopLevelWidget() const override { return true; }
 
  private:
   views::Widget* widget_;
@@ -273,7 +256,6 @@ const int LoginDisplayHostImpl::kShowLoginWebUIid = 0x1111;
 
 LoginDisplayHostImpl::LoginDisplayHostImpl(const gfx::Rect& background_bounds)
     : background_bounds_(background_bounds),
-      pointer_factory_(this),
       shutting_down_(false),
       oobe_progress_bar_visible_(false),
       session_starting_(false),
@@ -289,6 +271,7 @@ LoginDisplayHostImpl::LoginDisplayHostImpl(const gfx::Rect& background_bounds)
       startup_sound_played_(false),
       startup_sound_honors_spoken_feedback_(false),
       is_observing_keyboard_(false),
+      pointer_factory_(this),
       animation_weak_ptr_factory_(this) {
   DBusThreadManager::Get()->GetSessionManagerClient()->AddObserver(this);
   CrasAudioHandler::Get()->AddAudioObserver(this);
@@ -297,10 +280,8 @@ LoginDisplayHostImpl::LoginDisplayHostImpl(const gfx::Rect& background_bounds)
     is_observing_keyboard_ = true;
   }
 
-#if !defined(USE_ATHENA)
   ash::Shell::GetInstance()->delegate()->AddVirtualKeyboardStateObserver(this);
   ash::Shell::GetScreen()->AddObserver(this);
-#endif
 
   // We need to listen to CLOSE_ALL_BROWSERS_REQUEST but not APP_TERMINATING
   // because/ APP_TERMINATING will never be fired as long as this keeps
@@ -330,17 +311,12 @@ LoginDisplayHostImpl::LoginDisplayHostImpl(const gfx::Rect& background_bounds)
 
   bool is_registered = StartupUtils::IsDeviceRegistered();
   bool zero_delay_enabled = WizardController::IsZeroDelayEnabled();
-  bool disable_boot_animation = CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kDisableBootAnimation);
+  bool disable_boot_animation =
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kDisableBootAnimation);
 
   waiting_for_wallpaper_load_ = !zero_delay_enabled &&
                                 (!is_registered || !disable_boot_animation);
-
-#if defined(USE_ATHENA)
-  // TODO(dpolukhin): remove #ifdef when Athena supports wallpaper manager.
-  // crbug.com/408734
-  waiting_for_wallpaper_load_ = false;
-#endif
 
   // For slower hardware we have boot animation disabled so
   // we'll be initializing WebUI hidden, waiting for user pods to load and then
@@ -351,9 +327,10 @@ LoginDisplayHostImpl::LoginDisplayHostImpl(const gfx::Rect& background_bounds)
       kHiddenWebUIInitializationDefault && !zero_delay_enabled;
 
   // Check if WebUI init type is overriden.
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshWebUIInit)) {
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshWebUIInit)) {
     const std::string override_type =
-        CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+        base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
             switches::kAshWebUIInit);
     if (override_type == kWebUIInitParallel)
       initialize_webui_hidden_ = true;
@@ -366,17 +343,11 @@ LoginDisplayHostImpl::LoginDisplayHostImpl(const gfx::Rect& background_bounds)
   if (!StartupUtils::IsOobeCompleted())
     initialize_webui_hidden_ = false;
 
-  // There is no wallpaper for KioskMode, don't initialize the webui hidden.
-  if (chromeos::KioskModeSettings::Get()->IsKioskModeEnabled())
-    initialize_webui_hidden_ = false;
-
-#if !defined(USE_ATHENA)
   if (waiting_for_wallpaper_load_) {
     registrar_.Add(this,
                    chrome::NOTIFICATION_WALLPAPER_ANIMATION_FINISHED,
                    content::NotificationService::AllSources());
   }
-#endif
 
   // When we wait for WebUI to be initialized we wait for one of
   // these notifications.
@@ -399,6 +370,10 @@ LoginDisplayHostImpl::LoginDisplayHostImpl(const gfx::Rect& background_bounds)
   ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
   manager->Initialize(chromeos::SOUND_STARTUP,
                       bundle.GetRawDataResource(IDR_SOUND_STARTUP_WAV));
+
+  // Disable Drag'n'Drop for the login session.
+  scoped_drag_drop_disabler_.reset(new aura::client::ScopedDragDropDisabler(
+      ash::Shell::GetPrimaryRootWindow()));
 }
 
 LoginDisplayHostImpl::~LoginDisplayHostImpl() {
@@ -409,17 +384,14 @@ LoginDisplayHostImpl::~LoginDisplayHostImpl() {
     is_observing_keyboard_ = false;
   }
 
-#if !defined(USE_ATHENA)
   ash::Shell::GetInstance()->delegate()->
       RemoveVirtualKeyboardStateObserver(this);
   ash::Shell::GetScreen()->RemoveObserver(this);
-#endif
 
   if (login_view_ && login_window_)
     login_window_->RemoveRemovalsObserver(this);
 
-  if (login::LoginScrollIntoViewEnabled())
-    ResetKeyboardOverscrollOverride();
+  ResetKeyboardOverscrollOverride();
 
   views::FocusManager::set_arrow_key_traversal_enabled(false);
   ResetLoginWindowAndView();
@@ -460,12 +432,10 @@ void LoginDisplayHostImpl::BeforeSessionStart() {
 
 void LoginDisplayHostImpl::Finalize() {
   DVLOG(1) << "Session starting";
-#if !defined(USE_ATHENA)
   if (ash::Shell::HasInstance()) {
     ash::Shell::GetInstance()->
         desktop_background_controller()->MoveDesktopToUnlockedContainer();
   }
-#endif
   if (wizard_controller_.get())
     wizard_controller_->OnSessionStart();
 
@@ -474,10 +444,8 @@ void LoginDisplayHostImpl::Finalize() {
       ShutdownDisplayHost(false);
       break;
     case ANIMATION_WORKSPACE:
-#if !defined(USE_ATHENA)
       if (ash::Shell::HasInstance())
         ScheduleWorkspaceAnimation();
-#endif
 
       ShutdownDisplayHost(false);
       break;
@@ -507,21 +475,13 @@ void LoginDisplayHostImpl::SetStatusAreaVisible(bool visible) {
 }
 
 AutoEnrollmentController* LoginDisplayHostImpl::GetAutoEnrollmentController() {
-  if (!auto_enrollment_controller_) {
+  if (!auto_enrollment_controller_)
     auto_enrollment_controller_.reset(new AutoEnrollmentController());
-    auto_enrollment_progress_subscription_ =
-        auto_enrollment_controller_->RegisterProgressCallback(
-            base::Bind(&LoginDisplayHostImpl::OnAutoEnrollmentProgress,
-                       base::Unretained(this)));
-  }
   return auto_enrollment_controller_.get();
 }
 
-void LoginDisplayHostImpl::StartWizard(
-    const std::string& first_screen_name,
-    scoped_ptr<base::DictionaryValue> screen_parameters) {
-  if (login::LoginScrollIntoViewEnabled())
-    DisableKeyboardOverscroll();
+void LoginDisplayHostImpl::StartWizard(const std::string& first_screen_name) {
+  DisableKeyboardOverscroll();
 
   startup_sound_honors_spoken_feedback_ = false;
   TryToPlayStartupSound();
@@ -529,10 +489,6 @@ void LoginDisplayHostImpl::StartWizard(
   // Keep parameters to restore if renderer crashes.
   restore_path_ = RESTORE_WIZARD;
   first_screen_name_ = first_screen_name;
-  if (screen_parameters.get())
-    screen_parameters_.reset(screen_parameters->DeepCopy());
-  else
-    screen_parameters_.reset();
   is_showing_login_ = false;
 
   if (waiting_for_wallpaper_load_ && !initialize_webui_hidden_) {
@@ -554,7 +510,7 @@ void LoginDisplayHostImpl::StartWizard(
 
   oobe_progress_bar_visible_ = !StartupUtils::IsDeviceRegistered();
   SetOobeProgressBarVisible(oobe_progress_bar_visible_);
-  wizard_controller_->Init(first_screen_name, screen_parameters.Pass());
+  wizard_controller_->Init(first_screen_name);
 }
 
 WizardController* LoginDisplayHostImpl::GetWizardController() {
@@ -567,8 +523,7 @@ AppLaunchController* LoginDisplayHostImpl::GetAppLaunchController() {
 
 void LoginDisplayHostImpl::StartUserAdding(
     const base::Closure& completion_callback) {
-  if (login::LoginScrollIntoViewEnabled())
-    DisableKeyboardOverscroll();
+  DisableKeyboardOverscroll();
 
   restore_path_ = RESTORE_ADD_USER_INTO_SESSION;
   completion_callback_ = completion_callback;
@@ -579,7 +534,6 @@ void LoginDisplayHostImpl::StartUserAdding(
   // We should emit this signal only at login screen (after reboot or sign out).
   login_view_->set_should_emit_login_prompt_visible(false);
 
-#if !defined(USE_ATHENA)
   // Lock container can be transparent after lock screen animation.
   aura::Window* lock_container = ash::Shell::GetContainer(
       ash::Shell::GetPrimaryRootWindow(),
@@ -588,13 +542,19 @@ void LoginDisplayHostImpl::StartUserAdding(
 
   ash::Shell::GetInstance()->
       desktop_background_controller()->MoveDesktopToLockedContainer();
-#endif
 
-  sign_in_controller_.reset();  // Only one controller in a time.
-  sign_in_controller_.reset(new chromeos::ExistingUserController(this));
+  existing_user_controller_.reset();  // Only one controller in a time.
+  existing_user_controller_.reset(new chromeos::ExistingUserController(this));
+
+  if (!signin_screen_controller_.get()) {
+    OobeDisplay* oobe_display = GetOobeUI();
+    signin_screen_controller_.reset(new SignInScreenController(
+        oobe_display, webui_login_display_->delegate()));
+  }
+
   SetOobeProgressBarVisible(oobe_progress_bar_visible_ = false);
   SetStatusAreaVisible(true);
-  sign_in_controller_->Init(
+  existing_user_controller_->Init(
       user_manager::UserManager::Get()->GetUsersAllowedForMultiProfile());
   CHECK(webui_login_display_);
   GetOobeUI()->ShowSigninScreen(LoginScreenContext(),
@@ -604,8 +564,7 @@ void LoginDisplayHostImpl::StartUserAdding(
 
 void LoginDisplayHostImpl::StartSignInScreen(
     const LoginScreenContext& context) {
-  if (login::LoginScrollIntoViewEnabled())
-    DisableKeyboardOverscroll();
+  DisableKeyboardOverscroll();
 
   startup_sound_honors_spoken_feedback_ = true;
   TryToPlayStartupSound();
@@ -626,7 +585,7 @@ void LoginDisplayHostImpl::StartSignInScreen(
     TRACE_EVENT_ASYNC_BEGIN0("ui", "ShowLoginWebUI", kShowLoginWebUIid);
     TRACE_EVENT_ASYNC_STEP_INTO0(
         "ui", "ShowLoginWebUI", kShowLoginWebUIid, "StartSignInScreen");
-    BootTimesLoader::Get()->RecordCurrentStats("login-start-signin-screen");
+    BootTimesRecorder::Get()->RecordCurrentStats("login-start-signin-screen");
     LoadURL(GURL(kLoginURL));
   }
 
@@ -643,20 +602,24 @@ void LoginDisplayHostImpl::StartSignInScreen(
     StartupUtils::MarkDeviceRegistered(base::Closure());
   }
 
-  sign_in_controller_.reset();  // Only one controller in a time.
-  sign_in_controller_.reset(new chromeos::ExistingUserController(this));
+  existing_user_controller_.reset();  // Only one controller in a time.
+  existing_user_controller_.reset(new chromeos::ExistingUserController(this));
+
+  if (!signin_screen_controller_.get()) {
+    OobeDisplay* oobe_display = GetOobeUI();
+    signin_screen_controller_.reset(new SignInScreenController(
+        oobe_display, webui_login_display_->delegate()));
+  }
+
   oobe_progress_bar_visible_ = !StartupUtils::IsDeviceRegistered();
   SetOobeProgressBarVisible(oobe_progress_bar_visible_);
   SetStatusAreaVisible(true);
-  sign_in_controller_->Init(users);
+  existing_user_controller_->Init(users);
 
   // We might be here after a reboot that was triggered after OOBE was complete,
   // so check for auto-enrollment again. This might catch a cached decision from
   // a previous oobe flow, or might start a new check with the server.
-  if (GetAutoEnrollmentController()->ShouldEnrollSilently())
-    sign_in_controller_->DoAutoEnrollment();
-  else
-    GetAutoEnrollmentController()->Start();
+  GetAutoEnrollmentController()->Start();
 
   // Initiate mobile config load.
   MobileConfig::GetInstance();
@@ -671,27 +634,13 @@ void LoginDisplayHostImpl::StartSignInScreen(
   GetOobeUI()->ShowSigninScreen(context,
                                 webui_login_display_,
                                 webui_login_display_);
-  if (chromeos::KioskModeSettings::Get()->IsKioskModeEnabled())
-    SetStatusAreaVisible(false);
   TRACE_EVENT_ASYNC_STEP_INTO0("ui",
                                "ShowLoginWebUI",
                                kShowLoginWebUIid,
                                "WaitForScreenStateInitialize");
-  BootTimesLoader::Get()->RecordCurrentStats(
+  BootTimesRecorder::Get()->RecordCurrentStats(
       "login-wait-for-signin-state-initialize");
 }
-
-void LoginDisplayHostImpl::ResumeSignInScreen() {
-  // We only get here after a previous call the StartSignInScreen. That sign-in
-  // was successful but was interrupted by an auto-enrollment execution; once
-  // auto-enrollment is complete we resume the normal login flow from here.
-  DVLOG(1) << "Resuming sign in screen";
-  CHECK(sign_in_controller_.get());
-  SetOobeProgressBarVisible(oobe_progress_bar_visible_);
-  SetStatusAreaVisible(true);
-  sign_in_controller_->ResumeLogin();
-}
-
 
 void LoginDisplayHostImpl::OnPreferencesChanged() {
   if (is_showing_login_)
@@ -714,9 +663,40 @@ void LoginDisplayHostImpl::StartDemoAppLaunch() {
 }
 
 void LoginDisplayHostImpl::StartAppLaunch(const std::string& app_id,
-                                          bool diagnostic_mode) {
+                                          bool diagnostic_mode,
+                                          bool auto_launch) {
   VLOG(1) << "Login WebUI >> start app launch.";
   SetStatusAreaVisible(false);
+
+  // Wait for the |CrosSettings| to become either trusted or permanently
+  // untrusted.
+  const CrosSettingsProvider::TrustedStatus status =
+      CrosSettings::Get()->PrepareTrustedValues(base::Bind(
+          &LoginDisplayHostImpl::StartAppLaunch,
+          pointer_factory_.GetWeakPtr(),
+          app_id,
+          diagnostic_mode,
+          auto_launch));
+  if (status == CrosSettingsProvider::TEMPORARILY_UNTRUSTED)
+    return;
+
+  if (status == CrosSettingsProvider::PERMANENTLY_UNTRUSTED) {
+    // If the |CrosSettings| are permanently untrusted, refuse to launch a
+    // single-app kiosk mode session.
+    LOG(ERROR) << "Login WebUI >> Refusing to launch single-app kiosk mode.";
+    SetStatusAreaVisible(true);
+    return;
+  }
+
+  bool device_disabled = false;
+  CrosSettings::Get()->GetBoolean(kDeviceDisabled, &device_disabled);
+  if (device_disabled && system::DeviceDisablingManager::
+                             HonorDeviceDisablingDuringNormalOperation()) {
+    // If the device is disabled, bail out. A device disabled screen will be
+    // shown by the DeviceDisablingManager.
+    return;
+  }
+
   finalize_animation_type_ = ANIMATION_FADE_OUT;
   if (!login_window_)
     LoadURL(GURL(kAppLaunchSplashURL));
@@ -726,7 +706,7 @@ void LoginDisplayHostImpl::StartAppLaunch(const std::string& app_id,
   app_launch_controller_.reset(new AppLaunchController(
       app_id, diagnostic_mode, this, GetOobeUI()));
 
-  app_launch_controller_->StartAppLaunch();
+  app_launch_controller_->StartAppLaunch(auto_launch);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -787,16 +767,13 @@ void LoginDisplayHostImpl::Observe(
                       content::NotificationService::AllSources());
   } else if (type == chrome::NOTIFICATION_LOGIN_USER_CHANGED &&
              user_manager::UserManager::Get()->IsCurrentUserNew()) {
-#if !defined(USE_ATHENA)
     // For new user, move desktop to locker container so that windows created
     // during the user image picker step are below it.
     ash::Shell::GetInstance()->
         desktop_background_controller()->MoveDesktopToLockedContainer();
-#endif
     registrar_.Remove(this,
                       chrome::NOTIFICATION_LOGIN_USER_CHANGED,
                       content::NotificationService::AllSources());
-#if !defined(USE_ATHENA)
   } else if (chrome::NOTIFICATION_WALLPAPER_ANIMATION_FINISHED == type) {
     VLOG(1) << "Login WebUI >> wp animation done";
     is_wallpaper_loaded_ = true;
@@ -815,7 +792,6 @@ void LoginDisplayHostImpl::Observe(
     registrar_.Remove(this,
                       chrome::NOTIFICATION_WALLPAPER_ANIMATION_FINISHED,
                       content::NotificationService::AllSources());
-#endif
   }
 }
 
@@ -856,7 +832,6 @@ void LoginDisplayHostImpl::OnActiveOutputNodeChanged() {
   TryToPlayStartupSound();
 }
 
-#if !defined(USE_ATHENA)
 ////////////////////////////////////////////////////////////////////////////////
 // LoginDisplayHostImpl, ash::KeyboardStateObserver:
 // implementation:
@@ -874,7 +849,6 @@ void LoginDisplayHostImpl::OnVirtualKeyboardStateChanged(bool activated) {
     }
   }
 }
-#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 // LoginDisplayHostImpl, keyboard::KeyboardControllerObserver:
@@ -882,23 +856,15 @@ void LoginDisplayHostImpl::OnVirtualKeyboardStateChanged(bool activated) {
 
 void LoginDisplayHostImpl::OnKeyboardBoundsChanging(
     const gfx::Rect& new_bounds) {
-  if (new_bounds.IsEmpty() && !keyboard_bounds_.IsEmpty()) {
+  if (new_bounds.IsEmpty()) {
     // Keyboard has been hidden.
-    if (GetOobeUI()) {
+    if (GetOobeUI())
       GetOobeUI()->GetCoreOobeActor()->ShowControlBar(true);
-      if (login::LoginScrollIntoViewEnabled())
-        GetOobeUI()->GetCoreOobeActor()->SetKeyboardState(false, new_bounds);
-    }
-  } else if (!new_bounds.IsEmpty() && keyboard_bounds_.IsEmpty()) {
+  } else if (!new_bounds.IsEmpty()) {
     // Keyboard has been shown.
-    if (GetOobeUI()) {
+    if (GetOobeUI())
       GetOobeUI()->GetCoreOobeActor()->ShowControlBar(false);
-      if (login::LoginScrollIntoViewEnabled())
-        GetOobeUI()->GetCoreOobeActor()->SetKeyboardState(true, new_bounds);
-    }
   }
-
-  keyboard_bounds_ = new_bounds;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -954,7 +920,6 @@ void LoginDisplayHostImpl::ShutdownDisplayHost(bool post_quit_task) {
 }
 
 void LoginDisplayHostImpl::ScheduleWorkspaceAnimation() {
-#if !defined(USE_ATHENA)
   if (ash::Shell::GetContainer(ash::Shell::GetPrimaryRootWindow(),
                                ash::kShellWindowId_DesktopBackgroundContainer)
           ->children()
@@ -964,10 +929,9 @@ void LoginDisplayHostImpl::ScheduleWorkspaceAnimation() {
     return;
   }
 
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kDisableLoginAnimations))
     ash::Shell::GetInstance()->DoInitialWorkspaceAnimation();
-#endif
 }
 
 void LoginDisplayHostImpl::ScheduleFadeOutAnimation() {
@@ -980,27 +944,11 @@ void LoginDisplayHostImpl::ScheduleFadeOutAnimation() {
   layer->SetOpacity(0);
 }
 
-void LoginDisplayHostImpl::OnAutoEnrollmentProgress(
-    policy::AutoEnrollmentState state) {
-  VLOG(1) << "OnAutoEnrollmentProgress, state " << state;
-
-  if (sign_in_controller_ &&
-      auto_enrollment_controller_->ShouldEnrollSilently()) {
-    sign_in_controller_->DoAutoEnrollment();
-  }
-}
-
 void LoginDisplayHostImpl::LoadURL(const GURL& url) {
   InitLoginWindowAndView();
   // Subscribe to crash events.
   content::WebContentsObserver::Observe(login_view_->GetWebContents());
   login_view_->LoadURL(url);
-
-  // LoadURL could be called after the spring charger dialog shows, and
-  // take away the focus from it. Set the focus back to the charger dialog
-  // if it is visible.
-  // See crbug.com/328538.
-  ChargerReplacementDialog::SetFocusOnChargerDialogIfVisible();
 }
 
 void LoginDisplayHostImpl::ShowWebUI() {
@@ -1011,16 +959,8 @@ void LoginDisplayHostImpl::ShowWebUI() {
   VLOG(1) << "Login WebUI >> Show already initialized UI";
   login_window_->Show();
   login_view_->GetWebContents()->Focus();
-  if (::switches::IsTextInputFocusManagerEnabled())
-    login_view_->RequestFocus();
   login_view_->SetStatusAreaVisible(status_area_saved_visibility_);
   login_view_->OnPostponedShow();
-
-  // Login window could be shown after the spring charger dialog shows, and
-  // take away the focus from it. Set the focus back to the charger dialog
-  // if it is visible.
-  // See crbug.com/328538.
-  ChargerReplacementDialog::SetFocusOnChargerDialogIfVisible();
 
   // We should reset this flag to allow changing of status area visibility.
   initialize_webui_hidden_ = false;
@@ -1043,7 +983,7 @@ void LoginDisplayHostImpl::StartPostponedWebUI() {
 
   switch (restore_path_) {
     case RESTORE_WIZARD:
-      StartWizard(first_screen_name_, screen_parameters_.Pass());
+      StartWizard(first_screen_name_);
       break;
     case RESTORE_SIGN_IN:
       StartSignInScreen(LoginScreenContext());
@@ -1063,13 +1003,11 @@ void LoginDisplayHostImpl::InitLoginWindowAndView() {
 
   if (system::InputDeviceSettings::Get()->ForceKeyboardDrivenUINavigation()) {
     views::FocusManager::set_arrow_key_traversal_enabled(true);
-#if !defined(USE_ATHENA)
     // crbug.com/405859
     focus_ring_controller_.reset(new FocusRingController);
     focus_ring_controller_->SetVisible(true);
 
     keyboard_driven_oobe_key_handler_.reset(new KeyboardDrivenOobeKeyHandler);
-#endif
   }
 
   views::Widget::InitParams params(
@@ -1077,23 +1015,9 @@ void LoginDisplayHostImpl::InitLoginWindowAndView() {
   params.bounds = background_bounds();
   params.show_state = ui::SHOW_STATE_FULLSCREEN;
   params.opacity = views::Widget::InitParams::TRANSLUCENT_WINDOW;
-#if defined(USE_ATHENA)
-  athena::ScreenManager::ContainerParams container_params(
-      "LoginScreen", athena::CP_LOGIN_SCREEN);
-  container_params.can_activate_children = true;
-  container_params.block_events = true;
-  container_params.modal_container_priority =
-      athena::CP_LOGIN_SCREEN_SYSTEM_MODAL;
-  login_screen_container_.reset(
-      athena::ScreenManager::Get()->CreateContainer(container_params));
-  params.parent = login_screen_container_.get();
-  login_screen_container_->SetLayoutManager(
-      new athena::FillLayoutManager(login_screen_container_.get()));
-#else
   params.parent =
       ash::Shell::GetContainer(ash::Shell::GetPrimaryRootWindow(),
                                ash::kShellWindowId_LockScreenContainer);
-#endif
   login_window_ = new views::Widget;
   params.delegate = new LoginWidgetDelegate(login_window_);
   login_window_->Init(params);
@@ -1160,20 +1084,17 @@ void LoginDisplayHostImpl::TryToPlayStartupSound() {
     return;
   }
 
-#if !defined(USE_ATHENA)
   if (!startup_sound_honors_spoken_feedback_ &&
       !ash::PlaySystemSoundAlways(SOUND_STARTUP)) {
     EnableSystemSoundsForAccessibility();
     return;
   }
 
-  // crbug.com/408733
   if (startup_sound_honors_spoken_feedback_ &&
       !ash::PlaySystemSoundIfSpokenFeedback(SOUND_STARTUP)) {
     EnableSystemSoundsForAccessibility();
     return;
   }
-#endif
 
   base::MessageLoop::current()->PostDelayedTask(
       FROM_HERE,
@@ -1188,6 +1109,29 @@ void LoginDisplayHostImpl::OnLoginPromptVisible() {
   TryToPlayStartupSound();
 }
 
+void LoginDisplayHostImpl::StartTimeZoneResolve() {
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          chromeos::switches::kDisableTimeZoneTrackingOption)) {
+    return;
+  }
+
+  if (!g_browser_process->local_state()->GetBoolean(
+          prefs::kResolveDeviceTimezoneByGeolocation)) {
+    return;
+  }
+
+  if (system::HasSystemTimezonePolicy())
+    return;
+
+  // Do not start resolver if we are inside active user session.
+  // If user preferences permit, it will be started on preferences
+  // initialization.
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kLoginUser))
+    return;
+
+  g_browser_process->platform_part()->GetTimezoneResolver()->Start();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // external
 
@@ -1199,8 +1143,6 @@ void ShowLoginWizard(const std::string& first_screen_name) {
 
   VLOG(1) << "Showing OOBE screen: " << first_screen_name;
 
-#if !defined(USE_ATHENA)
-  // TODO(dpolukhin): crbug.com/407579
   chromeos::input_method::InputMethodManager* manager =
       chromeos::input_method::InputMethodManager::Get();
 
@@ -1218,9 +1160,8 @@ void ShowLoginWizard(const std::string& first_screen_name) {
         prefs->GetBoolean(prefs::kOwnerTapToClickEnabled));
   }
   system::InputDeviceSettings::Get()->SetNaturalScroll(
-      CommandLine::ForCurrentProcess()->HasSwitch(
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kNaturalScrollDefault));
-#endif
 
   gfx::Rect screen_bounds(chromeos::CalculateScreenBounds(gfx::Size()));
 
@@ -1229,44 +1170,45 @@ void ShowLoginWizard(const std::string& first_screen_name) {
           ? session_manager::SESSION_STATE_LOGIN_PRIMARY
           : session_manager::SESSION_STATE_OOBE);
 
-  LoginDisplayHost* display_host = new LoginDisplayHostImpl(screen_bounds);
+  LoginDisplayHostImpl* display_host = new LoginDisplayHostImpl(screen_bounds);
 
   bool show_app_launch_splash_screen =
       (first_screen_name == WizardController::kAppLaunchSplashScreenName);
   if (show_app_launch_splash_screen) {
     const std::string& auto_launch_app_id =
         KioskAppManager::Get()->GetAutoLaunchApp();
+    const bool diagnostic_mode = false;
+    const bool auto_launch = true;
     display_host->StartAppLaunch(auto_launch_app_id,
-                                 false /* diagnostic_mode */);
+                                 diagnostic_mode,
+                                 auto_launch);
     return;
   }
 
   // Check whether we need to execute OOBE flow.
-  bool oobe_complete = StartupUtils::IsOobeCompleted();
-  policy::BrowserPolicyConnectorChromeOS* connector =
-      g_browser_process->platform_part()->browser_policy_connector_chromeos();
-  bool enrollment_screen_wanted =
-      WizardController::ShouldRecoverEnrollment() ||
-      (WizardController::ShouldAutoStartEnrollment() && oobe_complete &&
-       !connector->IsEnterpriseManaged());
-  if (enrollment_screen_wanted && first_screen_name.empty()) {
+  const policy::EnrollmentConfig enrollment_config =
+      g_browser_process->platform_part()
+          ->browser_policy_connector_chromeos()
+          ->GetPrescribedEnrollmentConfig();
+  if (enrollment_config.should_enroll() && first_screen_name.empty()) {
     // Shows networks screen instead of enrollment screen to resume the
     // interrupted auto start enrollment flow because enrollment screen does
     // not handle flaky network. See http://crbug.com/332572
-    display_host->StartWizard(WizardController::kNetworkScreenName,
-                              scoped_ptr<base::DictionaryValue>());
+    display_host->StartWizard(WizardController::kNetworkScreenName);
     return;
   }
 
   if (StartupUtils::IsEulaAccepted()) {
     DelayNetworkCall(
+        base::TimeDelta::FromMilliseconds(kDefaultNetworkRetryDelayMS),
         ServicesCustomizationDocument::GetInstance()
-            ->EnsureCustomizationAppliedClosure(),
-        base::TimeDelta::FromMilliseconds(kDefaultNetworkRetryDelayMS));
+            ->EnsureCustomizationAppliedClosure());
+
+    display_host->StartTimeZoneResolve();
   }
 
   bool show_login_screen =
-      (first_screen_name.empty() && oobe_complete) ||
+      (first_screen_name.empty() && StartupUtils::IsOobeCompleted()) ||
       first_screen_name == WizardController::kLoginScreenName;
 
   if (show_login_screen) {
@@ -1291,12 +1233,10 @@ void ShowLoginWizard(const std::string& first_screen_name) {
   const std::string& layout = startup_manifest->keyboard_layout();
   VLOG(1) << "Initial locale: " << locale << "keyboard layout " << layout;
 
-#if !defined(USE_ATHENA)
   // Determine keyboard layout from OEM customization (if provided) or
   // initial locale and save it in preferences.
   manager->GetActiveIMEState()->SetInputMethodLoginDefaultFromVPD(locale,
                                                                   layout);
-#endif
 
   if (!current_locale.empty() || locale.empty()) {
     ShowLoginWizardFinish(first_screen_name, startup_manifest, display_host);
@@ -1314,13 +1254,12 @@ void ShowLoginWizard(const std::string& first_screen_name) {
       new ShowLoginWizardSwitchLanguageCallbackData(
           first_screen_name, startup_manifest, display_host));
 
-  scoped_ptr<locale_util::SwitchLanguageCallback> callback(
-      new locale_util::SwitchLanguageCallback(
-          base::Bind(&OnLanguageSwitchedCallback, base::Passed(data.Pass()))));
+  locale_util::SwitchLanguageCallback callback(
+      base::Bind(&OnLanguageSwitchedCallback, base::Passed(data.Pass())));
 
   // Load locale keyboards here. Hardware layout would be automatically enabled.
-  locale_util::SwitchLanguage(
-      locale, true, true /* login_layouts_only */, callback.Pass());
+  locale_util::SwitchLanguage(locale, true, true /* login_layouts_only */,
+                              callback, ProfileManager::GetActiveUserProfile());
 }
 
 }  // namespace chromeos

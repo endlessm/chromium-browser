@@ -128,6 +128,9 @@ class ExtensionUpdater : public ExtensionDownloaderDelegate,
   // Overrides the extension cache with |extension_cache| for testing.
   void SetExtensionCacheForTesting(ExtensionCache* extension_cache);
 
+  // Stop the timer to prevent scheduled updates for testing.
+  void StopTimerForTesting();
+
  private:
   friend class ExtensionUpdaterTest;
   friend class ExtensionUpdaterFileHandler;
@@ -136,16 +139,17 @@ class ExtensionUpdater : public ExtensionDownloaderDelegate,
   // but have not yet installed.
   struct FetchedCRXFile {
     FetchedCRXFile();
-    FetchedCRXFile(const std::string& id,
-                   const base::FilePath& path,
+    FetchedCRXFile(const CRXFileInfo& file,
                    bool file_ownership_passed,
-                   const std::set<int>& request_ids);
+                   const std::set<int>& request_ids,
+                   const InstallCallback& callback);
     ~FetchedCRXFile();
 
-    std::string extension_id;
-    base::FilePath path;
+    CRXFileInfo info;
+    GURL download_url;
     bool file_ownership_passed;
     std::set<int> request_ids;
+    InstallCallback callback;
   };
 
   struct InProgressCheck {
@@ -195,13 +199,13 @@ class ExtensionUpdater : public ExtensionDownloaderDelegate,
                                  Error error,
                                  const PingResult& ping,
                                  const std::set<int>& request_ids) override;
-  void OnExtensionDownloadFinished(const std::string& id,
-                                   const base::FilePath& path,
+  void OnExtensionDownloadFinished(const CRXFileInfo& file,
                                    bool file_ownership_passed,
                                    const GURL& download_url,
                                    const std::string& version,
                                    const PingResult& ping,
-                                   const std::set<int>& request_id) override;
+                                   const std::set<int>& request_id,
+                                   const InstallCallback& callback) override;
   bool GetPingDataForExtension(const std::string& id,
                                ManifestFetchData::PingData* ping_data) override;
   std::string GetUpdateUrlData(const std::string& id) override;

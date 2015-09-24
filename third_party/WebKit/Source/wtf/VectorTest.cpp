@@ -24,13 +24,15 @@
  */
 
 #include "config.h"
+#include "wtf/Vector.h"
 
 #include "wtf/HashSet.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/PassOwnPtr.h"
 #include "wtf/text/WTFString.h"
-#include "wtf/Vector.h"
 #include <gtest/gtest.h>
+
+namespace WTF {
 
 namespace {
 
@@ -129,7 +131,7 @@ private:
     int* m_destructNumber;
 };
 
-typedef WTF::Vector<OwnPtr<DestructCounter> > OwnPtrVector;
+typedef WTF::Vector<OwnPtr<DestructCounter>> OwnPtrVector;
 
 TEST(VectorTest, OwnPtr)
 {
@@ -284,6 +286,92 @@ TEST(VectorTest, SwapWithInlineCapacity)
     vectorB.swap(vectorA);
 }
 
+#if defined(ADDRESS_SANITIZER)
+TEST(VectorTest, ContainerAnnotations)
+{
+    Vector<int> vectorA;
+    vectorA.append(10);
+    vectorA.reserveCapacity(32);
+
+    volatile int* intPointerA = vectorA.data();
+    EXPECT_DEATH(intPointerA[1] = 11, "container-overflow");
+    vectorA.append(11);
+    intPointerA[1] = 11;
+    EXPECT_DEATH(intPointerA[2] = 12, "container-overflow");
+    EXPECT_DEATH((void)intPointerA[2], "container-overflow");
+    vectorA.shrinkToFit();
+    vectorA.reserveCapacity(16);
+    intPointerA = vectorA.data();
+    EXPECT_DEATH((void)intPointerA[2], "container-overflow");
+
+    Vector<int> vectorB(vectorA);
+    vectorB.reserveCapacity(16);
+    volatile int* intPointerB = vectorB.data();
+    EXPECT_DEATH((void)intPointerB[2], "container-overflow");
+
+    Vector<int> vectorC((Vector<int>(vectorA)));
+    volatile int* intPointerC = vectorC.data();
+    EXPECT_DEATH((void)intPointerC[2], "container-overflow");
+    vectorC.append(13);
+    vectorC.swap(vectorB);
+
+    volatile int* intPointerB2 = vectorB.data();
+    volatile int* intPointerC2 = vectorC.data();
+    intPointerB2[2] = 13;
+    EXPECT_DEATH((void)intPointerB2[3], "container-overflow");
+    EXPECT_DEATH((void)intPointerC2[2], "container-overflow");
+
+    vectorB = vectorC;
+    volatile int* intPointerB3 = vectorB.data();
+    EXPECT_DEATH((void)intPointerB3[2], "container-overflow");
+}
+
+TEST(VectorTest, ContainerAnnotationsInline)
+{
+    Vector<int> vectorA;
+    Vector<int, 4> vectorB;
+
+    vectorB.append(1);
+    vectorB.append(2);
+    volatile int* intPointerB = vectorB.data();
+    EXPECT_DEATH((void)intPointerB[2], "container-overflow");
+
+    vectorB.append(3);
+    vectorB.append(4);
+    vectorB.append(5);
+    vectorB.reserveCapacity(16);
+    intPointerB = vectorB.data();
+    EXPECT_DEATH((void)intPointerB[5], "container-overflow");
+
+    vectorB.clear();
+    vectorB.shrinkToFit();
+    vectorB.append(1);
+    intPointerB = vectorB.data();
+    EXPECT_DEATH((void)intPointerB[1], "container-overflow");
+
+    vectorB.shrinkToFit();
+    intPointerB = vectorB.data();
+    EXPECT_DEATH((void)intPointerB[1], "container-overflow");
+
+    vectorA = vectorB;
+    vectorA.reserveCapacity(8);
+    volatile int* intPointerA = vectorA.data();
+    EXPECT_DEATH((void)intPointerA[1], "container-overflow");
+
+    Vector<int, 4> vectorC;
+    vectorC.append(3);
+    vectorC.append(4);
+    vectorB.swap(vectorC);
+    intPointerB = vectorB.data();
+    vectorC.reserveCapacity(8);
+    volatile int* intPointerC = vectorC.data();
+    vectorC[0] = 2;
+    vectorB[1] = 1337;
+    EXPECT_DEATH((void)intPointerC[1], "container-overflow");
+    EXPECT_DEATH((void)intPointerB[2], "container-overflow");
+}
+#endif // defined(ADDRESS_SANITIZER)
+
 class Comparable {
 };
 bool operator==(const Comparable& a, const Comparable& b) { return true; }
@@ -294,6 +382,10 @@ template<typename T> void compare()
     EXPECT_FALSE(Vector<T>(1) == Vector<T>(0));
     EXPECT_FALSE(Vector<T>() == Vector<T>(1));
     EXPECT_TRUE(Vector<T>(1) == Vector<T>(1));
+
+    Vector<T, 1> vectorWithInlineCapacity;
+    EXPECT_TRUE(vectorWithInlineCapacity == Vector<T>());
+    EXPECT_FALSE(vectorWithInlineCapacity == Vector<T>(1));
 }
 
 TEST(VectorTest, Compare)
@@ -302,4 +394,7 @@ TEST(VectorTest, Compare)
     compare<Comparable>();
     compare<WTF::String>();
 }
-} // namespace
+
+} // anonymous namespace
+
+} // namespace WTF

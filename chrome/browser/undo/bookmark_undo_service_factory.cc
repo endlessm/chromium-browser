@@ -4,16 +4,22 @@
 
 #include "chrome/browser/undo/bookmark_undo_service_factory.h"
 
-#include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/undo/bookmark_undo_service.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "components/undo/bookmark_undo_service.h"
 
 // static
 BookmarkUndoService* BookmarkUndoServiceFactory::GetForProfile(
     Profile* profile) {
   return static_cast<BookmarkUndoService*>(
       GetInstance()->GetServiceForBrowserContext(profile, true));
+}
+
+// static
+BookmarkUndoService* BookmarkUndoServiceFactory::GetForProfileIfExists(
+    Profile* profile) {
+  return static_cast<BookmarkUndoService*>(
+      GetInstance()->GetServiceForBrowserContext(profile, false));
 }
 
 // static
@@ -25,7 +31,6 @@ BookmarkUndoServiceFactory::BookmarkUndoServiceFactory()
     : BrowserContextKeyedServiceFactory(
         "BookmarkUndoService",
         BrowserContextDependencyManager::GetInstance()) {
-  DependsOn(BookmarkModelFactory::GetInstance());
 }
 
 BookmarkUndoServiceFactory::~BookmarkUndoServiceFactory() {
@@ -33,6 +38,5 @@ BookmarkUndoServiceFactory::~BookmarkUndoServiceFactory() {
 
 KeyedService* BookmarkUndoServiceFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
-  Profile* profile = static_cast<Profile*>(context);
-  return new BookmarkUndoService(profile);
+  return new BookmarkUndoService;
 }

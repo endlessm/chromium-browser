@@ -17,13 +17,10 @@
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/buffers.h"
 #include "media/base/decoder_buffer.h"
-#include "media/base/decryptor.h"
-#include "media/base/demuxer_stream.h"
+#include "media/base/media_log.h"
 #include "media/base/pipeline.h"
 
 namespace media {
-
-const int DecryptingAudioDecoder::kSupportedBitsPerChannel = 16;
 
 static inline bool IsOutOfSync(const base::TimeDelta& timestamp_1,
                                const base::TimeDelta& timestamp_2) {
@@ -36,20 +33,25 @@ static inline bool IsOutOfSync(const base::TimeDelta& timestamp_1,
 
 DecryptingAudioDecoder::DecryptingAudioDecoder(
     const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
-    const SetDecryptorReadyCB& set_decryptor_ready_cb)
+    const scoped_refptr<MediaLog>& media_log,
+    const SetDecryptorReadyCB& set_decryptor_ready_cb,
+    const base::Closure& waiting_for_decryption_key_cb)
     : task_runner_(task_runner),
+      media_log_(media_log),
       state_(kUninitialized),
+      waiting_for_decryption_key_cb_(waiting_for_decryption_key_cb),
       set_decryptor_ready_cb_(set_decryptor_ready_cb),
       decryptor_(NULL),
       key_added_while_decode_pending_(false),
-      weak_factory_(this) {}
+      weak_factory_(this) {
+}
 
 std::string DecryptingAudioDecoder::GetDisplayName() const {
   return "DecryptingAudioDecoder";
 }
 
 void DecryptingAudioDecoder::Initialize(const AudioDecoderConfig& config,
-                                        const PipelineStatusCB& status_cb,
+                                        const InitCB& init_cb,
                                         const OutputCB& output_cb) {
   DVLOG(2) << "Initialize()";
   DCHECK(task_runner_->BelongsToCurrentThread());
@@ -57,18 +59,18 @@ void DecryptingAudioDecoder::Initialize(const AudioDecoderConfig& config,
   DCHECK(reset_cb_.is_null());
 
   weak_this_ = weak_factory_.GetWeakPtr();
-  init_cb_ = BindToCurrentLoop(status_cb);
+  init_cb_ = BindToCurrentLoop(init_cb);
   output_cb_ = BindToCurrentLoop(output_cb);
 
   if (!config.IsValidConfig()) {
     DLOG(ERROR) << "Invalid audio stream config.";
-    base::ResetAndReturn(&init_cb_).Run(PIPELINE_ERROR_DECODE);
+    base::ResetAndReturn(&init_cb_).Run(false);
     return;
   }
 
   // DecryptingAudioDecoder only accepts potentially encrypted stream.
   if (!config.is_encrypted()) {
-    base::ResetAndReturn(&init_cb_).Run(DECODER_ERROR_NOT_SUPPORTED);
+    base::ResetAndReturn(&init_cb_).Run(false);
     return;
   }
 
@@ -163,7 +165,7 @@ DecryptingAudioDecoder::~DecryptingAudioDecoder() {
     base::ResetAndReturn(&set_decryptor_ready_cb_).Run(DecryptorReadyCB());
   pending_buffer_to_decode_ = NULL;
   if (!init_cb_.is_null())
-    base::ResetAndReturn(&init_cb_).Run(DECODER_ERROR_NOT_SUPPORTED);
+    base::ResetAndReturn(&init_cb_).Run(false);
   if (!decode_cb_.is_null())
     base::ResetAndReturn(&decode_cb_).Run(kAborted);
   if (!reset_cb_.is_null())
@@ -182,7 +184,8 @@ void DecryptingAudioDecoder::SetDecryptor(
   set_decryptor_ready_cb_.Reset();
 
   if (!decryptor) {
-    base::ResetAndReturn(&init_cb_).Run(DECODER_ERROR_NOT_SUPPORTED);
+    MEDIA_LOG(DEBUG, media_log_) << GetDisplayName() << ": no decryptor set";
+    base::ResetAndReturn(&init_cb_).Run(false);
     state_ = kError;
     decryptor_attached_cb.Run(false);
     return;
@@ -211,7 +214,9 @@ void DecryptingAudioDecoder::FinishInitialization(bool success) {
   DCHECK(decode_cb_.is_null());  // No Decode() before initialization finished.
 
   if (!success) {
-    base::ResetAndReturn(&init_cb_).Run(DECODER_ERROR_NOT_SUPPORTED);
+    MEDIA_LOG(DEBUG, media_log_) << GetDisplayName()
+                                 << ": failed to init decoder on decryptor";
+    base::ResetAndReturn(&init_cb_).Run(false);
     decryptor_ = NULL;
     state_ = kError;
     return;
@@ -227,7 +232,7 @@ void DecryptingAudioDecoder::FinishInitialization(bool success) {
           base::Bind(&DecryptingAudioDecoder::OnKeyAdded, weak_this_)));
 
   state_ = kIdle;
-  base::ResetAndReturn(&init_cb_).Run(PIPELINE_OK);
+  base::ResetAndReturn(&init_cb_).Run(true);
 }
 
 void DecryptingAudioDecoder::DecodePendingBuffer() {
@@ -248,7 +253,7 @@ void DecryptingAudioDecoder::DecodePendingBuffer() {
 void DecryptingAudioDecoder::DeliverFrame(
     int buffer_size,
     Decryptor::Status status,
-    const Decryptor::AudioBuffers& frames) {
+    const Decryptor::AudioFrames& frames) {
   DVLOG(3) << "DeliverFrame() - status: " << status;
   DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK_EQ(state_, kPendingDecode) << state_;
@@ -272,6 +277,7 @@ void DecryptingAudioDecoder::DeliverFrame(
 
   if (status == Decryptor::kError) {
     DVLOG(2) << "DeliverFrame() - kError";
+    MEDIA_LOG(ERROR, media_log_) << GetDisplayName() << ": decode error";
     state_ = kDecodeFinished; // TODO add kError state
     base::ResetAndReturn(&decode_cb_).Run(kDecodeError);
     return;
@@ -279,6 +285,8 @@ void DecryptingAudioDecoder::DeliverFrame(
 
   if (status == Decryptor::kNoKey) {
     DVLOG(2) << "DeliverFrame() - kNoKey";
+    MEDIA_LOG(DEBUG, media_log_) << GetDisplayName() << ": no key";
+
     // Set |pending_buffer_to_decode_| back as we need to try decoding the
     // pending buffer again when new key is added to the decryptor.
     pending_buffer_to_decode_ = scoped_pending_buffer_to_decode;
@@ -290,6 +298,7 @@ void DecryptingAudioDecoder::DeliverFrame(
     }
 
     state_ = kWaitingForKey;
+    waiting_for_decryption_key_cb_.Run();
     return;
   }
 
@@ -340,8 +349,8 @@ void DecryptingAudioDecoder::DoReset() {
 }
 
 void DecryptingAudioDecoder::ProcessDecodedFrames(
-    const Decryptor::AudioBuffers& frames) {
-  for (Decryptor::AudioBuffers::const_iterator iter = frames.begin();
+    const Decryptor::AudioFrames& frames) {
+  for (Decryptor::AudioFrames::const_iterator iter = frames.begin();
        iter != frames.end();
        ++iter) {
     scoped_refptr<AudioBuffer> frame = *iter;

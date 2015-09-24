@@ -554,14 +554,28 @@ bool ReadDbStateHelper(const base::FilePath& filename,
 
 }  // namespace
 
-SafeBrowsingStoreFile::SafeBrowsingStoreFile()
-    : chunks_written_(0), empty_(false), corruption_seen_(false) {}
+SafeBrowsingStoreFile::SafeBrowsingStoreFile(
+    const scoped_refptr<const base::SequencedTaskRunner>& task_runner)
+    : task_runner_(task_runner),
+      chunks_written_(0),
+      empty_(false),
+      corruption_seen_(false) {
+}
 
 SafeBrowsingStoreFile::~SafeBrowsingStoreFile() {
+  // Thread-checking is disabled in the destructor due to crbug.com/338486.
+  task_runner_ = nullptr;
+
   Close();
 }
 
+bool SafeBrowsingStoreFile::CalledOnValidThread() {
+  return !task_runner_ || task_runner_->RunsTasksOnCurrentThread();
+}
+
 bool SafeBrowsingStoreFile::Delete() {
+  DCHECK(CalledOnValidThread());
+
   // The database should not be open at this point.  But, just in
   // case, close everything before deleting.
   if (!Close()) {
@@ -573,6 +587,8 @@ bool SafeBrowsingStoreFile::Delete() {
 }
 
 bool SafeBrowsingStoreFile::CheckValidity() {
+  DCHECK(CalledOnValidThread());
+
   // The file was either empty or never opened.  The empty case is
   // presumed not to be invalid.  The never-opened case can happen if
   // BeginUpdate() fails for any databases, and should already have
@@ -620,20 +636,25 @@ bool SafeBrowsingStoreFile::CheckValidity() {
 
 void SafeBrowsingStoreFile::Init(const base::FilePath& filename,
                                  const base::Closure& corruption_callback) {
+  DCHECK(CalledOnValidThread());
   filename_ = filename;
   corruption_callback_ = corruption_callback;
 }
 
 bool SafeBrowsingStoreFile::BeginChunk() {
+  DCHECK(CalledOnValidThread());
   return ClearChunkBuffers();
 }
 
 bool SafeBrowsingStoreFile::WriteAddPrefix(int32 chunk_id, SBPrefix prefix) {
+  DCHECK(CalledOnValidThread());
   add_prefixes_.push_back(SBAddPrefix(chunk_id, prefix));
   return true;
 }
 
 bool SafeBrowsingStoreFile::GetAddPrefixes(SBAddPrefixes* add_prefixes) {
+  DCHECK(CalledOnValidThread());
+
   add_prefixes->clear();
   if (!base::PathExists(filename_))
     return true;
@@ -648,6 +669,8 @@ bool SafeBrowsingStoreFile::GetAddPrefixes(SBAddPrefixes* add_prefixes) {
 
 bool SafeBrowsingStoreFile::GetAddFullHashes(
     std::vector<SBAddFullHash>* add_full_hashes) {
+  DCHECK(CalledOnValidThread());
+
   add_full_hashes->clear();
   if (!base::PathExists(filename_))
     return true;
@@ -662,6 +685,7 @@ bool SafeBrowsingStoreFile::GetAddFullHashes(
 
 bool SafeBrowsingStoreFile::WriteAddHash(int32 chunk_id,
                                          const SBFullHash& full_hash) {
+  DCHECK(CalledOnValidThread());
   add_hashes_.push_back(SBAddFullHash(chunk_id, full_hash));
   return true;
 }
@@ -669,17 +693,21 @@ bool SafeBrowsingStoreFile::WriteAddHash(int32 chunk_id,
 bool SafeBrowsingStoreFile::WriteSubPrefix(int32 chunk_id,
                                            int32 add_chunk_id,
                                            SBPrefix prefix) {
+  DCHECK(CalledOnValidThread());
   sub_prefixes_.push_back(SBSubPrefix(chunk_id, add_chunk_id, prefix));
   return true;
 }
 
 bool SafeBrowsingStoreFile::WriteSubHash(int32 chunk_id, int32 add_chunk_id,
                                          const SBFullHash& full_hash) {
+  DCHECK(CalledOnValidThread());
   sub_hashes_.push_back(SBSubFullHash(chunk_id, add_chunk_id, full_hash));
   return true;
 }
 
 bool SafeBrowsingStoreFile::OnCorruptDatabase() {
+  DCHECK(CalledOnValidThread());
+
   if (!corruption_seen_)
     RecordFormatEvent(FORMAT_EVENT_FILE_CORRUPT);
   corruption_seen_ = true;
@@ -691,6 +719,8 @@ bool SafeBrowsingStoreFile::OnCorruptDatabase() {
 }
 
 bool SafeBrowsingStoreFile::Close() {
+  DCHECK(CalledOnValidThread());
+
   ClearUpdateBuffers();
 
   // Make sure the files are closed.
@@ -700,6 +730,7 @@ bool SafeBrowsingStoreFile::Close() {
 }
 
 bool SafeBrowsingStoreFile::BeginUpdate() {
+  DCHECK(CalledOnValidThread());
   DCHECK(!file_.get() && !new_file_.get());
 
   // Structures should all be clear unless something bad happened.
@@ -761,6 +792,8 @@ bool SafeBrowsingStoreFile::BeginUpdate() {
 }
 
 bool SafeBrowsingStoreFile::FinishChunk() {
+  DCHECK(CalledOnValidThread());
+
   if (!add_prefixes_.size() && !sub_prefixes_.size() &&
       !add_hashes_.size() && !sub_hashes_.size())
     return true;
@@ -788,6 +821,7 @@ bool SafeBrowsingStoreFile::FinishChunk() {
 bool SafeBrowsingStoreFile::DoUpdate(
     safe_browsing::PrefixSetBuilder* builder,
     std::vector<SBAddFullHash>* add_full_hashes_result) {
+  DCHECK(CalledOnValidThread());
   DCHECK(file_.get() || empty_);
   DCHECK(new_file_.get());
   CHECK(builder);
@@ -1035,6 +1069,7 @@ bool SafeBrowsingStoreFile::DoUpdate(
 bool SafeBrowsingStoreFile::FinishUpdate(
     safe_browsing::PrefixSetBuilder* builder,
     std::vector<SBAddFullHash>* add_full_hashes_result) {
+  DCHECK(CalledOnValidThread());
   DCHECK(builder);
   DCHECK(add_full_hashes_result);
 
@@ -1050,6 +1085,7 @@ bool SafeBrowsingStoreFile::FinishUpdate(
 }
 
 bool SafeBrowsingStoreFile::CancelUpdate() {
+  DCHECK(CalledOnValidThread());
   bool ret = Close();
 
   // Delete stale staging file.
@@ -1060,36 +1096,44 @@ bool SafeBrowsingStoreFile::CancelUpdate() {
 }
 
 void SafeBrowsingStoreFile::SetAddChunk(int32 chunk_id) {
+  DCHECK(CalledOnValidThread());
   add_chunks_cache_.insert(chunk_id);
 }
 
 bool SafeBrowsingStoreFile::CheckAddChunk(int32 chunk_id) {
+  DCHECK(CalledOnValidThread());
   return add_chunks_cache_.count(chunk_id) > 0;
 }
 
 void SafeBrowsingStoreFile::GetAddChunks(std::vector<int32>* out) {
+  DCHECK(CalledOnValidThread());
   out->clear();
   out->insert(out->end(), add_chunks_cache_.begin(), add_chunks_cache_.end());
 }
 
 void SafeBrowsingStoreFile::SetSubChunk(int32 chunk_id) {
+  DCHECK(CalledOnValidThread());
   sub_chunks_cache_.insert(chunk_id);
 }
 
 bool SafeBrowsingStoreFile::CheckSubChunk(int32 chunk_id) {
+  DCHECK(CalledOnValidThread());
   return sub_chunks_cache_.count(chunk_id) > 0;
 }
 
 void SafeBrowsingStoreFile::GetSubChunks(std::vector<int32>* out) {
+  DCHECK(CalledOnValidThread());
   out->clear();
   out->insert(out->end(), sub_chunks_cache_.begin(), sub_chunks_cache_.end());
 }
 
 void SafeBrowsingStoreFile::DeleteAddChunk(int32 chunk_id) {
+  DCHECK(CalledOnValidThread());
   add_del_cache_.insert(chunk_id);
 }
 
 void SafeBrowsingStoreFile::DeleteSubChunk(int32 chunk_id) {
+  DCHECK(CalledOnValidThread());
   sub_del_cache_.insert(chunk_id);
 }
 

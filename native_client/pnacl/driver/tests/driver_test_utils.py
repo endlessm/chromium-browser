@@ -20,11 +20,6 @@ def CanRunHost():
   # does not work on some bots (e.g., the ARM bots).
   if platform.machine().startswith('arm'):
     return False
-  # We also cannot run some of the Windows binaries directly, since
-  # they depend on cygwin DLLs and the cygwin DLLs are only in the
-  # path for the installed drivers bin and not for the binaries.
-  if sys.platform == 'win32':
-    return False
   return True
 
 def SetupNaClDir(env):
@@ -38,7 +33,7 @@ def SetupToolchainDir(env):
   os_name = driver_tools.GetOSName()
 
   toolchain_dir = os.path.join(nacl_dir, 'toolchain', '%s_x86' % os_name,
-                               'pnacl_newlib')
+                               'pnacl_newlib_raw')
   env.set('BASE_TOOLCHAIN', toolchain_dir)
 
 def SetupHostDir(env):
@@ -51,7 +46,7 @@ def SetupHostDir(env):
   os_shortname = driver_tools.GetOSName()
   host_dir = os.path.join(nacl_dir, 'toolchain',
                           '%s_x86' % os_shortname,
-                          'pnacl_newlib')
+                          'pnacl_newlib_raw')
   driver_tools.AddHostBinarySearchPath(host_dir)
 
 # A collection of override methods that mock driver_env.Environment.

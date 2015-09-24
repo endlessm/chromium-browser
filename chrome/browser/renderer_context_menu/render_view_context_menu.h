@@ -19,6 +19,7 @@
 #include "content/public/common/context_menu_params.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/base/window_open_disposition.h"
+#include "ui/gfx/geometry/vector2d.h"
 
 #if defined(ENABLE_EXTENSIONS)
 #include "chrome/browser/extensions/context_menu_matcher.h"
@@ -55,6 +56,13 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
                         const content::ContextMenuParams& params);
 
   ~RenderViewContextMenu() override;
+
+  // Returns the offset amount if the context menu requires off-setting.
+  //
+  // If |render_frame_host| belongs to a WebContents that is nested within
+  // other WebContents(s), then this value is the offset between the topmost
+  // WebContents and the frame's WebContents.
+  static gfx::Vector2d GetOffset(content::RenderFrameHost* render_frame_host);
 
   // SimpleMenuModel::Delegate:
   bool IsCommandIdChecked(int command_id) const override;
@@ -122,9 +130,13 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   void AppendSpellingSuggestionsSubMenu();
   void AppendSpellcheckOptionsSubMenu();
   void AppendProtocolHandlerSubMenu();
+  void AppendPasswordItems();
 
   // Copy to the clipboard an image located at a point in the RenderView
   void CopyImageAt(int x, int y);
+
+  // Load the original image located at a point in the RenderView.
+  void LoadOriginalImage();
 
   // Get an image located at a point in the RenderView for search.
   void GetImageThumbnailForSearch();
@@ -167,6 +179,11 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   // An observer that disables menu items when print preview is active.
   scoped_ptr<PrintPreviewContextMenuObserver> print_preview_menu_observer_;
 #endif
+
+  // In the case of a MimeHandlerView this will point to the WebContents that
+  // embeds the MimeHandlerViewGuest. Otherwise this will be the same as
+  // |source_web_contents_|.
+  content::WebContents* const embedder_web_contents_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderViewContextMenu);
 };

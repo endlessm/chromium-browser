@@ -37,7 +37,15 @@ struct MediaMenuParts {
  private:
   DISALLOW_COPY_AND_ASSIGN(MediaMenuParts);
 };
-typedef std::map<NSPopUpButton*, MediaMenuParts*> MediaMenuPartsMap;
+
+// Comparator used by MediaMenuPartsMap to order its keys.
+struct compare_button {
+  bool operator()(NSPopUpButton *const a, NSPopUpButton *const b) {
+    return [a tag] < [b tag];
+  }
+};
+typedef std::map<NSPopUpButton*, MediaMenuParts*, compare_button>
+  MediaMenuPartsMap;
 }  // namespace content_setting_bubble
 
 // Manages a "content blocked" bubble.
@@ -81,7 +89,7 @@ typedef std::map<NSPopUpButton*, MediaMenuParts*> MediaMenuPartsMap;
 // Callback for "info" link.
 - (IBAction)showMoreInfo:(id)sender;
 
-// Callback for "load" (plug-ins, mixed script) button.
+// Callback for "load" (plugins, mixed script) button.
 - (IBAction)load:(id)sender;
 
 // Callback for "Learn More" link.

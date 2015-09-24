@@ -5,29 +5,36 @@
 #ifndef CHROME_BROWSER_SPELLCHECKER_SPELLCHECK_SERVICE_H_
 #define CHROME_BROWSER_SPELLCHECKER_SPELLCHECK_SERVICE_H_
 
-#include "base/compiler_specific.h"
+#include <string>
+#include <vector>
+
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/prefs/pref_change_registrar.h"
-#include "chrome/browser/spellchecker/feedback_sender.h"
 #include "chrome/browser/spellchecker/spellcheck_custom_dictionary.h"
 #include "chrome/browser/spellchecker/spellcheck_hunspell_dictionary.h"
-#include "chrome/common/spellcheck_common.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 
-class PrefService;
 class SpellCheckHostMetrics;
 
 namespace base {
 class WaitableEvent;
+class SupportsUserData;
 }
 
 namespace content {
 class RenderProcessHost;
 class BrowserContext;
+class NotificationDetails;
+class NotificationSource;
+}
+
+namespace spellcheck {
+class FeedbackSender;
 }
 
 // Encapsulates the browser side spellcheck service. There is one of these per
@@ -55,20 +62,17 @@ class SpellcheckService : public KeyedService,
   explicit SpellcheckService(content::BrowserContext* context);
   ~SpellcheckService() override;
 
-  // This function computes a vector of strings which are to be displayed in
-  // the context menu over a text area for changing spell check languages. It
-  // returns the index of the current spell check language in the vector.
+  base::WeakPtr<SpellcheckService> GetWeakPtr();
+
+#if !defined(OS_MACOSX)
+  // Computes |languages| to display in the context menu over a text area for
+  // changing spellcheck languages. Returns the number of languages that are
+  // enabled, which are always at the beginning of |languages|.
   // TODO(port): this should take a vector of base::string16, but the
   // implementation has some dependencies in l10n util that need porting first.
-  static int GetSpellCheckLanguages(content::BrowserContext* context,
-                                    std::vector<std::string>* languages);
-
-  // Computes a vector of strings which are to be displayed in the context
-  // menu from |accept_languages| and |dictionary_language|.
-  static void GetSpellCheckLanguagesFromAcceptLanguages(
-      const std::vector<std::string>& accept_languages,
-      const std::string& dictionary_language,
-      std::vector<std::string>* languages);
+  static size_t GetSpellCheckLanguages(base::SupportsUserData* context,
+                                       std::vector<std::string>* languages);
+#endif  // !OS_MACOSX
 
   // Signals the event attached by AttachTestEvent() to report the specified
   // event to browser tests. This function is called by this class and its
@@ -140,9 +144,9 @@ class SpellcheckService : public KeyedService,
   // be enabled.
   void OnEnableAutoSpellCorrectChanged();
 
-  // Reacts to a change in user preference on which language should be used for
+  // Reacts to a change in user preference on which languages should be used for
   // spellchecking.
-  void OnSpellCheckDictionaryChanged();
+  void OnSpellCheckDictionariesChanged();
 
   // Notification handler for changes to prefs::kSpellCheckUseSpellingService.
   void OnUseSpellingServiceChanged();

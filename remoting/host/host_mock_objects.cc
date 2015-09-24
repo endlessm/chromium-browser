@@ -4,7 +4,6 @@
 
 #include "remoting/host/host_mock_objects.h"
 
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/single_thread_task_runner.h"
 #include "net/base/ip_endpoint.h"
 #include "remoting/base/auto_thread_task_runner.h"
@@ -13,8 +12,10 @@
 #include "remoting/host/audio_capturer.h"
 #include "remoting/host/input_injector.h"
 #include "remoting/proto/event.pb.h"
+#include "remoting/proto/video.pb.h"
 #include "remoting/protocol/transport.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_capturer.h"
+#include "third_party/webrtc/modules/desktop_capture/desktop_frame.h"
 
 namespace remoting {
 
@@ -87,5 +88,16 @@ MockGnubbyAuthHandler::~MockGnubbyAuthHandler() {}
 MockMouseCursorMonitor::MockMouseCursorMonitor() {}
 
 MockMouseCursorMonitor::~MockMouseCursorMonitor() {}
+
+MockVideoEncoder::MockVideoEncoder() {
+}
+
+MockVideoEncoder::~MockVideoEncoder() {
+}
+
+scoped_ptr<VideoPacket> MockVideoEncoder::Encode(
+    const webrtc::DesktopFrame& frame) {
+  return make_scoped_ptr(EncodePtr(frame));
+}
 
 }  // namespace remoting

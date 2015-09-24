@@ -28,6 +28,7 @@
 
 #include "platform/Timer.h"
 #include "platform/Widget.h"
+#include "platform/graphics/paint/DisplayItem.h"
 #include "platform/heap/Handle.h"
 #include "platform/scroll/ScrollTypes.h"
 #include "platform/scroll/ScrollbarThemeClient.h"
@@ -45,53 +46,52 @@ class ScrollableArea;
 class ScrollbarTheme;
 
 class PLATFORM_EXPORT Scrollbar : public Widget, public ScrollbarThemeClient {
-
 public:
     static PassRefPtrWillBeRawPtr<Scrollbar> create(ScrollableArea*, ScrollbarOrientation, ScrollbarControlSize);
 
-    virtual ~Scrollbar();
+    ~Scrollbar() override;
 
     // ScrollbarThemeClient implementation.
-    virtual int x() const override { return Widget::x(); }
-    virtual int y() const override { return Widget::y(); }
-    virtual int width() const override { return Widget::width(); }
-    virtual int height() const override { return Widget::height(); }
-    virtual IntSize size() const override { return Widget::size(); }
-    virtual IntPoint location() const override { return Widget::location(); }
+    int x() const override { return Widget::x(); }
+    int y() const override { return Widget::y(); }
+    int width() const override { return Widget::width(); }
+    int height() const override { return Widget::height(); }
+    IntSize size() const override { return Widget::size(); }
+    IntPoint location() const override { return Widget::location(); }
 
-    virtual Widget* parent() const override { return Widget::parent(); }
-    virtual Widget* root() const override { return Widget::root(); }
+    Widget* parent() const override { return Widget::parent(); }
+    Widget* root() const override { return Widget::root(); }
 
-    virtual void setFrameRect(const IntRect& frameRect) override { Widget::setFrameRect(frameRect); }
-    virtual IntRect frameRect() const override { return Widget::frameRect(); }
+    void setFrameRect(const IntRect&) override;
+    IntRect frameRect() const override { return Widget::frameRect(); }
 
-    virtual void invalidate() override { Widget::invalidate(); }
-    virtual void invalidateRect(const IntRect&) override;
+    void invalidate() override { Widget::invalidate(); }
+    void invalidateRect(const IntRect&) override;
 
-    virtual ScrollbarOverlayStyle scrollbarOverlayStyle() const override;
-    virtual void getTickmarks(Vector<IntRect>&) const override;
-    virtual bool isScrollableAreaActive() const override;
+    ScrollbarOverlayStyle scrollbarOverlayStyle() const override;
+    void getTickmarks(Vector<IntRect>&) const override;
+    bool isScrollableAreaActive() const override;
 
-    virtual IntPoint convertFromContainingWindow(const IntPoint& windowPoint) override { return Widget::convertFromContainingWindow(windowPoint); }
+    IntPoint convertFromContainingWindow(const IntPoint& windowPoint) override { return Widget::convertFromContainingWindow(windowPoint); }
 
-    virtual bool isCustomScrollbar() const override { return false; }
-    virtual ScrollbarOrientation orientation() const override { return m_orientation; }
-    virtual bool isLeftSideVerticalScrollbar() const override;
+    bool isCustomScrollbar() const override { return false; }
+    ScrollbarOrientation orientation() const override { return m_orientation; }
+    bool isLeftSideVerticalScrollbar() const override;
 
-    virtual int value() const override { return lroundf(m_currentPos); }
-    virtual float currentPos() const override { return m_currentPos; }
-    virtual int visibleSize() const override { return m_visibleSize; }
-    virtual int totalSize() const override { return m_totalSize; }
-    virtual int maximum() const override { return m_totalSize - m_visibleSize; }
-    virtual ScrollbarControlSize controlSize() const override { return m_controlSize; }
+    int value() const override { return lroundf(m_currentPos); }
+    float currentPos() const override { return m_currentPos; }
+    int visibleSize() const override { return m_visibleSize; }
+    int totalSize() const override { return m_totalSize; }
+    int maximum() const override { return m_totalSize - m_visibleSize; }
+    ScrollbarControlSize controlSize() const override { return m_controlSize; }
 
-    virtual ScrollbarPart pressedPart() const override { return m_pressedPart; }
-    virtual ScrollbarPart hoveredPart() const override { return m_hoveredPart; }
+    ScrollbarPart pressedPart() const override { return m_pressedPart; }
+    ScrollbarPart hoveredPart() const override { return m_hoveredPart; }
 
-    virtual void styleChanged() override { }
+    void styleChanged() override { }
 
-    virtual bool enabled() const override { return m_enabled; }
-    virtual void setEnabled(bool) override;
+    bool enabled() const override { return m_enabled; }
+    void setEnabled(bool) override;
 
     // Called by the ScrollableArea when the scroll offset changes.
     void offsetDidChange();
@@ -107,9 +107,9 @@ public:
     void setProportion(int visibleSize, int totalSize);
     void setPressedPos(int p) { m_pressedPos = p; }
 
-    virtual void paint(GraphicsContext*, const IntRect& damageRect) override;
+    void paint(GraphicsContext*, const IntRect& damageRect) final;
 
-    virtual bool isOverlayScrollbar() const override;
+    bool isOverlayScrollbar() const override;
     bool shouldParticipateInHitTesting();
 
     bool isWindowActive() const;
@@ -132,19 +132,32 @@ public:
     bool suppressInvalidation() const { return m_suppressInvalidation; }
     void setSuppressInvalidation(bool s) { m_suppressInvalidation = s; }
 
-    virtual IntRect convertToContainingView(const IntRect&) const override;
-    virtual IntRect convertFromContainingView(const IntRect&) const override;
+    IntRect convertToContainingView(const IntRect&) const override;
+    IntRect convertFromContainingView(const IntRect&) const override;
 
-    virtual IntPoint convertToContainingView(const IntPoint&) const override;
-    virtual IntPoint convertFromContainingView(const IntPoint&) const override;
+    IntPoint convertToContainingView(const IntPoint&) const override;
+    IntPoint convertFromContainingView(const IntPoint&) const override;
 
     void moveThumb(int pos, bool draggingDocument = false);
 
-    virtual bool isAlphaLocked() const override { return m_isAlphaLocked; }
-    virtual void setIsAlphaLocked(bool flag) override { m_isAlphaLocked = flag; }
+    bool isAlphaLocked() const override { return m_isAlphaLocked; }
+    void setIsAlphaLocked(bool flag) override { m_isAlphaLocked = flag; }
+
+    float elasticOverscroll() const override { return m_elasticOverscroll; }
+    void setElasticOverscroll(float elasticOverscroll) override { m_elasticOverscroll = elasticOverscroll; }
 
     bool overlapsResizer() const { return m_overlapsResizer; }
     void setOverlapsResizer(bool overlapsResizer) { m_overlapsResizer = overlapsResizer; }
+
+    DisplayItemClient displayItemClient() const override { return toDisplayItemClient(this); }
+    String debugName() const override { return m_orientation == HorizontalScrollbar ? "HorizontalScrollbar" : "VerticalScrollbar"; }
+
+    // Promptly unregister from the theme manager + run finalizers of derived Scrollbars.
+    EAGERLY_FINALIZE();
+#if ENABLE(OILPAN)
+    DECLARE_EAGER_FINALIZATION_OPERATOR_NEW();
+#endif
+    DECLARE_VIRTUAL_TRACE();
 
 protected:
     Scrollbar(ScrollableArea*, ScrollbarOrientation, ScrollbarControlSize, ScrollbarTheme* = 0);
@@ -157,20 +170,13 @@ protected:
     void startTimerIfNeeded(double delay);
     void stopTimerIfNeeded();
     void autoscrollPressedPart(double delay);
-    ScrollDirection pressedPartScrollDirection();
+    ScrollDirectionPhysical pressedPartScrollDirectionPhysical();
     ScrollGranularity pressedPartScrollGranularity();
 
-    ScrollableArea* m_scrollableArea;
+    RawPtrWillBeMember<ScrollableArea> m_scrollableArea;
     ScrollbarOrientation m_orientation;
     ScrollbarControlSize m_controlSize;
     ScrollbarTheme* m_theme;
-
-#if ENABLE(OILPAN)
-    // To simplify Oilpan finalization, keep a copy of the ScrollableArea's
-    // scroll animator. Scrollbar is responsible for notifying the animator
-    // when it is destructed.
-    RefPtr<ScrollAnimator> m_animator;
-#endif
 
     int m_visibleSize;
     int m_totalSize;
@@ -193,8 +199,10 @@ protected:
 
     bool m_isAlphaLocked;
 
+    float m_elasticOverscroll;
+
 private:
-    virtual bool isScrollbar() const override { return true; }
+    bool isScrollbar() const override { return true; }
 
     float scrollableAreaCurrentPos() const;
 };

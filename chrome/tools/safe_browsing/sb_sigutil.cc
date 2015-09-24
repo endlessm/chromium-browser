@@ -15,7 +15,7 @@
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
-#include "chrome/browser/safe_browsing/binary_feature_extractor.h"
+#include "chrome/common/safe_browsing/binary_feature_extractor.h"
 #include "chrome/common/safe_browsing/csd.pb.h"
 
 // Command-line switch for the executable to extract a signature from.
@@ -25,9 +25,9 @@ static const char kExecutable[] = "executable";
 static const char kOutputFile[] = "output";
 
 int main(int argc, char* argv[]) {
-  CommandLine::Init(argc, argv);
+  base::CommandLine::Init(argc, argv);
 
-  CommandLine* cmd_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
   if (!cmd_line->HasSwitch(kExecutable)) {
     LOG(ERROR) << "Must specify executable to open with --executable";
     return 1;

@@ -16,10 +16,8 @@ import stat
 import tempfile
 import time
 
-import fixup_path
-fixup_path.FixupPath()
-
-from chromite.lib.paygen import flock
+from chromite.lib import locking
+from chromite.lib import osutils
 from chromite.lib.paygen import urilib
 from chromite.lib.paygen import utils
 
@@ -31,6 +29,18 @@ ONE_DAY = 24 * 60 * 60
 
 class RetriesExhaustedError(Exception):
   """Raised when we make too many attempts to download the same file."""
+
+
+def _DefaultFetchFunc(uri, cache_file):
+  """The default fetch function.
+
+  This simply downloads the uri into the cache file using urilib
+
+  Args:
+    uri: The URI to download.
+    cache_file: The path to put the downloaded file in.
+  """
+  urilib.Copy(uri, cache_file)
 
 
 class DownloadCache(object):
@@ -87,6 +97,7 @@ class DownloadCache(object):
   def _SetupCache(self):
     """Make sure that our cache contains only files/directories we expect."""
     try:
+      osutils.SafeMakedirs(self._cache_dir)
       # The purge lock ensures nobody else is modifying the cache in any way.
       with self._PurgeLock(blocking=False, shared=False):
         # We have changed the layout of our cache directories over time.
@@ -108,7 +119,7 @@ class DownloadCache(object):
         # Create the lock dir if needed.
         if not os.path.exists(self._lock_dir):
           os.makedirs(self._lock_dir)
-    except flock.LockNotAcquired:
+    except locking.LockNotAcquiredError:
       # If we can't get an exclusive lock on the cache, someone else set it up.
       pass
 
@@ -139,12 +150,12 @@ class DownloadCache(object):
       shared: Get a shared lock, or an exclusive lock?
 
     Returns:
-      flock.Lock (not acquired)
+      Locking.FileLock (acquired)
     """
-    return flock.Lock(lock_name=self._CACHE_LOCK,
-                      lock_dir=self._cache_dir,
-                      blocking=blocking,
-                      shared=shared)
+    lock_file = os.path.join(self._cache_dir, self._CACHE_LOCK)
+    lock = locking.FileLock(lock_file, locktype=locking.FLOCK,
+                            blocking=blocking)
+    return lock.lock(shared)
 
   def _CacheFileLock(self, cache_file, blocking=False, shared=False):
     """Acquire a lock on a file in the cache.
@@ -164,12 +175,12 @@ class DownloadCache(object):
       shared: Get a shared lock, or an exclusive lock?
 
     Returns:
-      flock.Lock (not acquired)
+      Locking.FileLock (acquired)
     """
-    return flock.Lock(lock_name=os.path.basename(cache_file),
-                      lock_dir=self._lock_dir,
-                      blocking=blocking,
-                      shared=shared)
+    lock_file = os.path.join(self._lock_dir, os.path.basename(cache_file))
+    lock = locking.FileLock(lock_file, locktype=locking.FLOCK,
+                            blocking=blocking)
+    return lock.lock(shared)
 
   def Purge(self, max_age=None, cache_size=None):
     """Attempts to clean up the cache contents.
@@ -217,11 +228,11 @@ class DownloadCache(object):
         shutil.rmtree(self._lock_dir)
         os.makedirs(self._lock_dir)
 
-    except flock.LockNotAcquired:
+    except locking.LockNotAcquiredError:
       # If we can't get an exclusive lock on the file, it's in use, leave it.
       pass
 
-  def _FetchIntoCache(self, uri, cache_file):
+  def _FetchIntoCache(self, uri, cache_file, fetch_func=_DefaultFetchFunc):
     """This function downloads the specified file (if not already local).
 
     You must hold the PurgeLock when calling this method.
@@ -230,8 +241,9 @@ class DownloadCache(object):
     it does nothing.
 
     Args:
-      uri: uri of the file to download.
-      cache_file: location in the cache to download too.
+      uri: The uri of the file.
+      cache_file: The location in the cache to download too.
+      fetch_func: Function to get the file.
 
     Returns:
       True if a file was downloaded, False otherwise. (used in unittests)
@@ -246,8 +258,7 @@ class DownloadCache(object):
           return False
 
         try:
-          # Actually download the file.
-          urilib.Copy(uri, cache_file)
+          fetch_func(uri, cache_file)
           # Make the file read-only by everyone.
           os.chmod(cache_file, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
         except:
@@ -257,7 +268,7 @@ class DownloadCache(object):
             os.unlink(cache_file)
           raise
 
-    except flock.LockNotAcquired:
+    except locking.LockNotAcquiredError:
       # In theory, if it's already locked, that either means a download is in
       # progress, or there is a shared lock which means it's already present.
       return False
@@ -266,7 +277,11 @@ class DownloadCache(object):
     self.Purge()
     return True
 
-  def GetFileObject(self, uri):
+  # TODO: Instead of hooking in fetch functions in the cache here, we could
+  # set up protocol handlers which would know how to handle special cases
+  # generally, identified by a protocol prefix like "prepimage://" or
+  # "decompress://". That would help make sure they're handled consistently.
+  def GetFileObject(self, uri, fetch_func=_DefaultFetchFunc):
     """Get an open readonly File object for the file in the cache.
 
     This method will populate the cache with the requested file if it's
@@ -282,6 +297,8 @@ class DownloadCache(object):
 
     Args:
       uri: The uri of the file to access.
+      fetch_func: A function to produce the file if it isn't already in the
+                  cache.
 
     Returns:
       File object opened with 'rb' mode.
@@ -299,10 +316,10 @@ class DownloadCache(object):
     for _ in xrange(FETCH_RETRY_COUNT):
       with self._PurgeLock(shared=True, blocking=True):
         # Attempt to download the file, if needed.
-        self._FetchIntoCache(uri, cache_file)
+        self._FetchIntoCache(uri, cache_file, fetch_func)
 
         # Get a shared lock on the file. This can block if another process
-        # has a non-shared lock (ie: they are downloading)
+        # has a non-shared lock (ie: they are downloading).
         with self._CacheFileLock(cache_file, shared=True, blocking=True):
 
           if os.path.exists(cache_file):
@@ -344,7 +361,7 @@ class DownloadCache(object):
       the underlying download mechanism.
     """
     with self.GetFileObject(uri) as src:
-      with open(filepath, 'wb+') as dest:
+      with open(filepath, 'w+b') as dest:
         shutil.copyfileobj(src, dest)
 
   def GetFileInTempFile(self, uri):

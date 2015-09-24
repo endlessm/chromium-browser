@@ -17,7 +17,8 @@ const char kEnablePixelOutputInTests[] = "enable-pixel-output-in-tests";
 
 const char kUIDisableThreadedCompositing[] = "ui-disable-threaded-compositing";
 
-const char kUIEnableImplSidePainting[] = "ui-enable-impl-side-painting";
+const char kUIEnableCompositorAnimationTimelines[] =
+    "ui-enable-compositor-animation-timelines";
 
 const char kUIEnableZeroCopy[] = "ui-enable-zero-copy";
 
@@ -27,16 +28,15 @@ const char kUIShowPaintRects[] = "ui-show-paint-rects";
 
 namespace ui {
 
-bool IsUIImplSidePaintingEnabled() {
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
-
-  return command_line.HasSwitch(switches::kUIEnableImplSidePainting);
+bool IsUIZeroCopyEnabled() {
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
+  return command_line.HasSwitch(switches::kUIEnableZeroCopy);
 }
 
-bool IsUIZeroCopyEnabled() {
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
-
-  return command_line.HasSwitch(switches::kUIEnableZeroCopy);
+bool IsUIOneCopyEnabled() {
+  // One-copy is on by default unless zero copy is enabled.
+  return !IsUIZeroCopyEnabled();
 }
 
 }  // namespace ui

@@ -30,6 +30,7 @@
 #include "wtf/text/ASCIIFastPath.h"
 #include "wtf/text/StringImpl.h"
 #include "wtf/text/StringView.h"
+#include <algorithm>
 
 #ifdef __OBJC__
 #include <objc/objc.h>
@@ -198,6 +199,9 @@ public:
     // Find a single character or string, also with match function & latin1 forms.
     size_t find(UChar c, unsigned start = 0) const
         { return m_impl ? m_impl->find(c, start) : kNotFound; }
+    size_t find(LChar c, unsigned start = 0) const
+        { return m_impl ? m_impl->find(c, start) : kNotFound; }
+    size_t find(char c, unsigned start = 0) const { return find(static_cast<LChar>(c), start); }
 
     size_t find(const String& str) const
         { return m_impl ? m_impl->find(str.impl()) : kNotFound; }
@@ -227,12 +231,12 @@ public:
         { return m_impl ? m_impl->reverseFindIgnoringCase(str.impl(), start) : kNotFound; }
 
     // Wrappers for find & reverseFind adding dynamic sensitivity check.
-    size_t find(const LChar* str, unsigned start, bool caseSensitive) const
-        { return caseSensitive ? find(str, start) : findIgnoringCase(str, start); }
-    size_t find(const String& str, unsigned start, bool caseSensitive) const
-        { return caseSensitive ? find(str, start) : findIgnoringCase(str, start); }
-    size_t reverseFind(const String& str, unsigned start, bool caseSensitive) const
-        { return caseSensitive ? reverseFind(str, start) : reverseFindIgnoringCase(str, start); }
+    size_t find(const LChar* str, unsigned start, TextCaseSensitivity caseSensitivity) const
+        { return (caseSensitivity == TextCaseSensitive) ? find(str, start) : findIgnoringCase(str, start); }
+    size_t find(const String& str, unsigned start, TextCaseSensitivity caseSensitivity) const
+        { return (caseSensitivity == TextCaseSensitive) ? find(str, start) : findIgnoringCase(str, start); }
+    size_t reverseFind(const String& str, unsigned start, TextCaseSensitivity caseSensitivity) const
+        { return (caseSensitivity == TextCaseSensitive) ? reverseFind(str, start) : reverseFindIgnoringCase(str, start); }
 
     Vector<UChar> charactersWithNullTermination() const;
     unsigned copyTo(UChar* buffer, unsigned pos, unsigned maxLength) const;
@@ -247,26 +251,26 @@ public:
     void prependTo(Vector<UChar, inlineCapacity>&, unsigned pos = 0, unsigned len = UINT_MAX) const;
 
     UChar32 characterStartingAt(unsigned) const;
+    template<typename CharacterType>
+    bool contains(CharacterType c) const { return find(c) != kNotFound; }
+    bool contains(const LChar* str, TextCaseSensitivity caseSensitivity = TextCaseSensitive) const { return find(str, 0, caseSensitivity) != kNotFound; }
+    bool contains(const String& str, TextCaseSensitivity caseSensitivity = TextCaseSensitive) const { return find(str, 0, caseSensitivity) != kNotFound; }
 
-    bool contains(UChar c) const { return find(c) != kNotFound; }
-    bool contains(const LChar* str, bool caseSensitive = true) const { return find(str, 0, caseSensitive) != kNotFound; }
-    bool contains(const String& str, bool caseSensitive = true) const { return find(str, 0, caseSensitive) != kNotFound; }
-
-    bool startsWith(const String& s, bool caseSensitive = true) const
-        { return m_impl ? m_impl->startsWith(s.impl(), caseSensitive) : s.isEmpty(); }
+    bool startsWith(const String& s, TextCaseSensitivity caseSensitivity = TextCaseSensitive) const
+        { return m_impl ? m_impl->startsWith(s.impl(), caseSensitivity) : s.isEmpty(); }
     bool startsWith(UChar character) const
         { return m_impl ? m_impl->startsWith(character) : false; }
     template<unsigned matchLength>
-    bool startsWith(const char (&prefix)[matchLength], bool caseSensitive = true) const
-        { return m_impl ? m_impl->startsWith<matchLength>(prefix, caseSensitive) : !matchLength; }
+    bool startsWith(const char (&prefix)[matchLength], TextCaseSensitivity caseSensitivity = TextCaseSensitive) const
+        { return m_impl ? m_impl->startsWith<matchLength>(prefix, caseSensitivity) : !matchLength; }
 
-    bool endsWith(const String& s, bool caseSensitive = true) const
-        { return m_impl ? m_impl->endsWith(s.impl(), caseSensitive) : s.isEmpty(); }
+    bool endsWith(const String& s, TextCaseSensitivity caseSensitivity = TextCaseSensitive) const
+        { return m_impl ? m_impl->endsWith(s.impl(), caseSensitivity) : s.isEmpty(); }
     bool endsWith(UChar character) const
         { return m_impl ? m_impl->endsWith(character) : false; }
     template<unsigned matchLength>
-    bool endsWith(const char (&prefix)[matchLength], bool caseSensitive = true) const
-        { return m_impl ? m_impl->endsWith<matchLength>(prefix, caseSensitive) : !matchLength; }
+    bool endsWith(const char (&prefix)[matchLength], TextCaseSensitivity caseSensitivity = TextCaseSensitive) const
+        { return m_impl ? m_impl->endsWith<matchLength>(prefix, caseSensitivity) : !matchLength; }
 
     void append(const String&);
     void append(LChar);
@@ -389,13 +393,13 @@ public:
     // the input data contains invalid UTF-8 sequences.
     static String fromUTF8(const LChar*, size_t);
     static String fromUTF8(const LChar*);
-    static String fromUTF8(const char* s, size_t length) { return fromUTF8(reinterpret_cast<const LChar*>(s), length); };
-    static String fromUTF8(const char* s) { return fromUTF8(reinterpret_cast<const LChar*>(s)); };
+    static String fromUTF8(const char* s, size_t length) { return fromUTF8(reinterpret_cast<const LChar*>(s), length); }
+    static String fromUTF8(const char* s) { return fromUTF8(reinterpret_cast<const LChar*>(s)); }
     static String fromUTF8(const CString&);
 
     // Tries to convert the passed in string to UTF-8, but will fall back to Latin-1 if the string is not valid UTF-8.
     static String fromUTF8WithLatin1Fallback(const LChar*, size_t);
-    static String fromUTF8WithLatin1Fallback(const char* s, size_t length) { return fromUTF8WithLatin1Fallback(reinterpret_cast<const LChar*>(s), length); };
+    static String fromUTF8WithLatin1Fallback(const char* s, size_t length) { return fromUTF8WithLatin1Fallback(reinterpret_cast<const LChar*>(s), length); }
 
     bool containsOnlyASCII() const;
     bool containsOnlyLatin1() const;
@@ -550,27 +554,6 @@ inline void append(Vector<UChar, inlineCapacity>& vector, const String& string)
     }
 }
 
-template<typename CharacterType>
-inline void appendNumber(Vector<CharacterType>& vector, unsigned char number)
-{
-    int numberLength = number > 99 ? 3 : (number > 9 ? 2 : 1);
-    size_t vectorSize = vector.size();
-    vector.grow(vectorSize + numberLength);
-
-    switch (numberLength) {
-    case 3:
-        vector[vectorSize + 2] = number % 10 + '0';
-        number /= 10;
-
-    case 2:
-        vector[vectorSize + 1] = number % 10 + '0';
-        number /= 10;
-
-    case 1:
-        vector[vectorSize] = number % 10 + '0';
-    }
-}
-
 template<bool isSpecialCharacter(UChar), typename CharacterType>
 inline bool isAllSpecialCharacters(const CharacterType* characters, size_t length)
 {
@@ -662,7 +645,6 @@ using WTF::String;
 using WTF::emptyString;
 using WTF::emptyString16Bit;
 using WTF::append;
-using WTF::appendNumber;
 using WTF::charactersAreAllASCII;
 using WTF::charactersToIntStrict;
 using WTF::charactersToUIntStrict;

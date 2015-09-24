@@ -4,8 +4,8 @@
 
 #include "chrome/browser/search_engines/template_url_service_test_util.h"
 
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/run_loop.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/search_engines/chrome_template_url_service_client.h"
 #include "chrome/test/base/testing_pref_service_syncable.h"
@@ -22,7 +22,7 @@ namespace {
 
 class TestingTemplateURLServiceClient : public ChromeTemplateURLServiceClient {
  public:
-  TestingTemplateURLServiceClient(HistoryService* history_service,
+  TestingTemplateURLServiceClient(history::HistoryService* history_service,
                                   base::string16* search_term)
       : ChromeTemplateURLServiceClient(history_service),
         search_term_(search_term) {}
@@ -50,14 +50,14 @@ TemplateURLServiceTestUtil::TemplateURLServiceTestUtil()
 
   scoped_refptr<WebDatabaseService> web_database_service =
       new WebDatabaseService(temp_dir_.path().AppendASCII("webdata"),
-                             base::MessageLoopProxy::current(),
-                             base::MessageLoopProxy::current());
+                             base::ThreadTaskRunnerHandle::Get(),
+                             base::ThreadTaskRunnerHandle::Get());
   web_database_service->AddTable(
       scoped_ptr<WebDatabaseTable>(new KeywordTable()));
   web_database_service->LoadDatabase();
 
-  web_data_service_ =  new KeywordWebDataService(
-      web_database_service.get(), base::MessageLoopProxy::current(),
+  web_data_service_ = new KeywordWebDataService(
+      web_database_service.get(), base::ThreadTaskRunnerHandle::Get(),
       KeywordWebDataService::ProfileErrorCallback());
   web_data_service_->Init();
 
@@ -114,11 +114,10 @@ void TemplateURLServiceTestUtil::ResetModel(bool verify_load) {
   model_.reset(new TemplateURLService(
       profile()->GetPrefs(), scoped_ptr<SearchTermsData>(search_terms_data_),
       web_data_service_.get(),
-      scoped_ptr<TemplateURLServiceClient>(
-          new TestingTemplateURLServiceClient(
-              HistoryServiceFactory::GetForProfileIfExists(
-                  profile(), Profile::EXPLICIT_ACCESS),
-              &search_term_)),
+      scoped_ptr<TemplateURLServiceClient>(new TestingTemplateURLServiceClient(
+          HistoryServiceFactory::GetForProfileIfExists(
+              profile(), ServiceAccessType::EXPLICIT_ACCESS),
+          &search_term_)),
       NULL, NULL, base::Closure()));
   model()->AddObserver(this);
   changed_count_ = 0;

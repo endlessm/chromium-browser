@@ -12,9 +12,14 @@
 
 EXTERN_C_BEGIN
 
+int linux_getdents64(int fd, struct linux_abi_dirent64 *dirp, int count);
 int linux_sigaction(int signum, const struct linux_sigaction *act,
                     struct linux_sigaction *oldact);
 int linux_sigprocmask(int how, const linux_sigset_t *set, linux_sigset_t *oset);
+
+int linux_clone_wrapper(uintptr_t fn, uintptr_t arg,
+                        int flags, void *child_stack,
+                        void *ptid, void *ctid, void *thread_ptr);
 
 EXTERN_C_END
 

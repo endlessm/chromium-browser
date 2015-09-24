@@ -6,11 +6,15 @@
 
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/profiler/scoped_tracker.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task_runner.h"
 #include "base/time/time.h"
 #include "components/domain_reliability/baked_in_configs.h"
+#include "net/base/ip_endpoint.h"
 #include "net/base/load_flags.h"
+#include "net/base/net_errors.h"
+#include "net/base/net_util.h"
 #include "net/http/http_response_headers.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
@@ -18,15 +22,65 @@
 
 namespace domain_reliability {
 
+namespace {
+
+int URLRequestStatusToNetError(const net::URLRequestStatus& status) {
+  switch (status.status()) {
+    case net::URLRequestStatus::SUCCESS:
+      return net::OK;
+    case net::URLRequestStatus::IO_PENDING:
+      return net::ERR_IO_PENDING;
+    case net::URLRequestStatus::CANCELED:
+      return net::ERR_ABORTED;
+    case net::URLRequestStatus::FAILED:
+      return status.error();
+    default:
+      NOTREACHED();
+      return net::ERR_UNEXPECTED;
+  }
+}
+
+// Updates the status, chrome_error, and server_ip fields of |beacon| from
+// the endpoint and result of |attempt|. If there is no matching status for
+// the result, returns false (which means the attempt should not result in a
+// beacon being reported).
+bool UpdateBeaconFromAttempt(DomainReliabilityBeacon* beacon,
+                             const net::ConnectionAttempt& attempt) {
+  if (!GetDomainReliabilityBeaconStatus(
+          attempt.result, beacon->http_response_code, &beacon->status)) {
+    return false;
+  }
+  beacon->chrome_error = attempt.result;
+  if (!attempt.endpoint.address().empty())
+    beacon->server_ip = attempt.endpoint.ToString();
+  else
+    beacon->server_ip = "";
+  return true;
+}
+
+// TODO(ttuttle): This function is absurd. See if |socket_address| in
+// HttpResponseInfo can become an IPEndPoint.
+bool ConvertHostPortPairToIPEndPoint(const net::HostPortPair& host_port_pair,
+                                     net::IPEndPoint* ip_endpoint_out) {
+  net::IPAddressNumber ip_address_number;
+  if (!net::ParseIPLiteralToNumber(host_port_pair.host(), &ip_address_number))
+    return false;
+  *ip_endpoint_out = net::IPEndPoint(ip_address_number, host_port_pair.port());
+  return true;
+}
+
+}  // namespace
+
 DomainReliabilityMonitor::DomainReliabilityMonitor(
     const std::string& upload_reporter_string,
-    scoped_refptr<base::SingleThreadTaskRunner> pref_thread,
-    scoped_refptr<base::SingleThreadTaskRunner> network_thread)
+    const scoped_refptr<base::SingleThreadTaskRunner>& pref_thread,
+    const scoped_refptr<base::SingleThreadTaskRunner>& network_thread)
     : time_(new ActualTime()),
       upload_reporter_string_(upload_reporter_string),
       scheduler_params_(
           DomainReliabilityScheduler::Params::GetFromFieldTrialsOrDefaults()),
       dispatcher_(time_.get()),
+      context_manager_(this),
       pref_task_runner_(pref_thread),
       network_task_runner_(network_thread),
       moved_to_network_thread_(false),
@@ -38,14 +92,15 @@ DomainReliabilityMonitor::DomainReliabilityMonitor(
 
 DomainReliabilityMonitor::DomainReliabilityMonitor(
     const std::string& upload_reporter_string,
-    scoped_refptr<base::SingleThreadTaskRunner> pref_thread,
-    scoped_refptr<base::SingleThreadTaskRunner> network_thread,
+    const scoped_refptr<base::SingleThreadTaskRunner>& pref_thread,
+    const scoped_refptr<base::SingleThreadTaskRunner>& network_thread,
     scoped_ptr<MockableTime> time)
     : time_(time.Pass()),
       upload_reporter_string_(upload_reporter_string),
       scheduler_params_(
           DomainReliabilityScheduler::Params::GetFromFieldTrialsOrDefaults()),
       dispatcher_(time_.get()),
+      context_manager_(this),
       pref_task_runner_(pref_thread),
       network_task_runner_(network_thread),
       moved_to_network_thread_(false),
@@ -61,7 +116,6 @@ DomainReliabilityMonitor::~DomainReliabilityMonitor() {
   else
     DCHECK(OnPrefThread());
 
-  ClearContexts();
   net::NetworkChangeNotifier::RemoveNetworkChangeObserver(this);
 }
 
@@ -84,7 +138,8 @@ void DomainReliabilityMonitor::InitURLRequestContext(
 }
 
 void DomainReliabilityMonitor::InitURLRequestContext(
-    scoped_refptr<net::URLRequestContextGetter> url_request_context_getter) {
+    const scoped_refptr<net::URLRequestContextGetter>&
+        url_request_context_getter) {
   DCHECK(OnNetworkThread());
   DCHECK(moved_to_network_thread_);
 
@@ -93,24 +148,32 @@ void DomainReliabilityMonitor::InitURLRequestContext(
   DCHECK(url_request_context_getter->GetNetworkTaskRunner()->
          RunsTasksOnCurrentThread());
 
-  uploader_ = DomainReliabilityUploader::Create(url_request_context_getter);
+  uploader_ = DomainReliabilityUploader::Create(time_.get(),
+                                                url_request_context_getter);
 }
 
 void DomainReliabilityMonitor::AddBakedInConfigs() {
+  // TODO(ttuttle): Remove ScopedTracker below once crbug.com/436671 is fixed.
+  tracked_objects::ScopedTracker tracking_profile(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "436671 DomainReliabilityMonitor::AddBakedInConfigs"));
+
   DCHECK(OnNetworkThread());
   DCHECK(moved_to_network_thread_);
 
   base::Time now = base::Time::Now();
   for (size_t i = 0; kBakedInJsonConfigs[i]; ++i) {
-    std::string json(kBakedInJsonConfigs[i]);
+    base::StringPiece json(kBakedInJsonConfigs[i]);
     scoped_ptr<const DomainReliabilityConfig> config =
         DomainReliabilityConfig::FromJSON(json);
-    if (config && config->IsExpired(now)) {
+    if (!config) {
+      continue;
+    } else if (config->IsExpired(now)) {
       LOG(WARNING) << "Baked-in Domain Reliability config for "
                    << config->domain << " is expired.";
       continue;
     }
-    AddContext(config.Pass());
+    context_manager_.AddContextForConfig(config.Pass());
   }
 }
 
@@ -139,8 +202,9 @@ void DomainReliabilityMonitor::OnCompleted(net::URLRequest* request,
   if (!started)
     return;
   RequestInfo request_info(*request);
-  if (request_info.AccessedNetwork()) {
-    OnRequestLegComplete(request_info);
+  OnRequestLegComplete(request_info);
+
+  if (request_info.response_info.network_accessed) {
     // A request was just using the network, so now is a good time to run any
     // pending and eligible uploads.
     dispatcher_.RunEligibleTasks();
@@ -157,14 +221,11 @@ void DomainReliabilityMonitor::ClearBrowsingData(
   DCHECK(OnNetworkThread());
 
   switch (mode) {
-    case CLEAR_BEACONS: {
-      ContextMap::const_iterator it;
-      for (it = contexts_.begin(); it != contexts_.end(); ++it)
-        it->second->ClearBeacons();
+    case CLEAR_BEACONS:
+      context_manager_.ClearBeaconsInAllContexts();
       break;
-    };
     case CLEAR_CONTEXTS:
-      ClearContexts();
+      context_manager_.RemoveAllContexts();
       break;
     case MAX_CLEAR_MODE:
       NOTREACHED();
@@ -174,24 +235,33 @@ void DomainReliabilityMonitor::ClearBrowsingData(
 scoped_ptr<base::Value> DomainReliabilityMonitor::GetWebUIData() const {
   DCHECK(OnNetworkThread());
 
-  base::ListValue* contexts_value = new base::ListValue();
-  for (ContextMap::const_iterator it = contexts_.begin();
-       it != contexts_.end();
-       ++it) {
-    contexts_value->Append(it->second->GetWebUIData().release());
-  }
-
-  base::DictionaryValue* data_value = new base::DictionaryValue();
-  data_value->Set("contexts", contexts_value);
-
-  return scoped_ptr<base::Value>(data_value);
+  scoped_ptr<base::DictionaryValue> data_value(new base::DictionaryValue());
+  data_value->Set("contexts", context_manager_.GetWebUIData());
+  return data_value.Pass();
 }
 
 DomainReliabilityContext* DomainReliabilityMonitor::AddContextForTesting(
     scoped_ptr<const DomainReliabilityConfig> config) {
   DCHECK(OnNetworkThread());
 
-  return AddContext(config.Pass());
+  return context_manager_.AddContextForConfig(config.Pass());
+}
+
+scoped_ptr<DomainReliabilityContext>
+DomainReliabilityMonitor::CreateContextForConfig(
+    scoped_ptr<const DomainReliabilityConfig> config) {
+  DCHECK(OnNetworkThread());
+  DCHECK(config);
+  DCHECK(config->IsValid());
+
+  return make_scoped_ptr(new DomainReliabilityContext(
+      time_.get(),
+      scheduler_params_,
+      upload_reporter_string_,
+      &last_network_change_time_,
+      &dispatcher_,
+      uploader_.get(),
+      config.Pass()));
 }
 
 DomainReliabilityMonitor::RequestInfo::RequestInfo() {}
@@ -204,45 +274,27 @@ DomainReliabilityMonitor::RequestInfo::RequestInfo(
       load_flags(request.load_flags()),
       is_upload(DomainReliabilityUploader::URLRequestIsUpload(request)) {
   request.GetLoadTimingInfo(&load_timing_info);
+  request.GetConnectionAttempts(&connection_attempts);
 }
 
 DomainReliabilityMonitor::RequestInfo::~RequestInfo() {}
 
-bool DomainReliabilityMonitor::RequestInfo::AccessedNetwork() const {
-  return status.status() != net::URLRequestStatus::CANCELED &&
-     response_info.network_accessed;
-}
-
-DomainReliabilityContext* DomainReliabilityMonitor::AddContext(
-    scoped_ptr<const DomainReliabilityConfig> config) {
-  DCHECK(OnNetworkThread());
-  DCHECK(config);
-  DCHECK(config->IsValid());
-
-  // Grab a copy of the domain before transferring ownership of |config|.
-  std::string domain = config->domain;
-
-  DomainReliabilityContext* context =
-      new DomainReliabilityContext(time_.get(),
-                                   scheduler_params_,
-                                   upload_reporter_string_,
-                                   &last_network_change_time_,
-                                   &dispatcher_,
-                                   uploader_.get(),
-                                   config.Pass());
-
-  std::pair<ContextMap::iterator, bool> map_it =
-      contexts_.insert(make_pair(domain, context));
-  // Make sure the domain wasn't already in the map.
-  DCHECK(map_it.second);
-
-  return map_it.first->second;
-}
-
-void DomainReliabilityMonitor::ClearContexts() {
-  STLDeleteContainerPairSecondPointers(
-      contexts_.begin(), contexts_.end());
-  contexts_.clear();
+// static
+bool DomainReliabilityMonitor::RequestInfo::ShouldReportRequest(
+    const DomainReliabilityMonitor::RequestInfo& request) {
+  // Don't report requests for Domain Reliability uploads or that weren't
+  // supposed to send cookies.
+  if (request.is_upload)
+    return false;
+  if (request.load_flags & net::LOAD_DO_NOT_SEND_COOKIES)
+    return false;
+  // Report requests that accessed the network or failed with an error code
+  // that Domain Reliability is interested in.
+  if (request.response_info.network_accessed)
+    return true;
+  if (URLRequestStatusToNetError(request.status) != net::OK)
+    return true;
+  return false;
 }
 
 void DomainReliabilityMonitor::OnRequestLegComplete(
@@ -251,82 +303,58 @@ void DomainReliabilityMonitor::OnRequestLegComplete(
   DCHECK(OnNetworkThread());
   DCHECK(discard_uploads_set_);
 
+  if (!RequestInfo::ShouldReportRequest(request))
+    return;
+
   int response_code;
   if (request.response_info.headers.get())
     response_code = request.response_info.headers->response_code();
   else
     response_code = -1;
-  std::string beacon_status;
 
-  int error_code = net::OK;
-  if (request.status.status() == net::URLRequestStatus::FAILED)
-    error_code = request.status.error();
-
-  DomainReliabilityContext* context = GetContextForHost(request.url.host());
-
-  // Ignore requests where:
-  // 1. There is no context for the request host.
-  // 2. The request did not access the network.
-  // 3. The request is not supposed to send cookies (to avoid associating the
-  //    request with any potentially unique data in the config).
-  // 4. The request was itself a Domain Reliability upload (to avoid loops).
-  // 5. There is no defined beacon status for the error or HTTP response code
-  //    (to avoid leaking network-local errors).
-  if (!context ||
-      !request.AccessedNetwork() ||
-      (request.load_flags & net::LOAD_DO_NOT_SEND_COOKIES) ||
-      request.is_upload ||
-      !GetDomainReliabilityBeaconStatus(
-          error_code, response_code, &beacon_status)) {
-    return;
+  net::IPEndPoint url_request_endpoint;
+  // If response was cached, socket address will be from the serialized
+  // response info in the cache, so don't report it.
+  // TODO(ttuttle): Plumb out the "current" socket address so we can always
+  // report it.
+  if (!request.response_info.was_cached &&
+      !request.response_info.was_fetched_via_proxy) {
+    ConvertHostPortPairToIPEndPoint(request.response_info.socket_address,
+                                    &url_request_endpoint);
   }
 
+  net::ConnectionAttempt url_request_attempt(
+      url_request_endpoint, URLRequestStatusToNetError(request.status));
+
   DomainReliabilityBeacon beacon;
-  beacon.status = beacon_status;
-  beacon.chrome_error = error_code;
-  if (!request.response_info.was_fetched_via_proxy)
-    beacon.server_ip = request.response_info.socket_address.host();
-  else
-    beacon.server_ip.clear();
   beacon.protocol = GetDomainReliabilityProtocol(
       request.response_info.connection_info,
       request.response_info.ssl_info.is_valid());
   beacon.http_response_code = response_code;
   beacon.start_time = request.load_timing_info.request_start;
   beacon.elapsed = time_->NowTicks() - beacon.start_time;
+  beacon.was_proxied = request.response_info.was_fetched_via_proxy;
   beacon.domain = request.url.host();
-  context->OnBeacon(request.url, beacon);
-}
 
-// TODO(ttuttle): Keep a separate wildcard_contexts_ map to avoid having to
-// prepend '*.' to domains.
-DomainReliabilityContext* DomainReliabilityMonitor::GetContextForHost(
-    const std::string& host) const {
-  DCHECK(OnNetworkThread());
+  // This is not foolproof -- it's possible that we'll see the same error twice
+  // (e.g. an SSL error during connection on one attempt, and then an error
+  // that maps to the same code during a read).
+  // TODO(ttuttle): Find a way for this code to reliably tell whether we
+  // eventually established a connection or not.
+  bool url_request_attempt_is_duplicate = false;
+  for (const auto& attempt : request.connection_attempts) {
+    if (attempt.result == url_request_attempt.result)
+      url_request_attempt_is_duplicate = true;
+    if (!UpdateBeaconFromAttempt(&beacon, attempt))
+      continue;
+    context_manager_.RouteBeacon(request.url, beacon);
+  }
 
-  ContextMap::const_iterator context_it;
-
-  context_it = contexts_.find(host);
-  if (context_it != contexts_.end())
-    return context_it->second;
-
-  std::string host_with_asterisk = "*." + host;
-  context_it = contexts_.find(host_with_asterisk);
-  if (context_it != contexts_.end())
-    return context_it->second;
-
-  size_t dot_pos = host.find('.');
-  if (dot_pos == std::string::npos)
-    return NULL;
-
-  // TODO(ttuttle): Make sure parent is not in PSL before using.
-
-  std::string parent_with_asterisk = "*." + host.substr(dot_pos + 1);
-  context_it = contexts_.find(parent_with_asterisk);
-  if (context_it != contexts_.end())
-    return context_it->second;
-
-  return NULL;
+  if (url_request_attempt_is_duplicate)
+    return;
+  if (!UpdateBeaconFromAttempt(&beacon, url_request_attempt))
+    return;
+  context_manager_.RouteBeacon(request.url, beacon);
 }
 
 base::WeakPtr<DomainReliabilityMonitor>

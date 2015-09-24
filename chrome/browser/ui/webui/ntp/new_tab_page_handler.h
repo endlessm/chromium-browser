@@ -58,9 +58,6 @@ class NewTabPageHandler : public content::WebUIMessageHandler,
   // Callback for "pageSelected".
   void HandlePageSelected(const base::ListValue* args);
 
-  // Callback for "logTimeToClick".
-  void HandleLogTimeToClick(const base::ListValue* args);
-
   // Tracks the number of times the user has switches pages (for UMA).
   size_t page_switch_count_;
 
@@ -71,11 +68,8 @@ class NewTabPageHandler : public content::WebUIMessageHandler,
   static const int kPageIdOffset = 10;
   enum {
     INDEX_MASK = (1 << kPageIdOffset) - 1,
-    MOST_VISITED_PAGE_ID = 1 << kPageIdOffset,
     APPS_PAGE_ID = 2 << kPageIdOffset,
-    BOOKMARKS_PAGE_ID = 3 << kPageIdOffset,
-    SUGGESTIONS_PAGE_ID = 4 << kPageIdOffset,
-    LAST_PAGE_ID = SUGGESTIONS_PAGE_ID
+    LAST_PAGE_ID = APPS_PAGE_ID,
   };
   static const int kHistogramEnumerationMax =
       (LAST_PAGE_ID >> kPageIdOffset) + 1;

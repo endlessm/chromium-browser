@@ -30,7 +30,7 @@ class ShillServiceClientTest : public ShillClientUnittestBase {
                                    dbus::ObjectPath(kExampleServicePath)) {
   }
 
-  virtual void SetUp() {
+  void SetUp() override {
     ShillClientUnittestBase::SetUp();
     // Create a client with the mock bus.
     client_.reset(ShillServiceClient::Create());
@@ -39,9 +39,7 @@ class ShillServiceClientTest : public ShillClientUnittestBase {
     message_loop_.RunUntilIdle();
   }
 
-  virtual void TearDown() {
-    ShillClientUnittestBase::TearDown();
-  }
+  void TearDown() override { ShillClientUnittestBase::TearDown(); }
 
  protected:
   scoped_ptr<ShillServiceClient> client_;
@@ -144,9 +142,12 @@ TEST_F(ShillServiceClientTest, SetProperties) {
 
   // Set expectations.
   scoped_ptr<base::DictionaryValue> arg(CreateExampleServiceProperties());
-  PrepareForMethodCall(shill::kSetPropertiesFunction,
-                       base::Bind(&ExpectDictionaryValueArgument, arg.get()),
-                       response.get());
+  // Use a variant valued dictionary rather than a string valued one.
+  const bool string_valued = false;
+  PrepareForMethodCall(
+      shill::kSetPropertiesFunction,
+      base::Bind(&ExpectDictionaryValueArgument, arg.get(), string_valued),
+      response.get());
 
   // Call method.
   MockClosure mock_closure;

@@ -18,7 +18,7 @@ class LocationRange;
 class CIncludeIterator {
  public:
   // The InputFile pointed to must outlive this class.
-  CIncludeIterator(const InputFile* input);
+  explicit CIncludeIterator(const InputFile* input);
   ~CIncludeIterator();
 
   // Fills in the string with the contents of the next include, and the
@@ -52,4 +52,4 @@ class CIncludeIterator {
   DISALLOW_COPY_AND_ASSIGN(CIncludeIterator);
 };
 
-#endif  // TOOLS_GN_INCLUDE_ITERATOR_H_
+#endif  // TOOLS_GN_C_INCLUDE_ITERATOR_H_

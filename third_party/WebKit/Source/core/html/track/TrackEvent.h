@@ -28,19 +28,16 @@
 
 #include "core/events/Event.h"
 #include "core/html/track/TrackBase.h"
+#include "core/html/track/TrackEventInit.h"
 
 namespace blink {
 
-struct TrackEventInit : public EventInit {
-    TrackEventInit();
-
-    RefPtrWillBeMember<TrackBase> track;
-};
+class VideoTrackOrAudioTrackOrTextTrack;
 
 class TrackEvent final : public Event {
     DEFINE_WRAPPERTYPEINFO();
 public:
-    virtual ~TrackEvent();
+    ~TrackEvent() override;
 
     static PassRefPtrWillBeRawPtr<TrackEvent> create()
     {
@@ -52,15 +49,27 @@ public:
         return adoptRefWillBeNoop(new TrackEvent(type, initializer));
     }
 
-    virtual const AtomicString& interfaceName() const override;
+    template <typename T>
+    static PassRefPtrWillBeRawPtr<TrackEvent> create(const AtomicString& type, PassRefPtrWillBeRawPtr<T> track)
+    {
+        return adoptRefWillBeNoop(new TrackEvent(type, track));
+    }
 
-    TrackBase* track() const { return m_track.get(); }
+    const AtomicString& interfaceName() const override;
 
-    virtual void trace(Visitor*) override;
+    void track(VideoTrackOrAudioTrackOrTextTrack&);
+
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     TrackEvent();
     TrackEvent(const AtomicString& type, const TrackEventInit& initializer);
+    template <typename T>
+    TrackEvent(const AtomicString& type, PassRefPtrWillBeRawPtr<T> track)
+        : Event(type, false, false)
+        , m_track(track)
+    {
+    }
 
     RefPtrWillBeMember<TrackBase> m_track;
 };

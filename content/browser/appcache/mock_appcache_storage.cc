@@ -5,10 +5,12 @@
 #include "content/browser/appcache/mock_appcache_storage.h"
 
 #include "base/bind.h"
+#include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/browser/appcache/appcache.h"
 #include "content/browser/appcache/appcache_entry.h"
 #include "content/browser/appcache/appcache_group.h"
@@ -153,6 +155,12 @@ void MockAppCacheStorage::MakeGroupObsolete(AppCacheGroup* group,
                  response_code));
 }
 
+void MockAppCacheStorage::StoreEvictionTimes(AppCacheGroup* group) {
+  stored_eviction_times_[group->group_id()] =
+      std::make_pair(group->last_full_update_check_time(),
+                     group->first_evictable_error_time());
+}
+
 AppCacheResponseReader* MockAppCacheStorage::CreateResponseReader(
     const GURL& manifest_url, int64 group_id, int64 response_id) {
   if (simulated_reader_)
@@ -163,6 +171,13 @@ AppCacheResponseReader* MockAppCacheStorage::CreateResponseReader(
 AppCacheResponseWriter* MockAppCacheStorage::CreateResponseWriter(
     const GURL& manifest_url, int64 group_id) {
   return new AppCacheResponseWriter(NewResponseId(),  group_id, disk_cache());
+}
+
+AppCacheResponseMetadataWriter*
+MockAppCacheStorage::CreateResponseMetadataWriter(int64 group_id,
+                                                  int64 response_id) {
+  return new AppCacheResponseMetadataWriter(response_id, group_id,
+                                            disk_cache());
 }
 
 void MockAppCacheStorage::DoomResponses(
@@ -451,10 +466,9 @@ void MockAppCacheStorage::ProcessMakeGroupObsolete(
 
 void MockAppCacheStorage::ScheduleTask(const base::Closure& task) {
   pending_tasks_.push_back(task);
-  base::MessageLoop::current()->PostTask(
-      FROM_HERE,
-      base::Bind(&MockAppCacheStorage::RunOnePendingTask,
-                 weak_factory_.GetWeakPtr()));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&MockAppCacheStorage::RunOnePendingTask,
+                            weak_factory_.GetWeakPtr()));
 }
 
 void MockAppCacheStorage::RunOnePendingTask() {

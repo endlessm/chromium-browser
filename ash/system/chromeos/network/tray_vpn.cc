@@ -8,6 +8,7 @@
 #include "ash/session/session_state_delegate.h"
 #include "ash/shell.h"
 #include "ash/system/chromeos/network/network_state_list_detailed_view.h"
+#include "ash/system/chromeos/network/vpn_delegate.h"
 #include "ash/system/tray/system_tray.h"
 #include "ash/system/tray/system_tray_delegate.h"
 #include "ash/system/tray/tray_constants.h"
@@ -21,6 +22,7 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/chromeos/network/network_icon.h"
 #include "ui/chromeos/network/network_icon_animation.h"
+#include "ui/chromeos/network/network_icon_animation_observer.h"
 
 using chromeos::NetworkHandler;
 using chromeos::NetworkState;
@@ -38,17 +40,26 @@ class VpnDefaultView : public TrayItemMore,
     Update();
   }
 
-  virtual ~VpnDefaultView() {
+  ~VpnDefaultView() override {
     ui::network_icon::NetworkIconAnimation::GetInstance()->RemoveObserver(this);
   }
 
   static bool ShouldShow() {
-    // Do not show VPN line in uber tray bubble if VPN is not configured.
-    NetworkStateHandler* handler =
+    // Show the VPN entry in the ash tray bubble if at least one third-party VPN
+    // provider is installed.
+    if (Shell::GetInstance()
+            ->system_tray_delegate()
+            ->GetVPNDelegate()
+            ->HaveThirdPartyVPNProviders()) {
+      return true;
+    }
+
+    // Also show the VPN entry if at least one VPN network is configured.
+    NetworkStateHandler* const handler =
         NetworkHandler::Get()->network_state_handler();
-    const NetworkState* vpn =
-        handler->FirstNetworkByType(NetworkTypePattern::VPN());
-    return vpn != NULL;
+    if (handler->FirstNetworkByType(NetworkTypePattern::VPN()))
+      return true;
+    return false;
   }
 
   void Update() {
@@ -67,9 +78,7 @@ class VpnDefaultView : public TrayItemMore,
   }
 
   // ui::network_icon::AnimationObserver
-  virtual void NetworkIconChanged() override {
-    Update();
-  }
+  void NetworkIconChanged() override { Update(); }
 
  private:
   void GetNetworkStateHandlerImageAndLabel(gfx::ImageSkia* image,
@@ -79,12 +88,12 @@ class VpnDefaultView : public TrayItemMore,
         NetworkHandler::Get()->network_state_handler();
     const NetworkState* vpn =
         handler->FirstNetworkByType(NetworkTypePattern::VPN());
-    if (!vpn || (vpn->connection_state() == shill::kStateIdle)) {
+    if (!vpn || (!vpn->IsConnectedState() && !vpn->IsConnectingState())) {
       *image = ui::network_icon::GetImageForDisconnectedNetwork(
           ui::network_icon::ICON_TYPE_DEFAULT_VIEW, shill::kTypeVPN);
       if (label) {
-        *label = l10n_util::GetStringUTF16(
-            IDS_ASH_STATUS_TRAY_VPN_DISCONNECTED);
+        *label =
+            l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_VPN_DISCONNECTED);
       }
       *animating = false;
       return;
@@ -104,9 +113,7 @@ class VpnDefaultView : public TrayItemMore,
 }  // namespace tray
 
 TrayVPN::TrayVPN(SystemTray* system_tray)
-    : SystemTrayItem(system_tray),
-      default_(NULL),
-      detailed_(NULL) {
+    : SystemTrayItem(system_tray), default_(NULL), detailed_(NULL) {
   network_state_observer_.reset(new TrayNetworkStateObserver(this));
 }
 
@@ -166,20 +173,11 @@ void TrayVPN::UpdateAfterLoginStatusChange(user::LoginStatus status) {
 void TrayVPN::UpdateAfterShelfAlignmentChange(ShelfAlignment alignment) {
 }
 
-void TrayVPN::NetworkStateChanged(bool list_changed) {
+void TrayVPN::NetworkStateChanged() {
   if (default_)
     default_->Update();
-  if (detailed_) {
-    if (list_changed)
-      detailed_->NetworkListChanged();
-    else
-      detailed_->ManagerChanged();
-  }
-}
-
-void TrayVPN::NetworkServiceChanged(const chromeos::NetworkState* network) {
   if (detailed_)
-    detailed_->NetworkServiceChanged(network);
+    detailed_->Update();
 }
 
 }  // namespace ash

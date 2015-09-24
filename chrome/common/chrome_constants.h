@@ -23,7 +23,9 @@ namespace chrome {
 
 extern const char kChromeVersion[];
 
+#if defined(OS_WIN)
 extern const char kChromeVersionEnvVar[];
+#endif
 
 extern const base::FilePath::CharType kBrowserProcessExecutableName[];
 extern const base::FilePath::CharType kHelperProcessExecutableName[];
@@ -51,21 +53,18 @@ extern const base::FilePath::CharType kFrameworkName[];
 extern const base::FilePath::CharType* const kHelperFlavorSuffixes[];
 #endif  // OS_MACOSX
 #if defined(OS_WIN)
+extern const base::FilePath::CharType kBrowserResourcesDll[];
 extern const base::FilePath::CharType kMetroDriverDll[];
-extern const wchar_t kStatusTrayWindowClass[];
+extern const base::FilePath::CharType kStatusTrayWindowClass[];
 #endif  // defined(OS_WIN)
-extern const wchar_t kCrashReportLog[];
-extern const wchar_t kTestingInterfaceDLL[];
+
 extern const char    kInitialProfile[];
 extern const char    kMultiProfileDirPrefix[];
 extern const base::FilePath::CharType kGuestProfileDir[];
-extern const wchar_t kBrowserResourcesDll[];
+extern const base::FilePath::CharType kSystemProfileDir[];
 
 // filenames
-#if defined(OS_ANDROID)
-extern const base::FilePath::CharType kAndroidCacheFilename[];
-#endif
-extern const base::FilePath::CharType kArchivedHistoryFilename[];
+extern const base::FilePath::CharType kAffiliationDatabaseFileName[];
 extern const base::FilePath::CharType kCacheDirname[];
 extern const base::FilePath::CharType kChannelIDFilename[];
 extern const base::FilePath::CharType kCookieFilename[];
@@ -73,16 +72,13 @@ extern const base::FilePath::CharType kCRLSetFilename[];
 extern const base::FilePath::CharType kCustomDictionaryFileName[];
 extern const base::FilePath::CharType kExtensionActivityLogFilename[];
 extern const base::FilePath::CharType kExtensionsCookieFilename[];
-extern const base::FilePath::CharType kFaviconsFilename[];
 extern const base::FilePath::CharType kFirstRunSentinel[];
 extern const base::FilePath::CharType kGCMStoreDirname[];
-extern const base::FilePath::CharType kHistoryFilename[];
-extern const base::FilePath::CharType kJumpListIconDirname[];
 extern const base::FilePath::CharType kLocalStateFilename[];
 extern const base::FilePath::CharType kLocalStorePoolName[];
 extern const base::FilePath::CharType kLoginDataFileName[];
 extern const base::FilePath::CharType kMediaCacheDirname[];
-extern const base::FilePath::CharType kNewTabThumbnailsFilename[];
+extern const base::FilePath::CharType kNetworkPersistentStateFilename[];
 extern const base::FilePath::CharType kPreferencesFilename[];
 extern const base::FilePath::CharType kProtectedPreferencesFilenameDeprecated[];
 extern const base::FilePath::CharType kReadmeFilename[];
@@ -95,22 +91,20 @@ extern const base::FilePath::CharType kSingletonCookieFilename[];
 extern const base::FilePath::CharType kSingletonLockFilename[];
 extern const base::FilePath::CharType kSingletonSocketFilename[];
 extern const base::FilePath::CharType kSupervisedUserSettingsFilename[];
-extern const base::FilePath::CharType kSyncCredentialsFilename[];
 extern const base::FilePath::CharType kThemePackFilename[];
-extern const base::FilePath::CharType kThumbnailsFilename[];
-extern const base::FilePath::CharType kTopSitesFilename[];
 extern const base::FilePath::CharType kWebAppDirname[];
+
+#if defined(OS_WIN)
+extern const base::FilePath::CharType kJumpListIconDirname[];
+#endif
 
 // File name of the Pepper Flash plugin on different platforms.
 extern const base::FilePath::CharType kPepperFlashPluginFilename[];
 
 // directory names
+#if defined(OS_WIN)
 extern const wchar_t kUserDataDirname[];
-
-extern const bool kRecordModeEnabled;
-
-// Are touch icons enabled? False by default.
-extern const bool kEnableTouchIcon;
+#endif
 
 // Fraction of the total number of processes to be used for hosting
 // extensions. If we have more extensions than this percentage, we will start
@@ -134,14 +128,14 @@ extern const wchar_t kMetroGetCurrentTabInfoMessage[];
 // Used by Metro Chrome to store activation state.
 extern const wchar_t kMetroRegistryPath[];
 extern const wchar_t kLaunchModeValue[];
-// Used by the browser as a container in which to track unreported crash dump
-// attempts. The actual values (each representing one crash dump attempt) are
-// stored in a subkey named with the version number of the build. Each value
-// under the subkey represents an additional attempt.
+// Used to store crash report metrics using
+// content/browser_watcher/crash_reporting_metrics_win.h.
 extern const wchar_t kBrowserCrashDumpAttemptsRegistryPath[];
-// Used by chrome.exe to signal that chrome.dll was started via a key sequence
-// that requires it to start in safe mode. For example, in software rendering.
-extern const char kSafeModeEnvVar[];
+extern const wchar_t kBrowserCrashDumpAttemptsRegistryPathSxS[];
+// Registry location where the browser watcher stores browser exit codes.
+// This is picked up and stored in histograms by the browser on the subsequent
+// launch.
+extern const wchar_t kBrowserExitCodesRegistryPath[];
 #endif
 
 #if defined(OS_CHROMEOS)

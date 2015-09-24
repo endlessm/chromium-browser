@@ -9,26 +9,25 @@ component("content") {
   sources = [
     "browser_context_dependency_manager.cc",
     "browser_context_dependency_manager.h",
-    "browser_context_keyed_base_factory.h",
     "browser_context_keyed_base_factory.cc",
+    "browser_context_keyed_base_factory.h",
     "browser_context_keyed_service_factory.cc",
     "browser_context_keyed_service_factory.h",
+    "browser_context_keyed_service_shutdown_notifier_factory.cc",
+    "browser_context_keyed_service_shutdown_notifier_factory.h",
     "refcounted_browser_context_keyed_service_factory.cc",
     "refcounted_browser_context_keyed_service_factory.h",
   ]
 
+  # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
+
   defines = [ "KEYED_SERVICE_IMPLEMENTATION" ]
-  if (is_win) {
-    # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-    cflags = [ "/wd4267" ]
-  }
 
   deps = [
     "//base",
-    "//base:prefs",
     "//base/third_party/dynamic_annotations",
-    "//content/public/common",
     "//components/keyed_service/core",
-    "//components/user_prefs",
+    "//content/public/common",
   ]
 }

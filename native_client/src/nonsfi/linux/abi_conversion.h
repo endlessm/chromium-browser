@@ -7,6 +7,9 @@
 #ifndef NATIVE_CLIENT_SRC_NONSFI_LINUX_ABI_CONVERSION_H_
 #define NATIVE_CLIENT_SRC_NONSFI_LINUX_ABI_CONVERSION_H_ 1
 
+#include <assert.h>
+#include <dirent.h>
+#include <fcntl.h>
 #include <stdint.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -14,6 +17,7 @@
 #include <time.h>
 
 #include "native_client/src/nonsfi/linux/linux_syscall_defines.h"
+#include "native_client/src/nonsfi/linux/linux_syscall_structs.h"
 #include "native_client/src/trusted/service_runtime/nacl_config.h"
 
 #if defined(__i386__) || defined(__arm__)
@@ -70,6 +74,74 @@ struct linux_abi_stat64 {
 # error Unsupported architecture
 #endif
 
+/* We do not use O_RDONLY for abi conversion because it is 0. */
+#define LINUX_O_WRONLY 01
+#define LINUX_O_RDWR 02
+#define LINUX_O_CREAT 0100
+#define LINUX_O_TRUNC 01000
+#define LINUX_O_APPEND 02000
+#define LINUX_O_EXCL 0200
+#define LINUX_O_NONBLOCK 04000
+#define LINUX_O_SYNC 04010000
+#define LINUX_O_ASYNC 020000
+
+#if defined(__i386__)
+# define LINUX_O_DIRECTORY 0200000
+#elif defined(__arm__)
+# define LINUX_O_DIRECTORY 040000
+#else
+# error Unsupported architecture
+#endif
+
+#define LINUX_O_CLOEXEC 02000000
+
+#define NACL_KNOWN_O_FLAGS (O_ACCMODE | O_CREAT | O_TRUNC | O_APPEND | \
+                            O_EXCL | O_NONBLOCK | O_SYNC | O_ASYNC | \
+                            O_DIRECTORY | O_CLOEXEC)
+
+/* Converts open flags from NaCl's to Linux's ABI. */
+static inline int nacl_oflags_to_linux_oflags(int nacl_oflags) {
+  if (nacl_oflags & ~NACL_KNOWN_O_FLAGS) {
+    /* Unknown bit is found. */
+    return -1;
+  }
+#define NACL_TO_LINUX(name) ((nacl_oflags & name) ? LINUX_ ## name : 0)
+  return (NACL_TO_LINUX(O_WRONLY) |
+          NACL_TO_LINUX(O_RDWR) |
+          NACL_TO_LINUX(O_CREAT) |
+          NACL_TO_LINUX(O_TRUNC) |
+          NACL_TO_LINUX(O_APPEND) |
+          NACL_TO_LINUX(O_EXCL) |
+          NACL_TO_LINUX(O_NONBLOCK) |
+          NACL_TO_LINUX(O_SYNC) |
+          NACL_TO_LINUX(O_ASYNC) |
+          NACL_TO_LINUX(O_DIRECTORY) |
+          NACL_TO_LINUX(O_CLOEXEC));
+#undef NACL_TO_LINUX
+}
+
+/* Converts open flags from Linux's to NaCl's ABI. */
+static inline int linux_oflags_to_nacl_oflags(int linux_oflags) {
+  /*
+   * Because O_SYNC has two 1-bits. So we cannot use the same validation
+   * check. We ignore unknown flags in this case.
+   */
+#define LINUX_TO_NACL(name) \
+    (((linux_oflags & LINUX_ ## name) == LINUX_ ## name) ? name : 0)
+  return (LINUX_TO_NACL(O_WRONLY) |
+          LINUX_TO_NACL(O_RDWR) |
+          LINUX_TO_NACL(O_CREAT) |
+          LINUX_TO_NACL(O_TRUNC) |
+          LINUX_TO_NACL(O_APPEND) |
+          LINUX_TO_NACL(O_EXCL) |
+          LINUX_TO_NACL(O_NONBLOCK) |
+          LINUX_TO_NACL(O_SYNC) |
+          LINUX_TO_NACL(O_ASYNC) |
+          LINUX_TO_NACL(O_DIRECTORY) |
+          LINUX_TO_NACL(O_CLOEXEC));
+#undef LINUX_TO_NACL
+}
+
 /* Converts the timespec struct from NaCl's to Linux's ABI. */
 static inline void nacl_timespec_to_linux_timespec(
     const struct timespec *nacl_timespec,
@@ -118,6 +190,29 @@ static inline void linux_stat_to_nacl_stat(
   nacl_stat->st_atime = linux_stat->st_atime;
   nacl_stat->st_mtime = linux_stat->st_mtime;
   nacl_stat->st_ctime = linux_stat->st_ctime;
+}
+
+/* Converts the linux_abi_dirent64 struct to NaCl's dirent. */
+static inline void linux_dirent_to_nacl_dirent(
+    const struct linux_abi_dirent64 *linux_dirent,
+    struct dirent *nacl_dirent) {
+  nacl_dirent->d_ino = linux_dirent->d_ino;
+  nacl_dirent->d_off = linux_dirent->d_off;
+  /*
+   * linux_abi_dirent64 has one byte d_type between d_off and d_name,
+   * while NaCl's dirent has no d_type field at all. We remove it here,
+   * so that the d_reclen should be decreased.
+   */
+  nacl_dirent->d_reclen =
+      linux_dirent->d_reclen
+      - offsetof(struct linux_abi_dirent64, d_name)
+      + offsetof(struct dirent, d_name);
+
+  assert(sizeof(nacl_dirent->d_name) == sizeof(linux_dirent->d_name));
+  size_t copy_length =
+      linux_dirent->d_reclen - offsetof(struct linux_abi_dirent64, d_name);
+  assert(copy_length <= sizeof(nacl_dirent->d_name));
+  memcpy(nacl_dirent->d_name, linux_dirent->d_name, copy_length);
 }
 
 #endif

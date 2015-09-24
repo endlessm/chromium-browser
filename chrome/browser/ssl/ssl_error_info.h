@@ -36,6 +36,7 @@ class SSLErrorInfo {
     UNKNOWN,
     CERT_WEAK_KEY_DH,
     CERT_PINNED_KEY_MISSING,
+    CERT_VALIDITY_TOO_LONG,
     END_OF_ENUM
   };
 
@@ -52,10 +53,10 @@ class SSLErrorInfo {
   // |cert_status|.  Returns the number of errors found.
   // Callers only interested in the error count can pass NULL for |errors|.
   // TODO(wtc): Document |cert_id| and |url| arguments.
-  static int GetErrorsForCertStatus(int cert_id,
-                                    net::CertStatus cert_status,
-                                    const GURL& url,
-                                    std::vector<SSLErrorInfo>* errors);
+  static void GetErrorsForCertStatus(int cert_id,
+                                     net::CertStatus cert_status,
+                                     const GURL& url,
+                                     std::vector<SSLErrorInfo>* errors);
 
   // A description of the error.
   const base::string16& details() const { return details_; }

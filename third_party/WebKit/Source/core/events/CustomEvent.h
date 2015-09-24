@@ -26,15 +26,15 @@
 #ifndef CustomEvent_h
 #define CustomEvent_h
 
+#include "core/CoreExport.h"
+#include "core/events/CustomEventInit.h"
 #include "core/events/Event.h"
 
 namespace blink {
 
 class SerializedScriptValue;
 
-typedef EventInit CustomEventInit;
-
-class CustomEvent final : public Event {
+class CORE_EXPORT CustomEvent final : public Event {
     DEFINE_WRAPPERTYPEINFO();
 public:
     virtual ~CustomEvent();
@@ -55,18 +55,16 @@ public:
 
     SerializedScriptValue* serializedDetail() { return m_serializedDetail.get(); }
 
-    void setSerializedDetail(PassRefPtr<SerializedScriptValue> detail)
-    {
-        ASSERT(!m_serializedDetail);
-        m_serializedDetail = detail;
-    }
+    ScriptValue detail() const { return m_detail; }
+    void setDetail(ScriptValue detail) { m_detail = detail; }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     CustomEvent();
     CustomEvent(const AtomicString& type, const CustomEventInit& initializer);
 
+    ScriptValue m_detail;
     RefPtr<SerializedScriptValue> m_serializedDetail;
 };
 

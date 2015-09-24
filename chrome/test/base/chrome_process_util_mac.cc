@@ -12,7 +12,6 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 
 MacChromeProcessInfoList GetRunningMacProcessInfo(
     const ChromeProcessList& process_list) {
@@ -28,12 +27,12 @@ MacChromeProcessInfoList GetRunningMacProcessInfo(
        process_iter != process_list.end();
        ++process_iter) {
     cmdline.push_back("-p");
-    cmdline.push_back(base::StringPrintf("%d", *process_iter));
+    cmdline.push_back(base::IntToString(*process_iter));
   }
 
   // Invoke it
   std::string ps_output;
-  if (!base::GetAppOutput(CommandLine(cmdline), &ps_output))
+  if (!base::GetAppOutput(base::CommandLine(cmdline), &ps_output))
     return result;  // All the pids might have exited
 
   // Process the results

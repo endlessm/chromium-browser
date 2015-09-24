@@ -32,6 +32,7 @@
 #define WebRuntimeFeatures_h
 
 #include "../platform/WebCommon.h"
+#include "../platform/WebString.h"
 
 namespace blink {
 
@@ -40,7 +41,14 @@ namespace blink {
 class WebRuntimeFeatures {
 public:
     BLINK_EXPORT static void enableExperimentalFeatures(bool);
+
+    BLINK_EXPORT static void enableWebBluetooth(bool);
+
     BLINK_EXPORT static void enableTestOnlyFeatures(bool);
+
+    // Enables a feature by its string identifier from
+    // RuntimeEnabledFeatures.in.
+    BLINK_EXPORT static void enableFeatureFromString(const WebString& name, bool enable);
 
     BLINK_EXPORT static void enableApplicationCache(bool);
 
@@ -64,6 +72,8 @@ public:
 
     BLINK_EXPORT static void enableBlinkScheduler(bool);
 
+    BLINK_EXPORT static void enableCompositorAnimationTimelines(bool);
+
     BLINK_EXPORT static void enableExperimentalCanvasFeatures(bool);
 
     BLINK_EXPORT static void enableFastMobileScrolling(bool);
@@ -71,8 +81,6 @@ public:
     BLINK_EXPORT static void enableFileSystem(bool);
 
     BLINK_EXPORT static void enableImageColorProfiles(bool);
-
-    BLINK_EXPORT static void enableLocalStorage(bool);
 
     BLINK_EXPORT static void enableMediaPlayer(bool);
 
@@ -82,11 +90,11 @@ public:
 
     BLINK_EXPORT static void enableMediaSource(bool);
 
+    BLINK_EXPORT static void enableNotificationConstructor(bool);
+
     BLINK_EXPORT static void enableNotifications(bool);
 
     BLINK_EXPORT static void enableNavigatorContentUtils(bool);
-
-    BLINK_EXPORT static void enableNavigationTransitions(bool);
 
     BLINK_EXPORT static void enableNetworkInformation(bool);
 
@@ -94,17 +102,13 @@ public:
 
     BLINK_EXPORT static void enablePagePopup(bool);
 
-    BLINK_EXPORT static void enablePeerConnection(bool);
+    BLINK_EXPORT static void enablePermissionsAPI(bool);
 
     BLINK_EXPORT static void enableRequestAutocomplete(bool);
 
     BLINK_EXPORT static void enableScreenOrientation(bool);
 
     BLINK_EXPORT static void enableScriptedSpeech(bool);
-
-    BLINK_EXPORT static void enableServiceWorker(bool);
-
-    BLINK_EXPORT static void enableSessionStorage(bool);
 
     BLINK_EXPORT static void enableSlimmingPaint(bool);
 
@@ -130,11 +134,7 @@ public:
 
     BLINK_EXPORT static void enablePreciseMemoryInfo(bool);
 
-    BLINK_EXPORT static void enableLayerSquashing(bool);
-
-    BLINK_EXPORT static void enableShowModalDialog(bool);
-
-    BLINK_EXPORT static void enableLaxMixedContentChecking(bool);
+    BLINK_EXPORT static void enableLayerSquashing(bool) { }
 
     BLINK_EXPORT static void enableCredentialManagerAPI(bool);
 
@@ -146,6 +146,19 @@ public:
 
     BLINK_EXPORT static void enableSVG1DOM(bool);
 
+    BLINK_EXPORT static void enableReducedReferrerGranularity(bool);
+
+    BLINK_EXPORT static void enablePushMessaging(bool);
+
+    BLINK_EXPORT static void enablePushMessagingData(bool);
+
+    BLINK_EXPORT static void enablePushMessagingHasPermission(bool);
+
+    BLINK_EXPORT static void enableStaleWhileRevalidateCacheControl(bool);
+
+    BLINK_EXPORT static void enableUnsafeES3APIs(bool);
+
+    BLINK_EXPORT static void enableWebVR(bool);
 private:
     WebRuntimeFeatures();
 };

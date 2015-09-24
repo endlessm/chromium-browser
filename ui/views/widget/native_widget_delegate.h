@@ -22,12 +22,12 @@ class GestureEvent;
 class KeyEvent;
 class Layer;
 class MouseEvent;
-class TouchEvent;
+class PaintContext;
 class ScrollEvent;
+class TouchEvent;
 }
 
 namespace views {
-class InputMethod;
 class Widget;
 
 namespace internal {
@@ -58,8 +58,8 @@ class VIEWS_EXPORT NativeWidgetDelegate {
   virtual void OnNativeWidgetActivationChanged(bool active) = 0;
 
   // Called when native focus moves from one native view to another.
-  virtual void OnNativeFocus(gfx::NativeView focused_view) = 0;
-  virtual void OnNativeBlur(gfx::NativeView focused_view) = 0;
+  virtual void OnNativeFocus() = 0;
+  virtual void OnNativeBlur() = 0;
 
   // Called when the window is about to be shown/hidden.
   virtual void OnNativeWidgetVisibilityChanging(bool visible) = 0;
@@ -105,14 +105,9 @@ class VIEWS_EXPORT NativeWidgetDelegate {
   // Returns true if the delegate has a FocusManager.
   virtual bool HasFocusManager() const = 0;
 
-  // Paints the widget using acceleration. If the widget is not using
-  // accelerated painting this returns false and does nothing.
-  virtual bool OnNativeWidgetPaintAccelerated(
-      const gfx::Rect& dirty_region) = 0;
-
-  // Paints the rootview in the canvas. This will also refresh the compositor
-  // tree if necessary when accelerated painting is enabled.
-  virtual void OnNativeWidgetPaint(gfx::Canvas* canvas) = 0;
+  // Paints the rootview in the context. This will also refresh the compositor
+  // tree if necessary.
+  virtual void OnNativeWidgetPaint(const ui::PaintContext& context) = 0;
 
   // Returns the non-client component (see ui/base/hit_test.h) containing
   // |point|, in client coordinates.
@@ -128,11 +123,6 @@ class VIEWS_EXPORT NativeWidgetDelegate {
 
   // Runs the specified native command. Returns true if the command is handled.
   virtual bool ExecuteCommand(int command_id) = 0;
-
-  // Returns the input method of the widget this delegate is associated with.
-  // Note that this does not use the top level widget, so may return NULL
-  // if the widget doesn't have input method.
-  virtual InputMethod* GetInputMethodDirect() = 0;
 
   // Returns the child Layers of the Widgets layer that were created by Views.
   virtual const std::vector<ui::Layer*>& GetRootLayers() = 0;

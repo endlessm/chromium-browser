@@ -22,8 +22,13 @@
 #include "ui/base/l10n/l10n_util.h"
 
 #if defined(OS_CHROMEOS)
+#include "base/prefs/pref_service.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/display/display_configuration_observer.h"
+#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/common/pref_names.h"
+#include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #endif
 
@@ -88,6 +93,20 @@ bool ChromeShellDelegate::IsMultiAccountEnabled() const {
   return false;
 }
 
+bool ChromeShellDelegate::IsForceMaximizeOnFirstRun() const {
+#if defined(OS_CHROMEOS)
+  const user_manager::User* const user =
+      user_manager::UserManager::Get()->GetActiveUser();
+  if (user) {
+    return chromeos::ProfileHelper::Get()
+        ->GetProfileByUser(user)
+        ->GetPrefs()
+        ->GetBoolean(prefs::kForceMaximizeOnFirstRun);
+  }
+#endif
+  return false;
+}
+
 void ChromeShellDelegate::Exit() {
   chrome::AttemptUserExit();
 }
@@ -100,13 +119,9 @@ content::BrowserContext* ChromeShellDelegate::GetActiveBrowserContext() {
 }
 
 app_list::AppListViewDelegate* ChromeShellDelegate::GetAppListViewDelegate() {
-#if defined(USE_ATHENA)
-  return NULL;
-#else
   DCHECK(ash::Shell::HasInstance());
   return AppListServiceAsh::GetInstance()->GetViewDelegate(
       Profile::FromBrowserContext(GetActiveBrowserContext()));
-#endif
 }
 
 ash::ShelfDelegate* ChromeShellDelegate::CreateShelfDelegate(
@@ -144,7 +159,8 @@ base::string16 ChromeShellDelegate::GetProductName() const {
 
 keyboard::KeyboardControllerProxy*
     ChromeShellDelegate::CreateKeyboardControllerProxy() {
-  return new AshKeyboardControllerProxy();
+  return new AshKeyboardControllerProxy(
+      ProfileManager::GetActiveUserProfile());
 }
 
 void ChromeShellDelegate::VirtualKeyboardActivated(bool activated) {

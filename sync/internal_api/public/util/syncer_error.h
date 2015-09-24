@@ -10,7 +10,7 @@
 namespace syncer {
 
 // This enum describes all the possible results of a sync cycle.
-enum SYNC_EXPORT_PRIVATE SyncerError {
+enum SyncerError {
   UNSET = 0,       // Default value.
   CANNOT_DO_WORK,  // A model worker could not process a work item.
 
@@ -31,6 +31,7 @@ enum SYNC_EXPORT_PRIVATE SyncerError {
   SERVER_RESPONSE_VALIDATION_FAILED,
   SERVER_RETURN_DISABLED_BY_ADMIN,
   SERVER_RETURN_USER_ROLLBACK,
+  SERVER_RETURN_PARTIAL_FAILURE,
 
   // A datatype decided the sync cycle needed to be performed again.
   DATATYPE_TRIGGERED_RETRY,

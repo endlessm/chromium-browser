@@ -52,10 +52,10 @@ PassRefPtr<DOMArrayBuffer> FileReaderSync::readAsArrayBuffer(ExecutionContext* e
         return nullptr;
     }
 
-    FileReaderLoader loader(FileReaderLoader::ReadAsArrayBuffer, 0);
+    FileReaderLoader loader(FileReaderLoader::ReadAsArrayBuffer, nullptr);
     startLoading(executionContext, loader, *blob, exceptionState);
 
-    return DOMArrayBuffer::create(loader.arrayBufferResult());
+    return loader.arrayBufferResult();
 }
 
 String FileReaderSync::readAsBinaryString(ExecutionContext* executionContext, Blob* blob, ExceptionState& exceptionState)
@@ -77,7 +77,7 @@ String FileReaderSync::readAsText(ExecutionContext* executionContext, Blob* blob
         return String();
     }
 
-    FileReaderLoader loader(FileReaderLoader::ReadAsText, 0);
+    FileReaderLoader loader(FileReaderLoader::ReadAsText, nullptr);
     loader.setEncoding(encoding);
     startLoading(executionContext, loader, *blob, exceptionState);
     return loader.stringResult();
@@ -90,7 +90,7 @@ String FileReaderSync::readAsDataURL(ExecutionContext* executionContext, Blob* b
         return String();
     }
 
-    FileReaderLoader loader(FileReaderLoader::ReadAsDataURL, 0);
+    FileReaderLoader loader(FileReaderLoader::ReadAsDataURL, nullptr);
     loader.setDataType(blob->type());
     startLoading(executionContext, loader, *blob, exceptionState);
     return loader.stringResult();

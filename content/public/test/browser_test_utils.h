@@ -9,16 +9,18 @@
 #include <string>
 #include <vector>
 
-#include "base/callback_forward.h"
+#include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/ref_counted.h"
 #include "base/process/process.h"
 #include "base/strings/string16.h"
+#include "content/public/browser/browser_message_filter.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/render_process_host_observer.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "content/public/common/page_type.h"
 #include "third_party/WebKit/public/web/WebInputEvent.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "url/gurl.h"
@@ -26,10 +28,6 @@
 #if defined(OS_WIN)
 #include "base/win/scoped_handle.h"
 #endif
-
-namespace base {
-class RunLoop;
-}
 
 namespace gfx {
 class Point;
@@ -55,21 +53,44 @@ class MessageLoopRunner;
 class RenderViewHost;
 class WebContents;
 
+// Navigate a frame with ID |iframe_id| to |url|, blocking until the navigation
+// finishes.  Uses a renderer-initiated navigation from script code in the
+// main frame.
+bool NavigateIframeToURL(WebContents* web_contents,
+                         std::string iframe_id,
+                         const GURL& url);
+
 // Generate a URL for a file path including a query string.
 GURL GetFileUrlWithQuery(const base::FilePath& path,
                          const std::string& query_string);
 
-// Waits for a load stop for the specified |web_contents|'s controller, if the
-// tab is currently web_contents.  Otherwise returns immediately.
-void WaitForLoadStop(WebContents* web_contents);
+// Checks whether the page type of the last committed navigation entry matches
+// |page_type|.
+bool IsLastCommittedEntryOfPageType(WebContents* web_contents,
+                                    content::PageType page_type);
 
-#if defined(USE_AURA)
+// Waits for a load stop for the specified |web_contents|'s controller, if the
+// tab is currently web_contents.  Otherwise returns immediately.  Tests should
+// use WaitForLoadStop instead and check that last navigation succeeds, and
+// this function should only be used if the navigation leads to web_contents
+// being destroyed.
+void WaitForLoadStopWithoutSuccessCheck(WebContents* web_contents);
+
+// Waits for a load stop for the specified |web_contents|'s controller, if the
+// tab is currently web_contents.  Otherwise returns immediately.  Returns true
+// if the last navigation succeeded (resulted in a committed navigation entry
+// of type PAGE_TYPE_NORMAL).
+// TODO(alexmos): tests that use this function to wait for successful
+// navigations should be refactored to do EXPECT_TRUE(WaitForLoadStop()).
+bool WaitForLoadStop(WebContents* web_contents);
+
+#if defined(USE_AURA) || defined(OS_ANDROID)
 // If WebContent's view is currently being resized, this will wait for the ack
 // from the renderer that the resize is complete and for the
 // WindowEventDispatcher to release the pointer moves. If there's no resize in
 // progress, the method will return right away.
 void WaitForResizeComplete(WebContents* web_contents);
-#endif  // USE_AURA
+#endif  // defined(USE_AURA) || defined(OS_ANDROID)
 
 // Causes the specified web_contents to crash. Blocks until it is crashed.
 void CrashTab(WebContents* web_contents);
@@ -94,6 +115,14 @@ void SimulateMouseEvent(WebContents* web_contents,
 
 // Taps the screen at |point|.
 void SimulateTapAt(WebContents* web_contents, const gfx::Point& point);
+
+// Generates a TouchStart at |point|.
+void SimulateTouchPressAt(WebContents* web_contents, const gfx::Point& point);
+
+// Taps the screen with modifires at |point|.
+void SimulateTapWithModifiersAt(WebContents* web_contents,
+                                unsigned Modifiers,
+                                const gfx::Point& point);
 
 // Sends a key press asynchronously.
 // The native code of the key event will be set to InvalidNativeKeycode().
@@ -219,6 +248,12 @@ void WaitForInterstitialDetach(content::WebContents* web_contents);
 void RunTaskAndWaitForInterstitialDetach(content::WebContents* web_contents,
                                          const base::Closure& task);
 
+// Waits until all resources have loaded in the given RenderFrameHost.
+// When the load completes, this function sends a "pageLoadComplete" message
+// via domAutomationController. The caller should make sure this extra
+// message is handled properly.
+bool WaitForRenderFrameReady(RenderFrameHost* rfh) WARN_UNUSED_RESULT;
+
 // Watches title changes on a WebContents, blocking until an expected title is
 // set.
 class TitleWatcher : public WebContentsObserver {
@@ -240,7 +275,7 @@ class TitleWatcher : public WebContentsObserver {
 
  private:
   // Overridden WebContentsObserver methods.
-  void DidStopLoading(RenderViewHost* render_view_host) override;
+  void DidStopLoading() override;
   void TitleWasSet(NavigationEntry* entry, bool explicit_set) override;
 
   void TestTitle();
@@ -289,6 +324,11 @@ class RenderProcessHostWatcher : public RenderProcessHostObserver {
   // Waits until the renderer process exits.
   void Wait();
 
+  // Returns true if a renderer process exited cleanly (without hitting
+  // RenderProcessExited with an abnormal TerminationStatus). This should be
+  // called after Wait().
+  bool did_exit_normally() { return did_exit_normally_; }
+
  private:
   // Overridden RenderProcessHost::LifecycleObserver methods.
   void RenderProcessExited(RenderProcessHost* host,
@@ -298,6 +338,7 @@ class RenderProcessHostWatcher : public RenderProcessHostObserver {
 
   RenderProcessHost* render_process_host_;
   WatchType type_;
+  bool did_exit_normally_;
 
   scoped_refptr<MessageLoopRunner> message_loop_runner_;
 
@@ -332,6 +373,65 @@ class DOMMessageQueue : public NotificationObserver {
   scoped_refptr<MessageLoopRunner> message_loop_runner_;
 
   DISALLOW_COPY_AND_ASSIGN(DOMMessageQueue);
+};
+
+// Used to wait for a new WebContents to be created. Instantiate this object
+// before the operation that will create the window.
+class WebContentsAddedObserver {
+ public:
+  WebContentsAddedObserver();
+  ~WebContentsAddedObserver();
+
+  // Will run a message loop to wait for the new window if it hasn't been
+  // created since the constructor
+  WebContents* GetWebContents();
+
+  // Will tell whether RenderViewCreated Callback has invoked
+  bool RenderViewCreatedCalled();
+
+ private:
+  class RenderViewCreatedObserver;
+
+  void WebContentsCreated(WebContents* web_contents);
+
+  // Callback to WebContentCreated(). Cached so that we can unregister it.
+  base::Callback<void(WebContents*)> web_contents_created_callback_;
+
+  WebContents* web_contents_;
+  scoped_ptr<RenderViewCreatedObserver> child_observer_;
+  scoped_refptr<MessageLoopRunner> runner_;
+
+  DISALLOW_COPY_AND_ASSIGN(WebContentsAddedObserver);
+};
+
+// Request a new frame be drawn, returns false if request fails.
+bool RequestFrame(WebContents* web_contents);
+
+// Watches compositor frame changes, blocking until a frame has been
+// composited. This class is intended to be run on the main thread; to
+// synchronize the main thread against the impl thread.
+class FrameWatcher : public BrowserMessageFilter {
+ public:
+  FrameWatcher();
+
+  // Listen for new frames from the |web_contents| renderer process.
+  void AttachTo(WebContents* web_contents);
+
+  // Wait for |frames_to_wait| swap mesages from the compositor.
+  void WaitFrames(int frames_to_wait);
+
+ private:
+  ~FrameWatcher() override;
+
+  // Overridden BrowserMessageFilter methods.
+  bool OnMessageReceived(const IPC::Message& message) override;
+
+  void ReceivedFrameSwap();
+
+  int frames_to_wait_;
+  base::Closure quit_;
+
+  DISALLOW_COPY_AND_ASSIGN(FrameWatcher);
 };
 
 }  // namespace content

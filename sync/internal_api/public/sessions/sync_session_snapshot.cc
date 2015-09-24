@@ -34,6 +34,7 @@ SyncSessionSnapshot::SyncSessionSnapshot(
     bool notifications_enabled,
     size_t num_entries,
     base::Time sync_start_time,
+    base::Time poll_finish_time,
     const std::vector<int>& num_entries_by_type,
     const std::vector<int>& num_to_delete_entries_by_type,
     sync_pb::GetUpdatesCallerInfo::GetUpdatesSource legacy_updates_source)
@@ -46,6 +47,7 @@ SyncSessionSnapshot::SyncSessionSnapshot(
       notifications_enabled_(notifications_enabled),
       num_entries_(num_entries),
       sync_start_time_(sync_start_time),
+      poll_finish_time_(poll_finish_time),
       num_entries_by_type_(num_entries_by_type),
       num_to_delete_entries_by_type_(num_to_delete_entries_by_type),
       legacy_updates_source_(legacy_updates_source),
@@ -54,7 +56,7 @@ SyncSessionSnapshot::SyncSessionSnapshot(
 
 SyncSessionSnapshot::~SyncSessionSnapshot() {}
 
-base::DictionaryValue* SyncSessionSnapshot::ToValue() const {
+scoped_ptr<base::DictionaryValue> SyncSessionSnapshot::ToValue() const {
   scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   value->SetInteger("numSuccessfulCommits",
                     model_neutral_state_.num_successful_commits);
@@ -71,7 +73,7 @@ base::DictionaryValue* SyncSessionSnapshot::ToValue() const {
   value->SetInteger("numServerOverwrites",
                     model_neutral_state_.num_server_overwrites);
   value->Set("downloadProgressMarkers",
-             ProgressMarkerMapToValue(download_progress_markers_).release());
+             ProgressMarkerMapToValue(download_progress_markers_));
   value->SetBoolean("isSilenced", is_silenced_);
   // We don't care too much if we lose precision here, also.
   value->SetInteger("numEncryptionConflicts",
@@ -96,16 +98,14 @@ base::DictionaryValue* SyncSessionSnapshot::ToValue() const {
     const std::string model_type = ModelTypeToString(static_cast<ModelType>(i));
     counter_entries->Set(model_type, type_entries.release());
   }
-  value->Set("counter_entries", counter_entries.release());
-  return value.release();
+  value->Set("counter_entries", counter_entries.Pass());
+  return value;
 }
 
 std::string SyncSessionSnapshot::ToString() const {
-  scoped_ptr<base::DictionaryValue> value(ToValue());
   std::string json;
-  base::JSONWriter::WriteWithOptions(value.get(),
-                                     base::JSONWriter::OPTIONS_PRETTY_PRINT,
-                                     &json);
+  base::JSONWriter::WriteWithOptions(
+      *ToValue(), base::JSONWriter::OPTIONS_PRETTY_PRINT, &json);
   return json;
 }
 
@@ -140,6 +140,10 @@ size_t SyncSessionSnapshot::num_entries() const {
 
 base::Time SyncSessionSnapshot::sync_start_time() const {
   return sync_start_time_;
+}
+
+base::Time SyncSessionSnapshot::poll_finish_time() const {
+  return poll_finish_time_;
 }
 
 bool SyncSessionSnapshot::is_initialized() const {

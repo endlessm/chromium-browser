@@ -6,22 +6,22 @@
 
 #include <jni.h>
 #include <openssl/bn.h>
-#include <openssl/dsa.h>
 #include <openssl/ec.h>
 #include <openssl/engine.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
+#include <stdint.h>
 
 #include "base/android/build_info.h"
 #include "base/android/jni_android.h"
 #include "base/android/scoped_java_ref.h"
-#include "base/basictypes.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "crypto/openssl_util.h"
 #include "net/android/keystore.h"
 #include "net/android/legacy_openssl.h"
+#include "net/ssl/scoped_openssl_types.h"
 #include "net/ssl/ssl_client_cert_type.h"
 
 // IMPORTANT NOTE: The following code will currently only work when used
@@ -33,9 +33,8 @@
 // are required to sign the digest during the OpenSSL handshake for TLS.
 //
 // The OpenSSL EVP_PKEY type is a generic wrapper around key pairs.
-// Internally, it can hold a pointer to a RSA, DSA or ECDSA structure,
-// which model keypair implementations of each respective crypto
-// algorithm.
+// Internally, it can hold a pointer to a RSA or ECDSA structure, which model
+// keypair implementations of each respective crypto algorithm.
 //
 // The RSA type has a 'method' field pointer to a vtable-like structure
 // called a RSA_METHOD. This contains several function pointers that
@@ -69,8 +68,8 @@ namespace {
 extern const RSA_METHOD android_rsa_method;
 extern const ECDSA_METHOD android_ecdsa_method;
 
-// KeyExData contains the data that is contained in the EX_DATA of the RSA, DSA
-// and ECDSA objects that are created to wrap Android system keys.
+// KeyExData contains the data that is contained in the EX_DATA of the RSA and
+// EC_KEY objects that are created to wrap Android system keys.
 struct KeyExData {
   // private_key contains a reference to a Java, private-key object.
   jobject private_key;
@@ -78,13 +77,13 @@ struct KeyExData {
   // might not be ABI compatible with Chromium).
   AndroidRSA* legacy_rsa;
   // cached_size contains the "size" of the key. This is the size of the
-  // modulus (in bytes) for RSA, or the group order size for (EC)DSA. This
+  // modulus (in bytes) for RSA, or the group order size for ECDSA. This
   // avoids calling into Java to calculate the size.
   size_t cached_size;
 };
 
-// ExDataDup is called when one of the RSA, DSA or EC_KEY objects is
-// duplicated. We don't support this and it should never happen.
+// ExDataDup is called when one of the RSA or EC_KEY objects is duplicated. We
+// don't support this and it should never happen.
 int ExDataDup(CRYPTO_EX_DATA* to,
               const CRYPTO_EX_DATA* from,
               void** from_d,
@@ -95,7 +94,7 @@ int ExDataDup(CRYPTO_EX_DATA* to,
   return 0;
 }
 
-// ExDataFree is called when one of the RSA, DSA or EC_KEY objects is freed.
+// ExDataFree is called when one of the RSA or EC_KEY objects is freed.
 void ExDataFree(void* parent,
                 void* ptr,
                 CRYPTO_EX_DATA* ad,
@@ -111,7 +110,7 @@ void ExDataFree(void* parent,
   }
 }
 
-// BoringSSLEngine is a BoringSSL ENGINE that implements RSA, DSA and ECDSA by
+// BoringSSLEngine is a BoringSSL ENGINE that implements RSA and ECDSA by
 // forwarding the requested operations to the Java libraries.
 class BoringSSLEngine {
  public:
@@ -150,7 +149,7 @@ base::LazyInstance<BoringSSLEngine>::Leaky global_boringssl_engine =
 
 // VectorBignumSize returns the number of bytes needed to represent the bignum
 // given in |v|, i.e. the length of |v| less any leading zero bytes.
-size_t VectorBignumSize(const std::vector<uint8>& v) {
+size_t VectorBignumSize(const std::vector<uint8_t>& v) {
   size_t size = v.size();
   // Ignore any leading zero bytes.
   for (size_t i = 0; i < v.size() && v[i] == 0; i++) {
@@ -230,7 +229,7 @@ int RsaMethodSignRaw(RSA* rsa,
   }
 
   base::StringPiece from_piece(reinterpret_cast<const char*>(in), in_len);
-  std::vector<uint8> result;
+  std::vector<uint8_t> result;
   // For RSA keys, this function behaves as RSA_private_encrypt with
   // PKCS#1 padding.
   if (!RawSignDigestWithPrivateKey(ex_data->private_key, from_piece, &result)) {
@@ -291,22 +290,24 @@ const RSA_METHOD android_rsa_method = {
      0 /* references */,
      1 /* is_static */
     } /* common */,
-    NULL /* app_data */,
+    nullptr /* app_data */,
 
-    NULL /* init */,
-    NULL /* finish */,
+    nullptr /* init */,
+    nullptr /* finish */,
     RsaMethodSize,
-    NULL /* sign */,
-    NULL /* verify */,
+    nullptr /* sign */,
+    nullptr /* verify */,
     RsaMethodEncrypt,
     RsaMethodSignRaw,
     RsaMethodDecrypt,
     RsaMethodVerifyRaw,
-    NULL /* private_transform */,
-    NULL /* mod_exp */,
-    NULL /* bn_mod_exp */,
+    nullptr /* private_transform */,
+    nullptr /* mod_exp */,
+    nullptr /* bn_mod_exp */,
     RSA_FLAG_OPAQUE,
-    NULL /* keygen */,
+    nullptr /* keygen */,
+    nullptr /* multi_prime_keygen */,
+    nullptr /* supports_digest */,
 };
 
 // Setup an EVP_PKEY to wrap an existing platform RSA PrivateKey object.
@@ -318,8 +319,10 @@ const RSA_METHOD android_rsa_method = {
 // On success, this creates a new global JNI reference to the object
 // that is owned by and destroyed with the EVP_PKEY. I.e. caller can
 // free |private_key| after the call.
-crypto::ScopedEVP_PKEY GetRsaPkeyWrapper(jobject private_key,
-                                         AndroidRSA* legacy_rsa) {
+crypto::ScopedEVP_PKEY CreateRsaPkeyWrapper(
+    jobject private_key,
+    AndroidRSA* legacy_rsa,
+    const crypto::OpenSSLErrStackTracer& tracer) {
   crypto::ScopedRSA rsa(
       RSA_new_method(global_boringssl_engine.Get().engine()));
 
@@ -330,7 +333,7 @@ crypto::ScopedEVP_PKEY GetRsaPkeyWrapper(jobject private_key,
     return crypto::ScopedEVP_PKEY();
   }
 
-  std::vector<uint8> modulus;
+  std::vector<uint8_t> modulus;
   if (!GetRSAKeyModulus(private_key, &modulus)) {
     LOG(ERROR) << "Failed to get private key modulus";
     return crypto::ScopedEVP_PKEY();
@@ -387,52 +390,42 @@ void LeakEngine(jobject private_key) {
   s_instance.Get().LeakEngine(private_key);
 }
 
-// Setup an EVP_PKEY to wrap an existing platform RSA PrivateKey object
-// for Android 4.0 to 4.1.x. Must only be used on Android < 4.2.
-// |private_key| is a JNI reference (local or global) to the object.
-// |pkey| is the EVP_PKEY to setup as a wrapper.
-// Returns true on success, false otherwise.
-crypto::ScopedEVP_PKEY GetRsaLegacyKey(jobject private_key) {
+// Creates an EVP_PKEY wrapper corresponding to the RSA key
+// |private_key|. Returns nullptr on failure.
+crypto::ScopedEVP_PKEY GetRsaPkeyWrapper(jobject private_key) {
+  const int kAndroid42ApiLevel = 17;
+  crypto::OpenSSLErrStackTracer tracer(FROM_HERE);
+
+  if (base::android::BuildInfo::GetInstance()->sdk_int() >=
+      kAndroid42ApiLevel) {
+    return CreateRsaPkeyWrapper(private_key, nullptr, tracer);
+  }
+
+  // Route around platform limitation: if Android < 4.2, then
+  // base::android::RawSignDigestWithPrivateKey() cannot work, so try to get the
+  // system OpenSSL's EVP_PKEY backing this PrivateKey object.
   AndroidEVP_PKEY* sys_pkey =
       GetOpenSSLSystemHandleForPrivateKey(private_key);
-  if (sys_pkey != NULL) {
-    if (sys_pkey->type != ANDROID_EVP_PKEY_RSA) {
-      LOG(ERROR) << "Private key has wrong type!";
-      return crypto::ScopedEVP_PKEY();
+  if (sys_pkey == nullptr)
+    return nullptr;
+
+  if (sys_pkey->type != ANDROID_EVP_PKEY_RSA) {
+    LOG(ERROR) << "Private key has wrong type!";
+    return nullptr;
+  }
+
+  AndroidRSA* sys_rsa = sys_pkey->pkey.rsa;
+  if (sys_rsa->engine) {
+    // |private_key| may not have an engine if the PrivateKey did not come
+    // from the key store, such as in unit tests.
+    if (strcmp(sys_rsa->engine->id, "keystore") == 0) {
+      LeakEngine(private_key);
+    } else {
+      NOTREACHED();
     }
-
-    AndroidRSA* sys_rsa = sys_pkey->pkey.rsa;
-    if (sys_rsa->engine) {
-      // |private_key| may not have an engine if the PrivateKey did not come
-      // from the key store, such as in unit tests.
-      if (strcmp(sys_rsa->engine->id, "keystore") == 0) {
-        LeakEngine(private_key);
-      } else {
-        NOTREACHED();
-      }
-    }
-
-    return GetRsaPkeyWrapper(private_key, sys_rsa);
   }
 
-  // GetOpenSSLSystemHandleForPrivateKey() will fail on Android 4.0.3 and
-  // earlier. However, it is possible to get the key content with
-  // PrivateKey.getEncoded() on these platforms.  Note that this method may
-  // return NULL on 4.0.4 and later.
-  std::vector<uint8> encoded;
-  if (!GetPrivateKeyEncodedBytes(private_key, &encoded)) {
-    LOG(ERROR) << "Can't get private key data!";
-    return crypto::ScopedEVP_PKEY();
-  }
-  const unsigned char* p =
-      reinterpret_cast<const unsigned char*>(&encoded[0]);
-  int len = static_cast<int>(encoded.size());
-  crypto::ScopedEVP_PKEY pkey(d2i_AutoPrivateKey(NULL, &p, len));
-  if (!pkey) {
-    LOG(ERROR) << "Can't convert private key data!";
-    return crypto::ScopedEVP_PKEY();
-  }
-  return pkey.Pass();
+  return CreateRsaPkeyWrapper(private_key, sys_rsa, tracer);
 }
 
 // Custom ECDSA_METHOD that uses the platform APIs.
@@ -463,7 +456,7 @@ int EcdsaMethodSign(const uint8_t* digest,
     return 0;
   }
   // Sign message with it through JNI.
-  std::vector<uint8> signature;
+  std::vector<uint8_t> signature;
   base::StringPiece digest_sp(reinterpret_cast<const char*>(digest),
                               digest_len);
   if (!RawSignDigestWithPrivateKey(private_key, digest_sp, &signature)) {
@@ -503,6 +496,7 @@ int EcdsaMethodVerify(const uint8_t* digest,
 // is owned by and destroyed with the EVP_PKEY. I.e. the caller shall
 // always free |private_key| after the call.
 crypto::ScopedEVP_PKEY GetEcdsaPkeyWrapper(jobject private_key) {
+  crypto::OpenSSLErrStackTracer tracer(FROM_HERE);
   crypto::ScopedEC_KEY ec_key(
       EC_KEY_new_method(global_boringssl_engine.Get().engine()));
 
@@ -513,7 +507,7 @@ crypto::ScopedEVP_PKEY GetEcdsaPkeyWrapper(jobject private_key) {
     return crypto::ScopedEVP_PKEY();
   }
 
-  std::vector<uint8> order;
+  std::vector<uint8_t> order;
   if (!GetECKeyOrder(private_key, &order)) {
     LOG(ERROR) << "Can't extract order parameter from EC private key";
     return crypto::ScopedEVP_PKEY();
@@ -553,29 +547,17 @@ const ECDSA_METHOD android_ecdsa_method = {
 }  // namespace
 
 crypto::ScopedEVP_PKEY GetOpenSSLPrivateKeyWrapper(jobject private_key) {
-  const int kAndroid42ApiLevel = 17;
-
   // Create sub key type, depending on private key's algorithm type.
   PrivateKeyType key_type = GetPrivateKeyType(private_key);
   switch (key_type) {
     case PRIVATE_KEY_TYPE_RSA:
-      // Route around platform bug: if Android < 4.2, then
-      // base::android::RawSignDigestWithPrivateKey() cannot work, so
-      // instead, obtain a raw EVP_PKEY* to the system object
-      // backing this PrivateKey object.
-      if (base::android::BuildInfo::GetInstance()->sdk_int() <
-          kAndroid42ApiLevel) {
-        return GetRsaLegacyKey(private_key);
-      } else {
-        // Running on Android 4.2.
-        return GetRsaPkeyWrapper(private_key, NULL);
-      }
+      return GetRsaPkeyWrapper(private_key);
     case PRIVATE_KEY_TYPE_ECDSA:
       return GetEcdsaPkeyWrapper(private_key);
     default:
       LOG(WARNING)
           << "GetOpenSSLPrivateKeyWrapper() called with invalid key type";
-      return crypto::ScopedEVP_PKEY();
+      return nullptr;
   }
 }
 

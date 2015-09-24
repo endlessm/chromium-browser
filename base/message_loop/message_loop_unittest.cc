@@ -10,12 +10,12 @@
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy_impl.h"
 #include "base/message_loop/message_loop_test.h"
 #include "base/pending_task.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/run_loop.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/test/test_simple_task_runner.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread.h"
@@ -425,7 +425,7 @@ class DispatcherImpl : public MessagePumpDispatcher {
  public:
   DispatcherImpl() : dispatch_count_(0) {}
 
-  virtual uint32_t Dispatch(const NativeEvent& msg) override {
+  uint32_t Dispatch(const NativeEvent& msg) override {
     ::TranslateMessage(&msg);
     ::DispatchMessage(&msg);
     // Do not count WM_TIMER since it is not what we post and it will cause
@@ -489,8 +489,9 @@ class TestIOHandler : public MessageLoopForIO::IOHandler {
  public:
   TestIOHandler(const wchar_t* name, HANDLE signal, bool wait);
 
-  virtual void OnIOCompleted(MessageLoopForIO::IOContext* context,
-                             DWORD bytes_transfered, DWORD error);
+  void OnIOCompleted(MessageLoopForIO::IOContext* context,
+                     DWORD bytes_transfered,
+                     DWORD error) override;
 
   void Init();
   void WaitForIO();
@@ -668,14 +669,12 @@ class DummyTaskObserver : public MessageLoop::TaskObserver {
 
   void WillProcessTask(const PendingTask& pending_task) override {
     num_tasks_started_++;
-    EXPECT_TRUE(pending_task.time_posted != TimeTicks());
     EXPECT_LE(num_tasks_started_, num_tasks_);
     EXPECT_EQ(num_tasks_started_, num_tasks_processed_ + 1);
   }
 
   void DidProcessTask(const PendingTask& pending_task) override {
     num_tasks_processed_++;
-    EXPECT_TRUE(pending_task.time_posted != TimeTicks());
     EXPECT_LE(num_tasks_started_, num_tasks_);
     EXPECT_EQ(num_tasks_started_, num_tasks_processed_);
   }
@@ -1012,5 +1011,27 @@ TEST(MessageLoopTest, AlwaysHaveUserMessageWhenNesting) {
   ASSERT_TRUE(UnregisterClass(MAKEINTATOM(atom), instance));
 }
 #endif  // defined(OS_WIN)
+
+TEST(MessageLoopTest, SetTaskRunner) {
+  MessageLoop loop;
+  scoped_refptr<SingleThreadTaskRunner> new_runner(new TestSimpleTaskRunner());
+
+  loop.SetTaskRunner(new_runner);
+  EXPECT_EQ(new_runner, loop.task_runner());
+  EXPECT_EQ(new_runner, ThreadTaskRunnerHandle::Get());
+}
+
+TEST(MessageLoopTest, OriginalRunnerWorks) {
+  MessageLoop loop;
+  scoped_refptr<SingleThreadTaskRunner> new_runner(new TestSimpleTaskRunner());
+  scoped_refptr<SingleThreadTaskRunner> original_runner(loop.task_runner());
+  loop.SetTaskRunner(new_runner);
+
+  scoped_refptr<Foo> foo(new Foo());
+  original_runner->PostTask(FROM_HERE,
+                            Bind(&Foo::Test1ConstRef, foo.get(), "a"));
+  loop.RunUntilIdle();
+  EXPECT_EQ(1, foo->test_count());
+}
 
 }  // namespace base

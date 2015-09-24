@@ -35,6 +35,7 @@
 #include "../platform/WebReferrerPolicy.h"
 #include "../platform/WebString.h"
 #include "../platform/WebURL.h"
+#include "../platform/WebURLResponse.h"
 #include "../platform/WebVector.h"
 #include "WebHistoryItem.h"
 #include "WebMenuItemInfo.h"
@@ -78,6 +79,10 @@ struct WebContextMenuData {
     // Whether the image in context is a null.
     bool hasImageContents;
 
+    // If |media_type| is MediaTypeImage and |has_image_contents| is true, then
+    // this contains the image's WebURLResponse.
+    WebURLResponse imageResponse;
+
     // The absolute URL of the page in context.
     WebURL pageURL;
 
@@ -111,8 +116,14 @@ struct WebContextMenuData {
     // Extra attributes describing media elements.
     int mediaFlags;
 
+    // The text of the link that is in the context.
+    WebString linkText;
+
     // The raw text of the selection in context.
     WebString selectedText;
+
+    // Title attribute or alt attribute (if title is not available) of the selection in context.
+    WebString titleText;
 
     // Whether spell checking is enabled.
     bool isSpellCheckingEnabled;
@@ -131,6 +142,21 @@ struct WebContextMenuData {
 
     // Whether context is editable.
     bool isEditable;
+
+    enum InputFieldType {
+        // Not an input field.
+        InputFieldTypeNone,
+        // type = text, tel, search, number, email, url
+        InputFieldTypePlainText,
+        // type = password
+        InputFieldTypePassword,
+        // type = <etc.>
+        InputFieldTypeOther,
+        InputFieldTypeLast = InputFieldTypeOther
+    };
+
+    // If this node is an input field, the type of that field.
+    InputFieldType inputFieldType;
 
     enum CheckableMenuItemFlags {
         CheckableMenuItemDisabled = 0x0,

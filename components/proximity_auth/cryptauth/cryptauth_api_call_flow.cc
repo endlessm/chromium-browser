@@ -5,30 +5,32 @@
 #include "components/proximity_auth/cryptauth/cryptauth_api_call_flow.h"
 
 #include "base/strings/string_number_conversions.h"
+#include "components/proximity_auth/logging/logging.h"
 #include "net/url_request/url_fetcher.h"
 
 namespace proximity_auth {
 
 namespace {
 
-const char kNoResponseBodyError[] = "No response body";
+const char kResponseBodyError[] = "Failed to get response body";
 const char kRequestFailedError[] = "Request failed";
 const char kHttpStatusErrorPrefix[] = "HTTP status: ";
 
 }  // namespace
 
-CryptAuthApiCallFlow::CryptAuthApiCallFlow(const GURL& request_url)
-    : request_url_(request_url) {
+CryptAuthApiCallFlow::CryptAuthApiCallFlow() {
 }
 
 CryptAuthApiCallFlow::~CryptAuthApiCallFlow() {
 }
 
-void CryptAuthApiCallFlow::Start(net::URLRequestContextGetter* context,
+void CryptAuthApiCallFlow::Start(const GURL& request_url,
+                                 net::URLRequestContextGetter* context,
                                  const std::string& access_token,
                                  const std::string& serialized_request,
-                                 ResultCallback result_callback,
-                                 ErrorCallback error_callback) {
+                                 const ResultCallback& result_callback,
+                                 const ErrorCallback& error_callback) {
+  request_url_ = request_url;
   serialized_request_ = serialized_request;
   result_callback_ = result_callback;
   error_callback_ = error_callback;
@@ -50,9 +52,8 @@ std::string CryptAuthApiCallFlow::CreateApiCallBodyContentType() {
 void CryptAuthApiCallFlow::ProcessApiCallSuccess(
     const net::URLFetcher* source) {
   std::string serialized_response;
-  if (!source->GetResponseAsString(&serialized_response) ||
-      serialized_response.empty()) {
-    error_callback_.Run(kNoResponseBodyError);
+  if (!source->GetResponseAsString(&serialized_response)) {
+    error_callback_.Run(kResponseBodyError);
     return;
   }
   result_callback_.Run(serialized_response);
@@ -67,6 +68,10 @@ void CryptAuthApiCallFlow::ProcessApiCallFailure(
   } else {
     error_message = kRequestFailedError;
   }
+
+  std::string response;
+  source->GetResponseAsString(&response);
+  PA_LOG(INFO) << "API call failed:\n" << response;
   error_callback_.Run(error_message);
 }
 

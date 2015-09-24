@@ -6,7 +6,6 @@
 
 #include "base/auto_reset.h"
 #include "base/mac/bundle_locations.h"
-#include "base/mac/mac_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -89,11 +88,16 @@ const float kRightEdgeOffset = 25;
 }
 
 - (void)dealloc {
+  [self browserWillBeDestroyed];
+  [super dealloc];
+}
+
+- (void)browserWillBeDestroyed {
   // All animations should have been explicitly stopped before a tab is closed.
   DCHECK(!showHideAnimation_.get());
   DCHECK(!moveAnimation_.get());
   [[NSNotificationCenter defaultCenter] removeObserver:self];
-  [super dealloc];
+  browser_ = nullptr;
 }
 
 - (void)setFindBarBridge:(FindBarBridge*)findBarBridge {

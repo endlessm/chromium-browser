@@ -15,15 +15,18 @@
 #include "base/files/file_util.h"
 #include "base/json/json_writer.h"
 #include "base/lazy_instance.h"
+#include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/cancelable_task_tracker.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/download/download_danger_prompt.h"
@@ -52,6 +55,7 @@
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host_view.h"
@@ -178,8 +182,8 @@ const char* const kDangerStrings[] = {
   kDangerHost,
   kDangerUnwanted
 };
-COMPILE_ASSERT(arraysize(kDangerStrings) == content::DOWNLOAD_DANGER_TYPE_MAX,
-               download_danger_type_enum_changed);
+static_assert(arraysize(kDangerStrings) == content::DOWNLOAD_DANGER_TYPE_MAX,
+              "kDangerStrings should have DOWNLOAD_DANGER_TYPE_MAX elements");
 
 // Note: Any change to the state strings, should be accompanied by a
 // corresponding change to downloads.json.
@@ -189,8 +193,8 @@ const char* const kStateStrings[] = {
   kStateInterrupted,
   kStateInterrupted,
 };
-COMPILE_ASSERT(arraysize(kStateStrings) == DownloadItem::MAX_DOWNLOAD_STATE,
-               download_item_state_enum_changed);
+static_assert(arraysize(kStateStrings) == DownloadItem::MAX_DOWNLOAD_STATE,
+              "kStateStrings should have MAX_DOWNLOAD_STATE elements");
 
 const char* DangerString(content::DownloadDangerType danger) {
   DCHECK(danger >= 0);
@@ -636,7 +640,7 @@ class ExtensionDownloadsEventRouterData : public base::SupportsUserData::Data {
     // Ensure that the callback is called within a time limit.
     weak_ptr_factory_.reset(
         new base::WeakPtrFactory<ExtensionDownloadsEventRouterData>(this));
-    base::MessageLoopForUI::current()->PostDelayedTask(
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE,
         base::Bind(&ExtensionDownloadsEventRouterData::DetermineFilenameTimeout,
                    weak_ptr_factory_->GetWeakPtr()),
@@ -802,7 +806,7 @@ class ExtensionDownloadsEventRouterData : public base::SupportsUserData::Data {
     // doesn't keep hogging memory.
     weak_ptr_factory_.reset(
         new base::WeakPtrFactory<ExtensionDownloadsEventRouterData>(this));
-    base::MessageLoopForUI::current()->PostDelayedTask(
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE,
         base::Bind(&ExtensionDownloadsEventRouterData::ClearPendingDeterminers,
                    weak_ptr_factory_->GetWeakPtr()),
@@ -869,61 +873,7 @@ ExtensionDownloadsEventRouterData::DeterminerInfo::~DeterminerInfo() {}
 const char ExtensionDownloadsEventRouterData::kKey[] =
   "DownloadItem ExtensionDownloadsEventRouterData";
 
-class ManagerDestructionObserver : public DownloadManager::Observer {
- public:
-  static void CheckForHistoryFilesRemoval(DownloadManager* manager) {
-    if (!manager)
-      return;
-    if (!manager_file_existence_last_checked_)
-      manager_file_existence_last_checked_ =
-        new std::map<DownloadManager*, ManagerDestructionObserver*>();
-    if (!(*manager_file_existence_last_checked_)[manager])
-      (*manager_file_existence_last_checked_)[manager] =
-        new ManagerDestructionObserver(manager);
-    (*manager_file_existence_last_checked_)[manager]->
-      CheckForHistoryFilesRemovalInternal();
-  }
-
- private:
-  static const int kFileExistenceRateLimitSeconds = 10;
-
-  explicit ManagerDestructionObserver(DownloadManager* manager)
-      : manager_(manager) {
-    manager_->AddObserver(this);
-  }
-
-  ~ManagerDestructionObserver() override { manager_->RemoveObserver(this); }
-
-  void ManagerGoingDown(DownloadManager* manager) override {
-    manager_file_existence_last_checked_->erase(manager);
-    if (manager_file_existence_last_checked_->size() == 0) {
-      delete manager_file_existence_last_checked_;
-      manager_file_existence_last_checked_ = NULL;
-    }
-  }
-
-  void CheckForHistoryFilesRemovalInternal() {
-    base::Time now(base::Time::Now());
-    int delta = now.ToTimeT() - last_checked_.ToTimeT();
-    if (delta > kFileExistenceRateLimitSeconds) {
-      last_checked_ = now;
-      manager_->CheckForHistoryFilesRemoval();
-    }
-  }
-
-  static std::map<DownloadManager*, ManagerDestructionObserver*>*
-    manager_file_existence_last_checked_;
-
-  DownloadManager* manager_;
-  base::Time last_checked_;
-
-  DISALLOW_COPY_AND_ASSIGN(ManagerDestructionObserver);
-};
-
-std::map<DownloadManager*, ManagerDestructionObserver*>*
-  ManagerDestructionObserver::manager_file_existence_last_checked_ = NULL;
-
-void OnDeterminingFilenameWillDispatchCallback(
+bool OnDeterminingFilenameWillDispatchCallback(
     bool* any_determiners,
     ExtensionDownloadsEventRouterData* data,
     content::BrowserContext* context,
@@ -933,6 +883,7 @@ void OnDeterminingFilenameWillDispatchCallback(
   base::Time installed =
       ExtensionPrefs::Get(context)->GetInstallTime(extension->id());
   data->AddPendingDeterminer(extension->id(), installed);
+  return true;
 }
 
 bool Fault(bool error,
@@ -1004,9 +955,8 @@ bool DownloadsDownloadFunction::RunAsync() {
 
   scoped_ptr<content::DownloadUrlParameters> download_params(
       new content::DownloadUrlParameters(
-          download_url,
-          render_view_host()->GetProcess()->GetID(),
-          render_view_host()->GetRoutingID(),
+          download_url, render_frame_host()->GetProcess()->GetID(),
+          render_view_host_do_not_use()->GetRoutingID(),
           current_profile->GetResourceContext()));
 
   base::FilePath creator_suggested_filename;
@@ -1065,7 +1015,7 @@ bool DownloadsDownloadFunction::RunAsync() {
       &DownloadsDownloadFunction::OnStarted, this,
       creator_suggested_filename, options.conflict_action));
   // Prevent login prompts for 401/407 responses.
-  download_params->set_load_flags(net::LOAD_DO_NOT_PROMPT_FOR_LOGIN);
+  download_params->set_do_not_prompt_for_login(true);
 
   DownloadManager* manager = BrowserContext::GetDownloadManager(
       current_profile);
@@ -1118,8 +1068,16 @@ bool DownloadsSearchFunction::RunSync() {
   DownloadManager* manager = NULL;
   DownloadManager* incognito_manager = NULL;
   GetManagers(GetProfile(), include_incognito(), &manager, &incognito_manager);
-  ManagerDestructionObserver::CheckForHistoryFilesRemoval(manager);
-  ManagerDestructionObserver::CheckForHistoryFilesRemoval(incognito_manager);
+  ExtensionDownloadsEventRouter* router =
+      DownloadServiceFactory::GetForBrowserContext(
+          manager->GetBrowserContext())->GetExtensionEventRouter();
+  router->CheckForHistoryFilesRemoval();
+  if (incognito_manager) {
+    ExtensionDownloadsEventRouter* incognito_router =
+        DownloadServiceFactory::GetForBrowserContext(
+            incognito_manager->GetBrowserContext())->GetExtensionEventRouter();
+    incognito_router->CheckForHistoryFilesRemoval();
+  }
   DownloadQuery::DownloadVector results;
   RunDownloadQuery(params->query,
                    manager,
@@ -1289,8 +1247,7 @@ bool DownloadsAcceptDangerFunction::RunAsync() {
 void DownloadsAcceptDangerFunction::PromptOrWait(int download_id, int retries) {
   DownloadItem* download_item =
       GetDownload(GetProfile(), include_incognito(), download_id);
-  content::WebContents* web_contents =
-      dispatcher()->delegate()->GetVisibleWebContents();
+  content::WebContents* web_contents = dispatcher()->GetVisibleWebContents();
   if (InvalidId(download_item, &error_) ||
       Fault(download_item->GetState() != DownloadItem::IN_PROGRESS,
             errors::kNotInProgress, &error_) ||
@@ -1302,10 +1259,9 @@ void DownloadsAcceptDangerFunction::PromptOrWait(int download_id, int retries) {
   bool visible = platform_util::IsVisible(web_contents->GetNativeView());
   if (!visible) {
     if (retries > 0) {
-      base::MessageLoopForUI::current()->PostDelayedTask(
-          FROM_HERE,
-          base::Bind(&DownloadsAcceptDangerFunction::PromptOrWait,
-                     this, download_id, retries - 1),
+      base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+          FROM_HERE, base::Bind(&DownloadsAcceptDangerFunction::PromptOrWait,
+                                this, download_id, retries - 1),
           base::TimeDelta::FromMilliseconds(100));
       return;
     }
@@ -1376,8 +1332,8 @@ bool DownloadsShowDefaultFolderFunction::RunAsync() {
   DownloadManager* incognito_manager = NULL;
   GetManagers(GetProfile(), include_incognito(), &manager, &incognito_manager);
   platform_util::OpenItem(
-      GetProfile(),
-      DownloadPrefs::FromDownloadManager(manager)->DownloadPath());
+      GetProfile(), DownloadPrefs::FromDownloadManager(manager)->DownloadPath(),
+      platform_util::OPEN_FOLDER, platform_util::OpenOperationCallback());
   RecordApiFunctions(DOWNLOADS_FUNCTION_SHOW_DEFAULT_FOLDER);
   return true;
 }
@@ -1418,7 +1374,7 @@ bool DownloadsDragFunction::RunAsync() {
   DownloadItem* download_item =
       GetDownload(GetProfile(), include_incognito(), params->download_id);
   content::WebContents* web_contents =
-      dispatcher()->delegate()->GetVisibleWebContents();
+      dispatcher()->GetVisibleWebContents();
   if (InvalidId(download_item, &error_) ||
       Fault(!web_contents, errors::kInvisibleContext, &error_))
     return false;
@@ -1527,7 +1483,7 @@ bool DownloadsGetFileIconFunction::RunAsync() {
   DCHECK(icon_size == 16 || icon_size == 32);
   float scale = 1.0;
   content::WebContents* web_contents =
-      dispatcher()->delegate()->GetVisibleWebContents();
+      dispatcher()->GetVisibleWebContents();
   if (web_contents) {
     scale = ui::GetScaleFactorForNativeView(
         web_contents->GetRenderWidgetHostView()->GetNativeView());
@@ -1905,8 +1861,8 @@ void ExtensionDownloadsEventRouter::DispatchEvent(
   scoped_ptr<base::ListValue> args(new base::ListValue());
   args->Append(arg);
   std::string json_args;
-  base::JSONWriter::Write(args.get(), &json_args);
-  scoped_ptr<Event> event(new Event(event_name, args.Pass()));
+  base::JSONWriter::Write(*args, &json_args);
+  scoped_ptr<Event> event(new Event(events::UNKNOWN, event_name, args.Pass()));
   // The downloads system wants to share on-record events with off-record
   // extension renderers even in incognito_split_mode because that's how
   // chrome://downloads works. The "restrict_to_profile" mechanism does not
@@ -1936,6 +1892,19 @@ void ExtensionDownloadsEventRouter::OnExtensionUnloaded(
       shelf_disabling_extensions_.find(extension);
   if (iter != shelf_disabling_extensions_.end())
     shelf_disabling_extensions_.erase(iter);
+}
+
+void ExtensionDownloadsEventRouter::CheckForHistoryFilesRemoval() {
+  static const int kFileExistenceRateLimitSeconds = 10;
+  DownloadManager* manager = notifier_.GetManager();
+  if (!manager)
+    return;
+  base::Time now(base::Time::Now());
+  int delta = now.ToTimeT() - last_checked_removal_.ToTimeT();
+  if (delta <= kFileExistenceRateLimitSeconds)
+    return;
+  last_checked_removal_ = now;
+  manager->CheckForHistoryFilesRemoval();
 }
 
 }  // namespace extensions

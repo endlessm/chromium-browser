@@ -7,10 +7,10 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/extensions/bookmark_app_helper.h"
 #include "chrome/browser/extensions/chrome_extension_function_details.h"
+#include "chrome/browser/extensions/chrome_requirements_checker.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/launch_util.h"
-#include "chrome/browser/favicon/favicon_service.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_dialogs.h"
@@ -19,10 +19,12 @@
 #include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/webui/extensions/extension_icon_source.h"
-#include "chrome/browser/ui/webui/ntp/core_app_launcher_handler.h"
 #include "chrome/common/extensions/chrome_utility_extensions_messages.h"
+#include "chrome/common/extensions/extension_metrics.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "chrome/common/web_application_info.h"
+#include "components/favicon/core/favicon_service.h"
+#include "components/safe_json/safe_json_parser.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/utility_process_host.h"
 #include "content/public/browser/utility_process_host_client.h"
@@ -37,87 +39,6 @@
 
 namespace {
 
-// This class helps ManagementGetPermissionWarningsByManifestFunction manage
-// sending manifest JSON strings to the utility process for parsing.
-class SafeManifestJSONParser : public content::UtilityProcessHostClient {
- public:
-  SafeManifestJSONParser(
-      extensions::ManagementGetPermissionWarningsByManifestFunction* client,
-      const std::string& manifest)
-      : client_(client), manifest_(manifest) {}
-
-  void Start() {
-    CHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-    content::BrowserThread::PostTask(
-        content::BrowserThread::IO, FROM_HERE,
-        base::Bind(&SafeManifestJSONParser::StartWorkOnIOThread, this));
-  }
-
-  void StartWorkOnIOThread() {
-    CHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
-    content::UtilityProcessHost* host = content::UtilityProcessHost::Create(
-        this, base::MessageLoopProxy::current().get());
-    host->Send(new ChromeUtilityMsg_ParseJSON(manifest_));
-  }
-
-  bool OnMessageReceived(const IPC::Message& message) override {
-    bool handled = true;
-    IPC_BEGIN_MESSAGE_MAP(SafeManifestJSONParser, message)
-    IPC_MESSAGE_HANDLER(ChromeUtilityHostMsg_ParseJSON_Succeeded,
-                        OnJSONParseSucceeded)
-    IPC_MESSAGE_HANDLER(ChromeUtilityHostMsg_ParseJSON_Failed,
-                        OnJSONParseFailed)
-    IPC_MESSAGE_UNHANDLED(handled = false)
-    IPC_END_MESSAGE_MAP()
-    return handled;
-  }
-
-  void OnJSONParseSucceeded(const base::ListValue& wrapper) {
-    CHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
-    const base::Value* value = NULL;
-    CHECK(wrapper.Get(0, &value));
-    if (value->IsType(base::Value::TYPE_DICTIONARY))
-      parsed_manifest_.reset(
-          static_cast<const base::DictionaryValue*>(value)->DeepCopy());
-    else
-      error_ = extension_management_api_constants::kManifestParseError;
-
-    content::BrowserThread::PostTask(
-        content::BrowserThread::UI, FROM_HERE,
-        base::Bind(&SafeManifestJSONParser::ReportResultFromUIThread, this));
-  }
-
-  void OnJSONParseFailed(const std::string& error) {
-    CHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
-    error_ = error;
-    content::BrowserThread::PostTask(
-        content::BrowserThread::UI, FROM_HERE,
-        base::Bind(&SafeManifestJSONParser::ReportResultFromUIThread, this));
-  }
-
-  void ReportResultFromUIThread() {
-    CHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-    if (error_.empty() && parsed_manifest_.get())
-      client_->OnParseSuccess(parsed_manifest_.Pass());
-    else
-      client_->OnParseFailure(error_);
-  }
-
- private:
-  ~SafeManifestJSONParser() override {}
-
-  // The client who we'll report results back to.
-  extensions::ManagementGetPermissionWarningsByManifestFunction* client_;
-
-  // Data to parse.
-  std::string manifest_;
-
-  // Results of parsing.
-  scoped_ptr<base::DictionaryValue> parsed_manifest_;
-
-  std::string error_;
-};
-
 class ManagementSetEnabledFunctionInstallPromptDelegate
     : public ExtensionInstallPrompt::Delegate,
       public extensions::InstallPromptDelegate {
@@ -125,12 +46,12 @@ class ManagementSetEnabledFunctionInstallPromptDelegate
   ManagementSetEnabledFunctionInstallPromptDelegate(
       extensions::ManagementSetEnabledFunction* function,
       const extensions::Extension* extension)
-      : function_(function), details_(function) {
+      : function_(function) {
     install_prompt_.reset(
-        new ExtensionInstallPrompt(details_.GetAssociatedWebContents()));
+        new ExtensionInstallPrompt(function->GetSenderWebContents()));
     install_prompt_->ConfirmReEnable(this, extension);
   }
-  virtual ~ManagementSetEnabledFunctionInstallPromptDelegate() {}
+  ~ManagementSetEnabledFunctionInstallPromptDelegate() override {}
 
  protected:
   // ExtensionInstallPrompt::Delegate.
@@ -141,10 +62,11 @@ class ManagementSetEnabledFunctionInstallPromptDelegate
 
  private:
   extensions::ManagementSetEnabledFunction* function_;
-  ChromeExtensionFunctionDetails details_;
 
   // Used for prompting to re-enable items with permissions escalation updates.
   scoped_ptr<ExtensionInstallPrompt> install_prompt_;
+
+  DISALLOW_COPY_AND_ASSIGN(ManagementSetEnabledFunctionInstallPromptDelegate);
 };
 
 class ManagementUninstallFunctionUninstallDialogDelegate
@@ -153,39 +75,35 @@ class ManagementUninstallFunctionUninstallDialogDelegate
  public:
   ManagementUninstallFunctionUninstallDialogDelegate(
       extensions::ManagementUninstallFunctionBase* function,
-      const std::string& target_extension_id)
+      const extensions::Extension* target_extension,
+      bool show_programmatic_uninstall_ui)
       : function_(function) {
-    const extensions::Extension* target_extension =
-        extensions::ExtensionRegistry::Get(function->browser_context())
-            ->GetExtensionById(target_extension_id,
-                               extensions::ExtensionRegistry::EVERYTHING);
-    content::WebContents* web_contents = function->GetAssociatedWebContents();
+    ChromeExtensionFunctionDetails details(function);
     extension_uninstall_dialog_.reset(
         extensions::ExtensionUninstallDialog::Create(
-            Profile::FromBrowserContext(function->browser_context()),
-            web_contents ? web_contents->GetTopLevelNativeWindow() : NULL,
-            this));
-    if (function->extension_id() != target_extension_id) {
-      extension_uninstall_dialog_->ConfirmProgrammaticUninstall(
-          target_extension, function->extension());
+            details.GetProfile(), details.GetNativeWindowForUI(), this));
+    if (show_programmatic_uninstall_ui) {
+      extension_uninstall_dialog_->ConfirmUninstallByExtension(
+          target_extension, function->extension(),
+          extensions::UNINSTALL_REASON_MANAGEMENT_API);
     } else {
-      // If this is a self uninstall, show the generic uninstall dialog.
-      extension_uninstall_dialog_->ConfirmUninstall(target_extension);
+      extension_uninstall_dialog_->ConfirmUninstall(
+          target_extension, extensions::UNINSTALL_REASON_MANAGEMENT_API);
     }
   }
   ~ManagementUninstallFunctionUninstallDialogDelegate() override {}
 
   // ExtensionUninstallDialog::Delegate implementation.
-  void ExtensionUninstallAccepted() override {
-    function_->ExtensionUninstallAccepted();
-  }
-  void ExtensionUninstallCanceled() override {
-    function_->ExtensionUninstallCanceled();
+  void OnExtensionUninstallDialogClosed(bool did_start_uninstall,
+                                        const base::string16& error) override {
+    function_->OnExtensionUninstallDialogClosed(did_start_uninstall, error);
   }
 
- protected:
+ private:
   extensions::ManagementUninstallFunctionBase* function_;
   scoped_ptr<extensions::ExtensionUninstallDialog> extension_uninstall_dialog_;
+
+  DISALLOW_COPY_AND_ASSIGN(ManagementUninstallFunctionUninstallDialogDelegate);
 };
 
 class ChromeAppForLinkDelegate : public extensions::AppForLinkDelegate {
@@ -200,7 +118,7 @@ class ChromeAppForLinkDelegate : public extensions::AppForLinkDelegate {
       const GURL& launch_url,
       const favicon_base::FaviconImageResult& image_result) {
     WebApplicationInfo web_app;
-    web_app.title = base::UTF8ToUTF16(std::string(title));
+    web_app.title = base::UTF8ToUTF16(title);
     web_app.app_url = launch_url;
 
     if (!image_result.image.IsEmpty()) {
@@ -212,8 +130,7 @@ class ChromeAppForLinkDelegate : public extensions::AppForLinkDelegate {
     }
 
     bookmark_app_helper_.reset(new extensions::BookmarkAppHelper(
-        extensions::ExtensionSystem::Get(context)->extension_service(), web_app,
-        NULL));
+        Profile::FromBrowserContext(context), web_app, NULL));
     bookmark_app_helper_->Create(
         base::Bind(&extensions::ManagementGenerateAppForLinkFunction::
                        FinishCreateBookmarkApp,
@@ -242,11 +159,11 @@ bool ChromeManagementAPIDelegate::LaunchAppFunctionDelegate(
   // returned.
   extensions::LaunchContainer launch_container =
       GetLaunchContainer(extensions::ExtensionPrefs::Get(context), extension);
-  OpenApplication(AppLaunchParams(Profile::FromBrowserContext(context),
-                                  extension, launch_container,
-                                  NEW_FOREGROUND_TAB));
-  CoreAppLauncherHandler::RecordAppLaunchType(
-      extension_misc::APP_LAUNCH_EXTENSION_API, extension->GetType());
+  OpenApplication(AppLaunchParams(
+      Profile::FromBrowserContext(context), extension, launch_container,
+      NEW_FOREGROUND_TAB, extensions::SOURCE_MANAGEMENT_API));
+  extensions::RecordAppLaunchType(extension_misc::APP_LAUNCH_EXTENSION_API,
+                                  extension->GetType());
 
   return true;
 }
@@ -266,9 +183,16 @@ void ChromeManagementAPIDelegate::
     GetPermissionWarningsByManifestFunctionDelegate(
         extensions::ManagementGetPermissionWarningsByManifestFunction* function,
         const std::string& manifest_str) const {
-  scoped_refptr<SafeManifestJSONParser> parser =
-      new SafeManifestJSONParser(function, manifest_str);
-  parser->Start();
+  safe_json::SafeJsonParser::Parse(
+      manifest_str,
+      base::Bind(
+          &extensions::ManagementGetPermissionWarningsByManifestFunction::
+              OnParseSuccess,
+          function),
+      base::Bind(
+          &extensions::ManagementGetPermissionWarningsByManifestFunction::
+              OnParseFailure,
+          function));
 }
 
 scoped_ptr<extensions::InstallPromptDelegate>
@@ -280,13 +204,19 @@ ChromeManagementAPIDelegate::SetEnabledFunctionDelegate(
                                                             extension));
 }
 
+scoped_ptr<extensions::RequirementsChecker>
+ChromeManagementAPIDelegate::CreateRequirementsChecker() const {
+  return make_scoped_ptr(new extensions::ChromeRequirementsChecker());
+}
+
 scoped_ptr<extensions::UninstallDialogDelegate>
 ChromeManagementAPIDelegate::UninstallFunctionDelegate(
     extensions::ManagementUninstallFunctionBase* function,
-    const std::string& target_extension_id) const {
+    const extensions::Extension* target_extension,
+    bool show_programmatic_uninstall_ui) const {
   return scoped_ptr<extensions::UninstallDialogDelegate>(
       new ManagementUninstallFunctionUninstallDialogDelegate(
-          function, target_extension_id));
+          function, target_extension, show_programmatic_uninstall_ui));
 }
 
 bool ChromeManagementAPIDelegate::CreateAppShortcutFunctionDelegate(
@@ -317,8 +247,9 @@ ChromeManagementAPIDelegate::GenerateAppForLinkFunctionDelegate(
     content::BrowserContext* context,
     const std::string& title,
     const GURL& launch_url) const {
-  FaviconService* favicon_service = FaviconServiceFactory::GetForProfile(
-      Profile::FromBrowserContext(context), Profile::EXPLICIT_ACCESS);
+  favicon::FaviconService* favicon_service =
+      FaviconServiceFactory::GetForProfile(Profile::FromBrowserContext(context),
+                                           ServiceAccessType::EXPLICIT_ACCESS);
   DCHECK(favicon_service);
 
   ChromeAppForLinkDelegate* delegate = new ChromeAppForLinkDelegate;
@@ -336,8 +267,8 @@ ChromeManagementAPIDelegate::GenerateAppForLinkFunctionDelegate(
   return scoped_ptr<extensions::AppForLinkDelegate>(delegate);
 }
 
-bool ChromeManagementAPIDelegate::IsStreamlinedHostedAppsEnabled() const {
-  return extensions::util::IsStreamlinedHostedAppsEnabled();
+bool ChromeManagementAPIDelegate::IsNewBookmarkAppsEnabled() const {
+  return extensions::util::IsNewBookmarkAppsEnabled();
 }
 
 void ChromeManagementAPIDelegate::EnableExtension(
@@ -373,9 +304,7 @@ void ChromeManagementAPIDelegate::SetLaunchType(
     content::BrowserContext* context,
     const std::string& extension_id,
     extensions::LaunchType launch_type) const {
-  extensions::SetLaunchType(
-      extensions::ExtensionSystem::Get(context)->extension_service(),
-      extension_id, launch_type);
+  extensions::SetLaunchType(context, extension_id, launch_type);
 }
 
 GURL ChromeManagementAPIDelegate::GetIconURL(

@@ -20,7 +20,7 @@
 #include "ui/app_list/views/search_box_view.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/events/event.h"
-#include "ui/gfx/rect_conversions.h"
+#include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/view_model.h"
@@ -71,6 +71,10 @@ AppListFolderView::AppListFolderView(AppsContainerView* container_view,
 
 AppListFolderView::~AppListFolderView() {
   model_->RemoveObserver(this);
+
+  // This prevents the AppsGridView's destructor from calling the now-deleted
+  // AppListFolderView's methods if a drag is in progress at the time.
+  items_grid_view_->set_folder_delegate(nullptr);
 }
 
 void AppListFolderView::SetAppListFolderItem(AppListFolderItem* folder) {
@@ -123,6 +127,23 @@ void AppListFolderView::Layout() {
 }
 
 bool AppListFolderView::OnKeyPressed(const ui::KeyEvent& event) {
+  // Process TAB if focus should go to header; otherwise, AppsGridView will do
+  // the right thing.
+  if (event.key_code() == ui::VKEY_TAB) {
+    if (items_grid_view_->has_selected_view() == event.IsShiftDown() &&
+        !folder_header_view_->HasTextFocus()) {
+      folder_header_view_->SetTextFocus();
+      items_grid_view_->ClearAnySelectedView();
+      return true;
+    } else {
+      GiveBackFocusToSearchBox();
+    }
+  }
+
+  // This will select an app in the list, so we need to relinquish focus.
+  if (event.key_code() == ui::VKEY_DOWN)
+    GiveBackFocusToSearchBox();
+
   return items_grid_view_->OnKeyPressed(event);
 }
 
@@ -277,6 +298,7 @@ void AppListFolderView::DispatchEndDragEventForReparent(
     bool cancel_drag) {
   container_view_->apps_grid_view()->EndDragFromReparentItemInRootLevel(
       events_forwarded_to_drag_drop_host, cancel_drag);
+  container_view_->ReparentDragEnded();
 }
 
 void AppListFolderView::HideViewImmediately() {

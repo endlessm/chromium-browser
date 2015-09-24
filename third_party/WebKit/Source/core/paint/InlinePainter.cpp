@@ -5,45 +5,77 @@
 #include "config.h"
 #include "core/paint/InlinePainter.h"
 
+#include "core/layout/LayoutBlock.h"
+#include "core/layout/LayoutInline.h"
+#include "core/layout/LayoutTheme.h"
+#include "core/layout/line/RootInlineBox.h"
 #include "core/paint/BoxPainter.h"
+#include "core/paint/LayoutObjectDrawingRecorder.h"
 #include "core/paint/LineBoxListPainter.h"
 #include "core/paint/ObjectPainter.h"
-#include "core/rendering/GraphicsContextAnnotator.h"
-#include "core/rendering/PaintInfo.h"
-#include "core/rendering/RenderInline.h"
-#include "core/rendering/RenderTheme.h"
-#include "core/rendering/RootInlineBox.h"
+#include "core/paint/PaintInfo.h"
 #include "platform/geometry/LayoutPoint.h"
+#include <limits>
 
 namespace blink {
 
-void InlinePainter::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
+void InlinePainter::paint(const PaintInfo& paintInfo, const LayoutPoint& paintOffset)
 {
-    ANNOTATE_GRAPHICS_CONTEXT(paintInfo, &m_renderInline);
-    LineBoxListPainter(*m_renderInline.lineBoxes()).paint(&m_renderInline, paintInfo, paintOffset);
+    // FIXME: When Skia supports annotation rect covering (https://code.google.com/p/skia/issues/detail?id=3872),
+    // this rect may be covered by foreground and descendant drawings. Then we may need a dedicated paint phase.
+    if (paintInfo.phase == PaintPhaseForeground && paintInfo.context->printing())
+        ObjectPainter(m_layoutInline).addPDFURLRectIfNeeded(paintInfo, paintOffset);
+
+    LineBoxListPainter(*m_layoutInline.lineBoxes()).paint(&m_layoutInline, paintInfo, paintOffset);
 }
 
-void InlinePainter::paintOutline(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
+LayoutRect InlinePainter::outlinePaintRect(const Vector<LayoutRect>& outlineRects, const LayoutPoint& paintOffset) const
 {
-    RenderStyle* styleToUse = m_renderInline.style();
-    if (!styleToUse->hasOutline())
+    int outlineOutset = m_layoutInline.styleRef().outlineOutset();
+    LayoutRect outlineRect;
+    for (const LayoutRect& rect : outlineRects) {
+        LayoutRect inflatedRect(rect);
+        // Inflate the individual rects instead of the union, to avoid losing
+        // rects which have degenerate width/height (== isEmpty() true.)
+        inflatedRect.inflate(outlineOutset);
+        outlineRect.unite(inflatedRect);
+    }
+    outlineRect.moveBy(paintOffset);
+    return outlineRect;
+}
+
+void InlinePainter::paintOutline(const PaintInfo& paintInfo, const LayoutPoint& paintOffset)
+{
+    const ComputedStyle& styleToUse = m_layoutInline.styleRef();
+    if (!styleToUse.hasOutline())
         return;
 
-    if (styleToUse->outlineStyleIsAuto()) {
-        if (RenderTheme::theme().shouldDrawDefaultFocusRing(&m_renderInline)) {
-            // Only paint the focus ring by hand if the theme isn't able to draw the focus ring.
-            ObjectPainter(m_renderInline).paintFocusRing(paintInfo, paintOffset, styleToUse);
-        }
+    if (styleToUse.outlineStyleIsAuto()) {
+        if (!LayoutTheme::theme().shouldDrawDefaultFocusRing(&m_layoutInline))
+            return;
+        if (LayoutObjectDrawingRecorder::useCachedDrawingIfPossible(*paintInfo.context, m_layoutInline, paintInfo.phase))
+            return;
+
+        Vector<LayoutRect> focusRingRects;
+        m_layoutInline.addFocusRingRects(focusRingRects, paintOffset);
+
+        LayoutObjectDrawingRecorder recorder(*paintInfo.context, m_layoutInline, paintInfo.phase, outlinePaintRect(focusRingRects, LayoutPoint()));
+        // Only paint the focus ring by hand if the theme isn't able to draw the focus ring.
+        ObjectPainter(m_layoutInline).paintFocusRing(paintInfo, styleToUse, focusRingRects);
         return;
     }
 
-    if (styleToUse->outlineStyle() == BNONE)
+    if (styleToUse.outlineStyle() == BNONE)
+        return;
+
+    GraphicsContext* graphicsContext = paintInfo.context;
+    if (LayoutObjectDrawingRecorder::useCachedDrawingIfPossible(*graphicsContext, m_layoutInline, paintInfo.phase))
         return;
 
     Vector<LayoutRect> rects;
 
     rects.append(LayoutRect());
-    for (InlineFlowBox* curr = m_renderInline.firstLineBox(); curr; curr = curr->nextLineBox()) {
+    for (InlineFlowBox* curr = m_layoutInline.firstLineBox(); curr; curr = curr->nextLineBox()) {
         RootInlineBox& root = curr->root();
         LayoutUnit top = std::max<LayoutUnit>(root.lineTop(), curr->logicalTop());
         LayoutUnit bottom = std::min<LayoutUnit>(root.lineBottom(), curr->logicalBottom());
@@ -51,12 +83,12 @@ void InlinePainter::paintOutline(PaintInfo& paintInfo, const LayoutPoint& paintO
     }
     rects.append(LayoutRect());
 
-    Color outlineColor = m_renderInline.resolveColor(styleToUse, CSSPropertyOutlineColor);
+    Color outlineColor = m_layoutInline.resolveColor(styleToUse, CSSPropertyOutlineColor);
     bool useTransparencyLayer = outlineColor.hasAlpha();
 
-    GraphicsContext* graphicsContext = paintInfo.context;
+    LayoutObjectDrawingRecorder recorder(*graphicsContext, m_layoutInline, paintInfo.phase, outlinePaintRect(rects, paintOffset));
     if (useTransparencyLayer) {
-        graphicsContext->beginTransparencyLayer(static_cast<float>(outlineColor.alpha()) / 255);
+        graphicsContext->beginLayer(static_cast<float>(outlineColor.alpha()) / 255);
         outlineColor = Color(outlineColor.red(), outlineColor.green(), outlineColor.blue());
     }
 
@@ -67,25 +99,32 @@ void InlinePainter::paintOutline(PaintInfo& paintInfo, const LayoutPoint& paintO
         graphicsContext->endLayer();
 }
 
+static IntRect pixelSnappedOutsetPaintRect(const LayoutRect& baseRect, const LayoutPoint& paintOffset, int outset)
+{
+    LayoutRect box(baseRect);
+    box.moveBy(paintOffset);
+    box.inflate(outset);
+    return pixelSnappedIntRect(box);
+}
+
 void InlinePainter::paintOutlineForLine(GraphicsContext* graphicsContext, const LayoutPoint& paintOffset,
     const LayoutRect& lastline, const LayoutRect& thisline, const LayoutRect& nextline, const Color outlineColor)
 {
-    RenderStyle* styleToUse = m_renderInline.style();
-    int outlineWidth = styleToUse->outlineWidth();
-    EBorderStyle outlineStyle = styleToUse->outlineStyle();
+    const ComputedStyle& styleToUse = m_layoutInline.styleRef();
+    int outlineWidth = styleToUse.outlineWidth();
+    EBorderStyle outlineStyle = styleToUse.outlineStyle();
 
-    bool antialias = BoxPainter::shouldAntialiasLines(graphicsContext);
+    int offset = m_layoutInline.style()->outlineOffset();
 
-    int offset = m_renderInline.style()->outlineOffset();
-
-    LayoutRect box(LayoutPoint(paintOffset.x() + thisline.x() - offset, paintOffset.y() + thisline.y() - offset),
-        LayoutSize(thisline.width() + offset, thisline.height() + offset));
-
-    IntRect pixelSnappedBox = pixelSnappedIntRect(box);
+    IntRect pixelSnappedBox = pixelSnappedOutsetPaintRect(thisline, paintOffset, offset);
     if (pixelSnappedBox.width() < 0 || pixelSnappedBox.height() < 0)
         return;
-    IntRect pixelSnappedLastLine = pixelSnappedIntRect(paintOffset.x() + lastline.x(), 0, lastline.width(), 0);
-    IntRect pixelSnappedNextLine = pixelSnappedIntRect(paintOffset.x() + nextline.x(), 0, nextline.width(), 0);
+    // Note that we use IntRect below for working with solely x/width values, simplifying logic at cost of a bit of memory.
+    IntRect pixelSnappedLastLine = pixelSnappedOutsetPaintRect(lastline, paintOffset, offset);
+    IntRect pixelSnappedNextLine = pixelSnappedOutsetPaintRect(nextline, paintOffset, offset);
+
+    const int fallbackMaxOutlineX = std::numeric_limits<int>::max();
+    const int fallbackMinOutlineX = std::numeric_limits<int>::min();
 
     // left edge
     ObjectPainter::drawLineForBoxSide(graphicsContext,
@@ -97,7 +136,7 @@ void InlinePainter::paintOutlineForLine(GraphicsContext* graphicsContext, const 
         outlineColor, outlineStyle,
         (lastline.isEmpty() || thisline.x() < lastline.x() || (lastline.maxX() - 1) <= thisline.x() ? outlineWidth : -outlineWidth),
         (nextline.isEmpty() || thisline.x() <= nextline.x() || (nextline.maxX() - 1) <= thisline.x() ? outlineWidth : -outlineWidth),
-        antialias);
+        false);
 
     // right edge
     ObjectPainter::drawLineForBoxSide(graphicsContext,
@@ -109,29 +148,29 @@ void InlinePainter::paintOutlineForLine(GraphicsContext* graphicsContext, const 
         outlineColor, outlineStyle,
         (lastline.isEmpty() || lastline.maxX() < thisline.maxX() || (thisline.maxX() - 1) <= lastline.x() ? outlineWidth : -outlineWidth),
         (nextline.isEmpty() || nextline.maxX() <= thisline.maxX() || (thisline.maxX() - 1) <= nextline.x() ? outlineWidth : -outlineWidth),
-        antialias);
+        false);
     // upper edge
     if (thisline.x() < lastline.x()) {
         ObjectPainter::drawLineForBoxSide(graphicsContext,
             pixelSnappedBox.x() - outlineWidth,
             pixelSnappedBox.y() - outlineWidth,
-            std::min(pixelSnappedBox.maxX() + outlineWidth, (lastline.isEmpty() ? 1000000 : pixelSnappedLastLine.x())),
+            std::min(pixelSnappedBox.maxX() + outlineWidth, (lastline.isEmpty() ? fallbackMaxOutlineX : pixelSnappedLastLine.x())),
             pixelSnappedBox.y(),
             BSTop, outlineColor, outlineStyle,
             outlineWidth,
             (!lastline.isEmpty() && paintOffset.x() + lastline.x() + 1 < pixelSnappedBox.maxX() + outlineWidth) ? -outlineWidth : outlineWidth,
-            antialias);
+            false);
     }
 
     if (lastline.maxX() < thisline.maxX()) {
         ObjectPainter::drawLineForBoxSide(graphicsContext,
-            std::max(lastline.isEmpty() ? -1000000 : pixelSnappedLastLine.maxX(), pixelSnappedBox.x() - outlineWidth),
+            std::max(lastline.isEmpty() ? fallbackMinOutlineX : pixelSnappedLastLine.maxX(), pixelSnappedBox.x() - outlineWidth),
             pixelSnappedBox.y() - outlineWidth,
             pixelSnappedBox.maxX() + outlineWidth,
             pixelSnappedBox.y(),
             BSTop, outlineColor, outlineStyle,
             (!lastline.isEmpty() && pixelSnappedBox.x() - outlineWidth < paintOffset.x() + lastline.maxX()) ? -outlineWidth : outlineWidth,
-            outlineWidth, antialias);
+            outlineWidth, false);
     }
 
     if (thisline.x() == thisline.maxX()) {
@@ -143,7 +182,7 @@ void InlinePainter::paintOutlineForLine(GraphicsContext* graphicsContext, const 
             BSTop, outlineColor, outlineStyle,
             outlineWidth,
             outlineWidth,
-            antialias);
+            false);
     }
 
     // lower edge
@@ -151,23 +190,23 @@ void InlinePainter::paintOutlineForLine(GraphicsContext* graphicsContext, const 
         ObjectPainter::drawLineForBoxSide(graphicsContext,
             pixelSnappedBox.x() - outlineWidth,
             pixelSnappedBox.maxY(),
-            std::min(pixelSnappedBox.maxX() + outlineWidth, !nextline.isEmpty() ? pixelSnappedNextLine.x() + 1 : 1000000),
+            std::min(pixelSnappedBox.maxX() + outlineWidth, !nextline.isEmpty() ? pixelSnappedNextLine.x() + 1 : fallbackMaxOutlineX),
             pixelSnappedBox.maxY() + outlineWidth,
             BSBottom, outlineColor, outlineStyle,
             outlineWidth,
             (!nextline.isEmpty() && paintOffset.x() + nextline.x() + 1 < pixelSnappedBox.maxX() + outlineWidth) ? -outlineWidth : outlineWidth,
-            antialias);
+            false);
     }
 
     if (nextline.maxX() < thisline.maxX()) {
         ObjectPainter::drawLineForBoxSide(graphicsContext,
-            std::max(!nextline.isEmpty() ? pixelSnappedNextLine.maxX() : -1000000, pixelSnappedBox.x() - outlineWidth),
+            std::max(!nextline.isEmpty() ? pixelSnappedNextLine.maxX() : fallbackMinOutlineX, pixelSnappedBox.x() - outlineWidth),
             pixelSnappedBox.maxY(),
             pixelSnappedBox.maxX() + outlineWidth,
             pixelSnappedBox.maxY() + outlineWidth,
             BSBottom, outlineColor, outlineStyle,
             (!nextline.isEmpty() && pixelSnappedBox.x() - outlineWidth < paintOffset.x() + nextline.maxX()) ? -outlineWidth : outlineWidth,
-            outlineWidth, antialias);
+            outlineWidth, false);
     }
 
     if (thisline.x() == thisline.maxX()) {
@@ -179,7 +218,7 @@ void InlinePainter::paintOutlineForLine(GraphicsContext* graphicsContext, const 
             BSBottom, outlineColor, outlineStyle,
             outlineWidth,
             outlineWidth,
-            antialias);
+            false);
     }
 }
 

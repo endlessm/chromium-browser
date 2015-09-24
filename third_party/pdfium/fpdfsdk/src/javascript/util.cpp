@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/javascript/JavaScript.h"
@@ -38,11 +38,11 @@ BEGIN_JS_STATIC_PROP(CJS_Util)
 END_JS_STATIC_PROP()
 
 BEGIN_JS_STATIC_METHOD(CJS_Util)
-	JS_STATIC_METHOD_ENTRY(printd, 3)
-	JS_STATIC_METHOD_ENTRY(printf, 20)
-	JS_STATIC_METHOD_ENTRY(printx, 2)
-	JS_STATIC_METHOD_ENTRY(scand, 2)
-	JS_STATIC_METHOD_ENTRY(byteToChar, 1)
+	JS_STATIC_METHOD_ENTRY(printd)
+	JS_STATIC_METHOD_ENTRY(printf)
+	JS_STATIC_METHOD_ENTRY(printx)
+	JS_STATIC_METHOD_ENTRY(scand)
+	JS_STATIC_METHOD_ENTRY(byteToChar)
 END_JS_STATIC_METHOD()
 
 IMPLEMENT_JS_CLASS(CJS_Util,util)
@@ -58,37 +58,37 @@ util::~util(void)
 
 struct stru_TbConvert
 {
-	FX_LPCWSTR lpszJSMark;
-	FX_LPCWSTR lpszCppMark;
+	const FX_WCHAR* lpszJSMark;
+	const FX_WCHAR* lpszCppMark;
 };
 
 const stru_TbConvert fcTable[] = {
-	{ (FX_LPCWSTR)L"mmmm", (FX_LPCWSTR)L"%B" },
-	{ (FX_LPCWSTR)L"mmm", (FX_LPCWSTR)L"%b" },
-	{ (FX_LPCWSTR)L"mm",  (FX_LPCWSTR)L"%m" },
+	{ L"mmmm", L"%B" },
+	{ L"mmm", L"%b" },
+	{ L"mm",  L"%m" },
 	//"m"
-	{ (FX_LPCWSTR)L"dddd", (FX_LPCWSTR)L"%A" },
-	{ (FX_LPCWSTR)L"ddd", (FX_LPCWSTR)L"%a" },
-	{ (FX_LPCWSTR)L"dd",  (FX_LPCWSTR)L"%d" },
+	{ L"dddd", L"%A" },
+	{ L"ddd", L"%a" },
+	{ L"dd",  L"%d" },
 	//"d",   "%w",
-	{ (FX_LPCWSTR)L"yyyy", (FX_LPCWSTR)L"%Y" },
-	{ (FX_LPCWSTR)L"yy",  (FX_LPCWSTR)L"%y" },
-	{ (FX_LPCWSTR)L"HH",  (FX_LPCWSTR)L"%H" },
+	{ L"yyyy", L"%Y" },
+	{ L"yy",  L"%y" },
+	{ L"HH",  L"%H" },
 	//"H"
-	{ (FX_LPCWSTR)L"hh",  (FX_LPCWSTR)L"%I" },
+	{ L"hh",  L"%I" },
 	//"h"
-	{ (FX_LPCWSTR)L"MM",  (FX_LPCWSTR)L"%M" },
+	{ L"MM",  L"%M" },
 	//"M"
-	{ (FX_LPCWSTR)L"ss",  (FX_LPCWSTR)L"%S" },
+	{ L"ss",  L"%S" },
 	//"s
-	{ (FX_LPCWSTR)L"TT",  (FX_LPCWSTR)L"%p" },
+	{ L"TT",  L"%p" },
 	//"t"
 #if defined(_WIN32)
-	{ (FX_LPCWSTR)L"tt",  (FX_LPCWSTR)L"%p" },
-	{ (FX_LPCWSTR)L"h",  (FX_LPCWSTR)L"%#I" },
+	{ L"tt",  L"%p" },
+	{ L"h",  L"%#I" },
 #else
-	{ (FX_LPCWSTR)L"tt",  (FX_LPCWSTR)L"%P" },
-	{ (FX_LPCWSTR)L"h",  (FX_LPCWSTR)L"%l" },
+	{ L"tt",  L"%P" },
+	{ L"h",  L"%l" },
 #endif
 };
 
@@ -137,12 +137,12 @@ int util::ParstDataType(std::wstring* sFormat)
 	return -1;
 }
 
-FX_BOOL util::printf(OBJ_METHOD_PARAMS)
+FX_BOOL util::printf(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError)
 {
 	int iSize = params.size();
 	if (iSize < 1)
 		return FALSE;
-	std::wstring  c_ConvChar((const wchar_t*)(FX_LPCWSTR)params[0].operator CFX_WideString());
+	std::wstring c_ConvChar(params[0].ToCFXWideString().c_str());
 	std::vector<std::wstring> c_strConvers;
 	int iOffset = 0;
 	int iOffend = 0;
@@ -152,7 +152,7 @@ FX_BOOL util::printf(OBJ_METHOD_PARAMS)
 		iOffend = c_ConvChar.find(L"%",iOffset+1);
 		std::wstring strSub;
 		if (iOffend == -1)
-			strSub = c_ConvChar.substr(iOffset);			
+			strSub = c_ConvChar.substr(iOffset);
 		else
 			strSub = c_ConvChar.substr(iOffset ,iOffend - iOffset);
 		c_strConvers.push_back(strSub);
@@ -182,27 +182,27 @@ FX_BOOL util::printf(OBJ_METHOD_PARAMS)
 		switch (ParstDataType(&c_strFormat))
 		{
 			case UTIL_INT:
-				strSegment.Format((FX_LPCWSTR)c_strFormat.c_str(),(int)params[iIndex]);
+				strSegment.Format(c_strFormat.c_str(), params[iIndex].ToInt());
 				break;
 			case UTIL_DOUBLE:
-				strSegment.Format((FX_LPCWSTR)c_strFormat.c_str(),(double)params[iIndex]);
+				strSegment.Format(c_strFormat.c_str(), params[iIndex].ToDouble());
 				break;
 			case UTIL_STRING:
-				strSegment.Format((FX_LPCWSTR)c_strFormat.c_str(),(FX_LPCWSTR)params[iIndex].operator CFX_WideString());
+				strSegment.Format(c_strFormat.c_str(), params[iIndex].ToCFXWideString().c_str());
 				break;
 			default:
-				strSegment.Format((FX_LPCWSTR)L"%S", (FX_LPCWSTR)c_strFormat.c_str());
+				strSegment.Format(L"%S", c_strFormat.c_str());
 				break;
 		}
-		c_strResult += (wchar_t*)strSegment.GetBuffer(strSegment.GetLength()+1);
+		c_strResult += strSegment.GetBuffer(strSegment.GetLength()+1);
 	}
 
 	c_strResult.erase(c_strResult.begin());
-	vRet = (FX_LPCWSTR)c_strResult.c_str();
+	vRet = c_strResult.c_str();
 	return TRUE;
 }
 
-FX_BOOL util::printd(OBJ_METHOD_PARAMS)
+FX_BOOL util::printd(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError)
 {
 	v8::Isolate* isolate = GetIsolate(cc);
 
@@ -229,14 +229,13 @@ FX_BOOL util::printd(OBJ_METHOD_PARAMS)
 
 	if (p1.GetType() == VT_number)
 	{
-		int nFormat = p1;
-
+		int nFormat = p1.ToInt();
 		CFX_WideString swResult;
 
 		switch (nFormat)
 		{
 		case 0:
-			swResult.Format((FX_LPCWSTR)L"D:%04d%02d%02d%02d%02d%02d", 
+			swResult.Format(L"D:%04d%02d%02d%02d%02d%02d",
 				jsDate.GetYear(),
 				jsDate.GetMonth() + 1,
 				jsDate.GetDay(),
@@ -245,7 +244,7 @@ FX_BOOL util::printd(OBJ_METHOD_PARAMS)
 				jsDate.GetSeconds());
 			break;
 		case 1:
-			swResult.Format((FX_LPCWSTR)L"%04d.%02d.%02d %02d:%02d:%02d", 
+			swResult.Format(L"%04d.%02d.%02d %02d:%02d:%02d",
 				jsDate.GetYear(),
 				jsDate.GetMonth() + 1,
 				jsDate.GetDay(),
@@ -254,7 +253,7 @@ FX_BOOL util::printd(OBJ_METHOD_PARAMS)
 				jsDate.GetSeconds());
 			break;
 		case 2:
-			swResult.Format((FX_LPCWSTR)L"%04d/%02d/%02d %02d:%02d:%02d", 
+			swResult.Format(L"%04d/%02d/%02d %02d:%02d:%02d",
 				jsDate.GetYear(),
 				jsDate.GetMonth() + 1,
 				jsDate.GetDay(),
@@ -266,18 +265,17 @@ FX_BOOL util::printd(OBJ_METHOD_PARAMS)
 			return FALSE;
 		}
 
-		vRet = swResult;
+		vRet = swResult.c_str();
 		return TRUE;
 	}
 	else if (p1.GetType() == VT_string)
 	{
-		std::basic_string<wchar_t> cFormat = (wchar_t*)(FX_LPCWSTR)p1.operator CFX_WideString();		
+		std::basic_string<wchar_t> cFormat = p1.ToCFXWideString().c_str();
 
 		bool bXFAPicture = false;
 		if (iSize > 2)
 		{
-			//CJS_Value value;
-			bXFAPicture = params[2];
+			bXFAPicture = params[2].ToBool();
 		}
 
 		if (bXFAPicture)
@@ -290,9 +288,9 @@ FX_BOOL util::printd(OBJ_METHOD_PARAMS)
 		{
 			int iStart = 0;
 			int iEnd;
-			while((iEnd = cFormat.find((CFX_WideString)fcTable[iIndex].lpszJSMark, iStart)) != -1)
+			while((iEnd = cFormat.find(fcTable[iIndex].lpszJSMark, iStart)) != -1)
 			{
-				cFormat.replace(iEnd, FXSYS_wcslen(fcTable[iIndex].lpszJSMark), (CFX_WideString)fcTable[iIndex].lpszCppMark);
+				cFormat.replace(iEnd, FXSYS_wcslen(fcTable[iIndex].lpszJSMark), fcTable[iIndex].lpszCppMark);
 				iStart = iEnd;
 			}
 		}
@@ -305,7 +303,7 @@ FX_BOOL util::printd(OBJ_METHOD_PARAMS)
 		iMin = jsDate.GetMinutes();
 		iSec = jsDate.GetSeconds();
 
-		struct tm time = {0};
+		struct tm time = {};
 		time.tm_year = iYear-1900;
 		time.tm_mon = iMonth;
 		time.tm_mday = iDay;
@@ -317,17 +315,17 @@ FX_BOOL util::printd(OBJ_METHOD_PARAMS)
 
 		struct stru_TbConvertAd
 		{
-			FX_LPCWSTR lpszJSMark;
+			const FX_WCHAR* lpszJSMark;
 			int     iValue;
 		};
 
 		stru_TbConvertAd cTableAd[] ={
-			{ (FX_LPCWSTR)L"m", iMonth+1 },
-			{ (FX_LPCWSTR)L"d", iDay },
-			{ (FX_LPCWSTR)L"H", iHour },
-			{ (FX_LPCWSTR)L"h", iHour>12?iHour-12:iHour },
-			{ (FX_LPCWSTR)L"M", iMin },
-			{ (FX_LPCWSTR)L"s", iSec },
+			{ L"m", iMonth+1 },
+			{ L"d", iDay },
+			{ L"H", iHour },
+			{ L"h", iHour>12?iHour-12:iHour },
+			{ L"M", iMin },
+			{ L"s", iSec },
 		};
 
 		//cFormat = strFormat.GetBuffer(strFormat.GetLength()+1);
@@ -336,7 +334,7 @@ FX_BOOL util::printd(OBJ_METHOD_PARAMS)
 			wchar_t tszValue[10];
 			//_itot(cTableAd[iIndex].iValue,tszValue,10);
 			CFX_WideString sValue;
-			sValue.Format((FX_LPCWSTR)L"%d",cTableAd[iIndex].iValue);
+			sValue.Format(L"%d",cTableAd[iIndex].iValue);
 			memcpy(tszValue, (wchar_t *)sValue.GetBuffer(sValue.GetLength()+1),
                                (sValue.GetLength()+1)*sizeof(wchar_t));
 
@@ -344,7 +342,7 @@ FX_BOOL util::printd(OBJ_METHOD_PARAMS)
 			//strFormat.Format(strFormat,cTableAd[iIndex].iValue);
 			int iStart = 0;
 			int iEnd;
-			while((iEnd = cFormat.find((CFX_WideString)cTableAd[iIndex].lpszJSMark,iStart)) != -1)
+			while((iEnd = cFormat.find(cTableAd[iIndex].lpszJSMark, iStart)) != -1)
 			{
 				if (iEnd > 0)
 				{
@@ -360,12 +358,12 @@ FX_BOOL util::printd(OBJ_METHOD_PARAMS)
 		}
 
 		CFX_WideString strFormat;
-//		strFormat.Format((FX_LPCWSTR)L"%d,%d,%d,%d,%d,%d",iYear, iMonth, iDay, iHour, iMin, iSec);
+//		strFormat.Format(L"%d,%d,%d,%d,%d,%d",iYear, iMonth, iDay, iHour, iMin, iSec);
 //		CString strFormat = cppTm.Format(cFormat.c_str());
-		wchar_t buf[64] = {0};
+		wchar_t buf[64] = {};
 		strFormat = wcsftime(buf, 64, cFormat.c_str(), &time);
 		cFormat = buf;
-		vRet = (FX_LPCWSTR)cFormat.c_str();
+		vRet = cFormat.c_str();
 		//rtRet = strFormat.GetBuffer(strFormat.GetLength()+1);
 		return TRUE;
 	}
@@ -375,7 +373,7 @@ FX_BOOL util::printd(OBJ_METHOD_PARAMS)
 void util::printd(const std::wstring &cFormat2, CJS_Date jsDate, bool bXFAPicture, std::wstring &cPurpose)
 {
 	std::wstring cFormat = cFormat2;
-	    
+
 	if (bXFAPicture)
 	{
 		return ; //currently, it doesn't support XFAPicture.
@@ -386,9 +384,9 @@ void util::printd(const std::wstring &cFormat2, CJS_Date jsDate, bool bXFAPictur
 	{
 		int iStart = 0;
 		int iEnd;
-		while((iEnd = cFormat.find((CFX_WideString)fcTable[iIndex].lpszJSMark,iStart)) != -1)
+		while((iEnd = cFormat.find(fcTable[iIndex].lpszJSMark, iStart)) != -1)
 		{
-			cFormat.replace(iEnd,FXSYS_wcslen(fcTable[iIndex].lpszJSMark), (CFX_WideString)fcTable[iIndex].lpszCppMark);
+			cFormat.replace(iEnd,FXSYS_wcslen(fcTable[iIndex].lpszJSMark), fcTable[iIndex].lpszCppMark);
 			iStart = iEnd;
 		}
 	}
@@ -401,7 +399,7 @@ void util::printd(const std::wstring &cFormat2, CJS_Date jsDate, bool bXFAPictur
 	iMin = jsDate.GetMinutes();
 	iSec = jsDate.GetSeconds();
 
-	struct tm time = {0};
+	struct tm time = {};
 	time.tm_year = iYear-1900;
 	time.tm_mon = iMonth;
 	time.tm_mday = iDay;
@@ -413,17 +411,17 @@ void util::printd(const std::wstring &cFormat2, CJS_Date jsDate, bool bXFAPictur
 
 	struct stru_TbConvertAd
 	{
-		FX_LPCWSTR lpszJSMark;
+		const FX_WCHAR* lpszJSMark;
 		int     iValue;
 	};
 
 	stru_TbConvertAd cTableAd[] ={
-		{ (FX_LPCWSTR)L"m", iMonth+1 },
-		{ (FX_LPCWSTR)L"d", iDay },
-		{ (FX_LPCWSTR)L"H", iHour },
-		{ (FX_LPCWSTR)L"h", iHour>12?iHour-12:iHour },
-		{ (FX_LPCWSTR)L"M", iMin },
-		{ (FX_LPCWSTR)L"s", iSec },
+		{ L"m", iMonth+1 },
+		{ L"d", iDay },
+		{ L"H", iHour },
+		{ L"h", iHour>12?iHour-12:iHour },
+		{ L"M", iMin },
+		{ L"s", iSec },
 	};
 
 	//cFormat = strFormat.GetBuffer(strFormat.GetLength()+1);
@@ -432,7 +430,7 @@ void util::printd(const std::wstring &cFormat2, CJS_Date jsDate, bool bXFAPictur
 		wchar_t tszValue[10];
 		//_itot(cTableAd[iIndex].iValue,tszValue,10);
 		CFX_WideString sValue;
-		sValue.Format((FX_LPCWSTR)L"%d",cTableAd[iIndex].iValue);
+		sValue.Format(L"%d",cTableAd[iIndex].iValue);
 		memcpy(tszValue, (wchar_t *)sValue.GetBuffer(sValue.GetLength()+1),sValue.GetLength()*sizeof(wchar_t));
 
 
@@ -440,7 +438,7 @@ void util::printd(const std::wstring &cFormat2, CJS_Date jsDate, bool bXFAPictur
 		//strFormat.Format(strFormat,cTableAd[iIndex].iValue);
 		int iStart = 0;
 		int iEnd;
-		while((iEnd = cFormat.find((CFX_WideString)cTableAd[iIndex].lpszJSMark,iStart)) != -1)
+		while((iEnd = cFormat.find(cTableAd[iIndex].lpszJSMark, iStart)) != -1)
 		{
 			if (iEnd > 0)
 			{
@@ -455,24 +453,22 @@ void util::printd(const std::wstring &cFormat2, CJS_Date jsDate, bool bXFAPictur
 		}
 	}
 
-		CFX_WideString strFormat;
-//		strFormat.Format((FX_LPCWSTR)L"%d,%d,%d,%d,%d,%d",iYear, iMonth, iDay, iHour, iMin, iSec);
-//		CString strFormat = cppTm.Format(cFormat.c_str());
-		wchar_t buf[64] = {0};
-		strFormat = wcsftime(buf, 64, cFormat.c_str(), &time);
-		cFormat = buf;
-		cPurpose = cFormat;
+	CFX_WideString strFormat;
+	wchar_t buf[64] = {};
+	strFormat = wcsftime(buf, 64, cFormat.c_str(), &time);
+	cFormat = buf;
+	cPurpose = cFormat;
 }
 
-FX_BOOL util::printx(OBJ_METHOD_PARAMS)
+FX_BOOL util::printx(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError)
 {
 	int iSize = params.size();
 	if (iSize<2)
 		return FALSE;
-	CFX_WideString sFormat = params[0].operator CFX_WideString();
-	CFX_WideString sSource = params[1].operator CFX_WideString();
-	std::string cFormat = (FX_LPCSTR)CFX_ByteString::FromUnicode(sFormat);
-	std::string cSource = (FX_LPCSTR)CFX_ByteString::FromUnicode(sSource);
+	CFX_WideString sFormat = params[0].ToCFXWideString();
+	CFX_WideString sSource = params[1].ToCFXWideString();
+	std::string cFormat = CFX_ByteString::FromUnicode(sFormat).c_str();
+	std::string cSource = CFX_ByteString::FromUnicode(sSource).c_str();
 	std::string cDest;
 	printx(cFormat,cSource,cDest);
 	vRet = cDest.c_str();
@@ -578,22 +574,22 @@ void util::printx(const std::string &cFormat,const std::string &cSource2,std::st
 	}
 }
 
-FX_BOOL util::scand(OBJ_METHOD_PARAMS)
+FX_BOOL util::scand(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError)
 {
 	v8::Isolate* isolate = GetIsolate(cc);
 	int iSize = params.size();
 	if (iSize < 2)
 		return FALSE;
-	CFX_WideString sFormat = params[0].operator CFX_WideString();
-	CFX_WideString sDate = params[1].operator CFX_WideString();
 
+	CFX_WideString sFormat = params[0].ToCFXWideString();
+	CFX_WideString sDate = params[1].ToCFXWideString();
 	double dDate = JS_GetDateTime();
 	if (sDate.GetLength() > 0)
 	{
 		FX_BOOL bWrongFormat = FALSE;
 		dDate = CJS_PublicMethods::MakeRegularDate(sDate,sFormat,bWrongFormat);
-	}	
-	
+	}
+
 	if (!JS_PortIsNan(dDate))
 	{
 		CJS_Date date(isolate,dDate);
@@ -607,10 +603,10 @@ FX_BOOL util::scand(OBJ_METHOD_PARAMS)
 	return TRUE;
 }
 
-FX_INT64 FX_atoi64(const char *nptr)
+int64_t FX_atoi64(const char *nptr)
 {
         int c;              /* current char */
-        FX_INT64 total;      /* current total */
+        int64_t total;      /* current total */
         int sign;           /* if '-', then negative, otherwise positive */
 
         /* skip whitespace */
@@ -635,15 +631,15 @@ FX_INT64 FX_atoi64(const char *nptr)
             return total;   /* return result, negated if necessary */
 }
 
-FX_BOOL util::byteToChar(OBJ_METHOD_PARAMS)
+FX_BOOL util::byteToChar(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError)
 {
 	int iSize = params.size();
 	if (iSize == 0)
 		return FALSE;
-	int nByte = (int)params[0];
+	int nByte = params[0].ToInt();
 	unsigned char cByte = (unsigned char)nByte;
 	CFX_WideString csValue;
-	csValue.Format((FX_LPCWSTR)L"%c", cByte);
-	vRet = csValue; 
+	csValue.Format(L"%c", cByte);
+	vRet = csValue.c_str();
 	return TRUE;
 }

@@ -45,6 +45,10 @@ class TestExtensionsBrowserClient : public ExtensionsBrowserClient {
       content::BrowserContext* context) override;
   content::BrowserContext* GetOriginalContext(
       content::BrowserContext* context) override;
+#if defined(OS_CHROMEOS)
+  std::string GetUserIdHashFromContext(
+      content::BrowserContext* context) override;
+#endif
   bool IsGuestSession(content::BrowserContext* context) const override;
   bool IsExtensionIncognitoEnabled(
       const std::string& extension_id,
@@ -78,16 +82,20 @@ class TestExtensionsBrowserClient : public ExtensionsBrowserClient {
   ExtensionSystemProvider* GetExtensionSystemFactory() override;
   void RegisterExtensionFunctions(
       ExtensionFunctionRegistry* registry) const override;
+  void RegisterMojoServices(content::RenderFrameHost* render_frame_host,
+                            const Extension* extension) const override;
   scoped_ptr<RuntimeAPIDelegate> CreateRuntimeAPIDelegate(
       content::BrowserContext* context) const override;
-  ComponentExtensionResourceManager* GetComponentExtensionResourceManager()
-      override;
+  const ComponentExtensionResourceManager*
+  GetComponentExtensionResourceManager() override;
   void BroadcastEventToRenderers(const std::string& event_name,
                                  scoped_ptr<base::ListValue> args) override;
   net::NetLog* GetNetLog() override;
   ExtensionCache* GetExtensionCache() override;
   bool IsBackgroundUpdateAllowed() override;
   bool IsMinBrowserVersionSupported(const std::string& min_version) override;
+  ExtensionWebContentsObserver* GetExtensionWebContentsObserver(
+      content::WebContents* web_contents) override;
 
  private:
   content::BrowserContext* main_context_;       // Not owned.

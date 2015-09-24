@@ -24,6 +24,7 @@
 #ifndef HTMLLinkElement_h
 #define HTMLLinkElement_h
 
+#include "core/CoreExport.h"
 #include "core/css/CSSStyleSheet.h"
 #include "core/dom/DOMSettableTokenList.h"
 #include "core/dom/IconURL.h"
@@ -55,21 +56,21 @@ typedef EventSender<HTMLLinkElement> LinkEventSender;
 // sticking current way so far.
 //
 class LinkStyle final : public LinkResource, ResourceOwner<StyleSheetResource> {
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
+    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(LinkStyle);
 public:
     static PassOwnPtrWillBeRawPtr<LinkStyle> create(HTMLLinkElement* owner);
 
     explicit LinkStyle(HTMLLinkElement* owner);
-    virtual ~LinkStyle();
+    ~LinkStyle() override;
 
-    virtual Type type() const override { return Style; }
-    virtual void process() override;
-    virtual void ownerRemoved() override;
-    virtual bool hasLoaded() const override { return m_loadedSheet; }
-    virtual void trace(Visitor*) override;
+    Type type() const override { return Style; }
+    void process() override;
+    void ownerRemoved() override;
+    bool hasLoaded() const override { return m_loadedSheet; }
+    DECLARE_VIRTUAL_TRACE();
 
     void startLoadingDynamicSheet();
-    void notifyLoadedSheetAndAllCriticalSubresources(bool errorOccurred);
+    void notifyLoadedSheetAndAllCriticalSubresources(Node::LoadedSheetErrorStatus);
     bool sheetLoaded();
 
     void setDisabledState(bool);
@@ -85,7 +86,7 @@ public:
 
 private:
     // From StyleSheetResourceClient
-    virtual void setCSSStyleSheet(const String& href, const KURL& baseURL, const String& charset, const CSSStyleSheetResource*) override;
+    void setCSSStyleSheet(const String& href, const KURL& baseURL, const String& charset, const CSSStyleSheetResource*) override;
 
     enum DisabledState {
         Unset,
@@ -104,25 +105,34 @@ private:
     void removePendingSheet();
     Document& document();
 
+    void setCrossOriginStylesheetStatus(CSSStyleSheet*);
+    void setFetchFollowingCORS()
+    {
+        ASSERT(!m_fetchFollowingCORS);
+        m_fetchFollowingCORS = true;
+    }
+
     RefPtrWillBeMember<CSSStyleSheet> m_sheet;
     DisabledState m_disabledState;
     PendingSheetType m_pendingSheetType;
     bool m_loading;
     bool m_firedLoad;
     bool m_loadedSheet;
+    bool m_fetchFollowingCORS;
 };
 
 
-class HTMLLinkElement final : public HTMLElement, public LinkLoaderClient {
+class CORE_EXPORT HTMLLinkElement final : public HTMLElement, public LinkLoaderClient {
     DEFINE_WRAPPERTYPEINFO();
 public:
     static PassRefPtrWillBeRawPtr<HTMLLinkElement> create(Document&, bool createdByParser);
-    virtual ~HTMLLinkElement();
+    ~HTMLLinkElement() override;
 
     KURL href() const;
     const AtomicString& rel() const;
     String media() const { return m_media; }
     String typeValue() const { return m_type; }
+    String asValue() const { return m_as; }
     const LinkRelAttribute& relAttribute() const { return m_relAttribute; }
 
     const AtomicString& type() const;
@@ -142,7 +152,6 @@ public:
     bool isImport() const { return linkImport(); }
     bool isDisabled() const { return linkStyle() && linkStyle()->isDisabled(); }
     bool isEnabledViaScript() const { return linkStyle() && linkStyle()->isEnabledViaScript(); }
-    void enableIfExitTransitionStyle();
 
     DOMSettableTokenList* sizes() const;
 
@@ -152,10 +161,10 @@ public:
     static void dispatchPendingLoadEvents();
 
     // From LinkLoaderClient
-    virtual bool shouldLoadLink() override;
+    bool shouldLoadLink() override;
 
     // For LinkStyle
-    bool loadLink(const String& type, const KURL&);
+    bool loadLink(const String& type, const String& as, const KURL&);
     bool isAlternate() const { return linkStyle()->isUnset() && m_relAttribute.isAlternate(); }
     bool shouldProcessStyle() { return linkResourceToProcess() && linkStyle(); }
     bool isCreatedByParser() const { return m_createdByParser; }
@@ -164,11 +173,11 @@ public:
     // visible for testing purpose.
     static void parseSizesAttribute(const AtomicString& value, Vector<IntSize>& iconSizes);
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
-    virtual void attributeWillChange(const QualifiedName&, const AtomicString& oldValue, const AtomicString& newValue) override;
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void attributeWillChange(const QualifiedName&, const AtomicString& oldValue, const AtomicString& newValue) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) override;
 
     LinkStyle* linkStyle() const;
     LinkImport* linkImport() const;
@@ -178,23 +187,23 @@ private:
     static void processCallback(Node*);
 
     // From Node and subclassses
-    virtual InsertionNotificationRequest insertedInto(ContainerNode*) override;
-    virtual void removedFrom(ContainerNode*) override;
-    virtual bool isURLAttribute(const Attribute&) const override;
-    virtual bool hasLegalLinkAttribute(const QualifiedName&) const override;
-    virtual const QualifiedName& subResourceAttributeName() const override;
-    virtual bool sheetLoaded() override;
-    virtual void notifyLoadedSheetAndAllCriticalSubresources(bool errorOccurred) override;
-    virtual void startLoadingDynamicSheet() override;
-    virtual void finishParsingChildren() override;
+    InsertionNotificationRequest insertedInto(ContainerNode*) override;
+    void removedFrom(ContainerNode*) override;
+    bool isURLAttribute(const Attribute&) const override;
+    bool hasLegalLinkAttribute(const QualifiedName&) const override;
+    const QualifiedName& subResourceAttributeName() const override;
+    bool sheetLoaded() override;
+    void notifyLoadedSheetAndAllCriticalSubresources(LoadedSheetErrorStatus) override;
+    void startLoadingDynamicSheet() override;
+    void finishParsingChildren() override;
 
     // From LinkLoaderClient
-    virtual void linkLoaded() override;
-    virtual void linkLoadingErrored() override;
-    virtual void didStartLinkPrerender() override;
-    virtual void didStopLinkPrerender() override;
-    virtual void didSendLoadForLinkPrerender() override;
-    virtual void didSendDOMContentLoadedForLinkPrerender() override;
+    void linkLoaded() override;
+    void linkLoadingErrored() override;
+    void didStartLinkPrerender() override;
+    void didStopLinkPrerender() override;
+    void didSendLoadForLinkPrerender() override;
+    void didSendDOMContentLoadedForLinkPrerender() override;
 
 private:
     HTMLLinkElement(Document&, bool createdByParser);
@@ -203,6 +212,7 @@ private:
     LinkLoader m_linkLoader;
 
     String m_type;
+    String m_as;
     String m_media;
     RefPtrWillBeMember<DOMSettableTokenList> m_sizes;
     Vector<IntSize> m_iconSizes;

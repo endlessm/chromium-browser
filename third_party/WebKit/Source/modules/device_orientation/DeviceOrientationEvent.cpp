@@ -45,13 +45,13 @@ DeviceOrientationEvent::DeviceOrientationEvent(const AtomicString& eventType, De
 {
 }
 
-void DeviceOrientationEvent::initDeviceOrientationEvent(const AtomicString& type, bool bubbles, bool cancelable, DeviceOrientationData* orientation)
+void DeviceOrientationEvent::initDeviceOrientationEvent(const AtomicString& type, bool bubbles, bool cancelable, const Nullable<double>& alpha, const Nullable<double>& beta, const Nullable<double>& gamma, const Nullable<bool>& absolute)
 {
     if (dispatched())
         return;
 
     initEvent(type, bubbles, cancelable);
-    m_orientation = orientation;
+    m_orientation = DeviceOrientationData::create(alpha, beta, gamma, absolute);
 }
 
 double DeviceOrientationEvent::alpha(bool& isNull) const
@@ -95,7 +95,7 @@ const AtomicString& DeviceOrientationEvent::interfaceName() const
     return EventNames::DeviceOrientationEvent;
 }
 
-void DeviceOrientationEvent::trace(Visitor* visitor)
+DEFINE_TRACE(DeviceOrientationEvent)
 {
     visitor->trace(m_orientation);
     Event::trace(visitor);

@@ -5,14 +5,15 @@
 #include "content/shell/renderer/layout_test/layout_test_render_process_observer.h"
 
 #include "base/command_line.h"
+#include "components/test_runner/web_test_interfaces.h"
 #include "content/public/common/content_client.h"
 #include "content/public/renderer/render_thread.h"
 #include "content/public/renderer/render_view.h"
 #include "content/public/test/layouttest_support.h"
 #include "content/shell/common/shell_messages.h"
 #include "content/shell/common/shell_switches.h"
-#include "content/shell/renderer/layout_test/webkit_test_runner.h"
-#include "content/shell/renderer/test_runner/web_test_interfaces.h"
+#include "content/shell/renderer/layout_test/blink_test_runner.h"
+#include "third_party/WebKit/public/web/WebKit.h"
 #include "third_party/WebKit/public/web/WebRuntimeFeatures.h"
 #include "third_party/WebKit/public/web/WebView.h"
 #include "v8/include/v8.h"
@@ -47,13 +48,13 @@ LayoutTestRenderProcessObserver::~LayoutTestRenderProcessObserver() {
 }
 
 void LayoutTestRenderProcessObserver::SetTestDelegate(
-    WebTestDelegate* delegate) {
+    test_runner::WebTestDelegate* delegate) {
   test_interfaces_->SetDelegate(delegate);
   test_delegate_ = delegate;
 }
 
 void LayoutTestRenderProcessObserver::SetMainWindow(RenderView* view) {
-  WebKitTestRunner* test_runner = WebKitTestRunner::Get(view);
+  BlinkTestRunner* test_runner = BlinkTestRunner::Get(view);
   test_interfaces_->SetWebView(view->GetWebView(), test_runner->proxy());
   main_test_runner_ = test_runner;
 }
@@ -63,13 +64,18 @@ void LayoutTestRenderProcessObserver::WebKitInitialized() {
   std::string flags("--expose-gc");
   v8::V8::SetFlagsFromString(flags.c_str(), static_cast<int>(flags.size()));
 
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(
-    switches::kStableReleaseMode)) {
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kStableReleaseMode)) {
     WebRuntimeFeatures::enableTestOnlyFeatures(true);
   }
 
-  test_interfaces_.reset(new WebTestInterfaces);
+  test_interfaces_.reset(new test_runner::WebTestInterfaces);
   test_interfaces_->ResetAll();
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnableFontAntialiasing)) {
+    blink::setFontAntialiasingEnabledForTest(true);
+  }
+
 }
 
 void LayoutTestRenderProcessObserver::OnRenderProcessShutdown() {

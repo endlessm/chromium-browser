@@ -4,7 +4,6 @@
 
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -18,6 +17,7 @@
 #include "components/search_engines/template_url_prepopulate_data.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/search_engines/template_url_service_client.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "net/base/net_util.h"
 #include "sync/api/sync_change_processor_wrapper_for_test.h"
 #include "sync/api/sync_error_factory.h"
@@ -237,7 +237,7 @@ class TemplateURLServiceSyncTest : public testing::Test {
                                const std::string& guid);
 
  protected:
-  base::MessageLoop message_loop_;
+  content::TestBrowserThreadBundle thread_bundle_;
   // We keep two TemplateURLServices to test syncing between them.
   scoped_ptr<TemplateURLServiceTestUtil> test_util_a_;
   scoped_ptr<TemplateURLServiceTestUtil> test_util_b_;
@@ -290,7 +290,7 @@ TemplateURL* TemplateURLServiceSyncTest::CreateTestTemplateURL(
     bool safe_for_autoreplace,
     bool created_by_policy) const {
   TemplateURLData data;
-  data.short_name = ASCIIToUTF16("unittest");
+  data.SetShortName(ASCIIToUTF16("unittest"));
   data.SetKeyword(keyword);
   data.SetURL(url);
   data.favicon_url = GURL("http://favicon.url");
@@ -1267,7 +1267,7 @@ TEST_F(TemplateURLServiceSyncTest, DuplicateEncodingsRemoved) {
   syncer::SyncDataList initial_data;
 
   TemplateURLData data;
-  data.short_name = ASCIIToUTF16("test");
+  data.SetShortName(ASCIIToUTF16("test"));
   data.SetKeyword(ASCIIToUTF16("keyword"));
   data.SetURL("http://test/%s");
   data.input_encodings.push_back("UTF-8");
@@ -1451,7 +1451,7 @@ TEST_F(TemplateURLServiceSyncTest, MergeTwiceWithSameSyncData) {
   // the second merge, as the last_modified timestamp remains the same.
   scoped_ptr<TemplateURL> temp_turl(Deserialize(initial_data[0]));
   TemplateURLData data(temp_turl->data());
-  data.short_name = ASCIIToUTF16("SomethingDifferent");
+  data.SetShortName(ASCIIToUTF16("SomethingDifferent"));
   temp_turl.reset(new TemplateURL(data));
   initial_data.clear();
   initial_data.push_back(
@@ -1529,7 +1529,7 @@ TEST_F(TemplateURLServiceSyncTest, DefaultGuidDeletedBeforeNewDSPArrives) {
   // Create a second default search provider for the
   // FindNewDefaultSearchProvider method to find.
   TemplateURLData data;
-  data.short_name = ASCIIToUTF16("unittest");
+  data.SetShortName(ASCIIToUTF16("unittest"));
   data.SetKeyword(ASCIIToUTF16("key2"));
   data.SetURL("http://key2.com/{searchTerms}");
   data.favicon_url = GURL("http://favicon.url");
@@ -2129,7 +2129,7 @@ TEST_F(TemplateURLServiceSyncTest, MergePrepopulatedEngine) {
   const TemplateURL* result_turl = model()->GetTemplateURLForGUID("default");
   EXPECT_TRUE(result_turl);
   EXPECT_EQ(default_turl->keyword(), result_turl->keyword());
-  EXPECT_EQ(default_turl->short_name, result_turl->short_name());
+  EXPECT_EQ(default_turl->short_name(), result_turl->short_name());
   EXPECT_EQ(default_turl->url(), result_turl->url());
 }
 
@@ -2152,7 +2152,7 @@ TEST_F(TemplateURLServiceSyncTest, AddPrepopulatedEngine) {
   const TemplateURL* result_turl = model()->GetTemplateURLForGUID("default");
   EXPECT_TRUE(result_turl);
   EXPECT_EQ(default_turl->keyword(), result_turl->keyword());
-  EXPECT_EQ(default_turl->short_name, result_turl->short_name());
+  EXPECT_EQ(default_turl->short_name(), result_turl->short_name());
   EXPECT_EQ(default_turl->url(), result_turl->url());
 }
 
@@ -2182,7 +2182,7 @@ TEST_F(TemplateURLServiceSyncTest, UpdatePrepopulatedEngine) {
   const TemplateURL* result_turl = model()->GetTemplateURLForGUID("default");
   EXPECT_TRUE(result_turl);
   EXPECT_EQ(default_turl->keyword(), result_turl->keyword());
-  EXPECT_EQ(default_turl->short_name, result_turl->short_name());
+  EXPECT_EQ(default_turl->short_name(), result_turl->short_name());
   EXPECT_EQ(default_turl->url(), result_turl->url());
 }
 
@@ -2193,7 +2193,7 @@ TEST_F(TemplateURLServiceSyncTest, MergeEditedPrepopulatedEngine) {
   TemplateURLData data(*default_turl);
   data.safe_for_autoreplace = false;
   data.SetKeyword(ASCIIToUTF16("new_kw"));
-  data.short_name = ASCIIToUTF16("my name");
+  data.SetShortName(ASCIIToUTF16("my name"));
   data.SetURL("http://wrong.url.com?q={searchTerms}");
   data.date_created = Time::FromTimeT(50);
   data.last_modified = Time::FromTimeT(50);
@@ -2223,7 +2223,7 @@ TEST_F(TemplateURLServiceSyncTest, MergeNonEditedPrepopulatedEngine) {
   TemplateURLData data(*default_turl);
   data.safe_for_autoreplace = true;  // Can be replaced with built-in values.
   data.SetKeyword(ASCIIToUTF16("new_kw"));
-  data.short_name = ASCIIToUTF16("my name");
+  data.SetShortName(ASCIIToUTF16("my name"));
   data.SetURL("http://wrong.url.com?q={searchTerms}");
   data.date_created = Time::FromTimeT(50);
   data.last_modified = Time::FromTimeT(50);
@@ -2242,7 +2242,7 @@ TEST_F(TemplateURLServiceSyncTest, MergeNonEditedPrepopulatedEngine) {
   const TemplateURL* result_turl = model()->GetTemplateURLForGUID("default");
   EXPECT_TRUE(result_turl);
   EXPECT_EQ(default_turl->keyword(), result_turl->keyword());
-  EXPECT_EQ(default_turl->short_name, result_turl->short_name());
+  EXPECT_EQ(default_turl->short_name(), result_turl->short_name());
   EXPECT_EQ(default_turl->url(), result_turl->url());
 }
 

@@ -11,8 +11,8 @@
 #include "base/values.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/notification_types.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
-#include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/url_constants.h"
 #include "extensions/browser/app_window/app_window.h"
@@ -21,15 +21,15 @@
 #include "extensions/browser/app_window/app_window_registry.h"
 #include "extensions/browser/app_window/native_app_window.h"
 #include "extensions/browser/extensions_browser_client.h"
-#include "extensions/browser/image_util.h"
 #include "extensions/common/api/app_window.h"
 #include "extensions/common/features/simple_feature.h"
+#include "extensions/common/image_util.h"
 #include "extensions/common/manifest.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "extensions/common/switches.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/ui_base_types.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
 
 namespace app_window = extensions::core_api::app_window;
@@ -57,8 +57,6 @@ const char kAlphaEnabledMissingPermission[] =
     "The alphaEnabled option requires app.window.alpha permission.";
 const char kAlphaEnabledNeedsFrameNone[] =
     "The alphaEnabled option can only be used with \"frame: 'none'\".";
-const char kVisibleOnAllWorkspacesWrongChannel[] =
-    "The visibleOnAllWorkspaces option requires dev channel or newer.";
 const char kImeWindowMissingPermission[] =
     "Extensions require the \"app.window.ime\" permission to create windows.";
 const char kImeOptionIsNotSupported[] =
@@ -128,7 +126,7 @@ AppWindowCreateFunction::AppWindowCreateFunction()
 
 bool AppWindowCreateFunction::RunAsync() {
   // Don't create app window if the system is shutting down.
-  if (extensions::ExtensionsBrowserClient::Get()->IsShuttingDown())
+  if (ExtensionsBrowserClient::Get()->IsShuttingDown())
     return false;
 
   scoped_ptr<Create::Params> params(Create::Params::Create(*args_));
@@ -137,9 +135,10 @@ bool AppWindowCreateFunction::RunAsync() {
   GURL url = extension()->GetResourceURL(params->url);
   // Allow absolute URLs for component apps, otherwise prepend the extension
   // path.
+  // TODO(devlin): Investigate if this is still used. If not, kill it dead!
   GURL absolute = GURL(params->url);
   if (absolute.has_scheme()) {
-    if (extension()->location() == extensions::Manifest::COMPONENT) {
+    if (extension()->location() == Manifest::COMPONENT) {
       url = absolute;
     } else {
       // Show error when url passed isn't local.
@@ -172,28 +171,29 @@ bool AppWindowCreateFunction::RunAsync() {
       }
 
       if (!options->singleton || *options->singleton) {
-        AppWindow* window = AppWindowRegistry::Get(browser_context())
-                                ->GetAppWindowForAppAndKey(
-                                    extension_id(), create_params.window_key);
-        if (window) {
-          content::RenderViewHost* created_view =
-              window->web_contents()->GetRenderViewHost();
-          int view_id = MSG_ROUTING_NONE;
-          if (render_view_host_->GetProcess()->GetID() ==
-              created_view->GetProcess()->GetID()) {
-            view_id = created_view->GetRoutingID();
+        AppWindow* existing_window =
+            AppWindowRegistry::Get(browser_context())
+                ->GetAppWindowForAppAndKey(extension_id(),
+                                           create_params.window_key);
+        if (existing_window) {
+          content::RenderFrameHost* existing_frame =
+              existing_window->web_contents()->GetMainFrame();
+          int frame_id = MSG_ROUTING_NONE;
+          if (render_frame_host()->GetProcess()->GetID() ==
+              existing_frame->GetProcess()->GetID()) {
+            frame_id = existing_frame->GetRoutingID();
           }
 
-          if (options->hidden.get() && !*options->hidden.get()) {
+          if (!options->hidden.get() || !*options->hidden.get()) {
             if (options->focused.get() && !*options->focused.get())
-              window->Show(AppWindow::SHOW_INACTIVE);
+              existing_window->Show(AppWindow::SHOW_INACTIVE);
             else
-              window->Show(AppWindow::SHOW_ACTIVE);
+              existing_window->Show(AppWindow::SHOW_ACTIVE);
           }
 
           base::DictionaryValue* result = new base::DictionaryValue;
-          result->Set("viewId", new base::FundamentalValue(view_id));
-          window->GetSerializedState(result);
+          result->Set("frameId", new base::FundamentalValue(frame_id));
+          existing_window->GetSerializedState(result);
           result->SetBoolean("existingWindow", true);
           // TODO(benwells): Remove HTML titlebar injection.
           result->SetBoolean("injectTitlebar", false);
@@ -207,17 +207,20 @@ bool AppWindowCreateFunction::RunAsync() {
     if (!GetBoundsSpec(*options, &create_params, &error_))
       return false;
 
-    if (!AppWindowClient::Get()->IsCurrentChannelOlderThanDev() ||
-        extension()->location() == extensions::Manifest::COMPONENT) {
-      if (options->type == app_window::WINDOW_TYPE_PANEL) {
-        create_params.window_type = AppWindow::WINDOW_TYPE_PANEL;
-      }
+    if (options->type == app_window::WINDOW_TYPE_PANEL) {
+#if defined(OS_CHROMEOS)
+      // Panels for v2 apps are only supported on Chrome OS.
+      create_params.window_type = AppWindow::WINDOW_TYPE_PANEL;
+#else
+      WriteToConsole(content::CONSOLE_MESSAGE_LEVEL_WARNING,
+                     "Panels are not supported on this platform");
+#endif
     }
 
     if (!GetFrameOptions(*options, &create_params))
       return false;
 
-    if (extension()->GetType() == extensions::Manifest::TYPE_EXTENSION) {
+    if (extension()->GetType() == Manifest::TYPE_EXTENSION) {
       // Whitelisted IME extensions are allowed to use this API to create IME
       // specific windows to show accented characters or suggestions.
       if (!extension()->permissions_data()->HasAPIPermission(
@@ -247,11 +250,12 @@ bool AppWindowCreateFunction::RunAsync() {
     }
 
     if (options->alpha_enabled.get()) {
-      const char* whitelist[] = {
+      const char* const kWhitelist[] = {
 #if defined(OS_CHROMEOS)
         "B58B99751225318C7EB8CF4688B5434661083E07",  // http://crbug.com/410550
         "06BE211D5F014BAB34BC22D9DDA09C63A81D828E",  // http://crbug.com/425539
         "F94EE6AB36D6C6588670B2B01EB65212D9C64E33",
+        "B9EF10DDFEA11EF77873CC5009809E5037FC4C7A",  // http://crbug.com/435380
 #endif
         "0F42756099D914A026DADFA182871C015735DD95",  // http://crbug.com/323773
         "2D22CDB6583FD0A13758AEBE8B15E45208B4E9A7",
@@ -264,10 +268,8 @@ bool AppWindowCreateFunction::RunAsync() {
         "0F585FB1D0FDFBEBCE1FEB5E9DFFB6DA476B8C9B"
       };
       if (AppWindowClient::Get()->IsCurrentChannelOlderThanDev() &&
-          !extensions::SimpleFeature::IsIdInList(
-              extension_id(),
-              std::set<std::string>(whitelist,
-                                    whitelist + arraysize(whitelist)))) {
+          !SimpleFeature::IsIdInArray(
+              extension_id(), kWhitelist, arraysize(kWhitelist))) {
         error_ = app_window_constants::kAlphaEnabledWrongChannel;
         return false;
       }
@@ -309,10 +311,6 @@ bool AppWindowCreateFunction::RunAsync() {
       create_params.focused = *options->focused.get();
 
     if (options->visible_on_all_workspaces.get()) {
-      if (AppWindowClient::Get()->IsCurrentChannelOlderThanDev()) {
-        error_ = app_window_constants::kVisibleOnAllWorkspacesWrongChannel;
-        return false;
-      }
       create_params.visible_on_all_workspaces =
           *options->visible_on_all_workspaces.get();
     }
@@ -336,23 +334,25 @@ bool AppWindowCreateFunction::RunAsync() {
   }
 
   create_params.creator_process_id =
-      render_view_host_->GetProcess()->GetID();
+      render_frame_host()->GetProcess()->GetID();
 
   AppWindow* app_window =
       AppWindowClient::Get()->CreateAppWindow(browser_context(), extension());
   app_window->Init(url, new AppWindowContentsImpl(app_window), create_params);
 
-  if (ExtensionsBrowserClient::Get()->IsRunningInForcedAppMode())
+  if (ExtensionsBrowserClient::Get()->IsRunningInForcedAppMode() &&
+      !app_window->is_ime_window()) {
     app_window->ForcedFullscreen();
+  }
 
-  content::RenderViewHost* created_view =
-      app_window->web_contents()->GetRenderViewHost();
-  int view_id = MSG_ROUTING_NONE;
-  if (create_params.creator_process_id == created_view->GetProcess()->GetID())
-    view_id = created_view->GetRoutingID();
+  content::RenderFrameHost* created_frame =
+      app_window->web_contents()->GetMainFrame();
+  int frame_id = MSG_ROUTING_NONE;
+  if (create_params.creator_process_id == created_frame->GetProcess()->GetID())
+    frame_id = created_frame->GetRoutingID();
 
   base::DictionaryValue* result = new base::DictionaryValue;
-  result->Set("viewId", new base::FundamentalValue(view_id));
+  result->Set("frameId", new base::FundamentalValue(frame_id));
   result->Set("injectTitlebar",
       new base::FundamentalValue(inject_html_titlebar_));
   result->Set("id", new base::StringValue(app_window->window_key()));
@@ -360,7 +360,7 @@ bool AppWindowCreateFunction::RunAsync() {
   SetResult(result);
 
   if (AppWindowRegistry::Get(browser_context())
-          ->HadDevToolsAttached(created_view)) {
+          ->HadDevToolsAttached(app_window->web_contents())) {
     AppWindowClient::Get()->OpenDevToolsWindow(
         app_window->web_contents(),
         base::Bind(&AppWindowCreateFunction::SendResponse, this, true));
@@ -490,13 +490,13 @@ AppWindow::Frame AppWindowCreateFunction::GetFrameFromString(
   if (frame_string == kHtmlFrameOption &&
       (extension()->permissions_data()->HasAPIPermission(
            APIPermission::kExperimental) ||
-       CommandLine::ForCurrentProcess()->HasSwitch(
+       base::CommandLine::ForCurrentProcess()->HasSwitch(
            switches::kEnableExperimentalExtensionApis))) {
      inject_html_titlebar_ = true;
      return AppWindow::FRAME_NONE;
-   }
+  }
 
-   if (frame_string == kNoneFrameOption)
+  if (frame_string == kNoneFrameOption)
     return AppWindow::FRAME_NONE;
 
   return AppWindow::FRAME_CHROME;

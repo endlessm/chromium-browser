@@ -2,24 +2,24 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-"""A library to generate and store the manifests for cros builders to use.
-"""
+"""A library to generate and store the manifests for cros builders to use."""
 
 from __future__ import print_function
 
 import cPickle
 import fnmatch
 import glob
-import logging
 import os
 import re
 import shutil
 import tempfile
+from xml.dom import minidom
 
 from chromite.cbuildbot import constants
 from chromite.cbuildbot import repository
 from chromite.lib import cidb
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import git
 from chromite.lib import gs
 from chromite.lib import osutils
@@ -29,6 +29,22 @@ from chromite.lib import timeout_util
 BUILD_STATUS_URL = '%s/builder-status' % constants.MANIFEST_VERSIONS_GS_URL
 PUSH_BRANCH = 'temp_auto_checkin_branch'
 NUM_RETRIES = 20
+
+MANIFEST_ELEMENT = 'manifest'
+DEFAULT_ELEMENT = 'default'
+PROJECT_ELEMENT = 'project'
+REMOTE_ELEMENT = 'remote'
+PROJECT_NAME_ATTR = 'name'
+PROJECT_REMOTE_ATTR = 'remote'
+PROJECT_GROUP_ATTR = 'groups'
+REMOTE_NAME_ATTR = 'name'
+
+PALADIN_COMMIT_ELEMENT = 'pending_commit'
+PALADIN_PROJECT_ATTR = 'project'
+
+
+class FilterManifestException(Exception):
+  """Exception thrown when failing to filter the internal manifest."""
 
 
 class VersionUpdateException(Exception):
@@ -86,11 +102,12 @@ def _PushGitChanges(git_repo, message, dry_run=True, push_to=None):
     push_to: A git.RemoteRef object specifying the remote branch to push to.
       Defaults to the tracking branch of the current branch.
   """
-  push_branch = None
   if push_to is None:
-    remote, push_branch = git.GetTrackingBranch(
+    # TODO(akeshet): Clean up git.GetTrackingBranch to always or never return a
+    # tuple.
+    # pylint: disable=unpacking-non-sequence
+    push_to = git.GetTrackingBranch(
         git_repo, for_checkout=False, for_push=True)
-    push_to = git.RemoteRef(remote, push_branch)
 
   git.RunGit(git_repo, ['add', '-A'])
 
@@ -287,12 +304,26 @@ class VersionInfo(object):
     return '%s.%s.%s' % (self.build_number, self.branch_build_number,
                          self.patch_number)
 
+  def VersionComponents(self):
+    """Return an array of ints of the version fields for comparing."""
+    return map(int, [self.build_number, self.branch_build_number,
+                     self.patch_number])
+
   @classmethod
   def VersionCompare(cls, version_string):
     """Useful method to return a comparable version of a LKGM string."""
-    info = cls(version_string)
-    return map(int, [info.build_number, info.branch_build_number,
-                     info.patch_number])
+    return cls(version_string).VersionComponents()
+
+  def __cmp__(self, other):
+    sinfo = self.VersionComponents()
+    oinfo = other.VersionComponents()
+
+    for s, o in zip(sinfo, oinfo):
+      if s != o:
+        return -1 if s < o else 1
+    return 0
+
+  __hash__ = None
 
   def BuildPrefix(self):
     """Returns the build prefix to match the buildspecs in  manifest-versions"""
@@ -304,23 +335,12 @@ class VersionInfo(object):
     # Default to build incr_type.
     return ''
 
+  def __str__(self):
+    return '%s(%s)' % (self.__class__, self.VersionString())
+
 
 class BuilderStatus(object):
   """Object representing the status of a build."""
-  # Various statuses builds can be in.  These status values are retrieved from
-  # Google Storage, which each builder writes to.  The MISSING status is used
-  # for the status of any builder which has no value in Google Storage.
-  STATUS_FAILED = 'fail'
-  STATUS_PASSED = 'pass'
-  STATUS_INFLIGHT = 'inflight'
-  STATUS_MISSING = 'missing' # i.e. never started.
-  STATUS_ABORTED = 'aborted'
-  COMPLETED_STATUSES = (STATUS_PASSED, STATUS_FAILED, STATUS_ABORTED)
-  ALL_STATUSES = (STATUS_FAILED, STATUS_PASSED, STATUS_INFLIGHT,
-                  STATUS_MISSING, STATUS_ABORTED)
-
-  MISSING_MESSAGE = ('Unknown run, it probably never started:'
-                     ' %(builder)s, version %(version)s')
 
   def __init__(self, status, message, dashboard_url=None):
     """Constructor for BuilderStatus.
@@ -340,23 +360,23 @@ class BuilderStatus(object):
 
   def Failed(self):
     """Returns True if the Builder failed."""
-    return self.status == BuilderStatus.STATUS_FAILED
+    return self.status == constants.BUILDER_STATUS_FAILED
 
   def Passed(self):
     """Returns True if the Builder passed."""
-    return self.status == BuilderStatus.STATUS_PASSED
+    return self.status == constants.BUILDER_STATUS_PASSED
 
   def Inflight(self):
     """Returns True if the Builder is still inflight."""
-    return self.status == BuilderStatus.STATUS_INFLIGHT
+    return self.status == constants.BUILDER_STATUS_INFLIGHT
 
   def Missing(self):
     """Returns True if the Builder is missing any status."""
-    return self.status == BuilderStatus.STATUS_MISSING
+    return self.status == constants.BUILDER_STATUS_MISSING
 
   def Completed(self):
     """Returns True if the Builder has completed."""
-    return self.status in BuilderStatus.COMPLETED_STATUSES
+    return self.status in constants.BUILDER_COMPLETED_STATUSES
 
   @classmethod
   def GetCompletedStatus(cls, success):
@@ -366,9 +386,9 @@ class BuilderStatus(object):
       success: Whether the build was successful or not.
     """
     if success:
-      return cls.STATUS_PASSED
+      return constants.BUILDER_STATUS_PASSED
     else:
-      return cls.STATUS_FAILED
+      return constants.BUILDER_STATUS_FAILED
 
   def AsFlatDict(self):
     """Returns a flat json-able representation of this builder status.
@@ -395,7 +415,7 @@ class BuilderStatus(object):
 class BuildSpecsManager(object):
   """A Class to manage buildspecs and their states."""
 
-  SLEEP_TIMEOUT = 2 * 60
+  SLEEP_TIMEOUT = 1 * 60
 
   def __init__(self, source_repo, manifest_repo, build_names, incr_type, force,
                branch, manifest=constants.DEFAULT_MANIFEST, dry_run=True,
@@ -405,7 +425,7 @@ class BuildSpecsManager(object):
     Args:
       source_repo: Repository object for the source code.
       manifest_repo: Manifest repository for manifest versions / buildspecs.
-      build_names: Identifiers for the build. Must match cbuildbot_config
+      build_names: Identifiers for the build. Must match SiteConfig
           entries. If multiple identifiers are provided, the first item in the
           list must be an identifier for the group.
       incr_type: How we should increment this version - build|branch|patch
@@ -432,6 +452,7 @@ class BuildSpecsManager(object):
     self.master = master
 
     # Directories and specifications are set once we load the specs.
+    self.buildspecs_dir = None
     self.all_specs_dir = None
     self.pass_dirs = None
     self.fail_dirs = None
@@ -489,11 +510,11 @@ class BuildSpecsManager(object):
     assert version_info or version, 'version or version_info must be specified'
     working_dir = os.path.join(self.manifest_dir, self.rel_working_dir)
     specs_for_builder = os.path.join(working_dir, 'build-name', '%(builder)s')
-    buildspecs = os.path.join(working_dir, 'buildspecs')
+    self.buildspecs_dir = os.path.join(working_dir, 'buildspecs')
 
     # If version is specified, find out what Chrome branch it is on.
     if version is not None:
-      dirs = glob.glob(os.path.join(buildspecs, '*', version + '.xml'))
+      dirs = glob.glob(os.path.join(self.buildspecs_dir, '*', version + '.xml'))
       if len(dirs) == 0:
         return False
       assert len(dirs) <= 1, 'More than one spec found for %s' % version
@@ -502,14 +523,16 @@ class BuildSpecsManager(object):
     else:
       dir_pfx = version_info.chrome_branch
 
-    self.all_specs_dir = os.path.join(buildspecs, dir_pfx)
+    self.all_specs_dir = os.path.join(self.buildspecs_dir, dir_pfx)
     self.pass_dirs, self.fail_dirs = [], []
     for build_name in self.build_names:
       specs_for_build = specs_for_builder % {'builder': build_name}
-      self.pass_dirs.append(os.path.join(specs_for_build,
-                                         BuilderStatus.STATUS_PASSED, dir_pfx))
-      self.fail_dirs.append(os.path.join(specs_for_build,
-                                         BuilderStatus.STATUS_FAILED, dir_pfx))
+      self.pass_dirs.append(
+          os.path.join(specs_for_build, constants.BUILDER_STATUS_PASSED,
+                       dir_pfx))
+      self.fail_dirs.append(
+          os.path.join(specs_for_build, constants.BUILDER_STATUS_FAILED,
+                       dir_pfx))
 
     # Calculate the status of the latest build, and whether the build was
     # processed.
@@ -523,14 +546,25 @@ class BuildSpecsManager(object):
 
     return True
 
+  def GetBuildSpecFilePath(self, milestone, platform):
+    """Get the file path given milestone and platform versions.
+
+    Args:
+      milestone: a string representing milestone, e.g. '44'
+      platform: a string representing platform version, e.g. '7072.0.0-rc4'
+
+    Returns:
+      A string, representing the path to its spec file.
+    """
+    return os.path.join(self.buildspecs_dir, milestone, platform + '.xml')
+
   def GetCurrentVersionInfo(self):
     """Returns the current version info from the version file."""
     version_file_path = self.cros_source.GetRelativePath(constants.VERSION_FILE)
     return VersionInfo(version_file=version_file_path, incr_type=self.incr_type)
 
   def HasCheckoutBeenBuilt(self):
-    """Checks to see if we've previously built this checkout.
-    """
+    """Checks to see if we've previously built this checkout."""
     if self._latest_status and self._latest_status.Passed():
       latest_spec_file = '%s.xml' % os.path.join(
           self.all_specs_dir, self.latest)
@@ -542,8 +576,7 @@ class BuildSpecsManager(object):
       return False
 
   def CreateManifest(self):
-    """Returns the path to a new manifest based on the current source checkout.
-    """
+    """Returns the path to a new manifest based on the current checkout."""
     new_manifest = tempfile.mkstemp('manifest_versions.manifest')[1]
     osutils.WriteFile(new_manifest,
                       self.cros_source.ExportManifest(mark_revision=True))
@@ -553,12 +586,12 @@ class BuildSpecsManager(object):
     """Returns the next version string that should be built."""
     version = version_info.VersionString()
     if self.latest == version:
-      message = ('Automatic: %s - Updating to a new version number from %s' % (
-                 self.build_names[0], version))
+      message = ('Automatic: %s - Updating to a new version number from %s' %
+                 (self.build_names[0], version))
       version = version_info.IncrementVersion()
       version_info.UpdateVersionFile(message, dry_run=self.dry_run)
       assert version != self.latest
-      cros_build_lib.Info('Incremented version number to  %s', version)
+      logging.info('Incremented version number to  %s', version)
 
     return version
 
@@ -616,7 +649,7 @@ class BuildSpecsManager(object):
     try:
       output = ctx.Cat(url)
     except gs.GSNoSuchKey:
-      return BuilderStatus(BuilderStatus.STATUS_MISSING, None)
+      return BuilderStatus(constants.BUILDER_STATUS_MISSING, None)
 
     return BuildSpecsManager._UnpickleBuildStatus(output)
 
@@ -649,12 +682,11 @@ class BuildSpecsManager(object):
 
     Args:
       master_build_id: Master build id to check.
-      builders_array: A list of the names of the builders to check.
+      builders_array: A list of the names of build configs to check.
       timeout: Number of seconds to wait for the results.
 
     Returns:
-      A build-names->status dictionary of build statuses.
-
+      A build_config name-> status dictionary of build statuses.
     """
     builders_completed = set()
 
@@ -662,13 +694,13 @@ class BuildSpecsManager(object):
       """Helper function that iterates through current statuses."""
       status_dict = self.GetSlaveStatusesFromCIDB(master_build_id)
       for builder in set(builders_array) - set(status_dict.keys()):
-        logging.warn('No status found for builder %s.', builder)
+        logging.warning('No status found for build config %s.', builder)
 
       latest_completed = set(
           [b for b, s in status_dict.iteritems() if s in
-           BuilderStatus.COMPLETED_STATUSES and b in builders_array])
+           constants.BUILDER_COMPLETED_STATUSES and b in builders_array])
       for builder in sorted(latest_completed - builders_completed):
-        logging.info('Builder %s completed with status "%s".',
+        logging.info('Build config %s completed with status "%s".',
                      builder, status_dict[builder])
       builders_completed.update(latest_completed)
 
@@ -679,8 +711,8 @@ class BuildSpecsManager(object):
       else:
         return 'Builds completed.'
 
-    def _PrintRemainingTime(minutes_left):
-      logging.info('%d more minutes until timeout...', minutes_left)
+    def _PrintRemainingTime(remaining):
+      logging.info('%s until timeout...', remaining)
 
     # Check for build completion until all builders report in.
     try:
@@ -718,7 +750,7 @@ class BuildSpecsManager(object):
       # In addition to the exceptions listed in the doc, we've also observed
       # TypeError in the wild.
       logging.warning('Failed with %r to unpickle status file.', e)
-      return BuilderStatus(BuilderStatus.STATUS_FAILED, message=None)
+      return BuilderStatus(constants.BUILDER_STATUS_FAILED, message=None)
 
     return BuilderStatus(**status_dict)
 
@@ -746,8 +778,7 @@ class BuildSpecsManager(object):
     return None
 
   def BootstrapFromVersion(self, version):
-    """Initializes spec data from release version and returns path to manifest.
-    """
+    """Initialize a manifest from a release version returning the path to it."""
     # Only refresh the manifest checkout if needed.
     if not self.InitializeManifestVariables(version=version):
       self.RefreshManifestCheckout()
@@ -765,13 +796,11 @@ class BuildSpecsManager(object):
     """Syncs the cros source to the latest git hashes for the branch."""
     self.cros_source.Sync(self.manifest)
 
-  def GetNextBuildSpec(self, retries=NUM_RETRIES, dashboard_url=None,
-                       build_id=None):
+  def GetNextBuildSpec(self, retries=NUM_RETRIES, build_id=None):
     """Returns a path to the next manifest to build.
 
     Args:
       retries: Number of retries for updating the status.
-      dashboard_url: Optional url linking to builder dashboard for this build.
       build_id: Optional integer cidb id of this build, which will be used to
                 annotate the manifest-version commit if one is created.
 
@@ -801,7 +830,6 @@ class BuildSpecsManager(object):
         else:
           version = self.latest_unprocessed
 
-        self.SetInFlight(version, dashboard_url=dashboard_url)
         self.current_version = version
         return self.GetLocalManifest(version)
       except cros_build_lib.RunCommandError as e:
@@ -809,10 +837,10 @@ class BuildSpecsManager(object):
         logging.error(last_error)
         logging.error('Retrying to generate buildspec:  Retry %d/%d', index + 1,
                       retries)
-    else:
-      # Cleanse any failed local changes and throw an exception.
-      self.RefreshManifestCheckout()
-      raise GenerateBuildSpecException(last_error)
+
+    # Cleanse any failed local changes and throw an exception.
+    self.RefreshManifestCheckout()
+    raise GenerateBuildSpecException(last_error)
 
   @staticmethod
   def _GetStatusUrl(builder, version):
@@ -833,16 +861,24 @@ class BuildSpecsManager(object):
     """
     data = BuilderStatus(status, message, dashboard_url).AsPickledDict()
 
+    gs_version = None
     # This HTTP header tells Google Storage to return the PreconditionFailed
-    # error message if the file already exists.
-    gs_version = 0 if fail_if_exists else None
+    # error message if the file already exists. Unfortunately, with new versions
+    # of gsutil, PreconditionFailed is sometimes returned erroneously, so we've
+    # replaced this check with # an Exists check below instead.
+    # TODO(davidjames): Revert CL:223267 when Google Storage is fixed.
+    #if fail_if_exists:
+    #  gs_version = 0
 
     logging.info('Recording status %s for %s', status, self.build_names)
     for build_name in self.build_names:
       url = BuildSpecsManager._GetStatusUrl(build_name, version)
 
-      # Do the actual upload.
       ctx = gs.GSContext(dry_run=self.dry_run)
+      # Check if the file already exists.
+      if fail_if_exists and not self.dry_run and ctx.Exists(url):
+        raise GenerateBuildSpecException('Builder already inflight')
+      # Do the actual upload.
       ctx.Copy('-', url, input=data, version=gs_version)
 
   def UploadStatus(self, success, message=None, dashboard_url=None):
@@ -861,7 +897,7 @@ class BuildSpecsManager(object):
   def SetInFlight(self, version, dashboard_url=None):
     """Marks the buildspec as inflight in Google Storage."""
     try:
-      self._UploadStatus(version, BuilderStatus.STATUS_INFLIGHT,
+      self._UploadStatus(version, constants.BUILDER_STATUS_INFLIGHT,
                          fail_if_exists=True,
                          dashboard_url=dashboard_url)
     except gs.GSContextPreconditionFailed:
@@ -927,7 +963,111 @@ class BuildSpecsManager(object):
         # Upload status to Google Storage as well.
         self.UploadStatus(success, message=message, dashboard_url=dashboard_url)
         return
-    else:
-      # Cleanse any failed local changes and throw an exception.
-      self.RefreshManifestCheckout()
-      raise StatusUpdateException(last_error)
+
+    # Cleanse any failed local changes and throw an exception.
+    self.RefreshManifestCheckout()
+    raise StatusUpdateException(last_error)
+
+
+def _GetDefaultRemote(manifest_dom):
+  """Returns the default remote in a manifest (if any).
+
+  Args:
+    manifest_dom: DOM Document object representing the manifest.
+
+  Returns:
+    Default remote if one exists, None otherwise.
+  """
+  default_nodes = manifest_dom.getElementsByTagName(DEFAULT_ELEMENT)
+  if default_nodes:
+    if len(default_nodes) > 1:
+      raise FilterManifestException(
+          'More than one <default> element found in manifest')
+    return default_nodes[0].getAttribute(PROJECT_REMOTE_ATTR)
+  return None
+
+
+def _GetGroups(project_element):
+  """Returns the default remote in a manifest (if any).
+
+  Args:
+    project_element: DOM Document object representing a project.
+
+  Returns:
+    List of names of the groups the project belongs too.
+  """
+  group = project_element.getAttribute(PROJECT_GROUP_ATTR)
+  if not group:
+    return []
+
+  return [s.strip() for s in group.split(',')]
+
+
+def FilterManifest(manifest, whitelisted_remotes=None, whitelisted_groups=None):
+  """Returns a path to a new manifest with whitelists enforced.
+
+  Args:
+    manifest: Path to an existing manifest that should be filtered.
+    whitelisted_remotes: Tuple of remotes to allow in the generated manifest.
+      Only projects with those remotes will be included in the external
+      manifest. (None means all remotes are acceptable)
+    whitelisted_groups: Tuple of groups to allow in the generated manifest.
+      (None means all groups are acceptable)
+
+  Returns:
+    Path to a new manifest that is a filtered copy of the original.
+  """
+  temp_fd, new_path = tempfile.mkstemp('external_manifest')
+  manifest_dom = minidom.parse(manifest)
+  manifest_node = manifest_dom.getElementsByTagName(MANIFEST_ELEMENT)[0]
+  remotes = manifest_dom.getElementsByTagName(REMOTE_ELEMENT)
+  projects = manifest_dom.getElementsByTagName(PROJECT_ELEMENT)
+  pending_commits = manifest_dom.getElementsByTagName(PALADIN_COMMIT_ELEMENT)
+
+  default_remote = _GetDefaultRemote(manifest_dom)
+
+  # Remove remotes that don't match our whitelist.
+  for remote_element in remotes:
+    name = remote_element.getAttribute(REMOTE_NAME_ATTR)
+    if (name is not None and
+        whitelisted_remotes and
+        name not in whitelisted_remotes):
+      manifest_node.removeChild(remote_element)
+
+  filtered_projects = set()
+  for project_element in projects:
+    project_remote = project_element.getAttribute(PROJECT_REMOTE_ATTR)
+    project = project_element.getAttribute(PROJECT_NAME_ATTR)
+    if not project_remote:
+      if not default_remote:
+        # This should not happen for a valid manifest. Either each
+        # project must have a remote specified or there should
+        # be manifest default we could use.
+        raise FilterManifestException(
+            'Project %s has unspecified remote with no default' % project)
+      project_remote = default_remote
+
+    groups = _GetGroups(project_element)
+
+    filter_remote = (whitelisted_remotes and
+                     project_remote not in whitelisted_remotes)
+
+    filter_group = (whitelisted_groups and
+                    not any([g in groups for g in whitelisted_groups]))
+
+    if filter_remote or filter_group:
+      filtered_projects.add(project)
+      manifest_node.removeChild(project_element)
+
+  for commit_element in pending_commits:
+    if commit_element.getAttribute(
+        PALADIN_PROJECT_ATTR) in filtered_projects:
+      manifest_node.removeChild(commit_element)
+
+  with os.fdopen(temp_fd, 'w') as manifest_file:
+    # Filter out empty lines.
+    filtered_manifest_noempty = filter(
+        str.strip, manifest_dom.toxml('utf-8').splitlines())
+    manifest_file.write(os.linesep.join(filtered_manifest_noempty))
+
+  return new_path

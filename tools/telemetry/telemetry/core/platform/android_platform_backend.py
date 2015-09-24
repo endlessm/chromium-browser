@@ -6,17 +6,15 @@ import logging
 import os
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
-import time
 
-from telemetry import decorators
+from catapult_base import support_binaries
 from telemetry.core import exceptions
 from telemetry.core import platform
-from telemetry.core import util
-from telemetry.core import video
-from telemetry.core.backends import adb_commands
 from telemetry.core.platform import android_device
+from telemetry.core.platform import android_platform
 from telemetry.core.platform import linux_based_platform_backend
 from telemetry.core.platform.power_monitor import android_ds2784_power_monitor
 from telemetry.core.platform.power_monitor import android_dumpsys_power_monitor
@@ -24,35 +22,119 @@ from telemetry.core.platform.power_monitor import android_temperature_monitor
 from telemetry.core.platform.power_monitor import monsoon_power_monitor
 from telemetry.core.platform.power_monitor import power_monitor_controller
 from telemetry.core.platform.profiler import android_prebuilt_profiler_helper
-from telemetry.util import exception_formatter
+from telemetry.core import util
+from telemetry import decorators
+from telemetry.internal.forwarders import android_forwarder
+from telemetry.internal.image_processing import video
+from telemetry.internal.util import exception_formatter
+from telemetry.internal.util import external_modules
 
+psutil = external_modules.ImportOptionalModule('psutil')
 util.AddDirToPythonPath(util.GetChromiumSrcDir(),
                         'third_party', 'webpagereplay')
-import adb_install_cert  # pylint: disable=F0401
-import certutils  # pylint: disable=F0401
+import adb_install_cert  # pylint: disable=import-error
+import certutils  # pylint: disable=import-error
+import platformsettings  # pylint: disable=import-error
 
 # Get build/android scripts into our path.
 util.AddDirToPythonPath(util.GetChromiumSrcDir(), 'build', 'android')
-from pylib import screenshot  # pylint: disable=F0401
-from pylib.device import device_errors  # pylint: disable=F0401
-from pylib.perf import cache_control  # pylint: disable=F0401
-from pylib.perf import perf_control  # pylint: disable=F0401
-from pylib.perf import thermal_throttle  # pylint: disable=F0401
+from pylib import constants  # pylint: disable=import-error
+from pylib import screenshot  # pylint: disable=import-error
+from pylib.device import battery_utils  # pylint: disable=import-error
+from pylib.device import device_errors  # pylint: disable=import-error
+from pylib.device import device_utils  # pylint: disable=import-error
+from pylib.perf import cache_control  # pylint: disable=import-error
+from pylib.perf import perf_control  # pylint: disable=import-error
+from pylib.perf import thermal_throttle  # pylint: disable=import-error
 
 try:
-  from pylib.perf import surface_stats_collector  # pylint: disable=F0401
+  from pylib.perf import surface_stats_collector  # pylint: disable=import-error
 except Exception:
   surface_stats_collector = None
 
 
+_DEVICE_COPY_SCRIPT_FILE = os.path.join(
+    constants.DIR_SOURCE_ROOT, 'build', 'android', 'pylib',
+    'efficient_android_directory_copy.sh')
+_DEVICE_COPY_SCRIPT_LOCATION = (
+    '/data/local/tmp/efficient_android_directory_copy.sh')
+
+
+def _SetupPrebuiltTools(device):
+  """Some of the android pylib scripts we depend on are lame and expect
+  binaries to be in the out/ directory. So we copy any prebuilt binaries there
+  as a prereq."""
+
+  # TODO(bulach): Build the targets for x86/mips.
+  device_tools = [
+    'file_poller',
+    'forwarder_dist/device_forwarder',
+    'md5sum_dist/md5sum_bin',
+    'purge_ashmem',
+    'run_pie',
+  ]
+
+  host_tools = [
+    'bitmaptools',
+    'md5sum_bin_host',
+  ]
+
+  if platform.GetHostPlatform().GetOSName() == 'linux':
+    host_tools.append('host_forwarder')
+
+  arch_name = device.product_cpu_abi
+  has_device_prebuilt = (arch_name.startswith('armeabi')
+                         or arch_name.startswith('arm64'))
+  if not has_device_prebuilt:
+    logging.warning('Unknown architecture type: %s' % arch_name)
+    return all([support_binaries.FindLocallyBuiltPath(t) for t in device_tools])
+
+  build_type = None
+  for t in device_tools + host_tools:
+    executable = os.path.basename(t)
+    locally_built_path = support_binaries.FindLocallyBuiltPath(t)
+    if not build_type:
+      build_type = _GetBuildTypeOfPath(locally_built_path) or 'Release'
+      constants.SetBuildType(build_type)
+    dest = os.path.join(constants.GetOutDirectory(), t)
+    if not locally_built_path:
+      logging.info('Setting up prebuilt %s', dest)
+      if not os.path.exists(os.path.dirname(dest)):
+        os.makedirs(os.path.dirname(dest))
+      platform_name = ('android' if t in device_tools else
+                       platform.GetHostPlatform().GetOSName())
+      bin_arch_name = (arch_name if t in device_tools else
+                       platform.GetHostPlatform().GetArchName())
+      prebuilt_path = support_binaries.FindPath(
+          executable, bin_arch_name, platform_name)
+      if not prebuilt_path or not os.path.exists(prebuilt_path):
+        raise NotImplementedError("""
+%s must be checked into cloud storage.
+Instructions:
+http://www.chromium.org/developers/telemetry/upload_to_cloud_storage
+""" % t)
+      shutil.copyfile(prebuilt_path, dest)
+      os.chmod(dest, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+  return True
+
+
+def _GetBuildTypeOfPath(path):
+  if not path:
+    return None
+  for build_dir, build_type in util.GetBuildDirectories():
+    if os.path.join(build_dir, build_type) in path:
+      return build_type
+  return None
+
+
 class AndroidPlatformBackend(
     linux_based_platform_backend.LinuxBasedPlatformBackend):
-  def __init__(self, device):
+  def __init__(self, device, finder_options):
     assert device, (
         'AndroidPlatformBackend can only be initialized from remote device')
     super(AndroidPlatformBackend, self).__init__(device)
-    self._adb = adb_commands.AdbCommands(device=device.device_id)
-    installed_prebuilt_tools = adb_commands.SetupPrebuiltTools(self._adb)
+    self._device = device_utils.DeviceUtils(device.device_id)
+    installed_prebuilt_tools = _SetupPrebuiltTools(self._device)
     if not installed_prebuilt_tools:
       logging.error(
           '%s detected, however prebuilt android tools could not '
@@ -60,21 +142,28 @@ class AndroidPlatformBackend(
           '  $ ninja -C out/Release android_tools' % device.name)
       raise exceptions.PlatformError()
     # Trying to root the device, if possible.
-    if not self._adb.IsRootEnabled():
-      # Ignore result.
-      self._adb.EnableAdbRoot()
-    self._device = self._adb.device()
+    if not self._device.HasRoot():
+      try:
+        self._device.EnableRoot()
+      except device_errors.CommandFailedError:
+        logging.warning('Unable to root %s', str(self._device))
+    self._battery = battery_utils.BatteryUtils(self._device)
     self._enable_performance_mode = device.enable_performance_mode
     self._surface_stats_collector = None
     self._perf_tests_setup = perf_control.PerfControl(self._device)
     self._thermal_throttle = thermal_throttle.ThermalThrottle(self._device)
     self._raw_display_frame_rate_measurements = []
-    self._can_access_protected_file_contents = \
-        self._device.old_interface.CanAccessProtectedFileContents()
+    try:
+      self._can_access_protected_file_contents = (
+          self._device.HasRoot() or self._device.NeedsSU())
+    except:
+      logging.exception('New exception caused by DeviceUtils conversion')
+      raise
+    self._device_copy_script = None
     power_controller = power_monitor_controller.PowerMonitorController([
         monsoon_power_monitor.MonsoonPowerMonitor(self._device, self),
         android_ds2784_power_monitor.DS2784PowerMonitor(self._device, self),
-        android_dumpsys_power_monitor.DumpsysPowerMonitor(self._device, self),
+        android_dumpsys_power_monitor.DumpsysPowerMonitor(self._battery, self),
     ])
     self._power_monitor = android_temperature_monitor.AndroidTemperatureMonitor(
         power_controller, self._device)
@@ -83,19 +172,45 @@ class AndroidPlatformBackend(
 
     self._wpr_ca_cert_path = None
     self._device_cert_util = None
+    self._is_test_ca_installed = False
+
+    self._use_rndis_forwarder = (
+        finder_options.android_rndis or
+        finder_options.browser_options.netsim or
+        platform.GetHostPlatform().GetOSName() != 'linux')
+
+    _FixPossibleAdbInstability()
 
   @classmethod
   def SupportsDevice(cls, device):
     return isinstance(device, android_device.AndroidDevice)
 
+  @classmethod
+  def CreatePlatformForDevice(cls, device, finder_options):
+    assert cls.SupportsDevice(device)
+    platform_backend = AndroidPlatformBackend(device, finder_options)
+    return android_platform.AndroidPlatform(platform_backend)
+
   @property
-  def adb(self):
-    return self._adb
+  def forwarder_factory(self):
+    if not self._forwarder_factory:
+      self._forwarder_factory = android_forwarder.AndroidForwarderFactory(
+          self._device, self._use_rndis_forwarder)
 
-  def IsRawDisplayFrameRateSupported(self):
-    return True
+    return self._forwarder_factory
 
-  def StartRawDisplayFrameRateMeasurement(self):
+  @property
+  def use_rndis_forwarder(self):
+    return self._use_rndis_forwarder
+
+  @property
+  def device(self):
+    return self._device
+
+  def IsDisplayTracingSupported(self):
+    return bool(self.GetOSVersionName() >= 'J')
+
+  def StartDisplayTracing(self):
     assert not self._surface_stats_collector
     # Clear any leftover data from previous timed out tests
     self._raw_display_frame_rate_measurements = []
@@ -103,22 +218,28 @@ class AndroidPlatformBackend(
         surface_stats_collector.SurfaceStatsCollector(self._device)
     self._surface_stats_collector.Start()
 
-  def StopRawDisplayFrameRateMeasurement(self):
+  def StopDisplayTracing(self):
     if not self._surface_stats_collector:
       return
 
-    self._surface_stats_collector.Stop()
-    for r in self._surface_stats_collector.GetResults():
-      self._raw_display_frame_rate_measurements.append(
-          platform.Platform.RawDisplayFrameRateMeasurement(
-              r.name, r.value, r.unit))
-
+    refresh_period, timestamps = self._surface_stats_collector.Stop()
+    pid = self._surface_stats_collector.GetSurfaceFlingerPid()
     self._surface_stats_collector = None
-
-  def GetRawDisplayFrameRateMeasurements(self):
-    ret = self._raw_display_frame_rate_measurements
-    self._raw_display_frame_rate_measurements = []
-    return ret
+    # TODO(sullivan): should this code be inline, or live elsewhere?
+    events = []
+    for ts in timestamps:
+      events.append({
+        'cat': 'SurfaceFlinger',
+        'name': 'vsync_before',
+        'ts': ts,
+        'pid': pid,
+        'tid': pid,
+        'args': {'data': {
+          'frame_count': 1,
+          'refresh_period': refresh_period,
+        }}
+      })
+    return events
 
   def SetFullPerformanceModeEnabled(self, enabled):
     if not self._enable_performance_mode:
@@ -162,11 +283,14 @@ class AndroidPlatformBackend(
     if not android_prebuilt_profiler_helper.InstallOnDevice(
         self._device, 'purge_ashmem'):
       raise Exception('Error installing purge_ashmem.')
-    (status, output) = self._device.old_interface.GetAndroidToolStatusAndOutput(
-        android_prebuilt_profiler_helper.GetDevicePath('purge_ashmem'),
-        log_result=True)
-    if status != 0:
-      raise Exception('Error while purging ashmem: ' + '\n'.join(output))
+    try:
+      output = self._device.RunShellCommand(
+          android_prebuilt_profiler_helper.GetDevicePath('purge_ashmem'))
+    except:
+      logging.exception('New exception caused by DeviceUtils conversion')
+      raise
+    for l in output:
+      logging.info(l)
 
   def GetMemoryStats(self, pid):
     memory_usage = self._device.GetMemoryUsageForPid(pid)
@@ -176,9 +300,6 @@ class AndroidPlatformBackend(
             'SharedDirty': memory_usage['Shared_Dirty'] * 1024,
             'PrivateDirty': memory_usage['Private_Dirty'] * 1024,
             'VMPeak': memory_usage['VmHWM'] * 1024}
-
-  def GetIOStats(self, pid):
-    return {}
 
   def GetChildPids(self, pid):
     child_pids = []
@@ -199,8 +320,15 @@ class AndroidPlatformBackend(
       raise exceptions.ProcessGoneException()
     return ps[0][1]
 
+  @decorators.Cache
+  def GetArchName(self):
+    return self._device.GetABI()
+
   def GetOSName(self):
     return 'android'
+
+  def GetDeviceTypeName(self):
+    return self._device.product_model()
 
   @decorators.Cache
   def GetOSVersionName(self):
@@ -213,7 +341,7 @@ class AndroidPlatformBackend(
     cache = cache_control.CacheControl(self._device)
     cache.DropRamCaches()
 
-  def FlushSystemCacheForDirectory(self, directory, ignoring=None):
+  def FlushSystemCacheForDirectory(self, directory):
     raise NotImplementedError()
 
   def FlushDnsCache(self):
@@ -228,17 +356,14 @@ class AndroidPlatformBackend(
     self._device.ForceStop(application)
 
   def KillApplication(self, application):
-    """Kill the given application.
+    """Kill the given |application|.
+
+    Might be used instead of ForceStop for efficiency reasons.
 
     Args:
       application: The full package name string of the application to kill.
     """
-    # We use KillAll rather than ForceStop for efficiency reasons.
-    try:
-      self._adb.device().KillAll(application, retries=0)
-      time.sleep(3)
-    except device_errors.CommandFailedError:
-      pass
+    self._device.KillAll(application, blocking=True, quiet=True)
 
   def LaunchApplication(
       self, application, parameters=None, elevate_privilege=False):
@@ -312,11 +437,20 @@ class AndroidPlatformBackend(
   def StopMonitoringPower(self):
     return self._power_monitor.StopMonitoringPower()
 
+  def CanMonitorNetworkData(self):
+    if (self._device.build_version_sdk <
+        constants.ANDROID_SDK_VERSION_CODES.LOLLIPOP):
+      return False
+    return True
+
+  def GetNetworkData(self, browser):
+    return self._battery.GetNetworkData(browser._browser_backend.package)
+
   def GetFileContents(self, fname):
     if not self._can_access_protected_file_contents:
       logging.warning('%s cannot be retrieved on non-rooted device.' % fname)
       return ''
-    return '\n'.join(self._device.ReadFile(fname, as_root=True))
+    return self._device.ReadFile(fname, as_root=True)
 
   def GetPsOutput(self, columns, pid=None):
     assert columns == ['pid', 'name'] or columns == ['pid'], \
@@ -324,7 +458,7 @@ class AndroidPlatformBackend(
     command = 'ps'
     if pid:
       command += ' -p %d' % pid
-    ps = self._device.RunShellCommand(command)[1:]
+    ps = self._device.RunShellCommand(command, large_output=True)[1:]
     output = []
     for line in ps:
       data = line.split()
@@ -368,7 +502,7 @@ class AndroidPlatformBackend(
     return old_flag
 
   def ForwardHostToDevice(self, host_port, device_port):
-    self._adb.Forward('tcp:%d' % host_port, device_port)
+    self._device.adb.Forward('tcp:%d' % host_port, device_port)
 
   def DismissCrashDialogIfNeeded(self):
     """Dismiss any error dialogs.
@@ -385,8 +519,7 @@ class AndroidPlatformBackend(
     Args:
       process_name: The full package name string of the process.
     """
-    pids = self._adb.ExtractPid(process_name)
-    return len(pids) != 0
+    return bool(self._device.GetPids(process_name))
 
   @property
   def wpr_ca_cert_path(self):
@@ -403,34 +536,41 @@ class AndroidPlatformBackend(
 
     This allows transparent HTTPS testing with WPR server without need
     to tweak application network stack.
-
-    Returns:
-      True if the certificate installation succeeded.
     """
+    # TODO(slamm): Move certificate creation related to webpagereplay.py.
+    # The only code that needs to be in platform backend is installing the cert.
     if certutils.openssl_import_error:
-      logging.warn(
+      logging.warning(
           'The OpenSSL module is unavailable. '
           'Will fallback to ignoring certificate errors.')
-      return False
-
+      return
+    if not platformsettings.HasSniSupport():
+      logging.warning(
+          'Web Page Replay requires SNI support (pyOpenSSL 0.13 or greater) '
+          'to generate certificates from a test CA. '
+          'Will fallback to ignoring certificate errors.')
+      return
     try:
       self._wpr_ca_cert_path = os.path.join(tempfile.mkdtemp(), 'testca.pem')
       certutils.write_dummy_ca_cert(*certutils.generate_dummy_ca_cert(),
                                     cert_path=self._wpr_ca_cert_path)
       self._device_cert_util = adb_install_cert.AndroidCertInstaller(
-          self._adb.device_serial(), None, self._wpr_ca_cert_path)
+          self._device.adb.GetDeviceSerial(), None, self._wpr_ca_cert_path)
       logging.info('Installing test certificate authority on device: %s',
-                   self._adb.device_serial())
+                   str(self._device))
       self._device_cert_util.install_cert(overwrite_cert=True)
-    except Exception:
+      self._is_test_ca_installed = True
+    except Exception as e:
       # Fallback to ignoring certificate errors.
       self.RemoveTestCa()
-      exception_formatter.PrintFormattedException(
-          msg=('Unable to install test certificate authority on device: %s. '
-               'Will fallback to ignoring certificate errors.'
-               % self._adb.device_serial()))
-      return False
-    return True
+      logging.warning(
+          'Unable to install test certificate authority on device: %s. '
+          'Will fallback to ignoring certificate errors. Install error: %s',
+          str(self._device), e)
+
+  @property
+  def is_test_ca_installed(self):
+    return self._is_test_ca_installed
 
   def RemoveTestCa(self):
     """Remove root CA generated by previous call to InstallTestCa().
@@ -440,10 +580,17 @@ class AndroidPlatformBackend(
     if not self._wpr_ca_cert_path:
       return
 
-    if self._device_cert_util:
-      self._device_cert_util.remove_cert()
+    if self._is_test_ca_installed:
+      try:
+        self._device_cert_util.remove_cert()
+      except Exception:
+        # Best effort cleanup - show the error and continue.
+        exception_formatter.PrintFormattedException(
+          msg=('Error while trying to remove certificate authority: %s. '
+               % str(self._device)))
+      self._is_test_ca_installed = False
 
-    shutil.rmtree(os.path.dirname(self._wpr_ca_cert_path), ignore_errors = True)
+    shutil.rmtree(os.path.dirname(self._wpr_ca_cert_path), ignore_errors=True)
     self._wpr_ca_cert_path = None
     self._device_cert_util = None
 
@@ -470,8 +617,12 @@ class AndroidPlatformBackend(
     self._device.PushChangedFiles([(new_profile_dir, saved_profile_location)])
 
     profile_dir = self._GetProfileDir(package)
-    self._device.old_interface.EfficientDeviceDirectoryCopy(
-        saved_profile_location, profile_dir)
+    try:
+      self._EfficientDeviceDirectoryCopy(
+          saved_profile_location, profile_dir)
+    except:
+      logging.exception('New exception caused by DeviceUtils conversion')
+      raise
     dumpsys = self._device.RunShellCommand('dumpsys package %s' % package)
     id_line = next(line for line in dumpsys if 'userId=' in line)
     uid = re.search(r'\d+', id_line).group()
@@ -483,6 +634,15 @@ class AndroidPlatformBackend(
       extended_path = '%s %s/* %s/*/* %s/*/*/*' % (path, path, path, path)
       self._device.RunShellCommand(
           'chown %s.%s %s' % (uid, uid, extended_path))
+
+  def _EfficientDeviceDirectoryCopy(self, source, dest):
+    if not self._device_copy_script:
+      self._device.adb.Push(
+          _DEVICE_COPY_SCRIPT_FILE,
+          _DEVICE_COPY_SCRIPT_LOCATION)
+      self._device_copy_script = _DEVICE_COPY_SCRIPT_FILE
+    self._device.RunShellCommand(
+        ['sh', self._device_copy_script, source, dest])
 
   def RemoveProfile(self, package, ignore_list):
     """Delete application profile on device.
@@ -514,17 +674,20 @@ class AndroidPlatformBackend(
     # pulled down is really needed e.g. .pak files.
     if not os.path.exists(output_profile_path):
       os.makedirs(output_profile_path)
-    files = self._device.RunShellCommand('ls "%s"' % profile_dir)
+    try:
+      files = self._device.RunShellCommand(['ls', profile_dir])
+    except:
+      logging.exception('New exception caused by DeviceUtils conversion')
+      raise
     for f in files:
       # Don't pull lib, since it is created by the installer.
       if f != 'lib':
         source = '%s%s' % (profile_dir, f)
         dest = os.path.join(output_profile_path, f)
-        # self._adb.Pull(source, dest) doesn't work because its timeout
-        # is fixed in android's adb_interface at 60 seconds, which may
-        # be too short to pull the cache.
-        cmd = 'pull %s %s' % (source, dest)
-        self._device.old_interface.Adb().SendCommand(cmd, timeout_time=240)
+        try:
+          self._device.PullFile(source, dest, timeout=240)
+        except device_errors.CommandFailedError:
+          logging.exception('Failed to pull %s to %s', source, dest)
 
   def _GetProfileDir(self, package):
     """Returns the on-device location where the application profile is stored
@@ -541,7 +704,7 @@ class AndroidPlatformBackend(
     Args:
       package: The full package name string of the application.
     """
-    if self._adb.IsUserBuild():
+    if self._device.IsUserBuild():
       logging.debug('User build device, setting debug app')
       self._device.RunShellCommand('am set-debug-app --persistent %s' % package)
 
@@ -551,7 +714,7 @@ class AndroidPlatformBackend(
     Args:
       number_of_lines: Number of lines of log to return.
     """
-    return '\n'.join(self.adb.device().RunShellCommand(
+    return '\n'.join(self._device.RunShellCommand(
         'logcat -d -t %d' % number_of_lines))
 
   def GetStackTrace(self, target_arch):
@@ -585,6 +748,89 @@ class AndroidPlatformBackend(
     if os.path.exists(tombstones):
       ret += Decorate('Tombstones',
                       subprocess.Popen([tombstones, '-w', '--device',
-                                        self._adb.device_serial()],
+                                        self._device.adb.GetDeviceSerial()],
                                        stdout=subprocess.PIPE).communicate()[0])
     return ret
+
+  @staticmethod
+  def _IsScreenOn(input_methods):
+    """Parser method of IsScreenOn()
+
+    Args:
+      input_methods: Output from dumpsys input_methods
+
+    Returns:
+      boolean: True if screen is on, false if screen is off.
+
+    Raises:
+      ValueError: An unknown value is found for the screen state.
+      AndroidDeviceParsingError: Error in detecting screen state.
+    """
+    for line in input_methods:
+      if 'mScreenOn' in line or 'mInteractive' in line:
+        for pair in line.strip().split(' '):
+          key, value = pair.split('=', 1)
+          if key == 'mScreenOn' or key == 'mInteractive':
+            if value == 'true':
+              return True
+            elif value == 'false':
+              return False
+            else:
+              raise ValueError('Unknown value for %s: %s' % (key, value))
+    raise exceptions.AndroidDeviceParsingError(str(input_methods))
+
+  def IsScreenOn(self):
+    """Determines if device screen is on."""
+    input_methods = self._device.RunShellCommand('dumpsys input_method')
+    return self._IsScreenOn(input_methods)
+
+  @staticmethod
+  def _IsScreenLocked(input_methods):
+    """Parser method for IsScreenLocked()
+
+    Args:
+      input_methods: Output from dumpsys input_methods
+
+    Returns:
+      boolean: True if screen is locked, false if screen is not locked.
+
+    Raises:
+      ValueError: An unknown value is found for the screen lock state.
+      AndroidDeviceParsingError: Error in detecting screen state.
+
+    """
+    for line in input_methods:
+      if 'mHasBeenInactive' in line:
+        for pair in line.strip().split(' '):
+          key, value = pair.split('=', 1)
+          if key == 'mHasBeenInactive':
+            if value == 'true':
+              return True
+            elif value == 'false':
+              return False
+            else:
+              raise ValueError('Unknown value for %s: %s' % (key, value))
+    raise exceptions.AndroidDeviceParsingError(str(input_methods))
+
+  def IsScreenLocked(self):
+    """Determines if device screen is locked."""
+    input_methods = self._device.RunShellCommand('dumpsys input_method')
+    return self._IsScreenLocked(input_methods)
+
+def _FixPossibleAdbInstability():
+  """Host side workaround for crbug.com/268450 (adb instability).
+
+  The adb server has a race which is mitigated by binding to a single core.
+  """
+  if not psutil:
+    return
+  for process in psutil.process_iter():
+    try:
+      if psutil.version_info >= (2, 0):
+        if 'adb' in process.name():
+          process.cpu_affinity([0])
+      else:
+        if 'adb' in process.name:
+          process.set_cpu_affinity([0])
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+      logging.warn('Failed to set adb process CPU affinity')

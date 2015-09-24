@@ -10,8 +10,10 @@
 #include <vector>
 
 #include "base/basictypes.h"
+#include "base/memory/linked_ptr.h"
 #include "base/memory/scoped_ptr.h"
 #include "components/gcm_driver/gcm_activity.h"
+#include "components/gcm_driver/registration_info.h"
 
 template <class T> class scoped_refptr;
 
@@ -20,6 +22,7 @@ class GURL;
 namespace base {
 class FilePath;
 class SequencedTaskRunner;
+class Timer;
 }
 
 namespace net {
@@ -36,6 +39,17 @@ struct AccountMapping;
 // Messaging server. This interface is not supposed to be thread-safe.
 class GCMClient {
  public:
+  // Controls how GCM is being started. At first, GCMClient will be initialized
+  // and GCM store will be loaded. Then GCM connection may or may not be
+  // initiated depending on this enum value.
+  enum StartMode {
+    // GCM should be started only when it is being actually used. If no
+    // registration record is found, GCM will not kick off.
+    DELAYED_START,
+    // GCM should be started immediately.
+    IMMEDIATE_START
+  };
+
   enum Result {
     // Successful operation.
     SUCCESS,
@@ -43,8 +57,6 @@ class GCMClient {
     INVALID_PARAMETER,
     // GCM is disabled.
     GCM_DISABLED,
-    // Profile not signed in.
-    NOT_SIGNED_IN,
     // Previous asynchronous operation is still pending to finish. Certain
     // operation, like register, is only allowed one at a time.
     ASYNC_OPERATION_PENDING,
@@ -153,18 +165,22 @@ class GCMClient {
   class Delegate {
    public:
     // Called when the registration completed successfully or an error occurs.
-    // |app_id|: application ID.
+    // |registration_info|: the specific information required for the
+    //                      registration.
     // |registration_id|: non-empty if the registration completed successfully.
     // |result|: the type of the error if an error occured, success otherwise.
-    virtual void OnRegisterFinished(const std::string& app_id,
-                                    const std::string& registration_id,
-                                    Result result) = 0;
+    virtual void OnRegisterFinished(
+        const linked_ptr<RegistrationInfo>& registration_info,
+        const std::string& registration_id,
+        Result result) = 0;
 
     // Called when the unregistration completed.
-    // |app_id|: application ID.
+    // |registration_info|: the specific information required for the
+    //                      registration.
     // |result|: result of the unregistration.
-    virtual void OnUnregisterFinished(const std::string& app_id,
-                                      GCMClient::Result result) = 0;
+    virtual void OnUnregisterFinished(
+        const linked_ptr<RegistrationInfo>& registration_info,
+        GCMClient::Result result) = 0;
 
     // Called when the message is scheduled to send successfully or an error
     // occurs.
@@ -239,32 +255,33 @@ class GCMClient {
       scoped_ptr<Encryptor> encryptor,
       Delegate* delegate) = 0;
 
-  // Starts the GCM service by first loading the data from the persistent store.
-  // This will then kick off the check-in if the check-in info is not found in
-  // the store.
-  virtual void Start() = 0;
+  // This will initiate the GCM connection only if |start_mode| means to start
+  // the GCM immediately or the GCM registration records are found in the store.
+  // Note that it is OK to call Start multiple times and the implementation
+  // should handle it gracefully.
+  virtual void Start(StartMode start_mode) = 0;
 
   // Stops using the GCM service. This will not erase the persisted data.
   virtual void Stop() = 0;
 
-  // Checks out of the GCM service. This will erase all the cached and persisted
-  // data.
-  virtual void CheckOut() = 0;
+  // Registers with the server to access the provided service.
+  // Delegate::OnRegisterFinished will be called asynchronously upon completion.
+  // |registration_info|: the specific information required for the
+  //                      registration. For GCM, it will contain app id and
+  //                      sender IDs. For InstanceID, it will contain app_id,
+  //                      authorized entity and scope.
+  virtual void Register(
+      const linked_ptr<RegistrationInfo>& registration_info) = 0;
 
-  // Registers the application for GCM. Delegate::OnRegisterFinished will be
-  // called asynchronously upon completion.
-  // |app_id|: application ID.
-  // |sender_ids|: list of IDs of the servers that are allowed to send the
-  //               messages to the application. These IDs are assigned by the
-  //               Google API Console.
-  virtual void Register(const std::string& app_id,
-                        const std::vector<std::string>& sender_ids) = 0;
-
-  // Unregisters the application from GCM when it is uninstalled.
+  // Unregisters from the server to stop accessing the provided service.
   // Delegate::OnUnregisterFinished will be called asynchronously upon
   // completion.
-  // |app_id|: application ID.
-  virtual void Unregister(const std::string& app_id) = 0;
+  // |registration_info|: the specific information required for the
+  //                      registration. For GCM, it will contain app id (sender
+  //                      IDs can be ingored). For InstanceID, it will contain
+  //                      app id, authorized entity and scope.
+  virtual void Unregister(
+      const linked_ptr<RegistrationInfo>& registration_info) = 0;
 
   // Sends a message to a given receiver. Delegate::OnSendFinished will be
   // called asynchronously upon completion.
@@ -299,6 +316,31 @@ class GCMClient {
 
   // Sets last token fetch time in persistent store.
   virtual void SetLastTokenFetchTime(const base::Time& time) = 0;
+
+  // Updates the timer used by the HeartbeatManager for sending heartbeats.
+  virtual void UpdateHeartbeatTimer(scoped_ptr<base::Timer> timer) = 0;
+
+  // Adds the Instance ID data for a specific app to the persistent store.
+  virtual void AddInstanceIDData(const std::string& app_id,
+                                 const std::string& instance_id,
+                                 const std::string& extra_data) = 0;
+
+  // Removes the Instance ID data for a specific app from the persistent store.
+  virtual void RemoveInstanceIDData(const std::string& app_id) = 0;
+
+  // Retrieves the Instance ID data for a specific app from the persistent
+  // store.
+  virtual void GetInstanceIDData(const std::string& app_id,
+                                 std::string* instance_id,
+                                 std::string* extra_data) = 0;
+
+  // Gets and sets custom heartbeat interval for the MCS connection.
+  // |scope| is used to identify the component that requests a custom interval
+  // to be set, and allows that component to later revoke the setting. It should
+  // be unique.
+  virtual void AddHeartbeatInterval(const std::string& scope,
+                                    int interval_ms) = 0;
+  virtual void RemoveHeartbeatInterval(const std::string& scope) = 0;
 };
 
 }  // namespace gcm

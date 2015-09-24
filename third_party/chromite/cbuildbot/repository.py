@@ -7,16 +7,18 @@
 from __future__ import print_function
 
 import constants
-import logging
 import os
 import re
 import shutil
 
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import git
 from chromite.lib import osutils
-from chromite.lib import rewrite_git_alternates
+from chromite.lib import path_util
 from chromite.lib import retry_util
+from chromite.lib import rewrite_git_alternates
+
 
 # File that marks a buildroot as being used by a trybot
 _TRYBOT_MARKER = '.trybot'
@@ -24,7 +26,6 @@ _TRYBOT_MARKER = '.trybot'
 
 class SrcCheckOutException(Exception):
   """Exception gets thrown for failure to sync sources"""
-  pass
 
 
 def IsARepoRoot(directory):
@@ -42,7 +43,7 @@ def IsInternalRepoCheckout(root):
 
 
 def CloneGitRepo(working_dir, repo_url, reference=None, bare=False,
-                 mirror=False, depth=None):
+                 mirror=False, depth=None, branch=None, single_branch=False):
   """Clone given git repo
 
   Args:
@@ -56,6 +57,8 @@ def CloneGitRepo(working_dir, repo_url, reference=None, bare=False,
     depth: If given, do a shallow clone limiting the objects pulled to just
       that # of revs of history.  This option is mutually exclusive to
       reference.
+    branch: If given, clone the given branch from the parent repository.
+    single_branch: Clone only one the requested branch.
   """
   osutils.SafeMakedirs(working_dir)
   cmd = ['clone', repo_url, working_dir]
@@ -70,6 +73,10 @@ def CloneGitRepo(working_dir, repo_url, reference=None, bare=False,
     cmd += ['--mirror']
   if depth:
     cmd += ['--depth', str(int(depth))]
+  if branch:
+    cmd += ['--branch', branch]
+  if single_branch:
+    cmd += ['--single-branch']
   git.RunGit(working_dir, cmd)
 
 
@@ -88,7 +95,7 @@ def UpdateGitRepo(working_dir, repo_url, **kwargs):
     try:
       git.CleanAndCheckoutUpstream(working_dir)
     except cros_build_lib.RunCommandError:
-      cros_build_lib.Warning('Could not update %s', working_dir, exc_info=True)
+      logging.warning('Could not update %s', working_dir, exc_info=True)
       shutil.rmtree(working_dir)
       CloneGitRepo(working_dir, repo_url, **kwargs)
   else:
@@ -103,6 +110,7 @@ def GetTrybotMarkerPath(buildroot):
 def CreateTrybotMarker(buildroot):
   """Create the file that identifies a buildroot as being used by a trybot."""
   osutils.WriteFile(GetTrybotMarkerPath(buildroot), '')
+
 
 def ClearBuildRoot(buildroot, preserve_paths=()):
   """Remove and recreate the buildroot while preserving the trybot marker."""
@@ -125,35 +133,71 @@ def ClearBuildRoot(buildroot, preserve_paths=()):
     CreateTrybotMarker(buildroot)
 
 
-class RepoRepository(object):
-  """A Class that encapsulates a repo repository.
+def PrepManifestForRepo(git_repo, manifest):
+  """Use this to store a local manifest in a git repo suitable for repo.
+
+  The repo tool can only fetch manifests from git repositories. So, to use
+  a local manifest file as the basis for a checkout, it must be checked into
+  a local git repository.
+
+  Common Usage:
+    manifest = CreateOrFetchWondrousManifest()
+    with osutils.TempDir() as manifest_git_dir:
+      PrepManifestForRepo(manifest_git_dir, manifest)
+      repo = RepoRepository(manifest_git_dir, repo_dir)
+      repo.Sync()
 
   Args:
-    manifest_repo_url: URL to fetch repo manifest from.
-    directory: local path where to checkout the repository.
-    branch: Branch to check out the manifest at.
-    referenced_repo: Repository to reference for git objects, if possible.
-    manifest: Which manifest.xml within the branch to use.  Effectively
-      default.xml if not given.
-    depth: Mutually exclusive option to referenced_repo; this limits the
-      checkout to a max commit history of the given integer.
-    repo_url: URL to fetch repo tool from.
-    repo_branch: Branch to check out the repo tool at.
+    git_repo: Path at which to create the git repository (directory created, if
+              needed). If a tempdir, then cleanup is owned by the caller.
+    manifest: Path to existing manifest file to copy into the new git
+              repository.
   """
-  # Use our own repo, in case android.kernel.org (the default location) is down.
-  _INIT_CMD = ['repo', 'init']
+  if not git.IsGitRepo(git_repo):
+    git.Init(git_repo)
 
+  new_manifest = os.path.join(git_repo, constants.DEFAULT_MANIFEST)
+
+  shutil.copyfile(manifest, new_manifest)
+  git.AddPath(new_manifest)
+  message = 'Local repository holding: %s' % manifest
+
+  # Commit new manifest. allow_empty in case it's the same as last manifest.
+  git.Commit(git_repo, message, allow_empty=True)
+
+
+class RepoRepository(object):
+  """A Class that encapsulates a repo repository."""
   # If a repo hasn't been used in the last 5 runs, wipe it.
   LRU_THRESHOLD = 5
 
   def __init__(self, manifest_repo_url, directory, branch=None,
                referenced_repo=None, manifest=constants.DEFAULT_MANIFEST,
-               depth=None, repo_url=constants.REPO_URL, repo_branch=None):
+               depth=None, repo_url=constants.REPO_URL, repo_branch=None,
+               groups=None, repo_cmd='repo'):
+    """Initialize.
+
+    Args:
+      manifest_repo_url: URL to fetch repo manifest from.
+      directory: local path where to checkout the repository.
+      branch: Branch to check out the manifest at.
+      referenced_repo: Repository to reference for git objects, if possible.
+      manifest: Which manifest.xml within the branch to use.  Effectively
+        default.xml if not given.
+      depth: Mutually exclusive option to referenced_repo; this limits the
+        checkout to a max commit history of the given integer.
+      repo_url: URL to fetch repo tool from.
+      repo_branch: Branch to check out the repo tool at.
+      groups: Only sync projects that match this filter.
+      repo_cmd: Name of repo_cmd to use.
+    """
     self.manifest_repo_url = manifest_repo_url
     self.repo_url = repo_url
     self.repo_branch = repo_branch
     self.directory = directory
     self.branch = branch
+    self.groups = groups
+    self.repo_cmd = repo_cmd
 
     # It's perfectly acceptable to pass in a reference pathway that isn't
     # usable.  Detect it, and suppress the setting so that any depth
@@ -196,12 +240,12 @@ class RepoRepository(object):
     # manifest from it, we know it's fairly screwed up and needs a fresh
     # rebuild.
     if os.path.exists(os.path.join(self.directory, '.repo', 'manifest.xml')):
+      cmd = [self.repo_cmd, 'manifest']
       try:
-        cros_build_lib.RunCommand(
-            ['repo', 'manifest'], cwd=self.directory, capture_output=True)
+        cros_build_lib.RunCommand(cmd, cwd=self.directory, capture_output=True)
       except cros_build_lib.RunCommandError:
-        cros_build_lib.Warning("Wiping %r due to `repo manifest` failure",
-                               self.directory)
+        logging.warning("Wiping %r due to `repo manifest` failure",
+                        self.directory)
         paths = [os.path.join(self.directory, '.repo', x) for x in
                  ('manifest.xml', 'manifests.git', 'manifests', 'repo')]
         cros_build_lib.SudoRunCommand(['rm', '-rf'] + paths)
@@ -222,15 +266,19 @@ class RepoRepository(object):
     # Additionally, note that this method may be called multiple times;
     # thus code appropriately.
     if self._repo_update_needed:
+      cmd = [self.repo_cmd, 'selfupdate']
       try:
-        cros_build_lib.RunCommand(['repo', 'selfupdate'], cwd=self.directory)
+        cros_build_lib.RunCommand(cmd, cwd=self.directory)
       except cros_build_lib.RunCommandError:
         osutils.RmDir(os.path.join(self.directory, '.repo', 'repo'),
                       ignore_missing=True)
       self._repo_update_needed = False
 
-    init_cmd = self._INIT_CMD + ['--repo-url', self.repo_url,
-                                 '--manifest-url', self.manifest_repo_url]
+    # Use our own repo, in case android.kernel.org (the default location) is
+    # down.
+    init_cmd = [self.repo_cmd, 'init',
+                '--repo-url', self.repo_url,
+                '--manifest-url', self.manifest_repo_url]
     if self._referenced_repo:
       init_cmd.extend(['--reference', self._referenced_repo])
     if self._manifest:
@@ -243,6 +291,8 @@ class RepoRepository(object):
       init_cmd.extend(['--manifest-branch', self.branch])
     if self.repo_branch:
       init_cmd.extend(['--repo-branch', self.repo_branch])
+    if self.groups:
+      init_cmd.extend(['--groups', self.groups])
 
     cros_build_lib.RunCommand(init_cmd, cwd=self.directory, input='\n\ny\n')
     if local_manifest and local_manifest != self._manifest:
@@ -280,7 +330,7 @@ class RepoRepository(object):
     if post_sync:
       chroot_path = os.path.join(self._referenced_repo, '.repo', 'chroot',
                                  'external')
-      chroot_path = git.ReinterpretPathForChroot(chroot_path)
+      chroot_path = path_util.ToChrootPath(chroot_path)
       rewrite_git_alternates.RebuildRepoCheckout(
           self.directory, self._referenced_repo, chroot_path)
 
@@ -293,11 +343,6 @@ class RepoRepository(object):
     cmd = ['config', '--file', self._ManifestConfig, 'repo.reference',
            self._referenced_repo]
     git.RunGit('.', cmd)
-
-  def Detach(self):
-    """Detach projects back to manifest versions.  Effectively a 'reset'."""
-    cros_build_lib.RunCommand(['repo', '--time', 'sync', '-d'],
-                              cwd=self.directory)
 
   def Sync(self, local_manifest=None, jobs=None, all_branches=True,
            network_only=False):
@@ -324,10 +369,11 @@ class RepoRepository(object):
       # Fix existing broken mirroring configurations.
       self._EnsureMirroring()
 
-      cmd = ['repo', '--time', 'sync']
+      cmd = [self.repo_cmd, '--time', 'sync']
       if jobs:
         cmd += ['--jobs', str(jobs)]
-      if not all_branches:
+      if not all_branches or self._depth is not None:
+        # Note that this option can break kernel checkouts. crbug.com/464536
         cmd.append('-c')
       # Do the network half of the sync; retry as necessary to get the content.
       retry_util.RunCommandWithRetries(constants.SYNC_RETRIES, cmd + ['-n'],
@@ -375,7 +421,7 @@ class RepoRepository(object):
     repo_path = os.path.join(self.directory, '.repo', 'projects')
     current = set(cros_build_lib.RunCommand(
         ['find', repo_path, '-type', 'd', '-name', '*.git', '-printf', '%P\n',
-         '-a', '!', '-wholename',  '*.git/*', '-prune'],
+         '-a', '!', '-wholename', '*.git/*', '-prune'],
         print_cmd=False, capture_output=True).output.splitlines())
     data = {}.fromkeys(current, 0)
 
@@ -418,7 +464,7 @@ class RepoRepository(object):
     Returns:
       The manifest as a string.
     """
-    cmd = ['repo', 'manifest', '-o', '-']
+    cmd = [self.repo_cmd, 'manifest', '-o', '-']
     if revisions:
       cmd += ['-r']
     output = cros_build_lib.RunCommand(

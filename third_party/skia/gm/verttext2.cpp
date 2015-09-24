@@ -18,11 +18,9 @@ namespace skiagm {
 
 class VertText2GM : public GM {
 public:
-    VertText2GM() {
-        const int pointSize = 24;
-        textHeight = SkIntToScalar(pointSize);
-        fProp = sk_tool_utils::create_portable_typeface("Helvetica", SkTypeface::kNormal);
-        fMono = sk_tool_utils::create_portable_typeface("Courier New", SkTypeface::kNormal);
+    VertText2GM()
+        : fProp(NULL)
+        , fMono(NULL) {
     }
 
     virtual ~VertText2GM() {
@@ -31,19 +29,20 @@ public:
     }
 
 protected:
-    virtual uint32_t onGetFlags() const SK_OVERRIDE {
-        return kSkipTiled_Flag;
+    void onOnceBeforeDraw() override {
+        const int pointSize = 24;
+        textHeight = SkIntToScalar(pointSize);
+        fProp = sk_tool_utils::create_portable_typeface("Helvetica", SkTypeface::kNormal);
+        fMono = sk_tool_utils::create_portable_typeface("Courier New", SkTypeface::kNormal);
     }
 
-
-    SkString onShortName() {
+    SkString onShortName() override {
         return SkString("verttext2");
     }
 
-    SkISize onISize() { return SkISize::Make(640, 480); }
+    SkISize onISize() override { return SkISize::Make(640, 480); }
 
-    virtual void onDraw(SkCanvas* canvas) {
-
+    void onDraw(SkCanvas* canvas) override {
         for (int i = 0; i < 3; ++i) {
             SkPaint paint;
             paint.setColor(SK_ColorRED);

@@ -40,12 +40,12 @@ public:
 private:
     explicit HTMLFrameElement(Document&);
 
-    virtual void attach(const AttachContext& = AttachContext()) override;
+    void attach(const AttachContext& = AttachContext()) override;
 
-    virtual bool rendererIsNeeded(const RenderStyle&) override;
-    virtual RenderObject* createRenderer(RenderStyle*) override;
+    bool layoutObjectIsNeeded(const ComputedStyle&) override;
+    LayoutObject* createLayoutObject(const ComputedStyle&) override;
 
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) override;
 
     bool m_frameBorder;
     bool m_frameBorderSet;

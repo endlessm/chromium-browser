@@ -18,7 +18,6 @@
 #include "base/prefs/pref_change_registrar.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread_checker.h"
-#include "base/tuple.h"
 #include "components/content_settings/core/browser/content_settings_observer.h"
 #include "components/content_settings/core/browser/content_settings_override_provider.h"
 #include "components/content_settings/core/common/content_settings.h"
@@ -55,6 +54,7 @@ class HostContentSettingsMap
     // TODO(mukai): find the solution.
     INTERNAL_EXTENSION_PROVIDER = 0,
     POLICY_PROVIDER,
+    SUPERVISED_PROVIDER,
     CUSTOM_EXTENSION_PROVIDER,
     OVERRIDE_PROVIDER,
     PREF_PROVIDER,
@@ -185,6 +185,9 @@ class HostContentSettingsMap
   static bool IsSettingAllowedForType(PrefService* prefs,
                                       ContentSetting setting,
                                       ContentSettingsType content_type);
+  static bool IsDefaultSettingAllowedForType(PrefService* prefs,
+                                             ContentSetting setting,
+                                             ContentSettingsType content_type);
 
   // Returns true if the values for content type are of type dictionary/map.
   static bool ContentTypeHasCompoundValue(ContentSettingsType type);
@@ -283,6 +286,9 @@ class HostContentSettingsMap
   void AddObserver(content_settings::Observer* observer);
   void RemoveObserver(content_settings::Observer* observer);
 
+  // Schedules any pending lossy website settings to be written to disk.
+  void FlushLossyWebsiteSettings();
+
   // Passes ownership of |clock|.
   void SetPrefClockForTesting(scoped_ptr<base::Clock> clock);
 
@@ -355,7 +361,7 @@ class HostContentSettingsMap
 
   base::ThreadChecker thread_checker_;
 
-  ObserverList<content_settings::Observer> observers_;
+  base::ObserverList<content_settings::Observer> observers_;
 
   DISALLOW_COPY_AND_ASSIGN(HostContentSettingsMap);
 };

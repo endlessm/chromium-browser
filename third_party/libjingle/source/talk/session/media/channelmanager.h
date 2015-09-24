@@ -44,7 +44,6 @@ namespace cricket {
 
 const int kDefaultAudioDelayOffset = 0;
 
-class Soundclip;
 class VideoProcessor;
 class VoiceChannel;
 class VoiceProcessor;
@@ -60,11 +59,6 @@ class VoiceProcessor;
 class ChannelManager : public rtc::MessageHandler,
                        public sigslot::has_slots<> {
  public:
-#if !defined(DISABLE_MEDIA_ENGINE_FACTORY)
-  // Creates the channel manager, and specifies the worker thread to use.
-  explicit ChannelManager(rtc::Thread* worker);
-#endif
-
   // For testing purposes. Allows the media engine and data media
   // engine and dev manager to be mocks.  The ChannelManager takes
   // ownership of these objects.
@@ -109,10 +103,13 @@ class ChannelManager : public rtc::MessageHandler,
   // The operations below all occur on the worker thread.
 
   // Creates a voice channel, to be associated with the specified session.
-  VoiceChannel* CreateVoiceChannel(
-      BaseSession* session, const std::string& content_name, bool rtcp);
+  VoiceChannel* CreateVoiceChannel(BaseSession* session,
+                                   const std::string& content_name,
+                                   bool rtcp,
+                                   const AudioOptions& options);
   // Destroys a voice channel created with the Create API.
-  void DestroyVoiceChannel(VoiceChannel* voice_channel);
+  void DestroyVoiceChannel(VoiceChannel* voice_channel,
+                           VideoChannel* video_channel);
   // TODO(pbos): Remove as soon as all call sites specify VideoOptions.
   VideoChannel* CreateVideoChannel(BaseSession* session,
                                    const std::string& content_name,
@@ -133,15 +130,9 @@ class ChannelManager : public rtc::MessageHandler,
   // Destroys a data channel created with the Create API.
   void DestroyDataChannel(DataChannel* data_channel);
 
-  // Creates a soundclip.
-  Soundclip* CreateSoundclip();
-  // Destroys a soundclip created with the Create API.
-  void DestroySoundclip(Soundclip* soundclip);
-
   // Indicates whether any channels exist.
   bool has_channels() const {
-    return (!voice_channels_.empty() || !video_channels_.empty() ||
-            !soundclips_.empty());
+    return (!voice_channels_.empty() || !video_channels_.empty());
   }
 
   // Configures the audio and video devices. A null pointer can be passed to
@@ -152,8 +143,6 @@ class ChannelManager : public rtc::MessageHandler,
   bool SetAudioOptions(const std::string& wave_in_device,
                        const std::string& wave_out_device,
                        const AudioOptions& options);
-  // Sets Engine-specific audio options according to enabled experiments.
-  bool SetEngineAudioOptions(const AudioOptions& options);
   bool GetOutputVolume(int* level);
   bool SetOutputVolume(int level);
   bool IsSameCapturer(const std::string& capturer_name,
@@ -183,6 +172,9 @@ class ChannelManager : public rtc::MessageHandler,
   void SetVoiceLogging(int level, const char* filter);
   void SetVideoLogging(int level, const char* filter);
 
+  // Gets capturer's supported formats in a thread safe manner
+  std::vector<cricket::VideoFormat> GetSupportedFormats(
+      VideoCapturer* capturer) const;
   // The channel manager handles the Tx side for Video processing,
   // as well as Tx and Rx side for Voice processing.
   // (The Rx Video processing will go throug the simplerenderingmanager,
@@ -237,9 +229,6 @@ class ChannelManager : public rtc::MessageHandler,
   // This API is mainly a hook used by unittests.
   const std::string& video_device_name() const { return video_device_name_; }
 
-  // TODO(hellner): Remove this function once the engine capturer has been
-  // removed.
-  VideoFormat GetStartCaptureFormat();
 
  protected:
   // Adds non-transient parameters which can only be changed through the
@@ -257,17 +246,21 @@ class ChannelManager : public rtc::MessageHandler,
   typedef std::vector<VoiceChannel*> VoiceChannels;
   typedef std::vector<VideoChannel*> VideoChannels;
   typedef std::vector<DataChannel*> DataChannels;
-  typedef std::vector<Soundclip*> Soundclips;
 
   void Construct(MediaEngineInterface* me,
                  DataEngineInterface* dme,
                  DeviceManagerInterface* dm,
                  CaptureManager* cm,
                  rtc::Thread* worker_thread);
+  bool InitMediaEngine_w();
+  void DestructorDeletes_w();
   void Terminate_w();
-  VoiceChannel* CreateVoiceChannel_w(
-      BaseSession* session, const std::string& content_name, bool rtcp);
-  void DestroyVoiceChannel_w(VoiceChannel* voice_channel);
+  VoiceChannel* CreateVoiceChannel_w(BaseSession* session,
+                                     const std::string& content_name,
+                                     bool rtcp,
+                                     const AudioOptions& options);
+  void DestroyVoiceChannel_w(VoiceChannel* voice_channel,
+                             VideoChannel* video_channel);
   VideoChannel* CreateVideoChannel_w(BaseSession* session,
                                      const std::string& content_name,
                                      bool rtcp,
@@ -278,14 +271,14 @@ class ChannelManager : public rtc::MessageHandler,
       BaseSession* session, const std::string& content_name,
       bool rtcp, DataChannelType data_channel_type);
   void DestroyDataChannel_w(DataChannel* data_channel);
-  Soundclip* CreateSoundclip_w();
-  void DestroySoundclip_w(Soundclip* soundclip);
   bool SetAudioOptions_w(const AudioOptions& options, int delay_offset,
                          const Device* in_dev, const Device* out_dev);
-  bool SetEngineAudioOptions_w(const AudioOptions& options);
   bool SetCaptureDevice_w(const Device* cam_device);
   void OnVideoCaptureStateChange(VideoCapturer* capturer,
                                  CaptureState result);
+  void GetSupportedFormats_w(
+      VideoCapturer* capturer,
+      std::vector<cricket::VideoFormat>* out_formats) const;
   bool RegisterVideoProcessor_w(VideoCapturer* capturer,
                                 VideoProcessor* processor);
   bool UnregisterVideoProcessor_w(VideoCapturer* capturer,
@@ -304,7 +297,6 @@ class ChannelManager : public rtc::MessageHandler,
   VoiceChannels voice_channels_;
   VideoChannels video_channels_;
   DataChannels data_channels_;
-  Soundclips soundclips_;
 
   std::string audio_in_device_;
   std::string audio_out_device_;

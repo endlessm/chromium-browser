@@ -19,11 +19,14 @@
 #include <signal.h>
 #include <stdlib.h>
 
+#include "base/base_switches.h"
+#include "base/command_line.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/win/metro.h"
 #include "base/win/registry.h"
@@ -32,13 +35,16 @@
 #include "base/win/scoped_propvariant.h"
 #include "base/win/windows_version.h"
 
+namespace base {
+namespace win {
+
 namespace {
 
 // Sets the value of |property_key| to |property_value| in |property_store|.
 bool SetPropVariantValueForPropertyStore(
     IPropertyStore* property_store,
     const PROPERTYKEY& property_key,
-    const base::win::ScopedPropVariant& property_value) {
+    const ScopedPropVariant& property_value) {
   DCHECK(property_store);
 
   HRESULT result = property_store->SetValue(property_key, property_value.get());
@@ -48,26 +54,111 @@ bool SetPropVariantValueForPropertyStore(
 }
 
 void __cdecl ForceCrashOnSigAbort(int) {
-  *((int*)0) = 0x1337;
+  *((volatile int*)0) = 0x1337;
 }
 
 const wchar_t kWindows8OSKRegPath[] =
     L"Software\\Classes\\CLSID\\{054AAE20-4BEA-4347-8A35-64A533254A9D}"
     L"\\LocalServer32";
 
+}  // namespace
+
 // Returns true if a physical keyboard is detected on Windows 8 and up.
 // Uses the Setup APIs to enumerate the attached keyboards and returns true
-// if the keyboard count is more than 1. While this will work in most cases
+// if the keyboard count is 1 or more.. While this will work in most cases
 // it won't work if there are devices which expose keyboard interfaces which
 // are attached to the machine.
-bool IsKeyboardPresentOnSlate() {
+bool IsKeyboardPresentOnSlate(std::string* reason) {
+  bool result = false;
+
+  if (GetVersion() < VERSION_WIN7) {
+    *reason = "Detection not supported";
+    return false;
+  }
+
   // This function is only supported for Windows 8 and up.
-  DCHECK(base::win::GetVersion() >= base::win::VERSION_WIN8);
+  if (CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kDisableUsbKeyboardDetect)) {
+    if (reason)
+      *reason = "Detection disabled";
+    return false;
+  }
 
   // This function should be only invoked for machines with touch screens.
   if ((GetSystemMetrics(SM_DIGITIZER) & NID_INTEGRATED_TOUCH)
         != NID_INTEGRATED_TOUCH) {
-    return true;
+    if (reason) {
+      *reason += "NID_INTEGRATED_TOUCH\n";
+      result = true;
+    } else {
+      return true;
+    }
+  }
+
+  // If the device is docked, the user is treating the device as a PC.
+  if (GetSystemMetrics(SM_SYSTEMDOCKED) != 0) {
+    if (reason) {
+      *reason += "SM_SYSTEMDOCKED\n";
+      result = true;
+    } else {
+      return true;
+    }
+  }
+
+  // To determine whether a keyboard is present on the device, we do the
+  // following:-
+  // 1. Check whether the device supports auto rotation. If it does then
+  //    it possibly supports flipping from laptop to slate mode. If it
+  //    does not support auto rotation, then we assume it is a desktop
+  //    or a normal laptop and assume that there is a keyboard.
+
+  // 2. If the device supports auto rotation, then we get its platform role
+  //    and check the system metric SM_CONVERTIBLESLATEMODE to see if it is
+  //    being used in slate mode. If yes then we return false here to ensure
+  //    that the OSK is displayed.
+
+  // 3. If step 1 and 2 fail then we check attached keyboards and return true
+  //    if we find ACPI\* or HID\VID* keyboards.
+
+  typedef BOOL (WINAPI* GetAutoRotationState)(PAR_STATE state);
+
+  GetAutoRotationState get_rotation_state =
+      reinterpret_cast<GetAutoRotationState>(::GetProcAddress(
+          GetModuleHandle(L"user32.dll"), "GetAutoRotationState"));
+
+  if (get_rotation_state) {
+    AR_STATE auto_rotation_state = AR_ENABLED;
+    get_rotation_state(&auto_rotation_state);
+    if ((auto_rotation_state & AR_NOSENSOR) ||
+        (auto_rotation_state & AR_NOT_SUPPORTED)) {
+      // If there is no auto rotation sensor or rotation is not supported in
+      // the current configuration, then we can assume that this is a desktop
+      // or a traditional laptop.
+      if (reason) {
+        *reason += (auto_rotation_state & AR_NOSENSOR) ? "AR_NOSENSOR\n" :
+                                                         "AR_NOT_SUPPORTED\n";
+        result = true;
+      } else {
+        return true;
+      }
+    }
+  }
+
+  // Check if the device is being used as a laptop or a tablet. This can be
+  // checked by first checking the role of the device and then the
+  // corresponding system metric (SM_CONVERTIBLESLATEMODE). If it is being used
+  // as a tablet then we want the OSK to show up.
+  POWER_PLATFORM_ROLE role = PowerDeterminePlatformRole();
+
+  if (((role == PlatformRoleMobile) || (role == PlatformRoleSlate)) &&
+       (GetSystemMetrics(SM_CONVERTIBLESLATEMODE) == 0)) {
+      if (reason) {
+        *reason += (role == PlatformRoleMobile) ? "PlatformRoleMobile\n" :
+                                                  "PlatformRoleSlate\n";
+        // Don't change result here if it's already true.
+      } else {
+        return false;
+      }
   }
 
   const GUID KEYBOARD_CLASS_GUID =
@@ -77,18 +168,21 @@ bool IsKeyboardPresentOnSlate() {
   // Query for all the keyboard devices.
   HDEVINFO device_info =
       SetupDiGetClassDevs(&KEYBOARD_CLASS_GUID, NULL, NULL, DIGCF_PRESENT);
-  if (device_info == INVALID_HANDLE_VALUE)
-    return false;
+  if (device_info == INVALID_HANDLE_VALUE) {
+    if (reason)
+      *reason += "No keyboard info\n";
+    return result;
+  }
 
   // Enumerate all keyboards and look for ACPI\PNP and HID\VID devices. If
   // the count is more than 1 we assume that a keyboard is present. This is
   // under the assumption that there will always be one keyboard device.
-  int keyboard_count = 0;
   for (DWORD i = 0;; ++i) {
     SP_DEVINFO_DATA device_info_data = { 0 };
     device_info_data.cbSize = sizeof(device_info_data);
     if (!SetupDiEnumDeviceInfo(device_info, i, &device_info_data))
       break;
+
     // Get the device ID.
     wchar_t device_id[MAX_DEVICE_ID_LEN];
     CONFIGRET status = CM_Get_Device_ID(device_info_data.DevInst,
@@ -96,26 +190,25 @@ bool IsKeyboardPresentOnSlate() {
                                         MAX_DEVICE_ID_LEN,
                                         0);
     if (status == CR_SUCCESS) {
-      // To reduce the scope of the hack we only look for PNP and HID
-      // keyboards.
-      if (StartsWith(L"ACPI\\PNP", device_id, false) ||
-          StartsWith(L"HID\\VID", device_id, false)) {
-        keyboard_count++;
+      // To reduce the scope of the hack we only look for ACPI and HID\\VID
+      // prefixes in the keyboard device ids.
+      if (StartsWith(device_id, L"ACPI", CompareCase::INSENSITIVE_ASCII) ||
+          StartsWith(device_id, L"HID\\VID", CompareCase::INSENSITIVE_ASCII)) {
+        if (reason) {
+          *reason += "device: ";
+          *reason += WideToUTF8(device_id);
+          *reason += '\n';
+        }
+        // The heuristic we are using is to check the count of keyboards and
+        // return true if the API's report one or more keyboards. Please note
+        // that this will break for non keyboard devices which expose a
+        // keyboard PDO.
+        result = true;
       }
     }
   }
-  // On a Windows machine, the API's always report 1 keyboard at least
-  // regardless of whether the machine has a keyboard attached or not.
-  // The heuristic we are using is to check the count and return true
-  // if the API's report more than one keyboard. Please note that this
-  // will break for non keyboard devices which expose a keyboard PDO.
-  return keyboard_count > 1;
+  return result;
 }
-
-}  // namespace
-
-namespace base {
-namespace win {
 
 static bool g_crash_on_process_detach = false;
 
@@ -135,7 +228,7 @@ bool GetUserSidString(std::wstring* user_sid) {
   HANDLE token = NULL;
   if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token))
     return false;
-  base::win::ScopedHandle token_scoped(token);
+  ScopedHandle token_scoped(token);
 
   DWORD size = sizeof(TOKEN_USER) + SECURITY_MAX_SID_SIZE;
   scoped_ptr<BYTE[]> user_bytes(new BYTE[size]);
@@ -180,11 +273,11 @@ bool UserAccountControlIsEnabled() {
   // This can be slow if Windows ends up going to disk.  Should watch this key
   // for changes and only read it once, preferably on the file thread.
   //   http://code.google.com/p/chromium/issues/detail?id=61644
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  ThreadRestrictions::ScopedAllowIO allow_io;
 
-  base::win::RegKey key(HKEY_LOCAL_MACHINE,
-      L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
-      KEY_READ);
+  RegKey key(HKEY_LOCAL_MACHINE,
+             L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+             KEY_READ);
   DWORD uac_enabled;
   if (key.ReadValueDW(L"EnableLUA", &uac_enabled) != ERROR_SUCCESS)
     return true;
@@ -238,20 +331,20 @@ static const char16 kAutoRunKeyPath[] =
 
 bool AddCommandToAutoRun(HKEY root_key, const string16& name,
                          const string16& command) {
-  base::win::RegKey autorun_key(root_key, kAutoRunKeyPath, KEY_SET_VALUE);
+  RegKey autorun_key(root_key, kAutoRunKeyPath, KEY_SET_VALUE);
   return (autorun_key.WriteValue(name.c_str(), command.c_str()) ==
       ERROR_SUCCESS);
 }
 
 bool RemoveCommandFromAutoRun(HKEY root_key, const string16& name) {
-  base::win::RegKey autorun_key(root_key, kAutoRunKeyPath, KEY_SET_VALUE);
+  RegKey autorun_key(root_key, kAutoRunKeyPath, KEY_SET_VALUE);
   return (autorun_key.DeleteValue(name.c_str()) == ERROR_SUCCESS);
 }
 
 bool ReadCommandFromAutoRun(HKEY root_key,
                             const string16& name,
                             string16* command) {
-  base::win::RegKey autorun_key(root_key, kAutoRunKeyPath, KEY_QUERY_VALUE);
+  RegKey autorun_key(root_key, kAutoRunKeyPath, KEY_QUERY_VALUE);
   return (autorun_key.ReadValue(name.c_str(), command) == ERROR_SUCCESS);
 }
 
@@ -280,8 +373,8 @@ bool IsTabletDevice() {
   if (GetSystemMetrics(SM_MAXIMUMTOUCHES) == 0)
     return false;
 
-  base::win::Version version = base::win::GetVersion();
-  if (version == base::win::VERSION_XP)
+  Version version = GetVersion();
+  if (version == VERSION_XP)
     return (GetSystemMetrics(SM_TABLETPC) != 0);
 
   // If the device is docked, the user is treating the device as a PC.
@@ -293,7 +386,7 @@ bool IsTabletDevice() {
   POWER_PLATFORM_ROLE role = PowerDeterminePlatformRole();
   bool mobile_power_profile = (role == PlatformRoleMobile);
   bool slate_power_profile = false;
-  if (version >= base::win::VERSION_WIN8)
+  if (version >= VERSION_WIN8)
     slate_power_profile = (role == PlatformRoleSlate);
 
   if (mobile_power_profile || slate_power_profile)
@@ -303,14 +396,13 @@ bool IsTabletDevice() {
 }
 
 bool DisplayVirtualKeyboard() {
-  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+  if (GetVersion() < VERSION_WIN8)
     return false;
 
-  if (IsKeyboardPresentOnSlate())
+  if (IsKeyboardPresentOnSlate(nullptr))
     return false;
 
-  static base::LazyInstance<string16>::Leaky osk_path =
-      LAZY_INSTANCE_INITIALIZER;
+  static LazyInstance<string16>::Leaky osk_path = LAZY_INSTANCE_INITIALIZER;
 
   if (osk_path.Get().empty()) {
     // We need to launch TabTip.exe from the location specified under the
@@ -321,9 +413,8 @@ bool DisplayVirtualKeyboard() {
     // We don't want to launch TabTip.exe from
     // c:\program files (x86)\common files\microsoft shared\ink. This path is
     // normally found on 64 bit Windows.
-    base::win::RegKey key(HKEY_LOCAL_MACHINE,
-                          kWindows8OSKRegPath,
-                          KEY_READ | KEY_WOW64_64KEY);
+    RegKey key(HKEY_LOCAL_MACHINE, kWindows8OSKRegPath,
+               KEY_READ | KEY_WOW64_64KEY);
     DWORD osk_path_length = 1024;
     if (key.ReadValue(NULL,
                       WriteInto(&osk_path.Get(), osk_path_length),
@@ -364,7 +455,7 @@ bool DisplayVirtualKeyboard() {
         common_program_files_path = common_program_files_wow6432.get();
         DCHECK(!common_program_files_path.empty());
       } else {
-        base::win::ScopedCoMem<wchar_t> common_program_files;
+        ScopedCoMem<wchar_t> common_program_files;
         if (FAILED(SHGetKnownFolderPath(FOLDERID_ProgramFilesCommon, 0, NULL,
                                         &common_program_files))) {
           return false;
@@ -382,11 +473,11 @@ bool DisplayVirtualKeyboard() {
                                   NULL,
                                   NULL,
                                   SW_SHOW);
-  return reinterpret_cast<int>(ret) > 32;
+  return reinterpret_cast<intptr_t>(ret) > 32;
 }
 
 bool DismissVirtualKeyboard() {
-  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+  if (GetVersion() < VERSION_WIN8)
     return false;
 
   // We dismiss the virtual keyboard by generating the ESC keystroke
@@ -428,49 +519,23 @@ void SetDomainStateForTesting(bool state) {
 }
 
 bool MaybeHasSHA256Support() {
-  const base::win::OSInfo* os_info = base::win::OSInfo::GetInstance();
+  const OSInfo* os_info = OSInfo::GetInstance();
 
-  if (os_info->version() == base::win::VERSION_PRE_XP)
+  if (os_info->version() == VERSION_PRE_XP)
     return false;  // Too old to have it and this OS is not supported anyway.
 
-  if (os_info->version() == base::win::VERSION_XP)
+  if (os_info->version() == VERSION_XP)
     return os_info->service_pack().major >= 3;  // Windows XP SP3 has it.
 
   // Assume it is missing in this case, although it may not be. This category
   // includes Windows XP x64, and Windows Server, where a hotfix could be
   // deployed.
-  if (os_info->version() == base::win::VERSION_SERVER_2003)
+  if (os_info->version() == VERSION_SERVER_2003)
     return false;
 
-  DCHECK(os_info->version() >= base::win::VERSION_VISTA);
+  DCHECK(os_info->version() >= VERSION_VISTA);
   return true;  // New enough to have SHA-256 support.
 }
 
 }  // namespace win
 }  // namespace base
-
-#ifdef _MSC_VER
-
-// There are optimizer bugs in x86 VS2012 pre-Update 1.
-#if _MSC_VER == 1700 && defined _M_IX86 && _MSC_FULL_VER < 170051106
-
-#pragma message("Relevant defines:")
-#define __STR2__(x) #x
-#define __STR1__(x) __STR2__(x)
-#define __PPOUT__(x) "#define " #x " " __STR1__(x)
-#if defined(_M_IX86)
-  #pragma message(__PPOUT__(_M_IX86))
-#endif
-#if defined(_M_X64)
-  #pragma message(__PPOUT__(_M_X64))
-#endif
-#if defined(_MSC_FULL_VER)
-  #pragma message(__PPOUT__(_MSC_FULL_VER))
-#endif
-
-#pragma message("Visual Studio 2012 x86 must be updated to at least Update 1")
-#error Must install Update 1 to Visual Studio 2012.
-#endif
-
-#endif  // _MSC_VER
-

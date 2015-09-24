@@ -27,6 +27,7 @@
 #define UseCounter_h
 
 #include "core/CSSPropertyNames.h"
+#include "core/CoreExport.h"
 #include "wtf/BitVector.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/OwnPtr.h"
@@ -37,9 +38,10 @@
 namespace blink {
 
 class CSSStyleSheet;
-class LocalDOMWindow;
 class Document;
 class ExecutionContext;
+class Frame;
+class LocalFrame;
 class StyleSheetContents;
 
 // UseCounter is used for counting the number of times features of
@@ -53,7 +55,7 @@ class StyleSheetContents;
 // during their install of Google Chrome:
 // http://www.google.com/chrome/intl/en/privacy.html
 
-class UseCounter {
+class CORE_EXPORT UseCounter {
     WTF_MAKE_NONCOPYABLE(UseCounter);
 public:
     UseCounter();
@@ -119,7 +121,6 @@ public:
         PrefixedMediaAddKey = 71,
         PrefixedMediaGenerateKeyRequest = 72,
         DocumentClear = 74,
-        SVGFontElement = 76,
         XMLDocument = 77,
         XSLProcessingInstruction = 78,
         XSLTProcessor = 79,
@@ -132,16 +133,15 @@ public:
         LineClamp = 96,
         SubFrameBeforeUnloadRegistered = 97,
         SubFrameBeforeUnloadFired = 98,
-        TextReplaceWholeText = 100,
         ConsoleMarkTimeline = 102,
-        ElementGetAttributeNode = 107, // Removed from DOM4.
-        ElementSetAttributeNode = 108, // Removed from DOM4.
-        ElementRemoveAttributeNode = 109, // Removed from DOM4.
-        ElementGetAttributeNodeNS = 110, // Removed from DOM4.
-        DocumentCreateAttribute = 111, // Removed from DOM4.
-        DocumentCreateAttributeNS = 112, // Removed from DOM4.
+        ElementGetAttributeNode = 107,
+        ElementSetAttributeNode = 108,
+        ElementRemoveAttributeNode = 109,
+        ElementGetAttributeNodeNS = 110,
+        DocumentCreateAttribute = 111,
+        DocumentCreateAttributeNS = 112,
         DocumentCreateCDATASection = 113, // Removed from DOM4.
-        DocumentInputEncoding = 114, // Removed from DOM4.
+        DocumentInputEncoding = 114,
         DocumentXMLEncoding = 115, // Removed from DOM4.
         DocumentXMLStandalone = 116, // Removed from DOM4.
         DocumentXMLVersion = 117, // Removed from DOM4.
@@ -166,7 +166,7 @@ public:
         SVGSVGElement = 138,
         InsertAdjacentText = 140,
         InsertAdjacentElement = 141,
-        HasAttributes = 142, // Removed from DOM4.
+        HasAttributes = 142,
         DOMSubtreeModifiedEvent = 143,
         DOMNodeInsertedEvent = 144,
         DOMNodeRemovedEvent = 145,
@@ -174,13 +174,11 @@ public:
         DOMNodeInsertedIntoDocumentEvent = 147,
         DOMCharacterDataModifiedEvent = 148,
         DocumentAllLegacyCall = 150,
-        HTMLAppletElementLegacyCall = 151,
         HTMLEmbedElementLegacyCall = 152,
         HTMLObjectElementLegacyCall = 153,
         GetMatchedCSSRules = 155,
-        SVGFontInCSS = 156,
-        AttributeOwnerElement = 160, // Removed in DOM4.
-        AttributeSpecified = 162, // Removed in DOM4.
+        AttributeOwnerElement = 160,
+        AttributeSpecified = 162,
         PrefixedAudioDecodedByteCount = 164,
         PrefixedVideoDecodedByteCount = 165,
         PrefixedVideoSupportsFullscreen = 166,
@@ -206,7 +204,6 @@ public:
         InputTypeTextMaxLength = 191,
         InputTypePassword = 192,
         InputTypePasswordMaxLength = 193,
-        ShowModalDialog = 195,
         PrefixedPageVisibility = 196,
         CSSStyleSheetInsertRuleOptionalArg = 198, // Inconsistent with the specification and other browsers.
         DocumentBeforeUnloadRegistered = 200,
@@ -215,14 +212,13 @@ public:
         DocumentUnloadFired = 203,
         SVGLocatableNearestViewportElement = 204,
         SVGLocatableFarthestViewportElement = 205,
-        OverflowChangedEvent = 208,
         SVGPointMatrixTransform = 209,
         DOMFocusInOutEvent = 211,
         FileGetLastModifiedDate = 212,
         HTMLElementInnerText = 213,
         HTMLElementOuterText = 214,
         ReplaceDocumentViaJavaScriptURL = 215,
-        ElementSetAttributeNodeNS = 216, // Removed from DOM4.
+        ElementSetAttributeNodeNS = 216,
         ElementPrefixedMatchesSelector = 217,
         CSSStyleSheetRules = 219,
         CSSStyleSheetAddRule = 220,
@@ -230,18 +226,13 @@ public:
         // The above items are available in M33 branch.
 
         InitMessageEvent = 222,
-        ElementSetPrefix = 224, // Element.prefix is readonly in DOM4.
-        CSSStyleDeclarationGetPropertyCSSValue = 225,
         PrefixedMediaCancelKeyRequest = 229,
-        DOMImplementationHasFeature = 230,
-        DOMImplementationHasFeatureReturnFalse = 231,
         CanPlayTypeKeySystem = 232,
         PrefixedDevicePixelRatioMediaFeature = 233,
         PrefixedMaxDevicePixelRatioMediaFeature = 234,
         PrefixedMinDevicePixelRatioMediaFeature = 235,
         PrefixedTransform3dMediaFeature = 237,
         PrefixedStorageQuota = 240,
-        ContentSecurityPolicyReportOnlyInMeta = 241,
         ResetReferrerPolicy = 243,
         CaseInsensitiveAttrSelectorMatch = 244, // Case-insensitivity dropped from specification.
         FormNameAccessForImageElement = 246,
@@ -249,9 +240,6 @@ public:
         FormAssociationByParser = 248,
         SVGSVGElementInDocument = 250,
         SVGDocumentRootElement = 251,
-        MediaErrorEncrypted = 253,
-        EventSourceURL = 254,
-        WebSocketURL = 255,
         WorkerSubjectToCSP = 257,
         WorkerAllowedByChildBlockedByScript = 258,
         DeprecatedWebKitGradient = 260,
@@ -271,24 +259,18 @@ public:
         HTMLMediaElementSeekToFragmentStart = 281,
         HTMLMediaElementPauseAtFragmentEnd = 282,
         PrefixedWindowURL = 283,
-        PrefixedWorkerURL = 284, // This didn't work because of crbug.com/376039. Available since M37.
         WindowOrientation = 285,
         DOMStringListContains = 286,
         DocumentCaptureEvents = 287,
         DocumentReleaseEvents = 288,
         WindowCaptureEvents = 289,
         WindowReleaseEvents = 290,
-        PrefixedGamepad = 291,
-        ElementAnimateKeyframeListEffectObjectTiming = 292,
-        ElementAnimateKeyframeListEffectDoubleTiming = 293,
-        ElementAnimateKeyframeListEffectNoTiming = 294,
         DocumentXPathCreateExpression = 295,
         DocumentXPathCreateNSResolver = 296,
         DocumentXPathEvaluate = 297,
         AttrGetValue = 298,
         AttrSetValue = 299,
         AnimationConstructorKeyframeListEffectObjectTiming = 300,
-        AnimationConstructorKeyframeListEffectDoubleTiming = 301,
         AnimationConstructorKeyframeListEffectNoTiming = 302,
         AttrSetValueWithElement = 303,
         PrefixedCancelAnimationFrame = 304,
@@ -303,7 +285,6 @@ public:
         XHRProgressEventPosition = 316,
         XHRProgressEventTotalSize = 317,
         PrefixedDocumentIsFullscreen = 318,
-        PrefixedDocumentFullScreenKeyboardInputAllowed = 319,
         PrefixedDocumentCurrentFullScreenElement = 320,
         PrefixedDocumentCancelFullScreen = 321,
         PrefixedDocumentFullscreenEnabled = 322,
@@ -313,25 +294,13 @@ public:
 
         SVGForeignObjectElement = 325,
         SelectionSetPosition = 327,
-        AnimationPlayerFinishEvent = 328,
+        AnimationFinishEvent = 328,
         SVGSVGElementInXMLDocument = 329,
-        CanvasRenderingContext2DSetAlpha = 330,
-        CanvasRenderingContext2DSetCompositeOperation = 331,
-        CanvasRenderingContext2DSetLineWidth = 332,
-        CanvasRenderingContext2DSetLineCap = 333,
-        CanvasRenderingContext2DSetLineJoin = 334,
-        CanvasRenderingContext2DSetMiterLimit = 335,
-        CanvasRenderingContext2DClearShadow = 336,
-        CanvasRenderingContext2DSetStrokeColor = 337,
-        CanvasRenderingContext2DSetFillColor = 338,
-        CanvasRenderingContext2DDrawImageFromRect = 339,
-        CanvasRenderingContext2DSetShadow = 340,
         PrefixedPerformanceClearResourceTimings = 341,
         PrefixedPerformanceSetResourceTimingBufferSize = 342,
         EventSrcElement = 343,
         EventCancelBubble = 344,
         EventPath = 345,
-        EventClipboardData = 346,
         NodeIteratorDetach = 347,
         AttrNodeValue = 348,
         AttrTextContent = 349,
@@ -339,8 +308,6 @@ public:
         EventGetReturnValueFalse = 351,
         EventSetReturnValueTrue = 352,
         EventSetReturnValueFalse = 353,
-        NodeIteratorExpandEntityReferences = 354,
-        TreeWalkerExpandEntityReferences = 355,
         WindowOffscreenBuffering = 356,
         WindowDefaultStatus = 357,
         WindowDefaultstatus = 358,
@@ -356,8 +323,6 @@ public:
         PrefixedIDBTransactionConstructor = 370,
         NotificationPermission = 371,
         RangeDetach = 372,
-        HTMLTableElementVspace = 374,
-        HTMLTableElementHspace = 375,
         PrefixedTouchRadiusX = 378,
         PrefixedTouchRadiusY = 379,
         PrefixedTouchRotationAngle = 380,
@@ -368,7 +333,6 @@ public:
         DocumentCaretRangeFromPoint = 387,
         DocumentGetCSSCanvasContext = 388,
         ElementScrollIntoViewIfNeeded = 389,
-        RangeCompareNode = 392,
         RangeExpand = 393,
         HTMLImageElementX = 396,
         HTMLImageElementY = 397,
@@ -398,8 +362,6 @@ public:
         DocumentPointerLockElement = 422,
         PrefixedCursorZoomIn = 424,
         PrefixedCursorZoomOut = 425,
-        CSSCharsetRuleEncoding = 426,
-        DocumentSetCharset = 427,
         DocumentDefaultCharset = 428,
         TextEncoderConstructor = 429,
         TextEncoderEncode = 430,
@@ -408,9 +370,6 @@ public:
         FocusInOutEvent = 433,
         MouseEventMovementX = 434,
         MouseEventMovementY = 435,
-        MixedContentRaw = 437,
-        MixedContentImage = 438,
-        MixedContentMedia = 439,
         DocumentFonts = 440,
         MixedContentFormsSubmitted = 441,
         FormsSubmitted = 442,
@@ -435,7 +394,6 @@ public:
         EditingAppleStyleSpanClass = 461,
         EditingAppleTabSpanClass = 462,
         HTMLImportsAsyncAttribute = 463,
-        FontFaceSetReady = 464,
         XMLHttpRequestSynchronous = 465,
         CSSSelectorPseudoUnresolved = 466,
         CSSSelectorPseudoShadow = 467,
@@ -447,7 +405,6 @@ public:
         // The above items are available in M37 branch.
 
         UseAsm = 473,
-        KeyEventNotAllowedInFullScreen = 474,
         DOMWindowOpen = 475,
         DOMWindowOpenFeatures = 476,
         MediaStreamTrackGetSources = 478,
@@ -474,12 +431,6 @@ public:
         RequestFileSystem = 508,
         RequestFileSystemWorker = 509,
         RequestFileSystemSyncWorker = 510,
-        UIEventLayerX = 511,
-        UIEventLayerY = 512,
-        UIEventPageX = 513,
-        UIEventPageY = 514,
-        BgPropertiesFixed = 515,
-        DevToolsConsoleTimeline = 517,
         DevToolsConsoleProfile = 518,
         SVGStyleElementTitle = 519,
         PictureSourceSrc = 520,
@@ -491,8 +442,6 @@ public:
         SrcsetWDescriptor = 524,
         SelectionContainsNode = 525,
         MediaStreamEnded = 526,
-        MixedContentPrivateIPInPublicWebsitePassive = 527,
-        MixedContentPrivateIPInPublicWebsiteActive = 528,
         XMLExternalResourceLoad = 529,
         MixedContentPrivateHostnameInPublicHostname = 530,
         LegacyProtocolEmbeddedAsSubresource = 531,
@@ -507,19 +456,17 @@ public:
         SRIElementWithMatchingIntegrityAttribute = 540,
         SRIElementWithNonMatchingIntegrityAttribute = 541,
         SRIElementWithUnparsableIntegrityAttribute = 542,
-        SRIElementWithIntegrityAttributeAndInsecureOrigin = 543,
-        SRIElementWithIntegrityAttributeAndInsecureResource = 544,
-        AnimationPlayerGetStartTime = 545,
-        AnimationPlayerSetStartTime = 546,
-        AnimationPlayerGetCurrentTime = 547,
-        AnimationPlayerSetCurrentTime = 548,
-        AnimationPlayerGetPlaybackRate = 549,
-        AnimationPlayerSetPlaybackRate = 550,
-        AnimationPlayerGetPlayState = 551,
-        AnimationPlayerFinish = 552,
-        AnimationPlayerPlay = 553,
-        AnimationPlayerPause = 554,
-        AnimationPlayerReverse = 555,
+        V8Animation_StartTime_AttributeGetter = 545,
+        V8Animation_StartTime_AttributeSetter = 546,
+        V8Animation_CurrentTime_AttributeGetter = 547,
+        V8Animation_CurrentTime_AttributeSetter = 548,
+        V8Animation_PlaybackRate_AttributeGetter = 549,
+        V8Animation_PlaybackRate_AttributeSetter = 550,
+        V8Animation_PlayState_AttributeGetter = 551,
+        V8Animation_Finish_Method = 552,
+        V8Animation_Play_Method = 553,
+        V8Animation_Pause_Method = 554,
+        V8Animation_Reverse_Method = 555,
         // The above items are available in M39 branch.
 
         BreakIterator = 556,
@@ -545,8 +492,6 @@ public:
         RenderRuby = 576,
         CanvasRenderingContext2DCompositeOperationDarker = 577,
         ScriptElementWithInvalidTypeHasSrc = 578,
-        TimelineStart = 579,
-        ElementBaseURIFromXMLBase = 580,
         XMLHttpRequestSynchronousInNonWorkerOutsideBeforeUnload = 581,
         CSSSelectorPseudoScrollbar = 582,
         CSSSelectorPseudoScrollbarButton = 583,
@@ -559,6 +504,287 @@ public:
         LangAttributeDoesNotMatchToUILocale = 590,
         InputTypeSubmit = 591,
         InputTypeSubmitWithValue = 592,
+        // The above items are available in M40 branch.
+
+        SetReferrerPolicy = 593,
+        MouseEventWhich = 595,
+        UIEventCharCode = 596,
+        UIEventKeyCode = 597,
+        UIEventWhich = 598,
+        TextWholeText = 599,
+        NotificationCloseEvent = 603,
+        StyleMedia = 606,
+        StyleMediaType = 607,
+        StyleMediaMatchMedium = 608,
+        MixedContentPresent = 609,
+        MixedContentBlockable = 610,
+        MixedContentAudio = 611,
+        MixedContentDownload = 612,
+        MixedContentFavicon = 613,
+        MixedContentImage = 614,
+        MixedContentInternal = 615,
+        MixedContentPlugin = 616,
+        MixedContentPrefetch = 617,
+        MixedContentVideo = 618,
+        AudioListenerDopplerFactor = 620,
+        AudioListenerSpeedOfSound = 621,
+        AudioListenerSetVelocity = 622,
+        CSSSelectorPseudoFullScreenDocument = 627,
+        CSSSelectorPseudoFullScreenAncestor = 628,
+        CSSSelectorPseudoFullScreen = 629,
+        WebKitCSSMatrix = 630,
+        AudioContextCreateAnalyser = 631,
+        AudioContextCreateBiquadFilter = 632,
+        AudioContextCreateBufferSource = 633,
+        AudioContextCreateChannelMerger = 634,
+        AudioContextCreateChannelSplitter = 635,
+        AudioContextCreateConvolver = 636,
+        AudioContextCreateDelay = 637,
+        AudioContextCreateDynamicsCompressor = 638,
+        AudioContextCreateGain = 639,
+        AudioContextCreateMediaElementSource = 640,
+        AudioContextCreateMediaStreamDestination = 641,
+        AudioContextCreateMediaStreamSource = 642,
+        AudioContextCreateOscillator = 643,
+        AudioContextCreatePanner = 644,
+        AudioContextCreatePeriodicWave = 645,
+        AudioContextCreateScriptProcessor = 646,
+        AudioContextCreateStereoPanner = 647,
+        AudioContextCreateWaveShaper = 648,
+        AudioContextDecodeAudioData = 649,
+        AudioContextResume = 650,
+        AudioContextSuspend = 651,
+        AudioContext = 652,
+        OfflineAudioContext = 653,
+        PrefixedAudioContext = 654,
+        PrefixedOfflineAudioContext = 655,
+        AddEventListenerNoArguments = 656,
+        AddEventListenerOneArgument = 657,
+        RemoveEventListenerNoArguments = 658,
+        RemoveEventListenerOneArgument = 659,
+        MixedContentInNonHTTPSFrameThatRestrictsMixedContent = 661,
+        MixedContentInSecureFrameThatDoesNotRestrictMixedContent = 662,
+        MixedContentWebSocket = 663,
+        SyntheticKeyframesInCompositedCSSAnimation = 664,
+        MixedContentFormPresent = 665,
+        GetUserMediaInsecureOrigin = 666,
+        GetUserMediaSecureOrigin = 667,
+        // The above items are available in M41 branch.
+
+        DeviceMotionInsecureOrigin = 668,
+        DeviceMotionSecureOrigin = 669,
+        DeviceOrientationInsecureOrigin = 670,
+        DeviceOrientationSecureOrigin = 671,
+        SandboxViaIFrame = 672,
+        SandboxViaCSP = 673,
+        BlockedSniffingImageToScript = 674,
+        Fetch = 675,
+        FetchBodyStream = 676,
+        XMLHttpRequestAsynchronous = 677,
+        WhiteSpacePreFromXMLSpace = 679,
+        WhiteSpaceNowrapFromXMLSpace = 680,
+        WindowMoveResizeMissingArguments = 684,
+        SVGSVGElementForceRedraw = 685,
+        SVGSVGElementSuspendRedraw = 686,
+        SVGSVGElementUnsuspendRedraw = 687,
+        SVGSVGElementUnsuspendRedrawAll = 688,
+        AudioContextClose = 689,
+        CSSZoomNotEqualToOne = 691,
+        SVGGraphicsElementGetTransformToElement = 692,
+        // The above items are available in M42 branch.
+
+        ClientRectListItem = 694,
+        WindowClientInformation = 695,
+        WindowFind = 696,
+        WindowScreenLeft = 697,
+        WindowScreenTop = 698,
+        V8Animation_Cancel_Method = 699,
+        V8Animation_Onfinish_AttributeGetter = 700,
+        V8Animation_Onfinish_AttributeSetter = 701,
+        ElementOffsetParent = 702,
+        ElementOffsetTop = 703,
+        ElementOffsetLeft = 704,
+        ElementOffsetWidth = 705,
+        ElementOffsetHeight = 706,
+        V8Window_WebKitAnimationEvent_ConstructorGetter = 707,
+        V8Window_WebKitAnimationEvent_AttributeSetter = 708,
+        ResourceLoadedAfterRedirectWithCSP = 709,
+        CryptoGetRandomValues = 710,
+        SubtleCryptoEncrypt = 711,
+        SubtleCryptoDecrypt = 712,
+        SubtleCryptoSign = 713,
+        SubtleCryptoVerify = 714,
+        SubtleCryptoDigest = 715,
+        SubtleCryptoGenerateKey = 716,
+        SubtleCryptoImportKey = 717,
+        SubtleCryptoExportKey = 718,
+        SubtleCryptoDeriveBits = 719,
+        SubtleCryptoDeriveKey = 720,
+        SubtleCryptoWrapKey = 721,
+        SubtleCryptoUnwrapKey = 722,
+        CryptoAlgorithmAesCbc = 723,
+        CryptoAlgorithmHmac = 724,
+        CryptoAlgorithmRsaSsaPkcs1v1_5 = 725,
+        CryptoAlgorithmSha1 = 726,
+        CryptoAlgorithmSha256 = 727,
+        CryptoAlgorithmSha384 = 728,
+        CryptoAlgorithmSha512 = 729,
+        CryptoAlgorithmAesGcm = 730,
+        CryptoAlgorithmRsaOaep = 731,
+        CryptoAlgorithmAesCtr = 732,
+        CryptoAlgorithmAesKw = 733,
+        CryptoAlgorithmRsaPss = 734,
+        CryptoAlgorithmEcdsa = 735,
+        CryptoAlgorithmEcdh = 736,
+        CryptoAlgorithmHkdf = 737,
+        CryptoAlgorithmPbkdf2 = 738,
+        DocumentSetDomain = 739,
+        UpgradeInsecureRequestsEnabled = 740,
+        UpgradeInsecureRequestsUpgradedRequest = 741,
+        DocumentDesignMode = 742,
+        GlobalCacheStorage = 743,
+        NetInfo = 744,
+        BackgroundSync = 745,
+        LegacyConst = 748,
+        V8Permissions_Query_Method = 750,
+        // The above items are available in M43 branch.
+
+        LegacyCSSValueIntrinsic = 751,
+        LegacyCSSValueMinIntrinsic = 752,
+        WebkitCanvas = 753,
+        V8HTMLInputElement_Autocapitalize_AttributeGetter = 754,
+        V8HTMLInputElement_Autocapitalize_AttributeSetter = 755,
+        V8HTMLTextAreaElement_Autocapitalize_AttributeGetter = 756,
+        V8HTMLTextAreaElement_Autocapitalize_AttributeSetter = 757,
+        SVGHrefBaseVal = 758,
+        SVGHrefAnimVal = 759,
+        V8CSSRuleList_Item_Method = 760,
+        V8MediaList_Item_Method = 761,
+        V8StyleSheetList_Item_Method = 762,
+        StyleSheetListAnonymousNamedGetter = 763,
+        AutocapitalizeAttribute = 764,
+        FullscreenSecureOrigin = 765,
+        FullscreenInsecureOrigin = 766,
+        DialogInSandboxedContext = 767,
+        SVGSMILAnimationInImageRegardlessOfCache = 768,
+        EncryptedMediaSecureOrigin = 770,
+        EncryptedMediaInsecureOrigin = 771,
+        PerformanceFrameTiming = 772,
+        V8Element_Animate_Method = 773,
+        // The above items are available in M44 branch.
+
+        V8SVGSVGElement_PixelUnitToMillimeterX_AttributeGetter = 774,
+        V8SVGSVGElement_PixelUnitToMillimeterY_AttributeGetter = 775,
+        V8SVGSVGElement_ScreenPixelToMillimeterX_AttributeGetter = 776,
+        V8SVGSVGElement_ScreenPixelToMillimeterY_AttributeGetter = 777,
+        V8SVGSVGElement_GetElementById_Method = 778,
+        ElementCreateShadowRootMultiple = 779,
+        V8MessageChannel_Constructor = 780,
+        V8MessagePort_PostMessage_Method = 781,
+        V8MessagePort_Start_Method = 782,
+        V8MessagePort_Close_Method = 783,
+        MessagePortsTransferred = 784,
+        CSSKeyframesRuleAnonymousIndexedGetter = 785,
+        V8Screen_AvailLeft_AttributeGetter = 786,
+        V8Screen_AvailTop_AttributeGetter = 787,
+        ObjectObserve = 788,
+        V8SVGAnimationElement_HasExtension_Method = 789,
+        V8SVGCursorElement_HasExtension_Method = 790,
+        V8SVGFEConvolveMatrixElement_PreserveAlpha_AttributeGetter = 791,
+        V8SVGGraphicsElement_HasExtension_Method = 795,
+        V8SVGMaskElement_HasExtension_Method = 796,
+        V8SVGPatternElement_HasExtension_Method = 797,
+        V8SVGStyleElement_Disabled_AttributeGetter = 798,
+        V8SVGStyleElement_Disabled_AttributeSetter = 799,
+        ElementCreateShadowRootMultipleWithUserAgentShadowRoot = 800,
+        InputTypeFileSecureOrigin = 801,
+        InputTypeFileInsecureOrigin = 802,
+        V8HashChangeEvent_InitHashChangeEvent_Method = 803,
+        ElementCreateShadowRootWithParameter = 804,
+        V8KeyboardEvent_KeyIdentifier_AttributeGetter = 805,
+        V8SecurityPolicyViolationEvent_DocumentURI_AttributeGetter = 806,
+        V8SecurityPolicyViolationEvent_BlockedURI_AttributeGetter = 807,
+        V8SecurityPolicyViolationEvent_StatusCode_AttributeGetter = 808,
+        HTMLLinkElementDisabled = 809,
+        V8HTMLLinkElement_Disabled_AttributeGetter = 810,
+        V8HTMLLinkElement_Disabled_AttributeSetter = 811,
+        V8HTMLStyleElement_Disabled_AttributeGetter = 812,
+        V8HTMLStyleElement_Disabled_AttributeSetter = 813,
+        V8FileReader_ReadAsBinaryString_Method = 814,
+        V8FileReaderSync_ReadAsBinaryString_Method = 815,
+        V8DOMError_Constructor = 816,
+        V8DOMError_Name_AttributeGetter = 817,
+        V8DOMError_Message_AttributeGetter = 818,
+        V8FileReader_Error_AttributeGetter = 819,
+        V8IDBRequest_Error_AttributeGetter = 820,
+        V8IDBTransaction_Error_AttributeGetter = 821,
+        V8DOMStringList_Item_Method = 822,
+        V8Location_AncestorOrigins_AttributeGetter = 823,
+        V8IDBDatabase_ObjectStoreNames_AttributeGetter = 824,
+        V8IDBObjectStore_IndexNames_AttributeGetter = 825,
+        V8IDBTransaction_ObjectStoreNames_AttributeGetter = 826,
+        V8Navigator_GetStorageUpdates_Method = 827,
+        V8TextTrackCueList_Item_Method = 828,
+        V8TextTrackList_Item_Method = 829,
+        TextInputFired = 830,
+        V8TextEvent_Data_AttributeGetter = 831,
+        V8TextEvent_InitTextEvent_Method = 832,
+        V8SVGSVGElement_UseCurrentView_AttributeGetter = 833,
+        V8SVGSVGElement_CurrentView_AttributeGetter = 834,
+        ClientHintsDPR = 835,
+        ClientHintsResourceWidth = 836,
+        ClientHintsViewportWidth = 837,
+        SRIElementIntegrityAttributeButIneligible = 838,
+        FormDataAppendFile = 839,
+        FormDataAppendFileWithFilename = 840,
+        FormDataAppendBlob = 841,
+        FormDataAppendBlobWithFilename = 842,
+        FormDataAppendNull = 843,
+        HTMLDocumentCreateAttributeNameNotLowercase = 844,
+        NonHTMLElementSetAttributeNodeFromHTMLDocumentNameNotLowercase = 845,
+        DOMStringList_Item_AttributeGetter_IndexedDB = 846,
+        DOMStringList_Item_AttributeGetter_Location = 847,
+        DOMStringList_Contains_Method_IndexedDB = 848,
+        DOMStringList_Contains_Method_Location = 849,
+        NavigatorVibrate = 850,
+        NavigatorVibrateSubFrame = 851,
+        PermissionStatusStatus = 852,
+        V8XPathEvaluator_Constructor = 853,
+        V8XPathEvaluator_CreateExpression_Method = 854,
+        V8XPathEvaluator_CreateNSResolver_Method = 855,
+        V8XPathEvaluator_Evaluate_Method = 856,
+        RequestMIDIAccess = 857,
+        V8MouseEvent_LayerX_AttributeGetter = 858,
+        V8MouseEvent_LayerY_AttributeGetter = 859,
+        InnerTextWithShadowTree = 860,
+        SelectionToStringWithShadowTree = 861,
+        WindowFindWithShadowTree = 862,
+        V8CompositionEvent_InitCompositionEvent_Method = 863,
+        V8CustomEvent_InitCustomEvent_Method = 864,
+        V8DeviceMotionEvent_InitDeviceMotionEvent_Method = 865,
+        V8DeviceOrientationEvent_InitDeviceOrientationEvent_Method = 866,
+        V8Event_InitEvent_Method = 867,
+        V8KeyboardEvent_InitKeyboardEvent_Method = 868,
+        V8MouseEvent_InitMouseEvent_Method = 869,
+        V8MutationEvent_InitMutationEvent_Method = 870,
+        V8StorageEvent_InitStorageEvent_Method = 871,
+        V8TouchEvent_InitTouchEvent_Method = 872,
+        V8UIEvent_InitUIEvent_Method = 873,
+        V8Document_CreateTouch_Method = 874,
+        V8HTMLFrameElement_GetSVGDocument_Method = 875,
+        RequestFileSystemNonWebbyOrigin = 876,
+        V8Console_Memory_AttributeGetter = 877,
+        V8Console_Memory_AttributeSetter = 878,
+        V8MemoryInfo_TotalJSHeapSize_AttributeGetter = 879,
+        V8MemoryInfo_UsedJSHeapSize_AttributeGetter = 880,
+        V8MemoryInfo_JSHeapSizeLimit_AttributeGetter = 881,
+        V8Performance_Timing_AttributeGetter = 882,
+        V8Performance_Navigation_AttributeGetter = 883,
+        V8Performance_Memory_AttributeGetter = 884,
+        V8SharedWorker_WorkerStart_AttributeGetter = 885,
+        HTMLKeygenElement = 886,
+
+        FetchAPIRequestContext = 925,
 
         // Add new features immediately above this line. Don't change assigned
         // numbers of any item, and don't reuse removed slots.
@@ -568,6 +794,7 @@ public:
     };
 
     // "count" sets the bit for this feature to 1. Repeated calls are ignored.
+    static void count(const Frame*, Feature);
     static void count(const Document&, Feature);
     // This doesn't count for ExecutionContexts for shared workers and service
     // workers.
@@ -575,6 +802,7 @@ public:
     // Use countIfNotPrivateScript() instead of count() if you don't want
     // to count metrics in private scripts. You should use
     // countIfNotPrivateScript() in a binding layer.
+    static void countIfNotPrivateScript(v8::Isolate*, const Frame*, Feature);
     static void countIfNotPrivateScript(v8::Isolate*, const Document&, Feature);
     static void countIfNotPrivateScript(v8::Isolate*, const ExecutionContext*, Feature);
 
@@ -588,16 +816,20 @@ public:
     // deprecation warnings when we're actively interested in removing them from
     // the platform.
     //
-    // The ExecutionContext* overload doesn't work for shared workers and
-    // service workers.
-    static void countDeprecation(const LocalDOMWindow*, Feature);
+    // For shared workers and service workers, the ExecutionContext* overload
+    // doesn't count the usage but only sends a console warning.
+    static void countDeprecation(const LocalFrame*, Feature);
     static void countDeprecation(ExecutionContext*, Feature);
     static void countDeprecation(const Document&, Feature);
     // Use countDeprecationIfNotPrivateScript() instead of countDeprecation()
     // if you don't want to count metrics in private scripts. You should use
     // countDeprecationIfNotPrivateScript() in a binding layer.
     static void countDeprecationIfNotPrivateScript(v8::Isolate*, ExecutionContext*, Feature);
-    String deprecationMessage(Feature);
+    static String deprecationMessage(Feature);
+
+    // Return whether the Feature was previously counted for this document.
+    // NOTE: only for use in testing.
+    static bool isCounted(Document&, Feature);
 
     void didCommitLoad();
 
@@ -610,30 +842,46 @@ public:
     static void muteForInspector();
     static void unmuteForInspector();
 
-private:
-    static int m_muteCount;
+    class CountBits {
+    public:
+        CountBits() : m_bits(NumberOfFeatures) { }
 
-    bool recordMeasurement(Feature feature)
-    {
-        if (UseCounter::m_muteCount)
-            return false;
-        ASSERT(feature != PageDestruction); // PageDestruction is reserved as a scaling factor.
-        ASSERT(feature < NumberOfFeatures);
-        if (!m_countBits) {
-            m_countBits = adoptPtr(new BitVector(NumberOfFeatures));
-            m_countBits->clearAll();
+        bool hasRecordedMeasurement(Feature feature) const
+        {
+            if (UseCounter::m_muteCount)
+                return false;
+            ASSERT(feature != PageDestruction); // PageDestruction is reserved as a scaling factor.
+            ASSERT(feature < NumberOfFeatures);
+
+            return m_bits.quickGet(feature);
         }
 
-        if (m_countBits->quickGet(feature))
-            return false;
+        void recordMeasurement(Feature feature)
+        {
+            if (UseCounter::m_muteCount)
+                return;
+            ASSERT(feature != PageDestruction); // PageDestruction is reserved as a scaling factor.
+            ASSERT(feature < NumberOfFeatures);
 
-        m_countBits->quickSet(feature);
-        return true;
-    }
+            m_bits.quickSet(feature);
+        }
 
+        void updateMeasurements();
+
+    private:
+        BitVector m_bits;
+    };
+
+protected:
+    friend class UseCounterTest;
+    static int m_muteCount;
+
+    void recordMeasurement(Feature feature) { m_countBits.recordMeasurement(feature); }
     void updateMeasurements();
 
-    OwnPtr<BitVector> m_countBits;
+    bool hasRecordedMeasurement(Feature feature) const { return m_countBits.hasRecordedMeasurement(feature); }
+
+    CountBits m_countBits;
     BitVector m_CSSFeatureBits;
 };
 

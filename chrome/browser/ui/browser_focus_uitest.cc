@@ -30,6 +30,7 @@
 #include "content/public/browser/interstitial_page.h"
 #include "content/public/browser/interstitial_page_delegate.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
@@ -54,9 +55,11 @@ using content::WebContents;
 
 namespace {
 
+#if defined(OS_POSIX)
 // The delay waited in some cases where we don't have a notifications for an
 // action we take.
 const int kActionDelayMs = 500;
+#endif
 
 const char kSimplePage[] = "/focus/page_with_focus.html";
 const char kStealFocusPage[] = "/focus/page_steals_focus.html";
@@ -172,7 +175,7 @@ class TestInterstitialPage : public content::InterstitialPageDelegate {
   std::string GetHTMLContents() override { return html_contents_; }
 
   RenderViewHost* render_view_host() {
-    return interstitial_page_->GetRenderViewHostForTesting();
+    return interstitial_page_->GetMainFrame()->GetRenderViewHost();
   }
 
   void DontProceed() { interstitial_page_->DontProceed(); }
@@ -196,9 +199,8 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, MAYBE_ClickingMovesFocus) {
 #if defined(OS_POSIX)
   // It seems we have to wait a little bit for the widgets to spin up before
   // we can start clicking on them.
-  base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::MessageLoop::QuitClosure(),
+  base::MessageLoop::current()->task_runner()->PostDelayedTask(
+      FROM_HERE, base::MessageLoop::QuitClosure(),
       base::TimeDelta::FromMilliseconds(kActionDelayMs));
   content::RunMessageLoop();
 #endif  // defined(OS_POSIX)
@@ -415,7 +417,14 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, MAYBE_LocationBarLockFocus) {
 }
 
 // Test forward and reverse focus traversal on a typical page.
-IN_PROC_BROWSER_TEST_F(BrowserFocusTest, FocusTraversal) {
+// Disabled for Mac because it is flaky on "Mac10.9 Tests (dbg)",
+// see https://crbug.com/60973.
+#if defined(OS_MACOSX)
+#define MAYBE_FocusTraversal DISABLED_FocusTraversal
+#else
+#define MAYBE_FocusTraversal FocusTraversal
+#endif
+IN_PROC_BROWSER_TEST_F(BrowserFocusTest, MAYBE_FocusTraversal) {
   ASSERT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));
   const GURL url = embedded_test_server()->GetURL(kTypicalPage);
   ui_test_utils::NavigateToURL(browser(), url);

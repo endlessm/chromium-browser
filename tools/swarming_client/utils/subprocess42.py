@@ -11,13 +11,16 @@ worker threads.
 TODO(maruel): Add VOID and TIMED_OUT support like subprocess2.
 """
 
+import contextlib
 import logging
 import os
+import signal
 import time
 
 import subprocess
 
-from subprocess import PIPE, STDOUT, call, check_output  # pylint: disable=W0611
+from subprocess import CalledProcessError, PIPE, STDOUT  # pylint: disable=W0611
+from subprocess import call, check_output  # pylint: disable=W0611
 
 
 # Default maxsize argument.
@@ -28,6 +31,12 @@ if subprocess.mswindows:
   import msvcrt  # pylint: disable=F0401
   from ctypes import wintypes
   from ctypes import windll
+
+
+  # Which to be received depends on how this process was called and outside the
+  # control of this script. See Popen docstring for more details.
+  STOP_SIGNALS = (signal.SIGBREAK, signal.SIGTERM)
+
 
   def ReadFile(handle, desired_bytes):
     """Calls kernel32.ReadFile()."""
@@ -98,6 +107,11 @@ else:
   import fcntl  # pylint: disable=F0401
   import select
 
+
+  # Signals that mean this process should exit quickly.
+  STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM)
+
+
   def recv_multi_impl(conns, maxsize, timeout):
     """Reads from the first available pipe.
 
@@ -149,11 +163,32 @@ class Popen(subprocess.Popen):
 
   Inspired by
   http://code.activestate.com/recipes/440554-module-to-allow-asynchronous-subprocess-use-on-win/
+
+  Arguments:
+  - detached: If True, the process is created in a new process group. On
+    Windows, use CREATE_NEW_PROCESS_GROUP. On posix, use os.setpgid(0, 0).
+
+  Additional members:
+  - start: timestamp when this process started.
+  - end: timestamp when this process exited, as seen by this process.
+  - detached: If True, the child process was started as a detached process.
+  - gid: process group id, if any.
   """
-  def __init__(self, *args, **kwargs):
+  def __init__(self, args, **kwargs):
+    assert 'creationflags' not in kwargs
+    assert 'preexec_fn' not in kwargs
     self.start = time.time()
     self.end = None
-    super(Popen, self).__init__(*args, **kwargs)
+    self.gid = None
+    self.detached = kwargs.pop('detached', False)
+    if self.detached:
+      if subprocess.mswindows:
+        kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP
+      else:
+        kwargs['preexec_fn'] = lambda: os.setpgid(0, 0)
+    super(Popen, self).__init__(args, **kwargs)
+    if self.detached and not subprocess.mswindows:
+      self.gid = os.getpgid(self.pid)
 
   def duration(self):
     """Duration of the child process.
@@ -183,43 +218,62 @@ class Popen(subprocess.Popen):
     Yielded values are in the form (pipename, data).
 
     Arguments:
-    - maxsize: See recv_any().
+    - maxsize: See recv_any(). Can be a callable function.
     - hard_timeout: If None, the process is never killed. If set, the process is
-          killed after |hard_timeout| seconds.
+          killed after |hard_timeout| seconds. Can be a callable function.
     - soft_timeout: If None, the call is blocking. If set, yields None, None
           if no data is available within |soft_timeout| seconds. It resets
-          itself after each yield.
+          itself after each yield. Can be a callable function.
     """
     if hard_timeout is not None:
       # hard_timeout=0 means the process is not even given a little chance to
       # execute and will be immediately killed.
-      assert isinstance(hard_timeout, (int, float)) and hard_timeout > 0., (
-          hard_timeout)
+      if isinstance(hard_timeout, (int, float)):
+        assert hard_timeout > 0., hard_timeout
+        old_hard_timeout = hard_timeout
+        hard_timeout = lambda: old_hard_timeout
     if soft_timeout is not None:
       # soft_timeout=0 effectively means that the pipe is continuously polled.
-      assert isinstance(soft_timeout, (int, float)) and soft_timeout >= 0, (
-          soft_timeout)
+      if isinstance(soft_timeout, (int, float)):
+        assert soft_timeout >= 0, soft_timeout
+        old_soft_timeout = soft_timeout
+        soft_timeout = lambda: old_soft_timeout
+      else:
+        assert callable(soft_timeout), soft_timeout
 
     last_yield = time.time()
     while self.poll() is None:
+      ms = maxsize
+      if callable(maxsize):
+        ms = maxsize()
       t, data = self.recv_any(
-          maxsize=maxsize,
+          maxsize=ms,
           timeout=self._calc_timeout(hard_timeout, soft_timeout, last_yield))
       if data or soft_timeout is not None:
         yield t, data
         last_yield = time.time()
 
-      if hard_timeout and self.duration() >= hard_timeout:
+      if hard_timeout and self.duration() >= hard_timeout():
         break
 
     if self.poll() is None and hard_timeout:
-      logging.debug('Kill %s %s', self.duration(), hard_timeout)
+      logging.debug('Kill %s %s', self.duration(), hard_timeout())
       self.kill()
     self.wait()
 
     # Read all remaining output in the pipes.
+    # There is 3 cases:
+    # - pipes get closed automatically by the calling process before it exits
+    # - pipes are closed automated by the OS
+    # - pipes are kept open due to grand-children processes outliving the
+    #   children process.
     while True:
-      t, data = self.recv_any(maxsize=maxsize)
+      ms = maxsize
+      if callable(maxsize):
+        ms = maxsize()
+      # timeout=0 is mainly to handle the case where a grand-children process
+      # outlives the process started.
+      t, data = self.recv_any(maxsize=ms, timeout=0)
       if not data:
         break
       yield t, data
@@ -233,10 +287,11 @@ class Popen(subprocess.Popen):
     difference.
     """
     hard_remaining = (
-        max(hard_timeout - self.duration(), 0) if hard_timeout else None)
+        None if hard_timeout is None
+        else max(hard_timeout() - self.duration(), 0))
     soft_remaining = (
-        max(soft_timeout - (time.time() - last_yield), 0)
-        if soft_timeout is not None else None)
+        None if soft_timeout is None
+        else max(soft_timeout() - (time.time() - last_yield), 0))
     if hard_remaining is None:
       return soft_remaining
     if soft_remaining is None:
@@ -293,6 +348,46 @@ class Popen(subprocess.Popen):
     """Reads from stderr synchronously with timeout."""
     return self._recv('stderr', maxsize, timeout)
 
+  def terminate(self):
+    """Tries to do something saner on Windows that the stdlib.
+
+    Windows:
+      self.detached/CREATE_NEW_PROCESS_GROUP determines what can be used:
+      - If set, only SIGBREAK can be sent and it is sent to a single process.
+      - If not set, in theory only SIGINT can be used and *all processes* in
+         the processgroup receive it. In practice, we just kill the process.
+      See http://msdn.microsoft.com/library/windows/desktop/ms683155.aspx
+      The default on Windows is to call TerminateProcess() always, which is not
+      useful.
+
+    On Posix, always send SIGTERM.
+    """
+    try:
+      if subprocess.mswindows and self.detached:
+        return self.send_signal(signal.CTRL_BREAK_EVENT)
+      super(Popen, self).terminate()
+    except OSError:
+      # The function will throw if the process terminated in-between. Swallow
+      # this.
+      pass
+
+  def kill(self):
+    """Kills the process and its children if possible.
+
+    Swallows exceptions and return True on success.
+    """
+    if self.gid:
+      try:
+        os.killpg(self.gid, signal.SIGKILL)
+      except OSError:
+        return False
+    else:
+      try:
+        super(Popen, self).kill()
+      except OSError:
+        return False
+    return True
+
   def _close(self, which):
     """Closes either stdout or stderr."""
     getattr(self, which).close()
@@ -311,13 +406,13 @@ class Popen(subprocess.Popen):
     return data
 
 
-def call_with_timeout(cmd, timeout, **kwargs):
+def call_with_timeout(args, timeout, **kwargs):
   """Runs an executable with an optional timeout.
 
   timeout 0 or None disables the timeout.
   """
   proc = Popen(
-      cmd,
+      args,
       stdin=subprocess.PIPE,
       stdout=subprocess.PIPE,
       **kwargs)
@@ -333,3 +428,27 @@ def call_with_timeout(cmd, timeout, **kwargs):
     # This code path is much faster.
     out, err = proc.communicate()
   return out, err, proc.returncode, proc.duration()
+
+
+@contextlib.contextmanager
+def set_signal_handler(signals, handler):
+  """Temporarilly override signals handler."""
+  previous = dict((s, signal.signal(s, handler)) for s in signals)
+  yield None
+  for s in signals:
+    signal.signal(s, previous[s])
+
+
+@contextlib.contextmanager
+def Popen_with_handler(args, **kwargs):
+  proc = None
+  def handler(_signum, _frame):
+    if proc:
+      proc.terminate()
+
+  with set_signal_handler(STOP_SIGNALS, handler):
+    proc = Popen(args, detached=True, **kwargs)
+    try:
+      yield proc
+    finally:
+      proc.kill()

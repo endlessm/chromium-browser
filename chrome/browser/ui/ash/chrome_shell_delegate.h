@@ -13,6 +13,7 @@
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
+#include "chrome/browser/ui/ash/metrics/chrome_user_metrics_recorder.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 
@@ -52,6 +53,7 @@ class ChromeShellDelegate : public ash::ShellDelegate,
   bool IsIncognitoAllowed() const override;
   bool IsRunningInForcedAppMode() const override;
   bool IsMultiAccountEnabled() const override;
+  bool IsForceMaximizeOnFirstRun() const override;
   void PreInit() override;
   void PreShutdown() override;
   void Exit() override;
@@ -90,7 +92,11 @@ class ChromeShellDelegate : public ash::ShellDelegate,
 
   ChromeLauncherController* shelf_delegate_;
 
-  ObserverList<ash::VirtualKeyboardStateObserver> keyboard_state_observer_list_;
+  base::ObserverList<ash::VirtualKeyboardStateObserver>
+      keyboard_state_observer_list_;
+
+  // Proxies events from chrome/browser to ash::UserMetricsRecorder.
+  scoped_ptr<ChromeUserMetricsRecorder> chrome_user_metrics_recorder_;
 
 #if defined(OS_CHROMEOS)
   scoped_ptr<chromeos::DisplayConfigurationObserver>

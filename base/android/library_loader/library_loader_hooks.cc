@@ -7,6 +7,7 @@
 #include "base/android/command_line_android.h"
 #include "base/android/jni_string.h"
 #include "base/android/library_loader/library_load_from_apk_status_codes.h"
+#include "base/android/library_loader/library_prefetcher.h"
 #include "base/at_exit.h"
 #include "base/metrics/histogram.h"
 #include "jni/LibraryLoader_jni.h"
@@ -47,13 +48,19 @@ enum BrowserHistogramCode {
 
 RendererHistogramCode g_renderer_histogram_code = NO_PENDING_HISTOGRAM_CODE;
 
+// The amount of time, in milliseconds, that it took to load the shared
+// libraries in the renderer. Set in
+// RegisterChromiumAndroidLinkerRendererHistogram.
+long g_renderer_library_load_time_ms = 0;
+
 } // namespace
 
 static void RegisterChromiumAndroidLinkerRendererHistogram(
     JNIEnv* env,
-    jclass clazz,
+    jobject jcaller,
     jboolean requested_shared_relro,
-    jboolean load_at_fixed_address_failed) {
+    jboolean load_at_fixed_address_failed,
+    jlong library_load_time_ms) {
   // Note a pending histogram value for later recording.
   if (requested_shared_relro) {
     g_renderer_histogram_code = load_at_fixed_address_failed
@@ -61,6 +68,8 @@ static void RegisterChromiumAndroidLinkerRendererHistogram(
   } else {
     g_renderer_histogram_code = LFA_NOT_ATTEMPTED;
   }
+
+  g_renderer_library_load_time_ms = library_load_time_ms;
 }
 
 void RecordChromiumAndroidLinkerRendererHistogram() {
@@ -71,14 +80,19 @@ void RecordChromiumAndroidLinkerRendererHistogram() {
                             g_renderer_histogram_code,
                             MAX_RENDERER_HISTOGRAM_CODE);
   g_renderer_histogram_code = NO_PENDING_HISTOGRAM_CODE;
+
+  // Record how long it took to load the shared libraries.
+  UMA_HISTOGRAM_TIMES("ChromiumAndroidLinker.RendererLoadTime",
+      base::TimeDelta::FromMilliseconds(g_renderer_library_load_time_ms));
 }
 
 static void RecordChromiumAndroidLinkerBrowserHistogram(
     JNIEnv* env,
-    jclass clazz,
+    jobject jcaller,
     jboolean is_using_browser_shared_relros,
     jboolean load_at_fixed_address_failed,
-    jint library_load_from_apk_status) {
+    jint library_load_from_apk_status,
+    jlong library_load_time_ms) {
   // For low-memory devices, record whether or not we successfully loaded the
   // browser at a fixed address. Otherwise just record a normal invocation.
   BrowserHistogramCode histogram_code;
@@ -96,22 +110,27 @@ static void RecordChromiumAndroidLinkerBrowserHistogram(
   UMA_HISTOGRAM_ENUMERATION("ChromiumAndroidLinker.LibraryLoadFromApkStatus",
                             library_load_from_apk_status,
                             LIBRARY_LOAD_FROM_APK_STATUS_CODES_MAX);
+
+  // Record how long it took to load the shared libraries.
+  UMA_HISTOGRAM_TIMES("ChromiumAndroidLinker.BrowserLoadTime",
+                      base::TimeDelta::FromMilliseconds(library_load_time_ms));
 }
 
 void SetLibraryLoadedHook(LibraryLoadedHook* func) {
   g_registration_callback = func;
 }
 
-static void InitCommandLine(JNIEnv* env, jclass clazz,
+static void InitCommandLine(JNIEnv* env,
+                            jobject jcaller,
                             jobjectArray init_command_line) {
   InitNativeCommandLineFromJavaArray(env, init_command_line);
 }
 
-static jboolean LibraryLoaded(JNIEnv* env, jclass clazz) {
+static jboolean LibraryLoaded(JNIEnv* env, jobject jcaller) {
   if (g_registration_callback == NULL) {
     return true;
   }
-  return g_registration_callback(env, clazz);
+  return g_registration_callback(env, NULL);
 }
 
 void LibraryLoaderExitHook() {
@@ -121,10 +140,11 @@ void LibraryLoaderExitHook() {
   }
 }
 
-bool RegisterLibraryLoaderEntryHook(JNIEnv* env) {
-  // We need the AtExitManager to be created at the very beginning.
-  g_at_exit_manager = new base::AtExitManager();
+static jboolean ForkAndPrefetchNativeLibrary(JNIEnv* env, jclass clazz) {
+  return NativeLibraryPrefetcher::ForkAndPrefetchNativeLibrary();
+}
 
+bool RegisterLibraryLoaderEntryHook(JNIEnv* env) {
   return RegisterNativesImpl(env);
 }
 
@@ -132,12 +152,17 @@ void SetVersionNumber(const char* version_number) {
   g_library_version_number = strdup(version_number);
 }
 
-jstring GetVersionNumber(JNIEnv* env, jclass clazz) {
+jstring GetVersionNumber(JNIEnv* env, jobject jcaller) {
   return ConvertUTF8ToJavaString(env, g_library_version_number).Release();
 }
 
-static void RecordNativeLibraryHack(JNIEnv*, jclass, jboolean usedHack) {
-  UMA_HISTOGRAM_BOOLEAN("LibraryLoader.NativeLibraryHack", usedHack);
+LibraryProcessType GetLibraryProcessType(JNIEnv* env) {
+  return static_cast<LibraryProcessType>(
+      Java_LibraryLoader_getLibraryProcessType(env));
+}
+
+void InitAtExitManager() {
+  g_at_exit_manager = new base::AtExitManager();
 }
 
 }  // namespace android

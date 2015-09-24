@@ -1,16 +1,16 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/fpdfdoc/fpdf_doc.h"
-static FX_INT32 FPDFDOC_OCG_FindGroup(const CPDF_Object *pObject, const CPDF_Dictionary *pGroupDict)
+static int32_t FPDFDOC_OCG_FindGroup(const CPDF_Object *pObject, const CPDF_Dictionary *pGroupDict)
 {
     if (pObject == NULL || pGroupDict == NULL) {
         return -1;
     }
-    FX_INT32 iType = pObject->GetType();
+    int32_t iType = pObject->GetType();
     if (iType == PDFOBJ_ARRAY) {
         FX_DWORD dwCount = ((CPDF_Array*)pObject)->GetCount();
         for (FX_DWORD i = 0; i < dwCount; i++) {
@@ -25,7 +25,7 @@ static FX_INT32 FPDFDOC_OCG_FindGroup(const CPDF_Object *pObject, const CPDF_Dic
     }
     return -1;
 }
-static FX_BOOL FPDFDOC_OCG_HasIntent(const CPDF_Dictionary *pDict, FX_BSTR csElement, FX_BSTR csDef = FX_BSTRC(""))
+static FX_BOOL FPDFDOC_OCG_HasIntent(const CPDF_Dictionary *pDict, const CFX_ByteStringC& csElement, const CFX_ByteStringC& csDef = FX_BSTRC(""))
 {
     FXSYS_assert(pDict != NULL);
     CPDF_Object *pIntent = pDict->GetElementValue(FX_BSTRC("Intent"));
@@ -46,7 +46,7 @@ static FX_BOOL FPDFDOC_OCG_HasIntent(const CPDF_Dictionary *pDict, FX_BSTR csEle
     bsIntent = pIntent->GetString();
     return bsIntent == FX_BSTRC("All") || bsIntent == csElement;
 }
-static CPDF_Dictionary* FPDFDOC_OCG_GetConfig(CPDF_Document *pDoc, const CPDF_Dictionary *pOCGDict, FX_BSTR bsState)
+static CPDF_Dictionary* FPDFDOC_OCG_GetConfig(CPDF_Document *pDoc, const CPDF_Dictionary *pOCGDict, const CFX_ByteStringC& bsState)
 {
     FXSYS_assert(pDoc && pOCGDict);
     CPDF_Dictionary *pOCProperties = pDoc->GetRoot()->GetDict(FX_BSTRC("OCProperties"));
@@ -64,8 +64,8 @@ static CPDF_Dictionary* FPDFDOC_OCG_GetConfig(CPDF_Document *pDoc, const CPDF_Di
     CPDF_Array *pConfigs = pOCProperties->GetArray(FX_BSTRC("Configs"));
     if (pConfigs) {
         CPDF_Dictionary *pFind;
-        FX_INT32 iCount = pConfigs->GetCount();
-        for (FX_INT32 i = 0; i < iCount; i ++) {
+        int32_t iCount = pConfigs->GetCount();
+        for (int32_t i = 0; i < iCount; i ++) {
             pFind = pConfigs->GetDict(i);
             if (!pFind) {
                 continue;
@@ -99,9 +99,9 @@ CPDF_OCContext::CPDF_OCContext(CPDF_Document *pDoc, UsageType eUsageType)
 }
 CPDF_OCContext::~CPDF_OCContext()
 {
-    m_OCGStates.RemoveAll();
+    m_OCGStates.clear();
 }
-FX_BOOL CPDF_OCContext::LoadOCGStateFromConfig(FX_BSTR csConfig, const CPDF_Dictionary *pOCGDict, FX_BOOL &bValidConfig) const
+FX_BOOL CPDF_OCContext::LoadOCGStateFromConfig(const CFX_ByteStringC& csConfig, const CPDF_Dictionary *pOCGDict, FX_BOOL &bValidConfig) const
 {
     CPDF_Dictionary *pConfig = FPDFDOC_OCG_GetConfig(m_pDocument, pOCGDict, csConfig);
     if (!pConfig) {
@@ -124,8 +124,8 @@ FX_BOOL CPDF_OCContext::LoadOCGStateFromConfig(FX_BSTR csConfig, const CPDF_Dict
     pArray = pConfig->GetArray(FX_BSTRC("AS"));
     if (pArray) {
         CFX_ByteString csFind = csConfig + FX_BSTRC("State");
-        FX_INT32 iCount = pArray->GetCount();
-        for (FX_INT32 i = 0; i < iCount; i ++) {
+        int32_t iCount = pArray->GetCount();
+        for (int32_t i = 0; i < iCount; i ++) {
             CPDF_Dictionary *pUsage = pArray->GetDict(i);
             if (!pUsage) {
                 continue;
@@ -174,19 +174,21 @@ FX_BOOL CPDF_OCContext::LoadOCGState(const CPDF_Dictionary *pOCGDict) const
     FX_BOOL bDefValid = FALSE;
     return LoadOCGStateFromConfig(csState, pOCGDict, bDefValid);
 }
-FX_BOOL CPDF_OCContext::GetOCGVisible(const CPDF_Dictionary *pOCGDict)
+
+FX_BOOL CPDF_OCContext::GetOCGVisible(const CPDF_Dictionary* pOCGDict)
 {
-    if (!pOCGDict) {
+    if (!pOCGDict)
         return FALSE;
-    }
-    FX_LPVOID bState = NULL;
-    if (m_OCGStates.Lookup(pOCGDict, bState)) {
-        return (FX_UINTPTR)bState != 0;
-    }
-    bState = (FX_LPVOID)(FX_UINTPTR)LoadOCGState(pOCGDict);
-    m_OCGStates.SetAt(pOCGDict, bState);
-    return (FX_UINTPTR)bState != 0;
+
+    const auto it = m_OCGStates.find(pOCGDict);
+    if (it != m_OCGStates.end())
+        return it->second;
+
+    FX_BOOL bState = LoadOCGState(pOCGDict);
+    m_OCGStates[pOCGDict] = bState;
+    return bState;
 }
+
 FX_BOOL CPDF_OCContext::GetOCGVE(CPDF_Array *pExpression, FX_BOOL bFromConfig, int nLevel)
 {
     if (nLevel > 32) {
@@ -195,7 +197,7 @@ FX_BOOL CPDF_OCContext::GetOCGVE(CPDF_Array *pExpression, FX_BOOL bFromConfig, i
     if (pExpression == NULL) {
         return FALSE;
     }
-    FX_INT32 iCount = pExpression->GetCount();
+    int32_t iCount = pExpression->GetCount();
     CPDF_Object *pOCGObj;
     CFX_ByteString csOperator = pExpression->GetString(0);
     if (csOperator == FX_BSTRC("Not")) {
@@ -213,7 +215,7 @@ FX_BOOL CPDF_OCContext::GetOCGVE(CPDF_Array *pExpression, FX_BOOL bFromConfig, i
     }
     if (csOperator == FX_BSTRC("Or") || csOperator == FX_BSTRC("And")) {
         FX_BOOL bValue = FALSE;
-        for (FX_INT32 i = 1; i < iCount; i ++) {
+        for (int32_t i = 1; i < iCount; i ++) {
             pOCGObj = pExpression->GetElementValue(1);
             if (pOCGObj == NULL) {
                 continue;
@@ -260,8 +262,8 @@ FX_BOOL CPDF_OCContext::LoadOCMDState(const CPDF_Dictionary *pOCMDDict, FX_BOOL 
     if (csP == FX_BSTRC("AllOn") || csP == FX_BSTRC("AllOff")) {
         bState = TRUE;
     }
-    FX_INT32 iCount = ((CPDF_Array*)pOCGObj)->GetCount();
-    for (FX_INT32 i = 0; i < iCount; i ++) {
+    int32_t iCount = ((CPDF_Array*)pOCGObj)->GetCount();
+    for (int32_t i = 0; i < iCount; i ++) {
         FX_BOOL bItem = TRUE;
         CPDF_Dictionary* pItemDict = ((CPDF_Array*)pOCGObj)->GetDict(i);
         if (pItemDict) {
@@ -296,5 +298,5 @@ FX_BOOL CPDF_OCContext::CheckOCGVisible(const CPDF_Dictionary *pOCGDict)
 }
 void CPDF_OCContext::ResetOCContext()
 {
-    m_OCGStates.RemoveAll();
+    m_OCGStates.clear();
 }

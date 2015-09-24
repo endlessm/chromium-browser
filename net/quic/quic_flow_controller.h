@@ -27,40 +27,35 @@ class NET_EXPORT_PRIVATE QuicFlowController {
  public:
   QuicFlowController(QuicConnection* connection,
                      QuicStreamId id,
-                     bool is_server,
-                     uint64 send_window_offset,
-                     uint64 receive_window_offset,
-                     uint64 max_receive_window);
+                     Perspective perspective,
+                     QuicStreamOffset send_window_offset,
+                     QuicStreamOffset receive_window_offset,
+                     bool should_auto_tune_receive_window);
+
   ~QuicFlowController() {}
 
   // Called when we see a new highest received byte offset from the peer, either
   // via a data frame or a RST.
   // Returns true if this call changes highest_received_byte_offset_, and false
   // in the case where |new_offset| is <= highest_received_byte_offset_.
-  bool UpdateHighestReceivedOffset(uint64 new_offset);
+  bool UpdateHighestReceivedOffset(QuicStreamOffset new_offset);
 
   // Called when bytes received from the peer are consumed locally. This may
   // trigger the sending of a WINDOW_UPDATE frame using |connection|.
-  void AddBytesConsumed(uint64 bytes_consumed);
+  void AddBytesConsumed(QuicByteCount bytes_consumed);
 
   // Called when bytes are sent to the peer.
-  void AddBytesSent(uint64 bytes_sent);
+  void AddBytesSent(QuicByteCount bytes_sent);
 
   // Set a new send window offset.
   // Returns true if this increases send_window_offset_ and is now blocked.
-  bool UpdateSendWindowOffset(uint64 new_send_window_offset);
+  bool UpdateSendWindowOffset(QuicStreamOffset new_send_window_offset);
 
   // Returns the current available send window.
-  uint64 SendWindowSize() const;
+  QuicByteCount SendWindowSize() const;
 
   // Send a BLOCKED frame if appropriate.
   void MaybeSendBlocked();
-
-  // Disable flow control.
-  void Disable();
-
-  // Returns true if flow control is enabled.
-  bool IsEnabled() const;
 
   // Returns true if flow control send limits have been reached.
   bool IsBlocked() const;
@@ -68,17 +63,31 @@ class NET_EXPORT_PRIVATE QuicFlowController {
   // Returns true if flow control receive limits have been violated by the peer.
   bool FlowControlViolation();
 
-  uint64 bytes_consumed() const { return bytes_consumed_; }
+  QuicByteCount bytes_consumed() const { return bytes_consumed_; }
 
-  uint64 highest_received_byte_offset() const {
+  QuicStreamOffset highest_received_byte_offset() const {
     return highest_received_byte_offset_;
   }
+
+  void set_receive_window_size_limit(QuicByteCount receive_window_size_limit) {
+    DCHECK_GE(receive_window_size_limit, receive_window_size_limit_);
+    receive_window_size_limit_ = receive_window_size_limit;
+  }
+
+  void set_auto_tune_receive_window(bool enable) {
+    auto_tune_receive_window_ = enable;
+  }
+
+  bool auto_tune_receive_window() { return auto_tune_receive_window_; }
 
  private:
   friend class test::QuicFlowControllerPeer;
 
   // Send a WINDOW_UPDATE frame if appropriate.
   void MaybeSendWindowUpdate();
+
+  // Auto-tune the max receive window size.
+  void MaybeIncreaseMaxWindowSize();
 
   // The parent connection, used to send connection close on flow control
   // violation, and WINDOW_UPDATE and BLOCKED frames when appropriate.
@@ -89,37 +98,68 @@ class NET_EXPORT_PRIVATE QuicFlowController {
   // connection level flow controller.
   QuicStreamId id_;
 
-  // True if flow control is enabled.
-  bool is_enabled_;
-
-  // True if this is owned by a server.
-  bool is_server_;
-
-  // Track number of bytes received from the peer, which have been consumed
-  // locally.
-  uint64 bytes_consumed_;
-
-  // The highest byte offset we have seen from the peer. This could be the
-  // highest offset in a data frame, or a final value in a RST.
-  uint64 highest_received_byte_offset_;
+  // Tracks if this is owned by a server or a client.
+  Perspective perspective_;
 
   // Tracks number of bytes sent to the peer.
-  uint64 bytes_sent_;
+  QuicByteCount bytes_sent_;
 
   // The absolute offset in the outgoing byte stream. If this offset is reached
   // then we become flow control blocked until we receive a WINDOW_UPDATE.
-  uint64 send_window_offset_;
+  QuicStreamOffset send_window_offset_;
+
+  // Overview of receive flow controller.
+  //
+  // 0=...===1=======2-------3 ...... FIN
+  //         |<--- <= 4  --->|
+  //
+
+  // 1) bytes_consumed_ - moves forward when data is read out of the
+  //    stream.
+  //
+  // 2) highest_received_byte_offset_ - moves when data is received
+  //    from the peer.
+  //
+  // 3) receive_window_offset_ - moves when WINDOW_UPDATE is sent.
+  //
+  // 4) receive_window_size_ - maximum allowed unread data (3 - 1).
+  //    This value may be increased by auto-tuning.
+  //
+  // 5) receive_window_size_limit_ - limit on receive_window_size_;
+  //    auto-tuning will not increase window size beyond this limit.
+
+  // Track number of bytes received from the peer, which have been consumed
+  // locally.
+  QuicByteCount bytes_consumed_;
+
+  // The highest byte offset we have seen from the peer. This could be the
+  // highest offset in a data frame, or a final value in a RST.
+  QuicStreamOffset highest_received_byte_offset_;
+
 
   // The absolute offset in the incoming byte stream. The peer should never send
   // us bytes which are beyond this offset.
-  uint64 receive_window_offset_;
+  QuicStreamOffset receive_window_offset_;
 
   // Largest size the receive window can grow to.
-  uint64 max_receive_window_;
+  QuicByteCount receive_window_size_;
+
+  // Upper limit on receive_window_size_;
+  QuicByteCount receive_window_size_limit_;
+
+  // Used to dynamically enable receive window auto-tuning.
+  bool auto_tune_receive_window_;
+
+  // Send window update when receive window size drops below this.
+  QuicByteCount WindowUpdateThreshold();
 
   // Keep track of the last time we sent a BLOCKED frame. We should only send
   // another when the number of bytes we have sent has changed.
-  uint64 last_blocked_send_window_offset_;
+  QuicStreamOffset last_blocked_send_window_offset_;
+
+  // Keep time of the last time a window update was sent.  We use this
+  // as part of the receive window auto tuning.
+  QuicTime prev_window_update_time_;
 
   DISALLOW_COPY_AND_ASSIGN(QuicFlowController);
 };

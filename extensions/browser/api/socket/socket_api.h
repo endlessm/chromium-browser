@@ -17,6 +17,10 @@
 #include "net/dns/host_resolver.h"
 #include "net/socket/tcp_client_socket.h"
 
+#if defined(OS_CHROMEOS)
+#include "extensions/browser/api/socket/app_firewall_hole_manager.h"
+#endif  // OS_CHROMEOS
+
 namespace content {
 class BrowserContext;
 class ResourceContext;
@@ -29,8 +33,8 @@ class SSLClientSocket;
 }
 
 namespace extensions {
-class TLSSocket;
 class Socket;
+class TLSSocket;
 
 // A simple interface to ApiResourceManager<Socket> or derived class. The goal
 // of this interface is to allow Socket API functions to use distinct instances
@@ -58,7 +62,7 @@ class SocketResourceManager : public SocketResourceManagerInterface {
  public:
   SocketResourceManager() : manager_(NULL) {}
 
-  virtual bool SetBrowserContext(content::BrowserContext* context) override {
+  bool SetBrowserContext(content::BrowserContext* context) override {
     manager_ = ApiResourceManager<T>::Get(context);
     DCHECK(manager_)
         << "There is no socket manager. "
@@ -68,29 +72,27 @@ class SocketResourceManager : public SocketResourceManagerInterface {
     return manager_ != NULL;
   }
 
-  virtual int Add(Socket* socket) override {
+  int Add(Socket* socket) override {
     // Note: Cast needed here, because "T" may be a subclass of "Socket".
     return manager_->Add(static_cast<T*>(socket));
   }
 
-  virtual Socket* Get(const std::string& extension_id,
-                      int api_resource_id) override {
+  Socket* Get(const std::string& extension_id, int api_resource_id) override {
     return manager_->Get(extension_id, api_resource_id);
   }
 
-  virtual void Replace(const std::string& extension_id,
-                       int api_resource_id,
-                       Socket* socket) override {
+  void Replace(const std::string& extension_id,
+               int api_resource_id,
+               Socket* socket) override {
     manager_->Replace(extension_id, api_resource_id, static_cast<T*>(socket));
   }
 
-  virtual void Remove(const std::string& extension_id,
-                      int api_resource_id) override {
+  void Remove(const std::string& extension_id, int api_resource_id) override {
     manager_->Remove(extension_id, api_resource_id);
   }
 
-  virtual base::hash_set<int>* GetResourceIds(const std::string& extension_id)
-      override {
+  base::hash_set<int>* GetResourceIds(
+      const std::string& extension_id) override {
     return manager_->GetResourceIds(extension_id);
   }
 
@@ -118,7 +120,22 @@ class SocketAsyncApiFunction : public AsyncApiFunction {
   void RemoveSocket(int api_resource_id);
   base::hash_set<int>* GetSocketIds();
 
+  // A no-op outside of Chrome OS.
+  void OpenFirewallHole(const std::string& address,
+                        int socket_id,
+                        Socket* socket);
+
  private:
+#if defined(OS_CHROMEOS)
+  void OpenFirewallHoleOnUIThread(AppFirewallHole::PortType type,
+                                  uint16_t port,
+                                  int socket_id);
+  void OnFirewallHoleOpened(
+      int socket_id,
+      scoped_ptr<AppFirewallHole, content::BrowserThread::DeleteOnUIThread>
+          hole);
+#endif  // OS_CHROMEOS
+
   scoped_ptr<SocketResourceManagerInterface> manager_;
 };
 
@@ -130,19 +147,16 @@ class SocketExtensionWithDnsLookupFunction : public SocketAsyncApiFunction {
   // AsyncApiFunction:
   bool PrePrepare() override;
 
-  void StartDnsLookup(const std::string& hostname);
+  void StartDnsLookup(const net::HostPortPair& host_port_pair);
   virtual void AfterDnsLookup(int lookup_result) = 0;
 
-  std::string resolved_address_;
+  net::AddressList addresses_;
 
  private:
   void OnDnsLookup(int resolve_result);
 
   // Weak pointer to the resource context.
   content::ResourceContext* resource_context_;
-
-  scoped_ptr<net::HostResolver::RequestHandle> request_handle_;
-  scoped_ptr<net::AddressList> addresses_;
 };
 
 class SocketCreateFunction : public SocketAsyncApiFunction {
@@ -203,7 +217,7 @@ class SocketConnectFunction : public SocketExtensionWithDnsLookupFunction {
 
   int socket_id_;
   std::string hostname_;
-  int port_;
+  uint16 port_;
 };
 
 class SocketDisconnectFunction : public SocketAsyncApiFunction {
@@ -230,12 +244,12 @@ class SocketBindFunction : public SocketAsyncApiFunction {
 
   // AsyncApiFunction:
   bool Prepare() override;
-  void Work() override;
+  void AsyncWorkStart() override;
 
  private:
   int socket_id_;
   std::string address_;
-  int port_;
+  uint16 port_;
 };
 
 class SocketListenFunction : public SocketAsyncApiFunction {
@@ -249,7 +263,7 @@ class SocketListenFunction : public SocketAsyncApiFunction {
 
   // AsyncApiFunction:
   bool Prepare() override;
-  void Work() override;
+  void AsyncWorkStart() override;
 
  private:
   scoped_ptr<core_api::socket::Listen::Params> params_;
@@ -327,7 +341,7 @@ class SocketRecvFromFunction : public SocketAsyncApiFunction {
   void OnCompleted(int result,
                    scoped_refptr<net::IOBuffer> io_buffer,
                    const std::string& address,
-                   int port);
+                   uint16 port);
 
  private:
   scoped_ptr<core_api::socket::RecvFrom::Params> params_;
@@ -357,7 +371,7 @@ class SocketSendToFunction : public SocketExtensionWithDnsLookupFunction {
   scoped_refptr<net::IOBuffer> io_buffer_;
   size_t io_buffer_size_;
   std::string hostname_;
-  int port_;
+  uint16 port_;
 };
 
 class SocketSetKeepAliveFunction : public SocketAsyncApiFunction {

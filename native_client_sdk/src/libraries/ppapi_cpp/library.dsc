@@ -1,5 +1,4 @@
 {
-  'TOOLS': ['newlib', 'glibc',  'bionic', 'pnacl', 'win', 'linux'],
   'SEARCH': [
       '../../../../ppapi/cpp',
       '../../../../ppapi/cpp/dev',
@@ -58,6 +57,7 @@
         'var.cc',
         'var_dictionary.cc',
         'video_decoder.cc',
+        'video_encoder.cc',
         'video_frame.cc',
         'view.cc',
         'websocket.cc',
@@ -69,10 +69,8 @@
         'memory_dev.cc',
         'printing_dev.cc',
         'scriptable_object_deprecated.cc',
-        'selection_dev.cc',
         'truetype_font_dev.cc',
         'view_dev.cc',
-        'zoom_dev.cc',
 
         # ppapi/utility/graphics
         'paint_aggregator.cc',
@@ -143,6 +141,7 @@
         'var_dictionary.h',
         'var.h',
         'video_decoder.h',
+        'video_encoder.h',
         'video_frame.h',
         'view.h',
         'websocket.h',
@@ -157,13 +156,10 @@
         'memory_dev.h',
         'printing_dev.h',
         'scriptable_object_deprecated.h',
-        'selection_dev.h',
         'truetype_font_dev.h',
         'video_capture_client_dev.h',
         'video_decoder_client_dev.h',
         'view_dev.h',
-        'widget_client_dev.h',
-        'zoom_dev.h',
       ],
       'DEST': 'include/ppapi/cpp/dev',
     },

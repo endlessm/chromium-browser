@@ -10,7 +10,7 @@
 #include "base/files/file_path.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequenced_task_runner.h"
-#include "chrome/browser/extensions/sandboxed_unpacker.h"
+#include "extensions/browser/sandboxed_unpacker.h"
 
 namespace extensions {
 class Extension;
@@ -39,8 +39,7 @@ class KioskExternalUpdateValidator
  public:
   KioskExternalUpdateValidator(
       const scoped_refptr<base::SequencedTaskRunner>& backend_task_runner,
-      const std::string& app_id,
-      const base::FilePath& crx_path,
+      const extensions::CRXFileInfo& file,
       const base::FilePath& crx_unpack_dir,
       const base::WeakPtr<KioskExternalUpdateValidatorDelegate>& delegate);
 
@@ -48,22 +47,22 @@ class KioskExternalUpdateValidator
   void Start();
 
  private:
-  virtual ~KioskExternalUpdateValidator();
+  ~KioskExternalUpdateValidator() override;
 
   // SandboxedUnpackerClient overrides.
-  virtual void OnUnpackFailure(const base::string16& error_message) override;
-  virtual void OnUnpackSuccess(const base::FilePath& temp_dir,
-                               const base::FilePath& extension_dir,
-                               const base::DictionaryValue* original_manifest,
-                               const extensions::Extension* extension,
-                               const SkBitmap& install_icon) override;
+  void OnUnpackFailure(const extensions::CrxInstallError& error) override;
+  void OnUnpackSuccess(const base::FilePath& temp_dir,
+                       const base::FilePath& extension_dir,
+                       const base::DictionaryValue* original_manifest,
+                       const extensions::Extension* extension,
+                       const SkBitmap& install_icon) override;
 
   // Task runner for executing file I/O tasks.
   const scoped_refptr<base::SequencedTaskRunner> backend_task_runner_;
-  std::string app_id_;
 
-  // The directory where the external crx file resides.
-  base::FilePath crx_dir_;
+  // Information about the external crx file.
+  extensions::CRXFileInfo crx_file_;
+
   // The temporary directory used by SandBoxedUnpacker for unpacking extensions.
   const base::FilePath crx_unpack_dir_;
 

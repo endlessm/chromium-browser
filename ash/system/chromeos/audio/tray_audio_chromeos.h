@@ -8,25 +8,37 @@
 #include "ash/ash_export.h"
 #include "ash/system/audio/tray_audio.h"
 #include "base/memory/scoped_ptr.h"
+#include "chromeos/dbus/power_manager_client.h"
 
 namespace ash {
 namespace tray {
 class AudioDetailedView;
 }
 
-class ASH_EXPORT TrayAudioChromeOs : public TrayAudio {
+class ASH_EXPORT TrayAudioChromeOs
+    : public TrayAudio,
+      public chromeos::PowerManagerClient::Observer {
  public:
   explicit TrayAudioChromeOs(SystemTray* system_tray);
-  virtual ~TrayAudioChromeOs();
+  ~TrayAudioChromeOs() override;
 
  protected:
   // Overridden from TrayAudio
-  virtual void Update() override;
+  void Update() override;
 
  private:
   // Overridden from SystemTrayItem.
-  virtual views::View* CreateDetailedView(user::LoginStatus status) override;
-  virtual void DestroyDetailedView() override;
+  views::View* CreateDetailedView(user::LoginStatus status) override;
+  void DestroyDetailedView() override;
+
+  // Overridden from gfx::DisplayObserver.
+  void OnDisplayAdded(const gfx::Display& new_display) override;
+  void OnDisplayRemoved(const gfx::Display& old_display) override;
+  void OnDisplayMetricsChanged(const gfx::Display& display,
+                               uint32_t changed_metrics) override;
+
+  // Overriden from chromeos::PowerManagerClient::Observer.
+  void SuspendDone(const base::TimeDelta& sleep_duration) override;
 
   tray::AudioDetailedView* audio_detail_view_;
 

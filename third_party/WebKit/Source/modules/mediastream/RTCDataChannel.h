@@ -43,16 +43,16 @@ class WebRTCPeerConnectionHandler;
 struct WebRTCDataChannelInit;
 
 class RTCDataChannel final
-    : public RefCountedGarbageCollectedWillBeGarbageCollectedFinalized<RTCDataChannel>
-    , public EventTargetWithInlineData
+    : public RefCountedGarbageCollectedEventTargetWithInlineData<RTCDataChannel>
     , public WebRTCDataChannelHandlerClient {
-    DEFINE_EVENT_TARGET_REFCOUNTING_WILL_BE_REMOVED(RefCountedGarbageCollectedWillBeGarbageCollectedFinalized<RTCDataChannel>);
+    REFCOUNTED_GARBAGE_COLLECTED_EVENT_TARGET(RTCDataChannel);
     DEFINE_WRAPPERTYPEINFO();
-    WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(RTCDataChannel);
 public:
     static RTCDataChannel* create(ExecutionContext*, RTCPeerConnection*, PassOwnPtr<WebRTCDataChannelHandler>);
     static RTCDataChannel* create(ExecutionContext*, RTCPeerConnection*, WebRTCPeerConnectionHandler*, const String& label, const WebRTCDataChannelInit&, ExceptionState&);
-    virtual ~RTCDataChannel();
+    ~RTCDataChannel() override;
+
+    ReadyState getHandlerState() const;
 
     String label() const;
 
@@ -66,7 +66,7 @@ public:
     bool negotiated() const;
     unsigned short id() const;
     String readyState() const;
-    unsigned long bufferedAmount() const;
+    unsigned bufferedAmount() const;
 
     String binaryType() const;
     void setBinaryType(const String&, ExceptionState&);
@@ -86,11 +86,20 @@ public:
     void stop();
 
     // EventTarget
-    virtual const AtomicString& interfaceName() const override;
-    virtual ExecutionContext* executionContext() const override;
+    const AtomicString& interfaceName() const override;
+    ExecutionContext* executionContext() const override;
 
     void clearWeakMembers(Visitor*);
-    virtual void trace(Visitor*) override;
+
+    // Oilpan: need to eagerly finalize m_handler
+    EAGERLY_FINALIZE();
+    DECLARE_VIRTUAL_TRACE();
+
+    // WebRTCDataChannelHandlerClient
+    void didChangeReadyState(WebRTCDataChannelHandlerClient::ReadyState) override;
+    void didReceiveStringData(const WebString&) override;
+    void didReceiveRawData(const char*, size_t) override;
+    void didDetectError() override;
 
 private:
     RTCDataChannel(ExecutionContext*, RTCPeerConnection*, PassOwnPtr<WebRTCDataChannelHandler>);
@@ -98,13 +107,7 @@ private:
     void scheduleDispatchEvent(PassRefPtrWillBeRawPtr<Event>);
     void scheduledEventTimerFired(Timer<RTCDataChannel>*);
 
-    ExecutionContext* m_executionContext;
-
-    // WebRTCDataChannelHandlerClient
-    virtual void didChangeReadyState(WebRTCDataChannelHandlerClient::ReadyState) override;
-    virtual void didReceiveStringData(const WebString&) override;
-    virtual void didReceiveRawData(const char*, size_t) override;
-    virtual void didDetectError() override;
+    RawPtrWillBeMember<ExecutionContext> m_executionContext;
 
     OwnPtr<WebRTCDataChannelHandler> m_handler;
 
@@ -119,7 +122,7 @@ private:
     BinaryType m_binaryType;
 
     Timer<RTCDataChannel> m_scheduledEventTimer;
-    WillBeHeapVector<RefPtrWillBeMember<Event> > m_scheduledEvents;
+    WillBeHeapVector<RefPtrWillBeMember<Event>> m_scheduledEvents;
 
     WeakMember<RTCPeerConnection> m_connection;
 };

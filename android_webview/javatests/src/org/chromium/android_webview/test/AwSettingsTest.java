@@ -15,15 +15,14 @@ import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebSettings;
+import android.webkit.WebSettings.LayoutAlgorithm;
 
 import static org.chromium.base.test.util.ScalableTimeout.scaleTimeout;
 
 import org.apache.http.Header;
 import org.apache.http.HttpRequest;
 import org.chromium.android_webview.AwContents;
-import org.chromium.android_webview.AwContentsClient.ShouldInterceptRequestParams;
 import org.chromium.android_webview.AwSettings;
-import org.chromium.android_webview.AwSettings.LayoutAlgorithm;
 import org.chromium.android_webview.AwWebResourceResponse;
 import org.chromium.android_webview.test.util.CommonResources;
 import org.chromium.android_webview.test.util.ImagePageGenerator;
@@ -31,10 +30,12 @@ import org.chromium.android_webview.test.util.VideoTestUtil;
 import org.chromium.android_webview.test.util.VideoTestWebServer;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.base.test.util.TestFileUtil;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.content.browser.test.util.HistoryUtils;
+import org.chromium.content.browser.test.util.TestCallbackHelperContainer;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.net.test.util.TestWebServer;
 import org.chromium.ui.gfx.DeviceDisplayInfo;
@@ -50,6 +51,7 @@ import java.util.regex.Pattern;
  * settings applies either to each individual view or to all views of the
  * application
  */
+@MinAndroidSdkLevel(Build.VERSION_CODES.KITKAT)
 public class AwSettingsTest extends AwTestBase {
     private static final boolean ENABLED = true;
     private static final boolean DISABLED = false;
@@ -515,7 +517,7 @@ public class AwSettingsTest extends AwTestBase {
     }
 
     class AwSettingsDomStorageEnabledTestHelper extends AwSettingsTestHelper<Boolean> {
-        private static final String TEST_FILE = "webview/localStorage.html";
+        private static final String TEST_FILE = "android_webview/test/data/localStorage.html";
         private static final String NO_LOCAL_STORAGE = "No localStorage";
         private static final String HAS_LOCAL_STORAGE = "Has localStorage";
 
@@ -523,7 +525,7 @@ public class AwSettingsTest extends AwTestBase {
                 AwTestContainerView containerView,
                 TestAwContentsClient contentViewClient) throws Throwable {
             super(containerView, contentViewClient, true);
-            AwSettingsTest.assertFileIsReadable(UrlUtils.getTestFilePath(TEST_FILE));
+            AwSettingsTest.assertFileIsReadable(UrlUtils.getIsolatedTestFilePath(TEST_FILE));
         }
 
         @Override
@@ -550,7 +552,7 @@ public class AwSettingsTest extends AwTestBase {
         protected void doEnsureSettingHasValue(Boolean value) throws Throwable {
             // It is not permitted to access localStorage from data URLs in WebKit,
             // that is why a standalone page must be used.
-            loadUrlSync(UrlUtils.getTestFileUrl(TEST_FILE));
+            loadUrlSync(UrlUtils.getIsolatedTestFileUrl(TEST_FILE));
             assertEquals(
                     value == ENABLED ? HAS_LOCAL_STORAGE : NO_LOCAL_STORAGE,
                     getTitleOnUiThread());
@@ -558,7 +560,7 @@ public class AwSettingsTest extends AwTestBase {
     }
 
     class AwSettingsDatabaseTestHelper extends AwSettingsTestHelper<Boolean> {
-        private static final String TEST_FILE = "webview/database_access.html";
+        private static final String TEST_FILE = "android_webview/test/data/database_access.html";
         private static final String NO_DATABASE = "No database";
         private static final String HAS_DATABASE = "Has database";
 
@@ -566,7 +568,7 @@ public class AwSettingsTest extends AwTestBase {
                 AwTestContainerView containerView,
                 TestAwContentsClient contentViewClient) throws Throwable {
             super(containerView, contentViewClient, true);
-            AwSettingsTest.assertFileIsReadable(UrlUtils.getTestFilePath(TEST_FILE));
+            AwSettingsTest.assertFileIsReadable(UrlUtils.getIsolatedTestFilePath(TEST_FILE));
         }
 
         @Override
@@ -594,7 +596,7 @@ public class AwSettingsTest extends AwTestBase {
             // It seems accessing the database through a data scheme is not
             // supported, and fails with a DOM exception (likely a cross-domain
             // violation).
-            loadUrlSync(UrlUtils.getTestFileUrl(TEST_FILE));
+            loadUrlSync(UrlUtils.getIsolatedTestFileUrl(TEST_FILE));
             assertEquals(
                     value == ENABLED ? HAS_DATABASE : NO_DATABASE,
                     getTitleOnUiThread());
@@ -602,18 +604,20 @@ public class AwSettingsTest extends AwTestBase {
     }
 
     class AwSettingsUniversalAccessFromFilesTestHelper extends AwSettingsTestHelper<Boolean> {
-        private static final String TEST_CONTAINER_FILE = "webview/iframe_access.html";
-        private static final String TEST_FILE = "webview/hello_world.html";
+        private static final String TEST_CONTAINER_FILE =
+                "android_webview/test/data/iframe_access.html";
+        private static final String TEST_FILE = "android_webview/test/data/hello_world.html";
         private static final String ACCESS_DENIED_TITLE = "Exception";
 
         AwSettingsUniversalAccessFromFilesTestHelper(
                 AwTestContainerView containerView,
                 TestAwContentsClient contentViewClient) throws Throwable {
             super(containerView, contentViewClient, true);
-            AwSettingsTest.assertFileIsReadable(UrlUtils.getTestFilePath(TEST_CONTAINER_FILE));
-            AwSettingsTest.assertFileIsReadable(UrlUtils.getTestFilePath(TEST_FILE));
-            mIframeContainerUrl = UrlUtils.getTestFileUrl(TEST_CONTAINER_FILE);
-            mIframeUrl = UrlUtils.getTestFileUrl(TEST_FILE);
+            AwSettingsTest.assertFileIsReadable(
+                    UrlUtils.getIsolatedTestFilePath(TEST_CONTAINER_FILE));
+            AwSettingsTest.assertFileIsReadable(UrlUtils.getIsolatedTestFilePath(TEST_FILE));
+            mIframeContainerUrl = UrlUtils.getIsolatedTestFileUrl(TEST_CONTAINER_FILE);
+            mIframeUrl = UrlUtils.getIsolatedTestFileUrl(TEST_FILE);
             // The value of the setting depends on the SDK version.
             mAwSettings.setAllowUniversalAccessFromFileURLs(false);
             // If universal access is true, the value of file access doesn't
@@ -655,18 +659,20 @@ public class AwSettingsTest extends AwTestBase {
     }
 
     class AwSettingsFileAccessFromFilesIframeTestHelper extends AwSettingsTestHelper<Boolean> {
-        private static final String TEST_CONTAINER_FILE = "webview/iframe_access.html";
-        private static final String TEST_FILE = "webview/hello_world.html";
+        private static final String TEST_CONTAINER_FILE =
+                "android_webview/test/data/iframe_access.html";
+        private static final String TEST_FILE = "android_webview/test/data/hello_world.html";
         private static final String ACCESS_DENIED_TITLE = "Exception";
 
         AwSettingsFileAccessFromFilesIframeTestHelper(
                 AwTestContainerView containerView,
                 TestAwContentsClient contentViewClient) throws Throwable {
             super(containerView, contentViewClient, true);
-            AwSettingsTest.assertFileIsReadable(UrlUtils.getTestFilePath(TEST_CONTAINER_FILE));
-            AwSettingsTest.assertFileIsReadable(UrlUtils.getTestFilePath(TEST_FILE));
-            mIframeContainerUrl = UrlUtils.getTestFileUrl(TEST_CONTAINER_FILE);
-            mIframeUrl = UrlUtils.getTestFileUrl(TEST_FILE);
+            AwSettingsTest.assertFileIsReadable(
+                    UrlUtils.getIsolatedTestFilePath(TEST_CONTAINER_FILE));
+            AwSettingsTest.assertFileIsReadable(UrlUtils.getIsolatedTestFilePath(TEST_FILE));
+            mIframeContainerUrl = UrlUtils.getIsolatedTestFileUrl(TEST_CONTAINER_FILE);
+            mIframeUrl = UrlUtils.getIsolatedTestFileUrl(TEST_FILE);
             mAwSettings.setAllowUniversalAccessFromFileURLs(false);
             // The value of the setting depends on the SDK version.
             mAwSettings.setAllowFileAccessFromFileURLs(false);
@@ -705,7 +711,7 @@ public class AwSettingsTest extends AwTestBase {
     }
 
     class AwSettingsFileAccessFromFilesXhrTestHelper extends AwSettingsTestHelper<Boolean> {
-        private static final String TEST_FILE = "webview/xhr_access.html";
+        private static final String TEST_FILE = "android_webview/test/data/xhr_access.html";
         private static final String ACCESS_GRANTED_TITLE = "Hello, World!";
         private static final String ACCESS_DENIED_TITLE = "Exception";
 
@@ -713,8 +719,8 @@ public class AwSettingsTest extends AwTestBase {
                 AwTestContainerView containerView,
                 TestAwContentsClient contentViewClient) throws Throwable {
             super(containerView, contentViewClient, true);
-            assertFileIsReadable(UrlUtils.getTestFilePath(TEST_FILE));
-            mXhrContainerUrl = UrlUtils.getTestFileUrl(TEST_FILE);
+            assertFileIsReadable(UrlUtils.getIsolatedTestFilePath(TEST_FILE));
+            mXhrContainerUrl = UrlUtils.getIsolatedTestFileUrl(TEST_FILE);
             mAwSettings.setAllowUniversalAccessFromFileURLs(false);
             // The value of the setting depends on the SDK version.
             mAwSettings.setAllowFileAccessFromFileURLs(false);
@@ -752,7 +758,7 @@ public class AwSettingsTest extends AwTestBase {
     }
 
     class AwSettingsFileUrlAccessTestHelper extends AwSettingsTestHelper<Boolean> {
-        private static final String TEST_FILE = "webview/hello_world.html";
+        private static final String TEST_FILE = "android_webview/test/data/hello_world.html";
         private static final String ACCESS_GRANTED_TITLE = "Hello, World!";
 
         AwSettingsFileUrlAccessTestHelper(
@@ -761,7 +767,7 @@ public class AwSettingsTest extends AwTestBase {
                 int startIndex) throws Throwable {
             super(containerView, contentViewClient, true);
             mIndex = startIndex;
-            AwSettingsTest.assertFileIsReadable(UrlUtils.getTestFilePath(TEST_FILE));
+            AwSettingsTest.assertFileIsReadable(UrlUtils.getIsolatedTestFilePath(TEST_FILE));
         }
 
         @Override
@@ -787,7 +793,7 @@ public class AwSettingsTest extends AwTestBase {
         @Override
         protected void doEnsureSettingHasValue(Boolean value) throws Throwable {
             // Use query parameters to avoid hitting a cached page.
-            String fileUrl = UrlUtils.getTestFileUrl(TEST_FILE + "?id=" + mIndex);
+            String fileUrl = UrlUtils.getIsolatedTestFileUrl(TEST_FILE + "?id=" + mIndex);
             mIndex += 2;
             if (value == ENABLED) {
                 loadUrlSync(fileUrl);
@@ -1462,7 +1468,7 @@ public class AwSettingsTest extends AwTestBase {
 
         private String getData() {
             return "<html><head>"
-                    + "<meta name='viewport' content='width=3000' />"
+                    + "<meta name='viewport' content='width=3000, minimum-scale=1' />"
                     + "  <script type='text/javascript'> "
                     + "    window.addEventListener('load', function(event) { "
                     + "       document.title = document.documentElement.clientWidth; "
@@ -1613,7 +1619,7 @@ public class AwSettingsTest extends AwTestBase {
     // defined in Android CTS tests:
     //
     // Mozilla/5.0 (Linux;[ U;] Android <version>;[ <language>-<country>;]
-    // [<devicemodel>;] Build/<buildID>) AppleWebKit/<major>.<minor> (KHTML, like Gecko)
+    // [<devicemodel>;] Build/<buildID>; wv) AppleWebKit/<major>.<minor> (KHTML, like Gecko)
     // Version/<major>.<minor>[ Mobile] Safari/<major>.<minor>
     @SmallTest
     @Feature({"AndroidWebView", "Preferences"})
@@ -1627,7 +1633,8 @@ public class AwSettingsTest extends AwTestBase {
         assertEquals(actualUserAgentString, AwSettings.getDefaultUserAgent());
         final String patternString =
                 "Mozilla/5\\.0 \\(Linux;( U;)? Android ([^;]+);( (\\w+)-(\\w+);)?"
-                + "\\s?(.*)\\sBuild/(.+)\\) AppleWebKit/(\\d+)\\.(\\d+) \\(KHTML, like Gecko\\) "
+                + "\\s?(.*)\\sBuild/(.+); wv\\) "
+                + "AppleWebKit/(\\d+)\\.(\\d+) \\(KHTML, like Gecko\\) "
                 + "Version/\\d+\\.\\d Chrome/\\d+\\.\\d+\\.\\d+\\.\\d+"
                 + "( Mobile)? Safari/(\\d+)\\.(\\d+)";
         final Pattern userAgentExpr = Pattern.compile(patternString);
@@ -1824,9 +1831,9 @@ public class AwSettingsTest extends AwTestBase {
     @SmallTest
     @Feature({"AndroidWebView", "Preferences"})
     public void testFileAccessFromFilesImage() throws Throwable {
-        final String testFile = "webview/image_access.html";
-        assertFileIsReadable(UrlUtils.getTestFilePath(testFile));
-        final String imageContainerUrl = UrlUtils.getTestFileUrl(testFile);
+        final String testFile = "android_webview/test/data/image_access.html";
+        assertFileIsReadable(UrlUtils.getIsolatedTestFilePath(testFile));
+        final String imageContainerUrl = UrlUtils.getIsolatedTestFileUrl(testFile);
         final String imageHeight = "16";
         final TestAwContentsClient contentClient = new TestAwContentsClient();
         final AwTestContainerView testContainerView =
@@ -2087,8 +2094,7 @@ public class AwSettingsTest extends AwTestBase {
             runTestOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    awContents.addPossiblyUnsafeJavascriptInterface(
-                            new AudioEvent(callback), "AudioEvent", null);
+                    awContents.addJavascriptInterface(new AudioEvent(callback), "AudioEvent");
                 }
             });
             int count = callback.getCallCount();
@@ -2719,7 +2725,7 @@ public class AwSettingsTest extends AwTestBase {
     */
     @DisabledTest
     public void testMediaPlaybackWithoutUserGesture() throws Throwable {
-        assertTrue(VideoTestUtil.runVideoTest(this, false, WAIT_TIMEOUT_MS));
+        assertTrue(VideoTestUtil.runVideoTest(this, false, false, WAIT_TIMEOUT_MS));
     }
 
     @DisableHardwareAccelerationForTest
@@ -2727,7 +2733,7 @@ public class AwSettingsTest extends AwTestBase {
     @Feature({"AndroidWebView", "Preferences"})
     public void testMediaPlaybackWithUserGesture() throws Throwable {
         // Wait for 5 second to see if video played.
-        assertFalse(VideoTestUtil.runVideoTest(this, true, scaleTimeout(5000)));
+        assertFalse(VideoTestUtil.runVideoTest(this, true, false, scaleTimeout(5000)));
     }
 
     @SmallTest
@@ -2737,9 +2743,8 @@ public class AwSettingsTest extends AwTestBase {
         final String defaultVideoPosterUrl = "http://default_video_poster/";
         TestAwContentsClient client = new TestAwContentsClient() {
             @Override
-            public AwWebResourceResponse shouldInterceptRequest(
-                    ShouldInterceptRequestParams params) {
-                if (params.url.equals(defaultVideoPosterUrl)) {
+            public AwWebResourceResponse shouldInterceptRequest(AwWebResourceRequest request) {
+                if (request.url.equals(defaultVideoPosterUrl)) {
                     videoPosterAccessedCallbackHelper.notifyCalled();
                 }
                 return null;
@@ -2829,6 +2834,44 @@ public class AwSettingsTest extends AwTestBase {
         }
     }
 
+    @SmallTest
+    @Feature({"AndroidWebView", "Preferences"})
+    public void testUpdatingUserAgentWhileLoadingCausesReload() throws Throwable {
+        final TestAwContentsClient contentClient = new TestAwContentsClient();
+        final AwTestContainerView testContainerView =
+                createAwTestContainerViewOnMainSync(contentClient);
+        final AwContents awContents = testContainerView.getAwContents();
+        final AwSettings awSettings = getAwSettingsOnUiThread(awContents);
+
+        TestWebServer httpServer = null;
+        try {
+            httpServer = TestWebServer.start();
+
+            String url = httpServer.setResponseWithRunnableAction(
+                    "/about.html", "Hello, World!", null,
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            // This will update the UA string on the UI thread synchronously.
+                            awSettings.setUserAgentString("UA Override");
+                        }
+                    }
+            );
+
+            TestCallbackHelperContainer.OnPageFinishedHelper onPageFinishedHelper =
+                    contentClient.getOnPageFinishedHelper();
+            int initialCallCount = onPageFinishedHelper.getCallCount();
+            loadUrlSync(awContents, onPageFinishedHelper, url);
+            // loadUrlSync only waits for a single onPageFinished, now wait for another one.
+            onPageFinishedHelper.waitForCallback(initialCallCount + 1, 1, WAIT_TIMEOUT_MS,
+                    TimeUnit.MILLISECONDS);
+            assertEquals(url, onPageFinishedHelper.getUrl());
+        } finally {
+            if (httpServer != null) {
+                httpServer.shutdown();
+            }
+        }
+    }
 
     static class ViewPair {
         private final AwTestContainerView mContainer0;

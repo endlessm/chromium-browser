@@ -82,7 +82,7 @@ NSSCertDatabase::NSSCertDatabase(crypto::ScopedPK11Slot public_slot,
                                  crypto::ScopedPK11Slot private_slot)
     : public_slot_(public_slot.Pass()),
       private_slot_(private_slot.Pass()),
-      observer_list_(new ObserverListThreadSafe<Observer>),
+      observer_list_(new base::ObserverListThreadSafe<Observer>),
       weak_factory_(this) {
   CHECK(public_slot_);
 
@@ -178,12 +178,11 @@ void NSSCertDatabase::ListModules(CryptoModuleList* modules,
   }
 }
 
-int NSSCertDatabase::ImportFromPKCS12(
-    CryptoModule* module,
-    const std::string& data,
-    const base::string16& password,
-    bool is_extractable,
-    net::CertificateList* imported_certs) {
+int NSSCertDatabase::ImportFromPKCS12(CryptoModule* module,
+                                      const std::string& data,
+                                      const base::string16& password,
+                                      bool is_extractable,
+                                      CertificateList* imported_certs) {
   DVLOG(1) << __func__ << " "
            << PK11_GetModuleID(module->os_module_handle()) << ":"
            << PK11_GetSlotID(module->os_module_handle());
@@ -192,7 +191,7 @@ int NSSCertDatabase::ImportFromPKCS12(
                                         password,
                                         is_extractable,
                                         imported_certs);
-  if (result == net::OK)
+  if (result == OK)
     NotifyObserversOfCertAdded(NULL);
 
   return result;
@@ -438,18 +437,20 @@ void NSSCertDatabase::NotifyCertRemovalAndCallBack(
 }
 
 void NSSCertDatabase::NotifyObserversOfCertAdded(const X509Certificate* cert) {
-  observer_list_->Notify(&Observer::OnCertAdded, make_scoped_refptr(cert));
+  observer_list_->Notify(FROM_HERE, &Observer::OnCertAdded,
+                         make_scoped_refptr(cert));
 }
 
 void NSSCertDatabase::NotifyObserversOfCertRemoved(
     const X509Certificate* cert) {
-  observer_list_->Notify(&Observer::OnCertRemoved, make_scoped_refptr(cert));
+  observer_list_->Notify(FROM_HERE, &Observer::OnCertRemoved,
+                         make_scoped_refptr(cert));
 }
 
 void NSSCertDatabase::NotifyObserversOfCACertChanged(
     const X509Certificate* cert) {
-  observer_list_->Notify(
-      &Observer::OnCACertChanged, make_scoped_refptr(cert));
+  observer_list_->Notify(FROM_HERE, &Observer::OnCACertChanged,
+                         make_scoped_refptr(cert));
 }
 
 // static

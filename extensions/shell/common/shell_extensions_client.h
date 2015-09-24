@@ -31,6 +31,9 @@ class ShellExtensionsClient : public ExtensionsClient {
       const URLPatternSet& hosts,
       URLPatternSet* new_hosts,
       std::set<PermissionMessage>* messages) const override;
+  void FilterHostPermissions(const URLPatternSet& hosts,
+                             URLPatternSet* new_hosts,
+                             PermissionIDSet* permissions) const override;
   void SetScriptingWhitelist(const ScriptingWhitelist& whitelist) override;
   const ScriptingWhitelist& GetScriptingWhitelist() const override;
   URLPatternSet GetPermittedChromeSchemeHosts(
@@ -41,6 +44,7 @@ class ShellExtensionsClient : public ExtensionsClient {
   base::StringPiece GetAPISchema(const std::string& name) const override;
   void RegisterAPISchemaResources(ExtensionAPI* api) const override;
   bool ShouldSuppressFatalErrors() const override;
+  void RecordDidSuppressFatalError() override;
   std::string GetWebstoreBaseURL() const override;
   std::string GetWebstoreUpdateURL() const override;
   bool IsBlacklistUpdateURL(const GURL& url) const override;

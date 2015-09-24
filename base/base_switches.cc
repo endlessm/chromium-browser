@@ -17,10 +17,11 @@ const char kEnableCrashReporter[]           = "enable-crash-reporter";
 // Generates full memory crash dump.
 const char kFullMemoryCrashReport[]         = "full-memory-crash-report";
 
-// Force low-end device when set to 1;
-// Auto-detect low-end device when set to 2;
-// Force non-low-end device when set to other values or empty;
-const char kLowEndDeviceMode[]              = "low-end-device-mode";
+// Force low-end device mode when set.
+const char kEnableLowEndDeviceMode[]        = "enable-low-end-device-mode";
+
+// Force disabling of low-end device mode when set.
+const char kDisableLowEndDeviceMode[]       = "disable-low-end-device-mode";
 
 // Suppresses all error dialogs when present.
 const char kNoErrorDialogs[]                = "noerrdialogs";
@@ -65,6 +66,11 @@ const char kProfilerTiming[]                = "profiler-timing";
 // Value of the --profiler-timing flag that will disable timing information for
 // chrome://profiler.
 const char kProfilerTimingDisabledValue[]   = "0";
+
+#if defined(OS_WIN)
+// Disables the USB keyboard detection for blocking the OSK on Win8+.
+const char kDisableUsbKeyboardDetect[]      = "disable-usb-keyboard-detect";
+#endif
 
 #if defined(OS_POSIX)
 // Used for turning on Breakpad crash reporting in a debug environment where

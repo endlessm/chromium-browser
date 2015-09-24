@@ -13,7 +13,7 @@
 #include "ui/gfx/animation/animation_container_observer.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/animation/tween.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/views/views_export.h"
 
 namespace gfx {
@@ -156,7 +156,7 @@ class VIEWS_EXPORT BoundsAnimator : public gfx::AnimationDelegate,
   // Parent of all views being animated.
   View* parent_;
 
-  ObserverList<BoundsAnimatorObserver> observers_;
+  base::ObserverList<BoundsAnimatorObserver> observers_;
 
   // All animations we create up with the same container.
   scoped_refptr<gfx::AnimationContainer> container_;

@@ -18,11 +18,15 @@
 #include "chrome/browser/extensions/chrome_app_sorting.h"
 #include "chrome/browser/extensions/chrome_component_extension_resource_manager.h"
 #include "chrome/browser/extensions/chrome_extension_host_delegate.h"
+#include "chrome/browser/extensions/chrome_extension_web_contents_observer.h"
+#include "chrome/browser/extensions/chrome_mojo_service_registration.h"
 #include "chrome/browser/extensions/chrome_process_manager_delegate.h"
 #include "chrome/browser/extensions/chrome_url_request_util.h"
+#include "chrome/browser/extensions/error_console/error_console.h"
 #include "chrome/browser/extensions/event_router_forwarder.h"
 #include "chrome/browser/extensions/extension_system_factory.h"
 #include "chrome/browser/extensions/extension_util.h"
+#include "chrome/browser/extensions/menu_manager.h"
 #include "chrome/browser/external_protocol/external_protocol_handler.h"
 #include "chrome/browser/net/chrome_net_log.h"
 #include "chrome/browser/profiles/profile.h"
@@ -32,13 +36,17 @@
 #include "chrome/common/chrome_version_info.h"
 #include "chrome/common/extensions/features/feature_channel.h"
 #include "chrome/common/pref_names.h"
+#include "content/public/browser/render_process_host.h"
 #include "extensions/browser/api/generated_api_registration.h"
 #include "extensions/browser/extension_function_registry.h"
 #include "extensions/browser/extension_prefs.h"
+#include "extensions/browser/mojo/service_registration.h"
 #include "extensions/browser/pref_names.h"
 #include "extensions/browser/url_request_util.h"
 
 #if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/extensions/updater/chromeos_extension_cache_delegate.h"
 #include "chrome/browser/extensions/updater/extension_cache_impl.h"
 #include "chromeos/chromeos_switches.h"
 #else
@@ -53,6 +61,7 @@ ChromeExtensionsBrowserClient::ChromeExtensionsBrowserClient() {
   // Only set if it hasn't already been set (e.g. by a test).
   if (GetCurrentChannel() == GetDefaultChannel())
     SetCurrentChannel(chrome::VersionInfo::GetChannel());
+  resource_manager_.reset(new ChromeComponentExtensionResourceManager());
 }
 
 ChromeExtensionsBrowserClient::~ChromeExtensionsBrowserClient() {}
@@ -62,7 +71,7 @@ bool ChromeExtensionsBrowserClient::IsShuttingDown() {
 }
 
 bool ChromeExtensionsBrowserClient::AreExtensionsDisabled(
-    const CommandLine& command_line,
+    const base::CommandLine& command_line,
     content::BrowserContext* context) {
   Profile* profile = static_cast<Profile*>(context);
   return command_line.HasSwitch(switches::kDisableExtensions) ||
@@ -72,7 +81,8 @@ bool ChromeExtensionsBrowserClient::AreExtensionsDisabled(
 bool ChromeExtensionsBrowserClient::IsValidContext(
     content::BrowserContext* context) {
   Profile* profile = static_cast<Profile*>(context);
-  return g_browser_process->profile_manager()->IsValidProfile(profile);
+  return g_browser_process->profile_manager() &&
+         g_browser_process->profile_manager()->IsValidProfile(profile);
 }
 
 bool ChromeExtensionsBrowserClient::IsSameContext(
@@ -96,6 +106,14 @@ content::BrowserContext* ChromeExtensionsBrowserClient::GetOriginalContext(
     content::BrowserContext* context) {
   return static_cast<Profile*>(context)->GetOriginalProfile();
 }
+
+#if defined(OS_CHROMEOS)
+std::string ChromeExtensionsBrowserClient::GetUserIdHashFromContext(
+    content::BrowserContext* context) {
+  return chromeos::ProfileHelper::GetUserIdHashFromProfile(
+      static_cast<Profile*>(context));
+}
+#endif
 
 bool ChromeExtensionsBrowserClient::IsGuestSession(
     content::BrowserContext* context) const {
@@ -176,7 +194,7 @@ bool ChromeExtensionsBrowserClient::DidVersionUpdate(
     return false;
 
   // If we're inside a browser test, then assume prefs are all up-to-date.
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kTestType))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kTestType))
     return false;
 
   PrefService* pref_service = extension_prefs->pref_service();
@@ -244,6 +262,13 @@ void ChromeExtensionsBrowserClient::RegisterExtensionFunctions(
   extensions::api::GeneratedFunctionRegistry::RegisterAll(registry);
 }
 
+void ChromeExtensionsBrowserClient::RegisterMojoServices(
+    content::RenderFrameHost* render_frame_host,
+    const Extension* extension) const {
+  RegisterServicesForFrame(render_frame_host, extension);
+  RegisterChromeServicesForFrame(render_frame_host, extension);
+}
+
 scoped_ptr<extensions::RuntimeAPIDelegate>
 ChromeExtensionsBrowserClient::CreateRuntimeAPIDelegate(
     content::BrowserContext* context) const {
@@ -251,10 +276,8 @@ ChromeExtensionsBrowserClient::CreateRuntimeAPIDelegate(
       new ChromeRuntimeAPIDelegate(context));
 }
 
-ComponentExtensionResourceManager*
+const ComponentExtensionResourceManager*
 ChromeExtensionsBrowserClient::GetComponentExtensionResourceManager() {
-  if (!resource_manager_)
-    resource_manager_.reset(new ChromeComponentExtensionResourceManager());
   return resource_manager_.get();
 }
 
@@ -272,7 +295,8 @@ net::NetLog* ChromeExtensionsBrowserClient::GetNetLog() {
 ExtensionCache* ChromeExtensionsBrowserClient::GetExtensionCache() {
   if (!extension_cache_.get()) {
 #if defined(OS_CHROMEOS)
-    extension_cache_.reset(new ExtensionCacheImpl());
+    extension_cache_.reset(new ExtensionCacheImpl(
+        make_scoped_ptr(new ChromeOSExtensionCacheDelegate())));
 #else
     extension_cache_.reset(new NullExtensionCache());
 #endif
@@ -281,7 +305,7 @@ ExtensionCache* ChromeExtensionsBrowserClient::GetExtensionCache() {
 }
 
 bool ChromeExtensionsBrowserClient::IsBackgroundUpdateAllowed() {
-  return !CommandLine::ForCurrentProcess()->HasSwitch(
+  return !base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kDisableBackgroundNetworking);
 }
 
@@ -295,6 +319,31 @@ bool ChromeExtensionsBrowserClient::IsMinBrowserVersionSupported(
     return false;
   }
   return true;
+}
+
+ExtensionWebContentsObserver*
+ChromeExtensionsBrowserClient::GetExtensionWebContentsObserver(
+    content::WebContents* web_contents) {
+  return ChromeExtensionWebContentsObserver::FromWebContents(web_contents);
+}
+
+void ChromeExtensionsBrowserClient::ReportError(
+    content::BrowserContext* context,
+    scoped_ptr<ExtensionError> error) {
+  extensions::ErrorConsole::Get(context)->ReportError(error.Pass());
+}
+
+void ChromeExtensionsBrowserClient::CleanUpWebView(int embedder_process_id,
+                                                   int view_instance_id) {
+  content::BrowserContext* browser_context =
+      content::RenderProcessHost::FromID(embedder_process_id)
+      ->GetBrowserContext();
+
+  // Clean up context menus for the WebView.
+  auto menu_manager =
+      MenuManager::Get(Profile::FromBrowserContext(browser_context));
+  menu_manager->RemoveAllContextItems(
+      MenuItem::ExtensionKey("", embedder_process_id, view_instance_id));
 }
 
 }  // namespace extensions

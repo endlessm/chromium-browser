@@ -24,25 +24,27 @@
  */
 
 #include "config.h"
-
 #include "wtf/HashSet.h"
+
 #include "wtf/OwnPtr.h"
 #include "wtf/PassOwnPtr.h"
 #include "wtf/RefCounted.h"
 #include <gtest/gtest.h>
 
-namespace {
+namespace WTF {
 
 template<int initialCapacity>
-    struct InitialCapacityTestHashTraits : public WTF::UnsignedWithZeroKeyHashTraits<int> {
+struct InitialCapacityTestHashTraits : public UnsignedWithZeroKeyHashTraits<int> {
     static const int minimumTableSize = initialCapacity;
 };
+
+namespace {
 
 template<unsigned size>
 void testInitialCapacity()
 {
-    const unsigned initialCapacity = WTF::HashTableCapacityForSize<size>::value;
-    HashSet<int, DefaultHash<int>::Hash, InitialCapacityTestHashTraits<initialCapacity> > testSet;
+    const unsigned initialCapacity = HashTableCapacityForSize<size>::value;
+    HashSet<int, DefaultHash<int>::Hash, InitialCapacityTestHashTraits<initialCapacity>> testSet;
 
     // Initial capacity is null.
     EXPECT_EQ(0UL, testSet.capacity());
@@ -95,14 +97,14 @@ TEST(HashSetTest, HashSetOwnPtr)
 {
     bool deleted1 = false, deleted2 = false;
 
-    typedef HashSet<OwnPtr<Dummy> > OwnPtrSet;
+    typedef HashSet<OwnPtr<Dummy>> OwnPtrSet;
     OwnPtrSet set;
 
     Dummy* ptr1 = new Dummy(deleted1);
     {
         // AddResult in a separate scope to avoid assertion hit,
         // since we modify the container further.
-        HashSet<OwnPtr<Dummy> >::AddResult res1 = set.add(adoptPtr(ptr1));
+        HashSet<OwnPtr<Dummy>>::AddResult res1 = set.add(adoptPtr(ptr1));
         EXPECT_EQ(ptr1, res1.storedValue->get());
     }
 
@@ -114,7 +116,7 @@ TEST(HashSetTest, HashSetOwnPtr)
 
     Dummy* ptr2 = new Dummy(deleted2);
     {
-        HashSet<OwnPtr<Dummy> >::AddResult res2 = set.add(adoptPtr(ptr2));
+        HashSet<OwnPtr<Dummy>>::AddResult res2 = set.add(adoptPtr(ptr2));
         EXPECT_EQ(res2.storedValue->get(), ptr2);
     }
 
@@ -163,7 +165,7 @@ TEST(HashSetTest, HashSetOwnPtr)
     EXPECT_EQ(ptr2, ownPtr2);
 }
 
-class DummyRefCounted: public WTF::RefCounted<DummyRefCounted> {
+class DummyRefCounted : public RefCounted<DummyRefCounted> {
 public:
     DummyRefCounted(bool& isDeleted) : m_isDeleted(isDeleted) { m_isDeleted = false; }
     ~DummyRefCounted() { m_isDeleted = true; }
@@ -187,7 +189,7 @@ TEST(HashSetTest, HashSetRefPtr)
     bool isDeleted = false;
     RefPtr<DummyRefCounted> ptr = adoptRef(new DummyRefCounted(isDeleted));
     EXPECT_EQ(0, DummyRefCounted::s_refInvokesCount);
-    HashSet<RefPtr<DummyRefCounted> > set;
+    HashSet<RefPtr<DummyRefCounted>> set;
     set.add(ptr);
     // Referenced only once (to store a copy in the container).
     EXPECT_EQ(1, DummyRefCounted::s_refInvokesCount);
@@ -208,5 +210,6 @@ TEST(HashSetTest, HashSetRefPtr)
     EXPECT_EQ(1, DummyRefCounted::s_refInvokesCount);
 }
 
+} // anonymous namespace
 
-} // namespace
+} // namespace WTF

@@ -6,7 +6,7 @@
  redistribute this Apple software.
  
  In consideration of your agreement to abide by the following terms, and subject to these 
- terms, Apple grants you a personal, non-exclusive license, under AppleÕs copyrights in 
+ terms, Apple grants you a personal, non-exclusive license, under Apple's copyrights in
  this original Apple software (the "Apple Software"), to use, reproduce, modify and 
  redistribute the Apple Software, with or without modifications, in source and/or binary 
  forms; provided that if you redistribute the Apple Software in its entirety and without 
@@ -108,7 +108,7 @@ int main(NPNetscapeFuncs *browserFuncs, NPPluginFuncs *pluginFuncs, NPP_Shutdown
     browser->size = browserFuncs->size;
     browser->version = browserFuncs->version;
     
-    // Since this is a mach-o plug-in and the browser is CFM because it is calling main, translate
+    // Since this is a mach-o plugin and the browser is CFM because it is calling main, translate
     // our function points into TVectors so the browser can call them.
     browser->geturl = (NPN_GetURLProcPtr)functionPointerForTVector((TransitionVector)browserFuncs->geturl);
     browser->posturl = (NPN_PostURLProcPtr)functionPointerForTVector((TransitionVector)browserFuncs->posturl);

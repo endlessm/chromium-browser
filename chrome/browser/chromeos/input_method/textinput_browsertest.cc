@@ -127,7 +127,7 @@ IN_PROC_BROWSER_TEST_F(TextInput_TextInputStateChangedTest,
           tab,
           "document.getElementById('text_id').focus();"));
 
-  // Expects PASSWORD text input type because javascript will chagne the focus
+  // Expects PASSWORD text input type because javascript will change the focus
   // to password field in #text_id's onfocus handler.
   helper.WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_PASSWORD);
   EXPECT_EQ(ui::TEXT_INPUT_TYPE_PASSWORD, helper.GetTextInputType());
@@ -230,7 +230,7 @@ IN_PROC_BROWSER_TEST_F(TextInput_TextInputStateChangedTest,
 }
 
 IN_PROC_BROWSER_TEST_F(TextInput_TextInputStateChangedTest,
-                       SwitchingAllTextInputTest) {
+                       DISABLED_SwitchingAllTextInputTest) {
   TextInputTestHelper helper;
   EXPECT_EQ(ui::TEXT_INPUT_TYPE_NONE, helper.GetTextInputType());
 

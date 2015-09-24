@@ -11,6 +11,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/accessibility/ax_tree_id_registry.h"
 #include "chrome/browser/extensions/api/automation_internal/automation_action_adapter.h"
+#include "chrome/browser/extensions/api/automation_internal/automation_event_router.h"
 #include "chrome/browser/extensions/api/automation_internal/automation_util.h"
 #include "chrome/browser/extensions/api/tabs/tabs_constants.h"
 #include "chrome/browser/extensions/extension_tab_util.h"
@@ -18,6 +19,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/extensions/api/automation_internal.h"
+#include "chrome/common/extensions/chrome_extension_messages.h"
 #include "chrome/common/extensions/manifest_handlers/automation.h"
 #include "content/public/browser/ax_event_notification_details.h"
 #include "content/public/browser/browser_accessibility_state.h"
@@ -30,8 +32,8 @@
 #include "extensions/common/extension_messages.h"
 #include "extensions/common/permissions/permissions_data.h"
 
-#if defined(OS_CHROMEOS)
-#include "chrome/browser/ui/ash/accessibility/automation_manager_ash.h"
+#if defined(USE_AURA)
+#include "chrome/browser/ui/aura/accessibility/automation_manager_aura.h"
 #endif
 
 namespace extensions {
@@ -51,7 +53,7 @@ const char kRendererDestroyed[] = "The tab was closed.";
 const char kNoMainFrame[] = "No main frame.";
 const char kNoDocument[] = "No document.";
 const char kNodeDestroyed[] =
-    "querySelector sent on node which is no longer in the tree.";
+    "domQuerySelector sent on node which is no longer in the tree.";
 
 // Handles sending and receiving IPCs for a single querySelector request. On
 // creation, sends the request IPC, and is destroyed either when the response is
@@ -82,8 +84,8 @@ class QuerySelectorHandler : public content::WebContentsObserver {
 
     // There may be several requests in flight; check this response matches.
     int message_request_id = 0;
-    PickleIterator iter(message);
-    if (!message.ReadInt(&iter, &message_request_id))
+    base::PickleIterator iter(message);
+    if (!iter.ReadInt(&message_request_id))
       return false;
 
     if (message_request_id != request_id_)
@@ -144,7 +146,7 @@ bool CanRequestAutomation(const Extension* extension,
   int process_id = process ? process->GetID() : -1;
   std::string unused_error;
   return extension->permissions_data()->CanAccessPage(
-      extension, url, url, tab_id, process_id, &unused_error);
+      extension, url, tab_id, process_id, &unused_error);
 }
 
 // Helper class that implements an action adapter for a |RenderFrameHost|.
@@ -166,6 +168,10 @@ class RenderFrameHostActionAdapter : public AutomationActionAdapter {
 
   void SetSelection(int32 id, int32 start, int32 end) override {
     rfh_->AccessibilitySetTextSelection(id, start, end);
+  }
+
+  void ShowContextMenu(int32 id) override {
+    rfh_->AccessibilityShowContextMenu(id);
   }
 
  private:
@@ -222,8 +228,8 @@ AutomationInternalEnableTabFunction::Run() {
   scoped_ptr<Params> params(Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
   content::WebContents* contents = NULL;
-  if (params->tab_id.get()) {
-    int tab_id = *params->tab_id;
+  if (params->args.tab_id.get()) {
+    int tab_id = *params->args.tab_id;
     if (!ExtensionTabUtil::GetTabById(tab_id,
                                       GetProfile(),
                                       include_incognito(),
@@ -247,17 +253,24 @@ AutomationInternalEnableTabFunction::Run() {
     return RespondNow(
         Error(kCannotRequestAutomationOnPage, contents->GetURL().spec()));
   }
+
   AutomationWebContentsObserver::CreateForWebContents(contents);
   contents->EnableTreeOnlyAccessibilityMode();
   int ax_tree_id = AXTreeIDRegistry::GetInstance()->GetOrCreateAXTreeID(
       rfh->GetProcess()->GetID(), rfh->GetRoutingID());
+
+  // This gets removed when the extension process dies.
+  AutomationEventRouter::GetInstance()->RegisterListenerForOneTree(
+      source_process_id(),
+      params->args.routing_id,
+      ax_tree_id);
+
   return RespondNow(ArgumentList(
       api::automation_internal::EnableTab::Results::Create(ax_tree_id)));
 }
 
 ExtensionFunction::ResponseAction AutomationInternalEnableFrameFunction::Run() {
 // TODO(dtseng): Limited to desktop tree for now pending out of proc iframes.
-#if defined(OS_CHROMEOS)
   using api::automation_internal::EnableFrame::Params;
 
   scoped_ptr<Params> params(Params::Create(*args_));
@@ -275,8 +288,6 @@ ExtensionFunction::ResponseAction AutomationInternalEnableFrameFunction::Run() {
   contents->EnableTreeOnlyAccessibilityMode();
 
   return RespondNow(NoArguments());
-#endif
-  return RespondNow(Error("enableFrame is only supported on Chrome OS"));
 }
 
 ExtensionFunction::ResponseAction
@@ -289,14 +300,14 @@ AutomationInternalPerformActionFunction::Run() {
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
   if (params->args.tree_id == kDesktopTreeID) {
-#if defined(OS_CHROMEOS)
-    return RouteActionToAdapter(
-        params.get(), AutomationManagerAsh::GetInstance());
+#if defined(USE_AURA)
+    return RouteActionToAdapter(params.get(),
+                                AutomationManagerAura::GetInstance());
 #else
     NOTREACHED();
     return RespondNow(Error("Unexpected action on desktop automation tree;"
                             " platform does not support desktop automation"));
-#endif  // defined(OS_CHROMEOS)
+#endif  // defined(USE_AURA)
   }
   AXTreeIDRegistry::FrameID frame_id =
       AXTreeIDRegistry::GetInstance()->GetFrameID(params->args.tree_id);
@@ -341,6 +352,10 @@ AutomationInternalPerformActionFunction::RouteActionToAdapter(
                            selection_params.end_index);
       break;
     }
+    case api::automation_internal::ACTION_TYPE_SHOWCONTEXTMENU: {
+      adapter->ShowContextMenu(automation_id);
+      break;
+    }
     default:
       NOTREACHED();
   }
@@ -349,16 +364,25 @@ AutomationInternalPerformActionFunction::RouteActionToAdapter(
 
 ExtensionFunction::ResponseAction
 AutomationInternalEnableDesktopFunction::Run() {
-#if defined(OS_CHROMEOS)
+#if defined(USE_AURA)
   const AutomationInfo* automation_info = AutomationInfo::Get(extension());
   if (!automation_info || !automation_info->desktop)
     return RespondNow(Error("desktop permission must be requested"));
 
-  AutomationManagerAsh::GetInstance()->Enable(browser_context());
+  using api::automation_internal::EnableDesktop::Params;
+  scoped_ptr<Params> params(Params::Create(*args_));
+  EXTENSION_FUNCTION_VALIDATE(params.get());
+
+  // This gets removed when the extension process dies.
+  AutomationEventRouter::GetInstance()->RegisterListenerWithDesktopPermission(
+      source_process_id(),
+      params->routing_id);
+
+  AutomationManagerAura::GetInstance()->Enable(browser_context());
   return RespondNow(NoArguments());
 #else
   return RespondNow(Error("getDesktop is unsupported by this platform"));
-#endif  // defined(OS_CHROMEOS)
+#endif  // defined(USE_AURA)
 }
 
 // static
@@ -375,14 +399,14 @@ AutomationInternalQuerySelectorFunction::Run() {
 
   if (params->args.tree_id == kDesktopTreeID) {
     return RespondNow(
-        Error("querySelector queries may not be used on the desktop."));
+        Error("domQuerySelector queries may not be used on the desktop."));
   }
   AXTreeIDRegistry::FrameID frame_id =
       AXTreeIDRegistry::GetInstance()->GetFrameID(params->args.tree_id);
   content::RenderFrameHost* rfh =
       content::RenderFrameHost::FromID(frame_id.first, frame_id.second);
   if (!rfh)
-    return RespondNow(Error("querySelector query sent on destroyed tree."));
+    return RespondNow(Error("domQuerySelector query sent on destroyed tree."));
 
   content::WebContents* contents =
       content::WebContents::FromRenderFrameHost(rfh);

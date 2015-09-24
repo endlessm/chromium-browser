@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/callback_list.h"
+#include "base/gtest_prod_util.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
 
@@ -71,11 +72,14 @@ class TranslateLanguageList {
   static void DisableUpdate();
 
   // static const values shared with our browser tests.
-  static const char kLanguageListCallbackName[];
   static const char kTargetLanguagesKey[];
   static const char kAlphaLanguagesKey[];
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(TranslateLanguageListTest, SetSupportedLanguages);
+  FRIEND_TEST_ALL_PREFIXES(TranslateLanguageListTest,
+                           SetSupportedLanguagesWithAlphaKey);
+
   // Callback function called when TranslateURLFetcher::Request() is finished.
   void OnLanguageListFetchComplete(int id,
                                    bool success,
@@ -85,8 +89,9 @@ class TranslateLanguageList {
   void NotifyEvent(int line, const std::string& message);
 
   // Parses |language_list| containing the list of languages that the translate
-  // server can translate to and from.
-  void SetSupportedLanguages(const std::string& language_list);
+  // server can translate to and from. Returns true iff the list is parsed
+  // without syntax errors.
+  bool SetSupportedLanguages(const std::string& language_list);
 
   // Returns the url from which to load the list of languages.
   GURL TranslateLanguageUrl();

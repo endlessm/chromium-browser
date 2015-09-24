@@ -12,11 +12,13 @@ Power usage is also measured.
 
 import time
 
-from metrics import power
 from telemetry.core import util
 from telemetry.page import page_test
 from telemetry.value import histogram
 from telemetry.value import histogram_util
+
+from metrics import keychain_metric
+from metrics import power
 
 # TODO: Revisit this test once multitab support is finalized.
 
@@ -27,10 +29,12 @@ class TabSwitching(page_test.PageTest):
 
   def __init__(self):
     super(TabSwitching, self).__init__()
-    self._first_page_in_pageset = True
+    self.first_page_in_storyset = True
     self._power_metric = None
 
   def CustomizeBrowserOptions(self, options):
+    keychain_metric.KeychainMetric.CustomizeBrowserOptions(options)
+
     options.AppendExtraBrowserArgs([
         '--enable-stats-collection-bindings'
     ])
@@ -39,26 +43,26 @@ class TabSwitching(page_test.PageTest):
     power.PowerMetric.CustomizeBrowserOptions(options)
 
   def WillStartBrowser(self, platform):
-    self._first_page_in_pageset = True
+    self.first_page_in_storyset = True
     self._power_metric = power.PowerMetric(platform, TabSwitching.SAMPLE_TIME)
 
   def TabForPage(self, page, browser):
-    if self._first_page_in_pageset:
+    if self.first_page_in_storyset:
       # The initial browser window contains a single tab, navigate that tab
       # rather than creating a new one.
-      self._first_page_in_pageset = False
+      self.first_page_in_storyset = False
       return browser.tabs[0]
 
     return browser.tabs.New()
 
   def StopBrowserAfterPage(self, browser, page):
     # Restart the browser after the last page in the pageset.
-    return len(browser.tabs) >= len(page.page_set.pages)
+    return len(browser.tabs) >= len(page.story_set.stories)
 
   def ValidateAndMeasurePage(self, page, tab, results):
     """On the last tab, cycle through each tab that was opened and then record
     a single histogram for the tab switching metric."""
-    if len(tab.browser.tabs) != len(page.page_set.pages):
+    if len(tab.browser.tabs) != len(page.story_set.stories):
       return
 
     # Measure power usage of tabs after quiescence.
@@ -77,8 +81,7 @@ class TabSwitching(page_test.PageTest):
         histogram_type, histogram_name, tab)
     prev_histogram = first_histogram
 
-    for i in xrange(len(tab.browser.tabs)):
-      t = tab.browser.tabs[i]
+    for t in tab.browser.tabs:
       t.Activate()
       def _IsDone():
         cur_histogram = histogram_util.GetHistogram(
@@ -99,3 +102,5 @@ class TabSwitching(page_test.PageTest):
         histogram.HistogramValue(None, display_name, 'ms',
                                  raw_value_json=diff_histogram,
                                  important=False))
+
+    keychain_metric.KeychainMetric().AddResults(tab, results)

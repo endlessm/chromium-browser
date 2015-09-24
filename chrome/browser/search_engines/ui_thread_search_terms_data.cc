@@ -10,7 +10,7 @@
 #include "base/prefs/pref_service.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/google/google_brand.h"
-#include "chrome/browser/google/google_profile_helper.h"
+#include "chrome/browser/google/google_url_tracker_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search/instant_service.h"
 #include "chrome/browser/search/instant_service_factory.h"
@@ -19,8 +19,9 @@
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/chrome_version_info.h"
+#include "components/google/core/browser/google_url_tracker.h"
 #include "components/google/core/browser/google_util.h"
-#include "components/omnibox/omnibox_field_trial.h"
+#include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/search/search.h"
 #include "content/public/browser/browser_thread.h"
 #include "ui/base/device_form_factor.h"
@@ -49,9 +50,14 @@ std::string UIThreadSearchTermsData::GoogleBaseURLValue() const {
   GURL base_url(google_util::CommandLineGoogleBaseURL());
   if (base_url.is_valid())
     return base_url.spec();
-  return profile_ ?
-      google_profile_helper::GetGoogleHomePageURL(profile_).spec() :
-      SearchTermsData::GoogleBaseURLValue();
+
+  if (!profile_)
+    return SearchTermsData::GoogleBaseURLValue();
+
+  const GoogleURLTracker* tracker =
+      GoogleURLTrackerFactory::GetForProfile(profile_);
+  return tracker ?
+      tracker->google_url().spec() : GoogleURLTracker::kDefaultGoogleHomepage;
 }
 
 std::string UIThreadSearchTermsData::GetApplicationLocale() const {
@@ -112,22 +118,10 @@ std::string UIThreadSearchTermsData::GetSuggestRequestIdentifier() const {
   DCHECK(!BrowserThread::IsThreadInitialized(BrowserThread::UI) ||
       BrowserThread::CurrentlyOn(BrowserThread::UI));
 #if defined(OS_ANDROID)
-  if (ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_PHONE) {
-    return OmniboxFieldTrial::EnableAnswersInSuggest() ?
-        "chrome-mobile-ext-ansg" : "chrome-mobile-ext";
-  }
-  return OmniboxFieldTrial::EnableAnswersInSuggest() ?
-      "chrome-ext-ansg" : "chrome-ext";
-#elif defined(OS_IOS)
-  return OmniboxFieldTrial::EnableAnswersInSuggest() ?
-      "chrome-ext-ansg" : "chrome-ext";
-#else
-  return "chrome-ext";
+  if (ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_PHONE)
+    return "chrome-mobile-ext-ansg";
 #endif
-}
-
-bool UIThreadSearchTermsData::EnableAnswersInSuggest() const {
-  return OmniboxFieldTrial::EnableAnswersInSuggest();
+  return "chrome-ext-ansg";
 }
 
 bool UIThreadSearchTermsData::IsShowingSearchTermsOnSearchResultsPages() const {

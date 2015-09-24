@@ -44,7 +44,6 @@
 #include "ash/wm/status_area_layout_manager.h"
 #include "ash/wm/system_background_controller.h"
 #include "ash/wm/system_modal_container_layout_manager.h"
-#include "ash/wm/virtual_keyboard_container_layout_manager.h"
 #include "ash/wm/window_properties.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
@@ -100,7 +99,7 @@ aura::Window* CreateContainer(int window_id,
   aura::Window* container = new aura::Window(NULL);
   container->set_id(window_id);
   container->SetName(name);
-  container->Init(aura::WINDOW_LAYER_NOT_DRAWN);
+  container->Init(ui::LAYER_NOT_DRAWN);
   parent->AddChild(container);
   if (window_id != kShellWindowId_UnparentedControlContainer)
     container->Show();
@@ -163,9 +162,24 @@ void ReparentAllWindows(aura::Window* src, aura::Window* dst) {
       kShellWindowId_SystemModalContainer,
       kShellWindowId_LockSystemModalContainer,
       kShellWindowId_UnparentedControlContainer,
-      kShellWindowId_OverlayContainer, };
-  for (size_t i = 0; i < arraysize(kContainerIdsToMove); i++) {
-    int id = kContainerIdsToMove[i];
+      kShellWindowId_OverlayContainer,
+  };
+  const int kExtraContainerIdsToMoveInUnifiedMode[] = {
+      kShellWindowId_LockScreenContainer,
+      kShellWindowId_LockScreenBackgroundContainer,
+  };
+  std::vector<int> container_ids(
+      kContainerIdsToMove,
+      kContainerIdsToMove + arraysize(kContainerIdsToMove));
+  // Check the default_multi_display_mode because this is also necessary
+  // in trasition between mirror <-> unified mode.
+  if (Shell::GetInstance()->display_manager()->default_multi_display_mode() ==
+      DisplayManager::UNIFIED) {
+    for (int id : kExtraContainerIdsToMoveInUnifiedMode)
+      container_ids.push_back(id);
+  }
+
+  for (int id : container_ids) {
     aura::Window* src_container = Shell::GetContainer(src, id);
     aura::Window* dst_container = Shell::GetContainer(dst, id);
     while (!src_container->children().empty()) {
@@ -234,7 +248,7 @@ class EmptyWindowDelegate : public aura::WindowDelegate {
   }
   bool CanFocus() override { return false; }
   void OnCaptureLost() override {}
-  void OnPaint(gfx::Canvas* canvas) override {}
+  void OnPaint(const ui::PaintContext& context) override {}
   void OnDeviceScaleFactorChanged(float device_scale_factor) override {}
   void OnWindowDestroying(aura::Window* window) override {}
   void OnWindowDestroyed(aura::Window* window) override { delete this; }
@@ -580,9 +594,9 @@ void RootWindowController::UpdateShelfVisibility() {
   shelf_->shelf_layout_manager()->UpdateVisibilityState();
 }
 
-const aura::Window* RootWindowController::GetWindowForFullscreenMode() const {
-  const aura::Window* topmost_window = NULL;
-  const aura::Window* active_window = wm::GetActiveWindow();
+aura::Window* RootWindowController::GetWindowForFullscreenMode() {
+  aura::Window* topmost_window = NULL;
+  aura::Window* active_window = wm::GetActiveWindow();
   if (active_window && active_window->GetRootWindow() == GetRootWindow() &&
       IsSwitchableContainer(active_window->parent())) {
     // Use the active window when it is on the current root window to determine
@@ -598,8 +612,7 @@ const aura::Window* RootWindowController::GetWindowForFullscreenMode() const {
         GetContainer(kShellWindowId_DefaultContainer)->children();
     for (aura::Window::Windows::const_reverse_iterator iter = windows.rbegin();
          iter != windows.rend(); ++iter) {
-      if (((*iter)->type() == ui::wm::WINDOW_TYPE_NORMAL ||
-           (*iter)->type() == ui::wm::WINDOW_TYPE_PANEL) &&
+      if (wm::IsWindowUserPositionable(*iter) &&
           (*iter)->layer()->GetTargetVisibility()) {
         topmost_window = *iter;
         break;
@@ -625,6 +638,8 @@ void RootWindowController::ActivateKeyboard(
   keyboard_controller->AddObserver(panel_layout_manager_);
   keyboard_controller->AddObserver(docked_layout_manager_);
   keyboard_controller->AddObserver(workspace_controller_->layout_manager());
+  keyboard_controller->AddObserver(
+      always_on_top_controller_->GetLayoutManager());
   Shell::GetInstance()->delegate()->VirtualKeyboardActivated(true);
   aura::Window* parent = GetContainer(kShellWindowId_ImeWindowParentContainer);
   DCHECK(parent);
@@ -632,9 +647,6 @@ void RootWindowController::ActivateKeyboard(
       keyboard_controller->GetContainerWindow();
   keyboard_container->set_id(kShellWindowId_VirtualKeyboardContainer);
   parent->AddChild(keyboard_container);
-  // TODO(oshima): Bounds of keyboard container should be handled by
-  // RootWindowLayoutManager. Remove this after fixed RootWindowLayoutManager.
-  keyboard_container->SetBounds(parent->bounds());
 }
 
 void RootWindowController::DeactivateKeyboard(
@@ -658,6 +670,8 @@ void RootWindowController::DeactivateKeyboard(
     keyboard_controller->RemoveObserver(docked_layout_manager_);
     keyboard_controller->RemoveObserver(
         workspace_controller_->layout_manager());
+    keyboard_controller->RemoveObserver(
+        always_on_top_controller_->GetLayoutManager());
     Shell::GetInstance()->delegate()->VirtualKeyboardActivated(false);
   }
 }
@@ -743,10 +757,8 @@ void RootWindowController::InitLayoutManagers() {
 
   aura::Window* always_on_top_container =
       GetContainer(kShellWindowId_AlwaysOnTopContainer);
-  always_on_top_container->SetLayoutManager(
-      new WorkspaceLayoutManager(always_on_top_container));
-  always_on_top_controller_.reset(new AlwaysOnTopController);
-  always_on_top_controller_->SetAlwaysOnTopContainer(always_on_top_container);
+  always_on_top_controller_.reset(
+      new AlwaysOnTopController(always_on_top_container));
 
   DCHECK(!shelf_.get());
   aura::Window* shelf_container = GetContainer(kShellWindowId_ShelfContainer);
@@ -760,7 +772,7 @@ void RootWindowController::InitLayoutManagers() {
     // This window exists only to be a event target on login screen.
     // It does not have to handle events, nor be visible.
     mouse_event_target_.reset(new aura::Window(new EmptyWindowDelegate));
-    mouse_event_target_->Init(aura::WINDOW_LAYER_NOT_DRAWN);
+    mouse_event_target_->Init(ui::LAYER_NOT_DRAWN);
 
     aura::Window* lock_background_container =
         GetContainer(kShellWindowId_LockScreenBackgroundContainer);
@@ -852,6 +864,9 @@ void RootWindowController::CreateContainersInRootWindow(
       kShellWindowId_NonLockScreenContainersContainer,
       "NonLockScreenContainersContainer",
       root_window);
+  // Clip all windows inside this container, as half pixel of the window's
+  // texture may become visible when the screen is scaled. crbug.com/368591.
+  non_lock_screen_containers->layer()->SetMasksToBounds(true);
 
   aura::Window* lock_background_containers = CreateContainer(
       kShellWindowId_LockScreenBackgroundContainer,
@@ -946,13 +961,7 @@ void RootWindowController::CreateContainersInRootWindow(
       "LockScreenContainer",
       lock_screen_containers);
   wm::SetSnapsChildrenToPhysicalPixelBoundary(lock_container);
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kAshDisableLockLayoutManager)) {
-    lock_container->SetLayoutManager(
-            new WorkspaceLayoutManager(lock_container));
-  } else {
-    lock_container->SetLayoutManager(new LockLayoutManager(lock_container));
-  }
+  lock_container->SetLayoutManager(new LockLayoutManager(lock_container));
   SetUsesScreenCoordinates(lock_container);
   // TODO(beng): stopsevents
 
@@ -990,9 +999,6 @@ void RootWindowController::CreateContainersInRootWindow(
                       lock_screen_related_containers);
   wm::SetSnapsChildrenToPhysicalPixelBoundary(
       virtual_keyboard_parent_container);
-  virtual_keyboard_parent_container->SetLayoutManager(
-      new VirtualKeyboardContainerLayoutManager(
-          virtual_keyboard_parent_container));
   SetUsesScreenCoordinates(virtual_keyboard_parent_container);
 
   aura::Window* menu_container = CreateContainer(

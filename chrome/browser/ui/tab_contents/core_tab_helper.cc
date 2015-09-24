@@ -9,6 +9,7 @@
 
 #include "base/command_line.h"
 #include "base/metrics/histogram.h"
+#include "base/profiler/scoped_tracker.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
@@ -18,6 +19,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/guest_view/browser/guest_view_manager.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/web_cache/browser/web_cache_manager.h"
@@ -26,9 +28,7 @@
 #include "content/public/browser/web_contents.h"
 #include "net/base/load_states.h"
 #include "net/http/http_request_headers.h"
-#include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/gfx/codec/jpeg_codec.h"
 
 using content::WebContents;
 
@@ -48,62 +48,9 @@ base::string16 CoreTabHelper::GetDefaultTitle() {
 }
 
 base::string16 CoreTabHelper::GetStatusText() const {
-  if (!web_contents()->IsLoading() ||
-      web_contents()->GetLoadState().state == net::LOAD_STATE_IDLE) {
-    return base::string16();
-  }
-
-  switch (web_contents()->GetLoadState().state) {
-    case net::LOAD_STATE_WAITING_FOR_STALLED_SOCKET_POOL:
-    case net::LOAD_STATE_WAITING_FOR_AVAILABLE_SOCKET:
-      return l10n_util::GetStringUTF16(IDS_LOAD_STATE_WAITING_FOR_SOCKET_SLOT);
-    case net::LOAD_STATE_WAITING_FOR_DELEGATE:
-      if (!web_contents()->GetLoadState().param.empty()) {
-        return l10n_util::GetStringFUTF16(IDS_LOAD_STATE_WAITING_FOR_DELEGATE,
-                                          web_contents()->GetLoadState().param);
-      } else {
-        return l10n_util::GetStringUTF16(
-            IDS_LOAD_STATE_WAITING_FOR_DELEGATE_GENERIC);
-      }
-    case net::LOAD_STATE_WAITING_FOR_CACHE:
-      return l10n_util::GetStringUTF16(IDS_LOAD_STATE_WAITING_FOR_CACHE);
-    case net::LOAD_STATE_WAITING_FOR_APPCACHE:
-      return l10n_util::GetStringUTF16(IDS_LOAD_STATE_WAITING_FOR_APPCACHE);
-    case net::LOAD_STATE_ESTABLISHING_PROXY_TUNNEL:
-      return
-          l10n_util::GetStringUTF16(IDS_LOAD_STATE_ESTABLISHING_PROXY_TUNNEL);
-    case net::LOAD_STATE_DOWNLOADING_PROXY_SCRIPT:
-      return l10n_util::GetStringUTF16(IDS_LOAD_STATE_DOWNLOADING_PROXY_SCRIPT);
-    case net::LOAD_STATE_RESOLVING_PROXY_FOR_URL:
-      return l10n_util::GetStringUTF16(IDS_LOAD_STATE_RESOLVING_PROXY_FOR_URL);
-    case net::LOAD_STATE_RESOLVING_HOST_IN_PROXY_SCRIPT:
-      return l10n_util::GetStringUTF16(
-          IDS_LOAD_STATE_RESOLVING_HOST_IN_PROXY_SCRIPT);
-    case net::LOAD_STATE_RESOLVING_HOST:
-      return l10n_util::GetStringUTF16(IDS_LOAD_STATE_RESOLVING_HOST);
-    case net::LOAD_STATE_CONNECTING:
-      return l10n_util::GetStringUTF16(IDS_LOAD_STATE_CONNECTING);
-    case net::LOAD_STATE_SSL_HANDSHAKE:
-      return l10n_util::GetStringUTF16(IDS_LOAD_STATE_SSL_HANDSHAKE);
-    case net::LOAD_STATE_SENDING_REQUEST:
-      if (web_contents()->GetUploadSize()) {
-        return l10n_util::GetStringFUTF16Int(
-            IDS_LOAD_STATE_SENDING_REQUEST_WITH_PROGRESS,
-            static_cast<int>((100 * web_contents()->GetUploadPosition()) /
-                web_contents()->GetUploadSize()));
-      } else {
-        return l10n_util::GetStringUTF16(IDS_LOAD_STATE_SENDING_REQUEST);
-      }
-    case net::LOAD_STATE_WAITING_FOR_RESPONSE:
-      return l10n_util::GetStringFUTF16(IDS_LOAD_STATE_WAITING_FOR_RESPONSE,
-                                        web_contents()->GetLoadStateHost());
-    // Ignore net::LOAD_STATE_READING_RESPONSE and net::LOAD_STATE_IDLE
-    case net::LOAD_STATE_IDLE:
-    case net::LOAD_STATE_READING_RESPONSE:
-      break;
-  }
-
-  return base::string16();
+  base::string16 status_text;
+  GetStatusTextForWebContents(&status_text, web_contents());
+  return status_text;
 }
 
 void CoreTabHelper::OnCloseStarted() {
@@ -137,10 +84,125 @@ void CoreTabHelper::UpdateContentRestrictions(int content_restrictions) {
 #endif
 }
 
+// static
+bool CoreTabHelper::GetStatusTextForWebContents(
+    base::string16* status_text, content::WebContents* source) {
+  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/467185 is
+  // fixed.
+  tracked_objects::ScopedTracker tracking_profile1(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "467185 CoreTabHelper::GetStatusTextForWebContents1"));
+  auto guest_manager = guest_view::GuestViewManager::FromBrowserContext(
+      source->GetBrowserContext());
+  if (!source->IsLoading() ||
+      source->GetLoadState().state == net::LOAD_STATE_IDLE) {
+    // TODO(robliao): Remove ScopedTracker below once https://crbug.com/467185
+    // is fixed.
+    tracked_objects::ScopedTracker tracking_profile2(
+        FROM_HERE_WITH_EXPLICIT_FUNCTION(
+            "467185 CoreTabHelper::GetStatusTextForWebContents2"));
+    if (!guest_manager)
+      return false;
+    return guest_manager->ForEachGuest(
+        source, base::Bind(&CoreTabHelper::GetStatusTextForWebContents,
+                           status_text));
+  }
+
+  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/467185
+  // is fixed.
+  tracked_objects::ScopedTracker tracking_profile3(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "467185 CoreTabHelper::GetStatusTextForWebContents3"));
+
+  switch (source->GetLoadState().state) {
+    case net::LOAD_STATE_WAITING_FOR_STALLED_SOCKET_POOL:
+    case net::LOAD_STATE_WAITING_FOR_AVAILABLE_SOCKET:
+      *status_text =
+          l10n_util::GetStringUTF16(IDS_LOAD_STATE_WAITING_FOR_SOCKET_SLOT);
+      return true;
+    case net::LOAD_STATE_WAITING_FOR_DELEGATE:
+      if (!source->GetLoadState().param.empty()) {
+        *status_text = l10n_util::GetStringFUTF16(
+            IDS_LOAD_STATE_WAITING_FOR_DELEGATE,
+            source->GetLoadState().param);
+        return true;
+      } else {
+        *status_text = l10n_util::GetStringUTF16(
+            IDS_LOAD_STATE_WAITING_FOR_DELEGATE_GENERIC);
+        return true;
+      }
+    case net::LOAD_STATE_WAITING_FOR_CACHE:
+      *status_text =
+          l10n_util::GetStringUTF16(IDS_LOAD_STATE_WAITING_FOR_CACHE);
+      return true;
+    case net::LOAD_STATE_WAITING_FOR_APPCACHE:
+      *status_text =
+          l10n_util::GetStringUTF16(IDS_LOAD_STATE_WAITING_FOR_APPCACHE);
+      return true;
+    case net::LOAD_STATE_ESTABLISHING_PROXY_TUNNEL:
+      *status_text =
+          l10n_util::GetStringUTF16(IDS_LOAD_STATE_ESTABLISHING_PROXY_TUNNEL);
+      return true;
+    case net::LOAD_STATE_DOWNLOADING_PROXY_SCRIPT:
+      *status_text =
+          l10n_util::GetStringUTF16(IDS_LOAD_STATE_DOWNLOADING_PROXY_SCRIPT);
+      return true;
+    case net::LOAD_STATE_RESOLVING_PROXY_FOR_URL:
+      *status_text =
+          l10n_util::GetStringUTF16(IDS_LOAD_STATE_RESOLVING_PROXY_FOR_URL);
+      return true;
+    case net::LOAD_STATE_RESOLVING_HOST_IN_PROXY_SCRIPT:
+      *status_text = l10n_util::GetStringUTF16(
+          IDS_LOAD_STATE_RESOLVING_HOST_IN_PROXY_SCRIPT);
+      return true;
+    case net::LOAD_STATE_RESOLVING_HOST:
+      *status_text = l10n_util::GetStringUTF16(IDS_LOAD_STATE_RESOLVING_HOST);
+      return true;
+    case net::LOAD_STATE_CONNECTING:
+      *status_text = l10n_util::GetStringUTF16(IDS_LOAD_STATE_CONNECTING);
+      return true;
+    case net::LOAD_STATE_SSL_HANDSHAKE:
+      *status_text = l10n_util::GetStringUTF16(IDS_LOAD_STATE_SSL_HANDSHAKE);
+      return true;
+    case net::LOAD_STATE_SENDING_REQUEST:
+      if (source->GetUploadSize()) {
+        *status_text = l10n_util::GetStringFUTF16Int(
+            IDS_LOAD_STATE_SENDING_REQUEST_WITH_PROGRESS,
+            static_cast<int>((100 * source->GetUploadPosition()) /
+                source->GetUploadSize()));
+        return true;
+      } else {
+        *status_text =
+            l10n_util::GetStringUTF16(IDS_LOAD_STATE_SENDING_REQUEST);
+        return true;
+      }
+    case net::LOAD_STATE_WAITING_FOR_RESPONSE:
+      *status_text =
+          l10n_util::GetStringFUTF16(IDS_LOAD_STATE_WAITING_FOR_RESPONSE,
+                                     source->GetLoadStateHost());
+      return true;
+    // Ignore net::LOAD_STATE_READING_RESPONSE and net::LOAD_STATE_IDLE
+    case net::LOAD_STATE_IDLE:
+    case net::LOAD_STATE_READING_RESPONSE:
+      break;
+  }
+  if (!guest_manager)
+    return false;
+
+  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/467185 is
+  // fixed.
+  tracked_objects::ScopedTracker tracking_profile4(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "467185 CoreTabHelper::GetStatusTextForWebContents4"));
+  return guest_manager->ForEachGuest(
+      source, base::Bind(&CoreTabHelper::GetStatusTextForWebContents,
+                         status_text));
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // WebContentsObserver overrides
 
-void CoreTabHelper::DidStartLoading(content::RenderViewHost* render_view_host) {
+void CoreTabHelper::DidStartLoading() {
   UpdateContentRestrictions(0);
 }
 
@@ -152,8 +214,9 @@ void CoreTabHelper::WasShown() {
 void CoreTabHelper::WebContentsDestroyed() {
   // OnCloseStarted isn't called in unit tests.
   if (!close_start_time_.is_null()) {
-    bool fast_tab_close_enabled = CommandLine::ForCurrentProcess()->HasSwitch(
-        switches::kEnableFastUnload);
+    bool fast_tab_close_enabled =
+        base::CommandLine::ForCurrentProcess()->HasSwitch(
+            switches::kEnableFastUnload);
 
     if (fast_tab_close_enabled) {
       base::TimeTicks now = base::TimeTicks::Now();
@@ -202,10 +265,11 @@ bool CoreTabHelper::OnMessageReceived(
 // Handles the image thumbnail for the context node, composes a image search
 // request based on the received thumbnail and opens the request in a new tab.
 void CoreTabHelper::OnRequestThumbnailForContextNodeACK(
-    const SkBitmap& bitmap,
+    const std::string& thumbnail_data,
     const gfx::Size& original_size) {
-  if (bitmap.isNull())
+  if (thumbnail_data.empty())
     return;
+
   Profile* profile =
       Profile::FromBrowserContext(web_contents()->GetBrowserContext());
 
@@ -218,18 +282,9 @@ void CoreTabHelper::OnRequestThumbnailForContextNodeACK(
   if (!default_provider)
     return;
 
-  const int kDefaultQualityForImageSearch = 90;
-  std::vector<unsigned char> data;
-  if (!gfx::JPEGCodec::Encode(
-      reinterpret_cast<unsigned char*>(bitmap.getAddr32(0, 0)),
-      gfx::JPEGCodec::FORMAT_SkBitmap, bitmap.width(), bitmap.height(),
-      static_cast<int>(bitmap.rowBytes()), kDefaultQualityForImageSearch,
-      &data))
-    return;
-
   TemplateURLRef::SearchTermsArgs search_args =
       TemplateURLRef::SearchTermsArgs(base::string16());
-  search_args.image_thumbnail_content = std::string(data.begin(), data.end());
+  search_args.image_thumbnail_content = thumbnail_data;
   // TODO(jnd): Add a method in WebContentsViewDelegate to get the image URL
   // from the ContextMenuParams which creates current context menu.
   search_args.image_url = GURL();

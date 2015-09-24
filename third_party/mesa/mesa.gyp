@@ -46,15 +46,17 @@
       "_GLAPI_NO_EXPORTS",
     ],
     'conditions': [
-      ['OS=="android"', {
+      ['OS=="android" or OS=="linux"', {
         'defines': [
-          '__GLIBC__',
           '_GNU_SOURCE',
         ],
       }],
-      ['OS=="linux"', {
+      ['OS=="win"', {
         'defines': [
-          '_GNU_SOURCE',
+          # Generated files use const only if __cplusplus or __STDC__ is
+          # defined. On Windows, neither is defined, so define YY_USE_CONST
+          # to explicitly enable const.
+          'YY_USE_CONST',
         ],
       }],
       ['os_posix == 1', {
@@ -80,6 +82,7 @@
           # which is used by gallium/auxiliary/Makefile.
           '-fsanitize=null',
           '-fsanitize=vptr',
+          '-fsanitize-coverage=<(sanitizer_coverage)',
         ],
       }],
     ],
@@ -657,14 +660,6 @@
             '_GLAPI_NO_EXPORTS',
           ],
         }],
-        ['ubsan==1', {
-          # Due to a bug in LLVM (http://llvm.org/bugs/show_bug.cgi?id=21349),
-          # compilation hangs for some Mesa source files. Disable -O2
-          # temporarily until http://crbug.com/426271 is fixed.
-          'cflags!': [
-            '-O2',
-          ],
-        }],
       ],
     },
     # Building this target will hide the native OpenGL shared library and
@@ -690,6 +685,15 @@
             'KEYWORD2=GLAPIENTRY',
           ],
         }],
+        ['OS=="linux"', {
+          'link_settings': {
+            'libraries': [
+              '-ldl',
+              '-lm',
+              '-lstdc++',
+            ],
+          },
+        }],
       ],
       'include_dirs': [
         'src/src/mapi',
@@ -708,6 +712,12 @@
         'src/src/mesa/drivers/osmesa/osmesa.c',
         'src/src/mesa/drivers/osmesa/osmesa.def',
       ],
+      'variables': {
+        'clang_warning_flags_unset': [
+          # Don't warn about string->bool used in asserts.
+          '-Wstring-conversion',
+        ],
+      },
     },
   ],
   'conditions': [

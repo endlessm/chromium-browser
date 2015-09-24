@@ -4,13 +4,13 @@
 
 #include "chrome/browser/devtools/devtools_network_transaction.h"
 
-#include "base/profiler/scoped_tracker.h"
 #include "chrome/browser/devtools/devtools_network_controller.h"
 #include "chrome/browser/devtools/devtools_network_interceptor.h"
 #include "net/base/net_errors.h"
 #include "net/base/upload_progress.h"
 #include "net/http/http_network_transaction.h"
 #include "net/http/http_request_info.h"
+#include "net/socket/connection_attempts.h"
 
 // Keep in sync with kDevToolsRequestInitiator and
 // kDevToolsEmulateNetworkConditionsClientId defined in
@@ -53,11 +53,6 @@ void DevToolsNetworkTransaction::Throttle(int result) {
 }
 
 void DevToolsNetworkTransaction::OnCallback(int rv) {
-  // TODO(vadimt): Remove ScopedTracker below once crbug.com/424359 is fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "424359 DevToolsNetworkTransaction::OnCallback"));
-
   if (failed_)
     return;
   DCHECK(!callback_.is_null());
@@ -270,6 +265,12 @@ int DevToolsNetworkTransaction::ResumeNetworkStart() {
   if (failed_)
     return net::ERR_INTERNET_DISCONNECTED;
   return network_transaction_->ResumeNetworkStart();
+}
+
+void
+DevToolsNetworkTransaction::GetConnectionAttempts(net::ConnectionAttempts* out)
+const {
+  network_transaction_->GetConnectionAttempts(out);
 }
 
 void DevToolsNetworkTransaction::FireThrottledCallback() {

@@ -4,6 +4,7 @@
 
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
@@ -19,10 +20,9 @@ class GeolocationHandlerTest : public testing::Test {
   GeolocationHandlerTest() : manager_test_(NULL) {
   }
 
-  virtual ~GeolocationHandlerTest() {
-  }
+  ~GeolocationHandlerTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     // Initialize DBusThreadManager with a stub implementation.
     DBusThreadManager::Initialize();
     // Get the test interface for manager / device.
@@ -34,7 +34,7 @@ class GeolocationHandlerTest : public testing::Test {
     message_loop_.RunUntilIdle();
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     geolocation_handler_.reset();
     DBusThreadManager::Shutdown();
   }
@@ -49,8 +49,8 @@ class GeolocationHandlerTest : public testing::Test {
     std::string mac_address =
         base::StringPrintf("%02X:%02X:%02X:%02X:%02X:%02X",
                            idx, 0, 0, 0, 0, 0);
-    std::string channel = base::StringPrintf("%d", idx);
-    std::string strength = base::StringPrintf("%d", idx * 10);
+    std::string channel = base::IntToString(idx);
+    std::string strength = base::IntToString(idx * 10);
     properties.SetStringWithoutPathExpansion(
         shill::kGeoMacAddressProperty, mac_address);
     properties.SetStringWithoutPathExpansion(

@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_WIFI_FAKE_WIFI_SERVICE_H_
 #define COMPONENTS_WIFI_FAKE_WIFI_SERVICE_H_
 
+#include <string>
+
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "components/wifi/network_properties.h"
@@ -50,10 +52,12 @@ class FakeWiFiService : public WiFiService {
                         std::string* key_data,
                         std::string* error) override;
   void SetEventObservers(
-      scoped_refptr<base::MessageLoopProxy> message_loop_proxy,
+      scoped_refptr<base::SingleThreadTaskRunner> task_runner,
       const NetworkGuidListCallback& networks_changed_observer,
       const NetworkGuidListCallback& network_list_changed_observer) override;
   void RequestConnectedNetworkUpdate() override;
+  void GetConnectedNetworkSSID(std::string* ssid,
+                               std::string* error) override;
 
  private:
   NetworkList::iterator FindNetwork(const std::string& network_guid);
@@ -67,7 +71,7 @@ class FakeWiFiService : public WiFiService {
   void NotifyNetworkChanged(const std::string& network_guid);
 
   NetworkList networks_;
-  scoped_refptr<base::MessageLoopProxy> message_loop_proxy_;
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   NetworkGuidListCallback networks_changed_observer_;
   NetworkGuidListCallback network_list_changed_observer_;
 

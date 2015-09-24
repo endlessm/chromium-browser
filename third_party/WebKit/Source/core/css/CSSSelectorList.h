@@ -26,14 +26,15 @@
 #ifndef CSSSelectorList_h
 #define CSSSelectorList_h
 
+#include "core/CoreExport.h"
 #include "core/css/CSSSelector.h"
 
 namespace blink {
 
 class CSSParserSelector;
 
-class CSSSelectorList {
-    WTF_MAKE_FAST_ALLOCATED;
+class CORE_EXPORT CSSSelectorList {
+    WTF_MAKE_FAST_ALLOCATED(CSSSelectorList);
 public:
     CSSSelectorList() : m_selectorArray(0) { }
     CSSSelectorList(const CSSSelectorList&);
@@ -41,7 +42,7 @@ public:
     ~CSSSelectorList();
 
     void adopt(CSSSelectorList& list);
-    void adoptSelectorVector(Vector<OwnPtr<CSSParserSelector> >& selectorVector);
+    void adoptSelectorVector(Vector<OwnPtr<CSSParserSelector>>& selectorVector);
 
     bool isValid() const { return !!m_selectorArray; }
     const CSSSelector* first() const { return m_selectorArray; }
@@ -60,6 +61,9 @@ public:
 
     bool selectorsNeedNamespaceResolution();
 
+    bool selectorNeedsUpdatedDistribution(size_t index) const;
+
+    // TODO(esprehn): These methods are confusing and incorrectly named.
     bool hasShadowDistributedAt(size_t index) const;
     bool selectorCrossesTreeScopes(size_t index) const;
 

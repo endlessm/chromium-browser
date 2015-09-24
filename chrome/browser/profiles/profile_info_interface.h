@@ -37,10 +37,11 @@ class ProfileInfoInterface {
 
   virtual base::string16 GetUserNameOfProfileAtIndex(size_t index) const = 0;
 
-  virtual const gfx::Image& GetAvatarIconOfProfileAtIndex(
-      size_t index) const = 0;
+  virtual const gfx::Image& GetAvatarIconOfProfileAtIndex(size_t index) = 0;
 
   virtual std::string GetLocalAuthCredentialsOfProfileAtIndex(
+      size_t index) const = 0;
+  virtual std::string GetPasswordChangeDetectionTokenAtIndex(
       size_t index) const = 0;
 
   // Returns true if the profile at the given index is currently running any
@@ -53,13 +54,21 @@ class ProfileInfoInterface {
   virtual base::string16 GetGAIAGivenNameOfProfileAtIndex(
       size_t index) const = 0;
 
+  virtual std::string GetGAIAIdOfProfileAtIndex(size_t index) const = 0;
+
   virtual const gfx::Image* GetGAIAPictureOfProfileAtIndex(
       size_t index) const = 0;
 
   // Checks if the GAIA picture should be used as the profile's avatar icon.
   virtual bool IsUsingGAIAPictureOfProfileAtIndex(size_t index) const = 0;
 
+  // Returns whether the profile is supervised (either a legacy supervised
+  // user or a child account; see SupervisedUserService).
   virtual bool ProfileIsSupervisedAtIndex(size_t index) const = 0;
+  // Returns whether the profile is associated with a child account.
+  virtual bool ProfileIsChildAtIndex(size_t index) const = 0;
+  // Returns whether the profile is a legacy supervised user profile.
+  virtual bool ProfileIsLegacySupervisedAtIndex(size_t index) const = 0;
 
   // Returns true if the profile should be omitted from the desktop profile
   // list (see ProfileListDesktop), so it won't appear in the avatar menu.
@@ -81,6 +90,9 @@ class ProfileInfoInterface {
 
   // Returns true if the user has never manually selected a profile avatar.
   virtual bool ProfileIsUsingDefaultAvatarAtIndex(size_t index) const = 0;
+
+  // Returns true if the given profile is connected to an account.
+  virtual bool ProfileIsAuthenticatedAtIndex(size_t index) const = 0;
 
  protected:
   virtual ~ProfileInfoInterface() {}

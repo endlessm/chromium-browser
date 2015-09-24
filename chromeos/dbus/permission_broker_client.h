@@ -11,6 +11,7 @@
 #include "base/callback.h"
 #include "chromeos/chromeos_export.h"
 #include "chromeos/dbus/dbus_client.h"
+#include "dbus/file_descriptor.h"
 
 namespace chromeos {
 
@@ -28,9 +29,19 @@ class CHROMEOS_EXPORT PermissionBrokerClient : public DBusClient {
   // the operation that it was submitted alongside.
   typedef base::Callback<void(bool)> ResultCallback;
 
-  virtual ~PermissionBrokerClient();
+  // An OpenPathCallback callback is run when an OpenPath request is completed.
+  typedef base::Callback<void(dbus::FileDescriptor)> OpenPathCallback;
+
+  ~PermissionBrokerClient() override;
 
   static PermissionBrokerClient* Create();
+
+  // CheckPathAccess requests a hint from the permission broker about whether
+  // a later call to RequestPathAccess will be successful. It presumes that
+  // the |interface_id| value passed to RequestPathAccess will be
+  // UsbDevicePermissionsData::ANY_INTERFACE).
+  virtual void CheckPathAccess(const std::string& path,
+                               const ResultCallback& callback) = 0;
 
   // RequestPathAccess requests access to a single device node identified by
   // |path|. If |interface_id| value is passed (different than
@@ -42,17 +53,42 @@ class CHROMEOS_EXPORT PermissionBrokerClient : public DBusClient {
                                  int interface_id,
                                  const ResultCallback& callback) = 0;
 
-  // RequestUsbAccess attempts to request access to _all_ USB devices attached
-  // to the system that match |vendor_id| and |product_id|. If |interface_id| is
-  // passed (not -1), the request will check if a specific interface is claimed
-  // while requesting access. This allows devices with multiple interfaces to be
-  // accessed even if some of them are already claimed by kernel.
-  // This call makes no attempt to guarantee atomicity, and partial failure is
-  // indistinguishable from complete failure.
-  virtual void RequestUsbAccess(uint16_t vendor_id,
-                                uint16_t product_id,
-                                int interface_id,
-                                const ResultCallback& callback) = 0;
+  // OpenPath requests that the permission broker open the device node
+  // identified by |path| and return the resulting file descriptor.
+  virtual void OpenPath(const std::string& path,
+                        const OpenPathCallback& callback) = 0;
+
+  // Requests the |port| be opened on the firewall for incoming TCP/IP
+  // connections received on |interface| (an empty string indicates all
+  // interfaces). An open pipe must be passed as |lifeline_fd| so that the
+  // permission broker can monitor the lifetime of the calling process.
+  virtual void RequestTcpPortAccess(uint16 port,
+                                    const std::string& interface,
+                                    const dbus::FileDescriptor& lifeline_fd,
+                                    const ResultCallback& callback) = 0;
+
+  // Requests the |port| be opened on the firewall for incoming UDP packets
+  // received on |interface| (an empty string indicates all interfaces). An open
+  // pipe must be passed as |lifeline_fd| so that the permission broker can
+  // monitor the lifetime of the calling process.
+  virtual void RequestUdpPortAccess(uint16 port,
+                                    const std::string& interface,
+                                    const dbus::FileDescriptor& lifeline_fd,
+                                    const ResultCallback& callback) = 0;
+
+  // Releases a request for an open firewall port for TCP/IP connections. The
+  // |port| and |interface| parameters must be the same as a previous call to
+  // RequestTcpPortAccess.
+  virtual void ReleaseTcpPort(uint16 port,
+                              const std::string& interface,
+                              const ResultCallback& callback) = 0;
+
+  // Releases a request for an open firewall port for UDP packets. The |port|
+  // and |interface| parameters must be the same as a previous call to
+  // RequestUdpPortAccess.
+  virtual void ReleaseUdpPort(uint16 port,
+                              const std::string& interface,
+                              const ResultCallback& callback) = 0;
 
  protected:
   PermissionBrokerClient();

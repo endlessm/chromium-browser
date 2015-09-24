@@ -11,7 +11,7 @@
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "extensions/browser/app_window/app_window_registry.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
 
 class Profile;
@@ -101,7 +101,7 @@ class WebAuthFlow : public content::NotificationObserver,
                const content::NotificationDetails& details) override;
 
   // WebContentsObserver implementation.
-  void DidStopLoading(content::RenderViewHost* render_view_host) override;
+  void DidStopLoading() override;
   void DidNavigateMainFrame(
       const content::LoadCommittedDetails& details,
       const content::FrameNavigateParams& params) override;
@@ -114,7 +114,8 @@ class WebAuthFlow : public content::NotificationObserver,
   void DidFailProvisionalLoad(content::RenderFrameHost* render_frame_host,
                               const GURL& validated_url,
                               int error_code,
-                              const base::string16& error_description) override;
+                              const base::string16& error_description,
+                              bool was_ignored_by_handler) override;
 
   void BeforeUrlLoaded(const GURL& url);
   void AfterUrlLoaded();

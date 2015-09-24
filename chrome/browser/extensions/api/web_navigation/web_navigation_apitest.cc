@@ -90,6 +90,24 @@ class TestNavigationListener
     throttles_.clear();
   }
 
+  // Resume a specific request.
+  void Resume(const GURL& url) {
+    if (!content::BrowserThread::CurrentlyOn(content::BrowserThread::IO)) {
+      content::BrowserThread::PostTask(
+          content::BrowserThread::IO, FROM_HERE,
+          base::Bind(&TestNavigationListener::Resume, this, url));
+      return;
+    }
+    WeakThrottleList::iterator it;
+    for (it = throttles_.begin(); it != throttles_.end(); ++it) {
+      if (it->get() && it->get()->url() == url) {
+        (*it)->Resume();
+        throttles_.erase(it);
+        break;
+      }
+    }
+  }
+
   // Constructs a ResourceThrottle if the request for |url| should be held.
   //
   // Needs to be invoked on the IO thread.
@@ -101,6 +119,7 @@ class TestNavigationListener
       return NULL;
 
     Throttle* throttle = new Throttle();
+    throttle->set_url(url);
     throttles_.push_back(throttle->AsWeakPtr());
     return throttle;
   }
@@ -124,6 +143,12 @@ class TestNavigationListener
     const char* GetNameForLogging() const override {
       return "TestNavigationListener::Throttle";
     }
+
+    void set_url(const GURL& url) { url_ = url; }
+    const GURL& url() { return url_; }
+
+   private:
+    GURL url_;
   };
   typedef base::WeakPtr<Throttle> WeakThrottle;
   typedef std::list<WeakThrottle> WeakThrottleList;
@@ -154,6 +179,7 @@ class DelayLoadStartAndExecuteJavascript
         delay_url_(delay_url),
         until_url_suffix_(until_url_suffix),
         script_(script),
+        has_user_gesture_(false),
         script_was_executed_(false),
         rvh_(NULL) {
     registrar_.Add(this,
@@ -183,7 +209,12 @@ class DelayLoadStartAndExecuteJavascript
     if (validated_url != delay_url_ || !rvh_)
       return;
 
-    rvh_->GetMainFrame()->ExecuteJavaScript(base::UTF8ToUTF16(script_));
+    if (has_user_gesture_) {
+      rvh_->GetMainFrame()->ExecuteJavaScriptWithUserGestureForTests(
+          base::UTF8ToUTF16(script_));
+    } else {
+      rvh_->GetMainFrame()->ExecuteJavaScript(base::UTF8ToUTF16(script_));
+    }
     script_was_executed_ = true;
   }
 
@@ -191,11 +222,16 @@ class DelayLoadStartAndExecuteJavascript
       content::RenderFrameHost* render_frame_host,
       const GURL& url,
       ui::PageTransition transition_type) override {
-    if (script_was_executed_ && EndsWith(url.spec(), until_url_suffix_, true)) {
+    if (script_was_executed_ &&
+        base::EndsWith(url.spec(), until_url_suffix_, true)) {
       content::WebContentsObserver::Observe(NULL);
       test_navigation_listener_->ResumeAll();
     }
     rvh_ = render_frame_host->GetRenderViewHost();
+  }
+
+  void set_has_user_gesture(bool has_user_gesture) {
+    has_user_gesture_ = has_user_gesture;
   }
 
  private:
@@ -206,21 +242,59 @@ class DelayLoadStartAndExecuteJavascript
   GURL delay_url_;
   std::string until_url_suffix_;
   std::string script_;
+  bool has_user_gesture_;
   bool script_was_executed_;
   content::RenderViewHost* rvh_;
 
   DISALLOW_COPY_AND_ASSIGN(DelayLoadStartAndExecuteJavascript);
 };
 
+class StartProvisionalLoadObserver : public content::WebContentsObserver {
+ public:
+  StartProvisionalLoadObserver(WebContents* web_contents,
+                               const GURL& expected_url)
+      : content::WebContentsObserver(web_contents),
+        url_(expected_url),
+        url_seen_(false),
+        message_loop_runner_(new content::MessageLoopRunner) {}
+  ~StartProvisionalLoadObserver() override {}
+
+  void DidStartProvisionalLoadForFrame(
+      content::RenderFrameHost* render_frame_host,
+      const GURL& validated_url,
+      bool is_error_page,
+      bool is_iframe_srcdoc) override {
+    if (validated_url == url_) {
+      url_seen_ = true;
+      message_loop_runner_->Quit();
+    }
+  }
+
+  // Run a nested message loop until navigation to the expected URL has started.
+  void Wait() {
+    if (url_seen_)
+      return;
+
+    message_loop_runner_->Run();
+  }
+
+ private:
+  GURL url_;
+  bool url_seen_;
+
+  // The MessageLoopRunner used to spin the message loop during Wait().
+  scoped_refptr<content::MessageLoopRunner> message_loop_runner_;
+
+  DISALLOW_COPY_AND_ASSIGN(StartProvisionalLoadObserver);
+};
+
 // A ResourceDispatcherHostDelegate that adds a TestNavigationObserver.
 class TestResourceDispatcherHostDelegate
     : public ChromeResourceDispatcherHostDelegate {
  public:
-  TestResourceDispatcherHostDelegate(
-      prerender::PrerenderTracker* prerender_tracker,
+  explicit TestResourceDispatcherHostDelegate(
       TestNavigationListener* test_navigation_listener)
-      : ChromeResourceDispatcherHostDelegate(prerender_tracker),
-        test_navigation_listener_(test_navigation_listener) {
+      : test_navigation_listener_(test_navigation_listener) {
   }
   ~TestResourceDispatcherHostDelegate() override {}
 
@@ -261,7 +335,7 @@ class WebNavigationApiTest : public ExtensionApiTest {
 
     FrameNavigationState::set_allow_extension_scheme(true);
 
-    CommandLine::ForCurrentProcess()->AppendSwitch(
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
         switches::kAllowLegacyExtensionManifests);
 
     host_resolver()->AddRule("*", "127.0.0.1");
@@ -272,7 +346,6 @@ class WebNavigationApiTest : public ExtensionApiTest {
     test_navigation_listener_ = new TestNavigationListener();
     resource_dispatcher_host_delegate_.reset(
         new TestResourceDispatcherHostDelegate(
-            g_browser_process->prerender_tracker(),
             test_navigation_listener_.get()));
     content::ResourceDispatcherHost::Get()->SetDelegate(
         resource_dispatcher_host_delegate_.get());
@@ -344,14 +417,14 @@ IN_PROC_BROWSER_TEST_F(WebNavigationApiTest, ServerRedirectSingleProcess) {
 
   ResultCatcher catcher;
   GURL url(base::StringPrintf(
-      "http://www.a.com:%d/"
+      "http://www.a.com:%u/"
       "extensions/api_test/webnavigation/serverRedirectSingleProcess/a.html",
       embedded_test_server()->port()));
 
   ui_test_utils::NavigateToURL(browser(), url);
 
   url = GURL(base::StringPrintf(
-      "http://www.b.com:%d/server-redirect?http://www.b.com:%d/",
+      "http://www.b.com:%u/server-redirect?http://www.b.com:%u/",
       embedded_test_server()->port(),
       embedded_test_server()->port()));
 
@@ -391,7 +464,12 @@ IN_PROC_BROWSER_TEST_F(WebNavigationApiTest, SimpleLoad) {
   ASSERT_TRUE(RunExtensionTest("webnavigation/simpleLoad")) << message_;
 }
 
-IN_PROC_BROWSER_TEST_F(WebNavigationApiTest, Failures) {
+#if defined(OS_WIN)  // http://crbug.com/477840
+#define MAYBE_Failures DISABLED_Failures
+#else
+#define MAYBE_Failures Failures
+#endif
+IN_PROC_BROWSER_TEST_F(WebNavigationApiTest, MAYBE_Failures) {
   ASSERT_TRUE(StartEmbeddedTestServer());
   ASSERT_TRUE(RunExtensionTest("webnavigation/failures")) << message_;
 }
@@ -548,7 +626,62 @@ IN_PROC_BROWSER_TEST_F(WebNavigationApiTest, CrossProcess) {
       "navigate2()",
       "empty.html");
 
+  DelayLoadStartAndExecuteJavascript call_script_user_gesture(
+      test_navigation_listener(),
+      embedded_test_server()->GetURL("/test2"),
+      "navigate2()",
+      "empty.html");
+  call_script_user_gesture.set_has_user_gesture(true);
+
   ASSERT_TRUE(RunExtensionTest("webnavigation/crossProcess")) << message_;
+}
+
+// This test verifies proper events for the following navigation sequence:
+// * Site A commits
+// * Slow cross-site navigation to site B starts
+// * Slow same-site navigation to different page in site A starts
+// * The slow cross-site navigation commits, cancelling the slow same-site
+//   navigation
+// Slow navigations are simulated by deferring an URL request, which fires
+// an onBeforeNavigate event, but doesn't reach commit. The URL request can
+// later be resumed to allow it to commit and load.
+// This test cannot use DelayLoadStartAndExecuteJavascript, as that class
+// resumes all URL requests. Instead, the test explicitly delays each URL
+// and resumes manually at the required time.
+IN_PROC_BROWSER_TEST_F(WebNavigationApiTest, CrossProcessAbort) {
+  ASSERT_TRUE(StartEmbeddedTestServer());
+
+  // Add the cross-site URL delay early on, as loading the extension will
+  // cause the cross-site navigation to start.
+  GURL cross_site_url = embedded_test_server()->GetURL("/title1.html");
+  test_navigation_listener()->DelayRequestsForURL(cross_site_url);
+
+  // Load the extension manually, as its base URL is needed later on to
+  // construct a same-site URL to delay.
+  const Extension* extension =
+      LoadExtension(test_data_dir_.AppendASCII("webnavigation")
+                        .AppendASCII("crossProcessAbort"));
+
+  WebContents* tab = browser()->tab_strip_model()->GetActiveWebContents();
+  ResultCatcher catcher;
+  StartProvisionalLoadObserver cross_site_load(tab, cross_site_url);
+
+  GURL same_site_url =
+      extension->GetResourceURL(extension->url(), "empty.html");
+  test_navigation_listener()->DelayRequestsForURL(same_site_url);
+  StartProvisionalLoadObserver same_site_load(tab, same_site_url);
+
+  // Ensure the cross-site navigation has started, then execute JavaScript
+  // to cause the renderer-initiated, non-user navigation.
+  cross_site_load.Wait();
+  tab->GetMainFrame()->ExecuteJavaScript(base::UTF8ToUTF16("navigate2()"));
+
+  // Wait for the same-site navigation to start and resume the cross-site
+  // one, allowing it to commit.
+  same_site_load.Wait();
+  test_navigation_listener()->Resume(cross_site_url);
+
+  ASSERT_TRUE(catcher.GetNextResult()) << catcher.message();
 }
 
 IN_PROC_BROWSER_TEST_F(WebNavigationApiTest, CrossProcessFragment) {
@@ -559,14 +692,14 @@ IN_PROC_BROWSER_TEST_F(WebNavigationApiTest, CrossProcessFragment) {
       test_navigation_listener(),
       embedded_test_server()->GetURL("/test3"),
       "updateFragment()",
-      base::StringPrintf("f.html?%d#foo", embedded_test_server()->port()));
+      base::StringPrintf("f.html?%u#foo", embedded_test_server()->port()));
 
   // See crossProcessFragment/g.html.
   DelayLoadStartAndExecuteJavascript call_script4(
       test_navigation_listener(),
       embedded_test_server()->GetURL("/test4"),
       "updateFragment()",
-      base::StringPrintf("g.html?%d#foo", embedded_test_server()->port()));
+      base::StringPrintf("g.html?%u#foo", embedded_test_server()->port()));
 
   ASSERT_TRUE(RunExtensionTest("webnavigation/crossProcessFragment"))
       << message_;
@@ -614,7 +747,7 @@ IN_PROC_BROWSER_TEST_F(WebNavigationApiTest, Crash) {
   ResultCatcher catcher;
 
   GURL url(base::StringPrintf(
-      "http://www.a.com:%d/"
+      "http://www.a.com:%u/"
           "extensions/api_test/webnavigation/crash/a.html",
       embedded_test_server()->port()));
   ui_test_utils::NavigateToURL(browser(), url);
@@ -622,7 +755,7 @@ IN_PROC_BROWSER_TEST_F(WebNavigationApiTest, Crash) {
   ui_test_utils::NavigateToURL(browser(), GURL(content::kChromeUICrashURL));
 
   url = GURL(base::StringPrintf(
-      "http://www.a.com:%d/"
+      "http://www.a.com:%u/"
           "extensions/api_test/webnavigation/crash/b.html",
       embedded_test_server()->port()));
   ui_test_utils::NavigateToURL(browser(), url);

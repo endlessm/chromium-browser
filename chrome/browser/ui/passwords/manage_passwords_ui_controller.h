@@ -5,20 +5,23 @@
 #ifndef CHROME_BROWSER_UI_PASSWORDS_MANAGE_PASSWORDS_UI_CONTROLLER_H_
 #define CHROME_BROWSER_UI_PASSWORDS_MANAGE_PASSWORDS_UI_CONTROLLER_H_
 
-#include "base/gtest_prod_util.h"
 #include "base/memory/scoped_vector.h"
 #include "base/timer/elapsed_timer.h"
+#include "chrome/browser/ui/passwords/manage_passwords_state.h"
 #include "components/autofill/core/common/password_form.h"
-#include "components/password_manager/core/browser/password_form_manager.h"
 #include "components/password_manager/core/browser/password_store.h"
-#include "components/password_manager/core/browser/password_store_change.h"
 #include "components/password_manager/core/common/password_manager_ui.h"
-#include "content/public/browser/navigation_details.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 
 namespace content {
 class WebContents;
+}
+
+namespace password_manager {
+enum class CredentialType;
+struct CredentialInfo;
+class PasswordFormManager;
 }
 
 class ManagePasswordsIcon;
@@ -33,10 +36,23 @@ class ManagePasswordsUIController
 
   // Called when the user submits a form containing login information, so we
   // can handle later requests to save or blacklist that login information.
-  // This stores the provided object in form_manager_ and triggers the UI to
-  // prompt the user about whether they would like to save the password.
+  // This stores the provided object and triggers the UI to prompt the user
+  // about whether they would like to save the password.
   void OnPasswordSubmitted(
       scoped_ptr<password_manager::PasswordFormManager> form_manager);
+
+  // Called when the site asks user to choose from credentials. This triggers
+  // the UI to prompt the user. |local_credentials| and |federated_credentials|
+  // shouldn't both be empty.
+  bool OnChooseCredentials(
+      ScopedVector<autofill::PasswordForm> local_credentials,
+      ScopedVector<autofill::PasswordForm> federated_credentials,
+      const GURL& origin,
+      base::Callback<void(const password_manager::CredentialInfo&)> callback);
+
+  // Called when user is auto signed in to the site. |local_forms[0]| contains
+  // the credential returned to the site.
+  void OnAutoSignin(ScopedVector<autofill::PasswordForm> local_forms);
 
   // Called when the password will be saved automatically, but we still wish to
   // visually inform the user that the save has occured.
@@ -64,6 +80,12 @@ class ManagePasswordsUIController
   // and WILL be in MANAGE_STATE after this method executes.
   virtual void SavePassword();
 
+  // Called from the model when the user chooses a credential.
+  // The controller MUST be in a pending credentials state.
+  virtual void ChooseCredential(
+      const autofill::PasswordForm& form,
+      password_manager::CredentialType credential_type);
+
   // Called from the model when the user chooses to never save passwords; passes
   // the action off to the FormManager. The controller MUST be in a pending
   // state, and WILL be in BLACKLIST_STATE after this method executes.
@@ -71,29 +93,56 @@ class ManagePasswordsUIController
 
   // Called from the model when the user chooses to unblacklist the site. The
   // controller MUST be in BLACKLIST_STATE, and WILL be in MANAGE_STATE after
-  // this method executes.
+  // this method executes. The method removes the first form of
+  // GetCurrentForms() which should be the blacklisted one.
   virtual void UnblacklistSite();
+
+  // Called from the model. The controller should switch to MANAGE_STATE and pop
+  // up a bubble.
+  virtual void ManageAccounts();
 
   // Open a new tab, pointing to the password manager settings page.
   virtual void NavigateToPasswordManagerSettingsPage();
 
-  virtual const autofill::PasswordForm& PendingCredentials() const;
+  // Open a new tab, pointing to passwords.google.com.
+  void NavigateToExternalPasswordManager();
+
+  // Open a new tab, pointing to the Smart Lock help article.
+  void NavigateToSmartLockPage();
+
+  virtual const autofill::PasswordForm& PendingPassword() const;
 
   // Set the state of the Omnibox icon, and possibly show the associated bubble
   // without user interaction.
   virtual void UpdateIconAndBubbleState(ManagePasswordsIcon* icon);
 
-  password_manager::ui::State state() const { return state_; }
+  // Called from the model when the bubble is displayed.
+  void OnBubbleShown();
+
+  // Called from the model when the bubble is hidden.
+  void OnBubbleHidden();
+
+  password_manager::ui::State state() const { return passwords_data_.state(); }
 
   // True if a password is sitting around, waiting for a user to decide whether
   // or not to save it.
-  bool PasswordPendingUserDecision() const;
-
-  const autofill::ConstPasswordFormMap& best_matches() const {
-    return password_form_map_;
+  bool PasswordPendingUserDecision() const {
+    return state() == password_manager::ui::PENDING_PASSWORD_STATE;
   }
 
-  const GURL& origin() const { return origin_; }
+  const GURL& origin() const { return passwords_data_.origin(); }
+
+  bool IsAutomaticallyOpeningBubble() const { return should_pop_up_bubble_; }
+
+  // Current local forms.
+  const std::vector<const autofill::PasswordForm*>& GetCurrentForms() const {
+    return passwords_data_.GetCurrentForms();
+  }
+
+  // Current federated forms.
+  const std::vector<const autofill::PasswordForm*>& GetFederatedForms() const {
+    return passwords_data_.federated_credentials_forms();
+  }
 
  protected:
   explicit ManagePasswordsUIController(
@@ -104,61 +153,50 @@ class ManagePasswordsUIController
   virtual void SavePasswordInternal();
   virtual void NeverSavePasswordInternal();
 
+  // Called when a PasswordForm is autofilled, when a new PasswordForm is
+  // submitted, or when a navigation occurs to update the visibility of the
+  // manage passwords icon and bubble.
+  virtual void UpdateBubbleAndIconVisibility();
+
+  // Returns the time elapsed since |timer_| was initialized,
+  // or base::TimeDelta::Max() if |timer_| was not initialized.
+  virtual base::TimeDelta Elapsed() const;
+
+  // Overwrites the client for |passwords_data_|.
+  void set_client(password_manager::PasswordManagerClient* client) {
+    passwords_data_.set_client(client);
+  }
+
   // content::WebContentsObserver:
   void DidNavigateMainFrame(
       const content::LoadCommittedDetails& details,
       const content::FrameNavigateParams& params) override;
   void WasHidden() override;
 
-  // We create copies of PasswordForm objects that come in with unclear lifetime
-  // and store them in this vector as well as in |password_form_map_| to ensure
-  // that we destroy them correctly. If |new_password_forms_| gets cleared then
-  // |password_form_map_| is to be cleared too.
-  ScopedVector<autofill::PasswordForm> new_password_forms_;
+ private:
+  friend class content::WebContentsUserData<ManagePasswordsUIController>;
 
-  // All previously stored credentials for a specific site.
-  // Protected, not private, so we can mess with the value in
-  // ManagePasswordsUIControllerMock.
-  autofill::ConstPasswordFormMap password_form_map_;
+  // Shows the password bubble without user interaction.
+  void ShowBubbleWithoutUserInteraction();
 
-  // The current state of the password manager. Protected so we can manipulate
-  // the value in tests.
-  password_manager::ui::State state_;
+  // content::WebContentsObserver:
+  void WebContentsDestroyed() override;
+
+  // Shows infobar which allows user to choose credentials. Placing this
+  // code to separate method allows mocking.
+  virtual void UpdateAndroidAccountChooserInfoBarVisibility();
+
+  // The wrapper around current state and data.
+  ManagePasswordsState passwords_data_;
 
   // Used to measure the amount of time on a page; if it's less than some
   // reasonable limit, then don't close the bubble upon navigation. We create
   // (and destroy) the timer in DidNavigateMainFrame.
   scoped_ptr<base::ElapsedTimer> timer_;
 
- private:
-  friend class content::WebContentsUserData<ManagePasswordsUIController>;
-
-  // Shows the password bubble without user interaction. The controller MUST
-  // be in PENDING_PASSWORD_AND_BUBBLE_STATE.
-  void ShowBubbleWithoutUserInteraction();
-
-  // Called when a passwordform is autofilled, when a new passwordform is
-  // submitted, or when a navigation occurs to update the visibility of the
-  // manage passwords icon and bubble.
-  void UpdateBubbleAndIconVisibility();
-
-  // content::WebContentsObserver:
-  void WebContentsDestroyed() override;
-
-  // Set by OnPasswordSubmitted() when the user submits a form containing login
-  // information.  If the user responds to a subsequent "Do you want to save
-  // this password?" prompt, we ask this object to save or blacklist the
-  // associated login information in Chrome's password store.
-  scoped_ptr<password_manager::PasswordFormManager> form_manager_;
-
-  // Stores whether autofill was blocked due to a user's decision to blacklist
-  // the current site ("Never save passwords for this site").
-  bool autofill_blocked_;
-
-  // The origin of the form we're currently dealing with; we'll use this to
-  // determine which PasswordStore changes we should care about when updating
-  // |password_form_map_|.
-  GURL origin_;
+  // Contains true if the bubble is to be popped up in the next call to
+  // UpdateBubbleAndIconVisibility().
+  bool should_pop_up_bubble_;
 
   DISALLOW_COPY_AND_ASSIGN(ManagePasswordsUIController);
 };

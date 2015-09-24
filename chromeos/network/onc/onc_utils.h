@@ -83,6 +83,17 @@ CHROMEOS_EXPORT void ExpandStringsInNetworks(
     const StringSubstitution& substitution,
     base::ListValue* network_configs);
 
+// Fills in all missing HexSSID fields that are mentioned in the ONC
+// specification. The object of |onc_object| is modified in place.
+CHROMEOS_EXPORT void FillInHexSSIDFieldsInOncObject(
+    const OncValueSignature& signature,
+    base::DictionaryValue* onc_object);
+
+// If the SSID field is set, but HexSSID is not, converts the contents of the
+// SSID field to UTF-8 encoding, creates the hex representation and assigns the
+// result to HexSSID.
+CHROMEOS_EXPORT void FillInHexSSIDField(base::DictionaryValue* wifi_fields);
+
 // Creates a copy of |onc_object| with all values of sensitive fields replaced
 // by |mask|. To find sensitive fields, signature and field name are checked
 // with the function FieldIsCredential().
@@ -133,6 +144,18 @@ CHROMEOS_EXPORT NetworkTypePattern NetworkTypePatternFromOncType(
 // Returns true if |property_key| is a recommended value in the ONC dictionary.
 CHROMEOS_EXPORT bool IsRecommendedValue(const base::DictionaryValue* onc,
                                         const std::string& property_key);
+
+// Translates |onc_proxy_settings|, which must be a valid ONC ProxySettings
+// dictionary, to a ProxyConfig dictionary (see proxy_config_dictionary.h).
+CHROMEOS_EXPORT scoped_ptr<base::DictionaryValue>
+ConvertOncProxySettingsToProxyConfig(
+    const base::DictionaryValue& onc_proxy_settings);
+
+// Translates |proxy_config_value|, which must be a valid ProxyConfig dictionary
+// (see proxy_config_dictionary.h) to an ONC ProxySettings dictionary.
+CHROMEOS_EXPORT scoped_ptr<base::DictionaryValue>
+ConvertProxyConfigToOncProxySettings(
+    const base::DictionaryValue& proxy_config_value);
 
 }  // namespace onc
 }  // namespace chromeos

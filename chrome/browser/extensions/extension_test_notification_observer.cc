@@ -7,6 +7,7 @@
 #include "base/callback_list.h"
 #include "chrome/browser/extensions/extension_action_test_util.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -34,16 +35,19 @@ bool HasPageActionVisibilityReachedTarget(
       target_visible_page_action_count;
 }
 
-bool HaveAllExtensionRenderViewHostsFinishedLoading(
+bool HaveAllExtensionRenderFrameHostsFinishedLoading(
     extensions::ProcessManager* manager) {
-  extensions::ProcessManager::ViewSet all_views = manager->GetAllViews();
-  for (extensions::ProcessManager::ViewSet::const_iterator iter =
-           all_views.begin();
-       iter != all_views.end(); ++iter) {
-    if ((*iter)->IsLoading())
+  extensions::ProcessManager::FrameSet all_views = manager->GetAllFrames();
+  for (content::RenderFrameHost* host : manager->GetAllFrames()) {
+    if (content::WebContents::FromRenderFrameHost(host)->IsLoading())
       return false;
   }
   return true;
+}
+
+bool IsExtensionNotIdle(const std::string& extension_id,
+                        content::BrowserContext* context) {
+  return !extensions::util::IsExtensionIdle(extension_id, context);
 }
 
 }  // namespace
@@ -144,8 +148,27 @@ bool ExtensionTestNotificationObserver::WaitForExtensionViewsToLoad() {
   notification_set.Add(content::NOTIFICATION_WEB_CONTENTS_DESTROYED);
   notification_set.Add(content::NOTIFICATION_LOAD_STOP);
   WaitForCondition(
-      base::Bind(&HaveAllExtensionRenderViewHostsFinishedLoading, manager),
+      base::Bind(&HaveAllExtensionRenderFrameHostsFinishedLoading, manager),
       &notification_set);
+  return true;
+}
+
+bool ExtensionTestNotificationObserver::WaitForExtensionIdle(
+    const std::string& extension_id) {
+  NotificationSet notification_set;
+  notification_set.Add(content::NOTIFICATION_RENDERER_PROCESS_TERMINATED);
+  WaitForCondition(base::Bind(&extensions::util::IsExtensionIdle, extension_id,
+                              GetProfile()),
+                   &notification_set);
+  return true;
+}
+
+bool ExtensionTestNotificationObserver::WaitForExtensionNotIdle(
+    const std::string& extension_id) {
+  NotificationSet notification_set;
+  notification_set.Add(content::NOTIFICATION_LOAD_STOP);
+  WaitForCondition(base::Bind(&IsExtensionNotIdle, extension_id, GetProfile()),
+                   &notification_set);
   return true;
 }
 

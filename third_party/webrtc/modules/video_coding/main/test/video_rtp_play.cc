@@ -20,11 +20,13 @@ const webrtc::VCMVideoProtection kConfigProtectionMethod =
     webrtc::kProtectionNack;
 const float kConfigLossRate = 0.0f;
 const bool kConfigReordering = false;
-const uint32_t kConfigRttMs = 0;
+const int64_t kConfigRttMs = 0;
 const uint32_t kConfigRenderDelayMs = 0;
 const uint32_t kConfigMinPlayoutDelayMs = 0;
 const int64_t kConfigMaxRuntimeMs = -1;
-
+const uint8_t kDefaultUlpFecPayloadType = 97;
+const uint8_t kDefaultRedPayloadType = 96;
+const uint8_t kDefaultVp8PayloadType = 100;
 }  // namespace
 
 int RtpPlay(const CmdArgs& args) {
@@ -35,24 +37,24 @@ int RtpPlay(const CmdArgs& args) {
 
   webrtc::rtpplayer::PayloadTypes payload_types;
   payload_types.push_back(webrtc::rtpplayer::PayloadCodecTuple(
-      VCM_ULPFEC_PAYLOAD_TYPE, "ULPFEC", webrtc::kVideoCodecULPFEC));
+      kDefaultUlpFecPayloadType, "ULPFEC", webrtc::kVideoCodecULPFEC));
   payload_types.push_back(webrtc::rtpplayer::PayloadCodecTuple(
-      VCM_RED_PAYLOAD_TYPE, "RED", webrtc::kVideoCodecRED));
+      kDefaultRedPayloadType, "RED", webrtc::kVideoCodecRED));
   payload_types.push_back(webrtc::rtpplayer::PayloadCodecTuple(
-      VCM_VP8_PAYLOAD_TYPE, "VP8", webrtc::kVideoCodecVP8));
+      kDefaultVp8PayloadType, "VP8", webrtc::kVideoCodecVP8));
 
   std::string output_file = args.outputFile;
-  if (output_file == "") {
+  if (output_file.empty())
     output_file = webrtc::test::OutputPath() + "RtpPlay_decoded.yuv";
-  }
 
   webrtc::SimulatedClock clock(0);
   webrtc::rtpplayer::VcmPayloadSinkFactory factory(output_file, &clock,
       kConfigProtectionEnabled, kConfigProtectionMethod, kConfigRttMs,
       kConfigRenderDelayMs, kConfigMinPlayoutDelayMs);
-  webrtc::scoped_ptr<webrtc::rtpplayer::RtpPlayerInterface> rtp_player(
+  rtc::scoped_ptr<webrtc::rtpplayer::RtpPlayerInterface> rtp_player(
       webrtc::rtpplayer::Create(args.inputFile, &factory, &clock, payload_types,
-          kConfigLossRate, kConfigRttMs, kConfigReordering));
+                                kConfigLossRate, kConfigRttMs,
+                                kConfigReordering));
   if (rtp_player.get() == NULL) {
     return -1;
   }

@@ -17,11 +17,8 @@
 #include "printing/printing_utils.h"
 #include "printing/units.h"
 #include "skia/ext/platform_device.h"
-
-#if defined(USE_AURA)
 #include "ui/aura/remote_window_tree_host_win.h"
 #include "ui/aura/window.h"
-#endif
 
 namespace printing {
 
@@ -54,6 +51,7 @@ PrintingContextWin::~PrintingContextWin() {
 void PrintingContextWin::AskUserForSettings(
     int max_pages,
     bool has_selection,
+    bool is_scripted,
     const PrintSettingsCallback& callback) {
   NOTIMPLEMENTED();
 }
@@ -142,7 +140,8 @@ gfx::Size PrintingContextWin::GetPdfPaperSizeDeviceUnits() {
 
 PrintingContext::Result PrintingContextWin::UpdatePrinterSettings(
     bool external_preview,
-    bool show_system_dialog) {
+    bool show_system_dialog,
+    int page_count) {
   DCHECK(!in_print_job_);
   DCHECK(!external_preview) << "Not implemented";
 
@@ -208,7 +207,8 @@ PrintingContext::Result PrintingContextWin::UpdatePrinterSettings(
   // Update data using DocumentProperties.
   if (show_system_dialog) {
     PrintingContext::Result result = PrintingContext::FAILED;
-    AskUserForSettings(0, false, base::Bind(&AssingResult, &result));
+    AskUserForSettings(page_count, false, false,
+                       base::Bind(&AssingResult, &result));
     return result;
   } else {
     scoped_dev_mode = CreateDevMode(printer.Get(), scoped_dev_mode.get());
@@ -361,48 +361,13 @@ PrintingContext::Result PrintingContextWin::InitializeSettings(
 
 HWND PrintingContextWin::GetRootWindow(gfx::NativeView view) {
   HWND window = NULL;
-#if defined(USE_AURA)
-  if (view)
+  if (view && view->GetHost())
     window = view->GetHost()->GetAcceleratedWidget();
-#else
-  if (view && IsWindow(view)) {
-    window = GetAncestor(view, GA_ROOTOWNER);
-  }
-#endif
   if (!window) {
     // TODO(maruel):  crbug.com/1214347 Get the right browser window instead.
     return GetDesktopWindow();
   }
   return window;
-}
-
-scoped_ptr<DEVMODE, base::FreeDeleter> PrintingContextWin::ShowPrintDialog(
-    HANDLE printer,
-    gfx::NativeView parent_view,
-    DEVMODE* dev_mode) {
-  // Note that this cannot use ui::BaseShellDialog as the print dialog is
-  // system modal: opening it from a background thread can cause Windows to
-  // get the wrong Z-order which will make the print dialog appear behind the
-  // browser frame (but still being modal) so neither the browser frame nor
-  // the print dialog will get any input. See http://crbug.com/342697
-  // http://crbug.com/180997 for details.
-  base::MessageLoop::ScopedNestableTaskAllower allow(
-      base::MessageLoop::current());
-
-  bool canceled = false;
-  scoped_ptr<DEVMODE, base::FreeDeleter> result =
-      PromptDevMode(printer,
-                    settings_.device_name(),
-                    dev_mode,
-                    GetRootWindow(parent_view),
-                    &canceled);
-
-  if (canceled) {
-    result.reset();
-    abort_printing_ = true;
-  }
-
-  return result.Pass();
 }
 
 }  // namespace printing

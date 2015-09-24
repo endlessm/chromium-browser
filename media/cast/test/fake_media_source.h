@@ -19,6 +19,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/time/tick_clock.h"
 #include "media/audio/audio_parameters.h"
+#include "media/base/audio_converter.h"
 #include "media/cast/cast_config.h"
 #include "media/filters/audio_renderer_algorithm.h"
 #include "media/filters/ffmpeg_demuxer.h"
@@ -29,11 +30,11 @@ struct AVFormatContext;
 namespace media {
 
 class AudioBus;
+class AudioConverter;
 class AudioFifo;
 class AudioTimestampHelper;
 class FFmpegGlue;
 class InMemoryUrlProtocol;
-class MultiChannelResampler;
 
 namespace cast {
 
@@ -41,24 +42,34 @@ class AudioFrameInput;
 class VideoFrameInput;
 class TestAudioBusFactory;
 
-class FakeMediaSource {
+class FakeMediaSource : public media::AudioConverter::InputCallback {
  public:
   // |task_runner| is to schedule decoding tasks.
   // |clock| is used by this source but is not owned.
+  // |audio_config| is the desired audio config.
   // |video_config| is the desired video config.
+  // |keep_frames| is true if all VideoFrames are saved in a queue.
   FakeMediaSource(scoped_refptr<base::SingleThreadTaskRunner> task_runner,
                   base::TickClock* clock,
-                  const VideoSenderConfig& video_config);
-  ~FakeMediaSource();
+                  const AudioSenderConfig& audio_config,
+                  const VideoSenderConfig& video_config,
+                  bool keep_frames);
+  ~FakeMediaSource() final;
 
   // Transcode this file as the source of video and audio frames.
-  // If |override_fps| is non zero then the file is played at the desired rate.
-  void SetSourceFile(const base::FilePath& video_file, int override_fps);
+  // If |final_fps| is non zero then the file is played at the desired rate.
+  void SetSourceFile(const base::FilePath& video_file, int final_fps);
+
+  // Set to true to randomly change the frame size at random points in time.
+  // Only applies when SetSourceFile() is not used.
+  void SetVariableFrameSizeMode(bool enabled);
 
   void Start(scoped_refptr<AudioFrameInput> audio_frame_input,
              scoped_refptr<VideoFrameInput> video_frame_input);
 
   const VideoSenderConfig& get_video_config() const { return video_config_; }
+
+  scoped_refptr<media::VideoFrame> PopOldestInsertedVideoFrame();
 
  private:
   bool is_transcoding_audio() const { return audio_stream_index_ >= 0; }
@@ -66,6 +77,8 @@ class FakeMediaSource {
 
   void SendNextFrame();
   void SendNextFakeFrame();
+
+  void UpdateNextFrameSize();
 
   // Return true if a frame was sent.
   bool SendNextTranscodedVideo(base::TimeDelta elapsed_time);
@@ -90,7 +103,9 @@ class FakeMediaSource {
   void DecodeVideo(ScopedAVPacket packet);
   void Decode(bool decode_audio);
 
-  void ProvideData(int frame_delay, media::AudioBus* output_bus);
+  // media::AudioConverter::InputCallback implementation.
+  double ProvideInput(media::AudioBus* output_bus, base::TimeDelta buffer_delay)
+      final;
 
   AVStream* av_audio_stream();
   AVStream* av_video_stream();
@@ -98,7 +113,12 @@ class FakeMediaSource {
   AVCodecContext* av_video_context();
 
   const scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+  const media::AudioParameters output_audio_params_;
   const VideoSenderConfig video_config_;
+  const bool keep_frames_;
+  bool variable_frame_size_mode_;
+  gfx::Size current_frame_size_;
+  base::TimeTicks next_frame_size_change_time_;
   scoped_refptr<AudioFrameInput> audio_frame_input_;
   scoped_refptr<VideoFrameInput> video_frame_input_;
   uint8 synthetic_count_;
@@ -118,7 +138,7 @@ class FakeMediaSource {
   AVFormatContext* av_format_context_;
 
   int audio_stream_index_;
-  AudioParameters audio_params_;
+  AudioParameters source_audio_params_;
   double playback_rate_;
 
   int video_stream_index_;
@@ -126,7 +146,7 @@ class FakeMediaSource {
   int video_frame_rate_denominator_;
 
   // These are used for audio resampling.
-  scoped_ptr<media::MultiChannelResampler> audio_resampler_;
+  scoped_ptr<media::AudioConverter> audio_converter_;
   scoped_ptr<media::AudioFifo> audio_fifo_;
   scoped_ptr<media::AudioBus> audio_fifo_input_bus_;
   media::AudioRendererAlgorithm audio_algo_;
@@ -135,6 +155,7 @@ class FakeMediaSource {
   scoped_ptr<media::AudioTimestampHelper> audio_sent_ts_;
 
   std::queue<scoped_refptr<VideoFrame> > video_frame_queue_;
+  std::queue<scoped_refptr<VideoFrame> > inserted_video_frame_queue_;
   int64 video_first_pts_;
   bool video_first_pts_set_;
   base::TimeDelta last_video_frame_timestamp_;

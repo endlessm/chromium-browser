@@ -9,9 +9,6 @@ namespace master_preferences {
   const char kAltShortcutText[] = "alternate_shortcut_text";
   const char kAutoLaunchChrome[] = "auto_launch_chrome";
   const char kChrome[] = "chrome";
-  // TODO(huangs): Remove by M27.
-  const char kChromeAppHostDeprecated[] = "app_host";
-  const char kChromeAppLauncher[] = "app_launcher";
   const char kChromeShortcutIconIndex[] = "chrome_shortcut_icon_index";
   const char kCreateAllShortcuts[] = "create_all_shortcuts";
   const char kDisableLogging[] = "disable_logging";
@@ -26,6 +23,8 @@ namespace master_preferences {
   const char kDistroSuppressDefaultBrowserPromptPref[] =
       "suppress_default_browser_prompt_for_version";
   const char kDistroSuppressFirstRunBubble[] = "suppress_first_run_bubble";
+  const char kDistroWelcomePageOnOSUpgradeEnabled[] =
+      "welcome_page_on_os_upgrade_enabled";
   const char kDoNotCreateAnyShortcuts[] = "do_not_create_any_shortcuts";
   const char kDoNotCreateDesktopShortcut[] = "do_not_create_desktop_shortcut";
   const char kDoNotCreateQuickLaunchShortcut[] =

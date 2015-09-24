@@ -5,9 +5,12 @@
 #include <list>
 
 #include "base/bind.h"
+#include "base/location.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/browser/speech/google_streaming_remote_engine.h"
 #include "content/browser/speech/speech_recognition_manager_impl.h"
 #include "content/browser/speech/speech_recognizer_impl.h"
@@ -94,7 +97,7 @@ class SpeechRecognitionBrowserTest :
   }
 
   std::string GetPageFragment() {
-    return shell()->web_contents()->GetURL().ref();
+    return shell()->web_contents()->GetLastCommittedURL().ref();
   }
 
   const StreamingServerState &streaming_server_state() {
@@ -166,11 +169,11 @@ class SpeechRecognitionBrowserTest :
 
     const int n_buffers = duration_ms / ms_per_buffer;
     for (int i = 0; i < n_buffers; ++i) {
-      base::MessageLoop::current()->PostTask(FROM_HERE, base::Bind(
-          &FeedSingleBufferToAudioController,
-          scoped_refptr<media::TestAudioInputController>(controller),
-          buffer_size,
-          feed_with_noise));
+      base::ThreadTaskRunnerHandle::Get()->PostTask(
+          FROM_HERE,
+          base::Bind(&FeedSingleBufferToAudioController,
+                     scoped_refptr<media::TestAudioInputController>(controller),
+                     buffer_size, feed_with_noise));
     }
   }
 
@@ -188,13 +191,8 @@ class SpeechRecognitionBrowserTest :
 
 // Simply loads the test page and checks if it was able to create a Speech
 // Recognition object in JavaScript, to make sure the Web Speech API is enabled.
-// http://crbug.com/396414
-#if defined(OS_WIN) || defined(OS_MACOSX)
-#define MAYBE_Precheck DISABLED_Precheck
-#else
-#define MAYBE_Precheck Precheck
-#endif
-IN_PROC_BROWSER_TEST_F(SpeechRecognitionBrowserTest, MAYBE_Precheck) {
+// Flaky on all platforms. http://crbug.com/396414.
+IN_PROC_BROWSER_TEST_F(SpeechRecognitionBrowserTest, DISABLED_Precheck) {
   NavigateToURLBlockUntilNavigationsComplete(
       shell(), GetTestUrlFromFragment("precheck"), 2);
 

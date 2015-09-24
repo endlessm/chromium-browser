@@ -9,13 +9,10 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/single_thread_task_runner.h"
-#include "media/base/audio_decoder_config.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/decoder_buffer.h"
-#include "media/base/decryptor.h"
-#include "media/base/demuxer_stream.h"
+#include "media/base/media_log.h"
 #include "media/base/pipeline.h"
-#include "media/base/video_decoder_config.h"
 
 namespace media {
 
@@ -30,14 +27,23 @@ static bool IsStreamValidAndEncrypted(DemuxerStream* stream) {
 
 DecryptingDemuxerStream::DecryptingDemuxerStream(
     const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
-    const SetDecryptorReadyCB& set_decryptor_ready_cb)
+    const scoped_refptr<MediaLog>& media_log,
+    const SetDecryptorReadyCB& set_decryptor_ready_cb,
+    const base::Closure& waiting_for_decryption_key_cb)
     : task_runner_(task_runner),
+      media_log_(media_log),
       state_(kUninitialized),
+      waiting_for_decryption_key_cb_(waiting_for_decryption_key_cb),
       demuxer_stream_(NULL),
       set_decryptor_ready_cb_(set_decryptor_ready_cb),
       decryptor_(NULL),
       key_added_while_decrypt_pending_(false),
-      weak_factory_(this) {}
+      weak_factory_(this) {
+}
+
+std::string DecryptingDemuxerStream::GetDisplayName() const {
+  return "DecryptingDemuxerStream";
+}
 
 void DecryptingDemuxerStream::Initialize(DemuxerStream* stream,
                                          const PipelineStatusCB& status_cb) {
@@ -121,9 +127,14 @@ VideoDecoderConfig DecryptingDemuxerStream::video_decoder_config() {
   return video_config_;
 }
 
-DemuxerStream::Type DecryptingDemuxerStream::type() {
+DemuxerStream::Type DecryptingDemuxerStream::type() const {
   DCHECK(state_ != kUninitialized && state_ != kDecryptorRequested) << state_;
   return demuxer_stream_->type();
+}
+
+DemuxerStream::Liveness DecryptingDemuxerStream::liveness() const {
+  DCHECK(state_ != kUninitialized && state_ != kDecryptorRequested) << state_;
+  return demuxer_stream_->liveness();
 }
 
 void DecryptingDemuxerStream::EnableBitstreamConverter() {
@@ -135,7 +146,7 @@ bool DecryptingDemuxerStream::SupportsConfigChanges() {
 }
 
 VideoRotation DecryptingDemuxerStream::video_rotation() {
-  return VIDEO_ROTATION_0;
+  return demuxer_stream_->video_rotation();
 }
 
 DecryptingDemuxerStream::~DecryptingDemuxerStream() {
@@ -172,6 +183,7 @@ void DecryptingDemuxerStream::SetDecryptor(
   set_decryptor_ready_cb_.Reset();
 
   if (!decryptor) {
+    MEDIA_LOG(DEBUG, media_log_) << GetDisplayName() << ": decryptor not set";
     state_ = kUninitialized;
     base::ResetAndReturn(&init_cb_).Run(DECODER_ERROR_NOT_SUPPORTED);
     decryptor_attached_cb.Run(false);
@@ -244,6 +256,9 @@ void DecryptingDemuxerStream::DecryptBuffer(
         buffer->data(), buffer->data_size());
     decrypted->set_timestamp(buffer->timestamp());
     decrypted->set_duration(buffer->duration());
+    if (buffer->is_key_frame())
+      decrypted->set_is_key_frame(true);
+
     state_ = kIdle;
     base::ResetAndReturn(&read_cb_).Run(kOk, decrypted);
     return;
@@ -288,6 +303,7 @@ void DecryptingDemuxerStream::DeliverBuffer(
 
   if (status == Decryptor::kError) {
     DVLOG(2) << "DoDeliverBuffer() - kError";
+    MEDIA_LOG(ERROR, media_log_) << GetDisplayName() << ": decrypt error";
     pending_buffer_to_decrypt_ = NULL;
     state_ = kIdle;
     base::ResetAndReturn(&read_cb_).Run(kAborted, NULL);
@@ -296,6 +312,7 @@ void DecryptingDemuxerStream::DeliverBuffer(
 
   if (status == Decryptor::kNoKey) {
     DVLOG(2) << "DoDeliverBuffer() - kNoKey";
+    MEDIA_LOG(DEBUG, media_log_) << GetDisplayName() << ": no key";
     if (need_to_try_again_if_nokey) {
       // The |state_| is still kPendingDecrypt.
       DecryptPendingBuffer();
@@ -303,10 +320,17 @@ void DecryptingDemuxerStream::DeliverBuffer(
     }
 
     state_ = kWaitingForKey;
+    waiting_for_decryption_key_cb_.Run();
     return;
   }
 
   DCHECK_EQ(status, Decryptor::kSuccess);
+
+  // Copy the key frame flag from the encrypted to decrypted buffer, assuming
+  // that the decryptor initialized the flag to false.
+  if (pending_buffer_to_decrypt_->is_key_frame())
+    decrypted_buffer->set_is_key_frame(true);
+
   pending_buffer_to_decrypt_ = NULL;
   state_ = kIdle;
   base::ResetAndReturn(&read_cb_).Run(kOk, decrypted_buffer);
@@ -375,6 +399,7 @@ void DecryptingDemuxerStream::InitializeDecoderConfig() {
       video_config_.Initialize(input_video_config.codec(),
                                input_video_config.profile(),
                                input_video_config.format(),
+                               VideoFrame::COLOR_SPACE_UNSPECIFIED,
                                input_video_config.coded_size(),
                                input_video_config.visible_rect(),
                                input_video_config.natural_size(),

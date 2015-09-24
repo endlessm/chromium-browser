@@ -83,7 +83,11 @@ BLINK_EXPORT void enableLogChannel(const char*);
 
 // Purge the plugin list cache. If |reloadPages| is true, any pages
 // containing plugins will be reloaded after refreshing the plugin list.
-BLINK_EXPORT void resetPluginCache(bool reloadPages);
+BLINK_EXPORT void resetPluginCache(bool reloadPages = false);
+
+// The embedder should call this periodically in an attempt to balance overall
+// performance and memory usage.
+BLINK_EXPORT void decommitFreeableMemory();
 
 } // namespace blink
 

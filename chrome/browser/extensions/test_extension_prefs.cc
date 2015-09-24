@@ -9,12 +9,12 @@
 #include "base/files/file_util.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/prefs/json_pref_store.h"
 #include "base/prefs/pref_value_store.h"
 #include "base/run_loop.h"
 #include "base/sequenced_task_runner.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/browser/prefs/pref_service_mock_factory.h"
 #include "chrome/browser/prefs/pref_service_syncable.h"
@@ -174,6 +174,13 @@ std::string TestExtensionPrefs::AddExtensionAndReturnId(
     const std::string& name) {
   scoped_refptr<Extension> extension(AddExtension(name));
   return extension->id();
+}
+
+void TestExtensionPrefs::AddExtension(Extension* extension) {
+  prefs_->OnExtensionInstalled(extension,
+                               Extension::ENABLED,
+                               syncer::StringOrdinal::CreateInitialOrdinal(),
+                               std::string());
 }
 
 PrefService* TestExtensionPrefs::CreateIncognitoPrefService() const {

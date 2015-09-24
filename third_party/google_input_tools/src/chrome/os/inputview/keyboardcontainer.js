@@ -15,15 +15,22 @@ goog.provide('i18n.input.chrome.inputview.KeyboardContainer');
 
 goog.require('goog.dom.TagName');
 goog.require('goog.dom.classlist');
-goog.require('goog.ui.Container');
+goog.require('goog.i18n.bidi');
 goog.require('i18n.input.chrome.inputview.Css');
+goog.require('i18n.input.chrome.inputview.GlobalFlags');
+goog.require('i18n.input.chrome.inputview.elements.Element');
+goog.require('i18n.input.chrome.inputview.elements.ElementType');
 goog.require('i18n.input.chrome.inputview.elements.content.AltDataView');
 goog.require('i18n.input.chrome.inputview.elements.content.CandidateView');
 goog.require('i18n.input.chrome.inputview.elements.content.EmojiView');
 goog.require('i18n.input.chrome.inputview.elements.content.ExpandedCandidateView');
+goog.require('i18n.input.chrome.inputview.elements.content.GestureCanvasView');
 goog.require('i18n.input.chrome.inputview.elements.content.HandwritingView');
 goog.require('i18n.input.chrome.inputview.elements.content.KeysetView');
 goog.require('i18n.input.chrome.inputview.elements.content.MenuView');
+goog.require('i18n.input.chrome.inputview.elements.content.SelectView');
+goog.require('i18n.input.chrome.inputview.elements.content.SwipeView');
+goog.require('i18n.input.chrome.inputview.elements.content.VoiceView');
 
 
 
@@ -33,29 +40,48 @@ var EmojiView = i18n.input.chrome.inputview.elements.content.EmojiView;
 var HandwritingView = i18n.input.chrome.inputview.elements.content.
     HandwritingView;
 var KeysetView = i18n.input.chrome.inputview.elements.content.KeysetView;
-var SpecNodeName = i18n.input.chrome.inputview.SpecNodeName;
 var content = i18n.input.chrome.inputview.elements.content;
+var ElementType = i18n.input.chrome.inputview.elements.ElementType;
 
 
 
 /**
  * The keyboard container.
  *
- * @param {i18n.input.chrome.inputview.Adapter=} opt_adapter .
+ * @param {!i18n.input.chrome.inputview.Adapter} adapter .
+ * @param {!i18n.input.chrome.sounds.SoundController} soundController .
+ * @param {goog.events.EventTarget=} opt_eventTarget The parent event target.
  * @constructor
- * @extends {goog.ui.Container}
+ * @extends {i18n.input.chrome.inputview.elements.Element}
  */
-i18n.input.chrome.inputview.KeyboardContainer = function(opt_adapter) {
-  goog.base(this);
+// TODO(bshe): Move this file to elements/content
+i18n.input.chrome.inputview.KeyboardContainer =
+    function(adapter, soundController, opt_eventTarget) {
+  goog.base(this, '', ElementType.KEYBOARD_CONTAINER_VIEW, opt_eventTarget);
 
   /** @type {!content.CandidateView} */
-  this.candidateView = new content.CandidateView('candidateView', this);
+  this.candidateView = new content.CandidateView(
+      'candidateView', adapter, this);
 
   /** @type {!content.AltDataView} */
   this.altDataView = new content.AltDataView(this);
 
+  /** @type {!content.SwipeView} */
+  this.swipeView = new content.SwipeView(adapter, this);
+
+  /** @type {!content.SelectView} */
+  this.selectView = new content.SelectView(this);
+
+  if (adapter.isGestureTypingEnabled()) {
+    /** @type {!content.GestureCanvasView} */
+    this.gestureCanvasView = new content.GestureCanvasView(this);
+  }
+
   /** @type {!content.MenuView} */
   this.menuView = new content.MenuView(this);
+
+  /** @type {!content.VoiceView} */
+  this.voiceView = new content.VoiceView(this, adapter, soundController);
 
   /** @type {!content.ExpandedCandidateView} */
   this.expandedCandidateView = new content.ExpandedCandidateView(this);
@@ -72,12 +98,12 @@ i18n.input.chrome.inputview.KeyboardContainer = function(opt_adapter) {
   /**
    * The bus channel to communicate with background.
    *
-   * @private {i18n.input.chrome.inputview.Adapter}
+   * @private {!i18n.input.chrome.inputview.Adapter}
    */
-  this.adapter_ = opt_adapter || null;
+  this.adapter_ = adapter;
 };
 goog.inherits(i18n.input.chrome.inputview.KeyboardContainer,
-    goog.ui.Container);
+    i18n.input.chrome.inputview.elements.Element);
 var KeyboardContainer = i18n.input.chrome.inputview.KeyboardContainer;
 
 
@@ -94,12 +120,12 @@ KeyboardContainer.PADDING_BOTTOM_ = 7;
 
 
 /**
- * The padding value of handwriting panel.
+ * The margin of the tab style keyset.
  *
  * @type {number}
  * @private
  */
-KeyboardContainer.HANDWRITING_PADDING_ = 22;
+KeyboardContainer.TAB_MARGIN_ = 11;
 
 
 /**
@@ -115,30 +141,26 @@ KeyboardContainer.prototype.createDom = function() {
   goog.base(this, 'createDom');
 
   var elem = this.getElement();
-  this.wrapperDiv_ = this.getDomHelper().createDom(
-      goog.dom.TagName.DIV, Css.WRAPPER);
+  var dom = this.getDomHelper();
+  this.wrapperDiv_ = dom.createDom(goog.dom.TagName.DIV, Css.WRAPPER);
   this.candidateView.render(this.wrapperDiv_);
-  this.getDomHelper().appendChild(elem, this.wrapperDiv_);
+  dom.appendChild(elem, this.wrapperDiv_);
   this.altDataView.render();
+  this.swipeView.render();
+  this.selectView.render();
   this.menuView.render();
+  this.voiceView.render();
+  this.voiceView.setVisible(false);
   this.expandedCandidateView.render(this.wrapperDiv_);
   this.expandedCandidateView.setVisible(false);
+  if (this.adapter_.isGestureTypingEnabled()) {
+    this.gestureCanvasView.render(this.wrapperDiv_);
+  }
   goog.dom.classlist.add(elem, Css.CONTAINER);
 };
 
 
 /** @override */
-KeyboardContainer.prototype.enterDocument = function() {
-  goog.base(this, 'enterDocument');
-
-  this.setFocusable(false);
-  this.setFocusableChildrenAllowed(false);
-};
-
-
-/**
- * Updates the whole keyboard.
- */
 KeyboardContainer.prototype.update = function() {
   this.currentKeysetView && this.currentKeysetView.update();
 };
@@ -197,10 +219,14 @@ KeyboardContainer.prototype.switchToKeyset = function(keyset, title,
     var view = this.keysetViewMap[name];
     if (name == keyset) {
       this.candidateView.setVisible(!view.disableCandidateView);
+      // Before setting view visible, activate it first, since activation may
+      // change view keys.
+      view.activate(rawKeyset);
       view.setVisible(true);
       view.update();
       if (view.spaceKey) {
-        view.spaceKey.updateTitle(title, !isPasswordBox);
+        view.spaceKey.updateTitle(title, !isPasswordBox &&
+            keyset != 'hwt' && keyset != 'emoji');
       }
       if (isA11yMode) {
         goog.dom.classlist.add(this.getElement(), Css.A11Y);
@@ -212,13 +238,20 @@ KeyboardContainer.prototype.switchToKeyset = function(keyset, title,
       if (view instanceof HandwritingView) {
         view.setLanguagecode(languageCode);
       }
-      this.currentKeysetView = view;
+      // Deactivate the last keyset view instance.
+      if (this.currentKeysetView != view) {
+        if (this.currentKeysetView) {
+          this.currentKeysetView.deactivate(lastRawkeyset);
+        }
+        this.currentKeysetView = view;
+      }
       this.candidateView.updateByKeyset(rawKeyset, isPasswordBox,
           goog.i18n.bidi.isRtlLanguage(languageCode));
     } else {
       view.setVisible(false);
     }
   }
+
   return true;
 };
 
@@ -231,38 +264,69 @@ KeyboardContainer.prototype.switchToKeyset = function(keyset, title,
  * @param {number} widthPercent .
  * @param {number} candidateViewHeight .
  */
-KeyboardContainer.prototype.resize = function(width, height, widthPercent,
-    candidateViewHeight) {
+KeyboardContainer.prototype.setContainerSize = function(width, height,
+    widthPercent, candidateViewHeight) {
   if (!this.currentKeysetView) {
     return;
   }
   var elem = this.getElement();
 
-  var h;
-  if (this.currentKeysetView.isHandwriting()) {
-    h = height - KeyboardContainer.HANDWRITING_PADDING_;
-    elem.style.paddingBottom = '';
-  } else {
-    h = height - KeyboardContainer.PADDING_BOTTOM_;
-    elem.style.paddingBottom = KeyboardContainer.PADDING_BOTTOM_ + 'px';
+  var h = height;
+  var wrapperMargin = 0;
+  if (this.currentKeysetView.isTabStyle()) {
+    h = height - 2 * KeyboardContainer.TAB_MARGIN_;
+    wrapperMargin = KeyboardContainer.TAB_MARGIN_;
   }
+  this.wrapperDiv_.style.marginTop = this.wrapperDiv_.style.marginBottom =
+      wrapperMargin + 'px';
+  h -= KeyboardContainer.PADDING_BOTTOM_;
+  elem.style.paddingBottom = KeyboardContainer.PADDING_BOTTOM_ + 'px';
 
   var padding = Math.round((width - width * widthPercent) / 2);
-  elem.style.paddingLeft = elem.style.paddingRight = padding + 'px';
-
   var w = width - 2 * padding;
 
   // Reduce height if candidate view is enabled
   h = this.currentKeysetView.disableCandidateView ? h :
       h - candidateViewHeight;
 
+  var backspaceWeight = this.currentKeysetView.backspaceKey ?
+      this.currentKeysetView.backspaceKey.getParent().getWidthInWeight() : 0;
   this.candidateView.setWidthInWeight(
-      this.currentKeysetView.getWidthInWeight());
+      this.currentKeysetView.getWidthInWeight(), backspaceWeight);
   this.candidateView.resize(w, candidateViewHeight);
-  this.currentKeysetView.resize(w, h);
+  this.expandedCandidateView.setWidthInWeight(
+      this.currentKeysetView.getWidthInWeight(), backspaceWeight);
   this.expandedCandidateView.resize(w, h);
+  if (i18n.input.chrome.inputview.GlobalFlags.isQPInputView) {
+    var candidateElem = this.candidateView.getElement();
+    candidateElem.style.paddingLeft = candidateElem.style.paddingRight =
+        padding + 'px';
+    this.currentKeysetView.resize(width, h, widthPercent);
+    var expandViewElem = this.expandedCandidateView.getElement();
+    expandViewElem.style.marginLeft = expandViewElem.style.marginRight =
+        padding + 'px';
+  } else {
+    this.currentKeysetView.resize(w, h, 1);
+    elem.style.paddingLeft = elem.style.paddingRight = padding + 'px';
+  }
+  if (this.expandedCandidateView.isVisible()) {
+    // Closes the expanded candidate view if it's visible.
+    // This is to avoid mis-layout issue for the expanded candidate when screen
+    // is rotated.
+    this.expandedCandidateView.state = content.ExpandedCandidateView.State.NONE;
+    this.candidateView.switchToIcon(
+        content.CandidateView.IconType.EXPAND_CANDIDATES, true);
+    this.expandedCandidateView.setVisible(false);
+    this.currentKeysetView.setVisible(true);
+  }
   this.altDataView.resize(screen.width, height);
+  this.swipeView.resize(screen.width, height);
+  this.selectView.resize(screen.width, height);
   this.menuView.resize(screen.width, height);
+  this.voiceView.resize(w + padding, height);
+  if (this.adapter_.isGestureTypingEnabled()) {
+    this.gestureCanvasView.resize(screen.width, height);
+  }
 };
 
 
@@ -270,7 +334,13 @@ KeyboardContainer.prototype.resize = function(width, height, widthPercent,
 KeyboardContainer.prototype.disposeInternal = function() {
   goog.dispose(this.candidateView);
   goog.dispose(this.altDataView);
+  goog.dispose(this.swipeView);
+  goog.dispose(this.selectView);
   goog.dispose(this.menuView);
+  goog.dispose(this.voiceView);
+  if (this.adapter_.isGestureTypingEnabled()) {
+    goog.dispose(this.gestureCanvasView);
+  }
   for (var key in this.keysetViewMap) {
     goog.dispose(this.keysetViewMap[key]);
   }
@@ -301,4 +371,5 @@ KeyboardContainer.prototype.cleanStroke = function() {
     this.currentKeysetView.cleanStroke();
   }
 };
+
 });  // goog.scope

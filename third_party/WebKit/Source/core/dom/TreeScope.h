@@ -27,7 +27,9 @@
 #ifndef TreeScope_h
 #define TreeScope_h
 
+#include "core/CoreExport.h"
 #include "core/dom/DocumentOrderedMap.h"
+#include "core/layout/HitTestRequest.h"
 #include "platform/heap/Handle.h"
 #include "wtf/text/AtomicString.h"
 
@@ -47,7 +49,7 @@ class Node;
 // A class which inherits both Node and TreeScope must call clearRareData() in its destructor
 // so that the Node destructor no longer does problematic NodeList cache manipulation in
 // the destructor.
-class TreeScope : public WillBeGarbageCollectedMixin {
+class CORE_EXPORT TreeScope : public WillBeGarbageCollectedMixin {
 public:
     TreeScope* parentTreeScope() const { return m_parentTreeScope; }
 
@@ -56,7 +58,7 @@ public:
 
     Element* adjustedFocusedElement() const;
     Element* getElementById(const AtomicString&) const;
-    const WillBeHeapVector<RawPtrWillBeMember<Element> >& getAllElementsById(const AtomicString&) const;
+    const WillBeHeapVector<RawPtrWillBeMember<Element>>& getAllElementsById(const AtomicString&) const;
     bool hasElementWithId(const AtomicString& id) const;
     bool containsMultipleElementsWithId(const AtomicString& id) const;
     void addElementById(const AtomicString& elementId, Element*);
@@ -75,6 +77,8 @@ public:
     HTMLMapElement* getImageMap(const String& url) const;
 
     Element* elementFromPoint(int x, int y) const;
+    Element* hitTestPoint(int x, int y, const HitTestRequest&) const;
+    Vector<Element*> elementsFromPoint(int x, int y) const;
 
     // For accessibility.
     bool shouldCacheLabelsByForAttribute() const { return m_labelsByForAttribute; }
@@ -97,7 +101,6 @@ public:
     ContainerNode& rootNode() const { return *m_rootNode; }
 
     IdTargetObserverRegistry& idTargetObserverRegistry() const { return *m_idTargetObserverRegistry.get(); }
-
 
 #if !ENABLE(OILPAN)
     // Nodes belonging to this scope hold guard references -
@@ -133,7 +136,7 @@ public:
 
     Element* getElementByAccessKey(const String& key) const;
 
-    virtual void trace(Visitor*);
+    DECLARE_VIRTUAL_TRACE();
 
     ScopedStyleResolver* scopedStyleResolver() const { return m_scopedStyleResolver.get(); }
     ScopedStyleResolver& ensureScopedStyleResolver();
@@ -158,9 +161,9 @@ protected:
     void setNeedsStyleRecalcForViewportUnits();
 
 private:
+#if !ENABLE(OILPAN)
     virtual void dispose() { }
 
-#if !ENABLE(OILPAN)
     int refCount() const;
 
 #if ENABLE(SECURITY_ASSERT)
@@ -206,8 +209,7 @@ inline bool TreeScope::containsMultipleElementsWithId(const AtomicString& id) co
 
 DEFINE_COMPARISON_OPERATORS_WITH_REFERENCES(TreeScope)
 
-HitTestResult hitTestInDocument(const Document*, int x, int y);
-TreeScope* commonTreeScope(Node*, Node*);
+HitTestResult hitTestInDocument(const Document*, int x, int y, const HitTestRequest& = HitTestRequest::ReadOnly | HitTestRequest::Active);
 
 } // namespace blink
 

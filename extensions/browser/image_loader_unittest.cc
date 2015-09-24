@@ -10,9 +10,11 @@
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/test/test_browser_context.h"
 #include "content/public/test/test_browser_thread.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extensions_browser_client.h"
-#include "extensions/browser/notification_types.h"
+#include "extensions/browser/extensions_test.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_icon_set.h"
@@ -22,17 +24,17 @@
 #include "extensions/common/manifest_handlers/icons_handler.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/image/image_family.h"
 #include "ui/gfx/image/image_skia.h"
-#include "ui/gfx/size.h"
 
 using content::BrowserThread;
 using content::NotificationService;
 
 namespace extensions {
 
-class ImageLoaderTest : public testing::Test {
+class ImageLoaderTest : public ExtensionsTest {
  public:
   ImageLoaderTest()
       : image_loaded_count_(0),
@@ -79,11 +81,11 @@ class ImageLoaderTest : public testing::Test {
     extension_dir = extension_dir.AppendASCII(dir_name);
     int error_code = 0;
     std::string error;
-    JSONFileValueSerializer serializer(
+    JSONFileValueDeserializer deserializer(
         extension_dir.AppendASCII("manifest.json"));
     scoped_ptr<base::DictionaryValue> valid_value(
-        static_cast<base::DictionaryValue*>(serializer.Deserialize(&error_code,
-                                                                   &error)));
+        static_cast<base::DictionaryValue*>(
+            deserializer.Deserialize(&error_code, &error)));
     EXPECT_EQ(0, error_code) << error;
     if (error_code != 0)
       return NULL;
@@ -174,12 +176,8 @@ TEST_F(ImageLoaderTest, DeleteExtensionWhileWaitingForCache) {
   EXPECT_EQ(0, image_loaded_count());
 
   // Send out notification the extension was uninstalled.
-  UnloadedExtensionInfo details(extension.get(),
-                                UnloadedExtensionInfo::REASON_UNINSTALL);
-  content::NotificationService::current()->Notify(
-      NOTIFICATION_EXTENSION_UNLOADED_DEPRECATED,
-      content::NotificationService::AllSources(),
-      content::Details<UnloadedExtensionInfo>(&details));
+  ExtensionRegistry::Get(browser_context())->TriggerOnUnloaded(
+      extension.get(), UnloadedExtensionInfo::REASON_UNINSTALL);
 
   // Chuck the extension, that way if anyone tries to access it we should crash
   // or get valgrind errors.

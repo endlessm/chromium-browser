@@ -13,11 +13,13 @@
 #include "base/at_exit.h"
 #include "base/bind.h"
 #include "base/memory/ref_counted_memory.h"
+#include "gpu/command_buffer/client/gles2_cmd_helper.h"
 #include "gpu/command_buffer/client/gles2_implementation.h"
 #include "gpu/command_buffer/client/gles2_lib.h"
 #include "gpu/command_buffer/client/transfer_buffer.h"
 #include "gpu/command_buffer/common/constants.h"
 #include "gpu/command_buffer/common/gles2_cmd_utils.h"
+#include "gpu/command_buffer/common/value_state.h"
 #include "gpu/command_buffer/service/command_buffer_service.h"
 #include "gpu/command_buffer/service/context_group.h"
 #include "gpu/command_buffer/service/gl_context_virtual.h"
@@ -26,6 +28,7 @@
 #include "gpu/command_buffer/service/image_manager.h"
 #include "gpu/command_buffer/service/mailbox_manager_impl.h"
 #include "gpu/command_buffer/service/memory_tracking.h"
+#include "gpu/command_buffer/service/valuebuffer_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/gpu_memory_buffer.h"
 #include "ui/gl/gl_context.h"
@@ -36,18 +39,93 @@
 namespace gpu {
 namespace {
 
-size_t BytesPerPixel(gfx::GpuMemoryBuffer::Format format) {
+size_t NumberOfPlanesForGpuMemoryBufferFormat(
+    gfx::GpuMemoryBuffer::Format format) {
   switch (format) {
+    case gfx::GpuMemoryBuffer::ATC:
+    case gfx::GpuMemoryBuffer::ATCIA:
+    case gfx::GpuMemoryBuffer::DXT1:
+    case gfx::GpuMemoryBuffer::DXT5:
+    case gfx::GpuMemoryBuffer::ETC1:
+    case gfx::GpuMemoryBuffer::R_8:
+    case gfx::GpuMemoryBuffer::RGBA_4444:
+    case gfx::GpuMemoryBuffer::RGBA_8888:
+    case gfx::GpuMemoryBuffer::RGBX_8888:
+    case gfx::GpuMemoryBuffer::BGRA_8888:
+      return 1;
+    case gfx::GpuMemoryBuffer::YUV_420:
+      return 3;
+  }
+  NOTREACHED();
+  return 0;
+}
+
+size_t SubsamplingFactor(gfx::GpuMemoryBuffer::Format format, int plane) {
+  switch (format) {
+    case gfx::GpuMemoryBuffer::ATC:
+    case gfx::GpuMemoryBuffer::ATCIA:
+    case gfx::GpuMemoryBuffer::DXT1:
+    case gfx::GpuMemoryBuffer::DXT5:
+    case gfx::GpuMemoryBuffer::ETC1:
+    case gfx::GpuMemoryBuffer::R_8:
+    case gfx::GpuMemoryBuffer::RGBA_4444:
+    case gfx::GpuMemoryBuffer::RGBA_8888:
+    case gfx::GpuMemoryBuffer::RGBX_8888:
+    case gfx::GpuMemoryBuffer::BGRA_8888:
+      return 1;
+    case gfx::GpuMemoryBuffer::YUV_420: {
+      static size_t factor[] = {1, 2, 2};
+      DCHECK_LT(static_cast<size_t>(plane), arraysize(factor));
+      return factor[plane];
+    }
+  }
+  NOTREACHED();
+  return 0;
+}
+
+size_t StrideInBytes(size_t width,
+                     gfx::GpuMemoryBuffer::Format format,
+                     int plane) {
+  switch (format) {
+    case gfx::GpuMemoryBuffer::ATCIA:
+    case gfx::GpuMemoryBuffer::DXT5:
+      DCHECK_EQ(plane, 0);
+      return width;
+    case gfx::GpuMemoryBuffer::ATC:
+    case gfx::GpuMemoryBuffer::DXT1:
+    case gfx::GpuMemoryBuffer::ETC1:
+      DCHECK_EQ(plane, 0);
+      DCHECK_EQ(width % 2, 0U);
+      return width / 2;
+    case gfx::GpuMemoryBuffer::R_8:
+      return (width + 3) & ~0x3;
+    case gfx::GpuMemoryBuffer::RGBA_4444:
+      DCHECK_EQ(plane, 0);
+      return width * 2;
     case gfx::GpuMemoryBuffer::RGBA_8888:
     case gfx::GpuMemoryBuffer::BGRA_8888:
-      return 4;
+      DCHECK_EQ(plane, 0);
+      return width * 4;
     case gfx::GpuMemoryBuffer::RGBX_8888:
       NOTREACHED();
       return 0;
+    case gfx::GpuMemoryBuffer::YUV_420:
+      return width / SubsamplingFactor(format, plane);
   }
 
   NOTREACHED();
   return 0;
+}
+
+size_t BufferSizeInBytes(const gfx::Size& size,
+                         gfx::GpuMemoryBuffer::Format format) {
+  size_t size_in_bytes = 0;
+  size_t num_planes = NumberOfPlanesForGpuMemoryBufferFormat(format);
+  for (size_t i = 0; i < num_planes; ++i) {
+    size_in_bytes += StrideInBytes(size.width(), format, i) *
+                     (size.height() / SubsamplingFactor(format, i));
+  }
+  return size_in_bytes;
 }
 
 class GpuMemoryBufferImpl : public gfx::GpuMemoryBuffer {
@@ -62,15 +140,24 @@ class GpuMemoryBufferImpl : public gfx::GpuMemoryBuffer {
   }
 
   // Overridden from gfx::GpuMemoryBuffer:
-  void* Map() override {
+  bool Map(void** data) override {
+    size_t offset = 0;
+    size_t num_planes = NumberOfPlanesForGpuMemoryBufferFormat(format_);
+    for (size_t i = 0; i < num_planes; ++i) {
+      data[i] = reinterpret_cast<uint8*>(&bytes_->data().front()) + offset;
+      offset += StrideInBytes(size_.width(), format_, i) *
+                (size_.height() / SubsamplingFactor(format_, i));
+    }
     mapped_ = true;
-    return &bytes_->data().front();
+    return true;
   }
   void Unmap() override { mapped_ = false; }
   bool IsMapped() const override { return mapped_; }
   Format GetFormat() const override { return format_; }
-  uint32 GetStride() const override {
-    return size_.width() * BytesPerPixel(format_);
+  void GetStride(int* stride) const override {
+    size_t num_planes = NumberOfPlanesForGpuMemoryBufferFormat(format_);
+    for (size_t i = 0; i < num_planes; ++i)
+      stride[i] = StrideInBytes(size_.width(), format_, i);
   }
   gfx::GpuMemoryBufferHandle GetHandle() const override {
     NOTREACHED();
@@ -103,7 +190,8 @@ GLManager::Options::Options()
       virtual_manager(NULL),
       bind_generates_resource(false),
       lose_context_when_out_of_memory(false),
-      context_lost_allowed(false) {
+      context_lost_allowed(false),
+      webgl_version(0) {
 }
 
 GLManager::GLManager() : context_lost_allowed_(false) {
@@ -132,13 +220,17 @@ GLManager::~GLManager() {
 scoped_ptr<gfx::GpuMemoryBuffer> GLManager::CreateGpuMemoryBuffer(
     const gfx::Size& size,
     gfx::GpuMemoryBuffer::Format format) {
-  std::vector<unsigned char> data(size.GetArea() * BytesPerPixel(format), 0);
+  std::vector<unsigned char> data(BufferSizeInBytes(size, format), 0);
   scoped_refptr<base::RefCountedBytes> bytes(new base::RefCountedBytes(data));
   return make_scoped_ptr<gfx::GpuMemoryBuffer>(
       new GpuMemoryBufferImpl(bytes.get(), size, format));
 }
 
 void GLManager::Initialize(const GLManager::Options& options) {
+  InitializeWithCommandLine(options, nullptr);
+}
+void GLManager::InitializeWithCommandLine(const GLManager::Options& options,
+                                          base::CommandLine* command_line) {
   const int32 kCommandBufferSize = 1024 * 1024;
   const size_t kStartTransferBufferSize = 4 * 1024 * 1024;
   const size_t kMinTransferBufferSize = 1 * 256 * 1024;
@@ -186,13 +278,21 @@ void GLManager::Initialize(const GLManager::Options& options) {
   attrib_helper.blue_size = 8;
   attrib_helper.alpha_size = 8;
   attrib_helper.depth_size = 16;
+  attrib_helper.stencil_size = 8;
+  attrib_helper.webgl_version = options.webgl_version;
   attrib_helper.Serialize(&attribs);
 
+  DCHECK(!command_line || !context_group);
   if (!context_group) {
+    scoped_refptr<gles2::FeatureInfo> feature_info;
+    if (command_line)
+      feature_info = new gles2::FeatureInfo(*command_line);
     context_group =
         new gles2::ContextGroup(mailbox_manager_.get(),
                                 NULL,
                                 new gpu::gles2::ShaderTranslatorCache,
+                                feature_info,
+                                NULL,
                                 NULL,
                                 options.bind_generates_resource);
   }
@@ -210,7 +310,7 @@ void GLManager::Initialize(const GLManager::Options& options) {
 
   decoder_->set_engine(gpu_scheduler_.get());
 
-  surface_ = gfx::GLSurface::CreateOffscreenGLSurface(options.size);
+  surface_ = gfx::GLSurface::CreateOffscreenGLSurface(gfx::Size());
   ASSERT_TRUE(surface_.get() != NULL) << "could not create offscreen surface";
 
   if (base_context_) {
@@ -312,8 +412,8 @@ void GLManager::Destroy() {
   gles2_helper_.reset();
   command_buffer_.reset();
   if (decoder_.get()) {
-    decoder_->MakeCurrent();
-    decoder_->Destroy(true);
+    bool have_context = decoder_->GetGLContext()->MakeCurrent(surface_.get());
+    decoder_->Destroy(have_context);
     decoder_.reset();
   }
 }
@@ -323,7 +423,11 @@ const gpu::gles2::FeatureInfo::Workarounds& GLManager::workarounds() const {
 }
 
 void GLManager::PumpCommands() {
-  decoder_->MakeCurrent();
+  if (!decoder_->MakeCurrent()) {
+    command_buffer_->SetContextLostReason(decoder_->GetContextLostReason());
+    command_buffer_->SetParseError(::gpu::error::kLostContext);
+    return;
+  }
   gpu_scheduler_->PutChanged();
   ::gpu::CommandBuffer::State state = command_buffer_->GetLastState();
   if (!context_lost_allowed_) {
@@ -409,6 +513,15 @@ void GLManager::SetSurfaceVisible(bool visible) {
 uint32 GLManager::CreateStreamTexture(uint32 texture_id) {
   NOTIMPLEMENTED();
   return 0;
+}
+
+void GLManager::SetLock(base::Lock*) {
+  NOTIMPLEMENTED();
+}
+
+bool GLManager::IsGpuChannelLost() {
+  NOTIMPLEMENTED();
+  return false;
 }
 
 }  // namespace gpu

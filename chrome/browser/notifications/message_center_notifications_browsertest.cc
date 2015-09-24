@@ -33,14 +33,14 @@ class TestAddObserver : public message_center::MessageCenterObserver {
 
   void OnNotificationAdded(const std::string& id) override {
     std::string log = logs_[id];
-    if (log != "")
+    if (!log.empty())
       log += "_";
     logs_[id] = log + "add-" + id;
   }
 
   void OnNotificationUpdated(const std::string& id) override {
     std::string log = logs_[id];
-    if (log != "")
+    if (!log.empty())
       log += "_";
     logs_[id] = log + "update-" + id;
   }
@@ -75,7 +75,7 @@ class MessageCenterNotificationsTest : public InProcessBrowserTest {
     void Display() override { log_ += "Display_"; }
     void Close(bool by_user) override {
       log_ += "Close_";
-      log_ += ( by_user ? "by_user_" : "programmatically_");
+      log_ += (by_user ? "by_user_" : "programmatically_");
     }
     void Click() override { log_ += "Click_"; }
     void ButtonClick(int button_index) override {
@@ -107,7 +107,7 @@ class MessageCenterNotificationsTest : public InProcessBrowserTest {
                         base::ASCIIToUTF16("message"),
                         gfx::Image(),
                         base::UTF8ToUTF16("chrome-test://testing/"),
-                        base::UTF8ToUTF16("REPLACE-ME"),
+                        "REPLACE-ME",
                         new_delegate);
   }
 
@@ -126,12 +126,11 @@ class MessageCenterNotificationsTest : public InProcessBrowserTest {
                         base::ASCIIToUTF16("title"),
                         base::ASCIIToUTF16("message"),
                         gfx::Image(),
-                        blink::WebTextDirectionDefault,
                         message_center::NotifierId(
                             message_center::NotifierId::APPLICATION,
                             "extension_id"),
                         base::UTF8ToUTF16("chrome-test://testing/"),
-                        base::UTF8ToUTF16("REPLACE-ME"),
+                        "REPLACE-ME",
                         data,
                         new_delegate);
   }
@@ -149,7 +148,8 @@ IN_PROC_BROWSER_TEST_F(MessageCenterNotificationsTest, RetrieveBaseParts) {
 IN_PROC_BROWSER_TEST_F(MessageCenterNotificationsTest, BasicAddCancel) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -167,7 +167,8 @@ IN_PROC_BROWSER_TEST_F(MessageCenterNotificationsTest, BasicAddCancel) {
 IN_PROC_BROWSER_TEST_F(MessageCenterNotificationsTest, BasicDelegate) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -184,7 +185,8 @@ IN_PROC_BROWSER_TEST_F(MessageCenterNotificationsTest, BasicDelegate) {
 IN_PROC_BROWSER_TEST_F(MessageCenterNotificationsTest, ButtonClickedDelegate) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -202,7 +204,8 @@ IN_PROC_BROWSER_TEST_F(MessageCenterNotificationsTest,
                        UpdateExistingNotification) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -222,7 +225,8 @@ IN_PROC_BROWSER_TEST_F(MessageCenterNotificationsTest,
 IN_PROC_BROWSER_TEST_F(MessageCenterNotificationsTest, QueueWhenCenterVisible) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -259,7 +263,8 @@ IN_PROC_BROWSER_TEST_F(MessageCenterNotificationsTest,
                        UpdateNonProgressNotificationWhenCenterVisible) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -294,7 +299,8 @@ IN_PROC_BROWSER_TEST_F(
     UpdateNonProgressToProgressNotificationWhenCenterVisible) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -328,7 +334,8 @@ IN_PROC_BROWSER_TEST_F(MessageCenterNotificationsTest,
                        UpdateProgressNotificationWhenCenterVisible) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 

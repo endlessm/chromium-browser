@@ -5,17 +5,21 @@
 #ifndef CHROME_BROWSER_SEARCH_ENGINES_CHROME_TEMPLATE_URL_SERVICE_CLIENT_H_
 #define CHROME_BROWSER_SEARCH_ENGINES_CHROME_TEMPLATE_URL_SERVICE_CLIENT_H_
 
+#include "base/scoped_observer.h"
 #include "components/history/core/browser/history_service_observer.h"
 #include "components/search_engines/template_url_service_client.h"
 
+namespace history {
 class HistoryService;
+}
 
 // ChromeTemplateURLServiceClient provides keyword related history
 // functionality for TemplateURLService.
 class ChromeTemplateURLServiceClient : public TemplateURLServiceClient,
                                        public history::HistoryServiceObserver {
  public:
-  explicit ChromeTemplateURLServiceClient(HistoryService* history_service);
+  explicit ChromeTemplateURLServiceClient(
+      history::HistoryService* history_service);
   ~ChromeTemplateURLServiceClient() override;
 
   // TemplateURLServiceClient:
@@ -29,7 +33,7 @@ class ChromeTemplateURLServiceClient : public TemplateURLServiceClient,
   void RestoreExtensionInfoIfNecessary(TemplateURL* template_url) override;
 
   // history::HistoryServiceObserver:
-  void OnURLVisited(HistoryService* history_service,
+  void OnURLVisited(history::HistoryService* history_service,
                     ui::PageTransition transition,
                     const history::URLRow& row,
                     const history::RedirectList& redirects,
@@ -37,7 +41,9 @@ class ChromeTemplateURLServiceClient : public TemplateURLServiceClient,
 
  private:
   TemplateURLService* owner_;
-  HistoryService* history_service_;
+  ScopedObserver<history::HistoryService, history::HistoryServiceObserver>
+      history_service_observer_;
+  history::HistoryService* history_service_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeTemplateURLServiceClient);
 };

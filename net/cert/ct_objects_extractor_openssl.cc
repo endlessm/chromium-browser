@@ -17,6 +17,7 @@
 #include "crypto/sha2.h"
 #include "net/cert/asn1_util.h"
 #include "net/cert/signed_certificate_timestamp.h"
+#include "net/ssl/scoped_openssl_types.h"
 
 namespace net {
 
@@ -24,14 +25,12 @@ namespace ct {
 
 namespace {
 
-typedef crypto::ScopedOpenSSL<X509, X509_free>::Type ScopedX509;
-
 void FreeX509_EXTENSIONS(X509_EXTENSIONS* ptr) {
   sk_X509_EXTENSION_pop_free(ptr, X509_EXTENSION_free);
 }
 
-typedef crypto::ScopedOpenSSL<X509_EXTENSIONS, FreeX509_EXTENSIONS>::Type
-    ScopedX509_EXTENSIONS;
+using ScopedX509_EXTENSIONS =
+    crypto::ScopedOpenSSL<X509_EXTENSIONS, FreeX509_EXTENSIONS>;
 
 // The wire form of the OID 1.3.6.1.4.1.11129.2.4.2. See Section 3.3 of
 // RFC6962.
@@ -225,7 +224,8 @@ bool GetPrecertLogEntry(X509Certificate::OSCertHandle leaf,
   int len = i2d_X509_CINF(leaf_copy->cert_info, NULL);
   if (len < 0)
     return false;
-  uint8_t* ptr = reinterpret_cast<uint8_t*>(WriteInto(&to_be_signed, len + 1));
+  uint8_t* ptr =
+      reinterpret_cast<uint8_t*>(base::WriteInto(&to_be_signed, len + 1));
   if (i2d_X509_CINF(leaf_copy->cert_info, &ptr) < 0)
     return false;
 

@@ -4,9 +4,10 @@
 
 #include "media/audio/clockless_audio_sink.h"
 
+#include "base/bind.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
 #include "base/threading/simple_thread.h"
-#include "base/time/time.h"
-#include "media/base/audio_renderer_sink.h"
 
 namespace media {
 
@@ -44,10 +45,10 @@ class ClocklessAudioSinkThread : public base::DelegateSimpleThread::Delegate {
          base::PlatformThread::YieldCurrentThread();
        } else if (start.is_null()) {
          // First time we processed some audio, so record the starting time.
-         start = base::TimeTicks::HighResNow();
+         start = base::TimeTicks::Now();
        } else {
          // Keep track of the last time data was rendered.
-         playback_time_ = base::TimeTicks::HighResNow() - start;
+         playback_time_ = base::TimeTicks::Now() - start;
        }
      }
    }
@@ -105,6 +106,13 @@ void ClocklessAudioSink::Pause() {
 bool ClocklessAudioSink::SetVolume(double volume) {
   // Audio is always muted.
   return volume == 0.0;
+}
+
+void ClocklessAudioSink::SwitchOutputDevice(
+    const std::string& device_id,
+    const GURL& security_origin,
+    const SwitchOutputDeviceCB& callback) {
+  callback.Run(SWITCH_OUTPUT_DEVICE_RESULT_ERROR_NOT_SUPPORTED);
 }
 
 }  // namespace media

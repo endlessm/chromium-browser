@@ -1,11 +1,14 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _PWL_LISTBOX_H_
-#define _PWL_LISTBOX_H_
+#ifndef FPDFSDK_INCLUDE_PDFWINDOW_PWL_LISTBOX_H_
+#define FPDFSDK_INCLUDE_PDFWINDOW_PWL_LISTBOX_H_
+
+#include "../fxedit/fx_edit.h"
+#include "PWL_Wnd.h"
 
 class CPDF_ListCtrl;
 class CPWL_List_Notify;
@@ -18,11 +21,11 @@ public:
 	CPWL_List_Notify(CPWL_ListBox * pList);
 	virtual ~CPWL_List_Notify();
 
-	void							IOnSetScrollInfoX(FX_FLOAT fPlateMin, FX_FLOAT fPlateMax, 
-												FX_FLOAT fContentMin, FX_FLOAT fContentMax, 
+	void							IOnSetScrollInfoX(FX_FLOAT fPlateMin, FX_FLOAT fPlateMax,
+												FX_FLOAT fContentMin, FX_FLOAT fContentMax,
 												FX_FLOAT fSmallStep, FX_FLOAT fBigStep){}
-	void							IOnSetScrollInfoY(FX_FLOAT fPlateMin, FX_FLOAT fPlateMax, 
-												FX_FLOAT fContentMin, FX_FLOAT fContentMax, 
+	void							IOnSetScrollInfoY(FX_FLOAT fPlateMin, FX_FLOAT fPlateMax,
+												FX_FLOAT fContentMin, FX_FLOAT fContentMax,
 												FX_FLOAT fSmallStep, FX_FLOAT fBigStep);
 	void							IOnSetScrollPosX(FX_FLOAT fx){}
 	void							IOnSetScrollPosY(FX_FLOAT fy);
@@ -31,7 +34,7 @@ public:
 	void							IOnInvalidateRect(CPDF_Rect * pRect);
 
 private:
-	CPWL_ListBox*					m_pList;	
+	CPWL_ListBox*					m_pList;
 };
 
 class PWL_CLASS CPWL_ListBox : public CPWL_Wnd
@@ -54,33 +57,32 @@ public:
 	virtual FX_BOOL					OnMouseWheel(short zDelta, const CPDF_Point & point, FX_DWORD nFlag);
 	virtual void					KillFocus();
 
-	virtual void					OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, FX_INTPTR wParam = 0, FX_INTPTR lParam = 0);
+	virtual void					OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, intptr_t wParam = 0, intptr_t lParam = 0);
 	virtual void					RePosChildWnd();
-	virtual void					SetText(FX_LPCWSTR csText,FX_BOOL bRefresh = TRUE);
-	virtual CFX_WideString			GetText() const;	
+	virtual CFX_WideString			GetText() const;
 	virtual CPDF_Rect				GetFocusRect() const;
 	virtual void					SetFontSize(FX_FLOAT fFontSize);
 	virtual FX_FLOAT				GetFontSize() const;
 
 	void							OnNotifySelChanged(FX_BOOL bKeyDown, FX_BOOL & bExit , FX_DWORD nFlag);
 
-	void							AddString(FX_LPCWSTR string);	
-	void							SetTopVisibleIndex(FX_INT32 nItemIndex);
-	void							ScrollToListItem(FX_INT32 nItemIndex);
+	void							AddString(const FX_WCHAR* string);
+	void							SetTopVisibleIndex(int32_t nItemIndex);
+	void							ScrollToListItem(int32_t nItemIndex);
 	void							ResetContent();
 	void							Reset();
-	void							Select(FX_INT32 nItemIndex);
-	void							SetCaret(FX_INT32 nItemIndex);
+	void							Select(int32_t nItemIndex);
+	void							SetCaret(int32_t nItemIndex);
 	void							SetHoverSel(FX_BOOL bHoverSel);
-	
-	FX_INT32						GetCount() const;
+
+	int32_t						GetCount() const;
 	FX_BOOL							IsMultipleSel() const;
-	FX_INT32						GetCaretIndex() const;
-	FX_INT32						GetCurSel() const;
-	FX_BOOL							IsItemSelected(FX_INT32 nItemIndex) const;
-	FX_INT32						GetTopVisibleIndex() const;
-	FX_INT32						FindNext(FX_INT32 nIndex,FX_WCHAR nChar) const;
-	CPDF_Rect						GetContentRect() const;	
+	int32_t						GetCaretIndex() const;
+	int32_t						GetCurSel() const;
+	FX_BOOL							IsItemSelected(int32_t nItemIndex) const;
+	int32_t						GetTopVisibleIndex() const;
+	int32_t						FindNext(int32_t nIndex,FX_WCHAR nChar) const;
+	CPDF_Rect						GetContentRect() const;
 	FX_FLOAT						GetFirstHeight() const;
 	CPDF_Rect						GetListRect() const;
 
@@ -98,6 +100,4 @@ private:
 	void*							m_pFormFiller;
 };
 
-#endif // !defined(AFX_PWL_LISTBOX_H__F8C0DD72_CC3C_4806_86FB_E9D02B04A34B__INCLUDED_)
-
-
+#endif  // FPDFSDK_INCLUDE_PDFWINDOW_PWL_LISTBOX_H_

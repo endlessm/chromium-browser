@@ -10,8 +10,8 @@
 #include "ui/base/theme_provider.h"
 #include "ui/gfx/animation/multi_animation.h"
 #include "ui/gfx/canvas.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/image/image_skia.h"
-#include "ui/gfx/rect.h"
 
 namespace {
 
@@ -71,10 +71,20 @@ void WrenchIconPainter::Paint(gfx::Canvas* canvas,
   gfx::Point center = rect.CenterPoint();
 
   // Bezel.
-  if (bezel_type != BEZEL_NONE) {
-    gfx::ImageSkia* image = theme_provider->GetImageSkiaNamed(
-        bezel_type == BEZEL_HOVER ? IDR_TOOLBAR_BEZEL_HOVER
-                                  : IDR_TOOLBAR_BEZEL_PRESSED);
+  int resource_id = 0;
+  switch (bezel_type) {
+    case BEZEL_NONE:
+      break;
+    case BEZEL_HOVER:
+      resource_id = IDR_TOOLBAR_BEZEL_HOVER;
+      break;
+    case BEZEL_PRESSED:
+      resource_id = IDR_TOOLBAR_BEZEL_PRESSED;
+      break;
+  }
+
+  if (resource_id) {
+    gfx::ImageSkia* image = theme_provider->GetImageSkiaNamed(resource_id);
     canvas->DrawImageInt(*image,
                          center.x() - image->width() / 2,
                          center.y() - image->height() / 2);

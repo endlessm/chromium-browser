@@ -2,33 +2,31 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 from telemetry.page import page as page_module
-from telemetry.page import page_set as page_set_module
+from telemetry.page import shared_page_state
+from telemetry import story
 
 
 class KeySearchMobilePage(page_module.Page):
 
   def __init__(self, url, page_set):
     super(KeySearchMobilePage, self).__init__(
-        url=url, page_set=page_set, credentials_path = 'data/credentials.json')
-    self.user_agent_type = 'mobile'
+        url=url, page_set=page_set, credentials_path = 'data/credentials.json',
+        shared_page_state_class=shared_page_state.SharedMobilePageState)
     self.archive_data_file = 'data/key_search_mobile.json'
 
-  def RunSmoothness(self, action_runner):
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
+  def RunPageInteractions(self, action_runner):
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
 
 
-class KeySearchMobilePageSet(page_set_module.PageSet):
+class KeySearchMobilePageSet(story.StorySet):
 
   """ Key mobile search queries on google """
 
   def __init__(self):
     super(KeySearchMobilePageSet, self).__init__(
-      user_agent_type='mobile',
       archive_data_file='data/key_search_mobile.json',
-      bucket=page_set_module.PUBLIC_BUCKET)
+      cloud_storage_bucket=story.PUBLIC_BUCKET)
 
     urls_list = [
       # Why: An empty page should be as snappy as possible
@@ -65,4 +63,4 @@ class KeySearchMobilePageSet(page_set_module.PageSet):
     ]
 
     for url in urls_list:
-      self.AddPage(KeySearchMobilePage(url, self))
+      self.AddStory(KeySearchMobilePage(url, self))

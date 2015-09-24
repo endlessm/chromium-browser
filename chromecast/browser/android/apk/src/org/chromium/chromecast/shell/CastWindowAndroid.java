@@ -20,10 +20,10 @@ import org.chromium.base.JNINamespace;
 import org.chromium.content.browser.ContentView;
 import org.chromium.content.browser.ContentViewCore;
 import org.chromium.content.browser.ContentViewRenderView;
-import org.chromium.content.browser.WebContentsObserver;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.NavigationController;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.content_public.browser.WebContentsObserver;
 import org.chromium.ui.base.WindowAndroid;
 
 /**
@@ -40,6 +40,7 @@ public class CastWindowAndroid extends LinearLayout {
     private ContentViewCore mContentViewCore;
     private ContentViewRenderView mContentViewRenderView;
     private NavigationController mNavigationController;
+    private int mRenderProcessId;
     private WebContents mWebContents;
     private WebContentsObserver mWebContentsObserver;
     private WindowAndroid mWindow;
@@ -97,6 +98,13 @@ public class CastWindowAndroid extends LinearLayout {
     }
 
     /**
+     * Returns the render_process_id for the associated web contents
+     */
+    public int getRenderProcessId() {
+        return mRenderProcessId;
+    }
+
+    /**
      * Given a URI String, performs minimal normalization to attempt to build a usable URL from it.
      * @param uriString The passed-in path to be normalized.
      * @return The normalized URL, as a string.
@@ -116,13 +124,14 @@ public class CastWindowAndroid extends LinearLayout {
      */
     @SuppressWarnings("unused")
     @CalledByNative
-    private void initFromNativeWebContents(long nativeWebContents) {
+    private void initFromNativeWebContents(WebContents webContents, int renderProcessId) {
         Context context = getContext();
         mContentViewCore = new ContentViewCore(context);
-        ContentView view = ContentView.newInstance(context, mContentViewCore);
-        mContentViewCore.initialize(view, view, nativeWebContents, mWindow);
+        ContentView view = new ContentView(context, mContentViewCore);
+        mContentViewCore.initialize(view, view, webContents, mWindow);
         mWebContents = mContentViewCore.getWebContents();
         mNavigationController = mWebContents.getNavigationController();
+        mRenderProcessId = renderProcessId;
 
         if (getParent() != null) mContentViewCore.onShow();
         ((FrameLayout) findViewById(R.id.contentview_holder)).addView(view,
@@ -157,5 +166,12 @@ public class CastWindowAndroid extends LinearLayout {
      */
     public ContentViewCore getContentViewCore() {
         return mContentViewCore;
+    }
+
+    /**
+     * @return The {@link WebContents} managed by this class.
+     */
+    public WebContents getWebContents() {
+        return mWebContents;
     }
 }

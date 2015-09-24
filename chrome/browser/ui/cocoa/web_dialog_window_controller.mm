@@ -15,7 +15,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui_message_handler.h"
 #include "ui/events/keycodes/keyboard_codes.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/web_dialogs/web_dialog_delegate.h"
 #include "ui/web_dialogs/web_dialog_web_contents_delegate.h"
 
@@ -67,7 +67,7 @@ public:
   void AddNewContents(content::WebContents* source,
                       content::WebContents* new_contents,
                       WindowOpenDisposition disposition,
-                      const gfx::Rect& initial_pos,
+                      const gfx::Rect& initial_rect,
                       bool user_gesture,
                       bool* was_blocked) override;
   void LoadingStateChanged(content::WebContents* source,
@@ -96,7 +96,7 @@ private:
 
 namespace chrome {
 
-gfx::NativeWindow ShowWebDialog(gfx::NativeWindow parent,
+gfx::NativeWindow ShowWebDialog(gfx::NativeView parent,
                                 content::BrowserContext* context,
                                 WebDialogDelegate* delegate) {
   return [WebDialogWindowController showWebDialog:delegate
@@ -199,8 +199,7 @@ void WebDialogWindowDelegateBridge::OnDialogClosed(
 
 void WebDialogWindowDelegateBridge::OnCloseContents(WebContents* source,
                                                     bool* out_close_dialog) {
-  if (out_close_dialog)
-    *out_close_dialog = true;
+  *out_close_dialog = true;
 }
 
 void WebDialogWindowDelegateBridge::CloseContents(WebContents* source) {
@@ -225,15 +224,15 @@ void WebDialogWindowDelegateBridge::AddNewContents(
     content::WebContents* source,
     content::WebContents* new_contents,
     WindowOpenDisposition disposition,
-    const gfx::Rect& initial_pos,
+    const gfx::Rect& initial_rect,
     bool user_gesture,
     bool* was_blocked) {
   if (delegate_ && delegate_->HandleAddNewContents(
-          source, new_contents, disposition, initial_pos, user_gesture)) {
+          source, new_contents, disposition, initial_rect, user_gesture)) {
     return;
   }
   WebDialogWebContentsDelegate::AddNewContents(
-      source, new_contents, disposition, initial_pos, user_gesture,
+      source, new_contents, disposition, initial_rect, user_gesture,
       was_blocked);
 }
 
@@ -320,7 +319,7 @@ void WebDialogWindowDelegateBridge::HandleKeyboardEvent(
           initWithContentRect:dialogRect
                     styleMask:style
                       backing:NSBackingStoreBuffered
-                        defer:YES]);
+                        defer:NO]);
   if (!window.get()) {
     return nil;
   }

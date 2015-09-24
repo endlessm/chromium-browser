@@ -7,13 +7,12 @@
 #include "ash/metrics/user_metrics_recorder.h"
 #include "ash/screen_util.h"
 #include "ash/shell.h"
-#include "ash/touch/touch_uma.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
 #include "ash/wm/wm_event.h"
 #include "ash/wm/workspace/phantom_window_controller.h"
 #include "base/i18n/rtl.h"
-#include "ui/gfx/vector2d.h"
+#include "ui/gfx/geometry/vector2d.h"
 #include "ui/views/widget/widget.h"
 
 namespace {
@@ -123,10 +122,6 @@ void FrameSizeButton::OnGestureEvent(ui::GestureEvent* event) {
       event->type() == ui::ET_SCROLL_FLING_START ||
       event->type() == ui::ET_GESTURE_END) {
     if (CommitSnap(*event)) {
-      if (event->type() == ui::ET_GESTURE_TAP) {
-        TouchUMA::GetInstance()->RecordGestureAction(
-            TouchUMA::GESTURE_FRAMEMAXIMIZE_TAP);
-      }
       event->SetHandled();
       return;
     }
@@ -215,6 +210,7 @@ void FrameSizeButton::UpdateSnapType(const ui::LocatedEvent& event) {
       case CAPTION_BUTTON_ICON_MINIMIZE:
       case CAPTION_BUTTON_ICON_CLOSE:
       case CAPTION_BUTTON_ICON_BACK:
+      case CAPTION_BUTTON_ICON_LOCATION:
       case CAPTION_BUTTON_ICON_COUNT:
         NOTREACHED();
         break;

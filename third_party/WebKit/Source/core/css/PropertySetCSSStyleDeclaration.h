@@ -44,13 +44,12 @@ public:
     virtual Element* parentElement() const { return 0; }
     StyleSheetContents* contextStyleSheet() const;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     virtual CSSRule* parentRule() const override { return 0; }
     virtual unsigned length() const override final;
     virtual String item(unsigned index) const override final;
-    virtual PassRefPtrWillBeRawPtr<CSSValue> getPropertyCSSValue(const String& propertyName) override final;
     virtual String getPropertyValue(const String& propertyName) override final;
     virtual String getPropertyPriority(const String& propertyName) override final;
     virtual String getPropertyShorthand(const String& propertyName) override final;
@@ -64,17 +63,12 @@ private:
     virtual void setPropertyInternal(CSSPropertyID, const String& value, bool important, ExceptionState&) override final;
 
     virtual bool cssPropertyMatches(CSSPropertyID, const CSSValue*) const override final;
-    virtual PassRefPtrWillBeRawPtr<MutableStylePropertySet> copyProperties() const override final;
-
-    CSSValue* cloneAndCacheForCSSOM(CSSValue*);
 
 protected:
     enum MutationType { NoChanges, PropertyChanged };
     virtual void willMutate() { }
     virtual void didMutate(MutationType) { }
     virtual MutableStylePropertySet& propertySet() const = 0;
-
-    OwnPtrWillBeMember<WillBeHeapHashMap<RawPtrWillBeMember<CSSValue>, RefPtrWillBeMember<CSSValue> > > m_cssomCSSValueClones;
 };
 
 class PropertySetCSSStyleDeclaration : public AbstractPropertySetCSSStyleDeclaration {
@@ -86,7 +80,7 @@ public:
     virtual void deref() override;
 #endif
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 protected:
     virtual MutableStylePropertySet& propertySet() const override final { ASSERT(m_propertySet); return *m_propertySet; }
@@ -94,7 +88,7 @@ protected:
     RawPtrWillBeMember<MutableStylePropertySet> m_propertySet; // Cannot be null
 };
 
-class StyleRuleCSSStyleDeclaration final : public PropertySetCSSStyleDeclaration
+class StyleRuleCSSStyleDeclaration : public PropertySetCSSStyleDeclaration
 {
 public:
     static PassRefPtrWillBeRawPtr<StyleRuleCSSStyleDeclaration> create(MutableStylePropertySet& propertySet, CSSRule* parentRule)
@@ -111,9 +105,9 @@ public:
 
     void reattach(MutableStylePropertySet&);
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
-private:
+protected:
     StyleRuleCSSStyleDeclaration(MutableStylePropertySet&, CSSRule*);
     virtual ~StyleRuleCSSStyleDeclaration();
 
@@ -138,7 +132,7 @@ public:
     {
     }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     virtual MutableStylePropertySet& propertySet() const override;

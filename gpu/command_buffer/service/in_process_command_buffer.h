@@ -46,11 +46,13 @@ class StreamTextureManagerInProcess;
 #endif
 
 namespace gpu {
+class ValueStateMap;
 
 namespace gles2 {
 class GLES2Decoder;
 class MailboxManager;
 class ShaderTranslatorCache;
+class SubscriptionRefSet;
 }
 
 class CommandBufferServiceBase;
@@ -90,6 +92,7 @@ class GPU_EXPORT InProcessCommandBuffer : public CommandBuffer,
   State GetLastState() override;
   int32 GetLastToken() override;
   void Flush(int32 put_offset) override;
+  void OrderingBarrier(int32 put_offset) override;
   void WaitForTokenInRange(int32 start, int32 end) override;
   void WaitForGetOffsetInRange(int32 start, int32 end) override;
   void SetGetBuffer(int32 shm_id) override;
@@ -117,6 +120,8 @@ class GPU_EXPORT InProcessCommandBuffer : public CommandBuffer,
   void SignalQuery(uint32 query_id, const base::Closure& callback) override;
   void SetSurfaceVisible(bool visible) override;
   uint32 CreateStreamTexture(uint32 texture_id) override;
+  void SetLock(base::Lock*) override;
+  bool IsGpuChannelLost() override;
 
   // The serializer interface to the GPU service (i.e. thread).
   class Service {
@@ -137,10 +142,16 @@ class GPU_EXPORT InProcessCommandBuffer : public CommandBuffer,
     virtual bool UseVirtualizedGLContexts() = 0;
     virtual scoped_refptr<gles2::ShaderTranslatorCache>
         shader_translator_cache() = 0;
+    scoped_refptr<gfx::GLShareGroup> share_group();
     scoped_refptr<gles2::MailboxManager> mailbox_manager();
+    scoped_refptr<gles2::SubscriptionRefSet> subscription_ref_set();
+    scoped_refptr<gpu::ValueStateMap> pending_valuebuffer_state();
 
    private:
+    scoped_refptr<gfx::GLShareGroup> share_group_;
     scoped_refptr<gles2::MailboxManager> mailbox_manager_;
+    scoped_refptr<gles2::SubscriptionRefSet> subscription_ref_set_;
+    scoped_refptr<gpu::ValueStateMap> pending_valuebuffer_state_;
   };
 
 #if defined(OS_ANDROID)
@@ -199,6 +210,7 @@ class GPU_EXPORT InProcessCommandBuffer : public CommandBuffer,
                               gfx::GpuMemoryBuffer::Format format,
                               uint32 internalformat);
   void DestroyImageOnGpuThread(int32 id);
+  void SetGetBufferOnGpuThread(int32 shm_id, base::WaitableEvent* completion);
 
   // Callbacks:
   void OnContextLost();
@@ -207,12 +219,10 @@ class GPU_EXPORT InProcessCommandBuffer : public CommandBuffer,
   void PumpCommands();
   void PerformIdleWork();
 
-  static scoped_refptr<Service> GetDefaultService();
-
   // Members accessed on the gpu thread (possibly with the exception of
   // creation):
   bool context_lost_;
-  scoped_ptr<TransferBufferManagerInterface> transfer_buffer_manager_;
+  scoped_refptr<TransferBufferManagerInterface> transfer_buffer_manager_;
   scoped_ptr<GpuScheduler> gpu_scheduler_;
   scoped_ptr<gles2::GLES2Decoder> decoder_;
   scoped_refptr<gfx::GLContext> context_;

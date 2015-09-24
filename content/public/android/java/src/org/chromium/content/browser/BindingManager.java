@@ -4,6 +4,8 @@
 
 package org.chromium.content.browser;
 
+import android.content.Context;
+
 /**
  * Manages oom bindings used to bound child services. "Oom binding" is a binding that raises the
  * process oom priority so that it shouldn't be killed by the OS out-of-memory killer under
@@ -27,16 +29,15 @@ package org.chromium.content.browser;
  */
 public interface BindingManager {
     /**
-     * Registers a freshly started child process. On low-memory devices this will also drop the
-     * oom bindings of the last process that was oom-bound. We can do that, because every time a
-     * connection is created on the low-end, it is used in foreground (no prerendering, no
-     * loading of tabs opened in background). This can be called on any thread.
+     * Registers a freshly started child process. This can be called on any thread.
      * @param pid handle of the service process
      */
     void addNewConnection(int pid, ChildProcessConnection connection);
 
     /**
-     * Called when the service visibility changes or is determined for the first time.
+     * Called when the service visibility changes or is determined for the first time. On low-memory
+     * devices this will also drop the oom bindings of the last process that was oom-bound if a new
+     * process is used in foreground.
      * @param pid handle of the service process
      * @param inForeground true iff the service is visibile to the user
      */
@@ -81,4 +82,16 @@ public interface BindingManager {
      * ChildProcessConnection. This can be called on any thread.
      */
     void clearConnection(int pid);
+
+    /**
+     * Starts moderate binding management.
+     * Please see https://goo.gl/tl9MQm for details.
+     */
+    void startModerateBindingManagement(
+            Context context, int maxSize, float lowReduceRatio, float highReduceRatio);
+
+    /**
+     * Releases all moderate bindings.
+     */
+    void releaseAllModerateBindings();
 }

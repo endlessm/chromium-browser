@@ -8,7 +8,6 @@
 #include "base/callback.h"
 #include "base/metrics/histogram.h"
 #include "base/strings/string_util.h"
-#include "chrome/browser/history/history_service.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/profiles/profile.h"
@@ -16,9 +15,10 @@
 #include "chrome/browser/supervised_user/supervised_user_resource_throttle.h"
 #include "chrome/browser/supervised_user/supervised_user_service.h"
 #include "chrome/browser/supervised_user/supervised_user_service_factory.h"
-#include "chrome/browser/supervised_user/supervised_user_url_filter.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/history/content/browser/history_context_helper.h"
+#include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/infobars/core/confirm_infobar_delegate.h"
 #include "components/infobars/core/infobar.h"
@@ -101,8 +101,8 @@ class SupervisedUserWarningInfoBarDelegate : public ConfirmInfoBarDelegate {
 // static
 infobars::InfoBar* SupervisedUserWarningInfoBarDelegate::Create(
     InfoBarService* infobar_service) {
-  return infobar_service->AddInfoBar(ConfirmInfoBarDelegate::CreateInfoBar(
-      scoped_ptr<ConfirmInfoBarDelegate>(
+  return infobar_service->AddInfoBar(
+      infobar_service->CreateConfirmInfoBar(scoped_ptr<ConfirmInfoBarDelegate>(
           new SupervisedUserWarningInfoBarDelegate())));
 }
 
@@ -204,6 +204,7 @@ void SupervisedUserNavigationObserver::OnRequestBlocked(
     int render_process_host_id,
     int render_view_id,
     const GURL& url,
+    SupervisedUserURLFilter::FilteringBehaviorReason reason,
     const base::Callback<void(bool)>& callback) {
   content::WebContents* web_contents =
       tab_util::GetWebContentsByID(render_process_host_id, render_view_id);
@@ -219,7 +220,7 @@ void SupervisedUserNavigationObserver::OnRequestBlocked(
     navigation_observer->OnRequestBlockedInternal(url);
 
   // Show the interstitial.
-  SupervisedUserInterstitial::Show(web_contents, url, callback);
+  SupervisedUserInterstitial::Show(web_contents, url, reason, callback);
 }
 
 void SupervisedUserNavigationObserver::OnRequestBlockedInternal(
@@ -227,16 +228,16 @@ void SupervisedUserNavigationObserver::OnRequestBlockedInternal(
   Time timestamp = Time::Now();  // TODO(bauerb): Use SaneTime when available.
   // Create a history entry for the attempt and mark it as such.
   history::HistoryAddPageArgs add_page_args(
-        url, timestamp, web_contents(), 0,
-        url, history::RedirectList(),
-        ui::PAGE_TRANSITION_BLOCKED, history::SOURCE_BROWSED,
-        false);
+      url, timestamp, history::ContextIDForWebContents(web_contents()), 0, url,
+      history::RedirectList(), ui::PAGE_TRANSITION_BLOCKED,
+      history::SOURCE_BROWSED, false);
 
   // Add the entry to the history database.
   Profile* profile =
       Profile::FromBrowserContext(web_contents()->GetBrowserContext());
-  HistoryService* history_service =
-     HistoryServiceFactory::GetForProfile(profile, Profile::IMPLICIT_ACCESS);
+  history::HistoryService* history_service =
+      HistoryServiceFactory::GetForProfile(profile,
+                                           ServiceAccessType::IMPLICIT_ACCESS);
 
   // |history_service| is null if saving history is disabled.
   if (history_service)

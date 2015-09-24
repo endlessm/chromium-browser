@@ -5,22 +5,26 @@
 #ifndef ASH_WM_MAXIMIZE_MODE_MAXIMIZE_MODE_CONTROLLER_H_
 #define ASH_WM_MAXIMIZE_MODE_MAXIMIZE_MODE_CONTROLLER_H_
 
-#include "ash/accelerometer/accelerometer_observer.h"
 #include "ash/ash_export.h"
-#include "ash/display/display_controller.h"
-#include "ash/display/display_manager.h"
 #include "ash/shell_observer.h"
 #include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/observer_list.h"
+#include "base/time/time.h"
 #include "ui/gfx/display.h"
+#include "ui/gfx/geometry/vector3d_f.h"
 
 #if defined(OS_CHROMEOS)
+#include "chromeos/accelerometer/accelerometer_reader.h"
+#include "chromeos/accelerometer/accelerometer_types.h"
 #include "chromeos/dbus/power_manager_client.h"
 #endif  // OS_CHROMEOS
 
 namespace base {
 class TickClock;
+}
+
+namespace gfx {
+class Vector3dF;
 }
 
 namespace ui {
@@ -41,45 +45,15 @@ class VirtualKeyboardControllerTest;
 // MaximizeModeController listens to accelerometer events and automatically
 // enters and exits maximize mode when the lid is opened beyond the triggering
 // angle and rotates the display to match the device when in maximize mode.
-class ASH_EXPORT MaximizeModeController
-    : public AccelerometerObserver,
+class ASH_EXPORT MaximizeModeController :
 #if defined(OS_CHROMEOS)
-      public chromeos::PowerManagerClient::Observer,
+    public chromeos::AccelerometerReader::Observer,
+    public chromeos::PowerManagerClient::Observer,
 #endif  // OS_CHROMEOS
-      public ShellObserver,
-      public DisplayController::Observer {
+    public ShellObserver {
  public:
-  // Observer that reports changes to the state of MaximizeModeController's
-  // rotation lock.
-  class Observer {
-   public:
-    // Invoked whenever |rotation_locked_| is changed.
-    virtual void OnRotationLockChanged(bool rotation_locked) {}
-
-   protected:
-    virtual ~Observer() {}
-  };
-
   MaximizeModeController();
   ~MaximizeModeController() override;
-
-  bool ignore_display_configuration_updates() const {
-    return ignore_display_configuration_updates_;
-  }
-
-  // True if |rotation_lock_| has been set, and OnAccelerometerUpdated will not
-  // change the display rotation.
-  bool rotation_locked() {
-    return rotation_locked_;
-  }
-
-  // If |rotation_locked| future calls to OnAccelerometerUpdated will not
-  // change the display rotation.
-  void SetRotationLocked(bool rotation_locked);
-
-  // Add/Remove observers.
-  void AddObserver(Observer* observer);
-  void RemoveObserver(Observer* observer);
 
   // True if it is possible to enter maximize mode in the current
   // configuration. If this returns false, it should never be the case that
@@ -91,7 +65,7 @@ class ASH_EXPORT MaximizeModeController
   // unittests; the event blocker prevents keyboard input when running ChromeOS
   // on linux. http://crbug.com/362881
   // Turn the always maximize mode window manager on or off.
-  void EnableMaximizeModeWindowManager(bool enable);
+  void EnableMaximizeModeWindowManager(bool should_enable);
 
   // Test if the MaximizeModeWindowManager is enabled or not.
   bool IsMaximizeModeWindowManagerEnabled() const;
@@ -102,30 +76,20 @@ class ASH_EXPORT MaximizeModeController
   // If the maximize mode is not enabled no action will be performed.
   void AddWindow(aura::Window* window);
 
-  // TODO(jonross): move this into the destructor. Currently separated as
-  // ShellOberver notifies of maximize mode ending, and the observers end up
-  // attempting to access MaximizeModeController via the Shell. If done in
-  // destructor the controller is null, and the observers segfault.
-  // Shuts down down the MaximizeModeWindowManager and notifies all observers.
-  void Shutdown();
-
-  // AccelerometerObserver:
-  void OnAccelerometerUpdated(const ui::AccelerometerUpdate& update) override;
-
   // ShellObserver:
   void OnAppTerminating() override;
   void OnMaximizeModeStarted() override;
   void OnMaximizeModeEnded() override;
 
-  // DisplayController::Observer:
-  void OnDisplayConfigurationChanged() override;
-
 #if defined(OS_CHROMEOS)
+  // chromeos::AccelerometerReader::Observer:
+  void OnAccelerometerUpdated(
+      scoped_refptr<const chromeos::AccelerometerUpdate> update) override;
+
   // PowerManagerClient::Observer:
-  virtual void LidEventReceived(bool open,
-                                const base::TimeTicks& time) override;
-  virtual void SuspendImminent() override;
-  virtual void SuspendDone(const base::TimeDelta& sleep_duration) override;
+  void LidEventReceived(bool open, const base::TimeTicks& time) override;
+  void SuspendImminent() override;
+  void SuspendDone(const base::TimeDelta& sleep_duration) override;
 #endif  // OS_CHROMEOS
 
  private:
@@ -134,22 +98,23 @@ class ASH_EXPORT MaximizeModeController
   friend class test::MultiUserWindowManagerChromeOSTest;
   friend class test::VirtualKeyboardControllerTest;
 
+  // Used for recording metrics for intervals of time spent in
+  // and out of TouchView.
+  enum TouchViewIntervalType {
+    TOUCH_VIEW_INTERVAL_INACTIVE,
+    TOUCH_VIEW_INTERVAL_ACTIVE
+  };
+
   // Set the TickClock. This is only to be used by tests that need to
   // artificially and deterministically control the current time.
   void SetTickClockForTest(scoped_ptr<base::TickClock> tick_clock);
 
-  // Detect hinge rotation from |base| and |lid| accelerometers and
-  // automatically start / stop maximize mode.
-  void HandleHingeRotation(const gfx::Vector3dF& base,
-                           const gfx::Vector3dF& lid);
-
-  // Detect screen rotation from |lid| accelerometer and automatically rotate
-  // screen.
-  void HandleScreenRotation(const gfx::Vector3dF& lid);
-
-  // Sets the display rotation and suppresses display notifications.
-  void SetDisplayRotation(DisplayManager* display_manager,
-                          gfx::Display::Rotation rotation);
+#if defined(OS_CHROMEOS)
+  // Detect hinge rotation from base and lid accelerometers and automatically
+  // start / stop maximize mode.
+  void HandleHingeRotation(
+      scoped_refptr<const chromeos::AccelerometerUpdate> update);
+#endif
 
   // Returns true if the lid was recently opened.
   bool WasLidOpenedRecently() const;
@@ -162,12 +127,16 @@ class ASH_EXPORT MaximizeModeController
   // is no rotation lock.
   void LeaveMaximizeMode();
 
-  // Record UMA stats tracking touchview usage.
-  void RecordTouchViewStateTransition();
+  // Record UMA stats tracking TouchView usage. If |type| is
+  // TOUCH_VIEW_INTERVAL_INACTIVE, then record that TouchView has been
+  // inactive from |touchview_usage_interval_start_time_| until now.
+  // Similarly, record that TouchView has been active if |type| is
+  // TOUCH_VIEW_INTERVAL_ACTIVE.
+  void RecordTouchViewUsageInterval(TouchViewIntervalType type);
 
-  // Checks DisplayManager for registered rotation lock, and rotation,
-  // preferences. These are then applied.
-  void LoadDisplayRotationProperties();
+  // Returns TOUCH_VIEW_INTERVAL_ACTIVE if TouchView is currently active,
+  // otherwise returns TOUCH_VIEW_INTERNAL_INACTIVE.
+  TouchViewIntervalType CurrentTouchViewIntervalType();
 
   // The maximized window manager (if enabled).
   scoped_ptr<MaximizeModeWindowManager> maximize_mode_window_manager_;
@@ -176,38 +145,14 @@ class ASH_EXPORT MaximizeModeController
   // internal keyboard and touchpad.
   scoped_ptr<ScopedDisableInternalMouseAndKeyboard> event_blocker_;
 
-  // When true calls to OnAccelerometerUpdated will not rotate the display.
-  bool rotation_locked_;
-
   // Whether we have ever seen accelerometer data.
   bool have_seen_accelerometer_data_;
-
-  // True when changes being applied cause OnDisplayConfigurationChanged() to be
-  // called, and for which these changes should be ignored.
-  bool ignore_display_configuration_updates_;
 
   // True when the hinge angle has been detected past 180 degrees.
   bool lid_open_past_180_;
 
-  // True when Shutdown has been called. When shutting down the non maximize
-  // mode state should be restored, however user preferences should not be
-  // altered.
-  bool shutting_down_;
-
-  // The rotation of the display set by the user. This rotation will be
-  // restored upon exiting maximize mode.
-  gfx::Display::Rotation user_rotation_;
-
-  // The current rotation set by MaximizeModeController for the internal
-  // display. Compared in OnDisplayConfigurationChanged to determine user
-  // display setting changes.
-  gfx::Display::Rotation current_rotation_;
-
-  // Rotation Lock observers.
-  ObserverList<Observer> observers_;
-
   // Tracks time spent in (and out of) touchview mode.
-  base::Time last_touchview_transition_time_;
+  base::Time touchview_usage_interval_start_time_;
   base::TimeDelta total_touchview_time_;
   base::TimeDelta total_non_touchview_time_;
 
@@ -221,6 +166,12 @@ class ASH_EXPORT MaximizeModeController
 
   // Tracks when the lid is closed. Used to prevent entering maximize mode.
   bool lid_is_closed_;
+
+  // Tracks smoothed accelerometer data over time. This is done when the hinge
+  // is approaching vertical to remove abrupt acceleration that can lead to
+  // incorrect calculations of hinge angles.
+  gfx::Vector3dF base_smoothed_;
+  gfx::Vector3dF lid_smoothed_;
 
   DISALLOW_COPY_AND_ASSIGN(MaximizeModeController);
 };

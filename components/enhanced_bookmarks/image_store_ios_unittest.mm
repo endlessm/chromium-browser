@@ -8,6 +8,7 @@
 
 #include "base/files/scoped_temp_dir.h"
 #include "base/mac/scoped_cftyperef.h"
+#include "components/enhanced_bookmarks/image_record.h"
 #include "components/enhanced_bookmarks/image_store_util.h"
 #include "components/enhanced_bookmarks/persistent_image_store.h"
 #include "components/enhanced_bookmarks/test_image_store.h"
@@ -21,7 +22,8 @@ namespace {
 // Generates a gfx::Image with a random UIImage representation. Uses off-center
 // circle gradient to make all pixels slightly different in order to detect
 // small image alterations.
-gfx::Image GenerateRandomUIImage(gfx::Size& size, float scale) {
+scoped_ptr<gfx::Image> GenerateRandomUIImage(const gfx::Size& size,
+                                             float scale) {
   UIGraphicsBeginImageContextWithOptions(CGSizeMake(size.width(),
                                                     size.height()),
                                          YES,  // opaque.
@@ -55,7 +57,7 @@ gfx::Image GenerateRandomUIImage(gfx::Size& size, float scale) {
                               kCGGradientDrawsAfterEndLocation);
   UIImage* image = UIGraphicsGetImageFromCurrentImageContext();
   UIGraphicsEndImageContext();
-  return gfx::Image([image retain]);
+  return scoped_ptr<gfx::Image>(new gfx::Image([image retain]));
 }
 
 // Returns true if the two images are identical.
@@ -104,15 +106,15 @@ template <class T>
 class ImageStoreUnitTestIOS : public PlatformTest {
  protected:
   ImageStoreUnitTestIOS() {}
-  virtual ~ImageStoreUnitTestIOS() {}
+  ~ImageStoreUnitTestIOS() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     bool success = temp_dir_.CreateUniqueTempDir();
     ASSERT_TRUE(success);
     store_.reset(CreateStore<T>(temp_dir_));
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     if (store_ && use_persistent_store())
       store_->ClearAll();
   }
@@ -136,17 +138,22 @@ typedef testing::Types<TestImageStore,
 TYPED_TEST_CASE(ImageStoreUnitTestIOS, Implementations);
 
 TYPED_TEST(ImageStoreUnitTestIOS, StoringImagesPreservesScale) {
-  CGFloat scales[] = { 0.0, 1.0, 2.0 };
-  gfx::Size image_size(42, 24);
+  const CGFloat scales[] = {0.0, 1.0, 2.0};
+  const gfx::Size image_size(42, 24);
   for (unsigned long i = 0; i < arraysize(scales); i++) {
-    gfx::Image src_image(GenerateRandomUIImage(image_size, scales[i]));
     const GURL url("foo://bar");
-    const GURL image_url("a.jpg");
-    this->store_->Insert(url, image_url, src_image);
-    std::pair<gfx::Image, GURL> image_info = this->store_->Get(url);
+    scoped_refptr<enhanced_bookmarks::ImageRecord> image_in(
+        new enhanced_bookmarks::ImageRecord(
+            GenerateRandomUIImage(image_size, scales[i]),
+            GURL("http://a.jpg"),
+            SK_ColorGREEN));
+    this->store_->Insert(url, image_in);
+    scoped_refptr<enhanced_bookmarks::ImageRecord> image_out =
+        this->store_->Get(url);
 
-    EXPECT_EQ(image_url, image_info.second);
-    EXPECT_TRUE(CompareImages(src_image, image_info.first));
+    EXPECT_EQ(image_in->url, image_out->url);
+    EXPECT_TRUE(CompareImages(*image_in->image, *image_out->image));
+    EXPECT_EQ(image_in->dominant_color, image_out->dominant_color);
   }
 }
 

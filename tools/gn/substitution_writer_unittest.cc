@@ -39,7 +39,7 @@ TEST(SubstitutionWriter, ApplyPatternToSource) {
   SubstitutionPattern pattern;
   Err err;
   ASSERT_TRUE(pattern.Parse("{{source_gen_dir}}/{{source_name_part}}.tmp",
-                            NULL, &err));
+                            nullptr, &err));
 
   SourceFile result = SubstitutionWriter::ApplyPatternToSource(
       setup.settings(), pattern, SourceFile("//foo/bar/myfile.txt"));
@@ -52,7 +52,7 @@ TEST(SubstitutionWriter, ApplyPatternToSourceAsOutputFile) {
   SubstitutionPattern pattern;
   Err err;
   ASSERT_TRUE(pattern.Parse("{{source_gen_dir}}/{{source_name_part}}.tmp",
-                            NULL, &err));
+                            nullptr, &err));
 
   OutputFile result = SubstitutionWriter::ApplyPatternToSourceAsOutputFile(
       setup.settings(), pattern, SourceFile("//foo/bar/myfile.txt"));
@@ -85,9 +85,8 @@ TEST(SubstitutionWriter, WriteNinjaVariablesForSource) {
 TEST(SubstitutionWriter, WriteWithNinjaVariables) {
   Err err;
   SubstitutionPattern pattern;
-  ASSERT_TRUE(pattern.Parse(
-      "-i {{source}} --out=bar\"{{source_name_part}}\".o",
-      NULL, &err));
+  ASSERT_TRUE(pattern.Parse("-i {{source}} --out=bar\"{{source_name_part}}\".o",
+                            nullptr, &err));
   EXPECT_FALSE(err.has_error());
 
   EscapeOptions options;
@@ -162,7 +161,12 @@ TEST(SubstitutionWriter, SourceSubstitutions) {
   EXPECT_EQ("/baz.txt", GetRelSubst("/baz.txt", SUBSTITUTION_SOURCE));
   EXPECT_EQ("/.", GetRelSubst("/baz.txt", SUBSTITUTION_SOURCE_DIR));
   EXPECT_EQ("gen", GetRelSubst("/baz.txt", SUBSTITUTION_SOURCE_GEN_DIR));
-  EXPECT_EQ("obj", GetRelSubst("/baz.txt", SUBSTITUTION_SOURCE_OUT_DIR));
+  EXPECT_EQ("obj/ABS_PATH",
+            GetRelSubst("/baz.txt", SUBSTITUTION_SOURCE_OUT_DIR));
+#if defined(OS_WIN)
+  EXPECT_EQ("obj/ABS_PATH/C",
+            GetRelSubst("/C:/baz.txt", SUBSTITUTION_SOURCE_OUT_DIR));
+#endif
 
   EXPECT_EQ(".",
             GetRelSubst("//baz.txt", SUBSTITUTION_SOURCE_ROOT_RELATIVE_DIR));
@@ -250,8 +254,8 @@ TEST(SubstitutionWriter, LinkerSubstitutions) {
   // Test that we handle paths that end up in the root build dir properly
   // (no leading "./" or "/").
   SubstitutionPattern pattern;
-  ASSERT_TRUE(
-      pattern.Parse("{{root_out_dir}}/{{target_output_name}}.so", NULL, &err));
+  ASSERT_TRUE(pattern.Parse("{{root_out_dir}}/{{target_output_name}}.so",
+                            nullptr, &err));
 
   OutputFile output = SubstitutionWriter::ApplyPatternToLinkerAsOutputFile(
       &target, tool, pattern);

@@ -5,7 +5,10 @@
 #ifndef CHROME_BROWSER_DRIVE_FAKE_DRIVE_SERVICE_H_
 #define CHROME_BROWSER_DRIVE_FAKE_DRIVE_SERVICE_H_
 
+#include <string>
+
 #include "base/files/file_path.h"
+#include "base/threading/thread_checker.h"
 #include "chrome/browser/drive/drive_service_interface.h"
 
 namespace base {
@@ -53,7 +56,7 @@ class FakeDriveService : public DriveServiceInterface {
   // Returns true if the service knows the given drive app id.
   bool HasApp(const std::string& app_id) const;
 
-  // Changes the offline state. All functions fail with GDATA_NO_CONNECTION
+  // Changes the offline state. All functions fail with DRIVE_NO_CONNECTION
   // when offline. By default the offline state is false.
   void set_offline(bool offline) { offline_ = offline; }
 
@@ -198,6 +201,7 @@ class FakeDriveService : public DriveServiceInterface {
       const std::string& new_title,
       const base::Time& last_modified,
       const base::Time& last_viewed_by_me,
+      const google_apis::drive::Properties& properties,
       const google_apis::FileResourceCallback& callback) override;
   google_apis::CancelCallback AddResourceToDirectory(
       const std::string& parent_resource_id,
@@ -217,13 +221,13 @@ class FakeDriveService : public DriveServiceInterface {
       int64 content_length,
       const std::string& parent_resource_id,
       const std::string& title,
-      const InitiateUploadNewFileOptions& options,
+      const UploadNewFileOptions& options,
       const google_apis::InitiateUploadCallback& callback) override;
   google_apis::CancelCallback InitiateUploadExistingFile(
       const std::string& content_type,
       int64 content_length,
       const std::string& resource_id,
-      const InitiateUploadExistingFileOptions& options,
+      const UploadExistingFileOptions& options,
       const google_apis::InitiateUploadCallback& callback) override;
   google_apis::CancelCallback ResumeUpload(
       const GURL& upload_url,
@@ -238,6 +242,23 @@ class FakeDriveService : public DriveServiceInterface {
       const GURL& upload_url,
       int64 content_length,
       const google_apis::drive::UploadRangeCallback& callback) override;
+  google_apis::CancelCallback MultipartUploadNewFile(
+      const std::string& content_type,
+      int64 content_length,
+      const std::string& parent_resource_id,
+      const std::string& title,
+      const base::FilePath& local_file_path,
+      const UploadNewFileOptions& options,
+      const google_apis::FileResourceCallback& callback,
+      const google_apis::ProgressCallback& progress_callback) override;
+  google_apis::CancelCallback MultipartUploadExistingFile(
+      const std::string& content_type,
+      int64 content_length,
+      const std::string& resource_id,
+      const base::FilePath& local_file_path,
+      const UploadExistingFileOptions& options,
+      const google_apis::FileResourceCallback& callback,
+      const google_apis::ProgressCallback& progress_callback) override;
   google_apis::CancelCallback AuthorizeApp(
       const std::string& resource_id,
       const std::string& app_id,
@@ -250,6 +271,7 @@ class FakeDriveService : public DriveServiceInterface {
       const std::string& email,
       google_apis::drive::PermissionRole role,
       const google_apis::EntryActionCallback& callback) override;
+  scoped_ptr<BatchRequestConfiguratorInterface> StartBatchRequest() override;
 
   // Adds a new file with the given parameters. On success, returns
   // HTTP_CREATED with the parsed entry.
@@ -292,7 +314,7 @@ class FakeDriveService : public DriveServiceInterface {
       const google_apis::FileResourceCallback& callback);
 
   // Sets the user's permission for an entry specified by |resource_id|.
-  google_apis::GDataErrorCode SetUserPermission(
+  google_apis::DriveApiErrorCode SetUserPermission(
       const std::string& resource_id,
       google_apis::drive::PermissionRole user_permission);
 
@@ -347,6 +369,9 @@ class FakeDriveService : public DriveServiceInterface {
 
   void NotifyObservers();
 
+  // The class is expected to run on UI thread.
+  base::ThreadChecker thread_checker_;
+
   typedef std::map<std::string, EntryInfo*> EntryInfoMap;
   EntryInfoMap entries_;
   scoped_ptr<google_apis::AboutResource> about_resource_;
@@ -369,7 +394,7 @@ class FakeDriveService : public DriveServiceInterface {
   std::string app_json_template_;
   std::string open_url_format_;
 
-  ObserverList<ChangeObserver> change_observers_;
+  base::ObserverList<ChangeObserver> change_observers_;
 
   base::WeakPtrFactory<FakeDriveService> weak_ptr_factory_;
 

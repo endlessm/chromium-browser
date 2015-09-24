@@ -8,18 +8,18 @@
 
 #include "base/bind.h"
 #include "base/compiler_specific.h"
-#include "base/debug/alias.h"
-#include "base/debug/debugger.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/lazy_instance.h"
-#include "base/metrics/field_trial.h"
+#include "base/location.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_tokenizer.h"
 #include "base/strings/stringprintf.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/metrics/thread_watcher_report_hang.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/chrome_version_info.h"
 #include "chrome/common/logging_chrome.h"
@@ -31,103 +31,11 @@
 
 using content::BrowserThread;
 
-namespace {
-
-// The following are unique function names for forcing the crash when a thread
-// is unresponsive. This makes it possible to tell from the callstack alone what
-// thread was unresponsive.
-//
-// We disable optimizations for this block of functions so the compiler doesn't
-// merge them all together.
-MSVC_DISABLE_OPTIMIZE()
-MSVC_PUSH_DISABLE_WARNING(4748)
-
-void ReportThreadHang() {
-#if defined(NDEBUG)
-  base::debug::DumpWithoutCrashing();
-#else
-  base::debug::BreakDebugger();
-#endif
-}
-
-#if !defined(OS_ANDROID) || !defined(NDEBUG)
-// TODO(rtenneti): Enabled crashing, after getting data.
-NOINLINE void StartupHang() {
-  ReportThreadHang();
-}
-#endif  // OS_ANDROID
-
-NOINLINE void ShutdownHang() {
-  ReportThreadHang();
-}
-
-NOINLINE void ThreadUnresponsive_UI() {
-  ReportThreadHang();
-}
-
-NOINLINE void ThreadUnresponsive_DB() {
-  ReportThreadHang();
-}
-
-NOINLINE void ThreadUnresponsive_FILE() {
-  ReportThreadHang();
-}
-
-NOINLINE void ThreadUnresponsive_FILE_USER_BLOCKING() {
-  ReportThreadHang();
-}
-
-NOINLINE void ThreadUnresponsive_PROCESS_LAUNCHER() {
-  ReportThreadHang();
-}
-
-NOINLINE void ThreadUnresponsive_CACHE() {
-  ReportThreadHang();
-}
-
-NOINLINE void ThreadUnresponsive_IO() {
-  ReportThreadHang();
-}
-
-void CrashBecauseThreadWasUnresponsive(BrowserThread::ID thread_id) {
-  base::debug::Alias(&thread_id);
-
-  switch (thread_id) {
-    case BrowserThread::UI:
-      return ThreadUnresponsive_UI();
-    case BrowserThread::DB:
-      return ThreadUnresponsive_DB();
-    case BrowserThread::FILE:
-      return ThreadUnresponsive_FILE();
-    case BrowserThread::FILE_USER_BLOCKING:
-      return ThreadUnresponsive_FILE_USER_BLOCKING();
-    case BrowserThread::PROCESS_LAUNCHER:
-      return ThreadUnresponsive_PROCESS_LAUNCHER();
-    case BrowserThread::CACHE:
-      return ThreadUnresponsive_CACHE();
-    case BrowserThread::IO:
-      return ThreadUnresponsive_IO();
-    case BrowserThread::ID_COUNT:
-      CHECK(false);  // This shouldn't actually be reached!
-      break;
-
-    // Omission of the default hander is intentional -- that way the compiler
-    // should warn if our switch becomes outdated.
-  }
-
-  CHECK(false) << "Unknown thread was unresponsive.";  // Shouldn't be reached.
-}
-
-MSVC_POP_WARNING()
-MSVC_ENABLE_OPTIMIZE();
-
-}  // namespace
-
 // ThreadWatcher methods and members.
 ThreadWatcher::ThreadWatcher(const WatchingParams& params)
     : thread_id_(params.thread_id),
       thread_name_(params.thread_name),
-      watched_loop_(
+      watched_runner_(
           BrowserThread::GetMessageLoopProxyForThread(params.thread_id)),
       sleep_time_(params.sleep_time),
       unresponsive_time_(params.unresponsive_time),
@@ -184,10 +92,9 @@ void ThreadWatcher::ActivateThreadWatching() {
   active_ = true;
   ping_count_ = unresponsive_threshold_;
   ResetHangCounters();
-  base::MessageLoop::current()->PostTask(
-      FROM_HERE,
-      base::Bind(&ThreadWatcher::PostPingMessage,
-                 weak_ptr_factory_.GetWeakPtr()));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&ThreadWatcher::PostPingMessage,
+                            weak_ptr_factory_.GetWeakPtr()));
 }
 
 void ThreadWatcher::DeActivateThreadWatching() {
@@ -235,7 +142,7 @@ void ThreadWatcher::PostPingMessage() {
   base::Closure callback(
       base::Bind(&ThreadWatcher::OnPongMessage, weak_ptr_factory_.GetWeakPtr(),
                  ping_sequence_number_));
-  if (watched_loop_->PostTask(
+  if (watched_runner_->PostTask(
           FROM_HERE,
           base::Bind(&ThreadWatcher::OnPingMessage, thread_id_,
                      callback))) {
@@ -276,10 +183,9 @@ void ThreadWatcher::OnPongMessage(uint64 ping_sequence_number) {
   if (!active_ || --ping_count_ <= 0)
     return;
 
-  base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::Bind(&ThreadWatcher::PostPingMessage,
-                 weak_ptr_factory_.GetWeakPtr()),
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, base::Bind(&ThreadWatcher::PostPingMessage,
+                            weak_ptr_factory_.GetWeakPtr()),
       sleep_time_);
 }
 
@@ -305,7 +211,7 @@ void ThreadWatcher::OnCheckResponsiveness(uint64 ping_sequence_number) {
   GotNoResponse();
 
   // Post a task to check the responsiveness of watched thread.
-  base::MessageLoop::current()->PostDelayedTask(
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
       base::Bind(&ThreadWatcher::OnCheckResponsiveness,
                  weak_ptr_factory_.GetWeakPtr(), ping_sequence_number_),
@@ -396,7 +302,7 @@ void ThreadWatcher::GotNoResponse() {
     static bool crashed_once = false;
     if (!crashed_once) {
       crashed_once = true;
-      CrashBecauseThreadWasUnresponsive(thread_id_);
+      metrics::CrashBecauseThreadWasUnresponsive(thread_id_);
     }
   }
 
@@ -438,8 +344,9 @@ ThreadWatcherList::CrashDataThresholds::CrashDataThresholds()
 }
 
 // static
-void ThreadWatcherList::StartWatchingAll(const CommandLine& command_line) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+void ThreadWatcherList::StartWatchingAll(
+    const base::CommandLine& command_line) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   uint32 unresponsive_threshold;
   CrashOnHangThreadMap crash_on_hang_threads;
   ParseCommandLine(command_line,
@@ -534,13 +441,11 @@ ThreadWatcherList::~ThreadWatcherList() {
 
 // static
 void ThreadWatcherList::ParseCommandLine(
-    const CommandLine& command_line,
+    const base::CommandLine& command_line,
     uint32* unresponsive_threshold,
     CrashOnHangThreadMap* crash_on_hang_threads) {
   // Initialize |unresponsive_threshold| to a default value.
-  // TODO(rtenneti): Changed the default value to 4 times, until we can triage
-  // hangs automatically (and to reduce the crash dumps).
-  *unresponsive_threshold = kUnresponsiveCount * 4;
+  *unresponsive_threshold = kUnresponsiveCount;
 
   // Increase the unresponsive_threshold on the Stable and Beta channels to
   // reduce the number of crashes due to ThreadWatcher.
@@ -561,11 +466,9 @@ void ThreadWatcherList::ParseCommandLine(
 
   uint32 crash_seconds = *unresponsive_threshold * kUnresponsiveSeconds;
   std::string crash_on_hang_thread_names;
-  bool has_command_line_overwrite = false;
   if (command_line.HasSwitch(switches::kCrashOnHangThreads)) {
     crash_on_hang_thread_names =
         command_line.GetSwitchValueASCII(switches::kCrashOnHangThreads);
-    has_command_line_overwrite = true;
   } else if (channel != chrome::VersionInfo::CHANNEL_STABLE) {
     // Default to crashing the browser if UI or IO or FILE threads are not
     // responsive except in stable channel.
@@ -580,43 +483,6 @@ void ThreadWatcherList::ParseCommandLine(
                                      kLiveThreadsThreshold,
                                      crash_seconds,
                                      crash_on_hang_threads);
-
-  if (channel != chrome::VersionInfo::CHANNEL_CANARY ||
-      has_command_line_overwrite) {
-    return;
-  }
-
-  const char* kFieldTrialName = "ThreadWatcher";
-
-  // Nothing else to be done if the trial has already been set (i.e., when
-  // StartWatchingAll() has been already called once).
-  if (base::FieldTrialList::TrialExists(kFieldTrialName))
-    return;
-
-  // Set up a field trial for 100% of the users to crash if either UI or IO
-  // thread is not responsive for 30 seconds (or 15 pings).
-  scoped_refptr<base::FieldTrial> field_trial(
-      base::FieldTrialList::FactoryGetFieldTrial(
-          kFieldTrialName, 100, "default_hung_threads",
-          2014, 10, 30, base::FieldTrial::SESSION_RANDOMIZED, NULL));
-  int hung_thread_group = field_trial->AppendGroup("hung_thread", 100);
-  if (field_trial->group() == hung_thread_group) {
-    for (CrashOnHangThreadMap::iterator it = crash_on_hang_threads->begin();
-         crash_on_hang_threads->end() != it;
-         ++it) {
-      if (it->first == "FILE")
-        continue;
-      it->second.live_threads_threshold = INT_MAX;
-      if (it->first == "UI") {
-        // TODO(rtenneti): set unresponsive threshold to 120 seconds to catch
-        // the worst UI hangs and for fewer crashes due to ThreadWatcher. Reduce
-        // it to a more reasonable time ala IO thread.
-        it->second.unresponsive_threshold = 60;
-      } else {
-        it->second.unresponsive_threshold = 15;
-      }
-    }
-  }
 }
 
 // static
@@ -672,6 +538,16 @@ void ThreadWatcherList::InitializeAndStartWatching(
 
   ThreadWatcherList* thread_watcher_list = new ThreadWatcherList();
   CHECK(thread_watcher_list);
+
+  // TODO(rtenneti): Because we don't generate crash dumps for ThreadWatcher in
+  // stable channel, disable ThreadWatcher in stable and unknown channels. We
+  // will also not collect histogram data in these channels until
+  // http://crbug.com/426203 is fixed.
+  chrome::VersionInfo::Channel channel = chrome::VersionInfo::GetChannel();
+  if (channel == chrome::VersionInfo::CHANNEL_STABLE ||
+      channel == chrome::VersionInfo::CHANNEL_UNKNOWN) {
+    return;
+  }
 
   const base::TimeDelta kSleepTime =
       base::TimeDelta::FromSeconds(kSleepSeconds);
@@ -887,7 +763,7 @@ bool WatchDogThread::PostTaskHelper(
     base::MessageLoop* message_loop = g_watchdog_thread ?
         g_watchdog_thread->message_loop() : NULL;
     if (message_loop) {
-      message_loop->PostDelayedTask(from_here, task, delay);
+      message_loop->task_runner()->PostDelayedTask(from_here, task, delay);
       return true;
     }
   }
@@ -927,10 +803,10 @@ class StartupWatchDogThread : public base::Watchdog {
   // without crashing and in debug mode we break into the debugger.
   void Alarm() override {
 #if !defined(NDEBUG)
-    StartupHang();
+    metrics::StartupHang();
     return;
 #elif !defined(OS_ANDROID)
-    WatchDogThread::PostTask(FROM_HERE, base::Bind(&StartupHang));
+    WatchDogThread::PostTask(FROM_HERE, base::Bind(&metrics::StartupHang));
     return;
 #else
     // TODO(rtenneti): Enable crashing for Android.
@@ -954,7 +830,7 @@ class ShutdownWatchDogThread : public base::Watchdog {
 
   // Alarm is called if the time expires after an Arm() without someone calling
   // Disarm(). We crash the browser if this method is called.
-  void Alarm() override { ShutdownHang(); }
+  void Alarm() override { metrics::ShutdownHang(); }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ShutdownWatchDogThread);
@@ -1008,10 +884,9 @@ void StartupTimeBomb::DeleteStartupWatchdog() {
     startup_watchdog_ = NULL;
     return;
   }
-  base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::Bind(&StartupTimeBomb::DeleteStartupWatchdog,
-                 base::Unretained(this)),
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, base::Bind(&StartupTimeBomb::DeleteStartupWatchdog,
+                            base::Unretained(this)),
       base::TimeDelta::FromSeconds(10));
 }
 

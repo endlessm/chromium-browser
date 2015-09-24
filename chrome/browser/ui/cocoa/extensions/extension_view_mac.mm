@@ -38,8 +38,9 @@ void ExtensionViewMac::WindowFrameChanged() {
     render_view_host()->GetView()->WindowFrameChanged();
 }
 
-void ExtensionViewMac::Init() {
-  CreateWidgetHostView();
+void ExtensionViewMac::CreateWidgetHostViewIn(gfx::NativeView superview) {
+  [superview addSubview:GetNativeView()];
+  extension_host_->CreateRenderViewSoon();
 }
 
 Browser* ExtensionViewMac::GetBrowser() {
@@ -89,14 +90,10 @@ content::RenderViewHost* ExtensionViewMac::render_view_host() const {
   return extension_host_->render_view_host();
 }
 
-void ExtensionViewMac::CreateWidgetHostView() {
-  extension_host_->CreateRenderViewSoon();
-}
-
 void ExtensionViewMac::ShowIfCompletelyLoaded() {
   // We wait to show the ExtensionView until it has loaded, and the view has
   // actually been created. These can happen in different orders.
-  if (extension_host_->did_stop_loading()) {
+  if (extension_host_->has_loaded_once()) {
     [GetNativeView() setHidden:NO];
     if (container_)
       container_->OnExtensionViewDidShow(this);

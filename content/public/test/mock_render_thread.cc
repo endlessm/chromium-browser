@@ -4,7 +4,8 @@
 
 #include "content/public/test/mock_render_thread.h"
 
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/common/frame_messages.h"
 #include "content/common/view_messages.h"
 #include "content/public/renderer/render_process_observer.h"
@@ -62,8 +63,8 @@ bool MockRenderThread::Send(IPC::Message* msg) {
   return true;
 }
 
-base::MessageLoop* MockRenderThread::GetMessageLoop() {
-  return NULL;
+scoped_refptr<base::SingleThreadTaskRunner> MockRenderThread::GetTaskRunner() {
+  return base::ThreadTaskRunnerHandle::Get();
 }
 
 IPC::SyncChannel* MockRenderThread::GetChannel() {
@@ -78,9 +79,9 @@ IPC::SyncMessageFilter* MockRenderThread::GetSyncMessageFilter() {
   return NULL;
 }
 
-scoped_refptr<base::MessageLoopProxy>
-    MockRenderThread::GetIOMessageLoopProxy() {
-  return scoped_refptr<base::MessageLoopProxy>();
+scoped_refptr<base::SingleThreadTaskRunner>
+MockRenderThread::GetIOMessageLoopProxy() {
+  return scoped_refptr<base::SingleThreadTaskRunner>();
 }
 
 void MockRenderThread::AddRoute(int32 routing_id, IPC::Listener* listener) {
@@ -146,6 +147,10 @@ scoped_ptr<base::SharedMemory>
   return scoped_ptr<base::SharedMemory>(shared_buf.release());
 }
 
+cc::SharedBitmapManager* MockRenderThread::GetSharedBitmapManager() {
+  return &shared_bitmap_manager_;
+}
+
 void MockRenderThread::RegisterExtension(v8::Extension* extension) {
   blink::WebScriptController::registerExtension(extension);
 }
@@ -188,6 +193,10 @@ void MockRenderThread::ReleaseCachedFonts() {
 
 #endif  // OS_WIN
 
+IPC::AttachmentBroker* MockRenderThread::GetAttachmentBroker() {
+  return nullptr;
+}
+
 ServiceRegistry* MockRenderThread::GetServiceRegistry() {
   return NULL;
 }
@@ -222,13 +231,15 @@ void MockRenderThread::OnCreateWindow(
 
 // The Frame expects to be returned a valid route_id different from its own.
 void MockRenderThread::OnCreateChildFrame(int new_frame_routing_id,
+                                          blink::WebTreeScopeType scope,
                                           const std::string& frame_name,
+                                          blink::WebSandboxFlags sandbox_flags,
                                           int* new_render_frame_id) {
   *new_render_frame_id = new_frame_routing_id_++;
 }
 
 bool MockRenderThread::OnControlMessageReceived(const IPC::Message& msg) {
-  ObserverListBase<RenderProcessObserver>::Iterator it(observers_);
+  base::ObserverListBase<RenderProcessObserver>::Iterator it(&observers_);
   RenderProcessObserver* observer;
   while ((observer = it.GetNext()) != NULL) {
     if (observer->OnControlMessageReceived(msg))

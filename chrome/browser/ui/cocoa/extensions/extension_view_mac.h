@@ -5,11 +5,13 @@
 #ifndef CHROME_BROWSER_UI_COCOA_EXTENSIONS_EXTENSION_VIEW_MAC_H_
 #define CHROME_BROWSER_UI_COCOA_EXTENSIONS_EXTENSION_VIEW_MAC_H_
 
+#include <ApplicationServices/ApplicationServices.h>
+
 #include "base/basictypes.h"
 #include "chrome/browser/extensions/extension_view.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/native_widget_types.h"
-#include "ui/gfx/size.h"
 
 class Browser;
 class SkBitmap;
@@ -53,8 +55,10 @@ class ExtensionViewMac : public extensions::ExtensionView {
   // Informs the view that its containing window's frame changed.
   void WindowFrameChanged();
 
+  // Create the host view, adding it as a subview of |superview|.
+  void CreateWidgetHostViewIn(gfx::NativeView superview);
+
   // extensions::ExtensionView:
-  void Init() override;
   Browser* GetBrowser() override;
   gfx::NativeView GetNativeView() override;
   void ResizeDueToAutoResize(const gfx::Size& new_size) override;
@@ -66,8 +70,6 @@ class ExtensionViewMac : public extensions::ExtensionView {
 
  private:
   content::RenderViewHost* render_view_host() const;
-
-  void CreateWidgetHostView();
 
   // We wait to show the ExtensionView until several things have loaded.
   void ShowIfCompletelyLoaded();

@@ -34,10 +34,10 @@ class SetupDialog : public base::RefCounted<SetupDialog>,
   class Dispatcher : public base::MessagePumpDispatcher {
    public:
     explicit Dispatcher(SetupDialog* dialog) : dialog_(dialog) {}
-    virtual ~Dispatcher() {};
+    ~Dispatcher() override {}
 
     // MessagePumpDispatcher:
-    virtual uint32_t Dispatch(const MSG& msg) override {
+    uint32_t Dispatch(const MSG& msg) override {
       MSG msg2 = msg;
       uint32_t action = POST_DISPATCH_NONE;
       if (!dialog_->IsDialogMessage(&msg2))
@@ -63,7 +63,11 @@ class SetupDialog : public base::RefCounted<SetupDialog>,
   END_MSG_MAP()
 
   SetupDialog();
+
  private:
+  friend class base::RefCounted<SetupDialog>;
+  ~SetupDialog() override {}
+
   // Window Message Handlers
   LRESULT OnInitDialog(UINT message, WPARAM wparam, LPARAM lparam,
                        BOOL& handled);
@@ -443,13 +447,13 @@ int WINAPI WinMain(__in  HINSTANCE hInstance,
                    __in  LPSTR lpCmdLine,
                    __in  int nCmdShow) {
   base::AtExitManager at_exit;
-  CommandLine::Init(0, NULL);
+  base::CommandLine::Init(0, NULL);
 
   base::MessageLoopForUI loop;
   scoped_refptr<SetupDialog> dialog(new SetupDialog());
   dialog->Create(NULL);
   dialog->ShowWindow(SW_SHOW);
-  SetupDialog::Dispatcher dispatcher(dialog);
+  SetupDialog::Dispatcher dispatcher(dialog.get());
   base::RunLoop run_loop(&dispatcher);
   run_loop.Run();
   return 0;

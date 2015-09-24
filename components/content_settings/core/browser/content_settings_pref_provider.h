@@ -10,10 +10,9 @@
 #include <vector>
 
 #include "base/basictypes.h"
+#include "base/memory/scoped_vector.h"
 #include "base/prefs/pref_change_registrar.h"
-#include "base/synchronization/lock.h"
 #include "components/content_settings/core/browser/content_settings_observable_provider.h"
-#include "components/content_settings/core/browser/content_settings_origin_identifier_value_map.h"
 #include "components/content_settings/core/browser/content_settings_utils.h"
 
 class PrefService;
@@ -28,6 +27,8 @@ class PrefRegistrySyncable;
 }
 
 namespace content_settings {
+
+class ContentSettingsPref;
 
 // Content settings provider that provides content settings from the user
 // preference.
@@ -62,40 +63,27 @@ class PrefProvider : public ObservableProvider {
                           const ContentSettingsPattern& secondary_pattern,
                           ContentSettingsType content_type);
 
+  void Notify(const ContentSettingsPattern& primary_pattern,
+              const ContentSettingsPattern& secondary_pattern,
+              ContentSettingsType content_type,
+              const std::string& resource_identifier);
+
   // Gains ownership of |clock|.
   void SetClockForTesting(scoped_ptr<base::Clock> clock);
 
  private:
   friend class DeadlockCheckerThread;  // For testing.
-  // Reads all content settings exceptions from the preference and load them
-  // into the |value_map_|. The |value_map_| is cleared first if |overwrite| is
-  // true.
-  void ReadContentSettingsFromPref(bool overwrite);
-
-  // Callback for changes in the pref with the same name.
-  void OnContentSettingsPatternPairsChanged();
-
-  // Update the preference that stores content settings exceptions and syncs the
-  // value to the obsolete preference. When calling this function, |lock_|
-  // should not be held, since this function will send out notifications of
-  // preference changes.
-  void UpdatePref(
-      const ContentSettingsPattern& primary_pattern,
-      const ContentSettingsPattern& secondary_pattern,
-      ContentSettingsType content_type,
-      const ResourceIdentifier& resource_identifier,
-      const base::Value* value);
 
   // Migrate the old media setting into new mic/camera content settings.
   void MigrateObsoleteMediaContentSetting();
 
-  static void CanonicalizeContentSettingsExceptions(
-      base::DictionaryValue* all_settings_dictionary);
+  // Migrate the settings from the old aggregate dictionary into the new format.
+  void MigrateAllExceptions();
 
-  // In the debug mode, asserts that |lock_| is not held by this thread. It's
-  // ok if some other thread holds |lock_|, as long as it will eventually
-  // release it.
-  void AssertLockNotHeld() const;
+  // Writes the contents of the old aggregate dictionary preferences into
+  // separate dictionaries for content types. If |syncable_only| is true,
+  // only syncable content types will be written.
+  void WriteSettingsToNewPreferences(bool syncable_only);
 
   // Weak; owned by the Profile and reset in ShutdownOnUIThread.
   PrefService* prefs_;
@@ -107,18 +95,56 @@ class PrefProvider : public ObservableProvider {
 
   PrefChangeRegistrar pref_change_registrar_;
 
-  // Whether we are currently updating preferences, this is used to ignore
-  // notifications from the preferences service that we triggered ourself.
-  bool updating_preferences_;
-
-  OriginIdentifierValueMap value_map_;
-
-  OriginIdentifierValueMap incognito_value_map_;
-
-  // Used around accesses to the value map objects to guarantee thread safety.
-  mutable base::Lock lock_;
+  ScopedVector<ContentSettingsPref> content_settings_prefs_;
 
   DISALLOW_COPY_AND_ASSIGN(PrefProvider);
+
+  bool TestAllLocks() const;
+
+  // All functionality regarding reading and writing of preferences has been
+  // moved to |ContentSettingsPref|, which manages one content type per
+  // instance. However, for backward compatibility, we need to be able to write
+  // to the old and deprecated aggregate dictionary preference which maintains
+  // all content types. Therefore, |ContentSettingsPrefProvider| must still
+  // retain some of the functionality of |ContentSettingsPref|. The following
+  // attributes and methods serve this purpose.
+  // TODO(msramek): Remove this migration code after two stable releases.
+  struct ContentSettingsPrefEntry {
+    ContentSettingsPrefEntry(const ContentSettingsPattern primary_pattern,
+                             const ContentSettingsPattern secondary_pattern,
+                             const ResourceIdentifier resource_identifier,
+                             base::Value* value);
+    ContentSettingsPrefEntry(const ContentSettingsPrefEntry& entry);
+    ContentSettingsPrefEntry& operator=(const ContentSettingsPrefEntry& entry);
+    ~ContentSettingsPrefEntry();
+
+    ContentSettingsPattern primary_pattern;
+    ContentSettingsPattern secondary_pattern;
+    ResourceIdentifier resource_identifier;
+    scoped_ptr<base::Value> value;
+  };
+
+  // Stores exceptions read from the old preference before writing them
+  // to the new one.
+  ScopedVector<ContentSettingsPrefEntry>
+      pref_entry_map_[CONTENT_SETTINGS_NUM_TYPES];
+
+  // Clears |pref_entry_map_|.
+  void ClearPrefEntryMap();
+
+  // Guards access to |pref_entry_map_|.
+  mutable base::Lock old_lock_;
+
+  // Indicates whether the old preferences are updated.
+  bool updating_old_preferences_;
+
+  // Called when the old preference changes.
+  void OnOldContentSettingsPatternPairsChanged();
+
+  // Reads the old preference and writes it to |pref_entry_map_|.
+  void ReadContentSettingsFromOldPref();
+
+  base::ThreadChecker thread_checker_;
 };
 
 }  // namespace content_settings

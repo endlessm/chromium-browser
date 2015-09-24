@@ -10,7 +10,7 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/animation/animation.h"
 #include "ui/gfx/canvas.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/skia_util.h"
 #include "ui/gfx/sys_color_change_listener.h"
 #include "ui/native_theme/native_theme.h"
@@ -18,6 +18,7 @@
 #include "ui/views/border.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/native_theme_delegate.h"
+#include "ui/views/resources/grit/views_resources.h"
 
 namespace views {
 
@@ -49,15 +50,14 @@ void PaintHelper(LabelButtonBorder* border,
 
 }  // namespace
 
-LabelButtonBorder::LabelButtonBorder(Button::ButtonStyle style)
-    : style_(style) {
+LabelButtonBorder::LabelButtonBorder(Button::ButtonStyle style) {
   ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
   const gfx::Insets insets(kButtonInsets,
                            kButtonInsets,
                            kButtonInsets,
                            kButtonInsets);
 
-  set_insets(GetDefaultInsetsForStyle(style_));
+  set_insets(GetDefaultInsetsForStyle(style));
   if (style == Button::STYLE_BUTTON) {
     SetPainter(false, Button::STATE_NORMAL,
                Painter::CreateImagePainter(

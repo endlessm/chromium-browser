@@ -5,10 +5,13 @@
 #ifndef ASH_SHELF_SHELF_VIEW_H_
 #define ASH_SHELF_SHELF_VIEW_H_
 
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "ash/shelf/shelf_button_host.h"
+#include "ash/shelf/shelf_button_pressed_metric_tracker.h"
+#include "ash/shelf/shelf_item_delegate.h"
 #include "ash/shelf/shelf_model_observer.h"
 #include "ash/wm/gestures/shelf_gesture_handler.h"
 #include "base/observer_list.h"
@@ -304,9 +307,10 @@ class ASH_EXPORT ShelfView : public views::View,
   void OnBoundsAnimatorProgressed(views::BoundsAnimator* animator) override;
   void OnBoundsAnimatorDone(views::BoundsAnimator* animator) override;
 
-  // Returns false if the click which closed the previous menu is the click
-  // which triggered this event.
-  bool IsUsableEvent(const ui::Event& event);
+  // Returns true if the (press down) |event| is a repost event from an event
+  // which just closed the menu of a shelf item. If it occurs on the same shelf
+  // item, we should ignore the call.
+  bool IsRepostEvent(const ui::Event& event);
 
   // Convenience accessor to model_->items().
   const ShelfItem* ShelfItemForView(const views::View* view) const;
@@ -368,7 +372,7 @@ class ASH_EXPORT ShelfView : public views::View,
 
   scoped_ptr<views::MenuRunner> launcher_menu_runner_;
 
-  ObserverList<ShelfIconObserver> observers_;
+  base::ObserverList<ShelfIconObserver> observers_;
 
   // Amount content is inset on the left edge (or top edge for vertical
   // alignment).
@@ -434,6 +438,18 @@ class ASH_EXPORT ShelfView : public views::View,
 
   // True when ripped item from overflow bubble is entered into Shelf.
   bool dragged_off_from_overflow_to_shelf_;
+
+  // True if the event is a repost event from a event which has just closed the
+  // menu of the same shelf item.
+  bool is_repost_event_;
+
+  // Record the index for the last pressed shelf item. This variable is used to
+  // check if a repost event occurs on the same shelf item as previous one. If
+  // so, the repost event should be ignored.
+  int last_pressed_index_;
+
+  // Tracks UMA metrics based on shelf button press actions.
+  ShelfButtonPressedMetricTracker shelf_button_pressed_metric_tracker_;
 
   DISALLOW_COPY_AND_ASSIGN(ShelfView);
 };

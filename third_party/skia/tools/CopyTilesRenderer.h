@@ -11,6 +11,7 @@
 #include "PictureRenderer.h"
 #include "SkTypes.h"
 
+struct GrContextOptions;
 class SkPicture;
 class SkString;
 
@@ -23,7 +24,7 @@ namespace sk_tools {
 
     public:
 #if SK_SUPPORT_GPU
-        CopyTilesRenderer(const GrContext::Options &opts, int x, int y);
+        CopyTilesRenderer(const GrContextOptions &opts, int x, int y);
 #else
         CopyTilesRenderer(int x, int y);
 #endif
@@ -32,15 +33,15 @@ namespace sk_tools {
                           const SkString* mismatchPath,
                           const SkString* inputFilename,
                           bool useChecksumBasedFilenames,
-                          bool useMultiPictureDraw) SK_OVERRIDE;
+                          bool useMultiPictureDraw) override;
 
         /**
          *  Similar to TiledPictureRenderer, this will draw a PNG for each tile. However, the
          *  numbering (and actual tiles) will be different.
          */
-        virtual bool render(SkBitmap** out) SK_OVERRIDE;
+        bool render(SkBitmap** out) override;
 
-        virtual bool supportsTimingIndividualTiles() SK_OVERRIDE { return false; }
+        bool supportsTimingIndividualTiles() override { return false; }
 
     private:
         int fXTilesPerLargeTile;
@@ -49,7 +50,7 @@ namespace sk_tools {
         int fLargeTileWidth;
         int fLargeTileHeight;
 
-        virtual SkString getConfigNameInternal() SK_OVERRIDE;
+        SkString getConfigNameInternal() override;
 
         typedef TiledPictureRenderer INHERITED;
     };

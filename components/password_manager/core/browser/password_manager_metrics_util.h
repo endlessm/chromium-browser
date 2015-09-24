@@ -29,6 +29,8 @@ enum UIDisplayDisposition {
   MANUAL_MANAGE_PASSWORDS,
   MANUAL_BLACKLISTED,
   AUTOMATIC_GENERATED_PASSWORD_CONFIRMATION,
+  AUTOMATIC_CREDENTIAL_REQUEST,
+  AUTOMATIC_SIGNIN_TOAST,
   NUM_DISPLAY_DISPOSITIONS
 };
 
@@ -44,12 +46,45 @@ enum UIDismissalReason {
   CLICKED_DONE,
   CLICKED_UNBLACKLIST,
   CLICKED_OK,
+  CLICKED_CREDENTIAL,
+  AUTO_SIGNIN_TOAST_TIMEOUT,
+  AUTO_SIGNIN_TOAST_CLICKED,
+  CLICKED_BRAND_NAME,
   NUM_UI_RESPONSES,
 
   // If we add the omnibox icon _without_ intending to display the bubble,
   // we actually call Close() after creating the bubble view. We don't want
   // that to count in the metrics, so we need this placeholder value.
   NOT_DISPLAYED
+};
+
+enum FormDeserializationStatus {
+  LOGIN_DATABASE_SUCCESS,
+  LOGIN_DATABASE_FAILURE,
+  LIBSECRET_SUCCESS,
+  LIBSECRET_FAILURE,
+  GNOME_SUCCESS,
+  GNOME_FAILURE,
+  NUM_DESERIALIZATION_STATUSES
+};
+
+// Metrics: "PasswordManager.PasswordSyncState"
+enum PasswordSyncState {
+  SYNCING_OK,
+  NOT_SYNCING_FAILED_READ,
+  NOT_SYNCING_DUPLICATE_TAGS,
+  NOT_SYNCING_SERVER_ERROR,
+  NUM_SYNC_STATES
+};
+
+// Metrics: "PasswordGeneration.SubmissionEvent"
+enum PasswordSubmissionEvent {
+  PASSWORD_SUBMITTED,
+  PASSWORD_SUBMISSION_FAILED,
+  PASSWORD_NOT_SUBMITTED,
+  PASSWORD_OVERRIDDEN,
+  PASSWORD_USED,
+  SUBMISSION_EVENT_ENUM_COUNT
 };
 
 // We monitor the performance of the save password heuristic for a handful of
@@ -96,6 +131,18 @@ void LogUIDismissalReason(ResponseType type);
 
 // Log the appropriate display disposition.
 void LogUIDisplayDisposition(UIDisplayDisposition disposition);
+
+// Log if a saved FormData was deserialized correctly.
+void LogFormDataDeserializationStatus(FormDeserializationStatus status);
+
+// When a credential was filled, log whether it came from an Android app.
+void LogFilledCredentialIsFromAndroidApp(bool from_android);
+
+// Log what's preventing passwords from syncing.
+void LogPasswordSyncState(PasswordSyncState state);
+
+// Log submission events related to generation.
+void LogPasswordGenerationSubmissionEvent(PasswordSubmissionEvent event);
 
 }  // namespace metrics_util
 

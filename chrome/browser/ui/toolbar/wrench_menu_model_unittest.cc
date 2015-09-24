@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/toolbar/wrench_menu_model.h"
 
 #include "chrome/app/chrome_command_ids.h"
+#include "chrome/browser/defaults.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/ui/browser.h"
@@ -12,6 +13,7 @@
 #include "chrome/browser/ui/global_error/global_error_service.h"
 #include "chrome/browser/ui/global_error/global_error_service_factory.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/upgrade_detector.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/menu_model_test.h"
 #include "chrome/test/base/testing_browser_process.h"
@@ -125,6 +127,12 @@ TEST_F(WrenchMenuModelTest, Basics) {
   // the exact number.
   EXPECT_GT(itemCount, 10);
 
+  UpgradeDetector* detector = UpgradeDetector::GetInstance();
+  detector->NotifyUpgradeRecommended();
+  EXPECT_TRUE(detector->notify_upgrade());
+  EXPECT_EQ(browser_defaults::kShowUpgradeMenuItem,
+            model.IsCommandIdVisible(IDC_UPGRADE_DIALOG));
+
   // Execute a couple of the items and make sure it gets back to our delegate.
   // We can't use CountEnabledExecutable() here because the encoding menu's
   // delegate is internal, it doesn't use the one we pass in.
@@ -132,8 +140,9 @@ TEST_F(WrenchMenuModelTest, Basics) {
   model.ActivatedAt(1);
   EXPECT_TRUE(model.IsEnabledAt(1));
   // Make sure to use the index that is not separator in all configurations.
-  model.ActivatedAt(2);
-  EXPECT_TRUE(model.IsEnabledAt(2));
+  model.ActivatedAt(itemCount - 1);
+  EXPECT_TRUE(model.IsEnabledAt(itemCount - 1));
+
   EXPECT_EQ(model.execute_count_, 2);
   EXPECT_EQ(model.enable_count_, 2);
 
@@ -145,7 +154,8 @@ TEST_F(WrenchMenuModelTest, Basics) {
   int bookmarksModelIndex = -1;
   for (int i = 0; i < itemCount; ++i) {
     if (model.GetTypeAt(i) == ui::MenuModel::TYPE_SUBMENU) {
-      bookmarksModelIndex = i;
+      // The bookmarks submenu comes after the Tabs and Downloads items.
+      bookmarksModelIndex = i + 2;
       break;
     }
   }
@@ -155,8 +165,10 @@ TEST_F(WrenchMenuModelTest, Basics) {
   // The bookmarks model may be empty until we tell it we're going to show it.
   bookmarksModel->MenuWillShow();
   EXPECT_GT(bookmarksModel->GetItemCount(), 1);
-  bookmarksModel->ActivatedAt(1);
-  EXPECT_TRUE(bookmarksModel->IsEnabledAt(1));
+
+  // Bookmark manager item.
+  bookmarksModel->ActivatedAt(4);
+  EXPECT_TRUE(bookmarksModel->IsEnabledAt(4));
   EXPECT_EQ(model.execute_count_, 1);
   EXPECT_EQ(model.enable_count_, 1);
 }

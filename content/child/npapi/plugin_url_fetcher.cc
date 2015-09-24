@@ -5,7 +5,7 @@
 #include "content/child/npapi/plugin_url_fetcher.h"
 
 #include "base/memory/scoped_ptr.h"
-#include "content/child/child_thread.h"
+#include "content/child/child_thread_impl.h"
 #include "content/child/multipart_response_delegate.h"
 #include "content/child/npapi/plugin_host.h"
 #include "content/child/npapi/plugin_instance.h"
@@ -16,7 +16,6 @@
 #include "content/child/request_extra_data.h"
 #include "content/child/request_info.h"
 #include "content/child/resource_dispatcher.h"
-#include "content/child/resource_loader_bridge.h"
 #include "content/child/web_url_loader_impl.h"
 #include "content/common/resource_request_body.h"
 #include "content/common/service_worker/service_worker_types.h"
@@ -44,9 +43,8 @@ class MultiPartResponseClient : public blink::WebURLLoaderClient {
       : byte_range_lower_bound_(0), plugin_stream_(plugin_stream) {}
 
   // blink::WebURLLoaderClient implementation:
-  virtual void didReceiveResponse(
-      blink::WebURLLoader* loader,
-      const blink::WebURLResponse& response) override {
+  void didReceiveResponse(blink::WebURLLoader* loader,
+                          const blink::WebURLResponse& response) override {
     int64 byte_range_upper_bound, instance_size;
     if (!MultipartResponseDelegate::ReadContentRanges(response,
                                                       &byte_range_lower_bound_,
@@ -55,10 +53,10 @@ class MultiPartResponseClient : public blink::WebURLLoaderClient {
       NOTREACHED();
     }
   }
-  virtual void didReceiveData(blink::WebURLLoader* loader,
-                              const char* data,
-                              int data_length,
-                              int encoded_data_length) override {
+  void didReceiveData(blink::WebURLLoader* loader,
+                      const char* data,
+                      int data_length,
+                      int encoded_data_length) override {
     // TODO(ananta)
     // We should defer further loads on multipart resources on the same lines
     // as regular resources requested by plugins to prevent reentrancy.
@@ -83,7 +81,7 @@ PluginURLFetcher::PluginURLFetcher(PluginStreamUrl* plugin_stream,
                                    const std::string& method,
                                    const char* buf,
                                    unsigned int len,
-                                   const GURL& referrer,
+                                   const Referrer& referrer,
                                    const std::string& range,
                                    bool notify_redirects,
                                    bool is_plugin_src_load,
@@ -104,7 +102,9 @@ PluginURLFetcher::PluginURLFetcher(PluginStreamUrl* plugin_stream,
       resource_id_(resource_id),
       copy_stream_data_(copy_stream_data),
       data_offset_(0),
-      pending_failure_notification_(false) {
+      pending_failure_notification_(false),
+      request_id_(-1),
+      weak_factory_(this) {
   RequestInfo request_info;
   request_info.method = method;
   request_info.url = url;
@@ -132,7 +132,7 @@ PluginURLFetcher::PluginURLFetcher(PluginStreamUrl* plugin_stream,
       if (!request_info.headers.empty())
         request_info.headers += "\r\n";
       request_info.headers += names[i] + ": " + values[i];
-      if (LowerCaseEqualsASCII(names[i], "content-type"))
+      if (base::LowerCaseEqualsASCII(names[i], "content-type"))
         content_type_found = true;
     }
 
@@ -146,25 +146,25 @@ PluginURLFetcher::PluginURLFetcher(PluginStreamUrl* plugin_stream,
       request_info.headers = std::string("Range: ") + range;
   }
 
-  bridge_.reset(ChildThread::current()->resource_dispatcher()->CreateBridge(
-      request_info));
-  if (!body.empty()) {
-    scoped_refptr<ResourceRequestBody> request_body =
-        new ResourceRequestBody;
+  scoped_refptr<ResourceRequestBody> request_body = new ResourceRequestBody;
+  if (!body.empty())
     request_body->AppendBytes(&body[0], body.size());
-    bridge_->SetRequestBody(request_body.get());
-  }
 
-  bridge_->Start(this);
+  request_id_ = ChildThreadImpl::current()->resource_dispatcher()->StartAsync(
+      request_info, request_body.get(), this);
 
   // TODO(jam): range requests
 }
 
 PluginURLFetcher::~PluginURLFetcher() {
+  if (request_id_ >= 0) {
+    ChildThreadImpl::current()->resource_dispatcher()->RemovePendingRequest(
+        request_id_);
+  }
 }
 
 void PluginURLFetcher::Cancel() {
-  bridge_->Cancel();
+  ChildThreadImpl::current()->resource_dispatcher()->Cancel(request_id_);
 
   // Due to races and nested event loops, PluginURLFetcher may still receive
   // events from the bridge before being destroyed. Do not forward additional
@@ -181,9 +181,10 @@ void PluginURLFetcher::URLRedirectResponse(bool allow) {
     return;
 
   if (allow) {
-    bridge_->SetDefersLoading(false);
+    ChildThreadImpl::current()->resource_dispatcher()->SetDefersLoading(
+        request_id_, false);
   } else {
-    bridge_->Cancel();
+    ChildThreadImpl::current()->resource_dispatcher()->Cancel(request_id_);
     plugin_stream_->DidFail(resource_id_);  // That will delete |this|.
   }
 }
@@ -203,7 +204,7 @@ bool PluginURLFetcher::OnReceivedRedirect(
   // Currently this check is just to catch an https -> http redirect when
   // loading the main plugin src URL. Longer term, we could investigate
   // firing mixed diplay or scripting issues for subresource loads
-  // initiated by plug-ins.
+  // initiated by plugins.
   if (is_plugin_src_load_ &&
       !plugin_stream_->instance()->webplugin()->CheckIfRunInsecureContent(
           redirect_info.new_url)) {
@@ -226,7 +227,8 @@ bool PluginURLFetcher::OnReceivedRedirect(
     }
   } else {
     // Pause the request while we ask the plugin what to do about the redirect.
-    bridge_->SetDefersLoading(true);
+    ChildThreadImpl::current()->resource_dispatcher()->SetDefersLoading(
+        request_id_, true);
     plugin_stream_->WillSendRequest(url_, redirect_info.status_code);
   }
 
@@ -326,14 +328,16 @@ void PluginURLFetcher::OnDownloadedData(int len,
                                         int encoded_data_length) {
 }
 
-void PluginURLFetcher::OnReceivedData(const char* data,
-                                      int data_length,
-                                      int encoded_data_length) {
+void PluginURLFetcher::OnReceivedData(scoped_ptr<ReceivedData> data) {
+  const char* payload = data->payload();
+  int data_length = data->length();
+  int encoded_data_length = data->encoded_length();
   if (!plugin_stream_)
     return;
 
   if (multipart_delegate_) {
-    multipart_delegate_->OnReceivedData(data, data_length, encoded_data_length);
+    multipart_delegate_->OnReceivedData(payload, data_length,
+                                        encoded_data_length);
   } else {
     int64 offset = data_offset_;
     data_offset_ += data_length;
@@ -343,10 +347,10 @@ void PluginURLFetcher::OnReceivedData(const char* data,
       // ResourceDispatcher it's not mapped for write access in this process.
       // http://crbug.com/308466.
       scoped_ptr<char[]> data_copy(new char[data_length]);
-      memcpy(data_copy.get(), data, data_length);
+      memcpy(data_copy.get(), payload, data_length);
       plugin_stream_->DidReceiveData(data_copy.get(), data_length, offset);
     } else {
-      plugin_stream_->DidReceiveData(data, data_length, offset);
+      plugin_stream_->DidReceiveData(payload, data_length, offset);
     }
     // DANGER: this instance may be deleted at this point.
   }
@@ -374,4 +378,28 @@ void PluginURLFetcher::OnCompletedRequest(
   }
 }
 
+void PluginURLFetcher::OnReceivedCompletedResponse(
+    const content::ResourceResponseInfo& info,
+    scoped_ptr<ReceivedData> data,
+    int error_code,
+    bool was_ignored_by_handler,
+    bool stale_copy_in_cache,
+    const std::string& security_info,
+    const base::TimeTicks& completion_time,
+    int64 total_transfer_size) {
+  // |this| can be deleted on each callback. |weak_this| is placed here to
+  // detect the deletion.
+  base::WeakPtr<PluginURLFetcher> weak_this = weak_factory_.GetWeakPtr();
+  OnReceivedResponse(info);
+
+  if (!weak_this)
+    return;
+  if (data)
+    OnReceivedData(data.Pass());
+
+  if (!weak_this)
+    return;
+  OnCompletedRequest(error_code, was_ignored_by_handler, stale_copy_in_cache,
+                     security_info, completion_time, total_transfer_size);
+}
 }  // namespace content

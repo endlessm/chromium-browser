@@ -6,6 +6,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "chrome/browser/apps/app_browsertest_util.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/features/feature_channel.h"
 #include "chrome/test/base/testing_profile.h"
 #include "extensions/browser/app_window/app_window.h"
@@ -13,7 +14,7 @@
 #include "extensions/browser/app_window/native_app_window.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "ui/base/base_window.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
 #if defined(OS_WIN)
 #include "ui/base/win/shell.h"
@@ -112,8 +113,15 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, WindowsApiGet) {
       << message_;
 }
 
-IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, WindowsApiSetShape) {
-  EXPECT_TRUE(RunPlatformAppTest("platform_apps/windows_api_shape"))
+IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, WindowsApiSetShapeHasPerm) {
+  EXPECT_TRUE(
+      RunPlatformAppTest("platform_apps/windows_api_shape/has_permission"))
+      << message_;
+}
+
+IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, WindowsApiSetShapeNoPerm) {
+  EXPECT_TRUE(
+      RunPlatformAppTest("platform_apps/windows_api_shape/no_permission"))
       << message_;
 }
 
@@ -189,6 +197,18 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
 
   EXPECT_TRUE(RunPlatformAppTest(
       "platform_apps/windows_api_ime/no_permissions_platform_app"))
+      << message_;
+}
+
+IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
+                       WindowsApiImeWindowNotFullscreen) {
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  command_line->AppendSwitch(switches::kForceAppMode);
+  command_line->AppendSwitchASCII(switches::kAppId,
+                                  "jkghodnilhceideoidjikpgommlajknk");
+
+  EXPECT_TRUE(RunComponentExtensionTest(
+      "platform_apps/windows_api_ime/forced_app_mode_not_fullscreen"))
       << message_;
 }
 #endif  // OS_CHROMEOS

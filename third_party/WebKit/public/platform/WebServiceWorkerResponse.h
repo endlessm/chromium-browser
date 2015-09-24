@@ -7,6 +7,7 @@
 
 #include "WebCommon.h"
 #include "public/platform/WebPrivatePtr.h"
+#include "public/platform/WebServiceWorkerResponseError.h"
 #include "public/platform/WebServiceWorkerResponseType.h"
 #include "public/platform/WebString.h"
 #include "public/platform/WebURL.h"
@@ -67,6 +68,13 @@ public:
     void setBlob(const WebString& uuid, uint64_t size);
     WebString blobUUID() const;
     uint64_t blobSize() const;
+
+    void setStreamURL(const WebURL&);
+    WebURL streamURL() const;
+
+    // Provides a more detailed error when status() is zero.
+    void setError(WebServiceWorkerResponseError);
+    WebServiceWorkerResponseError error() const;
 
 #if INSIDE_BLINK
     const HTTPHeaderMap& headers() const;

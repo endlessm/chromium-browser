@@ -42,7 +42,7 @@ class NativeProcessLauncherImpl : public NativeProcessLauncher {
 
   void Launch(const GURL& origin,
               const std::string& native_host_name,
-              LaunchedCallback callback) const override;
+              const LaunchedCallback& callback) const override;
 
  private:
   class Core : public base::RefCountedThreadSafe<Core> {
@@ -50,7 +50,7 @@ class NativeProcessLauncherImpl : public NativeProcessLauncher {
     Core(bool allow_user_level_hosts, intptr_t native_window);
     void Launch(const GURL& origin,
                 const std::string& native_host_name,
-                LaunchedCallback callback);
+                const LaunchedCallback& callback);
     void Detach();
 
    private:
@@ -59,15 +59,15 @@ class NativeProcessLauncherImpl : public NativeProcessLauncher {
 
     void DoLaunchOnThreadPool(const GURL& origin,
                               const std::string& native_host_name,
-                              LaunchedCallback callback);
+                              const LaunchedCallback& callback);
     void PostErrorResult(const LaunchedCallback& callback, LaunchResult error);
     void PostResult(const LaunchedCallback& callback,
-                    base::ProcessHandle process_handle,
+                    base::Process process,
                     base::File read_file,
                     base::File write_file);
-    void CallCallbackOnIOThread(LaunchedCallback callback,
+    void CallCallbackOnIOThread(const LaunchedCallback& callback,
                                 LaunchResult result,
-                                base::ProcessHandle process_handle,
+                                base::Process process,
                                 base::File read_file,
                                 base::File write_file);
 
@@ -105,7 +105,7 @@ void NativeProcessLauncherImpl::Core::Detach() {
 void NativeProcessLauncherImpl::Core::Launch(
     const GURL& origin,
     const std::string& native_host_name,
-    LaunchedCallback callback) {
+    const LaunchedCallback& callback) {
   content::BrowserThread::PostBlockingPoolTask(
       FROM_HERE, base::Bind(&Core::DoLaunchOnThreadPool, this,
                             origin, native_host_name, callback));
@@ -114,7 +114,7 @@ void NativeProcessLauncherImpl::Core::Launch(
 void NativeProcessLauncherImpl::Core::DoLaunchOnThreadPool(
     const GURL& origin,
     const std::string& native_host_name,
-    LaunchedCallback callback) {
+    const LaunchedCallback& callback) {
   DCHECK(content::BrowserThread::GetBlockingPool()->RunsTasksOnCurrentThread());
 
   if (!NativeMessagingHostManifest::IsValidName(native_host_name)) {
@@ -182,7 +182,7 @@ void NativeProcessLauncherImpl::Core::DoLaunchOnThreadPool(
     return;
   }
 
-  CommandLine command_line(host_path);
+  base::CommandLine command_line(host_path);
   command_line.AppendArg(origin.spec());
 
   // Pass handle of the native view window to the native messaging host. This
@@ -192,28 +192,28 @@ void NativeProcessLauncherImpl::Core::DoLaunchOnThreadPool(
                                  base::Int64ToString(window_handle_));
 #endif  // !defined(OS_WIN)
 
-  base::ProcessHandle process_handle;
+  base::Process process;
   base::File read_file;
   base::File write_file;
   if (NativeProcessLauncher::LaunchNativeProcess(
-          command_line, &process_handle, &read_file, &write_file)) {
-    PostResult(callback, process_handle, read_file.Pass(), write_file.Pass());
+          command_line, &process, &read_file, &write_file)) {
+    PostResult(callback, process.Pass(), read_file.Pass(), write_file.Pass());
   } else {
     PostErrorResult(callback, RESULT_FAILED_TO_START);
   }
 }
 
 void NativeProcessLauncherImpl::Core::CallCallbackOnIOThread(
-    LaunchedCallback callback,
+    const LaunchedCallback& callback,
     LaunchResult result,
-    base::ProcessHandle process_handle,
+    base::Process process,
     base::File read_file,
     base::File write_file) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   if (detached_)
     return;
 
-  callback.Run(result, process_handle, read_file.Pass(), write_file.Pass());
+  callback.Run(result, process.Pass(), read_file.Pass(), write_file.Pass());
 }
 
 void NativeProcessLauncherImpl::Core::PostErrorResult(
@@ -222,20 +222,20 @@ void NativeProcessLauncherImpl::Core::PostErrorResult(
   content::BrowserThread::PostTask(
       content::BrowserThread::IO, FROM_HERE,
       base::Bind(&NativeProcessLauncherImpl::Core::CallCallbackOnIOThread, this,
-                 callback, error, base::kNullProcessHandle,
+                 callback, error, Passed(base::Process()),
                  Passed(base::File()), Passed(base::File())));
 }
 
 void NativeProcessLauncherImpl::Core::PostResult(
     const LaunchedCallback& callback,
-    base::ProcessHandle process_handle,
+    base::Process process,
     base::File read_file,
     base::File write_file) {
   content::BrowserThread::PostTask(
       content::BrowserThread::IO, FROM_HERE,
       base::Bind(&NativeProcessLauncherImpl::Core::CallCallbackOnIOThread, this,
-                 callback, RESULT_SUCCESS, process_handle,
-                 Passed(read_file.Pass()), Passed(write_file.Pass())));
+                 callback, RESULT_SUCCESS, Passed(&process),
+                 Passed(&read_file), Passed(&write_file)));
 }
 
 NativeProcessLauncherImpl::NativeProcessLauncherImpl(
@@ -250,7 +250,7 @@ NativeProcessLauncherImpl::~NativeProcessLauncherImpl() {
 
 void NativeProcessLauncherImpl::Launch(const GURL& origin,
                                        const std::string& native_host_name,
-                                       LaunchedCallback callback) const {
+                                       const LaunchedCallback& callback) const {
   core_->Launch(origin, native_host_name, callback);
 }
 

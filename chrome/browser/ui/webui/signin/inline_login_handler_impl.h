@@ -12,8 +12,6 @@
 #include "chrome/browser/ui/sync/one_click_signin_sync_starter.h"
 #include "chrome/browser/ui/webui/signin/inline_login_handler.h"
 
-class GaiaAuthFetcher;
-
 // Implementation for the inline login WebUI handler on desktop Chrome. Once
 // CrOS migrates to the same webview approach as desktop Chrome, much of the
 // code in this class should move to its base class |InlineLoginHandler|.
@@ -37,6 +35,27 @@ class InlineLoginHandlerImpl : public InlineLoginHandler,
   void HandleLoginError(const std::string& error_msg);
 
  private:
+  friend class InlineLoginUIBrowserTest;
+  FRIEND_TEST_ALL_PREFIXES(InlineLoginUIBrowserTest, CanOfferNoProfile);
+  FRIEND_TEST_ALL_PREFIXES(InlineLoginUIBrowserTest, CanOffer);
+  FRIEND_TEST_ALL_PREFIXES(InlineLoginUIBrowserTest, CanOfferProfileConnected);
+  FRIEND_TEST_ALL_PREFIXES(InlineLoginUIBrowserTest,
+                           CanOfferUsernameNotAllowed);
+  FRIEND_TEST_ALL_PREFIXES(InlineLoginUIBrowserTest, CanOfferWithRejectedEmail);
+  FRIEND_TEST_ALL_PREFIXES(InlineLoginUIBrowserTest, CanOfferNoSigninCookies);
+
+  // Argument to CanOffer().
+  enum CanOfferFor {
+    CAN_OFFER_FOR_ALL,
+    CAN_OFFER_FOR_SECONDARY_ACCOUNT
+  };
+
+  static bool CanOffer(Profile* profile,
+                       CanOfferFor can_offer_for,
+                       const std::string& gaia_id,
+                       const std::string& email,
+                       std::string* error_message);
+
   // InlineLoginHandler overrides:
   void SetExtraInitParams(base::DictionaryValue& params) override;
   void CompleteLogin(const base::ListValue* args) override;

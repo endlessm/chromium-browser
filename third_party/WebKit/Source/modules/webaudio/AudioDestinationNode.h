@@ -25,37 +25,36 @@
 #ifndef AudioDestinationNode_h
 #define AudioDestinationNode_h
 
+#include "modules/webaudio/AudioBuffer.h"
+#include "modules/webaudio/AudioNode.h"
 #include "platform/audio/AudioBus.h"
 #include "platform/audio/AudioIOCallback.h"
 #include "platform/audio/AudioSourceProvider.h"
-#include "modules/webaudio/AudioBuffer.h"
-#include "modules/webaudio/AudioNode.h"
 
 namespace blink {
 
 class AudioBus;
 class AudioContext;
 
-class AudioDestinationNode : public AudioNode, public AudioIOCallback {
-    DEFINE_WRAPPERTYPEINFO();
+class AudioDestinationHandler : public AudioHandler, public AudioIOCallback {
 public:
-    AudioDestinationNode(AudioContext*, float sampleRate);
-    virtual ~AudioDestinationNode();
+    AudioDestinationHandler(AudioNode&, float sampleRate);
+    ~AudioDestinationHandler() override;
 
-    // AudioNode
-    virtual void dispose() override;
-    virtual void process(size_t) override final { } // we're pulled by hardware so this is never called
+    // AudioHandler
+    void process(size_t) final { } // we're pulled by hardware so this is never called
 
     // The audio hardware calls render() to get the next render quantum of audio into destinationBus.
     // It will optionally give us local/live audio input in sourceBus (if it's not 0).
-    virtual void render(AudioBus* sourceBus, AudioBus* destinationBus, size_t numberOfFrames) override final;
+    void render(AudioBus* sourceBus, AudioBus* destinationBus, size_t numberOfFrames) final;
 
-    size_t currentSampleFrame() const { return m_currentSampleFrame; }
+    size_t currentSampleFrame() const { return acquireLoad(&m_currentSampleFrame); }
     double currentTime() const { return currentSampleFrame() / static_cast<double>(sampleRate()); }
 
     virtual unsigned long maxChannelCount() const { return 0; }
 
     virtual void startRendering() = 0;
+    virtual void stopRendering() = 0;
 
 protected:
     // LocalAudioInputProvider allows us to expose an AudioSourceProvider for local/live audio input.
@@ -63,7 +62,7 @@ protected:
     class LocalAudioInputProvider final : public AudioSourceProvider {
     public:
         LocalAudioInputProvider()
-            : m_sourceBus(AudioBus::create(2, AudioNode::ProcessingSizeInFrames)) // FIXME: handle non-stereo local input.
+            : m_sourceBus(AudioBus::create(2, ProcessingSizeInFrames)) // FIXME: handle non-stereo local input.
         {
         }
 
@@ -74,7 +73,7 @@ protected:
         }
 
         // AudioSourceProvider.
-        virtual void provideInput(AudioBus* destinationBus, size_t numberOfFrames) override
+        void provideInput(AudioBus* destinationBus, size_t numberOfFrames) override
         {
             bool isGood = destinationBus && destinationBus->length() == numberOfFrames && m_sourceBus->length() == numberOfFrames;
             ASSERT(isGood);
@@ -86,13 +85,21 @@ protected:
         RefPtr<AudioBus> m_sourceBus;
     };
 
-    virtual double tailTime() const override final { return 0; }
-    virtual double latencyTime() const override final { return 0; }
-
     // Counts the number of sample-frames processed by the destination.
     size_t m_currentSampleFrame;
 
     LocalAudioInputProvider m_localAudioInputProvider;
+};
+
+class AudioDestinationNode : public AudioNode {
+    DEFINE_WRAPPERTYPEINFO();
+public:
+    AudioDestinationHandler& audioDestinationHandler() const;
+
+    unsigned long maxChannelCount() const;
+
+protected:
+    AudioDestinationNode(AudioContext&);
 };
 
 } // namespace blink

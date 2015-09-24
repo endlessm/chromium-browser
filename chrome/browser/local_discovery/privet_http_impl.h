@@ -9,16 +9,12 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/files/file_util.h"
+#include "base/files/file_path.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/local_discovery/privet_http.h"
 #include "components/cloud_devices/common/cloud_device_description.h"
-#include "printing/pdf_render_settings.h"
-
-namespace printing {
-struct PwgRasterSettings;
-};
+#include "ui/gfx/geometry/size.h"
 
 namespace local_discovery {
 
@@ -150,51 +146,6 @@ class PrivetJSONOperationImpl : public PrivetJSONOperation,
   scoped_ptr<PrivetURLFetcher> url_fetcher_;
 };
 
-class PrivetDataReadOperationImpl : public PrivetDataReadOperation,
-                                    public PrivetURLFetcher::Delegate {
- public:
-  PrivetDataReadOperationImpl(
-      PrivetHTTPClient* privet_client,
-      const std::string& path,
-      const std::string& query_params,
-      const PrivetDataReadOperation::ResultCallback& callback);
-  ~PrivetDataReadOperationImpl() override;
-
-  void Start() override;
-
-  void SetDataRange(int range_start, int range_end) override;
-
-  void SaveDataToFile() override;
-
-  PrivetHTTPClient* GetHTTPClient() override;
-
-  void OnError(PrivetURLFetcher* fetcher,
-               PrivetURLFetcher::ErrorType error) override;
-  void OnParsedJson(PrivetURLFetcher* fetcher,
-                    const base::DictionaryValue& value,
-                    bool has_error) override;
-  void OnNeedPrivetToken(
-      PrivetURLFetcher* fetcher,
-      const PrivetURLFetcher::TokenCallback& callback) override;
-  bool OnRawData(PrivetURLFetcher* fetcher,
-                 bool is_file,
-                 const std::string& data_str,
-                 const base::FilePath& file_path) override;
-
- private:
-  PrivetHTTPClient* privet_client_;
-  std::string path_;
-  std::string query_params_;
-  int range_start_;
-  int range_end_;
-  PrivetDataReadOperation::ResultCallback callback_;
-
-  bool has_range_;
-  bool save_to_file_;
-
-  scoped_ptr<PrivetURLFetcher> url_fetcher_;
-};
-
 #if defined(ENABLE_PRINT_PREVIEW)
 class PrivetLocalPrintOperationImpl
     : public PrivetLocalPrintOperation,
@@ -251,7 +202,6 @@ class PrivetLocalPrintOperationImpl
   void OnCreatejobResponse(bool has_error,
                            const base::DictionaryValue* value);
   void OnPWGRasterConverted(bool success, const base::FilePath& pwg_file_path);
-  void FillPwgRasterSettings(printing::PwgRasterSettings* transfrom_settings);
 
   PrivetHTTPClient* privet_client_;
   PrivetLocalPrintOperation::Delegate* delegate_;
@@ -269,7 +219,6 @@ class PrivetLocalPrintOperationImpl
   bool started_;
   bool offline_;
   gfx::Size page_size_;
-  int dpi_;
 
   std::string user_;
   std::string jobname_;

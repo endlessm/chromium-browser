@@ -4,20 +4,17 @@
 
 package org.chromium.chrome.browser.invalidation;
 
-import android.accounts.Account;
 import android.content.Context;
 import android.content.Intent;
 
 import org.chromium.base.ApplicationState;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.VisibleForTesting;
+import org.chromium.chrome.browser.sync.ProfileSyncService;
 import org.chromium.components.invalidation.InvalidationClientService;
-import org.chromium.sync.internal_api.pub.base.ModelType;
+import org.chromium.sync.AndroidSyncSettings;
 import org.chromium.sync.notifier.InvalidationIntentProtocol;
-import org.chromium.sync.notifier.InvalidationPreferences;
-import org.chromium.sync.notifier.SyncStatusHelper;
-
-import java.util.Set;
+import org.chromium.sync.signin.ChromeSigninController;
 
 /**
  * Controller used to send start, stop, and registration-change commands to the invalidation
@@ -31,39 +28,21 @@ public class InvalidationController implements ApplicationStatus.ApplicationStat
     private final Context mContext;
 
     /**
-     * Sets the types for which the client should register for notifications.
-     *
-     * @param account  Account of the user.
-     * @param allTypes If {@code true}, registers for all types, and {@code types} is ignored
-     * @param types    Set of types for which to register. Ignored if {@code allTypes == true}.
+     * Updates the sync invalidation types that the client is registered for based on the preferred
+     * sync types.  Starts the client if needed.
      */
-    public void setRegisteredTypes(Account account, boolean allTypes, Set<ModelType> types) {
-        Intent registerIntent =
-                InvalidationIntentProtocol.createRegisterIntent(account, allTypes, types);
+    public void ensureStartedAndUpdateRegisteredTypes() {
+        Intent registerIntent = InvalidationIntentProtocol.createRegisterIntent(
+                ChromeSigninController.get(mContext).getSignedInUser(),
+                ProfileSyncService.get(mContext).getPreferredDataTypes());
         registerIntent.setClass(mContext, InvalidationClientService.class);
         mContext.startService(registerIntent);
     }
 
     /**
-     * Reads all stored preferences and calls
-     * {@link #setRegisteredTypes(android.accounts.Account, boolean, java.util.Set)} with the stored
-     * values, refreshing the set of types with {@code types}. It can be used on startup of Chrome
-     * to ensure we always have a set of registrations consistent with the native code.
-     * @param types    Set of types for which to register.
+     * Starts the invalidation client without updating the registered invalidation types.
      */
-    public void refreshRegisteredTypes(Set<ModelType> types) {
-        InvalidationPreferences invalidationPreferences = new InvalidationPreferences(mContext);
-        Set<String> savedSyncedTypes = invalidationPreferences.getSavedSyncedTypes();
-        Account account = invalidationPreferences.getSavedSyncedAccount();
-        boolean allTypes = savedSyncedTypes != null &&
-                savedSyncedTypes.contains(ModelType.ALL_TYPES_TYPE);
-        setRegisteredTypes(account, allTypes, types);
-    }
-
-    /**
-     * Starts the invalidation client.
-     */
-    public void start() {
+    private void start() {
         Intent intent = new Intent(mContext, InvalidationClientService.class);
         mContext.startService(intent);
     }
@@ -104,7 +83,7 @@ public class InvalidationController implements ApplicationStatus.ApplicationStat
 
     @Override
     public void onApplicationStateChange(int newState) {
-        if (SyncStatusHelper.get(mContext).isSyncEnabled()) {
+        if (AndroidSyncSettings.isSyncEnabled(mContext)) {
             if (newState == ApplicationState.HAS_RUNNING_ACTIVITIES) {
                 start();
             } else if (newState == ApplicationState.HAS_PAUSED_ACTIVITIES) {

@@ -9,9 +9,11 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/stl_util.h"
+#include "base/strings/string_number_conversions.h"
 #include "content/browser/service_worker/service_worker_database.pb.h"
 #include "content/common/service_worker/service_worker_types.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/leveldatabase/src/include/leveldb/write_batch.h"
 
 namespace content {
 
@@ -107,6 +109,7 @@ TEST(ServiceWorkerDatabaseTest, OpenDatabase_InMemory) {
 }
 
 TEST(ServiceWorkerDatabaseTest, DatabaseVersion) {
+  GURL origin("http://example.com");
   scoped_ptr<ServiceWorkerDatabase> database(CreateDatabaseInMemory());
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK, database->LazyOpen(true));
 
@@ -120,9 +123,11 @@ TEST(ServiceWorkerDatabaseTest, DatabaseVersion) {
   // First writing triggers database initialization and bumps the schema
   // version.
   std::vector<ServiceWorkerDatabase::ResourceRecord> resources;
+  resources.push_back(CreateResource(1, URL(origin, "/resource"), 10));
   ServiceWorkerDatabase::RegistrationData deleted_version;
   std::vector<int64> newly_purgeable_resources;
   ServiceWorkerDatabase::RegistrationData data;
+  data.resources_total_size_bytes = 10;
   ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
             database->WriteRegistration(
                 data, resources, &deleted_version, &newly_purgeable_resources));
@@ -130,6 +135,133 @@ TEST(ServiceWorkerDatabaseTest, DatabaseVersion) {
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
             database->ReadDatabaseVersion(&db_version));
   EXPECT_LT(0, db_version);
+}
+
+TEST(ServiceWorkerDatabaseTest, DiskCacheMigrationState) {
+  GURL origin("http://example.com");
+  base::ScopedTempDir database_dir;
+  ASSERT_TRUE(database_dir.CreateUniqueTempDir());
+  scoped_ptr<ServiceWorkerDatabase> database(
+      CreateDatabase(database_dir.path()));
+
+  // An empty database should return false.
+  bool migration_needed = false;
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->IsDiskCacheMigrationNeeded(&migration_needed));
+  EXPECT_FALSE(migration_needed);
+  bool deletion_needed = false;
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->IsOldDiskCacheDeletionNeeded(&deletion_needed));
+  EXPECT_FALSE(deletion_needed);
+
+  // Simulate an existing database created before diskcache migration.
+  database->set_skip_writing_diskcache_migration_state_on_init_for_testing();
+  std::vector<ServiceWorkerDatabase::ResourceRecord> resources;
+  ServiceWorkerDatabase::RegistrationData deleted_version;
+  std::vector<int64> newly_purgeable_resources;
+  ServiceWorkerDatabase::RegistrationData data;
+  data.registration_id = 100;
+  data.scope = URL(origin, "/foo");
+  data.script = URL(origin, "/script.js");
+  data.version_id = 200;
+  data.resources_total_size_bytes = 300;
+  resources.push_back(CreateResource(1, data.script, 300));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data, resources, &deleted_version,
+                                        &newly_purgeable_resources));
+  migration_needed = false;
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->IsDiskCacheMigrationNeeded(&migration_needed));
+  ASSERT_TRUE(migration_needed);
+  deletion_needed = false;
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->IsOldDiskCacheDeletionNeeded(&deletion_needed));
+  ASSERT_TRUE(deletion_needed);
+
+  // Opening the existing database should not update the migration states.
+  database.reset(CreateDatabase(database_dir.path()));
+  migration_needed = false;
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->IsDiskCacheMigrationNeeded(&migration_needed));
+  EXPECT_TRUE(migration_needed);
+  deletion_needed = false;
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->IsOldDiskCacheDeletionNeeded(&deletion_needed));
+  EXPECT_TRUE(deletion_needed);
+
+  // Test SetDiskCacheMigrationNotNeeded().
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->SetDiskCacheMigrationNotNeeded());
+  migration_needed = false;
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->IsDiskCacheMigrationNeeded(&migration_needed));
+  EXPECT_FALSE(migration_needed);
+
+  // Test SetOldDiskCacheDeletionNotNeeded().
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->SetOldDiskCacheDeletionNotNeeded());
+  deletion_needed = false;
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->IsOldDiskCacheDeletionNeeded(&deletion_needed));
+  EXPECT_FALSE(deletion_needed);
+}
+
+TEST(ServiceWorkerDatabaseTest, UpgradeSchemaToVersion2) {
+  base::ScopedTempDir database_dir;
+  ASSERT_TRUE(database_dir.CreateUniqueTempDir());
+  scoped_ptr<ServiceWorkerDatabase> database(
+      CreateDatabase(database_dir.path()));
+
+  GURL origin("http://example.com");
+
+  // Add a registration to the database.
+  std::vector<ServiceWorkerDatabase::ResourceRecord> resources;
+  ServiceWorkerDatabase::RegistrationData deleted_version;
+  std::vector<int64> newly_purgeable_resources;
+  ServiceWorkerDatabase::RegistrationData data;
+  data.registration_id = 100;
+  data.scope = URL(origin, "/foo");
+  data.script = URL(origin, "/script1.js");
+  data.version_id = 200;
+  data.resources_total_size_bytes = 300;
+  resources.push_back(CreateResource(1, data.script, 300));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data, resources, &deleted_version,
+                                        &newly_purgeable_resources));
+
+  // Sanity check on current version.
+  int64 db_version = -1;
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadDatabaseVersion(&db_version));
+  EXPECT_LE(2, db_version);
+
+  // Now delete the data that will be created in an upgrade to schema version 2,
+  // and reset the schema version to 1.
+  leveldb::WriteBatch batch;
+  batch.Delete("REGID_TO_ORIGIN:" + base::Int64ToString(data.registration_id));
+  batch.Put("INITDATA_DB_VERSION", base::Int64ToString(1));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK, database->WriteBatch(&batch));
+
+  // Make sure correct data got deleted.
+  GURL origin_out;
+  EXPECT_EQ(
+      ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+      database->ReadRegistrationOrigin(data.registration_id, &origin_out));
+
+  // Close and reopen the database to verify the schema got updated.
+  database.reset(CreateDatabase(database_dir.path()));
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK, database->LazyOpen(true));
+
+  // Verify version number.
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadDatabaseVersion(&db_version));
+  EXPECT_LE(2, db_version);
+
+  // And check that looking up origin for registration works.
+  EXPECT_EQ(
+      ServiceWorkerDatabase::STATUS_OK,
+      database->ReadRegistrationOrigin(data.registration_id, &origin_out));
+  EXPECT_EQ(origin, origin_out);
 }
 
 TEST(ServiceWorkerDatabaseTest, GetNextAvailableIds) {
@@ -156,7 +288,7 @@ TEST(ServiceWorkerDatabaseTest, GetNextAvailableIds) {
   EXPECT_EQ(0, ids.res_id);
 
   // Writing a registration bumps the next available ids.
-  std::vector<Resource> resources;
+  std::vector<Resource> resources1;
   RegistrationData data1;
   ServiceWorkerDatabase::RegistrationData deleted_version;
   std::vector<int64> newly_purgeable_resources;
@@ -164,10 +296,11 @@ TEST(ServiceWorkerDatabaseTest, GetNextAvailableIds) {
   data1.scope = URL(origin, "/foo");
   data1.script = URL(origin, "/script1.js");
   data1.version_id = 200;
-  ASSERT_EQ(
-      ServiceWorkerDatabase::STATUS_OK,
-      database->WriteRegistration(
-          data1, resources, &deleted_version, &newly_purgeable_resources));
+  data1.resources_total_size_bytes = 300;
+  resources1.push_back(CreateResource(1, data1.script, 300));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data1, resources1, &deleted_version,
+                                        &newly_purgeable_resources));
 
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK, database->GetNextAvailableIds(
       &ids.reg_id, &ids.ver_id, &ids.res_id));
@@ -207,10 +340,12 @@ TEST(ServiceWorkerDatabaseTest, GetNextAvailableIds) {
   data2.scope = URL(origin, "/bar");
   data2.script = URL(origin, "/script2.js");
   data2.version_id = 20;
-  ASSERT_EQ(
-      ServiceWorkerDatabase::STATUS_OK,
-      database->WriteRegistration(
-          data2, resources, &deleted_version, &newly_purgeable_resources));
+  data2.resources_total_size_bytes = 400;
+  std::vector<Resource> resources2;
+  resources2.push_back(CreateResource(2, data2.script, 400));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data2, resources2, &deleted_version,
+                                        &newly_purgeable_resources));
 
   // Same with resources.
   int64 kLowResourceId = 15;
@@ -236,7 +371,6 @@ TEST(ServiceWorkerDatabaseTest, GetOriginsWithRegistrations) {
             database->GetOriginsWithRegistrations(&origins));
   EXPECT_TRUE(origins.empty());
 
-  std::vector<Resource> resources;
   ServiceWorkerDatabase::RegistrationData deleted_version;
   std::vector<int64> newly_purgeable_resources;
 
@@ -246,10 +380,12 @@ TEST(ServiceWorkerDatabaseTest, GetOriginsWithRegistrations) {
   data1.scope = URL(origin1, "/foo");
   data1.script = URL(origin1, "/script1.js");
   data1.version_id = 456;
-  ASSERT_EQ(
-      ServiceWorkerDatabase::STATUS_OK,
-      database->WriteRegistration(
-          data1, resources, &deleted_version, &newly_purgeable_resources));
+  data1.resources_total_size_bytes = 100;
+  std::vector<Resource> resources1;
+  resources1.push_back(CreateResource(1, data1.script, 100));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data1, resources1, &deleted_version,
+                                        &newly_purgeable_resources));
 
   GURL origin2("https://www.example.com");
   RegistrationData data2;
@@ -257,10 +393,12 @@ TEST(ServiceWorkerDatabaseTest, GetOriginsWithRegistrations) {
   data2.scope = URL(origin2, "/bar");
   data2.script = URL(origin2, "/script2.js");
   data2.version_id = 567;
-  ASSERT_EQ(
-      ServiceWorkerDatabase::STATUS_OK,
-      database->WriteRegistration(
-          data2, resources, &deleted_version, &newly_purgeable_resources));
+  data2.resources_total_size_bytes = 200;
+  std::vector<Resource> resources2;
+  resources2.push_back(CreateResource(2, data2.script, 200));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data2, resources2, &deleted_version,
+                                        &newly_purgeable_resources));
 
   GURL origin3("https://example.org");
   RegistrationData data3;
@@ -268,10 +406,12 @@ TEST(ServiceWorkerDatabaseTest, GetOriginsWithRegistrations) {
   data3.scope = URL(origin3, "/hoge");
   data3.script = URL(origin3, "/script3.js");
   data3.version_id = 678;
-  ASSERT_EQ(
-      ServiceWorkerDatabase::STATUS_OK,
-      database->WriteRegistration(
-          data3, resources, &deleted_version, &newly_purgeable_resources));
+  data3.resources_total_size_bytes = 300;
+  std::vector<Resource> resources3;
+  resources3.push_back(CreateResource(3, data3.script, 300));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data3, resources3, &deleted_version,
+                                        &newly_purgeable_resources));
 
   // |origin3| has two registrations.
   RegistrationData data4;
@@ -279,10 +419,12 @@ TEST(ServiceWorkerDatabaseTest, GetOriginsWithRegistrations) {
   data4.scope = URL(origin3, "/fuga");
   data4.script = URL(origin3, "/script4.js");
   data4.version_id = 789;
-  ASSERT_EQ(
-      ServiceWorkerDatabase::STATUS_OK,
-      database->WriteRegistration(
-          data4, resources, &deleted_version, &newly_purgeable_resources));
+  data4.resources_total_size_bytes = 400;
+  std::vector<Resource> resources4;
+  resources4.push_back(CreateResource(4, data4.script, 400));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data4, resources4, &deleted_version,
+                                        &newly_purgeable_resources));
 
   origins.clear();
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
@@ -333,11 +475,13 @@ TEST(ServiceWorkerDatabaseTest, GetRegistrationsForOrigin) {
   GURL origin3("https://example.org");
 
   std::vector<RegistrationData> registrations;
+  std::vector<std::vector<Resource>> resources_list;
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
-            database->GetRegistrationsForOrigin(origin1, &registrations));
+            database->GetRegistrationsForOrigin(origin1, &registrations,
+                                                &resources_list));
   EXPECT_TRUE(registrations.empty());
+  EXPECT_TRUE(resources_list.empty());
 
-  std::vector<Resource> resources;
   ServiceWorkerDatabase::RegistrationData deleted_version;
   std::vector<int64> newly_purgeable_resources;
 
@@ -346,30 +490,56 @@ TEST(ServiceWorkerDatabaseTest, GetRegistrationsForOrigin) {
   data1.scope = URL(origin1, "/foo");
   data1.script = URL(origin1, "/script1.js");
   data1.version_id = 1000;
-  ASSERT_EQ(
-      ServiceWorkerDatabase::STATUS_OK,
-      database->WriteRegistration(
-          data1, resources, &deleted_version, &newly_purgeable_resources));
+  data1.resources_total_size_bytes = 100;
+  std::vector<Resource> resources1;
+  resources1.push_back(CreateResource(1, data1.script, 100));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data1, resources1, &deleted_version,
+                                        &newly_purgeable_resources));
+
+  registrations.clear();
+  resources_list.clear();
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->GetRegistrationsForOrigin(origin1, &registrations,
+                                                &resources_list));
+  EXPECT_EQ(1U, registrations.size());
+  VerifyRegistrationData(data1, registrations[0]);
+  EXPECT_EQ(1U, resources_list.size());
+  VerifyResourceRecords(resources1, resources_list[0]);
 
   RegistrationData data2;
   data2.registration_id = 200;
   data2.scope = URL(origin2, "/bar");
   data2.script = URL(origin2, "/script2.js");
   data2.version_id = 2000;
-  ASSERT_EQ(
-      ServiceWorkerDatabase::STATUS_OK,
-      database->WriteRegistration(
-          data2, resources, &deleted_version, &newly_purgeable_resources));
+  data2.resources_total_size_bytes = 200;
+  std::vector<Resource> resources2;
+  resources2.push_back(CreateResource(2, data2.script, 200));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data2, resources2, &deleted_version,
+                                        &newly_purgeable_resources));
+
+  registrations.clear();
+  resources_list.clear();
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->GetRegistrationsForOrigin(origin2, &registrations,
+                                                &resources_list));
+  EXPECT_EQ(1U, registrations.size());
+  VerifyRegistrationData(data2, registrations[0]);
+  EXPECT_EQ(1U, resources_list.size());
+  VerifyResourceRecords(resources2, resources_list[0]);
 
   RegistrationData data3;
   data3.registration_id = 300;
   data3.scope = URL(origin3, "/hoge");
   data3.script = URL(origin3, "/script3.js");
   data3.version_id = 3000;
-  ASSERT_EQ(
-      ServiceWorkerDatabase::STATUS_OK,
-      database->WriteRegistration(
-          data3, resources, &deleted_version, &newly_purgeable_resources));
+  data3.resources_total_size_bytes = 300;
+  std::vector<Resource> resources3;
+  resources3.push_back(CreateResource(3, data3.script, 300));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data3, resources3, &deleted_version,
+                                        &newly_purgeable_resources));
 
   // |origin3| has two registrations.
   RegistrationData data4;
@@ -377,17 +547,33 @@ TEST(ServiceWorkerDatabaseTest, GetRegistrationsForOrigin) {
   data4.scope = URL(origin3, "/fuga");
   data4.script = URL(origin3, "/script4.js");
   data4.version_id = 4000;
-  ASSERT_EQ(
-      ServiceWorkerDatabase::STATUS_OK,
-      database->WriteRegistration(
-          data4, resources, &deleted_version, &newly_purgeable_resources));
+  data4.resources_total_size_bytes = 400;
+  std::vector<Resource> resources4;
+  resources4.push_back(CreateResource(4, data4.script, 400));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data4, resources4, &deleted_version,
+                                        &newly_purgeable_resources));
 
   registrations.clear();
+  resources_list.clear();
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
-            database->GetRegistrationsForOrigin(origin3, &registrations));
+            database->GetRegistrationsForOrigin(origin3, &registrations,
+                                                &resources_list));
   EXPECT_EQ(2U, registrations.size());
   VerifyRegistrationData(data3, registrations[0]);
   VerifyRegistrationData(data4, registrations[1]);
+  EXPECT_EQ(2U, resources_list.size());
+  VerifyResourceRecords(resources3, resources_list[0]);
+  VerifyResourceRecords(resources4, resources_list[1]);
+
+  // The third parameter |opt_resources_list| to GetRegistrationsForOrigin()
+  // is optional. So, nullptr should be acceptable.
+  registrations.clear();
+  EXPECT_EQ(
+      ServiceWorkerDatabase::STATUS_OK,
+      database->GetRegistrationsForOrigin(origin1, &registrations, nullptr));
+  EXPECT_EQ(1U, registrations.size());
+  VerifyRegistrationData(data1, registrations[0]);
 }
 
 TEST(ServiceWorkerDatabaseTest, GetAllRegistrations) {
@@ -398,7 +584,6 @@ TEST(ServiceWorkerDatabaseTest, GetAllRegistrations) {
             database->GetAllRegistrations(&registrations));
   EXPECT_TRUE(registrations.empty());
 
-  std::vector<Resource> resources;
   ServiceWorkerDatabase::RegistrationData deleted_version;
   std::vector<int64> newly_purgeable_resources;
 
@@ -408,10 +593,12 @@ TEST(ServiceWorkerDatabaseTest, GetAllRegistrations) {
   data1.scope = URL(origin1, "/foo");
   data1.script = URL(origin1, "/script1.js");
   data1.version_id = 1000;
-  ASSERT_EQ(
-      ServiceWorkerDatabase::STATUS_OK,
-      database->WriteRegistration(
-          data1, resources, &deleted_version, &newly_purgeable_resources));
+  data1.resources_total_size_bytes = 100;
+  std::vector<Resource> resources1;
+  resources1.push_back(CreateResource(1, data1.script, 100));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data1, resources1, &deleted_version,
+                                        &newly_purgeable_resources));
 
   GURL origin2("http://www2.example.com");
   RegistrationData data2;
@@ -419,10 +606,12 @@ TEST(ServiceWorkerDatabaseTest, GetAllRegistrations) {
   data2.scope = URL(origin2, "/bar");
   data2.script = URL(origin2, "/script2.js");
   data2.version_id = 2000;
-  ASSERT_EQ(
-      ServiceWorkerDatabase::STATUS_OK,
-      database->WriteRegistration(
-          data2, resources, &deleted_version, &newly_purgeable_resources));
+  data2.resources_total_size_bytes = 200;
+  std::vector<Resource> resources2;
+  resources2.push_back(CreateResource(2, data2.script, 200));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data2, resources2, &deleted_version,
+                                        &newly_purgeable_resources));
 
   GURL origin3("http://www3.example.com");
   RegistrationData data3;
@@ -430,10 +619,12 @@ TEST(ServiceWorkerDatabaseTest, GetAllRegistrations) {
   data3.scope = URL(origin3, "/hoge");
   data3.script = URL(origin3, "/script3.js");
   data3.version_id = 3000;
-  ASSERT_EQ(
-      ServiceWorkerDatabase::STATUS_OK,
-      database->WriteRegistration(
-          data3, resources, &deleted_version, &newly_purgeable_resources));
+  data3.resources_total_size_bytes = 300;
+  std::vector<Resource> resources3;
+  resources3.push_back(CreateResource(3, data3.script, 300));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data3, resources3, &deleted_version,
+                                        &newly_purgeable_resources));
 
   // |origin3| has two registrations.
   RegistrationData data4;
@@ -441,10 +632,12 @@ TEST(ServiceWorkerDatabaseTest, GetAllRegistrations) {
   data4.scope = URL(origin3, "/fuga");
   data4.script = URL(origin3, "/script4.js");
   data4.version_id = 4000;
-  ASSERT_EQ(
-      ServiceWorkerDatabase::STATUS_OK,
-      database->WriteRegistration(
-          data4, resources, &deleted_version, &newly_purgeable_resources));
+  data4.resources_total_size_bytes = 400;
+  std::vector<Resource> resources4;
+  resources4.push_back(CreateResource(4, data4.script, 400));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data4, resources4, &deleted_version,
+                                        &newly_purgeable_resources));
 
   registrations.clear();
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
@@ -498,9 +691,14 @@ TEST(ServiceWorkerDatabaseTest, Registration_Basic) {
   std::vector<Resource> resources_out;
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
             database->ReadRegistration(
-      data.registration_id, origin, &data_out, &resources_out));
+                data.registration_id, origin, &data_out, &resources_out));
   VerifyRegistrationData(data, data_out);
   VerifyResourceRecords(resources, resources_out);
+  GURL origin_out;
+  EXPECT_EQ(
+      ServiceWorkerDatabase::STATUS_OK,
+      database->ReadRegistrationOrigin(data.registration_id, &origin_out));
+  EXPECT_EQ(origin, origin_out);
 
   // Make sure that the resource is removed from the uncommitted list.
   uncommitted_ids_out.clear();
@@ -524,6 +722,9 @@ TEST(ServiceWorkerDatabaseTest, Registration_Basic) {
             database->ReadRegistration(
                 data.registration_id, origin, &data_out, &resources_out));
   EXPECT_TRUE(resources_out.empty());
+  EXPECT_EQ(
+      ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+      database->ReadRegistrationOrigin(data.registration_id, &origin_out));
 
   // Resources should be purgeable because these are no longer referred.
   std::set<int64> purgeable_ids_out;
@@ -698,6 +899,11 @@ TEST(ServiceWorkerDatabaseTest, Registration_Multiple) {
       data1.registration_id, origin, &data_out, &resources_out));
   VerifyRegistrationData(data1, data_out);
   VerifyResourceRecords(resources1, resources_out);
+  GURL origin_out;
+  EXPECT_EQ(
+      ServiceWorkerDatabase::STATUS_OK,
+      database->ReadRegistrationOrigin(data1.registration_id, &origin_out));
+  EXPECT_EQ(origin, origin_out);
 
   // Make sure that registration2 is also stored.
   resources_out.clear();
@@ -705,6 +911,10 @@ TEST(ServiceWorkerDatabaseTest, Registration_Multiple) {
       data2.registration_id, origin, &data_out, &resources_out));
   VerifyRegistrationData(data2, data_out);
   VerifyResourceRecords(resources2, resources_out);
+  EXPECT_EQ(
+      ServiceWorkerDatabase::STATUS_OK,
+      database->ReadRegistrationOrigin(data2.registration_id, &origin_out));
+  EXPECT_EQ(origin, origin_out);
 
   std::set<int64> purgeable_ids_out;
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
@@ -725,6 +935,9 @@ TEST(ServiceWorkerDatabaseTest, Registration_Multiple) {
             database->ReadRegistration(
                 data1.registration_id, origin, &data_out, &resources_out));
   EXPECT_TRUE(resources_out.empty());
+  EXPECT_EQ(
+      ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+      database->ReadRegistrationOrigin(data1.registration_id, &origin_out));
 
   purgeable_ids_out.clear();
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
@@ -739,6 +952,324 @@ TEST(ServiceWorkerDatabaseTest, Registration_Multiple) {
       data2.registration_id, origin, &data_out, &resources_out));
   VerifyRegistrationData(data2, data_out);
   VerifyResourceRecords(resources2, resources_out);
+  EXPECT_EQ(
+      ServiceWorkerDatabase::STATUS_OK,
+      database->ReadRegistrationOrigin(data2.registration_id, &origin_out));
+  EXPECT_EQ(origin, origin_out);
+}
+
+TEST(ServiceWorkerDatabaseTest, Registration_UninitializedDatabase) {
+  scoped_ptr<ServiceWorkerDatabase> database(CreateDatabaseInMemory());
+  const GURL origin("http://example.com");
+
+  // Should be failed because the database does not exist.
+  RegistrationData data_out;
+  std::vector<Resource> resources_out;
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+            database->ReadRegistration(
+                100, origin, &data_out, &resources_out));
+  EXPECT_EQ(kInvalidServiceWorkerRegistrationId, data_out.registration_id);
+  EXPECT_TRUE(resources_out.empty());
+  GURL origin_out;
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+            database->ReadRegistrationOrigin(100, &origin_out));
+
+  // Deleting non-existent registration should succeed.
+  RegistrationData deleted_version;
+  std::vector<int64> newly_purgeable_resources;
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->DeleteRegistration(
+                100, origin, &deleted_version, &newly_purgeable_resources));
+  EXPECT_EQ(kInvalidServiceWorkerVersionId, deleted_version.version_id);
+  EXPECT_TRUE(newly_purgeable_resources.empty());
+
+  // Actually create a new database, but not initialized yet.
+  database->LazyOpen(true);
+
+  // Should be failed because the database is not initialized.
+  ASSERT_EQ(ServiceWorkerDatabase::UNINITIALIZED, database->state_);
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+            database->ReadRegistration(
+                100, origin, &data_out, &resources_out));
+  EXPECT_EQ(kInvalidServiceWorkerRegistrationId, data_out.registration_id);
+  EXPECT_TRUE(resources_out.empty());
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+            database->ReadRegistrationOrigin(100, &origin_out));
+
+  // Deleting non-existent registration should succeed.
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->DeleteRegistration(
+                100, origin, &deleted_version, &newly_purgeable_resources));
+  EXPECT_EQ(kInvalidServiceWorkerVersionId, deleted_version.version_id);
+  EXPECT_TRUE(newly_purgeable_resources.empty());
+}
+
+TEST(ServiceWorkerDatabaseTest, UserData_Basic) {
+  scoped_ptr<ServiceWorkerDatabase> database(CreateDatabaseInMemory());
+  const GURL kOrigin("http://example.com");
+
+  // Add a registration.
+  RegistrationData data;
+  data.registration_id = 100;
+  data.scope = URL(kOrigin, "/foo");
+  data.script = URL(kOrigin, "/script.js");
+  data.version_id = 200;
+  data.resources_total_size_bytes = 100;
+  std::vector<Resource> resources;
+  resources.push_back(CreateResource(1, data.script, 100));
+  ServiceWorkerDatabase::RegistrationData deleted_version;
+  std::vector<int64> newly_purgeable_resources;
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(
+                data, resources, &deleted_version, &newly_purgeable_resources));
+
+  // Write user data associated with the stored registration.
+  std::string user_data_out;
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteUserData(
+                data.registration_id, kOrigin, "key1", "data"));
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadUserData(
+                data.registration_id, "key1", &user_data_out));
+  EXPECT_EQ("data", user_data_out);
+
+  // Writing user data not associated with the stored registration should be
+  // failed.
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+            database->WriteUserData(300, kOrigin, "key1", "data"));
+
+  // Write empty user data for a different key.
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteUserData(
+                data.registration_id, kOrigin, "key2", std::string()));
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadUserData(
+                data.registration_id, "key2", &user_data_out));
+  EXPECT_EQ(std::string(), user_data_out);
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadUserData(
+                data.registration_id, "key1", &user_data_out));
+  EXPECT_EQ("data", user_data_out);
+
+  // Overwrite the existing user data.
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteUserData(
+                data.registration_id, kOrigin, "key1", "overwrite"));
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadUserData(
+                data.registration_id, "key1", &user_data_out));
+  EXPECT_EQ("overwrite", user_data_out);
+
+  // Delete the user data.
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->DeleteUserData(data.registration_id, "key1"));
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+            database->ReadUserData(
+                data.registration_id, "key1", &user_data_out));
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadUserData(
+                data.registration_id, "key2", &user_data_out));
+  EXPECT_EQ(std::string(), user_data_out);
+}
+
+TEST(ServiceWorkerDatabaseTest, UserData_DataIsolation) {
+  scoped_ptr<ServiceWorkerDatabase> database(CreateDatabaseInMemory());
+  const GURL kOrigin("http://example.com");
+
+  // Add registration 1.
+  RegistrationData data1;
+  data1.registration_id = 100;
+  data1.scope = URL(kOrigin, "/foo");
+  data1.script = URL(kOrigin, "/script1.js");
+  data1.version_id = 200;
+  data1.resources_total_size_bytes = 100;
+  std::vector<Resource> resources1;
+  resources1.push_back(CreateResource(1, data1.script, 100));
+
+  // Add registration 2.
+  RegistrationData data2;
+  data2.registration_id = 101;
+  data2.scope = URL(kOrigin, "/bar");
+  data2.script = URL(kOrigin, "/script2.js");
+  data2.version_id = 201;
+  data2.resources_total_size_bytes = 200;
+  std::vector<Resource> resources2;
+  resources2.push_back(CreateResource(2, data2.script, 200));
+
+  ServiceWorkerDatabase::RegistrationData deleted_version;
+  std::vector<int64> newly_purgeable_resources;
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data1, resources1, &deleted_version,
+                                        &newly_purgeable_resources));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data2, resources2, &deleted_version,
+                                        &newly_purgeable_resources));
+
+  // Write user data associated with the registration1.
+  std::string user_data_out;
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteUserData(
+                data1.registration_id, kOrigin, "key", "data1"));
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadUserData(
+                data1.registration_id, "key", &user_data_out));
+  EXPECT_EQ("data1", user_data_out);
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+            database->ReadUserData(
+                data2.registration_id, "key", &user_data_out));
+
+  // Write user data associated with the registration2. This shouldn't overwrite
+  // the data associated with registration1.
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteUserData(
+                data2.registration_id, kOrigin, "key", "data2"));
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadUserData(
+                data1.registration_id, "key", &user_data_out));
+  EXPECT_EQ("data1", user_data_out);
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadUserData(
+                data2.registration_id, "key", &user_data_out));
+  EXPECT_EQ("data2", user_data_out);
+
+  // Get all registrations with user data.
+  std::vector<std::pair<int64, std::string>> user_data_list;
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadUserDataForAllRegistrations("key", &user_data_list));
+  EXPECT_EQ(2u, user_data_list.size());
+  EXPECT_EQ(data1.registration_id, user_data_list[0].first);
+  EXPECT_EQ("data1", user_data_list[0].second);
+  EXPECT_EQ(data2.registration_id, user_data_list[1].first);
+  EXPECT_EQ("data2", user_data_list[1].second);
+
+  // Delete the data associated with the registration2. This shouldn't delete
+  // the data associated with registration1.
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->DeleteUserData(data2.registration_id, "key"));
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadUserData(
+                data1.registration_id, "key", &user_data_out));
+  EXPECT_EQ("data1", user_data_out);
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+            database->ReadUserData(
+                data2.registration_id, "key", &user_data_out));
+
+  // And again get all registrations with user data.
+  user_data_list.clear();
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadUserDataForAllRegistrations("key", &user_data_list));
+  EXPECT_EQ(1u, user_data_list.size());
+  EXPECT_EQ(data1.registration_id, user_data_list[0].first);
+  EXPECT_EQ("data1", user_data_list[0].second);
+}
+
+TEST(ServiceWorkerDatabaseTest, UserData_DeleteRegistration) {
+  scoped_ptr<ServiceWorkerDatabase> database(CreateDatabaseInMemory());
+  const GURL kOrigin("http://example.com");
+
+  // Add registration 1.
+  RegistrationData data1;
+  data1.registration_id = 100;
+  data1.scope = URL(kOrigin, "/foo");
+  data1.script = URL(kOrigin, "/script1.js");
+  data1.version_id = 200;
+  data1.resources_total_size_bytes = 100;
+  std::vector<Resource> resources1;
+  resources1.push_back(CreateResource(1, data1.script, 100));
+
+  // Add registration 2.
+  RegistrationData data2;
+  data2.registration_id = 101;
+  data2.scope = URL(kOrigin, "/bar");
+  data2.script = URL(kOrigin, "/script2.js");
+  data2.version_id = 201;
+  data2.resources_total_size_bytes = 200;
+  std::vector<Resource> resources2;
+  resources2.push_back(CreateResource(2, data2.script, 200));
+
+  ServiceWorkerDatabase::RegistrationData deleted_version;
+  std::vector<int64> newly_purgeable_resources;
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data1, resources1, &deleted_version,
+                                        &newly_purgeable_resources));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data2, resources2, &deleted_version,
+                                        &newly_purgeable_resources));
+
+  // Write user data associated with the registration1.
+  std::string user_data_out;
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteUserData(
+                data1.registration_id, kOrigin, "key1", "data1"));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteUserData(
+                data1.registration_id, kOrigin, "key2", "data2"));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadUserData(
+                data1.registration_id, "key1", &user_data_out));
+  ASSERT_EQ("data1", user_data_out);
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadUserData(
+                data1.registration_id, "key2", &user_data_out));
+  ASSERT_EQ("data2", user_data_out);
+
+  // Write user data associated with the registration2.
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteUserData(
+                data2.registration_id, kOrigin, "key3", "data3"));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadUserData(
+                data2.registration_id, "key3", &user_data_out));
+  ASSERT_EQ("data3", user_data_out);
+
+  // Delete all data associated with the registration1. This shouldn't delete
+  // the data associated with registration2.
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->DeleteRegistration(
+                data1.registration_id, kOrigin,
+                &deleted_version, &newly_purgeable_resources));
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+            database->ReadUserData(
+                data1.registration_id, "key1", &user_data_out));
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+            database->ReadUserData(
+                data1.registration_id, "key2", &user_data_out));
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadUserData(
+                data2.registration_id, "key3", &user_data_out));
+  EXPECT_EQ("data3", user_data_out);
+}
+
+TEST(ServiceWorkerDatabaseTest, UserData_UninitializedDatabase) {
+  scoped_ptr<ServiceWorkerDatabase> database(CreateDatabaseInMemory());
+  const GURL kOrigin("http://example.com");
+
+  // Should be failed because the database does not exist.
+  std::string user_data_out;
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+            database->ReadUserData(100, "key", &user_data_out));
+
+  // Should be failed because the associated registration does not exist.
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+            database->WriteUserData(100, kOrigin, "key", "data"));
+
+  // Deleting non-existent entry should succeed.
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->DeleteUserData(100, "key"));
+
+  // Actually create a new database, but not initialized yet.
+  database->LazyOpen(true);
+
+  // Should be failed because the database is not initialized.
+  ASSERT_EQ(ServiceWorkerDatabase::UNINITIALIZED, database->state_);
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+            database->ReadUserData(100, "key", &user_data_out));
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+            database->WriteUserData(100, kOrigin, "key", "data"));
+
+  // Deleting non-existent entry should succeed.
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->DeleteUserData(100, "key"));
 }
 
 TEST(ServiceWorkerDatabaseTest, UpdateVersionToActive) {
@@ -759,10 +1290,11 @@ TEST(ServiceWorkerDatabaseTest, UpdateVersionToActive) {
   data.script = URL(origin, "/script.js");
   data.version_id = 200;
   data.is_active = false;
+  data.resources_total_size_bytes = 100;
+  std::vector<Resource> resources;
+  resources.push_back(CreateResource(1, data.script, 100));
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
-            database->WriteRegistration(data,
-                                        std::vector<Resource>(),
-                                        &deleted_version,
+            database->WriteRegistration(data, resources, &deleted_version,
                                         &newly_purgeable_resources));
 
   // Make sure that the registration is stored.
@@ -772,7 +1304,7 @@ TEST(ServiceWorkerDatabaseTest, UpdateVersionToActive) {
             database->ReadRegistration(
                 data.registration_id, origin, &data_out, &resources_out));
   VerifyRegistrationData(data, data_out);
-  EXPECT_TRUE(resources_out.empty());
+  EXPECT_EQ(1u, resources_out.size());
 
   // Activate the registration.
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
@@ -786,7 +1318,7 @@ TEST(ServiceWorkerDatabaseTest, UpdateVersionToActive) {
   RegistrationData expected_data = data;
   expected_data.is_active = true;
   VerifyRegistrationData(expected_data, data_out);
-  EXPECT_TRUE(resources_out.empty());
+  EXPECT_EQ(1u, resources_out.size());
 
   // Delete the registration.
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
@@ -818,10 +1350,11 @@ TEST(ServiceWorkerDatabaseTest, UpdateLastCheckTime) {
   data.script = URL(origin, "/script.js");
   data.version_id = 200;
   data.last_update_check = base::Time::Now();
+  data.resources_total_size_bytes = 100;
+  std::vector<Resource> resources;
+  resources.push_back(CreateResource(1, data.script, 100));
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
-            database->WriteRegistration(data,
-                                        std::vector<Resource>(),
-                                        &deleted_version,
+            database->WriteRegistration(data, resources, &deleted_version,
                                         &newly_purgeable_resources));
 
   // Make sure that the registration is stored.
@@ -831,7 +1364,7 @@ TEST(ServiceWorkerDatabaseTest, UpdateLastCheckTime) {
             database->ReadRegistration(
                 data.registration_id, origin, &data_out, &resources_out));
   VerifyRegistrationData(data, data_out);
-  EXPECT_TRUE(resources_out.empty());
+  EXPECT_EQ(1u, resources_out.size());
 
   // Update the last check time.
   base::Time updated_time = base::Time::Now();
@@ -847,7 +1380,7 @@ TEST(ServiceWorkerDatabaseTest, UpdateLastCheckTime) {
   RegistrationData expected_data = data;
   expected_data.last_update_check = updated_time;
   VerifyRegistrationData(expected_data, data_out);
-  EXPECT_TRUE(resources_out.empty());
+  EXPECT_EQ(1u, resources_out.size());
 
   // Delete the registration.
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
@@ -958,7 +1491,7 @@ TEST(ServiceWorkerDatabaseTest, DeleteAllDataForOrigin) {
   GURL origin1("http://example.com");
   GURL origin2("http://example.org");
 
-  // |origin1| has two registrations.
+  // |origin1| has two registrations (registration1 and registration2).
   RegistrationData data1;
   data1.registration_id = 10;
   data1.scope = URL(origin1, "/foo");
@@ -973,6 +1506,14 @@ TEST(ServiceWorkerDatabaseTest, DeleteAllDataForOrigin) {
       ServiceWorkerDatabase::STATUS_OK,
       database->WriteRegistration(
           data1, resources1, &deleted_version, &newly_purgeable_resources));
+  ASSERT_EQ(
+      ServiceWorkerDatabase::STATUS_OK,
+      database->WriteUserData(
+          data1.registration_id, origin1, "key1", "data1"));
+  ASSERT_EQ(
+      ServiceWorkerDatabase::STATUS_OK,
+      database->WriteUserData(
+          data1.registration_id, origin1, "key2", "data2"));
 
   RegistrationData data2;
   data2.registration_id = 11;
@@ -988,8 +1529,16 @@ TEST(ServiceWorkerDatabaseTest, DeleteAllDataForOrigin) {
       ServiceWorkerDatabase::STATUS_OK,
       database->WriteRegistration(
           data2, resources2, &deleted_version, &newly_purgeable_resources));
+  ASSERT_EQ(
+      ServiceWorkerDatabase::STATUS_OK,
+      database->WriteUserData(
+          data2.registration_id, origin1, "key3", "data3"));
+  ASSERT_EQ(
+      ServiceWorkerDatabase::STATUS_OK,
+      database->WriteUserData(
+          data2.registration_id, origin1, "key4", "data4"));
 
-  // |origin2| has one registration.
+  // |origin2| has one registration (registration3).
   RegistrationData data3;
   data3.registration_id = 12;
   data3.scope = URL(origin2, "/hoge");
@@ -1004,6 +1553,14 @@ TEST(ServiceWorkerDatabaseTest, DeleteAllDataForOrigin) {
       ServiceWorkerDatabase::STATUS_OK,
       database->WriteRegistration(
           data3, resources3, &deleted_version, &newly_purgeable_resources));
+  ASSERT_EQ(
+      ServiceWorkerDatabase::STATUS_OK,
+      database->WriteUserData(
+          data3.registration_id, origin2, "key5", "data5"));
+  ASSERT_EQ(
+      ServiceWorkerDatabase::STATUS_OK,
+      database->WriteUserData(
+          data3.registration_id, origin2, "key6", "data6"));
 
   std::set<GURL> origins_to_delete;
   origins_to_delete.insert(origin1);
@@ -1020,9 +1577,14 @@ TEST(ServiceWorkerDatabaseTest, DeleteAllDataForOrigin) {
 
   // The registrations for |origin1| should be removed.
   std::vector<RegistrationData> registrations;
-  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
-            database->GetRegistrationsForOrigin(origin1, &registrations));
+  EXPECT_EQ(
+      ServiceWorkerDatabase::STATUS_OK,
+      database->GetRegistrationsForOrigin(origin1, &registrations, nullptr));
   EXPECT_TRUE(registrations.empty());
+  GURL origin_out;
+  EXPECT_EQ(
+      ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+      database->ReadRegistrationOrigin(data1.registration_id, &origin_out));
 
   // The registration for |origin2| should not be removed.
   RegistrationData data_out;
@@ -1031,6 +1593,10 @@ TEST(ServiceWorkerDatabaseTest, DeleteAllDataForOrigin) {
       data3.registration_id, origin2, &data_out, &resources_out));
   VerifyRegistrationData(data3, data_out);
   VerifyResourceRecords(resources3, resources_out);
+  EXPECT_EQ(
+      ServiceWorkerDatabase::STATUS_OK,
+      database->ReadRegistrationOrigin(data3.registration_id, &origin_out));
+  EXPECT_EQ(origin2, origin_out);
 
   // The resources associated with |origin1| should be purgeable.
   std::set<int64> purgeable_ids_out;
@@ -1041,6 +1607,31 @@ TEST(ServiceWorkerDatabaseTest, DeleteAllDataForOrigin) {
   EXPECT_TRUE(ContainsKey(purgeable_ids_out, 2));
   EXPECT_TRUE(ContainsKey(purgeable_ids_out, 3));
   EXPECT_TRUE(ContainsKey(purgeable_ids_out, 4));
+
+  // The user data associated with |origin1| should be removed.
+  std::string user_data_out;
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+            database->ReadUserData(
+                data1.registration_id, "key1", &user_data_out));
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+            database->ReadUserData(
+                data1.registration_id, "key2", &user_data_out));
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+            database->ReadUserData(
+                data2.registration_id, "key3", &user_data_out));
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND,
+            database->ReadUserData(
+                data2.registration_id, "key4", &user_data_out));
+
+  // The user data associated with |origin2| should not be removed.
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadUserData(
+                data3.registration_id, "key5", &user_data_out));
+  EXPECT_EQ("data5", user_data_out);
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadUserData(
+                data3.registration_id, "key6", &user_data_out));
+  EXPECT_EQ("data6", user_data_out);
 }
 
 TEST(ServiceWorkerDatabaseTest, DestroyDatabase) {

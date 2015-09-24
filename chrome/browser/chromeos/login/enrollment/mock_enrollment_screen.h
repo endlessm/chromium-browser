@@ -7,6 +7,8 @@
 
 #include "chrome/browser/chromeos/login/enrollment/enrollment_screen.h"
 #include "chrome/browser/chromeos/login/enrollment/enrollment_screen_actor.h"
+#include "chrome/browser/chromeos/policy/enrollment_config.h"
+#include "chrome/browser/chromeos/policy/enrollment_status_chromeos.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
@@ -16,7 +18,7 @@ class MockEnrollmentScreen : public EnrollmentScreen {
  public:
   MockEnrollmentScreen(BaseScreenDelegate* base_screen_delegate,
                        EnrollmentScreenActor* actor);
-  virtual ~MockEnrollmentScreen();
+  ~MockEnrollmentScreen() override;
 };
 
 class MockEnrollmentScreenActor
@@ -25,20 +27,17 @@ class MockEnrollmentScreenActor
   MockEnrollmentScreenActor();
   virtual ~MockEnrollmentScreenActor();
 
-  MOCK_METHOD3(SetParameters,
-               void(Controller*,
-                    EnrollmentScreenActor::EnrollmentMode,
-                    const std::string&));
+  MOCK_METHOD2(SetParameters,
+               void(Controller*, const policy::EnrollmentConfig& config));
   MOCK_METHOD0(PrepareToShow, void());
   MOCK_METHOD0(Show, void());
   MOCK_METHOD0(Hide, void());
-  MOCK_METHOD0(FetchOAuthToken, void());
-  MOCK_METHOD1(ResetAuth, void(const base::Closure&));
   MOCK_METHOD0(ShowSigninScreen, void());
+  MOCK_METHOD2(ShowAttributePromptScreen,
+               void(const std::string& asset_id, const std::string& location));
   MOCK_METHOD0(ShowEnrollmentSpinnerScreen, void());
-  MOCK_METHOD0(ShowLoginSpinnerScreen, void());
   MOCK_METHOD1(ShowAuthError, void(const GoogleServiceAuthError&));
-  MOCK_METHOD1(ShowUIError, void(UIError));
+  MOCK_METHOD1(ShowOtherError, void(EnterpriseEnrollmentHelper::OtherError));
   MOCK_METHOD1(ShowEnrollmentStatus, void(policy::EnrollmentStatus status));
 };
 

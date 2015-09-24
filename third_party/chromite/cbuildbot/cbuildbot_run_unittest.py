@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2013 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,19 +6,18 @@
 
 from __future__ import print_function
 
-import logging
-import os
 import cPickle
-import sys
+import os
+import mock
 import time
 
-sys.path.insert(0, os.path.abspath('%s/../..' % os.path.dirname(__file__)))
-from chromite.cbuildbot import cbuildbot_config
+from chromite.cbuildbot import chromeos_config
 from chromite.cbuildbot import cbuildbot_run
+from chromite.cbuildbot import config_lib
+from chromite.cbuildbot import config_lib_unittest
 from chromite.lib import cros_test_lib
 from chromite.lib import parallel
 
-import mock
 
 DEFAULT_ARCHIVE_GS_PATH = 'bogus_bucket/TheArchiveBase'
 DEFAULT_ARCHIVE_BASE = 'gs://%s' % DEFAULT_ARCHIVE_GS_PATH
@@ -31,8 +29,7 @@ DEFAULT_VERSION_STRING = 'TheVersionString'
 DEFAULT_BOARD = 'TheBoard'
 DEFAULT_BOT_NAME = 'TheCoolBot'
 
-# Access to protected member.
-# pylint: disable=W0212
+# pylint: disable=protected-access
 
 DEFAULT_OPTIONS = cros_test_lib.EasyAttr(
     archive_base=DEFAULT_ARCHIVE_BASE,
@@ -44,16 +41,17 @@ DEFAULT_OPTIONS = cros_test_lib.EasyAttr(
     debug=False,
     postsync_patch=True,
 )
-DEFAULT_CONFIG = cbuildbot_config._config(
+DEFAULT_CONFIG = config_lib.BuildConfig(
     name=DEFAULT_BOT_NAME,
     master=True,
     boards=[DEFAULT_BOARD],
     postsync_patch=True,
-    child_configs=[cbuildbot_config._config(name='foo', postsync_patch=False,
-                                            boards=[]),
-                   cbuildbot_config._config(name='bar', postsync_patch=False,
-                                            boards=[]),
-                  ],
+    child_configs=[
+        config_lib.BuildConfig(
+            name='foo', postsync_patch=False, boards=[]),
+        config_lib.BuildConfig(
+            name='bar', postsync_patch=False, boards=[]),
+    ],
 )
 
 DEFAULT_VERSION = '6543.2.1'
@@ -70,7 +68,7 @@ def _ExtendDefaultConfig(**kwargs):
   """Extend DEFAULT_CONFIG with keys/values in kwargs."""
   config_kwargs = DEFAULT_CONFIG.copy()
   config_kwargs.update(kwargs)
-  return cbuildbot_config._config(**config_kwargs)
+  return config_lib.BuildConfig(**config_kwargs)
 
 
 class ExceptionsTest(cros_test_lib.TestCase):
@@ -132,8 +130,10 @@ class _BuilderRunTestCase(cros_test_lib.MockTestCase):
     """
     options = options or DEFAULT_OPTIONS
     config = config or DEFAULT_CONFIG
+    site_config = config_lib_unittest.MockSiteConfig()
+    site_config[config.name] = config
 
-    return cbuildbot_run.BuilderRun(options, config, self._manager)
+    return cbuildbot_run.BuilderRun(options, site_config, config, self._manager)
 
   def _NewChildBuilderRun(self, child_index, options=None, config=None):
     """Create a ChildBuilderRun objection from options and config values.
@@ -154,7 +154,7 @@ class BuilderRunPickleTest(_BuilderRunTestCase):
   """Make sure BuilderRun objects can be pickled."""
 
   def setUp(self):
-    self.real_config = cbuildbot_config.config['x86-alex-release-group']
+    self.real_config = chromeos_config.GetConfig()['x86-alex-release-group']
     self.PatchObject(cbuildbot_run._BuilderRunBase, 'GetVersion',
                      return_value=DEFAULT_VERSION)
 
@@ -182,10 +182,10 @@ class BuilderRunPickleTest(_BuilderRunTestCase):
     self.assertEquals(upload_url, run2.GetArchive().upload_url)
 
     # The attrs objects should be identical.
-    self.assertTrue(run1.attrs is run2.attrs)
+    self.assertIs(run1.attrs, run2.attrs)
 
     # And the run objects themselves are different.
-    self.assertFalse(run1 is run2)
+    self.assertIsNot(run1, run2)
 
   def testPickleBuilderRun(self):
     self._TestPickle(self._NewBuilderRun(config=self.real_config))
@@ -218,7 +218,7 @@ class BuilderRunTest(_BuilderRunTestCase):
 
       # We actually do not support identity and equality checks right now.
       self.assertNotEqual(meth1, meth2)
-      self.assertFalse(meth1 is meth2)
+      self.assertIsNot(meth1, meth2)
 
   def testOptions(self):
     options = _ExtendDefaultOptions(foo=True, bar=10)
@@ -343,18 +343,22 @@ class BuilderRunTest(_BuilderRunTestCase):
 
 class GetVersionTest(_BuilderRunTestCase):
   """Test the GetVersion and GetVersionInfo methods of BuilderRun class."""
-  # Access to protected member.
-  # pylint: disable=W0212
+
+  # pylint: disable=protected-access
+
+  def testGetVersionInfoNotSet(self):
+    """Verify we throw an error when the version hasn't been set."""
+    run = self._NewBuilderRun()
+    self.assertRaises(RuntimeError, run.GetVersionInfo)
 
   def testGetVersionInfo(self):
+    """Verify we return the right version info value."""
+    # Prepare a real BuilderRun object with a version_info tag.
+    run = self._NewBuilderRun()
     verinfo = object()
-
-    with mock.patch('cbuildbot_run.manifest_version.VersionInfo.from_repo',
-                    return_value=verinfo) as m:
-      result = cbuildbot_run._BuilderRunBase.GetVersionInfo(DEFAULT_BUILDROOT)
-      self.assertEquals(result, verinfo)
-
-      m.assert_called_once_with(DEFAULT_BUILDROOT)
+    run.attrs.version_info = verinfo
+    result = run.GetVersionInfo()
+    self.assertEquals(verinfo, result)
 
   def _TestGetVersionReleaseTag(self, release_tag):
     with mock.patch.object(cbuildbot_run._BuilderRunBase,
@@ -370,7 +374,7 @@ class GetVersionTest(_BuilderRunTestCase):
 
       # Run the test return the result.
       result = run.GetVersion()
-      m.assert_called_once_with(DEFAULT_BUILDROOT)
+      m.assert_called_once_with()
       if release_tag is None:
         verinfo_mock.VersionString.assert_called_once()
 
@@ -412,7 +416,7 @@ class ChildBuilderRunTest(_BuilderRunTestCase):
 
       # We actually do not support identity and equality checks right now.
       self.assertNotEqual(meth1, meth2)
-      self.assertFalse(meth1 is meth2)
+      self.assertIsNot(meth1, meth2)
 
 
 class RunAttributesTest(_BuilderRunTestCase):
@@ -444,6 +448,10 @@ class RunAttributesTest(_BuilderRunTestCase):
     """Test simple set/get of regular and parallel run attributes."""
     ra = self._NewRunAttributes()
     value = 'foobar'
+
+    # The __slots__ logic above confuses pylint.
+    # https://bitbucket.org/logilab/pylint/issue/380/
+    # pylint: disable=assigning-non-slot
 
     # Set/Get a regular run attribute using direct access.
     ra.release_tag = value
@@ -640,7 +648,3 @@ class BoardRunAttributesTest(_BuilderRunTestCase):
     """Test that regular attributes are not known to BoardRunAttributes."""
     self.assertRaises(AttributeError, getattr, self.bra, 'release_tag')
     self.assertRaises(AttributeError, setattr, self.bra, 'release_tag', 'foo')
-
-
-if __name__ == '__main__':
-  cros_test_lib.main(level=logging.DEBUG)

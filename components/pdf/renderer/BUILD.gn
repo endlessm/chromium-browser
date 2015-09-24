@@ -8,27 +8,22 @@ static_library("renderer") {
   sources = [
     "pepper_pdf_host.cc",
     "pepper_pdf_host.h",
-    "pdf_resource_util.cc",
-    "pdf_resource_util.h",
-    "ppb_pdf_impl.cc",
-    "ppb_pdf_impl.h",
   ]
+
+  # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 
   deps = [
     "//base",
     "//components/pdf/common",
     "//components/resources:components_resources",
+    "//components/resources:components_scaled_resources",
     "//components/strings",
     "//content/public/renderer",
-    "//ppapi:ppapi_shared",
+    "//gin",
+    "//ppapi/shared_impl",
     "//third_party/icu",
     "//v8",
-    "//third_party/WebKit/public:blink_minimal",
+    "//third_party/WebKit/public:blink",
   ]
-
-  if (is_win) {
-    cflags = [
-      "/wd4267"  # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-    ]
-  }
 }

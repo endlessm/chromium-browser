@@ -5,11 +5,12 @@
 #ifndef BASE_PREFS_PREF_VALUE_MAP_H_
 #define BASE_PREFS_PREF_VALUE_MAP_H_
 
-#include <map>
 #include <string>
 #include <vector>
 
 #include "base/basictypes.h"
+#include "base/containers/scoped_ptr_hash_map.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/prefs/base_prefs_export.h"
 
 namespace base {
@@ -19,8 +20,9 @@ class Value;
 // A generic string to value map used by the PrefStore implementations.
 class BASE_PREFS_EXPORT PrefValueMap {
  public:
-  typedef std::map<std::string, base::Value*>::iterator iterator;
-  typedef std::map<std::string, base::Value*>::const_iterator const_iterator;
+  using Map = base::ScopedPtrHashMap<std::string, scoped_ptr<base::Value>>;
+  using iterator = Map::iterator;
+  using const_iterator = Map::const_iterator;
 
   PrefValueMap();
   virtual ~PrefValueMap();
@@ -31,9 +33,9 @@ class BASE_PREFS_EXPORT PrefValueMap {
   bool GetValue(const std::string& key, const base::Value** value) const;
   bool GetValue(const std::string& key, base::Value** value);
 
-  // Sets a new |value| for |key|. Takes ownership of |value|, which must be
-  // non-NULL. Returns true if the value changed.
-  bool SetValue(const std::string& key, base::Value* value);
+  // Sets a new |value| for |key|. |value| must be non-null. Returns true if the
+  // value changed.
+  bool SetValue(const std::string& key, scoped_ptr<base::Value> value);
 
   // Removes the value for |key| from the map. Returns true if a value was
   // removed.
@@ -81,8 +83,6 @@ class BASE_PREFS_EXPORT PrefValueMap {
                         std::vector<std::string>* differing_keys) const;
 
  private:
-  typedef std::map<std::string, base::Value*> Map;
-
   Map prefs_;
 
   DISALLOW_COPY_AND_ASSIGN(PrefValueMap);

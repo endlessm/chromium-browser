@@ -24,9 +24,6 @@
 
 namespace {
 
-const char kMapViewOfSectionName[] = "NtMapViewOfSection";
-const char kUnmapViewOfSectionName[] = "NtUnmapViewOfSection";
-
 // Standard allocation granularity and page size for Windows.
 const size_t kAllocGranularity = 65536;
 const size_t kPageSize = 4096;
@@ -60,6 +57,12 @@ SANDBOX_INTERCEPT OriginalFunctions g_originals = { NULL };
 
 // Magic constant that identifies that this function is not to be patched.
 const char kUnloadDLLDummyFunction[] = "@";
+
+InterceptionManager::InterceptionData::InterceptionData() {
+}
+
+InterceptionManager::InterceptionData::~InterceptionData() {
+}
 
 InterceptionManager::InterceptionManager(TargetProcess* child_process,
                                          bool relaxed)

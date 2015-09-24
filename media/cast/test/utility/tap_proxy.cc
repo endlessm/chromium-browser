@@ -23,7 +23,9 @@
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/rand_util.h"
+#include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/thread.h"
 #include "base/time/default_tick_clock.h"
 #include "media/cast/test/utility/udp_proxy.h"
@@ -41,7 +43,7 @@ class SendToFDPipe : public PacketPipe {
  public:
   explicit SendToFDPipe(int fd) : fd_(fd) {
   }
-  void Send(scoped_ptr<Packet> packet) override {
+  void Send(scoped_ptr<Packet> packet) final {
     while (1) {
       int written = write(
           fd_,
@@ -81,14 +83,14 @@ class QueueManager : public base::MessageLoopForIO::Watcher {
     } else {
       packet_pipe_ = tmp.Pass();
     }
-    packet_pipe_->InitOnIOThread(base::MessageLoopProxy::current(),
+    packet_pipe_->InitOnIOThread(base::ThreadTaskRunnerHandle::Get(),
                                  &tick_clock_);
   }
 
-  ~QueueManager() override {}
+  ~QueueManager() final {}
 
   // MessageLoopForIO::Watcher methods
-  void OnFileCanReadWithoutBlocking(int fd) override {
+  void OnFileCanReadWithoutBlocking(int fd) final {
     scoped_ptr<Packet> packet(new Packet(kMaxPacketSize));
     int nread = read(input_fd_,
                      reinterpret_cast<char*>(&packet->front()),
@@ -102,7 +104,7 @@ class QueueManager : public base::MessageLoopForIO::Watcher {
     packet->resize(nread);
     packet_pipe_->Send(packet.Pass());
   }
-  void OnFileCanWriteWithoutBlocking(int fd) override { NOTREACHED(); }
+  void OnFileCanWriteWithoutBlocking(int fd) final { NOTREACHED(); }
 
  private:
   int input_fd_;
@@ -169,7 +171,7 @@ ByteCounter out_pipe_output_counter;
 class ByteCounterPipe : public media::cast::test::PacketPipe {
  public:
   ByteCounterPipe(ByteCounter* counter) : counter_(counter) {}
-  void Send(scoped_ptr<media::cast::Packet> packet) override {
+  void Send(scoped_ptr<media::cast::Packet> packet) final {
     counter_->Increment(packet->size());
     pipe_->Send(packet.Pass());
   }
@@ -209,7 +211,7 @@ void CheckByteCounters() {
 
     last_printout = now;
   }
-  base::MessageLoopProxy::current()->PostDelayedTask(
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
       base::Bind(&CheckByteCounters),
       base::TimeDelta::FromMilliseconds(100));
@@ -266,7 +268,7 @@ int tun_alloc(char *dev, int flags) {
 
 int main(int argc, char **argv) {
   base::AtExitManager exit_manager;
-  CommandLine::Init(argc, argv);
+  base::CommandLine::Init(argc, argv);
   InitLogging(logging::LoggingSettings());
 
   if (argc < 4) {

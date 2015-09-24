@@ -5,6 +5,7 @@
 #include "sync/api/attachments/attachment.h"
 
 #include "base/logging.h"
+#include "sync/internal_api/public/attachments/attachment_util.h"
 
 namespace syncer {
 
@@ -13,11 +14,12 @@ Attachment::~Attachment() {}
 // Static.
 Attachment Attachment::Create(
     const scoped_refptr<base::RefCountedMemory>& data) {
-  return CreateWithId(AttachmentId::Create(), data);
+  uint32_t crc32c = ComputeCrc32c(data);
+  return CreateFromParts(AttachmentId::Create(data->size(), crc32c), data);
 }
 
 // Static.
-Attachment Attachment::CreateWithId(
+Attachment Attachment::CreateFromParts(
     const AttachmentId& id,
     const scoped_refptr<base::RefCountedMemory>& data) {
   return Attachment(id, data);
@@ -29,9 +31,14 @@ const scoped_refptr<base::RefCountedMemory>& Attachment::GetData() const {
   return data_;
 }
 
+uint32_t Attachment::GetCrc32c() const {
+  return id_.GetCrc32c();
+}
+
 Attachment::Attachment(const AttachmentId& id,
                        const scoped_refptr<base::RefCountedMemory>& data)
     : id_(id), data_(data) {
+  DCHECK_EQ(id.GetSize(), data->size());
   DCHECK(data.get());
 }
 

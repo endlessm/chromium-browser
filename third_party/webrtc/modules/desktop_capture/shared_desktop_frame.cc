@@ -10,8 +10,8 @@
 
 #include "webrtc/modules/desktop_capture/shared_desktop_frame.h"
 
+#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/system_wrappers/interface/atomic32.h"
-#include "webrtc/system_wrappers/interface/scoped_ptr.h"
 
 namespace webrtc {
 
@@ -39,7 +39,7 @@ class SharedDesktopFrame::Core {
   virtual ~Core() {}
 
   Atomic32 ref_count_;
-  scoped_ptr<DesktopFrame> frame_;
+  rtc::scoped_ptr<DesktopFrame> frame_;
 
   DISALLOW_COPY_AND_ASSIGN(Core);
 };
@@ -49,7 +49,7 @@ SharedDesktopFrame::~SharedDesktopFrame() {}
 // static
 SharedDesktopFrame* SharedDesktopFrame::Wrap(
     DesktopFrame* desktop_frame) {
-  scoped_refptr<Core> core(new Core(desktop_frame));
+  rtc::scoped_refptr<Core> core(new Core(desktop_frame));
   return new SharedDesktopFrame(core);
 }
 
@@ -69,9 +69,11 @@ bool SharedDesktopFrame::IsShared() {
   return !core_->HasOneRef();
 }
 
-SharedDesktopFrame::SharedDesktopFrame(scoped_refptr<Core> core)
-    : DesktopFrame(core->frame()->size(), core->frame()->stride(),
-                   core->frame()->data(), core->frame()->shared_memory()),
+SharedDesktopFrame::SharedDesktopFrame(rtc::scoped_refptr<Core> core)
+    : DesktopFrame(core->frame()->size(),
+                   core->frame()->stride(),
+                   core->frame()->data(),
+                   core->frame()->shared_memory()),
       core_(core) {
 }
 

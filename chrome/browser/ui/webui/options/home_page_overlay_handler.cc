@@ -7,15 +7,16 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/values.h"
-#include "chrome/browser/autocomplete/autocomplete_classifier.h"
-#include "chrome/browser/autocomplete/autocomplete_controller.h"
+#include "chrome/browser/autocomplete/chrome_autocomplete_provider_client.h"
 #include "chrome/browser/autocomplete/chrome_autocomplete_scheme_classifier.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/metrics/proto/omnibox_event.pb.h"
-#include "components/omnibox/autocomplete_input.h"
-#include "components/omnibox/autocomplete_result.h"
+#include "components/omnibox/browser/autocomplete_classifier.h"
+#include "components/omnibox/browser/autocomplete_controller.h"
+#include "components/omnibox/browser/autocomplete_input.h"
+#include "components/omnibox/browser/autocomplete_result.h"
 #include "content/public/browser/web_ui.h"
 
 namespace options {
@@ -35,8 +36,8 @@ void HomePageOverlayHandler::RegisterMessages() {
 
 void HomePageOverlayHandler::InitializeHandler() {
   Profile* profile = Profile::FromWebUI(web_ui());
-  autocomplete_controller_.reset(new AutocompleteController(profile,
-      TemplateURLServiceFactory::GetForProfile(profile), this,
+  autocomplete_controller_.reset(new AutocompleteController(
+      make_scoped_ptr(new ChromeAutocompleteProviderClient(profile)), this,
       AutocompleteClassifier::kDefaultOmniboxProviders));
 }
 
@@ -54,7 +55,7 @@ void HomePageOverlayHandler::RequestAutocompleteSuggestions(
 
   autocomplete_controller_->Start(AutocompleteInput(
       input, base::string16::npos, std::string(), GURL(),
-      metrics::OmniboxEventProto::INVALID_SPEC, true, false, false, true,
+      metrics::OmniboxEventProto::INVALID_SPEC, true, false, false, true, false,
       ChromeAutocompleteSchemeClassifier(Profile::FromWebUI(web_ui()))));
 }
 

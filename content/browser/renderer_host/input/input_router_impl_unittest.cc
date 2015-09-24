@@ -6,8 +6,11 @@
 
 #include "base/basictypes.h"
 #include "base/command_line.h"
+#include "base/location.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/browser/renderer_host/input/gesture_event_queue.h"
 #include "content/browser/renderer_host/input/input_router_client.h"
 #include "content/browser/renderer_host/input/input_router_impl.h"
@@ -46,10 +49,10 @@ namespace content {
 namespace {
 
 const WebInputEvent* GetInputEventFromMessage(const IPC::Message& message) {
-  PickleIterator iter(message);
+  base::PickleIterator iter(message);
   const char* data;
   int data_length;
-  if (!message.ReadData(&iter, &data, &data_length))
+  if (!iter.ReadData(&data, &data_length))
     return NULL;
   return reinterpret_cast<const WebInputEvent*>(data);
 }
@@ -80,7 +83,7 @@ WebInputEvent& GetEventWithType(WebInputEvent::Type type) {
 bool GetIsShortcutFromHandleInputEventMessage(const IPC::Message* msg) {
   InputMsg_HandleInputEvent::Schema::Param param;
   InputMsg_HandleInputEvent::Read(msg, &param);
-  return param.c;
+  return base::get<2>(param);
 }
 
 template<typename MSG_T, typename ARG_T1>
@@ -88,7 +91,7 @@ void ExpectIPCMessageWithArg1(const IPC::Message* msg, const ARG_T1& arg1) {
   ASSERT_EQ(MSG_T::ID, msg->type());
   typename MSG_T::Schema::Param param;
   ASSERT_TRUE(MSG_T::Read(msg, &param));
-  EXPECT_EQ(arg1, param.a);
+  EXPECT_EQ(arg1, base::get<0>(param));
 }
 
 template<typename MSG_T, typename ARG_T1, typename ARG_T2>
@@ -98,8 +101,8 @@ void ExpectIPCMessageWithArg2(const IPC::Message* msg,
   ASSERT_EQ(MSG_T::ID, msg->type());
   typename MSG_T::Schema::Param param;
   ASSERT_TRUE(MSG_T::Read(msg, &param));
-  EXPECT_EQ(arg1, param.a);
-  EXPECT_EQ(arg2, param.b);
+  EXPECT_EQ(arg1, base::get<0>(param));
+  EXPECT_EQ(arg2, base::get<1>(param));
 }
 
 #if defined(USE_AURA)
@@ -131,11 +134,6 @@ bool EventListIsSubset(const ScopedVector<ui::TouchEvent>& subset,
   return true;
 }
 #endif  // defined(USE_AURA)
-
-// Expected function used for converting pinch scales to deltaY values.
-float PinchScaleToWheelDelta(float scale) {
-  return 100.0 * log(scale);
-}
 
 }  // namespace
 
@@ -172,12 +170,16 @@ class InputRouterImplTest : public testing::Test {
     browser_context_.reset();
   }
 
-  void SetUpForTouchAckTimeoutTest(int timeout_ms) {
-    config_.touch_config.touch_ack_timeout_delay =
-        base::TimeDelta::FromMilliseconds(timeout_ms);
+  void SetUpForTouchAckTimeoutTest(int desktop_timeout_ms,
+                                   int mobile_timeout_ms) {
+    config_.touch_config.desktop_touch_ack_timeout_delay =
+        base::TimeDelta::FromMilliseconds(desktop_timeout_ms);
+    config_.touch_config.mobile_touch_ack_timeout_delay =
+        base::TimeDelta::FromMilliseconds(mobile_timeout_ms);
     config_.touch_config.touch_ack_timeout_supported = true;
     TearDown();
     SetUp();
+    input_router()->NotifySiteIsMobileOptimized(false);
   }
 
   void SimulateKeyboardEvent(WebInputEvent::Type type, bool is_shortcut) {
@@ -192,63 +194,71 @@ class InputRouterImplTest : public testing::Test {
 
   void SimulateWheelEvent(float dX, float dY, int modifiers, bool precise) {
     input_router_->SendWheelEvent(MouseWheelEventWithLatencyInfo(
-        SyntheticWebMouseWheelEventBuilder::Build(dX, dY, modifiers, precise),
-        ui::LatencyInfo()));
+        SyntheticWebMouseWheelEventBuilder::Build(dX, dY, modifiers, precise)));
   }
 
   void SimulateMouseEvent(WebInputEvent::Type type, int x, int y) {
     input_router_->SendMouseEvent(MouseEventWithLatencyInfo(
-        SyntheticWebMouseEventBuilder::Build(type, x, y, 0),
-        ui::LatencyInfo()));
+        SyntheticWebMouseEventBuilder::Build(type, x, y, 0)));
   }
 
   void SimulateWheelEventWithPhase(WebMouseWheelEvent::Phase phase) {
     input_router_->SendWheelEvent(MouseWheelEventWithLatencyInfo(
-        SyntheticWebMouseWheelEventBuilder::Build(phase), ui::LatencyInfo()));
+        SyntheticWebMouseWheelEventBuilder::Build(phase)));
   }
 
-  void SimulateGestureEvent(const WebGestureEvent& gesture) {
-    input_router_->SendGestureEvent(
-        GestureEventWithLatencyInfo(gesture, ui::LatencyInfo()));
+  void SimulateGestureEvent(WebGestureEvent gesture) {
+    // Ensure non-zero touchscreen fling velocities, as the router will
+    // validate aganst such.
+    if (gesture.type == WebInputEvent::GestureFlingStart &&
+        gesture.sourceDevice == blink::WebGestureDeviceTouchscreen &&
+        !gesture.data.flingStart.velocityX &&
+        !gesture.data.flingStart.velocityY) {
+      gesture.data.flingStart.velocityX = 5.f;
+    }
+
+    input_router_->SendGestureEvent(GestureEventWithLatencyInfo(gesture));
   }
 
   void SimulateGestureEvent(WebInputEvent::Type type,
-                            WebGestureDevice sourceDevice) {
+                            WebGestureDevice source_device) {
     SimulateGestureEvent(
-        SyntheticWebGestureEventBuilder::Build(type, sourceDevice));
+        SyntheticWebGestureEventBuilder::Build(type, source_device));
   }
 
-  void SimulateGestureScrollUpdateEvent(float dX, float dY, int modifiers) {
-    SimulateGestureEvent(
-        SyntheticWebGestureEventBuilder::BuildScrollUpdate(dX, dY, modifiers));
+  void SimulateGestureScrollUpdateEvent(float dX,
+                                        float dY,
+                                        int modifiers,
+                                        WebGestureDevice source_device) {
+    SimulateGestureEvent(SyntheticWebGestureEventBuilder::BuildScrollUpdate(
+        dX, dY, modifiers, source_device));
   }
 
   void SimulateGesturePinchUpdateEvent(float scale,
-                                       float anchorX,
-                                       float anchorY,
+                                       float anchor_x,
+                                       float anchor_y,
                                        int modifiers,
-                                       WebGestureDevice sourceDevice) {
+                                       WebGestureDevice source_device) {
     SimulateGestureEvent(SyntheticWebGestureEventBuilder::BuildPinchUpdate(
-        scale, anchorX, anchorY, modifiers, sourceDevice));
+        scale, anchor_x, anchor_y, modifiers, source_device));
   }
 
-  void SimulateGestureFlingStartEvent(float velocityX,
-                                      float velocityY,
-                                      WebGestureDevice sourceDevice) {
-    SimulateGestureEvent(
-        SyntheticWebGestureEventBuilder::BuildFling(velocityX,
-                                                    velocityY,
-                                                    sourceDevice));
+  void SimulateGestureFlingStartEvent(float velocity_x,
+                                      float velocity_y,
+                                      WebGestureDevice source_device) {
+    SimulateGestureEvent(SyntheticWebGestureEventBuilder::BuildFling(
+        velocity_x, velocity_y, source_device));
   }
 
   void SetTouchTimestamp(base::TimeDelta timestamp) {
     touch_event_.SetTimestamp(timestamp);
   }
 
-  void SendTouchEvent() {
-    input_router_->SendTouchEvent(
-        TouchEventWithLatencyInfo(touch_event_, ui::LatencyInfo()));
+  uint32 SendTouchEvent() {
+    uint32 touch_event_id = touch_event_.uniqueTouchEventId;
+    input_router_->SendTouchEvent(TouchEventWithLatencyInfo(touch_event_));
     touch_event_.ResetPoints();
+    return touch_event_id;
   }
 
   int PressTouchPoint(int x, int y) {
@@ -269,9 +279,16 @@ class InputRouterImplTest : public testing::Test {
 
   void SendInputEventACK(blink::WebInputEvent::Type type,
                          InputEventAckState ack_result) {
-    InputHostMsg_HandleInputEvent_ACK_Params ack;
-    ack.type = type;
-    ack.state = ack_result;
+    DCHECK(!WebInputEvent::isTouchEventType(type));
+    InputEventAck ack(type, ack_result);
+    input_router_->OnMessageReceived(InputHostMsg_HandleInputEvent_ACK(0, ack));
+  }
+
+  void SendTouchEventACK(blink::WebInputEvent::Type type,
+                         InputEventAckState ack_result,
+                         uint32 touch_event_id) {
+    DCHECK(WebInputEvent::isTouchEventType(type));
+    InputEventAck ack(type, ack_result, touch_event_id);
     input_router_->OnMessageReceived(InputHostMsg_HandleInputEvent_ACK(0, ack));
   }
 
@@ -287,8 +304,8 @@ class InputRouterImplTest : public testing::Test {
     return input_router()->touch_event_queue_.IsAckTimeoutEnabled();
   }
 
-  void Flush() const {
-    return input_router_->Flush();
+  void RequestNotificationWhenFlushed() const {
+    return input_router_->RequestNotificationWhenFlushed();
   }
 
   size_t GetAndResetDidFlushCount() {
@@ -316,7 +333,7 @@ class InputRouterImplTest : public testing::Test {
   }
 
   static void RunTasksAndWait(base::TimeDelta delay) {
-    base::MessageLoop::current()->PostDelayedTask(
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE, base::MessageLoop::QuitClosure(), delay);
     base::MessageLoop::current()->Run();
   }
@@ -779,29 +796,29 @@ TEST_F(InputRouterImplTest, TouchEventQueue) {
   OnHasTouchEventHandlers(true);
 
   PressTouchPoint(1, 1);
-  SendTouchEvent();
+  uint32 touch_press_event_id = SendTouchEvent();
   EXPECT_TRUE(client_->GetAndResetFilterEventCalled());
   EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
   EXPECT_FALSE(TouchEventQueueEmpty());
 
   // The second touch should not be sent since one is already in queue.
   MoveTouchPoint(0, 5, 5);
-  SendTouchEvent();
+  uint32 touch_move_event_id = SendTouchEvent();
   EXPECT_FALSE(client_->GetAndResetFilterEventCalled());
   EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
   EXPECT_FALSE(TouchEventQueueEmpty());
 
   // Receive an ACK for the first touch-event.
-  SendInputEventACK(WebInputEvent::TouchStart,
-                    INPUT_EVENT_ACK_STATE_CONSUMED);
+  SendTouchEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_press_event_id);
   EXPECT_FALSE(TouchEventQueueEmpty());
   EXPECT_EQ(1U, ack_handler_->GetAndResetAckCount());
   EXPECT_EQ(WebInputEvent::TouchStart,
             ack_handler_->acked_touch_event().event.type);
   EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
 
-  SendInputEventACK(WebInputEvent::TouchMove,
-                    INPUT_EVENT_ACK_STATE_CONSUMED);
+  SendTouchEventACK(WebInputEvent::TouchMove, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_move_event_id);
   EXPECT_TRUE(TouchEventQueueEmpty());
   EXPECT_EQ(1U, ack_handler_->GetAndResetAckCount());
   EXPECT_EQ(WebInputEvent::TouchMove,
@@ -817,11 +834,9 @@ TEST_F(InputRouterImplTest, TouchEventQueueFlush) {
   EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
   EXPECT_TRUE(TouchEventQueueEmpty());
 
-  EXPECT_TRUE(input_router_->ShouldForwardTouchEvent());
-
   // Send a touch-press event.
   PressTouchPoint(1, 1);
-  SendTouchEvent();
+  uint32 touch_press_event_id = SendTouchEvent();
   MoveTouchPoint(0, 2, 2);
   MoveTouchPoint(0, 3, 3);
   EXPECT_FALSE(TouchEventQueueEmpty());
@@ -833,14 +848,13 @@ TEST_F(InputRouterImplTest, TouchEventQueueFlush) {
   EXPECT_FALSE(client_->has_touch_handler());
   EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
   EXPECT_FALSE(TouchEventQueueEmpty());
-  EXPECT_TRUE(input_router_->ShouldForwardTouchEvent());
 
   // After the ack, the touch-event queue should be empty, and none of the
   // flushed touch-events should have been sent to the renderer.
-  SendInputEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED);
+  SendTouchEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_press_event_id);
   EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
   EXPECT_TRUE(TouchEventQueueEmpty());
-  EXPECT_FALSE(input_router_->ShouldForwardTouchEvent());
 }
 
 #if defined(USE_AURA)
@@ -850,7 +864,6 @@ TEST_F(InputRouterImplTest, AckedTouchEventState) {
   input_router_->OnMessageReceived(ViewHostMsg_HasTouchEventHandlers(0, true));
   EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
   EXPECT_TRUE(TouchEventQueueEmpty());
-  EXPECT_TRUE(input_router_->ShouldForwardTouchEvent());
 
   // Send a bunch of events, and make sure the ACKed events are correct.
   ScopedVector<ui::TouchEvent> expected_events;
@@ -863,7 +876,7 @@ TEST_F(InputRouterImplTest, AckedTouchEventState) {
   // Press the first finger.
   PressTouchPoint(1, 1);
   SetTouchTimestamp(timestamp);
-  SendTouchEvent();
+  uint32 touch_press_event_id1 = SendTouchEvent();
   EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
   expected_events.push_back(new ui::TouchEvent(ui::ET_TOUCH_PRESSED,
       gfx::Point(1, 1), 0, timestamp));
@@ -872,7 +885,7 @@ TEST_F(InputRouterImplTest, AckedTouchEventState) {
   timestamp += base::TimeDelta::FromSeconds(10);
   MoveTouchPoint(0, 500, 500);
   SetTouchTimestamp(timestamp);
-  SendTouchEvent();
+  uint32 touch_move_event_id1 = SendTouchEvent();
   EXPECT_FALSE(TouchEventQueueEmpty());
   expected_events.push_back(new ui::TouchEvent(ui::ET_TOUCH_MOVED,
       gfx::Point(500, 500), 0, timestamp));
@@ -881,7 +894,7 @@ TEST_F(InputRouterImplTest, AckedTouchEventState) {
   timestamp += base::TimeDelta::FromSeconds(10);
   PressTouchPoint(2, 2);
   SetTouchTimestamp(timestamp);
-  SendTouchEvent();
+  uint32 touch_press_event_id2 = SendTouchEvent();
   EXPECT_FALSE(TouchEventQueueEmpty());
   expected_events.push_back(new ui::TouchEvent(ui::ET_TOUCH_PRESSED,
       gfx::Point(2, 2), 1, timestamp));
@@ -891,7 +904,7 @@ TEST_F(InputRouterImplTest, AckedTouchEventState) {
   MoveTouchPoint(0, 10, 10);
   MoveTouchPoint(1, 20, 20);
   SetTouchTimestamp(timestamp);
-  SendTouchEvent();
+  uint32 touch_move_event_id2 = SendTouchEvent();
   EXPECT_FALSE(TouchEventQueueEmpty());
   expected_events.push_back(new ui::TouchEvent(ui::ET_TOUCH_MOVED,
       gfx::Point(10, 10), 0, timestamp));
@@ -905,13 +918,18 @@ TEST_F(InputRouterImplTest, AckedTouchEventState) {
                                  WebInputEvent::TouchStart,
                                  WebInputEvent::TouchMove };
 
+  uint32 touch_event_ids[] = {touch_press_event_id1,
+                              touch_move_event_id1,
+                              touch_press_event_id2,
+                              touch_move_event_id2};
+
   TouchEventCoordinateSystem coordinate_system = LOCAL_COORDINATES;
 #if !defined(OS_WIN)
   coordinate_system = SCREEN_COORDINATES;
 #endif
   for (size_t i = 0; i < arraysize(acks); ++i) {
-    SendInputEventACK(acks[i],
-                      INPUT_EVENT_ACK_STATE_NOT_CONSUMED);
+    SendTouchEventACK(acks[i], INPUT_EVENT_ACK_STATE_NOT_CONSUMED,
+                      touch_event_ids[i]);
     EXPECT_EQ(acks[i], ack_handler_->acked_touch_event().event.type);
     ScopedVector<ui::TouchEvent> acked;
 
@@ -961,30 +979,31 @@ TEST_F(InputRouterImplTest, UnhandledWheelEvent) {
 TEST_F(InputRouterImplTest, TouchTypesIgnoringAck) {
   OnHasTouchEventHandlers(true);
   // Only acks for TouchCancel should always be ignored.
-  ASSERT_FALSE(WebInputEventTraits::IgnoresAckDisposition(
+  ASSERT_TRUE(WebInputEventTraits::WillReceiveAckFromRenderer(
       GetEventWithType(WebInputEvent::TouchStart)));
-  ASSERT_FALSE(WebInputEventTraits::IgnoresAckDisposition(
+  ASSERT_TRUE(WebInputEventTraits::WillReceiveAckFromRenderer(
       GetEventWithType(WebInputEvent::TouchMove)));
-  ASSERT_FALSE(WebInputEventTraits::IgnoresAckDisposition(
+  ASSERT_TRUE(WebInputEventTraits::WillReceiveAckFromRenderer(
       GetEventWithType(WebInputEvent::TouchEnd)));
 
   // Precede the TouchCancel with an appropriate TouchStart;
   PressTouchPoint(1, 1);
-  SendTouchEvent();
-  SendInputEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED);
+  uint32 touch_press_event_id = SendTouchEvent();
+  SendTouchEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_press_event_id);
   ASSERT_EQ(1U, GetSentMessageCountAndResetSink());
   ASSERT_EQ(1U, ack_handler_->GetAndResetAckCount());
   ASSERT_EQ(0, client_->in_flight_event_count());
 
   // The TouchCancel ack is always ignored.
   CancelTouchPoint(0);
-  SendTouchEvent();
+  uint32 touch_cancel_event_id = SendTouchEvent();
   EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
   EXPECT_EQ(1U, ack_handler_->GetAndResetAckCount());
   EXPECT_EQ(0, client_->in_flight_event_count());
   EXPECT_FALSE(HasPendingEvents());
-  SendInputEventACK(WebInputEvent::TouchCancel,
-                    INPUT_EVENT_ACK_STATE_NOT_CONSUMED);
+  SendTouchEventACK(WebInputEvent::TouchCancel,
+                    INPUT_EVENT_ACK_STATE_NOT_CONSUMED, touch_cancel_event_id);
   EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
   EXPECT_EQ(0U, ack_handler_->GetAndResetAckCount());
   EXPECT_FALSE(HasPendingEvents());
@@ -992,8 +1011,7 @@ TEST_F(InputRouterImplTest, TouchTypesIgnoringAck) {
 
 TEST_F(InputRouterImplTest, GestureTypesIgnoringAck) {
   // We test every gesture type, ensuring that the stream of gestures is valid.
-  const int kEventTypesLength = 29;
-  WebInputEvent::Type eventTypes[kEventTypesLength] = {
+  const WebInputEvent::Type eventTypes[] = {
       WebInputEvent::GestureTapDown,
       WebInputEvent::GestureShowPress,
       WebInputEvent::GestureTapCancel,
@@ -1018,14 +1036,14 @@ TEST_F(InputRouterImplTest, GestureTypesIgnoringAck) {
       WebInputEvent::GestureTapCancel,
       WebInputEvent::GestureScrollBegin,
       WebInputEvent::GestureScrollUpdate,
-      WebInputEvent::GestureScrollUpdateWithoutPropagation,
       WebInputEvent::GesturePinchBegin,
       WebInputEvent::GesturePinchUpdate,
       WebInputEvent::GesturePinchEnd,
       WebInputEvent::GestureScrollEnd};
-  for (int i = 0; i < kEventTypesLength; ++i) {
+  for (size_t i = 0; i < arraysize(eventTypes); ++i) {
     WebInputEvent::Type type = eventTypes[i];
-    if (!WebInputEventTraits::IgnoresAckDisposition(GetEventWithType(type))) {
+    if (WebInputEventTraits::WillReceiveAckFromRenderer(
+            GetEventWithType(type))) {
       SimulateGestureEvent(type, blink::WebGestureDeviceTouchscreen);
       EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
       EXPECT_EQ(0U, ack_handler_->GetAndResetAckCount());
@@ -1055,8 +1073,9 @@ TEST_F(InputRouterImplTest, MouseTypesIgnoringAck) {
   for (int i = start_type; i <= end_type; ++i) {
     WebInputEvent::Type type = static_cast<WebInputEvent::Type>(i);
     int expected_in_flight_event_count =
-        WebInputEventTraits::IgnoresAckDisposition(GetEventWithType(type)) ? 0
-                                                                           : 1;
+        !WebInputEventTraits::WillReceiveAckFromRenderer(GetEventWithType(type))
+            ? 0
+            : 1;
 
     // Note: Mouse event acks are never forwarded to the ack handler, so the key
     // result here is that ignored ack types don't affect the in-flight count.
@@ -1074,7 +1093,7 @@ TEST_F(InputRouterImplTest, MouseTypesIgnoringAck) {
 }
 
 // Guard against breaking changes to the list of ignored event ack types in
-// |WebInputEventTraits::IgnoresAckDisposition|.
+// |WebInputEventTraits::WillReceiveAckFromRenderer|.
 TEST_F(InputRouterImplTest, RequiredEventAckTypes) {
   const WebInputEvent::Type kRequiredEventAckTypes[] = {
     WebInputEvent::MouseMove,
@@ -1092,7 +1111,7 @@ TEST_F(InputRouterImplTest, RequiredEventAckTypes) {
   };
   for (size_t i = 0; i < arraysize(kRequiredEventAckTypes); ++i) {
     const WebInputEvent::Type required_ack_type = kRequiredEventAckTypes[i];
-    EXPECT_FALSE(WebInputEventTraits::IgnoresAckDisposition(
+    ASSERT_TRUE(WebInputEventTraits::WillReceiveAckFromRenderer(
         GetEventWithType(required_ack_type)));
   }
 }
@@ -1209,26 +1228,28 @@ TEST_F(InputRouterImplTest, GestureShowPressIsInOrder) {
   EXPECT_EQ(3U, ack_handler_->GetAndResetAckCount());
 }
 
-// Test that touch ack timeout behavior is properly toggled by view update flags
-// and allowed touch actions.
+// Test that touch ack timeout behavior is properly configured for
+// mobile-optimized sites and allowed touch actions.
 TEST_F(InputRouterImplTest, TouchAckTimeoutConfigured) {
-  const int timeout_ms = 1;
-  SetUpForTouchAckTimeoutTest(timeout_ms);
+  const int kDesktopTimeoutMs = 1;
+  const int kMobileTimeoutMs = 0;
+  SetUpForTouchAckTimeoutTest(kDesktopTimeoutMs, kMobileTimeoutMs);
   ASSERT_TRUE(TouchEventTimeoutEnabled());
 
   // Verify that the touch ack timeout fires upon the delayed ack.
   PressTouchPoint(1, 1);
-  SendTouchEvent();
+  uint32 touch_press_event_id1 = SendTouchEvent();
   EXPECT_EQ(0U, ack_handler_->GetAndResetAckCount());
   EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
-  RunTasksAndWait(base::TimeDelta::FromMilliseconds(timeout_ms + 1));
+  RunTasksAndWait(base::TimeDelta::FromMilliseconds(kDesktopTimeoutMs + 1));
 
   // The timed-out event should have been ack'ed.
   EXPECT_EQ(1U, ack_handler_->GetAndResetAckCount());
   EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
 
   // Ack'ing the timed-out event should fire a TouchCancel.
-  SendInputEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED);
+  SendTouchEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_press_event_id1);
   EXPECT_EQ(0U, ack_handler_->GetAndResetAckCount());
   EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
 
@@ -1239,42 +1260,37 @@ TEST_F(InputRouterImplTest, TouchAckTimeoutConfigured) {
   EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
   ASSERT_TRUE(TouchEventTimeoutEnabled());
 
-  // A fixed page scale or mobile viewport should disable the touch timeout.
-  input_router()->OnViewUpdated(InputRouter::FIXED_PAGE_SCALE);
+  // A mobile-optimized site should use the mobile timeout. For this test that
+  // timeout value is 0, which disables the timeout.
+  input_router()->NotifySiteIsMobileOptimized(true);
   EXPECT_FALSE(TouchEventTimeoutEnabled());
 
-  input_router()->OnViewUpdated(InputRouter::VIEW_FLAGS_NONE);
-  EXPECT_TRUE(TouchEventTimeoutEnabled());
-
-  input_router()->OnViewUpdated(InputRouter::MOBILE_VIEWPORT);
-  EXPECT_FALSE(TouchEventTimeoutEnabled());
-
-  input_router()->OnViewUpdated(InputRouter::MOBILE_VIEWPORT |
-                                InputRouter::FIXED_PAGE_SCALE);
-  EXPECT_FALSE(TouchEventTimeoutEnabled());
-
-  input_router()->OnViewUpdated(InputRouter::VIEW_FLAGS_NONE);
+  input_router()->NotifySiteIsMobileOptimized(false);
   EXPECT_TRUE(TouchEventTimeoutEnabled());
 
   // TOUCH_ACTION_NONE (and no other touch-action) should disable the timeout.
   OnHasTouchEventHandlers(true);
   PressTouchPoint(1, 1);
-  SendTouchEvent();
+  uint32 touch_press_event_id2 = SendTouchEvent();
   OnSetTouchAction(TOUCH_ACTION_PAN_Y);
   EXPECT_TRUE(TouchEventTimeoutEnabled());
   ReleaseTouchPoint(0);
-  SendTouchEvent();
-  SendInputEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED);
-  SendInputEventACK(WebInputEvent::TouchEnd, INPUT_EVENT_ACK_STATE_CONSUMED);
+  uint32 touch_release_event_id2 = SendTouchEvent();
+  SendTouchEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_press_event_id2);
+  SendTouchEventACK(WebInputEvent::TouchEnd, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_release_event_id2);
 
   PressTouchPoint(1, 1);
-  SendTouchEvent();
+  uint32 touch_press_event_id3 = SendTouchEvent();
   OnSetTouchAction(TOUCH_ACTION_NONE);
   EXPECT_FALSE(TouchEventTimeoutEnabled());
   ReleaseTouchPoint(0);
-  SendTouchEvent();
-  SendInputEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED);
-  SendInputEventACK(WebInputEvent::TouchEnd, INPUT_EVENT_ACK_STATE_CONSUMED);
+  uint32 touch_release_event_id3 = SendTouchEvent();
+  SendTouchEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_press_event_id3);
+  SendTouchEventACK(WebInputEvent::TouchEnd, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_release_event_id3);
 
   // As the touch-action is reset by a new touch sequence, the timeout behavior
   // should be restored.
@@ -1287,38 +1303,42 @@ TEST_F(InputRouterImplTest, TouchAckTimeoutConfigured) {
 // the touch timeout.
 TEST_F(InputRouterImplTest,
        TouchAckTimeoutDisabledForTouchSequenceAfterTouchActionNone) {
-  const int timeout_ms = 1;
-  SetUpForTouchAckTimeoutTest(timeout_ms);
+  const int kDesktopTimeoutMs = 1;
+  const int kMobileTimeoutMs = 2;
+  SetUpForTouchAckTimeoutTest(kDesktopTimeoutMs, kMobileTimeoutMs);
   ASSERT_TRUE(TouchEventTimeoutEnabled());
   OnHasTouchEventHandlers(true);
 
   // Start a touch sequence.
   PressTouchPoint(1, 1);
-  SendTouchEvent();
+  uint32 touch_press_event_id = SendTouchEvent();
   EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
 
   // TOUCH_ACTION_NONE should disable the timeout.
   OnSetTouchAction(TOUCH_ACTION_NONE);
-  SendInputEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED);
+  SendTouchEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_press_event_id);
   EXPECT_EQ(1U, ack_handler_->GetAndResetAckCount());
   EXPECT_FALSE(TouchEventTimeoutEnabled());
 
-  MoveTouchPoint(0, 1, 1);
-  SendTouchEvent();
+  MoveTouchPoint(0, 1, 2);
+  uint32 touch_move_event_id = SendTouchEvent();
   EXPECT_FALSE(TouchEventTimeoutEnabled());
   EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
 
   // Delay the move ack. The timeout should not fire.
-  RunTasksAndWait(base::TimeDelta::FromMilliseconds(timeout_ms + 1));
+  RunTasksAndWait(base::TimeDelta::FromMilliseconds(kDesktopTimeoutMs + 1));
   EXPECT_EQ(0U, ack_handler_->GetAndResetAckCount());
   EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
-  SendInputEventACK(WebInputEvent::TouchEnd, INPUT_EVENT_ACK_STATE_CONSUMED);
+  SendTouchEventACK(WebInputEvent::TouchMove, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_move_event_id);
   EXPECT_EQ(1U, ack_handler_->GetAndResetAckCount());
 
   // End the touch sequence.
   ReleaseTouchPoint(0);
-  SendTouchEvent();
-  SendInputEventACK(WebInputEvent::TouchEnd, INPUT_EVENT_ACK_STATE_CONSUMED);
+  uint32 touch_release_event_id = SendTouchEvent();
+  SendTouchEventACK(WebInputEvent::TouchEnd, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_release_event_id);
   EXPECT_FALSE(TouchEventTimeoutEnabled());
   ack_handler_->GetAndResetAckCount();
   GetSentMessageCountAndResetSink();
@@ -1331,7 +1351,7 @@ TEST_F(InputRouterImplTest,
   EXPECT_EQ(0U, ack_handler_->GetAndResetAckCount());
 
   // Wait for the touch ack timeout to fire.
-  RunTasksAndWait(base::TimeDelta::FromMilliseconds(timeout_ms + 1));
+  RunTasksAndWait(base::TimeDelta::FromMilliseconds(kDesktopTimeoutMs + 1));
   EXPECT_EQ(1U, ack_handler_->GetAndResetAckCount());
 }
 
@@ -1342,23 +1362,25 @@ TEST_F(InputRouterImplTest, TouchActionResetBeforeEventReachesRenderer) {
 
   // Sequence 1.
   PressTouchPoint(1, 1);
-  SendTouchEvent();
+  uint32 touch_press_event_id1 = SendTouchEvent();
   OnSetTouchAction(TOUCH_ACTION_NONE);
   MoveTouchPoint(0, 50, 50);
-  SendTouchEvent();
+  uint32 touch_move_event_id1 = SendTouchEvent();
   ReleaseTouchPoint(0);
-  SendTouchEvent();
+  uint32 touch_release_event_id1 = SendTouchEvent();
 
   // Sequence 2.
   PressTouchPoint(1, 1);
-  SendTouchEvent();
+  uint32 touch_press_event_id2 = SendTouchEvent();
   MoveTouchPoint(0, 50, 50);
-  SendTouchEvent();
+  uint32 touch_move_event_id2 = SendTouchEvent();
   ReleaseTouchPoint(0);
-  SendTouchEvent();
+  uint32 touch_release_event_id2 = SendTouchEvent();
 
-  SendInputEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED);
-  SendInputEventACK(WebInputEvent::TouchMove, INPUT_EVENT_ACK_STATE_CONSUMED);
+  SendTouchEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_press_event_id1);
+  SendTouchEventACK(WebInputEvent::TouchMove, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_move_event_id1);
 
   // Ensure touch action is still none, as the next touch start hasn't been
   // acked yet. ScrollBegin and ScrollEnd don't require acks.
@@ -1371,12 +1393,15 @@ TEST_F(InputRouterImplTest, TouchActionResetBeforeEventReachesRenderer) {
   EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
 
   // This allows the next touch sequence to start.
-  SendInputEventACK(WebInputEvent::TouchEnd, INPUT_EVENT_ACK_STATE_CONSUMED);
+  SendTouchEventACK(WebInputEvent::TouchEnd, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_release_event_id1);
 
   // Ensure touch action has been set to auto, as a new touch sequence has
   // started.
-  SendInputEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED);
-  SendInputEventACK(WebInputEvent::TouchMove, INPUT_EVENT_ACK_STATE_CONSUMED);
+  SendTouchEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_press_event_id2);
+  SendTouchEventACK(WebInputEvent::TouchMove, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_move_event_id2);
   EXPECT_EQ(3U, GetSentMessageCountAndResetSink());
   SimulateGestureEvent(WebInputEvent::GestureScrollBegin,
                        blink::WebGestureDeviceTouchscreen);
@@ -1384,7 +1409,8 @@ TEST_F(InputRouterImplTest, TouchActionResetBeforeEventReachesRenderer) {
   SimulateGestureEvent(WebInputEvent::GestureScrollEnd,
                        blink::WebGestureDeviceTouchscreen);
   EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
-  SendInputEventACK(WebInputEvent::TouchEnd, INPUT_EVENT_ACK_STATE_CONSUMED);
+  SendTouchEventACK(WebInputEvent::TouchEnd, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_release_event_id2);
 }
 
 // Test that TouchActionFilter::ResetTouchAction is called when a new touch
@@ -1394,19 +1420,21 @@ TEST_F(InputRouterImplTest, TouchActionResetWhenTouchHasNoConsumer) {
 
   // Sequence 1.
   PressTouchPoint(1, 1);
-  SendTouchEvent();
+  uint32 touch_press_event_id1 = SendTouchEvent();
   MoveTouchPoint(0, 50, 50);
-  SendTouchEvent();
+  uint32 touch_move_event_id1 = SendTouchEvent();
   OnSetTouchAction(TOUCH_ACTION_NONE);
-  SendInputEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED);
-  SendInputEventACK(WebInputEvent::TouchMove, INPUT_EVENT_ACK_STATE_CONSUMED);
+  SendTouchEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_press_event_id1);
+  SendTouchEventACK(WebInputEvent::TouchMove, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_move_event_id1);
 
   ReleaseTouchPoint(0);
-  SendTouchEvent();
+  uint32 touch_release_event_id1 = SendTouchEvent();
 
   // Sequence 2
   PressTouchPoint(1, 1);
-  SendTouchEvent();
+  uint32 touch_press_event_id2 = SendTouchEvent();
   MoveTouchPoint(0, 50, 50);
   SendTouchEvent();
   ReleaseTouchPoint(0);
@@ -1422,9 +1450,11 @@ TEST_F(InputRouterImplTest, TouchActionResetWhenTouchHasNoConsumer) {
                        blink::WebGestureDeviceTouchscreen);
   EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
 
-  SendInputEventACK(WebInputEvent::TouchEnd, INPUT_EVENT_ACK_STATE_CONSUMED);
-  SendInputEventACK(WebInputEvent::TouchStart,
-                    INPUT_EVENT_ACK_STATE_NO_CONSUMER_EXISTS);
+  SendTouchEventACK(WebInputEvent::TouchEnd, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_release_event_id1);
+  SendTouchEventACK(WebInputEvent::TouchStart,
+                    INPUT_EVENT_ACK_STATE_NO_CONSUMER_EXISTS,
+                    touch_press_event_id2);
 
   // Ensure touch action has been set to auto, as the touch had no consumer.
   EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
@@ -1442,26 +1472,27 @@ TEST_F(InputRouterImplTest, TouchActionResetWhenTouchHandlerRemoved) {
   // Touch sequence with touch handler.
   OnHasTouchEventHandlers(true);
   PressTouchPoint(1, 1);
-  SendTouchEvent();
+  uint32 touch_press_event_id = SendTouchEvent();
   MoveTouchPoint(0, 50, 50);
-  SendTouchEvent();
+  uint32 touch_move_event_id = SendTouchEvent();
   OnSetTouchAction(TOUCH_ACTION_NONE);
   ReleaseTouchPoint(0);
-  SendTouchEvent();
+  uint32 touch_release_event_id = SendTouchEvent();
   EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
 
   // Ensure we have touch-action:none, suppressing scroll events.
-  SendInputEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED);
+  SendTouchEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_press_event_id);
   EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
-  SendInputEventACK(WebInputEvent::TouchMove,
-                    INPUT_EVENT_ACK_STATE_NOT_CONSUMED);
+  SendTouchEventACK(WebInputEvent::TouchMove,
+                    INPUT_EVENT_ACK_STATE_NOT_CONSUMED, touch_move_event_id);
   EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
   SimulateGestureEvent(WebInputEvent::GestureScrollBegin,
                        blink::WebGestureDeviceTouchscreen);
   EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
 
-  SendInputEventACK(WebInputEvent::TouchEnd,
-                    INPUT_EVENT_ACK_STATE_NOT_CONSUMED);
+  SendTouchEventACK(WebInputEvent::TouchEnd, INPUT_EVENT_ACK_STATE_NOT_CONSUMED,
+                    touch_release_event_id);
   SimulateGestureEvent(WebInputEvent::GestureScrollEnd,
                        blink::WebGestureDeviceTouchscreen);
   EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
@@ -1487,16 +1518,17 @@ TEST_F(InputRouterImplTest, DoubleTapGestureDependsOnFirstTap) {
 
   // Sequence 1.
   PressTouchPoint(1, 1);
-  SendTouchEvent();
+  uint32 touch_press_event_id1 = SendTouchEvent();
   OnSetTouchAction(TOUCH_ACTION_NONE);
-  SendInputEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED);
+  SendTouchEventACK(WebInputEvent::TouchStart, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_press_event_id1);
 
   ReleaseTouchPoint(0);
-  SendTouchEvent();
+  uint32 touch_release_event_id = SendTouchEvent();
 
   // Sequence 2
   PressTouchPoint(1, 1);
-  SendTouchEvent();
+  uint32 touch_press_event_id2 = SendTouchEvent();
 
   // First tap.
   EXPECT_EQ(2U, GetSentMessageCountAndResetSink());
@@ -1510,7 +1542,7 @@ TEST_F(InputRouterImplTest, DoubleTapGestureDependsOnFirstTap) {
                        blink::WebGestureDeviceTouchscreen);
   EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
   // This test will become invalid if GestureTap stops requiring an ack.
-  ASSERT_FALSE(WebInputEventTraits::IgnoresAckDisposition(
+  ASSERT_TRUE(WebInputEventTraits::WillReceiveAckFromRenderer(
       GetEventWithType(WebInputEvent::GestureTap)));
   EXPECT_EQ(2, client_->in_flight_event_count());
   SendInputEventACK(WebInputEvent::GestureTap,
@@ -1523,9 +1555,11 @@ TEST_F(InputRouterImplTest, DoubleTapGestureDependsOnFirstTap) {
                        blink::WebGestureDeviceTouchscreen);
   EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
 
-  SendInputEventACK(WebInputEvent::TouchEnd, INPUT_EVENT_ACK_STATE_CONSUMED);
-  SendInputEventACK(WebInputEvent::TouchStart,
-                    INPUT_EVENT_ACK_STATE_NO_CONSUMER_EXISTS);
+  SendTouchEventACK(WebInputEvent::TouchEnd, INPUT_EVENT_ACK_STATE_CONSUMED,
+                    touch_release_event_id);
+  SendTouchEventACK(WebInputEvent::TouchStart,
+                    INPUT_EVENT_ACK_STATE_NO_CONSUMER_EXISTS,
+                    touch_press_event_id2);
 
   // Second Tap.
   EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
@@ -1538,7 +1572,7 @@ TEST_F(InputRouterImplTest, DoubleTapGestureDependsOnFirstTap) {
   SimulateGestureEvent(WebInputEvent::GestureDoubleTap,
                        blink::WebGestureDeviceTouchscreen);
   // This test will become invalid if GestureDoubleTap stops requiring an ack.
-  ASSERT_FALSE(WebInputEventTraits::IgnoresAckDisposition(
+  ASSERT_TRUE(WebInputEventTraits::WillReceiveAckFromRenderer(
       GetEventWithType(WebInputEvent::GestureDoubleTap)));
   EXPECT_EQ(1, client_->in_flight_event_count());
   SendInputEventACK(WebInputEvent::GestureTap, INPUT_EVENT_ACK_STATE_CONSUMED);
@@ -1551,27 +1585,27 @@ TEST_F(InputRouterImplTest, InputFlush) {
   EXPECT_FALSE(HasPendingEvents());
 
   // Flushing an empty router should immediately trigger DidFlush.
-  Flush();
+  RequestNotificationWhenFlushed();
   EXPECT_EQ(1U, GetAndResetDidFlushCount());
   EXPECT_FALSE(HasPendingEvents());
 
   // Queue a TouchStart.
   OnHasTouchEventHandlers(true);
   PressTouchPoint(1, 1);
-  SendTouchEvent();
+  uint32 touch_press_event_id = SendTouchEvent();
   EXPECT_TRUE(HasPendingEvents());
 
   // DidFlush should be called only after the event is ack'ed.
-  Flush();
+  RequestNotificationWhenFlushed();
   EXPECT_EQ(0U, GetAndResetDidFlushCount());
-  SendInputEventACK(WebInputEvent::TouchStart,
-                    INPUT_EVENT_ACK_STATE_NOT_CONSUMED);
+  SendTouchEventACK(WebInputEvent::TouchStart,
+                    INPUT_EVENT_ACK_STATE_NOT_CONSUMED, touch_press_event_id);
   EXPECT_EQ(1U, GetAndResetDidFlushCount());
 
   // Ensure different types of enqueued events will prevent the DidFlush call
   // until all such events have been fully dispatched.
   MoveTouchPoint(0, 50, 50);
-  SendTouchEvent();
+  uint32 touch_move_event_id = SendTouchEvent();
   ASSERT_TRUE(HasPendingEvents());
   SimulateGestureEvent(WebInputEvent::GestureScrollBegin,
                        blink::WebGestureDeviceTouchscreen);
@@ -1581,16 +1615,16 @@ TEST_F(InputRouterImplTest, InputFlush) {
                        blink::WebGestureDeviceTouchscreen);
   SimulateGestureEvent(WebInputEvent::GesturePinchUpdate,
                        blink::WebGestureDeviceTouchscreen);
-  Flush();
+  RequestNotificationWhenFlushed();
   EXPECT_EQ(0U, GetAndResetDidFlushCount());
 
   // Repeated flush calls should have no effect.
-  Flush();
+  RequestNotificationWhenFlushed();
   EXPECT_EQ(0U, GetAndResetDidFlushCount());
 
   // There are still pending gestures.
-  SendInputEventACK(WebInputEvent::TouchMove,
-                    INPUT_EVENT_ACK_STATE_NOT_CONSUMED);
+  SendTouchEventACK(WebInputEvent::TouchMove,
+                    INPUT_EVENT_ACK_STATE_NOT_CONSUMED, touch_move_event_id);
   EXPECT_EQ(0U, GetAndResetDidFlushCount());
   EXPECT_TRUE(HasPendingEvents());
 
@@ -1607,6 +1641,59 @@ TEST_F(InputRouterImplTest, InputFlush) {
   EXPECT_FALSE(HasPendingEvents());
 }
 
+// Test that the router will call the client's |DidFlush| after all fling
+// animations have completed.
+TEST_F(InputRouterImplTest, InputFlushAfterFling) {
+  EXPECT_FALSE(HasPendingEvents());
+
+  // Simulate a fling.
+  SimulateGestureEvent(WebInputEvent::GestureScrollBegin,
+                       blink::WebGestureDeviceTouchscreen);
+  SimulateGestureEvent(WebInputEvent::GestureFlingStart,
+                       blink::WebGestureDeviceTouchscreen);
+  EXPECT_TRUE(HasPendingEvents());
+
+  // If the fling is unconsumed, the flush is complete.
+  RequestNotificationWhenFlushed();
+  EXPECT_EQ(0U, GetAndResetDidFlushCount());
+  SimulateGestureEvent(WebInputEvent::GestureScrollBegin,
+                       blink::WebGestureDeviceTouchscreen);
+  SendInputEventACK(WebInputEvent::GestureFlingStart,
+                    INPUT_EVENT_ACK_STATE_NOT_CONSUMED);
+  EXPECT_FALSE(HasPendingEvents());
+  EXPECT_EQ(1U, GetAndResetDidFlushCount());
+
+  // Simulate a second fling.
+  SimulateGestureEvent(WebInputEvent::GestureFlingStart,
+                       blink::WebGestureDeviceTouchscreen);
+  EXPECT_TRUE(HasPendingEvents());
+
+  // If the fling is consumed, the flush is complete only when the renderer
+  // reports that is has ended.
+  RequestNotificationWhenFlushed();
+  EXPECT_EQ(0U, GetAndResetDidFlushCount());
+  SendInputEventACK(WebInputEvent::GestureFlingStart,
+                    INPUT_EVENT_ACK_STATE_CONSUMED);
+  EXPECT_TRUE(HasPendingEvents());
+  EXPECT_EQ(0U, GetAndResetDidFlushCount());
+
+  // The fling end notification should signal that the router is flushed.
+  input_router()->OnMessageReceived(InputHostMsg_DidStopFlinging(0));
+  EXPECT_EQ(1U, GetAndResetDidFlushCount());
+
+  // Even flings consumed by the client require a fling-end notification.
+  client_->set_filter_state(INPUT_EVENT_ACK_STATE_CONSUMED);
+  SimulateGestureEvent(WebInputEvent::GestureScrollBegin,
+                       blink::WebGestureDeviceTouchscreen);
+  SimulateGestureEvent(WebInputEvent::GestureFlingStart,
+                       blink::WebGestureDeviceTouchscreen);
+  ASSERT_TRUE(HasPendingEvents());
+  RequestNotificationWhenFlushed();
+  EXPECT_EQ(0U, GetAndResetDidFlushCount());
+  input_router()->OnMessageReceived(InputHostMsg_DidStopFlinging(0));
+  EXPECT_EQ(1U, GetAndResetDidFlushCount());
+}
+
 // Test that GesturePinchUpdate is handled specially for trackpad
 TEST_F(InputRouterImplTest, TouchpadPinchUpdate) {
   // GesturePinchUpdate for trackpad sends synthetic wheel events.
@@ -1619,24 +1706,17 @@ TEST_F(InputRouterImplTest, TouchpadPinchUpdate) {
   // Verify we actually sent a special wheel event to the renderer.
   const WebInputEvent* input_event =
       GetInputEventFromMessage(*process_->sink().GetMessageAt(0));
-  ASSERT_EQ(WebInputEvent::MouseWheel, input_event->type);
-  const WebMouseWheelEvent* wheel_event =
-      static_cast<const WebMouseWheelEvent*>(input_event);
-  EXPECT_EQ(20, wheel_event->x);
-  EXPECT_EQ(25, wheel_event->y);
-  EXPECT_EQ(20, wheel_event->globalX);
-  EXPECT_EQ(25, wheel_event->globalY);
-  EXPECT_EQ(20, wheel_event->windowX);
-  EXPECT_EQ(25, wheel_event->windowY);
-  EXPECT_EQ(PinchScaleToWheelDelta(1.5), wheel_event->deltaY);
-  EXPECT_EQ(0, wheel_event->deltaX);
-  EXPECT_EQ(1, wheel_event->hasPreciseScrollingDeltas);
-  EXPECT_EQ(1, wheel_event->wheelTicksY);
-  EXPECT_EQ(0, wheel_event->wheelTicksX);
+  ASSERT_EQ(WebInputEvent::GesturePinchUpdate, input_event->type);
+  const WebGestureEvent* gesture_event =
+      static_cast<const WebGestureEvent*>(input_event);
+  EXPECT_EQ(20, gesture_event->x);
+  EXPECT_EQ(25, gesture_event->y);
+  EXPECT_EQ(20, gesture_event->globalX);
+  EXPECT_EQ(25, gesture_event->globalY);
   EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
 
   // Indicate that the wheel event was unhandled.
-  SendInputEventACK(WebInputEvent::MouseWheel,
+  SendInputEventACK(WebInputEvent::GesturePinchUpdate,
                     INPUT_EVENT_ACK_STATE_NOT_CONSUMED);
 
   // Check that the correct unhandled pinch event was received.
@@ -1650,15 +1730,13 @@ TEST_F(InputRouterImplTest, TouchpadPinchUpdate) {
   SimulateGesturePinchUpdateEvent(
       0.3f, 20, 25, 0, blink::WebGestureDeviceTouchpad);
   input_event = GetInputEventFromMessage(*process_->sink().GetMessageAt(0));
-  ASSERT_EQ(WebInputEvent::MouseWheel, input_event->type);
-  wheel_event = static_cast<const WebMouseWheelEvent*>(input_event);
-  EXPECT_FLOAT_EQ(PinchScaleToWheelDelta(0.3f), wheel_event->deltaY);
-  EXPECT_EQ(1, wheel_event->hasPreciseScrollingDeltas);
-  EXPECT_EQ(-1, wheel_event->wheelTicksY);
+  ASSERT_EQ(WebInputEvent::GesturePinchUpdate, input_event->type);
+  gesture_event = static_cast<const WebGestureEvent*>(input_event);
   EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
 
   // Indicate that the wheel event was handled this time.
-  SendInputEventACK(WebInputEvent::MouseWheel, INPUT_EVENT_ACK_STATE_CONSUMED);
+  SendInputEventACK(WebInputEvent::GesturePinchUpdate,
+                    INPUT_EVENT_ACK_STATE_CONSUMED);
 
   // Check that the correct HANDLED pinch event was received.
   EXPECT_EQ(1U, ack_handler_->GetAndResetAckCount());
@@ -1668,158 +1746,11 @@ TEST_F(InputRouterImplTest, TouchpadPinchUpdate) {
                   ack_handler_->acked_gesture_event().data.pinchUpdate.scale);
 }
 
-// Test that touchpad pinch events are coalesced property, with their synthetic
-// wheel events getting the right ACKs.
-TEST_F(InputRouterImplTest, TouchpadPinchCoalescing) {
-  // Send the first pinch.
-  SimulateGesturePinchUpdateEvent(
-      1.5f, 20, 25, 0, blink::WebGestureDeviceTouchpad);
-
-  // Verify we sent the wheel event to the renderer.
-  const WebInputEvent* input_event =
-      GetInputEventFromMessage(*process_->sink().GetMessageAt(0));
-  ASSERT_EQ(WebInputEvent::MouseWheel, input_event->type);
-  const WebMouseWheelEvent* wheel_event =
-      static_cast<const WebMouseWheelEvent*>(input_event);
-  EXPECT_EQ(PinchScaleToWheelDelta(1.5f), wheel_event->deltaY);
-  EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
-  EXPECT_EQ(0U, ack_handler_->GetAndResetAckCount());
-  EXPECT_EQ(1, client_->in_flight_event_count());
-
-  // Send a second pinch, this should be queued in the GestureEventQueue.
-  SimulateGesturePinchUpdateEvent(
-      1.6f, 20, 25, 0, blink::WebGestureDeviceTouchpad);
-  EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
-  EXPECT_EQ(0U, ack_handler_->GetAndResetAckCount());
-
-  // Send a third pinch, this should be coalesced into the second in the
-  // GestureEventQueue.
-  SimulateGesturePinchUpdateEvent(
-      1.7f, 20, 25, 0, blink::WebGestureDeviceTouchpad);
-  EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
-  EXPECT_EQ(0U, ack_handler_->GetAndResetAckCount());
-
-  // Indicate that the first wheel event was unhandled and verify the ACK.
-  SendInputEventACK(WebInputEvent::MouseWheel,
-                    INPUT_EVENT_ACK_STATE_NOT_CONSUMED);
-  EXPECT_EQ(1U, ack_handler_->GetAndResetAckCount());
-  EXPECT_EQ(WebInputEvent::GesturePinchUpdate, ack_handler_->ack_event_type());
-  EXPECT_EQ(INPUT_EVENT_ACK_STATE_NOT_CONSUMED, ack_handler_->ack_state());
-  EXPECT_EQ(1.5f, ack_handler_->acked_gesture_event().data.pinchUpdate.scale);
-
-  // Verify a second wheel event was sent representing the 2nd and 3rd pinch
-  // events.
-  EXPECT_EQ(1, client_->in_flight_event_count());
-  input_event = GetInputEventFromMessage(*process_->sink().GetMessageAt(0));
-  ASSERT_EQ(WebInputEvent::MouseWheel, input_event->type);
-  wheel_event = static_cast<const WebMouseWheelEvent*>(input_event);
-  EXPECT_FLOAT_EQ(PinchScaleToWheelDelta(1.6f * 1.7f),
-                  PinchScaleToWheelDelta(1.6f) + PinchScaleToWheelDelta(1.7f));
-  EXPECT_FLOAT_EQ(PinchScaleToWheelDelta(1.6f * 1.7f), wheel_event->deltaY);
-  EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
-  EXPECT_EQ(0U, ack_handler_->GetAndResetAckCount());
-
-  // Indicate that the second wheel event was handled and verify the ACK.
-  SendInputEventACK(WebInputEvent::MouseWheel, INPUT_EVENT_ACK_STATE_CONSUMED);
-  EXPECT_EQ(1U, ack_handler_->GetAndResetAckCount());
-  EXPECT_EQ(WebInputEvent::GesturePinchUpdate, ack_handler_->ack_event_type());
-  EXPECT_EQ(INPUT_EVENT_ACK_STATE_CONSUMED, ack_handler_->ack_state());
-  EXPECT_FLOAT_EQ(1.6f * 1.7f,
-                  ack_handler_->acked_gesture_event().data.pinchUpdate.scale);
-}
-
-// Test interleaving pinch and wheel events.
-TEST_F(InputRouterImplTest, TouchpadPinchAndWheel) {
-  // Simulate queued wheel and pinch events events.
-  // Note that in practice interleaving pinch and wheel events should be rare
-  // (eg. requires the use of a mouse and trackpad at the same time).
-
-  // Use the control modifier to match the synthetic wheel events so that
-  // they're elligble for coalescing.
-  int mod = WebInputEvent::ControlKey;
-
-  // Event 1: sent directly.
-  SimulateWheelEvent(0, -5, mod, true);
-  EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
-
-  // Event 2: enqueued in InputRouter.
-  SimulateWheelEvent(0, -10, mod, true);
-  EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
-
-  // Event 3: enqueued in InputRouter, not coalesced into #2.
-  SimulateGesturePinchUpdateEvent(
-      1.5f, 20, 25, 0, blink::WebGestureDeviceTouchpad);
-  EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
-
-  // Event 4: enqueued in GestureEventQueue.
-  SimulateGesturePinchUpdateEvent(
-      1.2f, 20, 25, 0, blink::WebGestureDeviceTouchpad);
-  EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
-
-  // Event 5: coalesced into wheel event for #3.
-  SimulateWheelEvent(2, 0, mod, true);
-  EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
-
-  // Send ack for #1.
-  SendInputEventACK(WebInputEvent::MouseWheel,
-                    INPUT_EVENT_ACK_STATE_NOT_CONSUMED);
-  EXPECT_EQ(1U, ack_handler_->GetAndResetAckCount());
-  EXPECT_EQ(WebInputEvent::MouseWheel, ack_handler_->ack_event_type());
-
-  // Verify we sent #2.
-  ASSERT_EQ(1U, process_->sink().message_count());
-  const WebInputEvent* input_event =
-      GetInputEventFromMessage(*process_->sink().GetMessageAt(0));
-  ASSERT_EQ(WebInputEvent::MouseWheel, input_event->type);
-  const WebMouseWheelEvent* wheel_event =
-      static_cast<const WebMouseWheelEvent*>(input_event);
-  EXPECT_EQ(0, wheel_event->deltaX);
-  EXPECT_EQ(-10, wheel_event->deltaY);
-  EXPECT_EQ(mod, wheel_event->modifiers);
-  EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
-
-  // Send ack for #2.
-  SendInputEventACK(WebInputEvent::MouseWheel,
-                    INPUT_EVENT_ACK_STATE_NOT_CONSUMED);
-  EXPECT_EQ(1U, ack_handler_->GetAndResetAckCount());
-  EXPECT_EQ(WebInputEvent::MouseWheel, ack_handler_->ack_event_type());
-
-  // Verify we sent #3 (with #5 coalesced in).
-  ASSERT_EQ(1U, process_->sink().message_count());
-  input_event = GetInputEventFromMessage(*process_->sink().GetMessageAt(0));
-  ASSERT_EQ(WebInputEvent::MouseWheel, input_event->type);
-  wheel_event = static_cast<const WebMouseWheelEvent*>(input_event);
-  EXPECT_EQ(2, wheel_event->deltaX);
-  EXPECT_EQ(PinchScaleToWheelDelta(1.5f), wheel_event->deltaY);
-  EXPECT_EQ(mod, wheel_event->modifiers);
-  EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
-
-  // Send ack for #3.
-  SendInputEventACK(WebInputEvent::MouseWheel,
-                    INPUT_EVENT_ACK_STATE_NOT_CONSUMED);
-  EXPECT_EQ(1U, ack_handler_->GetAndResetAckCount());
-  EXPECT_EQ(WebInputEvent::GesturePinchUpdate, ack_handler_->ack_event_type());
-
-  // Verify we sent #4.
-  ASSERT_EQ(1U, process_->sink().message_count());
-  input_event = GetInputEventFromMessage(*process_->sink().GetMessageAt(0));
-  ASSERT_EQ(WebInputEvent::MouseWheel, input_event->type);
-  wheel_event = static_cast<const WebMouseWheelEvent*>(input_event);
-  EXPECT_EQ(0, wheel_event->deltaX);
-  EXPECT_FLOAT_EQ(PinchScaleToWheelDelta(1.2f), wheel_event->deltaY);
-  EXPECT_EQ(mod, wheel_event->modifiers);
-  EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
-
-  // Send ack for #4.
-  SendInputEventACK(WebInputEvent::MouseWheel,
-                    INPUT_EVENT_ACK_STATE_NOT_CONSUMED);
-  EXPECT_EQ(1U, ack_handler_->GetAndResetAckCount());
-  EXPECT_EQ(WebInputEvent::GesturePinchUpdate, ack_handler_->ack_event_type());
-}
-
 // Test proper handling of touchpad Gesture{Pinch,Scroll}Update sequences.
 TEST_F(InputRouterImplTest, TouchpadPinchAndScrollUpdate) {
   // The first scroll should be sent immediately.
+  SimulateGestureScrollUpdateEvent(1.5f, 0.f, 0,
+                                   blink::WebGestureDeviceTouchpad);
   SimulateGestureEvent(WebInputEvent::GestureScrollUpdate,
                        blink::WebGestureDeviceTouchpad);
   ASSERT_EQ(1U, GetSentMessageCountAndResetSink());
@@ -1827,23 +1758,23 @@ TEST_F(InputRouterImplTest, TouchpadPinchAndScrollUpdate) {
 
   // Subsequent scroll and pinch events should remain queued, coalescing as
   // more trackpad events arrive.
-  SimulateGestureEvent(WebInputEvent::GesturePinchUpdate,
-                       blink::WebGestureDeviceTouchpad);
+  SimulateGesturePinchUpdateEvent(1.5f, 20, 25, 0,
+                                  blink::WebGestureDeviceTouchpad);
   ASSERT_EQ(0U, GetSentMessageCountAndResetSink());
   EXPECT_EQ(1, client_->in_flight_event_count());
 
-  SimulateGestureEvent(WebInputEvent::GestureScrollUpdate,
-                       blink::WebGestureDeviceTouchpad);
+  SimulateGestureScrollUpdateEvent(1.5f, 1.5f, 0,
+                                   blink::WebGestureDeviceTouchpad);
   ASSERT_EQ(0U, GetSentMessageCountAndResetSink());
   EXPECT_EQ(1, client_->in_flight_event_count());
 
-  SimulateGestureEvent(WebInputEvent::GesturePinchUpdate,
-                       blink::WebGestureDeviceTouchpad);
+  SimulateGesturePinchUpdateEvent(1.5f, 20, 25, 0,
+                                  blink::WebGestureDeviceTouchpad);
   ASSERT_EQ(0U, GetSentMessageCountAndResetSink());
   EXPECT_EQ(1, client_->in_flight_event_count());
 
-  SimulateGestureEvent(WebInputEvent::GestureScrollUpdate,
-                       blink::WebGestureDeviceTouchpad);
+  SimulateGestureScrollUpdateEvent(0.f, 1.5f, 0,
+                                   blink::WebGestureDeviceTouchpad);
   ASSERT_EQ(0U, GetSentMessageCountAndResetSink());
   EXPECT_EQ(1, client_->in_flight_event_count());
 
@@ -1892,9 +1823,8 @@ TEST_F(InputRouterImplTest, OverscrollDispatch) {
   wheel_overscroll.current_fling_velocity = gfx::Vector2dF(1, 0);
 
   SimulateWheelEvent(3, 0, 0, false);
-  InputHostMsg_HandleInputEvent_ACK_Params ack;
-  ack.type = WebInputEvent::MouseWheel;
-  ack.state = INPUT_EVENT_ACK_STATE_NOT_CONSUMED;
+  InputEventAck ack(WebInputEvent::MouseWheel,
+                    INPUT_EVENT_ACK_STATE_NOT_CONSUMED);
   ack.overscroll.reset(new DidOverscrollParams(wheel_overscroll));
   input_router_->OnMessageReceived(InputHostMsg_HandleInputEvent_ACK(0, ack));
 

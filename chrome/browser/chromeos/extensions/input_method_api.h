@@ -12,6 +12,7 @@
 #include "extensions/browser/extension_function.h"
 
 namespace chromeos {
+class ExtensionDictionaryEventRouter;
 class ExtensionInputMethodEventRouter;
 }
 
@@ -23,9 +24,9 @@ class GetInputMethodConfigFunction : public UIThreadExtensionFunction {
   GetInputMethodConfigFunction() {}
 
  protected:
-  virtual ~GetInputMethodConfigFunction() {}
+  ~GetInputMethodConfigFunction() override {}
 
-  virtual ResponseAction Run() override;
+  ResponseAction Run() override;
 
  private:
   DECLARE_EXTENSION_FUNCTION("inputMethodPrivate.getInputMethodConfig",
@@ -39,9 +40,9 @@ class GetCurrentInputMethodFunction : public UIThreadExtensionFunction {
   GetCurrentInputMethodFunction() {}
 
  protected:
-  virtual ~GetCurrentInputMethodFunction() {}
+  ~GetCurrentInputMethodFunction() override {}
 
-  virtual ResponseAction Run() override;
+  ResponseAction Run() override;
 
  private:
   DECLARE_EXTENSION_FUNCTION("inputMethodPrivate.getCurrentInputMethod",
@@ -55,9 +56,9 @@ class SetCurrentInputMethodFunction : public UIThreadExtensionFunction {
   SetCurrentInputMethodFunction() {}
 
  protected:
-  virtual ~SetCurrentInputMethodFunction() {}
+  ~SetCurrentInputMethodFunction() override {}
 
-  virtual ResponseAction Run() override;
+  ResponseAction Run() override;
 
  private:
   DECLARE_EXTENSION_FUNCTION("inputMethodPrivate.setCurrentInputMethod",
@@ -71,9 +72,9 @@ class GetInputMethodsFunction : public UIThreadExtensionFunction {
   GetInputMethodsFunction() {}
 
  protected:
-  virtual ~GetInputMethodsFunction() {}
+  ~GetInputMethodsFunction() override {}
 
-  virtual ResponseAction Run() override;
+  ResponseAction Run() override;
 
  private:
   DECLARE_EXTENSION_FUNCTION("inputMethodPrivate.getInputMethods",
@@ -81,13 +82,63 @@ class GetInputMethodsFunction : public UIThreadExtensionFunction {
   DISALLOW_COPY_AND_ASSIGN(GetInputMethodsFunction);
 };
 
+// Implements the inputMethodPrivate.fetchAllDictionaryWords method.
+class FetchAllDictionaryWordsFunction : public UIThreadExtensionFunction {
+ public:
+  FetchAllDictionaryWordsFunction() {}
+
+ protected:
+  ~FetchAllDictionaryWordsFunction() override {}
+
+  ResponseAction Run() override;
+
+ private:
+  DECLARE_EXTENSION_FUNCTION("inputMethodPrivate.fetchAllDictionaryWords",
+                             INPUTMETHODPRIVATE_FETCHALLDICTIONARYWORDS)
+  DISALLOW_COPY_AND_ASSIGN(FetchAllDictionaryWordsFunction);
+};
+
+// Implements the inputMethodPrivate.addWordToDictionary method.
+class AddWordToDictionaryFunction : public UIThreadExtensionFunction {
+ public:
+  AddWordToDictionaryFunction() {}
+
+ protected:
+  ~AddWordToDictionaryFunction() override {}
+
+  ResponseAction Run() override;
+
+ private:
+  DECLARE_EXTENSION_FUNCTION("inputMethodPrivate.addWordToDictionary",
+                             INPUTMETHODPRIVATE_ADDWORDTODICTIONARY)
+  DISALLOW_COPY_AND_ASSIGN(AddWordToDictionaryFunction);
+};
+
+// Implements the inputMethodPrivate.getEncryptSyncEnabled method.
+class GetEncryptSyncEnabledFunction : public UIThreadExtensionFunction {
+ public:
+  GetEncryptSyncEnabledFunction() {}
+
+ protected:
+  ~GetEncryptSyncEnabledFunction() override {}
+
+  ResponseAction Run() override;
+
+ private:
+  DECLARE_EXTENSION_FUNCTION("inputMethodPrivate.getEncryptSyncEnabled",
+                             INPUTMETHODPRIVATE_GETENCRYPTSYNCENABLED)
+  DISALLOW_COPY_AND_ASSIGN(GetEncryptSyncEnabledFunction);
+};
+
 class InputMethodAPI : public BrowserContextKeyedAPI,
                        public extensions::EventRouter::Observer {
  public:
+  static const char kOnDictionaryChanged[];
+  static const char kOnDictionaryLoaded[];
   static const char kOnInputMethodChanged[];
 
   explicit InputMethodAPI(content::BrowserContext* context);
-  virtual ~InputMethodAPI();
+  ~InputMethodAPI() override;
 
   // Returns input method name for the given XKB (X keyboard extensions in X
   // Window System) id.
@@ -97,11 +148,10 @@ class InputMethodAPI : public BrowserContextKeyedAPI,
   static BrowserContextKeyedAPIFactory<InputMethodAPI>* GetFactoryInstance();
 
   // BrowserContextKeyedAPI implementation.
-  virtual void Shutdown() override;
+  void Shutdown() override;
 
   // EventRouter::Observer implementation.
-  virtual void OnListenerAdded(const extensions::EventListenerInfo& details)
-      override;
+  void OnListenerAdded(const extensions::EventListenerInfo& details) override;
 
  private:
   friend class BrowserContextKeyedAPIFactory<InputMethodAPI>;
@@ -117,6 +167,8 @@ class InputMethodAPI : public BrowserContextKeyedAPI,
   // Created lazily upon OnListenerAdded.
   scoped_ptr<chromeos::ExtensionInputMethodEventRouter>
       input_method_event_router_;
+  scoped_ptr<chromeos::ExtensionDictionaryEventRouter>
+      dictionary_event_router_;
 
   DISALLOW_COPY_AND_ASSIGN(InputMethodAPI);
 };

@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "weak_ptr_factory.h"
+
 namespace should_succeed {
 
 class OnlyMember {
@@ -27,6 +28,24 @@ class FirstFactoryRefersToOtherType {
   base::WeakPtrFactory<FirstFactoryRefersToOtherType> factory_;
 };
 
+class TwoFactories {
+  bool bool_member_;
+  int int_member_;
+  base::WeakPtrFactory<TwoFactories> factory1_;
+  base::WeakPtrFactory<TwoFactories> factory2_;
+};
+
+template <class T>
+class ClassTemplate {
+ public:
+  ClassTemplate() : factory_(this) {}
+ private:
+  bool bool_member_;
+  base::WeakPtrFactory<ClassTemplate> factory_;
+};
+// Make sure the template gets instantiated:
+ClassTemplate<int> g_instance;
+
 }  // namespace should_succeed
 
 namespace should_fail {
@@ -41,6 +60,24 @@ class FactoryMiddle {
   base::WeakPtrFactory<FactoryMiddle> factory_;
   int int_member_;
 };
+
+class TwoFactoriesOneBad {
+  bool bool_member_;
+  base::WeakPtrFactory<TwoFactoriesOneBad> factory1_;
+  int int_member_;
+  base::WeakPtrFactory<TwoFactoriesOneBad> factory2_;
+};
+
+template <class T>
+class ClassTemplate {
+ public:
+  ClassTemplate() : factory_(this) {}
+ private:
+  base::WeakPtrFactory<ClassTemplate> factory_;
+  bool bool_member_;
+};
+// Make sure the template gets instantiated:
+ClassTemplate<int> g_instance;
 
 }  // namespace should_fail
 

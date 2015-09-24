@@ -23,9 +23,9 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "components/invalidation/invalidation.h"
-#include "components/invalidation/invalidation_service.h"
-#include "components/invalidation/profile_invalidation_provider.h"
+#include "components/invalidation/impl/profile_invalidation_provider.h"
+#include "components/invalidation/public/invalidation.h"
+#include "components/invalidation/public/invalidation_service.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
@@ -43,6 +43,7 @@
 #include "policy/policy_constants.h"
 #include "policy/proto/chrome_settings.pb.h"
 #include "policy/proto/cloud_policy.pb.h"
+#include "policy/proto/device_management_backend.pb.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -76,12 +77,18 @@ namespace policy {
 
 namespace {
 
-KeyedService* BuildFakeProfileInvalidationProvider(
+scoped_ptr<KeyedService> BuildFakeProfileInvalidationProvider(
     content::BrowserContext* context) {
-  return new invalidation::ProfileInvalidationProvider(
+  return make_scoped_ptr(new invalidation::ProfileInvalidationProvider(
       scoped_ptr<invalidation::InvalidationService>(
-          new invalidation::FakeInvalidationService));
+          new invalidation::FakeInvalidationService)));
 }
+
+#if !defined(OS_CHROMEOS)
+const char* GetTestGaiaId() {
+  return "gaia-id-user@example.com";
+}
+#endif
 
 const char* GetTestUser() {
 #if defined(OS_CHROMEOS)
@@ -147,6 +154,11 @@ void GetExpectedDefaultPolicy(PolicyMap* policy_map) {
                   POLICY_SCOPE_USER,
                   new base::FundamentalValue(false),
                   NULL);
+  policy_map->Set(key::kCaptivePortalAuthenticationIgnoresProxy,
+                  POLICY_LEVEL_MANDATORY,
+                  POLICY_SCOPE_USER,
+                  new base::FundamentalValue(false),
+                  NULL);
 #endif
 }
 
@@ -188,6 +200,11 @@ void GetExpectedTestPolicy(PolicyMap* expected, const char* homepage) {
                 POLICY_SCOPE_USER,
                 new base::FundamentalValue(false),
                 NULL);
+  expected->Set(key::kCaptivePortalAuthenticationIgnoresProxy,
+                POLICY_LEVEL_MANDATORY,
+                POLICY_SCOPE_USER,
+                new base::FundamentalValue(false),
+                NULL);
 #endif
 }
 
@@ -209,7 +226,7 @@ class CloudPolicyTest : public InProcessBrowserTest,
 
     std::string url = test_server_->GetServiceURL().spec();
 
-    CommandLine* command_line = CommandLine::ForCurrentProcess();
+    base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
     command_line->AppendSwitchASCII(switches::kDeviceManagementUrl, url);
 
     invalidation::ProfileInvalidationProviderFactory::GetInstance()->
@@ -235,7 +252,7 @@ class CloudPolicyTest : public InProcessBrowserTest,
     SigninManager* signin_manager =
         SigninManagerFactory::GetForProfile(browser()->profile());
     ASSERT_TRUE(signin_manager);
-    signin_manager->SetAuthenticatedUsername(GetTestUser());
+    signin_manager->SetAuthenticatedAccountInfo(GetTestGaiaId(), GetTestUser());
 
     UserCloudPolicyManager* policy_manager =
         UserCloudPolicyManagerFactory::GetForBrowserContext(
@@ -266,8 +283,8 @@ class CloudPolicyTest : public InProcessBrowserTest,
         em::DeviceRegisterRequest::BROWSER;
 #endif
     policy_manager->core()->client()->Register(
-        registration_type, "bogus", std::string(), false, std::string(),
-        std::string());
+        registration_type, em::DeviceRegisterRequest::FLAVOR_USER_REGISTRATION,
+        "bogus", std::string(), std::string(), std::string());
     run_loop.Run();
     Mock::VerifyAndClearExpectations(&observer);
     policy_manager->core()->client()->RemoveObserver(&observer);
@@ -287,7 +304,8 @@ class CloudPolicyTest : public InProcessBrowserTest,
 
   PolicyService* GetPolicyService() {
     ProfilePolicyConnector* profile_connector =
-        ProfilePolicyConnectorFactory::GetForProfile(browser()->profile());
+        ProfilePolicyConnectorFactory::GetForBrowserContext(
+            browser()->profile());
     return profile_connector->policy_service();
   }
 

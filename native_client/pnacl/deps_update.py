@@ -87,13 +87,15 @@ def AssertNoUncommittedChanges():
 
 
 def Main(args):
+  src_base = 'toolchain_build/src'
   parser = optparse.OptionParser('%prog [options]\n\n' + __doc__.strip())
   parser.add_option('--list', action='store_true', default=False,
                     dest='list_only',
                     help='Only list the new Git revisions to be pulled in')
   parser.add_option('-c', '--component', default='llvm', type='string',
-                    help='Subdirectory of pnacl/git/ to update '
-                    'COMPONENT_REVISIONS from (defaults to "llvm")')
+                    help='Subdirectory of {src_dir} to update '
+                    'COMPONENT_REVISIONS from (defaults to "llvm")'.format(
+                        src_dir=src_base))
   parser.add_option('-r', '--revision', default=None, type='string',
                     help='Git revision to use')
   parser.add_option('-u', '--no-upload', action='store_true', default=False,
@@ -113,21 +115,20 @@ def Main(args):
                         'compiler-rt': 'compiler-rt',
                         'subzero': 'Subzero'}
 
-  src_base = 'toolchain_build/src'
   git_dir = os.path.join(src_base, options.component)
   component_name = component_name_map.get(options.component, options.component)
   if options.component == 'pnacl-gcc':
     pnacl_branch = 'origin/pnacl'
     upstream_branches = []
   elif options.component == 'binutils':
-    pnacl_branch = 'origin/pnacl/2.24/master'
-    upstream_branches = ['origin/ng/2.24/master']
+    pnacl_branch = 'origin/pnacl/2.25/master'
+    upstream_branches = ['origin/ng/2.25/master']
   elif options.component == 'subzero':
     pnacl_branch = 'origin/master'
     upstream_branches = []
   else:
     pnacl_branch = 'origin/master'
-    # Skip changes merged (but not cherry-picked) from upstream SVN.
+    # Skip changes merged (but not cherry-picked) from upstream git.
     upstream_branches = ['origin/upstream/master']
 
   if not options.list_only:
@@ -164,12 +165,11 @@ def Main(args):
     return
 
   subprocess.check_call(['git', 'checkout', 'origin/master'])
+  branch_name = '%s-deps-%s' % (options.component, new_rev[:8])
+  subprocess.check_call(['git', 'checkout', '-b', branch_name, 'origin/master'])
   with open(deps_file, 'w') as fh:
     fh.write(deps_data)
   subprocess.check_call(['git', 'commit', '-a', '-m', msg])
-
-  branch_name = '%s-deps-%s' % (options.component, new_rev[:8])
-  subprocess.check_call(['git', 'checkout', '-b', branch_name])
 
   if options.no_upload:
     return

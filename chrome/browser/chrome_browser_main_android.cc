@@ -4,22 +4,40 @@
 
 #include "chrome/browser/chrome_browser_main_android.h"
 
+#include "base/android/build_info.h"
 #include "base/command_line.h"
-#include "base/debug/trace_event.h"
+#include "base/files/file_path.h"
+#include "base/files/file_util.h"
 #include "base/path_service.h"
-#include "chrome/browser/bookmarks/enhanced_bookmarks_features.h"
+#include "base/trace_event/trace_event.h"
+#include "chrome/browser/android/chrome_media_client_android.h"
+#include "chrome/browser/android/seccomp_support_detector.h"
 #include "chrome/browser/google/google_search_counter_android.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/crash/app/breakpad_linux.h"
 #include "components/crash/browser/crash_dump_manager_android.h"
+#include "components/enhanced_bookmarks/persistent_image_store.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "content/public/browser/android/compositor.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/common/main_function_params.h"
+#include "media/base/android/media_client_android.h"
 #include "net/android/network_change_notifier_factory_android.h"
 #include "net/base/network_change_notifier.h"
+#include "ui/base/resource/resource_bundle_android.h"
 #include "ui/base/ui_base_paths.h"
+
+namespace {
+
+void DeleteFileTask(
+    const base::FilePath& file_path) {
+  if (base::PathExists(file_path))
+    base::DeleteFile(file_path, false);
+}
+
+} // namespace
 
 ChromeBrowserMainPartsAndroid::ChromeBrowserMainPartsAndroid(
     const content::MainFunctionParams& parameters)
@@ -29,8 +47,13 @@ ChromeBrowserMainPartsAndroid::ChromeBrowserMainPartsAndroid(
 ChromeBrowserMainPartsAndroid::~ChromeBrowserMainPartsAndroid() {
 }
 
-void ChromeBrowserMainPartsAndroid::PreProfileInit() {
-  TRACE_EVENT0("startup", "ChromeBrowserMainPartsAndroid::PreProfileInit")
+int ChromeBrowserMainPartsAndroid::PreCreateThreads() {
+  TRACE_EVENT0("startup", "ChromeBrowserMainPartsAndroid::PreCreateThreads")
+
+  // The CrashDumpManager must be initialized before any child process is
+  // created (as they need to access it during creation). Such processes
+  // are created on the PROCESS_LAUNCHER thread, and so the manager is
+  // initialized before that thread is created.
 #if defined(GOOGLE_CHROME_BUILD)
   // TODO(jcivelli): we should not initialize the crash-reporter when it was not
   // enabled. Right now if it is disabled we still generate the minidumps but we
@@ -42,8 +65,8 @@ void ChromeBrowserMainPartsAndroid::PreProfileInit() {
 
   // Allow Breakpad to be enabled in Chromium builds for testing purposes.
   if (!breakpad_enabled)
-    breakpad_enabled = CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableCrashReporterForTesting);
+    breakpad_enabled = base::CommandLine::ForCurrentProcess()->HasSwitch(
+        switches::kEnableCrashReporterForTesting);
 
   if (breakpad_enabled) {
     base::FilePath crash_dump_dir;
@@ -51,15 +74,29 @@ void ChromeBrowserMainPartsAndroid::PreProfileInit() {
     crash_dump_manager_.reset(new breakpad::CrashDumpManager(crash_dump_dir));
   }
 
-  ChromeBrowserMainParts::PreProfileInit();
+  bool has_language_splits =
+      base::android::BuildInfo::GetInstance()->has_language_apk_splits();
+  ui::SetLocalePaksStoredInApk(has_language_splits);
+
+  return ChromeBrowserMainParts::PreCreateThreads();
 }
 
 void ChromeBrowserMainPartsAndroid::PostProfileInit() {
   Profile* main_profile = profile();
   search_counter_.reset(new GoogleSearchCounterAndroid(main_profile));
-  InitBookmarksExperimentState(main_profile);
 
   ChromeBrowserMainParts::PostProfileInit();
+
+  // Previously we stored information related to salient images for bookmarks
+  // in a local file. We replaced the salient images with favicons. As part
+  // of the clean up, the local file needs to be deleted. See crbug.com/499415.
+  base::FilePath bookmark_image_file_path = main_profile->GetPath().Append(
+      PersistentImageStore::kBookmarkImageStoreDb);
+  content::BrowserThread::PostDelayedTask(
+      content::BrowserThread::FILE, FROM_HERE,
+      base::Bind(&DeleteFileTask,
+                 bookmark_image_file_path),
+      base::TimeDelta::FromMinutes(1));
 }
 
 void ChromeBrowserMainPartsAndroid::PreEarlyInitialization() {
@@ -89,6 +126,20 @@ void ChromeBrowserMainPartsAndroid::PreEarlyInitialization() {
   }
 
   ChromeBrowserMainParts::PreEarlyInitialization();
+}
+
+void ChromeBrowserMainPartsAndroid::PreMainMessageLoopRun() {
+  media::SetMediaClientAndroid(new ChromeMediaClientAndroid);
+
+  ChromeBrowserMainParts::PreMainMessageLoopRun();
+}
+
+void ChromeBrowserMainPartsAndroid::PostBrowserStart() {
+  ChromeBrowserMainParts::PostBrowserStart();
+
+  content::BrowserThread::GetBlockingPool()->PostDelayedTask(FROM_HERE,
+      base::Bind(&SeccompSupportDetector::StartDetection),
+      base::TimeDelta::FromMinutes(1));
 }
 
 void ChromeBrowserMainPartsAndroid::ShowMissingLocaleMessageBox() {

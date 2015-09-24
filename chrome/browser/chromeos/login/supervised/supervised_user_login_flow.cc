@@ -11,7 +11,7 @@
 #include "base/prefs/pref_registry_simple.h"
 #include "base/prefs/pref_service.h"
 #include "base/values.h"
-#include "chrome/browser/chromeos/login/login_utils.h"
+#include "chrome/browser/chromeos/login/session/user_session_manager.h"
 #include "chrome/browser/chromeos/login/supervised/supervised_user_authentication.h"
 #include "chrome/browser/chromeos/login/supervised/supervised_user_constants.h"
 #include "chrome/browser/chromeos/login/supervised/supervised_user_creation_screen.h"
@@ -41,7 +41,8 @@ void SupervisedUserLoginFlow::AppendAdditionalCommandLineSwitches() {
   user_manager::UserManager* user_manager = user_manager::UserManager::Get();
   if (user_manager->IsCurrentUserNew()) {
     // Supervised users should launch into empty desktop on first run.
-    CommandLine::ForCurrentProcess()->AppendSwitch(::switches::kSilentLaunch);
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
+        ::switches::kSilentLaunch);
   }
 }
 
@@ -71,7 +72,7 @@ bool SupervisedUserLoginFlow::HandlePasswordChangeDetected() {
 
 void SupervisedUserLoginFlow::OnSyncSetupDataLoaded(
     const std::string& token) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   ConfigureSync(token);
 }
 
@@ -251,7 +252,7 @@ void SupervisedUserLoginFlow::OnPasswordUpdated(
 }
 
 void SupervisedUserLoginFlow::Finish() {
-  LoginUtils::Get()->DoBrowserLaunch(profile_, host());
+  UserSessionManager::GetInstance()->DoBrowserLaunch(profile_, host());
   profile_ = NULL;
   UnregisterFlowSoon();
 }

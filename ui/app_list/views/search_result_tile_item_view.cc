@@ -4,11 +4,24 @@
 
 #include "ui/app_list/views/search_result_tile_item_view.h"
 
+#include "ui/app_list/app_list_view_delegate.h"
 #include "ui/app_list/search_result.h"
+#include "ui/app_list/views/search_result_container_view.h"
+#include "ui/views/controls/menu/menu_runner.h"
 
 namespace app_list {
 
-SearchResultTileItemView::SearchResultTileItemView() : item_(NULL) {
+SearchResultTileItemView::SearchResultTileItemView(
+    SearchResultContainerView* result_container,
+    AppListViewDelegate* view_delegate)
+    : result_container_(result_container),
+      item_(nullptr),
+      view_delegate_(view_delegate) {
+  // When |item_| is null, the tile is invisible. Calling SetSearchResult with a
+  // non-null item makes the tile visible.
+  SetVisible(false);
+
+  set_context_menu_controller(this);
 }
 
 SearchResultTileItemView::~SearchResultTileItemView() {
@@ -17,6 +30,10 @@ SearchResultTileItemView::~SearchResultTileItemView() {
 }
 
 void SearchResultTileItemView::SetSearchResult(SearchResult* item) {
+  // Handle the case where this may be called from a nested run loop while its
+  // context menu is showing. This cancels the menu (it's for the old item).
+  context_menu_runner_.reset();
+
   SetVisible(item != NULL);
 
   SearchResult* old_item = item_;
@@ -42,7 +59,16 @@ void SearchResultTileItemView::SetSearchResult(SearchResult* item) {
 
 void SearchResultTileItemView::ButtonPressed(views::Button* sender,
                                              const ui::Event& event) {
-  item_->Open(event.flags());
+  view_delegate_->OpenSearchResult(item_, false, event.flags());
+}
+
+bool SearchResultTileItemView::OnKeyPressed(const ui::KeyEvent& event) {
+  if (event.key_code() == ui::VKEY_RETURN) {
+    view_delegate_->OpenSearchResult(item_, false, event.flags());
+    return true;
+  }
+
+  return false;
 }
 
 void SearchResultTileItemView::OnIconChanged() {
@@ -53,6 +79,32 @@ void SearchResultTileItemView::OnResultDestroying() {
   if (item_)
     item_->RemoveObserver(this);
   item_ = NULL;
+}
+
+void SearchResultTileItemView::ShowContextMenuForView(
+    views::View* source,
+    const gfx::Point& point,
+    ui::MenuSourceType source_type) {
+  // |item_| could be null when result list is changing.
+  if (!item_)
+    return;
+
+  ui::MenuModel* menu_model = item_->GetContextMenuModel();
+  if (!menu_model)
+    return;
+
+  if (!selected())
+    result_container_->ClearSelectedIndex();
+
+  context_menu_runner_.reset(
+      new views::MenuRunner(menu_model, views::MenuRunner::HAS_MNEMONICS));
+  // If RunMenuAt() fails, return immediately. This is future-proofing for
+  // adding code after this call.
+  if (context_menu_runner_->RunMenuAt(
+          GetWidget(), nullptr, gfx::Rect(point, gfx::Size()),
+          views::MENU_ANCHOR_TOPLEFT,
+          source_type) == views::MenuRunner::MENU_DELETED)
+    return;
 }
 
 }  // namespace app_list

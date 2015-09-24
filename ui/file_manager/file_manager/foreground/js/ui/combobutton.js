@@ -4,8 +4,8 @@
 
 /**
  * @fileoverview This implements a combobutton control.
+ * TODO(yawano): Migrate combobutton to Polymer element.
  */
-
 cr.define('cr.ui', function() {
   /**
    * Creates a new combobutton element.
@@ -58,23 +58,7 @@ cr.define('cr.ui', function() {
     },
     set defaultItem(defaultItem) {
       this.defaultItem_ = defaultItem;
-
       this.actionNode_.textContent = defaultItem.label || '';
-
-      if (defaultItem.iconType) {
-        this.actionNode_.classList.add('with-icon');
-        this.actionNode_.style.backgroundImage = '';
-        this.actionNode_.setAttribute('file-type-icon', defaultItem.iconType);
-      } else if (defaultItem.iconUrl) {
-        this.actionNode_.classList.add('with-icon');
-        this.actionNode_.style.backgroundImage =
-            'url(' + defaultItem.iconUrl + ')';
-        this.actionNode_.removeAttribute('file-type-icon');
-      } else {
-        this.actionNode_.classList.remove('with-icon');
-        this.actionNode_.style.backgroundImage = '';
-        this.actionNode_.removeAttribute('file-type-icon');
-      }
     },
 
     /**
@@ -85,19 +69,39 @@ cr.define('cr.ui', function() {
 
       this.classList.add('combobutton');
 
+      var buttonLayer = this.ownerDocument.createElement('div');
+      buttonLayer.classList.add('button');
+      this.appendChild(buttonLayer);
+
       this.actionNode_ = this.ownerDocument.createElement('div');
       this.actionNode_.classList.add('action');
-      this.appendChild(this.actionNode_);
+      buttonLayer.appendChild(this.actionNode_);
 
-      var triggerIcon = this.ownerDocument.createElement('span');
-      triggerIcon.className = 'disclosureindicator';
+      var triggerIcon = this.ownerDocument.createElement('iron-icon');
+      triggerIcon.setAttribute('icon', 'arrow-drop-down');
       this.trigger_ = this.ownerDocument.createElement('div');
       this.trigger_.classList.add('trigger');
       this.trigger_.appendChild(triggerIcon);
 
-      this.appendChild(this.trigger_);
+      buttonLayer.appendChild(this.trigger_);
+
+      var ripplesLayer = this.ownerDocument.createElement('div');
+      ripplesLayer.classList.add('ripples');
+      this.appendChild(ripplesLayer);
+
+      /** @private {!FilesToggleRipple} */
+      this.filesToggleRipple_ = /** @type {!FilesToggleRipple} */
+          (this.ownerDocument.createElement('files-toggle-ripple'));
+      ripplesLayer.appendChild(this.filesToggleRipple_);
+
+      /** @private {!PaperRipple} */
+      this.paperRipple_ = /** @type {!PaperRipple} */
+          (this.ownerDocument.createElement('paper-ripple'));
+      ripplesLayer.appendChild(this.paperRipple_);
 
       this.addEventListener('click', this.handleButtonClick_.bind(this));
+      this.addEventListener('menushow', this.handleMenuShow_.bind(this));
+      this.addEventListener('menuhide', this.handleMenuHide_.bind(this));
 
       this.trigger_.addEventListener('click',
           this.handleTriggerClicked_.bind(this));
@@ -138,7 +142,17 @@ cr.define('cr.ui', function() {
     },
 
     handleButtonClick_: function() {
+      this.paperRipple_.simulatedRipple();
+      this.blur();
       this.dispatchSelectEvent(this.defaultItem_);
+    },
+
+    handleMenuShow_: function() {
+      this.filesToggleRipple_.activated = true;
+    },
+
+    handleMenuHide_: function() {
+      this.filesToggleRipple_.activated = false;
     },
 
     dispatchSelectEvent: function(item) {

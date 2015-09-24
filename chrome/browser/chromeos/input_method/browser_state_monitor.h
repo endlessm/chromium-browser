@@ -10,9 +10,9 @@
 #include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/compiler_specific.h"
-#include "chromeos/ime/input_method_manager.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
 
 namespace chromeos {
 namespace input_method {
@@ -26,14 +26,14 @@ class BrowserStateMonitor : public content::NotificationObserver {
   // ui_session_ is STATE_LOGIN_SCREEN. |observer| may be null.
   explicit BrowserStateMonitor(
       const base::Callback<void(InputMethodManager::UISessionState)>& observer);
-  virtual ~BrowserStateMonitor();
+  ~BrowserStateMonitor() override;
 
   InputMethodManager::UISessionState ui_session() const { return ui_session_; }
 
   // content::NotificationObserver overrides:
-  virtual void Observe(int type,
-                       const content::NotificationSource& source,
-                       const content::NotificationDetails& details) override;
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override;
 
  private:
   base::Callback<void(InputMethodManager::UISessionState)> observer_;

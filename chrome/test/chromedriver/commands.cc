@@ -10,13 +10,15 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/linked_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
 #include "base/sys_info.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/test/chromedriver/capabilities.h"
 #include "chrome/test/chromedriver/chrome/browser_info.h"
@@ -65,11 +67,73 @@ void ExecuteCreateSession(
     return;
   }
 
-  thread->message_loop()->PostTask(
+  thread->task_runner()->PostTask(
       FROM_HERE, base::Bind(&SetThreadLocalSession, base::Passed(&session)));
   session_thread_map
       ->insert(std::make_pair(new_id, make_linked_ptr(thread.release())));
   init_session_cmd.Run(params, new_id, callback);
+}
+
+namespace {
+
+void OnGetSession(const base::WeakPtr<size_t>& session_remaining_count,
+                  const base::Closure& all_get_session_func,
+                  base::ListValue* session_list,
+                  const Status& status,
+                  scoped_ptr<base::Value> value,
+                  const std::string& session_id) {
+
+  if (!session_remaining_count)
+    return;
+
+  (*session_remaining_count)--;
+
+  scoped_ptr<base::DictionaryValue> session(new base::DictionaryValue());
+  session->Set("sessionId", new base::StringValue(session_id));
+  session->Set("capabilities", value->DeepCopy());
+  session_list->Append(session.release());
+
+  if (!*session_remaining_count) {
+    all_get_session_func.Run();
+  }
+}
+
+}  // namespace
+
+void ExecuteGetSessions(const Command& session_capabilities_command,
+                        SessionThreadMap* session_thread_map,
+                        const base::DictionaryValue& params,
+                        const std::string& session_id,
+                        const CommandCallback& callback) {
+
+  size_t get_remaining_count = session_thread_map->size();
+  base::WeakPtrFactory<size_t> weak_ptr_factory(&get_remaining_count);
+  scoped_ptr<base::ListValue> session_list(new base::ListValue());
+
+  if (!get_remaining_count) {
+    callback.Run(Status(kOk), session_list.Pass(), session_id);
+    return;
+  }
+
+  base::RunLoop run_loop;
+
+  for (SessionThreadMap::const_iterator iter = session_thread_map->begin();
+       iter != session_thread_map->end();
+       ++iter) {
+    session_capabilities_command.Run(params,
+                                     iter->first,
+                                     base::Bind(
+                                               &OnGetSession,
+                                               weak_ptr_factory.GetWeakPtr(),
+                                               run_loop.QuitClosure(),
+                                               session_list.get()));
+  }
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, run_loop.QuitClosure(), base::TimeDelta::FromSeconds(10));
+  base::MessageLoop::current()->SetNestableTasksAllowed(true);
+  run_loop.Run();
+
+  callback.Run(Status(kOk), session_list.Pass(), session_id);
 }
 
 namespace {
@@ -112,7 +176,7 @@ void ExecuteQuitAll(
                                 weak_ptr_factory.GetWeakPtr(),
                                 run_loop.QuitClosure()));
   }
-  base::MessageLoop::current()->PostDelayedTask(
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE, run_loop.QuitClosure(), base::TimeDelta::FromSeconds(10));
   // Uses a nested run loop to block this thread until all the quit
   // commands have executed, or the timeout expires.
@@ -239,18 +303,13 @@ void ExecuteSessionCommand(
     Status status(return_ok_without_session ? kOk : kNoSuchSession);
     callback.Run(status, scoped_ptr<base::Value>(), session_id);
   } else {
-    iter->second->message_loop()
-        ->PostTask(FROM_HERE,
-                   base::Bind(&ExecuteSessionCommandOnSessionThread,
-                              command_name,
-                              command,
-                              return_ok_without_session,
+    iter->second->task_runner()->PostTask(
+        FROM_HERE, base::Bind(&ExecuteSessionCommandOnSessionThread,
+                              command_name, command, return_ok_without_session,
                               base::Passed(make_scoped_ptr(params.DeepCopy())),
-                              base::MessageLoopProxy::current(),
-                              callback,
+                              base::ThreadTaskRunnerHandle::Get(), callback,
                               base::Bind(&TerminateSessionThreadOnCommandThread,
-                                         session_thread_map,
-                                         session_id)));
+                                         session_thread_map, session_id)));
   }
 }
 

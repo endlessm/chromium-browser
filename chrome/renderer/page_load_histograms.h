@@ -6,8 +6,12 @@
 #define CHROME_RENDERER_PAGE_LOAD_HISTOGRAMS_H_
 
 #include "base/basictypes.h"
-#include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
+#include "base/memory/weak_ptr.h"
 #include "content/public/renderer/render_view_observer.h"
+
+namespace blink {
+class WebDataSource;
+}
 
 namespace content {
 class DocumentState;
@@ -16,11 +20,13 @@ class DocumentState;
 class PageLoadHistograms : public content::RenderViewObserver {
  public:
   explicit PageLoadHistograms(content::RenderView* render_view);
+  ~PageLoadHistograms() override;
 
  private:
   // RenderViewObserver implementation.
   void FrameWillClose(blink::WebFrame* frame) override;
   void ClosePage() override;
+  void DidUpdateLayout() override;
 
   // Dump all page load histograms appropriate for the given frame.
   //
@@ -43,10 +49,13 @@ class PageLoadHistograms : public content::RenderViewObserver {
   // so first_paint and first_paint_after_load can be 0.
   void Dump(blink::WebFrame* frame);
 
+  bool ShouldDump(blink::WebFrame* frame);
+  void MaybeDumpFirstLayoutHistograms();
   void LogPageLoadTime(const content::DocumentState* load_times,
                        const blink::WebDataSource* ds) const;
 
-  data_reduction_proxy::DataReductionProxyParams data_reduction_proxy_params_;
+  bool dumped_first_layout_histograms_;
+  base::WeakPtrFactory<PageLoadHistograms> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(PageLoadHistograms);
 };

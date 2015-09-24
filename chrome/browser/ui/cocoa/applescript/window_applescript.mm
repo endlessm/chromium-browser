@@ -253,16 +253,17 @@
 }
 
 - (NSNumber*)presenting {
-  BOOL presentingValue = NO;
-  if (browser_->window())
-    presentingValue = browser_->window()->IsFullscreenWithoutChrome();
+  BOOL presentingValue = browser_->window() &&
+                         browser_->window()->IsFullscreen() &&
+                         !browser_->window()->IsFullscreenWithToolbar();
   return [NSNumber numberWithBool:presentingValue];
 }
 
 - (void)handlesEnterPresentationMode:(NSScriptCommand*)command {
   if (browser_->window()) {
     browser_->window()->EnterFullscreen(
-        GURL(), FEB_TYPE_FULLSCREEN_EXIT_INSTRUCTION);
+        GURL(), EXCLUSIVE_ACCESS_BUBBLE_TYPE_FULLSCREEN_EXIT_INSTRUCTION,
+        false);
   }
 }
 

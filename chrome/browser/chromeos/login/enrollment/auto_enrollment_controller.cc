@@ -22,10 +22,14 @@ namespace chromeos {
 
 namespace {
 
+// Maximum time to wait before forcing a decision.  Note that download time for
+// state key buckets can be non-negligible, especially on 2G connections.
+const int kSafeguardTimeoutSeconds = 60;
+
 // Returns the int value of the |switch_name| argument, clamped to the [0, 62]
 // interval. Returns 0 if the argument doesn't exist or isn't an int value.
 int GetSanitizedArg(const std::string& switch_name) {
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (!command_line->HasSwitch(switch_name))
     return 0;
   std::string value = command_line->GetSwitchValueASCII(switch_name);
@@ -64,16 +68,12 @@ bool IsFirstDeviceSetup() {
 }  // namespace
 
 const char AutoEnrollmentController::kForcedReEnrollmentAlways[] = "always";
-const char AutoEnrollmentController::kForcedReEnrollmentLegacy[] = "legacy";
 const char AutoEnrollmentController::kForcedReEnrollmentNever[] = "never";
 const char AutoEnrollmentController::kForcedReEnrollmentOfficialBuild[] =
     "official";
 
 AutoEnrollmentController::Mode AutoEnrollmentController::GetMode() {
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
-
-  if (!command_line->HasSwitch(switches::kEnterpriseEnableForcedReEnrollment))
-    return MODE_LEGACY_AUTO_ENROLLMENT;
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
 
   std::string command_line_mode = command_line->GetSwitchValueASCII(
       switches::kEnterpriseEnableForcedReEnrollment);
@@ -82,19 +82,35 @@ AutoEnrollmentController::Mode AutoEnrollmentController::GetMode() {
   } else if (command_line_mode.empty() ||
              command_line_mode == kForcedReEnrollmentOfficialBuild) {
 #if defined(OFFICIAL_BUILD)
-    return MODE_FORCED_RE_ENROLLMENT;
+    std::string firmware_type;
+    const bool non_chrome_firmware =
+        system::StatisticsProvider::GetInstance()->GetMachineStatistic(
+            system::kFirmwareTypeKey, &firmware_type) &&
+        firmware_type == system::kFirmwareTypeValueNonchrome;
+
+    std::string write_protect_switch_boot;
+    const bool write_protect_switch_off =
+        system::StatisticsProvider::GetInstance()->GetMachineStatistic(
+            system::kWriteProtectSwitchBootKey, &write_protect_switch_boot) &&
+        write_protect_switch_boot == system::kWriteProtectSwitchBootValueOff;
+
+    return (non_chrome_firmware || write_protect_switch_off)
+               ? MODE_NONE
+               : MODE_FORCED_RE_ENROLLMENT;
 #else
     return MODE_NONE;
 #endif
-  } else if (command_line_mode == kForcedReEnrollmentLegacy) {
-    return MODE_LEGACY_AUTO_ENROLLMENT;
+  } else if (command_line_mode == kForcedReEnrollmentNever) {
+    return MODE_NONE;
   }
 
+  LOG(FATAL) << "Unknown auto-enrollment mode " << command_line_mode;
   return MODE_NONE;
 }
 
 AutoEnrollmentController::AutoEnrollmentController()
     : state_(policy::AUTO_ENROLLMENT_STATE_IDLE),
+      safeguard_timer_(false, false),
       client_start_weak_factory_(this) {}
 
 AutoEnrollmentController::~AutoEnrollmentController() {}
@@ -112,7 +128,7 @@ void AutoEnrollmentController::Start() {
   //    also enables factories to start full guest sessions for testing, see
   //    http://crbug.com/397354 for more context.
 
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(chromeos::switches::kDisableGaiaServices) ||
       (!command_line->HasSwitch(
            chromeos::switches::kEnterpriseEnrollmentInitialModulus) &&
@@ -128,6 +144,11 @@ void AutoEnrollmentController::Start() {
   // If a client is being created or already existing, bail out.
   if (client_start_weak_factory_.HasWeakPtrs() || client_)
     return;
+
+  // Arm the belts-and-suspenders timer to avoid hangs.
+  safeguard_timer_.Start(
+      FROM_HERE, base::TimeDelta::FromSeconds(kSafeguardTimeoutSeconds),
+      base::Bind(&AutoEnrollmentController::Timeout, base::Unretained(this)));
 
   // Start by checking if the device has already been owned.
   UpdateState(policy::AUTO_ENROLLMENT_STATE_PENDING);
@@ -145,6 +166,8 @@ void AutoEnrollmentController::Cancel() {
 
   // Make sure to nuke pending |client_| start sequences.
   client_start_weak_factory_.InvalidateWeakPtrs();
+
+  safeguard_timer_.Stop();
 }
 
 void AutoEnrollmentController::Retry() {
@@ -158,11 +181,6 @@ scoped_ptr<AutoEnrollmentController::ProgressCallbackList::Subscription>
 AutoEnrollmentController::RegisterProgressCallback(
     const ProgressCallbackList::CallbackType& callback) {
   return progress_callbacks_.Add(callback);
-}
-
-bool AutoEnrollmentController::ShouldEnrollSilently() {
-  return state_ == policy::AUTO_ENROLLMENT_STATE_TRIGGER_ENROLLMENT &&
-         GetMode() == MODE_LEGACY_AUTO_ENROLLMENT;
 }
 
 void AutoEnrollmentController::OnOwnershipStatusCheckDone(
@@ -184,6 +202,12 @@ void AutoEnrollmentController::OnOwnershipStatusCheckDone(
 
 void AutoEnrollmentController::StartClient(
     const std::vector<std::string>& state_keys) {
+  if (state_keys.empty()) {
+    LOG(WARNING) << "No state keys available!";
+    UpdateState(policy::AUTO_ENROLLMENT_STATE_NO_ENROLLMENT);
+    return;
+  }
+
   policy::BrowserPolicyConnectorChromeOS* connector =
       g_browser_process->platform_part()->browser_policy_connector_chromeos();
   policy::DeviceManagementService* service =
@@ -200,23 +224,13 @@ void AutoEnrollmentController::StartClient(
     power_initial = power_limit;
   }
 
-  bool retrieve_device_state = false;
-  std::string device_id;
-  if (GetMode() == MODE_FORCED_RE_ENROLLMENT) {
-    retrieve_device_state = true;
-    device_id = state_keys.empty() ? std::string() : state_keys.front();
-  } else {
-    device_id = policy::DeviceCloudPolicyManagerChromeOS::GetMachineID();
-  }
-
   client_.reset(new policy::AutoEnrollmentClient(
       base::Bind(&AutoEnrollmentController::UpdateState,
                  base::Unretained(this)),
       service,
       g_browser_process->local_state(),
       g_browser_process->system_request_context(),
-      device_id,
-      retrieve_device_state,
+      state_keys.front(),
       power_initial,
       power_limit));
 
@@ -228,7 +242,42 @@ void AutoEnrollmentController::UpdateState(
     policy::AutoEnrollmentState new_state) {
   VLOG(1) << "New state: " << new_state << ".";
   state_ = new_state;
+
+  // Stop the safeguard timer once a result comes in.
+  switch (state_) {
+    case policy::AUTO_ENROLLMENT_STATE_IDLE:
+    case policy::AUTO_ENROLLMENT_STATE_PENDING:
+      break;
+    case policy::AUTO_ENROLLMENT_STATE_CONNECTION_ERROR:
+    case policy::AUTO_ENROLLMENT_STATE_SERVER_ERROR:
+    case policy::AUTO_ENROLLMENT_STATE_TRIGGER_ENROLLMENT:
+    case policy::AUTO_ENROLLMENT_STATE_NO_ENROLLMENT:
+      safeguard_timer_.Stop();
+      break;
+  }
+
   progress_callbacks_.Notify(state_);
+}
+
+void AutoEnrollmentController::Timeout() {
+  // TODO(mnissler): Add UMA to track results of auto-enrollment checks.
+  if (client_start_weak_factory_.HasWeakPtrs()) {
+    // If the callbacks to check ownership status or state keys are still
+    // pending, there's a bug in the code running on the device. No use in
+    // retrying anything, need to fix that bug.
+    LOG(ERROR) << "Failed to start auto-enrollment check, fix the code!";
+    UpdateState(policy::AUTO_ENROLLMENT_STATE_NO_ENROLLMENT);
+  } else {
+    // If the AutoEnrollmentClient didn't manage to come back with a result in
+    // time, blame it on the network. This can actually happen in some cases,
+    // for example when the server just doesn't reply and keeps the connection
+    // open.
+    LOG(ERROR) << "AutoEnrollmentClient didn't complete within time limit.";
+    UpdateState(policy::AUTO_ENROLLMENT_STATE_CONNECTION_ERROR);
+  }
+
+  // Reset state.
+  Cancel();
 }
 
 }  // namespace chromeos

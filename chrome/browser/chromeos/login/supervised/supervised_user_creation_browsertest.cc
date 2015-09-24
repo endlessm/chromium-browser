@@ -13,18 +13,15 @@
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/login/supervised/supervised_user_authentication.h"
 #include "chrome/browser/chromeos/login/supervised/supervised_user_test_base.h"
+#include "chrome/browser/chromeos/login/test/oobe_screen_waiter.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
 #include "chrome/browser/chromeos/login/ui/webui_login_view.h"
 #include "chrome/browser/chromeos/login/users/supervised_user_manager.h"
 #include "chrome/browser/chromeos/net/network_portal_detector_test_impl.h"
 #include "chrome/browser/chromeos/settings/stub_cros_settings_provider.h"
+#include "chrome/browser/supervised_user/legacy/supervised_user_registration_utility.h"
+#include "chrome/browser/supervised_user/legacy/supervised_user_registration_utility_stub.h"
 #include "chrome/browser/supervised_user/supervised_user_constants.h"
-#include "chrome/browser/supervised_user/supervised_user_registration_utility.h"
-#include "chrome/browser/supervised_user/supervised_user_registration_utility_stub.h"
-#include "chrome/browser/supervised_user/supervised_user_shared_settings_service.h"
-#include "chrome/browser/supervised_user/supervised_user_shared_settings_service_factory.h"
-#include "chrome/browser/supervised_user/supervised_user_sync_service.h"
-#include "chrome/browser/supervised_user/supervised_user_sync_service_factory.h"
 #include "chromeos/cryptohome/mock_async_method_caller.h"
 #include "chromeos/cryptohome/mock_homedir_methods.h"
 #include "content/public/browser/notification_service.h"
@@ -63,7 +60,7 @@ class SupervisedUserOwnerCreationTest : public SupervisedUserTestBase {
  public:
   SupervisedUserOwnerCreationTest() : SupervisedUserTestBase() {}
 
-  virtual void SetUpInProcessBrowserTestFixture() override {
+  void SetUpInProcessBrowserTestFixture() override {
     SupervisedUserTestBase::SetUpInProcessBrowserTestFixture();
     cros_settings_provider_.reset(new StubCrosSettingsProvider());
     cros_settings_provider_->Set(kDeviceOwner, base::StringValue(kTestManager));
@@ -80,7 +77,7 @@ class SupervisedUserTransactionCleanupTest2
   SupervisedUserTransactionCleanupTest2()
       : SupervisedUserTransactionCleanupTest() {}
 
-  virtual void SetUpInProcessBrowserTestFixture() override {
+  void SetUpInProcessBrowserTestFixture() override {
     SupervisedUserTransactionCleanupTest::SetUpInProcessBrowserTestFixture();
     EXPECT_CALL(*mock_async_method_caller_, AsyncRemove(_, _)).Times(1);
   }
@@ -110,6 +107,27 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserCreationTest,
 IN_PROC_BROWSER_TEST_F(SupervisedUserCreationTest,
                        CreateAndRemoveSupervisedUser) {
   RemoveSupervisedUser(3, 0, kTestSupervisedUserDisplayName);
+}
+
+IN_PROC_BROWSER_TEST_F(SupervisedUserCreationTest,
+                       PRE_PRE_CheckPodForSupervisedUser) {
+  PrepareUsers();
+}
+
+IN_PROC_BROWSER_TEST_F(SupervisedUserCreationTest,
+                       PRE_CheckPodForSupervisedUser) {
+  StartFlowLoginAsManager();
+  FillNewUserData(kTestSupervisedUserDisplayName);
+  StartUserCreation("supervised-user-creation-next-button",
+                    kTestSupervisedUserDisplayName);
+}
+
+IN_PROC_BROWSER_TEST_F(SupervisedUserCreationTest, CheckPodForSupervisedUser) {
+  OobeScreenWaiter(OobeDisplay::SCREEN_ACCOUNT_PICKER).Wait();
+
+  // Open pod menu
+  JSEval("$('pod-row').pods[0].querySelector('.action-box-button').click()");
+  JSExpect("$('pod-row').pods[0].actionBoxMenuTitleEmailElement.hidden");
 }
 
 IN_PROC_BROWSER_TEST_F(SupervisedUserOwnerCreationTest,

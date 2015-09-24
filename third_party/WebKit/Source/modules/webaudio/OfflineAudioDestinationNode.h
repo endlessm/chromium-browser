@@ -36,44 +36,48 @@ namespace blink {
 class AudioBus;
 class AudioContext;
 
-class OfflineAudioDestinationNode final : public AudioDestinationNode {
+class OfflineAudioDestinationHandler final : public AudioDestinationHandler {
 public:
-    static OfflineAudioDestinationNode* create(AudioContext* context, AudioBuffer* renderTarget)
-    {
-        return new OfflineAudioDestinationNode(context, renderTarget);
-    }
+    static PassRefPtr<OfflineAudioDestinationHandler> create(AudioNode&, AudioBuffer* renderTarget);
+    ~OfflineAudioDestinationHandler() override;
 
-    virtual ~OfflineAudioDestinationNode();
+    // AudioHandler
+    void dispose() override;
+    void initialize() override;
+    void uninitialize() override;
 
-    // AudioNode
-    virtual void dispose() override;
-    virtual void initialize() override;
-    virtual void uninitialize() override;
+    // AudioDestinationHandler
+    void startRendering() override;
+    void stopRendering() override;
 
-    // AudioDestinationNode
-    virtual void startRendering() override;
-
-    virtual float sampleRate()  const override { return m_renderTarget->sampleRate(); }
-
-    virtual void trace(Visitor*) override;
+    float sampleRate()  const override { return m_renderTarget->sampleRate(); }
 
 private:
-    OfflineAudioDestinationNode(AudioContext*, AudioBuffer* renderTarget);
-
+    OfflineAudioDestinationHandler(AudioNode&, AudioBuffer* renderTarget);
     void offlineRender();
     void offlineRenderInternal();
 
     // For completion callback on main thread.
     void notifyComplete();
 
-    // This AudioNode renders into this AudioBuffer.
-    Member<AudioBuffer> m_renderTarget;
+    // This AudioHandler renders into this AudioBuffer.
+    // This Persistent doesn't make a reference cycle including the owner
+    // OfflineAudioDestinationNode.
+    Persistent<AudioBuffer> m_renderTarget;
     // Temporary AudioBus for each render quantum.
     RefPtr<AudioBus> m_renderBus;
 
     // Rendering thread.
     OwnPtr<WebThread> m_renderThread;
     bool m_startedRendering;
+};
+
+class OfflineAudioDestinationNode final : public AudioDestinationNode {
+public:
+    static OfflineAudioDestinationNode* create(AudioContext*, AudioBuffer* renderTarget);
+
+private:
+    OfflineAudioDestinationNode(AudioContext&, AudioBuffer* renderTarget);
 };
 
 } // namespace blink

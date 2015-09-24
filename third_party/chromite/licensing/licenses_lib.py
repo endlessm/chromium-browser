@@ -12,13 +12,13 @@ from __future__ import print_function
 
 import cgi
 import codecs
-import logging
 import os
 import re
 import tempfile
 
 from chromite.cbuildbot import constants
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import osutils
 from chromite.lib import portage_util
 
@@ -341,8 +341,10 @@ class PackageInfo(object):
     Returns:
       ebuild command output
     """
+    ebuild_cmd = cros_build_lib.GetSysrootToolPath(
+        cros_build_lib.GetSysroot(self.board), 'ebuild')
     return cros_build_lib.RunCommand(
-        ['ebuild-%s' % self.board, ebuild_path] + phases, print_cmd=debug,
+        [ebuild_cmd, ebuild_path] + phases, print_cmd=debug,
         redirect_stdout=True)
 
   def _GetOverrideLicense(self):
@@ -433,7 +435,9 @@ class PackageInfo(object):
       for line in output:
         logging.info(line)
 
-      args = ['portageq-%s' % self.board, 'envvar', 'PORTAGE_TMPDIR']
+      portageq_cmd = cros_build_lib.GetSysrootToolPath(
+          cros_build_lib.GetSysroot(self.board), 'portageq')
+      args = [portageq_cmd, 'envvar', 'PORTAGE_TMPDIR']
       result = cros_build_lib.RunCommand(args, print_cmd=debug,
                                          redirect_stdout=True)
       tmpdir = result.output.splitlines()[0]
@@ -559,7 +563,9 @@ being scraped currently).""",
     Raises:
       AssertionError if it can't be discovered for some reason.
     """
-    args = ['equery-%s' % self.board, '-q', '-C', 'which', self.fullnamerev]
+    equery_cmd = cros_build_lib.GetSysrootToolPath(
+        cros_build_lib.GetSysroot(self.board), 'equery')
+    args = [equery_cmd, '-q', '-C', 'which', self.fullnamerev]
     try:
       path = cros_build_lib.RunCommand(args, print_cmd=True,
                                        redirect_stdout=True).output.strip()
@@ -637,7 +643,8 @@ being scraped currently).""",
       # TODO: temp workaround for http;//crbug.com/348750 , remove when the bug
       # is fixed.
       if (license_name == 'BSD' and
-          self.fullnamerev.startswith('chromeos-base/')):
+          self.fullnamerev.startswith('chromeos-base/') and
+          'BSD-Google' not in ebuild_license_names):
         license_name = 'BSD-Google'
         logging.warning(
             'Fixed BSD->BSD-Google for %s because it\'s in chromeos-base. '
@@ -827,7 +834,7 @@ class Licensing(object):
           raise PackageLicenseError('License for %s is missing' % package_name)
 
         logging.error('>>> License for %s is missing, creating now <<<',
-                        package_name)
+                      package_name)
         build_info_path = os.path.join(
             cros_build_lib.GetSysroot(pkg.board),
             PER_PKG_LICENSE_DIR, pkg.fullnamerev)
@@ -841,7 +848,7 @@ class Licensing(object):
         logging.debug('loading dump for %s', pkg.fullnamerev)
         self._LoadLicenseDump(pkg)
 
-  def AddExtraPkg(self, fullnamerev, homepages, license_names):
+  def AddExtraPkg(self, fullnamerev, homepages, license_names, license_texts):
     """Allow adding pre-created virtual packages.
 
     GetLicenses will not work on them, so add them after having run
@@ -851,10 +858,12 @@ class Licensing(object):
       fullnamerev: package name of the form x11-base/X.Org-1.9.3-r23
       homepages: list of url strings.
       license_names: list of license name strings.
+      license_texts: custom license text to use, mostly for attribution.
     """
     pkg = PackageInfo(self.board, fullnamerev)
-    pkg.homepages = homepages          # this is a list
-    pkg.license_names = license_names  # this is also a list
+    pkg.homepages = homepages
+    pkg.license_names = license_names
+    pkg.license_text_scanned = license_texts
     self.packages[fullnamerev] = pkg
 
   # Called directly by src/repohooks/pre-upload.py
@@ -1046,7 +1055,9 @@ def ListInstalledPackages(board, all_packages=False):
     # (many get built or used during the build, but do not get shipped).
     # Note that it also contains packages that are in the build as
     # defined by build_packages but not part of the image we ship.
-    args = ['equery-%s' % board, 'list', '*']
+    equery_cmd = cros_build_lib.GetSysrootToolPath(
+        cros_build_lib.GetSysroot(board), 'equery')
+    args = [equery_cmd, 'list', '*']
     packages = cros_build_lib.RunCommand(args, print_cmd=debug,
                                          redirect_stdout=True
                                         ).output.splitlines()
@@ -1055,7 +1066,9 @@ def ListInstalledPackages(board, all_packages=False):
     # (many get built or used during the build, but do not get shipped).
     # Note that it also contains packages that are in the build as
     # defined by build_packages but not part of the image we ship.
-    args = ['emerge-%s' % board, '--with-bdeps=y', '--usepkgonly',
+    emerge_cmd = cros_build_lib.GetSysrootToolPath(
+        cros_build_lib.GetSysroot(board), 'emerge')
+    args = [emerge_cmd, '--with-bdeps=y', '--usepkgonly',
             '--emptytree', '--pretend', '--color=n', 'virtual/target-os']
     emerge = cros_build_lib.RunCommand(args, print_cmd=debug,
                                        redirect_stdout=True).output.splitlines()

@@ -21,8 +21,11 @@
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync/test/integration/quiesce_status_change_checker.h"
 #include "chrome/browser/sync/test/integration/single_client_status_change_checker.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_finder.h"
+#include "chrome/browser/ui/webui/signin/login_ui_test_utils.h"
 #include "chrome/common/chrome_switches.h"
-#include "components/invalidation/p2p_invalidation_service.h"
+#include "components/invalidation/impl/p2p_invalidation_service.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_manager_base.h"
 #include "components/sync_driver/data_type_controller.h"
@@ -33,6 +36,10 @@
 using syncer::sessions::SyncSessionSnapshot;
 
 namespace {
+
+std::string GetGaiaIdForUsername(const std::string& username) {
+  return "gaia-id-" + username;
+}
 
 bool HasAuthError(ProfileSyncService* service) {
   return service->GetAuthError().state() ==
@@ -72,7 +79,7 @@ class SyncSetupChecker : public SingleClientStatusChangeChecker {
       : SingleClientStatusChangeChecker(service) {}
 
   bool IsExitConditionSatisfied() override {
-    if (!service()->SyncActive())
+    if (!service()->IsSyncActive())
       return false;
     if (service()->ConfigurationDone())
       return true;
@@ -95,18 +102,24 @@ class SyncSetupChecker : public SingleClientStatusChangeChecker {
 ProfileSyncServiceHarness* ProfileSyncServiceHarness::Create(
     Profile* profile,
     const std::string& username,
-    const std::string& password) {
-  return new ProfileSyncServiceHarness(profile, username, password);
+    const std::string& password,
+    SigninType signin_type) {
+  return new ProfileSyncServiceHarness(profile,
+                                       username,
+                                       password,
+                                       signin_type);
 }
 
 ProfileSyncServiceHarness::ProfileSyncServiceHarness(
     Profile* profile,
     const std::string& username,
-    const std::string& password)
+    const std::string& password,
+    SigninType signin_type)
     : profile_(profile),
       service_(ProfileSyncServiceFactory::GetForProfile(profile)),
       username_(username),
       password_(password),
+      signin_type_(signin_type),
       oauth2_refesh_token_number_(0),
       profile_debug_name_(profile->GetDebugName()) {
 }
@@ -146,13 +159,29 @@ bool ProfileSyncServiceHarness::SetupSync(
   // until we've finished configuration.
   service()->SetSetupInProgress(true);
 
-  // Authenticate sync client using GAIA credentials.
-  service()->signin()->SetAuthenticatedUsername(username_);
-  service()->GoogleSigninSucceeded(username_, username_, password_);
-
   DCHECK(!username_.empty());
-  ProfileOAuth2TokenServiceFactory::GetForProfile(profile_)->
-      UpdateCredentials(username_, GenerateFakeOAuth2RefreshTokenString());
+  if (signin_type_ == SigninType::UI_SIGNIN) {
+    Browser* browser =
+        FindBrowserWithProfile(profile_, chrome::GetActiveDesktop());
+    DCHECK(browser);
+    if (!login_ui_test_utils::SignInWithUI(browser, username_, password_)) {
+      LOG(ERROR) << "Could not sign in to GAIA servers.";
+      return false;
+    }
+  } else if (signin_type_ == SigninType::FAKE_SIGNIN) {
+    // Authenticate sync client using GAIA credentials.
+    std::string gaia_id = GetGaiaIdForUsername(username_);
+    service()->signin()->SetAuthenticatedAccountInfo(gaia_id, username_);
+    std::string account_id = service()->signin()->GetAuthenticatedAccountId();
+    service()->GoogleSigninSucceeded(account_id, username_, password_);
+    ProfileOAuth2TokenServiceFactory::GetForProfile(profile_)->
+      UpdateCredentials(account_id, GenerateFakeOAuth2RefreshTokenString());
+  } else {
+    LOG(ERROR) << "Unsupported profile signin type.";
+  }
+
+  // Now that auth is completed, request that sync actually start.
+  service()->RequestStart();
 
   if (!AwaitBackendInitialization()) {
     return false;
@@ -227,6 +256,7 @@ bool ProfileSyncServiceHarness::AwaitBackendInitialization() {
   }
 
   if (!service()->backend_initialized()) {
+    LOG(ERROR) << "Service backend not initialized.";
     return false;
   }
 
@@ -286,7 +316,7 @@ void ProfileSyncServiceHarness::FinishSyncSetup() {
 
 SyncSessionSnapshot ProfileSyncServiceHarness::GetLastSessionSnapshot() const {
   DCHECK(service() != NULL) << "Sync service has not yet been set up.";
-  if (service()->SyncActive()) {
+  if (service()->IsSyncActive()) {
     return service()->GetLastSessionSnapshot();
   }
   return SyncSessionSnapshot();
@@ -390,7 +420,7 @@ bool ProfileSyncServiceHarness::DisableSyncForAllDatatypes() {
     return false;
   }
 
-  service()->DisableForUser();
+  service()->RequestStop(ProfileSyncService::CLEAR_DATA);
 
   DVLOG(1) << "DisableSyncForAllDatatypes(): Disabled sync for all "
            << "datatypes on " << profile_debug_name_;
@@ -409,7 +439,7 @@ std::string ProfileSyncServiceHarness::GetClientInfoString(
     service()->QueryDetailedSyncStatus(&status);
     // Capture select info from the sync session snapshot and syncer status.
     os << ", has_unsynced_items: "
-       << (service()->SyncActive() ? service()->HasUnsyncedItems() : 0)
+       << (service()->IsSyncActive() ? service()->HasUnsyncedItems() : 0)
        << ", did_commit: "
        << (snap.model_neutral_state().num_successful_commits == 0 &&
            snap.model_neutral_state().commit_result == syncer::SYNCER_OK)
@@ -427,7 +457,7 @@ std::string ProfileSyncServiceHarness::GetClientInfoString(
        << ", notifications_enabled: "
        << status.notifications_enabled
        << ", service_is_active: "
-       << service()->SyncActive();
+       << service()->IsSyncActive();
   } else {
     os << "Sync service not available";
   }
@@ -442,8 +472,7 @@ std::string ProfileSyncServiceHarness::GetServiceStatus() {
   scoped_ptr<base::DictionaryValue> value(
       sync_ui_util::ConstructAboutInformation(service()));
   std::string service_status;
-  base::JSONWriter::WriteWithOptions(value.get(),
-                                     base::JSONWriter::OPTIONS_PRETTY_PRINT,
-                                     &service_status);
+  base::JSONWriter::WriteWithOptions(
+      *value, base::JSONWriter::OPTIONS_PRETTY_PRINT, &service_status);
   return service_status;
 }

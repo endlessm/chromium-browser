@@ -17,8 +17,9 @@
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/chromeos/file_system_provider/notification_manager_interface.h"
-#include "chrome/browser/chromeos/file_system_provider/provided_file_system_info.h"
 #include "chrome/browser/chromeos/file_system_provider/request_value.h"
+
+class Profile;
 
 namespace chromeos {
 namespace file_system_provider {
@@ -27,6 +28,8 @@ namespace file_system_provider {
 enum RequestType {
   REQUEST_UNMOUNT,
   GET_METADATA,
+  GET_ACTIONS,
+  EXECUTE_ACTION,
   READ_DIRECTORY,
   OPEN_FILE,
   CLOSE_FILE,
@@ -41,11 +44,9 @@ enum RequestType {
   ABORT,
   ADD_WATCHER,
   REMOVE_WATCHER,
+  CONFIGURE,
   TESTING
 };
-
-// Converts a request type to human-readable format.
-std::string RequestTypeToString(RequestType type);
 
 // Manages requests between the service, async utils and the providing
 // extensions.
@@ -104,7 +105,11 @@ class RequestManager {
     virtual void OnRequestTimeouted(int request_id) = 0;
   };
 
-  explicit RequestManager(NotificationManagerInterface* notification_manager);
+  // Creates a request manager for |profile| and |extension_id|. Note, that
+  // there may be multiple instances of request managers per extension.
+  RequestManager(Profile* profile,
+                 const std::string& extension_id,
+                 NotificationManagerInterface* notification_manager);
   virtual ~RequestManager();
 
   // Creates a request and returns its request id (greater than 0). Returns 0 in
@@ -113,17 +118,19 @@ class RequestManager {
   int CreateRequest(RequestType type, scoped_ptr<HandlerInterface> handler);
 
   // Handles successful response for the |request_id|. If |has_more| is false,
-  // then the request is disposed, after handling the |response|. On error,
-  // returns false, and the request is disposed. |response| must not be NULL.
-  bool FulfillRequest(int request_id,
-                      scoped_ptr<RequestValue> response,
-                      bool has_more);
+  // then the request is disposed, after handling the |response|. On success,
+  // returns base::File::FILE_OK. Otherwise returns an error code. |response|
+  // must not be NULL.
+  base::File::Error FulfillRequest(int request_id,
+                                   scoped_ptr<RequestValue> response,
+                                   bool has_more);
 
-  // Handles error response for the |request_id|. If handling the error fails,
-  // returns false. Always disposes the request. |response| must not be NULL.
-  bool RejectRequest(int request_id,
-                     scoped_ptr<RequestValue> response,
-                     base::File::Error error);
+  // Handles error response for the |request_id|. If handling the error
+  // succeeds, theen returns base::File::FILE_OK. Otherwise returns an error
+  // code. Always disposes the request. |response| must not be NULL.
+  base::File::Error RejectRequest(int request_id,
+                                  scoped_ptr<RequestValue> response,
+                                  base::File::Error error);
 
   // Sets a custom timeout for tests. The new timeout value will be applied to
   // new requests
@@ -168,11 +175,17 @@ class RequestManager {
   // Resets the timeout timer for the specified request.
   void ResetTimer(int request_id);
 
+  // Checks whether there is an ongoing interaction between the providing
+  // extension and user.
+  bool IsInteractingWithUser() const;
+
+  Profile* profile_;  // Not owned.
+  std::string extension_id_;
   RequestMap requests_;
   NotificationManagerInterface* notification_manager_;  // Not owned.
   int next_id_;
   base::TimeDelta timeout_;
-  ObserverList<Observer> observers_;
+  base::ObserverList<Observer> observers_;
   base::WeakPtrFactory<RequestManager> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(RequestManager);

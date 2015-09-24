@@ -26,11 +26,14 @@
 #ifndef markup_h
 #define markup_h
 
+#include "core/CSSPropertyNames.h"
+#include "core/CoreExport.h"
 #include "core/dom/ParserContentPolicy.h"
+#include "core/dom/Position.h"
+#include "core/editing/EphemeralRange.h"
 #include "core/editing/HTMLInterchange.h"
 #include "platform/heap/Handle.h"
 #include "wtf/Forward.h"
-#include "wtf/Vector.h"
 
 namespace blink {
 
@@ -41,12 +44,16 @@ class Element;
 class ExceptionState;
 class KURL;
 class Node;
-class QualifiedName;
 class Range;
+class StylePropertySet;
 
 enum EChildrenOnly { IncludeNode, ChildrenOnly };
 enum EAbsoluteURLs { DoNotResolveURLs, ResolveAllURLs, ResolveNonLocalURLs };
+enum class ConvertBlocksToInlines { NotConvert, Convert };
 
+PassRefPtrWillBeRawPtr<DocumentFragment> createFragmentFromText(const EphemeralRange& context, const String& text);
+// TODO(yosin) We should get rid of |createFragmentFromText()| with |Range| for
+// Oilpan.
 PassRefPtrWillBeRawPtr<DocumentFragment> createFragmentFromText(Range* context, const String& text);
 PassRefPtrWillBeRawPtr<DocumentFragment> createFragmentFromMarkup(Document&, const String& markup, const String& baseURL, ParserContentPolicy = AllowScriptingContent);
 PassRefPtrWillBeRawPtr<DocumentFragment> createFragmentFromMarkupWithContext(Document&, const String& markup, unsigned fragmentStart, unsigned fragmentEnd, const String& baseURL, ParserContentPolicy);
@@ -61,13 +68,15 @@ bool isPlainTextMarkup(Node*);
 void replaceChildrenWithFragment(ContainerNode*, PassRefPtrWillBeRawPtr<DocumentFragment>, ExceptionState&);
 void replaceChildrenWithText(ContainerNode*, const String&, ExceptionState&);
 
-String createMarkup(const Range*, WillBeHeapVector<RawPtrWillBeMember<Node>>* = nullptr, EAnnotateForInterchange = DoNotAnnotateForInterchange, bool convertBlocksToInlines = false, EAbsoluteURLs = DoNotResolveURLs, Node* constrainingAncestor = nullptr);
-String createMarkup(const Node*, EChildrenOnly = IncludeNode, WillBeHeapVector<RawPtrWillBeMember<Node>>* = nullptr, EAbsoluteURLs = DoNotResolveURLs, Vector<QualifiedName>* tagNamesToSkip = nullptr);
+CORE_EXPORT String createMarkup(const Node*, EChildrenOnly = IncludeNode, EAbsoluteURLs = DoNotResolveURLs);
 
-String createStyledMarkupForNavigationTransition(Node*);
+CORE_EXPORT String createMarkup(const Position& start, const Position& end, EAnnotateForInterchange = DoNotAnnotateForInterchange, ConvertBlocksToInlines = ConvertBlocksToInlines::NotConvert, EAbsoluteURLs = DoNotResolveURLs, Node* constrainingAncestor = nullptr);
+CORE_EXPORT String createMarkup(const PositionInComposedTree& start, const PositionInComposedTree& end, EAnnotateForInterchange = DoNotAnnotateForInterchange, ConvertBlocksToInlines = ConvertBlocksToInlines::NotConvert, EAbsoluteURLs = DoNotResolveURLs, Node* constrainingAncestor = nullptr);
 
 String urlToMarkup(const KURL&, const String& title);
 void mergeWithNextTextNode(Text*, ExceptionState&);
+
+bool propertyMissingOrEqualToNone(StylePropertySet*, CSSPropertyID);
 
 }
 

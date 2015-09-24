@@ -24,11 +24,11 @@ class DecodingImageGenerator : public SkImageGenerator {
 public:
     virtual ~DecodingImageGenerator();
 
-    SkData*                fData;
-    SkStreamRewindable*    fStream;
-    const SkImageInfo      fInfo;
-    const int              fSampleSize;
-    const bool             fDitherImage;
+    SkData*                             fData;
+    SkAutoTDelete<SkStreamRewindable>   fStream;
+    const SkImageInfo                   fInfo;
+    const int                           fSampleSize;
+    const bool                          fDitherImage;
 
     DecodingImageGenerator(SkData* data,
                            SkStreamRewindable* stream,
@@ -37,16 +37,17 @@ public:
                            bool ditherImage);
 
 protected:
-    virtual SkData* onRefEncodedData() SK_OVERRIDE;
-    virtual bool onGetInfo(SkImageInfo* info) SK_OVERRIDE {
-        *info = fInfo;
-        return true;
-    }
-    virtual bool onGetPixels(const SkImageInfo& info,
-                             void* pixels, size_t rowBytes,
-                             SkPMColor ctable[], int* ctableCount) SK_OVERRIDE;
-    virtual bool onGetYUV8Planes(SkISize sizes[3], void* planes[3], size_t rowBytes[3],
-                                 SkYUVColorSpace* colorSpace) SK_OVERRIDE;
+    SkData* onRefEncodedData() override;
+#ifdef SK_LEGACY_IMAGE_GENERATOR_ENUMS_AND_OPTIONS
+    Result onGetPixels(const SkImageInfo& info,
+                       void* pixels, size_t rowBytes, const Options&,
+                       SkPMColor ctable[], int* ctableCount) override;
+#else
+    bool onGetPixels(const SkImageInfo& info, void* pixels, size_t rowBytes,
+                     SkPMColor ctable[], int* ctableCount) override;
+#endif
+    bool onGetYUV8Planes(SkISize sizes[3], void* planes[3], size_t rowBytes[3],
+                         SkYUVColorSpace* colorSpace) override;
 
 private:
     typedef SkImageGenerator INHERITED;
@@ -116,7 +117,8 @@ DecodingImageGenerator::DecodingImageGenerator(
         const SkImageInfo& info,
         int sampleSize,
         bool ditherImage)
-    : fData(data)
+    : INHERITED(info)
+    , fData(data)
     , fStream(stream)
     , fInfo(info)
     , fSampleSize(sampleSize)
@@ -128,7 +130,6 @@ DecodingImageGenerator::DecodingImageGenerator(
 
 DecodingImageGenerator::~DecodingImageGenerator() {
     SkSafeUnref(fData);
-    fStream->unref();
 }
 
 SkData* DecodingImageGenerator::onRefEncodedData() {
@@ -148,20 +149,36 @@ SkData* DecodingImageGenerator::onRefEncodedData() {
     return SkSafeRef(fData);
 }
 
-bool DecodingImageGenerator::onGetPixels(const SkImageInfo& info,
-                                         void* pixels, size_t rowBytes,
+#ifdef SK_LEGACY_IMAGE_GENERATOR_ENUMS_AND_OPTIONS
+SkImageGenerator::Result DecodingImageGenerator::onGetPixels(const SkImageInfo& info,
+        void* pixels, size_t rowBytes, const Options& options, SkPMColor ctableEntries[],
+        int* ctableCount) {
+#else
+bool DecodingImageGenerator::onGetPixels(const SkImageInfo& info, void* pixels, size_t rowBytes,
                                          SkPMColor ctableEntries[], int* ctableCount) {
+#endif
     if (fInfo != info) {
         // The caller has specified a different info.  This is an
         // error for this kind of SkImageGenerator.  Use the Options
         // to change the settings.
+#ifdef SK_LEGACY_IMAGE_GENERATOR_ENUMS_AND_OPTIONS
+        if (info.dimensions() != fInfo.dimensions()) {
+            return kInvalidScale;
+        }
+        return kInvalidConversion;
+#else
         return false;
+#endif
     }
 
     SkAssertResult(fStream->rewind());
     SkAutoTDelete<SkImageDecoder> decoder(SkImageDecoder::Factory(fStream));
     if (NULL == decoder.get()) {
+#ifdef SK_LEGACY_IMAGE_GENERATOR_ENUMS_AND_OPTIONS
+        return kInvalidInput;
+#else
         return false;
+#endif
     }
     decoder->setDitherImage(fDitherImage);
     decoder->setSampleSize(fSampleSize);
@@ -170,11 +187,15 @@ bool DecodingImageGenerator::onGetPixels(const SkImageInfo& info,
     SkBitmap bitmap;
     TargetAllocator allocator(fInfo, pixels, rowBytes);
     decoder->setAllocator(&allocator);
-    bool success = decoder->decode(fStream, &bitmap, info.colorType(),
-                                   SkImageDecoder::kDecodePixels_Mode) != SkImageDecoder::kFailure;
+    const SkImageDecoder::Result decodeResult = decoder->decode(fStream, &bitmap, info.colorType(),
+                                                                SkImageDecoder::kDecodePixels_Mode);
     decoder->setAllocator(NULL);
-    if (!success) {
+    if (SkImageDecoder::kFailure == decodeResult) {
+#ifdef SK_LEGACY_IMAGE_GENERATOR_ENUMS_AND_OPTIONS
+        return kInvalidInput;
+#else
         return false;
+#endif
     }
     if (allocator.isReady()) {  // Did not use pixels!
         SkBitmap bm;
@@ -183,7 +204,11 @@ bool DecodingImageGenerator::onGetPixels(const SkImageInfo& info,
         if (!copySuccess || allocator.isReady()) {
             SkDEBUGFAIL("bitmap.copyTo(requestedConfig) failed.");
             // Earlier we checked canCopyto(); we expect consistency.
+#ifdef SK_LEGACY_IMAGE_GENERATOR_ENUMS_AND_OPTIONS
+            return kInvalidConversion;
+#else
             return false;
+#endif
         }
         SkASSERT(check_alpha(info.alphaType(), bm.alphaType()));
     } else {
@@ -192,18 +217,33 @@ bool DecodingImageGenerator::onGetPixels(const SkImageInfo& info,
 
     if (kIndex_8_SkColorType == info.colorType()) {
         if (kIndex_8_SkColorType != bitmap.colorType()) {
-            return false;   // they asked for Index8, but we didn't receive that from decoder
+            // they asked for Index8, but we didn't receive that from decoder
+#ifdef SK_LEGACY_IMAGE_GENERATOR_ENUMS_AND_OPTIONS
+            return kInvalidConversion;
+#else
+            return false;
+#endif
         }
         SkColorTable* ctable = bitmap.getColorTable();
         if (NULL == ctable) {
+#ifdef SK_LEGACY_IMAGE_GENERATOR_ENUMS_AND_OPTIONS
+            return kInvalidConversion;
+#else
             return false;
+#endif
         }
         const int count = ctable->count();
-        memcpy(ctableEntries, ctable->lockColors(), count * sizeof(SkPMColor));
-        ctable->unlockColors();
+        memcpy(ctableEntries, ctable->readColors(), count * sizeof(SkPMColor));
         *ctableCount = count;
     }
+#ifdef SK_LEGACY_IMAGE_GENERATOR_ENUMS_AND_OPTIONS
+    if (SkImageDecoder::kPartialSuccess == decodeResult) {
+        return kIncompleteInput;
+    }
+    return kSuccess;
+#else
     return true;
+#endif
 }
 
 bool DecodingImageGenerator::onGetYUV8Planes(SkISize sizes[3], void* planes[3],
@@ -228,7 +268,7 @@ SkImageGenerator* CreateDecodingImageGenerator(
         SkStreamRewindable* stream,
         const SkDecodingImageGenerator::Options& opts) {
     SkASSERT(stream);
-    SkAutoTUnref<SkStreamRewindable> autoStream(stream);  // always unref this.
+    SkAutoTDelete<SkStreamRewindable> autoStream(stream);  // always delete this
     SkAssertResult(autoStream->rewind());
     SkAutoTDelete<SkImageDecoder> decoder(SkImageDecoder::Factory(autoStream));
     if (NULL == decoder.get()) {
@@ -281,7 +321,6 @@ SkImageGenerator* SkDecodingImageGenerator::Create(
     }
     SkStreamRewindable* stream = SkNEW_ARGS(SkMemoryStream, (data));
     SkASSERT(stream != NULL);
-    SkASSERT(stream->unique());
     return CreateDecodingImageGenerator(data, stream, opts);
 }
 
@@ -289,9 +328,7 @@ SkImageGenerator* SkDecodingImageGenerator::Create(
         SkStreamRewindable* stream,
         const SkDecodingImageGenerator::Options& opts) {
     SkASSERT(stream != NULL);
-    SkASSERT(stream->unique());
-    if ((stream == NULL) || !stream->unique()) {
-        SkSafeUnref(stream);
+    if (stream == NULL) {
         return NULL;
     }
     return CreateDecodingImageGenerator(NULL, stream, opts);

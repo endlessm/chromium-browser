@@ -7,7 +7,7 @@
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/task_runner_util.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "policy/proto/cloud_policy.pb.h"
@@ -112,7 +112,7 @@ policy::PolicyLoadResult LoadPolicyFromDisk(
 }
 
 bool WriteStringToFile(const base::FilePath path, const std::string& data) {
- if (!base::CreateDirectory(path.DirName())) {
+  if (!base::CreateDirectory(path.DirName())) {
     DLOG(WARNING) << "Failed to create directory " << path.DirName().value();
     return false;
   }

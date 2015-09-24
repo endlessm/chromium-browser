@@ -53,7 +53,6 @@ class PanelView : public NativePanel,
   gfx::NativeWindow GetNativePanelWindow() override;
   void UpdatePanelTitleBar() override;
   void UpdatePanelLoadingAnimations(bool should_animate) override;
-  void PanelWebContentsFocused(content::WebContents* contents) override;
   void PanelCut() override;
   void PanelCopy() override;
   void PanelPaste() override;
@@ -144,11 +143,11 @@ class PanelView : public NativePanel,
 
   // Overridden from ui::HWNDMessageFilter:
 #if defined(OS_WIN)
-  virtual bool FilterMessage(HWND hwnd,
-                             UINT message,
-                             WPARAM w_param,
-                             LPARAM l_param,
-                             LRESULT* l_result) override;
+  bool FilterMessage(HWND hwnd,
+                     UINT message,
+                     WPARAM w_param,
+                     LPARAM l_param,
+                     LRESULT* l_result) override;
 #endif
 
   // Overridden from AnimationDelegate:

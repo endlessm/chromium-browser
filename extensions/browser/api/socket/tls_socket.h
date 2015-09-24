@@ -45,8 +45,7 @@ class TLSSocket : public ResumableTCPSocket {
   // inner net::StreamSocket. The remaining few do actual TLS work.
 
   // Fails.
-  void Connect(const std::string& address,
-               int port,
+  void Connect(const net::AddressList& address,
                const CompletionCallback& callback) override;
   // Forwards.
   void Disconnect() override;
@@ -66,7 +65,7 @@ class TLSSocket : public ResumableTCPSocket {
 
   // Fails. TLSSocket is only a client.
   int Listen(const std::string& address,
-             int port,
+             uint16 port,
              int backlog,
              std::string* error_msg) override;
 

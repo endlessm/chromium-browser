@@ -33,7 +33,7 @@
 #include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/favicon_size.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/skbitmap_operations.h"
 #include "url/gurl.h"
 
@@ -210,8 +210,9 @@ void ExtensionIconSource::LoadExtensionImage(const ExtensionResource& icon,
 }
 
 void ExtensionIconSource::LoadFaviconImage(int request_id) {
-  FaviconService* favicon_service =
-      FaviconServiceFactory::GetForProfile(profile_, Profile::EXPLICIT_ACCESS);
+  favicon::FaviconService* favicon_service =
+      FaviconServiceFactory::GetForProfile(profile_,
+                                           ServiceAccessType::EXPLICIT_ACCESS);
   // Fall back to the default icons if the service isn't available.
   if (favicon_service == NULL) {
     LoadDefaultImage(request_id);

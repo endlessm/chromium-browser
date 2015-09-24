@@ -71,14 +71,6 @@ class InfoMap : public base::RefCountedThreadSafe<InfoMap> {
                                   int site_instance_id);
   void UnregisterAllExtensionsInProcess(int process_id);
 
-  // Returns the subset of extensions which has the same |origin| in
-  // |process_id| with the specified |permission|.
-  void GetExtensionsWithAPIPermissionForSecurityOrigin(
-      const GURL& origin,
-      int process_id,
-      extensions::APIPermission::ID permission,
-      ExtensionSet* extensions) const;
-
   // Returns true if there is exists an extension with the same origin as
   // |origin| in |process_id| with |permission|.
   bool SecurityOriginHasAPIPermission(const GURL& origin,
@@ -95,11 +87,6 @@ class InfoMap : public base::RefCountedThreadSafe<InfoMap> {
 
   // Returns the IO thread QuotaService. Creates the instance on first call.
   QuotaService* GetQuotaService();
-
-  // Keep track of the signin process, so we can restrict extension access to
-  // it.
-  void SetSigninProcess(int process_id);
-  bool IsSigninProcess(int process_id) const;
 
   // Notifications can be enabled/disabled in real time by the user.
   void SetNotificationsDisabled(const std::string& extension_id,
@@ -132,8 +119,6 @@ class InfoMap : public base::RefCountedThreadSafe<InfoMap> {
 
   // Assignment of extensions to renderer processes.
   extensions::ProcessMap process_map_;
-
-  int signin_process_id_;
 
   scoped_refptr<ContentVerifier> content_verifier_;
 };

@@ -68,12 +68,17 @@ function ListContainer(element, table, grid) {
    * @type {!HTMLElement}
    * @const
    */
-  this.spinner = queryRequiredElement(element, '.spinner-layer');
+  this.spinner = queryRequiredElement(element, '.loading-indicator');
 
   /**
-   * @type {cr.ui.ArrayDataModel}
+   * @type {FileListModel}
    */
   this.dataModel = null;
+
+  /**
+   * @type {ListThumbnailLoader}
+   */
+  this.listThumbnailLoader = null;
 
   /**
    * @type {cr.ui.ListSelectionModel|cr.ui.ListSingleSelectionModel}
@@ -82,13 +87,11 @@ function ListContainer(element, table, grid) {
 
   /**
    * Data model which is used as a placefolder in inactive file list.
-   * @type {!cr.ui.ArrayDataModel}
-   * @const
-   * @private
+   * @type {FileListModel}
    */
-  this.emptyDataModel_ = new cr.ui.ArrayDataModel([]);
+  this.emptyDataModel = null;
 
- /**
+  /**
    * Selection model which is used as a placefolder in inactive file list.
    * @type {!cr.ui.ListSelectionModel}
    * @const
@@ -130,6 +133,21 @@ ListContainer.ListType = {
   DETAIL: 'detail',
   THUMBNAIL: 'thumb'
 };
+
+/**
+ * Metadata property names used by FileTable and FileGrid.
+ * These metadata is expected to be cached.
+ * @const {!Array<string>}
+ */
+ListContainer.METADATA_PREFETCH_PROPERTY_NAMES = [
+  'availableOffline',
+  'contentMimeType',
+  'customIconUrl',
+  'hosted',
+  'modificationTime',
+  'shared',
+  'size',
+];
 
 ListContainer.prototype = /** @struct */ {
   /**
@@ -185,6 +203,12 @@ ListContainer.prototype.setCurrentListType = function(listType) {
 
   this.startBatchUpdates();
   this.currentListType = listType;
+
+  this.element.classList.toggle(
+      'list-view', listType === ListContainer.ListType.DETAIL);
+  this.element.classList.toggle(
+      'thumbnail-view', listType === ListContainer.ListType.THUMBNAIL);
+
   // TODO(dzvorygin): style.display and dataModel setting order shouldn't
   // cause any UI bugs. Currently, the only right way is first to set display
   // style and only then set dataModel.
@@ -194,20 +218,24 @@ ListContainer.prototype.setCurrentListType = function(listType) {
   switch (listType) {
     case ListContainer.ListType.DETAIL:
       this.table.dataModel = this.dataModel;
+      this.table.setListThumbnailLoader(this.listThumbnailLoader);
       this.table.selectionModel = this.selectionModel;
       this.table.hidden = false;
       this.grid.hidden = true;
       this.grid.selectionModel = this.emptySelectionModel_;
-      this.grid.dataModel = this.emptyDataModel_;
+      this.grid.setListThumbnailLoader(null);
+      this.grid.dataModel = this.emptyDataModel;
       break;
 
     case ListContainer.ListType.THUMBNAIL:
       this.grid.dataModel = this.dataModel;
+      this.grid.setListThumbnailLoader(this.listThumbnailLoader);
       this.grid.selectionModel = this.selectionModel;
       this.grid.hidden = false;
       this.table.hidden = true;
       this.table.selectionModel = this.emptySelectionModel_;
-      this.table.dataModel = this.emptyDataModel_;
+      this.table.setListThumbnailLoader(null);
+      this.table.dataModel = this.emptyDataModel;
       break;
 
     default:

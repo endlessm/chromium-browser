@@ -27,6 +27,8 @@
 #include "testing/platform_test.h"
 
 using base::ASCIIToUTF16;
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
 using content::WebContents;
 
 // Watch for bookmark pulse notifications so we can confirm they were sent.
@@ -78,7 +80,7 @@ class BookmarkBubbleControllerTest : public CocoaProfileTest {
     edits_ = 0;
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     [controller_ close];
     CocoaProfileTest::TearDown();
   }
@@ -466,7 +468,7 @@ TEST_F(BookmarkBubbleControllerTest, SyncPromoNotSignedIn) {
 // Confirm that the sync promo is not displayed when the user is signed in.
 TEST_F(BookmarkBubbleControllerTest, SyncPromoSignedIn) {
   SigninManager* signin = SigninManagerFactory::GetForProfile(profile());
-  signin->SetAuthenticatedUsername("fake_username");
+  signin->SetAuthenticatedAccountInfo("fake_username", "fake_username");
 
   const BookmarkNode* node = CreateTestBookmark();
   BookmarkBubbleController* controller = ControllerForNode(node);

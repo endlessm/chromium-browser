@@ -2,7 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chrome/browser/about_flags.h"
+
 #include <stdint.h>
+#include <utility>
 
 #include "base/files/file_path.h"
 #include "base/memory/scoped_vector.h"
@@ -13,13 +16,14 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/about_flags.h"
 #include "chrome/browser/pref_service_flags_storage.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/chromium_strings.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/libxml/chromium/libxml_utils.h"
+
+namespace about_flags {
 
 namespace {
 
@@ -28,10 +32,12 @@ const char kFlags2[] = "flag2";
 const char kFlags3[] = "flag3";
 const char kFlags4[] = "flag4";
 const char kFlags5[] = "flag5";
+const char kFlags6[] = "flag6";
 
 const char kSwitch1[] = "switch";
 const char kSwitch2[] = "switch2";
 const char kSwitch3[] = "switch3";
+const char kSwitch6[] = "switch6";
 const char kValueForSwitch2[] = "value_for_switch2";
 
 const char kMultiSwitch1[] = "multi_switch1";
@@ -185,19 +191,20 @@ std::set<std::string> GetAllSwitchesForTesting() {
   std::set<std::string> result;
 
   size_t num_experiments = 0;
-  const about_flags::Experiment* experiments =
-      about_flags::testing::GetExperiments(&num_experiments);
+  const Experiment* experiments =
+      testing::GetExperiments(&num_experiments);
 
   for (size_t i = 0; i < num_experiments; ++i) {
-    const about_flags::Experiment& experiment = experiments[i];
-    if (experiment.type == about_flags::Experiment::SINGLE_VALUE) {
+    const Experiment& experiment = experiments[i];
+    if (experiment.type == Experiment::SINGLE_VALUE ||
+        experiment.type == Experiment::SINGLE_DISABLE_VALUE) {
       result.insert(experiment.command_line_switch);
-    } else if (experiment.type == about_flags::Experiment::MULTI_VALUE) {
+    } else if (experiment.type == Experiment::MULTI_VALUE) {
       for (int j = 0; j < experiment.num_choices; ++j) {
         result.insert(experiment.choices[j].command_line_switch);
       }
     } else {
-      DCHECK_EQ(experiment.type, about_flags::Experiment::ENABLE_DISABLE_VALUE);
+      DCHECK_EQ(experiment.type, Experiment::ENABLE_DISABLE_VALUE);
       result.insert(experiment.command_line_switch);
       result.insert(experiment.disable_command_line_switch);
     }
@@ -206,8 +213,6 @@ std::set<std::string> GetAllSwitchesForTesting() {
 }
 
 }  // anonymous namespace
-
-namespace about_flags {
 
 const Experiment::Choice kMultiChoices[] = {
   { IDS_PRODUCT_NAME, "", "" },
@@ -283,6 +288,19 @@ static Experiment kExperiments[] = {
     NULL,
     3
   },
+  {
+    kFlags6,
+    IDS_PRODUCT_NAME,
+    IDS_PRODUCT_NAME,
+    0,
+    Experiment::SINGLE_DISABLE_VALUE,
+    kSwitch6,
+    "",
+    NULL,
+    NULL,
+    NULL,
+    0
+  },
 };
 
 class AboutFlagsTest : public ::testing::Test {
@@ -315,11 +333,22 @@ TEST_F(AboutFlagsTest, NoChangeNoRestart) {
   EXPECT_FALSE(IsRestartNeededToCommitChanges());
   SetExperimentEnabled(&flags_storage_, kFlags1, false);
   EXPECT_FALSE(IsRestartNeededToCommitChanges());
+
+  // kFlags6 is enabled by default, so enabling should not require a restart.
+  SetExperimentEnabled(&flags_storage_, kFlags6, true);
+  EXPECT_FALSE(IsRestartNeededToCommitChanges());
 }
 
 TEST_F(AboutFlagsTest, ChangeNeedsRestart) {
   EXPECT_FALSE(IsRestartNeededToCommitChanges());
   SetExperimentEnabled(&flags_storage_, kFlags1, true);
+  EXPECT_TRUE(IsRestartNeededToCommitChanges());
+}
+
+// Tests that disabling a default enabled experiment requires a restart.
+TEST_F(AboutFlagsTest, DisableChangeNeedsRestart) {
+  EXPECT_FALSE(IsRestartNeededToCommitChanges());
+  SetExperimentEnabled(&flags_storage_, kFlags6, false);
   EXPECT_TRUE(IsRestartNeededToCommitChanges());
 }
 
@@ -384,7 +413,7 @@ TEST_F(AboutFlagsTest, AddTwoFlagsRemoveBoth) {
 TEST_F(AboutFlagsTest, ConvertFlagsToSwitches) {
   SetExperimentEnabled(&flags_storage_, kFlags1, true);
 
-  CommandLine command_line(CommandLine::NO_PROGRAM);
+  base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
   command_line.AppendSwitch("foo");
 
   EXPECT_TRUE(command_line.HasSwitch("foo"));
@@ -397,7 +426,7 @@ TEST_F(AboutFlagsTest, ConvertFlagsToSwitches) {
   EXPECT_TRUE(command_line.HasSwitch(switches::kFlagSwitchesBegin));
   EXPECT_TRUE(command_line.HasSwitch(switches::kFlagSwitchesEnd));
 
-  CommandLine command_line2(CommandLine::NO_PROGRAM);
+  base::CommandLine command_line2(base::CommandLine::NO_PROGRAM);
 
   ConvertFlagsToSwitches(&flags_storage_, &command_line2, kNoSentinels);
 
@@ -406,7 +435,7 @@ TEST_F(AboutFlagsTest, ConvertFlagsToSwitches) {
   EXPECT_FALSE(command_line2.HasSwitch(switches::kFlagSwitchesEnd));
 }
 
-CommandLine::StringType CreateSwitch(const std::string& value) {
+base::CommandLine::StringType CreateSwitch(const std::string& value) {
 #if defined(OS_WIN)
   return base::ASCIIToUTF16(value);
 #else
@@ -419,16 +448,16 @@ TEST_F(AboutFlagsTest, CompareSwitchesToCurrentCommandLine) {
 
   const std::string kDoubleDash("--");
 
-  CommandLine command_line(CommandLine::NO_PROGRAM);
+  base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
   command_line.AppendSwitch("foo");
 
-  CommandLine new_command_line(CommandLine::NO_PROGRAM);
+  base::CommandLine new_command_line(base::CommandLine::NO_PROGRAM);
   ConvertFlagsToSwitches(&flags_storage_, &new_command_line, kAddSentinels);
 
   EXPECT_FALSE(AreSwitchesIdenticalToCurrentCommandLine(
       new_command_line, command_line, NULL));
   {
-    std::set<CommandLine::StringType> difference;
+    std::set<base::CommandLine::StringType> difference;
     EXPECT_FALSE(AreSwitchesIdenticalToCurrentCommandLine(
         new_command_line, command_line, &difference));
     EXPECT_EQ(1U, difference.size());
@@ -440,7 +469,7 @@ TEST_F(AboutFlagsTest, CompareSwitchesToCurrentCommandLine) {
   EXPECT_TRUE(AreSwitchesIdenticalToCurrentCommandLine(
       new_command_line, command_line, NULL));
   {
-    std::set<CommandLine::StringType> difference;
+    std::set<base::CommandLine::StringType> difference;
     EXPECT_TRUE(AreSwitchesIdenticalToCurrentCommandLine(
         new_command_line, command_line, &difference));
     EXPECT_TRUE(difference.empty());
@@ -450,13 +479,13 @@ TEST_F(AboutFlagsTest, CompareSwitchesToCurrentCommandLine) {
   SetExperimentEnabled(&flags_storage_, kFlags1, false);
   SetExperimentEnabled(&flags_storage_, kFlags2, true);
 
-  CommandLine another_command_line(CommandLine::NO_PROGRAM);
+  base::CommandLine another_command_line(base::CommandLine::NO_PROGRAM);
   ConvertFlagsToSwitches(&flags_storage_, &another_command_line, kAddSentinels);
 
   EXPECT_FALSE(AreSwitchesIdenticalToCurrentCommandLine(
       new_command_line, another_command_line, NULL));
   {
-    std::set<CommandLine::StringType> difference;
+    std::set<base::CommandLine::StringType> difference;
     EXPECT_FALSE(AreSwitchesIdenticalToCurrentCommandLine(
         new_command_line, another_command_line, &difference));
     EXPECT_EQ(2U, difference.size());
@@ -468,11 +497,11 @@ TEST_F(AboutFlagsTest, CompareSwitchesToCurrentCommandLine) {
 }
 
 TEST_F(AboutFlagsTest, RemoveFlagSwitches) {
-  std::map<std::string, CommandLine::StringType> switch_list;
-  switch_list[kSwitch1] = CommandLine::StringType();
-  switch_list[switches::kFlagSwitchesBegin] = CommandLine::StringType();
-  switch_list[switches::kFlagSwitchesEnd] = CommandLine::StringType();
-  switch_list["foo"] = CommandLine::StringType();
+  std::map<std::string, base::CommandLine::StringType> switch_list;
+  switch_list[kSwitch1] = base::CommandLine::StringType();
+  switch_list[switches::kFlagSwitchesBegin] = base::CommandLine::StringType();
+  switch_list[switches::kFlagSwitchesEnd] = base::CommandLine::StringType();
+  switch_list["foo"] = base::CommandLine::StringType();
 
   SetExperimentEnabled(&flags_storage_, kFlags1, true);
 
@@ -487,7 +516,7 @@ TEST_F(AboutFlagsTest, RemoveFlagSwitches) {
   EXPECT_TRUE(switch_list.find("foo") != switch_list.end());
 
   // Call ConvertFlagsToSwitches(), then RemoveFlagsSwitches() again.
-  CommandLine command_line(CommandLine::NO_PROGRAM);
+  base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
   command_line.AppendSwitch("foo");
   ConvertFlagsToSwitches(&flags_storage_, &command_line, kAddSentinels);
   RemoveFlagsSwitches(&switch_list);
@@ -502,7 +531,7 @@ TEST_F(AboutFlagsTest, PersistAndPrune) {
   // Enable experiments 1 and 3.
   SetExperimentEnabled(&flags_storage_, kFlags1, true);
   SetExperimentEnabled(&flags_storage_, kFlags3, true);
-  CommandLine command_line(CommandLine::NO_PROGRAM);
+  base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
   EXPECT_FALSE(command_line.HasSwitch(kSwitch1));
   EXPECT_FALSE(command_line.HasSwitch(kSwitch3));
 
@@ -531,7 +560,7 @@ TEST_F(AboutFlagsTest, CheckValues) {
   // Enable experiments 1 and 2.
   SetExperimentEnabled(&flags_storage_, kFlags1, true);
   SetExperimentEnabled(&flags_storage_, kFlags2, true);
-  CommandLine command_line(CommandLine::NO_PROGRAM);
+  base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
   EXPECT_FALSE(command_line.HasSwitch(kSwitch1));
   EXPECT_FALSE(command_line.HasSwitch(kSwitch2));
 
@@ -548,9 +577,9 @@ TEST_F(AboutFlagsTest, CheckValues) {
                                     std::string(kSwitch1) +
                                     std::string("=");
 #if defined(OS_WIN)
-  EXPECT_EQ(std::wstring::npos,
+  EXPECT_EQ(base::string16::npos,
             command_line.GetCommandLineString().find(
-                base::ASCIIToWide(switch1_with_equals)));
+                base::ASCIIToUTF16(switch1_with_equals)));
 #else
   EXPECT_EQ(std::string::npos,
             command_line.GetCommandLineString().find(switch1_with_equals));
@@ -561,9 +590,9 @@ TEST_F(AboutFlagsTest, CheckValues) {
                                     std::string(kSwitch2) +
                                     std::string("=");
 #if defined(OS_WIN)
-  EXPECT_NE(std::wstring::npos,
+  EXPECT_NE(base::string16::npos,
             command_line.GetCommandLineString().find(
-                base::ASCIIToWide(switch2_with_equals)));
+                base::ASCIIToUTF16(switch2_with_equals)));
 #else
   EXPECT_NE(std::string::npos,
             command_line.GetCommandLineString().find(switch2_with_equals));
@@ -590,7 +619,7 @@ TEST_F(AboutFlagsTest, MultiValues) {
   // Initially, the first "deactivated" option of the multi experiment should
   // be set.
   {
-    CommandLine command_line(CommandLine::NO_PROGRAM);
+    base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
     ConvertFlagsToSwitches(&flags_storage_, &command_line, kAddSentinels);
     EXPECT_FALSE(command_line.HasSwitch(kMultiSwitch1));
     EXPECT_FALSE(command_line.HasSwitch(kMultiSwitch2));
@@ -599,7 +628,7 @@ TEST_F(AboutFlagsTest, MultiValues) {
   // Enable the 2nd choice of the multi-value.
   SetExperimentEnabled(&flags_storage_, experiment.NameForChoice(2), true);
   {
-    CommandLine command_line(CommandLine::NO_PROGRAM);
+    base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
     ConvertFlagsToSwitches(&flags_storage_, &command_line, kAddSentinels);
     EXPECT_FALSE(command_line.HasSwitch(kMultiSwitch1));
     EXPECT_TRUE(command_line.HasSwitch(kMultiSwitch2));
@@ -610,10 +639,36 @@ TEST_F(AboutFlagsTest, MultiValues) {
   // Disable the multi-value experiment.
   SetExperimentEnabled(&flags_storage_, experiment.NameForChoice(0), true);
   {
-    CommandLine command_line(CommandLine::NO_PROGRAM);
+    base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
     ConvertFlagsToSwitches(&flags_storage_, &command_line, kAddSentinels);
     EXPECT_FALSE(command_line.HasSwitch(kMultiSwitch1));
     EXPECT_FALSE(command_line.HasSwitch(kMultiSwitch2));
+  }
+}
+
+// Tests that disable flags are added when an experiment is disabled.
+TEST_F(AboutFlagsTest, DisableFlagCommandLine) {
+  // Nothing selected.
+  {
+    base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
+    ConvertFlagsToSwitches(&flags_storage_, &command_line, kAddSentinels);
+    EXPECT_FALSE(command_line.HasSwitch(kSwitch6));
+  }
+
+  // Disable the experiment 6.
+  SetExperimentEnabled(&flags_storage_, kFlags6, false);
+  {
+    base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
+    ConvertFlagsToSwitches(&flags_storage_, &command_line, kAddSentinels);
+    EXPECT_TRUE(command_line.HasSwitch(kSwitch6));
+  }
+
+  // Enable experiment 6.
+  SetExperimentEnabled(&flags_storage_, kFlags6, true);
+  {
+    base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
+    ConvertFlagsToSwitches(&flags_storage_, &command_line, kAddSentinels);
+    EXPECT_FALSE(command_line.HasSwitch(kSwitch6));
   }
 }
 
@@ -623,7 +678,7 @@ TEST_F(AboutFlagsTest, EnableDisableValues) {
 
   // Nothing selected.
   {
-    CommandLine command_line(CommandLine::NO_PROGRAM);
+    base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
     ConvertFlagsToSwitches(&flags_storage_, &command_line, kAddSentinels);
     EXPECT_FALSE(command_line.HasSwitch(kSwitch1));
     EXPECT_FALSE(command_line.HasSwitch(kSwitch2));
@@ -632,7 +687,7 @@ TEST_F(AboutFlagsTest, EnableDisableValues) {
   // "Enable" option selected.
   SetExperimentEnabled(&flags_storage_, experiment.NameForChoice(1), true);
   {
-    CommandLine command_line(CommandLine::NO_PROGRAM);
+    base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
     ConvertFlagsToSwitches(&flags_storage_, &command_line, kAddSentinels);
     EXPECT_TRUE(command_line.HasSwitch(kSwitch1));
     EXPECT_FALSE(command_line.HasSwitch(kSwitch2));
@@ -642,7 +697,7 @@ TEST_F(AboutFlagsTest, EnableDisableValues) {
   // "Disable" option selected.
   SetExperimentEnabled(&flags_storage_, experiment.NameForChoice(2), true);
   {
-    CommandLine command_line(CommandLine::NO_PROGRAM);
+    base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
     ConvertFlagsToSwitches(&flags_storage_, &command_line, kAddSentinels);
     EXPECT_FALSE(command_line.HasSwitch(kSwitch1));
     EXPECT_TRUE(command_line.HasSwitch(kSwitch2));
@@ -652,7 +707,7 @@ TEST_F(AboutFlagsTest, EnableDisableValues) {
   // "Default" option selected, same as nothing selected.
   SetExperimentEnabled(&flags_storage_, experiment.NameForChoice(0), true);
   {
-    CommandLine command_line(CommandLine::NO_PROGRAM);
+    base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
     ConvertFlagsToSwitches(&flags_storage_, &command_line, kAddSentinels);
     EXPECT_FALSE(command_line.HasSwitch(kMultiSwitch1));
     EXPECT_FALSE(command_line.HasSwitch(kMultiSwitch2));
@@ -715,57 +770,53 @@ TEST_F(AboutFlagsHistogramTest, CheckHistograms) {
   // Build reverse map {switch_name => id} from login_custom_flags.
   SwitchToIdMap histograms_xml_switches_ids;
 
-  EXPECT_TRUE(login_custom_flags.count(kBadSwitchFormatHistogramId))
+  EXPECT_TRUE(login_custom_flags.count(testing::kBadSwitchFormatHistogramId))
       << "Entry for UMA ID of incorrect command-line flag is not found in "
          "histograms.xml enum LoginCustomFlags. "
          "Consider adding entry:\n"
       << "  " << GetHistogramEnumEntryText("BAD_FLAG_FORMAT", 0);
   // Check that all LoginCustomFlags entries have correct values.
-  for (std::map<Sample, std::string>::const_iterator it =
-           login_custom_flags.begin();
-       it != login_custom_flags.end();
-       ++it) {
-    if (it->first == kBadSwitchFormatHistogramId) {
-      // Add eror value with empty name.
-      SetSwitchToHistogramIdMapping(
-          "", it->first, &histograms_xml_switches_ids);
+  for (const auto& entry : login_custom_flags) {
+    if (entry.first == testing::kBadSwitchFormatHistogramId) {
+      // Add error value with empty name.
+      SetSwitchToHistogramIdMapping(std::string(), entry.first,
+                                    &histograms_xml_switches_ids);
       continue;
     }
-    const Sample uma_id = GetSwitchUMAId(it->second);
-    EXPECT_EQ(uma_id, it->first)
+    const Sample uma_id = GetSwitchUMAId(entry.second);
+    EXPECT_EQ(uma_id, entry.first)
         << "histograms.xml enum LoginCustomFlags "
-           "entry '" << it->second << "' has incorrect value=" << it->first
+           "entry '" << entry.second << "' has incorrect value=" << entry.first
         << ", but " << uma_id << " is expected. Consider changing entry to:\n"
-        << "  " << GetHistogramEnumEntryText(it->second, uma_id);
-    SetSwitchToHistogramIdMapping(
-        it->second, it->first, &histograms_xml_switches_ids);
+        << "  " << GetHistogramEnumEntryText(entry.second, uma_id);
+    SetSwitchToHistogramIdMapping(entry.second, entry.first,
+                                  &histograms_xml_switches_ids);
   }
 
   // Check that all flags in about_flags.cc have entries in login_custom_flags.
   std::set<std::string> all_switches = GetAllSwitchesForTesting();
-  for (std::set<std::string>::const_iterator it = all_switches.begin();
-       it != all_switches.end();
-       ++it) {
+  for (const std::string& flag : all_switches) {
     // Skip empty placeholders.
-    if (it->empty())
+    if (flag.empty())
       continue;
-    const Sample uma_id = GetSwitchUMAId(*it);
-    EXPECT_NE(kBadSwitchFormatHistogramId, uma_id)
-        << "Command-line switch '" << *it
+    const Sample uma_id = GetSwitchUMAId(flag);
+    EXPECT_NE(testing::kBadSwitchFormatHistogramId, uma_id)
+        << "Command-line switch '" << flag
         << "' from about_flags.cc has UMA ID equal to reserved value "
-           "kBadSwitchFormatHistogramId=" << kBadSwitchFormatHistogramId
+           "kBadSwitchFormatHistogramId="
+        << testing::kBadSwitchFormatHistogramId
         << ". Please modify switch name.";
     SwitchToIdMap::iterator enum_entry =
-        histograms_xml_switches_ids.lower_bound(*it);
+        histograms_xml_switches_ids.lower_bound(flag);
 
     // Ignore case here when switch ID is incorrect - it has already been
     // reported in the previous loop.
     EXPECT_TRUE(enum_entry != histograms_xml_switches_ids.end() &&
-                enum_entry->first == *it)
+                enum_entry->first == flag)
         << "histograms.xml enum LoginCustomFlags doesn't contain switch '"
-        << *it << "' (value=" << uma_id
+        << flag << "' (value=" << uma_id
         << " expected). Consider adding entry:\n"
-        << "  " << GetHistogramEnumEntryText(*it, uma_id);
+        << "  " << GetHistogramEnumEntryText(flag, uma_id);
   }
 }
 

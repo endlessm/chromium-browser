@@ -5,6 +5,7 @@
 package org.chromium.android_webview.test;
 
 import android.content.Context;
+import android.os.Build;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.view.View;
 import android.widget.OverScroller;
@@ -14,9 +15,12 @@ import org.chromium.android_webview.AwScrollOffsetManager;
 import org.chromium.android_webview.test.util.AwTestTouchUtils;
 import org.chromium.android_webview.test.util.CommonResources;
 import org.chromium.android_webview.test.util.JavascriptEventObserver;
+import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.content_public.browser.GestureStateListener;
+import org.chromium.net.test.util.TestWebServer;
 import org.chromium.ui.gfx.DeviceDisplayInfo;
 
 import java.util.Locale;
@@ -27,7 +31,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Integration tests for synchronous scrolling.
  */
+@MinAndroidSdkLevel(Build.VERSION_CODES.KITKAT)
+@SuppressFBWarnings("DLS_DEAD_LOCAL_STORE")
 public class AndroidScrollIntegrationTest extends AwTestBase {
+    private TestWebServer mWebServer;
+
     private static class OverScrollByCallbackHelper extends CallbackHelper {
         int mDeltaX;
         int mDeltaY;
@@ -95,13 +103,25 @@ public class AndroidScrollIntegrationTest extends AwTestBase {
 
         @Override
         public void scrollTo(int x, int y) {
-            if (mMaxScrollXPix != -1)
-                x = Math.min(mMaxScrollXPix, x);
-            if (mMaxScrollYPix != -1)
-                y = Math.min(mMaxScrollYPix, y);
+            if (mMaxScrollXPix != -1) x = Math.min(mMaxScrollXPix, x);
+            if (mMaxScrollYPix != -1) y = Math.min(mMaxScrollYPix, y);
             super.scrollTo(x, y);
             mOnScrollToCallbackHelper.notifyCalled();
         }
+    }
+
+    @Override
+    public void setUp() throws Exception {
+        super.setUp();
+        mWebServer = TestWebServer.start();
+    }
+
+    @Override
+    public void tearDown() throws Exception {
+        if (mWebServer != null) {
+            mWebServer.shutdown();
+        }
+        super.tearDown();
     }
 
     @Override
@@ -110,15 +130,7 @@ public class AndroidScrollIntegrationTest extends AwTestBase {
             @Override
             public AwScrollOffsetManager createScrollOffsetManager(
                     AwScrollOffsetManager.Delegate delegate, OverScroller overScroller) {
-                return new AwScrollOffsetManager(delegate, overScroller) {
-                    @Override
-                    public void onUnhandledFlingStartEvent(int velocityX, int velocityY) {
-                        // Intentional no-op. The synthetic scroll gestures this test creates all
-                        // happen at the same time which triggers the fling detection logic.
-                        // NOTE: this simply disables handling the gesture, flinging the AwContents
-                        // via the flingScroll API is still possible.
-                    }
-                };
+                return new AwScrollOffsetManager(delegate, overScroller);
             }
             @Override
             public AwTestContainerView createAwTestContainerView(AwTestRunnerActivity activity,
@@ -573,6 +585,60 @@ public class AndroidScrollIntegrationTest extends AwTestBase {
 
     @SmallTest
     @Feature({"AndroidWebView"})
+    public void testFlingScrollOnPopup() throws Throwable {
+        final TestAwContentsClient parentContentsClient = new TestAwContentsClient();
+        final ScrollTestContainerView parentContainerView =
+                (ScrollTestContainerView) createAwTestContainerViewOnMainSync(parentContentsClient);
+        final AwContents parentContents = parentContainerView.getAwContents();
+        enableJavaScriptOnUiThread(parentContents);
+
+        final String popupPath = "/popup.html";
+        final String parentPageHtml = CommonResources.makeHtmlPageFrom("", "<script>"
+                        + "function tryOpenWindow() {"
+                        + "  var newWindow = window.open('" + popupPath + "');"
+                        + "}</script> <h1>Parent</h1>");
+
+        final String popupPageHtml = CommonResources.makeHtmlPageFrom(
+                "<title>" + "Popup Window" + "</title>",
+                "This is a popup window");
+
+        triggerPopup(parentContents, parentContentsClient, mWebServer, parentPageHtml,
+                popupPageHtml, popupPath, "tryOpenWindow()");
+        final PopupInfo popupInfo = connectPendingPopup(parentContents);
+        assertEquals("Popup Window", getTitleOnUiThread(popupInfo.popupContents));
+
+        final ScrollTestContainerView testContainerView =
+                (ScrollTestContainerView) popupInfo.popupContainerView;
+        enableJavaScriptOnUiThread(testContainerView.getAwContents());
+        loadTestPageAndWaitForFirstFrame(
+                testContainerView, popupInfo.popupContentsClient, null, "");
+
+        assertScrollOnMainSync(testContainerView, 0, 0);
+
+        final CallbackHelper onScrollToCallbackHelper =
+                testContainerView.getOnScrollToCallbackHelper();
+        final int scrollToCallCount = onScrollToCallbackHelper.getCallCount();
+
+        getInstrumentation().runOnMainSync(new Runnable() {
+            @Override
+            public void run() {
+                testContainerView.getAwContents().flingScroll(1000, 1000);
+            }
+        });
+
+        onScrollToCallbackHelper.waitForCallback(scrollToCallCount);
+
+        getInstrumentation().runOnMainSync(new Runnable() {
+            @Override
+            public void run() {
+                assertTrue(testContainerView.getScrollX() > 0);
+                assertTrue(testContainerView.getScrollY() > 0);
+            }
+        });
+    }
+
+    @SmallTest
+    @Feature({"AndroidWebView"})
     public void testPageDown() throws Throwable {
         final TestAwContentsClient contentsClient = new TestAwContentsClient();
         final ScrollTestContainerView testContainerView =
@@ -668,10 +734,6 @@ public class AndroidScrollIntegrationTest extends AwTestBase {
 
         @Override
         public void onFlingCancelGesture() {
-        }
-
-        @Override
-        public void onUnhandledFlingStartEvent(int velocityX, int velocityY) {
         }
 
         @Override

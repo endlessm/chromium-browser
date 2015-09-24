@@ -45,9 +45,10 @@ public:
 
     /**
      *  Perform all the previously added draws. This will reset the state
-     *  of this object.
+     *  of this object. If flush is true, all canvases are flushed after
+     *  draw.
      */
-    void draw();
+    void draw(bool flush = false);
 
     /**
      *  Abandon all buffered draws and reset to the initial state.
@@ -65,8 +66,6 @@ private:
         void draw();
 
         static void Reset(SkTDArray<DrawData>&);
-
-        static void Draw(DrawData* d) { d->draw(); }
     };
 
     SkTDArray<DrawData> fThreadSafeDrawData;

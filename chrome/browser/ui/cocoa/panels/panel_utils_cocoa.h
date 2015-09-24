@@ -6,8 +6,8 @@
 #define CHROME_BROWSER_UI_COCOA_PANELS_PANEL_UTILS_COCOA_H_
 
 #import <Cocoa/Cocoa.h>
-#include "ui/gfx/point.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace cocoa_utils {
 

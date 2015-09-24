@@ -31,6 +31,7 @@ WebScrollbarLayerImpl::WebScrollbarLayerImpl(
     blink::WebScrollbarThemePainter painter,
     blink::WebScrollbarThemeGeometry* geometry)
     : layer_(new WebLayerImpl(PaintedScrollbarLayer::Create(
+          WebLayerImpl::LayerSettings(),
           scoped_ptr<cc::Scrollbar>(
               new ScrollbarImpl(make_scoped_ptr(scrollbar),
                                 painter,
@@ -44,7 +45,8 @@ WebScrollbarLayerImpl::WebScrollbarLayerImpl(
     int track_start,
     bool is_left_side_vertical_scrollbar)
     : layer_(new WebLayerImpl(
-          SolidColorScrollbarLayer::Create(ConvertOrientation(orientation),
+          SolidColorScrollbarLayer::Create(WebLayerImpl::LayerSettings(),
+                                           ConvertOrientation(orientation),
                                            thumb_thickness,
                                            track_start,
                                            is_left_side_vertical_scrollbar,
@@ -61,13 +63,15 @@ blink::WebLayer* WebScrollbarLayerImpl::layer() {
 void WebScrollbarLayerImpl::setScrollLayer(blink::WebLayer* layer) {
   cc::Layer* scroll_layer =
       layer ? static_cast<WebLayerImpl*>(layer)->layer() : 0;
-  layer_->layer()->ToScrollbarLayer()->SetScrollLayer(scroll_layer->id());
+  layer_->layer()->ToScrollbarLayer()->SetScrollLayer(
+      scroll_layer ? scroll_layer->id() : cc::Layer::INVALID_ID);
 }
 
 void WebScrollbarLayerImpl::setClipLayer(blink::WebLayer* layer) {
   cc::Layer* clip_layer =
       layer ? static_cast<WebLayerImpl*>(layer)->layer() : 0;
-  layer_->layer()->ToScrollbarLayer()->SetClipLayer(clip_layer->id());
+  layer_->layer()->ToScrollbarLayer()->SetClipLayer(
+      clip_layer ? clip_layer->id() : cc::Layer::INVALID_ID);
 }
 
 }  // namespace cc_blink

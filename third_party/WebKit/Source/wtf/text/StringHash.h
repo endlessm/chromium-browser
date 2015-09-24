@@ -67,7 +67,7 @@ namespace WTF {
     public:
         static unsigned hash(const UChar* data, unsigned length)
         {
-            return StringHasher::computeHashAndMaskTop8Bits<UChar, foldCase<UChar> >(data, length);
+            return StringHasher::computeHashAndMaskTop8Bits<UChar, foldCase<UChar>>(data, length);
         }
 
         static unsigned hash(StringImpl* str)
@@ -79,7 +79,7 @@ namespace WTF {
 
         static unsigned hash(const LChar* data, unsigned length)
         {
-            return StringHasher::computeHashAndMaskTop8Bits<LChar, foldCase<LChar> >(data, length);
+            return StringHasher::computeHashAndMaskTop8Bits<LChar, foldCase<LChar>>(data, length);
         }
 
         static inline unsigned hash(const char* data, unsigned length)
@@ -126,6 +126,8 @@ namespace WTF {
         // correctly-folded code point in all cases (see comment below).
         template<typename T> static inline UChar foldCase(T ch)
         {
+            if (IsSameType<T, LChar>::value)
+                return StringImpl::latin1CaseFoldTable[ch];
             // It's possible for WTF::Unicode::foldCase() to return a 32-bit
             // value that's not representable as a UChar.  However, since this
             // is rare and deterministic, and the result of this is merely used

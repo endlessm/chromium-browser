@@ -5,9 +5,12 @@
 #include <string>
 #include <utility>
 
+#include "base/base_paths.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
+#include "base/path_service.h"
 #include "base/strings/string_util.h"
+#include "base/test/scoped_path_override.h"
 #include "base/test/test_reg_util_win.h"
 #include "base/win/registry.h"
 #include "chrome/installer/util/google_update_constants.h"
@@ -31,8 +34,8 @@ class InstallUtilTest : public TestWithTempDirAndDeleteTempOverrideKeys {
  protected:
 };
 
-TEST_F(InstallUtilTest, MakeUninstallCommand) {
-  CommandLine command_line(CommandLine::NO_PROGRAM);
+TEST_F(InstallUtilTest, ComposeCommandLine) {
+  base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
 
   std::pair<std::wstring, std::wstring> params[] = {
     std::make_pair(std::wstring(L""), std::wstring(L"")),
@@ -43,7 +46,7 @@ TEST_F(InstallUtilTest, MakeUninstallCommand) {
   };
   for (int i = 0; i < arraysize(params); ++i) {
     std::pair<std::wstring, std::wstring>& param = params[i];
-    InstallUtil::MakeUninstallCommand(param.first, param.second, &command_line);
+    InstallUtil::ComposeCommandLine(param.first, param.second, &command_line);
     EXPECT_EQ(param.first, command_line.GetProgram().value());
     if (param.second.empty()) {
       EXPECT_TRUE(command_line.GetSwitches().empty());
@@ -444,7 +447,7 @@ TEST_F(InstallUtilTest, ProgramCompare) {
   // Test where strings don't match, but the same file is indicated.
   std::wstring short_expect;
   DWORD short_len = GetShortPathName(expect.value().c_str(),
-                                     WriteInto(&short_expect, MAX_PATH),
+                                     base::WriteInto(&short_expect, MAX_PATH),
                                      MAX_PATH);
   ASSERT_NE(static_cast<DWORD>(0), short_len);
   ASSERT_GT(static_cast<DWORD>(MAX_PATH), short_len);
@@ -453,4 +456,33 @@ TEST_F(InstallUtilTest, ProgramCompare) {
                                                       short_expect));
   EXPECT_TRUE(InstallUtil::ProgramCompare(expect).Evaluate(
       L"\"" + short_expect + L"\""));
+}
+
+// Win64 Chrome is always installed in the 32-bit Program Files directory. Test
+// that IsPerUserInstall returns false for an arbitrary path with
+// DIR_PROGRAM_FILESX86 as a suffix but not DIR_PROGRAM_FILES when the two are
+// unrelated.
+TEST_F(InstallUtilTest, IsPerUserInstall) {
+#if defined(_WIN64)
+  const int kChromeProgramFilesKey = base::DIR_PROGRAM_FILESX86;
+#else
+  const int kChromeProgramFilesKey = base::DIR_PROGRAM_FILES;
+#endif
+  base::ScopedPathOverride program_files_override(kChromeProgramFilesKey);
+  base::FilePath some_exe;
+  ASSERT_TRUE(PathService::Get(kChromeProgramFilesKey, &some_exe));
+  some_exe = some_exe.AppendASCII("Company")
+      .AppendASCII("Product")
+      .AppendASCII("product.exe");
+  EXPECT_FALSE(InstallUtil::IsPerUserInstall(some_exe));
+
+#if defined(_WIN64)
+  const int kOtherProgramFilesKey = base::DIR_PROGRAM_FILES;
+  base::ScopedPathOverride other_program_files_override(kOtherProgramFilesKey);
+  ASSERT_TRUE(PathService::Get(kOtherProgramFilesKey, &some_exe));
+  some_exe = some_exe.AppendASCII("Company")
+      .AppendASCII("Product")
+      .AppendASCII("product.exe");
+  EXPECT_TRUE(InstallUtil::IsPerUserInstall(some_exe));
+#endif  // defined(_WIN64)
 }

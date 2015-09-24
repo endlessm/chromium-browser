@@ -5,6 +5,7 @@
 #include "content/renderer/pepper/audio_helper.h"
 
 #include "base/logging.h"
+#include "content/common/pepper_file_util.h"
 #include "ppapi/c/pp_completion_callback.h"
 #include "ppapi/c/pp_errors.h"
 
@@ -20,28 +21,17 @@ AudioHelper::~AudioHelper() {}
 
 int32_t AudioHelper::GetSyncSocketImpl(int* sync_socket) {
   if (socket_for_create_callback_) {
-#if defined(OS_POSIX)
-    *sync_socket = socket_for_create_callback_->handle();
-#elif defined(OS_WIN)
-    *sync_socket = reinterpret_cast<int>(socket_for_create_callback_->handle());
-#else
-#error "Platform not supported."
-#endif
+    *sync_socket = IntegerFromSyncSocketHandle(
+        socket_for_create_callback_->handle());
     return PP_OK;
   }
   return PP_ERROR_FAILED;
 }
 
-int32_t AudioHelper::GetSharedMemoryImpl(int* shm_handle, uint32_t* shm_size) {
+int32_t AudioHelper::GetSharedMemoryImpl(base::SharedMemory** shm,
+                                         uint32_t* shm_size) {
   if (shared_memory_for_create_callback_) {
-#if defined(OS_POSIX)
-    *shm_handle = shared_memory_for_create_callback_->handle().fd;
-#elif defined(OS_WIN)
-    *shm_handle =
-        reinterpret_cast<int>(shared_memory_for_create_callback_->handle());
-#else
-#error "Platform not supported."
-#endif
+    *shm = shared_memory_for_create_callback_.get();
     *shm_size = shared_memory_size_for_create_callback_;
     return PP_OK;
   }

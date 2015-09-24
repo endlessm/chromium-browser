@@ -11,8 +11,9 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/threading/thread_checker.h"
 #include "chrome/browser/chromeos/drive/file_errors.h"
-#include "google_apis/drive/gdata_errorcode.h"
+#include "google_apis/drive/drive_api_error_codes.h"
 
 namespace base {
 class FilePath;
@@ -63,6 +64,8 @@ class MoveOperation {
   scoped_refptr<base::SequencedTaskRunner> blocking_task_runner_;
   OperationDelegate* delegate_;
   internal::ResourceMetadata* metadata_;
+
+  base::ThreadChecker thread_checker_;
 
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate the weak pointers before any other members are destroyed.

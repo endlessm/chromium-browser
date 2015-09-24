@@ -23,7 +23,8 @@
         "AuditRules.js",
         "AuditExtensionCategory.js"
     ],
-    "stylesheets": [
-        "auditsPanel.css"
+    "resources": [
+        "auditsPanel.css",
+        "auditResultTree.css"
     ]
 }

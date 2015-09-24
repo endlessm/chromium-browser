@@ -4,11 +4,14 @@
 
 #import "chrome/browser/ui/cocoa/website_settings/permission_bubble_controller.h"
 
+#include <Carbon/Carbon.h>
+
 #include "base/mac/foundation_util.h"
+#include "base/mac/sdk_forward_declarations.h"
 #include "base/stl_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#import "chrome/browser/ui/cocoa/cocoa_test_helper.h"
+#import "chrome/browser/ui/cocoa/cocoa_profile_test.h"
 #include "chrome/browser/ui/cocoa/run_loop_testing.h"
 #import "chrome/browser/ui/cocoa/website_settings/permission_bubble_cocoa.h"
 #import "chrome/browser/ui/cocoa/website_settings/split_block_button.h"
@@ -39,8 +42,8 @@ const char* const kPermissionB = "Permission B";
 const char* const kPermissionC = "Permission C";
 }
 
-class PermissionBubbleControllerTest : public CocoaTest,
-  public PermissionBubbleView::Delegate {
+class PermissionBubbleControllerTest : public CocoaProfileTest,
+                                       public PermissionBubbleView::Delegate {
  public:
 
   MOCK_METHOD2(ToggleAccept, void(int, bool));
@@ -50,20 +53,20 @@ class PermissionBubbleControllerTest : public CocoaTest,
   MOCK_METHOD0(Closing, void());
   MOCK_METHOD1(SetView, void(PermissionBubbleView*));
 
-  virtual void SetUp() override {
-    CocoaTest::SetUp();
-    bridge_.reset(new PermissionBubbleCocoa(nil));
+  void SetUp() override {
+    CocoaProfileTest::SetUp();
+    bridge_.reset(new PermissionBubbleCocoa(browser()));
     AddRequest(kPermissionA);
     controller_ = [[PermissionBubbleController alloc]
         initWithParentWindow:test_window()
                       bridge:bridge_.get()];
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     [controller_ close];
     chrome::testing::NSRunLoopRunAllPending();
     STLDeleteElements(&requests_);
-    CocoaTest::TearDown();
+    CocoaProfileTest::TearDown();
   }
 
   void AddRequest(const std::string& title) {
@@ -129,20 +132,6 @@ class PermissionBubbleControllerTest : public CocoaTest,
     [menu performActionForItemAtIndex:[menu indexOfItem:next_item]];
   }
 
-  NSMenuItem* FindCustomizeMenuItem() {
-    NSButton* button = FindButtonWithTitle(IDS_PERMISSION_DENY);
-    if (!button || ![button isKindOfClass:[SplitBlockButton class]])
-      return nil;
-    NSString* customize = l10n_util::GetNSString(IDS_PERMISSION_CUSTOMIZE);
-    SplitBlockButton* block_button =
-        base::mac::ObjCCast<SplitBlockButton>(button);
-    for (NSMenuItem* item in [[block_button menu] itemArray]) {
-      if ([[item title] isEqualToString:customize])
-        return item;
-    }
-    return nil;
-  }
-
  protected:
   PermissionBubbleController* controller_;  // Weak;  it deletes itself.
   scoped_ptr<PermissionBubbleCocoa> bridge_;
@@ -160,81 +149,110 @@ TEST_F(PermissionBubbleControllerTest, ShowSinglePermission) {
   [controller_ showAtAnchor:NSZeroPoint
               withDelegate:this
                forRequests:requests_
-              acceptStates:accept_states_
-         customizationMode:NO];
+              acceptStates:accept_states_];
 
   EXPECT_TRUE(FindTextFieldWithString(kPermissionA));
   EXPECT_TRUE(FindButtonWithTitle(IDS_PERMISSION_ALLOW));
   EXPECT_TRUE(FindButtonWithTitle(IDS_PERMISSION_DENY));
   EXPECT_FALSE(FindButtonWithTitle(IDS_OK));
-  EXPECT_FALSE(FindCustomizeMenuItem());
 }
 
 TEST_F(PermissionBubbleControllerTest, ShowMultiplePermissions) {
   AddRequest(kPermissionB);
   AddRequest(kPermissionC);
 
+  accept_states_.push_back(true);  // A
+  accept_states_.push_back(true);  // B
+  accept_states_.push_back(true);  // C
+
   [controller_ showAtAnchor:NSZeroPoint
               withDelegate:this
                forRequests:requests_
-              acceptStates:accept_states_
-         customizationMode:NO];
+              acceptStates:accept_states_];
 
   EXPECT_TRUE(FindTextFieldWithString(kPermissionA));
   EXPECT_TRUE(FindTextFieldWithString(kPermissionB));
   EXPECT_TRUE(FindTextFieldWithString(kPermissionC));
 
-  EXPECT_TRUE(FindButtonWithTitle(IDS_PERMISSION_ALLOW));
-  EXPECT_TRUE(FindButtonWithTitle(IDS_PERMISSION_DENY));
-  EXPECT_TRUE(FindCustomizeMenuItem());
-  EXPECT_FALSE(FindButtonWithTitle(IDS_OK));
+  EXPECT_FALSE(FindButtonWithTitle(IDS_PERMISSION_ALLOW));
+  EXPECT_FALSE(FindButtonWithTitle(IDS_PERMISSION_DENY));
+  EXPECT_TRUE(FindButtonWithTitle(IDS_OK));
 }
 
-TEST_F(PermissionBubbleControllerTest, ShowCustomizationModeAllow) {
-  accept_states_.push_back(true);
+TEST_F(PermissionBubbleControllerTest, ShowMultiplePermissionsAllow) {
+  AddRequest(kPermissionB);
+
+  accept_states_.push_back(true);  // A
+  accept_states_.push_back(true);  // B
+
   [controller_ showAtAnchor:NSZeroPoint
                withDelegate:this
                 forRequests:requests_
-               acceptStates:accept_states_
-          customizationMode:YES];
+               acceptStates:accept_states_];
 
-  // Test that there is one menu, with 'Allow' visible.
+  // Test that all menus have 'Allow' visible.
   EXPECT_TRUE(FindMenuButtonWithTitle(IDS_PERMISSION_ALLOW));
   EXPECT_FALSE(FindMenuButtonWithTitle(IDS_PERMISSION_DENY));
 
   EXPECT_TRUE(FindButtonWithTitle(IDS_OK));
   EXPECT_FALSE(FindButtonWithTitle(IDS_PERMISSION_ALLOW));
   EXPECT_FALSE(FindButtonWithTitle(IDS_PERMISSION_DENY));
-  EXPECT_FALSE(FindCustomizeMenuItem());
 }
 
-TEST_F(PermissionBubbleControllerTest, ShowCustomizationModeBlock) {
-  accept_states_.push_back(false);
+TEST_F(PermissionBubbleControllerTest, ShowMultiplePermissionsBlock) {
+  AddRequest(kPermissionB);
+
+  accept_states_.push_back(false);  // A
+  accept_states_.push_back(false);  // B
+
   [controller_ showAtAnchor:NSZeroPoint
               withDelegate:this
                forRequests:requests_
-              acceptStates:accept_states_
-         customizationMode:YES];
+              acceptStates:accept_states_];
 
-  // Test that there is one menu, with 'Block' visible.
+  // Test that all menus have 'Block' visible.
   EXPECT_TRUE(FindMenuButtonWithTitle(IDS_PERMISSION_DENY));
   EXPECT_FALSE(FindMenuButtonWithTitle(IDS_PERMISSION_ALLOW));
 
   EXPECT_TRUE(FindButtonWithTitle(IDS_OK));
   EXPECT_FALSE(FindButtonWithTitle(IDS_PERMISSION_ALLOW));
   EXPECT_FALSE(FindButtonWithTitle(IDS_PERMISSION_DENY));
-  EXPECT_FALSE(FindCustomizeMenuItem());
 }
 
-TEST_F(PermissionBubbleControllerTest, OK) {
-  accept_states_.push_back(true);
+TEST_F(PermissionBubbleControllerTest, ShowMultiplePermissionsMixed) {
+  AddRequest(kPermissionB);
+  AddRequest(kPermissionC);
+
+  accept_states_.push_back(false);  // A
+  accept_states_.push_back(false);  // B
+  accept_states_.push_back(true);   // C
+
   [controller_ showAtAnchor:NSZeroPoint
               withDelegate:this
                forRequests:requests_
-              acceptStates:accept_states_
-         customizationMode:YES];
+              acceptStates:accept_states_];
 
-  EXPECT_CALL(*this, Closing()).Times(1);
+  // Test that both 'allow' and 'deny' are visible.
+  EXPECT_TRUE(FindMenuButtonWithTitle(IDS_PERMISSION_DENY));
+  EXPECT_TRUE(FindMenuButtonWithTitle(IDS_PERMISSION_ALLOW));
+
+  EXPECT_TRUE(FindButtonWithTitle(IDS_OK));
+  EXPECT_FALSE(FindButtonWithTitle(IDS_PERMISSION_ALLOW));
+  EXPECT_FALSE(FindButtonWithTitle(IDS_PERMISSION_DENY));
+}
+
+TEST_F(PermissionBubbleControllerTest, OK) {
+  AddRequest(kPermissionB);
+
+  accept_states_.push_back(true);  // A
+  accept_states_.push_back(true);  // B
+
+  [controller_ showAtAnchor:NSZeroPoint
+              withDelegate:this
+               forRequests:requests_
+              acceptStates:accept_states_];
+
+  EXPECT_CALL(*this, Accept()).Times(1);
   [FindButtonWithTitle(IDS_OK) performClick:nil];
 }
 
@@ -242,8 +260,7 @@ TEST_F(PermissionBubbleControllerTest, Allow) {
   [controller_ showAtAnchor:NSZeroPoint
               withDelegate:this
                forRequests:requests_
-              acceptStates:accept_states_
-         customizationMode:NO];
+              acceptStates:accept_states_];
 
   EXPECT_CALL(*this, Accept()).Times(1);
   [FindButtonWithTitle(IDS_PERMISSION_ALLOW) performClick:nil];
@@ -253,8 +270,7 @@ TEST_F(PermissionBubbleControllerTest, Deny) {
   [controller_ showAtAnchor:NSZeroPoint
               withDelegate:this
                forRequests:requests_
-              acceptStates:accept_states_
-         customizationMode:NO];
+              acceptStates:accept_states_];
 
   EXPECT_CALL(*this, Deny()).Times(1);
   [FindButtonWithTitle(IDS_PERMISSION_DENY) performClick:nil];
@@ -263,14 +279,13 @@ TEST_F(PermissionBubbleControllerTest, Deny) {
 TEST_F(PermissionBubbleControllerTest, ChangePermissionSelection) {
   AddRequest(kPermissionB);
 
-  accept_states_.push_back(true);
-  accept_states_.push_back(false);
+  accept_states_.push_back(true);   // A
+  accept_states_.push_back(false);  // B
 
   [controller_ showAtAnchor:NSZeroPoint
               withDelegate:this
                forRequests:requests_
-              acceptStates:accept_states_
-         customizationMode:YES];
+              acceptStates:accept_states_];
 
   EXPECT_CALL(*this, ToggleAccept(0, false)).Times(1);
   EXPECT_CALL(*this, ToggleAccept(1, true)).Times(1);
@@ -280,17 +295,47 @@ TEST_F(PermissionBubbleControllerTest, ChangePermissionSelection) {
   ChangePermissionMenuSelection(menu_b, IDS_PERMISSION_ALLOW);
 }
 
-TEST_F(PermissionBubbleControllerTest, ClickCustomize) {
-  AddRequest(kPermissionB);
+TEST_F(PermissionBubbleControllerTest, EscapeCloses) {
   [controller_ showAtAnchor:NSZeroPoint
-              withDelegate:this
-               forRequests:requests_
-              acceptStates:accept_states_
-         customizationMode:NO];
+               withDelegate:this
+                forRequests:requests_
+               acceptStates:accept_states_];
 
-  EXPECT_CALL(*this, SetCustomizationMode()).Times(1);
-  NSMenuItem* customize_item = FindCustomizeMenuItem();
-  EXPECT_TRUE(customize_item);
-  NSMenu* menu = [customize_item menu];
-  [menu performActionForItemAtIndex:[menu indexOfItem:customize_item]];
+  EXPECT_TRUE([[controller_ window] isVisible]);
+  [[controller_ window]
+      performKeyEquivalent:cocoa_test_event_utils::KeyEventWithKeyCode(
+                               kVK_Escape, '\e', NSKeyDown, 0)];
+  EXPECT_FALSE([[controller_ window] isVisible]);
+}
+
+TEST_F(PermissionBubbleControllerTest, EnterFullscreen) {
+  [controller_ showAtAnchor:NSZeroPoint
+               withDelegate:this
+                forRequests:requests_
+               acceptStates:accept_states_];
+
+  EXPECT_TRUE([[controller_ window] isVisible]);
+
+  // Post the "enter fullscreen" notification.
+  NSNotificationCenter* center = [NSNotificationCenter defaultCenter];
+  [center postNotificationName:NSWindowWillEnterFullScreenNotification
+                        object:test_window()];
+
+  EXPECT_TRUE([[controller_ window] isVisible]);
+}
+
+TEST_F(PermissionBubbleControllerTest, ExitFullscreen) {
+  [controller_ showAtAnchor:NSZeroPoint
+               withDelegate:this
+                forRequests:requests_
+               acceptStates:accept_states_];
+
+  EXPECT_TRUE([[controller_ window] isVisible]);
+
+  // Post the "enter fullscreen" notification.
+  NSNotificationCenter* center = [NSNotificationCenter defaultCenter];
+  [center postNotificationName:NSWindowWillExitFullScreenNotification
+                        object:test_window()];
+
+  EXPECT_TRUE([[controller_ window] isVisible]);
 }

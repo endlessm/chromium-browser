@@ -6,15 +6,17 @@
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
-#include "chrome/browser/ui/app_modal_dialogs/chrome_javascript_native_dialog_factory.h"
-#include "components/app_modal_dialogs/app_modal_dialog_queue.h"
-#include "components/app_modal_dialogs/javascript_app_modal_dialog.h"
-#include "components/app_modal_dialogs/javascript_dialog_manager.h"
-#include "components/app_modal_dialogs/javascript_native_dialog_factory.h"
+#include "chrome/browser/ui/app_modal/chrome_javascript_native_dialog_factory.h"
+#include "components/app_modal/app_modal_dialog_queue.h"
+#include "components/app_modal/javascript_app_modal_dialog.h"
+#include "components/app_modal/javascript_dialog_manager.h"
+#include "components/app_modal/javascript_native_dialog_factory.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/web_contents.h"
+#include "content/public/browser/web_contents_delegate.h"
 #include "content/public/common/javascript_message_type.h"
 #include "jni/JavascriptAppModalDialog_jni.h"
-#include "ui/base/android/window_android.h"
+#include "ui/android/window_android.h"
 
 using base::android::AttachCurrentThread;
 using base::android::ConvertUTF16ToJavaString;
@@ -23,7 +25,7 @@ using base::android::ScopedJavaLocalRef;
 
 JavascriptAppModalDialogAndroid::JavascriptAppModalDialogAndroid(
     JNIEnv* env,
-    JavaScriptAppModalDialog* dialog,
+    app_modal::JavaScriptAppModalDialog* dialog,
     gfx::NativeWindow parent)
     : dialog_(dialog),
       parent_jobject_weak_ref_(env, parent->GetJavaObject().obj()) {
@@ -118,6 +120,10 @@ void JavascriptAppModalDialogAndroid::CancelAppModalDialog() {
   delete this;
 }
 
+bool JavascriptAppModalDialogAndroid::IsShowing() const {
+  return true;
+}
+
 void JavascriptAppModalDialogAndroid::DidCancelAppModalDialog(
     JNIEnv* env, jobject, bool should_suppress_js_dialogs) {
   dialog_->OnCancel(should_suppress_js_dialogs);
@@ -131,7 +137,8 @@ const ScopedJavaGlobalRef<jobject>&
 
 // static
 jobject GetCurrentModalDialog(JNIEnv* env, jclass clazz) {
-  AppModalDialog* dialog = AppModalDialogQueue::GetInstance()->active_dialog();
+  app_modal::AppModalDialog* dialog =
+      app_modal::AppModalDialogQueue::GetInstance()->active_dialog();
   if (!dialog || !dialog->native_dialog())
     return NULL;
 
@@ -159,18 +166,19 @@ JavascriptAppModalDialogAndroid::~JavascriptAppModalDialogAndroid() {
 namespace {
 
 class ChromeJavaScriptNativeDialogAndroidFactory
-    : public JavaScriptNativeDialogFactory {
+    : public app_modal::JavaScriptNativeDialogFactory {
  public:
   ChromeJavaScriptNativeDialogAndroidFactory() {}
   ~ChromeJavaScriptNativeDialogAndroidFactory() override {}
 
  private:
-  NativeAppModalDialog* CreateNativeJavaScriptDialog(
-      JavaScriptAppModalDialog* dialog,
-      gfx::NativeWindow parent_window) override {
+  app_modal::NativeAppModalDialog* CreateNativeJavaScriptDialog(
+      app_modal::JavaScriptAppModalDialog* dialog) override {
+    dialog->web_contents()->GetDelegate()->ActivateContents(
+        dialog->web_contents());
     return new JavascriptAppModalDialogAndroid(
         base::android::AttachCurrentThread(),
-        dialog, parent_window);
+        dialog, dialog->web_contents()->GetTopLevelNativeWindow());
   }
 
   DISALLOW_COPY_AND_ASSIGN(ChromeJavaScriptNativeDialogAndroidFactory);
@@ -179,7 +187,8 @@ class ChromeJavaScriptNativeDialogAndroidFactory
 }  // namespace
 
 void InstallChromeJavaScriptNativeDialogFactory() {
-  SetJavaScriptNativeDialogFactory(
-      make_scoped_ptr(new ChromeJavaScriptNativeDialogAndroidFactory));
+  app_modal::JavaScriptDialogManager::GetInstance()->
+      SetNativeDialogFactory(
+          make_scoped_ptr(new ChromeJavaScriptNativeDialogAndroidFactory));
 }
 

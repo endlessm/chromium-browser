@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/views/bookmarks/bookmark_bar_view.h"
 
+#include "base/memory/scoped_ptr.h"
 #include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -25,6 +26,8 @@
 #include "components/search_engines/template_url_service_client.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/button/menu_button.h"
+
+using bookmarks::BookmarkNode;
 
 class BookmarkBarViewTest : public BrowserWithTestWindowTest {
  public:
@@ -122,12 +125,12 @@ class BookmarkBarViewTest : public BrowserWithTestWindowTest {
   scoped_ptr<BookmarkBarView> bookmark_bar_view_;
 
  private:
-  static KeyedService* CreateTemplateURLService(
+  static scoped_ptr<KeyedService> CreateTemplateURLService(
       content::BrowserContext* profile) {
-    return new TemplateURLService(
+    return make_scoped_ptr(new TemplateURLService(
         static_cast<Profile*>(profile)->GetPrefs(),
         make_scoped_ptr(new SearchTermsData), NULL,
-        scoped_ptr<TemplateURLServiceClient>(), NULL, NULL, base::Closure());
+        scoped_ptr<TemplateURLServiceClient>(), NULL, NULL, base::Closure()));
   }
 
   scoped_ptr<ScopedTestingLocalState> local_state_;
@@ -243,11 +246,13 @@ TEST_F(BookmarkBarViewTest, RemoveNode) {
   EXPECT_EQ(2, test_helper_->GetBookmarkButtonCount());
 
   // Remove the 2nd node, should still only have 1 visible.
-  BookmarkModelFactory::GetForProfile(profile())->Remove(bookmark_bar_node, 1);
+  BookmarkModelFactory::GetForProfile(profile())
+      ->Remove(bookmark_bar_node->GetChild(1));
   EXPECT_EQ("a", GetStringForVisibleButtons());
 
   // Remove the first node, should force a new button (for the 'c' node).
-  BookmarkModelFactory::GetForProfile(profile())->Remove(bookmark_bar_node, 0);
+  BookmarkModelFactory::GetForProfile(profile())
+      ->Remove(bookmark_bar_node->GetChild(0));
   ASSERT_EQ("c", GetStringForVisibleButtons());
 }
 

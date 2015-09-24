@@ -45,7 +45,7 @@ scoped_ptr<WebRequestActionSet> CreateSetOfActions(const char* json) {
   const base::ListValue* parsed_list;
   CHECK(parsed_value->GetAsList(&parsed_list));
 
-  WebRequestActionSet::AnyVector actions;
+  WebRequestActionSet::Values actions;
   for (base::ListValue::const_iterator it = parsed_list->begin();
        it != parsed_list->end();
        ++it) {
@@ -91,6 +91,10 @@ class WebRequestActionWithThreadsTest : public testing::Test {
   // executable for http://clients1.google.com.
   void CheckActionNeedsAllUrls(const char* action, RequestStage stage);
 
+ private:
+  content::TestBrowserThreadBundle thread_bundle_;
+
+ protected:
   net::TestURLRequestContext context_;
 
   // An extension with *.com host permissions and the DWR permission.
@@ -98,9 +102,6 @@ class WebRequestActionWithThreadsTest : public testing::Test {
   // An extension with host permissions for all URLs and the DWR permission.
   scoped_refptr<Extension> extension_all_urls_;
   scoped_refptr<InfoMap> extension_info_map_;
-
- private:
-  content::TestBrowserThreadBundle thread_bundle_;
 };
 
 void WebRequestActionWithThreadsTest::SetUp() {
@@ -141,7 +142,7 @@ bool WebRequestActionWithThreadsTest::ActionWorksOnRequest(
     const WebRequestActionSet* action_set,
     RequestStage stage) {
   scoped_ptr<net::URLRequest> regular_request(context_.CreateRequest(
-      GURL(url_string), net::DEFAULT_PRIORITY, NULL, NULL));
+      GURL(url_string), net::DEFAULT_PRIORITY, NULL));
   std::list<LinkedPtrEventResponseDelta> deltas;
   scoped_refptr<net::HttpResponseHeaders> headers(
       new net::HttpResponseHeaders(""));
@@ -220,7 +221,7 @@ TEST(WebRequestActionTest, CreateActionSet) {
   bool bad_message = false;
   scoped_ptr<WebRequestActionSet> result;
 
-  WebRequestActionSet::AnyVector input;
+  WebRequestActionSet::Values input;
 
   // Test empty input.
   error.clear();

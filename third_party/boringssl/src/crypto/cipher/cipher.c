@@ -94,14 +94,13 @@ EVP_CIPHER_CTX *EVP_CIPHER_CTX_new(void) {
 }
 
 int EVP_CIPHER_CTX_cleanup(EVP_CIPHER_CTX *c) {
-  if (c->cipher != NULL && c->cipher->cleanup && !c->cipher->cleanup(c)) {
-    return 0;
-  }
-
-  if (c->cipher_data) {
+  if (c->cipher != NULL) {
+    if (c->cipher->cleanup) {
+      c->cipher->cleanup(c);
+    }
     OPENSSL_cleanse(c->cipher_data, c->cipher->ctx_size);
-    OPENSSL_free(c->cipher_data);
   }
+  OPENSSL_free(c->cipher_data);
 
   memset(c, 0, sizeof(EVP_CIPHER_CTX));
   return 1;
@@ -165,6 +164,7 @@ int EVP_CipherInit_ex(EVP_CIPHER_CTX *ctx, const EVP_CIPHER *cipher,
     if (ctx->cipher->ctx_size) {
       ctx->cipher_data = OPENSSL_malloc(ctx->cipher->ctx_size);
       if (!ctx->cipher_data) {
+        ctx->cipher = NULL;
         OPENSSL_PUT_ERROR(CIPHER, EVP_CipherInit_ex, ERR_R_MALLOC_FAILURE);
         return 0;
       }
@@ -177,6 +177,7 @@ int EVP_CipherInit_ex(EVP_CIPHER_CTX *ctx, const EVP_CIPHER *cipher,
 
     if (ctx->cipher->flags & EVP_CIPH_CTRL_INIT) {
       if (!EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_INIT, 0, NULL)) {
+        ctx->cipher = NULL;
         OPENSSL_PUT_ERROR(CIPHER, EVP_CipherInit_ex, CIPHER_R_INITIALIZATION_ERROR);
         return 0;
       }
@@ -197,7 +198,6 @@ int EVP_CipherInit_ex(EVP_CIPHER_CTX *ctx, const EVP_CIPHER *cipher,
         break;
 
       case EVP_CIPH_CFB_MODE:
-      case EVP_CIPH_OFB_MODE:
         ctx->num = 0;
         /* fall-through */
 
@@ -210,6 +210,7 @@ int EVP_CipherInit_ex(EVP_CIPHER_CTX *ctx, const EVP_CIPHER *cipher,
         break;
 
       case EVP_CIPH_CTR_MODE:
+      case EVP_CIPH_OFB_MODE:
         ctx->num = 0;
         /* Don't reuse IV for CTR mode */
         if (iv) {
@@ -581,10 +582,6 @@ int EVP_CIPHER_CTX_set_key_length(EVP_CIPHER_CTX *c, unsigned key_len) {
 }
 
 int EVP_CIPHER_nid(const EVP_CIPHER *cipher) { return cipher->nid; }
-
-const char *EVP_CIPHER_name(const EVP_CIPHER *cipher) {
-  return OBJ_nid2sn(cipher->nid);
-}
 
 unsigned EVP_CIPHER_block_size(const EVP_CIPHER *cipher) {
   return cipher->block_size;

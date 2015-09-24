@@ -9,41 +9,52 @@
 #include <string>
 #include <vector>
 
+namespace bookmarks {
 class BookmarkModel;
 class BookmarkNode;
+}
 
 namespace enhanced_bookmarks {
 
-// Returns an ordered vector of bookmarks that are urls that match |query|.
-// |query| must be UTF8 encoded.
-std::vector<const BookmarkNode*> FindBookmarksWithQuery(
-    BookmarkModel* bookmark_model,
-    const std::string& query);
-
-// The vector is sorted in place.
-// All of the bookmarks in |nodes| must be urls.
-void SortBookmarksByName(std::vector<const BookmarkNode*>& nodes);
+// Possible locations where a bookmark can be opened from.
+// Please sync with the corresponding histograms.xml.
+//
+// A Java counterpart will be generated for this enum.
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.enhanced_bookmarks
+enum LaunchLocation {
+  ALL_ITEMS = 0,
+  UNCATEGORIZED = 1,  // Deprecated.
+  FOLDER = 2,
+  FILTER = 3,
+  SEARCH = 4,
+  BOOKMARK_EDITOR = 5,
+  COUNT = 6,
+};
 
 // Returns the permanent nodes whose url children are considered uncategorized
 // and whose folder children should be shown in the bookmark menu.
 // |model| must be loaded.
-std::vector<const BookmarkNode*> PrimaryPermanentNodes(BookmarkModel* model);
+std::vector<const bookmarks::BookmarkNode*> PrimaryPermanentNodes(
+    bookmarks::BookmarkModel* model);
 
 // Returns an unsorted vector of folders that are considered to be at the "root"
 // level of the bookmark hierarchy. Functionally, this means all direct
-// descendants of PrimaryPermanentNodes, and possibly a node for the bookmarks
-// bar.
-std::vector<const BookmarkNode*> RootLevelFolders(BookmarkModel* model);
+// descendants of PrimaryPermanentNodes.
+std::vector<const bookmarks::BookmarkNode*> RootLevelFolders(
+    bookmarks::BookmarkModel* model);
 
 // Returns whether |node| is a primary permanent node in the sense of
 // |PrimaryPermanentNodes|.
-bool IsPrimaryPermanentNode(const BookmarkNode* node, BookmarkModel* model);
+bool IsPrimaryPermanentNode(const bookmarks::BookmarkNode* node,
+                            bookmarks::BookmarkModel* model);
 
 // Returns the root level folder in which this node is directly, or indirectly
 // via subfolders, located.
-const BookmarkNode* RootLevelFolderForNode(const BookmarkNode* node,
-                                           BookmarkModel* model);
+const bookmarks::BookmarkNode* RootLevelFolderForNode(
+    const bookmarks::BookmarkNode* node,
+    bookmarks::BookmarkModel* model);
 
 }  // namespace enhanced_bookmarks
 
 #endif  // COMPONENTS_ENHANCED_BOOKMARKS_ENHANCED_BOOKMARK_UTILS_H_
+

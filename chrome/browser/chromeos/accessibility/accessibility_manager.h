@@ -7,6 +7,7 @@
 
 #include <set>
 
+#include "ash/session/session_state_observer.h"
 #include "base/callback_forward.h"
 #include "base/callback_list.h"
 #include "base/memory/weak_ptr.h"
@@ -15,16 +16,12 @@
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_util.h"
 #include "chrome/browser/extensions/api/braille_display_private/braille_controller.h"
-#include "chromeos/ime/input_method_manager.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_system.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
 #include "ui/chromeos/accessibility_types.h"
-
-#if !defined(USE_ATHENA)
-#include "ash/session/session_state_observer.h"
-#endif
 
 namespace content {
 class RenderViewHost;
@@ -76,9 +73,7 @@ typedef AccessibilityStatusCallbackList::Subscription
 class AccessibilityManager
     : public content::NotificationObserver,
       public extensions::api::braille_display_private::BrailleObserver,
-#if !defined(USE_ATHENA)
       public ash::SessionStateObserver,
-#endif
       public input_method::InputMethodManager::Observer {
  public:
   // Creates an instance of AccessibilityManager, this should be called once,
@@ -166,10 +161,8 @@ class AccessibilityManager
   // false.
   bool IsBrailleDisplayConnected() const;
 
-#if !defined(USE_ATHENA)
   // SessionStateObserver overrides:
-  virtual void ActiveUserChanged(const std::string& user_id) override;
-#endif
+  void ActiveUserChanged(const std::string& user_id) override;
 
   void SetProfileForTest(Profile* profile);
 
@@ -202,9 +195,12 @@ class AccessibilityManager
   // chromeos/audio/chromeos_sounds.h.
   void PlayEarcon(int sound_key);
 
+  // Profile having the a11y context.
+  Profile* profile() { return profile_; }
+
  protected:
   AccessibilityManager();
-  virtual ~AccessibilityManager();
+  ~AccessibilityManager() override;
 
  private:
   void LoadChromeVox();
@@ -233,22 +229,22 @@ class AccessibilityManager
   void UpdateChromeOSAccessibilityHistograms();
 
   // content::NotificationObserver
-  virtual void Observe(int type,
-                       const content::NotificationSource& source,
-                       const content::NotificationDetails& details) override;
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override;
 
   // extensions::api::braille_display_private::BrailleObserver implementation.
   // Enables spoken feedback if a braille display becomes available.
-  virtual void OnBrailleDisplayStateChanged(
+  void OnBrailleDisplayStateChanged(
       const extensions::api::braille_display_private::DisplayState&
           display_state) override;
-  virtual void OnBrailleKeyEvent(
+  void OnBrailleKeyEvent(
       const extensions::api::braille_display_private::KeyEvent& event) override;
 
   // InputMethodManager::Observer
-  virtual void InputMethodChanged(input_method::InputMethodManager* manager,
-                                  bool show_message) override;
-
+  void InputMethodChanged(input_method::InputMethodManager* manager,
+                          Profile* profile,
+                          bool show_message) override;
 
   // Profile which has the current a11y context.
   Profile* profile_;
@@ -261,9 +257,7 @@ class AccessibilityManager
   content::NotificationRegistrar notification_registrar_;
   scoped_ptr<PrefChangeRegistrar> pref_change_registrar_;
   scoped_ptr<PrefChangeRegistrar> local_state_pref_change_registrar_;
-#if !defined(USE_ATHENA)
   scoped_ptr<ash::ScopedSessionStateObserver> session_state_observer_;
-#endif
 
   PrefHandler large_cursor_pref_handler_;
   PrefHandler spoken_feedback_pref_handler_;

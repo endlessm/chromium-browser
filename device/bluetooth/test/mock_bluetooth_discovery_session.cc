@@ -15,8 +15,17 @@ namespace device {
 // test code.
 MockBluetoothDiscoverySession::MockBluetoothDiscoverySession()
     : BluetoothDiscoverySession(
-        scoped_refptr<BluetoothAdapter>(
-            new testing::NiceMock<MockBluetoothAdapter>())) {}
+          scoped_refptr<BluetoothAdapter>(
+              new testing::NiceMock<MockBluetoothAdapter>()),
+          nullptr) {
+}
 MockBluetoothDiscoverySession::~MockBluetoothDiscoverySession() {}
+
+void MockBluetoothDiscoverySession::SetDiscoveryFilter(
+    scoped_ptr<BluetoothDiscoveryFilter> discovery_filter,
+    const base::Closure& callback,
+    const ErrorCallback& error_callback) {
+  SetDiscoveryFilterRaw(discovery_filter.get(), callback, error_callback);
+}
 
 }  // namespace device

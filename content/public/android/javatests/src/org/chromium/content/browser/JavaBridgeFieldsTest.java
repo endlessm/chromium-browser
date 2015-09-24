@@ -6,6 +6,7 @@ package org.chromium.content.browser;
 
 import android.test.suitebuilder.annotation.SmallTest;
 
+import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.base.test.util.Feature;
 
 /**
@@ -13,6 +14,9 @@ import org.chromium.base.test.util.Feature;
  * use of fields.
  */
 public class JavaBridgeFieldsTest extends JavaBridgeTestBase {
+    @SuppressFBWarnings({
+            "CHROMIUM_SYNCHRONIZED_METHOD",
+            "URF_UNREAD_PUBLIC_OR_PROTECTED_FIELD"})
     private class TestObject extends Controller {
         private String mStringValue;
 
@@ -49,7 +53,7 @@ public class JavaBridgeFieldsTest extends JavaBridgeTestBase {
     protected void setUp() throws Exception {
         super.setUp();
         mTestObject = new TestObject();
-        setUpContentView(mTestObject, "testObject");
+        injectObjectAndReload(mTestObject, "testObject");
     }
 
     // Note that this requires that we can pass a JavaScript string to Java.

@@ -2,21 +2,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/autocomplete/zero_suggest_provider.h"
+#include "components/omnibox/browser/zero_suggest_provider.h"
 
 #include "base/metrics/field_trial.h"
 #include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier_factory.h"
+#include "chrome/browser/autocomplete/chrome_autocomplete_provider_client.h"
 #include "chrome/browser/autocomplete/chrome_autocomplete_scheme_classifier.h"
-#include "chrome/browser/history/top_sites.h"
+#include "chrome/browser/history/top_sites_factory.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/history/core/browser/top_sites.h"
 #include "components/metrics/proto/omnibox_event.pb.h"
-#include "components/omnibox/autocomplete_provider_listener.h"
-#include "components/omnibox/omnibox_field_trial.h"
+#include "components/omnibox/browser/autocomplete_provider_listener.h"
+#include "components/omnibox/browser/omnibox_field_trial.h"
+#include "components/omnibox/browser/omnibox_pref_names.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/variations/entropy_provider.h"
@@ -64,7 +67,6 @@ class FakeEmptyTopSites : public history::TopSites {
     return false;
   }
   void ClearBlacklistedURLs() override {}
-  void Shutdown() override {}
   base::CancelableTaskTracker::TaskId StartQueryForMostVisited() override {
     return 0;
   }
@@ -84,20 +86,21 @@ class FakeEmptyTopSites : public history::TopSites {
   bool loaded() const override {
     return false;
   }
-  history::MostVisitedURLList GetPrepopulatePages() override {
-    return history::MostVisitedURLList();
+  history::PrepopulatedPageList GetPrepopulatedPages() override {
+    return history::PrepopulatedPageList();
   }
   bool AddForcedURL(const GURL& url, const base::Time& time) override {
     return false;
   }
-  // content::NotificationObserver:
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override {}
+  void OnNavigationCommitted(const GURL& url) override {}
+
+  // RefcountedKeyedService:
+  void ShutdownOnUIThread() override {}
 
   // A test-specific field for controlling when most visited callback is run
   // after top sites have been requested.
   GetMostVisitedURLsCallback mv_callback;
+
  protected:
   ~FakeEmptyTopSites() override {}
 };
@@ -108,7 +111,13 @@ void FakeEmptyTopSites::GetMostVisitedURLs(
   mv_callback = callback;
 }
 
-} // namespace
+scoped_refptr<RefcountedKeyedService> BuildFakeEmptyTopSites(
+    content::BrowserContext* profile) {
+  scoped_refptr<history::TopSites> top_sites = new FakeEmptyTopSites();
+  return top_sites;
+}
+
+}  // namespace
 
 
 class ZeroSuggestProviderTest : public testing::Test,
@@ -135,16 +144,10 @@ class ZeroSuggestProviderTest : public testing::Test,
   // Needed for OmniboxFieldTrial::ActivateStaticTrials().
   scoped_ptr<base::FieldTrialList> field_trial_list_;
 
-  // URLFetcherFactory implementation registered.
   net::TestURLFetcherFactory test_factory_;
-
-  // Profile we use.
   TestingProfile profile_;
-
-  // ZeroSuggestProvider object under test.
+  scoped_ptr<ChromeAutocompleteProviderClient> client_;
   scoped_refptr<ZeroSuggestProvider> provider_;
-
-  // Default template URL.
   TemplateURL* default_t_url_;
 };
 
@@ -160,12 +163,14 @@ void ZeroSuggestProviderTest::SetUp() {
   AutocompleteClassifierFactory::GetInstance()->SetTestingFactoryAndUse(
       &profile_, &AutocompleteClassifierFactory::BuildInstanceFor);
 
+  client_.reset(new ChromeAutocompleteProviderClient(&profile_));
+
   TemplateURLService* turl_model =
       TemplateURLServiceFactory::GetForProfile(&profile_);
   turl_model->Load();
 
   TemplateURLData data;
-  data.short_name = base::ASCIIToUTF16("t");
+  data.SetShortName(base::ASCIIToUTF16("t"));
   data.SetURL("https://www.google.com/?q={searchTerms}");
   data.suggestions_url = "https://www.google.com/complete/?q={searchTerms}";
   data.instant_url = "https://does/not/exist?strk=1";
@@ -174,9 +179,9 @@ void ZeroSuggestProviderTest::SetUp() {
   turl_model->Add(default_t_url_);
   turl_model->SetUserSelectedDefaultSearchProvider(default_t_url_);
 
-  profile_.SetTopSites(new FakeEmptyTopSites());
-
-  provider_ = ZeroSuggestProvider::Create(this, turl_model, &profile_);
+  TopSitesFactory* top_sites_factory = TopSitesFactory::GetInstance();
+  top_sites_factory->SetTestingFactory(&profile_, BuildFakeEmptyTopSites);
+  provider_ = ZeroSuggestProvider::Create(client_.get(), this);
 }
 
 void ZeroSuggestProviderTest::TearDown() {
@@ -218,36 +223,62 @@ void ZeroSuggestProviderTest::CreateMostVisitedFieldTrial() {
       OmniboxFieldTrial::kBundledExperimentFieldTrialName, "A");
 }
 
+TEST_F(ZeroSuggestProviderTest, TestDoesNotReturnMatchesForPrefix) {
+  CreatePersonalizedFieldTrial();
+
+  std::string url("http://www.cnn.com/");
+  AutocompleteInput input(
+      base::ASCIIToUTF16(url), base::string16::npos, std::string(), GURL(url),
+      metrics::OmniboxEventProto::INVALID_SPEC, true, false, true, true, false,
+      ChromeAutocompleteSchemeClassifier(&profile_));
+
+  // Set up the pref to cache the response from the previous run.
+  std::string json_response("[\"\",[\"search1\", \"search2\", \"search3\"],"
+      "[],[],{\"google:suggestrelevance\":[602, 601, 600],"
+      "\"google:verbatimrelevance\":1300}]");
+  PrefService* prefs = profile_.GetPrefs();
+  prefs->SetString(omnibox::kZeroSuggestCachedResults, json_response);
+
+  provider_->Start(input, false);
+
+  // Expect that matches don't get populated out of cache because we are not
+  // in zero suggest mode.
+  EXPECT_TRUE(provider_->matches().empty());
+
+  // Expect that fetcher did not get created.
+  net::TestURLFetcher* fetcher = test_factory_.GetFetcherByID(1);
+  EXPECT_FALSE(fetcher);
+}
+
 TEST_F(ZeroSuggestProviderTest, TestMostVisitedCallback) {
   CreateMostVisitedFieldTrial();
 
   std::string current_url("http://www.foxnews.com/");
   std::string input_url("http://www.cnn.com/");
-  AutocompleteInput input(base::ASCIIToUTF16(input_url), base::string16::npos,
-                          std::string(), GURL(current_url),
-                          metrics::OmniboxEventProto::OTHER, false, false,
-                          true, true,
-                          ChromeAutocompleteSchemeClassifier(&profile_));
+  AutocompleteInput input(
+      base::ASCIIToUTF16(input_url), base::string16::npos, std::string(),
+      GURL(current_url), metrics::OmniboxEventProto::OTHER, false, false, true,
+      true, true, ChromeAutocompleteSchemeClassifier(&profile_));
   history::MostVisitedURLList urls;
   history::MostVisitedURL url(GURL("http://foo.com/"),
-                              base::ASCIIToUTF16(std::string("Foo")));
+                              base::ASCIIToUTF16("Foo"));
   urls.push_back(url);
 
   provider_->Start(input, false);
   EXPECT_TRUE(provider_->matches().empty());
-  static_cast<FakeEmptyTopSites*>(profile_.GetTopSites())->mv_callback.Run(
-      urls);
+  scoped_refptr<history::TopSites> top_sites =
+      TopSitesFactory::GetForProfile(&profile_);
+  static_cast<FakeEmptyTopSites*>(top_sites.get())->mv_callback.Run(urls);
   // Should have verbatim match + most visited url match.
   EXPECT_EQ(2U, provider_->matches().size());
-  provider_->Stop(false);
+  provider_->Stop(false, false);
 
   provider_->Start(input, false);
-  provider_->Stop(false);
+  provider_->Stop(false, false);
   EXPECT_TRUE(provider_->matches().empty());
   // Most visited results arriving after Stop() has been called, ensure they
   // are not displayed.
-  static_cast<FakeEmptyTopSites*>(profile_.GetTopSites())->mv_callback.Run(
-      urls);
+  static_cast<FakeEmptyTopSites*>(top_sites.get())->mv_callback.Run(urls);
   EXPECT_TRUE(provider_->matches().empty());
 }
 
@@ -256,14 +287,13 @@ TEST_F(ZeroSuggestProviderTest, TestMostVisitedNavigateToSearchPage) {
 
   std::string current_url("http://www.foxnews.com/");
   std::string input_url("http://www.cnn.com/");
-  AutocompleteInput input(base::ASCIIToUTF16(input_url), base::string16::npos,
-                          std::string(), GURL(current_url),
-                          metrics::OmniboxEventProto::OTHER, false, false,
-                          true, true,
-                          ChromeAutocompleteSchemeClassifier(&profile_));
+  AutocompleteInput input(
+      base::ASCIIToUTF16(input_url), base::string16::npos, std::string(),
+      GURL(current_url), metrics::OmniboxEventProto::OTHER, false, false, true,
+      true, true, ChromeAutocompleteSchemeClassifier(&profile_));
   history::MostVisitedURLList urls;
   history::MostVisitedURL url(GURL("http://foo.com/"),
-                              base::ASCIIToUTF16(std::string("Foo")));
+                              base::ASCIIToUTF16("Foo"));
   urls.push_back(url);
 
   provider_->Start(input, false);
@@ -272,23 +302,18 @@ TEST_F(ZeroSuggestProviderTest, TestMostVisitedNavigateToSearchPage) {
 
   std::string search_url("https://www.google.com/?q=flowers");
   AutocompleteInput srp_input(
-      base::ASCIIToUTF16(search_url),
-      base::string16::npos,
-      std::string(),
-      GURL(search_url),
-      metrics::OmniboxEventProto::
-          SEARCH_RESULT_PAGE_DOING_SEARCH_TERM_REPLACEMENT,
-      false,
-      false,
-      true,
-      true,
+      base::ASCIIToUTF16(search_url), base::string16::npos, std::string(),
+      GURL(search_url), metrics::OmniboxEventProto::
+                            SEARCH_RESULT_PAGE_DOING_SEARCH_TERM_REPLACEMENT,
+      false, false, true, true, true,
       ChromeAutocompleteSchemeClassifier(&profile_));
 
   provider_->Start(srp_input, false);
   EXPECT_TRUE(provider_->matches().empty());
   // Most visited results arriving after a new request has been started.
-  static_cast<FakeEmptyTopSites*>(profile_.GetTopSites())->mv_callback.Run(
-      urls);
+  scoped_refptr<history::TopSites> top_sites =
+      TopSitesFactory::GetForProfile(&profile_);
+  static_cast<FakeEmptyTopSites*>(top_sites.get())->mv_callback.Run(urls);
   EXPECT_TRUE(provider_->matches().empty());
 }
 
@@ -297,18 +322,17 @@ TEST_F(ZeroSuggestProviderTest, TestPsuggestZeroSuggestCachingFirstRun) {
 
   // Ensure the cache is empty.
   PrefService* prefs = profile_.GetPrefs();
-  prefs->SetString(prefs::kZeroSuggestCachedResults, std::string());
+  prefs->SetString(omnibox::kZeroSuggestCachedResults, std::string());
 
   std::string url("http://www.cnn.com/");
-  AutocompleteInput input(base::ASCIIToUTF16(url), base::string16::npos,
-                          std::string(), GURL(url),
-                          metrics::OmniboxEventProto::INVALID_SPEC, true, false,
-                          true, true,
-                          ChromeAutocompleteSchemeClassifier(&profile_));
+  AutocompleteInput input(
+      base::ASCIIToUTF16(url), base::string16::npos, std::string(), GURL(url),
+      metrics::OmniboxEventProto::INVALID_SPEC, true, false, true, true, true,
+      ChromeAutocompleteSchemeClassifier(&profile_));
 
   provider_->Start(input, false);
 
-  EXPECT_TRUE(prefs->GetString(prefs::kZeroSuggestCachedResults).empty());
+  EXPECT_TRUE(prefs->GetString(omnibox::kZeroSuggestCachedResults).empty());
   EXPECT_TRUE(provider_->matches().empty());
 
   net::TestURLFetcher* fetcher = test_factory_.GetFetcherByID(1);
@@ -323,25 +347,25 @@ TEST_F(ZeroSuggestProviderTest, TestPsuggestZeroSuggestCachingFirstRun) {
   base::RunLoop().RunUntilIdle();
 
   EXPECT_EQ(4U, provider_->matches().size());  // 3 results + verbatim
-  EXPECT_EQ(json_response, prefs->GetString(prefs::kZeroSuggestCachedResults));
+  EXPECT_EQ(json_response,
+            prefs->GetString(omnibox::kZeroSuggestCachedResults));
 }
 
 TEST_F(ZeroSuggestProviderTest, TestPsuggestZeroSuggestHasCachedResults) {
   CreatePersonalizedFieldTrial();
 
   std::string url("http://www.cnn.com/");
-  AutocompleteInput input(base::ASCIIToUTF16(url), base::string16::npos,
-                          std::string(), GURL(url),
-                          metrics::OmniboxEventProto::INVALID_SPEC, true, false,
-                          true, true,
-                          ChromeAutocompleteSchemeClassifier(&profile_));
+  AutocompleteInput input(
+      base::ASCIIToUTF16(url), base::string16::npos, std::string(), GURL(url),
+      metrics::OmniboxEventProto::INVALID_SPEC, true, false, true, true, true,
+      ChromeAutocompleteSchemeClassifier(&profile_));
 
   // Set up the pref to cache the response from the previous run.
   std::string json_response("[\"\",[\"search1\", \"search2\", \"search3\"],"
       "[],[],{\"google:suggestrelevance\":[602, 601, 600],"
       "\"google:verbatimrelevance\":1300}]");
   PrefService* prefs = profile_.GetPrefs();
-  prefs->SetString(prefs::kZeroSuggestCachedResults, json_response);
+  prefs->SetString(omnibox::kZeroSuggestCachedResults, json_response);
 
   provider_->Start(input, false);
 
@@ -370,25 +394,24 @@ TEST_F(ZeroSuggestProviderTest, TestPsuggestZeroSuggestHasCachedResults) {
 
   // Expect the new results have been stored.
   EXPECT_EQ(json_response2,
-            prefs->GetString(prefs::kZeroSuggestCachedResults));
+            prefs->GetString(omnibox::kZeroSuggestCachedResults));
 }
 
 TEST_F(ZeroSuggestProviderTest, TestPsuggestZeroSuggestReceivedEmptyResults) {
   CreatePersonalizedFieldTrial();
 
   std::string url("http://www.cnn.com/");
-  AutocompleteInput input(base::ASCIIToUTF16(url), base::string16::npos,
-                          std::string(), GURL(url),
-                          metrics::OmniboxEventProto::INVALID_SPEC, true, false,
-                          true, true,
-                          ChromeAutocompleteSchemeClassifier(&profile_));
+  AutocompleteInput input(
+      base::ASCIIToUTF16(url), base::string16::npos, std::string(), GURL(url),
+      metrics::OmniboxEventProto::INVALID_SPEC, true, false, true, true, true,
+      ChromeAutocompleteSchemeClassifier(&profile_));
 
   // Set up the pref to cache the response from the previous run.
   std::string json_response("[\"\",[\"search1\", \"search2\", \"search3\"],"
       "[],[],{\"google:suggestrelevance\":[602, 601, 600],"
       "\"google:verbatimrelevance\":1300}]");
   PrefService* prefs = profile_.GetPrefs();
-  prefs->SetString(prefs::kZeroSuggestCachedResults, json_response);
+  prefs->SetString(omnibox::kZeroSuggestCachedResults, json_response);
 
   provider_->Start(input, false);
 
@@ -412,5 +435,5 @@ TEST_F(ZeroSuggestProviderTest, TestPsuggestZeroSuggestReceivedEmptyResults) {
 
   // Expect the new results have been stored.
   EXPECT_EQ(empty_response,
-            prefs->GetString(prefs::kZeroSuggestCachedResults));
+            prefs->GetString(omnibox::kZeroSuggestCachedResults));
 }

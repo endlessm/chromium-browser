@@ -5,6 +5,7 @@
 #include "cc/test/test_in_process_context_provider.h"
 
 #include "base/lazy_instance.h"
+#include "cc/resources/platform_color.h"
 #include "gpu/GLES2/gl2extchromium.h"
 #include "gpu/command_buffer/client/gl_in_process_context.h"
 #include "gpu/command_buffer/client/gles2_implementation.h"
@@ -124,16 +125,35 @@ class GrContext* TestInProcessContextProvider::GrContext() {
   return gr_context_.get();
 }
 
+void TestInProcessContextProvider::InvalidateGrContext(uint32_t state) {
+  if (gr_context_)
+    gr_context_.get()->resetContext(state);
+}
+
+void TestInProcessContextProvider::SetupLock() {
+}
+
+base::Lock* TestInProcessContextProvider::GetLock() {
+  return &context_lock_;
+}
+
 ContextProvider::Capabilities
 TestInProcessContextProvider::ContextCapabilities() {
   ContextProvider::Capabilities capabilities;
   capabilities.gpu.image = true;
   capabilities.gpu.texture_rectangle = true;
 
+  switch (PlatformColor::Format()) {
+    case PlatformColor::SOURCE_FORMAT_RGBA8:
+      capabilities.gpu.texture_format_bgra8888 = false;
+      break;
+    case PlatformColor::SOURCE_FORMAT_BGRA8:
+      capabilities.gpu.texture_format_bgra8888 = true;
+      break;
+  }
+
   return capabilities;
 }
-
-bool TestInProcessContextProvider::IsContextLost() { return false; }
 
 void TestInProcessContextProvider::VerifyContexts() {}
 

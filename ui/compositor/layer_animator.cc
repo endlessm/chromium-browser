@@ -4,9 +4,9 @@
 
 #include "ui/compositor/layer_animator.h"
 
-#include "base/debug/trace_event.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/trace_event/trace_event.h"
 #include "cc/animation/animation_id_provider.h"
 #include "cc/output/begin_frame_args.h"
 #include "ui/compositor/compositor.h"
@@ -15,7 +15,6 @@
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/compositor/layer_animation_sequence.h"
 #include "ui/compositor/layer_animator_collection.h"
-#include "ui/gfx/frame_time.h"
 
 #define SAFE_INVOKE_VOID(function, running_anim, ...) \
     if (running_anim.is_sequence_alive()) \
@@ -182,7 +181,7 @@ void LayerAnimator::StartTogether(
     if (collection && collection->HasActiveAnimators())
       last_step_time_ = collection->last_tick_time();
     else
-      last_step_time_ = gfx::FrameTime::Now();
+      last_step_time_ = base::TimeTicks::Now();
   }
 
   // Collect all the affected properties.
@@ -409,7 +408,7 @@ void LayerAnimator::Step(base::TimeTicks now) {
 
 void LayerAnimator::StopAnimatingInternal(bool abort) {
   scoped_refptr<LayerAnimator> retain(this);
-  while (is_animating()) {
+  while (is_animating() && delegate()) {
     // We're going to attempt to finish the first running animation. Let's
     // ensure that it's valid.
     PurgeDeletedAnimations();
@@ -517,6 +516,8 @@ void LayerAnimator::FinishAnimation(
     sequence->Abort(delegate());
   else
     ProgressAnimationToEnd(sequence);
+  if (!delegate())
+    return;
   ProcessQueue();
   UpdateAnimationState();
 }
@@ -757,10 +758,7 @@ bool LayerAnimator::StartSequenceImmediately(LayerAnimationSequence* sequence) {
       return false;
   }
 
-  // All clear, actually start the sequence. Note: base::TimeTicks::Now has
-  // a resolution that can be as bad as 15ms. If this causes glitches in the
-  // animations, this can be switched to HighResNow() (animation uses Now()
-  // internally).
+  // All clear, actually start the sequence.
   // All LayerAnimators share the same LayerAnimatorCollection. Use the
   // last_tick_time() from there to ensure animations started during the same
   // event complete at the same time.
@@ -771,7 +769,7 @@ bool LayerAnimator::StartSequenceImmediately(LayerAnimationSequence* sequence) {
   else if (collection && collection->HasActiveAnimators())
     start_time = collection->last_tick_time();
   else
-    start_time = gfx::FrameTime::Now();
+    start_time = base::TimeTicks::Now();
 
   if (!sequence->animation_group_id())
     sequence->set_animation_group_id(cc::AnimationIdProvider::NextGroupId());
@@ -802,7 +800,7 @@ void LayerAnimator::GetTargetValue(
 
 void LayerAnimator::OnScheduled(LayerAnimationSequence* sequence) {
   if (observers_.might_have_observers()) {
-    ObserverListBase<LayerAnimationObserver>::Iterator it(observers_);
+    base::ObserverListBase<LayerAnimationObserver>::Iterator it(&observers_);
     LayerAnimationObserver* obs;
     while ((obs = it.GetNext()) != NULL) {
       sequence->AddObserver(obs);

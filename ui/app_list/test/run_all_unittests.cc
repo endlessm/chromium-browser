@@ -7,6 +7,7 @@
 #include "base/compiler_specific.h"
 #include "base/path_service.h"
 #include "base/test/launcher/unit_test_launcher.h"
+#include "base/test/test_discardable_memory_allocator.h"
 #include "base/test/test_suite.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -14,7 +15,9 @@
 
 #if defined(OS_MACOSX)
 #include "base/test/mock_chrome_application_mac.h"
-#else
+#endif
+
+#if defined(TOOLKIT_VIEWS)
 #include "ui/gl/gl_surface.h"
 #endif
 
@@ -28,7 +31,8 @@ class AppListTestSuite : public base::TestSuite {
   void Initialize() override {
 #if defined(OS_MACOSX)
     mock_cr_app::RegisterMockCrApp();
-#else
+#endif
+#if defined(TOOLKIT_VIEWS)
     gfx::GLSurface::InitializeOneOffForTests();
 #endif
     base::TestSuite::Initialize();
@@ -37,6 +41,9 @@ class AppListTestSuite : public base::TestSuite {
     base::FilePath ui_test_pak_path;
     ASSERT_TRUE(PathService::Get(ui::UI_TEST_PAK, &ui_test_pak_path));
     ui::ResourceBundle::InitSharedInstanceWithPakPath(ui_test_pak_path);
+
+    base::DiscardableMemoryAllocator::SetInstance(
+        &discardable_memory_allocator_);
   }
 
   void Shutdown() override {
@@ -45,6 +52,8 @@ class AppListTestSuite : public base::TestSuite {
   }
 
  private:
+  base::TestDiscardableMemoryAllocator discardable_memory_allocator_;
+
   DISALLOW_COPY_AND_ASSIGN(AppListTestSuite);
 };
 

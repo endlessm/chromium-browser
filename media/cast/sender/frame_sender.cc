@@ -4,7 +4,8 @@
 
 #include "media/cast/sender/frame_sender.h"
 
-#include "base/debug/trace_event.h"
+#include "base/trace_event/trace_event.h"
+#include "media/cast/sender/sender_encoded_frame.h"
 
 namespace media {
 namespace cast {
@@ -25,7 +26,6 @@ const int kMaxFrameBurst = 5;
 FrameSender::FrameSender(scoped_refptr<CastEnvironment> cast_environment,
                          bool is_audio,
                          CastTransportSender* const transport_sender,
-                         base::TimeDelta rtcp_interval,
                          int rtp_timebase,
                          uint32 ssrc,
                          double max_frame_rate,
@@ -35,7 +35,6 @@ FrameSender::FrameSender(scoped_refptr<CastEnvironment> cast_environment,
     : cast_environment_(cast_environment),
       transport_sender_(transport_sender),
       ssrc_(ssrc),
-      rtcp_interval_(rtcp_interval),
       min_playout_delay_(min_playout_delay == base::TimeDelta() ?
                          max_playout_delay : min_playout_delay),
       max_playout_delay_(max_playout_delay),
@@ -62,17 +61,12 @@ FrameSender::~FrameSender() {
 
 void FrameSender::ScheduleNextRtcpReport() {
   DCHECK(cast_environment_->CurrentlyOn(CastEnvironment::MAIN));
-  base::TimeDelta time_to_next = rtcp_interval_;
-
-  time_to_next = std::max(
-      time_to_next, base::TimeDelta::FromMilliseconds(kMinSchedulingDelayMs));
 
   cast_environment_->PostDelayedTask(
-      CastEnvironment::MAIN,
-      FROM_HERE,
+      CastEnvironment::MAIN, FROM_HERE,
       base::Bind(&FrameSender::SendRtcpReport, weak_factory_.GetWeakPtr(),
                  true),
-      time_to_next);
+      base::TimeDelta::FromMilliseconds(kDefaultRtcpIntervalMs));
 }
 
 void FrameSender::SendRtcpReport(bool schedule_future_reports) {
@@ -199,7 +193,7 @@ base::TimeDelta FrameSender::GetAllowedInFlightMediaDuration() const {
 
 void FrameSender::SendEncodedFrame(
     int requested_bitrate_before_encode,
-    scoped_ptr<EncodedFrame> encoded_frame) {
+    scoped_ptr<SenderEncodedFrame> encoded_frame) {
   DCHECK(cast_environment_->CurrentlyOn(CastEnvironment::MAIN));
 
   VLOG(2) << SENDER_SSRC << "About to send another frame: last_sent="
@@ -227,7 +221,9 @@ void FrameSender::SendEncodedFrame(
       encoded_frame->rtp_timestamp,
       frame_id, static_cast<int>(encoded_frame->data.size()),
       encoded_frame->dependency == EncodedFrame::KEY,
-      requested_bitrate_before_encode);
+      requested_bitrate_before_encode,
+      encoded_frame->deadline_utilization,
+      encoded_frame->lossy_utilization);
 
   RecordLatestFrameTimestamps(frame_id,
                               encoded_frame->reference_time,

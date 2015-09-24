@@ -15,9 +15,9 @@
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/prerender/prerender_manager.h"
 #include "chrome/browser/prerender/prerender_manager_factory.h"
-#include "chrome/browser/prerender/prerender_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_util.h"
+#include "chrome/browser/task_management/web_contents_tags.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_instant_controller.h"
@@ -60,6 +60,9 @@ class BrowserNavigatorWebContentsAdoption {
  public:
   static void AttachTabHelpers(content::WebContents* contents) {
     TabHelpers::AttachTabHelpers(contents);
+
+    // Make the tab show up in the task manager.
+    task_management::WebContentsTags::CreateForTabContents(contents);
   }
 };
 
@@ -258,6 +261,7 @@ void LoadURLInContents(WebContents* target_contents,
                        const GURL& url,
                        chrome::NavigateParams* params) {
   NavigationController::LoadURLParams load_url_params(url);
+  load_url_params.source_site_instance = params->source_site_instance;
   load_url_params.referrer = params->referrer;
   load_url_params.frame_tree_node_id = params->frame_tree_node_id;
   load_url_params.redirect_chain = params->redirect_chain;
@@ -352,8 +356,7 @@ content::WebContents* CreateTargetContents(const chrome::NavigateParams& params,
   if (params.source_contents) {
     create_params.initial_size =
         params.source_contents->GetContainerBounds().size();
-    if (params.should_set_opener)
-      create_params.opener = params.source_contents;
+    create_params.created_with_opener = params.created_with_opener;
   }
   if (params.disposition == NEW_BACKGROUND_TAB)
     create_params.initially_hidden = true;
@@ -428,7 +431,7 @@ NavigateParams::NavigateParams(Browser* a_browser,
       initiating_profile(NULL),
       host_desktop_type(GetHostDesktop(a_browser)),
       should_replace_current_entry(false),
-      should_set_opener(false) {
+      created_with_opener(false) {
 }
 
 NavigateParams::NavigateParams(Browser* a_browser,
@@ -451,7 +454,7 @@ NavigateParams::NavigateParams(Browser* a_browser,
       initiating_profile(NULL),
       host_desktop_type(GetHostDesktop(a_browser)),
       should_replace_current_entry(false),
-      should_set_opener(false) {
+      created_with_opener(false) {
 }
 
 NavigateParams::NavigateParams(Profile* a_profile,
@@ -476,7 +479,7 @@ NavigateParams::NavigateParams(Profile* a_profile,
       initiating_profile(a_profile),
       host_desktop_type(chrome::GetActiveDesktop()),
       should_replace_current_entry(false),
-      should_set_opener(false) {
+      created_with_opener(false) {
 }
 
 NavigateParams::~NavigateParams() {}
@@ -484,6 +487,7 @@ NavigateParams::~NavigateParams() {}
 void FillNavigateParamsFromOpenURLParams(chrome::NavigateParams* nav_params,
                                          const content::OpenURLParams& params) {
   nav_params->referrer = params.referrer;
+  nav_params->source_site_instance = params.source_site_instance;
   nav_params->frame_tree_node_id = params.frame_tree_node_id;
   nav_params->redirect_chain = params.redirect_chain;
   nav_params->extra_headers = params.extra_headers;
@@ -620,15 +624,11 @@ void Navigate(NavigateParams* params) {
       // same as the source.
       DCHECK(params->source_contents);
       params->target_contents = params->source_contents;
-    }
 
-    // Note: at this point, if |params->disposition| is not CURRENT_TAB,
-    // |params->target_contents| has not been attached to a Browser yet. (That
-    // happens later in this function.) However, in that case, the
-    // sessionStorage namespace could not match, so prerender will use the
-    // asynchronous codepath and still swap.
-    DCHECK(params->target_contents);
-    swapped_in_prerender = SwapInPrerender(params->url, params);
+      // Prerender can only swap in CURRENT_TAB navigations; others have
+      // different sessionStorage namespaces.
+      swapped_in_prerender = SwapInPrerender(params->url, params);
+    }
 
     if (user_initiated)
       params->target_contents->UserGestureDone();
@@ -641,13 +641,6 @@ void Navigate(NavigateParams* params) {
         // renderer.
 
         LoadURLInContents(params->target_contents, params->url, params);
-        // For prerender bookkeeping purposes, record that this pending navigate
-        // originated from chrome::Navigate.
-        content::NavigationEntry* entry =
-            params->target_contents->GetController().GetPendingEntry();
-        if (entry)
-          entry->SetExtraData(prerender::kChromeNavigateExtraDataKey,
-                              base::string16());
       }
     }
   } else {
@@ -697,13 +690,6 @@ void Navigate(NavigateParams* params) {
     } else if (params->path_behavior == NavigateParams::IGNORE_AND_NAVIGATE &&
         target->GetURL() != params->url) {
       LoadURLInContents(target, params->url, params);
-      // For prerender bookkeeping purposes, record that this pending navigate
-      // originated from chrome::Navigate.
-      content::NavigationEntry* entry =
-          target->GetController().GetPendingEntry();
-      if (entry)
-        entry->SetExtraData(prerender::kChromeNavigateExtraDataKey,
-                            base::string16());
     }
 
     // If the singleton tab isn't already selected, select it.

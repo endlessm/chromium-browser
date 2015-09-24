@@ -31,6 +31,9 @@ class ExtensionWebRequestHelpersTestWithThreadsTest : public testing::Test {
  protected:
   void SetUp() override;
 
+ private:
+  content::TestBrowserThreadBundle thread_bundle_;
+
  protected:
   net::TestURLRequestContext context;
 
@@ -39,9 +42,6 @@ class ExtensionWebRequestHelpersTestWithThreadsTest : public testing::Test {
   // This extension has Web Request permissions, and *.com a host permission.
   scoped_refptr<Extension> com_extension_;
   scoped_refptr<extensions::InfoMap> extension_info_map_;
-
- private:
-  content::TestBrowserThreadBundle thread_bundle_;
 };
 
 void ExtensionWebRequestHelpersTestWithThreadsTest::SetUp() {
@@ -95,14 +95,12 @@ TEST_F(ExtensionWebRequestHelpersTestWithThreadsTest, TestHideRequestForURL) {
   const char* const non_sensitive_urls[] = {
       "http://www.google.com/"
   };
-  const int kSigninProcessId = 99;
-  extension_info_map_->SetSigninProcess(kSigninProcessId);
 
   // Check that requests are rejected based on the destination
   for (size_t i = 0; i < arraysize(sensitive_urls); ++i) {
     GURL sensitive_url(sensitive_urls[i]);
     scoped_ptr<net::URLRequest> request(context.CreateRequest(
-        sensitive_url, net::DEFAULT_PRIORITY, NULL, NULL));
+        sensitive_url, net::DEFAULT_PRIORITY, NULL));
     EXPECT_TRUE(WebRequestPermissions::HideRequest(
         extension_info_map_.get(), request.get())) << sensitive_urls[i];
   }
@@ -110,7 +108,7 @@ TEST_F(ExtensionWebRequestHelpersTestWithThreadsTest, TestHideRequestForURL) {
   for (size_t i = 0; i < arraysize(non_sensitive_urls); ++i) {
     GURL non_sensitive_url(non_sensitive_urls[i]);
     scoped_ptr<net::URLRequest> request(context.CreateRequest(
-        non_sensitive_url, net::DEFAULT_PRIORITY, NULL, NULL));
+        non_sensitive_url, net::DEFAULT_PRIORITY, NULL));
     EXPECT_FALSE(WebRequestPermissions::HideRequest(
         extension_info_map_.get(), request.get())) << non_sensitive_urls[i];
   }
@@ -120,7 +118,7 @@ TEST_F(ExtensionWebRequestHelpersTestWithThreadsTest, TestHideRequestForURL) {
   // Normally this request is not protected:
   GURL non_sensitive_url("http://www.google.com/test.js");
   scoped_ptr<net::URLRequest> non_sensitive_request(context.CreateRequest(
-      non_sensitive_url, net::DEFAULT_PRIORITY, NULL, NULL));
+      non_sensitive_url, net::DEFAULT_PRIORITY, NULL));
   EXPECT_FALSE(WebRequestPermissions::HideRequest(
       extension_info_map_.get(), non_sensitive_request.get()));
   // If the origin is labeled by the WebStoreAppId, it becomes protected.
@@ -129,32 +127,19 @@ TEST_F(ExtensionWebRequestHelpersTestWithThreadsTest, TestHideRequestForURL) {
     int site_instance_id = 23;
     int view_id = 17;
     scoped_ptr<net::URLRequest> sensitive_request(context.CreateRequest(
-        non_sensitive_url, net::DEFAULT_PRIORITY, NULL, NULL));
+        non_sensitive_url, net::DEFAULT_PRIORITY, NULL));
     ResourceRequestInfo::AllocateForTesting(sensitive_request.get(),
                                             content::RESOURCE_TYPE_SCRIPT,
                                             NULL,
                                             process_id,
                                             view_id,
                                             MSG_ROUTING_NONE,
-                                            false);
+                                            false,   // is_main_frame
+                                            false,   // parent_is_main_frame
+                                            true,    // allow_download
+                                            false);  // is_async
     extension_info_map_->RegisterExtensionProcess(
         extensions::kWebStoreAppId, process_id, site_instance_id);
-    EXPECT_TRUE(WebRequestPermissions::HideRequest(
-        extension_info_map_.get(), sensitive_request.get()));
-  }
-  // If the process is the signin process, it becomes protected.
-  {
-    int process_id = kSigninProcessId;
-    int view_id = 19;
-    scoped_ptr<net::URLRequest> sensitive_request(context.CreateRequest(
-        non_sensitive_url, net::DEFAULT_PRIORITY, NULL, NULL));
-    ResourceRequestInfo::AllocateForTesting(sensitive_request.get(),
-                                            content::RESOURCE_TYPE_SCRIPT,
-                                            NULL,
-                                            process_id,
-                                            view_id,
-                                            MSG_ROUTING_NONE,
-                                            false);
     EXPECT_TRUE(WebRequestPermissions::HideRequest(
         extension_info_map_.get(), sensitive_request.get()));
   }
@@ -163,7 +148,7 @@ TEST_F(ExtensionWebRequestHelpersTestWithThreadsTest, TestHideRequestForURL) {
 TEST_F(ExtensionWebRequestHelpersTestWithThreadsTest,
        TestCanExtensionAccessURL_HostPermissions) {
   scoped_ptr<net::URLRequest> request(context.CreateRequest(
-      GURL("http://example.com"), net::DEFAULT_PRIORITY, NULL, NULL));
+      GURL("http://example.com"), net::DEFAULT_PRIORITY, NULL));
 
   EXPECT_TRUE(WebRequestPermissions::CanExtensionAccessURL(
       extension_info_map_.get(),

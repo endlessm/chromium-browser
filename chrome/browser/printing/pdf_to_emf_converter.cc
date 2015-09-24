@@ -12,12 +12,14 @@
 #include "base/logging.h"
 #include "chrome/common/chrome_utility_messages.h"
 #include "chrome/common/chrome_utility_printing_messages.h"
+#include "chrome/grit/generated_resources.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_data.h"
 #include "content/public/browser/utility_process_host.h"
 #include "content/public/browser/utility_process_host_client.h"
 #include "printing/emf_win.h"
 #include "printing/pdf_render_settings.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace printing {
 
@@ -58,11 +60,13 @@ typedef scoped_ptr<base::File, BrowserThread::DeleteOnFileThread>
 class LazyEmf : public MetafilePlayer {
  public:
   LazyEmf(const scoped_refptr<RefCountedTempDir>& temp_dir, ScopedTempFile file)
-      : temp_dir_(temp_dir), file_(file.Pass()) {}
-  virtual ~LazyEmf() { Close(); }
+      : temp_dir_(temp_dir), file_(file.Pass()) {
+    CHECK(file_);
+  }
+  ~LazyEmf() override { Close(); }
 
-  virtual bool SafePlayback(HDC hdc) const override;
-  virtual bool SaveTo(base::File* file) const override;
+  bool SafePlayback(HDC hdc) const override;
+  bool SaveTo(base::File* file) const override;
 
  private:
   void Close() const;
@@ -103,9 +107,9 @@ class PdfToEmfUtilityProcessHostClient
   void Stop();
 
   // UtilityProcessHostClient implementation.
-  virtual void OnProcessCrashed(int exit_code) override;
-  virtual void OnProcessLaunchFailed() override;
-  virtual bool OnMessageReceived(const IPC::Message& message) override;
+  void OnProcessCrashed(int exit_code) override;
+  void OnProcessLaunchFailed() override;
+  bool OnMessageReceived(const IPC::Message& message) override;
 
  private:
   class GetPageCallbackData {
@@ -131,7 +135,7 @@ class PdfToEmfUtilityProcessHostClient
     const PdfToEmfConverter::GetPageCallback& callback() const {
       return callback_;
     }
-    ScopedTempFile emf() { return emf_.Pass(); }
+    ScopedTempFile TakeEmf() { return emf_.Pass(); }
     void set_emf(ScopedTempFile emf) { emf_ = emf.Pass(); }
 
    private:
@@ -140,7 +144,7 @@ class PdfToEmfUtilityProcessHostClient
     ScopedTempFile emf_;
   };
 
-  virtual ~PdfToEmfUtilityProcessHostClient();
+  ~PdfToEmfUtilityProcessHostClient() override;
 
   bool Send(IPC::Message* msg);
 
@@ -179,14 +183,14 @@ class PdfToEmfConverterImpl : public PdfToEmfConverter {
  public:
   PdfToEmfConverterImpl();
 
-  virtual ~PdfToEmfConverterImpl();
+  ~PdfToEmfConverterImpl() override;
 
-  virtual void Start(const scoped_refptr<base::RefCountedMemory>& data,
-                     const PdfRenderSettings& conversion_settings,
-                     const StartCallback& start_callback) override;
+  void Start(const scoped_refptr<base::RefCountedMemory>& data,
+             const PdfRenderSettings& conversion_settings,
+             const StartCallback& start_callback) override;
 
-  virtual void GetPage(int page_number,
-                       const GetPageCallback& get_page_callback) override;
+  void GetPage(int page_number,
+               const GetPageCallback& get_page_callback) override;
 
   // Helps to cancel callbacks if this object is destroyed.
   void RunCallback(const base::Closure& callback);
@@ -205,16 +209,21 @@ ScopedTempFile CreateTempFile(scoped_refptr<RefCountedTempDir>* temp_dir) {
   if (!(*temp_dir)->IsValid())
     return file.Pass();
   base::FilePath path;
-  if (!base::CreateTemporaryFileInDir((*temp_dir)->GetPath(), &path))
+  if (!base::CreateTemporaryFileInDir((*temp_dir)->GetPath(), &path)) {
+    PLOG(ERROR) << "Failed to create file in "
+                << (*temp_dir)->GetPath().value();
     return file.Pass();
+  }
   file.reset(new base::File(path,
                             base::File::FLAG_CREATE_ALWAYS |
                             base::File::FLAG_WRITE |
                             base::File::FLAG_READ |
                             base::File::FLAG_DELETE_ON_CLOSE |
                             base::File::FLAG_TEMPORARY));
-  if (!file->IsValid())
+  if (!file->IsValid()) {
+    PLOG(ERROR) << "Failed to create " << path.value();
     file.reset();
+  }
   return file.Pass();
 }
 
@@ -228,6 +237,7 @@ ScopedTempFile CreateTempPdfFile(
       static_cast<int>(data->size()) !=
           pdf_file->WriteAtCurrentPos(data->front_as<char>(), data->size())) {
     pdf_file.reset();
+    return pdf_file.Pass();
   }
   pdf_file->Seek(base::File::FROM_BEGIN, 0);
   return pdf_file.Pass();
@@ -296,10 +306,9 @@ void PdfToEmfUtilityProcessHostClient::Start(
   // generate when sent to a metafile DC.
   utility_process_host_ =
       content::UtilityProcessHost::Create(
-          this, base::MessageLoop::current()->message_loop_proxy())
-          ->AsWeakPtr();
-  if (!utility_process_host_)
-    return OnFailed();
+          this, base::MessageLoop::current()->task_runner())->AsWeakPtr();
+  utility_process_host_->SetName(l10n_util::GetStringUTF16(
+      IDS_UTILITY_PROCESS_EMF_CONVERTOR_NAME));
   // Should reply with OnProcessStarted().
   Send(new ChromeUtilityMsg_StartupPing);
 }
@@ -320,7 +329,7 @@ void PdfToEmfUtilityProcessHostClient::OnProcessStarted() {
 
 void PdfToEmfUtilityProcessHostClient::OnTempPdfReady(ScopedTempFile pdf) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  if (!utility_process_host_)
+  if (!utility_process_host_ || !pdf)
     return OnFailed();
   base::ProcessHandle process = utility_process_host_->GetData().handle;
   // Should reply with OnPageCount().
@@ -374,7 +383,7 @@ void PdfToEmfUtilityProcessHostClient::OnTempEmfReady(
     GetPageCallbackData* callback_data,
     ScopedTempFile emf) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  if (!utility_process_host_)
+  if (!utility_process_host_ || !emf)
     return OnFailed();
   base::ProcessHandle process = utility_process_host_->GetData().handle;
   IPC::PlatformFileForTransit transit =
@@ -390,10 +399,16 @@ void PdfToEmfUtilityProcessHostClient::OnPageDone(bool success,
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (get_page_callbacks_.empty())
     return OnFailed();
-  scoped_ptr<MetafilePlayer> emf;
   GetPageCallbackData& data = get_page_callbacks_.front();
-  if (success)
-    emf.reset(new LazyEmf(temp_dir_, data.emf().Pass()));
+  scoped_ptr<MetafilePlayer> emf;
+
+  if (success) {
+    ScopedTempFile temp_emf = data.TakeEmf();
+    if (!temp_emf)  // Unexpected message from utility process.
+      return OnFailed();
+    emf.reset(new LazyEmf(temp_dir_, temp_emf.Pass()));
+  }
+
   BrowserThread::PostTask(BrowserThread::UI,
                           FROM_HERE,
                           base::Bind(&PdfToEmfConverterImpl::RunCallback,

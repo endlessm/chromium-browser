@@ -16,17 +16,19 @@ namespace skiagm {
 static uint16_t gData[] = { 0xFFFF, 0xCCCF, 0xCCCF, 0xFFFF };
 
 class ColorTypeXfermodeGM : public GM {
-    SkBitmap    fBG;
-
-    virtual void onOnceBeforeDraw() SK_OVERRIDE {
-        fBG.installPixels(SkImageInfo::Make(2, 2, kARGB_4444_SkColorType,
-                                            kOpaque_SkAlphaType), gData, 4);
-    }
-
 public:
     const static int W = 64;
     const static int H = 64;
-    ColorTypeXfermodeGM() {
+    ColorTypeXfermodeGM()
+        : fColorType(NULL) {
+    }
+
+    virtual ~ColorTypeXfermodeGM() {
+        SkSafeUnref(fColorType);
+    }
+
+protected:
+    void onOnceBeforeDraw() override {
         const SkColor colors[] = {
             SK_ColorRED, SK_ColorGREEN, SK_ColorBLUE,
             SK_ColorMAGENTA, SK_ColorCYAN, SK_ColorYELLOW
@@ -47,22 +49,20 @@ public:
         }
         fColorType = SkNEW_ARGS(SkGTypeface, (orig, paint));
         orig->unref();
+
+        fBG.installPixels(SkImageInfo::Make(2, 2, kARGB_4444_SkColorType,
+                                            kOpaque_SkAlphaType), gData, 4);
     }
 
-    virtual ~ColorTypeXfermodeGM() {
-        fColorType->unref();
-    }
-
-protected:
-    virtual SkString onShortName() {
+    virtual SkString onShortName() override {
         return SkString("colortype_xfermodes");
     }
 
-    virtual SkISize onISize() {
+    virtual SkISize onISize() override {
         return SkISize::Make(400, 640);
     }
 
-    virtual void onDraw(SkCanvas* canvas) {
+    virtual void onDraw(SkCanvas* canvas) override {
         canvas->translate(SkIntToScalar(10), SkIntToScalar(20));
 
         const struct {
@@ -156,11 +156,8 @@ protected:
         s->unref();
     }
 
-    virtual uint32_t onGetFlags() const {
-        return kSkipPipe_Flag | kSkipPicture_Flag;
-    }
-
 private:
+    SkBitmap    fBG;
     SkTypeface* fColorType;
 
     typedef GM INHERITED;

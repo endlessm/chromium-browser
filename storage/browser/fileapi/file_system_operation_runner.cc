@@ -5,16 +5,15 @@
 #include "storage/browser/fileapi/file_system_operation_runner.h"
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/stl_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "net/url_request/url_request_context.h"
 #include "storage/browser/blob/blob_url_request_job_factory.h"
+#include "storage/browser/blob/shareable_file_reference.h"
 #include "storage/browser/fileapi/file_observers.h"
 #include "storage/browser/fileapi/file_stream_writer.h"
 #include "storage/browser/fileapi/file_system_context.h"
-#include "storage/browser/fileapi/file_system_operation.h"
 #include "storage/browser/fileapi/file_writer_delegate.h"
-#include "storage/common/blob/shareable_file_reference.h"
 
 namespace storage {
 
@@ -87,6 +86,7 @@ OperationID FileSystemOperationRunner::Copy(
     const FileSystemURL& src_url,
     const FileSystemURL& dest_url,
     CopyOrMoveOption option,
+    ErrorBehavior error_behavior,
     const CopyProgressCallback& progress_callback,
     const StatusCallback& callback) {
   base::File::Error error = base::File::FILE_OK;
@@ -100,14 +100,13 @@ OperationID FileSystemOperationRunner::Copy(
   }
   PrepareForWrite(handle.id, dest_url);
   PrepareForRead(handle.id, src_url);
-  operation->Copy(
-      src_url, dest_url, option,
-      progress_callback.is_null() ?
-          CopyProgressCallback() :
-          base::Bind(&FileSystemOperationRunner::OnCopyProgress, AsWeakPtr(),
-                     handle, progress_callback),
-      base::Bind(&FileSystemOperationRunner::DidFinish, AsWeakPtr(),
-                 handle, callback));
+  operation->Copy(src_url, dest_url, option, error_behavior,
+                  progress_callback.is_null()
+                      ? CopyProgressCallback()
+                      : base::Bind(&FileSystemOperationRunner::OnCopyProgress,
+                                   AsWeakPtr(), handle, progress_callback),
+                  base::Bind(&FileSystemOperationRunner::DidFinish, AsWeakPtr(),
+                             handle, callback));
   return handle.id;
 }
 
@@ -260,12 +259,8 @@ OperationID FileSystemOperationRunner::Write(
     return handle.id;
   }
 
-  FileWriterDelegate::FlushPolicy flush_policy =
-      file_system_context_->ShouldFlushOnWriteCompletion(url.type())
-          ? FileWriterDelegate::FLUSH_ON_COMPLETION
-          : FileWriterDelegate::NO_FLUSH_ON_COMPLETION;
   scoped_ptr<FileWriterDelegate> writer_delegate(
-      new FileWriterDelegate(writer.Pass(), flush_policy));
+      new FileWriterDelegate(writer.Pass(), url.mount_option().flush_policy()));
 
   scoped_ptr<net::URLRequest> blob_request(
       storage::BlobProtocolHandler::CreateBlobRequest(
@@ -518,7 +513,7 @@ void FileSystemOperationRunner::DidFinish(
     base::File::Error rv) {
   if (handle.scope) {
     finished_operations_.insert(handle.id);
-    base::MessageLoopProxy::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(&FileSystemOperationRunner::DidFinish,
                               AsWeakPtr(), handle, callback, rv));
     return;
@@ -534,7 +529,7 @@ void FileSystemOperationRunner::DidGetMetadata(
     const base::File::Info& file_info) {
   if (handle.scope) {
     finished_operations_.insert(handle.id);
-    base::MessageLoopProxy::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(&FileSystemOperationRunner::DidGetMetadata,
                               AsWeakPtr(), handle, callback, rv, file_info));
     return;
@@ -551,7 +546,7 @@ void FileSystemOperationRunner::DidReadDirectory(
     bool has_more) {
   if (handle.scope) {
     finished_operations_.insert(handle.id);
-    base::MessageLoopProxy::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(&FileSystemOperationRunner::DidReadDirectory,
                               AsWeakPtr(), handle, callback, rv,
                               entries, has_more));
@@ -570,7 +565,7 @@ void FileSystemOperationRunner::DidWrite(
     bool complete) {
   if (handle.scope) {
     finished_operations_.insert(handle.id);
-    base::MessageLoopProxy::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(&FileSystemOperationRunner::DidWrite, AsWeakPtr(),
                               handle, callback, rv, bytes, complete));
     return;
@@ -587,7 +582,7 @@ void FileSystemOperationRunner::DidOpenFile(
     const base::Closure& on_close_callback) {
   if (handle.scope) {
     finished_operations_.insert(handle.id);
-    base::MessageLoopProxy::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(&FileSystemOperationRunner::DidOpenFile,
                               AsWeakPtr(), handle, callback, Passed(&file),
                               on_close_callback));
@@ -606,7 +601,7 @@ void FileSystemOperationRunner::DidCreateSnapshot(
     const scoped_refptr<storage::ShareableFileReference>& file_ref) {
   if (handle.scope) {
     finished_operations_.insert(handle.id);
-    base::MessageLoopProxy::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(&FileSystemOperationRunner::DidCreateSnapshot,
                               AsWeakPtr(), handle, callback, rv, file_info,
                               platform_path, file_ref));
@@ -624,7 +619,7 @@ void FileSystemOperationRunner::OnCopyProgress(
     const FileSystemURL& dest_url,
     int64 size) {
   if (handle.scope) {
-    base::MessageLoopProxy::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(
             &FileSystemOperationRunner::OnCopyProgress,
             AsWeakPtr(), handle, callback, type, source_url, dest_url, size));
@@ -637,7 +632,7 @@ void FileSystemOperationRunner::PrepareForWrite(OperationID id,
                                                 const FileSystemURL& url) {
   if (file_system_context_->GetUpdateObservers(url.type())) {
     file_system_context_->GetUpdateObservers(url.type())->Notify(
-        &FileUpdateObserver::OnStartUpdate, MakeTuple(url));
+        &FileUpdateObserver::OnStartUpdate, base::MakeTuple(url));
   }
   write_target_urls_[id].insert(url);
 }
@@ -646,7 +641,7 @@ void FileSystemOperationRunner::PrepareForRead(OperationID id,
                                                const FileSystemURL& url) {
   if (file_system_context_->GetAccessObservers(url.type())) {
     file_system_context_->GetAccessObservers(url.type())->Notify(
-        &FileAccessObserver::OnAccess, MakeTuple(url));
+        &FileAccessObserver::OnAccess, base::MakeTuple(url));
   }
 }
 
@@ -668,7 +663,7 @@ void FileSystemOperationRunner::FinishOperation(OperationID id) {
         iter != urls.end(); ++iter) {
       if (file_system_context_->GetUpdateObservers(iter->type())) {
         file_system_context_->GetUpdateObservers(iter->type())->Notify(
-            &FileUpdateObserver::OnEndUpdate, MakeTuple(*iter));
+            &FileUpdateObserver::OnEndUpdate, base::MakeTuple(*iter));
       }
     }
     write_target_urls_.erase(found);

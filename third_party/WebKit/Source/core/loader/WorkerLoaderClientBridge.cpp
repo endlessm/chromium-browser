@@ -35,13 +35,16 @@
 #include "core/loader/ThreadableLoaderClientWrapper.h"
 #include "core/workers/WorkerGlobalScope.h"
 #include "core/workers/WorkerLoaderProxy.h"
+#include "platform/network/ResourceError.h"
+#include "platform/network/ResourceResponse.h"
+#include "platform/network/ResourceTimingInfo.h"
 #include "wtf/PassOwnPtr.h"
 #include "wtf/PassRefPtr.h"
 #include <limits>
 
 namespace blink {
 
-PassOwnPtr<ThreadableLoaderClient> WorkerLoaderClientBridge::create(PassRefPtr<ThreadableLoaderClientWrapper> client, WorkerLoaderProxy& loaderProxy)
+PassOwnPtr<ThreadableLoaderClient> WorkerLoaderClientBridge::create(PassRefPtr<ThreadableLoaderClientWrapper> client, PassRefPtr<WorkerLoaderProxy> loaderProxy)
 {
     return adoptPtr(new WorkerLoaderClientBridge(client, loaderProxy));
 }
@@ -50,7 +53,7 @@ WorkerLoaderClientBridge::~WorkerLoaderClientBridge()
 {
 }
 
-static void workerGlobalScopeDidSendData(ExecutionContext* context, PassRefPtr<ThreadableLoaderClientWrapper> workerClientWrapper, unsigned long long bytesSent, unsigned long long totalBytesToBeSent)
+static void workerGlobalScopeDidSendData(PassRefPtr<ThreadableLoaderClientWrapper> workerClientWrapper, unsigned long long bytesSent, unsigned long long totalBytesToBeSent, ExecutionContext* context)
 {
     ASSERT_UNUSED(context, context->isWorkerGlobalScope());
     workerClientWrapper->didSendData(bytesSent, totalBytesToBeSent);
@@ -58,10 +61,10 @@ static void workerGlobalScopeDidSendData(ExecutionContext* context, PassRefPtr<T
 
 void WorkerLoaderClientBridge::didSendData(unsigned long long bytesSent, unsigned long long totalBytesToBeSent)
 {
-    m_loaderProxy.postTaskToWorkerGlobalScope(createCrossThreadTask(&workerGlobalScopeDidSendData, m_workerClientWrapper, bytesSent, totalBytesToBeSent));
+    m_loaderProxy->postTaskToWorkerGlobalScope(createCrossThreadTask(&workerGlobalScopeDidSendData, m_workerClientWrapper, bytesSent, totalBytesToBeSent));
 }
 
-static void workerGlobalScopeDidReceiveResponse(ExecutionContext* context, PassRefPtr<ThreadableLoaderClientWrapper> workerClientWrapper, unsigned long identifier, PassOwnPtr<CrossThreadResourceResponseData> responseData, PassOwnPtr<WebDataConsumerHandle> handle)
+static void workerGlobalScopeDidReceiveResponse(PassRefPtr<ThreadableLoaderClientWrapper> workerClientWrapper, unsigned long identifier, PassOwnPtr<CrossThreadResourceResponseData> responseData, PassOwnPtr<WebDataConsumerHandle> handle, ExecutionContext* context)
 {
     ASSERT_UNUSED(context, context->isWorkerGlobalScope());
     OwnPtr<ResourceResponse> response(ResourceResponse::adopt(responseData));
@@ -70,10 +73,10 @@ static void workerGlobalScopeDidReceiveResponse(ExecutionContext* context, PassR
 
 void WorkerLoaderClientBridge::didReceiveResponse(unsigned long identifier, const ResourceResponse& response, PassOwnPtr<WebDataConsumerHandle> handle)
 {
-    m_loaderProxy.postTaskToWorkerGlobalScope(createCrossThreadTask(&workerGlobalScopeDidReceiveResponse, m_workerClientWrapper, identifier, response, handle));
+    m_loaderProxy->postTaskToWorkerGlobalScope(createCrossThreadTask(&workerGlobalScopeDidReceiveResponse, m_workerClientWrapper, identifier, response, handle));
 }
 
-static void workerGlobalScopeDidReceiveData(ExecutionContext* context, PassRefPtr<ThreadableLoaderClientWrapper> workerClientWrapper, PassOwnPtr<Vector<char> > vectorData)
+static void workerGlobalScopeDidReceiveData(PassRefPtr<ThreadableLoaderClientWrapper> workerClientWrapper, PassOwnPtr<Vector<char>> vectorData, ExecutionContext* context)
 {
     ASSERT_UNUSED(context, context->isWorkerGlobalScope());
     RELEASE_ASSERT(vectorData->size() <= std::numeric_limits<unsigned>::max());
@@ -82,12 +85,12 @@ static void workerGlobalScopeDidReceiveData(ExecutionContext* context, PassRefPt
 
 void WorkerLoaderClientBridge::didReceiveData(const char* data, unsigned dataLength)
 {
-    OwnPtr<Vector<char> > vector = adoptPtr(new Vector<char>(dataLength)); // needs to be an OwnPtr for usage with createCrossThreadTask.
+    OwnPtr<Vector<char>> vector = adoptPtr(new Vector<char>(dataLength)); // needs to be an OwnPtr for usage with createCrossThreadTask.
     memcpy(vector->data(), data, dataLength);
-    m_loaderProxy.postTaskToWorkerGlobalScope(createCrossThreadTask(&workerGlobalScopeDidReceiveData, m_workerClientWrapper, vector.release()));
+    m_loaderProxy->postTaskToWorkerGlobalScope(createCrossThreadTask(&workerGlobalScopeDidReceiveData, m_workerClientWrapper, vector.release()));
 }
 
-static void workerGlobalScopeDidDownloadData(ExecutionContext* context, PassRefPtr<ThreadableLoaderClientWrapper> workerClientWrapper, int dataLength)
+static void workerGlobalScopeDidDownloadData(PassRefPtr<ThreadableLoaderClientWrapper> workerClientWrapper, int dataLength, ExecutionContext* context)
 {
     ASSERT_UNUSED(context, context->isWorkerGlobalScope());
     workerClientWrapper->didDownloadData(dataLength);
@@ -95,10 +98,10 @@ static void workerGlobalScopeDidDownloadData(ExecutionContext* context, PassRefP
 
 void WorkerLoaderClientBridge::didDownloadData(int dataLength)
 {
-    m_loaderProxy.postTaskToWorkerGlobalScope(createCrossThreadTask(&workerGlobalScopeDidDownloadData, m_workerClientWrapper, dataLength));
+    m_loaderProxy->postTaskToWorkerGlobalScope(createCrossThreadTask(&workerGlobalScopeDidDownloadData, m_workerClientWrapper, dataLength));
 }
 
-static void workerGlobalScopeDidReceiveCachedMetadata(ExecutionContext* context, PassRefPtr<ThreadableLoaderClientWrapper> workerClientWrapper, PassOwnPtr<Vector<char> > vectorData)
+static void workerGlobalScopeDidReceiveCachedMetadata(PassRefPtr<ThreadableLoaderClientWrapper> workerClientWrapper, PassOwnPtr<Vector<char>> vectorData, ExecutionContext* context)
 {
     ASSERT_UNUSED(context, context->isWorkerGlobalScope());
     workerClientWrapper->didReceiveCachedMetadata(vectorData->data(), vectorData->size());
@@ -106,12 +109,12 @@ static void workerGlobalScopeDidReceiveCachedMetadata(ExecutionContext* context,
 
 void WorkerLoaderClientBridge::didReceiveCachedMetadata(const char* data, int dataLength)
 {
-    OwnPtr<Vector<char> > vector = adoptPtr(new Vector<char>(dataLength)); // needs to be an OwnPtr for usage with createCrossThreadTask.
+    OwnPtr<Vector<char>> vector = adoptPtr(new Vector<char>(dataLength)); // needs to be an OwnPtr for usage with createCrossThreadTask.
     memcpy(vector->data(), data, dataLength);
-    m_loaderProxy.postTaskToWorkerGlobalScope(createCrossThreadTask(&workerGlobalScopeDidReceiveCachedMetadata, m_workerClientWrapper, vector.release()));
+    m_loaderProxy->postTaskToWorkerGlobalScope(createCrossThreadTask(&workerGlobalScopeDidReceiveCachedMetadata, m_workerClientWrapper, vector.release()));
 }
 
-static void workerGlobalScopeDidFinishLoading(ExecutionContext* context, PassRefPtr<ThreadableLoaderClientWrapper> workerClientWrapper, unsigned long identifier, double finishTime)
+static void workerGlobalScopeDidFinishLoading(PassRefPtr<ThreadableLoaderClientWrapper> workerClientWrapper, unsigned long identifier, double finishTime, ExecutionContext* context)
 {
     ASSERT_UNUSED(context, context->isWorkerGlobalScope());
     workerClientWrapper->didFinishLoading(identifier, finishTime);
@@ -119,10 +122,10 @@ static void workerGlobalScopeDidFinishLoading(ExecutionContext* context, PassRef
 
 void WorkerLoaderClientBridge::didFinishLoading(unsigned long identifier, double finishTime)
 {
-    m_loaderProxy.postTaskToWorkerGlobalScope(createCrossThreadTask(&workerGlobalScopeDidFinishLoading, m_workerClientWrapper, identifier, finishTime));
+    m_loaderProxy->postTaskToWorkerGlobalScope(createCrossThreadTask(&workerGlobalScopeDidFinishLoading, m_workerClientWrapper, identifier, finishTime));
 }
 
-static void workerGlobalScopeDidFail(ExecutionContext* context, PassRefPtr<ThreadableLoaderClientWrapper> workerClientWrapper, const ResourceError& error)
+static void workerGlobalScopeDidFail(PassRefPtr<ThreadableLoaderClientWrapper> workerClientWrapper, const ResourceError& error, ExecutionContext* context)
 {
     ASSERT_UNUSED(context, context->isWorkerGlobalScope());
     workerClientWrapper->didFail(error);
@@ -130,10 +133,10 @@ static void workerGlobalScopeDidFail(ExecutionContext* context, PassRefPtr<Threa
 
 void WorkerLoaderClientBridge::didFail(const ResourceError& error)
 {
-    m_loaderProxy.postTaskToWorkerGlobalScope(createCrossThreadTask(&workerGlobalScopeDidFail, m_workerClientWrapper, error));
+    m_loaderProxy->postTaskToWorkerGlobalScope(createCrossThreadTask(&workerGlobalScopeDidFail, m_workerClientWrapper, error));
 }
 
-static void workerGlobalScopeDidFailAccessControlCheck(ExecutionContext* context, PassRefPtr<ThreadableLoaderClientWrapper> workerClientWrapper, const ResourceError& error)
+static void workerGlobalScopeDidFailAccessControlCheck(PassRefPtr<ThreadableLoaderClientWrapper> workerClientWrapper, const ResourceError& error, ExecutionContext* context)
 {
     ASSERT_UNUSED(context, context->isWorkerGlobalScope());
     workerClientWrapper->didFailAccessControlCheck(error);
@@ -141,10 +144,10 @@ static void workerGlobalScopeDidFailAccessControlCheck(ExecutionContext* context
 
 void WorkerLoaderClientBridge::didFailAccessControlCheck(const ResourceError& error)
 {
-    m_loaderProxy.postTaskToWorkerGlobalScope(createCrossThreadTask(&workerGlobalScopeDidFailAccessControlCheck, m_workerClientWrapper, error));
+    m_loaderProxy->postTaskToWorkerGlobalScope(createCrossThreadTask(&workerGlobalScopeDidFailAccessControlCheck, m_workerClientWrapper, error));
 }
 
-static void workerGlobalScopeDidFailRedirectCheck(ExecutionContext* context, PassRefPtr<ThreadableLoaderClientWrapper> workerClientWrapper)
+static void workerGlobalScopeDidFailRedirectCheck(PassRefPtr<ThreadableLoaderClientWrapper> workerClientWrapper, ExecutionContext* context)
 {
     ASSERT_UNUSED(context, context->isWorkerGlobalScope());
     workerClientWrapper->didFailRedirectCheck();
@@ -152,10 +155,22 @@ static void workerGlobalScopeDidFailRedirectCheck(ExecutionContext* context, Pas
 
 void WorkerLoaderClientBridge::didFailRedirectCheck()
 {
-    m_loaderProxy.postTaskToWorkerGlobalScope(createCrossThreadTask(&workerGlobalScopeDidFailRedirectCheck, m_workerClientWrapper));
+    m_loaderProxy->postTaskToWorkerGlobalScope(createCrossThreadTask(&workerGlobalScopeDidFailRedirectCheck, m_workerClientWrapper));
 }
 
-WorkerLoaderClientBridge::WorkerLoaderClientBridge(PassRefPtr<ThreadableLoaderClientWrapper> clientWrapper, WorkerLoaderProxy& loaderProxy)
+static void workerGlobalScopeReportResourceTiming(PassRefPtr<ThreadableLoaderClientWrapper> workerClientWrapper, PassOwnPtr<CrossThreadResourceTimingInfoData> timingData, ExecutionContext* context)
+{
+    ASSERT_UNUSED(context, context->isWorkerGlobalScope());
+    OwnPtr<ResourceTimingInfo> info(ResourceTimingInfo::adopt(timingData));
+    workerClientWrapper->didReceiveResourceTiming(*info);
+}
+
+void WorkerLoaderClientBridge::didReceiveResourceTiming(const ResourceTimingInfo& info)
+{
+    m_loaderProxy->postTaskToWorkerGlobalScope(createCrossThreadTask(&workerGlobalScopeReportResourceTiming, m_workerClientWrapper, info));
+}
+
+WorkerLoaderClientBridge::WorkerLoaderClientBridge(PassRefPtr<ThreadableLoaderClientWrapper> clientWrapper, PassRefPtr<WorkerLoaderProxy> loaderProxy)
     : m_workerClientWrapper(clientWrapper)
     , m_loaderProxy(loaderProxy)
 {

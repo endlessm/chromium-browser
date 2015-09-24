@@ -193,12 +193,13 @@ TEST(ExtensionUserScriptTest, Pickle) {
   const int64 kId = 12;
   script1.set_id(kId);
   const std::string kExtensionId = "foo";
-  script1.set_extension_id(kExtensionId);
+  HostID id(HostID::EXTENSIONS, kExtensionId);
+  script1.set_host_id(id);
 
-  Pickle pickle;
+  base::Pickle pickle;
   script1.Pickle(&pickle);
 
-  PickleIterator iter(pickle);
+  base::PickleIterator iter(pickle);
   UserScript script2;
   script2.Unpickle(pickle, &iter);
 

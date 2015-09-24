@@ -18,6 +18,15 @@ namespace errors = manifest_errors;
 
 namespace {
 
+// Helper object that is implicitly constructible from both a PermissionID and
+// from an APIPermission::ID.
+struct PermissionIDCompareHelper {
+  PermissionIDCompareHelper(const PermissionID& id) : id(id.id()) {}
+  PermissionIDCompareHelper(const APIPermission::ID id) : id(id) {}
+
+  APIPermission::ID id;
+};
+
 bool CreateAPIPermission(
     const std::string& permission_str,
     const base::Value* permission_value,
@@ -176,11 +185,121 @@ bool APIPermissionSet::ParseFromJSON(
 void APIPermissionSet::AddImpliedPermissions() {
   // The fileSystem.write and fileSystem.directory permissions imply
   // fileSystem.writeDirectory.
+  // Has a corresponding rule in ChromePermissionMessageProvider.
   // TODO(sammc): Remove this. See http://crbug.com/284849.
   if (ContainsKey(map(), APIPermission::kFileSystemWrite) &&
       ContainsKey(map(), APIPermission::kFileSystemDirectory)) {
     insert(APIPermission::kFileSystemWriteDirectory);
   }
+}
+
+PermissionID::PermissionID(APIPermission::ID id)
+    : std::pair<APIPermission::ID, base::string16>(id, base::string16()) {
+}
+
+PermissionID::PermissionID(APIPermission::ID id,
+                           const base::string16& parameter)
+    : std::pair<APIPermission::ID, base::string16>(id, parameter) {
+}
+
+PermissionID::~PermissionID() {
+}
+
+PermissionIDSet::PermissionIDSet() {
+}
+
+PermissionIDSet::~PermissionIDSet() {
+}
+
+void PermissionIDSet::insert(APIPermission::ID permission_id) {
+  permissions_.insert(PermissionID(permission_id, base::string16()));
+}
+
+void PermissionIDSet::insert(APIPermission::ID permission_id,
+                             const base::string16& permission_detail) {
+  permissions_.insert(PermissionID(permission_id, permission_detail));
+}
+
+void PermissionIDSet::InsertAll(const PermissionIDSet& permission_set) {
+  for (const auto& permission : permission_set.permissions_) {
+    permissions_.insert(permission);
+  }
+}
+
+std::vector<base::string16> PermissionIDSet::GetAllPermissionParameters()
+    const {
+  std::vector<base::string16> params;
+  for (const auto& permission : permissions_) {
+    params.push_back(permission.parameter());
+  }
+  return params;
+}
+
+bool PermissionIDSet::ContainsAllIDs(
+    const std::set<APIPermission::ID>& permission_ids) const {
+  return std::includes(permissions_.begin(), permissions_.end(),
+                       permission_ids.begin(), permission_ids.end(),
+                       [] (const PermissionIDCompareHelper& lhs,
+                           const PermissionIDCompareHelper& rhs) {
+                         return lhs.id < rhs.id;
+                       });
+}
+
+PermissionIDSet PermissionIDSet::GetAllPermissionsWithIDs(
+    const std::set<APIPermission::ID>& permission_ids) const {
+  PermissionIDSet subset;
+  for (const auto& permission : permissions_) {
+    if (ContainsKey(permission_ids, permission.id())) {
+      subset.permissions_.insert(permission);
+    }
+  }
+  return subset;
+}
+
+bool PermissionIDSet::Includes(const PermissionIDSet& subset) const {
+  return base::STLIncludes(permissions_, subset.permissions_);
+}
+
+bool PermissionIDSet::Equals(const PermissionIDSet& set) const {
+  return permissions_ == set.permissions_;
+}
+
+// static
+PermissionIDSet PermissionIDSet::Difference(const PermissionIDSet& set_1,
+                                            const PermissionIDSet& set_2) {
+  return PermissionIDSet(base::STLSetDifference<std::set<PermissionID>>(
+      set_1.permissions_, set_2.permissions_));
+}
+
+// static
+PermissionIDSet PermissionIDSet::Intersection(const PermissionIDSet& set_1,
+                                              const PermissionIDSet& set_2) {
+  return PermissionIDSet(base::STLSetIntersection<std::set<PermissionID>>(
+      set_1.permissions_, set_2.permissions_));
+}
+
+// static
+PermissionIDSet PermissionIDSet::Union(const PermissionIDSet& set_1,
+                                       const PermissionIDSet& set_2) {
+  return PermissionIDSet(base::STLSetUnion<std::set<PermissionID>>(
+      set_1.permissions_, set_2.permissions_));
+}
+
+size_t PermissionIDSet::size() const {
+  return permissions_.size();
+}
+
+bool PermissionIDSet::empty() const {
+  return permissions_.empty();
+}
+
+PermissionIDSet::PermissionIDSet(const std::set<PermissionID>& permissions)
+    : permissions_(permissions) {
+}
+
+bool PermissionIDSet::ContainsID(APIPermission::ID permission_id) const {
+  auto it = permissions_.lower_bound(PermissionID(permission_id));
+  return it != permissions_.end() && it->id() == permission_id;
 }
 
 }  // namespace extensions

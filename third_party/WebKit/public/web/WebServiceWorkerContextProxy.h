@@ -33,10 +33,14 @@
 
 #include "public/platform/WebGeofencingEventType.h"
 #include "public/platform/WebMessagePortChannel.h"
+#include "public/platform/modules/navigator_services/WebServicePortCallbacks.h"
 
 namespace blink {
 
 struct WebCircularGeofencingRegion;
+struct WebCrossOriginServiceWorkerClient;
+struct WebNotificationData;
+class WebServiceWorkerRegistration;
 class WebServiceWorkerRequest;
 class WebString;
 
@@ -46,20 +50,32 @@ class WebServiceWorkerContextProxy {
 public:
     virtual ~WebServiceWorkerContextProxy() { }
 
+    virtual void setRegistration(WebServiceWorkerRegistration*) = 0;
     virtual void dispatchActivateEvent(int eventID) = 0;
     // FIXME: This needs to pass the active service worker info.
     virtual void dispatchInstallEvent(int installEventID) = 0;
     virtual void dispatchFetchEvent(int fetchEventID, const WebServiceWorkerRequest& webRequest) = 0;
 
-    virtual void dispatchGeofencingEvent(int eventId, WebGeofencingEventType, const WebString& regionId, const WebCircularGeofencingRegion&) = 0;
+    virtual void dispatchGeofencingEvent(int eventID, WebGeofencingEventType, const WebString& regionID, const WebCircularGeofencingRegion&) = 0;
 
     virtual void dispatchMessageEvent(const WebString& message, const WebMessagePortChannelArray& channels) = 0;
 
+    virtual void dispatchNotificationClickEvent(int eventID, int64_t notificationID, const WebNotificationData&) = 0;
+
     virtual void dispatchPushEvent(int eventID, const WebString& data) = 0;
+
+    virtual void dispatchCrossOriginConnectEvent(int eventID, const WebCrossOriginServiceWorkerClient&) = 0;
+
+    virtual void dispatchCrossOriginMessageEvent(const WebCrossOriginServiceWorkerClient&, const WebString& message, const WebMessagePortChannelArray&) = 0;
+
+    // Passes ownership of the callbacks.
+    virtual void dispatchServicePortConnectEvent(WebServicePortConnectEventCallbacks*, const WebURL& targetURL, const WebString& origin, WebServicePortID) = 0;
 
     // Once the ServiceWorker has finished handling the sync event
     // didHandleSyncEvent is called on the context client.
     virtual void dispatchSyncEvent(int syncEventID) = 0;
+
+    virtual void addStashedMessagePorts(const WebMessagePortChannelArray& channels, const WebVector<WebString>& channelNames) = 0;
 };
 
 } // namespace blink

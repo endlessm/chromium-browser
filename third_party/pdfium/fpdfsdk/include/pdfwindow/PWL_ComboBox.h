@@ -1,11 +1,15 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _PWL_COMBOBOX_H_
-#define _PWL_COMBOBOX_H_
+#ifndef FPDFSDK_INCLUDE_PDFWINDOW_PWL_COMBOBOX_H_
+#define FPDFSDK_INCLUDE_PDFWINDOW_PWL_COMBOBOX_H_
+
+#include "PWL_Edit.h"
+#include "PWL_ListBox.h"
+#include "PWL_Wnd.h"
 
 class CPWL_CBEdit : public CPWL_Edit
 {
@@ -44,7 +48,7 @@ public:
 
 };
 
-class PWL_CLASS CPWL_ComboBox : public CPWL_Wnd  
+class PWL_CLASS CPWL_ComboBox : public CPWL_Wnd
 {
 public:
 	CPWL_ComboBox();
@@ -54,46 +58,46 @@ public:
 	virtual CFX_ByteString		GetClassName() const;
 	virtual void				OnCreate(PWL_CREATEPARAM & cp);
 
-	virtual FX_BOOL				OnKeyDown(FX_WORD nChar, FX_DWORD nFlag);	
+	virtual FX_BOOL				OnKeyDown(FX_WORD nChar, FX_DWORD nFlag);
 	virtual FX_BOOL				OnChar(FX_WORD nChar, FX_DWORD nFlag);
 
-	virtual void				OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, FX_INTPTR wParam = 0, FX_INTPTR lParam = 0);
+	virtual void				OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, intptr_t wParam = 0, intptr_t lParam = 0);
 
 	virtual void				CreateChildWnd(const PWL_CREATEPARAM & cp);
 	virtual void				RePosChildWnd();
 
 	virtual CPDF_Rect			GetFocusRect() const;
-	
+
 	virtual void				SetFocus();
 	virtual void				KillFocus();
 
 	FX_BOOL						IsModified() const;
 
-public:	
+public:
 	void						SetFillerNotify(IPWL_Filler_Notify* pNotify);
 
 	CFX_WideString				GetText() const;
-	void						SetText(FX_LPCWSTR text);
+	void						SetText(const FX_WCHAR* text);
 
-	void						AddString(FX_LPCWSTR string);
-	FX_INT32					GetSelect() const;
-	void						SetSelect(FX_INT32 nItemIndex);
+	void						AddString(const FX_WCHAR* string);
+	int32_t					GetSelect() const;
+	void						SetSelect(int32_t nItemIndex);
 
-	void						SetEditSel(FX_INT32 nStartChar,FX_INT32 nEndChar);
-	void						GetEditSel(FX_INT32 & nStartChar, FX_INT32 & nEndChar ) const;
+	void						SetEditSel(int32_t nStartChar,int32_t nEndChar);
+	void						GetEditSel(int32_t & nStartChar, int32_t & nEndChar ) const;
 	void						Clear();
 	void						SelectAll();
 	FX_BOOL						IsPopup() const;
 
 	void						SetSelectText();
 
-private:	
+private:
 	void						CreateEdit(const PWL_CREATEPARAM & cp);
 	void						CreateButton(const PWL_CREATEPARAM & cp);
 	void						CreateListBox(const PWL_CREATEPARAM & cp);
 
 	void						SetPopup(FX_BOOL bPopup);
-	
+
 private:
 	CPWL_CBEdit*				m_pEdit;
 	CPWL_CBButton*				m_pButton;
@@ -101,8 +105,8 @@ private:
 
 	FX_BOOL						m_bPopup;
 	CPDF_Rect					m_rcOldWindow;
-	FX_INT32					m_nPopupWhere;
-	FX_INT32					m_nSelectItem;
+	int32_t					m_nPopupWhere;
+	int32_t					m_nSelectItem;
 	IPWL_Filler_Notify*			m_pFillerNotify;
 
 public:
@@ -111,5 +115,4 @@ private:
 	void*							m_pFormFiller;
 };
 
-#endif // !defined(AFX_PWL_COMBOBOX_H__9D6645F8_64AA_4806_94E8_95FDEDD39C17__INCLUDED_)
-
+#endif  // FPDFSDK_INCLUDE_PDFWINDOW_PWL_COMBOBOX_H_

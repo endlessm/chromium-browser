@@ -13,7 +13,9 @@
 
 #include "base/json/json_reader.h"
 #include "base/json/json_value_converter.h"
+#include "base/profiler/scoped_tracker.h"
 #include "base/rand_util.h"
+#include "base/strings/pattern.h"
 #include "base/strings/string_util.h"
 
 namespace {
@@ -39,9 +41,8 @@ DomainReliabilityConfig::Resource::~Resource() {}
 bool DomainReliabilityConfig::Resource::MatchesUrl(const GURL& url) const {
   const std::string& spec = url.spec();
 
-  ScopedVector<std::string>::const_iterator it;
-  for (it = url_patterns.begin(); it != url_patterns.end(); it++) {
-    if (MatchPattern(spec, **it))
+  for (const auto& url_pattern : url_patterns) {
+    if (base::MatchPattern(spec, *url_pattern))
       return true;
   }
 
@@ -92,15 +93,18 @@ DomainReliabilityConfig::~DomainReliabilityConfig() {}
 // static
 scoped_ptr<const DomainReliabilityConfig> DomainReliabilityConfig::FromJSON(
     const base::StringPiece& json) {
-  scoped_ptr<base::Value> value(base::JSONReader::Read(json));
+  // TODO(vadimt): Remove ScopedTracker below once crbug.com/436671 is fixed.
+  tracked_objects::ScopedTracker tracking_profile(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "436671 DomainReliabilityConfig::FromJSON"));
+  scoped_ptr<base::Value> value = base::JSONReader::Read(json);
   base::JSONValueConverter<DomainReliabilityConfig> converter;
-  DomainReliabilityConfig* config = new DomainReliabilityConfig();
+  scoped_ptr<DomainReliabilityConfig> config(new DomainReliabilityConfig());
 
   // If we can parse and convert the JSON into a valid config, return that.
-  if (value && converter.Convert(*value, config) && config->IsValid())
-    return scoped_ptr<const DomainReliabilityConfig>(config);
-  else
-    return scoped_ptr<const DomainReliabilityConfig>();
+  if (value && converter.Convert(*value, config.get()) && config->IsValid())
+    return config.Pass();
+  return scoped_ptr<const DomainReliabilityConfig>();
 }
 
 bool DomainReliabilityConfig::IsValid() const {
@@ -109,13 +113,13 @@ bool DomainReliabilityConfig::IsValid() const {
     return false;
   }
 
-  for (size_t i = 0; i < resources.size(); ++i) {
-    if (!resources[i]->IsValid())
+  for (auto& resource : resources) {
+    if (!resource->IsValid())
       return false;
   }
 
-  for (size_t i = 0; i < collectors.size(); ++i) {
-    if (!collectors[i]->IsValid())
+  for (auto& collector : collectors) {
+    if (!collector->IsValid())
       return false;
   }
 

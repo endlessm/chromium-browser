@@ -13,9 +13,9 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "build/build_config.h"
-#include "content/common/gpu/devtools_gpu_instrumentation.h"
+#include "content/common/content_export.h"
+#include "content/common/content_param_traits.h"
 #include "content/common/gpu/gpu_memory_manager.h"
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_sender.h"
@@ -29,10 +29,11 @@ class WaitableEvent;
 
 namespace gfx {
 class GLShareGroup;
-struct GpuMemoryBufferHandle;
 }
 
 namespace gpu {
+class SyncPointManager;
+union ValueState;
 namespace gles2 {
 class MailboxManager;
 class ProgramCache;
@@ -41,9 +42,9 @@ class ShaderTranslatorCache;
 }
 
 namespace IPC {
+class AttachmentBroker;
 struct ChannelHandle;
 class SyncChannel;
-class MessageFilter;
 }
 
 struct GPUCreateCommandBufferConfig;
@@ -53,19 +54,21 @@ class GpuChannel;
 class GpuMemoryBufferFactory;
 class GpuWatchdog;
 class MessageRouter;
-class SyncPointManager;
 
 // A GpuChannelManager is a thread responsible for issuing rendering commands
 // managing the lifetimes of GPU channels and forwarding IPC requests from the
 // browser process to them based on the corresponding renderer ID.
-class GpuChannelManager : public IPC::Listener,
+class CONTENT_EXPORT GpuChannelManager : public IPC::Listener,
                           public IPC::Sender {
  public:
+  // |broker| must outlive GpuChannelManager and any channels it creates.
   GpuChannelManager(MessageRouter* router,
                     GpuWatchdog* watchdog,
-                    base::MessageLoopProxy* io_message_loop,
+                    base::SingleThreadTaskRunner* io_task_runner,
                     base::WaitableEvent* shutdown_event,
-                    IPC::SyncChannel* channel);
+                    IPC::SyncChannel* channel,
+                    IPC::AttachmentBroker* broker,
+                    GpuMemoryBufferFactory* gpu_memory_buffer_factory);
   ~GpuChannelManager() override;
 
   // Remove the channel for a particular renderer.
@@ -91,22 +94,20 @@ class GpuChannelManager : public IPC::Listener,
 
   GpuMemoryManager* gpu_memory_manager() { return &gpu_memory_manager_; }
 
-  GpuEventsDispatcher* gpu_devtools_events_dispatcher() {
-    return &gpu_devtools_events_dispatcher_;
-  }
-
   GpuChannel* LookupChannel(int32 client_id);
 
-  SyncPointManager* sync_point_manager() { return sync_point_manager_.get(); }
+  gpu::SyncPointManager* sync_point_manager() {
+    return sync_point_manager_.get();
+  }
 
   gfx::GLSurface* GetDefaultOffscreenSurface();
 
   GpuMemoryBufferFactory* gpu_memory_buffer_factory() {
-    return gpu_memory_buffer_factory_.get();
+    return gpu_memory_buffer_factory_;
   }
 
  private:
-  typedef base::ScopedPtrHashMap<int, GpuChannel> GpuChannelMap;
+  typedef base::ScopedPtrHashMap<int, scoped_ptr<GpuChannel>> GpuChannelMap;
 
   // Message handlers.
   void OnEstablishChannel(int client_id,
@@ -122,20 +123,23 @@ class GpuChannelManager : public IPC::Listener,
       const GPUCreateCommandBufferConfig& init_params,
       int32 route_id);
   void OnLoadedShader(std::string shader);
-  void DestroyGpuMemoryBuffer(gfx::GpuMemoryBufferType type,
-                              gfx::GpuMemoryBufferId id,
-                              int client_id);
-  void DestroyGpuMemoryBufferOnIO(gfx::GpuMemoryBufferType type,
-                                  gfx::GpuMemoryBufferId id,
-                                  int client_id);
-  void OnDestroyGpuMemoryBuffer(gfx::GpuMemoryBufferType type,
-                                gfx::GpuMemoryBufferId id,
+  void DestroyGpuMemoryBuffer(gfx::GpuMemoryBufferId id, int client_id);
+  void DestroyGpuMemoryBufferOnIO(gfx::GpuMemoryBufferId id, int client_id);
+  void OnDestroyGpuMemoryBuffer(gfx::GpuMemoryBufferId id,
                                 int client_id,
                                 int32 sync_point);
 
-  void OnLoseAllContexts();
+  void OnRelinquishResources();
+  void OnResourcesRelinquished();
 
-  scoped_refptr<base::MessageLoopProxy> io_message_loop_;
+  void OnUpdateValueState(int client_id,
+                          unsigned int target,
+                          const gpu::ValueState& state);
+
+  void OnLoseAllContexts();
+  void CheckRelinquishGpuResources();
+
+  scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
   base::WaitableEvent* shutdown_event_;
 
   // Used to send and receive IPC messages from the browser process.
@@ -148,15 +152,16 @@ class GpuChannelManager : public IPC::Listener,
   scoped_refptr<gfx::GLShareGroup> share_group_;
   scoped_refptr<gpu::gles2::MailboxManager> mailbox_manager_;
   GpuMemoryManager gpu_memory_manager_;
-  GpuEventsDispatcher gpu_devtools_events_dispatcher_;
   GpuWatchdog* watchdog_;
-  scoped_refptr<SyncPointManager> sync_point_manager_;
+  scoped_refptr<gpu::SyncPointManager> sync_point_manager_;
   scoped_ptr<gpu::gles2::ProgramCache> program_cache_;
   scoped_refptr<gpu::gles2::ShaderTranslatorCache> shader_translator_cache_;
   scoped_refptr<gfx::GLSurface> default_offscreen_surface_;
-  scoped_ptr<GpuMemoryBufferFactory> gpu_memory_buffer_factory_;
+  GpuMemoryBufferFactory* const gpu_memory_buffer_factory_;
   IPC::SyncChannel* channel_;
-  scoped_refptr<IPC::MessageFilter> filter_;
+  bool relinquish_resources_pending_;
+  // Must outlive this instance of GpuChannelManager.
+  IPC::AttachmentBroker* attachment_broker_;
 
   // Member variables should appear before the WeakPtrFactory, to ensure
   // that any WeakPtrs to Controller are invalidated before its members

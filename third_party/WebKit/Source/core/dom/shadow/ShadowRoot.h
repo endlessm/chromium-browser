@@ -27,6 +27,7 @@
 #ifndef ShadowRoot_h
 #define ShadowRoot_h
 
+#include "core/CoreExport.h"
 #include "core/dom/ContainerNode.h"
 #include "core/dom/DocumentFragment.h"
 #include "core/dom/Element.h"
@@ -43,20 +44,19 @@ class InsertionPoint;
 class ShadowRootRareData;
 class StyleSheetList;
 
-class ShadowRoot final : public DocumentFragment, public TreeScope, public DoublyLinkedListNode<ShadowRoot> {
+enum class ShadowRootType {
+    UserAgent,
+    Open
+};
+
+class CORE_EXPORT ShadowRoot final : public DocumentFragment, public TreeScope, public DoublyLinkedListNode<ShadowRoot> {
     DEFINE_WRAPPERTYPEINFO();
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(ShadowRoot);
     friend class WTF::DoublyLinkedListNode<ShadowRoot>;
 public:
-    // FIXME: We will support multiple shadow subtrees, however current implementation does not work well
-    // if a shadow root is dynamically created. So we prohibit multiple shadow subtrees
-    // in several elements for a while.
-    // See https://bugs.webkit.org/show_bug.cgi?id=77503 and related bugs.
-    enum ShadowRootType {
-        UserAgentShadowRoot = 0,
-        AuthorShadowRoot
-    };
-
+    // FIXME: Current implementation does not work well if a shadow root is dynamically created.
+    // So multiple shadow subtrees in several elements are prohibited.
+    // See https://github.com/w3c/webcomponents/issues/102 and http://crbug.com/234020
     static PassRefPtrWillBeRawPtr<ShadowRoot> create(Document& document, ShadowRootType type)
     {
         return adoptRefWillBeNoop(new ShadowRoot(document, type));
@@ -74,16 +74,15 @@ public:
     ShadowRoot* youngerShadowRoot() const { return prev(); }
 
     ShadowRoot* olderShadowRootForBindings() const;
-    bool shouldExposeToBindings() const { return type() == AuthorShadowRoot; }
+    bool shouldExposeToBindings() const { return type() == ShadowRootType::Open; }
 
     bool isYoungest() const { return !youngerShadowRoot(); }
     bool isOldest() const { return !olderShadowRoot(); }
-    bool isOldestAuthorShadowRoot() const;
 
-    virtual void attach(const AttachContext& = AttachContext()) override;
+    void attach(const AttachContext& = AttachContext()) override;
 
-    virtual InsertionNotificationRequest insertedInto(ContainerNode*) override;
-    virtual void removedFrom(ContainerNode*) override;
+    InsertionNotificationRequest insertedInto(ContainerNode*) override;
+    void removedFrom(ContainerNode*) override;
 
     void registerScopedHTMLStyleChild();
     void unregisterScopedHTMLStyleChild();
@@ -104,7 +103,7 @@ public:
 
     void didAddInsertionPoint(InsertionPoint*);
     void didRemoveInsertionPoint(InsertionPoint*);
-    const WillBeHeapVector<RefPtrWillBeMember<InsertionPoint> >& descendantInsertionPoints();
+    const WillBeHeapVector<RefPtrWillBeMember<InsertionPoint>>& descendantInsertionPoints();
 
     ShadowRootType type() const { return static_cast<ShadowRootType>(m_type); }
 
@@ -125,17 +124,20 @@ public:
 
     StyleSheetList* styleSheets();
 
-    virtual void trace(Visitor*) override;
+    void setDelegatesFocus(bool flag) { m_delegatesFocus = flag; }
+    bool delegatesFocus() const { return m_delegatesFocus; }
+
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     ShadowRoot(Document&, ShadowRootType);
-    virtual ~ShadowRoot();
+    ~ShadowRoot() override;
 
 #if !ENABLE(OILPAN)
-    virtual void dispose() override;
+    void dispose() override;
 #endif
 
-    virtual void childrenChanged(const ChildrenChange&) override;
+    void childrenChanged(const ChildrenChange&) override;
 
     ShadowRootRareData* ensureShadowRootRareData();
 
@@ -144,7 +146,7 @@ private:
     void invalidateDescendantInsertionPoints();
 
     // ShadowRoots should never be cloned.
-    virtual PassRefPtrWillBeRawPtr<Node> cloneNode(bool) override { return nullptr; }
+    PassRefPtrWillBeRawPtr<Node> cloneNode(bool) override { return nullptr; }
 
     // FIXME: This shouldn't happen. https://bugs.webkit.org/show_bug.cgi?id=88834
     bool isOrphan() const { return !host(); }
@@ -156,6 +158,7 @@ private:
     unsigned m_type : 1;
     unsigned m_registeredWithParentShadowRoot : 1;
     unsigned m_descendantInsertionPointsIsValid : 1;
+    unsigned m_delegatesFocus : 1;
 };
 
 inline Element* ShadowRoot::activeElement() const

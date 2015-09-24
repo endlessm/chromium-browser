@@ -32,9 +32,31 @@
 namespace blink {
 
 CanvasRenderingContext::CanvasRenderingContext(HTMLCanvasElement* canvas)
-    : m_canvas(canvas)
+    : ActiveDOMObject(&canvas->document())
+    , m_canvas(canvas)
 {
+    suspendIfNeeded();
+}
 
+CanvasRenderingContext::ContextType CanvasRenderingContext::contextTypeFromId(const String& id)
+{
+    if (id == "2d")
+        return Context2d;
+    if (id == "experimental-webgl")
+        return ContextExperimentalWebgl;
+    if (id == "webgl")
+        return ContextWebgl;
+    if (id == "webgl2")
+        return ContextWebgl2;
+
+    return ContextTypeCount;
+}
+
+CanvasRenderingContext::ContextType CanvasRenderingContext::resolveContextTypeAliases(CanvasRenderingContext::ContextType type)
+{
+    if (type == ContextExperimentalWebgl)
+        return ContextWebgl;
+    return type;
 }
 
 bool CanvasRenderingContext::wouldTaintOrigin(CanvasImageSource* imageSource)
@@ -58,6 +80,22 @@ bool CanvasRenderingContext::wouldTaintOrigin(CanvasImageSource* imageSource)
             m_cleanURLs.add(sourceURL.string());
     }
     return taintOrigin;
+}
+
+DEFINE_TRACE(CanvasRenderingContext)
+{
+    visitor->trace(m_canvas);
+    ActiveDOMObject::trace(visitor);
+}
+
+bool CanvasRenderingContext::hasPendingActivity() const
+{
+    return false;
+}
+
+void CanvasRenderingContext::didMoveToNewDocument(Document* document)
+{
+    ActiveDOMObject::didMoveToNewExecutionContext(document);
 }
 
 } // namespace blink

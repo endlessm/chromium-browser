@@ -11,7 +11,6 @@
 #include "chrome/grit/generated_resources.h"
 #include "content/public/browser/web_contents.h"
 #include "grit/theme_resources.h"
-#include "ui/aura/window.h"
 #include "ui/base/hit_test.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -22,8 +21,13 @@
 #include "ui/resources/grit/ui_resources.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/label.h"
+#include "ui/views/resources/grit/views_resources.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
+
+#if defined(USE_AURA)
+#include "ui/aura/window.h"
+#endif
 
 #if defined(OS_WIN)
 #include "base/win/scoped_gdi_object.h"
@@ -309,6 +313,7 @@ void PanelFrameView::Init() {
   title_label_->SetAutoColorReadabilityEnabled(false);
   AddChildView(title_label_);
 
+#if defined(USE_AURA)
   // Compute the thickness of the client area that needs to be counted towards
   // mouse resizing.
   // TODO(tdanderson): Remove this if possible (crbug.com/344924).
@@ -318,6 +323,7 @@ void PanelFrameView::Init() {
   window->set_hit_test_bounds_override_inner(
       gfx::Insets(thickness_for_mouse_resizing, thickness_for_mouse_resizing,
                   thickness_for_mouse_resizing, thickness_for_mouse_resizing));
+#endif
 }
 
 void PanelFrameView::UpdateTitle() {
@@ -351,14 +357,18 @@ void PanelFrameView::SetWindowCornerStyle(panel::CornerStyle corner_style) {
   // window region if the region really differs.
   HWND native_window = views::HWNDForWidget(panel_view_->window());
   base::win::ScopedRegion current_region(::CreateRectRgn(0, 0, 0, 0));
-  int current_region_result = ::GetWindowRgn(native_window, current_region);
+  ::GetWindowRgn(native_window, current_region);
 
   gfx::Path window_mask;
   GetWindowMask(size(), &window_mask);
-  base::win::ScopedRegion new_region(gfx::CreateHRGNFromSkPath(window_mask));
+  base::win::ScopedRegion new_region;
+  if (!window_mask.isEmpty())
+    new_region.Set(gfx::CreateHRGNFromSkPath(window_mask));
 
-  if (current_region_result == ERROR ||
-      !::EqualRgn(current_region, new_region)) {
+  const bool has_current_region = current_region != NULL;
+  const bool has_new_region = new_region != NULL;
+  if (has_current_region != has_new_region ||
+      (has_current_region && !::EqualRgn(current_region, new_region))) {
     // SetWindowRgn takes ownership of the new_region.
     ::SetWindowRgn(native_window, new_region.release(), TRUE);
   }

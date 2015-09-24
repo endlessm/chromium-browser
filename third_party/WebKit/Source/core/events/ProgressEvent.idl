@@ -23,11 +23,14 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-[
-    EventConstructor,
-] interface ProgressEvent : Event {
-    [InitializedByEventConstructor] readonly attribute boolean lengthComputable;
-    [InitializedByEventConstructor] readonly attribute unsigned long long loaded;
-    [InitializedByEventConstructor] readonly attribute unsigned long long total;
-};
+// https://xhr.spec.whatwg.org/#interface-progressevent
 
+// TODO(philipj): The spec has Exposed=(Window,Worker)
+// https://github.com/whatwg/xhr/issues/19
+[
+    Constructor(DOMString type, optional ProgressEventInit eventInitDict),
+] interface ProgressEvent : Event {
+    readonly attribute boolean lengthComputable;
+    readonly attribute unsigned long long loaded;
+    readonly attribute unsigned long long total;
+};

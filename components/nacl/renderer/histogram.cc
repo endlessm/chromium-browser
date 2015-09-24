@@ -85,8 +85,6 @@ void HistogramEnumerateOsArch(const std::string& sandbox_isa) {
 }
 
 // Records values up to 20 seconds.
-// These constants MUST match those in
-// ppapi/native_client/src/trusted/plugin/plugin.cc
 void HistogramTimeSmall(const std::string& name, int64_t sample) {
   if (sample < 0)
     sample = 0;
@@ -101,8 +99,6 @@ void HistogramTimeSmall(const std::string& name, int64_t sample) {
 }
 
 // Records values up to 3 minutes, 20 seconds.
-// These constants MUST match those in
-// ppapi/native_client/src/trusted/plugin/plugin.cc
 void HistogramTimeMedium(const std::string& name, int64_t sample) {
   if (sample < 0)
     sample = 0;
@@ -117,8 +113,6 @@ void HistogramTimeMedium(const std::string& name, int64_t sample) {
 }
 
 // Records values up to 33 minutes.
-// These constants MUST match those in
-// ppapi/native_client/src/trusted/plugin/plugin.cc
 void HistogramTimeLarge(const std::string& name, int64_t sample) {
   if (sample < 0)
     sample = 0;
@@ -202,6 +196,19 @@ void HistogramKBPerSec(const std::string& name, int64_t kb, int64_t us) {
                         1,
                         30 * 1000,  // max of 30 MB/sec.
                         100);
+}
+
+void HistogramRatio(const std::string& name,
+                    int64_t numerator,
+                    int64_t denominator) {
+  static const int32_t kRatioMin = 10;
+  static const int32_t kRatioMax = 10 * 100;  // max of 10x difference.
+  static const uint32_t kRatioBuckets = 100;
+  if (numerator < 0 || denominator <= 0)
+    return;
+  HistogramCustomCounts(name,
+                        static_cast<int32_t>(100 * numerator / denominator),
+                        kRatioMin, kRatioMax, kRatioBuckets);
 }
 
 }  // namespace nacl

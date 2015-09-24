@@ -5,7 +5,6 @@
 #include "chromeos/dbus/system_clock_client.h"
 
 #include "base/bind.h"
-#include "base/callback.h"
 #include "base/observer_list.h"
 #include "dbus/bus.h"
 #include "dbus/message.h"
@@ -24,22 +23,21 @@ class SystemClockClientImpl : public SystemClockClient {
         system_clock_proxy_(NULL),
         weak_ptr_factory_(this) {}
 
-  virtual ~SystemClockClientImpl() {
-  }
+  ~SystemClockClientImpl() override {}
 
-  virtual void AddObserver(Observer* observer) override {
+  void AddObserver(Observer* observer) override {
     observers_.AddObserver(observer);
   }
 
-  virtual void RemoveObserver(Observer* observer) override {
+  void RemoveObserver(Observer* observer) override {
     observers_.RemoveObserver(observer);
   }
 
-  virtual bool HasObserver(Observer* observer) override {
+  bool HasObserver(const Observer* observer) const override {
     return observers_.HasObserver(observer);
   }
 
-  virtual void SetTime(int64 time_in_seconds) override {
+  void SetTime(int64 time_in_seconds) override {
     // Always try to set the time, because |can_set_time_| may be stale.
     dbus::MethodCall method_call(system_clock::kSystemClockInterface,
                                  system_clock::kSystemClockSet);
@@ -50,10 +48,10 @@ class SystemClockClientImpl : public SystemClockClient {
                                     dbus::ObjectProxy::EmptyResponseCallback());
   }
 
-  virtual bool CanSetTime() override { return can_set_time_; }
+  bool CanSetTime() override { return can_set_time_; }
 
  protected:
-  virtual void Init(dbus::Bus* bus) override {
+  void Init(dbus::Bus* bus) override {
     system_clock_proxy_ = bus->GetObjectProxy(
         system_clock::kSystemClockServiceName,
         dbus::ObjectPath(system_clock::kSystemClockServicePath));
@@ -132,7 +130,7 @@ class SystemClockClientImpl : public SystemClockClient {
   bool can_set_time_;
   bool can_set_time_initialized_;
   dbus::ObjectProxy* system_clock_proxy_;
-  ObserverList<Observer> observers_;
+  base::ObserverList<Observer> observers_;
 
   base::WeakPtrFactory<SystemClockClientImpl> weak_ptr_factory_;
 

@@ -4,8 +4,8 @@
 
 #include "components/wifi/network_properties.h"
 
-#include "base/json/json_reader.h"
 #include "base/message_loop/message_loop.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "components/onc/onc_constants.h"
 
@@ -54,16 +54,10 @@ scoped_ptr<base::DictionaryValue> NetworkProperties::ToValue(
     if (!bssid.empty())
       wifi->SetString(onc::wifi::kBSSID, bssid);
     wifi->SetString(onc::wifi::kSSID, ssid);
+    wifi->SetString(onc::wifi::kHexSSID,
+                    base::HexEncode(ssid.c_str(), ssid.size()));
   }
   value->Set(onc::network_type::kWiFi, wifi.release());
-
-  if (!network_list && !json_extra.empty()) {
-    base::Value* value_extra = base::JSONReader::Read(json_extra);
-    CHECK(value_extra);
-    base::DictionaryValue* value_dictionary;
-    if (value_extra->GetAsDictionary(&value_dictionary))
-      value->MergeDictionary(value_dictionary);
-  }
 
   return value.Pass();
 }

@@ -6,8 +6,10 @@
 #ifdef V8_I18N_SUPPORT
 #include "src/v8.h"
 
+#include "src/api-natives.h"
 #include "src/arguments.h"
 #include "src/i18n.h"
+#include "src/messages.h"
 #include "src/runtime/runtime-utils.h"
 
 #include "unicode/brkiter.h"
@@ -233,7 +235,7 @@ RUNTIME_FUNCTION(Runtime_IsInitializedIntlObject) {
   Handle<JSObject> obj = Handle<JSObject>::cast(input);
 
   Handle<Symbol> marker = isolate->factory()->intl_initialized_marker_symbol();
-  Handle<Object> tag = JSObject::GetDataProperty(obj, marker);
+  Handle<Object> tag = JSReceiver::GetDataProperty(obj, marker);
   return isolate->heap()->ToBoolean(!tag->IsUndefined());
 }
 
@@ -250,7 +252,7 @@ RUNTIME_FUNCTION(Runtime_IsInitializedIntlObjectOfType) {
   Handle<JSObject> obj = Handle<JSObject>::cast(input);
 
   Handle<Symbol> marker = isolate->factory()->intl_initialized_marker_symbol();
-  Handle<Object> tag = JSObject::GetDataProperty(obj, marker);
+  Handle<Object> tag = JSReceiver::GetDataProperty(obj, marker);
   return isolate->heap()->ToBoolean(tag->IsString() &&
                                     String::cast(*tag)->Equals(*expected_type));
 }
@@ -280,23 +282,21 @@ RUNTIME_FUNCTION(Runtime_GetImplFromInitializedIntlObject) {
 
   DCHECK(args.length() == 1);
 
-  CONVERT_ARG_HANDLE_CHECKED(Object, input, 0);
+  CONVERT_ARG_HANDLE_CHECKED(JSObject, input, 0);
 
   if (!input->IsJSObject()) {
-    Vector<Handle<Object> > arguments = HandleVector(&input, 1);
-    THROW_NEW_ERROR_RETURN_FAILURE(isolate,
-                                   NewTypeError("not_intl_object", arguments));
+    THROW_NEW_ERROR_RETURN_FAILURE(
+        isolate, NewTypeError(MessageTemplate::kNotIntlObject, input));
   }
 
   Handle<JSObject> obj = Handle<JSObject>::cast(input);
 
   Handle<Symbol> marker = isolate->factory()->intl_impl_object_symbol();
 
-  Handle<Object> impl = JSObject::GetDataProperty(obj, marker);
+  Handle<Object> impl = JSReceiver::GetDataProperty(obj, marker);
   if (impl->IsTheHole()) {
-    Vector<Handle<Object> > arguments = HandleVector(&obj, 1);
-    THROW_NEW_ERROR_RETURN_FAILURE(isolate,
-                                   NewTypeError("not_intl_object", arguments));
+    THROW_NEW_ERROR_RETURN_FAILURE(
+        isolate, NewTypeError(MessageTemplate::kNotIntlObject, obj));
   }
   return *impl;
 }
@@ -317,7 +317,7 @@ RUNTIME_FUNCTION(Runtime_CreateDateTimeFormat) {
   Handle<JSObject> local_object;
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
       isolate, local_object,
-      Execution::InstantiateObject(date_format_template));
+      ApiNatives::InstantiateObject(date_format_template));
 
   // Set date time formatter as internal field of the resulting JS object.
   icu::SimpleDateFormat* date_format =
@@ -412,7 +412,7 @@ RUNTIME_FUNCTION(Runtime_CreateNumberFormat) {
   Handle<JSObject> local_object;
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
       isolate, local_object,
-      Execution::InstantiateObject(number_format_template));
+      ApiNatives::InstantiateObject(number_format_template));
 
   // Set number formatter as internal field of the resulting JS object.
   icu::DecimalFormat* number_format =
@@ -517,7 +517,7 @@ RUNTIME_FUNCTION(Runtime_CreateCollator) {
   // Create an empty object wrapper.
   Handle<JSObject> local_object;
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
-      isolate, local_object, Execution::InstantiateObject(collator_template));
+      isolate, local_object, ApiNatives::InstantiateObject(collator_template));
 
   // Set collator as internal field of the resulting JS object.
   icu::Collator* collator =
@@ -616,7 +616,7 @@ RUNTIME_FUNCTION(Runtime_CreateBreakIterator) {
   Handle<JSObject> local_object;
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
       isolate, local_object,
-      Execution::InstantiateObject(break_iterator_template));
+      ApiNatives::InstantiateObject(break_iterator_template));
 
   // Set break iterator as internal field of the resulting JS object.
   icu::BreakIterator* break_iterator = BreakIterator::InitializeBreakIterator(
@@ -745,7 +745,7 @@ RUNTIME_FUNCTION(Runtime_BreakIteratorBreakType) {
     return *isolate->factory()->NewStringFromStaticChars("unknown");
   }
 }
-}
-}  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_I18N_SUPPORT

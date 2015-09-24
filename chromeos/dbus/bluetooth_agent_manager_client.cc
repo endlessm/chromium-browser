@@ -8,7 +8,6 @@
 #include "base/logging.h"
 #include "dbus/bus.h"
 #include "dbus/message.h"
-#include "dbus/object_path.h"
 #include "dbus/object_proxy.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
@@ -23,14 +22,13 @@ class BluetoothAgentManagerClientImpl
  public:
   BluetoothAgentManagerClientImpl() : weak_ptr_factory_(this) {}
 
-  virtual ~BluetoothAgentManagerClientImpl() {
-  }
+  ~BluetoothAgentManagerClientImpl() override {}
 
   // BluetoothAgentManagerClient override.
-  virtual void RegisterAgent(const dbus::ObjectPath& agent_path,
-                             const std::string& capability,
-                             const base::Closure& callback,
-                             const ErrorCallback& error_callback) override {
+  void RegisterAgent(const dbus::ObjectPath& agent_path,
+                     const std::string& capability,
+                     const base::Closure& callback,
+                     const ErrorCallback& error_callback) override {
     dbus::MethodCall method_call(
     bluetooth_agent_manager::kBluetoothAgentManagerInterface,
     bluetooth_agent_manager::kRegisterAgent);
@@ -49,9 +47,9 @@ class BluetoothAgentManagerClientImpl
   }
 
   // BluetoothAgentManagerClient override.
-  virtual void UnregisterAgent(const dbus::ObjectPath& agent_path,
-                               const base::Closure& callback,
-                               const ErrorCallback& error_callback) override {
+  void UnregisterAgent(const dbus::ObjectPath& agent_path,
+                       const base::Closure& callback,
+                       const ErrorCallback& error_callback) override {
     dbus::MethodCall method_call(
         bluetooth_agent_manager::kBluetoothAgentManagerInterface,
         bluetooth_agent_manager::kUnregisterAgent);
@@ -70,10 +68,9 @@ class BluetoothAgentManagerClientImpl
 
 
   // BluetoothAgentManagerClient override.
-  virtual void RequestDefaultAgent(const dbus::ObjectPath& agent_path,
-                                   const base::Closure& callback,
-                                   const ErrorCallback& error_callback)
-      override {
+  void RequestDefaultAgent(const dbus::ObjectPath& agent_path,
+                           const base::Closure& callback,
+                           const ErrorCallback& error_callback) override {
     dbus::MethodCall method_call(
         bluetooth_agent_manager::kBluetoothAgentManagerInterface,
         bluetooth_agent_manager::kRequestDefaultAgent);
@@ -91,7 +88,7 @@ class BluetoothAgentManagerClientImpl
   }
 
  protected:
-  virtual void Init(dbus::Bus* bus) override {
+  void Init(dbus::Bus* bus) override {
     DCHECK(bus);
     object_proxy_ = bus->GetObjectProxy(
         bluetooth_agent_manager::kBluetoothAgentManagerServiceName,

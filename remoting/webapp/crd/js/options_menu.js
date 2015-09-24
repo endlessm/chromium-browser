@@ -15,43 +15,51 @@ var remoting = remoting || {};
 /**
  * @param {Element} sendCtrlAltDel
  * @param {Element} sendPrtScrn
+ * @param {Element} mapRightCtrl
  * @param {Element} resizeToClient
  * @param {Element} shrinkToFit
  * @param {Element} newConnection
  * @param {Element?} fullscreen
+ * @param {Element?} toggleStats
  * @param {Element?} startStopRecording
  * @constructor
  */
-remoting.OptionsMenu = function(sendCtrlAltDel, sendPrtScrn,
+remoting.OptionsMenu = function(sendCtrlAltDel, sendPrtScrn, mapRightCtrl,
                                 resizeToClient, shrinkToFit,
-                                newConnection, fullscreen,
+                                newConnection, fullscreen, toggleStats,
                                 startStopRecording) {
   this.sendCtrlAltDel_ = sendCtrlAltDel;
   this.sendPrtScrn_ = sendPrtScrn;
+  this.mapRightCtrl_ = mapRightCtrl;
   this.resizeToClient_ = resizeToClient;
   this.shrinkToFit_ = shrinkToFit;
   this.newConnection_ = newConnection;
   this.fullscreen_ = fullscreen;
+  this.toggleStats_ = toggleStats;
   this.startStopRecording_ = startStopRecording;
-  /**
-   * @type {remoting.ClientSession}
-   * @private
-   */
-  this.clientSession_ = null;
+
+  /** @private {remoting.DesktopConnectedView} */
+  this.desktopConnectedView_ = null;
 
   this.sendCtrlAltDel_.addEventListener(
       'click', this.onSendCtrlAltDel_.bind(this), false);
   this.sendPrtScrn_.addEventListener(
       'click', this.onSendPrtScrn_.bind(this), false);
+  this.mapRightCtrl_.addEventListener(
+      'click', this.onMapRightCtrl_.bind(this), false);
   this.resizeToClient_.addEventListener(
       'click', this.onResizeToClient_.bind(this), false);
   this.shrinkToFit_.addEventListener(
       'click', this.onShrinkToFit_.bind(this), false);
   this.newConnection_.addEventListener(
       'click', this.onNewConnection_.bind(this), false);
+
   if (this.fullscreen_) {
-    this.fullscreen_.addEventListener(
-        'click', this.onFullscreen_.bind(this), false);
+    fullscreen.addEventListener('click', this.onFullscreen_.bind(this), false);
+  }
+  if (this.toggleStats_) {
+    toggleStats.addEventListener(
+        'click', this.onToggleStats_.bind(this), false);
   }
   if (this.startStopRecording_) {
     this.startStopRecording_.addEventListener(
@@ -60,28 +68,43 @@ remoting.OptionsMenu = function(sendCtrlAltDel, sendPrtScrn,
 };
 
 /**
- * @param {remoting.ClientSession} clientSession The active session, or null if
- *     there is no connection.
+ * @param {remoting.DesktopConnectedView} desktopConnectedView The view for the
+ *     active session, or null if there is no connection.
  */
-remoting.OptionsMenu.prototype.setClientSession = function(clientSession) {
-  this.clientSession_ = clientSession;
+remoting.OptionsMenu.prototype.setDesktopConnectedView = function(
+    desktopConnectedView) {
+  this.desktopConnectedView_ = desktopConnectedView;
 };
 
 remoting.OptionsMenu.prototype.onShow = function() {
-  if (this.clientSession_) {
-    this.resizeToClient_.hidden =
-        this.clientSession_.getMode() == remoting.ClientSession.Mode.IT2ME;
+  if (this.desktopConnectedView_) {
+    console.assert(remoting.app instanceof remoting.DesktopRemoting,
+                  '|remoting.app| is not an instance of DesktopRemoting.');
+    var drApp = /** @type {remoting.DesktopRemoting} */ (remoting.app);
+    var mode = drApp.getConnectionMode();
+
+    this.mapRightCtrl_.hidden = !remoting.platformIsChromeOS();
     remoting.MenuButton.select(
-        this.resizeToClient_, this.clientSession_.getResizeToClient());
+        this.mapRightCtrl_, this.desktopConnectedView_.getMapRightCtrl());
+
+    this.resizeToClient_.hidden = mode === remoting.DesktopRemoting.Mode.IT2ME;
     remoting.MenuButton.select(
-        this.shrinkToFit_, this.clientSession_.getShrinkToFit());
+        this.resizeToClient_, this.desktopConnectedView_.getResizeToClient());
+    remoting.MenuButton.select(
+        this.shrinkToFit_, this.desktopConnectedView_.getShrinkToFit());
+
     if (this.fullscreen_) {
       remoting.MenuButton.select(
           this.fullscreen_, remoting.fullscreen.isActive());
     }
+    if (this.toggleStats_) {
+      remoting.MenuButton.select(
+          this.toggleStats_, this.desktopConnectedView_.isStatsVisible());
+    }
     if (this.startStopRecording_) {
-      this.startStopRecording_.hidden = !this.clientSession_.canRecordVideo();
-      if (this.clientSession_.isRecordingVideo()) {
+      this.startStopRecording_.hidden =
+          !this.desktopConnectedView_.canRecordVideo();
+      if (this.desktopConnectedView_.isRecordingVideo()) {
         l10n.localizeElementFromTag(this.startStopRecording_,
                                     /*i18n-content*/'STOP_RECORDING');
       } else {
@@ -93,48 +116,59 @@ remoting.OptionsMenu.prototype.onShow = function() {
 };
 
 remoting.OptionsMenu.prototype.onSendCtrlAltDel_ = function() {
-  if (this.clientSession_) {
-    this.clientSession_.sendCtrlAltDel();
+  if (this.desktopConnectedView_) {
+    this.desktopConnectedView_.sendCtrlAltDel();
   }
 };
 
 remoting.OptionsMenu.prototype.onSendPrtScrn_ = function() {
-  if (this.clientSession_) {
-    this.clientSession_.sendPrintScreen();
+  if (this.desktopConnectedView_) {
+    this.desktopConnectedView_.sendPrintScreen();
+  }
+};
+
+remoting.OptionsMenu.prototype.onMapRightCtrl_ = function() {
+  if (this.desktopConnectedView_) {
+    this.desktopConnectedView_.setMapRightCtrl(
+        !this.desktopConnectedView_.getMapRightCtrl());
   }
 };
 
 remoting.OptionsMenu.prototype.onResizeToClient_ = function() {
-  if (this.clientSession_) {
-    this.clientSession_.setScreenMode(this.clientSession_.getShrinkToFit(),
-                                      !this.clientSession_.getResizeToClient());
+  if (this.desktopConnectedView_) {
+    this.desktopConnectedView_.setScreenMode(
+        this.desktopConnectedView_.getShrinkToFit(),
+        !this.desktopConnectedView_.getResizeToClient());
   }
 };
 
 remoting.OptionsMenu.prototype.onShrinkToFit_ = function() {
-  if (this.clientSession_) {
-    this.clientSession_.setScreenMode(!this.clientSession_.getShrinkToFit(),
-                                      this.clientSession_.getResizeToClient());
+  if (this.desktopConnectedView_) {
+    this.desktopConnectedView_.setScreenMode(
+        !this.desktopConnectedView_.getShrinkToFit(),
+        this.desktopConnectedView_.getResizeToClient());
   }
 };
 
 remoting.OptionsMenu.prototype.onNewConnection_ = function() {
-  chrome.app.window.create('main.html', {
-    'width': 800,
-    'height': 600,
-    'frame': 'none'
-  });
+  base.Ipc.invoke('remoting.ActivationHandler.launch');
 };
 
 remoting.OptionsMenu.prototype.onFullscreen_ = function() {
   remoting.fullscreen.toggle();
 };
 
-remoting.OptionsMenu.prototype.onStartStopRecording_ = function() {
-  if (this.clientSession_) {
-    this.clientSession_.startStopRecording();
+remoting.OptionsMenu.prototype.onToggleStats_ = function() {
+  if (this.desktopConnectedView_) {
+    this.desktopConnectedView_.toggleStats();
   }
-}
+};
+
+remoting.OptionsMenu.prototype.onStartStopRecording_ = function() {
+  if (this.desktopConnectedView_) {
+    this.desktopConnectedView_.startStopRecording();
+  }
+};
 
 /**
  * @type {remoting.OptionsMenu}

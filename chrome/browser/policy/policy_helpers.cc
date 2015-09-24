@@ -13,7 +13,6 @@
 #endif
 
 #if !defined(OS_CHROMEOS) && !defined(OS_IOS)
-#include "components/signin/core/browser/signin_manager.h"
 #include "google_apis/gaia/gaia_urls.h"
 #endif
 
@@ -23,7 +22,7 @@ bool OverrideBlacklistForURL(const GURL& url, bool* block, int* reason) {
 #if defined(OS_CHROMEOS)
   // On ChromeOS browsing is only allowed once OOBE has completed. Therefore all
   // requests are blocked until this condition is met.
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           chromeos::switches::kOobeGuestSession)) {
     if (!url.SchemeIs("chrome") && !url.SchemeIs("chrome-extension")) {
       *reason = net::ERR_BLOCKED_ENROLLMENT_CHECK_PENDING;
@@ -38,10 +37,6 @@ bool OverrideBlacklistForURL(const GURL& url, bool* block, int* reason) {
   static const char kServiceLoginAuth[] = "/ServiceLoginAuth";
 
   *block = false;
-  // Whitelist all the signin flow URLs flagged by the SigninManager.
-  if (SigninManager::IsWebBasedSigninFlowURL(url))
-    return true;
-
   // Additionally whitelist /ServiceLoginAuth.
   if (url.GetOrigin() != GaiaUrls::GetInstance()->gaia_url().GetOrigin())
     return false;

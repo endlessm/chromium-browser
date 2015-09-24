@@ -1,31 +1,32 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/fpdfdoc/fpdf_doc.h"
 CPDF_Dest CPDF_Action::GetDest(CPDF_Document* pDoc) const
 {
-    if (m_pDict == NULL) {
-        return NULL;
+    if (!m_pDict) {
+        return CPDF_Dest();
     }
     CFX_ByteString type = m_pDict->GetString("S");
     if (type != "GoTo" && type != "GoToR") {
-        return NULL;
+        return CPDF_Dest();
     }
     CPDF_Object* pDest = m_pDict->GetElementValue("D");
-    if (pDest == NULL) {
-        return NULL;
+    if (!pDest) {
+        return CPDF_Dest();
     }
     if (pDest->GetType() == PDFOBJ_STRING || pDest->GetType() == PDFOBJ_NAME) {
         CPDF_NameTree name_tree(pDoc, FX_BSTRC("Dests"));
         CFX_ByteStringC name = pDest->GetString();
-        return name_tree.LookupNamedDest(pDoc, name);
-    } else if (pDest->GetType() == PDFOBJ_ARRAY) {
-        return (CPDF_Array*)pDest;
+        return CPDF_Dest(name_tree.LookupNamedDest(pDoc, name));
     }
-    return NULL;
+    if (pDest->GetType() == PDFOBJ_ARRAY) {
+        return CPDF_Dest((CPDF_Array*)pDest);
+    }
+    return CPDF_Dest();
 }
 const FX_CHAR* g_sATypes[] = {"Unknown", "GoTo", "GoToR", "GoToE", "Launch", "Thread", "URI", "Sound", "Movie",
                               "Hide",	"Named", "SubmitForm", "ResetForm", "ImportData", "JavaScript", "SetOCGState",
@@ -94,7 +95,7 @@ FX_DWORD CPDF_ActionFields::GetFieldsCount() const
     if (m_pAction == NULL) {
         return 0;
     }
-    CPDF_Dictionary* pDict = (CPDF_Dictionary*)(*m_pAction);
+    CPDF_Dictionary* pDict = m_pAction->GetDict();
     if (pDict == NULL) {
         return 0;
     }
@@ -124,7 +125,7 @@ void CPDF_ActionFields::GetAllFields(CFX_PtrArray& fieldObjects) const
     if (m_pAction == NULL) {
         return;
     }
-    CPDF_Dictionary* pDict = (CPDF_Dictionary*)(*m_pAction);
+    CPDF_Dictionary* pDict = m_pAction->GetDict();
     if (pDict == NULL) {
         return;
     }
@@ -157,7 +158,7 @@ CPDF_Object* CPDF_ActionFields::GetField(FX_DWORD iIndex) const
     if (m_pAction == NULL) {
         return NULL;
     }
-    CPDF_Dictionary* pDict = (CPDF_Dictionary*)(*m_pAction);
+    CPDF_Dictionary* pDict = m_pAction->GetDict();
     if (pDict == NULL) {
         return NULL;
     }
@@ -217,7 +218,7 @@ CPDF_Dictionary* CPDF_Action::GetAnnot() const
     }
     return NULL;
 }
-FX_INT32 CPDF_Action::GetOperationType() const
+int32_t CPDF_Action::GetOperationType() const
 {
     if (m_pDict == NULL) {
         return 0;
@@ -260,19 +261,20 @@ FX_DWORD CPDF_Action::GetSubActionsCount() const
 CPDF_Action CPDF_Action::GetSubAction(FX_DWORD iIndex) const
 {
     if (m_pDict == NULL || !m_pDict->KeyExist("Next")) {
-        return NULL;
+        return CPDF_Action();
     }
     CPDF_Object* pNext = m_pDict->GetElementValue("Next");
     int iObjType = pNext->GetType();
     if (iObjType == PDFOBJ_DICTIONARY) {
+        CPDF_Dictionary *pDict = static_cast<CPDF_Dictionary*>(pNext);
         if (iIndex == 0) {
-            return (CPDF_Dictionary*)pNext;
+            return CPDF_Action(pDict);
         }
+    } else if (iObjType == PDFOBJ_ARRAY) {
+        CPDF_Array* pArray = static_cast<CPDF_Array*>(pNext);
+        return CPDF_Action(pArray->GetDict(iIndex));
     }
-    if (iObjType == PDFOBJ_ARRAY) {
-        return ((CPDF_Array*)pNext)->GetDict(iIndex);
-    }
-    return NULL;
+    return CPDF_Action();
 }
 const FX_CHAR* g_sAATypes[] = {"E", "X", "D", "U", "Fo", "Bl", "PO", "PC", "PV", "PI",
                                "O", "C",
@@ -289,10 +291,10 @@ FX_BOOL CPDF_AAction::ActionExist(AActionType eType) const
 }
 CPDF_Action CPDF_AAction::GetAction(AActionType eType) const
 {
-    if (m_pDict == NULL) {
-        return NULL;
+    if (!m_pDict) {
+        return CPDF_Action();
     }
-    return m_pDict->GetDict(g_sAATypes[(int)eType]);
+    return CPDF_Action(m_pDict->GetDict(g_sAATypes[(int)eType]));
 }
 FX_POSITION CPDF_AAction::GetStartPos() const
 {
@@ -304,25 +306,26 @@ FX_POSITION CPDF_AAction::GetStartPos() const
 CPDF_Action CPDF_AAction::GetNextAction(FX_POSITION& pos, AActionType& eType) const
 {
     if (m_pDict == NULL) {
-        return NULL;
+        return CPDF_Action();
     }
     CFX_ByteString csKey;
     CPDF_Object* pObj = m_pDict->GetNextElement(pos, csKey);
-    if (pObj != NULL) {
-        CPDF_Object* pDirect = pObj->GetDirect();
-        if (pDirect != NULL && pDirect->GetType() == PDFOBJ_DICTIONARY) {
-            int i = 0;
-            while (g_sAATypes[i][0] != '\0') {
-                if (csKey == g_sAATypes[i]) {
-                    break;
-                }
-                i ++;
-            }
-            eType = (AActionType)i;
-            return (CPDF_Dictionary*)pDirect;
-        }
+    if (!pObj) {
+        return CPDF_Action();
     }
-    return NULL;
+    CPDF_Object* pDirect = pObj->GetDirect();
+    if (!pDirect || pDirect->GetType() != PDFOBJ_DICTIONARY) {
+        return CPDF_Action();
+    }
+    int i = 0;
+    while (g_sAATypes[i][0] != '\0') {
+        if (csKey == g_sAATypes[i]) {
+            break;
+        }
+        i++;
+    }
+    eType = (AActionType)i;
+    return CPDF_Action(static_cast<CPDF_Dictionary*>(pDirect));
 }
 CPDF_DocJSActions::CPDF_DocJSActions(CPDF_Document* pDoc)
 {
@@ -340,9 +343,9 @@ CPDF_Action CPDF_DocJSActions::GetJSAction(int index, CFX_ByteString& csName) co
     CPDF_NameTree name_tree(m_pDocument, FX_BSTRC("JavaScript"));
     CPDF_Object *pAction = name_tree.LookupValue(index, csName);
     if (pAction == NULL || pAction->GetType() != PDFOBJ_DICTIONARY) {
-        return NULL;
+        return CPDF_Action();
     }
-    return pAction->GetDict();
+    return CPDF_Action(pAction->GetDict());
 }
 CPDF_Action CPDF_DocJSActions::GetJSAction(const CFX_ByteString& csName) const
 {
@@ -350,9 +353,9 @@ CPDF_Action CPDF_DocJSActions::GetJSAction(const CFX_ByteString& csName) const
     CPDF_NameTree name_tree(m_pDocument, FX_BSTRC("JavaScript"));
     CPDF_Object *pAction = name_tree.LookupValue(csName);
     if (pAction == NULL || pAction->GetType() != PDFOBJ_DICTIONARY) {
-        return NULL;
+        return CPDF_Action();
     }
-    return pAction->GetDict();
+    return CPDF_Action(pAction->GetDict());
 }
 int CPDF_DocJSActions::FindJSAction(const CFX_ByteString& csName) const
 {

@@ -7,7 +7,7 @@
 #include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/values.h"
-#include "content/shell/renderer/layout_test/webkit_test_runner.h"
+#include "content/shell/renderer/layout_test/blink_test_runner.h"
 #include "third_party/WebKit/public/web/WebLeakDetector.h"
 
 using blink::WebLeakDetector;
@@ -17,17 +17,24 @@ namespace content {
 // The initial states of the DOM objects at about:blank. The four nodes are a
 // Document, a HTML, a HEAD and a BODY.
 //
-// TODO(hajimehoshi): Now these are hard-corded. If we add target to count like
-// RefCoutned objects whose initial state is diffcult to estimate, we stop using
-// hard-coded values. Instead, we need to load about:blank ahead of the layout
-// tests actually and initialize LeakDetector by the got values.
+// TODO(hajimehoshi): Now these are hard-corded. If we add a target to count
+// objects like RefCounted whose initial state is diffcult to estimate, we stop
+// using hard-coded values. Instead, we need to load about:blank ahead of the
+// layout tests actually and initialize LeakDetector by the got values.
 const int kInitialNumberOfLiveAudioNodes = 0;
 const int kInitialNumberOfLiveDocuments = 1;
 const int kInitialNumberOfLiveNodes = 4;
 const int kInitialNumberOfLiveRenderObjects = 3;
 const int kInitialNumberOfLiveResources = 0;
+const int kInitialNumberOfScriptPromises = 0;
+const int kInitialNumberOfLiveFrames = 1;
+const int kInitialNumberOfV8PerContextData = 1;
 
-LeakDetector::LeakDetector(WebKitTestRunner* test_runner)
+// In the initial state, there are two ActiveDOMObjects (FontFaceSet created by
+// HTMLDocument and SuspendableTimer created by DocumentLoader).
+const int kInitialNumberOfLiveActiveDOMObject = 2;
+
+LeakDetector::LeakDetector(BlinkTestRunner* test_runner)
     : test_runner_(test_runner),
       web_leak_detector_(blink::WebLeakDetector::create(this)) {
   previous_result_.numberOfLiveAudioNodes = kInitialNumberOfLiveAudioNodes;
@@ -36,6 +43,12 @@ LeakDetector::LeakDetector(WebKitTestRunner* test_runner)
   previous_result_.numberOfLiveRenderObjects =
       kInitialNumberOfLiveRenderObjects;
   previous_result_.numberOfLiveResources = kInitialNumberOfLiveResources;
+  previous_result_.numberOfLiveActiveDOMObjects =
+    kInitialNumberOfLiveActiveDOMObject;
+  previous_result_.numberOfLiveScriptPromises = kInitialNumberOfScriptPromises;
+  previous_result_.numberOfLiveFrames = kInitialNumberOfLiveFrames;
+  previous_result_.numberOfLiveV8PerContextData =
+    kInitialNumberOfV8PerContextData;
 }
 
 LeakDetector::~LeakDetector() {
@@ -82,10 +95,37 @@ void LeakDetector::onLeakDetectionComplete(
     list->AppendInteger(result.numberOfLiveResources);
     detail.Set("numberOfLiveResources", list);
   }
+  if (previous_result_.numberOfLiveActiveDOMObjects <
+      result.numberOfLiveActiveDOMObjects) {
+    base::ListValue* list = new base::ListValue();
+    list->AppendInteger(previous_result_.numberOfLiveActiveDOMObjects);
+    list->AppendInteger(result.numberOfLiveActiveDOMObjects);
+    detail.Set("numberOfLiveActiveDOMObjects", list);
+  }
+  if (previous_result_.numberOfLiveScriptPromises <
+      result.numberOfLiveScriptPromises) {
+    base::ListValue* list = new base::ListValue();
+    list->AppendInteger(previous_result_.numberOfLiveScriptPromises);
+    list->AppendInteger(result.numberOfLiveScriptPromises);
+    detail.Set("numberOfLiveScriptPromises", list);
+  }
+  if (previous_result_.numberOfLiveFrames < result.numberOfLiveFrames) {
+    base::ListValue* list = new base::ListValue();
+    list->AppendInteger(previous_result_.numberOfLiveFrames);
+    list->AppendInteger(result.numberOfLiveFrames);
+    detail.Set("numberOfLiveFrames", list);
+  }
+  if (previous_result_.numberOfLiveV8PerContextData <
+      result.numberOfLiveV8PerContextData) {
+    base::ListValue* list = new base::ListValue();
+    list->AppendInteger(previous_result_.numberOfLiveV8PerContextData);
+    list->AppendInteger(result.numberOfLiveV8PerContextData);
+    detail.Set("numberOfLiveV8PerContextData", list);
+  }
 
   if (!detail.empty()) {
     std::string detail_str;
-    base::JSONWriter::Write(&detail, &detail_str);
+    base::JSONWriter::Write(detail, &detail_str);
     report.detail = detail_str;
     report.leaked = true;
   }

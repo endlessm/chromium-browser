@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2011 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -8,7 +7,6 @@
 from __future__ import print_function
 
 import exceptions
-import mox
 import os
 import tempfile
 
@@ -16,7 +14,9 @@ from chromite.lib import cros_test_lib
 from chromite.lib import table
 from chromite.scripts import merge_package_status as mps
 
-# pylint: disable=W0212,R0904
+
+# pylint: disable=protected-access
+
 
 class MergeTest(cros_test_lib.OutputTestCase, cros_test_lib.TempDirTestCase):
   """Test the functionality of merge_package_status."""
@@ -34,8 +34,7 @@ class MergeTest(cros_test_lib.OutputTestCase, cros_test_lib.TempDirTestCase):
              mps.COL_OVERLAY,
              COL_VER_x86,
              COL_VER_arm,
-             mps.COL_TARGET,
-             ]
+             mps.COL_TARGET]
 
   ROW0 = {mps.COL_PACKAGE: 'lib/foo',
           mps.COL_SLOT: '0',
@@ -119,17 +118,17 @@ class MergeTest(cros_test_lib.OutputTestCase, cros_test_lib.TempDirTestCase):
          'virtual/target-os-test'],
         ['world', 'virtual/target-sdk', 'virtual/target-os-dev',
          'virtual/target-os-test'],
-        ]
+    ]
     test_out = [
         ['virtual/target-os-dev'],
         ['virtual/target-os-test', 'world'],
         ['virtual/target-os-test', 'virtual/target-sdk', 'world'],
-        ]
+    ]
     test_rev_out = [
         ['virtual/target-os'],
         ['virtual/target-os', 'world'],
         ['virtual/target-os-dev', 'virtual/target-sdk', 'world'],
-        ]
+    ]
 
     for targets, good_out, rev_out in zip(test_in, test_out, test_rev_out):
       output = mps.ProcessTargets(targets)
@@ -221,7 +220,8 @@ class MergeTest(cros_test_lib.OutputTestCase, cros_test_lib.TempDirTestCase):
     for ix, row_out in enumerate(final_rows):
       self.assertRowsEqual(row_out, self._table[ix])
 
-class MainTest(cros_test_lib.MoxOutputTestCase):
+
+class MainTest(cros_test_lib.MockOutputTestCase):
   """Test argument handling at the main method level."""
 
   def testHelp(self):
@@ -268,14 +268,9 @@ class MainTest(cros_test_lib.MoxOutputTestCase):
 
     Expected: LoadAndMergeTables, WriteTable.
     """
-    self.mox.StubOutWithMock(mps, 'LoadAndMergeTables')
-    self.mox.StubOutWithMock(mps, 'WriteTable')
-    mps.LoadAndMergeTables(mox.IgnoreArg()).AndReturn('csv_table')
-    mps.WriteTable(mox.Regex(r'csv_table'), 'any-out')
-    self.mox.ReplayAll()
+    self.PatchObject(mps, 'LoadAndMergeTables', return_value='csv_table')
+    m = self.PatchObject(mps, 'WriteTable')
 
     mps.main(['--out=any-out', 'any-package'])
-    self.mox.VerifyAll()
 
-if __name__ == '__main__':
-  cros_test_lib.main()
+    m.assert_called_with('csv_table', 'any-out')

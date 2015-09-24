@@ -46,11 +46,11 @@ using content::OpenURLParams;
 using content::Referrer;
 using content::WebContents;
 
-// Disabled, http://crbug.com/64899.
+// The test uses the chrome.browserAction.openPopup API, which requires that the
+// window can automatically be activated.
+// See comments at BrowserActionInteractiveTest::ShouldRunPopupTest
+// Fails flakily on all platforms. https://crbug.com/477691
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, DISABLED_WindowOpen) {
-  CommandLine::ForCurrentProcess()->AppendSwitch(
-      extensions::switches::kEnableExperimentalExtensionApis);
-
   extensions::ResultCatcher catcher;
   ASSERT_TRUE(LoadExtensionIncognito(test_data_dir_
       .AppendASCII("window_open").AppendASCII("spanning")));
@@ -204,8 +204,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest, PopupBlockingHostedApp) {
   // to below must be within that domain, so that they fall within the app's
   // web extent.
   GURL::Replacements replace_host;
-  std::string a_dot_com = "a.com";
-  replace_host.SetHostStr(a_dot_com);
+  replace_host.SetHostStr("a.com");
 
   const std::string popup_app_contents_path(
     "files/extensions/api_test/window_open/popup_blocking/hosted_app/");
@@ -232,7 +231,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest, WindowArgumentsOverflow) {
 }
 
 class WindowOpenPanelDisabledTest : public ExtensionApiTest {
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionApiTest::SetUpCommandLine(command_line);
     // TODO(jennb): Re-enable when panels are enabled by default.
     // command_line->AppendSwitch(switches::kDisablePanels);
@@ -245,7 +244,7 @@ IN_PROC_BROWSER_TEST_F(WindowOpenPanelDisabledTest,
 }
 
 class WindowOpenPanelTest : public ExtensionApiTest {
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionApiTest::SetUpCommandLine(command_line);
     command_line->AppendSwitch(switches::kEnablePanels);
   }
@@ -287,14 +286,16 @@ IN_PROC_BROWSER_TEST_F(WindowOpenPanelTest,
                        MAYBE_CloseNonExtensionPanelsOnUninstall) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
 #if defined(USE_ASH_PANELS)
   // On Ash, new panel windows open as popup windows instead.
   int num_popups, num_panels;
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kEnablePanels)) {
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnablePanels)) {
     num_popups = 2;
     num_panels = 2;
   } else {
@@ -340,7 +341,8 @@ IN_PROC_BROWSER_TEST_F(WindowOpenPanelTest,
   // Expect everything else, including panels, to close.
   num_popups -= 1;
 #if defined(USE_ASH_PANELS)
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(switches::kEnablePanels)) {
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnablePanels)) {
     // On Ash, new panel windows open as popup windows instead, so there are 2
     // extension domain popups that will close (instead of 1 popup on non-Ash).
     num_popups -= 1;
@@ -401,8 +403,8 @@ IN_PROC_BROWSER_TEST_F(WindowOpenPanelTest, ClosePanelsOnExtensionCrash) {
       extensions::ProcessManager::Get(browser()->profile())
           ->GetBackgroundHostForExtension(extension->id());
   ASSERT_TRUE(extension_host);
-  base::KillProcess(extension_host->render_process_host()->GetHandle(),
-                    content::RESULT_CODE_KILLED, false);
+  extension_host->render_process_host()->Shutdown(content::RESULT_CODE_KILLED,
+                                                  false);
   WaitForExtensionCrash(extension->id());
 
   // Only expect panels to close. The rest stay open to show a sad-tab.

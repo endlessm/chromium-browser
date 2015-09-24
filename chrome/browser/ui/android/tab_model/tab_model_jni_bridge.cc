@@ -7,6 +7,8 @@
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
 #include "base/android/jni_weak_ref.h"
+#include "base/metrics/histogram.h"
+#include "base/time/time.h"
 #include "chrome/browser/android/tab_android.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
@@ -82,10 +84,11 @@ int TabModelJniBridge::GetActiveIndex() const {
 void TabModelJniBridge::CreateTab(WebContents* web_contents,
                                   int parent_tab_id) {
   JNIEnv* env = AttachCurrentThread();
-  Java_TabModelJniBridge_createTabWithNativeContents(
+  Java_TabModelJniBridge_createTabWithWebContents(
       env, java_object_.get(env).obj(),
       web_contents->GetBrowserContext()->IsOffTheRecord(),
-      reinterpret_cast<intptr_t>(web_contents), parent_tab_id);
+      web_contents->GetJavaWebContents().obj(),
+      parent_tab_id);
 }
 
 WebContents* TabModelJniBridge::GetWebContentsAt(int index) const {
@@ -148,6 +151,62 @@ bool TabModelJniBridge::IsSessionRestoreInProgress() const {
 void TabModelJniBridge::BroadcastSessionRestoreComplete(JNIEnv* env,
                                                         jobject obj) {
   TabModel::BroadcastSessionRestoreComplete();
+}
+
+inline static base::TimeDelta GetTimeDelta(jlong ms) {
+  return base::TimeDelta::FromMilliseconds(static_cast<int64>(ms));
+}
+
+void LogFromCloseMetric(JNIEnv* env,
+                        jclass jcaller,
+                        jlong ms,
+                        jboolean perceived) {
+  if (perceived) {
+    UMA_HISTOGRAM_TIMES("Tabs.SwitchFromCloseLatency_Perceived",
+                        GetTimeDelta(ms));
+  } else {
+    UMA_HISTOGRAM_TIMES("Tabs.SwitchFromCloseLatency_Actual",
+                        GetTimeDelta(ms));
+  }
+}
+
+void LogFromExitMetric(JNIEnv* env,
+                       jclass jcaller,
+                       jlong ms,
+                       jboolean perceived) {
+  if (perceived) {
+    UMA_HISTOGRAM_TIMES("Tabs.SwitchFromExitLatency_Perceived",
+                        GetTimeDelta(ms));
+  } else {
+    UMA_HISTOGRAM_TIMES("Tabs.SwitchFromExitLatency_Actual",
+                        GetTimeDelta(ms));
+  }
+}
+
+void LogFromNewMetric(JNIEnv* env,
+                      jclass jcaller,
+                      jlong ms,
+                      jboolean perceived) {
+  if (perceived) {
+    UMA_HISTOGRAM_TIMES("Tabs.SwitchFromNewLatency_Perceived",
+                        GetTimeDelta(ms));
+  } else {
+    UMA_HISTOGRAM_TIMES("Tabs.SwitchFromNewLatency_Actual",
+                        GetTimeDelta(ms));
+  }
+}
+
+void LogFromUserMetric(JNIEnv* env,
+                       jclass jcaller,
+                       jlong ms,
+                       jboolean perceived) {
+  if (perceived) {
+    UMA_HISTOGRAM_TIMES("Tabs.SwitchFromUserLatency_Perceived",
+                        GetTimeDelta(ms));
+  } else {
+    UMA_HISTOGRAM_TIMES("Tabs.SwitchFromUserLatency_Actual",
+                        GetTimeDelta(ms));
+  }
 }
 
 TabModelJniBridge::~TabModelJniBridge() {

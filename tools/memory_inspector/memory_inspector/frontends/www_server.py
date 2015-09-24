@@ -21,7 +21,6 @@ The following HTTP status code are returned by the server:
 import cgi
 import collections
 import datetime
-import dateutil.parser
 import glob
 import json
 import memory_inspector
@@ -29,6 +28,7 @@ import mimetypes
 import os
 import posixpath
 import re
+import traceback
 import urlparse
 import uuid
 import wsgiref.simple_server
@@ -43,9 +43,10 @@ from memory_inspector.data import file_storage
 from memory_inspector.frontends import background_tasks
 
 
-_HTTP_OK = '200 - OK'
-_HTTP_GONE = '410 - Gone'
-_HTTP_NOT_FOUND = '404 - Not Found'
+_HTTP_OK = '200 OK'
+_HTTP_GONE = '410 Gone'
+_HTTP_NOT_FOUND = '404 Not Found'
+_HTTP_INTERNAL_ERROR = '500 Internal Server Error'
 _PERSISTENT_STORAGE_PATH = os.path.join(
     os.path.expanduser('~'), '.config', 'memory_inspector')
 _CONTENT_DIR = os.path.abspath(os.path.join(
@@ -87,22 +88,28 @@ class UriHandler(object):
   @staticmethod
   def Handle(method, path, req_vars):
     """Finds a matching handler and calls it (or returns a 404 - Not Found)."""
+    cache_headers = [('Cache-Control', 'no-cache'),
+                     ('Expires', 'Fri, 19 Sep 1986 05:00:00 GMT')]
     for (match_method, path_regex, output_filter, fn) in UriHandler._handlers:
       if method != match_method:
         continue
       m = re.match(path_regex, path)
       if not m:
         continue
-      (http_code, headers, body) = fn(m.groups(), req_vars)
-      return output_filter(http_code, headers, body)
+      try:
+        (http_code, headers, body) = fn(m.groups(), req_vars)
+      except Exception as e:
+        traceback.print_exc()
+        return _HTTP_INTERNAL_ERROR, [], str(e)
+      return output_filter(http_code, cache_headers + headers, body)
     return (_HTTP_NOT_FOUND, [], 'No AJAX handlers found')
 
 
 class AjaxHandler(UriHandler):
   """Decorator for routing AJAX requests.
 
-  This decorator essentially groups the JSON serialization and the cache headers
-  which is shared by most of the handlers defined below.
+  This decorator performs JSON serialization which is shared by most of the
+  handlers defined below.
   """
   def __init__(self, path_regex, verb='GET'):
     super(AjaxHandler, self).__init__(
@@ -111,9 +118,7 @@ class AjaxHandler(UriHandler):
   @staticmethod
   def AjaxOutputFilter(http_code, headers, body):
     serialized_content = json.dumps(body, cls=serialization.Encoder)
-    extra_headers = [('Cache-Control', 'no-cache'),
-                     ('Expires', 'Fri, 19 Sep 1986 05:00:00 GMT')]
-    return http_code, headers + extra_headers, serialized_content
+    return http_code, headers, serialized_content
 
 
 @AjaxHandler('/ajax/backends')
@@ -136,7 +141,7 @@ def _ListDevices(args, req_vars):  # pylint: disable=W0613
   return _HTTP_OK, [], resp
 
 
-@AjaxHandler(r'/ajax/dump/mmap/(\w+)/(\w+)/(\d+)')
+@AjaxHandler(r'/ajax/dump/mmap/([^/]+)/([^/]+)/(\d+)')
 def _DumpMmapsForProcess(args, req_vars):  # pylint: disable=W0613
   """Dumps memory maps for a process.
 
@@ -153,7 +158,7 @@ def _DumpMmapsForProcess(args, req_vars):  # pylint: disable=W0613
   return _HTTP_OK, [], {'table': table, 'id': cache_id}
 
 
-@AjaxHandler('/ajax/initialize/(\w+)/(\w+)$', 'POST')
+@AjaxHandler('/ajax/initialize/([^/]+)/([^/]+)$', 'POST')
 def _InitializeDevice(args, req_vars):  # pylint: disable=W0613
   device = _GetDevice(args)
   if not device:
@@ -187,7 +192,7 @@ def _CreateProfile(args, req_vars):  # pylint: disable=W0613
       return _HTTP_GONE, [], 'Cannot open archive %s' % req_vars['archive']
     first_timestamp = None
     for timestamp_str in req_vars['snapshots']:
-      timestamp = dateutil.parser.parse(timestamp_str)
+      timestamp = file_storage.Archive.StrToTimestamp(timestamp_str)
       first_timestamp = first_timestamp or timestamp
       time_delta = int((timestamp - first_timestamp).total_seconds())
       if req_vars['type'] == 'mmap':
@@ -253,7 +258,7 @@ def _CreateProfile(args, req_vars):  # pylint: disable=W0613
                         'rootBucket': first_snapshot.total.name + '/'}
 
 
-@AjaxHandler(r'/ajax/profile/(\w+)/tree/(\d+)/(\d+)')
+@AjaxHandler(r'/ajax/profile/([^/]+)/tree/(\d+)/(\d+)')
 def _GetProfileTreeDataForSnapshot(args, req_vars):  # pylint: disable=W0613
   """Gets the data for the tree chart for a given time and metric.
 
@@ -291,7 +296,7 @@ def _GetProfileTreeDataForSnapshot(args, req_vars):  # pylint: disable=W0613
   return _HTTP_OK, [], resp
 
 
-@AjaxHandler(r'/ajax/profile/(\w+)/time_serie/(\d+)/(.*)$')
+@AjaxHandler(r'/ajax/profile/([^/]+)/time_serie/(\d+)/(.*)$')
 def _GetTimeSerieForSnapshot(args, req_vars):  # pylint: disable=W0613
   """Gets the data for the area chart for a given metric and bucket.
 
@@ -357,7 +362,7 @@ def _ListProfilingRules(args, req_vars):  # pylint: disable=W0613
   return _HTTP_OK, [], resp
 
 
-@AjaxHandler(r'/ajax/ps/(\w+)/(\w+)$')  # /ajax/ps/Android/a0b1c2[?all=1]
+@AjaxHandler(r'/ajax/ps/([^/]+)/([^/]+)$')  # /ajax/ps/Android/a0b1c2[?all=1]
 def _ListProcesses(args, req_vars):  # pylint: disable=W0613
   """Lists processes and their CPU / mem stats.
 
@@ -390,7 +395,7 @@ def _ListProcesses(args, req_vars):  # pylint: disable=W0613
   return _HTTP_OK, [], resp
 
 
-@AjaxHandler(r'/ajax/stats/(\w+)/(\w+)$')  # /ajax/stats/Android/a0b1c2
+@AjaxHandler(r'/ajax/stats/([^/]+)/([^/]+)$')  # /ajax/stats/Android/a0b1c2
 def _GetDeviceStats(args, req_vars):  # pylint: disable=W0613
   """Lists device CPU / mem stats.
 
@@ -435,7 +440,7 @@ def _GetDeviceStats(args, req_vars):  # pylint: disable=W0613
   return _HTTP_OK, [], {'cpu': cpu_stats, 'mem': mem_stats}
 
 
-@AjaxHandler(r'/ajax/stats/(\w+)/(\w+)/(\d+)$')  # /ajax/stats/Android/a0b1c2/42
+@AjaxHandler(r'/ajax/stats/([^/]+)/([^/]+)/(\d+)$')  # /ajax/stats/Android/a0/3
 def _GetProcessStats(args, req_vars):  # pylint: disable=W0613
   """Lists CPU / mem stats for a given process (and keeps history).
 
@@ -485,7 +490,7 @@ def _GetProcessStats(args, req_vars):  # pylint: disable=W0613
   return _HTTP_OK, [], {'cpu': cpu_stats, 'mem': mem_stats}
 
 
-@AjaxHandler(r'/ajax/settings/(\w+)/?(\w+)?$')  # /ajax/settings/Android[/id]
+@AjaxHandler(r'/ajax/settings/([^/]+)/?(\w+)?$')  # /ajax/settings/Android[/id]
 def _GetDeviceOrBackendSettings(args, req_vars):  # pylint: disable=W0613
   backend = backends.GetBackend(args[0])
   if not backend:
@@ -506,7 +511,7 @@ def _GetDeviceOrBackendSettings(args, req_vars):  # pylint: disable=W0613
   return _HTTP_OK, [], resp
 
 
-@AjaxHandler(r'/ajax/settings/(\w+)/?(\w+)?$', 'POST')
+@AjaxHandler(r'/ajax/settings/([^/]+)/?(\w+)?$', 'POST')
 def _SetDeviceOrBackendSettings(args, req_vars):  # pylint: disable=W0613
   backend = backends.GetBackend(args[0])
   if not backend:
@@ -545,7 +550,8 @@ def _ListStorage(args, req_vars):  # pylint: disable=W0613
       time_delta = '%d s.' % (timestamp - first_timestamp).total_seconds()
       resp['rows'] += [{'c': [
           {'v': archive_name, 'f': None},
-          {'v': timestamp.isoformat(), 'f': time_delta},
+          {'v': file_storage.Archive.TimestampToStr(timestamp),
+           'f': time_delta},
           {'v': archive.HasMemMaps(timestamp), 'f': None},
           {'v': archive.HasNativeHeap(timestamp), 'f': None},
       ]}]
@@ -558,7 +564,7 @@ def _LoadMmapsFromStorage(args, req_vars):  # pylint: disable=W0613
   if not archive:
     return _HTTP_GONE, [], 'Cannot open archive %s' % req_vars['archive']
 
-  timestamp = dateutil.parser.parse(args[1])
+  timestamp = file_storage.Archive.StrToTimestamp(args[1])
   if not archive.HasMemMaps(timestamp):
     return _HTTP_GONE, [], 'No mmaps for snapshot %s' % timestamp
   mmap = archive.LoadMemMaps(timestamp)
@@ -572,7 +578,7 @@ def _LoadNheapFromStorage(args, req_vars):
   if not archive:
     return _HTTP_GONE, [], 'Cannot open archive %s' % req_vars['archive']
 
-  timestamp = dateutil.parser.parse(args[1])
+  timestamp = file_storage.Archive.StrToTimestamp(args[1])
   if not archive.HasNativeHeap(timestamp):
     return _HTTP_GONE, [], 'No native heap dump for snapshot %s' % timestamp
 
@@ -611,7 +617,7 @@ def _LoadNheapFromStorage(args, req_vars):
 
 
 # /ajax/tracer/start/Android/device-id/pid
-@AjaxHandler(r'/ajax/tracer/start/(\w+)/(\w+)/(\d+)', 'POST')
+@AjaxHandler(r'/ajax/tracer/start/([^/]+)/([^/]+)/(\d+)', 'POST')
 def _StartTracer(args, req_vars):
   for arg in 'interval', 'count', 'traceNativeHeap':
     assert(arg in req_vars), 'Expecting %s argument in POST data' % arg
@@ -637,8 +643,6 @@ def _GetTracerStatus(args, req_vars):  # pylint: disable=W0613
 
 @UriHandler(r'^(?!/ajax)/(.*)$')
 def _StaticContent(args, req_vars):  # pylint: disable=W0613
-  # Give the browser a 1-day TTL cache to minimize the start-up time.
-  cache_headers = [('Cache-Control', 'max-age=86400, public')]
   req_path = args[0] if args[0] else 'index.html'
   file_path = os.path.abspath(os.path.join(_CONTENT_DIR, req_path))
   if (os.path.isfile(file_path) and
@@ -649,8 +653,8 @@ def _StaticContent(args, req_vars):  # pylint: disable=W0613
       mtype = guessed_mime[0]
     with open(file_path, 'rb') as f:
       body = f.read()
-    return _HTTP_OK, cache_headers + [('Content-Type', mtype)], body
-  return _HTTP_NOT_FOUND, cache_headers,  file_path + ' not found'
+    return _HTTP_OK, [('Content-Type', mtype)], body
+  return _HTTP_NOT_FOUND, [],  file_path + ' not found'
 
 
 def _GetDevice(args):
@@ -753,9 +757,9 @@ def Start(http_port):
     for k, v in _persistent_storage.LoadSettings(backend.name).iteritems():
       backend.settings[k] = v
 
-  httpd = wsgiref.simple_server.make_server('', http_port, _HttpRequestHandler)
+  httpd = wsgiref.simple_server.make_server(
+      '127.0.0.1', http_port, _HttpRequestHandler)
   try:
     httpd.serve_forever()
   except KeyboardInterrupt:
     pass  # Don't print useless stack traces when the user hits CTRL-C.
-  background_tasks.TerminateAll()

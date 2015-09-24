@@ -5,6 +5,7 @@
 #include "ash/shelf/shelf_view.h"
 
 #include <algorithm>
+#include <utility>
 #include <vector>
 
 #include "ash/root_window_controller.h"
@@ -30,19 +31,22 @@
 #include "ash/test/test_shelf_delegate.h"
 #include "ash/test/test_shelf_item_delegate.h"
 #include "base/basictypes.h"
-#include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/test/histogram_tester.h"
+#include "base/test/user_action_tester.h"
+#include "base/time/time.h"
 #include "ui/aura/test/aura_test_base.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/base/ui_base_switches.h"
 #include "ui/compositor/layer.h"
 #include "ui/events/event.h"
 #include "ui/events/event_constants.h"
+#include "ui/events/event_utils.h"
 #include "ui/events/test/event_generator.h"
+#include "ui/gfx/geometry/point.h"
 #include "ui/views/view_model.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
@@ -121,13 +125,20 @@ class ShelfViewIconObserverTest : public AshTestBase {
 // TestShelfItemDelegate which tracks whether it gets selected.
 class ShelfItemSelectionTracker : public TestShelfItemDelegate {
  public:
-  ShelfItemSelectionTracker() : TestShelfItemDelegate(NULL), selected_(false) {
-  }
+  ShelfItemSelectionTracker()
+      : TestShelfItemDelegate(NULL),
+        selected_(false),
+        item_selected_action_(kNoAction) {}
 
   ~ShelfItemSelectionTracker() override {}
 
   // Resets to the initial state.
   void Reset() { selected_ = false; }
+
+  void set_item_selected_action(
+      ShelfItemDelegate::PerformedAction item_selected_action) {
+    item_selected_action_ = item_selected_action;
+  }
 
   // Returns true if the delegate was selected.
   bool WasSelected() {
@@ -135,13 +146,17 @@ class ShelfItemSelectionTracker : public TestShelfItemDelegate {
   }
 
   // TestShelfItemDelegate:
-  bool ItemSelected(const ui::Event& event) override {
+  ShelfItemDelegate::PerformedAction ItemSelected(
+      const ui::Event& event) override {
     selected_ = true;
-    return false;
+    return item_selected_action_;
   }
 
  private:
   bool selected_;
+
+  // The action returned from ItemSelected(const ui::Event&).
+  ShelfItemDelegate::PerformedAction item_selected_action_;
 
   DISALLOW_COPY_AND_ASSIGN(ShelfItemSelectionTracker);
 };
@@ -224,13 +239,16 @@ TEST_F(ShelfViewIconObserverTest, BoundsChanged) {
 ////////////////////////////////////////////////////////////////////////////////
 // ShelfView tests.
 
-// Simple ShelfDelegate implmentation for ShelfViewTest.OverflowBubbleSize
-// and CheckDragAndDropFromOverflowBubbleToShelf
+// A ShelfDelegate test double that will always convert between ShelfIDs and app
+// ids. This does not support pinning and unpinning operations however CanPin()
+// will return true and the return value of IsAppPinned(...) is configurable.
 class TestShelfDelegateForShelfView : public ShelfDelegate {
  public:
   explicit TestShelfDelegateForShelfView(ShelfModel* model)
       : model_(model) {}
   ~TestShelfDelegateForShelfView() override {}
+
+  void set_is_app_pinned(bool is_pinned) { is_app_pinned_ = is_pinned; }
 
   // ShelfDelegate overrides:
   void OnShelfCreated(Shelf* shelf) override {}
@@ -243,6 +261,8 @@ class TestShelfDelegateForShelfView : public ShelfDelegate {
     return id;
   }
 
+  bool HasShelfIDToAppIDMapping(ShelfID id) const override { return true; }
+
   const std::string& GetAppIDForShelfID(ShelfID id) override {
     // Use |app_id_| member variable because returning a reference to local
     // variable is not allowed.
@@ -250,28 +270,21 @@ class TestShelfDelegateForShelfView : public ShelfDelegate {
     return app_id_;
   }
 
-  void PinAppWithID(const std::string& app_id) override {}
+  void PinAppWithID(const std::string& app_id) override { NOTREACHED(); }
 
   bool IsAppPinned(const std::string& app_id) override {
-    // Returns true for ShelfViewTest.OverflowBubbleSize. To test ripping off in
-    // that test, an item is already pinned state.
-    return true;
+    return is_app_pinned_;
   }
 
   bool CanPin() const override { return true; }
 
-  void UnpinAppWithID(const std::string& app_id) override {
-    ShelfID id = 0;
-    EXPECT_TRUE(base::StringToInt(app_id, &id));
-    ASSERT_GT(id, 0);
-    int index = model_->ItemIndexByID(id);
-    ASSERT_GE(index, 0);
-
-    model_->RemoveItemAt(index);
-  }
+  void UnpinAppWithID(const std::string& app_id) override { NOTREACHED(); }
 
  private:
   ShelfModel* model_;
+
+  // Tracks whether apps are pinned or not.
+  bool is_app_pinned_ = false;
 
   // Temp member variable for returning a value. See the comment in the
   // GetAppIDForShelfID().
@@ -282,6 +295,9 @@ class TestShelfDelegateForShelfView : public ShelfDelegate {
 
 class ShelfViewTest : public AshTestBase {
  public:
+  static const char*
+      kTimeBetweenWindowMinimizedAndActivatedActionsHistogramName;
+
   ShelfViewTest()
       : model_(NULL),
         shelf_view_(NULL),
@@ -290,8 +306,6 @@ class ShelfViewTest : public AshTestBase {
   ~ShelfViewTest() override {}
 
   void SetUp() override {
-    base::CommandLine::ForCurrentProcess()->AppendSwitch(
-        switches::kEnableTouchFeedback);
     AshTestBase::SetUp();
     test::ShellTestApi test_api(Shell::GetInstance());
     model_ = test_api.shelf_model();
@@ -304,6 +318,8 @@ class ShelfViewTest : public AshTestBase {
     test_api_.reset(new ShelfViewTestAPI(shelf_view_));
     test_api_->SetAnimationDuration(1);  // Speeds up animation for test.
 
+    ReplaceShelfDelegate();
+
     item_manager_ = Shell::GetInstance()->shelf_item_delegate_manager();
     DCHECK(item_manager_);
 
@@ -312,6 +328,7 @@ class ShelfViewTest : public AshTestBase {
   }
 
   void TearDown() override {
+    shelf_delegate_ = nullptr;
     test_api_.reset();
     AshTestBase::TearDown();
   }
@@ -426,9 +443,9 @@ class ShelfViewTest : public AshTestBase {
                                      int button_index) {
     ShelfButtonHost* button_host = shelf_view_;
     ShelfButton* button = test_api_->GetButton(button_index);
-    ui::MouseEvent click_event(ui::ET_MOUSE_PRESSED,
-                               gfx::Point(),
-                               button->GetBoundsInScreen().origin(), 0, 0);
+    ui::MouseEvent click_event(ui::ET_MOUSE_PRESSED, gfx::Point(),
+                               button->GetBoundsInScreen().origin(),
+                               ui::EventTimeForNow(), 0, 0);
     button_host->PointerPressedOnButton(button, pointer, click_event);
     return button;
   }
@@ -438,11 +455,9 @@ class ShelfViewTest : public AshTestBase {
     ShelfButtonHost* button_host = shelf_view_;
     ShelfButton* button =
         SimulateButtonPressed(ShelfButtonHost::MOUSE, button_index);
-    ui::MouseEvent release_event(ui::ET_MOUSE_RELEASED,
-                                 gfx::Point(),
+    ui::MouseEvent release_event(ui::ET_MOUSE_RELEASED, gfx::Point(),
                                  button->GetBoundsInScreen().origin(),
-                                 0,
-                                 0);
+                                 ui::EventTimeForNow(), 0, 0);
     test_api_->ButtonPressed(button, release_event);
     button_host->PointerReleasedOnButton(button, ShelfButtonHost::MOUSE, false);
   }
@@ -452,10 +467,9 @@ class ShelfViewTest : public AshTestBase {
     ShelfButtonHost* button_host = shelf_view_;
     ShelfButton* button =
         SimulateButtonPressed(ShelfButtonHost::MOUSE, button_index);
-    ui::MouseEvent release_event(ui::ET_MOUSE_RELEASED,
-                                 gfx::Point(),
+    ui::MouseEvent release_event(ui::ET_MOUSE_RELEASED, gfx::Point(),
                                  button->GetBoundsInScreen().origin(),
-                                 ui::EF_IS_DOUBLE_CLICK,
+                                 ui::EventTimeForNow(), ui::EF_IS_DOUBLE_CLICK,
                                  0);
     test_api_->ButtonPressed(button, release_event);
     button_host->PointerReleasedOnButton(button, ShelfButtonHost::MOUSE, false);
@@ -469,10 +483,10 @@ class ShelfViewTest : public AshTestBase {
 
     // Drag.
     views::View* destination = test_api_->GetButton(destination_index);
-    ui::MouseEvent drag_event(ui::ET_MOUSE_DRAGGED,
-                              gfx::Point(destination->x() - button->x(),
+    ui::MouseEvent drag_event(
+        ui::ET_MOUSE_DRAGGED, gfx::Point(destination->x() - button->x(),
                                          destination->y() - button->y()),
-                              destination->GetBoundsInScreen().origin(), 0, 0);
+        destination->GetBoundsInScreen().origin(), ui::EventTimeForNow(), 0, 0);
     button_host->PointerDraggedOnButton(button, pointer, drag_event);
     return button;
   }
@@ -606,14 +620,15 @@ class ShelfViewTest : public AshTestBase {
     return model_->items()[index].id;
   }
 
-  void ReplaceShelfDelegateForRipOffTest() {
+  void ReplaceShelfDelegate() {
     // Replace ShelfDelegate.
-    test::ShellTestApi test_api(Shell::GetInstance());
-    test_api.SetShelfDelegate(NULL);
-    ShelfDelegate* delegate = new TestShelfDelegateForShelfView(model_);
-    test_api.SetShelfDelegate(delegate);
-    test::ShelfTestAPI(Shelf::ForPrimaryDisplay()).SetShelfDelegate(delegate);
-    test_api_->SetShelfDelegate(delegate);
+    test::ShellTestApi shell_test_api(Shell::GetInstance());
+    shell_test_api.SetShelfDelegate(NULL);
+    shelf_delegate_ = new TestShelfDelegateForShelfView(model_);
+    shell_test_api.SetShelfDelegate(shelf_delegate_);
+    test::ShelfTestAPI(Shelf::ForPrimaryDisplay())
+        .SetShelfDelegate(shelf_delegate_);
+    test_api_->SetShelfDelegate(shelf_delegate_);
   }
 
   ShelfModel* model_;
@@ -621,11 +636,19 @@ class ShelfViewTest : public AshTestBase {
   int browser_index_;
   ShelfItemDelegateManager* item_manager_;
 
+  // Owned by ash::Shell.
+  TestShelfDelegateForShelfView* shelf_delegate_;
+
   scoped_ptr<ShelfViewTestAPI> test_api_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ShelfViewTest);
 };
+
+const char*
+    ShelfViewTest::kTimeBetweenWindowMinimizedAndActivatedActionsHistogramName =
+        ShelfButtonPressedMetricTracker::
+            kTimeBetweenWindowMinimizedAndActivatedActionsHistogramName;
 
 class ScopedTextDirectionChange {
  public:
@@ -862,6 +885,62 @@ TEST_F(ShelfViewTest, PlatformAppHidesExcessPanels) {
   }
   EXPECT_TRUE(GetButtonByID(last_panel)->visible());
   EXPECT_FALSE(GetButtonByID(platform_app)->visible());
+}
+
+// Making sure that no buttons on the shelf will ever overlap after adding many
+// of them.
+TEST_F(ShelfViewTest, AssertNoButtonsOverlap) {
+  std::vector<ShelfID> button_ids;
+  // Add app icons until the overflow button is visible.
+  while (!test_api_->IsOverflowButtonVisible()) {
+    ShelfID id = AddPlatformApp();
+    button_ids.push_back(id);
+  }
+  ASSERT_LT(button_ids.size(), 10000U);
+  ASSERT_GT(button_ids.size(), 2U);
+
+  // Remove 2 icons to make more room for panel icons, the overflow button
+  // should go away.
+  for (int i = 0; i < 2; ++i) {
+    ShelfID id = button_ids.back();
+    RemoveByID(id);
+    button_ids.pop_back();
+  }
+  EXPECT_FALSE(test_api_->IsOverflowButtonVisible());
+  EXPECT_TRUE(GetButtonByID(button_ids.back())->visible());
+
+  // Add 20 panel icons, and expect to have overflow.
+  for (int i = 0; i < 20; ++i) {
+    ShelfID id = AddPanel();
+    button_ids.push_back(id);
+  }
+  ASSERT_LT(button_ids.size(), 10000U);
+  EXPECT_TRUE(test_api_->IsOverflowButtonVisible());
+
+  // Test that any two successive visible icons never overlap in all shelf
+  // alignment types.
+  const ShelfAlignment kAlignments[] = {
+      SHELF_ALIGNMENT_LEFT,
+      SHELF_ALIGNMENT_RIGHT,
+      SHELF_ALIGNMENT_TOP,
+      SHELF_ALIGNMENT_BOTTOM
+  };
+
+  for (ShelfAlignment alignment : kAlignments) {
+    EXPECT_TRUE(shelf_view_->shelf_layout_manager()->SetAlignment(alignment));
+    // For every 2 successive visible icons, expect that their bounds don't
+    // intersect.
+    for (int i = 1; i < test_api_->GetButtonCount() - 1; ++i) {
+      if (!(test_api_->GetButton(i)->visible() &&
+            test_api_->GetButton(i + 1)->visible())) {
+        continue;
+      }
+
+      const gfx::Rect& bounds1 = test_api_->GetBoundsByIndex(i);
+      const gfx::Rect& bounds2 = test_api_->GetBoundsByIndex(i + 1);
+      EXPECT_FALSE(bounds1.Intersects(bounds2));
+    }
+  }
 }
 
 // Adds button until overflow then removes first added one. Verifies that
@@ -1115,28 +1194,27 @@ TEST_F(ShelfViewTest, ClickAndMoveSlightly) {
   gfx::Point press_location_in_screen =
       button->GetBoundsInScreen().origin() + press_offset;
 
-  ui::MouseEvent click_event(ui::ET_MOUSE_PRESSED,
-                             press_location,
-                             press_location_in_screen,
+  ui::MouseEvent click_event(ui::ET_MOUSE_PRESSED, press_location,
+                             press_location_in_screen, ui::EventTimeForNow(),
                              ui::EF_LEFT_MOUSE_BUTTON, 0);
   button->OnMousePressed(click_event);
 
-  ui::MouseEvent drag_event1(ui::ET_MOUSE_DRAGGED,
-                             press_location + gfx::Vector2d(0, 1),
-                             press_location_in_screen + gfx::Vector2d(0, 1),
-                             ui::EF_LEFT_MOUSE_BUTTON, 0);
+  ui::MouseEvent drag_event1(
+      ui::ET_MOUSE_DRAGGED, press_location + gfx::Vector2d(0, 1),
+      press_location_in_screen + gfx::Vector2d(0, 1), ui::EventTimeForNow(),
+      ui::EF_LEFT_MOUSE_BUTTON, 0);
   button->OnMouseDragged(drag_event1);
 
-  ui::MouseEvent drag_event2(ui::ET_MOUSE_DRAGGED,
-                             press_location + gfx::Vector2d(-1, 0),
-                             press_location_in_screen + gfx::Vector2d(-1, 0),
-                             ui::EF_LEFT_MOUSE_BUTTON, 0);
+  ui::MouseEvent drag_event2(
+      ui::ET_MOUSE_DRAGGED, press_location + gfx::Vector2d(-1, 0),
+      press_location_in_screen + gfx::Vector2d(-1, 0), ui::EventTimeForNow(),
+      ui::EF_LEFT_MOUSE_BUTTON, 0);
   button->OnMouseDragged(drag_event2);
 
-  ui::MouseEvent release_event(ui::ET_MOUSE_RELEASED,
-                               press_location + gfx::Vector2d(-1, 0),
-                               press_location_in_screen + gfx::Vector2d(-1, 0),
-                               ui::EF_LEFT_MOUSE_BUTTON, 0);
+  ui::MouseEvent release_event(
+      ui::ET_MOUSE_RELEASED, press_location + gfx::Vector2d(-1, 0),
+      press_location_in_screen + gfx::Vector2d(-1, 0), ui::EventTimeForNow(),
+      ui::EF_LEFT_MOUSE_BUTTON, 0);
   button->OnMouseReleased(release_event);
 
   EXPECT_TRUE(selection_tracker->WasSelected());
@@ -1437,10 +1515,11 @@ TEST_F(ShelfViewTest, ResizeDuringOverflowAddAnimation) {
 
 // Checks the overflow bubble size when an item is ripped off and re-inserted.
 TEST_F(ShelfViewTest, OverflowBubbleSize) {
-  // Replace current ShelfDelegate with TestShelfDelegateForShelfView.
-  ReplaceShelfDelegateForRipOffTest();
-
+  shelf_delegate_->set_is_app_pinned(true);
   AddButtonsUntilOverflow();
+  // Add one more button to prevent the overflow bubble to disappear upon
+  // dragging an item out on windows (flakiness, see crbug.com/436131).
+  AddAppShortcut();
 
   // Show overflow bubble.
   test_api_->ShowOverflowBubble();
@@ -1654,17 +1733,17 @@ TEST_F(ShelfViewTest, CheckRipOffFromLeftShelfAlignmentWithMultiMonitor) {
 
 // Checks various drag and drop operations from OverflowBubble to Shelf.
 TEST_F(ShelfViewTest, CheckDragAndDropFromOverflowBubbleToShelf) {
-  // Replace current ShelfDelegate with TestShelfDelegateForShelfView.
-  ReplaceShelfDelegateForRipOffTest();
-
   AddButtonsUntilOverflow();
+  // Add one more button to prevent the overflow bubble to disappear upon
+  // dragging an item out on windows (flakiness, see crbug.com/425097).
+  AddAppShortcut();
 
   TestDraggingAnItemFromOverflowToShelf(false);
   TestDraggingAnItemFromOverflowToShelf(true);
 }
 
 // Tests that the AppListButton renders as active in response to touches.
-TEST_F(ShelfViewTest, DISABLED_AppListButtonTouchFeedback) {
+TEST_F(ShelfViewTest, AppListButtonTouchFeedback) {
   AppListButton* app_list_button =
       static_cast<AppListButton*>(shelf_view_->GetAppListButtonView());
   EXPECT_FALSE(app_list_button->draw_background_as_active());
@@ -1673,18 +1752,16 @@ TEST_F(ShelfViewTest, DISABLED_AppListButtonTouchFeedback) {
   generator.set_current_location(app_list_button->
       GetBoundsInScreen().CenterPoint());
   generator.PressTouch();
-  RunAllPendingInMessageLoop();
   EXPECT_TRUE(app_list_button->draw_background_as_active());
 
   generator.ReleaseTouch();
-  RunAllPendingInMessageLoop();
   EXPECT_FALSE(app_list_button->draw_background_as_active());
   EXPECT_TRUE(Shell::GetInstance()->GetAppListTargetVisibility());
 }
 
 // Tests that a touch that slides out of the bounds of the AppListButton leads
 // to the end of rendering an active state.
-TEST_F(ShelfViewTest, DISABLED_AppListButtonTouchFeedbackCancellation) {
+TEST_F(ShelfViewTest, AppListButtonTouchFeedbackCancellation) {
   AppListButton* app_list_button =
       static_cast<AppListButton*>(shelf_view_->GetAppListButtonView());
   EXPECT_FALSE(app_list_button->draw_background_as_active());
@@ -1693,21 +1770,76 @@ TEST_F(ShelfViewTest, DISABLED_AppListButtonTouchFeedbackCancellation) {
   generator.set_current_location(app_list_button->
       GetBoundsInScreen().CenterPoint());
   generator.PressTouch();
-  RunAllPendingInMessageLoop();
   EXPECT_TRUE(app_list_button->draw_background_as_active());
 
   gfx::Point moved_point(app_list_button->GetBoundsInScreen().right() + 1,
                          app_list_button->
                              GetBoundsInScreen().CenterPoint().y());
   generator.MoveTouch(moved_point);
-  RunAllPendingInMessageLoop();
   EXPECT_FALSE(app_list_button->draw_background_as_active());
 
   generator.set_current_location(moved_point);
   generator.ReleaseTouch();
-  RunAllPendingInMessageLoop();
   EXPECT_FALSE(app_list_button->draw_background_as_active());
   EXPECT_FALSE(Shell::GetInstance()->GetAppListTargetVisibility());
+}
+
+// Verifies that Launcher_ButtonPressed_* UMA user actions are recorded when an
+// item is selected.
+TEST_F(ShelfViewTest,
+       Launcher_ButtonPressedUserActionsRecordedWhenItemSelected) {
+  base::UserActionTester user_action_tester;
+
+  ShelfID browser_shelf_id = model_->items()[browser_index_].id;
+  ShelfItemSelectionTracker* selection_tracker = new ShelfItemSelectionTracker;
+  item_manager_->SetShelfItemDelegate(
+      browser_shelf_id,
+      scoped_ptr<ShelfItemDelegate>(selection_tracker).Pass());
+
+  SimulateClick(browser_index_);
+  EXPECT_EQ(1,
+            user_action_tester.GetActionCount("Launcher_ButtonPressed_Mouse"));
+}
+
+// Verifies that Launcher_*Task UMA user actions are recorded when an item is
+// selected.
+TEST_F(ShelfViewTest, Launcher_TaskUserActionsRecordedWhenItemSelected) {
+  base::UserActionTester user_action_tester;
+
+  ShelfID browser_shelf_id = model_->items()[browser_index_].id;
+  ShelfItemSelectionTracker* selection_tracker = new ShelfItemSelectionTracker;
+  selection_tracker->set_item_selected_action(
+      ShelfItemDelegate::kNewWindowCreated);
+  item_manager_->SetShelfItemDelegate(
+      browser_shelf_id,
+      scoped_ptr<ShelfItemDelegate>(selection_tracker).Pass());
+
+  SimulateClick(browser_index_);
+  EXPECT_EQ(1, user_action_tester.GetActionCount("Launcher_LaunchTask"));
+}
+
+// Verifies that metrics are recorded when an item is minimized and subsequently
+// activated.
+TEST_F(ShelfViewTest,
+       VerifyMetricsAreRecordedWhenAnItemIsMinimizedAndActivated) {
+  base::HistogramTester histogram_tester;
+
+  ShelfID browser_shelf_id = model_->items()[browser_index_].id;
+  ShelfItemSelectionTracker* selection_tracker = new ShelfItemSelectionTracker;
+  item_manager_->SetShelfItemDelegate(
+      browser_shelf_id,
+      scoped_ptr<ShelfItemDelegate>(selection_tracker).Pass());
+
+  selection_tracker->set_item_selected_action(
+      ShelfItemDelegate::kExistingWindowMinimized);
+  SimulateClick(browser_index_);
+
+  selection_tracker->set_item_selected_action(
+      ShelfItemDelegate::kExistingWindowActivated);
+  SimulateClick(browser_index_);
+
+  histogram_tester.ExpectTotalCount(
+      kTimeBetweenWindowMinimizedAndActivatedActionsHistogramName, 1);
 }
 
 class ShelfViewVisibleBoundsTest : public ShelfViewTest,

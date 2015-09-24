@@ -41,14 +41,20 @@ class SYNC_EXPORT_PRIVATE Syncer {
   Syncer(CancelationSignal* cancelation_signal);
   virtual ~Syncer();
 
+  // Whether an early exist was requested due to a cancelation signal.
   bool ExitRequested();
+
+  // Whether the syncer is in the middle of a sync cycle.
+  bool IsSyncing() const;
 
   // Fetches and applies updates, resolves conflicts and commits local changes
   // for |request_types| as necessary until client and server states are in
   // sync.  The |nudge_tracker| contains state that describes why the client is
   // out of sync and what must be done to bring it back into sync.
+  // Returns: false if an error occurred and retries should backoff, true
+  // otherwise.
   virtual bool NormalSyncShare(ModelTypeSet request_types,
-                               const sessions::NudgeTracker& nudge_tracker,
+                               sessions::NudgeTracker* nudge_tracker,
                                sessions::SyncSession* session);
 
   // Performs an initial download for the |request_types|.  It is assumed that
@@ -56,6 +62,8 @@ class SYNC_EXPORT_PRIVATE Syncer {
   // processors are in "passive" mode, so none of the downloaded updates will be
   // applied to the model.  The |source| is sent up to the server for debug
   // purposes.  It describes the reson for performing this initial download.
+  // Returns: false if an error occurred and retries should backoff, true
+  // otherwise.
   virtual bool ConfigureSyncShare(
       ModelTypeSet request_types,
       sync_pb::GetUpdatesCallerInfo::GetUpdatesSource source,
@@ -65,32 +73,12 @@ class SYNC_EXPORT_PRIVATE Syncer {
   // client with a working connection to the invalidations server, this should
   // be unnecessary.  It may be invoked periodically to try to keep the client
   // in sync despite bugs or transient failures.
+  // Returns: false if an error occurred and retries should backoff, true
+  // otherwise.
   virtual bool PollSyncShare(ModelTypeSet request_types,
                              sessions::SyncSession* session);
 
  private:
-  bool DownloadAndApplyUpdates(
-      ModelTypeSet request_types,
-      sessions::SyncSession* session,
-      GetUpdatesProcessor* get_updates_processor,
-      bool create_mobile_bookmarks_folder);
-
-  // This function will commit batches of unsynced items to the server until the
-  // number of unsynced and ready to commit items reaches zero or an error is
-  // encountered.  A request to exit early will be treated as an error and will
-  // abort any blocking operations.
-  SyncerError BuildAndPostCommits(
-      ModelTypeSet request_types,
-      sessions::SyncSession* session,
-      CommitProcessor* commit_processor);
-
-  void HandleCycleBegin(sessions::SyncSession* session);
-  bool HandleCycleEnd(
-      sessions::SyncSession* session,
-      sync_pb::GetUpdatesCallerInfo::GetUpdatesSource source);
-
-  syncer::CancelationSignal* const cancelation_signal_;
-
   friend class SyncerTest;
   FRIEND_TEST_ALL_PREFIXES(SyncerTest, NameClashWithResolver);
   FRIEND_TEST_ALL_PREFIXES(SyncerTest, IllegalAndLegalUpdates);
@@ -112,6 +100,31 @@ class SYNC_EXPORT_PRIVATE Syncer {
   FRIEND_TEST_ALL_PREFIXES(SyncerTest, DeletingEntryWithLocalEdits);
   FRIEND_TEST_ALL_PREFIXES(EntryCreatedInNewFolderTest,
                            EntryCreatedInNewFolderMidSync);
+
+  bool DownloadAndApplyUpdates(
+      ModelTypeSet* request_types,
+      sessions::SyncSession* session,
+      GetUpdatesProcessor* get_updates_processor,
+      bool create_mobile_bookmarks_folder);
+
+  // This function will commit batches of unsynced items to the server until the
+  // number of unsynced and ready to commit items reaches zero or an error is
+  // encountered.  A request to exit early will be treated as an error and will
+  // abort any blocking operations.
+  SyncerError BuildAndPostCommits(ModelTypeSet request_types,
+                                  sessions::NudgeTracker* nudge_tracker,
+                                  sessions::SyncSession* session,
+                                  CommitProcessor* commit_processor);
+
+  void HandleCycleBegin(sessions::SyncSession* session);
+  bool HandleCycleEnd(
+      sessions::SyncSession* session,
+      sync_pb::GetUpdatesCallerInfo::GetUpdatesSource source);
+
+  syncer::CancelationSignal* const cancelation_signal_;
+
+  // Whether the syncer is in the middle of a sync attempt.
+  bool is_syncing_;
 
   DISALLOW_COPY_AND_ASSIGN(Syncer);
 };

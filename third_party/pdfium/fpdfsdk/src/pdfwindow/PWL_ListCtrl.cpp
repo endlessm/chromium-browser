@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/pdfwindow/PDFWindow.h"
@@ -10,9 +10,9 @@
 
 /* ---------------------------- CPWL_ListCtrl ---------------------------- */
 
-CPWL_ListCtrl::CPWL_ListCtrl() : 
+CPWL_ListCtrl::CPWL_ListCtrl() :
 	m_rcContent(0,0,0,0),
-	m_ptScroll(0,0), 
+	m_ptScroll(0,0),
 	m_fItemSpace(0.0f),
 	m_fTopSpace(0.0f),
 	m_fBottomSpace(0.0f)
@@ -37,7 +37,7 @@ void CPWL_ListCtrl::SetScrollPos(const CPDF_Point& point)
 		m_ptScroll.y = m_rcContent.top;
 
 	if (m_ptScroll.y < m_rcContent.bottom)
-		m_ptScroll.y = m_rcContent.bottom;	
+		m_ptScroll.y = m_rcContent.bottom;
 }
 
 CPDF_Point CPWL_ListCtrl::GetScrollPos() const
@@ -55,7 +55,7 @@ void CPWL_ListCtrl::ResetFace()
 	ResetAll(FALSE, 0);
 }
 
-void CPWL_ListCtrl::ResetContent(FX_INT32 nStart)
+void CPWL_ListCtrl::ResetContent(int32_t nStart)
 {
 	if (nStart < 0)
 		nStart = 0;
@@ -67,11 +67,11 @@ FX_FLOAT CPWL_ListCtrl::GetContentsHeight(FX_FLOAT fLimitWidth)
 {
 	FX_FLOAT fRet = m_fTopSpace;
 
-	FX_FLOAT fBorderWidth = (FX_FLOAT)this->GetBorderWidth();
+	FX_FLOAT fBorderWidth = (FX_FLOAT)GetBorderWidth();
 
 	if (fLimitWidth > fBorderWidth* 2)
 	{
-		for (FX_INT32 i=0,sz=m_aChildren.GetSize(); i<sz; i++)
+		for (int32_t i=0,sz=m_aChildren.GetSize(); i<sz; i++)
 		{
 			if (CPWL_Wnd* pChild = m_aChildren.GetAt(i))
 			{
@@ -91,7 +91,7 @@ FX_FLOAT CPWL_ListCtrl::GetContentsHeight(FX_FLOAT fLimitWidth)
 	return fRet;
 }
 
-void CPWL_ListCtrl::ResetAll(FX_BOOL bMove, FX_INT32 nStart)
+void CPWL_ListCtrl::ResetAll(FX_BOOL bMove, int32_t nStart)
 {
 	CPDF_Rect rcClient = GetClientRect();
 
@@ -103,7 +103,7 @@ void CPWL_ListCtrl::ResetAll(FX_BOOL bMove, FX_INT32 nStart)
 		if (CPWL_Wnd* pChild = m_aChildren.GetAt(nStart-1))
 			fy = pChild->GetWindowRect().bottom - m_fItemSpace;
 
-	for (FX_INT32 i=nStart,sz=m_aChildren.GetSize(); i<sz; i++)
+	for (int32_t i=nStart,sz=m_aChildren.GetSize(); i<sz; i++)
 	{
 		if (CPWL_Wnd* pChild = m_aChildren.GetAt(i))
 		{
@@ -111,8 +111,8 @@ void CPWL_ListCtrl::ResetAll(FX_BOOL bMove, FX_INT32 nStart)
 			FX_FLOAT fRight = pChild->GetItemRightMargin();
 
 			pChild->SetChildMatrix(
-				CPDF_Matrix(1,0,0,1, 
-				rcClient.left - m_ptScroll.x, 
+				CPDF_Matrix(1,0,0,1,
+				rcClient.left - m_ptScroll.x,
 				rcClient.top - m_ptScroll.y)
 				);
 
@@ -165,14 +165,14 @@ void CPWL_ListCtrl::DrawChildAppearance(CFX_RenderDevice* pDevice, CPDF_Matrix* 
 	CPDF_Rect rcClient = GetClientRect();
 	CPDF_Rect rcTemp = rcClient;
 	pUser2Device->TransformRect(rcTemp);
-	FX_RECT rcClip((FX_INT32)rcTemp.left,
-		(FX_INT32)rcTemp.bottom,
-		(FX_INT32)rcTemp.right,
-		(FX_INT32)rcTemp.top);
+	FX_RECT rcClip((int32_t)rcTemp.left,
+		(int32_t)rcTemp.bottom,
+		(int32_t)rcTemp.right,
+		(int32_t)rcTemp.top);
 
 	pDevice->SetClip_Rect(&rcClip);
 
-	for (FX_INT32 i=0,sz=m_aChildren.GetSize(); i<sz; i++)
+	for (int32_t i=0,sz=m_aChildren.GetSize(); i<sz; i++)
 	{
 		if (CPWL_Wnd * pChild = m_aChildren.GetAt(i))
 		{
@@ -192,13 +192,13 @@ void CPWL_ListCtrl::DrawChildAppearance(CFX_RenderDevice* pDevice, CPDF_Matrix* 
 			}
 		}
 	}
-	
+
 	pDevice->RestoreState();
 }
 
-FX_INT32 CPWL_ListCtrl::GetItemIndex(CPWL_Wnd* pItem)
+int32_t CPWL_ListCtrl::GetItemIndex(CPWL_Wnd* pItem)
 {
-	for (FX_INT32 i=0, sz=m_aChildren.GetSize(); i<sz; i++)
+	for (int32_t i=0, sz=m_aChildren.GetSize(); i<sz; i++)
 	{
 		if (pItem == m_aChildren.GetAt(i))
 			return i;
@@ -211,7 +211,7 @@ CPDF_Point CPWL_ListCtrl::InToOut(const CPDF_Point& point) const
 {
 	CPDF_Rect rcClient = GetClientRect();
 
-	return CPDF_Point(point.x + rcClient.left - m_ptScroll.x, 
+	return CPDF_Point(point.x + rcClient.left - m_ptScroll.x,
 		point.y + rcClient.top - m_ptScroll.y);
 }
 
@@ -219,7 +219,7 @@ CPDF_Point CPWL_ListCtrl::OutToIn(const CPDF_Point& point) const
 {
 	CPDF_Rect rcClient = GetClientRect();
 
-	return CPDF_Point(point.x - rcClient.left + m_ptScroll.x, 
+	return CPDF_Point(point.x - rcClient.left + m_ptScroll.x,
 		point.y - rcClient.top + m_ptScroll.y);
 }
 

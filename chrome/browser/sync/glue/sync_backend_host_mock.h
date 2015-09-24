@@ -34,9 +34,10 @@ class SyncBackendHostMock : public SyncBackendHost {
       bool delete_sync_data_folder,
       scoped_ptr<syncer::SyncManagerFactory> sync_manager_factory,
       scoped_ptr<syncer::UnrecoverableErrorHandler> unrecoverable_error_handler,
-      syncer::ReportUnrecoverableErrorFunction
-          report_unrecoverable_error_function,
-      syncer::NetworkResources* network_resources) override;
+      const base::Closure& report_unrecoverable_error_function,
+      syncer::NetworkResources* network_resources,
+      scoped_ptr<syncer::SyncEncryptionHandler::NigoriState> saved_nigori_state)
+      override;
 
   void UpdateCredentials(const syncer::SyncCredentials& credentials) override;
 
@@ -53,7 +54,7 @@ class SyncBackendHostMock : public SyncBackendHost {
 
   void UnregisterInvalidationIds() override;
 
-  void ConfigureDataTypes(
+  syncer::ModelTypeSet ConfigureDataTypes(
       syncer::ConfigureReason reason,
       const DataTypeConfigStateMap& config_state_map,
       const base::Callback<void(syncer::ModelTypeSet, syncer::ModelTypeSet)>&
@@ -104,6 +105,8 @@ class SyncBackendHostMock : public SyncBackendHost {
                           ScopedVector<base::ListValue>)> callback) override;
 
   base::MessageLoop* GetSyncLoopForTesting() override;
+
+  void RefreshTypesForTest(syncer::ModelTypeSet types) override;
 
   void set_fail_initial_download(bool should_fail);
 

@@ -12,16 +12,16 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/scoped_path_override.h"
 #include "base/test/test_simple_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/chromeos/policy/device_local_account.h"
 #include "chrome/browser/chromeos/policy/device_local_account_policy_provider.h"
+#include "chrome/browser/chromeos/policy/fake_affiliated_invalidation_service_provider.h"
 #include "chrome/browser/chromeos/policy/proto/chrome_device_policy.pb.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
@@ -81,8 +81,8 @@ class DeviceLocalAccountPolicyServiceTestBase
  public:
   DeviceLocalAccountPolicyServiceTestBase();
 
-  virtual void SetUp() override;
-  virtual void TearDown() override;
+  void SetUp() override;
+  void TearDown() override;
 
   void CreatePolicyService();
 
@@ -98,6 +98,8 @@ class DeviceLocalAccountPolicyServiceTestBase
   chromeos::CrosSettings cros_settings_;
   scoped_refptr<base::TestSimpleTaskRunner> extension_cache_task_runner_;
   MockDeviceManagementService mock_device_management_service_;
+  FakeAffiliatedInvalidationServiceProvider
+      affiliated_invalidation_service_provider_;
   scoped_ptr<DeviceLocalAccountPolicyService> service_;
 
  private:
@@ -112,8 +114,8 @@ class DeviceLocalAccountPolicyServiceTest
  protected:
   DeviceLocalAccountPolicyServiceTest();
 
-  virtual void SetUp() override;
-  virtual void TearDown() override;
+  void SetUp() override;
+  void TearDown() override;
 
   void InstallDevicePolicy() override;
 
@@ -159,14 +161,12 @@ void DeviceLocalAccountPolicyServiceTestBase::TearDown() {
 
 void DeviceLocalAccountPolicyServiceTestBase::CreatePolicyService() {
   service_.reset(new DeviceLocalAccountPolicyService(
-      &device_settings_test_helper_,
-      &device_settings_service_,
-      &cros_settings_,
-      base::MessageLoopProxy::current(),
-      extension_cache_task_runner_,
-      base::MessageLoopProxy::current(),
-      base::MessageLoopProxy::current(),
-      new net::TestURLRequestContextGetter(base::MessageLoopProxy::current())));
+      &device_settings_test_helper_, &device_settings_service_, &cros_settings_,
+      &affiliated_invalidation_service_provider_,
+      base::ThreadTaskRunnerHandle::Get(), extension_cache_task_runner_,
+      base::ThreadTaskRunnerHandle::Get(), base::ThreadTaskRunnerHandle::Get(),
+      new net::TestURLRequestContextGetter(
+          base::ThreadTaskRunnerHandle::Get())));
 }
 
 void DeviceLocalAccountPolicyServiceTestBase::
@@ -231,6 +231,7 @@ TEST_F(DeviceLocalAccountPolicyServiceTest, GetBroker) {
   EXPECT_EQ(CloudPolicyStore::STATUS_OK, broker->core()->store()->status());
   EXPECT_FALSE(broker->core()->client());
   EXPECT_FALSE(broker->core()->store()->policy_map().empty());
+  EXPECT_FALSE(broker->HasInvalidatorForTest());
 }
 
 TEST_F(DeviceLocalAccountPolicyServiceTest, LoadNoPolicy) {
@@ -246,6 +247,7 @@ TEST_F(DeviceLocalAccountPolicyServiceTest, LoadNoPolicy) {
   EXPECT_EQ(CloudPolicyStore::STATUS_LOAD_ERROR,
             broker->core()->store()->status());
   EXPECT_TRUE(broker->core()->store()->policy_map().empty());
+  EXPECT_FALSE(broker->HasInvalidatorForTest());
   EXPECT_FALSE(service_->IsPolicyAvailableForUser(account_1_user_id_));
 }
 
@@ -265,6 +267,7 @@ TEST_F(DeviceLocalAccountPolicyServiceTest, LoadValidationFailure) {
   EXPECT_EQ(CloudPolicyStore::STATUS_VALIDATION_ERROR,
             broker->core()->store()->status());
   EXPECT_TRUE(broker->core()->store()->policy_map().empty());
+  EXPECT_FALSE(broker->HasInvalidatorForTest());
   EXPECT_FALSE(service_->IsPolicyAvailableForUser(account_1_user_id_));
 }
 
@@ -285,6 +288,7 @@ TEST_F(DeviceLocalAccountPolicyServiceTest, LoadPolicy) {
             broker->core()->store()->policy()->SerializeAsString());
   EXPECT_TRUE(expected_policy_map_.Equals(
       broker->core()->store()->policy_map()));
+  EXPECT_FALSE(broker->HasInvalidatorForTest());
   EXPECT_TRUE(service_->IsPolicyAvailableForUser(account_1_user_id_));
 }
 
@@ -311,6 +315,7 @@ TEST_F(DeviceLocalAccountPolicyServiceTest, StoreValidationFailure) {
             broker->core()->store()->status());
   EXPECT_EQ(CloudPolicyValidatorBase::VALIDATION_WRONG_POLICY_TYPE,
             broker->core()->store()->validation_status());
+  EXPECT_FALSE(broker->HasInvalidatorForTest());
   EXPECT_FALSE(service_->IsPolicyAvailableForUser(account_1_user_id_));
 }
 
@@ -339,6 +344,7 @@ TEST_F(DeviceLocalAccountPolicyServiceTest, StorePolicy) {
             broker->core()->store()->policy()->SerializeAsString());
   EXPECT_TRUE(expected_policy_map_.Equals(
       broker->core()->store()->policy_map()));
+  EXPECT_FALSE(broker->HasInvalidatorForTest());
   EXPECT_TRUE(service_->IsPolicyAvailableForUser(account_1_user_id_));
 }
 
@@ -377,6 +383,7 @@ TEST_F(DeviceLocalAccountPolicyServiceTest, DuplicateAccounts) {
             broker->core()->store()->policy()->SerializeAsString());
   EXPECT_TRUE(expected_policy_map_.Equals(
       broker->core()->store()->policy_map()));
+  EXPECT_FALSE(broker->HasInvalidatorForTest());
   EXPECT_TRUE(service_->IsPolicyAvailableForUser(account_1_user_id_));
 }
 
@@ -411,7 +418,6 @@ TEST_F(DeviceLocalAccountPolicyServiceTest, FetchPolicy) {
   // This will be called twice, because the ComponentCloudPolicyService will
   // also become ready after flushing all the pending tasks.
   EXPECT_CALL(service_observer_, OnPolicyUpdated(account_1_user_id_)).Times(2);
-  broker->core()->client()->FetchPolicy();
   FlushDeviceSettings();
   Mock::VerifyAndClearExpectations(&service_observer_);
   Mock::VerifyAndClearExpectations(&mock_device_management_service_);
@@ -446,6 +452,7 @@ TEST_F(DeviceLocalAccountPolicyServiceTest, FetchPolicy) {
             broker->core()->store()->policy()->SerializeAsString());
   EXPECT_TRUE(expected_policy_map_.Equals(
       broker->core()->store()->policy_map()));
+  EXPECT_TRUE(broker->HasInvalidatorForTest());
   EXPECT_TRUE(service_->IsPolicyAvailableForUser(account_1_user_id_));
 }
 
@@ -485,6 +492,7 @@ TEST_F(DeviceLocalAccountPolicyServiceTest, RefreshPolicy) {
             broker->core()->store()->status());
   EXPECT_TRUE(expected_policy_map_.Equals(
       broker->core()->store()->policy_map()));
+  EXPECT_TRUE(broker->HasInvalidatorForTest());
   EXPECT_TRUE(service_->IsPolicyAvailableForUser(account_1_user_id_));
 }
 
@@ -493,7 +501,7 @@ class DeviceLocalAccountPolicyExtensionCacheTest
  protected:
   DeviceLocalAccountPolicyExtensionCacheTest();
 
-  virtual void SetUp() override;
+  void SetUp() override;
 
   base::FilePath GetCacheDirectoryForAccountID(const std::string& account_id);
 
@@ -772,8 +780,8 @@ class DeviceLocalAccountPolicyProviderTest
  protected:
   DeviceLocalAccountPolicyProviderTest();
 
-  virtual void SetUp() override;
-  virtual void TearDown() override;
+  void SetUp() override;
+  void TearDown() override;
 
   SchemaRegistry schema_registry_;
   scoped_ptr<DeviceLocalAccountPolicyProvider> provider_;

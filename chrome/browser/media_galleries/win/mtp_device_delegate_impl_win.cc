@@ -266,7 +266,7 @@ base::File::Error GetFileStreamOnBlockingPoolThread(
 
   DCHECK(file_info.size == 0 || optimal_transfer_size > 0U);
   file_details->set_file_info(file_info);
-  file_details->set_device_file_stream(file_stream);
+  file_details->set_device_file_stream(file_stream.get());
   file_details->set_optimal_transfer_size(optimal_transfer_size);
   return error;
 }
@@ -315,8 +315,13 @@ void OnGetStorageInfoCreateDelegate(
 
 void CreateMTPDeviceAsyncDelegate(
     const base::string16& device_location,
+    const bool read_only,
     const CreateMTPDeviceAsyncDelegateCallback& callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  // Write operation is not supported on Windows.
+  DCHECK(read_only);
+
   DCHECK(!device_location.empty());
   base::string16* pnp_device_id = new base::string16;
   base::string16* storage_object_id = new base::string16;
@@ -355,14 +360,18 @@ MTPDeviceDelegateImplWin::PendingTaskInfo::PendingTaskInfo(
       reply(reply) {
 }
 
+MTPDeviceDelegateImplWin::PendingTaskInfo::~PendingTaskInfo() {
+}
+
 MTPDeviceDelegateImplWin::MTPDeviceDelegateImplWin(
     const base::string16& registered_device_path,
     const base::string16& pnp_device_id,
     const base::string16& storage_object_id)
-    : storage_device_info_(pnp_device_id, registered_device_path,
-                           storage_object_id),
-      init_state_(UNINITIALIZED),
+    : init_state_(UNINITIALIZED),
       media_task_runner_(MediaFileSystemBackend::MediaTaskRunner()),
+      storage_device_info_(pnp_device_id,
+                           registered_device_path,
+                           storage_object_id),
       task_in_progress_(false),
       weak_ptr_factory_(this) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
@@ -394,6 +403,15 @@ void MTPDeviceDelegateImplWin::GetFileInfo(
                                  success_callback,
                                  error_callback,
                                  base::Owned(file_info))));
+}
+
+void MTPDeviceDelegateImplWin::CreateDirectory(
+    const base::FilePath& directory_path,
+    const bool exclusive,
+    const bool recursive,
+    const CreateDirectorySuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  NOTREACHED();
 }
 
 void MTPDeviceDelegateImplWin::ReadDirectory(
@@ -456,6 +474,71 @@ void MTPDeviceDelegateImplWin::ReadBytes(
   NOTREACHED();
 }
 
+bool MTPDeviceDelegateImplWin::IsReadOnly() const {
+  return true;
+}
+
+void MTPDeviceDelegateImplWin::CopyFileLocal(
+    const base::FilePath& source_file_path,
+    const base::FilePath& device_file_path,
+    const CreateTemporaryFileCallback& create_temporary_file_callback,
+    const CopyFileProgressCallback& progress_callback,
+    const CopyFileLocalSuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  NOTREACHED();
+}
+
+void MTPDeviceDelegateImplWin::MoveFileLocal(
+    const base::FilePath& source_file_path,
+    const base::FilePath& device_file_path,
+    const CreateTemporaryFileCallback& create_temporary_file_callback,
+    const MoveFileLocalSuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  NOTREACHED();
+}
+
+void MTPDeviceDelegateImplWin::CopyFileFromLocal(
+    const base::FilePath& source_file_path,
+    const base::FilePath& device_file_path,
+    const CopyFileFromLocalSuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  NOTREACHED();
+}
+
+void MTPDeviceDelegateImplWin::DeleteFile(
+    const base::FilePath& file_path,
+    const DeleteFileSuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  NOTREACHED();
+}
+
+void MTPDeviceDelegateImplWin::DeleteDirectory(
+    const base::FilePath& file_path,
+    const DeleteDirectorySuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  NOTREACHED();
+}
+
+void MTPDeviceDelegateImplWin::AddWatcher(
+    const GURL& origin,
+    const base::FilePath& file_path,
+    const bool recursive,
+    const storage::WatcherManager::StatusCallback& callback,
+    const storage::WatcherManager::NotificationCallback&
+        notification_callback) {
+  NOTIMPLEMENTED();
+  callback.Run(base::File::FILE_ERROR_INVALID_OPERATION);
+}
+
+void MTPDeviceDelegateImplWin::RemoveWatcher(
+    const GURL& origin,
+    const base::FilePath& file_path,
+    const bool recursive,
+    const storage::WatcherManager::StatusCallback& callback) {
+  NOTIMPLEMENTED();
+  callback.Run(base::File::FILE_ERROR_INVALID_OPERATION);
+}
+
 void MTPDeviceDelegateImplWin::CancelPendingTasksAndDeleteDelegate() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   PortableDeviceMapService::GetInstance()->MarkPortableDeviceForDeletion(
@@ -475,9 +558,8 @@ void MTPDeviceDelegateImplWin::EnsureInitAndRunTask(
   if ((init_state_ == INITIALIZED) && !task_in_progress_) {
     DCHECK(pending_tasks_.empty());
     DCHECK(!current_snapshot_details_.get());
-    base::PostTaskAndReplyWithResult(media_task_runner_,
-                                     task_info.location,
-                                     task_info.task,
+    base::PostTaskAndReplyWithResult(media_task_runner_.get(),
+                                     task_info.location, task_info.task,
                                      task_info.reply);
     task_in_progress_ = true;
     return;
@@ -487,8 +569,7 @@ void MTPDeviceDelegateImplWin::EnsureInitAndRunTask(
   if (init_state_ == UNINITIALIZED) {
     init_state_ = PENDING_INIT;
     base::PostTaskAndReplyWithResult(
-        media_task_runner_,
-        FROM_HERE,
+        media_task_runner_.get(), FROM_HERE,
         base::Bind(&OpenDeviceOnBlockingPoolThread,
                    storage_device_info_.pnp_device_id,
                    storage_device_info_.registered_device_path),
@@ -501,8 +582,7 @@ void MTPDeviceDelegateImplWin::EnsureInitAndRunTask(
 void MTPDeviceDelegateImplWin::WriteDataChunkIntoSnapshotFile() {
   DCHECK(current_snapshot_details_.get());
   base::PostTaskAndReplyWithResult(
-      media_task_runner_,
-      FROM_HERE,
+      media_task_runner_.get(), FROM_HERE,
       base::Bind(&WriteDataChunkIntoSnapshotFileOnBlockingPoolThread,
                  *current_snapshot_details_),
       base::Bind(&MTPDeviceDelegateImplWin::OnWroteDataChunkIntoSnapshotFile,
@@ -516,10 +596,8 @@ void MTPDeviceDelegateImplWin::ProcessNextPendingRequest() {
     return;
   const PendingTaskInfo& task_info = pending_tasks_.front();
   task_in_progress_ = true;
-  base::PostTaskAndReplyWithResult(media_task_runner_,
-                                   task_info.location,
-                                   task_info.task,
-                                   task_info.reply);
+  base::PostTaskAndReplyWithResult(media_task_runner_.get(), task_info.location,
+                                   task_info.task, task_info.reply);
   pending_tasks_.pop();
 }
 

@@ -48,7 +48,7 @@ class TestFunctionDispatcherDelegate
 namespace extension_function_test_utils {
 
 base::Value* ParseJSON(const std::string& data) {
-  return base::JSONReader::Read(data);
+  return base::JSONReader::DeprecatedRead(data);
 }
 
 base::ListValue* ParseList(const std::string& data) {
@@ -56,36 +56,6 @@ base::ListValue* ParseList(const std::string& data) {
   base::ListValue* list = NULL;
   result->GetAsList(&list);
   return list;
-}
-
-base::DictionaryValue* ParseDictionary(
-    const std::string& data) {
-  base::Value* result = ParseJSON(data);
-  base::DictionaryValue* dict = NULL;
-  result->GetAsDictionary(&dict);
-  return dict;
-}
-
-bool GetBoolean(const base::DictionaryValue* val, const std::string& key) {
-  bool result = false;
-  if (!val->GetBoolean(key, &result))
-      ADD_FAILURE() << key << " does not exist or is not a boolean.";
-  return result;
-}
-
-int GetInteger(const base::DictionaryValue* val, const std::string& key) {
-  int result = 0;
-  if (!val->GetInteger(key, &result))
-    ADD_FAILURE() << key << " does not exist or is not an integer.";
-  return result;
-}
-
-std::string GetString(const base::DictionaryValue* val,
-                      const std::string& key) {
-  std::string result;
-  if (!val->GetString(key, &result))
-    ADD_FAILURE() << key << " does not exist or is not a string.";
-  return result;
 }
 
 base::DictionaryValue* ToDictionary(base::Value* val) {
@@ -98,39 +68,6 @@ base::ListValue* ToList(base::Value* val) {
   EXPECT_TRUE(val);
   EXPECT_EQ(base::Value::TYPE_LIST, val->GetType());
   return static_cast<base::ListValue*>(val);
-}
-
-scoped_refptr<Extension> CreateEmptyExtensionWithLocation(
-    Manifest::Location location) {
-  scoped_ptr<base::DictionaryValue> test_extension_value(
-      ParseDictionary("{\"name\": \"Test\", \"version\": \"1.0\"}"));
-  return CreateExtension(location, test_extension_value.get(), std::string());
-}
-
-scoped_refptr<Extension> CreateExtension(
-    base::DictionaryValue* test_extension_value) {
-  return CreateExtension(Manifest::INTERNAL, test_extension_value,
-                         std::string());
-}
-
-scoped_refptr<Extension> CreateExtension(
-    Manifest::Location location,
-    base::DictionaryValue* test_extension_value,
-    const std::string& id_input) {
-  std::string error;
-  const base::FilePath test_extension_path;
-  std::string id;
-  if (!id_input.empty())
-    id = crx_file::id_util::GenerateId(id_input);
-  scoped_refptr<Extension> extension(Extension::Create(
-      test_extension_path,
-      location,
-      *test_extension_value,
-      Extension::NO_FLAGS,
-      id,
-      &error));
-  EXPECT_TRUE(error.empty()) << "Could not parse test extension " << error;
-  return extension;
 }
 
 bool HasPrivacySensitiveFields(base::DictionaryValue* val) {
@@ -239,8 +176,8 @@ bool RunFunction(UIThreadExtensionFunction* function,
                  RunFunctionFlags flags) {
   TestFunctionDispatcherDelegate dispatcher_delegate(browser);
   scoped_ptr<extensions::ExtensionFunctionDispatcher> dispatcher(
-      new extensions::ExtensionFunctionDispatcher(browser->profile(),
-                                                  &dispatcher_delegate));
+      new extensions::ExtensionFunctionDispatcher(browser->profile()));
+  dispatcher->set_delegate(&dispatcher_delegate);
   // TODO(yoz): The cast is a hack; these flags should be defined in
   // only one place.  See crbug.com/394840.
   return extensions::api_test_utils::RunFunction(

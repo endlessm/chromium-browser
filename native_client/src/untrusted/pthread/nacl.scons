@@ -18,10 +18,11 @@ if env.Bit('bitcode'):
 if env.Bit('nonsfi_nacl'):
   # Specifying the target arch is necessary for using inline assembly
   # in non-SFI code.
-  if env.Bit('target_x86_32'):
-    env.Append(CCFLAGS=['--target=i686-nacl'])
-  elif env.Bit('target_arm'):
-    env.Append(CCFLAGS=['--target=arm-nacl', '-mfloat-abi=hard'])
+  if env.Bit('build_x86_32'):
+    env.Append(CCFLAGS=['--target=i686-unknown-nacl'])
+  elif env.Bit('build_arm'):
+    env.Append(CCFLAGS=['--target=armv7-unknown-nacl-gnueabihf',
+                        '-mfloat-abi=hard'])
   else:
     raise Exception('Unsupported architecture')
 
@@ -35,6 +36,7 @@ nc_objs = [env.ComponentObject(module, module + '.c')
                'nc_mutex',
                'nc_condvar',
                'nc_semaphore',
+               'nc_rwlock',
                'stack_end',
                ]
            ] + [valgrind]

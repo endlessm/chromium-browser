@@ -12,14 +12,15 @@
 #include "base/synchronization/waitable_event.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "components/bookmarks/browser/base_bookmark_model_observer.h"
-#include "components/history/core/android/android_history_types.h"
+#include "components/history/core/browser/android/android_history_types.h"
 #include "components/history/core/browser/history_service_observer.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_registrar.h"
 
 class AndroidHistoryProviderService;
-class FaviconService;
 class Profile;
+
+namespace favicon {
+class FaviconService;
+}
 
 namespace history {
 class TopSites;
@@ -30,8 +31,7 @@ class Statement;
 }
 
 // This class implements the native methods of ChromeBrowserProvider.java
-class ChromeBrowserProvider : public BaseBookmarkModelObserver,
-                              public content::NotificationObserver,
+class ChromeBrowserProvider : public bookmarks::BaseBookmarkModelObserver,
                               public history::HistoryServiceObserver {
  public:
   ChromeBrowserProvider(JNIEnv* env, jobject obj);
@@ -175,27 +175,34 @@ class ChromeBrowserProvider : public BaseBookmarkModelObserver,
                                                              jstring url);
 
  private:
-  virtual ~ChromeBrowserProvider();
+  ~ChromeBrowserProvider() override;
 
-  // Override BaseBookmarkModelObserver.
-  virtual void BookmarkModelChanged() override;
-  virtual void ExtensiveBookmarkChangesBeginning(BookmarkModel* model) override;
-  virtual void ExtensiveBookmarkChangesEnded(BookmarkModel* model) override;
+  // Override bookmarks::BaseBookmarkModelObserver.
+  void BookmarkModelChanged() override;
+  void ExtensiveBookmarkChangesBeginning(
+      bookmarks::BookmarkModel* model) override;
+  void ExtensiveBookmarkChangesEnded(bookmarks::BookmarkModel* model) override;
 
   // Deals with updates to the history service.
   void OnHistoryChanged();
 
-  // Override HistoryServiceObserver.
-  virtual void OnURLVisited(HistoryService* history_service,
-                            ui::PageTransition transition,
-                            const history::URLRow& row,
-                            const history::RedirectList& redirects,
-                            base::Time visit_time) override;
-
-  // Override NotificationObserver.
-  virtual void Observe(int type,
-                       const content::NotificationSource& source,
-                       const content::NotificationDetails& details) override;
+  // Override history::HistoryServiceObserver.
+  void OnURLVisited(history::HistoryService* history_service,
+                    ui::PageTransition transition,
+                    const history::URLRow& row,
+                    const history::RedirectList& redirects,
+                    base::Time visit_time) override;
+  void OnURLsDeleted(history::HistoryService* history_service,
+                     bool all_history,
+                     bool expired,
+                     const history::URLRows& deleted_rows,
+                     const std::set<GURL>& favicon_urls) override;
+  void OnKeywordSearchTermUpdated(history::HistoryService* history_service,
+                                  const history::URLRow& row,
+                                  history::KeywordID keyword_id,
+                                  const base::string16& term) override;
+  void OnKeywordSearchTermDeleted(history::HistoryService* history_service,
+                                  history::URLID url_id) override;
 
   JavaObjectWeakGlobalRef weak_java_provider_;
 
@@ -205,16 +212,15 @@ class ChromeBrowserProvider : public BaseBookmarkModelObserver,
   // the lifetime of Profile, they are safe to use as long as the Profile is
   // alive.
   Profile* profile_;
-  BookmarkModel* bookmark_model_;
-  history::TopSites* top_sites_;
+  bookmarks::BookmarkModel* bookmark_model_;
+  scoped_refptr<history::TopSites> top_sites_;
+  favicon::FaviconService* favicon_service_;
 
   scoped_ptr<AndroidHistoryProviderService> service_;
 
   base::CancelableTaskTracker cancelable_task_tracker_;
 
-  // Used to register/unregister notification observer.
-  content::NotificationRegistrar notification_registrar_;
-  ScopedObserver<HistoryService, HistoryServiceObserver>
+  ScopedObserver<history::HistoryService, history::HistoryServiceObserver>
       history_service_observer_;
 
   bool handling_extensive_changes_;

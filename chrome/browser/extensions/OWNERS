@@ -8,18 +8,19 @@
 # If you are editing this file, please also update these other OWNERS files with
 # a unique random sort (sort -R) of these owners.
 #   chrome/browser/chromeos/extensions/OWNERS
+#   chrome/browser/renderer_host/OWNERS
+#   chrome/browser/resources/webstore_app/OWNERS
 #   chrome/common/extensions/OWNERS
 #   chrome/renderer/extensions/OWNERS
 #   chrome/renderer/resources/extensions/OWNERS
+#   chrome/utility/extensions/OWNERS
 #   extensions/OWNERS
-yoz@chromium.org
 asargent@chromium.org
 kalman@chromium.org
-scheib@chromium.org
 miket@chromium.org
 benwells@chromium.org
 rdevlin.cronin@chromium.org
-jyasskin@chromium.org
+reillyg@chromium.org
 rockot@chromium.org
 finnur@chromium.org
 mek@chromium.org

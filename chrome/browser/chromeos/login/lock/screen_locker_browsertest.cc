@@ -13,7 +13,7 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "chrome/browser/ui/fullscreen/fullscreen_controller.h"
+#include "chrome/browser/ui/exclusive_access/fullscreen_controller.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -21,7 +21,7 @@
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/fake_session_manager_client.h"
 #include "chromeos/login/auth/key.h"
-#include "chromeos/login/auth/mock_authenticator.h"
+#include "chromeos/login/auth/stub_authenticator.h"
 #include "chromeos/login/auth/user_context.h"
 #include "chromeos/login/user_names.h"
 #include "content/public/browser/notification_service.h"
@@ -53,12 +53,11 @@ class Waiter : public content::NotificationObserver {
                    content::NotificationService::AllSources());
   }
 
-  virtual ~Waiter() {
-  }
+  ~Waiter() override {}
 
-  virtual void Observe(int type,
-                       const content::NotificationSource& source,
-                       const content::NotificationDetails& details) override {
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override {
     DCHECK(type == chrome::NOTIFICATION_SCREEN_LOCK_STATE_CHANGED ||
            type == chrome::NOTIFICATION_FULLSCREEN_CHANGED);
     if (running_)
@@ -119,7 +118,7 @@ class ScreenLockerTest : public InProcessBrowserTest {
   }
 
  private:
-  virtual void SetUpInProcessBrowserTestFixture() override {
+  void SetUpInProcessBrowserTestFixture() override {
     fake_session_manager_client_ = new FakeSessionManagerClient;
     DBusThreadManager::GetSetterForTesting()->SetSessionManagerClient(
         scoped_ptr<SessionManagerClient>(fake_session_manager_client_));
@@ -129,7 +128,7 @@ class ScreenLockerTest : public InProcessBrowserTest {
         ui::ScopedAnimationDurationScaleMode::ZERO_DURATION));
   }
 
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitchASCII(switches::kLoginProfile, "user");
   }
 
@@ -157,7 +156,7 @@ IN_PROC_BROWSER_TEST_F(ScreenLockerTest, TestBasic) {
 
   UserContext user_context(chromeos::login::kStubUser);
   user_context.SetKey(Key("pass"));
-  tester->InjectMockAuthenticator(user_context);
+  tester->InjectStubUserContext(user_context);
   EXPECT_TRUE(tester->IsLocked());
   tester->EnterPassword("fail");
   content::RunAllPendingInMessageLoop();
@@ -186,7 +185,10 @@ IN_PROC_BROWSER_TEST_F(ScreenLockerTest, TestFullscreenExit) {
       browser_window->GetNativeWindow());
   {
     Waiter waiter(browser());
-    browser()->fullscreen_controller()->ToggleBrowserFullscreenMode();
+    browser()
+        ->exclusive_access_manager()
+        ->fullscreen_controller()
+        ->ToggleBrowserFullscreenMode();
     waiter.Wait(false /* not locked */, true /* full screen */);
     EXPECT_TRUE(browser_window->IsFullscreen());
     EXPECT_FALSE(window_state->hide_shelf_when_fullscreen());
@@ -203,13 +205,16 @@ IN_PROC_BROWSER_TEST_F(ScreenLockerTest, TestFullscreenExit) {
   }
   UserContext user_context(chromeos::login::kStubUser);
   user_context.SetKey(Key("pass"));
-  tester->InjectMockAuthenticator(user_context);
+  tester->InjectStubUserContext(user_context);
   tester->EnterPassword("pass");
   content::RunAllPendingInMessageLoop();
   EXPECT_FALSE(tester->IsLocked());
   {
     Waiter waiter(browser());
-    browser()->fullscreen_controller()->ToggleBrowserFullscreenMode();
+    browser()
+        ->exclusive_access_manager()
+        ->fullscreen_controller()
+        ->ToggleBrowserFullscreenMode();
     waiter.Wait(false /* not locked */, false /* fullscreen */);
     EXPECT_FALSE(browser_window->IsFullscreen());
   }
@@ -221,8 +226,10 @@ IN_PROC_BROWSER_TEST_F(ScreenLockerTest, TestFullscreenExit) {
     Waiter waiter(browser());
     content::WebContents* web_contents =
         browser()->tab_strip_model()->GetActiveWebContents();
-    browser()->fullscreen_controller()->ToggleFullscreenModeForTab(
-        web_contents, true);
+    browser()
+        ->exclusive_access_manager()
+        ->fullscreen_controller()
+        ->EnterFullscreenModeForTab(web_contents, GURL());
     waiter.Wait(false /* not locked */, true /* fullscreen */);
     EXPECT_TRUE(browser_window->IsFullscreen());
     EXPECT_TRUE(window_state->hide_shelf_when_fullscreen());

@@ -11,8 +11,12 @@ import cr
 # The set of variables to store in the per output configuration.
 OUT_CONFIG_VARS = [
     'CR_VERSION',
-    cr.Platform.SELECTOR, cr.BuildType.SELECTOR, cr.Arch.SELECTOR,
-    'CR_OUT_BASE', 'CR_OUT_FULL',
+    cr.Platform.SELECTOR,
+    cr.BuildType.SELECTOR,
+    cr.Arch.SELECTOR,
+    cr.PrepareOut.SELECTOR,
+    'CR_OUT_BASE',
+    'CR_OUT_FULL',
 ]
 
 
@@ -43,6 +47,7 @@ class InitCommand(cr.Command):
     cr.BuildType.AddArguments(parser)
     cr.Arch.AddArguments(parser)
     cr.SelectCommand.AddPrepareArguments(parser)
+    cr.PrepareOut.AddArguments(parser)
     parser.add_argument(
         '-s', '--set', dest='_settings', metavar='settings',
         action='append',
@@ -85,11 +90,15 @@ class InitCommand(cr.Command):
             print 'Matched all of', ','.join(matches)
           exit(1)
         platform = matches[0]
+      generator = cr.context.args.CR_GENERATOR
+      if not generator:
+        generator = 'gyp'
       cr.context.derived.Set(
           CR_OUT_FULL=out,
           CR_OUT_BASE=base,
           CR_PLATFORM=platform,
           CR_BUILDTYPE=buildtype,
+          CR_GENERATOR=generator
       )
     if not 'CR_OUT_BASE' in cr.context:
       cr.context.derived['CR_OUT_BASE'] = 'out_{CR_PLATFORM}'
@@ -152,8 +161,8 @@ class InitCommand(cr.Command):
     cr.plugin.Activate()
 
     # Write out the new configuration, and select it as the default
-    cr.base.client.WriteConfig(cr.context.Get('CR_BUILD_DIR'),
-                               build_package.config.OVERRIDES.exported)
+    cr.base.client.WriteConfig(
+        use_build_dir=True, data=build_package.config.OVERRIDES.exported)
     # Prepare the platform in here, using the updated config
     cr.Platform.Prepare()
     cr.SelectCommand.Select()

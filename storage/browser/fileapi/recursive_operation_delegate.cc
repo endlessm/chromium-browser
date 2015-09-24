@@ -5,6 +5,8 @@
 #include "storage/browser/fileapi/recursive_operation_delegate.h"
 
 #include "base/bind.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "storage/browser/fileapi/file_system_context.h"
 #include "storage/browser/fileapi/file_system_operation_runner.h"
 
@@ -19,7 +21,9 @@ RecursiveOperationDelegate::RecursiveOperationDelegate(
     FileSystemContext* file_system_context)
     : file_system_context_(file_system_context),
       inflight_operations_(0),
-      canceled_(false) {
+      canceled_(false),
+      error_behavior_(FileSystemOperation::ERROR_BEHAVIOR_ABORT),
+      failed_some_operations_(false) {
 }
 
 RecursiveOperationDelegate::~RecursiveOperationDelegate() {
@@ -32,17 +36,22 @@ void RecursiveOperationDelegate::Cancel() {
 
 void RecursiveOperationDelegate::StartRecursiveOperation(
     const FileSystemURL& root,
+    ErrorBehavior error_behavior,
     const StatusCallback& callback) {
   DCHECK(pending_directory_stack_.empty());
   DCHECK(pending_files_.empty());
   DCHECK_EQ(0, inflight_operations_);
 
+  error_behavior_ = error_behavior;
   callback_ = callback;
+
+  TryProcessFile(root);
+}
+
+void RecursiveOperationDelegate::TryProcessFile(const FileSystemURL& root) {
   ++inflight_operations_;
-  ProcessFile(
-      root,
-      base::Bind(&RecursiveOperationDelegate::DidTryProcessFile,
-                 AsWeakPtr(), root));
+  ProcessFile(root, base::Bind(&RecursiveOperationDelegate::DidTryProcessFile,
+                               AsWeakPtr(), root));
 }
 
 FileSystemOperationRunner* RecursiveOperationDelegate::operation_runner() {
@@ -150,30 +159,35 @@ void RecursiveOperationDelegate::ProcessPendingFiles() {
     return;
 
   // Run ProcessFile in parallel (upto kMaxInflightOperations).
-  scoped_refptr<base::MessageLoopProxy> current_message_loop =
-      base::MessageLoopProxy::current();
+  scoped_refptr<base::SingleThreadTaskRunner> current_task_runner =
+      base::ThreadTaskRunnerHandle::Get();
   while (!pending_files_.empty() &&
          inflight_operations_ < kMaxInflightOperations) {
     ++inflight_operations_;
-    current_message_loop->PostTask(
+    current_task_runner->PostTask(
         FROM_HERE,
-        base::Bind(&RecursiveOperationDelegate::ProcessFile,
-                   AsWeakPtr(), pending_files_.front(),
+        base::Bind(&RecursiveOperationDelegate::ProcessFile, AsWeakPtr(),
+                   pending_files_.front(),
                    base::Bind(&RecursiveOperationDelegate::DidProcessFile,
-                              AsWeakPtr())));
+                              AsWeakPtr(), pending_files_.front())));
     pending_files_.pop();
   }
 }
 
-void RecursiveOperationDelegate::DidProcessFile(
-    base::File::Error error) {
+void RecursiveOperationDelegate::DidProcessFile(const FileSystemURL& url,
+                                                base::File::Error error) {
   --inflight_operations_;
+
   if (error != base::File::FILE_OK) {
-    // If an error occurs, invoke Done immediately (even if there remain
-    // running operations). It is because in the callback, this instance is
-    // deleted.
-    Done(error);
-    return;
+    if (error_behavior_ == FileSystemOperation::ERROR_BEHAVIOR_ABORT) {
+      // If an error occurs, invoke Done immediately (even if there remain
+      // running operations). It is because in the callback, this instance is
+      // deleted.
+      Done(error);
+      return;
+    }
+
+    failed_some_operations_ = true;
   }
 
   ProcessPendingFiles();
@@ -232,7 +246,11 @@ void RecursiveOperationDelegate::Done(base::File::Error error) {
   if (canceled_ && error == base::File::FILE_OK) {
     callback_.Run(base::File::FILE_ERROR_ABORT);
   } else {
-    callback_.Run(error);
+    if (error_behavior_ == FileSystemOperation::ERROR_BEHAVIOR_SKIP &&
+        failed_some_operations_)
+      callback_.Run(base::File::FILE_ERROR_FAILED);
+    else
+      callback_.Run(error);
   }
 }
 

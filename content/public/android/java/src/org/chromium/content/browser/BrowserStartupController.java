@@ -6,14 +6,15 @@ package org.chromium.content.browser;
 
 import android.content.Context;
 import android.os.Handler;
-import android.util.Log;
 
 import org.chromium.base.CalledByNative;
 import org.chromium.base.JNINamespace;
+import org.chromium.base.Log;
 import org.chromium.base.ResourceExtractor;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.library_loader.LibraryLoader;
+import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.library_loader.LoaderErrors;
 import org.chromium.base.library_loader.ProcessInitException;
 import org.chromium.content.app.ContentMain;
@@ -45,7 +46,7 @@ public class BrowserStartupController {
         void onFailure();
     }
 
-    private static final String TAG = "BrowserStartupController";
+    private static final String TAG = "cr.BrowserStartup";
 
     // Helper constants for {@link StartupCallback#onSuccess}.
     private static final boolean ALREADY_STARTED = true;
@@ -91,6 +92,9 @@ public class BrowserStartupController {
     // Whether the async startup of the browser process has started.
     private boolean mHasStartedInitializingBrowserProcess;
 
+    // Whether tasks that occur after resource extraction have been completed.
+    private boolean mPostResourceExtractionTasksCompleted;
+
     // Whether the async startup of the browser process is complete.
     private boolean mStartupDone;
 
@@ -99,17 +103,32 @@ public class BrowserStartupController {
     // of enqueued callbacks have been executed.
     private boolean mStartupSuccess;
 
-    BrowserStartupController(Context context) {
-        mContext = context;
+    private int mLibraryProcessType;
+
+    BrowserStartupController(Context context, int libraryProcessType) {
+        mContext = context.getApplicationContext();
         mAsyncStartupCallbacks = new ArrayList<StartupCallback>();
+        mLibraryProcessType = libraryProcessType;
     }
 
-    public static BrowserStartupController get(Context context) {
+    /**
+     * Get BrowserStartupController instance, create a new one if no existing.
+     *
+     * @param context the application context.
+     * @param libraryProcessType the type of process the shared library is loaded. it must be
+     *                           LibraryProcessType.PROCESS_BROWSER or
+     *                           LibraryProcessType.PROCESS_WEBVIEW.
+     * @return BrowserStartupController instance.
+     */
+    public static BrowserStartupController get(Context context, int libraryProcessType) {
         assert ThreadUtils.runningOnUiThread() : "Tried to start the browser on the wrong thread.";
         ThreadUtils.assertOnUiThread();
         if (sInstance == null) {
-            sInstance = new BrowserStartupController(context.getApplicationContext());
+            assert LibraryProcessType.PROCESS_BROWSER == libraryProcessType
+                    || LibraryProcessType.PROCESS_WEBVIEW == libraryProcessType;
+            sInstance = new BrowserStartupController(context, libraryProcessType);
         }
+        assert sInstance.mLibraryProcessType == libraryProcessType : "Wrong process type";
         return sInstance;
     }
 
@@ -147,13 +166,17 @@ public class BrowserStartupController {
             // flag that indicates that we have kicked off starting the browser process.
             mHasStartedInitializingBrowserProcess = true;
 
-            prepareToStartBrowserProcess(false);
-
             setAsynchronousStartup(true);
-            if (contentStart() > 0) {
-                // Failed. The callbacks may not have run, so run them.
-                enqueueCallbackExecution(STARTUP_FAILURE, NOT_ALREADY_STARTED);
-            }
+            prepareToStartBrowserProcess(false, new Runnable() {
+                @Override
+                public void run() {
+                    ThreadUtils.assertOnUiThread();
+                    if (contentStart() > 0) {
+                        // Failed. The callbacks may not have run, so run them.
+                        enqueueCallbackExecution(STARTUP_FAILURE, NOT_ALREADY_STARTED);
+                    }
+                }
+            });
         }
     }
 
@@ -171,8 +194,8 @@ public class BrowserStartupController {
     public void startBrowserProcessesSync(boolean singleProcess) throws ProcessInitException {
         // If already started skip to checking the result
         if (!mStartupDone) {
-            if (!mHasStartedInitializingBrowserProcess) {
-                prepareToStartBrowserProcess(singleProcess);
+            if (!mHasStartedInitializingBrowserProcess || !mPostResourceExtractionTasksCompleted) {
+                prepareToStartBrowserProcess(singleProcess, null);
             }
 
             setAsynchronousStartup(false);
@@ -246,8 +269,10 @@ public class BrowserStartupController {
     }
 
     @VisibleForTesting
-    void prepareToStartBrowserProcess(boolean singleProcess) throws ProcessInitException {
-        Log.i(TAG, "Initializing chromium process, singleProcess=" + singleProcess);
+    void prepareToStartBrowserProcess(
+            final boolean singleProcess, final Runnable completionCallback)
+                    throws ProcessInitException {
+        Log.i(TAG, "Initializing chromium process, singleProcess=%b", singleProcess);
 
         // Normally Main.java will have kicked this off asynchronously for Chrome. But other
         // ContentView apps like tests also need them so we make sure we've extracted resources
@@ -257,17 +282,33 @@ public class BrowserStartupController {
 
         // Normally Main.java will have already loaded the library asynchronously, we only need
         // to load it here if we arrived via another flow, e.g. bookmark access & sync setup.
-        LibraryLoader.ensureInitialized(mContext, true);
+        LibraryLoader.get(mLibraryProcessType).ensureInitialized(mContext);
 
-        // TODO(yfriedman): Remove dependency on a command line flag for this.
-        DeviceUtils.addDeviceSpecificUserAgentSwitch(mContext);
+        Runnable postResourceExtraction = new Runnable() {
+            @Override
+            public void run() {
+                if (!mPostResourceExtractionTasksCompleted) {
+                    // TODO(yfriedman): Remove dependency on a command line flag for this.
+                    DeviceUtils.addDeviceSpecificUserAgentSwitch(mContext);
 
-        Context appContext = mContext.getApplicationContext();
-        // Now we really need to have the resources ready.
-        resourceExtractor.waitForCompletion();
+                    ContentMain.initApplicationContext(mContext);
+                    nativeSetCommandLineFlags(
+                            singleProcess, nativeIsPluginEnabled() ? getPlugins() : null);
+                    mPostResourceExtractionTasksCompleted = true;
+                }
 
-        nativeSetCommandLineFlags(singleProcess, nativeIsPluginEnabled() ? getPlugins() : null);
-        ContentMain.initApplicationContext(appContext);
+                if (completionCallback != null) completionCallback.run();
+            }
+        };
+
+        if (completionCallback == null) {
+            // If no continuation callback is specified, then force the resource extraction
+            // to complete.
+            resourceExtractor.waitForCompletion();
+            postResourceExtraction.run();
+        } else {
+            resourceExtractor.addCompletionCallback(postResourceExtraction);
+        }
     }
 
     /**
@@ -277,6 +318,8 @@ public class BrowserStartupController {
         ResourceExtractor resourceExtractor = ResourceExtractor.get(mContext);
         resourceExtractor.startExtractingResources();
         resourceExtractor.waitForCompletion();
+
+        ContentMain.initApplicationContext(mContext.getApplicationContext());
         nativeSetCommandLineFlags(false, null);
     }
 

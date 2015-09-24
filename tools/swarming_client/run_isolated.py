@@ -14,12 +14,11 @@ file. All content written to this directory will be uploaded upon termination
 and the .isolated file describing this directory will be printed to stdout.
 """
 
-__version__ = '0.3.2'
+__version__ = '0.4.1'
 
 import logging
 import optparse
 import os
-import subprocess
 import sys
 import tempfile
 
@@ -27,6 +26,7 @@ from third_party.depot_tools import fix_encoding
 
 from utils import file_path
 from utils import on_error
+from utils import subprocess42
 from utils import tools
 from utils import zip_package
 
@@ -83,7 +83,7 @@ def make_temp_dir(prefix, root_dir):
   base_temp_dir = None
   if (root_dir and
       not file_path.is_same_filesystem(root_dir, tempfile.gettempdir())):
-    base_temp_dir = os.path.dirname(root_dir)
+    base_temp_dir = root_dir
   return tempfile.mkdtemp(prefix=prefix, dir=base_temp_dir)
 
 
@@ -103,9 +103,7 @@ def change_tree_read_only(rootdir, read_only):
     # modifying files but creating or deleting files is still possible.
     file_path.make_tree_files_read_only(rootdir)
   elif read_only in (0, None):
-    # Anything can be modified. This is the default in the .isolated file
-    # format.
-    #
+    # Anything can be modified.
     # TODO(maruel): This is currently dangerous as long as DiskCache.touch()
     # is not yet changed to verify the hash of the content of the files it is
     # looking at, so that if a test modifies an input file, the file must be
@@ -136,7 +134,7 @@ def run_tha_test(isolated_hash, storage, cache, leak_temp_dir, extra_args):
   file.
 
   Arguments:
-    isolated_hash: the sha-1 of the .isolated file that must be retrieved to
+    isolated_hash: the SHA-1 of the .isolated file that must be retrieved to
                    recreate the tree of files to run the target executable.
     storage: an isolateserver.Storage object to retrieve remote objects. This
              object has a reference to an isolateserver.StorageApi, which does
@@ -149,8 +147,8 @@ def run_tha_test(isolated_hash, storage, cache, leak_temp_dir, extra_args):
     extra_args: optional arguments to add to the command stated in the .isolate
                 file.
   """
-  run_dir = make_temp_dir('run_tha_test', cache.cache_dir)
-  out_dir = unicode(make_temp_dir('isolated_out', cache.cache_dir))
+  run_dir = make_temp_dir(u'run_tha_test', cache.cache_dir)
+  out_dir = unicode(make_temp_dir(u'isolated_out', cache.cache_dir))
   result = 0
   try:
     try:
@@ -179,17 +177,18 @@ def run_tha_test(isolated_hash, storage, cache, leak_temp_dir, extra_args):
     if MAIN_DIR:
       env.setdefault('RUN_TEST_CASES_LOG_FILE',
           os.path.join(MAIN_DIR, RUN_TEST_CASES_LOG))
-    try:
-      sys.stdout.flush()
-      with tools.Profiler('RunTest'):
-        result = subprocess.call(command, cwd=cwd, env=env)
-        logging.info(
-            'Command finished with exit code %d (%s)',
-            result, hex(0xffffffff & result))
-    except OSError:
-      on_error.report('Failed to run %s; cwd=%s' % (command, cwd))
-      result = 1
-
+    sys.stdout.flush()
+    with tools.Profiler('RunTest'):
+      try:
+        with subprocess42.Popen_with_handler(command, cwd=cwd, env=env) as p:
+          p.communicate()
+          result = p.returncode
+      except OSError:
+        on_error.report('Failed to run %s; cwd=%s' % (command, cwd))
+        result = 1
+    logging.info(
+        'Command finished with exit code %d (%s)',
+        result, hex(0xffffffff & result))
   finally:
     try:
       if leak_temp_dir:
@@ -216,28 +215,56 @@ def run_tha_test(isolated_hash, storage, cache, leak_temp_dir, extra_args):
 
       # Upload out_dir and generate a .isolated file out of this directory.
       # It is only done if files were written in the directory.
-      if os.listdir(out_dir):
+      if os.path.isdir(out_dir) and os.listdir(out_dir):
         with tools.Profiler('ArchiveOutput'):
-          results = isolateserver.archive_files_to_storage(
-              storage, [out_dir], None)
-        # TODO(maruel): Implement side-channel to publish this information.
-        output_data = {
-          'hash': results[0][0],
-          'namespace': storage.namespace,
-          'storage': storage.location,
-        }
-        sys.stdout.flush()
-        print(
-            '[run_isolated_out_hack]%s[/run_isolated_out_hack]' %
-            tools.format_json(output_data, dense=True))
+          try:
+            results = isolateserver.archive_files_to_storage(
+                storage, [out_dir], None)
+          except isolateserver.Aborted:
+            # This happens when a signal SIGTERM was received while uploading
+            # data. There is 2 causes:
+            # - The task was too slow and was about to be killed anyway due to
+            #   exceeding the hard timeout.
+            # - The amount of data uploaded back is very large and took too much
+            #   time to archive.
+            #
+            # There's 3 options to handle this:
+            # - Ignore the upload failure as a silent failure. This can be
+            #   detected client side by the fact no result file exists.
+            # - Return as if the task failed. This is not factually correct.
+            # - Return an internal failure. Sadly, it's impossible at this level
+            #   at the moment.
+            #
+            # For now, silently drop the upload.
+            #
+            # In any case, the process only has a very short grace period so it
+            # needs to exit right away.
+            sys.stderr.write('Received SIGTERM while uploading')
+            results = None
+
+        if results:
+          # TODO(maruel): Implement side-channel to publish this information.
+          output_data = {
+            'hash': results[0][0],
+            'namespace': storage.namespace,
+            'storage': storage.location,
+          }
+          sys.stdout.flush()
+          print(
+              '[run_isolated_out_hack]%s[/run_isolated_out_hack]' %
+              tools.format_json(output_data, dense=True))
 
     finally:
       try:
         if os.path.isdir(out_dir) and not file_path.rmtree(out_dir):
           result = result or 1
       except OSError:
-        # The error was already printed out. Report it but that's it.
-        on_error.report(None)
+        # The error was already printed out. Report it but that's it. Only
+        # report on non-Windows or on Windows when the process had succeeded.
+        # Due to the way file sharing works on Windows, it's sadly expected that
+        # file deletion may fail when a test failed.
+        if sys.platform != 'win32' or not result:
+          on_error.report(None)
         result = 1
 
   return result
@@ -253,12 +280,10 @@ def main(args):
   data_group = optparse.OptionGroup(parser, 'Data source')
   data_group.add_option(
       '-s', '--isolated',
-      metavar='FILE',
-      help='File/url describing what to map or run')
+      help='Hash of the .isolated to grab from the isolate server')
   data_group.add_option(
-      '-H', '--hash',
-      help='Hash of the .isolated to grab from the hash table')
-  isolateserver.add_isolate_server_options(data_group, True)
+      '-H', dest='isolated', help=optparse.SUPPRESS_HELP)
+  isolateserver.add_isolate_server_options(data_group)
   parser.add_option_group(data_group)
 
   isolateserver.add_cache_options(parser)
@@ -274,25 +299,18 @@ def main(args):
 
   auth.add_auth_options(parser)
   options, args = parser.parse_args(args)
+  if not options.isolated:
+    parser.error('--isolated is required.')
   auth.process_auth_options(parser, options)
-  isolateserver.process_isolate_server_options(parser, options)
-
-  if bool(options.isolated) == bool(options.hash):
-    logging.debug('One and only one of --isolated or --hash is required.')
-    parser.error('One and only one of --isolated or --hash is required.')
+  isolateserver.process_isolate_server_options(parser, options, True)
 
   cache = isolateserver.process_cache_options(options)
-
-  remote = options.isolate_server or options.indir
-  if file_path.is_url(remote):
-    auth.ensure_logged_in(remote)
-
-  with isolateserver.get_storage(remote, options.namespace) as storage:
+  with isolateserver.get_storage(
+      options.isolate_server, options.namespace) as storage:
     # Hashing schemes used by |storage| and |cache| MUST match.
     assert storage.hash_algo == cache.hash_algo
     return run_tha_test(
-        options.isolated or options.hash, storage, cache,
-        options.leak_temp_dir, args)
+        options.isolated, storage, cache, options.leak_temp_dir, args)
 
 
 if __name__ == '__main__':

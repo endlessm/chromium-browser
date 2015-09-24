@@ -42,19 +42,20 @@
 
 namespace blink {
 
-PassRefPtrWillBeRawPtr<MessageEvent> createConnectEvent(PassRefPtrWillBeRawPtr<MessagePort> prpPort)
+PassRefPtrWillBeRawPtr<MessageEvent> createConnectEvent(MessagePort* port)
 {
-    RefPtrWillBeRawPtr<MessagePort> port = prpPort;
-    RefPtrWillBeRawPtr<MessageEvent> event = MessageEvent::create(adoptPtrWillBeNoop(new MessagePortArray(1, port)), String(), String(), port);
+    RefPtrWillBeRawPtr<MessageEvent> event = MessageEvent::create(new MessagePortArray(1, port), String(), String(), port);
     event->initEvent(EventTypeNames::connect, false, false);
     return event.release();
 }
 
 // static
-PassRefPtrWillBeRawPtr<SharedWorkerGlobalScope> SharedWorkerGlobalScope::create(const String& name, SharedWorkerThread* thread, PassOwnPtrWillBeRawPtr<WorkerThreadStartupData> startupData)
+PassRefPtrWillBeRawPtr<SharedWorkerGlobalScope> SharedWorkerGlobalScope::create(const String& name, SharedWorkerThread* thread, PassOwnPtr<WorkerThreadStartupData> startupData)
 {
+    // Note: startupData is finalized on return. After the relevant parts has been
+    // passed along to the created 'context'.
     RefPtrWillBeRawPtr<SharedWorkerGlobalScope> context = adoptRefWillBeNoop(new SharedWorkerGlobalScope(name, startupData->m_scriptURL, startupData->m_userAgent, thread, startupData->m_starterOrigin, startupData->m_workerClients.release()));
-    context->applyContentSecurityPolicyFromString(startupData->m_contentSecurityPolicy, startupData->m_contentSecurityPolicyType);
+    context->applyContentSecurityPolicyFromVector(*startupData->m_contentSecurityPolicyHeaders);
     return context.release();
 }
 
@@ -87,7 +88,7 @@ void SharedWorkerGlobalScope::logExceptionToConsole(const String& errorMessage, 
     addMessageToWorkerConsole(consoleMessage.release());
 }
 
-void SharedWorkerGlobalScope::trace(Visitor* visitor)
+DEFINE_TRACE(SharedWorkerGlobalScope)
 {
     WorkerGlobalScope::trace(visitor);
 }

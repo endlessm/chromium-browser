@@ -14,7 +14,7 @@
 #include "net/base/net_errors.h"
 #include "net/http/http_byte_range.h"
 #include "net/url_request/url_request_job.h"
-#include "storage/browser/blob/file_stream_reader.h"
+#include "storage/browser/fileapi/file_stream_reader.h"
 #include "storage/browser/fileapi/file_system_url.h"
 
 namespace net {
@@ -58,19 +58,15 @@ class ExternalFileURLRequestJob : public net::URLRequestJob {
                             net::NetworkDelegate* network_delegate);
 
   // net::URLRequestJob overrides:
-  virtual void SetExtraRequestHeaders(
-      const net::HttpRequestHeaders& headers) override;
-  virtual void Start() override;
-  virtual void Kill() override;
-  virtual bool GetMimeType(std::string* mime_type) const override;
-  virtual bool IsRedirectResponse(GURL* location,
-                                  int* http_status_code) override;
-  virtual bool ReadRawData(net::IOBuffer* buf,
-                           int buf_size,
-                           int* bytes_read) override;
+  void SetExtraRequestHeaders(const net::HttpRequestHeaders& headers) override;
+  void Start() override;
+  void Kill() override;
+  bool GetMimeType(std::string* mime_type) const override;
+  bool IsRedirectResponse(GURL* location, int* http_status_code) override;
+  bool ReadRawData(net::IOBuffer* buf, int buf_size, int* bytes_read) override;
 
  protected:
-  virtual ~ExternalFileURLRequestJob();
+  ~ExternalFileURLRequestJob() override;
 
  private:
   // Called from an internal helper class defined in drive_url_request_job.cc,

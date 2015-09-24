@@ -11,7 +11,7 @@ namespace {
 void ParsePattern(const std::string& s, std::vector<Pattern::Subrange>* out) {
   // Set when the last subrange is a literal so we can just append when we
   // find another literal.
-  Pattern::Subrange* last_literal = NULL;
+  Pattern::Subrange* last_literal = nullptr;
 
   for (size_t i = 0; i < s.size(); i++) {
     if (s[i] == '*') {
@@ -19,13 +19,13 @@ void ParsePattern(const std::string& s, std::vector<Pattern::Subrange>* out) {
       if (out->size() == 0 ||
           (*out)[out->size() - 1].type != Pattern::Subrange::ANYTHING)
         out->push_back(Pattern::Subrange(Pattern::Subrange::ANYTHING));
-      last_literal = NULL;
+      last_literal = nullptr;
     } else if (s[i] == '\\') {
       if (i < s.size() - 1 && s[i + 1] == 'b') {
         // "\b" means path boundary.
         i++;
         out->push_back(Pattern::Subrange(Pattern::Subrange::PATH_BOUNDARY));
-        last_literal = NULL;
+        last_literal = nullptr;
       } else {
         // Backslash + anything else means that literal char.
         if (!last_literal) {
@@ -167,16 +167,16 @@ void PatternList::SetFromValue(const Value& v, Err* err) {
   }
 
   const std::vector<Value>& list = v.list_value();
-  for (size_t i = 0; i < list.size(); i++) {
-    if (!list[i].VerifyTypeIs(Value::STRING, err))
+  for (const auto& elem : list) {
+    if (!elem.VerifyTypeIs(Value::STRING, err))
       return;
-    patterns_.push_back(Pattern(list[i].string_value()));
+    patterns_.push_back(Pattern(elem.string_value()));
   }
 }
 
 bool PatternList::MatchesString(const std::string& s) const {
-  for (size_t i = 0; i < patterns_.size(); i++) {
-    if (patterns_[i].MatchesString(s))
+  for (const auto& pattern : patterns_) {
+    if (pattern.MatchesString(s))
       return true;
   }
   return false;

@@ -8,11 +8,11 @@ from __future__ import print_function
 
 import os
 
-from chromite.cbuildbot import cbuildbot_config
 from chromite.cbuildbot import commands
+from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 
-from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import gs
 from chromite.lib import osutils
 
@@ -45,7 +45,7 @@ def GetBaseUploadURI(config, archive_base=None, bot_id=None,
 
   if archive_base:
     return '%s/%s' % (archive_base, bot_id)
-  elif remote_trybot or config.gs_path == cbuildbot_config.GS_PATH_DEFAULT:
+  elif remote_trybot or config.gs_path == config_lib.GS_PATH_DEFAULT:
     return '%s/%s' % (constants.DEFAULT_ARCHIVE_BUCKET, bot_id)
   else:
     return config.gs_path
@@ -141,8 +141,8 @@ class Archive(object):
 
   def SetupArchivePath(self):
     """Create a fresh directory for archiving a build."""
-    cros_build_lib.Info('Preparing local archive directory at "%s".',
-                        self.archive_path)
+    logging.info('Preparing local archive directory at "%s".',
+                 self.archive_path)
     if self._options.buildbot:
       # Buildbot: Clear out any leftover build artifacts, if present, for
       # this particular run.  The Clean stage is responsible for trimming

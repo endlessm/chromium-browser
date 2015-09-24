@@ -5,7 +5,7 @@
 #ifndef ASH_SYSTEM_TRAY_THROBBER_VIEW_H_
 #define ASH_SYSTEM_TRAY_THROBBER_VIEW_H_
 
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/views/controls/throbber.h"
 #include "ui/views/view.h"
 
@@ -14,7 +14,7 @@ namespace ash {
 // A SmoothedThrobber with tooltip.
 class SystemTrayThrobber : public views::SmoothedThrobber {
  public:
-  SystemTrayThrobber(int frame_delay_ms);
+  SystemTrayThrobber();
   ~SystemTrayThrobber() override;
 
   void SetTooltipText(const base::string16& tooltip_text);

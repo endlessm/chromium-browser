@@ -80,7 +80,7 @@ llc-make() {
 
   env -i PATH=/usr/bin/:/bin \
            MAKE_OPTS="${MAKE_OPTS}" \
-           NACL_SANDBOX=0 \
+           PNACL_BROWSER_TRANSLATOR=0 \
            NACL_SB_JIT=0 \
            CC="${CC}" \
            CXX="${CXX}" \
@@ -96,7 +96,7 @@ llc-install() {
   # This just works on linux and assumes release builds...
   # TODO(pnacl-team): Make this path configurable.
   cp ${TC_BUILD_LLVM}/Release+Asserts/bin/llc \
-    toolchain/linux_x86/pnacl_newlib/host_x86_32/bin/llc
+    toolchain/linux_x86/pnacl_newlib_raw/host_x86_32/bin/llc
 }
 
 

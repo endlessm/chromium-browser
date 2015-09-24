@@ -8,10 +8,13 @@
 #include "ash/test/ash_test_base.h"
 #include "ash/test/test_session_state_delegate.h"
 #include "ash/test/test_shell_delegate.h"
+#include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
+#include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_notification_blocker_chromeos.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_window_manager_chromeos.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile_manager.h"
+#include "components/user_manager/fake_user_manager.h"
 #include "components/user_manager/user_info.h"
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/notification.h"
@@ -23,11 +26,13 @@ class MultiUserNotificationBlockerChromeOSTest
   MultiUserNotificationBlockerChromeOSTest()
       : state_changed_count_(0),
         testing_profile_manager_(TestingBrowserProcess::GetGlobal()),
-        window_id_(0) {}
-  virtual ~MultiUserNotificationBlockerChromeOSTest() {}
+        window_id_(0),
+        fake_user_manager_(new user_manager::FakeUserManager),
+        user_manager_enabler_(fake_user_manager_) {}
+  ~MultiUserNotificationBlockerChromeOSTest() override {}
 
   // ash::test::AshTestBase overrides:
-  virtual void SetUp() override {
+  void SetUp() override {
     ash::test::AshTestBase::SetUp();
     ASSERT_TRUE(testing_profile_manager_.SetUp());
 
@@ -45,21 +50,24 @@ class MultiUserNotificationBlockerChromeOSTest
             ash::Shell::GetInstance()->session_state_delegate());
     session_state_delegate->AddUser("test2@example.com");
 
+    chromeos::WallpaperManager::Initialize();
+
     // Disable any animations for the test.
     GetMultiUserWindowManager()->SetAnimationSpeedForTest(
         chrome::MultiUserWindowManagerChromeOS::ANIMATION_SPEED_DISABLED);
     GetMultiUserWindowManager()->notification_blocker_->AddObserver(this);
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     GetMultiUserWindowManager()->notification_blocker_->RemoveObserver(this);
     if (chrome::MultiUserWindowManager::GetInstance())
       chrome::MultiUserWindowManager::DeleteInstance();
     ash::test::AshTestBase::TearDown();
+    chromeos::WallpaperManager::Shutdown();
   }
 
   // message_center::NotificationBlocker::Observer ovverrides:
-  virtual void OnBlockingStateChanged(
+  void OnBlockingStateChanged(
       message_center::NotificationBlocker* blocker) override {
     state_changed_count_++;
   }
@@ -127,6 +135,10 @@ class MultiUserNotificationBlockerChromeOSTest
   int state_changed_count_;
   TestingProfileManager testing_profile_manager_;
   int window_id_;
+
+  user_manager::FakeUserManager* fake_user_manager_;  // Not owned.
+
+  chromeos::ScopedUserManagerEnabler user_manager_enabler_;
 
   DISALLOW_COPY_AND_ASSIGN(MultiUserNotificationBlockerChromeOSTest);
 };

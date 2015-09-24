@@ -26,8 +26,8 @@
 #include "core/CSSPropertyNames.h"
 #include "core/CSSValueKeywords.h"
 #include "core/HTMLNames.h"
-#include "core/dom/NodeRenderingTraversal.h"
-#include "core/rendering/RenderListItem.h"
+#include "core/dom/LayoutTreeBuilderTraversal.h"
+#include "core/layout/LayoutListItem.h"
 
 namespace blink {
 
@@ -62,25 +62,27 @@ void HTMLLIElement::collectStyleForPresentationAttribute(const QualifiedName& na
             addPropertyToPresentationAttributeStyle(style, CSSPropertyListStyleType, CSSValueDecimal);
         else
             addPropertyToPresentationAttributeStyle(style, CSSPropertyListStyleType, value);
-    } else
+    } else {
         HTMLElement::collectStyleForPresentationAttribute(name, value, style);
+    }
 }
 
 void HTMLLIElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
 {
     if (name == valueAttr) {
-        if (renderer() && renderer()->isListItem())
+        if (layoutObject() && layoutObject()->isListItem())
             parseValue(value);
-    } else
+    } else {
         HTMLElement::parseAttribute(name, value);
+    }
 }
 
 void HTMLLIElement::attach(const AttachContext& context)
 {
     HTMLElement::attach(context);
 
-    if (renderer() && renderer()->isListItem()) {
-        RenderListItem* listItemRenderer = toRenderListItem(renderer());
+    if (layoutObject() && layoutObject()->isListItem()) {
+        LayoutListItem* listItemLayoutObject = toLayoutListItem(layoutObject());
 
         ASSERT(!document().childNeedsDistributionRecalc());
 
@@ -88,17 +90,17 @@ void HTMLLIElement::attach(const AttachContext& context)
         Element* listNode = 0;
         Element* current = this;
         while (!listNode) {
-            current = NodeRenderingTraversal::parentElement(current);
+            current = LayoutTreeBuilderTraversal::parentElement(*current);
             if (!current)
                 break;
             if (isHTMLUListElement(*current) || isHTMLOListElement(*current))
                 listNode = current;
         }
 
-        // If we are not in a list, tell the renderer so it can position us inside.
+        // If we are not in a list, tell the layoutObject so it can position us inside.
         // We don't want to change our style to say "inside" since that would affect nested nodes.
         if (!listNode)
-            listItemRenderer->setNotInList(true);
+            listItemLayoutObject->setNotInList(true);
 
         parseValue(fastGetAttribute(valueAttr));
     }
@@ -106,14 +108,14 @@ void HTMLLIElement::attach(const AttachContext& context)
 
 inline void HTMLLIElement::parseValue(const AtomicString& value)
 {
-    ASSERT(renderer() && renderer()->isListItem());
+    ASSERT(layoutObject() && layoutObject()->isListItem());
 
     bool valueOK;
     int requestedValue = value.toInt(&valueOK);
     if (valueOK)
-        toRenderListItem(renderer())->setExplicitValue(requestedValue);
+        toLayoutListItem(layoutObject())->setExplicitValue(requestedValue);
     else
-        toRenderListItem(renderer())->clearExplicitValue();
+        toLayoutListItem(layoutObject())->clearExplicitValue();
 }
 
 }

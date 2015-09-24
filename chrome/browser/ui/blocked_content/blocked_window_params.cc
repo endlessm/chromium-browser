@@ -19,7 +19,7 @@ BlockedWindowParams::BlockedWindowParams(
     bool user_gesture,
     bool opener_suppressed,
     int render_process_id,
-    int opener_id)
+    int opener_render_frame_id)
     : target_url_(target_url),
       referrer_(referrer),
       disposition_(disposition),
@@ -27,7 +27,7 @@ BlockedWindowParams::BlockedWindowParams(
       user_gesture_(user_gesture),
       opener_suppressed_(opener_suppressed),
       render_process_id_(render_process_id),
-      opener_id_(opener_id) {
+      opener_render_frame_id_(opener_render_frame_id) {
 }
 
 chrome::NavigateParams BlockedWindowParams::CreateNavigateParams(
@@ -44,7 +44,7 @@ chrome::NavigateParams BlockedWindowParams::CreateNavigateParams(
   nav_params.tabstrip_add_types = TabStripModel::ADD_ACTIVE;
   nav_params.window_action = chrome::NavigateParams::SHOW_WINDOW;
   nav_params.user_gesture = user_gesture_;
-  nav_params.should_set_opener = !opener_suppressed_;
+  nav_params.created_with_opener = !opener_suppressed_;
   nav_params.window_bounds = web_contents->GetContainerBounds();
   if (features_.xSet)
     nav_params.window_bounds.set_x(features_.x);
@@ -55,11 +55,7 @@ chrome::NavigateParams BlockedWindowParams::CreateNavigateParams(
   if (features_.heightSet)
     nav_params.window_bounds.set_height(features_.height);
 
-  // Compare RenderViewImpl::show().
-  if (!user_gesture_ && disposition_ != NEW_BACKGROUND_TAB)
-    nav_params.disposition = NEW_POPUP;
-  else
-    nav_params.disposition = disposition_;
+  nav_params.disposition = disposition_;
 
   return nav_params;
 }

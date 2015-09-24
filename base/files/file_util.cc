@@ -22,6 +22,7 @@
 
 namespace base {
 
+#if !defined(OS_NACL_NONSFI)
 namespace {
 
 // The maximum number of 'uniquified' files we will try to create.
@@ -45,12 +46,6 @@ bool Move(const FilePath& from_path, const FilePath& to_path) {
   if (from_path.ReferencesParent() || to_path.ReferencesParent())
     return false;
   return internal::MoveUnsafe(from_path, to_path);
-}
-
-bool CopyFile(const FilePath& from_path, const FilePath& to_path) {
-  if (from_path.ReferencesParent() || to_path.ReferencesParent())
-    return false;
-  return internal::CopyFileUnsafe(from_path, to_path);
 }
 
 bool ContentsEqual(const FilePath& filename1, const FilePath& filename2) {
@@ -126,6 +121,7 @@ bool TextContentsEqual(const FilePath& filename1, const FilePath& filename2) {
 
   return true;
 }
+#endif  // !defined(OS_NACL_NONSFI)
 
 bool ReadFileToString(const FilePath& path,
                       std::string* contents,
@@ -168,6 +164,7 @@ bool ReadFileToString(const FilePath& path, std::string* contents) {
   return ReadFileToString(path, contents, std::numeric_limits<size_t>::max());
 }
 
+#if !defined(OS_NACL_NONSFI)
 bool IsDirectoryEmpty(const FilePath& dir_path) {
   FileEnumerator files(dir_path, false,
       FileEnumerator::FILES | FileEnumerator::DIRECTORIES);
@@ -213,6 +210,7 @@ bool TouchFile(const FilePath& path,
 
   return file.SetTimes(last_accessed, last_modified);
 }
+#endif  // !defined(OS_NACL_NONSFI)
 
 bool CloseFile(FILE* file) {
   if (file == NULL)
@@ -220,6 +218,7 @@ bool CloseFile(FILE* file) {
   return fclose(file) == 0;
 }
 
+#if !defined(OS_NACL_NONSFI)
 bool TruncateFile(FILE* file) {
   if (file == NULL)
     return false;
@@ -257,5 +256,6 @@ int GetUniquePathNumber(const FilePath& path,
 
   return -1;
 }
+#endif  // !defined(OS_NACL_NONSFI)
 
 }  // namespace base

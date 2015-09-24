@@ -5,25 +5,15 @@
 #ifndef REMOTING_HOST_OAUTH_TOKEN_GETTER_H_
 #define REMOTING_HOST_OAUTH_TOKEN_GETTER_H_
 
-#include <queue>
+#include <string>
 
-#include "base/basictypes.h"
 #include "base/callback.h"
-#include "base/threading/non_thread_safe.h"
-#include "base/time/time.h"
-#include "base/timer/timer.h"
-#include "google_apis/gaia/gaia_oauth_client.h"
 
-namespace net {
-class URLRequestContextGetter;
-}  // namespace net
 
 namespace remoting {
 
 // OAuthTokenGetter caches OAuth access tokens and refreshes them as needed.
-class OAuthTokenGetter :
-      public base::NonThreadSafe,
-      public gaia::GaiaOAuthClient::Delegate {
+class OAuthTokenGetter {
  public:
   // Status of the refresh token attempt.
   enum Status {
@@ -42,6 +32,9 @@ class OAuthTokenGetter :
   // This structure contains information required to perform
   // authentication to OAuth2.
   struct OAuthCredentials {
+    // |is_service_account| should be True if the OAuth refresh token is for a
+    // service account, False for a user account, to allow the correct client-ID
+    // to be used.
     OAuthCredentials(const std::string& login,
                      const std::string& refresh_token,
                      bool is_service_account);
@@ -56,41 +49,12 @@ class OAuthTokenGetter :
     bool is_service_account;
   };
 
-  OAuthTokenGetter(
-      scoped_ptr<OAuthCredentials> oauth_credentials,
-      scoped_refptr<net::URLRequestContextGetter> url_request_context_getter,
-      bool auto_refresh);
-  ~OAuthTokenGetter() override;
+  OAuthTokenGetter() {}
+  virtual ~OAuthTokenGetter() {}
 
   // Call |on_access_token| with an access token, or the failure status.
-  void CallWithToken(const OAuthTokenGetter::TokenCallback& on_access_token);
-
-  // gaia::GaiaOAuthClient::Delegate interface.
-  void OnGetTokensResponse(const std::string& user_email,
-                           const std::string& access_token,
-                           int expires_seconds) override;
-  void OnRefreshTokenResponse(const std::string& access_token,
-                              int expires_in_seconds) override;
-  void OnGetUserEmailResponse(const std::string& user_email) override;
-  void OnOAuthError() override;
-  void OnNetworkError(int response_code) override;
-
- private:
-  void NotifyCallbacks(Status status,
-                       const std::string& user_email,
-                       const std::string& access_token);
-  void RefreshOAuthToken();
-
-  scoped_ptr<OAuthCredentials> oauth_credentials_;
-  scoped_ptr<gaia::GaiaOAuthClient> gaia_oauth_client_;
-  scoped_refptr<net::URLRequestContextGetter> url_request_context_getter_;
-
-  bool refreshing_oauth_token_;
-  std::string oauth_access_token_;
-  std::string verified_email_;
-  base::Time auth_token_expiry_time_;
-  std::queue<OAuthTokenGetter::TokenCallback> pending_callbacks_;
-  scoped_ptr<base::OneShotTimer<OAuthTokenGetter> > refresh_timer_;
+  virtual void CallWithToken(
+      const OAuthTokenGetter::TokenCallback& on_access_token) = 0;
 
   DISALLOW_COPY_AND_ASSIGN(OAuthTokenGetter);
 };

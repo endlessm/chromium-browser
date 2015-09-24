@@ -5,7 +5,9 @@
 #ifndef CONTENT_BROWSER_FRAME_HOST_RENDER_FRAME_MESSAGE_FILTER_H_
 #define CONTENT_BROWSER_FRAME_HOST_RENDER_FRAME_MESSAGE_FILTER_H_
 
+#include "content/common/frame_replication_state.h"
 #include "content/public/browser/browser_message_filter.h"
+#include "third_party/WebKit/public/web/WebTreeScopeType.h"
 
 namespace content {
 class RenderWidgetHelper;
@@ -27,7 +29,9 @@ class RenderFrameMessageFilter : public BrowserMessageFilter {
   ~RenderFrameMessageFilter() override;
 
   void OnCreateChildFrame(int parent_routing_id,
+                          blink::WebTreeScopeType scope,
                           const std::string& frame_name,
+                          blink::WebSandboxFlags sandbox_flags,
                           int* new_render_frame_id);
 
   const int render_process_id_;

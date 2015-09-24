@@ -8,7 +8,6 @@
 #include "chrome/browser/extensions/extension_special_storage_policy.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/common/extensions/manifest_handlers/app_isolation_info.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
@@ -19,6 +18,7 @@
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
+#include "extensions/common/manifest_handlers/app_isolation_info.h"
 #include "net/url_request/url_request_context_getter.h"
 
 using base::WeakPtr;
@@ -100,9 +100,10 @@ void DataDeleter::StartDeleting(Profile* profile,
         profile,
         Extension::GetBaseURLFromExtensionId(extension->id()));
 
-    if (extension->is_hosted_app() &&
-        !profile->GetExtensionSpecialStoragePolicy()->
-            IsStorageProtected(launch_web_url_origin)) {
+    ExtensionSpecialStoragePolicy* storage_policy =
+        profile->GetExtensionSpecialStoragePolicy();
+    if (storage_policy->NeedsProtection(extension) &&
+        !storage_policy->IsStorageProtected(launch_web_url_origin)) {
       DeleteOrigin(profile,
                    partition,
                    launch_web_url_origin,

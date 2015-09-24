@@ -11,34 +11,10 @@
 
 'use strict';
 
-var base = {};
+/** @suppress {duplicate} */
+var base = base || {};
+
 base.debug = function() {};
-
-/**
- * Whether to break in debugger and alert when an assertion fails.
- * Set it to true for debugging.
- * @type {boolean}
- */
-base.debug.breakOnAssert = false;
-
-/**
- * Assert that |expr| is true else print the |opt_msg|.
- * @param {boolean} expr
- * @param {string=} opt_msg
- */
-base.debug.assert = function(expr, opt_msg) {
-  if (!expr) {
-    var msg = 'Assertion Failed.';
-    if (opt_msg) {
-      msg += ' ' + opt_msg;
-    }
-    console.error(msg);
-    if (base.debug.breakOnAssert) {
-      alert(msg);
-      debugger;
-    }
-  }
-};
 
 /**
  * @return {string} The callstack of the current method.
@@ -46,8 +22,7 @@ base.debug.assert = function(expr, opt_msg) {
 base.debug.callstack = function() {
   try {
     throw new Error();
-  } catch (e) {
-    var error = /** @type {Error} */ e;
+  } catch (/** @type {Error} */ error) {
     var callstack = error.stack
       .replace(/^\s+(at eval )?at\s+/gm, '') // Remove 'at' and indentation.
       .split('\n');
@@ -63,12 +38,66 @@ base.Disposable = function() {};
 base.Disposable.prototype.dispose = function() {};
 
 /**
+ * @constructor
+ * @param {...base.Disposable} var_args
+ * @implements {base.Disposable}
+ * @suppress {reportUnknownTypes}
+ */
+base.Disposables = function(var_args) {
+  /**
+   * @type {Array<base.Disposable>}
+   * @private
+   */
+  this.disposables_ = Array.prototype.slice.call(arguments, 0);
+};
+
+/**
+ * @param {...base.Disposable} var_args
+ * @suppress {reportUnknownTypes}
+ */
+base.Disposables.prototype.add = function(var_args) {
+  var disposables = Array.prototype.slice.call(arguments, 0);
+  for (var i = 0; i < disposables.length; i++) {
+    var current = /** @type {base.Disposable} */ (disposables[i]);
+    if (this.disposables_.indexOf(current) === -1) {
+      this.disposables_.push(current);
+    }
+  }
+};
+
+/**
+ * @param {...base.Disposable} var_args  Dispose |var_args| and remove
+ *    them from the current object.
+ * @suppress {reportUnknownTypes}
+ */
+base.Disposables.prototype.remove = function(var_args) {
+  var disposables = Array.prototype.slice.call(arguments, 0);
+  for (var i = 0; i < disposables.length; i++) {
+    var disposable = /** @type {base.Disposable} */ (disposables[i]);
+    var index = this.disposables_.indexOf(disposable);
+    if(index !== -1) {
+      this.disposables_.splice(index, 1);
+      disposable.dispose();
+    }
+  }
+};
+
+base.Disposables.prototype.dispose = function() {
+  for (var i = 0; i < this.disposables_.length; i++) {
+    this.disposables_[i].dispose();
+  }
+  this.disposables_ = null;
+};
+
+/**
  * A utility function to invoke |obj|.dispose without a null check on |obj|.
  * @param {base.Disposable} obj
  */
 base.dispose = function(obj) {
   if (obj) {
-    base.debug.assert(typeof obj.dispose == 'function');
+    console.assert(typeof obj.dispose == 'function',
+                   'dispose() should have type function, not ' +
+                   typeof obj.dispose + '.');
     obj.dispose();
   }
 };
@@ -80,8 +109,7 @@ base.dispose = function(obj) {
  */
 base.mix = function(dest, src) {
   for (var prop in src) {
-    if (src.hasOwnProperty(prop)) {
-      base.debug.assert(!dest.hasOwnProperty(prop),"Don't override properties");
+    if (src.hasOwnProperty(prop) && !(prop in dest)) {
       dest[prop] = src[prop];
     }
   }
@@ -91,10 +119,54 @@ base.mix = function(dest, src) {
  * Adds a mixin to a class.
  * @param {Object} dest
  * @param {Object} src
- * @suppress {checkTypes}
+ * @suppress {checkTypes|reportUnknownTypes}
  */
 base.extend = function(dest, src) {
   base.mix(dest.prototype, src.prototype || src);
+};
+
+/**
+ * Inherits properties and methods from |parentCtor| at object construction time
+ * using prototypical inheritance. e.g.
+ *
+ * var ParentClass = function(parentArg) {
+ *   this.parentProperty = parentArg;
+ * }
+ *
+ * var ChildClass = function() {
+ *   base.inherits(this, ParentClass, 'parentArg'); // must be the first line.
+ * }
+ *
+ * var child = new ChildClass();
+ * child instanceof ParentClass // true
+ *
+ * See base_inherits_unittest.js for the guaranteed behavior of base.inherits().
+ * This lazy approach is chosen so that it is not necessary to maintain proper
+ * script loading order between the parent class and the child class.
+ *
+ * @param {*} childObject
+ * @param {*} parentCtor
+ * @param {...} parentCtorArgs
+ * @suppress {checkTypes|reportUnknownTypes}
+ */
+base.inherits = function(childObject, parentCtor, parentCtorArgs) {
+  console.assert(parentCtor && parentCtor.prototype,
+                 'Invalid parent constructor.');
+  var parentArgs = Array.prototype.slice.call(arguments, 2);
+
+  // Mix in the parent's prototypes so that they're available during the parent
+  // ctor.
+  base.mix(childObject, parentCtor.prototype);
+  parentCtor.apply(childObject, parentArgs);
+
+  // Note that __proto__ is deprecated.
+  //   https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/
+  //   Global_Objects/Object/proto.
+  // It is used so that childObject instanceof parentCtor will
+  // return true.
+  childObject.__proto__.__proto__ = parentCtor.prototype;
+  console.assert(childObject instanceof parentCtor,
+                 'child is not an instance of parent.');
 };
 
 base.doNothing = function() {};
@@ -110,6 +182,48 @@ base.values = function(dict) {
     function(key) {
       return dict[key];
     });
+};
+
+/**
+ * @param {*} value
+ * @return {*} a recursive copy of |value| or null if |value| is not copyable
+ *   (e.g. undefined, NaN).
+ */
+base.deepCopy = function(value) {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (e) {}
+  return null;
+};
+
+/**
+ * Returns a copy of the input object with all null/undefined fields
+ * removed.  Returns an empty object for a null/undefined input.
+ *
+ * @param {Object<?T>|undefined} input
+ * @return {!Object<T>}
+ * @template T
+ */
+base.copyWithoutNullFields = function(input) {
+  /** @const {!Object} */
+  var result = {};
+  if (input) {
+    for (var field in input) {
+      var value = /** @type {*} */ (input[field]);
+      if (value != null) {
+        result[field] = value;
+      }
+    }
+  }
+  return result;
+};
+
+/**
+ * @param {!Object} object
+ * @return {boolean} True if the object is empty (equal to {}); false otherwise.
+ */
+base.isEmptyObject = function(object) {
+  return Object.keys(object).length === 0;
 };
 
 /**
@@ -134,7 +248,7 @@ base.isAppsV2 = function() {
  * Joins the |url| with optional query parameters defined in |opt_params|
  * See unit test for usage.
  * @param {string} url
- * @param {Object.<string>=} opt_params
+ * @param {Object<string>=} opt_params
  * @return {string}
  */
 base.urlJoin = function(url, opt_params) {
@@ -147,6 +261,20 @@ base.urlJoin = function(url, opt_params) {
                          encodeURIComponent(opt_params[key]));
   }
   return url + '?' + queryParameters.join('&');
+};
+
+
+/**
+ * @return {Object<string>} The URL parameters.
+ */
+base.getUrlParameters = function() {
+  var result = {};
+  var parts = window.location.search.substring(1).split('&');
+  for (var i = 0; i < parts.length; i++) {
+    var pair = parts[i].split('=');
+    result[pair[0]] = decodeURIComponent(pair[1]);
+  }
+  return result;
 };
 
 /**
@@ -192,35 +320,33 @@ base.escapeHTML = function(str) {
  *  };
  *
  * @constructor
+ * @template T
  */
 base.Deferred = function() {
   /**
-   * @type {?function(?=)}
-   * @private
+   * @private {?function(?):void}
    */
   this.resolve_ = null;
 
   /**
-   * @type {?function(?)}
-   * @private
+   * @private {?function(?):void}
    */
   this.reject_ = null;
 
   /**
-   * @type {Promise}
-   * @private
+   * @this {base.Deferred}
+   * @param {function(?):void} resolve
+   * @param {function(*):void} reject
    */
-  this.promise_ = new Promise(
-    /**
-     * @param {function(?=):void} resolve
-     * @param {function(?):void} reject
-     * @this {base.Deferred}
-     */
-    function(resolve, reject) {
-      this.resolve_ = resolve;
-      this.reject_ = reject;
-    }.bind(this)
-  );
+  var initPromise = function(resolve, reject) {
+    this.resolve_ = resolve;
+    this.reject_ = reject;
+  };
+
+  /**
+   * @private {!Promise<T>}
+   */
+  this.promise_ = new Promise(initPromise.bind(this));
 };
 
 /** @param {*} reason */
@@ -233,7 +359,7 @@ base.Deferred.prototype.resolve = function(opt_value) {
   this.resolve_(opt_value);
 };
 
-/** @return {Promise} */
+/** @return {!Promise<T>} */
 base.Deferred.prototype.promise = function() {
   return this.promise_;
 };
@@ -246,7 +372,7 @@ base.Promise = function() {};
  */
 base.Promise.sleep = function(delay) {
   return new Promise(
-    /** @param {function():void} fulfill */
+    /** @param {function(*):void} fulfill */
     function(fulfill) {
       window.setTimeout(fulfill, delay);
     });
@@ -271,13 +397,36 @@ base.Promise.negate = function(promise) {
 };
 
 /**
+ * Converts a |method| with callbacks into a Promise.
+ *
+ * @param {Function} method
+ * @param {Array} params
+ * @param {*=} opt_context
+ * @param {boolean=} opt_hasErrorHandler whether the method has an error handler
+ * @return {Promise}
+ */
+base.Promise.as = function(method, params, opt_context, opt_hasErrorHandler) {
+  return new Promise(function(resolve, reject) {
+    params.push(resolve);
+    if (opt_hasErrorHandler) {
+      params.push(reject);
+    }
+    try {
+      method.apply(opt_context, params);
+    } catch (/** @type {*} */ e) {
+      reject(e);
+    }
+  });
+};
+
+/**
  * A mixin for classes with events.
  *
  * For example, to create an alarm event for SmokeDetector:
  * functionSmokeDetector() {
+ *    base.inherits(this, base.EventSourceImpl);
  *    this.defineEvents(['alarm']);
  * };
- * base.extend(SmokeDetector, base.EventSource);
  *
  * To fire an event:
  * SmokeDetector.prototype.onCarbonMonoxideDetected = function() {
@@ -296,72 +445,96 @@ base.Promise.negate = function(promise) {
   * @constructor
   */
 base.EventEntry = function() {
-  /** @type {Array.<function():void>} */
+  /** @type {Array<function():void>} */
   this.listeners = [];
 };
+
+
+/** @interface */
+base.EventSource = function() {};
+
+ /**
+  * Add a listener |fn| to listen to |type| event.
+  * @param {string} type
+  * @param {Function} fn
+  */
+base.EventSource.prototype.addEventListener = function(type, fn) {};
+
+ /**
+  * Remove a listener |fn| to listen to |type| event.
+  * @param {string} type
+  * @param {Function} fn
+  */
+base.EventSource.prototype.removeEventListener = function(type, fn) {};
+
 
 /**
   * @constructor
   * Since this class is implemented as a mixin, the constructor may not be
   * called.  All initializations should be done in defineEvents.
+  * @implements {base.EventSource}
   */
-base.EventSource = function() {
-  /** @type {Object.<string, base.EventEntry>} */
+base.EventSourceImpl = function() {
+  /** @type {Object<base.EventEntry>} */
   this.eventMap_;
 };
 
 /**
-  * @param {base.EventSource} obj
+  * @param {base.EventSourceImpl} obj
   * @param {string} type
+  * @private
   */
-base.EventSource.isDefined = function(obj, type) {
-  base.debug.assert(Boolean(obj.eventMap_),
-                   "The object doesn't support events");
-  base.debug.assert(Boolean(obj.eventMap_[type]), 'Event <' + type +
-    '> is undefined for the current object');
+base.EventSourceImpl.assertHasEvent_ = function(obj, type) {
+  console.assert(Boolean(obj.eventMap_),
+                 "The object doesn't support events.");
+  console.assert(Boolean(obj.eventMap_[type]),
+                 'Event <' + type +'> is undefined for the current object.');
 };
 
-base.EventSource.prototype = {
+base.EventSourceImpl.prototype = {
   /**
     * Define |events| for this event source.
-    * @param {Array.<string>} events
+    * @param {Array<string>} events
     */
   defineEvents: function(events) {
-    base.debug.assert(!Boolean(this.eventMap_),
-                     'defineEvents can only be called once.');
+    console.assert(!Boolean(this.eventMap_),
+                   'defineEvents() can only be called once.');
     this.eventMap_ = {};
     events.forEach(
       /**
-        * @this {base.EventSource}
+        * @this {base.EventSourceImpl}
         * @param {string} type
         */
       function(type) {
-        base.debug.assert(typeof type == 'string');
+        console.assert(typeof type == 'string',
+                       'Event name must be a string; found ' + type + '.');
         this.eventMap_[type] = new base.EventEntry();
     }, this);
   },
 
   /**
-    * Add a listener |fn| to listen to |type| event.
     * @param {string} type
-    * @param {function(?=):void} fn
+    * @param {Function} fn
     */
   addEventListener: function(type, fn) {
-    base.debug.assert(typeof fn == 'function');
-    base.EventSource.isDefined(this, type);
+    console.assert(typeof fn == 'function',
+                   'addEventListener(): event listener for ' + type +
+                   ' must be function, not ' + typeof fn + '.');
+    base.EventSourceImpl.assertHasEvent_(this, type);
 
     var listeners = this.eventMap_[type].listeners;
     listeners.push(fn);
   },
 
   /**
-    * Remove the listener |fn| from the event source.
     * @param {string} type
-    * @param {function(?=):void} fn
+    * @param {Function} fn
     */
   removeEventListener: function(type, fn) {
-    base.debug.assert(typeof fn == 'function');
-    base.EventSource.isDefined(this, type);
+    console.assert(typeof fn == 'function',
+                   'removeEventListener(): event listener for ' + type +
+                   ' must be function, not ' + typeof fn + '.');
+    base.EventSourceImpl.assertHasEvent_(this, type);
 
     var listeners = this.eventMap_[type].listeners;
     // find the listener to remove.
@@ -383,7 +556,7 @@ base.EventSource.prototype = {
     *     As a hack, we set the type to *=.
     */
   raiseEvent: function(type, opt_details) {
-    base.EventSource.isDefined(this, type);
+    base.EventSourceImpl.assertHasEvent_(this, type);
 
     var entry = this.eventMap_[type];
     var listeners = entry.listeners.slice(0); // Make a copy of the listeners.
@@ -395,6 +568,140 @@ base.EventSource.prototype = {
           listener(opt_details);
         }
     });
+  }
+};
+
+
+/**
+  * A lightweight object that helps manage the lifetime of an event listener.
+  *
+  * For example, do the following if you want to automatically unhook events
+  * when your object is disposed:
+  *
+  * var MyConstructor = function(domElement) {
+  *   this.eventHooks_ = new base.Disposables(
+  *     new base.EventHook(domElement, 'click', this.onClick_.bind(this)),
+  *     new base.EventHook(domElement, 'keydown', this.onClick_.bind(this)),
+  *     new base.ChromeEventHook(chrome.runtime.onMessage,
+  *                              this.onMessage_.bind(this))
+  *   );
+  * }
+  *
+  * MyConstructor.prototype.dispose = function() {
+  *   this.eventHooks_.dispose();
+  *   this.eventHooks_ = null;
+  * }
+  *
+  * @param {base.EventSource} src
+  * @param {string} eventName
+  * @param {Function} listener
+  *
+  * @constructor
+  * @implements {base.Disposable}
+  */
+base.EventHook = function(src, eventName, listener) {
+  this.src_ = src;
+  this.eventName_ = eventName;
+  this.listener_ = listener;
+  src.addEventListener(eventName, listener);
+};
+
+base.EventHook.prototype.dispose = function() {
+  this.src_.removeEventListener(this.eventName_, this.listener_);
+};
+
+/**
+  * An event hook implementation for DOM Events.
+  *
+  * @param {HTMLElement|Element|Window|HTMLDocument} src
+  * @param {string} eventName
+  * @param {Function} listener
+  * @param {boolean} capture
+  *
+  * @constructor
+  * @implements {base.Disposable}
+  */
+base.DomEventHook = function(src, eventName, listener, capture) {
+  this.src_ = src;
+  this.eventName_ = eventName;
+  this.listener_ = listener;
+  this.capture_ = capture;
+  src.addEventListener(eventName, listener, capture);
+};
+
+base.DomEventHook.prototype.dispose = function() {
+  this.src_.removeEventListener(this.eventName_, this.listener_, this.capture_);
+};
+
+
+/**
+  * An event hook implementation for Chrome Events.
+  *
+  * @param {ChromeEvent|
+  *         chrome.contextMenus.ClickedEvent|
+  *         chrome.app.runtime.LaunchEvent} src
+  * @param {!Function} listener
+  *
+  * @constructor
+  * @implements {base.Disposable}
+  */
+base.ChromeEventHook = function(src, listener) {
+  this.src_ = src;
+  this.listener_ = listener;
+  src.addListener(listener);
+};
+
+base.ChromeEventHook.prototype.dispose = function() {
+  this.src_.removeListener(this.listener_);
+};
+
+/**
+ * A disposable repeating timer.
+ *
+ * @param {Function} callback
+ * @param {number} interval
+ * @param {boolean=} opt_invokeNow Whether to invoke the callback now, default
+ *    to false.
+ *
+ * @constructor
+ * @implements {base.Disposable}
+ */
+base.RepeatingTimer = function(callback, interval, opt_invokeNow) {
+  /** @private */
+  this.intervalId_ = window.setInterval(callback, interval);
+  if (opt_invokeNow) {
+    callback();
+  }
+};
+
+base.RepeatingTimer.prototype.dispose = function() {
+  window.clearInterval(this.intervalId_);
+  this.intervalId_ = null;
+};
+
+/**
+ * A disposable one shot timer.
+ *
+ * @param {Function} callback
+ * @param {number} timeout
+ *
+ * @constructor
+ * @implements {base.Disposable}
+ */
+base.OneShotTimer = function(callback, timeout) {
+  var that = this;
+
+  /** @private */
+  this.timerId_ = window.setTimeout(function() {
+    that.timerId_ = null;
+    callback();
+  }, timeout);
+};
+
+base.OneShotTimer.prototype.dispose = function() {
+  if (this.timerId_ !== null) {
+    window.clearTimeout(this.timerId_);
+    this.timerId_ = null;
   }
 };
 
@@ -410,7 +717,7 @@ base.encodeUtf8 = function(string) {
   for (var i = 0; i < utf8String.length; i++)
     result[i] = utf8String.charCodeAt(i);
   return result.buffer;
-}
+};
 
 /**
   * Decodes UTF-8 string from ArrayBuffer.
@@ -421,7 +728,7 @@ base.encodeUtf8 = function(string) {
 base.decodeUtf8 = function(buffer) {
   return decodeURIComponent(
       escape(String.fromCharCode.apply(null, new Uint8Array(buffer))));
-}
+};
 
 /**
  * Generate a nonce, to be used as an xsrf protection token.
@@ -435,13 +742,70 @@ base.generateXsrfToken = function() {
 };
 
 /**
+ * @return {string} A random UUID.
+ */
+base.generateUuid = function() {
+  var random = new Uint16Array(8);
+  window.crypto.getRandomValues(random);
+  /** @type {Array<string>} */
+  var e = new Array();
+  for (var i = 0; i < 8; i++) {
+    e[i] = (/** @type {number} */ (random[i]) + 0x10000).
+        toString(16).substring(1);
+  }
+  return e[0] + e[1] + '-' + e[2] + '-' + e[3] + '-' +
+      e[4] + '-' + e[5] + e[6] + e[7];
+};
+
+/**
  * @param {string} jsonString A JSON-encoded string.
- * @return {*} The decoded object, or undefined if the string cannot be parsed.
+ * @return {Object|undefined} The decoded object, or undefined if the string
+ *     cannot be parsed.
  */
 base.jsonParseSafe = function(jsonString) {
   try {
-    return JSON.parse(jsonString);
+    return /** @type {Object} */ (JSON.parse(jsonString));
   } catch (err) {
     return undefined;
   }
-}
+};
+
+/**
+ * Return the current time as a formatted string suitable for logging.
+ *
+ * @return {string} The current time, formatted as the standard ISO string.
+ *     [yyyy-mm-ddDhh:mm:ss.xyz]
+ */
+base.timestamp = function() {
+  return '[' + new Date().toISOString() + ']';
+};
+
+
+/**
+ * A online function that can be stubbed by unit tests.
+ * @return {boolean}
+ */
+base.isOnline = function() {
+  return navigator.onLine;
+};
+
+/**
+ * Size the current window to fit its content.
+ * @param {boolean=} opt_centerWindow If true, position the window in the
+ *     center of the screen after resizing it.
+ */
+base.resizeWindowToContent = function(opt_centerWindow) {
+  var appWindow = chrome.app.window.current();
+  var borderX = appWindow.outerBounds.width - appWindow.innerBounds.width;
+  var borderY = appWindow.outerBounds.height - appWindow.innerBounds.height;
+  var width = Math.ceil(document.documentElement.scrollWidth + borderX);
+  var height = Math.ceil(document.documentElement.scrollHeight + borderY);
+  appWindow.outerBounds.width = width;
+  appWindow.outerBounds.height = height;
+  if (opt_centerWindow) {
+    var screenWidth = screen.availWidth;
+    var screenHeight = screen.availHeight;
+    appWindow.outerBounds.left = Math.round((screenWidth - width) / 2);
+    appWindow.outerBounds.top = Math.round((screenHeight - height) / 2);
+  }
+};

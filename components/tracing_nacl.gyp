@@ -19,7 +19,6 @@
             '../base/base_nacl.gyp:base_nacl_nonsfi',
             '../ipc/ipc_nacl.gyp:ipc_nacl',
             '../ipc/ipc_nacl.gyp:ipc_nacl_nonsfi',
-            '../native_client/tools.gyp:prep_toolchain',
           ],
           'include_dirs': [
             '..',
@@ -34,8 +33,12 @@
             'build_nonsfi_helper': 1,
           },
           'sources': [
+            'tracing/child_memory_dump_manager_delegate_impl.cc',
+            'tracing/child_memory_dump_manager_delegate_impl.h',
             'tracing/child_trace_message_filter.cc',
             'tracing/child_trace_message_filter.h',
+            'tracing/startup_tracing.cc',
+            'tracing/startup_tracing.h',
             'tracing/tracing_messages.cc',
             'tracing/tracing_messages.h',
           ],

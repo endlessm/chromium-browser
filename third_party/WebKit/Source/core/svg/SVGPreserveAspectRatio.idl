@@ -23,12 +23,15 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// http://www.w3.org/TR/SVG2/coords.html#InterfaceSVGPreserveAspectRatio
+
 [
     TypeChecking=Interface,
     ImplementedAs=SVGPreserveAspectRatioTearOff,
     SetWrapperReferenceTo(SVGElement contextElement),
     RuntimeEnabled=SVG1DOM,
     MeasureAs=SVG1DOM,
+    WillBeGarbageCollected,
 ] interface SVGPreserveAspectRatio {
     // Alignment types
     const unsigned short SVG_PRESERVEASPECTRATIO_UNKNOWN = 0;
@@ -49,6 +52,5 @@
     const unsigned short SVG_MEETORSLICE_SLICE = 2;
 
     [RaisesException=Setter] attribute unsigned short align;
-
     [RaisesException=Setter] attribute unsigned short meetOrSlice;
 };

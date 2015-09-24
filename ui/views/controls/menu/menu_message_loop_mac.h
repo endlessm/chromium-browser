@@ -8,25 +8,30 @@
 #include "base/compiler_specific.h"
 #include "ui/views/controls/menu/menu_message_loop.h"
 
+namespace base {
+class RunLoop;
+}
+
 namespace views {
 
 class MenuMessageLoopMac : public MenuMessageLoop {
  public:
   MenuMessageLoopMac();
-  virtual ~MenuMessageLoopMac();
+  ~MenuMessageLoopMac() override;
 
   // Overridden from MenuMessageLoop:
-  virtual void Run(MenuController* controller,
-                   Widget* owner,
-                   bool nested_menu) override;
-  virtual bool ShouldQuitNow() const override;
-  virtual void QuitNow() override;
-  virtual void RepostEventToWindow(const ui::LocatedEvent& event,
-                                   gfx::NativeWindow window,
-                                   const gfx::Point& screen_loc) override;
-  virtual void ClearOwner() override;
+  void Run(MenuController* controller,
+           Widget* owner,
+           bool nested_menu) override;
+  void QuitNow() override;
+  void RepostEventToWindow(const ui::LocatedEvent& event,
+                           gfx::NativeWindow window,
+                           const gfx::Point& screen_loc) override;
+  void ClearOwner() override;
 
  private:
+  base::RunLoop* run_loop_ = nullptr;
+
   DISALLOW_COPY_AND_ASSIGN(MenuMessageLoopMac);
 };
 

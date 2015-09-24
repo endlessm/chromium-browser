@@ -4,9 +4,10 @@
 
 #include "chrome/browser/chromeos/file_system_provider/fileapi/file_stream_writer.h"
 
-#include "base/debug/trace_event.h"
 #include "base/memory/ref_counted.h"
 #include "base/thread_task_runner_handle.h"
+#include "base/trace_event/trace_event.h"
+#include "chrome/browser/chromeos/file_system_provider/abort_callback.h"
 #include "chrome/browser/chromeos/file_system_provider/fileapi/provider_async_file_util.h"
 #include "chrome/browser/chromeos/file_system_provider/mount_path_util.h"
 #include "chrome/browser/chromeos/file_system_provider/provided_file_system_interface.h"
@@ -37,6 +38,7 @@ class FileStreamWriter::OperationRunner
       const storage::FileSystemURL& url,
       const storage::AsyncFileUtil::StatusCallback& callback) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
+    DCHECK(abort_callback_.is_null());
 
     util::FileSystemURLParser parser(url);
     if (!parser.Parse()) {
@@ -49,16 +51,17 @@ class FileStreamWriter::OperationRunner
 
     file_system_ = parser.file_system()->GetWeakPtr();
     abort_callback_ = parser.file_system()->OpenFile(
-        parser.file_path(),
-        ProvidedFileSystemInterface::OPEN_FILE_MODE_WRITE,
-        base::Bind(
-            &OperationRunner::OnOpenFileCompletedOnUIThread, this, callback));
+        parser.file_path(), OPEN_FILE_MODE_WRITE,
+        base::Bind(&OperationRunner::OnOpenFileCompletedOnUIThread, this,
+                   callback));
   }
 
   // Closes a file. Ignores result, since outlives the caller. Must be called on
   // UI thread.
   void CloseFileOnUIThread() {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
+    DCHECK(abort_callback_.is_null());
+
     if (file_system_.get() && file_handle_ != -1) {
       // Closing a file must not be aborted, since we could end up on files
       // which are never closed.
@@ -74,6 +77,7 @@ class FileStreamWriter::OperationRunner
       int length,
       const storage::AsyncFileUtil::StatusCallback& callback) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
+    DCHECK(abort_callback_.is_null());
 
     // If the file system got unmounted, then abort the writing operation.
     if (!file_system_.get()) {
@@ -93,24 +97,15 @@ class FileStreamWriter::OperationRunner
             &OperationRunner::OnWriteFileCompletedOnUIThread, this, callback));
   }
 
-  // Aborts the most recent operation (if exists), and calls the callback.
-  void AbortOnUIThread(const storage::AsyncFileUtil::StatusCallback& callback) {
+  // Aborts the most recent operation (if exists).
+  void AbortOnUIThread() {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
-
-    if (abort_callback_.is_null()) {
-      // No operation to be cancelled. At most a callback call, which will be
-      // discarded.
-      BrowserThread::PostTask(BrowserThread::IO,
-                              FROM_HERE,
-                              base::Bind(callback, base::File::FILE_OK));
+    if (abort_callback_.is_null())
       return;
-    }
 
-    const ProvidedFileSystemInterface::AbortCallback abort_callback =
-        abort_callback_;
-    abort_callback_ = ProvidedFileSystemInterface::AbortCallback();
-    abort_callback.Run(base::Bind(
-        &OperationRunner::OnAbortCompletedOnUIThread, this, callback));
+    const AbortCallback last_abort_callback = abort_callback_;
+    abort_callback_ = AbortCallback();
+    last_abort_callback.Run();
   }
 
  private:
@@ -126,7 +121,10 @@ class FileStreamWriter::OperationRunner
       base::File::Error result) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-    file_handle_ = file_handle;
+    abort_callback_ = AbortCallback();
+    if (result == base::File::FILE_OK)
+      file_handle_ = file_handle;
+
     BrowserThread::PostTask(
         BrowserThread::IO, FROM_HERE, base::Bind(callback, result));
   }
@@ -136,20 +134,13 @@ class FileStreamWriter::OperationRunner
       const storage::AsyncFileUtil::StatusCallback& callback,
       base::File::Error result) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+    abort_callback_ = AbortCallback();
     BrowserThread::PostTask(
         BrowserThread::IO, FROM_HERE, base::Bind(callback, result));
   }
 
-  // Forwards a response of aborting an operation to the IO thread.
-  void OnAbortCompletedOnUIThread(
-      const storage::AsyncFileUtil::StatusCallback& callback,
-      base::File::Error result) {
-    DCHECK_CURRENTLY_ON(BrowserThread::UI);
-    BrowserThread::PostTask(
-        BrowserThread::IO, FROM_HERE, base::Bind(callback, result));
-  }
-
-  ProvidedFileSystemInterface::AbortCallback abort_callback_;
+  AbortCallback abort_callback_;
   base::WeakPtr<ProvidedFileSystemInterface> file_system_;
   int file_handle_;
 
@@ -250,6 +241,7 @@ int FileStreamWriter::Write(net::IOBuffer* buffer,
                                        callback));
       break;
 
+    case EXECUTING:
     case FAILED:
       NOTREACHED();
       break;
@@ -261,18 +253,22 @@ int FileStreamWriter::Write(net::IOBuffer* buffer,
 int FileStreamWriter::Cancel(const net::CompletionCallback& callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
+  if (state_ != INITIALIZING && state_ != EXECUTING)
+    return net::ERR_UNEXPECTED;
+
+  // Abort and Optimistically return an OK result code, as the aborting
+  // operation is always forced and can't be cancelled.
   BrowserThread::PostTask(
-      BrowserThread::UI,
-      FROM_HERE,
-      base::Bind(&OperationRunner::AbortOnUIThread,
-                 runner_,
-                 base::Bind(&FileStreamWriter::OnAbortCompleted,
-                            weak_ptr_factory_.GetWeakPtr(),
-                            callback)));
+      BrowserThread::UI, FROM_HERE,
+      base::Bind(&OperationRunner::AbortOnUIThread, runner_));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
+                                                base::Bind(callback, net::OK));
+
   return net::ERR_IO_PENDING;
 }
 
 int FileStreamWriter::Flush(const net::CompletionCallback& callback) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::Bind(callback, state_ == INITIALIZED ? net::OK : net::ERR_FAILED));
@@ -285,7 +281,8 @@ void FileStreamWriter::OnWriteFileCompleted(
     const net::CompletionCallback& callback,
     base::File::Error result) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  DCHECK_EQ(INITIALIZED, state_);
+  DCHECK_EQ(EXECUTING, state_);
+  state_ = INITIALIZED;
 
   if (result != base::File::FILE_OK) {
     state_ = FAILED;
@@ -305,22 +302,13 @@ void FileStreamWriter::OnWriteCompleted(net::CompletionCallback callback,
       "file_system_provider", "FileStreamWriter::Write", this);
 }
 
-void FileStreamWriter::OnAbortCompleted(const net::CompletionCallback& callback,
-                                        base::File::Error result) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-
-  if (result != base::File::FILE_OK)
-    state_ = FAILED;
-
-  callback.Run(net::FileErrorToNetError(result));
-}
-
 void FileStreamWriter::WriteAfterInitialized(
     scoped_refptr<net::IOBuffer> buffer,
     int buffer_length,
     const net::CompletionCallback& callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK_EQ(INITIALIZED, state_);
+  state_ = EXECUTING;
 
   BrowserThread::PostTask(
       BrowserThread::UI,

@@ -11,9 +11,11 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
+#include "chrome/browser/chromeos/file_system_provider/abort_callback.h"
 #include "chrome/browser/chromeos/file_system_provider/provided_file_system_info.h"
 #include "chrome/browser/chromeos/file_system_provider/provided_file_system_interface.h"
 #include "chrome/browser/chromeos/file_system_provider/provided_file_system_observer.h"
+#include "chrome/browser/chromeos/file_system_provider/queue.h"
 #include "chrome/browser/chromeos/file_system_provider/request_manager.h"
 #include "storage/browser/fileapi/async_file_util.h"
 #include "storage/browser/fileapi/watcher_manager.h"
@@ -75,7 +77,7 @@ class ProvidedFileSystem : public ProvidedFileSystemInterface {
  public:
   ProvidedFileSystem(Profile* profile,
                      const ProvidedFileSystemInfo& file_system_info);
-  virtual ~ProvidedFileSystem();
+  ~ProvidedFileSystem() override;
 
   // Sets a custom event router. Used in unit tests to mock out the real
   // extension.
@@ -88,57 +90,61 @@ class ProvidedFileSystem : public ProvidedFileSystemInterface {
       scoped_ptr<NotificationManagerInterface> notification_manager);
 
   // ProvidedFileSystemInterface overrides.
-  virtual AbortCallback RequestUnmount(
+  AbortCallback RequestUnmount(
       const storage::AsyncFileUtil::StatusCallback& callback) override;
-  virtual AbortCallback GetMetadata(
+  AbortCallback GetMetadata(const base::FilePath& entry_path,
+                            MetadataFieldMask fields,
+                            const GetMetadataCallback& callback) override;
+  AbortCallback GetActions(const base::FilePath& entry_path,
+                           const GetActionsCallback& callback) override;
+  AbortCallback ExecuteAction(
       const base::FilePath& entry_path,
-      MetadataFieldMask fields,
-      const GetMetadataCallback& callback) override;
-  virtual AbortCallback ReadDirectory(
+      const std::string& action_id,
+      const storage::AsyncFileUtil::StatusCallback& callback) override;
+  AbortCallback ReadDirectory(
       const base::FilePath& directory_path,
       const storage::AsyncFileUtil::ReadDirectoryCallback& callback) override;
-  virtual AbortCallback OpenFile(const base::FilePath& file_path,
-                                 OpenFileMode mode,
-                                 const OpenFileCallback& callback) override;
-  virtual AbortCallback CloseFile(
+  AbortCallback OpenFile(const base::FilePath& file_path,
+                         OpenFileMode mode,
+                         const OpenFileCallback& callback) override;
+  AbortCallback CloseFile(
       int file_handle,
       const storage::AsyncFileUtil::StatusCallback& callback) override;
-  virtual AbortCallback ReadFile(
-      int file_handle,
-      net::IOBuffer* buffer,
-      int64 offset,
-      int length,
-      const ReadChunkReceivedCallback& callback) override;
-  virtual AbortCallback CreateDirectory(
+  AbortCallback ReadFile(int file_handle,
+                         net::IOBuffer* buffer,
+                         int64 offset,
+                         int length,
+                         const ReadChunkReceivedCallback& callback) override;
+  AbortCallback CreateDirectory(
       const base::FilePath& directory_path,
       bool recursive,
       const storage::AsyncFileUtil::StatusCallback& callback) override;
-  virtual AbortCallback DeleteEntry(
+  AbortCallback DeleteEntry(
       const base::FilePath& entry_path,
       bool recursive,
       const storage::AsyncFileUtil::StatusCallback& callback) override;
-  virtual AbortCallback CreateFile(
+  AbortCallback CreateFile(
       const base::FilePath& file_path,
       const storage::AsyncFileUtil::StatusCallback& callback) override;
-  virtual AbortCallback CopyEntry(
+  AbortCallback CopyEntry(
       const base::FilePath& source_path,
       const base::FilePath& target_path,
       const storage::AsyncFileUtil::StatusCallback& callback) override;
-  virtual AbortCallback MoveEntry(
+  AbortCallback MoveEntry(
       const base::FilePath& source_path,
       const base::FilePath& target_path,
       const storage::AsyncFileUtil::StatusCallback& callback) override;
-  virtual AbortCallback Truncate(
+  AbortCallback Truncate(
       const base::FilePath& file_path,
       int64 length,
       const storage::AsyncFileUtil::StatusCallback& callback) override;
-  virtual AbortCallback WriteFile(
+  AbortCallback WriteFile(
       int file_handle,
       net::IOBuffer* buffer,
       int64 offset,
       int length,
       const storage::AsyncFileUtil::StatusCallback& callback) override;
-  virtual AbortCallback AddWatcher(
+  AbortCallback AddWatcher(
       const GURL& origin,
       const base::FilePath& entry_path,
       bool recursive,
@@ -146,47 +152,91 @@ class ProvidedFileSystem : public ProvidedFileSystemInterface {
       const storage::AsyncFileUtil::StatusCallback& callback,
       const storage::WatcherManager::NotificationCallback&
           notification_callback) override;
-  virtual void RemoveWatcher(
+  void RemoveWatcher(
       const GURL& origin,
       const base::FilePath& entry_path,
       bool recursive,
       const storage::AsyncFileUtil::StatusCallback& callback) override;
-  virtual const ProvidedFileSystemInfo& GetFileSystemInfo() const override;
-  virtual RequestManager* GetRequestManager() override;
-  virtual Watchers* GetWatchers() override;
-  virtual void AddObserver(ProvidedFileSystemObserver* observer) override;
-  virtual void RemoveObserver(ProvidedFileSystemObserver* observer) override;
-  virtual bool Notify(const base::FilePath& entry_path,
-                      bool recursive,
-                      storage::WatcherManager::ChangeType change_type,
-                      scoped_ptr<ProvidedFileSystemObserver::Changes> changes,
-                      const std::string& tag) override;
-  virtual base::WeakPtr<ProvidedFileSystemInterface> GetWeakPtr() override;
+  const ProvidedFileSystemInfo& GetFileSystemInfo() const override;
+  RequestManager* GetRequestManager() override;
+  Watchers* GetWatchers() override;
+  const OpenedFiles& GetOpenedFiles() const override;
+  void AddObserver(ProvidedFileSystemObserver* observer) override;
+  void RemoveObserver(ProvidedFileSystemObserver* observer) override;
+  void Notify(const base::FilePath& entry_path,
+              bool recursive,
+              storage::WatcherManager::ChangeType change_type,
+              scoped_ptr<ProvidedFileSystemObserver::Changes> changes,
+              const std::string& tag,
+              const storage::AsyncFileUtil::StatusCallback& callback) override;
+  void Configure(
+      const storage::AsyncFileUtil::StatusCallback& callback) override;
+  base::WeakPtr<ProvidedFileSystemInterface> GetWeakPtr() override;
 
  private:
+  // Wrapper for arguments for AddWatcherInQueue, as it's too many of them to
+  // be used by base::Bind.
+  struct AddWatcherInQueueArgs;
+
+  // Wrapper for arguments for NotifyInQueue, as it's too many of them to be
+  // used by base::Bind.
+  struct NotifyInQueueArgs;
+
   // Aborts an operation executed with a request id equal to
   // |operation_request_id|. The request is removed immediately on the C++ side
   // despite being handled by the providing extension or not.
-  void Abort(int operation_request_id,
-             const storage::AsyncFileUtil::StatusCallback& callback);
+  void Abort(int operation_request_id);
+
+  // Adds a watcher within |watcher_queue_|.
+  AbortCallback AddWatcherInQueue(const AddWatcherInQueueArgs& args);
+
+  // Removes a watcher within |watcher_queue_|.
+  AbortCallback RemoveWatcherInQueue(
+      size_t token,
+      const GURL& origin,
+      const base::FilePath& entry_path,
+      bool recursive,
+      const storage::AsyncFileUtil::StatusCallback& callback);
+
+  // Notifies about a notifier even within |watcher_queue_|.
+  AbortCallback NotifyInQueue(scoped_ptr<NotifyInQueueArgs> args);
 
   // Called when adding a watcher is completed with either success or en error.
-  void OnAddWatcherCompleted(
+  void OnAddWatcherInQueueCompleted(
+      size_t token,
       const base::FilePath& entry_path,
       bool recursive,
       const Subscriber& subscriber,
       const storage::AsyncFileUtil::StatusCallback& callback,
       base::File::Error result);
 
+  // Called when adding a watcher is completed with either a success or an
+  // error.
+  void OnRemoveWatcherInQueueCompleted(
+      size_t token,
+      const GURL& origin,
+      const WatcherKey& key,
+      const storage::AsyncFileUtil::StatusCallback& callback,
+      bool extension_response,
+      base::File::Error result);
+
   // Called when all observers finished handling the change notification. It
-  // updates the tag from |last_tag| to |tag| for the entry at |entry_path|.
-  void OnNotifyCompleted(
-      const base::FilePath& entry_path,
-      bool recursive,
-      storage::WatcherManager::ChangeType change_type,
-      scoped_ptr<ProvidedFileSystemObserver::Changes> changes,
-      const std::string& last_tag,
-      const std::string& tag);
+  // updates the tag to |tag| for the entry at |entry_path|.
+  void OnNotifyInQueueCompleted(scoped_ptr<NotifyInQueueArgs> args,
+                                const base::File::Error result);
+
+  // Called when opening a file is completed with either a success or an error.
+  void OnOpenFileCompleted(const base::FilePath& file_path,
+                           OpenFileMode mode,
+                           const OpenFileCallback& callback,
+                           int file_handle,
+                           base::File::Error result);
+
+  // Called when closing a file is completed with either a success or an error.
+  void OnCloseFileCompleted(
+      int file_handle,
+      const storage::AsyncFileUtil::StatusCallback& callback,
+      base::File::Error result);
 
   Profile* profile_;                       // Not owned.
   extensions::EventRouter* event_router_;  // Not owned. May be NULL.
@@ -194,7 +244,9 @@ class ProvidedFileSystem : public ProvidedFileSystemInterface {
   scoped_ptr<NotificationManagerInterface> notification_manager_;
   scoped_ptr<RequestManager> request_manager_;
   Watchers watchers_;
-  ObserverList<ProvidedFileSystemObserver> observers_;
+  Queue watcher_queue_;
+  OpenedFiles opened_files_;
+  base::ObserverList<ProvidedFileSystemObserver> observers_;
 
   base::WeakPtrFactory<ProvidedFileSystem> weak_ptr_factory_;
   DISALLOW_COPY_AND_ASSIGN(ProvidedFileSystem);

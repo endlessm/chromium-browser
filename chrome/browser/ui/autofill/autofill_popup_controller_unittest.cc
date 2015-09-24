@@ -13,18 +13,20 @@
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/autofill/content/browser/content_autofill_driver.h"
+#include "components/autofill/content/browser/content_autofill_driver_factory.h"
 #include "components/autofill/core/browser/autofill_external_delegate.h"
 #include "components/autofill/core/browser/autofill_manager.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/autofill/core/browser/popup_item_ids.h"
 #include "components/autofill/core/browser/test_autofill_client.h"
 #include "components/autofill/core/browser/test_autofill_external_delegate.h"
+#include "content/public/browser/web_contents.h"
 #include "grit/components_scaled_resources.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/display.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/text_utils.h"
 
 using ::testing::_;
@@ -45,7 +47,9 @@ class MockAutofillExternalDelegate : public AutofillExternalDelegate {
 
   void DidSelectSuggestion(const base::string16& value,
                            int identifier) override {}
-  void RemoveSuggestion(const base::string16& value, int identifier) override {}
+  bool RemoveSuggestion(const base::string16& value, int identifier) override {
+    return true;
+  }
   void ClearPreviewedForm() override {}
   base::WeakPtr<AutofillExternalDelegate> GetWeakPtr() {
     return AutofillExternalDelegate::GetWeakPtr();
@@ -70,13 +74,17 @@ class TestAutofillPopupController : public AutofillPopupControllerImpl {
   explicit TestAutofillPopupController(
       base::WeakPtr<AutofillExternalDelegate> external_delegate,
       const gfx::RectF& element_bounds)
-      : AutofillPopupControllerImpl(
-            external_delegate, NULL, NULL, element_bounds,
-            base::i18n::UNKNOWN_DIRECTION),
-        test_controller_common_(new TestPopupControllerCommon(element_bounds)) {
+      : AutofillPopupControllerImpl(external_delegate,
+                                    NULL,
+                                    NULL,
+                                    element_bounds,
+                                    base::i18n::UNKNOWN_DIRECTION),
+        test_controller_common_(
+            new TestPopupControllerCommon(element_bounds,
+                                          base::i18n::LEFT_TO_RIGHT)) {
     controller_common_.reset(test_controller_common_);
   }
-  virtual ~TestAutofillPopupController() {}
+  ~TestAutofillPopupController() override {}
 
   void set_display(const gfx::Display& display) {
     test_controller_common_->set_display(display);
@@ -84,9 +92,10 @@ class TestAutofillPopupController : public AutofillPopupControllerImpl {
 
   // Making protected functions public for testing
   using AutofillPopupControllerImpl::SetPopupBounds;
-  using AutofillPopupControllerImpl::names;
-  using AutofillPopupControllerImpl::subtexts;
-  using AutofillPopupControllerImpl::identifiers;
+  using AutofillPopupControllerImpl::GetLineCount;
+  using AutofillPopupControllerImpl::GetSuggestionAt;
+  using AutofillPopupControllerImpl::GetElidedValueAt;
+  using AutofillPopupControllerImpl::GetElidedLabelAt;
   using AutofillPopupControllerImpl::selected_line;
   using AutofillPopupControllerImpl::SetSelectedLine;
   using AutofillPopupControllerImpl::SelectNextLine;
@@ -95,8 +104,8 @@ class TestAutofillPopupController : public AutofillPopupControllerImpl {
   using AutofillPopupControllerImpl::popup_bounds;
   using AutofillPopupControllerImpl::element_bounds;
 #if !defined(OS_ANDROID)
-  using AutofillPopupControllerImpl::GetNameFontListForRow;
-  using AutofillPopupControllerImpl::subtext_font_list;
+  using AutofillPopupControllerImpl::GetValueFontListForRow;
+  using AutofillPopupControllerImpl::GetLabelFontList;
   using AutofillPopupControllerImpl::RowWidthWithoutText;
 #endif
   using AutofillPopupControllerImpl::SetValues;
@@ -112,7 +121,7 @@ class TestAutofillPopupController : public AutofillPopupControllerImpl {
   }
 
  private:
-  virtual void ShowView() override {}
+  void ShowView() override {}
 
   TestPopupControllerCommon* test_controller_common_;
 };
@@ -129,13 +138,13 @@ class AutofillPopupControllerUnitTest : public ChromeRenderViewHostTestHarness {
   void SetUp() override {
     ChromeRenderViewHostTestHarness::SetUp();
 
-    ContentAutofillDriver::CreateForWebContentsAndDelegate(
-        web_contents(),
-        autofill_client_.get(),
-        "en-US",
+    ContentAutofillDriverFactory::CreateForWebContentsAndDelegate(
+        web_contents(), autofill_client_.get(), "en-US",
         AutofillManager::ENABLE_AUTOFILL_DOWNLOAD_MANAGER);
+    ContentAutofillDriverFactory* factory =
+        ContentAutofillDriverFactory::FromWebContents(web_contents());
     ContentAutofillDriver* driver =
-        ContentAutofillDriver::FromWebContents(web_contents());
+        factory->DriverForFrame(web_contents()->GetMainFrame());
     external_delegate_.reset(
         new NiceMock<MockAutofillExternalDelegate>(
             driver->autofill_manager(),
@@ -184,20 +193,21 @@ TEST_F(AutofillPopupControllerUnitTest, SetBounds) {
 
 TEST_F(AutofillPopupControllerUnitTest, ChangeSelectedLine) {
   // Set up the popup.
-  std::vector<base::string16> names(2, base::string16());
-  std::vector<int> autofill_ids(2, 0);
-  autofill_popup_controller_->Show(names, names, names, autofill_ids);
+  std::vector<Suggestion> suggestions;
+  suggestions.push_back(Suggestion("", "", "", 0));
+  suggestions.push_back(Suggestion("", "", "", 0));
+  autofill_popup_controller_->Show(suggestions);
 
   EXPECT_LT(autofill_popup_controller_->selected_line(), 0);
   // Check that there are at least 2 values so that the first and last selection
   // are different.
   EXPECT_GE(2,
-      static_cast<int>(autofill_popup_controller_->subtexts().size()));
+      static_cast<int>(autofill_popup_controller_->GetLineCount()));
 
   // Test wrapping before the front.
   autofill_popup_controller_->SelectPreviousLine();
   EXPECT_EQ(static_cast<int>(
-      autofill_popup_controller_->subtexts().size() - 1),
+      autofill_popup_controller_->GetLineCount() - 1),
       autofill_popup_controller_->selected_line());
 
   // Test wrapping after the end.
@@ -207,9 +217,10 @@ TEST_F(AutofillPopupControllerUnitTest, ChangeSelectedLine) {
 
 TEST_F(AutofillPopupControllerUnitTest, RedrawSelectedLine) {
   // Set up the popup.
-  std::vector<base::string16> names(2, base::string16());
-  std::vector<int> autofill_ids(2, 0);
-  autofill_popup_controller_->Show(names, names, names, autofill_ids);
+  std::vector<Suggestion> suggestions;
+  suggestions.push_back(Suggestion("", "", "", 0));
+  suggestions.push_back(Suggestion("", "", "", 0));
+  autofill_popup_controller_->Show(suggestions);
 
   // Make sure that when a new line is selected, it is invalidated so it can
   // be updated to show it is selected.
@@ -229,12 +240,11 @@ TEST_F(AutofillPopupControllerUnitTest, RedrawSelectedLine) {
 
 TEST_F(AutofillPopupControllerUnitTest, RemoveLine) {
   // Set up the popup.
-  std::vector<base::string16> names(3, base::string16());
-  std::vector<int> autofill_ids;
-  autofill_ids.push_back(1);
-  autofill_ids.push_back(1);
-  autofill_ids.push_back(POPUP_ITEM_ID_AUTOFILL_OPTIONS);
-  autofill_popup_controller_->Show(names, names, names, autofill_ids);
+  std::vector<Suggestion> suggestions;
+  suggestions.push_back(Suggestion("", "", "", 1));
+  suggestions.push_back(Suggestion("", "", "", 1));
+  suggestions.push_back(Suggestion("", "", "", POPUP_ITEM_ID_AUTOFILL_OPTIONS));
+  autofill_popup_controller_->Show(suggestions);
 
   // Generate a popup, so it can be hidden later. It doesn't matter what the
   // external_delegate thinks is being shown in the process, since we are just
@@ -243,12 +253,6 @@ TEST_F(AutofillPopupControllerUnitTest, RemoveLine) {
 
   // No line is selected so the removal should fail.
   EXPECT_FALSE(autofill_popup_controller_->RemoveSelectedLine());
-
-  // Try to remove the last entry and ensure it fails (it is an option).
-  autofill_popup_controller_->SetSelectedLine(
-      autofill_popup_controller_->subtexts().size() - 1);
-  EXPECT_FALSE(autofill_popup_controller_->RemoveSelectedLine());
-  EXPECT_LE(0, autofill_popup_controller_->selected_line());
 
   // Remove the first entry. The popup should be redrawn since its size has
   // changed.
@@ -265,10 +269,9 @@ TEST_F(AutofillPopupControllerUnitTest, RemoveLine) {
 
 TEST_F(AutofillPopupControllerUnitTest, RemoveOnlyLine) {
   // Set up the popup.
-  std::vector<base::string16> names(1, base::string16());
-  std::vector<int> autofill_ids;
-  autofill_ids.push_back(1);
-  autofill_popup_controller_->Show(names, names, names, autofill_ids);
+  std::vector<Suggestion> suggestions;
+  suggestions.push_back(Suggestion("", "", "", 1));
+  autofill_popup_controller_->Show(suggestions);
 
   // Generate a popup.
   autofill::GenerateTestAutofillPopup(external_delegate_.get());
@@ -285,12 +288,11 @@ TEST_F(AutofillPopupControllerUnitTest, RemoveOnlyLine) {
 
 TEST_F(AutofillPopupControllerUnitTest, SkipSeparator) {
   // Set up the popup.
-  std::vector<base::string16> names(3, base::string16());
-  std::vector<int> autofill_ids;
-  autofill_ids.push_back(1);
-  autofill_ids.push_back(POPUP_ITEM_ID_SEPARATOR);
-  autofill_ids.push_back(POPUP_ITEM_ID_AUTOFILL_OPTIONS);
-  autofill_popup_controller_->Show(names, names, names, autofill_ids);
+  std::vector<Suggestion> suggestions;
+  suggestions.push_back(Suggestion("", "", "", 1));
+  suggestions.push_back(Suggestion("", "", "", POPUP_ITEM_ID_SEPARATOR));
+  suggestions.push_back(Suggestion("", "", "", POPUP_ITEM_ID_AUTOFILL_OPTIONS));
+  autofill_popup_controller_->Show(suggestions);
 
   autofill_popup_controller_->SetSelectedLine(0);
 
@@ -304,22 +306,19 @@ TEST_F(AutofillPopupControllerUnitTest, SkipSeparator) {
 }
 
 TEST_F(AutofillPopupControllerUnitTest, RowWidthWithoutText) {
-  std::vector<base::string16> names(4);
-  std::vector<base::string16> subtexts(4);
-  std::vector<base::string16> icons(4);
-  std::vector<int> ids(4);
+  // Give elements 1 and 3 subtexts and elements 2 and 3 icons, to ensure
+  // all combinations of subtexts and icons.
+  std::vector<Suggestion> suggestions;
+  suggestions.push_back(Suggestion("", "", "", 0));
+  suggestions.push_back(Suggestion("", "x", "", 0));
+  suggestions.push_back(Suggestion("", "", "americanExpressCC", 0));
+  suggestions.push_back(Suggestion("", "x", "genericCC", 0));
 
   // Set up some visible display so the text values are kept.
   gfx::Display display(0, gfx::Rect(0, 0, 100, 100));
   autofill_popup_controller_->set_display(display);
 
-  // Give elements 1 and 3 subtexts and elements 2 and 3 icons, to ensure
-  // all combinations of subtexts and icons.
-  subtexts[1] = ASCIIToUTF16("x");
-  subtexts[3] = ASCIIToUTF16("x");
-  icons[2] = ASCIIToUTF16("americanExpressCC");
-  icons[3] = ASCIIToUTF16("genericCC");
-  autofill_popup_controller_->Show(names, subtexts, icons, ids);
+  autofill_popup_controller_->Show(suggestions);
 
   int base_size =
       AutofillPopupView::kEndPadding * 2 +
@@ -340,82 +339,80 @@ TEST_F(AutofillPopupControllerUnitTest, RowWidthWithoutText) {
 }
 
 TEST_F(AutofillPopupControllerUnitTest, UpdateDataListValues) {
-  std::vector<base::string16> items;
-  items.push_back(base::string16());
-  std::vector<int> ids;
-  ids.push_back(1);
-
-  autofill_popup_controller_->Show(items, items, items, ids);
-
-  EXPECT_EQ(items, autofill_popup_controller_->names());
-  EXPECT_EQ(ids, autofill_popup_controller_->identifiers());
+  std::vector<Suggestion> suggestions;
+  suggestions.push_back(Suggestion("", "", "", 1));
+  autofill_popup_controller_->Show(suggestions);
 
   // Add one data list entry.
+  base::string16 value1 = ASCIIToUTF16("data list value 1");
   std::vector<base::string16> data_list_values;
-  data_list_values.push_back(ASCIIToUTF16("data list value 1"));
+  data_list_values.push_back(value1);
 
   autofill_popup_controller_->UpdateDataListValues(data_list_values,
                                                    data_list_values);
 
-  // Update the expected values.
-  items.insert(items.begin(), data_list_values[0]);
-  items.insert(items.begin() + 1, base::string16());
-  ids.insert(ids.begin(), POPUP_ITEM_ID_DATALIST_ENTRY);
-  ids.insert(ids.begin() + 1, POPUP_ITEM_ID_SEPARATOR);
+  ASSERT_EQ(3u, autofill_popup_controller_->GetLineCount());
 
-  EXPECT_EQ(items, autofill_popup_controller_->names());
-  EXPECT_EQ(ids, autofill_popup_controller_->identifiers());
+  Suggestion result0 = autofill_popup_controller_->GetSuggestionAt(0);
+  EXPECT_EQ(value1, result0.value);
+  EXPECT_EQ(value1, autofill_popup_controller_->GetElidedValueAt(0));
+  EXPECT_EQ(value1, result0.label);
+  EXPECT_EQ(value1, autofill_popup_controller_->GetElidedLabelAt(0));
+  EXPECT_EQ(POPUP_ITEM_ID_DATALIST_ENTRY, result0.frontend_id);
+
+  Suggestion result1 = autofill_popup_controller_->GetSuggestionAt(1);
+  EXPECT_EQ(base::string16(), result1.value);
+  EXPECT_EQ(base::string16(), result1.label);
+  EXPECT_EQ(POPUP_ITEM_ID_SEPARATOR, result1.frontend_id);
+
+  Suggestion result2 = autofill_popup_controller_->GetSuggestionAt(2);
+  EXPECT_EQ(base::string16(), result2.value);
+  EXPECT_EQ(base::string16(), result2.label);
+  EXPECT_EQ(1, result2.frontend_id);
 
   // Add two data list entries (which should replace the current one).
-  data_list_values.push_back(ASCIIToUTF16("data list value 2"));
+  base::string16 value2 = ASCIIToUTF16("data list value 2");
+  data_list_values.push_back(value2);
 
   autofill_popup_controller_->UpdateDataListValues(data_list_values,
                                                    data_list_values);
+  ASSERT_EQ(4u, autofill_popup_controller_->GetLineCount());
 
-  // Update the expected values.
-  items.insert(items.begin() + 1, data_list_values[1]);
-  ids.insert(ids.begin(), POPUP_ITEM_ID_DATALIST_ENTRY);
-
-  EXPECT_EQ(items, autofill_popup_controller_->names());
-  EXPECT_EQ(ids, autofill_popup_controller_->identifiers());
+  // Original one first, followed by new one, then separator.
+  EXPECT_EQ(value1, autofill_popup_controller_->GetSuggestionAt(0).value);
+  EXPECT_EQ(value1, autofill_popup_controller_->GetElidedValueAt(0));
+  EXPECT_EQ(value2, autofill_popup_controller_->GetSuggestionAt(1).value);
+  EXPECT_EQ(value2, autofill_popup_controller_->GetElidedValueAt(1));
+  EXPECT_EQ(POPUP_ITEM_ID_SEPARATOR,
+            autofill_popup_controller_->GetSuggestionAt(2).frontend_id);
 
   // Clear all data list values.
   data_list_values.clear();
-
   autofill_popup_controller_->UpdateDataListValues(data_list_values,
                                                    data_list_values);
 
-  items.clear();
-  items.push_back(base::string16());
-  ids.clear();
-  ids.push_back(1);
-
-  EXPECT_EQ(items, autofill_popup_controller_->names());
-  EXPECT_EQ(ids, autofill_popup_controller_->identifiers());
+  ASSERT_EQ(1u, autofill_popup_controller_->GetLineCount());
+  EXPECT_EQ(1, autofill_popup_controller_->GetSuggestionAt(0).frontend_id);
 }
 
 TEST_F(AutofillPopupControllerUnitTest, PopupsWithOnlyDataLists) {
   // Create the popup with a single datalist element.
-  std::vector<base::string16> items;
-  items.push_back(base::string16());
-  std::vector<int> ids;
-  ids.push_back(POPUP_ITEM_ID_DATALIST_ENTRY);
-
-  autofill_popup_controller_->Show(items, items, items, ids);
-
-  EXPECT_EQ(items, autofill_popup_controller_->names());
-  EXPECT_EQ(ids, autofill_popup_controller_->identifiers());
+  std::vector<Suggestion> suggestions;
+  suggestions.push_back(Suggestion("", "", "", POPUP_ITEM_ID_DATALIST_ENTRY));
+  autofill_popup_controller_->Show(suggestions);
 
   // Replace the datalist element with a new one.
+  base::string16 value1 = ASCIIToUTF16("data list value 1");
   std::vector<base::string16> data_list_values;
-  data_list_values.push_back(ASCIIToUTF16("data list value 1"));
+  data_list_values.push_back(value1);
 
   autofill_popup_controller_->UpdateDataListValues(data_list_values,
                                                    data_list_values);
 
-  EXPECT_EQ(data_list_values, autofill_popup_controller_->names());
-  // The id value should stay the same.
-  EXPECT_EQ(ids, autofill_popup_controller_->identifiers());
+  ASSERT_EQ(1u, autofill_popup_controller_->GetLineCount());
+  EXPECT_EQ(value1, autofill_popup_controller_->GetSuggestionAt(0).value);
+  EXPECT_EQ(POPUP_ITEM_ID_DATALIST_ENTRY,
+            autofill_popup_controller_->GetSuggestionAt(0).frontend_id);
 
   // Clear datalist values and check that the popup becomes hidden.
   EXPECT_CALL(*autofill_popup_controller_, Hide());
@@ -425,8 +422,10 @@ TEST_F(AutofillPopupControllerUnitTest, PopupsWithOnlyDataLists) {
 }
 
 TEST_F(AutofillPopupControllerUnitTest, GetOrCreate) {
+  ContentAutofillDriverFactory* factory =
+      ContentAutofillDriverFactory::FromWebContents(web_contents());
   ContentAutofillDriver* driver =
-      ContentAutofillDriver::FromWebContents(web_contents());
+      factory->DriverForFrame(web_contents()->GetMainFrame());
   MockAutofillExternalDelegate delegate(driver->autofill_manager(), driver);
 
   WeakPtr<AutofillPopupControllerImpl> controller =
@@ -477,9 +476,10 @@ TEST_F(AutofillPopupControllerUnitTest, GetOrCreate) {
 }
 
 TEST_F(AutofillPopupControllerUnitTest, ProperlyResetController) {
-  std::vector<base::string16> names(2);
-  std::vector<int> ids(2);
-  popup_controller()->SetValues(names, names, names, ids);
+  std::vector<Suggestion> suggestions;
+  suggestions.push_back(Suggestion("", "", "", 0));
+  suggestions.push_back(Suggestion("", "", "", 0));
+  popup_controller()->SetValues(suggestions);
   popup_controller()->SetSelectedLine(0);
 
   // Now show a new popup with the same controller, but with fewer items.
@@ -492,43 +492,45 @@ TEST_F(AutofillPopupControllerUnitTest, ProperlyResetController) {
           gfx::Rect(),
           base::i18n::UNKNOWN_DIRECTION);
   EXPECT_NE(0, controller->selected_line());
-  EXPECT_TRUE(controller->names().empty());
+  EXPECT_EQ(0u, controller->GetLineCount());
 }
 
 #if !defined(OS_ANDROID)
 TEST_F(AutofillPopupControllerUnitTest, ElideText) {
-  std::vector<base::string16> names;
-  names.push_back(ASCIIToUTF16("Text that will need to be trimmed"));
-  names.push_back(ASCIIToUTF16("Untrimmed"));
-
-  std::vector<base::string16> subtexts;
-  subtexts.push_back(ASCIIToUTF16("Label that will be trimmed"));
-  subtexts.push_back(ASCIIToUTF16("Untrimmed"));
-
-  std::vector<base::string16> icons(2, ASCIIToUTF16("genericCC"));
-  std::vector<int> autofill_ids(2, 0);
+  std::vector<Suggestion> suggestions;
+  suggestions.push_back(
+      Suggestion("Text that will need to be trimmed",
+      "Label that will be trimmed", "genericCC", 0));
+  suggestions.push_back(
+      Suggestion("untrimmed", "Untrimmed", "genericCC", 0));
 
   // Show the popup once so we can easily generate the size it needs.
-  autofill_popup_controller_->Show(names, subtexts, icons, autofill_ids);
+  autofill_popup_controller_->Show(suggestions);
 
   // Ensure the popup will be too small to display all of the first row.
   int popup_max_width =
       gfx::GetStringWidth(
-          names[0], autofill_popup_controller_->GetNameFontListForRow(0)) +
+          suggestions[0].value,
+          autofill_popup_controller_->GetValueFontListForRow(0)) +
       gfx::GetStringWidth(
-          subtexts[0], autofill_popup_controller_->subtext_font_list()) - 25;
+          suggestions[0].label,
+          autofill_popup_controller_->GetLabelFontList()) - 25;
   gfx::Rect popup_bounds = gfx::Rect(0, 0, popup_max_width, 0);
   autofill_popup_controller_->set_display(gfx::Display(0, popup_bounds));
 
-  autofill_popup_controller_->Show(names, subtexts, icons, autofill_ids);
+  autofill_popup_controller_->Show(suggestions);
 
   // The first element was long so it should have been trimmed.
-  EXPECT_NE(names[0], autofill_popup_controller_->names()[0]);
-  EXPECT_NE(subtexts[0], autofill_popup_controller_->subtexts()[0]);
+  EXPECT_NE(autofill_popup_controller_->GetSuggestionAt(0).value,
+            autofill_popup_controller_->GetElidedValueAt(0));
+  EXPECT_NE(autofill_popup_controller_->GetSuggestionAt(0).label,
+            autofill_popup_controller_->GetElidedLabelAt(0));
 
   // The second element was shorter so it should be unchanged.
-  EXPECT_EQ(names[1], autofill_popup_controller_->names()[1]);
-  EXPECT_EQ(subtexts[1], autofill_popup_controller_->subtexts()[1]);
+  EXPECT_EQ(autofill_popup_controller_->GetSuggestionAt(1).value,
+            autofill_popup_controller_->GetElidedValueAt(1));
+  EXPECT_EQ(autofill_popup_controller_->GetSuggestionAt(1).label,
+            autofill_popup_controller_->GetElidedLabelAt(1));
 }
 #endif
 

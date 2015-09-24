@@ -43,6 +43,7 @@ class SelLdrLocator {
 
   virtual ~SelLdrLocator() {}
 
+ private:
   DISALLOW_COPY_AND_ASSIGN(SelLdrLocator);
 };
 
@@ -57,6 +58,7 @@ class PluginSelLdrLocator : public SelLdrLocator {
 
   PluginSelLdrLocator() {}
 
+ private:
   DISALLOW_COPY_AND_ASSIGN(PluginSelLdrLocator);
 };
 
@@ -94,41 +96,14 @@ class SelLdrLauncherBase {
   // Load |nexe| over the command channel |command|.
   bool LoadModule(NaClSrpcChannel* command, DescWrapper* nexe);
 
-  // Sets up the command channel |command| and sends the SRPC to load |nexe|.
-  bool SetupCommandAndLoad(NaClSrpcChannel* command, DescWrapper* nexe);
-
   // Sends the SRPC to start the nexe over |command|.
   bool StartModule(NaClSrpcChannel* command);
 
   // Sets up the SRPC channel |out_app_chan|.
   bool SetupAppChannel(NaClSrpcChannel* out_app_chan);
 
-  // Sends the SRPC to start the nexe over |command| and sets up the application
-  // SRPC chanel |out_app_chan|.
-  bool StartModuleAndSetupAppChannel(NaClSrpcChannel* command,
-                                     NaClSrpcChannel* out_app_chan);
-
-  // Returns the socket address used to connect to the sel_ldr.
-  DescWrapper* secure_socket_addr() const { return secure_socket_addr_.get(); }
-
   // Returns the socket address used to connect to the module.
   DescWrapper* socket_addr() const { return socket_addr_.get(); }
-
-  // Wraps a raw NaClDesc descriptor.  If NULL is returned, caller retains
-  // ownership of the reference.
-  DescWrapper* Wrap(NaClDesc* raw_desc);
-
-  // As above, but raw_desc is Unref'd on failure.
-  DescWrapper* WrapCleanup(NaClDesc* raw_desc);
-
-  // Get post-crash NaClLog data.  This include some recent NaClLog
-  // output as well as the LOG_FATAL message.  In the case of a severe
-  // crash -- or if the peer sel_ldr does not support NaClLog crash
-  // logging -- this may return the empty string.
-  //
-  // NB: If the NaCl module has not exited or crashed, this call will
-  // block.
-  nacl::string GetCrashLogOutput();
 
  protected:
   NaClHandle channel_;

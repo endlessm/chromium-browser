@@ -5,11 +5,17 @@
 """Tools and utilities for creating proofs about tries."""
 
 import itertools
+import multiprocessing
 import optparse
+import os
+import subprocess
+import tempfile
 
+import objdump_parser
 import spec
 import trie
 import validator
+
 
 class Operands(object):
   """Contains parts of the disassembly of a single instruction.
@@ -80,13 +86,68 @@ def AllYMMOperands(bitness):
   return set([Operands(disasms=('%ymm{}'.format(i),))
               for i in xrange(8 if bitness == 32 else 16)])
 
-def GprOperands(bitness, operand_size):
+
+def GprOperands(bitness, operand_size, is_write_for_64_bit=True,
+                can_restrict=False):
+  """Returns all gpr operands as an operand set.
+  Args:
+    bitness: architecture bitness to distinguish x86_32/x86_64: (32, 64)
+    operand_size: size of register to be used in write.
+    is_write_for_64_bit: if bitness == 64, and operand_size == 64,
+                         exclude special registers rsp, rbp, r15 for sandbox
+                         reasons. If bitness == 64 and operand_size == 32,
+                         exclude 'esp', 'ebp', and 'r15d' if it's
+                         not can_restrict. If can_restrict, then
+                         just exclude 'r15d'
+    can_restrict: if true and bitness == 64, and operand_size == 32, and
+                  is_write_for_64_bit == True, disallow r15 write, and
+                  produce restricted register.
+  """
   regs = []
-  if bitness == 32 and operand_size == 16:
+  operand_to_restriction_map = {
+      '%eax': '%rax', '%ebx' : '%rbx', '%ecx' : '%rcx', '%edx': '%rdx',
+      '%ebp': '%rbp', '%edi': '%rdi', '%esi': '%rsi', '%esp': '%rsp',
+      '%r8d': '%r8', '%r9d': '%r9', '%r10d' : '%r10', '%r11d': '%r11',
+      '%r12d': '%r12', '%r13d': '%r13', '%r14d' : '%r14',
+  }
+  restricts = False
+  if operand_size == 16 and bitness == 32:
     regs = ['%ax', '%bx', '%cx', '%dx', '%bp', '%sp', '%di', '%si']
+  elif operand_size == 32 and bitness == 32:
+    regs = ['%eax', '%ebp', '%ebx', '%ecx', '%edi', '%edx', '%esi', '%esp']
+  elif bitness == 64 and operand_size == 16:
+    regs = ['%ax', '%bx', '%cx', '%dx', '%di', '%si',
+            '%r8w', '%r9w', '%r10w', '%r11w', '%r12w', '%r13w',
+            '%r14w']
+    if not is_write_for_64_bit:
+      regs += ['%bp', '%sp', '%r15w']
+    if can_restrict:
+      raise AssertionError("16 bit writes shouldn't restrict.")
+  elif bitness == 64 and operand_size == 32:
+    regs = ['%eax', '%ebx', '%ecx', '%edi', '%edx', '%esi',
+            '%r8d', '%r9d', '%r10d', '%r11d', '%r12d', '%r13d', '%r14d']
+    # Don't include '%ebp', '%esp', '%r15d' in allowed registers when
+    # is_write_for_64_bit == True.
+    if is_write_for_64_bit == False:
+      regs += ['%esp', '%ebp', '%r15d']
+    elif can_restrict == True:
+      regs += ['%esp', '%ebp']
+      restricts = True
+  elif bitness == 64 and operand_size == 64:
+    regs = ['%rax', '%rbx', '%rcx', '%rdi', '%rdx', '%rsi',
+            '%r8', '%r9', '%r10', '%r11', '%r12', '%r13', '%r14']
+    # Don't include '%ebp', '%esp', '%r15d' in allowed registers when
+    # is_write_for_64_bit == True.
+    if is_write_for_64_bit == False:
+      regs += ['%rsp', '%rbp', '%r15']
   else:
     raise AssertionError("Unimplemented")
-  return set([Operands(disasms=(reg,)) for reg in regs])
+  if restricts:
+    return set([
+        Operands(disasms=(reg,), output_rr=operand_to_restriction_map[reg])
+        for reg in regs])
+  else:
+    return set([Operands(disasms=(reg,)) for reg in regs])
 
 
 def MnemonicOp(name):
@@ -260,41 +321,72 @@ def GetRRInfoFromTrie(trie_state, bitness):
   return input_rr, output_rr
 
 
-class TrieDiffSet(object):
-  """Collects differences from tries.
+def Disassemble(options, byte_sequences_iter):
+  """Disassembles all byte sequences and returns it in old or new trie."""
+  asm_file = None
+  object_file = None
+  old_trie_set = set()
+  new_trie_set = set()
+  bitness = int(options.bitness)
+  try:
+    file_prefix = "proof_decodes"
+    asm_file = tempfile.NamedTemporaryFile(
+        mode='wt',
+        prefix=file_prefix,
+        suffix='.s',
+        delete=False)
+    asm_file.write('.text\n')
 
-  Collects trie diffs by converting them into sets of Operands objects.
-  Each differing byte sequence is disassembled and converted into and Operands
-  object. The object is added to the sets corresponding to the tries which
-  accept the byte sequence.
-  """
+    accepts = []
+    for entry in byte_sequences_iter:
+      byte_tuple, accept_info1, accept_info2 = entry
+      accepts += [(accept_info1, accept_info2)]
+      asm_file.write('  .byte %s\n' % ','.join(map(hex, map(int, byte_tuple))))
+    asm_file.close()
 
-  def __init__(self, the_validator, bitness):
-    assert bitness in (32, 64), bitness
-    self.bitness = bitness
-    self.the_validator = the_validator
-    self.accept_trie1_set = set()
-    self.accept_trie2_set = set()
+    object_file = tempfile.NamedTemporaryFile(
+        prefix=file_prefix,
+        suffix='.o',
+        delete=False)
+    object_file.close()
 
-  def Process(self, (byte_tuple, accept_info1, accept_info2)):
-    """Callback Reciever for trie.DiffTries."""
-    # TODO(shyamsundarr): investigate using objdump instead.
-    disassembly = self.the_validator.DisassembleChunk(
-        ''.join([chr(int(x)) for x in byte_tuple]),
-        bitness=self.bitness)
-    assert len(disassembly) == 1
-    prefixes, mnemonic, operands = (spec.ParseInstruction(disassembly[0]))
-    full_operands = tuple(prefixes + [mnemonic] + operands)
-    if accept_info1 is not None:
-      input_rr, output_rr = GetRRInfoFromTrie(accept_info1, self.bitness)
-      self.accept_trie1_set.add(Operands(disasms=full_operands,
-                                         input_rr=input_rr,
-                                         output_rr=output_rr))
-    if accept_info2 is not None:
-      input_rr, output_rr = GetRRInfoFromTrie(accept_info2, self.bitness)
-      self.accept_trie2_set.add(Operands(disasms=full_operands,
-                                         input_rr=input_rr,
-                                         output_rr=output_rr))
+    subprocess.check_call([
+        options.gas,
+        '--%s' % bitness,
+        '--strip-local-absolute',
+        asm_file.name,
+        '-o', object_file.name])
+
+    objdump_proc = subprocess.Popen(
+        [options.objdump, '-d', '--insn-width=15', object_file.name],
+        stdout=subprocess.PIPE)
+
+    for line, (accept_info1, accept_info2) in itertools.izip(
+        objdump_parser.SkipHeader(objdump_proc.stdout),
+        iter(accepts)):
+      instruction = objdump_parser.CanonicalizeInstruction(
+            objdump_parser.ParseLine(line))
+      prefixes, mnemonic, operands = (spec.ParseInstruction(instruction))
+      full_operands = tuple(prefixes + [mnemonic] + operands)
+      if accept_info1 is not None:
+        input_rr, output_rr = GetRRInfoFromTrie(accept_info1, bitness)
+        old_trie_set.add(Operands(disasms=full_operands,
+                                  input_rr=input_rr,
+                                  output_rr=output_rr))
+      if accept_info2 is not None:
+        input_rr, output_rr = GetRRInfoFromTrie(accept_info2, bitness)
+        new_trie_set.add(Operands(disasms=full_operands,
+                                  input_rr=input_rr,
+                                  output_rr=output_rr))
+
+    return_code = objdump_proc.wait()
+    assert return_code == 0
+
+  finally:
+    os.remove(asm_file.name)
+    os.remove(object_file.name)
+
+  return old_trie_set, new_trie_set
 
 
 def ParseStandardOpts():
@@ -306,6 +398,8 @@ def ParseStandardOpts():
   parser.add_option('--bitness', choices=['32', '64'])
   parser.add_option('--validator_dll', help='Path of the validator library')
   parser.add_option('--decoder_dll', help='Path of the decoder library')
+  parser.add_option('--gas', help='Path of the gas binary')
+  parser.add_option('--objdump', help='Path of the objdump binary')
   options, _ = parser.parse_args()
   return options
 
@@ -320,27 +414,24 @@ def RunProof(standard_opts, proof_func):
   Returns:
     None
   """
-  the_validator = validator.Validator(
-      validator_dll=standard_opts.validator_dll,
-      decoder_dll=standard_opts.decoder_dll)
-  bitness = int(standard_opts.bitness)
-  trie_diff_set = TrieDiffSet(the_validator, bitness)
-  trie.DiffTrieFiles(standard_opts.new, standard_opts.old,
-                     trie_diff_set.Process)
-  proof_func(trie_diff_set, bitness)
+  adds, removes = Disassemble(standard_opts,
+                              trie.DiffTrieFiles(standard_opts.new,
+                                                 standard_opts.old))
+  proof_func((adds, removes), int(standard_opts.bitness))
 
 
-def AssertDiffSetEquals(trie_diffs, expected_adds, expected_removes):
+def AssertDiffSetEquals((adds, removes),
+                        expected_adds, expected_removes):
   """Assert that diffs is composed of expected_adds and expected_removes."""
-  if trie_diffs.accept_trie1_set != expected_adds:
+  if adds != expected_adds:
     raise AssertionError('falsely added instructions: ',
-                         trie_diffs.accept_trie1_set - expected_adds,
+                         adds - expected_adds,
                          'unadded instructions: ',
-                         expected_adds - trie_diffs.accept_trie1_set)
+                         expected_adds - adds)
 
-  if trie_diffs.accept_trie2_set != expected_removes:
+  if removes != expected_removes:
     raise AssertionError('falsely removed instructions: ',
-                         trie_diffs.accept_trie2_set - expected_removes,
+                         removes - expected_removes,
                          'missing instructions: ',
-                         expected_removes - trie_diffs.accept_trie2_set)
+                         expected_removes - removes)
 

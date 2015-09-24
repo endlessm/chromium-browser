@@ -7,6 +7,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/accessibility/ax_view_state.h"
+#include "ui/events/event_utils.h"
 #include "ui/views/accessibility/ax_aura_obj_cache.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
@@ -14,7 +15,6 @@
 namespace views {
 
 AXViewObjWrapper::AXViewObjWrapper(View* view)  : view_(view) {
-  DCHECK(view->GetWidget());
   if (view->GetWidget())
     AXAuraObjCache::GetInstance()->GetOrCreate(view->GetWidget());
 }
@@ -26,7 +26,10 @@ AXAuraObjWrapper* AXViewObjWrapper::GetParent() {
   if (view_->parent())
     return cache->GetOrCreate(view_->parent());
 
-  return cache->GetOrCreate(view_->GetWidget());
+  if (view_->GetWidget())
+    return cache->GetOrCreate(view_->GetWidget());
+
+  return NULL;
 }
 
 void AXViewObjWrapper::GetChildren(
@@ -73,11 +76,14 @@ int32 AXViewObjWrapper::GetID() {
 }
 
 void AXViewObjWrapper::DoDefault() {
-  gfx::Rect rect = view_->GetBoundsInScreen();
+  gfx::Rect rect = view_->GetLocalBounds();
   gfx::Point center = rect.CenterPoint();
-  view_->OnMousePressed(ui::MouseEvent(ui::ET_MOUSE_PRESSED, center, center,
-                                       ui::EF_LEFT_MOUSE_BUTTON,
-                                       ui::EF_LEFT_MOUSE_BUTTON));
+  view_->OnMousePressed(ui::MouseEvent(
+      ui::ET_MOUSE_PRESSED, center, center, ui::EventTimeForNow(),
+      ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON));
+  view_->OnMouseReleased(ui::MouseEvent(
+      ui::ET_MOUSE_RELEASED, center, center, ui::EventTimeForNow(),
+      ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON));
 }
 
 void AXViewObjWrapper::Focus() {
@@ -90,6 +96,11 @@ void AXViewObjWrapper::MakeVisible() {
 
 void AXViewObjWrapper::SetSelection(int32 start, int32 end) {
   // TODO(dtseng): Implement.
+}
+
+void AXViewObjWrapper::ShowContextMenu() {
+  view_->ShowContextMenu(view_->bounds().CenterPoint(),
+                         ui::MENU_SOURCE_KEYBOARD);
 }
 
 }  // namespace views

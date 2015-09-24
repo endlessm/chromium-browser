@@ -14,13 +14,13 @@ class NotificationPermissionClientImpl : public NoBaseWillBeGarbageCollectedFina
 public:
     static PassOwnPtrWillBeRawPtr<NotificationPermissionClientImpl> create();
 
-    virtual ~NotificationPermissionClientImpl();
+    ~NotificationPermissionClientImpl() override;
 
     // NotificationPermissionClient implementation.
-    virtual void requestPermission(ExecutionContext*, NotificationPermissionCallback*) override;
+    void requestPermission(ExecutionContext*, NotificationPermissionCallback*) override;
 
     // NoBaseWillBeGarbageCollectedFinalized implementation.
-    virtual void trace(Visitor* visitor) override { NotificationPermissionClient::trace(visitor); }
+    DEFINE_INLINE_VIRTUAL_TRACE() { NotificationPermissionClient::trace(visitor); }
 
 private:
     NotificationPermissionClientImpl();

@@ -68,13 +68,11 @@ std::string TermsOfServiceScreen::GetName() const {
 }
 
 void TermsOfServiceScreen::OnDecline() {
-  get_base_screen_delegate()->OnExit(
-      BaseScreenDelegate::TERMS_OF_SERVICE_DECLINED);
+  Finish(BaseScreenDelegate::TERMS_OF_SERVICE_DECLINED);
 }
 
 void TermsOfServiceScreen::OnAccept() {
-  get_base_screen_delegate()->OnExit(
-      BaseScreenDelegate::TERMS_OF_SERVICE_ACCEPTED);
+  Finish(BaseScreenDelegate::TERMS_OF_SERVICE_ACCEPTED);
 }
 
 void TermsOfServiceScreen::OnActorDestroyed(TermsOfServiceScreenActor* actor) {
@@ -95,8 +93,8 @@ void TermsOfServiceScreen::StartDownload() {
   }
 
   // Start downloading the Terms of Service.
-  terms_of_service_fetcher_.reset(net::URLFetcher::Create(
-      GURL(terms_of_service_url), net::URLFetcher::GET, this));
+  terms_of_service_fetcher_ = net::URLFetcher::Create(
+      GURL(terms_of_service_url), net::URLFetcher::GET, this);
   terms_of_service_fetcher_->SetRequestContext(
       g_browser_process->system_request_context());
   // Request a text/plain MIME type as only plain-text Terms of Service are

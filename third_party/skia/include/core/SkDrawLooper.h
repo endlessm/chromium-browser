@@ -30,8 +30,6 @@ class SkString;
 */
 class SK_API SkDrawLooper : public SkFlattenable {
 public:
-    SK_DECLARE_INST_COUNT(SkDrawLooper)
-
     /**
      *  Holds state during a draw. Users call next() until it returns false.
      *
@@ -87,9 +85,8 @@ public:
      * storage rect, where the storage rect is with the union of the src rect
      * and the looper's bounding rect.
      */
-    virtual bool canComputeFastBounds(const SkPaint& paint) const;
-    virtual void computeFastBounds(const SkPaint& paint,
-                                   const SkRect& src, SkRect* dst) const;
+    bool canComputeFastBounds(const SkPaint& paint) const;
+    void computeFastBounds(const SkPaint& paint, const SkRect& src, SkRect* dst) const;
 
     struct BlurShadowRec {
         SkScalar        fSigma;
@@ -114,9 +111,6 @@ public:
 
 protected:
     SkDrawLooper() {}
-#ifdef SK_SUPPORT_LEGACY_DEEPFLATTENING
-    SkDrawLooper(SkReadBuffer& buffer) : INHERITED(buffer) {}
-#endif
 
 private:
     typedef SkFlattenable INHERITED;

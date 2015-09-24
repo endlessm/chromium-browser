@@ -26,7 +26,7 @@ class ChromeContentBrowserClientBrowserTest : public InProcessBrowserTest {
   }
 
 #if defined(OS_CHROMEOS)
-  virtual void SetUpCommandLine(base::CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(switches::kDisableAboutInSettings);
   }
 #endif
@@ -87,7 +87,7 @@ IN_PROC_BROWSER_TEST_F(ChromeContentBrowserClientBrowserTest,
 // such as http://crbug.com/164223.
 IN_PROC_BROWSER_TEST_F(ChromeContentBrowserClientBrowserTest,
                        SitePerProcessNavigation) {
-  CommandLine::ForCurrentProcess()->AppendSwitch(
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kSitePerProcess);
   ASSERT_TRUE(test_server()->Start());
   const GURL url(test_server()->GetURL("files/title1.html"));

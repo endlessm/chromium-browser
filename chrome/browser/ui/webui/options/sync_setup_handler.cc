@@ -21,9 +21,8 @@
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_info_cache.h"
-#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_metrics.h"
-#include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
+#include "chrome/browser/signin/signin_error_controller_factory.h"
 #include "chrome/browser/signin/signin_header_helper.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/signin/signin_promo.h"
@@ -33,7 +32,6 @@
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/singleton_tabs.h"
-#include "chrome/browser/ui/sync/signin_histogram.h"
 #include "chrome/browser/ui/webui/options/options_handlers_helper.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service_factory.h"
@@ -43,7 +41,6 @@
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/locale_settings.h"
 #include "components/google/core/browser/google_util.h"
-#include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_error_controller.h"
 #include "components/signin/core/browser/signin_metrics.h"
 #include "components/signin/core/common/profile_management_switches.h"
@@ -92,7 +89,7 @@ SyncConfigInfo::SyncConfigInfo()
 SyncConfigInfo::~SyncConfigInfo() {}
 
 bool GetConfiguration(const std::string& json, SyncConfigInfo* config) {
-  scoped_ptr<base::Value> parsed_value(base::JSONReader::Read(json));
+  scoped_ptr<base::Value> parsed_value = base::JSONReader::Read(json);
   base::DictionaryValue* result;
   if (!parsed_value || !parsed_value->GetAsDictionary(&result)) {
     DLOG(ERROR) << "GetConfiguration() not passed a Dictionary";
@@ -155,9 +152,8 @@ bool GetConfiguration(const std::string& json, SyncConfigInfo* config) {
 
 }  // namespace
 
-SyncSetupHandler::SyncSetupHandler(ProfileManager* profile_manager)
-    : configuring_sync_(false),
-      profile_manager_(profile_manager) {
+SyncSetupHandler::SyncSetupHandler()
+    : configuring_sync_(false) {
 }
 
 SyncSetupHandler::~SyncSetupHandler() {
@@ -277,135 +273,6 @@ void SyncSetupHandler::GetStaticLocalizedValues(
   RegisterTitle(localized_strings, "syncSetupOverlay", IDS_SYNC_SETUP_TITLE);
 }
 
-void SyncSetupHandler::DisplayConfigureSync(bool show_advanced,
-                                            bool passphrase_failed) {
-  // Should never call this when we are not signed in.
-  DCHECK(SigninManagerFactory::GetForProfile(
-      GetProfile())->IsAuthenticated());
-  ProfileSyncService* service = GetSyncService();
-  DCHECK(service);
-  if (!service->backend_initialized()) {
-    service->UnsuppressAndStart();
-
-    // See if it's even possible to bring up the sync backend - if not
-    // (unrecoverable error?), don't bother displaying a spinner that will be
-    // immediately closed because this leads to some ugly infinite UI loop (see
-    // http://crbug.com/244769).
-    if (SyncStartupTracker::GetSyncServiceState(GetProfile()) !=
-        SyncStartupTracker::SYNC_STARTUP_ERROR) {
-      DisplaySpinner();
-    }
-
-    // Start SyncSetupTracker to wait for sync to initialize.
-    sync_startup_tracker_.reset(
-        new SyncStartupTracker(GetProfile(), this));
-    return;
-  }
-
-  // Should only get here if user is signed in and sync is initialized, so no
-  // longer need a SyncStartupTracker.
-  sync_startup_tracker_.reset();
-  configuring_sync_ = true;
-  DCHECK(service->backend_initialized()) <<
-      "Cannot configure sync until the sync backend is initialized";
-
-  // Setup args for the sync configure screen:
-  //   showSyncEverythingPage: false to skip directly to the configure screen
-  //   syncAllDataTypes: true if the user wants to sync everything
-  //   syncNothing: true if the user wants to sync nothing
-  //   <data_type>Registered: true if the associated data type is supported
-  //   <data_type>Synced: true if the user wants to sync that specific data type
-  //   encryptionEnabled: true if sync supports encryption
-  //   encryptAllData: true if user wants to encrypt all data (not just
-  //       passwords)
-  //   usePassphrase: true if the data is encrypted with a secondary passphrase
-  //   show_passphrase: true if a passphrase is needed to decrypt the sync data
-  base::DictionaryValue args;
-
-  // Tell the UI layer which data types are registered/enabled by the user.
-  const syncer::ModelTypeSet registered_types =
-      service->GetRegisteredDataTypes();
-  const syncer::ModelTypeSet preferred_types = service->GetPreferredDataTypes();
-  const syncer::ModelTypeSet enforced_types = service->GetForcedDataTypes();
-  syncer::ModelTypeNameMap type_names = syncer::GetUserSelectableTypeNameMap();
-  for (syncer::ModelTypeNameMap::const_iterator it = type_names.begin();
-       it != type_names.end(); ++it) {
-    syncer::ModelType sync_type = it->first;
-    const std::string key_name = it->second;
-    args.SetBoolean(key_name + "Registered", registered_types.Has(sync_type));
-    args.SetBoolean(key_name + "Synced", preferred_types.Has(sync_type));
-    args.SetBoolean(key_name + "Enforced", enforced_types.Has(sync_type));
-    // TODO(treib): How do we want to handle pref groups, i.e. when only some of
-    // the sync types behind a checkbox are force-enabled? crbug.com/403326
-  }
-  sync_driver::SyncPrefs sync_prefs(GetProfile()->GetPrefs());
-  args.SetBoolean("passphraseFailed", passphrase_failed);
-  args.SetBoolean("showSyncEverythingPage", !show_advanced);
-  args.SetBoolean("syncAllDataTypes", sync_prefs.HasKeepEverythingSynced());
-  args.SetBoolean("syncNothing", false);  // Always false during initial setup.
-  args.SetBoolean("encryptAllData", service->EncryptEverythingEnabled());
-  args.SetBoolean("encryptAllDataAllowed", service->EncryptEverythingAllowed());
-
-  // We call IsPassphraseRequired() here, instead of calling
-  // IsPassphraseRequiredForDecryption(), because we want to show the passphrase
-  // UI even if no encrypted data types are enabled.
-  args.SetBoolean("showPassphrase", service->IsPassphraseRequired());
-
-  // To distinguish between FROZEN_IMPLICIT_PASSPHRASE and CUSTOM_PASSPHRASE
-  // we only set usePassphrase for CUSTOM_PASSPHRASE.
-  args.SetBoolean("usePassphrase",
-                  service->GetPassphraseType() == syncer::CUSTOM_PASSPHRASE);
-  base::Time passphrase_time = service->GetExplicitPassphraseTime();
-  syncer::PassphraseType passphrase_type = service->GetPassphraseType();
-  if (!passphrase_time.is_null()) {
-    base::string16 passphrase_time_str =
-        base::TimeFormatShortDate(passphrase_time);
-    args.SetString(
-        "enterPassphraseBody",
-        GetStringFUTF16(IDS_SYNC_ENTER_PASSPHRASE_BODY_WITH_DATE,
-                        passphrase_time_str));
-    args.SetString(
-        "enterGooglePassphraseBody",
-        GetStringFUTF16(IDS_SYNC_ENTER_GOOGLE_PASSPHRASE_BODY_WITH_DATE,
-                        passphrase_time_str));
-    switch (passphrase_type) {
-      case syncer::FROZEN_IMPLICIT_PASSPHRASE:
-        args.SetString(
-            "fullEncryptionBody",
-            GetStringFUTF16(IDS_SYNC_FULL_ENCRYPTION_BODY_GOOGLE_WITH_DATE,
-                            passphrase_time_str));
-        break;
-      case syncer::CUSTOM_PASSPHRASE:
-        args.SetString(
-            "fullEncryptionBody",
-            GetStringFUTF16(IDS_SYNC_FULL_ENCRYPTION_BODY_CUSTOM_WITH_DATE,
-                            passphrase_time_str));
-        break;
-      default:
-        args.SetString(
-            "fullEncryptionBody",
-            GetStringUTF16(IDS_SYNC_FULL_ENCRYPTION_BODY_CUSTOM));
-        break;
-    }
-  } else if (passphrase_type == syncer::CUSTOM_PASSPHRASE) {
-    args.SetString(
-        "fullEncryptionBody",
-        GetStringUTF16(IDS_SYNC_FULL_ENCRYPTION_BODY_CUSTOM));
-  } else {
-    args.SetString(
-        "fullEncryptionBody",
-        GetStringUTF16(IDS_SYNC_FULL_ENCRYPTION_DATA));
-  }
-
-  base::StringValue page("configure");
-  web_ui()->CallJavascriptFunction(
-      "SyncSetupOverlay.showSyncSetupPage", page, args);
-
-  // Make sure the tab used for the Gaia sign in does not cover the settings
-  // tab.
-  FocusUI();
-}
-
 void SyncSetupHandler::ConfigureSyncDone() {
   base::StringValue page("done");
   web_ui()->CallJavascriptFunction(
@@ -495,12 +362,11 @@ void SyncSetupHandler::DisplayGaiaLoginInNewTabOrWindow() {
   if (SigninManagerFactory::GetForProfile(
       browser->profile())->IsAuthenticated()) {
     UMA_HISTOGRAM_ENUMERATION("Signin.Reauth",
-                              signin::HISTOGRAM_SHOWN,
-                              signin::HISTOGRAM_MAX);
+                              signin_metrics::HISTOGRAM_REAUTH_SHOWN,
+                              signin_metrics::HISTOGRAM_REAUTH_MAX);
 
     SigninErrorController* error_controller =
-        ProfileOAuth2TokenServiceFactory::GetForProfile(browser->profile())->
-            signin_error_controller();
+        SigninErrorControllerFactory::GetForProfile(browser->profile());
     DCHECK(error_controller->HasError());
     if (switches::IsNewAvatarMenu() && !force_new_tab) {
       browser->window()->ShowAvatarBubbleFromAvatarButton(
@@ -511,12 +377,13 @@ void SyncSetupHandler::DisplayGaiaLoginInNewTabOrWindow() {
                                  error_controller->error_account_id());
     }
   } else {
+    signin_metrics::LogSigninSource(signin_metrics::SOURCE_SETTINGS);
     if (switches::IsNewAvatarMenu() && !force_new_tab) {
       browser->window()->ShowAvatarBubbleFromAvatarButton(
           BrowserWindow::AVATAR_BUBBLE_MODE_SIGNIN,
           signin::ManageAccountsParams());
     } else {
-      url = signin::GetPromoURL(signin::SOURCE_SETTINGS, true);
+      url = signin::GetPromoURL(signin_metrics::SOURCE_SETTINGS, true);
     }
   }
 
@@ -594,7 +461,7 @@ void SyncSetupHandler::SyncStartupCompleted() {
   // Stop a timer to handle timeout in waiting for checking network connection.
   backend_start_timer_.reset();
 
-  DisplayConfigureSync(true, false);
+  DisplayConfigureSync(false);
 }
 
 Profile* SyncSetupHandler::GetProfile() const {
@@ -603,7 +470,7 @@ Profile* SyncSetupHandler::GetProfile() const {
 
 ProfileSyncService* SyncSetupHandler::GetSyncService() const {
   Profile* profile = GetProfile();
-  return profile->IsSyncAccessible() ?
+  return profile->IsSyncAllowed() ?
       ProfileSyncServiceFactory::GetForProfile(GetProfile()) : NULL;
 }
 
@@ -640,13 +507,13 @@ void SyncSetupHandler::HandleConfigure(const base::ListValue* args) {
 
   // Disable sync, but remain signed in if the user selected "Sync nothing" in
   // the advanced settings dialog. Note: In order to disable sync across
-  // restarts on Chrome OS, we must call StopSyncingPermanently(), which
+  // restarts on Chrome OS, we must call RequestStop(CLEAR_DATA), which
   // suppresses sync startup in addition to disabling it.
   if (configuration.sync_nothing) {
     ProfileSyncService::SyncEvent(
         ProfileSyncService::STOP_FROM_ADVANCED_DIALOG);
     CloseUI();
-    service->StopSyncingPermanently();
+    service->RequestStop(ProfileSyncService::CLEAR_DATA);
     service->SetSetupInProgress(false);
     return;
   }
@@ -714,8 +581,7 @@ void SyncSetupHandler::HandleConfigure(const base::ListValue* args) {
     // 3) The user just enabled an encrypted data type - in this case we don't
     //    want to display an "invalid passphrase" error, since it's the first
     //    time the user is seeing the prompt.
-    DisplayConfigureSync(
-        true, passphrase_failed || user_was_prompted_for_passphrase);
+    DisplayConfigureSync(passphrase_failed || user_was_prompted_for_passphrase);
   } else {
     // No passphrase is required from the user so mark the configuration as
     // complete and close the sync setup overlay.
@@ -756,9 +622,8 @@ void SyncSetupHandler::HandleShowSetupUI(const base::ListValue* args) {
   // happen if the user navigates to chrome://settings/syncSetup in more than
   // one tab. See crbug.com/261566.
   // Note: The following block will transfer focus to the existing wizard.
-  if (IsExistingWizardPresent() && !IsActiveLogin()) {
+  if (IsExistingWizardPresent() && !IsActiveLogin())
     CloseUI();
-  }
 
   // If a setup wizard is present on this page or another, bring it to focus.
   // Otherwise, display a new one on this page.
@@ -822,11 +687,11 @@ void SyncSetupHandler::CloseSyncSetup() {
         // because we don't want the sync backend to remain in the
         // first-setup-incomplete state.
         // Note: In order to disable sync across restarts on Chrome OS,
-        // we must call StopSyncingPermanently(), which suppresses sync startup
+        // we must call RequestStop(CLEAR_DATA), which suppresses sync startup
         // in addition to disabling it.
         if (sync_service) {
           DVLOG(1) << "Sync setup aborted by user action";
-          sync_service->StopSyncingPermanently();
+          sync_service->RequestStop(ProfileSyncService::CLEAR_DATA);
   #if !defined(OS_CHROMEOS)
           // Sign out the user on desktop Chrome if they click cancel during
           // initial setup.
@@ -872,8 +737,7 @@ void SyncSetupHandler::OpenSyncSetup() {
       SigninManagerFactory::GetForProfile(GetProfile());
 
   if (!signin->IsAuthenticated() ||
-      ProfileOAuth2TokenServiceFactory::GetForProfile(GetProfile())->
-          signin_error_controller()->HasError()) {
+      SigninErrorControllerFactory::GetForProfile(GetProfile())->HasError()) {
     // User is not logged in (cases 1-2), or login has been specially requested
     // because previously working credentials have expired (case 3). Close sync
     // setup including any visible overlays, and display the gaia auth page.
@@ -893,14 +757,14 @@ void SyncSetupHandler::OpenSyncSetup() {
   // User is already logged in. They must have brought up the config wizard
   // via the "Advanced..." button or through One-Click signin (cases 4-6), or
   // they are re-enabling sync after having disabled it (case 7).
-  DisplayConfigureSync(true, false);
+  DisplayConfigureSync(false);
 }
 
 void SyncSetupHandler::OpenConfigureSync() {
   if (!PrepareSyncSetup())
     return;
 
-  DisplayConfigureSync(true, false);
+  DisplayConfigureSync(false);
 }
 
 void SyncSetupHandler::FocusUI() {
@@ -930,6 +794,132 @@ bool SyncSetupHandler::FocusExistingWizardIfPresent() {
   DCHECK(service);
   service->current_login_ui()->FocusUI();
   return true;
+}
+
+void SyncSetupHandler::DisplayConfigureSync(bool passphrase_failed) {
+  // Should never call this when we are not signed in.
+  DCHECK(SigninManagerFactory::GetForProfile(
+      GetProfile())->IsAuthenticated());
+  ProfileSyncService* service = GetSyncService();
+  DCHECK(service);
+  if (!service->backend_initialized()) {
+    service->RequestStart();
+
+    // See if it's even possible to bring up the sync backend - if not
+    // (unrecoverable error?), don't bother displaying a spinner that will be
+    // immediately closed because this leads to some ugly infinite UI loop (see
+    // http://crbug.com/244769).
+    if (SyncStartupTracker::GetSyncServiceState(GetProfile()) !=
+        SyncStartupTracker::SYNC_STARTUP_ERROR) {
+      DisplaySpinner();
+    }
+
+    // Start SyncSetupTracker to wait for sync to initialize.
+    sync_startup_tracker_.reset(
+        new SyncStartupTracker(GetProfile(), this));
+    return;
+  }
+
+  // Should only get here if user is signed in and sync is initialized, so no
+  // longer need a SyncStartupTracker.
+  sync_startup_tracker_.reset();
+  configuring_sync_ = true;
+  DCHECK(service->backend_initialized()) <<
+      "Cannot configure sync until the sync backend is initialized";
+
+  // Setup args for the sync configure screen:
+  //   syncAllDataTypes: true if the user wants to sync everything
+  //   syncNothing: true if the user wants to sync nothing
+  //   <data_type>Registered: true if the associated data type is supported
+  //   <data_type>Synced: true if the user wants to sync that specific data type
+  //   encryptionEnabled: true if sync supports encryption
+  //   encryptAllData: true if user wants to encrypt all data (not just
+  //       passwords)
+  //   usePassphrase: true if the data is encrypted with a secondary passphrase
+  //   show_passphrase: true if a passphrase is needed to decrypt the sync data
+  base::DictionaryValue args;
+
+  // Tell the UI layer which data types are registered/enabled by the user.
+  const syncer::ModelTypeSet registered_types =
+      service->GetRegisteredDataTypes();
+  const syncer::ModelTypeSet preferred_types = service->GetPreferredDataTypes();
+  const syncer::ModelTypeSet enforced_types = service->GetForcedDataTypes();
+  syncer::ModelTypeNameMap type_names = syncer::GetUserSelectableTypeNameMap();
+  for (syncer::ModelTypeNameMap::const_iterator it = type_names.begin();
+       it != type_names.end(); ++it) {
+    syncer::ModelType sync_type = it->first;
+    const std::string key_name = it->second;
+    args.SetBoolean(key_name + "Registered", registered_types.Has(sync_type));
+    args.SetBoolean(key_name + "Synced", preferred_types.Has(sync_type));
+    args.SetBoolean(key_name + "Enforced", enforced_types.Has(sync_type));
+    // TODO(treib): How do we want to handle pref groups, i.e. when only some of
+    // the sync types behind a checkbox are force-enabled? crbug.com/403326
+  }
+  sync_driver::SyncPrefs sync_prefs(GetProfile()->GetPrefs());
+  args.SetBoolean("passphraseFailed", passphrase_failed);
+  args.SetBoolean("syncAllDataTypes", sync_prefs.HasKeepEverythingSynced());
+  args.SetBoolean("syncNothing", false);  // Always false during initial setup.
+  args.SetBoolean("encryptAllData", service->EncryptEverythingEnabled());
+  args.SetBoolean("encryptAllDataAllowed", service->EncryptEverythingAllowed());
+
+  // We call IsPassphraseRequired() here, instead of calling
+  // IsPassphraseRequiredForDecryption(), because we want to show the passphrase
+  // UI even if no encrypted data types are enabled.
+  args.SetBoolean("showPassphrase", service->IsPassphraseRequired());
+
+  // To distinguish between FROZEN_IMPLICIT_PASSPHRASE and CUSTOM_PASSPHRASE
+  // we only set usePassphrase for CUSTOM_PASSPHRASE.
+  args.SetBoolean("usePassphrase",
+                  service->GetPassphraseType() == syncer::CUSTOM_PASSPHRASE);
+  base::Time passphrase_time = service->GetExplicitPassphraseTime();
+  syncer::PassphraseType passphrase_type = service->GetPassphraseType();
+  if (!passphrase_time.is_null()) {
+    base::string16 passphrase_time_str =
+        base::TimeFormatShortDate(passphrase_time);
+    args.SetString(
+        "enterPassphraseBody",
+        GetStringFUTF16(IDS_SYNC_ENTER_PASSPHRASE_BODY_WITH_DATE,
+                        passphrase_time_str));
+    args.SetString(
+        "enterGooglePassphraseBody",
+        GetStringFUTF16(IDS_SYNC_ENTER_GOOGLE_PASSPHRASE_BODY_WITH_DATE,
+                        passphrase_time_str));
+    switch (passphrase_type) {
+      case syncer::FROZEN_IMPLICIT_PASSPHRASE:
+        args.SetString(
+            "fullEncryptionBody",
+            GetStringFUTF16(IDS_SYNC_FULL_ENCRYPTION_BODY_GOOGLE_WITH_DATE,
+                            passphrase_time_str));
+        break;
+      case syncer::CUSTOM_PASSPHRASE:
+        args.SetString(
+            "fullEncryptionBody",
+            GetStringFUTF16(IDS_SYNC_FULL_ENCRYPTION_BODY_CUSTOM_WITH_DATE,
+                            passphrase_time_str));
+        break;
+      default:
+        args.SetString(
+            "fullEncryptionBody",
+            GetStringUTF16(IDS_SYNC_FULL_ENCRYPTION_BODY_CUSTOM));
+        break;
+    }
+  } else if (passphrase_type == syncer::CUSTOM_PASSPHRASE) {
+    args.SetString(
+        "fullEncryptionBody",
+        GetStringUTF16(IDS_SYNC_FULL_ENCRYPTION_BODY_CUSTOM));
+  } else {
+    args.SetString(
+        "fullEncryptionBody",
+        GetStringUTF16(IDS_SYNC_FULL_ENCRYPTION_DATA));
+  }
+
+  base::StringValue page("configure");
+  web_ui()->CallJavascriptFunction(
+      "SyncSetupOverlay.showSyncSetupPage", page, args);
+
+  // Make sure the tab used for the Gaia sign in does not cover the settings
+  // tab.
+  FocusUI();
 }
 
 LoginUIService* SyncSetupHandler::GetLoginUIService() const {

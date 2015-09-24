@@ -5,42 +5,44 @@
 #ifndef DeviceOrientationController_h
 #define DeviceOrientationController_h
 
-#include "core/dom/DocumentSupplementable.h"
+#include "core/dom/Document.h"
 #include "core/frame/DeviceSingleWindowEventController.h"
+#include "modules/ModulesExport.h"
 
 namespace blink {
 
 class DeviceOrientationData;
 class Event;
 
-class DeviceOrientationController final : public DeviceSingleWindowEventController, public DocumentSupplement {
+class MODULES_EXPORT DeviceOrientationController final : public DeviceSingleWindowEventController, public WillBeHeapSupplement<Document> {
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(DeviceOrientationController);
 public:
-    virtual ~DeviceOrientationController();
+    ~DeviceOrientationController() override;
 
     static const char* supplementName();
     static DeviceOrientationController& from(Document&);
 
     // Inherited from DeviceSingleWindowEventController.
     void didUpdateData() override;
+    void didAddEventListener(LocalDOMWindow*, const AtomicString& eventType) override;
 
     void setOverride(DeviceOrientationData*);
     void clearOverride();
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     explicit DeviceOrientationController(Document&);
 
     // Inherited from DeviceEventControllerBase.
-    virtual void registerWithDispatcher() override;
-    virtual void unregisterWithDispatcher() override;
-    virtual bool hasLastData() override;
+    void registerWithDispatcher() override;
+    void unregisterWithDispatcher() override;
+    bool hasLastData() override;
 
     // Inherited from DeviceSingleWindowEventController.
-    virtual PassRefPtrWillBeRawPtr<Event> lastEvent() const override;
-    virtual const AtomicString& eventTypeName() const override;
-    virtual bool isNullEvent(Event*) const override;
+    PassRefPtrWillBeRawPtr<Event> lastEvent() const override;
+    const AtomicString& eventTypeName() const override;
+    bool isNullEvent(Event*) const override;
 
     DeviceOrientationData* lastData() const;
 

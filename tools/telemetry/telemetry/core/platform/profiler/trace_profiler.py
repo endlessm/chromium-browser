@@ -2,10 +2,13 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import codecs
+import os
+import StringIO
+import zipfile
 
 from telemetry.core.platform import profiler
-from telemetry.core.platform import tracing_options
+from telemetry.timeline import trace_data as trace_data_module
+from telemetry.timeline import tracing_options
 
 
 class TraceProfiler(profiler.Profiler):
@@ -18,7 +21,7 @@ class TraceProfiler(profiler.Profiler):
     # We always want flow events when tracing via telemetry.
     categories_with_flow = 'disabled-by-default-toplevel.flow'
     if categories:
-      categories_with_flow = ',%s' % categories
+      categories_with_flow += ',%s' % categories
     options = tracing_options.TracingOptions()
     options.enable_chrome_trace = True
     self._browser_backend.StartTracing(
@@ -35,12 +38,17 @@ class TraceProfiler(profiler.Profiler):
   def CollectProfile(self):
     print 'Processing trace...'
 
-    trace_result = self._browser_backend.StopTracing()
+    trace_result_builder = trace_data_module.TraceDataBuilder()
+    self._browser_backend.StopTracing(trace_result_builder)
+    trace_result = trace_result_builder.AsData()
 
-    trace_file = '%s.json' % self._output_path
+    trace_file = '%s.zip' % self._output_path
 
-    with codecs.open(trace_file, 'w', encoding='utf-8') as f:
-      trace_result.Serialize(f)
+    with zipfile.ZipFile(trace_file, 'w', zipfile.ZIP_DEFLATED) as z:
+      trace_data = StringIO.StringIO()
+      trace_result.Serialize(trace_data)
+      trace_name = '%s.json' % os.path.basename(self._output_path)
+      z.writestr(trace_name, trace_data.getvalue())
 
     print 'Trace saved as %s' % trace_file
     print 'To view, open in chrome://tracing'

@@ -9,6 +9,9 @@
 #include "ipc/ipc_message_macros.h"
 #include "ipc/ipc_platform_file.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/gfx/geometry/point_f.h"
+#include "ui/gfx/geometry/size_f.h"
+#include "ui/gfx/ipc/gfx_param_traits.h"
 
 // Singly-included section for enums and custom IPC traits.
 #ifndef ANDROID_WEBVIEW_COMMON_RENDER_VIEW_MESSAGES_H_
@@ -49,8 +52,8 @@ IPC_MESSAGE_ROUTED1(AwViewMsg_DocumentHasImages,
 // physical pixel values with the 0,0 at the top left of the current displayed
 // view (ie 0,0 is not the top left of the page if the page is scrolled).
 IPC_MESSAGE_ROUTED2(AwViewMsg_DoHitTest,
-                    int /* view_x */,
-                    int /* view_y */)
+                    gfx::PointF /* touch_center */,
+                    gfx::SizeF /* touch_area */)
 
 // Sets the zoom factor for text only. Used in layout modes other than
 // Text Autosizing.
@@ -101,9 +104,11 @@ IPC_MESSAGE_ROUTED1(AwViewHostMsg_OnContentsSizeChanged,
 // navigations. See AwContentRendererClient::HandleNavigation for all
 // cornercases. This is sent before updating the NavigationController state
 // or creating a URLRequest for the main frame resource.
-IPC_SYNC_MESSAGE_CONTROL2_1(AwViewHostMsg_ShouldOverrideUrlLoading,
+IPC_SYNC_MESSAGE_CONTROL4_1(AwViewHostMsg_ShouldOverrideUrlLoading,
                             int /* render_frame_id id */,
                             base::string16 /* in - url */,
+                            bool /* in - has_user_gesture */,
+                            bool /* in - is_redirect */,
                             bool /* out - result */)
 
 // Sent when a subframe is created.

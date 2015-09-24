@@ -1,3 +1,7 @@
+# Copyright 2015 Google Inc.
+#
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
 {
   'targets': [
     {
@@ -8,17 +12,6 @@
         '../experimental/SimpleCocoaApp/',
       ],
       'sources': [
-        '../src/views/mac/SkEventNotifier.h',
-        '../src/views/mac/SkEventNotifier.mm',
-        '../src/views/mac/skia_mac.mm',
-        '../src/views/mac/SkNSView.h',
-        '../src/views/mac/SkNSView.mm',
-        '../src/views/mac/SkOptionsTableView.h',
-        '../src/views/mac/SkOptionsTableView.mm',
-        '../src/views/mac/SkOSWindow_Mac.mm',
-        '../src/views/mac/SkTextFieldCell.h',
-        '../src/views/mac/SkTextFieldCell.m',
-
         '../experimental/SimpleCocoaApp/SimpleApp-Info.plist',
         '../experimental/SimpleCocoaApp/SimpleApp.h',
         '../experimental/SimpleCocoaApp/SimpleApp.mm',

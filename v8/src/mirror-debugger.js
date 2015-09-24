@@ -1,6 +1,7 @@
 // Copyright 2006-2012 the V8 project authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+"use strict";
 
 // Handle id counters.
 var next_handle_ = 0;
@@ -24,7 +25,7 @@ function ToggleMirrorCache(value) {
 function ObjectIsPromise(value) {
   try {
     return IS_SPEC_OBJECT(value) &&
-           !IS_UNDEFINED(%DebugGetProperty(value, builtins.promiseStatus));
+           !IS_UNDEFINED(%DebugGetProperty(value, builtins.$promiseStatus));
   } catch (e) {
     return false;
   }
@@ -44,7 +45,7 @@ function MakeMirror(value, opt_transient) {
 
   // Look for non transient mirrors in the mirror cache.
   if (!opt_transient && mirror_cache_enabled_) {
-    for (id in mirror_cache_) {
+    for (var id in mirror_cache_) {
       mirror = mirror_cache_[id];
       if (mirror.value() === value) {
         return mirror;
@@ -179,10 +180,9 @@ PropertyKind.Indexed = 2;
 
 // A copy of the PropertyType enum from property-details.h
 var PropertyType = {};
-PropertyType.Normal                  = 0;
-PropertyType.Field                   = 1;
-PropertyType.Constant                = 2;
-PropertyType.Callbacks               = 3;
+PropertyType.Data                        = 0;
+PropertyType.DataConstant                = 2;
+PropertyType.AccessorConstant            = 3;
 
 
 // Different attributes for a property.
@@ -193,13 +193,16 @@ PropertyAttribute.DontEnum   = DONT_ENUM;
 PropertyAttribute.DontDelete = DONT_DELETE;
 
 
-// A copy of the scope types from runtime.cc.
+// A copy of the scope types from runtime-debug.cc.
+// NOTE: these constants should be backward-compatible, so
+// add new ones to the end of this list.
 var ScopeType = { Global: 0,
                   Local: 1,
                   With: 2,
                   Closure: 3,
                   Catch: 4,
-                  Block: 5 };
+                  Block: 5,
+                  Script: 6 };
 
 
 // Mirror hierarchy:
@@ -654,7 +657,7 @@ SymbolMirror.prototype.description = function() {
 
 
 SymbolMirror.prototype.toText = function() {
-  return %_CallFunction(this.value_, builtins.SymbolToString);
+  return %_CallFunction(this.value_, builtins.$symbolToString);
 }
 
 
@@ -820,7 +823,7 @@ ObjectMirror.prototype.internalProperties = function() {
 
 
 ObjectMirror.prototype.property = function(name) {
-  var details = %DebugGetPropertyDetails(this.value_, %ToName(name));
+  var details = %DebugGetPropertyDetails(this.value_, builtins.$toName(name));
   if (details) {
     return new PropertyMirror(this, name, details);
   }
@@ -845,7 +848,7 @@ ObjectMirror.prototype.lookupProperty = function(value) {
 
     // Skip properties which are defined through assessors.
     var property = properties[i];
-    if (property.propertyType() != PropertyType.Callbacks) {
+    if (property.propertyType() != PropertyType.AccessorConstant) {
       if (%_ObjectEquals(property.value_, value.value_)) {
         return property;
       }
@@ -901,33 +904,12 @@ ObjectMirror.prototype.toText = function() {
  * @return {Array} array (possibly empty) of InternalProperty instances
  */
 ObjectMirror.GetInternalProperties = function(value) {
-  if (IS_STRING_WRAPPER(value) || IS_NUMBER_WRAPPER(value) ||
-      IS_BOOLEAN_WRAPPER(value)) {
-    var primitiveValue = %_ValueOf(value);
-    return [new InternalPropertyMirror("[[PrimitiveValue]]", primitiveValue)];
-  } else if (IS_FUNCTION(value)) {
-    var bindings = %BoundFunctionGetBindings(value);
-    var result = [];
-    if (bindings && IS_ARRAY(bindings)) {
-      result.push(new InternalPropertyMirror("[[TargetFunction]]",
-                                             bindings[0]));
-      result.push(new InternalPropertyMirror("[[BoundThis]]", bindings[1]));
-      var boundArgs = [];
-      for (var i = 2; i < bindings.length; i++) {
-        boundArgs.push(bindings[i]);
-      }
-      result.push(new InternalPropertyMirror("[[BoundArgs]]", boundArgs));
-    }
-    return result;
-  } else if (ObjectIsPromise(value)) {
-    var result = [];
-    result.push(new InternalPropertyMirror("[[PromiseStatus]]",
-                                           PromiseGetStatus_(value)));
-    result.push(new InternalPropertyMirror("[[PromiseValue]]",
-                                           PromiseGetValue_(value)));
-    return result;
+  var properties = %DebugGetInternalProperties(value);
+  var result = [];
+  for (var i = 0; i < properties.length; i += 2) {
+    result.push(new InternalPropertyMirror(properties[i], properties[i + 1]));
   }
-  return [];
+  return result;
 }
 
 
@@ -981,7 +963,7 @@ FunctionMirror.prototype.source = function() {
   // Return source if function is resolved. Otherwise just fall through to
   // return undefined.
   if (this.resolved()) {
-    return builtins.FunctionSourceString(this.value_);
+    return builtins.$functionSourceString(this.value_);
   }
 };
 
@@ -1159,7 +1141,7 @@ ArrayMirror.prototype.indexedPropertiesFromRange = function(opt_from_index,
   if (from_index > to_index) return new Array();
   var values = new Array(to_index - from_index + 1);
   for (var i = from_index; i <= to_index; i++) {
-    var details = %DebugGetPropertyDetails(this.value_, %ToString(i));
+    var details = %DebugGetPropertyDetails(this.value_, builtins.$toString(i));
     var value;
     if (details) {
       value = new PropertyMirror(this, i, details);
@@ -1238,6 +1220,24 @@ RegExpMirror.prototype.multiline = function() {
 };
 
 
+/**
+ * Returns whether this regular expression has the sticky (y) flag set.
+ * @return {boolean} Value of the sticky flag
+ */
+RegExpMirror.prototype.sticky = function() {
+  return this.value_.sticky;
+};
+
+
+/**
+ * Returns whether this regular expression has the unicode (u) flag set.
+ * @return {boolean} Value of the unicode flag
+ */
+RegExpMirror.prototype.unicode = function() {
+  return this.value_.unicode;
+};
+
+
 RegExpMirror.prototype.toText = function() {
   // Simpel to text which is used when on specialization in subclass.
   return "/" + this.source() + "/";
@@ -1269,11 +1269,11 @@ ErrorMirror.prototype.toText = function() {
   // Use the same text representation as in messages.js.
   var text;
   try {
-    str = %_CallFunction(this.value_, builtins.ErrorToString);
+    text = %_CallFunction(this.value_, builtins.$errorToString);
   } catch (e) {
-    str = '#<Error>';
+    text = '#<Error>';
   }
-  return str;
+  return text;
 };
 
 
@@ -1290,7 +1290,7 @@ inherits(PromiseMirror, ObjectMirror);
 
 
 function PromiseGetStatus_(value) {
-  var status = %DebugGetProperty(value, builtins.promiseStatus);
+  var status = %DebugGetProperty(value, builtins.$promiseStatus);
   if (status == 0) return "pending";
   if (status == 1) return "resolved";
   return "rejected";
@@ -1298,7 +1298,7 @@ function PromiseGetStatus_(value) {
 
 
 function PromiseGetValue_(value) {
-  return %DebugGetProperty(value, builtins.promiseValue);
+  return %DebugGetProperty(value, builtins.$promiseValue);
 }
 
 
@@ -1322,13 +1322,14 @@ inherits(MapMirror, ObjectMirror);
  * Returns an array of key/value pairs of a map.
  * This will keep keys alive for WeakMaps.
  *
+ * @param {number=} opt_limit Max elements to return.
  * @returns {Array.<Object>} Array of key/value pairs of a map.
  */
-MapMirror.prototype.entries = function() {
+MapMirror.prototype.entries = function(opt_limit) {
   var result = [];
 
   if (IS_WEAKMAP(this.value_)) {
-    var entries = %GetWeakMapEntries(this.value_);
+    var entries = %GetWeakMapEntries(this.value_, opt_limit || 0);
     for (var i = 0; i < entries.length; i += 2) {
       result.push({
         key: entries[i],
@@ -1338,9 +1339,10 @@ MapMirror.prototype.entries = function() {
     return result;
   }
 
-  var iter = %_CallFunction(this.value_, builtins.MapEntries);
+  var iter = %_CallFunction(this.value_, builtins.$mapEntries);
   var next;
-  while (!(next = iter.next()).done) {
+  while ((!opt_limit || result.length < opt_limit) &&
+         !(next = iter.next()).done) {
     result.push({
       key: next.value[0],
       value: next.value[1]
@@ -1356,10 +1358,11 @@ function SetMirror(value) {
 inherits(SetMirror, ObjectMirror);
 
 
-function IteratorGetValues_(iter, next_function) {
+function IteratorGetValues_(iter, next_function, opt_limit) {
   var result = [];
   var next;
-  while (!(next = %_CallFunction(iter, next_function)).done) {
+  while ((!opt_limit || result.length < opt_limit) &&
+         !(next = %_CallFunction(iter, next_function)).done) {
     result.push(next.value);
   }
   return result;
@@ -1370,15 +1373,16 @@ function IteratorGetValues_(iter, next_function) {
  * Returns an array of elements of a set.
  * This will keep elements alive for WeakSets.
  *
+ * @param {number=} opt_limit Max elements to return.
  * @returns {Array.<Object>} Array of elements of a set.
  */
-SetMirror.prototype.values = function() {
+SetMirror.prototype.values = function(opt_limit) {
   if (IS_WEAKSET(this.value_)) {
-    return %GetWeakSetValues(this.value_);
+    return %GetWeakSetValues(this.value_, opt_limit || 0);
   }
 
-  var iter = %_CallFunction(this.value_, builtins.SetValues);
-  return IteratorGetValues_(iter, builtins.SetIteratorNextJS);
+  var iter = %_CallFunction(this.value_, builtins.$setValues);
+  return IteratorGetValues_(iter, builtins.$setIteratorNext, opt_limit);
 };
 
 
@@ -1392,15 +1396,18 @@ inherits(IteratorMirror, ObjectMirror);
  * Returns a preview of elements of an iterator.
  * Does not change the backing iterator state.
  *
+ * @param {number=} opt_limit Max elements to return.
  * @returns {Array.<Object>} Array of elements of an iterator.
  */
-IteratorMirror.prototype.preview = function() {
+IteratorMirror.prototype.preview = function(opt_limit) {
   if (IS_MAP_ITERATOR(this.value_)) {
     return IteratorGetValues_(%MapIteratorClone(this.value_),
-                              builtins.MapIteratorNextJS);
+                              builtins.$mapIteratorNext,
+                              opt_limit);
   } else if (IS_SET_ITERATOR(this.value_)) {
     return IteratorGetValues_(%SetIteratorClone(this.value_),
-                              builtins.SetIteratorNextJS);
+                              builtins.$setIteratorNext,
+                              opt_limit);
   }
 };
 
@@ -1417,11 +1424,16 @@ function GeneratorMirror(value) {
 inherits(GeneratorMirror, ObjectMirror);
 
 
-GeneratorMirror.prototype.status = function() {
-  var continuation = %GeneratorGetContinuation(this.value_);
+function GeneratorGetStatus_(value) {
+  var continuation = %GeneratorGetContinuation(value);
   if (continuation < 0) return "running";
   if (continuation == 0) return "closed";
   return "suspended";
+}
+
+
+GeneratorMirror.prototype.status = function() {
+  return GeneratorGetStatus_(this.value_);
 };
 
 
@@ -1602,7 +1614,7 @@ PropertyMirror.prototype.setter = function() {
  */
 PropertyMirror.prototype.isNative = function() {
   return this.is_interceptor_ ||
-         ((this.propertyType() == PropertyType.Callbacks) &&
+         ((this.propertyType() == PropertyType.AccessorConstant) &&
           !this.hasGetter() && !this.hasSetter());
 };
 
@@ -2286,11 +2298,12 @@ ScopeMirror.prototype.scopeType = function() {
 
 
 ScopeMirror.prototype.scopeObject = function() {
-  // For local and closure scopes create a transient mirror as these objects are
-  // created on the fly materializing the local or closure scopes and
-  // therefore will not preserve identity.
+  // For local, closure and script scopes create a transient mirror
+  // as these objects are created on the fly materializing the local
+  // or closure scopes and therefore will not preserve identity.
   var transient = this.scopeType() == ScopeType.Local ||
-                  this.scopeType() == ScopeType.Closure;
+                  this.scopeType() == ScopeType.Closure ||
+                  this.scopeType() == ScopeType.Script;
   return MakeMirror(this.details_.object(), transient);
 };
 
@@ -2875,10 +2888,9 @@ function serializeLocationFields (location, content) {
  *    "ref":<number>}
  *
  * If the attribute for the property is PropertyAttribute.None it is not added.
- * If the propertyType for the property is PropertyType.Normal it is not added.
  * Here are a couple of examples.
  *
- *   {"name":"hello","ref":1}
+ *   {"name":"hello","propertyType":0,"ref":1}
  *   {"name":"length","attributes":7,"propertyType":3,"ref":2}
  *
  * @param {PropertyMirror} propertyMirror The property to serialize.
@@ -2895,9 +2907,7 @@ JSONProtocolSerializer.prototype.serializeProperty_ = function(propertyMirror) {
     if (propertyMirror.attributes() != PropertyAttribute.None) {
       result.attributes = propertyMirror.attributes();
     }
-    if (propertyMirror.propertyType() != PropertyType.Normal) {
-      result.propertyType = propertyMirror.propertyType();
-    }
+    result.propertyType = propertyMirror.propertyType();
     result.ref = propertyValue.handle();
   }
   return result;

@@ -18,7 +18,6 @@
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/app_window/native_app_window.h"
 #include "extensions/common/extension.h"
-#include "extensions/common/extension_messages.h"
 #include "ui/gfx/image/image.h"
 
 using extensions::AppWindow;
@@ -168,27 +167,22 @@ void AshPanelContents::Initialize(content::BrowserContext* context,
                                   const GURL& url) {
   url_ = url;
 
-  extension_function_dispatcher_.reset(
-      new extensions::ExtensionFunctionDispatcher(context, this));
-
   web_contents_.reset(
       content::WebContents::Create(content::WebContents::CreateParams(
           context, content::SiteInstance::CreateForURL(context, url_))));
 
   // Needed to give the web contents a Window ID. Extension APIs expect web
-  // contents to have a Window ID. Also required for FaviconTabHelper to
-  // correctly set the window icon and title.
+  // contents to have a Window ID. Also required for FaviconDriver to correctly
+  // set the window icon and title.
   SessionTabHelper::CreateForWebContents(web_contents_.get());
   SessionTabHelper::FromWebContents(web_contents_.get())->SetWindowID(
       host_->session_id());
 
   // Responsible for loading favicons for the Launcher, which uses different
-  // logic than the FaviconTabHelper associated with web_contents_
-  // (instantiated in AppWindow::Init())
+  // logic than the FaviconDriver associated with web_contents_ (instantiated in
+  // AppWindow::Init())
   launcher_favicon_loader_.reset(
       new LauncherFaviconLoader(this, web_contents_.get()));
-
-  content::WebContentsObserver::Observe(web_contents_.get());
 }
 
 void AshPanelContents::LoadContents(int32 creator_process_id) {
@@ -216,32 +210,12 @@ content::WebContents* AshPanelContents::GetWebContents() const {
   return web_contents_.get();
 }
 
+extensions::WindowController* AshPanelContents::GetWindowController() const {
+  return window_controller_.get();
+}
+
 void AshPanelContents::FaviconUpdated() {
   gfx::Image new_image = gfx::Image::CreateFrom1xBitmap(
       launcher_favicon_loader_->GetFavicon());
   host_->UpdateAppIcon(new_image);
-}
-
-bool AshPanelContents::OnMessageReceived(const IPC::Message& message) {
-  bool handled = true;
-  IPC_BEGIN_MESSAGE_MAP(AshPanelContents, message)
-    IPC_MESSAGE_HANDLER(ExtensionHostMsg_Request, OnRequest)
-    IPC_MESSAGE_UNHANDLED(handled = false)
-  IPC_END_MESSAGE_MAP()
-  return handled;
-}
-
-extensions::WindowController*
-AshPanelContents::GetExtensionWindowController() const {
-  return window_controller_.get();
-}
-
-content::WebContents* AshPanelContents::GetAssociatedWebContents() const {
-  return web_contents_.get();
-}
-
-void AshPanelContents::OnRequest(
-    const ExtensionHostMsg_Request_Params& params) {
-  extension_function_dispatcher_->Dispatch(
-      params, web_contents_->GetRenderViewHost());
 }

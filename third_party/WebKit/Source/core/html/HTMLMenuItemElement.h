@@ -16,6 +16,7 @@ public:
 
 private:
     explicit HTMLMenuItemElement(Document&);
+    void defaultEventHandler(Event*) override;
 };
 
 } // namespace blink

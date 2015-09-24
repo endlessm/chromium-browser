@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CONTENT_SHELL_LAYOUT_TEST_CONTENT_RENDERER_CLIENT_H_
-#define CONTENT_SHELL_LAYOUT_TEST_CONTENT_RENDERER_CLIENT_H_
+#ifndef CONTENT_SHELL_RENDERER_LAYOUT_TEST_LAYOUT_TEST_CONTENT_RENDERER_CLIENT_H_
+#define CONTENT_SHELL_RENDERER_LAYOUT_TEST_LAYOUT_TEST_CONTENT_RENDERER_CLIENT_H_
 
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
@@ -19,11 +19,14 @@ namespace web_cache {
 class WebCacheRenderProcessObserver;
 }
 
+namespace test_runner {
+class WebTestProxyBase;
+}
+
 namespace content {
 
 class LayoutTestRenderProcessObserver;
 class MockWebClipboardImpl;
-class WebTestProxyBase;
 
 class LayoutTestContentRendererClient : public ShellContentRendererClient {
  public:
@@ -43,9 +46,14 @@ class LayoutTestContentRendererClient : public ShellContentRendererClient {
   blink::WebAudioDevice* OverrideCreateAudioDevice(double sample_rate) override;
   blink::WebClipboard* OverrideWebClipboard() override;
   blink::WebThemeEngine* OverrideThemeEngine() override;
+  scoped_ptr<blink::WebAppBannerClient> CreateAppBannerClient(
+      RenderFrame* render_frame) override;
+  scoped_ptr<MediaStreamRendererFactory> CreateMediaStreamRendererFactory()
+      override;
 
  private:
-  void WebTestProxyCreated(RenderView* render_view, WebTestProxyBase* proxy);
+  void WebTestProxyCreated(RenderView* render_view,
+                           test_runner::WebTestProxyBase* proxy);
 
   scoped_ptr<LayoutTestRenderProcessObserver> shell_observer_;
   scoped_ptr<MockWebClipboardImpl> clipboard_;
@@ -53,4 +61,4 @@ class LayoutTestContentRendererClient : public ShellContentRendererClient {
 
 }  // namespace content
 
-#endif  // CONTENT_SHELL_LAYOUT_TEST_CONTENT_RENDERER_CLIENT_H_
+#endif  // CONTENT_SHELL_RENDERER_LAYOUT_TEST_LAYOUT_TEST_CONTENT_RENDERER_CLIENT_H_

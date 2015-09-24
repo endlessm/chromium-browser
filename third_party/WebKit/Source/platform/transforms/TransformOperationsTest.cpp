@@ -35,11 +35,9 @@
 #include "platform/transforms/ScaleTransformOperation.h"
 #include "platform/transforms/SkewTransformOperation.h"
 #include "platform/transforms/TranslateTransformOperation.h"
-
 #include <gtest/gtest.h>
 
-using namespace blink;
-namespace {
+namespace blink {
 
 static const TransformOperations identityOperations;
 
@@ -122,7 +120,7 @@ TEST(TransformOperationsTest, EmpiricalAnimatedTranslatedBoundsTest)
             TransformOperations toOps;
             fromOps.operations().append(TranslateTransformOperation::create(Length(testTransforms[i][0][0], blink::Fixed), Length(testTransforms[i][0][1], blink::Fixed), testTransforms[i][0][2], TransformOperation::Translate3D));
             toOps.operations().append(TranslateTransformOperation::create(Length(testTransforms[i][1][0], blink::Fixed), Length(testTransforms[i][1][1], blink::Fixed), testTransforms[i][1][2], TransformOperation::Translate3D));
-            EmpiricallyTestBounds(fromOps, toOps, 0, 1);
+            EmpiricallyTestBounds(fromOps, toOps, progress[j][0], progress[j][1]);
         }
     }
 }
@@ -177,7 +175,7 @@ TEST(TransformOperationsTest, EmpiricalAnimatedScaleBoundsTest)
             TransformOperations toOps;
             fromOps.operations().append(TranslateTransformOperation::create(Length(testTransforms[i][0][0], blink::Fixed), Length(testTransforms[i][0][1], blink::Fixed), testTransforms[i][0][2], TransformOperation::Translate3D));
             toOps.operations().append(TranslateTransformOperation::create(Length(testTransforms[i][1][0], blink::Fixed), Length(testTransforms[i][1][1], blink::Fixed), testTransforms[i][1][2], TransformOperation::Translate3D));
-            EmpiricallyTestBounds(fromOps, toOps, 0, 1);
+            EmpiricallyTestBounds(fromOps, toOps, progress[j][0], progress[j][1]);
         }
     }
 }
@@ -490,4 +488,4 @@ TEST(TransformOperationsTest, AbsoluteSequenceBoundsTest)
     EXPECT_PRED_FORMAT2(FloatBoxTest::AssertAlmostEqual, FloatBox(-7, -3, 2, 15, 23, 20), bounds);
 }
 
-} // namespace
+} // namespace blink

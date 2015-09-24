@@ -10,7 +10,7 @@
 #include "base/lazy_instance.h"
 #include "base/metrics/histogram.h"
 #include "base/strings/string_util.h"
-#include "components/pdf/renderer/ppb_pdf_impl.h"
+#include "components/pdf/renderer/pepper_pdf_host.h"
 #include "content/public/renderer/pepper_plugin_instance.h"
 #include "content/public/renderer/render_thread.h"
 #include "content/public/renderer/renderer_ppapi_host.h"
@@ -32,7 +32,7 @@
 #include "third_party/skia/include/core/SkPoint.h"
 #include "third_party/skia/include/core/SkTemplates.h"
 #include "third_party/skia/include/core/SkTypeface.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
 
 using ppapi::thunk::EnterResourceNoLock;
@@ -221,12 +221,12 @@ int32_t PepperFlashRendererHost::OnDrawGlyphs(
 
   // Set up the canvas.
   PPB_ImageData_API* image = static_cast<PPB_ImageData_API*>(enter.object());
-  SkCanvas* canvas = image->GetPlatformCanvas();
+  SkCanvas* canvas = image->GetCanvas();
   bool needs_unmapping = false;
   if (!canvas) {
     needs_unmapping = true;
     image->Map();
-    canvas = image->GetPlatformCanvas();
+    canvas = image->GetCanvas();
     if (!canvas)
       return PP_ERROR_FAILED;  // Failure mapping.
   }
@@ -377,6 +377,6 @@ int32_t PepperFlashRendererHost::OnIsRectTopmost(
 
 int32_t PepperFlashRendererHost::OnInvokePrinting(
     ppapi::host::HostMessageContext* host_context) {
-  pdf::PPB_PDF_Impl::InvokePrintingForInstance(pp_instance());
+  pdf::PepperPDFHost::InvokePrintingForInstance(pp_instance());
   return PP_OK;
 }

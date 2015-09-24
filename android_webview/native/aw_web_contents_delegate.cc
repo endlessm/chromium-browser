@@ -23,6 +23,7 @@
 #include "content/public/common/file_chooser_params.h"
 #include "content/public/common/media_stream_request.h"
 #include "jni/AwWebContentsDelegate_jni.h"
+#include "net/base/escape.h"
 
 using base::android::AttachCurrentThread;
 using base::android::ConvertUTF16ToJavaString;
@@ -55,7 +56,7 @@ AwWebContentsDelegate::~AwWebContentsDelegate() {
 }
 
 content::JavaScriptDialogManager*
-AwWebContentsDelegate::GetJavaScriptDialogManager() {
+AwWebContentsDelegate::GetJavaScriptDialogManager(WebContents* source) {
   return g_javascript_dialog_manager.Pointer();
 }
 
@@ -76,7 +77,6 @@ void AwWebContentsDelegate::FindReply(WebContents* web_contents,
 }
 
 void AwWebContentsDelegate::CanDownload(
-    content::RenderViewHost* source,
     const GURL& url,
     const std::string& request_method,
     const base::Callback<void(bool)>& callback) {
@@ -125,7 +125,7 @@ void AwWebContentsDelegate::RunFileChooser(WebContents* web_contents,
 void AwWebContentsDelegate::AddNewContents(WebContents* source,
                                            WebContents* new_contents,
                                            WindowOpenDisposition disposition,
-                                           const gfx::Rect& initial_pos,
+                                           const gfx::Rect& initial_rect,
                                            bool user_gesture,
                                            bool* was_blocked) {
   JNIEnv* env = AttachCurrentThread();
@@ -163,12 +163,24 @@ void AwWebContentsDelegate::AddNewContents(WebContents* source,
   }
 }
 
+void AwWebContentsDelegate::NavigationStateChanged(
+    content::WebContents* source,
+    content::InvalidateTypes changed_flags) {
+  JNIEnv* env = AttachCurrentThread();
+
+  ScopedJavaLocalRef<jobject> java_delegate = GetJavaDelegate(env);
+  if (java_delegate.obj()) {
+    Java_AwWebContentsDelegate_navigationStateChanged(env, java_delegate.obj(),
+                                                      changed_flags);
+  }
+}
+
 // Notifies the delegate about the creation of a new WebContents. This
 // typically happens when popups are created.
 void AwWebContentsDelegate::WebContentsCreated(
     WebContents* source_contents,
     int opener_render_frame_id,
-    const base::string16& frame_name,
+    const std::string& frame_name,
     const GURL& target_url,
     content::WebContents* new_contents) {
   AwContentsIoThreadClientImpl::RegisterPendingContents(new_contents);
@@ -192,6 +204,18 @@ void AwWebContentsDelegate::ActivateContents(WebContents* contents) {
   }
 }
 
+void AwWebContentsDelegate::LoadingStateChanged(WebContents* source,
+                                                bool to_different_document) {
+  // Page title may have changed, need to inform the embedder.
+  // |source| may be null if loading has started.
+  JNIEnv* env = AttachCurrentThread();
+
+  ScopedJavaLocalRef<jobject> java_delegate = GetJavaDelegate(env);
+  if (java_delegate.obj()) {
+    Java_AwWebContentsDelegate_loadingStateChanged(env, java_delegate.obj());
+  }
+}
+
 void AwWebContentsDelegate::RequestMediaAccessPermission(
     WebContents* web_contents,
     const content::MediaStreamRequest& request,
@@ -208,16 +232,17 @@ void AwWebContentsDelegate::RequestMediaAccessPermission(
           new MediaAccessPermissionRequest(request, callback)));
 }
 
-void AwWebContentsDelegate::ToggleFullscreenModeForTab(
-    content::WebContents* web_contents, bool enter_fullscreen) {
-  JNIEnv* env = AttachCurrentThread();
+void AwWebContentsDelegate::EnterFullscreenModeForTab(
+    content::WebContents* web_contents, const GURL& origin) {
+  WebContentsDelegateAndroid::EnterFullscreenModeForTab(web_contents, origin);
+  is_fullscreen_ = true;
+  web_contents->GetRenderViewHost()->WasResized();
+}
 
-  ScopedJavaLocalRef<jobject> java_delegate = GetJavaDelegate(env);
-  if (java_delegate.obj()) {
-    Java_AwWebContentsDelegate_toggleFullscreenModeForTab(
-        env, java_delegate.obj(), enter_fullscreen);
-  }
-  is_fullscreen_ = enter_fullscreen;
+void AwWebContentsDelegate::ExitFullscreenModeForTab(
+    content::WebContents* web_contents) {
+  WebContentsDelegateAndroid::ExitFullscreenModeForTab(web_contents);
+  is_fullscreen_ = false;
   web_contents->GetRenderViewHost()->WasResized();
 }
 
@@ -249,7 +274,10 @@ static void FilesSelectedInChooser(
     GURL url(file_path_str[i]);
     if (!url.is_valid())
       continue;
-    base::FilePath path(url.SchemeIsFile() ? url.path() : file_path_str[i]);
+    base::FilePath path(url.SchemeIsFile() ?
+      net::UnescapeURLComponent(url.path(),
+        net::UnescapeRule::SPACES | net::UnescapeRule::URL_SPECIAL_CHARS) :
+        file_path_str[i]);
     content::FileChooserFileInfo file_info;
     file_info.file_path = path;
     if (!display_name_str[i].empty())

@@ -8,9 +8,9 @@
 #include "ash/system/tray/system_tray.h"
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/debug/trace_event.h"
 #include "base/i18n/rtl.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/trace_event/trace_event.h"
 #include "base/values.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_util.h"
@@ -26,7 +26,7 @@
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/browser/ui/autofill/chrome_autofill_client.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
-#include "chrome/browser/ui/zoom/zoom_controller.h"
+#include "chrome/common/chrome_version_info.h"
 #include "chrome/common/render_messages.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/session_manager_client.h"
@@ -42,8 +42,8 @@
 #include "content/public/browser/web_ui.h"
 #include "content/public/common/renderer_preferences.h"
 #include "third_party/WebKit/public/web/WebInputEvent.h"
-#include "ui/gfx/rect.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/views/controls/webview/webview.h"
 #include "ui/views/widget/widget.h"
 
@@ -57,6 +57,7 @@ namespace {
 // These strings must be kept in sync with handleAccelerator()
 // in display_manager.js.
 const char kAccelNameCancel[] = "cancel";
+const char kAccelNameEnableDebugging[] = "debugging";
 const char kAccelNameEnrollment[] = "enrollment";
 const char kAccelNameKioskEnable[] = "kiosk_enable";
 const char kAccelNameVersion[] = "version";
@@ -68,7 +69,9 @@ const char kAccelNameDeviceRequisitionRemora[] = "device_requisition_remora";
 const char kAccelNameDeviceRequisitionShark[] = "device_requisition_shark";
 const char kAccelNameAppLaunchBailout[] = "app_launch_bailout";
 const char kAccelNameAppLaunchNetworkConfig[] = "app_launch_network_config";
-const char kAccelNameEmbeddedSignin[] = "embedded_signin";
+const char kAccelNameToggleWebviewSignin[] = "toggle_webview_signin";
+const char kAccelNameToggleNewLoginUI[] = "toggle_new_login_ui";
+const char kAccelNameToggleEasyBootstrap[] = "toggle_easy_bootstrap";
 
 // A class to change arrow key traversal behavior when it's alive.
 class ScopedArrowKeyTraversal {
@@ -117,9 +120,6 @@ WebUILoginView::WebUILoginView()
   accel_map_[ui::Accelerator(ui::VKEY_E,
                              ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN)] =
       kAccelNameEnrollment;
-  accel_map_[ui::Accelerator(
-      ui::VKEY_G, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN | ui::EF_SHIFT_DOWN)] =
-      kAccelNameEmbeddedSignin;
   accel_map_[ui::Accelerator(ui::VKEY_K,
                              ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN)] =
       kAccelNameKioskEnable;
@@ -128,11 +128,30 @@ WebUILoginView::WebUILoginView()
   accel_map_[ui::Accelerator(ui::VKEY_R,
       ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN | ui::EF_SHIFT_DOWN)] =
       kAccelNameReset;
+  accel_map_[ui::Accelerator(ui::VKEY_X,
+      ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN | ui::EF_SHIFT_DOWN)] =
+      kAccelNameEnableDebugging;
+  accel_map_[ui::Accelerator(
+      ui::VKEY_L, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN | ui::EF_SHIFT_DOWN)] =
+      kAccelNameToggleNewLoginUI;
+  accel_map_[ui::Accelerator(
+      ui::VKEY_B, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN | ui::EF_SHIFT_DOWN)] =
+      kAccelNameToggleEasyBootstrap;
 
   accel_map_[ui::Accelerator(ui::VKEY_LEFT, ui::EF_NONE)] =
       kAccelFocusPrev;
   accel_map_[ui::Accelerator(ui::VKEY_RIGHT, ui::EF_NONE)] =
       kAccelFocusNext;
+
+  // Ctrl-Alt-Shift-W for canary/dev builds only.
+  const chrome::VersionInfo::Channel channel =
+      chrome::VersionInfo::GetChannel();
+  if (channel != chrome::VersionInfo::CHANNEL_STABLE &&
+      channel != chrome::VersionInfo::CHANNEL_BETA) {
+    accel_map_[ui::Accelerator(
+        ui::VKEY_W, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN |
+                        ui::EF_SHIFT_DOWN)] = kAccelNameToggleWebviewSignin;
+  }
 
   // Use KEY_RELEASED because Gaia consumes KEY_PRESSED for up/down key.
   ui::Accelerator key_up(ui::VKEY_UP, ui::EF_NONE);
@@ -170,17 +189,14 @@ WebUILoginView::~WebUILoginView() {
                     observer_list_,
                     OnHostDestroying());
 
-#if !defined(USE_ATHENA)
   if (ash::Shell::GetInstance()->HasPrimaryStatusArea()) {
     ash::Shell::GetInstance()->GetPrimarySystemTray()->
         SetNextFocusableView(NULL);
   }
-#endif
 }
 
 void WebUILoginView::Init() {
   Profile* signin_profile = ProfileHelper::GetSigninProfile();
-  auth_extension_.reset(new ScopedGaiaAuthExtension(signin_profile));
   webui_login_ = new views::WebView(signin_profile);
   webui_login_->set_allow_accelerators(true);
   AddChildView(webui_login_);
@@ -313,7 +329,6 @@ void WebUILoginView::OnPostponedShow() {
 }
 
 void WebUILoginView::SetStatusAreaVisible(bool visible) {
-#if !defined(USE_ATHENA)
   if (ash::Shell::GetInstance()->HasPrimaryStatusArea()) {
     ash::SystemTray* tray = ash::Shell::GetInstance()->GetPrimarySystemTray();
     if (visible) {
@@ -324,14 +339,23 @@ void WebUILoginView::SetStatusAreaVisible(bool visible) {
       tray->GetWidget()->Hide();
     }
   }
-#endif
 }
 
 void WebUILoginView::SetUIEnabled(bool enabled) {
   forward_keyboard_event_ = enabled;
-#if !defined(USE_ATHENA)
-  ash::Shell::GetInstance()->GetPrimarySystemTray()->SetEnabled(enabled);
-#endif
+  ash::SystemTray* tray = ash::Shell::GetInstance()->GetPrimarySystemTray();
+
+  // We disable the UI to prevent user from interracting with UI elements,
+  // particullary with the system tray menu. However, in case if the system tray
+  // bubble is opened at this point, it remains opened and interactictive even
+  // after SystemTray::SetEnabled(false) call, which can be dangerous
+  // (http://crbug.com/497080). Close the menu to fix it. Calling
+  // SystemTray::SetEnabled(false) guarantees, that the menu will not be opened
+  // until the UI is enabled again.
+  if (!enabled && tray->HasSystemBubble())
+    tray->CloseSystemBubble();
+
+  tray->SetEnabled(enabled);
 }
 
 void WebUILoginView::AddFrameObserver(FrameObserver* frame_observer) {
@@ -430,14 +454,12 @@ bool WebUILoginView::TakeFocus(content::WebContents* source, bool reverse) {
   if (!forward_keyboard_event_)
     return false;
 
-#if !defined(USE_ATHENA)
   ash::SystemTray* tray = ash::Shell::GetInstance()->GetPrimarySystemTray();
   if (tray && tray->GetWidget()->IsVisible()) {
     tray->SetNextFocusableView(this);
     ash::Shell::GetInstance()->RotateFocus(reverse ? ash::Shell::BACKWARD :
                                                     ash::Shell::FORWARD);
   }
-#endif
 
   return true;
 }
@@ -471,7 +493,8 @@ void WebUILoginView::DidFailProvisionalLoad(
     content::RenderFrameHost* render_frame_host,
     const GURL& validated_url,
     int error_code,
-    const base::string16& error_description) {
+    const base::string16& error_description,
+    bool was_ignored_by_handler) {
   FOR_EACH_OBSERVER(FrameObserver,
                     frame_observer_list_,
                     OnFrameError(render_frame_host->GetFrameName()));

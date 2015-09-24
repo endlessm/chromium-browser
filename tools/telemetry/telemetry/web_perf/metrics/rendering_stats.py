@@ -1,6 +1,8 @@
 # Copyright 2014 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
+import itertools
+
 from operator import attrgetter
 
 from telemetry.web_perf.metrics import rendering_frame
@@ -15,40 +17,53 @@ ORIGINAL_COMP_NAME = 'INPUT_EVENT_LATENCY_ORIGINAL_COMPONENT'
 BEGIN_COMP_NAME = 'INPUT_EVENT_LATENCY_BEGIN_RWH_COMPONENT'
 # This is when an input event is turned into a scroll update.
 BEGIN_SCROLL_UPDATE_COMP_NAME = (
-    'INPUT_EVENT_LATENCY_BEGIN_SCROLL_UPDATE_MAIN_COMPONENT')
+    'LATENCY_BEGIN_SCROLL_LISTENER_UPDATE_MAIN_COMPONENT')
 # This is when a scroll update is forwarded to the main thread.
 FORWARD_SCROLL_UPDATE_COMP_NAME = (
     'INPUT_EVENT_LATENCY_FORWARD_SCROLL_UPDATE_TO_MAIN_COMPONENT')
 # This is when the input event has reached swap buffer.
-END_COMP_NAME = 'INPUT_EVENT_LATENCY_TERMINATED_FRAME_SWAP_COMPONENT'
+END_COMP_NAME = 'INPUT_EVENT_GPU_SWAP_BUFFER_COMPONENT'
 
 # Name for a main thread scroll update latency event.
-SCROLL_UPDATE_EVENT_NAME = 'InputLatency:ScrollUpdate'
+SCROLL_UPDATE_EVENT_NAME = 'Latency::ScrollUpdate'
 # Name for a gesture scroll update latency event.
-GESTURE_SCROLL_UPDATE_EVENT_NAME  = 'InputLatency:GestureScrollUpdate'
+GESTURE_SCROLL_UPDATE_EVENT_NAME = 'InputLatency::GestureScrollUpdate'
+
+# These are keys used in the 'data' field dictionary located in
+# BenchmarkInstrumentation::ImplThreadRenderingStats.
+VISIBLE_CONTENT_DATA = 'visible_content_area'
+APPROXIMATED_VISIBLE_CONTENT_DATA = 'approximated_visible_content_area'
+CHECKERBOARDED_VISIBLE_CONTENT_DATA = 'checkerboarded_visible_content_area'
+# These are keys used in the 'errors' field  dictionary located in
+# RenderingStats in this file.
+APPROXIMATED_PIXEL_ERROR = 'approximated_pixel_percentages'
+CHECKERBOARDED_PIXEL_ERROR = 'checkerboarded_pixel_percentages'
 
 
-def GetInputLatencyEvents(process, timeline_range):
-  """Get input events' LatencyInfo from the process's trace buffer that are
+def GetLatencyEvents(process, timeline_range):
+  """Get LatencyInfo trace events from the process's trace buffer that are
      within the timeline_range.
 
   Input events dump their LatencyInfo into trace buffer as async trace event
-  with name "InputLatency". The trace event has a memeber 'data' containing
-  its latency history.
+  of name starting with "InputLatency". Non-input events with name starting
+  with "Latency". The trace event has a memeber 'data' containing its latency
+  history.
 
   """
-  input_events = []
+  latency_events = []
   if not process:
-    return input_events
-  for event in process.IterAllAsyncSlicesOfName('InputLatency'):
+    return latency_events
+  for event in itertools.chain(
+      process.IterAllAsyncSlicesStartsWithName('InputLatency'),
+      process.IterAllAsyncSlicesStartsWithName('Latency')):
     if event.start >= timeline_range.min and event.end <= timeline_range.max:
       for ss in event.sub_slices:
         if 'data' in ss.args:
-          input_events.append(ss)
-  return input_events
+          latency_events.append(ss)
+  return latency_events
 
 
-def ComputeInputEventLatencies(input_events):
+def ComputeEventLatencies(input_events):
   """ Compute input event latencies.
 
   Input event latency is the time from when the input event is created to
@@ -61,7 +76,7 @@ def ComputeInputEventLatencies(input_events):
   3. INPUT_EVENT_LATENCY_BEGIN_RWH_COMPONENT -- when event reaches RenderWidget
 
   If the latency starts with a
-  INPUT_EVENT_LATENCY_BEGIN_SCROLL_UPDATE_MAIN_COMPONENT component, then it is
+  LATENCY_BEGIN_SCROLL_UPDATE_MAIN_COMPONENT component, then it is
   classified as a scroll update instead of a normal input latency measure.
 
   Returns:
@@ -82,7 +97,7 @@ def ComputeInputEventLatencies(input_events):
       elif BEGIN_SCROLL_UPDATE_COMP_NAME in data:
         start_time = data[BEGIN_SCROLL_UPDATE_COMP_NAME]['time']
       else:
-        raise ValueError, 'LatencyInfo has no begin component'
+        raise ValueError('LatencyInfo has no begin component')
       latency = (end_time - start_time) / 1000.0
       input_event_latencies.append((start_time, event.name, latency))
 
@@ -108,14 +123,19 @@ def HasRenderingStats(process):
 
 def GetTimestampEventName(process):
   """ Returns the name of the events used to count frame timestamps. """
+  if process.name == 'SurfaceFlinger':
+    return 'vsync_before'
+
   event_name = 'BenchmarkInstrumentation::DisplayRenderingStats'
   for event in process.IterAllSlicesOfName(event_name):
     if 'data' in event.args and event.args['data']['frame_count'] == 1:
       return event_name
+
   return 'BenchmarkInstrumentation::ImplThreadRenderingStats'
 
 class RenderingStats(object):
-  def __init__(self, renderer_process, browser_process, timeline_ranges):
+  def __init__(self, renderer_process, browser_process, surface_flinger_process,
+               timeline_ranges):
     """
     Utility class for extracting rendering statistics from the timeline (or
     other loggin facilities), and providing them in a common format to classes
@@ -126,9 +146,14 @@ class RenderingStats(object):
 
     All *_time values are measured in milliseconds.
     """
-    assert(len(timeline_ranges) > 0)
+    assert len(timeline_ranges) > 0
+    self.refresh_period = None
+
     # Find the top level process with rendering stats (browser or renderer).
-    if HasRenderingStats(browser_process):
+    if surface_flinger_process:
+      timestamp_process = surface_flinger_process
+      self._GetRefreshPeriodFromSurfaceFlingerProcess(surface_flinger_process)
+    elif HasRenderingStats(browser_process):
       timestamp_process = browser_process
     else:
       timestamp_process = renderer_process
@@ -141,11 +166,8 @@ class RenderingStats(object):
 
     self.frame_timestamps = []
     self.frame_times = []
-    self.paint_times = []
-    self.painted_pixel_counts = []
-    self.record_times = []
-    self.recorded_pixel_counts = []
     self.approximated_pixel_percentages = []
+    self.checkerboarded_pixel_percentages = []
     # End-to-end latency for input event - from when input event is
     # generated to when the its resulted page is swap buffered.
     self.input_event_latency = []
@@ -159,11 +181,8 @@ class RenderingStats(object):
     for timeline_range in timeline_ranges:
       self.frame_timestamps.append([])
       self.frame_times.append([])
-      self.paint_times.append([])
-      self.painted_pixel_counts.append([])
-      self.record_times.append([])
-      self.recorded_pixel_counts.append([])
       self.approximated_pixel_percentages.append([])
+      self.checkerboarded_pixel_percentages.append([])
       self.input_event_latency.append([])
       self.scroll_update_latency.append([])
       self.gesture_scroll_update_latency.append([])
@@ -172,8 +191,6 @@ class RenderingStats(object):
         continue
       self._InitFrameTimestampsFromTimeline(
           timestamp_process, timestamp_event_name, timeline_range)
-      self._InitMainThreadRenderingStatsFromTimeline(
-          renderer_process, timeline_range)
       self._InitImplThreadRenderingStatsFromTimeline(
           renderer_process, timeline_range)
       self._InitInputLatencyStatsFromTimeline(
@@ -181,24 +198,28 @@ class RenderingStats(object):
       self._InitFrameQueueingDurationsFromTimeline(
           renderer_process, timeline_range)
 
+  def _GetRefreshPeriodFromSurfaceFlingerProcess(self, surface_flinger_process):
+    for event in surface_flinger_process.IterAllEventsOfName('vsync_before'):
+      self.refresh_period = event.args['data']['refresh_period']
+      return
+
   def _InitInputLatencyStatsFromTimeline(
       self, browser_process, renderer_process, timeline_range):
-    latency_events = GetInputLatencyEvents(browser_process, timeline_range)
+    latency_events = GetLatencyEvents(browser_process, timeline_range)
     # Plugin input event's latency slice is generated in renderer process.
-    latency_events.extend(GetInputLatencyEvents(renderer_process,
-                                                timeline_range))
-    input_event_latencies = ComputeInputEventLatencies(latency_events)
+    latency_events.extend(GetLatencyEvents(renderer_process, timeline_range))
+    event_latencies = ComputeEventLatencies(latency_events)
     # Don't include scroll updates in the overall input latency measurement,
     # because scroll updates can take much more time to process than other
     # input events and would therefore add noise to overall latency numbers.
     self.input_event_latency[-1] = [
-        latency for name, latency in input_event_latencies
+        latency for name, latency in event_latencies
         if name != SCROLL_UPDATE_EVENT_NAME]
     self.scroll_update_latency[-1] = [
-        latency for name, latency in input_event_latencies
+        latency for name, latency in event_latencies
         if name == SCROLL_UPDATE_EVENT_NAME]
     self.gesture_scroll_update_latency[-1] = [
-        latency for name, latency in input_event_latencies
+        latency for name, latency in event_latencies
         if name == GESTURE_SCROLL_UPDATE_EVENT_NAME]
 
   def _GatherEvents(self, event_name, process, timeline_range):
@@ -228,25 +249,41 @@ class RenderingStats(object):
         timestamp_event_name, process, timeline_range):
       self._AddFrameTimestamp(event)
 
-  def _InitMainThreadRenderingStatsFromTimeline(self, process, timeline_range):
-    event_name = 'BenchmarkInstrumentation::MainThreadRenderingStats'
-    for event in self._GatherEvents(event_name, process, timeline_range):
-      data = event.args['data']
-      self.paint_times[-1].append(1000.0 * data['paint_time'])
-      self.painted_pixel_counts[-1].append(data['painted_pixel_count'])
-      self.record_times[-1].append(1000.0 * data['record_time'])
-      self.recorded_pixel_counts[-1].append(data['recorded_pixel_count'])
-
   def _InitImplThreadRenderingStatsFromTimeline(self, process, timeline_range):
     event_name = 'BenchmarkInstrumentation::ImplThreadRenderingStats'
     for event in self._GatherEvents(event_name, process, timeline_range):
       data = event.args['data']
-      if data.get('visible_content_area', 0):
+      if VISIBLE_CONTENT_DATA not in data:
+        self.errors[APPROXIMATED_PIXEL_ERROR] = (
+          'Calculating approximated_pixel_percentages not possible because '
+          'visible_content_area was missing.')
+        self.errors[CHECKERBOARDED_PIXEL_ERROR] = (
+          'Calculating checkerboarded_pixel_percentages not possible because '
+          'visible_content_area was missing.')
+        return
+      visible_content_area = data[VISIBLE_CONTENT_DATA]
+      if visible_content_area == 0:
+        self.errors[APPROXIMATED_PIXEL_ERROR] = (
+          'Calculating approximated_pixel_percentages would have caused '
+          'a divide-by-zero')
+        self.errors[CHECKERBOARDED_PIXEL_ERROR] = (
+          'Calculating checkerboarded_pixel_percentages would have caused '
+          'a divide-by-zero')
+        return
+      if APPROXIMATED_VISIBLE_CONTENT_DATA in data:
         self.approximated_pixel_percentages[-1].append(
-            round(float(data['approximated_visible_content_area']) /
-                  float(data['visible_content_area']) * 100.0, 3))
+          round(float(data[APPROXIMATED_VISIBLE_CONTENT_DATA]) /
+                float(data[VISIBLE_CONTENT_DATA]) * 100.0, 3))
       else:
-        self.approximated_pixel_percentages[-1].append(0.0)
+        self.errors[APPROXIMATED_PIXEL_ERROR] = (
+          'approximated_pixel_percentages was not recorded')
+      if CHECKERBOARDED_VISIBLE_CONTENT_DATA in data:
+        self.checkerboarded_pixel_percentages[-1].append(
+          round(float(data[CHECKERBOARDED_VISIBLE_CONTENT_DATA]) /
+                float(data[VISIBLE_CONTENT_DATA]) * 100.0, 3))
+      else:
+        self.errors[CHECKERBOARDED_PIXEL_ERROR] = (
+          'checkerboarded_pixel_percentages was not recorded')
 
   def _InitFrameQueueingDurationsFromTimeline(self, process, timeline_range):
     try:

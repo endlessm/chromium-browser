@@ -7,16 +7,16 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include "base/mac/scoped_nsobject.h"
 #include "base/memory/scoped_ptr.h"
-#import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/base_bubble_controller.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
 class Browser;
-class ExtensionLoadedNotificationObserver;
+class ExtensionInstalledBubble;
+class ExtensionInstalledBubbleBridge;
 @class HyperlinkTextView;
 @class HoverCloseButton;
-@class InfoBubbleView;
 
 namespace extensions {
 class BundleInstaller;
@@ -69,10 +69,11 @@ typedef enum {
   // doesn't overlap browser destruction.
   BOOL pageActionPreviewShowing_;
 
-  // Lets us register for EXTENSION_LOADED notifications.  The actual
-  // notifications are sent to the observer object, which proxies them
-  // back to the controller.
-  scoped_ptr<ExtensionLoadedNotificationObserver> extensionObserver_;
+  // The bridge to the C++ object that performs shared logic across platforms,
+  // like listening for the notification that the extension is loaded. This
+  // tells us when to show the bubble.
+  scoped_ptr<ExtensionInstalledBubbleBridge> installedBubbleBridge_;
+  scoped_ptr<ExtensionInstalledBubble> installedBubble_;
 
   // References below are weak, being obtained from the nib.
   IBOutlet HoverCloseButton* closeButton_;
@@ -94,12 +95,11 @@ typedef enum {
   base::scoped_nsobject<HyperlinkTextView> promo_;
   // Only shown for bundle installs.
   IBOutlet NSTextField* installedHeadingMsg_;
-  IBOutlet NSTextField* installedItemsMsg_;
+  IBOutlet NSView* installedItemsView_;
   IBOutlet NSTextField* failedHeadingMsg_;
-  IBOutlet NSTextField* failedItemsMsg_;
+  IBOutlet NSView* failedItemsView_;
 }
 
-@property(nonatomic, readonly) const extensions::Extension* extension;
 @property(nonatomic, readonly) const extensions::BundleInstaller* bundle;
 @property(nonatomic) BOOL pageActionPreviewShowing;
 
@@ -122,10 +122,6 @@ typedef enum {
 // Displays the extension installed bubble. This callback is triggered by
 // the extensionObserver when the extension has completed loading.
 - (void)showWindow:(id)sender;
-
-// Clears our weak pointer to the Extension. This callback is triggered by
-// the extensionObserver when the extension is unloaded.
-- (void)extensionUnloaded:(id)sender;
 
 // Opens the shortcut configuration UI.
 - (IBAction)onManageShortcutClicked:(id)sender;

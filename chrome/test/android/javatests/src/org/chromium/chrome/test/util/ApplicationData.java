@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit;
 public final class ApplicationData {
 
     private static final long MAX_CLEAR_APP_DATA_TIMEOUT_MS =
-        scaleTimeout(TimeUnit.SECONDS.toMillis(3));
+            scaleTimeout(TimeUnit.SECONDS.toMillis(3));
     private static final long CLEAR_APP_DATA_POLL_INTERVAL_MS = MAX_CLEAR_APP_DATA_TIMEOUT_MS / 10;
 
     private ApplicationData() {}
@@ -84,11 +84,12 @@ public final class ApplicationData {
      */
     private static boolean removeAppData(String appDir) {
         File[] files = new File(appDir).listFiles();
-        if (files == null)
-            return true;
+        if (files == null) return true;
         for (File file : files) {
-            if (!file.getAbsolutePath().endsWith("/lib") && !removeFile(file))
+            if (!(file.getAbsolutePath().endsWith("/lib")
+                    || file.getAbsolutePath().endsWith("/etp_native")) && !removeFile(file)) {
                 return false;
+            }
         }
         return true;
     }
@@ -103,11 +104,9 @@ public final class ApplicationData {
     private static boolean removeFile(File file) {
         if (file.isDirectory()) {
             File[] files = file.listFiles();
-            if (files == null)
-                return true;
+            if (files == null) return true;
             for (File sub_file : files) {
-                if (!removeFile(sub_file))
-                    return false;
+                if (!removeFile(sub_file)) return false;
             }
         }
         return file.delete();

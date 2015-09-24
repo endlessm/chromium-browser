@@ -13,14 +13,17 @@
 #include "base/compiler_specific.h"
 #include "base/containers/hash_tables.h"
 #include "base/location.h"
+#include "base/mac/mac_util.h"
 #include "base/mac/sdk_forward_declarations.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/profiler/scoped_tracker.h"
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
-#include "device/bluetooth/bluetooth_device_mac.h"
+#include "device/bluetooth/bluetooth_classic_device_mac.h"
+#include "device/bluetooth/bluetooth_discovery_session.h"
 #include "device/bluetooth/bluetooth_socket_mac.h"
 #include "device/bluetooth/bluetooth_uuid.h"
 
@@ -57,20 +60,13 @@ BluetoothAdapterMac::BluetoothAdapterMac()
       classic_discovery_manager_(
           BluetoothDiscoveryManagerMac::CreateClassic(this)),
       weak_ptr_factory_(this) {
+  if (IsLowEnergyAvailable())
+    low_energy_discovery_manager_.reset(
+        BluetoothLowEnergyDiscoveryManagerMac::Create(this));
   DCHECK(classic_discovery_manager_.get());
 }
 
 BluetoothAdapterMac::~BluetoothAdapterMac() {
-}
-
-void BluetoothAdapterMac::AddObserver(BluetoothAdapter::Observer* observer) {
-  DCHECK(observer);
-  observers_.AddObserver(observer);
-}
-
-void BluetoothAdapterMac::RemoveObserver(BluetoothAdapter::Observer* observer) {
-  DCHECK(observer);
-  observers_.RemoveObserver(observer);
 }
 
 std::string BluetoothAdapterMac::GetAddress() const {
@@ -118,7 +114,11 @@ void BluetoothAdapterMac::SetDiscoverable(
 }
 
 bool BluetoothAdapterMac::IsDiscovering() const {
-  return classic_discovery_manager_->IsDiscovering();
+  bool is_discovering = classic_discovery_manager_->IsDiscovering();
+  if (IsLowEnergyAvailable())
+    is_discovering =
+        is_discovering || low_energy_discovery_manager_->IsDiscovering();
+  return is_discovering;
 }
 
 void BluetoothAdapterMac::CreateRfcommService(
@@ -141,11 +141,27 @@ void BluetoothAdapterMac::CreateL2capService(
       this, uuid, options, base::Bind(callback, socket), error_callback);
 }
 
-void BluetoothAdapterMac::DeviceFound(IOBluetoothDevice* device) {
-  DeviceAdded(device);
+void BluetoothAdapterMac::RegisterAudioSink(
+    const BluetoothAudioSink::Options& options,
+    const AcquiredCallback& callback,
+    const BluetoothAudioSink::ErrorCallback& error_callback) {
+  NOTIMPLEMENTED();
+  error_callback.Run(BluetoothAudioSink::ERROR_UNSUPPORTED_PLATFORM);
 }
 
-void BluetoothAdapterMac::DiscoveryStopped(bool unexpected) {
+void BluetoothAdapterMac::RegisterAdvertisement(
+    scoped_ptr<BluetoothAdvertisement::Data> advertisement_data,
+    const CreateAdvertisementCallback& callback,
+    const CreateAdvertisementErrorCallback& error_callback) {
+  NOTIMPLEMENTED();
+  error_callback.Run(BluetoothAdvertisement::ERROR_UNSUPPORTED_PLATFORM);
+}
+
+void BluetoothAdapterMac::ClassicDeviceFound(IOBluetoothDevice* device) {
+  ClassicDeviceAdded(device);
+}
+
+void BluetoothAdapterMac::ClassicDiscoveryStopped(bool unexpected) {
   if (unexpected) {
     DVLOG(1) << "Discovery stopped unexpectedly";
     num_discovery_sessions_ = 0;
@@ -160,25 +176,40 @@ void BluetoothAdapterMac::DeviceConnected(IOBluetoothDevice* device) {
   // TODO(isherman): Investigate whether this method can be replaced with a call
   // to +registerForConnectNotifications:selector:.
   DVLOG(1) << "Adapter registered a new connection from device with address: "
-           << BluetoothDeviceMac::GetDeviceAddress(device);
-  DeviceAdded(device);
+           << BluetoothClassicDeviceMac::GetDeviceAddress(device);
+  ClassicDeviceAdded(device);
+}
+
+// static
+bool BluetoothAdapterMac::IsLowEnergyAvailable() {
+  return base::mac::IsOSYosemiteOrLater();
+}
+
+void BluetoothAdapterMac::RemovePairingDelegateInternal(
+    BluetoothDevice::PairingDelegate* pairing_delegate) {
 }
 
 void BluetoothAdapterMac::AddDiscoverySession(
+    BluetoothDiscoveryFilter* discovery_filter,
     const base::Closure& callback,
     const ErrorCallback& error_callback) {
   DVLOG(1) << __func__;
   if (num_discovery_sessions_ > 0) {
     DCHECK(IsDiscovering());
     num_discovery_sessions_++;
+    // We are already running a discovery session, notify the system if the
+    // filter has changed.
+    if (!StartDiscovery(discovery_filter)) {
+      error_callback.Run();
+      return;
+    }
     callback.Run();
     return;
   }
 
   DCHECK_EQ(0, num_discovery_sessions_);
 
-  if (!classic_discovery_manager_->StartDiscovery()) {
-    DVLOG(1) << "Failed to add a discovery session";
+  if (!StartDiscovery(discovery_filter)) {
     error_callback.Run();
     return;
   }
@@ -192,6 +223,7 @@ void BluetoothAdapterMac::AddDiscoverySession(
 }
 
 void BluetoothAdapterMac::RemoveDiscoverySession(
+    BluetoothDiscoveryFilter* discovery_filter,
     const base::Closure& callback,
     const ErrorCallback& error_callback) {
   DVLOG(1) << __func__;
@@ -210,10 +242,22 @@ void BluetoothAdapterMac::RemoveDiscoverySession(
     return;
   }
 
-  if (!classic_discovery_manager_->StopDiscovery()) {
-    DVLOG(1) << "Failed to stop discovery";
-    error_callback.Run();
-    return;
+  // Default to dual discovery if |discovery_filter| is NULL.
+  BluetoothDiscoveryFilter::TransportMask transport =
+      BluetoothDiscoveryFilter::Transport::TRANSPORT_DUAL;
+  if (discovery_filter)
+    transport = discovery_filter->GetTransport();
+
+  if (transport & BluetoothDiscoveryFilter::Transport::TRANSPORT_CLASSIC) {
+    if (!classic_discovery_manager_->StopDiscovery()) {
+      DVLOG(1) << "Failed to stop classic discovery";
+      error_callback.Run();
+      return;
+    }
+  }
+  if (transport & BluetoothDiscoveryFilter::Transport::TRANSPORT_LE) {
+    if (IsLowEnergyAvailable())
+      low_energy_discovery_manager_->StopDiscovery();
   }
 
   DVLOG(1) << "Discovery stopped";
@@ -221,8 +265,40 @@ void BluetoothAdapterMac::RemoveDiscoverySession(
   callback.Run();
 }
 
-void BluetoothAdapterMac::RemovePairingDelegateInternal(
-    BluetoothDevice::PairingDelegate* pairing_delegate) {
+void BluetoothAdapterMac::SetDiscoveryFilter(
+    scoped_ptr<BluetoothDiscoveryFilter> discovery_filter,
+    const base::Closure& callback,
+    const ErrorCallback& error_callback) {
+  NOTIMPLEMENTED();
+  error_callback.Run();
+}
+
+bool BluetoothAdapterMac::StartDiscovery(
+    BluetoothDiscoveryFilter* discovery_filter) {
+  // Default to dual discovery if |discovery_filter| is NULL.  IOBluetooth seems
+  // allow starting low energy and classic discovery at once.
+  BluetoothDiscoveryFilter::TransportMask transport =
+      BluetoothDiscoveryFilter::Transport::TRANSPORT_DUAL;
+  if (discovery_filter)
+    transport = discovery_filter->GetTransport();
+
+  if ((transport & BluetoothDiscoveryFilter::Transport::TRANSPORT_CLASSIC) &&
+      !classic_discovery_manager_->IsDiscovering()) {
+    // TODO(krstnmnlsn): If a classic discovery session is already running then
+    // we should update its filter. crbug.com/498056
+    if (!classic_discovery_manager_->StartDiscovery()) {
+      DVLOG(1) << "Failed to add a classic discovery session";
+      return false;
+    }
+  }
+  if (transport & BluetoothDiscoveryFilter::Transport::TRANSPORT_LE) {
+    // Begin a low energy discovery session or update it if one is already
+    // running.
+    if (IsLowEnergyAvailable())
+      low_energy_discovery_manager_->StartDiscovery(
+          BluetoothDevice::UUIDList());
+  }
+  return true;
 }
 
 void BluetoothAdapterMac::Init() {
@@ -237,34 +313,66 @@ void BluetoothAdapterMac::InitForTest(
 }
 
 void BluetoothAdapterMac::PollAdapter() {
+  // TODO(erikchen): Remove ScopedTracker below once http://crbug.com/461181
+  // is fixed.
+  tracked_objects::ScopedTracker tracking_profile1(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "461181 BluetoothAdapterMac::PollAdapter::Start"));
   bool was_present = IsPresent();
-  std::string name;
   std::string address;
   bool powered = false;
   IOBluetoothHostController* controller =
       [IOBluetoothHostController defaultController];
 
+  // TODO(erikchen): Remove ScopedTracker below once http://crbug.com/461181
+  // is fixed.
+  tracked_objects::ScopedTracker tracking_profile2(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "461181 BluetoothAdapterMac::PollAdapter::GetControllerStats"));
   if (controller != nil) {
-    name = base::SysNSStringToUTF8([controller nameAsString]);
     address = BluetoothDevice::CanonicalizeAddress(
         base::SysNSStringToUTF8([controller addressAsString]));
     powered = ([controller powerState] == kBluetoothHCIPowerStateON);
+
+    // For performance reasons, cache the adapter's name. It's not uncommon for
+    // a call to [controller nameAsString] to take tens of milliseconds. Note
+    // that this caching strategy might result in clients receiving a stale
+    // name. If this is a significant issue, then some more sophisticated
+    // workaround for the performance bottleneck will be needed. For additional
+    // context, see http://crbug.com/461181 and http://crbug.com/467316
+    if (address != address_ || (!address.empty() && name_.empty()))
+      name_ = base::SysNSStringToUTF8([controller nameAsString]);
   }
 
   bool is_present = !address.empty();
-  name_ = name;
   address_ = address;
 
+  // TODO(erikchen): Remove ScopedTracker below once http://crbug.com/461181
+  // is fixed.
+  tracked_objects::ScopedTracker tracking_profile3(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "461181 BluetoothAdapterMac::PollAdapter::AdapterPresentChanged"));
   if (was_present != is_present) {
     FOR_EACH_OBSERVER(BluetoothAdapter::Observer, observers_,
                       AdapterPresentChanged(this, is_present));
   }
+
+  // TODO(erikchen): Remove ScopedTracker below once http://crbug.com/461181
+  // is fixed.
+  tracked_objects::ScopedTracker tracking_profile4(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "461181 BluetoothAdapterMac::PollAdapter::AdapterPowerChanged"));
   if (powered_ != powered) {
     powered_ = powered;
     FOR_EACH_OBSERVER(BluetoothAdapter::Observer, observers_,
                       AdapterPoweredChanged(this, powered_));
   }
 
+  // TODO(erikchen): Remove ScopedTracker below once http://crbug.com/461181
+  // is fixed.
+  tracked_objects::ScopedTracker tracking_profile5(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "461181 BluetoothAdapterMac::PollAdapter::UpdateDevices"));
   UpdateDevices();
 
   ui_task_runner_->PostDelayedTask(
@@ -274,17 +382,26 @@ void BluetoothAdapterMac::PollAdapter() {
       base::TimeDelta::FromMilliseconds(kPollIntervalMs));
 }
 
-void BluetoothAdapterMac::DeviceAdded(IOBluetoothDevice* device) {
-  std::string device_address = BluetoothDeviceMac::GetDeviceAddress(device);
+void BluetoothAdapterMac::ClassicDeviceAdded(IOBluetoothDevice* device) {
+  std::string device_address =
+      BluetoothClassicDeviceMac::GetDeviceAddress(device);
 
   // Only notify observers once per device.
   if (devices_.count(device_address))
     return;
 
-  devices_[device_address] = new BluetoothDeviceMac(device);
+  devices_[device_address] = new BluetoothClassicDeviceMac(device);
   FOR_EACH_OBSERVER(BluetoothAdapter::Observer,
                     observers_,
                     DeviceAdded(this, devices_[device_address]));
+}
+
+// TODO(krstnmnlsn): This method to be implemented as soon as UpdateDevices can
+// handle instances of LowEnergyBluetoothDevice in |devices_|. crbug.com/498009
+void BluetoothAdapterMac::LowEnergyDeviceUpdated(
+    CBPeripheral* peripheral,
+    NSDictionary* advertisementData,
+    int rssi) {
 }
 
 void BluetoothAdapterMac::UpdateDevices() {
@@ -297,10 +414,10 @@ void BluetoothAdapterMac::UpdateDevices() {
     if (device->IsPaired() || device->IsConnected())
       continue;
 
-    NSDate* last_inquiry_update =
-        static_cast<BluetoothDeviceMac*>(device)->GetLastInquiryUpdate();
-    if (last_inquiry_update &&
-        -[last_inquiry_update timeIntervalSinceNow] < kDiscoveryTimeoutSec)
+    NSDate* last_update_time =
+        static_cast<BluetoothDeviceMac*>(device)->GetLastUpdateTime();
+    if (last_update_time &&
+        -[last_update_time timeIntervalSinceNow] < kDiscoveryTimeoutSec)
       continue;
 
     FOR_EACH_OBSERVER(
@@ -316,7 +433,7 @@ void BluetoothAdapterMac::UpdateDevices() {
 
   // Add any new paired devices.
   for (IOBluetoothDevice* device in [IOBluetoothDevice pairedDevices]) {
-    DeviceAdded(device);
+    ClassicDeviceAdded(device);
   }
 }
 

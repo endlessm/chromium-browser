@@ -9,10 +9,13 @@
 #define SkImagePriv_DEFINED
 
 #include "SkImage.h"
+#include "SkSurface.h"
 
 // Call this if you explicitly want to use/share this pixelRef in the image
 extern SkImage* SkNewImageFromPixelRef(const SkImageInfo&, SkPixelRef*,
-                                       size_t rowBytes);
+                                       const SkIPoint& pixelRefOrigin,
+                                       size_t rowBytes,
+                                       const SkSurfaceProps*);
 
 /**
  *  Examines the bitmap to decide if it can share the existing pixelRef, or
@@ -20,14 +23,21 @@ extern SkImage* SkNewImageFromPixelRef(const SkImageInfo&, SkPixelRef*,
  *  be shared if either the bitmap is marked as immutable, or canSharePixelRef
  *  is true.
  *
+ *  It is illegal to call this with a texture-backed bitmap.
+ *
  *  If the bitmap's colortype cannot be converted into a corresponding
  *  SkImageInfo, or the bitmap's pixels cannot be accessed, this will return
  *  NULL.
  */
-extern SkImage* SkNewImageFromBitmap(const SkBitmap&, bool canSharePixelRef);
+extern SkImage* SkNewImageFromRasterBitmap(const SkBitmap&, bool forceSharePixelRef,
+                                           const SkSurfaceProps*);
 
 static inline size_t SkImageMinRowBytes(const SkImageInfo& info) {
-    return SkAlign4(info.minRowBytes());
+    size_t minRB = info.minRowBytes();
+    if (kIndex_8_SkColorType != info.colorType()) {
+        minRB = SkAlign4(minRB);
+    }
+    return minRB;
 }
 
 // Given an image created from SkNewImageFromBitmap, return its pixelref. This
@@ -35,14 +45,17 @@ static inline size_t SkImageMinRowBytes(const SkImageInfo& info) {
 // in which case the surface may need to perform a copy-on-write.
 extern const SkPixelRef* SkBitmapImageGetPixelRef(const SkImage* rasterImage);
 
-// Given an image created with NewTexture, return its GrTexture. This
-// may be called to see if the surface and the image share the same GrTexture,
-// in which case the surface may need to perform a copy-on-write.
-extern GrTexture* SkTextureImageGetTexture(SkImage* textureImage);
+// When a texture is shared by a surface and an image its budgeted status is that of the
+// surface. This function is used when the surface makes a new texture for itself in order
+// for the orphaned image to determine whether the original texture counts against the
+// budget or not.
+extern void SkTextureImageApplyBudgetedDecision(SkImage* textureImage);
 
 // Update the texture wrapped by an image created with NewTexture. This
 // is called when a surface and image share the same GrTexture and the
 // surface needs to perform a copy-on-write
 extern void SkTextureImageSetTexture(SkImage* image, GrTexture* texture);
+
+GrTexture* GrDeepCopyTexture(GrTexture* src, bool isBudgeted);
 
 #endif

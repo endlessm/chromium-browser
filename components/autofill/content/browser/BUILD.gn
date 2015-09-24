@@ -9,6 +9,8 @@ static_library("browser") {
   sources = [
     "content_autofill_driver.cc",
     "content_autofill_driver.h",
+    "content_autofill_driver_factory.cc",
+    "content_autofill_driver_factory.h",
     "request_autocomplete_manager.cc",
     "request_autocomplete_manager.h",
     "risk/fingerprint.cc",
@@ -36,6 +38,8 @@ static_library("browser") {
     "wallet/wallet_signin_helper.h",
   ]
 
+  configs += [ "//components/autofill/core/browser:wallet_service" ]
+
   public_deps = [
     "//skia",
   ]
@@ -46,7 +50,6 @@ static_library("browser") {
     "//base:prefs",
     "//components/autofill/content/common",
     "//components/autofill/core/browser",
-    "//components/autofill/core/browser:regexes",
     "//components/autofill/core/common",
     "//components/os_crypt",
     "//components/resources",
@@ -56,11 +59,12 @@ static_library("browser") {
     "//content/public/browser",
     "//content/public/common",
     "//google_apis",
+    "//gpu/config",
     "//ipc",
+    "//net",
     "//sql",
     "//third_party/icu",
     "//third_party/libphonenumber",
-    "//third_party/libjingle",
     "//ui/base",
     "//ui/gfx",
     "//ui/gfx/geometry",
@@ -73,20 +77,6 @@ proto_library("risk_proto") {
     "risk/proto/fingerprint.proto",
   ]
   proto_out_dir = "components/autofill/content/browser/risk/proto"
-}
-
-static_library("test_support") {
-  testonly = true
-  sources = [
-    "wallet/mock_wallet_client.cc",
-    "wallet/mock_wallet_client.h",
-    "wallet/wallet_test_util.cc",
-    "wallet/wallet_test_util.h",
-  ]
-
-  deps = [
-    "//testing/gmock",
-  ]
 }
 
 source_set("unit_tests") {
@@ -105,7 +95,19 @@ source_set("unit_tests") {
 
   deps = [
     ":browser",
-    ":test_support",
+    "//base",
+    "//components/autofill/content/common",
+    "//components/autofill/content/browser/wallet:test_support",
+    "//components/autofill/core/browser",
+    "//components/autofill/core/browser:test_support",
+    "//components/autofill/core/common",
+    "//content/public/browser",
+    "//content/public/common",
+    "//content/test:test_support",
+    "//google_apis",
+    "//ipc:test_support",
+    "//net",
+    "//net:test_support",
     "//testing/gmock",
     "//testing/gtest",
   ]

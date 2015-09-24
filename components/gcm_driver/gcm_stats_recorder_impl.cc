@@ -9,7 +9,7 @@
 
 #include "base/format_macros.h"
 #include "base/logging.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 
@@ -133,6 +133,8 @@ std::string GetUnregistrationStatusString(
       return "HTTP_NOT_OK";
     case gcm::UnregistrationRequest::UNKNOWN_ERROR:
       return "UNKNOWN_ERROR";
+    case gcm::UnregistrationRequest::REACHED_MAX_RETRIES:
+      return "REACHED_MAX_RETRIES";
     default:
       NOTREACHED();
       return "UNKNOWN_STATUS";
@@ -272,14 +274,14 @@ void GCMStatsRecorderImpl::RecordConnectionResetSignaled(
 
 void GCMStatsRecorderImpl::RecordRegistration(
     const std::string& app_id,
-    const std::string& sender_ids,
+    const std::string& source,
     const std::string& event,
     const std::string& details) {
   RegistrationActivity data;
   RegistrationActivity* inserted_data = InsertCircularBuffer(
       &registration_activities_, data);
   inserted_data->app_id = app_id;
-  inserted_data->sender_ids = sender_ids;
+  inserted_data->source = source;
   inserted_data->event = event;
   inserted_data->details = details;
   NotifyActivityRecorded();
@@ -297,56 +299,66 @@ void GCMStatsRecorderImpl::RecordRegistrationSent(
 
 void GCMStatsRecorderImpl::RecordRegistrationResponse(
     const std::string& app_id,
-    const std::vector<std::string>& sender_ids,
+    const std::string& source,
     RegistrationRequest::Status status) {
   if (!is_recording_)
     return;
-  RecordRegistration(app_id, JoinString(sender_ids, ","),
+  RecordRegistration(app_id, source,
                      "Registration response received",
                      GetRegistrationStatusString(status));
 }
 
-void GCMStatsRecorderImpl::RecordRegistrationRetryRequested(
+void GCMStatsRecorderImpl::RecordRegistrationRetryDelayed(
     const std::string& app_id,
-    const std::vector<std::string>& sender_ids,
+    const std::string& source,
+    int64 delay_msec,
     int retries_left) {
   if (!is_recording_)
     return;
-  RecordRegistration(app_id, JoinString(sender_ids, ","),
-                     "Registration retry requested",
-                     base::StringPrintf("Retries left: %d", retries_left));
+  RecordRegistration(
+      app_id,
+      source,
+      "Registration retry delayed",
+      base::StringPrintf("Delayed for %" PRId64 " msec, retries left: %d",
+                         delay_msec,
+                         retries_left));
 }
 
 void GCMStatsRecorderImpl::RecordUnregistrationSent(
-    const std::string& app_id) {
+    const std::string& app_id, const std::string& source) {
   UMA_HISTOGRAM_COUNTS("GCM.UnregistrationRequest", 1);
   if (!is_recording_)
     return;
-  RecordRegistration(app_id, std::string(), "Unregistration request sent",
+  RecordRegistration(app_id, source, "Unregistration request sent",
                      std::string());
 }
 
 void GCMStatsRecorderImpl::RecordUnregistrationResponse(
     const std::string& app_id,
+    const std::string& source,
     UnregistrationRequest::Status status) {
   if (!is_recording_)
     return;
   RecordRegistration(app_id,
-                     std::string(),
+                     source,
                      "Unregistration response received",
                      GetUnregistrationStatusString(status));
 }
 
 void GCMStatsRecorderImpl::RecordUnregistrationRetryDelayed(
     const std::string& app_id,
-    int64 delay_msec) {
+    const std::string& source,
+    int64 delay_msec,
+    int retries_left) {
   if (!is_recording_)
     return;
-  RecordRegistration(app_id,
-                     std::string(),
-                     "Unregistration retry delayed",
-                     base::StringPrintf("Delayed for %" PRId64 " msec",
-                                        delay_msec));
+  RecordRegistration(
+      app_id,
+      source,
+      "Unregistration retry delayed",
+      base::StringPrintf("Delayed for %" PRId64 " msec, retries left: %d",
+                         delay_msec,
+                         retries_left));
 }
 
 void GCMStatsRecorderImpl::RecordReceiving(

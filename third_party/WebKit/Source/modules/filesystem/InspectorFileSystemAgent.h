@@ -31,7 +31,9 @@
 #ifndef InspectorFileSystemAgent_h
 #define InspectorFileSystemAgent_h
 
+#include "core/InspectorFrontend.h"
 #include "core/inspector/InspectorBaseAgent.h"
+#include "modules/ModulesExport.h"
 #include "wtf/PassOwnPtr.h"
 #include "wtf/PassRefPtr.h"
 
@@ -41,23 +43,22 @@ class ExecutionContext;
 class Page;
 class SecurityOrigin;
 
-class InspectorFileSystemAgent final : public InspectorBaseAgent<InspectorFileSystemAgent>, public InspectorBackendDispatcher::FileSystemCommandHandler {
+class MODULES_EXPORT InspectorFileSystemAgent final : public InspectorBaseAgent<InspectorFileSystemAgent, InspectorFrontend::FileSystem>, public InspectorBackendDispatcher::FileSystemCommandHandler {
 public:
     static PassOwnPtrWillBeRawPtr<InspectorFileSystemAgent> create(Page*);
-    virtual ~InspectorFileSystemAgent();
-    virtual void trace(Visitor*) override;
+    ~InspectorFileSystemAgent() override;
+    DECLARE_VIRTUAL_TRACE();
 
-    virtual void enable(ErrorString*) override;
-    virtual void disable(ErrorString*) override;
+    void enable(ErrorString*) override;
 
-    virtual void requestFileSystemRoot(ErrorString*, const String& origin, const String& typeString, PassRefPtrWillBeRawPtr<RequestFileSystemRootCallback>) override;
-    virtual void requestDirectoryContent(ErrorString*, const String& url, PassRefPtrWillBeRawPtr<RequestDirectoryContentCallback>) override;
-    virtual void requestMetadata(ErrorString*, const String& url, PassRefPtrWillBeRawPtr<RequestMetadataCallback>) override;
-    virtual void requestFileContent(ErrorString*, const String& url, bool readAsText, const int* start, const int* end, const String* charset, PassRefPtrWillBeRawPtr<RequestFileContentCallback>) override;
-    virtual void deleteEntry(ErrorString*, const String& url, PassRefPtrWillBeRawPtr<DeleteEntryCallback>) override;
+    void requestFileSystemRoot(ErrorString*, const String& origin, const String& typeString, PassRefPtrWillBeRawPtr<RequestFileSystemRootCallback>) override;
+    void requestDirectoryContent(ErrorString*, const String& url, PassRefPtrWillBeRawPtr<RequestDirectoryContentCallback>) override;
+    void requestMetadata(ErrorString*, const String& url, PassRefPtrWillBeRawPtr<RequestMetadataCallback>) override;
+    void requestFileContent(ErrorString*, const String& url, bool readAsText, const int* start, const int* end, const String* charset, PassRefPtrWillBeRawPtr<RequestFileContentCallback>) override;
+    void deleteEntry(ErrorString*, const String& url, PassRefPtrWillBeRawPtr<DeleteEntryCallback>) override;
 
-    virtual void clearFrontend() override;
-    virtual void restore() override;
+    void disable(ErrorString*) override;
+    void restore() override;
 
 private:
     explicit InspectorFileSystemAgent(Page*);

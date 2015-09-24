@@ -19,17 +19,11 @@ namespace switches {
 // management UI is available in the avatar bubble.
 bool IsEnableAccountConsistency();
 
-// Checks whether the web-based sign in flow is enabled on Chrome desktop.
-bool IsEnableWebBasedSignin();
-
 // Checks whether the webview-based sign in flow is enabled on Chrome desktop.
 bool IsEnableWebviewBasedSignin();
 
 // Whether the chrome.identity API should be multi-account.
 bool IsExtensionsMultiAccount();
-
-// Checks whether the flag for fast user switching is enabled.
-bool IsFastUserSwitching();
 
 // Enables using GAIA information to populate profile name and icon.
 bool IsGoogleProfileInfo();

@@ -33,17 +33,17 @@ class Tokenizer {
   static bool IsNewline(const base::StringPiece& buffer, size_t offset);
 
   static bool IsIdentifierFirstChar(char c) {
-    return IsAsciiAlpha(c) || c == '_';
+    return base::IsAsciiAlpha(c) || c == '_';
   }
 
   static bool IsIdentifierContinuingChar(char c) {
     // Also allow digits after the first char.
-    return IsIdentifierFirstChar(c) || IsAsciiDigit(c);
+    return IsIdentifierFirstChar(c) || base::IsAsciiDigit(c);
   }
 
  private:
   // InputFile must outlive the tokenizer and all generated tokens.
-  explicit Tokenizer(const InputFile* input_file, Err* err);
+  Tokenizer(const InputFile* input_file, Err* err);
   ~Tokenizer();
 
   std::vector<Token> Run();

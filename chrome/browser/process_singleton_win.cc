@@ -10,7 +10,7 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
-#include "base/process/kill.h"
+#include "base/process/process.h"
 #include "base/process/process_info.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
@@ -32,6 +32,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/installer/util/wmi.h"
+#include "components/browser_watcher/exit_funnel_win.h"
 #include "content/public/common/result_codes.h"
 #include "net/base/escape.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -91,7 +92,7 @@ BOOL CALLBACK BrowserWindowEnumeration(HWND window, LPARAM param) {
 }
 
 bool ParseCommandLine(const COPYDATASTRUCT* cds,
-                      CommandLine* parsed_command_line,
+                      base::CommandLine* parsed_command_line,
                       base::FilePath* current_directory) {
   // We should have enough room for the shortest command (min_message_size)
   // and also be a multiple of wchar_t bytes. The shortest command
@@ -144,7 +145,7 @@ bool ParseCommandLine(const COPYDATASTRUCT* cds,
     // Get command line.
     const std::wstring cmd_line =
         msg.substr(second_null + 1, third_null - second_null);
-    *parsed_command_line = CommandLine::FromString(cmd_line);
+    *parsed_command_line = base::CommandLine::FromString(cmd_line);
     return true;
   }
   return false;
@@ -160,10 +161,9 @@ bool ProcessLaunchNotification(
     return false;
 
   // Handle the WM_COPYDATA message from another process.
-  HWND hwnd = reinterpret_cast<HWND>(wparam);
   const COPYDATASTRUCT* cds = reinterpret_cast<COPYDATASTRUCT*>(lparam);
 
-  CommandLine parsed_command_line(CommandLine::NO_PROGRAM);
+  base::CommandLine parsed_command_line(base::CommandLine::NO_PROGRAM);
   base::FilePath current_directory;
   if (!ParseCommandLine(cds, &parsed_command_line, &current_directory)) {
     *result = TRUE;
@@ -187,45 +187,19 @@ bool ProcessLaunchNotification(
 // Move this function to a common place as the Windows 8 delegate_execute
 // handler can possibly use this.
 bool ShouldLaunchInWindows8ImmersiveMode(const base::FilePath& user_data_dir) {
-#if defined(USE_AURA)
   // Returning false from this function doesn't mean we don't launch immersive
   // mode in Aura. This function is specifically called in case when we need
   // to relaunch desktop launched chrome into immersive mode through 'relaunch'
   // menu. In case of Aura, we will use delegate_execute to do the relaunch.
   return false;
-#else
-  if (base::win::GetVersion() < base::win::VERSION_WIN8)
-    return false;
+}
 
-  if (base::win::IsProcessImmersive(base::GetCurrentProcessHandle()))
-    return false;
-
-  if (ShellIntegration::GetDefaultBrowser() != ShellIntegration::IS_DEFAULT)
-    return false;
-
-  base::IntegrityLevel integrity_level = base::INTEGRITY_UNKNOWN;
-  base::GetProcessIntegrityLevel(base::GetCurrentProcessHandle(),
-                                 &integrity_level);
-  if (integrity_level == base::HIGH_INTEGRITY)
-    return false;
-
-  base::FilePath default_user_data_dir;
-  if (!chrome::GetDefaultUserDataDirectory(&default_user_data_dir))
-    return false;
-
-  if (default_user_data_dir != user_data_dir)
-    return false;
-
-  base::win::RegKey reg_key;
-  DWORD reg_value = 0;
-  if (reg_key.Create(HKEY_CURRENT_USER, chrome::kMetroRegistryPath,
-                     KEY_READ) == ERROR_SUCCESS &&
-      reg_key.ReadValueDW(chrome::kLaunchModeValue,
-                          &reg_value) == ERROR_SUCCESS) {
-    return reg_value == 1;
-  }
-  return false;
-#endif
+bool DisplayShouldKillMessageBox() {
+  return chrome::ShowMessageBox(
+             NULL, l10n_util::GetStringUTF16(IDS_PRODUCT_NAME),
+             l10n_util::GetStringUTF16(IDS_BROWSER_HUNGBROWSER_MESSAGE),
+             chrome::MESSAGE_BOX_TYPE_QUESTION) !=
+         chrome::MESSAGE_BOX_RESULT_NO;
 }
 
 }  // namespace
@@ -265,8 +239,11 @@ ProcessSingleton::ProcessSingleton(
     const base::FilePath& user_data_dir,
     const NotificationCallback& notification_callback)
     : notification_callback_(notification_callback),
-      is_virtualized_(false), lock_file_(INVALID_HANDLE_VALUE),
-      user_data_dir_(user_data_dir) {
+      is_virtualized_(false),
+      lock_file_(INVALID_HANDLE_VALUE),
+      user_data_dir_(user_data_dir),
+      should_kill_remote_process_callback_(
+          base::Bind(&DisplayShouldKillMessageBox)) {
 }
 
 ProcessSingleton::~ProcessSingleton() {
@@ -291,7 +268,9 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcess() {
       remote_window_ = NULL;
       return PROCESS_NONE;
     case chrome::NOTIFY_WINDOW_HUNG:
-      remote_window_ = NULL;
+      // Record a hung rendezvous event in this process' exit funnel.
+      browser_watcher::ExitFunnel::RecordSingleEvent(
+          chrome::kBrowserExitCodesRegistryPath, L"RendezvousToHungBrowser");
       break;
   }
 
@@ -301,6 +280,7 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcess() {
     remote_window_ = NULL;
     return PROCESS_NONE;
   }
+  base::Process process = base::Process::Open(process_id);
 
   // The window is hung. Scan for every window to find a visible one.
   bool visible_window = false;
@@ -309,18 +289,18 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcess() {
                       reinterpret_cast<LPARAM>(&visible_window));
 
   // If there is a visible browser window, ask the user before killing it.
-  if (visible_window &&
-      chrome::ShowMessageBox(
-          NULL,
-          l10n_util::GetStringUTF16(IDS_PRODUCT_NAME),
-          l10n_util::GetStringUTF16(IDS_BROWSER_HUNGBROWSER_MESSAGE),
-          chrome::MESSAGE_BOX_TYPE_QUESTION) == chrome::MESSAGE_BOX_RESULT_NO) {
+  if (visible_window && !should_kill_remote_process_callback_.Run()) {
     // The user denied. Quit silently.
     return PROCESS_NOTIFIED;
   }
 
+  // Record the termination event in the hung process' exit funnel.
+  browser_watcher::ExitFunnel funnel;
+  if (funnel.Init(chrome::kBrowserExitCodesRegistryPath, process.Handle()))
+    funnel.RecordEvent(L"HungBrowserTerminated");
+
   // Time to take action. Kill the browser process.
-  base::KillProcessById(process_id, content::RESULT_CODE_HUNG, true);
+  process.Terminate(content::RESULT_CODE_HUNG, true);
   remote_window_ = NULL;
   return PROCESS_NONE;
 }
@@ -334,7 +314,7 @@ ProcessSingleton::NotifyOtherProcessOrCreate() {
       result = PROFILE_IN_USE;
   } else {
     g_browser_process->platform_part()->PlatformSpecificCommandLineProcessing(
-        *CommandLine::ForCurrentProcess());
+        *base::CommandLine::ForCurrentProcess());
   }
   return result;
 }
@@ -461,4 +441,9 @@ bool ProcessSingleton::Create() {
 }
 
 void ProcessSingleton::Cleanup() {
+}
+
+void ProcessSingleton::OverrideShouldKillRemoteProcessCallbackForTesting(
+    const ShouldKillRemoteProcessCallback& display_dialog_callback) {
+  should_kill_remote_process_callback_ = display_dialog_callback;
 }

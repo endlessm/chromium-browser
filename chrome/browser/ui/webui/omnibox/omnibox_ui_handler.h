@@ -9,11 +9,12 @@
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
-#include "chrome/browser/autocomplete/autocomplete_controller_delegate.h"
 #include "chrome/browser/ui/webui/mojo_web_ui_handler.h"
 #include "chrome/browser/ui/webui/omnibox/omnibox.mojom.h"
-#include "components/omnibox/autocomplete_input.h"
-#include "components/omnibox/autocomplete_match.h"
+#include "components/omnibox/browser/autocomplete_controller_delegate.h"
+#include "components/omnibox/browser/autocomplete_input.h"
+#include "components/omnibox/browser/autocomplete_match.h"
+#include "third_party/mojo/src/mojo/public/cpp/bindings/strong_binding.h"
 
 class AutocompleteController;
 class Profile;
@@ -23,26 +24,24 @@ class Profile;
 // AutocompleteController to OnResultChanged() and passes those results to
 // the OmniboxPage.
 class OmniboxUIHandler : public AutocompleteControllerDelegate,
-                         public mojo::InterfaceImpl<OmniboxUIHandlerMojo>,
+                         public OmniboxUIHandlerMojo,
                          public MojoWebUIHandler {
  public:
-  explicit OmniboxUIHandler(Profile* profile);
+  // OmniboxUIHandler is deleted when the supplied pipe is destroyed.
+  OmniboxUIHandler(Profile* profile,
+                   mojo::InterfaceRequest<OmniboxUIHandlerMojo> request);
   ~OmniboxUIHandler() override;
 
   // AutocompleteControllerDelegate overrides:
   void OnResultChanged(bool default_match_changed) override;
-
-  // ErrorHandler overrides:
-  void OnConnectionError() override {
-    // TODO(darin): How should we handle connection error?
-  }
 
   // OmniboxUIHandlerMojo overrides:
   void StartOmniboxQuery(const mojo::String& input_string,
                          int32_t cursor_position,
                          bool prevent_inline_autocomplete,
                          bool prefer_keyword,
-                         int32_t page_classification) override;
+                         int32_t page_classification,
+                         OmniboxPagePtr page) override;
 
  private:
   // Looks up whether the hostname is a typed host (i.e., has received
@@ -66,8 +65,13 @@ class OmniboxUIHandler : public AutocompleteControllerDelegate,
   // The input used when starting the AutocompleteController.
   AutocompleteInput input_;
 
+  // Handle back to the page by which we can pass results.
+  OmniboxPagePtr page_;
+
   // The Profile* handed to us in our constructor.
   Profile* profile_;
+
+  mojo::StrongBinding<OmniboxUIHandlerMojo> binding_;
 
   DISALLOW_COPY_AND_ASSIGN(OmniboxUIHandler);
 };

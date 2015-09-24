@@ -15,10 +15,8 @@ namespace browser_sync {
 namespace sessions_util {
 
 bool ShouldSyncTab(const SyncedTabDelegate& tab) {
-  if (SyncedWindowDelegate::FindSyncedWindowDelegateWithId(
-          tab.GetWindowId()) == NULL) {
+  if (SyncedWindowDelegate::FindById(tab.GetWindowId()) == NULL)
     return false;
-  }
 
   // Does the tab have a valid NavigationEntry?
   if (tab.ProfileIsSupervised() && tab.GetBlockedNavigations()->size() > 0)
@@ -41,15 +39,13 @@ bool ShouldSyncTab(const SyncedTabDelegate& tab) {
         !virtual_url.SchemeIs(chrome::kChromeNativeScheme) &&
         !virtual_url.SchemeIsFile()) {
       found_valid_url = true;
+    } else if (virtual_url == GURL(chrome::kChromeUIHistoryURL)) {
+      // The history page is treated specially as we want it to trigger syncable
+      // events for UI purposes.
+      found_valid_url = true;
     }
   }
   return found_valid_url;
-}
-
-bool ShouldSyncWindow(const SyncedWindowDelegate* window) {
-  if (window->IsApp())
-    return false;
-  return window->IsTypeTabbed() || window->IsTypePopup();
 }
 
 }  // namespace sessions_util

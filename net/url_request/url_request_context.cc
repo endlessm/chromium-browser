@@ -17,21 +17,22 @@
 namespace net {
 
 URLRequestContext::URLRequestContext()
-    : net_log_(NULL),
-      host_resolver_(NULL),
-      cert_verifier_(NULL),
-      channel_id_service_(NULL),
-      fraudulent_certificate_reporter_(NULL),
-      http_auth_handler_factory_(NULL),
-      proxy_service_(NULL),
-      network_delegate_(NULL),
-      http_user_agent_settings_(NULL),
-      transport_security_state_(NULL),
-      cert_transparency_verifier_(NULL),
-      http_transaction_factory_(NULL),
-      job_factory_(NULL),
-      throttler_manager_(NULL),
-      sdch_manager_(NULL),
+    : net_log_(nullptr),
+      host_resolver_(nullptr),
+      cert_verifier_(nullptr),
+      channel_id_service_(nullptr),
+      fraudulent_certificate_reporter_(nullptr),
+      http_auth_handler_factory_(nullptr),
+      proxy_service_(nullptr),
+      network_delegate_(nullptr),
+      http_user_agent_settings_(nullptr),
+      transport_security_state_(nullptr),
+      cert_transparency_verifier_(nullptr),
+      http_transaction_factory_(nullptr),
+      job_factory_(nullptr),
+      throttler_manager_(nullptr),
+      sdch_manager_(nullptr),
+      network_quality_estimator_(nullptr),
       url_requests_(new std::set<const URLRequest*>) {
 }
 
@@ -59,27 +60,26 @@ void URLRequestContext::CopyFrom(const URLRequestContext* other) {
   set_throttler_manager(other->throttler_manager_);
   set_sdch_manager(other->sdch_manager_);
   set_http_user_agent_settings(other->http_user_agent_settings_);
+  set_network_quality_estimator(other->network_quality_estimator_);
 }
 
 const HttpNetworkSession::Params* URLRequestContext::GetNetworkSessionParams(
     ) const {
   HttpTransactionFactory* transaction_factory = http_transaction_factory();
   if (!transaction_factory)
-    return NULL;
+    return nullptr;
   HttpNetworkSession* network_session = transaction_factory->GetSession();
   if (!network_session)
-    return NULL;
+    return nullptr;
   return &network_session->params();
 }
 
 scoped_ptr<URLRequest> URLRequestContext::CreateRequest(
     const GURL& url,
     RequestPriority priority,
-    URLRequest::Delegate* delegate,
-    CookieStore* cookie_store) const {
-  return scoped_ptr<URLRequest>(
-      new URLRequest(url, priority, delegate, this, cookie_store,
-                     network_delegate_));
+    URLRequest::Delegate* delegate) const {
+  return make_scoped_ptr(
+      new URLRequest(url, priority, delegate, this, network_delegate_));
 }
 
 void URLRequestContext::set_cookie_store(CookieStore* cookie_store) {

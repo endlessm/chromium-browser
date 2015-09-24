@@ -25,10 +25,11 @@ namespace fake_server {
 PermanentEntity::~PermanentEntity() { }
 
 // static
-FakeServerEntity* PermanentEntity::Create(const ModelType& model_type,
-                                          const string& server_tag,
-                                          const string& name,
-                                          const string& parent_server_tag) {
+scoped_ptr<FakeServerEntity> PermanentEntity::Create(
+    const ModelType& model_type,
+    const string& server_tag,
+    const string& name,
+    const string& parent_server_tag) {
   CHECK(model_type != syncer::UNSPECIFIED) << "The entity's ModelType is "
                                            << "invalid.";
   CHECK(!server_tag.empty()) << "A PermanentEntity must have a server tag.";
@@ -42,16 +43,13 @@ FakeServerEntity* PermanentEntity::Create(const ModelType& model_type,
   string parent_id = FakeServerEntity::CreateId(model_type, parent_server_tag);
   sync_pb::EntitySpecifics entity_specifics;
   AddDefaultFieldValue(model_type, &entity_specifics);
-  return new PermanentEntity(id,
-                             model_type,
-                             name,
-                             parent_id,
-                             server_tag,
-                             entity_specifics);
+  return scoped_ptr<FakeServerEntity>(new PermanentEntity(
+      id, model_type, name, parent_id, server_tag, entity_specifics));
 }
 
 // static
-FakeServerEntity* PermanentEntity::CreateTopLevel(const ModelType& model_type) {
+scoped_ptr<FakeServerEntity> PermanentEntity::CreateTopLevel(
+    const ModelType& model_type) {
   CHECK(model_type != syncer::UNSPECIFIED) << "The entity's ModelType is "
                                            << "invalid.";
   string server_tag = syncer::ModelTypeToRootTag(model_type);
@@ -59,28 +57,22 @@ FakeServerEntity* PermanentEntity::CreateTopLevel(const ModelType& model_type) {
   string id = FakeServerEntity::GetTopLevelId(model_type);
   sync_pb::EntitySpecifics entity_specifics;
   AddDefaultFieldValue(model_type, &entity_specifics);
-  return new PermanentEntity(id,
-                             model_type,
-                             name,
-                             kRootParentTag,
-                             server_tag,
-                             entity_specifics);
+  return scoped_ptr<FakeServerEntity>(new PermanentEntity(
+      id, model_type, name, kRootParentTag, server_tag, entity_specifics));
 }
 
 // static
-FakeServerEntity* PermanentEntity::CreateUpdatedNigoriEntity(
+scoped_ptr<FakeServerEntity> PermanentEntity::CreateUpdatedNigoriEntity(
     const sync_pb::SyncEntity& client_entity,
-    FakeServerEntity* current_server_entity) {
-  ModelType model_type = current_server_entity->GetModelType();
+    const FakeServerEntity& current_server_entity) {
+  ModelType model_type = current_server_entity.GetModelType();
   CHECK(model_type == syncer::NIGORI) << "This factory only supports NIGORI "
                                       << "entities.";
 
-  return new PermanentEntity(current_server_entity->GetId(),
-                             model_type,
-                             current_server_entity->GetName(),
-                             current_server_entity->GetParentId(),
-                             syncer::ModelTypeToRootTag(model_type),
-                             client_entity.specifics());
+  return make_scoped_ptr<FakeServerEntity>(new PermanentEntity(
+      current_server_entity.GetId(), model_type,
+      current_server_entity.GetName(), current_server_entity.GetParentId(),
+      syncer::ModelTypeToRootTag(model_type), client_entity.specifics()));
 }
 
 PermanentEntity::PermanentEntity(const string& id,
@@ -91,28 +83,26 @@ PermanentEntity::PermanentEntity(const string& id,
                                  const sync_pb::EntitySpecifics& specifics)
     : FakeServerEntity(id, model_type, 0, name),
       server_defined_unique_tag_(server_defined_unique_tag),
-      parent_id_(parent_id),
-      specifics_(specifics) { }
+      parent_id_(parent_id) {
+  SetSpecifics(specifics);
+}
 
 string PermanentEntity::GetParentId() const {
   return parent_id_;
 }
 
-void PermanentEntity::SerializeAsProto(sync_pb::SyncEntity* proto) {
+void PermanentEntity::SerializeAsProto(sync_pb::SyncEntity* proto) const {
   FakeServerEntity::SerializeBaseProtoFields(proto);
-
-  sync_pb::EntitySpecifics* specifics = proto->mutable_specifics();
-  specifics->CopyFrom(specifics_);
 
   proto->set_parent_id_string(parent_id_);
   proto->set_server_defined_unique_tag(server_defined_unique_tag_);
 }
 
-bool PermanentEntity::IsDeleted() const {
-  return false;
+bool PermanentEntity::IsFolder() const {
+  return true;
 }
 
-bool PermanentEntity::IsFolder() const {
+bool PermanentEntity::IsPermanent() const {
   return true;
 }
 

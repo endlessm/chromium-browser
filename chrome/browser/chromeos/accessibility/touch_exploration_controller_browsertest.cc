@@ -30,10 +30,10 @@ class TouchExplorationTest : public InProcessBrowserTest {
     // Tests fail if time is ever 0.
     simulated_clock_->Advance(base::TimeDelta::FromMilliseconds(10));
   }
-  virtual ~TouchExplorationTest() {}
+  ~TouchExplorationTest() override {}
 
  protected:
-  virtual void SetUpOnMainThread() override {
+  void SetUpOnMainThread() override {
     // The RenderView for WebContents is created as a result of the
     // navigation to the New Tab page which is done as part of the test
     // SetUp. The creation involves sending a resize message to the renderer
@@ -49,7 +49,7 @@ class TouchExplorationTest : public InProcessBrowserTest {
     root_window_->AddPreTargetHandler(event_handler_.get());
   }
 
-  virtual void TearDownOnMainThread() override {
+  void TearDownOnMainThread() override {
     SwitchTouchExplorationMode(false);
     root_window_->RemovePreTargetHandler(event_handler_.get());
   }
@@ -132,7 +132,8 @@ IN_PROC_BROWSER_TEST_F(TouchExplorationTest, MAYBE_NoRewritingEventsWhenOff) {
 
 // This test turns the touch exploration mode on and confirms that events get
 // rewritten.
-IN_PROC_BROWSER_TEST_F(TouchExplorationTest, RewritesEventsWhenOn) {
+// Disabling due to failing over 10% of the time. (crbug.com/469119)
+IN_PROC_BROWSER_TEST_F(TouchExplorationTest, DISABLED_RewritesEventsWhenOn) {
   SwitchTouchExplorationMode(true);
   ui::test::EventGenerator generator(root_window_);
 
@@ -192,7 +193,8 @@ IN_PROC_BROWSER_TEST_F(TouchExplorationTest, RewritesEventsWhenOn) {
 // This test makes sure that after the user clicks with split tap,
 // they continue to touch exploration mode if the original touch exploration
 // finger is still on the screen.
-IN_PROC_BROWSER_TEST_F(TouchExplorationTest, SplitTapExplore) {
+// Disabled due to failing upwards of 50% of the time (crbug.com/475923)
+IN_PROC_BROWSER_TEST_F(TouchExplorationTest, DISABLED_SplitTapExplore) {
   SwitchTouchExplorationMode(true);
   ui::test::EventGenerator generator(root_window_);
   aura::client::CursorClient* cursor_client =

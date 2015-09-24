@@ -2,7 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-"""This simple program takes changes from gerrit/gerrit-int and creates new
+"""Developer helper tool for merging CLs from ToT to branches.
+
+This simple program takes changes from gerrit/gerrit-int and creates new
 changes for them on the desired branch using your gerrit/ssh credentials. To
 specify a change on gerrit-int, you must prefix the change with a *.
 
@@ -35,7 +37,6 @@ anch
 from __future__ import print_function
 
 import errno
-import logging
 import os
 import re
 import shutil
@@ -46,33 +47,31 @@ from chromite.cbuildbot import constants
 from chromite.cbuildbot import repository
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import gerrit
 from chromite.lib import git
 from chromite.lib import patch as cros_patch
 
 
-_USAGE = """
-cros_merge_to_branch [*]change_number1 [[*]change_number2 ...] branch\n\n%s\
-""" % __doc__
-
-
 def _GetParser():
   """Returns the parser to use for this module."""
-  parser = commandline.OptionParser(usage=_USAGE)
-  parser.add_option('-d', '--draft', default=False, action='store_true',
-                    help='upload a draft to Gerrit rather than a change')
-  parser.add_option('-n', '--dry-run', default=False, action='store_true',
-                    dest='dryrun',
-                    help='apply changes locally but do not upload them')
-  parser.add_option('-e', '--email',
-                    help='if specified, use this email instead of '
-                    'the email you would upload changes as; must be set w/'
-                    '--nomirror')
-  parser.add_option('--nomirror', default=True, dest='mirror',
-                    action='store_false', help='checkout git repo directly; '
-                    'requires --email')
-  parser.add_option('--nowipe', default=True, dest='wipe', action='store_false',
-                    help='do not wipe the work directory after finishing')
+  parser = commandline.ArgumentParser(description=__doc__)
+  parser.add_argument('-d', '--draft', default=False, action='store_true',
+                      help='upload a draft to Gerrit rather than a change')
+  parser.add_argument('-n', '--dry-run', default=False, action='store_true',
+                      dest='dryrun',
+                      help='apply changes locally but do not upload them')
+  parser.add_argument('-e', '--email',
+                      help='use this email instead of the email you would '
+                           'upload changes as; required w/--nomirror')
+  parser.add_argument('--nomirror', default=True, dest='mirror',
+                      action='store_false',
+                      help='checkout git repo directly; requires --email')
+  parser.add_argument('--nowipe', default=True, dest='wipe',
+                      action='store_false',
+                      help='do not wipe the work directory after finishing')
+  parser.add_argument('change', nargs='+', help='CLs to merge')
+  parser.add_argument('branch', help='the branch to merge to')
   return parser
 
 
@@ -100,16 +99,17 @@ def _UploadChangeToBranch(work_dir, patch, branch, draft, dryrun):
   new_sha1 = git.GetGitRepoRevision(work_dir)
   reviewers = set()
 
+  # Filter out tags that are added by gerrit and chromite.
+  filter_re = re.compile(
+      r'((Commit|Trybot)-Ready|Commit-Queue|(Reviewed|Submitted|Tested)-by): ')
+
   # Rewrite the commit message all the time.  Latest gerrit doesn't seem
   # to like it when you use the same ChangeId on different branches.
   msg = []
   for line in patch.commit_message.splitlines():
     if line.startswith('Reviewed-on: '):
       line = 'Previous-' + line
-    elif line.startswith('Commit-Ready: ') or \
-         line.startswith('Commit-Queue: ') or \
-         line.startswith('Reviewed-by: ') or \
-         line.startswith('Tested-by: '):
+    elif filter_re.match(line):
       # If the tag is malformed, or the person lacks a name,
       # then that's just too bad -- throw it away.
       ele = re.split(r'[<>@]+', line)
@@ -117,9 +117,7 @@ def _UploadChangeToBranch(work_dir, patch, branch, draft, dryrun):
         reviewers.add('@'.join(ele[-3:-1]))
       continue
     msg.append(line)
-  msg += [
-    '(cherry picked from commit %s)' % patch.sha1,
-  ]
+  msg += ['(cherry picked from commit %s)' % patch.sha1]
   git.RunGit(work_dir, ['commit', '--amend', '-F', '-'],
              input='\n'.join(msg).encode('utf8'))
 
@@ -146,8 +144,8 @@ def _UploadChangeToBranch(work_dir, patch, branch, draft, dryrun):
 
 def _SetupWorkDirectoryForPatch(work_dir, patch, branch, manifest, email):
   """Set up local dir for uploading changes to the given patch's project."""
-  logging.info('Setting up dir %s for uploading changes to %s', work_dir,
-               patch.project_url)
+  logging.notice('Setting up dir %s for uploading changes to %s', work_dir,
+                 patch.project_url)
 
   # Clone the git repo from reference if we have a pointer to a
   # ManifestCheckout object.
@@ -176,14 +174,14 @@ def _SetupWorkDirectoryForPatch(work_dir, patch, branch, manifest, email):
   mbranch = git.MatchSingleBranchName(
       work_dir, branch, namespace='refs/remotes/origin/')
   if branch != mbranch:
-    logging.info('Auto resolved branch name "%s" to "%s"', branch, mbranch)
+    logging.notice('Auto resolved branch name "%s" to "%s"', branch, mbranch)
   branch = mbranch
 
   # Finally, create a local branch for uploading changes to the given remote
   # branch.
   git.CreatePushBranch(
       constants.PATCH_BRANCH, work_dir, sync=False,
-      remote_push_branch=('ignore', 'origin/%s' % branch))
+      remote_push_branch=git.RemoteRef('ignore', 'origin/%s' % branch))
 
   return branch
 
@@ -207,22 +205,19 @@ def _ManifestContainsAllPatches(manifest, patches):
 
 def main(argv):
   parser = _GetParser()
-  options, args = parser.parse_args(argv)
+  options = parser.parse_args(argv)
+  changes = options.change
+  branch = options.branch
 
-  if len(args) < 2:
-    parser.error('Not enough arguments specified')
-
-  changes = args[0:-1]
   try:
     patches = gerrit.GetGerritPatchInfo(changes)
   except ValueError as e:
     logging.error('Invalid patch: %s', e)
     cros_build_lib.Die('Did you swap the branch/gerrit number?')
-  branch = args[-1]
 
-  # Suppress all cros_build_lib info output unless we're running debug.
+  # Suppress all logging info output unless we're running debug.
   if not options.debug:
-    cros_build_lib.logger.setLevel(logging.ERROR)
+    logging.getLogger().setLevel(logging.NOTICE)
 
   # Get a pointer to your repo checkout to look up the local project paths for
   # both email addresses and for using your checkout as a git mirror.
@@ -242,7 +237,7 @@ def main(argv):
   else:
     if not options.email:
       chromium_email = '%s@chromium.org' % os.environ['USER']
-      logging.info('--nomirror set without email, using %s', chromium_email)
+      logging.notice('--nomirror set without email, using %s', chromium_email)
       options.email = chromium_email
 
   index = 0
@@ -258,15 +253,15 @@ def main(argv):
 
       # Now that we have the project checked out, let's apply our change and
       # create a new change on Gerrit.
-      logging.info('Uploading change %s to branch %s', change, branch)
+      logging.notice('Uploading change %s to branch %s', change, branch)
       urls = _UploadChangeToBranch(work_dir, patch, branch, options.draft,
                                    options.dryrun)
-      logging.info('Successfully uploaded %s to %s', change, branch)
+      logging.notice('Successfully uploaded %s to %s', change, branch)
       for url in urls:
         if url.endswith('\x1b[K'):
           # Git will often times emit these escape sequences.
           url = url[0:-3]
-        logging.info('  URL: %s', url)
+        logging.notice('  URL: %s', url)
 
   except (cros_build_lib.RunCommandError, cros_patch.ApplyPatchException,
           git.AmbiguousBranchName, OSError) as e:
@@ -277,18 +272,19 @@ def main(argv):
     logging.warning('############## SOME CHANGES FAILED TO UPLOAD ############')
 
     if good_changes:
-      logging.info('Successfully uploaded change(s) %s', ' '.join(good_changes))
+      logging.notice(
+          'Successfully uploaded change(s) %s', ' '.join(good_changes))
 
     # Printing out the error here so that we can see exactly what failed. This
     # is especially useful to debug without using --debug.
     logging.error('Upload failed with %s', str(e).strip())
     if not options.wipe:
-      logging.info('Not wiping the directory. You can inspect the failed '
-                   'change at %s; After fixing the change (if trivial) you can '
-                   'try to upload the change by running:\n'
-                   'git commit -a -c CHERRY_PICK_HEAD\n'
-                   'git push %s HEAD:refs/for/%s', work_dir, patch.project_url,
-                   branch)
+      logging.error('Not wiping the directory. You can inspect the failed '
+                    'change at %s; After fixing the change (if trivial) you can'
+                    ' try to upload the change by running:\n'
+                    'git commit -a -c CHERRY_PICK_HEAD\n'
+                    'git push %s HEAD:refs/for/%s', work_dir, patch.project_url,
+                    branch)
     else:
       logging.error('--nowipe not set thus deleting the work directory. If you '
                     'wish to debug this, re-run the script with change(s) '
@@ -307,9 +303,9 @@ def main(argv):
       shutil.rmtree(root_work_dir)
 
   if options.dryrun:
-    logging.info('Success! To actually upload changes, re-run without '
-                 '--dry-run.')
+    logging.notice('Success! To actually upload changes, re-run without '
+                   '--dry-run.')
   else:
-    logging.info('Successfully uploaded all changes requested.')
+    logging.notice('Successfully uploaded all changes requested.')
 
   return 0

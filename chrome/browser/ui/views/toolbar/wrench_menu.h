@@ -36,7 +36,7 @@ class View;
 
 // WrenchMenu adapts the WrenchMenuModel to view's menu related classes.
 class WrenchMenu : public views::MenuDelegate,
-                   public BaseBookmarkModelObserver,
+                   public bookmarks::BaseBookmarkModelObserver,
                    public content::NotificationObserver {
  public:
   enum RunFlags {
@@ -102,7 +102,7 @@ class WrenchMenu : public views::MenuDelegate,
   void WillHideMenu(views::MenuItemView* menu) override;
   bool ShouldCloseOnDragComplete() override;
 
-  // BaseBookmarkModelObserver overrides:
+  // bookmarks::BaseBookmarkModelObserver overrides:
   void BookmarkModelChanged() override;
 
   // content::NotificationObserver overrides:
@@ -138,7 +138,7 @@ class WrenchMenu : public views::MenuDelegate,
 
   // Invoked from the cut/copy/paste menus. Cancels the current active menu and
   // activates the menu item in |model| at |index|.
-  void CancelAndEvaluate(ui::MenuModel* model, int index);
+  void CancelAndEvaluate(ui::ButtonMenuItemModel* model, int index);
 
   // Creates the bookmark menu if necessary. Does nothing if already created or
   // the bookmark model isn't loaded.
@@ -164,7 +164,7 @@ class WrenchMenu : public views::MenuDelegate,
   // If |selected_menu_model_| is non-null after the menu completes
   // ActivatedAt is invoked. This is done so that ActivatedAt isn't invoked
   // while the message loop is nested.
-  ui::MenuModel* selected_menu_model_;
+  ui::ButtonMenuItemModel* selected_menu_model_;
   int selected_index_;
 
   // Used for managing the bookmark menu items.
@@ -176,6 +176,9 @@ class WrenchMenu : public views::MenuDelegate,
   // Menu corresponding to IDC_FEEDBACK.
   views::MenuItemView* feedback_menu_item_;
 
+  // Menu corresponding to IDC_TAKE_SCREENSHOT.
+  views::MenuItemView* screenshot_menu_item_;
+
   // Used for managing "Recent tabs" menu items.
   scoped_ptr<RecentTabsMenuModelDelegate> recent_tabs_menu_model_delegate_;
 
@@ -184,7 +187,7 @@ class WrenchMenu : public views::MenuDelegate,
   // The bit mask of RunFlags.
   const int run_flags_;
 
-  ObserverList<WrenchMenuObserver> observer_list_;
+  base::ObserverList<WrenchMenuObserver> observer_list_;
 
   // Records the time from when menu opens to when the user selects a menu item.
   base::ElapsedTimer menu_opened_timer_;

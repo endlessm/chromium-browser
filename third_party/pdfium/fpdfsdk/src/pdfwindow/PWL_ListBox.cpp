@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/pdfwindow/PDFWindow.h"
@@ -28,8 +28,8 @@ CPWL_List_Notify::~CPWL_List_Notify()
 {
 }
 
-void CPWL_List_Notify::IOnSetScrollInfoY(FX_FLOAT fPlateMin, FX_FLOAT fPlateMax, 
-												FX_FLOAT fContentMin, FX_FLOAT fContentMax, 
+void CPWL_List_Notify::IOnSetScrollInfoY(FX_FLOAT fPlateMin, FX_FLOAT fPlateMax,
+												FX_FLOAT fContentMin, FX_FLOAT fContentMax,
 												FX_FLOAT fSmallStep, FX_FLOAT fBigStep)
 {
 	PWL_SCROLL_INFO Info;
@@ -40,7 +40,7 @@ void CPWL_List_Notify::IOnSetScrollInfoY(FX_FLOAT fPlateMin, FX_FLOAT fPlateMax,
 	Info.fSmallStep = fSmallStep;
 	Info.fBigStep = fBigStep;
 
-	m_pList->OnNotify(m_pList,PNM_SETSCROLLINFO,SBT_VSCROLL,(FX_INTPTR)&Info);
+	m_pList->OnNotify(m_pList,PNM_SETSCROLLINFO,SBT_VSCROLL,(intptr_t)&Info);
 
 	if (CPWL_ScrollBar * pScroll = m_pList->GetVScrollBar())
 	{
@@ -51,22 +51,22 @@ void CPWL_List_Notify::IOnSetScrollInfoY(FX_FLOAT fPlateMin, FX_FLOAT fPlateMax,
 			{
 				pScroll->SetVisible(FALSE);
 				m_pList->RePosChildWnd();
-			}			
+			}
 		}
 		else
 		{
 			if (!pScroll->IsVisible())
 			{
-				pScroll->SetVisible(TRUE);	
+				pScroll->SetVisible(TRUE);
 				m_pList->RePosChildWnd();
 			}
 		}
-	}	
+	}
 }
 
 void CPWL_List_Notify::IOnSetScrollPosY(FX_FLOAT fy)
 {
-	m_pList->OnNotify(m_pList,PNM_SETSCROLLPOS,SBT_VSCROLL,(FX_INTPTR)&fy);
+	m_pList->OnNotify(m_pList,PNM_SETSCROLLPOS,SBT_VSCROLL,(intptr_t)&fy);
 }
 
 void CPWL_List_Notify::IOnInvalidateRect(CPDF_Rect * pRect)
@@ -90,17 +90,13 @@ CPWL_ListBox::CPWL_ListBox() :
 
 CPWL_ListBox::~CPWL_ListBox()
 {
-	IFX_List::DelList(m_pList);
-	
-	if (m_pListNotify)
-	{
-		delete m_pListNotify;
-		m_pListNotify = NULL;
-	}
+    IFX_List::DelList(m_pList);
+    delete m_pListNotify;
+    m_pListNotify = NULL;
 }
 
 CFX_ByteString CPWL_ListBox::GetClassName() const
-{	
+{
 	return "CPWL_ListBox";
 }
 
@@ -108,14 +104,14 @@ void CPWL_ListBox::OnCreated()
 {
 	if (m_pList)
 	{
-		if (m_pListNotify) delete m_pListNotify;
+		delete m_pListNotify;
 
 		m_pList->SetFontMap(GetFontMap());
 		m_pList->SetNotify(m_pListNotify = new CPWL_List_Notify(this));
-	
-		SetHoverSel(HasFlag(PLBS_HOVERSEL));	
+
+		SetHoverSel(HasFlag(PLBS_HOVERSEL));
 		m_pList->SetMultipleSel(HasFlag(PLBS_MULTIPLESEL));
-		m_pList->SetFontSize(this->GetCreationParam().fFontSize);	
+		m_pList->SetFontSize(GetCreationParam().fFontSize);
 
 		m_bHoverSel = HasFlag(PLBS_HOVERSEL);
 	}
@@ -123,11 +119,8 @@ void CPWL_ListBox::OnCreated()
 
 void CPWL_ListBox::OnDestroy()
 {
-	if (m_pListNotify)
-	{
-		delete m_pListNotify;
-		m_pListNotify = NULL;
-	}
+    delete m_pListNotify;
+    m_pListNotify = NULL;
 }
 
 void CPWL_ListBox::GetThisAppearanceStream(CFX_ByteTextBuf & sAppStream)
@@ -139,12 +132,12 @@ void CPWL_ListBox::GetThisAppearanceStream(CFX_ByteTextBuf & sAppStream)
 	if (m_pList)
 	{
 		CPDF_Rect rcPlate = m_pList->GetPlateRect();
-		for (FX_INT32 i=0,sz=m_pList->GetCount(); i<sz; i++)
+		for (int32_t i=0,sz=m_pList->GetCount(); i<sz; i++)
 		{
 			CPDF_Rect rcItem = m_pList->GetItemRect(i);
 
 			if (rcItem.bottom > rcPlate.top || rcItem.top < rcPlate.bottom) continue;
-			
+
 			CPDF_Point ptOffset(rcItem.left, (rcItem.top + rcItem.bottom) * 0.5f);
 			if (m_pList->IsItemSelected(i))
 			{
@@ -168,8 +161,8 @@ void CPWL_ListBox::GetThisAppearanceStream(CFX_ByteTextBuf & sAppStream)
 
 	if (sListItems.GetLength() > 0)
 	{
-		CFX_ByteTextBuf sClip;			
-		CPDF_Rect rcClient = this->GetClientRect();
+		CFX_ByteTextBuf sClip;
+		CPDF_Rect rcClient = GetClientRect();
 
 		sClip << "q\n";
 		sClip << rcClient.left << " " << rcClient.bottom << " "
@@ -191,11 +184,11 @@ void CPWL_ListBox::DrawThisAppearance(CFX_RenderDevice* pDevice, CPDF_Matrix* pU
 		CPDF_Rect rcList = GetListRect();
 		CPDF_Rect rcClient = GetClientRect();
 
-		for (FX_INT32 i=0,sz=m_pList->GetCount(); i<sz; i++)
+		for (int32_t i=0,sz=m_pList->GetCount(); i<sz; i++)
 		{
 			CPDF_Rect rcItem = m_pList->GetItemRect(i);
 			if (rcItem.bottom > rcPlate.top || rcItem.top < rcPlate.bottom) continue;
-			
+
 			CPDF_Point ptOffset(rcItem.left, (rcItem.top + rcItem.bottom) * 0.5f);
 			if (IFX_Edit* pEdit = m_pList->GetItemEdit(i))
 			{
@@ -226,7 +219,7 @@ void CPWL_ListBox::DrawThisAppearance(CFX_RenderDevice* pDevice, CPDF_Matrix* pU
 			else
 			{
 				IFX_SystemHandler* pSysHandler = GetSystemHandler();
-				IFX_Edit::DrawEdit(pDevice, pUser2Device, m_pList->GetItemEdit(i), 
+				IFX_Edit::DrawEdit(pDevice, pUser2Device, m_pList->GetItemEdit(i),
 						CPWL_Utils::PWLColorToFXColor(GetTextColor()),
 						CPWL_Utils::PWLColorToFXColor(GetTextStrokeColor()),
 						rcList, ptOffset, NULL,pSysHandler, NULL);
@@ -252,7 +245,7 @@ FX_BOOL CPWL_ListBox::OnKeyDown(FX_WORD nChar, FX_DWORD nFlag)
 	case FWL_VKEY_Left:
 	case FWL_VKEY_End:
 	case FWL_VKEY_Right:
-		break;	
+		break;
 	}
 
 	switch (nChar)
@@ -351,17 +344,17 @@ FX_BOOL CPWL_ListBox::OnMouseMove(const CPDF_Point & point, FX_DWORD nFlag)
 	{
 		if (m_pList)
 			m_pList->OnMouseMove(point,IsSHIFTpressed(nFlag),IsCTRLpressed(nFlag));
-	}	
+	}
 
 	return TRUE;
 }
 
-void CPWL_ListBox::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, FX_INTPTR wParam, FX_INTPTR lParam)
+void CPWL_ListBox::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, intptr_t wParam, intptr_t lParam)
 {
 	CPWL_Wnd::OnNotify(pWnd,msg,wParam,lParam);
 
-	FX_FLOAT fPos;	
-	
+	FX_FLOAT fPos;
+
 	switch (msg)
 	{
 	case PNM_SETSCROLLINFO:
@@ -375,7 +368,7 @@ void CPWL_ListBox::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, FX_INTPTR wParam, FX_I
 			break;
 		}
 		break;
-	case PNM_SETSCROLLPOS:			
+	case PNM_SETSCROLLPOS:
 		switch (wParam)
 		{
 		case SBT_VSCROLL:
@@ -401,29 +394,7 @@ void CPWL_ListBox::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, FX_INTPTR wParam, FX_I
 
 void CPWL_ListBox::KillFocus()
 {
-	CPWL_Wnd::KillFocus();
-
-	/*
-	if (this->IsMultipleSel())
-	{
-		for(FX_INT32 i=0;i<this->GetCount();i++)
-		{
-			if (this->IsListItemSelected(i))
-			{
-				if (!IsListItemVisible(i))
-					this->ScrollToListItem(i);
-				break;
-			}
-		}
-	}
-	else
-	{
-		if (!IsListItemVisible(this->GetCurSel()))
-			this->ScrollToListItem(this->GetCurSel());
-	}
-
-	SetListItemCaret(m_nCaretIndex,FALSE);
-	*/
+    CPWL_Wnd::KillFocus();
 }
 
 void CPWL_ListBox::RePosChildWnd()
@@ -437,7 +408,7 @@ void CPWL_ListBox::RePosChildWnd()
 void CPWL_ListBox::OnNotifySelChanged(FX_BOOL bKeyDown, FX_BOOL & bExit,  FX_DWORD nFlag)
 {
 	if (m_pFillerNotify)
-	{		
+	{
 		FX_BOOL bRC = TRUE;
 		CFX_WideString swChange = GetText();
 		CFX_WideString strChangeEx;
@@ -458,21 +429,16 @@ CPDF_Rect CPWL_ListBox::GetFocusRect() const
 		rcCaret.Intersect(GetClientRect());
 		return rcCaret;
 	}
-	
+
 	return CPWL_Wnd::GetFocusRect();
 }
 
-void CPWL_ListBox::AddString(FX_LPCWSTR string)
+void CPWL_ListBox::AddString(const FX_WCHAR* string)
 {
 	if (m_pList)
-	{		
+	{
 		m_pList->AddString(string);
 	}
-}
-
-void CPWL_ListBox::SetText(FX_LPCWSTR csText,FX_BOOL bRefresh)
-{
-	//return CPDF_List::SetText(csText,bRefresh);
 }
 
 CFX_WideString CPWL_ListBox::GetText() const
@@ -496,25 +462,25 @@ FX_FLOAT CPWL_ListBox::GetFontSize() const
 	return 0.0f;
 }
 
-void CPWL_ListBox::Select(FX_INT32 nItemIndex)
+void CPWL_ListBox::Select(int32_t nItemIndex)
 {
 	if (m_pList)
 		m_pList->Select(nItemIndex);
 }
 
-void CPWL_ListBox::SetCaret(FX_INT32 nItemIndex)
+void CPWL_ListBox::SetCaret(int32_t nItemIndex)
 {
 	if (m_pList)
 		m_pList->SetCaret(nItemIndex);
 }
 
-void CPWL_ListBox::SetTopVisibleIndex(FX_INT32 nItemIndex)
+void CPWL_ListBox::SetTopVisibleIndex(int32_t nItemIndex)
 {
 	if (m_pList)
 		m_pList->SetTopItem(nItemIndex);
 }
 
-void CPWL_ListBox::ScrollToListItem(FX_INT32 nItemIndex)
+void CPWL_ListBox::ScrollToListItem(int32_t nItemIndex)
 {
 	if (m_pList)
 		m_pList->ScrollToListItem(nItemIndex);
@@ -540,7 +506,7 @@ FX_BOOL CPWL_ListBox::IsMultipleSel() const
 	return FALSE;
 }
 
-FX_INT32 CPWL_ListBox::GetCaretIndex() const
+int32_t CPWL_ListBox::GetCaretIndex() const
 {
 	if (m_pList)
 		return m_pList->GetCaret();
@@ -548,7 +514,7 @@ FX_INT32 CPWL_ListBox::GetCaretIndex() const
 	return -1;
 }
 
-FX_INT32 CPWL_ListBox::GetCurSel() const
+int32_t CPWL_ListBox::GetCurSel() const
 {
 	if (m_pList)
 		return m_pList->GetSelect();
@@ -556,7 +522,7 @@ FX_INT32 CPWL_ListBox::GetCurSel() const
 	return -1;
 }
 
-FX_BOOL CPWL_ListBox::IsItemSelected(FX_INT32 nItemIndex) const
+FX_BOOL CPWL_ListBox::IsItemSelected(int32_t nItemIndex) const
 {
 	if (m_pList)
 		return m_pList->IsItemSelected(nItemIndex);
@@ -564,7 +530,7 @@ FX_BOOL CPWL_ListBox::IsItemSelected(FX_INT32 nItemIndex) const
 	return FALSE;
 }
 
-FX_INT32 CPWL_ListBox::GetTopVisibleIndex() const
+int32_t CPWL_ListBox::GetTopVisibleIndex() const
 {
 	if (m_pList)
 	{
@@ -575,7 +541,7 @@ FX_INT32 CPWL_ListBox::GetTopVisibleIndex() const
 	return -1;
 }
 
-FX_INT32 CPWL_ListBox::GetCount() const
+int32_t CPWL_ListBox::GetCount() const
 {
 	if (m_pList)
 		return m_pList->GetCount();
@@ -583,7 +549,7 @@ FX_INT32 CPWL_ListBox::GetCount() const
 	return 0;
 }
 
-FX_INT32 CPWL_ListBox::FindNext(FX_INT32 nIndex,FX_WCHAR nChar) const
+int32_t CPWL_ListBox::FindNext(int32_t nIndex,FX_WCHAR nChar) const
 {
 	if (m_pList)
 		return m_pList->FindNext(nIndex,nChar);

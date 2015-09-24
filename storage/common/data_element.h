@@ -27,6 +27,7 @@ class STORAGE_COMMON_EXPORT DataElement {
     TYPE_FILE,
     TYPE_BLOB,
     TYPE_FILE_FILESYSTEM,
+    TYPE_DISK_CACHE_ENTRY,
   };
 
   DataElement();
@@ -50,8 +51,28 @@ class STORAGE_COMMON_EXPORT DataElement {
     length_ = buf_.size();
   }
 
+  // Sets TYPE_BYTES data, and clears the internal bytes buffer.
+  // For use with AppendBytes.
+  void SetToEmptyBytes() {
+    type_ = TYPE_BYTES;
+    buf_.clear();
+    length_ = 0;
+    bytes_ = nullptr;
+  }
+
+  // Copies and appends the given data into the element. SetToEmptyBytes or
+  // SetToBytes must be called before this method.
+  void AppendBytes(const char* bytes, int bytes_len) {
+    DCHECK_EQ(type_, TYPE_BYTES);
+    DCHECK_NE(length_, kuint64max);
+    DCHECK(!bytes_);
+    buf_.insert(buf_.end(), bytes, bytes + bytes_len);
+    length_ = buf_.size();
+  }
+
   // Sets TYPE_BYTES data. This does NOT copy the given data and the caller
   // should make sure the data is alive when this element is accessed.
+  // You cannot use AppendBytes with this method.
   void SetToSharedBytes(const char* bytes, int bytes_len) {
     type_ = TYPE_BYTES;
     bytes_ = bytes;
@@ -82,6 +103,9 @@ class STORAGE_COMMON_EXPORT DataElement {
                                uint64 offset, uint64 length,
                                const base::Time& expected_modification_time);
 
+  // Sets to TYPE_DISK_CACHE_ENTRY with range.
+  void SetToDiskCacheEntryRange(uint64 offset, uint64 length);
+
  private:
   Type type_;
   std::vector<char> buf_;  // For TYPE_BYTES.
@@ -110,6 +134,10 @@ inline bool operator==(const DataElement& a, const DataElement& b) {
       return a.blob_uuid() == b.blob_uuid();
     case DataElement::TYPE_FILE_FILESYSTEM:
       return a.filesystem_url() == b.filesystem_url();
+    case DataElement::TYPE_DISK_CACHE_ENTRY:
+      // We compare only length and offset; we trust the entry itself was
+      // compared at some higher level such as in BlobDataItem.
+      return true;
     case DataElement::TYPE_UNKNOWN:
       NOTREACHED();
       return false;

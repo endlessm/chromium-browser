@@ -12,8 +12,10 @@
 }
 
 #cbd-throbber {
-  margin: 4px 10px;
-  vertical-align: middle;
+  /* This should be changed to align-self: center; when the parent is changed to
+   * display: flex; */
+  position: relative;
+  top: 5px;
   visibility: hidden;
 }
 
@@ -28,6 +30,10 @@
   font-weight: bold;
   margin: 0 20px 11px 17px;
   padding: 6px 8px;
+}
+
+#clear-browser-data-info-banner:empty {
+  display: none;
 }
 
 #some-stuff-remains-footer > p {

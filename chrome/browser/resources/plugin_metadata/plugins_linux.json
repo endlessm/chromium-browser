@@ -1,5 +1,5 @@
 {
-  "x-version": 5,
+  "x-version": 7,
   "google-talk": {
     "mime_types": [
     ],
@@ -80,15 +80,15 @@
     ],
     "versions": [
       {
-        "version": "11.1.102",
+        "version": "18.0.0.233",
         "status": "up_to_date",
-        "reference": "http://www.adobe.com/support/security/bulletins/apsb12-03.html"
+        "reference": "https://helpx.adobe.com/security/products/flash-player/apsb15-19.html"
       }
     ],
     "lang": "en-US",
     "name": "Adobe Flash Player",
     "help_url": "https://support.google.com/chrome/?p=plugin_flash",
-    "url": "http://get.adobe.com/flashplayer/",
+    "url": "https://support.google.com/chrome/answer/6258784",
     "displayurl": true,
     "group_name_matcher": "*Shockwave Flash*"
   },
@@ -123,5 +123,18 @@
     ],
     "name": "Chrome PDF Viewer",
     "group_name_matcher": "*Chrome PDF Viewer*"
+  },
+  "chromium-pdf": {
+    "mime_types": [
+    ],
+    "versions": [
+      {
+        "version": "0",
+        "status": "up_to_date",
+        "comment": "Chrome PDF Viewer has no version information."
+      }
+    ],
+    "name": "Chromium PDF Viewer",
+    "group_name_matcher": "*Chromium PDF Viewer*"
   }
 }

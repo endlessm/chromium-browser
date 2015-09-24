@@ -7,7 +7,6 @@
 #include <vector>
 
 #include "base/command_line.h"
-#include "base/debug/trace_event.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
@@ -16,6 +15,7 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_tokenizer.h"
 #include "base/strings/string_util.h"
+#include "base/trace_event/trace_event.h"
 #include "gpu/config/gpu_info_collector.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
@@ -31,6 +31,7 @@ namespace gpu {
 
 namespace {
 
+#if defined(USE_LIBPCI)
 // This checks if a system supports PCI bus.
 // We check the existence of /sys/bus/pci or /sys/bug/pci_express.
 bool IsPciSupported() {
@@ -39,6 +40,7 @@ bool IsPciSupported() {
   return (base::PathExists(pci_path) ||
           base::PathExists(pcie_path));
 }
+#endif  // defined(USE_LIBPCI)
 
 // Scan /etc/ati/amdpcsdb.default for "ReleaseVersion".
 // Return empty string on failing.
@@ -54,7 +56,7 @@ std::string CollectDriverVersionATI() {
   base::StringTokenizer t(contents, "\r\n");
   while (t.GetNext()) {
     std::string line = t.token();
-    if (StartsWithASCII(line, "ReleaseVersion=", true)) {
+    if (base::StartsWithASCII(line, "ReleaseVersion=", true)) {
       size_t begin = line.find_first_of("0123456789");
       if (begin != std::string::npos) {
         size_t end = line.find_first_not_of("0123456789.", begin);
@@ -161,7 +163,7 @@ CollectInfoResult CollectContextGraphicsInfo(GPUInfo* gpu_info) {
 
   TRACE_EVENT0("gpu", "gpu_info_collector::CollectGraphicsInfo");
 
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kGpuNoContextLost)) {
     gpu_info->can_lose_context = false;
   } else {
@@ -242,7 +244,7 @@ CollectInfoResult CollectDriverInfoGL(GPUInfo* gpu_info) {
   DCHECK(gpu_info);
 
   std::string gl_version = gpu_info->gl_version;
-  if (StartsWithASCII(gl_version, "OpenGL ES", true))
+  if (base::StartsWithASCII(gl_version, "OpenGL ES", true))
     gl_version = gl_version.substr(10);
   std::vector<std::string> pieces;
   base::SplitStringAlongWhitespace(gl_version, &pieces);

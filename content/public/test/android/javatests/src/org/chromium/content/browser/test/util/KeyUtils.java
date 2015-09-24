@@ -6,6 +6,7 @@ package org.chromium.content.browser.test.util;
 
 import android.app.Instrumentation;
 import android.os.SystemClock;
+import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.View;
 
@@ -22,9 +23,9 @@ public class KeyUtils {
      * {@link View#dispatchKeyEventPreIme(KeyEvent)} and {@link View#dispatchKeyEvent(KeyEvent)} of
      * the view itself
      * <p>
-     * The event injecting framework requires INJECT_EVENTS permission and that has been flaky on
-     * our perf bots.  So until a root cause of the issue can be found, we should use this instead
-     * of the functionality provided by {@link #sendKeys(int...)}.
+     * The event injecting framework will fail with a SecurityException if another window is
+     * on top of Chrome ("Injecting to another application requires INJECT_EVENTS permission"). So,
+     * we should use this instead of {@link android.test.InstrumentationTestCase#sendKeys(int...)}.
      *
      * @param i The application being instrumented.
      * @param v The view to receive the key event.
@@ -43,6 +44,21 @@ public class KeyUtils {
         final KeyEvent upEvent =
                 new KeyEvent(downTime, eventTime, KeyEvent.ACTION_UP, keyCode, 0);
         dispatchKeyEvent(i, v, upEvent);
+    }
+
+    /**
+     * Types the given text (on character at a time) into the specified view.
+     *
+     * @param i The application being instrumented.
+     * @param v The view to receive the text.
+     * @param text The text to be input.
+     */
+    public static void typeTextIntoView(Instrumentation i, View v, String text) {
+        KeyCharacterMap characterMap = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD);
+        KeyEvent[] events = characterMap.getEvents(text.toCharArray());
+        for (KeyEvent event : events) {
+            dispatchKeyEvent(i, v, event);
+        }
     }
 
     private static void dispatchKeyEvent(final Instrumentation i, final View v,

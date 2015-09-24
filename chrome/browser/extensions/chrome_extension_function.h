@@ -30,11 +30,6 @@ class ChromeUIThreadExtensionFunction : public UIThreadExtensionFunction {
 
   Profile* GetProfile() const;
 
-  // Returns true if this function (and the profile and extension that it was
-  // invoked from) can operate on the window wrapped by |window_controller|.
-  bool CanOperateOnWindow(const extensions::WindowController* window_controller)
-      const;
-
   // Gets the "current" browser, if any.
   //
   // Many extension APIs operate relative to the current browser, which is the
@@ -87,7 +82,10 @@ class ChromeAsyncExtensionFunction : public ChromeUIThreadExtensionFunction {
   static bool ValidationFailure(ChromeAsyncExtensionFunction* function);
 
  private:
-  ResponseAction Run() override;
+  // If you're hitting a compile error here due to "final" - great! You're doing
+  // the right thing, you just need to extend ChromeUIThreadExtensionFunction
+  // instead of ChromeAsyncExtensionFunction.
+  ResponseAction Run() final;
 };
 
 // A chrome specific analog to SyncExtensionFunction. This has access to a
@@ -111,7 +109,10 @@ class ChromeSyncExtensionFunction : public ChromeUIThreadExtensionFunction {
   static bool ValidationFailure(ChromeSyncExtensionFunction* function);
 
  private:
-  ResponseAction Run() override;
+  // If you're hitting a compile error here due to "final" - great! You're doing
+  // the right thing, you just need to extend ChromeUIThreadExtensionFunction
+  // instead of ChromeSyncExtensionFunction.
+  ResponseAction Run() final;
 };
 
 #endif  // CHROME_BROWSER_EXTENSIONS_CHROME_EXTENSION_FUNCTION_H_

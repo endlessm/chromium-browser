@@ -6,36 +6,17 @@
 #define CHROME_BROWSER_GOOGLE_GOOGLE_UPDATE_WIN_H_
 
 #include "base/basictypes.h"
+#include "base/callback_forward.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
+#include "base/win/scoped_comptr.h"
 #include "google_update/google_update_idl.h"
+#include "ui/gfx/native_widget_types.h"
 
 namespace base {
-class MessageLoop;
-}
-
-namespace views {
-class Widget;
-}
-
-// The status of the upgrade. UPGRADE_STARTED and UPGRADE_CHECK_STARTED are
-// internal states and will not be reported as results to the listener.
-// These values are used for a histogram. Do not reorder.
-enum GoogleUpdateUpgradeResult {
-  // The upgrade has started.
-  UPGRADE_STARTED = 0,
-  // A check for upgrade has been initiated.
-  UPGRADE_CHECK_STARTED = 1,
-  // An update is available.
-  UPGRADE_IS_AVAILABLE = 2,
-  // The upgrade happened successfully.
-  UPGRADE_SUCCESSFUL = 3,
-  // No need to upgrade, Chrome is up to date.
-  UPGRADE_ALREADY_UP_TO_DATE = 4,
-  // An error occurred.
-  UPGRADE_ERROR = 5,
-  NUM_UPGRADE_RESULTS
-};
+class SingleThreadTaskRunner;
+}  // namespace base
 
 // These values are used for a histogram. Do not reorder.
 enum GoogleUpdateErrorCode {
@@ -45,17 +26,17 @@ enum GoogleUpdateErrorCode {
   // location. This error will appear for developer builds and with
   // installations unzipped to random locations.
   CANNOT_UPGRADE_CHROME_IN_THIS_DIRECTORY = 1,
-  // Failed to create Google Update JobServer COM class.
-  GOOGLE_UPDATE_JOB_SERVER_CREATION_FAILED = 2,
+  // Failed to create Google Update JobServer COM class. DEPRECATED.
+  // GOOGLE_UPDATE_JOB_SERVER_CREATION_FAILED = 2,
   // Failed to create Google Update OnDemand COM class.
   GOOGLE_UPDATE_ONDEMAND_CLASS_NOT_FOUND = 3,
   // Google Update OnDemand COM class reported an error during a check for
   // update (or while upgrading).
   GOOGLE_UPDATE_ONDEMAND_CLASS_REPORTED_ERROR = 4,
-  // A call to GetResults failed.
-  GOOGLE_UPDATE_GET_RESULT_CALL_FAILED = 5,
-  // A call to GetVersionInfo failed.
-  GOOGLE_UPDATE_GET_VERSION_INFO_FAILED = 6,
+  // A call to GetResults failed. DEPRECATED.
+  // GOOGLE_UPDATE_GET_RESULT_CALL_FAILED = 5,
+  // A call to GetVersionInfo failed. DEPRECATED
+  // GOOGLE_UPDATE_GET_VERSION_INFO_FAILED = 6,
   // An error occurred while upgrading (or while checking for update).
   // Check the Google Update log in %TEMP% for more details.
   GOOGLE_UPDATE_ERROR_UPDATING = 7,
@@ -64,88 +45,71 @@ enum GoogleUpdateErrorCode {
   GOOGLE_UPDATE_DISABLED_BY_POLICY = 8,
   // Updates can not be downloaded because the administrator has disabled
   // manual (on-demand) updates.  Automatic background updates are allowed.
-  GOOGLE_UPDATE_DISABLED_BY_POLICY_AUTO_ONLY = 9,
+  // DEPRECATED.
+  // GOOGLE_UPDATE_DISABLED_BY_POLICY_AUTO_ONLY = 9,
   NUM_ERROR_CODES
 };
 
-// The GoogleUpdateStatusListener interface is used by components to receive
-// notifications about the results of an Google Update operation.
-class GoogleUpdateStatusListener {
+// A delegate by which a caller of BeginUpdateCheck is notified of the status
+// and results of an update check.
+class UpdateCheckDelegate {
  public:
-  // This function is called when Google Update has finished its operation and
-  // wants to notify us about the results. |results| represents what the end
-  // state is, |error_code| represents what error occurred, |error_message| is a
-  // string version of the same (might be blank) and |version| specifies what
-  // new version Google Update detected (or installed). This value can be a
-  // blank string, if the version tag in the Update{} block (in Google Update's
-  // server config for Chrome) is blank.
-  virtual void OnReportResults(GoogleUpdateUpgradeResult results,
-                               GoogleUpdateErrorCode error_code,
-                               const base::string16& error_message,
-                               const base::string16& version) = 0;
+  virtual ~UpdateCheckDelegate() {}
+
+  // Invoked following a successful update check. |new_version|, if not empty,
+  // indicates the new version that is available. Otherwise (if |new_version| is
+  // empty), Chrome is up to date. This method will only be invoked when
+  // BeginUpdateCheck is called with |install_update_if_possible| == false.
+  virtual void OnUpdateCheckComplete(const base::string16& new_version) = 0;
+
+  // Invoked zero or more times during an upgrade. |progress|, a number between
+  // 0 and 100 (inclusive), is an estimation as to what percentage of the
+  // upgrade has completed. |new_version| indicates the version that is being
+  // download and installed. This method will only be invoked when
+  // BeginUpdateCheck is called with |install_update_if_possible| == true.
+  virtual void OnUpgradeProgress(int progress,
+                                 const base::string16& new_version) = 0;
+
+  // Invoked following a successful upgrade. |new_version| indicates the version
+  // to which Chrome was updated. This method will only be invoked when
+  // BeginUpdateCheck is called with |install_update_if_possible| == true.
+  virtual void OnUpgradeComplete(const base::string16& new_version) = 0;
+
+  // Invoked following an unrecoverable error, indicated by |error_code|.
+  // |html_error_message|, if not empty, must be a localized string containing
+  // all information required by users to act on the error as well as for
+  // support staff to diagnose it (i.e. |error_code| and any other related
+  // state information).  |new_version|, if not empty, indicates the version
+  // to which an upgrade attempt was made.
+  virtual void OnError(GoogleUpdateErrorCode error_code,
+                       const base::string16& html_error_message,
+                       const base::string16& new_version) = 0;
+
+ protected:
+  UpdateCheckDelegate() {}
 };
 
-////////////////////////////////////////////////////////////////////////////////
-//
-// The Google Update class is responsible for communicating with Google Update
-// and get it to perform operations on our behalf (for example, CheckForUpdate).
-// This class will report back to its parent via the GoogleUpdateStatusListener
-// interface and will delete itself after reporting back.
-//
-////////////////////////////////////////////////////////////////////////////////
-class GoogleUpdate : public base::RefCountedThreadSafe<GoogleUpdate> {
- public:
-  GoogleUpdate();
+// Begins an asynchronous update check on |task_runner|. If a new version is
+// available and |install_update_if_possible| is true, the new version will be
+// automatically downloaded and installed. |elevation_window| is the window
+// which should own any necessary elevation UI. Methods on |delegate| will be
+// invoked on the caller's thread to provide feedback on the operation, with
+// messages localized to |locale| if possible.
+void BeginUpdateCheck(
+    const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
+    const std::string& locale,
+    bool install_update_if_possible,
+    gfx::AcceleratedWidget elevation_window,
+    const base::WeakPtr<UpdateCheckDelegate>& delegate);
 
-  // Ask Google Update to see if a new version is available. If the parameter
-  // |install_if_newer| is true then Google Update will also install that new
-  // version.
-  // |window| should point to a foreground window. This is needed to ensure
-  // that Vista/Windows 7 UAC prompts show up in the foreground. It may also
-  // be null.
-  void CheckForUpdate(bool install_if_newer, HWND window);
+// A type of callback supplied by tests to provide a custom IGoogleUpdate3Web
+// implementation (see src/google_update/google_update_idl.idl).
+typedef base::Callback<HRESULT(base::win::ScopedComPtr<IGoogleUpdate3Web>*)>
+    GoogleUpdate3ClassFactory;
 
-  // Pass NULL to clear the listener
-  void set_status_listener(GoogleUpdateStatusListener* listener) {
-    listener_ = listener;
-  }
-
- private:
-  friend class base::RefCountedThreadSafe<GoogleUpdate>;
-
-  virtual ~GoogleUpdate();
-
-  // This function reports failure from the Google Update operation to the
-  // listener.
-  // Note, after this function completes, this object will have deleted itself.
-  bool ReportFailure(HRESULT hr, GoogleUpdateErrorCode error_code,
-                     const base::string16& error_message,
-                     base::MessageLoop* main_loop);
-
-  // The update check needs to run on another thread than the main thread, and
-  // therefore CheckForUpdate will delegate to this function. |main_loop| points
-  // to the message loop that the response must come from.
-  // |window| should point to a foreground window. This is needed to ensure that
-  // Vista/Windows 7 UAC prompts show up in the foreground. It may also be null.
-  void InitiateGoogleUpdateCheck(bool install_if_newer, HWND window,
-                                 base::MessageLoop* main_loop);
-
-  // This function reports the results of the GoogleUpdate operation to the
-  // listener. If results indicates an error, the |error_code| and
-  // |error_message| will indicate which error occurred.
-  // Note, after this function completes, this object will have deleted itself.
-  void ReportResults(GoogleUpdateUpgradeResult results,
-                     GoogleUpdateErrorCode error_code,
-                     const base::string16& error_message);
-
-  // Which version string Google Update found (if a new one was available).
-  // Otherwise, this will be blank.
-  base::string16 version_available_;
-
-  // The listener who is interested in finding out the result of the operation.
-  GoogleUpdateStatusListener* listener_;
-
-  DISALLOW_COPY_AND_ASSIGN(GoogleUpdate);
-};
+// For use by tests that wish to provide a custom IGoogleUpdate3Web
+// implementation independent of Google Update's.
+void SetGoogleUpdateFactoryForTesting(
+    const GoogleUpdate3ClassFactory& google_update_factory);
 
 #endif  // CHROME_BROWSER_GOOGLE_GOOGLE_UPDATE_WIN_H_

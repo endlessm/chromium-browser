@@ -21,7 +21,7 @@ class NativeHandler {
   virtual ~NativeHandler();
 
   // Create a new instance of the object this handler specifies.
-  virtual v8::Handle<v8::Object> NewInstance() = 0;
+  virtual v8::Local<v8::Object> NewInstance() = 0;
 
   // Invalidate this object so it cannot be used any more. This is needed
   // because it's possible for this to outlive its owner context. Invalidate
@@ -29,6 +29,9 @@ class NativeHandler {
   //
   // Subclasses should override to invalidate their own V8 state. If they do
   // they must call their superclass' Invalidate().
+  //
+  // Invalidate() will be called on destruction, if it hasn't already been.
+  // Subclasses don't need to do it themselves.
   virtual void Invalidate();
 
  protected:

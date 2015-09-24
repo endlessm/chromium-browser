@@ -38,7 +38,6 @@ class ExtensionMessageBubbleController {
         const std::string& extension_id,
         BubbleAction action) = 0;
     virtual void PerformAction(const ExtensionIdList& list) = 0;
-    virtual void OnClose() {}
 
     // Text for various UI labels shown in the bubble.
     virtual base::string16 GetTitle() const = 0;
@@ -47,8 +46,10 @@ class ExtensionMessageBubbleController {
     // icon, allowing the bubble to show a different message than when it is
     // anchored against something else (e.g. show "This extension has..."
     // instead of "An extension has...").
+    // |extension_count| is the number of extensions being referenced.
     virtual base::string16 GetMessageBody(
-        bool anchored_to_browser_action) const = 0;
+        bool anchored_to_browser_action,
+        int extension_count) const = 0;
     virtual base::string16 GetOverflowText(
         const base::string16& overflow_count) const = 0;
     virtual base::string16 GetLearnMoreLabel() const;
@@ -58,6 +59,10 @@ class ExtensionMessageBubbleController {
 
     // Whether to show a list of extensions in the bubble.
     virtual bool ShouldShowExtensionList() const = 0;
+
+    // Returns true if the set of affected extensions should be highlighted in
+    // the toolbar.
+    virtual bool ShouldHighlightExtensions() const = 0;
 
     // In some cases, we want the delegate only to handle a single extension
     // and this sets which extension.
@@ -95,11 +100,20 @@ class ExtensionMessageBubbleController {
   // Obtains a list of all extensions (by name) the controller knows about.
   std::vector<base::string16> GetExtensionList();
 
+  // Returns the list of all extensions to display in the bubble, including
+  // bullets and newlines. If the extension list should not be displayed,
+  // returns an empty string.
+  base::string16 GetExtensionListForDisplay();
+
   // Obtains a list of all extensions (by id) the controller knows about.
   const ExtensionIdList& GetExtensionIdList();
 
   // Whether to close the bubble when it loses focus.
   virtual bool CloseOnDeactivate();
+
+  // Highlights the affected extensions if appropriate. Safe to call multiple
+  // times.
+  void HighlightExtensionsIfNecessary();
 
   // Sets up the callbacks and shows the bubble.
   virtual void Show(ExtensionMessageBubble* bubble);
@@ -116,6 +130,9 @@ class ExtensionMessageBubbleController {
   // Get the data this class needs.
   ExtensionIdList* GetOrCreateExtensionList();
 
+  // Performs cleanup after the bubble closes.
+  void OnClose();
+
   // A weak pointer to the profile we are associated with. Not owned by us.
   Profile* profile_;
 
@@ -130,6 +147,9 @@ class ExtensionMessageBubbleController {
 
   // Whether this class has initialized.
   bool initialized_;
+
+  // Whether or not the bubble is highlighting extensions.
+  bool did_highlight_;
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionMessageBubbleController);
 };

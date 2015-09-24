@@ -57,11 +57,11 @@ class MockTranslateInfoBarDelegate
 
   MOCK_METHOD0(TranslationDeclined, void());
 
-  virtual bool IsTranslatableLanguageByPrefs() override { return true; }
+  bool IsTranslatableLanguageByPrefs() override { return true; }
   MOCK_METHOD0(ToggleTranslatableLanguageByPrefs, void());
-  virtual bool IsSiteBlacklisted() override { return false; }
+  bool IsSiteBlacklisted() override { return false; }
   MOCK_METHOD0(ToggleSiteBlacklist, void());
-  virtual bool ShouldAlwaysTranslate() override { return false; }
+  bool ShouldAlwaysTranslate() override { return false; }
   MOCK_METHOD0(ToggleAlwaysTranslate, void());
 };
 
@@ -74,7 +74,7 @@ class TranslationInfoBarTest : public CocoaProfileTest {
 
   // Each test gets a single Mock translate delegate for the lifetime of
   // the test.
-  virtual void SetUp() override {
+  void SetUp() override {
     translate::TranslateLanguageList::DisableUpdate();
     CocoaProfileTest::SetUp();
     web_contents_.reset(
@@ -83,7 +83,7 @@ class TranslationInfoBarTest : public CocoaProfileTest {
     ChromeTranslateClient::CreateForWebContents(web_contents_.get());
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     if (infobar_) {
       infobar_->CloseSoon();
       infobar_ = NULL;

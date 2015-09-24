@@ -109,6 +109,10 @@ const ProxyServer& ProxyList::Get() const {
   return proxies_[0];
 }
 
+const std::vector<ProxyServer>& ProxyList::GetAll() const {
+  return proxies_;
+}
+
 void ProxyList::SetFromPacString(const std::string& pac_string) {
   base::StringTokenizer entry_tok(pac_string, ";");
   proxies_.clear();
@@ -139,10 +143,10 @@ std::string ProxyList::ToPacString() const {
 }
 
 base::ListValue* ProxyList::ToValue() const {
-  base::ListValue* list = new base::ListValue();
+  scoped_ptr<base::ListValue> list(new base::ListValue());
   for (size_t i = 0; i < proxies_.size(); ++i)
     list->AppendString(proxies_[i].ToURI());
-  return list;
+  return list.release();
 }
 
 bool ProxyList::Fallback(ProxyRetryInfoMap* proxy_retry_info,
@@ -168,12 +172,8 @@ bool ProxyList::Fallback(ProxyRetryInfoMap* proxy_retry_info,
     return false;
   }
   // By default, proxies are not retried for 5 minutes.
-  UpdateRetryInfoOnFallback(proxy_retry_info,
-                            TimeDelta::FromMinutes(5),
-                            true,
-                            ProxyServer(),
-                            net_error,
-                            net_log);
+  UpdateRetryInfoOnFallback(proxy_retry_info, TimeDelta::FromMinutes(5), true,
+                            std::vector<ProxyServer>(), net_error, net_log);
 
   // Remove this proxy from our list.
   proxies_.erase(proxies_.begin());
@@ -187,16 +187,13 @@ void ProxyList::AddProxyToRetryList(ProxyRetryInfoMap* proxy_retry_info,
                                     int net_error,
                                     const BoundNetLog& net_log) const {
   // Mark this proxy as bad.
+  TimeTicks bad_until = TimeTicks::Now() + retry_delay;
   std::string proxy_key = proxy_to_retry.ToURI();
   ProxyRetryInfoMap::iterator iter = proxy_retry_info->find(proxy_key);
-  if (iter != proxy_retry_info->end()) {
-    // TODO(nsylvain): This is not the first time we get this. We should
-    // double the retry time. Bug 997660.
-    iter->second.bad_until = TimeTicks::Now() + iter->second.current_delay;
-  } else {
+  if (iter == proxy_retry_info->end() || bad_until > iter->second.bad_until) {
     ProxyRetryInfo retry_info;
     retry_info.current_delay = retry_delay;
-    retry_info.bad_until = TimeTicks().Now() + retry_info.current_delay;
+    retry_info.bad_until = bad_until;
     retry_info.try_while_bad = try_while_bad;
     retry_info.net_error = net_error;
     (*proxy_retry_info)[proxy_key] = retry_info;
@@ -209,7 +206,7 @@ void ProxyList::UpdateRetryInfoOnFallback(
     ProxyRetryInfoMap* proxy_retry_info,
     base::TimeDelta retry_delay,
     bool reconsider,
-    const ProxyServer& another_proxy_to_bypass,
+    const std::vector<ProxyServer>& additional_proxies_to_bypass,
     int net_error,
     const BoundNetLog& net_log) const {
   DCHECK(retry_delay != base::TimeDelta());
@@ -226,16 +223,11 @@ void ProxyList::UpdateRetryInfoOnFallback(
                         proxies_[0],
                         net_error,
                         net_log);
-
-    // If an additional proxy to bypass is specified, add it to the retry map
+    // If any additional proxies to bypass are specified, add to the retry map
     // as well.
-    if (another_proxy_to_bypass.is_valid()) {
-      AddProxyToRetryList(proxy_retry_info,
-                          retry_delay,
-                          reconsider,
-                          another_proxy_to_bypass,
-                          net_error,
-                          net_log);
+    for (const ProxyServer& additional_proxy : additional_proxies_to_bypass) {
+      AddProxyToRetryList(proxy_retry_info, retry_delay, reconsider,
+                          additional_proxy, net_error, net_log);
     }
   }
 }

@@ -54,14 +54,20 @@ GURL GetAbsoluteSrcUrl(const blink::WebElement& element) {
   return GetAbsoluteUrl(element, element.getAttribute("src"));
 }
 
-blink::WebElement GetImgChild(const blink::WebElement& element) {
+blink::WebElement GetImgChild(const blink::WebNode& node) {
   // This implementation is incomplete (for example if is an area tag) but
   // matches the original WebViewClassic implementation.
 
-  blink::WebElementCollection collection =
-      element.getElementsByHTMLTagName("img");
+  blink::WebElementCollection collection = node.getElementsByHTMLTagName("img");
   DCHECK(!collection.isNull());
   return collection.firstItem();
+}
+
+GURL GetChildImageUrlFromElement(const blink::WebElement& element) {
+  const blink::WebElement child_img = GetImgChild(element);
+  if (child_img.isNull())
+    return GURL();
+  return GetAbsoluteSrcUrl(child_img);
 }
 
 bool RemovePrefixAndAssignIfMatches(const base::StringPiece& prefix,
@@ -172,9 +178,9 @@ void AwRenderViewExt::OnDocumentHasImagesRequest(int id) {
   if (render_view()) {
     blink::WebView* webview = render_view()->GetWebView();
     if (webview) {
-      blink::WebVector<blink::WebElement> images;
-      webview->mainFrame()->document().images(images);
-      hasImages = !images.isEmpty();
+      blink::WebDocument document = webview->mainFrame()->document();
+      const blink::WebElement child_img = GetImgChild(document);
+      hasImages = !child_img.isNull();
     }
   }
   Send(new AwViewHostMsg_DocumentHasImagesResponse(routing_id(), id,
@@ -240,23 +246,18 @@ void AwRenderViewExt::FocusedNodeChanged(const blink::WebNode& node) {
   if (node.isNull() || !node.isElementNode() || !render_view())
     return;
 
-  // Note: element is not const due to innerText() is not const.
+  // Note: element is not const due to textContent() is not const.
   blink::WebElement element = node.toConst<blink::WebElement>();
   AwHitTestData data;
 
   data.href = GetHref(element);
-  data.anchor_text = element.innerText();
+  data.anchor_text = element.textContent();
 
   GURL absolute_link_url;
   if (node.isLink())
     absolute_link_url = GetAbsoluteUrl(node, data.href);
 
-  GURL absolute_image_url;
-  const blink::WebElement child_img = GetImgChild(element);
-  if (!child_img.isNull()) {
-    absolute_image_url =
-        GetAbsoluteSrcUrl(child_img);
-  }
+  GURL absolute_image_url = GetChildImageUrlFromElement(element);
 
   PopulateHitTestData(absolute_link_url,
                       absolute_image_url,
@@ -265,22 +266,29 @@ void AwRenderViewExt::FocusedNodeChanged(const blink::WebNode& node) {
   Send(new AwViewHostMsg_UpdateHitTestData(routing_id(), data));
 }
 
-void AwRenderViewExt::OnDoHitTest(int view_x, int view_y) {
+void AwRenderViewExt::OnDoHitTest(const gfx::PointF& touch_center,
+                                  const gfx::SizeF& touch_area) {
   if (!render_view() || !render_view()->GetWebView())
     return;
 
   const blink::WebHitTestResult result =
-      render_view()->GetWebView()->hitTestResultAt(
-          blink::WebPoint(view_x, view_y));
+      render_view()->GetWebView()->hitTestResultForTap(
+          blink::WebPoint(touch_center.x(), touch_center.y()),
+          blink::WebSize(touch_area.width(), touch_area.height()));
   AwHitTestData data;
 
+  GURL absolute_image_url = result.absoluteImageURL();
   if (!result.urlElement().isNull()) {
-    data.anchor_text = result.urlElement().innerText();
+    data.anchor_text = result.urlElement().textContent();
     data.href = GetHref(result.urlElement());
+    // If we hit an image that failed to load, Blink won't give us its URL.
+    // Fall back to walking the DOM in this case.
+    if (absolute_image_url.is_empty())
+      absolute_image_url = GetChildImageUrlFromElement(result.urlElement());
   }
 
   PopulateHitTestData(result.absoluteLinkURL(),
-                      result.absoluteImageURL(),
+                      absolute_image_url,
                       result.isContentEditable(),
                       &data);
   Send(new AwViewHostMsg_UpdateHitTestData(routing_id(), data));

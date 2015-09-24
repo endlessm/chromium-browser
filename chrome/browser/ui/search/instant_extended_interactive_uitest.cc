@@ -15,16 +15,11 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
-#include "chrome/browser/autocomplete/autocomplete_controller.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_service.h"
-#include "chrome/browser/favicon/favicon_tab_helper.h"
-#include "chrome/browser/history/history_db_task.h"
-#include "chrome/browser/history/history_service.h"
 #include "chrome/browser/history/history_service_factory.h"
-#include "chrome/browser/history/top_sites.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search/instant_service.h"
 #include "chrome/browser/search/instant_service_factory.h"
@@ -50,13 +45,17 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
 #include "components/bookmarks/test/bookmark_test_helpers.h"
+#include "components/history/core/browser/history_db_task.h"
+#include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_types.h"
+#include "components/history/core/browser/top_sites.h"
 #include "components/history/core/common/thumbnail_score.h"
-#include "components/omnibox/autocomplete_match.h"
-#include "components/omnibox/autocomplete_provider.h"
-#include "components/omnibox/autocomplete_result.h"
-#include "components/omnibox/omnibox_field_trial.h"
-#include "components/omnibox/search_provider.h"
+#include "components/omnibox/browser/autocomplete_controller.h"
+#include "components/omnibox/browser/autocomplete_match.h"
+#include "components/omnibox/browser/autocomplete_provider.h"
+#include "components/omnibox/browser/autocomplete_result.h"
+#include "components/omnibox/browser/omnibox_field_trial.h"
+#include "components/omnibox/browser/search_provider.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/sessions/serialized_navigation_entry.h"
 #include "content/public/browser/navigation_controller.h"
@@ -201,8 +200,8 @@ class InstantExtendedTest : public InProcessBrowserTest,
     if (!template_url)
       return false;
 
-    HistoryService* history = HistoryServiceFactory::GetForProfile(
-        browser()->profile(), Profile::EXPLICIT_ACCESS);
+    history::HistoryService* history = HistoryServiceFactory::GetForProfile(
+        browser()->profile(), ServiceAccessType::EXPLICIT_ACCESS);
     GURL search(template_url->url_ref().ReplaceSearchTerms(
         TemplateURLRef::SearchTermsArgs(term),
         TemplateURLServiceFactory::GetForProfile(
@@ -216,8 +215,8 @@ class InstantExtendedTest : public InProcessBrowserTest,
   }
 
   void BlockUntilHistoryProcessesPendingRequests() {
-    HistoryService* history = HistoryServiceFactory::GetForProfile(
-        browser()->profile(), Profile::EXPLICIT_ACCESS);
+    history::HistoryService* history = HistoryServiceFactory::GetForProfile(
+        browser()->profile(), ServiceAccessType::EXPLICIT_ACCESS);
     DCHECK(history);
     DCHECK(base::MessageLoop::current());
 
@@ -265,7 +264,7 @@ class InstantExtendedPrefetchTest : public InstantExtendedTest {
     InstantTestBase::Init(instant_url, ntp_url, true);
   }
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitchASCII(
         switches::kForceFieldTrials,
         "EmbeddedSearch/Group11 prefetch_results_srp:1/");
@@ -920,7 +919,13 @@ IN_PROC_BROWSER_TEST_F(InstantExtendedPrefetchTest, ClearPrefetchedResults) {
   ASSERT_EQ("", prefetch_query_value_);
 }
 
-IN_PROC_BROWSER_TEST_F(InstantExtendedTest, ShowURL) {
+#if defined(OS_LINUX) && defined(ADDRESS_SANITIZER)
+// Flaky timeouts at shutdown on Linux ASan; http://crbug.com/505478.
+#define MAYBE_ShowURL DISABLED_ShowURL
+#else
+#define MAYBE_ShowURL ShowURL
+#endif
+IN_PROC_BROWSER_TEST_F(InstantExtendedTest, MAYBE_ShowURL) {
   ASSERT_NO_FATAL_FAILURE(SetupInstant(browser()));
   FocusOmnibox();
 

@@ -28,10 +28,10 @@ const char* test_app_popup_name2 = "TestApp2";
 
 class SessionRestoreTestChromeOS : public InProcessBrowserTest {
  public:
-  virtual ~SessionRestoreTestChromeOS() {}
+  ~SessionRestoreTestChromeOS() override {}
 
  protected:
-  virtual void SetUpCommandLine(base::CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     InProcessBrowserTest::SetUpCommandLine(command_line);
   }
 
@@ -52,14 +52,6 @@ class SessionRestoreTestChromeOS : public InProcessBrowserTest {
       }
     }
     return false;
-  }
-
-  void CloseBrowserSynchronously(Browser* browser) {
-    content::WindowedNotificationObserver observer(
-        chrome::NOTIFICATION_BROWSER_CLOSED,
-        content::NotificationService::AllSources());
-    browser->window()->Close();
-    observer.Wait();
   }
 
   Browser::CreateParams CreateParamsForApp(const std::string name,

@@ -4,8 +4,7 @@
 
 package org.chromium.chrome.browser.infobar;
 
-import android.animation.ObjectAnimator;
-import android.app.Activity;
+import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.view.Gravity;
@@ -14,16 +13,16 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 
 import org.chromium.base.CalledByNative;
+import org.chromium.base.ObserverList;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.EmptyTabObserver;
 import org.chromium.chrome.browser.Tab;
 import org.chromium.chrome.browser.TabObserver;
+import org.chromium.chrome.browser.banners.SwipableOverlayView;
+import org.chromium.content.browser.ContentViewCore;
 import org.chromium.content_public.browser.WebContents;
-import org.chromium.ui.UiUtils;
 import org.chromium.ui.base.DeviceFormFactor;
 
 import java.util.ArrayDeque;
@@ -38,11 +37,13 @@ import java.util.LinkedList;
  * When initiated from native code, special code is needed to keep the Java and native infobar in
  * sync, see NativeInfoBar.
  */
-public class InfoBarContainer extends ScrollView {
+public class InfoBarContainer extends SwipableOverlayView {
     private static final String TAG = "InfoBarContainer";
-    private static final long REATTACH_FADE_IN_MS = 250;
     private static final int TAB_STRIP_AND_TOOLBAR_HEIGHT_PHONE_DP = 56;
     private static final int TAB_STRIP_AND_TOOLBAR_HEIGHT_TABLET_DP = 96;
+
+    /** WHether or not the InfoBarContainer is allowed to hide when the user scrolls. */
+    private static boolean sIsAllowedToAutoHide = true;
 
     /**
      * A listener for the InfoBar animation.
@@ -52,6 +53,27 @@ public class InfoBarContainer extends ScrollView {
          * Notifies the subscriber when an animation is completed.
          */
         void notifyAnimationFinished(int animationType);
+    }
+
+    /**
+     * An observer that is notified of changes to a {@link InfoBarContainer} object.
+     */
+    public interface InfoBarContainerObserver {
+        /**
+         * Called when an {@link InfoBar} is about to be added (before the animation).
+         * @param container The notifying {@link InfoBarContainer}
+         * @param infoBar An {@link InfoBar} being added
+         * @param isFirst Whether the infobar container was empty
+         */
+        void onAddInfoBar(InfoBarContainer container, InfoBar infoBar, boolean isFirst);
+
+        /**
+         * Called when an {@link InfoBar} is about to be removed (before the animation).
+         * @param container The notifying {@link InfoBarContainer}
+         * @param infoBar An {@link InfoBar} being removed
+         * @param isLast Whether the infobar container is going to be empty
+         */
+        void onRemoveInfoBar(InfoBarContainer container, InfoBar infoBar, boolean isLast);
     }
 
     private static class InfoBarTransitionInfo {
@@ -77,11 +99,9 @@ public class InfoBarContainer extends ScrollView {
     private InfoBarAnimationListener mAnimationListener;
 
     // Native InfoBarContainer pointer which will be set by nativeInit()
-    private long mNativeInfoBarContainer;
+    private final long mNativeInfoBarContainer;
 
-    private final Activity mActivity;
-
-    private final AutoLoginDelegate mAutoLoginDelegate;
+    private final Context mContext;
 
     // The list of all infobars in this container, regardless of whether they've been shown yet.
     private final ArrayList<InfoBar> mInfoBars = new ArrayList<InfoBar>();
@@ -103,7 +123,7 @@ public class InfoBarContainer extends ScrollView {
     private ViewGroup mParentView;
 
     // The LinearLayout that holds the infobars. This is the only child of the InfoBarContainer.
-    private LinearLayout mLinearLayout;
+    private final LinearLayout mLinearLayout;
 
     // These values are used in onLayout() to keep the infobars fixed to the bottom of the screen
     // when infobars are added or removed.
@@ -113,26 +133,26 @@ public class InfoBarContainer extends ScrollView {
 
     private Paint mTopBorderPaint;
 
-    // Keeps the infobars from becoming visible when they normally would.
-    private boolean mDoStayInvisible;
-    private TabObserver mTabObserver;
+    private final ObserverList<InfoBarContainerObserver> mObservers =
+            new ObserverList<InfoBarContainerObserver>();
 
-    public InfoBarContainer(Activity activity, AutoLoginProcessor autoLoginProcessor,
-            int tabId, ViewGroup parentView, WebContents webContents) {
-        super(activity);
+    public InfoBarContainer(Context context, int tabId, ViewGroup parentView, Tab tab) {
+        super(context, null);
+        tab.addObserver(getTabObserver());
+        setIsSwipable(false);
 
         // Workaround for http://crbug.com/407149. See explanation in onMeasure() below.
         setVerticalScrollBarEnabled(false);
 
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                 LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
-        int topMarginDp = DeviceFormFactor.isTablet(activity)
+        int topMarginDp = DeviceFormFactor.isTablet(context)
                 ? TAB_STRIP_AND_TOOLBAR_HEIGHT_TABLET_DP
                 : TAB_STRIP_AND_TOOLBAR_HEIGHT_PHONE_DP;
         lp.topMargin = Math.round(topMarginDp * getResources().getDisplayMetrics().density);
         setLayoutParams(lp);
 
-        mLinearLayout = new LinearLayout(activity);
+        mLinearLayout = new LinearLayout(context);
         mLinearLayout.setOrientation(LinearLayout.VERTICAL);
         addView(mLinearLayout,
                 new FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
@@ -140,17 +160,40 @@ public class InfoBarContainer extends ScrollView {
         mAnimationListener = null;
         mInfoBarTransitions = new ArrayDeque<InfoBarTransitionInfo>();
 
-        mAutoLoginDelegate = new AutoLoginDelegate(autoLoginProcessor, activity);
-        mActivity = activity;
+        mContext = context;
         mTabId = tabId;
         mParentView = parentView;
 
-        mAnimationSizer = new FrameLayout(activity);
+        mAnimationSizer = new FrameLayout(context);
         mAnimationSizer.setVisibility(INVISIBLE);
 
         // Chromium's InfoBarContainer may add an InfoBar immediately during this initialization
         // call, so make sure everything in the InfoBarContainer is completely ready beforehand.
-        mNativeInfoBarContainer = nativeInit(webContents, mAutoLoginDelegate);
+        mNativeInfoBarContainer = nativeInit();
+    }
+
+    /**
+     * Adds an {@link InfoBarContainerObserver}.
+     * @param observer The {@link InfoBarContainerObserver} to add.
+     */
+    public void addObserver(InfoBarContainerObserver observer) {
+        mObservers.addObserver(observer);
+    }
+
+    /**
+     * Removes a {@link InfoBarContainerObserver}.
+     * @param observer The {@link InfoBarContainerObserver} to remove.
+     */
+    public void removeObserver(InfoBarContainerObserver observer) {
+        mObservers.removeObserver(observer);
+    }
+
+    @Override
+    public void setContentViewCore(ContentViewCore contentViewCore) {
+        super.setContentViewCore(contentViewCore);
+        if (getContentViewCore() != null) {
+            nativeSetWebContents(mNativeInfoBarContainer, contentViewCore.getWebContents());
+        }
     }
 
     @Override
@@ -191,6 +234,7 @@ public class InfoBarContainer extends ScrollView {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+        super.onTouchEvent(event);
         // Consume all touch events so they do not reach the ContentView.
         return true;
     }
@@ -204,16 +248,8 @@ public class InfoBarContainer extends ScrollView {
         return true;
     }
 
-    private void addToParentView() {
-        if (mParentView != null && mParentView.indexOfChild(this) == -1) {
-            mParentView.addView(this);
-        }
-    }
-
-    public void removeFromParentView() {
-        if (getParent() != null) {
-            ((ViewGroup) getParent()).removeView(this);
-        }
+    protected void addToParentView() {
+        super.addToParentView(mParentView);
     }
 
     /**
@@ -228,47 +264,14 @@ public class InfoBarContainer extends ScrollView {
         addToParentView();
     }
 
-    /**
-     * Call with {@code true} when a higher priority bottom element is visible to keep the infobars
-     * from ever becoming visible.  Call with {@code false} to restore normal visibility behavior.
-     * @param doStayInvisible Whether the infobars should stay invisible even when they would
-     *        normally become visible.
-     * @param tab The current Tab.
-     */
-    public void setDoStayInvisible(boolean doStayInvisible, Tab tab) {
-        mDoStayInvisible = doStayInvisible;
-        if (mTabObserver == null) mTabObserver = createTabObserver();
-        if (doStayInvisible) {
-            tab.addObserver(mTabObserver);
-        } else {
-            tab.removeObserver(mTabObserver);
-        }
-    }
-
-    /**
-     * Creates a TabObserver for monitoring a Tab, used to reset internal settings when a
-     * navigation is done.
-     * @return TabObserver that can be used to monitor a Tab.
-     */
-    private TabObserver createTabObserver() {
-        return new EmptyTabObserver() {
+    @Override
+    protected TabObserver createTabObserver() {
+        return new SwipableOverlayViewTabObserver() {
             @Override
-            public void onDidNavigateMainFrame(Tab tab, String url, String baseUrl,
-                    boolean isNavigationToDifferentPage, boolean isFragmentNavigation,
-                    int statusCode) {
-                setDoStayInvisible(false, tab);
+            public void onPageLoadStarted(Tab tab, String url) {
+                onPageStarted();
             }
         };
-    }
-
-    @Override
-    protected void onAttachedToWindow() {
-        super.onAttachedToWindow();
-        if (!mDoStayInvisible) {
-            ObjectAnimator.ofFloat(this, "alpha", 0.f, 1.f).setDuration(REATTACH_FADE_IN_MS)
-                    .start();
-            setVisibility(VISIBLE);
-        }
     }
 
     @Override
@@ -292,11 +295,16 @@ public class InfoBarContainer extends ScrollView {
             return;
         }
 
+        // We notify observers immediately (before the animation starts).
+        for (InfoBarContainerObserver observer : mObservers) {
+            observer.onAddInfoBar(this, infoBar, mInfoBars.isEmpty());
+        }
+
         // We add the infobar immediately to mInfoBars but we wait for the animation to end to
         // notify it's been added, as tests rely on this notification but expects the infobar view
         // to be available when they get the notification.
         mInfoBars.add(infoBar);
-        infoBar.setContext(mActivity);
+        infoBar.setContext(mContext);
         infoBar.setInfoBarContainer(this);
 
         enqueueInfoBarAnimation(infoBar, null, AnimationHelper.ANIMATION_TYPE_SHOW);
@@ -350,6 +358,11 @@ public class InfoBarContainer extends ScrollView {
             return;
         }
 
+        // Notify observers immediately, before the animation begins.
+        for (InfoBarContainerObserver observer : mObservers) {
+            observer.onRemoveInfoBar(this, infoBar, mInfoBars.isEmpty());
+        }
+
         // If an InfoBar is told to hide itself before it has a chance to be shown, don't bother
         // with animating any of it.
         boolean collapseAnimations = false;
@@ -363,9 +376,7 @@ public class InfoBarContainer extends ScrollView {
                     assert !collapseAnimations;
                     collapseAnimations = true;
                 }
-                if (collapseAnimations) {
-                    mInfoBarTransitions.remove(info);
-                }
+                if (collapseAnimations) mInfoBarTransitions.remove(info);
             }
         }
 
@@ -385,17 +396,6 @@ public class InfoBarContainer extends ScrollView {
 
     @Override
     protected void onLayout(boolean changed, int l, int t, int r, int b) {
-        // Hide the infobars when the keyboard is showing.
-        boolean isShowing = (getVisibility() == View.VISIBLE);
-        if (UiUtils.isKeyboardShowing(mActivity, this)) {
-            if (isShowing) {
-                setVisibility(View.INVISIBLE);
-            }
-        } else {
-            if (!isShowing && !mDoStayInvisible) {
-                setVisibility(View.VISIBLE);
-            }
-        }
         super.onLayout(changed, l, t, r, b);
 
         // Keep the infobars fixed to the bottom of the screen when infobars are added or removed.
@@ -507,28 +507,6 @@ public class InfoBarContainer extends ScrollView {
         return mInfoBars;
     }
 
-    /**
-     * Dismisses all {@link AutoLoginInfoBar}s in this {@link InfoBarContainer} that are for
-     * {@code accountName} and {@code authToken}.  This also resets all {@link InfoBar}s that are
-     * for a different request.
-     * @param accountName The name of the account request is being accessed for.
-     * @param authToken The authentication token access is being requested for.
-     * @param success Whether or not the authentication attempt was successful.
-     * @param result The resulting token for the auto login request (ignored if {@code success} is
-     *               {@code false}.
-     */
-    public void processAutoLogin(String accountName, String authToken, boolean success,
-            String result) {
-        mAutoLoginDelegate.dismissAutoLogins(accountName, authToken, success, result);
-    }
-
-    /**
-     * Dismiss all auto logins infobars without processing any result.
-     */
-    public void dismissAutoLoginInfoBars() {
-        mAutoLoginDelegate.dismissAutoLogins("", "", false, "");
-    }
-
     public void prepareTransition(View toShow) {
         if (toShow != null) {
             // In order to animate the addition of the infobar, we need a layout first.
@@ -598,10 +576,37 @@ public class InfoBarContainer extends ScrollView {
         return null;
     }
 
-    public long getNative() {
-        return mNativeInfoBarContainer;
+    /**
+     * Sets whether the InfoBarContainer is allowed to auto-hide when the user scrolls the page.
+     * Expected to be called when Touch Exploration is enabled.
+     * @param isAllowed Whether auto-hiding is allowed.
+     */
+    public static void setIsAllowedToAutoHide(boolean isAllowed) {
+        sIsAllowedToAutoHide = isAllowed;
     }
 
-    private native long nativeInit(WebContents webContents, AutoLoginDelegate autoLoginDelegate);
+    @Override
+    protected boolean isAllowedToAutoHide() {
+        return sIsAllowedToAutoHide;
+    }
+
+    @Override
+    protected void onViewSwipedAway() {
+        assert false;
+    }
+
+    @Override
+    protected void onViewClicked() {
+        assert false;
+    }
+
+    @Override
+    protected void onViewPressed(MotionEvent event) {
+        assert false;
+    }
+
+    private native long nativeInit();
+    private native void nativeSetWebContents(
+            long nativeInfoBarContainerAndroid, WebContents webContents);
     private native void nativeDestroy(long nativeInfoBarContainerAndroid);
 }

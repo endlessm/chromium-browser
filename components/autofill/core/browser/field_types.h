@@ -136,10 +136,18 @@ enum ServerFieldType {
   ADDRESS_HOME_LINE3 = 83,
   ADDRESS_BILLING_LINE3 = 84,
 
+  // Inverse of ACCOUNT_CREATION_PASSWORD. Sent when there is data that
+  // a previous upload of ACCOUNT_CREATION_PASSWORD was incorrect.
+  NOT_ACCOUNT_CREATION_PASSWORD = 85,
+
+  // Field types for username fields in password forms.
+  USERNAME = 86,
+  USERNAME_AND_EMAIL_ADDRESS = 87,
+
   // No new types can be added without a corresponding change to the Autofill
   // server.
 
-  MAX_VALID_FIELD_TYPE = 85,
+  MAX_VALID_FIELD_TYPE = 88,
 };
 
 // The list of all HTML autocomplete field type hints supported by Chrome.
@@ -227,6 +235,7 @@ enum FieldTypeGroup {
   CREDIT_CARD,
   PASSWORD_FIELD,
   TRANSACTION,
+  USERNAME_FIELD,
 };
 
 typedef std::set<ServerFieldType> ServerFieldTypeSet;

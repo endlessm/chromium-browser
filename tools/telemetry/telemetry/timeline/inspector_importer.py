@@ -1,38 +1,29 @@
 # Copyright 2014 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
-'''Imports event data obtained from the inspector's timeline.'''
+"""Imports event data obtained from the inspector's timeline."""
 
+from telemetry.timeline import importer
 import telemetry.timeline.slice as tracing_slice
 import telemetry.timeline.thread as timeline_thread
-from telemetry.timeline import importer
-from telemetry.timeline import inspector_timeline_data
+from telemetry.timeline import trace_data as trace_data_module
 
 
 class InspectorTimelineImporter(importer.TimelineImporter):
-  def __init__(self, model, timeline_data):
-    super(InspectorTimelineImporter, self).__init__(model, timeline_data)
+  def __init__(self, model, trace_data):
+    super(InspectorTimelineImporter, self).__init__(model,
+                                                    trace_data,
+                                                    import_order=1)
+    self._events = trace_data.GetEventsFor(
+      trace_data_module.INSPECTOR_TRACE_PART)
 
   @staticmethod
-  def CanImport(timeline_data):
-    ''' Checks if timeline_data is from the inspector timeline. We assume
-    that if the first event is a valid inspector event, we can import the
-    entire list.
-    '''
-    if not isinstance(timeline_data,
-                      inspector_timeline_data.InspectorTimelineData):
-      return False
-
-    event_data = timeline_data.EventData()
-
-    if isinstance(event_data, list) and len(event_data):
-      event_datum = event_data[0]
-      return 'startTime' in event_datum and 'type' in event_datum
-    return False
+  def GetSupportedPart():
+    return trace_data_module.INSPECTOR_TRACE_PART
 
   def ImportEvents(self):
     render_process = self._model.GetOrCreateProcess(0)
-    for raw_event in self._timeline_data.EventData():
+    for raw_event in self._events:
       thread = render_process.GetOrCreateThread(raw_event.get('thread', 0))
       InspectorTimelineImporter.AddRawEventToThreadRecursive(thread, raw_event)
 

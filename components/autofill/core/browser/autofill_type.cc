@@ -60,6 +60,7 @@ FieldTypeGroup AutofillType::group() const {
       return NAME_BILLING;
 
     case EMAIL_ADDRESS:
+    case USERNAME_AND_EMAIL_ADDRESS:
       return EMAIL;
 
     case PHONE_HOME_NUMBER:
@@ -118,6 +119,7 @@ FieldTypeGroup AutofillType::group() const {
 
     case PASSWORD:
     case ACCOUNT_CREATION_PASSWORD:
+    case NOT_ACCOUNT_CREATION_PASSWORD:
       return PASSWORD_FIELD;
 
     case NO_SERVER_DATA:
@@ -135,6 +137,9 @@ FieldTypeGroup AutofillType::group() const {
     case MAX_VALID_FIELD_TYPE:
       NOTREACHED();
       return NO_GROUP;
+
+    case USERNAME:
+      return USERNAME_FIELD;
 
     case UNKNOWN_TYPE:
       break;
@@ -610,6 +615,12 @@ std::string AutofillType::ToString() const {
       return "ADDRESS_HOME_DEPENDENT_LOCALITY";
     case ADDRESS_BILLING_DEPENDENT_LOCALITY:
       return "ADDRESS_BILLING_DEPENDENT_LOCALITY";
+    case NOT_ACCOUNT_CREATION_PASSWORD:
+      return "NOT_ACCOUNT_CREATION_PASSWORD";
+    case USERNAME:
+      return "USERNAME";
+    case USERNAME_AND_EMAIL_ADDRESS:
+      return "USERNAME_AND_EMAIL_ADDRESS";
 
     case MAX_VALID_FIELD_TYPE:
       return std::string();

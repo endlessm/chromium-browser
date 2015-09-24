@@ -7,7 +7,7 @@
 #include "base/bind.h"
 #include "base/guid.h"
 #include "base/location.h"
-#include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/sync_socket.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread.h"
@@ -124,10 +124,9 @@ class PortServerTest : public testing::Test {
                  const std::string& response,
                  std::string* request) {
     base::WaitableEvent listen_event(false, false);
-    thread_.message_loop()->PostTask(
+    thread_.task_runner()->PostTask(
         FROM_HERE,
-        base::Bind(
-            &RunServerOnThread, path, response, &listen_event, request));
+        base::Bind(&RunServerOnThread, path, response, &listen_event, request));
     ASSERT_TRUE(listen_event.TimedWait(base::TimeDelta::FromSeconds(5)));
   }
 
@@ -142,11 +141,11 @@ TEST_F(PortServerTest, Reserve) {
   std::string request;
   RunServer(path, "12345\n", &request);
 
-  int port = 0;
+  uint16 port = 0;
   scoped_ptr<PortReservation> reservation;
   Status status = server.ReservePort(&port, &reservation);
   ASSERT_EQ(kOk, status.code()) << status.message();
-  ASSERT_EQ(port, 12345);
+  ASSERT_EQ(12345u, port);
 }
 
 TEST_F(PortServerTest, ReserveResetReserve) {
@@ -156,16 +155,16 @@ TEST_F(PortServerTest, ReserveResetReserve) {
   std::string request;
   RunServer(path, "12345\n", &request);
 
-  int port = 0;
+  uint16 port = 0;
   scoped_ptr<PortReservation> reservation;
   Status status = server.ReservePort(&port, &reservation);
   ASSERT_EQ(kOk, status.code()) << status.message();
-  ASSERT_EQ(port, 12345);
+  ASSERT_EQ(12345u, port);
 
   reservation.reset();
   status = server.ReservePort(&port, &reservation);
   ASSERT_EQ(kOk, status.code()) << status.message();
-  ASSERT_EQ(port, 12345);
+  ASSERT_EQ(12345u, port);
 }
 
 TEST_F(PortServerTest, ReserveReserve) {
@@ -175,22 +174,22 @@ TEST_F(PortServerTest, ReserveReserve) {
   std::string request;
   RunServer(path, "12345\n", &request);
 
-  int port = 0;
+  uint16 port = 0;
   scoped_ptr<PortReservation> reservation;
   Status status = server.ReservePort(&port, &reservation);
   ASSERT_EQ(kOk, status.code()) << status.message();
-  ASSERT_EQ(port, 12345);
+  ASSERT_EQ(12345u, port);
 
   RunServer(path, "12346\n", &request);
   status = server.ReservePort(&port, &reservation);
   ASSERT_EQ(kOk, status.code()) << status.message();
-  ASSERT_EQ(port, 12346);
+  ASSERT_EQ(12346u, port);
 }
 #endif
 
 TEST(PortManagerTest, ReservePort) {
   PortManager mgr(15000, 16000);
-  int port = 0;
+  uint16 port = 0;
   scoped_ptr<PortReservation> reservation;
   Status status = mgr.ReservePort(&port, &reservation);
   ASSERT_EQ(kOk, status.code()) << status.message();
@@ -202,7 +201,7 @@ TEST(PortManagerTest, ReservePort) {
 
 TEST(PortManagerTest, ReservePortFromPool) {
   PortManager mgr(15000, 16000);
-  int first_port = 0, port = 1;
+  uint16 first_port = 0, port = 1;
   for (int i = 0; i < 10; i++) {
     scoped_ptr<PortReservation> reservation;
     Status status = mgr.ReservePortFromPool(&port, &reservation);

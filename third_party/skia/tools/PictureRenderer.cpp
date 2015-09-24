@@ -24,10 +24,12 @@
 #include "SkMatrix.h"
 #include "SkMultiPictureDraw.h"
 #include "SkOSFile.h"
+#include "SkPaintFilterCanvas.h"
 #include "SkPicture.h"
 #include "SkPictureRecorder.h"
 #include "SkPictureUtils.h"
 #include "SkPixelRef.h"
+#include "SkPixelSerializer.h"
 #include "SkScalar.h"
 #include "SkStream.h"
 #include "SkString.h"
@@ -36,9 +38,10 @@
 #include "SkTDArray.h"
 #include "SkThreadUtils.h"
 #include "SkTypes.h"
+#include "sk_tool_utils.h"
 
 static inline SkScalar scalar_log2(SkScalar x) {
-    static const SkScalar log2_conversion_factor = SkScalarDiv(1, SkScalarLog(2));
+    static const SkScalar log2_conversion_factor = SkScalarInvert(SkScalarLog(2));
 
     return SkScalarLog(x) * log2_conversion_factor;
 }
@@ -85,12 +88,16 @@ void PictureRenderer::CopyString(SkString* dest, const SkString* src) {
     }
 }
 
-class FlagsDrawFilter : public SkDrawFilter {
+class FlagsFilterCanvas : public SkPaintFilterCanvas {
 public:
-    FlagsDrawFilter(PictureRenderer::DrawFilterFlags* flags) :
-        fFlags(flags) {}
+    FlagsFilterCanvas(SkCanvas* canvas, PictureRenderer::DrawFilterFlags* flags)
+        : INHERITED(canvas->imageInfo().width(), canvas->imageInfo().height())
+        , fFlags(flags) {
+        this->addCanvas(canvas);
+    }
 
-    virtual bool filter(SkPaint* paint, Type t) {
+protected:
+    void onFilterPaint(SkPaint* paint, Type t) const override {
         paint->setFlags(paint->getFlags() & ~fFlags[t] & SkPaint::kAllFlags);
         if (PictureRenderer::kMaskFilter_DrawFilterFlag & fFlags[t]) {
             SkMaskFilter* maskFilter = paint->getMaskFilter();
@@ -103,21 +110,13 @@ public:
         } else if (PictureRenderer::kSlightHinting_DrawFilterFlag & fFlags[t]) {
             paint->setHinting(SkPaint::kSlight_Hinting);
         }
-        return true;
     }
 
 private:
-    PictureRenderer::DrawFilterFlags* fFlags;
-};
+    const PictureRenderer::DrawFilterFlags* fFlags;
 
-static void setUpFilter(SkCanvas* canvas, PictureRenderer::DrawFilterFlags* drawFilters) {
-    if (drawFilters && !canvas->getDrawFilter()) {
-        canvas->setDrawFilter(SkNEW_ARGS(FlagsDrawFilter, (drawFilters)))->unref();
-        if (drawFilters[0] & PictureRenderer::kAAClip_DrawFilterFlag) {
-            canvas->setAllowSoftClip(false);
-        }
-    }
-}
+    typedef SkPaintFilterCanvas INHERITED;
+};
 
 SkCanvas* PictureRenderer::setupCanvas() {
     const int width = this->getViewWidth();
@@ -126,12 +125,13 @@ SkCanvas* PictureRenderer::setupCanvas() {
 }
 
 SkCanvas* PictureRenderer::setupCanvas(int width, int height) {
-    SkCanvas* canvas;
+    SkAutoTUnref<SkCanvas> canvas;
+
     switch(fDeviceType) {
         case kBitmap_DeviceType: {
             SkBitmap bitmap;
             sk_tools::setup_bitmap(&bitmap, width, height);
-            canvas = SkNEW_ARGS(SkCanvas, (bitmap));
+            canvas.reset(SkNEW_ARGS(SkCanvas, (bitmap)));
         }
         break;
 #if SK_SUPPORT_GPU
@@ -154,16 +154,18 @@ SkCanvas* PictureRenderer::setupCanvas(int width, int height) {
                 desc.fWidth = width;
                 desc.fHeight = height;
                 desc.fSampleCnt = fSampleCount;
-                target.reset(fGrContext->createUncachedTexture(desc, NULL, 0));
-            }
-            if (NULL == target.get()) {
-                SkASSERT(0);
-                return NULL;
+                target.reset(fGrContext->textureProvider()->createTexture(desc, false, NULL, 0));
             }
 
-            SkAutoTUnref<SkGpuDevice> device(SkGpuDevice::Create(target,
-                                         SkSurfaceProps(SkSurfaceProps::kLegacyFontHost_InitType)));
-            canvas = SkNEW_ARGS(SkCanvas, (device.get()));
+            uint32_t flags = fUseDFText ? SkSurfaceProps::kUseDistanceFieldFonts_Flag : 0;
+            SkSurfaceProps props(flags, SkSurfaceProps::kLegacyFontHost_InitType);
+            SkAutoTUnref<SkGpuDevice> device(
+                SkGpuDevice::Create(target->asRenderTarget(), &props,
+                                    SkGpuDevice::kUninit_InitContents));
+            if (!device) {
+                return NULL;
+            }
+            canvas.reset(SkNEW_ARGS(SkCanvas, (device)));
             break;
         }
 #endif
@@ -171,14 +173,22 @@ SkCanvas* PictureRenderer::setupCanvas(int width, int height) {
             SkASSERT(0);
             return NULL;
     }
-    setUpFilter(canvas, fDrawFilters);
+
+    if (fHasDrawFilters) {
+        if (fDrawFilters[0] & PictureRenderer::kAAClip_DrawFilterFlag) {
+            canvas->setAllowSoftClip(false);
+        }
+
+        canvas.reset(SkNEW_ARGS(FlagsFilterCanvas, (canvas.get(), fDrawFilters)));
+    }
+
     this->scaleToScaleFactor(canvas);
 
     // Pictures often lie about their extent (i.e., claim to be 100x100 but
     // only ever draw to 90x100). Clear here so the undrawn portion will have
     // a consistent color
     canvas->clear(SK_ColorTRANSPARENT);
-    return canvas;
+    return canvas.detach();
 }
 
 void PictureRenderer::scaleToScaleFactor(SkCanvas* canvas) {
@@ -221,10 +231,14 @@ void PictureRenderer::buildBBoxHierarchy() {
     if (kNone_BBoxHierarchyType != fBBoxHierarchyType && fPicture) {
         SkAutoTDelete<SkBBHFactory> factory(this->getFactory());
         SkPictureRecorder recorder;
-        SkCanvas* canvas = recorder.beginRecording(fPicture->cullRect().width(), 
+        uint32_t flags = this->recordFlags();
+        if (fUseMultiPictureDraw) {
+            flags |= SkPictureRecorder::kComputeSaveLayerInfo_RecordFlag;
+        }
+        SkCanvas* canvas = recorder.beginRecording(fPicture->cullRect().width(),
                                                    fPicture->cullRect().height(),
                                                    factory.get(),
-                                                   this->recordFlags());
+                                                   flags);
         fPicture->playback(canvas);
         fPicture.reset(recorder.endRecording());
     }
@@ -353,15 +367,10 @@ SkCanvas* RecordPictureRenderer::setupCanvas(int width, int height) {
     return NULL;
 }
 
-// the size_t* parameter is deprecated, so we ignore it
-static SkData* encode_bitmap_to_data(size_t*, const SkBitmap& bm) {
-    return SkImageEncoder::EncodeData(bm, SkImageEncoder::kPNG_Type, 100);
-}
-
 bool RecordPictureRenderer::render(SkBitmap** out) {
     SkAutoTDelete<SkBBHFactory> factory(this->getFactory());
     SkPictureRecorder recorder;
-    SkCanvas* canvas = recorder.beginRecording(SkIntToScalar(this->getViewWidth()), 
+    SkCanvas* canvas = recorder.beginRecording(SkIntToScalar(this->getViewWidth()),
                                                SkIntToScalar(this->getViewHeight()),
                                                factory.get(),
                                                this->recordFlags());
@@ -372,7 +381,8 @@ bool RecordPictureRenderer::render(SkBitmap** out) {
         // Record the new picture as a new SKP with PNG encoded bitmaps.
         SkString skpPath = SkOSPath::Join(fWritePath.c_str(), fInputFilename.c_str());
         SkFILEWStream stream(skpPath.c_str());
-        picture->serialize(&stream, &encode_bitmap_to_data);
+        sk_tool_utils::PngPixelSerializer serializer;
+        picture->serialize(&stream, &serializer);
         return true;
     }
     return false;
@@ -399,7 +409,7 @@ bool PipePictureRenderer::render(SkBitmap** out) {
     fCanvas->flush();
     if (out) {
         *out = SkNEW(SkBitmap);
-        setup_bitmap(*out, SkScalarCeilToInt(fPicture->cullRect().width()), 
+        setup_bitmap(*out, SkScalarCeilToInt(fPicture->cullRect().width()),
                            SkScalarCeilToInt(fPicture->cullRect().height()));
         fCanvas->readPixels(*out, 0, 0);
     }
@@ -420,7 +430,7 @@ SkString PipePictureRenderer::getConfigNameInternal() {
 void SimplePictureRenderer::init(const SkPicture* picture, const SkString* writePath,
                                  const SkString* mismatchPath, const SkString* inputFilename,
                                  bool useChecksumBasedFilenames, bool useMultiPictureDraw) {
-    INHERITED::init(picture, writePath, mismatchPath, inputFilename, 
+    INHERITED::init(picture, writePath, mismatchPath, inputFilename,
                     useChecksumBasedFilenames, useMultiPictureDraw);
     this->buildBBoxHierarchy();
 }
@@ -444,7 +454,7 @@ bool SimplePictureRenderer::render(SkBitmap** out) {
     fCanvas->flush();
     if (out) {
         *out = SkNEW(SkBitmap);
-        setup_bitmap(*out, SkScalarCeilToInt(fPicture->cullRect().width()), 
+        setup_bitmap(*out, SkScalarCeilToInt(fPicture->cullRect().width()),
                            SkScalarCeilToInt(fPicture->cullRect().height()));
         fCanvas->readPixels(*out, 0, 0);
     }
@@ -463,7 +473,7 @@ SkString SimplePictureRenderer::getConfigNameInternal() {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 #if SK_SUPPORT_GPU
-TiledPictureRenderer::TiledPictureRenderer(const GrContext::Options& opts)
+TiledPictureRenderer::TiledPictureRenderer(const GrContextOptions& opts)
     : INHERITED(opts)
     , fTileWidth(kDefaultTileWidth)
 #else
@@ -612,6 +622,7 @@ static void draw_tile_to_canvas(SkCanvas* canvas,
     SkMatrix mat(canvas->getTotalMatrix());
     mat.postTranslate(-SkIntToScalar(tileRect.fLeft), -SkIntToScalar(tileRect.fTop));
     canvas->setMatrix(mat);
+    canvas->clipRect(SkRect::Make(tileRect));
     canvas->clear(SK_ColorTRANSPARENT); // Not every picture covers the entirety of every tile
     canvas->drawPicture(picture);
     canvas->restoreToCount(saveCount);
@@ -654,7 +665,7 @@ void TiledPictureRenderer::drawCurrentTile() {
     draw_tile_to_canvas(fCanvas, fTileRects[fCurrentTileOffset], fPicture);
 }
 
-bool TiledPictureRenderer::postRender(SkCanvas* canvas, const SkIRect& tileRect, 
+bool TiledPictureRenderer::postRender(SkCanvas* canvas, const SkIRect& tileRect,
                                       SkBitmap* tempBM, SkBitmap** out,
                                       int tileNumber) {
     bool success = true;
@@ -684,7 +695,7 @@ bool TiledPictureRenderer::render(SkBitmap** out) {
     SkBitmap bitmap;
     if (out) {
         *out = SkNEW(SkBitmap);
-        setup_bitmap(*out, SkScalarCeilToInt(fPicture->cullRect().width()), 
+        setup_bitmap(*out, SkScalarCeilToInt(fPicture->cullRect().width()),
                            SkScalarCeilToInt(fPicture->cullRect().height()));
         setup_bitmap(&bitmap, fTileWidth, fTileHeight);
     }
@@ -705,8 +716,12 @@ bool TiledPictureRenderer::render(SkBitmap** out) {
             surfaces[i]->getCanvas()->setMatrix(fCanvas->getTotalMatrix());
 
             SkPictureRecorder recorder;
+            SkRTreeFactory bbhFactory;
+
             SkCanvas* c = recorder.beginRecording(SkIntToScalar(fTileRects[i].width()),
-                                                  SkIntToScalar(fTileRects[i].height()));
+                                                  SkIntToScalar(fTileRects[i].height()),
+                                                  &bbhFactory,
+                                                  SkPictureRecorder::kComputeSaveLayerInfo_RecordFlag);
             c->save();
             SkMatrix mat;
             mat.setTranslate(-SkIntToScalar(fTileRects[i].fLeft),
@@ -780,7 +795,7 @@ SkString TiledPictureRenderer::getConfigNameInternal() {
 void PlaybackCreationRenderer::setup() {
     SkAutoTDelete<SkBBHFactory> factory(this->getFactory());
     fRecorder.reset(SkNEW(SkPictureRecorder));
-    SkCanvas* canvas = fRecorder->beginRecording(SkIntToScalar(this->getViewWidth()), 
+    SkCanvas* canvas = fRecorder->beginRecording(SkIntToScalar(this->getViewWidth()),
                                                  SkIntToScalar(this->getViewHeight()),
                                                  factory.get(),
                                                  this->recordFlags());
@@ -807,46 +822,9 @@ SkBBHFactory* PictureRenderer::getFactory() {
             return NULL;
         case kRTree_BBoxHierarchyType:
             return SkNEW(SkRTreeFactory);
-        case kTileGrid_BBoxHierarchyType:
-            return SkNEW_ARGS(SkTileGridFactory, (fGridInfo));
     }
     SkASSERT(0); // invalid bbhType
     return NULL;
 }
-
-///////////////////////////////////////////////////////////////////////////////
-
-class GatherRenderer : public PictureRenderer {
-public:
-#if SK_SUPPORT_GPU
-    GatherRenderer(const GrContext::Options& opts) : INHERITED(opts) { }
-#endif
-
-    virtual bool render(SkBitmap** out = NULL) SK_OVERRIDE {
-        SkRect bounds = SkRect::MakeWH(SkIntToScalar(fPicture->cullRect().width()),
-                                       SkIntToScalar(fPicture->cullRect().height()));
-        SkData* data = SkPictureUtils::GatherPixelRefs(fPicture, bounds);
-        SkSafeUnref(data);
-
-        return (fWritePath.isEmpty());    // we don't have anything to write
-    }
-
-private:
-    virtual SkString getConfigNameInternal() SK_OVERRIDE {
-        return SkString("gather_pixelrefs");
-    }
-
-    typedef PictureRenderer INHERITED;
-};
-
-#if SK_SUPPORT_GPU
-PictureRenderer* CreateGatherPixelRefsRenderer(const GrContext::Options& opts) {
-    return SkNEW_ARGS(GatherRenderer, (opts));
-}
-#else
-PictureRenderer* CreateGatherPixelRefsRenderer() {
-    return SkNEW(GatherRenderer);
-}
-#endif
 
 } // namespace sk_tools

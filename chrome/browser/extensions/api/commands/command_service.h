@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/basictypes.h"
+#include "base/observer_list.h"
 #include "base/scoped_observer.h"
 #include "chrome/common/extensions/command.h"
 #include "extensions/browser/browser_context_keyed_api_factory.h"
@@ -41,11 +42,25 @@ class ExtensionRegistry;
 class CommandService : public BrowserContextKeyedAPI,
                        public ExtensionRegistryObserver {
  public:
-  // An enum specifying whether to fetch all extension commands or only active
-  // ones.
+  // An enum specifying which extension commands to fetch. There are effectively
+  // four options: all, active, suggested, and inactive. Only the first three
+  // appear in the enum since there hasn't been a need for 'inactive' yet.
+  //
+  // 'Inactive' means no key is bound. It might be because 1) a key wasn't
+  // specified (suggested) or 2) it was not granted (key already taken).
+  //
+  // SUGGESTED covers developer-assigned keys that may or may not have been
+  // granted. Reasons for not granting include permission denied/key already
+  // taken.
+  //
+  // ACTIVE means developer-assigned keys that were granted or user-assigned
+  // keys.
+  //
+  // ALL is all of the above.
   enum QueryType {
     ALL,
-    ACTIVE_ONLY,
+    ACTIVE,
+    SUGGESTED,
   };
 
   // An enum specifying whether the command is global in scope or not. Global
@@ -62,6 +77,19 @@ class CommandService : public BrowserContextKeyedAPI,
     NAMED,
     BROWSER_ACTION,
     PAGE_ACTION
+  };
+
+  class Observer {
+   public:
+    // Called when an extension command is added.
+    virtual void OnExtensionCommandAdded(const std::string& extension_id,
+                                         const Command& command) {}
+
+    // Called when an extension command is removed.
+    virtual void OnExtensionCommandRemoved(const std::string& extension_id,
+                                           const Command& command) {}
+   protected:
+    virtual ~Observer() {}
   };
 
   // Register prefs for keybinding.
@@ -89,7 +117,7 @@ class CommandService : public BrowserContextKeyedAPI,
   // its |extension_id|. The function consults the master list to see if
   // the command is active. Returns false if the extension has no browser
   // action. Returns false if the command is not active and |type| requested
-  // is ACTIVE_ONLY. |command| contains the command found and |active| (if not
+  // is ACTIVE. |command| contains the command found and |active| (if not
   // NULL) contains whether |command| is active.
   bool GetBrowserActionCommand(const std::string& extension_id,
                                QueryType type,
@@ -100,7 +128,7 @@ class CommandService : public BrowserContextKeyedAPI,
   // its |extension_id|. The function consults the master list to see if
   // the command is active. Returns false if the extension has no page
   // action. Returns false if the command is not active and |type| requested
-  // is ACTIVE_ONLY. |command| contains the command found and |active| (if not
+  // is ACTIVE. |command| contains the command found and |active| (if not
   // NULL) contains whether |command| is active.
   bool GetPageActionCommand(const std::string& extension_id,
                             QueryType type,
@@ -111,7 +139,7 @@ class CommandService : public BrowserContextKeyedAPI,
   // |extension_id|. The function consults the master list to see if the
   // commands are active. Returns an empty map if the extension has no named
   // commands of the right |scope| or no such active named commands when |type|
-  // requested is ACTIVE_ONLY.
+  // requested is ACTIVE.
   bool GetNamedCommands(const std::string& extension_id,
                         QueryType type,
                         CommandScope scope,
@@ -126,8 +154,8 @@ class CommandService : public BrowserContextKeyedAPI,
   // be registered as a global command (be active even when Chrome does not have
   // focus. Returns true if the change was successfully recorded.
   bool AddKeybindingPref(const ui::Accelerator& accelerator,
-                         std::string extension_id,
-                         std::string command_name,
+                         const std::string& extension_id,
+                         const std::string& command_name,
                          bool allow_overrides,
                          bool global);
 
@@ -157,17 +185,20 @@ class CommandService : public BrowserContextKeyedAPI,
   Command FindCommandByName(const std::string& extension_id,
                             const std::string& command) const;
 
-  // If the extension with |extension_id| binds a command to |accelerator|,
-  // returns true and assigns *|command| and *|command_type| to the command and
-  // its type if non-NULL.
-  bool GetBoundExtensionCommand(const std::string& extension_id,
-                                const ui::Accelerator& accelerator,
-                                Command* command,
-                                ExtensionCommandType* command_type) const;
+  // If the extension with |extension_id| suggests the assignment of a command
+  // to |accelerator|, returns true and assigns the command to *|command|. Also
+  // assigns the type to *|command_type| if non-null.
+  bool GetSuggestedExtensionCommand(const std::string& extension_id,
+                                    const ui::Accelerator& accelerator,
+                                    Command* command,
+                                    ExtensionCommandType* command_type) const;
 
-  // Returns true if |extension| is permitted to and does override the bookmark
-  // shortcut key.
-  bool OverridesBookmarkShortcut(const Extension* extension) const;
+  // Returns true if |extension| requests to override the bookmark shortcut key
+  // and should be allowed to do so.
+  bool RequestsBookmarkShortcutOverride(const Extension* extension) const;
+
+  void AddObserver(Observer* observer);
+  void RemoveObserver(Observer* observer);
 
  private:
   friend class BrowserContextKeyedAPIFactory<CommandService>;
@@ -242,6 +273,8 @@ class CommandService : public BrowserContextKeyedAPI,
 
   ScopedObserver<ExtensionRegistry, ExtensionRegistryObserver>
       extension_registry_observer_;
+
+  base::ObserverList<Observer> observers_;
 
   DISALLOW_COPY_AND_ASSIGN(CommandService);
 };

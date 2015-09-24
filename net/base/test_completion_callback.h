@@ -7,7 +7,7 @@
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
-#include "base/tuple.h"
+#include "base/memory/scoped_ptr.h"
 #include "net/base/completion_callback.h"
 #include "net/base/net_errors.h"
 
@@ -16,12 +16,17 @@
 
 // A helper class for completion callbacks, designed to make it easy to run
 // tests involving asynchronous operations.  Just call WaitForResult to wait
-// for the asynchronous operation to complete.
+// for the asynchronous operation to complete.  Uses a RunLoop to spin the
+// current MessageLoop while waiting.  The callback must be invoked on the same
+// thread WaitForResult is called on.
 //
 // NOTE: Since this runs a message loop to wait for the completion callback,
 // there could be other side-effects resulting from WaitForResult.  For this
 // reason, this class is probably not ideal for a general application.
 //
+namespace base {
+class RunLoop;
+}
 
 namespace net {
 
@@ -40,10 +45,12 @@ class TestCompletionCallbackBaseInternal {
   void DidSetResult();
   void WaitForResult();
 
-  bool have_result_;
-  bool waiting_for_result_;
-
  private:
+  // RunLoop.  Only non-NULL during the call to WaitForResult, so the class is
+  // reusable.
+  scoped_ptr<base::RunLoop> run_loop_;
+  bool have_result_;
+
   DISALLOW_COPY_AND_ASSIGN(TestCompletionCallbackBaseInternal);
 };
 
@@ -59,34 +66,34 @@ class TestCompletionCallbackTemplate
   }
 
   R GetResult(R result) {
-    if (net::ERR_IO_PENDING != result)
+    if (ERR_IO_PENDING != result)
       return result;
     return WaitForResult();
   }
 
  protected:
+  TestCompletionCallbackTemplate() : result_(R()) {}
+
   // Override this method to gain control as the callback is running.
   virtual void SetResult(R result) {
     result_ = result;
     DidSetResult();
   }
 
-  TestCompletionCallbackTemplate() : result_(R()) {}
+ private:
   R result_;
 
- private:
   DISALLOW_COPY_AND_ASSIGN(TestCompletionCallbackTemplate);
 };
 
 }  // namespace internal
 
-class TestClosure
-    : public internal::TestCompletionCallbackBaseInternal {
+class TestClosure : public internal::TestCompletionCallbackBaseInternal {
  public:
   using internal::TestCompletionCallbackBaseInternal::WaitForResult;
 
   TestClosure();
-  virtual ~TestClosure() override;
+  ~TestClosure() override;
 
   const base::Closure& closure() const { return closure_; }
 
@@ -100,13 +107,13 @@ class TestClosure
 typedef internal::TestCompletionCallbackTemplate<int>
     TestCompletionCallbackBase;
 
-typedef internal::TestCompletionCallbackTemplate<int64>
+typedef internal::TestCompletionCallbackTemplate<int64_t>
     TestInt64CompletionCallbackBase;
 
 class TestCompletionCallback : public TestCompletionCallbackBase {
  public:
   TestCompletionCallback();
-  virtual ~TestCompletionCallback() override;
+  ~TestCompletionCallback() override;
 
   const CompletionCallback& callback() const { return callback_; }
 
@@ -119,7 +126,7 @@ class TestCompletionCallback : public TestCompletionCallbackBase {
 class TestInt64CompletionCallback : public TestInt64CompletionCallbackBase {
  public:
   TestInt64CompletionCallback();
-  virtual ~TestInt64CompletionCallback() override;
+  ~TestInt64CompletionCallback() override;
 
   const Int64CompletionCallback& callback() const { return callback_; }
 
@@ -133,7 +140,7 @@ class TestInt64CompletionCallback : public TestInt64CompletionCallbackBase {
 class ReleaseBufferCompletionCallback: public TestCompletionCallback {
  public:
   explicit ReleaseBufferCompletionCallback(IOBuffer* buffer);
-  virtual ~ReleaseBufferCompletionCallback() override;
+  ~ReleaseBufferCompletionCallback() override;
 
  private:
   void SetResult(int result) override;

@@ -5,6 +5,7 @@
 #ifndef COMPONENTS_AUTOFILL_CONTENT_RENDERER_AUTOFILL_AGENT_H_
 #define COMPONENTS_AUTOFILL_CONTENT_RENDERER_AUTOFILL_AGENT_H_
 
+#include <set>
 #include <vector>
 
 #include "base/basictypes.h"
@@ -14,6 +15,7 @@
 #include "base/time/time.h"
 #include "components/autofill/content/renderer/form_cache.h"
 #include "components/autofill/content/renderer/page_click_listener.h"
+#include "content/public/renderer/render_frame_observer.h"
 #include "content/public/renderer/render_view_observer.h"
 #include "third_party/WebKit/public/web/WebAutofillClient.h"
 #include "third_party/WebKit/public/web/WebFormControlElement.h"
@@ -34,39 +36,90 @@ class PasswordAutofillAgent;
 class PasswordGenerationAgent;
 
 // AutofillAgent deals with Autofill related communications between WebKit and
-// the browser.  There is one AutofillAgent per RenderView.
-// This code was originally part of RenderView.
+// the browser.  There is one AutofillAgent per RenderFrame.
 // Note that Autofill encompasses:
 // - single text field suggestions, that we usually refer to as Autocomplete,
 // - password form fill, refered to as Password Autofill, and
 // - entire form fill based on one field entry, referred to as Form Autofill.
 
-class AutofillAgent : public content::RenderViewObserver,
+class AutofillAgent : public content::RenderFrameObserver,
                       public PageClickListener,
                       public blink::WebAutofillClient {
  public:
   // PasswordAutofillAgent is guaranteed to outlive AutofillAgent.
   // PasswordGenerationAgent may be NULL. If it is not, then it is also
   // guaranteed to outlive AutofillAgent.
-  AutofillAgent(content::RenderView* render_view,
+  AutofillAgent(content::RenderFrame* render_frame,
                 PasswordAutofillAgent* password_autofill_manager,
                 PasswordGenerationAgent* password_generation_agent);
   virtual ~AutofillAgent();
 
  private:
-  // content::RenderViewObserver:
+  // Functor used as a simplified comparison function for FormData.
+  struct FormDataCompare {
+    bool operator()(const FormData& lhs, const FormData& rhs) const;
+  };
+
+  // Thunk class for RenderViewObserver methods that haven't yet been migrated
+  // to RenderFrameObserver. Should eventually be removed.
+  // http://crbug.com/433486
+  class LegacyAutofillAgent : public content::RenderViewObserver {
+   public:
+    LegacyAutofillAgent(content::RenderView* render_view, AutofillAgent* agent);
+    ~LegacyAutofillAgent() override;
+
+   private:
+    // content::RenderViewObserver:
+    void OnDestruct() override;
+    void FocusChangeComplete() override;
+
+    AutofillAgent* agent_;
+
+    DISALLOW_COPY_AND_ASSIGN(LegacyAutofillAgent);
+  };
+  friend class LegacyAutofillAgent;
+
+  // Flags passed to ShowSuggestions.
+  struct ShowSuggestionsOptions {
+    // All fields are default initialized to false.
+    ShowSuggestionsOptions();
+
+    // Specifies that suggestions should be shown when |element| contains no
+    // text.
+    bool autofill_on_empty_values;
+
+    // Specifies that suggestions should be shown when the caret is not
+    // after the last character in the element.
+    bool requires_caret_at_end;
+
+    // Specifies that all of <datalist> suggestions and no autofill suggestions
+    // are shown. |autofill_on_empty_values| and |requires_caret_at_end| are
+    // ignored if |datalist_only| is true.
+    bool datalist_only;
+
+    // Specifies that all autofill suggestions should be shown and none should
+    // be elided because of the current value of |element| (relevant for inline
+    // autocomplete).
+    bool show_full_suggestion_list;
+
+    // Specifies that only show a suggestions box if |element| is part of a
+    // password form, otherwise show no suggestions.
+    bool show_password_suggestions_only;
+  };
+
+  // content::RenderFrameObserver:
   bool OnMessageReceived(const IPC::Message& message) override;
-  void DidFinishDocumentLoad(blink::WebLocalFrame* frame) override;
-  void DidCommitProvisionalLoad(blink::WebLocalFrame* frame,
-                                bool is_new_navigation) override;
-  void FrameDetached(blink::WebFrame* frame) override;
-  void FrameWillClose(blink::WebFrame* frame) override;
-  void WillSubmitForm(blink::WebLocalFrame* frame,
-                      const blink::WebFormElement& form) override;
-  void DidChangeScrollOffset(blink::WebLocalFrame* frame) override;
+  void DidCommitProvisionalLoad(bool is_new_navigation,
+                                bool is_same_page_navigation) override;
+  void DidFinishDocumentLoad() override;
+  void WillSendSubmitEvent(const blink::WebFormElement& form) override;
+  void WillSubmitForm(const blink::WebFormElement& form) override;
+  void DidChangeScrollOffset() override;
   void FocusedNodeChanged(const blink::WebNode& node) override;
-  void OrientationChangeEvent() override;
-  void Resized() override;
+
+  // Pass-through from LegacyAutofillAgent. This correlates with the
+  // RenderViewObserver method.
+  void FocusChangeComplete();
 
   // PageClickListener:
   void FormControlElementClicked(const blink::WebFormControlElement& element,
@@ -86,11 +139,14 @@ class AutofillAgent : public content::RenderViewObserver,
   virtual void didAssociateFormControls(
       const blink::WebVector<blink::WebNode>& nodes);
   virtual void openTextDataListChooser(const blink::WebInputElement& element);
+  virtual void dataListOptionsChanged(const blink::WebInputElement& element);
   virtual void firstUserGestureObserved();
+  virtual void ajaxSucceeded();
 
   void OnFieldTypePredictionsAvailable(
       const std::vector<FormDataPredictions>& forms);
   void OnFillForm(int query_id, const FormData& form);
+  void OnFirstUserGestureObservedInTab();
   void OnPing();
   void OnPreviewForm(int query_id, const FormData& form);
 
@@ -120,37 +176,15 @@ class AutofillAgent : public content::RenderViewObserver,
   // http://bugs.webkit.org/show_bug.cgi?id=16976
   void TextFieldDidChangeImpl(const blink::WebFormControlElement& element);
 
-  // Shows the autofill suggestions for |element|.
-  // This call is asynchronous and may or may not lead to the showing of a
-  // suggestion popup (no popup is shown if there are no available suggestions).
-  // |autofill_on_empty_values| specifies whether suggestions should be shown
-  // when |element| contains no text.
-  // |requires_caret_at_end| specifies whether suggestions should be shown when
-  // the caret is not after the last character in |element|.
-  // |display_warning_if_disabled| specifies whether a warning should be
-  // displayed to the user if Autofill has suggestions available, but cannot
-  // fill them because it is disabled (e.g. when trying to fill a credit card
-  // form on a non-secure website).
-  // |datalist_only| specifies whether all of <datalist> suggestions and no
-  // autofill suggestions are shown. |autofill_on_empty_values| and
-  // |requires_caret_at_end| are ignored if |datalist_only| is true.
-  // |show_full_suggestion_list| specifies that all autofill suggestions should
-  // be shown and none should be elided because of the current value of
-  // |element| (relevant for inline autocomplete).
-  // |show_password_suggestions_only| specifies that only show a suggestions box
-  // if |element| is part of a password form, otherwise show no suggestions.
+  // Shows the autofill suggestions for |element|. This call is asynchronous
+  // and may or may not lead to the showing of a suggestion popup (no popup is
+  // shown if there are no available suggestions).
   void ShowSuggestions(const blink::WebFormControlElement& element,
-                       bool autofill_on_empty_values,
-                       bool requires_caret_at_end,
-                       bool display_warning_if_disabled,
-                       bool datalist_only,
-                       bool show_full_suggestion_list,
-                       bool show_password_suggestions_only);
+                       const ShowSuggestionsOptions& options);
 
   // Queries the browser for Autocomplete and Autofill suggestions for the given
   // |element|.
   void QueryAutofillSuggestions(const blink::WebFormControlElement& element,
-                                bool display_warning_if_disabled,
                                 bool datalist_only);
 
   // Sets the element value to reflect the selected |suggested_value|.
@@ -173,16 +207,37 @@ class AutofillAgent : public content::RenderViewObserver,
   void PreviewFieldWithValue(const base::string16& value,
                              blink::WebInputElement* node);
 
-  // Notifies browser of new fillable forms in |frame|.
-  void ProcessForms(const blink::WebLocalFrame& frame);
+  // Notifies browser of new fillable forms in |render_frame|.
+  void ProcessForms();
+
+  // Sends a message to the browser that the form is about to be submitted,
+  // only if the particular message has not been previously submitted for the
+  // form in the current frame.
+  // Additionally, depending on |send_submitted_event| a message is sent to the
+  // browser that the form was submitted.
+  void SendFormEvents(const blink::WebFormElement& form,
+                      bool send_submitted_event);
 
   // Hides any currently showing Autofill popup.
   void HidePopup();
 
+  // Returns true if the text field change is due to a user gesture. Can be
+  // overriden in tests.
+  virtual bool IsUserGesture() const;
+
+  // Formerly cached forms for all frames, now only caches forms for the current
+  // frame.
   FormCache form_cache_;
+
+  // Keeps track of the forms for which a "will submit" message has been sent in
+  // this frame's current load. We use a simplified comparison function.
+  std::set<FormData, FormDataCompare> submitted_forms_;
 
   PasswordAutofillAgent* password_autofill_agent_;  // Weak reference.
   PasswordGenerationAgent* password_generation_agent_;  // Weak reference.
+
+  // Passes through RenderViewObserver methods to |this|.
+  LegacyAutofillAgent legacy_;
 
   // The ID of the last request sent for form field Autofill.  Used to ignore
   // out of date responses.
@@ -194,21 +249,12 @@ class AutofillAgent : public content::RenderViewObserver,
   // The form element currently requesting an interactive autocomplete.
   blink::WebFormElement in_flight_request_form_;
 
-  // Pointer to the WebView. Used to access page scale factor.
-  blink::WebView* web_view_;
-
-  // Should we display a warning if autofill is disabled?
-  bool display_warning_if_disabled_;
-
   // Was the query node autofilled prior to previewing the form?
   bool was_query_node_autofilled_;
 
   // Have we already shown Autofill suggestions for the field the user is
   // currently editing?  Used to keep track of state for metrics logging.
   bool has_shown_autofill_popup_for_current_edit_;
-
-  // If true we just set the node text so we shouldn't show the popup.
-  bool did_set_node_text_;
 
   // Whether or not to ignore text changes.  Useful for when we're committing
   // a composition when we are defocusing the WebView and we don't want to
@@ -220,10 +266,11 @@ class AutofillAgent : public content::RenderViewObserver,
   // messages to close the Autofill popup when it can't possibly be showing.
   bool is_popup_possibly_visible_;
 
-  // True if a message has already been sent about forms for the main frame.
-  // When the main frame is first loaded, a message is sent even if no forms
-  // exist in the frame. Otherwise, such messages are supressed.
-  bool main_frame_processed_;
+  // If the generation popup is possibly visible. This is tracked to prevent
+  // generation UI from displaying at the same time as password manager UI.
+  // This is needed because generation is shown on field focus vs. field click
+  // for the password manager. TODO(gcasto): Have both UIs show on focus.
+  bool is_generation_popup_possibly_visible_;
 
   base::WeakPtrFactory<AutofillAgent> weak_ptr_factory_;
 

@@ -5,6 +5,7 @@
 #include "extensions/common/manifest_handlers/webview_info.h"
 
 #include "base/memory/scoped_ptr.h"
+#include "base/strings/pattern.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -18,16 +19,6 @@ namespace extensions {
 namespace keys = extensions::manifest_keys;
 namespace errors = extensions::manifest_errors;
 
-namespace {
-
-const WebviewInfo* GetResourcesInfo(
-    const Extension& extension) {
-  return static_cast<WebviewInfo*>(
-      extension.GetManifestData(keys::kWebviewAccessibleResources));
-}
-
-}  // namespace
-
 // A PartitionItem represents a set of accessible resources given a partition
 // ID pattern.
 class PartitionItem {
@@ -40,7 +31,7 @@ class PartitionItem {
   }
 
   bool Matches(const std::string& partition_id) const {
-    return MatchPattern(partition_id, partition_pattern_);
+    return base::MatchPattern(partition_id, partition_pattern_);
   }
 
   // Adds a pattern to the set. Returns true if a new pattern was inserted,
@@ -60,27 +51,25 @@ class PartitionItem {
   URLPatternSet accessible_resources_;
 };
 
-
-WebviewInfo::WebviewInfo() {
+WebviewInfo::WebviewInfo(const std::string& extension_id)
+    : extension_id_(extension_id) {
 }
 
 WebviewInfo::~WebviewInfo() {
 }
 
-// static
 bool WebviewInfo::IsResourceWebviewAccessible(
     const Extension* extension,
     const std::string& partition_id,
-    const std::string& relative_path) {
-  if (!extension)
+    const std::string& relative_path) const {
+  if (!extension || extension->id() != extension_id_)
     return false;
 
-  const WebviewInfo* info = GetResourcesInfo(*extension);
-  if (!info)
-    return false;
+  DCHECK_EQ(this,
+            extension->GetManifestData(keys::kWebviewAccessibleResources));
 
-  for (size_t i = 0; i < info->partition_items_.size(); ++i) {
-    const PartitionItem* const item = info->partition_items_[i];
+  for (size_t i = 0; i < partition_items_.size(); ++i) {
+    const PartitionItem* const item = partition_items_[i];
     if (item->Matches(partition_id) &&
         extension->ResourceMatches(item->accessible_resources(),
                                    relative_path)) {
@@ -102,7 +91,7 @@ WebviewHandler::~WebviewHandler() {
 }
 
 bool WebviewHandler::Parse(Extension* extension, base::string16* error) {
-  scoped_ptr<WebviewInfo> info(new WebviewInfo());
+  scoped_ptr<WebviewInfo> info(new WebviewInfo(extension->id()));
 
   const base::DictionaryValue* dict_value = NULL;
   if (!extension->manifest()->GetDictionary(keys::kWebview,

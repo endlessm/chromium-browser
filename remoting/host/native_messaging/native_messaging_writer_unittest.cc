@@ -50,12 +50,12 @@ TEST_F(NativeMessagingWriterTest, GoodMessage) {
   EXPECT_EQ(static_cast<int>(length), read);
 
   // |content| should now contain serialized |message|.
-  scoped_ptr<base::Value> written_message(base::JSONReader::Read(content));
+  scoped_ptr<base::Value> written_message = base::JSONReader::Read(content);
   EXPECT_TRUE(message.Equals(written_message.get()));
 
   // Nothing more should have been written. Close the write-end of the pipe,
   // and verify the read end immediately hits EOF.
-  writer_.reset(NULL);
+  writer_.reset(nullptr);
   char unused;
   read = read_file_.ReadAtCurrentPos(&unused, 1);
   EXPECT_LE(read, 0);
@@ -67,7 +67,7 @@ TEST_F(NativeMessagingWriterTest, SecondMessage) {
   message2.SetInteger("foo", 42);
   EXPECT_TRUE(writer_->WriteMessage(message1));
   EXPECT_TRUE(writer_->WriteMessage(message2));
-  writer_.reset(NULL);
+  writer_.reset(nullptr);
 
   // Read two messages.
   uint32 length;
@@ -82,7 +82,7 @@ TEST_F(NativeMessagingWriterTest, SecondMessage) {
   }
 
   // |content| should now contain serialized |message2|.
-  scoped_ptr<base::Value> written_message2(base::JSONReader::Read(content));
+  scoped_ptr<base::Value> written_message2 = base::JSONReader::Read(content);
   EXPECT_TRUE(message2.Equals(written_message2.get()));
 }
 

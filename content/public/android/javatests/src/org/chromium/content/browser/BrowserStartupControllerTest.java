@@ -9,6 +9,7 @@ import android.test.InstrumentationTestCase;
 import android.test.suitebuilder.annotation.SmallTest;
 
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.library_loader.LoaderErrors;
 import org.chromium.base.library_loader.ProcessInitException;
 import org.chromium.base.test.util.AdvancedMockContext;
@@ -27,15 +28,18 @@ public class BrowserStartupControllerTest extends InstrumentationTestCase {
         private int mInitializedCounter = 0;
 
         @Override
-        void prepareToStartBrowserProcess(boolean singleProcess) throws ProcessInitException {
+        void prepareToStartBrowserProcess(boolean singleProcess, Runnable completionCallback)
+                throws ProcessInitException {
             if (!mLibraryLoadSucceeds) {
                 throw new ProcessInitException(
                         LoaderErrors.LOADER_ERROR_NATIVE_LIBRARY_LOAD_FAILED);
+            } else if (completionCallback != null) {
+                completionCallback.run();
             }
         }
 
         private TestBrowserStartupController(Context context) {
-            super(context);
+            super(context, LibraryProcessType.PROCESS_BROWSER);
         }
 
         @Override

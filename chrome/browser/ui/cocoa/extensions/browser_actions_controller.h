@@ -9,19 +9,16 @@
 
 #import "base/mac/scoped_nsobject.h"
 #include "base/memory/scoped_ptr.h"
+#import "chrome/browser/ui/cocoa/has_weak_browser_pointer.h"
+#include "ui/gfx/geometry/size.h"
 
 class Browser;
 @class BrowserActionButton;
 @class BrowserActionsContainerView;
-@class ExtensionPopupController;
-class ExtensionServiceObserverBridge;
 @class MenuButton;
-class Profile;
-
-namespace extensions {
-class Extension;
-class ExtensionToolbarModel;
-}
+class ToolbarActionsBar;
+@class ToolbarActionsBarBubbleMac;
+class ToolbarActionsBarDelegate;
 
 namespace content {
 class WebContents;
@@ -32,7 +29,8 @@ extern NSString* const kBrowserActionVisibilityChangedNotification;
 
 // Handles state and provides an interface for controlling the Browser Actions
 // container within the Toolbar.
-@interface BrowserActionsController : NSObject<NSMenuDelegate> {
+@interface BrowserActionsController
+    : NSObject<NSMenuDelegate, HasWeakBrowserPointer> {
  @private
   // Reference to the current browser. Weak.
   Browser* browser_;
@@ -40,22 +38,22 @@ extern NSString* const kBrowserActionVisibilityChangedNotification;
   // The view from Toolbar.xib we'll be rendering our browser actions in. Weak.
   BrowserActionsContainerView* containerView_;
 
-  // The current profile. Weak.
-  Profile* profile_;
+  // Array of toolbar action buttons in the correct order for them to be
+  // displayed (includes both hidden and visible buttons).
+  base::scoped_nsobject<NSMutableArray> buttons_;
 
-  // The model that tracks the order of the toolbar icons. Weak.
-  extensions::ExtensionToolbarModel* toolbarModel_;
+  // The delegate for the ToolbarActionsBar.
+  scoped_ptr<ToolbarActionsBarDelegate> toolbarActionsBarBridge_;
 
-  // The observer for the ExtensionService we're getting events from.
-  scoped_ptr<ExtensionServiceObserverBridge> observer_;
+  // The controlling ToolbarActionsBar.
+  scoped_ptr<ToolbarActionsBar> toolbarActionsBar_;
 
-  // A dictionary of Extension ID -> BrowserActionButton pairs representing the
-  // buttons present in the container view. The ID is a string unique to each
-  // extension.
-  base::scoped_nsobject<NSMutableDictionary> buttons_;
+  // True if we should supppress the chevron (we do this during drag
+  // animations).
+  BOOL suppressChevron_;
 
-  // Array of hidden buttons in the correct order in which the user specified.
-  base::scoped_nsobject<NSMutableArray> hiddenButtons_;
+  // True if this is the overflow container for toolbar actions.
+  BOOL isOverflow_;
 
   // The currently running chevron animation (fade in/out).
   base::scoped_nsobject<NSViewAnimation> chevronAnimation_;
@@ -65,14 +63,28 @@ extern NSString* const kBrowserActionVisibilityChangedNotification;
 
   // The Browser Actions overflow menu.
   base::scoped_nsobject<NSMenu> overflowMenu_;
+
+  // The bubble that is actively showing, if any.
+  ToolbarActionsBarBubbleMac* activeBubble_;
+
+  // The index of the currently-focused view in the overflow menu, or -1 if
+  // no view is focused.
+  NSInteger focusedViewIndex_;
 }
 
 @property(readonly, nonatomic) BrowserActionsContainerView* containerView;
+@property(readonly, nonatomic) Browser* browser;
+@property(readonly, nonatomic) BOOL isOverflow;
+@property(readonly, nonatomic) ToolbarActionsBarBubbleMac* activeBubble;
 
 // Initializes the controller given the current browser and container view that
-// will hold the browser action buttons.
+// will hold the browser action buttons. If |mainController| is nil, the created
+// BrowserActionsController will be the main controller; otherwise (if this is
+// for the overflow menu), |mainController| should be controller of the main bar
+// for the |browser|.
 - (id)initWithBrowser:(Browser*)browser
-        containerView:(BrowserActionsContainerView*)container;
+        containerView:(BrowserActionsContainerView*)container
+       mainController:(BrowserActionsController*)mainController;
 
 // Update the display of all buttons.
 - (void)update;
@@ -85,14 +97,8 @@ extern NSString* const kBrowserActionVisibilityChangedNotification;
 // container.
 - (NSUInteger)visibleButtonCount;
 
-// Resizes the container given the number of visible buttons, taking into
-// account the size of the grippy. Also updates the persistent width preference.
-- (void)resizeContainerAndAnimate:(BOOL)animate;
-
-// Returns the saved width determined by the number of shown Browser Actions
-// preference property. If no preference is found, then the width for the
-// container is returned as if all buttons are shown.
-- (CGFloat)savedWidth;
+// Returns the preferred size for the container.
+- (gfx::Size)preferredSize;
 
 // Returns where the popup arrow should point to for the action with the given
 // |id|. If passed an id with no corresponding button, returns NSZeroPoint.
@@ -103,11 +109,18 @@ extern NSString* const kBrowserActionVisibilityChangedNotification;
 // process of fading in.
 - (BOOL)chevronIsHidden;
 
-// Activates the browser action for the extension that has the given id.
-- (void)activateBrowserAction:(const std::string&)extension_id;
-
 // Returns the currently-active web contents.
 - (content::WebContents*)currentWebContents;
+
+// Returns the BrowserActionButton in the main browser actions container (as
+// opposed to the overflow) for the action of the given id.
+- (BrowserActionButton*)mainButtonForId:(const std::string&)id;
+
+// Returns the associated ToolbarActionsBar.
+- (ToolbarActionsBar*)toolbarActionsBar;
+
+// Sets whether or not the overflow container is focused in the wrench menu.
+- (void)setFocusedInOverflow:(BOOL)focused;
 
 @end  // @interface BrowserActionsController
 

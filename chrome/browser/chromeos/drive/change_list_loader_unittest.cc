@@ -9,10 +9,12 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/prefs/testing_pref_service.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/chromeos/drive/change_list_loader_observer.h"
 #include "chrome/browser/chromeos/drive/file_cache.h"
 #include "chrome/browser/chromeos/drive/file_change.h"
-#include "chrome/browser/chromeos/drive/file_system_util.h"
+#include "chrome/browser/chromeos/drive/file_system_core_util.h"
 #include "chrome/browser/chromeos/drive/job_scheduler.h"
 #include "chrome/browser/chromeos/drive/resource_metadata.h"
 #include "chrome/browser/chromeos/drive/test_util.h"
@@ -36,9 +38,7 @@ class TestChangeListLoaderObserver : public ChangeListLoaderObserver {
     loader_->AddObserver(this);
   }
 
-  virtual ~TestChangeListLoaderObserver() {
-    loader_->RemoveObserver(this);
-  }
+  ~TestChangeListLoaderObserver() override { loader_->RemoveObserver(this); }
 
   const FileChange& changed_files() const { return changed_files_; }
   void clear_changed_files() { changed_files_.ClearForTest(); }
@@ -51,15 +51,13 @@ class TestChangeListLoaderObserver : public ChangeListLoaderObserver {
   }
 
   // ChageListObserver overrides:
-  virtual void OnFileChanged(const FileChange& changed_files) override {
+  void OnFileChanged(const FileChange& changed_files) override {
     changed_files_.Apply(changed_files);
   }
-  virtual void OnLoadFromServerComplete() override {
+  void OnLoadFromServerComplete() override {
     ++load_from_server_complete_count_;
   }
-  virtual void OnInitialLoadComplete() override {
-    ++initial_load_complete_count_;
-  }
+  void OnInitialLoadComplete() override { ++initial_load_complete_count_; }
 
  private:
   ChangeListLoader* loader_;
@@ -72,7 +70,7 @@ class TestChangeListLoaderObserver : public ChangeListLoaderObserver {
 
 class ChangeListLoaderTest : public testing::Test {
  protected:
-  virtual void SetUp() override {
+  void SetUp() override {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
     pref_service_.reset(new TestingPrefServiceSimple);
     test_util::RegisterDrivePrefs(pref_service_->registry());
@@ -82,30 +80,31 @@ class ChangeListLoaderTest : public testing::Test {
     drive_service_.reset(new FakeDriveService);
     ASSERT_TRUE(test_util::SetUpTestEntries(drive_service_.get()));
 
-    scheduler_.reset(new JobScheduler(pref_service_.get(),
-                                      logger_.get(),
-                                      drive_service_.get(),
-                                      base::MessageLoopProxy::current().get()));
+    scheduler_.reset(new JobScheduler(
+        pref_service_.get(),
+        logger_.get(),
+        drive_service_.get(),
+        base::ThreadTaskRunnerHandle::Get().get()));
     metadata_storage_.reset(new ResourceMetadataStorage(
-        temp_dir_.path(), base::MessageLoopProxy::current().get()));
+        temp_dir_.path(), base::ThreadTaskRunnerHandle::Get().get()));
     ASSERT_TRUE(metadata_storage_->Initialize());
 
     cache_.reset(new FileCache(metadata_storage_.get(),
                                temp_dir_.path(),
-                               base::MessageLoopProxy::current().get(),
+                               base::ThreadTaskRunnerHandle::Get().get(),
                                NULL /* free_disk_space_getter */));
     ASSERT_TRUE(cache_->Initialize());
 
     metadata_.reset(new ResourceMetadata(
         metadata_storage_.get(), cache_.get(),
-        base::MessageLoopProxy::current().get()));
+        base::ThreadTaskRunnerHandle::Get().get()));
     ASSERT_EQ(FILE_ERROR_OK, metadata_->Initialize());
 
     about_resource_loader_.reset(new AboutResourceLoader(scheduler_.get()));
     loader_controller_.reset(new LoaderController);
     change_list_loader_.reset(
         new ChangeListLoader(logger_.get(),
-                             base::MessageLoopProxy::current().get(),
+                             base::ThreadTaskRunnerHandle::Get().get(),
                              metadata_.get(),
                              scheduler_.get(),
                              about_resource_loader_.get(),
@@ -114,7 +113,7 @@ class ChangeListLoaderTest : public testing::Test {
 
   // Adds a new file to the root directory of the service.
   scoped_ptr<google_apis::FileResource> AddNewFile(const std::string& title) {
-    google_apis::GDataErrorCode error = google_apis::GDATA_FILE_ERROR;
+    google_apis::DriveApiErrorCode error = google_apis::DRIVE_FILE_ERROR;
     scoped_ptr<google_apis::FileResource> entry;
     drive_service_->AddNewFile(
         "text/plain",
@@ -144,7 +143,7 @@ class ChangeListLoaderTest : public testing::Test {
 };
 
 TEST_F(ChangeListLoaderTest, AboutResourceLoader) {
-  google_apis::GDataErrorCode error[6] = {};
+  google_apis::DriveApiErrorCode error[6] = {};
   scoped_ptr<google_apis::AboutResource> about[6];
 
   // No resource is cached at the beginning.
@@ -251,7 +250,7 @@ TEST_F(ChangeListLoaderTest, Load_LocalMetadataAvailable) {
   about_resource_loader_.reset(new AboutResourceLoader(scheduler_.get()));
   change_list_loader_.reset(
       new ChangeListLoader(logger_.get(),
-                           base::MessageLoopProxy::current().get(),
+                           base::ThreadTaskRunnerHandle::Get().get(),
                            metadata_.get(),
                            scheduler_.get(),
                            about_resource_loader_.get(),

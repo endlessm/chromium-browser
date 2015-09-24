@@ -7,10 +7,11 @@
 
 #include "base/macros.h"
 #include "components/history/core/browser/history_types.h"
-
-class HistoryService;
+#include "components/history/core/browser/keyword_id.h"
 
 namespace history {
+
+class HistoryService;
 
 class HistoryServiceObserver {
  public:
@@ -30,9 +31,47 @@ class HistoryServiceObserver {
                             const RedirectList& redirects,
                             base::Time visit_time) {}
 
-  // Called on changes to the VisitDatabase.
-  virtual void OnAddVisit(HistoryService* history_service,
-                          const BriefVisitInfo& info) {}
+  // Called when a URL has been added or modified.
+  //
+  // |changed_urls| lists the information for each of the URLs affected. The
+  // rows will have the IDs that are currently in effect in the main history
+  // database.
+  virtual void OnURLsModified(HistoryService* history_service,
+                              const URLRows& changed_urls) {}
+
+  // Called when one or more of URLs are deleted.
+  //
+  // |all_history| is set to true, if all the URLs are deleted.
+  //               When set to true, |deleted_rows| and |favicon_urls| are
+  //               undefined.
+  // |expired| is set to true, if the URL deletion is due to expiration.
+  // |deleted_rows| list of the deleted URLs.
+  // |favicon_urls| list of favicon URLs that correspond to the deleted URLs.
+  virtual void OnURLsDeleted(HistoryService* history_service,
+                             bool all_history,
+                             bool expired,
+                             const URLRows& deleted_rows,
+                             const std::set<GURL>& favicon_urls) {}
+
+  // Is called to notify when |history_service| has finished loading.
+  virtual void OnHistoryServiceLoaded(HistoryService* history_service) {}
+
+  // Is called to notify when |history_service| is being deleted.
+  virtual void HistoryServiceBeingDeleted(HistoryService* history_service) {}
+
+  // Sent when a keyword search term is updated.
+  //
+  // |row| contains the URL information for search |term|.
+  // |keyword_id| associated with a URL and search term.
+  virtual void OnKeywordSearchTermUpdated(HistoryService* history_service,
+                                          const URLRow& row,
+                                          KeywordID keyword_id,
+                                          const base::string16& term) {}
+
+  // Sent when a keyword search term is deleted.
+  // |url_id| is the id of the url row.
+  virtual void OnKeywordSearchTermDeleted(HistoryService* history_service,
+                                          URLID url_id) {}
 
  private:
   DISALLOW_COPY_AND_ASSIGN(HistoryServiceObserver);

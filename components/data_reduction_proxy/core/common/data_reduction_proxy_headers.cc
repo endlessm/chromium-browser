@@ -12,6 +12,7 @@
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
+#include "components/data_reduction_proxy/core/common/data_reduction_proxy_event_creator.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_status_code.h"
 
@@ -21,7 +22,10 @@ using base::TimeDelta;
 namespace {
 
 const char kChromeProxyHeader[] = "chrome-proxy";
+
 const char kActionValueDelimiter = '=';
+
+const char kChromeProxyLoFiDirective[] = "q=low";
 
 const char kChromeProxyActionBlockOnce[] = "block-once";
 const char kChromeProxyActionBlock[] = "block";
@@ -48,6 +52,14 @@ base::TimeDelta GetDefaultBypassDuration() {
 
 namespace data_reduction_proxy {
 
+const char* chrome_proxy_header() {
+  return kChromeProxyHeader;
+}
+
+const char* chrome_proxy_lo_fi_directive() {
+  return kChromeProxyLoFiDirective;
+}
+
 bool GetDataReductionProxyActionValue(
     const net::HttpResponseHeaders* headers,
     const std::string& action_prefix,
@@ -62,9 +74,8 @@ bool GetDataReductionProxyActionValue(
 
   while (headers->EnumerateHeader(&iter, kChromeProxyHeader, &value)) {
     if (value.size() > prefix.size()) {
-      if (LowerCaseEqualsASCII(value.begin(),
-                               value.begin() + prefix.size(),
-                               prefix.c_str())) {
+      if (base::LowerCaseEqualsASCII(
+              value.begin(), value.begin() + prefix.size(), prefix.c_str())) {
         if (action_value)
           *action_value = value.substr(prefix.size());
         return true;
@@ -87,9 +98,8 @@ bool ParseHeadersAndSetBypassDuration(const net::HttpResponseHeaders* headers,
 
   while (headers->EnumerateHeader(&iter, kChromeProxyHeader, &value)) {
     if (value.size() > prefix.size()) {
-      if (LowerCaseEqualsASCII(value.begin(),
-                               value.begin() + prefix.size(),
-                               prefix.c_str())) {
+      if (base::LowerCaseEqualsASCII(
+              value.begin(), value.begin() + prefix.size(), prefix.c_str())) {
         int64 seconds;
         if (!base::StringToInt64(
                 StringPiece(value.begin() + prefix.size(), value.end()),
@@ -110,8 +120,8 @@ bool ParseHeadersAndSetBypassDuration(const net::HttpResponseHeaders* headers,
   return false;
 }
 
-bool ParseHeadersAndSetProxyInfo(const net::HttpResponseHeaders* headers,
-                                 DataReductionProxyInfo* proxy_info) {
+bool ParseHeadersForBypassInfo(const net::HttpResponseHeaders* headers,
+                               DataReductionProxyInfo* proxy_info) {
   DCHECK(proxy_info);
 
   // Support header of the form Chrome-Proxy: bypass|block=<duration>, where
@@ -129,6 +139,7 @@ bool ParseHeadersAndSetProxyInfo(const net::HttpResponseHeaders* headers,
           headers, kChromeProxyActionBlock, &proxy_info->bypass_duration)) {
     proxy_info->bypass_all = true;
     proxy_info->mark_proxies_as_bad = true;
+    proxy_info->bypass_action = BYPASS_ACTION_TYPE_BLOCK;
     return true;
   }
 
@@ -137,6 +148,7 @@ bool ParseHeadersAndSetProxyInfo(const net::HttpResponseHeaders* headers,
           headers, kChromeProxyActionBypass, &proxy_info->bypass_duration)) {
     proxy_info->bypass_all = false;
     proxy_info->mark_proxies_as_bad = true;
+    proxy_info->bypass_action = BYPASS_ACTION_TYPE_BYPASS;
     return true;
   }
 
@@ -150,6 +162,7 @@ bool ParseHeadersAndSetProxyInfo(const net::HttpResponseHeaders* headers,
     proxy_info->bypass_all = true;
     proxy_info->mark_proxies_as_bad = false;
     proxy_info->bypass_duration = TimeDelta();
+    proxy_info->bypass_action = BYPASS_ACTION_TYPE_BLOCK_ONCE;
     return true;
   }
 
@@ -178,17 +191,6 @@ bool HasDataReductionProxyViaHeader(const net::HttpResponseHeaders* headers,
     }
   }
 
-  // TODO(bengr): Remove deprecated header value.
-  const char kDeprecatedDataReductionProxyViaValue[] =
-      "1.1 Chrome Compression Proxy";
-  iter = NULL;
-  while (headers->EnumerateHeader(&iter, "via", &value))
-    if (value == kDeprecatedDataReductionProxyViaValue) {
-      if (has_intermediary)
-        *has_intermediary = !(headers->EnumerateHeader(&iter, "via", &value));
-      return true;
-    }
-
   return false;
 }
 
@@ -196,7 +198,7 @@ DataReductionProxyBypassType GetDataReductionProxyBypassType(
     const net::HttpResponseHeaders* headers,
     DataReductionProxyInfo* data_reduction_proxy_info) {
   DCHECK(data_reduction_proxy_info);
-  if (ParseHeadersAndSetProxyInfo(headers, data_reduction_proxy_info)) {
+  if (ParseHeadersForBypassInfo(headers, data_reduction_proxy_info)) {
     // A chrome-proxy response header is only present in a 502. For proper
     // reporting, this check must come before the 5xx checks below.
     if (!data_reduction_proxy_info->mark_proxies_as_bad)
@@ -301,10 +303,10 @@ void GetDataReductionProxyHeaderWithFingerprintRemoved(
   void* iter = NULL;
   while (headers->EnumerateHeader(&iter, kChromeProxyHeader, &value)) {
     if (value.size() > chrome_proxy_fingerprint_prefix.size()) {
-      if (LowerCaseEqualsASCII(
-          value.begin(),
-          value.begin() + chrome_proxy_fingerprint_prefix.size(),
-          chrome_proxy_fingerprint_prefix.c_str())) {
+      if (base::LowerCaseEqualsASCII(
+              value.begin(),
+              value.begin() + chrome_proxy_fingerprint_prefix.size(),
+              chrome_proxy_fingerprint_prefix.c_str())) {
         continue;
       }
     }

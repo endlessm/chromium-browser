@@ -25,7 +25,7 @@ namespace prerender {
 bool ExternalPrerenderHandlerAndroid::AddPrerender(JNIEnv* env,
                                                    jobject obj,
                                                    jobject jprofile,
-                                                   jlong web_contents_ptr,
+                                                   jobject jweb_contents,
                                                    jstring jurl,
                                                    jstring jreferrer,
                                                    jint width,
@@ -45,7 +45,7 @@ bool ExternalPrerenderHandlerAndroid::AddPrerender(JNIEnv* env,
   if (!prerender_manager)
     return false;
   content::WebContents* web_contents =
-      reinterpret_cast<content::WebContents*>(web_contents_ptr);
+      content::WebContents::FromJavaWebContents(jweb_contents);
   if (prerender_handle_.get()) {
     prerender_handle_->OnNavigateAway();
   }
@@ -72,7 +72,7 @@ static jboolean HasPrerenderedUrl(JNIEnv* env,
                                   jclass clazz,
                                   jobject jprofile,
                                   jstring jurl,
-                                  jlong web_contents_ptr) {
+                                  jobject jweb_contents) {
   if (jurl == NULL)
     return false;
 
@@ -85,19 +85,8 @@ static jboolean HasPrerenderedUrl(JNIEnv* env,
   if (!prerender_manager)
     return false;
   content::WebContents* web_contents =
-      reinterpret_cast<content::WebContents*>(web_contents_ptr);
+      content::WebContents::FromJavaWebContents(jweb_contents);
   return prerender_manager->HasPrerenderedUrl(url, web_contents);
-}
-
-static jboolean HasCookieStoreLoaded(JNIEnv* env,
-                                     jclass clazz,
-                                     jobject jprofile) {
-  Profile* profile = ProfileAndroid::FromProfileAndroid(jprofile);
-  prerender::PrerenderManager* prerender_manager =
-      prerender::PrerenderManagerFactory::GetForProfile(profile);
-  if (!prerender_manager)
-    return false;
-  return prerender_manager->cookie_store_loaded();
 }
 
 ExternalPrerenderHandlerAndroid::ExternalPrerenderHandlerAndroid() {}

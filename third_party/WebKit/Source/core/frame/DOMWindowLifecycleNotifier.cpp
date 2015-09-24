@@ -27,57 +27,71 @@
 #include "config.h"
 #include "core/frame/DOMWindowLifecycleNotifier.h"
 
+#include "core/frame/DOMWindowLifecycleObserver.h"
+
 namespace blink {
-
-DOMWindowLifecycleNotifier::DOMWindowLifecycleNotifier(LocalDOMWindow* context)
-    : LifecycleNotifier<LocalDOMWindow>(context)
-{
-}
-
-void DOMWindowLifecycleNotifier::addObserver(DOMWindowLifecycleNotifier::Observer* observer)
-{
-    if (observer->observerType() == Observer::DOMWindowLifecycleObserverType) {
-        RELEASE_ASSERT(m_iterating != IteratingOverDOMWindowObservers);
-        m_windowObservers.add(static_cast<DOMWindowLifecycleObserver*>(observer));
-    }
-
-    LifecycleNotifier<LocalDOMWindow>::addObserver(observer);
-}
-
-void DOMWindowLifecycleNotifier::removeObserver(DOMWindowLifecycleNotifier::Observer* observer)
-{
-    if (observer->observerType() == Observer::DOMWindowLifecycleObserverType) {
-        RELEASE_ASSERT(m_iterating != IteratingOverDOMWindowObservers);
-        m_windowObservers.remove(static_cast<DOMWindowLifecycleObserver*>(observer));
-    }
-
-    LifecycleNotifier<LocalDOMWindow>::removeObserver(observer);
-}
-
-PassOwnPtr<DOMWindowLifecycleNotifier> DOMWindowLifecycleNotifier::create(LocalDOMWindow* context)
-{
-    return adoptPtr(new DOMWindowLifecycleNotifier(context));
-}
 
 void DOMWindowLifecycleNotifier::notifyAddEventListener(LocalDOMWindow* window, const AtomicString& eventType)
 {
-    TemporaryChange<IterationType> scope(this->m_iterating, IteratingOverDOMWindowObservers);
-    for (const auto& windowObserver : m_windowObservers)
-        windowObserver->didAddEventListener(window, eventType);
+    TemporaryChange<IterationType> scope(m_iterating, IteratingOverAll);
+#if !ENABLE(OILPAN)
+    // Notifications perform unknown amounts of heap allocations,
+    // which might trigger (conservative) GCs. This will flush out
+    // dead observers, causing the _non-heap_ set be updated. Snapshot
+    // the observers and explicitly check if they're still alive before
+    // notifying.
+    Vector<RawPtr<DOMWindowLifecycleObserver>> snapshotOfObservers;
+    copyToVector(m_observers, snapshotOfObservers);
+    for (DOMWindowLifecycleObserver* observer : snapshotOfObservers) {
+        if (m_observers.contains(observer))
+            observer->didAddEventListener(window, eventType);
+    }
+#else
+    for (DOMWindowLifecycleObserver* observer : m_observers)
+        observer->didAddEventListener(window, eventType);
+#endif
 }
 
 void DOMWindowLifecycleNotifier::notifyRemoveEventListener(LocalDOMWindow* window, const AtomicString& eventType)
 {
-    TemporaryChange<IterationType> scope(this->m_iterating, IteratingOverDOMWindowObservers);
-    for (const auto& windowObserver : m_windowObservers)
-        windowObserver->didRemoveEventListener(window, eventType);
+    TemporaryChange<IterationType> scope(m_iterating, IteratingOverAll);
+#if !ENABLE(OILPAN)
+    // Notifications perform unknown amounts of heap allocations,
+    // which might trigger (conservative) GCs. This will flush out
+    // dead observers, causing the _non-heap_ set be updated. Snapshot
+    // the observers and explicitly check if they're still alive before
+    // notifying.
+    Vector<RawPtr<DOMWindowLifecycleObserver>> snapshotOfObservers;
+    copyToVector(m_observers, snapshotOfObservers);
+    for (DOMWindowLifecycleObserver* observer : snapshotOfObservers) {
+        if (m_observers.contains(observer))
+            observer->didRemoveEventListener(window, eventType);
+    }
+#else
+    for (DOMWindowLifecycleObserver* observer : m_observers)
+        observer->didRemoveEventListener(window, eventType);
+#endif
 }
 
 void DOMWindowLifecycleNotifier::notifyRemoveAllEventListeners(LocalDOMWindow* window)
 {
-    TemporaryChange<IterationType> scope(this->m_iterating, IteratingOverDOMWindowObservers);
-    for (const auto& windowObserver : m_windowObservers)
-        windowObserver->didRemoveAllEventListeners(window);
+    TemporaryChange<IterationType> scope(m_iterating, IteratingOverAll);
+#if !ENABLE(OILPAN)
+    // Notifications perform unknown amounts of heap allocations,
+    // which might trigger (conservative) GCs. This will flush out
+    // dead observers, causing the _non-heap_ set be updated. Snapshot
+    // the observers and explicitly check if they're still alive before
+    // notifying.
+    Vector<RawPtr<DOMWindowLifecycleObserver>> snapshotOfObservers;
+    copyToVector(m_observers, snapshotOfObservers);
+    for (DOMWindowLifecycleObserver* observer : snapshotOfObservers) {
+        if (m_observers.contains(observer))
+            observer->didRemoveAllEventListeners(window);
+    }
+#else
+    for (DOMWindowLifecycleObserver* observer : m_observers)
+        observer->didRemoveAllEventListeners(window);
+#endif
 }
 
 } // namespace blink

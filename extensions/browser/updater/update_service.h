@@ -48,13 +48,13 @@ class UpdateService : public KeyedService, public ExtensionDownloaderDelegate {
                                  Error error,
                                  const PingResult& ping,
                                  const std::set<int>& request_ids) override;
-  void OnExtensionDownloadFinished(const std::string& id,
-                                   const base::FilePath& path,
+  void OnExtensionDownloadFinished(const CRXFileInfo& file,
                                    bool file_ownership_passed,
                                    const GURL& download_url,
                                    const std::string& version,
                                    const PingResult& ping,
-                                   const std::set<int>& request_id) override;
+                                   const std::set<int>& request_id,
+                                   const InstallCallback& callback) override;
   bool IsExtensionPending(const std::string& id) override;
   bool GetExtensionExistingVersion(const std::string& id,
                                    std::string* version) override;

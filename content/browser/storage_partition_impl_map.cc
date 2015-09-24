@@ -9,10 +9,13 @@
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "content/browser/appcache/appcache_interceptor.h"
 #include "content/browser/appcache/chrome_appcache_service.h"
@@ -30,6 +33,8 @@
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
+#include "content/public/browser/navigator_connect_context.h"
+#include "content/public/browser/navigator_connect_service_factory.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_constants.h"
 #include "content/public/common/url_constants.h"
@@ -39,7 +44,6 @@
 #include "storage/browser/blob/blob_storage_context.h"
 #include "storage/browser/blob/blob_url_request_job_factory.h"
 #include "storage/browser/fileapi/file_system_url_request_job_factory.h"
-#include "storage/common/blob/blob_data.h"
 
 using storage::FileSystemContext;
 using storage::BlobStorageContext;
@@ -437,8 +441,7 @@ StoragePartitionImpl* StoragePartitionImplMap::Get(
   request_interceptors.push_back(
       ServiceWorkerRequestHandler::CreateInterceptor(
           browser_context_->GetResourceContext()).release());
-  request_interceptors.push_back(
-      AppCacheInterceptor::CreateStartInterceptor().release());
+  request_interceptors.push_back(new AppCacheInterceptor());
 
   // These calls must happen after StoragePartitionImpl::Create().
   if (partition_domain.empty()) {
@@ -461,6 +464,9 @@ StoragePartitionImpl* StoragePartitionImplMap::Get(
       browser_context_->GetMediaRequestContext() :
       browser_context_->GetMediaRequestContextForStoragePartition(
           partition->GetPath(), in_memory));
+
+  GetContentClient()->browser()->GetAdditionalNavigatorConnectServices(
+      partition->GetNavigatorConnectContext());
 
   PostCreateInitialization(partition, in_memory);
 
@@ -518,7 +524,7 @@ void StoragePartitionImplMap::AsyncObliterate(
       FROM_HERE,
       base::Bind(&BlockingObliteratePath, browser_context_->GetPath(),
                  domain_root, paths_to_keep,
-                 base::MessageLoopProxy::current(), on_gc_required));
+                 base::ThreadTaskRunnerHandle::Get(), on_gc_required));
 }
 
 void StoragePartitionImplMap::GarbageCollect(
@@ -582,10 +588,9 @@ void StoragePartitionImplMap::PostCreateInitialization(
                        browser_context_->GetSpecialStoragePolicy())));
 
     BrowserThread::PostTask(
-        BrowserThread::IO,
-        FROM_HERE,
-        base::Bind(&ServiceWorkerContextWrapper::SetBlobParametersForCache,
-                   partition->GetServiceWorkerContext(),
+        BrowserThread::IO, FROM_HERE,
+        base::Bind(&CacheStorageContextImpl::SetBlobParametersForCache,
+                   partition->GetCacheStorageContext(),
                    make_scoped_refptr(partition->GetURLRequestContext()),
                    make_scoped_refptr(
                        ChromeBlobStorageContext::GetFor(browser_context_))));

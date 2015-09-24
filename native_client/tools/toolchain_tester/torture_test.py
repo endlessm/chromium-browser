@@ -86,20 +86,29 @@ def run_torture(status, compiler, platform, extra_args):
 
   config_map = { 'pnacl': 'llvm_pnacl',
                  'naclgcc': 'nacl_gcc',
-                 'localgcc': 'local_gcc'}
+                 'localgcc': 'local_gcc',
+                 'clang': 'nacl_clang'}
 
   failures = []
   if compiler == 'pnacl':
     # O3_O0 is clang -O3 followed by pnacl-translate -O0
     optmodes = ['O0', 'O3', 'O0_O0', 'O3_O0']
+    if platform == 'x86-32':
+      # Add some extra Subzero configurations.
+      optmodes.extend(['O3_sz', 'O3_O0_sz'])
+      # TODO(stichnot): Consider pruning some configurations if the tests run
+      # too long.
   else:
     optmodes = ['O0', 'O3']
   for optmode in optmodes:
     # TODO: support an option like -k? For now, always keep going
     config = '_'.join((config_map[compiler], platform, optmode))
 
+    eh_config = ('_'.join((config_map[compiler] + '++', platform, optmode))
+                  if compiler =='clang' else config)
+
     # Test zero-cost C++ exception handling.
-    retcode = eh_tests(status.context, config,
+    retcode = eh_tests(status.context, eh_config,
                        'known_eh_failures_' + compiler + '.txt', extra_args,
                        use_sjlj_eh=False)
     if retcode:
@@ -107,7 +116,7 @@ def run_torture(status, compiler, platform, extra_args):
 
     # Test SJLJ C++ exception handling.
     if compiler == 'pnacl':
-      retcode = eh_tests(status.context, config,
+      retcode = eh_tests(status.context, eh_config,
                          'known_eh_failures_' + compiler + '.txt', extra_args,
                          use_sjlj_eh=True)
       if retcode:

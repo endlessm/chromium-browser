@@ -117,7 +117,7 @@ void PeopleResult::InvokeAction(int action_index, int event_flags) {
   }
 }
 
-scoped_ptr<SearchResult> PeopleResult::Duplicate() {
+scoped_ptr<SearchResult> PeopleResult::Duplicate() const {
   return scoped_ptr<SearchResult>(
       new PeopleResult(profile_, controller_, person_->Duplicate().Pass()));
 }
@@ -167,9 +167,9 @@ void PeopleResult::OpenChat() {
   target->id = person_->owner_id;
   request.to.push_back(target);
 
-  scoped_ptr<extensions::Event> event(
-      new extensions::Event(OnHangoutRequested::kEventName,
-                            OnHangoutRequested::Create(request)));
+  scoped_ptr<extensions::Event> event(new extensions::Event(
+      extensions::events::HANGOUTS_PRIVATE_ON_HANGOUT_REQUESTED,
+      OnHangoutRequested::kEventName, OnHangoutRequested::Create(request)));
 
   // TODO(rkc): Change this once we remove the hangoutsPrivate API.
   // See crbug.com/306672

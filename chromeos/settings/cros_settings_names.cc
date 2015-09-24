@@ -39,6 +39,11 @@ const char kAccountsPrefSupervisedUsersEnabled[] =
 const char kAccountsPrefTransferSAMLCookies[] =
     "cros.accounts.transferSAMLCookies";
 
+// A string pref that specifies a domain name for the autocomplete option during
+// user sign-in flow.
+const char kAccountsPrefLoginScreenDomainAutoComplete[] =
+    "cros.accounts.login_screen_domain_auto_complete";
+
 // All cros.signed.* settings are stored in SignedSettings.
 const char kSignedDataRoamingEnabled[] = "cros.signed.data_roaming_enabled";
 
@@ -95,29 +100,26 @@ const char kReportDeviceNetworkInterfaces[] =
 // status reports to the device management server.
 const char kReportDeviceUsers[] = "cros.device_status.report_users";
 
-// A list of dictionaries, each detailing one extension to install as part of
-// the AppPack and including the following fields:
-// "extension-id": ID of the extension to install
-// "update-url": URL to check the extension's version and download location
-// "key-checksum": checksum of the extension's CRX public key, encoded in hex.
-const char kAppPack[] = "cros.app_pack";
-const char kAppPackKeyExtensionId[] = "extension-id";
-const char kAppPackKeyUpdateUrl[] = "update-url";
+// Determines whether the device reports hardware status (CPU utilization,
+// disk space, etc) in device status reports to the device management server.
+const char kReportDeviceHardwareStatus[] =
+    "cros.device_status.report_hardware_status";
 
-// Values from the ScreenSaver proto. Defines the extension ID of the screen
-// saver extension and the timeout before the screen saver should be started.
-const char kScreenSaverExtensionId[] = "cros.screen_saver.extension_id";
-const char kScreenSaverTimeout[] = "cros.screen_saver.timeout";
+// Determines whether the device reports kiosk session status (app IDs,
+// versions, etc) in device status reports to the device management server.
+const char kReportDeviceSessionStatus[] =
+    "cros.device_status.report_session_status";
 
-// Values from the ForcedLogoutTimeouts proto. Defines the timeouts before a
-// user is logged out after some period of inactivity as well as the duration of
-// a warning message informing the user about the pending logout.
-const char kIdleLogoutTimeout[] = "cros.idle_logout.timeout";
-const char kIdleLogoutWarningDuration[] = "cros.idle_logout.warning_duration";
+// How frequently device status reports are uploaded, in milliseconds.
+const char kReportUploadFrequency[] =
+    "cros.device_status.report_upload_frequency";
 
-// Defines the set of URLs to be opened on login to the anonymous account used
-// if the device is in KIOSK mode.
-const char kStartUpUrls[] = "cros.start_up_urls";
+// Determines whether heartbeats should be sent to the policy service via
+// the GCM channel.
+const char kHeartbeatEnabled[] = "cros.device_status.heartbeat_enabled";
+
+// How frequently heartbeats are sent up, in milliseconds.
+const char kHeartbeatFrequency[] = "cros.device_status.heartbeat_frequency";
 
 // This policy should not appear in the protobuf ever but is used internally to
 // signal that we are running in a "safe-mode" for policy recovery.
@@ -159,5 +161,14 @@ const char kDeviceDisabled[] = "cros.device_disabled";
 // A string pref containing the message that should be shown to the user when
 // the device is disabled.
 const char kDeviceDisabledMessage[] = "cros.disabled_state.message";
+
+// A boolean pref that indicates whether the device automatically reboots when
+// the user initiates a shutdown via an UI element.  If set to true, all
+// shutdown buttons in the UI will be replaced by reboot buttons.
+const char kRebootOnShutdown[] = "cros.device.reboot_on_shutdown";
+
+// An integer pref that specifies the limit of the device's extension cache
+// size in bytes.
+const char kExtensionCacheSize[] = "cros.device.extension_cache_size";
 
 }  // namespace chromeos

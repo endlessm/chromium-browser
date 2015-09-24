@@ -3,14 +3,15 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import argparse
 import collections
 import fnmatch
-import optparse
 import os
 import sys
 
 VALID_TOOLCHAINS = [
   'bionic',
+  'clang-newlib',
   'newlib',
   'glibc',
   'pnacl',
@@ -28,7 +29,7 @@ DSC_FORMAT = {
     # Don't generate the additional files to allow this project to run as a
     # packaged app (i.e. manifest.json, background.js, etc.).
     'NO_PACKAGE_FILES': (bool, [True, False], False),
-    'TOOLS' : (list, VALID_TOOLCHAINS, True),
+    'TOOLS' : (list, VALID_TOOLCHAINS, False),
     'CONFIGS' : (list, ['Debug', 'Release'], False),
     'PREREQ' : (list, '', False),
     'TARGETS' : (list, {
@@ -56,7 +57,7 @@ DSC_FORMAT = {
     'SEARCH': (list, '', False),
     'POST': (str, '', False),
     'PRE': (str, '', False),
-    'DEST': (str, ['getting_started', 'examples/api', 'examples/benchmarks',
+    'DEST': (str, ['getting_started', 'examples/api',
                    'examples/demo', 'examples/tutorial',
                    'src', 'tests'], True),
     'NAME': (str, '', False),
@@ -167,6 +168,7 @@ def LoadProject(filename):
     return None
   ValidateFormat(desc, DSC_FORMAT)
   desc['FILEPATH'] = os.path.abspath(filename)
+  desc.setdefault('TOOLS', VALID_TOOLCHAINS)
   return desc
 
 
@@ -244,23 +246,17 @@ def PrintProjectTree(tree):
       print '\t' + val['NAME']
 
 
-def main(argv):
-  parser = optparse.OptionParser(usage='%prog [options] <dir>')
-  parser.add_option('-e', '--experimental',
+def main(args):
+  parser = argparse.ArgumentParser(description=__doc__)
+  parser.add_argument('-e', '--experimental',
       help='build experimental examples and libraries', action='store_true')
-  parser.add_option('-t', '--toolchain',
+  parser.add_argument('-t', '--toolchain',
       help='Build using toolchain. Can be passed more than once.',
       action='append')
+  parser.add_argument('project_root', default='.')
 
-  options, args = parser.parse_args(argv[1:])
+  options = parser.parse_args(args)
   filters = {}
-
-  load_from_dir = '.'
-  if len(args) > 1:
-    parser.error('Expected 0 or 1 args, got %d.' % len(args))
-
-  if args:
-    load_from_dir = args[0]
 
   if options.toolchain:
     filters['TOOLS'] = options.toolchain
@@ -269,7 +265,7 @@ def main(argv):
     filters['EXPERIMENTAL'] = False
 
   try:
-    tree = LoadProjectTree(load_from_dir, include=filters)
+    tree = LoadProjectTree(options.project_root, include=filters)
   except ValidationError as e:
     sys.stderr.write(str(e) + '\n')
     return 1
@@ -279,4 +275,4 @@ def main(argv):
 
 
 if __name__ == '__main__':
-  sys.exit(main(sys.argv))
+  sys.exit(main(sys.argv[1:]))

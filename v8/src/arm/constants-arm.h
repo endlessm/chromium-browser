@@ -42,6 +42,11 @@ const int kNumVFPRegisters = kNumVFPSingleRegisters + kNumVFPDoubleRegisters;
 const int kPCRegister = 15;
 const int kNoRegister = -1;
 
+// Used in embedded constant pool builder - max reach in bits for
+// various load instructions (unsigned)
+const int kLdrMaxReachBits = 12;
+const int kVldrMaxReachBits = 10;
+
 // -----------------------------------------------------------------------------
 // Conditions.
 
@@ -172,6 +177,7 @@ enum {
   U = 1 << 23,  // Positive (or negative) offset/index.
   P = 1 << 24,  // Offset/pre-indexed addressing (or post-indexed addressing).
   I = 1 << 25,  // Immediate shifter operand (or not).
+  B0 = 1 << 0,
   B4 = 1 << 4,
   B5 = 1 << 5,
   B6 = 1 << 6,
@@ -332,9 +338,9 @@ enum NeonSize {
 // standard SoftwareInterrupCode. Bit 23 is reserved for the stop feature.
 enum SoftwareInterruptCodes {
   // transition to C code
-  kCallRtRedirected= 0x10,
+  kCallRtRedirected = 0x10,
   // break point
-  kBreakpoint= 0x20,
+  kBreakpoint = 0x20,
   // stop
   kStopCode = 1 << 23
 };

@@ -1,6 +1,6 @@
 /*
  * libjingle
- * Copyright 2012, Google Inc.
+ * Copyright 2012 Google Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -54,9 +54,9 @@ class DataChannelProviderInterface {
   // Disconnects from the transport signals.
   virtual void DisconnectDataChannel(DataChannel* data_channel) = 0;
   // Adds the data channel SID to the transport for SCTP.
-  virtual void AddSctpDataStream(uint32 sid) = 0;
+  virtual void AddSctpDataStream(int sid) = 0;
   // Removes the data channel SID from the transport for SCTP.
-  virtual void RemoveSctpDataStream(uint32 sid) = 0;
+  virtual void RemoveSctpDataStream(int sid) = 0;
   // Returns true if the transport channel is ready to send data.
   virtual bool ReadyToSendData() const = 0;
 
@@ -204,16 +204,25 @@ class DataChannel : public DataChannelInterface,
     size_t byte_count_;
   };
 
+  // The OPEN(_ACK) signaling state.
+  enum HandshakeState {
+    kHandshakeInit,
+    kHandshakeShouldSendOpen,
+    kHandshakeShouldSendAck,
+    kHandshakeWaitingForAck,
+    kHandshakeReady
+  };
+
   bool Init(const InternalDataChannelInit& config);
   void DoClose();
   void UpdateState();
   void SetState(DataState state);
-  void DisconnectFromTransport();
+  void DisconnectFromProvider();
 
   void DeliverQueuedReceivedData();
 
   void SendQueuedDataMessages();
-  bool SendDataMessage(const DataBuffer& buffer);
+  bool SendDataMessage(const DataBuffer& buffer, bool queue_if_blocked);
   bool QueueSendDataMessage(const DataBuffer& buffer);
 
   void SendQueuedControlMessages();
@@ -226,11 +235,11 @@ class DataChannel : public DataChannelInterface,
   DataState state_;
   cricket::DataChannelType data_channel_type_;
   DataChannelProviderInterface* provider_;
-  bool waiting_for_open_ack_;
-  bool was_ever_writable_;
+  HandshakeState handshake_state_;
   bool connected_to_provider_;
   bool send_ssrc_set_;
   bool receive_ssrc_set_;
+  bool writable_;
   uint32 send_ssrc_;
   uint32 receive_ssrc_;
   // Control messages that always have to get sent out before any queued

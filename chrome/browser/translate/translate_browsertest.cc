@@ -54,7 +54,7 @@ class TranslateBrowserTest : public InProcessBrowserTest {
                       base::FilePath(kTranslateRoot)),
         infobar_service_(NULL) {}
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ASSERT_TRUE(https_server_.Start());
     // Setup alternate security origin for testing in order to allow XHR against
     // local test server. Note that this flag shows a confirm infobar in tests.
@@ -178,9 +178,7 @@ IN_PROC_BROWSER_TEST_F(TranslateBrowserTest, TranslateInIsolatedWorld) {
   net::TestURLFetcher* fetcher =
       factory.GetFetcherByID(translate::TranslateScript::kFetcherId);
   ASSERT_TRUE(fetcher);
-  net::URLRequestStatus status;
-  status.set_status(net::URLRequestStatus::SUCCESS);
-  fetcher->set_status(status);
+  fetcher->set_status(net::URLRequestStatus());
   fetcher->set_url(fetcher->GetOriginalURL());
   fetcher->set_response_code(net::HTTP_OK);
   fetcher->SetResponseString(element_js);

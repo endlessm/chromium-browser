@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2014 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,15 +6,53 @@
 
 from __future__ import print_function
 
+import mock
 import os
-import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))))
-
+from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 from chromite.lib import cros_test_lib
 from chromite.scripts import cbuildbot
+
+
+# pylint: disable=protected-access
+
+
+class SiteConfigTests(cros_test_lib.MockTestCase):
+  """Test cbuildbot._SetupSiteConfig."""
+  def setUp(self):
+    self.options = mock.Mock()
+    self.options.config_repo = None
+
+    self.expected_result = mock.Mock()
+
+    self.exists_mock = self.PatchObject(os.path, 'exists')
+    self.load_mock = self.PatchObject(config_lib, 'LoadConfigFromFile',
+                                      return_value=self.expected_result)
+
+  def testDefaultChromeOsBehavior(self):
+    # Setup Fakes and Mocks.
+    self.exists_mock.return_value = False
+
+    # Run Tests
+    result = cbuildbot._SetupSiteConfig(self.options)
+
+    # Evaluate Results
+    self.assertIs(result, self.expected_result)
+    self.load_mock.assert_called_once_with(constants.CHROMEOS_CONFIG_FILE)
+
+  def testDefaultSiteBehavior(self):
+    # Setup Fakes and Mocks.
+    self.exists_mock.return_value = True
+
+    # Run Tests
+    result = cbuildbot._SetupSiteConfig(self.options)
+
+    # Evaluate Results
+    self.assertIs(result, self.expected_result)
+    self.load_mock.assert_called_once_with(constants.SITE_CONFIG_FILE)
+
+  # TODO(dgarrett): Test a specified site URL, when it's implemented.
 
 
 class IsDistributedBuilderTest(cros_test_lib.TestCase):
@@ -63,7 +100,3 @@ class IsDistributedBuilderTest(cros_test_lib.TestCase):
                        constants.CHROME_REV_LOCAL,
                        constants.CHROME_REV_SPEC):
       _TestConfig(False)
-
-
-if __name__ == '__main__':
-  cros_test_lib.main()

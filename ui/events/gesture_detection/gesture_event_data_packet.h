@@ -29,6 +29,12 @@ class GESTURE_DETECTION_EXPORT GestureEventDataPacket {
     TOUCH_TIMEOUT,         // Timeout from an existing gesture sequence.
   };
 
+  enum class AckState {
+    PENDING,
+    CONSUMED,
+    UNCONSUMED,
+  };
+
   GestureEventDataPacket();
   GestureEventDataPacket(const GestureEventDataPacket& other);
   ~GestureEventDataPacket();
@@ -48,11 +54,18 @@ class GESTURE_DETECTION_EXPORT GestureEventDataPacket {
   const gfx::PointF& touch_location() const { return touch_location_; }
   const gfx::PointF& raw_touch_location() const { return raw_touch_location_; }
 
+  // We store the ack with the packet until the packet reaches the
+  // head of the queue, and then we handle the ack.
+  void Ack(bool event_consumed);
+  AckState ack_state() { return ack_state_; }
+  uint32 unique_touch_event_id() const { return unique_touch_event_id_; }
+
  private:
   GestureEventDataPacket(base::TimeTicks timestamp,
                          GestureSource source,
                          const gfx::PointF& touch_location,
-                         const gfx::PointF& raw_touch_location);
+                         const gfx::PointF& raw_touch_location,
+                         uint32 unique_touch_event_id);
 
   enum { kTypicalMaxGesturesPerTouch = 5 };
   base::TimeTicks timestamp_;
@@ -60,6 +73,8 @@ class GESTURE_DETECTION_EXPORT GestureEventDataPacket {
   gfx::PointF touch_location_;
   gfx::PointF raw_touch_location_;
   GestureSource gesture_source_;
+  AckState ack_state_;
+  uint32 unique_touch_event_id_;
 };
 
 }  // namespace ui

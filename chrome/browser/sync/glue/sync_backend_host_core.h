@@ -26,7 +26,7 @@ struct DoInitializeOptions {
       base::MessageLoop* sync_loop,
       SyncBackendRegistrar* registrar,
       const syncer::ModelSafeRoutingInfo& routing_info,
-      const std::vector<scoped_refptr<syncer::ModelSafeWorker> >& workers,
+      const std::vector<scoped_refptr<syncer::ModelSafeWorker>>& workers,
       const scoped_refptr<syncer::ExtensionsActivity>& extensions_activity,
       const syncer::WeakHandle<syncer::JsEventHandler>& event_handler,
       const GURL& service_url,
@@ -39,8 +39,9 @@ struct DoInitializeOptions {
       const std::string& restored_keystore_key_for_bootstrapping,
       scoped_ptr<syncer::InternalComponentsFactory> internal_components_factory,
       scoped_ptr<syncer::UnrecoverableErrorHandler> unrecoverable_error_handler,
-      syncer::ReportUnrecoverableErrorFunction
-          report_unrecoverable_error_function);
+      const base::Closure& report_unrecoverable_error_function,
+      scoped_ptr<syncer::SyncEncryptionHandler::NigoriState> saved_nigori_state,
+      syncer::PassphraseTransitionClearDataOption clear_data_option);
   ~DoInitializeOptions();
 
   base::MessageLoop* sync_loop;
@@ -61,8 +62,9 @@ struct DoInitializeOptions {
   std::string restored_keystore_key_for_bootstrapping;
   scoped_ptr<syncer::InternalComponentsFactory> internal_components_factory;
   scoped_ptr<syncer::UnrecoverableErrorHandler> unrecoverable_error_handler;
-  syncer::ReportUnrecoverableErrorFunction
-      report_unrecoverable_error_function;
+  base::Closure report_unrecoverable_error_function;
+  scoped_ptr<syncer::SyncEncryptionHandler::NigoriState> saved_nigori_state;
+  const syncer::PassphraseTransitionClearDataOption clear_data_option;
 };
 
 // Helper struct to handle currying params to
@@ -117,6 +119,8 @@ class SyncBackendHostCore
       syncer::Cryptographer* cryptographer) override;
   void OnPassphraseTypeChanged(syncer::PassphraseType type,
                                base::Time passphrase_time) override;
+  void OnLocalSetPassphraseEncryption(
+      const syncer::SyncEncryptionHandler::NigoriState& nigori_state) override;
 
   // TypeDebugInfoObserver implementation
   void OnCommitCountersUpdated(syncer::ModelType type,
@@ -150,7 +154,8 @@ class SyncBackendHostCore
 
   // Called to tell the syncapi to start syncing (generally after
   // initialization and authentication).
-  void DoStartSyncing(const syncer::ModelSafeRoutingInfo& routing_info);
+  void DoStartSyncing(const syncer::ModelSafeRoutingInfo& routing_info,
+                      base::Time last_poll_time);
 
   // Called to set the passphrase for encryption.
   void DoSetEncryptionPassphrase(const std::string& passphrase,

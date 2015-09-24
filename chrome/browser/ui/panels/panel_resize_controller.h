@@ -8,8 +8,8 @@
 #include <set>
 #include "base/basictypes.h"
 #include "chrome/browser/ui/panels/panel_constants.h"
-#include "ui/gfx/point.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/gfx/geometry/rect.h"
 
 class Panel;
 class PanelManager;

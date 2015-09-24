@@ -8,6 +8,7 @@
 #include <list>
 #include <string>
 
+#include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/memory/linked_ptr.h"
 #include "base/memory/scoped_ptr.h"
@@ -24,20 +25,24 @@ class PortReservation;
 class Status;
 class WebView;
 class WebViewImpl;
+struct WebViewInfo;
+
+typedef base::Callback<void(const WebViewInfo&)> WebViewCallback;
 
 class ChromeImpl : public Chrome {
  public:
   ~ChromeImpl() override;
 
   // Overridden from Chrome:
-  ChromeDesktopImpl* GetAsDesktop() override;
-  const BrowserInfo* GetBrowserInfo() override;
+  Status GetAsDesktop(ChromeDesktopImpl** desktop) override;
+  const BrowserInfo* GetBrowserInfo() const override;
   bool HasCrashedWebView() override;
   Status GetWebViewIds(std::list<std::string>* web_view_ids) override;
   Status GetWebViewById(const std::string& id, WebView** web_view) override;
   Status CloseWebView(const std::string& id) override;
   Status ActivateWebView(const std::string& id) override;
   bool IsMobileEmulationEnabled() const override;
+  bool HasTouchScreen() const override;
   Status Quit() override;
 
  protected:
@@ -46,6 +51,9 @@ class ChromeImpl : public Chrome {
       scoped_ptr<DevToolsClient> websocket_client,
       ScopedVector<DevToolsEventListener>& devtools_event_listeners,
       scoped_ptr<PortReservation> port_reservation);
+
+  Status UpdateWebViewIds(std::list<std::string>* web_view_ids,
+                          const WebViewCallback& callback);
 
   virtual Status QuitImpl() = 0;
 

@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import("//build/config/ui.gni")
+import("//testing/test.gni")
 
 component("app_list") {
   sources = [
@@ -13,10 +14,10 @@ component("app_list") {
     "app_list_folder_item.h",
     "app_list_item.cc",
     "app_list_item.h",
-    "app_list_item_observer.h",
     "app_list_item_list.cc",
     "app_list_item_list.h",
     "app_list_item_list_observer.h",
+    "app_list_item_observer.h",
     "app_list_menu.cc",
     "app_list_menu.h",
     "app_list_model.cc",
@@ -33,15 +34,6 @@ component("app_list") {
     "pagination_model.cc",
     "pagination_model.h",
     "pagination_model_observer.h",
-    "search_box_model.cc",
-    "search_box_model.h",
-    "search_box_model_observer.h",
-    "search_controller.cc",
-    "search_controller.h",
-    "search_provider.cc",
-    "search_provider.h",
-    "search_result.cc",
-    "search_result.h",
     "search/dictionary_data_store.cc",
     "search/dictionary_data_store.h",
     "search/history.cc",
@@ -61,6 +53,15 @@ component("app_list") {
     "search/tokenized_string_char_iterator.h",
     "search/tokenized_string_match.cc",
     "search/tokenized_string_match.h",
+    "search_box_model.cc",
+    "search_box_model.h",
+    "search_box_model_observer.h",
+    "search_controller.cc",
+    "search_controller.h",
+    "search_provider.cc",
+    "search_provider.h",
+    "search_result.cc",
+    "search_result.h",
     "speech_ui_model.cc",
     "speech_ui_model.h",
     "speech_ui_model_observer.h",
@@ -78,6 +79,7 @@ component("app_list") {
     "//third_party/icu",
     "//ui/accessibility",
     "//ui/base",
+    "//ui/base/ime",
     "//ui/compositor",
     "//ui/events:events_base",
     "//ui/gfx",
@@ -97,8 +99,6 @@ component("app_list") {
     sources += [
       "views/all_apps_tile_item_view.cc",
       "views/all_apps_tile_item_view.h",
-      "views/apps_container_view.cc",
-      "views/apps_container_view.h",
       "views/app_list_background.cc",
       "views/app_list_background.h",
       "views/app_list_drag_and_drop_host.h",
@@ -110,24 +110,30 @@ component("app_list") {
       "views/app_list_main_view.h",
       "views/app_list_menu_views.cc",
       "views/app_list_menu_views.h",
+      "views/app_list_page.cc",
+      "views/app_list_page.h",
       "views/app_list_view.cc",
       "views/app_list_view.h",
       "views/app_list_view_observer.h",
+      "views/apps_container_view.cc",
+      "views/apps_container_view.h",
       "views/apps_grid_view.cc",
       "views/apps_grid_view.h",
       "views/apps_grid_view_delegate.h",
       "views/apps_grid_view_folder_delegate.h",
       "views/cached_label.cc",
       "views/cached_label.h",
-      "views/contents_switcher_view.cc",
-      "views/contents_switcher_view.h",
       "views/contents_view.cc",
       "views/contents_view.h",
+      "views/custom_launcher_page_view.cc",
+      "views/custom_launcher_page_view.h",
       "views/folder_background_view.cc",
       "views/folder_background_view.h",
       "views/folder_header_view.cc",
       "views/folder_header_view.h",
       "views/folder_header_view_delegate.h",
+      "views/image_shadow_animator.cc",
+      "views/image_shadow_animator.h",
       "views/page_switcher.cc",
       "views/page_switcher.h",
       "views/progress_bar_view.cc",
@@ -137,21 +143,25 @@ component("app_list") {
       "views/search_box_view.cc",
       "views/search_box_view.h",
       "views/search_box_view_delegate.h",
-      "views/search_result_container_view.cc",
-      "views/search_result_container_view.h",
       "views/search_result_actions_view.cc",
       "views/search_result_actions_view.h",
+      "views/search_result_container_view.cc",
+      "views/search_result_container_view.h",
       "views/search_result_list_view.cc",
       "views/search_result_list_view.h",
       "views/search_result_list_view_delegate.h",
+      "views/search_result_page_view.cc",
+      "views/search_result_page_view.h",
+      "views/search_result_tile_item_list_view.cc",
+      "views/search_result_tile_item_list_view.h",
+      "views/search_result_tile_item_view.cc",
+      "views/search_result_tile_item_view.h",
       "views/search_result_view.cc",
       "views/search_result_view.h",
       "views/speech_view.cc",
       "views/speech_view.h",
       "views/start_page_view.cc",
       "views/start_page_view.h",
-      "views/search_result_tile_item_view.cc",
-      "views/search_result_tile_item_view.h",
       "views/tile_item_view.cc",
       "views/tile_item_view.h",
       "views/top_icon_animation_view.cc",
@@ -159,6 +169,10 @@ component("app_list") {
     ]
     deps += [
       "//ui/events",
+      "//ui/views",
+    ]
+
+    public_deps = [
       "//ui/views",
     ]
   }
@@ -189,9 +203,7 @@ component("app_list") {
       "cocoa/scroll_view_with_no_scrollbars.h",
       "cocoa/scroll_view_with_no_scrollbars.mm",
     ]
-    deps += [
-      "//third_party/google_toolbox_for_mac",
-    ]
+    deps += [ "//third_party/google_toolbox_for_mac" ]
     libs = [ "QuartzCore.framework" ]
   }
 }
@@ -215,6 +227,45 @@ static_library("test_support") {
   ]
 }
 
+if (is_linux && !is_chromeos) {
+  # TODO(GYP): Figure out which of these work and are needed on other platforms.
+  if (toolkit_views) {
+    executable("app_list_demo") {
+      testonly = true
+
+      sources = [
+        "demo/app_list_demo_views.cc",
+      ]
+
+      deps = [
+        ":app_list",
+        ":test_support",
+        "//base",
+        "//content",
+        "//content/public/browser",
+        "//skia",
+        "//url",
+        "//ui/base",
+        "//ui/events",
+        "//ui/resources",
+        "//ui/resources:ui_test_pak",
+        "//ui/views",
+        "//ui/views_content_client",
+        "//ui/views/controls/webview",
+      ]
+      if (is_win) {
+        configs -= [ "//build/config/win:console" ]
+        configs += [ "//build/config/win:windowed" ]
+
+        deps += [
+          "//sandbox",
+          "//content:content_startup_helper_win",
+        ]
+      }
+    }
+  }
+}
+
 test("app_list_unittests") {
   sources = [
     "app_list_item_list_unittest.cc",
@@ -230,6 +281,8 @@ test("app_list_unittests") {
     "test/run_all_unittests.cc",
   ]
 
+  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
+
   deps = [
     ":app_list",
     ":test_support",
@@ -240,6 +293,7 @@ test("app_list_unittests") {
     "//ui/base",
     "//ui/compositor",
     "//ui/events",
+    "//ui/events:test_support",
     "//ui/gl",
     "//ui/resources",
     "//ui/resources:ui_test_pak",
@@ -251,6 +305,7 @@ test("app_list_unittests") {
       "views/app_list_view_unittest.cc",
       "views/apps_grid_view_unittest.cc",
       "views/folder_header_view_unittest.cc",
+      "views/image_shadow_animator_unittest.cc",
       "views/search_box_view_unittest.cc",
       "views/search_result_list_view_unittest.cc",
       "views/speech_view_unittest.cc",

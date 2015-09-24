@@ -12,6 +12,9 @@
 
 #include <errno.h>
 #include <stdio.h>
+
+#include "native_client/src/include/build_config.h"
+
 #if NACL_WINDOWS
 #include <windows.h>
 #endif
@@ -27,6 +30,8 @@
 #include "native_client/src/shared/platform/nacl_exit.h"
 #include "native_client/src/shared/platform/nacl_sync_checked.h"
 #include "native_client/src/shared/platform/nacl_time.h"
+
+#include "native_client/src/trusted/cpu_features/arch/x86/cpu_x86.h"
 
 #include "native_client/src/trusted/desc/nacl_desc_base.h"
 #include "native_client/src/trusted/desc/nacl_desc_cond.h"
@@ -59,19 +64,19 @@
 # define SIZE_T_MAX   (~(size_t) 0)
 #endif
 
-struct NaClSyscallTableEntry nacl_syscall[NACL_MAX_SYSCALLS] = {{0}};
-
 
 int32_t NaClSysNotImplementedDecoder(struct NaClAppThread *natp) {
   NaClCopyDropLock(natp->nap);
   return -NACL_ABI_ENOSYS;
 }
 
-void NaClAddSyscall(int num, int32_t (*fn)(struct NaClAppThread *)) {
-  if (nacl_syscall[num].handler != &NaClSysNotImplementedDecoder) {
+void NaClAddSyscall(struct NaClApp *nap, uint32_t num,
+                    int32_t (*fn)(struct NaClAppThread *)) {
+  CHECK(num < NACL_MAX_SYSCALLS);
+  if (nap->syscall_table[num].handler != &NaClSysNotImplementedDecoder) {
     NaClLog(LOG_FATAL, "Duplicate syscall number %d\n", num);
   }
-  nacl_syscall[num].handler = fn;
+  nap->syscall_table[num].handler = fn;
 }
 
 int32_t NaClSysNull(struct NaClAppThread *natp) {
@@ -139,57 +144,6 @@ int32_t NaClSysThreadExit(struct NaClAppThread  *natp,
   NaClAppThreadTeardown(natp);
   /* NOTREACHED */
   return -NACL_ABI_EINVAL;
-}
-
-int32_t NaClSysNameService(struct NaClAppThread *natp,
-                           uint32_t             desc_addr) {
-  struct NaClApp *nap = natp->nap;
-  int32_t   retval = -NACL_ABI_EINVAL;
-  int32_t   desc;
-
-  NaClLog(3,
-          ("NaClSysNameService(0x%08"NACL_PRIxPTR","
-           " 0x%08"NACL_PRIx32")\n"),
-          (uintptr_t) natp,
-          desc_addr);
-
-  if (!NaClCopyInFromUser(nap, &desc, desc_addr, sizeof desc)) {
-    NaClLog(LOG_ERROR,
-            "Invalid address argument to NaClSysNameService\n");
-    retval = -NACL_ABI_EFAULT;
-    goto done;
-  }
-
-  if (-1 == desc) {
-    /* read */
-    desc = NaClAppSetDescAvail(nap, NaClDescRef(nap->name_service_conn_cap));
-    if (NaClCopyOutToUser(nap, desc_addr, &desc, sizeof desc)) {
-      retval = 0;
-    } else {
-      retval = -NACL_ABI_EFAULT;
-    }
-  } else {
-    struct NaClDesc *desc_obj_ptr = NaClAppGetDesc(nap, desc);
-
-    if (NULL == desc_obj_ptr) {
-      retval = -NACL_ABI_EBADF;
-      goto done;
-    }
-    if (NACL_DESC_CONN_CAP != NACL_VTBL(NaClDesc, desc_obj_ptr)->typeTag &&
-        NACL_DESC_CONN_CAP_FD != NACL_VTBL(NaClDesc, desc_obj_ptr)->typeTag) {
-      retval = -NACL_ABI_EINVAL;
-      goto done;
-    }
-    /* write */
-    NaClXMutexLock(&nap->mu);
-    NaClDescUnref(nap->name_service_conn_cap);
-    nap->name_service_conn_cap = desc_obj_ptr;
-    NaClXMutexUnlock(&nap->mu);
-    retval = 0;
-  }
-
- done:
-  return retval;
 }
 
 int32_t NaClSysTlsInit(struct NaClAppThread  *natp,
@@ -762,6 +716,22 @@ int32_t NaClSysSysconf(struct NaClAppThread *natp,
       result_value = nap->pnacl_mode;
       break;
     }
+#if NACL_ARCH(NACL_BUILD_ARCH) == NACL_x86
+    case NACL_ABI__SC_NACL_CPU_FEATURE_X86: {
+      NaClCPUFeaturesX86 *features = (NaClCPUFeaturesX86 *) nap->cpu_features;
+      if (nap->pnacl_mode) {
+        goto cleanup;
+      }
+      /*
+       * The result value is modelled after the first three bits of XCR0.
+       */
+      result_value =
+        (NaClGetCPUFeatureX86(features, NaClCPUFeatureX86_x87) << 0) |
+        (NaClGetCPUFeatureX86(features, NaClCPUFeatureX86_SSE) << 1) |
+        (NaClGetCPUFeatureX86(features, NaClCPUFeatureX86_AVX) << 2);
+      break;
+    }
+#endif
     default: {
       retval = -NACL_ABI_EINVAL;
       goto cleanup;

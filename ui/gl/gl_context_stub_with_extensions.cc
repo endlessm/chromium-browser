@@ -7,7 +7,7 @@
 namespace gfx {
 
 void GLContextStubWithExtensions::AddExtensionsString(const char* extensions) {
-  if (extensions == NULL)
+  if (extensions == nullptr)
     return;
 
   if (extensions_.size() != 0)
@@ -25,6 +25,12 @@ void GLContextStubWithExtensions::SetGLVersionString(const char* version_str) {
 
 std::string GLContextStubWithExtensions::GetGLVersion() {
   return version_str_;
+}
+
+bool GLContextStubWithExtensions::WasAllocatedUsingRobustnessExtension() {
+  return HasExtension("GL_ARB_robustness") ||
+         HasExtension("GL_KHR_robustness") ||
+         HasExtension("GL_EXT_robustness");
 }
 
 }  // namespace gfx

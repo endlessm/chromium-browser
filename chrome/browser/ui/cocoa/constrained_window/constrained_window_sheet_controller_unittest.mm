@@ -56,6 +56,10 @@ const int kSystemSheetReturnCode = 77;
 - (void)updateSheetPosition {
 }
 
+- (NSWindow*)sheetWindow {
+  return [alert_ window];
+}
+
 - (void)alertDidEnd:(NSAlert *)alert
          returnCode:(NSInteger)returnCode
             ctxInfo:(void *)contextInfo {
@@ -66,10 +70,7 @@ const int kSystemSheetReturnCode = 77;
 
 class ConstrainedWindowSheetControllerTest : public CocoaTest {
  protected:
-  virtual ~ConstrainedWindowSheetControllerTest() {
-  }
-
-  virtual void SetUp() override {
+  void SetUp() override {
     CocoaTest::SetUp();
 
     // Center the window so that the sheet doesn't go offscreen.
@@ -113,7 +114,7 @@ class ConstrainedWindowSheetControllerTest : public CocoaTest {
     EXPECT_FALSE([ConstrainedWindowSheetController controllerForSheet:sheet_]);
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     sheet_.reset();
     sheet_window_.reset();
     CocoaTest::TearDown();

@@ -8,6 +8,7 @@
 #include <sstream>
 #include <string>
 
+#include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "media/base/media_export.h"
@@ -17,30 +18,21 @@
 
 namespace media {
 
-// Indicates a string should be added to the log.
-// First parameter - The string to add to the log.
-typedef base::Callback<void(const std::string&)> LogCB;
-
-// Helper class to make it easier to use log_cb like DVLOG().
-class LogHelper {
- public:
-  LogHelper(const LogCB& Log_cb);
-  ~LogHelper();
-
-  std::ostream& stream() { return stream_; }
-
- private:
-  LogCB log_cb_;
-  std::stringstream stream_;
-};
-
-#define MEDIA_LOG(log_cb) LogHelper(log_cb).stream()
-
 class MEDIA_EXPORT MediaLog : public base::RefCountedThreadSafe<MediaLog> {
  public:
+  enum MediaLogLevel {
+    MEDIALOG_ERROR,
+    MEDIALOG_INFO,
+    MEDIALOG_DEBUG,
+  };
+
   // Convert various enums to strings.
-  static const char* EventTypeToString(MediaLogEvent::Type type);
-  static const char* PipelineStatusToString(PipelineStatus);
+  static std::string MediaLogLevelToString(MediaLogLevel level);
+  static MediaLogEvent::Type MediaLogLevelToEventType(MediaLogLevel level);
+  static std::string EventTypeToString(MediaLogEvent::Type type);
+  static std::string PipelineStatusToString(PipelineStatus status);
+
+  static std::string MediaEventToLogString(const MediaLogEvent& event);
 
   MediaLog();
 
@@ -51,11 +43,13 @@ class MEDIA_EXPORT MediaLog : public base::RefCountedThreadSafe<MediaLog> {
   // Helper methods to create events and their parameters.
   scoped_ptr<MediaLogEvent> CreateEvent(MediaLogEvent::Type type);
   scoped_ptr<MediaLogEvent> CreateBooleanEvent(
-      MediaLogEvent::Type type, const char* property, bool value);
-  scoped_ptr<MediaLogEvent> CreateStringEvent(
-      MediaLogEvent::Type type, const char* property, const std::string& value);
-  scoped_ptr<MediaLogEvent> CreateTimeEvent(
-      MediaLogEvent::Type type, const char* property, base::TimeDelta value);
+      MediaLogEvent::Type type, const std::string& property, bool value);
+  scoped_ptr<MediaLogEvent> CreateStringEvent(MediaLogEvent::Type type,
+                                              const std::string& property,
+                                              const std::string& value);
+  scoped_ptr<MediaLogEvent> CreateTimeEvent(MediaLogEvent::Type type,
+                                            const std::string& property,
+                                            base::TimeDelta value);
   scoped_ptr<MediaLogEvent> CreateLoadEvent(const std::string& url);
   scoped_ptr<MediaLogEvent> CreateSeekEvent(float seconds);
   scoped_ptr<MediaLogEvent> CreatePipelineStateChangedEvent(
@@ -65,15 +59,16 @@ class MEDIA_EXPORT MediaLog : public base::RefCountedThreadSafe<MediaLog> {
       size_t width, size_t height);
   scoped_ptr<MediaLogEvent> CreateBufferedExtentsChangedEvent(
       int64 start, int64 current, int64 end);
-  scoped_ptr<MediaLogEvent> CreateMediaSourceErrorEvent(
-      const std::string& error);
+
+  // Report a log message at the specified log level.
+  void AddLogEvent(MediaLogLevel level, const std::string& message);
 
   // Report a property change without an accompanying event.
-  void SetStringProperty(const char* key, const std::string& value);
-  void SetIntegerProperty(const char* key, int value);
-  void SetDoubleProperty(const char* key, double value);
-  void SetBooleanProperty(const char* key, bool value);
-  void SetTimeProperty(const char* key, base::TimeDelta value);
+  void SetStringProperty(const std::string& key, const std::string& value);
+  void SetIntegerProperty(const std::string& key, int value);
+  void SetDoubleProperty(const std::string& key, double value);
+  void SetBooleanProperty(const std::string& key, bool value);
+  void SetTimeProperty(const std::string& key, base::TimeDelta value);
 
  protected:
   friend class base::RefCountedThreadSafe<MediaLog>;
@@ -85,6 +80,53 @@ class MEDIA_EXPORT MediaLog : public base::RefCountedThreadSafe<MediaLog> {
 
   DISALLOW_COPY_AND_ASSIGN(MediaLog);
 };
+
+// Indicates a string should be added to the log.
+// First parameter - The log level for the string.
+// Second parameter - The string to add to the log.
+typedef base::Callback<void(MediaLog::MediaLogLevel, const std::string&)> LogCB;
+
+// Helper class to make it easier to use LogCB or MediaLog like DVLOG().
+class MEDIA_EXPORT LogHelper {
+ public:
+  LogHelper(MediaLog::MediaLogLevel level, const LogCB& log_cb);
+  LogHelper(MediaLog::MediaLogLevel level,
+            const scoped_refptr<MediaLog>& media_log);
+  ~LogHelper();
+
+  std::ostream& stream() { return stream_; }
+
+ private:
+  MediaLog::MediaLogLevel level_;
+  LogCB log_cb_;
+  const scoped_refptr<MediaLog> media_log_;
+  std::stringstream stream_;
+};
+
+// Provides a stringstream to collect a log entry to pass to the provided
+// logger (LogCB or MediaLog) at the requested level.
+#define MEDIA_LOG(level, logger) \
+  LogHelper((MediaLog::MEDIALOG_##level), (logger)).stream()
+
+// Logs only while |count| < |max|, increments |count| for each log, and warns
+// in the log if |count| has just reached |max|.
+// Multiple short-circuit evaluations are involved in this macro:
+// 1) LAZY_STREAM avoids wasteful MEDIA_LOG and evaluation of subsequent stream
+//    arguments if |count| is >= |max|, and
+// 2) the |condition| given to LAZY_STREAM itself short-circuits to prevent
+//    incrementing |count| beyond |max|.
+// Note that LAZY_STREAM guarantees exactly one evaluation of |condition|, so
+// |count| will be incremented at most once each time this macro runs.
+// The "|| true" portion of |condition| lets logging occur correctly when
+// |count| < |max| and |count|++ is 0.
+// TODO(wolenetz,chcunningham): Consider using a helper class instead of a macro
+// to improve readability.
+#define LIMITED_MEDIA_LOG(level, logger, count, max)                          \
+  LAZY_STREAM(MEDIA_LOG(level, logger),                                       \
+              (count) < (max) && ((count)++ || true))                         \
+      << (((count) == (max)) ? "(Log limit reached. Further similar entries " \
+                               "may be suppressed): "                         \
+                             : "")
 
 }  // namespace media
 

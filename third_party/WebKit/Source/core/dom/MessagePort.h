@@ -27,6 +27,7 @@
 #ifndef MessagePort_h
 #define MessagePort_h
 
+#include "core/CoreExport.h"
 #include "core/dom/ActiveDOMObject.h"
 #include "core/events/EventListener.h"
 #include "core/events/EventTarget.h"
@@ -43,26 +44,27 @@
 namespace blink {
 
 class ExceptionState;
-class MessagePort;
 class ExecutionContext;
+class MessagePort;
+class ScriptState;
 class SerializedScriptValue;
 
 // The overwhelmingly common case is sending a single port, so handle that efficiently with an inline buffer of size 1.
-typedef WillBeHeapVector<RefPtrWillBeMember<MessagePort>, 1> MessagePortArray;
+typedef HeapVector<Member<MessagePort>, 1> MessagePortArray;
 
 // Not to be confused with WebMessagePortChannelArray; this one uses Vector and OwnPtr instead of WebVector and raw pointers.
 typedef Vector<OwnPtr<WebMessagePortChannel>, 1> MessagePortChannelArray;
 
-class MessagePort final : public RefCountedWillBeGarbageCollectedFinalized<MessagePort>
+class CORE_EXPORT MessagePort
+    : public RefCountedGarbageCollectedEventTargetWithInlineData<MessagePort>
     , public ActiveDOMObject
-    , public EventTargetWithInlineData
     , public WebMessagePortChannelClient {
     DEFINE_WRAPPERTYPEINFO();
-    REFCOUNTED_EVENT_TARGET(MessagePort);
+    REFCOUNTED_GARBAGE_COLLECTED_EVENT_TARGET(MessagePort);
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(MessagePort);
 public:
-    static PassRefPtrWillBeRawPtr<MessagePort> create(ExecutionContext&);
-    virtual ~MessagePort();
+    static MessagePort* create(ExecutionContext&);
+    ~MessagePort() override;
 
     void postMessage(ExecutionContext*, PassRefPtr<SerializedScriptValue> message, const MessagePortArray*, ExceptionState&);
 
@@ -73,23 +75,23 @@ public:
     PassOwnPtr<WebMessagePortChannel> disentangle();
 
     static PassOwnPtr<WebMessagePortChannelArray> toWebMessagePortChannelArray(PassOwnPtr<MessagePortChannelArray>);
-    static PassOwnPtrWillBeRawPtr<MessagePortArray> toMessagePortArray(ExecutionContext*, const WebMessagePortChannelArray&);
+    static MessagePortArray* toMessagePortArray(ExecutionContext*, const WebMessagePortChannelArray&);
 
     // Returns 0 if there is an exception, or if the passed-in array is 0/empty.
-    static PassOwnPtr<MessagePortChannelArray> disentanglePorts(const MessagePortArray*, ExceptionState&);
+    static PassOwnPtr<MessagePortChannelArray> disentanglePorts(ExecutionContext*, const MessagePortArray*, ExceptionState&);
 
     // Returns 0 if the passed array is 0/empty.
-    static PassOwnPtrWillBeRawPtr<MessagePortArray> entanglePorts(ExecutionContext&, PassOwnPtr<MessagePortChannelArray>);
+    static MessagePortArray* entanglePorts(ExecutionContext&, PassOwnPtr<MessagePortChannelArray>);
 
     bool started() const { return m_started; }
 
-    virtual const AtomicString& interfaceName() const override;
-    virtual ExecutionContext* executionContext() const override { return ActiveDOMObject::executionContext(); }
-    virtual MessagePort* toMessagePort() override { return this; }
+    const AtomicString& interfaceName() const override;
+    ExecutionContext* executionContext() const override { return ActiveDOMObject::executionContext(); }
+    MessagePort* toMessagePort() override { return this; }
 
     // ActiveDOMObject implementation.
-    virtual bool hasPendingActivity() const override;
-    virtual void stop() override { close(); }
+    bool hasPendingActivity() const override;
+    void stop() override { close(); }
 
     void setOnmessage(PassRefPtr<EventListener> listener)
     {
@@ -104,11 +106,17 @@ public:
     // A port gets neutered when it is transferred to a new owner via postMessage().
     bool isNeutered() const { return !m_entangledChannel; }
 
-private:
-    explicit MessagePort(ExecutionContext&);
+    DECLARE_VIRTUAL_TRACE();
 
+protected:
+    explicit MessagePort(ExecutionContext&);
+    bool tryGetMessage(RefPtr<SerializedScriptValue>& message, OwnPtr<MessagePortChannelArray>& channels);
+
+private:
     // WebMessagePortChannelClient implementation.
-    virtual void messageAvailable() override;
+    void messageAvailable() override;
+    v8::Isolate* scriptIsolate() override;
+    v8::Local<v8::Context> scriptContextForMessageConversion() override;
     void dispatchMessages();
 
     OwnPtr<WebMessagePortChannel> m_entangledChannel;
@@ -117,6 +125,8 @@ private:
     bool m_closed;
 
     WeakPtrFactory<MessagePort> m_weakFactory;
+
+    RefPtr<ScriptState> m_scriptStateForConversion;
 };
 
 } // namespace blink

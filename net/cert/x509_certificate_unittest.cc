@@ -4,7 +4,8 @@
 
 #include "net/cert/x509_certificate.h"
 
-#include "base/basictypes.h"
+#include <stdint.h>
+
 #include "base/files/file_path.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/pickle.h"
@@ -20,7 +21,7 @@
 #include "net/test/test_certificate_data.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-#if defined(USE_NSS)
+#if defined(USE_NSS_CERTS)
 #include <cert.h>
 #endif
 
@@ -47,39 +48,39 @@ namespace net {
 // $ date +%s -d '<date str>'
 
 // Google's cert.
-uint8 google_fingerprint[] = {
+uint8_t google_fingerprint[] = {
   0xab, 0xbe, 0x5e, 0xb4, 0x93, 0x88, 0x4e, 0xe4, 0x60, 0xc6, 0xef, 0xf8,
   0xea, 0xd4, 0xb1, 0x55, 0x4b, 0xc9, 0x59, 0x3c
 };
 
 // webkit.org's cert.
-uint8 webkit_fingerprint[] = {
+uint8_t webkit_fingerprint[] = {
   0xa1, 0x4a, 0x94, 0x46, 0x22, 0x8e, 0x70, 0x66, 0x2b, 0x94, 0xf9, 0xf8,
   0x57, 0x83, 0x2d, 0xa2, 0xff, 0xbc, 0x84, 0xc2
 };
 
 // thawte.com's cert (it's EV-licious!).
-uint8 thawte_fingerprint[] = {
+uint8_t thawte_fingerprint[] = {
   0x85, 0x04, 0x2d, 0xfd, 0x2b, 0x0e, 0xc6, 0xc8, 0xaf, 0x2d, 0x77, 0xd6,
   0xa1, 0x3a, 0x64, 0x04, 0x27, 0x90, 0x97, 0x37
 };
 
 // A certificate for https://www.unosoft.hu/, whose AIA extension contains
 // an LDAP URL without a host name.
-uint8 unosoft_hu_fingerprint[] = {
+uint8_t unosoft_hu_fingerprint[] = {
   0x32, 0xff, 0xe3, 0xbe, 0x2c, 0x3b, 0xc7, 0xca, 0xbf, 0x2d, 0x64, 0xbd,
   0x25, 0x66, 0xf2, 0xec, 0x8b, 0x0f, 0xbf, 0xd8
 };
 
 // The fingerprint of the Google certificate used in the parsing tests,
 // which is newer than the one included in the x509_certificate_data.h
-uint8 google_parse_fingerprint[] = {
+uint8_t google_parse_fingerprint[] = {
   0x40, 0x50, 0x62, 0xe5, 0xbe, 0xfd, 0xe4, 0xaf, 0x97, 0xe9, 0x38, 0x2a,
   0xf1, 0x6c, 0xc8, 0x7c, 0x8f, 0xb7, 0xc4, 0xe2
 };
 
 // The fingerprint for the Thawte SGC certificate
-uint8 thawte_parse_fingerprint[] = {
+uint8_t thawte_parse_fingerprint[] = {
   0xec, 0x07, 0x10, 0x03, 0xd8, 0xf5, 0xa3, 0x7f, 0x42, 0xc4, 0x55, 0x7f,
   0x65, 0x6a, 0xae, 0x86, 0x65, 0xfa, 0x4b, 0x02
 };
@@ -90,7 +91,7 @@ const double kGoogleParseValidFrom = 1261094400;
 const double kGoogleParseValidTo = 1324252799;
 
 void CheckGoogleCert(const scoped_refptr<X509Certificate>& google_cert,
-                     uint8* expected_fingerprint,
+                     uint8_t* expected_fingerprint,
                      double valid_from, double valid_to) {
   ASSERT_NE(static_cast<X509Certificate*>(NULL), google_cert.get());
 
@@ -301,7 +302,7 @@ TEST(X509CertificateTest, SerialNumbers) {
       X509Certificate::CreateFromBytes(
           reinterpret_cast<const char*>(google_der), sizeof(google_der)));
 
-  static const uint8 google_serial[16] = {
+  static const uint8_t google_serial[16] = {
     0x01,0x2a,0x39,0x76,0x0d,0x3f,0x4f,0xc9,
     0x0b,0xe7,0xbd,0x2b,0xcf,0x95,0x2e,0x7a,
   };
@@ -317,7 +318,7 @@ TEST(X509CertificateTest, SerialNumbers) {
           reinterpret_cast<const char*>(paypal_null_der),
           sizeof(paypal_null_der)));
 
-  static const uint8 paypal_null_serial[3] = {0x00, 0xf0, 0x9b};
+  static const uint8_t paypal_null_serial[3] = {0x00, 0xf0, 0x9b};
   ASSERT_EQ(sizeof(paypal_null_serial),
             paypal_null_cert->serial_number().size());
   EXPECT_TRUE(memcmp(paypal_null_cert->serial_number().data(),
@@ -328,7 +329,7 @@ TEST(X509CertificateTest, SHA256FingerprintsCorrectly) {
   scoped_refptr<X509Certificate> google_cert(X509Certificate::CreateFromBytes(
       reinterpret_cast<const char*>(google_der), sizeof(google_der)));
 
-  static const uint8 google_sha256_fingerprint[32] = {
+  static const uint8_t google_sha256_fingerprint[32] = {
       0x21, 0xaf, 0x58, 0x74, 0xea, 0x6b, 0xad, 0xbd, 0xe4, 0xb3, 0xb1,
       0xaa, 0x53, 0x32, 0x80, 0x8f, 0xbf, 0x8a, 0x24, 0x7d, 0x98, 0xec,
       0x7f, 0x77, 0x49, 0x38, 0x42, 0x81, 0x26, 0x7f, 0xed, 0x38};
@@ -373,16 +374,16 @@ TEST(X509CertificateTest, CAFingerprints) {
       X509Certificate::CreateFromHandle(server_cert->os_cert_handle(),
                                         intermediates);
 
-  static const uint8 cert_chain1_ca_fingerprint[20] = {
+  static const uint8_t cert_chain1_ca_fingerprint[20] = {
     0xc2, 0xf0, 0x08, 0x7d, 0x01, 0xe6, 0x86, 0x05, 0x3a, 0x4d,
     0x63, 0x3e, 0x7e, 0x70, 0xd4, 0xef, 0x65, 0xc2, 0xcc, 0x4f
   };
-  static const uint8 cert_chain2_ca_fingerprint[20] = {
+  static const uint8_t cert_chain2_ca_fingerprint[20] = {
     0xd5, 0x59, 0xa5, 0x86, 0x66, 0x9b, 0x08, 0xf4, 0x6a, 0x30,
     0xa1, 0x33, 0xf8, 0xa9, 0xed, 0x3d, 0x03, 0x8e, 0x2e, 0xa8
   };
   // The SHA-1 hash of nothing.
-  static const uint8 cert_chain3_ca_fingerprint[20] = {
+  static const uint8_t cert_chain3_ca_fingerprint[20] = {
     0xda, 0x39, 0xa3, 0xee, 0x5e, 0x6b, 0x4b, 0x0d, 0x32, 0x55,
     0xbf, 0xef, 0x95, 0x60, 0x18, 0x90, 0xaf, 0xd8, 0x07, 0x09
   };
@@ -395,20 +396,20 @@ TEST(X509CertificateTest, CAFingerprints) {
 
   // Test the SHA-256 hash calculation functions explicitly since they are not
   // used by X509Certificate internally.
-  static const uint8 cert_chain1_ca_fingerprint_256[32] = {
+  static const uint8_t cert_chain1_ca_fingerprint_256[32] = {
     0x51, 0x15, 0x30, 0x49, 0x97, 0x54, 0xf8, 0xb4, 0x17, 0x41,
     0x6b, 0x58, 0x78, 0xb0, 0x89, 0xd2, 0xc3, 0xae, 0x66, 0xc1,
     0x16, 0x80, 0xa0, 0x78, 0xe7, 0x53, 0x45, 0xa2, 0xfb, 0x80,
     0xe1, 0x07
   };
-  static const uint8 cert_chain2_ca_fingerprint_256[32] = {
+  static const uint8_t cert_chain2_ca_fingerprint_256[32] = {
     0x00, 0xbd, 0x2b, 0x0e, 0xdd, 0x83, 0x40, 0xb1, 0x74, 0x6c,
     0xc3, 0x95, 0xc0, 0xe3, 0x55, 0xb2, 0x16, 0x58, 0x53, 0xfd,
     0xb9, 0x3c, 0x52, 0xda, 0xdd, 0xa8, 0x22, 0x8b, 0x07, 0x00,
     0x2d, 0xce
   };
   // The SHA-256 hash of nothing.
-  static const uint8 cert_chain3_ca_fingerprint_256[32] = {
+  static const uint8_t cert_chain3_ca_fingerprint_256[32] = {
     0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14, 0x9a, 0xfb,
     0xf4, 0xc8, 0x99, 0x6f, 0xb9, 0x24, 0x27, 0xae, 0x41, 0xe4,
     0x64, 0x9b, 0x93, 0x4c, 0xa4, 0x95, 0x99, 0x1b, 0x78, 0x52,
@@ -430,19 +431,19 @@ TEST(X509CertificateTest, CAFingerprints) {
   EXPECT_TRUE(memcmp(ca_fingerprint_256_3.data,
                      cert_chain3_ca_fingerprint_256, 32) == 0);
 
-  static const uint8 cert_chain1_chain_fingerprint_256[32] = {
+  static const uint8_t cert_chain1_chain_fingerprint_256[32] = {
     0xac, 0xff, 0xcc, 0x63, 0x0d, 0xd0, 0xa7, 0x19, 0x78, 0xb5,
     0x8a, 0x47, 0x8b, 0x67, 0x97, 0xcb, 0x8d, 0xe1, 0x6a, 0x8a,
     0x57, 0x70, 0xda, 0x9a, 0x53, 0x72, 0xe2, 0xa0, 0x08, 0xab,
     0xcc, 0x8f
   };
-  static const uint8 cert_chain2_chain_fingerprint_256[32] = {
+  static const uint8_t cert_chain2_chain_fingerprint_256[32] = {
     0x67, 0x3a, 0x11, 0x20, 0xd6, 0x94, 0x14, 0xe4, 0x16, 0x9f,
     0x58, 0xe2, 0x8b, 0xf7, 0x27, 0xed, 0xbb, 0xe8, 0xa7, 0xff,
     0x1c, 0x8c, 0x0f, 0x21, 0x38, 0x16, 0x7c, 0xad, 0x1f, 0x22,
     0x6f, 0x9b
   };
-  static const uint8 cert_chain3_chain_fingerprint_256[32] = {
+  static const uint8_t cert_chain3_chain_fingerprint_256[32] = {
     0x16, 0x7a, 0xbd, 0xb4, 0x57, 0x04, 0x65, 0x3c, 0x3b, 0xef,
     0x6e, 0x6a, 0xa6, 0x02, 0x73, 0x30, 0x3e, 0x34, 0x1b, 0x43,
     0xc2, 0x7c, 0x98, 0x52, 0x9f, 0x34, 0x7f, 0x55, 0x97, 0xe9,
@@ -486,14 +487,14 @@ TEST(X509CertificateTest, ParseSubjectAltNames) {
   // Ensure that both IPv4 and IPv6 addresses are correctly parsed.
   ASSERT_EQ(2U, ip_addresses.size());
 
-  static const uint8 kIPv4Address[] = {
+  static const uint8_t kIPv4Address[] = {
       0x7F, 0x00, 0x00, 0x02
   };
   ASSERT_EQ(arraysize(kIPv4Address), ip_addresses[0].size());
   EXPECT_EQ(0, memcmp(ip_addresses[0].data(), kIPv4Address,
                       arraysize(kIPv4Address)));
 
-  static const uint8 kIPv6Address[] = {
+  static const uint8_t kIPv6Address[] = {
       0xFE, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01
   };
@@ -519,8 +520,8 @@ TEST(X509CertificateTest, ExtractSPKIFromDERCert) {
   base::StringPiece spkiBytes;
   EXPECT_TRUE(asn1::ExtractSPKIFromDERCert(derBytes, &spkiBytes));
 
-  uint8 hash[base::kSHA1Length];
-  base::SHA1HashBytes(reinterpret_cast<const uint8*>(spkiBytes.data()),
+  uint8_t hash[base::kSHA1Length];
+  base::SHA1HashBytes(reinterpret_cast<const uint8_t*>(spkiBytes.data()),
                       spkiBytes.size(), hash);
 
   EXPECT_EQ(0, memcmp(hash, kNistSPKIHash, sizeof(hash)));
@@ -613,13 +614,13 @@ TEST(X509CertificateTest, Pickle) {
   X509Certificate::FreeOSCertHandle(google_cert_handle);
   X509Certificate::FreeOSCertHandle(thawte_cert_handle);
 
-  Pickle pickle;
+  base::Pickle pickle;
   cert->Persist(&pickle);
 
-  PickleIterator iter(pickle);
+  base::PickleIterator iter(pickle);
   scoped_refptr<X509Certificate> cert_from_pickle =
       X509Certificate::CreateFromPickle(
-          pickle, &iter, X509Certificate::PICKLETYPE_CERTIFICATE_CHAIN_V3);
+          &iter, X509Certificate::PICKLETYPE_CERTIFICATE_CHAIN_V3);
   ASSERT_NE(static_cast<X509Certificate*>(NULL), cert_from_pickle.get());
   EXPECT_TRUE(X509Certificate::IsSameOSCert(
       cert->os_cert_handle(), cert_from_pickle->os_cert_handle()));
@@ -796,7 +797,7 @@ TEST(X509CertificateTest, FreeNullHandle) {
   X509Certificate::FreeOSCertHandle(NULL);
 }
 
-#if defined(USE_NSS)
+#if defined(USE_NSS_CERTS)
 TEST(X509CertificateTest, GetDefaultNickname) {
   base::FilePath certs_dir = GetTestCertsDirectory();
 
@@ -813,7 +814,7 @@ TEST(X509CertificateTest, GetDefaultNickname) {
 const struct CertificateFormatTestData {
   const char* file_name;
   X509Certificate::Format format;
-  uint8* chain_fingerprints[3];
+  uint8_t* chain_fingerprints[3];
 } kFormatTestData[] = {
   // DER Parsing - single certificate, DER encoded
   { "google.single.der", X509Certificate::FORMAT_SINGLE_CERTIFICATE,
@@ -913,7 +914,7 @@ TEST_P(X509CertificateParseTest, CanParseFormat) {
     // comparing fingerprints.
     const X509Certificate* cert = certs[i].get();
     const SHA1HashValue& actual_fingerprint = cert->fingerprint();
-    uint8* expected_fingerprint = test_data_.chain_fingerprints[i];
+    uint8_t* expected_fingerprint = test_data_.chain_fingerprints[i];
 
     for (size_t j = 0; j < 20; ++j)
       EXPECT_EQ(expected_fingerprint[j], actual_fingerprint.data[j]);
@@ -971,10 +972,10 @@ const CertificateNameVerifyTestData kNameVerifyTestData[] = {
     { false, "w.bar.foo.com", "w*.bar.foo.com" },
     { false, "www.bar.foo.com", "ww*ww.bar.foo.com" },
     { false, "wwww.bar.foo.com", "ww*ww.bar.foo.com" },
-    { true, "wwww.bar.foo.com", "w*w.bar.foo.com" },
+    { false, "wwww.bar.foo.com", "w*w.bar.foo.com" },
     { false, "wwww.bar.foo.com", "w*w.bar.foo.c0m" },
-    { true, "WALLY.bar.foo.com", "wa*.bar.foo.com" },
-    { true, "wally.bar.foo.com", "*Ly.bar.foo.com" },
+    { false, "WALLY.bar.foo.com", "wa*.bar.foo.com" },
+    { false, "wally.bar.foo.com", "*Ly.bar.foo.com" },
     { true, "ww%57.foo.com", "", "www.foo.com" },
     { true, "www&.foo.com", "www%26.foo.com" },
     // Common name must not be used if subject alternative name was provided.
@@ -998,18 +999,20 @@ const CertificateNameVerifyTestData kNameVerifyTestData[] = {
     { true, "foo.example.com", "*.example.com" },
     { false, "bar.foo.example.com", "*.example.com" },
     { false, "example.com", "*.example.com" },
-    //   (e.g., baz*.example.net and *baz.example.net and b*z.example.net would
-    //   be taken to match baz1.example.net and foobaz.example.net and
-    //   buzz.example.net, respectively
-    { true, "baz1.example.net", "baz*.example.net" },
-    { true, "foobaz.example.net", "*baz.example.net" },
-    { true, "buzz.example.net", "b*z.example.net" },
+    //   Partial wildcards are disallowed, though RFC 2818 rules allow them.
+    //   That is, forms such as baz*.example.net, *baz.example.net, and
+    //   b*z.example.net should NOT match domains. Instead, the wildcard must
+    //   always be the left-most label, and only a single label.
+    { false, "baz1.example.net", "baz*.example.net" },
+    { false, "foobaz.example.net", "*baz.example.net" },
+    { false, "buzz.example.net", "b*z.example.net" },
+    { false, "www.test.example.net", "www.*.example.net" },
     // Wildcards should not be valid for public registry controlled domains,
     // and unknown/unrecognized domains, at least three domain components must
     // be present.
     { true, "www.test.example", "*.test.example" },
     { true, "test.example.co.uk", "*.example.co.uk" },
-    { false, "test.example", "*.exmaple" },
+    { false, "test.example", "*.example" },
     { false, "example.co.uk", "*.co.uk" },
     { false, "foo.com", "*.com" },
     { false, "foo.us", "*.us" },
@@ -1106,28 +1109,29 @@ TEST_P(X509CertificateNameVerifyTest, VerifyHostname) {
     // Build up the certificate DNS names list.
     std::string dns_name_line(test_data.dns_names);
     std::replace(dns_name_line.begin(), dns_name_line.end(), '#', '\0');
-    base::SplitString(dns_name_line, ',', &dns_names);
+    dns_names = base::SplitString(dns_name_line, ",", base::TRIM_WHITESPACE,
+                                  base::SPLIT_WANT_ALL);
   }
 
   if (test_data.ip_addrs) {
     // Build up the certificate IP address list.
     std::string ip_addrs_line(test_data.ip_addrs);
-    std::vector<std::string> ip_addressses_ascii;
-    base::SplitString(ip_addrs_line, ',', &ip_addressses_ascii);
+    std::vector<std::string> ip_addressses_ascii = base::SplitString(
+        ip_addrs_line, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
     for (size_t i = 0; i < ip_addressses_ascii.size(); ++i) {
       std::string& addr_ascii = ip_addressses_ascii[i];
       ASSERT_NE(0U, addr_ascii.length());
       if (addr_ascii[0] == 'x') {  // Hex encoded address
         addr_ascii.erase(0, 1);
-        std::vector<uint8> bytes;
+        std::vector<uint8_t> bytes;
         EXPECT_TRUE(base::HexStringToBytes(addr_ascii, &bytes))
             << "Could not parse hex address " << addr_ascii << " i = " << i;
         ip_addressses.push_back(std::string(reinterpret_cast<char*>(&bytes[0]),
                                             bytes.size()));
         ASSERT_EQ(16U, ip_addressses.back().size()) << i;
       } else {  // Decimal groups
-        std::vector<std::string> decimals_ascii;
-        base::SplitString(addr_ascii, '.', &decimals_ascii);
+        std::vector<std::string> decimals_ascii = base::SplitString(
+            addr_ascii, ".", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
         EXPECT_EQ(4U, decimals_ascii.size()) << i;
         std::string addr_bytes;
         for (size_t j = 0; j < decimals_ascii.size(); ++j) {
@@ -1156,12 +1160,23 @@ const struct PublicKeyInfoTestData {
   size_t expected_bits;
   X509Certificate::PublicKeyType expected_type;
 } kPublicKeyInfoTestData[] = {
-  { "768-rsa-ee-by-768-rsa-intermediate.pem", 768,
-    X509Certificate::kPublicKeyTypeRSA },
-  { "1024-rsa-ee-by-768-rsa-intermediate.pem", 1024,
-    X509Certificate::kPublicKeyTypeRSA },
-  { "prime256v1-ecdsa-ee-by-1024-rsa-intermediate.pem", 256,
-    X509Certificate::kPublicKeyTypeECDSA },
+    {"768-rsa-ee-by-768-rsa-intermediate.pem",
+     768,
+     X509Certificate::kPublicKeyTypeRSA},
+    {"1024-rsa-ee-by-768-rsa-intermediate.pem",
+     1024,
+     X509Certificate::kPublicKeyTypeRSA},
+    {"prime256v1-ecdsa-ee-by-1024-rsa-intermediate.pem",
+     256,
+     X509Certificate::kPublicKeyTypeECDSA},
+#if defined(OS_MACOSX) && !defined(OS_IOS)
+    // OS X has an key length limit of 4096 bits. This should manifest as an
+    // unknown key. If a future version of OS X changes this, large_key.pem may
+    // need to be renegerated with a larger key. See https://crbug.com/472291.
+    {"large_key.pem", 0, X509Certificate::kPublicKeyTypeUnknown},
+#else
+    {"large_key.pem", 4104, X509Certificate::kPublicKeyTypeRSA},
+#endif
 };
 
 class X509CertificatePublicKeyInfoTest

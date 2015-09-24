@@ -8,8 +8,10 @@
 #include <string>
 
 #include "base/compiler_specific.h"
+#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/ui/webui/options/options_ui.h"
 #include "components/autofill/core/browser/personal_data_manager_observer.h"
+#include "components/sync_driver/sync_service_observer.h"
 
 namespace autofill {
 class AutofillProfile;
@@ -24,7 +26,8 @@ class ListValue;
 namespace options {
 
 class AutofillOptionsHandler : public OptionsPageUIHandler,
-                               public autofill::PersonalDataManagerObserver {
+                               public autofill::PersonalDataManagerObserver,
+                               public sync_driver::SyncServiceObserver {
  public:
   AutofillOptionsHandler();
   ~AutofillOptionsHandler() override;
@@ -37,6 +40,9 @@ class AutofillOptionsHandler : public OptionsPageUIHandler,
 
   // PersonalDataManagerObserver implementation.
   void OnPersonalDataChanged() override;
+
+  // sync_driver::SyncServiceObserver implementation.
+  void OnStateChanged() override;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(AutofillOptionsHandlerTest, AddressToDictionary);
@@ -94,6 +100,10 @@ class AutofillOptionsHandler : public OptionsPageUIHandler,
   // array of numbers, and the country code string set on the profile.
   void ValidatePhoneNumbers(const base::ListValue* args);
 
+  // Resets the masked state on the unmasked Wallet card described by the GUID
+  // in args[0].
+  void RemaskServerCard(const base::ListValue* args);
+
   // Returns true if |personal_data_| is non-null and loaded.
   bool IsPersonalDataLoaded() const;
 
@@ -105,6 +115,9 @@ class AutofillOptionsHandler : public OptionsPageUIHandler,
   // The personal data manager, used to load Autofill profiles and credit cards.
   // Unowned pointer, may not be NULL.
   autofill::PersonalDataManager* personal_data_;
+
+  ScopedObserver<ProfileSyncService, sync_driver::SyncServiceObserver>
+      observer_;
 
   DISALLOW_COPY_AND_ASSIGN(AutofillOptionsHandler);
 };

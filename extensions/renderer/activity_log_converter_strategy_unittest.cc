@@ -5,7 +5,6 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/values.h"
 #include "extensions/renderer/activity_log_converter_strategy.h"
-#include "extensions/renderer/scoped_persistent.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "v8/include/v8.h"
 
@@ -16,11 +15,10 @@ namespace extensions {
 class ActivityLogConverterStrategyTest : public testing::Test {
  public:
   ActivityLogConverterStrategyTest()
-      : isolate_(v8::Isolate::GetCurrent())
-      , handle_scope_(isolate_)
-      , context_(v8::Context::New(isolate_))
-      , context_scope_(context()) {
-  }
+      : isolate_(v8::Isolate::GetCurrent()),
+        handle_scope_(isolate_),
+        context_(isolate_, v8::Context::New(isolate_)),
+        context_scope_(context()) {}
 
  protected:
   void SetUp() override {
@@ -86,13 +84,13 @@ class ActivityLogConverterStrategyTest : public testing::Test {
     return testing::AssertionFailure();
   }
 
-  v8::Handle<v8::Context> context() const {
-    return context_.NewHandle(isolate_);
+  v8::Local<v8::Context> context() const {
+    return v8::Local<v8::Context>::New(isolate_, context_);
   }
 
   v8::Isolate* isolate_;
   v8::HandleScope handle_scope_;
-  ScopedPersistent<v8::Context> context_;
+  v8::Global<v8::Context> context_;
   v8::Context::Scope context_scope_;
   scoped_ptr<V8ValueConverter> converter_;
   scoped_ptr<ActivityLogConverterStrategy> strategy_;
@@ -124,9 +122,9 @@ TEST_F(ActivityLogConverterStrategyTest, ConversionTest) {
       "};"
       "})();";
 
-  v8::Handle<v8::Script> script(
+  v8::Local<v8::Script> script(
       v8::Script::Compile(v8::String::NewFromUtf8(isolate_, source)));
-  v8::Handle<v8::Object> v8_object = script->Run().As<v8::Object>();
+  v8::Local<v8::Object> v8_object = script->Run().As<v8::Object>();
 
   EXPECT_TRUE(VerifyString(v8_object, "[Object]"));
   EXPECT_TRUE(

@@ -31,7 +31,7 @@
 #include "core/css/MediaQueryExp.h"
 
 #include "core/css/CSSPrimitiveValue.h"
-#include "core/css/parser/CSSParserValues.h"
+#include "core/css/parser/CSSParserToken.h"
 #include "core/html/parser/HTMLParserIdioms.h"
 #include "platform/Decimal.h"
 #include "platform/RuntimeEnabledFeatures.h"
@@ -42,59 +42,29 @@ namespace blink {
 
 using namespace MediaFeatureNames;
 
-static inline bool featureWithCSSValueID(const String& mediaFeature, const CSSParserValue* value)
-{
-    if (!value->id)
-        return false;
-
-    return mediaFeature == orientationMediaFeature
-        || mediaFeature == pointerMediaFeature
-        || mediaFeature == anyPointerMediaFeature
-        || (mediaFeature == hoverMediaFeature && RuntimeEnabledFeatures::hoverMediaQueryKeywordsEnabled())
-        || mediaFeature == anyHoverMediaFeature
-        || mediaFeature == scanMediaFeature;
-}
-
 static inline bool featureWithValidIdent(const String& mediaFeature, CSSValueID ident)
 {
+    if (mediaFeature == displayModeMediaFeature)
+        return ident == CSSValueFullscreen || ident == CSSValueStandalone || ident == CSSValueMinimalUi || ident == CSSValueBrowser;
+
     if (mediaFeature == orientationMediaFeature)
         return ident == CSSValuePortrait || ident == CSSValueLandscape;
 
     if (mediaFeature == pointerMediaFeature || mediaFeature == anyPointerMediaFeature)
         return ident == CSSValueNone || ident == CSSValueCoarse || ident == CSSValueFine;
 
-    if ((mediaFeature == hoverMediaFeature && RuntimeEnabledFeatures::hoverMediaQueryKeywordsEnabled())
-        || mediaFeature == anyHoverMediaFeature)
+    if (mediaFeature == hoverMediaFeature || mediaFeature == anyHoverMediaFeature)
         return ident == CSSValueNone || ident == CSSValueOnDemand || ident == CSSValueHover;
 
     if (mediaFeature == scanMediaFeature)
         return ident == CSSValueInterlace || ident == CSSValueProgressive;
 
-    ASSERT_NOT_REACHED();
     return false;
 }
 
-static bool positiveLengthUnit(const int unit)
+static inline bool featureWithValidPositiveLength(const String& mediaFeature, const CSSParserToken& token)
 {
-    switch (unit) {
-    case CSSPrimitiveValue::CSS_EMS:
-    case CSSPrimitiveValue::CSS_EXS:
-    case CSSPrimitiveValue::CSS_PX:
-    case CSSPrimitiveValue::CSS_CM:
-    case CSSPrimitiveValue::CSS_MM:
-    case CSSPrimitiveValue::CSS_IN:
-    case CSSPrimitiveValue::CSS_PT:
-    case CSSPrimitiveValue::CSS_PC:
-    case CSSPrimitiveValue::CSS_REMS:
-    case CSSPrimitiveValue::CSS_CHS:
-        return true;
-    }
-    return false;
-}
-
-static inline bool featureWithValidPositiveLength(const String& mediaFeature, const CSSParserValue* value)
-{
-    if (!(positiveLengthUnit(value->unit) || (value->unit == CSSPrimitiveValue::CSS_NUMBER && value->fValue == 0)) || value->fValue < 0)
+    if (!(CSSPrimitiveValue::isLength(token.unitType()) || (token.type() == NumberToken && token.numericValue() == 0)) || token.numericValue() < 0)
         return false;
 
 
@@ -112,9 +82,9 @@ static inline bool featureWithValidPositiveLength(const String& mediaFeature, co
         || mediaFeature == maxDeviceWidthMediaFeature;
 }
 
-static inline bool featureWithValidDensity(const String& mediaFeature, const CSSParserValue* value)
+static inline bool featureWithValidDensity(const String& mediaFeature, const CSSParserToken& token)
 {
-    if ((value->unit != CSSPrimitiveValue::CSS_DPPX && value->unit != CSSPrimitiveValue::CSS_DPI && value->unit != CSSPrimitiveValue::CSS_DPCM) || value->fValue <= 0)
+    if ((token.unitType() != CSSPrimitiveValue::CSS_DPPX && token.unitType() != CSSPrimitiveValue::CSS_DPI && token.unitType() != CSSPrimitiveValue::CSS_DPCM) || token.numericValue() <= 0)
         return false;
 
     return mediaFeature == resolutionMediaFeature
@@ -122,9 +92,9 @@ static inline bool featureWithValidDensity(const String& mediaFeature, const CSS
         || mediaFeature == maxResolutionMediaFeature;
 }
 
-static inline bool featureWithPositiveInteger(const String& mediaFeature, const CSSParserValue* value)
+static inline bool featureWithPositiveInteger(const String& mediaFeature, const CSSParserToken& token)
 {
-    if (!value->isInt || value->fValue < 0)
+    if (token.numericValueType() != IntegerValueType || token.numericValue() < 0)
         return false;
 
     return mediaFeature == colorMediaFeature
@@ -138,9 +108,9 @@ static inline bool featureWithPositiveInteger(const String& mediaFeature, const 
         || mediaFeature == minMonochromeMediaFeature;
 }
 
-static inline bool featureWithPositiveNumber(const String& mediaFeature, const CSSParserValue* value)
+static inline bool featureWithPositiveNumber(const String& mediaFeature, const CSSParserToken& token)
 {
-    if (value->unit != CSSPrimitiveValue::CSS_NUMBER || value->fValue < 0)
+    if (token.type() != NumberToken || token.numericValue() < 0)
         return false;
 
     return mediaFeature == transform3dMediaFeature
@@ -149,13 +119,12 @@ static inline bool featureWithPositiveNumber(const String& mediaFeature, const C
         || mediaFeature == minDevicePixelRatioMediaFeature;
 }
 
-static inline bool featureWithZeroOrOne(const String& mediaFeature, const CSSParserValue* value)
+static inline bool featureWithZeroOrOne(const String& mediaFeature, const CSSParserToken& token)
 {
-    if (!value->isInt || !(value->fValue == 1 || !value->fValue))
+    if (token.numericValueType() != IntegerValueType || !(token.numericValue() == 1 || !token.numericValue()))
         return false;
 
-    return mediaFeature == gridMediaFeature
-        || (mediaFeature == hoverMediaFeature && !RuntimeEnabledFeatures::hoverMediaQueryKeywordsEnabled());
+    return mediaFeature == gridMediaFeature;
 }
 
 static inline bool featureWithAspectRatio(const String& mediaFeature)
@@ -220,80 +189,71 @@ MediaQueryExp::MediaQueryExp(const String& mediaFeature, const MediaQueryExpValu
 {
 }
 
-PassOwnPtrWillBeRawPtr<MediaQueryExp> MediaQueryExp::createIfValid(const String& mediaFeature, CSSParserValueList* valueList)
+CSSValueID cssValueKeywordID(const CSSParserString&);
+
+PassOwnPtrWillBeRawPtr<MediaQueryExp> MediaQueryExp::createIfValid(const String& mediaFeature, const Vector<CSSParserToken, 4>& tokenList)
 {
     ASSERT(!mediaFeature.isNull());
 
     MediaQueryExpValue expValue;
-    bool isValid = false;
     String lowerMediaFeature = attemptStaticStringCreation(mediaFeature.lower());
 
     // Create value for media query expression that must have 1 or more values.
-    if (valueList && valueList->size() > 0) {
-        if (valueList->size() == 1) {
-            CSSParserValue* value = valueList->current();
-            ASSERT(value);
+    if (tokenList.size() == 0 && featureWithoutValue(lowerMediaFeature)) {
+        // Valid, creates a MediaQueryExp with an 'invalid' MediaQueryExpValue
+    } else if (tokenList.size() == 1) {
+        CSSParserToken token = tokenList.first();
 
-            if (featureWithCSSValueID(lowerMediaFeature, value) && featureWithValidIdent(lowerMediaFeature, value->id)) {
-                // Media features that use CSSValueIDs.
-                expValue.id = value->id;
-                expValue.unit = CSSPrimitiveValue::CSS_VALUE_ID;
-                expValue.isID = true;
-            } else if (featureWithValidDensity(lowerMediaFeature, value)
-                || featureWithValidPositiveLength(lowerMediaFeature, value)) {
+        if (token.type() == IdentToken) {
+            CSSValueID ident = cssValueKeywordID(token.value());
+            if (!featureWithValidIdent(lowerMediaFeature, ident))
+                return nullptr;
+            expValue.id = ident;
+            expValue.unit = CSSPrimitiveValue::CSS_VALUE_ID;
+            expValue.isID = true;
+        } else if (token.type() == NumberToken || token.type() == PercentageToken || token.type() == DimensionToken) {
+            // Check for numeric token types since it is only safe for these types to call numericValue.
+            if (featureWithValidDensity(lowerMediaFeature, token)
+                || featureWithValidPositiveLength(lowerMediaFeature, token)) {
                 // Media features that must have non-negative <density>, ie. dppx, dpi or dpcm,
                 // or Media features that must have non-negative <length> or number value.
-                expValue.value = value->fValue;
-                expValue.unit = (CSSPrimitiveValue::UnitType)value->unit;
+                expValue.value = token.numericValue();
+                expValue.unit = token.unitType();
                 expValue.isValue = true;
-            } else if (featureWithPositiveInteger(lowerMediaFeature, value)
-                || featureWithPositiveNumber(lowerMediaFeature, value)
-                || featureWithZeroOrOne(lowerMediaFeature, value)) {
+            } else if (featureWithPositiveInteger(lowerMediaFeature, token)
+                || featureWithPositiveNumber(lowerMediaFeature, token)
+                || featureWithZeroOrOne(lowerMediaFeature, token)) {
                 // Media features that must have non-negative integer value,
                 // or media features that must have non-negative number value,
                 // or media features that must have (0|1) value.
-                expValue.value = value->fValue;
+                expValue.value = token.numericValue();
                 expValue.unit = CSSPrimitiveValue::CSS_NUMBER;
                 expValue.isValue = true;
+            } else {
+                return nullptr;
             }
-
-            isValid = (expValue.isID || expValue.isValue);
-
-        } else if (valueList->size() == 3 && featureWithAspectRatio(lowerMediaFeature)) {
-            // Create list of values.
-            // Currently accepts only <integer>/<integer>.
-            // Applicable to device-aspect-ratio and aspec-ratio.
-            isValid = true;
-            float numeratorValue = 0;
-            float denominatorValue = 0;
-            // The aspect-ratio must be <integer> (whitespace)? / (whitespace)? <integer>.
-            for (unsigned i = 0; i < 3; ++i, valueList->next()) {
-                const CSSParserValue* value = valueList->current();
-                if (i != 1 && value->unit == CSSPrimitiveValue::CSS_NUMBER && value->fValue > 0 && value->isInt) {
-                    if (!i)
-                        numeratorValue = value->fValue;
-                    else
-                        denominatorValue = value->fValue;
-                } else if (i == 1 && value->unit == CSSParserValue::Operator && value->iValue == '/') {
-                    continue;
-                } else {
-                    isValid = false;
-                    break;
-                }
-            }
-
-            if (isValid) {
-                expValue.numerator = (unsigned)numeratorValue;
-                expValue.denominator = (unsigned)denominatorValue;
-                expValue.isRatio = true;
-            }
+        } else {
+            return nullptr;
         }
-    } else if (featureWithoutValue(lowerMediaFeature)) {
-        isValid = true;
-    }
+    } else if (tokenList.size() == 3 && featureWithAspectRatio(lowerMediaFeature)) {
+        // TODO(timloh): <ratio> is supposed to allow whitespace around the '/'
+        // Applicable to device-aspect-ratio and aspect-ratio.
+        const CSSParserToken& numerator = tokenList[0];
+        const CSSParserToken& delimiter = tokenList[1];
+        const CSSParserToken& denominator = tokenList[2];
+        if (delimiter.type() != DelimiterToken || delimiter.delimiter() != '/')
+            return nullptr;
+        if (numerator.type() != NumberToken || numerator.numericValue() <= 0 || numerator.numericValueType() != IntegerValueType)
+            return nullptr;
+        if (denominator.type() != NumberToken || denominator.numericValue() <= 0 || denominator.numericValueType() != IntegerValueType)
+            return nullptr;
 
-    if (!isValid)
+        expValue.numerator = (unsigned)numerator.numericValue();
+        expValue.denominator = (unsigned)denominator.numericValue();
+        expValue.isRatio = true;
+    } else {
         return nullptr;
+    }
 
     return adoptPtrWillBeNoop(new MediaQueryExp(lowerMediaFeature, expValue));
 }

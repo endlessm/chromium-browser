@@ -7,25 +7,16 @@
 
 #include <set>
 #include <string>
+#include <utility>
 
-#include "base/memory/scoped_ptr.h"
+#include "components/nacl/renderer/ppb_nacl_private.h"
 #include "ppapi/c/pp_array_output.h"
-#include "ppapi/c/pp_instance.h"
-#include "ppapi/c/private/ppb_nacl_private.h"
 #include "third_party/jsoncpp/source/include/json/value.h"
 
 namespace nacl {
 class JsonManifest;
 class NexeLoadManager;
-
-// There is at most one JsonManifest per PP_Instance. This adds a one-to-one
-// mapping.
-void AddJsonManifest(PP_Instance instance, scoped_ptr<JsonManifest> manifest);
-
-// Returns a non-owning pointer to the JsonManifest for the given instance.
-// Returns NULL if no such JsonManifest exists.
-JsonManifest* GetJsonManifest(PP_Instance instance);
-void DeleteJsonManifest(PP_Instance instance);
+struct NaClResourcePrefetchRequest;
 
 class JsonManifest {
  public:
@@ -49,6 +40,11 @@ class JsonManifest {
                      PP_PNaClOptions* pnacl_options,
                      bool* uses_nonsfi_mode,
                      ErrorInfo* error_info) const;
+
+  // Gets all the keys and their URLs in the "files" section that are
+  // prefetchable.
+  void GetPrefetchableFiles(
+      std::vector<NaClResourcePrefetchRequest>* out_files) const;
 
   // Resolves a key from the "files" section to a fully resolved URL,
   // i.e., relative URL values are fully expanded relative to the

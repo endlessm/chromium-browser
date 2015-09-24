@@ -7,10 +7,7 @@
 
 #include <jni.h>
 
-#include <vector>
-
 #include "base/android/jni_weak_ref.h"
-#include "ui/gfx/geometry/rect.h"
 
 namespace content {
 
@@ -57,17 +54,11 @@ class ImeAdapterAndroid {
   void SetEditableSelectionOffsets(JNIEnv*, jobject, int start, int end);
   void SetComposingRegion(JNIEnv*, jobject, int start, int end);
   void DeleteSurroundingText(JNIEnv*, jobject, int before, int after);
-  void Unselect(JNIEnv*, jobject);
-  void SelectAll(JNIEnv*, jobject);
-  void Cut(JNIEnv*, jobject);
-  void Copy(JNIEnv*, jobject);
-  void Paste(JNIEnv*, jobject);
   void ResetImeAdapter(JNIEnv*, jobject);
 
   // Called from native -> java
   void CancelComposition();
   void FocusedNodeChanged(bool is_editable_node);
-  void SetCharacterBounds(const std::vector<gfx::Rect>& rects);
 
  private:
   RenderWidgetHostImpl* GetRenderWidgetHostImpl();

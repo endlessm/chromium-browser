@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_COMPONENT_UPDATER_RECOVERY_COMPONENT_INSTALLER_H_
 #define CHROME_BROWSER_COMPONENT_UPDATER_RECOVERY_COMPONENT_INSTALLER_H_
 
+#include "base/callback_forward.h"
+
 class PrefRegistrySimple;
 class PrefService;
 
@@ -17,8 +19,17 @@ class ComponentUpdateService;
 // update installation. This is a last resort safety mechanism.
 void RegisterRecoveryComponent(ComponentUpdateService* cus, PrefService* prefs);
 
-// Register user preferences related to the recovery component.
+// Registers user preferences related to the recovery component.
 void RegisterPrefsForRecoveryComponent(PrefRegistrySimple* registry);
+
+// Notifies the recovery component that the user has accepted the elevation
+// prompt. Clears the state of prefs::kRecoveryComponentNeedsElevation after the
+// notification.
+void AcceptedElevatedRecoveryInstall(PrefService* prefs);
+
+// Notifies recovery component that the elevated install has been declined.
+// Clears the flag prefs::kRecoveryComponentNeedsElevation.
+void DeclinedElevatedRecoveryInstall(PrefService* prefs);
 
 }  // namespace component_updater
 

@@ -2,17 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CONTENT_BROWSER_DOM_STORAGE_DOM_STORAGE_TASK_RUNNER_
-#define CONTENT_BROWSER_DOM_STORAGE_DOM_STORAGE_TASK_RUNNER_
+#ifndef CONTENT_BROWSER_DOM_STORAGE_DOM_STORAGE_TASK_RUNNER_H_
+#define CONTENT_BROWSER_DOM_STORAGE_DOM_STORAGE_TASK_RUNNER_H_
 
 #include "base/memory/ref_counted.h"
 #include "base/sequenced_task_runner.h"
+#include "base/single_thread_task_runner.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "base/time/time.h"
 #include "content/common/content_export.h"
 
 namespace base {
-class MessageLoopProxy;
+class SingleThreadTaskRunner;
 }
 
 namespace content {
@@ -36,10 +37,9 @@ class CONTENT_EXPORT DOMStorageTaskRunner
 
   // The PostTask() and PostDelayedTask() methods defined by TaskRunner
   // post shutdown-blocking tasks on the primary sequence.
-  virtual bool PostDelayedTask(
-      const tracked_objects::Location& from_here,
-      const base::Closure& task,
-      base::TimeDelta delay) = 0;
+  bool PostDelayedTask(const tracked_objects::Location& from_here,
+                       const base::Closure& task,
+                       base::TimeDelta delay) override = 0;
 
   // Posts a shutdown blocking task to |sequence_id|.
   virtual bool PostShutdownBlockingTask(
@@ -74,7 +74,7 @@ class CONTENT_EXPORT DOMStorageWorkerPoolTaskRunner :
       base::SequencedWorkerPool* sequenced_worker_pool,
       base::SequencedWorkerPool::SequenceToken primary_sequence_token,
       base::SequencedWorkerPool::SequenceToken commit_sequence_token,
-      base::MessageLoopProxy* delayed_task_loop);
+      base::SingleThreadTaskRunner* delayed_task_task_runner);
 
   bool PostDelayedTask(const tracked_objects::Location& from_here,
                        const base::Closure& task,
@@ -93,7 +93,7 @@ class CONTENT_EXPORT DOMStorageWorkerPoolTaskRunner :
 
   base::SequencedWorkerPool::SequenceToken IDtoToken(SequenceID id) const;
 
-  const scoped_refptr<base::MessageLoopProxy> message_loop_;
+  const scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   const scoped_refptr<base::SequencedWorkerPool> sequenced_worker_pool_;
   base::SequencedWorkerPool::SequenceToken primary_sequence_token_;
   base::SequencedWorkerPool::SequenceToken commit_sequence_token_;
@@ -107,7 +107,7 @@ class CONTENT_EXPORT DOMStorageWorkerPoolTaskRunner :
 class CONTENT_EXPORT MockDOMStorageTaskRunner :
       public DOMStorageTaskRunner {
  public:
-  explicit MockDOMStorageTaskRunner(base::MessageLoopProxy* message_loop);
+  explicit MockDOMStorageTaskRunner(base::SingleThreadTaskRunner* task_runner);
 
   bool PostDelayedTask(const tracked_objects::Location& from_here,
                        const base::Closure& task,
@@ -123,9 +123,9 @@ class CONTENT_EXPORT MockDOMStorageTaskRunner :
   ~MockDOMStorageTaskRunner() override;
 
  private:
-  const scoped_refptr<base::MessageLoopProxy> message_loop_;
+  const scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 };
 
 }  // namespace content
 
-#endif  // CONTENT_BROWSER_DOM_STORAGE_DOM_STORAGE_TASK_RUNNER_
+#endif  // CONTENT_BROWSER_DOM_STORAGE_DOM_STORAGE_TASK_RUNNER_H_

@@ -3,10 +3,10 @@
 // found in the LICENSE file.
 
 #include "base/files/file_path.h"
-#include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -14,11 +14,15 @@
 #include "chrome/browser/policy/cloud/user_policy_signin_service_factory.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/signin/account_fetcher_service_factory.h"
+#include "chrome/browser/signin/chrome_signin_client_factory.h"
+#include "chrome/browser/signin/fake_account_fetcher_service.h"
 #include "chrome/browser/signin/fake_profile_oauth2_token_service.h"
 #include "chrome/browser/signin/fake_profile_oauth2_token_service_builder.h"
 #include "chrome/browser/signin/fake_signin_manager.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
+#include "chrome/browser/signin/test_signin_client_builder.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_pref_service_syncable.h"
 #include "chrome/test/base/testing_profile.h"
@@ -29,6 +33,7 @@
 #include "components/policy/core/common/cloud/mock_user_cloud_policy_store.h"
 #include "components/policy/core/common/cloud/user_cloud_policy_manager.h"
 #include "components/policy/core/common/schema_registry.h"
+#include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/notification_details.h"
@@ -61,6 +66,7 @@ namespace policy {
 
 namespace {
 
+const char kTestGaiaId[] = "gaia-id-testuser@test.com";
 const char kTestUser[] = "testuser@test.com";
 
 #if !defined(OS_ANDROID)
@@ -90,23 +96,24 @@ class SigninManagerFake : public FakeSigninManager {
     SignOut(signin_metrics::SIGNOUT_TEST);
   }
 
-  static KeyedService* Build(content::BrowserContext* profile) {
-    return new SigninManagerFake(static_cast<Profile*>(profile));
+  static scoped_ptr<KeyedService> Build(content::BrowserContext* profile) {
+    return make_scoped_ptr(
+        new SigninManagerFake(static_cast<Profile*>(profile)));
   }
 };
 
 UserCloudPolicyManager* BuildCloudPolicyManager(
     content::BrowserContext* context) {
-  MockUserCloudPolicyStore *store = new MockUserCloudPolicyStore();
+  MockUserCloudPolicyStore* store = new MockUserCloudPolicyStore();
   EXPECT_CALL(*store, Load()).Times(AnyNumber());
 
   return new UserCloudPolicyManager(
       scoped_ptr<UserCloudPolicyStore>(store),
       base::FilePath(),
       scoped_ptr<CloudExternalDataManager>(),
-      base::MessageLoopProxy::current(),
-      base::MessageLoopProxy::current(),
-      base::MessageLoopProxy::current());
+      base::ThreadTaskRunnerHandle::Get(),
+      base::ThreadTaskRunnerHandle::Get(),
+      base::ThreadTaskRunnerHandle::Get());
 }
 
 class UserPolicySigninServiceTest : public testing::Test {
@@ -130,8 +137,10 @@ class UserPolicySigninServiceTest : public testing::Test {
     // a valid login token, while on other platforms, the login refresh token
     // is specified directly.
 #if defined(OS_ANDROID)
-    GetTokenService()->IssueRefreshTokenForUser(kTestUser,
-                                                "oauth2_login_refresh_token");
+    GetTokenService()->UpdateCredentials(
+        AccountTrackerService::PickAccountIdForAccount(
+            profile_.get()->GetPrefs(), kTestGaiaId, kTestUser),
+        "oauth2_login_refresh_token");
 #endif
     service->RegisterForPolicy(
         kTestUser,
@@ -143,14 +152,14 @@ class UserPolicySigninServiceTest : public testing::Test {
     ASSERT_TRUE(IsRequestActive());
   }
 
-  virtual void SetUp() override {
+  void SetUp() override {
     UserPolicySigninServiceFactory::SetDeviceManagementServiceForTesting(
         &device_management_service_);
 
     local_state_.reset(new TestingPrefServiceSimple);
     chrome::RegisterLocalState(local_state_->registry());
     system_request_context_getter_ = new net::TestURLRequestContextGetter(
-        base::MessageLoopProxy::current());
+        base::ThreadTaskRunnerHandle::Get());
     TestingBrowserProcess::GetGlobal()->SetSystemRequestContext(
         system_request_context_getter_.get());
     TestingBrowserProcess::GetGlobal()->SetLocalState(local_state_.get());
@@ -177,6 +186,10 @@ class UserPolicySigninServiceTest : public testing::Test {
                               SigninManagerFake::Build);
     builder.AddTestingFactory(ProfileOAuth2TokenServiceFactory::GetInstance(),
                               BuildFakeProfileOAuth2TokenService);
+    builder.AddTestingFactory(AccountFetcherServiceFactory::GetInstance(),
+                              FakeAccountFetcherService::BuildForTests);
+    builder.AddTestingFactory(ChromeSigninClientFactory::GetInstance(),
+                              signin::BuildTestSigninClient);
 
     profile_ = builder.Build().Pass();
     url_factory_.set_remove_fetcher_on_delete(true);
@@ -196,7 +209,7 @@ class UserPolicySigninServiceTest : public testing::Test {
     Mock::VerifyAndClearExpectations(mock_store_);
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     UserPolicySigninServiceFactory::SetDeviceManagementServiceForTesting(NULL);
     UserCloudPolicyManagerFactory::GetInstance()->ClearTestingFactory();
     // Free the profile before we clear out the browser prefs.
@@ -382,7 +395,7 @@ class UserPolicySigninServiceSignedInTest : public UserPolicySigninServiceTest {
 
     // Set the user as signed in.
     SigninManagerFactory::GetForProfile(profile_.get())->
-        SetAuthenticatedUsername(kTestUser);
+        SetAuthenticatedAccountInfo(kTestGaiaId, kTestUser);
 
     // Let the SigninService know that the profile has been created.
     content::NotificationService::current()->Notify(
@@ -417,8 +430,10 @@ TEST_F(UserPolicySigninServiceSignedInTest, InitWhileSignedIn) {
   ASSERT_FALSE(IsRequestActive());
 
   // Make oauth token available.
-  GetTokenService()->IssueRefreshTokenForUser(kTestUser,
-                                              "oauth_login_refresh_token");
+  GetTokenService()->UpdateCredentials(
+      SigninManagerFactory::GetForProfile(profile_.get())
+          ->GetAuthenticatedAccountId(),
+      "oauth_login_refresh_token");
 
   // Client registration should be in progress since we now have an oauth token.
   EXPECT_EQ(mock_store_->signin_username_, kTestUser);
@@ -436,8 +451,10 @@ TEST_F(UserPolicySigninServiceSignedInTest, InitWhileSignedInOAuthError) {
   ASSERT_FALSE(IsRequestActive());
 
   // Make oauth token available.
-  GetTokenService()->IssueRefreshTokenForUser(kTestUser,
-                                              "oauth_login_refresh_token");
+  GetTokenService()->UpdateCredentials(
+      SigninManagerFactory::GetForProfile(profile_.get())
+          ->GetAuthenticatedAccountId(),
+      "oauth_login_refresh_token");
 
   // Client registration should be in progress since we now have an oauth token.
   ASSERT_TRUE(IsRequestActive());
@@ -455,15 +472,17 @@ TEST_F(UserPolicySigninServiceTest, SignInAfterInit) {
   ASSERT_FALSE(manager_->core()->service());
 
   // Now sign in the user.
-  SigninManagerFactory::GetForProfile(profile_.get())->SetAuthenticatedUsername(
-      kTestUser);
+  SigninManagerFactory::GetForProfile(profile_.get())
+      ->SetAuthenticatedAccountInfo(kTestGaiaId, kTestUser);
 
   // Complete initialization of the store.
   mock_store_->NotifyStoreLoaded();
 
   // Make oauth token available.
-  GetTokenService()->IssueRefreshTokenForUser(kTestUser,
-                                              "oauth_login_refresh_token");
+  GetTokenService()->UpdateCredentials(
+      SigninManagerFactory::GetForProfile(profile_.get())
+          ->GetAuthenticatedAccountId(),
+      "oauth_login_refresh_token");
 
   // UserCloudPolicyManager should be initialized.
   EXPECT_EQ(mock_store_->signin_username_, kTestUser);
@@ -479,15 +498,18 @@ TEST_F(UserPolicySigninServiceTest, SignInWithNonEnterpriseUser) {
   ASSERT_FALSE(manager_->core()->service());
 
   // Now sign in a non-enterprise user (blacklisted gmail.com domain).
-  SigninManagerFactory::GetForProfile(profile_.get())->SetAuthenticatedUsername(
-      "non_enterprise_user@gmail.com");
+  SigninManagerFactory::GetForProfile(profile_.get())
+      ->SetAuthenticatedAccountInfo("gaia-id-non_enterprise_user@gmail.com",
+                                    "non_enterprise_user@gmail.com");
 
   // Complete initialization of the store.
   mock_store_->NotifyStoreLoaded();
 
   // Make oauth token available.
-  GetTokenService()->IssueRefreshTokenForUser(kTestUser,
-                                              "oauth_login_refresh_token");
+  GetTokenService()->UpdateCredentials(
+      SigninManagerFactory::GetForProfile(profile_.get())
+          ->GetAuthenticatedAccountId(),
+      "oauth_login_refresh_token");
 
   // UserCloudPolicyManager should not be initialized and there should be no
   // DMToken request active.
@@ -501,12 +523,14 @@ TEST_F(UserPolicySigninServiceTest, UnregisteredClient) {
   ASSERT_FALSE(manager_->core()->service());
 
   // Now sign in the user.
-  SigninManagerFactory::GetForProfile(profile_.get())->SetAuthenticatedUsername(
-      kTestUser);
+  SigninManagerFactory::GetForProfile(profile_.get())
+      ->SetAuthenticatedAccountInfo(kTestGaiaId, kTestUser);
 
   // Make oauth token available.
-  GetTokenService()->IssueRefreshTokenForUser(kTestUser,
-                                              "oauth_login_refresh_token");
+  GetTokenService()->UpdateCredentials(
+      SigninManagerFactory::GetForProfile(profile_.get())
+          ->GetAuthenticatedAccountId(),
+      "oauth_login_refresh_token");
 
   // UserCloudPolicyManager should be initialized.
   EXPECT_EQ(mock_store_->signin_username_, kTestUser);
@@ -529,12 +553,14 @@ TEST_F(UserPolicySigninServiceTest, RegisteredClient) {
   ASSERT_FALSE(manager_->core()->service());
 
   // Now sign in the user.
-  SigninManagerFactory::GetForProfile(profile_.get())->SetAuthenticatedUsername(
-      kTestUser);
+  SigninManagerFactory::GetForProfile(profile_.get())
+      ->SetAuthenticatedAccountInfo(kTestGaiaId, kTestUser);
 
   // Make oauth token available.
-  GetTokenService()->IssueRefreshTokenForUser(kTestUser,
-                                              "oauth_login_refresh_token");
+  GetTokenService()->UpdateCredentials(
+      SigninManagerFactory::GetForProfile(profile_.get())
+          ->GetAuthenticatedAccountId(),
+      "oauth_login_refresh_token");
 
   // UserCloudPolicyManager should be initialized.
   EXPECT_EQ(mock_store_->signin_username_, kTestUser);

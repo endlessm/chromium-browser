@@ -6,6 +6,7 @@
 
 #include "cc/output/context_provider.h"
 #include "cc/surfaces/surface_manager.h"
+#include "content/browser/gpu/compositor_util.h"
 #include "content/common/gpu/client/gl_helper.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "ui/compositor/compositor.h"
@@ -14,8 +15,11 @@
 namespace content {
 
 NoTransportImageTransportFactory::NoTransportImageTransportFactory()
-    : context_factory_(new ui::InProcessContextFactory),
-      surface_manager_(new cc::SurfaceManager) {
+    : surface_manager_(UseSurfacesEnabled() ? new cc::SurfaceManager : nullptr),
+      // The context factory created here is for unit tests, thus passing in
+      // true in constructor.
+      context_factory_(
+          new ui::InProcessContextFactory(true, surface_manager_.get())) {
 }
 
 NoTransportImageTransportFactory::~NoTransportImageTransportFactory() {
@@ -57,8 +61,8 @@ void NoTransportImageTransportFactory::RemoveObserver(
 }
 
 #if defined(OS_MACOSX)
-bool NoTransportImageTransportFactory::SurfaceShouldNotShowFramesAfterRecycle(
-    int surface_id) const {
+bool NoTransportImageTransportFactory::
+    SurfaceShouldNotShowFramesAfterSuspendForRecycle(int surface_id) const {
   return false;
 }
 #endif

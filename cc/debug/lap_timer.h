@@ -23,6 +23,8 @@ namespace cc {
 class CC_EXPORT LapTimer {
  public:
   LapTimer(int warmup_laps, base::TimeDelta time_limit, int check_interval);
+  // Create LapTimer with sensible default values.
+  LapTimer();
   // Resets the timer back to it's starting state.
   void Reset();
   // Sets the start point to now.
@@ -47,7 +49,7 @@ class CC_EXPORT LapTimer {
   int NumLaps();
 
  private:
-  base::TimeTicks start_time_;
+  base::TimeDelta start_time_;
   base::TimeDelta accumulator_;
   int num_laps_;
   int warmup_laps_;

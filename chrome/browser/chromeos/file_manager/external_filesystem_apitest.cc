@@ -9,6 +9,7 @@
 #include "base/path_service.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/drive/drive_integration_service.h"
+#include "chrome/browser/chromeos/drive/file_system_util.h"
 #include "chrome/browser/chromeos/file_manager/drive_test_util.h"
 #include "chrome/browser/chromeos/file_manager/volume_manager.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
@@ -81,35 +82,34 @@ class FakeSelectFileDialog : public ui::SelectFileDialog {
                        ui::SelectFilePolicy* policy)
       : ui::SelectFileDialog(listener, policy) {}
 
-  virtual void SelectFileImpl(
-      Type type,
-      const base::string16& title,
-      const base::FilePath& default_path,
-      const FileTypeInfo* file_types,
-      int file_type_index,
-      const base::FilePath::StringType& default_extension,
-      gfx::NativeWindow owning_window,
-      void* params) override {
+  void SelectFileImpl(Type type,
+                      const base::string16& title,
+                      const base::FilePath& default_path,
+                      const FileTypeInfo* file_types,
+                      int file_type_index,
+                      const base::FilePath::StringType& default_extension,
+                      gfx::NativeWindow owning_window,
+                      void* params) override {
     listener_->FileSelected(
         base::FilePath("/special/drive-user/root/test_dir"), 0, NULL);
   }
 
-  virtual bool IsRunning(gfx::NativeWindow owning_window) const override {
+  bool IsRunning(gfx::NativeWindow owning_window) const override {
     return false;
   }
 
-  virtual void ListenerDestroyed() override {}
+  void ListenerDestroyed() override {}
 
-  virtual bool HasMultipleFileTypeChoicesImpl() override { return false; }
+  bool HasMultipleFileTypeChoicesImpl() override { return false; }
 
  private:
-  virtual ~FakeSelectFileDialog() {}
+  ~FakeSelectFileDialog() override {}
 };
 
 class FakeSelectFileDialogFactory : public ui::SelectFileDialogFactory {
  private:
-  virtual ui::SelectFileDialog* Create(ui::SelectFileDialog::Listener* listener,
-                                       ui::SelectFilePolicy* policy) override {
+  ui::SelectFileDialog* Create(ui::SelectFileDialog::Listener* listener,
+                               ui::SelectFilePolicy* policy) override {
     return new FakeSelectFileDialog(listener, policy);
   }
 };
@@ -175,14 +175,14 @@ scoped_ptr<google_apis::FileResource> UpdateDriveEntryTime(
                                             &last_viewed_by_me_time))
     return scoped_ptr<google_apis::FileResource>();
 
-  google_apis::GDataErrorCode error = google_apis::GDATA_OTHER_ERROR;
+  google_apis::DriveApiErrorCode error = google_apis::DRIVE_OTHER_ERROR;
   scoped_ptr<google_apis::FileResource> entry;
   fake_drive_service->UpdateResource(
       resource_id,
       std::string(),  // parent_resource_id
       std::string(),  // title
-      last_modified_time,
-      last_viewed_by_me_time,
+      last_modified_time, last_viewed_by_me_time,
+      google_apis::drive::Properties(),
       google_apis::test_util::CreateCopyResultCallback(&error, &entry));
   base::RunLoop().RunUntilIdle();
   if (error != google_apis::HTTP_SUCCESS)
@@ -199,7 +199,7 @@ scoped_ptr<google_apis::FileResource> AddFileToDriveService(
     const std::string& title,
     const std::string& last_modified,
     const std::string& last_viewed_by_me) {
-  google_apis::GDataErrorCode error = google_apis::GDATA_OTHER_ERROR;
+  google_apis::DriveApiErrorCode error = google_apis::DRIVE_OTHER_ERROR;
   scoped_ptr<google_apis::FileResource> entry;
   fake_drive_service->AddNewFile(
       mime_type,
@@ -222,12 +222,10 @@ scoped_ptr<google_apis::FileResource> AddDirectoryToDriveService(
     const std::string& title,
     const std::string& last_modified,
     const std::string& last_viewed_by_me) {
-  google_apis::GDataErrorCode error = google_apis::GDATA_OTHER_ERROR;
+  google_apis::DriveApiErrorCode error = google_apis::DRIVE_OTHER_ERROR;
   scoped_ptr<google_apis::FileResource> entry;
   fake_drive_service->AddNewDirectory(
-      parent_resource_id,
-      title,
-      drive::DriveServiceInterface::AddNewDirectoryOptions(),
+      parent_resource_id, title, drive::AddNewDirectoryOptions(),
       google_apis::test_util::CreateCopyResultCallback(&error, &entry));
   base::RunLoop().RunUntilIdle();
   if (error != google_apis::HTTP_CREATED)
@@ -361,14 +359,14 @@ class FileSystemExtensionApiTestBase : public ExtensionApiTest {
   };
 
   FileSystemExtensionApiTestBase() {}
-  virtual ~FileSystemExtensionApiTestBase() {}
+  ~FileSystemExtensionApiTestBase() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     InitTestFileSystem();
     ExtensionApiTest::SetUp();
   }
 
-  virtual void SetUpOnMainThread() override {
+  void SetUpOnMainThread() override {
     AddTestMountPoint();
     ExtensionApiTest::SetUpOnMainThread();
   }
@@ -437,24 +435,26 @@ class FileSystemExtensionApiTestBase : public ExtensionApiTest {
 class LocalFileSystemExtensionApiTest : public FileSystemExtensionApiTestBase {
  public:
   LocalFileSystemExtensionApiTest() {}
-  virtual ~LocalFileSystemExtensionApiTest() {}
+  ~LocalFileSystemExtensionApiTest() override {}
 
   // FileSystemExtensionApiTestBase override.
-  virtual void InitTestFileSystem() override {
+  void InitTestFileSystem() override {
     ASSERT_TRUE(InitializeLocalFileSystem(
         kLocalMountPointName, &tmp_dir_, &mount_point_dir_))
         << "Failed to initialize file system.";
   }
 
   // FileSystemExtensionApiTestBase override.
-  virtual void AddTestMountPoint() override {
+  void AddTestMountPoint() override {
     EXPECT_TRUE(content::BrowserContext::GetMountPoints(browser()->profile())
                     ->RegisterFileSystem(kLocalMountPointName,
                                          storage::kFileSystemTypeNativeLocal,
                                          storage::FileSystemMountOption(),
                                          mount_point_dir_));
-    VolumeManager::Get(browser()->profile())->AddVolumeInfoForTesting(
-        mount_point_dir_, VOLUME_TYPE_TESTING, chromeos::DEVICE_TYPE_UNKNOWN);
+    VolumeManager::Get(browser()->profile())
+        ->AddVolumeForTesting(mount_point_dir_, VOLUME_TYPE_TESTING,
+                              chromeos::DEVICE_TYPE_UNKNOWN,
+                              false /* read_only */);
   }
 
  private:
@@ -467,25 +467,27 @@ class RestrictedFileSystemExtensionApiTest
     : public FileSystemExtensionApiTestBase {
  public:
   RestrictedFileSystemExtensionApiTest() {}
-  virtual ~RestrictedFileSystemExtensionApiTest() {}
+  ~RestrictedFileSystemExtensionApiTest() override {}
 
   // FileSystemExtensionApiTestBase override.
-  virtual void InitTestFileSystem() override {
+  void InitTestFileSystem() override {
     ASSERT_TRUE(InitializeLocalFileSystem(
         kRestrictedMountPointName, &tmp_dir_, &mount_point_dir_))
         << "Failed to initialize file system.";
   }
 
   // FileSystemExtensionApiTestBase override.
-  virtual void AddTestMountPoint() override {
+  void AddTestMountPoint() override {
     EXPECT_TRUE(
         content::BrowserContext::GetMountPoints(browser()->profile())
             ->RegisterFileSystem(kRestrictedMountPointName,
                                  storage::kFileSystemTypeRestrictedNativeLocal,
                                  storage::FileSystemMountOption(),
                                  mount_point_dir_));
-    VolumeManager::Get(browser()->profile())->AddVolumeInfoForTesting(
-        mount_point_dir_, VOLUME_TYPE_TESTING, chromeos::DEVICE_TYPE_UNKNOWN);
+    VolumeManager::Get(browser()->profile())
+        ->AddVolumeForTesting(mount_point_dir_, VOLUME_TYPE_TESTING,
+                              chromeos::DEVICE_TYPE_UNKNOWN,
+                              true /* read_only */);
   }
 
  private:
@@ -497,10 +499,10 @@ class RestrictedFileSystemExtensionApiTest
 class DriveFileSystemExtensionApiTest : public FileSystemExtensionApiTestBase {
  public:
   DriveFileSystemExtensionApiTest() : fake_drive_service_(NULL) {}
-  virtual ~DriveFileSystemExtensionApiTest() {}
+  ~DriveFileSystemExtensionApiTest() override {}
 
   // FileSystemExtensionApiTestBase override.
-  virtual void InitTestFileSystem() override {
+  void InitTestFileSystem() override {
     // Set up cache root to be used by DriveIntegrationService. This has to be
     // done before the browser is created because the service instance is
     // initialized by EventRouter.
@@ -516,12 +518,12 @@ class DriveFileSystemExtensionApiTest : public FileSystemExtensionApiTestBase {
   }
 
   // FileSystemExtensionApiTestBase override.
-  virtual void AddTestMountPoint() override {
+  void AddTestMountPoint() override {
     test_util::WaitUntilDriveMountPointIsAdded(browser()->profile());
   }
 
   // FileSystemExtensionApiTestBase override.
-  virtual void TearDown() override {
+  void TearDown() override {
     FileSystemExtensionApiTestBase::TearDown();
     ui::SelectFileDialog::SetFactory(NULL);
   }
@@ -530,6 +532,13 @@ class DriveFileSystemExtensionApiTest : public FileSystemExtensionApiTestBase {
   // DriveIntegrationService factory function for this test.
   drive::DriveIntegrationService* CreateDriveIntegrationService(
       Profile* profile) {
+    // Ignore signin profile.
+    if (profile->GetPath() == chromeos::ProfileHelper::GetSigninProfileDir())
+      return NULL;
+
+    // DriveFileSystemExtensionApiTest doesn't expect that several user profiles
+    // could exist simultaneously.
+    DCHECK(fake_drive_service_ == NULL);
     fake_drive_service_ = new drive::FakeDriveService;
     fake_drive_service_->LoadAppListForDriveApi("drive/applist.json");
 
@@ -554,7 +563,7 @@ class MultiProfileDriveFileSystemExtensionApiTest :
  public:
   MultiProfileDriveFileSystemExtensionApiTest() : second_profile(NULL) {}
 
-  virtual void SetUpOnMainThread() override {
+  void SetUpOnMainThread() override {
     base::FilePath user_data_directory;
     PathService::Get(chrome::DIR_USER_DATA, &user_data_directory);
     user_manager::UserManager::Get()->UserLoggedIn(
@@ -570,7 +579,7 @@ class MultiProfileDriveFileSystemExtensionApiTest :
     FileSystemExtensionApiTestBase::SetUpOnMainThread();
   }
 
-  virtual void InitTestFileSystem() override {
+  void InitTestFileSystem() override {
     // This callback will get called during Profile creation.
     create_drive_integration_service_ = base::Bind(
         &MultiProfileDriveFileSystemExtensionApiTest::
@@ -581,7 +590,7 @@ class MultiProfileDriveFileSystemExtensionApiTest :
             &create_drive_integration_service_));
   }
 
-  virtual void AddTestMountPoint() override {
+  void AddTestMountPoint() override {
     test_util::WaitUntilDriveMountPointIsAdded(browser()->profile());
     test_util::WaitUntilDriveMountPointIsAdded(second_profile);
   }
@@ -611,7 +620,7 @@ class MultiProfileDriveFileSystemExtensionApiTest :
         static_cast<drive::FakeDriveService*>(
             drive::util::GetDriveServiceByProfile(second_profile));
 
-    google_apis::GDataErrorCode error = google_apis::GDATA_OTHER_ERROR;
+    google_apis::DriveApiErrorCode error = google_apis::DRIVE_OTHER_ERROR;
     scoped_ptr<google_apis::FileResource> entry;
 
     // Place a hosted document under root/test_dir of the sub profile.
@@ -626,7 +635,7 @@ class MultiProfileDriveFileSystemExtensionApiTest :
 
     // Place the hosted document with no parent in the main profile, for
     // simulating the situation that the document is shared to the main profile.
-    error = google_apis::GDATA_OTHER_ERROR;
+    error = google_apis::DRIVE_OTHER_ERROR;
     main_service->AddNewFileWithResourceId(
         kResourceId,
         "application/vnd.google-apps.document", "", "", "hosted_doc", true,
@@ -647,10 +656,10 @@ class LocalAndDriveFileSystemExtensionApiTest
     : public FileSystemExtensionApiTestBase {
  public:
   LocalAndDriveFileSystemExtensionApiTest() {}
-  virtual ~LocalAndDriveFileSystemExtensionApiTest() {}
+  ~LocalAndDriveFileSystemExtensionApiTest() override {}
 
   // FileSystemExtensionApiTestBase override.
-  virtual void InitTestFileSystem() override {
+  void InitTestFileSystem() override {
     ASSERT_TRUE(InitializeLocalFileSystem(
         kLocalMountPointName, &local_tmp_dir_, &local_mount_point_dir_))
         << "Failed to initialize file system.";
@@ -670,16 +679,16 @@ class LocalAndDriveFileSystemExtensionApiTest
   }
 
   // FileSystemExtensionApiTestBase override.
-  virtual void AddTestMountPoint() override {
+  void AddTestMountPoint() override {
     EXPECT_TRUE(content::BrowserContext::GetMountPoints(browser()->profile())
                     ->RegisterFileSystem(kLocalMountPointName,
                                          storage::kFileSystemTypeNativeLocal,
                                          storage::FileSystemMountOption(),
                                          local_mount_point_dir_));
     VolumeManager::Get(browser()->profile())
-        ->AddVolumeInfoForTesting(local_mount_point_dir_,
-                                  VOLUME_TYPE_TESTING,
-                                  chromeos::DEVICE_TYPE_UNKNOWN);
+        ->AddVolumeForTesting(local_mount_point_dir_, VOLUME_TYPE_TESTING,
+                              chromeos::DEVICE_TYPE_UNKNOWN,
+                              false /* read_only */);
     test_util::WaitUntilDriveMountPointIsAdded(browser()->profile());
   }
 

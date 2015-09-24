@@ -12,6 +12,10 @@
 
 class GrContext;
 
+namespace base {
+class Lock;
+}
+
 namespace gpu {
 class ContextSupport;
 namespace gles2 { class GLES2Interface; }
@@ -27,6 +31,7 @@ class ContextProvider : public base::RefCountedThreadSafe<ContextProvider> {
   // Once this function has been called, the class should only be accessed
   // from the same thread.
   virtual bool BindToCurrentThread() = 0;
+  virtual void DetachFromThread() {}
 
   virtual gpu::gles2::GLES2Interface* ContextGL() = 0;
   virtual gpu::ContextSupport* ContextSupport() = 0;
@@ -39,11 +44,19 @@ class ContextProvider : public base::RefCountedThreadSafe<ContextProvider> {
     CC_EXPORT Capabilities();
   };
 
+  // Invalidates the cached OpenGL state in GrContext.
+  // See skia GrContext::resetContext for details.
+  virtual void InvalidateGrContext(uint32_t state) = 0;
+
+  // Sets up a lock so this context can be used from multiple threads.
+  virtual void SetupLock() = 0;
+
+  // Returns the lock that should be held if using this context from multiple
+  // threads.
+  virtual base::Lock* GetLock() = 0;
+
   // Returns the capabilities of the currently bound 3d context.
   virtual Capabilities ContextCapabilities() = 0;
-
-  // Checks if the context is currently known to be lost.
-  virtual bool IsContextLost() = 0;
 
   // Ask the provider to check if the contexts are valid or lost. If they are,
   // this should invalidate the provider so that it can be replaced with a new

@@ -5,14 +5,11 @@
 #include "media/base/wall_clock_time_source.h"
 
 #include "base/logging.h"
-#include "base/time/default_tick_clock.h"
 
 namespace media {
 
 WallClockTimeSource::WallClockTimeSource()
-    : tick_clock_(new base::DefaultTickClock()),
-      ticking_(false),
-      playback_rate_(1.0f) {
+    : tick_clock_(&default_tick_clock_), ticking_(false), playback_rate_(1.0) {
 }
 
 WallClockTimeSource::~WallClockTimeSource() {
@@ -23,26 +20,26 @@ void WallClockTimeSource::StartTicking() {
   base::AutoLock auto_lock(lock_);
   DCHECK(!ticking_);
   ticking_ = true;
-  reference_wall_ticks_ = tick_clock_->NowTicks();
+  reference_time_ = tick_clock_->NowTicks();
 }
 
 void WallClockTimeSource::StopTicking() {
   DVLOG(1) << __FUNCTION__;
   base::AutoLock auto_lock(lock_);
   DCHECK(ticking_);
-  base_time_ = CurrentMediaTime_Locked();
+  base_timestamp_ = CurrentMediaTime_Locked();
   ticking_ = false;
-  reference_wall_ticks_ = tick_clock_->NowTicks();
+  reference_time_ = tick_clock_->NowTicks();
 }
 
-void WallClockTimeSource::SetPlaybackRate(float playback_rate) {
+void WallClockTimeSource::SetPlaybackRate(double playback_rate) {
   DVLOG(1) << __FUNCTION__ << "(" << playback_rate << ")";
   base::AutoLock auto_lock(lock_);
   // Estimate current media time using old rate to use as a new base time for
   // the new rate.
   if (ticking_) {
-    base_time_ = CurrentMediaTime_Locked();
-    reference_wall_ticks_ = tick_clock_->NowTicks();
+    base_timestamp_ = CurrentMediaTime_Locked();
+    reference_time_ = tick_clock_->NowTicks();
   }
 
   playback_rate_ = playback_rate;
@@ -52,7 +49,7 @@ void WallClockTimeSource::SetMediaTime(base::TimeDelta time) {
   DVLOG(1) << __FUNCTION__ << "(" << time.InMicroseconds() << ")";
   base::AutoLock auto_lock(lock_);
   CHECK(!ticking_);
-  base_time_ = time;
+  base_timestamp_ = time;
 }
 
 base::TimeDelta WallClockTimeSource::CurrentMediaTime() {
@@ -60,24 +57,38 @@ base::TimeDelta WallClockTimeSource::CurrentMediaTime() {
   return CurrentMediaTime_Locked();
 }
 
-base::TimeDelta WallClockTimeSource::CurrentMediaTimeForSyncingVideo() {
-  return CurrentMediaTime();
-}
+bool WallClockTimeSource::GetWallClockTimes(
+    const std::vector<base::TimeDelta>& media_timestamps,
+    std::vector<base::TimeTicks>* wall_clock_times) {
+  base::AutoLock auto_lock(lock_);
+  DCHECK(wall_clock_times->empty());
 
-void WallClockTimeSource::SetTickClockForTesting(
-    scoped_ptr<base::TickClock> tick_clock) {
-  tick_clock_.swap(tick_clock);
+  if (media_timestamps.empty()) {
+    wall_clock_times->push_back(reference_time_);
+  } else {
+    // When playback is paused (rate is zero), assume a rate of 1.0.
+    const double playback_rate = playback_rate_ ? playback_rate_ : 1.0;
+
+    wall_clock_times->reserve(media_timestamps.size());
+    for (const auto& media_timestamp : media_timestamps) {
+      wall_clock_times->push_back(reference_time_ +
+                                  (media_timestamp - base_timestamp_) /
+                                      playback_rate);
+    }
+  }
+
+  return playback_rate_ && ticking_;
 }
 
 base::TimeDelta WallClockTimeSource::CurrentMediaTime_Locked() {
   lock_.AssertAcquired();
-  if (!ticking_)
-    return base_time_;
+  if (!ticking_ || !playback_rate_)
+    return base_timestamp_;
 
   base::TimeTicks now = tick_clock_->NowTicks();
-  return base_time_ +
+  return base_timestamp_ +
          base::TimeDelta::FromMicroseconds(
-             (now - reference_wall_ticks_).InMicroseconds() * playback_rate_);
+             (now - reference_time_).InMicroseconds() * playback_rate_);
 }
 
 }  // namespace media

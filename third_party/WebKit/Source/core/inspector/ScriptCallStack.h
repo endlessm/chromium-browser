@@ -31,6 +31,7 @@
 #ifndef ScriptCallStack_h
 #define ScriptCallStack_h
 
+#include "core/CoreExport.h"
 #include "core/InspectorTypeBuilder.h"
 #include "core/inspector/ScriptCallFrame.h"
 #include "platform/heap/Handle.h"
@@ -41,13 +42,15 @@
 namespace blink {
 
 class ScriptAsyncCallStack;
+class TracedValue;
 
-class ScriptCallStack final : public RefCountedWillBeGarbageCollectedFinalized<ScriptCallStack> {
-    DECLARE_EMPTY_DESTRUCTOR_WILL_BE_REMOVED(ScriptCallStack);
+class CORE_EXPORT ScriptCallStack final : public RefCountedWillBeGarbageCollectedFinalized<ScriptCallStack> {
 public:
     static const size_t maxCallStackSizeToCapture = 200;
 
     static PassRefPtrWillBeRawPtr<ScriptCallStack> create(Vector<ScriptCallFrame>&);
+
+    ~ScriptCallStack();
 
     const ScriptCallFrame &at(size_t) const;
     size_t size() const;
@@ -56,8 +59,9 @@ public:
     void setAsyncCallStack(PassRefPtrWillBeRawPtr<ScriptAsyncCallStack>);
 
     PassRefPtr<TypeBuilder::Array<TypeBuilder::Console::CallFrame> > buildInspectorArray() const;
+    void toTracedValue(TracedValue*, const char* name) const;
 
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
 private:
     explicit ScriptCallStack(Vector<ScriptCallFrame>&);

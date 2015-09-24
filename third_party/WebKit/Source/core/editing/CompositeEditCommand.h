@@ -44,12 +44,11 @@ class EditCommandComposition final : public UndoStep {
 public:
     static PassRefPtrWillBeRawPtr<EditCommandComposition> create(Document*, const VisibleSelection&, const VisibleSelection&, EditAction);
 
-    virtual bool belongsTo(const LocalFrame&) const override;
-    virtual void unapply() override;
-    virtual void reapply() override;
-    virtual EditAction editingAction() const override { return m_editAction; }
+    bool belongsTo(const LocalFrame&) const override;
+    void unapply() override;
+    void reapply() override;
+    EditAction editingAction() const override { return m_editAction; }
     void append(SimpleEditCommand*);
-    bool wasCreateLinkCommand() const { return m_editAction == EditActionCreateLink; }
 
     const VisibleSelection& startingSelection() const { return m_startingSelection; }
     const VisibleSelection& endingSelection() const { return m_endingSelection; }
@@ -58,7 +57,7 @@ public:
     Element* startingRootEditableElement() const { return m_startingRootEditableElement.get(); }
     Element* endingRootEditableElement() const { return m_endingRootEditableElement.get(); }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     EditCommandComposition(Document*, const VisibleSelection& startingSelection, const VisibleSelection& endingSelection, EditAction);
@@ -74,7 +73,7 @@ private:
 
 class CompositeEditCommand : public EditCommand {
 public:
-    virtual ~CompositeEditCommand();
+    ~CompositeEditCommand() override;
 
     void apply();
     bool isFirstCommand(EditCommand* command) { return !m_commands.isEmpty() && m_commands.first() == command; }
@@ -86,7 +85,7 @@ public:
     virtual void setShouldRetainAutocorrectionIndicator(bool);
     virtual bool shouldStopCaretBlinking() const { return false; }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 protected:
     explicit CompositeEditCommand(Document&);
@@ -171,7 +170,7 @@ protected:
     WillBeHeapVector<RefPtrWillBeMember<EditCommand>> m_commands;
 
 private:
-    virtual bool isCompositeEditCommand() const override final { return true; }
+    bool isCompositeEditCommand() const final { return true; }
 
     RefPtrWillBeMember<EditCommandComposition> m_composition;
 };

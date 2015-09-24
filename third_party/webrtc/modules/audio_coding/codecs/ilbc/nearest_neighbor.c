@@ -38,9 +38,9 @@ void WebRtcIlbcfix_NearestNeighbor(
   /* Calculate square distance */
   for(i=0;i<arlength;i++){
     diff=array[i]-value;
-    crit[i]=WEBRTC_SPL_MUL_16_16(diff, diff);
+    crit[i] = diff * diff;
   }
 
   /* Find the minimum square distance */
-  *index=WebRtcSpl_MinIndexW32(crit, (int16_t)arlength);
+  *index=WebRtcSpl_MinIndexW32(crit, arlength);
 }

@@ -55,7 +55,7 @@ class ConsumerManagementServiceTest : public BrowserWithTestWindowTest {
                        MockFlushAndSignBootAttributes));
   }
 
-  virtual void SetUp() override {
+  void SetUp() override {
     BrowserWithTestWindowTest::SetUp();
 
     testing_profile_manager_.reset(new TestingProfileManager(
@@ -65,22 +65,22 @@ class ConsumerManagementServiceTest : public BrowserWithTestWindowTest {
                                                  NULL));
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     testing_profile_manager_.reset();
     service_.reset();
 
     BrowserWithTestWindowTest::TearDown();
   }
 
-  ConsumerManagementService::EnrollmentStage GetEnrollmentStage() {
-    return static_cast<ConsumerManagementService::EnrollmentStage>(
+  ConsumerManagementStage GetStageFromLocalState() {
+    return ConsumerManagementStage::FromInternalValue(
         g_browser_process->local_state()->GetInteger(
-            prefs::kConsumerManagementEnrollmentStage));
+            prefs::kConsumerManagementStage));
   }
 
-  void SetEnrollmentStage(ConsumerManagementService::EnrollmentStage stage) {
+  void SetStageInLocalState(ConsumerManagementStage stage) {
     g_browser_process->local_state()->SetInteger(
-        prefs::kConsumerManagementEnrollmentStage, stage);
+        prefs::kConsumerManagementStage, stage.ToInternalValue());
   }
 
   void MockGetBootAttribute(
@@ -126,25 +126,22 @@ class ConsumerManagementServiceTest : public BrowserWithTestWindowTest {
   bool set_owner_status_;
 };
 
-TEST_F(ConsumerManagementServiceTest, CanGetEnrollmentStage) {
-  EXPECT_EQ(ConsumerManagementService::ENROLLMENT_STAGE_NONE,
-            service_->GetEnrollmentStage());
+TEST_F(ConsumerManagementServiceTest, CanGetStage) {
+  EXPECT_EQ(ConsumerManagementStage::None(), service_->GetStage());
 
-  SetEnrollmentStage(ConsumerManagementService::ENROLLMENT_STAGE_REQUESTED);
+  SetStageInLocalState(ConsumerManagementStage::EnrollmentRequested());
 
-  EXPECT_EQ(ConsumerManagementService::ENROLLMENT_STAGE_REQUESTED,
-            service_->GetEnrollmentStage());
+  EXPECT_EQ(ConsumerManagementStage::EnrollmentRequested(),
+            service_->GetStage());
 }
 
-TEST_F(ConsumerManagementServiceTest, CanSetEnrollmentStage) {
-  EXPECT_EQ(ConsumerManagementService::ENROLLMENT_STAGE_NONE,
-            GetEnrollmentStage());
+TEST_F(ConsumerManagementServiceTest, CanSetStage) {
+  EXPECT_EQ(ConsumerManagementStage::None(), GetStageFromLocalState());
 
-  service_->SetEnrollmentStage(
-      ConsumerManagementService::ENROLLMENT_STAGE_REQUESTED);
+  service_->SetStage(ConsumerManagementStage::EnrollmentRequested());
 
-  EXPECT_EQ(ConsumerManagementService::ENROLLMENT_STAGE_REQUESTED,
-            GetEnrollmentStage());
+  EXPECT_EQ(ConsumerManagementStage::EnrollmentRequested(),
+            GetStageFromLocalState());
 }
 
 TEST_F(ConsumerManagementServiceTest, CanGetOwner) {
@@ -204,9 +201,9 @@ class ConsumerManagementServiceStatusTest
         service_(NULL, &device_settings_service_) {
   }
 
-  void SetEnrollmentStage(ConsumerManagementService::EnrollmentStage stage) {
+  void SetStageInLocalState(ConsumerManagementStage stage) {
     testing_local_state_.Get()->SetInteger(
-        prefs::kConsumerManagementEnrollmentStage, stage);
+        prefs::kConsumerManagementStage, stage.ToInternalValue());
   }
 
   void SetManagementMode(em::PolicyData::ManagementMode mode) {
@@ -221,31 +218,36 @@ class ConsumerManagementServiceStatusTest
 };
 
 TEST_F(ConsumerManagementServiceStatusTest,
-       GetStatusGetStatusStringAndHasPendingEnrollmentNotificationWork) {
+       GetStatusAndGetStatusStringNotificationWork) {
   EXPECT_EQ(ConsumerManagementService::STATUS_UNKNOWN, service_.GetStatus());
   EXPECT_EQ("StatusUnknown", service_.GetStatusString());
 
-  SetManagementMode(em::PolicyData::NOT_MANAGED);
-  SetEnrollmentStage(ConsumerManagementService::ENROLLMENT_STAGE_NONE);
+  SetManagementMode(em::PolicyData::LOCAL_OWNER);
+  SetStageInLocalState(ConsumerManagementStage::None());
 
   EXPECT_EQ(ConsumerManagementService::STATUS_UNENROLLED, service_.GetStatus());
   EXPECT_EQ("StatusUnenrolled", service_.GetStatusString());
-  EXPECT_FALSE(service_.HasPendingEnrollmentNotification());
 
-  SetEnrollmentStage(ConsumerManagementService::ENROLLMENT_STAGE_REQUESTED);
+  SetStageInLocalState(ConsumerManagementStage::EnrollmentRequested());
 
   EXPECT_EQ(ConsumerManagementService::STATUS_ENROLLING, service_.GetStatus());
   EXPECT_EQ("StatusEnrolling", service_.GetStatusString());
 
   SetManagementMode(em::PolicyData::CONSUMER_MANAGED);
-  SetEnrollmentStage(ConsumerManagementService::ENROLLMENT_STAGE_SUCCESS);
+  SetStageInLocalState(ConsumerManagementStage::EnrollmentSuccess());
 
   EXPECT_EQ(ConsumerManagementService::STATUS_ENROLLED, service_.GetStatus());
   EXPECT_EQ("StatusEnrolled", service_.GetStatusString());
-  EXPECT_TRUE(service_.HasPendingEnrollmentNotification());
 
-  // TODO(davidyu): Test for STATUS_UNENROLLING when it is implemented.
-  // http://crbug.com/353050.
+  SetStageInLocalState(ConsumerManagementStage::UnenrollmentRequested());
+  EXPECT_EQ(ConsumerManagementService::STATUS_UNENROLLING,
+            service_.GetStatus());
+  EXPECT_EQ("StatusUnenrolling", service_.GetStatusString());
+
+  SetManagementMode(em::PolicyData::LOCAL_OWNER);
+  SetStageInLocalState(ConsumerManagementStage::UnenrollmentSuccess());
+  EXPECT_EQ(ConsumerManagementService::STATUS_UNENROLLED, service_.GetStatus());
+  EXPECT_EQ("StatusUnenrolled", service_.GetStatusString());
 }
 
 }  // namespace policy

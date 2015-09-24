@@ -16,9 +16,9 @@ import sys
 
 # set |match| to ignore build stderr output.
 test = TestGyp.TestGyp(match = lambda a, b: True)
-if sys.platform != 'win32' and test.format not in ('make', 'android'):
+if sys.platform != 'win32' and test.format != 'make':
   # TODO: This doesn't pass with make.
-  # TODO: Does a test like this make sense with Windows? Android?
+  # TODO: Does a test like this make sense with Windows?
 
   CHDIR = 'src'
   test.run_gyp('test.gyp', chdir=CHDIR)
@@ -42,6 +42,7 @@ if sys.platform != 'win32' and test.format not in ('make', 'android'):
     'make': 2,
     'ninja': 1,
     'cmake': 0,  # CMake picks the compiler driver based on transitive checks.
+    'xcode-ninja': [1, 65],
   }[test.format]
 
   test.build('test.gyp', 'no_cpp_dep_on_cc_lib', chdir=CHDIR,

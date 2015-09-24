@@ -106,11 +106,11 @@ namespace internal {
 class ProviderTypeComboboxModel : public ui::ComboboxModel {
  public:
   ProviderTypeComboboxModel();
-  virtual ~ProviderTypeComboboxModel();
+  ~ProviderTypeComboboxModel() override;
 
   // Overridden from ui::ComboboxModel:
-  virtual int GetItemCount() const override;
-  virtual base::string16 GetItemAt(int index) override;
+  int GetItemCount() const override;
+  base::string16 GetItemAt(int index) override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ProviderTypeComboboxModel);
@@ -119,11 +119,11 @@ class ProviderTypeComboboxModel : public ui::ComboboxModel {
 class VpnServerCACertComboboxModel : public ui::ComboboxModel {
  public:
   VpnServerCACertComboboxModel();
-  virtual ~VpnServerCACertComboboxModel();
+  ~VpnServerCACertComboboxModel() override;
 
   // Overridden from ui::ComboboxModel:
-  virtual int GetItemCount() const override;
-  virtual base::string16 GetItemAt(int index) override;
+  int GetItemCount() const override;
+  base::string16 GetItemAt(int index) override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(VpnServerCACertComboboxModel);
@@ -132,11 +132,11 @@ class VpnServerCACertComboboxModel : public ui::ComboboxModel {
 class VpnUserCertComboboxModel : public ui::ComboboxModel {
  public:
   VpnUserCertComboboxModel();
-  virtual ~VpnUserCertComboboxModel();
+  ~VpnUserCertComboboxModel() override;
 
   // Overridden from ui::ComboboxModel:
-  virtual int GetItemCount() const override;
-  virtual base::string16 GetItemAt(int index) override;
+  int GetItemCount() const override;
+  base::string16 GetItemAt(int index) override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(VpnUserCertComboboxModel);
@@ -228,6 +228,7 @@ VPNConfigView::VPNConfigView(NetworkConfigView* parent,
       enable_server_ca_cert_(false),
       enable_otp_(false),
       enable_group_name_(false),
+      user_passphrase_required_(false),
       title_(0),
       layout_(NULL),
       server_textfield_(NULL),
@@ -280,7 +281,7 @@ views::View* VPNConfigView::GetInitiallyFocusedView() {
     else if (server_ca_cert_combobox_ && server_ca_cert_combobox_->enabled())
       return server_ca_cert_combobox_;
   }
-  if (user_passphrase_textfield_)
+  if (user_passphrase_textfield_ && user_passphrase_required_)
     return user_passphrase_textfield_;
   else if (otp_textfield_)
     return otp_textfield_;
@@ -375,7 +376,7 @@ bool VPNConfigView::Login() {
     }
 
     ui::NetworkConnect::Get()->CreateConfigurationAndConnect(&properties,
-                                                              shared);
+                                                             shared);
   } else {
     const NetworkState* vpn = NetworkHandler::Get()->network_state_handler()->
         GetNetworkState(service_path_);
@@ -693,10 +694,9 @@ void VPNConfigView::Init() {
   Refresh();
 
   if (vpn) {
-    NetworkHandler::Get()->network_configuration_handler()->GetProperties(
-        service_path_,
-        base::Bind(&VPNConfigView::InitFromProperties,
-                   weak_ptr_factory_.GetWeakPtr()),
+    NetworkHandler::Get()->network_configuration_handler()->GetShillProperties(
+        service_path_, base::Bind(&VPNConfigView::InitFromProperties,
+                                  weak_ptr_factory_.GetWeakPtr()),
         base::Bind(&VPNConfigView::GetPropertiesError,
                    weak_ptr_factory_.GetWeakPtr()));
   }
@@ -714,7 +714,7 @@ void VPNConfigView::InitFromProperties(
 
   std::string provider_type, server_hostname, username, group_name;
   bool psk_passphrase_required = false;
-  bool user_passphrase_required = true;
+  user_passphrase_required_ = true;
   const base::DictionaryValue* provider_properties;
   if (service_properties.GetDictionaryWithoutPathExpansion(
           shill::kProviderProperty, &provider_properties)) {
@@ -741,7 +741,7 @@ void VPNConfigView::InitFromProperties(
       provider_properties->GetStringWithoutPathExpansion(
           shill::kOpenVPNUserProperty, &username);
       provider_properties->GetBooleanWithoutPathExpansion(
-          shill::kPassphraseRequiredProperty, &user_passphrase_required);
+          shill::kPassphraseRequiredProperty, &user_passphrase_required_);
     }
   }
   bool save_credentials = false;
@@ -765,7 +765,7 @@ void VPNConfigView::InitFromProperties(
   if (psk_passphrase_textfield_)
     psk_passphrase_textfield_->SetShowFake(!psk_passphrase_required);
   if (user_passphrase_textfield_)
-    user_passphrase_textfield_->SetShowFake(!user_passphrase_required);
+    user_passphrase_textfield_->SetShowFake(!user_passphrase_required_);
   if (save_credentials_checkbox_)
     save_credentials_checkbox_->SetChecked(save_credentials);
 
@@ -1000,7 +1000,7 @@ void VPNConfigView::UpdateErrorLabel() {
     const NetworkState* vpn = NetworkHandler::Get()->network_state_handler()->
         GetNetworkState(service_path_);
     if (vpn && vpn->connection_state() == shill::kStateFailure)
-      error_msg = ui::NetworkConnect::Get()->GetErrorString(
+      error_msg = ui::NetworkConnect::Get()->GetShillErrorString(
           vpn->last_error(), vpn->path());
   }
   if (!error_msg.empty()) {

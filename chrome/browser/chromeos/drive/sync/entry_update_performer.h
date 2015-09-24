@@ -9,8 +9,9 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/threading/thread_checker.h"
 #include "chrome/browser/chromeos/drive/file_errors.h"
-#include "google_apis/drive/gdata_errorcode.h"
+#include "google_apis/drive/drive_api_error_codes.h"
 
 namespace base {
 class ScopedClosureRunner;
@@ -72,9 +73,9 @@ class EntryUpdatePerformer {
   void UpdateEntryAfterUpdateResource(
       const ClientContext& context,
       const FileOperationCallback& callback,
-      const std::string& local_id,
+      scoped_ptr<LocalState> local_state,
       scoped_ptr<base::ScopedClosureRunner> loader_lock,
-      google_apis::GDataErrorCode status,
+      google_apis::DriveApiErrorCode status,
       scoped_ptr<google_apis::FileResource> entry);
 
   // Part of UpdateEntry(). Called after FinishUpdate is completed.
@@ -90,6 +91,8 @@ class EntryUpdatePerformer {
   LoaderController* loader_controller_;
   scoped_ptr<RemovePerformer> remove_performer_;
   scoped_ptr<EntryRevertPerformer> entry_revert_performer_;
+
+  base::ThreadChecker thread_checker_;
 
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate the weak pointers before any other members are destroyed.

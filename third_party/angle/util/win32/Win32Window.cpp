@@ -4,9 +4,13 @@
 // found in the LICENSE file.
 //
 
+// Win32Window.cpp: Implementation of OSWindow for Windows
+
 #include "win32/Win32Window.h"
 
 #include <sstream>
+
+#include "common/debug.h"
 
 Key VirtualKeyCodeToKey(WPARAM key, LPARAM flags)
 {
@@ -133,13 +137,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
       case WM_NCCREATE:
         {
-            LPCREATESTRUCT pCreateStruct = (LPCREATESTRUCT)lParam;
-            SetWindowLongPtr(hWnd, GWLP_USERDATA, (LONG_PTR)pCreateStruct->lpCreateParams);
+            LPCREATESTRUCT pCreateStruct = reinterpret_cast<LPCREATESTRUCT>(lParam);
+            SetWindowLongPtr(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(pCreateStruct->lpCreateParams));
             return DefWindowProcA(hWnd, message, wParam, lParam);
         }
     }
 
-    OSWindow *window = (OSWindow*)(LONG_PTR)GetWindowLongPtr(hWnd, GWLP_USERDATA);
+    Win32Window *window = reinterpret_cast<Win32Window*>(GetWindowLongPtr(hWnd, GWLP_USERDATA));
     if (window)
     {
         switch (message)
@@ -357,6 +361,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 window->pushEvent(event);
                 break;
             }
+
+          case WM_USER:
+            {
+                Event testEvent;
+                testEvent.Type = Event::EVENT_TEST;
+                window->pushEvent(testEvent);
+                break;
+            }
         }
 
     }
@@ -364,7 +376,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 }
 
 Win32Window::Win32Window()
-    : mNativeWindow(0),
+    : mIsVisible(false),
+      mSetVisibleTimer(CreateTimer()),
+      mNativeWindow(0),
       mParentWindow(0),
       mNativeDisplay(0)
 {
@@ -373,6 +387,7 @@ Win32Window::Win32Window()
 Win32Window::~Win32Window()
 {
     destroy();
+    delete mSetVisibleTimer;
 }
 
 bool Win32Window::initialize(const std::string &name, size_t width, size_t height)
@@ -472,6 +487,108 @@ void Win32Window::destroy()
     UnregisterClassA(mChildClassName.c_str(), NULL);
 }
 
+bool Win32Window::takeScreenshot(uint8_t *pixelData)
+{
+    if (mIsVisible)
+    {
+        return false;
+    }
+
+    bool error = false;
+
+    // Hack for DWM: There is no way to wait for DWM animations to finish, so we just have to wait
+    // for a while before issuing screenshot if window was just made visible.
+    {
+        static const double WAIT_WINDOW_VISIBLE_MS = 0.5; // Half a second for the animation
+        double timeSinceVisible = mSetVisibleTimer->getElapsedTime();
+
+        if (timeSinceVisible < WAIT_WINDOW_VISIBLE_MS)
+        {
+            Sleep(static_cast<DWORD>((WAIT_WINDOW_VISIBLE_MS - timeSinceVisible) * 1000));
+        }
+    }
+
+    HDC screenDC = nullptr;
+    HDC windowDC = nullptr;
+    HDC tmpDC = nullptr;
+    HBITMAP tmpBitmap = nullptr;
+
+    if (!error)
+    {
+        screenDC = GetDC(nullptr);
+        error = screenDC == nullptr;
+    }
+
+    if (!error)
+    {
+        windowDC = GetDC(mNativeWindow);
+        error = windowDC == nullptr;
+    }
+
+    if (!error)
+    {
+        tmpDC = CreateCompatibleDC(screenDC);
+        error = tmpDC == nullptr;
+    }
+
+    if (!error)
+    {
+        tmpBitmap = CreateCompatibleBitmap(screenDC, mWidth, mHeight);
+        error = tmpBitmap == nullptr;
+    }
+
+    RECT rect = {0, 0, 0, 0};
+    if (!error)
+    {
+        MapWindowPoints(mNativeWindow, nullptr, reinterpret_cast<LPPOINT>(&rect), 0);
+
+        error = SelectObject(tmpDC, tmpBitmap) == nullptr;
+    }
+
+    if (!error)
+    {
+        error = BitBlt(tmpDC, 0, 0, mWidth, mHeight, screenDC, rect.left, rect.top, SRCCOPY) == TRUE;
+    }
+
+    if (!error)
+    {
+        BITMAPINFOHEADER bitmapInfo;
+        bitmapInfo.biSize = sizeof(BITMAPINFOHEADER);
+        bitmapInfo.biWidth = mWidth;
+        bitmapInfo.biHeight = -mHeight;
+        bitmapInfo.biPlanes = 1;
+        bitmapInfo.biBitCount = 32;
+        bitmapInfo.biCompression = BI_RGB;
+        bitmapInfo.biSizeImage = 0;
+        bitmapInfo.biXPelsPerMeter = 0;
+        bitmapInfo.biYPelsPerMeter = 0;
+        bitmapInfo.biClrUsed = 0;
+        bitmapInfo.biClrImportant = 0;
+        int getBitsResult = GetDIBits(screenDC, tmpBitmap, 0, mHeight, pixelData,
+            reinterpret_cast<BITMAPINFO*>(&bitmapInfo), DIB_RGB_COLORS);
+        error = getBitsResult != 0;
+    }
+
+    if (tmpBitmap != nullptr)
+    {
+        DeleteObject(tmpBitmap);
+    }
+    if (tmpDC != nullptr)
+    {
+        DeleteDC(tmpDC);
+    }
+    if (screenDC != nullptr)
+    {
+        ReleaseDC(nullptr, screenDC);
+    }
+    if (windowDC != nullptr)
+    {
+        ReleaseDC(mNativeWindow, windowDC);
+    }
+
+    return !error;
+}
+
 EGLNativeWindowType Win32Window::getNativeWindow() const
 {
     return mNativeWindow;
@@ -510,6 +627,27 @@ OSWindow *CreateOSWindow()
     return new Win32Window();
 }
 
+bool Win32Window::setPosition(int x, int y)
+{
+    if (mX == x && mY == y)
+    {
+        return true;
+    }
+
+    RECT windowRect;
+    if (!GetWindowRect(mParentWindow, &windowRect))
+    {
+        return false;
+    }
+
+    if (!MoveWindow(mParentWindow, x, y, windowRect.right - windowRect.left, windowRect.bottom - windowRect.top, TRUE))
+    {
+        return false;
+    }
+
+    return true;
+}
+
 bool Win32Window::resize(int width, int height)
 {
     if (width == mWidth && height == mHeight)
@@ -531,7 +669,7 @@ bool Win32Window::resize(int width, int height)
 
     LONG diffX = (windowRect.right - windowRect.left) - clientRect.right;
     LONG diffY = (windowRect.bottom - windowRect.top) - clientRect.bottom;
-    if (!MoveWindow(mParentWindow, windowRect.left, windowRect.top, width + diffX, height + diffY, FALSE))
+    if (!MoveWindow(mParentWindow, windowRect.left, windowRect.top, width + diffX, height + diffY, TRUE))
     {
         return false;
     }
@@ -550,6 +688,12 @@ void Win32Window::setVisible(bool isVisible)
 
     ShowWindow(mParentWindow, flag);
     ShowWindow(mNativeWindow, flag);
+
+    if (isVisible)
+    {
+        mSetVisibleTimer->stop();
+        mSetVisibleTimer->start();
+    }
 }
 
 void Win32Window::pushEvent(Event event)
@@ -562,4 +706,9 @@ void Win32Window::pushEvent(Event event)
         MoveWindow(mNativeWindow, 0, 0, mWidth, mHeight, FALSE);
         break;
     }
+}
+
+void Win32Window::signalTestEvent()
+{
+    PostMessage(mNativeWindow, WM_USER, 0, 0);
 }

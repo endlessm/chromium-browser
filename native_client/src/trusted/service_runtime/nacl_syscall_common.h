@@ -27,7 +27,8 @@ struct nacl_abi_stat;
 
 int32_t NaClSysNotImplementedDecoder(struct NaClAppThread *natp);
 
-void NaClAddSyscall(int num, int32_t (*fn)(struct NaClAppThread *));
+void NaClAddSyscall(struct NaClApp *nap, uint32_t num,
+                    int32_t (*fn)(struct NaClAppThread *));
 
 int32_t NaClSysNull(struct NaClAppThread *natp);
 
@@ -45,9 +46,6 @@ extern int NaClAclBypassChecks;
 
 void NaClInsecurelyBypassAllAclChecks(void);
 
-int32_t NaClSysNameService(struct NaClAppThread *natp,
-                           uint32_t             desc_addr);
-
 /* bool */
 int NaClSysCommonAddrRangeContainsExecutablePages(struct NaClApp *nap,
                                                   uintptr_t usraddr,
@@ -57,8 +55,6 @@ int NaClSysCommonAddrRangeContainsExecutablePages(struct NaClApp *nap,
 int NaClSysCommonAddrRangeInAllowedDynamicCodeSpace(struct NaClApp *nap,
                                                     uintptr_t usraddr,
                                                     size_t length);
-
-int32_t NaClSysClock(struct NaClAppThread *natp);
 
 int32_t NaClSysGetTimeOfDay(struct NaClAppThread *natp,
                             uint32_t             tv_addr);

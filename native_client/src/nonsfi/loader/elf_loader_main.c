@@ -10,10 +10,11 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "native_client/src/nonsfi/loader/elf_loader.h"
 #include "native_client/src/nonsfi/irt/irt_interfaces.h"
+#include "native_client/src/public/nonsfi/elf_loader.h"
 
 int main(int argc, char **argv, char **environ) {
+  nacl_irt_nonsfi_allow_dev_interfaces();
   if (argc < 2) {
     fprintf(stderr, "Usage: %s <executable> <args...>\n", argv[0]);
     return 1;

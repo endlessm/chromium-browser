@@ -12,15 +12,17 @@
 #include "chrome/browser/extensions/api/omnibox/omnibox_api.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
-#include "chrome/browser/ui/omnibox/omnibox_popup_model_observer.h"
-#include "chrome/browser/ui/omnibox/omnibox_popup_view.h"
 #include "components/bookmarks/browser/bookmark_model.h"
-#include "components/omnibox/autocomplete_match.h"
+#include "components/omnibox/browser/autocomplete_match.h"
+#include "components/omnibox/browser/omnibox_popup_model_observer.h"
+#include "components/omnibox/browser/omnibox_popup_view.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "third_party/icu/source/common/unicode/ubidi.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/image/image.h"
-#include "ui/gfx/rect.h"
+
+using bookmarks::BookmarkModel;
 
 ///////////////////////////////////////////////////////////////////////////////
 // OmniboxPopupModel
@@ -49,20 +51,21 @@ void OmniboxPopupModel::ComputeMatchMaxWidths(int contents_width,
                                               bool allow_shrinking_contents,
                                               int* contents_max_width,
                                               int* description_max_width) {
-  if (available_width <= 0) {
-    *contents_max_width = 0;
-    *description_max_width = 0;
-    return;
-  }
-
-  *contents_max_width = contents_width;
+  available_width = std::max(available_width, 0);
+  *contents_max_width = std::min(contents_width, available_width);
   *description_max_width = description_width;
 
   // If the description is empty, the contents can get the full width.
   if (!description_width)
     return;
 
+  // If we want to display the description, we need to reserve enough space for
+  // the separator.
   available_width -= separator_width;
+  if (available_width < 0) {
+    *description_max_width = 0;
+    return;
+  }
 
   if (contents_width + description_width > available_width) {
     if (allow_shrinking_contents) {
@@ -75,19 +78,24 @@ void OmniboxPopupModel::ComputeMatchMaxWidths(int contents_width,
           (available_width + 1) / 2, available_width - description_width);
 
       const int kMinimumContentsWidth = 300;
-      *contents_max_width = std::min(
-          std::max(*contents_max_width, kMinimumContentsWidth), contents_width);
+      *contents_max_width = std::min(std::min(
+          std::max(*contents_max_width, kMinimumContentsWidth), contents_width),
+          available_width);
     }
 
     // Give the description the remaining space, unless this makes it too small
     // to display anything meaningful, in which case just hide the description
     // and let the contents take up the whole width.
-    *description_max_width = available_width - *contents_max_width;
+    *description_max_width =
+        std::min(description_width, available_width - *contents_max_width);
     const int kMinimumDescriptionWidth = 75;
     if (*description_max_width <
         std::min(description_width, kMinimumDescriptionWidth)) {
       *description_max_width = 0;
-      *contents_max_width = contents_width;
+      // Since we're not going to display the description, the contents can have
+      // the space we reserved for the separator.
+      available_width += separator_width;
+      *contents_max_width = std::min(contents_width, available_width);
     }
   }
 }
@@ -133,7 +141,7 @@ void OmniboxPopupModel::SetSelectedLine(size_t line,
     manually_selected_match_.destination_url = match.destination_url;
     manually_selected_match_.provider_affinity = match.provider;
     manually_selected_match_.is_history_what_you_typed_match =
-        match.is_history_what_you_typed_match;
+        match.type == AutocompleteMatchType::URL_WHAT_YOU_TYPED;
   }
 
   if (line == selected_line_ && !force)
@@ -264,6 +272,7 @@ bool OmniboxPopupModel::IsStarredMatch(const AutocompleteMatch& match) const {
 }
 
 void OmniboxPopupModel::OnResultChanged() {
+  answer_bitmap_ = SkBitmap();
   const AutocompleteResult& result = this->result();
   selected_line_ = result.default_match() == result.end() ?
       kNoMatch : static_cast<size_t>(result.default_match() - result.begin());
@@ -292,4 +301,9 @@ void OmniboxPopupModel::AddObserver(OmniboxPopupModelObserver* observer) {
 
 void OmniboxPopupModel::RemoveObserver(OmniboxPopupModelObserver* observer) {
   observers_.RemoveObserver(observer);
+}
+
+void OmniboxPopupModel::SetAnswerBitmap(const SkBitmap& bitmap) {
+  answer_bitmap_ = bitmap;
+  view_->UpdatePopupAppearance();
 }

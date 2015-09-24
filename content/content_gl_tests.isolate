@@ -24,28 +24,30 @@
         ],
       },
     }],
-    ['OS=="linux"', {
-      'variables': {
-        'files': [
-          '<(PRODUCT_DIR)/libffmpegsumo.so',
-        ],
-      },
-    }],
-    ['OS=="mac"', {
-      'variables': {
-        'files': [
-          '<(PRODUCT_DIR)/ffmpegsumo.so',
-        ],
-      },
-    }],
     ['OS=="win"', {
       'variables': {
         'files': [
-          '<(PRODUCT_DIR)/d3dcompiler_46.dll',
+          '<(PRODUCT_DIR)/d3dcompiler_47.dll',
           '<(PRODUCT_DIR)/libEGL.dll',
           '<(PRODUCT_DIR)/libGLESv2.dll',
-          '<(PRODUCT_DIR)/ffmpegsumo.dll',
           '<(PRODUCT_DIR)/osmesa.dll',
+        ],
+      },
+    }],
+    # These PDBs are needed in order to get reasonable stack traces if
+    # an assertion fires or a crash occurs. Add more as necessary.
+    ['OS=="win" and (fastbuild==0 or fastbuild==1)', {
+      'variables': {
+        'files': [
+          '<(PRODUCT_DIR)/content_gl_tests.exe.pdb',
+        ],
+      },
+    }],
+    ['OS=="win" and component=="shared_library" and (fastbuild==0 or fastbuild==1)', {
+      'variables': {
+        'files': [
+          '<(PRODUCT_DIR)/base.dll.pdb',
+          '<(PRODUCT_DIR)/content.dll.pdb',
         ],
       },
     }],

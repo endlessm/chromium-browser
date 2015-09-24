@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/single_thread_task_runner.h"
 #include "content/public/browser/utility_process_host.h"
 #include "content/public/browser/utility_process_host_client.h"
 
@@ -20,16 +20,17 @@ class CredentialGetterWin : public content::UtilityProcessHostClient {
       CredentialsCallback;
 
   CredentialGetterWin();
-  virtual ~CredentialGetterWin();
 
   void StartGetCredentials(const std::string& network_guid,
                            const CredentialsCallback& callback);
 
  private:
+  ~CredentialGetterWin() override;
+
   // UtilityProcessHostClient
-  virtual bool OnMessageReceived(const IPC::Message& message) override;
-  virtual void OnProcessCrashed(int exit_code) override;
-  virtual void OnProcessLaunchFailed() override;
+  bool OnMessageReceived(const IPC::Message& message) override;
+  void OnProcessCrashed(int exit_code) override;
+  void OnProcessLaunchFailed() override;
 
   // IPC message handlers.
   void OnGotCredentials(const std::string& key_data, bool success);
@@ -39,7 +40,7 @@ class CredentialGetterWin : public content::UtilityProcessHostClient {
   void PostCallback(bool success, const std::string& key_data);
 
   CredentialsCallback callback_;
-  scoped_refptr<base::MessageLoopProxy> callback_runner_;
+  scoped_refptr<base::SingleThreadTaskRunner> callback_runner_;
 };
 
 }  // namespace wifi

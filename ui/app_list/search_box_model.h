@@ -28,7 +28,8 @@ class APP_LIST_EXPORT SearchBoxModel {
     SpeechButtonProperty(const gfx::ImageSkia& on_icon,
                          const base::string16& on_tooltip,
                          const gfx::ImageSkia& off_icon,
-                         const base::string16& off_tooltip);
+                         const base::string16& off_tooltip,
+                         const base::string16& accessible_name);
     ~SpeechButtonProperty();
 
     // The icon/tooltip when the hotword is on.
@@ -38,6 +39,9 @@ class APP_LIST_EXPORT SearchBoxModel {
     // The icon/tooltip when the hotword is off.
     gfx::ImageSkia off_icon;
     base::string16 off_tooltip;
+
+    // The accessibility name of the button.
+    base::string16 accessible_name;
   };
 
   SearchBoxModel();
@@ -58,6 +62,10 @@ class APP_LIST_EXPORT SearchBoxModel {
   void SetHintText(const base::string16& hint_text);
   const base::string16& hint_text() const { return hint_text_; }
 
+  // Sets/gets the text for screen readers on the search box.
+  void SetAccessibleName(const base::string16& accessible_name);
+  const base::string16& accessible_name() const { return accessible_name_; }
+
   // Sets/gets the selection model for the search box's Textfield.
   void SetSelectionModel(const gfx::SelectionModel& sel);
   const gfx::SelectionModel& selection_model() const {
@@ -75,10 +83,11 @@ class APP_LIST_EXPORT SearchBoxModel {
   gfx::ImageSkia icon_;
   scoped_ptr<SpeechButtonProperty> speech_button_;
   base::string16 hint_text_;
+  base::string16 accessible_name_;
   gfx::SelectionModel selection_model_;
   base::string16 text_;
 
-  ObserverList<SearchBoxModelObserver> observers_;
+  base::ObserverList<SearchBoxModelObserver> observers_;
 
   DISALLOW_COPY_AND_ASSIGN(SearchBoxModel);
 };

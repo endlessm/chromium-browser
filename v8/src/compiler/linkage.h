@@ -9,6 +9,8 @@
 #include "src/compiler/frame.h"
 #include "src/compiler/machine-type.h"
 #include "src/compiler/operator.h"
+#include "src/frames.h"
+#include "src/runtime/runtime.h"
 #include "src/zone.h"
 
 namespace v8 {
@@ -18,26 +20,46 @@ class CallInterfaceDescriptor;
 
 namespace compiler {
 
+class Node;
+class OsrHelper;
+
 // Describes the location for a parameter or a return value to a call.
 class LinkageLocation {
  public:
   explicit LinkageLocation(int location) : location_(location) {}
 
-  static const int16_t ANY_REGISTER = 32767;
+  bool is_register() const {
+    return 0 <= location_ && location_ <= ANY_REGISTER;
+  }
+
+  static const int16_t ANY_REGISTER = 1023;
+  static const int16_t MAX_STACK_SLOT = 32767;
 
   static LinkageLocation AnyRegister() { return LinkageLocation(ANY_REGISTER); }
+
+  bool operator==(const LinkageLocation& other) const {
+    return location_ == other.location_;
+  }
+
+  bool operator!=(const LinkageLocation& other) const {
+    return !(*this == other);
+  }
 
  private:
   friend class CallDescriptor;
   friend class OperandGenerator;
-  int16_t location_;  // >= 0 implies register, otherwise stack slot.
+  //         location < 0     -> a stack slot on the caller frame
+  // 0    <= location < 1023  -> a specific machine register
+  // 1023 <= location < 1024  -> any machine register
+  // 1024 <= location         -> a stack slot in the callee frame
+  int16_t location_;
 };
 
 typedef Signature<LinkageLocation> LocationSignature;
 
 // Describes a call to various parts of the compiler. Every call has the notion
 // of a "target", which is the first input to the call.
-class CallDescriptor FINAL : public ZoneObject {
+class CallDescriptor final : public ZoneObject {
  public:
   // Describes the kind of this call, which determines the target.
   enum Kind {
@@ -47,19 +69,23 @@ class CallDescriptor FINAL : public ZoneObject {
   };
 
   enum Flag {
-    // TODO(jarin) kLazyDeoptimization and kNeedsFrameState should be unified.
     kNoFlags = 0u,
     kNeedsFrameState = 1u << 0,
     kPatchableCallSite = 1u << 1,
     kNeedsNopAfterCall = 1u << 2,
+    kHasExceptionHandler = 1u << 3,
+    kHasLocalCatchHandler = 1u << 4,
+    kSupportsTailCalls = 1u << 5,
     kPatchableCallSiteWithNop = kPatchableCallSite | kNeedsNopAfterCall
   };
   typedef base::Flags<Flag> Flags;
 
   CallDescriptor(Kind kind, MachineType target_type, LinkageLocation target_loc,
-                 MachineSignature* machine_sig, LocationSignature* location_sig,
-                 size_t js_param_count, Operator::Properties properties,
-                 RegList callee_saved_registers, Flags flags,
+                 const MachineSignature* machine_sig,
+                 LocationSignature* location_sig, size_t js_param_count,
+                 Operator::Properties properties,
+                 RegList callee_saved_registers,
+                 RegList callee_saved_fp_registers, Flags flags,
                  const char* debug_name = "")
       : kind_(kind),
         target_type_(target_type),
@@ -69,6 +95,7 @@ class CallDescriptor FINAL : public ZoneObject {
         js_param_count_(js_param_count),
         properties_(properties),
         callee_saved_registers_(callee_saved_registers),
+        callee_saved_fp_registers_(callee_saved_fp_registers),
         flags_(flags),
         debug_name_(debug_name) {
     DCHECK(machine_sig->return_count() == location_sig->return_count());
@@ -78,11 +105,17 @@ class CallDescriptor FINAL : public ZoneObject {
   // Returns the kind of this call.
   Kind kind() const { return kind_; }
 
+  // Returns {true} if this descriptor is a call to a C function.
+  bool IsCFunctionCall() const { return kind_ == kCallAddress; }
+
   // Returns {true} if this descriptor is a call to a JSFunction.
   bool IsJSFunctionCall() const { return kind_ == kCallJSFunction; }
 
   // The number of return values from this call.
   size_t ReturnCount() const { return machine_sig_->return_count(); }
+
+  // The number of C parameters to this call.
+  size_t CParameterCount() const { return machine_sig_->parameter_count(); }
 
   // The number of JavaScript parameters to this call, including the receiver
   // object.
@@ -98,6 +131,7 @@ class CallDescriptor FINAL : public ZoneObject {
   Flags flags() const { return flags_; }
 
   bool NeedsFrameState() const { return flags() & kNeedsFrameState; }
+  bool SupportsTailCalls() const { return flags() & kSupportsTailCalls; }
 
   LinkageLocation GetReturnLocation(size_t index) const {
     return location_sig_->GetReturn(index);
@@ -125,7 +159,16 @@ class CallDescriptor FINAL : public ZoneObject {
   // Get the callee-saved registers, if any, across this call.
   RegList CalleeSavedRegisters() const { return callee_saved_registers_; }
 
+  // Get the callee-saved FP registers, if any, across this call.
+  RegList CalleeSavedFPRegisters() const { return callee_saved_fp_registers_; }
+
   const char* debug_name() const { return debug_name_; }
+
+  bool UsesOnlyRegisters() const;
+
+  bool HasSameReturnLocationsAs(const CallDescriptor* other) const;
+
+  bool CanTailCall(const Node* call) const;
 
  private:
   friend class Linkage;
@@ -138,6 +181,7 @@ class CallDescriptor FINAL : public ZoneObject {
   const size_t js_param_count_;
   const Operator::Properties properties_;
   const RegList callee_saved_registers_;
+  const RegList callee_saved_fp_registers_;
   const Flags flags_;
   const char* const debug_name_;
 
@@ -164,40 +208,32 @@ std::ostream& operator<<(std::ostream& os, const CallDescriptor::Kind& k);
 // Call[Runtime]    CEntryStub, arg 1, arg 2, arg 3, [...], fun, #arg, context
 class Linkage : public ZoneObject {
  public:
-  Linkage(Zone* zone, CompilationInfo* info)
-      : zone_(zone), incoming_(ComputeIncoming(zone, info)) {}
-  Linkage(Zone* zone, CallDescriptor* incoming)
-      : zone_(zone), incoming_(incoming) {}
+  explicit Linkage(CallDescriptor* incoming) : incoming_(incoming) {}
 
   static CallDescriptor* ComputeIncoming(Zone* zone, CompilationInfo* info);
 
   // The call descriptor for this compilation unit describes the locations
   // of incoming parameters and the outgoing return value(s).
   CallDescriptor* GetIncomingDescriptor() const { return incoming_; }
-  CallDescriptor* GetJSCallDescriptor(int parameter_count,
-                                      CallDescriptor::Flags flags) const;
-  static CallDescriptor* GetJSCallDescriptor(int parameter_count, Zone* zone,
+  static CallDescriptor* GetJSCallDescriptor(Zone* zone, bool is_osr,
+                                             int parameter_count,
                                              CallDescriptor::Flags flags);
-  CallDescriptor* GetRuntimeCallDescriptor(
-      Runtime::FunctionId function, int parameter_count,
-      Operator::Properties properties) const;
   static CallDescriptor* GetRuntimeCallDescriptor(
-      Runtime::FunctionId function, int parameter_count,
-      Operator::Properties properties, Zone* zone);
+      Zone* zone, Runtime::FunctionId function, int parameter_count,
+      Operator::Properties properties);
 
-  CallDescriptor* GetStubCallDescriptor(
-      const CallInterfaceDescriptor& descriptor, int stack_parameter_count = 0,
-      CallDescriptor::Flags flags = CallDescriptor::kNoFlags) const;
   static CallDescriptor* GetStubCallDescriptor(
-      const CallInterfaceDescriptor& descriptor, int stack_parameter_count,
-      CallDescriptor::Flags flags, Zone* zone);
+      Isolate* isolate, Zone* zone, const CallInterfaceDescriptor& descriptor,
+      int stack_parameter_count, CallDescriptor::Flags flags,
+      Operator::Properties properties = Operator::kNoProperties,
+      MachineType return_type = kMachAnyTagged);
 
   // Creates a call descriptor for simplified C calls that is appropriate
   // for the host platform. This simplified calling convention only supports
   // integers and pointers of one word size each, i.e. no floating point,
   // structs, pointers to members, etc.
   static CallDescriptor* GetSimplifiedCDescriptor(Zone* zone,
-                                                  MachineSignature* sig);
+                                                  const MachineSignature* sig);
 
   // Get the location of an (incoming) parameter to this function.
   LinkageLocation GetParameterLocation(int index) const {
@@ -224,10 +260,18 @@ class Linkage : public ZoneObject {
   // the frame offset, e.g. to index into part of a double slot.
   FrameOffset GetFrameOffset(int spill_slot, Frame* frame, int extra = 0) const;
 
-  static bool NeedsFrameState(Runtime::FunctionId function);
+  static int FrameStateInputCount(Runtime::FunctionId function);
+
+  // Get the location where an incoming OSR value is stored.
+  LinkageLocation GetOsrValueLocation(int index) const;
+
+  // A special parameter index for JSCalls that represents the closure.
+  static const int kJSFunctionCallClosureParamIndex = -1;
+
+  // A special {OsrValue} index to indicate the context spill slot.
+  static const int kOsrContextSpillSlotIndex = -1;
 
  private:
-  Zone* const zone_;
   CallDescriptor* const incoming_;
 
   DISALLOW_COPY_AND_ASSIGN(Linkage);

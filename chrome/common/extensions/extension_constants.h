@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/basictypes.h"
+#include "base/files/file_path.h"
 #include "url/gurl.h"
 
 namespace extension_urls {
@@ -36,6 +37,15 @@ extern const char kChromeAppId[];
 
 // The extension id of the Cloud Print component application.
 extern const char kCloudPrintAppId[];
+
+// The extension id of the Data Saver extension.
+extern const char kDataSaverExtensionId[];
+
+// The extension id of the Drive extension.
+extern const char kDriveExtensionId[];
+
+// The extension id of the Drive hosted app.
+extern const char kDriveHostedAppId[];
 
 // The extension id of the Easy Unlock component application.
 extern const char kEasyUnlockAppId[];
@@ -76,32 +86,14 @@ extern const char kCroshBuiltinAppId[];
 // The extension id of the hotword audio verification dialogue app.
 extern const char kHotwordAudioVerificationAppId[];
 
-// The extension id of the hotword voice search trigger extension.
-extern const char kHotwordExtensionId[];
-
 // The extension id of the new (experimental) hotword extension.
 extern const char kHotwordNewExtensionId[];
 
 // The extension id of the hotword shared module.
 extern const char kHotwordSharedModuleId[];
 
-// The extension id of the PDF extension.
-extern const char kPdfExtensionId[];
-
-// The extension id of the Office Viewer component extension.
-extern const char kQuickOfficeComponentExtensionId[];
-
-// The extension id of the Office Viewer extension on the internal webstore.
-extern const char kQuickOfficeInternalExtensionId[];
-
-// The extension id of the Office Viewer extension.
-extern const char kQuickOfficeExtensionId[];
-
 // The extension id of the settings application.
 extern const char kSettingsAppId[];
-
-// The extension id used for testing streamsPrivate
-extern const char kStreamsPrivateTestExtensionId[];
 
 // The extension id of the Youtube application.
 extern const char kYoutubeAppId[];
@@ -109,11 +101,10 @@ extern const char kYoutubeAppId[];
 // The extension id of the in-app payments support application.
 extern const char kInAppPaymentsSupportAppId[];
 
-// The name of the app launch histogram.
-extern const char kAppLaunchHistogram[];
-
-// The name of the app launch histogram for platform apps.
-extern const char kPlatformAppLaunchHistogram[];
+#if defined(ENABLE_MEDIA_ROUTER)
+// The extension id of the stable media router extension.
+extern const char kMediaRouterStableExtensionId[];
+#endif  // defined(ENABLE_MEDIA_ROUTER)
 
 // The buckets used for app launches.
 enum AppLaunchBucket {
@@ -208,14 +199,9 @@ extern const char kChromeVoxExtensionId[];
 // Path to preinstalled ChromeVox screen reader extension (relative to
 // |chrome::DIR_RESOURCES|).
 extern const char kChromeVoxExtensionPath[];
-// Name of ChromeVox manifest file.
-extern const char kChromeVoxManifestFilename[];
-// Name of ChromeVox guest manifest file.
-extern const char kChromeVoxGuestManifestFilename[];
-// Name of ChromeVox next manifest file.
-extern const char kChromeVoxNextManifestFilename[];
-// Name of ChromeVox next guest manifest file.
-extern const char kChromeVoxNextGuestManifestFilename[];
+// Name of the manifest file in an extension when a special manifest is used
+// for guest mode.
+extern const char kGuestManifestFilename[];
 // Extension id, path (relative to |chrome::DIR_RESOURCES|) and IME engine
 // id for the builtin-in Braille IME extension.
 extern const char kBrailleImeExtensionId[];
@@ -223,16 +209,17 @@ extern const char kBrailleImeExtensionPath[];
 extern const char kBrailleImeEngineId[];
 // Path to preinstalled Connectivity Diagnostics extension.
 extern const char kConnectivityDiagnosticsPath[];
-extern const char kConnectivityDiagnosticsKioskPath[];
 extern const char kConnectivityDiagnosticsLauncherPath[];
+// The extension id of the first run dialog application.
+extern const char kFirstRunDialogId[];
 // Path to preinstalled speech synthesis extension.
 extern const char kSpeechSynthesisExtensionPath[];
 // The extension id of the speech synthesis extension.
 extern const char kSpeechSynthesisExtensionId[];
 // The extension id of the wallpaper manager application.
 extern const char kWallpaperManagerId[];
-// The extension id of the first run dialog application.
-extern const char kFirstRunDialogId[];
+// The app id of the webstore widget component app.
+extern const char kWebstoreWidgetAppId[];
 // The extension id of the new ZIP unpacker extension.
 extern const char kZIPUnpackerExtensionId[];
 #endif

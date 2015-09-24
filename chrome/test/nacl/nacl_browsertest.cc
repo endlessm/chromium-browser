@@ -16,6 +16,7 @@
 #include "base/path_service.h"
 #include "base/process/kill.h"
 #include "base/process/launch.h"
+#include "base/process/process.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/win/windows_version.h"
 #include "chrome/common/chrome_paths.h"
@@ -42,7 +43,17 @@ IN_PROC_BROWSER_TEST_F(NaClBrowserTestNonSfiMode, MAYBE_NONSFI(Messaging)) {
   RunLoadTest(FILE_PATH_LITERAL("libc_free.html"));
 }
 
+IN_PROC_BROWSER_TEST_F(NaClBrowserTestTransitionalNonSfi,
+                       MAYBE_TRANSITIONAL_NONSFI(Messaging)) {
+  RunLoadTest(FILE_PATH_LITERAL("libc_free.html"));
+}
+
 IN_PROC_BROWSER_TEST_F(NaClBrowserTestNonSfiMode, MAYBE_NONSFI(Irt)) {
+  RunNaClIntegrationTest(FILE_PATH_LITERAL("irt_test.html"));
+}
+
+IN_PROC_BROWSER_TEST_F(NaClBrowserTestTransitionalNonSfi,
+                       MAYBE_TRANSITIONAL_NONSFI(Irt)) {
   RunNaClIntegrationTest(FILE_PATH_LITERAL("irt_test.html"));
 }
 
@@ -106,18 +117,45 @@ IN_PROC_BROWSER_TEST_F(NaClBrowserTestNewlib, BadNative) {
 
 #if defined(OS_WIN)
 // crbug.com/98721
-#  define MAYBE_Crash DISABLED_Crash
+#  define MAYBE_CrashViaCheckFailure DISABLED_CrashViaCheckFailure
+#  define MAYBE_CrashViaExitCall DISABLED_CrashViaExitCall
+#  define MAYBE_CrashInCallback DISABLED_CrashInCallback
+#  define MAYBE_CrashOffMainThread DISABLED_CrashOffMainThread
+#  define MAYBE_CrashPPAPIOffMainThread DISABLED_CrashPPAPIOffMainThread
 #elif defined(OS_MACOSX)
 // crbug.com/425570
-#  define MAYBE_Crash DISABLED_Crash
-#elif defined(OS_LINUX)
-// crbug.com/428838
-#  define MAYBE_Crash DISABLED_Crash
+#  define MAYBE_CrashViaCheckFailure DISABLED_CrashViaCheckFailure
+#  define MAYBE_CrashViaExitCall DISABLED_CrashViaExitCall
+#  define MAYBE_CrashInCallback DISABLED_CrashInCallback
+#  define MAYBE_CrashOffMainThread DISABLED_CrashOffMainThread
+#  define MAYBE_CrashPPAPIOffMainThread DISABLED_CrashPPAPIOffMainThread
 #else
-#  define MAYBE_Crash Crash
+#  define MAYBE_CrashViaCheckFailure CrashViaCheckFailure
+#  define MAYBE_CrashViaExitCall CrashViaExitCall
+#  define MAYBE_CrashInCallback CrashInCallback
+#  define MAYBE_CrashOffMainThread CrashOffMainThread
+#  define MAYBE_CrashPPAPIOffMainThread CrashPPAPIOffMainThread
 #endif
-NACL_BROWSER_TEST_F(NaClBrowserTest, MAYBE_Crash, {
-  RunNaClIntegrationTest(FILE_PATH_LITERAL("ppapi_crash.html"));
+NACL_BROWSER_TEST_F(NaClBrowserTest, MAYBE_CrashViaCheckFailure, {
+  RunNaClIntegrationTest(
+      FILE_PATH_LITERAL("ppapi_crash_via_check_failure.html"));
+})
+
+NACL_BROWSER_TEST_F(NaClBrowserTest, MAYBE_CrashViaExitCall, {
+  RunNaClIntegrationTest(FILE_PATH_LITERAL("ppapi_crash_via_exit_call.html"));
+})
+
+NACL_BROWSER_TEST_F(NaClBrowserTest, MAYBE_CrashInCallback, {
+  RunNaClIntegrationTest(FILE_PATH_LITERAL("ppapi_crash_in_callback.html"));
+})
+
+NACL_BROWSER_TEST_F(NaClBrowserTest, MAYBE_CrashOffMainThread, {
+  RunNaClIntegrationTest(FILE_PATH_LITERAL("ppapi_crash_off_main_thread.html"));
+})
+
+NACL_BROWSER_TEST_F(NaClBrowserTest, MAYBE_CrashPPAPIOffMainThread, {
+  RunNaClIntegrationTest(
+      FILE_PATH_LITERAL("ppapi_crash_ppapi_off_main_thread.html"));
 })
 
 IN_PROC_BROWSER_TEST_F(NaClBrowserTestNewlib, IrtManifestFile) {
@@ -125,6 +163,10 @@ IN_PROC_BROWSER_TEST_F(NaClBrowserTestNewlib, IrtManifestFile) {
 }
 IN_PROC_BROWSER_TEST_F(NaClBrowserTestPnaclNonSfi,
                        MAYBE_PNACL_NONSFI(IrtManifestFile)) {
+  RunNaClIntegrationTest(FILE_PATH_LITERAL("irt_manifest_file_test.html"));
+}
+IN_PROC_BROWSER_TEST_F(NaClBrowserTestPnaclTransitionalNonSfi,
+                       MAYBE_PNACL_TRANSITIONAL_NONSFI(IrtManifestFile)) {
   RunNaClIntegrationTest(FILE_PATH_LITERAL("irt_manifest_file_test.html"));
 }
 
@@ -139,6 +181,10 @@ IN_PROC_BROWSER_TEST_F(NaClBrowserTestNewlib, MAYBE_IrtException) {
 }
 IN_PROC_BROWSER_TEST_F(NaClBrowserTestPnaclNonSfi,
                        MAYBE_PNACL_NONSFI(IrtException)) {
+  RunNaClIntegrationTest(FILE_PATH_LITERAL("irt_exception_test.html"));
+}
+IN_PROC_BROWSER_TEST_F(NaClBrowserTestPnaclTransitionalNonSfi,
+                       MAYBE_PNACL_TRANSITIONAL_NONSFI(IrtException)) {
   RunNaClIntegrationTest(FILE_PATH_LITERAL("irt_exception_test.html"));
 }
 
@@ -220,7 +266,7 @@ IN_PROC_BROWSER_TEST_F(NaClBrowserTestStatic, RelativeManifest) {
 // Test with the NaCl debug flag turned on.
 class NaClBrowserTestPnaclDebug : public NaClBrowserTestPnacl {
  public:
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     NaClBrowserTestPnacl::SetUpCommandLine(command_line);
     // Turn on debugging to influence the PNaCl URL loaded
     command_line->AppendSwitch(switches::kEnableNaClDebug);
@@ -247,11 +293,11 @@ class NaClBrowserTestPnaclDebug : public NaClBrowserTestPnacl {
     return false;
   }
 
-  void StartTestScript(base::ProcessHandle* test_process,
+  void StartTestScript(base::Process* test_process,
                        int debug_stub_port) {
     // We call a python script that speaks to the debug stub, and
     // lets the app continue, so that the load progress event completes.
-    CommandLine cmd(base::FilePath(FILE_PATH_LITERAL("python")));
+    base::CommandLine cmd(base::FilePath(FILE_PATH_LITERAL("python")));
     base::FilePath script;
     PathService::Get(chrome::DIR_TEST_DATA, &script);
     script = script.AppendASCII("nacl/debug_stub_browser_tests.py");
@@ -259,11 +305,11 @@ class NaClBrowserTestPnaclDebug : public NaClBrowserTestPnacl {
     cmd.AppendArg(base::IntToString(debug_stub_port));
     cmd.AppendArg("continue");
     LOG(INFO) << cmd.GetCommandLineString();
-    base::LaunchProcess(cmd, base::LaunchOptions(), test_process);
+    *test_process = base::LaunchProcess(cmd, base::LaunchOptions());
   }
 
   void RunWithTestDebugger(const base::FilePath::StringType& test_url) {
-    base::ProcessHandle test_script;
+    base::Process test_script;
     scoped_ptr<base::Environment> env(base::Environment::Create());
     nacl::NaClBrowser::GetInstance()->SetGdbDebugStubPortListener(
         base::Bind(&NaClBrowserTestPnaclDebug::StartTestScript,
@@ -275,7 +321,7 @@ class NaClBrowserTestPnaclDebug : public NaClBrowserTestPnacl {
     nacl::NaClBrowser::GetInstance()->ClearGdbDebugStubPortListener();
     int exit_code;
     LOG(INFO) << "Waiting for script to exit (which waits for embed to die).";
-    base::WaitForExitCode(test_script, &exit_code);
+    test_script.WaitForExit(&exit_code);
     EXPECT_EQ(0, exit_code);
   }
 };
@@ -284,7 +330,7 @@ class NaClBrowserTestPnaclDebug : public NaClBrowserTestPnacl {
 // so that nothing is actually debugged.
 class NaClBrowserTestPnaclDebugMasked : public NaClBrowserTestPnaclDebug {
  public:
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     NaClBrowserTestPnaclDebug::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII(switches::kNaClDebugMask,
                                     "!<all_urls>");
@@ -335,7 +381,29 @@ IN_PROC_BROWSER_TEST_F(NaClBrowserTestPnacl,
   RunNaClIntegrationTest(FILE_PATH_LITERAL("pnacl_error_handling.html"));
 }
 
+// NaClBrowserTestPnaclSubzero.PnaclErrorHandling is flaky on Win XP.
+// http://crbug.com/499878
+#if defined(OS_WIN)
+#define MAYBE_PnaclErrorHandling DISABLED_PnaclErrorHandling
+#else
+#define MAYBE_PnaclErrorHandling PnaclErrorHandling
+#endif
+
+// Test Subzero. Subzero is triggered by the O0 option so reuse
+// test harnesses that use "optlevel": 0.
+IN_PROC_BROWSER_TEST_F(NaClBrowserTestPnaclSubzero,
+                       MAYBE_PnaclErrorHandling) {
+  RunNaClIntegrationTest(FILE_PATH_LITERAL("pnacl_error_handling.html"));
+}
+
 IN_PROC_BROWSER_TEST_F(NaClBrowserTestPnacl,
+                       MAYBE_PNACL(PnaclNMFOptionsO0)) {
+  RunLoadTest(FILE_PATH_LITERAL("pnacl_options.html?use_nmf=o_0"));
+}
+
+// Test Subzero. Subzero is triggered by the O0 option so reuse
+// test harnesses that use "optlevel": 0.
+IN_PROC_BROWSER_TEST_F(NaClBrowserTestPnaclSubzero,
                        MAYBE_PNACL(PnaclNMFOptionsO0)) {
   RunLoadTest(FILE_PATH_LITERAL("pnacl_options.html?use_nmf=o_0"));
 }

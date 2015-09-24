@@ -27,6 +27,7 @@
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/browser/web_ui_message_handler.h"
+#include "content/public/common/frame_navigate_params.h"
 #include "grit/browser_resources.h"
 
 using content::WebContents;
@@ -213,8 +214,9 @@ class DevToolsUIBindingsEnabler
  private:
   // contents::WebContentsObserver overrides.
   void WebContentsDestroyed() override;
-  void AboutToNavigateRenderView(
-      content::RenderViewHost* render_view_host) override;
+  void DidNavigateMainFrame(
+      const content::LoadCommittedDetails& details,
+      const content::FrameNavigateParams& params) override;
 
   DevToolsUIBindings bindings_;
   GURL url_;
@@ -237,12 +239,11 @@ void DevToolsUIBindingsEnabler::WebContentsDestroyed() {
   delete this;
 }
 
-void DevToolsUIBindingsEnabler::AboutToNavigateRenderView(
-    content::RenderViewHost* render_view_host) {
-   content::NavigationEntry* entry =
-       web_contents()->GetController().GetActiveEntry();
-   if (url_ != entry->GetURL())
-     delete this;
+void DevToolsUIBindingsEnabler::DidNavigateMainFrame(
+      const content::LoadCommittedDetails& details,
+      const content::FrameNavigateParams& params) {
+  if (url_ != params.url)
+    delete this;
 }
 
 }  // namespace
@@ -312,14 +313,12 @@ void InspectUI::Reload(const std::string& source_id,
   }
 }
 
-static void NoOp(DevToolsTargetImpl*) {}
-
 void InspectUI::Open(const std::string& source_id,
                      const std::string& browser_id,
                      const std::string& url) {
   DevToolsTargetsUIHandler* handler = FindTargetHandler(source_id);
   if (handler)
-    handler->Open(browser_id, url, base::Bind(&NoOp));
+    handler->Open(browser_id, url);
 }
 
 void InspectUI::InspectBrowserWithCustomFrontend(

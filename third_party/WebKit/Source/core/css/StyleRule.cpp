@@ -22,7 +22,6 @@
 #include "config.h"
 #include "core/css/StyleRule.h"
 
-#include "core/css/CSSFilterRule.h"
 #include "core/css/CSSFontFaceRule.h"
 #include "core/css/CSSImportRule.h"
 #include "core/css/CSSKeyframesRule.h"
@@ -31,8 +30,9 @@
 #include "core/css/CSSStyleRule.h"
 #include "core/css/CSSSupportsRule.h"
 #include "core/css/CSSViewportRule.h"
-#include "core/css/StylePropertySet.h"
 #include "core/css/StyleRuleImport.h"
+#include "core/css/StyleRuleKeyframe.h"
+#include "core/css/StyleRuleNamespace.h"
 
 namespace blink {
 
@@ -40,7 +40,7 @@ struct SameSizeAsStyleRuleBase : public RefCountedWillBeGarbageCollectedFinalize
     unsigned bitfields;
 };
 
-COMPILE_ASSERT(sizeof(StyleRuleBase) <= sizeof(SameSizeAsStyleRuleBase), StyleRuleBase_should_stay_small);
+static_assert(sizeof(StyleRuleBase) <= sizeof(SameSizeAsStyleRuleBase), "StyleRuleBase should stay small");
 
 PassRefPtrWillBeRawPtr<CSSRule> StyleRuleBase::createCSSOMWrapper(CSSStyleSheet* parentSheet) const
 {
@@ -52,9 +52,12 @@ PassRefPtrWillBeRawPtr<CSSRule> StyleRuleBase::createCSSOMWrapper(CSSRule* paren
     return createCSSOMWrapper(0, parentRule);
 }
 
-void StyleRuleBase::trace(Visitor* visitor)
+DEFINE_TRACE(StyleRuleBase)
 {
     switch (type()) {
+    case Charset:
+        toStyleRuleCharset(this)->traceAfterDispatch(visitor);
+        return;
     case Style:
         toStyleRule(this)->traceAfterDispatch(visitor);
         return;
@@ -76,16 +79,14 @@ void StyleRuleBase::trace(Visitor* visitor)
     case Keyframes:
         toStyleRuleKeyframes(this)->traceAfterDispatch(visitor);
         return;
+    case Keyframe:
+        toStyleRuleKeyframe(this)->traceAfterDispatch(visitor);
+        return;
+    case Namespace:
+        toStyleRuleNamespace(this)->traceAfterDispatch(visitor);
+        return;
     case Viewport:
         toStyleRuleViewport(this)->traceAfterDispatch(visitor);
-        return;
-    case Filter:
-        toStyleRuleFilter(this)->traceAfterDispatch(visitor);
-        return;
-    case Unknown:
-    case Charset:
-    case Keyframe:
-        ASSERT_NOT_REACHED();
         return;
     }
     ASSERT_NOT_REACHED();
@@ -94,6 +95,9 @@ void StyleRuleBase::trace(Visitor* visitor)
 void StyleRuleBase::finalizeGarbageCollectedObject()
 {
     switch (type()) {
+    case Charset:
+        toStyleRuleCharset(this)->~StyleRuleCharset();
+        return;
     case Style:
         toStyleRule(this)->~StyleRule();
         return;
@@ -115,16 +119,14 @@ void StyleRuleBase::finalizeGarbageCollectedObject()
     case Keyframes:
         toStyleRuleKeyframes(this)->~StyleRuleKeyframes();
         return;
+    case Keyframe:
+        toStyleRuleKeyframe(this)->~StyleRuleKeyframe();
+        return;
+    case Namespace:
+        toStyleRuleNamespace(this)->~StyleRuleNamespace();
+        return;
     case Viewport:
         toStyleRuleViewport(this)->~StyleRuleViewport();
-        return;
-    case Filter:
-        toStyleRuleFilter(this)->~StyleRuleFilter();
-        return;
-    case Unknown:
-    case Charset:
-    case Keyframe:
-        ASSERT_NOT_REACHED();
         return;
     }
     ASSERT_NOT_REACHED();
@@ -133,6 +135,9 @@ void StyleRuleBase::finalizeGarbageCollectedObject()
 void StyleRuleBase::destroy()
 {
     switch (type()) {
+    case Charset:
+        delete toStyleRuleCharset(this);
+        return;
     case Style:
         delete toStyleRule(this);
         return;
@@ -154,16 +159,14 @@ void StyleRuleBase::destroy()
     case Keyframes:
         delete toStyleRuleKeyframes(this);
         return;
+    case Keyframe:
+        delete toStyleRuleKeyframe(this);
+        return;
+    case Namespace:
+        delete toStyleRuleNamespace(this);
+        return;
     case Viewport:
         delete toStyleRuleViewport(this);
-        return;
-    case Filter:
-        delete toStyleRuleFilter(this);
-        return;
-    case Unknown:
-    case Charset:
-    case Keyframe:
-        ASSERT_NOT_REACHED();
         return;
     }
     ASSERT_NOT_REACHED();
@@ -190,11 +193,9 @@ PassRefPtrWillBeRawPtr<StyleRuleBase> StyleRuleBase::copy() const
         return toStyleRuleKeyframes(this)->copy();
     case Viewport:
         return toStyleRuleViewport(this)->copy();
-    case Filter:
-        return toStyleRuleFilter(this)->copy();
-    case Unknown:
     case Charset:
     case Keyframe:
+    case Namespace:
         ASSERT_NOT_REACHED();
         return nullptr;
     }
@@ -231,12 +232,9 @@ PassRefPtrWillBeRawPtr<CSSRule> StyleRuleBase::createCSSOMWrapper(CSSStyleSheet*
     case Viewport:
         rule = CSSViewportRule::create(toStyleRuleViewport(self), parentSheet);
         break;
-    case Filter:
-        rule = CSSFilterRule::create(toStyleRuleFilter(self), parentSheet);
-        break;
-    case Unknown:
-    case Charset:
     case Keyframe:
+    case Namespace:
+    case Charset:
         ASSERT_NOT_REACHED();
         return nullptr;
     }
@@ -250,9 +248,11 @@ unsigned StyleRule::averageSizeInBytes()
     return sizeof(StyleRule) + sizeof(CSSSelector) + StylePropertySet::averageSizeInBytes();
 }
 
-StyleRule::StyleRule()
+StyleRule::StyleRule(CSSSelectorList& selectorList, PassRefPtrWillBeRawPtr<StylePropertySet> properties)
     : StyleRuleBase(Style)
+    , m_properties(properties)
 {
+    m_selectorList.adopt(selectorList);
 }
 
 StyleRule::StyleRule(const StyleRule& o)
@@ -273,20 +273,17 @@ MutableStylePropertySet& StyleRule::mutableProperties()
     return *toMutableStylePropertySet(m_properties.get());
 }
 
-void StyleRule::setProperties(PassRefPtrWillBeRawPtr<StylePropertySet> properties)
-{
-    m_properties = properties;
-}
-
-void StyleRule::traceAfterDispatch(Visitor* visitor)
+DEFINE_TRACE_AFTER_DISPATCH(StyleRule)
 {
     visitor->trace(m_properties);
     StyleRuleBase::traceAfterDispatch(visitor);
 }
 
-StyleRulePage::StyleRulePage()
+StyleRulePage::StyleRulePage(CSSSelectorList& selectorList, PassRefPtrWillBeRawPtr<StylePropertySet> properties)
     : StyleRuleBase(Page)
+    , m_properties(properties)
 {
+    m_selectorList.adopt(selectorList);
 }
 
 StyleRulePage::StyleRulePage(const StyleRulePage& o)
@@ -307,19 +304,15 @@ MutableStylePropertySet& StyleRulePage::mutableProperties()
     return *toMutableStylePropertySet(m_properties.get());
 }
 
-void StyleRulePage::setProperties(PassRefPtrWillBeRawPtr<StylePropertySet> properties)
-{
-    m_properties = properties;
-}
-
-void StyleRulePage::traceAfterDispatch(Visitor* visitor)
+DEFINE_TRACE_AFTER_DISPATCH(StyleRulePage)
 {
     visitor->trace(m_properties);
     StyleRuleBase::traceAfterDispatch(visitor);
 }
 
-StyleRuleFontFace::StyleRuleFontFace()
+StyleRuleFontFace::StyleRuleFontFace(PassRefPtrWillBeRawPtr<StylePropertySet> properties)
     : StyleRuleBase(FontFace)
+    , m_properties(properties)
 {
 }
 
@@ -340,18 +333,13 @@ MutableStylePropertySet& StyleRuleFontFace::mutableProperties()
     return *toMutableStylePropertySet(m_properties);
 }
 
-void StyleRuleFontFace::setProperties(PassRefPtrWillBeRawPtr<StylePropertySet> properties)
-{
-    m_properties = properties;
-}
-
-void StyleRuleFontFace::traceAfterDispatch(Visitor* visitor)
+DEFINE_TRACE_AFTER_DISPATCH(StyleRuleFontFace)
 {
     visitor->trace(m_properties);
     StyleRuleBase::traceAfterDispatch(visitor);
 }
 
-StyleRuleGroup::StyleRuleGroup(Type type, WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase> >& adoptRule)
+StyleRuleGroup::StyleRuleGroup(Type type, WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase>>& adoptRule)
     : StyleRuleBase(type)
 {
     m_childRules.swap(adoptRule);
@@ -375,13 +363,13 @@ void StyleRuleGroup::wrapperRemoveRule(unsigned index)
     m_childRules.remove(index);
 }
 
-void StyleRuleGroup::traceAfterDispatch(Visitor* visitor)
+DEFINE_TRACE_AFTER_DISPATCH(StyleRuleGroup)
 {
     visitor->trace(m_childRules);
     StyleRuleBase::traceAfterDispatch(visitor);
 }
 
-StyleRuleMedia::StyleRuleMedia(PassRefPtrWillBeRawPtr<MediaQuerySet> media, WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase> >& adoptRules)
+StyleRuleMedia::StyleRuleMedia(PassRefPtrWillBeRawPtr<MediaQuerySet> media, WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase>>& adoptRules)
     : StyleRuleGroup(Media, adoptRules)
     , m_mediaQueries(media)
 {
@@ -394,13 +382,13 @@ StyleRuleMedia::StyleRuleMedia(const StyleRuleMedia& o)
         m_mediaQueries = o.m_mediaQueries->copy();
 }
 
-void StyleRuleMedia::traceAfterDispatch(Visitor* visitor)
+DEFINE_TRACE_AFTER_DISPATCH(StyleRuleMedia)
 {
     visitor->trace(m_mediaQueries);
     StyleRuleGroup::traceAfterDispatch(visitor);
 }
 
-StyleRuleSupports::StyleRuleSupports(const String& conditionText, bool conditionIsSupported, WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase> >& adoptRules)
+StyleRuleSupports::StyleRuleSupports(const String& conditionText, bool conditionIsSupported, WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase>>& adoptRules)
     : StyleRuleGroup(Supports, adoptRules)
     , m_conditionText(conditionText)
     , m_conditionIsSupported(conditionIsSupported)
@@ -414,8 +402,9 @@ StyleRuleSupports::StyleRuleSupports(const StyleRuleSupports& o)
 {
 }
 
-StyleRuleViewport::StyleRuleViewport()
+StyleRuleViewport::StyleRuleViewport(PassRefPtrWillBeRawPtr<StylePropertySet> properties)
     : StyleRuleBase(Viewport)
+    , m_properties(properties)
 {
 }
 
@@ -436,47 +425,7 @@ MutableStylePropertySet& StyleRuleViewport::mutableProperties()
     return *toMutableStylePropertySet(m_properties);
 }
 
-void StyleRuleViewport::setProperties(PassRefPtrWillBeRawPtr<StylePropertySet> properties)
-{
-    m_properties = properties;
-}
-
-void StyleRuleViewport::traceAfterDispatch(Visitor* visitor)
-{
-    visitor->trace(m_properties);
-    StyleRuleBase::traceAfterDispatch(visitor);
-}
-
-StyleRuleFilter::StyleRuleFilter(const String& filterName)
-    : StyleRuleBase(Filter)
-    , m_filterName(filterName)
-{
-}
-
-StyleRuleFilter::StyleRuleFilter(const StyleRuleFilter& o)
-    : StyleRuleBase(o)
-    , m_filterName(o.m_filterName)
-    , m_properties(o.m_properties->mutableCopy())
-{
-}
-
-StyleRuleFilter::~StyleRuleFilter()
-{
-}
-
-MutableStylePropertySet& StyleRuleFilter::mutableProperties()
-{
-    if (!m_properties->isMutable())
-        m_properties = m_properties->mutableCopy();
-    return *toMutableStylePropertySet(m_properties);
-}
-
-void StyleRuleFilter::setProperties(PassRefPtrWillBeRawPtr<StylePropertySet> properties)
-{
-    m_properties = properties;
-}
-
-void StyleRuleFilter::traceAfterDispatch(Visitor* visitor)
+DEFINE_TRACE_AFTER_DISPATCH(StyleRuleViewport)
 {
     visitor->trace(m_properties);
     StyleRuleBase::traceAfterDispatch(visitor);

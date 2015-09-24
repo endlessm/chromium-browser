@@ -10,18 +10,17 @@
 
 #include "base/callback_forward.h"
 #include "base/files/file_path.h"
-#include "base/gtest_prod_util.h"
+#include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/values.h"
 
 class ExtensionServiceInterface;
 class PrefService;
-
-namespace content {
-class BrowserContext;
-}
+class Profile;
 
 namespace extensions {
+
+class Extension;
 
 // For registering, loading, and unloading component extensions.
 class ComponentLoader {
@@ -29,7 +28,7 @@ class ComponentLoader {
   ComponentLoader(ExtensionServiceInterface* extension_service,
                   PrefService* prefs,
                   PrefService* local_state,
-                  content::BrowserContext* browser_context);
+                  Profile* browser_context);
   virtual ~ComponentLoader();
 
   size_t registered_extensions_count() const {
@@ -103,8 +102,12 @@ class ComponentLoader {
   // NOTE: |done_cb| is not called if the component loader is shut down
   // during loading.
   void AddChromeVoxExtension(const base::Closure& done_cb);
-  std::string AddChromeOsSpeechSynthesisExtension();
+  void AddChromeOsSpeechSynthesisExtension();
 #endif
+
+  void set_ignore_whitelist_for_testing(bool value) {
+    ignore_whitelist_for_testing_ = value;
+  }
 
  private:
   // Information about a registered component extension.
@@ -122,8 +125,12 @@ class ComponentLoader {
     std::string extension_id;
   };
 
+  std::string Add(const std::string& manifest_contents,
+                  const base::FilePath& root_directory,
+                  bool skip_whitelist);
   std::string Add(const base::DictionaryValue* parsed_manifest,
-                  const base::FilePath& root_directory);
+                  const base::FilePath& root_directory,
+                  bool skip_whitelist);
 
   // Loads a registered component extension.
   void Load(const ComponentExtensionInfo& info);
@@ -134,19 +141,30 @@ class ComponentLoader {
   void AddVideoPlayerExtension();
   void AddAudioPlayerExtension();
   void AddGalleryExtension();
+  void AddWebstoreWidgetExtension();
   void AddHangoutServicesExtension();
   void AddHotwordHelperExtension();
   void AddImageLoaderExtension();
   void AddNetworkSpeechSynthesisExtension();
+  void AddGoogleNowExtension();
 
   void AddWithNameAndDescription(int manifest_resource_id,
                                  const base::FilePath& root_directory,
-                                 int name_string_id,
-                                 int description_string_id);
+                                 const std::string& name_string,
+                                 const std::string& description_string);
   void AddChromeApp();
   void AddHotwordAudioVerificationApp();
   void AddKeyboardApp();
   void AddWebStoreApp();
+
+  scoped_refptr<const Extension> CreateExtension(
+      const ComponentExtensionInfo& info, std::string* utf8_error);
+
+  // Deletes the extension storage for an extension that has not yet been
+  // loaded. If the extension has been loaded, use ComponentLoader::Remove
+  // instead.
+  void DeleteData(int manifest_resource_id,
+                  const base::FilePath& root_directory);
 
   // Unloads |component| from the memory.
   void UnloadComponent(ComponentExtensionInfo* component);
@@ -155,18 +173,27 @@ class ComponentLoader {
   void EnableFileSystemInGuestMode(const std::string& id);
 
 #if defined(OS_CHROMEOS)
-  // Used as a reply callback when loading the ChromeVox extension.
-  // Called with a |chromevox_path| and parsed |manifest| and invokes
+  // Adds an extension where the manifest file is stored on the file system.
+  // |manifest_filename| can be relative to the |root_directory|.
+  void AddWithManifestFile(
+      const base::FilePath::CharType* manifest_filename,
+      const base::FilePath& root_directory,
+      const char* extension_id,
+      const base::Closure& done_cb);
+
+  // Used as a reply callback by |AddWithManifestFile|.
+  // Called with a |root_directory| and parsed |manifest| and invokes
   // |done_cb| after adding the extension.
-  void AddChromeVoxExtensionWithManifest(
-      const base::FilePath& chromevox_path,
+  void FinishAddWithManifestFile(
+      const base::FilePath& root_directory,
+      const char* extension_id,
       const base::Closure& done_cb,
       scoped_ptr<base::DictionaryValue> manifest);
 #endif
 
   PrefService* profile_prefs_;
   PrefService* local_state_;
-  content::BrowserContext* browser_context_;
+  Profile* profile_;
 
   ExtensionServiceInterface* extension_service_;
 
@@ -174,10 +201,11 @@ class ComponentLoader {
   typedef std::vector<ComponentExtensionInfo> RegisteredComponentExtensions;
   RegisteredComponentExtensions component_extensions_;
 
+  bool ignore_whitelist_for_testing_;
+
   base::WeakPtrFactory<ComponentLoader> weak_factory_;
 
-  FRIEND_TEST_ALL_PREFIXES(TtsApiTest, NetworkSpeechEngine);
-  FRIEND_TEST_ALL_PREFIXES(TtsApiTest, NoNetworkSpeechEngineWhenOffline);
+  friend class TtsApiTest;
 
   DISALLOW_COPY_AND_ASSIGN(ComponentLoader);
 };

@@ -2,12 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <stdint.h>
+
 #include "base/basictypes.h"
 #include "base/files/file_util.h"
 #include "base/metrics/field_trial.h"
-#include "base/port.h"
+#include "base/run_loop.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/test/mock_entropy_provider.h"
 #include "base/third_party/dynamic_annotations/dynamic_annotations.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/threading/platform_thread.h"
@@ -50,7 +54,7 @@ scoped_ptr<disk_cache::BackendImpl> CreateExistingEntryCache(
   net::TestCompletionCallback cb;
 
   scoped_ptr<disk_cache::BackendImpl> cache(new disk_cache::BackendImpl(
-      cache_path, cache_thread.message_loop_proxy(), NULL));
+      cache_path, cache_thread.task_runner(), NULL));
   int rv = cache->Init(cb.callback());
   if (cb.GetResult(rv) != net::OK)
     return scoped_ptr<disk_cache::BackendImpl>();
@@ -126,6 +130,7 @@ class DiskCacheBackendTest : public DiskCacheTestWithCache {
   void BackendDisable2();
   void BackendDisable3();
   void BackendDisable4();
+  void BackendDisabledAPI();
 };
 
 int DiskCacheBackendTest::GeneratePendingIO(net::TestCompletionCallback* cb) {
@@ -348,8 +353,8 @@ TEST_F(DiskCacheBackendTest, ShaderCacheBasics) {
 
 void DiskCacheBackendTest::BackendKeying() {
   InitCache();
-  const char* kName1 = "the first key";
-  const char* kName2 = "the first Key";
+  const char kName1[] = "the first key";
+  const char kName2[] = "the first Key";
   disk_cache::Entry *entry1, *entry2;
   ASSERT_EQ(net::OK, CreateEntry(kName1, &entry1));
 
@@ -1838,16 +1843,6 @@ TEST_F(DiskCacheTest, WrongVersion) {
   ASSERT_EQ(net::ERR_FAILED, cb.GetResult(rv));
 }
 
-class BadEntropyProvider : public base::FieldTrial::EntropyProvider {
- public:
-  ~BadEntropyProvider() override {}
-
-  double GetEntropyForTrial(const std::string& trial_name,
-                            uint32 randomization_seed) const override {
-    return 0.5;
-  }
-};
-
 // Tests that the disk cache successfully joins the control group, dropping the
 // existing cache in favour of a new empty cache.
 // Disabled on android since this test requires cache creator to create
@@ -1865,7 +1860,7 @@ TEST_F(DiskCacheTest, SimpleCacheControlJoin) {
 
   // Instantiate the SimpleCacheTrial, forcing this run into the
   // ExperimentControl group.
-  base::FieldTrialList field_trial_list(new BadEntropyProvider());
+  base::FieldTrialList field_trial_list(new base::MockEntropyProvider());
   base::FieldTrialList::CreateFieldTrial("SimpleCacheTrial",
                                          "ExperimentControl");
   net::TestCompletionCallback cb;
@@ -1889,7 +1884,7 @@ TEST_F(DiskCacheTest, SimpleCacheControlJoin) {
 TEST_F(DiskCacheTest, SimpleCacheControlRestart) {
   // Instantiate the SimpleCacheTrial, forcing this run into the
   // ExperimentControl group.
-  base::FieldTrialList field_trial_list(new BadEntropyProvider());
+  base::FieldTrialList field_trial_list(new base::MockEntropyProvider());
   base::FieldTrialList::CreateFieldTrial("SimpleCacheTrial",
                                          "ExperimentControl");
 
@@ -1905,8 +1900,8 @@ TEST_F(DiskCacheTest, SimpleCacheControlRestart) {
 
   const int kRestartCount = 5;
   for (int i = 0; i < kRestartCount; ++i) {
-    cache.reset(new disk_cache::BackendImpl(
-        cache_path_, cache_thread.message_loop_proxy(), NULL));
+    cache.reset(new disk_cache::BackendImpl(cache_path_,
+                                            cache_thread.task_runner(), NULL));
     int rv = cache->Init(cb.callback());
     ASSERT_EQ(net::OK, cb.GetResult(rv));
     EXPECT_EQ(1, cache->GetEntryCount());
@@ -1929,7 +1924,7 @@ TEST_F(DiskCacheTest, SimpleCacheControlLeave) {
   {
     // Instantiate the SimpleCacheTrial, forcing this run into the
     // ExperimentControl group.
-    base::FieldTrialList field_trial_list(new BadEntropyProvider());
+    base::FieldTrialList field_trial_list(new base::MockEntropyProvider());
     base::FieldTrialList::CreateFieldTrial("SimpleCacheTrial",
                                            "ExperimentControl");
 
@@ -1940,14 +1935,14 @@ TEST_F(DiskCacheTest, SimpleCacheControlLeave) {
 
   // Instantiate the SimpleCacheTrial, forcing this run into the
   // ExperimentNo group.
-  base::FieldTrialList field_trial_list(new BadEntropyProvider());
+  base::FieldTrialList field_trial_list(new base::MockEntropyProvider());
   base::FieldTrialList::CreateFieldTrial("SimpleCacheTrial", "ExperimentNo");
   net::TestCompletionCallback cb;
 
   const int kRestartCount = 5;
   for (int i = 0; i < kRestartCount; ++i) {
     scoped_ptr<disk_cache::BackendImpl> cache(new disk_cache::BackendImpl(
-        cache_path_, cache_thread.message_loop_proxy(), NULL));
+        cache_path_, cache_thread.task_runner(), NULL));
     int rv = cache->Init(cb.callback());
     ASSERT_EQ(net::OK, cb.GetResult(rv));
     EXPECT_EQ(1, cache->GetEntryCount());
@@ -2733,6 +2728,51 @@ TEST_F(DiskCacheBackendTest, NewEvictionDisableSuccess4) {
   BackendDisable4();
 }
 
+// Tests the exposed API with a disabled cache.
+void DiskCacheBackendTest::BackendDisabledAPI() {
+  cache_impl_->SetUnitTestMode();  // Simulate failure restarting the cache.
+
+  disk_cache::Entry* entry1, *entry2;
+  scoped_ptr<TestIterator> iter = CreateIterator();
+  EXPECT_EQ(2, cache_->GetEntryCount());
+  ASSERT_EQ(net::OK, iter->OpenNextEntry(&entry1));
+  entry1->Close();
+  EXPECT_NE(net::OK, iter->OpenNextEntry(&entry2));
+  FlushQueueForTest();
+  // The cache should be disabled.
+
+  EXPECT_EQ(net::DISK_CACHE, cache_->GetCacheType());
+  EXPECT_EQ(0, cache_->GetEntryCount());
+  EXPECT_NE(net::OK, OpenEntry("First", &entry2));
+  EXPECT_NE(net::OK, CreateEntry("Something new", &entry2));
+  EXPECT_NE(net::OK, DoomEntry("First"));
+  EXPECT_NE(net::OK, DoomAllEntries());
+  EXPECT_NE(net::OK, DoomEntriesBetween(Time(), Time::Now()));
+  EXPECT_NE(net::OK, DoomEntriesSince(Time()));
+  iter = CreateIterator();
+  EXPECT_NE(net::OK, iter->OpenNextEntry(&entry2));
+
+  base::StringPairs stats;
+  cache_->GetStats(&stats);
+  EXPECT_TRUE(stats.empty());
+  cache_->OnExternalCacheHit("First");
+}
+
+TEST_F(DiskCacheBackendTest, DisabledAPI) {
+  ASSERT_TRUE(CopyTestCache("bad_rankings2"));
+  DisableFirstCleanup();
+  InitCache();
+  BackendDisabledAPI();
+}
+
+TEST_F(DiskCacheBackendTest, NewEvictionDisabledAPI) {
+  ASSERT_TRUE(CopyTestCache("bad_rankings2"));
+  DisableFirstCleanup();
+  SetNewEviction();
+  InitCache();
+  BackendDisabledAPI();
+}
+
 TEST_F(DiskCacheTest, Backend_UsageStatsTimer) {
   MessageLoopHelper helper;
 
@@ -3178,11 +3218,6 @@ TEST_F(DiskCacheBackendTest, SimpleCacheAppCacheKeying) {
   BackendKeying();
 }
 
-TEST_F(DiskCacheBackendTest, DISABLED_SimpleCacheSetSize) {
-  SetSimpleCacheMode();
-  BackendSetSize();
-}
-
 // MacOS has a default open file limit of 256 files, which is incompatible with
 // this simple cache test.
 #if defined(OS_MACOSX)
@@ -3230,7 +3265,7 @@ TEST_F(DiskCacheBackendTest, SimpleCacheOpenMissingFile) {
   SetSimpleCacheMode();
   InitCache();
 
-  const char* key = "the first key";
+  const char key[] = "the first key";
   disk_cache::Entry* entry = NULL;
 
   ASSERT_EQ(net::OK, CreateEntry(key, &entry));
@@ -3266,7 +3301,7 @@ TEST_F(DiskCacheBackendTest, SimpleCacheOpenBadFile) {
   SetSimpleCacheMode();
   InitCache();
 
-  const char* key = "the first key";
+  const char key[] = "the first key";
   disk_cache::Entry* entry = NULL;
 
   ASSERT_EQ(net::OK, CreateEntry(key, &entry));
@@ -3282,12 +3317,16 @@ TEST_F(DiskCacheBackendTest, SimpleCacheOpenBadFile) {
   entry->Close();
   entry = NULL;
 
+  // The entry is being closed on the Simple Cache worker pool
+  disk_cache::SimpleBackendImpl::FlushWorkerPoolForTesting();
+  base::RunLoop().RunUntilIdle();
+
   // Write an invalid header for stream 0 and stream 1.
   base::FilePath entry_file1_path = cache_path_.AppendASCII(
       disk_cache::simple_util::GetFilenameFromKeyAndFileIndex(key, 0));
 
   disk_cache::SimpleFileHeader header;
-  header.initial_magic_number = GG_UINT64_C(0xbadf00d);
+  header.initial_magic_number = UINT64_C(0xbadf00d);
   EXPECT_EQ(
       implicit_cast<int>(sizeof(header)),
       base::WriteFile(entry_file1_path, reinterpret_cast<char*>(&header),

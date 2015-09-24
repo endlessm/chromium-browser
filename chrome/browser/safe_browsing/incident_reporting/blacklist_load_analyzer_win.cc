@@ -4,6 +4,7 @@
 
 #include "chrome/browser/safe_browsing/incident_reporting/blacklist_load_analyzer.h"
 
+#include "base/file_version_info.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
@@ -12,10 +13,11 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/install_verification/win/module_info.h"
 #include "chrome/browser/install_verification/win/module_verification_common.h"
-#include "chrome/browser/safe_browsing/binary_feature_extractor.h"
-#include "chrome/browser/safe_browsing/incident_reporting/add_incident_callback.h"
+#include "chrome/browser/safe_browsing/incident_reporting/blacklist_load_incident.h"
+#include "chrome/browser/safe_browsing/incident_reporting/incident_receiver.h"
 #include "chrome/browser/safe_browsing/path_sanitizer.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
+#include "chrome/common/safe_browsing/binary_feature_extractor.h"
 #include "chrome/common/safe_browsing/csd.pb.h"
 #include "chrome_elf/blacklist/blacklist.h"
 
@@ -42,31 +44,65 @@ bool GetLoadedBlacklistedModules(std::vector<base::string16>* module_names) {
   return true;
 }
 
-void VerifyBlacklistLoadState(const AddIncidentCallback& callback) {
+void VerifyBlacklistLoadState(scoped_ptr<IncidentReceiver> incident_receiver) {
   std::vector<base::string16> module_names;
   if (GetLoadedBlacklistedModules(&module_names)) {
     PathSanitizer path_sanitizer;
 
     const bool blacklist_intialized = blacklist::IsBlacklistInitialized();
 
-    std::vector<base::string16>::const_iterator module_iter(
-        module_names.begin());
-    for (; module_iter != module_names.end(); ++module_iter) {
-      scoped_ptr<ClientIncidentReport_IncidentData> incident_data(
-          new ClientIncidentReport_IncidentData());
-      ClientIncidentReport_IncidentData_BlacklistLoadIncident* blacklist_load =
-          incident_data->mutable_blacklist_load();
+    for (const auto& module_name : module_names) {
+      scoped_ptr<ClientIncidentReport_IncidentData_BlacklistLoadIncident>
+          blacklist_load(
+              new ClientIncidentReport_IncidentData_BlacklistLoadIncident());
 
-      base::FilePath module_path(*module_iter);
-      path_sanitizer.StripHomeDirectory(&module_path);
+      const base::FilePath module_path(module_name);
 
-      blacklist_load->set_path(base::WideToUTF8(module_path.value()));
-      // TODO(robertshield): Add computation of file digest and version here.
+      // Sanitized path.
+      base::FilePath sanitized_path(module_path);
+      path_sanitizer.StripHomeDirectory(&sanitized_path);
+      blacklist_load->set_path(base::WideToUTF8(sanitized_path.value()));
 
+      // Digest.
+      scoped_refptr<safe_browsing::BinaryFeatureExtractor>
+          binary_feature_extractor(new BinaryFeatureExtractor());
+      base::TimeTicks start_time = base::TimeTicks::Now();
+      binary_feature_extractor->ExtractDigest(module_path,
+                                              blacklist_load->mutable_digest());
+      UMA_HISTOGRAM_TIMES("SBIRS.BLAHashTime",
+                          base::TimeTicks::Now() - start_time);
+
+      // Version.
+      scoped_ptr<FileVersionInfo> version_info(
+          FileVersionInfo::CreateFileVersionInfo(module_path));
+      if (version_info) {
+        std::wstring file_version = version_info->file_version();
+        if (!file_version.empty())
+          blacklist_load->set_version(base::WideToUTF8(file_version));
+      }
+
+      // Initialized state.
       blacklist_load->set_blacklist_initialized(blacklist_intialized);
 
+      // Signature.
+      start_time = base::TimeTicks::Now();
+      binary_feature_extractor->CheckSignature(
+          module_path, blacklist_load->mutable_signature());
+      UMA_HISTOGRAM_TIMES("SBIRS.BLASignatureTime",
+                          base::TimeTicks::Now() - start_time);
+
+      // Image headers.
+      if (!binary_feature_extractor->ExtractImageFeatures(
+              module_path,
+              BinaryFeatureExtractor::kDefaultOptions,
+              blacklist_load->mutable_image_headers(),
+              nullptr /* signed_data */)) {
+        blacklist_load->clear_image_headers();
+      }
+
       // Send the report.
-      callback.Run(incident_data.Pass());
+      incident_receiver->AddIncidentForProcess(
+          make_scoped_ptr(new BlacklistLoadIncident(blacklist_load.Pass())));
     }
   }
 }

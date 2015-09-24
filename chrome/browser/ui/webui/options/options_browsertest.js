@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+GEN_INCLUDE(['options_browsertest_base.js']);
 GEN('#include "chrome/browser/ui/webui/options/options_browsertest.h"');
 
 /** @const */ var SUPERVISED_USERS_PREF = 'profile.managed_users';
@@ -43,24 +44,15 @@ function waitForPopstate(afterFunction) {
 function OptionsWebUITest() {}
 
 OptionsWebUITest.prototype = {
-  __proto__: testing.Test.prototype,
-
-  /** @override */
-  accessibilityIssuesAreErrors: true,
-
-  /** @override */
-  setUp: function() {
-    // user-image-stream is a streaming video element used for capturing a
-    // user image during OOBE.
-    this.accessibilityAuditConfig.ignoreSelectors('videoWithoutCaptions',
-                                                  '.user-image-stream');
-  },
+  __proto__: OptionsBrowsertestBase.prototype,
 
   /**
    * Browse to the options page & call our preLoad().
+   * @override
    */
   browsePreload: 'chrome://settings-frame',
 
+  /** @override */
   isAsync: true,
 
   /**
@@ -88,6 +80,24 @@ OptionsWebUITest.prototype = {
     this.mockHandler.stubs().coreOptionsUserMetricsAction(ANYTHING);
   },
 };
+
+/**
+ * Wait for all targets to be hidden.
+ * @param {Array<Element>} targets
+ */
+function waitUntilHidden(targets) {
+  function isHidden(el) { return el.hidden; }
+  function ensureTransition(el) { ensureTransitionEndEvent(el, 500); }
+
+  document.addEventListener('webkitTransitionEnd', function f(e) {
+    if (targets.indexOf(e.target) >= 0 && targets.every(isHidden)) {
+      document.removeEventListener(f, 'webkitTransitionEnd');
+      testDone();
+    }
+  });
+
+  targets.forEach(ensureTransition);
+}
 
 // Crashes on Mac only. See http://crbug.com/79181
 GEN('#if defined(OS_MACOSX)');
@@ -363,10 +373,7 @@ GEN('#endif');  // defined(OS_CHROMEOS)
 function OptionsWebUIExtendedTest() {}
 
 OptionsWebUIExtendedTest.prototype = {
-  __proto__: testing.Test.prototype,
-
-  /** @override */
-  browsePreload: 'chrome://settings-frame',
+  __proto__: OptionsWebUITest.prototype,
 
   /** @override */
   typedefCppFixture: 'OptionsBrowserTest',
@@ -374,17 +381,6 @@ OptionsWebUIExtendedTest.prototype = {
   testGenPreamble: function() {
     // Start with no supervised users managed by this profile.
     GEN('  ClearPref("' + SUPERVISED_USERS_PREF + '");');
-  },
-
-  /** @override */
-  isAsync: true,
-
-  /** @override */
-  setUp: function() {
-      // user-image-stream is a streaming video element used for capturing a
-      // user image during OOBE.
-      this.accessibilityAuditConfig.ignoreSelectors('videoWithoutCaptions',
-                                                    '.user-image-stream');
   },
 
   /**
@@ -417,7 +413,7 @@ OptionsWebUIExtendedTest.prototype = {
 
   /**
    * Verifies that the correct pages are currently open/visible.
-   * @param {!Array.<string>} expectedPages An array of page names expected to
+   * @param {!Array<string>} expectedPages An array of page names expected to
    *     be open, with the topmost listed last.
    * @param {string=} opt_expectedUrl The URL path, including hash, expected to
    *     be open. If undefined, the topmost (last) page name in |expectedPages|
@@ -461,7 +457,7 @@ OptionsWebUIExtendedTest.prototype = {
 
   /*
    * Verifies that the correct URLs are listed in the history. Asynchronous.
-   * @param {!Array.<string>} expectedHistory An array of URL paths expected to
+   * @param {!Array<string>} expectedHistory An array of URL paths expected to
    *     be in the tab navigation history, sorted by visit time, including the
    *     current page as the last entry. The base URL (chrome://settings-frame/)
    *     will be prepended to each. An initial 'about:blank' history entry is
@@ -676,7 +672,8 @@ TEST_F('OptionsWebUIExtendedTest', 'CloseOverlay', function() {
       self.verifyOpenPages_(['settings'], '');
       self.verifyHistory_(
           ['', 'languages', 'addLanguage', 'languages', ''],
-          testDone);
+          function noop() {});
+      waitUntilHidden([$('overlay-container-1'), $('overlay-container-2')]);
     });
   });
 });
@@ -708,7 +705,8 @@ TEST_F('OptionsWebUIExtendedTest', 'CloseOverlayWithHashes', function() {
       this.verifyHistory_(
           ['', 'search#1', 'languages#2', 'addLanguage#3', 'languages#2',
            'search#1'],
-          testDone);
+          function noop() {});
+      waitUntilHidden([$('overlay-container-1'), $('overlay-container-2')]);
     }.bind(this));
   }.bind(this));
 });
@@ -724,7 +722,8 @@ TEST_F('OptionsWebUIExtendedTest', 'CloseOverlayNoHistory', function() {
     // Close the overlay.
     PageManager.closeOverlay();
     // Still no history changes.
-    this.verifyHistory_([''], testDone);
+    this.verifyHistory_([''], function noop() {});
+    waitUntilHidden([$('overlay-container-1')]);
   }.bind(this));
 });
 

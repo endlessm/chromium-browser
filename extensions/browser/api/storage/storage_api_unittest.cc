@@ -5,6 +5,7 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/strings/stringprintf.h"
 #include "content/public/test/test_browser_context.h"
 #include "extensions/browser/api/extensions_api_client.h"
@@ -15,9 +16,7 @@
 #include "extensions/browser/api/storage/storage_frontend.h"
 #include "extensions/browser/api_unittest.h"
 #include "extensions/browser/event_router.h"
-#include "extensions/browser/extension_prefs.h"
-#include "extensions/browser/extension_system.h"
-#include "extensions/browser/mock_extension_system.h"
+#include "extensions/browser/event_router_factory.h"
 #include "extensions/browser/test_extensions_browser_client.h"
 #include "extensions/browser/value_store/leveldb_value_store.h"
 #include "extensions/browser/value_store/value_store.h"
@@ -31,10 +30,14 @@ namespace extensions {
 namespace {
 
 // Caller owns the returned object.
-KeyedService* CreateStorageFrontendForTesting(
+scoped_ptr<KeyedService> CreateStorageFrontendForTesting(
     content::BrowserContext* context) {
   return StorageFrontend::CreateForTesting(new LeveldbSettingsStorageFactory(),
                                            context);
+}
+
+scoped_ptr<KeyedService> BuildEventRouter(content::BrowserContext* context) {
+  return make_scoped_ptr(new extensions::EventRouter(context, nullptr));
 }
 
 }  // namespace
@@ -42,12 +45,7 @@ KeyedService* CreateStorageFrontendForTesting(
 class StorageApiUnittest : public ApiUnitTest {
  public:
   StorageApiUnittest() {}
-
-  void SetUp() override {
-    ApiUnitTest::SetUp();
-    extensions_browser_client()->set_extension_system_factory(
-        &extension_system_factory_);
-  }
+  ~StorageApiUnittest() override {}
 
  protected:
   // Runs the storage.set() API function with local storage.
@@ -77,13 +75,13 @@ class StorageApiUnittest : public ApiUnitTest {
     return testing::AssertionSuccess();
   }
 
-  MockExtensionSystemFactory<
-      settings_test_util::MockExtensionSystemWithEventRouter>
-      extension_system_factory_;
   ExtensionsAPIClient extensions_api_client_;
 };
 
 TEST_F(StorageApiUnittest, RestoreCorruptedStorage) {
+  EventRouterFactory::GetInstance()->SetTestingFactory(browser_context(),
+                                                       &BuildEventRouter);
+
   // Ensure a StorageFrontend can be created on demand. The StorageFrontend
   // will be owned by the KeyedService system.
   StorageFrontend::GetFactoryInstance()->SetTestingFactory(

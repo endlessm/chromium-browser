@@ -27,6 +27,7 @@ import urlparse
 
 from chromite.cbuildbot import constants
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import git
 from chromite.lib import gob_util
 from chromite.lib import portage_util
@@ -60,7 +61,7 @@ def _GetVersionContents(chrome_version_info):
   """Returns the current Chromium version, from the contents of a VERSION file.
 
   Args:
-     chrome_version_info: The contents of a chromium VERSION file.
+    chrome_version_info: The contents of a chromium VERSION file.
   """
   chrome_version_array = []
   for line in chrome_version_info.splitlines():
@@ -73,10 +74,10 @@ def _GetSpecificVersionUrl(git_url, revision, time_to_wait=600):
   """Returns the Chromium version, from a repository URL and version.
 
   Args:
-     git_url: Repository URL for chromium.
-     revision: the git revision we want to use.
-     time_to_wait: the minimum period before abandoning our wait for the
-         desired revision to be present.
+    git_url: Repository URL for chromium.
+    revision: the git revision we want to use.
+    time_to_wait: the minimum period before abandoning our wait for the
+      desired revision to be present.
   """
   parsed_url = urlparse.urlparse(git_url)
   host = parsed_url[1]
@@ -88,10 +89,9 @@ def _GetSpecificVersionUrl(git_url, revision, time_to_wait=600):
     fh = gob_util.FetchUrl(host, path, ignore_404=True)
     return fh.read() if fh else None
 
-  def _wait_msg(_remaining_minutes):
-    cros_build_lib.Info(
-        'Repository does not yet have revision %s.  Sleeping...',
-        revision)
+  def _wait_msg(_remaining):
+    logging.info('Repository does not yet have revision %s.  Sleeping...',
+                 revision)
 
   content = timeout_util.WaitForSuccess(
       retry_check=lambda x: not bool(x),
@@ -106,7 +106,7 @@ def _GetTipOfTrunkVersionFile(root):
   """Returns the current Chromium version, from a file in a checkout.
 
   Args:
-     root: path to the root of the chromium checkout.
+    root: path to the root of the chromium checkout.
   """
   version_file = os.path.join(root, 'src', 'chrome', 'VERSION')
   chrome_version_info = cros_build_lib.RunCommand(
@@ -189,7 +189,7 @@ def _GetStickyEBuild(stable_ebuilds):
   if not sticky_ebuilds:
     raise Exception('No sticky ebuilds found')
   elif len(sticky_ebuilds) > 1:
-    cros_build_lib.Warning('More than one sticky ebuild found')
+    logging.warning('More than one sticky ebuild found')
 
   return portage_util.BestEBuild(sticky_ebuilds)
 
@@ -229,7 +229,7 @@ def FindChromeCandidates(package_dir):
     if path.endswith('.ebuild'):
       ebuild = ChromeEBuild(path)
       if not ebuild.chrome_version:
-        cros_build_lib.Warning('Poorly formatted ebuild found at %s' % path)
+        logging.warning('Poorly formatted ebuild found at %s' % path)
       else:
         if '9999' in ebuild.version:
           unstable_ebuilds.append(ebuild)
@@ -240,7 +240,7 @@ def FindChromeCandidates(package_dir):
   if not unstable_ebuilds:
     raise Exception('Missing 9999 ebuild for %s' % package_dir)
   if not stable_ebuilds:
-    cros_build_lib.Warning('Missing stable ebuild for %s' % package_dir)
+    logging.warning('Missing stable ebuild for %s' % package_dir)
 
   return portage_util.BestEBuild(unstable_ebuilds), stable_ebuilds
 
@@ -315,8 +315,8 @@ def GetChromeRevisionLinkFromVersions(old_chrome_version, chrome_version):
   Returns:
     The desired URL.
   """
-  return _CHROME_VERSION_URL % { 'old': old_chrome_version,
-                                 'new': chrome_version }
+  return _CHROME_VERSION_URL % {'old': old_chrome_version,
+                                'new': chrome_version}
 
 
 def GetChromeRevisionListLink(old_chrome, new_chrome, chrome_rev):
@@ -409,7 +409,7 @@ def MarkChromeEBuildAsStable(stable_candidate, unstable_ebuild, chrome_pn,
   # Determine whether this is ebuild is redundant.
   if IsTheNewEBuildRedundant(new_ebuild, stable_candidate):
     msg = 'Previous ebuild with same version found and ebuild is redundant.'
-    cros_build_lib.Info(msg)
+    logging.info(msg)
     os.unlink(new_ebuild_path)
     return None
 
@@ -474,7 +474,7 @@ def main(_argv):
 
     version_to_uprev = _GetTipOfTrunkVersionFile(chrome_root)
     commit_to_use = 'Unknown'
-    cros_build_lib.Info('Using local source, versioning is untrustworthy.')
+    logging.info('Using local source, versioning is untrustworthy.')
   elif chrome_rev == constants.CHROME_REV_SPEC:
     if '.' in options.force_version:
       version_to_uprev = options.force_version
@@ -506,9 +506,9 @@ def main(_argv):
                                               sticky_branch)
 
   if stable_candidate:
-    cros_build_lib.Info('Stable candidate found %s' % stable_candidate)
+    logging.info('Stable candidate found %s' % stable_candidate)
   else:
-    cros_build_lib.Info('No stable candidate found.')
+    logging.info('No stable candidate found.')
 
   tracking_branch = 'remotes/m/%s' % os.path.basename(options.tracking_branch)
   existing_branch = git.GetCurrentBranch(chrome_package_dir)

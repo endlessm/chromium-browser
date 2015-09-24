@@ -1,13 +1,20 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _JS_EVENTHANDLER_H_
-#define _JS_EVENTHANDLER_H_
+#ifndef FPDFSDK_INCLUDE_JAVASCRIPT_JS_EVENTHANDLER_H_
+#define FPDFSDK_INCLUDE_JAVASCRIPT_JS_EVENTHANDLER_H_
+
+#include "../../../core/include/fxcrt/fx_string.h"
+#include "../../../core/include/fxcrt/fx_system.h"
 
 class CJS_Context;
+class CPDFSDK_Annot;
+class CPDFSDK_Document;
+class CPDF_Bookmark;
+class CPDF_FormField;
 class Field;
 
 enum JS_EVENT_T
@@ -71,12 +78,12 @@ public:
 	void					OnPage_Close(CPDFSDK_Document* pDoc);
 	void					OnPage_InView(CPDFSDK_Document* pTarget);
 	void					OnPage_OutView(CPDFSDK_Document* pTarget);
-	
+
 	void					OnField_Calculate(CPDF_FormField* pSource, CPDF_FormField* pTarget, CFX_WideString& Value, FX_BOOL& bRc);
-	void					OnField_Format(int nCommitKey, CPDF_FormField* pTarget, CFX_WideString& Value, FX_BOOL bWillCommit);
-	void					OnField_Keystroke(int nCommitKey, CFX_WideString& strChange, const CFX_WideString& strChangeEx,
+	void					OnField_Format(CPDF_FormField* pTarget, CFX_WideString& Value, FX_BOOL bWillCommit);
+	void					OnField_Keystroke(CFX_WideString& strChange, const CFX_WideString& strChangeEx,
 								FX_BOOL KeyDown, FX_BOOL bModifier, int &nSelEnd,int &nSelStart, FX_BOOL bShift,
-								CPDF_FormField* pTarget, CFX_WideString& Value, FX_BOOL bWillCommit, 
+								CPDF_FormField* pTarget, CFX_WideString& Value, FX_BOOL bWillCommit,
 								FX_BOOL bFieldFull, FX_BOOL &bRc);
 	void					OnField_Validate(CFX_WideString& strChange, const CFX_WideString& strChangeEx, FX_BOOL bKeyDown,
 								FX_BOOL bModifier, FX_BOOL bShift, CPDF_FormField* pTarget, CFX_WideString& Value, FX_BOOL& bRc);
@@ -112,15 +119,15 @@ public:
 	void					Destroy();
 	FX_BOOL					IsValid();
 
-	
+
 	CFX_WideString&			Change();
 	CFX_WideString			ChangeEx();
 	int						CommitKey();
 	FX_BOOL					FieldFull();
 	FX_BOOL					KeyDown();
 	FX_BOOL					Modifier();
-	FX_LPCWSTR				Name();
-	FX_LPCWSTR				Type();
+	const FX_WCHAR*				Name();
+	const FX_WCHAR*				Type();
 	FX_BOOL&				Rc();
 	int&					SelEnd();
 	int&					SelStart();
@@ -131,7 +138,7 @@ public:
 	FX_BOOL					WillCommit();
 	CFX_WideString			TargetName();
 
-	JS_EVENT_T				EventType() {return m_eEventType;};	
+	JS_EVENT_T				EventType() {return m_eEventType;};
 
 public:
 	CJS_Context*			m_pJSContext;
@@ -163,5 +170,4 @@ public:
 	CPDFSDK_Annot*			m_pTargetAnnot;
 };
 
-#endif //_JS_EVENTHANDLER_H_
-
+#endif  // FPDFSDK_INCLUDE_JAVASCRIPT_JS_EVENTHANDLER_H_

@@ -20,7 +20,7 @@ namespace syncer {
 
 class DirectoryCommitContributionTest : public ::testing::Test {
  public:
-  virtual void SetUp() override {
+  void SetUp() override {
     dir_maker_.SetUp();
 
     syncable::WriteTransaction trans(FROM_HERE, syncable::UNITTEST, dir());
@@ -30,9 +30,7 @@ class DirectoryCommitContributionTest : public ::testing::Test {
     CreateTypeRoot(&trans, dir(), BOOKMARKS);
   }
 
-  virtual void TearDown() override {
-    dir_maker_.TearDown();
-  }
+  void TearDown() override { dir_maker_.TearDown(); }
 
  protected:
   int64 CreateUnsyncedItemWithAttachments(
@@ -40,13 +38,15 @@ class DirectoryCommitContributionTest : public ::testing::Test {
       ModelType type,
       const std::string& tag,
       const sync_pb::AttachmentMetadata& attachment_metadata) {
-    syncable::Entry parent_entry(trans, syncable::GET_TYPE_ROOT, type);
-    syncable::MutableEntry entry(
-        trans,
-        syncable::CREATE,
-        type,
-        parent_entry.GetId(),
-        tag);
+    // For bookmarks specify the Bookmarks root folder as the parent;
+    // for other types leave the parent ID empty
+    syncable::Id parent_id;
+    if (type == BOOKMARKS) {
+      syncable::Entry parent_entry(trans, syncable::GET_TYPE_ROOT, type);
+      parent_id = parent_entry.GetId();
+    }
+
+    syncable::MutableEntry entry(trans, syncable::CREATE, type, parent_id, tag);
     if (attachment_metadata.record_size() > 0) {
       entry.PutAttachmentMetadata(attachment_metadata);
     }
@@ -105,7 +105,7 @@ class DirectoryCommitContributionTest : public ::testing::Test {
   TestIdFactory id_factory_;
 
   // Used in construction of DirectoryTypeDebugInfoEmitters.
-  ObserverList<TypeDebugInfoObserver> type_observers_;
+  base::ObserverList<TypeDebugInfoObserver> type_observers_;
 
  private:
   base::MessageLoop loop_;  // Neeed to initialize the directory.
@@ -205,6 +205,7 @@ TEST_F(DirectoryCommitContributionTest, PrepareCommit) {
       syncable::Entry entry(&trans, syncable::GET_BY_ID, *it);
       ASSERT_TRUE(entry.good());
       EXPECT_TRUE(entry.GetSyncing());
+      EXPECT_FALSE(entry.GetDirtySync());
     }
   }
 
@@ -352,7 +353,7 @@ TEST_F(DirectoryCommitContributionTest, HierarchySupport_Preferences) {
 
 void AddAttachment(sync_pb::AttachmentMetadata* metadata, bool is_on_server) {
   sync_pb::AttachmentMetadataRecord record;
-  *record.mutable_id() = CreateAttachmentIdProto();
+  *record.mutable_id() = CreateAttachmentIdProto(0, 0);
   record.set_is_on_server(is_on_server);
   *metadata->add_record() = record;
 }
@@ -404,16 +405,19 @@ TEST_F(DirectoryCommitContributionTest, ProcessCommitResponse) {
     syncable::Entry p1(&trans, syncable::GET_BY_HANDLE, pref1_handle);
     EXPECT_TRUE(p1.GetId().ServerKnows());
     EXPECT_FALSE(p1.GetSyncing());
+    EXPECT_FALSE(p1.GetDirtySync());
     EXPECT_LT(0, p1.GetServerVersion());
 
     syncable::Entry p2(&trans, syncable::GET_BY_HANDLE, pref2_handle);
     EXPECT_TRUE(p2.GetId().ServerKnows());
     EXPECT_FALSE(p2.GetSyncing());
+    EXPECT_FALSE(p2.GetDirtySync());
     EXPECT_LT(0, p2.GetServerVersion());
 
     syncable::Entry e1(&trans, syncable::GET_BY_HANDLE, ext1_handle);
     EXPECT_TRUE(e1.GetId().ServerKnows());
     EXPECT_FALSE(e1.GetSyncing());
+    EXPECT_FALSE(e1.GetDirtySync());
     EXPECT_LT(0, e1.GetServerVersion());
   }
 
@@ -485,16 +489,19 @@ TEST_F(DirectoryCommitContributionTest, ProcessCommitResponseWithAttachments) {
     syncable::Entry a1(&trans, syncable::GET_BY_HANDLE, art1_handle);
     EXPECT_TRUE(a1.GetId().ServerKnows());
     EXPECT_FALSE(a1.GetSyncing());
+    EXPECT_FALSE(a1.GetDirtySync());
     EXPECT_LT(0, a1.GetServerVersion());
 
     syncable::Entry a2(&trans, syncable::GET_BY_HANDLE, art2_handle);
     EXPECT_FALSE(a2.GetId().ServerKnows());
     EXPECT_FALSE(a2.GetSyncing());
+    EXPECT_FALSE(a2.GetDirtySync());
     EXPECT_EQ(0, a2.GetServerVersion());
 
     syncable::Entry a3(&trans, syncable::GET_BY_HANDLE, art3_handle);
     EXPECT_FALSE(a3.GetId().ServerKnows());
     EXPECT_FALSE(a3.GetSyncing());
+    EXPECT_FALSE(a3.GetDirtySync());
     EXPECT_EQ(0, a3.GetServerVersion());
   }
 

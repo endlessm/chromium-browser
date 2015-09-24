@@ -14,13 +14,10 @@
 #include "chrome/browser/chromeos/drive/file_change.h"
 #include "chrome/browser/chromeos/drive/file_errors.h"
 #include "chrome/browser/chromeos/drive/file_system/operation_delegate.h"
-#include "chrome/browser/chromeos/drive/file_system_util.h"
+#include "chrome/browser/chromeos/drive/file_system_core_util.h"
 #include "chrome/browser/chromeos/drive/job_scheduler.h"
 #include "chrome/browser/chromeos/drive/resource_metadata.h"
-#include "content/public/browser/browser_thread.h"
-#include "google_apis/drive/gdata_errorcode.h"
-
-using content::BrowserThread;
+#include "google_apis/drive/drive_api_error_codes.h"
 
 namespace drive {
 namespace file_system {
@@ -215,7 +212,7 @@ FileError UpdateLocalStateForDownloadFile(
     internal::ResourceMetadata* metadata,
     internal::FileCache* cache,
     const ResourceEntry& entry_before_download,
-    google_apis::GDataErrorCode gdata_error,
+    google_apis::DriveApiErrorCode gdata_error,
     const base::FilePath& downloaded_file_path,
     ResourceEntry* entry_after_update,
     base::FilePath* cache_file_path) {
@@ -360,7 +357,7 @@ base::Closure DownloadOperation::EnsureFileDownloadedByLocalId(
     const GetFileContentInitializedCallback& initialized_callback,
     const google_apis::GetContentCallback& get_content_callback,
     const GetFileCallback& completion_callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!completion_callback.is_null());
 
   CheckPreconditionForEnsureFileDownloadedParams params;
@@ -401,7 +398,7 @@ base::Closure DownloadOperation::EnsureFileDownloadedByPath(
     const GetFileContentInitializedCallback& initialized_callback,
     const google_apis::GetContentCallback& get_content_callback,
     const GetFileCallback& completion_callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!completion_callback.is_null());
 
   CheckPreconditionForEnsureFileDownloadedParams params;
@@ -442,7 +439,7 @@ void DownloadOperation::EnsureFileDownloadedAfterCheckPreCondition(
     base::FilePath* cache_file_path,
     base::FilePath* temp_download_file_path,
     FileError error) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(params);
   DCHECK(drive_file_path);
   DCHECK(cache_file_path);
@@ -487,9 +484,9 @@ void DownloadOperation::EnsureFileDownloadedAfterCheckPreCondition(
 void DownloadOperation::EnsureFileDownloadedAfterDownloadFile(
     const base::FilePath& drive_file_path,
     scoped_ptr<DownloadParams> params,
-    google_apis::GDataErrorCode gdata_error,
+    google_apis::DriveApiErrorCode gdata_error,
     const base::FilePath& downloaded_file_path) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
 
   DownloadParams* params_ptr = params.get();
   ResourceEntry* entry_after_update = new ResourceEntry;
@@ -519,7 +516,7 @@ void DownloadOperation::EnsureFileDownloadedAfterUpdateLocalState(
     scoped_ptr<ResourceEntry> entry_after_update,
     base::FilePath* cache_file_path,
     FileError error) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
 
   if (error != FILE_ERROR_OK) {
     params->OnError(error);
@@ -528,8 +525,8 @@ void DownloadOperation::EnsureFileDownloadedAfterUpdateLocalState(
   DCHECK(!entry_after_update->file_info().is_directory());
 
   FileChange changed_files;
-  changed_files.Update(
-      file_path, FileChange::FILE_TYPE_FILE, FileChange::ADD_OR_UPDATE);
+  changed_files.Update(file_path, FileChange::FILE_TYPE_FILE,
+                       FileChange::CHANGE_TYPE_ADD_OR_UPDATE);
   // Storing to cache changes the "offline available" status, hence notify.
   delegate_->OnFileChangedByOperation(changed_files);
   params->OnDownloadCompleted(*cache_file_path, entry_after_update.Pass());

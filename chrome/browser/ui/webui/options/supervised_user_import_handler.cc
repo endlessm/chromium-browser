@@ -14,16 +14,15 @@
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
 #include "chrome/browser/profiles/profile_info_cache.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
+#include "chrome/browser/signin/signin_error_controller_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
+#include "chrome/browser/supervised_user/legacy/supervised_user_shared_settings_service.h"
+#include "chrome/browser/supervised_user/legacy/supervised_user_shared_settings_service_factory.h"
+#include "chrome/browser/supervised_user/legacy/supervised_user_sync_service.h"
+#include "chrome/browser/supervised_user/legacy/supervised_user_sync_service_factory.h"
 #include "chrome/browser/supervised_user/supervised_user_constants.h"
-#include "chrome/browser/supervised_user/supervised_user_shared_settings_service.h"
-#include "chrome/browser/supervised_user/supervised_user_shared_settings_service_factory.h"
-#include "chrome/browser/supervised_user/supervised_user_sync_service.h"
-#include "chrome/browser/supervised_user/supervised_user_sync_service_factory.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
-#include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_error_controller.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "content/public/browser/web_ui.h"
@@ -41,23 +40,28 @@ scoped_ptr<base::ListValue> GetAvatarIcons() {
   return avatar_icons.Pass();
 }
 
+bool ProfileIsLegacySupervised(const base::FilePath& profile_path) {
+  const ProfileInfoCache& cache =
+      g_browser_process->profile_manager()->GetProfileInfoCache();
+  size_t index = cache.GetIndexOfProfileWithPath(profile_path);
+  if (index == std::string::npos)
+    return false;
+  return cache.ProfileIsLegacySupervisedAtIndex(index);
+}
+
 }  // namespace
 
 namespace options {
 
 SupervisedUserImportHandler::SupervisedUserImportHandler()
-    : observer_(this),
-      weak_ptr_factory_(this) {}
+    : profile_observer_(this),
+      signin_error_observer_(this),
+      supervised_user_sync_service_observer_(this),
+      removed_profile_is_supervised_(false),
+      weak_ptr_factory_(this) {
+}
 
 SupervisedUserImportHandler::~SupervisedUserImportHandler() {
-  Profile* profile = Profile::FromWebUI(web_ui());
-  if (!profile->IsSupervised()) {
-    SupervisedUserSyncService* service =
-        SupervisedUserSyncServiceFactory::GetForProfile(profile);
-    if (service)
-      service->RemoveObserver(this);
-    subscription_.reset();
-  }
 }
 
 void SupervisedUserImportHandler::GetLocalizedValues(
@@ -89,12 +93,14 @@ void SupervisedUserImportHandler::GetLocalizedValues(
 void SupervisedUserImportHandler::InitializeHandler() {
   Profile* profile = Profile::FromWebUI(web_ui());
   if (!profile->IsSupervised()) {
+    profile_observer_.Add(
+        &g_browser_process->profile_manager()->GetProfileInfoCache());
     SupervisedUserSyncService* sync_service =
         SupervisedUserSyncServiceFactory::GetForProfile(profile);
     if (sync_service) {
-      sync_service->AddObserver(this);
-      observer_.Add(ProfileOAuth2TokenServiceFactory::GetForProfile(profile)->
-                        signin_error_controller());
+      supervised_user_sync_service_observer_.Add(sync_service);
+      signin_error_observer_.Add(
+          SigninErrorControllerFactory::GetForProfile(profile));
       SupervisedUserSharedSettingsService* settings_service =
           SupervisedUserSharedSettingsServiceFactory::GetForBrowserContext(
               profile);
@@ -104,7 +110,7 @@ void SupervisedUserImportHandler::InitializeHandler() {
     } else {
       DCHECK(!SupervisedUserSharedSettingsServiceFactory::GetForBrowserContext(
                  profile));
-      DCHECK(!ProfileOAuth2TokenServiceFactory::GetForProfile(profile));
+      DCHECK(!SigninErrorControllerFactory::GetForProfile(profile));
     }
   }
 }
@@ -114,6 +120,39 @@ void SupervisedUserImportHandler::RegisterMessages() {
       base::Bind(&SupervisedUserImportHandler::
                       RequestSupervisedUserImportUpdate,
                  base::Unretained(this)));
+}
+
+void SupervisedUserImportHandler::OnProfileAdded(
+    const base::FilePath& profile_path) {
+  // When a supervised profile is added, re-send the list to update the
+  // the "already on this device" status.
+  if (ProfileIsLegacySupervised(profile_path))
+    FetchSupervisedUsers();
+}
+
+void SupervisedUserImportHandler::OnProfileWillBeRemoved(
+    const base::FilePath& profile_path) {
+  DCHECK(!removed_profile_is_supervised_);
+  // When a supervised profile is removed, re-send the list to update the
+  // "already on this device" status. We can't do that right now because the
+  // profile still exists, so defer to OnProfileWasRemoved.
+  if (ProfileIsLegacySupervised(profile_path))
+    removed_profile_is_supervised_ = true;
+}
+
+void SupervisedUserImportHandler::OnProfileWasRemoved(
+    const base::FilePath& profile_path,
+    const base::string16& profile_name) {
+  if (removed_profile_is_supervised_) {
+    removed_profile_is_supervised_ = false;
+    FetchSupervisedUsers();
+  }
+}
+
+void SupervisedUserImportHandler::OnProfileIsOmittedChanged(
+    const base::FilePath& profile_path) {
+  if (ProfileIsLegacySupervised(profile_path))
+    FetchSupervisedUsers();
 }
 
 void SupervisedUserImportHandler::OnSupervisedUsersChanged() {
@@ -154,8 +193,12 @@ void SupervisedUserImportHandler::SendExistingSupervisedUsers(
   // Collect the ids of local supervised user profiles.
   std::set<std::string> supervised_user_ids;
   for (size_t i = 0; i < cache.GetNumberOfProfiles(); ++i) {
-    if (cache.ProfileIsSupervisedAtIndex(i))
+    // Filter out omitted profiles. These are currently being imported, and
+    // shouldn't show up as "already on this device" just yet.
+    if (cache.ProfileIsLegacySupervisedAtIndex(i) &&
+        !cache.IsOmittedProfileAtIndex(i)) {
       supervised_user_ids.insert(cache.GetSupervisedUserIdOfProfileAtIndex(i));
+    }
   }
 
   base::ListValue supervised_users;
@@ -224,13 +267,10 @@ bool SupervisedUserImportHandler::IsAccountConnected() const {
 
 bool SupervisedUserImportHandler::HasAuthError() const {
   Profile* profile = Profile::FromWebUI(web_ui());
-  ProfileOAuth2TokenService* token_service =
-      ProfileOAuth2TokenServiceFactory::GetForProfile(profile);
-  if (!token_service)
-    return true;
-
   SigninErrorController* error_controller =
-      token_service->signin_error_controller();
+      SigninErrorControllerFactory::GetForProfile(profile);
+  if (!error_controller)
+    return true;
 
   GoogleServiceAuthError::State state = error_controller->auth_error().state();
 

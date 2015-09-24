@@ -26,16 +26,62 @@ ProtectionSystemSpecificHeader::~ProtectionSystemSpecificHeader() {}
 FourCC ProtectionSystemSpecificHeader::BoxType() const { return FOURCC_PSSH; }
 
 bool ProtectionSystemSpecificHeader::Parse(BoxReader* reader) {
-  // Validate the box's contents and hang on to the system ID.
-  uint32 size;
-  RCHECK(reader->ReadFullBoxHeader() &&
-         reader->ReadVec(&system_id, 16) &&
-         reader->Read4(&size) &&
-         reader->HasBytes(size));
-
+  // Don't bother validating the box's contents.
   // Copy the entire box, including the header, for passing to EME as initData.
   DCHECK(raw_box.empty());
   raw_box.assign(reader->data(), reader->data() + reader->size());
+  return true;
+}
+
+FullProtectionSystemSpecificHeader::FullProtectionSystemSpecificHeader() {}
+FullProtectionSystemSpecificHeader::~FullProtectionSystemSpecificHeader() {}
+FourCC FullProtectionSystemSpecificHeader::BoxType() const {
+  return FOURCC_PSSH;
+}
+
+// The format of a 'pssh' box is as follows:
+//   unsigned int(32) size;
+//   unsigned int(32) type = "pssh";
+//   if (size==1) {
+//     unsigned int(64) largesize;
+//   } else if (size==0) {
+//     -- box extends to end of file
+//   }
+//   unsigned int(8) version;
+//   bit(24) flags;
+//   unsigned int(8)[16] SystemID;
+//   if (version > 0)
+//   {
+//     unsigned int(32) KID_count;
+//     {
+//       unsigned int(8)[16] KID;
+//     } [KID_count]
+//   }
+//   unsigned int(32) DataSize;
+//   unsigned int(8)[DataSize] Data;
+
+bool FullProtectionSystemSpecificHeader::Parse(mp4::BoxReader* reader) {
+  RCHECK(reader->type() == BoxType() && reader->ReadFullBoxHeader());
+
+  // Only versions 0 and 1 of the 'pssh' boxes are supported. Any other
+  // versions are ignored.
+  RCHECK(reader->version() == 0 || reader->version() == 1);
+  RCHECK(reader->flags() == 0);
+  RCHECK(reader->ReadVec(&system_id, 16));
+
+  if (reader->version() > 0) {
+    uint32_t kid_count;
+    RCHECK(reader->Read4(&kid_count));
+    for (uint32_t i = 0; i < kid_count; ++i) {
+      std::vector<uint8_t> kid;
+      RCHECK(reader->ReadVec(&kid, 16));
+      key_ids.push_back(kid);
+    }
+  }
+
+  uint32_t data_size;
+  RCHECK(reader->Read4(&data_size));
+  RCHECK(reader->ReadVec(&data, data_size));
   return true;
 }
 
@@ -396,10 +442,10 @@ bool AVCDecoderConfigurationRecord::ParseInternal(BufferReader* reader,
     RCHECK(sps_list[i].size() > 4);
 
     if (!log_cb.is_null()) {
-      MEDIA_LOG(log_cb) << "Video codec: avc1." << std::hex
-                        << static_cast<int>(sps_list[i][1])
-                        << static_cast<int>(sps_list[i][2])
-                        << static_cast<int>(sps_list[i][3]);
+      MEDIA_LOG(INFO, log_cb) << "Video codec: avc1." << std::hex
+                              << static_cast<int>(sps_list[i][1])
+                              << static_cast<int>(sps_list[i][2])
+                              << static_cast<int>(sps_list[i][3]);
     }
   }
 
@@ -492,8 +538,8 @@ bool ElementaryStreamDescriptor::Parse(BoxReader* reader) {
   object_type = es_desc.object_type();
 
   if (object_type != 0x40) {
-    MEDIA_LOG(reader->log_cb()) << "Audio codec: mp4a."
-                                << std::hex << static_cast<int>(object_type);
+    MEDIA_LOG(INFO, reader->log_cb()) << "Audio codec: mp4a." << std::hex
+                                      << static_cast<int>(object_type);
   }
 
   if (es_desc.IsAAC(object_type))
@@ -660,12 +706,15 @@ Movie::~Movie() {}
 FourCC Movie::BoxType() const { return FOURCC_MOOV; }
 
 bool Movie::Parse(BoxReader* reader) {
-  return reader->ScanChildren() &&
-         reader->ReadChild(&header) &&
-         reader->ReadChildren(&tracks) &&
-         // Media Source specific: 'mvex' required
-         reader->ReadChild(&extends) &&
-         reader->MaybeReadChildren(&pssh);
+  RCHECK(reader->ScanChildren() && reader->ReadChild(&header) &&
+         reader->ReadChildren(&tracks));
+
+  RCHECK_MEDIA_LOGGED(reader->ReadChild(&extends), reader->log_cb(),
+                      "Detected unfragmented MP4. Media Source Extensions "
+                      "require ISO BMFF moov to contain mvex to indicate that "
+                      "Movie Fragments are to be expected.");
+
+  return reader->MaybeReadChildren(&pssh);
 }
 
 TrackFragmentDecodeTime::TrackFragmentDecodeTime() : decode_time(0) {}

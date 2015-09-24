@@ -115,10 +115,9 @@ class IdleAppNameNotificationDelegateView
                                       int message_visibility_time_in_ms)
       : owner_(owner),
         widget_closed_(false) {
-    ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
+    ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
     // Add the application name label to the message.
-    AddLabel(app_name,
-             rb.GetFontList(ui::ResourceBundle::BoldFont),
+    AddLabel(app_name, rb->GetFontList(ui::ResourceBundle::BoldFont),
              error ? kErrorTextColor : kTextColor);
     spoken_text_ = app_name;
     SetLayoutManager(new views::FillLayout);
@@ -132,7 +131,7 @@ class IdleAppNameNotificationDelegateView
         &IdleAppNameNotificationDelegateView::RemoveMessage);
   }
 
-  virtual ~IdleAppNameNotificationDelegateView() {
+  ~IdleAppNameNotificationDelegateView() override {
     // The widget is already closing, but the other cleanup items need to be
     // performed.
     widget_closed_ = true;
@@ -168,7 +167,7 @@ class IdleAppNameNotificationDelegateView
     layer->SetBounds(rect);
   }
 
-  virtual void OnPaint(gfx::Canvas* canvas) override {
+  void OnPaint(gfx::Canvas* canvas) override {
     SkPaint paint;
     paint.setStyle(SkPaint::kFill_Style);
     paint.setColor(kWindowBackgroundColor);
@@ -176,15 +175,13 @@ class IdleAppNameNotificationDelegateView
     views::WidgetDelegateView::OnPaint(canvas);
   }
 
-  virtual void GetAccessibleState(ui::AXViewState* state) override {
+  void GetAccessibleState(ui::AXViewState* state) override {
     state->name = spoken_text_;
     state->role = ui::AX_ROLE_ALERT;
   }
 
   // ImplicitAnimationObserver overrides
-  virtual void OnImplicitAnimationsCompleted() override {
-    Close();
-  }
+  void OnImplicitAnimationsCompleted() override { Close(); }
 
  private:
   // Adds the label to the view, using |text| with a |font| and a |text_color|.

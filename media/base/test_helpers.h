@@ -8,14 +8,16 @@
 #include "base/basictypes.h"
 #include "base/callback.h"
 #include "media/base/channel_layout.h"
+#include "media/base/media_log.h"
 #include "media/base/pipeline_status.h"
 #include "media/base/sample_format.h"
 #include "media/base/video_decoder_config.h"
 #include "testing/gmock/include/gmock/gmock.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace base {
 class MessageLoop;
+class RunLoop;
 class TimeDelta;
 }
 
@@ -26,6 +28,7 @@ class DecoderBuffer;
 
 // Return a callback that expects to be run once.
 base::Closure NewExpectedClosure();
+base::Callback<void(bool)> NewExpectedBoolCB(bool success);
 PipelineStatusCB NewExpectedStatusCB(PipelineStatus status);
 
 // Helper class for running a message loop until a callback has run. Useful for
@@ -52,6 +55,8 @@ class WaitableMessageLoopEvent {
   // Fails the test if the timeout is reached.
   void RunAndWaitForStatus(PipelineStatus expected);
 
+  bool is_signaled() const { return signaled_; }
+
  private:
   void OnCallback(PipelineStatus status);
   void OnTimeout();
@@ -59,6 +64,7 @@ class WaitableMessageLoopEvent {
   base::MessageLoop* message_loop_;
   bool signaled_;
   PipelineStatus status_;
+  scoped_ptr<base::RunLoop> run_loop_;
 
   DISALLOW_COPY_AND_ASSIGN(WaitableMessageLoopEvent);
 };
@@ -137,6 +143,11 @@ class CallbackPairChecker {
  private:
   bool expecting_b_;
 };
+
+// Test implementation of a media log LogCB that sends media log messages to
+// DVLOG(1).
+void AddLogEntryForTest(MediaLog::MediaLogLevel level,
+                        const std::string& message);
 
 }  // namespace media
 

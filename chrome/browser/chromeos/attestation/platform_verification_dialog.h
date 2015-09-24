@@ -8,7 +8,7 @@
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/strings/string16.h"
-#include "chrome/browser/chromeos/attestation/platform_verification_flow.h"
+#include "content/public/browser/web_contents_observer.h"
 #include "ui/views/controls/styled_label_listener.h"
 #include "ui/views/window/dialog_delegate.h"
 
@@ -21,42 +21,56 @@ namespace attestation {
 
 // A tab-modal dialog UI to ask the user for PlatformVerificationFlow.
 class PlatformVerificationDialog : public views::DialogDelegateView,
-                                   public views::StyledLabelListener {
+                                   public views::StyledLabelListener,
+                                   public content::WebContentsObserver {
  public:
-  // Initializes a tab-modal dialog for |web_contents| and shows it.
-  static void ShowDialog(
-      content::WebContents* web_contents,
-      const PlatformVerificationFlow::Delegate::ConsentCallback& callback);
+  enum ConsentResponse {
+    CONSENT_RESPONSE_NONE,
+    CONSENT_RESPONSE_ALLOW,
+    CONSENT_RESPONSE_DENY
+  };
+
+  using ConsentCallback = base::Callback<void(ConsentResponse response)>;
+
+  // Initializes a tab-modal dialog for |web_contents| and |requesting_origin|
+  // and shows it. Returns a non-owning pointer to the widget so that caller can
+  // close the dialog and cancel the request. The returned widget is only
+  // guaranteed to be valid before |callback| is called.
+  static views::Widget* ShowDialog(content::WebContents* web_contents,
+                                   const GURL& requesting_origin,
+                                   const ConsentCallback& callback);
 
  protected:
-  virtual ~PlatformVerificationDialog();
+  ~PlatformVerificationDialog() override;
 
  private:
-  PlatformVerificationDialog(
-      content::WebContents* web_contents,
-      const base::string16& domain,
-      const PlatformVerificationFlow::Delegate::ConsentCallback& callback);
+  PlatformVerificationDialog(content::WebContents* web_contents,
+                             const base::string16& domain,
+                             const ConsentCallback& callback);
 
-  // Overridden from views::DialogDelegate:
-  virtual bool Cancel() override;
-  virtual bool Accept() override;
-  virtual bool Close() override;
-  virtual base::string16 GetDialogButtonLabel(
-      ui::DialogButton button) const override;
+  // views::DialogDelegate:
+  bool Cancel() override;
+  bool Accept() override;
+  bool Close() override;
+  base::string16 GetDialogButtonLabel(ui::DialogButton button) const override;
 
-  // Overridden from views::WidgetDelegate:
-  virtual ui::ModalType GetModalType() const override;
+  // views::WidgetDelegate:
+  ui::ModalType GetModalType() const override;
 
-  // Overridden from views::View:
-  virtual gfx::Size GetPreferredSize() const override;
+  // views::View:
+  gfx::Size GetPreferredSize() const override;
 
-  // Overridden from views::StyledLabelListener:
-  virtual void StyledLabelLinkClicked(const gfx::Range& range,
-                                      int event_flags) override;
+  // views::StyledLabelListener:
+  void StyledLabelLinkClicked(const gfx::Range& range,
+                              int event_flags) override;
 
-  content::WebContents* web_contents_;
+  // content::WebContentsObserver:
+  void DidStartNavigationToPendingEntry(
+      const GURL& url,
+      content::NavigationController::ReloadType reload_type) override;
+
   base::string16 domain_;
-  PlatformVerificationFlow::Delegate::ConsentCallback callback_;
+  ConsentCallback callback_;
 
   DISALLOW_COPY_AND_ASSIGN(PlatformVerificationDialog);
 };

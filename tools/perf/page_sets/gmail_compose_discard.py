@@ -5,7 +5,8 @@
 import re
 
 from telemetry.page import page as page_module
-from telemetry.page import page_set as page_set_module
+from telemetry.page import shared_page_state
+from telemetry import story
 
 
 def _CreateXpathFunction(xpath):
@@ -25,12 +26,12 @@ class GmailComposeDiscardPage(page_module.Page):
     super(GmailComposeDiscardPage, self).__init__(
       url='https://mail.google.com/mail/',
       page_set=page_set,
+      shared_page_state_class=shared_page_state.SharedDesktopPageState,
       credentials_path = 'data/credentials.json')
     self.credentials = 'google'
-    self.user_agent_type = 'desktop'
 
   def RunNavigateSteps(self, action_runner):
-    action_runner.NavigateToPage(self)
+    super(GmailComposeDiscardPage, self).RunNavigateSteps(action_runner)
     action_runner.WaitForJavaScriptCondition(
         'window.gmonkey !== undefined &&'
         'document.getElementById("gb") !== null')
@@ -58,14 +59,13 @@ class GmailComposeDiscardPage(page_module.Page):
     action_runner.Wait(1)
 
 
-class GmailComposeDiscardPageSet(page_set_module.PageSet):
+class GmailComposeDiscardPageSet(story.StorySet):
 
   """
   Description: Gmail endure test: compose and discard an email.
   """
 
   def __init__(self):
-    super(GmailComposeDiscardPageSet, self).__init__(
-      user_agent_type='desktop')
+    super(GmailComposeDiscardPageSet, self).__init__()
 
-    self.AddPage(GmailComposeDiscardPage(self))
+    self.AddStory(GmailComposeDiscardPage(self))

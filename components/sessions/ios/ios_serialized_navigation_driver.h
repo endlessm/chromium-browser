@@ -16,7 +16,7 @@ namespace sessions {
 class IOSSerializedNavigationDriver
     : public SerializedNavigationDriver {
  public:
-  virtual ~IOSSerializedNavigationDriver();
+  ~IOSSerializedNavigationDriver() override;
 
   // Returns the singleton IOSSerializedNavigationDriver.  Almost all
   // callers should use SerializedNavigationDriver::Get() instead.
@@ -24,9 +24,15 @@ class IOSSerializedNavigationDriver
 
   // SerializedNavigationDriver implementation.
   int GetDefaultReferrerPolicy() const override;
+  bool MapReferrerPolicyToOldValues(int referrer_policy,
+                                    int* mapped_referrer_policy) const override;
+  bool MapReferrerPolicyToNewValues(int referrer_policy,
+                                    int* mapped_referrer_policy) const override;
   std::string GetSanitizedPageStateForPickle(
       const SerializedNavigationEntry* navigation) const override;
   void Sanitize(SerializedNavigationEntry* navigation) const override;
+  std::string StripReferrerFromPageState(
+      const std::string& page_state) const override;
 
  private:
   IOSSerializedNavigationDriver();

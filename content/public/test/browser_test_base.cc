@@ -8,18 +8,20 @@
 #include "base/command_line.h"
 #include "base/debug/stack_trace.h"
 #include "base/i18n/icu_util.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/sys_info.h"
 #include "base/test/test_timeouts.h"
-#include "content/public/app/content_main.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/tracing/tracing_controller_impl.h"
+#include "content/public/app/content_main.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/main_function_params.h"
 #include "content/public/test/test_launcher.h"
 #include "content/public/test/test_utils.h"
+#include "content/test/content_browser_sanity_checker.h"
 #include "net/base/net_errors.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -32,7 +34,7 @@
 #endif
 
 #if defined(OS_MACOSX)
-#include "base/mac/mac_util.h"
+#include "base/mac/foundation_util.h"
 #endif
 
 #if defined(OS_ANDROID)
@@ -168,7 +170,7 @@ BrowserTestBase::~BrowserTestBase() {
 }
 
 void BrowserTestBase::SetUp() {
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
 
   // Override the child process connection timeout since tests can exceed that
   // when sharded.
@@ -248,6 +250,9 @@ void BrowserTestBase::SetUp() {
   rule_based_resolver_->AddSimulatedFailure("wpad");
   net::ScopedDefaultHostResolverProc scoped_local_host_resolver_proc(
       rule_based_resolver_.get());
+
+  ContentBrowserSanityChecker scoped_enable_sanity_checks;
+
   SetUpInProcessBrowserTestFixture();
 
   base::Closure* ui_task =
@@ -277,21 +282,23 @@ void BrowserTestBase::ProxyRunTestOnMainThreadLoop() {
   }
 #endif  // defined(OS_POSIX)
 
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kEnableTracing)) {
-    base::debug::CategoryFilter category_filter(
-        CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-            switches::kEnableTracing));
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnableTracing)) {
+    base::trace_event::TraceConfig trace_config(
+        base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+            switches::kEnableTracing),
+        base::trace_event::RECORD_CONTINUOUSLY);
     TracingController::GetInstance()->EnableRecording(
-        category_filter,
-        base::debug::TraceOptions(base::debug::RECORD_CONTINUOUSLY),
+        trace_config,
         TracingController::EnableRecordingDoneCallback());
   }
 
   RunTestOnMainThreadLoop();
 
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kEnableTracing)) {
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnableTracing)) {
     base::FilePath trace_file =
-        CommandLine::ForCurrentProcess()->GetSwitchValuePath(
+        base::CommandLine::ForCurrentProcess()->GetSwitchValuePath(
             switches::kEnableTracingOutput);
     // If there was no file specified, put a hardcoded one in the current
     // working directory.
@@ -320,7 +327,8 @@ void BrowserTestBase::CreateTestServer(const base::FilePath& test_server_base) {
 
 void BrowserTestBase::PostTaskToInProcessRendererAndWait(
     const base::Closure& task) {
-  CHECK(CommandLine::ForCurrentProcess()->HasSwitch(switches::kSingleProcess));
+  CHECK(base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kSingleProcess));
 
   scoped_refptr<MessageLoopRunner> runner = new MessageLoopRunner;
 
@@ -328,7 +336,7 @@ void BrowserTestBase::PostTaskToInProcessRendererAndWait(
       RenderProcessHostImpl::GetInProcessRendererThreadForTesting();
   CHECK(renderer_loop);
 
-  renderer_loop->PostTask(
+  renderer_loop->task_runner()->PostTask(
       FROM_HERE,
       base::Bind(&RunTaskOnRendererThread, task, runner->QuitClosure()));
   runner->Run();
@@ -341,7 +349,7 @@ void BrowserTestBase::UseSoftwareCompositing() {
 }
 
 bool BrowserTestBase::UsingOSMesa() const {
-  CommandLine* cmd = CommandLine::ForCurrentProcess();
+  base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
   return cmd->GetSwitchValueASCII(switches::kUseGL) ==
          gfx::kGLImplementationOSMesaName;
 }

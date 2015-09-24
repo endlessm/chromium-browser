@@ -2,8 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-"""This library is to centralize knowledge about how to create google
-storage paths for various standardized locations.
+"""Centralize knowledge about how to create standardized Google Storage paths.
 
 This includes definitions for various build flags:
 
@@ -25,9 +24,6 @@ import hashlib
 import os
 import random
 import re
-
-import fixup_path
-fixup_path.FixupPath()
 
 from chromite.lib.paygen import utils
 
@@ -143,7 +139,7 @@ class Payload(utils.RestrictedAttrDict):
     if self.uri:
       return self.uri.split('/')[-1]
     else:
-      return ('%s -> %s (no uri)' % (self.src_image or 'any', self.tgt_image))
+      return '%s -> %s (no uri)' % (self.src_image or 'any', self.tgt_image)
 
 
 class ChromeosReleases(object):
@@ -265,8 +261,7 @@ class ChromeosReleases(object):
       The url for the specified build's payloads. Should be of the form:
       gs://chromeos-releases/blah-channel/board-name/1.2.3/payloads/SKIP_FLAG
     """
-
-    assert(flag in ChromeosReleases.FLAGS)
+    assert flag in ChromeosReleases.FLAGS
     return os.path.join(ChromeosReleases.BuildPayloadsUri(channel,
                                                           board,
                                                           version,
@@ -290,10 +285,12 @@ class ChromeosReleases(object):
 
     template = 'chromeos_%(version)s_%(board)s_recovery_%(channel)s_%(key)s.bin'
 
-    return template % { 'channel': channel,
-                        'board': board,
-                        'version': version,
-                        'key': key }
+    return template % {
+        'channel': channel,
+        'board': board,
+        'version': version,
+        'key': key,
+    }
 
   @staticmethod
   def UnsignedImageArchiveName(board, version, milestone, image_type):
@@ -313,10 +310,12 @@ class ChromeosReleases(object):
     template = (
         'ChromeOS-%(image_type)s-%(milestone)s-%(version)s-%(board)s.tar.xz')
 
-    return template % { 'board': board,
-                        'version': version,
-                        'milestone': milestone,
-                        'image_type': image_type }
+    return template % {
+        'board': board,
+        'version': version,
+        'milestone': milestone,
+        'image_type': image_type,
+    }
 
   @staticmethod
   def ImageUri(channel, board, version, key,
@@ -379,8 +378,8 @@ class ChromeosReleases(object):
 
     # The named values in this regex must match the arguments to gspaths.Image.
     exp = (r'^gs://(?P<bucket>.*)/(?P<channel>.*)/(?P<board>.*)/'
-            '(?P<version>.*)/chromeos_(?P<image_version>[^_]+)_'
-            '(?P=board)_recovery_(?P<image_channel>[^_]+)_(?P<key>[^_]+).bin$')
+           r'(?P<version>.*)/chromeos_(?P<image_version>[^_]+)_'
+           r'(?P=board)_recovery_(?P<image_channel>[^_]+)_(?P<key>[^_]+).bin$')
 
     m = re.match(exp, image_uri)
 
@@ -401,9 +400,9 @@ class ChromeosReleases(object):
 
     # The named values in this regex must match the arguments to gspaths.Image.
     exp = (r'gs://(?P<bucket>[^/]+)/(?P<channel>[^/]+)/'
-           '(?P<board>[^/]+)/(?P<version>[^/]+)/'
-           'ChromeOS-(?P<image_type>%s)-(?P<milestone>R[0-9]+)-'
-           '(?P=version)-(?P=board).tar.xz' %
+           r'(?P<board>[^/]+)/(?P<version>[^/]+)/'
+           r'ChromeOS-(?P<image_type>%s)-(?P<milestone>R[0-9]+)-'
+           r'(?P=version)-(?P=board).tar.xz' %
            '|'.join(cls.UNSIGNED_IMAGE_TYPES))
 
     m = re.match(exp, image_uri)
@@ -455,7 +454,6 @@ class ChromeosReleases(object):
     """
     if random_str is None:
       random.seed()
-      # pylint: disable-msg=E1101
       random_str = hashlib.md5(str(random.getrandbits(128))).hexdigest()
 
     if key is None:
@@ -468,25 +466,27 @@ class ChromeosReleases(object):
       template = ('chromeos_%(src_version)s-%(version)s_%(board)s_%(channel)s_'
                   'delta_%(key)s.bin-%(random_str)s%(signed_ext)s')
 
-      return template % { 'channel': channel,
-                          'board': board,
-                          'version': version,
-                          'key': key,
-                          'random_str': random_str,
-                          'src_version': src_version,
-                          'signed_ext': signed_ext,
-                        }
+      return template % {
+          'channel': channel,
+          'board': board,
+          'version': version,
+          'key': key,
+          'random_str': random_str,
+          'src_version': src_version,
+          'signed_ext': signed_ext,
+      }
     else:
       template = ('chromeos_%(version)s_%(board)s_%(channel)s_'
                   'full_%(key)s.bin-%(random_str)s%(signed_ext)s')
 
-      return template % { 'channel': channel,
-                          'board': board,
-                          'version': version,
-                          'key': key,
-                          'random_str': random_str,
-                          'signed_ext': signed_ext,
-                        }
+      return template % {
+          'channel': channel,
+          'board': board,
+          'version': version,
+          'key': key,
+          'random_str': random_str,
+          'signed_ext': signed_ext,
+      }
 
   @staticmethod
   def PayloadUri(channel, board, version, random_str, key=None,
@@ -556,9 +556,9 @@ class ChromeosReleases(object):
 
     # Handle FULL payload URIs.
     full_exp = (r'^gs://(?P<bucket>.*)/(?P<channel>.*)/(?P<board>.*)/'
-                 '(?P<version>.*)/payloads/chromeos_(?P<image_version>[^_]+)_'
-                 '(?P=board)_(?P<image_channel>[^_]+)_full_(?P<key>[^_]+)\.bin'
-                 '-[0-9A-Fa-f]+\.signed$')
+                r'(?P<version>.*)/payloads/chromeos_(?P<image_version>[^_]+)_'
+                r'(?P=board)_(?P<image_channel>[^_]+)_full_(?P<key>[^_]+)\.bin'
+                r'-[0-9A-Fa-f]+\.signed$')
 
     m = re.match(full_exp, payload_uri)
 
@@ -574,10 +574,10 @@ class ChromeosReleases(object):
 
     # Handle DELTA payload URIs.
     delta_exp = (r'^gs://(?P<bucket>.*)/(?P<channel>.*)/(?P<board>.*)/'
-                  '(?P<version>.*)/payloads/chromeos_(?P<src_version>[^_]+)-'
-                  '(?P<image_version>[^_]+)_(?P=board)_'
-                  '(?P<image_channel>[^_]+)_delta_(?P<key>[^_]+)\.bin'
-                  '-[0-9A-Fa-f]+\.signed$')
+                 r'(?P<version>.*)/payloads/chromeos_(?P<src_version>[^_]+)-'
+                 r'(?P<image_version>[^_]+)_(?P=board)_'
+                 r'(?P<image_channel>[^_]+)_delta_(?P<key>[^_]+)\.bin'
+                 r'-[0-9A-Fa-f]+\.signed$')
 
     m = re.match(delta_exp, payload_uri)
 

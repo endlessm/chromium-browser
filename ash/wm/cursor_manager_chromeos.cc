@@ -5,6 +5,7 @@
 #include "ash/wm/cursor_manager_chromeos.h"
 
 #include "base/logging.h"
+#include "ui/events/event.h"
 #include "ui/keyboard/keyboard_util.h"
 #include "ui/wm/core/cursor_manager.h"
 #include "ui/wm/core/native_cursor_manager.h"
@@ -21,6 +22,9 @@ CursorManager::~CursorManager() {
 
 bool CursorManager::ShouldHideCursorOnKeyEvent(
     const ui::KeyEvent& event) const {
+  if (event.type() != ui::ET_KEY_PRESSED)
+    return false;
+
   // Clicking on a key when the accessibility virtual keyboard is enabled should
   // not hide the cursor.
   if (keyboard::GetAccessibilityKeyboardEnabled())

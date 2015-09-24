@@ -13,13 +13,13 @@
 #include "third_party/WebKit/public/web/WebScriptSource.h"
 
 class GURL;
+class InjectionHost;
 
 namespace blink {
-class WebFrame;
+class WebLocalFrame;
 }
 
 namespace extensions {
-class Extension;
 struct ScriptsRunInfo;
 
 // The pseudo-delegate class for a ScriptInjection that provides all necessary
@@ -40,16 +40,13 @@ class ScriptInjector {
   // Returns the script type of this particular injection.
   virtual UserScript::InjectionType script_type() const = 0;
 
-  // Returns true if the script should execute in child frames.
-  virtual bool ShouldExecuteInChildFrames() const = 0;
-
   // Returns true if the script should execute in the main world.
   virtual bool ShouldExecuteInMainWorld() const = 0;
 
   // Returns true if the script is running inside a user gesture.
   virtual bool IsUserGesture() const = 0;
 
-  // Returns ture if the script expects results.
+  // Returns true if the script expects results.
   virtual bool ExpectsResults() const = 0;
 
   // Returns true if the script should inject JS source at the given
@@ -61,10 +58,9 @@ class ScriptInjector {
 
   // Returns true if the script should execute on the given |frame|.
   virtual PermissionsData::AccessType CanExecuteOnFrame(
-      const Extension* extension,
-      blink::WebFrame* web_frame,
-      int tab_id,
-      const GURL& top_url) const = 0;
+      const InjectionHost* injection_host,
+      blink::WebLocalFrame* web_frame,
+      int tab_id) const = 0;
 
   // Returns the javascript sources to inject at the given |run_location|.
   // Only called if ShouldInjectJs() is true.
@@ -76,11 +72,15 @@ class ScriptInjector {
   virtual std::vector<std::string> GetCssSources(
       UserScript::RunLocation run_location) const = 0;
 
+  // Fill scriptrs run info based on information about injection.
+  virtual void GetRunInfo(
+      ScriptsRunInfo* scripts_run_info,
+      UserScript::RunLocation run_location) const = 0;
+
   // Notifies the script that injection has completed, with a possibly-populated
   // list of results (depending on whether or not ExpectsResults() was true).
   virtual void OnInjectionComplete(
-      scoped_ptr<base::ListValue> execution_results,
-      ScriptsRunInfo* scripts_run_info,
+      scoped_ptr<base::Value> execution_result,
       UserScript::RunLocation run_location) = 0;
 
   // Notifies the script that injection will never occur.

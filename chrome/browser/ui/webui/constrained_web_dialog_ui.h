@@ -6,9 +6,12 @@
 #define CHROME_BROWSER_UI_WEBUI_CONSTRAINED_WEB_DIALOG_UI_H_
 
 #include "base/compiler_specific.h"
-#include "components/web_modal/native_web_contents_modal_dialog.h"
 #include "content/public/browser/web_ui_controller.h"
 #include "ui/gfx/native_widget_types.h"
+
+namespace gfx {
+class Size;
+}
 
 namespace content {
 class BrowserContext;
@@ -39,7 +42,15 @@ class ConstrainedWebDialogDelegate {
   virtual content::WebContents* GetWebContents() = 0;
 
   // Returns the native type used to display the dialog.
-  virtual web_modal::NativeWebContentsModalDialog GetNativeDialog() = 0;
+  virtual gfx::NativeWindow GetNativeDialog() = 0;
+
+  // Returns the minimum size for the dialog.
+  virtual gfx::Size GetMinimumSize() const = 0;
+
+  // Returns the maximum size for the dialog.
+  virtual gfx::Size GetMaximumSize() const = 0;
+
+  virtual gfx::Size GetPreferredSize() const = 0;
 
  protected:
   virtual ~ConstrainedWebDialogDelegate() {}
@@ -75,16 +86,31 @@ class ConstrainedWebDialogUI : public content::WebUIController {
   DISALLOW_COPY_AND_ASSIGN(ConstrainedWebDialogUI);
 };
 
-// Create a constrained HTML dialog. The actual object that gets created
-// is a ConstrainedWebDialogDelegate, which later triggers construction of a
-// ConstrainedWebDialogUI object.
+// Create and show a constrained HTML dialog. The actual object that gets
+// created is a ConstrainedWebDialogDelegate, which later triggers construction
+// of a ConstrainedWebDialogUI object.
 // |browser_context| is used to construct the constrained HTML dialog's
 //                   WebContents.
 // |delegate| controls the behavior of the dialog.
 // |overshadowed| is the tab being overshadowed by the dialog.
-ConstrainedWebDialogDelegate* CreateConstrainedWebDialog(
+ConstrainedWebDialogDelegate* ShowConstrainedWebDialog(
     content::BrowserContext* browser_context,
     ui::WebDialogDelegate* delegate,
     content::WebContents* overshadowed);
+
+// Create and show a constrained HTML dialog with auto-resize enabled. The
+// dialog is shown automatically with a call to PopupManager->ShowModalDialog()
+// after document load has completed to avoid UI jankiness.
+// |browser_context| is used to construct the dialog's WebContents.
+// |delegate| controls the behavior of the dialog.
+// |overshadowed| is the tab being overshadowed by the dialog.
+// |min_size| is the minimum size of the dialog.
+// |max_size| is the maximum size of the dialog.
+ConstrainedWebDialogDelegate* ShowConstrainedWebDialogWithAutoResize(
+    content::BrowserContext* browser_context,
+    ui::WebDialogDelegate* delegate,
+    content::WebContents* overshadowed,
+    const gfx::Size& min_size,
+    const gfx::Size& max_size);
 
 #endif  // CHROME_BROWSER_UI_WEBUI_CONSTRAINED_WEB_DIALOG_UI_H_

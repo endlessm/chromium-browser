@@ -8,6 +8,7 @@
 
 #include "base/command_line.h"
 #include "base/metrics/histogram.h"
+#include "base/profiler/scoped_tracker.h"
 #include "base/strings/string_util.h"
 #include "base/win/windows_version.h"
 #include "ui/app_list/app_list_constants.h"
@@ -21,6 +22,7 @@
 #include "ui/app_list/views/app_list_view_observer.h"
 #include "ui/app_list/views/apps_container_view.h"
 #include "ui/app_list/views/contents_view.h"
+#include "ui/app_list/views/custom_launcher_page_view.h"
 #include "ui/app_list/views/search_box_view.h"
 #include "ui/app_list/views/speech_view.h"
 #include "ui/app_list/views/start_page_view.h"
@@ -29,8 +31,8 @@
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/canvas.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/image/image_skia.h"
-#include "ui/gfx/insets.h"
 #include "ui/gfx/path.h"
 #include "ui/gfx/skia_util.h"
 #include "ui/resources/grit/ui_resources.h"
@@ -44,6 +46,7 @@
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/views/bubble/bubble_window_targeter.h"
+#include "ui/wm/core/masked_window_targeter.h"
 #if defined(OS_WIN)
 #include "ui/base/win/shell.h"
 #endif
@@ -70,7 +73,7 @@ bool SupportsShadow() {
 #if defined(OS_WIN)
   // Shadows are not supported on Windows without Aero Glass.
   if (!ui::win::IsAeroGlassEnabled() ||
-      CommandLine::ForCurrentProcess()->HasSwitch(
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
           ::switches::kDisableDwmComposition)) {
     return false;
   }
@@ -81,27 +84,74 @@ bool SupportsShadow() {
   return true;
 }
 
-// The background for the App List overlay, which appears as a white rounded
-// rectangle with the given radius and the same size as the target view.
-class AppListOverlayBackground : public views::Background {
+// This view forwards the focus to the search box widget by providing it as a
+// FocusTraversable when a focus search is provided.
+class SearchBoxFocusHost : public views::View {
  public:
-  AppListOverlayBackground(int corner_radius)
-      : corner_radius_(corner_radius) {};
-  ~AppListOverlayBackground() override{};
+  explicit SearchBoxFocusHost(views::Widget* search_box_widget)
+      : search_box_widget_(search_box_widget) {}
 
-  // Overridden from views::Background:
-  void Paint(gfx::Canvas* canvas, views::View* view) const override {
+  ~SearchBoxFocusHost() override {}
+
+  views::FocusTraversable* GetFocusTraversable() override {
+    return search_box_widget_;
+  }
+
+ private:
+  views::Widget* search_box_widget_;
+
+  DISALLOW_COPY_AND_ASSIGN(SearchBoxFocusHost);
+};
+
+// The view for the App List overlay, which appears as a white rounded
+// rectangle with the given radius.
+class AppListOverlayView : public views::View {
+ public:
+  explicit AppListOverlayView(int corner_radius)
+      : corner_radius_(corner_radius) {
+    SetPaintToLayer(true);
+    SetVisible(false);
+    layer()->SetOpacity(0.0f);
+  }
+
+  ~AppListOverlayView() override {}
+
+  // Overridden from views::View:
+  void OnPaint(gfx::Canvas* canvas) override {
     SkPaint paint;
     paint.setStyle(SkPaint::kFill_Style);
     paint.setColor(SK_ColorWHITE);
-    canvas->DrawRoundRect(view->GetContentsBounds(), corner_radius_, paint);
+    canvas->DrawRoundRect(GetContentsBounds(), corner_radius_, paint);
   }
 
  private:
   const int corner_radius_;
 
-  DISALLOW_COPY_AND_ASSIGN(AppListOverlayBackground);
+  DISALLOW_COPY_AND_ASSIGN(AppListOverlayView);
 };
+
+#if defined(USE_AURA)
+// An event targeter for the search box widget which will ignore events that
+// are on the search box's shadow.
+class SearchBoxWindowTargeter : public wm::MaskedWindowTargeter {
+ public:
+  explicit SearchBoxWindowTargeter(views::View* search_box)
+      : wm::MaskedWindowTargeter(search_box->GetWidget()->GetNativeWindow()),
+        search_box_(search_box) {}
+  ~SearchBoxWindowTargeter() override {}
+
+ private:
+  // wm::MaskedWindowTargeter:
+  bool GetHitTestMask(aura::Window* window, gfx::Path* mask) const override {
+    mask->addRect(gfx::RectToSkRect(search_box_->GetContentsBounds()));
+    return true;
+  }
+
+  views::View* search_box_;
+
+  DISALLOW_COPY_AND_ASSIGN(SearchBoxWindowTargeter);
+};
+#endif
 
 }  // namespace
 
@@ -150,11 +200,12 @@ class HideViewAnimationObserver : public ui::ImplicitAnimationObserver {
 
 AppListView::AppListView(AppListViewDelegate* delegate)
     : delegate_(delegate),
-      app_list_main_view_(NULL),
-      search_box_view_(NULL),
-      speech_view_(NULL),
-      experimental_banner_view_(NULL),
-      overlay_view_(NULL),
+      app_list_main_view_(nullptr),
+      speech_view_(nullptr),
+      search_box_focus_host_(nullptr),
+      search_box_widget_(nullptr),
+      search_box_view_(nullptr),
+      overlay_view_(nullptr),
       animation_observer_(new HideViewAnimationObserver()) {
   CHECK(delegate);
 
@@ -192,6 +243,29 @@ void AppListView::InitAsBubbleAtFixedLocation(
   SetAnchorRect(gfx::Rect(anchor_point_in_screen, gfx::Size()));
   InitAsBubbleInternal(
       parent, initial_apps_page, arrow, border_accepts_events, gfx::Vector2d());
+}
+
+void AppListView::InitAsFramelessWindow(gfx::NativeView parent,
+                                        int initial_apps_page,
+                                        gfx::Rect bounds) {
+  InitContents(parent, initial_apps_page);
+  overlay_view_ = new AppListOverlayView(0 /* no corners */);
+  AddChildView(overlay_view_);
+
+  views::Widget* widget = new views::Widget();
+  views::Widget::InitParams params(
+      views::Widget::InitParams::TYPE_WINDOW_FRAMELESS);
+  params.parent = parent;
+  params.delegate = this;
+  widget->Init(params);
+  widget->SetBounds(bounds);
+  // This needs to be set *after* Widget::Init() because BubbleDelegateView sets
+  // its own background at OnNativeThemeChanged(), which is called in
+  // View::AddChildView() which is called at Widget::SetContentsView() to build
+  // the views hierarchy in the widget.
+  set_background(new AppListBackground(0));
+
+  InitChildWidgets();
 }
 
 void AppListView::SetBubbleArrow(views::BubbleBorder::Arrow arrow) {
@@ -247,6 +321,18 @@ void AppListView::SetAppListOverlayVisible(bool visible) {
 
   const float kOverlayOpacity = 0.75f;
   overlay_view_->layer()->SetOpacity(visible ? kOverlayOpacity : 0.0f);
+  // Create the illusion that the search box is hidden behind the app list
+  // overlay mask by setting its opacity to the same value, and disabling it.
+  {
+    ui::ScopedLayerAnimationSettings settings(
+        search_box_widget_->GetLayer()->GetAnimator());
+    const float kSearchBoxWidgetOpacity = 0.5f;
+    search_box_widget_->GetLayer()->SetOpacity(visible ? kSearchBoxWidgetOpacity
+                                                       : 1.0f);
+    search_box_view_->SetEnabled(!visible);
+    if (!visible)
+      search_box_view_->search_box()->RequestFocus();
+  }
 }
 
 bool AppListView::ShouldCenterWindow() const {
@@ -257,8 +343,8 @@ gfx::Size AppListView::GetPreferredSize() const {
   return app_list_main_view_->GetPreferredSize();
 }
 
-void AppListView::Paint(gfx::Canvas* canvas, const views::CullSet& cull_set) {
-  views::BubbleDelegateView::Paint(canvas, cull_set);
+void AppListView::OnPaint(gfx::Canvas* canvas) {
+  views::BubbleDelegateView::OnPaint(canvas);
   if (!next_paint_callback_.is_null()) {
     next_paint_callback_.Run();
     next_paint_callback_.Reset();
@@ -273,6 +359,22 @@ void AppListView::OnThemeChanged() {
 
 bool AppListView::ShouldHandleSystemCommands() const {
   return true;
+}
+
+bool AppListView::ShouldDescendIntoChildForEventHandling(
+    gfx::NativeView child,
+    const gfx::Point& location) {
+  // While on the start page, don't descend into the custom launcher page. Since
+  // the only valid action is to open it.
+  ContentsView* contents_view = app_list_main_view_->contents_view();
+  if (contents_view->custom_page_view() &&
+      contents_view->GetActiveState() == AppListModel::STATE_START)
+    return !contents_view->custom_page_view()
+                ->GetCollapsedLauncherPageBounds()
+                .Contains(location);
+
+  return views::BubbleDelegateView::ShouldDescendIntoChildForEventHandling(
+      child, location);
 }
 
 void AppListView::Prerender() {
@@ -321,12 +423,12 @@ PaginationModel* AppListView::GetAppsPaginationModel() {
       ->pagination_model();
 }
 
-void AppListView::InitAsBubbleInternal(gfx::NativeView parent,
-                                       int initial_apps_page,
-                                       views::BubbleBorder::Arrow arrow,
-                                       bool border_accepts_events,
-                                       const gfx::Vector2d& anchor_offset) {
-  base::Time start_time = base::Time::Now();
+void AppListView::InitContents(gfx::NativeView parent, int initial_apps_page) {
+  // TODO(vadimt): Remove ScopedTracker below once crbug.com/440224 and
+  // crbug.com/441028 are fixed.
+  tracked_objects::ScopedTracker tracking_profile(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "440224, 441028 AppListView::InitContents"));
 
   app_list_main_view_ = new AppListMainView(delegate_);
   AddChildView(app_list_main_view_);
@@ -334,13 +436,26 @@ void AppListView::InitAsBubbleInternal(gfx::NativeView parent,
   app_list_main_view_->SetFillsBoundsOpaquely(false);
   app_list_main_view_->layer()->SetMasksToBounds(true);
 
+  // This will be added to the |search_box_widget_| after the app list widget is
+  // initialized.
   search_box_view_ = new SearchBoxView(app_list_main_view_, delegate_);
   search_box_view_->SetPaintToLayer(true);
   search_box_view_->SetFillsBoundsOpaquely(false);
   search_box_view_->layer()->SetMasksToBounds(true);
-  AddChildView(search_box_view_);
+
+  // TODO(vadimt): Remove ScopedTracker below once crbug.com/440224 and
+  // crbug.com/441028 are fixed.
+  tracked_objects::ScopedTracker tracking_profile1(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "440224, 441028 AppListView::InitContents1"));
 
   app_list_main_view_->Init(parent, initial_apps_page, search_box_view_);
+
+  // TODO(vadimt): Remove ScopedTracker below once crbug.com/440224 and
+  // crbug.com/441028 are fixed.
+  tracked_objects::ScopedTracker tracking_profile2(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "440224, 441028 AppListView::InitContents2"));
 
   // Speech recognition is available only when the start page exists.
   if (delegate_ && delegate_->IsSpeechRecognitionEnabled()) {
@@ -352,19 +467,54 @@ void AppListView::InitAsBubbleInternal(gfx::NativeView parent,
     AddChildView(speech_view_);
   }
 
-  if (app_list::switches::IsExperimentalAppListEnabled()) {
-    // Draw a banner in the corner of the experimental app list.
-    experimental_banner_view_ = new views::ImageView;
-    const gfx::ImageSkia& experimental_icon =
-        *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
-            IDR_APP_LIST_EXPERIMENTAL_ICON);
-    experimental_banner_view_->SetImage(experimental_icon);
-    experimental_banner_view_->SetPaintToLayer(true);
-    experimental_banner_view_->SetFillsBoundsOpaquely(false);
-    AddChildView(experimental_banner_view_);
-  }
-
   OnProfilesChanged();
+}
+
+void AppListView::InitChildWidgets() {
+  DCHECK(search_box_view_);
+
+  // Create the search box widget.
+  views::Widget::InitParams search_box_widget_params(
+      views::Widget::InitParams::TYPE_CONTROL);
+  search_box_widget_params.parent = GetWidget()->GetNativeView();
+  search_box_widget_params.opacity =
+      views::Widget::InitParams::TRANSLUCENT_WINDOW;
+
+  // Create a widget for the SearchBoxView to live in. This allows the
+  // SearchBoxView to be on top of the custom launcher page's WebContents
+  // (otherwise the search box events will be captured by the WebContents).
+  search_box_widget_ = new views::Widget;
+  search_box_widget_->Init(search_box_widget_params);
+  search_box_widget_->SetContentsView(search_box_view_);
+
+  // The search box will not naturally receive focus by itself (because it is in
+  // a separate widget). Create this SearchBoxFocusHost in the main widget to
+  // forward the focus search into to the search box.
+  search_box_focus_host_ = new SearchBoxFocusHost(search_box_widget_);
+  AddChildView(search_box_focus_host_);
+  search_box_widget_->SetFocusTraversableParentView(search_box_focus_host_);
+  search_box_widget_->SetFocusTraversableParent(
+      GetWidget()->GetFocusTraversable());
+
+#if defined(USE_AURA)
+  // Mouse events on the search box shadow should not be captured.
+  aura::Window* window = search_box_widget_->GetNativeWindow();
+  window->SetEventTargeter(scoped_ptr<ui::EventTargeter>(
+      new SearchBoxWindowTargeter(search_box_view_)));
+#endif
+
+  app_list_main_view_->contents_view()->Layout();
+}
+
+void AppListView::InitAsBubbleInternal(gfx::NativeView parent,
+                                       int initial_apps_page,
+                                       views::BubbleBorder::Arrow arrow,
+                                       bool border_accepts_events,
+                                       const gfx::Vector2d& anchor_offset) {
+  base::Time start_time = base::Time::Now();
+
+  InitContents(parent, initial_apps_page);
+
   set_color(kContentsBackgroundColor);
   set_margins(gfx::Insets());
   set_parent_window(parent);
@@ -377,22 +527,34 @@ void AppListView::InitAsBubbleInternal(gfx::NativeView parent,
   set_border_accepts_events(border_accepts_events);
   set_shadow(SupportsShadow() ? views::BubbleBorder::BIG_SHADOW
                               : views::BubbleBorder::NO_SHADOW_OPAQUE_BORDER);
-  views::BubbleDelegateView::CreateBubble(this);
+
+  {
+    // TODO(tapted): Remove ScopedTracker below once crbug.com/431326 is fixed.
+    tracked_objects::ScopedTracker tracking_profile(
+        FROM_HERE_WITH_EXPLICIT_FUNCTION(
+            "431326 views::BubbleDelegateView::CreateBubble()"));
+
+    // This creates the app list widget. (Before this, child widgets cannot be
+    // created.)
+    views::BubbleDelegateView::CreateBubble(this);
+  }
+
   SetBubbleArrow(arrow);
+
+  // We can now create the internal widgets.
+  InitChildWidgets();
 
 #if defined(USE_AURA)
   aura::Window* window = GetWidget()->GetNativeWindow();
   window->layer()->SetMasksToBounds(true);
   GetBubbleFrameView()->set_background(new AppListBackground(
-      GetBubbleFrameView()->bubble_border()->GetBorderCornerRadius(),
-      app_list_main_view_));
+      GetBubbleFrameView()->bubble_border()->GetBorderCornerRadius()));
   set_background(NULL);
   window->SetEventTargeter(scoped_ptr<ui::EventTargeter>(
       new views::BubbleWindowTargeter(this)));
 #else
   set_background(new AppListBackground(
-      GetBubbleFrameView()->bubble_border()->GetBorderCornerRadius(),
-      app_list_main_view_));
+      GetBubbleFrameView()->bubble_border()->GetBorderCornerRadius()));
 
   // On non-aura the bubble has two widgets, and it's possible for the border
   // to be shown independently in odd situations. Explicitly hide the bubble
@@ -402,14 +564,6 @@ void AppListView::InitAsBubbleInternal(gfx::NativeView parent,
   GetWidget()->Hide();
 #endif
 
-  // To make the overlay view, construct a view with a white background, rather
-  // than a white rectangle in it. This is because we need overlay_view_ to be
-  // drawn to its own layer (so it appears correctly in the foreground).
-  overlay_view_ = new views::View();
-  overlay_view_->SetPaintToLayer(true);
-  overlay_view_->SetBoundsRect(GetContentsBounds());
-  overlay_view_->SetVisible(false);
-  overlay_view_->layer()->SetOpacity(0.0f);
   // On platforms that don't support a shadow, the rounded border of the app
   // list is constructed _inside_ the view, so a rectangular background goes
   // over the border in the rounded corners. To fix this, give the background a
@@ -417,8 +571,9 @@ void AppListView::InitAsBubbleInternal(gfx::NativeView parent,
   // doesn't cover it.
   const int kOverlayCornerRadius =
       GetBubbleFrameView()->bubble_border()->GetBorderCornerRadius();
-  overlay_view_->set_background(new AppListOverlayBackground(
-      kOverlayCornerRadius - (SupportsShadow() ? 0 : 1)));
+  overlay_view_ =
+      new AppListOverlayView(kOverlayCornerRadius - (SupportsShadow() ? 0 : 1));
+  overlay_view_->SetBoundsRect(GetContentsBounds());
   AddChildView(overlay_view_);
 
   if (delegate_)
@@ -452,12 +607,7 @@ void AppListView::OnBeforeBubbleWidgetInit(
 }
 
 views::View* AppListView::GetInitiallyFocusedView() {
-  return app_list::switches::IsExperimentalAppListEnabled()
-             ? app_list_main_view_->contents_view()
-                   ->start_page_view()
-                   ->dummy_search_box_view()
-                   ->search_box()
-             : app_list_main_view_->search_box_view()->search_box();
+  return app_list_main_view_->search_box_view()->search_box();
 }
 
 gfx::ImageSkia AppListView::GetWindowIcon() {
@@ -468,11 +618,13 @@ gfx::ImageSkia AppListView::GetWindowIcon() {
 }
 
 bool AppListView::WidgetHasHitTestMask() const {
-  return true;
+  return GetBubbleFrameView() != nullptr;
 }
 
 void AppListView::GetWidgetHitTestMask(gfx::Path* mask) const {
   DCHECK(mask);
+  DCHECK(GetBubbleFrameView());
+
   mask->addRect(gfx::RectToSkRect(
       GetBubbleFrameView()->GetContentsBounds()));
 }
@@ -480,6 +632,16 @@ void AppListView::GetWidgetHitTestMask(gfx::Path* mask) const {
 bool AppListView::AcceleratorPressed(const ui::Accelerator& accelerator) {
   // The accelerator is added by BubbleDelegateView.
   if (accelerator.key_code() == ui::VKEY_ESCAPE) {
+    if (switches::IsExperimentalAppListEnabled()) {
+      // If the ContentsView does not handle the back action, then this is the
+      // top level, so we close the app list.
+      if (!app_list_main_view_->contents_view()->Back()) {
+        GetWidget()->Deactivate();
+        Close();
+      }
+      return true;
+    }
+
     if (app_list_main_view_->search_box_view()->HasSearch()) {
       app_list_main_view_->search_box_view()->ClearSearch();
     } else if (app_list_main_view_->contents_view()
@@ -501,29 +663,25 @@ bool AppListView::AcceleratorPressed(const ui::Accelerator& accelerator) {
 }
 
 void AppListView::Layout() {
-  search_box_view_->SetBoundsRect(
-      app_list_main_view_->contents_view()->GetDefaultSearchBoxBounds());
-
   const gfx::Rect contents_bounds = GetContentsBounds();
-  app_list_main_view_->SetBoundsRect(contents_bounds);
+
+  // Make sure to layout |app_list_main_view_| and |speech_view_| at the center
+  // of the widget.
+  gfx::Rect centered_bounds = contents_bounds;
+  centered_bounds.ClampToCenteredSize(gfx::Size(
+      app_list_main_view_->contents_view()->GetDefaultContentsBounds().width(),
+      contents_bounds.height()));
+
+  app_list_main_view_->SetBoundsRect(centered_bounds);
 
   if (speech_view_) {
-    gfx::Rect speech_bounds = contents_bounds;
+    gfx::Rect speech_bounds = centered_bounds;
     int preferred_height = speech_view_->GetPreferredSize().height();
     speech_bounds.Inset(kSpeechUIMargin, kSpeechUIMargin);
     speech_bounds.set_height(std::min(speech_bounds.height(),
                                       preferred_height));
     speech_bounds.Inset(-speech_view_->GetInsets());
     speech_view_->SetBoundsRect(speech_bounds);
-  }
-
-  if (experimental_banner_view_) {
-    // Position the experimental banner in the lower right corner.
-    gfx::Rect image_bounds = experimental_banner_view_->GetImageBounds();
-    image_bounds.set_origin(
-        gfx::Point(contents_bounds.width() - image_bounds.width(),
-                   contents_bounds.height() - image_bounds.height()));
-    experimental_banner_view_->SetBoundsRect(image_bounds);
   }
 }
 
@@ -592,6 +750,12 @@ void AppListView::OnSpeechRecognitionStateChanged(
   }
 
   {
+    ui::ScopedLayerAnimationSettings search_box_settings(
+        search_box_widget_->GetLayer()->GetAnimator());
+    search_box_widget_->GetLayer()->SetOpacity(will_appear ? 0.0f : 1.0f);
+  }
+
+  {
     ui::ScopedLayerAnimationSettings speech_settings(
         speech_view_->layer()->GetAnimator());
     if (!will_appear) {
@@ -606,10 +770,19 @@ void AppListView::OnSpeechRecognitionStateChanged(
       speech_view_->layer()->SetTransform(speech_transform);
   }
 
-  if (will_appear)
+  // Prevent the search box from receiving events when hidden.
+  search_box_view_->SetEnabled(!will_appear);
+
+  if (will_appear) {
     speech_view_->SetVisible(true);
-  else
+  } else {
     app_list_main_view_->SetVisible(true);
+    // Refocus the search box. However, if the app list widget does not have
+    // focus, it means another window has already taken focus, and we *must not*
+    // focus the search box (or we would steal focus back into the app list).
+    if (GetWidget()->IsActive())
+      search_box_view_->search_box()->RequestFocus();
+  }
 }
 
 }  // namespace app_list

@@ -24,32 +24,31 @@ enum HistogramResultEnum {
 }  // namespace
 
 OnDiskDirectoryBackingStore::OnDiskDirectoryBackingStore(
-    const std::string& dir_name, const base::FilePath& backing_filepath)
-    : DirectoryBackingStore(dir_name),
-      allow_failure_for_test_(false),
-      backing_filepath_(backing_filepath) {
-  db_->set_exclusive_locking();
-  db_->set_page_size(4096);
+    const std::string& dir_name,
+    const base::FilePath& backing_file_path)
+    : DirectoryBackingStore(dir_name), backing_file_path_(backing_file_path) {
+  DCHECK(backing_file_path_.IsAbsolute());
 }
 
-OnDiskDirectoryBackingStore::~OnDiskDirectoryBackingStore() { }
+OnDiskDirectoryBackingStore::~OnDiskDirectoryBackingStore() {
+}
 
 DirOpenResult OnDiskDirectoryBackingStore::TryLoad(
     Directory::MetahandlesMap* handles_map,
     JournalIndex* delete_journals,
+    MetahandleSet* metahandles_to_purge,
     Directory::KernelLoadInfo* kernel_load_info) {
   DCHECK(CalledOnValidThread());
-  if (!db_->is_open()) {
-    if (!db_->Open(backing_filepath_))
+
+  if (!IsOpen()) {
+    if (!Open(backing_file_path_))
       return FAILED_OPEN_DATABASE;
   }
 
   if (!InitializeTables())
     return FAILED_OPEN_DATABASE;
 
-  if (!DropDeletedEntries())
-    return FAILED_DATABASE_CORRUPT;
-  if (!LoadEntries(handles_map))
+  if (!LoadEntries(handles_map, metahandles_to_purge))
     return FAILED_DATABASE_CORRUPT;
   if (!LoadDeleteJournals(delete_journals))
     return FAILED_DATABASE_CORRUPT;
@@ -59,18 +58,19 @@ DirOpenResult OnDiskDirectoryBackingStore::TryLoad(
     return FAILED_DATABASE_CORRUPT;
 
   return OPENED;
-
 }
 
 DirOpenResult OnDiskDirectoryBackingStore::Load(
     Directory::MetahandlesMap* handles_map,
     JournalIndex* delete_journals,
+    MetahandleSet* metahandles_to_purge,
     Directory::KernelLoadInfo* kernel_load_info) {
+  DCHECK(CalledOnValidThread());
   DirOpenResult result = TryLoad(handles_map, delete_journals,
-                                 kernel_load_info);
+                                 metahandles_to_purge, kernel_load_info);
   if (result == OPENED) {
-    UMA_HISTOGRAM_ENUMERATION(
-        "Sync.DirectoryOpenResult", FIRST_TRY_SUCCESS, RESULT_COUNT);
+    UMA_HISTOGRAM_ENUMERATION("Sync.DirectoryOpenResult", FIRST_TRY_SUCCESS,
+                              RESULT_COUNT);
     return OPENED;
   }
 
@@ -80,22 +80,19 @@ DirOpenResult OnDiskDirectoryBackingStore::Load(
   // fetch the user's data from the cloud.
   STLDeleteValues(handles_map);
   STLDeleteElements(delete_journals);
-  db_.reset(new sql::Connection);
-  // TODO: Manually propagating the default database settings is
-  // brittle.  Either have a helper to set these up (or generate a new
-  // connection), or add something like Reset() to sql::Connection.
-  db_->set_exclusive_locking();
-  db_->set_page_size(4096);
-  db_->set_histogram_tag("SyncDirectory");
-  base::DeleteFile(backing_filepath_, false);
 
-  result = TryLoad(handles_map, delete_journals, kernel_load_info);
+  ResetAndCreateConnection();
+
+  base::DeleteFile(backing_file_path_, false);
+
+  result = TryLoad(handles_map, delete_journals, metahandles_to_purge,
+                   kernel_load_info);
   if (result == OPENED) {
-    UMA_HISTOGRAM_ENUMERATION(
-        "Sync.DirectoryOpenResult", SECOND_TRY_SUCCESS, RESULT_COUNT);
+    UMA_HISTOGRAM_ENUMERATION("Sync.DirectoryOpenResult", SECOND_TRY_SUCCESS,
+                              RESULT_COUNT);
   } else {
-    UMA_HISTOGRAM_ENUMERATION(
-        "Sync.DirectoryOpenResult", SECOND_TRY_FAILURE, RESULT_COUNT);
+    UMA_HISTOGRAM_ENUMERATION("Sync.DirectoryOpenResult", SECOND_TRY_FAILURE,
+                              RESULT_COUNT);
   }
 
   return result;
@@ -111,6 +108,11 @@ void OnDiskDirectoryBackingStore::ReportFirstTryOpenFailure() {
   // aside the 'Sync Data' directory in your profile.  This is similar to what
   // the code would do if this DCHECK were disabled.
   NOTREACHED() << "Crashing to preserve corrupt sync database";
+}
+
+const base::FilePath& OnDiskDirectoryBackingStore::backing_file_path() const {
+  DCHECK(CalledOnValidThread());
+  return backing_file_path_;
 }
 
 }  // namespace syncable

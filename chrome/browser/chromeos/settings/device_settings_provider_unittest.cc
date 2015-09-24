@@ -12,8 +12,8 @@
 #include "base/path_service.h"
 #include "base/test/scoped_path_override.h"
 #include "base/values.h"
-#include "chrome/browser/chromeos/login/users/fake_user_manager.h"
 #include "chrome/browser/chromeos/policy/device_local_account.h"
+#include "chrome/browser/chromeos/policy/device_policy_builder.h"
 #include "chrome/browser/chromeos/policy/proto/chrome_device_policy.pb.h"
 #include "chrome/browser/chromeos/settings/device_settings_test_helper.h"
 #include "chrome/common/chrome_paths.h"
@@ -21,6 +21,7 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chromeos/settings/cros_settings_names.h"
+#include "components/user_manager/fake_user_manager.h"
 #include "components/user_manager/user.h"
 #include "policy/proto/device_management_backend.pb.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -51,7 +52,7 @@ class DeviceSettingsProviderTest : public DeviceSettingsTestBase {
       : local_state_(TestingBrowserProcess::GetGlobal()),
         user_data_dir_override_(chrome::DIR_USER_DATA) {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     DeviceSettingsTestBase::SetUp();
 
     EXPECT_CALL(*this, SettingChanged(_)).Times(AnyNumber());
@@ -63,8 +64,100 @@ class DeviceSettingsProviderTest : public DeviceSettingsTestBase {
     Mock::VerifyAndClearExpectations(this);
   }
 
-  virtual void TearDown() override {
-    DeviceSettingsTestBase::TearDown();
+  void TearDown() override { DeviceSettingsTestBase::TearDown(); }
+
+  // Helper routine to enable/disable all reporting settings in policy.
+  void SetReportingSettings(bool enable_reporting, int frequency) {
+    EXPECT_CALL(*this, SettingChanged(_)).Times(AtLeast(1));
+    em::DeviceReportingProto* proto =
+        device_policy_.payload().mutable_device_reporting();
+    proto->set_report_version_info(enable_reporting);
+    proto->set_report_activity_times(enable_reporting);
+    proto->set_report_boot_mode(enable_reporting);
+    proto->set_report_location(enable_reporting);
+    proto->set_report_network_interfaces(enable_reporting);
+    proto->set_report_users(enable_reporting);
+    proto->set_report_hardware_status(enable_reporting);
+    proto->set_report_session_status(enable_reporting);
+    proto->set_device_status_frequency(frequency);
+    device_policy_.Build();
+    device_settings_test_helper_.set_policy_blob(device_policy_.GetBlob());
+    ReloadDeviceSettings();
+    Mock::VerifyAndClearExpectations(this);
+  }
+
+  // Helper routine to enable/disable all reporting settings in policy.
+  void SetHeartbeatSettings(bool enable_heartbeat, int frequency) {
+    EXPECT_CALL(*this, SettingChanged(_)).Times(AtLeast(1));
+    em::DeviceHeartbeatSettingsProto* proto =
+        device_policy_.payload().mutable_device_heartbeat_settings();
+    proto->set_heartbeat_enabled(enable_heartbeat);
+    proto->set_heartbeat_frequency(frequency);
+    device_policy_.Build();
+    device_settings_test_helper_.set_policy_blob(device_policy_.GetBlob());
+    ReloadDeviceSettings();
+    Mock::VerifyAndClearExpectations(this);
+  }
+
+  // Helper routine to ensure all heartbeat policies have been correctly
+  // decoded.
+  void VerifyHeartbeatSettings(bool expected_enable_state,
+                               int expected_frequency) {
+
+    const base::FundamentalValue expected_enabled_value(expected_enable_state);
+    EXPECT_TRUE(base::Value::Equals(provider_->Get(kHeartbeatEnabled),
+                                    &expected_enabled_value));
+
+    const base::FundamentalValue expected_frequency_value(expected_frequency);
+    EXPECT_TRUE(base::Value::Equals(provider_->Get(kHeartbeatFrequency),
+                                    &expected_frequency_value));
+  }
+
+  // Helper routine to ensure all reporting policies have been correctly
+  // decoded.
+  void VerifyReportingSettings(bool expected_enable_state,
+                               int expected_frequency) {
+    const char* reporting_settings[] = {
+      kReportDeviceVersionInfo,
+      kReportDeviceActivityTimes,
+      kReportDeviceBootMode,
+      // Device location reporting is not currently supported.
+      // kReportDeviceLocation,
+      kReportDeviceNetworkInterfaces,
+      kReportDeviceUsers,
+      kReportDeviceHardwareStatus,
+      kReportDeviceSessionStatus
+    };
+
+    const base::FundamentalValue expected_enable_value(expected_enable_state);
+    for (const auto& setting : reporting_settings) {
+      EXPECT_TRUE(base::Value::Equals(provider_->Get(setting),
+                                      &expected_enable_value))
+          << "Value for " << setting << " does not match expected";
+    }
+    const base::FundamentalValue expected_frequency_value(expected_frequency);
+    EXPECT_TRUE(base::Value::Equals(provider_->Get(kReportUploadFrequency),
+                                    &expected_frequency_value));
+  }
+
+  // Helper routine to set LoginScreenDomainAutoComplete policy.
+  void SetDomainAutoComplete(const std::string& domain) {
+    EXPECT_CALL(*this, SettingChanged(_)).Times(AtLeast(1));
+    em::LoginScreenDomainAutoCompleteProto* proto =
+        device_policy_.payload().mutable_login_screen_domain_auto_complete();
+    proto->set_login_screen_domain_auto_complete(domain);
+    device_policy_.Build();
+    device_settings_test_helper_.set_policy_blob(device_policy_.GetBlob());
+    ReloadDeviceSettings();
+    Mock::VerifyAndClearExpectations(this);
+  }
+
+  // Helper routine to check value of the LoginScreenDomainAutoComplete policy.
+  void VerifyDomainAutoComplete(
+      const base::StringValue* const ptr_to_expected_value) {
+    EXPECT_TRUE(base::Value::Equals(
+        provider_->Get(kAccountsPrefLoginScreenDomainAutoComplete),
+        ptr_to_expected_value));
   }
 
   ScopedTestingLocalState local_state_;
@@ -342,6 +435,47 @@ TEST_F(DeviceSettingsProviderTest, DecodeDeviceState) {
 
   // Verify that the updated state has been decoded correctly.
   EXPECT_FALSE(provider_->Get(kDeviceDisabled));
+}
+
+TEST_F(DeviceSettingsProviderTest, DecodeReportingSettings) {
+  // Turn on all reporting and verify that the reporting settings have been
+  // decoded correctly.
+  const int status_frequency = 50000;
+  SetReportingSettings(true, status_frequency);
+  VerifyReportingSettings(true, status_frequency);
+
+  // Turn off all reporting and verify that the settings are decoded
+  // correctly.
+  SetReportingSettings(false, status_frequency);
+  VerifyReportingSettings(false, status_frequency);
+}
+
+TEST_F(DeviceSettingsProviderTest, DecodeHeartbeatSettings) {
+  // Turn on heartbeats and verify that the heartbeat settings have been
+  // decoded correctly.
+  const int heartbeat_frequency = 50000;
+  SetHeartbeatSettings(true, heartbeat_frequency);
+  VerifyHeartbeatSettings(true, heartbeat_frequency);
+
+  // Turn off all reporting and verify that the settings are decoded
+  // correctly.
+  SetHeartbeatSettings(false, heartbeat_frequency);
+  VerifyHeartbeatSettings(false, heartbeat_frequency);
+}
+
+TEST_F(DeviceSettingsProviderTest, DecodeDomainAutoComplete) {
+  // By default LoginScreenDomainAutoComplete policy should not be set.
+  VerifyDomainAutoComplete(nullptr);
+
+  // Empty string means that the policy is not set.
+  SetDomainAutoComplete("");
+  VerifyDomainAutoComplete(nullptr);
+
+  // Check some meaningful value. Policy should be set.
+  const std::string domain = "domain.test";
+  const base::StringValue domain_value(domain);
+  SetDomainAutoComplete(domain);
+  VerifyDomainAutoComplete(&domain_value);
 }
 
 } // namespace chromeos

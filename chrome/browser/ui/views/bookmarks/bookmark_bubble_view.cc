@@ -33,6 +33,8 @@
 #include "ui/views/widget/widget.h"
 
 using base::UserMetricsAction;
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
 using views::ColumnSet;
 using views::GridLayout;
 
@@ -66,7 +68,7 @@ void BookmarkBubbleView::ShowBubble(views::View* anchor_view,
                                     Profile* profile,
                                     const GURL& url,
                                     bool newly_bookmarked) {
-  if (IsShowing())
+  if (bookmark_bubble_)
     return;
 
   bookmark_bubble_ = new BookmarkBubbleView(anchor_view,
@@ -84,13 +86,8 @@ void BookmarkBubbleView::ShowBubble(views::View* anchor_view,
     bookmark_bubble_->observer_->OnBookmarkBubbleShown(url);
 }
 
-// static
-bool BookmarkBubbleView::IsShowing() {
-  return bookmark_bubble_ != NULL;
-}
-
 void BookmarkBubbleView::Hide() {
-  if (IsShowing())
+  if (bookmark_bubble_)
     bookmark_bubble_->GetWidget()->Close();
 }
 
@@ -101,15 +98,11 @@ BookmarkBubbleView::~BookmarkBubbleView() {
     BookmarkModel* model = BookmarkModelFactory::GetForProfile(profile_);
     const BookmarkNode* node = model->GetMostRecentlyAddedUserNodeForURL(url_);
     if (node)
-      model->Remove(node->parent(), node->parent()->GetIndexOf(node));
+      model->Remove(node);
   }
   // |parent_combobox_| needs to be destroyed before |parent_model_| as it
   // uses |parent_model_| in its destructor.
   delete parent_combobox_;
-}
-
-views::View* BookmarkBubbleView::GetInitiallyFocusedView() {
-  return title_tf_;
 }
 
 void BookmarkBubbleView::WindowClosing() {
@@ -259,6 +252,14 @@ void BookmarkBubbleView::Init() {
   AddAccelerator(ui::Accelerator(ui::VKEY_RETURN, ui::EF_NONE));
   AddAccelerator(ui::Accelerator(ui::VKEY_E, ui::EF_ALT_DOWN));
   AddAccelerator(ui::Accelerator(ui::VKEY_R, ui::EF_ALT_DOWN));
+}
+
+const char* BookmarkBubbleView::GetClassName() const {
+  return "BookmarkBubbleView";
+}
+
+views::View* BookmarkBubbleView::GetInitiallyFocusedView() {
+  return title_tf_;
 }
 
 BookmarkBubbleView::BookmarkBubbleView(

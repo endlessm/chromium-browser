@@ -9,6 +9,7 @@
 #include "base/metrics/statistics_recorder.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/common/ntp_logging_events.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -36,7 +37,11 @@ base::HistogramBase::Count GetBinCount(const std::string& histogram_name,
 
 }  // namespace
 
-TEST(NTPUserDataLoggerTest, TestLogging) {
+class NTPUserDataLoggerTest : public testing::Test {
+  content::TestBrowserThreadBundle thread_bundle_;
+};
+
+TEST_F(NTPUserDataLoggerTest, TestLogging) {
   base::StatisticsRecorder::Initialize();
 
   // Ensure empty statistics.
@@ -46,21 +51,23 @@ TEST(NTPUserDataLoggerTest, TestLogging) {
   // Enusure non-zero statistics.
   TestNTPUserDataLogger logger;
 
+  base::TimeDelta delta = base::TimeDelta::FromMilliseconds(0);
+
   for (int i = 0; i < 20; ++i)
-    logger.LogEvent(NTP_MOUSEOVER);
+    logger.LogEvent(NTP_MOUSEOVER, delta);
   for (int i = 0; i < 8; ++i)
-    logger.LogEvent(NTP_TILE);
+    logger.LogEvent(NTP_TILE, delta);
   for (int i = 0; i < 4; ++i)
-    logger.LogEvent(NTP_THUMBNAIL_TILE);
+    logger.LogEvent(NTP_THUMBNAIL_TILE, delta);
   for (int i = 0; i < 2; ++i)
-    logger.LogEvent(NTP_THUMBNAIL_ERROR);
-  logger.LogEvent(NTP_GRAY_TILE_FALLBACK);
-  logger.LogEvent(NTP_EXTERNAL_TILE_FALLBACK);
+    logger.LogEvent(NTP_THUMBNAIL_ERROR, delta);
+  logger.LogEvent(NTP_GRAY_TILE_FALLBACK, delta);
+  logger.LogEvent(NTP_EXTERNAL_TILE_FALLBACK, delta);
   for (int i = 0; i < 2; ++i)
-    logger.LogEvent(NTP_EXTERNAL_TILE);
+    logger.LogEvent(NTP_EXTERNAL_TILE, delta);
   for (int i = 0; i < 2; ++i)
-    logger.LogEvent(NTP_GRAY_TILE);
-  logger.LogEvent(NTP_SERVER_SIDE_SUGGESTION);
+    logger.LogEvent(NTP_GRAY_TILE, delta);
+  logger.LogEvent(NTP_SERVER_SIDE_SUGGESTION, delta);
 
   logger.EmitNtpStatistics();
 
@@ -99,7 +106,7 @@ TEST(NTPUserDataLoggerTest, TestLogging) {
   EXPECT_EQ(1, GetTotalCount("NewTabPage.SuggestionsType"));
 }
 
-TEST(NTPUserDataLoggerTest, TestLogMostVisitedImpression) {
+TEST_F(NTPUserDataLoggerTest, TestLogMostVisitedImpression) {
   base::StatisticsRecorder::Initialize();
 
   EXPECT_EQ(0, GetBinCount("NewTabPage.SuggestionsImpression.foobar", 1));
@@ -125,7 +132,7 @@ TEST(NTPUserDataLoggerTest, TestLogMostVisitedImpression) {
   EXPECT_EQ(1, GetBinCount("NewTabPage.SuggestionsImpression.foobar", 5));
 }
 
-TEST(NTPUserDataLoggerTest, TestLogMostVisitedNavigation) {
+TEST_F(NTPUserDataLoggerTest, TestLogMostVisitedNavigation) {
   base::StatisticsRecorder::Initialize();
 
   EXPECT_EQ(0, GetTotalCount("NewTabPage.MostVisited"));

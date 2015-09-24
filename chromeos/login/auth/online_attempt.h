@@ -12,6 +12,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/single_thread_task_runner.h"
 #include "chromeos/chromeos_export.h"
 #include "chromeos/login/auth/auth_status_consumer.h"
 #include "google_apis/gaia/gaia_auth_consumer.h"
@@ -31,7 +32,7 @@ class CHROMEOS_EXPORT OnlineAttempt : public GaiaAuthConsumer {
  public:
   OnlineAttempt(AuthAttemptState* current_attempt,
                 AuthAttemptStateResolver* callback);
-  virtual ~OnlineAttempt();
+  ~OnlineAttempt() override;
 
   // Initiate the online login attempt either through client or auth login.
   // Status will be recorded in |current_attempt|, and resolver_->Resolve() will
@@ -40,9 +41,8 @@ class CHROMEOS_EXPORT OnlineAttempt : public GaiaAuthConsumer {
   void Initiate(net::URLRequestContextGetter* request_context);
 
   // GaiaAuthConsumer overrides. Callbacks from GaiaAuthFetcher
-  virtual void OnClientLoginFailure(
-      const GoogleServiceAuthError& error) override;
-  virtual void OnClientLoginSuccess(
+  void OnClientLoginFailure(const GoogleServiceAuthError& error) override;
+  void OnClientLoginSuccess(
       const GaiaAuthConsumer::ClientLoginResult& credentials) override;
 
  private:
@@ -60,7 +60,7 @@ class CHROMEOS_EXPORT OnlineAttempt : public GaiaAuthConsumer {
   bool HasPendingFetch();
   void CancelRequest();
 
-  scoped_refptr<base::MessageLoopProxy> message_loop_;
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
   AuthAttemptState* const attempt_;
   AuthAttemptStateResolver* const resolver_;

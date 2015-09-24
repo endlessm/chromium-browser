@@ -56,7 +56,7 @@ class ShillManagerClientTest : public ShillClientUnittestBase {
                                 dbus::ObjectPath(shill::kFlimflamServicePath)) {
   }
 
-  virtual void SetUp() {
+  void SetUp() override {
     ShillClientUnittestBase::SetUp();
     // Create a client with the mock bus.
     client_.reset(ShillManagerClient::Create());
@@ -65,9 +65,7 @@ class ShillManagerClientTest : public ShillClientUnittestBase {
     message_loop_.RunUntilIdle();
   }
 
-  virtual void TearDown() {
-    ShillClientUnittestBase::TearDown();
-  }
+  void TearDown() override { ShillClientUnittestBase::TearDown(); }
 
  protected:
   scoped_ptr<ShillManagerClient> client_;
@@ -273,10 +271,13 @@ TEST_F(ShillManagerClientTest, ConfigureService) {
   writer.AppendObjectPath(object_path);
   // Create the argument dictionary.
   scoped_ptr<base::DictionaryValue> arg(CreateExampleServiceProperties());
+  // Use a variant valued dictionary rather than a string valued one.
+  const bool string_valued = false;
   // Set expectations.
-  PrepareForMethodCall(shill::kConfigureServiceFunction,
-                       base::Bind(&ExpectDictionaryValueArgument, arg.get()),
-                       response.get());
+  PrepareForMethodCall(
+      shill::kConfigureServiceFunction,
+      base::Bind(&ExpectDictionaryValueArgument, arg.get(), string_valued),
+      response.get());
   // Call method.
   MockErrorCallback mock_error_callback;
   client_->ConfigureService(*arg,
@@ -297,10 +298,13 @@ TEST_F(ShillManagerClientTest, GetService) {
   writer.AppendObjectPath(object_path);
   // Create the argument dictionary.
   scoped_ptr<base::DictionaryValue> arg(CreateExampleServiceProperties());
+  // Use a variant valued dictionary rather than a string valued one.
+  const bool string_valued = false;
   // Set expectations.
-  PrepareForMethodCall(shill::kGetServiceFunction,
-                       base::Bind(&ExpectDictionaryValueArgument, arg.get()),
-                       response.get());
+  PrepareForMethodCall(
+      shill::kGetServiceFunction,
+      base::Bind(&ExpectDictionaryValueArgument, arg.get(), string_valued),
+      response.get());
   // Call method.
   MockErrorCallback mock_error_callback;
   client_->GetService(*arg,

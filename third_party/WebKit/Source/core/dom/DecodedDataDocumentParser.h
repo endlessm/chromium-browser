@@ -39,22 +39,19 @@ public:
     virtual bool wellFormed() const { return true; }
 
     // The below functions are used by DocumentWriter (the loader).
-    virtual void appendBytes(const char* bytes, size_t length) override;
-    virtual void flush() override;
-    virtual bool needsDecoder() const override final { return m_needsDecoder; }
-    virtual void setDecoder(PassOwnPtr<TextResourceDecoder>) override;
-    virtual TextResourceDecoder* decoder() override final;
+    void appendBytes(const char* bytes, size_t length) override;
+    void flush() override;
+    bool needsDecoder() const final { return m_needsDecoder; }
+    void setDecoder(PassOwnPtr<TextResourceDecoder>) override;
+    TextResourceDecoder* decoder() final;
 
     PassOwnPtr<TextResourceDecoder> takeDecoder();
 
 protected:
     explicit DecodedDataDocumentParser(Document&);
-    virtual ~DecodedDataDocumentParser();
+    ~DecodedDataDocumentParser() override;
 
 private:
-    // append is used by DocumentLoader::replaceDocumentWhileExecutingJavaScriptURL.
-    virtual void append(PassRefPtr<StringImpl>) = 0;
-
     void updateDocument(String& decodedData);
 
     bool m_needsDecoder;

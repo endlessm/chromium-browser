@@ -10,9 +10,9 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.util.Printer;
 /**
- * Java mirror of Chrome trace event API. See base/debug/trace_event.h.  Unlike the native version,
- * Java does not have stack objects, so a TRACE_EVENT() which does both TRACE_EVENT_BEGIN() and
- * TRACE_EVENT_END() in ctor/dtor is not possible.
+ * Java mirror of Chrome trace event API. See base/trace_event/trace_event.h. Unlike the native
+ * version, Java does not have stack objects, so a TRACE_EVENT() which does both TRACE_EVENT_BEGIN()
+ * and TRACE_EVENT_END() in ctor/dtor is not possible.
  * It is OK to use tracing before the native library has loaded, but such traces will
  * be ignored. (Perhaps we could devise to buffer them up in future?).
  */
@@ -20,6 +20,7 @@ import android.util.Printer;
 public class TraceEvent {
 
     private static volatile boolean sEnabled = false;
+    private static volatile boolean sATraceEnabled = false; // True when taking an Android systrace.
 
     private static class BasicLooperMonitor implements Printer {
         @Override
@@ -158,8 +159,8 @@ public class TraceEvent {
     // Holder for monitor avoids unnecessary construction on non-debug runs
     private static final class LooperMonitorHolder {
         private static final BasicLooperMonitor sInstance =
-                CommandLine.getInstance().hasSwitch(BaseSwitches.ENABLE_IDLE_TRACING) ?
-                        new IdleTracingLooperMonitor() : new BasicLooperMonitor();
+                CommandLine.getInstance().hasSwitch(BaseSwitches.ENABLE_IDLE_TRACING)
+                ? new IdleTracingLooperMonitor() : new BasicLooperMonitor();
     }
 
 
@@ -176,6 +177,8 @@ public class TraceEvent {
     @CalledByNative
     public static void setEnabled(boolean enabled) {
         sEnabled = enabled;
+        // Android M+ systrace logs this on its own. Only log it if not writing to Android systrace.
+        if (sATraceEnabled) return;
         ThreadUtils.getUiThreadLooper().setMessageLogging(
                 enabled ? LooperMonitorHolder.sInstance : null);
     }
@@ -186,10 +189,15 @@ public class TraceEvent {
      * systrace, this is for WebView only.
      */
     public static void setATraceEnabled(boolean enabled) {
-        if (sEnabled == enabled) return;
+        if (sATraceEnabled == enabled) return;
+        sATraceEnabled = enabled;
         if (enabled) {
+            // Calls TraceEvent.setEnabled(true) via
+            // TraceLog::EnabledStateObserver::OnTraceLogEnabled
             nativeStartATrace();
         } else {
+            // Calls TraceEvent.setEnabled(false) via
+            // TraceLog::EnabledStateObserver::OnTraceLogDisabled
             nativeStopATrace();
         }
     }
@@ -221,40 +229,12 @@ public class TraceEvent {
     }
 
     /**
-     * Convenience wrapper around the versions of startAsync() that take string parameters.
-     * @param id The id of the asynchronous event.
-     * @see #begin()
-     */
-    public static void startAsync(long id) {
-        if (sEnabled) nativeStartAsync(getCallerName(), id, null);
-    }
-
-    /**
      * Triggers the 'start' native trace event with no arguments.
      * @param name The name of the event.
      * @param id   The id of the asynchronous event.
      */
     public static void startAsync(String name, long id) {
-        if (sEnabled) nativeStartAsync(name, id, null);
-    }
-
-    /**
-     * Triggers the 'start' native trace event.
-     * @param name The name of the event.
-     * @param id   The id of the asynchronous event.
-     * @param arg  The arguments of the event.
-     */
-    public static void startAsync(String name, long id, String arg) {
-        if (sEnabled) nativeStartAsync(name, id, arg);
-    }
-
-    /**
-     * Convenience wrapper around the versions of finishAsync() that take string parameters.
-     * @param id The id of the asynchronous event.
-     * @see #begin()
-     */
-    public static void finishAsync(long id) {
-        if (sEnabled) nativeFinishAsync(getCallerName(), id, null);
+        if (sEnabled) nativeStartAsync(name, id);
     }
 
     /**
@@ -263,30 +243,7 @@ public class TraceEvent {
      * @param id   The id of the asynchronous event.
      */
     public static void finishAsync(String name, long id) {
-        if (sEnabled) nativeFinishAsync(name, id, null);
-    }
-
-    /**
-     * Triggers the 'finish' native trace event.
-     * @param name The name of the event.
-     * @param id   The id of the asynchronous event.
-     * @param arg  The arguments of the event.
-     */
-    public static void finishAsync(String name, long id, String arg) {
-        if (sEnabled) nativeFinishAsync(name, id, arg);
-    }
-
-    /**
-     * Convenience wrapper around the versions of begin() that take string parameters.
-     * The name of the event will be derived from the class and function name that call this.
-     * IMPORTANT: if using this version, ensure end() (no parameters) is always called from the
-     * same calling context.
-     *
-     * Note that the overhead is at ms or sub-ms order. Don't use this when millisecond accuracy
-     * is desired.
-     */
-    public static void begin() {
-        if (sEnabled) nativeBegin(getCallerName(), null);
+        if (sEnabled) nativeFinishAsync(name, id);
     }
 
     /**
@@ -307,14 +264,6 @@ public class TraceEvent {
     }
 
     /**
-     * Convenience wrapper around the versions of end() that take string parameters.
-     * @see #begin()
-     */
-    public static void end() {
-        if (sEnabled) nativeEnd(getCallerName(), null);
-    }
-
-    /**
      * Triggers the 'end' native trace event with no arguments.
      * @param name The name of the event.
      */
@@ -331,21 +280,6 @@ public class TraceEvent {
         if (sEnabled) nativeEnd(name, arg);
     }
 
-    private static String getCallerName() {
-        // This was measured to take about 1ms on Trygon device.
-        StackTraceElement[] stack = java.lang.Thread.currentThread().getStackTrace();
-
-        // Commented out to avoid excess call overhead, but these lines can be useful to debug
-        // exactly where the TraceEvent's client is on the callstack.
-        //  int index = 0;
-        //  while (!stack[index].getClassName().equals(TraceEvent.class.getName())) ++index;
-        //  while (stack[index].getClassName().equals(TraceEvent.class.getName())) ++index;
-        //  System.logW("TraceEvent caller is at stack index " + index);
-
-        // '4' Was derived using the above commented out code snippet.
-        return stack[4].getClassName() + "." + stack[4].getMethodName();
-    }
-
     private static native void nativeRegisterEnabledObserver();
     private static native void nativeStartATrace();
     private static native void nativeStopATrace();
@@ -354,6 +288,6 @@ public class TraceEvent {
     private static native void nativeEnd(String name, String arg);
     private static native void nativeBeginToplevel();
     private static native void nativeEndToplevel();
-    private static native void nativeStartAsync(String name, long id, String arg);
-    private static native void nativeFinishAsync(String name, long id, String arg);
+    private static native void nativeStartAsync(String name, long id);
+    private static native void nativeFinishAsync(String name, long id);
 }

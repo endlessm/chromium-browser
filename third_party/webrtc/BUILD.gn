@@ -8,7 +8,6 @@
 
 # TODO(kjellander): Rebase this to webrtc/build/common.gypi changes after r6330.
 
-import("//build/config/arm.gni")
 import("//build/config/crypto.gni")
 import("//build/config/linux/pkg_config.gni")
 import("build/webrtc.gni")
@@ -21,13 +20,12 @@ config("common_inherited_config") {
     defines += [ "WEBRTC_MOZILLA_BUILD" ]
   }
   if (build_with_chromium) {
-    defines = [
-      "WEBRTC_CHROMIUM_BUILD",
-    ]
+    defines = [ "WEBRTC_CHROMIUM_BUILD" ]
     include_dirs = [
       # overrides must be included first as that is the mechanism for
       # selecting the override headers in Chromium.
       "overrides",
+
       # Allow includes to be prefixed with webrtc/ in case it is not an
       # immediate subdirectory of the top-level.
       "..",
@@ -41,6 +39,9 @@ config("common_inherited_config") {
       "WEBRTC_MAC",
       "WEBRTC_IOS",
     ]
+  }
+  if (is_ios && rtc_use_objc_h264) {
+    defines += [ "WEBRTC_OBJC_H264" ]
   }
   if (is_linux) {
     defines += [ "WEBRTC_LINUX" ]
@@ -56,9 +57,6 @@ config("common_inherited_config") {
       "WEBRTC_LINUX",
       "WEBRTC_ANDROID",
     ]
-    if (rtc_enable_android_opensl) {
-      defines += [ "WEBRTC_ANDROID_OPENSLES" ]
-    }
   }
 }
 
@@ -77,15 +75,12 @@ config("common_config") {
 
   if (rtc_have_dbus_glib) {
     defines += [ "HAVE_DBUS_GLIB" ]
+
     # TODO(kjellander): Investigate this, it seems like include <dbus/dbus.h>
     # is still not found even if the execution of
     # build/config/linux/pkg-config.py dbus-glib-1 returns correct include
     # dirs on Linux.
     all_dependent_configs = [ "dbus-glib" ]
-  }
-
-  if (rtc_enable_video) {
-    defines += [ "WEBRTC_MODULE_UTILITY_VIDEO" ]
   }
 
   if (build_with_chromium) {
@@ -98,9 +93,10 @@ config("common_config") {
       # expression" warning in android_tools/ndk_experimental"s version
       # of stlport.
       # See: https://code.google.com/p/chromium/issues/detail?id=379699
-      if (cpu_arch != "arm64" || !is_android) {
+      if (current_cpu != "arm64" || !is_android) {
         cflags = [
           "-Wextra",
+
           # We need to repeat some flags from Chromium"s common.gypi
           # here that get overridden by -Wextra.
           "-Wno-unused-parameter",
@@ -109,6 +105,7 @@ config("common_config") {
         ]
         cflags_cc = [
           "-Wnon-virtual-dtor",
+
           # This is enabled for clang; enable for gcc as well.
           "-Woverloaded-virtual",
         ]
@@ -120,46 +117,38 @@ config("common_config") {
     }
   }
 
-  if (cpu_arch == "arm64") {
-    defines += [ "WEBRTC_ARCH_ARM" ]
+  if (current_cpu == "arm64") {
+    defines += [ "WEBRTC_ARCH_ARM64" ]
+    defines += [ "WEBRTC_HAS_NEON" ]
   }
 
-  if (cpu_arch == "arm") {
+  if (current_cpu == "arm") {
     defines += [ "WEBRTC_ARCH_ARM" ]
-    if (arm_version == 7) {
+    if (arm_version >= 7) {
       defines += [ "WEBRTC_ARCH_ARM_V7" ]
       if (arm_use_neon) {
-        defines += [ "WEBRTC_ARCH_ARM_NEON" ]
-      } else {
-        defines += [ "WEBRTC_DETECT_ARM_NEON" ]
+        defines += [ "WEBRTC_HAS_NEON" ]
+      } else if (arm_optionally_use_neon) {
+        defines += [ "WEBRTC_DETECT_NEON" ]
       }
     }
   }
 
-  if (cpu_arch == "mipsel") {
+  if (current_cpu == "mipsel") {
     defines += [ "MIPS32_LE" ]
-    if (mips_fpu) {
+    if (mips_float_abi == "hard") {
       defines += [ "MIPS_FPU_LE" ]
-      cflags += [ "-mhard-float" ]
-    } else {
-      cflags += [ "-msoft-float" ]
     }
-    if (mips_arch_variant == "mips32r2") {
+    if (mips_arch_variant == "r2") {
       defines += [ "MIPS32_R2_LE" ]
-      cflags += [ "-mips32r2" ]
-      cflags_cc += [ "-mips32r2" ]
     }
     if (mips_dsp_rev == 1) {
       defines += [ "MIPS_DSP_R1_LE" ]
-      cflags += [ "-mdsp" ]
-      cflags_cc += [ "-mdsp" ]
     } else if (mips_dsp_rev == 2) {
       defines += [
         "MIPS_DSP_R1_LE",
         "MIPS_DSP_R2_LE",
       ]
-      cflags += [ "-mdspr2" ]
-      cflags_cc += [ "-mdspr2" ]
     }
   }
 
@@ -178,7 +167,7 @@ config("common_config") {
   }
 }
 
-static_library("webrtc") {
+source_set("webrtc") {
   sources = [
     "call.h",
     "config.h",
@@ -188,11 +177,11 @@ static_library("webrtc") {
   ]
 
   configs += [ ":common_config" ]
-  public_configs = [ ":common_inherited_config"]
+  public_configs = [ ":common_inherited_config" ]
 
   deps = [
     ":webrtc_common",
-    "base:webrtc_base",
+    "base:rtc_base",
     "common_audio",
     "common_video",
     "modules/audio_coding",
@@ -204,16 +193,20 @@ static_library("webrtc") {
     "modules/media_file",
     "modules/rtp_rtcp",
     "modules/utility",
-    "modules/video_capture",
     "modules/video_coding",
     "modules/video_processing",
-    "modules/video_render",
     "system_wrappers",
     "tools",
     "video",
-    "video_engine",
     "voice_engine",
   ]
+
+  if (build_with_chromium) {
+    deps += [
+      "modules/video_capture",
+      "modules/video_render",
+    ]
+  }
 }
 
 if (!build_with_chromium) {
@@ -230,16 +223,20 @@ if (!build_with_chromium) {
 
 source_set("webrtc_common") {
   sources = [
-    "config.h",
+    "common_types.cc",
+    "common_types.h",
     "config.cc",
+    "config.h",
+    "engine_configurations.h",
+    "typedefs.h",
   ]
-
-  if (is_clang) {
-    # Suppress warnings from Chrome's Clang plugins.
-    # See http://code.google.com/p/webrtc/issues/detail?id=163 for details.
-    configs -= [ "//build/config/clang:find_bad_constructs" ]
-  }
 
   configs += [ ":common_config" ]
   public_configs = [ ":common_inherited_config" ]
+}
+
+source_set("gtest_prod") {
+  sources = [
+    "test/testsupport/gtest_prod_util.h",
+  ]
 }

@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/message_loop/message_loop.h"
+#include "sync/internal_api/public/attachments/attachment_util.h"
 
 namespace syncer {
 
@@ -25,7 +26,7 @@ void FakeAttachmentDownloader::DownloadAttachment(
   scoped_refptr<base::RefCountedMemory> data(new base::RefCountedBytes());
   scoped_ptr<Attachment> attachment;
   attachment.reset(
-      new Attachment(Attachment::CreateWithId(attachment_id, data)));
+      new Attachment(Attachment::CreateFromParts(attachment_id, data)));
   base::MessageLoop::current()->PostTask(
       FROM_HERE,
       base::Bind(callback, DOWNLOAD_SUCCESS, base::Passed(&attachment)));

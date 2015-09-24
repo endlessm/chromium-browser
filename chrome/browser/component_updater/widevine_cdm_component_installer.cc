@@ -83,8 +83,8 @@ const char kWidevineCdmArch[] =
 // All values that are lists are delimited by commas. No trailing commas.
 // For example, "1,2,4".
 const char kCdmValueDelimiter = ',';
-COMPILE_ASSERT(kCdmValueDelimiter == kCdmSupportedCodecsValueDelimiter,
-               cdm_delimiters_do_not_match);
+static_assert(kCdmValueDelimiter == kCdmSupportedCodecsValueDelimiter,
+              "cdm delimiters must match");
 // The following entries are required.
 //  Interface versions are lists of integers (e.g. "1" or "1,2,4").
 //  These are checked in this file before registering the CDM.
@@ -206,7 +206,7 @@ void GetAdditionalParams(const base::DictionaryValue& manifest,
 void RegisterWidevineCdmWithChrome(const base::Version& cdm_version,
                                    const base::FilePath& adapter_install_path,
                                    scoped_ptr<base::DictionaryValue> manifest) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   std::vector<base::string16> additional_param_names;
   std::vector<base::string16> additional_param_values;
   GetAdditionalParams(
@@ -234,23 +234,23 @@ void RegisterWidevineCdmWithChrome(const base::Version& cdm_version,
 class WidevineCdmComponentInstallerTraits : public ComponentInstallerTraits {
  public:
   WidevineCdmComponentInstallerTraits();
-  virtual ~WidevineCdmComponentInstallerTraits() {}
+  ~WidevineCdmComponentInstallerTraits() override {}
 
  private:
   // The following methods override ComponentInstallerTraits.
-  virtual bool CanAutoUpdate() const override;
-  virtual bool OnCustomInstall(const base::DictionaryValue& manifest,
+  bool CanAutoUpdate() const override;
+  bool OnCustomInstall(const base::DictionaryValue& manifest,
                                const base::FilePath& install_dir) override;
-  virtual bool VerifyInstallation(
+  bool VerifyInstallation(
       const base::DictionaryValue& manifest,
       const base::FilePath& install_dir) const override;
-  virtual void ComponentReady(
+  void ComponentReady(
       const base::Version& version,
       const base::FilePath& path,
       scoped_ptr<base::DictionaryValue> manifest) override;
-  virtual base::FilePath GetBaseDirectory() const override;
-  virtual void GetHash(std::vector<uint8_t>* hash) const override;
-  virtual std::string GetName() const override;
+  base::FilePath GetBaseDirectory() const override;
+  void GetHash(std::vector<uint8_t>* hash) const override;
+  std::string GetName() const override;
 
   // Checks and updates CDM adapter if necessary to make sure the latest CDM
   // adapter is always used.
@@ -374,9 +374,7 @@ void RegisterWidevineCdmComponent(ComponentUpdateService* cus) {
   // |cus| will take ownership of |installer| during installer->Register(cus).
   DefaultComponentInstaller* installer =
       new DefaultComponentInstaller(traits.Pass());
-  installer->Register(cus);
-#else
-  return;
+  installer->Register(cus, base::Closure());
 #endif  // defined(WIDEVINE_CDM_AVAILABLE) && defined(WIDEVINE_CDM_IS_COMPONENT)
 }
 

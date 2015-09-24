@@ -40,11 +40,10 @@ bool ParseRealm(const HttpAuthChallengeTokenizer& tokenizer,
   realm->clear();
   HttpUtil::NameValuePairsIterator parameters = tokenizer.param_pairs();
   while (parameters.GetNext()) {
-    if (!LowerCaseEqualsASCII(parameters.name(), "realm"))
+    if (!base::LowerCaseEqualsASCII(parameters.name(), "realm"))
       continue;
 
-    if (!net::ConvertToUtf8AndNormalize(parameters.value(), kCharsetLatin1,
-                                        realm)) {
+    if (!ConvertToUtf8AndNormalize(parameters.value(), kCharsetLatin1, realm)) {
       return false;
     }
   }
@@ -63,7 +62,7 @@ bool HttpAuthHandlerBasic::Init(HttpAuthChallengeTokenizer* challenge) {
 bool HttpAuthHandlerBasic::ParseChallenge(
     HttpAuthChallengeTokenizer* challenge) {
   // Verify the challenge's auth-scheme.
-  if (!LowerCaseEqualsASCII(challenge->scheme(), "basic"))
+  if (!base::LowerCaseEqualsASCII(challenge->scheme(), "basic"))
     return false;
 
   std::string realm;

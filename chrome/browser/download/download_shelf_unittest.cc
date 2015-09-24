@@ -8,8 +8,8 @@
 #include "base/run_loop.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/download/download_item_model.h"
-#include "chrome/browser/download/download_service.h"
 #include "chrome/browser/download/download_service_factory.h"
+#include "chrome/browser/download/download_service_impl.h"
 #include "chrome/browser/download/test_download_shelf.h"
 #include "chrome/test/base/testing_profile.h"
 #include "content/public/browser/notification_service.h"
@@ -28,10 +28,6 @@ using content::DownloadItem;
 
 namespace {
 
-KeyedService* CreateDownloadService(content::BrowserContext* context) {
-  return new DownloadService(Profile::FromBrowserContext(context));
-}
-
 class DownloadShelfTest : public testing::Test {
  public:
   DownloadShelfTest();
@@ -49,13 +45,9 @@ class DownloadShelfTest : public testing::Test {
   Profile* profile() { return profile_.get(); }
 
   void SetUp() override {
-    DownloadServiceFactory::GetInstance()->SetTestingFactory(
-        profile(), &CreateDownloadService);
   }
 
   void TearDown() override {
-    DownloadServiceFactory::GetInstance()->SetTestingFactory(
-        profile(), NULL);
   }
 
  private:

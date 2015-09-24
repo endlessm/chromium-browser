@@ -8,6 +8,7 @@
 #include "chrome/browser/ui/views/frame/browser_desktop_window_tree_host.h"
 #include "chrome/browser/ui/views/frame/browser_shutdown.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/web_applications/web_app.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher.h"
@@ -16,6 +17,7 @@
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/gfx/font.h"
 #include "ui/views/view.h"
+#include "ui/views/widget/widget.h"
 #include "ui/wm/core/visibility_controller.h"
 
 using aura::Window;
@@ -29,7 +31,7 @@ DesktopBrowserFrameAura::DesktopBrowserFrameAura(
     : views::DesktopNativeWidgetAura(browser_frame),
       browser_view_(browser_view),
       browser_frame_(browser_frame),
-      browser_desktop_window_tree_host_(NULL) {
+      browser_desktop_window_tree_host_(nullptr) {
   GetNativeWindow()->SetName("BrowserFrameAura");
 }
 
@@ -47,7 +49,7 @@ void DesktopBrowserFrameAura::OnHostClosed() {
   // calling back to one of the Views/LayoutManagers or supporting classes of
   // BrowserView. By destroying here we ensure all said classes are valid.
   DestroyBrowserWebContents(browser_view_->browser());
-  aura::client::SetVisibilityClient(GetNativeView()->GetRootWindow(), NULL);
+  aura::client::SetVisibilityClient(GetNativeView()->GetRootWindow(), nullptr);
   DesktopNativeWidgetAura::OnHostClosed();
 }
 
@@ -74,12 +76,14 @@ void DesktopBrowserFrameAura::InitNativeWidget(
 ////////////////////////////////////////////////////////////////////////////////
 // DesktopBrowserFrameAura, NativeBrowserFrame implementation:
 
-views::NativeWidget* DesktopBrowserFrameAura::AsNativeWidget() {
-  return this;
+views::Widget::InitParams DesktopBrowserFrameAura::GetWidgetParams() {
+  views::Widget::InitParams params;
+  params.native_widget = this;
+  return params;
 }
 
-const views::NativeWidget* DesktopBrowserFrameAura::AsNativeWidget() const {
-  return this;
+bool DesktopBrowserFrameAura::UseCustomFrame() const {
+  return true;
 }
 
 bool DesktopBrowserFrameAura::UsesNativeSystemMenu() const {

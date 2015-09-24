@@ -16,7 +16,6 @@
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
-#include "components/user_manager/user_type.h"
 
 namespace policy {
 
@@ -61,11 +60,11 @@ bool UserNetworkConfigurationUpdaterFactory::ServiceIsNULLWhileTesting() const {
 
 KeyedService* UserNetworkConfigurationUpdaterFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
-  Profile* profile = static_cast<Profile*>(context);
+  Profile* profile = Profile::FromBrowserContext(context);
   if (chromeos::ProfileHelper::IsSigninProfile(profile))
     return NULL;  // On the login screen only device network policies apply.
 
-  user_manager::User* user =
+  const user_manager::User* user =
       chromeos::ProfileHelper::Get()->GetUserByProfile(profile);
   DCHECK(user);
   // Currently, only the network policy of the primary user is supported. See
@@ -73,11 +72,10 @@ KeyedService* UserNetworkConfigurationUpdaterFactory::BuildServiceInstanceFor(
   if (user != user_manager::UserManager::Get()->GetPrimaryUser())
     return NULL;
 
-  const bool allow_trusted_certs_from_policy =
-      user->GetType() == user_manager::USER_TYPE_REGULAR;
+  const bool allow_trusted_certs_from_policy = user->HasGaiaAccount();
 
   ProfilePolicyConnector* profile_connector =
-      ProfilePolicyConnectorFactory::GetForProfile(profile);
+      ProfilePolicyConnectorFactory::GetForBrowserContext(context);
 
   return UserNetworkConfigurationUpdater::CreateForUserPolicy(
       profile,

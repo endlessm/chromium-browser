@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTERNAL_PROVIDER_IMPL_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTERNAL_PROVIDER_IMPL_H_
 
+#include <set>
 #include <string>
 
 #include "base/memory/ref_counted.h"
@@ -73,12 +74,27 @@ class ExternalProviderImpl : public ExternalProviderInterface {
   static const char kSupportedLocales[];
   static const char kWasInstalledByOem[];
   static const char kMayBeUntrusted[];
+  static const char kMinProfileCreatedByVersion[];
+  static const char kDoNotInstallForEnterprise[];
 
   void set_auto_acknowledge(bool auto_acknowledge) {
     auto_acknowledge_ = auto_acknowledge;
   }
 
+  void set_install_immediately(bool install_immediately) {
+    install_immediately_ = install_immediately;
+  }
+
  private:
+  bool HandleMinProfileVersion(const base::DictionaryValue* extension,
+                               const std::string& extension_id,
+                               std::set<std::string>* unsupported_extensions);
+
+  bool HandleDoNotInstallForEnterprise(
+      const base::DictionaryValue* extension,
+      const std::string& extension_id,
+      std::set<std::string>* unsupported_extensions);
+
   // Location for external extensions that are provided by this provider from
   // local crx files.
   const Manifest::Location crx_location_;
@@ -112,6 +128,9 @@ class ExternalProviderImpl : public ExternalProviderInterface {
   // Whether loaded extensions should be automatically acknowledged, so that
   // the user doesn't see an alert about them.
   bool auto_acknowledge_;
+
+  // Whether the extensions from this provider should be installed immediately.
+  bool install_immediately_;
 
   DISALLOW_COPY_AND_ASSIGN(ExternalProviderImpl);
 };

@@ -21,6 +21,8 @@ class PermissionMessage {
  public:
   // Do not reorder this enumeration. If you need to add a new enum, add it just
   // prior to kEnumBoundary.
+  // TODO(sashab): Deprecate these IDs - use whatever APIPermission::ID becomes
+  // instead.
   enum ID {
     kUnknown,
     kNone,
@@ -90,19 +92,28 @@ class PermissionMessage {
     kCopresence,
     kTopSites,
     kU2fDevices,
-    kVpnProvider,
     kDocumentScan,
+    kNetworkingConfig,
+    kPlatformKeys,
+    kMDns,
+    kVpnProvider,
     kHosts1ReadOnly,
     kHosts2ReadOnly,
     kHosts3ReadOnly,
     kHosts4OrMoreReadOnly,
     kHostsAllReadOnly,
-    // Last entry: Add new entries above and ensure to update the
-    // "ExtensionPermission2" enum in tools/metrics/histograms/histograms.xml.
+    kInterceptAllKeys,
+    kSettingsPrivate,
+    kPrinterProvider,
+    kSearchEnginesPrivate,
+    kAutofillPrivate,
+    kPasswordsPrivate,
+    kUsersPrivate,
+    // Last entry: Add new entries above.
     kEnumBoundary,
   };
-  COMPILE_ASSERT(PermissionMessage::kNone > PermissionMessage::kUnknown,
-                 kNone_not_greater_than_kUnknown);
+  static_assert(PermissionMessage::kNone > PermissionMessage::kUnknown,
+                "kNone should not greater than kUnknown");
 
   // Creates the corresponding permission message.
   PermissionMessage(ID id, const base::string16& message);
@@ -140,6 +151,7 @@ class PermissionMessage {
 };
 
 typedef std::vector<PermissionMessage> PermissionMessages;
+typedef std::vector<PermissionMessage::ID> PermissionMessageIDs;
 
 }  // namespace extensions
 

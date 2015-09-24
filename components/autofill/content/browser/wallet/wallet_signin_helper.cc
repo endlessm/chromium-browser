@@ -38,15 +38,15 @@ const char kWalletCookieName[] = "gdtoken";
 void GetGoogleCookiesCallback(
     const base::Callback<void(const std::string&)>& callback,
     const net::CookieList& cookies) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
   // Cookies for parent domains will also be returned; we only want cookies with
   // exact host matches. TODO(estade): really?
   std::string host = wallet::GetPassiveAuthUrl(0).host();
   std::string wallet_cookie;
   for (size_t i = 0; i < cookies.size(); ++i) {
-    if (LowerCaseEqualsASCII(cookies[i].Name(), kWalletCookieName) &&
-        LowerCaseEqualsASCII(cookies[i].Domain(), host.c_str())) {
+    if (base::LowerCaseEqualsASCII(cookies[i].Name(), kWalletCookieName) &&
+        base::LowerCaseEqualsASCII(cookies[i].Domain(), host.c_str())) {
       wallet_cookie = cookies[i].Value();
       break;
     }
@@ -62,7 +62,7 @@ void GetGoogleCookiesCallback(
 void GetGoogleCookies(
     scoped_refptr<net::URLRequestContextGetter> request_context_getter,
     const base::Callback<void(const std::string&)>& callback) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
   net::URLRequestContext* url_request_context =
       request_context_getter->GetURLRequestContext();
@@ -103,8 +103,7 @@ void WalletSigninHelper::StartPassiveSignin(size_t user_index) {
   DCHECK(!url_fetcher_);
 
   const GURL& url = wallet::GetPassiveAuthUrl(user_index);
-  url_fetcher_.reset(net::URLFetcher::Create(
-      0, url, net::URLFetcher::GET, this));
+  url_fetcher_ = net::URLFetcher::Create(0, url, net::URLFetcher::GET, this);
   url_fetcher_->SetRequestContext(getter_);
   url_fetcher_->Start();
 }
@@ -155,7 +154,7 @@ void WalletSigninHelper::OnURLFetchComplete(
     return;
   }
 
-  if (!LowerCaseEqualsASCII(data, "yes")) {
+  if (!base::LowerCaseEqualsASCII(data, "yes")) {
     OnServiceError(
         GoogleServiceAuthError(GoogleServiceAuthError::USER_NOT_SIGNED_UP));
     return;
@@ -166,7 +165,7 @@ void WalletSigninHelper::OnURLFetchComplete(
 
 void WalletSigninHelper::ReturnWalletCookieValue(
     const std::string& cookie_value) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   delegate_->OnDidFetchWalletCookieValue(cookie_value);
 }

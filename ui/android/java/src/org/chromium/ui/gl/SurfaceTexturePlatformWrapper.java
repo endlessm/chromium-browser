@@ -5,7 +5,6 @@
 package org.chromium.ui.gl;
 
 import android.graphics.SurfaceTexture;
-import android.os.Build;
 import android.util.Log;
 
 import org.chromium.base.CalledByNative;
@@ -23,12 +22,6 @@ class SurfaceTexturePlatformWrapper {
     @CalledByNative
     private static SurfaceTexture create(int textureId) {
         return new SurfaceTexture(textureId);
-    }
-
-    @CalledByNative
-    private static SurfaceTexture createSingleBuffered(int textureId) {
-        assert Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT;
-        return new SurfaceTexture(textureId, true);
     }
 
     @CalledByNative
@@ -54,31 +47,17 @@ class SurfaceTexturePlatformWrapper {
     }
 
     @CalledByNative
-    private static void releaseTexImage(SurfaceTexture surfaceTexture) {
-        assert Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT;
-        surfaceTexture.releaseTexImage();
-    }
-
-    @CalledByNative
-    private static void setDefaultBufferSize(SurfaceTexture surfaceTexture, int width,
-            int height) {
-        surfaceTexture.setDefaultBufferSize(width, height);
-    }
-
-    @CalledByNative
     private static void getTransformMatrix(SurfaceTexture surfaceTexture, float[] matrix) {
         surfaceTexture.getTransformMatrix(matrix);
     }
 
     @CalledByNative
     private static void attachToGLContext(SurfaceTexture surfaceTexture, int texName) {
-        assert Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN;
         surfaceTexture.attachToGLContext(texName);
     }
 
     @CalledByNative
     private static void detachFromGLContext(SurfaceTexture surfaceTexture) {
-        assert Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN;
         surfaceTexture.detachFromGLContext();
     }
 }

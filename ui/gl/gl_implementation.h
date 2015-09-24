@@ -21,6 +21,7 @@ class GLContext;
 enum GLImplementation {
   kGLImplementationNone,
   kGLImplementationDesktopGL,
+  kGLImplementationDesktopGLCoreProfile,
   kGLImplementationOSMesaGL,
   kGLImplementationAppleGL,
   kGLImplementationEGLGLES2,
@@ -60,6 +61,13 @@ void InitializeNullDrawGLBindings();
 
 // TODO(danakj): Remove this when all test suites are using null-draw.
 GL_EXPORT bool HasInitializedNullDrawGLBindings();
+
+// Filter a list of disabled_extensions from GL style space-separated
+// extension_list, returning a space separated list of filtered extensions, in
+// the same order as the input.
+GL_EXPORT std::string FilterGLExtensionList(
+    const char* extension_list,
+    const std::vector<std::string>& disabled_extensions);
 
 // Once initialized, instantiating this turns the stub methods for drawing
 // operations off allowing drawing will occur while the object is alive.

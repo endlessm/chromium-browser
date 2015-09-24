@@ -13,6 +13,7 @@
 //
 goog.provide('i18n.input.chrome.message.Name');
 
+
 /**
  * The message attribute name.
  *
@@ -20,6 +21,9 @@ goog.provide('i18n.input.chrome.message.Name');
  */
 i18n.input.chrome.message.Name = {
   ALT_KEY: 'altKey',
+  ANCHOR: 'anchor',
+  AUXILIARY_TEXT: 'auxiliaryText',
+  AUXILIARY_TEXT_VISIBLE: 'auxiliaryTextVisible',
   CANDIDATE: 'candidate',
   CANDIDATES: 'candidates',
   CANDIDATE_ID: 'candidateID',
@@ -30,33 +34,42 @@ i18n.input.chrome.message.Name = {
   CTRL_KEY: 'ctrlKey',
   CURSOR: 'cursor',
   ENGINE_ID: 'engineID',
+  FOCUS: 'focus',
   HEIGHT: 'height',
   ID: 'id',
-  IS_EMOJI: 'isEmoji',
   IS_AUTOCORRECT: 'isAutoCorrect',
+  IS_EMOJI: 'isEmoji',
   KEY: 'key',
   KEYCODE: 'keyCode',
   KEYSET: 'keyset',
   KEY_DATA: 'keyData',
   LANGUAGE: 'language',
+  LENGTH: 'length',
   MATCHED_LENGTHS: 'matchedLengths',
   MSG: 'msg',
+  THRESHOLD: 'threshold',
   TYPE: 'type',
+  OFFSET: 'offset',
   OPTION_PREFIX: 'optionPrefix',
   OPTION_TYPE: 'optionType',
   PAGE_SIZE: 'pageSize',
   POSSIBILITIES: 'possibilities',
   PROPERTIES: 'properties',
   REQUEST_ID: 'requestId',
+  SCREEN: 'screen',
   SHIFT_KEY: 'shiftKey',
   SOURCE: 'source',
   SOURCES: 'sources',
   SPATIAL_DATA: 'spatialData',
-  SCREEN: 'screen',
   STROKES: 'strokes',
   TEXT: 'text',
   VERTICAL: 'vertical',
   VISIBLE: 'visible',
   VISIBILITY: 'visibility',
-  WIDTH: 'width'
+  VOICE_STATE: 'voice_state',
+  WIDTH: 'width',
+  WORKSPACE_HEIGHT: 'workspace_height',
+  SWITCHING: 'switching',
+  VOICE_PRIVACY_INFO: 'voice_privacy_info',
+  HWT_PRIVACY_INFO: 'hwt_privacy_info'
 };

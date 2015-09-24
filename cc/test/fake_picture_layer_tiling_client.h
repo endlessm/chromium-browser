@@ -5,11 +5,11 @@
 #ifndef CC_TEST_FAKE_PICTURE_LAYER_TILING_CLIENT_H_
 #define CC_TEST_FAKE_PICTURE_LAYER_TILING_CLIENT_H_
 
-#include "cc/resources/picture_layer_tiling.h"
-#include "cc/resources/picture_pile_impl.h"
-#include "cc/resources/tile.h"
-#include "cc/resources/tile_manager.h"
+#include "cc/playback/picture_pile_impl.h"
 #include "cc/test/fake_tile_manager_client.h"
+#include "cc/tiles/picture_layer_tiling.h"
+#include "cc/tiles/tile.h"
+#include "cc/tiles/tile_manager.h"
 #include "ui/gfx/geometry/rect.h"
 
 namespace cc {
@@ -21,14 +21,10 @@ class FakePictureLayerTilingClient : public PictureLayerTilingClient {
   ~FakePictureLayerTilingClient() override;
 
   // PictureLayerTilingClient implementation.
-  scoped_refptr<Tile> CreateTile(PictureLayerTiling* tiling,
-                                 const gfx::Rect& rect) override;
-  RasterSource* GetRasterSource() override;
+  ScopedTilePtr CreateTile(float contents_scale,
+                           const gfx::Rect& rect) override;
   gfx::Size CalculateTileSize(const gfx::Size& content_bounds) const override;
-  size_t GetMaxTilesForInterestArea() const override;
-  float GetSkewportTargetTimeInSeconds() const override;
-  int GetSkewportExtrapolationLimitInContentPixels() const override;
-  bool RequiresHighResToDraw() const override;
+  bool HasValidTilePriorities() const override;
 
   void SetTileSize(const gfx::Size& tile_size);
   gfx::Size TileSize() const { return tile_size_; }
@@ -36,27 +32,22 @@ class FakePictureLayerTilingClient : public PictureLayerTilingClient {
   const Region* GetPendingInvalidation() override;
   const PictureLayerTiling* GetPendingOrActiveTwinTiling(
       const PictureLayerTiling* tiling) const override;
-  PictureLayerTiling* GetRecycledTwinTiling(
-      const PictureLayerTiling* tiling) override;
-  WhichTree GetTree() const override;
+  bool RequiresHighResToDraw() const override;
 
-  void set_twin_tiling(PictureLayerTiling* tiling) { twin_tiling_ = tiling; }
-  void set_recycled_twin_tiling(PictureLayerTiling* tiling) {
-    recycled_twin_tiling_ = tiling;
+  void set_twin_tiling_set(PictureLayerTilingSet* set) {
+    twin_set_ = set;
+    twin_tiling_ = nullptr;
+  }
+  void set_twin_tiling(PictureLayerTiling* tiling) {
+    twin_tiling_ = tiling;
+    twin_set_ = nullptr;
   }
   void set_text_rect(const gfx::Rect& rect) { text_rect_ = rect; }
-  void set_allow_create_tile(bool allow) { allow_create_tile_ = allow; }
   void set_invalidation(const Region& region) { invalidation_ = region; }
-  void set_max_tiles_for_interest_area(size_t area) {
-    max_tiles_for_interest_area_ = area;
+  void set_has_valid_tile_priorities(bool has_valid_tile_priorities) {
+    has_valid_tile_priorities_ = has_valid_tile_priorities;
   }
-  void set_skewport_target_time_in_seconds(float time) {
-    skewport_target_time_in_seconds_ = time;
-  }
-  void set_skewport_extrapolation_limit_in_content_pixels(int limit) {
-    skewport_extrapolation_limit_in_content_pixels_ = limit;
-  }
-  void set_tree(WhichTree tree) { tree_ = tree; }
+  RasterSource* raster_source() { return pile_.get(); }
 
   TileManager* tile_manager() const {
     return tile_manager_.get();
@@ -68,15 +59,11 @@ class FakePictureLayerTilingClient : public PictureLayerTilingClient {
   scoped_ptr<TileManager> tile_manager_;
   scoped_refptr<PicturePileImpl> pile_;
   gfx::Size tile_size_;
+  PictureLayerTilingSet* twin_set_;
   PictureLayerTiling* twin_tiling_;
-  PictureLayerTiling* recycled_twin_tiling_;
   gfx::Rect text_rect_;
-  bool allow_create_tile_;
   Region invalidation_;
-  size_t max_tiles_for_interest_area_;
-  float skewport_target_time_in_seconds_;
-  int skewport_extrapolation_limit_in_content_pixels_;
-  WhichTree tree_;
+  bool has_valid_tile_priorities_;
 };
 
 }  // namespace cc

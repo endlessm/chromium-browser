@@ -23,11 +23,218 @@
 
 #include "core/css/CSSFunctionValue.h"
 #include "core/css/CSSSelectorList.h"
+#include "core/css/parser/CSSParserToken.h"
+#include "core/css/parser/CSSParserTokenRange.h"
+#include "core/css/parser/CSSPropertyParser.h"
 #include "core/html/parser/HTMLParserIdioms.h"
 
 namespace blink {
 
 using namespace WTF;
+
+CSSParserValueList::CSSParserValueList(CSSParserTokenRange range, bool& usesRemUnits)
+: m_current(0)
+{
+    usesRemUnits = false;
+    Vector<CSSParserValueList*> stack;
+    Vector<int> bracketCounts;
+    stack.append(this);
+    bracketCounts.append(0);
+    unsigned calcDepth = 0;
+    while (!range.atEnd()) {
+        ASSERT(stack.size() == bracketCounts.size());
+        ASSERT(!stack.isEmpty());
+        const CSSParserToken& token = range.consume();
+        CSSParserValue value;
+        switch (token.type()) {
+        case FunctionToken: {
+            if (token.valueEqualsIgnoringCase("url")) {
+                const CSSParserToken& next = range.consumeIncludingWhitespace();
+                if (next.type() == BadStringToken || range.consume().type() != RightParenthesisToken) {
+                    destroyAndClear();
+                    return;
+                }
+                ASSERT(next.type() == StringToken);
+                value.id = CSSValueInvalid;
+                value.isInt = false;
+                value.unit = CSSPrimitiveValue::CSS_URI;
+                value.string = next.value();
+                break;
+            }
+
+            CSSParserFunction* function = new CSSParserFunction;
+            function->id = cssValueKeywordID(token.value());
+            CSSParserValueList* list = new CSSParserValueList;
+            function->args = adoptPtr(list);
+
+            value.id = CSSValueInvalid;
+            value.isInt = false;
+            value.unit = CSSParserValue::Function;
+            value.function = function;
+
+            stack.last()->addValue(value);
+            stack.append(list);
+            bracketCounts.append(0);
+            calcDepth += (function->id == CSSValueCalc || function->id == CSSValueWebkitCalc);
+            continue;
+        }
+        case LeftParenthesisToken: {
+            if (calcDepth == 0) {
+                CSSParserValueList* list = new CSSParserValueList;
+                value.setFromValueList(adoptPtr(list));
+                stack.last()->addValue(value);
+                stack.append(list);
+                bracketCounts.append(0);
+                continue;
+            }
+            bracketCounts.last()++;
+            value.setFromOperator('(');
+            break;
+        }
+        case RightParenthesisToken: {
+            if (bracketCounts.last() == 0) {
+                stack.removeLast();
+                bracketCounts.removeLast();
+                if (bracketCounts.isEmpty()) {
+                    destroyAndClear();
+                    return;
+                }
+                CSSParserValueList* currentList = stack.last();
+                CSSParserValue* current = currentList->valueAt(currentList->size()-1);
+                if (current->unit == CSSParserValue::Function) {
+                    CSSValueID id = current->function->id;
+                    calcDepth -= (id == CSSValueCalc || id == CSSValueWebkitCalc);
+                }
+                continue;
+            }
+            ASSERT(calcDepth > 0);
+            bracketCounts.last()--;
+            value.setFromOperator(')');
+            break;
+        }
+        case IdentToken: {
+            value.id = cssValueKeywordID(token.value());
+            value.isInt = false;
+            value.unit = CSSPrimitiveValue::CSS_IDENT;
+            value.string = token.value();
+            break;
+        }
+        case DimensionToken:
+            if (!std::isfinite(token.numericValue())) {
+                destroyAndClear();
+                return;
+            }
+            if (!token.unitType()) {
+                // Unknown dimensions are handled as a list of two values
+                value.unit = CSSParserValue::DimensionList;
+                CSSParserValueList* list = new CSSParserValueList;
+                value.valueList = list;
+                value.id = CSSValueInvalid;
+
+                CSSParserValue number;
+                number.setFromNumber(token.numericValue());
+                number.isInt = (token.numericValueType() == IntegerValueType);
+                list->addValue(number);
+
+                CSSParserValue unit;
+                unit.string = token.value();
+                unit.unit = CSSPrimitiveValue::CSS_IDENT;
+                list->addValue(unit);
+
+                break;
+            }
+            if (token.unitType() == CSSPrimitiveValue::CSS_REMS)
+                usesRemUnits = true;
+            // fallthrough
+        case NumberToken:
+        case PercentageToken:
+            if (!std::isfinite(token.numericValue())) {
+                destroyAndClear();
+                return;
+            }
+            value.setFromNumber(token.numericValue(), token.unitType());
+            value.isInt = (token.numericValueType() == IntegerValueType);
+            break;
+        case UnicodeRangeToken: {
+            value.id = CSSValueInvalid;
+            value.isInt = false;
+            value.m_unicodeRange.start = token.unicodeRangeStart();
+            value.m_unicodeRange.end = token.unicodeRangeEnd();
+            value.unit = CSSParserValue::UnicodeRange;
+            break;
+        }
+        case HashToken:
+        case StringToken:
+        case UrlToken: {
+            value.id = CSSValueInvalid;
+            value.isInt = false;
+            if (token.type() == HashToken)
+                value.unit = CSSParserValue::HexColor;
+            else if (token.type() == StringToken)
+                value.unit = CSSPrimitiveValue::CSS_STRING;
+            else
+                value.unit = CSSPrimitiveValue::CSS_URI;
+            value.string = token.value();
+            break;
+        }
+        case DelimiterToken:
+            value.setFromOperator(token.delimiter());
+            if (calcDepth && token.delimiter() == '+' && (&token - 1)->type() != WhitespaceToken) {
+                // calc(1px+ 2px) is invalid
+                destroyAndClear();
+                return;
+            }
+            break;
+        case CommaToken:
+            value.setFromOperator(',');
+            break;
+        case LeftBracketToken:
+            value.setFromOperator('[');
+            break;
+        case RightBracketToken:
+            value.setFromOperator(']');
+            break;
+        case LeftBraceToken:
+            value.setFromOperator('{');
+            break;
+        case RightBraceToken:
+            value.setFromOperator('}');
+            break;
+        case WhitespaceToken:
+            continue;
+        case CommentToken:
+        case EOFToken:
+            ASSERT_NOT_REACHED();
+        case CDOToken:
+        case CDCToken:
+        case AtKeywordToken:
+        case IncludeMatchToken:
+        case DashMatchToken:
+        case PrefixMatchToken:
+        case SuffixMatchToken:
+        case SubstringMatchToken:
+        case ColumnToken:
+        case BadStringToken:
+        case BadUrlToken:
+        case ColonToken:
+        case SemicolonToken:
+            destroyAndClear();
+            return;
+        }
+        stack.last()->addValue(value);
+    }
+
+    CSSParserValue rightParenthesis;
+    rightParenthesis.setFromOperator(')');
+    while (!stack.isEmpty()) {
+        while (bracketCounts.last() > 0) {
+            bracketCounts.last()--;
+            stack.last()->addValue(rightParenthesis);
+        }
+        stack.removeLast();
+        bracketCounts.removeLast();
+    }
+}
 
 static void destroy(Vector<CSSParserValue, 4>& values)
 {
@@ -35,7 +242,8 @@ static void destroy(Vector<CSSParserValue, 4>& values)
     for (size_t i = 0; i < numValues; i++) {
         if (values[i].unit == CSSParserValue::Function)
             delete values[i].function;
-        else if (values[i].unit == CSSParserValue::ValueList)
+        else if (values[i].unit == CSSParserValue::ValueList
+            || values[i].unit == CSSParserValue::DimensionList)
             delete values[i].valueList;
     }
 }
@@ -56,25 +264,13 @@ void CSSParserValueList::addValue(const CSSParserValue& v)
     m_values.append(v);
 }
 
-void CSSParserValueList::insertValueAt(unsigned i, const CSSParserValue& v)
-{
-    m_values.insert(i, v);
-}
-
-void CSSParserValueList::stealValues(CSSParserValueList& valueList)
-{
-    for (unsigned i = 0; i < valueList.size(); ++i)
-        m_values.append(*(valueList.valueAt(i)));
-    valueList.clearAndLeakValues();
-}
-
 CSSParserSelector::CSSParserSelector()
     : m_selector(adoptPtr(new CSSSelector()))
 {
 }
 
-CSSParserSelector::CSSParserSelector(const QualifiedName& tagQName)
-    : m_selector(adoptPtr(new CSSSelector(tagQName)))
+CSSParserSelector::CSSParserSelector(const QualifiedName& tagQName, bool isImplicit)
+    : m_selector(adoptPtr(new CSSSelector(tagQName, isImplicit)))
 {
 }
 
@@ -93,16 +289,21 @@ CSSParserSelector::~CSSParserSelector()
     }
 }
 
-void CSSParserSelector::adoptSelectorVector(Vector<OwnPtr<CSSParserSelector> >& selectorVector)
+void CSSParserSelector::adoptSelectorVector(Vector<OwnPtr<CSSParserSelector>>& selectorVector)
 {
     CSSSelectorList* selectorList = new CSSSelectorList();
     selectorList->adoptSelectorVector(selectorVector);
     m_selector->setSelectorList(adoptPtr(selectorList));
 }
 
+void CSSParserSelector::setSelectorList(PassOwnPtr<CSSSelectorList> selectorList)
+{
+    m_selector->setSelectorList(selectorList);
+}
+
 bool CSSParserSelector::isSimple() const
 {
-    if (m_selector->selectorList() || m_selector->matchesPseudoElement())
+    if (m_selector->selectorList() || m_selector->match() == CSSSelector::PseudoElement)
         return false;
 
     if (!m_tagHistory)
@@ -138,13 +339,13 @@ void CSSParserSelector::appendTagHistory(CSSSelector::Relation relation, PassOwn
     end->setTagHistory(selector);
 }
 
-void CSSParserSelector::prependTagSelector(const QualifiedName& tagQName, bool tagIsForNamespaceRule)
+void CSSParserSelector::prependTagSelector(const QualifiedName& tagQName, bool isImplicit)
 {
-    OwnPtr<CSSParserSelector> second = adoptPtr(new CSSParserSelector);
+    OwnPtr<CSSParserSelector> second = CSSParserSelector::create();
     second->m_selector = m_selector.release();
     second->m_tagHistory = m_tagHistory.release();
     m_tagHistory = second.release();
-    m_selector = adoptPtr(new CSSSelector(tagQName, tagIsForNamespaceRule));
+    m_selector = adoptPtr(new CSSSelector(tagQName, isImplicit));
 }
 
 bool CSSParserSelector::hasHostPseudoSelector() const

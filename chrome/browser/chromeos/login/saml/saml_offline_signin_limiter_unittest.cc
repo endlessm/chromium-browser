@@ -6,6 +6,7 @@
 
 #include "base/memory/ref_counted.h"
 #include "base/prefs/pref_service.h"
+#include "base/prefs/testing_pref_service.h"
 #include "base/test/simple_test_clock.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/thread_task_runner_handle.h"
@@ -15,14 +16,16 @@
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using testing::Mock;
-using testing::ReturnRef;
+using testing::Return;
 using testing::Sequence;
+using testing::_;
 
 namespace chromeos {
 
@@ -33,14 +36,17 @@ const char kTestUser[] = "user@example.com";
 class SAMLOfflineSigninLimiterTest : public testing::Test {
  protected:
   SAMLOfflineSigninLimiterTest();
-  virtual ~SAMLOfflineSigninLimiterTest();
+  ~SAMLOfflineSigninLimiterTest() override;
 
   // testing::Test:
-  virtual void SetUp() override;
-  virtual void TearDown() override;
+  void SetUp() override;
+  void TearDown() override;
 
   void DestroyLimiter();
   void CreateLimiter();
+
+  void SetUpUserManager();
+  TestingPrefServiceSimple* GetTestingLocalState();
 
   scoped_refptr<base::TestSimpleTaskRunner> runner_;
   base::ThreadTaskRunnerHandle runner_handle_;
@@ -52,6 +58,8 @@ class SAMLOfflineSigninLimiterTest : public testing::Test {
   base::SimpleTestClock clock_;
 
   SAMLOfflineSigninLimiter* limiter_;  // Owned.
+
+  TestingPrefServiceSimple testing_local_state_;
 
   DISALLOW_COPY_AND_ASSIGN(SAMLOfflineSigninLimiterTest);
 };
@@ -68,6 +76,9 @@ SAMLOfflineSigninLimiterTest::~SAMLOfflineSigninLimiterTest() {
   DestroyLimiter();
   Mock::VerifyAndClearExpectations(user_manager_);
   EXPECT_CALL(*user_manager_, Shutdown()).Times(1);
+  EXPECT_CALL(*user_manager_, RemoveSessionStateObserver(_)).Times(1);
+  profile_.reset();
+  TestingBrowserProcess::DeleteInstance();
 }
 
 void SAMLOfflineSigninLimiterTest::DestroyLimiter() {
@@ -83,6 +94,11 @@ void SAMLOfflineSigninLimiterTest::CreateLimiter() {
   limiter_ = new SAMLOfflineSigninLimiter(profile_.get(), &clock_);
 }
 
+void SAMLOfflineSigninLimiterTest::SetUpUserManager() {
+  EXPECT_CALL(*user_manager_, GetLocalState())
+      .WillRepeatedly(Return(GetTestingLocalState()));
+}
+
 void SAMLOfflineSigninLimiterTest::SetUp() {
   profile_.reset(new TestingProfile);
 
@@ -90,6 +106,13 @@ void SAMLOfflineSigninLimiterTest::SetUp() {
   user_manager_->AddUser(kTestUser);
   profile_->set_profile_name(kTestUser);
   clock_.Advance(base::TimeDelta::FromHours(1));
+
+  user_manager_->RegisterPrefs(GetTestingLocalState()->registry());
+  SetUpUserManager();
+}
+
+TestingPrefServiceSimple* SAMLOfflineSigninLimiterTest::GetTestingLocalState() {
+  return &testing_local_state_;
 }
 
 void SAMLOfflineSigninLimiterTest::TearDown() {
@@ -125,6 +148,7 @@ TEST_F(SAMLOfflineSigninLimiterTest, NoSAMLDefaultLimit) {
   // changed and the time of last login with SAML is not set.
   CreateLimiter();
   Mock::VerifyAndClearExpectations(user_manager_);
+  SetUpUserManager();
   EXPECT_CALL(*user_manager_, SaveForceOnlineSignin(kTestUser, false)).Times(0);
   EXPECT_CALL(*user_manager_, SaveForceOnlineSignin(kTestUser, true)).Times(0);
   limiter_->SignedIn(UserContext::AUTH_FLOW_OFFLINE);
@@ -169,6 +193,7 @@ TEST_F(SAMLOfflineSigninLimiterTest, NoSAMLNoLimit) {
   // changed and the time of last login with SAML is not set.
   CreateLimiter();
   Mock::VerifyAndClearExpectations(user_manager_);
+  SetUpUserManager();
   EXPECT_CALL(*user_manager_, SaveForceOnlineSignin(kTestUser, false)).Times(0);
   EXPECT_CALL(*user_manager_, SaveForceOnlineSignin(kTestUser, true)).Times(0);
   limiter_->SignedIn(UserContext::AUTH_FLOW_OFFLINE);
@@ -213,6 +238,7 @@ TEST_F(SAMLOfflineSigninLimiterTest, NoSAMLZeroLimit) {
   // changed and the time of last login with SAML is not set.
   CreateLimiter();
   Mock::VerifyAndClearExpectations(user_manager_);
+  SetUpUserManager();
   EXPECT_CALL(*user_manager_, SaveForceOnlineSignin(kTestUser, false)).Times(0);
   EXPECT_CALL(*user_manager_, SaveForceOnlineSignin(kTestUser, true)).Times(0);
   limiter_->SignedIn(UserContext::AUTH_FLOW_OFFLINE);
@@ -339,6 +365,7 @@ TEST_F(SAMLOfflineSigninLimiterTest, SAMLDefaultLimit) {
   // login is cleared and the time of last login with SAML is updated.
   CreateLimiter();
   Mock::VerifyAndClearExpectations(user_manager_);
+  SetUpUserManager();
   EXPECT_CALL(*user_manager_, SaveForceOnlineSignin(kTestUser, false)).Times(1);
   EXPECT_CALL(*user_manager_, SaveForceOnlineSignin(kTestUser, true)).Times(0);
   limiter_->SignedIn(UserContext::AUTH_FLOW_GAIA_WITH_SAML);
@@ -361,6 +388,7 @@ TEST_F(SAMLOfflineSigninLimiterTest, SAMLDefaultLimit) {
   // time of last login with SAML are not changed.
   CreateLimiter();
   Mock::VerifyAndClearExpectations(user_manager_);
+  SetUpUserManager();
   EXPECT_CALL(*user_manager_, SaveForceOnlineSignin(kTestUser, false)).Times(0);
   EXPECT_CALL(*user_manager_, SaveForceOnlineSignin(kTestUser, true)).Times(0);
   limiter_->SignedIn(UserContext::AUTH_FLOW_OFFLINE);
@@ -378,6 +406,7 @@ TEST_F(SAMLOfflineSigninLimiterTest, SAMLDefaultLimit) {
   // Allow the timer to fire. Verify that the flag enforcing online login is
   // set.
   Mock::VerifyAndClearExpectations(user_manager_);
+  SetUpUserManager();
   EXPECT_CALL(*user_manager_, SaveForceOnlineSignin(kTestUser, false)).Times(0);
   EXPECT_CALL(*user_manager_, SaveForceOnlineSignin(kTestUser, true)).Times(1);
   runner_->RunPendingTasks();
@@ -413,6 +442,7 @@ TEST_F(SAMLOfflineSigninLimiterTest, SAMLNoLimit) {
   // login is cleared and the time of last login with SAML is updated.
   CreateLimiter();
   Mock::VerifyAndClearExpectations(user_manager_);
+  SetUpUserManager();
   EXPECT_CALL(*user_manager_, SaveForceOnlineSignin(kTestUser, false)).Times(1);
   EXPECT_CALL(*user_manager_, SaveForceOnlineSignin(kTestUser, true)).Times(0);
   limiter_->SignedIn(UserContext::AUTH_FLOW_GAIA_WITH_SAML);
@@ -435,6 +465,7 @@ TEST_F(SAMLOfflineSigninLimiterTest, SAMLNoLimit) {
   // time of last login with SAML are not changed.
   CreateLimiter();
   Mock::VerifyAndClearExpectations(user_manager_);
+  SetUpUserManager();
   EXPECT_CALL(*user_manager_, SaveForceOnlineSignin(kTestUser, false)).Times(0);
   EXPECT_CALL(*user_manager_, SaveForceOnlineSignin(kTestUser, true)).Times(0);
   limiter_->SignedIn(UserContext::AUTH_FLOW_OFFLINE);
@@ -493,6 +524,7 @@ TEST_F(SAMLOfflineSigninLimiterTest, SAMLSetLimitWhileLoggedIn) {
 
   // Set a zero time limit. Verify that the flag enforcing online login is set.
   Mock::VerifyAndClearExpectations(user_manager_);
+  SetUpUserManager();
   EXPECT_CALL(*user_manager_, SaveForceOnlineSignin(kTestUser, false)).Times(0);
   EXPECT_CALL(*user_manager_, SaveForceOnlineSignin(kTestUser, true)).Times(1);
   prefs->SetInteger(prefs::kSAMLOfflineSigninTimeLimit, 0);
@@ -521,6 +553,7 @@ TEST_F(SAMLOfflineSigninLimiterTest, SAMLRemoveLimit) {
   // Allow the timer to fire. Verify that the flag enforcing online login is not
   // changed.
   Mock::VerifyAndClearExpectations(user_manager_);
+  SetUpUserManager();
   EXPECT_CALL(*user_manager_, SaveForceOnlineSignin(kTestUser, false)).Times(0);
   EXPECT_CALL(*user_manager_, SaveForceOnlineSignin(kTestUser, true)).Times(0);
   runner_->RunUntilIdle();

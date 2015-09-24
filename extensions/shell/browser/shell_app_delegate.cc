@@ -4,8 +4,10 @@
 
 #include "extensions/shell/browser/shell_app_delegate.h"
 
+#include "content/public/browser/web_contents.h"
 #include "extensions/common/constants.h"
 #include "extensions/shell/browser/media_capture_util.h"
+#include "extensions/shell/browser/shell_extension_web_contents_observer.h"
 
 namespace extensions {
 
@@ -16,6 +18,14 @@ ShellAppDelegate::~ShellAppDelegate() {
 }
 
 void ShellAppDelegate::InitWebContents(content::WebContents* web_contents) {
+  ShellExtensionWebContentsObserver::CreateForWebContents(web_contents);
+}
+
+void ShellAppDelegate::RenderViewCreated(
+    content::RenderViewHost* render_view_host) {
+  // The views implementation of AppWindow takes focus via SetInitialFocus()
+  // and views::WebView but app_shell is aura-only and must do it manually.
+  content::WebContents::FromRenderViewHost(render_view_host)->Focus();
 }
 
 void ShellAppDelegate::ResizeWebContents(content::WebContents* web_contents,
@@ -34,7 +44,7 @@ content::WebContents* ShellAppDelegate::OpenURLFromTab(
 void ShellAppDelegate::AddNewContents(content::BrowserContext* context,
                                       content::WebContents* new_contents,
                                       WindowOpenDisposition disposition,
-                                      const gfx::Rect& initial_pos,
+                                      const gfx::Rect& initial_rect,
                                       bool user_gesture,
                                       bool* was_blocked) {
   NOTIMPLEMENTED();
@@ -89,7 +99,6 @@ bool ShellAppDelegate::IsWebContentsVisible(
 void ShellAppDelegate::SetTerminatingCallback(const base::Closure& callback) {
   // TODO(jamescook): Should app_shell continue to close the app window
   // manually or should it use a browser termination callback like Chrome?
-  NOTIMPLEMENTED();
 }
 
 }  // namespace extensions

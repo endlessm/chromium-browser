@@ -60,9 +60,11 @@
 #include <openssl/evp.h>
 #include <openssl/mem.h>
 #include <openssl/obj.h>
+#include <openssl/thread.h>
 #include <openssl/x509.h>
 
 #include "../evp/internal.h"
+#include "../internal.h"
 
 
 /* Minor tweak to operation: free up EVP_PKEY */
@@ -125,16 +127,25 @@ error:
 	return 0;
 	}
 
+/* g_pubkey_lock is used to protect the initialisation of the |pkey| member of
+ * |X509_PUBKEY| objects. Really |X509_PUBKEY| should have a |CRYPTO_once_t|
+ * inside it for this, but |CRYPTO_once_t| is private and |X509_PUBKEY| is
+ * not. */
+static struct CRYPTO_STATIC_MUTEX g_pubkey_lock = CRYPTO_STATIC_MUTEX_INIT;
+
 EVP_PKEY *X509_PUBKEY_get(X509_PUBKEY *key)
 	{
 	EVP_PKEY *ret=NULL;
 
 	if (key == NULL) goto error;
 
+	CRYPTO_STATIC_MUTEX_lock_read(&g_pubkey_lock);
 	if (key->pkey != NULL)
 		{
-		return EVP_PKEY_dup(key->pkey);
+		CRYPTO_STATIC_MUTEX_unlock(&g_pubkey_lock);
+		return EVP_PKEY_up_ref(key->pkey);
 		}
+	CRYPTO_STATIC_MUTEX_unlock(&g_pubkey_lock);
 
 	if (key->public_key == NULL) goto error;
 
@@ -165,20 +176,20 @@ EVP_PKEY *X509_PUBKEY_get(X509_PUBKEY *key)
 		}
 
 	/* Check to see if another thread set key->pkey first */
-	CRYPTO_w_lock(CRYPTO_LOCK_EVP_PKEY);
+	CRYPTO_STATIC_MUTEX_lock_write(&g_pubkey_lock);
 	if (key->pkey)
 		{
-		CRYPTO_w_unlock(CRYPTO_LOCK_EVP_PKEY);
+		CRYPTO_STATIC_MUTEX_unlock(&g_pubkey_lock);
 		EVP_PKEY_free(ret);
 		ret = key->pkey;
 		}
 	else
 		{
 		key->pkey = ret;
-		CRYPTO_w_unlock(CRYPTO_LOCK_EVP_PKEY);
+		CRYPTO_STATIC_MUTEX_unlock(&g_pubkey_lock);
 		}
 
-	return EVP_PKEY_dup(ret);
+	return EVP_PKEY_up_ref(ret);
 
 	error:
 	if (ret != NULL)

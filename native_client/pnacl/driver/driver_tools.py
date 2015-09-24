@@ -81,6 +81,8 @@ def ParseTriple(triple):
 def GetOSName():
   if sys.platform == 'darwin':
     os_name = 'mac'
+  elif sys.platform == 'nacl':
+    os_name = 'nacl'
   elif sys.platform.startswith('linux'):
     os_name = 'linux'
   elif sys.platform in ('cygwin', 'win32'):
@@ -152,7 +154,7 @@ def GetBuildOS():
   name = platform.system().lower()
   if name.startswith('cygwin_nt') or 'windows' in name:
     name = 'windows'
-  if name not in ('linux', 'darwin', 'windows'):
+  if name not in ('linux', 'nacl', 'darwin', 'windows'):
     Log.Fatal("Unsupported platform '%s'", name)
   return name
 
@@ -594,7 +596,7 @@ def SetupSignalHandlers():
         pass
     os.kill(os.getpid(), signal.SIGKILL)
     return 0
-  if os.name == "posix":
+  if os.name == 'posix' and sys.platform != 'nacl':
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGHUP, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)

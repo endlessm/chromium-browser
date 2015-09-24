@@ -13,7 +13,10 @@
 //
 goog.provide('i18n.input.chrome.Statistics');
 
+goog.require('i18n.input.chrome.TriggerType');
+
 goog.scope(function() {
+var TriggerType = i18n.input.chrome.TriggerType;
 
 
 
@@ -47,25 +50,30 @@ Statistics.LayoutTypes = {
 
 /**
  * The commit type for stats.
+ * Keep this in sync with the enum IMECommitType2 in histograms.xml file in
+ * chromium.
+ * For adding new items, please append it at the end.
  *
  * @enum {number}
  */
 Statistics.CommitTypes = {
   X_X0: 0, // User types X, and chooses X as top suggestion.
-  X_X1: 1, // User types X, and chooses X as non-top suggestion.
-  X_Y0: 2, // User types X, and chooses Y as top suggestion.
-  X_Y1: 3, // User types X, and chooses Y as non-top suggestion.
-  PREDICTION: 4,
-  REVERT: 5,
-  MAX: 7
+  X_Y0: 1, // User types X, and chooses Y as top suggestion.
+  X_X1: 2, // User types X, and chooses X as 2nd suggestion.
+  X_Y1: 3, // User types X, and chooses Y as 2nd suggestion.
+  X_X2: 4, // User types X, and chooses X as 3rd/other suggestion.
+  X_Y2: 5, // User types X, and chooses Y as 3rd/other suggestion.
+  PREDICTION: 6,
+  REVERT: 7,
+  VOICE: 8,
+  MAX: 9
 };
 
 
 /**
  * The current input method id.
  *
- * @type {string}
- * @private
+ * @private {string}
  */
 Statistics.prototype.inputMethodId_ = '';
 
@@ -73,10 +81,93 @@ Statistics.prototype.inputMethodId_ = '';
 /**
  * The current auto correct level.
  *
- * @type {number}
- * @private
+ * @private {number}
  */
 Statistics.prototype.autoCorrectLevel_ = 0;
+
+
+/**
+ * Number of characters entered between each backspace.
+ *
+ * @private {number}
+ */
+Statistics.prototype.charactersBetweenBackspaces_ = 0;
+
+
+/**
+ * Maximum pause duration in milliseconds.
+ *
+ * @private {number}
+ * @const
+ */
+Statistics.prototype.MAX_PAUSE_DURATION_ = 3000;
+
+
+/**
+ * Minimum words typed before committing the WPM statistic.
+ *
+ * @private {number}
+ * @const
+ */
+Statistics.prototype.MIN_WORDS_FOR_WPM_ = 10;
+
+
+/**
+ * Timestamp of last activity.
+ *
+ * @private {number}
+ */
+Statistics.prototype.lastActivityTimeStamp_ = 0;
+
+
+/**
+ * Time spent typing.
+ *
+ * @private {number}
+ */
+Statistics.prototype.typingDuration_ = 0;
+
+
+/**
+ * Whether recording for physical keyboard specially.
+ *
+ * @private {boolean}
+ */
+Statistics.prototype.isPhysicalKeyboard_ = false;
+
+
+/**
+ * The length of the last text commit.
+ *
+ * @private {number}
+ */
+Statistics.prototype.lastCommitLength_ = 0;
+
+
+/**
+ * The number of characters typed in this session.
+ *
+ * @private {number}
+ */
+Statistics.prototype.charactersCommitted_ = 0;
+
+
+/**
+ * The number of characters to ignore when calculating WPM.
+ *
+ * @private {number}
+ */
+Statistics.prototype.droppedKeys_ = 0;
+
+
+/**
+ * Sets whether recording for physical keyboard.
+ *
+ * @param {boolean} isPhysicalKeyboard .
+ */
+Statistics.prototype.setPhysicalKeyboard = function(isPhysicalKeyboard) {
+  this.isPhysicalKeyboard_ = isPhysicalKeyboard;
+};
 
 
 /**
@@ -103,26 +194,27 @@ Statistics.prototype.setAutoCorrectLevel = function(
 
 
 /**
- * Gets the commit target type based on the given source and target.
- *
- * @param {string} source .
- * @param {string} target .
- * @return {number} The target type number value.
- *     0: Source; 1: Correction; 2: Completion; 3: Prediction.
- * @private
+ * Records that the controller session ended.
  */
-Statistics.prototype.getTargetType_ = function(
-    source, target) {
-  if (source == target) {
-    return 0;
+Statistics.prototype.recordSessionEnd = function() {
+  // Do not record cases where we gain and immediately lose focus. This also
+  // excudes the focus loss-gain on the new tab page from being counted.
+  if (this.charactersCommitted_ > 0) {
+    this.recordValue('InputMethod.VirtualKeyboard.CharactersCommitted',
+        this.charactersCommitted_, 16384, 50);
+    var words = (this.charactersCommitted_ - this.droppedKeys_) / 5;
+    if (this.typingDuration_ > 0 && words > this.MIN_WORDS_FOR_WPM_) {
+      // Milliseconds to minutes.
+      var minutes = this.typingDuration_ / 60000;
+      this.recordValue('InputMethod.VirtualKeyboard.WordsPerMinute',
+          Math.round(words / minutes), 100, 100);
+    }
   }
-  if (!source) {
-    return 3;
-  }
-  if (target.length > source.length) {
-    return 2;
-  }
-  return 1;
+  this.droppedKeys_ = 0;
+  this.charactersCommitted_ = 0;
+  this.lastCommitLength_ = 0;
+  this.typingDuration_ = 0;
+  this.lastActivityTimeStamp_ = 0;
 };
 
 
@@ -132,40 +224,58 @@ Statistics.prototype.getTargetType_ = function(
  * @param {string} source .
  * @param {string} target .
  * @param {number} targetIndex The target index.
- * @param {number} triggerType The trigger type:
- *     0: BySpace; 1: ByReset; 2: ByCandidate; 3: BySymbolOrNumber;
- *     4: ByDoubleSpaceToPeriod; 5: ByRevert.
+ * @param {!TriggerType} triggerType The trigger type.
  */
 Statistics.prototype.recordCommit = function(
     source, target, targetIndex, triggerType) {
   if (!this.inputMethodId_) {
     return;
   }
+  var length = target.length;
+  // Increment to include space.
+  if (triggerType == TriggerType.RESET) {
+    length++;
+  } else if (triggerType == TriggerType.REVERT) {
+    length -= this.lastCommitLength_;
+  }
+  this.lastCommitLength_ = length;
+  this.charactersCommitted_ += length;
+
   var CommitTypes = Statistics.CommitTypes;
   var commitType = -1;
   if (targetIndex == 0 && source == target) {
     commitType = CommitTypes.X_X0;
   } else if (targetIndex == 0 && source != target) {
     commitType = CommitTypes.X_Y0;
-  } else if (targetIndex > 0 && source == target) {
+  } else if (targetIndex == 1 && source == target) {
     commitType = CommitTypes.X_X1;
-  } else if (targetIndex > 0 && source != target) {
+  } else if (targetIndex == 1 && source != target) {
     commitType = CommitTypes.X_Y1;
-  } else if (!source && this.getTargetType_(source, target) == 3) {
+  } else if (targetIndex > 1 && source == target) {
+    commitType = CommitTypes.X_X2;
+  } else if (targetIndex > 1 && source != target) {
+    commitType = CommitTypes.X_Y2;
+  } else if (!source && source != target) {
     commitType = CommitTypes.PREDICTION;
-  } else if (triggerType == 5) {
+  } else if (triggerType == TriggerType.REVERT) {
     commitType = CommitTypes.REVERT;
+  } else if (triggerType == TriggerType.VOICE) {
+    commitType = CommitTypes.VOICE;
   }
   if (commitType < 0) {
     return;
   }
 
+  // For latin transliteration, record the logs under the name with 'Pk' which
+  // means Physical Keyboard.
+  var name = this.isPhysicalKeyboard_ ?
+      'InputMethod.PkCommit.' : 'InputMethod.Commit.';
+  var type = this.isPhysicalKeyboard_ ? 'Type' : 'Type2';
+
   var self = this;
   var record = function(suffix) {
-    self.recordEnum('InputMethod.Commit.Index' + suffix,
-        targetIndex + 1, 20);
-    self.recordEnum('InputMethod.Commit.Type' + suffix,
-        commitType, CommitTypes.MAX);
+    self.recordEnum(name + 'Index' + suffix, targetIndex + 1, 20);
+    self.recordEnum(name + type + suffix, commitType, CommitTypes.MAX);
   };
 
   record('');
@@ -284,5 +394,40 @@ Statistics.prototype.recordValue = function(
       'buckets': bucketCount
     }, count);
   }
+};
+
+
+/**
+ * Records a key down.
+ */
+Statistics.prototype.recordCharacterKey = function() {
+  var now = Date.now();
+  if (this.lastActivityTimeStamp_) {
+    if (now < (this.lastActivityTimeStamp_ + this.MAX_PAUSE_DURATION_)) {
+      this.typingDuration_ += (now - this.lastActivityTimeStamp_);
+    } else {
+      // Exceeded pause duration. Ignore this character.
+      this.droppedKeys_++;
+    }
+  } else {
+    // Ignore the first character in the new session.
+    this.droppedKeys_++;
+  }
+  this.lastActivityTimeStamp_ = now;
+  this.charactersBetweenBackspaces_++;
+};
+
+
+/**
+ * Records a backspace.
+ */
+Statistics.prototype.recordBackspace = function() {
+  // Ignore multiple backspaces typed in succession.
+  if (this.charactersBetweenBackspaces_ > 0) {
+    this.recordValue(
+        'InputMethod.VirtualKeyboard.CharactersBetweenBackspaces',
+        this.charactersBetweenBackspaces_, 4096, 50);
+  }
+  this.charactersBetweenBackspaces_ = 0;
 };
 });  // goog.scope

@@ -27,7 +27,6 @@ unsigned int XEventState(int flags) {
       ((flags & ui::EF_ALTGR_DOWN) ? Mod5Mask : 0) |
       ((flags & ui::EF_COMMAND_DOWN) ? Mod4Mask : 0) |
       ((flags & ui::EF_MOD3_DOWN) ? Mod3Mask : 0) |
-      ((flags & ui::EF_NUMPAD_KEY) ? Mod2Mask : 0) |
       ((flags & ui::EF_LEFT_MOUSE_BUTTON) ? Button1Mask: 0) |
       ((flags & ui::EF_MIDDLE_MOUSE_BUTTON) ? Button2Mask: 0) |
       ((flags & ui::EF_RIGHT_MOUSE_BUTTON) ? Button3Mask: 0);
@@ -286,19 +285,28 @@ void ScopedXI2Event::SetUpValuators(const std::vector<Valuator>& valuators) {
   }
 }
 
-void SetUpTouchPadForTest(unsigned int deviceid) {
-  std::vector<unsigned int> device_list;
+void SetUpTouchPadForTest(int deviceid) {
+  std::vector<int> device_list;
   device_list.push_back(deviceid);
 
   TouchFactory::GetInstance()->SetPointerDeviceForTest(device_list);
   ui::DeviceDataManagerX11* manager = ui::DeviceDataManagerX11::GetInstance();
-  manager->SetDeviceListForTest(std::vector<unsigned int>(), device_list);
+  manager->SetDeviceListForTest(std::vector<int>(), device_list,
+                                std::vector<int>());
 }
 
-void SetUpTouchDevicesForTest(const std::vector<unsigned int>& devices) {
+void SetUpTouchDevicesForTest(const std::vector<int>& devices) {
   TouchFactory::GetInstance()->SetTouchDeviceForTest(devices);
   ui::DeviceDataManagerX11* manager = ui::DeviceDataManagerX11::GetInstance();
-  manager->SetDeviceListForTest(devices, std::vector<unsigned int>());
+  manager->SetDeviceListForTest(devices, std::vector<int>(),
+                                std::vector<int>());
+}
+
+void SetUpPointerDevicesForTest(const std::vector<int>& devices) {
+  TouchFactory::GetInstance()->SetPointerDeviceForTest(devices);
+  ui::DeviceDataManagerX11* manager = ui::DeviceDataManagerX11::GetInstance();
+  manager->SetDeviceListForTest(std::vector<int>(), std::vector<int>(),
+                                devices);
 }
 
 }  // namespace ui

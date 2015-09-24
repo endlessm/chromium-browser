@@ -12,30 +12,20 @@ class ChromePDFWebContentsHelperClient
     : public pdf::PDFWebContentsHelperClient {
  public:
   ChromePDFWebContentsHelperClient();
-  virtual ~ChromePDFWebContentsHelperClient();
+  ~ChromePDFWebContentsHelperClient() override;
 
  private:
   // pdf::PDFWebContentsHelperClient:
-  virtual void UpdateLocationBar(content::WebContents* contents) override;
+  void UpdateLocationBar(content::WebContents* contents) override;
 
-  virtual void UpdateContentRestrictions(content::WebContents* contents,
-                                         int content_restrictions) override;
+  void UpdateContentRestrictions(content::WebContents* contents,
+                                 int content_restrictions) override;
 
-  virtual void OnPDFHasUnsupportedFeature(
-      content::WebContents* contents) override;
+  void OnPDFHasUnsupportedFeature(content::WebContents* contents) override;
 
-  virtual void OnSaveURL(content::WebContents* contents) override;
-
-  virtual void OnShowPDFPasswordDialog(
-      content::WebContents* contents,
-      const base::string16& prompt,
-      const pdf::PasswordDialogClosedCallback& callback) override;
+  void OnSaveURL(content::WebContents* contents) override;
 
   DISALLOW_COPY_AND_ASSIGN(ChromePDFWebContentsHelperClient);
 };
-
-void ShowPDFPasswordDialog(content::WebContents* web_contents,
-                           const base::string16& prompt,
-                           const pdf::PasswordDialogClosedCallback& callback);
 
 #endif  // CHROME_BROWSER_UI_PDF_CHROME_PDF_WEB_CONTENTS_HELPER_CLIENT_H_

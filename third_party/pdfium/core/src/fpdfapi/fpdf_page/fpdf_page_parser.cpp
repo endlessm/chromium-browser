@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../../include/fpdfapi/fpdf_page.h"
@@ -20,7 +20,7 @@ CPDF_StreamContentParser::CPDF_StreamContentParser()
     m_PathCurrentX = m_PathCurrentY = 0.0f;
     m_bResourceMissing = FALSE;
     m_bColored = FALSE;
-    FXSYS_memset32(m_Type3Data, 0, sizeof(FX_FLOAT) * 6);
+    FXSYS_memset(m_Type3Data, 0, sizeof(FX_FLOAT) * 6);
     m_ParamCount = 0;
     m_ParamStartPos = 0;
     m_bAbort = FALSE;
@@ -29,33 +29,9 @@ CPDF_StreamContentParser::CPDF_StreamContentParser()
     m_pLastImage = NULL;
     m_bReleaseLastDict = TRUE;
     m_pParentResources = NULL;
-#ifdef _FPDFAPI_MINI_
-    m_pObjectState = NULL;
-    m_pObjectStack = NULL;
-    m_pWordBuf = NULL;
-    m_pDictName = NULL;
-    m_pStreamBuf = NULL;
-    m_WordState = 0;
-    m_ObjectSize = 0;
-#endif
 }
 FX_BOOL CPDF_StreamContentParser::Initialize()
 {
-#ifdef _FPDFAPI_MINI_
-    m_pObjectState = FX_Alloc(FX_BOOL, _FPDF_MAX_OBJECT_STACK_SIZE_);
-    FXSYS_memset32(m_pObjectState, 0, _FPDF_MAX_OBJECT_STACK_SIZE_ * sizeof(FX_BOOL));
-    m_pObjectStack = FX_Alloc(CPDF_Object*, _FPDF_MAX_OBJECT_STACK_SIZE_);
-    FXSYS_memset32(m_pObjectStack, 0, _FPDF_MAX_OBJECT_STACK_SIZE_ * sizeof(CPDF_Object*));
-    m_pWordBuf = FX_Alloc(FX_BYTE, 256);
-    FXSYS_memset32(m_pWordBuf, 0, 256 * sizeof(FX_BYTE));
-    m_pDictName = FX_Alloc(FX_BYTE, 256);
-    FXSYS_memset32(m_pDictName, 0, 256 * sizeof(FX_BYTE));
-    m_pStreamBuf = FX_Alloc(FX_BYTE, STREAM_PARSE_BUFSIZE);
-    FXSYS_memset32(m_pStreamBuf, 0, STREAM_PARSE_BUFSIZE * sizeof(FX_BYTE));
-    m_StringBuf.EstimateSize(1024);
-    m_ObjectSize = 0;
-    m_ImageSrcBuf.EstimateSize(STREAM_PARSE_BUFSIZE);
-#endif
     return TRUE;
 }
 CPDF_StreamContentParser::~CPDF_StreamContentParser()
@@ -68,27 +44,13 @@ CPDF_StreamContentParser::~CPDF_StreamContentParser()
     if (m_pPathPoints) {
         FX_Free(m_pPathPoints);
     }
-    if (m_pCurStates) {
-        delete m_pCurStates;
-    }
+    delete m_pCurStates;
     if (m_pLastImageDict) {
         m_pLastImageDict->Release();
     }
     if (m_pLastCloneImageDict) {
         m_pLastCloneImageDict->Release();
     }
-#ifdef _FPDFAPI_MINI_
-    for (i = 0; i < (int)m_ObjectSize; ++i) {
-        if (!m_pObjectState[i]) {
-            m_pObjectStack[i]->Release();
-        }
-    }
-    FX_Free(m_pObjectStack);
-    FX_Free(m_pObjectState);
-    FX_Free(m_pStreamBuf);
-    FX_Free(m_pWordBuf);
-    FX_Free(m_pDictName);
-#endif
 }
 void CPDF_StreamContentParser::PrepareParse(CPDF_Document* pDocument,
         CPDF_Dictionary* pPageResources, CPDF_Dictionary* pParentResources, CFX_AffineMatrix* pmtContentToUser, CPDF_PageObjects* pObjList,
@@ -119,7 +81,7 @@ void CPDF_StreamContentParser::PrepareParse(CPDF_Document* pDocument,
         m_BBox = *pBBox;
     }
     m_Level = level;
-    m_pCurStates = FX_NEW CPDF_AllStates;
+    m_pCurStates = new CPDF_AllStates;
     if (pStates) {
         m_pCurStates->Copy(*pStates);
     } else {
@@ -128,9 +90,6 @@ void CPDF_StreamContentParser::PrepareParse(CPDF_Document* pDocument,
         m_pCurStates->m_TextState.New();
         m_pCurStates->m_ColorState.New();
     }
-#ifdef _FPDFAPI_MINI_
-    FXSYS_memset32(m_pObjectState, 0, _FPDF_MAX_OBJECT_STACK_SIZE_ * sizeof(FX_BOOL));
-#endif
 }
 int CPDF_StreamContentParser::GetNextParamPos()
 {
@@ -152,7 +111,7 @@ int CPDF_StreamContentParser::GetNextParamPos()
     m_ParamCount ++;
     return index;
 }
-void CPDF_StreamContentParser::AddNameParam(FX_LPCSTR name, int len)
+void CPDF_StreamContentParser::AddNameParam(const FX_CHAR* name, int len)
 {
     int index = GetNextParamPos();
     if (len > 32) {
@@ -161,16 +120,16 @@ void CPDF_StreamContentParser::AddNameParam(FX_LPCSTR name, int len)
     } else {
         m_ParamBuf1[index].m_Type = PDFOBJ_NAME;
         if (FXSYS_memchr(name, '#', len) == NULL) {
-            FXSYS_memcpy32(m_ParamBuf1[index].m_Name.m_Buffer, name, len);
+            FXSYS_memcpy(m_ParamBuf1[index].m_Name.m_Buffer, name, len);
             m_ParamBuf1[index].m_Name.m_Len = len;
         } else {
             CFX_ByteString str = PDF_NameDecode(CFX_ByteStringC(name, len));
-            FXSYS_memcpy32(m_ParamBuf1[index].m_Name.m_Buffer, (FX_LPCSTR)str, str.GetLength());
+            FXSYS_memcpy(m_ParamBuf1[index].m_Name.m_Buffer, str.c_str(), str.GetLength());
             m_ParamBuf1[index].m_Name.m_Len = str.GetLength();
         }
     }
 }
-void CPDF_StreamContentParser::AddNumberParam(FX_LPCSTR str, int len)
+void CPDF_StreamContentParser::AddNumberParam(const FX_CHAR* str, int len)
 {
     int index = GetNextParamPos();
     m_ParamBuf1[index].m_Type = PDFOBJ_NUMBER;
@@ -360,7 +319,7 @@ const struct _OpCode {
     {FXBSTR_ID('w', 0, 0, 0),		&CPDF_StreamContentParser::Handle_SetLineWidth},
     {FXBSTR_ID('y', 0, 0, 0),		&CPDF_StreamContentParser::Handle_CurveTo_13},
 };
-FX_BOOL CPDF_StreamContentParser::OnOperator(FX_LPCSTR op)
+FX_BOOL CPDF_StreamContentParser::OnOperator(const FX_CHAR* op)
 {
     int i = 0;
     FX_DWORD opid = 0;
@@ -449,7 +408,7 @@ void CPDF_StreamContentParser::Handle_BeginMarkedContent()
     m_CurContentMark.GetModify()->AddMark(tag, NULL, FALSE);
 }
 struct _FX_BSTR {
-    FX_LPCSTR	m_Ptr;
+    const FX_CHAR*	m_Ptr;
     int			m_Size;
 };
 #define _FX_BSTRC(str) {str, sizeof(str)-1}
@@ -477,11 +436,11 @@ const _FX_BSTR _PDF_InlineValueAbbr[] = {
     _FX_BSTRC("CCITTFaxDecode"), _FX_BSTRC("CCF"),
     _FX_BSTRC("DCTDecode"), _FX_BSTRC("DCT"),
 };
-static CFX_ByteStringC _PDF_FindFullName(const _FX_BSTR* table, int count, FX_BSTR abbr)
+static CFX_ByteStringC _PDF_FindFullName(const _FX_BSTR* table, int count, const CFX_ByteStringC& abbr)
 {
     int i = 0;
     while (i < count) {
-        if (abbr.GetLength() == table[i + 1].m_Size && FXSYS_memcmp32(abbr.GetPtr(), table[i + 1].m_Ptr, abbr.GetLength()) == 0) {
+        if (abbr.GetLength() == table[i + 1].m_Size && FXSYS_memcmp(abbr.GetPtr(), table[i + 1].m_Ptr, abbr.GetLength()) == 0) {
             return CFX_ByteStringC(table[i].m_Ptr, table[i].m_Size);
         }
         i += 2;
@@ -535,11 +494,11 @@ void _PDF_ReplaceAbbr(CPDF_Object* pObj)
             }
     }
 }
-static CFX_ByteStringC _PDF_FindAbbrName(const _FX_BSTR* table, int count, FX_BSTR fullName)
+static CFX_ByteStringC _PDF_FindAbbrName(const _FX_BSTR* table, int count, const CFX_ByteStringC& fullName)
 {
     int i = 0;
     while (i < count) {
-        if (fullName.GetLength() == table[i].m_Size && FXSYS_memcmp32(fullName.GetPtr(), table[i].m_Ptr, fullName.GetLength()) == 0) {
+        if (fullName.GetLength() == table[i].m_Size && FXSYS_memcmp(fullName.GetPtr(), table[i].m_Ptr, fullName.GetLength()) == 0) {
             return CFX_ByteStringC(table[i + 1].m_Ptr, table[i + 1].m_Size);
         }
         i += 2;
@@ -676,11 +635,7 @@ void CPDF_StreamContentParser::Handle_ExecuteXObject()
 {
     CFX_ByteString name = GetString(0);
     if (name == m_LastImageName && m_pLastImage && m_pLastImage->GetStream() && m_pLastImage->GetStream()->GetObjNum()) {
-#if defined(_FPDFAPI_MINI_) && !defined(_FXCORE_FEATURE_ALL_)
-        AddDuplicateImage();
-#else
         AddImage(NULL, m_pLastImage, FALSE);
-#endif
         return;
     }
     if (m_Options.m_bTextOnly) {
@@ -744,7 +699,6 @@ void CPDF_StreamContentParser::Handle_ExecuteXObject()
 }
 void CPDF_StreamContentParser::AddForm(CPDF_Stream* pStream)
 {
-#if !defined(_FPDFAPI_MINI_) || defined(_FXCORE_FEATURE_ALL_)
     if (!m_Options.m_bSeparateForm) {
         CPDF_Dictionary* pResources = pStream->GetDict()->GetDict(FX_BSTRC("Resources"));
         CFX_AffineMatrix form_matrix = pStream->GetDict()->GetMatrix(FX_BSTRC("Matrix"));
@@ -772,17 +726,11 @@ void CPDF_StreamContentParser::AddForm(CPDF_Stream* pStream)
         if (stream.GetSize() == 0) {
             return;
         }
-#ifdef _FPDFAPI_MINI_
-        parser.InputData(stream.GetData(), stream.GetSize());
-        parser.Finish();
-#else
         parser.Parse(stream.GetData(), stream.GetSize(), 0);
-#endif
         return;
     }
-#endif
-    CPDF_FormObject* pFormObj = FX_NEW CPDF_FormObject;
-    pFormObj->m_pForm = FX_NEW CPDF_Form(m_pDocument, m_pPageResources, pStream, m_pResources);
+    CPDF_FormObject* pFormObj = new CPDF_FormObject;
+    pFormObj->m_pForm = new CPDF_Form(m_pDocument, m_pPageResources, pStream, m_pResources);
     pFormObj->m_FormMatrix = m_pCurStates->m_CTM;
     pFormObj->m_FormMatrix.Concat(m_mtContentToUser);
     CPDF_AllStates status;
@@ -798,44 +746,6 @@ void CPDF_StreamContentParser::AddForm(CPDF_Stream* pStream)
     SetGraphicStates(pFormObj, TRUE, TRUE, TRUE);
     m_pObjectList->m_ObjectList.AddTail(pFormObj);
 }
-#if defined(_FPDFAPI_MINI_) && !defined(_FXCORE_FEATURE_ALL_)
-void CPDF_StreamContentParser::AddDuplicateImage()
-{
-    FX_POSITION tailpos = m_pObjectList->m_ObjectList.GetTailPosition();
-    CPDF_PageObject* pLastObj = (CPDF_PageObject*)m_pObjectList->m_ObjectList.GetAt(tailpos);
-    if (pLastObj == NULL || (pLastObj->m_Type != PDFPAGE_INLINES && pLastObj->m_Type != PDFPAGE_IMAGE)) {
-        AddImage(NULL, m_pLastImage, FALSE);
-        return;
-    }
-    if (pLastObj->m_GeneralState != m_pCurStates->m_GeneralState ||
-            pLastObj->m_ClipPath != m_pCurStates->m_ClipPath ||
-            pLastObj->m_ColorState != m_pCurStates->m_ColorState) {
-        AddImage(NULL, m_pLastImage, FALSE);
-        return;
-    }
-    CFX_AffineMatrix ImageMatrix;
-    ImageMatrix.Copy(m_pCurStates->m_CTM);
-    ImageMatrix.Concat(m_mtContentToUser);
-    if (pLastObj->m_Type == PDFPAGE_INLINES) {
-        CPDF_InlineImages* pInlines = (CPDF_InlineImages*)pLastObj;
-        if (pInlines->m_pStream != m_pLastImage->GetStream()) {
-            AddImage(NULL, m_pLastImage, FALSE);
-            return;
-        }
-        pInlines->AddMatrix(ImageMatrix);
-    } else {
-        CPDF_ImageObject* pImageObj = (CPDF_ImageObject*)pLastObj;
-        CPDF_InlineImages* pInlines = FX_NEW CPDF_InlineImages;
-        pInlines->m_pStream = m_pLastImage->GetStream();
-        SetGraphicStates(pInlines, !pInlines->m_pStream->GetDict()->KeyExist(FX_BSTRC("ColorSpace")), FALSE, FALSE);
-        pInlines->AddMatrix(pImageObj->m_Matrix);
-        pInlines->AddMatrix(ImageMatrix);
-        m_pObjectList->m_ObjectList.RemoveAt(tailpos);
-        m_pObjectList->m_ObjectList.AddTail(pInlines);
-        pLastObj->Release();
-    }
-}
-#endif
 CPDF_ImageObject* CPDF_StreamContentParser::AddImage(CPDF_Stream* pStream, CPDF_Image* pImage, FX_BOOL bInline)
 {
     if (pStream == NULL && pImage == NULL) {
@@ -844,13 +754,13 @@ CPDF_ImageObject* CPDF_StreamContentParser::AddImage(CPDF_Stream* pStream, CPDF_
     CFX_AffineMatrix ImageMatrix;
     ImageMatrix.Copy(m_pCurStates->m_CTM);
     ImageMatrix.Concat(m_mtContentToUser);
-    CPDF_ImageObject* pImageObj = FX_NEW CPDF_ImageObject;
+    CPDF_ImageObject* pImageObj = new CPDF_ImageObject;
     if (pImage) {
         pImageObj->m_pImage = m_pDocument->GetPageData()->GetImage(pImage->GetStream());
     } else if (pStream->GetObjNum()) {
         pImageObj->m_pImage = m_pDocument->LoadImageF(pStream);
     } else {
-        pImageObj->m_pImage = FX_NEW CPDF_Image(m_pDocument);
+        pImageObj->m_pImage = new CPDF_Image(m_pDocument);
         pImageObj->m_pImage->LoadImageF(pStream, bInline);
     }
     SetGraphicStates(pImageObj, pImageObj->m_pImage->IsMask(), FALSE, FALSE);
@@ -889,9 +799,7 @@ void CPDF_StreamContentParser::Handle_EndText()
     if (m_pCurStates->m_TextState.GetObject()->m_TextMode < 4) {
         for (int i = 0; i < count; i ++) {
             CPDF_TextObject* pText = (CPDF_TextObject*)m_ClipTextList.GetAt(i);
-            if (pText) {
-                delete pText;
-            }
+            delete pText;
         }
     } else {
         m_pCurStates->m_ClipPath.AppendTexts((CPDF_TextObject**)m_ClipTextList.GetData(), count);
@@ -963,9 +871,7 @@ void CPDF_StreamContentParser::Handle_ClosePath()
 }
 void CPDF_StreamContentParser::Handle_SetFlat()
 {
-#if !defined(_FPDFAPI_MINI_) || defined(_FXCORE_FEATURE_ALL_)
     m_pCurStates->m_GeneralState.GetModify()->m_Flatness = GetNumber(0);
-#endif
 }
 void CPDF_StreamContentParser::Handle_BeginImageData()
 {
@@ -1010,15 +916,11 @@ void CPDF_StreamContentParser::Handle_MoveTo()
 {
     REQUIRE_PARAMS(2);
     if (m_Options.m_bTextOnly) {
-#ifndef _FPDFAPI_MINI_
         m_pSyntax->SkipPathObject();
-#endif
         return;
     }
     AddPathPoint(GetNumber(1), GetNumber(0), FXPT_MOVETO);
-#ifndef _FPDFAPI_MINI_
     ParsePathObject();
-#endif
 }
 void CPDF_StreamContentParser::Handle_SetMiterLimit()
 {
@@ -1036,7 +938,7 @@ void CPDF_StreamContentParser::Handle_EndPath()
 }
 void CPDF_StreamContentParser::Handle_SaveGraphState()
 {
-    CPDF_AllStates* pStates = FX_NEW CPDF_AllStates;
+    CPDF_AllStates* pStates = new CPDF_AllStates;
     pStates->Copy(*m_pCurStates);
     m_StateStack.Add(pStates);
 }
@@ -1223,7 +1125,7 @@ void CPDF_StreamContentParser::Handle_ShadeFill()
     if (!pShading->Load()) {
         return;
     }
-    CPDF_ShadingObject* pObj = FX_NEW CPDF_ShadingObject;
+    CPDF_ShadingObject* pObj = new CPDF_ShadingObject;
     pObj->m_pShading = pShading;
     SetGraphicStates(pObj, FALSE, FALSE, FALSE);
     pObj->m_Matrix = m_pCurStates->m_CTM;
@@ -1272,7 +1174,7 @@ void CPDF_StreamContentParser::Handle_SetFont()
         m_pCurStates->m_TextState.SetFont(pFont);
     }
 }
-CPDF_Object* CPDF_StreamContentParser::FindResourceObj(FX_BSTR type, const CFX_ByteString& name)
+CPDF_Object* CPDF_StreamContentParser::FindResourceObj(const CFX_ByteStringC& type, const CFX_ByteString& name)
 {
     if (m_pResources == NULL) {
         return NULL;
@@ -1383,7 +1285,7 @@ void CPDF_StreamContentParser::AddTextObject(CFX_ByteString* pStrs, FX_FLOAT fIn
     } else {
         textmode = m_pCurStates->m_TextState.GetObject()->m_TextMode;
     }
-    CPDF_TextObject* pText = FX_NEW CPDF_TextObject;
+    CPDF_TextObject* pText = new CPDF_TextObject;
     m_pLastTextObject = pText;
     SetGraphicStates(pText, TRUE, TRUE, TRUE);
     if (textmode && textmode != 3 && textmode != 4 && textmode != 7) {
@@ -1402,7 +1304,7 @@ void CPDF_StreamContentParser::AddTextObject(CFX_ByteString* pStrs, FX_FLOAT fIn
     m_pCurStates->m_TextX += x_advance;
     m_pCurStates->m_TextY += y_advance;
     if (textmode > 3) {
-        CPDF_TextObject* pCopy = FX_NEW CPDF_TextObject;
+        CPDF_TextObject* pCopy = new CPDF_TextObject;
         pCopy->Copy(pText);
         m_ClipTextList.Add(pCopy);
     }
@@ -1442,8 +1344,7 @@ void CPDF_StreamContentParser::Handle_ShowText_Positioning()
         };
         return;
     }
-    CFX_ByteString* pStrs;
-    FX_NEW_VECTOR(pStrs, CFX_ByteString, nsegs);
+    CFX_ByteString* pStrs = new CFX_ByteString[nsegs];
     FX_FLOAT* pKerning = FX_Alloc(FX_FLOAT, nsegs);
     int iSegment = 0;
     FX_FLOAT fInitKerning = 0;
@@ -1466,7 +1367,7 @@ void CPDF_StreamContentParser::Handle_ShowText_Positioning()
         }
     }
     AddTextObject(pStrs, fInitKerning, pKerning, iSegment);
-    FX_DELETE_VECTOR(pStrs, CFX_ByteString, nsegs);
+    delete[] pStrs;
     FX_Free(pKerning);
 }
 void CPDF_StreamContentParser::Handle_SetTextLeading()
@@ -1590,7 +1491,7 @@ void CPDF_StreamContentParser::AddPathPoint(FX_FLOAT x, FX_FLOAT y, int flag)
         int newsize = m_PathPointCount + 256;
         FX_PATHPOINT* pNewPoints = FX_Alloc(FX_PATHPOINT, newsize);
         if (m_PathAllocSize) {
-            FXSYS_memcpy32(pNewPoints, m_pPathPoints, m_PathAllocSize * sizeof(FX_PATHPOINT));
+            FXSYS_memcpy(pNewPoints, m_pPathPoints, m_PathAllocSize * sizeof(FX_PATHPOINT));
             FX_Free(m_pPathPoints);
         }
         m_pPathPoints = pNewPoints;
@@ -1619,11 +1520,11 @@ void CPDF_StreamContentParser::AddPathObject(int FillType, FX_BOOL bStroke)
     CPDF_Path Path;
     CFX_PathData* pPathData = Path.New();
     pPathData->SetPointCount(PathPointCount);
-    FXSYS_memcpy32(pPathData->GetPoints(), m_pPathPoints, sizeof(FX_PATHPOINT) * PathPointCount);
+    FXSYS_memcpy(pPathData->GetPoints(), m_pPathPoints, sizeof(FX_PATHPOINT) * PathPointCount);
     CFX_AffineMatrix matrix = m_pCurStates->m_CTM;
     matrix.Concat(m_mtContentToUser);
     if (bStroke || FillType) {
-        CPDF_PathObject* pPathObj = FX_NEW CPDF_PathObject;
+        CPDF_PathObject* pPathObj = new CPDF_PathObject;
         pPathObj->m_bStroke = bStroke;
         pPathObj->m_FillType = FillType;
         pPathObj->m_Path = Path;
@@ -1645,10 +1546,10 @@ CFX_ByteString _FPDF_ByteStringFromHex(CFX_BinaryBuf& src_buf)
     CFX_ByteTextBuf buf;
     FX_BOOL bFirst = TRUE;
     int code = 0;
-    FX_LPCBYTE str = src_buf.GetBuffer();
+    const uint8_t* str = src_buf.GetBuffer();
     FX_DWORD size = src_buf.GetSize();
     for (FX_DWORD i = 0; i < size; i ++) {
-        FX_BYTE ch = str[i];
+        uint8_t ch = str[i];
         if (ch >= '0' && ch <= '9') {
             if (bFirst) {
                 code = (ch - '0') * 16;

@@ -10,7 +10,6 @@ import collections
 import contextlib
 import errno
 import functools
-import logging
 import multiprocessing
 import os
 try:
@@ -31,11 +30,13 @@ from multiprocessing.managers import SyncManager
 from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot import results_lib
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import osutils
+from chromite.lib import signals
+from chromite.lib import timeout_util
+
 
 _BUFSIZE = 1024
-
-logger = logging.getLogger(__name__)
 
 
 class HackTimeoutSyncManager(SyncManager):
@@ -62,6 +63,11 @@ class HackTimeoutSyncManager(SyncManager):
     SyncManager._finalize_manager(process, *args, **kwargs)
 
 
+def IgnoreSigint():
+  """Ignores any future SIGINTs."""
+  signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+
 def Manager():
   """Create a background process for managing interprocess communication.
 
@@ -81,7 +87,11 @@ def Manager():
   old_tempdir_value, old_tempdir_env = osutils.SetGlobalTempDir('/tmp')
   try:
     m = HackTimeoutSyncManager()
-    m.start()
+    # SyncManager doesn't handle KeyboardInterrupt exceptions well; pipes get
+    # broken and E_NOENT or E_PIPE errors are thrown from various places. We
+    # can just ignore SIGINT in the SyncManager and things will close properly
+    # when the enclosing with-statement exits.
+    m.start(IgnoreSigint)
     return m
   finally:
     osutils.SetGlobalTempDir(old_tempdir_value, old_tempdir_env)
@@ -135,6 +145,10 @@ class _BackgroundTask(multiprocessing.Process):
   SIGTERM_TIMEOUT = 30
   SIGKILL_TIMEOUT = 60
 
+  # How long we allow debug commands to run (so we don't hang will trying to
+  # recover from a hang).
+  DEBUG_CMD_TIMEOUT = 60
+
   # Interval we check for updates from print statements.
   PRINT_INTERVAL = 1
 
@@ -172,21 +186,74 @@ class _BackgroundTask(multiprocessing.Process):
     msg = 'Process failed to start in %d seconds' % self.STARTUP_TIMEOUT
     assert self._started.is_set(), msg
 
-  def Kill(self, sig, log_level):
+  @classmethod
+  def _DebugRunCommand(cls, cmd, **kwargs):
+    """Swallow any exception RunCommand raises.
+
+    Since these commands are for purely informational purposes, we don't
+    random issues causing the bot to die.
+
+    Returns:
+      Stdout on success
+    """
+    log_level = kwargs['debug_level']
+    try:
+      with timeout_util.Timeout(cls.DEBUG_CMD_TIMEOUT):
+        return cros_build_lib.RunCommand(cmd, **kwargs).output
+    except (cros_build_lib.RunCommandError, timeout_util.TimeoutError) as e:
+      logging.log(log_level, 'Running %s failed: %s', cmd[0], str(e))
+      return ''
+
+  # Debug commands to run in gdb.  A class member so tests can stub it out.
+  GDB_COMMANDS = (
+      'info proc all',
+      'info threads',
+      'thread apply all py-list',
+      'thread apply all py-bt',
+      'thread apply all bt',
+      'detach',
+  )
+
+  @classmethod
+  def _DumpDebugPid(cls, log_level, pid):
+    """Dump debug info about the hanging |pid|."""
+    pid = str(pid)
+    commands = (
+        ('pstree', '-Apals', pid),
+        ('lsof', '-p', pid),
+    )
+    for cmd in commands:
+      cls._DebugRunCommand(cmd, debug_level=log_level, error_code_ok=True,
+                           log_output=True)
+
+    stdin = '\n'.join(['echo \\n>>> %s\\n\n%s' % (x, x)
+                       for x in cls.GDB_COMMANDS])
+    cmd = ('gdb', '--nx', '-q', '-p', pid, '-ex', 'set prompt',)
+    cls._DebugRunCommand(cmd, debug_level=log_level, error_code_ok=True,
+                         log_output=True, input=stdin)
+
+  def Kill(self, sig, log_level, first=False):
     """Kill process with signal, ignoring if the process is dead.
 
     Args:
       sig: Signal to send.
       log_level: The log level of log messages.
+      first: Whether this is the first signal we've sent.
     """
     self._killing.set()
     self._WaitForStartup()
-    if logger.isEnabledFor(log_level):
-      # Print a pstree of the hanging process.
-      logger.log(log_level, 'Killing %r (sig=%r)', self.pid, sig)
-      cros_build_lib.RunCommand(['pstree', '-Apal', str(self.pid)],
-                                debug_level=log_level, error_code_ok=True,
-                                log_output=True)
+    if logging.getLogger().isEnabledFor(log_level):
+      # Dump debug information about the hanging process.
+      logging.log(log_level, 'Killing %r (sig=%r %s)', self.pid, sig,
+                  signals.StrSignal(sig))
+
+      if first:
+        ppid = str(self.pid)
+        output = self._DebugRunCommand(
+            ('pgrep', '-P', ppid), debug_level=log_level, print_cmd=False,
+            error_code_ok=True, capture_output=True)
+        for pid in [ppid] + output.splitlines():
+          self._DumpDebugPid(log_level, pid)
 
     try:
       os.kill(self.pid, sig)
@@ -200,7 +267,7 @@ class _BackgroundTask(multiprocessing.Process):
       return
     try:
       # Print output from subprocess.
-      if not silent and logger.isEnabledFor(logging.DEBUG):
+      if not silent and logging.getLogger().isEnabledFor(logging.DEBUG):
         with open(self._output.name, 'r') as f:
           for line in f:
             logging.debug(line.rstrip('\n'))
@@ -291,7 +358,7 @@ class _BackgroundTask(multiprocessing.Process):
           if len(all_errors) > len(task_errors):
             cros_build_lib.PrintBuildbotStepFailure()
             msg = '\n'.join(x.str for x in all_errors if x)
-            logger.warning(msg)
+            logging.warning(msg)
             traceback.print_stack()
 
           sys.stdout.flush()
@@ -338,13 +405,11 @@ class _BackgroundTask(multiprocessing.Process):
 
   def _Run(self):
     """Internal method for running the list of steps."""
-
-    # The default handler for SIGINT sometimes forgets to actually raise the
-    # exception (and we can reproduce this using unit tests), so we define a
-    # custom one instead.
-    def kill_us(_sig_num, _frame):
-      raise KeyboardInterrupt('SIGINT received')
-    signal.signal(signal.SIGINT, kill_us)
+    # Register a handler for a signal that is rarely used.
+    def trigger_bt(_sig_num, frame):
+      logging.error('pre-kill notification (SIGXCPU); traceback:\n%s',
+                    ''.join(traceback.format_stack(frame)))
+    signal.signal(signal.SIGXCPU, trigger_bt)
 
     sys.stdout.flush()
     sys.stderr.flush()
@@ -398,14 +463,18 @@ class _BackgroundTask(multiprocessing.Process):
       bg_tasks: A list filled with _BackgroundTask objects.
       log_level: The log level of log messages.
     """
-    logger.log(log_level, 'Killing tasks: %r', bg_tasks)
-    signals = ((signal.SIGINT, cls.SIGTERM_TIMEOUT),
-               (signal.SIGTERM, cls.SIGKILL_TIMEOUT),
-               (signal.SIGKILL, None))
-    for sig, timeout in signals:
+    logging.log(log_level, 'Killing tasks: %r', bg_tasks)
+    siglist = (
+        (signal.SIGXCPU, cls.SIGTERM_TIMEOUT),
+        (signal.SIGTERM, cls.SIGKILL_TIMEOUT),
+        (signal.SIGKILL, None),
+    )
+    first = True
+    for sig, timeout in siglist:
       # Send signal to all tasks.
       for task in bg_tasks:
-        task.Kill(sig, log_level)
+        task.Kill(sig, log_level, first)
+      first = False
 
       # Wait for all tasks to exit, if requested.
       if timeout is None:
@@ -462,12 +531,16 @@ class _BackgroundTask(multiprocessing.Process):
         task.start()
         bg_tasks.append(task)
 
+      foreground_except = None
       try:
         yield
+      except BaseException:
+        foreground_except = sys.exc_info()
       finally:
-        # Wait for each step to complete.
         errors = []
-        while bg_tasks:
+        skip_bg_wait = halt_on_error and foreground_except is not None
+        # Wait for each step to complete.
+        while not skip_bg_wait and bg_tasks:
           task = bg_tasks.popleft()
           task_errors = task.Wait()
           if task_errors:
@@ -479,7 +552,10 @@ class _BackgroundTask(multiprocessing.Process):
         if bg_tasks:
           cls._KillChildren(bg_tasks, log_level=logging.DEBUG)
 
-        # Propagate any exceptions.
+        # Propagate any exceptions; foreground exceptions take precedence.
+        if foreground_except is not None:
+          # contextlib ignores caught exceptions unless explicitly re-raised.
+          raise foreground_except[0], foreground_except[1], foreground_except[2]
         if errors:
           raise BackgroundFailure(exc_infos=errors)
 
@@ -642,11 +718,16 @@ def BackgroundTaskRunner(task, *args, **kwargs):
     processes: Number of processes to launch.
     onexit: Function to run in each background process after all inputs are
       processed.
+    halt_on_error: After the first exception occurs, halt any running steps, and
+      squelch any further output, including any exceptions that might occur.
+      Halts on exceptions in any of the background processes, or in the
+      foreground process using the BackgroundTaskRunner.
   """
 
   queue = kwargs.pop('queue', None)
   processes = kwargs.pop('processes', None)
   onexit = kwargs.pop('onexit', None)
+  halt_on_error = kwargs.pop('halt_on_error', False)
 
   with cros_build_lib.ContextManagerStack() as stack:
     if queue is None:
@@ -660,7 +741,7 @@ def BackgroundTaskRunner(task, *args, **kwargs):
                               onexit=onexit, task_args=args,
                               task_kwargs=kwargs)
     steps = [child] * processes
-    with _BackgroundTask.ParallelTasks(steps):
+    with _BackgroundTask.ParallelTasks(steps, halt_on_error=halt_on_error):
       try:
         yield queue
       finally:
@@ -703,13 +784,27 @@ def RunTasksInProcessPool(task, inputs, processes=None, onexit=None):
     processes: Number of processes, at most, to launch.
     onexit: Function to run in each background process after all inputs are
       processed.
-  """
 
+  Returns:
+    Returns a list containing the return values of the task for each input.
+  """
   if not processes:
     # - Use >=16 processes by default, in case it's a network-bound operation.
     # - Try to use all of the CPUs, in case it's a CPU-bound operation.
     processes = min(max(16, multiprocessing.cpu_count()), len(inputs))
 
-  with BackgroundTaskRunner(task, processes=processes, onexit=onexit) as queue:
-    for x in inputs:
-      queue.put(x)
+  with Manager() as manager:
+    # Set up output queue.
+    out_queue = manager.Queue()
+    fn = lambda idx, task_args: out_queue.put((idx, task(*task_args)))
+
+    # Micro-optimization: Setup the queue so that BackgroundTaskRunner
+    # doesn't have to set up another Manager process.
+    queue = manager.Queue()
+
+    with BackgroundTaskRunner(fn, queue=queue, processes=processes,
+                              onexit=onexit) as queue:
+      for idx, input_args in enumerate(inputs):
+        queue.put((idx, input_args))
+
+    return [x[1] for x in sorted(out_queue.get() for _ in range(len(inputs)))]

@@ -13,7 +13,6 @@
 #include "content/browser/speech/google_one_shot_remote_engine.h"
 #include "content/public/browser/speech_recognition_event_listener.h"
 #include "media/base/audio_converter.h"
-#include "net/url_request/url_request_context_getter.h"
 
 #if defined(OS_WIN)
 #include "media/audio/win/core_audio_util_win.h"
@@ -43,6 +42,8 @@ class SpeechRecognizerImpl::OnDataConverter
   // |output_parameters_|.
   scoped_refptr<AudioChunk> Convert(const AudioBus* data);
 
+  bool data_was_converted() const { return data_was_converted_; }
+
  private:
   // media::AudioConverter::InputCallback implementation.
   double ProvideInput(AudioBus* dest, base::TimeDelta buffer_delay) override;
@@ -55,8 +56,7 @@ class SpeechRecognizerImpl::OnDataConverter
   scoped_ptr<AudioBus> output_bus_;
   const AudioParameters input_parameters_;
   const AudioParameters output_parameters_;
-  bool waiting_for_input_;
-  scoped_ptr<uint8[]> converted_data_;
+  bool data_was_converted_;
 
   DISALLOW_COPY_AND_ASSIGN(OnDataConverter);
 };
@@ -108,21 +108,22 @@ const int SpeechRecognizerImpl::kNoSpeechTimeoutMs = 8000;
 const int SpeechRecognizerImpl::kEndpointerEstimationTimeMs = 300;
 media::AudioManager* SpeechRecognizerImpl::audio_manager_for_tests_ = NULL;
 
-COMPILE_ASSERT(SpeechRecognizerImpl::kNumBitsPerAudioSample % 8 == 0,
-               kNumBitsPerAudioSample_must_be_a_multiple_of_8);
+static_assert(SpeechRecognizerImpl::kNumBitsPerAudioSample % 8 == 0,
+              "kNumBitsPerAudioSample must be a multiple of 8");
 
 // SpeechRecognizerImpl::OnDataConverter implementation
 
 SpeechRecognizerImpl::OnDataConverter::OnDataConverter(
-    const AudioParameters& input_params, const AudioParameters& output_params)
+    const AudioParameters& input_params,
+    const AudioParameters& output_params)
     : audio_converter_(input_params, output_params, false),
       input_bus_(AudioBus::Create(input_params)),
       output_bus_(AudioBus::Create(output_params)),
       input_parameters_(input_params),
       output_parameters_(output_params),
-      waiting_for_input_(false),
-      converted_data_(new uint8[output_parameters_.GetBytesPerBuffer()]) {
+      data_was_converted_(false) {
   audio_converter_.AddInput(this);
+  audio_converter_.PrimeWithSilence();
 }
 
 SpeechRecognizerImpl::OnDataConverter::~OnDataConverter() {
@@ -134,36 +135,33 @@ SpeechRecognizerImpl::OnDataConverter::~OnDataConverter() {
 scoped_refptr<AudioChunk> SpeechRecognizerImpl::OnDataConverter::Convert(
     const AudioBus* data) {
   CHECK_EQ(data->frames(), input_parameters_.frames_per_buffer());
-
+  data_was_converted_ = false;
+  // Copy recorded audio to the |input_bus_| for later use in ProvideInput().
   data->CopyTo(input_bus_.get());
-
-  waiting_for_input_ = true;
+  // Convert the audio and place the result in |output_bus_|. This call will
+  // result in a ProvideInput() callback where the actual input is provided.
+  // However, it can happen that the converter contains enough cached data
+  // to return a result without calling ProvideInput(). The caller of this
+  // method should check the state of data_was_converted_() and make an
+  // additional call if it is set to false at return.
+  // See http://crbug.com/506051 for details.
   audio_converter_.Convert(output_bus_.get());
-
-  output_bus_->ToInterleaved(
-      output_bus_->frames(), output_parameters_.bits_per_sample() / 8,
-      converted_data_.get());
-
-  // TODO(primiano): Refactor AudioChunk to avoid the extra-copy here
-  // (see http://crbug.com/249316 for details).
-  return scoped_refptr<AudioChunk>(new AudioChunk(
-      converted_data_.get(),
-      output_parameters_.GetBytesPerBuffer(),
-      output_parameters_.bits_per_sample() / 8));
+  // Create an audio chunk based on the converted result.
+  scoped_refptr<AudioChunk> chunk(
+      new AudioChunk(output_parameters_.GetBytesPerBuffer(),
+                     output_parameters_.bits_per_sample() / 8));
+  output_bus_->ToInterleaved(output_bus_->frames(),
+                             output_parameters_.bits_per_sample() / 8,
+                             chunk->writable_data());
+  return chunk;
 }
 
 double SpeechRecognizerImpl::OnDataConverter::ProvideInput(
     AudioBus* dest, base::TimeDelta buffer_delay) {
-  // The audio converted should never ask for more than one bus in each call
-  // to Convert(). If so, we have a serious issue in our design since we might
-  // miss recorded chunks of 100 ms audio data.
-  CHECK(waiting_for_input_);
-
   // Read from the input bus to feed the converter.
   input_bus_->CopyTo(dest);
-
-  // |input_bus_| should only be provide once.
-  waiting_for_input_ = false;
+  // Indicate that the recorded audio has in fact been used by the converter.
+  data_was_converted_ = true;
   return 1;
 }
 
@@ -236,12 +234,12 @@ void SpeechRecognizerImpl::StopAudioCapture() {
 bool SpeechRecognizerImpl::IsActive() const {
   // Checking the FSM state from another thread (thus, while the FSM is
   // potentially concurrently evolving) is meaningless.
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   return state_ != STATE_IDLE && state_ != STATE_ENDED;
 }
 
 bool SpeechRecognizerImpl::IsCapturingAudio() const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO)); // See IsActive().
+  DCHECK_CURRENTLY_ON(BrowserThread::IO); // See IsActive().
   const bool is_capturing_audio = state_ >= STATE_STARTING &&
                                   state_ <= STATE_RECOGNIZING;
   DCHECK((is_capturing_audio && (audio_controller_.get() != NULL)) ||
@@ -255,7 +253,7 @@ SpeechRecognizerImpl::recognition_engine() const {
 }
 
 SpeechRecognizerImpl::~SpeechRecognizerImpl() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   endpointer_.EndSession();
   if (audio_controller_.get()) {
     audio_controller_->Close(
@@ -278,10 +276,20 @@ void SpeechRecognizerImpl::OnData(AudioInputController* controller,
   // Convert audio from native format to fixed format used by WebSpeech.
   FSMEventArgs event_args(EVENT_AUDIO_DATA);
   event_args.audio_data = audio_converter_->Convert(data);
-
   BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
                           base::Bind(&SpeechRecognizerImpl::DispatchEvent,
                                      this, event_args));
+  // See http://crbug.com/506051 regarding why one extra convert call can
+  // sometimes be required. It should be a rare case.
+  if (!audio_converter_->data_was_converted()) {
+    event_args.audio_data = audio_converter_->Convert(data);
+    BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
+                            base::Bind(&SpeechRecognizerImpl::DispatchEvent,
+                                       this, event_args));
+  }
+  // Something is seriously wrong here and we are most likely missing some
+  // audio segments.
+  CHECK(audio_converter_->data_was_converted());
 }
 
 void SpeechRecognizerImpl::OnAudioClosed(AudioInputController*) {}
@@ -317,7 +325,7 @@ void SpeechRecognizerImpl::OnSpeechRecognitionEngineError(
 // does, but they will become flaky if TestAudioInputController will be fixed.
 
 void SpeechRecognizerImpl::DispatchEvent(const FSMEventArgs& event_args) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK_LE(event_args.event, EVENT_MAX_VALUE);
   DCHECK_LE(state_, STATE_MAX_VALUE);
 
@@ -508,7 +516,7 @@ SpeechRecognizerImpl::StartRecording(const FSMEventArgs&) {
   // TODO(xians): Check if the OS has the device with |device_id_|, return
   // |SPEECH_AUDIO_ERROR_DETAILS_NO_MIC| if the target device does not exist.
   if (!audio_manager->HasAudioInputDevices()) {
-    return Abort(SpeechRecognitionError(SPEECH_RECOGNITION_ERROR_AUDIO,
+    return Abort(SpeechRecognitionError(SPEECH_RECOGNITION_ERROR_AUDIO_CAPTURE,
                                         SPEECH_AUDIO_ERROR_DETAILS_NO_MIC));
   }
 
@@ -518,7 +526,8 @@ SpeechRecognizerImpl::StartRecording(const FSMEventArgs&) {
       device_id_);
   if (!in_params.IsValid() && !unit_test_is_active) {
     DLOG(ERROR) << "Invalid native audio input parameters";
-    return Abort(SpeechRecognitionError(SPEECH_RECOGNITION_ERROR_AUDIO));
+    return Abort(
+        SpeechRecognitionError(SPEECH_RECOGNITION_ERROR_AUDIO_CAPTURE));
   }
 
   // Audio converter shall provide audio based on these parameters as output.
@@ -527,6 +536,8 @@ SpeechRecognizerImpl::StartRecording(const FSMEventArgs&) {
   AudioParameters output_parameters = AudioParameters(
       AudioParameters::AUDIO_PCM_LOW_LATENCY, kChannelLayout, kAudioSampleRate,
       kNumBitsPerAudioSample, frames_per_buffer);
+  DVLOG(1) << "SRI::output_parameters: "
+           << output_parameters.AsHumanReadableString();
 
   // Audio converter will receive audio based on these parameters as input.
   // On Windows we start by verifying that Core Audio is supported. If not,
@@ -547,17 +558,17 @@ SpeechRecognizerImpl::StartRecording(const FSMEventArgs&) {
     // We rely on internal buffers in the audio back-end to fulfill this request
     // and the idea is to simplify the audio conversion since each Convert()
     // call will then render exactly one ProvideInput() call.
-    // Due to implementation details in the audio converter, 2 milliseconds
-    // are added to the default frame size (100 ms) to ensure there is enough
-    // data to generate 100 ms of output when resampling.
+    // in_params.sample_rate()
     frames_per_buffer =
-        ((in_params.sample_rate() * (chunk_duration_ms + 2)) / 1000.0) + 0.5;
+        ((in_params.sample_rate() * chunk_duration_ms) / 1000.0) + 0.5;
     input_parameters.Reset(in_params.format(),
                            in_params.channel_layout(),
                            in_params.channels(),
                            in_params.sample_rate(),
                            in_params.bits_per_sample(),
                            frames_per_buffer);
+    DVLOG(1) << "SRI::input_parameters: "
+             << input_parameters.AsHumanReadableString();
   }
 
   // Create an audio converter which converts data between native input format
@@ -569,7 +580,8 @@ SpeechRecognizerImpl::StartRecording(const FSMEventArgs&) {
       audio_manager, this, input_parameters, device_id_, NULL);
 
   if (!audio_controller_.get()) {
-    return Abort(SpeechRecognitionError(SPEECH_RECOGNITION_ERROR_AUDIO));
+    return Abort(
+        SpeechRecognitionError(SPEECH_RECOGNITION_ERROR_AUDIO_CAPTURE));
   }
 
   audio_log_->OnCreated(0, input_parameters, device_id_);
@@ -654,7 +666,8 @@ SpeechRecognizerImpl::AbortSilently(const FSMEventArgs& event_args) {
 SpeechRecognizerImpl::FSMState
 SpeechRecognizerImpl::AbortWithError(const FSMEventArgs& event_args) {
   if (event_args.event == EVENT_AUDIO_ERROR) {
-    return Abort(SpeechRecognitionError(SPEECH_RECOGNITION_ERROR_AUDIO));
+    return Abort(
+        SpeechRecognitionError(SPEECH_RECOGNITION_ERROR_AUDIO_CAPTURE));
   } else if (event_args.event == EVENT_ENGINE_ERROR) {
     return Abort(event_args.engine_error);
   }

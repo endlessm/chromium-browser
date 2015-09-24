@@ -5,18 +5,19 @@
 /**
  * Progress center at the background page.
  * @constructor
+ * @struct
  */
 var ProgressCenter = function() {
   /**
    * Current items managed by the progress center.
-   * @type {Array.<!ProgressCenterItem>}
+   * @type {Array<!ProgressCenterItem>}
    * @private
    */
   this.items_ = [];
 
   /**
    * Map of progress ID and notification ID.
-   * @type {Object.<string, string>}
+   * @type {Object<string>}
    * @private
    */
   this.notifications_ = new ProgressCenter.Notifications_(
@@ -24,12 +25,10 @@ var ProgressCenter = function() {
 
   /**
    * List of panel UI managed by the progress center.
-   * @type {Array.<ProgressCenterPanel>}
+   * @type {Array<ProgressCenterPanel>}
    * @private
    */
   this.panels_ = [];
-
-  Object.seal(this);
 };
 
 /**
@@ -37,12 +36,13 @@ var ProgressCenter = function() {
  * @param {function(string)} cancelCallback Callback to notify the progress
  *     center of cancel operation.
  * @constructor
+ * @struct
  * @private
  */
 ProgressCenter.Notifications_ = function(cancelCallback) {
   /**
    * ID set of notifications that is progressing now.
-   * @type {Object.<string, ProgressCenter.Notifications_.NotificationState_>}
+   * @type {Object<ProgressCenter.Notifications_.NotificationState_>}
    * @private
    */
   this.ids_ = {};
@@ -64,8 +64,6 @@ ProgressCenter.Notifications_ = function(cancelCallback) {
   chrome.notifications.onButtonClicked.addListener(
       this.onButtonClicked_.bind(this));
   chrome.notifications.onClosed.addListener(this.onClosed_.bind(this));
-
-  Object.seal(this);
 };
 
 /**
@@ -78,7 +76,7 @@ ProgressCenter.Notifications_.NotificationState_ = {
   VISIBLE: 'visible',
   DISMISSED: 'dismissed'
 };
-Object.freeze(ProgressCenter.Notifications_.NotificationState_);
+
 /**
  * Updates the notification according to the item.
  * @param {ProgressCenterItem} item Item to contain new information.

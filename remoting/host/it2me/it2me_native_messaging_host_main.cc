@@ -71,9 +71,9 @@ int StartIt2MeNativeMessagingHost() {
   XInitThreads();
 
   // Required for any calls into GTK functions, such as the Disconnect and
-  // Continue windows. Calling with NULL arguments because we don't have
+  // Continue windows. Calling with nullptr arguments because we don't have
   // any command line arguments for gtk to consume.
-  gtk_init(NULL, NULL);
+  gtk_init(nullptr, nullptr);
 #endif  // OS_LINUX
 
   // Enable support for SSL server sockets, which must be done while still
@@ -96,8 +96,8 @@ int StartIt2MeNativeMessagingHost() {
   // the STD* handles at startup. So any LoadLibrary request can potentially
   // be blocked. To prevent that from happening we close STDIN and STDOUT
   // handles as soon as we retrieve the corresponding file handles.
-  SetStdHandle(STD_INPUT_HANDLE, NULL);
-  SetStdHandle(STD_OUTPUT_HANDLE, NULL);
+  SetStdHandle(STD_INPUT_HANDLE, nullptr);
+  SetStdHandle(STD_OUTPUT_HANDLE, nullptr);
 #elif defined(OS_POSIX)
   // The files are automatically closed.
   base::File read_file(STDIN_FILENO);
@@ -109,10 +109,6 @@ int StartIt2MeNativeMessagingHost() {
   base::MessageLoopForUI message_loop;
   base::RunLoop run_loop;
 
-  scoped_refptr<AutoThreadTaskRunner> task_runner =
-      new remoting::AutoThreadTaskRunner(message_loop.message_loop_proxy(),
-                                         run_loop.QuitClosure());
-
   scoped_ptr<It2MeHostFactory> factory(new It2MeHostFactory());
 
   scoped_ptr<NativeMessagingPipe> native_messaging_pipe(
@@ -122,13 +118,15 @@ int StartIt2MeNativeMessagingHost() {
   scoped_ptr<extensions::NativeMessagingChannel> channel(
       new PipeMessagingChannel(read_file.Pass(), write_file.Pass()));
 
-  scoped_ptr<extensions::NativeMessageHost> host(new It2MeNativeMessagingHost(
-      ChromotingHostContext::Create(task_runner), factory.Pass()));
+  scoped_ptr<ChromotingHostContext> context =
+      ChromotingHostContext::Create(new remoting::AutoThreadTaskRunner(
+          message_loop.task_runner(), run_loop.QuitClosure()));
+  scoped_ptr<extensions::NativeMessageHost> host(
+      new It2MeNativeMessagingHost(context.Pass(), factory.Pass()));
 
   host->Start(native_messaging_pipe.get());
 
-  native_messaging_pipe->Start(
-      host.Pass(), channel.Pass(), run_loop.QuitClosure());
+  native_messaging_pipe->Start(host.Pass(), channel.Pass());
 
   // Run the loop until channel is alive.
   run_loop.Run();

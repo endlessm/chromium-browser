@@ -6,7 +6,7 @@
 
 #include "base/bind.h"
 #include "base/strings/utf_string_conversions.h"
-#include "content/public/renderer/render_view.h"
+#include "content/public/renderer/render_frame.h"
 #include "extensions/common/extension_messages.h"
 #include "extensions/renderer/script_context.h"
 #include "third_party/WebKit/public/web/WebBlob.h"
@@ -32,7 +32,8 @@ void PageCaptureCustomBindings::CreateBlob(
   blink::WebString path(base::UTF8ToUTF16(*v8::String::Utf8Value(args[0])));
   blink::WebBlob blob =
       blink::WebBlob::createFromFile(path, args[1]->Int32Value());
-  args.GetReturnValue().Set(blob.toV8Value(args.Holder(), args.GetIsolate()));
+  args.GetReturnValue().Set(
+      blob.toV8Value(context()->v8_context()->Global(), args.GetIsolate()));
 }
 
 void PageCaptureCustomBindings::SendResponseAck(
@@ -40,10 +41,10 @@ void PageCaptureCustomBindings::SendResponseAck(
   CHECK(args.Length() == 1);
   CHECK(args[0]->IsInt32());
 
-  content::RenderView* render_view = context()->GetRenderView();
-  if (render_view) {
-    render_view->Send(new ExtensionHostMsg_ResponseAck(
-        render_view->GetRoutingID(), args[0]->Int32Value()));
+  content::RenderFrame* render_frame = context()->GetRenderFrame();
+  if (render_frame) {
+    render_frame->Send(new ExtensionHostMsg_ResponseAck(
+        render_frame->GetRoutingID(), args[0]->Int32Value()));
   }
 }
 

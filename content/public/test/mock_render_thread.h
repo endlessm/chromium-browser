@@ -8,6 +8,7 @@
 #include "base/memory/shared_memory.h"
 #include "base/observer_list.h"
 #include "base/strings/string16.h"
+#include "cc/test/test_shared_bitmap_manager.h"
 #include "content/public/renderer/render_thread.h"
 #include "ipc/ipc_test_sink.h"
 #include "ipc/message_filter.h"
@@ -18,6 +19,11 @@ struct ViewHostMsg_CreateWindow_Params;
 namespace IPC {
 class MessageFilter;
 class MessageReplyDeserializer;
+}
+
+namespace blink {
+enum class WebSandboxFlags;
+enum class WebTreeScopeType;
 }
 
 namespace content {
@@ -37,11 +43,11 @@ class MockRenderThread : public RenderThread {
 
   // RenderThread implementation:
   bool Send(IPC::Message* msg) override;
-  base::MessageLoop* GetMessageLoop() override;
+  scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner() override;
   IPC::SyncChannel* GetChannel() override;
   std::string GetLocale() override;
   IPC::SyncMessageFilter* GetSyncMessageFilter() override;
-  scoped_refptr<base::MessageLoopProxy> GetIOMessageLoopProxy() override;
+  scoped_refptr<base::SingleThreadTaskRunner> GetIOMessageLoopProxy() override;
   void AddRoute(int32 routing_id, IPC::Listener* listener) override;
   void RemoveRoute(int32 routing_id) override;
   int GenerateRoutingID() override;
@@ -56,6 +62,7 @@ class MockRenderThread : public RenderThread {
   void RecordComputedAction(const std::string& action) override;
   scoped_ptr<base::SharedMemory> HostAllocateSharedMemoryBuffer(
       size_t buffer_size) override;
+  cc::SharedBitmapManager* GetSharedBitmapManager() override;
   void RegisterExtension(v8::Extension* extension) override;
   void ScheduleIdleHandler(int64 initial_delay_ms) override;
   void IdleHandler() override;
@@ -67,9 +74,10 @@ class MockRenderThread : public RenderThread {
   bool ResolveProxy(const GURL& url, std::string* proxy_list) override;
   base::WaitableEvent* GetShutdownEvent() override;
 #if defined(OS_WIN)
-  virtual void PreCacheFont(const LOGFONT& log_font) override;
-  virtual void ReleaseCachedFonts() override;
+  void PreCacheFont(const LOGFONT& log_font) override;
+  void ReleaseCachedFonts() override;
 #endif
+  IPC::AttachmentBroker* GetAttachmentBroker() override;
   ServiceRegistry* GetServiceRegistry() override;
 
   //////////////////////////////////////////////////////////////////////////
@@ -103,9 +111,7 @@ class MockRenderThread : public RenderThread {
   // Dispatches control messages to observers.
   bool OnControlMessageReceived(const IPC::Message& msg);
 
-  ObserverList<RenderProcessObserver>& observers() {
-    return observers_;
-  }
+  base::ObserverList<RenderProcessObserver>& observers() { return observers_; }
 
  protected:
   // This function operates as a regular IPC listener. Subclasses
@@ -130,7 +136,9 @@ class MockRenderThread : public RenderThread {
 
   // The Frame expects to be returned a valid route_id different from its own.
   void OnCreateChildFrame(int new_frame_routing_id,
+                          blink::WebTreeScopeType scope,
                           const std::string& frame_name,
+                          blink::WebSandboxFlags sandbox_flags,
                           int* new_render_frame_id);
 
 #if defined(OS_WIN)
@@ -161,7 +169,9 @@ class MockRenderThread : public RenderThread {
   std::vector<scoped_refptr<IPC::MessageFilter> > filters_;
 
   // Observers to notify.
-  ObserverList<RenderProcessObserver> observers_;
+  base::ObserverList<RenderProcessObserver> observers_;
+
+  cc::TestSharedBitmapManager shared_bitmap_manager_;
 };
 
 }  // namespace content

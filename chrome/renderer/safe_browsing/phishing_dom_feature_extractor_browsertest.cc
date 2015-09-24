@@ -13,9 +13,11 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
+#include "base/location.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -62,10 +64,9 @@ class PhishingDOMFeatureExtractorTest : public InProcessBrowserTest {
   // Helper for the SubframeRemoval test that posts a message to remove
   // the iframe "frame1" from the document.
   void ScheduleRemoveIframe() {
-    base::MessageLoop::current()->PostTask(
-        FROM_HERE,
-        base::Bind(&PhishingDOMFeatureExtractorTest::RemoveIframe,
-                   weak_factory_.GetWeakPtr()));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(&PhishingDOMFeatureExtractorTest::RemoveIframe,
+                              weak_factory_.GetWeakPtr()));
   }
 
  protected:
@@ -73,7 +74,7 @@ class PhishingDOMFeatureExtractorTest : public InProcessBrowserTest {
 
   ~PhishingDOMFeatureExtractorTest() override {}
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(switches::kSingleProcess);
 #if defined(OS_WIN)
     // Don't want to try to create a GPU process.
@@ -195,6 +196,14 @@ IN_PROC_BROWSER_TEST_F(PhishingDOMFeatureExtractorTest, FormFeatures) {
   expected_features.AddRealFeature(features::kPageActionOtherDomainFreq, 0.25);
   expected_features.AddBooleanFeature(features::kPageHasTextInputs);
   expected_features.AddBooleanFeature(features::kPageHasCheckInputs);
+  expected_features.AddBooleanFeature(features::kPageActionURL +
+      std::string("http://cgi.host.com/submit"));
+  expected_features.AddBooleanFeature(features::kPageActionURL +
+      std::string("http://other.com/"));
+  expected_features.AddBooleanFeature(features::kPageActionURL +
+      std::string("http://host.com:") +
+      base::IntToString(embedded_test_server_->port()) +
+      std::string("/query"));
 
   FeatureMap features;
   LoadHtml(
@@ -292,8 +301,14 @@ IN_PROC_BROWSER_TEST_F(PhishingDOMFeatureExtractorTest, LinkFeatures) {
   ExpectFeatureMapsAreEqual(features, expected_features);
 }
 
+// Flaky on Win/Linux.  https://crbug.com/373155.
+#if defined(OS_WIN) || defined(OS_LINUX)
+#define MAYBE_ScriptAndImageFeatures DISABLED_ScriptAndImageFeatures
+#else
+#define MAYBE_ScriptAndImageFeatures ScriptAndImageFeatures
+#endif
 IN_PROC_BROWSER_TEST_F(PhishingDOMFeatureExtractorTest,
-                       ScriptAndImageFeatures) {
+                       MAYBE_ScriptAndImageFeatures) {
   // This test doesn't exercise the extraction timing.
   EXPECT_CALL(clock_, Now()).WillRepeatedly(Return(base::TimeTicks::Now()));
 
@@ -377,6 +392,10 @@ IN_PROC_BROWSER_TEST_F(PhishingDOMFeatureExtractorTest, SubFrames) {
   expected_features.AddRealFeature(features::kPageSecureLinksFreq, 0.25);
   expected_features.AddBooleanFeature(features::kPageNumScriptTagsGTOne);
   expected_features.AddRealFeature(features::kPageImgOtherDomainFreq, 1.0);
+  expected_features.AddBooleanFeature(features::kPageActionURL +
+      std::string("http://host2.com/submit"));
+  expected_features.AddBooleanFeature(features::kPageActionURL +
+      std::string("http://host4.com/"));
 
   FeatureMap features;
   std::string html(
@@ -394,7 +413,13 @@ IN_PROC_BROWSER_TEST_F(PhishingDOMFeatureExtractorTest, SubFrames) {
   ExpectFeatureMapsAreEqual(features, expected_features);
 }
 
-IN_PROC_BROWSER_TEST_F(PhishingDOMFeatureExtractorTest, Continuation) {
+// Test flakes with LSAN enabled. See http://crbug.com/373155.
+#if defined(LEAK_SANITIZER)
+#define MAYBE_Continuation DISABLED_Continuation
+#else
+#define MAYBE_Continuation Continuation
+#endif
+IN_PROC_BROWSER_TEST_F(PhishingDOMFeatureExtractorTest, MAYBE_Continuation) {
   // For this test, we'll cause the feature extraction to run multiple
   // iterations by incrementing the clock.
 
@@ -444,6 +469,12 @@ IN_PROC_BROWSER_TEST_F(PhishingDOMFeatureExtractorTest, Continuation) {
   FeatureMap expected_features;
   expected_features.AddBooleanFeature(features::kPageHasForms);
   expected_features.AddRealFeature(features::kPageActionOtherDomainFreq, 0.5);
+  expected_features.AddBooleanFeature(features::kPageActionURL +
+      std::string("http://host.com:") +
+      base::IntToString(embedded_test_server_->port()) +
+      std::string("/ondomain"));
+  expected_features.AddBooleanFeature(features::kPageActionURL +
+      std::string("http://host2.com/"));
 
   FeatureMap features;
   LoadHtml("host.com", response);

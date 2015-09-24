@@ -69,10 +69,6 @@ namespace test {
 bool CorruptSizeInHeader(const base::FilePath& db_path) {
   // See http://www.sqlite.org/fileformat.html#database_header
   const size_t kHeaderSize = 100;
-  const size_t kPageSizeOffset = 16;
-  const size_t kFileChangeCountOffset = 24;
-  const size_t kPageCountOffset = 28;
-  const size_t kVersionValidForOffset = 92;  // duplicate kFileChangeCountOffset
 
   unsigned char header[kHeaderSize];
 
@@ -85,21 +81,11 @@ bool CorruptSizeInHeader(const base::FilePath& db_path) {
   if (1u != fread(header, sizeof(header), 1, file.get()))
     return false;
 
-  int64 db_size = 0;
+  int64_t db_size = 0;
   if (!base::GetFileSize(db_path, &db_size))
     return false;
 
-  const unsigned page_size = ReadBigEndian(header + kPageSizeOffset, 2);
-
-  // One larger than the expected size.
-  const unsigned page_count = (db_size + page_size) / page_size;
-  WriteBigEndian(page_count, header + kPageCountOffset, 4);
-
-  // Update change count so outstanding readers know the info changed.
-  // Both spots must match for the page count to be considered valid.
-  unsigned change_count = ReadBigEndian(header + kFileChangeCountOffset, 4);
-  WriteBigEndian(change_count + 1, header + kFileChangeCountOffset, 4);
-  WriteBigEndian(change_count + 1, header + kVersionValidForOffset, 4);
+  CorruptSizeInHeaderMemory(header, db_size);
 
   if (0 != fseek(file.get(), 0, SEEK_SET))
     return false;
@@ -107,6 +93,26 @@ bool CorruptSizeInHeader(const base::FilePath& db_path) {
     return false;
 
   return true;
+}
+
+void CorruptSizeInHeaderMemory(unsigned char* header, int64_t db_size) {
+  const size_t kPageSizeOffset = 16;
+  const size_t kFileChangeCountOffset = 24;
+  const size_t kPageCountOffset = 28;
+  const size_t kVersionValidForOffset = 92;  // duplicate kFileChangeCountOffset
+
+  const unsigned page_size = ReadBigEndian(header + kPageSizeOffset, 2);
+
+  // One larger than the expected size.
+  const unsigned page_count =
+      static_cast<unsigned>((db_size + page_size) / page_size);
+  WriteBigEndian(page_count, header + kPageCountOffset, 4);
+
+  // Update change count so outstanding readers know the info changed.
+  // Both spots must match for the page count to be considered valid.
+  unsigned change_count = ReadBigEndian(header + kFileChangeCountOffset, 4);
+  WriteBigEndian(change_count + 1, header + kFileChangeCountOffset, 4);
+  WriteBigEndian(change_count + 1, header + kVersionValidForOffset, 4);
 }
 
 bool CorruptTableOrIndex(const base::FilePath& db_path,
@@ -212,7 +218,7 @@ bool CountTableRows(sql::Connection* db, const char* table, size_t* count) {
   if (!s.Step())
     return false;
 
-  *count = s.ColumnInt64(0);
+  *count = static_cast<size_t>(s.ColumnInt64(0));
   return true;
 }
 

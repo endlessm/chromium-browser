@@ -19,10 +19,9 @@ struct FormData {
   FormData(const FormData& data);
   ~FormData();
 
-  // Used in testing, and in recording metrics and setting preferences, where
-  // false positives/negatives aren't super important.
-  bool operator==(const FormData& form) const;
-  bool operator!=(const FormData& form) const;
+  // Returns true if two forms are the same, not counting the values of the
+  // form elements.
+  bool SameFormAs(const FormData& other) const;
 
   // Allow FormData to be a key in STL containers.
   bool operator<(const FormData& form) const;
@@ -35,6 +34,8 @@ struct FormData {
   GURL action;
   // true if this form was submitted by a user gesture and not javascript.
   bool user_submitted;
+  // true if this form is a form tag.
+  bool is_form_tag;
   // A vector of all the input fields in the form.
   std::vector<FormFieldData> fields;
 };
@@ -43,11 +44,20 @@ struct FormData {
 std::ostream& operator<<(std::ostream& os, const FormData& form);
 
 // Serialize FormData. Used by the PasswordManager to persist FormData
-// pertaining to password forms. Serialized data is appended to |pickle|
-void SerializeFormData(const FormData& form_data, Pickle* pickle);
+// pertaining to password forms. Serialized data is appended to |pickle|.
+void SerializeFormData(const FormData& form_data, base::Pickle* pickle);
 // Deserialize FormData. This assumes that |iter| is currently pointing to
 // the part of a pickle created by SerializeFormData. Returns true on success.
-bool DeserializeFormData(PickleIterator* iter, FormData* form_data);
+bool DeserializeFormData(base::PickleIterator* iter, FormData* form_data);
+
+// Serialize FormData. Used by the PasswordManager to persist FormData
+// pertaining to password forms in base64 string. It is useful since in some
+// cases we need to store C strings without embedded '\0' symbols.
+void SerializeFormDataToBase64String(const FormData& form_data,
+                                     std::string* output);
+// Deserialize FormData. Returns true on success.
+bool DeserializeFormDataFromBase64String(const base::StringPiece& input,
+                                         FormData* form_data);
 
 }  // namespace autofill
 

@@ -111,7 +111,7 @@ bool VerifyFromAndroidTrustManager(const std::vector<std::string>& cert_bytes,
       continue;
 
     HashValue sha1(HASH_VALUE_SHA1);
-    base::SHA1HashBytes(reinterpret_cast<const uint8*>(spki_bytes.data()),
+    base::SHA1HashBytes(reinterpret_cast<const uint8_t*>(spki_bytes.data()),
                         spki_bytes.size(), sha1.data());
     verify_result->public_key_hashes.push_back(sha1);
 
@@ -155,9 +155,14 @@ bool CertVerifyProcAndroid::SupportsAdditionalTrustAnchors() const {
   return false;
 }
 
+bool CertVerifyProcAndroid::SupportsOCSPStapling() const {
+  return false;
+}
+
 int CertVerifyProcAndroid::VerifyInternal(
     X509Certificate* cert,
     const std::string& hostname,
+    const std::string& ocsp_response,
     int flags,
     CRLSet* crl_set,
     const CertificateList& additional_trust_anchors,

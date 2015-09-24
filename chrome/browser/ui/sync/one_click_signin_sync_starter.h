@@ -94,6 +94,7 @@ class OneClickSigninSyncStarter : public SigninTracker::Observer,
   // It can be empty.
   OneClickSigninSyncStarter(Profile* profile,
                             Browser* browser,
+                            const std::string& gaia_id,
                             const std::string& email,
                             const std::string& password,
                             const std::string& refresh_token,
@@ -128,7 +129,7 @@ class OneClickSigninSyncStarter : public SigninTracker::Observer,
   // SigninTracker::Observer override.
   void SigninFailed(const GoogleServiceAuthError& error) override;
   void SigninSuccess() override;
-  void MergeSessionComplete(const GoogleServiceAuthError& error) override;
+  void AccountAddedToCookie(const GoogleServiceAuthError& error) override;
 
   // LoginUIService::Observer override.
   void OnSyncConfirmationUIClosed(bool configure_sync_first) override;
@@ -223,7 +224,6 @@ class OneClickSigninSyncStarter : public SigninTracker::Observer,
   scoped_ptr<SigninTracker> signin_tracker_;
   StartSyncMode start_mode_;
   chrome::HostDesktopType desktop_type_;
-  bool force_same_tab_navigation_;
   ConfirmationRequired confirmation_required_;
   GURL continue_url_;
 

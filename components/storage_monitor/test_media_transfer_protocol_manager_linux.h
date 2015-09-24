@@ -23,13 +23,21 @@ class TestMediaTransferProtocolManagerLinux
   const std::vector<std::string> GetStorages() const override;
   const MtpStorageInfo* GetStorageInfo(
       const std::string& storage_name) const override;
+  void GetStorageInfoFromDevice(
+      const std::string& storage_name,
+      const GetStorageInfoFromDeviceCallback& callback) override;
   void OpenStorage(const std::string& storage_name,
                    const std::string& mode,
                    const OpenStorageCallback& callback) override;
   void CloseStorage(const std::string& storage_handle,
                     const CloseStorageCallback& callback) override;
+  void CreateDirectory(const std::string& storage_handle,
+                       const uint32 parent_id,
+                       const std::string& directory_name,
+                       const CreateDirectoryCallback& callback) override;
   void ReadDirectory(const std::string& storage_handle,
-                     uint32 file_id,
+                     const uint32 file_id,
+                     const size_t max_size,
                      const ReadDirectoryCallback& callback) override;
   void ReadFileChunk(const std::string& storage_handle,
                      uint32 file_id,
@@ -39,6 +47,18 @@ class TestMediaTransferProtocolManagerLinux
   void GetFileInfo(const std::string& storage_handle,
                    uint32 file_id,
                    const GetFileInfoCallback& callback) override;
+  void RenameObject(const std::string& storage_handle,
+                    const uint32 object_id,
+                    const std::string& new_name,
+                    const RenameObjectCallback& callback) override;
+  void CopyFileFromLocal(const std::string& storage_handle,
+                         const int source_file_descriptor,
+                         const uint32 parent_id,
+                         const std::string& file_name,
+                         const CopyFileFromLocalCallback& callback) override;
+  void DeleteObject(const std::string& storage_handle,
+                    const uint32 object_id,
+                    const DeleteObjectCallback& callback) override;
 
   DISALLOW_COPY_AND_ASSIGN(TestMediaTransferProtocolManagerLinux);
 };

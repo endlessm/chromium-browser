@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/local_discovery/privet_http_asynchronous_factory.h"
-
 #include "chrome/browser/local_discovery/privet_http_impl.h"
 #include "chrome/browser/local_discovery/privet_notifications.h"
 #include "net/url_request/test_url_fetcher_factory.h"
@@ -33,7 +33,7 @@ const char kInfoResponseNoUptime[] = "{}";
 class MockPrivetNotificationsListenerDeleagate
     : public PrivetNotificationsListener::Delegate {
  public:
-  MOCK_METHOD2(PrivetNotify, void(bool multiple, bool added));
+  MOCK_METHOD2(PrivetNotify, void(int devices_active, bool added));
   MOCK_METHOD0(PrivetRemoveNotification, void());
 };
 
@@ -41,18 +41,20 @@ class MockPrivetHttpFactory : public PrivetHTTPAsynchronousFactory {
  public:
   class MockResolution : public PrivetHTTPResolution {
    public:
-    MockResolution(
-        const std::string& name,
-        net::URLRequestContextGetter* request_context,
-        const ResultCallback& callback)
-        : name_(name), request_context_(request_context), callback_(callback) {
-    }
+    MockResolution(const std::string& name,
+                   net::URLRequestContextGetter* request_context)
+        : name_(name), request_context_(request_context) {}
 
     ~MockResolution() override {}
 
-    void Start() override {
-      callback_.Run(scoped_ptr<PrivetHTTPClient>(new PrivetHTTPClientImpl(
+    void Start(const net::HostPortPair& address,
+               const ResultCallback& callback) override {
+      callback.Run(scoped_ptr<PrivetHTTPClient>(new PrivetHTTPClientImpl(
           name_, net::HostPortPair("1.2.3.4", 8080), request_context_.get())));
+    }
+
+    void Start(const ResultCallback& callback) override {
+      Start(net::HostPortPair(), callback);
     }
 
     const std::string& GetName() override { return name_; }
@@ -60,7 +62,6 @@ class MockPrivetHttpFactory : public PrivetHTTPAsynchronousFactory {
    private:
     std::string name_;
     scoped_refptr<net::URLRequestContextGetter> request_context_;
-    ResultCallback callback_;
   };
 
   explicit MockPrivetHttpFactory(net::URLRequestContextGetter* request_context)
@@ -68,11 +69,9 @@ class MockPrivetHttpFactory : public PrivetHTTPAsynchronousFactory {
   }
 
   scoped_ptr<PrivetHTTPResolution> CreatePrivetHTTP(
-      const std::string& name,
-      const net::HostPortPair& address,
-      const ResultCallback& callback) override {
+      const std::string& name) override {
     return scoped_ptr<PrivetHTTPResolution>(
-        new MockResolution(name, request_context_.get(), callback));
+        new MockResolution(name, request_context_.get()));
   }
 
  private:
@@ -81,8 +80,9 @@ class MockPrivetHttpFactory : public PrivetHTTPAsynchronousFactory {
 
 class PrivetNotificationsListenerTest : public ::testing::Test {
  public:
-  PrivetNotificationsListenerTest() : request_context_(
-      new net::TestURLRequestContextGetter(base::MessageLoopProxy::current())) {
+  PrivetNotificationsListenerTest()
+      : request_context_(new net::TestURLRequestContextGetter(
+            base::ThreadTaskRunnerHandle::Get())) {
     notification_listener_.reset(new PrivetNotificationsListener(
         scoped_ptr<PrivetHTTPAsynchronousFactory>(
             new MockPrivetHttpFactory(request_context_.get())),
@@ -123,7 +123,7 @@ class PrivetNotificationsListenerTest : public ::testing::Test {
 TEST_F(PrivetNotificationsListenerTest, DisappearReappearTest) {
 
   EXPECT_CALL(mock_delegate_, PrivetNotify(
-      false,
+      1,
       true));
 
   notification_listener_->DeviceChanged(
@@ -153,7 +153,7 @@ TEST_F(PrivetNotificationsListenerTest, DisappearReappearTest) {
 
 TEST_F(PrivetNotificationsListenerTest, RegisterTest) {
   EXPECT_CALL(mock_delegate_, PrivetNotify(
-      false,
+      1,
       true));
 
   notification_listener_->DeviceChanged(

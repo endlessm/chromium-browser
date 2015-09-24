@@ -11,9 +11,10 @@
 #include "chrome/browser/chromeos/input_method/input_method_engine.h"
 #include "chrome/browser/chromeos/input_method/input_method_engine_interface.h"
 #include "chrome/browser/chromeos/input_method/mock_input_method_manager.h"
-#include "chromeos/ime/extension_ime_util.h"
-#include "chromeos/ime/mock_component_extension_ime_manager_delegate.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/ime/chromeos/extension_ime_util.h"
+#include "ui/base/ime/chromeos/mock_component_extension_ime_manager_delegate.h"
 #include "ui/base/ime/chromeos/mock_ime_input_context_handler.h"
 #include "ui/base/ime/text_input_flags.h"
 #include "ui/gfx/geometry/rect.h"
@@ -66,43 +67,40 @@ void InitInputMethod() {
 class TestObserver : public InputMethodEngineInterface::Observer {
  public:
   TestObserver() : calls_bitmap_(NONE) {}
-  virtual ~TestObserver() {}
+  ~TestObserver() override {}
 
-  virtual void OnActivate(const std::string& engine_id) override {
+  void OnActivate(const std::string& engine_id) override {
     calls_bitmap_ |= ACTIVATE;
   }
-  virtual void OnDeactivated(const std::string& engine_id) override {
+  void OnDeactivated(const std::string& engine_id) override {
     calls_bitmap_ |= DEACTIVATED;
   }
-  virtual void OnFocus(
+  void OnFocus(
       const InputMethodEngineInterface::InputContext& context) override {
     calls_bitmap_ |= ONFOCUS;
   }
-  virtual void OnBlur(int context_id) override {
-    calls_bitmap_ |= ONBLUR;
-  }
-  virtual void OnKeyEvent(
-      const std::string& engine_id,
-      const InputMethodEngineInterface::KeyboardEvent& event,
-      input_method::KeyEventHandle* key_data) override {}
-  virtual void OnInputContextUpdate(
+  void OnBlur(int context_id) override { calls_bitmap_ |= ONBLUR; }
+  bool IsInterestedInKeyEvent() const override { return true; }
+  void OnKeyEvent(const std::string& engine_id,
+                  const InputMethodEngineInterface::KeyboardEvent& event,
+                  input_method::KeyEventHandle* key_data) override {}
+  void OnInputContextUpdate(
       const InputMethodEngineInterface::InputContext& context) override {}
-  virtual void OnCandidateClicked(
+  void OnCandidateClicked(
       const std::string& engine_id,
       int candidate_id,
       InputMethodEngineInterface::MouseButtonEvent button) override {}
-  virtual void OnMenuItemActivated(
-      const std::string& engine_id,
-      const std::string& menu_id) override {}
-  virtual void OnSurroundingTextChanged(
-      const std::string& engine_id,
-      const std::string& text,
-      int cursor_pos,
-      int anchor_pos) override {}
-  virtual void OnCompositionBoundsChanged(const gfx::Rect& bounds) override {
+  void OnMenuItemActivated(const std::string& engine_id,
+                           const std::string& menu_id) override {}
+  void OnSurroundingTextChanged(const std::string& engine_id,
+                                const std::string& text,
+                                int cursor_pos,
+                                int anchor_pos) override {}
+  void OnCompositionBoundsChanged(
+      const std::vector<gfx::Rect>& bounds) override {
     calls_bitmap_ |= ONCOMPOSITIONBOUNDSCHANGED;
   }
-  virtual void OnReset(const std::string& engine_id) override {}
+  void OnReset(const std::string& engine_id) override {}
 
   unsigned char GetCallsBitmapAndReset() {
     unsigned char ret = calls_bitmap_;
@@ -127,7 +125,7 @@ class InputMethodEngineTest :  public testing::Test {
     IMEBridge::Get()->SetInputContextHandler(
         mock_ime_input_context_handler_.get());
   }
-  virtual ~InputMethodEngineTest() {
+  ~InputMethodEngineTest() override {
     IMEBridge::Get()->SetInputContextHandler(NULL);
     engine_.reset();
     Shutdown();
@@ -139,14 +137,15 @@ class InputMethodEngineTest :  public testing::Test {
     observer_ = new TestObserver();
     scoped_ptr<InputMethodEngineInterface::Observer> observer_ptr(observer_);
     engine_->Initialize(observer_ptr.Pass(),
-                        whitelisted ? kTestExtensionId : kTestExtensionId2);
+                        whitelisted ? kTestExtensionId : kTestExtensionId2,
+                        ProfileManager::GetActiveUserProfile());
   }
 
   void FocusIn(ui::TextInputType input_type) {
     IMEEngineHandlerInterface::InputContext input_context(
         input_type, ui::TEXT_INPUT_MODE_DEFAULT, ui::TEXT_INPUT_FLAG_NONE);
     engine_->FocusIn(input_context);
-    IMEBridge::Get()->SetCurrentTextInputType(input_type);
+    IMEBridge::Get()->SetCurrentInputContext(input_context);
   }
 
   scoped_ptr<InputMethodEngine> engine_;
@@ -258,7 +257,9 @@ TEST_F(InputMethodEngineTest, TestHistograms) {
 TEST_F(InputMethodEngineTest, TestCompositionBoundsChanged) {
   CreateEngine(true);
   // Enable/disable with focus.
-  engine_->SetCompositionBounds(gfx::Rect());
+  std::vector<gfx::Rect> rects;
+  rects.push_back(gfx::Rect());
+  engine_->SetCompositionBounds(rects);
   EXPECT_EQ(ONCOMPOSITIONBOUNDSCHANGED,
             observer_->GetCallsBitmapAndReset());
 }

@@ -24,23 +24,21 @@ class NfcTagChromeOS;
 class NfcNdefTagTechnologyChromeOS : public device::NfcNdefTagTechnology,
                                      public NfcRecordClient::Observer {
  public:
-  virtual ~NfcNdefTagTechnologyChromeOS();
+  ~NfcNdefTagTechnologyChromeOS() override;
 
   // device::NfcNdefTagTechnology overrides.
-  virtual void AddObserver(device::NfcNdefTagTechnology::Observer* observer)
-    override;
-  virtual void RemoveObserver(device::NfcNdefTagTechnology::Observer* observer)
-    override;
-  virtual const device::NfcNdefMessage& GetNdefMessage() const override;
-  virtual void WriteNdef(const device::NfcNdefMessage& message,
-                         const base::Closure& callback,
-                         const ErrorCallback& error_callback) override;
+  void AddObserver(device::NfcNdefTagTechnology::Observer* observer) override;
+  void RemoveObserver(
+      device::NfcNdefTagTechnology::Observer* observer) override;
+  const device::NfcNdefMessage& GetNdefMessage() const override;
+  void WriteNdef(const device::NfcNdefMessage& message,
+                 const base::Closure& callback,
+                 const ErrorCallback& error_callback) override;
 
   // NfcRecordClient::Observer overrides.
-  virtual void RecordAdded(const dbus::ObjectPath& object_path) override;
-  virtual void RecordRemoved(const dbus::ObjectPath& object_path) override;
-  virtual void RecordPropertiesReceived(
-      const dbus::ObjectPath& object_path) override;
+  void RecordAdded(const dbus::ObjectPath& object_path) override;
+  void RecordRemoved(const dbus::ObjectPath& object_path) override;
+  void RecordPropertiesReceived(const dbus::ObjectPath& object_path) override;
 
  private:
   friend class NfcTagChromeOS;
@@ -69,7 +67,7 @@ class NfcNdefTagTechnologyChromeOS : public device::NfcNdefTagTechnology,
   device::NfcNdefMessage message_;
 
   // List of observers interested in event notifications from us.
-  ObserverList<device::NfcNdefTagTechnology::Observer> observers_;
+  base::ObserverList<device::NfcNdefTagTechnology::Observer> observers_;
 
   // D-Bus object path of the remote tag or device that this object operates
   // on.

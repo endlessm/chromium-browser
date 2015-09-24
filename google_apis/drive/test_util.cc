@@ -16,8 +16,6 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "google_apis/drive/drive_api_parser.h"
-#include "google_apis/drive/gdata_wapi_parser.h"
-#include "google_apis/drive/gdata_wapi_requests.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
 #include "url/gurl.h"
@@ -28,7 +26,7 @@ namespace test_util {
 bool RemovePrefix(const std::string& input,
                   const std::string& prefix,
                   std::string* output) {
-  if (!StartsWithASCII(input, prefix, true /* case sensitive */))
+  if (!base::StartsWithASCII(input, prefix, true /* case sensitive */))
     return false;
 
   *output = input.substr(prefix.size());
@@ -83,8 +81,8 @@ scoped_ptr<base::Value> LoadJSONFile(const std::string& relative_path) {
   base::FilePath path = GetTestFilePath(relative_path);
 
   std::string error;
-  JSONFileValueSerializer serializer(path);
-  scoped_ptr<base::Value> value(serializer.Deserialize(NULL, &error));
+  JSONFileValueDeserializer deserializer(path);
+  scoped_ptr<base::Value> value(deserializer.Deserialize(NULL, &error));
   LOG_IF(WARNING, !value.get()) << "Failed to parse " << path.value()
                                 << ": " << error;
   return value.Pass();
@@ -98,7 +96,8 @@ scoped_ptr<net::test_server::BasicHttpResponse> CreateHttpResponseFromFile(
     return scoped_ptr<net::test_server::BasicHttpResponse>();
 
   std::string content_type = "text/plain";
-  if (EndsWith(file_path.AsUTF8Unsafe(), ".json", true /* case sensitive */))
+  if (base::EndsWith(file_path.AsUTF8Unsafe(), ".json",
+                     true /* case sensitive */))
     content_type = "application/json";
 
   scoped_ptr<net::test_server::BasicHttpResponse> http_response(
@@ -174,7 +173,7 @@ std::string TestGetContentCallback::GetConcatenatedData() const {
   return result;
 }
 
-void TestGetContentCallback::OnGetContent(google_apis::GDataErrorCode error,
+void TestGetContentCallback::OnGetContent(google_apis::DriveApiErrorCode error,
                                           scoped_ptr<std::string> data) {
   data_.push_back(data.release());
 }

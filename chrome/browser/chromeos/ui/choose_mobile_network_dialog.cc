@@ -7,7 +7,7 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/common/url_constants.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 
 using content::WebContents;
 using content::WebUIMessageHandler;
@@ -62,8 +62,7 @@ void ChooseMobileNetworkDialog::OnDialogClosed(const std::string& json_retval) {
 
 void ChooseMobileNetworkDialog::OnCloseContents(WebContents* source,
                                                 bool* out_close_dialog) {
-  if (out_close_dialog)
-    *out_close_dialog = true;
+  *out_close_dialog = true;
 }
 
 bool ChooseMobileNetworkDialog::ShouldShowDialogTitle() const {

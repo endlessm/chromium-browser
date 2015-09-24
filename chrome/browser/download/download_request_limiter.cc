@@ -61,8 +61,9 @@ DownloadRequestLimiter::TabDownloadState::~TabDownloadState() {
   DCHECK(!factory_.HasWeakPtrs());
 }
 
-void DownloadRequestLimiter::TabDownloadState::AboutToNavigateRenderView(
-    content::RenderViewHost* render_view_host) {
+void DownloadRequestLimiter::TabDownloadState::DidNavigateMainFrame(
+    const content::LoadCommittedDetails& details,
+    const content::FrameNavigateParams& params) {
   switch (status_) {
     case ALLOW_ONE_DOWNLOAD:
     case PROMPT_BEFORE_DOWNLOAD:
@@ -286,7 +287,7 @@ void DownloadRequestLimiter::CanDownloadOnIOThread(
     const Callback& callback) {
   // This is invoked on the IO thread. Schedule the task to run on the UI
   // thread so that we can query UI state.
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
       base::Bind(&DownloadRequestLimiter::CanDownload, this,
@@ -318,7 +319,7 @@ void DownloadRequestLimiter::CanDownload(int render_process_host_id,
                                          const GURL& url,
                                          const std::string& request_method,
                                          const Callback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   content::WebContents* originating_contents =
       tab_util::GetWebContentsByID(render_process_host_id, render_view_id);
@@ -345,7 +346,6 @@ void DownloadRequestLimiter::CanDownload(int render_process_host_id,
       callback);
 
   originating_contents->GetDelegate()->CanDownload(
-      originating_contents->GetRenderViewHost(),
       url,
       request_method,
       can_download_callback);
@@ -356,7 +356,7 @@ void DownloadRequestLimiter::OnCanDownloadDecided(
     int render_view_id,
     const std::string& request_method,
     const Callback& orig_callback, bool allow) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   content::WebContents* originating_contents =
       tab_util::GetWebContentsByID(render_process_host_id, render_view_id);
   if (!originating_contents || !allow) {

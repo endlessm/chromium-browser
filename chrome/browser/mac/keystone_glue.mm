@@ -15,8 +15,8 @@
 #include "base/logging.h"
 #include "base/mac/authorization_util.h"
 #include "base/mac/bundle_locations.h"
+#include "base/mac/foundation_util.h"
 #include "base/mac/mac_logging.h"
-#include "base/mac/mac_util.h"
 #include "base/mac/scoped_nsautorelease_pool.h"
 #include "base/mac/scoped_nsexception_enabler.h"
 #include "base/memory/ref_counted.h"
@@ -118,6 +118,9 @@ class PerformBridge : public base::RefCountedThreadSafe<PerformBridge> {
 
 // Called when Keystone registration completes.
 - (void)registrationComplete:(NSNotification*)notification;
+
+// Set the registration active and pass profile count parameters.
+- (void)setRegistrationActive;
 
 // Called periodically to announce activity by pinging the Keystone server.
 - (void)markActive:(NSTimer*)timer;
@@ -445,6 +448,8 @@ NSString* const kVersionKey = @"KSVersion";
     return NO;
 
   registration_ = [ksr retain];
+  ksUnsignedReportingAttributeClass_ =
+      [ksrBundle classNamed:@"KSUnsignedReportingAttribute"];
   return YES;
 }
 
@@ -491,6 +496,48 @@ NSString* const kVersionKey = @"KSVersion";
              nil];
 }
 
+- (void)setRegistrationActive {
+  if (!registration_)
+    return;
+  registrationActive_ = YES;
+
+  // Should never have zero profiles. Do not report this value.
+  if (!numProfiles_) {
+    [registration_ setActive];
+    return;
+  }
+
+  NSError* reportingError = nil;
+
+  KSReportingAttribute* numAccountsAttr =
+      [ksUnsignedReportingAttributeClass_
+          reportingAttributeWithValue:numProfiles_
+                                 name:@"_NumAccounts"
+                      aggregationType:kKSReportingAggregationSum
+                                error:&reportingError];
+  if (reportingError != nil)
+    VLOG(1) << [reportingError localizedDescription];
+  reportingError = nil;
+
+  KSReportingAttribute* numSignedInAccountsAttr =
+      [ksUnsignedReportingAttributeClass_
+          reportingAttributeWithValue:numSignedInProfiles_
+                                 name:@"_NumSignedIn"
+                      aggregationType:kKSReportingAggregationSum
+                                error:&reportingError];
+  if (reportingError != nil)
+    VLOG(1) << [reportingError localizedDescription];
+  reportingError = nil;
+
+  NSArray* profileCountsInformation =
+      [NSArray arrayWithObjects:numAccountsAttr, numSignedInAccountsAttr, nil];
+
+  if (![registration_ setActiveWithReportingAttributes:profileCountsInformation
+                                                 error:&reportingError]) {
+    VLOG(1) << [reportingError localizedDescription];
+  }
+}
+
 - (void)registerWithKeystone {
   [self updateStatus:kAutoupdateRegistering version:nil];
 
@@ -511,15 +558,16 @@ NSString* const kVersionKey = @"KSVersion";
   // Upon completion, ksr::KSRegistrationDidCompleteNotification will be
   // posted, and -registrationComplete: will be called.
 
-  // Mark an active RIGHT NOW; don't wait an hour for the first one.
-  [registration_ setActive];
-
   // Set up hourly activity pings.
   timer_ = [NSTimer scheduledTimerWithTimeInterval:60 * 60  // One hour
                                             target:self
                                           selector:@selector(markActive:)
-                                          userInfo:registration_
+                                          userInfo:nil
                                            repeats:YES];
+}
+
+- (BOOL)isRegisteredAndActive {
+  return registrationActive_;
 }
 
 - (void)registrationComplete:(NSNotification*)notification {
@@ -541,8 +589,7 @@ NSString* const kVersionKey = @"KSVersion";
 }
 
 - (void)markActive:(NSTimer*)timer {
-  KSRegistration* ksr = [timer userInfo];
-  [ksr setActive];
+  [self setRegistrationActive];
 }
 
 - (void)checkForUpdate {
@@ -1047,6 +1094,19 @@ NSString* const kVersionKey = @"KSVersion";
     tagSuffix = [tagSuffix stringByAppendingString:@"-full"];
   }
   return tagSuffix;
+}
+
+
+- (void)updateProfileCountsWithNumProfiles:(uint32_t)profiles
+                       numSignedInProfiles:(uint32_t)signedInProfiles {
+  BOOL activate = numProfiles_ == 0;
+  numProfiles_ = profiles;
+  numSignedInProfiles_ = signedInProfiles;
+  if (activate) {
+    // During startup, numProfiles_ defaults to 0 so this is called when the
+    // very first update to profile-counts is made.  http://crbug/487807
+    [self setRegistrationActive];
+  }
 }
 
 @end  // @implementation KeystoneGlue

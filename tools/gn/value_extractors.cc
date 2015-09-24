@@ -58,8 +58,6 @@ bool ListValueUniqueExtractor(const Value& value,
   return true;
 }
 
-// This extractor rejects files with system-absolute file paths. If we need
-// that in the future, we'll have to add some flag to control this.
 struct RelativeFileConverter {
   RelativeFileConverter(const BuildSettings* build_settings_in,
                         const SourceDir& current_dir_in)
@@ -67,18 +65,9 @@ struct RelativeFileConverter {
         current_dir(current_dir_in) {
   }
   bool operator()(const Value& v, SourceFile* out, Err* err) const {
-    if (!v.VerifyTypeIs(Value::STRING, err))
-      return false;
-    *out = current_dir.ResolveRelativeFile(v.string_value(),
+    *out = current_dir.ResolveRelativeFile(v, err,
                                            build_settings->root_path_utf8());
-    if (out->is_system_absolute()) {
-      *err = Err(v, "System-absolute file path.",
-          "You can't list a system-absolute file path here. Please include "
-          "only files in\nthe source tree. Maybe you meant to begin with two "
-          "slashes to indicate an\nabsolute path in the source tree?");
-      return false;
-    }
-    return true;
+    return !err->has_error();
   }
   const BuildSettings* build_settings;
   const SourceDir& current_dir;
@@ -91,9 +80,7 @@ struct RelativeDirConverter {
         current_dir(current_dir_in) {
   }
   bool operator()(const Value& v, SourceDir* out, Err* err) const {
-    if (!v.VerifyTypeIs(Value::STRING, err))
-      return false;
-    *out = current_dir.ResolveRelativeDir(v.string_value(),
+    *out = current_dir.ResolveRelativeDir(v, err,
                                           build_settings->root_path_utf8());
     return true;
   }

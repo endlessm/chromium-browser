@@ -71,8 +71,19 @@ class BuildArchiveTest(unittest.TestCase):
     archive = fetch_build.FullBuildArchive()
     archive._platform = 'android'
     self.assertEqual('chromium-android', archive.BucketName())
-    self.assertEqual('android_main_rel/full-build-linux_1234567890abcdef.zip',
+    self.assertEqual(
+        'android_main_rel/full-build-linux_1234567890abcdef.zip',
         archive.FilePath('1234567890abcdef'))
+
+  def test_FullBuildArchive_Linux_BuilderName(self):
+    archive = fetch_build.FullBuildArchive()
+    archive._platform = 'linux'
+    self.assertEqual('linux_full_bisect_builder', archive.GetBuilderName())
+
+  def test_FullBuildArchive_Windows_BuildTime(self):
+    archive = fetch_build.FullBuildArchive()
+    archive._platform = 'win'
+    self.assertEqual(14400, archive.GetBuilderBuildTime())
 
   def test_PerfBuildArchive_Linux(self):
     archive = fetch_build.PerfBuildArchive()
@@ -90,6 +101,14 @@ class BuildArchiveTest(unittest.TestCase):
         'android_perf_rel/full-build-linux_123456.zip',
         archive.FilePath('123456'))
 
+  def test_PerfBuildArchive_AndroidArm64(self):
+    archive = fetch_build.PerfBuildArchive()
+    archive._platform = 'android_arm64'
+    self.assertEqual('chrome-perf', archive.BucketName())
+    self.assertEqual(
+        'android_perf_rel_arm64/full-build-linux_123456.zip',
+        archive.FilePath('123456'))
+
   def test_PerfBuildArchive_64BitWindows(self):
     archive = fetch_build.PerfBuildArchive(target_arch='x64')
     archive._platform = 'win64'
@@ -105,6 +124,66 @@ class BuildArchiveTest(unittest.TestCase):
         'Linux Builder/full-build-linux_123456'
         '_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.zip',
         archive.FilePath(123456, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'))
+
+  def test_PerfBuildArchive_64BitWindows_BuilderName(self):
+    archive = fetch_build.PerfBuildArchive()
+    archive._platform = 'win64'
+    self.assertEqual('win_x64_perf_bisect_builder', archive.GetBuilderName())
+
+  def test_PerfBuildArchive_64BitWindows_BuildTime(self):
+    archive = fetch_build.PerfBuildArchive()
+    archive._platform = 'win64'
+    self.assertEqual(14400, archive.GetBuilderBuildTime())
+
+  def test_PerfBuildArchive_Windows_BuilderName(self):
+    archive = fetch_build.PerfBuildArchive()
+    archive._platform = 'win'
+    self.assertEqual('win_perf_bisect_builder', archive.GetBuilderName())
+
+  def test_PerfBuildArchive_Windows_BuildTime(self):
+    archive = fetch_build.PerfBuildArchive()
+    archive._platform = 'win'
+    self.assertEqual(14400, archive.GetBuilderBuildTime())
+
+  def test_PerfBuildArchive_Linux_BuilderName(self):
+    archive = fetch_build.PerfBuildArchive()
+    archive._platform = 'linux'
+    self.assertEqual('linux_perf_bisect_builder', archive.GetBuilderName())
+
+  def test_PerfBuildArchive_Linux_BuildTime(self):
+    archive = fetch_build.PerfBuildArchive()
+    archive._platform = 'linux'
+    self.assertEqual(14400, archive.GetBuilderBuildTime())
+
+  def test_PerfBuildArchive_Android_BuilderName(self):
+    archive = fetch_build.PerfBuildArchive()
+    archive._platform = 'android'
+    self.assertEqual('android_perf_bisect_builder', archive.GetBuilderName())
+
+  def test_PerfBuildArchive_Android_BuildTime(self):
+    archive = fetch_build.PerfBuildArchive()
+    archive._platform = 'android'
+    self.assertEqual(14400, archive.GetBuilderBuildTime())
+
+  def test_PerfBuildArchive_Mac_BuilderName(self):
+    archive = fetch_build.PerfBuildArchive()
+    archive._platform = 'mac'
+    self.assertEqual('mac_perf_bisect_builder', archive.GetBuilderName())
+
+  def test_PerfBuildArchive_mac_BuildTime(self):
+    archive = fetch_build.PerfBuildArchive()
+    archive._platform = 'mac'
+    self.assertEqual(14400, archive.GetBuilderBuildTime())
+
+  def test_GetBuildBotUrl_Perf(self):
+    self.assertEqual(
+        fetch_build.PERF_TRY_SERVER_URL,
+        fetch_build.GetBuildBotUrl(fetch_build.PERF_BUILDER))
+
+  def test_GetBuildBotUrl_full(self):
+    self.assertEqual(
+        fetch_build.LINUX_TRY_SERVER_URL,
+        fetch_build.GetBuildBotUrl(fetch_build.FULL_BUILDER))
 
 
 class UnzipTest(unittest.TestCase):

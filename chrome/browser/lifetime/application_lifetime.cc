@@ -4,17 +4,15 @@
 
 #include "chrome/browser/lifetime/application_lifetime.h"
 
-#include "ash/shell.h"
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/debug/trace_event.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/metrics/field_trial.h"
 #include "base/prefs/pref_service.h"
-#include "base/process/kill.h"
+#include "base/process/process.h"
 #include "base/process/process_handle.h"
+#include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
@@ -32,16 +30,16 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/user_manager.h"
+#include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
-#include "content/public/browser/browser_shutdown.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/notification_service.h"
 
 #if defined(OS_CHROMEOS)
 #include "base/sys_info.h"
-#include "chrome/browser/chromeos/boot_times_loader.h"
+#include "chrome/browser/chromeos/boot_times_recorder.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/session_manager_client.h"
 #include "chromeos/dbus/update_engine_client.h"
@@ -49,6 +47,11 @@
 
 #if defined(OS_WIN)
 #include "base/win/win_util.h"
+#include "components/browser_watcher/exit_funnel_win.h"
+#endif
+
+#if defined(USE_ASH)
+#include "ash/shell.h"
 #endif
 
 namespace chrome {
@@ -78,6 +81,7 @@ bool AreAllBrowsersCloseable() {
 #endif  // !defined(OS_ANDROID)
 
 int g_keep_alive_count = 0;
+bool g_disable_shutdown_for_testing = false;
 
 #if defined(OS_CHROMEOS)
 // Whether chrome should send stop request to a session manager.
@@ -134,7 +138,7 @@ void CloseAllBrowsers() {
   }
 
 #if defined(OS_CHROMEOS)
-  chromeos::BootTimesLoader::Get()->AddLogoutTimeMarker(
+  chromeos::BootTimesRecorder::Get()->AddLogoutTimeMarker(
       "StartedClosingWindows", false);
 #endif
   scoped_refptr<BrowserCloseManager> browser_close_manager =
@@ -145,11 +149,12 @@ void CloseAllBrowsers() {
 void AttemptUserExit() {
 #if defined(OS_CHROMEOS)
   StartShutdownTracing();
-  chromeos::BootTimesLoader::Get()->AddLogoutTimeMarker("LogoutStarted", false);
+  chromeos::BootTimesRecorder::Get()->AddLogoutTimeMarker("LogoutStarted",
+                                                          false);
 
   PrefService* state = g_browser_process->local_state();
   if (state) {
-    chromeos::BootTimesLoader::Get()->OnLogoutStarted(state);
+    chromeos::BootTimesRecorder::Get()->OnLogoutStarted(state);
 
     // Login screen should show up in owner's locale.
     std::string owner_locale = state->GetString(prefs::kOwnerLocale);
@@ -176,14 +181,14 @@ void AttemptUserExit() {
 }
 
 void StartShutdownTracing() {
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
   if (command_line.HasSwitch(switches::kTraceShutdown)) {
-    base::debug::CategoryFilter category_filter(
-        command_line.GetSwitchValueASCII(switches::kTraceShutdown));
-    base::debug::TraceLog::GetInstance()->SetEnabled(
-        category_filter,
-        base::debug::TraceLog::RECORDING_MODE,
-        base::debug::TraceOptions());
+    base::trace_event::TraceConfig trace_config(
+        command_line.GetSwitchValueASCII(switches::kTraceShutdown), "");
+    base::trace_event::TraceLog::GetInstance()->SetEnabled(
+        trace_config,
+        base::trace_event::TraceLog::RECORDING_MODE);
   }
   TRACE_EVENT0("shutdown", "StartShutdownTracing");
 }
@@ -199,7 +204,7 @@ void AttemptRestart() {
   pref_service->SetBoolean(prefs::kWasRestarted, true);
 
 #if defined(OS_CHROMEOS)
-  chromeos::BootTimesLoader::Get()->set_restart_requested();
+  chromeos::BootTimesRecorder::Get()->set_restart_requested();
 
   DCHECK(!g_send_stop_request_to_session_manager);
   // Make sure we don't send stop request to the session manager.
@@ -236,9 +241,8 @@ void AttemptExit() {
 #if defined(OS_CHROMEOS)
 // A function called when SIGTERM is received.
 void ExitCleanly() {
-  // We always mark exit cleanly because SessionManager may kill
-  // chrome in 3 seconds after SIGTERM.
-  g_browser_process->EndSession();
+  // We always mark exit cleanly.
+  MarkAsCleanShutdown();
 
   // Don't block when SIGTERM is received. AreaAllBrowsersCloseable()
   // can be false in following cases. a) power-off b) signout from
@@ -251,17 +255,13 @@ void ExitCleanly() {
 }
 #endif
 
-namespace {
-
-bool ExperimentUseBrokenSynchronization() {
-  const std::string group_name =
-      base::FieldTrialList::FindFullName("WindowsLogoffRace");
-  return group_name == "BrokenSynchronization";
-}
-
-}  // namespace
-
 void SessionEnding() {
+#if defined(OS_WIN)
+  browser_watcher::ExitFunnel funnel;
+
+  funnel.Init(kBrowserExitCodesRegistryPath, base::GetCurrentProcessHandle());
+  funnel.RecordEvent(L"SessionEnding");
+#endif
   // This is a time-limited shutdown where we need to write as much to
   // disk as we can as soon as we can, and where we must kill the
   // process within a hang timeout to avoid user prompts.
@@ -287,6 +287,9 @@ void SessionEnding() {
       content::NotificationService::AllSources(),
       content::NotificationService::NoDetails());
 
+#if defined(OS_WIN)
+  funnel.RecordEvent(L"EndSession");
+#endif
   // Write important data first.
   g_browser_process->EndSession();
 
@@ -294,25 +297,17 @@ void SessionEnding() {
   base::win::SetShouldCrashOnProcessDetach(false);
 #endif
 
-  if (ExperimentUseBrokenSynchronization()) {
-    CloseAllBrowsers();
+#if defined(OS_WIN)
+  // KillProcess ought to terminate the process without further ado, so if
+  // execution gets to this point, presumably this is normal exit.
+  funnel.RecordEvent(L"KillProcess");
+#endif
 
-    // Send out notification. This is used during testing so that the test
-    // harness can properly shutdown before we exit.
-    content::NotificationService::current()->Notify(
-        chrome::NOTIFICATION_SESSION_END,
-        content::NotificationService::AllSources(),
-        content::NotificationService::NoDetails());
-
-    // This will end by terminating the process.
-    content::ImmediateShutdownAndExitProcess();
-  } else {
-    // On Windows 7 and later, the system will consider the process ripe for
-    // termination as soon as it hides or destroys its windows. Since any
-    // execution past that point will be non-deterministically cut short, we
-    // might as well put ourselves out of that misery deterministically.
-    base::KillProcess(base::GetCurrentProcessHandle(), 0, false);
-  }
+  // On Windows 7 and later, the system will consider the process ripe for
+  // termination as soon as it hides or destroys its windows. Since any
+  // execution past that point will be non-deterministically cut short, we
+  // might as well put ourselves out of that misery deterministically.
+  base::Process::Current().Terminate(0, false);
 }
 
 void IncrementKeepAliveCount() {
@@ -323,11 +318,20 @@ void IncrementKeepAliveCount() {
   ++g_keep_alive_count;
 }
 
+void CloseAllBrowsersIfNeeded() {
+  // If there are no browsers open and we aren't already shutting down,
+  // initiate a shutdown. Also skips shutdown if this is a unit test.
+  // (MessageLoop::current() == null or explicitly disabled).
+  if (chrome::GetTotalBrowserCount() == 0 &&
+      !browser_shutdown::IsTryingToQuit() && base::MessageLoop::current() &&
+      !g_disable_shutdown_for_testing) {
+    CloseAllBrowsers();
+  }
+}
+
 void DecrementKeepAliveCount() {
   DCHECK_GT(g_keep_alive_count, 0);
   --g_keep_alive_count;
-
-  DCHECK(g_browser_process);
   // Although we should have a browser process, if there is none,
   // there is nothing to do.
   if (!g_browser_process) return;
@@ -335,14 +339,7 @@ void DecrementKeepAliveCount() {
   // Allow the app to shutdown again.
   if (!WillKeepAlive()) {
     g_browser_process->ReleaseModule();
-    // If there are no browsers open and we aren't already shutting down,
-    // initiate a shutdown. Also skips shutdown if this is a unit test
-    // (MessageLoop::current() == null).
-    if (chrome::GetTotalBrowserCount() == 0 &&
-        !browser_shutdown::IsTryingToQuit() &&
-        base::MessageLoop::current()) {
-      CloseAllBrowsers();
-    }
+    CloseAllBrowsersIfNeeded();
   }
 }
 
@@ -424,6 +421,12 @@ bool ShouldStartShutdown(Browser* browser) {
     return BrowserList::GetInstance(chrome::HOST_DESKTOP_TYPE_NATIVE)->empty();
 #endif
   return true;
+}
+
+void DisableShutdownForTesting(bool disable_shutdown_for_testing) {
+  g_disable_shutdown_for_testing = disable_shutdown_for_testing;
+  if (!g_disable_shutdown_for_testing && !WillKeepAlive())
+    CloseAllBrowsersIfNeeded();
 }
 
 }  // namespace chrome

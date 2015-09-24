@@ -61,11 +61,6 @@ bool SimpleMenuModel::Delegate::GetIconForCommandId(
 void SimpleMenuModel::Delegate::CommandIdHighlighted(int command_id) {
 }
 
-void SimpleMenuModel::Delegate::ExecuteCommand(
-    int command_id, int event_flags) {
-  ExecuteCommand(command_id, event_flags);
-}
-
 void SimpleMenuModel::Delegate::MenuWillShow(SimpleMenuModel* /*source*/) {
 }
 
@@ -138,12 +133,6 @@ void SimpleMenuModel::AddSeparator(MenuSeparatorType separator_type) {
                 base::string16(), gfx::Image(), TYPE_SEPARATOR, -1, NULL, NULL,
                 separator_type };
   AppendItem(item);
-}
-
-void SimpleMenuModel::RemoveTrailingSeparators() {
-  while (!items_.empty() && items_.back().type == TYPE_SEPARATOR)
-    items_.pop_back();
-  MenuItemsChanged();
 }
 
 void SimpleMenuModel::AddButtonItem(int command_id,

@@ -23,6 +23,17 @@
 
 namespace rtc {
 
+SSLStreamAdapterHelper::SSLStreamAdapterHelper(StreamInterface* stream)
+    : SSLStreamAdapter(stream),
+      state_(SSL_NONE),
+      role_(SSL_CLIENT),
+      ssl_error_code_(0),  // Not meaningful yet
+      ssl_mode_(SSL_MODE_TLS),
+      ssl_max_version_(SSL_PROTOCOL_TLS_11) {
+}
+
+SSLStreamAdapterHelper::~SSLStreamAdapterHelper() = default;
+
 void SSLStreamAdapterHelper::SetIdentity(SSLIdentity* identity) {
   ASSERT(identity_.get() == NULL);
   identity_.reset(identity);
@@ -47,6 +58,10 @@ int SSLStreamAdapterHelper::StartSSLWithPeer() {
 void SSLStreamAdapterHelper::SetMode(SSLMode mode) {
   ASSERT(state_ == SSL_NONE);
   ssl_mode_ = mode;
+}
+
+void SSLStreamAdapterHelper::SetMaxProtocolVersion(SSLProtocolVersion version) {
+  ssl_max_version_ = version;
 }
 
 StreamState SSLStreamAdapterHelper::GetState() const {

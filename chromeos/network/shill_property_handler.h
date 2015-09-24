@@ -99,7 +99,7 @@ class CHROMEOS_EXPORT ShillPropertyHandler
   };
 
   explicit ShillPropertyHandler(Listener* listener);
-  virtual ~ShillPropertyHandler();
+  ~ShillPropertyHandler() override;
 
   // Sets up the observer and calls UpdateManagerProperties().
   void Init();
@@ -132,16 +132,13 @@ class CHROMEOS_EXPORT ShillPropertyHandler
   // Requests an immediate network scan.
   void RequestScan() const;
 
-  // Calls Manager.ConnectToBestServices().
-  void ConnectToBestServices() const;
-
   // Requests all properties for the service or device (called for new items).
   void RequestProperties(ManagedState::ManagedType type,
                          const std::string& path);
 
   // ShillPropertyChangedObserver overrides
-  virtual void OnPropertyChanged(const std::string& key,
-                                 const base::Value& value) override;
+  void OnPropertyChanged(const std::string& key,
+                         const base::Value& value) override;
 
  private:
   typedef std::map<ManagedState::ManagedType, std::set<std::string> >

@@ -44,16 +44,6 @@ public:
         return setImpl(array, offset * sizeof(T));
     }
 
-    bool setRange(const T* data, size_t dataLength, unsigned offset)
-    {
-        return setRangeImpl(reinterpret_cast<const char*>(data), dataLength * sizeof(T), offset * sizeof(T));
-    }
-
-    bool zeroRange(unsigned offset, size_t length)
-    {
-        return zeroRangeImpl(offset * sizeof(T), length * sizeof(T));
-    }
-
     // Overridden from ArrayBufferView. This must be public because of
     // rules about inheritance of members in template classes, and
     // because it is accessed via pointers to subclasses.
@@ -62,7 +52,7 @@ public:
         return m_length;
     }
 
-    virtual unsigned byteLength() const override final
+    unsigned byteLength() const final
     {
         return m_length * sizeof(T);
     }
@@ -73,14 +63,6 @@ public:
     {
         ASSERT_WITH_SECURITY_IMPLICATION(index < TypedArrayBase<T>::m_length);
         return TypedArrayBase<T>::data()[index];
-    }
-
-    bool checkInboundData(unsigned offset, unsigned pos) const
-    {
-        return (offset <= m_length
-            && offset + pos <= m_length
-            // check overflow
-            && offset + pos >= offset);
     }
 
 protected:
@@ -94,9 +76,7 @@ protected:
     static PassRefPtr<Subclass> create(unsigned length)
     {
         RefPtr<ArrayBuffer> buffer = ArrayBuffer::create(length, sizeof(T));
-        if (!buffer.get())
-            return nullptr;
-        return create<Subclass>(buffer, 0, length);
+        return create<Subclass>(buffer.release(), 0, length);
     }
 
     template <class Subclass>
@@ -115,31 +95,20 @@ protected:
                                        unsigned length)
     {
         RefPtr<ArrayBuffer> buf(buffer);
-        if (!verifySubRange<T>(buf, byteOffset, length))
-            return nullptr;
-
-        return adoptRef(new Subclass(buf, byteOffset, length));
+        RELEASE_ASSERT(verifySubRange<T>(buf, byteOffset, length));
+        return adoptRef(new Subclass(buf.release(), byteOffset, length));
     }
 
     template <class Subclass>
-    static PassRefPtr<Subclass> createUninitialized(unsigned length)
+    static PassRefPtr<Subclass> createOrNull(unsigned length)
     {
-        RefPtr<ArrayBuffer> buffer = ArrayBuffer::createUninitialized(length, sizeof(T));
-        if (!buffer.get())
+        RefPtr<ArrayBuffer> buffer = ArrayBuffer::createOrNull(length, sizeof(T));
+        if (!buffer)
             return nullptr;
-        return create<Subclass>(buffer, 0, length);
+        return create<Subclass>(buffer.release(), 0, length);
     }
 
-    template <class Subclass>
-    PassRefPtr<Subclass> subarrayImpl(int start, int end) const
-    {
-        unsigned offset, length;
-        calculateOffsetAndLength(start, end, m_length, &offset, &length);
-        clampOffsetAndNumElements<T>(buffer(), m_byteOffset, &offset, &length);
-        return create<Subclass>(buffer(), offset, length);
-    }
-
-    virtual void neuter() override final
+    void neuter() final
     {
         ArrayBufferView::neuter();
         m_length = 0;

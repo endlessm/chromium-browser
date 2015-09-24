@@ -5,13 +5,17 @@
 #ifndef COMPONENTS_AUTOFILL_CORE_BROWSER_AUTOFILL_TEST_UTILS_H_
 #define COMPONENTS_AUTOFILL_CORE_BROWSER_AUTOFILL_TEST_UTILS_H_
 
+#include <vector>
+
 #include "base/memory/scoped_ptr.h"
+#include "components/autofill/core/browser/field_types.h"
 
 class PrefService;
 
 namespace autofill {
 
 class AutofillProfile;
+class AutofillTable;
 class CreditCard;
 struct FormData;
 struct FormFieldData;
@@ -35,8 +39,11 @@ void CreateTestFormField(const char* label,
 
 // Populates |form| with data corresponding to a simple address form.
 // Note that this actually appends fields to the form data, which can be useful
-// for building up more complex test forms.
+// for building up more complex test forms. Another version of the function is
+// provided in case the caller wants the vector of expected field |types|.
 void CreateTestAddressFormData(FormData* form);
+void CreateTestAddressFormData(FormData* form,
+                               std::vector<ServerFieldTypeSet>* types);
 
 // Returns a profile full of dummy info.
 AutofillProfile GetFullProfile();
@@ -61,6 +68,10 @@ CreditCard GetVerifiedCreditCard();
 
 // Returns a verified credit card full of dummy info, different to the above.
 CreditCard GetVerifiedCreditCard2();
+
+// Returns a masked server card full of dummy info.
+CreditCard GetMaskedServerCard();
+CreditCard GetMaskedServerCardAmex();
 
 // A unit testing utility that is common to a number of the Autofill unit
 // tests.  |SetProfileInfo| provides a quick way to populate a profile with
@@ -90,6 +101,11 @@ void SetCreditCardInfo(CreditCard* credit_card,
 // on a per-test basis: http://crbug.com/57221
 // Disables or mocks out code that would otherwise reach out to system services.
 void DisableSystemServices(PrefService* prefs);
+
+// Sets |cards| for |table|. |cards| may contain full, unmasked server cards,
+// whereas AutofillTable::SetServerCreditCards can only contain masked cards.
+void SetServerCreditCards(AutofillTable* table,
+                          const std::vector<CreditCard>& cards);
 
 }  // namespace test
 }  // namespace autofill

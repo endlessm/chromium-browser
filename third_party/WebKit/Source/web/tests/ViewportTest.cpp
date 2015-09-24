@@ -32,16 +32,16 @@
 
 #include "core/frame/FrameView.h"
 #include "core/frame/LocalFrame.h"
+#include "core/frame/PageScaleConstraints.h"
 #include "core/frame/Settings.h"
-#include "core/page/InjectedStyleSheets.h"
 #include "core/page/Page.h"
-#include "core/page/PageScaleConstraints.h"
-#include "core/testing/URLTestHelpers.h"
 #include "platform/Length.h"
 #include "platform/geometry/IntPoint.h"
 #include "platform/geometry/IntRect.h"
 #include "platform/geometry/IntSize.h"
 #include "platform/scroll/ScrollbarTheme.h"
+#include "platform/testing/URLTestHelpers.h"
+#include "platform/testing/UnitTestHelpers.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebUnitTestSupport.h"
 #include "public/web/WebConsoleMessage.h"
@@ -50,18 +50,15 @@
 #include "public/web/WebSettings.h"
 #include "public/web/WebViewClient.h"
 #include "web/tests/FrameTestHelpers.h"
-#include <gmock/gmock.h>
 #include <gtest/gtest.h>
-
 #include <vector>
 
-namespace {
+namespace blink {
 
-using blink::FrameTestHelpers::runPendingTasks;
 using blink::FrameTestHelpers::UseMockScrollbarSettings;
-using namespace blink;
+using blink::testing::runPendingTasks;
 
-class ViewportTest : public testing::Test {
+class ViewportTest : public ::testing::Test {
 protected:
     ViewportTest()
         : m_baseURL("http://www.test.com/")
@@ -69,7 +66,7 @@ protected:
     {
     }
 
-    virtual ~ViewportTest()
+    ~ViewportTest() override
     {
         Platform::current()->unitTestSupport()->unregisterAllMockedURLs();
     }
@@ -109,6 +106,7 @@ static PageScaleConstraints runViewportTest(Page* page, int initialWidth, int in
     PageScaleConstraints constraints = description.resolve(initialViewportSize, Length(980, blink::Fixed));
 
     constraints.fitToContentsWidth(constraints.layoutSize.width(), initialWidth);
+    constraints.resolveAutoInitialScale();
     return constraints;
 }
 
@@ -3156,4 +3154,4 @@ TEST_F(ViewportTest, viewportWarnings7)
     EXPECT_EQ(0U, webFrameClient.messages.size());
 }
 
-} // namespace
+} // namespace blink

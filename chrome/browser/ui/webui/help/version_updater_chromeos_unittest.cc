@@ -8,7 +8,6 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "chrome/browser/chromeos/login/users/mock_user_manager.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
@@ -17,6 +16,7 @@
 #include "chromeos/dbus/fake_update_engine_client.h"
 #include "chromeos/dbus/shill_service_client.h"
 #include "chromeos/network/network_handler.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
@@ -38,14 +38,14 @@ void CheckNotification(VersionUpdater::Status /* status */,
 class VersionUpdaterCrosTest : public ::testing::Test {
  protected:
   VersionUpdaterCrosTest()
-      : version_updater_(VersionUpdater::Create()),
+      : version_updater_(VersionUpdater::Create(nullptr)),
         fake_update_engine_client_(NULL),
         mock_user_manager_(new MockUserManager()),
         user_manager_enabler_(mock_user_manager_) {}
 
-  virtual ~VersionUpdaterCrosTest() {}
+  ~VersionUpdaterCrosTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     fake_update_engine_client_ = new FakeUpdateEngineClient();
     scoped_ptr<DBusThreadManagerSetter> dbus_setter =
         DBusThreadManager::GetSetterForTesting();
@@ -67,23 +67,22 @@ class VersionUpdaterCrosTest : public ::testing::Test {
                              "eth",
                              shill::kTypeEthernet, shill::kStateOnline,
                              true /* visible */);
-    loop_.RunUntilIdle();
+    base::MessageLoop::current()->RunUntilIdle();
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     NetworkHandler::Shutdown();
 
     CrosSettings::Shutdown();
     DeviceSettingsService::Shutdown();
   }
 
+  content::TestBrowserThreadBundle thread_bundle_;
   scoped_ptr<VersionUpdater> version_updater_;
   FakeUpdateEngineClient* fake_update_engine_client_;  // Not owned.
 
   MockUserManager* mock_user_manager_;  // Not owned.
   ScopedUserManagerEnabler user_manager_enabler_;
-
-  base::MessageLoop loop_;
 
   DISALLOW_COPY_AND_ASSIGN(VersionUpdaterCrosTest);
 };

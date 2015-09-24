@@ -88,13 +88,13 @@ ChromeMetadataSource::Request::Request(const std::string& key,
 void ChromeMetadataSource::Download(const std::string& key,
                                     const Callback& downloaded) {
   GURL resource(validation_data_url_ + key);
-  if (!resource.SchemeIsSecure()) {
+  if (!resource.SchemeIsCryptographic()) {
     downloaded(false, key, NULL);
     return;
   }
 
-  scoped_ptr<net::URLFetcher> fetcher(
-      net::URLFetcher::Create(resource, net::URLFetcher::GET, this));
+  scoped_ptr<net::URLFetcher> fetcher =
+      net::URLFetcher::Create(resource, net::URLFetcher::GET, this);
   fetcher->SetLoadFlags(
       net::LOAD_DO_NOT_SEND_COOKIES | net::LOAD_DO_NOT_SAVE_COOKIES);
   fetcher->SetRequestContext(getter_);

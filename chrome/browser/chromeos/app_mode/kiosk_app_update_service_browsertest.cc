@@ -7,16 +7,22 @@
 #include <string>
 
 #include "base/basictypes.h"
+#include "base/bind.h"
+#include "base/callback.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/location.h"
+#include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/test/scoped_path_override.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "base/time/time.h"
 #include "chrome/browser/apps/app_browsertest_util.h"
@@ -36,6 +42,15 @@
 
 namespace chromeos {
 
+namespace {
+
+void RunCallback(scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+                 const base::Closure& callback) {
+  task_runner->PostTask(FROM_HERE, callback);
+}
+
+} // namespace
+
 class KioskAppUpdateServiceTest
     : public extensions::PlatformAppBrowserTest,
       public system::AutomaticRebootManagerObserver {
@@ -48,13 +63,13 @@ class KioskAppUpdateServiceTest
   ~KioskAppUpdateServiceTest() override {}
 
   // extensions::PlatformAppBrowserTest overrides:
-  void SetUpOnMainThread() override {
-    extensions::PlatformAppBrowserTest::SetUpOnMainThread();
+  void SetUpInProcessBrowserTestFixture() override {
+    extensions::PlatformAppBrowserTest::SetUpInProcessBrowserTestFixture();
 
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
     const base::FilePath& temp_dir = temp_dir_.path();
 
-    const base::TimeDelta uptime = base::TimeDelta::FromHours(1);
+    const base::TimeDelta uptime = base::TimeDelta::FromHours(3);
     const std::string uptime_seconds =
         base::DoubleToString(uptime.InSecondsF());
     const base::FilePath uptime_file = temp_dir.Append("uptime");
@@ -63,17 +78,38 @@ class KioskAppUpdateServiceTest
                   uptime_file, uptime_seconds.c_str(), uptime_seconds.size()));
     uptime_file_override_.reset(
         new base::ScopedPathOverride(chromeos::FILE_UPTIME, uptime_file));
+  }
+
+  void SetUpOnMainThread() override {
+    extensions::PlatformAppBrowserTest::SetUpOnMainThread();
 
     app_ = LoadExtension(
         test_data_dir_.AppendASCII("api_test/runtime/on_restart_required"));
 
     // Fake app mode command line.
-    CommandLine* command = CommandLine::ForCurrentProcess();
+    base::CommandLine* command = base::CommandLine::ForCurrentProcess();
     command->AppendSwitch(switches::kForceAppMode);
     command->AppendSwitchASCII(switches::kAppId, app_->id());
 
     automatic_reboot_manager_ =
         g_browser_process->platform_part()->automatic_reboot_manager();
+
+    // Wait for the |automatic_reboot_manager_| to finish initializing.
+    base::RunLoop run_loop;
+    base::SequencedWorkerPool* worker_pool =
+        content::BrowserThread::GetBlockingPool();
+    // Ensure that the initialization task the |automatic_reboot_manager_| posts
+    // to the blocking pool has finished by posting another task with the same
+    // |SequenceToken| and waiting for it to finish.
+    worker_pool->PostSequencedWorkerTask(
+        worker_pool->GetNamedSequenceToken("automatic-reboot-manager"),
+        FROM_HERE, base::Bind(&RunCallback, base::ThreadTaskRunnerHandle::Get(),
+                              run_loop.QuitClosure()));
+    run_loop.Run();
+    // Ensure that the |automatic_reboot_manager_| has had a chance to fully
+    // process the result of the task posted to the blocking pool.
+    base::RunLoop().RunUntilIdle();
+
     automatic_reboot_manager_->AddObserver(this);
   }
 
@@ -109,7 +145,7 @@ class KioskAppUpdateServiceTest
   void RequestPeriodicReboot() {
     run_loop_.reset(new base::RunLoop);
     g_browser_process->local_state()->SetInteger(
-        prefs::kUptimeLimit, base::TimeDelta::FromMinutes(30).InSeconds());
+        prefs::kUptimeLimit, base::TimeDelta::FromHours(2).InSeconds());
     run_loop_->Run();
   }
 

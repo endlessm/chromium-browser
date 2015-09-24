@@ -1,46 +1,108 @@
-# Copyright (c) 2014 The Chromium OS Authors. All rights reserved.
+# Copyright 2015 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-"""Interface for sending data to Graphite."""
+"""Entry point to stats reporting objects for cbuildbot.
+
+These factories setup the stats collection modules (es_utils, statsd) correctly
+so that cbuildbot stats from different sources (official builders, trybots,
+developer machines etc.) stay separate.
+"""
 
 from __future__ import print_function
 
-import socket
+from chromite.cbuildbot import constants
+from chromite.cbuildbot import topology
+from chromite.lib import factory
+from chromite.lib.graphite_lib import es_utils
+from chromite.lib.graphite_lib import stats
+from chromite.lib.graphite_lib import stats_es_mock
 
-from chromite.lib import cros_build_lib
 
-CARBON_SERVER = 'chromeos-stats.corp.google.com'
-CARBON_PORT = 2003
+CONNECTION_TYPE_DEBUG = 'debug'
+CONNECTION_TYPE_MOCK = 'none'
+CONNECTION_TYPE_PROD = 'prod'
+CONNECTION_TYPE_READONLY = 'readonly'
 
-def SendToCarbon(lines, dryrun=False, process_queue=20):
-  """Send data to the statsd/graphite server.
+# The types definitions below make linter unhappy. The 'right' way of using
+# functools.partial makes functools.wraps (and hence our decorators) blow up.
+# pylint: disable=unnecessary-lambda
 
-  Example of a line "autotest.scheduler.running_agents_5m 300"
-  5m is the frequency we are sampling (It is not required but it adds clarity
-  to the metric).
+class ESMetadataFactoryClass(factory.ObjectFactory):
+  """Factory class for setting up an Elastic Search connection."""
 
-  Args:
-    lines: A list of lines of the format "category value"
-    dryrun: Print out what you would send but do not send anything.
-      [default: False]
-    process_queue: How many lines to send to the statsd server at a
-      time. [defualt: 20]
-  """
-  sock = socket.socket()
+  _ELASTIC_SEARCH_TYPES = {
+      CONNECTION_TYPE_PROD: factory.CachedFunctionCall(
+          lambda: es_utils.ESMetadata(
+              use_http=constants.ELASTIC_SEARCH_USE_HTTP,
+              host=topology.topology.get(topology.ELASTIC_SEARCH_HOST_KEY),
+              port=topology.topology.get(topology.ELASTIC_SEARCH_PORT_KEY),
+              index=constants.ELASTIC_SEARCH_INDEX,
+              udp_port=topology.topology.get(
+                  topology.ELASTIC_SEARCH_UDP_PORT_KEY))),
+      CONNECTION_TYPE_READONLY: factory.CachedFunctionCall(
+          lambda: es_utils.ESMetadataRO(
+              use_http=constants.ELASTIC_SEARCH_USE_HTTP,
+              host=topology.topology.get(topology.ELASTIC_SEARCH_HOST_KEY),
+              port=topology.topology.get(topology.ELASTIC_SEARCH_PORT_KEY),
+              index=constants.ELASTIC_SEARCH_INDEX,
+              udp_port=topology.topology.get(
+                  topology.ELASTIC_SEARCH_UDP_PORT_KEY)))
+      }
 
-  try:
-    sock.connect((CARBON_SERVER, CARBON_PORT))
-  except Exception:
-    cros_build_lib.Error('Failed to connect to Carbon.')
-    raise
+  def __init__(self):
+    super(ESMetadataFactoryClass, self).__init__(
+        'elastic search connection', self._ELASTIC_SEARCH_TYPES,
+        lambda from_setup, to_setup: from_setup == to_setup)
 
-  slices = [lines[i:i+process_queue]
-            for i in range(0, len(lines), process_queue)]
-  for lines in slices:
-    data = '\n'.join(lines) + '\n'
-    if dryrun:
-      cros_build_lib.Info('Not sending to Graphite via Carbon:\n%s', data)
-    else:
-      cros_build_lib.Debug('Sending to Graphite via Carbon:\n%s', data)
-      sock.sendall(data)
+  def SetupProd(self):
+    """Set up this factory to connect to the production Elastic Search."""
+    self.Setup(CONNECTION_TYPE_PROD)
+
+  def SetupReadOnly(self):
+    """Set up this factory to allow querying the production Elastic Search."""
+    self.Setup(CONNECTION_TYPE_READONLY)
+
+
+ESMetadataFactory = ESMetadataFactoryClass()
+
+
+class StatsFactoryClass(factory.ObjectFactory):
+  """Factory class for setting up a Statsd connection."""
+
+  _STATSD_TYPES = {
+      CONNECTION_TYPE_PROD: factory.CachedFunctionCall(
+          lambda: stats.Statsd(
+              es=ESMetadataFactory.GetInstance(),
+              host=topology.topology.get(topology.STATSD_HOST_KEY),
+              port=topology.topology.get(topology.STATSD_PORT_KEY),
+              prefix=constants.STATSD_PROD_PREFIX)),
+      CONNECTION_TYPE_DEBUG: factory.CachedFunctionCall(
+          lambda: stats.Statsd(
+              es=ESMetadataFactory.GetInstance(),
+              host=topology.topology.get(topology.STATSD_HOST_KEY),
+              port=topology.topology.get(topology.STATSD_PORT_KEY),
+              prefix=constants.STATSD_DEBUG_PREFIX)),
+      CONNECTION_TYPE_MOCK: factory.CachedFunctionCall(
+          lambda: stats_es_mock.Stats())
+      }
+
+  def __init__(self):
+    super(StatsFactoryClass, self).__init__(
+        'statsd connection', self._STATSD_TYPES,
+        lambda from_setup, to_setup: from_setup == to_setup)
+
+  def SetupProd(self):
+    """Set up this factory to connect to the production Statsd."""
+    self.Setup(CONNECTION_TYPE_PROD)
+
+  def SetupDebug(self):
+    """Set up this factory to connect to the debug Statsd."""
+    self.Setup(CONNECTION_TYPE_DEBUG)
+
+  def SetupMock(self):
+    """Set up this factory to return a mock statsd object."""
+    self.Setup(CONNECTION_TYPE_MOCK)
+
+
+StatsFactory = StatsFactoryClass()

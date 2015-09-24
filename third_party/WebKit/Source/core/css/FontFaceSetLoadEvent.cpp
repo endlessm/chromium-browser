@@ -45,7 +45,7 @@ FontFaceSetLoadEvent::FontFaceSetLoadEvent(const AtomicString& type, const FontF
 
 FontFaceSetLoadEvent::FontFaceSetLoadEvent(const AtomicString& type, const FontFaceSetLoadEventInit& initializer)
     : Event(type, initializer)
-    , m_fontfaces(initializer.fontfaces)
+    , m_fontfaces(initializer.fontfaces())
 {
 }
 
@@ -58,7 +58,7 @@ const AtomicString& FontFaceSetLoadEvent::interfaceName() const
     return EventNames::FontFaceSetLoadEvent;
 }
 
-void FontFaceSetLoadEvent::trace(Visitor* visitor)
+DEFINE_TRACE(FontFaceSetLoadEvent)
 {
     visitor->trace(m_fontfaces);
     Event::trace(visitor);

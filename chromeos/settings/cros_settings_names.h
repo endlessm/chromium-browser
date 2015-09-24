@@ -33,6 +33,7 @@ CHROMEOS_EXPORT extern const char
     kAccountsPrefDeviceLocalAccountPromptForNetworkWhenOffline[];
 CHROMEOS_EXPORT extern const char kAccountsPrefSupervisedUsersEnabled[];
 CHROMEOS_EXPORT extern const char kAccountsPrefTransferSAMLCookies[];
+CHROMEOS_EXPORT extern const char kAccountsPrefLoginScreenDomainAutoComplete[];
 
 CHROMEOS_EXPORT extern const char kSignedDataRoamingEnabled[];
 
@@ -56,18 +57,12 @@ CHROMEOS_EXPORT extern const char kReportDeviceBootMode[];
 CHROMEOS_EXPORT extern const char kReportDeviceLocation[];
 CHROMEOS_EXPORT extern const char kReportDeviceNetworkInterfaces[];
 CHROMEOS_EXPORT extern const char kReportDeviceUsers[];
+CHROMEOS_EXPORT extern const char kReportDeviceHardwareStatus[];
+CHROMEOS_EXPORT extern const char kReportDeviceSessionStatus[];
+CHROMEOS_EXPORT extern const char kReportUploadFrequency[];
 
-CHROMEOS_EXPORT extern const char kAppPack[];
-CHROMEOS_EXPORT extern const char kAppPackKeyExtensionId[];
-CHROMEOS_EXPORT extern const char kAppPackKeyUpdateUrl[];
-
-CHROMEOS_EXPORT extern const char kScreenSaverExtensionId[];
-CHROMEOS_EXPORT extern const char kScreenSaverTimeout[];
-
-CHROMEOS_EXPORT extern const char kIdleLogoutTimeout[];
-CHROMEOS_EXPORT extern const char kIdleLogoutWarningDuration[];
-
-CHROMEOS_EXPORT extern const char kStartUpUrls[];
+CHROMEOS_EXPORT extern const char kHeartbeatEnabled[];
+CHROMEOS_EXPORT extern const char kHeartbeatFrequency[];
 
 CHROMEOS_EXPORT extern const char kPolicyMissingMitigationMode[];
 
@@ -90,6 +85,10 @@ CHROMEOS_EXPORT extern const char kServiceAccountIdentity[];
 
 CHROMEOS_EXPORT extern const char kDeviceDisabled[];
 CHROMEOS_EXPORT extern const char kDeviceDisabledMessage[];
+
+CHROMEOS_EXPORT extern const char kRebootOnShutdown[];
+
+CHROMEOS_EXPORT extern const char kExtensionCacheSize[];
 
 }  // namespace chromeos
 

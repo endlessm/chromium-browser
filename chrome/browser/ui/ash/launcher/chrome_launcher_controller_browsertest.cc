@@ -27,6 +27,7 @@
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_function_test_utils.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/launch_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_list_service.h"
 #include "chrome/browser/ui/ash/launcher/browser_shortcut_launcher_item_controller.h"
@@ -35,14 +36,18 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
+#include "chrome/browser/ui/browser_iterator.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_pages.h"
+#include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/settings_window_manager.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/web_applications/web_app.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
@@ -56,10 +61,14 @@
 #include "extensions/common/switches.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/app_list/app_list_switches.h"
 #include "ui/app_list/views/app_list_item_view.h"
 #include "ui/app_list/views/apps_grid_view.h"
+#include "ui/app_list/views/start_page_view.h"
+#include "ui/app_list/views/tile_item_view.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
+#include "ui/base/window_open_disposition.h"
 #include "ui/events/event.h"
 #include "ui/events/test/event_generator.h"
 
@@ -74,8 +83,7 @@ class TestEvent : public ui::Event {
   explicit TestEvent(ui::EventType type)
       : ui::Event(type, base::TimeDelta(), 0) {
   }
-  virtual ~TestEvent() {
-  }
+  ~TestEvent() override {}
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TestEvent);
@@ -89,12 +97,12 @@ class TestAppWindowRegistryObserver
     extensions::AppWindowRegistry::Get(profile_)->AddObserver(this);
   }
 
-  virtual ~TestAppWindowRegistryObserver() {
+  ~TestAppWindowRegistryObserver() override {
     extensions::AppWindowRegistry::Get(profile_)->RemoveObserver(this);
   }
 
   // Overridden from AppWindowRegistry::Observer:
-  virtual void OnAppWindowIconChanged(AppWindow* app_window) override {
+  void OnAppWindowIconChanged(AppWindow* app_window) override {
     ++icon_updates_;
   }
 
@@ -107,6 +115,56 @@ class TestAppWindowRegistryObserver
   DISALLOW_COPY_AND_ASSIGN(TestAppWindowRegistryObserver);
 };
 
+// Click the "All Apps" button from the app launcher start page. Assumes that
+// the app launcher is open to the start page. On the non-experimental launcher,
+// does nothing.
+// |display_origin| is the top-left corner of the active display, in screen
+// coordinates.
+void ClickAllAppsButtonFromStartPage(ui::test::EventGenerator* generator,
+                                     const gfx::Point& display_origin) {
+  if (!app_list::switches::IsExperimentalAppListEnabled())
+    return;
+
+  ash::test::AppListControllerTestApi controller_test(
+      ash::Shell::GetInstance());
+
+  app_list::StartPageView* start_page_view = controller_test.GetStartPageView();
+  DCHECK(start_page_view);
+
+  app_list::TileItemView* all_apps_button = start_page_view->all_apps_button();
+  gfx::Rect all_apps_rect = all_apps_button->GetBoundsInScreen();
+  all_apps_rect.Offset(-display_origin.x(), -display_origin.y());
+  generator->MoveMouseTo(all_apps_rect.CenterPoint().x(),
+                         all_apps_rect.CenterPoint().y());
+  generator->ClickLeftButton();
+  base::MessageLoop::current()->RunUntilIdle();
+  // Run Layout() to effectively complete the animation to the apps page.
+  controller_test.LayoutContentsView();
+}
+
+// Find the browser that associated with |app_name|.
+Browser* FindBrowserForApp(const std::string& app_name) {
+  Browser* browser = nullptr;
+  for (chrome::BrowserIterator it; !it.done(); it.Next()) {
+    std::string browser_app_name =
+        web_app::GetExtensionIdFromApplicationName((*it)->app_name());
+    if (browser_app_name == app_name) {
+      browser = *it;
+      break;
+    }
+  }
+  return browser;
+}
+
+// Close |app_browser| and wait until it's closed.
+void CloseAppBrowserWindow(Browser* app_browser) {
+  content::WindowedNotificationObserver close_observer(
+      chrome::NOTIFICATION_BROWSER_CLOSED,
+      content::Source<Browser>(app_browser));
+  app_browser->window()->Close();
+  close_observer.Wait();
+}
+
 }  // namespace
 
 class LauncherPlatformAppBrowserTest
@@ -115,9 +173,9 @@ class LauncherPlatformAppBrowserTest
   LauncherPlatformAppBrowserTest() : shelf_(NULL), controller_(NULL) {
   }
 
-  virtual ~LauncherPlatformAppBrowserTest() {}
+  ~LauncherPlatformAppBrowserTest() override {}
 
-  virtual void RunTestOnMainThreadLoop() override {
+  void RunTestOnMainThreadLoop() override {
     shelf_ = ash::Shelf::ForPrimaryDisplay();
     controller_ = ChromeLauncherController::instance();
     return extensions::PlatformAppBrowserTest::RunTestOnMainThreadLoop();
@@ -190,9 +248,9 @@ class ShelfAppBrowserTest : public ExtensionBrowserTest {
   ShelfAppBrowserTest() : shelf_(NULL), model_(NULL), controller_(NULL) {
   }
 
-  virtual ~ShelfAppBrowserTest() {}
+  ~ShelfAppBrowserTest() override {}
 
-  virtual void RunTestOnMainThreadLoop() override {
+  void RunTestOnMainThreadLoop() override {
     shelf_ = ash::Shelf::ForPrimaryDisplay();
     model_ = ash::test::ShellTestApi(ash::Shell::GetInstance()).shelf_model();
     controller_ = ChromeLauncherController::instance();
@@ -220,10 +278,8 @@ class ShelfAppBrowserTest : public ExtensionBrowserTest {
         service->GetExtensionById(last_loaded_extension_id(), false);
     EXPECT_TRUE(extension);
 
-    OpenApplication(AppLaunchParams(profile(),
-                                    extension,
-                                    container,
-                                    disposition));
+    OpenApplication(AppLaunchParams(profile(), extension, container,
+                                    disposition, extensions::SOURCE_TEST));
     return extension;
   }
 
@@ -310,9 +366,9 @@ class ShelfAppBrowserTest : public ExtensionBrowserTest {
 class ShelfAppBrowserTestNoDefaultBrowser : public ShelfAppBrowserTest {
  protected:
   ShelfAppBrowserTestNoDefaultBrowser() {}
-  virtual ~ShelfAppBrowserTestNoDefaultBrowser() {}
+  ~ShelfAppBrowserTestNoDefaultBrowser() override {}
 
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ShelfAppBrowserTest::SetUpCommandLine(command_line);
     command_line->AppendSwitch(switches::kNoStartupWindow);
   }
@@ -327,9 +383,9 @@ class ShelfAppBrowserTestNoDefaultBrowser : public ShelfAppBrowserTest {
 class ShelfAppBrowserNoMinimizeOnClick : public LauncherPlatformAppBrowserTest {
  protected:
   ShelfAppBrowserNoMinimizeOnClick() {}
-  virtual ~ShelfAppBrowserNoMinimizeOnClick() {}
+  ~ShelfAppBrowserNoMinimizeOnClick() override {}
 
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     LauncherPlatformAppBrowserTest::SetUpCommandLine(command_line);
     command_line->AppendSwitch(
         switches::kDisableMinimizeOnSecondLauncherItemClick);
@@ -774,7 +830,7 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserMinimizeOnClick,
 // Confirm that click behavior for app panels is correct.
 IN_PROC_BROWSER_TEST_F(LauncherPlatformAppBrowserTest, AppPanelClickBehavior) {
   // Enable experimental APIs to allow panel creation.
-  CommandLine::ForCurrentProcess()->AppendSwitch(
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
       extensions::switches::kEnableExperimentalExtensionApis);
   // Launch a platform app and create a panel window for it.
   const Extension* extension1 = LoadAndLaunchPlatformApp("launch", "Launched");
@@ -829,7 +885,7 @@ IN_PROC_BROWSER_TEST_F(LauncherPlatformAppBrowserTest, SetIcon) {
   TestAppWindowRegistryObserver test_observer(browser()->profile());
 
   // Enable experimental APIs to allow panel creation.
-  CommandLine::ForCurrentProcess()->AppendSwitch(
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
       extensions::switches::kEnableExperimentalExtensionApis);
 
   int base_shelf_item_count = shelf_model()->item_count();
@@ -1266,6 +1322,42 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, AsyncActivationStateCheck) {
   tab_strip->CloseWebContentsAt(1, TabStripModel::CLOSE_NONE);
   // The status should now be set to closed.
   EXPECT_EQ(ash::STATUS_CLOSED, model_->ItemByID(shortcut_id)->status);
+}
+
+// Test that the App window could restore to its previous window state from
+// before it was closed.
+IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, AppWindowRestoreBehaviorTest) {
+  // Open an App, maximized its window, and close it.
+  const Extension* extension = LoadAndLaunchExtension(
+      "app1", extensions::LAUNCH_CONTAINER_WINDOW, NEW_WINDOW);
+  Browser* app_browser = FindBrowserForApp(extension->id());
+  ASSERT_TRUE(app_browser);
+  aura::Window* window = app_browser->window()->GetNativeWindow();
+  EXPECT_FALSE(ash::wm::GetWindowState(window)->IsMaximized());
+  ash::wm::GetWindowState(window)->Maximize();
+  EXPECT_TRUE(ash::wm::GetWindowState(window)->IsMaximized());
+  CloseAppBrowserWindow(app_browser);
+
+  // Reopen the App. It should start maximized. Un-maximize it and close it.
+  extension = LoadAndLaunchExtension(
+      "app1", extensions::LAUNCH_CONTAINER_WINDOW, NEW_WINDOW);
+  app_browser = FindBrowserForApp(extension->id());
+  ASSERT_TRUE(app_browser);
+  window = app_browser->window()->GetNativeWindow();
+  EXPECT_TRUE(ash::wm::GetWindowState(window)->IsMaximized());
+
+  ash::wm::GetWindowState(window)->Restore();
+  EXPECT_FALSE(ash::wm::GetWindowState(window)->IsMaximized());
+  app_browser->window()->Close();
+  CloseAppBrowserWindow(app_browser);
+
+  // Reopen the App. It should start un-maximized.
+  extension = LoadAndLaunchExtension(
+      "app1", extensions::LAUNCH_CONTAINER_WINDOW, NEW_WINDOW);
+  app_browser = FindBrowserForApp(extension->id());
+  ASSERT_TRUE(app_browser);
+  window = app_browser->window()->GetNativeWindow();
+  EXPECT_FALSE(ash::wm::GetWindowState(window)->IsMaximized());
 }
 
 // Checks that a windowed application does not add an item to the browser list.
@@ -1733,12 +1825,12 @@ class ShelfAppBrowserTestWithMultiMonitor
     : public ShelfAppBrowserTestNoDefaultBrowser {
  protected:
   ShelfAppBrowserTestWithMultiMonitor() {}
-  virtual ~ShelfAppBrowserTestWithMultiMonitor() {}
+  ~ShelfAppBrowserTestWithMultiMonitor() override {}
 
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ShelfAppBrowserTestNoDefaultBrowser::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII("ash-host-window-bounds",
-                                    "800x600,801+0-800x600");
+                                    "800x800,801+0-800x800");
   }
 
  private:
@@ -1774,10 +1866,14 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTestWithMultiMonitor,
 
   generator.MoveMouseTo(app_list_bounds.CenterPoint().x(),
                         app_list_bounds.CenterPoint().y());
-  base::MessageLoop::current()->RunUntilIdle();
   generator.ClickLeftButton();
-
+  base::MessageLoop::current()->RunUntilIdle();
   EXPECT_TRUE(service->IsAppListVisible());
+
+  // Click the "all apps" button on the start page.
+  ClickAllAppsButtonFromStartPage(&generator, origin);
+  EXPECT_TRUE(service->IsAppListVisible());
+
   app_list::AppsGridView* grid_view =
       ash::test::AppListControllerTestApi(ash::Shell::GetInstance()).
           GetRootGridView();
@@ -1819,7 +1915,7 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTestWithMultiMonitor,
 
   // Move it to an empty slot on grid_view.
   gfx::Rect empty_slot_rect = bounds_grid_1;
-  empty_slot_rect.Offset(0, bounds_grid_1.height());
+  empty_slot_rect.Offset(0, grid_view->GetTotalTileSize().height());
   generator.MoveMouseTo(empty_slot_rect.CenterPoint().x(),
                         empty_slot_rect.CenterPoint().y());
   base::MessageLoop::current()->RunUntilIdle();
@@ -1834,7 +1930,8 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTestWithMultiMonitor,
 #endif
 
 // Do tests for removal of items from the shelf by dragging.
-IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, DragOffShelf) {
+// Disabled due to flake: http://crbug.com/448482
+IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, DISABLED_DragOffShelf) {
   ui::test::EventGenerator generator(ash::Shell::GetPrimaryRootWindow(),
                                      gfx::Point());
   ash::test::ShelfViewTestAPI test(
@@ -1954,8 +2051,13 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, ClickItem) {
                         app_list_bounds.CenterPoint().y());
   generator.ClickLeftButton();
   base::MessageLoop::current()->RunUntilIdle();
-
   EXPECT_TRUE(service->IsAppListVisible());
+
+  // Click the "all apps" button on the start page.
+  ClickAllAppsButtonFromStartPage(&generator, gfx::Point());
+  EXPECT_TRUE(service->IsAppListVisible());
+
+  // Click an app icon in the app grid view.
   app_list::AppsGridView* grid_view =
       ash::test::AppListControllerTestApi(ash::Shell::GetInstance()).
           GetRootGridView();
@@ -2078,10 +2180,8 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, V1AppNavigation) {
 
   // Create a windowed application.
   AppLaunchParams params(
-      profile(),
-      controller_->GetExtensionForAppID(extensions::kWebStoreAppId),
-      0,
-      chrome::HOST_DESKTOP_TYPE_ASH);
+      profile(), controller_->GetExtensionForAppID(extensions::kWebStoreAppId),
+      CURRENT_TAB, chrome::HOST_DESKTOP_TYPE_ASH, extensions::SOURCE_TEST);
   params.container = extensions::LAUNCH_CONTAINER_WINDOW;
   OpenApplication(params);
   EXPECT_EQ(ash::STATUS_ACTIVE, model_->ItemByID(id)->status);
@@ -2136,4 +2236,104 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, SettingsWindow) {
 
   // TODO(stevenjb): Test multiprofile on Chrome OS when test support is addded.
   // crbug.com/230464.
+}
+
+// Check that tabbed hosted and bookmark apps have correct shelf presence.
+IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, TabbedHostedAndBookmarkApps) {
+  // Load and pin a hosted app.
+  const Extension* hosted_app =
+      LoadExtension(test_data_dir_.AppendASCII("app1/"));
+  ASSERT_TRUE(hosted_app);
+  controller_->PinAppWithID(hosted_app->id());
+  const ash::ShelfID hosted_app_shelf_id =
+      controller_->GetShelfIDForAppID(hosted_app->id());
+
+  // Load and pin a bookmark app.
+  const Extension* bookmark_app = InstallExtensionWithSourceAndFlags(
+      test_data_dir_.AppendASCII("app2/"), 1, extensions::Manifest::INTERNAL,
+      extensions::Extension::FROM_BOOKMARK);
+  ASSERT_TRUE(bookmark_app);
+  controller_->PinAppWithID(bookmark_app->id());
+  const ash::ShelfID bookmark_app_shelf_id =
+      controller_->GetShelfIDForAppID(bookmark_app->id());
+
+  // The apps should be closed.
+  EXPECT_EQ(ash::STATUS_CLOSED, model_->ItemByID(hosted_app_shelf_id)->status);
+  EXPECT_EQ(ash::STATUS_CLOSED,
+            model_->ItemByID(bookmark_app_shelf_id)->status);
+
+  // Navigate to the app's launch URLs in two tabs.
+  ui_test_utils::NavigateToURL(
+      browser(), extensions::AppLaunchInfo::GetLaunchWebURL(hosted_app));
+  ui_test_utils::NavigateToURLWithDisposition(
+      browser(), extensions::AppLaunchInfo::GetLaunchWebURL(bookmark_app),
+      NEW_FOREGROUND_TAB, 0);
+
+  // The apps should now be running, with the last opened app active.
+  EXPECT_EQ(ash::STATUS_RUNNING, model_->ItemByID(hosted_app_shelf_id)->status);
+  EXPECT_EQ(ash::STATUS_ACTIVE,
+            model_->ItemByID(bookmark_app_shelf_id)->status);
+
+  // Now use the launcher controller to activate the apps.
+  controller_->ActivateApp(hosted_app->id(), ash::LAUNCH_FROM_APP_LIST, 0);
+  controller_->ActivateApp(bookmark_app->id(), ash::LAUNCH_FROM_APP_LIST, 0);
+
+  // There should be no new browsers or tabs as both apps were already open.
+  EXPECT_EQ(1u, chrome::GetTotalBrowserCountForProfile(browser()->profile()));
+  EXPECT_EQ(2, browser()->tab_strip_model()->count());
+}
+
+// Check that windowed hosted and bookmark apps have correct shelf presence.
+IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, WindowedHostedAndBookmarkApps) {
+  // Load and pin a hosted app.
+  const Extension* hosted_app =
+      LoadExtension(test_data_dir_.AppendASCII("app1/"));
+  ASSERT_TRUE(hosted_app);
+  controller_->PinAppWithID(hosted_app->id());
+  const ash::ShelfID hosted_app_shelf_id =
+      controller_->GetShelfIDForAppID(hosted_app->id());
+
+  // Load and pin a bookmark app.
+  const Extension* bookmark_app = InstallExtensionWithSourceAndFlags(
+      test_data_dir_.AppendASCII("app2/"), 1, extensions::Manifest::INTERNAL,
+      extensions::Extension::FROM_BOOKMARK);
+  ASSERT_TRUE(bookmark_app);
+  controller_->PinAppWithID(bookmark_app->id());
+  const ash::ShelfID bookmark_app_shelf_id =
+      controller_->GetShelfIDForAppID(bookmark_app->id());
+
+  // Set both apps to open in windows.
+  extensions::SetLaunchType(browser()->profile(), hosted_app->id(),
+                            extensions::LAUNCH_TYPE_WINDOW);
+  extensions::SetLaunchType(browser()->profile(), bookmark_app->id(),
+                            extensions::LAUNCH_TYPE_WINDOW);
+
+  // The apps should be closed.
+  EXPECT_EQ(ash::STATUS_CLOSED, model_->ItemByID(hosted_app_shelf_id)->status);
+  EXPECT_EQ(ash::STATUS_CLOSED,
+            model_->ItemByID(bookmark_app_shelf_id)->status);
+
+  // Navigate to the app's launch URLs in two tabs.
+  ui_test_utils::NavigateToURL(
+      browser(), extensions::AppLaunchInfo::GetLaunchWebURL(hosted_app));
+  ui_test_utils::NavigateToURLWithDisposition(
+      browser(), extensions::AppLaunchInfo::GetLaunchWebURL(bookmark_app),
+      NEW_FOREGROUND_TAB, 0);
+
+  // The apps should still be closed.
+  EXPECT_EQ(ash::STATUS_CLOSED, model_->ItemByID(hosted_app_shelf_id)->status);
+  EXPECT_EQ(ash::STATUS_CLOSED,
+            model_->ItemByID(bookmark_app_shelf_id)->status);
+
+  // Now use the launcher controller to activate the apps.
+  controller_->ActivateApp(hosted_app->id(), ash::LAUNCH_FROM_APP_LIST, 0);
+  controller_->ActivateApp(bookmark_app->id(), ash::LAUNCH_FROM_APP_LIST, 0);
+
+  // There should be two new browsers.
+  EXPECT_EQ(3u, chrome::GetTotalBrowserCountForProfile(browser()->profile()));
+
+  // The apps should now be running, with the last opened app active.
+  EXPECT_EQ(ash::STATUS_RUNNING, model_->ItemByID(hosted_app_shelf_id)->status);
+  EXPECT_EQ(ash::STATUS_ACTIVE,
+            model_->ItemByID(bookmark_app_shelf_id)->status);
 }

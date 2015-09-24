@@ -23,6 +23,9 @@
 #import "third_party/ocmock/OCMock/OCMock.h"
 #import "third_party/ocmock/ocmock_extensions.h"
 
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
+
 // Allows us to verify BookmarkBarFolderView.
 @interface BookmarkBarFolderView(TestingAPI)
 
@@ -57,7 +60,7 @@ const NSPoint kPoint = {10, 10};
 
 class BookmarkBarFolderViewTest : public CocoaProfileTest {
  public:
-  virtual void SetUp() {
+  void SetUp() override {
     CocoaProfileTest::SetUp();
 
     view_.reset([[BookmarkBarFolderView alloc] init]);
@@ -70,7 +73,7 @@ class BookmarkBarFolderViewTest : public CocoaProfileTest {
     [view_ setController:mock_controller_];
   }
 
-  virtual void TearDown() {
+  void TearDown() override {
     [mock_controller_ verify];
     CocoaProfileTest::TearDown();
   }

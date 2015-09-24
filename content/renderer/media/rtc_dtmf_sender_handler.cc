@@ -9,8 +9,9 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/thread_checker.h"
 
 using webrtc::DtmfSenderInterface;
@@ -22,7 +23,7 @@ class RtcDtmfSenderHandler::Observer :
     public webrtc::DtmfSenderObserverInterface {
  public:
   explicit Observer(const base::WeakPtr<RtcDtmfSenderHandler>& handler)
-     : main_thread_(base::MessageLoopProxy::current()), handler_(handler) {}
+      : main_thread_(base::ThreadTaskRunnerHandle::Get()), handler_(handler) {}
 
  private:
   friend class base::RefCountedThreadSafe<Observer>;
@@ -49,15 +50,17 @@ class RtcDtmfSenderHandler::Observer :
 RtcDtmfSenderHandler::RtcDtmfSenderHandler(DtmfSenderInterface* dtmf_sender)
     : dtmf_sender_(dtmf_sender),
       webkit_client_(NULL),
-      weak_factory_(this),
-      observer_(new Observer(weak_factory_.GetWeakPtr())) {
+      weak_factory_(this) {
   DVLOG(1) << "::ctor";
+  observer_ = new Observer(weak_factory_.GetWeakPtr());
   dtmf_sender_->RegisterObserver(observer_.get());
 }
 
 RtcDtmfSenderHandler::~RtcDtmfSenderHandler() {
   DVLOG(1) << "::dtor";
   dtmf_sender_->UnregisterObserver();
+  // Release |observer| before |weak_factory_| is destroyed.
+  observer_ = NULL;
 }
 
 void RtcDtmfSenderHandler::setClient(

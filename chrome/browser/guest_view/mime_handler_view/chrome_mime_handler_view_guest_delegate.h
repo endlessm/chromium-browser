@@ -16,18 +16,14 @@ namespace extensions {
 
 class ChromeMimeHandlerViewGuestDelegate : public MimeHandlerViewGuestDelegate {
  public:
-  explicit ChromeMimeHandlerViewGuestDelegate(MimeHandlerViewGuest* guest);
+  ChromeMimeHandlerViewGuestDelegate();
   ~ChromeMimeHandlerViewGuestDelegate() override;
 
   // MimeHandlerViewGuestDelegate.
-  void AttachHelpers() override;
   bool HandleContextMenu(content::WebContents* web_contents,
                          const content::ContextMenuParams& params) override;
-  void ChangeZoom(bool zoom_in) override;
 
  private:
-  MimeHandlerViewGuest* guest_;  // Owns us.
-
   DISALLOW_COPY_AND_ASSIGN(ChromeMimeHandlerViewGuestDelegate);
 };
 

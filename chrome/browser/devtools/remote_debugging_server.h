@@ -8,22 +8,25 @@
 #include <string>
 
 #include "base/basictypes.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/ui/host_desktop.h"
 
-namespace content {
+namespace devtools_http_handler {
 class DevToolsHttpHandler;
 }
 
 class RemoteDebuggingServer {
  public:
+  static void EnableTetheringForDebug();
+
   RemoteDebuggingServer(chrome::HostDesktopType host_desktop_type,
                         const std::string& ip,
-                        int port);
+                        uint16 port);
 
   virtual ~RemoteDebuggingServer();
 
  private:
-  content::DevToolsHttpHandler* devtools_http_handler_;
+  scoped_ptr<devtools_http_handler::DevToolsHttpHandler> devtools_http_handler_;
   DISALLOW_COPY_AND_ASSIGN(RemoteDebuggingServer);
 };
 

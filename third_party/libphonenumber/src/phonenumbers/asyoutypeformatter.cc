@@ -14,6 +14,7 @@
 
 #include "phonenumbers/asyoutypeformatter.h"
 
+#include <math.h>
 #include <cctype>
 #include <list>
 #include <string>
@@ -145,7 +146,7 @@ AsYouTypeFormatter::AsYouTypeFormatter(const string& region_code)
       position_to_remember_(0),
       prefix_before_national_number_(),
       should_add_space_after_national_prefix_(false),
-      national_prefix_extracted_(),
+      extracted_national_prefix_(),
       national_number_(),
       possible_formats_() {
 }
@@ -193,8 +194,7 @@ bool AsYouTypeFormatter::MaybeCreateNewTemplate() {
   return false;
 }
 
-void AsYouTypeFormatter::GetAvailableFormats(
-    const string& leading_three_digits) {
+void AsYouTypeFormatter::GetAvailableFormats(const string& leading_digits) {
   const RepeatedPtrField<NumberFormat>& format_list =
       (is_complete_number_ &&
        current_metadata_->intl_number_format().size() > 0)
@@ -213,7 +213,7 @@ void AsYouTypeFormatter::GetAvailableFormats(
       }
     }
   }
-  NarrowDownPossibleFormats(leading_three_digits);
+  NarrowDownPossibleFormats(leading_digits);
 }
 
 void AsYouTypeFormatter::NarrowDownPossibleFormats(
@@ -225,18 +225,21 @@ void AsYouTypeFormatter::NarrowDownPossibleFormats(
        it != possible_formats_.end(); ) {
     DCHECK(*it);
     const NumberFormat& format = **it;
-
-    if (format.leading_digits_pattern_size() >
-        index_of_leading_digits_pattern) {
-      const scoped_ptr<RegExpInput> input(
-          regexp_factory_->CreateInput(leading_digits));
-      if (!regexp_cache_.GetRegExp(format.leading_digits_pattern().Get(
-              index_of_leading_digits_pattern)).Consume(input.get())) {
-        it = possible_formats_.erase(it);
-        continue;
-      }
-    }  // else the particular format has no more specific leadingDigitsPattern,
-       // and it should be retained.
+    if (format.leading_digits_pattern_size() == 0) {
+      // Keep everything that isn't restricted by leading digits.
+      ++it;
+      continue;
+    }
+    int last_leading_digits_pattern =
+        std::min(index_of_leading_digits_pattern,
+                 format.leading_digits_pattern_size() - 1);
+    const scoped_ptr<RegExpInput> input(
+        regexp_factory_->CreateInput(leading_digits));
+    if (!regexp_cache_.GetRegExp(format.leading_digits_pattern().Get(
+            last_leading_digits_pattern)).Consume(input.get())) {
+      it = possible_formats_.erase(it);
+      continue;
+    }
     ++it;
   }
 }
@@ -313,7 +316,7 @@ void AsYouTypeFormatter::Clear() {
   last_match_position_ = 0;
   current_formatting_pattern_.clear();
   prefix_before_national_number_.clear();
-  national_prefix_extracted_.clear();
+  extracted_national_prefix_.clear();
   national_number_.clear();
   able_to_format_ = true;
   input_has_formatting_ = false;
@@ -411,9 +414,10 @@ void AsYouTypeFormatter::InputDigitWithOptionToRememberPosition(
     case 3:
       if (AttemptToExtractIdd()) {
         is_expecting_country_code_ = true;
+        // FALLTHROUGH_INTENDED
       } else {
         // No IDD or plus sign is found, might be entering in national format.
-        RemoveNationalPrefixFromNationalNumber(&national_prefix_extracted_);
+        RemoveNationalPrefixFromNationalNumber(&extracted_national_prefix_);
         AttemptToChooseFormattingPattern(phone_number);
         return;
       }
@@ -427,7 +431,7 @@ void AsYouTypeFormatter::InputDigitWithOptionToRememberPosition(
         return;
       }
       if (possible_formats_.size() > 0) {
-        // The formatting pattern is already chosen.
+        // The formatting patterns are already chosen.
         string temp_national_number;
         InputDigitHelper(normalized_next_char, &temp_national_number);
         // See if accrued digits can be formatted properly already. If not, use
@@ -465,21 +469,25 @@ void AsYouTypeFormatter::AttemptToChoosePatternWithPrefixExtracted(
   AttemptToChooseFormattingPattern(formatted_number);
 }
 
+const string& AsYouTypeFormatter::GetExtractedNationalPrefix() const {
+  return extracted_national_prefix_;
+}
+
 bool AsYouTypeFormatter::AbleToExtractLongerNdd() {
-  if (national_prefix_extracted_.length() > 0) {
+  if (extracted_national_prefix_.length() > 0) {
     // Put the extracted NDD back to the national number before attempting to
     // extract a new NDD.
-    national_number_.insert(0, national_prefix_extracted_);
+    national_number_.insert(0, extracted_national_prefix_);
     // Remove the previously extracted NDD from prefixBeforeNationalNumber. We
     // cannot simply set it to empty string because people sometimes incorrectly
     // enter national prefix after the country code, e.g. +44 (0)20-1234-5678.
     int index_of_previous_ndd =
-        prefix_before_national_number_.find_last_of(national_prefix_extracted_);
+        prefix_before_national_number_.find_last_of(extracted_national_prefix_);
     prefix_before_national_number_.resize(index_of_previous_ndd);
   }
   string new_national_prefix;
   RemoveNationalPrefixFromNationalNumber(&new_national_prefix);
-  return national_prefix_extracted_ != new_national_prefix;
+  return extracted_national_prefix_ != new_national_prefix;
 }
 
 void AsYouTypeFormatter::AttemptToFormatAccruedDigits(
@@ -550,12 +558,10 @@ void AsYouTypeFormatter::AppendNationalNumber(const string& national_number,
 void AsYouTypeFormatter::AttemptToChooseFormattingPattern(
     string* formatted_number) {
   DCHECK(formatted_number);
-
+  // We start to attempt to format only when at least MIN_LEADING_DIGITS_LENGTH
+  // digits of national number (excluding national prefix) have been entered.
   if (national_number_.length() >= kMinLeadingDigitsLength) {
-    const string leading_digits =
-        national_number_.substr(0, kMinLeadingDigitsLength);
-
-    GetAvailableFormats(leading_digits);
+    GetAvailableFormats(national_number_);
     formatted_number->clear();
     AttemptToFormatAccruedDigits(formatted_number);
     // See if the accrued digits can be formatted properly already.
@@ -698,6 +704,9 @@ bool AsYouTypeFormatter::AttemptToExtractCountryCode() {
   }
   StrAppend(&prefix_before_national_number_, country_code);
   prefix_before_national_number_.push_back(kSeparatorBeforeNationalNumber);
+  // When we have successfully extracted the IDD, the previously extracted NDD
+  // should be cleared because it is no longer valid.
+  extracted_national_prefix_.clear();
 
   return true;
 }

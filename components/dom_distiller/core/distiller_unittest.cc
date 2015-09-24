@@ -12,7 +12,9 @@
 #include "base/location.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "components/dom_distiller/core/article_distillation_update.h"
 #include "components/dom_distiller/core/distiller.h"
@@ -34,15 +36,18 @@ using ::testing::_;
 
 using dom_distiller::proto::DomDistillerOptions;
 using dom_distiller::proto::DomDistillerResult;
+using dom_distiller::proto::DomDistillerResult_ContentImage;
+using dom_distiller::proto::TimingEntry;
 
 namespace {
 const char kTitle[] = "Title";
 const char kContent[] = "Content";
 const char kURL[] = "http://a.com/";
-const size_t kTotalImages = 2;
+const size_t kTotalImages = 3;
 const char* kImageURLs[kTotalImages] = {"http://a.com/img1.jpg",
-                                        "http://a.com/img2.jpg"};
-const char* kImageData[kTotalImages] = {"abcde", "12345"};
+                                        "http://a.com/img2.jpg",
+                                        "./bad_url_should_fail"};
+const char* kImageData[kTotalImages] = {"abcde", "12345", "VWXYZ"};
 const char kDebugLog[] = "Debug Log";
 
 const string GetImageName(int page_num, int image_num) {
@@ -62,7 +67,8 @@ scoped_ptr<base::Value> CreateDistilledValueReturnedFromJS(
   result.mutable_pagination_info()->set_prev_page(prev_page_url);
 
   for (size_t i = 0; i < image_indices.size(); ++i) {
-    result.add_image_urls(kImageURLs[image_indices[i]]);
+    DomDistillerResult_ContentImage* curr_image = result.add_content_images();
+    curr_image->set_url(kImageURLs[image_indices[i]]);
   }
 
   return dom_distiller::proto::json::DomDistillerResult::WriteToValue(result);
@@ -232,7 +238,7 @@ class TestDistillerURLFetcher : public DistillerURLFetcher {
   void PostCallbackTask() {
     ASSERT_TRUE(base::MessageLoop::current());
     ASSERT_FALSE(callback_.is_null());
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(callback_, responses_[url_]));
   }
 
@@ -360,11 +366,51 @@ TEST_F(DistillerTest, DistillPageWithDebugInfo) {
   EXPECT_EQ(kDebugLog, first_page.debug_info().log());
 }
 
+void SetTimingEntry(TimingEntry* entry, const std::string& name, double time) {
+  entry->set_name(name);
+  entry->set_time(time);
+}
+
+TEST_F(DistillerTest, DistillPageWithTimingInfo) {
+  base::MessageLoopForUI loop;
+  DomDistillerResult dd_result;
+  dd_result.mutable_timing_info()->set_total_time(1.0);
+  dd_result.mutable_timing_info()->set_markup_parsing_time(2.0);
+  dd_result.mutable_timing_info()->set_document_construction_time(3.0);
+  dd_result.mutable_timing_info()->set_article_processing_time(4.0);
+  dd_result.mutable_timing_info()->set_formatting_time(5.0);
+  SetTimingEntry(
+      dd_result.mutable_timing_info()->add_other_times(), "time0", 6.0);
+  SetTimingEntry(
+      dd_result.mutable_timing_info()->add_other_times(), "time1", 7.0);
+  scoped_ptr<base::Value> result =
+      dom_distiller::proto::json::DomDistillerResult::WriteToValue(dd_result);
+  distiller_.reset(
+      new DistillerImpl(url_fetcher_factory_, DomDistillerOptions()));
+  DistillPage(kURL, CreateMockDistillerPage(result.get(), GURL(kURL)).Pass());
+  base::MessageLoop::current()->RunUntilIdle();
+  const DistilledPageProto& first_page = article_proto_->pages(0);
+  std::map<std::string, double> timings;
+  for (int i = 0; i < first_page.timing_info_size(); ++i) {
+    DistilledPageProto::TimingInfo timing = first_page.timing_info(i);
+    timings[timing.name()] = timing.time();
+  }
+  EXPECT_EQ(7u, timings.size());
+  EXPECT_EQ(1.0, timings["total"]);
+  EXPECT_EQ(2.0, timings["markup_parsing"]);
+  EXPECT_EQ(3.0, timings["document_construction"]);
+  EXPECT_EQ(4.0, timings["article_processing"]);
+  EXPECT_EQ(5.0, timings["formatting"]);
+  EXPECT_EQ(6.0, timings["time0"]);
+  EXPECT_EQ(7.0, timings["time1"]);
+}
+
 TEST_F(DistillerTest, DistillPageWithImages) {
   base::MessageLoopForUI loop;
   vector<int> image_indices;
   image_indices.push_back(0);
   image_indices.push_back(1);
+  image_indices.push_back(2);
   scoped_ptr<base::Value> result =
       CreateDistilledValueReturnedFromJS(kTitle, kContent, image_indices, "");
   distiller_.reset(
@@ -378,8 +424,10 @@ TEST_F(DistillerTest, DistillPageWithImages) {
   EXPECT_EQ(kURL, first_page.url());
   ASSERT_EQ(2, first_page.image_size());
   EXPECT_EQ(kImageData[0], first_page.image(0).data());
+  EXPECT_EQ(kImageURLs[0], first_page.image(0).url());
   EXPECT_EQ(GetImageName(1, 0), first_page.image(0).name());
   EXPECT_EQ(kImageData[1], first_page.image(1).data());
+  EXPECT_EQ(kImageURLs[1], first_page.image(1).url());
   EXPECT_EQ(GetImageName(1, 1), first_page.image(1).name());
 }
 
@@ -484,11 +532,11 @@ TEST_F(DistillerTest, CheckMaxPageLimitExactLimit) {
 TEST_F(DistillerTest, SinglePageDistillationFailure) {
   base::MessageLoopForUI loop;
   // To simulate failure return a null value.
-  scoped_ptr<base::Value> nullValue(base::Value::CreateNullValue());
+  scoped_ptr<base::Value> null_value = base::Value::CreateNullValue();
   distiller_.reset(
       new DistillerImpl(url_fetcher_factory_, DomDistillerOptions()));
   DistillPage(kURL,
-              CreateMockDistillerPage(nullValue.get(), GURL(kURL)).Pass());
+              CreateMockDistillerPage(null_value.get(), GURL(kURL)).Pass());
   base::MessageLoop::current()->RunUntilIdle();
   EXPECT_EQ("", article_proto_->title());
   EXPECT_EQ(0, article_proto_->pages_size());
@@ -507,7 +555,7 @@ TEST_F(DistillerTest, MultiplePagesDistillationFailure) {
       distiller_data->distilled_values.begin() + failed_page_num);
   distiller_data->distilled_values.insert(
       distiller_data->distilled_values.begin() + failed_page_num,
-      base::Value::CreateNullValue());
+      base::Value::CreateNullValue().release());
   // Expect only calls till the failed page number.
   distiller_.reset(
       new DistillerImpl(url_fetcher_factory_, DomDistillerOptions()));

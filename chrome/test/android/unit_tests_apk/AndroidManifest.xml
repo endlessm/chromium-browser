@@ -10,12 +10,18 @@ found in the LICENSE file.
       android:versionCode="1"
       android:versionName="1.0">
 
-    <uses-sdk android:minSdkVersion="14" android:targetSdkVersion="21" />
+    <uses-sdk android:minSdkVersion="16" android:targetSdkVersion="22" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
 
-    <application android:label="ChromeNativeTests"
+    <application android:label="NativeTests"
             android:name="org.chromium.chrome.unit_tests_apk.ChromeNativeTestApplication">
-        <activity android:name="org.chromium.native_test.ChromeNativeTestActivity"
-                android:label="ChromeNativeTest"
+        <activity android:name="org.chromium.native_test.NativeUnitTestActivity"
+                android:label="NativeTest"
                 android:configChanges="orientation|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -24,11 +30,8 @@ found in the LICENSE file.
         </activity>
     </application>
 
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.INTERNET"/>
-    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
-    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
-    <uses-permission android:name="android.permission.WAKE_LOCK"/>
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+    <instrumentation android:name="org.chromium.native_test.NativeTestInstrumentationTestRunner"
+            android:targetPackage="org.chromium.native_test"
+            android:label="Instrumentation entry point for org.chromium.native_test"/>
 
 </manifest>

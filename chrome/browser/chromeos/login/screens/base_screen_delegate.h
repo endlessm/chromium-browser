@@ -7,10 +7,14 @@
 
 #include <string>
 
+namespace login {
+class ScreenContext;
+}
+
 namespace chromeos {
 
-class ErrorScreen;
 class BaseScreen;
+class ErrorScreen;
 
 // Interface that handles notifications received from any of login wizard
 // screens.
@@ -38,22 +42,25 @@ class BaseScreenDelegate {
     EULA_BACK = 9,
     ENTERPRISE_AUTO_ENROLLMENT_CHECK_COMPLETED = 10,
     ENTERPRISE_ENROLLMENT_COMPLETED = 11,
-    ENTERPRISE_AUTO_MAGIC_ENROLLMENT_COMPLETED = 12,
-    ENTERPRISE_ENROLLMENT_BACK = 13,
-    RESET_CANCELED = 14,
-    KIOSK_AUTOLAUNCH_CANCELED = 15,
-    KIOSK_AUTOLAUNCH_CONFIRMED = 16,
-    KIOSK_ENABLE_COMPLETED = 17,
-    TERMS_OF_SERVICE_DECLINED = 18,
-    TERMS_OF_SERVICE_ACCEPTED = 19,
-    WRONG_HWID_WARNING_SKIPPED = 20,
-    CONTROLLER_PAIRING_FINISHED = 21,
-    HOST_PAIRING_FINISHED = 22,
+    ENTERPRISE_ENROLLMENT_BACK = 12,
+    RESET_CANCELED = 13,
+    KIOSK_AUTOLAUNCH_CANCELED = 14,
+    KIOSK_AUTOLAUNCH_CONFIRMED = 15,
+    KIOSK_ENABLE_COMPLETED = 16,
+    TERMS_OF_SERVICE_DECLINED = 17,
+    TERMS_OF_SERVICE_ACCEPTED = 18,
+    WRONG_HWID_WARNING_SKIPPED = 19,
+    CONTROLLER_PAIRING_FINISHED = 20,
+    HOST_PAIRING_FINISHED = 21,
+    ENABLE_DEBUGGING_FINISHED = 22,
+    ENABLE_DEBUGGING_CANCELED = 23,
     EXIT_CODES_COUNT  // not a real code, must be the last
   };
 
   // Method called by a screen when user's done with it.
-  virtual void OnExit(ExitCodes exit_code) = 0;
+  virtual void OnExit(BaseScreen& screen,
+                      ExitCodes exit_code,
+                      const ::login::ScreenContext* context) = 0;
 
   // Forces current screen showing.
   virtual void ShowCurrentScreen() = 0;

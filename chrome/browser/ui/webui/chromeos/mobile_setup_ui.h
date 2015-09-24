@@ -19,15 +19,15 @@ class MobileSetupUI : public content::WebUIController,
 
  private:
   // content::WebContentsObserver overrides.
-  virtual void DidCommitProvisionalLoadForFrame(
+  void DidCommitProvisionalLoadForFrame(
       content::RenderFrameHost* render_frame_host,
       const GURL& url,
       ui::PageTransition transition_type) override;
-  virtual void DidFailProvisionalLoad(
-      content::RenderFrameHost* render_frame_host,
-      const GURL& validated_url,
-      int error_code,
-      const base::string16& error_description) override;
+  void DidFailProvisionalLoad(content::RenderFrameHost* render_frame_host,
+                              const GURL& validated_url,
+                              int error_code,
+                              const base::string16& error_description,
+                              bool was_ignored_by_handler) override;
 
   DISALLOW_COPY_AND_ASSIGN(MobileSetupUI);
 };

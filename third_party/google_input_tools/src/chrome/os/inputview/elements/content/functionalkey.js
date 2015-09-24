@@ -129,8 +129,7 @@ FunctionalKey.prototype.createDom = function() {
 
 
 /** @override */
-FunctionalKey.prototype.resize = function(width,
-    height) {
+FunctionalKey.prototype.resize = function(width, height) {
   goog.base(this, 'resize', width, height);
 
   this.tableCell.style.width = this.availableWidth + 'px';
@@ -139,8 +138,7 @@ FunctionalKey.prototype.resize = function(width,
 
 
 /** @override */
-FunctionalKey.prototype.setHighlighted = function(
-    highlight) {
+FunctionalKey.prototype.setHighlighted = function(highlight) {
   if (highlight) {
     goog.dom.classlist.add(this.bgElem,
         i18n.input.chrome.inputview.Css.SPECIAL_KEY_HIGHLIGHT);
@@ -148,6 +146,16 @@ FunctionalKey.prototype.setHighlighted = function(
     goog.dom.classlist.remove(this.bgElem,
         i18n.input.chrome.inputview.Css.SPECIAL_KEY_HIGHLIGHT);
   }
+};
+
+
+/**
+ * Some keys don't need background highlight, use this method to
+ * disable it.
+ */
+FunctionalKey.prototype.disableBackgroundHighlight = function() {
+  goog.dom.classlist.add(this.bgElem, i18n.input.chrome.inputview.Css.
+      SPECIAL_KEY_DISABLE_BG_HIGHLIGHT);
 };
 
 
@@ -176,6 +184,8 @@ FunctionalKey.prototype.getChromeVoxMessage = function() {
       return chrome.i18n.getMessage('HIDE_KEYBOARD');
     case ElementType.GLOBE_KEY:
       return chrome.i18n.getMessage('GLOBE');
+    case ElementType.MENU_KEY:
+      return chrome.i18n.getMessage('MENU_KEY');
   }
   return '';
 };

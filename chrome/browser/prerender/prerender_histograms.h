@@ -9,9 +9,7 @@
 
 #include "base/time/time.h"
 #include "chrome/browser/prerender/prerender_contents.h"
-#include "chrome/browser/prerender/prerender_events.h"
 #include "chrome/browser/prerender/prerender_final_status.h"
-#include "chrome/browser/prerender/prerender_local_predictor.h"
 #include "chrome/browser/prerender/prerender_origin.h"
 #include "url/gurl.h"
 
@@ -79,7 +77,6 @@ class PrerenderHistograms {
 
   // Record a final status of a prerendered page in a histogram.
   void RecordFinalStatus(Origin origin,
-                         uint8 experiment_id,
                          PrerenderContents::MatchCompleteStatus mc_status,
                          FinalStatus final_status) const;
 
@@ -100,26 +97,6 @@ class PrerenderHistograms {
   void RecordTimeSinceLastRecentVisit(Origin origin,
                                       base::TimeDelta time) const;
 
-  // Records a prerender event.
-  void RecordEvent(Origin origin, uint8 experiment_id, PrerenderEvent event)
-      const;
-
-  // Record a prerender cookie status bitmap. Must be in the range
-  // [0, PrerenderContents::kNumCookieStatuses).
-  void RecordCookieStatus(Origin origin,
-                          uint8 experiment_id,
-                          int cookie_status) const;
-
-  // Record a prerender cookie send type. Must be in the range
-  // [0, PrerenderContents::kNumCookieSendTypes).
-  void RecordCookieSendType(Origin origin,
-                            uint8 experiment_id,
-                            int cookie_send_type) const;
-
-  void RecordPrerenderPageVisitedStatus(Origin origin,
-                                        uint8 experiment_id,
-                                        bool visited_before) const;
-
   // Record the bytes in the prerender, whether it was used or not, and the
   // total number of bytes fetched for this profile since the last call to
   // RecordBytes.
@@ -139,23 +116,15 @@ class PrerenderHistograms {
   // observed.
   bool WithinWindow() const;
 
-  // Returns the current experiment.
-  uint8 GetCurrentExperimentId() const;
-
-  // Returns whether or not there is currently an origin/experiment wash.
-  bool IsOriginExperimentWash() const;
-
-  // An integer indicating a Prerendering Experiment being currently conducted.
-  // (The last experiment ID seen).
-  uint8 last_experiment_id_;
+  // Returns whether or not there is currently an origin wash.
+  bool IsOriginWash() const;
 
   // Origin of the last prerender seen.
   Origin last_origin_;
 
   // A boolean indicating that we have recently encountered a combination of
-  // different experiments and origins, making an attribution of PPLT's to
-  // experiments / origins impossible.
-  bool origin_experiment_wash_;
+  // different origins, making an attribution of PPLT's to origins impossible.
+  bool origin_wash_;
 
   // The time when we last saw a prerender request coming from a renderer.
   // This is used to record perceived PLT's for a certain amount of time

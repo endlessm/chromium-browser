@@ -51,6 +51,12 @@ class MEDIA_EXPORT MultiChannelResampler {
   // single call to |read_cb_| for more data.
   int ChunkSize() const;
 
+  // See SincResampler::BufferedFrames.
+  double BufferedFrames() const;
+
+  // See SincResampler::PrimeWithSilence.
+  void PrimeWithSilence();
+
  private:
   // SincResampler::ReadCB implementation.  ProvideInput() will be called for
   // each channel (in channel order) as SincResampler needs more data.

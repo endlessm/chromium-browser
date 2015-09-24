@@ -7,7 +7,7 @@
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/sys_info.h"
-#include "chrome/browser/chromeos/drive/file_system_util.h"
+#include "chrome/browser/chromeos/drive/file_system_core_util.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/profiles/profile.h"
@@ -61,7 +61,7 @@ std::string GetDownloadsMountPointName(Profile* profile) {
   // to "Downloads". Note that some profiles (like login or test profiles)
   // are not associated with an user account. In that case, no suffix is added
   // because such a profile never belongs to a multi-profile session.
-  user_manager::User* const user =
+  const user_manager::User* const user =
       user_manager::UserManager::IsInitialized()
           ? chromeos::ProfileHelper::Get()->GetUserByProfile(
                 profile->GetOriginalProfile())

@@ -5,16 +5,11 @@
 #ifndef CHROME_BROWSER_UI_WEBSITE_SETTINGS_WEBSITE_SETTINGS_H_
 #define CHROME_BROWSER_UI_WEBSITE_SETTINGS_WEBSITE_SETTINGS_H_
 
-#include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
-#include "base/task/cancelable_task_tracker.h"
-#include "base/time/time.h"
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
-#include "chrome/browser/history/history_service.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "content/public/common/signed_certificate_timestamp_id_and_status.h"
-#include "ui/gfx/native_widget_types.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -35,6 +30,9 @@ class WebsiteSettingsUI;
 // closed.
 class WebsiteSettings : public TabSpecificContentSettings::SiteDataObserver {
  public:
+  // TODO(palmer): Figure out if it is possible to unify SiteConnectionStatus
+  // and SiteIdentityStatus.
+  //
   // Status of a connection to a website.
   enum SiteConnectionStatus {
     SITE_CONNECTION_STATUS_UNKNOWN = 0,      // No status available.
@@ -75,14 +73,16 @@ class WebsiteSettings : public TabSpecificContentSettings::SiteDataObserver {
   // fields.
   enum WebsiteSettingsAction {
     WEBSITE_SETTINGS_OPENED = 0,
-    WEBSITE_SETTINGS_PERMISSIONS_TAB_SELECTED,
-    WEBSITE_SETTINGS_CONNECTION_TAB_SELECTED,
-    WEBSITE_SETTINGS_CONNECTION_TAB_SHOWN_IMMEDIATELY,
-    WEBSITE_SETTINGS_COOKIES_DIALOG_OPENED,
-    WEBSITE_SETTINGS_CHANGED_PERMISSION,
-    WEBSITE_SETTINGS_CERTIFICATE_DIALOG_OPENED,
-    WEBSITE_SETTINGS_TRANSPARENCY_VIEWER_OPENED,
-    WEBSITE_SETTINGS_CONNECTION_HELP_OPENED,
+    WEBSITE_SETTINGS_PERMISSIONS_TAB_SELECTED = 1,
+    WEBSITE_SETTINGS_CONNECTION_TAB_SELECTED = 2,
+    WEBSITE_SETTINGS_CONNECTION_TAB_SHOWN_IMMEDIATELY = 3,
+    WEBSITE_SETTINGS_COOKIES_DIALOG_OPENED = 4,
+    WEBSITE_SETTINGS_CHANGED_PERMISSION = 5,
+    WEBSITE_SETTINGS_CERTIFICATE_DIALOG_OPENED = 6,
+    // No longer used; indicated a UI viewer for SCTs.
+    // WEBSITE_SETTINGS_TRANSPARENCY_VIEWER_OPENED = 7,
+    WEBSITE_SETTINGS_CONNECTION_HELP_OPENED = 8,
+    WEBSITE_SETTINGS_SITE_SETTINGS_OPENED = 9,
     WEBSITE_SETTINGS_COUNT
   };
 
@@ -103,12 +103,6 @@ class WebsiteSettings : public TabSpecificContentSettings::SiteDataObserver {
   // This method is called when ever a permission setting is changed.
   void OnSitePermissionChanged(ContentSettingsType type,
                                ContentSetting value);
-
-  // Callback used for requests to fetch the number of page visits from history
-  // service and the time of the first visit.
-  void OnGotVisitCountToHost(bool found_visits,
-                             int visit_count,
-                             base::Time first_visit);
 
   // This method is called by the UI when the UI is closing.
   void OnUIClosing();
@@ -158,11 +152,6 @@ class WebsiteSettings : public TabSpecificContentSettings::SiteDataObserver {
   // in the |ui_|.
   void PresentSiteIdentity();
 
-  // Sets (presents) history information about the site in the |ui_|. Passing
-  // base::Time() as value for |first_visit| will clear the history information
-  // in the UI.
-  void PresentHistoryInfo(base::Time first_visit);
-
   // The website settings UI displays information and controls for site
   // specific data (local stored objects like cookies), site specific
   // permissions (location, popup, plugin, etc.  permissions) and site specific
@@ -206,10 +195,9 @@ class WebsiteSettings : public TabSpecificContentSettings::SiteDataObserver {
 
   // Set when the user has explicitly bypassed an SSL error for this host or
   // explicitly denied it (the latter of which is not currently possible in the
-  // Chrome UI) and has a flag set to remember ssl decisions (explicit flag or
-  // in the experimental group).  When |show_ssl_decision_revoke_button| is
-  // true, the connection area of the page info will include an option for the
-  // user to revoke their decision to bypass the SSL error for this host.
+  // Chrome UI). When |show_ssl_decision_revoke_button| is true, the connection
+  // area of the page info will include an option for the user to revoke their
+  // decision to bypass the SSL error for this host.
   bool show_ssl_decision_revoke_button_;
 
   // Details about the connection to the website. In case of an encrypted
@@ -230,9 +218,6 @@ class WebsiteSettings : public TabSpecificContentSettings::SiteDataObserver {
   // The |HostContentSettingsMap| is the service that provides and manages
   // content settings (aka. site permissions).
   HostContentSettingsMap* content_settings_;
-
-  // Used to request the number of page visits.
-  base::CancelableTaskTracker visit_count_task_tracker_;
 
   // Service for managing SSL error page bypasses. Used to revoke bypass
   // decisions by users.

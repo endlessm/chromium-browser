@@ -42,31 +42,38 @@ const char kSplitPref[] = "split_pref";
 const PrefHashFilter::TrackedPreferenceMetadata kTestTrackedPrefs[] = {
   {
     0, kAtomicPref, PrefHashFilter::ENFORCE_ON_LOAD,
-    PrefHashFilter::TRACKING_STRATEGY_ATOMIC
+    PrefHashFilter::TRACKING_STRATEGY_ATOMIC,
+    PrefHashFilter::VALUE_PERSONAL
   },
   {
     1, kReportOnlyPref, PrefHashFilter::NO_ENFORCEMENT,
-    PrefHashFilter::TRACKING_STRATEGY_ATOMIC
+    PrefHashFilter::TRACKING_STRATEGY_ATOMIC,
+    PrefHashFilter::VALUE_IMPERSONAL
   },
   {
     2, kSplitPref, PrefHashFilter::ENFORCE_ON_LOAD,
-    PrefHashFilter::TRACKING_STRATEGY_SPLIT
+    PrefHashFilter::TRACKING_STRATEGY_SPLIT,
+    PrefHashFilter::VALUE_IMPERSONAL
   },
   {
     3, kReportOnlySplitPref, PrefHashFilter::NO_ENFORCEMENT,
-    PrefHashFilter::TRACKING_STRATEGY_SPLIT
+    PrefHashFilter::TRACKING_STRATEGY_SPLIT,
+    PrefHashFilter::VALUE_IMPERSONAL
   },
   {
     4, kAtomicPref2, PrefHashFilter::ENFORCE_ON_LOAD,
-    PrefHashFilter::TRACKING_STRATEGY_ATOMIC
+    PrefHashFilter::TRACKING_STRATEGY_ATOMIC,
+    PrefHashFilter::VALUE_IMPERSONAL
   },
   {
     5, kAtomicPref3, PrefHashFilter::ENFORCE_ON_LOAD,
-    PrefHashFilter::TRACKING_STRATEGY_ATOMIC
+    PrefHashFilter::TRACKING_STRATEGY_ATOMIC,
+    PrefHashFilter::VALUE_IMPERSONAL
   },
   {
     6, kAtomicPref4, PrefHashFilter::ENFORCE_ON_LOAD,
-    PrefHashFilter::TRACKING_STRATEGY_ATOMIC
+    PrefHashFilter::TRACKING_STRATEGY_ATOMIC,
+    PrefHashFilter::VALUE_IMPERSONAL
   },
 };
 
@@ -213,13 +220,7 @@ class MockPrefHashStore : public PrefHashStore {
   std::map<std::string, ValuePtrStrategyPair> checked_values_;
   std::map<std::string, ValuePtrStrategyPair> stored_values_;
 
-  // Number of transactions that are expected to be performed in the scope of
-  // this test (defaults to 1).
-  size_t transactions_expected_;
-
   // Number of transactions that were performed via this MockPrefHashStore.
-  // Verified to match |transactions_expected_| when this MockPrefHashStore is
-  // deleted.
   size_t transactions_performed_;
 
   // Whether a transaction is currently active (only one transaction should be
@@ -363,7 +364,6 @@ class PrefHashFilterTest
  public:
   PrefHashFilterTest() : mock_pref_hash_store_(NULL),
                          pref_store_contents_(new base::DictionaryValue),
-                         last_filter_on_load_modified_prefs_(false),
                          reset_recorded_(false) {}
 
   void SetUp() override {
@@ -416,7 +416,6 @@ class PrefHashFilterTest
 
   MockPrefHashStore* mock_pref_hash_store_;
   scoped_ptr<base::DictionaryValue> pref_store_contents_;
-  bool last_filter_on_load_modified_prefs_;
   MockValidationDelegate mock_validation_delegate_;
   scoped_ptr<PrefHashFilter> pref_hash_filter_;
 
@@ -663,14 +662,12 @@ TEST_P(PrefHashFilterTest, UnknownNullValue) {
       mock_validation_delegate_.GetEventForPath(kSplitPref);
   ASSERT_EQ(PrefHashFilter::TRACKING_STRATEGY_SPLIT,
             validated_split_pref->strategy);
-  EXPECT_EQ(TrackedPreferenceHelper::DONT_RESET,
-            validated_split_pref->reset_action);
+  ASSERT_FALSE(validated_split_pref->is_personal);
   const MockValidationDelegate::ValidationEvent* validated_atomic_pref =
       mock_validation_delegate_.GetEventForPath(kAtomicPref);
   ASSERT_EQ(PrefHashFilter::TRACKING_STRATEGY_ATOMIC,
             validated_atomic_pref->strategy);
-  EXPECT_EQ(TrackedPreferenceHelper::DONT_RESET,
-            validated_atomic_pref->reset_action);
+  ASSERT_TRUE(validated_atomic_pref->is_personal);
 }
 
 TEST_P(PrefHashFilterTest, InitialValueUnknown) {

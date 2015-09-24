@@ -11,6 +11,7 @@
 #include "extensions/common/extension_urls.h"
 #include "extensions/common/features/api_feature.h"
 #include "extensions/common/features/base_feature_provider.h"
+#include "extensions/common/features/behavior_feature.h"
 #include "extensions/common/features/json_feature_provider_source.h"
 #include "extensions/common/features/manifest_feature.h"
 #include "extensions/common/features/permission_feature.h"
@@ -41,19 +42,24 @@ class ShellPermissionMessageProvider : public PermissionMessageProvider {
   ~ShellPermissionMessageProvider() override {}
 
   // PermissionMessageProvider implementation.
-  PermissionMessages GetPermissionMessages(
+  PermissionMessageIDs GetLegacyPermissionMessageIDs(
       const PermissionSet* permissions,
       Manifest::Type extension_type) const override {
-    return PermissionMessages();
+    return PermissionMessageIDs();
   }
 
-  std::vector<base::string16> GetWarningMessages(
+  CoalescedPermissionMessages GetCoalescedPermissionMessages(
+      const PermissionIDSet& permissions) const override {
+    return CoalescedPermissionMessages();
+  }
+
+  std::vector<base::string16> GetLegacyWarningMessages(
       const PermissionSet* permissions,
       Manifest::Type extension_type) const override {
     return std::vector<base::string16>();
   }
 
-  std::vector<base::string16> GetWarningMessagesDetails(
+  std::vector<base::string16> GetLegacyWarningMessagesDetails(
       const PermissionSet* permissions,
       Manifest::Type extension_type) const override {
     return std::vector<base::string16>();
@@ -65,6 +71,12 @@ class ShellPermissionMessageProvider : public PermissionMessageProvider {
     // Ensure we implement this before shipping.
     CHECK(false);
     return false;
+  }
+
+  PermissionIDSet GetAllPermissionIDs(
+      const PermissionSet* permissions,
+      Manifest::Type extension_type) const override {
+    return PermissionIDSet();
   }
 
  private:
@@ -115,6 +127,9 @@ scoped_ptr<FeatureProvider> ShellExtensionsClient::CreateFeatureProvider(
   } else if (name == "permission") {
     provider.reset(new BaseFeatureProvider(source->dictionary(),
                                            CreateFeature<PermissionFeature>));
+  } else if (name == "behavior") {
+    provider.reset(new BaseFeatureProvider(source->dictionary(),
+                                           CreateFeature<BehaviorFeature>));
   } else {
     NOTREACHED();
   }
@@ -133,6 +148,8 @@ ShellExtensionsClient::CreateFeatureProviderSource(
     source->LoadJSON(IDR_EXTENSION_MANIFEST_FEATURES);
   } else if (name == "permission") {
     source->LoadJSON(IDR_EXTENSION_PERMISSION_FEATURES);
+  } else if (name == "behavior") {
+    source->LoadJSON(IDR_EXTENSION_BEHAVIOR_FEATURES);
   } else {
     NOTREACHED();
     source.reset();
@@ -144,6 +161,13 @@ void ShellExtensionsClient::FilterHostPermissions(
     const URLPatternSet& hosts,
     URLPatternSet* new_hosts,
     std::set<PermissionMessage>* messages) const {
+  NOTIMPLEMENTED();
+}
+
+void ShellExtensionsClient::FilterHostPermissions(
+    const URLPatternSet& hosts,
+    URLPatternSet* new_hosts,
+    PermissionIDSet* permissions) const {
   NOTIMPLEMENTED();
 }
 
@@ -193,6 +217,9 @@ void ShellExtensionsClient::RegisterAPISchemaResources(
 
 bool ShellExtensionsClient::ShouldSuppressFatalErrors() const {
   return true;
+}
+
+void ShellExtensionsClient::RecordDidSuppressFatalError() {
 }
 
 std::string ShellExtensionsClient::GetWebstoreBaseURL() const {

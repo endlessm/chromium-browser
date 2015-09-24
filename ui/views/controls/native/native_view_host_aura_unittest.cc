@@ -9,6 +9,7 @@
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/base/cursor/cursor.h"
+#include "ui/events/event_utils.h"
 #include "ui/views/controls/native/native_view_host.h"
 #include "ui/views/controls/native/native_view_host_test_base.h"
 #include "ui/views/view.h"
@@ -27,6 +28,7 @@ class NativeViewHostWindowObserver : public aura::WindowObserver {
     EVENT_SHOWN,
     EVENT_HIDDEN,
     EVENT_BOUNDS_CHANGED,
+    EVENT_DESTROYED,
   };
 
   struct EventDetails {
@@ -63,6 +65,11 @@ class NativeViewHostWindowObserver : public aura::WindowObserver {
     event.type = EVENT_BOUNDS_CHANGED;
     event.window = window;
     event.bounds = window->GetBoundsInRootWindow();
+    events_.push_back(event);
+  }
+
+  void OnWindowDestroyed(aura::Window* window) override {
+    EventDetails event = { EVENT_DESTROYED, window, gfx::Rect() };
     events_.push_back(event);
   }
 
@@ -147,7 +154,7 @@ TEST_F(NativeViewHostAuraTest, CursorForNativeView) {
   toplevel()->SetCursor(ui::kCursorHand);
   child()->SetCursor(ui::kCursorWait);
   ui::MouseEvent move_event(ui::ET_MOUSE_MOVED, gfx::Point(0, 0),
-                            gfx::Point(0, 0), 0, 0);
+                            gfx::Point(0, 0), ui::EventTimeForNow(), 0, 0);
 
   EXPECT_EQ(ui::kCursorWait, host()->GetCursor(move_event).native_type());
 
@@ -252,11 +259,24 @@ TEST_F(NativeViewHostAuraTest, ParentAfterDetach) {
   aura::Window* root_window = child_win->GetRootWindow();
   aura::WindowTreeHost* child_win_tree_host = child_win->GetHost();
 
+  NativeViewHostWindowObserver test_observer;
+  child_win->AddObserver(&test_observer);
+
   host()->Detach();
   EXPECT_EQ(root_window, child_win->GetRootWindow());
   EXPECT_EQ(child_win_tree_host, child_win->GetHost());
 
   DestroyHost();
+
+  // The window is detached, so no longer associated with any Widget hierarchy.
+  // The root window still owns it, but the test harness checks for orphaned
+  // windows during TearDown().
+  DestroyTopLevel();
+  EXPECT_EQ(0u, test_observer.events().size());
+  delete child_win;
+  ASSERT_EQ(1u, test_observer.events().size());
+  EXPECT_EQ(NativeViewHostWindowObserver::EVENT_DESTROYED,
+            test_observer.events().back().type);
 }
 
 // Ensure the clipping window is hidden before setting the native view's bounds.
@@ -268,7 +288,9 @@ TEST_F(NativeViewHostAuraTest, RemoveClippingWindowOrder) {
 
   NativeViewHostWindowObserver test_observer;
   clipping_window()->AddObserver(&test_observer);
-  child()->GetNativeView()->AddObserver(&test_observer);
+
+  aura::Window* child_win = child()->GetNativeView();
+  child_win->AddObserver(&test_observer);
 
   host()->Detach();
 
@@ -287,6 +309,7 @@ TEST_F(NativeViewHostAuraTest, RemoveClippingWindowOrder) {
   child()->GetNativeView()->RemoveObserver(&test_observer);
 
   DestroyHost();
+  delete child_win;  // See comments in ParentAfterDetach.
 }
 
 // Ensure the native view receives the correct bounds notification when it is

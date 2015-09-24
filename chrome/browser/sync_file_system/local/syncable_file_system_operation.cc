@@ -10,12 +10,12 @@
 #include "chrome/browser/sync_file_system/local/syncable_file_operation_runner.h"
 #include "chrome/browser/sync_file_system/syncable_file_system_util.h"
 #include "net/url_request/url_request.h"
+#include "storage/browser/blob/shareable_file_reference.h"
 #include "storage/browser/fileapi/file_system_context.h"
 #include "storage/browser/fileapi/file_system_operation.h"
 #include "storage/browser/fileapi/file_system_operation_context.h"
 #include "storage/browser/fileapi/file_system_url.h"
 #include "storage/browser/fileapi/file_writer_delegate.h"
-#include "storage/common/blob/shareable_file_reference.h"
 
 using storage::FileSystemURL;
 
@@ -118,6 +118,7 @@ void SyncableFileSystemOperation::Copy(
     const FileSystemURL& src_url,
     const FileSystemURL& dest_url,
     CopyOrMoveOption option,
+    ErrorBehavior error_behavior,
     const CopyProgressCallback& progress_callback,
     const StatusCallback& callback) {
   DCHECK(CalledOnValidThread());
@@ -130,9 +131,8 @@ void SyncableFileSystemOperation::Copy(
   completion_callback_ = callback;
   scoped_ptr<SyncableFileOperationRunner::Task> task(new QueueableTask(
       weak_factory_.GetWeakPtr(),
-      base::Bind(&FileSystemOperation::Copy,
-                 base::Unretained(impl_.get()),
-                 src_url, dest_url, option, progress_callback,
+      base::Bind(&FileSystemOperation::Copy, base::Unretained(impl_.get()),
+                 src_url, dest_url, option, error_behavior, progress_callback,
                  base::Bind(&self::DidFinish, weak_factory_.GetWeakPtr()))));
   operation_runner_->PostOperationTask(task.Pass());
 }

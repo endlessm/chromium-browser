@@ -14,6 +14,7 @@
 #include "ui/app_list/app_list_export.h"
 #include "ui/app_list/app_list_item_observer.h"
 #include "ui/app_list/views/cached_label.h"
+#include "ui/app_list/views/image_shadow_animator.h"
 #include "ui/views/context_menu_controller.h"
 #include "ui/views/controls/button/custom_button.h"
 
@@ -33,7 +34,8 @@ class ProgressBarView;
 
 class APP_LIST_EXPORT AppListItemView : public views::CustomButton,
                                         public views::ContextMenuController,
-                                        public AppListItemObserver {
+                                        public AppListItemObserver,
+                                        public ImageShadowAnimator::Delegate {
  public:
   // Internal class name.
   static const char kViewClassName[];
@@ -42,12 +44,12 @@ class APP_LIST_EXPORT AppListItemView : public views::CustomButton,
   ~AppListItemView() override;
 
   // Set the icon of this image, adding a drop shadow if |has_shadow|.
-  void SetIcon(const gfx::ImageSkia& icon, bool has_shadow);
+  void SetIcon(const gfx::ImageSkia& icon);
 
-  // Set the item name.
   void SetItemName(const base::string16& display_name,
                    const base::string16& full_name);
   void SetItemIsInstalling(bool is_installing);
+  bool is_highlighted() { return is_highlighted_; }  // for unit test
   void SetItemIsHighlighted(bool is_highlighted);
   void SetItemPercentDownloaded(int percent_downloaded);
 
@@ -81,6 +83,20 @@ class APP_LIST_EXPORT AppListItemView : public views::CustomButton,
   // the assuming bounds of this view.
   gfx::Rect GetIconBoundsForTargetViewBounds(const gfx::Rect& target_bounds);
 
+  // If the item is not in a folder, not highlighted, not being dragged, and not
+  // having something dropped onto it, enables subpixel AA for the title.
+  void SetTitleSubpixelAA();
+
+  // views::CustomButton overrides:
+  void OnGestureEvent(ui::GestureEvent* event) override;
+
+  // views::View overrides:
+  bool GetTooltipText(const gfx::Point& p,
+                      base::string16* tooltip) const override;
+
+  // ImageShadowAnimator::Delegate overrides:
+  void ImageShadowAnimationProgressed(ImageShadowAnimator* animator) override;
+
  private:
   enum UIState {
     UI_STATE_NORMAL,    // Normal UI (icon + label)
@@ -102,14 +118,9 @@ class APP_LIST_EXPORT AppListItemView : public views::CustomButton,
   // Invoked when |mouse_drag_timer_| fires to show dragging UI.
   void OnMouseDragTimer();
 
-  // If the item is not in a folder, not highlighted, not being dragged, and not
-  // having something dropped onto it, enables subpixel AA for the title.
-  void SetTitleSubpixelAA();
-
   // views::View overrides:
   const char* GetClassName() const override;
   void Layout() override;
-  void SchedulePaintInRect(const gfx::Rect& r) override;
   void OnPaint(gfx::Canvas* canvas) override;
 
   // views::ContextMenuController overrides:
@@ -127,9 +138,6 @@ class APP_LIST_EXPORT AppListItemView : public views::CustomButton,
   void OnMouseReleased(const ui::MouseEvent& event) override;
   void OnMouseCaptureLost() override;
   bool OnMouseDragged(const ui::MouseEvent& event) override;
-
-  // ui::EventHandler overrides:
-  void OnGestureEvent(ui::GestureEvent* event) override;
 
   // AppListItemObserver overrides:
   void ItemIconChanged() override;
@@ -155,8 +163,12 @@ class APP_LIST_EXPORT AppListItemView : public views::CustomButton,
   // True if scroll gestures should contribute to dragging.
   bool touch_dragging_;
 
+  ImageShadowAnimator shadow_animator_;
+
   bool is_installing_;
   bool is_highlighted_;
+
+  base::string16 tooltip_text_;
 
   // A timer to defer showing drag UI when mouse is pressed.
   base::OneShotTimer<AppListItemView> mouse_drag_timer_;

@@ -3,12 +3,12 @@
 # found in the LICENSE file.
 from telemetry import benchmark
 from telemetry.page import page
-from telemetry.page import page_set
 from telemetry.page import page_test
+from telemetry.story import story_set as story_set_module
 
-from webgl_conformance import WebglConformanceValidator
 from webgl_conformance import conformance_harness_script
 from webgl_conformance import conformance_path
+from webgl_conformance import WebglConformanceValidator
 
 
 robustness_harness_script = conformance_harness_script + r"""
@@ -47,24 +47,27 @@ robustness_harness_script = conformance_harness_script + r"""
 """
 
 class WebglRobustnessPage(page.Page):
-  def __init__(self, page_set, base_dir):
+  def __init__(self, story_set, base_dir):
     super(WebglRobustnessPage, self).__init__(
       url='file://extra/lots-of-polys-example.html',
-      page_set=page_set,
+      page_set=story_set,
       base_dir=base_dir)
     self.script_to_evaluate_on_commit = robustness_harness_script
 
   def RunNavigateSteps(self, action_runner):
-    action_runner.NavigateToPage(self)
+    super(WebglRobustnessPage, self).RunNavigateSteps(action_runner)
     action_runner.WaitForJavaScriptCondition('webglTestHarness._finished')
 
 class WebglRobustness(benchmark.Benchmark):
   test = WebglConformanceValidator
 
-  def CreatePageSet(self, options):
-    ps = page_set.PageSet(
-      file_path=conformance_path,
-      user_agent_type='desktop',
+  @classmethod
+  def Name(cls):
+    return 'webgl_robustness'
+
+  def CreateStorySet(self, options):
+    ps = story_set_module.StorySet(
+      base_dir=conformance_path,
       serving_dirs=[''])
-    ps.AddPage(WebglRobustnessPage(ps, ps.base_dir))
+    ps.AddStory(WebglRobustnessPage(ps, ps.base_dir))
     return ps

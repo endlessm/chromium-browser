@@ -15,13 +15,15 @@ namespace cc {
 
 class FakePaintedScrollbarLayer : public PaintedScrollbarLayer {
  public:
-  static scoped_refptr<FakePaintedScrollbarLayer>
-      Create(bool paint_during_update, bool has_thumb, int scrolling_layer_id);
+  static scoped_refptr<FakePaintedScrollbarLayer> Create(
+      const LayerSettings& settings,
+      bool paint_during_update,
+      bool has_thumb,
+      int scrolling_layer_id);
   int update_count() const { return update_count_; }
   void reset_update_count() { update_count_ = 0; }
 
-  bool Update(ResourceUpdateQueue* queue,
-              const OcclusionTracker<Layer>* occlusion) override;
+  bool Update() override;
 
   void PushPropertiesTo(LayerImpl* layer) override;
 
@@ -40,10 +42,12 @@ class FakePaintedScrollbarLayer : public PaintedScrollbarLayer {
   FakeScrollbar* fake_scrollbar() {
     return fake_scrollbar_;
   }
+  using PaintedScrollbarLayer::UpdateInternalContentScale;
   using PaintedScrollbarLayer::UpdateThumbAndTrackGeometry;
 
  private:
-  FakePaintedScrollbarLayer(FakeScrollbar* fake_scrollbar,
+  FakePaintedScrollbarLayer(const LayerSettings& settings,
+                            FakeScrollbar* fake_scrollbar,
                             int scrolling_layer_id);
   ~FakePaintedScrollbarLayer() override;
 

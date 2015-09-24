@@ -37,6 +37,7 @@ AudioCapturerLinux::AudioCapturerLinux(
 }
 
 AudioCapturerLinux::~AudioCapturerLinux() {
+  pipe_reader_->RemoveObserver(this);
 }
 
 bool AudioCapturerLinux::Start(const PacketCapturedCallback& callback) {
@@ -45,15 +46,6 @@ bool AudioCapturerLinux::Start(const PacketCapturedCallback& callback) {
                           AudioPipeReader::kChannels);
   pipe_reader_->AddObserver(this);
   return true;
-}
-
-void AudioCapturerLinux::Stop() {
-  pipe_reader_->RemoveObserver(this);
-  callback_.Reset();
-}
-
-bool AudioCapturerLinux::IsStarted() {
-  return !callback_.is_null();
 }
 
 void AudioCapturerLinux::OnDataRead(
@@ -76,7 +68,7 @@ void AudioCapturerLinux::OnDataRead(
 }
 
 bool AudioCapturer::IsSupported() {
-  return g_pulseaudio_pipe_sink_reader.Get().get() != NULL;
+  return g_pulseaudio_pipe_sink_reader.Get().get() != nullptr;
 }
 
 scoped_ptr<AudioCapturer> AudioCapturer::Create() {

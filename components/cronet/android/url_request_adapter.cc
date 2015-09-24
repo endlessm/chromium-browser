@@ -22,15 +22,13 @@
 
 namespace cronet {
 
-static const size_t kBufferSizeIncrement = 8192;
+static const size_t kReadBufferSize = 32768;
 
 URLRequestAdapter::URLRequestAdapter(URLRequestContextAdapter* context,
                                      URLRequestAdapterDelegate* delegate,
                                      GURL url,
                                      net::RequestPriority priority)
     : method_("GET"),
-      read_buffer_(new net::GrowableIOBuffer()),
-      bytes_read_(0),
       total_bytes_read_(0),
       error_code_(0),
       http_status_code_(0),
@@ -116,6 +114,12 @@ std::string URLRequestAdapter::GetNegotiatedProtocol() const {
   return url_request_->response_info().npn_negotiated_protocol;
 }
 
+bool URLRequestAdapter::GetWasCached() const {
+  if (url_request_ == NULL)
+    return false;
+  return url_request_->response_info().was_cached;
+}
+
 void URLRequestAdapter::Start() {
   context_->PostTaskToNetworkThread(
       FROM_HERE,
@@ -126,6 +130,13 @@ void URLRequestAdapter::Start() {
 void URLRequestAdapter::OnAppendChunk(const scoped_ptr<char[]> bytes,
                                       int bytes_len, bool is_last_chunk) {
   DCHECK(OnNetworkThread());
+  // Request could have completed and been destroyed on the network thread
+  // while appendChunk was posting the task from an application thread.
+  if (!url_request_) {
+    VLOG(1) << "Cannot append chunk to destroyed request: "
+            << url_.possibly_invalid_spec().c_str();
+    return;
+  }
   url_request_->AppendChunkToUpload(bytes.get(), bytes_len, is_last_chunk);
 }
 
@@ -139,10 +150,11 @@ void URLRequestAdapter::OnInitiateConnection() {
           << url_.possibly_invalid_spec().c_str()
           << " priority: " << RequestPriorityToString(priority_);
   url_request_ = context_->GetURLRequestContext()->CreateRequest(
-      url_, net::DEFAULT_PRIORITY, this, NULL);
-  url_request_->SetLoadFlags(net::LOAD_DISABLE_CACHE |
-                             net::LOAD_DO_NOT_SAVE_COOKIES |
-                             net::LOAD_DO_NOT_SEND_COOKIES);
+      url_, net::DEFAULT_PRIORITY, this);
+  int flags = net::LOAD_DO_NOT_SAVE_COOKIES | net::LOAD_DO_NOT_SEND_COOKIES;
+  if (context_->load_disable_cache())
+    flags |= net::LOAD_DISABLE_CACHE;
+  url_request_->SetLoadFlags(flags);
   url_request_->set_method(method_);
   url_request_->SetExtraRequestHeaders(headers_);
   if (!headers_.HasHeader(net::HttpRequestHeaders::kUserAgent)) {
@@ -164,12 +176,6 @@ void URLRequestAdapter::OnInitiateConnection() {
 }
 
 void URLRequestAdapter::Cancel() {
-  if (canceled_) {
-    return;
-  }
-
-  canceled_ = true;
-
   context_->PostTaskToNetworkThread(
       FROM_HERE,
       base::Bind(&URLRequestAdapter::OnCancelRequest, base::Unretained(this)));
@@ -177,13 +183,15 @@ void URLRequestAdapter::Cancel() {
 
 void URLRequestAdapter::OnCancelRequest() {
   DCHECK(OnNetworkThread());
+  DCHECK(!canceled_);
   VLOG(1) << "Canceling chromium request: " << url_.possibly_invalid_spec();
+  canceled_ = true;
+  // Check whether request has already completed.
+  if (url_request_ == nullptr)
+    return;
 
-  if (url_request_ != NULL) {
-    url_request_->Cancel();
-  }
-
-  OnRequestCanceled();
+  url_request_->Cancel();
+  OnRequestCompleted();
 }
 
 void URLRequestAdapter::Destroy() {
@@ -224,54 +232,42 @@ void URLRequestAdapter::OnResponseStarted(net::URLRequest* request) {
 // Reads all available data or starts an asynchronous read.
 void URLRequestAdapter::Read() {
   DCHECK(OnNetworkThread());
-  while (true) {
-    if (read_buffer_->RemainingCapacity() == 0) {
-      int new_capacity = read_buffer_->capacity() + kBufferSizeIncrement;
-      read_buffer_->SetCapacity(new_capacity);
-    }
+  if (!read_buffer_.get())
+    read_buffer_ = new net::IOBufferWithSize(kReadBufferSize);
 
-    int bytes_read;
-    if (url_request_->Read(read_buffer_.get(),
-                           read_buffer_->RemainingCapacity(),
-                           &bytes_read)) {
-      if (bytes_read == 0) {
-        OnRequestSucceeded();
-        break;
-      }
-
-      VLOG(1) << "Synchronously read: " << bytes_read << " bytes";
-      OnBytesRead(bytes_read);
-    } else if (url_request_->status().status() ==
-               net::URLRequestStatus::IO_PENDING) {
-      if (bytes_read_ != 0) {
-        VLOG(1) << "Flushing buffer: " << bytes_read_ << " bytes";
-
-        delegate_->OnBytesRead(this);
-        read_buffer_->set_offset(0);
-        bytes_read_ = 0;
-      }
-      VLOG(1) << "Started async read";
-      break;
-    } else {
-      OnRequestFailed();
-      break;
-    }
+  while(true) {
+    int bytes_read = 0;
+    url_request_->Read(read_buffer_.get(), kReadBufferSize, &bytes_read);
+    // If IO is pending, wait for the URLRequest to call OnReadCompleted.
+    if (url_request_->status().is_io_pending())
+      return;
+    // Stop when request has failed or succeeded.
+    if (!HandleReadResult(bytes_read))
+      return;
   }
+}
+
+bool URLRequestAdapter::HandleReadResult(int bytes_read) {
+  DCHECK(OnNetworkThread());
+  if (!url_request_->status().is_success()) {
+    OnRequestFailed();
+    return false;
+  } else if (bytes_read == 0) {
+    OnRequestSucceeded();
+    return false;
+  }
+
+  total_bytes_read_ += bytes_read;
+  delegate_->OnBytesRead(this, bytes_read);
+
+  return true;
 }
 
 void URLRequestAdapter::OnReadCompleted(net::URLRequest* request,
                                         int bytes_read) {
-  DCHECK(OnNetworkThread());
-  VLOG(1) << "Asynchronously read: " << bytes_read << " bytes";
-  if (bytes_read < 0) {
-    OnRequestFailed();
+  if (!HandleReadResult(bytes_read))
     return;
-  } else if (bytes_read == 0) {
-    OnRequestSucceeded();
-    return;
-  }
 
-  OnBytesRead(bytes_read);
   Read();
 }
 
@@ -287,13 +283,6 @@ void URLRequestAdapter::OnReceivedRedirect(net::URLRequest* request,
     *defer_redirect = false;
     OnRequestCompleted();
   }
-}
-
-void URLRequestAdapter::OnBytesRead(int bytes_read) {
-  DCHECK(OnNetworkThread());
-  read_buffer_->set_offset(read_buffer_->offset() + bytes_read);
-  bytes_read_ += bytes_read;
-  total_bytes_read_ += bytes_read;
 }
 
 void URLRequestAdapter::OnRequestSucceeded() {
@@ -320,23 +309,19 @@ void URLRequestAdapter::OnRequestFailed() {
   OnRequestCompleted();
 }
 
-void URLRequestAdapter::OnRequestCanceled() {
-  DCHECK(OnNetworkThread());
-  OnRequestCompleted();
-}
-
 void URLRequestAdapter::OnRequestCompleted() {
   DCHECK(OnNetworkThread());
   VLOG(1) << "Completed: " << url_.possibly_invalid_spec();
 
-  delegate_->OnBytesRead(this);
+  DCHECK(url_request_ != nullptr);
+
   delegate_->OnRequestFinished(this);
   url_request_.reset();
 }
 
 unsigned char* URLRequestAdapter::Data() const {
   DCHECK(OnNetworkThread());
-  return reinterpret_cast<unsigned char*>(read_buffer_->StartOfBuffer());
+  return reinterpret_cast<unsigned char*>(read_buffer_->data());
 }
 
 bool URLRequestAdapter::OnNetworkThread() const {

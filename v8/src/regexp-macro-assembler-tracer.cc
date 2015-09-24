@@ -12,9 +12,8 @@ namespace v8 {
 namespace internal {
 
 RegExpMacroAssemblerTracer::RegExpMacroAssemblerTracer(
-    RegExpMacroAssembler* assembler) :
-  RegExpMacroAssembler(assembler->zone()),
-  assembler_(assembler) {
+    Isolate* isolate, RegExpMacroAssembler* assembler)
+    : RegExpMacroAssembler(isolate, assembler->zone()), assembler_(assembler) {
   unsigned int type = assembler->Implementation();
   DCHECK(type < 6);
   const char* impl_names[] = {"IA32", "ARM", "ARM64",
@@ -24,6 +23,12 @@ RegExpMacroAssemblerTracer::RegExpMacroAssemblerTracer(
 
 
 RegExpMacroAssemblerTracer::~RegExpMacroAssemblerTracer() {
+}
+
+
+void RegExpMacroAssemblerTracer::AbortedCodeGeneration() {
+  PrintF(" AbortedCodeGeneration\n");
+  assembler_->AbortedCodeGeneration();
 }
 
 
@@ -410,4 +415,5 @@ Handle<HeapObject> RegExpMacroAssemblerTracer::GetCode(Handle<String> source) {
   return assembler_->GetCode(source);
 }
 
-}}  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

@@ -112,8 +112,7 @@ public class SuggestionPopup implements OnSuggestionsReceivedListener, TextWatch
         int popupHeight = appRect.height() - dropDownItemHeight;
         if (mSuggestionsPopup != null) {
             int height = mSuggestionsPopupItemsCount * dropDownItemHeight;
-            if (height < popupHeight)
-                popupHeight = height;
+            if (height < popupHeight) popupHeight = height;
         }
         return popupHeight;
     }
@@ -122,8 +121,7 @@ public class SuggestionPopup implements OnSuggestionsReceivedListener, TextWatch
     @Override
     public void onSuggestionsReceived(List<OmniboxSuggestion> suggestions,
             String inlineAutocompleteText) {
-        if (!mUrlField.isFocused() || suggestions.isEmpty())
-            return;
+        if (!mUrlField.isFocused() || suggestions.isEmpty()) return;
         mSuggestionsPopupItemsCount = suggestions.size();
         if (mSuggestionsPopup == null) {
             mSuggestionsPopup = new ListPopupWindow(

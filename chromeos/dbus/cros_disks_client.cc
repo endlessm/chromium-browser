@@ -10,7 +10,6 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/sys_info.h"
@@ -99,11 +98,11 @@ class CrosDisksClientImpl : public CrosDisksClient {
   CrosDisksClientImpl() : proxy_(NULL), weak_ptr_factory_(this) {}
 
   // CrosDisksClient override.
-  virtual void Mount(const std::string& source_path,
-                     const std::string& source_format,
-                     const std::string& mount_label,
-                     const base::Closure& callback,
-                     const base::Closure& error_callback) override {
+  void Mount(const std::string& source_path,
+             const std::string& source_format,
+             const std::string& mount_label,
+             const base::Closure& callback,
+             const base::Closure& error_callback) override {
     dbus::MethodCall method_call(cros_disks::kCrosDisksInterface,
                                  cros_disks::kMount);
     dbus::MessageWriter writer(&method_call);
@@ -127,10 +126,10 @@ class CrosDisksClientImpl : public CrosDisksClient {
   }
 
   // CrosDisksClient override.
-  virtual void Unmount(const std::string& device_path,
-                       UnmountOptions options,
-                       const base::Closure& callback,
-                       const base::Closure& error_callback) override {
+  void Unmount(const std::string& device_path,
+               UnmountOptions options,
+               const base::Closure& callback,
+               const base::Closure& error_callback) override {
     dbus::MethodCall method_call(cros_disks::kCrosDisksInterface,
                                  cros_disks::kUnmount);
     dbus::MessageWriter writer(&method_call);
@@ -151,7 +150,7 @@ class CrosDisksClientImpl : public CrosDisksClient {
   }
 
   // CrosDisksClient override.
-  virtual void EnumerateAutoMountableDevices(
+  void EnumerateAutoMountableDevices(
       const EnumerateAutoMountableDevicesCallback& callback,
       const base::Closure& error_callback) override {
     dbus::MethodCall method_call(cros_disks::kCrosDisksInterface,
@@ -165,9 +164,8 @@ class CrosDisksClientImpl : public CrosDisksClient {
   }
 
   // CrosDisksClient override.
-  virtual void EnumerateMountEntries(
-      const EnumerateMountEntriesCallback& callback,
-      const base::Closure& error_callback) override {
+  void EnumerateMountEntries(const EnumerateMountEntriesCallback& callback,
+                             const base::Closure& error_callback) override {
     dbus::MethodCall method_call(cros_disks::kCrosDisksInterface,
                                  cros_disks::kEnumerateMountEntries);
     proxy_->CallMethod(
@@ -179,10 +177,10 @@ class CrosDisksClientImpl : public CrosDisksClient {
   }
 
   // CrosDisksClient override.
-  virtual void Format(const std::string& device_path,
-                      const std::string& filesystem,
-                      const base::Closure& callback,
-                      const base::Closure& error_callback) override {
+  void Format(const std::string& device_path,
+              const std::string& filesystem,
+              const base::Closure& callback,
+              const base::Closure& error_callback) override {
     dbus::MethodCall method_call(cros_disks::kCrosDisksInterface,
                                  cros_disks::kFormat);
     dbus::MessageWriter writer(&method_call);
@@ -200,10 +198,9 @@ class CrosDisksClientImpl : public CrosDisksClient {
   }
 
   // CrosDisksClient override.
-  virtual void GetDeviceProperties(
-      const std::string& device_path,
-      const GetDevicePropertiesCallback& callback,
-      const base::Closure& error_callback) override {
+  void GetDeviceProperties(const std::string& device_path,
+                           const GetDevicePropertiesCallback& callback,
+                           const base::Closure& error_callback) override {
     dbus::MethodCall method_call(cros_disks::kCrosDisksInterface,
                                  cros_disks::kGetDeviceProperties);
     dbus::MessageWriter writer(&method_call);
@@ -218,7 +215,7 @@ class CrosDisksClientImpl : public CrosDisksClient {
   }
 
   // CrosDisksClient override.
-  virtual void SetMountEventHandler(
+  void SetMountEventHandler(
       const MountEventHandler& mount_event_handler) override {
     static const SignalEventTuple kSignalEventTuples[] = {
       { cros_disks::kDeviceAdded, CROS_DISKS_DEVICE_ADDED },
@@ -244,7 +241,7 @@ class CrosDisksClientImpl : public CrosDisksClient {
   }
 
   // CrosDisksClient override.
-  virtual void SetMountCompletedHandler(
+  void SetMountCompletedHandler(
       const MountCompletedHandler& mount_completed_handler) override {
     proxy_->ConnectToSignal(
         cros_disks::kCrosDisksInterface,
@@ -257,7 +254,7 @@ class CrosDisksClientImpl : public CrosDisksClient {
   }
 
   // CrosDisksClient override.
-  virtual void SetFormatCompletedHandler(
+  void SetFormatCompletedHandler(
       const FormatCompletedHandler& format_completed_handler) override {
     proxy_->ConnectToSignal(
         cros_disks::kCrosDisksInterface,
@@ -270,7 +267,7 @@ class CrosDisksClientImpl : public CrosDisksClient {
   }
 
  protected:
-  virtual void Init(dbus::Bus* bus) override {
+  void Init(dbus::Bus* bus) override {
     proxy_ = bus->GetObjectProxy(
         cros_disks::kCrosDisksServiceName,
         dbus::ObjectPath(cros_disks::kCrosDisksServicePath));

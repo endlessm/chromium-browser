@@ -10,16 +10,22 @@
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
+#include "chrome/browser/chromeos/login/lock/screen_locker.h"
+#include "chrome/browser/chromeos/login/reauth_stats.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
+#include "chrome/browser/chromeos/login/ui/views/user_board_view.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/multi_profile_user_controller.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/signin/screenlock_bridge.h"
+#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/signin/easy_unlock_service.h"
 #include "chrome/browser/ui/webui/chromeos/login/l10n_util.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
+#include "components/proximity_auth/screenlock_bridge.h"
+#include "components/user_manager/user_id.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_type.h"
-#include "ui/wm/core/user_activity_detector.h"
+#include "ui/base/user_activity/user_activity_detector.h"
 
 namespace chromeos {
 
@@ -27,11 +33,14 @@ namespace {
 
 // User dictionary keys.
 const char kKeyUsername[] = "username";
+const char kKeyGaiaID[] = "gaiaId";
 const char kKeyDisplayName[] = "displayName";
 const char kKeyEmailAddress[] = "emailAddress";
 const char kKeyEnterpriseDomain[] = "enterpriseDomain";
 const char kKeyPublicAccount[] = "publicAccount";
-const char kKeySupervisedUser[] = "supervisedUser";
+const char kKeyLegacySupervisedUser[] = "legacySupervisedUser";
+const char kKeyChildUser[] = "childUser";
+const char kKeyDesktopUser[] = "isDesktopUser";
 const char kKeySignedIn[] = "signedIn";
 const char kKeyCanRemove[] = "canRemove";
 const char kKeyIsOwner[] = "isOwner";
@@ -101,13 +110,28 @@ void AddPublicSessionDetailsToUserDictionaryEntry(
 
 }  // namespace
 
-UserSelectionScreen::UserSelectionScreen() : handler_(NULL) {
+UserSelectionScreen::UserSelectionScreen(const std::string& display_type)
+    : handler_(nullptr),
+      login_display_delegate_(nullptr),
+      view_(nullptr),
+      display_type_(display_type),
+      weak_factory_(this) {
 }
 
 UserSelectionScreen::~UserSelectionScreen() {
-  wm::UserActivityDetector* activity_detector = wm::UserActivityDetector::Get();
+  proximity_auth::ScreenlockBridge::Get()->SetLockHandler(nullptr);
+  ui::UserActivityDetector* activity_detector = ui::UserActivityDetector::Get();
   if (activity_detector->HasObserver(this))
     activity_detector->RemoveObserver(this);
+}
+
+void UserSelectionScreen::InitEasyUnlock() {
+  proximity_auth::ScreenlockBridge::Get()->SetLockHandler(this);
+}
+
+void UserSelectionScreen::SetLoginDisplayDelegate(
+    LoginDisplay::Delegate* login_display_delegate) {
+  login_display_delegate_ = login_display_delegate;
 }
 
 // static
@@ -115,25 +139,52 @@ void UserSelectionScreen::FillUserDictionary(
     user_manager::User* user,
     bool is_owner,
     bool is_signin_to_add,
-    ScreenlockBridge::LockHandler::AuthType auth_type,
+    AuthType auth_type,
     const std::vector<std::string>* public_session_recommended_locales,
     base::DictionaryValue* user_dict) {
-  const std::string& user_id = user->email();
+  const user_manager::UserID user_id = user->email();
   const bool is_public_session =
       user->GetType() == user_manager::USER_TYPE_PUBLIC_ACCOUNT;
-  const bool is_supervised_user =
+  const bool is_legacy_supervised_user =
       user->GetType() == user_manager::USER_TYPE_SUPERVISED;
+  const bool is_child_user = user->GetType() == user_manager::USER_TYPE_CHILD;
 
   user_dict->SetString(kKeyUsername, user_id);
   user_dict->SetString(kKeyEmailAddress, user->display_email());
   user_dict->SetString(kKeyDisplayName, user->GetDisplayName());
   user_dict->SetBoolean(kKeyPublicAccount, is_public_session);
-  user_dict->SetBoolean(kKeySupervisedUser, is_supervised_user);
+  user_dict->SetBoolean(kKeyLegacySupervisedUser, is_legacy_supervised_user);
+  user_dict->SetBoolean(kKeyChildUser, is_child_user);
+  user_dict->SetBoolean(kKeyDesktopUser, false);
   user_dict->SetInteger(kKeyInitialAuthType, auth_type);
   user_dict->SetBoolean(kKeySignedIn, user->is_logged_in());
   user_dict->SetBoolean(kKeyIsOwner, is_owner);
 
-  // Fill in multi-profiles related fields.
+  FillMultiProfileUserPrefs(user, user_dict, is_signin_to_add);
+  FillKnownUserPrefs(user, user_dict);
+
+  if (is_public_session) {
+    AddPublicSessionDetailsToUserDictionaryEntry(
+        user_dict, public_session_recommended_locales);
+  }
+}
+
+// static
+void UserSelectionScreen::FillKnownUserPrefs(user_manager::User* user,
+                                             base::DictionaryValue* user_dict) {
+  std::string gaia_id;
+  if (user_manager::UserManager::Get()->FindGaiaID(user->email(), &gaia_id)) {
+    user_dict->SetString(kKeyGaiaID, gaia_id);
+  }
+}
+
+// static
+void UserSelectionScreen::FillMultiProfileUserPrefs(
+    user_manager::User* user,
+    base::DictionaryValue* user_dict,
+    bool is_signin_to_add) {
+  const std::string& user_id = user->email();
+
   if (is_signin_to_add) {
     MultiProfileUserController* multi_profile_user_controller =
         ChromeUserManager::Get()->GetMultiProfileUserController();
@@ -153,12 +204,6 @@ void UserSelectionScreen::FillUserDictionary(
     user_dict->SetString(kKeyMultiProfilesPolicy, behavior);
   } else {
     user_dict->SetBoolean(kKeyMultiProfilesAllowed, true);
-  }
-
-  if (is_public_session) {
-    AddPublicSessionDetailsToUserDictionaryEntry(
-        user_dict,
-        public_session_recommended_locales);
   }
 }
 
@@ -191,6 +236,11 @@ bool UserSelectionScreen::ShouldForceOnlineSignIn(
   if (is_public_session)
     return false;
 
+  // At this point the reason for invalid token should be already set. If not,
+  // this might be a leftover from an old version.
+  if (token_status == user_manager::User::OAUTH2_TOKEN_STATUS_INVALID)
+    RecordReauthReason(user->email(), ReauthReason::OTHER);
+
   return user->force_online_signin() ||
          (token_status == user_manager::User::OAUTH2_TOKEN_STATUS_INVALID) ||
          (token_status == user_manager::User::OAUTH_TOKEN_STATUS_UNKNOWN);
@@ -200,12 +250,16 @@ void UserSelectionScreen::SetHandler(LoginDisplayWebUIHandler* handler) {
   handler_ = handler;
 }
 
+void UserSelectionScreen::SetView(UserBoardView* view) {
+  view_ = view;
+}
+
 void UserSelectionScreen::Init(const user_manager::UserList& users,
                                bool show_guest) {
   users_ = users;
   show_guest_ = show_guest;
 
-  wm::UserActivityDetector* activity_detector = wm::UserActivityDetector::Get();
+  ui::UserActivityDetector* activity_detector = ui::UserActivityDetector::Get();
   if (!activity_detector->HasObserver(this))
     activity_detector->AddObserver(this);
 }
@@ -319,12 +373,10 @@ void UserSelectionScreen::SendUserList() {
     bool is_owner = (user_id == owner);
     const bool is_public_account =
         ((*it)->GetType() == user_manager::USER_TYPE_PUBLIC_ACCOUNT);
-    const ScreenlockBridge::LockHandler::AuthType initial_auth_type =
-        is_public_account
-            ? ScreenlockBridge::LockHandler::EXPAND_THEN_USER_CLICK
-            : (ShouldForceOnlineSignIn(*it)
-                   ? ScreenlockBridge::LockHandler::ONLINE_SIGN_IN
-                   : ScreenlockBridge::LockHandler::OFFLINE_PASSWORD);
+    const AuthType initial_auth_type =
+        is_public_account ? EXPAND_THEN_USER_CLICK
+                          : (ShouldForceOnlineSignIn(*it) ? ONLINE_SIGN_IN
+                                                          : OFFLINE_PASSWORD);
     user_auth_type_map_[user_id] = initial_auth_type;
 
     base::DictionaryValue* user_dict = new base::DictionaryValue();
@@ -340,6 +392,7 @@ void UserSelectionScreen::SendUserList() {
                        public_session_recommended_locales,
                        user_dict);
     bool signed_in = (*it)->is_logged_in();
+
     // Single user check here is necessary because owner info might not be
     // available when running into login screen on first boot.
     // See http://crosbug.com/12723
@@ -357,20 +410,155 @@ void UserSelectionScreen::HandleGetUsers() {
   SendUserList();
 }
 
-void UserSelectionScreen::SetAuthType(
-    const std::string& username,
-    ScreenlockBridge::LockHandler::AuthType auth_type) {
-  DCHECK(GetAuthType(username) !=
-             ScreenlockBridge::LockHandler::FORCE_OFFLINE_PASSWORD ||
-         auth_type == ScreenlockBridge::LockHandler::FORCE_OFFLINE_PASSWORD);
-  user_auth_type_map_[username] = auth_type;
+void UserSelectionScreen::CheckUserStatus(const std::string& user_id) {
+  // No checks on lock screen.
+  if (ScreenLocker::default_screen_locker())
+    return;
+
+  if (!token_handle_util_.get()) {
+    token_handle_util_.reset(
+        new TokenHandleUtil(user_manager::UserManager::Get()));
+  }
+
+  if (token_handle_util_->HasToken(user_id)) {
+    token_handle_util_->CheckToken(
+        user_id, base::Bind(&UserSelectionScreen::OnUserStatusChecked,
+                            weak_factory_.GetWeakPtr()));
+  }
 }
 
-ScreenlockBridge::LockHandler::AuthType UserSelectionScreen::GetAuthType(
-    const std::string& username) const {
+void UserSelectionScreen::OnUserStatusChecked(
+    const user_manager::UserID& user_id,
+    TokenHandleUtil::TokenHandleStatus status) {
+  if (status == TokenHandleUtil::INVALID) {
+    RecordReauthReason(user_id, ReauthReason::INVALID_TOKEN_HANDLE);
+    token_handle_util_->MarkHandleInvalid(user_id);
+    SetAuthType(user_id, ONLINE_SIGN_IN, base::string16());
+  }
+}
+
+// EasyUnlock stuff
+
+void UserSelectionScreen::SetAuthType(const std::string& user_id,
+                                      AuthType auth_type,
+                                      const base::string16& initial_value) {
+  if (GetAuthType(user_id) == FORCE_OFFLINE_PASSWORD)
+    return;
+  DCHECK(GetAuthType(user_id) != FORCE_OFFLINE_PASSWORD ||
+         auth_type == FORCE_OFFLINE_PASSWORD);
+  user_auth_type_map_[user_id] = auth_type;
+  view_->SetAuthType(user_id, auth_type, initial_value);
+}
+
+proximity_auth::ScreenlockBridge::LockHandler::AuthType
+UserSelectionScreen::GetAuthType(const std::string& username) const {
   if (user_auth_type_map_.find(username) == user_auth_type_map_.end())
-    return ScreenlockBridge::LockHandler::OFFLINE_PASSWORD;
+    return OFFLINE_PASSWORD;
   return user_auth_type_map_.find(username)->second;
+}
+
+proximity_auth::ScreenlockBridge::LockHandler::ScreenType
+UserSelectionScreen::GetScreenType() const {
+  if (display_type_ == OobeUI::kLockDisplay)
+    return LOCK_SCREEN;
+
+  if (display_type_ == OobeUI::kLoginDisplay)
+    return SIGNIN_SCREEN;
+
+  return OTHER_SCREEN;
+}
+
+void UserSelectionScreen::ShowBannerMessage(const base::string16& message) {
+  view_->ShowBannerMessage(message);
+}
+
+void UserSelectionScreen::ShowUserPodCustomIcon(
+    const std::string& user_id,
+    const proximity_auth::ScreenlockBridge::UserPodCustomIconOptions&
+        icon_options) {
+  scoped_ptr<base::DictionaryValue> icon = icon_options.ToDictionaryValue();
+  if (!icon || icon->empty())
+    return;
+  view_->ShowUserPodCustomIcon(user_id, *icon);
+}
+
+void UserSelectionScreen::HideUserPodCustomIcon(const std::string& user_id) {
+  view_->HideUserPodCustomIcon(user_id);
+}
+
+void UserSelectionScreen::EnableInput() {
+  // If Easy Unlock fails to unlock the screen, re-enable the password input.
+  // This is only necessary on the lock screen, because the error handling for
+  // the sign-in screen uses a different code path.
+  if (ScreenLocker::default_screen_locker())
+    ScreenLocker::default_screen_locker()->EnableInput();
+}
+
+void UserSelectionScreen::Unlock(const std::string& user_email) {
+  DCHECK_EQ(GetScreenType(), LOCK_SCREEN);
+  ScreenLocker::Hide();
+}
+
+void UserSelectionScreen::AttemptEasySignin(const std::string& user_id,
+                                            const std::string& secret,
+                                            const std::string& key_label) {
+  DCHECK_EQ(GetScreenType(), SIGNIN_SCREEN);
+
+  UserContext user_context(user_id);
+  user_context.SetAuthFlow(UserContext::AUTH_FLOW_EASY_UNLOCK);
+  user_context.SetKey(Key(secret));
+  user_context.GetKey()->SetLabel(key_label);
+
+  login_display_delegate_->Login(user_context, SigninSpecifics());
+}
+
+void UserSelectionScreen::HardLockPod(const std::string& user_id) {
+  view_->SetAuthType(user_id, OFFLINE_PASSWORD, base::string16());
+  EasyUnlockService* service = GetEasyUnlockServiceForUser(user_id);
+  if (!service)
+    return;
+  service->SetHardlockState(EasyUnlockScreenlockStateHandler::USER_HARDLOCK);
+}
+
+void UserSelectionScreen::AttemptEasyUnlock(const std::string& user_id) {
+  EasyUnlockService* service = GetEasyUnlockServiceForUser(user_id);
+  if (!service)
+    return;
+  service->AttemptAuth(user_id);
+}
+
+void UserSelectionScreen::RecordClickOnLockIcon(const std::string& user_id) {
+  EasyUnlockService* service = GetEasyUnlockServiceForUser(user_id);
+  if (!service)
+    return;
+  service->RecordClickOnLockIcon();
+}
+
+EasyUnlockService* UserSelectionScreen::GetEasyUnlockServiceForUser(
+    const std::string& user_id) const {
+  if (GetScreenType() == OTHER_SCREEN)
+    return nullptr;
+
+  const user_manager::User* unlock_user = nullptr;
+  for (const user_manager::User* user : GetUsers()) {
+    if (user->email() == user_id) {
+      unlock_user = user;
+      break;
+    }
+  }
+  if (!unlock_user)
+    return nullptr;
+
+  ProfileHelper* profile_helper = ProfileHelper::Get();
+  Profile* profile = profile_helper->GetProfileByUser(unlock_user);
+
+  // The user profile should exist if and only if this is the lock screen.
+  DCHECK_EQ(!!profile, GetScreenType() == LOCK_SCREEN);
+
+  if (!profile)
+    profile = profile_helper->GetSigninProfile();
+
+  return EasyUnlockService::Get(profile);
 }
 
 }  // namespace chromeos

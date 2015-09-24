@@ -19,6 +19,7 @@
 
 class Browser;
 class GURL;
+class PrefRegistrySimple;
 class PrefService;
 
 namespace base {
@@ -43,11 +44,7 @@ class StartupBrowserCreator {
   bool Start(const base::CommandLine& cmd_line,
              const base::FilePath& cur_dir,
              Profile* last_used_profile,
-             const Profiles& last_opened_profiles,
-             int* return_code) {
-    return ProcessCmdLineImpl(cmd_line, cur_dir, true, last_used_profile,
-                              last_opened_profiles, return_code, this);
-  }
+             const Profiles& last_opened_profiles);
 
   // This function performs command-line handling and is invoked only after
   // start up (for example when we get a start request for another process).
@@ -74,8 +71,7 @@ class StartupBrowserCreator {
                      Profile* profile,
                      const base::FilePath& cur_dir,
                      chrome::startup::IsProcessStartup is_process_startup,
-                     chrome::startup::IsFirstRun is_first_run,
-                     int* return_code);
+                     chrome::startup::IsFirstRun is_first_run);
 
   // When called the first time, reads the value of the preference kWasRestarted
   // and resets it to false. Subsequent calls return the value which was read
@@ -105,6 +101,8 @@ class StartupBrowserCreator {
   // For faking that no profiles have been launched yet.
   static void ClearLaunchedProfilesForTesting();
 
+  static void RegisterLocalStatePrefs(PrefRegistrySimple* registry);
+
  private:
   friend class CloudPrintProxyPolicyTest;
   friend class CloudPrintProxyPolicyStartupTest;
@@ -128,8 +126,17 @@ class StartupBrowserCreator {
                                  bool process_startup,
                                  Profile* last_used_profile,
                                  const Profiles& last_opened_profiles,
-                                 int* return_code,
                                  StartupBrowserCreator* browser_creator);
+
+  // This function performs command-line handling and is invoked only after
+  // start up (for example when we get a start request for another process).
+  // |command_line| holds the command line being processed.
+  // |cur_dir| is the current working directory that the original process was
+  // invoked from.
+  // |profile| is the profile the apps will be launched in.
+  static bool ProcessLoadApps(const base::CommandLine& command_line,
+                              const base::FilePath& cur_dir,
+                              Profile* profile);
 
   // Callback after a profile has been created.
   static void ProcessCommandLineOnProfileCreated(

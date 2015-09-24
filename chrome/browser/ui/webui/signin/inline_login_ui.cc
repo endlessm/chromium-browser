@@ -4,23 +4,54 @@
 
 #include "chrome/browser/ui/webui/signin/inline_login_ui.h"
 
+#include "base/command_line.h"
+#include "base/files/file_util.h"
+#include "base/path_service.h"
+#include "base/strings/string_split.h"
 #include "chrome/browser/extensions/chrome_extension_web_contents_observer.h"
+#include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
+#include "chrome/common/chrome_paths.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
+#include "components/guest_view/browser/guest_view_manager.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "grit/browser_resources.h"
 #if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/ui/webui/chromeos/login/inline_login_handler_chromeos.h"
 #else
 #include "chrome/browser/ui/webui/signin/inline_login_handler_impl.h"
 #endif
 
 namespace {
+
+bool HandleTestFileRequestCallback(
+    const std::string& path,
+    const content::WebUIDataSource::GotDataCallback& callback) {
+  std::vector<std::string> url_substr;
+  base::SplitString(path, '/', &url_substr);
+  if (url_substr.size() != 2 || url_substr[0] != "test")
+    return false;
+
+  std::string contents;
+  base::FilePath test_data_dir;
+  PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir);
+  if (!base::ReadFileToString(
+          test_data_dir.AppendASCII("webui").AppendASCII(url_substr[1]),
+          &contents, std::string::npos))
+    return false;
+
+  base::RefCountedString* ref_contents = new base::RefCountedString();
+  ref_contents->data() = contents;
+  callback.Run(ref_contents);
+  return true;
+}
 
 content::WebUIDataSource* CreateWebUIDataSource() {
   content::WebUIDataSource* source =
@@ -32,6 +63,14 @@ content::WebUIDataSource* CreateWebUIDataSource() {
   bool is_webview_signin_enabled = switches::IsEnableWebviewBasedSignin();
   source->SetDefaultResource(is_webview_signin_enabled ?
       IDR_NEW_INLINE_LOGIN_HTML : IDR_INLINE_LOGIN_HTML);
+
+  // Only add a filter when runing as test.
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  const bool is_running_test = command_line->HasSwitch(::switches::kTestName) ||
+                               command_line->HasSwitch(::switches::kTestType);
+  if (is_running_test)
+    source->SetRequestFilter(base::Bind(&HandleTestFileRequestCallback));
+
   source->AddResourcePath("inline_login.css", IDR_INLINE_LOGIN_CSS);
   source->AddResourcePath("inline_login.js", IDR_INLINE_LOGIN_JS);
   source->AddResourcePath("gaia_auth_host.js", is_webview_signin_enabled ?
@@ -53,6 +92,12 @@ void AddToSetIfIsAuthIframe(std::set<content::RenderFrameHost*>* frame_set,
   }
 }
 
+bool AddToSetIfSigninWebview(std::set<content::RenderFrameHost*>* frame_set,
+                             content::WebContents* web_contents) {
+  frame_set->insert(web_contents->GetMainFrame());
+  return false;
+}
+
 } // empty namespace
 
 InlineLoginUI::InlineLoginUI(content::WebUI* web_ui)
@@ -72,6 +117,7 @@ InlineLoginUI::InlineLoginUI(content::WebUI* web_ui)
   // automatically).
   extensions::ChromeExtensionWebContentsObserver::CreateForWebContents(
       contents);
+  extensions::TabHelper::CreateForWebContents(contents);
   // Ensure that the login UI has a tab ID, which will allow the GAIA auth
   // extension's background script to tell it apart from iframes injected by
   // other extensions.
@@ -81,14 +127,28 @@ InlineLoginUI::InlineLoginUI(content::WebUI* web_ui)
 InlineLoginUI::~InlineLoginUI() {}
 
 // Gets the Gaia iframe within a WebContents.
-content::RenderFrameHost* InlineLoginUI::GetAuthIframe(
+content::RenderFrameHost* InlineLoginUI::GetAuthFrame(
     content::WebContents* web_contents,
     const GURL& parent_origin,
     const std::string& parent_frame_name) {
   std::set<content::RenderFrameHost*> frame_set;
-  web_contents->ForEachFrame(
-      base::Bind(&AddToSetIfIsAuthIframe, &frame_set,
-                 parent_origin, parent_frame_name));
+  bool is_webview = switches::IsEnableWebviewBasedSignin();
+#if defined(OS_CHROMEOS)
+  is_webview = is_webview || chromeos::StartupUtils::IsWebviewSigninEnabled();
+#endif
+  if (is_webview) {
+    guest_view::GuestViewManager* manager =
+        guest_view::GuestViewManager::FromBrowserContext(
+            web_contents->GetBrowserContext());
+    if (manager) {
+      manager->ForEachGuest(web_contents,
+                            base::Bind(&AddToSetIfSigninWebview, &frame_set));
+    }
+  } else {
+    web_contents->ForEachFrame(
+        base::Bind(&AddToSetIfIsAuthIframe, &frame_set,
+                   parent_origin, parent_frame_name));
+  }
   DCHECK_GE(1U, frame_set.size());
   if (!frame_set.empty())
     return *frame_set.begin();

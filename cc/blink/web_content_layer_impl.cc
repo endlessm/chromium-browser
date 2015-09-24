@@ -4,8 +4,9 @@
 
 #include "cc/blink/web_content_layer_impl.h"
 
-#include "cc/layers/content_layer.h"
+#include "cc/blink/web_display_item_list_impl.h"
 #include "cc/layers/picture_layer.h"
+#include "cc/playback/display_item_list_settings.h"
 #include "third_party/WebKit/public/platform/WebContentLayerClient.h"
 #include "third_party/WebKit/public/platform/WebFloatPoint.h"
 #include "third_party/WebKit/public/platform/WebFloatRect.h"
@@ -13,26 +14,36 @@
 #include "third_party/WebKit/public/platform/WebSize.h"
 #include "third_party/skia/include/utils/SkMatrix44.h"
 
-using cc::ContentLayer;
 using cc::PictureLayer;
 
 namespace cc_blink {
 
+static blink::WebContentLayerClient::PaintingControlSetting
+PaintingControlToWeb(
+    cc::ContentLayerClient::PaintingControlSetting painting_control) {
+  switch (painting_control) {
+    case cc::ContentLayerClient::PAINTING_BEHAVIOR_NORMAL:
+      return blink::WebContentLayerClient::PaintDefaultBehavior;
+    case cc::ContentLayerClient::DISPLAY_LIST_CONSTRUCTION_DISABLED:
+      return blink::WebContentLayerClient::DisplayListConstructionDisabled;
+    case cc::ContentLayerClient::DISPLAY_LIST_CACHING_DISABLED:
+      return blink::WebContentLayerClient::DisplayListCachingDisabled;
+    case cc::ContentLayerClient::DISPLAY_LIST_PAINTING_DISABLED:
+      return blink::WebContentLayerClient::DisplayListPaintingDisabled;
+  }
+  NOTREACHED();
+  return blink::WebContentLayerClient::PaintDefaultBehavior;
+}
+
 WebContentLayerImpl::WebContentLayerImpl(blink::WebContentLayerClient* client)
-    : client_(client), ignore_lcd_text_change_(false) {
-  if (WebLayerImpl::UsingPictureLayer())
-    layer_ = make_scoped_ptr(new WebLayerImpl(PictureLayer::Create(this)));
-  else
-    layer_ = make_scoped_ptr(new WebLayerImpl(ContentLayer::Create(this)));
+    : client_(client) {
+  layer_ = make_scoped_ptr(new WebLayerImpl(
+      PictureLayer::Create(WebLayerImpl::LayerSettings(), this)));
   layer_->layer()->SetIsDrawable(true);
-  can_use_lcd_text_ = layer_->layer()->can_use_lcd_text();
 }
 
 WebContentLayerImpl::~WebContentLayerImpl() {
-  if (WebLayerImpl::UsingPictureLayer())
-    static_cast<PictureLayer*>(layer_->layer())->ClearClient();
-  else
-    static_cast<ContentLayer*>(layer_->layer())->ClearClient();
+  static_cast<PictureLayer*>(layer_->layer())->ClearClient();
 }
 
 blink::WebLayer* WebContentLayerImpl::layer() {
@@ -50,32 +61,28 @@ void WebContentLayerImpl::setDrawCheckerboardForMissingTiles(bool enable) {
 void WebContentLayerImpl::PaintContents(
     SkCanvas* canvas,
     const gfx::Rect& clip,
-    ContentLayerClient::GraphicsContextStatus graphics_context_status) {
+    cc::ContentLayerClient::PaintingControlSetting painting_control) {
   if (!client_)
     return;
 
-  client_->paintContents(
-      canvas,
-      clip,
-      can_use_lcd_text_,
-      graphics_context_status == ContentLayerClient::GRAPHICS_CONTEXT_ENABLED
-          ? blink::WebContentLayerClient::GraphicsContextEnabled
-          : blink::WebContentLayerClient::GraphicsContextDisabled);
+  client_->paintContents(canvas, clip, PaintingControlToWeb(painting_control));
 }
 
-void WebContentLayerImpl::DidChangeLayerCanUseLCDText() {
-  // It is important to make this comparison because the LCD text status
-  // here can get out of sync with that in the layer.
-  if (can_use_lcd_text_ == layer_->layer()->can_use_lcd_text())
-    return;
+scoped_refptr<cc::DisplayItemList>
+WebContentLayerImpl::PaintContentsToDisplayList(
+    const gfx::Rect& clip,
+    cc::ContentLayerClient::PaintingControlSetting painting_control) {
+  cc::DisplayItemListSettings settings;
+  settings.use_cached_picture = true;
 
-  // LCD text cannot be enabled once disabled.
-  if (layer_->layer()->can_use_lcd_text() && ignore_lcd_text_change_)
-    return;
-
-  can_use_lcd_text_ = layer_->layer()->can_use_lcd_text();
-  ignore_lcd_text_change_ = true;
-  layer_->invalidate();
+  scoped_refptr<cc::DisplayItemList> display_list =
+      cc::DisplayItemList::Create(clip, settings);
+  if (client_) {
+    WebDisplayItemListImpl list(display_list.get());
+    client_->paintContents(&list, clip, PaintingControlToWeb(painting_control));
+  }
+  display_list->Finalize();
+  return display_list;
 }
 
 bool WebContentLayerImpl::FillsBoundsCompletely() const {

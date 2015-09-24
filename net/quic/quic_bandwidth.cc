@@ -4,13 +4,16 @@
 
 #include "net/quic/quic_bandwidth.h"
 
+#include <stdint.h>
+
 #include "base/logging.h"
-#include "base/time/time.h"
+#include "net/quic/quic_time.h"
+#include "net/quic/quic_types.h"
 
 namespace net {
 
 // Highest number that QuicBandwidth can hold.
-const int64 kQuicInfiniteBandwidth = GG_INT64_C(0x7fffffffffffffff);
+const int64 kQuicInfiniteBandwidth = INT64_C(0x7fffffffffffffff);
 
 // static
 QuicBandwidth QuicBandwidth::Zero() {
@@ -43,11 +46,10 @@ QuicBandwidth QuicBandwidth::FromKBytesPerSecond(int64 k_bytes_per_second) {
 // static
 QuicBandwidth QuicBandwidth::FromBytesAndTimeDelta(QuicByteCount bytes,
                                                    QuicTime::Delta delta) {
-  DCHECK_LT(bytes,
-            static_cast<uint64>(kQuicInfiniteBandwidth /
-                                (8 * base::Time::kMicrosecondsPerSecond)));
-  int64 bytes_per_second = (bytes * base::Time::kMicrosecondsPerSecond) /
-      delta.ToMicroseconds();
+  DCHECK_LT(bytes, static_cast<uint64>(kQuicInfiniteBandwidth /
+                                       (8 * kNumMicrosPerSecond)));
+  int64 bytes_per_second =
+      (bytes * kNumMicrosPerSecond) / delta.ToMicroseconds();
   return QuicBandwidth(bytes_per_second * 8);
 }
 
@@ -75,12 +77,12 @@ int64 QuicBandwidth::ToKBytesPerSecond() const {
 QuicByteCount QuicBandwidth::ToBytesPerPeriod(
     QuicTime::Delta time_period) const {
   return ToBytesPerSecond() * time_period.ToMicroseconds() /
-      base::Time::kMicrosecondsPerSecond;
+         kNumMicrosPerSecond;
 }
 
 int64 QuicBandwidth::ToKBytesPerPeriod(QuicTime::Delta time_period) const {
   return ToKBytesPerSecond() * time_period.ToMicroseconds() /
-      base::Time::kMicrosecondsPerSecond;
+         kNumMicrosPerSecond;
 }
 
 bool QuicBandwidth::IsZero() const {
@@ -96,15 +98,15 @@ QuicBandwidth QuicBandwidth::Subtract(const QuicBandwidth& delta) const {
 }
 
 QuicBandwidth QuicBandwidth::Scale(float scale_factor) const {
-  return QuicBandwidth(bits_per_second_ * scale_factor);
+  return QuicBandwidth(static_cast<int64>(bits_per_second_ * scale_factor));
 }
 
 QuicTime::Delta QuicBandwidth::TransferTime(QuicByteCount bytes) const {
   if (bits_per_second_ == 0) {
     return QuicTime::Delta::Zero();
   }
-  return QuicTime::Delta::FromMicroseconds(
-      bytes * 8 * base::Time::kMicrosecondsPerSecond / bits_per_second_);
+  return QuicTime::Delta::FromMicroseconds(bytes * 8 * kNumMicrosPerSecond /
+                                           bits_per_second_);
 }
 
 }  // namespace net

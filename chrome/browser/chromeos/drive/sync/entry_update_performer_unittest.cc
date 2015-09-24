@@ -25,7 +25,7 @@ namespace internal {
 
 class EntryUpdatePerformerTest : public file_system::OperationTestBase {
  protected:
-  virtual void SetUp() override {
+  void SetUp() override {
     OperationTestBase::SetUp();
     performer_.reset(new EntryUpdatePerformer(blocking_task_runner(),
                                               delegate(),
@@ -105,7 +105,7 @@ TEST_F(EntryUpdatePerformerTest, UpdateEntry) {
   EXPECT_EQ(FILE_ERROR_OK, error);
 
   // Verify the file is updated on the server.
-  google_apis::GDataErrorCode gdata_error = google_apis::GDATA_OTHER_ERROR;
+  google_apis::DriveApiErrorCode gdata_error = google_apis::DRIVE_OTHER_ERROR;
   scoped_ptr<google_apis::FileResource> gdata_entry;
   fake_service()->GetFileResource(
       src_entry.resource_id(),
@@ -121,6 +121,66 @@ TEST_F(EntryUpdatePerformerTest, UpdateEntry) {
 
   ASSERT_FALSE(gdata_entry->parents().empty());
   EXPECT_EQ(dest_entry.resource_id(), gdata_entry->parents()[0].file_id());
+}
+
+TEST_F(EntryUpdatePerformerTest, UpdateEntry_SetProperties) {
+  base::FilePath entry_path(
+      FILE_PATH_LITERAL("drive/root/Directory 1/SubDirectory File 1.txt"));
+
+  ResourceEntry entry;
+  EXPECT_EQ(FILE_ERROR_OK, GetLocalResourceEntry(entry_path, &entry));
+
+  Property* const first_property = entry.mutable_new_properties()->Add();
+  first_property->set_key("hello");
+  first_property->set_value("world");
+  first_property->set_visibility(Property_Visibility_PUBLIC);
+
+  Property* const second_property = entry.mutable_new_properties()->Add();
+  second_property->set_key("this");
+  second_property->set_value("will-change");
+  second_property->set_visibility(Property_Visibility_PUBLIC);
+  entry.set_metadata_edit_state(ResourceEntry::DIRTY);
+
+  FileError error = FILE_ERROR_FAILED;
+  base::PostTaskAndReplyWithResult(
+      blocking_task_runner(), FROM_HERE,
+      base::Bind(&ResourceMetadata::RefreshEntry, base::Unretained(metadata()),
+                 entry),
+      google_apis::test_util::CreateCopyResultCallback(&error));
+  content::RunAllBlockingPoolTasksUntilIdle();
+  EXPECT_EQ(FILE_ERROR_OK, error);
+
+  // Perform server side update.
+  error = FILE_ERROR_FAILED;
+  performer_->UpdateEntry(
+      entry.local_id(), ClientContext(USER_INITIATED),
+      google_apis::test_util::CreateCopyResultCallback(&error));
+
+  // Add a new property during an update.
+  Property* const property = entry.mutable_new_properties()->Add();
+  property->set_key("tokyo");
+  property->set_value("kyoto");
+  property->set_visibility(Property_Visibility_PUBLIC);
+
+  // Modify an existing property during an update.
+  second_property->set_value("changed");
+
+  // Change the resource entry during an update.
+  base::PostTaskAndReplyWithResult(
+      blocking_task_runner(), FROM_HERE,
+      base::Bind(&ResourceMetadata::RefreshEntry, base::Unretained(metadata()),
+                 entry),
+      google_apis::test_util::CreateCopyResultCallback(&error));
+
+  // Wait until the update is fully completed.
+  content::RunAllBlockingPoolTasksUntilIdle();
+  EXPECT_EQ(FILE_ERROR_OK, error);
+
+  // List of synced properties should be removed from the proto.
+  EXPECT_EQ(FILE_ERROR_OK, GetLocalResourceEntry(entry_path, &entry));
+  ASSERT_EQ(2, entry.new_properties().size());
+  EXPECT_EQ("changed", entry.new_properties().Get(0).value());
+  EXPECT_EQ("tokyo", entry.new_properties().Get(1).key());
 }
 
 // Tests updating metadata of a file with a non-dirty cache file.
@@ -171,7 +231,7 @@ TEST_F(EntryUpdatePerformerTest, UpdateEntry_WithNonDirtyCache) {
   EXPECT_EQ(FILE_ERROR_OK, error);
 
   // Verify the file is updated on the server.
-  google_apis::GDataErrorCode gdata_error = google_apis::GDATA_OTHER_ERROR;
+  google_apis::DriveApiErrorCode gdata_error = google_apis::DRIVE_OTHER_ERROR;
   scoped_ptr<google_apis::FileResource> gdata_entry;
   fake_service()->GetFileResource(
       src_entry->resource_id(),
@@ -220,7 +280,7 @@ TEST_F(EntryUpdatePerformerTest, UpdateEntry_ContentUpdate) {
             fake_service()->about_resource().largest_change_id());
 
   // Check that the file size is updated to that of the updated content.
-  google_apis::GDataErrorCode gdata_error = google_apis::GDATA_OTHER_ERROR;
+  google_apis::DriveApiErrorCode gdata_error = google_apis::DRIVE_OTHER_ERROR;
   scoped_ptr<google_apis::FileResource> server_entry;
   fake_service()->GetFileResource(
       kResourceId,
@@ -264,7 +324,7 @@ TEST_F(EntryUpdatePerformerTest, UpdateEntry_ContentUpdateMd5Check) {
             fake_service()->about_resource().largest_change_id());
 
   // Check that the file size is updated to that of the updated content.
-  google_apis::GDataErrorCode gdata_error = google_apis::GDATA_OTHER_ERROR;
+  google_apis::DriveApiErrorCode gdata_error = google_apis::DRIVE_OTHER_ERROR;
   scoped_ptr<google_apis::FileResource> server_entry;
   fake_service()->GetFileResource(
       kResourceId,
@@ -414,7 +474,7 @@ TEST_F(EntryUpdatePerformerTest, UpdateEntry_UploadNewFile) {
   EXPECT_FALSE(entry.file_specific_info().cache_state().is_dirty());
 
   // Make sure that we really created a file.
-  google_apis::GDataErrorCode status = google_apis::GDATA_OTHER_ERROR;
+  google_apis::DriveApiErrorCode status = google_apis::DRIVE_OTHER_ERROR;
   scoped_ptr<google_apis::FileResource> server_entry;
   fake_service()->GetFileResource(
       entry.resource_id(),
@@ -540,7 +600,7 @@ TEST_F(EntryUpdatePerformerTest, UpdateEntry_CreateDirectory) {
   EXPECT_EQ(ResourceEntry::CLEAN, entry.metadata_edit_state());
 
   // Make sure that we really created a directory.
-  google_apis::GDataErrorCode status = google_apis::GDATA_OTHER_ERROR;
+  google_apis::DriveApiErrorCode status = google_apis::DRIVE_OTHER_ERROR;
   scoped_ptr<google_apis::FileResource> server_entry;
   fake_service()->GetFileResource(
       entry.resource_id(),

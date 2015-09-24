@@ -11,26 +11,28 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.media.AudioManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.support.v4.content.LocalBroadcastManager;
-import android.util.Log;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.WindowManager;
 import android.widget.Toast;
 
 import org.chromium.base.CommandLine;
+import org.chromium.base.Log;
 import org.chromium.content.browser.ActivityContentVideoViewClient;
 import org.chromium.content.browser.ContentVideoViewClient;
 import org.chromium.content.browser.ContentViewClient;
 import org.chromium.content.browser.ContentViewCore;
+import org.chromium.content.common.ContentSwitches;
 import org.chromium.ui.base.WindowAndroid;
 
 /**
  * Activity for managing the Cast shell.
  */
 public class CastShellActivity extends Activity {
-    private static final String TAG = "CastShellActivity";
+    private static final String TAG = "cr.CastShellActivity";
     private static final boolean DEBUG = false;
 
     private static final String ACTIVE_SHELL_URL_KEY = "activeUrl";
@@ -41,6 +43,7 @@ public class CastShellActivity extends Activity {
     private CastWindowManager mCastWindowManager;
     private AudioManager mAudioManager;
     private BroadcastReceiver mBroadcastReceiver;
+    private boolean mHadFocusWhenPaused = true;
 
     // Native window instance.
     // TODO(byungchul, gunsch): CastShellActivity, CastWindowAndroid, and native CastWindowAndroid
@@ -54,6 +57,16 @@ public class CastShellActivity extends Activity {
      */
     protected boolean shouldLaunchBrowser() {
         return true;
+    }
+
+    /**
+     * Intended to be called from "onStop" to determine if this is a "legitimate" stop or not.
+     * When starting CastShellActivity from the TV in sleep mode, an extra onPause/onStop will be
+     * fired.
+     * Details: http://stackoverflow.com/questions/25369909/
+     */
+    protected boolean isStopping() {
+        return mHadFocusWhenPaused;
     }
 
     @Override
@@ -104,7 +117,7 @@ public class CastShellActivity extends Activity {
         registerBroadcastReceiver();
 
         String url = getIntent().getDataString();
-        Log.d(TAG, "onCreate startupUrl: " + url);
+        Log.d(TAG, "onCreate startupUrl: %s", url);
         mNativeCastWindow = mCastWindowManager.launchCastWindow(url);
 
         getActiveContentViewCore().setContentViewClient(new ContentViewClient() {
@@ -137,7 +150,7 @@ public class CastShellActivity extends Activity {
         if (!shouldLaunchBrowser()) return;
 
         String url = intent.getDataString();
-        Log.d(TAG, "onNewIntent: " + url);
+        Log.d(TAG, "onNewIntent: %s", url);
 
         // Reset broadcast intent uri and receiver.
         setIntent(intent);
@@ -153,10 +166,32 @@ public class CastShellActivity extends Activity {
 
     @Override
     protected void onStop() {
-        if (DEBUG) Log.d(TAG, "onStop");
-        // As soon as the cast app is no longer in the foreground, we ought to immediately tear
-        // everything down.
-        finishGracefully();
+        if (DEBUG) Log.d(TAG, "onStop, window focus = %d", hasWindowFocus());
+
+        if (isStopping()) {
+            // As soon as the cast app is no longer in the foreground, we ought to immediately tear
+            // everything down.
+            finishGracefully();
+
+            // On pre-M devices, the device should be "unmuted" at the end of a Cast application
+            // session, signaled by the activity exiting. See b/19964892.
+            if (Build.VERSION.SDK_INT < 23) {
+                AudioManager audioManager = CastAudioManager.getAudioManager(this);
+                boolean isMuted = false;
+                try {
+                    isMuted = (Boolean) audioManager.getClass().getMethod("isStreamMute", int.class)
+                            .invoke(audioManager, AudioManager.STREAM_MUSIC);
+                } catch (Exception e) {
+                    Log.e(TAG, "Cannot call AudioManager.isStreamMute().", e);
+                }
+
+                if (isMuted) {
+                    // Note: this is a no-op on fixed-volume devices.
+                    audioManager.setStreamMute(AudioManager.STREAM_MUSIC, false);
+                }
+            }
+        }
+
         super.onStop();
     }
 
@@ -179,7 +214,8 @@ public class CastShellActivity extends Activity {
 
     @Override
     protected void onPause() {
-        if (DEBUG) Log.d(TAG, "onPause");
+        if (DEBUG) Log.d(TAG, "onPause, window focus = %d", hasWindowFocus());
+        mHadFocusWhenPaused = hasWindowFocus();
 
         // Release the audio focus. Note that releasing audio focus does not stop audio playback,
         // it just notifies the framework that this activity has stopped playing audio.
@@ -205,7 +241,7 @@ public class CastShellActivity extends Activity {
             mBroadcastReceiver = new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context context, Intent intent) {
-                    Log.d(TAG, "Received intent: action=" + intent.getAction());
+                    Log.d(TAG, "Received intent: action=%s", intent.getAction());
                     if (CastWindowAndroid.ACTION_ENABLE_DEV_TOOLS.equals(intent.getAction())) {
                         mCastWindowManager.nativeEnableDevTools(true);
                     } else if (CastWindowAndroid.ACTION_DISABLE_DEV_TOOLS.equals(
@@ -229,16 +265,26 @@ public class CastShellActivity extends Activity {
     }
 
     private void setResolution() {
-        int requestedHeight = getIntent().getIntExtra(
-                ACTION_EXTRA_RESOLUTION_HEIGHT, DEFAULT_HEIGHT_PIXELS);
+        CommandLine commandLine = CommandLine.getInstance();
+        int defaultHeight = DEFAULT_HEIGHT_PIXELS;
+        if (commandLine.hasSwitch(CastSwitches.DEFAULT_RESOLUTION_HEIGHT)) {
+            String commandLineHeightString =
+                    commandLine.getSwitchValue(CastSwitches.DEFAULT_RESOLUTION_HEIGHT);
+            try {
+                defaultHeight = Integer.parseInt(commandLineHeightString);
+            } catch (NumberFormatException e) {
+                Log.w(TAG, "Ignored invalid height: %d", commandLineHeightString);
+            }
+        }
+        int requestedHeight =
+                getIntent().getIntExtra(ACTION_EXTRA_RESOLUTION_HEIGHT, defaultHeight);
         int displayHeight = getResources().getDisplayMetrics().heightPixels;
-        // Clamp within [DEFAULT_HEIGHT_PIXELS, displayHeight]
-        int desiredHeight =
-                Math.min(displayHeight, Math.max(DEFAULT_HEIGHT_PIXELS, requestedHeight));
+        // Clamp within [defaultHeight, displayHeight]
+        int desiredHeight = Math.min(displayHeight, Math.max(defaultHeight, requestedHeight));
         double deviceScaleFactor = ((double) displayHeight) / desiredHeight;
-        Log.d(TAG, "Using scale factor " + deviceScaleFactor + " to set height " + desiredHeight);
-        CommandLine.getInstance().appendSwitchWithValue("force-device-scale-factor",
-                String.valueOf(deviceScaleFactor));
+        Log.d(TAG, "Using scale factor %f to set height %d", deviceScaleFactor, desiredHeight);
+        commandLine.appendSwitchWithValue(
+                ContentSwitches.FORCE_DEVICE_SCALE_FACTOR, String.valueOf(deviceScaleFactor));
     }
 
     private void exitIfUrlMissing() {

@@ -3,10 +3,11 @@
 // found in the LICENSE file.
 
 #include "config.h"
+
 #include "core/HTMLNames.h"
 #include "core/dom/Element.h"
 #include "core/dom/ElementTraversal.h"
-#include "core/dom/NodeRenderStyle.h"
+#include "core/dom/NodeComputedStyle.h"
 #include "core/dom/StyleEngine.h"
 #include "core/frame/FrameView.h"
 #include "core/html/HTMLDocument.h"
@@ -14,22 +15,19 @@
 #include "core/testing/DummyPageHolder.h"
 #include <gtest/gtest.h>
 
-using namespace blink;
+namespace blink {
+
 using namespace HTMLNames;
 
-namespace {
-
 class AffectedByFocusTest : public ::testing::Test {
-
 protected:
-
     struct ElementResult {
         const blink::HTMLQualifiedName tag;
         bool affectedBy;
         bool childrenOrSiblingsAffectedBy;
     };
 
-    virtual void SetUp() override;
+    void SetUp() override;
 
     HTMLDocument& document() const { return *m_document; }
 
@@ -53,7 +51,7 @@ void AffectedByFocusTest::SetUp()
 void AffectedByFocusTest::setHtmlInnerHTML(const char* htmlContent)
 {
     document().documentElement()->setInnerHTML(String::fromUTF8(htmlContent), ASSERT_NO_EXCEPTION);
-    document().view()->updateLayoutAndStyleIfNeededRecursive();
+    document().view()->updateAllLifecyclePhases();
 }
 
 void AffectedByFocusTest::checkElements(ElementResult expected[], unsigned expectedCount) const
@@ -63,8 +61,8 @@ void AffectedByFocusTest::checkElements(ElementResult expected[], unsigned expec
 
     for (; element && i < expectedCount; element = Traversal<HTMLElement>::next(*element), ++i) {
         ASSERT_TRUE(element->hasTagName(expected[i].tag));
-        ASSERT(element->renderStyle());
-        ASSERT_EQ(expected[i].affectedBy, element->renderStyle()->affectedByFocus());
+        ASSERT(element->computedStyle());
+        ASSERT_EQ(expected[i].affectedBy, element->computedStyle()->affectedByFocus());
         ASSERT_EQ(expected[i].childrenOrSiblingsAffectedBy, element->childrenOrSiblingsAffectedByFocus());
     }
 
@@ -73,7 +71,7 @@ void AffectedByFocusTest::checkElements(ElementResult expected[], unsigned expec
 
 // A global :focus rule in html.css currently causes every single element to be
 // affectedByFocus. Check that all elements in a document with no :focus rules
-// gets the affectedByFocus set on RenderStyle and not childrenOrSiblingsAffectedByFocus.
+// gets the affectedByFocus set on ComputedStyle and not childrenOrSiblingsAffectedByFocus.
 TEST_F(AffectedByFocusTest, UAUniversalFocusRule)
 {
     ElementResult expected[] = {
@@ -208,14 +206,14 @@ TEST_F(AffectedByFocusTest, AffectedByFocusUpdate)
         "<div></div>"
         "</div>");
 
-    document().view()->updateLayoutAndStyleIfNeededRecursive();
+    document().view()->updateAllLifecyclePhases();
 
-    unsigned startCount = document().styleEngine()->resolverAccessCount();
+    unsigned startCount = document().styleEngine().resolverAccessCount();
 
     document().getElementById("d")->focus();
-    document().view()->updateLayoutAndStyleIfNeededRecursive();
+    document().view()->updateAllLifecyclePhases();
 
-    unsigned accessCount = document().styleEngine()->resolverAccessCount() - startCount;
+    unsigned accessCount = document().styleEngine().resolverAccessCount() - startCount;
 
     ASSERT_EQ(1U, accessCount);
 }
@@ -239,14 +237,14 @@ TEST_F(AffectedByFocusTest, ChildrenOrSiblingsAffectedByFocusUpdate)
         "<div></div>"
         "</div>");
 
-    document().view()->updateLayoutAndStyleIfNeededRecursive();
+    document().view()->updateAllLifecyclePhases();
 
-    unsigned startCount = document().styleEngine()->resolverAccessCount();
+    unsigned startCount = document().styleEngine().resolverAccessCount();
 
     document().getElementById("d")->focus();
-    document().view()->updateLayoutAndStyleIfNeededRecursive();
+    document().view()->updateAllLifecyclePhases();
 
-    unsigned accessCount = document().styleEngine()->resolverAccessCount() - startCount;
+    unsigned accessCount = document().styleEngine().resolverAccessCount() - startCount;
 
     ASSERT_EQ(11U, accessCount);
 }
@@ -270,14 +268,14 @@ TEST_F(AffectedByFocusTest, InvalidationSetFocusUpdate)
         "<div class='a'></div>"
         "</div>");
 
-    document().view()->updateLayoutAndStyleIfNeededRecursive();
+    document().view()->updateAllLifecyclePhases();
 
-    unsigned startCount = document().styleEngine()->resolverAccessCount();
+    unsigned startCount = document().styleEngine().resolverAccessCount();
 
     document().getElementById("d")->focus();
-    document().view()->updateLayoutAndStyleIfNeededRecursive();
+    document().view()->updateAllLifecyclePhases();
 
-    unsigned accessCount = document().styleEngine()->resolverAccessCount() - startCount;
+    unsigned accessCount = document().styleEngine().resolverAccessCount() - startCount;
 
     ASSERT_EQ(2U, accessCount);
 }
@@ -302,16 +300,16 @@ TEST_F(AffectedByFocusTest, NoInvalidationSetFocusUpdate)
         "<div class='a'></div>"
         "</div>");
 
-    document().view()->updateLayoutAndStyleIfNeededRecursive();
+    document().view()->updateAllLifecyclePhases();
 
-    unsigned startCount = document().styleEngine()->resolverAccessCount();
+    unsigned startCount = document().styleEngine().resolverAccessCount();
 
     document().getElementById("d")->focus();
-    document().view()->updateLayoutAndStyleIfNeededRecursive();
+    document().view()->updateAllLifecyclePhases();
 
-    unsigned accessCount = document().styleEngine()->resolverAccessCount() - startCount;
+    unsigned accessCount = document().styleEngine().resolverAccessCount() - startCount;
 
     ASSERT_EQ(1U, accessCount);
 }
 
-} // namespace
+} // namespace blink

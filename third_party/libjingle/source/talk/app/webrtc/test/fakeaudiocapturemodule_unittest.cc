@@ -1,6 +1,6 @@
 /*
  * libjingle
- * Copyright 2012, Google Inc.
+ * Copyright 2012 Google Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -55,18 +55,18 @@ class FakeAdmTest : public testing::Test,
 
   // Callbacks inherited from webrtc::AudioTransport.
   // ADM is pushing data.
-  virtual int32_t RecordedDataIsAvailable(const void* audioSamples,
-                                          const uint32_t nSamples,
-                                          const uint8_t nBytesPerSample,
-                                          const uint8_t nChannels,
-                                          const uint32_t samplesPerSec,
-                                          const uint32_t totalDelayMS,
-                                          const int32_t clockDrift,
-                                          const uint32_t currentMicLevel,
-                                          const bool keyPressed,
-                                          uint32_t& newMicLevel) {
+  int32_t RecordedDataIsAvailable(const void* audioSamples,
+                                  const uint32_t nSamples,
+                                  const uint8_t nBytesPerSample,
+                                  const uint8_t nChannels,
+                                  const uint32_t samplesPerSec,
+                                  const uint32_t totalDelayMS,
+                                  const int32_t clockDrift,
+                                  const uint32_t currentMicLevel,
+                                  const bool keyPressed,
+                                  uint32_t& newMicLevel) override {
     rec_buffer_bytes_ = nSamples * nBytesPerSample;
-    if ((rec_buffer_bytes_ <= 0) ||
+    if ((rec_buffer_bytes_ == 0) ||
         (rec_buffer_bytes_ > FakeAudioCaptureModule::kNumberSamples *
          FakeAudioCaptureModule::kNumberBytesPerSample)) {
       ADD_FAILURE();
@@ -79,29 +79,21 @@ class FakeAdmTest : public testing::Test,
   }
 
   // ADM is pulling data.
-  virtual int32_t NeedMorePlayData(const uint32_t nSamples,
-                                   const uint8_t nBytesPerSample,
-                                   const uint8_t nChannels,
-                                   const uint32_t samplesPerSec,
-                                   void* audioSamples,
-                                   uint32_t& nSamplesOut,
-#ifdef USE_WEBRTC_DEV_BRANCH
-                                   int64_t* elapsed_time_ms,
-#else
-                                   uint32_t* rtp_timestamp,
-#endif
-                                   int64_t* ntp_time_ms) {
+  int32_t NeedMorePlayData(const uint32_t nSamples,
+                           const uint8_t nBytesPerSample,
+                           const uint8_t nChannels,
+                           const uint32_t samplesPerSec,
+                           void* audioSamples,
+                           uint32_t& nSamplesOut,
+                           int64_t* elapsed_time_ms,
+                           int64_t* ntp_time_ms) override {
     ++pull_iterations_;
     const uint32_t audio_buffer_size = nSamples * nBytesPerSample;
     const uint32_t bytes_out = RecordedDataReceived() ?
         CopyFromRecBuffer(audioSamples, audio_buffer_size):
         GenerateZeroBuffer(audioSamples, audio_buffer_size);
     nSamplesOut = bytes_out / nBytesPerSample;
-#ifdef USE_WEBRTC_DEV_BRANCH
     *elapsed_time_ms = 0;
-#else
-    *rtp_timestamp = 0;
-#endif
     *ntp_time_ms = 0;
     return 0;
   }

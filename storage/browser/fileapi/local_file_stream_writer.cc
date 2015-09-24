@@ -4,9 +4,7 @@
 
 #include "storage/browser/fileapi/local_file_stream_writer.h"
 
-#include "base/callback.h"
 #include "base/message_loop/message_loop.h"
-#include "base/profiler/scoped_tracker.h"
 #include "net/base/file_stream.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
@@ -126,11 +124,6 @@ void LocalFileStreamWriter::DidOpen(
     const net::CompletionCallback& error_callback,
     const base::Closure& main_operation,
     int result) {
-  // TODO(vadimt): Remove ScopedTracker below once crbug.com/423948 is fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "423948 LocalFileStreamWriter::DidOpen"));
-
   DCHECK(has_pending_operation_);
   DCHECK(stream_impl_.get());
 
@@ -159,11 +152,10 @@ void LocalFileStreamWriter::InitiateSeek(
     return;
   }
 
-  int result = stream_impl_->Seek(base::File::FROM_BEGIN, initial_offset_,
-                                  base::Bind(&LocalFileStreamWriter::DidSeek,
-                                             weak_factory_.GetWeakPtr(),
-                                             error_callback,
-                                             main_operation));
+  int result = stream_impl_->Seek(
+      initial_offset_,
+      base::Bind(&LocalFileStreamWriter::DidSeek, weak_factory_.GetWeakPtr(),
+                 error_callback, main_operation));
   if (result != net::ERR_IO_PENDING) {
     has_pending_operation_ = false;
     error_callback.Run(result);

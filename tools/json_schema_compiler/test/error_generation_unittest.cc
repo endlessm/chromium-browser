@@ -101,8 +101,8 @@ TEST(JsonSchemaCompilerErrorTest, ParamIsRequired) {
     EXPECT_TRUE(TestFunction::Params::Create(*params_value, &error));
   }
   {
-    scoped_ptr<base::ListValue> params_value = List(
-        base::Value::CreateNullValue());
+    scoped_ptr<base::ListValue> params_value =
+        List(base::Value::CreateNullValue().release());
     base::string16 error;
     EXPECT_FALSE(TestFunction::Params::Create(*params_value, &error));
     EXPECT_TRUE(EqualsUtf16("'num' is required", error));
@@ -170,7 +170,8 @@ TEST(JsonSchemaCompilerErrorTest, UnableToPopulateArray) {
     scoped_ptr<base::ListValue> params_value = List(
         new FundamentalValue(5),
         new FundamentalValue(false));
-    EXPECT_TRUE(EqualsUtf16("unable to populate array 'integers'",
+    EXPECT_TRUE(EqualsUtf16(
+        "expected integer, got boolean; unable to populate array 'integers'",
         GetPopulateError<ChoiceType::Integers>(*params_value)));
   }
 }
@@ -294,7 +295,8 @@ TEST(JsonSchemaCompilerErrorTest, OptionalUnableToPopulateArray) {
     base::string16 error;
     EXPECT_TRUE(OptionalChoiceType::Integers::Populate(*params_value, &out,
         &error));
-    EXPECT_TRUE(EqualsUtf16("unable to populate array 'integers'",
+    EXPECT_TRUE(EqualsUtf16(
+        "expected integer, got boolean; unable to populate array 'integers'",
         error));
     EXPECT_EQ(NULL, out.as_integer.get());
   }

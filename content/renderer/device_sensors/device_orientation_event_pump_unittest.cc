@@ -4,12 +4,14 @@
 
 #include "device_orientation_event_pump.h"
 
+#include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/common/device_sensors/device_orientation_hardware_buffer.h"
 #include "content/public/test/test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/platform/WebDeviceOrientationListener.h"
+#include "third_party/WebKit/public/platform/modules/device_orientation/WebDeviceOrientationListener.h"
 
 namespace content {
 
@@ -74,7 +76,7 @@ class DeviceOrientationEventPumpTest : public testing::Test {
 
  protected:
   void SetUp() override {
-    const DeviceOrientationHardwareBuffer* null_buffer = NULL;
+    const DeviceOrientationHardwareBuffer* null_buffer = nullptr;
     listener_.reset(new MockDeviceOrientationListener);
     orientation_pump_.reset(new DeviceOrientationEventPumpForTesting);
     buffer_ = static_cast<DeviceOrientationHardwareBuffer*>(
@@ -181,9 +183,9 @@ TEST_F(DeviceOrientationEventPumpTest, UpdateRespectsOrientationThreshold) {
   // Reset the pump's listener.
   orientation_pump()->Start(listener());
 
-  base::MessageLoop::current()->PostTask(FROM_HERE,
-      base::Bind(&DeviceOrientationEventPumpForTesting::FireEvent,
-                 base::Unretained(orientation_pump())));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&DeviceOrientationEventPumpForTesting::FireEvent,
+                            base::Unretained(orientation_pump())));
   base::MessageLoop::current()->Run();
 
   EXPECT_FALSE(listener()->did_change_device_orientation());
@@ -202,9 +204,9 @@ TEST_F(DeviceOrientationEventPumpTest, UpdateRespectsOrientationThreshold) {
   // Reset the pump's listener.
   orientation_pump()->Start(listener());
 
-  base::MessageLoop::current()->PostTask(FROM_HERE,
-      base::Bind(&DeviceOrientationEventPumpForTesting::FireEvent,
-                 base::Unretained(orientation_pump())));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&DeviceOrientationEventPumpForTesting::FireEvent,
+                            base::Unretained(orientation_pump())));
   base::MessageLoop::current()->Run();
 
   EXPECT_TRUE(listener()->did_change_device_orientation());

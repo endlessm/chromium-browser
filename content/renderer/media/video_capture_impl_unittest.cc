@@ -80,7 +80,8 @@ class VideoCaptureImplTest : public ::testing::Test {
 
     void DeviceReceiveEmptyBuffer(int device_id,
                                   int buffer_id,
-                                  uint32 sync_point) {}
+                                  uint32 sync_point,
+                                  double consumer_resource_utilization) {}
 
     void DeviceGetSupportedFormats(int device_id,
                                    media::VideoCaptureSessionId session_id) {
@@ -129,9 +130,8 @@ class VideoCaptureImplTest : public ::testing::Test {
   }
 
  protected:
-  MOCK_METHOD3(OnFrameReady,
+  MOCK_METHOD2(OnFrameReady,
               void(const scoped_refptr<media::VideoFrame>&,
-                   const media::VideoCaptureFormat&,
                    const base::TimeTicks&));
   MOCK_METHOD1(OnStateUpdate, void(VideoCaptureState));
   MOCK_METHOD1(OnDeviceFormatsInUse,

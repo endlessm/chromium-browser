@@ -13,10 +13,10 @@ if 'TRUSTED_ENV' not in env:
 if env.UnderWindowsCoverage():
   Return()
 
-if env.Bit('target_arm') or env.Bit('target_mips32'):
+if env.Bit('build_arm') or env.Bit('build_mips32'):
   if env.UsingEmulator():
     # nacl-gdb is built with ARM support but not MIPS support.
-    if env.Bit('target_mips32'):
+    if env.Bit('build_mips32'):
       Return()
     nacl_x86_toolchain_dir = env.GetToolchainDir(target_arch='x86',
                                                  is_pnacl=False,
@@ -34,7 +34,7 @@ if env.Bit('target_arm') or env.Bit('target_mips32'):
 
 # Disable finalization (which would strip debug metadata), but allow
 # the sandbox translator where it makes sense.
-if not env.AllowNonStableBitcode(allow_sb_translator=True):
+if not env.SetNonStableBitcodeIfAllowed(allow_sb_translator=True):
   Return()
 
 # We need -O0 to make stepping predictable and read local variables/function
@@ -46,6 +46,11 @@ env.Append(CCFLAGS=['-O0', '-g', '-fno-omit-frame-pointer'])
 if env.Bit('bitcode'):
   env.Append(LINKFLAGS=['-O0'])
   env.Append(TRANSLATEFLAGS=['-O0'])
+  # TODO(jfb) ARM bots test the local GDB, which isn't as recent as
+  #           nacl-gdb. The move to LLVM 3.5 broke line info reading on some of
+  #           the ARM bots, and using DWARF 3 "fixes" this issue.
+  if env.Bit('build_arm'):
+    env.Append(CCFLAGS=['-gdwarf-3'])
 
 sel_ldr_command = env.AddBootstrap(env.GetSelLdr(), ['-v'])
 if env.GetEmulator():
@@ -108,7 +113,9 @@ def AddGdbTest(name, is_broken=False, is_thread_test=False):
 AddGdbTest('complete')
 AddGdbTest('detach')
 AddGdbTest('disconnect')
-AddGdbTest('invalid_memory')
+# https://code.google.com/p/nativeclient/issues/detail?id=4059
+AddGdbTest('invalid_memory',
+           is_broken = (env.Bit('nacl_clang') and not env.UsingEmulator()))
 AddGdbTest('kill')
 AddGdbTest('remote_get')
 
@@ -116,13 +123,17 @@ AddGdbTest('remote_get')
 # cache not being flushable.
 AddGdbTest('stepi_after_break', is_broken=env.UsingEmulator())
 
+using_clang = env.Bit('bitcode') or env.Bit('nacl_clang')
+
 # This fails on ARM+PNaCl. The set_global_var function appears to be
 # getting the wrong argument value (68K vs 1), so the value of
 # global_var doesn't match the expected value.
 # TODO(mseaborn): Investigate and enable this test.
 # http://code.google.com/p/nativeclient/issues/detail?id=3252
+# This test also fails with arm-nacl-clang:
+# https://code.google.com/p/nativeclient/issues/detail?id=4059
 AddGdbTest('print_symbol',
-           is_broken=((env.Bit('bitcode') and env.Bit('target_arm'))
+           is_broken=((using_clang and env.Bit('build_arm'))
                       or env.UsingEmulator()))
 
 # This fails on ARM+PNaCl because it gets an
@@ -131,22 +142,28 @@ AddGdbTest('print_symbol',
 # TODO(mseaborn): Investigate and enable this test.
 # http://code.google.com/p/nativeclient/issues/detail?id=3252
 AddGdbTest('stack_trace',
-           is_broken=env.Bit('bitcode') and env.Bit('target_arm'))
+           is_broken=using_clang and env.Bit('build_arm'))
 
-AddGdbTest('step_from_func_start', is_broken=env.UsingEmulator())
+# This fails on ARM+nacl-clang
+# https://code.google.com/p/nativeclient/issues/detail?id=4059
+AddGdbTest('step_from_func_start',
+           is_broken=(env.UsingEmulator() or
+                      (env.Bit('nacl_clang') and env.Bit('build_arm'))))
 
 # This fails on MIPS, since GDB for MIPS executes inferior calls on stack
 # (call dummy location in MIPS GDB is set as ON_STACK method). Since the stack
 # is not executable under NaCl, this makes inferior call impossible to execute.
-AddGdbTest('call_from_gdb', is_broken=env.Bit('target_mips32'))
+AddGdbTest('call_from_gdb', is_broken=env.Bit('build_mips32'))
 
 # This fails on ARM/MIPS+PNaCl because it is reading
 # local_var before it has been initialised.
 # TODO(mseaborn): Investigate and enable this test.
 # http://code.google.com/p/nativeclient/issues/detail?id=3252
+# This test also fails with arm-nacl-clang:
+# https://code.google.com/p/nativeclient/issues/detail?id=4059
 AddGdbTest('change_variable',
-           is_broken=((env.Bit('bitcode') and env.Bit('target_arm')) or
-                      env.Bit('target_mips32') or
+           is_broken=((using_clang and env.Bit('build_arm')) or
+                      env.Bit('build_mips32') or
                       env.UsingEmulator()))
 
 if not env.Bit('nacl_static_link'):
@@ -161,5 +178,5 @@ AddGdbTest('syscall_thread', is_thread_test=True)
 
 # We don't run this test on non-x86 architectures or PNaCl since it
 # contains inline assembly.
-if env.Bit('target_x86') and not env.Bit('bitcode'):
+if env.Bit('build_x86') and not env.Bit('bitcode'):
   AddGdbTest('mmap')

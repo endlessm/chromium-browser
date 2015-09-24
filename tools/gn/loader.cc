@@ -191,14 +191,14 @@ const Settings* LoaderImpl::GetToolchainSettings(const Label& label) const {
   ToolchainRecordMap::const_iterator found_toolchain;
   if (label.is_null()) {
     if (default_toolchain_label_.is_null())
-      return NULL;
+      return nullptr;
     found_toolchain = toolchain_records_.find(default_toolchain_label_);
   } else {
     found_toolchain = toolchain_records_.find(label);
   }
 
   if (found_toolchain == toolchain_records_.end())
-    return NULL;
+    return nullptr;
   return &found_toolchain->second->settings;
 }
 
@@ -302,9 +302,8 @@ void LoaderImpl::BackgroundLoadBuildConfig(
       settings->build_settings()->build_config_file().value());
   trace.SetToolchain(settings->toolchain_label());
 
-  const BlockNode* root_block = root->AsBlock();
   Err err;
-  root_block->ExecuteBlockInScope(base_config, &err);
+  root->Execute(base_config, &err);
 
   // Clear all private variables left in the scope. We want the root build
   // config to be like a .gni file in that variables beginning with an
@@ -344,7 +343,7 @@ void LoaderImpl::DidLoadBuildConfig(const Label& label) {
   // Do not return early, we must call DecrementPendingLoads() at the bottom.
 
   ToolchainRecordMap::iterator found_toolchain = toolchain_records_.find(label);
-  ToolchainRecord* record = NULL;
+  ToolchainRecord* record = nullptr;
   if (found_toolchain == toolchain_records_.end()) {
     // When loading the default build config, we'll insert it into the record
     // map with an empty label since we don't yet know what to call it.

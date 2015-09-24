@@ -1,10 +1,14 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
+#include <limits.h>
+
+#include "../../include/fxcrt/fx_coordinates.h"
 #include "../../include/fxcrt/fx_ext.h"
+
 void FX_RECT::Normalize()
 {
     if (left > right) {
@@ -53,15 +57,14 @@ FX_BOOL GetIntersection(FX_FLOAT low1, FX_FLOAT high1, FX_FLOAT low2, FX_FLOAT h
 }
 extern "C" int FXSYS_round(FX_FLOAT d)
 {
-    int iRet = 0;
-    if (d >= 0.0f) {
-        iRet = (int)(d + 0.5f);
-        if (iRet >= 0) {
-            return iRet;
-        }
-        return -iRet;
+    if (d < (FX_FLOAT)INT_MIN) {
+        return INT_MIN;
     }
-    return (int)(d - 0.5f);
+    if (d > (FX_FLOAT)INT_MAX) {
+        return INT_MAX;
+    }
+
+    return (int)round(d);
 }
 CFX_FloatRect::CFX_FloatRect(const FX_RECT& rect)
 {
@@ -249,23 +252,28 @@ CFX_FloatRect CFX_FloatRect::GetBBox(const CFX_FloatPoint* pPoints, int nPoints)
     }
     return CFX_FloatRect(min_x, min_y, max_x, max_y);
 }
-void CFX_Matrix::Set(FX_FLOAT a, FX_FLOAT b, FX_FLOAT c, FX_FLOAT d, FX_FLOAT e, FX_FLOAT f)
+void CFX_Matrix::Set(FX_FLOAT other_a,
+                     FX_FLOAT other_b,
+                     FX_FLOAT other_c,
+                     FX_FLOAT other_d,
+                     FX_FLOAT other_e,
+                     FX_FLOAT other_f)
 {
-    this->a = a;
-    this->b = b;
-    this->c = c;
-    this->d = d;
-    this->e = e;
-    this->f = f;
+    a = other_a;
+    b = other_b;
+    c = other_c;
+    d = other_d;
+    e = other_e;
+    f = other_f;
 }
 void CFX_Matrix::Set(const FX_FLOAT n[6])
 {
-    this->a = n[0];
-    this->b = n[1];
-    this->c = n[2];
-    this->d = n[3];
-    this->e = n[4];
-    this->f = n[5];
+    a = n[0];
+    b = n[1];
+    c = n[2];
+    d = n[3];
+    e = n[4];
+    f = n[5];
 }
 void CFX_Matrix::SetReverse(const CFX_Matrix &m)
 {
@@ -430,7 +438,7 @@ FX_FLOAT CFX_Matrix::TransformXDistance(FX_FLOAT dx) const
     FX_FLOAT fx = a * dx, fy = b * dx;
     return FXSYS_sqrt(fx * fx + fy * fy);
 }
-FX_INT32 CFX_Matrix::TransformXDistance(FX_INT32 dx) const
+int32_t CFX_Matrix::TransformXDistance(int32_t dx) const
 {
     FX_FLOAT fx = a * dx, fy = b * dx;
     return FXSYS_round(FXSYS_sqrt(fx * fx + fy * fy));
@@ -440,7 +448,7 @@ FX_FLOAT CFX_Matrix::TransformYDistance(FX_FLOAT dy) const
     FX_FLOAT fx = c * dy, fy = d * dy;
     return FXSYS_sqrt(fx * fx + fy * fy);
 }
-FX_INT32 CFX_Matrix::TransformYDistance(FX_INT32 dy) const
+int32_t CFX_Matrix::TransformYDistance(int32_t dy) const
 {
     FX_FLOAT fx = c * dy, fy = d * dy;
     return FXSYS_round(FXSYS_sqrt(fx * fx + fy * fy));
@@ -450,7 +458,7 @@ FX_FLOAT CFX_Matrix::TransformDistance(FX_FLOAT dx, FX_FLOAT dy) const
     FX_FLOAT fx = a * dx + c * dy, fy = b * dx + d * dy;
     return FXSYS_sqrt(fx * fx + fy * fy);
 }
-FX_INT32 CFX_Matrix::TransformDistance(FX_INT32 dx, FX_INT32 dy) const
+int32_t CFX_Matrix::TransformDistance(int32_t dx, int32_t dy) const
 {
     FX_FLOAT fx = a * dx + c * dy, fy = b * dx + d * dy;
     return FXSYS_round(FXSYS_sqrt(fx * fx + fy * fy));
@@ -472,11 +480,11 @@ void CFX_Matrix::TransformVector(CFX_Vector &v) const
     v.x = FXSYS_round(fx);
     v.y = FXSYS_round(fy);
 }
-void CFX_Matrix::TransformPoints(CFX_Point *points, FX_INT32 iCount) const
+void CFX_Matrix::TransformPoints(CFX_Point *points, int32_t iCount) const
 {
     FXSYS_assert(iCount > 0);
     FX_FLOAT fx, fy;
-    for (FX_INT32 i = 0; i < iCount; i ++) {
+    for (int32_t i = 0; i < iCount; i ++) {
         fx = a * points->x + c * points->y + e;
         fy = b * points->x + d * points->y + f;
         points->x = FXSYS_round(fx);
@@ -484,11 +492,11 @@ void CFX_Matrix::TransformPoints(CFX_Point *points, FX_INT32 iCount) const
         points ++;
     }
 }
-void CFX_Matrix::TransformPoints(CFX_PointF *points, FX_INT32 iCount) const
+void CFX_Matrix::TransformPoints(CFX_PointF *points, int32_t iCount) const
 {
     FXSYS_assert(iCount > 0);
     FX_FLOAT fx, fy;
-    for (FX_INT32 i = 0; i < iCount; i ++) {
+    for (int32_t i = 0; i < iCount; i ++) {
         fx = a * points->x + c * points->y + e;
         fy = b * points->x + d * points->y + f;
         points->x = fx, points->y = fy;
@@ -501,7 +509,7 @@ void CFX_Matrix::TransformPoint(FX_FLOAT &x, FX_FLOAT &y) const
     FX_FLOAT fy = b * x + d * y + f;
     x = fx, y = fy;
 }
-void CFX_Matrix::TransformPoint(FX_INT32 &x, FX_INT32 &y) const
+void CFX_Matrix::TransformPoint(int32_t &x, int32_t &y) const
 {
     FX_FLOAT fx = a * x + c * y + e;
     FX_FLOAT fy = b * x + d * y + f;

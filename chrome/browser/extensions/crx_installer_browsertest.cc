@@ -5,6 +5,7 @@
 #include "chrome/browser/extensions/crx_installer.h"
 
 #include "base/at_exit.h"
+#include "base/files/file_path.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/download/download_crx_util.h"
@@ -13,6 +14,7 @@
 #include "chrome/browser/extensions/extension_install_prompt.h"
 #include "chrome/browser/extensions/extension_install_prompt_show_params.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/extension_tab_util.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/fake_safe_browsing_database_manager.h"
 #include "chrome/browser/extensions/test_extension_dir.h"
@@ -31,18 +33,20 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
-#include "extensions/browser/install/crx_installer_error.h"
+#include "extensions/browser/install/crx_install_error.h"
 #include "extensions/browser/management_policy.h"
 #include "extensions/browser/notification_types.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/feature_switch.h"
 #include "extensions/common/file_util.h"
+#include "extensions/common/permissions/api_permission.h"
 #include "extensions/common/permissions/permission_set.h"
+#include "extensions/common/permissions/permissions_data.h"
 #include "extensions/common/switches.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if defined(OS_CHROMEOS)
-#include "chrome/browser/chromeos/login/users/fake_user_manager.h"
+#include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/browser/extensions/extension_assets_manager_chromeos.h"
 #include "chromeos/chromeos_switches.h"
@@ -114,7 +118,7 @@ class MockInstallPrompt : public ExtensionInstallPrompt {
     proxy_->set_extension_id(extension->id());
     base::MessageLoopForUI::current()->Quit();
   }
-  void OnInstallFailure(const CrxInstallerError& error) override {
+  void OnInstallFailure(const CrxInstallError& error) override {
     proxy_->set_error(error.message());
     base::MessageLoopForUI::current()->Quit();
   }
@@ -159,10 +163,28 @@ class ManagementPolicyMock : public extensions::ManagementPolicy::Provider {
   }
 };
 
+// Appends "enable-experimental-extension-apis" to the command line for the
+// lifetime of this class.
+class ScopedExperimentalCommandLine {
+ public:
+  ScopedExperimentalCommandLine()
+      : saved_(*base::CommandLine::ForCurrentProcess()) {
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
+        switches::kEnableExperimentalExtensionApis);
+  }
+
+  ~ScopedExperimentalCommandLine() {
+    *base::CommandLine::ForCurrentProcess() = saved_;
+  }
+
+ private:
+  base::CommandLine saved_;
+};
+
 }  // namespace
 
 class ExtensionCrxInstallerTest : public ExtensionBrowserTest {
- public:
+ protected:
   scoped_ptr<WebstoreInstaller::Approval> GetApproval(
       const char* manifest_dir,
       const std::string& id,
@@ -219,8 +241,7 @@ class ExtensionCrxInstallerTest : public ExtensionBrowserTest {
   // |record_oauth2_grant| is true.
   void CheckHasEmptyScopesAfterInstall(const std::string& ext_relpath,
                                        bool record_oauth2_grant) {
-    CommandLine::ForCurrentProcess()->AppendSwitch(
-        switches::kEnableExperimentalExtensionApis);
+    ScopedExperimentalCommandLine scope;
 
     scoped_refptr<MockPromptProxy> mock_prompt =
         CreateMockPromptProxyForBrowser(browser());
@@ -232,6 +253,18 @@ class ExtensionCrxInstallerTest : public ExtensionBrowserTest {
         ExtensionPrefs::Get(browser()->profile())
             ->GetGrantedPermissions(mock_prompt->extension_id());
     ASSERT_TRUE(permissions.get());
+  }
+
+  // Returns a FilePath to an unpacked "experimental" extension (a test
+  // Extension which requests the "experimental" permission).
+  base::FilePath PackExperimentalExtension() {
+    // We must modify the command line temporarily in order to pack an
+    // extension that requests the experimental permission.
+    ScopedExperimentalCommandLine scope;
+    base::FilePath test_path = test_data_dir_.AppendASCII("experimental");
+    base::FilePath crx_path = PackExtension(test_path);
+    CHECK(!crx_path.empty()) << "Extension not found at " << test_path.value();
+    return crx_path;
   }
 };
 
@@ -253,27 +286,41 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest, Whitelisting) {
 #endif
 
 IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest,
-                       GalleryInstallGetsExperimental) {
-  // We must modify the command line temporarily in order to pack an extension
-  // that requests the experimental permission.
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
-  CommandLine old_command_line = *command_line;
-  command_line->AppendSwitch(switches::kEnableExperimentalExtensionApis);
-  base::FilePath crx_path = PackExtension(
-      test_data_dir_.AppendASCII("experimental"));
-  ASSERT_FALSE(crx_path.empty());
+                       ExperimentalExtensionFromGallery) {
+  // Gallery-installed extensions should have their experimental permission
+  // preserved, since we allow the Webstore to make that decision.
+  base::FilePath crx_path = PackExperimentalExtension();
+  const Extension* extension = InstallExtensionFromWebstore(crx_path, 1);
+  ASSERT_TRUE(extension);
+  EXPECT_TRUE(extension->permissions_data()->HasAPIPermission(
+      APIPermission::kExperimental));
+}
 
-  // Now reset the command line so that we are testing specifically whether
-  // installing from webstore enables experimental permissions.
-  *(CommandLine::ForCurrentProcess()) = old_command_line;
+IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest,
+                       ExperimentalExtensionFromOutsideGallery) {
+  // Non-gallery-installed extensions should lose their experimental
+  // permission if the flag isn't enabled.
+  base::FilePath crx_path = PackExperimentalExtension();
+  const Extension* extension = InstallExtension(crx_path, 1);
+  ASSERT_TRUE(extension);
+  EXPECT_FALSE(extension->permissions_data()->HasAPIPermission(
+      APIPermission::kExperimental));
+}
 
-  EXPECT_FALSE(InstallExtension(crx_path, 0));
-  EXPECT_TRUE(InstallExtensionFromWebstore(crx_path, 1));
+IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest,
+                       ExperimentalExtensionFromOutsideGalleryWithFlag) {
+  // Non-gallery-installed extensions should maintain their experimental
+  // permission if the flag is enabled.
+  base::FilePath crx_path = PackExperimentalExtension();
+  ScopedExperimentalCommandLine scope;
+  const Extension* extension = InstallExtension(crx_path, 1);
+  ASSERT_TRUE(extension);
+  EXPECT_TRUE(extension->permissions_data()->HasAPIPermission(
+      APIPermission::kExperimental));
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest, PlatformAppCrx) {
-  CommandLine::ForCurrentProcess()->AppendSwitch(
-      switches::kEnableExperimentalExtensionApis);
+  ScopedExperimentalCommandLine scope;
   EXPECT_TRUE(InstallExtension(
       test_data_dir_.AppendASCII("minimal_platform_app.crx"), 1));
 }
@@ -386,17 +433,11 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest, HiDpiThemeTest) {
   EXPECT_FALSE(registry->enabled_extensions().GetByID(extension_id));
 }
 
-// See http://crbug.com/315299.
-#if defined(OS_WIN) || defined(OS_LINUX)
-#define MAYBE_InstallDelayedUntilNextUpdate \
-        DISABLED_InstallDelayedUntilNextUpdate
-#else
-#define MAYBE_InstallDelayedUntilNextUpdate InstallDelayedUntilNextUpdate
-#endif
 IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest,
-                       MAYBE_InstallDelayedUntilNextUpdate) {
+                       InstallDelayedUntilNextUpdate) {
   const std::string extension_id("ldnnhddmnhbkjipkidpdiheffobcpfmf");
-  base::FilePath crx_path = test_data_dir_.AppendASCII("delayed_install");
+  base::FilePath base_path = test_data_dir_.AppendASCII("delayed_install");
+
   ExtensionSystem* extension_system = extensions::ExtensionSystem::Get(
       browser()->profile());
   ExtensionService* service = extension_system->extension_service();
@@ -407,47 +448,41 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest,
 
   // Install version 1 of the test extension. This extension does not have
   // a background page but does have a browser action.
-  ASSERT_TRUE(InstallExtension(crx_path.AppendASCII("v1.crx"), 1));
+  base::FilePath v1_path = PackExtension(base_path.AppendASCII("v1"));
+  ASSERT_FALSE(v1_path.empty());
+  ASSERT_TRUE(InstallExtension(v1_path, 1));
   const extensions::Extension* extension =
      registry->enabled_extensions().GetByID(extension_id);
   ASSERT_TRUE(extension);
   ASSERT_EQ(extension_id, extension->id());
   ASSERT_EQ("1.0", extension->version()->GetString());
 
-  // Make test extension non-idle by opening the extension's browser action
-  // popup. This should cause the installation to be delayed.
-  content::WindowedNotificationObserver loading_observer(
-      extensions::NOTIFICATION_EXTENSION_HOST_DID_STOP_LOADING,
-      content::Source<Profile>(profile()));
-  BrowserActionTestUtil util(browser());
-  // There is only one extension, so just click the first browser action.
-  ASSERT_EQ(1, util.NumberOfBrowserActions());
-  util.Press(0);
-  loading_observer.Wait();
-  ExtensionHost* extension_host =
-      content::Details<ExtensionHost>(loading_observer.details()).ptr();
+  // Make test extension non-idle by opening the extension's options page.
+  ExtensionTabUtil::OpenOptionsPage(extension, browser());
+  WaitForExtensionNotIdle(extension_id);
 
   // Install version 2 of the extension and check that it is indeed delayed.
-  ASSERT_TRUE(UpdateExtensionWaitForIdle(
-      extension_id, crx_path.AppendASCII("v2.crx"), 0));
+  base::FilePath v2_path = PackExtension(base_path.AppendASCII("v2"));
+  ASSERT_FALSE(v2_path.empty());
+  ASSERT_TRUE(UpdateExtensionWaitForIdle(extension_id, v2_path, 0));
 
   ASSERT_EQ(1u, service->delayed_installs()->size());
   extension = registry->enabled_extensions().GetByID(extension_id);
   ASSERT_EQ("1.0", extension->version()->GetString());
 
-  // Make the extension idle again by closing the popup. This should not trigger
-  // the delayed install.
-  content::RenderProcessHostWatcher terminated_observer(
-      extension_host->render_process_host(),
-      content::RenderProcessHostWatcher::WATCH_FOR_HOST_DESTRUCTION);
-  extension_host->render_view_host()->ClosePage();
-  terminated_observer.Wait();
+  // Make the extension idle again by navigating away from the options page.
+  // This should not trigger the delayed install.
+  ui_test_utils::NavigateToURL(browser(), GURL("about:blank"));
+  WaitForExtensionIdle(extension_id);
   ASSERT_EQ(1u, service->delayed_installs()->size());
+  extension = registry->enabled_extensions().GetByID(extension_id);
+  ASSERT_EQ("1.0", extension->version()->GetString());
 
   // Install version 3 of the extension. Because the extension is idle,
   // this install should succeed.
-  ASSERT_TRUE(UpdateExtensionWaitForIdle(
-      extension_id, crx_path.AppendASCII("v3.crx"), 0));
+  base::FilePath v3_path = PackExtension(base_path.AppendASCII("v3"));
+  ASSERT_FALSE(v3_path.empty());
+  ASSERT_TRUE(UpdateExtensionWaitForIdle(extension_id, v3_path, 0));
   extension = registry->enabled_extensions().GetByID(extension_id);
   ASSERT_EQ("3.0", extension->version()->GetString());
 
@@ -498,8 +533,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest, KioskOnlyTest) {
 #if defined(OS_CHROMEOS)
   // Simulate ChromeOS kiosk mode. |scoped_user_manager| will take over
   // lifetime of |user_manager|.
-  chromeos::FakeUserManager* fake_user_manager =
-      new chromeos::FakeUserManager();
+  chromeos::FakeChromeUserManager* fake_user_manager =
+      new chromeos::FakeChromeUserManager();
   fake_user_manager->AddKioskAppUser("example@example.com");
   fake_user_manager->LoginUser("example@example.com");
   chromeos::ScopedUserManagerEnabler scoped_user_manager(fake_user_manager);
@@ -509,8 +544,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest, KioskOnlyTest) {
 
 #if defined(OS_CHROMEOS)
 IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest, InstallToSharedLocation) {
-  base::ShadowingAtExitManager at_exit_manager;
-  CommandLine::ForCurrentProcess()->AppendSwitch(
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
       chromeos::switches::kEnableExtensionAssetsSharing);
   base::ScopedTempDir cache_dir;
   ASSERT_TRUE(cache_dir.CreateUniqueTempDir());
@@ -561,44 +595,6 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest, ManagementPolicy) {
 
   base::FilePath crx_path = test_data_dir_.AppendASCII("crx_installer/v1.crx");
   EXPECT_FALSE(InstallExtension(crx_path, 0));
-}
-
-IN_PROC_BROWSER_TEST_F(ExtensionCrxInstallerTest, WithheldElevationCheck) {
-  // Enable consent flag and install extension. The <all_hosts> permission will
-  // be withheld.
-  scoped_ptr<FeatureSwitch::ScopedOverride> enable_scripts_switch(
-      new FeatureSwitch::ScopedOverride(
-          FeatureSwitch::scripts_require_action(), true));
-
-  const char kManifest[] =
-      "{"
-      "  \"name\": \"Withheld test\","
-      "  \"version\": \"1.0\","
-      "  \"permissions\": ["
-      "    \"http://*/*\""
-      "  ],"
-      "  \"manifest_version\": 2"
-      "}";
-  TestExtensionDir dir;
-  dir.WriteManifest(kManifest);
-  base::FilePath crx_path = dir.Pack();
-  EXPECT_FALSE(crx_path.empty());
-  const Extension* extension = InstallExtension(crx_path, 1);
-  EXPECT_TRUE(base::PathExists(extension->path()));
-
-  std::string extension_id = extension->id();
-  ExtensionRegistry* registry = ExtensionRegistry::Get(
-      browser()->profile());
-  EXPECT_TRUE(registry->enabled_extensions().GetByID(extension_id));
-
-  // Disable consent flag and reinstall extension. It should now be disabled
-  // because previously withheld permissions are now being requested.
-  enable_scripts_switch.reset();
-  extension = InstallExtension(crx_path, -1);
-  EXPECT_FALSE(registry->enabled_extensions().GetByID(extension_id));
-  EXPECT_TRUE(registry->disabled_extensions().GetByID(extension_id));
-  EXPECT_TRUE(ExtensionPrefs::Get(browser()->profile())->GetDisableReasons(
-      extension_id) & Extension::DISABLE_PERMISSIONS_INCREASE);
 }
 
 }  // namespace extensions

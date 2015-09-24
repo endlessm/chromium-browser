@@ -66,11 +66,14 @@ readonly TC_BUILD_LLVM="$(pwd)/pnacl/build/llvm_${HOST_ARCH}"
 if ${PNACL_DEBUG} || ${PNACL_BUILDBOT}; then
   readonly SCONS_ARGS=(MODE=nacl,opt-host
                        bitcode=1
+                       skip_trusted_tests=1
                        --verbose
+                       sysinfo=0
                        -j${PNACL_CONCURRENCY})
 else
   readonly SCONS_ARGS=(MODE=nacl,opt-host
                        bitcode=1
+                       skip_trusted_tests=1
                        naclsdk_validate=0
                        sysinfo=0
                        -j${PNACL_CONCURRENCY})
@@ -117,6 +120,7 @@ scons-clean () {
   # a mix of both tests.
   if [ "${mode}" == "native" ] ; then
     Run rm -rf scons-out/nacl-${arch}-pnacl-${frontend}
+    Run rm -rf scons-out/nacl-${arch}-${frontend}
     Run rm -rf scons-out/nacl-${arch}-pnacl-pexe-${frontend}
   else
     Run rm -rf scons-out/nacl-${arch}-pnacl-${mode}-${frontend}
@@ -128,7 +132,7 @@ build-sbtc-prerequisites() {
   local arch=$1
   # Sandboxed translators currently only require irt_core since they do not
   # use PPAPI.
-  RunScons ${arch} sel_ldr sel_universal irt_core
+  RunScons ${arch} sel_ldr sel_universal irt_core elf_loader
 }
 
 #+ Run scons test under a certain configuration
@@ -156,9 +160,20 @@ scons-tests () {
     # (but don't bother separating build/run for now) until we
     # converge on exactly what we want
     RunScons ${arch} ${modeflags} "$@" smoke_tests
-    if [ ${mode} != "sbtc" ]; then
-      # nonpexe tests
-      RunScons ${arch} ${modeflags} pnacl_generate_pexe=0 "$@" nonpexe_tests
+    # None of the other tests make sense with the sandboxed translator.
+    if [ ${mode} == "sbtc" ]; then
+      return 0
+    fi
+
+    # nacl-clang tests
+    RunScons ${arch} ${modeflags} bitcode=0 nacl_clang=1 "$@" smoke_tests
+
+    # nonpexe tests
+    RunScons ${arch} ${modeflags} pnacl_generate_pexe=0 "$@" nonpexe_tests
+    if [ ${arch} != "x86-64" ]; then
+      RunScons ${arch} ${modeflags} nonsfi_nacl=1 "$@" nonsfi_tests
+      RunScons ${arch} ${modeflags} nonsfi_nacl=1 pnacl_generate_pexe=0 \
+        "$@" nonsfi_tests
     fi
   fi
 }

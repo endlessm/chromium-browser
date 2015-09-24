@@ -4,11 +4,6 @@
 
 #include "chrome/app/delay_load_hook_win.h"
 
-#if defined(_WIN32_WINNT_WIN8) && _MSC_VER < 1700
-// The Windows 8 SDK defines FACILITY_VISUALCPP in winerror.h, and in
-// delayimp.h previous to VS2012.
-#undef FACILITY_VISUALCPP
-#endif
 #include <DelayIMP.h>
 
 #include "base/logging.h"
@@ -33,7 +28,7 @@ FARPROC OnPreLoadLibrary(DelayLoadInfo* info) {
   // and bind to the real DLL.
   std::string dll_name(info->szDll);
   const char kDelaySuffix[] = "-delay.dll";
-  if (EndsWith(dll_name, kDelaySuffix, false)) {
+  if (base::EndsWith(dll_name, kDelaySuffix, false)) {
     // Trim the "-delay.dll" suffix from the string.
     dll_name.resize(dll_name.length() - (sizeof(kDelaySuffix) - 1));
     dll_name.append(".dll");

@@ -24,25 +24,12 @@ scoped_refptr<SerialIoHandler> TestSerialIoHandler::Create() {
 }
 
 void TestSerialIoHandler::Open(const std::string& port,
+                               const serial::ConnectionOptions& options,
                                const OpenCompleteCallback& callback) {
   DCHECK(!opened_);
   opened_ = true;
+  ConfigurePort(options);
   callback.Run(true);
-}
-
-bool TestSerialIoHandler::ConfigurePort(
-    const serial::ConnectionOptions& options) {
-  if (options.bitrate)
-    info_.bitrate = options.bitrate;
-  if (options.data_bits != serial::DATA_BITS_NONE)
-    info_.data_bits = options.data_bits;
-  if (options.parity_bit != serial::PARITY_BIT_NONE)
-    info_.parity_bit = options.parity_bit;
-  if (options.stop_bits != serial::STOP_BITS_NONE)
-    info_.stop_bits = options.stop_bits;
-  if (options.has_cts_flow_control)
-    info_.cts_flow_control = options.cts_flow_control;
-  return true;
 }
 
 void TestSerialIoHandler::ReadImpl() {
@@ -79,6 +66,15 @@ void TestSerialIoHandler::CancelWriteImpl() {
   WriteCompleted(0, write_cancel_reason());
 }
 
+bool TestSerialIoHandler::ConfigurePortImpl() {
+  info_.bitrate = options().bitrate;
+  info_.data_bits = options().data_bits;
+  info_.parity_bit = options().parity_bit;
+  info_.stop_bits = options().stop_bits;
+  info_.cts_flow_control = options().cts_flow_control;
+  return true;
+}
+
 serial::DeviceControlSignalsPtr TestSerialIoHandler::GetControlSignals() const {
   serial::DeviceControlSignalsPtr signals(serial::DeviceControlSignals::New());
   *signals = device_control_signals_;
@@ -102,6 +98,14 @@ bool TestSerialIoHandler::SetControlSignals(
     dtr_ = signals.dtr;
   if (signals.has_rts)
     rts_ = signals.rts;
+  return true;
+}
+
+bool TestSerialIoHandler::SetBreak() {
+  return true;
+}
+
+bool TestSerialIoHandler::ClearBreak() {
   return true;
 }
 

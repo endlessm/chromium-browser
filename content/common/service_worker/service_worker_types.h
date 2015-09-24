@@ -11,8 +11,12 @@
 #include "base/basictypes.h"
 #include "base/strings/string_util.h"
 #include "content/common/content_export.h"
+#include "content/public/common/referrer.h"
 #include "content/public/common/request_context_frame_type.h"
 #include "content/public/common/request_context_type.h"
+#include "third_party/WebKit/public/platform/WebPageVisibilityState.h"
+#include "third_party/WebKit/public/platform/WebServiceWorkerClientType.h"
+#include "third_party/WebKit/public/platform/WebServiceWorkerResponseError.h"
 #include "third_party/WebKit/public/platform/WebServiceWorkerResponseType.h"
 #include "third_party/WebKit/public/platform/WebServiceWorkerState.h"
 #include "url/gurl.h"
@@ -21,6 +25,10 @@
 // browser and child process.
 
 namespace content {
+
+// Indicates the document main thread ID in the child process. This is used for
+// messaging between the browser process and the child process.
+static const int kDocumentMainThreadId = 0;
 
 // Indicates invalid request ID (i.e. the sender does not expect it gets
 // response for the message) for messaging between browser process
@@ -31,6 +39,8 @@ static const int kInvalidServiceWorkerRequestId = -1;
 extern const char kServiceWorkerRegisterErrorPrefix[];
 extern const char kServiceWorkerUnregisterErrorPrefix[];
 extern const char kServiceWorkerGetRegistrationErrorPrefix[];
+extern const char kServiceWorkerGetRegistrationsErrorPrefix[];
+extern const char kFetchScriptError[];
 
 // Constants for invalid identifiers.
 static const int kInvalidServiceWorkerHandleId = -1;
@@ -41,6 +51,30 @@ static const int64 kInvalidServiceWorkerVersionId = -1;
 static const int64 kInvalidServiceWorkerResourceId = -1;
 static const int64 kInvalidServiceWorkerResponseId = -1;
 static const int kInvalidEmbeddedWorkerThreadId = -1;
+static const int kInvalidServiceWorkerClientId = 0;
+
+// The HTTP cache is bypassed for Service Worker scripts if the last network
+// fetch occurred over 24 hours ago.
+static const int kServiceWorkerScriptMaxCacheAgeInHours = 24;
+
+// ServiceWorker provider type.
+enum ServiceWorkerProviderType {
+  SERVICE_WORKER_PROVIDER_UNKNOWN,
+
+  // For ServiceWorker clients.
+  SERVICE_WORKER_PROVIDER_FOR_WINDOW,
+  SERVICE_WORKER_PROVIDER_FOR_WORKER,
+  SERVICE_WORKER_PROVIDER_FOR_SHARED_WORKER,
+
+  // For ServiceWorkers.
+  SERVICE_WORKER_PROVIDER_FOR_CONTROLLER,
+
+  // For sandboxed frames.
+  SERVICE_WORKER_PROVIDER_FOR_SANDBOXED_FRAME,
+
+  SERVICE_WORKER_PROVIDER_TYPE_LAST =
+      SERVICE_WORKER_PROVIDER_FOR_SANDBOXED_FRAME
+};
 
 enum FetchRequestMode {
   FETCH_REQUEST_MODE_SAME_ORIGIN,
@@ -81,7 +115,7 @@ struct CONTENT_EXPORT ServiceWorkerFetchRequest {
   ServiceWorkerFetchRequest(const GURL& url,
                             const std::string& method,
                             const ServiceWorkerHeaderMap& headers,
-                            const GURL& referrer,
+                            const Referrer& referrer,
                             bool is_reload);
   ~ServiceWorkerFetchRequest();
 
@@ -93,7 +127,7 @@ struct CONTENT_EXPORT ServiceWorkerFetchRequest {
   ServiceWorkerHeaderMap headers;
   std::string blob_uuid;
   uint64 blob_size;
-  GURL referrer;
+  Referrer referrer;
   FetchCredentialsMode credentials_mode;
   bool is_reload;
 };
@@ -107,7 +141,9 @@ struct CONTENT_EXPORT ServiceWorkerResponse {
                         blink::WebServiceWorkerResponseType response_type,
                         const ServiceWorkerHeaderMap& headers,
                         const std::string& blob_uuid,
-                        uint64 blob_size);
+                        uint64 blob_size,
+                        const GURL& stream_url,
+                        blink::WebServiceWorkerResponseError error);
   ~ServiceWorkerResponse();
 
   GURL url;
@@ -117,48 +153,20 @@ struct CONTENT_EXPORT ServiceWorkerResponse {
   ServiceWorkerHeaderMap headers;
   std::string blob_uuid;
   uint64 blob_size;
-};
-
-// Controls how requests are matched in the Cache API.
-struct CONTENT_EXPORT ServiceWorkerCacheQueryParams {
-  ServiceWorkerCacheQueryParams();
-
-  bool ignore_search;
-  bool ignore_method;
-  bool ignore_vary;
-  bool prefix_match;
-};
-
-// The type of a single batch operation in the Cache API.
-enum ServiceWorkerCacheOperationType {
-  SERVICE_WORKER_CACHE_OPERATION_TYPE_UNDEFINED,
-  SERVICE_WORKER_CACHE_OPERATION_TYPE_PUT,
-  SERVICE_WORKER_CACHE_OPERATION_TYPE_DELETE,
-  SERVICE_WORKER_CACHE_OPERATION_TYPE_LAST =
-      SERVICE_WORKER_CACHE_OPERATION_TYPE_DELETE
-};
-
-// A single batch operation for the Cache API.
-struct CONTENT_EXPORT ServiceWorkerBatchOperation {
-  ServiceWorkerBatchOperation();
-
-  ServiceWorkerCacheOperationType operation_type;
-  ServiceWorkerFetchRequest request;
-  ServiceWorkerResponse response;
-  ServiceWorkerCacheQueryParams match_params;
+  GURL stream_url;
+  blink::WebServiceWorkerResponseError error;
 };
 
 // Represents initialization info for a WebServiceWorker object.
 struct CONTENT_EXPORT ServiceWorkerObjectInfo {
   ServiceWorkerObjectInfo();
   int handle_id;
-  GURL scope;
   GURL url;
   blink::WebServiceWorkerState state;
   int64 version_id;
 };
 
-struct ServiceWorkerRegistrationObjectInfo {
+struct CONTENT_EXPORT ServiceWorkerRegistrationObjectInfo {
   ServiceWorkerRegistrationObjectInfo();
   int handle_id;
   GURL scope;
@@ -193,6 +201,12 @@ class ChangedVersionAttributesMask {
 
  private:
   int changed_;
+};
+
+struct ServiceWorkerClientQueryOptions {
+  ServiceWorkerClientQueryOptions();
+  blink::WebServiceWorkerClientType client_type;
+  bool include_uncontrolled;
 };
 
 }  // namespace content

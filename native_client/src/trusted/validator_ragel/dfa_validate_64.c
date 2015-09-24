@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <string.h>
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/shared/platform/nacl_check.h"
 #include "native_client/src/trusted/validator/validation_cache.h"
 #include "native_client/src/trusted/validator_ragel/dfa_validate_common.h"
@@ -19,7 +20,7 @@
  *             I don't foresee any use in cross-environment, but it should work
  *             and may be useful in some case so why not?
  */
-#if NACL_ARCH(NACL_TARGET_ARCH) != NACL_x86 || NACL_TARGET_SUBARCH != 64
+#if NACL_ARCH(NACL_BUILD_ARCH) != NACL_x86 || NACL_BUILD_SUBARCH != 64
 # error "Can't compile, target is for x86-64"
 #endif
 
@@ -222,6 +223,21 @@ static NaClValidationStatus ValidatorCodeReplacement_x86_64(
   return NaClValidationFailed;
 }
 
+static NaClValidationStatus IsOnInstBoundary_x86_64(
+    uintptr_t guest_addr,
+    uintptr_t addr,
+    const uint8_t *data,
+    size_t size,
+    const NaClCPUFeatures *f) {
+  /* TODO (leslieb) This still needs to be implemented. */
+  UNREFERENCED_PARAMETER(guest_addr);
+  UNREFERENCED_PARAMETER(addr);
+  UNREFERENCED_PARAMETER(data);
+  UNREFERENCED_PARAMETER(size);
+  UNREFERENCED_PARAMETER(f);
+  return NaClValidationFailedNotImplemented;
+}
+
 static const struct NaClValidatorInterface validator = {
   FALSE, /* Optional stubout_mode is not implemented.            */
   TRUE,  /* Optional readonly_text mode is implemented.          */
@@ -233,6 +249,7 @@ static const struct NaClValidatorInterface validator = {
   NaClSetAllCPUFeaturesX86,
   NaClGetCurrentCPUFeaturesX86,
   NaClFixCPUFeaturesX86,
+  IsOnInstBoundary_x86_64,
 };
 
 const struct NaClValidatorInterface *NaClDfaValidatorCreate_x86_64(void) {

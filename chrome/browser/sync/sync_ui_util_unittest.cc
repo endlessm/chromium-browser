@@ -7,12 +7,11 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/fake_signin_manager.h"
-#include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
+#include "chrome/browser/signin/signin_error_controller_factory.h"
 #include "chrome/browser/sync/profile_sync_service_mock.h"
 #include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/signin/core/browser/fake_auth_status_provider.h"
-#include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "content/public/test/test_browser_thread.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -45,6 +44,7 @@ enum DistinctState {
 
 namespace {
 
+const char kTestGaiaId[] = "gaia-id-test_user@test.com";
 const char kTestUser[] = "test_user@test.com";
 
 #if !defined(OS_CHROMEOS)
@@ -230,7 +230,7 @@ void GetDistinctCase(ProfileSyncServiceMock& service,
     case STATUS_CASE_AUTHENTICATING: {
       EXPECT_CALL(service, HasSyncSetupCompleted())
                   .WillRepeatedly(Return(true));
-      EXPECT_CALL(service, SyncActive()).WillRepeatedly(Return(true));
+      EXPECT_CALL(service, IsSyncActive()).WillRepeatedly(Return(true));
       EXPECT_CALL(service, IsPassphraseRequired())
                   .WillRepeatedly(Return(false));
       browser_sync::SyncBackendHost::Status status;
@@ -245,7 +245,7 @@ void GetDistinctCase(ProfileSyncServiceMock& service,
     case STATUS_CASE_AUTH_ERROR: {
       EXPECT_CALL(service, HasSyncSetupCompleted())
                   .WillRepeatedly(Return(true));
-      EXPECT_CALL(service, SyncActive()).WillRepeatedly(Return(true));
+      EXPECT_CALL(service, IsSyncActive()).WillRepeatedly(Return(true));
       EXPECT_CALL(service, IsPassphraseRequired())
                   .WillRepeatedly(Return(false));
       browser_sync::SyncBackendHost::Status status;
@@ -253,8 +253,7 @@ void GetDistinctCase(ProfileSyncServiceMock& service,
                   .WillRepeatedly(DoAll(SetArgPointee<0>(status),
                                   Return(false)));
       provider->SetAuthError(
-          kTestUser,
-          kTestUser,
+          signin->GetAuthenticatedAccountId(),
           GoogleServiceAuthError(GoogleServiceAuthError::SERVICE_UNAVAILABLE));
       EXPECT_CALL(service, HasUnrecoverableError())
                   .WillRepeatedly(Return(false));
@@ -263,7 +262,7 @@ void GetDistinctCase(ProfileSyncServiceMock& service,
     case STATUS_CASE_PROTOCOL_ERROR: {
       EXPECT_CALL(service, HasSyncSetupCompleted())
                   .WillRepeatedly(Return(true));
-      EXPECT_CALL(service, SyncActive()).WillRepeatedly(Return(true));
+      EXPECT_CALL(service, IsSyncActive()).WillRepeatedly(Return(true));
       EXPECT_CALL(service, IsPassphraseRequired())
                   .WillRepeatedly(Return(false));
       syncer::SyncProtocolError protocolError;
@@ -280,7 +279,7 @@ void GetDistinctCase(ProfileSyncServiceMock& service,
     case STATUS_CASE_PASSPHRASE_ERROR: {
       EXPECT_CALL(service, HasSyncSetupCompleted())
                   .WillRepeatedly(Return(true));
-      EXPECT_CALL(service, SyncActive()).WillRepeatedly(Return(true));
+      EXPECT_CALL(service, IsSyncActive()).WillRepeatedly(Return(true));
       browser_sync::SyncBackendHost::Status status;
       EXPECT_CALL(service, QueryDetailedSyncStatus(_))
                   .WillRepeatedly(DoAll(SetArgPointee<0>(status),
@@ -296,7 +295,7 @@ void GetDistinctCase(ProfileSyncServiceMock& service,
     case STATUS_CASE_SYNCED: {
       EXPECT_CALL(service, HasSyncSetupCompleted())
               .WillRepeatedly(Return(true));
-      EXPECT_CALL(service, SyncActive()).WillRepeatedly(Return(true));
+      EXPECT_CALL(service, IsSyncActive()).WillRepeatedly(Return(true));
       EXPECT_CALL(service, IsPassphraseRequired())
                   .WillRepeatedly(Return(false));
       browser_sync::SyncBackendHost::Status status;
@@ -313,7 +312,7 @@ void GetDistinctCase(ProfileSyncServiceMock& service,
       EXPECT_CALL(service, IsManaged()).WillRepeatedly(Return(true));
       EXPECT_CALL(service, HasSyncSetupCompleted())
           .WillRepeatedly(Return(false));
-      EXPECT_CALL(service, SyncActive()).WillRepeatedly(Return(false));
+      EXPECT_CALL(service, IsSyncActive()).WillRepeatedly(Return(false));
       EXPECT_CALL(service, IsPassphraseRequired())
                   .WillRepeatedly(Return(false));
       browser_sync::SyncBackendHost::Status status;
@@ -340,10 +339,9 @@ TEST_F(SyncUIUtilTest, DistinctCasesReportUniqueMessageSets) {
     GoogleServiceAuthError error = GoogleServiceAuthError::AuthErrorNone();
     EXPECT_CALL(service, GetAuthError()).WillRepeatedly(ReturnRef(error));
     FakeSigninManagerForSyncUIUtilTest signin(profile.get());
-    signin.SetAuthenticatedUsername(kTestUser);
+    signin.SetAuthenticatedAccountInfo(kTestGaiaId, kTestUser);
     scoped_ptr<FakeAuthStatusProvider> provider(new FakeAuthStatusProvider(
-        ProfileOAuth2TokenServiceFactory::GetForProfile(profile.get())->
-            signin_error_controller()));
+        SigninErrorControllerFactory::GetForProfile(profile.get())));
     GetDistinctCase(service, &signin, provider.get(), idx);
     base::string16 status_label;
     base::string16 link_label;
@@ -380,10 +378,9 @@ TEST_F(SyncUIUtilTest, HtmlNotIncludedInStatusIfNotRequested) {
     GoogleServiceAuthError error = GoogleServiceAuthError::AuthErrorNone();
     EXPECT_CALL(service, GetAuthError()).WillRepeatedly(ReturnRef(error));
     FakeSigninManagerForSyncUIUtilTest signin(profile.get());
-    signin.SetAuthenticatedUsername(kTestUser);
+    signin.SetAuthenticatedAccountInfo(kTestGaiaId, kTestUser);
     scoped_ptr<FakeAuthStatusProvider> provider(new FakeAuthStatusProvider(
-        ProfileOAuth2TokenServiceFactory::GetForProfile(profile.get())->
-            signin_error_controller()));
+        SigninErrorControllerFactory::GetForProfile(profile.get())));
     GetDistinctCase(service, &signin, provider.get(), idx);
     base::string16 status_label;
     base::string16 link_label;

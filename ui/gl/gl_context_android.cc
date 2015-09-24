@@ -26,18 +26,18 @@ class GLNonOwnedContext : public GLContextReal {
   GLNonOwnedContext(GLShareGroup* share_group);
 
   // Implement GLContext.
-  virtual bool Initialize(GLSurface* compatible_surface,
-                          GpuPreference gpu_preference) override;
-  virtual void Destroy() override {}
-  virtual bool MakeCurrent(GLSurface* surface) override;
-  virtual void ReleaseCurrent(GLSurface* surface) override {}
-  virtual bool IsCurrent(GLSurface* surface) override { return true; }
-  virtual void* GetHandle() override { return NULL; }
-  virtual void SetSwapInterval(int interval) override {}
-  virtual std::string GetExtensions() override;
+  bool Initialize(GLSurface* compatible_surface,
+                  GpuPreference gpu_preference) override;
+  void Destroy() override {}
+  bool MakeCurrent(GLSurface* surface) override;
+  void ReleaseCurrent(GLSurface* surface) override {}
+  bool IsCurrent(GLSurface* surface) override { return true; }
+  void* GetHandle() override { return nullptr; }
+  void OnSetSwapInterval(int interval) override {}
+  std::string GetExtensions() override;
 
  protected:
-  virtual ~GLNonOwnedContext() {}
+  ~GLNonOwnedContext() override {}
 
  private:
   DISALLOW_COPY_AND_ASSIGN(GLNonOwnedContext);
@@ -46,7 +46,7 @@ class GLNonOwnedContext : public GLContextReal {
 };
 
 GLNonOwnedContext::GLNonOwnedContext(GLShareGroup* share_group)
-  : GLContextReal(share_group), display_(NULL) {}
+  : GLContextReal(share_group), display_(nullptr) {}
 
 bool GLNonOwnedContext::Initialize(GLSurface* compatible_surface,
                         GpuPreference gpu_preference) {
@@ -91,7 +91,7 @@ scoped_refptr<GLContext> GLContext::CreateGLContext(
   }
 
   if (!context->Initialize(compatible_surface, gpu_preference))
-    return NULL;
+    return nullptr;
 
   return context;
 }

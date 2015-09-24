@@ -57,7 +57,6 @@ const wchar_t k7zaExe[] = L"7za.exe";
 const wchar_t k7zaPathRelative[] = L"..\\..\\third_party\\lzma_sdk\\Executable";
 const wchar_t kB7[] = L"B7";
 const wchar_t kBl[] = L"BL";
-const wchar_t kChrome7z[] = L"chrome.7z";
 const wchar_t kChromeBin[] = L"Chrome-bin";
 const wchar_t kChromePacked7z[] = L"chrome.packed.7z";
 const wchar_t kExe[] = L"exe";
@@ -111,7 +110,7 @@ class ChromeVersion {
   static ChromeVersion FromString(const std::string& version_string) {
     Version version(version_string);
     DCHECK(version.IsValid());
-    const std::vector<uint16>& c(version.components());
+    const std::vector<uint32_t>& c(version.components());
     return ChromeVersion(static_cast<ULONGLONG>(c[0]) << 48 |
                          static_cast<ULONGLONG>(c[1]) << 32 |
                          static_cast<ULONGLONG>(c[2]) << 16 |
@@ -214,19 +213,19 @@ bool MappedFile::Initialize(base::File file) {
 bool RunProcessAndWait(const wchar_t* exe_path, const std::wstring& cmdline,
                        int* exit_code) {
   bool result = true;
-  base::win::ScopedHandle process;
   base::LaunchOptions options;
   options.wait = true;
   options.start_hidden = true;
-  if (base::LaunchProcess(cmdline, options, &process)) {
+  base::Process process = base::LaunchProcess(cmdline, options);
+  if (process.IsValid()) {
     if (exit_code) {
-      if (!GetExitCodeProcess(process.Get(),
+      if (!GetExitCodeProcess(process.Handle(),
                               reinterpret_cast<DWORD*>(exit_code))) {
         PLOG(DFATAL) << "Failed getting the exit code for \""
                      << cmdline << "\".";
         result = false;
       } else {
-        DCHECK_NE(*exit_code, STILL_ACTIVE);
+        DCHECK_NE(*exit_code, static_cast<int>(STILL_ACTIVE));
       }
     }
   } else {
@@ -245,8 +244,10 @@ bool GetFileVersion(const base::FilePath& pe_file, ChromeVersion* version) {
   std::pair<const uint8*, DWORD> version_info_data;
 
   if (pe_file_loader.Initialize(pe_file) &&
-      pe_file_loader.Load(VS_VERSION_INFO, reinterpret_cast<WORD>(RT_VERSION),
-                          &version_info_data)) {
+      pe_file_loader.Load(
+          VS_VERSION_INFO,
+          static_cast<WORD>(reinterpret_cast<uintptr_t>(RT_VERSION)),
+          &version_info_data)) {
     const VS_FIXEDFILEINFO* fixed_file_info;
     UINT ver_info_len;
     if (VerQueryValue(version_info_data.first, L"\\",
@@ -467,7 +468,7 @@ bool ApplyAlternateVersion(const base::FilePath& work_dir,
 // command-line switch.
 base::FilePath Get7zaPath() {
   base::FilePath l7za_path =
-      CommandLine::ForCurrentProcess()->GetSwitchValuePath(
+      base::CommandLine::ForCurrentProcess()->GetSwitchValuePath(
           &kSwitch7zaPath[0]);
   if (l7za_path.empty()) {
     base::FilePath dir_exe;
@@ -547,7 +548,7 @@ bool GenerateAlternateVersion(const base::FilePath& original_installer_path,
         base::WriteFile(setup_ex_,
                         reinterpret_cast<const char*>(resource_data.first),
                         static_cast<int>(resource_data.second));
-    if (written != resource_data.second) {
+    if (written != static_cast<int>(resource_data.second)) {
       LOG(DFATAL) << "Failed writing \"" << setup_ex_.value() << "\"";
       return false;
     }
@@ -559,7 +560,7 @@ bool GenerateAlternateVersion(const base::FilePath& original_installer_path,
         base::WriteFile(chrome_packed_7z,
                         reinterpret_cast<const char*>(resource_data.first),
                         static_cast<int>(resource_data.second));
-    if (written != resource_data.second) {
+    if (written != static_cast<int>(resource_data.second)) {
       LOG(DFATAL) << "Failed writing \"" << chrome_packed_7z.value() << "\"";
       return false;
     }

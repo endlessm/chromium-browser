@@ -73,6 +73,7 @@ class CONTENT_EXPORT ChildProcessSecurityPolicyImpl
   bool CanDeleteFromFileSystem(int child_id,
                                const std::string& filesystem_id) override;
   bool HasWebUIBindings(int child_id) override;
+  void GrantSendMidiSysExMessage(int child_id) override;
 
   // Pseudo schemes are treated differently than other schemes because they
   // cannot be requested like normal URLs.  There is no mechanism for revoking
@@ -119,9 +120,6 @@ class CONTENT_EXPORT ChildProcessSecurityPolicyImpl
   // Revoke read raw cookies permission.
   void RevokeReadRawCookies(int child_id);
 
-  // Grants permission to send system exclusive message to any MIDI devices.
-  void GrantSendMidiSysExMessage(int child_id);
-
   // Before servicing a child process's request for a URL, the browser should
   // call this method to determine whether the process has the capability to
   // request the URL.
@@ -150,20 +148,12 @@ class CONTENT_EXPORT ChildProcessSecurityPolicyImpl
   // Returns true if the process is permitted to read and modify the cookies for
   // the given origin.  Does not affect cookies attached to or set by network
   // requests.
-  // Only might return false if the very experimental
-  // --enable-strict-site-isolation or --site-per-process flags are used.
+  // Only might return false if the --site-per-process flag is used.
   bool CanAccessCookiesForOrigin(int child_id, const GURL& gurl);
-
-  // Returns true if the process is permitted to attach cookies to (or have
-  // cookies set by) network requests.
-  // Only might return false if the very experimental
-  // --enable-strict-site-isolation or --site-per-process flags are used.
-  bool CanSendCookiesForOrigin(int child_id, const GURL& gurl);
 
   // Sets the process as only permitted to use and see the cookies for the
   // given origin.
-  // Only used if the very experimental --enable-strict-site-isolation or
-  // --site-per-process flags are used.
+  // Origin lock is applied only if the --site-per-process flag is used.
   void LockToOrigin(int child_id, const GURL& gurl);
 
   // Register FileSystem type and permission policy which should be used

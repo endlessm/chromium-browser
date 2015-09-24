@@ -25,16 +25,19 @@ class SupervisedUserResourceThrottle : public content::ResourceThrottle {
   // content::ResourceThrottle implementation:
   void WillStartRequest(bool* defer) override;
 
-  void WillRedirectRequest(const GURL& new_url, bool* defer) override;
+  void WillRedirectRequest(const net::RedirectInfo& redirect_info,
+                           bool* defer) override;
 
   const char* GetNameForLogging() const override;
 
  private:
   void ShowInterstitialIfNeeded(bool is_redirect, const GURL& url, bool* defer);
-  void ShowInterstitial(const GURL& url);
+  void ShowInterstitial(
+      const GURL& url,
+      SupervisedUserURLFilter::FilteringBehaviorReason reason);
   void OnCheckDone(const GURL& url,
                    SupervisedUserURLFilter::FilteringBehavior behavior,
-                   SupervisedUserURLFilter::FilteringBehaviorSource source,
+                   SupervisedUserURLFilter::FilteringBehaviorReason reason,
                    bool uncertain);
   void OnInterstitialResult(bool continue_request);
 

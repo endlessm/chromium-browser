@@ -35,9 +35,39 @@
 #include "wtf/Forward.h"
 #include "wtf/HashMap.h"
 #include "wtf/RefCounted.h"
+#include "wtf/TypeTraits.h"
 #include "wtf/Vector.h"
 #include "wtf/text/StringHash.h"
 #include "wtf/text/WTFString.h"
+
+namespace blink {
+
+class JSONValue;
+
+} // namespace blink
+
+namespace WTF {
+
+// FIXME: Avoid the need for this global upcasting to JSONValue (for PassRefPtr<T>.)
+// The current CodeGeneratorInspector.py generates code which order sorts its input
+// types and generates forward declarations where needed. But with inline uses
+// of setValue(PassRefPtr<JSONValue>) this is not quite sufficient for the
+// implicit conversion of PassRefPtr<T> to PassRefPtr<JSONValue> for a T that
+// has only been forward declared -- IsPointerConvertible<> doesn't have
+// complete types to work with.
+//
+// Work around that problem here by hackily declaring this global & unsafe
+// specialization.
+//
+// (InspectorTypeBuilder.h is the only piece of code that relies on this specialization.)
+template<typename From> class IsPointerConvertible<From, blink::JSONValue> {
+public:
+    enum {
+        Value = true
+    };
+};
+
+} // namespace WTF
 
 namespace blink {
 
@@ -76,7 +106,6 @@ public:
     virtual bool asNumber(unsigned long* output) const;
     virtual bool asNumber(unsigned* output) const;
     virtual bool asString(String* output) const;
-    virtual bool asValue(RefPtr<JSONValue>* output);
     virtual bool asObject(RefPtr<JSONObject>* output);
     virtual bool asArray(RefPtr<JSONArray>* output);
     virtual PassRefPtr<JSONObject> asObject();
@@ -86,6 +115,8 @@ public:
     String toPrettyJSONString() const;
     virtual void writeJSON(StringBuilder* output) const;
     virtual void prettyWriteJSON(StringBuilder* output) const;
+
+    static String quoteString(const String&);
 
 protected:
     explicit JSONValue(Type type) : m_type(type) { }
@@ -116,14 +147,14 @@ public:
         return adoptRef(new JSONBasicValue(value));
     }
 
-    virtual bool asBoolean(bool* output) const override;
-    virtual bool asNumber(double* output) const override;
-    virtual bool asNumber(long* output) const override;
-    virtual bool asNumber(int* output) const override;
-    virtual bool asNumber(unsigned long* output) const override;
-    virtual bool asNumber(unsigned* output) const override;
+    bool asBoolean(bool* output) const override;
+    bool asNumber(double* output) const override;
+    bool asNumber(long* output) const override;
+    bool asNumber(int* output) const override;
+    bool asNumber(unsigned long* output) const override;
+    bool asNumber(unsigned* output) const override;
 
-    virtual void writeJSON(StringBuilder* output) const override;
+    void writeJSON(StringBuilder* output) const override;
 
 private:
     explicit JSONBasicValue(bool value) : JSONValue(TypeBoolean), m_boolValue(value) { }
@@ -148,9 +179,9 @@ public:
         return adoptRef(new JSONString(value));
     }
 
-    virtual bool asString(String* output) const override;
+    bool asString(String* output) const override;
 
-    virtual void writeJSON(StringBuilder* output) const override;
+    void writeJSON(StringBuilder* output) const override;
 
 private:
     explicit JSONString(const String& value) : JSONValue(TypeString), m_stringValue(value) { }
@@ -161,21 +192,23 @@ private:
 
 class PLATFORM_EXPORT JSONObjectBase : public JSONValue {
 private:
-    typedef HashMap<String, RefPtr<JSONValue> > Dictionary;
+    typedef HashMap<String, RefPtr<JSONValue>> Dictionary;
 
 public:
     typedef Dictionary::iterator iterator;
     typedef Dictionary::const_iterator const_iterator;
 
-    virtual PassRefPtr<JSONObject> asObject() override;
+    PassRefPtr<JSONObject> asObject() override;
     JSONObject* openAccessors();
 
-    virtual void writeJSON(StringBuilder* output) const override;
+    void writeJSON(StringBuilder* output) const override;
+
+    int size() const { return m_data.size(); }
 
 protected:
-    virtual ~JSONObjectBase();
+    ~JSONObjectBase() override;
 
-    virtual bool asObject(RefPtr<JSONObject>* output) override;
+    bool asObject(RefPtr<JSONObject>* output) override;
 
     void setBoolean(const String& name, bool);
     void setNumber(const String& name, double);
@@ -201,14 +234,12 @@ protected:
 
     void remove(const String& name);
 
-    virtual void prettyWriteJSONInternal(StringBuilder* output, int depth) const override;
+    void prettyWriteJSONInternal(StringBuilder* output, int depth) const override;
 
     iterator begin() { return m_data.begin(); }
     iterator end() { return m_data.end(); }
     const_iterator begin() const { return m_data.begin(); }
     const_iterator end() const { return m_data.end(); }
-
-    int size() const { return m_data.size(); }
 
 protected:
     JSONObjectBase();
@@ -253,19 +284,19 @@ public:
 
 class PLATFORM_EXPORT JSONArrayBase : public JSONValue {
 public:
-    typedef Vector<RefPtr<JSONValue> >::iterator iterator;
-    typedef Vector<RefPtr<JSONValue> >::const_iterator const_iterator;
+    typedef Vector<RefPtr<JSONValue>>::iterator iterator;
+    typedef Vector<RefPtr<JSONValue>>::const_iterator const_iterator;
 
-    virtual PassRefPtr<JSONArray> asArray() override;
+    PassRefPtr<JSONArray> asArray() override;
 
     unsigned length() const { return m_data.size(); }
 
-    virtual void writeJSON(StringBuilder* output) const override;
+    void writeJSON(StringBuilder* output) const override;
 
 protected:
-    virtual ~JSONArrayBase();
+    ~JSONArrayBase() override;
 
-    virtual bool asArray(RefPtr<JSONArray>* output) override;
+    bool asArray(RefPtr<JSONArray>* output) override;
 
     void pushBoolean(bool);
     void pushInt(int);
@@ -277,7 +308,7 @@ protected:
 
     PassRefPtr<JSONValue> get(size_t index);
 
-    virtual void prettyWriteJSONInternal(StringBuilder* output, int depth) const override;
+    void prettyWriteJSONInternal(StringBuilder* output, int depth) const override;
 
     iterator begin() { return m_data.begin(); }
     iterator end() { return m_data.end(); }
@@ -288,7 +319,7 @@ protected:
     JSONArrayBase();
 
 private:
-    Vector<RefPtr<JSONValue> > m_data;
+    Vector<RefPtr<JSONValue>> m_data;
 };
 
 class PLATFORM_EXPORT JSONArray : public JSONArrayBase {
@@ -316,4 +347,4 @@ public:
 
 } // namespace blink
 
-#endif // !defined(JSONValues_h)
+#endif // JSONValues_h

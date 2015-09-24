@@ -9,7 +9,7 @@
 #include "base/compiler_specific.h"
 #include "base/format_macros.h"
 #include "base/logging.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -53,10 +53,10 @@ const char kWpadUrl[] = "http://wpad/wpad.dat";
 const int kQuickCheckDelayMs = 1000;
 };
 
-base::Value* ProxyScriptDecider::PacSource::NetLogCallback(
+scoped_ptr<base::Value> ProxyScriptDecider::PacSource::NetLogCallback(
     const GURL* effective_pac_url,
-    NetLog::LogLevel /* log_level */) const {
-  base::DictionaryValue* dict = new base::DictionaryValue();
+    NetLogCaptureMode /* capture_mode */) const {
+  scoped_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   std::string source;
   switch (type) {
     case PacSource::WPAD_DHCP:
@@ -72,21 +72,19 @@ base::Value* ProxyScriptDecider::PacSource::NetLogCallback(
       break;
   }
   dict->SetString("source", source);
-  return dict;
+  return dict.Pass();
 }
 
 ProxyScriptDecider::ProxyScriptDecider(
     ProxyScriptFetcher* proxy_script_fetcher,
     DhcpProxyScriptFetcher* dhcp_proxy_script_fetcher,
     NetLog* net_log)
-    : resolver_(NULL),
-      proxy_script_fetcher_(proxy_script_fetcher),
+    : proxy_script_fetcher_(proxy_script_fetcher),
       dhcp_proxy_script_fetcher_(dhcp_proxy_script_fetcher),
       current_pac_source_index_(0u),
       pac_mandatory_(false),
       next_state_(STATE_NONE),
-      net_log_(BoundNetLog::Make(
-          net_log, NetLog::SOURCE_PROXY_SCRIPT_DECIDER)),
+      net_log_(BoundNetLog::Make(net_log, NetLog::SOURCE_PROXY_SCRIPT_DECIDER)),
       fetch_pac_bytes_(false),
       quick_check_enabled_(true) {
   if (proxy_script_fetcher &&
@@ -468,7 +466,6 @@ void ProxyScriptDecider::Cancel() {
       proxy_script_fetcher_->Cancel();
       break;
     default:
-      NOTREACHED();
       break;
   }
 

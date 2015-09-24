@@ -24,11 +24,10 @@
 #include "chrome/browser/ui/webui/metrics_handler.h"
 #include "chrome/browser/ui/webui/print_preview/print_preview_handler.h"
 #include "chrome/browser/ui/webui/theme_source.h"
-#include "chrome/common/print_messages.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "chrome/grit/google_chrome_strings.h"
+#include "components/printing/common/print_messages.h"
 #include "content/public/browser/url_data_source.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui_data_source.h"
@@ -37,7 +36,7 @@
 #include "printing/page_size_margins.h"
 #include "printing/print_job_constants.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/web_dialogs/web_dialog_delegate.h"
 #include "ui/web_dialogs/web_dialog_ui.h"
 
@@ -125,7 +124,7 @@ bool HandleRequestCallback(
     const content::WebUIDataSource::GotDataCallback& callback) {
   // ChromeWebUIDataSource handles most requests except for the print preview
   // data.
-  if (!EndsWith(path, "/print.pdf", true))
+  if (!base::EndsWith(path, "/print.pdf", true))
     return false;
 
   // Print Preview data.
@@ -211,6 +210,16 @@ content::WebUIDataSource* CreatePrintPreviewUISource() {
                              IDS_PRINT_PREVIEW_PAGE_LABEL_SINGULAR);
   source->AddLocalizedString("printPreviewPageLabelPlural",
                              IDS_PRINT_PREVIEW_PAGE_LABEL_PLURAL);
+  source->AddLocalizedString("selectButton",
+                             IDS_PRINT_PREVIEW_BUTTON_SELECT);
+  source->AddLocalizedString("goBackButton",
+                             IDS_PRINT_PREVIEW_BUTTON_GO_BACK);
+  source->AddLocalizedString(
+      "resolveExtensionUSBPermissionMessage",
+      IDS_PRINT_PREVIEW_RESOLVE_EXTENSION_USB_PERMISSION_MESSAGE);
+  source->AddLocalizedString(
+      "resolveExtensionUSBErrorMessage",
+      IDS_PRINT_PREVIEW_RESOLVE_EXTENSION_USB_ERROR_MESSAGE);
   const base::string16 shortcut_text(base::UTF8ToUTF16(kBasicPrintShortcut));
 #if !defined(OS_CHROMEOS)
   source->AddString(
@@ -323,6 +332,9 @@ content::WebUIDataSource* CreatePrintPreviewUISource() {
                              IDS_PRINT_PREVIEW_COULD_NOT_PRINT);
   source->AddLocalizedString("registerPromoButtonText",
                              IDS_PRINT_PREVIEW_REGISTER_PROMO_BUTTON_TEXT);
+  source->AddLocalizedString(
+      "extensionDestinationIconTooltip",
+      IDS_PRINT_PREVIEW_EXTENSION_DESTINATION_ICON_TOOLTIP);
   source->AddLocalizedString(
       "advancedSettingsSearchBoxPlaceholder",
       IDS_PRINT_PREVIEW_ADVANCED_SETTINGS_SEARCH_BOX_PLACEHOLDER);
@@ -628,9 +640,12 @@ void PrintPreviewUI::OnReloadPrintersList() {
 
 void PrintPreviewUI::OnSetOptionsFromDocument(
     const PrintHostMsg_SetOptionsFromDocument_Params& params) {
-  // Notify WebUI that print scaling is disabled
-  if (params.is_scaling_disabled)
-    web_ui()->CallJavascriptFunction("printScalingDisabledForSourcePDF");
+  base::DictionaryValue options;
+  options.SetBoolean(printing::kSettingDisableScaling,
+                     params.is_scaling_disabled);
+  options.SetInteger(printing::kSettingCopies, params.copies);
+  options.SetInteger(printing::kSettingDuplexMode, params.duplex);
+  web_ui()->CallJavascriptFunction("printPresetOptionsFromDocument", options);
 }
 
 // static

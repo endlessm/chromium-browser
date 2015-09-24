@@ -7,8 +7,8 @@
 #include "base/bind.h"
 #include "base/containers/hash_tables.h"
 #include "base/location.h"
-#include "base/message_loop/message_loop_proxy.h"
-#include "chromeos/dbus/cryptohome_client.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 
 using chromeos::DBusThreadManager;
@@ -30,14 +30,14 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
                    weak_ptr_factory_.GetWeakPtr()));
   }
 
-  virtual ~AsyncMethodCallerImpl() {
+  ~AsyncMethodCallerImpl() override {
     DBusThreadManager::Get()->GetCryptohomeClient()->
         ResetAsyncCallStatusHandlers();
   }
 
-  virtual void AsyncCheckKey(const std::string& user_email,
-                             const std::string& passhash,
-                             Callback callback) override {
+  void AsyncCheckKey(const std::string& user_email,
+                     const std::string& passhash,
+                     Callback callback) override {
     DBusThreadManager::Get()->GetCryptohomeClient()->
         AsyncCheckKey(user_email, passhash, base::Bind(
             &AsyncMethodCallerImpl::RegisterAsyncCallback,
@@ -46,10 +46,10 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
             "Couldn't initiate async check of user's key."));
   }
 
-  virtual void AsyncMigrateKey(const std::string& user_email,
-                               const std::string& old_hash,
-                               const std::string& new_hash,
-                               Callback callback) override {
+  void AsyncMigrateKey(const std::string& user_email,
+                       const std::string& old_hash,
+                       const std::string& new_hash,
+                       Callback callback) override {
     DBusThreadManager::Get()->GetCryptohomeClient()->
         AsyncMigrateKey(user_email, old_hash, new_hash, base::Bind(
             &AsyncMethodCallerImpl::RegisterAsyncCallback,
@@ -58,10 +58,10 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
             "Couldn't initiate aync migration of user's key"));
   }
 
-  virtual void AsyncMount(const std::string& user_email,
-                          const std::string& passhash,
-                          int flags,
-                          Callback callback) override {
+  void AsyncMount(const std::string& user_email,
+                  const std::string& passhash,
+                  int flags,
+                  Callback callback) override {
     DBusThreadManager::Get()->GetCryptohomeClient()->
         AsyncMount(user_email, passhash, flags, base::Bind(
             &AsyncMethodCallerImpl::RegisterAsyncCallback,
@@ -70,10 +70,10 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
             "Couldn't initiate async mount of cryptohome."));
   }
 
-  virtual void AsyncAddKey(const std::string& user_email,
-                           const std::string& passhash,
-                           const std::string& new_passhash,
-                           Callback callback) override {
+  void AsyncAddKey(const std::string& user_email,
+                   const std::string& passhash,
+                   const std::string& new_passhash,
+                   Callback callback) override {
     DBusThreadManager::Get()->GetCryptohomeClient()->
         AsyncAddKey(user_email, passhash, new_passhash, base::Bind(
             &AsyncMethodCallerImpl::RegisterAsyncCallback,
@@ -82,7 +82,7 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
             "Couldn't initiate async key addition."));
   }
 
-  virtual void AsyncMountGuest(Callback callback) override {
+  void AsyncMountGuest(Callback callback) override {
     DBusThreadManager::Get()->GetCryptohomeClient()->
         AsyncMountGuest(base::Bind(
             &AsyncMethodCallerImpl::RegisterAsyncCallback,
@@ -91,9 +91,9 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
             "Couldn't initiate async mount of cryptohome."));
   }
 
-  virtual void AsyncMountPublic(const std::string& public_mount_id,
-                                int flags,
-                                Callback callback) override {
+  void AsyncMountPublic(const std::string& public_mount_id,
+                        int flags,
+                        Callback callback) override {
     DBusThreadManager::Get()->GetCryptohomeClient()->
         AsyncMountPublic(public_mount_id, flags, base::Bind(
             &AsyncMethodCallerImpl::RegisterAsyncCallback,
@@ -102,8 +102,7 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
             "Couldn't initiate async mount public of cryptohome."));
   }
 
-  virtual void AsyncRemove(const std::string& user_email,
-                           Callback callback) override {
+  void AsyncRemove(const std::string& user_email, Callback callback) override {
     DBusThreadManager::Get()->GetCryptohomeClient()->
         AsyncRemove(user_email, base::Bind(
             &AsyncMethodCallerImpl::RegisterAsyncCallback,
@@ -112,7 +111,7 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
             "Couldn't initiate async removal of cryptohome."));
   }
 
-  virtual void AsyncTpmAttestationCreateEnrollRequest(
+  void AsyncTpmAttestationCreateEnrollRequest(
       chromeos::attestation::PrivacyCAType pca_type,
       const DataCallback& callback) override {
     DBusThreadManager::Get()->GetCryptohomeClient()->
@@ -123,10 +122,9 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
             "Couldn't initiate async attestation enroll request."));
   }
 
-  virtual void AsyncTpmAttestationEnroll(
-      chromeos::attestation::PrivacyCAType pca_type,
-      const std::string& pca_response,
-      const Callback& callback) override {
+  void AsyncTpmAttestationEnroll(chromeos::attestation::PrivacyCAType pca_type,
+                                 const std::string& pca_response,
+                                 const Callback& callback) override {
     DBusThreadManager::Get()->GetCryptohomeClient()->
         AsyncTpmAttestationEnroll(pca_type, pca_response, base::Bind(
             &AsyncMethodCallerImpl::RegisterAsyncCallback,
@@ -135,7 +133,7 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
             "Couldn't initiate async attestation enroll."));
   }
 
-  virtual void AsyncTpmAttestationCreateCertRequest(
+  void AsyncTpmAttestationCreateCertRequest(
       chromeos::attestation::PrivacyCAType pca_type,
       chromeos::attestation::AttestationCertificateProfile certificate_profile,
       const std::string& user_id,
@@ -153,7 +151,7 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
                        "Couldn't initiate async attestation cert request."));
   }
 
-  virtual void AsyncTpmAttestationFinishCertRequest(
+  void AsyncTpmAttestationFinishCertRequest(
       const std::string& pca_response,
       chromeos::attestation::AttestationKeyType key_type,
       const std::string& user_id,
@@ -172,7 +170,7 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
                 "Couldn't initiate async attestation finish cert request."));
   }
 
-  virtual void TpmAttestationRegisterKey(
+  void TpmAttestationRegisterKey(
       chromeos::attestation::AttestationKeyType key_type,
       const std::string& user_id,
       const std::string& key_name,
@@ -189,7 +187,7 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
                 "Couldn't initiate async attestation register key."));
   }
 
-  virtual void TpmAttestationSignEnterpriseChallenge(
+  void TpmAttestationSignEnterpriseChallenge(
       chromeos::attestation::AttestationKeyType key_type,
       const std::string& user_id,
       const std::string& key_name,
@@ -214,7 +212,7 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
                 "Couldn't initiate async attestation enterprise challenge."));
   }
 
-  virtual void TpmAttestationSignSimpleChallenge(
+  void TpmAttestationSignSimpleChallenge(
       chromeos::attestation::AttestationKeyType key_type,
       const std::string& user_id,
       const std::string& key_name,
@@ -233,9 +231,8 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
                 "Couldn't initiate async attestation simple challenge."));
   }
 
-  virtual void AsyncGetSanitizedUsername(
-      const std::string& user,
-      const DataCallback& callback) override {
+  void AsyncGetSanitizedUsername(const std::string& user,
+                                 const DataCallback& callback) override {
     DBusThreadManager::Get()->GetCryptohomeClient()->
         GetSanitizedUsername(user,
         base::Bind(
@@ -256,10 +253,9 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
     CallbackElement() {}
     explicit CallbackElement(const AsyncMethodCaller::Callback& callback)
         : callback(callback),
-          proxy(base::MessageLoopProxy::current()) {
-    }
+          task_runner(base::ThreadTaskRunnerHandle::Get()) {}
     AsyncMethodCaller::Callback callback;
-    scoped_refptr<base::MessageLoopProxy> proxy;
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner;
   };
 
   struct DataCallbackElement {
@@ -267,10 +263,9 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
     explicit DataCallbackElement(
         const AsyncMethodCaller::DataCallback& callback)
         : data_callback(callback),
-          proxy(base::MessageLoopProxy::current()) {
-    }
+          task_runner(base::ThreadTaskRunnerHandle::Get()) {}
     AsyncMethodCaller::DataCallback data_callback;
-    scoped_refptr<base::MessageLoopProxy> proxy;
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner;
   };
 
   typedef base::hash_map<int, CallbackElement> CallbackMap;
@@ -291,10 +286,9 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
       LOG(ERROR) << "Received signal for unknown async_id " << async_id;
       return;
     }
-    it->second.proxy->PostTask(FROM_HERE,
-        base::Bind(it->second.callback,
-                   return_status,
-                   static_cast<MountError>(return_code)));
+    it->second.task_runner->PostTask(
+        FROM_HERE, base::Bind(it->second.callback, return_status,
+                              static_cast<MountError>(return_code)));
     callback_map_.erase(it);
   }
 
@@ -307,14 +301,22 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
       LOG(ERROR) << "Received signal for unknown async_id " << async_id;
       return;
     }
-    it->second.proxy->PostTask(FROM_HERE,
+    it->second.task_runner->PostTask(
+        FROM_HERE,
         base::Bind(it->second.data_callback, return_status, return_data));
     data_callback_map_.erase(it);
   }
-
   // Registers a callback which is called when the result for AsyncXXX is ready.
   void RegisterAsyncCallback(
       Callback callback, const char* error, int async_id) {
+    if (async_id == chromeos::CryptohomeClient::kNotReadyAsyncId) {
+      base::ThreadTaskRunnerHandle::Get()->PostTask(
+          FROM_HERE, base::Bind(callback,
+                                false,  // return status
+                                cryptohome::MOUNT_ERROR_FATAL));
+      return;
+    }
+
     if (async_id == 0) {
       LOG(ERROR) << error;
       return;
@@ -328,6 +330,13 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
   // Registers a callback which is called when the result for AsyncXXX is ready.
   void RegisterAsyncDataCallback(
       DataCallback callback, const char* error, int async_id) {
+    if (async_id == chromeos::CryptohomeClient::kNotReadyAsyncId) {
+      base::ThreadTaskRunnerHandle::Get()->PostTask(
+          FROM_HERE, base::Bind(callback,
+                                false,  // return status
+                                std::string()));
+      return;
+    }
     if (async_id == 0) {
       LOG(ERROR) << error;
       return;
@@ -338,9 +347,9 @@ class AsyncMethodCallerImpl : public AsyncMethodCaller {
     data_callback_map_[async_id] = DataCallbackElement(callback);
   }
 
-  base::WeakPtrFactory<AsyncMethodCallerImpl> weak_ptr_factory_;
   CallbackMap callback_map_;
   DataCallbackMap data_callback_map_;
+  base::WeakPtrFactory<AsyncMethodCallerImpl> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(AsyncMethodCallerImpl);
 };

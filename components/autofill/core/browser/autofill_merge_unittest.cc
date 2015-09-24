@@ -8,6 +8,7 @@
 #include "base/basictypes.h"
 #include "base/files/file_path.h"
 #include "base/path_service.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
@@ -64,14 +65,11 @@ std::string SerializeProfiles(const std::vector<AutofillProfile*>& profiles) {
     result += "\n";
     for (size_t j = 0; j < arraysize(kProfileFieldTypes); ++j) {
       ServerFieldType type = kProfileFieldTypes[j];
-      std::vector<base::string16> values;
-      profiles[i]->GetRawMultiInfo(type, &values);
-      for (size_t k = 0; k < values.size(); ++k) {
-        result += AutofillType(type).ToString();
-        result += kFieldSeparator;
-        result += base::UTF16ToUTF8(values[k]);
-        result += "\n";
-      }
+      base::string16 value = profiles[i]->GetRawInfo(type);
+      result += AutofillType(type).ToString();
+      result += kFieldSeparator;
+      result += base::UTF16ToUTF8(value);
+      result += "\n";
     }
   }
 
@@ -188,8 +186,8 @@ void AutofillMergeTest::MergeProfiles(const std::string& profiles,
   form.user_submitted = true;
 
   // Parse the input line by line.
-  std::vector<std::string> lines;
-  Tokenize(profiles, "\n", &lines);
+  std::vector<std::string> lines = base::SplitString(
+      profiles, "\n", base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
   for (size_t i = 0; i < lines.size(); ++i) {
     std::string line = lines[i];
 

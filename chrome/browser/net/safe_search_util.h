@@ -20,9 +20,14 @@ namespace safe_search_util {
 void ForceGoogleSafeSearch(const net::URLRequest* request, GURL* new_url);
 
 // If |request| is a request to YouTube, enforces YouTube's Safety Mode by
-// adding/modifying YouTube's PrefCookie header.
+// setting YouTube's Safety Mode header.
 void ForceYouTubeSafetyMode(const net::URLRequest* request,
                             net::HttpRequestHeaders* headers);
+
+int GetForceGoogleSafeSearchCountForTesting();
+int GetForceYouTubeSafetyModeCountForTesting();
+void ClearForceGoogleSafeSearchCountForTesting();
+void ClearForceYouTubeSafetyModeCountForTesting();
 
 }  // namespace safe_search_util
 

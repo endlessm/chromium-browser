@@ -25,6 +25,7 @@ namespace content {
 class BrowserChildProcessHostDelegate;
 class ChildProcessHost;
 class SandboxedProcessLauncherDelegate;
+class ServiceRegistry;
 struct ChildProcessData;
 
 // This represents child processes of the browser process, i.e. plugins. They
@@ -35,8 +36,13 @@ class CONTENT_EXPORT BrowserChildProcessHost : public IPC::Sender {
   // |process_type| needs to be either an enum value from ProcessType or an
   // embedder-defined value.
   static BrowserChildProcessHost* Create(
-      int process_type,
+      content::ProcessType process_type,
       BrowserChildProcessHostDelegate* delegate);
+
+  // Returns the child process host with unique id |child_process_id|, or
+  // nullptr if it doesn't exist. |child_process_id| is NOT the process ID, but
+  // is the same unique ID as |ChildProcessData::id|.
+  static BrowserChildProcessHost* FromID(int child_process_id);
 
   ~BrowserChildProcessHost() override {}
 
@@ -44,7 +50,8 @@ class CONTENT_EXPORT BrowserChildProcessHost : public IPC::Sender {
   // Takes ownership of |cmd_line| and |delegate|.
   virtual void Launch(
       SandboxedProcessLauncherDelegate* delegate,
-      base::CommandLine* cmd_line) = 0;
+      base::CommandLine* cmd_line,
+      bool terminate_on_shutdown) = 0;
 
   virtual const ChildProcessData& GetData() const = 0;
 
@@ -54,7 +61,7 @@ class CONTENT_EXPORT BrowserChildProcessHost : public IPC::Sender {
   // Returns the termination status of a child.  |exit_code| is the
   // status returned when the process exited (for posix, as returned
   // from waitpid(), for Windows, as returned from
-  // GetExitCodeProcess()).  |exit_code| may be NULL.
+  // GetExitCodeProcess()).  |exit_code| may be nullptr.
   // |known_dead| indicates that the child is already dead. On Linux, this
   // information is necessary to retrieve accurate information. See
   // ChildProcessLauncher::GetChildTerminationStatus() for more details.
@@ -70,6 +77,10 @@ class CONTENT_EXPORT BrowserChildProcessHost : public IPC::Sender {
   // they need to call this method so that the process handle is associated with
   // this object.
   virtual void SetHandle(base::ProcessHandle handle) = 0;
+
+  // Get the Mojo service registry connected to the child process. Returns
+  // nullptr if no service registry exists.
+  virtual ServiceRegistry* GetServiceRegistry() = 0;
 
 #if defined(OS_MACOSX) && !defined(OS_IOS)
   // Returns a PortProvider used to get process metrics for child processes.

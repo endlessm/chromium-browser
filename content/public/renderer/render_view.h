@@ -12,7 +12,7 @@
 #include "content/common/content_export.h"
 #include "content/public/common/top_controls_state.h"
 #include "ipc/ipc_sender.h"
-#include "third_party/WebKit/public/web/WebPageVisibilityState.h"
+#include "third_party/WebKit/public/platform/WebPageVisibilityState.h"
 #include "ui/gfx/native_widget_types.h"
 
 namespace blink {
@@ -38,6 +38,11 @@ class RenderViewVisitor;
 struct SSLStatus;
 struct WebPreferences;
 
+// DEPRECATED: RenderView is being removed as part of the SiteIsolation project.
+// New code should be added to RenderFrame instead.
+//
+// For context, please see https://crbug.com/467770 and
+// http://www.chromium.org/developers/design-documents/site-isolation.
 class CONTENT_EXPORT RenderView : public IPC::Sender {
  public:
   // Returns the RenderView containing the given WebView.
@@ -45,6 +50,9 @@ class CONTENT_EXPORT RenderView : public IPC::Sender {
 
   // Returns the RenderView for the given routing ID.
   static RenderView* FromRoutingID(int routing_id);
+
+  // Returns the number of live RenderView instances in this process.
+  static size_t GetRenderViewCount();
 
   // Visit all RenderViews with a live WebView (i.e., RenderViews that have
   // been closed but not yet destroyed are excluded).
@@ -73,17 +81,9 @@ class CONTENT_EXPORT RenderView : public IPC::Sender {
   // Returns the associated WebView. May return NULL when the view is closing.
   virtual blink::WebView* GetWebView() = 0;
 
-  // Gets the focused element. If no such element exists then
-  // the element will be Null.
-  virtual blink::WebElement GetFocusedElement() const = 0;
-
   // Returns true if the parameter node is a textfield, text area, a content
   // editable div, or has an ARIA role of textbox.
   virtual bool IsEditableNode(const blink::WebNode& node) const = 0;
-
-  // Returns true if a hit test for |point| returns a descendant of |node|.
-  virtual bool NodeContainsPoint(const blink::WebNode& node,
-                                 const gfx::Point& point) const = 0;
 
   // Returns true if we should display scrollbars for the given view size and
   // false if the scrollbars should be hidden.

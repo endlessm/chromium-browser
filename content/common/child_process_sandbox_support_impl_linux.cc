@@ -9,15 +9,14 @@
 #include <limits>
 
 #include "base/basictypes.h"
-#include "base/debug/trace_event.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/pickle.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/posix/unix_domain_socket_linux.h"
 #include "base/sys_byteorder.h"
+#include "base/trace_event/trace_event.h"
 #include "content/common/sandbox_linux/sandbox_linux.h"
-#include "content/common/zygote_commands_linux.h"
 #include "third_party/WebKit/public/platform/linux/WebFallbackFont.h"
 #include "third_party/WebKit/public/platform/linux/WebFontRenderStyle.h"
 
@@ -28,14 +27,14 @@ void GetFallbackFontForCharacter(int32_t character,
                                  blink::WebFallbackFont* fallbackFont) {
   TRACE_EVENT0("sandbox_ipc", "GetFontFamilyForCharacter");
 
-  Pickle request;
+  base::Pickle request;
   request.WriteInt(LinuxSandbox::METHOD_GET_FALLBACK_FONT_FOR_CHAR);
   request.WriteInt(character);
   request.WriteString(preferred_locale);
 
   uint8_t buf[512];
-  const ssize_t n = UnixDomainSocket::SendRecvMsg(GetSandboxFD(), buf,
-                                                  sizeof(buf), NULL, request);
+  const ssize_t n = base::UnixDomainSocket::SendRecvMsg(
+      GetSandboxFD(), buf, sizeof(buf), NULL, request);
 
   std::string family_name;
   std::string filename;
@@ -44,14 +43,14 @@ void GetFallbackFontForCharacter(int32_t character,
   bool isBold = false;
   bool isItalic = false;
   if (n != -1) {
-    Pickle reply(reinterpret_cast<char*>(buf), n);
-    PickleIterator pickle_iter(reply);
-    if (reply.ReadString(&pickle_iter, &family_name) &&
-        reply.ReadString(&pickle_iter, &filename) &&
-        reply.ReadInt(&pickle_iter, &fontconfigInterfaceId) &&
-        reply.ReadInt(&pickle_iter, &ttcIndex) &&
-        reply.ReadBool(&pickle_iter, &isBold) &&
-        reply.ReadBool(&pickle_iter, &isItalic)) {
+    base::Pickle reply(reinterpret_cast<char*>(buf), n);
+    base::PickleIterator pickle_iter(reply);
+    if (pickle_iter.ReadString(&family_name) &&
+        pickle_iter.ReadString(&filename) &&
+        pickle_iter.ReadInt(&fontconfigInterfaceId) &&
+        pickle_iter.ReadInt(&ttcIndex) &&
+        pickle_iter.ReadBool(&isBold) &&
+        pickle_iter.ReadBool(&isItalic)) {
       fallbackFont->name = family_name;
       fallbackFont->filename = filename;
       fallbackFont->fontconfigInterfaceId = fontconfigInterfaceId;
@@ -78,7 +77,7 @@ void GetRenderStyleForStrike(const char* family,
   if (pixel_size > std::numeric_limits<uint16>::max())
     return;
 
-  Pickle request;
+  base::Pickle request;
   request.WriteInt(LinuxSandbox::METHOD_GET_STYLE_FOR_STRIKE);
   request.WriteString(family);
   request.WriteBool(bold);
@@ -86,22 +85,22 @@ void GetRenderStyleForStrike(const char* family,
   request.WriteUInt16(pixel_size);
 
   uint8_t buf[512];
-  const ssize_t n = UnixDomainSocket::SendRecvMsg(GetSandboxFD(), buf,
-                                                  sizeof(buf), NULL, request);
+  const ssize_t n = base::UnixDomainSocket::SendRecvMsg(
+      GetSandboxFD(), buf, sizeof(buf), NULL, request);
   if (n == -1)
     return;
 
-  Pickle reply(reinterpret_cast<char*>(buf), n);
-  PickleIterator pickle_iter(reply);
+  base::Pickle reply(reinterpret_cast<char*>(buf), n);
+  base::PickleIterator pickle_iter(reply);
   int use_bitmaps, use_autohint, use_hinting, hint_style, use_antialias;
   int use_subpixel_rendering, use_subpixel_positioning;
-  if (reply.ReadInt(&pickle_iter, &use_bitmaps) &&
-      reply.ReadInt(&pickle_iter, &use_autohint) &&
-      reply.ReadInt(&pickle_iter, &use_hinting) &&
-      reply.ReadInt(&pickle_iter, &hint_style) &&
-      reply.ReadInt(&pickle_iter, &use_antialias) &&
-      reply.ReadInt(&pickle_iter, &use_subpixel_rendering) &&
-      reply.ReadInt(&pickle_iter, &use_subpixel_positioning)) {
+  if (pickle_iter.ReadInt(&use_bitmaps) &&
+      pickle_iter.ReadInt(&use_autohint) &&
+      pickle_iter.ReadInt(&use_hinting) &&
+      pickle_iter.ReadInt(&hint_style) &&
+      pickle_iter.ReadInt(&use_antialias) &&
+      pickle_iter.ReadInt(&use_subpixel_rendering) &&
+      pickle_iter.ReadInt(&use_subpixel_positioning)) {
     out->useBitmaps = use_bitmaps;
     out->useAutoHint = use_autohint;
     out->useHinting = use_hinting;
@@ -119,7 +118,7 @@ int MatchFontWithFallback(const std::string& face,
                           PP_BrowserFont_Trusted_Family fallback_family) {
   TRACE_EVENT0("sandbox_ipc", "MatchFontWithFallback");
 
-  Pickle request;
+  base::Pickle request;
   request.WriteInt(LinuxSandbox::METHOD_MATCH_WITH_FALLBACK);
   request.WriteString(face);
   request.WriteBool(bold);
@@ -128,8 +127,8 @@ int MatchFontWithFallback(const std::string& face,
   request.WriteUInt32(fallback_family);
   uint8_t reply_buf[64];
   int fd = -1;
-  UnixDomainSocket::SendRecvMsg(GetSandboxFD(), reply_buf, sizeof(reply_buf),
-                                &fd, request);
+  base::UnixDomainSocket::SendRecvMsg(
+      GetSandboxFD(), reply_buf, sizeof(reply_buf), &fd, request);
   return fd;
 }
 
@@ -203,13 +202,6 @@ bool GetFontTable(int fd, uint32_t table_tag, off_t offset,
   *output_length = data_length;
 
   return true;
-}
-
-bool SendZygoteChildPing(int fd) {
-  return UnixDomainSocket::SendMsg(fd,
-                                   kZygoteChildPingMessage,
-                                   sizeof(kZygoteChildPingMessage),
-                                   std::vector<int>());
 }
 
 }  // namespace content

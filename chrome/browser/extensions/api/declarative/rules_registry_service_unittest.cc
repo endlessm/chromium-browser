@@ -10,6 +10,9 @@
 #include "content/public/test/test_browser_thread.h"
 #include "extensions/browser/api/declarative/test_rules_registry.h"
 #include "extensions/browser/api/declarative_webrequest/webrequest_constants.h"
+#include "extensions/common/extension.h"
+#include "extensions/common/extension_builder.h"
+#include "extensions/common/value_builder.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -55,7 +58,9 @@ class RulesRegistryServiceTest : public testing::Test {
 };
 
 TEST_F(RulesRegistryServiceTest, TestConstructionAndMultiThreading) {
-  const RulesRegistry::WebViewKey key(0, 0);
+  RulesRegistryService registry_service(NULL);
+
+  int key = RulesRegistryService::kDefaultRulesRegistryID;
   TestRulesRegistry* ui_registry =
       new TestRulesRegistry(content::BrowserThread::UI, "ui", key);
 
@@ -64,7 +69,6 @@ TEST_F(RulesRegistryServiceTest, TestConstructionAndMultiThreading) {
 
   // Test registration.
 
-  RulesRegistryService registry_service(NULL);
   registry_service.RegisterRulesRegistry(make_scoped_refptr(ui_registry));
   registry_service.RegisterRulesRegistry(make_scoped_refptr(io_registry));
 
@@ -78,87 +82,45 @@ TEST_F(RulesRegistryServiceTest, TestConstructionAndMultiThreading) {
                  "ui_task"));
 
   content::BrowserThread::PostTask(
-        content::BrowserThread::IO, FROM_HERE,
-        base::Bind(&InsertRule, registry_service.GetRulesRegistry(key, "io"),
-                   "io_task"));
+      content::BrowserThread::IO, FROM_HERE,
+      base::Bind(&InsertRule, registry_service.GetRulesRegistry(key, "io"),
+                 "io_task"));
 
   content::BrowserThread::PostTask(
-        content::BrowserThread::UI, FROM_HERE,
-        base::Bind(&VerifyNumberOfRules,
-                   registry_service.GetRulesRegistry(key, "ui"), 1));
+      content::BrowserThread::UI, FROM_HERE,
+      base::Bind(&VerifyNumberOfRules,
+                 registry_service.GetRulesRegistry(key, "ui"), 1));
 
   content::BrowserThread::PostTask(
-        content::BrowserThread::IO, FROM_HERE,
-        base::Bind(&VerifyNumberOfRules,
-                   registry_service.GetRulesRegistry(key, "io"), 1));
+      content::BrowserThread::IO, FROM_HERE,
+      base::Bind(&VerifyNumberOfRules,
+                 registry_service.GetRulesRegistry(key, "io"), 1));
 
   message_loop_.RunUntilIdle();
 
   // Test extension uninstalling.
-
-  registry_service.SimulateExtensionUninstalled(kExtensionId);
-
-  content::BrowserThread::PostTask(
-        content::BrowserThread::UI, FROM_HERE,
-        base::Bind(&VerifyNumberOfRules,
-                   registry_service.GetRulesRegistry(key, "ui"), 0));
-
-  content::BrowserThread::PostTask(
-        content::BrowserThread::IO, FROM_HERE,
-        base::Bind(&VerifyNumberOfRules,
-                   registry_service.GetRulesRegistry(key, "io"), 0));
-
-  message_loop_.RunUntilIdle();
-}
-
-// This test verifies that removing rules registries by process ID works as
-// intended. This test ensures that removing registries associated with one
-// Webview embedder process does not remove registries associated with the
-// other.
-TEST_F(RulesRegistryServiceTest, TestWebViewKey) {
-  const int kEmbedderProcessID1 = 1;
-  const int kEmbedderProcessID2 = 2;
-  const int kWebViewInstanceID = 1;
-
-  const RulesRegistry::WebViewKey key1(kEmbedderProcessID1, kWebViewInstanceID);
-  const RulesRegistry::WebViewKey key2(kEmbedderProcessID2, kWebViewInstanceID);
-
-  TestRulesRegistry* ui_registry_key1 =
-      new TestRulesRegistry(content::BrowserThread::UI, "ui", key1);
-  TestRulesRegistry* ui_registry_key2 =
-      new TestRulesRegistry(content::BrowserThread::UI, "ui", key2);
-
-  RulesRegistryService registry_service(NULL);
-  registry_service.RegisterRulesRegistry(make_scoped_refptr(ui_registry_key1));
-  registry_service.RegisterRulesRegistry(make_scoped_refptr(ui_registry_key2));
+  scoped_ptr<base::DictionaryValue> manifest = DictionaryBuilder()
+                                                   .Set("name", "Extension")
+                                                   .Set("version", "1.0")
+                                                   .Set("manifest_version", 2)
+                                                   .Build();
+  scoped_refptr<Extension> extension = ExtensionBuilder()
+                                           .SetManifest(manifest.Pass())
+                                           .SetID(kExtensionId)
+                                           .Build();
+  registry_service.SimulateExtensionUninstalled(extension.get());
 
   content::BrowserThread::PostTask(
       content::BrowserThread::UI, FROM_HERE,
-      base::Bind(&InsertRule, registry_service.GetRulesRegistry(key1, "ui"),
-                 "ui_task"));
+      base::Bind(&VerifyNumberOfRules,
+                 registry_service.GetRulesRegistry(key, "ui"), 0));
+
   content::BrowserThread::PostTask(
-      content::BrowserThread::UI, FROM_HERE,
-      base::Bind(&InsertRule, registry_service.GetRulesRegistry(key2, "ui"),
-                 "ui_task"));
+      content::BrowserThread::IO, FROM_HERE,
+      base::Bind(&VerifyNumberOfRules,
+                 registry_service.GetRulesRegistry(key, "io"), 0));
+
   message_loop_.RunUntilIdle();
-
-  registry_service.RemoveWebViewRulesRegistries(kEmbedderProcessID1);
-  EXPECT_FALSE(registry_service.GetRulesRegistry(key1, "ui").get());
-  EXPECT_TRUE(registry_service.GetRulesRegistry(key2, "ui").get());
-}
-
-TEST_F(RulesRegistryServiceTest, TestWebViewWebRequestRegistryHasNoCache) {
-  const int kEmbedderProcessID = 1;
-  const int kWebViewInstanceID = 1;
-  const RulesRegistry::WebViewKey key(kEmbedderProcessID, kWebViewInstanceID);
-  TestingProfile profile;
-  RulesRegistryService registry_service(&profile);
-  RulesRegistry* registry =
-      registry_service.GetRulesRegistry(
-          key,
-          declarative_webrequest_constants::kOnRequest).get();
-  EXPECT_TRUE(registry);
-  EXPECT_FALSE(registry->rules_cache_delegate_for_testing());
 }
 
 }  // namespace extensions

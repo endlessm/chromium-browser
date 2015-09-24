@@ -50,6 +50,31 @@ var ActionLink = document.registerElement('action-link', {
           window.setTimeout(this.click.bind(this), 0);
         }
       });
+
+      function preventDefault(e) {
+        e.preventDefault();
+      }
+
+      function removePreventDefault() {
+        document.removeEventListener('selectstart', preventDefault);
+        document.removeEventListener('mouseup', removePreventDefault);
+      }
+
+      this.addEventListener('mousedown', function() {
+        // This handlers strives to match the behavior of <a href="...">.
+
+        // While the mouse is down, prevent text selection from dragging.
+        document.addEventListener('selectstart', preventDefault);
+        document.addEventListener('mouseup', removePreventDefault);
+
+        // If focus started via mouse press, don't show an outline.
+        if (document.activeElement != this)
+          this.classList.add('no-outline');
+      });
+
+      this.addEventListener('blur', function() {
+        this.classList.remove('no-outline');
+      });
     },
 
     /** @type {boolean} */
@@ -80,5 +105,6 @@ var ActionLink = document.registerElement('action-link', {
         HTMLAnchorElement.prototype.removeAttribute.apply(this, arguments);
     },
   },
+
   extends: 'a',
 });

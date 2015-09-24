@@ -25,28 +25,10 @@ CmdArgs::CmdArgs()
       codecType(webrtc::kVideoCodecVP8),
       width(352),
       height(288),
-      bitRate(500),
-      frameRate(30),
-      packetLoss(0),
       rtt(0),
-      protectionMode(0),
-      camaEnable(0),
       inputFile(webrtc::test::ProjectRootPath() + "/resources/foreman_cif.yuv"),
       outputFile(webrtc::test::OutputPath() +
-          "video_coding_test_output_352x288.yuv"),
-      fv_outputfile(webrtc::test::OutputPath() + "features.txt"),
-      testNum(0) {
-}
-
-// Normal Distribution
-#define PI  3.14159265
-double NormalDist(double mean, double stdDev)
-{
-    // Creating a Normal distribution variable from two independent uniform
-    // variables based on the Box-Muller transform
-    double uniform1 = (rand() + 1.0) / (RAND_MAX + 1.0);
-    double uniform2 = (rand() + 1.0) / (RAND_MAX + 1.0);
-    return (mean + stdDev * sqrt(-2 * log(uniform1)) * cos(2 * PI * uniform2));
+          "video_coding_test_output_352x288.yuv") {
 }
 
 namespace {
@@ -91,7 +73,7 @@ FileOutputFrameReceiver::FileOutputFrameReceiver(
       count_(0) {
   std::string basename;
   std::string extension;
-  if (base_out_filename == "") {
+  if (base_out_filename.empty()) {
     basename = webrtc::test::OutputPath() + "rtp_decoded";
     extension = "yuv";
   } else {
@@ -113,7 +95,7 @@ FileOutputFrameReceiver::~FileOutputFrameReceiver() {
 }
 
 int32_t FileOutputFrameReceiver::FrameToRender(
-    webrtc::I420VideoFrame& video_frame) {
+    webrtc::VideoFrame& video_frame) {
   if (timing_file_ == NULL) {
     std::string basename;
     std::string extension;
@@ -141,7 +123,7 @@ int32_t FileOutputFrameReceiver::FrameToRender(
   }
   fprintf(timing_file_, "%u, %u\n", video_frame.timestamp(),
       webrtc::MaskWord64ToUWord32(video_frame.render_time_ms()));
-  if (PrintI420VideoFrame(video_frame, out_file_) < 0) {
+  if (PrintVideoFrame(video_frame, out_file_) < 0) {
     return -1;
   }
   return 0;

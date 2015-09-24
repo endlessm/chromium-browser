@@ -9,6 +9,7 @@
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "content/public/common/content_switches.h"
 #include "extensions/common/extension.h"
@@ -30,10 +31,6 @@ class HotwordBrowserTest : public ExtensionBrowserTest {
   void SetUpInProcessBrowserTestFixture() override {
     ExtensionBrowserTest::SetUpInProcessBrowserTestFixture();
 
-    // Force the VoiceTrigger field trial on to enable the hotword_helper
-    // extension.
-    base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-        switches::kForceFieldTrials, "VoiceTrigger/Install/");
     // Load the hotword_helper extension.
     ComponentLoader::EnableBackgroundExtensionsForTesting();
 
@@ -66,7 +63,9 @@ class HotwordBrowserTest : public ExtensionBrowserTest {
 // Test we silently capture an exception from a message handler's response
 // callback. This happens when the caller to chrome.runtime.sendMessage()
 // doesn't specify a response callback.
-IN_PROC_BROWSER_TEST_F(HotwordBrowserTest, MessageSendResponseError) {
+// NOTE(amistry): Test is disabled instead of deleted since the functionality
+// may still be required to implement crbug.com/436681
+IN_PROC_BROWSER_TEST_F(HotwordBrowserTest, DISABLED_MessageSendResponseError) {
   // Enable error reporting for the hotword helper extension.
   error_console()->SetReportingAllForExtension(kHotwordHelperExtensionId, true);
 

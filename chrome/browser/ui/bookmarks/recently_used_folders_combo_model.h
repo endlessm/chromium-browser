@@ -13,17 +13,20 @@
 #include "components/bookmarks/browser/bookmark_model_observer.h"
 #include "ui/base/models/combobox_model.h"
 
+namespace bookmarks {
 class BookmarkModel;
 class BookmarkNode;
+}
 
 // Model for the combobox showing the list of folders to choose from. The
 // list always contains the Bookmarks Bar, Other Bookmarks and the parent
 // folder. The list also contains an extra item that shows the text
 // "Choose Another Folder...".
 class RecentlyUsedFoldersComboModel : public ui::ComboboxModel,
-                                      public BookmarkModelObserver {
+                                      public bookmarks::BookmarkModelObserver {
  public:
-  RecentlyUsedFoldersComboModel(BookmarkModel* model, const BookmarkNode* node);
+  RecentlyUsedFoldersComboModel(bookmarks::BookmarkModel* model,
+                                const bookmarks::BookmarkNode* node);
   ~RecentlyUsedFoldersComboModel() override;
 
   // Overridden from ui::ComboboxModel:
@@ -34,55 +37,58 @@ class RecentlyUsedFoldersComboModel : public ui::ComboboxModel,
   void AddObserver(ui::ComboboxModelObserver* observer) override;
   void RemoveObserver(ui::ComboboxModelObserver* observer) override;
 
-  // Overriden from BookmarkModelObserver:
-  void BookmarkModelLoaded(BookmarkModel* model, bool ids_reassigned) override;
-  void BookmarkModelBeingDeleted(BookmarkModel* model) override;
-  void BookmarkNodeMoved(BookmarkModel* model,
-                         const BookmarkNode* old_parent,
+  // Overriden from bookmarks::BookmarkModelObserver:
+  void BookmarkModelLoaded(bookmarks::BookmarkModel* model,
+                           bool ids_reassigned) override;
+  void BookmarkModelBeingDeleted(bookmarks::BookmarkModel* model) override;
+  void BookmarkNodeMoved(bookmarks::BookmarkModel* model,
+                         const bookmarks::BookmarkNode* old_parent,
                          int old_index,
-                         const BookmarkNode* new_parent,
+                         const bookmarks::BookmarkNode* new_parent,
                          int new_index) override;
-  void BookmarkNodeAdded(BookmarkModel* model,
-                         const BookmarkNode* parent,
+  void BookmarkNodeAdded(bookmarks::BookmarkModel* model,
+                         const bookmarks::BookmarkNode* parent,
                          int index) override;
-  void OnWillRemoveBookmarks(BookmarkModel* model,
-                             const BookmarkNode* parent,
+  void OnWillRemoveBookmarks(bookmarks::BookmarkModel* model,
+                             const bookmarks::BookmarkNode* parent,
                              int old_index,
-                             const BookmarkNode* node) override;
-  void BookmarkNodeRemoved(BookmarkModel* model,
-                           const BookmarkNode* parent,
+                             const bookmarks::BookmarkNode* node) override;
+  void BookmarkNodeRemoved(bookmarks::BookmarkModel* model,
+                           const bookmarks::BookmarkNode* parent,
                            int old_index,
-                           const BookmarkNode* node,
+                           const bookmarks::BookmarkNode* node,
                            const std::set<GURL>& removed_urls) override;
-  void BookmarkNodeChanged(BookmarkModel* model,
-                           const BookmarkNode* node) override;
-  void BookmarkNodeFaviconChanged(BookmarkModel* model,
-                                  const BookmarkNode* node) override;
-  void BookmarkNodeChildrenReordered(BookmarkModel* model,
-                                     const BookmarkNode* node) override;
-  void BookmarkAllUserNodesRemoved(BookmarkModel* model,
+  void BookmarkNodeChanged(bookmarks::BookmarkModel* model,
+                           const bookmarks::BookmarkNode* node) override;
+  void BookmarkNodeFaviconChanged(bookmarks::BookmarkModel* model,
+                                  const bookmarks::BookmarkNode* node) override;
+  void BookmarkNodeChildrenReordered(
+      bookmarks::BookmarkModel* model,
+      const bookmarks::BookmarkNode* node) override;
+  void BookmarkAllUserNodesRemoved(bookmarks::BookmarkModel* model,
                                    const std::set<GURL>& removed_urls) override;
 
   // If necessary this function moves |node| into the corresponding folder for
   // the given |selected_index|.
-  void MaybeChangeParent(const BookmarkNode* node, int selected_index);
+  void MaybeChangeParent(const bookmarks::BookmarkNode* node,
+                         int selected_index);
 
  private:
   // Returns the node at the specified |index|.
-  const BookmarkNode* GetNodeAt(int index);
+  const bookmarks::BookmarkNode* GetNodeAt(int index);
 
   // Removes |node| from |items_|. Does nothing if |node| is not in |items_|.
-  void RemoveNode(const BookmarkNode* node);
+  void RemoveNode(const bookmarks::BookmarkNode* node);
 
   struct Item;
   std::vector<Item> items_;
 
-  BookmarkModel* bookmark_model_;
+  bookmarks::BookmarkModel* bookmark_model_;
 
   // The index of the original parent folder.
   int node_parent_index_;
 
-  ObserverList<ui::ComboboxModelObserver> observers_;
+  base::ObserverList<ui::ComboboxModelObserver> observers_;
 
   DISALLOW_COPY_AND_ASSIGN(RecentlyUsedFoldersComboModel);
 };

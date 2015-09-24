@@ -8,12 +8,15 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
 #include "base/path_service.h"
 #include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
+#include "base/scoped_observer.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -28,7 +31,6 @@
 #include "chrome/browser/extensions/api/web_navigation/web_navigation_api.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/external_protocol/external_protocol_handler.h"
-#include "chrome/browser/favicon/favicon_tab_helper.h"
 #include "chrome/browser/net/prediction_options.h"
 #include "chrome/browser/predictors/autocomplete_action_predictor.h"
 #include "chrome/browser/predictors/autocomplete_action_predictor_factory.h"
@@ -43,8 +45,12 @@
 #include "chrome/browser/profiles/profile_io_data.h"
 #include "chrome/browser/renderer_host/chrome_resource_dispatcher_host_delegate.h"
 #include "chrome/browser/safe_browsing/database_manager.h"
+#include "chrome/browser/safe_browsing/local_database_manager.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/safe_browsing/safe_browsing_util.h"
+#include "chrome/browser/safe_browsing/test_database_manager.h"
+#include "chrome/browser/task_management/providers/web_contents/web_contents_tags_manager.h"
+#include "chrome/browser/task_management/task_management_browsertest_util.h"
 #include "chrome/browser/task_manager/task_manager.h"
 #include "chrome/browser/task_manager/task_manager_browsertest_util.h"
 #include "chrome/browser/ui/browser.h"
@@ -60,14 +66,14 @@
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/extensions/extension_constants.h"
-#include "chrome/common/extensions/manifest_handlers/mime_types_handler.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/test_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/favicon/content/content_favicon_driver.h"
+#include "components/favicon/core/favicon_driver_observer.h"
 #include "components/variations/entropy_provider.h"
 #include "components/variations/variations_associated_data.h"
 #include "content/public/browser/browser_message_filter.h"
@@ -83,9 +89,12 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test_utils.h"
+#include "content/public/test/ppapi_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/test_utils.h"
+#include "extensions/common/constants.h"
 #include "extensions/common/extension_urls.h"
+#include "extensions/common/manifest_handlers/mime_types_handler.h"
 #include "extensions/common/switches.h"
 #include "extensions/test/result_catcher.h"
 #include "net/base/escape.h"
@@ -99,6 +108,7 @@
 #include "net/url_request/url_request_filter.h"
 #include "net/url_request/url_request_interceptor.h"
 #include "net/url_request/url_request_job.h"
+#include "ppapi/shared_impl/ppapi_switches.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
 
@@ -130,6 +140,43 @@ using task_manager::browsertest_util::WaitForTaskManagerRows;
 namespace prerender {
 
 namespace {
+
+class FaviconUpdateWatcher : public favicon::FaviconDriverObserver {
+ public:
+  explicit FaviconUpdateWatcher(content::WebContents* web_contents)
+      : seen_(false), running_(false), scoped_observer_(this) {
+    scoped_observer_.Add(
+        favicon::ContentFaviconDriver::FromWebContents(web_contents));
+  }
+
+  void Wait() {
+    if (seen_)
+      return;
+
+    running_ = true;
+    message_loop_runner_ = new content::MessageLoopRunner;
+    message_loop_runner_->Run();
+  }
+
+ private:
+  void OnFaviconAvailable(const gfx::Image& image) override {}
+  void OnFaviconUpdated(favicon::FaviconDriver* favicon_driver,
+                        bool icon_url_changed) override {
+    seen_ = true;
+    if (!running_)
+      return;
+
+    message_loop_runner_->Quit();
+    running_ = false;
+  }
+
+  bool seen_;
+  bool running_;
+  ScopedObserver<favicon::FaviconDriver, FaviconUpdateWatcher> scoped_observer_;
+  scoped_refptr<content::MessageLoopRunner> message_loop_runner_;
+
+  DISALLOW_COPY_AND_ASSIGN(FaviconUpdateWatcher);
+};
 
 class MockNetworkChangeNotifierWIFI : public NetworkChangeNotifier {
  public:
@@ -251,7 +298,7 @@ class ChannelDestructionWatcher {
   };
 
   void OnChannelDestroyed() {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
     EXPECT_FALSE(channel_destroyed_);
     channel_destroyed_ = true;
@@ -311,10 +358,8 @@ class NavigationOrSwapObserver : public WebContentsObserver,
   }
 
   // WebContentsObserver implementation:
-  void DidStartLoading(RenderViewHost* render_view_host) override {
-    did_start_loading_ = true;
-  }
-  void DidStopLoading(RenderViewHost* render_view_host) override {
+  void DidStartLoading() override { did_start_loading_ = true; }
+  void DidStopLoading() override {
     if (!did_start_loading_)
       return;
     number_of_loads_--;
@@ -395,8 +440,7 @@ class TestPrerenderContents : public PrerenderContents {
       const content::Referrer& referrer,
       Origin origin,
       FinalStatus expected_final_status)
-      : PrerenderContents(prerender_manager, profile, url,
-                          referrer, origin, PrerenderManager::kNoExperiment),
+      : PrerenderContents(prerender_manager, profile, url, referrer, origin),
         expected_final_status_(expected_final_status),
         new_render_view_host_(NULL),
         was_hidden_(false),
@@ -627,8 +671,7 @@ class TestPrerenderContentsFactory : public PrerenderContents::Factory {
       Profile* profile,
       const GURL& url,
       const content::Referrer& referrer,
-      Origin origin,
-      uint8 experiment_id) override {
+      Origin origin) override {
     ExpectedContents expected;
     if (!expected_contents_queue_.empty()) {
       expected = expected_contents_queue_.front();
@@ -662,14 +705,17 @@ class TestPrerenderContentsFactory : public PrerenderContents::Factory {
   std::deque<ExpectedContents> expected_contents_queue_;
 };
 
+// TODO(nparker): Switch this to use TestSafeBrowsingDatabaseManager and run
+// with SAFE_BROWSING_DB_LOCAL || SAFE_BROWSING_DB_REMOTE.
 #if defined(FULL_SAFE_BROWSING)
 // A SafeBrowsingDatabaseManager implementation that returns a fixed result for
 // a given URL.
-class FakeSafeBrowsingDatabaseManager :  public SafeBrowsingDatabaseManager {
+class FakeSafeBrowsingDatabaseManager
+    : public LocalSafeBrowsingDatabaseManager {
  public:
   explicit FakeSafeBrowsingDatabaseManager(SafeBrowsingService* service)
-      : SafeBrowsingDatabaseManager(service),
-        threat_type_(SB_THREAT_TYPE_SAFE) { }
+      : LocalSafeBrowsingDatabaseManager(service),
+        threat_type_(SB_THREAT_TYPE_SAFE) {}
 
   // Called on the IO thread to check if the given url is safe or not.  If we
   // can synchronously determine that the url is safe, CheckUrl returns true.
@@ -679,7 +725,7 @@ class FakeSafeBrowsingDatabaseManager :  public SafeBrowsingDatabaseManager {
   // specified by the user, and the user-specified result is not SAFE
   // (in which that result will be communicated back via a call into the
   // client, and false will be returned).
-  // Overrides SafeBrowsingService::CheckBrowseUrl.
+  // Overrides SafeBrowsingDatabaseManager::CheckBrowseUrl.
   bool CheckBrowseUrl(const GURL& gurl, Client* client) override {
     if (gurl != url_ || threat_type_ == SB_THREAT_TYPE_SAFE)
       return true;
@@ -703,14 +749,16 @@ class FakeSafeBrowsingDatabaseManager :  public SafeBrowsingDatabaseManager {
     std::vector<SBThreatType> expected_threats;
     expected_threats.push_back(SB_THREAT_TYPE_URL_MALWARE);
     expected_threats.push_back(SB_THREAT_TYPE_URL_PHISHING);
-    SafeBrowsingDatabaseManager::SafeBrowsingCheck sb_check(
+    // TODO(nparker): Replace SafeBrowsingCheck w/ a call to
+    // client->OnCheckBrowseUrlResult()
+    LocalSafeBrowsingDatabaseManager::SafeBrowsingCheck sb_check(
         std::vector<GURL>(1, gurl),
         std::vector<SBFullHash>(),
         client,
         safe_browsing_util::MALWARE,
         expected_threats);
     sb_check.url_results[0] = threat_type_;
-    client->OnSafeBrowsingResult(sb_check);
+    sb_check.OnSafeBrowsingResult();
   }
 
   GURL url_;
@@ -1019,7 +1067,9 @@ class NeverRunsExternalProtocolHandlerDelegate
   void BlockRequest() override {}
   void RunExternalProtocolDialog(const GURL& url,
                                  int render_process_host_id,
-                                 int routing_id) override {
+                                 int routing_id,
+                                 ui::PageTransition page_transition,
+                                 bool has_user_gesture) override {
     NOTREACHED();
   }
   void LaunchUrlWithoutSecurityCheck(const GURL& url) override { NOTREACHED(); }
@@ -1034,7 +1084,6 @@ base::FilePath GetTestPath(const std::string& file_name) {
 
 }  // namespace
 
-// Many of these tests are flaky. See http://crbug.com/249179
 class PrerenderBrowserTest : virtual public InProcessBrowserTest {
  public:
   PrerenderBrowserTest()
@@ -1069,93 +1118,14 @@ class PrerenderBrowserTest : virtual public InProcessBrowserTest {
 #endif
   }
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitchASCII(switches::kPrerenderMode,
                                     switches::kPrerenderModeSwitchValueEnabled);
-#if defined(OS_MACOSX)
-    // The plugins directory isn't read by default on the Mac, so it needs to be
-    // explicitly registered.
-    base::FilePath app_dir;
-    PathService::Get(chrome::DIR_APP, &app_dir);
-    command_line->AppendSwitchPath(
-        switches::kExtraPluginDir,
-        app_dir.Append(FILE_PATH_LITERAL("plugins")));
-#endif
-    command_line->AppendSwitch(switches::kAlwaysAuthorizePlugins);
-  }
+    command_line->AppendSwitch(switches::kEnablePepperTesting);
+    command_line->AppendSwitchASCII(
+        switches::kOverridePluginPowerSaverForTesting, "ignore-list");
 
-  void SetPreference(NetworkPredictionOptions value) {
-    browser()->profile()->GetPrefs()->SetInteger(
-        prefs::kNetworkPredictionOptions, value);
-  }
-
-  void CreateTestFieldTrial(const std::string& name,
-                            const std::string& group_name) {
-    base::FieldTrial* trial = base::FieldTrialList::CreateFieldTrial(
-        name, group_name);
-    trial->group();
-  }
-
-  // Verifies, for the current field trial, whether
-  // ShouldDisableLocalPredictorDueToPreferencesAndNetwork produces the desired
-  // output.
-  void TestShouldDisableLocalPredictorPreferenceNetworkMatrix(
-      bool preference_wifi_network_wifi,
-      bool preference_wifi_network_4g,
-      bool preference_always_network_wifi,
-      bool preference_always_network_4g,
-      bool preference_never_network_wifi,
-      bool preference_never_network_4g) {
-    Profile* profile = browser()->profile();
-
-    // Set real NetworkChangeNotifier singleton aside.
-    scoped_ptr<NetworkChangeNotifier::DisableForTest> disable_for_test(
-        new NetworkChangeNotifier::DisableForTest);
-
-    // Set preference to WIFI_ONLY: prefetch when not on cellular.
-    SetPreference(NetworkPredictionOptions::NETWORK_PREDICTION_WIFI_ONLY);
-    {
-      scoped_ptr<NetworkChangeNotifier> mock(new MockNetworkChangeNotifierWIFI);
-      EXPECT_EQ(
-          ShouldDisableLocalPredictorDueToPreferencesAndNetwork(profile),
-          preference_wifi_network_wifi);
-    }
-    {
-      scoped_ptr<NetworkChangeNotifier> mock(new MockNetworkChangeNotifier4G);
-      EXPECT_EQ(
-          ShouldDisableLocalPredictorDueToPreferencesAndNetwork(profile),
-          preference_wifi_network_4g);
-    }
-
-    // Set preference to ALWAYS: always prefetch.
-    SetPreference(NetworkPredictionOptions::NETWORK_PREDICTION_ALWAYS);
-    {
-      scoped_ptr<NetworkChangeNotifier> mock(new MockNetworkChangeNotifierWIFI);
-      EXPECT_EQ(
-          ShouldDisableLocalPredictorDueToPreferencesAndNetwork(profile),
-          preference_always_network_wifi);
-    }
-    {
-      scoped_ptr<NetworkChangeNotifier> mock(new MockNetworkChangeNotifier4G);
-      EXPECT_EQ(
-          ShouldDisableLocalPredictorDueToPreferencesAndNetwork(profile),
-          preference_always_network_4g);
-    }
-
-    // Set preference to NEVER: never prefetch.
-    SetPreference(NetworkPredictionOptions::NETWORK_PREDICTION_NEVER);
-    {
-      scoped_ptr<NetworkChangeNotifier> mock(new MockNetworkChangeNotifierWIFI);
-      EXPECT_EQ(
-          ShouldDisableLocalPredictorDueToPreferencesAndNetwork(profile),
-          preference_never_network_wifi);
-    }
-    {
-      scoped_ptr<NetworkChangeNotifier> mock(new MockNetworkChangeNotifier4G);
-      EXPECT_EQ(
-          ShouldDisableLocalPredictorDueToPreferencesAndNetwork(profile),
-          preference_never_network_4g);
-    }
+    ASSERT_TRUE(ppapi::RegisterPowerSaverTestPlugin(command_line));
   }
 
   void SetUpOnMainThread() override {
@@ -1215,12 +1185,6 @@ class PrerenderBrowserTest : virtual public InProcessBrowserTest {
                          expected_number_of_loads).release(&prerenders);
     CHECK_EQ(1u, prerenders.size());
     return scoped_ptr<TestPrerender>(prerenders[0]);
-  }
-
-  // Navigates to a URL, unrelated to prerendering
-  void NavigateStraightToURL(const std::string dest_html_file) {
-    ui_test_utils::NavigateToURL(current_browser(),
-                                 test_server()->GetURL(dest_html_file));
   }
 
   void NavigateToDestURL() const {
@@ -1287,14 +1251,6 @@ class PrerenderBrowserTest : virtual public InProcessBrowserTest {
     OpenURLWithJSImpl("MetaShiftClick", dest_url_, GURL(), true);
 #else
     OpenURLWithJSImpl("CtrlShiftClick", dest_url_, GURL(), true);
-#endif
-  }
-
-  void OpenDestURLViaClickNewBackgroundTab() const {
-#if defined(OS_MACOSX)
-    OpenURLWithJSImpl("MetaClick", dest_url_, GURL(), true);
-#else
-    OpenURLWithJSImpl("CtrlClick", dest_url_, GURL(), true);
 #endif
   }
 
@@ -1587,22 +1543,6 @@ class PrerenderBrowserTest : virtual public InProcessBrowserTest {
                                       base::ASCIIToUTF16(page_title));
   }
 
-  void RunJSReturningString(const char* js, std::string* result) {
-    ASSERT_TRUE(
-        content::ExecuteScriptAndExtractString(
-            GetActiveWebContents(),
-            base::StringPrintf("window.domAutomationController.send(%s)",
-                               js).c_str(),
-            result));
-  }
-
-  void RunJS(const char* js) {
-    ASSERT_TRUE(content::ExecuteScript(
-        GetActiveWebContents(),
-        base::StringPrintf("window.domAutomationController.send(%s)",
-                           js).c_str()));
-  }
-
   const base::HistogramTester& histogram_tester() { return histogram_tester_; }
 
  protected:
@@ -1732,8 +1672,8 @@ class PrerenderBrowserTest : virtual public InProcessBrowserTest {
 
     if (new_web_contents) {
       NewTabNavigationOrSwapObserver observer;
-      render_frame_host->
-          ExecuteJavaScriptForTests(base::ASCIIToUTF16(javascript));
+      render_frame_host->ExecuteJavaScriptWithUserGestureForTests(
+          base::ASCIIToUTF16(javascript));
       observer.Wait();
     } else {
       NavigationOrSwapObserver observer(current_browser()->tab_strip_model(),
@@ -1757,7 +1697,6 @@ class PrerenderBrowserTest : virtual public InProcessBrowserTest {
   std::string loader_query_;
   Browser* explicitly_set_browser_;
   base::HistogramTester histogram_tester_;
-  scoped_ptr<base::FieldTrialList> field_trial_list_;
 };
 
 // Checks that a page is correctly prerendered in the case of a
@@ -2045,41 +1984,41 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderAlertAfterOnload) {
 
 // Checks that plugins are not loaded while a page is being preloaded, but
 // are loaded when the page is displayed.
-#if defined(USE_AURA) && !defined(OS_WIN)
-// http://crbug.com/103496
-#define MAYBE_PrerenderDelayLoadPlugin DISABLED_PrerenderDelayLoadPlugin
-#elif defined(OS_MACOSX)
-// http://crbug.com/100514
-#define MAYBE_PrerenderDelayLoadPlugin DISABLED_PrerenderDelayLoadPlugin
-#elif defined(OS_WIN) && defined(ARCH_CPU_X86_64)
-// TODO(jschuh): Failing plugin tests. crbug.com/244653
-#define MAYBE_PrerenderDelayLoadPlugin DISABLED_PrerenderDelayLoadPlugin
-#elif defined(OS_LINUX)
-// http://crbug.com/306715
-#define MAYBE_PrerenderDelayLoadPlugin DISABLED_PrerenderDelayLoadPlugin
-#else
-#define MAYBE_PrerenderDelayLoadPlugin PrerenderDelayLoadPlugin
-#endif
-// http://crbug.com/306715
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, MAYBE_PrerenderDelayLoadPlugin) {
-  PrerenderTestURL("files/prerender/plugin_delay_load.html",
-                   FINAL_STATUS_USED,
-                   1);
+IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderDelayLoadPlugin) {
+  PrerenderTestURL("files/prerender/prerender_plugin_delay_load.html",
+                   FINAL_STATUS_USED, 1);
   NavigateToDestURL();
 }
 
-// Checks that plugins are not loaded on prerendering pages when click-to-play
-// is enabled.
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderClickToPlay) {
-  // Enable click-to-play.
+// For Content Setting DETECT, checks that plugins are not loaded while
+// a page is being preloaded, but are loaded when the page is displayed.
+IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderContentSettingDetect) {
   HostContentSettingsMap* content_settings_map =
       current_browser()->profile()->GetHostContentSettingsMap();
   content_settings_map->SetDefaultContentSetting(
-      CONTENT_SETTINGS_TYPE_PLUGINS, CONTENT_SETTING_ASK);
+      CONTENT_SETTINGS_TYPE_PLUGINS, CONTENT_SETTING_DETECT_IMPORTANT_CONTENT);
 
-  PrerenderTestURL("files/prerender/prerender_plugin_click_to_play.html",
-                   FINAL_STATUS_USED,
-                   1);
+  PrerenderTestURL("files/prerender/prerender_plugin_power_saver.html",
+                   FINAL_STATUS_USED, 1);
+
+  DisableJavascriptCalls();
+  NavigateToDestURL();
+  bool second_placeholder_present = false;
+  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
+      GetActiveWebContents(), "AwaitPluginPrerollAndPlaceholder();",
+      &second_placeholder_present));
+  EXPECT_TRUE(second_placeholder_present);
+}
+
+// For Content Setting BLOCK, checks that plugins are never loaded.
+IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderContentSettingBlock) {
+  HostContentSettingsMap* content_settings_map =
+      current_browser()->profile()->GetHostContentSettingsMap();
+  content_settings_map->SetDefaultContentSetting(CONTENT_SETTINGS_TYPE_PLUGINS,
+                                                 CONTENT_SETTING_BLOCK);
+
+  PrerenderTestURL("files/prerender/prerender_plugin_never_load.html",
+                   FINAL_STATUS_USED, 1);
   NavigateToDestURL();
 }
 
@@ -2184,7 +2123,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
   DisableJavascriptCalls();
 
   // The loader page should look like Google.
-  const std::string kGoogleDotCom("www.google.com");
+  static const char kGoogleDotCom[] = "www.google.com";
   SetLoaderHostOverride(kGoogleDotCom);
   set_loader_path("files/prerender/prerender_loader_with_replace_state.html");
 
@@ -2976,35 +2915,16 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderPrint) {
                    0);
 }
 
-// Checks that if a page is opened in a new window by javascript and both the
-// pages are in the same domain, the prerendered page is not used, due to
-// there being other tabs in the same browsing instance.
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
-                       PrerenderSameDomainWindowOpenerWindowOpen) {
-  PrerenderTestURL("files/prerender/prerender_page.html",
-                   FINAL_STATUS_NON_EMPTY_BROWSING_INSTANCE,
-                   1);
-  OpenDestURLViaWindowOpen();
-}
-
-// Checks that if a page is opened due to click on a href with target="_blank"
-// and both pages are in the same domain the prerendered page is not used, due
-// there being other tabs in the same browsing instance.
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
-                       PrerenderSameDomainWindowOpenerClickTarget) {
-  PrerenderTestURL("files/prerender/prerender_page.html",
-                   FINAL_STATUS_NON_EMPTY_BROWSING_INSTANCE,
-                   1);
-  OpenDestURLViaClickTarget();
-}
-
 // Checks that prerenders do not get swapped into target pages that have opened
-// a popup, even if the target page itself does not have an opener.
+// popups; the BrowsingInstance is not empty.
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderTargetHasPopup) {
   PrerenderTestURL("files/prerender/prerender_page.html",
                    FINAL_STATUS_NON_EMPTY_BROWSING_INSTANCE,
                    1);
   OpenURLViaWindowOpen(GURL(url::kAboutBlankURL));
+
+  // Switch back to the current tab and attempt to swap it in.
+  current_browser()->tab_strip_model()->ActivateTabAt(0, true);
   NavigateToDestURLWithDisposition(CURRENT_TAB, false);
 }
 
@@ -3198,16 +3118,14 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderFavicon) {
                        1);
   NavigateToDestURL();
 
-  if (!FaviconTabHelper::FromWebContents(
-          GetActiveWebContents())->FaviconIsValid()) {
+  favicon::FaviconDriver* favicon_driver =
+      favicon::ContentFaviconDriver::FromWebContents(GetActiveWebContents());
+  if (!favicon_driver->FaviconIsValid()) {
     // If the favicon has not been set yet, wait for it to be.
-    content::WindowedNotificationObserver favicon_update_watcher(
-        chrome::NOTIFICATION_FAVICON_UPDATED,
-        content::Source<WebContents>(GetActiveWebContents()));
+    FaviconUpdateWatcher favicon_update_watcher(GetActiveWebContents());
     favicon_update_watcher.Wait();
   }
-  EXPECT_TRUE(FaviconTabHelper::FromWebContents(
-      GetActiveWebContents())->FaviconIsValid());
+  EXPECT_TRUE(favicon_driver->FaviconIsValid());
 }
 
 // Checks that when a prerendered page is swapped in to a referring page, the
@@ -3362,33 +3280,15 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderClickNavigateGoBack) {
 }
 
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderClickNewWindow) {
-  // Prerender currently doesn't interpose on this navigation.
-  // http://crbug.com/345474.
   PrerenderTestURL("files/prerender/prerender_page_with_link.html",
-                   FINAL_STATUS_USED,
-                   1);
+                   FINAL_STATUS_APP_TERMINATING, 1);
   OpenDestURLViaClickNewWindow();
 }
 
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderClickNewForegroundTab) {
-  // Prerender currently doesn't interpose on this navigation.
-  // http://crbug.com/345474.
   PrerenderTestURL("files/prerender/prerender_page_with_link.html",
-                   FINAL_STATUS_USED,
-                   1);
+                   FINAL_STATUS_APP_TERMINATING, 1);
   OpenDestURLViaClickNewForegroundTab();
-}
-
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderClickNewBackgroundTab) {
-  // Prerender currently doesn't interpose on this navigation.
-  // http://crbug.com/345474.
-  scoped_ptr<TestPrerender> prerender =
-      PrerenderTestURL("files/prerender/prerender_page_with_link.html",
-                       FINAL_STATUS_USED,
-                       1);
-  ASSERT_TRUE(prerender->contents());
-  prerender->contents()->set_should_be_shown(false);
-  OpenDestURLViaClickNewBackgroundTab();
 }
 
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
@@ -3471,95 +3371,6 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, MatchCompleteDummy) {
       "Prerender.websame_PerceivedPLTMatchedComplete", 1);
 }
 
-// Verify that a navigation that hits a MatchComplete dummy while another is in
-// progress does not also classify the previous navigation as a MatchComplete.
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
-                       MatchCompleteDummyCancelNavigation) {
-  RestorePrerenderMode restore_prerender_mode;
-  PrerenderManager::SetMode(
-      PrerenderManager::PRERENDER_MODE_EXPERIMENT_MATCH_COMPLETE_GROUP);
-
-  // Arrange for a URL to hang.
-  const GURL kNoCommitUrl("http://never-respond.example.com");
-  base::FilePath file(FILE_PATH_LITERAL(
-      "chrome/test/data/prerender/prerender_page.html"));
-  base::RunLoop hang_loop;
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::Bind(&CreateHangingFirstRequestInterceptorOnIO, kNoCommitUrl,
-                 file, hang_loop.QuitClosure()));
-
-  // First, fire a prerender that aborts after it completes its load.
-  std::vector<FinalStatus> expected_final_status_queue;
-  expected_final_status_queue.push_back(FINAL_STATUS_INVALID_HTTP_METHOD);
-  expected_final_status_queue.push_back(FINAL_STATUS_WOULD_HAVE_BEEN_USED);
-  PrerenderTestURL("files/prerender/prerender_xhr_put.html",
-                   expected_final_status_queue, 1);
-  histogram_tester().ExpectTotalCount("Prerender.none_PerceivedPLT", 1);
-  histogram_tester().ExpectTotalCount("Prerender.none_PerceivedPLTMatched", 0);
-  histogram_tester().ExpectTotalCount(
-      "Prerender.none_PerceivedPLTMatchedComplete", 0);
-  histogram_tester().ExpectTotalCount(
-      "Prerender.websame_PrerenderNotSwappedInPLT", 1);
-
-  // Open the hanging URL in a new tab. Wait for both the new tab to open and
-  // the hanging request to be scheduled.
-  ui_test_utils::NavigateToURLWithDisposition(
-      current_browser(), kNoCommitUrl, NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_TAB);
-  hang_loop.Run();
-
-  // Now interrupt that navigation and navigate to the destination URL. This
-  // should forcibly complete the previous navigation and also complete a
-  // WOULD_HAVE_BEEN_PRERENDERED navigation.
-  NavigateToDestURL();
-  histogram_tester().ExpectTotalCount("Prerender.none_PerceivedPLT", 2);
-  histogram_tester().ExpectTotalCount("Prerender.none_PerceivedPLTMatched", 0);
-  histogram_tester().ExpectTotalCount(
-      "Prerender.none_PerceivedPLTMatchedComplete", 0);
-  histogram_tester().ExpectTotalCount("Prerender.websame_PerceivedPLT", 1);
-  histogram_tester().ExpectTotalCount("Prerender.websame_PerceivedPLTMatched",
-                                      0);
-  histogram_tester().ExpectTotalCount(
-      "Prerender.websame_PerceivedPLTMatchedComplete", 1);
-}
-
-class PrerenderBrowserTestWithNaCl : public PrerenderBrowserTest {
- public:
-  PrerenderBrowserTestWithNaCl() {}
-  ~PrerenderBrowserTestWithNaCl() override {}
-
-  void SetUpCommandLine(CommandLine* command_line) override {
-    PrerenderBrowserTest::SetUpCommandLine(command_line);
-    command_line->AppendSwitch(switches::kEnableNaCl);
-  }
-};
-
-// Check that NaCl plugins work when enabled, with prerendering.
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTestWithNaCl,
-                       PrerenderNaClPluginEnabled) {
-#if defined(OS_WIN) && defined(USE_ASH)
-  // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
-    return;
-#endif
-
-  PrerenderTestURL("files/prerender/prerender_plugin_nacl_enabled.html",
-                   FINAL_STATUS_USED,
-                   1);
-  NavigateToDestURL();
-
-  // To avoid any chance of a race, we have to let the script send its response
-  // asynchronously.
-  WebContents* web_contents =
-      browser()->tab_strip_model()->GetActiveWebContents();
-  bool display_test_result = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(web_contents,
-                                                   "DidDisplayReallyPass()",
-                                                   &display_test_result));
-  ASSERT_TRUE(display_test_result);
-}
-
 // Checks that the referrer policy is used when prerendering.
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderReferrerPolicy) {
   set_loader_path("files/prerender/prerender_loader_with_referrer_policy.html");
@@ -3617,7 +3428,7 @@ class PrerenderBrowserTestWithExtensions : public PrerenderBrowserTest,
 
   void SetUp() override { PrerenderBrowserTest::SetUp(); }
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     PrerenderBrowserTest::SetUpCommandLine(command_line);
     ExtensionApiTest::SetUpCommandLine(command_line);
   }
@@ -3691,7 +3502,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTestWithExtensions, StreamsTest) {
   const extensions::Extension* extension = LoadExtension(
       test_data_dir_.AppendASCII("streams_private/handle_mime_type"));
   ASSERT_TRUE(extension);
-  EXPECT_EQ(std::string(extension_misc::kStreamsPrivateTestExtensionId),
+  EXPECT_EQ(std::string(extension_misc::kMimeHandlerPrivateTestExtensionId),
             extension->id());
   MimeTypesHandler* handler = MimeTypesHandler::GetHandler(extension);
   ASSERT_TRUE(handler);
@@ -4047,121 +3858,19 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderNewNavigationEntry) {
                    1);
 }
 
-// Attempt a swap-in in a new tab, verifying that session storage namespace
-// merging works.
+// Attempt a swap-in in a new tab. The session storage doesn't match, so it
+// should not swap.
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderPageNewTab) {
-  // Mock out some URLs and count the number of requests to one of them. Both
-  // prerender_session_storage.html and init_session_storage.html need to be
-  // mocked so they are same-origin.
-  const GURL kInitURL("http://prerender.test/init_session_storage.html");
-  base::FilePath init_file = GetTestPath("init_session_storage.html");
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::Bind(&CreateMockInterceptorOnIO, kInitURL, init_file));
-
-  const GURL kTestURL("http://prerender.test/prerender_session_storage.html");
-  base::FilePath test_file = GetTestPath("prerender_session_storage.html");
-  RequestCounter counter;
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::Bind(&CreateCountingInterceptorOnIO,
-                 kTestURL, test_file, counter.AsWeakPtr()));
-
-  PrerenderTestURL(kTestURL, FINAL_STATUS_USED, 1);
-
-  // Open a new tab to navigate in.
-  ui_test_utils::NavigateToURLWithDisposition(
-      current_browser(), kInitURL, NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
-
-  // Now navigate in the new tab. Set expect_swap_to_succeed to false because
-  // the swap does not occur synchronously.
-  //
-  // TODO(davidben): When all swaps become asynchronous, remove the OpenURL
-  // return value assertion and let this go through the usual successful-swap
-  // codepath.
-  NavigateToDestURLWithDisposition(CURRENT_TAB, false);
-
-  // Verify DidDisplayPass manually since the previous call skipped it.
-  EXPECT_TRUE(DidDisplayPass(
-      current_browser()->tab_strip_model()->GetActiveWebContents()));
-
-  // Only one request to the test URL started.
-  //
-  // TODO(davidben): Re-enable this check when the races in attaching the
-  // throttle are resolved. http://crbug.com/335835
-  // EXPECT_EQ(1, counter.count());
-}
-
-// Attempt a swap-in in a new tab, verifying that session storage namespace
-// merging works. Unlike the above test, the swap is for a navigation that would
-// normally be cross-process.
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderPageNewTabCrossProcess) {
-  base::FilePath test_data_dir;
-  ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir));
-
-  // Mock out some URLs and count the number of requests to one of them. Both
-  // prerender_session_storage.html and init_session_storage.html need to be
-  // mocked so they are same-origin.
-  const GURL kInitURL("http://prerender.test/init_session_storage.html");
-  base::FilePath init_file = GetTestPath("init_session_storage.html");
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::Bind(&CreateMockInterceptorOnIO, kInitURL, init_file));
-
-  const GURL kTestURL("http://prerender.test/prerender_session_storage.html");
-  base::FilePath test_file = GetTestPath("prerender_session_storage.html");
-  RequestCounter counter;
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::Bind(&CreateCountingInterceptorOnIO,
-                 kTestURL, test_file, counter.AsWeakPtr()));
-
-  PrerenderTestURL(kTestURL, FINAL_STATUS_USED, 1);
-
-  // Open a new tab to navigate in.
-  ui_test_utils::NavigateToURLWithDisposition(
-      current_browser(), kInitURL, NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
-
-  // Navigate to about:blank so the next navigation is cross-process.
-  ui_test_utils::NavigateToURL(current_browser(), GURL(url::kAboutBlankURL));
-
-  // Now navigate in the new tab. Set expect_swap_to_succeed to false because
-  // the swap does not occur synchronously.
-  //
-  // TODO(davidben): When all swaps become asynchronous, remove the OpenURL
-  // return value assertion and let this go through the usual successful-swap
-  // codepath.
-  NavigateToDestURLWithDisposition(CURRENT_TAB, false);
-
-  // Verify DidDisplayPass manually since the previous call skipped it.
-  EXPECT_TRUE(DidDisplayPass(GetActiveWebContents()));
-
-  // Only one request to the test URL started.
-  //
-  // TODO(davidben): Re-enable this check when the races in attaching the
-  // throttle are resolved. http://crbug.com/335835
-  // EXPECT_EQ(1, counter.count());
-}
-
-// Verify that session storage conflicts don't merge.
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderSessionStorageConflict) {
-  PrerenderTestURL("files/prerender/prerender_session_storage_conflict.html",
+  PrerenderTestURL("files/prerender/prerender_page.html",
                    FINAL_STATUS_APP_TERMINATING, 1);
 
   // Open a new tab to navigate in.
   ui_test_utils::NavigateToURLWithDisposition(
-      current_browser(),
-      test_server()->GetURL("files/prerender/init_session_storage.html"),
-      NEW_FOREGROUND_TAB,
+      current_browser(), GURL(url::kAboutBlankURL), NEW_FOREGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
 
   // Now navigate in the new tab.
   NavigateToDestURLWithDisposition(CURRENT_TAB, false);
-
-  // Verify DidDisplayPass in the new tab.
-  EXPECT_TRUE(DidDisplayPass(GetActiveWebContents()));
 }
 
 // Checks that prerenders honor |should_replace_current_entry|.
@@ -4180,99 +3889,6 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderReplaceCurrentEntry) {
   EXPECT_EQ(2, controller.GetEntryCount());
   EXPECT_EQ(GURL(url::kAboutBlankURL), controller.GetEntryAtIndex(0)->GetURL());
   EXPECT_EQ(dest_url(), controller.GetEntryAtIndex(1)->GetURL());
-}
-
-// Checks prerender does not hit DCHECKs and behaves properly if two pending
-// swaps occur in a row.
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderDoublePendingSwap) {
-  GetPrerenderManager()->mutable_config().max_link_concurrency = 2;
-  GetPrerenderManager()->mutable_config().max_link_concurrency_per_launcher = 2;
-
-  GURL url1 = test_server()->GetURL("files/prerender/prerender_page.html?1");
-  scoped_ptr<TestPrerender> prerender1 =
-      PrerenderTestURL(url1, FINAL_STATUS_APP_TERMINATING, 1);
-
-  GURL url2 = test_server()->GetURL("files/prerender/prerender_page.html?2");
-  scoped_ptr<TestPrerender> prerender2 = ExpectPrerender(FINAL_STATUS_USED);
-  AddPrerender(url2, 1);
-  prerender2->WaitForStart();
-  prerender2->WaitForLoads(1);
-
-  // There's no reason the second prerender can't be used, but the swap races
-  // with didStartProvisionalLoad and didFailProvisionalLoad from the previous
-  // navigation. The current logic will conservatively fail to swap under such
-  // races. However, if the renderer is slow enough, it's possible for the
-  // prerender to still be used, so don't program in either expectation.
-  ASSERT_TRUE(prerender2->contents());
-  prerender2->contents()->set_skip_final_checks(true);
-
-  // Open a new tab to navigate in.
-  ui_test_utils::NavigateToURLWithDisposition(
-      current_browser(),
-      GURL(url::kAboutBlankURL),
-      NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
-
-  // Fire off two navigations, without running the event loop between them.
-  NavigationOrSwapObserver swap_observer(
-      current_browser()->tab_strip_model(),
-      GetActiveWebContents(), 2);
-  current_browser()->OpenURL(OpenURLParams(
-      url1, Referrer(), CURRENT_TAB, ui::PAGE_TRANSITION_TYPED, false));
-  current_browser()->OpenURL(OpenURLParams(
-      url2, Referrer(), CURRENT_TAB, ui::PAGE_TRANSITION_TYPED, false));
-  swap_observer.Wait();
-
-  // The WebContents should be on url2. There may be 2 or 3 entries, depending
-  // on whether the first one managed to complete.
-  //
-  // TODO(davidben): When http://crbug.com/335835 is fixed, the 3 entry case
-  // shouldn't be possible because it's throttled by the pending swap that
-  // cannot complete.
-  const NavigationController& controller =
-      GetActiveWebContents()->GetController();
-  EXPECT_TRUE(controller.GetPendingEntry() == NULL);
-  EXPECT_LE(2, controller.GetEntryCount());
-  EXPECT_GE(3, controller.GetEntryCount());
-  EXPECT_EQ(GURL(url::kAboutBlankURL), controller.GetEntryAtIndex(0)->GetURL());
-  EXPECT_EQ(url2, controller.GetEntryAtIndex(
-      controller.GetEntryCount() - 1)->GetURL());
-}
-
-// Verify that pending swaps get aborted on new navigations.
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
-                       PrerenderPendingSwapNewNavigation) {
-  PrerenderManager::HangSessionStorageMergesForTesting();
-
-  PrerenderTestURL("files/prerender/prerender_page.html",
-                   FINAL_STATUS_APP_TERMINATING, 1);
-
-  // Open a new tab to navigate in.
-  ui_test_utils::NavigateToURLWithDisposition(
-      current_browser(),
-      GURL(url::kAboutBlankURL),
-      NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
-
-  // Navigate to the URL. Wait for DidStartLoading, just so it's definitely
-  // progressed somewhere.
-  content::WindowedNotificationObserver page_load_observer(
-      content::NOTIFICATION_LOAD_START,
-      content::Source<NavigationController>(
-          &GetActiveWebContents()->GetController()));
-  current_browser()->OpenURL(OpenURLParams(
-      dest_url(), Referrer(), CURRENT_TAB,
-      ui::PAGE_TRANSITION_TYPED, false));
-  page_load_observer.Wait();
-
-  // Navigate somewhere else. This should succeed and abort the pending swap.
-  TestNavigationObserver nav_observer(GetActiveWebContents());
-  current_browser()->OpenURL(OpenURLParams(GURL(url::kAboutBlankURL),
-                                           Referrer(),
-                                           CURRENT_TAB,
-                                           ui::PAGE_TRANSITION_TYPED,
-                                           false));
-  nav_observer.Wait();
 }
 
 // Checks that <a ping> requests are not dropped in prerender.
@@ -4300,103 +3916,6 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderPPLTNormalNavigation) {
   histogram_tester().ExpectTotalCount("Prerender.none_PerceivedPLTMatched", 0);
   histogram_tester().ExpectTotalCount(
       "Prerender.none_PerceivedPLTMatchedComplete", 0);
-}
-
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
-                       PrerenderCookieChangeConflictTest) {
-  NavigateStraightToURL(
-      "files/prerender/prerender_cookie.html?set=1&key=c&value=1");
-
-  GURL url = test_server()->GetURL(
-      "files/prerender/prerender_cookie.html?set=1&key=c&value=2");
-
-  scoped_ptr<TestPrerender> prerender =
-      ExpectPrerender(FINAL_STATUS_COOKIE_CONFLICT);
-  AddPrerender(url, 1);
-  prerender->WaitForStart();
-  prerender->WaitForLoads(1);
-  // Ensure that in the prerendered page, querying the cookie again
-  // via javascript yields the same value that was set during load.
-  EXPECT_TRUE(DidPrerenderPass(prerender->contents()->prerender_contents()));
-
-  // The prerender has loaded. Ensure that the change is not visible
-  // to visible tabs.
-  std::string value;
-  RunJSReturningString("GetCookie('c')", &value);
-  ASSERT_EQ(value, "1");
-
-  // Make a conflicting cookie change, which should cancel the prerender.
-  RunJS("SetCookie('c', '3')");
-  prerender->WaitForStop();
-}
-
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderCookieChangeUseTest) {
-  // Permit 2 concurrent prerenders.
-  GetPrerenderManager()->mutable_config().max_link_concurrency = 2;
-  GetPrerenderManager()->mutable_config().max_link_concurrency_per_launcher = 2;
-
-  // Go to a first URL setting the cookie to value "1".
-  NavigateStraightToURL(
-      "files/prerender/prerender_cookie.html?set=1&key=c&value=1");
-
-  // Prerender a URL setting the cookie to value "2".
-  GURL url = test_server()->GetURL(
-      "files/prerender/prerender_cookie.html?set=1&key=c&value=2");
-
-  scoped_ptr<TestPrerender> prerender1 = ExpectPrerender(FINAL_STATUS_USED);
-  AddPrerender(url, 1);
-  prerender1->WaitForStart();
-  prerender1->WaitForLoads(1);
-
-  // Launch a second prerender, setting the cookie to value "3".
-  scoped_ptr<TestPrerender> prerender2 =
-      ExpectPrerender(FINAL_STATUS_COOKIE_CONFLICT);
-  AddPrerender(test_server()->GetURL(
-      "files/prerender/prerender_cookie.html?set=1&key=c&value=3"), 1);
-  prerender2->WaitForStart();
-  prerender2->WaitForLoads(1);
-
-  // Both prerenders have loaded. Ensure that the visible tab is still
-  // unchanged and cannot see their changes.
-  // to visible tabs.
-  std::string value;
-  RunJSReturningString("GetCookie('c')", &value);
-  ASSERT_EQ(value, "1");
-
-  // Navigate to the prerendered URL. The first prerender should be swapped in,
-  // and the changes should now be visible. The second prerender should
-  // be cancelled due to the conflict.
-  ui_test_utils::NavigateToURLWithDisposition(
-      current_browser(),
-      url,
-      CURRENT_TAB,
-      ui_test_utils::BROWSER_TEST_NONE);
-  RunJSReturningString("GetCookie('c')", &value);
-  ASSERT_EQ(value, "2");
-  prerender2->WaitForStop();
-}
-
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
-                       PrerenderCookieChangeConflictHTTPHeaderTest) {
-  NavigateStraightToURL(
-      "files/prerender/prerender_cookie.html?set=1&key=c&value=1");
-
-  GURL url = test_server()->GetURL("set-cookie?c=2");
-  scoped_ptr<TestPrerender> prerender =
-      ExpectPrerender(FINAL_STATUS_COOKIE_CONFLICT);
-  AddPrerender(url, 1);
-  prerender->WaitForStart();
-  prerender->WaitForLoads(1);
-
-  // The prerender has loaded. Ensure that the change is not visible
-  // to visible tabs.
-  std::string value;
-  RunJSReturningString("GetCookie('c')", &value);
-  ASSERT_EQ(value, "1");
-
-  // Make a conflicting cookie change, which should cancel the prerender.
-  RunJS("SetCookie('c', '3')");
-  prerender->WaitForStop();
 }
 
 // Checks that a prerender which calls window.close() on itself is aborted.
@@ -4467,7 +3986,7 @@ class PrerenderOmniboxBrowserTest : public PrerenderBrowserTest {
     WebContents* web_contents = GetActiveWebContents();
     GetAutocompleteActionPredictor()->StartPrerendering(
         url,
-        web_contents->GetController().GetSessionStorageNamespaceMap(),
+        web_contents->GetController().GetDefaultSessionStorageNamespace(),
         gfx::Size(50, 50));
     prerender->WaitForStart();
     return prerender.Pass();
@@ -4478,14 +3997,6 @@ class PrerenderOmniboxBrowserTest : public PrerenderBrowserTest {
 // http://crbug.com/395152
 IN_PROC_BROWSER_TEST_F(PrerenderOmniboxBrowserTest,
                        DISABLED_PrerenderOmniboxCancel) {
-  // Ensure the cookie store has been loaded.
-  if (!GetPrerenderManager()->cookie_store_loaded()) {
-    base::RunLoop loop;
-    GetPrerenderManager()->set_on_cookie_store_loaded_cb_for_testing(
-        loop.QuitClosure());
-    loop.Run();
-  }
-
   // Fake an omnibox prerender.
   scoped_ptr<TestPrerender> prerender = StartOmniboxPrerender(
       test_server()->GetURL("files/empty.html"),
@@ -4504,14 +4015,6 @@ IN_PROC_BROWSER_TEST_F(PrerenderOmniboxBrowserTest,
   // flakiness if the prerender times out before the test completes.
   GetPrerenderManager()->mutable_config().abandon_time_to_live =
       base::TimeDelta::FromDays(999);
-
-  // Ensure the cookie store has been loaded.
-  if (!GetPrerenderManager()->cookie_store_loaded()) {
-    base::RunLoop loop;
-    GetPrerenderManager()->set_on_cookie_store_loaded_cb_for_testing(
-        loop.QuitClosure());
-    loop.Run();
-  }
 
   // Enter a URL into the Omnibox.
   OmniboxView* omnibox_view = GetOmniboxView();
@@ -4540,66 +4043,106 @@ IN_PROC_BROWSER_TEST_F(PrerenderOmniboxBrowserTest,
       GetAutocompleteActionPredictor()->IsPrerenderAbandonedForTesting());
 }
 
-// Prefetch should be allowed depending on preference and network type.
-// This test is for the bsae case: no Finch overrides should never disable.
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
-                       LocalPredictorDisableWorksBaseCase) {
-  TestShouldDisableLocalPredictorPreferenceNetworkMatrix(
-      false /*preference_wifi_network_wifi*/,
-      false /*preference_wifi_network_4g*/,
-      false /*preference_always_network_wifi*/,
-      false /*preference_always_network_4g*/,
-      false /*preference_never_network_wifi*/,
-      false /*preference_never_network_4g*/);
+// Can't run tests with NaCl plugins if built with DISABLE_NACL.
+#if !defined(DISABLE_NACL)
+class PrerenderBrowserTestWithNaCl : public PrerenderBrowserTest {
+ public:
+  PrerenderBrowserTestWithNaCl() {}
+  ~PrerenderBrowserTestWithNaCl() override {}
+
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    PrerenderBrowserTest::SetUpCommandLine(command_line);
+    command_line->AppendSwitch(switches::kEnableNaCl);
+  }
+};
+
+// Check that NaCl plugins work when enabled, with prerendering.
+IN_PROC_BROWSER_TEST_F(PrerenderBrowserTestWithNaCl,
+                       PrerenderNaClPluginEnabled) {
+#if defined(OS_WIN) && defined(USE_ASH)
+  // Disable this test in Metro+Ash for now (http://crbug.com/262796).
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
+    return;
+#endif
+
+  PrerenderTestURL("files/prerender/prerender_plugin_nacl_enabled.html",
+                   FINAL_STATUS_USED,
+                   1);
+  NavigateToDestURL();
+
+  // To avoid any chance of a race, we have to let the script send its response
+  // asynchronously.
+  WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  bool display_test_result = false;
+  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(web_contents,
+                                                   "DidDisplayReallyPass()",
+                                                   &display_test_result));
+  ASSERT_TRUE(display_test_result);
+}
+#endif  // !defined(DISABLE_NACL)
+
+#if defined(ENABLE_TASK_MANAGER)
+
+namespace {
+
+base::string16 GetPrerenderTitlePrefix() {
+  return l10n_util::GetStringFUTF16(IDS_TASK_MANAGER_PRERENDER_PREFIX,
+                                    base::string16());
 }
 
-// Prefetch should be allowed depending on preference and network type.
-// LocalPredictorOnCellularOnly should disable all wifi cases.
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
-                       LocalPredictorDisableWorksCellularOnly) {
-  CreateTestFieldTrial("PrerenderLocalPredictorSpec",
-                       "LocalPredictorOnCellularOnly=Enabled");
-  TestShouldDisableLocalPredictorPreferenceNetworkMatrix(
-      true /*preference_wifi_network_wifi*/,
-      false /*preference_wifi_network_4g*/,
-      true /*preference_always_network_wifi*/,
-      false /*preference_always_network_4g*/,
-      true /*preference_never_network_wifi*/,
-      false /*preference_never_network_4g*/);
+const std::vector<task_management::WebContentsTag*>& GetTrackedTags() {
+  return task_management::WebContentsTagsManager::GetInstance()->
+      tracked_tags();
 }
 
-// Prefetch should be allowed depending on preference and network type.
-// LocalPredictorNetworkPredictionEnabledOnly should disable whenever
-// network predictions will not be exercised.
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
-                       LocalPredictorDisableWorksNetworkPredictionEnableOnly) {
-  CreateTestFieldTrial("PrerenderLocalPredictorSpec",
-                       "LocalPredictorNetworkPredictionEnabledOnly=Enabled");
-  TestShouldDisableLocalPredictorPreferenceNetworkMatrix(
-      false /*preference_wifi_network_wifi*/,
-      true /*preference_wifi_network_4g*/,
-      false /*preference_always_network_wifi*/,
-      false /*preference_always_network_4g*/,
-      true /*preference_never_network_wifi*/,
-      true /*preference_never_network_4g*/);
+// Tests the correct recording of tags for the prerender WebContents.
+IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, TaskManagementTagsBasic) {
+  // Browser tests start with a single tab.
+  EXPECT_EQ(1U, GetTrackedTags().size());
+
+  // Start prerendering a page and make sure it's correctly tagged.
+  PrerenderTestURL("files/prerender/prerender_page.html", FINAL_STATUS_USED, 1);
+  EXPECT_EQ(2U, GetTrackedTags().size());
+
+  // Swap in the prerendered content and make sure its tag is removed.
+  NavigateToDestURL();
+  EXPECT_EQ(1U, GetTrackedTags().size());
 }
 
-// Prefetch should be allowed depending on preference and network type.
-// If LocalPredictorNetworkPredictionEnabledOnly and
-// LocalPredictorOnCellularOnly are both selected, we must disable whenever
-// network predictions are not exercised, or when we are on wifi.
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
-                       LocalPredictorDisableWorksBothOptions) {
-  CreateTestFieldTrial("PrerenderLocalPredictorSpec",
-                       "LocalPredictorOnCellularOnly=Enabled:"
-                       "LocalPredictorNetworkPredictionEnabledOnly=Enabled");
-  TestShouldDisableLocalPredictorPreferenceNetworkMatrix(
-      true /*preference_wifi_network_wifi*/,
-      true /*preference_wifi_network_4g*/,
-      true /*preference_always_network_wifi*/,
-      false /*preference_always_network_4g*/,
-      true /*preference_never_network_wifi*/,
-      true /*preference_never_network_4g*/);
+// Tests that the task manager will be provided by tasks that correspond to
+// prerendered WebContents.
+IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, TaskManagementTasksProvided) {
+  task_management::MockWebContentsTaskManager task_manager;
+  // Browser tests start with a single tab.
+  EXPECT_EQ(1U, GetTrackedTags().size());
+
+  task_manager.StartObserving();
+
+  // The pre-existing tab is provided.
+  EXPECT_EQ(1U, task_manager.tasks().size());
+
+  // Start prerendering a page.
+  PrerenderTestURL("files/prerender/prerender_page.html", FINAL_STATUS_USED, 1);
+
+  EXPECT_EQ(2U, GetTrackedTags().size());
+  ASSERT_EQ(2U, task_manager.tasks().size());
+
+  const task_management::Task* task = task_manager.tasks().back();
+  EXPECT_EQ(task_management::Task::RENDERER, task->GetType());
+  const base::string16 title = task->title();
+  const base::string16 expected_prefix = GetPrerenderTitlePrefix();
+  EXPECT_TRUE(base::StartsWith(title,
+                               expected_prefix,
+                               base::CompareCase::INSENSITIVE_ASCII));
+
+  NavigateToDestURL();
+  EXPECT_EQ(1U, task_manager.tasks().size());
 }
+
+}  // namespace
+
+#endif  // defined(ENABLE_TASK_MANAGER)
 
 }  // namespace prerender

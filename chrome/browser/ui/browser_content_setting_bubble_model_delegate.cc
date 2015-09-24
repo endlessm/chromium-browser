@@ -4,18 +4,18 @@
 
 #include "chrome/browser/ui/browser_content_setting_bubble_model_delegate.h"
 
-#include "chrome/browser/content_settings/tab_specific_content_settings.h"
+#include "chrome/browser/content_settings/chrome_content_settings_utils.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/chrome_pages.h"
+#include "chrome/browser/ui/tab_dialogs.h"
 #include "chrome/common/url_constants.h"
 #include "components/google/core/browser/google_util.h"
 
 // The URL for when the user clicks "learn more" on the mixed scripting page
 // icon bubble.
 const char kInsecureScriptHelpUrl[] =
-    "https://support.google.com/chrome/bin/answer.py?answer=1342714";
+    "https://support.google.com/chrome/answer/1342714";
 
 BrowserContentSettingBubbleModelDelegate::
 BrowserContentSettingBubbleModelDelegate(Browser* browser) : browser_(browser) {
@@ -27,7 +27,7 @@ BrowserContentSettingBubbleModelDelegate::
 
 void BrowserContentSettingBubbleModelDelegate::ShowCollectedCookiesDialog(
     content::WebContents* web_contents) {
-  chrome::ShowCollectedCookiesDialog(web_contents);
+  TabDialogs::FromWebContents(web_contents)->ShowCollectedCookies();
 }
 
 void BrowserContentSettingBubbleModelDelegate::ShowContentSettingsPage(
@@ -36,8 +36,8 @@ void BrowserContentSettingBubbleModelDelegate::ShowContentSettingsPage(
     case CONTENT_SETTINGS_TYPE_MIXEDSCRIPT:
       // We don't (yet?) implement user-settable exceptions for mixed script
       // blocking, so bounce to an explanatory page for now.
-      TabSpecificContentSettings::RecordMixedScriptAction(
-          TabSpecificContentSettings::MIXED_SCRIPT_ACTION_CLICKED_LEARN_MORE);
+      content_settings::RecordMixedScriptAction(
+          content_settings::MIXED_SCRIPT_ACTION_CLICKED_LEARN_MORE);
       chrome::AddSelectedTabWithURL(browser_,
                                     GURL(kInsecureScriptHelpUrl),
                                     ui::PAGE_TRANSITION_LINK);

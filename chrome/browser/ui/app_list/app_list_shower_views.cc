@@ -5,7 +5,10 @@
 #include "chrome/browser/ui/app_list/app_list_shower_views.h"
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
+#include "base/profiler/scoped_tracker.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/apps/scoped_keep_alive.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_list_shower_delegate.h"
@@ -53,6 +56,12 @@ void AppListShower::CreateViewForProfile(Profile* requested_profile) {
     return;
   }
   app_list_ = MakeViewForCurrentProfile();
+
+  // TODO(tapted): Remove ScopedTracker below once crbug.com/431326 is fixed.
+  tracked_objects::ScopedTracker tracking_profile(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "431326 AppListShowerDelegate::OnViewCreated()"));
+
   delegate_->OnViewCreated();
 }
 
@@ -98,9 +107,16 @@ bool AppListShower::HasView() const {
 }
 
 app_list::AppListView* AppListShower::MakeViewForCurrentProfile() {
-  // The app list view manages its own lifetime.
-  app_list::AppListView* view =
-      new app_list::AppListView(delegate_->GetViewDelegateForCreate());
+  app_list::AppListView* view;
+  {
+    // TODO(tapted): Remove ScopedTracker below once crbug.com/431326 is fixed.
+    tracked_objects::ScopedTracker tracking_profile1(
+        FROM_HERE_WITH_EXPLICIT_FUNCTION("431326 AppListView()"));
+
+    // The app list view manages its own lifetime.
+    view = new app_list::AppListView(delegate_->GetViewDelegateForCreate());
+  }
+
   gfx::Point cursor = gfx::Screen::GetNativeScreen()->GetCursorScreenPoint();
   view->InitAsBubbleAtFixedLocation(NULL,
                                     0,
@@ -128,8 +144,8 @@ void AppListShower::Hide() {
 }
 
 void AppListShower::ResetKeepAliveSoon() {
-  if (base::MessageLoop::current()) {  // NULL in tests.
-    base::MessageLoop::current()->PostTask(
+  if (base::ThreadTaskRunnerHandle::IsSet()) {  // Not set in tests.
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(&AppListShower::ResetKeepAlive, base::Unretained(this)));
     return;

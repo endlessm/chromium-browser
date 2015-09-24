@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import pynacl.platform
@@ -44,6 +45,12 @@ BOT_ASSIGNMENT = {
         python + ' buildbot/buildbot_standard.py opt 64 newlib --asan',
     'mac10.7-newlib-dbg-asan':
         python + ' buildbot/buildbot_standard.py opt 32 newlib --asan',
+
+    # Sanitizer Pnacl toolchain buildbot.
+    'asan':
+        python +
+        ' buildbot/buildbot_pnacl_toolchain.py --buildbot --tests-arch x86-64 '
+        ' --sanitize address --skip-tests',
 
     # PNaCl.
     'oneiric_32-newlib-arm_hw-pnacl-panda-dbg':
@@ -138,6 +145,11 @@ BOT_ASSIGNMENT = {
         python + ' buildbot/buildbot_standard.py dbg 64 newlib --clang',
     'nacl-mac10.6-newlib-dbg-clang':
         python + ' buildbot/buildbot_standard.py dbg 32 newlib --clang',
+    # ASan.
+    'nacl-precise_64-newlib-dbg-asan':
+        python + ' buildbot/buildbot_standard.py opt 64 newlib --asan',
+    'nacl-mac10.7-newlib-dbg-asan':
+        python + ' buildbot/buildbot_standard.py opt 32 newlib --asan',
     # Pnacl main trybots
     'nacl-precise_64-newlib-arm_qemu-pnacl':
         bash + ' buildbot/buildbot_pnacl.sh mode-trybot-qemu arm',
@@ -172,7 +184,7 @@ BOT_ASSIGNMENT = {
     'win7-toolchain_x86': 'buildbot\\buildbot_toolchain_win.bat',
     'mac-toolchain_x86': bash + ' buildbot/buildbot_toolchain.sh mac',
     'precise64-toolchain_x86': bash + ' buildbot/buildbot_toolchain.sh linux',
-    # Toolchain newlib arm.
+    # Toolchain (glibc) ARM.
     'win7-toolchain_arm':
         python +
         ' buildbot/buildbot_toolchain_build.py'
@@ -187,7 +199,7 @@ BOT_ASSIGNMENT = {
         python +
         ' buildbot/buildbot_toolchain_build.py'
         ' --buildbot'
-        ' --test_toolchain nacl_arm_newlib'
+        ' --test_toolchain nacl_arm_glibc_raw'
         ' toolchain_build',
 
     # BIONIC toolchain builders.
@@ -228,18 +240,18 @@ BOT_ASSIGNMENT = {
         bash + ' buildbot/buildbot_toolchain.sh linux',
     'nacl-toolchain-mac-newlib': bash + ' buildbot/buildbot_toolchain.sh mac',
     'nacl-toolchain-win7-newlib': 'buildbot\\buildbot_toolchain_win.bat',
-    'nacl-toolchain-precise64-newlib-arm':
+    'nacl-toolchain-precise64-newlib-arm': # TODO(bradnelson): rename
         python +
         ' buildbot/buildbot_toolchain_build.py'
         ' --trybot'
-        ' --test_toolchain nacl_arm_newlib'
+        ' --test_toolchain nacl_arm_glibc_raw'
         ' toolchain_build',
-    'nacl-toolchain-mac-newlib-arm':
+    'nacl-toolchain-mac-newlib-arm': # TODO(bradnelson): rename
         python +
         ' buildbot/buildbot_toolchain_build.py'
         ' --trybot'
         ' toolchain_build',
-    'nacl-toolchain-win7-newlib-arm':
+    'nacl-toolchain-win7-newlib-arm': # TODO(bradnelson): rename
         python +
         ' buildbot/buildbot_toolchain_build.py'
         ' --trybot'
@@ -263,6 +275,27 @@ BOT_ASSIGNMENT = {
         python + ' buildbot/buildbot_pnacl_toolchain.py --trybot',
     'nacl-toolchain-win7-pnacl-x86_64':
         python + ' buildbot/buildbot_pnacl_toolchain.py --trybot',
+
+    # Sanitizer Pnacl toolchain trybots.
+    'nacl-toolchain-asan':
+        python +
+        ' buildbot/buildbot_pnacl_toolchain.py --trybot --tests-arch x86-64 '
+        ' --sanitize address --skip-tests',
+    # TODO(kschimpf): Bot is currently broken: --sanitize memory not understood.
+    'nacl-toolchain-msan':
+        python +
+        ' buildbot/buildbot_pnacl_toolchain.py --trybot --tests-arch x86-64 '
+        ' --sanitize memory --skip-tests',
+    # TODO(kschimpf): Bot is currently broken: --sanitize thread not understood.
+    'nacl-toolchain-tsan':
+        python +
+        ' buildbot/buildbot_pnacl_toolchain.py --trybot --tests-arch x86-64 '
+        ' --sanitize thread --skip-tests',
+    # TODO(kschimpf): Bot is currently broken: --sanitize undefined not understood.
+    'nacl-toolchain-ubsan':
+        python +
+        ' buildbot/buildbot_pnacl_toolchain.py --trybot --tests-arch x86-64 '
+        ' --sanitize undefined --skip-tests',
 
 }
 
@@ -325,6 +358,20 @@ def EscapeJson(data):
   return '"' + json.dumps(data).replace('"', r'\"') + '"'
 
 
+def HasNoPerfResults(builder):
+  if 'pnacl-buildonly-spec' in builder:
+    return True
+  if 'android' in builder:
+    return True
+  return builder in [
+      'asan',
+      'mac-toolchain_arm',
+      'win-pnacl-x86_32',
+      'linux-pnacl-x86_32-tests-mips',
+      'precise64-toolchain_bionic',
+  ]
+
+
 def Main():
   builder = os.environ.get('BUILDBOT_BUILDERNAME')
   build_number = os.environ.get('BUILDBOT_BUILDNUMBER')
@@ -368,9 +415,28 @@ def Main():
     tempdrive, _ = os.path.splitdrive(env['TEMP'])
     if tempdrive != filedrive:
       env['TEMP'] = filedrive + '\\temp'
-      env['TMP'] = env['TEMP']
       if not os.path.exists(env['TEMP']):
         os.mkdir(env['TEMP'])
+
+  # Ensure a temp directory exists.
+  if 'TEMP' not in env:
+    env['TEMP'] = tempfile.gettempdir()
+
+  # Isolate build's temp directory to a particular location so we can clobber
+  # the whole thing predictably and so we have a record of who's leaking
+  # temporary files.
+  nacl_tmp = os.path.join(env['TEMP'], 'nacl_tmp')
+  if not os.path.exists(nacl_tmp):
+    os.mkdir(nacl_tmp)
+  env['TEMP'] = os.path.join(nacl_tmp, builder)
+  if not os.path.exists(env['TEMP']):
+    os.mkdir(env['TEMP'])
+
+  # Set all temp directory variants to the same thing.
+  env['TMPDIR'] = env['TEMP']
+  env['TMP'] = env['TEMP']
+  print 'TEMP=%s' % env['TEMP']
+  sys.stdout.flush()
 
   # Run through runtest.py to get upload of perf data.
   build_properties = {
@@ -399,10 +465,12 @@ def Main():
   # - commands beginning with 'echo '
   # - batch files
   # - debug builders
+  # - builds with no perf tests
   if not (slave_type == 'Trybot' or
           cmd_exe == echo or
           cmd_exe_ext == '.bat' or
-          '-dbg' in builder):
+          '-dbg' in builder or
+          HasNoPerfResults(builder)):
     # Perf dashboards are now generated by output scraping that occurs in the
     # script runtest.py, which lives in the buildbot repository.
     # Non-trybot builds should be run through runtest, allowing it to upload
@@ -420,6 +488,7 @@ def Main():
     ])
 
   print "%s runs: %s\n" % (builder, cmd)
+  sys.stdout.flush()
   retcode = subprocess.call(cmd, env=env, shell=True)
   sys.exit(retcode)
 

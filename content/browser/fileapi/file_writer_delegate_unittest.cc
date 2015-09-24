@@ -9,8 +9,10 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/public/test/async_file_test_helper.h"
 #include "content/public/test/test_file_system_context.h"
 #include "net/base/io_buffer.h"
@@ -24,6 +26,7 @@
 #include "storage/browser/fileapi/file_system_quota_util.h"
 #include "storage/browser/fileapi/file_writer_delegate.h"
 #include "storage/browser/fileapi/sandbox_file_stream_writer.h"
+#include "storage/common/fileapi/file_system_mount_option.h"
 #include "testing/platform_test.h"
 #include "url/gurl.h"
 
@@ -95,8 +98,8 @@ class FileWriterDelegateTest : public PlatformTest {
 
   int64 GetFileSizeOnDisk(const char* test_file_path) {
     // There might be in-flight flush/write.
-    base::MessageLoop::current()->PostTask(
-        FROM_HERE, base::Bind(&base::DoNothing));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
+                                                  base::Bind(&base::DoNothing));
     base::RunLoop().RunUntilIdle();
 
     FileSystemURL url = GetFileSystemURL(test_file_path);
@@ -124,7 +127,7 @@ class FileWriterDelegateTest : public PlatformTest {
             *file_system_context_->GetUpdateObservers(kFileSystemType));
     writer->set_default_quota(allowed_growth);
     return new FileWriterDelegate(scoped_ptr<storage::FileStreamWriter>(writer),
-                                  FileWriterDelegate::FLUSH_ON_COMPLETION);
+                                  storage::FlushPolicy::FLUSH_ON_COMPLETION);
   }
 
   FileWriterDelegate::DelegateWriteCallback GetWriteCallback(Result* result) {
@@ -140,7 +143,7 @@ class FileWriterDelegateTest : public PlatformTest {
     file_writer_delegate_.reset(
         CreateWriterDelegate(test_file_path, offset, allowed_growth));
     request_ = empty_context_.CreateRequest(
-        blob_url, net::DEFAULT_PRIORITY, file_writer_delegate_.get(), NULL);
+        blob_url, net::DEFAULT_PRIORITY, file_writer_delegate_.get());
   }
 
   // This should be alive until the very end of this instance.
@@ -176,7 +179,7 @@ class FileWriterDelegateTestJob : public net::URLRequestJob {
   }
 
   void Start() override {
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(&FileWriterDelegateTestJob::NotifyHeadersComplete, this));
   }
@@ -368,7 +371,7 @@ TEST_F(FileWriterDelegateTest, WriteSuccessWithoutQuotaLimitConcurrent) {
   // Credate another FileWriterDelegate for concurrent write.
   file_writer_delegate2.reset(CreateWriterDelegate("test2", 0, kint64max));
   request2 = empty_context_.CreateRequest(
-      kBlobURL2, net::DEFAULT_PRIORITY, file_writer_delegate2.get(), NULL);
+      kBlobURL2, net::DEFAULT_PRIORITY, file_writer_delegate2.get());
 
   Result result, result2;
   ASSERT_EQ(0, usage());

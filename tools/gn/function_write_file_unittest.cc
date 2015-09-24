@@ -7,6 +7,7 @@
 #include "base/files/scoped_temp_dir.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "tools/gn/functions.h"
+#include "tools/gn/scheduler.h"
 #include "tools/gn/test_with_scope.h"
 
 namespace {
@@ -18,7 +19,7 @@ bool CallWriteFile(Scope* scope,
   Err err;
 
   std::vector<Value> args;
-  args.push_back(Value(NULL, filename));
+  args.push_back(Value(nullptr, filename));
   args.push_back(data);
 
   FunctionCallNode function_call;
@@ -31,6 +32,7 @@ bool CallWriteFile(Scope* scope,
 }  // namespace
 
 TEST(WriteFile, WithData) {
+  Scheduler scheduler;
   TestWithScope setup;
 
   // Make a real directory for writing the files.
@@ -39,7 +41,7 @@ TEST(WriteFile, WithData) {
   setup.build_settings()->SetRootPath(temp_dir.path());
   setup.build_settings()->SetBuildDir(SourceDir("//out/"));
 
-  Value some_string(NULL, "some string contents");
+  Value some_string(nullptr, "some string contents");
 
   // Should refuse to write files outside of the output dir.
   EXPECT_FALSE(CallWriteFile(setup.scope(), "//in_root.txt", some_string));
@@ -55,9 +57,9 @@ TEST(WriteFile, WithData) {
   EXPECT_EQ(some_string.string_value(), result_contents);
 
   // Update the contents with a list of a string and a number.
-  Value some_list(NULL, Value::LIST);
-  some_list.list_value().push_back(Value(NULL, "line 1"));
-  some_list.list_value().push_back(Value(NULL, static_cast<int64>(2)));
+  Value some_list(nullptr, Value::LIST);
+  some_list.list_value().push_back(Value(nullptr, "line 1"));
+  some_list.list_value().push_back(Value(nullptr, static_cast<int64>(2)));
   EXPECT_TRUE(CallWriteFile(setup.scope(), "//out/foo.txt", some_list));
   EXPECT_TRUE(base::ReadFileToString(foo_name, &result_contents));
   EXPECT_EQ("line 1\n2\n", result_contents);

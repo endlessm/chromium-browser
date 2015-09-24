@@ -33,6 +33,7 @@
 #define WebPlugin_h
 
 #include "../platform/WebCanvas.h"
+#include "../platform/WebFocusType.h"
 #include "../platform/WebString.h"
 #include "../platform/WebURL.h"
 #include "WebDragOperation.h"
@@ -45,18 +46,16 @@ struct _NPP;
 
 namespace blink {
 
-class WebDataSource;
 class WebDragData;
 class WebInputEvent;
 class WebPluginContainer;
 class WebURLResponse;
 struct WebCompositionUnderline;
 struct WebCursorInfo;
-struct WebPluginParams;
 struct WebPrintParams;
+struct WebPrintPresetOptions;
 struct WebPoint;
 struct WebRect;
-struct WebTextInputInfo;
 struct WebURLError;
 template <typename T> class WebVector;
 
@@ -88,14 +87,18 @@ public:
 
     virtual bool canProcessDrag() const { return false; }
 
+    // TODO(schenney): Make these pure virtual when chromium changes land
+    virtual void layoutIfNeeded() { }
     virtual void paint(WebCanvas*, const WebRect&) = 0;
 
     // Coordinates are relative to the containing window.
     virtual void updateGeometry(
-        const WebRect& frameRect, const WebRect& clipRect,
-        const WebVector<WebRect>& cutOutsRects, bool isVisible) = 0;
+        const WebRect& windowRect, const WebRect& clipRect,
+        const WebRect& unobscuredRect, const WebVector<WebRect>& cutOutsRects,
+        bool isVisible) = 0;
 
-    virtual void updateFocus(bool) = 0;
+    virtual void updateFocus(bool focused, WebFocusType) = 0;
+
     virtual void updateVisibility(bool) = 0;
 
     virtual bool acceptsInputEvents() = 0;
@@ -121,15 +124,15 @@ public:
     // Returns true if the printed content should not be scaled to
     // the printer's printable area.
     virtual bool isPrintScalingDisabled() { return false; }
-    // Returns number of copies to be printed.
-    virtual int getCopiesToPrint() { return 1; }
+    // Returns true on success and sets the out parameter to the print preset options for the document.
+    virtual bool getPrintPresetOptionsFromDocument(WebPrintPresetOptions*) { return false; }
 
     // Sets up printing with the specified printParams. Returns the number of
     // pages to be printed at these settings.
     virtual int printBegin(const WebPrintParams& printParams) { return 0; }
 
-    // Prints the page specified by pageNumber (0-based index) into the supplied canvas.
-    virtual bool printPage(int pageNumber, WebCanvas* canvas) { return false; }
+    virtual void printPage(int pageNumber, WebCanvas* canvas) { }
+
     // Ends the print operation.
     virtual void printEnd() { }
 

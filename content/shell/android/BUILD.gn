@@ -4,16 +4,16 @@
 
 import("//build/config/android/config.gni")
 import("//build/config/android/rules.gni")
+import("//build/module_args/v8.gni")
 import("//third_party/icu/config.gni")
 
 generate_jni("content_shell_jni_headers") {
   jni_package = "content/shell"
   sources = [
-    "browsertests_apk/src/org/chromium/content_browsertests_apk/ContentBrowserTestsActivity.java",
+    "java/src/org/chromium/content_shell/Shell.java",
     "java/src/org/chromium/content_shell/ShellLayoutTestUtils.java",
     "java/src/org/chromium/content_shell/ShellManager.java",
     "java/src/org/chromium/content_shell/ShellMojoTestUtils.java",
-    "java/src/org/chromium/content_shell/Shell.java",
   ]
 }
 
@@ -29,13 +29,7 @@ shared_library("libcontent_shell_content_view") {
   ]
   sources = [
     "shell_library_loader.cc",
-    "shell_library_loader.h",
   ]
-  if (is_android_webview_build) {
-    ldflags = [
-      "-lgabi++",
-    ]
-  }
 }
 
 android_resources("content_shell_java_resources") {
@@ -50,21 +44,31 @@ android_library("content_shell_java") {
     "//base:base_java",
     "//content/public/android:content_java",
     "//media/base/android:media_java",
-    "//mojo/public/java:system",
     "//net/android:net_java",
+    "//third_party/mojo/src/mojo/public/java:system",
     "//ui/android:ui_java",
     ":content_shell_java_resources",
   ]
   DEPRECATED_java_in_dir = "java/src"
 }
 
+content_shell_manifest =
+    "$target_gen_dir/content_shell_manifest/AndroidManifest.xml"
+
+jinja_template("content_shell_manifest") {
+  testonly = true
+  input = "shell_apk/AndroidManifest.xml.jinja2"
+  output = content_shell_manifest
+}
+
 android_resources("content_shell_apk_resources") {
   testonly = true
   resource_dirs = [ "shell_apk/res" ]
   deps = [
-    ":content_shell_java_resources"
+    ":content_shell_java_resources",
+    ":content_shell_manifest",
   ]
-  android_manifest = "shell_apk/AndroidManifest.xml"
+  android_manifest = content_shell_manifest
 }
 
 android_library("content_shell_apk_java") {
@@ -86,48 +90,53 @@ copy_ex("copy_content_shell_assets") {
   clear_dir = true
   dest = content_shell_assets_dir
   sources = [
-    "$root_out_dir/content_shell.pak"
+    "$root_out_dir/content_shell.pak",
+  ]
+  deps = [
+    "//content/shell:pak",
   ]
 
   if (icu_use_data_file) {
+    sources += [ "$root_build_dir/icudtl.dat" ]
+    deps += [ "//third_party/icu:icudata" ]
+  }
+  if (v8_use_external_startup_data) {
     sources += [
-      "$root_build_dir/icudtl.dat"
+      "$root_build_dir/natives_blob.bin",
+      "$root_build_dir/snapshot_blob.bin",
     ]
+    deps += [ "//v8" ]
   }
 }
 
 android_apk("content_shell_apk") {
   use_chromium_linker = true
   testonly = true
-  datadeps = [
+  data_deps = [
     # "//tools/android/forwarder",
   ]
   deps = [
+    ":content_shell_apk_java",
     ":content_shell_apk_resources",
     ":content_shell_java",
-    ":content_shell_apk_java",
-    ":libcontent_shell_content_view",
+    ":content_shell_manifest",
     ":copy_content_shell_assets",
+    ":libcontent_shell_content_view",
     "//base:base_java",
     "//content/public/android:content_java",
     "//media/base/android:media_java",
     "//net/android:net_java",
+
     #"//third_party/mesa:osmesa_in_lib_dir",
     "//ui/android:ui_java",
   ]
   apk_name = "ContentShell"
-  android_manifest = "shell_apk/AndroidManifest.xml"
-  native_libs = [
-    "$root_build_dir/lib.stripped/libcontent_shell_content_view.so"
-  ]
+  android_manifest = content_shell_manifest
+  native_libs = [ "libcontent_shell_content_view.so" ]
   asset_location = content_shell_assets_dir
 
   # TODO(GYP)
   #'extra_native_libs': ['<(SHARED_LIB_DIR)/libosmesa.so'],
-
-  if (is_android_webview_build) {
-    # TODO(GYP)
-  }
 }
 
 android_library("content_shell_test_java") {
@@ -144,31 +153,43 @@ android_library("content_shell_test_java") {
   DEPRECATED_java_in_dir = "javatests/src"
 }
 
-android_apk("content_shell_test_apk") {
-  testonly = true
+instrumentation_test_apk("content_shell_test_apk") {
   deps = [
     "//content/public/android:content_javatests",
     "//base:base_javatests",
     "//net/android:net_javatests",
   ]
-  datadeps = [
-    ":content_shell_apk",
-  ]
+  data_deps = [ ":content_shell_apk" ]
+  apk_under_test = ":content_shell_apk"
   apk_name = "ContentShellTest"
   android_manifest = "javatests/AndroidManifest.xml"
+  isolate_file = "../../content_shell_test_apk.isolate"
 }
 
-if (cpu_arch != "x64" && cpu_arch != "arm64") {
+if (current_cpu != "x64" && current_cpu != "arm64") {
+  chromium_linker_test_manifest =
+      "$target_gen_dir/linker_test_apk/AndroidManifest.xml"
+
+  jinja_template("chromium_linker_test_manifest") {
+    testonly = true
+    input = "linker_test_apk/AndroidManifest.xml.jinja2"
+    output = chromium_linker_test_manifest
+  }
 
   android_resources("linker_resources") {
+    testonly = true
     resource_dirs = [ "linker_test_apk/res" ]
-    android_manifest = "linker_test_apk/AndroidManifest.xml"
+    android_manifest = chromium_linker_test_manifest
+    deps = [
+      ":chromium_linker_test_manifest",
+    ]
   }
 
   # GYP: //content/content_tests.gypi:chromium_linker_test_apk
   android_apk("chromium_linker_test_apk") {
     testonly = true
     deps = [
+      ":chromium_linker_test_manifest",
       ":content_shell_java",
       ":copy_content_shell_assets",
       ":linker_resources",
@@ -177,17 +198,14 @@ if (cpu_arch != "x64" && cpu_arch != "arm64") {
       "//content/public/android:content_java",
       "//ui/android:ui_java",
     ]
-    android_manifest = "linker_test_apk/AndroidManifest.xml"
+    android_manifest = chromium_linker_test_manifest
     asset_location = content_shell_assets_dir
     apk_name = "ChromiumLinkerTest"
     DEPRECATED_java_in_dir = "linker_test_apk/src"
-    native_libs = [
-      "$root_build_dir/lib.stripped/liblinker_test.so"
-    ]
+    native_libs = [ "liblinker_test.so" ]
     use_chromium_linker = true
     enable_chromium_linker_tests = true
   }
-
 
   # GYP: //content/content_tests.gypi:chromium_android_linker_test
   shared_library("linker_test") {
@@ -200,6 +218,7 @@ if (cpu_arch != "x64" && cpu_arch != "arm64") {
     deps = [
       ":linker_test_jni_headers",
       "//content/shell:content_shell_lib",
+
       # Required to include "content/public/browser/android/compositor.h"
       # in chromium_linker_test_android.cc :-(
       "//skia",

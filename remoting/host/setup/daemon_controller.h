@@ -24,20 +24,15 @@ class AutoThreadTaskRunner;
 
 class DaemonController : public base::RefCountedThreadSafe<DaemonController> {
  public:
-  // Note that these enumeration values are duplicated in host_controller.js and
-  // must be kept in sync.
+  // These enumeration values are duplicated in host_controller.js except that
+  // NOT_INSTALLED is missing here. DaemonController runs in either the remoting
+  // host or the native messaging host which are only installed as part of the
+  // host package so the host must have already been installed.
   enum State {
     // Placeholder state for platforms on which the daemon process is not
     // implemented. The web-app will not show the corresponding UI. This value
     // will eventually be deprecated or removed.
-    STATE_NOT_IMPLEMENTED = -1,
-    // The daemon is not installed. This is functionally equivalent to
-    // STATE_STOPPED, but the start method is expected to be significantly
-    // slower, and might involve user interaction. It might be appropriate to
-    // indicate this in the UI.
-    STATE_NOT_INSTALLED = 0,
-    // The daemon is being installed.
-    STATE_INSTALLING = 1,
+    STATE_NOT_IMPLEMENTED = 0,
     // The daemon is installed but not running. Call Start to start it.
     STATE_STOPPED = 2,
     // The daemon process is starting.
@@ -47,9 +42,7 @@ class DaemonController : public base::RefCountedThreadSafe<DaemonController> {
     STATE_STARTED = 4,
     // The daemon process is stopping.
     STATE_STOPPING = 5,
-    // The state cannot be determined. This could indicate that the plugin
-    // has not been provided with sufficient information, for example, the
-    // user for which to query state on a multi-user system.
+    // The state cannot be determined.
     STATE_UNKNOWN = 6
   };
 
@@ -74,16 +67,13 @@ class DaemonController : public base::RefCountedThreadSafe<DaemonController> {
   // Callback type for GetConfig(). If the host is configured then a dictionary
   // is returned containing host_id and xmpp_login, with security-sensitive
   // fields filtered out. An empty dictionary is returned if the host is not
-  // configured, and NULL if the configuration is corrupt or cannot be read.
+  // configured, and nullptr if the configuration is corrupt or cannot be read.
   typedef base::Callback<void (scoped_ptr<base::DictionaryValue> config)>
       GetConfigCallback;
 
   // Callback used for asynchronous operations, e.g. when
   // starting/stopping the service.
   typedef base::Callback<void (AsyncResult result)> CompletionCallback;
-
-  // Callback type for GetVersion().
-  typedef base::Callback<void (const std::string&)> GetVersionCallback;
 
   struct UsageStatsConsent {
     // Indicates whether crash dump reporting is supported by the host.
@@ -121,10 +111,6 @@ class DaemonController : public base::RefCountedThreadSafe<DaemonController> {
     // sensitive have been filtered out.
     virtual scoped_ptr<base::DictionaryValue> GetConfig() = 0;
 
-    // Download and install the host component. |done| is invoked on the
-    // calling thread when the operation is completed.
-    virtual void InstallHost(const CompletionCallback& done) = 0;
-
     // Starts the daemon process. This may require that the daemon be
     // downloaded and installed. |done| is invoked on the calling thread when
     // the operation is completed.
@@ -146,14 +132,6 @@ class DaemonController : public base::RefCountedThreadSafe<DaemonController> {
     // the operation is completed.
     virtual void Stop(const CompletionCallback& done) = 0;
 
-    // Caches the native handle of the plugin window so it can be used to focus
-    // elevation prompts properly.
-    virtual void SetWindow(void* window_handle) = 0;
-
-    // Get the version of the daemon as a dotted decimal string of the form
-    // major.minor.build.patch, if it is installed, or "" otherwise.
-    virtual std::string GetVersion() = 0;
-
     // Get the user's consent to crash reporting.
     virtual UsageStatsConsent GetUsageStatsConsent() = 0;
   };
@@ -174,10 +152,6 @@ class DaemonController : public base::RefCountedThreadSafe<DaemonController> {
   // after the configuration is read, and any values that might be security
   // sensitive have been filtered out.
   void GetConfig(const GetConfigCallback& done);
-
-  // Download and install the host component. |done| is called when the
-  // operation is finished or fails.
-  void InstallHost(const CompletionCallback& done);
 
   // Start the daemon process. This may require that the daemon be
   // downloaded and installed. |done| is called when the
@@ -207,14 +181,6 @@ class DaemonController : public base::RefCountedThreadSafe<DaemonController> {
   // GetState until the state is STATE_STOPPED.
   void Stop(const CompletionCallback& done);
 
-  // Caches the native handle of the plugin window so it can be used to focus
-  // elevation prompts properly.
-  void SetWindow(void* window_handle);
-
-  // Get the version of the daemon as a dotted decimal string of the form
-  // major.minor.build.patch, if it is installed, or "" otherwise.
-  void GetVersion(const GetVersionCallback& done);
-
   // Get the user's consent to crash reporting.
   void GetUsageStatsConsent(const GetUsageStatsConsentCallback& done);
 
@@ -224,15 +190,12 @@ class DaemonController : public base::RefCountedThreadSafe<DaemonController> {
 
   // Blocking helper methods used to call the delegate.
   void DoGetConfig(const GetConfigCallback& done);
-  void DoInstallHost(const CompletionCallback& done);
   void DoSetConfigAndStart(scoped_ptr<base::DictionaryValue> config,
                            bool consent,
                            const CompletionCallback& done);
   void DoUpdateConfig(scoped_ptr<base::DictionaryValue> config,
                       const CompletionCallback& done);
   void DoStop(const CompletionCallback& done);
-  void DoSetWindow(void* window_handle, const base::Closure& done);
-  void DoGetVersion(const GetVersionCallback& done);
   void DoGetUsageStatsConsent(const GetUsageStatsConsentCallback& done);
 
   // "Trampoline" callbacks that schedule the next pending request and then
@@ -246,9 +209,6 @@ class DaemonController : public base::RefCountedThreadSafe<DaemonController> {
   void InvokeConsentCallbackAndScheduleNext(
       const GetUsageStatsConsentCallback& done,
       const UsageStatsConsent& consent);
-  void InvokeVersionCallbackAndScheduleNext(
-      const GetVersionCallback& done,
-      const std::string& version);
 
   // Queue management methods.
   void ScheduleNext();

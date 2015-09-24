@@ -7,7 +7,13 @@
 
 #include "platform/Crypto.h"
 #include "platform/PlatformExport.h"
-#include "wtf/unicode/Unicode.h"
+#include "wtf/text/Unicode.h"
+
+namespace WTF {
+
+class StringUTF8Adaptor;
+
+}
 
 namespace blink {
 
@@ -45,6 +51,9 @@ PLATFORM_EXPORT bool isMediaTypeCharacter(UChar);
 // Only checks for general Base64 encoded chars, not '=' chars since '=' is
 // positional and may only appear at the end of a Base64 encoded string.
 PLATFORM_EXPORT bool isBase64EncodedCharacter(UChar);
+
+// Normalize script or style source for script hash use.
+PLATFORM_EXPORT WTF::StringUTF8Adaptor normalizeSource(const String& source);
 
 } // namespace blink
 

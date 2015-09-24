@@ -4,8 +4,11 @@
 
 #include "chrome/browser/ui/toolbar/component_toolbar_actions_factory.h"
 
+#include "base/command_line.h"
 #include "base/lazy_instance.h"
+#include "chrome/browser/ui/toolbar/media_router_action.h"
 #include "chrome/browser/ui/toolbar/toolbar_action_view_controller.h"
+#include "chrome/common/chrome_switches.h"
 #include "extensions/common/feature_switch.h"
 
 namespace {
@@ -17,7 +20,8 @@ base::LazyInstance<ComponentToolbarActionsFactory> lazy_factory =
 
 }  // namespace
 
-ComponentToolbarActionsFactory::ComponentToolbarActionsFactory() {}
+ComponentToolbarActionsFactory::ComponentToolbarActionsFactory()
+    : num_component_actions_(-1) {}
 ComponentToolbarActionsFactory::~ComponentToolbarActionsFactory() {}
 
 // static
@@ -41,7 +45,21 @@ ComponentToolbarActionsFactory::GetComponentToolbarActions() {
   // should be okay. If this changes, we should rethink this design to have,
   // e.g., RegisterChromeAction().
 
+#if defined(ENABLE_MEDIA_ROUTER)
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          ::switches::kEnableMediaRouter)) {
+    component_actions.push_back(new MediaRouterAction());
+  }
+#endif
+
   return component_actions.Pass();
+}
+
+int ComponentToolbarActionsFactory::GetNumComponentActions() {
+  if (num_component_actions_ == -1)
+    num_component_actions_ = GetComponentToolbarActions().size();
+
+  return num_component_actions_;
 }
 
 // static

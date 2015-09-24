@@ -9,20 +9,23 @@
 
 #include "base/basictypes.h"
 #include "base/callback.h"
+#include "base/containers/scoped_ptr_map.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
-#include "chrome/browser/memory_details.h"
-#include "chrome/browser/metrics/network_stats_uploader.h"
+#include "chrome/browser/metrics/metrics_memory_details.h"
 #include "components/metrics/metrics_service_client.h"
 #include "components/metrics/profiler/tracking_synchronizer_observer.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 
 class ChromeOSMetricsProvider;
+class DriveMetricsProvider;
 class GoogleUpdateMetricsProviderWin;
 class PluginMetricsProvider;
 class PrefRegistrySimple;
+class PrefService;
+class ProcessResourceUsage;
 
 #if !defined(OS_CHROMEOS) && !defined(OS_IOS)
 class SigninStatusMetricsProvider;
@@ -30,13 +33,13 @@ class SigninStatusMetricsProvider;
 
 namespace base {
 class FilePath;
-}
+}  // namespace base
 
 namespace metrics {
 class MetricsService;
 class MetricsStateManager;
 class ProfilerMetricsProvider;
-}
+}  // namespace metrics
 
 // ChromeMetricsServiceClient provides an implementation of MetricsServiceClient
 // that depends on chrome/.
@@ -57,6 +60,7 @@ class ChromeMetricsServiceClient
 
   // metrics::MetricsServiceClient:
   void SetMetricsClientId(const std::string& client_id) override;
+  void OnRecordingDisabled() override;
   bool IsOffTheRecordSessionActive() override;
   int32 GetProduct() override;
   std::string GetApplicationLocale() override;
@@ -67,9 +71,8 @@ class ChromeMetricsServiceClient
   void StartGatheringMetrics(const base::Closure& done_callback) override;
   void CollectFinalMetrics(const base::Closure& done_callback) override;
   scoped_ptr<metrics::MetricsLogUploader> CreateUploader(
-      const std::string& server_url,
-      const std::string& mime_type,
       const base::Callback<void(int)>& on_upload_complete) override;
+  base::TimeDelta GetStandardUploadInterval() override;
   base::string16 GetRegistryBackupKey() override;
 
   metrics::MetricsService* metrics_service() { return metrics_service_.get(); }
@@ -94,10 +97,15 @@ class ChromeMetricsServiceClient
   // init task by loading profiler data.
   void OnInitTaskGotGoogleUpdateData();
 
+  // Called after WebCache statistics have been received from a renderer
+  // process.
+  void OnWebCacheStatsRefresh(int host_id);
+
   // TrackingSynchronizerObserver:
   void ReceivedProfilerData(
-      const tracked_objects::ProcessDataSnapshot& process_data,
-      int process_type) override;
+      const metrics::ProfilerDataAttributes& attributes,
+      const tracked_objects::ProcessDataPhaseSnapshot& process_data_phase,
+      const metrics::ProfilerEvents& past_profiler_events) override;
   void FinishedReceivingProfilerData() override;
 
   // Callbacks for various stages of final log info collection. Do not call
@@ -139,8 +147,6 @@ class ChromeMetricsServiceClient
   // that has been registered with MetricsService. On other platforms, is NULL.
   ChromeOSMetricsProvider* chromeos_metrics_provider_;
 
-  NetworkStatsUploader network_stats_uploader_;
-
   // Saved callback received from CollectFinalMetrics().
   base::Closure collect_final_metrics_done_callback_;
 
@@ -166,12 +172,27 @@ class ChromeMetricsServiceClient
   GoogleUpdateMetricsProviderWin* google_update_metrics_provider_;
 #endif
 
+  // The DriveMetricsProvider instance that was registered with MetricsService.
+  // Has the same lifetime as |metrics_service_|.
+  DriveMetricsProvider* drive_metrics_provider_;
+
   // Callback that is called when initial metrics gathering is complete.
   base::Closure finished_gathering_initial_metrics_callback_;
 
   // The MemoryGrowthTracker instance that tracks memory usage growth in
   // MemoryDetails.
   MemoryGrowthTracker memory_growth_tracker_;
+
+  // Callback to determine whether or not a cellular network is currently being
+  // used.
+  base::Callback<void(bool*)> cellular_callback_;
+
+  // Time of this object's creation.
+  const base::TimeTicks start_time_;
+
+  // Map of ProcessResourceUsage from render process host IDs.
+  base::ScopedPtrMap<int, scoped_ptr<ProcessResourceUsage>>
+      host_resource_usage_map_;
 
   base::WeakPtrFactory<ChromeMetricsServiceClient> weak_ptr_factory_;
 

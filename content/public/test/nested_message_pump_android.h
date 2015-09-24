@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CONTENT_PUBLIC_TEST_NESTED_MESSAGE_PUMP_ANDROID_
-#define CONTENT_PUBLIC_TEST_NESTED_MESSAGE_PUMP_ANDROID_
+#ifndef CONTENT_PUBLIC_TEST_NESTED_MESSAGE_PUMP_ANDROID_H_
+#define CONTENT_PUBLIC_TEST_NESTED_MESSAGE_PUMP_ANDROID_H_
 
 #include "base/android/jni_android.h"
 #include "base/compiler_specific.h"
@@ -17,17 +17,16 @@ class NestedMessagePumpAndroid : public base::MessagePumpForUI {
  public:
   NestedMessagePumpAndroid();
 
-  virtual void Run(Delegate* delegate) override;
-  virtual void Quit() override;
-  virtual void ScheduleWork() override;
-  virtual void ScheduleDelayedWork(
-      const base::TimeTicks& delayed_work_time) override;
-  virtual void Start(Delegate* delegate) override;
+  void Run(Delegate* delegate) override;
+  void Quit() override;
+  void ScheduleWork() override;
+  void ScheduleDelayedWork(const base::TimeTicks& delayed_work_time) override;
+  void Start(Delegate* delegate) override;
 
   static bool RegisterJni(JNIEnv* env);
 
  protected:
-  virtual ~NestedMessagePumpAndroid();
+  ~NestedMessagePumpAndroid() override;
 
  private:
   // We may make recursive calls to Run, so we save state that needs to be
@@ -41,4 +40,4 @@ class NestedMessagePumpAndroid : public base::MessagePumpForUI {
 
 }  // namespace content
 
-#endif  // CONTENT_PUBLIC_TEST_NESTED_MESSAGE_PUMP_ANDROID_
+#endif  // CONTENT_PUBLIC_TEST_NESTED_MESSAGE_PUMP_ANDROID_H_

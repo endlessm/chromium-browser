@@ -42,11 +42,13 @@ class SigninManagerFactory : public BrowserContextKeyedServiceFactory {
   // null if no SigninManager instance currently exists (will not create a new
   // instance).
   static SigninManagerBase* GetForProfileIfExists(Profile* profile);
+  static const SigninManagerBase* GetForProfileIfExists(const Profile* profile);
 #else
   // On non-ChromeOS platforms, the SigninManager the factory creates will be
   // an instance of the extended SigninManager class.
   static SigninManager* GetForProfile(Profile* profile);
   static SigninManager* GetForProfileIfExists(Profile* profile);
+  static const SigninManager* GetForProfileIfExists(const Profile* profile);
 #endif
 
   // Returns an instance of the SigninManagerFactory singleton.
@@ -77,7 +79,7 @@ class SigninManagerFactory : public BrowserContextKeyedServiceFactory {
   ~SigninManagerFactory() override;
 
   // List of observers. Checks that list is empty on destruction.
-  mutable ObserverList<Observer, true> observer_list_;
+  mutable base::ObserverList<Observer, true> observer_list_;
 
   // BrowserContextKeyedServiceFactory:
   KeyedService* BuildServiceInstanceFor(

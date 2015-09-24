@@ -11,19 +11,25 @@
 #include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_types.h"
 #include "chrome/browser/signin/easy_unlock_service.h"
-#include "chrome/browser/signin/screenlock_bridge.h"
 #include "chromeos/login/login_state.h"
+#include "components/proximity_auth/screenlock_bridge.h"
 
 // EasyUnlockService instance that should be used for signin profile.
-class EasyUnlockServiceSignin : public EasyUnlockService,
-                                public ScreenlockBridge::Observer,
-                                public chromeos::LoginState::Observer {
+class EasyUnlockServiceSignin
+    : public EasyUnlockService,
+      public proximity_auth::ScreenlockBridge::Observer,
+      public chromeos::LoginState::Observer {
  public:
   explicit EasyUnlockServiceSignin(Profile* profile);
-  virtual ~EasyUnlockServiceSignin();
+  ~EasyUnlockServiceSignin() override;
+
+  // Sets |user_id| as the current user of the service. Note this does
+  // not change the focused user on the login screen.
+  void SetCurrentUser(const std::string& user_id);
 
  private:
   // The load state of a user's cryptohome key data.
@@ -56,35 +62,40 @@ class EasyUnlockServiceSignin : public EasyUnlockService,
   };
 
   // EasyUnlockService implementation:
-  virtual EasyUnlockService::Type GetType() const override;
-  virtual std::string GetUserEmail() const override;
-  virtual void LaunchSetup() override;
-  virtual const base::DictionaryValue* GetPermitAccess() const override;
-  virtual void SetPermitAccess(const base::DictionaryValue& permit) override;
-  virtual void ClearPermitAccess() override;
-  virtual const base::ListValue* GetRemoteDevices() const override;
-  virtual void SetRemoteDevices(const base::ListValue& devices) override;
-  virtual void ClearRemoteDevices() override;
-  virtual void RunTurnOffFlow() override;
-  virtual void ResetTurnOffFlow() override;
-  virtual TurnOffFlowStatus GetTurnOffFlowStatus() const override;
-  virtual std::string GetChallenge() const override;
-  virtual std::string GetWrappedSecret() const override;
-  virtual void RecordEasySignInOutcome(const std::string& user_id,
-                                       bool success) const override;
-  virtual void RecordPasswordLoginEvent(
-      const std::string& user_id) const override;
-  virtual void InitializeInternal() override;
-  virtual void ShutdownInternal() override;
-  virtual bool IsAllowedInternal() override;
+  EasyUnlockService::Type GetType() const override;
+  std::string GetUserEmail() const override;
+  void LaunchSetup() override;
+  const base::DictionaryValue* GetPermitAccess() const override;
+  void SetPermitAccess(const base::DictionaryValue& permit) override;
+  void ClearPermitAccess() override;
+  const base::ListValue* GetRemoteDevices() const override;
+  void SetRemoteDevices(const base::ListValue& devices) override;
+  void RunTurnOffFlow() override;
+  void ResetTurnOffFlow() override;
+  TurnOffFlowStatus GetTurnOffFlowStatus() const override;
+  std::string GetChallenge() const override;
+  std::string GetWrappedSecret() const override;
+  void RecordEasySignInOutcome(const std::string& user_id,
+                               bool success) const override;
+  void RecordPasswordLoginEvent(const std::string& user_id) const override;
+  void StartAutoPairing(const AutoPairingResultCallback& callback) override;
+  void SetAutoPairingResult(bool success, const std::string& error) override;
+  void InitializeInternal() override;
+  void ShutdownInternal() override;
+  bool IsAllowedInternal() const override;
+  void OnWillFinalizeUnlock(bool success) override;
+  void OnSuspendDone() override;
 
-  // ScreenlockBridge::Observer implementation:
-  virtual void OnScreenDidLock() override;
-  virtual void OnScreenDidUnlock() override;
-  virtual void OnFocusedUserChanged(const std::string& user_id) override;
+  // proximity_auth::ScreenlockBridge::Observer implementation:
+  void OnScreenDidLock(proximity_auth::ScreenlockBridge::LockHandler::ScreenType
+                           screen_type) override;
+  void OnScreenDidUnlock(
+      proximity_auth::ScreenlockBridge::LockHandler::ScreenType screen_type)
+      override;
+  void OnFocusedUserChanged(const std::string& user_id) override;
 
   // chromeos::LoginState::Observer implementation:
-  virtual void LoggedInStateChanged() override;
+  void LoggedInStateChanged() override;
 
   // Loads the device data associated with the user's Easy unlock keys from
   // crypthome.
@@ -115,6 +126,9 @@ class EasyUnlockServiceSignin : public EasyUnlockService,
   // Whether the service has been successfully initialized, and has not been
   // shut down.
   bool service_active_;
+
+  // The timestamp for the most recent time when a user pod was focused.
+  base::TimeTicks user_pod_last_focused_timestamp_;
 
   base::WeakPtrFactory<EasyUnlockServiceSignin> weak_ptr_factory_;
 

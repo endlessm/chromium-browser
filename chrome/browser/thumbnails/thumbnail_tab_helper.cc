@@ -17,7 +17,7 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "ui/gfx/color_utils.h"
-#include "ui/gfx/size_conversions.h"
+#include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/screen.h"
 #include "ui/gfx/scrollbar_size.h"
 #include "ui/gfx/skbitmap_operations.h"
@@ -64,14 +64,14 @@ void UpdateThumbnail(const ThumbnailingContext& context,
 
 void ProcessCapturedBitmap(scoped_refptr<ThumbnailingContext> context,
                            scoped_refptr<ThumbnailingAlgorithm> algorithm,
-                           bool succeeded,
-                           const SkBitmap& bitmap) {
-  if (!succeeded)
+                           const SkBitmap& bitmap,
+                           content::ReadbackResponse response) {
+  if (response != content::READBACK_SUCCESS)
     return;
 
   // On success, we must be on the UI thread (on failure because of shutdown we
   // are not on the UI thread).
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   algorithm->ProcessBitmap(context, base::Bind(&UpdateThumbnail), bitmap);
 }
@@ -79,7 +79,7 @@ void ProcessCapturedBitmap(scoped_refptr<ThumbnailingContext> context,
 void AsyncProcessThumbnail(content::WebContents* web_contents,
                            scoped_refptr<ThumbnailingContext> context,
                            scoped_refptr<ThumbnailingAlgorithm> algorithm) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   RenderWidgetHost* render_widget_host = web_contents->GetRenderViewHost();
   content::RenderWidgetHostView* view = render_widget_host->GetView();
   if (!view)
@@ -162,8 +162,7 @@ void ThumbnailTabHelper::RenderViewDeleted(
   }
 }
 
-void ThumbnailTabHelper::DidStartLoading(
-    content::RenderViewHost* render_view_host) {
+void ThumbnailTabHelper::DidStartLoading() {
   load_interrupted_ = false;
 }
 

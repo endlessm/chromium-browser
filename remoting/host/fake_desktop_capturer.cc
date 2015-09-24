@@ -21,10 +21,10 @@ static const int kBoxWidth = 140;
 static const int kBoxHeight = 140;
 static const int kSpeed = 20;
 
-COMPILE_ASSERT(kBoxWidth < kWidth && kBoxHeight < kHeight, bad_box_size);
-COMPILE_ASSERT((kBoxWidth % kSpeed == 0) && (kWidth % kSpeed == 0) &&
-               (kBoxHeight % kSpeed == 0) && (kHeight % kSpeed == 0),
-               sizes_must_be_multiple_of_kSpeed);
+static_assert(kBoxWidth < kWidth && kBoxHeight < kHeight, "bad box size");
+static_assert((kBoxWidth % kSpeed == 0) && (kWidth % kSpeed == 0) &&
+              (kBoxHeight % kSpeed == 0) && (kHeight % kSpeed == 0),
+              "sizes must be multiple of kSpeed");
 
 namespace {
 
@@ -121,7 +121,7 @@ scoped_ptr<webrtc::DesktopFrame> DefaultFrameGenerator::GenerateFrame(
 }  // namespace
 
 FakeDesktopCapturer::FakeDesktopCapturer()
-    : callback_(NULL) {
+    : callback_(nullptr) {
   frame_generator_ = base::Bind(&DefaultFrameGenerator::GenerateFrame,
                                 new DefaultFrameGenerator());
 }
@@ -143,8 +143,10 @@ void FakeDesktopCapturer::Start(Callback* callback) {
 void FakeDesktopCapturer::Capture(const webrtc::DesktopRegion& region) {
   base::Time capture_start_time = base::Time::Now();
   scoped_ptr<webrtc::DesktopFrame> frame = frame_generator_.Run(callback_);
-  frame->set_capture_time_ms(
-      (base::Time::Now() - capture_start_time).InMillisecondsRoundedUp());
+  if (frame) {
+    frame->set_capture_time_ms(
+        (base::Time::Now() - capture_start_time).InMillisecondsRoundedUp());
+  }
   callback_->OnCaptureCompleted(frame.release());
 }
 

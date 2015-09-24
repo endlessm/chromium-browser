@@ -33,7 +33,7 @@ class DriveUserData : public base::SupportsUserData::Data {
  public:
   explicit DriveUserData(const base::FilePath& path) : file_path_(path),
                                                        is_complete_(false) {}
-  virtual ~DriveUserData() {}
+  ~DriveUserData() override {}
 
   const base::FilePath& file_path() const { return file_path_; }
   const base::FilePath& cache_file_path() const { return cache_file_path_; }
@@ -246,7 +246,7 @@ void DownloadHandler::RemoveDownload(void* manager_id, int id) {
 
 void DownloadHandler::OnDownloadUpdated(
     DownloadManager* manager, DownloadItem* download) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   // Only accept downloads that have the Drive meta data associated with them.
   DriveUserData* data = GetDriveUserData(download);

@@ -17,9 +17,9 @@
 #include "chrome/browser/android/tab_android.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/sessions/session_command.h"
 #include "components/sessions/content/content_serialized_navigation_builder.h"
 #include "components/sessions/serialized_navigation_entry.h"
+#include "components/sessions/session_command.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
@@ -33,8 +33,10 @@ using content::WebContents;
 
 namespace {
 
-bool WriteStateHeaderToPickle(bool off_the_record, int entry_count,
-    int current_entry_index, Pickle* pickle) {
+bool WriteStateHeaderToPickle(bool off_the_record,
+                              int entry_count,
+                              int current_entry_index,
+                              base::Pickle* pickle) {
   return pickle->WriteBool(off_the_record) &&
       pickle->WriteInt(entry_count) &&
       pickle->WriteInt(current_entry_index);
@@ -66,10 +68,9 @@ bool WriteStateHeaderToPickle(bool off_the_record, int entry_count,
 void UpgradeNavigationFromV0ToV2(
     std::vector<sessions::SerializedNavigationEntry>* navigations,
     int entry_count,
-    PickleIterator* iterator) {
-
+    base::PickleIterator* iterator) {
   for (int i = 0; i < entry_count; ++i) {
-    Pickle v2_pickle;
+    base::Pickle v2_pickle;
     std::string virtual_url_spec;
     std::string str_referrer;
     base::string16 title;
@@ -104,7 +105,7 @@ void UpgradeNavigationFromV0ToV2(
     // search_terms
     v2_pickle.WriteString16(base::string16());
 
-    PickleIterator tab_navigation_pickle_iterator(v2_pickle);
+    base::PickleIterator tab_navigation_pickle_iterator(v2_pickle);
     sessions::SerializedNavigationEntry nav;
     if (nav.ReadFromPickle(&tab_navigation_pickle_iterator)) {
       navigations->push_back(nav);
@@ -152,9 +153,9 @@ void UpgradeNavigationFromV0ToV2(
 void UpgradeNavigationFromV1ToV2(
     std::vector<sessions::SerializedNavigationEntry>* navigations,
     int entry_count,
-    PickleIterator* iterator) {
+    base::PickleIterator* iterator) {
   for (int i = 0; i < entry_count; ++i) {
-    Pickle v2_pickle;
+    base::Pickle v2_pickle;
 
     int index;
     std::string virtual_url_spec;
@@ -203,7 +204,7 @@ void UpgradeNavigationFromV1ToV2(
     // Force output of search_terms
     v2_pickle.WriteString16(base::string16());
 
-    PickleIterator tab_navigation_pickle_iterator(v2_pickle);
+    base::PickleIterator tab_navigation_pickle_iterator(v2_pickle);
     sessions::SerializedNavigationEntry nav;
     if (nav.ReadFromPickle(&tab_navigation_pickle_iterator)) {
       navigations->push_back(nav);
@@ -224,8 +225,8 @@ bool ExtractNavigationEntries(
     int* current_entry_index,
     std::vector<sessions::SerializedNavigationEntry>* navigations) {
   int entry_count;
-  Pickle pickle(static_cast<char*>(data), size);
-  PickleIterator iter(pickle);
+  base::Pickle pickle(static_cast<char*>(data), size);
+  base::PickleIterator iter(pickle);
   if (!iter.ReadBool(is_off_the_record) || !iter.ReadInt(&entry_count) ||
       !iter.ReadInt(current_entry_index)) {
     LOG(ERROR) << "Failed to restore state from byte array (length=" << size
@@ -258,9 +259,10 @@ bool ExtractNavigationEntries(
             << ").";
         return false;  // It's dangerous to keep deserializing now, give up.
       }
-      Pickle tab_navigation_pickle(tab_navigation_data,
-                                   tab_navigation_data_length);
-      PickleIterator tab_navigation_pickle_iterator(tab_navigation_pickle);
+      base::Pickle tab_navigation_pickle(tab_navigation_data,
+                                         tab_navigation_data_length);
+      base::PickleIterator tab_navigation_pickle_iterator(
+          tab_navigation_pickle);
       sessions::SerializedNavigationEntry nav;
       if (!nav.ReadFromPickle(&tab_navigation_pickle_iterator))
         return false;  // If we failed to read a navigation, give up on others.
@@ -321,7 +323,7 @@ ScopedJavaLocalRef<jobject> WebContentsState::WriteNavigationsAsByteBuffer(
     bool is_off_the_record,
     const std::vector<content::NavigationEntry*>& navigations,
     int current_entry) {
-  Pickle pickle;
+  base::Pickle pickle;
   if (!WriteStateHeaderToPickle(is_off_the_record, navigations.size(),
                                 current_entry, &pickle)) {
     LOG(ERROR) << "Failed to serialize tab state (entry count=" <<
@@ -333,10 +335,10 @@ ScopedJavaLocalRef<jobject> WebContentsState::WriteNavigationsAsByteBuffer(
   for (size_t i = 0; i < navigations.size(); ++i) {
     // Write each SerializedNavigationEntry as a separate pickle to avoid
     // optional reads of one tab bleeding into the next tab's data.
-    Pickle tab_navigation_pickle;
+    base::Pickle tab_navigation_pickle;
     // Max size taken from BaseSessionService::CreateUpdateTabNavigationCommand.
     static const size_t max_state_size =
-        std::numeric_limits<SessionCommand::size_type>::max() - 1024;
+        std::numeric_limits<sessions::SessionCommand::size_type>::max() - 1024;
     sessions::ContentSerializedNavigationBuilder::FromNavigationEntry(
         i, *navigations[i])
         .WriteToPickle(max_state_size, &tab_navigation_pickle);
@@ -427,8 +429,6 @@ WebContents* WebContentsState::RestoreContentsFromByteBuffer(
   ScopedVector<content::NavigationEntry> scoped_entries =
       sessions::ContentSerializedNavigationBuilder::ToNavigationEntries(
           navigations, profile);
-  std::vector<content::NavigationEntry*> entries;
-  scoped_entries.release(&entries);
 
   if (is_off_the_record)
     profile = profile->GetOffTheRecordProfile();
@@ -438,11 +438,11 @@ WebContents* WebContentsState::RestoreContentsFromByteBuffer(
   web_contents->GetController().Restore(
       current_entry_index,
       NavigationController::RESTORE_CURRENT_SESSION,
-      &entries);
+      &scoped_entries);
   return web_contents.release();
 }
 
-WebContents* WebContentsState::RestoreContentsFromByteBuffer(
+jobject WebContentsState::RestoreContentsFromByteBuffer(
     JNIEnv* env,
     jclass clazz,
     jobject state,
@@ -451,10 +451,13 @@ WebContents* WebContentsState::RestoreContentsFromByteBuffer(
   void* data = env->GetDirectBufferAddress(state);
   int size = env->GetDirectBufferCapacity(state);
 
-  return WebContentsState::RestoreContentsFromByteBuffer(data,
-                                                         size,
-                                                         saved_state_version,
-                                                         initially_hidden);
+  WebContents* web_contents = WebContentsState::RestoreContentsFromByteBuffer(
+      data,
+      size,
+      saved_state_version,
+      initially_hidden);
+
+  return web_contents ? web_contents->GetJavaWebContents().Release() : nullptr;
 }
 
 ScopedJavaLocalRef<jobject>
@@ -495,17 +498,16 @@ static void FreeWebContentsStateBuffer(JNIEnv* env, jclass clazz, jobject obj) {
   free(data);
 }
 
-static jlong RestoreContentsFromByteBuffer(JNIEnv* env,
-                                           jclass clazz,
-                                           jobject state,
-                                           jint saved_state_version,
-                                           jboolean initially_hidden) {
-  return reinterpret_cast<intptr_t>(
-      WebContentsState::RestoreContentsFromByteBuffer(env,
-                                                      clazz,
-                                                      state,
-                                                      saved_state_version,
-                                                      initially_hidden));
+static jobject RestoreContentsFromByteBuffer(JNIEnv* env,
+                                             jclass clazz,
+                                             jobject state,
+                                             jint saved_state_version,
+                                             jboolean initially_hidden) {
+  return WebContentsState::RestoreContentsFromByteBuffer(env,
+                                                         clazz,
+                                                         state,
+                                                         saved_state_version,
+                                                         initially_hidden);
 }
 
 static jobject GetContentsStateAsByteBuffer(
@@ -549,6 +551,23 @@ static jstring GetVirtualUrlFromByteBuffer(JNIEnv* env,
       WebContentsState::GetVirtualUrlFromByteBuffer(
           env, data, size, saved_state_version);
   return result.Release();
+}
+
+// Creates a historical tab entry from the serialized tab contents contained
+// within |state|.
+static void CreateHistoricalTab(JNIEnv* env,
+                                jclass clazz,
+                                jobject state,
+                                jint saved_state_version) {
+  scoped_ptr<WebContents> web_contents(
+      WebContents::FromJavaWebContents(
+          WebContentsState::RestoreContentsFromByteBuffer(env,
+                                                          clazz,
+                                                          state,
+                                                          saved_state_version,
+                                                          true)));
+  if (web_contents.get())
+    TabAndroid::CreateHistoricalTabFromContents(web_contents.get());
 }
 
 bool RegisterTabState(JNIEnv* env) {

@@ -17,10 +17,11 @@
 #include "components/sessions/session_id.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
+#include "content/public/browser/web_contents_observer.h"
 #include "extensions/browser/extension_registry_observer.h"
 #include "ui/base/base_window.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/image/image.h"
-#include "ui/gfx/rect.h"
 
 class GURL;
 class NativePanel;
@@ -53,6 +54,7 @@ class WindowController;
 class Panel : public ui::BaseWindow,
               public CommandUpdaterDelegate,
               public content::NotificationObserver,
+              public content::WebContentsObserver,
               public extensions::ExtensionRegistryObserver {
  public:
   enum ExpansionState {
@@ -146,6 +148,10 @@ class Panel : public ui::BaseWindow,
   void Observe(int type,
                const content::NotificationSource& source,
                const content::NotificationDetails& details) override;
+
+  // content::WebContentsObserver overrides.
+  void RenderViewHostChanged(content::RenderViewHost* old_host,
+                             content::RenderViewHost* new_host) override;
 
   //  extensions::ExtensionRegistryObserver.
   void OnExtensionUnloaded(
@@ -294,9 +300,6 @@ class Panel : public ui::BaseWindow,
 
   // Updates UI to reflect change in loading state.
   void LoadingStateChanged(bool is_loading);
-
-  // Updates UI to reflect that the web cotents receives the focus.
-  void WebContentsFocused(content::WebContents* contents);
 
   // Moves the panel by delta instantly.
   void MoveByInstantly(const gfx::Vector2d& delta_origin);

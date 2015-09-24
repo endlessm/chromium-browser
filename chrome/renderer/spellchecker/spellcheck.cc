@@ -4,18 +4,23 @@
 
 #include "chrome/renderer/spellchecker/spellcheck.h"
 
+#include <algorithm>
+
+#include "base/basictypes.h"
 #include "base/bind.h"
-#include "base/message_loop/message_loop_proxy.h"
-#include "base/strings/utf_string_conversions.h"
-#include "chrome/common/render_messages.h"
+#include "base/location.h"
+#include "base/logging.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/common/spellcheck_common.h"
 #include "chrome/common/spellcheck_messages.h"
 #include "chrome/common/spellcheck_result.h"
-#include "chrome/renderer/spellchecker/spellcheck_language.h"
 #include "chrome/renderer/spellchecker/spellcheck_provider.h"
 #include "content/public/renderer/render_thread.h"
 #include "content/public/renderer/render_view.h"
 #include "content/public/renderer/render_view_visitor.h"
+#include "third_party/WebKit/public/platform/WebString.h"
+#include "third_party/WebKit/public/platform/WebVector.h"
 #include "third_party/WebKit/public/web/WebTextCheckingCompletion.h"
 #include "third_party/WebKit/public/web/WebTextCheckingResult.h"
 #include "third_party/WebKit/public/web/WebTextDecorationType.h"
@@ -70,7 +75,7 @@ bool DocumentMarkersCollector::Visit(content::RenderView* render_view) {
 
 class DocumentMarkersRemover : public content::RenderViewVisitor {
  public:
-  explicit DocumentMarkersRemover(const std::vector<std::string>& words);
+  explicit DocumentMarkersRemover(const std::set<std::string>& words);
   ~DocumentMarkersRemover() override {}
   bool Visit(content::RenderView* render_view) override;
 
@@ -80,16 +85,39 @@ class DocumentMarkersRemover : public content::RenderViewVisitor {
 };
 
 DocumentMarkersRemover::DocumentMarkersRemover(
-    const std::vector<std::string>& words)
+    const std::set<std::string>& words)
     : words_(words.size()) {
-  for (size_t i = 0; i < words.size(); ++i)
-    words_[i] = WebString::fromUTF8(words[i]);
+  std::transform(words.begin(), words.end(), words_.begin(),
+                 [](const std::string& w) { return WebString::fromUTF8(w); });
 }
 
 bool DocumentMarkersRemover::Visit(content::RenderView* render_view) {
   if (render_view && render_view->GetWebView())
     render_view->GetWebView()->removeSpellingMarkersUnderWords(words_);
   return true;
+}
+
+bool IsApostrophe(base::char16 c) {
+  const base::char16 kApostrophe = 0x27;
+  const base::char16 kRightSingleQuotationMark = 0x2019;
+  return c == kApostrophe || c == kRightSingleQuotationMark;
+}
+
+// Makes sure that the apostrophes in the |spelling_suggestion| are the same
+// type as in the |misspelled_word| and in the same order. Ignore differences in
+// the number of apostrophes.
+void PreserveOriginalApostropheTypes(const base::string16& misspelled_word,
+                                     base::string16* spelling_suggestion) {
+  auto it = spelling_suggestion->begin();
+  for (const base::char16& c : misspelled_word) {
+    if (IsApostrophe(c)) {
+      it = std::find_if(it, spelling_suggestion->end(), IsApostrophe);
+      if (it == spelling_suggestion->end())
+        return;
+
+      *it++ = c;
+    }
+  }
 }
 
 }  // namespace
@@ -159,8 +187,7 @@ void SpellCheck::OnInit(IPC::PlatformFileForTransit bdict_file,
                         const std::set<std::string>& custom_words,
                         const std::string& language,
                         bool auto_spell_correct) {
-  Init(IPC::PlatformFileForTransitToFile(bdict_file),
-       custom_words, language);
+  Init(IPC::PlatformFileForTransitToFile(bdict_file), custom_words, language);
   auto_spell_correct_turned_on_ = auto_spell_correct;
 #if !defined(OS_MACOSX)
   PostDelayedSpellCheckTask(pending_request_param_.release());
@@ -168,8 +195,8 @@ void SpellCheck::OnInit(IPC::PlatformFileForTransit bdict_file,
 }
 
 void SpellCheck::OnCustomDictionaryChanged(
-    const std::vector<std::string>& words_added,
-    const std::vector<std::string>& words_removed) {
+    const std::set<std::string>& words_added,
+    const std::set<std::string>& words_removed) {
   custom_dictionary_.OnCustomDictionaryChanged(words_added, words_removed);
   if (words_added.empty())
     return;
@@ -353,14 +380,13 @@ void SpellCheck::PostDelayedSpellCheckTask(SpellcheckRequest* request) {
   if (!request)
     return;
 
-  base::MessageLoopProxy::current()->PostTask(FROM_HERE,
-      base::Bind(&SpellCheck::PerformSpellCheck,
-                 AsWeakPtr(),
-                 base::Owned(request)));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&SpellCheck::PerformSpellCheck, AsWeakPtr(),
+                            base::Owned(request)));
 }
 #endif
 
-#if !defined(OS_MACOSX)  // Mac uses its native engine instead.
+#if !defined(OS_MACOSX)  // Mac uses its platform engine instead.
 void SpellCheck::PerformSpellCheck(SpellcheckRequest* param) {
   DCHECK(param);
 
@@ -380,33 +406,54 @@ void SpellCheck::CreateTextCheckingResults(
     const base::string16& line_text,
     const std::vector<SpellCheckResult>& spellcheck_results,
     WebVector<WebTextCheckingResult>* textcheck_results) {
-  // Double-check misspelled words with our spellchecker and attach grammar
-  // markers to them if our spellchecker tells they are correct words, i.e. they
-  // are probably contextually-misspelled words.
-  const base::char16* text = line_text.c_str();
-  std::vector<WebTextCheckingResult> list;
-  for (size_t i = 0; i < spellcheck_results.size(); ++i) {
-    SpellCheckResult::Decoration decoration = spellcheck_results[i].decoration;
-    int word_location = spellcheck_results[i].location;
-    int word_length = spellcheck_results[i].length;
-    int misspelling_start = 0;
-    int misspelling_length = 0;
-    if (decoration == SpellCheckResult::SPELLING &&
-        filter == USE_NATIVE_CHECKER) {
-      if (SpellCheckWord(text + word_location, word_length, 0,
-                         &misspelling_start, &misspelling_length, NULL)) {
+  std::vector<WebTextCheckingResult> results;
+  for (const SpellCheckResult& spellcheck_result : spellcheck_results) {
+    base::string16 replacement = spellcheck_result.replacement;
+    SpellCheckResult::Decoration decoration = spellcheck_result.decoration;
+    if (filter == USE_NATIVE_CHECKER) {
+      DCHECK(!line_text.empty());
+      DCHECK_LE(static_cast<size_t>(spellcheck_result.location),
+                line_text.length());
+      DCHECK_LE(static_cast<size_t>(spellcheck_result.location +
+                                    spellcheck_result.length),
+                line_text.length());
+
+      const base::string16& misspelled_word = line_text.substr(
+          spellcheck_result.location, spellcheck_result.length);
+
+      // Ignore words in custom dictionary.
+      if (custom_dictionary_.SpellCheckWord(misspelled_word, 0,
+                                            misspelled_word.length())) {
+        continue;
+      }
+
+      // Use the same types of appostrophes as in the mispelled word.
+      PreserveOriginalApostropheTypes(misspelled_word, &replacement);
+
+      // Ignore misspellings due the typographical apostrophe.
+      if (misspelled_word == replacement)
+        continue;
+
+      // Double-check misspelled words with out spellchecker and attach grammar
+      // markers to them if our spellchecker tells us they are correct words,
+      // i.e. they are probably contextually-misspelled words.
+      int unused_misspelling_start = 0;
+      int unused_misspelling_length = 0;
+      if (decoration == SpellCheckResult::SPELLING &&
+          SpellCheckWord(misspelled_word.c_str(), misspelled_word.length(), 0,
+                         &unused_misspelling_start, &unused_misspelling_length,
+                         nullptr)) {
         decoration = SpellCheckResult::GRAMMAR;
       }
+    } else {
+      DCHECK(line_text.empty());
     }
-    if (!custom_dictionary_.SpellCheckWord(
-            line_text, word_location, word_length)) {
-      list.push_back(WebTextCheckingResult(
-          static_cast<WebTextDecorationType>(decoration),
-          word_location + line_offset,
-          word_length,
-          spellcheck_results[i].replacement,
-          spellcheck_results[i].hash));
-    }
+
+    results.push_back(WebTextCheckingResult(
+        static_cast<WebTextDecorationType>(decoration),
+        line_offset + spellcheck_result.location, spellcheck_result.length,
+        replacement, spellcheck_result.hash));
   }
-  textcheck_results->assign(list);
+
+  textcheck_results->assign(results);
 }

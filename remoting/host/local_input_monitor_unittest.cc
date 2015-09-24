@@ -56,7 +56,7 @@ LocalInputMonitorTest::LocalInputMonitorTest()
 void LocalInputMonitorTest::SetUp() {
   // Arrange to run |message_loop_| until no components depend on it.
   task_runner_ = new AutoThreadTaskRunner(
-      message_loop_.message_loop_proxy(), run_loop_.QuitClosure());
+      message_loop_.task_runner(), run_loop_.QuitClosure());
 }
 
 
@@ -80,7 +80,7 @@ TEST_F(LocalInputMonitorTest, Basic) {
                                   task_runner_,
                                   task_runner_,
                                   client_session_control_factory_.GetWeakPtr());
-    task_runner_ = NULL;
+    task_runner_ = nullptr;
   }
 
   run_loop_.Run();

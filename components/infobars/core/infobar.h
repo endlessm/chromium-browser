@@ -12,7 +12,7 @@
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/animation/slide_animation.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace infobars {
 
@@ -40,16 +40,6 @@ class InfoBar : public gfx::AnimationDelegate {
   typedef InfoBar AddedDetails;
   typedef std::pair<InfoBar*, bool> RemovedDetails;
 
-  // Platforms must define these.
-  static const int kDefaultBarTargetHeight;
-  static const int kSeparatorLineHeight;
-  static const int kDefaultArrowTargetHeight;
-  static const int kMaximumArrowTargetHeight;
-  // The half-width (see comments on |arrow_half_width_| below) scales to its
-  // default and maximum values proportionally to how the height scales to its.
-  static const int kDefaultArrowTargetHalfWidth;
-  static const int kMaximumArrowTargetHalfWidth;
-
   explicit InfoBar(scoped_ptr<InfoBarDelegate> delegate);
   ~InfoBar() override;
 
@@ -60,9 +50,9 @@ class InfoBar : public gfx::AnimationDelegate {
   InfoBarDelegate* delegate() const { return delegate_.get(); }
   void set_container(InfoBarContainer* container) { container_ = container; }
 
-  // Sets |owner_|.  This also calls StoreActiveEntryUniqueID() on |delegate_|.
-  // This must only be called once as there's no way to extract an infobar from
-  // its owner without deleting it, for reparenting in another tab.
+  // Sets |owner_|.  This also sets the nav entry ID on |delegate_|.  This must
+  // only be called once as there's no way to extract an infobar from its owner
+  // without deleting it, for reparenting in another tab.
   void SetOwner(InfoBarManager* owner);
 
   // Makes the infobar visible.  If |animate| is true, the infobar is then
@@ -136,12 +126,13 @@ class InfoBar : public gfx::AnimationDelegate {
 
   // The current and target heights of the arrow and bar portions, and half the
   // current arrow width.  (It's easier to work in half-widths as we draw the
-  // arrow as two halves on either side of a center point.)
+  // arrow as two halves on either side of a center point.)  All these values
+  // scale in unison to the container delegate's default and maximum values.
   int arrow_height_;         // Includes both fill and top stroke.
-  int arrow_target_height_;
+  int arrow_target_height_;  // Should always be set by the time we read it.
   int arrow_half_width_;     // Includes only fill.
   int bar_height_;           // Includes both fill and bottom separator.
-  int bar_target_height_;
+  int bar_target_height_;    // May be left as -1, meaning "use default".
 
   DISALLOW_COPY_AND_ASSIGN(InfoBar);
 };

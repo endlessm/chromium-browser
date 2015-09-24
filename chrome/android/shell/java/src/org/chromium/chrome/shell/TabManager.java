@@ -6,16 +6,21 @@ package org.chromium.chrome.shell;
 
 import android.content.Context;
 import android.util.AttributeSet;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 
+import org.chromium.base.VisibleForTesting;
 import org.chromium.chrome.browser.EmptyTabObserver;
 import org.chromium.chrome.browser.Tab;
 import org.chromium.chrome.browser.tabmodel.EmptyTabModelObserver;
 import org.chromium.chrome.browser.tabmodel.TabModel.TabLaunchType;
 import org.chromium.chrome.browser.tabmodel.TabModel.TabSelectionType;
+import org.chromium.chrome.browser.tabmodel.TabModelSelector;
+import org.chromium.chrome.browser.widget.accessibility.AccessibilityTabModelWrapper;
 import org.chromium.content.browser.ContentVideoViewClient;
 import org.chromium.content.browser.ContentViewCore;
 import org.chromium.content.browser.ContentViewRenderView;
@@ -29,7 +34,7 @@ import org.chromium.ui.base.WindowAndroid;
  * {@link ChromeShellToolbar} and {@link ContentViewRenderView} show the proper content.
  */
 public class TabManager extends LinearLayout {
-    private static final String DEFAULT_URL = "http://www.google.com";
+    private static final String DEFAULT_URL = "https://www.google.com";
 
     private ViewGroup mContentViewHolder;
     private ContentViewRenderView mContentViewRenderView;
@@ -40,18 +45,22 @@ public class TabManager extends LinearLayout {
     private String mStartupUrl = DEFAULT_URL;
 
     private ChromeShellTabModelSelector mTabModelSelector;
+    private AccessibilityTabModelWrapper mTabModelWrapper;
 
     private final EmptyTabModelObserver mTabModelObserver = new EmptyTabModelObserver() {
         @Override
         public void didSelectTab(Tab tab, TabSelectionType type, int lastId) {
             assert tab instanceof ChromeShellTab;
             setCurrentTab((ChromeShellTab) tab);
-            mTabModelSelector.hideTabSwitcher();
+            hideTabSwitcher();
         }
 
         @Override
         public void willCloseTab(Tab tab, boolean animate) {
             if (tab == mCurrentTab) setCurrentTab(null);
+            if (mTabModelSelector.getCurrentModel().getCount() == 1) {
+                createNewTab();
+            }
         }
     };
 
@@ -75,7 +84,7 @@ public class TabManager extends LinearLayout {
         mContentViewHolder = (ViewGroup) findViewById(R.id.content_container);
 
         mTabModelSelector = new ChromeShellTabModelSelector(
-                window, videoViewClient, mContentViewHolder, this);
+                window, videoViewClient, mContentViewHolder.getContext(), this);
         mTabModelSelector.getModel(false).addObserver(mTabModelObserver);
 
         mToolbar = (ChromeShellToolbar) findViewById(R.id.toolbar);
@@ -91,6 +100,13 @@ public class TabManager extends LinearLayout {
                 new FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
                         FrameLayout.LayoutParams.MATCH_PARENT));
+    }
+
+    /**
+     * Get the ContentViewRenderView.
+     */
+    public ContentViewRenderView getContentViewRenderView() {
+        return mContentViewRenderView;
     }
 
     /**
@@ -139,6 +155,11 @@ public class TabManager extends LinearLayout {
         mTabModelSelector.getCurrentModel().closeAllTabs();
     }
 
+    @VisibleForTesting
+    public void closeTab() {
+        mTabModelSelector.getCurrentModel().closeTab(mCurrentTab);
+    }
+
     /**
      * Creates a {@link ChromeShellTab} with a URL specified by {@code url}.
      * @param url The URL the new {@link ChromeShellTab} should start with.
@@ -154,8 +175,18 @@ public class TabManager extends LinearLayout {
             public void onToggleFullscreenMode(Tab tab, boolean enable) {
                 mToolbar.setVisibility(enable ? GONE : VISIBLE);
             }
+
+            @Override
+            public void onContentChanged(Tab tab) {
+                setupContent();
+            }
         });
         return tab;
+    }
+
+    void openNewTab(
+            LoadUrlParams params, TabLaunchType launchType, Tab parentTab, boolean incognito) {
+        mTabModelSelector.openNewTab(params, launchType, parentTab, incognito);
     }
 
     private boolean isContentViewRenderViewInitialized() {
@@ -184,18 +215,53 @@ public class TabManager extends LinearLayout {
     }
 
     /**
+     * Hide the tab switcher.
+     */
+    public void hideTabSwitcher() {
+        if (mTabModelWrapper == null) return;
+        if (!isTabSwitcherVisible()) return;
+        ViewParent parent = mTabModelWrapper.getParent();
+        if (parent != null) {
+            assert parent == mContentViewHolder;
+            mContentViewHolder.removeView(mTabModelWrapper);
+        }
+        mToolbar.updateToolbarState();
+    }
+
+    /**
+     * Shows the tab switcher.
+     */
+    private void showTabSwitcher() {
+        if (mTabModelWrapper == null) {
+            mTabModelWrapper = (AccessibilityTabModelWrapper) LayoutInflater.from(
+                    mContentViewHolder.getContext()).inflate(
+                            R.layout.accessibility_tab_switcher, null);
+            mTabModelWrapper.setup(null);
+            mTabModelWrapper.setTabModelSelector(mTabModelSelector);
+        }
+
+        if (mTabModelWrapper.getParent() == null) {
+            mContentViewHolder.addView(mTabModelWrapper);
+        }
+        mToolbar.updateToolbarState();
+    }
+
+    /**
+     * Returns the visibility status of the tab switcher.
+     */
+    public boolean isTabSwitcherVisible() {
+        return mTabModelWrapper != null && mTabModelWrapper.getParent() == mContentViewHolder;
+    }
+
+    /**
      * Toggles the tab switcher visibility.
      */
     public void toggleTabSwitcher() {
-        mTabModelSelector.toggleTabSwitcher();
-    }
-
-    public boolean isTabSwitcherVisible() {
-        return mTabModelSelector.isTabSwitcherVisible();
-    }
-
-    public void hideTabSwitcher() {
-        mTabModelSelector.hideTabSwitcher();
+        if (!isTabSwitcherVisible()) {
+            showTabSwitcher();
+        } else {
+            hideTabSwitcher();
+        }
     }
 
     /**
@@ -212,5 +278,12 @@ public class TabManager extends LinearLayout {
             return tab;
         }
         return createTab(url, TabLaunchType.FROM_KEYBOARD);
+    }
+
+    /**
+     * Returns the TabModelSelector containing the tabs.
+     */
+    public TabModelSelector getTabModelSelector() {
+        return mTabModelSelector;
     }
 }

@@ -4,17 +4,24 @@
 
 #include "content/renderer/shared_worker/embedded_shared_worker_stub.h"
 
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/child/appcache/appcache_dispatcher.h"
 #include "content/child/appcache/web_application_cache_host_impl.h"
+#include "content/child/request_extra_data.h"
 #include "content/child/scoped_child_process_reference.h"
+#include "content/child/service_worker/service_worker_handle_reference.h"
+#include "content/child/service_worker/service_worker_network_provider.h"
+#include "content/child/service_worker/service_worker_provider_context.h"
 #include "content/child/shared_worker_devtools_agent.h"
 #include "content/child/webmessageportchannel_impl.h"
 #include "content/common/worker_messages.h"
 #include "content/renderer/render_thread_impl.h"
-#include "content/renderer/shared_worker/embedded_shared_worker_permission_client_proxy.h"
+#include "content/renderer/shared_worker/embedded_shared_worker_content_settings_client_proxy.h"
 #include "ipc/ipc_message_macros.h"
+#include "third_party/WebKit/public/platform/WebURLRequest.h"
+#include "third_party/WebKit/public/web/WebDataSource.h"
 #include "third_party/WebKit/public/web/WebSecurityOrigin.h"
+#include "third_party/WebKit/public/web/WebServiceWorkerNetworkProvider.h"
 #include "third_party/WebKit/public/web/WebSharedWorker.h"
 #include "third_party/WebKit/public/web/WebSharedWorkerClient.h"
 
@@ -52,6 +59,58 @@ class SharedWorkerWebApplicationCacheHostImpl
   }
 };
 
+// We store an instance of this class in the "extra data" of the WebDataSource
+// and attach a ServiceWorkerNetworkProvider to it as base::UserData.
+// (see createServiceWorkerNetworkProvider).
+class DataSourceExtraData
+    : public blink::WebDataSource::ExtraData,
+      public base::SupportsUserData {
+ public:
+  DataSourceExtraData() {}
+  virtual ~DataSourceExtraData() {}
+};
+
+// Called on the main thread only and blink owns it.
+class WebServiceWorkerNetworkProviderImpl
+    : public blink::WebServiceWorkerNetworkProvider {
+ public:
+  // Blink calls this method for each request starting with the main script,
+  // we tag them with the provider id.
+  virtual void willSendRequest(
+      blink::WebDataSource* data_source,
+      blink::WebURLRequest& request) {
+    ServiceWorkerNetworkProvider* provider =
+        GetNetworkProviderFromDataSource(data_source);
+    scoped_ptr<RequestExtraData> extra_data(new RequestExtraData);
+    extra_data->set_service_worker_provider_id(provider->provider_id());
+    request.setExtraData(extra_data.release());
+  }
+
+  virtual bool isControlledByServiceWorker(
+      blink::WebDataSource& data_source) {
+    ServiceWorkerNetworkProvider* provider =
+        GetNetworkProviderFromDataSource(&data_source);
+    return provider->context()->controller_handle_id() !=
+        kInvalidServiceWorkerHandleId;
+  }
+
+  virtual int64_t serviceWorkerID(
+      blink::WebDataSource& data_source) {
+    ServiceWorkerNetworkProvider* provider =
+        GetNetworkProviderFromDataSource(&data_source);
+    if (provider->context()->controller())
+      return provider->context()->controller()->version_id();
+    return kInvalidServiceWorkerVersionId;
+  }
+
+ private:
+  ServiceWorkerNetworkProvider* GetNetworkProviderFromDataSource(
+      const blink::WebDataSource* data_source) {
+    return ServiceWorkerNetworkProvider::FromDocumentState(
+        static_cast<DataSourceExtraData*>(data_source->extraData()));
+  }
+};
+
 }  // namespace
 
 EmbeddedSharedWorkerStub::EmbeddedSharedWorkerStub(
@@ -63,9 +122,7 @@ EmbeddedSharedWorkerStub::EmbeddedSharedWorkerStub(
     int route_id)
     : route_id_(route_id),
       name_(name),
-      runing_(false),
-      url_(url),
-      app_cache_host_(nullptr) {
+      url_(url) {
   RenderThreadImpl::current()->AddEmbeddedWorkerRoute(route_id_, this);
   impl_ = blink::WebSharedWorker::create(this);
   if (pause_on_start) {
@@ -81,6 +138,7 @@ EmbeddedSharedWorkerStub::EmbeddedSharedWorkerStub(
 
 EmbeddedSharedWorkerStub::~EmbeddedSharedWorkerStub() {
   RenderThreadImpl::current()->RemoveEmbeddedWorkerRoute(route_id_);
+  DCHECK(!impl_);
 }
 
 bool EmbeddedSharedWorkerStub::OnMessageReceived(
@@ -107,7 +165,7 @@ void EmbeddedSharedWorkerStub::workerReadyForInspection() {
 
 void EmbeddedSharedWorkerStub::workerScriptLoaded() {
   Send(new WorkerHostMsg_WorkerScriptLoaded(route_id_));
-  runing_ = true;
+  running_ = true;
   // Process any pending connections.
   for (PendingChannelList::const_iterator iter = pending_channels_.begin();
        iter != pending_channels_.end();
@@ -161,27 +219,47 @@ EmbeddedSharedWorkerStub::createApplicationCacheHost(
   return app_cache_host_;
 }
 
-blink::WebWorkerPermissionClientProxy*
-    EmbeddedSharedWorkerStub::createWorkerPermissionClientProxy(
+blink::WebWorkerContentSettingsClientProxy*
+    EmbeddedSharedWorkerStub::createWorkerContentSettingsClientProxy(
     const blink::WebSecurityOrigin& origin) {
-  return new EmbeddedSharedWorkerPermissionClientProxy(
+  return new EmbeddedSharedWorkerContentSettingsClientProxy(
       GURL(origin.toString()),
       origin.isUnique(),
       route_id_,
-      ChildThread::current()->thread_safe_sender());
+      ChildThreadImpl::current()->thread_safe_sender());
 }
 
-void EmbeddedSharedWorkerStub::dispatchDevToolsMessage(
-      const blink::WebString& message) {
-  worker_devtools_agent_->SendDevToolsMessage(message);
+blink::WebServiceWorkerNetworkProvider*
+EmbeddedSharedWorkerStub::createServiceWorkerNetworkProvider(
+    blink::WebDataSource* data_source) {
+  // Create a content::ServiceWorkerNetworkProvider for this data source so
+  // we can observe its requests.
+  scoped_ptr<ServiceWorkerNetworkProvider> provider(
+      new ServiceWorkerNetworkProvider(
+          route_id_, SERVICE_WORKER_PROVIDER_FOR_SHARED_WORKER));
+
+  // The provider is kept around for the lifetime of the DataSource
+  // and ownership is transferred to the DataSource.
+  DataSourceExtraData* extra_data = new DataSourceExtraData();
+  data_source->setExtraData(extra_data);
+  ServiceWorkerNetworkProvider::AttachToDocumentState(
+      extra_data, provider.Pass());
+
+  // Blink is responsible for deleting the returned object.
+  return new WebServiceWorkerNetworkProviderImpl();
 }
 
-void EmbeddedSharedWorkerStub::saveDevToolsAgentState(
-      const blink::WebString& state) {
-  worker_devtools_agent_->SaveDevToolsAgentState(state);
+void EmbeddedSharedWorkerStub::sendDevToolsMessage(
+    int call_id,
+    const blink::WebString& message,
+    const blink::WebString& state) {
+  worker_devtools_agent_->SendDevToolsMessage(call_id, message, state);
 }
 
 void EmbeddedSharedWorkerStub::Shutdown() {
+  // WebSharedWorker must be already deleted in the blink side
+  // when this is called.
+  impl_ = nullptr;
   delete this;
 }
 
@@ -198,11 +276,11 @@ void EmbeddedSharedWorkerStub::ConnectToChannel(
 
 void EmbeddedSharedWorkerStub::OnConnect(int sent_message_port_id,
                                          int routing_id) {
-  WebMessagePortChannelImpl* channel =
-      new WebMessagePortChannelImpl(routing_id,
-                                    sent_message_port_id,
-                                    base::MessageLoopProxy::current().get());
-  if (runing_) {
+  TransferredMessagePort port;
+  port.id = sent_message_port_id;
+  WebMessagePortChannelImpl* channel = new WebMessagePortChannelImpl(
+      routing_id, port, base::ThreadTaskRunnerHandle::Get().get());
+  if (running_) {
     ConnectToChannel(channel);
   } else {
     // If two documents try to load a SharedWorker at the same time, the
@@ -214,7 +292,8 @@ void EmbeddedSharedWorkerStub::OnConnect(int sent_message_port_id,
 }
 
 void EmbeddedSharedWorkerStub::OnTerminateWorkerContext() {
-  runing_ = false;
+  // After this we wouldn't get any IPC for this stub.
+  running_ = false;
   impl_->terminateWorkerContext();
 }
 

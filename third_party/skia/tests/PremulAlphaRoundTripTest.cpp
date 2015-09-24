@@ -74,10 +74,11 @@ DEF_GPUTEST(PremulAlphaRoundTrip, reporter, factory) {
             glCtxTypeCnt = GrContextFactory::kGLContextTypeCnt;
         }
 #endif
+        SkSurfaceProps props(SkSurfaceProps::kLegacyFontHost_InitType);
         for (int glCtxType = 0; glCtxType < glCtxTypeCnt; ++glCtxType) {
             SkAutoTUnref<SkBaseDevice> device;
             if (0 == dtype) {
-                device.reset(SkBitmapDevice::Create(info));
+                device.reset(SkBitmapDevice::Create(info, props));
             } else {
 #if SK_SUPPORT_GPU
                 GrContextFactory::GLContextType type =
@@ -85,13 +86,12 @@ DEF_GPUTEST(PremulAlphaRoundTrip, reporter, factory) {
                 if (!GrContextFactory::IsRenderingGLContext(type)) {
                     continue;
                 }
-                GrContext* context = factory->get(type);
-                if (NULL == context) {
+                GrContext* ctx = factory->get(type);
+                if (NULL == ctx) {
                     continue;
                 }
-
-                device.reset(SkGpuDevice::Create(context, info,
-                                     SkSurfaceProps(SkSurfaceProps::kLegacyFontHost_InitType), 0));
+                device.reset(SkGpuDevice::Create(ctx, SkSurface::kNo_Budgeted, info, 0, &props,
+                                                 SkGpuDevice::kUninit_InitContents));
 #else
                 continue;
 #endif

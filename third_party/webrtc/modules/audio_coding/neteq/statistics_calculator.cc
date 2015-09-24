@@ -22,13 +22,14 @@ StatisticsCalculator::StatisticsCalculator()
     : preemptive_samples_(0),
       accelerate_samples_(0),
       added_zero_samples_(0),
-      expanded_voice_samples_(0),
+      expanded_speech_samples_(0),
       expanded_noise_samples_(0),
       discarded_packets_(0),
       lost_timestamps_(0),
       timestamps_since_last_report_(0),
       len_waiting_times_(0),
-      next_waiting_time_index_(0) {
+      next_waiting_time_index_(0),
+      secondary_decoded_samples_(0) {
   memset(waiting_times_, 0, kLenWaitingTimes * sizeof(waiting_times_[0]));
 }
 
@@ -36,8 +37,9 @@ void StatisticsCalculator::Reset() {
   preemptive_samples_ = 0;
   accelerate_samples_ = 0;
   added_zero_samples_ = 0;
-  expanded_voice_samples_ = 0;
+  expanded_speech_samples_ = 0;
   expanded_noise_samples_ = 0;
+  secondary_decoded_samples_ = 0;
 }
 
 void StatisticsCalculator::ResetMcu() {
@@ -53,7 +55,7 @@ void StatisticsCalculator::ResetWaitingTimeStatistics() {
 }
 
 void StatisticsCalculator::ExpandedVoiceSamples(int num_samples) {
-  expanded_voice_samples_ += num_samples;
+  expanded_speech_samples_ += num_samples;
 }
 
 void StatisticsCalculator::ExpandedNoiseSamples(int num_samples) {
@@ -81,13 +83,17 @@ void StatisticsCalculator::LostSamples(int num_samples) {
 }
 
 void StatisticsCalculator::IncreaseCounter(int num_samples, int fs_hz) {
-  timestamps_since_last_report_ += num_samples;
+  timestamps_since_last_report_ += static_cast<uint32_t>(num_samples);
   if (timestamps_since_last_report_ >
       static_cast<uint32_t>(fs_hz * kMaxReportPeriod)) {
     lost_timestamps_ = 0;
     timestamps_since_last_report_ = 0;
     discarded_packets_ = 0;
   }
+}
+
+void StatisticsCalculator::SecondaryDecodedSamples(int num_samples) {
+  secondary_decoded_samples_ += num_samples;
 }
 
 void StatisticsCalculator::StoreWaitingTime(int waiting_time_ms) {
@@ -115,7 +121,8 @@ void StatisticsCalculator::GetNetworkStatistics(
   }
 
   stats->added_zero_samples = added_zero_samples_;
-  stats->current_buffer_size_ms = num_samples_in_buffers * 1000 / fs_hz;
+  stats->current_buffer_size_ms =
+      static_cast<uint16_t>(num_samples_in_buffers * 1000 / fs_hz);
   const int ms_per_packet = decision_logic.packet_length_samples() /
       (fs_hz / 1000);
   stats->preferred_buffer_size_ms = (delay_manager.TargetLevel() >> 8) *
@@ -137,7 +144,15 @@ void StatisticsCalculator::GetNetworkStatistics(
       CalculateQ14Ratio(preemptive_samples_, timestamps_since_last_report_);
 
   stats->expand_rate =
-      CalculateQ14Ratio(expanded_voice_samples_ + expanded_noise_samples_,
+      CalculateQ14Ratio(expanded_speech_samples_ + expanded_noise_samples_,
+                        timestamps_since_last_report_);
+
+  stats->speech_expand_rate =
+      CalculateQ14Ratio(expanded_speech_samples_,
+                        timestamps_since_last_report_);
+
+  stats->secondary_decoded_rate =
+      CalculateQ14Ratio(secondary_decoded_samples_,
                         timestamps_since_last_report_);
 
   // Reset counters.
@@ -153,14 +168,14 @@ void StatisticsCalculator::WaitingTimes(std::vector<int>* waiting_times) {
   ResetWaitingTimeStatistics();
 }
 
-int StatisticsCalculator::CalculateQ14Ratio(uint32_t numerator,
-                                            uint32_t denominator) {
+uint16_t StatisticsCalculator::CalculateQ14Ratio(uint32_t numerator,
+                                                 uint32_t denominator) {
   if (numerator == 0) {
     return 0;
   } else if (numerator < denominator) {
     // Ratio must be smaller than 1 in Q14.
     assert((numerator << 14) / denominator < (1 << 14));
-    return (numerator << 14) / denominator;
+    return static_cast<uint16_t>((numerator << 14) / denominator);
   } else {
     // Will not produce a ratio larger than 1, since this is probably an error.
     return 1 << 14;

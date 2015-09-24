@@ -31,7 +31,7 @@ class GCM_EXPORT GCMStoreImpl : public GCMStore {
   ~GCMStoreImpl() override;
 
   // Load the directory and pass the initial state back to caller.
-  void Load(const LoadCallback& callback) override;
+  void Load(StoreOpenMode open_mode, const LoadCallback& callback) override;
 
   // Closes the GCM store.
   void Close() override;
@@ -49,10 +49,10 @@ class GCM_EXPORT GCMStoreImpl : public GCMStore {
                             const UpdateCallback& callback) override;
 
   // Registration info.
-  void AddRegistration(const std::string& app_id,
-                       const linked_ptr<RegistrationInfo>& registration,
+  void AddRegistration(const std::string& serialized_key,
+                       const std::string& serialized_value,
                        const UpdateCallback& callback) override;
-  void RemoveRegistration(const std::string& app_id,
+  void RemoveRegistration(const std::string& serialized_key,
                           const UpdateCallback& callback) override;
 
   // Unacknowledged incoming message handling.
@@ -94,6 +94,25 @@ class GCM_EXPORT GCMStoreImpl : public GCMStore {
   // Sets last token fetch time.
   void SetLastTokenFetchTime(const base::Time& time,
                              const UpdateCallback& callback) override;
+
+  // Sets the custom client heartbeat interval for the scope.
+  void AddHeartbeatInterval(const std::string& scope,
+                            int interval_ms,
+                            const UpdateCallback& callback) override;
+  void RemoveHeartbeatInterval(const std::string& scope,
+                               const UpdateCallback& callback) override;
+
+  // Instance ID data.
+  void AddInstanceIDData(const std::string& app_id,
+                         const std::string& instance_id_data,
+                         const UpdateCallback& callback) override;
+  void RemoveInstanceIDData(const std::string& app_id,
+                            const UpdateCallback& callback) override;
+
+  // Injects a value to database. Only to be used for testing.
+  void SetValueForTesting(const std::string& key,
+                          const std::string& value,
+                          const UpdateCallback& callback);
 
  private:
   typedef std::map<std::string, int> AppIdToMessageCountMap;

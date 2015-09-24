@@ -26,38 +26,74 @@ class ChromePermissionMessageProvider : public PermissionMessageProvider {
   ~ChromePermissionMessageProvider() override;
 
   // PermissionMessageProvider implementation.
-  PermissionMessages GetPermissionMessages(
+  // See comments in permission_message_provider.h. TL;DR: You want to use only
+  // GetPermissionMessageStrings to get messages, not the *Legacy* or
+  // *Coalesced* methods.
+  PermissionMessageIDs GetLegacyPermissionMessageIDs(
       const PermissionSet* permissions,
       Manifest::Type extension_type) const override;
-  std::vector<base::string16> GetWarningMessages(
+  CoalescedPermissionMessages GetCoalescedPermissionMessages(
+      const PermissionIDSet& permissions) const override;
+  std::vector<base::string16> GetLegacyWarningMessages(
       const PermissionSet* permissions,
       Manifest::Type extension_type) const override;
-  std::vector<base::string16> GetWarningMessagesDetails(
+  std::vector<base::string16> GetLegacyWarningMessagesDetails(
       const PermissionSet* permissions,
       Manifest::Type extension_type) const override;
   bool IsPrivilegeIncrease(const PermissionSet* old_permissions,
                            const PermissionSet* new_permissions,
                            Manifest::Type extension_type) const override;
+  PermissionIDSet GetAllPermissionIDs(
+      const PermissionSet* permissions,
+      Manifest::Type extension_type) const override;
 
  private:
-  // Gets the permission messages for the API permissions.
-  std::set<PermissionMessage> GetAPIPermissionMessages(
-      const PermissionSet* permissions) const;
-
-  // Gets the permission messages for the Manifest permissions.
-  std::set<PermissionMessage> GetManifestPermissionMessages(
-      const PermissionSet* permissions) const;
-
-  // Gets the permission messages for the host permissions.
-  std::set<PermissionMessage> GetHostPermissionMessages(
+  // TODO(treib): Remove this once we've switched to the new system.
+  PermissionMessages GetLegacyPermissionMessages(
       const PermissionSet* permissions,
       Manifest::Type extension_type) const;
 
+  // Gets the permission messages for the API permissions. Also adds any
+  // permission IDs from API Permissions to |permission_ids|.
+  // TODO(sashab): Deprecate the |permissions| argument, and rename this to
+  // AddAPIPermissions().
+  std::set<PermissionMessage> GetAPIPermissionMessages(
+      const PermissionSet* permissions,
+      PermissionIDSet* permission_ids,
+      Manifest::Type extension_type) const;
+
+  // Gets the permission messages for the Manifest permissions. Also adds any
+  // permission IDs from manifest Permissions to |permission_ids|.
+  // TODO(sashab): Deprecate the |permissions| argument, and rename this to
+  // AddManifestPermissions().
+  std::set<PermissionMessage> GetManifestPermissionMessages(
+      const PermissionSet* permissions,
+      PermissionIDSet* permission_ids) const;
+
+  // Gets the permission messages for the host permissions. Also adds any
+  // permission IDs from host Permissions to |permission_ids|.
+  // TODO(sashab): Deprecate the |permissions| argument, and rename this to
+  // AddHostPermissions().
+  std::set<PermissionMessage> GetHostPermissionMessages(
+      const PermissionSet* permissions,
+      PermissionIDSet* permission_ids,
+      Manifest::Type extension_type) const;
+
+  // Applies coalescing rules and writes the resulting messages and their
+  // details into |message_strings| and |message_details_strings|.
+  // TODO(treib): Remove this method as soon as we've fully switched to the
+  // new system.
+  void CoalesceWarningMessages(
+      const PermissionSet* permissions,
+      Manifest::Type extension_type,
+      std::vector<base::string16>* message_strings,
+      std::vector<base::string16>* message_details_strings) const;
+
   // Returns true if |new_permissions| has an elevated API privilege level
   // compared to |old_permissions|.
-  bool IsAPIPrivilegeIncrease(
-      const PermissionSet* old_permissions,
-      const PermissionSet* new_permissions) const;
+  bool IsAPIPrivilegeIncrease(const PermissionSet* old_permissions,
+                              const PermissionSet* new_permissions,
+                              Manifest::Type extension_type) const;
 
   // Returns true if |new_permissions| has an elevated manifest permission
   // privilege level compared to |old_permissions|.

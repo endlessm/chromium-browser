@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,11 +11,11 @@
 #include "base/metrics/histogram.h"
 #include "base/stl_util.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/sessions/session_types.h"
 #include "chrome/browser/sessions/tab_restore_service_delegate.h"
 #include "chrome/browser/sessions/tab_restore_service_observer.h"
 #include "chrome/common/url_constants.h"
 #include "components/sessions/content/content_serialized_navigation_builder.h"
+#include "components/sessions/session_types.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/session_storage_namespace.h"
@@ -23,8 +23,8 @@
 
 #if defined(ENABLE_EXTENSIONS)
 #include "chrome/browser/extensions/tab_helper.h"
-#include "chrome/browser/ui/webui/ntp/core_app_launcher_handler.h"
 #include "chrome/common/extensions/extension_constants.h"
+#include "chrome/common/extensions/extension_metrics.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_set.h"
@@ -45,7 +45,7 @@ void RecordAppLaunch(Profile* profile, const TabRestoreService::Tab& tab) {
   if (!extension)
     return;
 
-  CoreAppLauncherHandler::RecordAppLaunchType(
+  extensions::RecordAppLaunchType(
       extension_misc::APP_LAUNCH_NTP_RECENTLY_CLOSED,
       extension->GetType());
 #endif  // defined(ENABLE_EXTENSIONS)

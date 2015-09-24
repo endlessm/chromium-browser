@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/logging.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/glue/chrome_report_unrecoverable_error.h"
 #include "chrome/browser/sync/profile_sync_components_factory.h"
@@ -53,7 +54,7 @@ BackendComponentsContainer::BackendComponentsContainer(
     NonFrontendDataTypeController* controller)
     : controller_(controller),
       type_(controller->type()) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   controller_handle_ =
       syncer::MakeWeakHandle(controller_->weak_ptr_factory_.GetWeakPtr());
 }
@@ -160,7 +161,7 @@ NonFrontendDataTypeController::AssociationResult::~AssociationResult() {}
 // effort for now, hence  still having a dependency on ProfileSyncService.
 // That dep can probably be removed without too much work.
 NonFrontendDataTypeController::NonFrontendDataTypeController(
-    scoped_refptr<base::MessageLoopProxy> ui_thread,
+    scoped_refptr<base::SingleThreadTaskRunner> ui_thread,
     const base::Closure& error_callback,
     ProfileSyncComponentsFactory* profile_sync_factory,
     Profile* profile,
@@ -173,7 +174,7 @@ NonFrontendDataTypeController::NonFrontendDataTypeController(
       model_associator_(NULL),
       change_processor_(NULL),
       weak_ptr_factory_(this) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(profile_sync_factory_);
   DCHECK(profile_);
   DCHECK(profile_sync_service_);
@@ -181,7 +182,7 @@ NonFrontendDataTypeController::NonFrontendDataTypeController(
 
 void NonFrontendDataTypeController::LoadModels(
     const ModelLoadCallback& model_load_callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   model_load_callback_ = model_load_callback;
   if (state_ != NOT_RUNNING) {
     model_load_callback.Run(type(),
@@ -218,7 +219,7 @@ void NonFrontendDataTypeController::OnModelLoaded() {
 
 void NonFrontendDataTypeController::StartAssociating(
     const StartCallback& start_callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(!start_callback.is_null());
   DCHECK(!components_container_);
   DCHECK_EQ(state_, MODEL_LOADED);
@@ -251,7 +252,7 @@ void DestroyComponentsInBackend(
 }
 
 void NonFrontendDataTypeController::Stop() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (state_ == NOT_RUNNING)
     return;
@@ -302,7 +303,7 @@ void NonFrontendDataTypeController::OnSingleDataTypeUnrecoverableError(
 }
 
 NonFrontendDataTypeController::NonFrontendDataTypeController()
-    : DataTypeController(base::MessageLoopProxy::current(), base::Closure()),
+    : DataTypeController(base::ThreadTaskRunnerHandle::Get(), base::Closure()),
       state_(NOT_RUNNING),
       profile_sync_factory_(NULL),
       profile_(NULL),
@@ -313,13 +314,13 @@ NonFrontendDataTypeController::NonFrontendDataTypeController()
 }
 
 NonFrontendDataTypeController::~NonFrontendDataTypeController() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(!change_processor_);
   DCHECK(!model_associator_);
 }
 
 bool NonFrontendDataTypeController::StartModels() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK_EQ(state_, MODEL_STARTING);
   // By default, no additional services need to be started before we can proceed
   // with model association, so do nothing.
@@ -334,7 +335,7 @@ void NonFrontendDataTypeController::StartDone(
     DataTypeController::ConfigureResult start_result,
     const syncer::SyncMergeResult& local_merge_result,
     const syncer::SyncMergeResult& syncer_merge_result) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DataTypeController::State new_state;
 
   if (IsSuccessfulResult(start_result)) {
@@ -354,7 +355,7 @@ void NonFrontendDataTypeController::StartDoneImpl(
     DataTypeController::State new_state,
     const syncer::SyncMergeResult& local_merge_result,
     const syncer::SyncMergeResult& syncer_merge_result) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   state_ = new_state;
   if (state_ != RUNNING) {
@@ -367,7 +368,7 @@ void NonFrontendDataTypeController::StartDoneImpl(
 
 void NonFrontendDataTypeController::DisableImpl(
     const syncer::SyncError& error) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (!model_load_callback_.is_null()) {
     model_load_callback_.Run(type(), error);
   }
@@ -375,7 +376,7 @@ void NonFrontendDataTypeController::DisableImpl(
 
 void NonFrontendDataTypeController::RecordAssociationTime(
     base::TimeDelta time) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 #define PER_DATA_TYPE_MACRO(type_str) \
     UMA_HISTOGRAM_TIMES("Sync." type_str "AssociationTime", time);
   SYNC_DATA_TYPE_HISTOGRAM(type());
@@ -383,13 +384,13 @@ void NonFrontendDataTypeController::RecordAssociationTime(
 }
 
 void NonFrontendDataTypeController::RecordStartFailure(ConfigureResult result) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   UMA_HISTOGRAM_ENUMERATION("Sync.DataTypeStartFailures",
                             ModelTypeToHistogramInt(type()),
                             syncer::MODEL_TYPE_COUNT);
-#define PER_DATA_TYPE_MACRO(type_str) \
-    UMA_HISTOGRAM_ENUMERATION("Sync." type_str "StartFailure", result, \
-                              MAX_START_RESULT);
+#define PER_DATA_TYPE_MACRO(type_str)                                    \
+  UMA_HISTOGRAM_ENUMERATION("Sync." type_str "ConfigureFailure", result, \
+                            MAX_CONFIGURE_RESULT);
   SYNC_DATA_TYPE_HISTOGRAM(type());
 #undef PER_DATA_TYPE_MACRO
 }
@@ -445,7 +446,7 @@ NonFrontendDataTypeController::GetChangeProcessor() const {
 
 void NonFrontendDataTypeController::AssociationCallback(
     AssociationResult result) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (result.needs_crypto) {
     StartDone(NEEDS_CRYPTO,

@@ -5,15 +5,15 @@
 #include "chrome/browser/chrome_browser_main_mac.h"
 
 #import <Cocoa/Cocoa.h>
-#include <sys/sysctl.h>
 
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/files/file_util.h"
 #include "base/mac/bundle_locations.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_nsobject.h"
-#include "base/metrics/histogram.h"
 #include "base/path_service.h"
+#include "base/thread_task_runner_handle.h"
 #import "chrome/browser/app_controller_mac.h"
 #include "chrome/browser/apps/app_shim/app_shim_host_manager_mac.h"
 #include "chrome/browser/browser_process.h"
@@ -24,7 +24,7 @@
 #include "chrome/browser/ui/app_list/app_list_service.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
-#include "components/crash/app/breakpad_mac.h"
+#include "components/crash/app/crashpad_mac.h"
 #include "components/metrics/metrics_service.h"
 #include "content/public/common/main_function_params.h"
 #include "content/public/common/result_codes.h"
@@ -34,119 +34,24 @@
 
 namespace {
 
-// This is one enum instead of two so that the values can be correlated in a
-// histogram.
-enum CatSixtyFour {
-  // Older than any expected cat.
-  SABER_TOOTHED_CAT_32 = 0,
-  SABER_TOOTHED_CAT_64,
+// Writes an undocumented sentinel file that prevents Spotlight from indexing
+// below a particular path in order to reap some power savings.
+void EnsureMetadataNeverIndexFileOnFileThread(
+    const base::FilePath& user_data_dir) {
+  const char kMetadataNeverIndexFilename[] = ".metadata_never_index";
+  base::FilePath metadata_file_path =
+      user_data_dir.Append(kMetadataNeverIndexFilename);
+  if (base::PathExists(metadata_file_path))
+    return;
 
-  // Known cats.
-  SNOW_LEOPARD_32,
-  SNOW_LEOPARD_64,
-  LION_32,  // Unexpected, Lion requires a 64-bit CPU.
-  LION_64,
-  MOUNTAIN_LION_32,  // Unexpected, Mountain Lion requires a 64-bit CPU.
-  MOUNTAIN_LION_64,
-  MAVERICKS_32,  // Unexpected, Mavericks requires a 64-bit CPU.
-  MAVERICKS_64,
-
-  // DON'T add new constants here. It's important to keep the constant values,
-  // um, constant. Add new constants at the bottom.
-
-  // What if the bitsiness of the CPU can't be determined?
-  SABER_TOOTHED_CAT_DUNNO,
-  SNOW_LEOPARD_DUNNO,
-  LION_DUNNO,
-  MOUNTAIN_LION_DUNNO,
-  MAVERICKS_DUNNO,
-
-  // More known cats.
-  YOSEMITE_32,  // Unexpected, Yosemite requires a 64-bit CPU.
-  YOSEMITE_64,
-  YOSEMITE_DUNNO,
-
-  // Newer than any known cat.
-  FUTURE_CAT_32,  // Unexpected, it's unlikely Apple will un-obsolete old CPUs.
-  FUTURE_CAT_64,
-  FUTURE_CAT_DUNNO,
-
-  // As new versions of Mac OS X are released with sillier and sillier names,
-  // rename the FUTURE_CAT enum values to match those names, and re-create
-  // FUTURE_CAT_[32|64|DUNNO] here.
-
-  CAT_SIXTY_FOUR_MAX
-};
-
-CatSixtyFour CatSixtyFourValue() {
-#if defined(ARCH_CPU_64_BITS)
-  // If 64-bit code is running, then it's established that this CPU can run
-  // 64-bit code, and no further inquiry is necessary.
-  int cpu64 = 1;
-  bool cpu64_known = true;
-#else
-  // Check a sysctl conveniently provided by the kernel that identifies
-  // whether the CPU supports 64-bit operation. Note that this tests the
-  // actual hardware capabilities, not the bitsiness of the running process,
-  // and not the bitsiness of the running kernel. The value thus determines
-  // whether the CPU is capable of running 64-bit programs (in the presence of
-  // proper OS runtime support) without regard to whether the current program
-  // is 64-bit (it may not be) or whether the current kernel is (the kernel
-  // can launch cross-bitted user-space tasks).
-
-  int cpu64;
-  size_t len = sizeof(cpu64);
-  const char kSysctlName[] = "hw.cpu64bit_capable";
-  bool cpu64_known = sysctlbyname(kSysctlName, &cpu64, &len, NULL, 0) == 0;
-  if (!cpu64_known) {
-    PLOG(WARNING) << "sysctlbyname(\"" << kSysctlName << "\")";
-  }
-#endif
-
-  if (base::mac::IsOSSnowLeopard()) {
-    return cpu64_known ? (cpu64 ? SNOW_LEOPARD_64 : SNOW_LEOPARD_32) :
-                         SNOW_LEOPARD_DUNNO;
-  }
-  if (base::mac::IsOSLion()) {
-    return cpu64_known ? (cpu64 ? LION_64 : LION_32) :
-                         LION_DUNNO;
-  }
-  if (base::mac::IsOSMountainLion()) {
-    return cpu64_known ? (cpu64 ? MOUNTAIN_LION_64 : MOUNTAIN_LION_32) :
-                         MOUNTAIN_LION_DUNNO;
-  }
-  if (base::mac::IsOSMavericks()) {
-    return cpu64_known ? (cpu64 ? MAVERICKS_64 : MAVERICKS_32) :
-                         MAVERICKS_DUNNO;
-  }
-  if (base::mac::IsOSYosemite()) {
-    return cpu64_known ? (cpu64 ? YOSEMITE_64 : YOSEMITE_32) :
-                         YOSEMITE_DUNNO;
-  }
-  if (base::mac::IsOSLaterThanYosemite_DontCallThis()) {
-    return cpu64_known ? (cpu64 ? FUTURE_CAT_64 : FUTURE_CAT_32) :
-                         FUTURE_CAT_DUNNO;
-  }
-
-  // If it's not any of the expected OS versions or later than them, it must
-  // be prehistoric.
-  return cpu64_known ? (cpu64 ? SABER_TOOTHED_CAT_64 : SABER_TOOTHED_CAT_32) :
-                       SABER_TOOTHED_CAT_DUNNO;
+  if (base::WriteFile(metadata_file_path, nullptr, 0) == -1)
+    DLOG(FATAL) << "Could not write .metadata_never_index file.";
 }
 
-void RecordCatSixtyFour() {
-  CatSixtyFour cat_sixty_four = CatSixtyFourValue();
-
-  // Set this higher than the highest value in the CatSixtyFour enum to provide
-  // some headroom and then leave it alone. See UMA_HISTOGRAM_ENUMERATION in
-  // base/metrics/histogram.h.
-  const int kMaxCatsAndSixtyFours = 32;
-  COMPILE_ASSERT(kMaxCatsAndSixtyFours >= CAT_SIXTY_FOUR_MAX,
-                 CatSixtyFour_enum_grew_too_large);
-
-  UMA_HISTOGRAM_ENUMERATION("OSX.CatSixtyFour",
-                            cat_sixty_four,
-                            kMaxCatsAndSixtyFours);
+void EnsureMetadataNeverIndexFile(const base::FilePath& user_data_dir) {
+  content::BrowserThread::PostTask(
+      content::BrowserThread::FILE, FROM_HERE,
+      base::Bind(&EnsureMetadataNeverIndexFileOnFileThread, user_data_dir));
 }
 
 }  // namespace
@@ -165,14 +70,14 @@ void ChromeBrowserMainPartsMac::PreEarlyInitialization() {
   ChromeBrowserMainPartsPosix::PreEarlyInitialization();
 
   if (base::mac::WasLaunchedAsLoginItemRestoreState()) {
-    CommandLine* singleton_command_line = CommandLine::ForCurrentProcess();
+    base::CommandLine* singleton_command_line =
+        base::CommandLine::ForCurrentProcess();
     singleton_command_line->AppendSwitch(switches::kRestoreLastSession);
   } else if (base::mac::WasLaunchedAsHiddenLoginItem()) {
-    CommandLine* singleton_command_line = CommandLine::ForCurrentProcess();
+    base::CommandLine* singleton_command_line =
+        base::CommandLine::ForCurrentProcess();
     singleton_command_line->AppendSwitch(switches::kNoStartupWindow);
   }
-
-  RecordCatSixtyFour();
 }
 
 void ChromeBrowserMainPartsMac::PreMainMessageLoopStart() {
@@ -251,13 +156,7 @@ void ChromeBrowserMainPartsMac::PreMainMessageLoopStart() {
       // |-application:openFiles:|, since we already handle them directly.
       // @"NO" looks like a mistake, but the value really is supposed to be a
       // string.
-      @"NSTreatUnknownArgumentsAsOpen": @"NO",
-      // CoreAnimation has poor performance and CoreAnimation and
-      // non-CoreAnimation exhibit window flickering when layers are not hosted
-      // in the window server, which is the default when not not using the
-      // 10.9 SDK.
-      // TODO: Remove this when we build with the 10.9 SDK.
-      @"NSWindowHostsLayersInWindowServer": @(base::mac::IsOSMavericksOrLater())
+      @"NSTreatUnknownArgumentsAsOpen": @"NO"
   }];
 }
 
@@ -271,18 +170,32 @@ void ChromeBrowserMainPartsMac::PreProfileInit() {
   MacStartupProfiler::GetInstance()->Profile(
       MacStartupProfiler::PRE_PROFILE_INIT);
   ChromeBrowserMainPartsPosix::PreProfileInit();
+
   // This is called here so that the app shim socket is only created after
   // taking the singleton lock.
   g_browser_process->platform_part()->app_shim_host_manager()->Init();
-  AppListService::InitAll(NULL);
+  AppListService::InitAll(NULL,
+      GetStartupProfilePath(user_data_dir(), parsed_command_line()));
 }
 
 void ChromeBrowserMainPartsMac::PostProfileInit() {
   MacStartupProfiler::GetInstance()->Profile(
       MacStartupProfiler::POST_PROFILE_INIT);
   ChromeBrowserMainPartsPosix::PostProfileInit();
+
   g_browser_process->metrics_service()->RecordBreakpadRegistration(
-      breakpad::IsCrashReporterEnabled());
+      crash_reporter::GetUploadsEnabled());
+
+  // TODO(calamity): Make this gated on first_run::IsChromeFirstRun() in M45.
+  content::BrowserThread::PostAfterStartupTask(
+      FROM_HERE, base::ThreadTaskRunnerHandle::Get(),
+      base::Bind(&EnsureMetadataNeverIndexFile, user_data_dir()));
+
+  // Activation of KeyStone is not automatic but done in response to the
+  // counting and reporting of profiles.  Make sure, assuming KeyStone
+  // is active, that it happened.
+  CHECK(![KeystoneGlue defaultKeystoneGlue] ||
+        [[KeystoneGlue defaultKeystoneGlue] isRegisteredAndActive]);
 }
 
 void ChromeBrowserMainPartsMac::DidEndMainMessageLoop() {

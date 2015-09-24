@@ -31,7 +31,7 @@ class ChromeDesktopImpl : public ChromeImpl {
       scoped_ptr<DevToolsClient> websocket_client,
       ScopedVector<DevToolsEventListener>& devtools_event_listeners,
       scoped_ptr<PortReservation> port_reservation,
-      base::ProcessHandle process,
+      base::Process process,
       const base::CommandLine& command,
       base::ScopedTempDir* user_data_dir,
       base::ScopedTempDir* extension_dir);
@@ -47,17 +47,22 @@ class ChromeDesktopImpl : public ChromeImpl {
   Status GetAutomationExtension(AutomationExtension** extension);
 
   // Overridden from Chrome:
-  ChromeDesktopImpl* GetAsDesktop() override;
+  Status GetAsDesktop(ChromeDesktopImpl** desktop) override;
   std::string GetOperatingSystemName() override;
 
   // Overridden from ChromeImpl:
   bool IsMobileEmulationEnabled() const override;
+  bool HasTouchScreen() const override;
   Status QuitImpl() override;
 
   const base::CommandLine& command() const;
 
+  Status WaitForNewAppWindow(const base::TimeDelta& timeout,
+                             const std::string& app_id,
+                             std::string* web_view_id);
+
  private:
-  base::ProcessHandle process_;
+  base::Process process_;
   base::CommandLine command_;
   base::ScopedTempDir user_data_dir_;
   base::ScopedTempDir extension_dir_;

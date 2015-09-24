@@ -48,15 +48,15 @@ public:
     static PassRefPtrWillBeRawPtr<VTTElement> create(const QualifiedName&, Document*);
     PassRefPtrWillBeRawPtr<HTMLElement> createEquivalentHTMLElement(Document&);
 
-    virtual PassRefPtrWillBeRawPtr<Element> cloneElementWithoutAttributesAndChildren() override;
+    PassRefPtrWillBeRawPtr<Element> cloneElementWithoutAttributesAndChildren() override;
 
     void setVTTNodeType(VTTNodeType type) { m_webVTTNodeType = static_cast<unsigned>(type); }
     VTTNodeType webVTTNodeType() const { return static_cast<VTTNodeType>(m_webVTTNodeType); }
 
     bool isPastNode() const { return m_isPastNode; }
-    void setIsPastNode(bool value) { m_isPastNode = value; }
+    void setIsPastNode(bool);
 
-    virtual bool isVTTElement() const override { return true; }
+    bool isVTTElement() const override { return true; }
     AtomicString language() const { return m_language; }
     void setLanguage(AtomicString value) { m_language = value; }
 

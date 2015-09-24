@@ -47,12 +47,13 @@ scoped_ptr<std::string> ReadOnFileThread(const base::FilePath& path) {
   return result.Pass();
 }
 
-class ImageDecoderDelegateAdapter : public ImageDecoder::Delegate {
+class ImageDecoderDelegateAdapter : public ImageDecoder::ImageRequest {
  public:
   ImageDecoderDelegateAdapter(
       scoped_ptr<std::string> data,
       const storage::CopyOrMoveFileValidator::ResultCallback& callback)
-      : data_(data.Pass()), callback_(callback) {
+      : data_(data.Pass()),
+        callback_(callback) {
     DCHECK(data_);
   }
 
@@ -60,14 +61,13 @@ class ImageDecoderDelegateAdapter : public ImageDecoder::Delegate {
     return *data_;
   }
 
-  // ImageDecoder::Delegate methods.
-  void OnImageDecoded(const ImageDecoder* /*decoder*/,
-                      const SkBitmap& /*decoded_image*/) override {
+  // ImageDecoder::ImageRequest methods.
+  void OnImageDecoded(const SkBitmap& /*decoded_image*/) override {
     callback_.Run(base::File::FILE_OK);
     delete this;
   }
 
-  void OnDecodeImageFailed(const ImageDecoder* /*decoder*/) override {
+  void OnDecodeImageFailed() override {
     callback_.Run(base::File::FILE_ERROR_SECURITY);
     delete this;
   }
@@ -127,8 +127,5 @@ void SupportedImageTypeValidator::OnFileOpen(scoped_ptr<std::string> data) {
   // |adapter| will delete itself after a completion message is received.
   ImageDecoderDelegateAdapter* adapter =
       new ImageDecoderDelegateAdapter(data.Pass(), callback_);
-  decoder_ = new ImageDecoder(adapter, adapter->data(),
-                              ImageDecoder::DEFAULT_CODEC);
-  decoder_->Start(content::BrowserThread::GetMessageLoopProxyForThread(
-      BrowserThread::IO));
+  ImageDecoder::Start(adapter, adapter->data());
 }

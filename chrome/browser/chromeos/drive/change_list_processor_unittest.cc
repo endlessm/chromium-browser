@@ -5,13 +5,14 @@
 #include "chrome/browser/chromeos/drive/change_list_processor.h"
 
 #include "base/files/scoped_temp_dir.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/drive/drive.pb.h"
 #include "chrome/browser/chromeos/drive/fake_free_disk_space_getter.h"
 #include "chrome/browser/chromeos/drive/file_cache.h"
 #include "chrome/browser/chromeos/drive/file_change.h"
-#include "chrome/browser/chromeos/drive/file_system_util.h"
+#include "chrome/browser/chromeos/drive/file_system_core_util.h"
 #include "chrome/browser/chromeos/drive/resource_metadata.h"
 #include "chrome/browser/chromeos/drive/test_util.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -80,6 +81,9 @@ ScopedVector<ChangeList> CreateBaseChangeList() {
 
   file.set_title("SubDirectory File 1.txt");
   file.set_resource_id("subdirectory_file_1_id");
+  Property* const property = file.mutable_new_properties()->Add();
+  property->set_key("hello");
+  property->set_value("world");
   change_lists[0]->mutable_entries()->push_back(file);
   change_lists[0]->mutable_parent_resource_ids()->push_back(
       "1_folder_resource_id");
@@ -95,23 +99,23 @@ ScopedVector<ChangeList> CreateBaseChangeList() {
 
 class ChangeListProcessorTest : public testing::Test {
  protected:
-  virtual void SetUp() override {
+  void SetUp() override {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
 
     metadata_storage_.reset(new ResourceMetadataStorage(
-        temp_dir_.path(), base::MessageLoopProxy::current().get()));
+        temp_dir_.path(), base::ThreadTaskRunnerHandle::Get().get()));
     ASSERT_TRUE(metadata_storage_->Initialize());
 
     fake_free_disk_space_getter_.reset(new FakeFreeDiskSpaceGetter);
     cache_.reset(new FileCache(metadata_storage_.get(),
                                temp_dir_.path(),
-                               base::MessageLoopProxy::current().get(),
+                               base::ThreadTaskRunnerHandle::Get().get(),
                                fake_free_disk_space_getter_.get()));
     ASSERT_TRUE(cache_->Initialize());
 
     metadata_.reset(new internal::ResourceMetadata(
         metadata_storage_.get(), cache_.get(),
-        base::MessageLoopProxy::current()));
+        base::ThreadTaskRunnerHandle::Get()));
     ASSERT_EQ(FILE_ERROR_OK, metadata_->Initialize());
   }
 
@@ -123,7 +127,7 @@ class ChangeListProcessorTest : public testing::Test {
     about_resource->set_largest_change_id(kBaseResourceListChangestamp);
     about_resource->set_root_folder_id(kRootId);
 
-    ChangeListProcessor processor(metadata_.get());
+    ChangeListProcessor processor(metadata_.get(), nullptr);
     return processor.Apply(about_resource.Pass(),
                            changes.Pass(),
                            false /* is_delta_update */);
@@ -138,7 +142,7 @@ class ChangeListProcessorTest : public testing::Test {
     about_resource->set_largest_change_id(kBaseResourceListChangestamp);
     about_resource->set_root_folder_id(kRootId);
 
-    ChangeListProcessor processor(metadata_.get());
+    ChangeListProcessor processor(metadata_.get(), nullptr);
     FileError error = processor.Apply(about_resource.Pass(),
                                       changes.Pass(),
                                       true /* is_delta_update */);
@@ -343,20 +347,25 @@ TEST_F(ChangeListProcessorTest, DeltaFileRenamedInDirectory) {
   FileChange changed_files;
   EXPECT_EQ(FILE_ERROR_OK,
             ApplyChangeList(change_lists.Pass(), &changed_files));
+  EXPECT_EQ(2U, changed_files.size());
+  EXPECT_TRUE(changed_files.count(base::FilePath::FromUTF8Unsafe(
+      "drive/root/Directory 1/SubDirectory File 1.txt")));
+  EXPECT_TRUE(changed_files.count(base::FilePath::FromUTF8Unsafe(
+      "drive/root/Directory 1/New SubDirectory File 1.txt")));
 
   int64 changestamp = 0;
   EXPECT_EQ(FILE_ERROR_OK, metadata_->GetLargestChangestamp(&changestamp));
   EXPECT_EQ(16767, changestamp);
   EXPECT_FALSE(GetResourceEntry(
       "drive/root/Directory 1/SubDirectory File 1.txt"));
-  EXPECT_TRUE(GetResourceEntry(
-      "drive/root/Directory 1/New SubDirectory File 1.txt"));
+  scoped_ptr<ResourceEntry> new_entry(
+      GetResourceEntry("drive/root/Directory 1/New SubDirectory File 1.txt"));
+  ASSERT_TRUE(new_entry);
 
-  EXPECT_EQ(2U, changed_files.size());
-  EXPECT_TRUE(changed_files.count(base::FilePath::FromUTF8Unsafe(
-      "drive/root/Directory 1/SubDirectory File 1.txt")));
-  EXPECT_TRUE(changed_files.count(base::FilePath::FromUTF8Unsafe(
-      "drive/root/Directory 1/New SubDirectory File 1.txt")));
+  // Keep the to-be-synced properties.
+  ASSERT_EQ(1, new_entry->mutable_new_properties()->size());
+  const Property& new_property = new_entry->new_properties().Get(0);
+  EXPECT_EQ("hello", new_property.key());
 }
 
 TEST_F(ChangeListProcessorTest, DeltaAddAndDeleteFileInRoot) {

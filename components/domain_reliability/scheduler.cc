@@ -11,6 +11,7 @@
 #include "base/values.h"
 #include "components/domain_reliability/config.h"
 #include "components/domain_reliability/util.h"
+#include "net/base/backoff_entry.h"
 
 namespace {
 
@@ -92,7 +93,7 @@ DomainReliabilityScheduler::DomainReliabilityScheduler(
 
   for (size_t i = 0; i < num_collectors; ++i) {
     collectors_.push_back(
-      new MockableTimeBackoffEntry(&backoff_policy_, time_));
+      new net::BackoffEntry(&backoff_policy_, time_));
   }
 }
 
@@ -125,19 +126,24 @@ size_t DomainReliabilityScheduler::OnUploadStart() {
   return collector_index_;
 }
 
-void DomainReliabilityScheduler::OnUploadComplete(bool success) {
+void DomainReliabilityScheduler::OnUploadComplete(
+    const DomainReliabilityUploader::UploadResult& result) {
   DCHECK(upload_running_);
   DCHECK_NE(kInvalidCollectorIndex, collector_index_);
   upload_running_ = false;
 
   VLOG(1) << "Upload to collector " << collector_index_
-          << (success ? " succeeded." : " failed.");
+          << (result.is_success() ? " succeeded." : " failed.");
 
   net::BackoffEntry* backoff = collectors_[collector_index_];
   collector_index_ = kInvalidCollectorIndex;
-  backoff->InformOfRequest(success);
 
-  if (!success) {
+  backoff->InformOfRequest(result.is_success());
+  if (result.is_retry_after())
+    backoff->SetCustomReleaseTime(time_->NowTicks() + result.retry_after);
+  last_collector_retry_delay_ = backoff->GetTimeUntilRelease();
+
+  if (!result.is_success()) {
     // Restore upload_pending_ and first_beacon_time_ to pre-upload state,
     // since upload failed.
     upload_pending_ = true;
@@ -145,16 +151,16 @@ void DomainReliabilityScheduler::OnUploadComplete(bool success) {
   }
 
   last_upload_end_time_ = time_->NowTicks();
-  last_upload_success_ = success;
+  last_upload_success_ = result.is_success();
   last_upload_finished_ = true;
 
   MaybeScheduleUpload();
 }
 
-base::Value* DomainReliabilityScheduler::GetWebUIData() const {
+scoped_ptr<base::Value> DomainReliabilityScheduler::GetWebUIData() const {
   base::TimeTicks now = time_->NowTicks();
 
-  base::DictionaryValue* data = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> data(new base::DictionaryValue());
 
   data->SetBoolean("upload_pending", upload_pending_);
   data->SetBoolean("upload_scheduled", upload_scheduled_);
@@ -166,27 +172,27 @@ base::Value* DomainReliabilityScheduler::GetWebUIData() const {
   data->SetInteger("collector_index", static_cast<int>(collector_index_));
 
   if (last_upload_finished_) {
-    base::DictionaryValue* last = new base::DictionaryValue();
+    scoped_ptr<base::DictionaryValue> last(new base::DictionaryValue());
     last->SetInteger("start_time", (now - last_upload_start_time_).InSeconds());
     last->SetInteger("end_time", (now - last_upload_end_time_).InSeconds());
     last->SetInteger("collector_index",
         static_cast<int>(last_upload_collector_index_));
     last->SetBoolean("success", last_upload_success_);
-    data->Set("last_upload", last);
+    data->Set("last_upload", last.Pass());
   }
 
-  base::ListValue* collectors = new base::ListValue();
-  for (size_t i = 0; i < collectors_.size(); ++i) {
-    const net::BackoffEntry* backoff = collectors_[i];
-    base::DictionaryValue* value = new base::DictionaryValue();
-    value->SetInteger("failures", backoff->failure_count());
+  scoped_ptr<base::ListValue> collectors_value(new base::ListValue());
+  for (const auto& collector : collectors_) {
+    scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
+    value->SetInteger("failures", collector->failure_count());
     value->SetInteger("next_upload",
-        (backoff->GetReleaseTime() - now).InSeconds());
-    collectors->Append(value);
+        (collector->GetReleaseTime() - now).InSeconds());
+    // Using release instead of Pass because Pass can't implicitly upcast.
+    collectors_value->Append(value.release());
   }
-  data->Set("collectors", collectors);
+  data->Set("collectors", collectors_value.Pass());
 
-  return data;
+  return data.Pass();
 }
 
 void DomainReliabilityScheduler::MakeDeterministicForTesting() {

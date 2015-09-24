@@ -87,6 +87,12 @@ import org.chromium.content_public.browser.NavigationHistory;
     }
 
     @Override
+    public boolean isInitialNavigation() {
+        return mNativeNavigationControllerAndroid != 0
+                && nativeIsInitialNavigation(mNativeNavigationControllerAndroid);
+    }
+
+    @Override
     public void loadIfNecessary() {
         if (mNativeNavigationControllerAndroid != 0) {
             nativeLoadIfNecessary(mNativeNavigationControllerAndroid);
@@ -202,6 +208,15 @@ import org.chromium.content_public.browser.NavigationHistory;
     }
 
     @Override
+    public NavigationEntry getEntryAtIndex(int index) {
+        if (mNativeNavigationControllerAndroid != 0) {
+            return nativeGetEntryAtIndex(mNativeNavigationControllerAndroid, index);
+        }
+
+        return null;
+    }
+
+    @Override
     public NavigationEntry getPendingEntry() {
         if (mNativeNavigationControllerAndroid != 0) {
             return nativeGetPendingEntry(mNativeNavigationControllerAndroid);
@@ -226,6 +241,39 @@ import org.chromium.content_public.browser.NavigationHistory;
         return false;
     }
 
+    @Override
+    public boolean canCopyStateOver() {
+        return mNativeNavigationControllerAndroid != 0
+                && nativeCanCopyStateOver(mNativeNavigationControllerAndroid);
+    }
+
+    @Override
+    public boolean canPruneAllButLastCommitted() {
+        return mNativeNavigationControllerAndroid != 0
+                && nativeCanPruneAllButLastCommitted(mNativeNavigationControllerAndroid);
+    }
+
+    @Override
+    public void copyStateFrom(NavigationController source) {
+        if (mNativeNavigationControllerAndroid == 0) return;
+        NavigationControllerImpl sourceImpl = (NavigationControllerImpl) source;
+        if (sourceImpl.mNativeNavigationControllerAndroid == 0) return;
+        nativeCopyStateFrom(
+                mNativeNavigationControllerAndroid,
+                sourceImpl.mNativeNavigationControllerAndroid);
+    }
+
+    @Override
+    public void copyStateFromAndPrune(NavigationController source, boolean replaceEntry) {
+        if (mNativeNavigationControllerAndroid == 0) return;
+        NavigationControllerImpl sourceImpl = (NavigationControllerImpl) source;
+        if (sourceImpl.mNativeNavigationControllerAndroid == 0) return;
+        nativeCopyStateFromAndPrune(
+                mNativeNavigationControllerAndroid,
+                sourceImpl.mNativeNavigationControllerAndroid,
+                replaceEntry);
+    }
+
     @CalledByNative
     private static void addToNavigationHistory(Object history, Object navigationEntry) {
         ((NavigationHistory) history).addEntry((NavigationEntry) navigationEntry);
@@ -233,12 +281,13 @@ import org.chromium.content_public.browser.NavigationHistory;
 
     @CalledByNative
     private static NavigationEntry createNavigationEntry(int index, String url,
-            String virtualUrl, String originalUrl, String title, Bitmap favicon) {
-        return new NavigationEntry(index, url, virtualUrl, originalUrl, title, favicon);
+            String virtualUrl, String originalUrl, String title, Bitmap favicon, int transition) {
+        return new NavigationEntry(index, url, virtualUrl, originalUrl, title, favicon, transition);
     }
 
     private native boolean nativeCanGoBack(long nativeNavigationControllerAndroid);
     private native boolean nativeCanGoForward(long nativeNavigationControllerAndroid);
+    private native boolean nativeIsInitialNavigation(long nativeNavigationControllerAndroid);
     private native void nativeLoadIfNecessary(long nativeNavigationControllerAndroid);
     private native void nativeRequestRestoreLoad(long nativeNavigationControllerAndroid);
     private native boolean nativeCanGoToOffset(
@@ -279,8 +328,17 @@ import org.chromium.content_public.browser.NavigationHistory;
     private native boolean nativeGetUseDesktopUserAgent(long nativeNavigationControllerAndroid);
     private native void nativeSetUseDesktopUserAgent(long nativeNavigationControllerAndroid,
             boolean override, boolean reloadOnChange);
+    private native NavigationEntry nativeGetEntryAtIndex(
+            long nativeNavigationControllerAndroid, int index);
     private native NavigationEntry nativeGetPendingEntry(long nativeNavigationControllerAndroid);
     private native int nativeGetLastCommittedEntryIndex(long nativeNavigationControllerAndroid);
     private native boolean nativeRemoveEntryAtIndex(long nativeNavigationControllerAndroid,
             int index);
+    private native boolean nativeCanCopyStateOver(long nativeNavigationControllerAndroid);
+    private native boolean nativeCanPruneAllButLastCommitted(
+            long nativeNavigationControllerAndroid);
+    private native void nativeCopyStateFrom(long nativeNavigationControllerAndroid,
+            long sourceNavigationControllerAndroid);
+    private native void nativeCopyStateFromAndPrune(long nativeNavigationControllerAndroid,
+            long sourceNavigationControllerAndroid, boolean replaceEntry);
 }

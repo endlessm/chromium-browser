@@ -5,6 +5,7 @@
 #ifndef CONTENT_COMMON_ANDROID_SURFACE_TEXTURE_MANAGER_H_
 #define CONTENT_COMMON_ANDROID_SURFACE_TEXTURE_MANAGER_H_
 
+#include "content/common/content_export.h"
 #include "ui/gfx/native_widget_types.h"
 
 namespace gfx {
@@ -13,10 +14,10 @@ class SurfaceTexture;
 
 namespace content {
 
-class SurfaceTextureManager {
+class CONTENT_EXPORT SurfaceTextureManager {
  public:
   static SurfaceTextureManager* GetInstance();
-  static void InitInstance(SurfaceTextureManager* instance);
+  static void SetInstance(SurfaceTextureManager* instance);
 
   // Register a surface texture for use in another process.
   virtual void RegisterSurfaceTexture(int surface_texture_id,

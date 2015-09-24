@@ -4,14 +4,14 @@
 
 #include "chrome/browser/ui/toolbar/wrench_icon_painter.h"
 
-#include "base/message_loop/message_loop.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/test/base/testing_profile.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "grit/theme_resources.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/canvas.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
 class WrenchIconPainterTest : public testing::Test,
     public WrenchIconPainter::Delegate {
@@ -23,7 +23,8 @@ class WrenchIconPainterTest : public testing::Test,
   void ScheduleWrenchIconPaint() override { ++schedule_paint_count_; }
 
  protected:
-  base::MessageLoopForUI message_loop_;  // Needed for gfx::Animation.
+  // Needed for gfx::Animation and the testing profile.
+  content::TestBrowserThreadBundle thread_bundle_;
   TestingProfile profile_;
   int schedule_paint_count_;
   ui::ThemeProvider* theme_provider_;

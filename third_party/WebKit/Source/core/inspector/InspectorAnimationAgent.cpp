@@ -8,120 +8,125 @@
 
 #include "core/animation/Animation.h"
 #include "core/animation/AnimationEffect.h"
-#include "core/animation/AnimationNode.h"
-#include "core/animation/AnimationPlayer.h"
+#include "core/animation/AnimationEffectTiming.h"
+#include "core/animation/ComputedTimingProperties.h"
+#include "core/animation/EffectModel.h"
 #include "core/animation/ElementAnimation.h"
+#include "core/animation/KeyframeEffect.h"
 #include "core/animation/KeyframeEffectModel.h"
 #include "core/animation/StringKeyframe.h"
 #include "core/css/CSSKeyframeRule.h"
 #include "core/css/CSSKeyframesRule.h"
+#include "core/css/resolver/StyleResolver.h"
+#include "core/dom/DOMNodeIds.h"
 #include "core/inspector/InspectorDOMAgent.h"
+#include "core/inspector/InspectorPageAgent.h"
+#include "core/inspector/InspectorState.h"
 #include "core/inspector/InspectorStyleSheet.h"
 #include "platform/Decimal.h"
+#include "platform/animation/TimingFunction.h"
+
+namespace AnimationAgentState {
+static const char animationAgentEnabled[] = "animationAgentEnabled";
+}
 
 namespace blink {
 
-InspectorAnimationAgent::InspectorAnimationAgent(InspectorDOMAgent* domAgent)
-    : InspectorBaseAgent<InspectorAnimationAgent>("Animation")
+InspectorAnimationAgent::InspectorAnimationAgent(InspectorPageAgent* pageAgent, InspectorDOMAgent* domAgent)
+    : InspectorBaseAgent<InspectorAnimationAgent, InspectorFrontend::Animation>("Animation")
+    , m_pageAgent(pageAgent)
     , m_domAgent(domAgent)
-    , m_frontend(0)
+    , m_latestStartTime(std::numeric_limits<double>::min())
 {
 }
 
-void InspectorAnimationAgent::setFrontend(InspectorFrontend* frontend)
+void InspectorAnimationAgent::restore()
 {
-    m_frontend = frontend->animation();
+    if (m_state->getBoolean(AnimationAgentState::animationAgentEnabled)) {
+        ErrorString error;
+        enable(&error);
+    }
 }
 
-void InspectorAnimationAgent::clearFrontend()
+void InspectorAnimationAgent::enable(ErrorString*)
 {
-    m_frontend = nullptr;
-    reset();
+    m_state->setBoolean(AnimationAgentState::animationAgentEnabled, true);
+    m_instrumentingAgents->setInspectorAnimationAgent(this);
 }
 
-void InspectorAnimationAgent::reset()
+void InspectorAnimationAgent::disable(ErrorString*)
 {
-    m_idToAnimationPlayer.clear();
+    ASSERT(m_pageAgent);
+    setPlaybackRate(nullptr, 1);
+    m_state->setBoolean(AnimationAgentState::animationAgentEnabled, false);
+    m_instrumentingAgents->setInspectorAnimationAgent(nullptr);
+    m_idToAnimation.clear();
+    m_idToAnimationType.clear();
 }
 
-static PassRefPtr<TypeBuilder::Animation::AnimationNode> buildObjectForAnimationNode(AnimationNode* animationNode)
+void InspectorAnimationAgent::didCommitLoadForLocalFrame(LocalFrame* frame)
 {
-    RefPtr<TypeBuilder::Animation::AnimationNode> animationObject = TypeBuilder::Animation::AnimationNode::create()
-        .setStartDelay(animationNode->specifiedTiming().startDelay)
-        .setPlaybackRate(animationNode->specifiedTiming().playbackRate)
-        .setIterationStart(animationNode->specifiedTiming().iterationStart)
-        .setIterationCount(animationNode->specifiedTiming().iterationCount)
-        .setDuration(animationNode->duration())
-        .setDirection(animationNode->specifiedTiming().direction)
-        .setFillMode(animationNode->specifiedTiming().fillMode)
-        .setTimeFraction(animationNode->timeFraction())
-        .setName(animationNode->name());
+    if (frame == m_pageAgent->inspectedFrame()) {
+        m_idToAnimation.clear();
+        m_idToAnimationType.clear();
+    }
+}
+
+static PassRefPtr<TypeBuilder::Animation::AnimationEffect> buildObjectForAnimationEffect(KeyframeEffect* effect, bool isTransition)
+{
+    ComputedTimingProperties computedTiming;
+    effect->computedTiming(computedTiming);
+    double delay = computedTiming.delay();
+    double duration = computedTiming.duration().getAsUnrestrictedDouble();
+    String easing = effect->specifiedTiming().timingFunction->toString();
+
+    if (isTransition) {
+        // Obtain keyframes and convert keyframes back to delay
+        ASSERT(effect->model()->isKeyframeEffectModel());
+        const KeyframeEffectModelBase* model = toKeyframeEffectModelBase(effect->model());
+        WillBeHeapVector<RefPtrWillBeMember<Keyframe> > keyframes = KeyframeEffectModelBase::normalizedKeyframesForInspector(model->getFrames());
+        if (keyframes.size() == 3) {
+            delay = keyframes.at(1)->offset() * duration;
+            duration -= delay;
+            easing = keyframes.at(1)->easing().toString();
+        } else {
+            easing = keyframes.at(0)->easing().toString();
+        }
+    }
+
+    RefPtr<TypeBuilder::Animation::AnimationEffect> animationObject = TypeBuilder::Animation::AnimationEffect::create()
+        .setDelay(delay)
+        .setEndDelay(computedTiming.endDelay())
+        .setPlaybackRate(computedTiming.playbackRate())
+        .setIterationStart(computedTiming.iterationStart())
+        .setIterations(computedTiming.iterations())
+        .setDuration(duration)
+        .setDirection(computedTiming.direction())
+        .setFill(computedTiming.fill())
+        .setName(effect->name())
+        .setBackendNodeId(DOMNodeIds::idForNode(effect->target()))
+        .setEasing(easing);
     return animationObject.release();
-}
-
-static String playerId(AnimationPlayer& player)
-{
-    return String::number(player.sequenceNumber());
-}
-
-static PassRefPtr<TypeBuilder::Animation::AnimationPlayer> buildObjectForAnimationPlayer(AnimationPlayer& animationPlayer, PassRefPtr<TypeBuilder::Animation::KeyframesRule> keyframeRule = nullptr)
-{
-    RefPtr<TypeBuilder::Animation::AnimationNode> animationObject = buildObjectForAnimationNode(animationPlayer.source());
-    if (keyframeRule)
-        animationObject->setKeyframesRule(keyframeRule);
-
-    RefPtr<TypeBuilder::Animation::AnimationPlayer> playerObject = TypeBuilder::Animation::AnimationPlayer::create()
-        .setId(playerId(animationPlayer))
-        .setPausedState(animationPlayer.paused())
-        .setPlayState(animationPlayer.playState())
-        .setPlaybackRate(animationPlayer.playbackRate())
-        .setStartTime(animationPlayer.startTime())
-        .setCurrentTime(animationPlayer.currentTime())
-        .setSource(animationObject.release());
-    return playerObject.release();
-}
-
-static PassRefPtr<TypeBuilder::Animation::KeyframeStyle> buildObjectForStyleKeyframe(StyleKeyframe* keyframe)
-{
-    RefPtrWillBeRawPtr<InspectorStyle> inspectorStyle = InspectorStyle::create(InspectorCSSId(), keyframe->mutableProperties().ensureCSSStyleDeclaration(), 0);
-    RefPtr<TypeBuilder::Animation::KeyframeStyle> keyframeObject = TypeBuilder::Animation::KeyframeStyle::create()
-        .setOffset(keyframe->keyText())
-        .setStyle(inspectorStyle->buildObjectForStyle());
-    return keyframeObject.release();
 }
 
 static PassRefPtr<TypeBuilder::Animation::KeyframeStyle> buildObjectForStringKeyframe(const StringKeyframe* keyframe)
 {
-    RefPtrWillBeRawPtr<InspectorStyle> inspectorStyle = InspectorStyle::create(InspectorCSSId(), keyframe->propertySetForInspector().get()->ensureCSSStyleDeclaration(), 0);
     Decimal decimal = Decimal::fromDouble(keyframe->offset() * 100);
     String offset = decimal.toString();
     offset.append("%");
 
     RefPtr<TypeBuilder::Animation::KeyframeStyle> keyframeObject = TypeBuilder::Animation::KeyframeStyle::create()
         .setOffset(offset)
-        .setStyle(inspectorStyle->buildObjectForStyle());
+        .setEasing(keyframe->easing().toString());
     return keyframeObject.release();
 }
 
-static PassRefPtr<TypeBuilder::Animation::KeyframesRule> buildObjectForStyleRuleKeyframes(const StyleRuleKeyframes* keyframesRule)
+static PassRefPtr<TypeBuilder::Animation::KeyframesRule> buildObjectForAnimationKeyframes(const KeyframeEffect* effect)
 {
-    RefPtr<TypeBuilder::Array<TypeBuilder::Animation::KeyframeStyle> > keyframes = TypeBuilder::Array<TypeBuilder::Animation::KeyframeStyle>::create();
-    const WillBeHeapVector<RefPtrWillBeMember<StyleKeyframe> >& styleKeyframes = keyframesRule->keyframes();
-    for (const auto& styleKeyframe : styleKeyframes)
-        keyframes->addItem(buildObjectForStyleKeyframe(styleKeyframe.get()));
-
-    RefPtr<TypeBuilder::Animation::KeyframesRule> keyframesObject = TypeBuilder::Animation::KeyframesRule::create()
-        .setKeyframes(keyframes);
-    keyframesObject->setName(keyframesRule->name());
-    return keyframesObject.release();
-}
-
-static PassRefPtr<TypeBuilder::Animation::KeyframesRule> buildObjectForAnimationKeyframes(const Animation* animation)
-{
-    if (!animation->effect()->isKeyframeEffectModel())
+    if (!effect || !effect->model() || !effect->model()->isKeyframeEffectModel())
         return nullptr;
-    const KeyframeEffectModelBase* effect = toKeyframeEffectModelBase(animation->effect());
-    WillBeHeapVector<RefPtrWillBeMember<Keyframe> > normalizedKeyframes = KeyframeEffectModelBase::normalizedKeyframesForInspector(effect->getFrames());
+    const KeyframeEffectModelBase* model = toKeyframeEffectModelBase(effect->model());
+    WillBeHeapVector<RefPtrWillBeMember<Keyframe> > normalizedKeyframes = KeyframeEffectModelBase::normalizedKeyframesForInspector(model->getFrames());
     RefPtr<TypeBuilder::Array<TypeBuilder::Animation::KeyframeStyle> > keyframes = TypeBuilder::Array<TypeBuilder::Animation::KeyframeStyle>::create();
 
     for (const auto& keyframe : normalizedKeyframes) {
@@ -136,92 +141,162 @@ static PassRefPtr<TypeBuilder::Animation::KeyframesRule> buildObjectForAnimation
     return keyframesObject.release();
 }
 
-static PassRefPtr<TypeBuilder::Animation::KeyframesRule> buildObjectForKeyframesRule(const Element& element, const AnimationPlayer& player)
+PassRefPtr<TypeBuilder::Animation::Animation> InspectorAnimationAgent::buildObjectForAnimation(Animation& animation)
 {
-    StyleResolver& styleResolver = element.ownerDocument()->ensureStyleResolver();
-    CSSAnimations& cssAnimations = element.activeAnimations()->cssAnimations();
-    const AtomicString animationName = cssAnimations.getAnimationNameForInspector(player);
-    RefPtr<TypeBuilder::Animation::KeyframesRule> keyframeRule;
+    const Element* element = toKeyframeEffect(animation.effect())->target();
+    CSSAnimations& cssAnimations = element->elementAnimations()->cssAnimations();
+    RefPtr<TypeBuilder::Animation::KeyframesRule> keyframeRule = nullptr;
+    AnimationType animationType;
 
-    if (!animationName.isNull()) {
-        // CSS Animations
-        const StyleRuleKeyframes* keyframes = cssAnimations.matchScopedKeyframesRule(&styleResolver, &element, animationName.impl());
-        keyframeRule = buildObjectForStyleRuleKeyframes(keyframes);
+    if (cssAnimations.isTransitionAnimationForInspector(animation)) {
+        // CSS Transitions
+        animationType = AnimationType::CSSTransition;
     } else {
-        // Web Animations
-        keyframeRule = buildObjectForAnimationKeyframes(toAnimation(player.source()));
+        // Keyframe based animations
+        keyframeRule = buildObjectForAnimationKeyframes(toKeyframeEffect(animation.effect()));
+        animationType = cssAnimations.isAnimationForInspector(animation) ? AnimationType::CSSAnimation : AnimationType::WebAnimation;
     }
 
-    return keyframeRule;
+    String id = String::number(animation.sequenceNumber());
+    m_idToAnimation.set(id, &animation);
+    m_idToAnimationType.set(id, animationType);
+
+    RefPtr<TypeBuilder::Animation::AnimationEffect> animationEffectObject = buildObjectForAnimationEffect(toKeyframeEffect(animation.effect()), animationType == AnimationType::CSSTransition);
+    if (keyframeRule)
+        animationEffectObject->setKeyframesRule(keyframeRule);
+
+    RefPtr<TypeBuilder::Animation::Animation> animationObject = TypeBuilder::Animation::Animation::create()
+        .setId(id)
+        .setPausedState(animation.paused())
+        .setPlayState(animation.playState())
+        .setPlaybackRate(animation.playbackRate())
+        .setStartTime(normalizedStartTime(animation))
+        .setCurrentTime(animation.currentTime())
+        .setSource(animationEffectObject.release())
+        .setType(animationType);
+    return animationObject.release();
 }
 
-void InspectorAnimationAgent::getAnimationPlayersForNode(ErrorString* errorString, int nodeId, RefPtr<TypeBuilder::Array<TypeBuilder::Animation::AnimationPlayer> >& animationPlayersArray)
+void InspectorAnimationAgent::getPlaybackRate(ErrorString*, double* playbackRate)
 {
-    animationPlayersArray = TypeBuilder::Array<TypeBuilder::Animation::AnimationPlayer>::create();
-    Element* element = m_domAgent->assertElement(errorString, nodeId);
-    if (!element)
-        return;
-    m_idToAnimationPlayer.clear();
-    WillBeHeapVector<RefPtrWillBeMember<AnimationPlayer> > players = ElementAnimation::getAnimationPlayers(*element);
-    for (WillBeHeapVector<RefPtrWillBeMember<AnimationPlayer> >::iterator it = players.begin(); it != players.end(); ++it) {
-        AnimationPlayer& player = *(it->get());
-        m_idToAnimationPlayer.set(playerId(player), &player);
-        RefPtr<TypeBuilder::Animation::KeyframesRule> keyframeRule = buildObjectForKeyframesRule(*element, player);
-        animationPlayersArray->addItem(buildObjectForAnimationPlayer(player, keyframeRule));
+    *playbackRate = referenceTimeline().playbackRate();
+}
+
+void InspectorAnimationAgent::setPlaybackRate(ErrorString*, double playbackRate)
+{
+    for (Frame* frame = m_pageAgent->inspectedFrame(); frame; frame = frame->tree().traverseNext(m_pageAgent->inspectedFrame())) {
+        if (frame->isLocalFrame())
+            toLocalFrame(frame)->document()->timeline().setPlaybackRate(playbackRate);
     }
 }
 
-void InspectorAnimationAgent::pauseAnimationPlayer(ErrorString* errorString, const String& id, RefPtr<TypeBuilder::Animation::AnimationPlayer>& animationPlayer)
+void InspectorAnimationAgent::setCurrentTime(ErrorString*, double currentTime)
 {
-    AnimationPlayer* player = assertAnimationPlayer(errorString, id);
-    if (!player)
-        return;
-    player->pause();
-    animationPlayer = buildObjectForAnimationPlayer(*player);
-}
-
-void InspectorAnimationAgent::playAnimationPlayer(ErrorString* errorString, const String& id, RefPtr<TypeBuilder::Animation::AnimationPlayer>& animationPlayer)
-{
-    AnimationPlayer* player = assertAnimationPlayer(errorString, id);
-    if (!player)
-        return;
-    player->play();
-    animationPlayer = buildObjectForAnimationPlayer(*player);
-}
-
-void InspectorAnimationAgent::setAnimationPlayerCurrentTime(ErrorString* errorString, const String& id, double currentTime, RefPtr<TypeBuilder::Animation::AnimationPlayer>& animationPlayer)
-{
-    AnimationPlayer* player = assertAnimationPlayer(errorString, id);
-    if (!player)
-        return;
-    player->setCurrentTime(currentTime);
-    animationPlayer = buildObjectForAnimationPlayer(*player);
-}
-
-void InspectorAnimationAgent::getAnimationPlayerState(ErrorString* errorString, const String& id, double* currentTime, bool* isRunning)
-{
-    AnimationPlayer* player = assertAnimationPlayer(errorString, id);
-    if (!player)
-        return;
-    *currentTime = player->currentTime();
-    *isRunning = player->playing();
-}
-
-AnimationPlayer* InspectorAnimationAgent::assertAnimationPlayer(ErrorString* errorString, const String& id)
-{
-    AnimationPlayer* player = m_idToAnimationPlayer.get(id);
-    if (!player) {
-        *errorString = "Could not find animation player with given id";
-        return 0;
+    double timeDelta = currentTime - referenceTimeline().currentTime();
+    for (Frame* frame = m_pageAgent->inspectedFrame(); frame; frame = frame->tree().traverseNext(m_pageAgent->inspectedFrame())) {
+        if (frame->isLocalFrame()) {
+            AnimationTimeline& timeline = toLocalFrame(frame)->document()->timeline();
+            timeline.setCurrentTime(timeline.currentTime() + timeDelta);
+        }
     }
-    return player;
 }
 
-void InspectorAnimationAgent::trace(Visitor* visitor)
+void InspectorAnimationAgent::setTiming(ErrorString* errorString, const String& animationId, double duration, double delay)
+{
+    Animation* animation = assertAnimation(errorString, animationId);
+    if (!animation)
+        return;
+
+    AnimationType type = m_idToAnimationType.get(animationId);
+    if (type == AnimationType::CSSTransition) {
+        KeyframeEffect* effect = toKeyframeEffect(animation->effect());
+        KeyframeEffectModelBase* model = toKeyframeEffectModelBase(effect->model());
+        const AnimatableValueKeyframeEffectModel* oldModel = toAnimatableValueKeyframeEffectModel(model);
+        // Refer to CSSAnimations::calculateTransitionUpdateForProperty() for the structure of transitions.
+        const KeyframeVector& frames = oldModel->getFrames();
+        ASSERT(frames.size() == 3);
+        KeyframeVector newFrames;
+        for (int i = 0; i < 3; i++)
+            newFrames.append(toAnimatableValueKeyframe(frames[i]->clone().get()));
+        // Update delay, represented by the distance between the first two keyframes.
+        newFrames[1]->setOffset(delay / (delay + duration));
+        model->setFrames(newFrames);
+
+        RefPtrWillBeRawPtr<AnimationEffectTiming> timing = animation->effect()->timing();
+        UnrestrictedDoubleOrString unrestrictedDuration;
+        unrestrictedDuration.setUnrestrictedDouble(duration + delay);
+        timing->setDuration(unrestrictedDuration);
+    } else if (type == AnimationType::WebAnimation) {
+        RefPtrWillBeRawPtr<AnimationEffectTiming> timing = animation->effect()->timing();
+        UnrestrictedDoubleOrString unrestrictedDuration;
+        unrestrictedDuration.setUnrestrictedDouble(duration);
+        timing->setDuration(unrestrictedDuration);
+        timing->setDelay(delay);
+    }
+}
+
+void InspectorAnimationAgent::didCreateAnimation(Animation* animation)
+{
+    const String& animationId = String::number(animation->sequenceNumber());
+    if (m_idToAnimation.get(animationId))
+        return;
+
+    double threshold = 1000;
+    bool reset = normalizedStartTime(*animation) - threshold > m_latestStartTime;
+    m_latestStartTime = normalizedStartTime(*animation);
+    if (reset) {
+        m_idToAnimation.clear();
+        m_idToAnimationType.clear();
+    }
+
+    frontend()->animationCreated(buildObjectForAnimation(*animation), reset);
+}
+
+void InspectorAnimationAgent::didCancelAnimation(Animation* animation)
+{
+    const String& animationId = String::number(animation->sequenceNumber());
+    if (!m_idToAnimation.get(animationId))
+        return;
+    frontend()->animationCanceled(animationId);
+}
+
+void InspectorAnimationAgent::didClearDocumentOfWindowObject(LocalFrame* frame)
+{
+    if (!m_state->getBoolean(AnimationAgentState::animationAgentEnabled))
+        return;
+    ASSERT(frame->document());
+    frame->document()->timeline().setPlaybackRate(referenceTimeline().playbackRate());
+}
+
+Animation* InspectorAnimationAgent::assertAnimation(ErrorString* errorString, const String& id)
+{
+    Animation* animation = m_idToAnimation.get(id);
+    if (!animation) {
+        *errorString = "Could not find animation with given id";
+        return nullptr;
+    }
+    return animation;
+}
+
+AnimationTimeline& InspectorAnimationAgent::referenceTimeline()
+{
+    return m_pageAgent->inspectedFrame()->document()->timeline();
+}
+
+double InspectorAnimationAgent::normalizedStartTime(Animation& animation)
+{
+    if (referenceTimeline().playbackRate() == 0)
+        return animation.startTime() + referenceTimeline().currentTime() - animation.timeline()->currentTime();
+    return animation.startTime() + (animation.timeline()->zeroTime() - referenceTimeline().zeroTime()) * 1000 * referenceTimeline().playbackRate();
+}
+
+DEFINE_TRACE(InspectorAnimationAgent)
 {
 #if ENABLE(OILPAN)
-    visitor->trace(m_idToAnimationPlayer);
+    visitor->trace(m_pageAgent);
     visitor->trace(m_domAgent);
+    visitor->trace(m_idToAnimation);
+    visitor->trace(m_idToAnimationType);
 #endif
     InspectorBaseAgent::trace(visitor);
 }

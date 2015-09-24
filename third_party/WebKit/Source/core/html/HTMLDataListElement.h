@@ -38,7 +38,7 @@ namespace blink {
 
 class HTMLDataListOptionsCollection;
 
-class HTMLDataListElement final : public HTMLElement {
+class CORE_EXPORT HTMLDataListElement final : public HTMLElement {
     DEFINE_WRAPPERTYPEINFO();
 public:
     static PassRefPtrWillBeRawPtr<HTMLDataListElement> create(Document&);
@@ -49,8 +49,8 @@ public:
 
 private:
     HTMLDataListElement(Document&);
-    virtual void childrenChanged(const ChildrenChange&) override;
-    virtual void finishParsingChildren() override;
+    void childrenChanged(const ChildrenChange&) override;
+    void finishParsingChildren() override;
 };
 
 } // namespace blink

@@ -31,22 +31,27 @@
 #ifndef PageSerializer_h
 #define PageSerializer_h
 
+#include "core/CoreExport.h"
+#include "platform/heap/Handle.h"
 #include "platform/weborigin/KURL.h"
 #include "platform/weborigin/KURLHash.h"
 #include "wtf/HashMap.h"
 #include "wtf/ListHashSet.h"
+#include "wtf/PassOwnPtr.h"
 #include "wtf/Vector.h"
 
 namespace blink {
 
+class Attribute;
 class FontResource;
 class ImageResource;
+class CSSRule;
 class CSSStyleSheet;
 class CSSValue;
 class Document;
 class LocalFrame;
 class Page;
-class RenderObject;
+class LayoutObject;
 class Resource;
 class SharedBuffer;
 class StylePropertySet;
@@ -55,16 +60,28 @@ struct SerializedResource;
 
 // This class is used to serialize a page contents back to text (typically HTML).
 // It serializes all the page frames and retrieves resources such as images and CSS stylesheets.
-class PageSerializer {
+class CORE_EXPORT PageSerializer final {
+    STACK_ALLOCATED();
 public:
-    explicit PageSerializer(Vector<SerializedResource>*);
+    class Delegate {
+    public:
+        virtual ~Delegate() { }
+        virtual bool shouldIgnoreAttribute(const Attribute&) = 0;
+    };
+
+    PageSerializer(Vector<SerializedResource>*, PassOwnPtr<Delegate>);
 
     // Initiates the serialization of the frame's page. All serialized content and retrieved
     // resources are added to the Vector passed to the constructor. The first resource in that
     // vector is the top frame serialized content.
     void serialize(Page*);
 
+    void registerRewriteURL(const String& from, const String& to);
+    void setRewriteURLFolder(const String&);
+
     KURL urlForBlankFrame(LocalFrame*);
+
+    Delegate* delegate();
 
 private:
     void serializeFrame(LocalFrame*);
@@ -73,10 +90,13 @@ private:
     // It also adds any resources included in that stylesheet (including any imported stylesheets and their own resources).
     void serializeCSSStyleSheet(CSSStyleSheet&, const KURL&);
 
+    // Serializes the css rule (including any imported stylesheets), adding referenced resources.
+    void serializeCSSRule(CSSRule*);
+
     bool shouldAddURL(const KURL&);
 
     void addToResources(Resource *, PassRefPtr<SharedBuffer>, const KURL&);
-    void addImageToResources(ImageResource*, RenderObject*, const KURL&);
+    void addImageToResources(ImageResource*, LayoutObject*, const KURL&);
     void addFontToResources(FontResource*);
 
     void retrieveResourcesForProperties(const StylePropertySet*, Document&);
@@ -84,10 +104,16 @@ private:
 
     Vector<SerializedResource>* m_resources;
     ListHashSet<KURL> m_resourceURLs;
-    HashMap<LocalFrame*, KURL> m_blankFrameURLs;
+
+    using BlankFrameURLMap = WillBeHeapHashMap<RawPtrWillBeMember<LocalFrame>, KURL>;
+    BlankFrameURLMap m_blankFrameURLs;
+    HashMap<String, String> m_rewriteURLs;
+    String m_rewriteFolder;
     unsigned m_blankFrameCounter;
+
+    OwnPtr<Delegate> m_delegate;
 };
 
-}
+} // namespace blink
 
-#endif
+#endif // PageSerializer_h

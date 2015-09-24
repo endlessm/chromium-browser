@@ -63,7 +63,7 @@ class List {
   // backing store (e.g. Add).
   inline T& operator[](int i) const {
     DCHECK(0 <= i);
-    SLOW_DCHECK(i < length_);
+    SLOW_DCHECK(static_cast<unsigned>(i) < static_cast<unsigned>(length_));
     return data_[i];
   }
   inline T& at(int i) const { return operator[](i); }
@@ -149,8 +149,16 @@ class List {
   void Iterate(Visitor* visitor);
 
   // Sort all list entries (using QuickSort)
-  void Sort(int (*cmp)(const T* x, const T* y));
+  template <typename CompareFunction>
+  void Sort(CompareFunction cmp, size_t start, size_t length);
+  template <typename CompareFunction>
+  void Sort(CompareFunction cmp);
   void Sort();
+  template <typename CompareFunction>
+  void StableSort(CompareFunction cmp, size_t start, size_t length);
+  template <typename CompareFunction>
+  void StableSort(CompareFunction cmp);
+  void StableSort();
 
   INLINE(void Initialize(int capacity,
                          AllocationPolicy allocator = AllocationPolicy()));

@@ -11,6 +11,8 @@
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_sender.h"
 
+struct FrameMsg_PostMessage_Params;
+
 namespace content {
 
 class CrossProcessFrameConnector;
@@ -58,11 +60,12 @@ class RenderFrameProxyHost
   static RenderFrameProxyHost* FromID(int process_id, int routing_id);
 
   RenderFrameProxyHost(SiteInstance* site_instance,
+                       RenderViewHostImpl* render_view_host,
                        FrameTreeNode* frame_tree_node);
   ~RenderFrameProxyHost() override;
 
   RenderProcessHost* GetProcess() {
-    return site_instance_->GetProcess();
+    return process_;
   }
 
   // Initializes the object and creates the RenderFrameProxy in the process
@@ -87,6 +90,7 @@ class RenderFrameProxyHost
     return render_frame_host_.get();
   }
   RenderViewHostImpl* GetRenderViewHost();
+  RenderWidgetHostView* GetRenderWidgetHostView();
 
   void TakeFrameHostOwnership(
       scoped_ptr<RenderFrameHostImpl> render_frame_host);
@@ -106,9 +110,18 @@ class RenderFrameProxyHost
   // action in another renderer process.
   void DisownOpener();
 
+  void set_render_frame_proxy_created(bool created) {
+    render_frame_proxy_created_ = created;
+  }
+
+  // Returns if the RenderFrameProxy for this host is alive.
+  bool is_render_frame_proxy_live() { return render_frame_proxy_created_; }
+
  private:
   // IPC Message handlers.
+  void OnDetach();
   void OnOpenURL(const FrameHostMsg_OpenURL_Params& params);
+  void OnRouteMessageEvent(const FrameMsg_PostMessage_Params& params);
 
   // This RenderFrameProxyHost's routing id.
   int routing_id_;
@@ -116,8 +129,17 @@ class RenderFrameProxyHost
   // The SiteInstance this proxy is associated with.
   scoped_refptr<SiteInstance> site_instance_;
 
+  // The renderer process this RenderFrameHostProxy is associated with. It is
+  // equivalent to the result of site_instance_->GetProcess(), but that
+  // method has the side effect of creating the process if it doesn't exist.
+  // Cache a pointer to avoid unnecessary process creation.
+  RenderProcessHost* process_;
+
   // The node in the frame tree where this proxy is located.
   FrameTreeNode* frame_tree_node_;
+
+  // True if we have a live RenderFrameProxy for this host.
+  bool render_frame_proxy_created_;
 
   // When a RenderFrameHost is in a different process from its parent in the
   // frame tree, this class connects its associated RenderWidgetHostView
@@ -128,6 +150,11 @@ class RenderFrameProxyHost
   // TODO(nasko): This can be removed once we don't have a swapped out state on
   // RenderFrameHosts. See https://crbug.com/357747.
   scoped_ptr<RenderFrameHostImpl> render_frame_host_;
+
+  // The RenderViewHost that this RenderFrameProxyHost is associated with. It is
+  // kept alive as long as any RenderFrameHosts or RenderFrameProxyHosts
+  // are associated with it.
+  RenderViewHostImpl* render_view_host_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderFrameProxyHost);
 };

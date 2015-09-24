@@ -19,8 +19,8 @@
 #include "ui/base/x/selection_requestor.h"
 #include "ui/base/x/selection_utils.h"
 #include "ui/events/platform/platform_event_dispatcher.h"
+#include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/image/image_skia.h"
-#include "ui/gfx/vector2d.h"
 #include "ui/gfx/x/x11_atom_cache.h"
 #include "url/gurl.h"
 
@@ -69,7 +69,7 @@ class UI_BASE_EXPORT OSExchangeDataProviderAuraX11
   void SetFilename(const base::FilePath& path) override;
   void SetFilenames(const std::vector<FileInfo>& filenames) override;
   void SetPickledData(const OSExchangeData::CustomFormat& format,
-                      const Pickle& pickle) override;
+                      const base::Pickle& pickle) override;
   bool GetString(base::string16* data) const override;
   bool GetURLAndTitle(OSExchangeData::FilenameToURLPolicy policy,
                       GURL* url,
@@ -77,7 +77,7 @@ class UI_BASE_EXPORT OSExchangeDataProviderAuraX11
   bool GetFilename(base::FilePath* path) const override;
   bool GetFilenames(std::vector<FileInfo>* filenames) const override;
   bool GetPickledData(const OSExchangeData::CustomFormat& format,
-                      Pickle* pickle) const override;
+                      base::Pickle* pickle) const override;
   bool HasString() const override;
   bool HasURL(OSExchangeData::FilenameToURLPolicy policy) const override;
   bool HasFile() const override;
@@ -101,7 +101,7 @@ class UI_BASE_EXPORT OSExchangeDataProviderAuraX11
 
  private:
   friend class OSExchangeDataProviderAuraX11Test;
-  typedef std::map<OSExchangeData::CustomFormat, Pickle>  PickleData;
+  typedef std::map<OSExchangeData::CustomFormat, base::Pickle> PickleData;
 
   // Returns true if |formats_| contains a string format and the string can be
   // parsed as a URL.

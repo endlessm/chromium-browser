@@ -196,7 +196,13 @@ def Command(command, stdout=None, run_cond=None, **kwargs):
       path_dirs = [subst.Substitute(dirname) for dirname
                    in check_call_kwargs['path_dirs']]
       del check_call_kwargs['path_dirs']
-    check_call_kwargs['env'] = PlatformEnvironment(path_dirs)
+    # Perform substitution on any env overrides.
+    if 'env' in check_call_kwargs:
+      check_call_kwargs['env'] = { k: subst.Substitute(v)
+            for (k, v) in check_call_kwargs['env'].iteritems() }
+      check_call_kwargs['env'].update(PlatformEnvironment(path_dirs))
+    else:
+      check_call_kwargs['env'] = PlatformEnvironment(path_dirs)
 
     if isinstance(command, str):
       command = subst.Substitute(command)
@@ -249,15 +255,20 @@ def Mkdir(path, parents=False, run_cond=None):
   return Runnable(run_cond, mkdir, path)
 
 
-def Copy(src, dst, run_cond=None):
+def Copy(src, dst, permissions=False, run_cond=None):
   """Convenience method for generating cp commands."""
-  def copy(logger, subst, src, dst):
+  def copy(logger, subst, src, dst, permissions):
     src = subst.SubstituteAbsPaths(src)
     dst = subst.SubstituteAbsPaths(dst)
-    logger.debug('Copying: %s -> %s', src, dst)
+    logger.debug('Copying: %s %s-> %s',
+                 src,
+                 '(with permissions) ' if permissions else '',
+                 dst)
     shutil.copyfile(src, dst)
+    if permissions:
+      shutil.copymode(src, dst)
 
-  return Runnable(run_cond, copy, src, dst)
+  return Runnable(run_cond, copy, src, dst, permissions)
 
 
 def CopyRecursive(src, dst, run_cond=None):

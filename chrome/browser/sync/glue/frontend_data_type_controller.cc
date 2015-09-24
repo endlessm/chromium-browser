@@ -5,6 +5,7 @@
 #include "chrome/browser/sync/glue/frontend_data_type_controller.h"
 
 #include "base/logging.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/glue/chrome_report_unrecoverable_error.h"
 #include "chrome/browser/sync/profile_sync_components_factory.h"
@@ -25,7 +26,7 @@ namespace browser_sync {
 // a dependency on ProfileSyncService.  That dep can probably be removed
 // without too much work.
 FrontendDataTypeController::FrontendDataTypeController(
-    scoped_refptr<base::MessageLoopProxy> ui_thread,
+    scoped_refptr<base::SingleThreadTaskRunner> ui_thread,
     const base::Closure& error_callback,
     ProfileSyncComponentsFactory* profile_sync_factory,
     Profile* profile,
@@ -35,7 +36,7 @@ FrontendDataTypeController::FrontendDataTypeController(
       profile_(profile),
       sync_service_(sync_service),
       state_(NOT_RUNNING) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(profile_sync_factory);
   DCHECK(profile);
   DCHECK(sync_service);
@@ -43,7 +44,7 @@ FrontendDataTypeController::FrontendDataTypeController(
 
 void FrontendDataTypeController::LoadModels(
     const ModelLoadCallback& model_load_callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   model_load_callback_ = model_load_callback;
 
   if (state_ != NOT_RUNNING) {
@@ -68,7 +69,7 @@ void FrontendDataTypeController::LoadModels(
 }
 
 void FrontendDataTypeController::OnModelLoaded() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK_EQ(state_, MODEL_STARTING);
 
   state_ = MODEL_LOADED;
@@ -77,23 +78,19 @@ void FrontendDataTypeController::OnModelLoaded() {
 
 void FrontendDataTypeController::StartAssociating(
     const StartCallback& start_callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(!start_callback.is_null());
   DCHECK_EQ(state_, MODEL_LOADED);
 
   start_callback_ = start_callback;
   state_ = ASSOCIATING;
-  if (!Associate()) {
-    // It's possible StartDone(..) resulted in a Stop() call, or that
-    // association failed, so we just verify that the state has moved forward.
-    DCHECK_NE(state_, ASSOCIATING);
-    return;
-  }
-  DCHECK_EQ(state_, RUNNING);
+
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+    FROM_HERE, base::Bind(&FrontendDataTypeController::Associate, this));
 }
 
 void FrontendDataTypeController::Stop() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (state_ == NOT_RUNNING)
     return;
@@ -147,14 +144,14 @@ void FrontendDataTypeController::OnSingleDataTypeUnrecoverableError(
   if (!model_load_callback_.is_null()) {
     syncer::SyncMergeResult local_merge_result(type());
     local_merge_result.set_error(error);
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(model_load_callback_, type(), error));
   }
 }
 
 FrontendDataTypeController::FrontendDataTypeController()
-    : DataTypeController(base::MessageLoopProxy::current(), base::Closure()),
+    : DataTypeController(base::ThreadTaskRunnerHandle::Get(), base::Closure()),
       profile_sync_factory_(NULL),
       profile_(NULL),
       sync_service_(NULL),
@@ -162,7 +159,7 @@ FrontendDataTypeController::FrontendDataTypeController()
 }
 
 FrontendDataTypeController::~FrontendDataTypeController() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 }
 
 bool FrontendDataTypeController::StartModels() {
@@ -187,14 +184,19 @@ void FrontendDataTypeController::RecordUnrecoverableError(
     error_callback_.Run();
 }
 
-bool FrontendDataTypeController::Associate() {
-  DCHECK_EQ(state_, ASSOCIATING);
+void FrontendDataTypeController::Associate() {
+  if (state_ != ASSOCIATING) {
+    // Stop() must have been called while Associate() task have been waiting.
+    DCHECK_EQ(state_, NOT_RUNNING);
+    return;
+  }
+
   syncer::SyncMergeResult local_merge_result(type());
   syncer::SyncMergeResult syncer_merge_result(type());
   CreateSyncComponents();
   if (!model_associator()->CryptoReadyIfNecessary()) {
     StartDone(NEEDS_CRYPTO, local_merge_result, syncer_merge_result);
-    return false;
+    return;
   }
 
   bool sync_has_nodes = false;
@@ -205,7 +207,7 @@ bool FrontendDataTypeController::Associate() {
                             type());
     local_merge_result.set_error(error);
     StartDone(UNRECOVERABLE_ERROR, local_merge_result, syncer_merge_result);
-    return false;
+    return;
   }
 
   // TODO(zea): Have AssociateModels fill the local and syncer merge results.
@@ -219,7 +221,7 @@ bool FrontendDataTypeController::Associate() {
   if (error.IsSet()) {
     local_merge_result.set_error(error);
     StartDone(ASSOCIATION_FAILED, local_merge_result, syncer_merge_result);
-    return false;
+    return;
   }
 
   state_ = RUNNING;
@@ -229,12 +231,6 @@ bool FrontendDataTypeController::Associate() {
   StartDone(!sync_has_nodes ? OK_FIRST_RUN : OK,
             local_merge_result,
             syncer_merge_result);
-  // Return false if we're not in the RUNNING state (due to Stop() being called
-  // from FinishStart()).
-  // TODO(zea/atwilson): Should we maybe move the call to FinishStart() out of
-  // Associate() and into Start(), so we don't need this logic here? It seems
-  // cleaner to call FinishStart() from Start().
-  return state_ == RUNNING;
 }
 
 void FrontendDataTypeController::CleanUpState() {
@@ -248,7 +244,7 @@ void FrontendDataTypeController::CleanUp() {
 }
 
 void FrontendDataTypeController::AbortModelLoad() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   CleanUp();
   state_ = NOT_RUNNING;
 }
@@ -257,7 +253,7 @@ void FrontendDataTypeController::StartDone(
     ConfigureResult start_result,
     const syncer::SyncMergeResult& local_merge_result,
     const syncer::SyncMergeResult& syncer_merge_result) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (!IsSuccessfulResult(start_result)) {
     if (IsUnrecoverableResult(start_result))
       RecordUnrecoverableError(FROM_HERE, "StartFailed");
@@ -275,7 +271,7 @@ void FrontendDataTypeController::StartDone(
 }
 
 void FrontendDataTypeController::RecordAssociationTime(base::TimeDelta time) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 #define PER_DATA_TYPE_MACRO(type_str) \
     UMA_HISTOGRAM_TIMES("Sync." type_str "AssociationTime", time);
   SYNC_DATA_TYPE_HISTOGRAM(type());
@@ -283,13 +279,13 @@ void FrontendDataTypeController::RecordAssociationTime(base::TimeDelta time) {
 }
 
 void FrontendDataTypeController::RecordStartFailure(ConfigureResult result) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   UMA_HISTOGRAM_ENUMERATION("Sync.DataTypeStartFailures",
                             ModelTypeToHistogramInt(type()),
                             syncer::MODEL_TYPE_COUNT);
-#define PER_DATA_TYPE_MACRO(type_str) \
-    UMA_HISTOGRAM_ENUMERATION("Sync." type_str "StartFailure", result, \
-                              MAX_START_RESULT);
+#define PER_DATA_TYPE_MACRO(type_str)                                    \
+  UMA_HISTOGRAM_ENUMERATION("Sync." type_str "ConfigureFailure", result, \
+                            MAX_CONFIGURE_RESULT);
   SYNC_DATA_TYPE_HISTOGRAM(type());
 #undef PER_DATA_TYPE_MACRO
 }

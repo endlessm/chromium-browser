@@ -7,7 +7,6 @@
 #include "base/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/sequenced_task_runner.h"
 #include "base/values.h"
 #include "components/policy/core/common/async_policy_loader.h"
@@ -41,13 +40,13 @@ class MockPolicyLoader : public AsyncPolicyLoader {
  public:
   explicit MockPolicyLoader(
       scoped_refptr<base::SequencedTaskRunner> task_runner);
-  virtual ~MockPolicyLoader();
+  ~MockPolicyLoader() override;
 
   // Load() returns a scoped_ptr<PolicyBundle> but it can't be mocked because
   // scoped_ptr is moveable but not copyable. This override forwards the
   // call to MockLoad() which returns a PolicyBundle*, and returns a copy
   // wrapped in a passed scoped_ptr.
-  virtual scoped_ptr<PolicyBundle> Load() override;
+  scoped_ptr<PolicyBundle> Load() override;
 
   MOCK_METHOD0(MockLoad, const PolicyBundle*());
   MOCK_METHOD0(InitOnBackgroundThread, void());
@@ -99,7 +98,7 @@ AsyncPolicyProviderTest::~AsyncPolicyProviderTest() {}
 
 void AsyncPolicyProviderTest::SetUp() {
   SetPolicy(&initial_bundle_, "policy", "initial");
-  loader_ = new MockPolicyLoader(loop_.message_loop_proxy());
+  loader_ = new MockPolicyLoader(loop_.task_runner());
   EXPECT_CALL(*loader_, LastModificationTime())
       .WillRepeatedly(Return(base::Time()));
   EXPECT_CALL(*loader_, InitOnBackgroundThread()).Times(1);

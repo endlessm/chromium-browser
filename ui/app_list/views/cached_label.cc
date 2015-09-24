@@ -29,7 +29,9 @@ void CachedLabel::PaintToBackingImage() {
     canvas.FillRect(
         GetLocalBounds(), background_color(), SkXfermode::kSrc_Mode);
   }
+
   Label::OnPaint(&canvas);
+
   image_ = gfx::ImageSkia(canvas.ExtractImageRep());
   needs_repaint_ = false;
 }
@@ -44,7 +46,7 @@ void CachedLabel::OnPaint(gfx::Canvas* canvas) {
 void CachedLabel::OnDeviceScaleFactorChanged(
     float device_scale_factor) {
   Invalidate();
-  View::OnDeviceScaleFactorChanged(device_scale_factor);
+  Label::OnDeviceScaleFactorChanged(device_scale_factor);
 }
 
 }  // namespace app_list

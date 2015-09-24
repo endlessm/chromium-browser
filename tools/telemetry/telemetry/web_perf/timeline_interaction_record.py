@@ -4,24 +4,13 @@
 
 import re
 
-import telemetry.timeline.bounds as timeline_bounds
 from telemetry import decorators
+import telemetry.timeline.bounds as timeline_bounds
 
-# Enables the fast metric for this interaction
-IS_FAST = 'is_fast'
-# Enables the responsiveness metric for this interaction
-IS_RESPONSIVE = 'is_responsive'
-# Enables the smoothness metric for this interaction
-IS_SMOOTH = 'is_smooth'
 # Allows multiple duplicate interactions of the same type
 REPEATABLE = 'repeatable'
 
-METRICS = [
-    IS_FAST,
-    IS_RESPONSIVE,
-    IS_SMOOTH
-]
-FLAGS = METRICS + [REPEATABLE]
+FLAGS = [REPEATABLE]
 
 
 class ThreadTimeRangeOverlappedException(Exception):
@@ -61,7 +50,10 @@ def GetJavaScriptMarker(label, flags):
     AssertionError: If one or more of the flags is unrecognized.
   """
   _AssertFlagsAreValid(flags)
-  return 'Interaction.%s/%s' % (label, ','.join(flags))
+  marker = 'Interaction.%s' % label
+  if flags:
+    marker += '/%s' % (','.join(flags))
+  return marker
 
 class TimelineInteractionRecord(object):
   """Represents an interaction that took place during a timeline recording.
@@ -88,7 +80,7 @@ class TimelineInteractionRecord(object):
   is currently done by pushing markers into the console.time/timeEnd API: this
   for instance can be issued in JS:
 
-     var str = 'Interaction.SendEmail/is_smooth,is_responsive,is_fast';
+     var str = 'Interaction.SendEmail';
      console.time(str);
      setTimeout(function() {
        console.timeEnd(str);
@@ -96,13 +88,9 @@ class TimelineInteractionRecord(object):
 
   When run with perf.measurements.timeline_based_measurement running, this will
   then cause a TimelineInteractionRecord to be created for this range with
-  smoothness, responsive, and fast metrics reported for the marked up 1000ms
-  time-range.
+  all metrics reported for the marked up 1000ms time-range.
 
   The valid interaction flags are:
-     * is_fast: Enables the fast metric
-     * is_responsive: Enables the responsiveness metric
-     * is_smooth: Enables the smoothness metric
      * repeatable: Allows other interactions to use the same label
   """
 
@@ -128,18 +116,6 @@ class TimelineInteractionRecord(object):
     return self._end
 
   @property
-  def is_fast(self):
-    return IS_FAST in self._flags
-
-  @property
-  def is_responsive(self):
-    return IS_RESPONSIVE in self._flags
-
-  @property
-  def is_smooth(self):
-    return IS_SMOOTH in self._flags
-
-  @property
   def repeatable(self):
     return REPEATABLE in self._flags
 
@@ -156,7 +132,7 @@ class TimelineInteractionRecord(object):
     assert async_event.start_thread == async_event.end_thread, (
         'Start thread of this record\'s async event is not the same as its '
         'end thread')
-    m = re.match('Interaction\.(?P<label>.+?)(/(?P<flags>[^/]+))?$',
+    m = re.match(r'Interaction\.(?P<label>.+?)(/(?P<flags>[^/]+))?$',
                  async_event.name)
     assert m, "Async event is not an interaction record."
     label = m.group('label')
@@ -169,12 +145,6 @@ class TimelineInteractionRecord(object):
     bounds.AddValue(self.start)
     bounds.AddValue(self.end)
     return bounds
-
-  def HasMetric(self, metric_type):
-    if metric_type not in METRICS:
-      raise AssertionError('Unrecognized metric type for a timeline '
-                           'interaction record: %s' % metric_type)
-    return metric_type in self._flags
 
   def GetOverlappedThreadTimeForSlice(self, timeline_slice):
     """Get the thread duration of timeline_slice that overlaps with this record.

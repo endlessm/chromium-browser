@@ -4,13 +4,13 @@
 
 #include "chromeos/dbus/fake_bluetooth_adapter_client.h"
 
-#include "base/bind.h"
+#include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/fake_bluetooth_device_client.h"
-#include "dbus/object_path.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
 namespace chromeos {
@@ -77,6 +77,7 @@ FakeBluetoothAdapterClient::FakeBluetoothAdapterClient()
     : visible_(true),
       second_visible_(false),
       discovering_count_(0),
+      set_discovery_filter_should_fail_(false),
       simulation_interval_ms_(kSimulationIntervalMs) {
   properties_.reset(new Properties(base::Bind(
       &FakeBluetoothAdapterClient::OnPropertyChanged, base::Unretained(this))));
@@ -183,6 +184,7 @@ void FakeBluetoothAdapterClient::StopDiscovery(
           dbus::ObjectPath(kAdapterPath));
     }
 
+    discovery_filter_.reset();
     properties_->discovering.ReplaceValue(false);
   }
 }
@@ -207,8 +209,39 @@ void FakeBluetoothAdapterClient::RemoveDevice(
   device_client->RemoveDevice(dbus::ObjectPath(kAdapterPath), device_path);
 }
 
+void FakeBluetoothAdapterClient::MakeSetDiscoveryFilterFail() {
+  set_discovery_filter_should_fail_ = true;
+}
+
+void FakeBluetoothAdapterClient::SetDiscoveryFilter(
+    const dbus::ObjectPath& object_path,
+    const DiscoveryFilter& discovery_filter,
+    const base::Closure& callback,
+    const ErrorCallback& error_callback) {
+  if (object_path != dbus::ObjectPath(kAdapterPath)) {
+    PostDelayedTask(base::Bind(error_callback, kNoResponseError, ""));
+    return;
+  }
+  VLOG(1) << "SetDiscoveryFilter: " << object_path.value();
+
+  if (set_discovery_filter_should_fail_) {
+    PostDelayedTask(base::Bind(error_callback, kNoResponseError, ""));
+    set_discovery_filter_should_fail_ = false;
+    return;
+  }
+
+  discovery_filter_.reset(new DiscoveryFilter());
+  discovery_filter_->CopyFrom(discovery_filter);
+  PostDelayedTask(callback);
+}
+
 void FakeBluetoothAdapterClient::SetSimulationIntervalMs(int interval_ms) {
   simulation_interval_ms_ = interval_ms;
+}
+
+BluetoothAdapterClient::DiscoveryFilter*
+FakeBluetoothAdapterClient::GetDiscoveryFilter() {
+  return discovery_filter_.get();
 }
 
 void FakeBluetoothAdapterClient::SetVisible(
@@ -266,7 +299,7 @@ void FakeBluetoothAdapterClient::OnPropertyChanged(
 
 void FakeBluetoothAdapterClient::PostDelayedTask(
     const base::Closure& callback) {
-  base::MessageLoop::current()->PostDelayedTask(
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE, callback,
       base::TimeDelta::FromMilliseconds(simulation_interval_ms_));
 }

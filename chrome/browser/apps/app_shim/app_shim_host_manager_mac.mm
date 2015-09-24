@@ -17,6 +17,7 @@
 #include "base/strings/string_util.h"
 #include "chrome/browser/apps/app_shim/app_shim_handler_mac.h"
 #include "chrome/browser/apps/app_shim/app_shim_host_mac.h"
+#include "chrome/browser/apps/app_shim/extension_app_shim_handler_mac.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -55,14 +56,14 @@ void DeleteSocketFiles(const base::FilePath& directory_in_tmp,
 
 }  // namespace
 
-AppShimHostManager::AppShimHostManager()
-    : did_init_(false) {}
+AppShimHostManager::AppShimHostManager() {
+}
 
 void AppShimHostManager::Init() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  DCHECK(!did_init_);
-  did_init_ = true;
-  apps::AppShimHandler::SetDefaultHandler(&extension_app_shim_handler_);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  DCHECK(!extension_app_shim_handler_);
+  extension_app_shim_handler_.reset(new apps::ExtensionAppShimHandler());
+  apps::AppShimHandler::SetDefaultHandler(extension_app_shim_handler_.get());
   BrowserThread::PostTask(
       BrowserThread::FILE, FROM_HERE,
       base::Bind(&AppShimHostManager::InitOnFileThread, this));
@@ -70,7 +71,11 @@ void AppShimHostManager::Init() {
 
 AppShimHostManager::~AppShimHostManager() {
   acceptor_.reset();
-  if (!did_init_)
+
+  // The AppShimHostManager is only initialized if the Chrome process
+  // successfully took the singleton lock. If it was not initialized, do not
+  // delete existing app shim socket files as they belong to another process.
+  if (!extension_app_shim_handler_)
     return;
 
   apps::AppShimHandler::SetDefaultHandler(NULL);
@@ -90,7 +95,7 @@ AppShimHostManager::~AppShimHostManager() {
 }
 
 void AppShimHostManager::InitOnFileThread() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
   base::FilePath user_data_dir;
   if (!PathService::Get(chrome::DIR_USER_DATA, &user_data_dir))
     return;
@@ -144,7 +149,7 @@ void AppShimHostManager::InitOnFileThread() {
 }
 
 void AppShimHostManager::ListenOnIOThread() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (!acceptor_->Listen()) {
     BrowserThread::PostTask(
         BrowserThread::UI, FROM_HERE,
@@ -154,7 +159,7 @@ void AppShimHostManager::ListenOnIOThread() {
 
 void AppShimHostManager::OnClientConnected(
     const IPC::ChannelHandle& handle) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
       base::Bind(&CreateAppShimHost, handle));

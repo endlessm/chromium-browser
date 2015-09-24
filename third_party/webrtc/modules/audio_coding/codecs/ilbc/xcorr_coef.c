@@ -55,13 +55,13 @@ int WebRtcIlbcfix_XcorrCoef(
 
   /* Find scale value and start position */
   if (step==1) {
-    max=WebRtcSpl_MaxAbsValueW16(regressor, (int16_t)(subl+searchLen-1));
+    max=WebRtcSpl_MaxAbsValueW16(regressor, subl + searchLen - 1);
     rp_beg = regressor;
-    rp_end = &regressor[subl];
+    rp_end = regressor + subl;
   } else { /* step==-1 */
-    max=WebRtcSpl_MaxAbsValueW16(&regressor[-searchLen], (int16_t)(subl+searchLen-1));
-    rp_beg = &regressor[-1];
-    rp_end = &regressor[subl-1];
+    max = WebRtcSpl_MaxAbsValueW16(regressor - searchLen, subl + searchLen - 1);
+    rp_beg = regressor - 1;
+    rp_end = regressor + subl - 1;
   }
 
   /* Introduce a scale factor on the Energy in int32_t in
@@ -92,7 +92,7 @@ int WebRtcIlbcfix_XcorrCoef(
       EnergyMod=(int16_t)WEBRTC_SPL_SHIFT_W32(Energy, Energyscale);
 
       /* Square cross correlation and store upper int16_t */
-      crossCorrSqMod=(int16_t)WEBRTC_SPL_MUL_16_16_RSFT(crossCorrmod, crossCorrmod, 16);
+      crossCorrSqMod = (int16_t)((crossCorrmod * crossCorrmod) >> 16);
 
       /* Calculate the total number of (dynamic) right shifts that have
          been performed on (crossCorr*crossCorr)/energy

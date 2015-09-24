@@ -8,15 +8,15 @@
 #include <string>
 
 #include "base/files/file.h"
-#include "base/time/time.h"
 #include "content/common/content_export.h"
 #include "third_party/WebKit/public/platform/WebMediaConstraints.h"
 #include "third_party/libjingle/source/talk/app/webrtc/mediastreaminterface.h"
+#include "third_party/webrtc/modules/audio_processing/include/audio_processing.h"
 
 namespace webrtc {
 
 class AudioFrame;
-class AudioProcessing;
+class EchoCancellation;
 class MediaConstraintsInterface;
 class TypingDetection;
 
@@ -41,6 +41,8 @@ class CONTENT_EXPORT MediaAudioConstraints {
   static const char kGoogExperimentalAutoGainControl[];
   static const char kGoogNoiseSuppression[];
   static const char kGoogExperimentalNoiseSuppression[];
+  static const char kGoogBeamforming[];
+  static const char kGoogArrayGeometry[];
   static const char kGoogHighpassFilter[];
   static const char kGoogTypingNoiseDetection[];
   static const char kGoogAudioMirroring[];
@@ -59,30 +61,32 @@ class CONTENT_EXPORT MediaAudioConstraints {
                         int effects);
   virtual ~MediaAudioConstraints();
 
-  // Checks if any audio constraints are set that requires audio processing to
-  // be applied.
-  bool NeedsAudioProcessing();
-
   // Gets the property of the constraint named by |key| in |constraints_|.
-  // Returns the constraint's value if the key is found; Otherwise returns the
+  // Returns the constraint's value if the key is found; otherwise returns the
   // default value of the constraint.
   // Note, for constraint of |kEchoCancellation| or |kGoogEchoCancellation|,
   // clients should use GetEchoCancellationProperty().
-  bool GetProperty(const std::string& key);
+  bool GetProperty(const std::string& key) const;
+
+  // Gets the property of the constraint named by |key| in |constraints_| as a
+  // string. Returns the constraint's string value if the key is found;
+  // otherwise returns an empty string.
+  std::string GetPropertyAsString(const std::string& key) const;
 
   // Gets the property of echo cancellation defined in |constraints_|. The
   // returned value depends on a combination of |effects_|, |kEchoCancellation|
   // and |kGoogEchoCancellation| in |constraints_|.
-  bool GetEchoCancellationProperty();
+  bool GetEchoCancellationProperty() const;
 
   // Returns true if all the mandatory constraints in |constraints_| are valid;
   // Otherwise return false.
-  bool IsValid();
+  bool IsValid() const;
 
  private:
   // Gets the default value of constraint named by |key| in |constraints|.
   bool GetDefaultValueForConstraint(
-      const blink::WebMediaConstraints& constraints, const std::string& key);
+      const blink::WebMediaConstraints& constraints,
+      const std::string& key) const;
 
   const blink::WebMediaConstraints constraints_;
   const int effects_;
@@ -96,18 +100,13 @@ class CONTENT_EXPORT EchoInformation {
   EchoInformation();
   virtual ~EchoInformation();
 
-  // Updates delay statistics with a new |delay|.
-  void UpdateAecDelayStats(int delay);
+  void UpdateAecDelayStats(webrtc::EchoCancellation* echo_cancellation);
 
  private:
-  // Updates UMA histograms with an interval of |kTimeBetweenLogsInSeconds|.
-  void LogAecDelayStats();
-
-  // Counters for determining how often the estimated delay in the AEC is out of
-  // bounds.
-  int echo_poor_delay_counts_;
-  int echo_total_delay_counts_;
-  base::TimeTicks last_log_time_;
+  // Counter to track 5 seconds of processed 10 ms chunks in order to query a
+  // new metric from webrtc::EchoCancellation::GetEchoDelayMetrics().
+  int num_chunks_;
+  bool echo_frames_received_;
 
   DISALLOW_COPY_AND_ASSIGN(EchoInformation);
 };
@@ -116,7 +115,8 @@ class CONTENT_EXPORT EchoInformation {
 void EnableEchoCancellation(AudioProcessing* audio_processing);
 
 // Enables the noise suppression in |audio_processing|.
-void EnableNoiseSuppression(AudioProcessing* audio_processing);
+void EnableNoiseSuppression(AudioProcessing* audio_processing,
+                            webrtc::NoiseSuppression::Level ns_level);
 
 // Enables the high pass filter in |audio_processing|.
 void EnableHighPassFilter(AudioProcessing* audio_processing);
@@ -136,7 +136,7 @@ void StopEchoCancellationDump(AudioProcessing* audio_processing);
 
 void EnableAutomaticGainControl(AudioProcessing* audio_processing);
 
-void GetAecStats(AudioProcessing* audio_processing,
+void GetAecStats(webrtc::EchoCancellation* echo_cancellation,
                  webrtc::AudioProcessorInterface::AudioProcessorStats* stats);
 
 }  // namespace content

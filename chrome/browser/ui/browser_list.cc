@@ -26,7 +26,7 @@ using base::UserMetricsAction;
 using content::WebContents;
 
 // static
-base::LazyInstance<ObserverList<chrome::BrowserListObserver> >::Leaky
+base::LazyInstance<base::ObserverList<chrome::BrowserListObserver>>::Leaky
     BrowserList::observers_ = LAZY_INSTANCE_INITIALIZER;
 
 // static
@@ -215,8 +215,6 @@ bool BrowserList::IsOffTheRecordSessionActive() {
 
 // static
 bool BrowserList::IsOffTheRecordSessionActiveForProfile(Profile* profile) {
-  if (profile->IsGuestSession())
-    return true;
   for (chrome::BrowserIterator it; !it.done(); it.Next()) {
     if (it->profile()->IsSameProfile(profile) &&
         it->profile()->IsOffTheRecord()) {

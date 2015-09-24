@@ -5,10 +5,13 @@
 #include "chrome/browser/ui/bookmarks/bookmark_editor.h"
 
 #include "base/strings/utf_string_conversions.h"
+#include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/test/test_bookmark_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::ASCIIToUTF16;
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
 
 namespace {
 

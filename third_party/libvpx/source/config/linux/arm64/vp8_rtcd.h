@@ -31,8 +31,7 @@ void vp8_bilinear_predict16x16_neon(unsigned char *src, int src_pitch, int xofst
 #define vp8_bilinear_predict16x16 vp8_bilinear_predict16x16_neon
 
 void vp8_bilinear_predict4x4_c(unsigned char *src, int src_pitch, int xofst, int yofst, unsigned char *dst, int dst_pitch);
-void vp8_bilinear_predict4x4_neon(unsigned char *src, int src_pitch, int xofst, int yofst, unsigned char *dst, int dst_pitch);
-#define vp8_bilinear_predict4x4 vp8_bilinear_predict4x4_neon
+#define vp8_bilinear_predict4x4 vp8_bilinear_predict4x4_c
 
 void vp8_bilinear_predict8x4_c(unsigned char *src, int src_pitch, int xofst, int yofst, unsigned char *dst, int dst_pitch);
 void vp8_bilinear_predict8x4_neon(unsigned char *src, int src_pitch, int xofst, int yofst, unsigned char *dst, int dst_pitch);
@@ -109,10 +108,8 @@ int vp8_diamond_search_sad_c(struct macroblock *x, struct block *b, struct block
 #define vp8_diamond_search_sad vp8_diamond_search_sad_c
 
 void vp8_fast_quantize_b_c(struct block *, struct blockd *);
-#define vp8_fast_quantize_b vp8_fast_quantize_b_c
-
-void vp8_fast_quantize_b_pair_c(struct block *b1, struct block *b2, struct blockd *d1, struct blockd *d2);
-#define vp8_fast_quantize_b_pair vp8_fast_quantize_b_pair_c
+void vp8_fast_quantize_b_neon(struct block *, struct blockd *);
+#define vp8_fast_quantize_b vp8_fast_quantize_b_neon
 
 void vp8_filter_by_weight16x16_c(unsigned char *src, int src_stride, unsigned char *dst, int dst_stride, int src_weight);
 #define vp8_filter_by_weight16x16 vp8_filter_by_weight16x16_c
@@ -125,13 +122,6 @@ void vp8_filter_by_weight8x8_c(unsigned char *src, int src_stride, unsigned char
 
 int vp8_full_search_sad_c(struct macroblock *x, struct block *b, struct blockd *d, union int_mv *ref_mv, int sad_per_bit, int distance, struct variance_vtable *fn_ptr, int *mvcost[2], union int_mv *center_mv);
 #define vp8_full_search_sad vp8_full_search_sad_c
-
-unsigned int vp8_get4x4sse_cs_c(const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride);
-unsigned int vp8_get4x4sse_cs_neon(const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride);
-#define vp8_get4x4sse_cs vp8_get4x4sse_cs_neon
-
-unsigned int vp8_get_mb_ss_c(const short *);
-#define vp8_get_mb_ss vp8_get_mb_ss_c
 
 void vp8_intra4x4_predict_c(unsigned char *Above, unsigned char *yleft, int left_stride, int b_mode, unsigned char *dst, int dst_stride, unsigned char top_left);
 #define vp8_intra4x4_predict vp8_intra4x4_predict_c
@@ -180,101 +170,17 @@ void vp8_mbpost_proc_down_c(unsigned char *dst, int pitch, int rows, int cols,in
 int vp8_mbuverror_c(struct macroblock *mb);
 #define vp8_mbuverror vp8_mbuverror_c
 
-unsigned int vp8_mse16x16_c(const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sse);
-unsigned int vp8_mse16x16_neon(const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sse);
-#define vp8_mse16x16 vp8_mse16x16_neon
-
 void vp8_plane_add_noise_c(unsigned char *s, char *noise, char blackclamp[16], char whiteclamp[16], char bothclamp[16], unsigned int w, unsigned int h, int pitch);
 #define vp8_plane_add_noise vp8_plane_add_noise_c
 
 void vp8_post_proc_down_and_across_mb_row_c(unsigned char *src, unsigned char *dst, int src_pitch, int dst_pitch, int cols, unsigned char *flimits, int size);
 #define vp8_post_proc_down_and_across_mb_row vp8_post_proc_down_and_across_mb_row_c
 
-void vp8_quantize_mb_c(struct macroblock *);
-void vp8_quantize_mb_neon(struct macroblock *);
-#define vp8_quantize_mb vp8_quantize_mb_neon
-
-void vp8_quantize_mbuv_c(struct macroblock *);
-void vp8_quantize_mbuv_neon(struct macroblock *);
-#define vp8_quantize_mbuv vp8_quantize_mbuv_neon
-
-void vp8_quantize_mby_c(struct macroblock *);
-void vp8_quantize_mby_neon(struct macroblock *);
-#define vp8_quantize_mby vp8_quantize_mby_neon
-
 int vp8_refining_search_sad_c(struct macroblock *x, struct block *b, struct blockd *d, union int_mv *ref_mv, int sad_per_bit, int distance, struct variance_vtable *fn_ptr, int *mvcost[2], union int_mv *center_mv);
 #define vp8_refining_search_sad vp8_refining_search_sad_c
 
 void vp8_regular_quantize_b_c(struct block *, struct blockd *);
 #define vp8_regular_quantize_b vp8_regular_quantize_b_c
-
-void vp8_regular_quantize_b_pair_c(struct block *b1, struct block *b2, struct blockd *d1, struct blockd *d2);
-#define vp8_regular_quantize_b_pair vp8_regular_quantize_b_pair_c
-
-unsigned int vp8_sad16x16_c(const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int ref_stride, unsigned int max_sad);
-unsigned int vp8_sad16x16_neon(const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int ref_stride, unsigned int max_sad);
-#define vp8_sad16x16 vp8_sad16x16_neon
-
-void vp8_sad16x16x3_c(const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sad_array);
-#define vp8_sad16x16x3 vp8_sad16x16x3_c
-
-void vp8_sad16x16x4d_c(const unsigned char *src_ptr, int src_stride, const unsigned char * const ref_ptr[], int  ref_stride, unsigned int *sad_array);
-#define vp8_sad16x16x4d vp8_sad16x16x4d_c
-
-void vp8_sad16x16x8_c(const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned short *sad_array);
-#define vp8_sad16x16x8 vp8_sad16x16x8_c
-
-unsigned int vp8_sad16x8_c(const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int ref_stride, unsigned int max_sad);
-unsigned int vp8_sad16x8_neon(const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int ref_stride, unsigned int max_sad);
-#define vp8_sad16x8 vp8_sad16x8_neon
-
-void vp8_sad16x8x3_c(const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sad_array);
-#define vp8_sad16x8x3 vp8_sad16x8x3_c
-
-void vp8_sad16x8x4d_c(const unsigned char *src_ptr, int src_stride, const unsigned char * const ref_ptr[], int  ref_stride, unsigned int *sad_array);
-#define vp8_sad16x8x4d vp8_sad16x8x4d_c
-
-void vp8_sad16x8x8_c(const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned short *sad_array);
-#define vp8_sad16x8x8 vp8_sad16x8x8_c
-
-unsigned int vp8_sad4x4_c(const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int ref_stride, unsigned int max_sad);
-unsigned int vp8_sad4x4_neon(const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int ref_stride, unsigned int max_sad);
-#define vp8_sad4x4 vp8_sad4x4_neon
-
-void vp8_sad4x4x3_c(const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sad_array);
-#define vp8_sad4x4x3 vp8_sad4x4x3_c
-
-void vp8_sad4x4x4d_c(const unsigned char *src_ptr, int src_stride, const unsigned char * const ref_ptr[], int  ref_stride, unsigned int *sad_array);
-#define vp8_sad4x4x4d vp8_sad4x4x4d_c
-
-void vp8_sad4x4x8_c(const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned short *sad_array);
-#define vp8_sad4x4x8 vp8_sad4x4x8_c
-
-unsigned int vp8_sad8x16_c(const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int ref_stride, unsigned int max_sad);
-unsigned int vp8_sad8x16_neon(const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int ref_stride, unsigned int max_sad);
-#define vp8_sad8x16 vp8_sad8x16_neon
-
-void vp8_sad8x16x3_c(const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sad_array);
-#define vp8_sad8x16x3 vp8_sad8x16x3_c
-
-void vp8_sad8x16x4d_c(const unsigned char *src_ptr, int src_stride, const unsigned char * const ref_ptr[], int  ref_stride, unsigned int *sad_array);
-#define vp8_sad8x16x4d vp8_sad8x16x4d_c
-
-void vp8_sad8x16x8_c(const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned short *sad_array);
-#define vp8_sad8x16x8 vp8_sad8x16x8_c
-
-unsigned int vp8_sad8x8_c(const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int ref_stride, unsigned int max_sad);
-unsigned int vp8_sad8x8_neon(const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int ref_stride, unsigned int max_sad);
-#define vp8_sad8x8 vp8_sad8x8_neon
-
-void vp8_sad8x8x3_c(const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sad_array);
-#define vp8_sad8x8x3 vp8_sad8x8x3_c
-
-void vp8_sad8x8x4d_c(const unsigned char *src_ptr, int src_stride, const unsigned char * const ref_ptr[], int  ref_stride, unsigned int *sad_array);
-#define vp8_sad8x8x4d vp8_sad8x8x4d_c
-
-void vp8_sad8x8x8_c(const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned short *sad_array);
-#define vp8_sad8x8x8 vp8_sad8x8x8_c
 
 void vp8_short_fdct4x4_c(short *input, short *output, int pitch);
 void vp8_short_fdct4x4_neon(short *input, short *output, int pitch);
@@ -314,9 +220,6 @@ void vp8_sixtap_predict8x8_c(unsigned char *src, int src_pitch, int xofst, int y
 void vp8_sixtap_predict8x8_neon(unsigned char *src, int src_pitch, int xofst, int yofst, unsigned char *dst, int dst_pitch);
 #define vp8_sixtap_predict8x8 vp8_sixtap_predict8x8_neon
 
-unsigned int vp8_sub_pixel_mse16x16_c(const unsigned char  *src_ptr, int  source_stride, int  xoffset, int  yoffset, const unsigned char *ref_ptr, int Refstride, unsigned int *sse);
-#define vp8_sub_pixel_mse16x16 vp8_sub_pixel_mse16x16_c
-
 unsigned int vp8_sub_pixel_variance16x16_c(const unsigned char  *src_ptr, int  source_stride, int  xoffset, int  yoffset, const unsigned char *ref_ptr, int Refstride, unsigned int *sse);
 #define vp8_sub_pixel_variance16x16 vp8_sub_pixel_variance16x16_c
 
@@ -343,25 +246,6 @@ void vp8_subtract_mbuv_neon(short *diff, unsigned char *usrc, unsigned char *vsr
 void vp8_subtract_mby_c(short *diff, unsigned char *src, int src_stride, unsigned char *pred, int pred_stride);
 void vp8_subtract_mby_neon(short *diff, unsigned char *src, int src_stride, unsigned char *pred, int pred_stride);
 #define vp8_subtract_mby vp8_subtract_mby_neon
-
-unsigned int vp8_variance16x16_c(const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sse);
-unsigned int vp8_variance16x16_neon(const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sse);
-#define vp8_variance16x16 vp8_variance16x16_neon
-
-unsigned int vp8_variance16x8_c(const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sse);
-unsigned int vp8_variance16x8_neon(const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sse);
-#define vp8_variance16x8 vp8_variance16x8_neon
-
-unsigned int vp8_variance4x4_c(const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sse);
-#define vp8_variance4x4 vp8_variance4x4_c
-
-unsigned int vp8_variance8x16_c(const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sse);
-unsigned int vp8_variance8x16_neon(const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sse);
-#define vp8_variance8x16 vp8_variance8x16_neon
-
-unsigned int vp8_variance8x8_c(const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sse);
-unsigned int vp8_variance8x8_neon(const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sse);
-#define vp8_variance8x8 vp8_variance8x8_neon
 
 unsigned int vp8_variance_halfpixvar16x16_h_c(const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sse);
 unsigned int vp8_variance_halfpixvar16x16_h_neon(const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sse);

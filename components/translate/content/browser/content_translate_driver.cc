@@ -5,7 +5,10 @@
 #include "components/translate/content/browser/content_translate_driver.h"
 
 #include "base/bind.h"
+#include "base/location.h"
 #include "base/logging.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "components/translate/content/common/translate_messages.h"
 #include "components/translate/core/browser/translate_download_manager.h"
 #include "components/translate/core/browser/translate_manager.h"
@@ -61,12 +64,10 @@ void ContentTranslateDriver::InitiateTranslation(const std::string& page_lang,
   // has finished.
   if (web_contents()->IsLoading() && attempt < max_reload_check_attempts_) {
     int backoff = attempt * kMaxTranslateLoadCheckAttempts;
-    base::MessageLoop::current()->PostDelayedTask(
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE,
         base::Bind(&ContentTranslateDriver::InitiateTranslation,
-                   weak_pointer_factory_.GetWeakPtr(),
-                   page_lang,
-                   attempt + 1),
+                   weak_pointer_factory_.GetWeakPtr(), page_lang, attempt + 1),
         base::TimeDelta::FromMilliseconds(backoff));
     return;
   }
@@ -78,8 +79,9 @@ void ContentTranslateDriver::InitiateTranslation(const std::string& page_lang,
 // TranslateDriver methods
 
 bool ContentTranslateDriver::IsLinkNavigation() {
-  return navigation_controller_ && navigation_controller_->GetActiveEntry() &&
-         navigation_controller_->GetActiveEntry()->GetTransitionType() ==
+  return navigation_controller_ &&
+         navigation_controller_->GetLastCommittedEntry() &&
+         navigation_controller_->GetLastCommittedEntry()->GetTransitionType() ==
              ui::PAGE_TRANSITION_LINK;
 }
 
@@ -130,19 +132,12 @@ const GURL& ContentTranslateDriver::GetLastCommittedURL() {
   return navigation_controller_->GetWebContents()->GetLastCommittedURL();
 }
 
-const GURL& ContentTranslateDriver::GetActiveURL() {
-  content::NavigationEntry* entry = navigation_controller_->GetActiveEntry();
-  if (!entry)
-    return GURL::EmptyGURL();
-  return entry->GetURL();
-}
-
 const GURL& ContentTranslateDriver::GetVisibleURL() {
   return navigation_controller_->GetWebContents()->GetVisibleURL();
 }
 
 bool ContentTranslateDriver::HasCurrentPage() {
-  return (navigation_controller_->GetActiveEntry() != NULL);
+  return (navigation_controller_->GetLastCommittedEntry() != NULL);
 }
 
 void ContentTranslateDriver::OpenUrlInNewTab(const GURL& url) {
@@ -163,7 +158,7 @@ void ContentTranslateDriver::NavigationEntryCommitted(
   // explicitly initiated.
 
   content::NavigationEntry* entry =
-      web_contents()->GetController().GetActiveEntry();
+      web_contents()->GetController().GetLastCommittedEntry();
   if (!entry) {
     NOTREACHED();
     return;
@@ -197,7 +192,7 @@ void ContentTranslateDriver::NavigationEntryCommitted(
   // by WebContentsObservers is undefined and might result in the current
   // infobars being removed. Since the translation initiation process might add
   // an infobar, it must be done after that.
-  base::MessageLoop::current()->PostTask(
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::Bind(&ContentTranslateDriver::InitiateTranslation,
                  weak_pointer_factory_.GetWeakPtr(),

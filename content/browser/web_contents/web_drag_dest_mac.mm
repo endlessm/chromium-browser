@@ -12,8 +12,8 @@
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/browser/web_drag_dest_delegate.h"
 #include "content/public/common/drop_data.h"
-#import "third_party/mozilla/NSPasteboard+Utils.h"
 #include "third_party/WebKit/public/web/WebInputEvent.h"
+#import "third_party/mozilla/NSPasteboard+Utils.h"
 #include "ui/base/clipboard/custom_data_helper.h"
 #import "ui/base/dragdrop/cocoa_dnd_util.h"
 #include "ui/base/window_open_disposition.h"
@@ -23,6 +23,8 @@ using content::DropData;
 using content::OpenURLParams;
 using content::Referrer;
 using content::WebContentsImpl;
+
+namespace {
 
 int GetModifierFlags() {
   int modifier_state = 0;
@@ -35,8 +37,23 @@ int GetModifierFlags() {
     modifier_state |= blink::WebInputEvent::AltKey;
   if (currentModifiers & ::cmdKey)
       modifier_state |= blink::WebInputEvent::MetaKey;
+
+  // The return value of 1 << 0 corresponds to the left mouse button,
+  // 1 << 1 corresponds to the right mouse button,
+  // 1 << n, n >= 2 correspond to other mouse buttons.
+  NSUInteger pressedButtons = [NSEvent pressedMouseButtons];
+
+  if (pressedButtons & (1 << 0))
+      modifier_state |= blink::WebInputEvent::LeftButtonDown;
+  if (pressedButtons & (1 << 1))
+      modifier_state |= blink::WebInputEvent::RightButtonDown;
+  if (pressedButtons & (1 << 2))
+      modifier_state |= blink::WebInputEvent::MiddleButtonDown;
+
   return modifier_state;
 }
+
+}  // namespace
 
 @implementation WebDragDest
 

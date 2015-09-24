@@ -9,7 +9,6 @@
 #include "ui/gfx/image/image.h"
 #include "ui/views/controls/menu/menu_item_view.h"
 #include "ui/views/controls/menu/submenu_view.h"
-#include "ui/views/views_delegate.h"
 
 namespace views {
 
@@ -66,6 +65,7 @@ MenuItemView* MenuModelAdapter::AddMenuItemFromModelAt(ui::MenuModel* model,
 
   switch (menu_type) {
     case ui::MenuModel::TYPE_COMMAND:
+    case ui::MenuModel::TYPE_BUTTON_ITEM:
       type = MenuItemView::NORMAL;
       label = model->GetLabelAt(model_index);
       sublabel = model->GetSublabelAt(model_index);

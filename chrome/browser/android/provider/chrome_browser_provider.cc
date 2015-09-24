@@ -23,24 +23,23 @@
 #include "chrome/browser/bookmarks/chrome_bookmark_client.h"
 #include "chrome/browser/bookmarks/chrome_bookmark_client_factory.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/favicon/favicon_service.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
 #include "chrome/browser/history/android/sqlite_cursor.h"
 #include "chrome/browser/history/history_service_factory.h"
-#include "chrome/browser/history/top_sites.h"
+#include "chrome/browser/history/top_sites_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
-#include "components/history/core/android/android_history_types.h"
+#include "components/favicon/core/favicon_service.h"
+#include "components/history/core/browser/android/android_history_types.h"
+#include "components/history/core/browser/history_service.h"
+#include "components/history/core/browser/top_sites.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/notification_service.h"
 #include "jni/ChromeBrowserProvider_jni.h"
-#include "sql/statement.h"
 #include "ui/base/layout.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/favicon_size.h"
@@ -57,6 +56,8 @@ using base::android::MethodID;
 using base::android::JavaRef;
 using base::android::ScopedJavaGlobalRef;
 using base::android::ScopedJavaLocalRef;
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
 using content::BrowserThread;
 
 // After refactoring the following class hierarchy has been created in order
@@ -214,7 +215,7 @@ class AddBookmarkTask : public BookmarkModelTask {
                             const bool is_folder,
                             const int64 parent_id,
                             int64* result) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     DCHECK(result);
     GURL gurl = ParseAndMaybeAppendScheme(url, kDefaultUrlScheme);
 
@@ -247,7 +248,7 @@ class RemoveBookmarkTask : public BookmarkModelObserverTask {
       : BookmarkModelObserverTask(model),
         deleted_(0),
         id_to_delete_(kInvalidBookmarkId) {}
-  virtual ~RemoveBookmarkTask() {}
+  ~RemoveBookmarkTask() override {}
 
   int Run(const int64 id) {
     id_to_delete_ = id;
@@ -257,21 +258,18 @@ class RemoveBookmarkTask : public BookmarkModelObserverTask {
   }
 
   static void RunOnUIThread(BookmarkModel* model, const int64 id) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     const BookmarkNode* node = bookmarks::GetBookmarkNodeByID(model, id);
-    if (node && node->parent()) {
-      const BookmarkNode* parent_node = node->parent();
-      model->Remove(parent_node, parent_node->GetIndexOf(node));
-    }
+    if (node && node->parent())
+      model->Remove(node);
   }
 
   // Verify that the bookmark was actually removed. Called synchronously.
-  virtual void BookmarkNodeRemoved(
-      BookmarkModel* bookmark_model,
-      const BookmarkNode* parent,
-      int old_index,
-      const BookmarkNode* node,
-      const std::set<GURL>& removed_urls) override {
+  void BookmarkNodeRemoved(BookmarkModel* bookmark_model,
+                           const BookmarkNode* parent,
+                           int old_index,
+                           const BookmarkNode* node,
+                           const std::set<GURL>& removed_urls) override {
     if (bookmark_model == model() && node->id() == id_to_delete_)
         ++deleted_;
   }
@@ -289,7 +287,7 @@ class RemoveAllUserBookmarksTask : public BookmarkModelObserverTask {
   explicit RemoveAllUserBookmarksTask(BookmarkModel* model)
       : BookmarkModelObserverTask(model) {}
 
-  virtual ~RemoveAllUserBookmarksTask() {}
+  ~RemoveAllUserBookmarksTask() override {}
 
   void Run() {
     RunOnUIThreadBlocking::Run(
@@ -297,8 +295,10 @@ class RemoveAllUserBookmarksTask : public BookmarkModelObserverTask {
   }
 
   static void RunOnUIThread(BookmarkModel* model) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
+    LOG(ERROR) << "begin model->RemoveAllUserBookmarks";
     model->RemoveAllUserBookmarks();
+    LOG(ERROR) << "after model->RemoveAllUserBookmarks";
   }
 
  private:
@@ -312,7 +312,7 @@ class UpdateBookmarkTask : public BookmarkModelObserverTask {
       : BookmarkModelObserverTask(model),
         updated_(0),
         id_to_update_(kInvalidBookmarkId){}
-  virtual ~UpdateBookmarkTask() {}
+  ~UpdateBookmarkTask() override {}
 
   int Run(const int64 id,
           const base::string16& title,
@@ -330,7 +330,7 @@ class UpdateBookmarkTask : public BookmarkModelObserverTask {
                             const base::string16& title,
                             const base::string16& url,
                             const int64 parent_id) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     const BookmarkNode* node = bookmarks::GetBookmarkNodeByID(model, id);
     if (node) {
       if (node->GetTitle() != title)
@@ -354,8 +354,8 @@ class UpdateBookmarkTask : public BookmarkModelObserverTask {
   }
 
   // Verify that the bookmark was actually updated. Called synchronously.
-  virtual void BookmarkNodeChanged(BookmarkModel* bookmark_model,
-                                   const BookmarkNode* node) override {
+  void BookmarkNodeChanged(BookmarkModel* bookmark_model,
+                           const BookmarkNode* node) override {
     if (bookmark_model == model() && node->id() == id_to_update_)
       ++updated_;
   }
@@ -385,7 +385,7 @@ class BookmarkNodeExistsTask : public BookmarkModelTask {
   static void RunOnUIThread(BookmarkModel* model,
                             const int64 id,
                             bool* result) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     DCHECK(result);
     *result = bookmarks::GetBookmarkNodeByID(model, id) != NULL;
   }
@@ -411,7 +411,7 @@ class IsInMobileBookmarksBranchTask : public BookmarkModelTask {
   static void RunOnUIThread(BookmarkModel* model,
                             const int64 id,
                             bool *result) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     DCHECK(result);
     const BookmarkNode* node = bookmarks::GetBookmarkNodeByID(model, id);
     const BookmarkNode* mobile_node = model->mobile_node();
@@ -445,7 +445,7 @@ class CreateBookmarksFolderOnceTask : public BookmarkModelTask {
                             const base::string16& title,
                             const int64 parent_id,
                             int64* result) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     DCHECK(result);
 
     // Invalid ids are assumed to refer to the Mobile Bookmarks folder.
@@ -493,7 +493,7 @@ class GetEditableBookmarkFoldersTask : public BookmarkModelTask {
   static void RunOnUIThread(ChromeBookmarkClient* client,
                             BookmarkModel* model,
                             ScopedJavaGlobalRef<jobject>* jroot) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     const BookmarkNode* root = model->root_node();
     if (!root || !root->is_folder())
       return;
@@ -559,7 +559,7 @@ class GetBookmarkNodeTask : public BookmarkModelTask {
                             bool get_parent,
                             bool get_children,
                             ScopedJavaGlobalRef<jobject>* jnode) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     const BookmarkNode* node = bookmarks::GetBookmarkNodeByID(model, id);
     if (!node || !jnode)
       return;
@@ -614,7 +614,7 @@ class GetMobileBookmarksNodeTask : public BookmarkModelTask {
   }
 
   static void RunOnUIThread(BookmarkModel* model, const BookmarkNode** result) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     DCHECK(result);
     *result = model->mobile_node();
   }
@@ -648,14 +648,13 @@ class AsyncServiceRequest : protected BlockingUIThreadAsyncRequest {
 };
 
 // Base class for all asynchronous blocking tasks that use the favicon service.
-class FaviconServiceTask : public AsyncServiceRequest<FaviconService> {
+class FaviconServiceTask : public AsyncServiceRequest<favicon::FaviconService> {
  public:
   FaviconServiceTask(base::CancelableTaskTracker* cancelable_tracker,
-                     Profile* profile)
-      : AsyncServiceRequest<FaviconService>(
-            FaviconServiceFactory::GetForProfile(profile,
-                                                 Profile::EXPLICIT_ACCESS),
-            cancelable_tracker),
+                     Profile* profile,
+                     favicon::FaviconService* favicon_service)
+      : AsyncServiceRequest<favicon::FaviconService>(favicon_service,
+                                                     cancelable_tracker),
         profile_(profile) {}
 
   Profile* profile() const { return profile_; }
@@ -670,8 +669,9 @@ class FaviconServiceTask : public AsyncServiceRequest<FaviconService> {
 class BookmarkIconFetchTask : public FaviconServiceTask {
  public:
   BookmarkIconFetchTask(base::CancelableTaskTracker* cancelable_tracker,
-                        Profile* profile)
-      : FaviconServiceTask(cancelable_tracker, profile) {}
+                        Profile* profile,
+                        favicon::FaviconService* favicon_service)
+      : FaviconServiceTask(cancelable_tracker, profile, favicon_service) {}
 
   favicon_base::FaviconRawBitmapResult Run(const GURL& url) {
     float max_scale = ui::GetScaleForScaleFactor(
@@ -681,15 +681,13 @@ class BookmarkIconFetchTask : public FaviconServiceTask {
     if (service() == NULL)
       return favicon_base::FaviconRawBitmapResult();
 
-    RunAsyncRequestOnUIThreadBlocking(
-        base::Bind(&FaviconService::GetRawFaviconForPageURL,
-                   base::Unretained(service()),
-                   url,
-                   favicon_base::FAVICON | favicon_base::TOUCH_ICON,
-                   desired_size_in_pixel,
-                   base::Bind(&BookmarkIconFetchTask::OnFaviconRetrieved,
-                              base::Unretained(this)),
-                   cancelable_tracker()));
+    RunAsyncRequestOnUIThreadBlocking(base::Bind(
+        &favicon::FaviconService::GetRawFaviconForPageURL,
+        base::Unretained(service()), url,
+        favicon_base::FAVICON | favicon_base::TOUCH_ICON, desired_size_in_pixel,
+        base::Bind(&BookmarkIconFetchTask::OnFaviconRetrieved,
+                   base::Unretained(this)),
+        cancelable_tracker()));
     return result_;
   }
 
@@ -893,7 +891,7 @@ class SearchTermTask : public HistoryProviderTask {
   // Fill SearchRow's keyword_id and url fields according the given
   // search_term. Return true if succeeded.
   void BuildSearchRow(history::SearchRow* row) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
     TemplateURLService* template_service =
         TemplateURLServiceFactory::GetForProfile(profile_);
@@ -937,7 +935,7 @@ class AddSearchTermFromAPITask : public SearchTermTask {
 
  private:
   void MakeRequestOnUIThread(const history::SearchRow& row) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     history::SearchRow internal_row = row;
     BuildSearchRow(&internal_row);
     service()->InsertSearchTerm(
@@ -1019,7 +1017,7 @@ class UpdateSearchTermsFromAPITask : public SearchTermTask {
       const history::SearchRow& row,
       const std::string& selection,
       const std::vector<base::string16>& selection_args) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     history::SearchRow internal_row = row;
     BuildSearchRow(&internal_row);
     service()->UpdateSearchTerms(
@@ -1162,21 +1160,18 @@ ChromeBrowserProvider::ChromeBrowserProvider(JNIEnv* env, jobject obj)
     : weak_java_provider_(env, obj),
       history_service_observer_(this),
       handling_extensive_changes_(false) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   profile_ = g_browser_process->profile_manager()->GetLastUsedProfile();
   bookmark_model_ = BookmarkModelFactory::GetForProfile(profile_);
-  top_sites_ = profile_->GetTopSites();
+  top_sites_ = TopSitesFactory::GetForProfile(profile_);
+  favicon_service_ = FaviconServiceFactory::GetForProfile(
+      profile_, ServiceAccessType::EXPLICIT_ACCESS),
   service_.reset(new AndroidHistoryProviderService(profile_));
 
-  // Registers the notifications we are interested.
+  // Register as observer for service we are interested.
   bookmark_model_->AddObserver(this);
-  history_service_observer_.Add(
-      HistoryServiceFactory::GetForProfile(profile_, Profile::EXPLICIT_ACCESS));
-  notification_registrar_.Add(this, chrome::NOTIFICATION_HISTORY_URLS_DELETED,
-                              content::NotificationService::AllSources());
-  notification_registrar_.Add(this,
-      chrome::NOTIFICATION_HISTORY_KEYWORD_SEARCH_TERM_UPDATED,
-      content::NotificationService::AllSources());
+  history_service_observer_.Add(HistoryServiceFactory::GetForProfile(
+      profile_, ServiceAccessType::EXPLICIT_ACCESS));
   TemplateURLService* template_service =
         TemplateURLServiceFactory::GetForProfile(profile_);
   if (!template_service->loaded())
@@ -1188,6 +1183,7 @@ ChromeBrowserProvider::~ChromeBrowserProvider() {
 }
 
 void ChromeBrowserProvider::Destroy(JNIEnv*, jobject) {
+  history_service_observer_.RemoveAll();
   delete this;
 }
 
@@ -1517,8 +1513,10 @@ ScopedJavaLocalRef<jobject> ChromeBrowserProvider::GetEditableBookmarkFolders(
 }
 
 void ChromeBrowserProvider::RemoveAllUserBookmarks(JNIEnv* env, jobject obj) {
+  LOG(ERROR) << "begin ChromeBrowserProvider::RemoveAllUserBookmarks";
   RemoveAllUserBookmarksTask task(bookmark_model_);
   task.Run();
+  LOG(ERROR) << "end ChromeBrowserProvider::RemoveAllUserBookmarks";
 }
 
 ScopedJavaLocalRef<jobject> ChromeBrowserProvider::GetBookmarkNode(
@@ -1553,7 +1551,8 @@ ScopedJavaLocalRef<jbyteArray> ChromeBrowserProvider::GetFaviconOrTouchIcon(
     return ScopedJavaLocalRef<jbyteArray>();
 
   GURL url = GURL(ConvertJavaStringToUTF16(env, jurl));
-  BookmarkIconFetchTask favicon_task(&cancelable_task_tracker_, profile_);
+  BookmarkIconFetchTask favicon_task(&cancelable_task_tracker_, profile_,
+                                     favicon_service_);
   favicon_base::FaviconRawBitmapResult bitmap_result = favicon_task.Run(url);
 
   if (!bitmap_result.is_valid() || !bitmap_result.bitmap_data.get())
@@ -1615,26 +1614,37 @@ void ChromeBrowserProvider::OnHistoryChanged() {
   Java_ChromeBrowserProvider_onHistoryChanged(env, obj.obj());
 }
 
-void ChromeBrowserProvider::OnURLVisited(HistoryService* history_service,
-                                         ui::PageTransition transition,
-                                         const history::URLRow& row,
-                                         const history::RedirectList& redirects,
-                                         base::Time visit_time) {
+void ChromeBrowserProvider::OnURLVisited(
+    history::HistoryService* history_service,
+    ui::PageTransition transition,
+    const history::URLRow& row,
+    const history::RedirectList& redirects,
+    base::Time visit_time) {
   OnHistoryChanged();
 }
 
-void ChromeBrowserProvider::Observe(
-    int type,
-    const content::NotificationSource& source,
-    const content::NotificationDetails& details) {
-  if (type == chrome::NOTIFICATION_HISTORY_URLS_DELETED) {
-    OnHistoryChanged();
-  } else if (type ==
-      chrome::NOTIFICATION_HISTORY_KEYWORD_SEARCH_TERM_UPDATED) {
-    JNIEnv* env = AttachCurrentThread();
-    ScopedJavaLocalRef<jobject> obj = weak_java_provider_.get(env);
-    if (obj.is_null())
-      return;
-    Java_ChromeBrowserProvider_onSearchTermChanged(env, obj.obj());
-  }
+void ChromeBrowserProvider::OnURLsDeleted(
+    history::HistoryService* history_service,
+    bool all_history,
+    bool expired,
+    const history::URLRows& deleted_rows,
+    const std::set<GURL>& favicon_urls) {
+  OnHistoryChanged();
+}
+
+void ChromeBrowserProvider::OnKeywordSearchTermUpdated(
+    history::HistoryService* history_service,
+    const history::URLRow& row,
+    history::KeywordID keyword_id,
+    const base::string16& term) {
+  JNIEnv* env = AttachCurrentThread();
+  ScopedJavaLocalRef<jobject> obj = weak_java_provider_.get(env);
+  if (obj.is_null())
+    return;
+  Java_ChromeBrowserProvider_onSearchTermChanged(env, obj.obj());
+}
+
+void ChromeBrowserProvider::OnKeywordSearchTermDeleted(
+    history::HistoryService* history_service,
+    history::URLID url_id) {
 }

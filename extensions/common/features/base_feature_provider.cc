@@ -17,6 +17,17 @@ namespace extensions {
 
 namespace {
 
+bool IsNocompile(const base::Value& value) {
+  bool nocompile = false;
+  const base::DictionaryValue* as_dict = nullptr;
+  if (value.GetAsDictionary(&as_dict)) {
+    as_dict->GetBoolean("nocompile", &nocompile);
+  } else {
+    // "nocompile" is not supported for any other feature type.
+  }
+  return nocompile;
+}
+
 bool ParseFeature(const base::DictionaryValue* value,
                   const std::string& name,
                   SimpleFeature* feature) {
@@ -34,6 +45,10 @@ BaseFeatureProvider::BaseFeatureProvider(const base::DictionaryValue& root,
     : factory_(factory) {
   for (base::DictionaryValue::Iterator iter(root); !iter.IsAtEnd();
        iter.Advance()) {
+    if (IsNocompile(iter.value())) {
+      continue;
+    }
+
     if (iter.value().GetType() == base::Value::TYPE_DICTIONARY) {
       linked_ptr<SimpleFeature> feature((*factory_)());
 
@@ -50,8 +65,21 @@ BaseFeatureProvider::BaseFeatureProvider(const base::DictionaryValue& root,
         std::string parent_name = JoinString(split, '.');
         split.pop_back();
         if (root.HasKey(parent_name)) {
-          const base::DictionaryValue* parent = NULL;
-          CHECK(root.GetDictionaryWithoutPathExpansion(parent_name, &parent));
+          const base::DictionaryValue* parent = nullptr;
+          if (!root.GetDictionaryWithoutPathExpansion(parent_name, &parent)) {
+            // If the parent is a complex feature, find the parent with the
+            // 'default_parent' flag.
+            const base::ListValue* parent_list = nullptr;
+            CHECK(root.GetListWithoutPathExpansion(parent_name, &parent_list));
+            for (size_t i = 0; i < parent_list->GetSize(); ++i) {
+              CHECK(parent_list->GetDictionary(i, &parent));
+              if (parent->HasKey("default_parent"))
+                break;
+              parent = nullptr;
+            }
+            CHECK(parent) << parent_name << " must declare one of its features"
+                << " the default parent, with {\"default_parent\": true}.";
+          }
           parse_stack.push(std::make_pair(parent_name, parent));
           bool no_parent = false;
           parent->GetBoolean("noparent", &no_parent);
@@ -100,7 +128,7 @@ BaseFeatureProvider::BaseFeatureProvider(const base::DictionaryValue& root,
                           feature.get()))
           continue;
 
-        features->push_back(feature.release());
+        features->push_back(feature.Pass());
       }
 
       linked_ptr<ComplexFeature> feature(new ComplexFeature(features.Pass()));
@@ -135,18 +163,18 @@ Feature* BaseFeatureProvider::GetFeature(const std::string& name) const {
   if (iter != features_.end())
     return iter->second.get();
   else
-    return NULL;
+    return nullptr;
 }
 
 Feature* BaseFeatureProvider::GetParent(Feature* feature) const {
   CHECK(feature);
   if (feature->no_parent())
-    return NULL;
+    return nullptr;
 
   std::vector<std::string> split;
   base::SplitString(feature->name(), '.', &split);
   if (split.size() < 2)
-    return NULL;
+    return nullptr;
   split.pop_back();
   return GetFeature(JoinString(split, '.'));
 }

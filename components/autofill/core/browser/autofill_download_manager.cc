@@ -14,7 +14,9 @@
 #include "components/autofill/core/browser/autofill_xml_parser.h"
 #include "components/autofill/core/browser/form_structure.h"
 #include "components/autofill/core/common/autofill_pref_names.h"
+#include "components/variations/net/variations_http_header_provider.h"
 #include "net/base/load_flags.h"
+#include "net/http/http_request_headers.h"
 #include "net/http/http_response_headers.h"
 #include "net/url_request/url_fetcher.h"
 #include "third_party/webrtc/libjingle/xmllite/xmlparser.h"
@@ -81,8 +83,7 @@ AutofillDownloadManager::~AutofillDownloadManager() {
 }
 
 bool AutofillDownloadManager::StartQueryRequest(
-    const std::vector<FormStructure*>& forms,
-    const AutofillMetrics& metric_logger) {
+    const std::vector<FormStructure*>& forms) {
   if (next_query_request_ > base::Time::Now()) {
     // We are in back-off mode: do not do the request.
     return false;
@@ -95,11 +96,11 @@ bool AutofillDownloadManager::StartQueryRequest(
   }
 
   request_data.request_type = AutofillDownloadManager::REQUEST_QUERY;
-  metric_logger.LogServerQueryMetric(AutofillMetrics::QUERY_SENT);
+  AutofillMetrics::LogServerQueryMetric(AutofillMetrics::QUERY_SENT);
 
   std::string query_data;
   if (CheckCacheForQueryRequest(request_data.form_signatures, &query_data)) {
-    DVLOG(1) << "AutofillDownloadManager: query request has been retrieved "
+    VLOG(1) << "AutofillDownloadManager: query request has been retrieved "
              << "from the cache, form signatures: "
              << GetCombinedSignature(request_data.form_signatures);
     observer_->OnLoadedServerPredictions(query_data);
@@ -120,7 +121,7 @@ bool AutofillDownloadManager::StartUploadRequest(
 
   if (next_upload_request_ > base::Time::Now()) {
     // We are in back-off mode: do not do the request.
-    DVLOG(1) << "AutofillDownloadManager: Upload request is throttled.";
+    VLOG(1) << "AutofillDownloadManager: Upload request is throttled.";
     return false;
   }
 
@@ -130,7 +131,7 @@ bool AutofillDownloadManager::StartUploadRequest(
   if (form.upload_required() == UPLOAD_NOT_REQUIRED ||
       (form.upload_required() == USE_UPLOAD_RATES &&
        base::RandDouble() > upload_rate)) {
-    DVLOG(1) << "AutofillDownloadManager: Upload request is ignored.";
+    VLOG(1) << "AutofillDownloadManager: Upload request is ignored.";
     // If we ever need notification that upload was skipped, add it here.
     return false;
   }
@@ -178,18 +179,23 @@ bool AutofillDownloadManager::StartRequest(
 
   // Id is ignored for regular chrome, in unit test id's for fake fetcher
   // factory will be 0, 1, 2, ...
-  net::URLFetcher* fetcher = net::URLFetcher::Create(
-      fetcher_id_for_unittest_++, request_url, net::URLFetcher::POST,
-      this);
+  net::URLFetcher* fetcher =
+      net::URLFetcher::Create(fetcher_id_for_unittest_++, request_url,
+                              net::URLFetcher::POST, this).release();
   url_fetchers_[fetcher] = request_data;
   fetcher->SetAutomaticallyRetryOn5xx(false);
   fetcher->SetRequestContext(request_context);
   fetcher->SetUploadData("text/plain", form_xml);
   fetcher->SetLoadFlags(net::LOAD_DO_NOT_SAVE_COOKIES |
                         net::LOAD_DO_NOT_SEND_COOKIES);
+  // Add Chrome experiment state to the request headers.
+  net::HttpRequestHeaders headers;
+  variations::VariationsHttpHeaderProvider::GetInstance()->AppendHeaders(
+      fetcher->GetOriginalURL(), driver_->IsOffTheRecord(), false, &headers);
+  fetcher->SetExtraRequestHeaders(headers.ToString());
   fetcher->Start();
 
-  DVLOG(1) << "Sending AutofillDownloadManager "
+  VLOG(1) << "Sending AutofillDownloadManager "
            << RequestTypeToString(request_data.request_type)
            << " request: " << form_xml;
 
@@ -273,9 +279,9 @@ void AutofillDownloadManager::OnURLFetchComplete(
       case kHttpBadGateway:
         if (!source->GetResponseHeaders()->EnumerateHeader(NULL, "server",
                                                            &server_header) ||
-            StartsWithASCII(server_header.c_str(),
-                            kAutofillQueryServerNameStartInHeader,
-                            false) != 0)
+            base::StartsWithASCII(server_header.c_str(),
+                                  kAutofillQueryServerNameStartInHeader,
+                                  false) != 0)
           break;
         // Bad gateway was received from Autofill servers. Fall through to back
         // off.
@@ -294,7 +300,7 @@ void AutofillDownloadManager::OnURLFetchComplete(
       }
     }
 
-    DVLOG(1) << "AutofillDownloadManager: " << request_type
+    VLOG(1) << "AutofillDownloadManager: " << request_type
              << " request has failed with response "
              << source->GetResponseCode();
     observer_->OnServerRequestError(it->second.form_signatures[0],
@@ -303,7 +309,7 @@ void AutofillDownloadManager::OnURLFetchComplete(
   } else {
     std::string response_body;
     source->GetResponseAsString(&response_body);
-    DVLOG(1) << "AutofillDownloadManager: " << request_type
+    VLOG(1) << "AutofillDownloadManager: " << request_type
              << " request has succeeded with response body: " << response_body;
     if (it->second.request_type == AutofillDownloadManager::REQUEST_QUERY) {
       CacheQueryRequest(it->second.form_signatures, response_body);

@@ -7,10 +7,11 @@
 
 #include "base/bind.h"
 #include "base/memory/ref_counted_memory.h"
+#include "base/trace_event/memory_dump_request_args.h"
 #include "ipc/message_filter.h"
 
 namespace base {
-class MessageLoopProxy;
+class SingleThreadTaskRunner;
 }
 
 namespace tracing {
@@ -18,32 +19,44 @@ namespace tracing {
 // This class sends and receives trace messages on child processes.
 class ChildTraceMessageFilter : public IPC::MessageFilter {
  public:
-  explicit ChildTraceMessageFilter(base::MessageLoopProxy* ipc_message_loop);
+  explicit ChildTraceMessageFilter(
+      base::SingleThreadTaskRunner* ipc_task_runner);
 
   // IPC::MessageFilter implementation.
   void OnFilterAdded(IPC::Sender* sender) override;
   void OnFilterRemoved() override;
   bool OnMessageReceived(const IPC::Message& message) override;
 
+  void SendGlobalMemoryDumpRequest(
+      const base::trace_event::MemoryDumpRequestArgs& args,
+      const base::trace_event::MemoryDumpCallback& callback);
+
+  base::SingleThreadTaskRunner* ipc_task_runner() const {
+    return ipc_task_runner_;
+  }
+
  protected:
   ~ChildTraceMessageFilter() override;
 
  private:
   // Message handlers.
-  void OnBeginTracing(const std::string& category_filter_str,
-                      base::TimeTicks browser_time,
-                      const std::string& options);
+  void OnBeginTracing(const std::string& trace_config_str,
+                      base::TraceTicks browser_time,
+                      uint64 tracing_process_id);
   void OnEndTracing();
-  void OnEnableMonitoring(const std::string& category_filter_str,
-                          base::TimeTicks browser_time,
-                          const std::string& options);
+  void OnCancelTracing();
+  void OnEnableMonitoring(const std::string& trace_config_str,
+                          base::TraceTicks browser_time);
   void OnDisableMonitoring();
   void OnCaptureMonitoringSnapshot();
-  void OnGetTraceBufferPercentFull();
+  void OnGetTraceLogStatus();
   void OnSetWatchEvent(const std::string& category_name,
                        const std::string& event_name);
   void OnCancelWatchEvent();
   void OnWatchEventMatched();
+  void OnProcessMemoryDumpRequest(
+      const base::trace_event::MemoryDumpRequestArgs& args);
+  void OnGlobalMemoryDumpResponse(uint64 dump_guid, bool success);
 
   // Callback from trace subsystem.
   void OnTraceDataCollected(
@@ -54,8 +67,17 @@ class ChildTraceMessageFilter : public IPC::MessageFilter {
       const scoped_refptr<base::RefCountedString>& events_str_ptr,
       bool has_more_events);
 
+  void OnProcessMemoryDumpDone(uint64 dump_guid, bool success);
+
   IPC::Sender* sender_;
-  base::MessageLoopProxy* ipc_message_loop_;
+  base::SingleThreadTaskRunner* ipc_task_runner_;
+
+  // guid of the outstanding request (to the Browser's MemoryDumpManager), if
+  // any. 0 if there is no request pending.
+  uint64 pending_memory_dump_guid_;
+
+  // callback of the outstanding memory dump request, if any.
+  base::trace_event::MemoryDumpCallback pending_memory_dump_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(ChildTraceMessageFilter);
 };

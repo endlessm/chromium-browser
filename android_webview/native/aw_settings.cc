@@ -36,7 +36,7 @@ void PopulateFixedRendererPreferences(RendererPreferences* prefs) {
 
   // TODO(boliu): Deduplicate with chrome/ code.
   CR_DEFINE_STATIC_LOCAL(const gfx::FontRenderParams, params,
-      (gfx::GetFontRenderParams(gfx::FontRenderParamsQuery(true), NULL)));
+      (gfx::GetFontRenderParams(gfx::FontRenderParamsQuery(), NULL)));
   prefs->should_antialias_text = params.antialiasing;
   prefs->use_subpixel_positioning = params.subpixel_positioning;
   prefs->hinting = params.hinting;
@@ -70,13 +70,14 @@ class AwSettingsUserData : public base::SupportsUserData::Data {
   AwSettings* settings_;
 };
 
-AwSettings::AwSettings(JNIEnv* env, jobject obj, jlong web_contents)
-    : WebContentsObserver(
-          reinterpret_cast<content::WebContents*>(web_contents)),
+AwSettings::AwSettings(JNIEnv* env,
+                       jobject obj,
+                       content::WebContents* web_contents)
+    : WebContentsObserver(web_contents),
       renderer_prefs_initialized_(false),
       aw_settings_(env, obj) {
-  reinterpret_cast<content::WebContents*>(web_contents)->
-      SetUserData(kAwSettingsUserDataKey, new AwSettingsUserData(this));
+  web_contents->SetUserData(kAwSettingsUserDataKey,
+                            new AwSettingsUserData(this));
 }
 
 AwSettings::~AwSettings() {
@@ -130,6 +131,7 @@ void AwSettings::UpdateEverythingLocked(JNIEnv* env, jobject obj) {
   ResetScrollAndScaleState(env, obj);
   UpdateFormDataPreferencesLocked(env, obj);
   UpdateRendererPreferencesLocked(env, obj);
+  UpdateOffscreenPreRasterLocked(env, obj);
 }
 
 void AwSettings::UpdateUserAgentLocked(JNIEnv* env, jobject obj) {
@@ -198,14 +200,27 @@ void AwSettings::UpdateRendererPreferencesLocked(JNIEnv* env, jobject obj) {
 
   bool video_overlay =
       Java_AwSettings_getVideoOverlayForEmbeddedVideoEnabledLocked(env, obj);
-  if (video_overlay != prefs->use_video_overlay_for_embedded_encrypted_video) {
+  bool force_video_overlay =
+      Java_AwSettings_getForceVideoOverlayForTests(env, obj);
+  if (video_overlay !=
+          prefs->use_video_overlay_for_embedded_encrypted_video ||
+      force_video_overlay != prefs->use_view_overlay_for_all_video) {
     prefs->use_video_overlay_for_embedded_encrypted_video = video_overlay;
+    prefs->use_view_overlay_for_all_video = force_video_overlay;
     update_prefs = true;
   }
 
   content::RenderViewHost* host = web_contents()->GetRenderViewHost();
   if (update_prefs && host)
     host->SyncRendererPrefs();
+}
+
+void AwSettings::UpdateOffscreenPreRasterLocked(JNIEnv* env, jobject obj) {
+  AwContents* contents = AwContents::FromWebContents(web_contents());
+  if (contents) {
+    contents->SetOffscreenPreRaster(
+        Java_AwSettings_getOffscreenPreRasterLocked(env, obj));
+  }
 }
 
 void AwSettings::RenderViewCreated(content::RenderViewHost* render_view_host) {
@@ -407,8 +422,10 @@ void AwSettings::PopulateWebPreferencesLocked(
 
 static jlong Init(JNIEnv* env,
                   jobject obj,
-                  jlong web_contents) {
-  AwSettings* settings = new AwSettings(env, obj, web_contents);
+                  jobject web_contents) {
+  content::WebContents* contents = content::WebContents::FromJavaWebContents(
+      web_contents);
+  AwSettings* settings = new AwSettings(env, obj, contents);
   return reinterpret_cast<intptr_t>(settings);
 }
 

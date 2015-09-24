@@ -27,31 +27,29 @@
  */
 
 #include "config.h"
-
 #if ENABLE(WEB_AUDIO)
-
 #include "modules/webaudio/AudioBuffer.h"
 
 #include "bindings/core/v8/ExceptionMessages.h"
 #include "bindings/core/v8/ExceptionState.h"
-#include "core/dom/DOMArrayBufferDeallocationObserver.h"
 #include "core/dom/ExceptionCode.h"
 #include "modules/webaudio/AudioContext.h"
 #include "platform/audio/AudioBus.h"
 #include "platform/audio/AudioFileReader.h"
 #include "platform/audio/AudioUtilities.h"
+#include "wtf/Float32Array.h"
 
 namespace blink {
 
 AudioBuffer* AudioBuffer::create(unsigned numberOfChannels, size_t numberOfFrames, float sampleRate)
 {
     if (!AudioUtilities::isValidAudioBufferSampleRate(sampleRate) || numberOfChannels > AudioContext::maxNumberOfChannels() || !numberOfChannels || !numberOfFrames)
-        return 0;
+        return nullptr;
 
     AudioBuffer* buffer = new AudioBuffer(numberOfChannels, numberOfFrames, sampleRate);
 
     if (!buffer->createdSuccessfully(numberOfChannels))
-        return 0;
+        return nullptr;
     return buffer;
 }
 
@@ -67,7 +65,7 @@ AudioBuffer* AudioBuffer::create(unsigned numberOfChannels, size_t numberOfFrame
                 ExceptionMessages::InclusiveBound,
                 AudioContext::maxNumberOfChannels(),
                 ExceptionMessages::InclusiveBound));
-        return 0;
+        return nullptr;
     }
 
     if (!AudioUtilities::isValidAudioBufferSampleRate(sampleRate)) {
@@ -80,7 +78,7 @@ AudioBuffer* AudioBuffer::create(unsigned numberOfChannels, size_t numberOfFrame
                 ExceptionMessages::InclusiveBound,
                 AudioUtilities::maxAudioBufferSampleRate(),
                 ExceptionMessages::InclusiveBound));
-        return 0;
+        return nullptr;
     }
 
     if (!numberOfFrames) {
@@ -90,7 +88,7 @@ AudioBuffer* AudioBuffer::create(unsigned numberOfChannels, size_t numberOfFrame
                 "number of frames",
                 numberOfFrames,
                 static_cast<size_t>(0)));
-        return 0;
+        return nullptr;
     }
 
     AudioBuffer* audioBuffer = create(numberOfChannels, numberOfFrames, sampleRate);
@@ -111,28 +109,36 @@ AudioBuffer* AudioBuffer::create(unsigned numberOfChannels, size_t numberOfFrame
 AudioBuffer* AudioBuffer::createFromAudioFileData(const void* data, size_t dataSize, bool mixToMono, float sampleRate)
 {
     RefPtr<AudioBus> bus = createBusFromInMemoryAudioFile(data, dataSize, mixToMono, sampleRate);
-    if (bus.get()) {
+    if (bus) {
         AudioBuffer* buffer = new AudioBuffer(bus.get());
         if (buffer->createdSuccessfully(bus->numberOfChannels()))
             return buffer;
     }
 
-    return 0;
+    return nullptr;
 }
 
 AudioBuffer* AudioBuffer::createFromAudioBus(AudioBus* bus)
 {
     if (!bus)
-        return 0;
+        return nullptr;
     AudioBuffer* buffer = new AudioBuffer(bus);
     if (buffer->createdSuccessfully(bus->numberOfChannels()))
         return buffer;
-    return 0;
+    return nullptr;
 }
 
 bool AudioBuffer::createdSuccessfully(unsigned desiredNumberOfChannels) const
 {
     return numberOfChannels() == desiredNumberOfChannels;
+}
+
+PassRefPtr<DOMFloat32Array> AudioBuffer::createFloat32ArrayOrNull(size_t length)
+{
+    RefPtr<WTF::Float32Array> bufferView = WTF::Float32Array::createOrNull(length);
+    if (!bufferView)
+        return nullptr;
+    return DOMFloat32Array::create(bufferView.release());
 }
 
 AudioBuffer::AudioBuffer(unsigned numberOfChannels, size_t numberOfFrames, float sampleRate)
@@ -142,7 +148,7 @@ AudioBuffer::AudioBuffer(unsigned numberOfChannels, size_t numberOfFrames, float
     m_channels.reserveCapacity(numberOfChannels);
 
     for (unsigned i = 0; i < numberOfChannels; ++i) {
-        RefPtr<Float32Array> channelDataArray = Float32Array::create(m_length);
+        RefPtr<DOMFloat32Array> channelDataArray = createFloat32ArrayOrNull(m_length);
         // If the channel data array could not be created, just return. The caller will need to
         // check that the desired number of channels were created.
         if (!channelDataArray) {
@@ -162,14 +168,16 @@ AudioBuffer::AudioBuffer(AudioBus* bus)
     unsigned numberOfChannels = bus->numberOfChannels();
     m_channels.reserveCapacity(numberOfChannels);
     for (unsigned i = 0; i < numberOfChannels; ++i) {
-        RefPtr<Float32Array> channelDataArray = Float32Array::create(m_length);
+        RefPtr<DOMFloat32Array> channelDataArray = createFloat32ArrayOrNull(m_length);
         // If the channel data array could not be created, just return. The caller will need to
         // check that the desired number of channels were created.
         if (!channelDataArray)
             return;
 
         channelDataArray->setNeuterable(false);
-        channelDataArray->setRange(bus->channel(i)->data(), m_length, 0);
+        const float* src = bus->channel(i)->data();
+        float* dst = channelDataArray->data();
+        memmove(dst, src, m_length * sizeof(*dst));
         m_channels.append(channelDataArray);
     }
 }
@@ -181,41 +189,140 @@ PassRefPtr<DOMFloat32Array> AudioBuffer::getChannelData(unsigned channelIndex, E
         return nullptr;
     }
 
-    Float32Array* channelData = m_channels[channelIndex].get();
+    DOMFloat32Array* channelData = m_channels[channelIndex].get();
     return DOMFloat32Array::create(channelData->buffer(), channelData->byteOffset(), channelData->length());
 }
 
-Float32Array* AudioBuffer::getChannelData(unsigned channelIndex)
+DOMFloat32Array* AudioBuffer::getChannelData(unsigned channelIndex)
 {
     if (channelIndex >= m_channels.size())
-        return 0;
+        return nullptr;
 
     return m_channels[channelIndex].get();
+}
+
+void AudioBuffer::copyFromChannel(DOMFloat32Array* destination, long channelNumber, ExceptionState& exceptionState)
+{
+    return copyFromChannel(destination, channelNumber, 0, exceptionState);
+}
+
+void AudioBuffer::copyFromChannel(DOMFloat32Array* destination, long channelNumber, unsigned long startInChannel, ExceptionState& exceptionState)
+{
+    if (!destination) {
+        exceptionState.throwDOMException(
+            TypeMismatchError,
+            ExceptionMessages::argumentNullOrIncorrectType(
+                1,
+                "Float32Array"));
+        return;
+    }
+
+    if (channelNumber < 0 || channelNumber >= static_cast<long>(m_channels.size())) {
+        exceptionState.throwDOMException(
+            IndexSizeError,
+            ExceptionMessages::indexOutsideRange(
+                "channelNumber",
+                channelNumber,
+                0L,
+                ExceptionMessages::InclusiveBound,
+                static_cast<long>(m_channels.size() - 1),
+                ExceptionMessages::InclusiveBound));
+        return;
+    }
+
+    DOMFloat32Array* channelData = m_channels[channelNumber].get();
+
+    if (startInChannel >= channelData->length()) {
+        exceptionState.throwDOMException(
+            IndexSizeError,
+            ExceptionMessages::indexOutsideRange(
+                "startInChannel",
+                startInChannel,
+                0UL,
+                ExceptionMessages::InclusiveBound,
+                static_cast<unsigned long>(channelData->length()),
+                ExceptionMessages::ExclusiveBound));
+
+        return;
+    }
+
+    unsigned count = channelData->length() - startInChannel;
+    count = std::min(destination->length(), count);
+
+    const float* src = channelData->data();
+    float* dst = destination->data();
+
+    ASSERT(src);
+    ASSERT(dst);
+
+    memcpy(dst, src + startInChannel, count * sizeof(*src));
+}
+
+void AudioBuffer::copyToChannel(DOMFloat32Array* source, long channelNumber, ExceptionState& exceptionState)
+{
+    return copyToChannel(source, channelNumber, 0, exceptionState);
+}
+
+void AudioBuffer::copyToChannel(DOMFloat32Array* source, long channelNumber, unsigned long startInChannel, ExceptionState& exceptionState)
+{
+    if (!source) {
+        exceptionState.throwDOMException(
+            TypeMismatchError,
+            ExceptionMessages::argumentNullOrIncorrectType(
+                1,
+                "Float32Array"));
+        return;
+    }
+
+    if (channelNumber < 0 || channelNumber >= static_cast<long>(m_channels.size())) {
+        exceptionState.throwDOMException(
+            IndexSizeError,
+            ExceptionMessages::indexOutsideRange(
+                "channelNumber",
+                channelNumber,
+                0L,
+                ExceptionMessages::InclusiveBound,
+                static_cast<long>(m_channels.size() - 1),
+                ExceptionMessages::InclusiveBound));
+        return;
+    }
+
+    DOMFloat32Array* channelData = m_channels[channelNumber].get();
+
+    if (startInChannel >= channelData->length()) {
+        exceptionState.throwDOMException(
+            IndexSizeError,
+            ExceptionMessages::indexOutsideRange(
+                "startInChannel",
+                startInChannel,
+                0UL,
+                ExceptionMessages::InclusiveBound,
+                static_cast<unsigned long>(channelData->length()),
+                ExceptionMessages::ExclusiveBound));
+
+        return;
+    }
+
+    unsigned count = channelData->length() - startInChannel;
+    count = std::min(source->length(), count);
+
+    const float* src = source->data();
+    float* dst = channelData->data();
+
+    ASSERT(src);
+    ASSERT(dst);
+
+    memcpy(dst + startInChannel, src, count * sizeof(*dst));
 }
 
 void AudioBuffer::zero()
 {
     for (unsigned i = 0; i < m_channels.size(); ++i) {
-        if (getChannelData(i))
-            getChannelData(i)->zeroRange(0, length());
-    }
-}
-
-v8::Handle<v8::Object> AudioBuffer::associateWithWrapper(const WrapperTypeInfo* wrapperType, v8::Handle<v8::Object> wrapper, v8::Isolate* isolate)
-{
-    ScriptWrappable::associateWithWrapper(wrapperType, wrapper, isolate);
-
-    if (!wrapper.IsEmpty()) {
-        // We only setDeallocationObservers on array buffers that are held by
-        // some object in the V8 heap, not in the ArrayBuffer constructor
-        // itself. This is because V8 GC only cares about memory it can free on
-        // GC, and until the object is exposed to JavaScript, V8 GC doesn't
-        // affect it.
-        for (unsigned i = 0, n = numberOfChannels(); i < n; ++i) {
-            getChannelData(i)->buffer()->setDeallocationObserver(DOMArrayBufferDeallocationObserver::instance());
+        if (DOMFloat32Array* array = getChannelData(i)) {
+            float* data = array->data();
+            memset(data, 0, length() * sizeof(*data));
         }
     }
-    return wrapper;
 }
 
 } // namespace blink

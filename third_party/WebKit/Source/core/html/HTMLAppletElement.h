@@ -35,26 +35,26 @@ public:
     static PassRefPtrWillBeRawPtr<HTMLAppletElement> create(Document&, bool createdByParser);
 
 protected:
-    virtual RenderPart* renderPartForJSBindings() const override;
+    LayoutPart* layoutPartForJSBindings() const override;
 
 private:
     HTMLAppletElement(Document&, bool createdByParser);
 
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual bool isURLAttribute(const Attribute&) const override;
-    virtual bool hasLegalLinkAttribute(const QualifiedName&) const override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    bool isURLAttribute(const Attribute&) const override;
+    bool hasLegalLinkAttribute(const QualifiedName&) const override;
 
-    virtual bool rendererIsNeeded(const RenderStyle&) override;
-    virtual RenderObject* createRenderer(RenderStyle*) override;
+    bool layoutObjectIsNeeded(const ComputedStyle&) override;
+    LayoutObject* createLayoutObject(const ComputedStyle&) override;
 
-    virtual RenderPart* existingRenderPart() const override;
-    virtual void updateWidgetInternal() override;
+    LayoutPart* existingLayoutPart() const override;
+    void updateWidgetInternal() override;
 
     bool canEmbedJava() const;
     bool canEmbedURL(const KURL&) const;
 
-    virtual bool shouldRegisterAsNamedItem() const override { return true; }
-    virtual bool shouldRegisterAsExtraNamedItem() const override { return true; }
+    bool shouldRegisterAsNamedItem() const override { return true; }
+    bool shouldRegisterAsExtraNamedItem() const override { return true; }
 };
 
 } // namespace blink

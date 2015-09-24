@@ -5,6 +5,7 @@
 #include "chrome/browser/apps/app_browsertest_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/test/test_utils.h"
@@ -174,7 +175,8 @@ IN_PROC_BROWSER_TEST_F(AppWindowAPITest, DISABLED_TestRestoreAfterClose) {
 #define MAYBE_TestInitialBounds TestInitialBounds
 #define MAYBE_TestInitialConstraints TestInitialConstraints
 #define MAYBE_TestSetBounds TestSetBounds
-#define MAYBE_TestSetSizeConstraints TestSetSizeConstraints
+// Disabled as flakey, see http://crbug.com/434532 for details.
+#define MAYBE_TestSetSizeConstraints DISABLED_TestSetSizeConstraints
 #endif
 
 IN_PROC_BROWSER_TEST_F(AppWindowAPITest, MAYBE_TestDeprecatedBounds) {
@@ -215,10 +217,9 @@ IN_PROC_BROWSER_TEST_F(AppWindowAPITest,
       test_data_dir_.AppendASCII("platform_apps").AppendASCII("window_api"));
   EXPECT_TRUE(extension);
 
-  OpenApplication(AppLaunchParams(browser()->profile(),
-                                  extension,
-                                  extensions::LAUNCH_CONTAINER_NONE,
-                                  NEW_WINDOW));
+  OpenApplication(AppLaunchParams(browser()->profile(), extension,
+                                  extensions::LAUNCH_CONTAINER_NONE, NEW_WINDOW,
+                                  extensions::SOURCE_TEST));
 
   ExtensionTestMessageListener geometry_listener("ListenGeometryChange", true);
 
@@ -248,11 +249,6 @@ IN_PROC_BROWSER_TEST_F(AppWindowAPITest,
   ResultCatcher catcher;
   geometry_listener.Reply("");
   ASSERT_TRUE(catcher.GetNextResult());
-}
-
-IN_PROC_BROWSER_TEST_F(AppWindowAPITest, TestBadging) {
-  ASSERT_TRUE(
-      RunAppWindowAPITestAndWaitForRoundTrip("testBadging")) << message_;
 }
 
 // TODO(benwells): Implement on Mac.

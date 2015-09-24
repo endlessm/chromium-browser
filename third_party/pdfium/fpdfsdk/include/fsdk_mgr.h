@@ -1,24 +1,25 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _FPDFSDK_MGR_H
-#define _FPDFSDK_MGR_H
+#ifndef FPDFSDK_INCLUDE_FSDK_MGR_H_
+#define FPDFSDK_INCLUDE_FSDK_MGR_H_
 
+#include <map>
+
+#include "../../core/include/fpdftext/fpdf_text.h"
+#include "../../public/fpdf_formfill.h"
+#include "../../public/fpdf_fwlevent.h" // cross platform keycode and events define.
 #include "fsdk_common.h"
 #include "fsdk_define.h"
 #include "fx_systemhandler.h"
 #include "fsdk_baseannot.h"
 #include "fsdk_baseform.h"
-#include "fpdfformfill.h"
 #include "fsdk_annothandler.h"
 #include "fsdk_actionhandler.h"
-
-//cross platform keycode and events define.
-#include "fpdf_fwlevent.h"
-
+#include "javascript/IJavaScript.h"
 
 class CPDFSDK_Document;
 class CPDFSDK_PageView;
@@ -29,26 +30,24 @@ class IFX_SystemHandler;
 class CPDFSDK_ActionHandler;
 class CJS_RuntimeFactory;
 
-#include "javascript/IJavaScript.h"
-
-class CPDFDoc_Environment FX_FINAL
+class CPDFDoc_Environment final
 {
 public:
 	CPDFDoc_Environment(CPDF_Document * pDoc);
 	~CPDFDoc_Environment();
 
-	int RegAppHandle(FPDF_FORMFILLINFO* pFFinfo);//{ m_pInfo  = pFFinfo; return TRUE;}
+	int RegAppHandle(FPDF_FORMFILLINFO* pFFinfo);
 
 	void FFI_Invalidate(FPDF_PAGE page, double left, double top, double right, double bottom)
 	{
-		if (m_pInfo && m_pInfo->FFI_Invalidate) 
+		if (m_pInfo && m_pInfo->FFI_Invalidate)
 		{
 			m_pInfo->FFI_Invalidate(m_pInfo, page, left, top, right, bottom);
 		}
 	}
 	void FFI_OutputSelectedRect(FPDF_PAGE page, double left, double top, double right, double bottom)
 	{
-		if (m_pInfo && m_pInfo->FFI_OutputSelectedRect) 
+		if (m_pInfo && m_pInfo->FFI_OutputSelectedRect)
 		{
 			m_pInfo->FFI_OutputSelectedRect(m_pInfo, page, left, top, right, bottom);
 		}
@@ -56,7 +55,7 @@ public:
 
 	void FFI_SetCursor(int nCursorType)
 	{
-		if (m_pInfo && m_pInfo->FFI_SetCursor) 
+		if (m_pInfo && m_pInfo->FFI_SetCursor)
 		{
 			m_pInfo->FFI_SetCursor(m_pInfo, nCursorType);
 		}
@@ -64,16 +63,16 @@ public:
 
 	int  FFI_SetTimer(int uElapse, TimerCallback lpTimerFunc)
 	{
-		if (m_pInfo && m_pInfo->FFI_SetTimer) 
+		if (m_pInfo && m_pInfo->FFI_SetTimer)
 		{
 			return m_pInfo->FFI_SetTimer(m_pInfo, uElapse, lpTimerFunc);
 		}
 		return -1;
 	}
-		
+
 	void FFI_KillTimer(int nTimerID)
 	{
-		if (m_pInfo && m_pInfo->FFI_KillTimer) 
+		if (m_pInfo && m_pInfo->FFI_KillTimer)
 		{
 			m_pInfo->FFI_KillTimer(m_pInfo, nTimerID);
 		}
@@ -106,7 +105,7 @@ public:
 
 	FX_BOOL	FFI_IsSHIFTKeyDown(FX_DWORD nFlag)
 	{
-		
+
 		return (nFlag & FWL_EVENTFLAG_ShiftKey) != 0;
 	}
 	FX_BOOL	FFI_IsCTRLKeyDown(FX_DWORD nFlag)
@@ -124,7 +123,7 @@ public:
 		return FALSE;
 	}
 
-	int JS_appAlert(FX_LPCWSTR Msg, FX_LPCWSTR Title, FX_UINT Type, FX_UINT Icon)
+	int JS_appAlert(const FX_WCHAR* Msg, const FX_WCHAR* Title, FX_UINT Type, FX_UINT Icon)
 	{
 		if(m_pInfo && m_pInfo->m_pJsPlatform && m_pInfo->m_pJsPlatform->app_alert)
 		{
@@ -140,7 +139,7 @@ public:
 		return -1;
 	}
 
-	int JS_appResponse(FX_LPCWSTR Question, FX_LPCWSTR Title, FX_LPCWSTR Default, FX_LPCWSTR cLabel, FPDF_BOOL bPassword, void* response, int length)
+	int JS_appResponse(const FX_WCHAR* Question, const FX_WCHAR* Title, const FX_WCHAR* Default, const FX_WCHAR* cLabel, FPDF_BOOL bPassword, void* response, int length)
 	{
 		if (m_pInfo && m_pInfo->m_pJsPlatform && m_pInfo->m_pJsPlatform->app_response)
 		{
@@ -152,7 +151,7 @@ public:
 			FPDF_WIDESTRING pTitle = (FPDF_WIDESTRING)bsTitle.GetBuffer(bsTitle.GetLength());
 			FPDF_WIDESTRING pDefault = (FPDF_WIDESTRING)bsDefault.GetBuffer(bsDefault.GetLength());
 			FPDF_WIDESTRING pLabel = (FPDF_WIDESTRING)bsLabel.GetBuffer(bsLabel.GetLength());
-			int ret = m_pInfo->m_pJsPlatform->app_response(m_pInfo->m_pJsPlatform, pQuestion, pTitle, 
+			int ret = m_pInfo->m_pJsPlatform->app_response(m_pInfo->m_pJsPlatform, pQuestion, pTitle,
 				pDefault, pLabel, bPassword, response, length);
 			bsQuestion.ReleaseBuffer();
 			bsTitle.ReleaseBuffer();
@@ -171,61 +170,11 @@ public:
 		}
 	}
 
-	CFX_WideString JS_fieldBrowse()
-	{
-		if (m_pInfo && m_pInfo->m_pJsPlatform && m_pInfo->m_pJsPlatform->Field_browse)
-		{
-			int nRequiredLen = m_pInfo->m_pJsPlatform->Field_browse(m_pInfo->m_pJsPlatform, NULL, 0);
-			if (nRequiredLen <= 0)
-				return L"";
+    CFX_WideString JS_fieldBrowse();
 
-			char* pbuff = new char[nRequiredLen];
-			if (!pbuff)
-				return L"";
+    CFX_WideString JS_docGetFilePath();
 
-			memset(pbuff, 0, nRequiredLen);
-			int nActualLen = m_pInfo->m_pJsPlatform->Field_browse(m_pInfo->m_pJsPlatform, pbuff, nRequiredLen);
-			if (nActualLen <= 0 || nActualLen > nRequiredLen)
-			{
-				delete[] pbuff;
-				return L"";
-			}
-			CFX_ByteString bsRet = CFX_ByteString(pbuff, nActualLen);
-			CFX_WideString wsRet = CFX_WideString::FromLocal(bsRet);
-			delete[] pbuff;
-			return wsRet;
-		}
-		return L"";
-	}
-
-	CFX_WideString JS_docGetFilePath()
-	{
-		if (m_pInfo && m_pInfo->m_pJsPlatform && m_pInfo->m_pJsPlatform->Doc_getFilePath)
-		{
-			int nRequiredLen = m_pInfo->m_pJsPlatform->Doc_getFilePath(m_pInfo->m_pJsPlatform, NULL, 0);
-			if (nRequiredLen <= 0)
-				return L"";
-
-			char* pbuff = new char[nRequiredLen];
-			if (!pbuff)
-				return L"";
-
-			memset(pbuff, 0, nRequiredLen);
-			int nActualLen = m_pInfo->m_pJsPlatform->Doc_getFilePath(m_pInfo->m_pJsPlatform, pbuff, nRequiredLen);
-			if (nActualLen <= 0 || nActualLen > nRequiredLen)
-			{
-				delete[] pbuff;
-				return L"";
-			}
-			CFX_ByteString bsRet = CFX_ByteString(pbuff, nActualLen);
-			CFX_WideString wsRet = CFX_WideString::FromLocal(bsRet);
-			delete[] pbuff;
-			return wsRet;
-		}
-		return L"";
-	}
-
-	void JS_docSubmitForm(void* formData, int length, FX_LPCWSTR URL)
+	void JS_docSubmitForm(void* formData, int length, const FX_WCHAR* URL)
 	{
 		if(m_pInfo && m_pInfo->m_pJsPlatform && m_pInfo->m_pJsPlatform->Doc_submitForm)
 		{
@@ -236,7 +185,7 @@ public:
 		}
 	}
 
-	void JS_docmailForm(void* mailData, int length, FPDF_BOOL bUI,FX_LPCWSTR To, FX_LPCWSTR Subject, FX_LPCWSTR CC, FX_LPCWSTR BCC, FX_LPCWSTR Msg)
+	void JS_docmailForm(void* mailData, int length, FPDF_BOOL bUI,const FX_WCHAR* To, const FX_WCHAR* Subject, const FX_WCHAR* CC, const FX_WCHAR* BCC, const FX_WCHAR* Msg)
 	{
 		if(m_pInfo && m_pInfo->m_pJsPlatform && m_pInfo->m_pJsPlatform->Doc_mail)
 		{
@@ -258,19 +207,6 @@ public:
 			bsSubject.ReleaseBuffer();
 			bsMsg.ReleaseBuffer();
 		}
-	}
-	CFX_WideString JS_appbrowseForDoc(FPDF_BOOL bSave, FX_LPCWSTR cFilenameInit)
-	{
-		//to do....
-		return L"";
-// 		if(m_pInfo && m_pInfo->m_pJsPlatform && m_pInfo->m_pJsPlatform->app_browseForDoc)
-// 		{
-// 			CFX_ByteString bsFilenameInit = CFX_WideString(cFilenameInit).UTF16LE_Encode();
-// 			FPDF_WIDESTRING pFileNameInit = (FPDF_WIDESTRING)bsFilenameInit.GetBuffer(bsFilenameInit.GetLength());
-// 
-// 			m_pInfo->m_pJsPlatform->app_browseForDoc(m_pInfo->m_pJsPlatform, pFileNameInit);
-// 			bsFilenameInit.ReleaseBuffer();
-// 		}
 	}
 
 	void JS_docprint(FPDF_BOOL bUI , int nStart, int nEnd, FPDF_BOOL bSilent ,FPDF_BOOL bShrinkToFit,FPDF_BOOL bPrintAsImage ,FPDF_BOOL bReverse ,FPDF_BOOL bAnnotations)
@@ -314,7 +250,7 @@ public:
 		}
 		return 0;
 	}
-	void	FFI_ExecuteNamedAction(FX_LPCSTR namedAction)
+	void	FFI_ExecuteNamedAction(const FX_CHAR* namedAction)
 	{
 		if(m_pInfo && m_pInfo->FFI_ExecuteNamedAction)
 		{
@@ -329,7 +265,7 @@ public:
 		}
 	}
 
-	void	FFI_DoURIAction(FX_LPCSTR bsURI)
+	void	FFI_DoURIAction(const FX_CHAR* bsURI)
 	{
 		if(m_pInfo && m_pInfo->FFI_DoURIAction)
 		{
@@ -345,39 +281,27 @@ public:
 		}
 	}
 
-public:
 	FX_BOOL				IsJSInitiated();
 
-public:	
 	void				SetCurrentDoc(CPDFSDK_Document* pFXDoc) {m_pSDKDoc = pFXDoc;}
 	CPDFSDK_Document*	GetCurrentDoc();
 	CPDF_Document*		GetPDFDocument() {return m_pPDFDoc;}
-// 	CPDFSDK_Document*   GetDocument(int nIndex);
-// 	int					CountDocuments() {return m_docMap.GetCount();}
-
-	CPDFSDK_Document*		OpenDocument(CFX_WideString &fileName);
-	CPDFSDK_Document*		OpenMemPDFDoc(CPDF_Document* pNewDoc, CFX_WideString &fileName);
-	FX_BOOL					OpenURL(CFX_WideString &filePath);
-	
 
 	CFX_ByteString		GetAppName() {return "";}
 
 	CFFL_IFormFiller*	GetIFormFiller();
 	IFX_SystemHandler*	GetSysHandler() {return m_pSysHandler;}
 
-public:
 	CPDFSDK_AnnotHandlerMgr* GetAnnotHandlerMgr();
 	IFXJS_Runtime*	GetJSRuntime();
 	CPDFSDK_ActionHandler* GetActionHander();
+	FPDF_FORMFILLINFO* GetFormFillInfo() {return m_pInfo;}
+
 private:
 	CPDFSDK_AnnotHandlerMgr* m_pAnnotHandlerMgr;
 	CPDFSDK_ActionHandler*	m_pActionHandler;
 	IFXJS_Runtime*	m_pJSRuntime;
-public:
-	FPDF_FORMFILLINFO* GetFormFillInfo() {return m_pInfo;}
-private:
 	FPDF_FORMFILLINFO*	m_pInfo;
-//	CFX_MapPtrTemplate<CPDF_Document*, CPDFSDK_Document*> m_docMap;
 	CPDFSDK_Document* m_pSDKDoc;
 	CPDF_Document* m_pPDFDoc;
 
@@ -390,48 +314,31 @@ public:
 
 
 
-// class CFX_App
-// {
-// public:
-// 	CFX_App():m_pCurDoc(NULL) {}
-// 	void SetAt(CPDF_Document* pPDFDoc, CPDFSDK_Document* pFXDoc);
-// 	CPDFSDK_Document* GetAt(CPDF_Document* pPDFDoc);
-// public:
-// 	void SetCurrentDocument(CPDFSDK_Document* pFXDoc) {m_pCurDoc = pFXDoc;}
-// 	CPDFSDK_Document* GetCurrentDocument() {return m_pCurDoc;}
-// private:
-// 	CFX_MapPtrTemplate<CPDF_Document*, CPDFSDK_Document*> m_docArray;
-// 	CPDFSDK_Document* m_pCurDoc;
-// };
 class CPDFSDK_InterForm;
 class CPDFSDK_Document
 {
 public:
 	CPDFSDK_Document(CPDF_Document* pDoc, CPDFDoc_Environment* pEnv);
 	~CPDFSDK_Document();
-public:
+
 	CPDFSDK_InterForm*		GetInterForm() ;
 	CPDF_Document*			GetDocument() {return m_pDoc;}
 
-public:
-	void					InitPageView();
-	void					AddPageView(CPDF_Page* pPDFPage, CPDFSDK_PageView* pPageView);
 	CPDFSDK_PageView*		GetPageView(CPDF_Page* pPDFPage, FX_BOOL ReNew = TRUE);
 	CPDFSDK_PageView*		GetPageView(int nIndex);
 	CPDFSDK_PageView*		GetCurrentView();
 	void					ReMovePageView(CPDF_Page* pPDFPage);
 	void					UpdateAllViews(CPDFSDK_PageView* pSender, CPDFSDK_Annot* pAnnot);
 
-	CPDFSDK_Annot*			GetFocusAnnot();//{return NULL;}
+	CPDFSDK_Annot*			GetFocusAnnot();
 
 	IFXJS_Runtime *			GetJsRuntime();
-	
-	FX_BOOL					SetFocusAnnot(CPDFSDK_Annot* pAnnot, FX_UINT nFlag = 0);//{return FALSE;}
+
+	FX_BOOL					SetFocusAnnot(CPDFSDK_Annot* pAnnot, FX_UINT nFlag = 0);
 	FX_BOOL					KillFocusAnnot(FX_UINT nFlag = 0);
 
 	FX_BOOL					ExtractPages(const CFX_WordArray &arrExtraPages, CPDF_Document* pDstDoc);
 	FX_BOOL					InsertPages(int nInsertAt, const CPDF_Document* pSrcDoc, const CFX_WordArray &arrSrcPages);
-	FX_BOOL					DeletePages(int nStart, int nCount);
 	FX_BOOL					ReplacePages(int nPage, const CPDF_Document* pSrcDoc, const CFX_WordArray &arrSrcPages);
 
 	void					OnCloseDocument();
@@ -441,8 +348,6 @@ public:
 	FX_BOOL					GetChangeMark() {return m_bChangeMask;}
 	void					SetChangeMark() {m_bChangeMask = TRUE;}
 	void					ClearChangeMark() {m_bChangeMask= FALSE;}
-//	FX_BOOL					GetChangeMark(){return FALSE;}//IsAnnotModified()||IsFormModified() || IsWidgetModified()|| m_nChangeMark>0 ;}	
-//	void                    ClearChangeMark(){}
 	CFX_WideString			GetPath() ;
 	CPDF_Page*				GetPage(int nIndex);
 	CPDFDoc_Environment *	GetEnv() {return m_pEnv; }
@@ -450,17 +355,15 @@ public:
 	FX_BOOL					ProcOpenAction();
 	CPDF_OCContext*			GetOCContext();
 private:
-	//CFX_ArrayTemplate<CPDFSDK_PageView*> m_pageArray;
-	CFX_MapPtrTemplate<CPDF_Page*, CPDFSDK_PageView*> m_pageMap;
-	CPDF_Document*			m_pDoc;
-
-	CPDFSDK_InterForm*		m_pInterForm;
-	CPDFSDK_Annot*			m_pFocusAnnot;
-	CPDFDoc_Environment *	m_pEnv;
-	CPDF_OCContext *		m_pOccontent;
-	FX_BOOL					m_bChangeMask;
+    std::map<CPDF_Page*, CPDFSDK_PageView*> m_pageMap;
+    CPDF_Document* m_pDoc;
+    CPDFSDK_InterForm* m_pInterForm;
+    CPDFSDK_Annot* m_pFocusAnnot;
+    CPDFDoc_Environment* m_pEnv;
+    CPDF_OCContext* m_pOccontent;
+    FX_BOOL m_bChangeMask;
 };
-class CPDFSDK_PageView FX_FINAL
+class CPDFSDK_PageView final
 {
 public:
 	CPDFSDK_PageView(CPDFSDK_Document* pSDKDoc,CPDF_Page* page);
@@ -476,16 +379,15 @@ public:
 	FX_BOOL							Annot_HasAppearance(CPDF_Annot* pAnnot);
 
 	CPDFSDK_Annot*					AddAnnot(CPDF_Dictionary * pDict);
-	CPDFSDK_Annot*					AddAnnot(FX_LPCSTR lpSubType,CPDF_Dictionary * pDict);
+	CPDFSDK_Annot*					AddAnnot(const FX_CHAR* lpSubType,CPDF_Dictionary * pDict);
 	CPDFSDK_Annot*					AddAnnot(CPDF_Annot * pPDFAnnot);
-	FX_BOOL							DeleteAnnot(CPDFSDK_Annot* pAnnot);							
-	
+        FX_BOOL						DeleteAnnot(CPDFSDK_Annot* pAnnot);
 	int								CountAnnots();
 	CPDFSDK_Annot*					GetAnnot(int nIndex);
 	CPDFSDK_Annot*				    GetAnnotByDict(CPDF_Dictionary * pDict);
 	CPDF_Page*						GetPDFPage(){return m_page;}
 	CPDF_Document*					GetPDFDocument();
-	CPDFSDK_Document*				GetSDKDocument() {return m_pSDKDoc;}	
+	CPDFSDK_Document*				GetSDKDocument() {return m_pSDKDoc;}
 	FX_BOOL					OnLButtonDown(const CPDF_Point & point, FX_UINT nFlag);
 	FX_BOOL					OnLButtonUp(const CPDF_Point & point, FX_UINT nFlag);
 	FX_BOOL					OnChar(int nChar, FX_UINT nFlag);
@@ -494,7 +396,7 @@ public:
 
 	FX_BOOL					OnMouseMove(const CPDF_Point & point, int nFlag);
 	FX_BOOL					OnMouseWheel(double deltaX, double deltaY,const CPDF_Point& point, int nFlag);
-	FX_BOOL					IsValidAnnot(FX_LPVOID p);
+	FX_BOOL					IsValidAnnot(void* p);
 	void					GetCurrentMatrix(CPDF_Matrix& matrix) {matrix = m_curMatrix;}
 	void					UpdateRects(CFX_RectArray& rects);
 	void							UpdateView(CPDFSDK_Annot* pAnnot);
@@ -529,28 +431,28 @@ private:
 template<class TYPE>
 class CGW_ArrayTemplate : public CFX_ArrayTemplate<TYPE>
 {
-public: 
+public:
 	CGW_ArrayTemplate(){}
 	virtual ~CGW_ArrayTemplate(){}
-	
+
 	typedef int (*LP_COMPARE)(TYPE p1, TYPE p2);
-	
+
 	void Sort(LP_COMPARE pCompare, FX_BOOL bAscent = TRUE)
 	{
 		int nSize = this->GetSize();
 		QuickSort(0, nSize -1, bAscent, pCompare);
 	}
-	
+
 private:
 	void QuickSort(FX_UINT nStartPos, FX_UINT nStopPos, FX_BOOL bAscend, LP_COMPARE pCompare)
 	{
 		if (nStartPos >= nStopPos) return;
-		
+
 		if ((nStopPos - nStartPos) == 1)
 		{
 			TYPE Value1 = this->GetAt(nStartPos);
 			TYPE Value2 = this->GetAt(nStopPos);
-			
+
 			int iGreate = (*pCompare)(Value1, Value2);
 			if ((bAscend && iGreate > 0) || (!bAscend && iGreate < 0))
 			{
@@ -559,16 +461,16 @@ private:
 			}
 			return;
 		}
-		
+
 		FX_UINT m = nStartPos + (nStopPos - nStartPos) / 2;
 		FX_UINT i = nStartPos;
-		
+
 		TYPE Value = this->GetAt(m);
-		
+
 		while (i < m)
 		{
 			TYPE temp = this->GetAt(i);
-			
+
 			int iGreate = (*pCompare)(temp, Value);
 			if ((bAscend && iGreate > 0) || (!bAscend && iGreate < 0))
 			{
@@ -581,13 +483,13 @@ private:
 				i++;
 			}
 		}
-		
+
 		FX_UINT j = nStopPos;
-		
+
 		while (j > m)
 		{
 			TYPE temp = this->GetAt(j);
-			
+
 			int iGreate = (*pCompare)(temp, Value);
 			if ((bAscend && iGreate < 0) || (!bAscend && iGreate > 0))
 			{
@@ -600,12 +502,10 @@ private:
 				j--;
 			}
 		}
-		
+
 		if (nStartPos < m) QuickSort(nStartPos, m, bAscend, pCompare);
 		if (nStopPos > m) QuickSort(m, nStopPos, bAscend, pCompare);
 	}
 };
 
-
-#endif //_FPDFSDK_MGR_H
-
+#endif  // FPDFSDK_INCLUDE_FSDK_MGR_H_

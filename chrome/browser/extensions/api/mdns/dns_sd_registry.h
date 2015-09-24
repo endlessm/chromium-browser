@@ -43,13 +43,21 @@ class DnsSdRegistry : public DnsSdDelegate {
   explicit DnsSdRegistry(local_discovery::ServiceDiscoverySharedClient* client);
   virtual ~DnsSdRegistry();
 
+  // Publishes the current device list for |service_type| to event listeners
+  // whose event filter matches the service type.
+  virtual void Publish(const std::string& service_type);
+
+  // Immediately issues a multicast DNS query for all service types of the
+  // calling extension.
+  virtual void ForceDiscovery();
+
   // Observer registration for parties interested in discovery events.
   virtual void AddObserver(DnsSdObserver* observer);
   virtual void RemoveObserver(DnsSdObserver* observer);
 
   // DNS-SD-related discovery functionality.
-  virtual void RegisterDnsSdListener(std::string service_type);
-  virtual void UnregisterDnsSdListener(std::string service_type);
+  virtual void RegisterDnsSdListener(const std::string& service_type);
+  virtual void UnregisterDnsSdListener(const std::string& service_type);
 
  protected:
   // Data class for managing all the resources and information related to a
@@ -65,9 +73,15 @@ class DnsSdRegistry : public DnsSdDelegate {
     bool ListenerRemoved();
     int GetListenerCount();
 
+    // Immediately issues a multicast DNS query for the service type owned by
+    // |this|.
+    void ForceDiscovery();
+
     // Methods for adding, updating or removing services for this service type.
     bool UpdateService(bool added, const DnsSdService& service);
     bool RemoveService(const std::string& service_name);
+    // Called when the discovery service was restarted.
+    // Clear the local cache and initiate rediscovery.
     bool ClearServices();
 
     const DnsSdRegistry::DnsSdServiceList& GetServiceList();
@@ -104,7 +118,7 @@ class DnsSdRegistry : public DnsSdDelegate {
 
   scoped_refptr<local_discovery::ServiceDiscoverySharedClient>
       service_discovery_client_;
-  ObserverList<DnsSdObserver> observers_;
+  base::ObserverList<DnsSdObserver> observers_;
 
   DISALLOW_COPY_AND_ASSIGN(DnsSdRegistry);
 };

@@ -9,7 +9,7 @@
 
 #include "base/strings/nullable_string16.h"
 #include "content/common/content_export.h"
-#include "third_party/WebKit/public/platform/WebScreenOrientationLockType.h"
+#include "third_party/WebKit/public/platform/modules/screen_orientation/WebScreenOrientationLockType.h"
 #include "ui/gfx/geometry/size.h"
 #include "url/gurl.h"
 
@@ -54,6 +54,26 @@ struct CONTENT_EXPORT Manifest {
     static const double kDefaultDensity;
   };
 
+  // Structure representing a related application.
+  struct CONTENT_EXPORT RelatedApplication {
+    RelatedApplication();
+    ~RelatedApplication();
+
+    // The platform on which the application can be found. This can be any
+    // string, and is interpreted by the consumer of the object. Empty if the
+    // parsing failed.
+    base::NullableString16 platform;
+
+    // URL at which the application can be found. One of |url| and |id| must be
+    // present. Empty if the parsing failed or the field was not present.
+    GURL url;
+
+    // An id which is used to represent the application on the platform. One of
+    // |url| and |id| must be present. Empty if the parsing failed or the field
+    // was not present.
+    base::NullableString16 id;
+  };
+
   Manifest();
   ~Manifest();
 
@@ -81,6 +101,16 @@ struct CONTENT_EXPORT Manifest {
   // Empty if the parsing failed, the field was not present, empty or all the
   // icons inside the JSON array were invalid.
   std::vector<Icon> icons;
+
+  // Empty if the parsing failed, the field was not present, empty or all the
+  // applications inside the array were invalid. The order of the array
+  // indicates the priority of the application to use.
+  std::vector<RelatedApplication> related_applications;
+
+  // A boolean that is used as a hint for the user agent to say that related
+  // applications should be preferred over the web application. False if missing
+  // or there is a parsing failure.
+  bool prefer_related_applications;
 
   // This is a proprietary extension of the web Manifest, double-check that it
   // is okay to use this entry.

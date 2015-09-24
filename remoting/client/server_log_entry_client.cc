@@ -4,6 +4,7 @@
 
 #include "remoting/client/server_log_entry_client.h"
 
+#include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringize_macros.h"
 #include "base/strings/stringprintf.h"
@@ -56,14 +57,14 @@ const char* GetValueSessionState(ConnectionToHost::State state) {
       return kValueSessionStateClosed;
     default:
       NOTREACHED();
-      return NULL;
+      return nullptr;
   }
 }
 
 const char* GetValueError(ErrorCode error) {
   switch (error) {
     // Where possible, these are the same strings that the webapp sends for the
-    // corresponding error - see remoting/webapp/server_log_entry.js.
+    // corresponding error - see remoting/webapp/crd/js/server_log_entry.js.
     case protocol::OK:
       return "none";
     case protocol::PEER_IS_OFFLINE:
@@ -75,18 +76,18 @@ const char* GetValueError(ErrorCode error) {
     case protocol::AUTHENTICATION_FAILED:
       return "authentication-failed";
     case protocol::CHANNEL_CONNECTION_ERROR:
-      return "channel-connection-error";
+      return "p2p-failure";
     case protocol::SIGNALING_ERROR:
-      return "signaling-error";
+      return "network-failure";
     case protocol::SIGNALING_TIMEOUT:
-      return "signaling-timeout";
+      return "network-failure";
     case protocol::HOST_OVERLOAD:
       return "host-overload";
     case protocol::UNKNOWN_ERROR:
       return "unknown-error";
     default:
       NOTREACHED();
-      return NULL;
+      return nullptr;
   }
 }
 

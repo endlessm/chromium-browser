@@ -20,7 +20,6 @@
 #include "base/time/time.h"
 #include "google_apis/gcm/base/gcm_export.h"
 #include "google_apis/gcm/engine/account_mapping.h"
-#include "google_apis/gcm/engine/registration_info.h"
 
 namespace gcm {
 
@@ -30,6 +29,11 @@ class MCSMessage;
 // as well as store device and user checkin information.
 class GCM_EXPORT GCMStore {
  public:
+  enum StoreOpenMode {
+    DO_NOT_CREATE,
+    CREATE_IF_MISSING
+  };
+
   // Map of message id to message data for outgoing messages.
   typedef std::map<std::string, linked_ptr<google::protobuf::MessageLite> >
       OutgoingMessageMap;
@@ -45,9 +49,10 @@ class GCM_EXPORT GCMStore {
     void Reset();
 
     bool success;
+    bool store_does_not_exist;
     uint64 device_android_id;
     uint64 device_security_token;
-    RegistrationInfoMap registrations;
+    std::map<std::string, std::string> registrations;
     std::vector<std::string> incoming_messages;
     OutgoingMessageMap outgoing_messages;
     std::map<std::string, std::string> gservices_settings;
@@ -56,6 +61,8 @@ class GCM_EXPORT GCMStore {
     std::set<std::string> last_checkin_accounts;
     AccountMappings account_mappings;
     base::Time last_token_fetch_time;
+    std::map<std::string, int> heartbeat_intervals;
+    std::map<std::string, std::string> instance_id_data;
   };
 
   typedef std::vector<std::string> PersistentIdList;
@@ -67,7 +74,7 @@ class GCM_EXPORT GCMStore {
 
   // Load the data from persistent store and pass the initial state back to
   // caller.
-  virtual void Load(const LoadCallback& callback) = 0;
+  virtual void Load(StoreOpenMode open_mode, const LoadCallback& callback) = 0;
 
   // Close the persistent store.
   virtual void Close() = 0;
@@ -80,11 +87,15 @@ class GCM_EXPORT GCMStore {
                                     uint64 device_security_token,
                                     const UpdateCallback& callback) = 0;
 
-  // Registration info.
-  virtual void AddRegistration(const std::string& app_id,
-                               const linked_ptr<RegistrationInfo>& registration,
+  // Registration info for both GCM registrations and InstanceID tokens.
+  // For GCM, |serialized_key| is app_id and |serialized_value| is
+  // serialization of (senders, registration_id). For InstanceID,
+  // |serialized_key| is serialization of (app_id, authorized_entity, scope)
+  // and |serialized_value| is token.
+  virtual void AddRegistration(const std::string& serialized_key,
+                               const std::string& serialized_value,
                                const UpdateCallback& callback) = 0;
-  virtual void RemoveRegistration(const std::string& app_id,
+  virtual void RemoveRegistration(const std::string& serialized_key,
                                   const UpdateCallback& callback) = 0;
 
   // Unacknowledged incoming message handling.
@@ -132,6 +143,20 @@ class GCM_EXPORT GCMStore {
   // Sets last token fetch time.
   virtual void SetLastTokenFetchTime(const base::Time& time,
                                      const UpdateCallback& callback) = 0;
+
+  // Sets the custom client heartbeat interval for a specified scope.
+  virtual void AddHeartbeatInterval(const std::string& scope,
+                                    int interval_ms,
+                                    const UpdateCallback& callback) = 0;
+  virtual void RemoveHeartbeatInterval(const std::string& scope,
+                                       const UpdateCallback& callback) = 0;
+
+  // Instance ID data.
+  virtual void AddInstanceIDData(const std::string& app_id,
+                                 const std::string& instance_id_data,
+                                 const UpdateCallback& callback) = 0;
+  virtual void RemoveInstanceIDData(const std::string& app_id,
+                                    const UpdateCallback& callback) = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(GCMStore);

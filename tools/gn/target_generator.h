@@ -8,16 +8,15 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
-#include "base/memory/scoped_ptr.h"
-#include "tools/gn/source_dir.h"
-#include "tools/gn/target.h"
+#include "base/macros.h"
+#include "tools/gn/label_ptr.h"
+#include "tools/gn/unique_vector.h"
 
 class BuildSettings;
 class Err;
 class FunctionCallNode;
-class Location;
 class Scope;
+class SubstitutionPattern;
 class Value;
 
 // Fills the variables in a Target object from a Scope (the result of a script
@@ -30,7 +29,7 @@ class TargetGenerator {
                   Scope* scope,
                   const FunctionCallNode* function_call,
                   Err* err);
-  ~TargetGenerator();
+  virtual ~TargetGenerator();
 
   void Run();
 
@@ -53,13 +52,13 @@ class TargetGenerator {
   bool FillInputs();
   bool FillConfigs();
   bool FillOutputs(bool allow_substitutions);
+  bool FillCheckIncludes();
 
   // Rrturns true if the given pattern will expand to a file in the output
   // directory. If not, returns false and sets the error, blaming the given
   // Value.
-  bool EnsureSubstitutionIsInOutputDir(
-      const SubstitutionPattern& pattern,
-      const Value& original_value);
+  bool EnsureSubstitutionIsInOutputDir(const SubstitutionPattern& pattern,
+                                       const Value& original_value);
 
   Target* target_;
   Scope* scope_;

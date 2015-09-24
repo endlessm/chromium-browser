@@ -19,6 +19,7 @@ extern "C" {
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
 #include "base/mac/bundle_locations.h"
+#include "base/mac/foundation_util.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/mac/scoped_nsautorelease_pool.h"
@@ -26,11 +27,13 @@ extern "C" {
 #include "base/rand_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_piece.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/sys_info.h"
+#include "content/common/gpu/media/vt_video_decode_accelerator.h"
 #include "content/grit/content_resources.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_switches.h"
@@ -63,9 +66,9 @@ SandboxTypeToResourceIDMapping kDefaultSandboxTypeToResourceIDMapping[] = {
   { SANDBOX_TYPE_PPAPI,    IDR_PPAPI_SANDBOX_PROFILE },
 };
 
-COMPILE_ASSERT(arraysize(kDefaultSandboxTypeToResourceIDMapping) == \
-               size_t(SANDBOX_TYPE_AFTER_LAST_TYPE), \
-               sandbox_type_to_resource_id_mapping_incorrect);
+static_assert(arraysize(kDefaultSandboxTypeToResourceIDMapping) == \
+              size_t(SANDBOX_TYPE_AFTER_LAST_TYPE), \
+              "sandbox type to resource id mapping incorrect");
 
 // Try to escape |c| as a "SingleEscapeCharacter" (\n, etc).  If successful,
 // returns true and appends the escape sequence to |dst|.
@@ -323,6 +326,9 @@ void Sandbox::SandboxWarmup(int sandbox_type) {
     // Preload either the desktop GL or the osmesa so, depending on the
     // --use-gl flag.
     gfx::GLSurface::InitializeOneOff();
+
+    // Preload VideoToolbox.
+    InitializeVideoToolbox();
   }
 
   if (sandbox_type == SANDBOX_TYPE_PPAPI) {
@@ -451,8 +457,10 @@ bool Sandbox::PostProcessSandboxProfile(
   }
 
   // Split string on "@" characters.
-  std::vector<std::string> raw_sandbox_pieces;
-  if (Tokenize([sandbox_data UTF8String], "@", &raw_sandbox_pieces) == 0) {
+  std::vector<std::string> raw_sandbox_pieces = base::SplitString(
+      [sandbox_data UTF8String], "@", base::KEEP_WHITESPACE,
+      base::SPLIT_WANT_NONEMPTY);
+  if (raw_sandbox_pieces.empty()) {
     DLOG(FATAL) << "Bad Sandbox profile, should contain at least one token ("
                 << [sandbox_data UTF8String]
                 << ")";
@@ -575,6 +583,10 @@ bool Sandbox::EnableSandbox(int sandbox_type,
   if (lion_or_later) {
     // >=10.7 Sandbox rules.
     [tokens_to_remove addObject:@";10.7_OR_ABOVE"];
+  }
+  if (base::mac::IsOSElCapitanOrLater()) {
+    // >=10.11 Sandbox rules
+    [tokens_to_remove addObject:@";10.11_OR_ABOVE"];
   }
 
   substitutions["COMPONENT_BUILD_WORKAROUND"] = SandboxSubstring("");

@@ -10,20 +10,20 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/command_line.h"
+#include "base/logging.h"
 #include "base/prefs/pref_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/content_settings/web_site_settings_uma_util.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry_factory.h"
 #include "chrome/browser/extensions/extension_special_storage_policy.h"
 #include "chrome/browser/notifications/desktop_notification_profile_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_list.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
@@ -32,13 +32,16 @@
 #include "components/content_settings/core/browser/content_settings_details.h"
 #include "components/content_settings/core/browser/content_settings_utils.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/content_settings/core/browser/plugins_field_trial.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
 #include "components/google/core/browser/google_util.h"
+#include "components/signin/core/common/profile_management_switches.h"
 #include "components/user_prefs/user_prefs.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/notification_types.h"
+#include "content/public/browser/storage_partition.h"
 #include "content/public/browser/user_metrics.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
@@ -84,15 +87,15 @@ typedef bool (*AppFilter)(const extensions::Extension& app,
 const char kExceptionsLearnMoreUrl[] =
     "https://support.google.com/chrome/?p=settings_manage_exceptions";
 
-const char* kSetting = "setting";
-const char* kOrigin = "origin";
-const char* kSource = "source";
-const char* kAppName = "appName";
-const char* kAppId = "appId";
-const char* kEmbeddingOrigin = "embeddingOrigin";
-const char* kPreferencesSource = "preference";
-const char* kVideoSetting = "video";
-const char* kZoom = "zoom";
+const char kSetting[] = "setting";
+const char kOrigin[] = "origin";
+const char kSource[] = "source";
+const char kAppName[] = "appName";
+const char kAppId[] = "appId";
+const char kEmbeddingOrigin[] = "embeddingOrigin";
+const char kPreferencesSource[] = "preference";
+const char kVideoSetting[] = "video";
+const char kZoom[] = "zoom";
 
 const ContentSettingsTypeNameEntry kContentSettingsTypeGroupNames[] = {
   {CONTENT_SETTINGS_TYPE_COOKIES, "cookies"},
@@ -106,9 +109,12 @@ const ContentSettingsTypeNameEntry kContentSettingsTypeGroupNames[] = {
   {CONTENT_SETTINGS_TYPE_FULLSCREEN, "fullscreen"},
   {CONTENT_SETTINGS_TYPE_MOUSELOCK, "mouselock"},
   {CONTENT_SETTINGS_TYPE_PROTOCOL_HANDLERS, "register-protocol-handler"},
+  // The MEDIASTREAM content setting is deprecated, but the settings for
+  // microphone and camera still live in the part of UI labeled "media-stream".
+  // TODO(msramek): Clean this up once we have a new UI for media.
   {CONTENT_SETTINGS_TYPE_MEDIASTREAM, "media-stream"},
-  {CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC, "media-stream-mic"},
-  {CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA, "media-stream-camera"},
+  {CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC, "media-stream"},
+  {CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA, "media-stream"},
   {CONTENT_SETTINGS_TYPE_PPAPI_BROKER, "ppapi-broker"},
   {CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS, "multiple-automatic-downloads"},
   {CONTENT_SETTINGS_TYPE_MIDI_SYSEX, "midi-sysex"},
@@ -121,7 +127,7 @@ const ContentSettingsTypeNameEntry kContentSettingsTypeGroupNames[] = {
 
 // A pseudo content type. We use it to display data like a content setting even
 // though it is not a real content setting.
-const char* kZoomContentType = "zoomlevels";
+const char kZoomContentType[] = "zoomlevels";
 
 content::BrowserContext* GetBrowserContext(content::WebUI* web_ui) {
   return web_ui->GetWebContents()->GetBrowserContext();
@@ -242,13 +248,6 @@ void AddExceptionsGrantedByHostedApps(content::BrowserContext* context,
   }
 }
 
-// Sort ZoomLevelChanges by host and scheme
-// (a.com < http://a.com < https://a.com < b.com).
-bool HostZoomSort(const content::HostZoomMap::ZoomLevelChange& a,
-                  const content::HostZoomMap::ZoomLevelChange& b) {
-  return a.host == b.host ? a.scheme < b.scheme : a.host < b.host;
-}
-
 }  // namespace
 
 namespace options {
@@ -259,10 +258,11 @@ ContentSettingsHandler::MediaSettingsInfo::MediaSettingsInfo()
       last_flash_refresh_request_id(0),
       show_flash_default_link(false),
       show_flash_exceptions_link(false),
-      default_setting(CONTENT_SETTING_DEFAULT),
+      default_audio_setting(CONTENT_SETTING_DEFAULT),
+      default_video_setting(CONTENT_SETTING_DEFAULT),
       policy_disable_audio(false),
       policy_disable_video(false),
-      default_setting_initialized(false),
+      default_settings_initialized(false),
       exceptions_initialized(false) {
 }
 
@@ -279,139 +279,148 @@ void ContentSettingsHandler::GetLocalizedValues(
     base::DictionaryValue* localized_strings) {
   DCHECK(localized_strings);
 
-  // TODO(dhnishi): Standardize to lowerCamelCase.
   static OptionsStringResource resources[] = {
-    { "allowException", IDS_EXCEPTIONS_ALLOW_BUTTON },
-    { "blockException", IDS_EXCEPTIONS_BLOCK_BUTTON },
-    { "sessionException", IDS_EXCEPTIONS_SESSION_ONLY_BUTTON },
-    { "askException", IDS_EXCEPTIONS_ASK_BUTTON },
-    { "otr_exceptions_explanation", IDS_EXCEPTIONS_OTR_LABEL },
-    { "addNewExceptionInstructions", IDS_EXCEPTIONS_ADD_NEW_INSTRUCTIONS },
-    { "manageExceptions", IDS_EXCEPTIONS_MANAGE },
-    { "manage_handlers", IDS_HANDLERS_MANAGE },
-    { "exceptionPatternHeader", IDS_EXCEPTIONS_PATTERN_HEADER },
-    { "exceptionBehaviorHeader", IDS_EXCEPTIONS_ACTION_HEADER },
-    { "exceptionZoomHeader", IDS_EXCEPTIONS_ZOOM_HEADER },
-    { "embeddedOnHost", IDS_EXCEPTIONS_GEOLOCATION_EMBEDDED_ON_HOST },
+    {"allowException", IDS_EXCEPTIONS_ALLOW_BUTTON},
+    {"blockException", IDS_EXCEPTIONS_BLOCK_BUTTON},
+    {"sessionException", IDS_EXCEPTIONS_SESSION_ONLY_BUTTON},
+    {"detectException", IDS_EXCEPTIONS_DETECT_IMPORTANT_CONTENT_BUTTON},
+    {"askException", IDS_EXCEPTIONS_ASK_BUTTON},
+    {"otrExceptionsExplanation", IDS_EXCEPTIONS_OTR_LABEL},
+    {"addNewExceptionInstructions", IDS_EXCEPTIONS_ADD_NEW_INSTRUCTIONS},
+    {"manageExceptions", IDS_EXCEPTIONS_MANAGE},
+    {"manageHandlers", IDS_HANDLERS_MANAGE},
+    {"exceptionPatternHeader", IDS_EXCEPTIONS_PATTERN_HEADER},
+    {"exceptionBehaviorHeader", IDS_EXCEPTIONS_ACTION_HEADER},
+    {"exceptionZoomHeader", IDS_EXCEPTIONS_ZOOM_HEADER},
+    {"embeddedOnHost", IDS_EXCEPTIONS_GEOLOCATION_EMBEDDED_ON_HOST},
     // Cookies filter.
-    { "cookiesTabLabel", IDS_COOKIES_TAB_LABEL },
-    { "cookies_header", IDS_COOKIES_HEADER },
-    { "cookiesAllow", IDS_COOKIES_ALLOW_RADIO },
-    { "cookiesBlock", IDS_COOKIES_BLOCK_RADIO },
-    { "cookies_session_only", IDS_COOKIES_SESSION_ONLY_RADIO },
-    { "cookies_block_3rd_party", IDS_COOKIES_BLOCK_3RDPARTY_CHKBOX },
-    { "cookies_clear_when_close", IDS_COOKIES_CLEAR_WHEN_CLOSE_CHKBOX },
-    { "cookies_lso_clear_when_close", IDS_COOKIES_LSO_CLEAR_WHEN_CLOSE_CHKBOX },
-    { "cookies_show_cookies", IDS_COOKIES_SHOW_COOKIES_BUTTON },
-    { "flash_storage_settings", IDS_FLASH_STORAGE_SETTINGS },
-    { "flash_storage_url", IDS_FLASH_STORAGE_URL },
+    {"cookiesTabLabel", IDS_COOKIES_TAB_LABEL},
+    {"cookiesHeader", IDS_COOKIES_HEADER},
+    {"cookiesAllow", IDS_COOKIES_ALLOW_RADIO},
+    {"cookiesBlock", IDS_COOKIES_BLOCK_RADIO},
+    {"cookiesSession", IDS_COOKIES_SESSION_ONLY_RADIO},
+    {"cookiesBlock3rdParty", IDS_COOKIES_BLOCK_3RDPARTY_CHKBOX},
+    {"cookiesClearWhenClose", IDS_COOKIES_CLEAR_WHEN_CLOSE_CHKBOX},
+    {"cookiesLsoClearWhenClose", IDS_COOKIES_LSO_CLEAR_WHEN_CLOSE_CHKBOX},
+    {"cookiesShowCookies", IDS_COOKIES_SHOW_COOKIES_BUTTON},
+    {"flashStorageSettings", IDS_FLASH_STORAGE_SETTINGS},
+    {"flashStorageUrl", IDS_FLASH_STORAGE_URL},
 #if defined(ENABLE_GOOGLE_NOW)
-    { "googleGeolocationAccessEnable",
-       IDS_GEOLOCATION_GOOGLE_ACCESS_ENABLE_CHKBOX },
+    {"googleGeolocationAccessEnable",
+     IDS_GEOLOCATION_GOOGLE_ACCESS_ENABLE_CHKBOX},
 #endif
     // Image filter.
-    { "imagesTabLabel", IDS_IMAGES_TAB_LABEL },
-    { "images_header", IDS_IMAGES_HEADER },
-    { "imagesAllow", IDS_IMAGES_LOAD_RADIO },
-    { "imagesBlock", IDS_IMAGES_NOLOAD_RADIO },
+    {"imagesTabLabel", IDS_IMAGES_TAB_LABEL},
+    {"imagesHeader", IDS_IMAGES_HEADER},
+    {"imagesAllow", IDS_IMAGES_LOAD_RADIO},
+    {"imagesBlock", IDS_IMAGES_NOLOAD_RADIO},
     // JavaScript filter.
-    { "javascriptTabLabel", IDS_JAVASCRIPT_TAB_LABEL },
-    { "javascript_header", IDS_JAVASCRIPT_HEADER },
-    { "javascriptAllow", IDS_JS_ALLOW_RADIO },
-    { "javascriptBlock", IDS_JS_DONOTALLOW_RADIO },
-    // Plug-ins filter.
-    { "pluginsTabLabel", IDS_PLUGIN_TAB_LABEL },
-    { "plugins_header", IDS_PLUGIN_HEADER },
-    { "pluginsAsk", IDS_PLUGIN_ASK_RADIO },
-    { "pluginsAllow", IDS_PLUGIN_LOAD_RADIO },
-    { "pluginsBlock", IDS_PLUGIN_ASK_MENU_RADIO },
-    { "disableIndividualPlugins", IDS_PLUGIN_SELECTIVE_DISABLE },
+    {"javascriptTabLabel", IDS_JAVASCRIPT_TAB_LABEL},
+    {"javascriptHeader", IDS_JAVASCRIPT_HEADER},
+    {"javascriptAllow", IDS_JS_ALLOW_RADIO},
+    {"javascriptBlock", IDS_JS_DONOTALLOW_RADIO},
+    // Plugins filter.
+    {"pluginsTabLabel", IDS_PLUGIN_TAB_LABEL},
+    {"pluginsHeader", IDS_PLUGIN_HEADER},
+    {"pluginsAllow", IDS_PLUGIN_ALLOW_RADIO},
+    {"pluginsBlock", IDS_PLUGIN_BLOCK_RADIO},
+    {"manageIndividualPlugins", IDS_PLUGIN_MANAGE_INDIVIDUAL},
     // Pop-ups filter.
-    { "popupsTabLabel", IDS_POPUP_TAB_LABEL },
-    { "popups_header", IDS_POPUP_HEADER },
-    { "popupsAllow", IDS_POPUP_ALLOW_RADIO },
-    { "popupsBlock", IDS_POPUP_BLOCK_RADIO },
+    {"popupsTabLabel", IDS_POPUP_TAB_LABEL},
+    {"popupsHeader", IDS_POPUP_HEADER},
+    {"popupsAllow", IDS_POPUP_ALLOW_RADIO},
+    {"popupsBlock", IDS_POPUP_BLOCK_RADIO},
     // Location filter.
-    { "locationTabLabel", IDS_GEOLOCATION_TAB_LABEL },
-    { "location_header", IDS_GEOLOCATION_HEADER },
-    { "locationAllow", IDS_GEOLOCATION_ALLOW_RADIO },
-    { "locationAsk", IDS_GEOLOCATION_ASK_RADIO },
-    { "locationBlock", IDS_GEOLOCATION_BLOCK_RADIO },
-    { "set_by", IDS_GEOLOCATION_SET_BY_HOVER },
+    {"locationTabLabel", IDS_GEOLOCATION_TAB_LABEL},
+    {"locationHeader", IDS_GEOLOCATION_HEADER},
+    {"locationAllow", IDS_GEOLOCATION_ALLOW_RADIO},
+    {"locationAsk", IDS_GEOLOCATION_ASK_RADIO},
+    {"locationBlock", IDS_GEOLOCATION_BLOCK_RADIO},
+    {"setBy", IDS_GEOLOCATION_SET_BY_HOVER},
     // Notifications filter.
-    { "notificationsTabLabel", IDS_NOTIFICATIONS_TAB_LABEL },
-    { "notifications_header", IDS_NOTIFICATIONS_HEADER },
-    { "notificationsAllow", IDS_NOTIFICATIONS_ALLOW_RADIO },
-    { "notificationsAsk", IDS_NOTIFICATIONS_ASK_RADIO },
-    { "notificationsBlock", IDS_NOTIFICATIONS_BLOCK_RADIO },
+    {"notificationsTabLabel", IDS_NOTIFICATIONS_TAB_LABEL},
+    {"notificationsHeader", IDS_NOTIFICATIONS_HEADER},
+    {"notificationsAllow", IDS_NOTIFICATIONS_ALLOW_RADIO},
+    {"notificationsAsk", IDS_NOTIFICATIONS_ASK_RADIO},
+    {"notificationsBlock", IDS_NOTIFICATIONS_BLOCK_RADIO},
     // Fullscreen filter.
-    { "fullscreenTabLabel", IDS_FULLSCREEN_TAB_LABEL },
-    { "fullscreen_header", IDS_FULLSCREEN_HEADER },
+    {"fullscreenTabLabel", IDS_FULLSCREEN_TAB_LABEL},
+    {"fullscreenHeader", IDS_FULLSCREEN_HEADER},
     // Mouse Lock filter.
-    { "mouselockTabLabel", IDS_MOUSE_LOCK_TAB_LABEL },
-    { "mouselock_header", IDS_MOUSE_LOCK_HEADER },
-    { "mouselockAllow", IDS_MOUSE_LOCK_ALLOW_RADIO },
-    { "mouselockAsk", IDS_MOUSE_LOCK_ASK_RADIO },
-    { "mouselockBlock", IDS_MOUSE_LOCK_BLOCK_RADIO },
+    {"mouselockTabLabel", IDS_MOUSE_LOCK_TAB_LABEL},
+    {"mouselockHeader", IDS_MOUSE_LOCK_HEADER},
+    {"mouselockAllow", IDS_MOUSE_LOCK_ALLOW_RADIO},
+    {"mouselockAsk", IDS_MOUSE_LOCK_ASK_RADIO},
+    {"mouselockBlock", IDS_MOUSE_LOCK_BLOCK_RADIO},
 #if defined(OS_CHROMEOS) || defined(OS_WIN)
     // Protected Content filter
-    { "protectedContentTabLabel", IDS_PROTECTED_CONTENT_TAB_LABEL },
-    { "protectedContentInfo", IDS_PROTECTED_CONTENT_INFO },
-    { "protectedContentEnable", IDS_PROTECTED_CONTENT_ENABLE },
-    { "protectedContent_header", IDS_PROTECTED_CONTENT_HEADER },
+    {"protectedContentTabLabel", IDS_PROTECTED_CONTENT_TAB_LABEL},
+    {"protectedContentInfo", IDS_PROTECTED_CONTENT_INFO},
+    {"protectedContentEnable", IDS_PROTECTED_CONTENT_ENABLE},
+    {"protectedContentHeader", IDS_PROTECTED_CONTENT_HEADER},
 #endif  // defined(OS_CHROMEOS) || defined(OS_WIN)
     // Media stream capture device filter.
-    { "mediaStreamTabLabel", IDS_MEDIA_STREAM_TAB_LABEL },
-    { "media-stream_header", IDS_MEDIA_STREAM_HEADER },
-    { "mediaStreamAsk", IDS_MEDIA_STREAM_ASK_RADIO },
-    { "mediaStreamBlock", IDS_MEDIA_STREAM_BLOCK_RADIO },
-    { "mediaStreamAudioAsk", IDS_MEDIA_STREAM_ASK_AUDIO_ONLY_RADIO },
-    { "mediaStreamAudioBlock", IDS_MEDIA_STREAM_BLOCK_AUDIO_ONLY_RADIO },
-    { "mediaStreamVideoAsk", IDS_MEDIA_STREAM_ASK_VIDEO_ONLY_RADIO },
-    { "mediaStreamVideoBlock", IDS_MEDIA_STREAM_BLOCK_VIDEO_ONLY_RADIO },
-    { "mediaStreamBubbleAudio", IDS_MEDIA_STREAM_AUDIO_MANAGED },
-    { "mediaStreamBubbleVideo", IDS_MEDIA_STREAM_VIDEO_MANAGED },
-    { "mediaAudioExceptionHeader", IDS_MEDIA_AUDIO_EXCEPTION_HEADER },
-    { "mediaVideoExceptionHeader", IDS_MEDIA_VIDEO_EXCEPTION_HEADER },
-    { "mediaPepperFlashDefaultDivergedLabel",
-      IDS_MEDIA_PEPPER_FLASH_DEFAULT_DIVERGED_LABEL },
-    { "mediaPepperFlashExceptionsDivergedLabel",
-      IDS_MEDIA_PEPPER_FLASH_EXCEPTIONS_DIVERGED_LABEL },
-    { "mediaPepperFlashChangeLink", IDS_MEDIA_PEPPER_FLASH_CHANGE_LINK },
-    { "mediaPepperFlashGlobalPrivacyURL", IDS_FLASH_GLOBAL_PRIVACY_URL },
-    { "mediaPepperFlashWebsitePrivacyURL", IDS_FLASH_WEBSITE_PRIVACY_URL },
+    {"mediaStreamTabLabel", IDS_MEDIA_STREAM_TAB_LABEL},
+    {"mediaStreamHeader", IDS_MEDIA_STREAM_HEADER},
+    {"mediaStreamAsk", IDS_MEDIA_STREAM_ASK_RADIO},
+    {"mediaStreamBlock", IDS_MEDIA_STREAM_BLOCK_RADIO},
+    {"mediaStreamAudioAsk", IDS_MEDIA_STREAM_ASK_AUDIO_ONLY_RADIO},
+    {"mediaStreamAudioBlock", IDS_MEDIA_STREAM_BLOCK_AUDIO_ONLY_RADIO},
+    {"mediaStreamVideoAsk", IDS_MEDIA_STREAM_ASK_VIDEO_ONLY_RADIO},
+    {"mediaStreamVideoBlock", IDS_MEDIA_STREAM_BLOCK_VIDEO_ONLY_RADIO},
+    {"mediaStreamBubbleAudio", IDS_MEDIA_STREAM_AUDIO_MANAGED},
+    {"mediaStreamBubbleVideo", IDS_MEDIA_STREAM_VIDEO_MANAGED},
+    {"mediaAudioExceptionHeader", IDS_MEDIA_AUDIO_EXCEPTION_HEADER},
+    {"mediaVideoExceptionHeader", IDS_MEDIA_VIDEO_EXCEPTION_HEADER},
+    {"mediaPepperFlashDefaultDivergedLabel",
+     IDS_MEDIA_PEPPER_FLASH_DEFAULT_DIVERGED_LABEL},
+    {"mediaPepperFlashExceptionsDivergedLabel",
+     IDS_MEDIA_PEPPER_FLASH_EXCEPTIONS_DIVERGED_LABEL},
+    {"mediaPepperFlashChangeLink", IDS_MEDIA_PEPPER_FLASH_CHANGE_LINK},
+    {"mediaPepperFlashGlobalPrivacyURL", IDS_FLASH_GLOBAL_PRIVACY_URL},
+    {"mediaPepperFlashWebsitePrivacyURL", IDS_FLASH_WEBSITE_PRIVACY_URL},
     // PPAPI broker filter.
-    { "ppapi-broker_header", IDS_PPAPI_BROKER_HEADER },
-    { "ppapiBrokerTabLabel", IDS_PPAPI_BROKER_TAB_LABEL },
-    { "ppapiBrokerAllow", IDS_PPAPI_BROKER_ALLOW_RADIO },
-    { "ppapiBrokerAsk", IDS_PPAPI_BROKER_ASK_RADIO },
-    { "ppapiBrokerBlock", IDS_PPAPI_BROKER_BLOCK_RADIO },
+    {"ppapiBrokerHeader", IDS_PPAPI_BROKER_HEADER},
+    {"ppapiBrokerTabLabel", IDS_PPAPI_BROKER_TAB_LABEL},
+    {"ppapiBrokerAllow", IDS_PPAPI_BROKER_ALLOW_RADIO},
+    {"ppapiBrokerAsk", IDS_PPAPI_BROKER_ASK_RADIO},
+    {"ppapiBrokerBlock", IDS_PPAPI_BROKER_BLOCK_RADIO},
     // Multiple automatic downloads
-    { "multipleAutomaticDownloadsTabLabel",
-      IDS_AUTOMATIC_DOWNLOADS_TAB_LABEL },
-    { "multiple-automatic-downloads_header",
-      IDS_AUTOMATIC_DOWNLOADS_TAB_LABEL },
-    { "multipleAutomaticDownloadsAllow",
-      IDS_AUTOMATIC_DOWNLOADS_ALLOW_RADIO },
-    { "multipleAutomaticDownloadsAsk",
-      IDS_AUTOMATIC_DOWNLOADS_ASK_RADIO },
-    { "multipleAutomaticDownloadsBlock",
-      IDS_AUTOMATIC_DOWNLOADS_BLOCK_RADIO },
+    {"multipleAutomaticDownloadsTabLabel", IDS_AUTOMATIC_DOWNLOADS_TAB_LABEL},
+    {"multipleAutomaticDownloadsHeader", IDS_AUTOMATIC_DOWNLOADS_TAB_LABEL},
+    {"multipleAutomaticDownloadsAllow", IDS_AUTOMATIC_DOWNLOADS_ALLOW_RADIO},
+    {"multipleAutomaticDownloadsAsk", IDS_AUTOMATIC_DOWNLOADS_ASK_RADIO},
+    {"multipleAutomaticDownloadsBlock", IDS_AUTOMATIC_DOWNLOADS_BLOCK_RADIO},
     // MIDI system exclusive messages
-    { "midi-sysex_header", IDS_MIDI_SYSEX_TAB_LABEL },
-    { "midiSysExAllow", IDS_MIDI_SYSEX_ALLOW_RADIO },
-    { "midiSysExAsk", IDS_MIDI_SYSEX_ASK_RADIO },
-    { "midiSysExBlock", IDS_MIDI_SYSEX_BLOCK_RADIO },
+    {"midiSysexHeader", IDS_MIDI_SYSEX_TAB_LABEL},
+    {"midiSysExAllow", IDS_MIDI_SYSEX_ALLOW_RADIO},
+    {"midiSysExAsk", IDS_MIDI_SYSEX_ASK_RADIO},
+    {"midiSysExBlock", IDS_MIDI_SYSEX_BLOCK_RADIO},
     // Push messaging strings
-    { "push-messaging_header", IDS_PUSH_MESSAGES_TAB_LABEL },
-    { "pushMessagingAllow", IDS_PUSH_MESSSAGING_ALLOW_RADIO },
-    { "pushMessagingAsk", IDS_PUSH_MESSSAGING_ASK_RADIO },
-    { "pushMessagingBlock", IDS_PUSH_MESSSAGING_BLOCK_RADIO },
-    { "zoomlevels_header", IDS_ZOOMLEVELS_HEADER_AND_TAB_LABEL },
-    { "zoomLevelsManage", IDS_ZOOMLEVELS_MANAGE_BUTTON },
+    {"pushMessagingHeader", IDS_PUSH_MESSAGES_TAB_LABEL},
+    {"pushMessagingAllow", IDS_PUSH_MESSSAGING_ALLOW_RADIO},
+    {"pushMessagingAsk", IDS_PUSH_MESSSAGING_ASK_RADIO},
+    {"pushMessagingBlock", IDS_PUSH_MESSSAGING_BLOCK_RADIO},
+    {"zoomlevelsHeader", IDS_ZOOMLEVELS_HEADER_AND_TAB_LABEL},
+    {"zoomLevelsManage", IDS_ZOOMLEVELS_MANAGE_BUTTON},
   };
 
   RegisterStrings(localized_strings, resources, arraysize(resources));
+
+  PrefService* prefs = Profile::FromWebUI(web_ui())->GetPrefs();
+  const base::Value* default_pref =
+      prefs->GetDefaultPrefValue(prefs::kDefaultPluginsSetting);
+
+  int default_value = CONTENT_SETTING_DEFAULT;
+  bool success = default_pref->GetAsInteger(&default_value);
+  DCHECK(success);
+  DCHECK_NE(default_value, CONTENT_SETTING_DEFAULT);
+
+  int plugin_ids = default_value == CONTENT_SETTING_DETECT_IMPORTANT_CONTENT ?
+      IDS_PLUGIN_DETECT_RECOMMENDED_RADIO : IDS_PLUGIN_DETECT_RADIO;
+  localized_strings->SetString("pluginsDetect",
+                               l10n_util::GetStringUTF16(plugin_ids));
+
   RegisterTitle(localized_strings, "contentSettingsPage",
                 IDS_CONTENT_SETTINGS_TITLE);
 
@@ -490,12 +499,30 @@ void ContentSettingsHandler::InitializeHandler() {
           &ContentSettingsHandler::UpdateProtectedContentExceptionsButton,
           base::Unretained(this)));
 
-  content::HostZoomMap* host_zoom_map =
-      content::HostZoomMap::GetDefaultForBrowserContext(context);
+  // Here we only subscribe to the HostZoomMap for the default storage partition
+  // since we don't allow the user to manage the zoom levels for apps.
+  // We're only interested in zoom-levels that are persisted, since the user
+  // is given the opportunity to view/delete these in the content-settings page.
   host_zoom_map_subscription_ =
-      host_zoom_map->AddZoomLevelChangedCallback(
-          base::Bind(&ContentSettingsHandler::OnZoomLevelChanged,
-                     base::Unretained(this)));
+      content::HostZoomMap::GetDefaultForBrowserContext(context)
+          ->AddZoomLevelChangedCallback(
+              base::Bind(&ContentSettingsHandler::OnZoomLevelChanged,
+                         base::Unretained(this)));
+
+  if (!switches::IsEnableWebviewBasedSignin()) {
+    // The legacy signin page uses a different storage partition, so we need to
+    // add a subscription for its HostZoomMap separately.
+    GURL signin_url(chrome::kChromeUIChromeSigninURL);
+    content::StoragePartition* signin_partition =
+        content::BrowserContext::GetStoragePartitionForSite(
+            GetBrowserContext(web_ui()), signin_url);
+    content::HostZoomMap* signin_host_zoom_map =
+        signin_partition->GetHostZoomMap();
+    signin_host_zoom_map_subscription_ =
+        signin_host_zoom_map->AddZoomLevelChangedCallback(
+            base::Bind(&ContentSettingsHandler::OnZoomLevelChanged,
+                       base::Unretained(this)));
+  }
 
   flash_settings_manager_.reset(new PepperFlashSettingsManager(this, context));
 
@@ -589,10 +616,19 @@ void ContentSettingsHandler::OnGetPermissionSettingsCompleted(
 
 void ContentSettingsHandler::UpdateSettingDefaultFromModel(
     ContentSettingsType type) {
-  base::DictionaryValue filter_settings;
   std::string provider_id;
+  ContentSetting default_setting =
+      GetContentSettingsMap()->GetDefaultContentSetting(type, &provider_id);
+
+#if defined(ENABLE_PLUGINS)
+  default_setting =
+      content_settings::PluginsFieldTrial::EffectiveContentSetting(
+          type, default_setting);
+#endif
+
+  base::DictionaryValue filter_settings;
   filter_settings.SetString(ContentSettingsTypeToGroupName(type) + ".value",
-                            GetSettingDefaultFromModel(type, &provider_id));
+                            ContentSettingToString(default_setting));
   filter_settings.SetString(
       ContentSettingsTypeToGroupName(type) + ".managedBy", provider_id);
 
@@ -609,10 +645,13 @@ void ContentSettingsHandler::UpdateMediaSettingsView() {
 
   media_settings_.policy_disable_audio = audio_disabled;
   media_settings_.policy_disable_video = video_disabled;
-  media_settings_.default_setting =
+  media_settings_.default_audio_setting =
       GetContentSettingsMap()->GetDefaultContentSetting(
-          CONTENT_SETTINGS_TYPE_MEDIASTREAM, NULL);
-  media_settings_.default_setting_initialized = true;
+          CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC, NULL);
+  media_settings_.default_video_setting =
+      GetContentSettingsMap()->GetDefaultContentSetting(
+          CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA, NULL);
+  media_settings_.default_settings_initialized = true;
   UpdateFlashMediaLinksVisibility();
 
   base::DictionaryValue media_ui_settings;
@@ -666,17 +705,6 @@ void ContentSettingsHandler::UpdateMediaSettingsView() {
                                    media_ui_settings);
 }
 
-std::string ContentSettingsHandler::GetSettingDefaultFromModel(
-    ContentSettingsType type, std::string* provider_id) {
-  Profile* profile = Profile::FromWebUI(web_ui());
-  ContentSetting default_setting;
-  default_setting =
-      profile->GetHostContentSettingsMap()->GetDefaultContentSetting(
-          type, provider_id);
-
-  return ContentSettingToString(default_setting);
-}
-
 void ContentSettingsHandler::UpdateHandlersEnabledRadios() {
   base::FundamentalValue handlers_enabled(
       GetProtocolHandlerRegistry()->enabled());
@@ -713,10 +741,12 @@ void ContentSettingsHandler::UpdateExceptionsViewFromModel(
       UpdateNotificationExceptionsView();
       break;
     case CONTENT_SETTINGS_TYPE_MEDIASTREAM:
-      UpdateMediaSettingsView();
+      // The content settings type CONTENT_SETTINGS_TYPE_MEDIASSTREAM
+      // is deprecated.
       break;
     case CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC:
     case CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA:
+      UpdateMediaSettingsView();
       UpdateMediaExceptionsView();
       break;
     case CONTENT_SETTINGS_TYPE_MIXEDSCRIPT:
@@ -742,6 +772,20 @@ void ContentSettingsHandler::UpdateExceptionsViewFromModel(
     case CONTENT_SETTINGS_TYPE_METRO_SWITCH_TO_DESKTOP:
       break;
 #endif
+    case CONTENT_SETTINGS_TYPE_APP_BANNER:
+      // The content settings type CONTENT_SETTINGS_TYPE_APP_BANNER is used to
+      // track whether app banners should be shown or not, and is not a user
+      // visible content setting.
+      break;
+    case CONTENT_SETTINGS_TYPE_SITE_ENGAGEMENT:
+      // The content settings type CONTENT_SETTINGS_TYPE_SITE_ENGAGEMENT is used
+      // to track engagement with various origins, and is not a user visible
+      // content setting.
+      break;
+    case CONTENT_SETTINGS_TYPE_DURABLE_STORAGE:
+      // Durable storage is not yet user visible. TODO(dgrogan): Make it so.
+      // https://crbug.com/482814
+      break;
     default:
       UpdateExceptionsViewFromHostContentSettingsMap(type);
       break;
@@ -764,6 +808,9 @@ void ContentSettingsHandler::UpdateOTRExceptionsViewFromModel(
     case CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS:
     case CONTENT_SETTINGS_TYPE_MIDI_SYSEX:
     case CONTENT_SETTINGS_TYPE_SSL_CERT_DECISIONS:
+    case CONTENT_SETTINGS_TYPE_APP_BANNER:
+    case CONTENT_SETTINGS_TYPE_SITE_ENGAGEMENT:
+    case CONTENT_SETTINGS_TYPE_DURABLE_STORAGE:
       break;
     default:
       UpdateExceptionsViewFromOTRHostContentSettingsMap(type);
@@ -966,19 +1013,53 @@ void ContentSettingsHandler::UpdateMediaExceptionsView() {
   web_ui()->CallJavascriptFunction("ContentSettings.setExceptions",
                                    type_string, media_exceptions);
 
-  UpdateSettingDefaultFromModel(CONTENT_SETTINGS_TYPE_MEDIASTREAM);
+  // TODO(msramek): We currently don't have a UI to show separate default
+  // settings for microphone and camera. However, SetContentFilter always sets
+  // both defaults to the same value, so it doesn't matter which one we pick
+  // to show in the UI. Makes sure to update both when we have the new media UI.
+  UpdateSettingDefaultFromModel(CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC);
 }
 
 void ContentSettingsHandler::UpdateMIDISysExExceptionsView() {
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kEnableWebMIDI)) {
-    web_ui()->CallJavascriptFunction(
-        "ContentSettings.showExperimentalWebMIDISettings",
-        base::FundamentalValue(true));
-  }
-
   UpdateSettingDefaultFromModel(CONTENT_SETTINGS_TYPE_MIDI_SYSEX);
   UpdateExceptionsViewFromHostContentSettingsMap(
       CONTENT_SETTINGS_TYPE_MIDI_SYSEX);
+}
+
+void ContentSettingsHandler::AdjustZoomLevelsListForSigninPageIfNecessary(
+    content::HostZoomMap::ZoomLevelVector* zoom_levels) {
+  if (switches::IsEnableWebviewBasedSignin())
+    return;
+
+  GURL signin_url(chrome::kChromeUIChromeSigninURL);
+  content::HostZoomMap* signin_host_zoom_map =
+      content::BrowserContext::GetStoragePartitionForSite(
+          GetBrowserContext(web_ui()), signin_url)->GetHostZoomMap();
+
+  // Since zoom levels set for scheme + host are not persisted, and since the
+  // signin page zoom levels need to be persisted, they are stored without
+  // a scheme. We use an empty scheme string to indicate this.
+  std::string scheme;
+  std::string host = signin_url.host();
+
+  // If there's a WebView signin zoom level, remove it.
+  content::HostZoomMap::ZoomLevelVector::iterator it =
+      std::find_if(zoom_levels->begin(), zoom_levels->end(),
+                   [&host](content::HostZoomMap::ZoomLevelChange change) {
+                     return change.host == host;
+                   });
+  if (it != zoom_levels->end())
+    zoom_levels->erase(it);
+
+  // If there's a non-WebView signin zoom level, add it.
+  if (signin_host_zoom_map->HasZoomLevel(scheme, host)) {
+    content::HostZoomMap::ZoomLevelChange change = {
+        content::HostZoomMap::ZOOM_CHANGED_FOR_HOST,
+        host,
+        scheme,
+        signin_host_zoom_map->GetZoomLevelForHostAndScheme(scheme, host)};
+    zoom_levels->push_back(change);
+  }
 }
 
 void ContentSettingsHandler::UpdateZoomLevelsExceptionsView() {
@@ -989,7 +1070,16 @@ void ContentSettingsHandler::UpdateZoomLevelsExceptionsView() {
           GetBrowserContext(web_ui()));
   content::HostZoomMap::ZoomLevelVector zoom_levels(
       host_zoom_map->GetAllZoomLevels());
-  std::sort(zoom_levels.begin(), zoom_levels.end(), HostZoomSort);
+
+  AdjustZoomLevelsListForSigninPageIfNecessary(&zoom_levels);
+
+  // Sort ZoomLevelChanges by host and scheme
+  // (a.com < http://a.com < https://a.com < b.com).
+  std::sort(zoom_levels.begin(), zoom_levels.end(),
+            [](const content::HostZoomMap::ZoomLevelChange& a,
+               const content::HostZoomMap::ZoomLevelChange& b) {
+              return a.host == b.host ? a.scheme < b.scheme : a.host < b.host;
+            });
 
   for (content::HostZoomMap::ZoomLevelVector::const_iterator i =
            zoom_levels.begin();
@@ -1005,11 +1095,14 @@ void ContentSettingsHandler::UpdateZoomLevelsExceptionsView() {
               l10n_util::GetStringUTF8(IDS_ZOOMLEVELS_CHROME_ERROR_PAGES_LABEL);
         }
         exception->SetString(kOrigin, host);
+        break;
       }
       case content::HostZoomMap::ZOOM_CHANGED_FOR_SCHEME_AND_HOST:
         // These are not stored in preferences and get cleared on next browser
         // start. Therefore, we don't care for them.
-        break;
+        continue;
+      case content::HostZoomMap::PAGE_SCALE_IS_ONE_CHANGED:
+        continue;
       case content::HostZoomMap::ZOOM_CHANGED_TEMPORARY_ZOOM:
         NOTREACHED();
     }
@@ -1105,8 +1198,12 @@ void ContentSettingsHandler::GetExceptionsFromHostContentSettingsMap(
   std::vector<std::vector<base::Value*> > all_provider_exceptions;
   all_provider_exceptions.resize(HostContentSettingsMap::NUM_PROVIDER_TYPES);
 
-  for (AllPatternsSettings::iterator i = all_patterns_settings.begin();
-       i != all_patterns_settings.end();
+  // The all_patterns_settings is sorted from the lowest precedence pattern to
+  // the highest (see operator< in ContentSettingsPattern), so traverse it in
+  // reverse to show the patterns with the highest precedence (the more specific
+  // ones) on the top.
+  for (AllPatternsSettings::reverse_iterator i = all_patterns_settings.rbegin();
+       i != all_patterns_settings.rend();
        ++i) {
     const ContentSettingsPattern& primary_pattern = i->first.first;
     const OnePatternSettings& one_settings = i->second;
@@ -1231,9 +1328,18 @@ void ContentSettingsHandler::RemoveZoomLevelException(
     pattern = content::kUnreachableWebDataURL;
   }
 
-  content::HostZoomMap* host_zoom_map =
+  content::HostZoomMap* host_zoom_map;
+  if (switches::IsEnableWebviewBasedSignin() ||
+      pattern != chrome::kChromeUIChromeSigninHost) {
+    host_zoom_map =
       content::HostZoomMap::GetDefaultForBrowserContext(
           GetBrowserContext(web_ui()));
+  } else {
+    host_zoom_map =
+        content::BrowserContext::GetStoragePartitionForSite(
+            GetBrowserContext(web_ui()), GURL(chrome::kChromeUIChromeSigninURL))
+            ->GetHostZoomMap();
+  }
   double default_level = host_zoom_map->GetDefaultZoomLevel();
   host_zoom_map->SetZoomLevelForHost(pattern, default_level);
 }
@@ -1273,9 +1379,20 @@ void ContentSettingsHandler::SetContentFilter(const base::ListValue* args) {
     profile = profile->GetOriginalProfile();
 #endif
 
-
   HostContentSettingsMap* map = profile->GetHostContentSettingsMap();
-  map->SetDefaultContentSetting(content_type, default_setting);
+
+  // MEDIASTREAM is deprecated and the two separate settings MEDIASTREAM_CAMERA
+  // and MEDIASTREAM_MIC should be used instead. However, we still only have
+  // one pair of radio buttons that sets both settings.
+  // TODO(msramek): Clean this up once we have the new UI for media.
+  if (content_type == CONTENT_SETTINGS_TYPE_MEDIASTREAM) {
+    map->SetDefaultContentSetting(
+        CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC, default_setting);
+    map->SetDefaultContentSetting(
+        CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA, default_setting);
+  } else {
+    map->SetDefaultContentSetting(content_type, default_setting);
+  }
 
   switch (content_type) {
     case CONTENT_SETTINGS_TYPE_COOKIES:
@@ -1348,6 +1465,9 @@ void ContentSettingsHandler::RemoveException(const base::ListValue* args) {
     RemoveMediaException(args);
   else
     RemoveExceptionFromHostContentSettingsMap(args, type);
+
+  WebSiteSettingsUmaUtil::LogPermissionChange(
+      type, ContentSetting::CONTENT_SETTING_DEFAULT);
 }
 
 void ContentSettingsHandler::SetException(const base::ListValue* args) {
@@ -1473,7 +1593,7 @@ void ContentSettingsHandler::ShowFlashMediaLink(LinkType link_type, bool show) {
 
 void ContentSettingsHandler::UpdateFlashMediaLinksVisibility() {
   if (!media_settings_.flash_settings_initialized ||
-      !media_settings_.default_setting_initialized ||
+      !media_settings_.default_settings_initialized ||
       !media_settings_.exceptions_initialized) {
     return;
   }
@@ -1496,8 +1616,10 @@ void ContentSettingsHandler::UpdateFlashMediaLinksVisibility() {
     // settings.
     if (!(media_settings_.policy_disable_audio &&
           media_settings_.policy_disable_video) &&
-        media_settings_.flash_default_setting !=
-            media_settings_.default_setting) {
+        ((media_settings_.flash_default_setting !=
+          media_settings_.default_audio_setting) ||
+         (media_settings_.flash_default_setting !=
+          media_settings_.default_video_setting))) {
       ShowFlashMediaLink(DEFAULT_SETTING, true);
     }
   }
@@ -1505,8 +1627,10 @@ void ContentSettingsHandler::UpdateFlashMediaLinksVisibility() {
     // If audio or video capture is disabled by policy, we skip comparison of
     // exceptions for audio or video capture, respectively.
     if (!PepperFlashContentSettingsUtils::AreMediaExceptionsEqual(
-            media_settings_.default_setting,
+            media_settings_.default_audio_setting,
+            media_settings_.default_video_setting,
             media_settings_.exceptions,
+            media_settings_.flash_default_setting,
             media_settings_.flash_default_setting,
             media_settings_.flash_exceptions,
             media_settings_.policy_disable_audio,

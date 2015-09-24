@@ -23,10 +23,10 @@ class PushClientTest : public testing::Test {
   PushClientTest() {
     notifier_options_.request_context_getter =
         new net::TestURLRequestContextGetter(
-            message_loop_.message_loop_proxy());
+            message_loop_.task_runner());
   }
 
-  virtual ~PushClientTest() {}
+  ~PushClientTest() override {}
 
   // The sockets created by the XMPP code expect an IO loop.
   base::MessageLoopForIO message_loop_;

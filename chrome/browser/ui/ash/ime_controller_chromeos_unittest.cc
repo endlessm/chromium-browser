@@ -15,16 +15,16 @@
 class ImeControllerTest : public testing::Test {
  public:
   ImeControllerTest() : mock_input_method_manager_(NULL) {}
-  virtual ~ImeControllerTest() {}
+  ~ImeControllerTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     mock_input_method_manager_ =
         new chromeos::input_method::MockInputMethodManager;
     chromeos::input_method::InitializeForTesting(
         mock_input_method_manager_);
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     chromeos::input_method::Shutdown();
     mock_input_method_manager_ = NULL;
   }
@@ -76,5 +76,27 @@ TEST_F(ImeControllerTest, TestRemapAccelerator) {
     remapped = controller_.RemapAccelerator(accel);
     expected.set_type(ui::ET_KEY_RELEASED);
     EXPECT_EQ(expected, remapped);
+  }
+}
+
+// Test that remapping the accelerator preserves the accelerator's IsRepeat
+// property.
+TEST_F(ImeControllerTest, TestRemapAcceleratorPreservesIsRepeat) {
+  mock_input_method_manager_->SetCurrentInputMethodId("xkb:us::eng");
+  {
+    ui::Accelerator accel(ui::VKEY_A, ui::EF_CONTROL_DOWN);
+    accel.set_is_repeat(true);
+    ui::Accelerator remapped = controller_.RemapAccelerator(accel);
+    EXPECT_EQ(accel, remapped);
+    // The Accelerator's equality operator ignores whether an accelerator is
+    // repeated.
+    EXPECT_TRUE(remapped.IsRepeat());
+  }
+  {
+    ui::Accelerator accel(ui::VKEY_A, ui::EF_CONTROL_DOWN);
+    EXPECT_FALSE(accel.IsRepeat());
+    ui::Accelerator remapped = controller_.RemapAccelerator(accel);
+    EXPECT_EQ(accel, remapped);
+    EXPECT_FALSE(remapped.IsRepeat());
   }
 }

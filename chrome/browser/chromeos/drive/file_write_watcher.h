@@ -7,10 +7,12 @@
 
 #include "base/callback_forward.h"
 #include "base/memory/scoped_ptr.h"
-#include "chrome/browser/chromeos/drive/file_system_util.h"
+#include "base/threading/thread_checker.h"
+#include "chrome/browser/chromeos/drive/file_system_core_util.h"
 
 namespace base {
 class FilePath;
+class SingleThreadTaskRunner;
 }  // namespace base
 
 namespace drive {
@@ -25,7 +27,7 @@ typedef base::Callback<void(bool)> StartWatchCallback;
 // without any special handling about Drive.
 class FileWriteWatcher {
  public:
-  FileWriteWatcher();
+  explicit FileWriteWatcher(base::SingleThreadTaskRunner* file_task_runner);
   ~FileWriteWatcher();
 
   // Starts watching the modification to |path|. When it successfully started
@@ -52,6 +54,8 @@ class FileWriteWatcher {
  private:
   class FileWriteWatcherImpl;
   scoped_ptr<FileWriteWatcherImpl, util::DestroyHelper> watcher_impl_;
+
+  base::ThreadChecker thread_checker_;
 
   DISALLOW_COPY_AND_ASSIGN(FileWriteWatcher);
 };

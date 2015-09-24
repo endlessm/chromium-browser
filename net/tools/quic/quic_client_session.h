@@ -27,14 +27,12 @@ class QuicClientSession : public QuicClientSessionBase {
  public:
   QuicClientSession(const QuicConfig& config,
                     QuicConnection* connection,
-                    bool is_secure);
+                    const QuicServerId& server_id,
+                    QuicCryptoClientConfig* crypto_config);
   ~QuicClientSession() override;
 
-  void InitializeSession(const QuicServerId& server_id,
-                         QuicCryptoClientConfig* config);
-
   // QuicSession methods:
-  QuicSpdyClientStream* CreateOutgoingDataStream() override;
+  QuicSpdyClientStream* CreateOutgoingDynamicStream() override;
   QuicCryptoClientStream* GetCryptoStream() override;
 
   // QuicClientSessionBase methods:
@@ -42,21 +40,34 @@ class QuicClientSession : public QuicClientSessionBase {
   void OnProofVerifyDetailsAvailable(
       const ProofVerifyDetails& verify_details) override;
 
-  // Performs a crypto handshake with the server. Returns true if the crypto
-  // handshake is started successfully.
-  bool CryptoConnect();
+  // Performs a crypto handshake with the server.
+  void CryptoConnect();
 
   // Returns the number of client hello messages that have been sent on the
   // crypto stream. If the handshake has completed then this is one greater
   // than the number of round-trips needed for the handshake.
   int GetNumSentClientHellos() const;
 
+  void set_respect_goaway(bool respect_goaway) {
+    respect_goaway_ = respect_goaway;
+  }
+
  protected:
   // QuicSession methods:
-  QuicDataStream* CreateIncomingDataStream(QuicStreamId id) override;
+  QuicDataStream* CreateIncomingDynamicStream(QuicStreamId id) override;
+
+  // Unlike CreateOutgoingDynamicStream, which applies a bunch of sanity checks,
+  // this simply returns a new QuicSpdyClientStream. This may be used by
+  // subclasses which want to use a subclass of QuicSpdyClientStream for streams
+  // but wish to use the sanity checks in CreateOutgoingDynamicStream.
+  virtual QuicSpdyClientStream* CreateClientStream();
 
  private:
   scoped_ptr<QuicCryptoClientStream> crypto_stream_;
+
+  // If this is set to false, the client will ignore server GOAWAYs and allow
+  // the creation of streams regardless of the high chance they will fail.
+  bool respect_goaway_;
 
   DISALLOW_COPY_AND_ASSIGN(QuicClientSession);
 };

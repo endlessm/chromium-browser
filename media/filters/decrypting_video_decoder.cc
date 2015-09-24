@@ -6,37 +6,43 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
-#include "base/debug/trace_event.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/single_thread_task_runner.h"
+#include "base/trace_event/trace_event.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/decoder_buffer.h"
-#include "media/base/decryptor.h"
+#include "media/base/media_log.h"
 #include "media/base/pipeline.h"
-#include "media/base/video_decoder_config.h"
 #include "media/base/video_frame.h"
 
 namespace media {
 
+const char DecryptingVideoDecoder::kDecoderName[] = "DecryptingVideoDecoder";
+
 DecryptingVideoDecoder::DecryptingVideoDecoder(
     const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
-    const SetDecryptorReadyCB& set_decryptor_ready_cb)
+    const scoped_refptr<MediaLog>& media_log,
+    const SetDecryptorReadyCB& set_decryptor_ready_cb,
+    const base::Closure& waiting_for_decryption_key_cb)
     : task_runner_(task_runner),
+      media_log_(media_log),
       state_(kUninitialized),
+      waiting_for_decryption_key_cb_(waiting_for_decryption_key_cb),
       set_decryptor_ready_cb_(set_decryptor_ready_cb),
       decryptor_(NULL),
       key_added_while_decode_pending_(false),
       trace_id_(0),
-      weak_factory_(this) {}
+      weak_factory_(this) {
+}
 
 std::string DecryptingVideoDecoder::GetDisplayName() const {
-  return "DecryptingVideoDecoder";
+  return kDecoderName;
 }
 
 void DecryptingVideoDecoder::Initialize(const VideoDecoderConfig& config,
                                         bool /* low_delay */,
-                                        const PipelineStatusCB& status_cb,
+                                        const InitCB& init_cb,
                                         const OutputCB& output_cb) {
   DVLOG(2) << "Initialize()";
   DCHECK(task_runner_->BelongsToCurrentThread());
@@ -48,7 +54,7 @@ void DecryptingVideoDecoder::Initialize(const VideoDecoderConfig& config,
   DCHECK(config.IsValidConfig());
   DCHECK(config.is_encrypted());
 
-  init_cb_ = BindToCurrentLoop(status_cb);
+  init_cb_ = BindToCurrentLoop(init_cb);
   output_cb_ = BindToCurrentLoop(output_cb);
   weak_this_ = weak_factory_.GetWeakPtr();
   config_ = config;
@@ -143,7 +149,7 @@ DecryptingVideoDecoder::~DecryptingVideoDecoder() {
     base::ResetAndReturn(&set_decryptor_ready_cb_).Run(DecryptorReadyCB());
   pending_buffer_to_decode_ = NULL;
   if (!init_cb_.is_null())
-    base::ResetAndReturn(&init_cb_).Run(DECODER_ERROR_NOT_SUPPORTED);
+    base::ResetAndReturn(&init_cb_).Run(false);
   if (!decode_cb_.is_null())
     base::ResetAndReturn(&decode_cb_).Run(kAborted);
   if (!reset_cb_.is_null())
@@ -161,7 +167,8 @@ void DecryptingVideoDecoder::SetDecryptor(
   set_decryptor_ready_cb_.Reset();
 
   if (!decryptor) {
-    base::ResetAndReturn(&init_cb_).Run(DECODER_ERROR_NOT_SUPPORTED);
+    MEDIA_LOG(DEBUG, media_log_) << GetDisplayName() << ": no decryptor set";
+    base::ResetAndReturn(&init_cb_).Run(false);
     state_ = kError;
     decryptor_attached_cb.Run(false);
     return;
@@ -186,7 +193,9 @@ void DecryptingVideoDecoder::FinishInitialization(bool success) {
   DCHECK(decode_cb_.is_null());  // No Decode() before initialization finished.
 
   if (!success) {
-    base::ResetAndReturn(&init_cb_).Run(DECODER_ERROR_NOT_SUPPORTED);
+    MEDIA_LOG(DEBUG, media_log_) << GetDisplayName()
+                                 << ": failed to init decoder on decryptor";
+    base::ResetAndReturn(&init_cb_).Run(false);
     decryptor_ = NULL;
     state_ = kError;
     return;
@@ -199,7 +208,7 @@ void DecryptingVideoDecoder::FinishInitialization(bool success) {
 
   // Success!
   state_ = kIdle;
-  base::ResetAndReturn(&init_cb_).Run(PIPELINE_OK);
+  base::ResetAndReturn(&init_cb_).Run(true);
 }
 
 
@@ -250,6 +259,7 @@ void DecryptingVideoDecoder::DeliverFrame(
 
   if (status == Decryptor::kError) {
     DVLOG(2) << "DeliverFrame() - kError";
+    MEDIA_LOG(ERROR, media_log_) << GetDisplayName() << ": decode error";
     state_ = kError;
     base::ResetAndReturn(&decode_cb_).Run(kDecodeError);
     return;
@@ -257,6 +267,8 @@ void DecryptingVideoDecoder::DeliverFrame(
 
   if (status == Decryptor::kNoKey) {
     DVLOG(2) << "DeliverFrame() - kNoKey";
+    MEDIA_LOG(DEBUG, media_log_) << GetDisplayName() << ": no key";
+
     // Set |pending_buffer_to_decode_| back as we need to try decoding the
     // pending buffer again when new key is added to the decryptor.
     pending_buffer_to_decode_ = scoped_pending_buffer_to_decode;
@@ -268,6 +280,7 @@ void DecryptingVideoDecoder::DeliverFrame(
     }
 
     state_ = kWaitingForKey;
+    waiting_for_decryption_key_cb_.Run();
     return;
   }
 
@@ -281,7 +294,7 @@ void DecryptingVideoDecoder::DeliverFrame(
 
   DCHECK_EQ(status, Decryptor::kSuccess);
   // No frame returned with kSuccess should be end-of-stream frame.
-  DCHECK(!frame->end_of_stream());
+  DCHECK(!frame->metadata()->IsTrue(VideoFrameMetadata::END_OF_STREAM));
   output_cb_.Run(frame);
 
   if (scoped_pending_buffer_to_decode->end_of_stream()) {

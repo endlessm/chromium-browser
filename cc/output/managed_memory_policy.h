@@ -7,7 +7,7 @@
 
 #include "base/basictypes.h"
 #include "cc/base/cc_export.h"
-#include "cc/resources/tile_priority.h"
+#include "cc/tiles/tile_priority.h"
 #include "gpu/command_buffer/common/gpu_memory_allocation.h"
 
 namespace cc {
@@ -29,8 +29,6 @@ struct CC_EXPORT ManagedMemoryPolicy {
   gpu::MemoryAllocation::PriorityCutoff priority_cutoff_when_visible;
   size_t num_resources_limit;
 
-  static int PriorityCutoffToValue(
-      gpu::MemoryAllocation::PriorityCutoff priority_cutoff);
   static TileMemoryLimitPolicy PriorityCutoffToTileMemoryLimitPolicy(
       gpu::MemoryAllocation::PriorityCutoff priority_cutoff);
 };

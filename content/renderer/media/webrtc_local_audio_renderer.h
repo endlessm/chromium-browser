@@ -5,23 +5,24 @@
 #ifndef CONTENT_RENDERER_MEDIA_WEBRTC_LOCAL_AUDIO_RENDERER_H_
 #define CONTENT_RENDERER_MEDIA_WEBRTC_LOCAL_AUDIO_RENDERER_H_
 
+#include <string>
 #include <vector>
 
 #include "base/callback.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/thread_checker.h"
 #include "content/common/content_export.h"
+#include "content/public/renderer/media_stream_audio_renderer.h"
 #include "content/public/renderer/media_stream_audio_sink.h"
-#include "content/renderer/media/media_stream_audio_renderer.h"
 #include "content/renderer/media/webrtc_audio_device_impl.h"
 #include "content/renderer/media/webrtc_local_audio_track.h"
 #include "third_party/WebKit/public/platform/WebMediaStreamTrack.h"
 
 namespace media {
 class AudioBus;
-class AudioBlockFifo;
+class AudioShifter;
 class AudioOutputDevice;
 class AudioParameters;
 }
@@ -51,7 +52,6 @@ class CONTENT_EXPORT WebRtcLocalAudioRenderer
   // The |source| is owned by the WebRtcAudioDeviceImpl.
   // Called on the main thread.
   WebRtcLocalAudioRenderer(const blink::WebMediaStreamTrack& audio_track,
-                           int source_render_view_id,
                            int source_render_frame_id,
                            int session_id,
                            int frames_per_buffer);
@@ -63,6 +63,9 @@ class CONTENT_EXPORT WebRtcLocalAudioRenderer
   void Play() override;
   void Pause() override;
   void SetVolume(float volume) override;
+  void SwitchOutputDevice(const std::string& device_id,
+                          const GURL& security_origin,
+                          const media::SwitchOutputDeviceCB& callback) override;
   base::TimeDelta GetCurrentRenderTime() const override;
   bool IsLocalRenderer() const override;
 
@@ -77,10 +80,8 @@ class CONTENT_EXPORT WebRtcLocalAudioRenderer
   // MediaStreamAudioSink implementation.
 
   // Called on the AudioInputDevice worker thread.
-  void OnData(const int16* audio_data,
-              int sample_rate,
-              int number_of_channels,
-              int number_of_frames) override;
+  void OnData(const media::AudioBus& audio_bus,
+              base::TimeTicks estimated_capture_time) override;
 
   // Called on the AudioInputDevice worker thread.
   void OnSetFormat(const media::AudioParameters& params) override;
@@ -111,19 +112,18 @@ class CONTENT_EXPORT WebRtcLocalAudioRenderer
   blink::WebMediaStreamTrack audio_track_;
 
   // The render view and frame in which the audio is rendered into |sink_|.
-  const int source_render_view_id_;
   const int source_render_frame_id_;
   const int session_id_;
 
   // MessageLoop associated with the single thread that performs all control
   // tasks.  Set to the MessageLoop that invoked the ctor.
-  const scoped_refptr<base::MessageLoopProxy> message_loop_;
+  const scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
   // The sink (destination) for rendered audio.
   scoped_refptr<media::AudioOutputDevice> sink_;
 
-  // Contains copies of captured audio frames.
-  scoped_ptr<media::AudioBlockFifo> loopback_fifo_;
+  // This does all the synchronization/resampling/smoothing.
+  scoped_ptr<media::AudioShifter> audio_shifter_;
 
   // Stores last time a render callback was received. The time difference
   // between a new time stamp and this value can be used to derive the
@@ -144,7 +144,7 @@ class CONTENT_EXPORT WebRtcLocalAudioRenderer
   // Set when playing, cleared when paused.
   bool playing_;
 
-  // Protects |loopback_fifo_|, |playing_| and |sink_|.
+  // Protects |audio_shifter_|, |playing_| and |sink_|.
   mutable base::Lock thread_lock_;
 
   // The preferred buffer size provided via the ctor.

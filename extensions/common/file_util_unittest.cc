@@ -43,8 +43,8 @@ scoped_refptr<Extension> LoadExtensionManifest(
     Manifest::Location location,
     int extra_flags,
     std::string* error) {
-  JSONStringValueSerializer serializer(manifest_value);
-  scoped_ptr<base::Value> result(serializer.Deserialize(NULL, error));
+  JSONStringValueDeserializer deserializer(manifest_value);
+  scoped_ptr<base::Value> result(deserializer.Deserialize(NULL, error));
   if (!result.get())
     return NULL;
   CHECK_EQ(base::Value::TYPE_DICTIONARY, result->GetType());
@@ -70,6 +70,10 @@ TEST_F(FileUtilTest, InstallUninstallGarbageCollect) {
   base::FilePath src = temp.path().AppendASCII(extension_id);
   ASSERT_TRUE(base::CreateDirectory(src));
 
+  base::FilePath extension_content;
+  base::CreateTemporaryFileInDir(src, &extension_content);
+  ASSERT_TRUE(base::PathExists(extension_content));
+
   // Create a extensions tree.
   base::FilePath all_extensions = temp.path().AppendASCII("extensions");
   ASSERT_TRUE(base::CreateDirectory(all_extensions));
@@ -81,6 +85,7 @@ TEST_F(FileUtilTest, InstallUninstallGarbageCollect) {
       version_1.value(),
       all_extensions.AppendASCII(extension_id).AppendASCII("1.0_0").value());
   ASSERT_TRUE(base::DirectoryExists(version_1));
+  ASSERT_TRUE(base::PathExists(version_1.Append(extension_content.BaseName())));
 
   // Should have moved the source.
   ASSERT_FALSE(base::DirectoryExists(src));
@@ -181,6 +186,40 @@ TEST_F(FileUtilTest, CheckIllegalFilenamesReservedAndIllegal) {
   std::string error;
   EXPECT_FALSE(file_util::CheckForIllegalFilenames(temp.path(), &error));
 }
+
+// These tests do not work on Windows, because it is illegal to create a
+// file/directory with a Windows reserved name. Because we cannot create a
+// file that will cause the test to fail, let's skip the test.
+#if !defined(OS_WIN)
+TEST_F(FileUtilTest, CheckIllegalFilenamesDirectoryWindowsReserved) {
+  base::ScopedTempDir temp;
+  ASSERT_TRUE(temp.CreateUniqueTempDir());
+
+  base::FilePath src_path = temp.path().AppendASCII("aux");
+  ASSERT_TRUE(base::CreateDirectory(src_path));
+
+  std::string error;
+  EXPECT_FALSE(
+      file_util::CheckForWindowsReservedFilenames(temp.path(), &error));
+}
+
+TEST_F(FileUtilTest,
+       CheckIllegalFilenamesWindowsReservedFilenameWithExtension) {
+  base::ScopedTempDir temp;
+  ASSERT_TRUE(temp.CreateUniqueTempDir());
+
+  base::FilePath src_path = temp.path().AppendASCII("some_dir");
+  ASSERT_TRUE(base::CreateDirectory(src_path));
+
+  std::string data = "{ \"name\": { \"message\": \"foobar\" } }";
+  ASSERT_TRUE(base::WriteFile(src_path.AppendASCII("lpt1.txt"), data.c_str(),
+                              data.length()));
+
+  std::string error;
+  EXPECT_FALSE(
+      file_util::CheckForWindowsReservedFilenames(temp.path(), &error));
+}
+#endif
 
 TEST_F(FileUtilTest, LoadExtensionGivesHelpfullErrorOnMissingManifest) {
   base::FilePath install_dir;

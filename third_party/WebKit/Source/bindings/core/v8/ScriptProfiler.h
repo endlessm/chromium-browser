@@ -38,7 +38,6 @@
 
 namespace blink {
 
-class WrappedNodeVisitor;
 class ScriptValue;
 
 class ScriptProfiler {
@@ -66,12 +65,11 @@ public:
     static void setSamplingInterval(int intervalUs);
     static void start(const String& title);
     static PassRefPtrWillBeRawPtr<ScriptProfile> stop(const String& title);
-    static PassRefPtr<ScriptHeapSnapshot> takeHeapSnapshot(const String& title, HeapSnapshotProgress*);
+    static PassRefPtr<ScriptHeapSnapshot> takeHeapSnapshot(HeapSnapshotProgress*);
     static void startTrackingHeapObjects(bool trackAllocations);
     static void stopTrackingHeapObjects();
     static unsigned requestHeapStatsUpdate(OutputStream*);
     static void initialize();
-    static void visitNodeWrappers(WrappedNodeVisitor*);
     static HashMap<String, double>* currentProfileNameIdleTimeMap();
     static void setIdle(bool isIdle);
 };

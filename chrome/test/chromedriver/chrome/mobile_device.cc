@@ -16,8 +16,8 @@ MobileDevice::~MobileDevice() {}
 Status FindMobileDevice(std::string device_name,
                         scoped_ptr<MobileDevice>* mobile_device) {
   base::JSONReader json_reader(base::JSON_ALLOW_TRAILING_COMMAS);
-  scoped_ptr<base::Value> devices_value;
-  devices_value.reset(json_reader.ReadToValue(kMobileDevices));
+  scoped_ptr<base::Value> devices_value =
+      json_reader.ReadToValue(kMobileDevices);
   if (!devices_value.get())
     return Status(kUnknownError,
                   "could not parse mobile device list because " +
@@ -30,15 +30,15 @@ Status FindMobileDevice(std::string device_name,
   for (base::ListValue::iterator it = mobile_devices->begin();
        it != mobile_devices->end();
        ++it) {
-    base::ListValue* device = NULL;
-    if (!(*it)->GetAsList(&device)) {
+    base::DictionaryValue* device = NULL;
+    if (!(*it)->GetAsDictionary(&device)) {
       return Status(kUnknownError,
-                    "malformed device in list: should be an array");
+                    "malformed device in list: should be a dictionary");
     }
 
     if (device != NULL) {
       std::string name;
-      if (!device->GetString(0, &name)) {
+      if (!device->GetString("title", &name)) {
         return Status(kUnknownError,
                       "malformed device name: should be a string");
       }
@@ -47,36 +47,37 @@ Status FindMobileDevice(std::string device_name,
 
       scoped_ptr<MobileDevice> tmp_mobile_device(new MobileDevice());
       std::string device_metrics_string;
-      if (!device->GetString(1, &tmp_mobile_device->user_agent)) {
+      if (!device->GetString("userAgent", &tmp_mobile_device->user_agent)) {
         return Status(kUnknownError,
                       "malformed device user agent: should be a string");
       }
-      if (!device->GetString(2, &device_metrics_string)) {
-        return Status(kUnknownError,
-                      "malformed device metrics: should be a string");
-      }
-      std::vector<std::string> metrics_vector;
-      base::SplitString(device_metrics_string, 'x', &metrics_vector);
-      if (metrics_vector.size() < 3)
-        return Status(kUnknownError, "malformed device metrics string");
-
       int width = 0;
       int height = 0;
       double device_scale_factor = 0.0;
-      if (!base::StringToInt(metrics_vector[0], &width)) {
+      bool touch = true;
+      bool mobile = true;
+      if (!device->GetInteger("width",  &width)) {
         return Status(kUnknownError,
                       "malformed device width: should be an integer");
       }
-      if (!base::StringToInt(metrics_vector[1], &height)) {
+      if (!device->GetInteger("height", &height)) {
         return Status(kUnknownError,
                       "malformed device height: should be an integer");
       }
-      if (!base::StringToDouble(metrics_vector[2], &device_scale_factor)) {
+      if (!device->GetDouble("deviceScaleFactor", &device_scale_factor)) {
         return Status(kUnknownError,
                       "malformed device scale factor: should be a double");
       }
+      if (!device->GetBoolean("touch", &touch)) {
+        return Status(kUnknownError,
+                      "malformed touch: should be a bool");
+      }
+      if (!device->GetBoolean("mobile", &mobile)) {
+        return Status(kUnknownError,
+                      "malformed mobile: should be a bool");
+      }
       tmp_mobile_device->device_metrics.reset(
-          new DeviceMetrics(width, height, device_scale_factor));
+          new DeviceMetrics(width, height, device_scale_factor, touch, mobile));
 
       *mobile_device = tmp_mobile_device.Pass();
       return Status(kOk);

@@ -6,6 +6,7 @@
 #define TOOLS_GN_BUILD_SETTINGS_H_
 
 #include <map>
+#include <set>
 
 #include "base/basictypes.h"
 #include "base/callback.h"
@@ -17,7 +18,6 @@
 #include "tools/gn/source_file.h"
 
 class Item;
-class OutputFile;
 
 // Settings for one build, which is one toplevel output directory. There
 // may be multiple Settings objects that refer to this, one for each toolchain.
@@ -57,12 +57,6 @@ class BuildSettings {
   const SourceDir& build_dir() const { return build_dir_; }
   void SetBuildDir(const SourceDir& dir);
 
-  // The inverse of relative_build_dir, ending with a separator.
-  // Example: relative_build_dir_ = "out/Debug/" this will be "../../"
-  const std::string& build_to_source_dir_string() const {
-    return build_to_source_dir_string_;
-  }
-
   // The build args are normally specified on the command-line.
   Args& build_args() { return build_args_; }
   const Args& build_args() const { return build_args_; }
@@ -91,6 +85,27 @@ class BuildSettings {
   const PrintCallback& print_callback() const { return print_callback_; }
   void set_print_callback(const PrintCallback& cb) { print_callback_ = cb; }
 
+  // A list of files that can call exec_script(). If the returned pointer is
+  // null, exec_script may be called from anywhere.
+  const std::set<SourceFile>* exec_script_whitelist() const {
+    return exec_script_whitelist_.get();
+  }
+  void set_exec_script_whitelist(scoped_ptr<std::set<SourceFile>> list) {
+    exec_script_whitelist_ = list.Pass();
+  }
+
+  // When set (the default), code should perform normal validation of inputs
+  // and structures, like undefined or possibly incorrectly used things. For
+  // some interrogation commands, we don't care about this and actually want
+  // to allow the user to check the structure of the build to solve their
+  // problem, and these checks are undesirable.
+  bool check_for_bad_items() const {
+    return check_for_bad_items_;
+  }
+  void set_check_for_bad_items(bool c) {
+    check_for_bad_items_ = c;
+  }
+
  private:
   base::FilePath root_path_;
   std::string root_path_utf8_;
@@ -99,11 +114,14 @@ class BuildSettings {
 
   SourceFile build_config_file_;
   SourceDir build_dir_;
-  std::string build_to_source_dir_string_;
   Args build_args_;
 
   ItemDefinedCallback item_defined_callback_;
   PrintCallback print_callback_;
+
+  scoped_ptr<std::set<SourceFile>> exec_script_whitelist_;
+
+  bool check_for_bad_items_;
 
   BuildSettings& operator=(const BuildSettings& other);  // Disallow.
 };

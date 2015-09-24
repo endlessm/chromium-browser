@@ -4,6 +4,8 @@
 
 #include "base/prefs/pref_value_map.h"
 
+#include <map>
+
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/stl_util.h"
@@ -11,62 +13,42 @@
 
 PrefValueMap::PrefValueMap() {}
 
-PrefValueMap::~PrefValueMap() {
-  Clear();
-}
+PrefValueMap::~PrefValueMap() {}
 
 bool PrefValueMap::GetValue(const std::string& key,
                             const base::Value** value) const {
-  const Map::const_iterator entry = prefs_.find(key);
-  if (entry != prefs_.end()) {
-    if (value)
-      *value = entry->second;
-    return true;
-  }
+  const base::Value* got_value = prefs_.get(key);
+  if (value && got_value)
+    *value = got_value;
 
-  return false;
+  return !!got_value;
 }
 
 bool PrefValueMap::GetValue(const std::string& key, base::Value** value) {
-  const Map::const_iterator entry = prefs_.find(key);
-  if (entry != prefs_.end()) {
-    if (value)
-      *value = entry->second;
-    return true;
-  }
+  base::Value* got_value = prefs_.get(key);
+  if (value && got_value)
+    *value = got_value;
 
-  return false;
+  return !!got_value;
 }
 
-bool PrefValueMap::SetValue(const std::string& key, base::Value* value) {
+bool PrefValueMap::SetValue(const std::string& key,
+                            scoped_ptr<base::Value> value) {
   DCHECK(value);
-  scoped_ptr<base::Value> value_ptr(value);
-  const Map::iterator entry = prefs_.find(key);
-  if (entry != prefs_.end()) {
-    if (base::Value::Equals(entry->second, value))
-      return false;
-    delete entry->second;
-    entry->second = value_ptr.release();
-  } else {
-    prefs_[key] = value_ptr.release();
-  }
 
+  base::Value* old_value = prefs_.get(key);
+  if (old_value && value->Equals(old_value))
+    return false;
+
+  prefs_.set(key, value.Pass());
   return true;
 }
 
 bool PrefValueMap::RemoveValue(const std::string& key) {
-  const Map::iterator entry = prefs_.find(key);
-  if (entry != prefs_.end()) {
-    delete entry->second;
-    prefs_.erase(entry);
-    return true;
-  }
-
-  return false;
+  return prefs_.erase(key) != 0;
 }
 
 void PrefValueMap::Clear() {
-  STLDeleteValues(&prefs_);
   prefs_.clear();
 }
 
@@ -92,36 +74,36 @@ PrefValueMap::const_iterator PrefValueMap::end() const {
 
 bool PrefValueMap::GetBoolean(const std::string& key,
                               bool* value) const {
-  const base::Value* stored_value = NULL;
+  const base::Value* stored_value = nullptr;
   return GetValue(key, &stored_value) && stored_value->GetAsBoolean(value);
 }
 
 void PrefValueMap::SetBoolean(const std::string& key, bool value) {
-  SetValue(key, new base::FundamentalValue(value));
+  SetValue(key, make_scoped_ptr(new base::FundamentalValue(value)));
 }
 
 bool PrefValueMap::GetString(const std::string& key,
                              std::string* value) const {
-  const base::Value* stored_value = NULL;
+  const base::Value* stored_value = nullptr;
   return GetValue(key, &stored_value) && stored_value->GetAsString(value);
 }
 
 void PrefValueMap::SetString(const std::string& key,
                              const std::string& value) {
-  SetValue(key, new base::StringValue(value));
+  SetValue(key, make_scoped_ptr(new base::StringValue(value)));
 }
 
 bool PrefValueMap::GetInteger(const std::string& key, int* value) const {
-  const base::Value* stored_value = NULL;
+  const base::Value* stored_value = nullptr;
   return GetValue(key, &stored_value) && stored_value->GetAsInteger(value);
 }
 
 void PrefValueMap::SetInteger(const std::string& key, const int value) {
-  SetValue(key, new base::FundamentalValue(value));
+  SetValue(key, make_scoped_ptr(new base::FundamentalValue(value)));
 }
 
 void PrefValueMap::SetDouble(const std::string& key, const double value) {
-  SetValue(key, new base::FundamentalValue(value));
+  SetValue(key, make_scoped_ptr(new base::FundamentalValue(value)));
 }
 
 void PrefValueMap::GetDifferingKeys(
@@ -129,10 +111,15 @@ void PrefValueMap::GetDifferingKeys(
     std::vector<std::string>* differing_keys) const {
   differing_keys->clear();
 
+  // Put everything into ordered maps.
+  std::map<std::string, base::Value*> this_prefs(prefs_.begin(), prefs_.end());
+  std::map<std::string, base::Value*> other_prefs(other->prefs_.begin(),
+                                                  other->prefs_.end());
+
   // Walk over the maps in lockstep, adding everything that is different.
-  Map::const_iterator this_pref(prefs_.begin());
-  Map::const_iterator other_pref(other->prefs_.begin());
-  while (this_pref != prefs_.end() && other_pref != other->prefs_.end()) {
+  auto this_pref(this_prefs.begin());
+  auto other_pref(other_prefs.begin());
+  while (this_pref != this_prefs.end() && other_pref != other_prefs.end()) {
     const int diff = this_pref->first.compare(other_pref->first);
     if (diff == 0) {
       if (!this_pref->second->Equals(other_pref->second))
@@ -149,8 +136,8 @@ void PrefValueMap::GetDifferingKeys(
   }
 
   // Add the remaining entries.
-  for ( ; this_pref != prefs_.end(); ++this_pref)
+  for ( ; this_pref != this_prefs.end(); ++this_pref)
       differing_keys->push_back(this_pref->first);
-  for ( ; other_pref != other->prefs_.end(); ++other_pref)
+  for ( ; other_pref != other_prefs.end(); ++other_pref)
       differing_keys->push_back(other_pref->first);
 }

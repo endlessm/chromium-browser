@@ -116,7 +116,7 @@ TestDirectory* TestDirectory::Create(
 TestDirectory::TestDirectory(Encryptor* encryptor,
                              UnrecoverableErrorHandler* handler,
                              TestBackingStore* backing_store)
-    : Directory(backing_store, handler, NULL, NULL, NULL),
+    : Directory(backing_store, handler, base::Closure(), NULL, NULL),
       backing_store_(backing_store) {
 }
 
@@ -146,7 +146,7 @@ class OnDiskSyncableDirectoryTest : public SyncableDirectoryTest {
  protected:
   // SetUp() is called before each test case is run.
   // The sqlite3 DB is deleted before each test is run.
-  virtual void SetUp() {
+  void SetUp() override {
     SyncableDirectoryTest::SetUp();
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
     file_path_ = temp_dir_.path().Append(
@@ -155,7 +155,7 @@ class OnDiskSyncableDirectoryTest : public SyncableDirectoryTest {
     CreateDirectory();
   }
 
-  virtual void TearDown() {
+  void TearDown() override {
     // This also closes file handles.
     dir()->SaveChanges();
     dir().reset();
@@ -344,12 +344,9 @@ TEST_F(OnDiskSyncableDirectoryTest,
   }
 
   dir()->SaveChanges();
-  dir().reset(
-      new Directory(new OnDiskDirectoryBackingStore(kDirectoryName, file_path_),
-                    unrecoverable_error_handler(),
-                    NULL,
-                    NULL,
-                    NULL));
+  dir().reset(new Directory(
+      new OnDiskDirectoryBackingStore(kDirectoryName, file_path_),
+      unrecoverable_error_handler(), base::Closure(), NULL, NULL));
 
   ASSERT_TRUE(dir().get());
   ASSERT_EQ(OPENED,
@@ -545,12 +542,10 @@ TEST_F(OnDiskSyncableDirectoryTest, TestSaveChangesFailureWithPurge) {
 
 class SyncableDirectoryManagement : public testing::Test {
  public:
-  virtual void SetUp() {
-    ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
-  }
+  void SetUp() override { ASSERT_TRUE(temp_dir_.CreateUniqueTempDir()); }
 
-  virtual void TearDown() {
-  }
+  void TearDown() override {}
+
  protected:
   base::MessageLoop message_loop_;
   base::ScopedTempDir temp_dir_;
@@ -563,17 +558,15 @@ TEST_F(SyncableDirectoryManagement, TestFileRelease) {
   base::FilePath path =
       temp_dir_.path().Append(Directory::kSyncDatabaseFilename);
 
-  Directory dir(new OnDiskDirectoryBackingStore("ScopeTest", path),
-                &handler_,
-                NULL,
-                NULL,
-                NULL);
-  DirOpenResult result =
-      dir.Open("ScopeTest", &delegate_, NullTransactionObserver());
-  ASSERT_EQ(result, OPENED);
-  dir.Close();
+  {
+    Directory dir(new OnDiskDirectoryBackingStore("ScopeTest", path), &handler_,
+                  base::Closure(), NULL, NULL);
+    DirOpenResult result =
+        dir.Open("ScopeTest", &delegate_, NullTransactionObserver());
+    ASSERT_EQ(result, OPENED);
+  }
 
-  // Closing the directory should have released the backing database file.
+  // Destroying the directory should have released the backing database file.
   ASSERT_TRUE(base::DeleteFile(path, true));
 }
 

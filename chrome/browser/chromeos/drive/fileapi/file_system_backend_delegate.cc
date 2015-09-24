@@ -15,8 +15,8 @@
 #include "chrome/browser/chromeos/drive/fileapi/webkit_file_stream_writer_impl.h"
 #include "chrome/browser/drive/drive_api_util.h"
 #include "content/public/browser/browser_thread.h"
-#include "storage/browser/blob/file_stream_reader.h"
 #include "storage/browser/fileapi/async_file_util.h"
+#include "storage/browser/fileapi/file_stream_reader.h"
 #include "storage/browser/fileapi/file_system_context.h"
 #include "storage/browser/fileapi/file_system_url.h"
 
@@ -79,7 +79,7 @@ FileSystemBackendDelegate::~FileSystemBackendDelegate() {
 
 storage::AsyncFileUtil* FileSystemBackendDelegate::GetAsyncFileUtil(
     storage::FileSystemType type) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK_EQ(storage::kFileSystemTypeDrive, type);
   return async_file_util_.get();
 }
@@ -91,7 +91,7 @@ FileSystemBackendDelegate::CreateFileStreamReader(
     int64 max_bytes_to_read,
     const base::Time& expected_modification_time,
     storage::FileSystemContext* context) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK_EQ(storage::kFileSystemTypeDrive, url.type());
 
   base::FilePath file_path = util::ExtractDrivePathFromFileSystemUrl(url);
@@ -112,7 +112,7 @@ FileSystemBackendDelegate::CreateFileStreamWriter(
     const storage::FileSystemURL& url,
     int64 offset,
     storage::FileSystemContext* context) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK_EQ(storage::kFileSystemTypeDrive, url.type());
 
   base::FilePath file_path = util::ExtractDrivePathFromFileSystemUrl(url);

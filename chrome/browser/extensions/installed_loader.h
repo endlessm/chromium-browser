@@ -5,6 +5,10 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_INSTALLED_LOADER_H_
 #define CHROME_BROWSER_EXTENSIONS_INSTALLED_LOADER_H_
 
+#include <set>
+
+#include "base/files/file_path.h"
+
 class ExtensionService;
 
 namespace extensions {
@@ -30,10 +34,16 @@ class InstalledLoader {
   // extension that is already installed.
   int GetCreationFlags(const ExtensionInfo* info);
 
+  // Record metrics related to the loaded extensions.
+  void RecordExtensionsMetrics();
+
   ExtensionService* extension_service_;
   ExtensionRegistry* extension_registry_;
 
   ExtensionPrefs* extension_prefs_;
+
+  // Paths to invalid extension manifests, which should not be loaded.
+  std::set<base::FilePath> invalid_extensions_;
 };
 
 }  // namespace extensions

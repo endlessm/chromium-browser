@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "base/command_line.h"
+#include "base/files/file_util.h"
 #include "base/json/json_writer.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
@@ -26,6 +27,7 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/extensions/api/log_private.h"
 #include "chrome/common/logging_chrome.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_function.h"
@@ -93,7 +95,7 @@ void CollectLogInfo(
 // Returns directory location of app-specific logs that are initiated with
 // logPrivate.startEventRecorder() calls - /home/chronos/user/log/apps
 base::FilePath GetAppLogDirectory() {
-  return logging::GetSessionLogDir(*CommandLine::ForCurrentProcess())
+  return logging::GetSessionLogDir(*base::CommandLine::ForCurrentProcess())
       .Append(kAppLogsSubdir);
 }
 
@@ -247,17 +249,17 @@ void LogPrivateAPI::AddEntriesOnUI(scoped_ptr<base::ListValue> value) {
     // Create the event's arguments value.
     scoped_ptr<base::ListValue> event_args(new base::ListValue());
     event_args->Append(value->DeepCopy());
-    scoped_ptr<Event> event(
-        new Event(events::kOnCapturedEvents, event_args.Pass()));
+    scoped_ptr<Event> event(new Event(::extensions::events::UNKNOWN,
+                                      ::events::kOnCapturedEvents,
+                                      event_args.Pass()));
     EventRouter::Get(browser_context_)
         ->DispatchEventToExtension(*ix, event.Pass());
   }
 }
 
-void LogPrivateAPI::InitializeNetLogger(const std::string& owner_extension_id,
-                                        net::NetLogLogger** net_log_logger) {
+void LogPrivateAPI::CreateTempNetLogFile(const std::string& owner_extension_id,
+                                         base::ScopedFILE* file) {
   DCHECK(IsRunningOnSequenceThread());
-  (*net_log_logger) = NULL;
 
   // Create app-specific subdirectory in session logs folder.
   base::FilePath app_log_dir = GetAppLogDirectory().Append(owner_extension_id);
@@ -270,28 +272,28 @@ void LogPrivateAPI::InitializeNetLogger(const std::string& owner_extension_id,
 
   base::FilePath file_path = app_log_dir.Append(kLogFileNameBase);
   file_path = logging::GenerateTimestampedName(file_path, base::Time::Now());
-  FILE* file = NULL;
-  file = fopen(file_path.value().c_str(), "w");
-  if (file == NULL) {
+  FILE* file_ptr = fopen(file_path.value().c_str(), "w");
+  if (file_ptr == nullptr) {
     LOG(ERROR) << "Could not open " << file_path.value();
     return;
   }
 
   RegisterTempFile(owner_extension_id, file_path);
-  scoped_ptr<base::Value> constants(net::NetLogLogger::GetConstants());
-  *net_log_logger = new net::NetLogLogger(file, *constants);
-  (*net_log_logger)->set_log_level(net::NetLog::LOG_ALL_BUT_BYTES);
+  return file->reset(file_ptr);
 }
 
 void LogPrivateAPI::StartObservingNetEvents(
     IOThread* io_thread,
-    net::NetLogLogger** net_log_logger) {
+    base::ScopedFILE* file) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  if (!(*net_log_logger))
+  if (!file->get())
     return;
 
-  net_log_logger_.reset(*net_log_logger);
-  net_log_logger_->StartObserving(io_thread->net_log());
+  write_to_file_observer_.reset(new net::WriteToFileNetLogObserver());
+  write_to_file_observer_->set_capture_mode(
+      net::NetLogCaptureMode::IncludeCookiesAndCredentials());
+  write_to_file_observer_->StartObserving(io_thread->net_log(), file->Pass(),
+                                          nullptr, nullptr);
 }
 
 void LogPrivateAPI::MaybeStartNetInternalLogging(
@@ -304,24 +306,24 @@ void LogPrivateAPI::MaybeStartNetInternalLogging(
     event_sink_ = event_sink;
     switch (event_sink_) {
       case api::log_private::EVENT_SINK_CAPTURE: {
-        io_thread->net_log()->AddThreadSafeObserver(
-            this, net::NetLog::LOG_ALL_BUT_BYTES);
+        io_thread->net_log()->DeprecatedAddObserver(
+            this, net::NetLogCaptureMode::IncludeCookiesAndCredentials());
         break;
       }
       case api::log_private::EVENT_SINK_FILE: {
-        net::NetLogLogger** net_logger_ptr = new net::NetLogLogger* [1];
-        // Initialize net logger on the blocking pool and start observing event
-        // with in on IO thread.
+        base::ScopedFILE* file = new base::ScopedFILE();
+        // Initialize a FILE on the blocking pool and start observing event
+        // on IO thread.
         GetSequencedTaskRunner()->PostTaskAndReply(
             FROM_HERE,
-            base::Bind(&LogPrivateAPI::InitializeNetLogger,
+            base::Bind(&LogPrivateAPI::CreateTempNetLogFile,
                        base::Unretained(this),
                        caller_extension_id,
-                       net_logger_ptr),
+                       file),
             base::Bind(&LogPrivateAPI::StartObservingNetEvents,
                        base::Unretained(this),
                        io_thread,
-                       base::Owned(net_logger_ptr)));
+                       base::Owned(file)));
         break;
       }
       case api::log_private::EVENT_SINK_NONE: {
@@ -357,11 +359,11 @@ void LogPrivateAPI::StopNetInternalLogging() {
     logging_net_internals_ = false;
     switch (event_sink_) {
       case api::log_private::EVENT_SINK_CAPTURE:
-        net_log()->RemoveThreadSafeObserver(this);
+        net_log()->DeprecatedRemoveObserver(this);
         break;
       case api::log_private::EVENT_SINK_FILE:
-        net_log_logger_->StopObserving();
-        net_log_logger_.reset();
+        write_to_file_observer_->StopObserving(nullptr);
+        write_to_file_observer_.reset();
         break;
       case api::log_private::EVENT_SINK_NONE:
         NOTREACHED();
@@ -529,7 +531,7 @@ void LogPrivateDumpLogsFunction::OnStoreLogsCompleted(
       extensions::app_file_handler_util::CreateFileEntry(
           Profile::FromBrowserContext(browser_context()),
           extension(),
-          render_view_host_->GetProcess()->GetID(),
+          render_frame_host()->GetProcess()->GetID(),
           log_path,
           false);
 

@@ -5,73 +5,67 @@
 #include "config.h"
 #include "core/paint/SVGContainerPainter.h"
 
-#include "core/frame/Settings.h"
+#include "core/layout/svg/LayoutSVGContainer.h"
+#include "core/layout/svg/LayoutSVGViewportContainer.h"
+#include "core/layout/svg/SVGLayoutSupport.h"
+#include "core/paint/FloatClipRecorder.h"
 #include "core/paint/ObjectPainter.h"
-#include "core/rendering/GraphicsContextAnnotator.h"
-#include "core/rendering/PaintInfo.h"
-#include "core/rendering/svg/RenderSVGContainer.h"
-#include "core/rendering/svg/RenderSVGViewportContainer.h"
-#include "core/rendering/svg/SVGRenderSupport.h"
-#include "core/rendering/svg/SVGRenderingContext.h"
+#include "core/paint/PaintInfo.h"
+#include "core/paint/SVGPaintContext.h"
+#include "core/paint/TransformRecorder.h"
 #include "core/svg/SVGSVGElement.h"
-#include "platform/graphics/GraphicsContextCullSaver.h"
-#include "platform/graphics/GraphicsContextStateSaver.h"
+#include "wtf/Optional.h"
 
 namespace blink {
 
-void SVGContainerPainter::paint(PaintInfo& paintInfo)
+void SVGContainerPainter::paint(const PaintInfo& paintInfo)
 {
-    ANNOTATE_GRAPHICS_CONTEXT(paintInfo, &m_renderSVGContainer);
-
     // Spec: groups w/o children still may render filter content.
-    if (!m_renderSVGContainer.firstChild() && !m_renderSVGContainer.selfWillPaint())
+    if (!m_layoutSVGContainer.firstChild() && !m_layoutSVGContainer.selfWillPaint())
         return;
 
-    FloatRect paintInvalidationRect = m_renderSVGContainer.paintInvalidationRectInLocalCoordinates();
-    if (!SVGRenderSupport::paintInfoIntersectsPaintInvalidationRect(paintInvalidationRect, m_renderSVGContainer.localToParentTransform(), paintInfo))
+    FloatRect boundingBox = m_layoutSVGContainer.paintInvalidationRectInLocalCoordinates();
+    if (!paintInfo.intersectsCullRect(m_layoutSVGContainer.localToParentTransform(), boundingBox))
         return;
 
     // Spec: An empty viewBox on the <svg> element disables rendering.
-    ASSERT(m_renderSVGContainer.element());
-    if (isSVGSVGElement(*m_renderSVGContainer.element()) && toSVGSVGElement(*m_renderSVGContainer.element()).hasEmptyViewBox())
+    ASSERT(m_layoutSVGContainer.element());
+    if (isSVGSVGElement(*m_layoutSVGContainer.element()) && toSVGSVGElement(*m_layoutSVGContainer.element()).hasEmptyViewBox())
         return;
 
-    PaintInfo childPaintInfo(paintInfo);
+    PaintInfo paintInfoBeforeFiltering(paintInfo);
+    paintInfoBeforeFiltering.updateCullRectForSVGTransform(m_layoutSVGContainer.localToParentTransform());
+    TransformRecorder transformRecorder(*paintInfoBeforeFiltering.context, m_layoutSVGContainer, m_layoutSVGContainer.localToParentTransform());
     {
-        GraphicsContextStateSaver stateSaver(*childPaintInfo.context);
-
-        if (m_renderSVGContainer.isSVGViewportContainer() && SVGRenderSupport::isOverflowHidden(&m_renderSVGContainer))
-            paintInfo.context->clip(toRenderSVGViewportContainer(m_renderSVGContainer).viewport());
-
-        childPaintInfo.applyTransform(m_renderSVGContainer.localToParentTransform());
-
-        SVGRenderingContext renderingContext;
-        GraphicsContextCullSaver cullSaver(*childPaintInfo.context);
-        bool continueRendering = true;
-        if (childPaintInfo.phase == PaintPhaseForeground) {
-            renderingContext.prepareToRenderSVGContent(&m_renderSVGContainer, childPaintInfo);
-            continueRendering = renderingContext.isRenderingPrepared();
-
-            if (continueRendering && m_renderSVGContainer.document().settings()->containerCullingEnabled())
-                cullSaver.cull(paintInvalidationRect);
+        Optional<FloatClipRecorder> clipRecorder;
+        if (m_layoutSVGContainer.isSVGViewportContainer() && SVGLayoutSupport::isOverflowHidden(&m_layoutSVGContainer)) {
+            FloatRect viewport = m_layoutSVGContainer.localToParentTransform().inverse().mapRect(toLayoutSVGViewportContainer(m_layoutSVGContainer).viewport());
+            clipRecorder.emplace(*paintInfoBeforeFiltering.context, m_layoutSVGContainer, paintInfoBeforeFiltering.phase, viewport);
         }
+
+        SVGPaintContext paintContext(m_layoutSVGContainer, paintInfoBeforeFiltering);
+        bool continueRendering = true;
+        if (paintContext.paintInfo().phase == PaintPhaseForeground)
+            continueRendering = paintContext.applyClipMaskAndFilterIfNecessary();
 
         if (continueRendering) {
-            childPaintInfo.updatePaintingRootForChildren(&m_renderSVGContainer);
-            for (RenderObject* child = m_renderSVGContainer.firstChild(); child; child = child->nextSibling())
-                child->paint(childPaintInfo, IntPoint());
+            paintContext.paintInfo().updatePaintingRootForChildren(&m_layoutSVGContainer);
+            for (LayoutObject* child = m_layoutSVGContainer.firstChild(); child; child = child->nextSibling())
+                child->paint(paintContext.paintInfo(), IntPoint());
         }
     }
 
-    // FIXME: This really should be drawn from local coordinates, but currently we hack it
-    // to avoid our clip killing our outline rect. Thus we translate our
-    // outline rect into parent coords before drawing.
-    // FIXME: This means our focus ring won't share our rotation like it should.
-    // We should instead disable our clip during PaintPhaseOutline
-    if (paintInfo.phase == PaintPhaseForeground && m_renderSVGContainer.style()->outlineWidth() && m_renderSVGContainer.style()->visibility() == VISIBLE) {
-        IntRect paintRectInParent = enclosingIntRect(m_renderSVGContainer.localToParentTransform().mapRect(paintInvalidationRect));
-        ObjectPainter(m_renderSVGContainer).paintOutline(paintInfo, paintRectInParent);
+    if (paintInfoBeforeFiltering.phase != PaintPhaseForeground)
+        return;
+
+    if (m_layoutSVGContainer.style()->outlineWidth() && m_layoutSVGContainer.style()->visibility() == VISIBLE) {
+        LayoutRect layoutBoundingBox(boundingBox);
+        LayoutRect visualOverflowRect = ObjectPainter::outlineBounds(layoutBoundingBox, m_layoutSVGContainer.styleRef());
+        ObjectPainter(m_layoutSVGContainer).paintOutline(paintInfoBeforeFiltering, layoutBoundingBox, visualOverflowRect);
     }
+
+    if (paintInfoBeforeFiltering.context->printing())
+        ObjectPainter(m_layoutSVGContainer).addPDFURLRectIfNeeded(paintInfoBeforeFiltering, LayoutPoint());
 }
 
 } // namespace blink

@@ -28,9 +28,11 @@
 #include "base/win/windows_version.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/installer/setup/app_launcher_installer.h"
 #include "chrome/installer/setup/install.h"
 #include "chrome/installer/setup/setup_constants.h"
 #include "chrome/installer/setup/setup_util.h"
+#include "chrome/installer/setup/update_active_setup_version_work_item.h"
 #include "chrome/installer/util/app_registration_data.h"
 #include "chrome/installer/util/browser_distribution.h"
 #include "chrome/installer/util/callback_work_item.h"
@@ -46,22 +48,15 @@
 #include "chrome/installer/util/product.h"
 #include "chrome/installer/util/set_reg_value_work_item.h"
 #include "chrome/installer/util/shell_util.h"
-#include "chrome/installer/util/updating_app_registration_data.h"
 #include "chrome/installer/util/util_constants.h"
 #include "chrome/installer/util/work_item_list.h"
 
-using base::ASCIIToWide;
+using base::ASCIIToUTF16;
 using base::win::RegKey;
 
 namespace installer {
 
 namespace {
-
-// The version identifying the work done by setup.exe --configure-user-settings
-// on user login by way of Active Setup.  Increase this value if the work done
-// in setup_main.cc's handling of kConfigureUserSettings changes and should be
-// executed again for all users.
-const wchar_t kActiveSetupVersion[] = L"24,0,0,0";
 
 // Although the UUID of the ChromeFrame class is used for the "current" value,
 // this is done only as a convenience; there is no need for the GUID of the Low
@@ -72,11 +67,6 @@ const wchar_t kIELowRightsPolicyOldGuid[] =
 
 const wchar_t kElevationPolicyKeyPath[] =
     L"SOFTWARE\\Microsoft\\Internet Explorer\\Low Rights\\ElevationPolicy\\";
-
-// The legacy command ids for installing an application or extension. These are
-// only here so they can be removed from the registry.
-const wchar_t kLegacyCmdInstallApp[] = L"install-application";
-const wchar_t kLegacyCmdInstallExtension[] = L"install-extension";
 
 void GetOldIELowRightsElevationPolicyKeyPath(base::string16* key_path) {
   key_path->assign(kElevationPolicyKeyPath,
@@ -155,47 +145,28 @@ void AddInstallerCopyTasks(const InstallerState& installer_state,
         WorkItem::ALWAYS);
   }
 
-  // If only the App Host (not even the Chrome Binaries) is being installed,
-  // this must be a user-level App Host piggybacking on system-level Chrome
-  // Binaries. Only setup.exe is required, and only for uninstall.
-  if (installer_state.products().size() != 1 ||
-      !installer_state.FindProduct(BrowserDistribution::CHROME_APP_HOST)) {
-    base::FilePath archive_dst(installer_dir.Append(archive_path.BaseName()));
-    if (archive_path != archive_dst) {
-      // In the past, we copied rather than moved for system level installs so
-      // that the permissions of %ProgramFiles% would be picked up.  Now that
-      // |temp_path| is in %ProgramFiles% for system level installs (and in
-      // %LOCALAPPDATA% otherwise), there is no need to do this for the archive.
-      // Setup.exe, on the other hand, is created elsewhere so it must always be
-      // copied.
-      if (temp_path.IsParent(archive_path)) {
-        install_list->AddMoveTreeWorkItem(archive_path.value(),
-                                          archive_dst.value(),
-                                          temp_path.value(),
-                                          WorkItem::ALWAYS_MOVE);
-      } else {
-        // This may occur when setup is run out of an existing installation
-        // directory. For example, when quick-enabling user-level App Launcher
-        // from system-level Binaries. We can't (and don't want to) remove the
-        // system-level archive.
-        install_list->AddCopyTreeWorkItem(archive_path.value(),
-                                          archive_dst.value(),
-                                          temp_path.value(),
-                                          WorkItem::ALWAYS);
-      }
+  base::FilePath archive_dst(installer_dir.Append(archive_path.BaseName()));
+  if (archive_path != archive_dst) {
+    // In the past, we copied rather than moved for system level installs so
+    // that the permissions of %ProgramFiles% would be picked up.  Now that
+    // |temp_path| is in %ProgramFiles% for system level installs (and in
+    // %LOCALAPPDATA% otherwise), there is no need to do this for the archive.
+    // Setup.exe, on the other hand, is created elsewhere so it must always be
+    // copied.
+    if (temp_path.IsParent(archive_path)) {
+      install_list->AddMoveTreeWorkItem(archive_path.value(),
+                                        archive_dst.value(),
+                                        temp_path.value(),
+                                        WorkItem::ALWAYS_MOVE);
+    } else {
+      // This may occur when setup is run out of an existing installation
+      // directory. We cannot remove the system-level archive.
+      install_list->AddCopyTreeWorkItem(archive_path.value(),
+                                        archive_dst.value(),
+                                        temp_path.value(),
+                                        WorkItem::ALWAYS);
     }
   }
-}
-
-base::string16 GetRegistrationDataCommandKey(
-    const AppRegistrationData& reg_data,
-    const wchar_t* name) {
-  base::string16 cmd_key(reg_data.GetVersionKey());
-  cmd_key.append(1, base::FilePath::kSeparators[0])
-      .append(google_update::kRegCommandsKey)
-      .append(1, base::FilePath::kSeparators[0])
-      .append(name);
-  return cmd_key;
 }
 
 base::string16 GetRegCommandKey(BrowserDistribution* dist,
@@ -232,7 +203,7 @@ void AddCommandWithParameterWorkItems(const InstallerState& installer_state,
         ->set_log_message("removing " + base::UTF16ToASCII(command_key) +
                           " command");
   } else {
-    CommandLine cmd_line(installer_state.target_path().Append(app));
+    base::CommandLine cmd_line(installer_state.target_path().Append(app));
     cmd_line.AppendSwitchASCII(command_with_parameter, "%1");
 
     AppCommand cmd(cmd_line.GetCommandLineString());
@@ -241,18 +212,6 @@ void AddCommandWithParameterWorkItems(const InstallerState& installer_state,
     cmd.set_is_run_as_user(true);
     cmd.AddWorkItems(installer_state.root_key(), full_cmd_key, work_item_list);
   }
-}
-
-void AddLegacyAppCommandRemovalItem(const InstallerState& installer_state,
-                                    const AppRegistrationData& reg_data,
-                                    const wchar_t* name,
-                                    WorkItemList* work_item_list) {
-  // These failures are ignored because this is a clean-up operation that
-  // shouldn't block an install or update on failing.
-  work_item_list->AddDeleteRegKeyWorkItem(
-      installer_state.root_key(),
-      GetRegistrationDataCommandKey(reg_data, name),
-      KEY_WOW64_32KEY)->set_ignore_failure(true);
 }
 
 // A callback invoked by |work_item| that adds firewall rules for Chrome. Rules
@@ -303,97 +262,12 @@ void AddFirewallRulesWorkItems(const InstallerState& installer_state,
                  is_new_install));
 }
 
-// Returns the basic CommandLine to setup.exe for a quick-enable operation on
-// the binaries. This will unconditionally include --multi-install as well as
-// --verbose-logging if the current installation was launched with
-// --verbose-logging.  |setup_path| and |new_version| are optional only when
-// the operation is an uninstall.
-CommandLine GetGenericQuickEnableCommand(
-    const InstallerState& installer_state,
-    const InstallationState& machine_state,
-    const base::FilePath& setup_path,
-    const Version& new_version) {
-  // Only valid for multi-install operations.
-  DCHECK(installer_state.is_multi_install());
-  // Only valid when Chrome Binaries aren't being uninstalled.
-  DCHECK(installer_state.operation() != InstallerState::UNINSTALL ||
-         !installer_state.FindProduct(BrowserDistribution::CHROME_BINARIES));
-  // setup_path and new_version are required when not uninstalling.
-  DCHECK(installer_state.operation() == InstallerState::UNINSTALL ||
-         (!setup_path.empty() && new_version.IsValid()));
-
-  // The path to setup.exe contains the version of the Chrome Binaries, so it
-  // takes a little work to get it right.
-  base::FilePath binaries_setup_path;
-  if (installer_state.operation() == InstallerState::UNINSTALL) {
-    // One or more products are being uninstalled, but not Chrome Binaries.
-    // Use the path to the currently installed Chrome Binaries' setup.exe.
-    const ProductState* product_state = machine_state.GetProductState(
-        installer_state.system_install(),
-        BrowserDistribution::CHROME_BINARIES);
-    DCHECK(product_state);
-    binaries_setup_path = product_state->uninstall_command().GetProgram();
-  } else {
-    // Chrome Binaries are being installed, updated, or otherwise operated on.
-    // Use the path to the given |setup_path| in the normal location of
-    // multi-install Chrome Binaries of the given |version|.
-    binaries_setup_path = installer_state.GetInstallerDirectory(new_version)
-                              .Append(setup_path.BaseName());
-  }
-  DCHECK(!binaries_setup_path.empty());
-
-  CommandLine cmd_line(binaries_setup_path);
-  cmd_line.AppendSwitch(switches::kMultiInstall);
-  if (installer_state.verbose_logging())
-    cmd_line.AppendSwitch(switches::kVerboseLogging);
-  return cmd_line;
-}
-
-// Adds work items to add the "quick-enable-application-host" command to the
-// multi-installer binaries' version key on the basis of the current operation
-// (represented in |installer_state|) and the pre-existing machine configuration
-// (represented in |machine_state|).
-void AddQuickEnableApplicationLauncherWorkItems(
-    const InstallerState& installer_state,
-    const InstallationState& machine_state,
-    const base::FilePath& setup_path,
-    const Version& new_version,
-    WorkItemList* work_item_list) {
-  DCHECK(work_item_list);
-
-  bool will_have_chrome_binaries =
-      WillProductBePresentAfterSetup(installer_state, machine_state,
-                                     BrowserDistribution::CHROME_BINARIES);
-
-  // For system-level binaries there is no way to keep the command state in sync
-  // with the installation/uninstallation of the Application Launcher (which is
-  // always at user-level).  So we do not try to remove the command, i.e., it
-  // will always be installed if the Chrome Binaries are installed.
-  if (will_have_chrome_binaries) {
-    base::string16 cmd_key(
-        GetRegCommandKey(BrowserDistribution::GetSpecificDistribution(
-                             BrowserDistribution::CHROME_BINARIES),
-                         kCmdQuickEnableApplicationHost));
-    CommandLine cmd_line(GetGenericQuickEnableCommand(installer_state,
-                                                      machine_state,
-                                                      setup_path,
-                                                      new_version));
-    // kMultiInstall and kVerboseLogging were processed above.
-    cmd_line.AppendSwitch(switches::kChromeAppLauncher);
-    cmd_line.AppendSwitch(switches::kEnsureGoogleUpdatePresent);
-    AppCommand cmd(cmd_line.GetCommandLineString());
-    cmd.set_sends_pings(true);
-    cmd.set_is_web_accessible(true);
-    cmd.set_is_run_as_user(true);
-    cmd.AddWorkItems(installer_state.root_key(), cmd_key, work_item_list);
-  }
-}
-
 void AddProductSpecificWorkItems(const InstallationState& original_state,
                                  const InstallerState& installer_state,
                                  const base::FilePath& setup_path,
                                  const Version& new_version,
                                  bool is_new_install,
+                                 bool add_language_identifier,
                                  WorkItemList* list) {
   const Products& products = installer_state.products();
   for (Products::const_iterator it = products.begin(); it < products.end();
@@ -404,28 +278,18 @@ void AddProductSpecificWorkItems(const InstallationState& original_state,
                             list);
       AddFirewallRulesWorkItems(
           installer_state, p.distribution(), is_new_install, list);
-      AddLegacyAppCommandRemovalItem(
-          installer_state,
-          p.distribution()->GetAppRegistrationData(),
-          kLegacyCmdInstallExtension,
-          list);
 
-      if (p.distribution()->AppHostIsSupported()) {
-        // Unconditionally remove the "install-application" command from the app
-        // hosts's key.
-        UpdatingAppRegistrationData app_launcher_reg_data(
-            installer::kAppLauncherGuid);
-        AddLegacyAppCommandRemovalItem(installer_state, app_launcher_reg_data,
-                                       kLegacyCmdInstallApp, list);
+#if defined(GOOGLE_CHROME_BUILD)
+      if (!InstallUtil::IsChromeSxSProcess()) {
+        // Add items to set up the App Launcher's version key if Google Chrome
+        // is being installed or updated.
+        AddAppLauncherVersionKeyWorkItems(installer_state.root_key(),
+            new_version, add_language_identifier, list);
       }
+#endif  // GOOGLE_CHROME_BUILD
     }
-    if (p.is_chrome_binaries()) {
-      AddQueryEULAAcceptanceWorkItems(
-          installer_state, setup_path, new_version, p, list);
+    if (p.is_chrome_binaries())
       AddQuickEnableChromeFrameWorkItems(installer_state, list);
-      AddQuickEnableApplicationLauncherWorkItems(
-          installer_state, original_state, setup_path, new_version, list);
-    }
   }
 }
 
@@ -699,7 +563,7 @@ void AddUninstallShortcutWorkItems(const InstallerState& installer_state,
       installer_state.GetInstallerDirectory(new_version));
   installer_path = installer_path.Append(setup_path.BaseName());
 
-  CommandLine uninstall_arguments(CommandLine::NO_PROGRAM);
+  base::CommandLine uninstall_arguments(base::CommandLine::NO_PROGRAM);
   AppendUninstallCommandLineFlags(installer_state, product,
                                   &uninstall_arguments);
 
@@ -723,7 +587,7 @@ void AddUninstallShortcutWorkItems(const InstallerState& installer_state,
   // MSI installations will manage their own uninstall shortcuts.
   if (!installer_state.is_msi() && product.ShouldCreateUninstallEntry()) {
     // We need to quote the command line for the Add/Remove Programs dialog.
-    CommandLine quoted_uninstall_cmd(installer_path);
+    base::CommandLine quoted_uninstall_cmd(installer_path);
     DCHECK_EQ(quoted_uninstall_cmd.GetCommandLineString()[0], '"');
     quoted_uninstall_cmd.AppendArguments(uninstall_arguments, false);
 
@@ -752,7 +616,7 @@ void AddUninstallShortcutWorkItems(const InstallerState& installer_state,
 
     BrowserDistribution* dist = product.distribution();
     base::string16 chrome_icon = ShellUtil::FormatIconLocation(
-        install_path.Append(dist->GetIconFilename()).value(),
+        install_path.Append(dist->GetIconFilename()),
         dist->GetIconIndex(BrowserDistribution::SHORTCUT_CHROME));
     install_list->AddSetRegValueWorkItem(reg_root,
                                          uninstall_reg,
@@ -783,13 +647,13 @@ void AddUninstallShortcutWorkItems(const InstallerState& installer_state,
                                          uninstall_reg,
                                          KEY_WOW64_32KEY,
                                          L"Version",
-                                         ASCIIToWide(new_version.GetString()),
+                                         ASCIIToUTF16(new_version.GetString()),
                                          true);
     install_list->AddSetRegValueWorkItem(reg_root,
                                          uninstall_reg,
                                          KEY_WOW64_32KEY,
                                          L"DisplayVersion",
-                                         ASCIIToWide(new_version.GetString()),
+                                         ASCIIToUTF16(new_version.GetString()),
                                          true);
     // TODO(wfh): Ensure that this value is preserved in the 64-bit hive when
     // 64-bit installs place the uninstall information into the 64-bit registry.
@@ -800,7 +664,7 @@ void AddUninstallShortcutWorkItems(const InstallerState& installer_state,
                                          InstallUtil::GetCurrentDate(),
                                          false);
 
-    const std::vector<uint16>& version_components = new_version.components();
+    const std::vector<uint32_t>& version_components = new_version.components();
     if (version_components.size() == 4) {
       // Our version should be in major.minor.build.rev.
       install_list->AddSetRegValueWorkItem(
@@ -848,7 +712,7 @@ void AddVersionKeyWorkItems(HKEY root,
     // languages is a superset of Chrome's set of translations with this one
     // exception: what Chrome calls "en-us", Omaha calls "en".  sigh.
     base::string16 language(GetCurrentTranslation());
-    if (LowerCaseEqualsASCII(language, "en-us"))
+    if (base::LowerCaseEqualsASCII(language, "en-us"))
       language.resize(2);
     list->AddSetRegValueWorkItem(root,
                                  version_key,
@@ -861,7 +725,7 @@ void AddVersionKeyWorkItems(HKEY root,
                                version_key,
                                KEY_WOW64_32KEY,
                                google_update::kRegVersionField,
-                               ASCIIToWide(new_version.GetString()),
+                               ASCIIToUTF16(new_version.GetString()),
                                true);  // overwrite version
 }
 
@@ -1105,6 +969,62 @@ void AddUsageStatsWorkItems(const InstallationState& original_state,
   }
 }
 
+// Migrates the usagestats value from the binaries to Chrome when migrating
+// multi-install Chrome to single-install.
+void AddMigrateUsageStatesWorkItems(const InstallationState& original_state,
+                                    const InstallerState& installer_state,
+                                    WorkItemList* install_list) {
+  // Ensure that a non-multi install or update is being processed (i.e.,
+  // no "--multi-install" on the command line).
+  if (installer_state.is_multi_install())
+    return;
+
+  // This operation doesn't apply to SxS Chrome.
+  if (InstallUtil::IsChromeSxSProcess())
+    return;
+
+  // Ensure that Chrome is the product being installed or updated (there are no
+  // other products, so it is especially unexpected for this to fail).
+  const Product* chrome_product =
+      installer_state.FindProduct(BrowserDistribution::CHROME_BROWSER);
+  if (!chrome_product) {
+    LOG(DFATAL) << "Not operating on Chrome while migrating to single-install.";
+    return;
+  }
+
+  const ProductState* chrome_state = original_state.GetProductState(
+      installer_state.system_install(),
+      BrowserDistribution::CHROME_BROWSER);
+  // Bail out if there is not an existing multi-install Chrome that is being
+  // updated.
+  if (!chrome_state || !chrome_state->is_multi_install()) {
+    VLOG(1) << "No multi-install Chrome found to migrate to single-install.";
+    return;
+  }
+
+  const ProductState* binaries_state = original_state.GetProductState(
+      installer_state.system_install(),
+      BrowserDistribution::CHROME_BINARIES);
+
+  // There is nothing to be done if the binaries do not have stats.
+  DWORD usagestats = 0;
+  if (!binaries_state || !binaries_state->GetUsageStats(&usagestats)) {
+    VLOG(1) << "No usagestats value found to migrate to single-install.";
+    return;
+  }
+
+  VLOG(1) << "Migrating usagestats value from multi-install to single-install.";
+
+  // Write the value that was read to Chrome's ClientState key.
+  install_list->AddSetRegValueWorkItem(
+      installer_state.root_key(),
+      chrome_product->distribution()->GetStateKey(),
+      KEY_WOW64_32KEY,
+      google_update::kRegUsageStatsField,
+      usagestats,
+      true);
+}
+
 bool AppendPostInstallTasks(const InstallerState& installer_state,
                             const base::FilePath& setup_path,
                             const Version* current_version,
@@ -1136,7 +1056,7 @@ bool AppendPostInstallTasks(const InstallerState& installer_state,
         installer_state.GetInstallerDirectory(new_version).Append(
             setup_path.BaseName()));
 
-    CommandLine rename(installer_path);
+    base::CommandLine rename(installer_path);
     rename.AppendSwitch(switches::kRenameChromeExe);
     if (installer_state.system_install())
       rename.AppendSwitch(switches::kSystemLevel);
@@ -1155,7 +1075,7 @@ bool AppendPostInstallTasks(const InstallerState& installer_state,
             version_key,
             KEY_WOW64_32KEY,
             google_update::kRegOldVersionField,
-            ASCIIToWide(current_version->GetString()),
+            ASCIIToUTF16(current_version->GetString()),
             true);
       }
       if (critical_version.IsValid()) {
@@ -1164,7 +1084,7 @@ bool AppendPostInstallTasks(const InstallerState& installer_state,
             version_key,
             KEY_WOW64_32KEY,
             google_update::kRegCriticalVersionField,
-            ASCIIToWide(critical_version.GetString()),
+            ASCIIToUTF16(critical_version.GetString()),
             true);
       } else {
         in_use_update_work_items->AddDeleteRegValueWorkItem(
@@ -1180,7 +1100,7 @@ bool AppendPostInstallTasks(const InstallerState& installer_state,
       // The first to run it will perform the operation and clean up the other
       // values.
       if (dist->GetType() != BrowserDistribution::CHROME_BINARIES) {
-        CommandLine product_rename_cmd(rename);
+        base::CommandLine product_rename_cmd(rename);
         products[i]->AppendRenameFlags(&product_rename_cmd);
         in_use_update_work_items->AddSetRegValueWorkItem(
             root,
@@ -1282,14 +1202,11 @@ void AddInstallWorkItems(const InstallationState& original_state,
                        install_list);
   }
 
-  if (installer_state.FindProduct(BrowserDistribution::CHROME_APP_HOST)) {
-    install_list->AddCopyTreeWorkItem(
-        src_path.Append(installer::kChromeAppHostExe).value(),
-        target_path.Append(installer::kChromeAppHostExe).value(),
-        temp_path.value(),
-        WorkItem::ALWAYS,
-        L"");
-  }
+#if defined(GOOGLE_CHROME_BUILD)
+  // For Chrome, unconditionally remove the legacy app_host.exe.
+  if (!InstallUtil::IsChromeSxSProcess())
+    AddRemoveLegacyAppHostExeWorkItems(target_path, temp_path, install_list);
+#endif  // GOOGLE_CHROME_BUILD
 
   // Copy installer in install directory
   AddInstallerCopyTasks(installer_state, setup_path, archive_path, temp_path,
@@ -1319,28 +1236,26 @@ void AddInstallWorkItems(const InstallationState& original_state,
     AddDelegateExecuteWorkItems(installer_state, target_path, new_version,
                                 product, install_list);
 
-    AddActiveSetupWorkItems(installer_state, setup_path, new_version, product,
+    AddActiveSetupWorkItems(installer_state, new_version, product,
                             install_list);
   }
 
-  // TODO(huangs): Implement actual migration code and remove the hack below.
-  // If installing Chrome without the legacy stand-alone App Launcher (to be
-  // handled later), add "shadow" App Launcher registry keys so Google Update
-  // would recognize the "dr" value in the App Launcher ClientState key.
-  // Checking .is_multi_install() excludes Chrome Canary and stand-alone Chrome.
-  if (installer_state.is_multi_install() &&
-      installer_state.FindProduct(BrowserDistribution::CHROME_BROWSER) &&
-      !installer_state.FindProduct(BrowserDistribution::CHROME_APP_HOST)) {
-    BrowserDistribution* shadow_app_launcher_dist =
+  // Ensure that the Clients key for the binaries is gone for single installs
+  // (but not for SxS Chrome).
+  if (!installer_state.is_multi_install() &&
+      !InstallUtil::IsChromeSxSProcess()) {
+    BrowserDistribution* binaries_dist =
         BrowserDistribution::GetSpecificDistribution(
-            BrowserDistribution::CHROME_APP_HOST);
-    AddVersionKeyWorkItems(root,
-                           shadow_app_launcher_dist->GetVersionKey(),
-                           shadow_app_launcher_dist->GetDisplayName(),
-                           new_version,
-                           add_language_identifier,
-                           install_list);
+            BrowserDistribution::CHROME_BINARIES);
+    install_list->AddDeleteRegKeyWorkItem(root,
+                                          binaries_dist->GetVersionKey(),
+                                          KEY_WOW64_32KEY);
   }
+
+#if defined(GOOGLE_CHROME_BUILD)
+  if (!InstallUtil::IsChromeSxSProcess())
+    AddRemoveLegacyAppCommandsWorkItems(installer_state, install_list);
+#endif  // GOOGLE_CHROME_BUILD
 
   // Add any remaining work items that involve special settings for
   // each product.
@@ -1349,10 +1264,14 @@ void AddInstallWorkItems(const InstallationState& original_state,
                               setup_path,
                               new_version,
                               current_version == NULL,
+                              add_language_identifier,
                               install_list);
 
   // Copy over brand, usagestats, and other values.
   AddGoogleUpdateWorkItems(original_state, installer_state, install_list);
+
+  // Migrate usagestats back to Chrome.
+  AddMigrateUsageStatesWorkItems(original_state, installer_state, install_list);
 
   // Append the tasks that run after the installation.
   AppendPostInstallTasks(installer_state,
@@ -1475,7 +1394,6 @@ void AddDelegateExecuteWorkItems(const InstallerState& installer_state,
 }
 
 void AddActiveSetupWorkItems(const InstallerState& installer_state,
-                             const base::FilePath& setup_path,
                              const Version& new_version,
                              const Product& product,
                              WorkItemList* list) {
@@ -1506,7 +1424,7 @@ void AddActiveSetupWorkItems(const InstallerState& installer_state,
 
   base::FilePath active_setup_exe(installer_state.GetInstallerDirectory(
       new_version).Append(kActiveSetupExe));
-  CommandLine cmd(active_setup_exe);
+  base::CommandLine cmd(active_setup_exe);
   cmd.AppendSwitch(installer::switches::kConfigureUserSettings);
   cmd.AppendSwitch(installer::switches::kVerboseLogging);
   cmd.AppendSwitch(installer::switches::kSystemLevel);
@@ -1534,12 +1452,8 @@ void AddActiveSetupWorkItems(const InstallerState& installer_state,
                                static_cast<DWORD>(1U),
                                true);
 
-  list->AddSetRegValueWorkItem(root,
-                               active_setup_path,
-                               WorkItem::kWow64Default,
-                               L"Version",
-                               kActiveSetupVersion,
-                               true);
+  list->AddWorkItem(new UpdateActiveSetupVersionWorkItem(
+      active_setup_path, UpdateActiveSetupVersionWorkItem::UPDATE));
 }
 
 void AddDeleteOldIELowRightsPolicyWorkItems(
@@ -1555,7 +1469,7 @@ void AddDeleteOldIELowRightsPolicyWorkItems(
 
 void AppendUninstallCommandLineFlags(const InstallerState& installer_state,
                                      const Product& product,
-                                     CommandLine* uninstall_cmd) {
+                                     base::CommandLine* uninstall_cmd) {
   DCHECK(uninstall_cmd);
 
   uninstall_cmd->AppendSwitch(installer::switches::kUninstall);
@@ -1607,9 +1521,9 @@ void AddOsUpgradeWorkItems(const InstallerState& installer_state,
   } else {
     // Register with Google Update to have setup.exe --on-os-upgrade called on
     // OS upgrade.
-    CommandLine cmd_line(installer_state
-        .GetInstallerDirectory(new_version)
-        .Append(setup_path.BaseName()));
+    base::CommandLine cmd_line(
+        installer_state.GetInstallerDirectory(new_version)
+            .Append(setup_path.BaseName()));
     // Add the main option to indicate OS upgrade flow.
     cmd_line.AppendSwitch(installer::switches::kOnOsUpgrade);
     // Add product-specific options.
@@ -1622,33 +1536,6 @@ void AddOsUpgradeWorkItems(const InstallerState& installer_state,
     AppCommand cmd(cmd_line.GetCommandLineString());
     cmd.set_is_auto_run_on_os_upgrade(true);
     cmd.AddWorkItems(installer_state.root_key(), cmd_key, install_list);
-  }
-}
-
-void AddQueryEULAAcceptanceWorkItems(const InstallerState& installer_state,
-                                     const base::FilePath& setup_path,
-                                     const Version& new_version,
-                                     const Product& product,
-                                     WorkItemList* work_item_list) {
-  const HKEY root_key = installer_state.root_key();
-  base::string16 cmd_key(
-      GetRegCommandKey(product.distribution(), kCmdQueryEULAAcceptance));
-  if (installer_state.operation() == InstallerState::UNINSTALL) {
-    work_item_list->AddDeleteRegKeyWorkItem(root_key, cmd_key, KEY_WOW64_32KEY)
-        ->set_log_message("Removing query EULA acceptance command");
-  } else {
-    CommandLine cmd_line(installer_state
-        .GetInstallerDirectory(new_version)
-        .Append(setup_path.BaseName()));
-    cmd_line.AppendSwitch(switches::kQueryEULAAcceptance);
-    if (installer_state.system_install())
-      cmd_line.AppendSwitch(installer::switches::kSystemLevel);
-    if (installer_state.verbose_logging())
-      cmd_line.AppendSwitch(installer::switches::kVerboseLogging);
-    AppCommand cmd(cmd_line.GetCommandLineString());
-    cmd.set_is_web_accessible(true);
-    cmd.set_is_run_as_user(true);
-    cmd.AddWorkItems(installer_state.root_key(), cmd_key, work_item_list);
   }
 }
 

@@ -36,6 +36,8 @@ namespace {
 // need to be recreated. This might happen when we change various aspects of app
 // shortcuts like command-line flags or associated icons, binaries, etc.
 #if defined(OS_MACOSX)
+// This was changed to 3 at r316520, but reverted again. Next time we need to
+// trigger a recreate, increment this to 4.
 const int kCurrentAppShortcutsVersion = 2;
 #else
 const int kCurrentAppShortcutsVersion = 0;
@@ -73,9 +75,7 @@ void SetCurrentAppShortcutsVersion(PrefService* prefs) {
 void AppShortcutManager::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
   // Indicates whether app shortcuts have been created.
-  registry->RegisterIntegerPref(
-      prefs::kAppShortcutsVersion, 0,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterIntegerPref(prefs::kAppShortcutsVersion, 0);
 }
 
 AppShortcutManager::AppShortcutManager(Profile* profile)
@@ -154,7 +154,7 @@ void AppShortcutManager::OnProfileWillBeRemoved(
 }
 
 void AppShortcutManager::UpdateShortcutsForAllAppsIfNeeded() {
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kTestType))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kTestType))
     return;
 
   int last_version = prefs_->GetInteger(prefs::kAppShortcutsVersion);

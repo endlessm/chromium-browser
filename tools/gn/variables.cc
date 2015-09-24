@@ -8,23 +8,152 @@ namespace variables {
 
 // Built-in variables ----------------------------------------------------------
 
-const char kCpuArch[] = "cpu_arch";
-const char kCpuArch_HelpShort[] =
-    "cpu_arch: [string] Current processor architecture.";
-const char kCpuArch_Help[] =
-    "cpu_arch: Current processor architecture.\n"
+const char kHostCpu[] = "host_cpu";
+const char kHostCpu_HelpShort[] =
+    "host_cpu: [string] The processor architecture that GN is running on.";
+const char kHostCpu_Help[] =
+    "host_cpu: The processor architecture that GN is running on.\n"
     "\n"
-    "  The initial value is based on the current architecture of the host\n"
-    "  system. However, the build configuration can set this to any value.\n"
+    "  This is value is exposed so that cross-compile toolchains can\n"
+    "  access the host architecture when needed.\n"
     "\n"
-    "  This value is not used internally by GN for any purpose, so you can\n"
-    "  set it to whatever value is relevant to your build.\n"
+    "  The value should generally be considered read-only, but it can be\n"
+    "  overriden in order to handle unusual cases where there might\n"
+    "  be multiple plausible values for the host architecture (e.g., if\n"
+    "  you can do either 32-bit or 64-bit builds). The value is not used\n"
+    "  internally by GN for any purpose.\n"
     "\n"
-    "Possible initial values set by GN:\n"
+    "Some possible values:\n"
+    "  - \"x64\"\n"
+    "  - \"x86\"\n";
+
+const char kHostOs[] = "host_os";
+const char kHostOs_HelpShort[] =
+    "host_os: [string] The operating system that GN is running on.";
+const char kHostOs_Help[] =
+    "host_os: [string] The operating system that GN is running on.\n"
+    "\n"
+    "  This value is exposed so that cross-compiles can access the host\n"
+    "  build system's settings.\n"
+    "\n"
+    "  This value should generally be treated as read-only. It, however,\n"
+    "  is not used internally by GN for any purpose.\n"
+    "\n"
+    "Some possible values:\n"
+    "  - \"linux\"\n"
+    "  - \"mac\"\n"
+    "  - \"win\"\n";
+
+const char kTargetCpu[] = "target_cpu";
+const char kTargetCpu_HelpShort[] =
+    "target_cpu: [string] The desired cpu architecture for the build.";
+const char kTargetCpu_Help[] =
+    "target_cpu: The desired cpu architecture for the build.\n"
+    "\n"
+    "  This value should be used to indicate the desired architecture for\n"
+    "  the primary objects of the build. It will match the cpu architecture\n"
+    "  of the default toolchain.\n"
+    "\n"
+    "  In many cases, this is the same as \"host_cpu\", but in the case\n"
+    "  of cross-compiles, this can be set to something different. This \n"
+    "  value is different from \"current_cpu\" in that it can be referenced\n"
+    "  from inside any toolchain. This value can also be ignored if it is\n"
+    "  not needed or meaningful for a project.\n"
+    "\n"
+    "  This value is not used internally by GN for any purpose, so it\n"
+    "  may be set to whatever value is needed for the build.\n"
+    "  GN defaults this value to the empty string (\"\") and the\n"
+    "  configuration files should set it to an appropriate value\n"
+    "  (e.g., setting it to the value of \"host_cpu\") if it is not\n"
+    "  overridden on the command line or in the args.gn file.\n"
+    "\n"
+    "  Where practical, use one of the following list of common values:\n"
+    "\n"
+    "Possible values:\n"
     "  - \"x86\"\n"
     "  - \"x64\"\n"
     "  - \"arm\"\n"
+    "  - \"arm64\"\n"
     "  - \"mipsel\"\n";
+
+const char kTargetOs[] = "target_os";
+const char kTargetOs_HelpShort[] =
+    "target_os: [string] The desired operating system for the build.";
+const char kTargetOs_Help[] =
+    "target_os: The desired operating system for the build.\n"
+    "\n"
+    "  This value should be used to indicate the desired operating system\n"
+    "  for the primary object(s) of the build. It will match the OS of\n"
+    "  the default toolchain.\n"
+    "\n"
+    "  In many cases, this is the same as \"host_os\", but in the case of\n"
+    "  cross-compiles, it may be different. This variable differs from\n"
+    "  \"current_os\" in that it can be referenced from inside any\n"
+    "  toolchain and will always return the initial value.\n"
+    "\n"
+    "  This should be set to the most specific value possible. So,\n"
+    "  \"android\" or \"chromeos\" should be used instead of \"linux\"\n"
+    "  where applicable, even though Android and ChromeOS are both Linux\n"
+    "  variants. This can mean that one needs to write\n"
+    "\n"
+    "      if (target_os == \"android\" || target_os == \"linux\") {\n"
+    "          # ...\n"
+    "      }\n"
+    "\n"
+    "  and so forth.\n"
+    "\n"
+    "  This value is not used internally by GN for any purpose, so it\n"
+    "  may be set to whatever value is needed for the build.\n"
+    "  GN defaults this value to the empty string (\"\") and the\n"
+    "  configuration files should set it to an appropriate value\n"
+    "  (e.g., setting it to the value of \"host_os\") if it is not\n"
+    "  set via the command line or in the args.gn file.\n"
+    "\n"
+    "  Where practical, use one of the following list of common values:\n"
+    "\n"
+    "Possible values:\n"
+    "  - \"android\"\n"
+    "  - \"chromeos\"\n"
+    "  - \"ios\"\n"
+    "  - \"linux\"\n"
+    "  - \"nacl\"\n"
+    "  - \"mac\"\n"
+    "  - \"win\"\n";
+
+const char kCurrentCpu[] = "current_cpu";
+const char kCurrentCpu_HelpShort[] =
+    "current_cpu: [string] The processor architecture of the current "
+        "toolchain.";
+const char kCurrentCpu_Help[] =
+    "current_cpu: The processor architecture of the current toolchain.\n"
+    "\n"
+    "  The build configuration usually sets this value based on the value\n"
+    "  of \"host_cpu\" (see \"gn help host_cpu\") and then threads\n"
+    "  this through the toolchain definitions to ensure that it always\n"
+    "  reflects the appropriate value.\n"
+    "\n"
+    "  This value is not used internally by GN for any purpose. It is\n"
+    "  set it to the empty string (\"\") by default but is declared so\n"
+    "  that it can be overridden on the command line if so desired.\n"
+    "\n"
+    "  See \"gn help target_cpu\" for a list of common values returned.\n";
+
+const char kCurrentOs[] = "current_os";
+const char kCurrentOs_HelpShort[] =
+    "current_os: [string] The operating system of the current toolchain.";
+const char kCurrentOs_Help[] =
+    "current_os: The operating system of the current toolchain.\n"
+    "\n"
+    "  The build configuration usually sets this value based on the value\n"
+    "  of \"target_os\" (see \"gn help target_os\"), and then threads this\n"
+    "  through the toolchain definitions to ensure that it always reflects\n"
+    "  the appropriate value.\n"
+    "\n"
+    "  This value is not used internally by GN for any purpose. It is\n"
+    "  set it to the empty string (\"\") by default but is declared so\n"
+    "  that it can be overridden on the command line if so desired.\n"
+    "\n"
+    "  See \"gn help target_os\" for a list of common values returned.\n";
 
 const char kCurrentToolchain[] = "current_toolchain";
 const char kCurrentToolchain_HelpShort[] =
@@ -42,30 +171,6 @@ const char kCurrentToolchain_Help[] =
     "    executable(\"output_thats_64_bit_only\") {\n"
     "      ...\n";
 
-const char kBuildCpuArch[] = "build_cpu_arch";
-const char kBuildCpuArch_HelpShort[] =
-    "build_cpu_arch: [string] The default value for the \"cpu_arch\" "
-    "variable.";
-const char kBuildCpuArch_Help[] =
-    "build_cpu_arch: The default value for the \"cpu_arch\" variable.\n"
-    "\n"
-    "  This value has the same definition as \"cpu_arch\" (see\n"
-    "  \"gn help cpu_arch\") but should be treated as read-only. This is so\n"
-    "  the build can override the \"cpu_arch\" variable for doing\n"
-    "  cross-compiles, but can still access the host build system's CPU\n"
-    "  architecture.\n";
-
-const char kBuildOs[] = "build_os";
-const char kBuildOs_HelpShort[] =
-    "build_os: [string] The default value for the \"os\" variable.";
-const char kBuildOs_Help[] =
-    "build_os: [string] The default value for the \"os\" variable.\n"
-    "\n"
-    "  This value has the same definition as \"os\" (see \"gn help os\") but\n"
-    "  should be treated as read-only. This is so the build can override\n"
-    "  the \"os\" variable for doing cross-compiles, but can still access\n"
-    "  the host build system's operating system type.\n";
-
 const char kDefaultToolchain[] = "default_toolchain";
 const char kDefaultToolchain_HelpShort[] =
     "default_toolchain: [string] Label of the default toolchain.";
@@ -74,33 +179,6 @@ const char kDefaultToolchain_Help[] =
     "\n"
     "  A fully-qualified label representing the default toolchain, which may\n"
     "  not necessarily be the current one (see \"current_toolchain\").\n";
-
-const char kOs[] = "os";
-const char kOs_HelpShort[] =
-    "os: [string] Indicates the operating system of the current build.";
-const char kOs_Help[] =
-    "os: Indicates the operating system of the current build."
-    "\n"
-    "  This value is set by default based on the current host operating\n"
-    "  system. The build configuration can override the value to anything\n"
-    "  it wants, or it can be set via the build arguments on the command\n"
-    "  line.\n"
-    "\n"
-    "  If you want to know the default value without any overrides, you can\n"
-    "  use \"default_os\" (see \"gn help default_os\").\n"
-    "\n"
-    "  Note that this returns the most specific value. So even though\n"
-    "  Android and ChromeOS are both Linux, the more specific value will\n"
-    "  be returned.\n"
-    "\n"
-    "Some possible values:\n"
-    "  - \"amiga\"\n"
-    "  - \"android\"\n"
-    "  - \"chromeos\"\n"
-    "  - \"ios\"\n"
-    "  - \"linux\"\n"
-    "  - \"mac\"\n"
-    "  - \"win\"\n";
 
 const char kPythonPath[] = "python_path";
 const char kPythonPath_HelpShort[] =
@@ -131,8 +209,9 @@ const char kRootGenDir_Help[] =
     "root_gen_dir: Directory for the toolchain's generated files.\n"
     "\n"
     "  Absolute path to the root of the generated output directory tree for\n"
-    "  the current toolchain. An example value might be \"//out/Debug/gen\".\n"
-    "  It will not have a trailing slash.\n"
+    "  the current toolchain. An example would be \"//out/Debug/gen\" for the\n"
+    "  default toolchain, or \"//out/Debug/arm/gen\" for the \"arm\"\n"
+    "  toolchain.\n"
     "\n"
     "  This is primarily useful for setting up include paths for generated\n"
     "  files. If you are passing this to a script, you will want to pass it\n"
@@ -149,8 +228,11 @@ const char kRootOutDir_Help[] =
     "root_out_dir: [string] Root directory for toolchain output files.\n"
     "\n"
     "  Absolute path to the root of the output directory tree for the current\n"
-    "  toolchain. An example value might be \"//out/Debug/gen\". It will not\n"
-    "  have a trailing slash.\n"
+    "  toolchain. It will not have a trailing slash.\n"
+    "\n"
+    "  For the default toolchain this will be the same as the root_build_dir.\n"
+    "  An example would be \"//out/Debug\" for the default toolchain, or\n"
+    "  \"//out/Debug/arm\" for the \"arm\" toolchain.\n"
     "\n"
     "  This is primarily useful for setting up script calls. If you are\n"
     "  passing this to a script, you will want to pass it through\n"
@@ -173,10 +255,11 @@ const char kTargetGenDir_HelpShort[] =
 const char kTargetGenDir_Help[] =
     "target_gen_dir: Directory for a target's generated files.\n"
     "\n"
-    "  Absolute path to the target's generated file directory. If your\n"
-    "  current target is in \"//tools/doom_melon\" then this value might be\n"
-    "  \"//out/Debug/gen/tools/doom_melon\". It will not have a trailing\n"
-    "  slash.\n"
+    "  Absolute path to the target's generated file directory. This will be\n"
+    "  the \"root_gen_dir\" followed by the relative path to the current\n"
+    "  build file. If your file is in \"//tools/doom_melon\" then\n"
+    "  target_gen_dir would be \"//out/Debug/gen/tools/doom_melon\". It will\n"
+    "  not have a trailing slash.\n"
     "\n"
     "  This is primarily useful for setting up include paths for generated\n"
     "  files. If you are passing this to a script, you will want to pass it\n"
@@ -236,9 +319,8 @@ const char kTargetOutDir_Help[] =
     "     the \"deps\" list. This is done recursively. If a config appears\n" \
     "     more than once, only the first occurance will be used.\n" \
     "  6. public_configs pulled from dependencies, in the order of the\n" \
-    "     \"deps\" list. If a dependency has " \
-              "\"forward_dependent_configs_from\",\n" \
-    "     or are public dependencies, they will be applied recursively.\n"
+    "     \"deps\" list. If a dependency is public, they will be applied\n" \
+    "     recursively.\n"
 
 const char kAllDependentConfigs[] = "all_dependent_configs";
 const char kAllDependentConfigs_HelpShort[] =
@@ -360,6 +442,27 @@ const char kCheckIncludes_Help[] =
     "  This does not affect other targets that depend on the current target,\n"
     "  it just skips checking the includes of the current target's files.\n"
     "\n"
+    "Controlling includes individually\n"
+    "\n"
+    "  If only certain includes are problematic, you can annotate them\n"
+    "  individually rather than disabling header checking on an entire\n"
+    "  target. Add the string \"nogncheck\" to the include line:\n"
+    "\n"
+    "    #include \"foo/something_weird.h\"  // nogncheck (bug 12345)\n"
+    "\n"
+    "  It is good form to include a reference to a bug (if the include is\n"
+    "  improper, or some other comment expressing why the header checker\n"
+    "  doesn't work for this particular case.\n"
+    "\n"
+    "  The most common reason to need \"nogncheck\" is conditional includes.\n"
+    "  The header checker does not understand the preprocessor, so may flag\n"
+    "  some includes as improper even if the dependencies and #defines are\n"
+    "  always matched correctly:\n"
+    "\n"
+    "    #if defined(ENABLE_DOOM_MELON)\n"
+    "    #include \"doom_melon/beam_controller.h\"  // nogncheck\n"
+    "    #endif\n"
+    "\n"
     "Example\n"
     "\n"
     "  source_set(\"busted_includes\") {\n"
@@ -427,17 +530,29 @@ const char kData_HelpShort[] =
 const char kData_Help[] =
     "data: Runtime data file dependencies.\n"
     "\n"
-    "  Lists files required to run the given target. These are typically\n"
-    "  data files.\n"
+    "  Lists files or directories required to run the given target. These are\n"
+    "  typically data files or directories of data files. The paths are\n"
+    "  interpreted as being relative to the current build file. Since these\n"
+    "  are runtime dependencies, they do not affect which targets are built\n"
+    "  or when. To declare input files to a script, use \"inputs\".\n"
     "\n"
     "  Appearing in the \"data\" section does not imply any special handling\n"
     "  such as copying them to the output directory. This is just used for\n"
-    "  declaring runtime dependencies. There currently isn't a good use for\n"
-    "  these but it is envisioned that test data can be listed here for use\n"
-    "  running automated tests.\n"
+    "  declaring runtime dependencies. Runtime dependencies can be queried\n"
+    "  using the \"runtime_deps\" category of \"gn desc\" or written during\n"
+    "  build generation via \"--runtime-deps-list-file\".\n"
     "\n"
-    "  See also \"gn help inputs\" and \"gn help data_deps\", both of\n"
-    "  which actually affect the build in concrete ways.\n";
+    "  GN doesn't require data files to exist at build-time. So actions that\n"
+    "  produce files that are in turn runtime dependencies can list those\n"
+    "  generated files both in the \"outputs\" list as well as the \"data\"\n"
+    "  list.\n"
+    "\n"
+    "  By convention, directories are be listed with a trailing slash:\n"
+    "    data = [ \"test/data/\" ]\n"
+    "  However, no verification is done on these so GN doesn't enforce this.\n"
+    "  The paths are just rebased and passed along when requested.\n"
+    "\n"
+    "  See \"gn help runtime_deps\" for how these are used.\n";
 
 const char kDataDeps[] = "data_deps";
 const char kDataDeps_HelpShort[] =
@@ -529,13 +644,16 @@ const char kDeps_Help[] =
     "\n"
     "  See also \"public_deps\" and \"data_deps\".\n";
 
+// TODO(brettw) remove this, deprecated.
 const char kForwardDependentConfigsFrom[] = "forward_dependent_configs_from";
 const char kForwardDependentConfigsFrom_HelpShort[] =
-    "forward_dependent_configs_from: [label list] Forward dependent's configs.";
+    "forward_dependent_configs_from: [label list] DEPRECATED.";
 const char kForwardDependentConfigsFrom_Help[] =
     "forward_dependent_configs_from\n"
     "\n"
     "  A list of target labels.\n"
+    "\n"
+    "  DEPRECATED. Use public_deps instead which will have the same effect.\n"
     "\n"
     "  Exposes the public_configs from a private dependent target as\n"
     "  public_configs of the current one. Each label in this list\n"
@@ -757,6 +875,76 @@ const char kOutputs_Help[] =
     "  file(s). For actions, the outputs should be the list of files\n"
     "  generated by the script.\n";
 
+const char kPrecompiledHeader[] = "precompiled_header";
+const char kPrecompiledHeader_HelpShort[] =
+    "precompiled_header: [string] Header file to precompile.";
+const char kPrecompiledHeader_Help[] =
+    "precompiled_header: [string] Header file to precompile.\n"
+    "\n"
+    "  Precompiled headers will be used when a target specifies this\n"
+    "  value, or a config applying to this target specifies this value.\n"
+    "  In addition, the tool corresponding to the source files must also\n"
+    "  specify precompiled headers (see \"gn help tool\"). The tool\n"
+    "  will also specify what type of precompiled headers to use.\n"
+    "\n"
+    "  The precompiled header/source variables can be specified on a target\n"
+    "  or a config, but must be the same for all configs applying to a given\n"
+    "  target since a target can only have one precompiled header.\n"
+    "\n"
+    "MSVC precompiled headers\n"
+    "\n"
+    "  When using MSVC-style precompiled headers, the \"precompiled_header\"\n"
+    "  value is a string corresponding to the header. This is NOT a path\n"
+    "  to a file that GN recognises, but rather the exact string that appears\n"
+    "  in quotes after an #include line in source code. The compiler will\n"
+    "  match this string against includes or forced includes (/FI).\n"
+    "\n"
+    "  MSVC also requires a source file to compile the header with. This must\n"
+    "  be specified by the \"precompiled_source\" value. In contrast to the\n"
+    "  header value, this IS a GN-style file name, and tells GN which source\n"
+    "  file to compile to make the .pch file used for subsequent compiles.\n"
+    "\n"
+    "  If you use both C and C++ sources, the precompiled header and source\n"
+    "  file will be compiled using both tools. You will want to make sure\n"
+    "  to wrap C++ includes in __cplusplus #ifdefs so the file will compile\n"
+    "  in C mode.\n"
+    "\n"
+    "  For example, if the toolchain specifies MSVC headers:\n"
+    "\n"
+    "    toolchain(\"vc_x64\") {\n"
+    "      ...\n"
+    "      tool(\"cxx\") {\n"
+    "        precompiled_header_type = \"msvc\"\n"
+    "        ...\n"
+    "\n"
+    "  You might make a config like this:\n"
+    "\n"
+    "    config(\"use_precompiled_headers\") {\n"
+    "      precompiled_header = \"build/precompile.h\"\n"
+    "      precompiled_source = \"//build/precompile.cc\"\n"
+    "\n"
+    "      # Either your source files should #include \"build/precompile.h\"\n"
+    "      # first, or you can do this to force-include the header.\n"
+    "      cflags = [ \"/FI$precompiled_header\" ]\n"
+    "    }\n"
+    "\n"
+    "  And then define a target that uses the config:\n"
+    "\n"
+    "    executable(\"doom_melon\") {\n"
+    "      configs += [ \":use_precompiled_headers\" ]\n"
+    "      ...\n"
+    "\n";
+
+const char kPrecompiledSource[] = "precompiled_source";
+const char kPrecompiledSource_HelpShort[] =
+    "precompiled_source: [file name] Source file to precompile.";
+const char kPrecompiledSource_Help[] =
+    "precompiled_source: [file name] Source file to precompile.\n"
+    "\n"
+    "  The source file that goes along with the precompiled_header when\n"
+    "  using \"msvc\"-style precompiled headers. It will be implicitly added\n"
+    "  to the sources of the target. See \"gn help precompiled_header\".\n";
+
 const char kPublic[] = "public";
 const char kPublic_HelpShort[] =
     "public: [file list] Declare public header files for a target.";
@@ -824,14 +1012,17 @@ const char kPublicDeps_Help[] =
     "  additionally express that the current target exposes the listed deps\n"
     "  as part of its public API.\n"
     "\n"
-    "  This has two ramifications:\n"
+    "  This has several ramifications:\n"
     "\n"
     "    - public_configs that are part of the dependency are forwarded\n"
-    "      to direct dependents (this is the same as using\n"
-    "      forward_dependent_configs_from).\n"
+    "      to direct dependents.\n"
     "\n"
-    "    - public headers in the dependency are usable by dependents\n"
+    "    - Public headers in the dependency are usable by dependents\n"
     "      (includes do not require a direct dependency or visibility).\n"
+    "\n"
+    "    - If the current target is a shared library, other shared libraries\n"
+    "      that it publicly depends on (directly or indirectly) are\n"
+    "      propagated up the dependency tree to dependents for linking.\n"
     "\n"
     "Discussion\n"
     "\n"
@@ -948,7 +1139,7 @@ const char kVisibility_Help[] =
     "    visibility = [ \"//bar:*\" ]\n"
     "\n"
     "  Any target in \"//bar/\" or any subdirectory thereof:\n"
-    "    visibility = [ \"//bar/*\"\n ]"
+    "    visibility = [ \"//bar/*\" ]\n"
     "\n"
     "  Just these specific targets:\n"
     "    visibility = [ \":mything\", \"//foo:something_else\" ]\n"
@@ -960,8 +1151,8 @@ const char kVisibility_Help[] =
 // -----------------------------------------------------------------------------
 
 VariableInfo::VariableInfo()
-    : help_short(NULL),
-      help(NULL) {
+    : help_short(""),
+      help("") {
 }
 
 VariableInfo::VariableInfo(const char* in_help_short, const char* in_help)
@@ -975,16 +1166,18 @@ VariableInfo::VariableInfo(const char* in_help_short, const char* in_help)
 const VariableInfoMap& GetBuiltinVariables() {
   static VariableInfoMap info_map;
   if (info_map.empty()) {
-    INSERT_VARIABLE(BuildCpuArch)
-    INSERT_VARIABLE(BuildOs)
-    INSERT_VARIABLE(CpuArch)
+    INSERT_VARIABLE(CurrentCpu)
+    INSERT_VARIABLE(CurrentOs)
     INSERT_VARIABLE(CurrentToolchain)
     INSERT_VARIABLE(DefaultToolchain)
-    INSERT_VARIABLE(Os)
+    INSERT_VARIABLE(HostCpu)
+    INSERT_VARIABLE(HostOs)
     INSERT_VARIABLE(PythonPath)
     INSERT_VARIABLE(RootBuildDir)
     INSERT_VARIABLE(RootGenDir)
     INSERT_VARIABLE(RootOutDir)
+    INSERT_VARIABLE(TargetCpu)
+    INSERT_VARIABLE(TargetOs)
     INSERT_VARIABLE(TargetGenDir)
     INSERT_VARIABLE(TargetOutDir)
   }
@@ -1019,6 +1212,8 @@ const VariableInfoMap& GetTargetVariables() {
     INSERT_VARIABLE(OutputExtension)
     INSERT_VARIABLE(OutputName)
     INSERT_VARIABLE(Outputs)
+    INSERT_VARIABLE(PrecompiledHeader)
+    INSERT_VARIABLE(PrecompiledSource)
     INSERT_VARIABLE(Public)
     INSERT_VARIABLE(PublicConfigs)
     INSERT_VARIABLE(PublicDeps)

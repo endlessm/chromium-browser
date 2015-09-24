@@ -4,19 +4,27 @@
 
 #include "chrome/browser/chromeos/extensions/input_method_api.h"
 
+#include <set>
+#include <string>
+
 #include "base/command_line.h"
 #include "base/lazy_instance.h"
 #include "base/values.h"
+#include "chrome/browser/chromeos/extensions/dictionary_event_router.h"
 #include "chrome/browser/chromeos/extensions/input_method_event_router.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
 #include "chrome/browser/extensions/api/input_ime/input_ime_api.h"
+#include "chrome/browser/spellchecker/spellcheck_factory.h"
+#include "chrome/browser/spellchecker/spellcheck_service.h"
+#include "chrome/browser/sync/profile_sync_service.h"
+#include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chromeos/chromeos_switches.h"
-#include "chromeos/ime/extension_ime_util.h"
-#include "chromeos/ime/input_method_descriptor.h"
-#include "chromeos/ime/input_method_manager.h"
 #include "extensions/browser/extension_function_registry.h"
 #include "extensions/browser/extension_system.h"
-#include "extensions/common/value_builder.h"
+#include "ui/base/ime/chromeos/extension_ime_util.h"
+#include "ui/base/ime/chromeos/input_method_descriptor.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
+#include "ui/keyboard/keyboard_util.h"
 
 namespace {
 
@@ -34,8 +42,12 @@ ExtensionFunction::ResponseAction GetInputMethodConfigFunction::Run() {
   base::DictionaryValue* output = new base::DictionaryValue();
   output->SetBoolean(
       "isPhysicalKeyboardAutocorrectEnabled",
-      CommandLine::ForCurrentProcess()->HasSwitch(
-          chromeos::switches::kEnablePhysicalKeyboardAutocorrect));
+      !base::CommandLine::ForCurrentProcess()->HasSwitch(
+          chromeos::switches::kDisablePhysicalKeyboardAutocorrect));
+  // TODO(rsadam): Delete these two flags once callers have been updated.
+  output->SetBoolean("isVoiceInputEnabled", keyboard::IsVoiceInputEnabled());
+  output->SetBoolean("isNewMDInputViewEnabled",
+                     keyboard::IsMaterialDesignEnabled());
   return RespondNow(OneArgument(output));
 #endif
 }
@@ -97,6 +109,80 @@ ExtensionFunction::ResponseAction GetInputMethodsFunction::Run() {
 #endif
 }
 
+ExtensionFunction::ResponseAction FetchAllDictionaryWordsFunction::Run() {
+#if !defined(OS_CHROMEOS)
+  EXTENSION_FUNCTION_VALIDATE(false);
+#else
+  SpellcheckService* spellcheck = SpellcheckServiceFactory::GetForContext(
+      context_);
+  if (!spellcheck) {
+    return RespondNow(Error("Spellcheck service not available."));
+  }
+  SpellcheckCustomDictionary* dictionary = spellcheck->GetCustomDictionary();
+  if (!dictionary->IsLoaded()) {
+    return RespondNow(Error("Custom dictionary not loaded yet."));
+  }
+
+  const std::set<std::string>& words = dictionary->GetWords();
+  base::ListValue* output = new base::ListValue();
+  for (auto it = words.begin(); it != words.end(); ++it) {
+    output->AppendString(*it);
+  }
+  return RespondNow(OneArgument(output));
+#endif
+}
+
+ExtensionFunction::ResponseAction AddWordToDictionaryFunction::Run() {
+#if !defined(OS_CHROMEOS)
+  EXTENSION_FUNCTION_VALIDATE(false);
+#else
+  std::string word;
+  EXTENSION_FUNCTION_VALIDATE(args_->GetString(0, &word));
+  SpellcheckService* spellcheck = SpellcheckServiceFactory::GetForContext(
+      context_);
+  if (!spellcheck) {
+    return RespondNow(Error("Spellcheck service not available."));
+  }
+  SpellcheckCustomDictionary* dictionary = spellcheck->GetCustomDictionary();
+  if (!dictionary->IsLoaded()) {
+    return RespondNow(Error("Custom dictionary not loaded yet."));
+  }
+
+  if (dictionary->AddWord(word))
+    return RespondNow(NoArguments());
+  // Invalid words:
+  // - Already in the dictionary.
+  // - Not a UTF8 string.
+  // - Longer than 99 bytes (MAX_CUSTOM_DICTIONARY_WORD_BYTES).
+  // - Leading/trailing whitespace.
+  // - Empty.
+  return RespondNow(Error("Unable to add invalid word to dictionary."));
+#endif
+}
+
+ExtensionFunction::ResponseAction GetEncryptSyncEnabledFunction::Run() {
+#if !defined(OS_CHROMEOS)
+  EXTENSION_FUNCTION_VALIDATE(false);
+#else
+  ProfileSyncService* profile_sync_service =
+      ProfileSyncServiceFactory::GetForProfile(
+          Profile::FromBrowserContext(browser_context()));
+  if (!profile_sync_service)
+    return RespondNow(Error("Sync service is not ready for current profile."));
+  scoped_ptr<base::Value> ret(new base::FundamentalValue(
+      profile_sync_service->EncryptEverythingEnabled()));
+  return RespondNow(OneArgument(ret.Pass()));
+#endif
+}
+
+// static
+const char InputMethodAPI::kOnDictionaryChanged[] =
+    "inputMethodPrivate.onDictionaryChanged";
+
+// static
+const char InputMethodAPI::kOnDictionaryLoaded[] =
+    "inputMethodPrivate.onDictionaryLoaded";
+
 // static
 const char InputMethodAPI::kOnInputMethodChanged[] =
     "inputMethodPrivate.onChanged";
@@ -104,12 +190,17 @@ const char InputMethodAPI::kOnInputMethodChanged[] =
 InputMethodAPI::InputMethodAPI(content::BrowserContext* context)
     : context_(context) {
   EventRouter::Get(context_)->RegisterObserver(this, kOnInputMethodChanged);
+  EventRouter::Get(context_)->RegisterObserver(this, kOnDictionaryChanged);
+  EventRouter::Get(context_)->RegisterObserver(this, kOnDictionaryLoaded);
   ExtensionFunctionRegistry* registry =
       ExtensionFunctionRegistry::GetInstance();
   registry->RegisterFunction<GetInputMethodConfigFunction>();
   registry->RegisterFunction<GetCurrentInputMethodFunction>();
   registry->RegisterFunction<SetCurrentInputMethodFunction>();
   registry->RegisterFunction<GetInputMethodsFunction>();
+  registry->RegisterFunction<FetchAllDictionaryWordsFunction>();
+  registry->RegisterFunction<AddWordToDictionaryFunction>();
+  registry->RegisterFunction<GetEncryptSyncEnabledFunction>();
 }
 
 InputMethodAPI::~InputMethodAPI() {
@@ -125,17 +216,26 @@ std::string InputMethodAPI::GetInputMethodForXkb(const std::string& xkb_id) {
 }
 
 void InputMethodAPI::Shutdown() {
-  // UnregisterObserver may have already been called in OnListenerAdded,
-  // but it is safe to call it more than once.
   EventRouter::Get(context_)->UnregisterObserver(this);
 }
 
 void InputMethodAPI::OnListenerAdded(
     const extensions::EventListenerInfo& details) {
-  DCHECK(!input_method_event_router_.get());
-  input_method_event_router_.reset(
-      new chromeos::ExtensionInputMethodEventRouter(context_));
-  EventRouter::Get(context_)->UnregisterObserver(this);
+  if (details.event_name == kOnInputMethodChanged) {
+    if (!input_method_event_router_.get()) {
+      input_method_event_router_.reset(
+          new chromeos::ExtensionInputMethodEventRouter(context_));
+    }
+  } else if (details.event_name == kOnDictionaryChanged ||
+             details.event_name == kOnDictionaryLoaded) {
+    if (!dictionary_event_router_.get()) {
+      dictionary_event_router_.reset(
+          new chromeos::ExtensionDictionaryEventRouter(context_));
+    }
+    if (details.event_name == kOnDictionaryLoaded) {
+      dictionary_event_router_->DispatchLoadedEventIfLoaded();
+    }
+  }
 }
 
 static base::LazyInstance<BrowserContextKeyedAPIFactory<InputMethodAPI> >

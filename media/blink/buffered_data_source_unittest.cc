@@ -108,12 +108,15 @@ static const int kDataSize = 1024;
 
 static const char kHttpUrl[] = "http://localhost/foo.webm";
 static const char kFileUrl[] = "file:///tmp/bar.webm";
+static const char kHttpDifferentPathUrl[] = "http://localhost/bar.webm";
+static const char kHttpDifferentOriginUrl[] = "http://127.0.0.1/foo.webm";
 
 class BufferedDataSourceTest : public testing::Test {
  public:
   BufferedDataSourceTest()
       : view_(WebView::create(NULL)),
-        frame_(WebLocalFrame::create(&client_)),
+        frame_(
+            WebLocalFrame::create(blink::WebTreeScopeType::Document, &client_)),
         preload_(BufferedDataSource::AUTO) {
     view_->setMainFrame(frame_);
   }
@@ -129,7 +132,7 @@ class BufferedDataSourceTest : public testing::Test {
     GURL gurl(url);
     data_source_.reset(
         new MockBufferedDataSource(gurl,
-                                   message_loop_.message_loop_proxy(),
+                                   message_loop_.task_runner(),
                                    view_->mainFrame()->toWebLocalFrame(),
                                    &host_));
     data_source_->SetPreload(preload_);
@@ -219,10 +222,51 @@ class BufferedDataSourceTest : public testing::Test {
     message_loop_.RunUntilIdle();
   }
 
+  void ExecuteMixedResponseSuccessTest(const WebURLResponse& response1,
+                                       const WebURLResponse& response2) {
+    EXPECT_CALL(host_, SetTotalBytes(kFileSize));
+    EXPECT_CALL(host_, AddBufferedByteRange(kDataSize, kDataSize * 2 - 1));
+    EXPECT_CALL(host_, AddBufferedByteRange(0, kDataSize - 1));
+    EXPECT_CALL(*this, ReadCallback(kDataSize)).Times(2);
+
+    Respond(response1);
+    ReadAt(0);
+    ReceiveData(kDataSize);
+    EXPECT_TRUE(data_source_->loading());
+
+    ExpectCreateResourceLoader();
+    FinishLoading();
+    ReadAt(kDataSize);
+    Respond(response2);
+    ReceiveData(kDataSize);
+    FinishLoading();
+    Stop();
+  }
+
+  void ExecuteMixedResponseFailureTest(const WebURLResponse& response1,
+                                       const WebURLResponse& response2) {
+    EXPECT_CALL(host_, SetTotalBytes(kFileSize));
+    EXPECT_CALL(host_, AddBufferedByteRange(0, kDataSize - 1));
+    EXPECT_CALL(*this, ReadCallback(kDataSize));
+    EXPECT_CALL(*this, ReadCallback(media::DataSource::kReadError));
+
+    Respond(response1);
+    ReadAt(0);
+    ReceiveData(kDataSize);
+    EXPECT_TRUE(data_source_->loading());
+
+    ExpectCreateResourceLoader();
+    FinishLoading();
+    ReadAt(kDataSize);
+    Respond(response2);
+    Stop();
+  }
+
   // Accessors for private variables on |data_source_|.
   BufferedResourceLoader* loader() {
     return data_source_->loader_.get();
   }
+  ActiveLoader* active_loader() { return loader()->active_loader_.get(); }
   WebURLLoader* url_loader() {
     return loader()->active_loader_->loader_.get();
   }
@@ -233,9 +277,9 @@ class BufferedDataSourceTest : public testing::Test {
     return loader()->defer_strategy_;
   }
   int data_source_bitrate() { return data_source_->bitrate_; }
-  int data_source_playback_rate() { return data_source_->playback_rate_; }
+  double data_source_playback_rate() { return data_source_->playback_rate_; }
   int loader_bitrate() { return loader()->bitrate_; }
-  int loader_playback_rate() { return loader()->playback_rate_; }
+  double loader_playback_rate() { return loader()->playback_rate_; }
   bool is_local_source() { return data_source_->assume_fully_buffered(); }
   void set_might_be_reused_from_cache_in_future(bool value) {
     loader()->might_be_reused_from_cache_in_future_ = value;
@@ -441,6 +485,98 @@ TEST_F(BufferedDataSourceTest, Http_RetryOnError) {
   Stop();
 }
 
+TEST_F(BufferedDataSourceTest, Http_PartialResponse) {
+  Initialize(kHttpUrl, true);
+  WebURLResponse response1 =
+      response_generator_->GeneratePartial206(0, kDataSize - 1);
+  WebURLResponse response2 =
+      response_generator_->GeneratePartial206(kDataSize, kDataSize * 2 - 1);
+  // The origin URL of response1 and response2 are same. So no error should
+  // occur.
+  ExecuteMixedResponseSuccessTest(response1, response2);
+}
+
+TEST_F(BufferedDataSourceTest,
+       Http_MixedResponse_RedirectedToDifferentPathResponse) {
+  Initialize(kHttpUrl, true);
+  WebURLResponse response1 =
+      response_generator_->GeneratePartial206(0, kDataSize - 1);
+  WebURLResponse response2 =
+      response_generator_->GeneratePartial206(kDataSize, kDataSize * 2 - 1);
+  response2.setURL(GURL(kHttpDifferentPathUrl));
+  // The origin URL of response1 and response2 are same. So no error should
+  // occur.
+  ExecuteMixedResponseSuccessTest(response1, response2);
+}
+
+TEST_F(BufferedDataSourceTest,
+       Http_MixedResponse_RedirectedToDifferentOriginResponse) {
+  Initialize(kHttpUrl, true);
+  WebURLResponse response1 =
+      response_generator_->GeneratePartial206(0, kDataSize - 1);
+  WebURLResponse response2 =
+      response_generator_->GeneratePartial206(kDataSize, kDataSize * 2 - 1);
+  response2.setURL(GURL(kHttpDifferentOriginUrl));
+  // The origin URL of response1 and response2 are different. So an error should
+  // occur.
+  ExecuteMixedResponseFailureTest(response1, response2);
+}
+
+TEST_F(BufferedDataSourceTest,
+       Http_MixedResponse_ServiceWorkerGeneratedResponseAndNormalResponse) {
+  Initialize(kHttpUrl, true);
+  WebURLResponse response1 =
+      response_generator_->GeneratePartial206(0, kDataSize - 1);
+  response1.setWasFetchedViaServiceWorker(true);
+  WebURLResponse response2 =
+      response_generator_->GeneratePartial206(kDataSize, kDataSize * 2 - 1);
+  // response1 is generated in a Service Worker but response2 is from a native
+  // server. So an error should occur.
+  ExecuteMixedResponseFailureTest(response1, response2);
+}
+
+TEST_F(BufferedDataSourceTest,
+       Http_MixedResponse_ServiceWorkerProxiedAndSameURLResponse) {
+  Initialize(kHttpUrl, true);
+  WebURLResponse response1 =
+      response_generator_->GeneratePartial206(0, kDataSize - 1);
+  response1.setWasFetchedViaServiceWorker(true);
+  response1.setOriginalURLViaServiceWorker(GURL(kHttpUrl));
+  WebURLResponse response2 =
+      response_generator_->GeneratePartial206(kDataSize, kDataSize * 2 - 1);
+  // The origin URL of response1 and response2 are same. So no error should
+  // occur.
+  ExecuteMixedResponseSuccessTest(response1, response2);
+}
+
+TEST_F(BufferedDataSourceTest,
+       Http_MixedResponse_ServiceWorkerProxiedAndDifferentPathResponse) {
+  Initialize(kHttpUrl, true);
+  WebURLResponse response1 =
+      response_generator_->GeneratePartial206(0, kDataSize - 1);
+  response1.setWasFetchedViaServiceWorker(true);
+  response1.setOriginalURLViaServiceWorker(GURL(kHttpDifferentPathUrl));
+  WebURLResponse response2 =
+      response_generator_->GeneratePartial206(kDataSize, kDataSize * 2 - 1);
+  // The origin URL of response1 and response2 are same. So no error should
+  // occur.
+  ExecuteMixedResponseSuccessTest(response1, response2);
+}
+
+TEST_F(BufferedDataSourceTest,
+       Http_MixedResponse_ServiceWorkerProxiedAndDifferentOriginResponse) {
+  Initialize(kHttpUrl, true);
+  WebURLResponse response1 =
+      response_generator_->GeneratePartial206(0, kDataSize - 1);
+  response1.setWasFetchedViaServiceWorker(true);
+  response1.setOriginalURLViaServiceWorker(GURL(kHttpDifferentOriginUrl));
+  WebURLResponse response2 =
+      response_generator_->GeneratePartial206(kDataSize, kDataSize * 2 - 1);
+  // The origin URL of response1 and response2 are different. So an error should
+  // occur.
+  ExecuteMixedResponseFailureTest(response1, response2);
+}
+
 TEST_F(BufferedDataSourceTest, File_Retry) {
   InitializeWithFileResponse();
 
@@ -559,9 +695,9 @@ TEST_F(BufferedDataSourceTest, DefaultValues) {
   EXPECT_EQ(BufferedResourceLoader::kCapacityDefer, defer_strategy());
 
   EXPECT_EQ(0, data_source_bitrate());
-  EXPECT_EQ(0.0f, data_source_playback_rate());
+  EXPECT_EQ(0.0, data_source_playback_rate());
   EXPECT_EQ(0, loader_bitrate());
-  EXPECT_EQ(0.0f, loader_playback_rate());
+  EXPECT_EQ(0.0, loader_playback_rate());
 
   EXPECT_TRUE(data_source_->loading());
   Stop();
@@ -593,10 +729,10 @@ TEST_F(BufferedDataSourceTest, SetBitrate) {
 TEST_F(BufferedDataSourceTest, MediaPlaybackRateChanged) {
   InitializeWith206Response();
 
-  data_source_->MediaPlaybackRateChanged(2.0f);
+  data_source_->MediaPlaybackRateChanged(2.0);
   message_loop_.RunUntilIdle();
-  EXPECT_EQ(2.0f, data_source_playback_rate());
-  EXPECT_EQ(2.0f, loader_playback_rate());
+  EXPECT_EQ(2.0, data_source_playback_rate());
+  EXPECT_EQ(2.0, loader_playback_rate());
 
   // Read so far ahead to cause the loader to get recreated.
   BufferedResourceLoader* old_loader = loader();
@@ -805,6 +941,47 @@ TEST_F(BufferedDataSourceTest,
   EXPECT_EQ(BufferedResourceLoader::kCapacityDefer, defer_strategy());
 
   Stop();
+}
+
+TEST_F(BufferedDataSourceTest, ExternalResource_Response206_VerifyDefer) {
+  set_preload(BufferedDataSource::METADATA);
+  InitializeWith206Response();
+
+  EXPECT_EQ(BufferedDataSource::METADATA, preload());
+  EXPECT_FALSE(is_local_source());
+  EXPECT_TRUE(loader()->range_supported());
+  EXPECT_EQ(BufferedResourceLoader::kReadThenDefer, defer_strategy());
+
+  // Read a bit from the beginning.
+  ReadAt(0);
+  EXPECT_CALL(*this, ReadCallback(kDataSize));
+  EXPECT_CALL(host_, AddBufferedByteRange(0, kDataSize - 1));
+  ReceiveData(kDataSize);
+
+  ASSERT_TRUE(active_loader());
+  EXPECT_TRUE(active_loader()->deferred());
+}
+
+TEST_F(BufferedDataSourceTest, ExternalResource_Response206_CancelAfterDefer) {
+  set_preload(BufferedDataSource::METADATA);
+  InitializeWith206Response();
+
+  EXPECT_EQ(BufferedDataSource::METADATA, preload());
+  EXPECT_FALSE(is_local_source());
+  EXPECT_TRUE(loader()->range_supported());
+  EXPECT_EQ(BufferedResourceLoader::kReadThenDefer, defer_strategy());
+
+  data_source_->OnBufferingHaveEnough();
+
+  ASSERT_TRUE(active_loader());
+
+  // Read a bit from the beginning.
+  ReadAt(0);
+  EXPECT_CALL(*this, ReadCallback(kDataSize));
+  EXPECT_CALL(host_, AddBufferedByteRange(0, kDataSize - 1));
+  ReceiveData(kDataSize);
+
+  EXPECT_FALSE(active_loader());
 }
 
 }  // namespace media

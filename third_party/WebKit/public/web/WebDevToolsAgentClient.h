@@ -33,29 +33,24 @@
 
 #include "../platform/WebCString.h"
 #include "../platform/WebCommon.h"
+#include "../platform/WebString.h"
 
 namespace blink {
 
 class WebString;
 struct WebDeviceEmulationParams;
-struct WebDevToolsMessageData;
-struct WebRect;
-struct WebSize;
 
 class WebDevToolsAgentClient {
 public:
-    virtual void sendMessageToInspectorFrontend(const WebString&) { }
-    virtual void sendDebuggerOutput(const WebString&) { }
+    // Sends response message over the protocol, update agent state on the browser side for
+    // potential re-attach. |callId| for notifications is 0, |state| for notifications is empty.
+    virtual void sendProtocolMessage(int callId, const WebString& response, const WebString& state) { }
 
     // Returns process id.
     virtual long processId() { return -1; }
 
     // Returns unique identifier of the entity within process.
     virtual int debuggerId() { return -1; }
-
-    // Save the agent state in order to pass it later into WebDevToolsAgent::reattach
-    // if the same client is reattached to another agent.
-    virtual void saveAgentRuntimeState(const WebString&) { }
 
     // Resume the inspected renderer that is waiting for DevTools front-end to initialize its state.
     virtual void resumeStartup() { }
@@ -70,25 +65,8 @@ public:
     virtual void willEnterDebugLoop() { }
     virtual void didExitDebugLoop() { }
 
-    typedef void (*TraceEventCallback)(char phase, const unsigned char*, const char* name, unsigned long long id,
-        int numArgs, const char* const* argNames, const unsigned char* argTypes, const unsigned long long* argValues,
-        unsigned char flags, double timestamp);
-
-    virtual void setTraceEventCallback(const WebString& categoryFilter, TraceEventCallback) { }
-    virtual void resetTraceEventCallback() { }
     virtual void enableTracing(const WebString& categoryFilter) { }
     virtual void disableTracing() { }
-
-    virtual void startGPUEventsRecording() { }
-    virtual void stopGPUEventsRecording() { }
-
-    // Enables device emulation as specified in params.
-    virtual void enableDeviceEmulation(const WebDeviceEmulationParams& params) { }
-
-    // Cancel emulation started via |enableDeviceEmulation| call.
-    virtual void disableDeviceEmulation() { }
-
-    virtual void setTouchEventEmulationEnabled(bool enabled, bool allowPinch) { }
 
 protected:
     ~WebDevToolsAgentClient() { }

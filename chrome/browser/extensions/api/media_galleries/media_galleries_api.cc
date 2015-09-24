@@ -20,6 +20,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/api/file_system/file_system_api.h"
 #include "chrome/browser/extensions/blob_reader.h"
+#include "chrome/browser/extensions/chrome_extension_function_details.h"
 #include "chrome/browser/extensions/extension_tab_util.h"
 #include "chrome/browser/media_galleries/fileapi/safe_media_metadata_parser.h"
 #include "chrome/browser/media_galleries/gallery_watch_manager.h"
@@ -36,16 +37,14 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/storage_monitor/storage_info.h"
-#include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/blob_handle.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_security_policy.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
-#include "extensions/browser/app_window/app_window.h"
-#include "extensions/browser/app_window/app_window_registry.h"
 #include "extensions/browser/blob_holder.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_system.h"
@@ -60,7 +59,6 @@
 using content::WebContents;
 using storage_monitor::MediaStorageUtil;
 using storage_monitor::StorageInfo;
-using web_modal::WebContentsModalDialogManager;
 
 namespace extensions {
 
@@ -147,28 +145,11 @@ bool GetGalleryFilePathAndId(const std::string& gallery_id,
   return true;
 }
 
-WebContents* GetWebContents(content::RenderViewHost* rvh,
-                            Profile* profile,
-                            const std::string& app_id) {
-  WebContents* contents = WebContents::FromRenderViewHost(rvh);
-  WebContentsModalDialogManager* web_contents_modal_dialog_manager =
-      WebContentsModalDialogManager::FromWebContents(contents);
-  if (!web_contents_modal_dialog_manager) {
-    // If there is no WebContentsModalDialogManager, then this contents is
-    // probably the background page for an app. Try to find a app window to
-    // host the dialog.
-    AppWindow* window = AppWindowRegistry::Get(profile)
-                            ->GetCurrentAppWindowForApp(app_id);
-    contents = window ? window->web_contents() : NULL;
-  }
-  return contents;
-}
-
 base::ListValue* ConstructFileSystemList(
-    content::RenderViewHost* rvh,
+    content::RenderFrameHost* rfh,
     const Extension* extension,
     const std::vector<MediaFileSystemInfo>& filesystems) {
-  if (!rvh)
+  if (!rfh)
     return NULL;
 
   MediaGalleriesPermission::CheckParam read_param(
@@ -185,7 +166,7 @@ base::ListValue* ConstructFileSystemList(
   bool has_delete_permission = permissions_data->CheckAPIPermissionWithParam(
       APIPermission::kMediaGalleries, &delete_param);
 
-  const int child_id = rvh->GetProcess()->GetID();
+  const int child_id = rfh->GetProcess()->GetID();
   scoped_ptr<base::ListValue> list(new base::ListValue());
   for (size_t i = 0; i < filesystems.size(); ++i) {
     scoped_ptr<base::DictionaryValue> file_system_dict_value(
@@ -412,12 +393,17 @@ void MediaGalleriesEventRouter::DispatchEventToExtension(
     const std::string& event_name,
     scoped_ptr<base::ListValue> event_args) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  // TODO(tommycli): Remove these CHECKs after fixing https://crbug.com/467627.
+  CHECK(profile_);
   EventRouter* router = EventRouter::Get(profile_);
+  CHECK(router);
+
   if (!router->ExtensionHasEventListener(extension_id, event_name))
     return;
 
-  scoped_ptr<extensions::Event> event(
-      new extensions::Event(event_name, event_args.Pass()));
+  scoped_ptr<extensions::Event> event(new extensions::Event(
+      extensions::events::UNKNOWN, event_name, event_args.Pass()));
   router->DispatchEventToExtension(extension_id, event.Pass());
 }
 
@@ -523,7 +509,7 @@ void MediaGalleriesGetMediaFileSystemsFunction::GetAndReturnGalleries() {
 void MediaGalleriesGetMediaFileSystemsFunction::ReturnGalleries(
     const std::vector<MediaFileSystemInfo>& filesystems) {
   scoped_ptr<base::ListValue> list(
-      ConstructFileSystemList(render_view_host(), extension(), filesystems));
+      ConstructFileSystemList(render_frame_host(), extension(), filesystems));
   if (!list.get()) {
     SendResponse(false);
     return;
@@ -537,7 +523,7 @@ void MediaGalleriesGetMediaFileSystemsFunction::ReturnGalleries(
 void MediaGalleriesGetMediaFileSystemsFunction::ShowDialog() {
   media_galleries::UsageCount(media_galleries::SHOW_DIALOG);
   WebContents* contents =
-      GetWebContents(render_view_host(), GetProfile(), extension()->id());
+      ChromeExtensionFunctionDetails(this).GetOriginWebContents();
   if (!contents) {
     SendResponse(false);
     return;
@@ -551,14 +537,14 @@ void MediaGalleriesGetMediaFileSystemsFunction::ShowDialog() {
 
 void MediaGalleriesGetMediaFileSystemsFunction::GetMediaFileSystemsForExtension(
     const MediaFileSystemsCallback& cb) {
-  if (!render_view_host()) {
+  if (!render_frame_host()) {
     cb.Run(std::vector<MediaFileSystemInfo>());
     return;
   }
   MediaFileSystemRegistry* registry = media_file_system_registry();
   DCHECK(registry->GetPreferences(GetProfile())->IsInitialized());
-  registry->GetMediaFileSystemsForExtension(
-      render_view_host(), extension(), cb);
+  registry->GetMediaFileSystemsForExtension(GetSenderWebContents(), extension(),
+                                            cb);
 }
 
 
@@ -642,18 +628,11 @@ bool MediaGalleriesAddUserSelectedFolderFunction::RunAsync() {
 void MediaGalleriesAddUserSelectedFolderFunction::OnPreferencesInit() {
   Profile* profile = GetProfile();
   const std::string& app_id = extension()->id();
-  WebContents* contents = GetWebContents(render_view_host(), profile, app_id);
+  WebContents* contents =
+      ChromeExtensionFunctionDetails(this).GetOriginWebContents();
   if (!contents) {
-    // When the request originated from a background page, but there is no app
-    // window open, check to see if it originated from a tab and display the
-    // dialog in that tab.
-    bool found_tab = extensions::ExtensionTabUtil::GetTabById(
-        source_tab_id(), profile, profile->IsOffTheRecord(),
-        NULL, NULL, &contents, NULL);
-    if (!found_tab || !contents) {
-      SendResponse(false);
-      return;
-    }
+    SendResponse(false);
+    return;
   }
 
   if (!user_gesture()) {
@@ -704,7 +683,7 @@ void MediaGalleriesAddUserSelectedFolderFunction::ReturnGalleriesAndId(
     MediaGalleryPrefId pref_id,
     const std::vector<MediaFileSystemInfo>& filesystems) {
   scoped_ptr<base::ListValue> list(
-      ConstructFileSystemList(render_view_host(), extension(), filesystems));
+      ConstructFileSystemList(render_frame_host(), extension(), filesystems));
   if (!list.get()) {
     SendResponse(false);
     return;
@@ -729,14 +708,14 @@ void MediaGalleriesAddUserSelectedFolderFunction::ReturnGalleriesAndId(
 void
 MediaGalleriesAddUserSelectedFolderFunction::GetMediaFileSystemsForExtension(
     const MediaFileSystemsCallback& cb) {
-  if (!render_view_host()) {
+  if (!render_frame_host()) {
     cb.Run(std::vector<MediaFileSystemInfo>());
     return;
   }
   MediaFileSystemRegistry* registry = media_file_system_registry();
   DCHECK(registry->GetPreferences(GetProfile())->IsInitialized());
-  registry->GetMediaFileSystemsForExtension(
-      render_view_host(), extension(), cb);
+  registry->GetMediaFileSystemsForExtension(GetSenderWebContents(), extension(),
+                                            cb);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -877,7 +856,7 @@ void MediaGalleriesAddScanResultsFunction::OnPreferencesInit() {
   }
 
   WebContents* contents =
-      GetWebContents(render_view_host(), GetProfile(), extension()->id());
+      ChromeExtensionFunctionDetails(this).GetOriginWebContents();
   if (!contents) {
     SendResponse(false);
     return;
@@ -889,22 +868,21 @@ void MediaGalleriesAddScanResultsFunction::OnPreferencesInit() {
 }
 
 void MediaGalleriesAddScanResultsFunction::GetAndReturnGalleries() {
-  if (!render_view_host()) {
+  if (!render_frame_host()) {
     ReturnGalleries(std::vector<MediaFileSystemInfo>());
     return;
   }
   MediaFileSystemRegistry* registry = media_file_system_registry();
   DCHECK(registry->GetPreferences(GetProfile())->IsInitialized());
   registry->GetMediaFileSystemsForExtension(
-      render_view_host(),
-      extension(),
+      GetSenderWebContents(), extension(),
       base::Bind(&MediaGalleriesAddScanResultsFunction::ReturnGalleries, this));
 }
 
 void MediaGalleriesAddScanResultsFunction::ReturnGalleries(
     const std::vector<MediaFileSystemInfo>& filesystems) {
   scoped_ptr<base::ListValue> list(
-      ConstructFileSystemList(render_view_host(), extension(), filesystems));
+      ConstructFileSystemList(render_frame_host(), extension(), filesystems));
   if (!list.get()) {
     SendResponse(false);
     return;
@@ -1059,10 +1037,9 @@ void MediaGalleriesGetMetadataFunction::ConstructNextBlob(
   attached_images_list->Append(attached_image);
 
   blob_uuids->push_back(current_blob->GetUUID());
-  WebContents* contents = WebContents::FromRenderViewHost(render_view_host());
   extensions::BlobHolder* holder =
       extensions::BlobHolder::FromRenderProcessHost(
-          contents->GetRenderProcessHost());
+          render_frame_host()->GetProcess());
   holder->HoldBlobReference(current_blob.Pass());
 
   // Construct the next Blob if necessary.
@@ -1095,7 +1072,7 @@ MediaGalleriesAddGalleryWatchFunction::
 bool MediaGalleriesAddGalleryWatchFunction::RunAsync() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(GetProfile());
-  if (!render_view_host() || !render_view_host()->GetProcess())
+  if (!render_frame_host() || !render_frame_host()->GetProcess())
     return false;
 
   scoped_ptr<AddGalleryWatch::Params> params(
@@ -1179,7 +1156,7 @@ MediaGalleriesRemoveGalleryWatchFunction::
 
 bool MediaGalleriesRemoveGalleryWatchFunction::RunAsync() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  if (!render_view_host() || !render_view_host()->GetProcess())
+  if (!render_frame_host() || !render_frame_host()->GetProcess())
     return false;
 
   scoped_ptr<RemoveGalleryWatch::Params> params(
@@ -1225,7 +1202,7 @@ MediaGalleriesGetAllGalleryWatchFunction::
 
 bool MediaGalleriesGetAllGalleryWatchFunction::RunAsync() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  if (!render_view_host() || !render_view_host()->GetProcess())
+  if (!render_frame_host() || !render_frame_host()->GetProcess())
     return false;
 
   MediaGalleriesPreferences* preferences =
@@ -1259,7 +1236,7 @@ MediaGalleriesRemoveAllGalleryWatchFunction::
 
 bool MediaGalleriesRemoveAllGalleryWatchFunction::RunAsync() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  if (!render_view_host() || !render_view_host()->GetProcess())
+  if (!render_frame_host() || !render_frame_host()->GetProcess())
     return false;
 
   MediaGalleriesPreferences* preferences =

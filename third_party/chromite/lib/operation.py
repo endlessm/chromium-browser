@@ -10,18 +10,310 @@ updates, verbose text display and perhaps some errors.
 
 from __future__ import print_function
 
+import collections
 import contextlib
+import fcntl
+import multiprocessing
 import os
+import pty
+try:
+  import Queue
+except ImportError:
+  # Python-3 renamed to "queue".  We still use Queue to avoid collisions
+  # with naming variables as "queue".  Maybe we'll transition at some point.
+  # pylint: disable=import-error
+  import queue as Queue
 import re
+import shutil
+import struct
 import sys
+import termios
 
+from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
+from chromite.lib import osutils
+from chromite.lib import parallel
+from chromite.lib import workspace_lib
 from chromite.lib.terminal import Color
 
+# Define filenames for captured stdout and stderr.
+STDOUT_FILE = 'stdout'
+STDERR_FILE = 'stderr'
 
-#TODO(sjg): When !isatty(), keep stdout and stderr separate so they can be
-#redirected separately
-#TODO(sjg): Add proper docs to this fileno
-#TODO(sjg): Handle stdin wait in quite mode, rather than silently stalling
+_TerminalSize = collections.namedtuple('_TerminalSize', ('lines', 'columns'))
+
+
+class _BackgroundTaskComplete(object):
+  """Sentinal object to indicate that the background task is complete."""
+
+
+class ProgressBarOperation(object):
+  """Wrapper around long running functions to show progress.
+
+  This class is intended to capture the output of a long running fuction, parse
+  the output, and display a progress bar.
+
+  To display a progress bar for a function foo with argument foo_args, this is
+  the usage case:
+    1) Create a class that inherits from ProgressBarOperation (e.g.
+    FooTypeOperation. In this class, override the ParseOutput method to parse
+    the output of foo.
+    2) op = operation.FooTypeOperation()
+       op.Run(foo, foo_args)
+  """
+
+  # Subtract 10 characters from the width of the terminal because these are used
+  # to display the percentage as well as other spaces.
+  _PROGRESS_BAR_BORDER_SIZE = 10
+
+  # By default, update the progress bar every 100 ms.
+  _PROGRESS_BAR_UPDATE_INTERVAL = 0.1
+
+  def __init__(self):
+    self._queue = multiprocessing.Queue()
+    self._stderr = None
+    self._stdout = None
+    self._stdout_path = None
+    self._stderr_path = None
+    self._progress_bar_displayed = False
+    self._workspace_path = workspace_lib.WorkspacePath()
+    self._isatty = os.isatty(sys.stdout.fileno())
+
+  def _GetTerminalSize(self, fd=pty.STDOUT_FILENO):
+    """Return a terminal size object for |fd|.
+
+    Note: Replace with os.terminal_size() in python3.3.
+    """
+    winsize = struct.pack('HHHH', 0, 0, 0, 0)
+    data = fcntl.ioctl(fd, termios.TIOCGWINSZ, winsize)
+    winsize = struct.unpack('HHHH', data)
+    return _TerminalSize(int(winsize[0]), int(winsize[1]))
+
+  def ProgressBar(self, progress):
+    """This method creates and displays a progress bar.
+
+    If not in a terminal, we do not display a progress bar.
+
+    Args:
+      progress: a float between 0 and 1 that represents the fraction of the
+        current progress.
+    """
+    if not self._isatty:
+      return
+    self._progress_bar_displayed = True
+    progress = max(0.0, min(1.0, progress))
+    width = max(1, self._GetTerminalSize().columns -
+                self._PROGRESS_BAR_BORDER_SIZE)
+    block = int(width * progress)
+    shaded = '#' * block
+    unshaded = '-' * (width - block)
+    text = '\r [%s%s] %d%%' % (shaded, unshaded, progress * 100)
+    sys.stdout.write(text)
+    sys.stdout.flush()
+
+  def OpenStdoutStderr(self):
+    """Open the stdout and stderr streams."""
+    if self._stdout is None and self._stderr is None:
+      self._stdout = open(self._stdout_path, 'r')
+      self._stderr = open(self._stderr_path, 'r')
+
+  def Cleanup(self):
+    """Method to cleanup progress bar.
+
+    If progress bar has been printed, then we make sure it displays 100% before
+    exiting.
+    """
+    if self._progress_bar_displayed:
+      self.ProgressBar(1)
+      sys.stdout.write('\n')
+      sys.stdout.flush()
+
+  def ParseOutput(self, output=None):
+    """Method to parse output and update progress bar.
+
+    This method should be overridden to read and parse the lines in _stdout and
+    _stderr.
+
+    One example use of this method could be to detect 'foo' in stdout and
+    increment the progress bar every time foo is seen.
+
+    def ParseOutput(self):
+      stdout = self._stdout.read()
+      if 'foo' in stdout:
+        # Increment progress bar.
+
+    Args:
+      output: Pass in output to parse instead of reading from self._stdout and
+        self._stderr.
+    """
+    raise NotImplementedError('Subclass must override this method.')
+
+  # TODO(ralphnathan): Deprecate this function and use parallel._BackgroundTask
+  # instead (brbug.com/863)
+  def WaitUntilComplete(self, update_period):
+    """Return True if running background task has completed."""
+    try:
+      x = self._queue.get(timeout=update_period)
+      if isinstance(x, _BackgroundTaskComplete):
+        return True
+    except Queue.Empty:
+      return False
+
+  def CaptureOutputInBackground(self, func, *args, **kwargs):
+    """Launch func in background and capture its output.
+
+    Args:
+      func: Function to execute in the background and whose output is to be
+        captured.
+      log_level: Logging level to run the func at. By default, it runs at log
+        level info.
+    """
+    log_level = kwargs.pop('log_level', logging.INFO)
+    restore_log_level = logging.getLogger().getEffectiveLevel()
+    logging.getLogger().setLevel(log_level)
+    try:
+      with cros_build_lib.OutputCapturer(
+          stdout_path=self._stdout_path, stderr_path=self._stderr_path,
+          quiet_fail=self._workspace_path is not None):
+        func(*args, **kwargs)
+    finally:
+      self._queue.put(_BackgroundTaskComplete())
+      logging.getLogger().setLevel(restore_log_level)
+
+  def MoveStdoutStderrFiles(self):
+    """On failure, move stdout/stderr files to workspace/WORKSPACE_LOGS_DIR."""
+    path = os.path.join(self._workspace_path, workspace_lib.WORKSPACE_LOGS_DIR)
+    # TODO(ralphnathan): Not sure if we need this because it should be done when
+    # we store the log file for brillo commands.
+    osutils.SafeMakedirs(path)
+    osutils.SafeUnlink(os.path.join(path, STDOUT_FILE))
+    shutil.move(self._stdout_path, path)
+    osutils.SafeUnlink(os.path.join(path, STDERR_FILE))
+    shutil.move(self._stderr_path, path)
+    logging.warning('Please look at %s for more information.', path)
+
+  # TODO (ralphnathan): Store PID of spawned process.
+  def Run(self, func, *args, **kwargs):
+    """Run func, parse its output, and update the progress bar.
+
+    Args:
+      func: Function to execute in the background and whose output is to be
+        captured.
+      upadate_period: Optional argument to specify the period that output should
+        be read.
+    """
+    update_period = kwargs.pop('update_period',
+                               self._PROGRESS_BAR_UPDATE_INTERVAL)
+
+    # If we are not running in a terminal device, do not display the progress
+    # bar.
+    if not self._isatty:
+      func(*args, **kwargs)
+      return
+
+    with osutils.TempDir() as tempdir:
+      self._stdout_path = os.path.join(tempdir, STDOUT_FILE)
+      self._stderr_path = os.path.join(tempdir, STDERR_FILE)
+      osutils.Touch(self._stdout_path)
+      osutils.Touch(self._stderr_path)
+      try:
+        with parallel.BackgroundTaskRunner(
+            self.CaptureOutputInBackground, func, *args, **kwargs) as queue:
+          queue.put([])
+          self.OpenStdoutStderr()
+          while True:
+            self.ParseOutput()
+            if self.WaitUntilComplete(update_period):
+              break
+        # Before we exit, parse the output again to update progress bar.
+        self.ParseOutput()
+        # Final sanity check to update the progress bar to 100% if it was used
+        # by ParseOutput
+        self.Cleanup()
+      except:
+        # Add a blank line before the logging message so the message isn't
+        # touching the progress bar.
+        sys.stdout.write('\n')
+        logging.error('Oops. Something went wrong.')
+        # Move the stdout/stderr files to a location that the user can access.
+        if self._workspace_path is not None:
+          self.MoveStdoutStderrFiles()
+        # Raise the exception so it can be caught again.
+        raise
+
+
+class ParallelEmergeOperation(ProgressBarOperation):
+  """ProgressBarOperation specific for scripts/parallel_emerge.py."""
+
+  def __init__(self):
+    super(ParallelEmergeOperation, self).__init__()
+    self._total = None
+    self._completed = 0
+    self._printed_no_packages = False
+    self._events = ['Fetched ', 'Completed ']
+    self._msg = None
+
+  def _GetTotal(self, output):
+    """Get total packages by looking for Total: digits packages."""
+    match = re.search(r'Total: (\d+) packages', output)
+    return int(match.group(1)) if match else None
+
+  def SetProgressBarMessage(self, msg):
+    """Message to be shown before the progress bar is displayed with 0%.
+
+       The message is not displayed if the progress bar is not going to be
+       displayed.
+    """
+    self._msg = msg
+
+  def ParseOutput(self, output=None):
+    """Parse the output of emerge to determine how to update progress bar.
+
+    1) Figure out how many packages exist. If the total number of packages to be
+    built is zero, then we do not display the progress bar.
+    2) Whenever a package is downloaded or built, 'Fetched' and 'Completed' are
+    printed respectively. By counting counting 'Fetched's and 'Completed's, we
+    can determine how much to update the progress bar by.
+
+    Args:
+      output: Pass in output to parse instead of reading from self._stdout and
+        self._stderr.
+
+    Returns:
+      A fraction between 0 and 1 indicating the level of the progress bar. If
+      the progress bar isn't displayed, then the return value is -1.
+    """
+    if output is None:
+      stdout = self._stdout.read()
+      stderr = self._stderr.read()
+      output = stdout + stderr
+
+    if self._total is None:
+      temp = self._GetTotal(output)
+      if temp is not None:
+        self._total = temp * len(self._events)
+        if self._msg is not None:
+          logging.notice(self._msg)
+
+    for event in self._events:
+      self._completed += output.count(event)
+
+    if not self._printed_no_packages and self._total == 0:
+      logging.notice('No packages to build.')
+      self._printed_no_packages = True
+
+    if self._total:
+      progress = float(self._completed) / self._total
+      self.ProgressBar(progress)
+      return progress
+    else:
+      return -1
+
+
+# TODO(sjg): When !isatty(), keep stdout and stderr separate so they can be
+# redirected separately
+# TODO(sjg): Add proper docs to this fileno
+# TODO(sjg): Handle stdin wait in quite mode, rather than silently stalling
 
 class Operation(object):
   """Class which controls stdio and progress of an operation in progress.
@@ -55,18 +347,14 @@ class Operation(object):
     disabled it. This is used by commands that the user issues with the
     expectation that output would ordinarily be visible.
   """
-  # Force color on/off, or use color only if stdout is a terminal.
-  COLOR_OFF, COLOR_ON, COLOR_IF_TERMINAL = range(3)
 
-  def __init__(self, name, color=COLOR_IF_TERMINAL):
+  def __init__(self, name, color=None):
     """Create a new operation.
 
     Args:
       name: Operation name in a form to be displayed for the user.
-      color: Determines policy for sending color to stdout:
-        COLOR_OFF: never send color.
-        COLOR_ON: always send color.
-        COLOR_IF_TERMINAL: send color if output apperas to be a terminal.
+      color: Determines policy for sending color to stdout; see terminal.Color
+        for details on interpretation on the value.
     """
     self._name = name   # Operation name.
     self.verbose = False   # True to echo subprocess output.
@@ -76,12 +364,7 @@ class Operation(object):
     self._line = ''   # text of current line, so far
     self.explicit_verbose = False
 
-    # By default, we display ANSI colors unless output is redirected.
-    want_color = (color == self.COLOR_ON or
-                  (color == self.COLOR_IF_TERMINAL and
-                   hasattr(sys.stdout, 'fileno') and
-                   os.isatty(sys.stdout.fileno())))
-    self._color = Color(want_color)
+    self._color = Color(enabled=color)
 
     # -1 = no newline pending
     #  n = newline pending, and line length of last line was n
@@ -169,7 +452,7 @@ class Operation(object):
     """
     if total > 0:
       update_str = '%s...%d%% (%d of %d)' % (self._name,
-          upto * 100 // total, upto, total)
+                                             upto * 100 // total, upto, total)
       if self.progress:
         # Finish the current line, print progress, and remember its length.
         self._FinishLine(self.verbose)
@@ -355,7 +638,7 @@ class Operation(object):
       line: text to output (without \n on the end)
     """
     self._Out(None, self._color.Color(self._color.BLUE, line),
-        display=self.verbose, newline=True, do_output_filter=False)
+              display=self.verbose, newline=True, do_output_filter=False)
     self._FinishLine(display=True)
 
   def Notice(self, line):
@@ -365,7 +648,7 @@ class Operation(object):
       line: text to output (without \n on the end)
     """
     self._Out(None, self._color.Color(self._color.GREEN, line),
-        display=True, newline=True, do_output_filter=False)
+              display=True, newline=True, do_output_filter=False)
     self._FinishLine(display=True)
 
   def Warning(self, line):
@@ -375,7 +658,7 @@ class Operation(object):
       line: text to output (without \n on the end)
     """
     self._Out(None, self._color.Color(self._color.YELLOW, line),
-        display=True, newline=True, do_output_filter=False)
+              display=True, newline=True, do_output_filter=False)
     self._FinishLine(display=True)
 
   def Error(self, line):
@@ -385,7 +668,7 @@ class Operation(object):
       line: text to output (without \n on the end)
     """
     self._Out(None, self._color.Color(self._color.RED, line),
-        display=True, newline=True, do_output_filter=False)
+              display=True, newline=True, do_output_filter=False)
     self._FinishLine(display=True)
 
   def Die(self, line):

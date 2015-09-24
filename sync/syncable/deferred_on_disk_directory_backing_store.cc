@@ -13,10 +13,10 @@ namespace syncer {
 namespace syncable {
 
 DeferredOnDiskDirectoryBackingStore::DeferredOnDiskDirectoryBackingStore(
-    const std::string& dir_name, const base::FilePath& backing_filepath)
-    : DirectoryBackingStore(dir_name),
-      backing_filepath_(backing_filepath),
-      db_is_on_disk_(false) {
+    const std::string& dir_name,
+    const base::FilePath& backing_file_path)
+    : OnDiskDirectoryBackingStore(dir_name, backing_file_path),
+      created_on_disk_(false) {
 }
 
 DeferredOnDiskDirectoryBackingStore::~DeferredOnDiskDirectoryBackingStore() {}
@@ -26,42 +26,41 @@ bool DeferredOnDiskDirectoryBackingStore::SaveChanges(
   DCHECK(CalledOnValidThread());
 
   // Back out early if there is nothing to save.
-  if (snapshot.dirty_metas.empty() && snapshot.metahandles_to_purge.empty() &&
-      snapshot.delete_journals.empty() &&
-      snapshot.delete_journals_to_purge.empty()) {
+  if (!snapshot.HasUnsavedMetahandleChanges()) {
     return true;
   }
+  if (!created_on_disk_ && !CreateOnDisk())
+    return false;
+  return OnDiskDirectoryBackingStore::SaveChanges(snapshot);
+}
 
-  if (!db_is_on_disk_) {
-    if (!base::DeleteFile(backing_filepath_, false))
-      return false;
-
-    // Reopen DB on disk.
-    db_.reset(new sql::Connection);
-    db_->set_exclusive_locking();
-    db_->set_page_size(4096);
-    if (!db_->Open(backing_filepath_) || !InitializeTables())
-      return false;
-
-    db_is_on_disk_ = true;
-  }
-
-  return DirectoryBackingStore::SaveChanges(snapshot);
+bool DeferredOnDiskDirectoryBackingStore::CreateOnDisk() {
+  DCHECK(CalledOnValidThread());
+  DCHECK(!created_on_disk_);
+  ResetAndCreateConnection();
+  if (!base::DeleteFile(backing_file_path(), false))
+    return false;
+  if (!Open(backing_file_path()) || !InitializeTables())
+    return false;
+  created_on_disk_ = true;
+  return true;
 }
 
 DirOpenResult DeferredOnDiskDirectoryBackingStore::Load(
     Directory::MetahandlesMap* handles_map,
     JournalIndex* delete_journals,
+    MetahandleSet* metahandles_to_purge,
     Directory::KernelLoadInfo* kernel_load_info) {
+  DCHECK(CalledOnValidThread());
   // Open an in-memory database at first to create initial sync data needed by
   // Directory.
-  CHECK(!db_->is_open());
-  if (!db_->OpenInMemory())
+  CHECK(!IsOpen());
+  if (!OpenInMemory())
     return FAILED_OPEN_DATABASE;
 
   if (!InitializeTables())
     return FAILED_OPEN_DATABASE;
-  if (!LoadEntries(handles_map))
+  if (!LoadEntries(handles_map, metahandles_to_purge))
     return FAILED_DATABASE_CORRUPT;
   if (!LoadInfo(kernel_load_info))
     return FAILED_DATABASE_CORRUPT;

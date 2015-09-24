@@ -9,12 +9,13 @@
 
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
+#include "base/threading/thread_checker.h"
 #include "chrome/browser/drive/drive_service_interface.h"
 #include "google_apis/drive/auth_service_interface.h"
 #include "google_apis/drive/auth_service_observer.h"
 #include "google_apis/drive/drive_api_url_generator.h"
-#include "google_apis/drive/gdata_wapi_url_generator.h"
 
 class GURL;
 class OAuth2TokenService;
@@ -25,14 +26,60 @@ class SequencedTaskRunner;
 }
 
 namespace google_apis {
+class FilesListRequestRunner;
 class RequestSender;
-}
+namespace drive {
+class BatchUploadRequest;
+}  // namespace drive
+}  // namespace google_apis
 
 namespace net {
 class URLRequestContextGetter;
 }  // namespace net
 
 namespace drive {
+
+// Builder for batch request returned by |DriveAPIService|.
+class BatchRequestConfigurator : public BatchRequestConfiguratorInterface,
+                                 public base::NonThreadSafe {
+ public:
+  BatchRequestConfigurator(
+      const base::WeakPtr<google_apis::drive::BatchUploadRequest>&
+          batch_request,
+      base::SequencedTaskRunner* task_runner,
+      const google_apis::DriveApiUrlGenerator& url_generator,
+      const google_apis::CancelCallback& cancel_callback);
+  ~BatchRequestConfigurator() override;
+
+  // BatchRequestConfiguratorInterface overrides.
+  google_apis::CancelCallback MultipartUploadNewFile(
+      const std::string& content_type,
+      int64 content_length,
+      const std::string& parent_resource_id,
+      const std::string& title,
+      const base::FilePath& local_file_path,
+      const UploadNewFileOptions& options,
+      const google_apis::FileResourceCallback& callback,
+      const google_apis::ProgressCallback& progress_callback) override;
+  google_apis::CancelCallback MultipartUploadExistingFile(
+      const std::string& content_type,
+      int64 content_length,
+      const std::string& resource_id,
+      const base::FilePath& local_file_path,
+      const UploadExistingFileOptions& options,
+      const google_apis::FileResourceCallback& callback,
+      const google_apis::ProgressCallback& progress_callback) override;
+  void Commit() override;
+
+ private:
+  // Reference to batch request. It turns to null after committing.
+  base::WeakPtr<google_apis::drive::BatchUploadRequest> batch_request_;
+  scoped_refptr<base::SequencedTaskRunner> task_runner_;
+  google_apis::DriveApiUrlGenerator url_generator_;
+  google_apis::CancelCallback cancel_callback_;
+
+  DISALLOW_COPY_AND_ASSIGN(BatchRequestConfigurator);
+};
 
 // This class provides Drive request calls using Drive V2 API.
 // Details of API call are abstracted in each request class and this class
@@ -46,9 +93,6 @@ class DriveAPIService : public DriveServiceInterface,
   // |base_url| is used to generate URLs for communication with the drive API.
   // |base_download_url| is used to generate URLs for downloading file from the
   // drive API.
-  // |wapi_base_url| is used to generate URLs for shared_url. Unfortunately,
-  // the share_url is not yet supported on Drive API v2, so as a fallback,
-  // we use GData WAPI.
   // |custom_user_agent| will be used for the User-Agent header in HTTP
   // requests issues through the service if the value is not empty.
   DriveAPIService(
@@ -57,7 +101,6 @@ class DriveAPIService : public DriveServiceInterface,
       base::SequencedTaskRunner* blocking_task_runner,
       const GURL& base_url,
       const GURL& base_download_url,
-      const GURL& wapi_base_url,
       const std::string& custom_user_agent);
   ~DriveAPIService() override;
 
@@ -130,6 +173,7 @@ class DriveAPIService : public DriveServiceInterface,
       const std::string& new_title,
       const base::Time& last_modified,
       const base::Time& last_viewed_by_me,
+      const google_apis::drive::Properties& properties,
       const google_apis::FileResourceCallback& callback) override;
   google_apis::CancelCallback AddResourceToDirectory(
       const std::string& parent_resource_id,
@@ -149,13 +193,13 @@ class DriveAPIService : public DriveServiceInterface,
       int64 content_length,
       const std::string& parent_resource_id,
       const std::string& title,
-      const InitiateUploadNewFileOptions& options,
+      const UploadNewFileOptions& options,
       const google_apis::InitiateUploadCallback& callback) override;
   google_apis::CancelCallback InitiateUploadExistingFile(
       const std::string& content_type,
       int64 content_length,
       const std::string& resource_id,
-      const InitiateUploadExistingFileOptions& options,
+      const UploadExistingFileOptions& options,
       const google_apis::InitiateUploadCallback& callback) override;
   google_apis::CancelCallback ResumeUpload(
       const GURL& upload_url,
@@ -170,6 +214,23 @@ class DriveAPIService : public DriveServiceInterface,
       const GURL& upload_url,
       int64 content_length,
       const google_apis::drive::UploadRangeCallback& callback) override;
+  google_apis::CancelCallback MultipartUploadNewFile(
+      const std::string& content_type,
+      int64 content_length,
+      const std::string& parent_resource_id,
+      const std::string& title,
+      const base::FilePath& local_file_path,
+      const drive::UploadNewFileOptions& options,
+      const google_apis::FileResourceCallback& callback,
+      const google_apis::ProgressCallback& progress_callback) override;
+  google_apis::CancelCallback MultipartUploadExistingFile(
+      const std::string& content_type,
+      int64 content_length,
+      const std::string& resource_id,
+      const base::FilePath& local_file_path,
+      const drive::UploadExistingFileOptions& options,
+      const google_apis::FileResourceCallback& callback,
+      const google_apis::ProgressCallback& progress_callback) override;
   google_apis::CancelCallback AuthorizeApp(
       const std::string& resource_id,
       const std::string& app_id,
@@ -182,18 +243,22 @@ class DriveAPIService : public DriveServiceInterface,
       const std::string& email,
       google_apis::drive::PermissionRole role,
       const google_apis::EntryActionCallback& callback) override;
+  scoped_ptr<BatchRequestConfiguratorInterface> StartBatchRequest() override;
 
  private:
   // AuthServiceObserver override.
   void OnOAuth2RefreshTokenChanged() override;
 
+  // The class is expected to run on UI thread.
+  base::ThreadChecker thread_checker_;
+
   OAuth2TokenService* oauth2_token_service_;
   scoped_refptr<net::URLRequestContextGetter> url_request_context_getter_;
   scoped_refptr<base::SequencedTaskRunner> blocking_task_runner_;
   scoped_ptr<google_apis::RequestSender> sender_;
-  ObserverList<DriveServiceObserver> observers_;
+  scoped_ptr<google_apis::FilesListRequestRunner> files_list_request_runner_;
+  base::ObserverList<DriveServiceObserver> observers_;
   google_apis::DriveApiUrlGenerator url_generator_;
-  google_apis::GDataWapiUrlGenerator wapi_url_generator_;
   const std::string custom_user_agent_;
 
   DISALLOW_COPY_AND_ASSIGN(DriveAPIService);

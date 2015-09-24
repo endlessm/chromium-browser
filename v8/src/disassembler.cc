@@ -11,7 +11,7 @@
 #include "src/disasm.h"
 #include "src/disassembler.h"
 #include "src/macro-assembler.h"
-#include "src/serialize.h"
+#include "src/snapshot/serialize.h"
 #include "src/string-stream.h"
 
 namespace v8 {
@@ -100,8 +100,8 @@ static int DecodeIt(Isolate* isolate, std::ostream* os,
       int num_const = d.ConstantPoolSizeAt(pc);
       if (num_const >= 0) {
         SNPrintF(decode_buffer,
-                 "%08x       constant pool begin",
-                 *reinterpret_cast<int32_t*>(pc));
+                 "%08x       constant pool begin (num_const = %d)",
+                 *reinterpret_cast<int32_t*>(pc), num_const);
         constants = num_const;
         pc += 4;
       } else if (it != NULL && !it->done() && it->rinfo()->pc() == pc &&
@@ -112,7 +112,7 @@ static int DecodeIt(Isolate* isolate, std::ostream* os,
                  "%08" V8PRIxPTR "      jump table entry %4" V8PRIdPTR,
                  reinterpret_cast<intptr_t>(ptr),
                  ptr - begin);
-        pc += 4;
+        pc += sizeof(ptr);
       } else {
         decode_buffer[0] = '\0';
         pc += d.InstructionDecode(decode_buffer, pc);
@@ -173,6 +173,11 @@ static int DecodeIt(Isolate* isolate, std::ostream* os,
         } else {
           out.AddFormatted("    ;; debug: position %d", relocinfo.data());
         }
+      } else if (rmode == RelocInfo::DEOPT_REASON) {
+        Deoptimizer::DeoptReason reason =
+            static_cast<Deoptimizer::DeoptReason>(relocinfo.data());
+        out.AddFormatted("    ;; debug: deopt reason '%s'",
+                         Deoptimizer::GetDeoptReason(reason));
       } else if (rmode == RelocInfo::EMBEDDED_OBJECT) {
         HeapStringAllocator allocator;
         StringStream accumulator(&allocator);
@@ -180,8 +185,8 @@ static int DecodeIt(Isolate* isolate, std::ostream* os,
         SmartArrayPointer<const char> obj_name = accumulator.ToCString();
         out.AddFormatted("    ;; object: %s", obj_name.get());
       } else if (rmode == RelocInfo::EXTERNAL_REFERENCE) {
-        const char* reference_name =
-            ref_encoder.NameOfAddress(relocinfo.target_reference());
+        const char* reference_name = ref_encoder.NameOfAddress(
+            isolate, relocinfo.target_external_reference());
         out.AddFormatted("    ;; external reference (%s)", reference_name);
       } else if (RelocInfo::IsCodeTarget(rmode)) {
         out.AddFormatted("    ;; code:");
@@ -290,4 +295,5 @@ int Disassembler::Decode(Isolate* isolate, std::ostream* os, byte* begin,
 
 #endif  // ENABLE_DISASSEMBLER
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

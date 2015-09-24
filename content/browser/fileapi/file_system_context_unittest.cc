@@ -5,8 +5,8 @@
 #include "storage/browser/fileapi/file_system_context.h"
 
 #include "base/files/scoped_temp_dir.h"
-#include "base/message_loop/message_loop.h"
 #include "base/strings/stringprintf.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/browser/quota/mock_quota_manager.h"
 #include "content/public/test/mock_special_storage_policy.h"
 #include "content/public/test/test_file_system_options.h"
@@ -54,26 +54,21 @@ class FileSystemContextTest : public testing::Test {
 
     storage_policy_ = new MockSpecialStoragePolicy();
 
-    mock_quota_manager_ =
-        new MockQuotaManager(false /* is_incognito */,
-                                    data_dir_.path(),
-                                    base::MessageLoopProxy::current().get(),
-                                    base::MessageLoopProxy::current().get(),
-                                    storage_policy_.get());
+    mock_quota_manager_ = new MockQuotaManager(
+        false /* is_incognito */, data_dir_.path(),
+        base::ThreadTaskRunnerHandle::Get().get(),
+        base::ThreadTaskRunnerHandle::Get().get(), storage_policy_.get());
   }
 
  protected:
   FileSystemContext* CreateFileSystemContextForTest(
       storage::ExternalMountPoints* external_mount_points) {
     return new FileSystemContext(
-        base::MessageLoopProxy::current().get(),
-        base::MessageLoopProxy::current().get(),
-        external_mount_points,
-        storage_policy_.get(),
-        mock_quota_manager_->proxy(),
+        base::ThreadTaskRunnerHandle::Get().get(),
+        base::ThreadTaskRunnerHandle::Get().get(), external_mount_points,
+        storage_policy_.get(), mock_quota_manager_->proxy(),
         ScopedVector<FileSystemBackend>(),
-        std::vector<storage::URLRequestAutoMountHandler>(),
-        data_dir_.path(),
+        std::vector<storage::URLRequestAutoMountHandler>(), data_dir_.path(),
         CreateAllowFileAccessOptions());
   }
 
@@ -364,6 +359,27 @@ TEST_F(FileSystemContextTest, CanServeURLRequest) {
   ExternalMountPoints::GetSystemInstance()->RevokeFileSystem(
       kExternalMountName);
   IsolatedContext::GetInstance()->RevokeFileSystem(isolated_fs_id);
+}
+
+// Ensures that a backend exists for each common isolated file system type.
+// See http://crbug.com/447027
+TEST_F(FileSystemContextTest, IsolatedFileSystemsTypesHandled) {
+  // This does not provide any "additional" file system handlers. In particular,
+  // on Chrome OS it does not provide chromeos::FileSystemBackend.
+  scoped_refptr<FileSystemContext> file_system_context(
+      CreateFileSystemContextForTest(nullptr));
+
+  // Isolated file system types are handled.
+  EXPECT_TRUE(file_system_context->GetFileSystemBackend(
+      storage::kFileSystemTypeIsolated));
+  EXPECT_TRUE(file_system_context->GetFileSystemBackend(
+      storage::kFileSystemTypeDragged));
+  EXPECT_TRUE(file_system_context->GetFileSystemBackend(
+      storage::kFileSystemTypeForTransientFile));
+  EXPECT_TRUE(file_system_context->GetFileSystemBackend(
+      storage::kFileSystemTypeNativeLocal));
+  EXPECT_TRUE(file_system_context->GetFileSystemBackend(
+      storage::kFileSystemTypeNativeForPlatformApp));
 }
 
 }  // namespace

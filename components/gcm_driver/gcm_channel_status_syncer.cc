@@ -8,11 +8,12 @@
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
 #include "base/prefs/pref_registry_simple.h"
 #include "base/prefs/pref_service.h"
 #include "base/rand_util.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "components/gcm_driver/gcm_channel_status_request.h"
 #include "components/gcm_driver/gcm_driver.h"
 #include "components/pref_registry/pref_registry_syncable.h"
@@ -20,15 +21,6 @@
 namespace gcm {
 
 namespace {
-
-// The GCM channel's enabled state.
-const char kGCMChannelStatus[] = "gcm.channel_status";
-
-// The GCM channel's polling interval (in seconds).
-const char kGCMChannelPollIntervalSeconds[] = "gcm.poll_interval";
-
-// Last time when checking with the GCM channel status server is done.
-const char kGCMChannelLastCheckTime[] = "gcm.check_time";
 
 // A small delay to avoid sending request at browser startup time for first-time
 // request.
@@ -45,6 +37,19 @@ const int kMaxNumberToUseCustomPollInterval = 10;
 
 }  // namespace
 
+namespace prefs {
+
+// The GCM channel's enabled state.
+const char kGCMChannelStatus[] = "gcm.channel_status";
+
+// The GCM channel's polling interval (in seconds).
+const char kGCMChannelPollIntervalSeconds[] = "gcm.poll_interval";
+
+// Last time when checking with the GCM channel status server is done.
+const char kGCMChannelLastCheckTime[] = "gcm.check_time";
+
+}  // namepsace prefs
+
 namespace switches {
 
 // Override the default poll interval for testing purpose.
@@ -54,28 +59,21 @@ const char kCustomPollIntervalMinutes[] = "gcm-channel-poll-interval";
 
 // static
 void GCMChannelStatusSyncer::RegisterPrefs(PrefRegistrySimple* registry) {
-  registry->RegisterBooleanPref(kGCMChannelStatus, true);
+  registry->RegisterBooleanPref(prefs::kGCMChannelStatus, true);
   registry->RegisterIntegerPref(
-      kGCMChannelPollIntervalSeconds,
+      prefs::kGCMChannelPollIntervalSeconds,
       GCMChannelStatusRequest::default_poll_interval_seconds());
-  registry->RegisterInt64Pref(kGCMChannelLastCheckTime, 0);
+  registry->RegisterInt64Pref(prefs::kGCMChannelLastCheckTime, 0);
 }
 
 // static
 void GCMChannelStatusSyncer::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterBooleanPref(
-      kGCMChannelStatus,
-      true,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterBooleanPref(prefs::kGCMChannelStatus, true);
   registry->RegisterIntegerPref(
-      kGCMChannelPollIntervalSeconds,
-      GCMChannelStatusRequest::default_poll_interval_seconds(),
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterInt64Pref(
-      kGCMChannelLastCheckTime,
-      0,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+      prefs::kGCMChannelPollIntervalSeconds,
+      GCMChannelStatusRequest::default_poll_interval_seconds());
+  registry->RegisterInt64Pref(prefs::kGCMChannelLastCheckTime, 0);
 }
 
 // static
@@ -101,16 +99,18 @@ GCMChannelStatusSyncer::GCMChannelStatusSyncer(
       custom_poll_interval_use_count_(0),
       delay_removed_for_testing_(false),
       weak_ptr_factory_(this) {
-  gcm_enabled_ = prefs_->GetBoolean(kGCMChannelStatus);
-  poll_interval_seconds_ = prefs_->GetInteger(kGCMChannelPollIntervalSeconds);
+  gcm_enabled_ = prefs_->GetBoolean(prefs::kGCMChannelStatus);
+  poll_interval_seconds_ = prefs_->GetInteger(
+      prefs::kGCMChannelPollIntervalSeconds);
   if (poll_interval_seconds_ <
       GCMChannelStatusRequest::min_poll_interval_seconds()) {
     poll_interval_seconds_ =
         GCMChannelStatusRequest::min_poll_interval_seconds();
   }
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kCustomPollIntervalMinutes)) {
-    std::string value(CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
+  if (command_line.HasSwitch(switches::kCustomPollIntervalMinutes)) {
+    std::string value(command_line.GetSwitchValueASCII(
         switches::kCustomPollIntervalMinutes));
     int minutes = 0;
     if (base::StringToInt(value, &minutes)) {
@@ -122,7 +122,7 @@ GCMChannelStatusSyncer::GCMChannelStatusSyncer(
     }
   }
   last_check_time_ = base::Time::FromInternalValue(
-      prefs_->GetInt64(kGCMChannelLastCheckTime));
+      prefs_->GetInt64(prefs::kGCMChannelLastCheckTime));
 }
 
 GCMChannelStatusSyncer::~GCMChannelStatusSyncer() {
@@ -151,13 +151,13 @@ void GCMChannelStatusSyncer::OnRequestCompleted(bool update_received,
 
   // Persist the current time as the last request complete time.
   last_check_time_ = base::Time::Now();
-  prefs_->SetInt64(kGCMChannelLastCheckTime,
+  prefs_->SetInt64(prefs::kGCMChannelLastCheckTime,
                    last_check_time_.ToInternalValue());
 
   if (update_received) {
     if (gcm_enabled_ != enabled) {
       gcm_enabled_ = enabled;
-      prefs_->SetBoolean(kGCMChannelStatus, enabled);
+      prefs_->SetBoolean(prefs::kGCMChannelStatus, enabled);
       if (gcm_enabled_)
         driver_->Enable();
       else
@@ -170,7 +170,7 @@ void GCMChannelStatusSyncer::OnRequestCompleted(bool update_received,
                 GCMChannelStatusRequest::min_poll_interval_seconds());
       if (poll_interval_seconds_ != poll_interval_seconds) {
         poll_interval_seconds_ = poll_interval_seconds;
-        prefs_->SetInteger(kGCMChannelPollIntervalSeconds,
+        prefs_->SetInteger(prefs::kGCMChannelPollIntervalSeconds,
                            poll_interval_seconds_);
       }
     }
@@ -183,10 +183,9 @@ void GCMChannelStatusSyncer::OnRequestCompleted(bool update_received,
 
 void GCMChannelStatusSyncer::ScheduleRequest() {
   current_request_delay_interval_ = GetRequestDelayInterval();
-  base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::Bind(&GCMChannelStatusSyncer::StartRequest,
-                 weak_ptr_factory_.GetWeakPtr()),
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, base::Bind(&GCMChannelStatusSyncer::StartRequest,
+                            weak_ptr_factory_.GetWeakPtr()),
       current_request_delay_interval_);
 
   if (custom_poll_interval_use_count_)

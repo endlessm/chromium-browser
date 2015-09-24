@@ -6,6 +6,7 @@
 
 #include "base/logging.h"
 #include "remoting/proto/event.pb.h"
+#include "remoting/protocol/usb_key_codes.h"
 
 namespace remoting {
 namespace protocol {
@@ -26,15 +27,16 @@ int InputEventTracker::PressedKeyCount() const {
 }
 
 void InputEventTracker::ReleaseAll() {
-  std::set<uint32>::iterator i;
-  for (i = pressed_keys_.begin(); i != pressed_keys_.end(); ++i) {
+  // Release all pressed keys.
+  for (uint32 keycode : pressed_keys_) {
     KeyEvent event;
     event.set_pressed(false);
-    event.set_usb_keycode(*i);
+    event.set_usb_keycode(keycode);
     input_stub_->InjectKeyEvent(event);
   }
   pressed_keys_.clear();
 
+  // Release all mouse buttons.
   for (int i = MouseEvent::BUTTON_UNDEFINED + 1;
        i < MouseEvent::BUTTON_MAX; ++i) {
     if (mouse_button_state_ & (1 << (i - 1))) {
@@ -51,6 +53,42 @@ void InputEventTracker::ReleaseAll() {
     }
   }
   mouse_button_state_ = 0;
+
+  // Cancel all active touch points.
+  if (!touch_point_ids_.empty()) {
+    TouchEvent cancel_all_touch_event;
+    cancel_all_touch_event.set_event_type(TouchEvent::TOUCH_POINT_CANCEL);
+    for (uint32 touch_point_id : touch_point_ids_) {
+      TouchEventPoint* point = cancel_all_touch_event.add_touch_points();
+      point->set_id(touch_point_id);
+    }
+    input_stub_->InjectTouchEvent(cancel_all_touch_event);
+    touch_point_ids_.clear();
+  }
+  DCHECK(touch_point_ids_.empty());
+}
+
+void InputEventTracker::ReleaseAllIfModifiersStuck(bool alt_expected,
+                                                   bool ctrl_expected,
+                                                   bool os_expected,
+                                                   bool shift_expected) {
+  bool alt_down =
+      pressed_keys_.find(kUsbLeftAlt) != pressed_keys_.end() ||
+      pressed_keys_.find(kUsbRightAlt) != pressed_keys_.end();
+  bool ctrl_down =
+      pressed_keys_.find(kUsbLeftControl) != pressed_keys_.end() ||
+      pressed_keys_.find(kUsbRightControl) != pressed_keys_.end();
+  bool os_down =
+      pressed_keys_.find(kUsbLeftOs) != pressed_keys_.end() ||
+      pressed_keys_.find(kUsbRightOs) != pressed_keys_.end();
+  bool shift_down =
+      pressed_keys_.find(kUsbLeftShift) != pressed_keys_.end() ||
+      pressed_keys_.find(kUsbRightShift) != pressed_keys_.end();
+
+  if ((alt_down && !alt_expected) || (ctrl_down && !ctrl_expected) ||
+      (os_down && !os_expected) || (shift_down && !shift_expected)) {
+    ReleaseAll();
+  }
 }
 
 void InputEventTracker::InjectKeyEvent(const KeyEvent& event) {
@@ -90,6 +128,32 @@ void InputEventTracker::InjectMouseEvent(const MouseEvent& event) {
     }
   }
   input_stub_->InjectMouseEvent(event);
+}
+
+void InputEventTracker::InjectTouchEvent(const TouchEvent& event) {
+  // We only need the IDs to cancel all touch points in ReleaseAll(). Other
+  // fields do not have to be tracked here as long as the host keeps track of
+  // them.
+  switch (event.event_type()) {
+    case TouchEvent::TOUCH_POINT_START:
+      for (const TouchEventPoint& touch_point : event.touch_points()) {
+        DCHECK(touch_point_ids_.find(touch_point.id()) ==
+               touch_point_ids_.end());
+        touch_point_ids_.insert(touch_point.id());
+      }
+      break;
+    case TouchEvent::TOUCH_POINT_END:
+    case TouchEvent::TOUCH_POINT_CANCEL:
+      for (const TouchEventPoint& touch_point : event.touch_points()) {
+        DCHECK(touch_point_ids_.find(touch_point.id()) !=
+               touch_point_ids_.end());
+        touch_point_ids_.erase(touch_point.id());
+      }
+      break;
+    default:
+      break;
+  }
+  input_stub_->InjectTouchEvent(event);
 }
 
 }  // namespace protocol

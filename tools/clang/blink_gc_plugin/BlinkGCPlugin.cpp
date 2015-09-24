@@ -8,6 +8,8 @@
 // Errors are described at:
 // http://www.chromium.org/developers/blink-gc-plugin-errors
 
+#include <algorithm>
+
 #include "Config.h"
 #include "JsonWriter.h"
 #include "RecordInfo.h"
@@ -17,6 +19,7 @@
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendPluginRegistry.h"
+#include "clang/Sema/Sema.h"
 
 using namespace clang;
 using std::string;
@@ -56,6 +59,9 @@ const char kClassDoesNotRequireFinalization[] =
 const char kFinalizerAccessesFinalizedField[] =
     "[blink-gc] Finalizer %0 accesses potentially finalized field %1.";
 
+const char kFinalizerAccessesEagerlyFinalizedField[] =
+    "[blink-gc] Finalizer %0 accesses eagerly finalized field %1.";
+
 const char kRawPtrToGCManagedClassNote[] =
     "[blink-gc] Raw pointer field %0 to a GC managed class declared here:";
 
@@ -64,6 +70,9 @@ const char kRefPtrToGCManagedClassNote[] =
 
 const char kOwnPtrToGCManagedClassNote[] =
     "[blink-gc] OwnPtr field %0 to a GC managed class declared here:";
+
+const char kMemberToGCUnmanagedClassNote[] =
+    "[blink-gc] Member field %0 to non-GC managed class declared here:";
 
 const char kStackAllocatedFieldNote[] =
     "[blink-gc] Stack-allocated field %0 declared here:";
@@ -105,6 +114,9 @@ const char kMissingFinalizeDispatch[] =
 const char kFinalizedFieldNote[] =
     "[blink-gc] Potentially finalized field %0 declared here:";
 
+const char kEagerlyFinalizedFieldNote[] =
+    "[blink-gc] Field %0 having eagerly finalized value, declared here:";
+
 const char kUserDeclaredDestructorNote[] =
     "[blink-gc] User-declared destructor declared here:";
 
@@ -139,6 +151,27 @@ const char kLeftMostBaseMustBePolymorphic[] =
 const char kBaseClassMustDeclareVirtualTrace[] =
     "[blink-gc] Left-most base class %0 of derived class %1"
     " must define a virtual trace method.";
+
+const char kClassMustDeclareGCMixinTraceMethod[] =
+    "[blink-gc] Class %0 which inherits from GarbageCollectedMixin must"
+    " locally declare and override trace(Visitor*)";
+
+// Use a local RAV implementation to simply collect all FunctionDecls marked for
+// late template parsing. This happens with the flag -fdelayed-template-parsing,
+// which is on by default in MSVC-compatible mode.
+std::set<FunctionDecl*> GetLateParsedFunctionDecls(TranslationUnitDecl* decl) {
+  struct Visitor : public RecursiveASTVisitor<Visitor> {
+    bool VisitFunctionDecl(FunctionDecl* function_decl) {
+      if (function_decl->isLateTemplateParsed())
+        late_parsed_decls.insert(function_decl);
+      return true;
+    }
+
+    std::set<FunctionDecl*> late_parsed_decls;
+  } v;
+  v.TraverseDecl(decl);
+  return v.late_parsed_decls;
+}
 
 struct BlinkGCPluginOptions {
   BlinkGCPluginOptions()
@@ -219,11 +252,27 @@ class CheckFinalizerVisitor
   // during finalization.
   class MightBeCollectedVisitor : public EdgeVisitor {
    public:
-    MightBeCollectedVisitor() : might_be_collected_(false) {}
+    MightBeCollectedVisitor(bool is_eagerly_finalized)
+        : might_be_collected_(false)
+        , is_eagerly_finalized_(is_eagerly_finalized)
+        , as_eagerly_finalized_(false) {}
     bool might_be_collected() { return might_be_collected_; }
-    void VisitMember(Member* edge) override { might_be_collected_ = true; }
+    bool as_eagerly_finalized() { return as_eagerly_finalized_; }
+    void VisitMember(Member* edge) override {
+      if (is_eagerly_finalized_) {
+        if (edge->ptr()->IsValue()) {
+          Value* member = static_cast<Value*>(edge->ptr());
+          if (member->value()->IsEagerlyFinalized()) {
+            might_be_collected_ = true;
+            as_eagerly_finalized_ = true;
+          }
+        }
+        return;
+      }
+      might_be_collected_ = true;
+    }
     void VisitCollection(Collection* edge) override {
-      if (edge->on_heap()) {
+      if (edge->on_heap() && !is_eagerly_finalized_) {
         might_be_collected_ = !edge->is_root();
       } else {
         edge->AcceptMembers(this);
@@ -232,13 +281,31 @@ class CheckFinalizerVisitor
 
    private:
     bool might_be_collected_;
+    bool is_eagerly_finalized_;
+    bool as_eagerly_finalized_;
   };
 
  public:
-  typedef std::vector<std::pair<MemberExpr*, FieldPoint*> > Errors;
+  class Error {
+  public:
+    Error(MemberExpr *member,
+          bool as_eagerly_finalized,
+          FieldPoint* field)
+        : member_(member)
+        , as_eagerly_finalized_(as_eagerly_finalized)
+        , field_(field) {}
 
-  CheckFinalizerVisitor(RecordCache* cache)
-      : blacklist_context_(false), cache_(cache) {}
+    MemberExpr* member_;
+    bool as_eagerly_finalized_;
+    FieldPoint* field_;
+  };
+
+  typedef std::vector<Error> Errors;
+
+  CheckFinalizerVisitor(RecordCache* cache, bool is_eagerly_finalized)
+      : blacklist_context_(false)
+      , cache_(cache)
+      , is_eagerly_finalized_(is_eagerly_finalized) {}
 
   Errors& finalized_fields() { return finalized_fields_; }
 
@@ -276,21 +343,32 @@ class CheckFinalizerVisitor
     if (it == info->GetFields().end())
       return true;
 
-    if (blacklist_context_ && MightBeCollected(&it->second))
-      finalized_fields_.push_back(std::make_pair(member, &it->second));
+    if (seen_members_.find(member) != seen_members_.end())
+      return true;
+
+    bool as_eagerly_finalized = false;
+    if (blacklist_context_ &&
+        MightBeCollected(&it->second, as_eagerly_finalized)) {
+      finalized_fields_.push_back(
+          Error(member, as_eagerly_finalized, &it->second));
+      seen_members_.insert(member);
+    }
     return true;
   }
 
-  bool MightBeCollected(FieldPoint* point) {
-    MightBeCollectedVisitor visitor;
+  bool MightBeCollected(FieldPoint* point, bool& as_eagerly_finalized) {
+    MightBeCollectedVisitor visitor(is_eagerly_finalized_);
     point->edge()->Accept(&visitor);
+    as_eagerly_finalized = visitor.as_eagerly_finalized();
     return visitor.might_be_collected();
   }
 
  private:
   bool blacklist_context_;
   Errors finalized_fields_;
+  std::set<MemberExpr*> seen_members_;
   RecordCache* cache_;
+  bool is_eagerly_finalized_;
 };
 
 // This visitor checks that a method contains within its body, a call to a
@@ -311,6 +389,20 @@ class CheckDispatchVisitor : public RecursiveASTVisitor<CheckDispatchVisitor> {
     return true;
   }
 
+  bool VisitUnresolvedMemberExpr(UnresolvedMemberExpr* member) {
+    for (Decl* decl : member->decls()) {
+      if (CXXMethodDecl* method = dyn_cast<CXXMethodDecl>(decl)) {
+        if (method->getParent() == receiver_->record() &&
+            Config::GetTraceMethodType(method) ==
+            Config::TRACE_AFTER_DISPATCH_METHOD) {
+          dispatched_to_receiver_ = true;
+          return true;
+        }
+      }
+    }
+    return true;
+  }
+
  private:
   RecordInfo* receiver_;
   bool dispatched_to_receiver_;
@@ -321,8 +413,14 @@ class CheckDispatchVisitor : public RecursiveASTVisitor<CheckDispatchVisitor> {
 // - A base is traced if a base-qualified call to a trace method is found.
 class CheckTraceVisitor : public RecursiveASTVisitor<CheckTraceVisitor> {
  public:
-  CheckTraceVisitor(CXXMethodDecl* trace, RecordInfo* info)
-      : trace_(trace), info_(info) {}
+  CheckTraceVisitor(CXXMethodDecl* trace, RecordInfo* info, RecordCache* cache)
+      : trace_(trace),
+        info_(info),
+        cache_(cache),
+        delegates_to_traceimpl_(false) {
+  }
+
+  bool delegates_to_traceimpl() const { return delegates_to_traceimpl_; }
 
   bool VisitMemberExpr(MemberExpr* member) {
     // In weak callbacks, consider any occurrence as a correct usage.
@@ -359,17 +457,13 @@ class CheckTraceVisitor : public RecursiveASTVisitor<CheckTraceVisitor> {
     Expr* arg = call->getArg(0);
 
     if (UnresolvedMemberExpr* expr = dyn_cast<UnresolvedMemberExpr>(callee)) {
-      // If we find a call to registerWeakMembers which is unresolved we
-      // unsoundly consider all weak members as traced.
-      // TODO: Find out how to validate weak member tracing for unresolved call.
-      if (expr->getMemberName().getAsString() == kRegisterWeakMembersName) {
-        for (RecordInfo::Fields::iterator it = info_->GetFields().begin();
-             it != info_->GetFields().end();
-             ++it) {
-          if (it->second.edge()->IsWeakMember())
-            it->second.MarkTraced();
-        }
-      }
+      // This could be a trace call of a base class, as explained in the
+      // comments of CheckTraceBaseCall().
+      if (CheckTraceBaseCall(call))
+        return true;
+
+      if (expr->getMemberName().getAsString() == kRegisterWeakMembersName)
+        MarkAllWeakMembersTraced();
 
       QualType base = expr->getBaseType();
       if (!base->isPointerType())
@@ -377,12 +471,19 @@ class CheckTraceVisitor : public RecursiveASTVisitor<CheckTraceVisitor> {
       CXXRecordDecl* decl = base->getPointeeType()->getAsCXXRecordDecl();
       if (decl)
         CheckTraceFieldCall(expr->getMemberName().getAsString(), decl, arg);
+      if (Config::IsTraceImplName(expr->getMemberName().getAsString()))
+        delegates_to_traceimpl_ = true;
       return true;
     }
 
     if (CXXMemberCallExpr* expr = dyn_cast<CXXMemberCallExpr>(call)) {
       if (CheckTraceFieldCall(expr) || CheckRegisterWeakMembers(expr))
         return true;
+
+      if (Config::IsTraceImplName(expr->getMethodDecl()->getNameAsString())) {
+        delegates_to_traceimpl_ = true;
+        return true;
+      }
     }
 
     CheckTraceBaseCall(call);
@@ -390,6 +491,17 @@ class CheckTraceVisitor : public RecursiveASTVisitor<CheckTraceVisitor> {
   }
 
  private:
+  bool IsTraceCallName(const std::string& name) {
+    if (trace_->getName() == kTraceImplName)
+      return name == kTraceName;
+    if (trace_->getName() == kTraceAfterDispatchImplName)
+      return name == kTraceAfterDispatchName;
+    // Currently, a manually dispatched class cannot have mixin bases (having
+    // one would add a vtable which we explicitly check against). This means
+    // that we can only make calls to a trace method of the same name. Revisit
+    // this if our mixin/vtable assumption changes.
+    return name == trace_->getName();
+  }
 
   CXXRecordDecl* GetDependentTemplatedDecl(CXXDependentScopeMemberExpr* expr) {
     NestedNameSpecifier* qual = expr->getQualifier();
@@ -400,33 +512,45 @@ class CheckTraceVisitor : public RecursiveASTVisitor<CheckTraceVisitor> {
     if (!type)
       return 0;
 
-    const TemplateSpecializationType* tmpl_type =
-        type->getAs<TemplateSpecializationType>();
-    if (!tmpl_type)
-      return 0;
-
-    TemplateDecl* tmpl_decl = tmpl_type->getTemplateName().getAsTemplateDecl();
-    if (!tmpl_decl)
-      return 0;
-
-    return dyn_cast<CXXRecordDecl>(tmpl_decl->getTemplatedDecl());
+    return RecordInfo::GetDependentTemplatedDecl(*type);
   }
 
   void CheckCXXDependentScopeMemberExpr(CallExpr* call,
                                         CXXDependentScopeMemberExpr* expr) {
     string fn_name = expr->getMember().getAsString();
+
+    // Check for VisitorDispatcher::trace(field) and
+    // VisitorDispatcher::registerWeakMembers.
+    if (!expr->isImplicitAccess()) {
+      if (clang::DeclRefExpr* base_decl =
+              clang::dyn_cast<clang::DeclRefExpr>(expr->getBase())) {
+        if (Config::IsVisitorDispatcherType(base_decl->getType())) {
+          if (call->getNumArgs() == 1 && fn_name == kTraceName) {
+            FindFieldVisitor finder;
+            finder.TraverseStmt(call->getArg(0));
+            if (finder.field())
+              FoundField(finder.field());
+
+            return;
+          } else if (call->getNumArgs() == 1 &&
+                     fn_name == kRegisterWeakMembersName) {
+            MarkAllWeakMembersTraced();
+          }
+        }
+      }
+    }
+
     CXXRecordDecl* tmpl = GetDependentTemplatedDecl(expr);
     if (!tmpl)
       return;
 
     // Check for Super<T>::trace(visitor)
-    if (call->getNumArgs() == 1 && fn_name == trace_->getName()) {
+    if (call->getNumArgs() == 1 && IsTraceCallName(fn_name)) {
       RecordInfo::Bases::iterator it = info_->GetBases().begin();
       for (; it != info_->GetBases().end(); ++it) {
         if (it->first->getName() == tmpl->getName())
           it->second.MarkTraced();
       }
-      return;
     }
 
     // Check for TraceIfNeeded<T>::trace(visitor, &field)
@@ -440,35 +564,113 @@ class CheckTraceVisitor : public RecursiveASTVisitor<CheckTraceVisitor> {
   }
 
   bool CheckTraceBaseCall(CallExpr* call) {
-    MemberExpr* callee = dyn_cast<MemberExpr>(call->getCallee());
-    if (!callee)
-      return false;
+    // Checks for "Base::trace(visitor)"-like calls.
 
-    FunctionDecl* fn = dyn_cast<FunctionDecl>(callee->getMemberDecl());
-    if (!fn || !Config::IsTraceMethod(fn))
-      return false;
+    // Checking code for these two variables is shared among MemberExpr* case
+    // and UnresolvedMemberCase* case below.
+    //
+    // For example, if we've got "Base::trace(visitor)" as |call|,
+    // callee_record will be "Base", and func_name will be "trace".
+    CXXRecordDecl* callee_record = nullptr;
+    std::string func_name;
 
-    // Currently, a manually dispatched class cannot have mixin bases (having
-    // one would add a vtable which we explicitly check against). This means
-    // that we can only make calls to a trace method of the same name. Revisit
-    // this if our mixin/vtable assumption changes.
-    if (fn->getName() != trace_->getName())
-      return false;
+    if (MemberExpr* callee = dyn_cast<MemberExpr>(call->getCallee())) {
+      if (!callee->hasQualifier())
+        return false;
 
-    CXXRecordDecl* decl = 0;
-    if (callee && callee->hasQualifier()) {
-      if (const Type* type = callee->getQualifier()->getAsType())
-        decl = type->getAsCXXRecordDecl();
+      FunctionDecl* trace_decl =
+          dyn_cast<FunctionDecl>(callee->getMemberDecl());
+      if (!trace_decl || !Config::IsTraceMethod(trace_decl))
+        return false;
+
+      const Type* type = callee->getQualifier()->getAsType();
+      if (!type)
+        return false;
+
+      callee_record = type->getAsCXXRecordDecl();
+      func_name = trace_decl->getName();
+    } else if (UnresolvedMemberExpr* callee =
+               dyn_cast<UnresolvedMemberExpr>(call->getCallee())) {
+      // Callee part may become unresolved if the type of the argument
+      // ("visitor") is a template parameter and the called function is
+      // overloaded (i.e. trace(Visitor*) and
+      // trace(InlinedGlobalMarkingVisitor)).
+      //
+      // Here, we try to find a function that looks like trace() from the
+      // candidate overloaded functions, and if we find one, we assume it is
+      // called here.
+
+      CXXMethodDecl* trace_decl = nullptr;
+      for (NamedDecl* named_decl : callee->decls()) {
+        if (CXXMethodDecl* method_decl = dyn_cast<CXXMethodDecl>(named_decl)) {
+          if (Config::IsTraceMethod(method_decl)) {
+            trace_decl = method_decl;
+            break;
+          }
+        }
+      }
+      if (!trace_decl)
+        return false;
+
+      // Check if the passed argument is named "visitor".
+      if (call->getNumArgs() != 1)
+        return false;
+      DeclRefExpr* arg = dyn_cast<DeclRefExpr>(call->getArg(0));
+      if (!arg || arg->getNameInfo().getAsString() != kVisitorVarName)
+        return false;
+
+      callee_record = trace_decl->getParent();
+      func_name = callee->getMemberName().getAsString();
     }
-    if (!decl)
+
+    if (!callee_record)
       return false;
 
-    RecordInfo::Bases::iterator it = info_->GetBases().find(decl);
-    if (it != info_->GetBases().end()) {
-      it->second.MarkTraced();
+    if (!IsTraceCallName(func_name))
+      return false;
+
+    for (auto& base : info_->GetBases()) {
+      // We want to deal with omitted trace() function in an intermediary
+      // class in the class hierarchy, e.g.:
+      //     class A : public GarbageCollected<A> { trace() { ... } };
+      //     class B : public A { /* No trace(); have nothing to trace. */ };
+      //     class C : public B { trace() { B::trace(visitor); } }
+      // where, B::trace() is actually A::trace(), and in some cases we get
+      // A as |callee_record| instead of B. We somehow need to mark B as
+      // traced if we find A::trace() call.
+      //
+      // To solve this, here we keep going up the class hierarchy as long as
+      // they are not required to have a trace method. The implementation is
+      // a simple DFS, where |base_records| represents the set of base classes
+      // we need to visit.
+
+      std::vector<CXXRecordDecl*> base_records;
+      base_records.push_back(base.first);
+
+      while (!base_records.empty()) {
+        CXXRecordDecl* base_record = base_records.back();
+        base_records.pop_back();
+
+        if (base_record == callee_record) {
+          // If we find a matching trace method, pretend the user has written
+          // a correct trace() method of the base; in the example above, we
+          // find A::trace() here and mark B as correctly traced.
+          base.second.MarkTraced();
+          return true;
+        }
+
+        if (RecordInfo* base_info = cache_->Lookup(base_record)) {
+          if (!base_info->RequiresTraceMethod()) {
+            // If this base class is not required to have a trace method, then
+            // the actual trace method may be defined in an ancestor.
+            for (auto& inner_base : base_info->GetBases())
+              base_records.push_back(inner_base.first);
+          }
+        }
+      }
     }
 
-    return true;
+    return false;
   }
 
   bool CheckTraceFieldCall(CXXMemberCallExpr* call) {
@@ -531,7 +733,8 @@ class CheckTraceVisitor : public RecursiveASTVisitor<CheckTraceVisitor> {
   };
 
   // Nested checking for weak callbacks.
-  CheckTraceVisitor(RecordInfo* info) : trace_(0), info_(info) {}
+  CheckTraceVisitor(RecordInfo* info)
+      : trace_(nullptr), info_(info), cache_(nullptr) {}
 
   bool IsWeakCallback() { return !trace_; }
 
@@ -563,8 +766,20 @@ class CheckTraceVisitor : public RecursiveASTVisitor<CheckTraceVisitor> {
     }
   }
 
+  void MarkAllWeakMembersTraced() {
+    // If we find a call to registerWeakMembers which is unresolved we
+    // unsoundly consider all weak members as traced.
+    // TODO: Find out how to validate weak member tracing for unresolved call.
+    for (auto& field : info_->GetFields()) {
+      if (field.second.edge()->IsWeakMember())
+        field.second.MarkTraced();
+    }
+  }
+
   CXXMethodDecl* trace_;
   RecordInfo* info_;
+  RecordCache* cache_;
+  bool delegates_to_traceimpl_;
 };
 
 // This visitor checks that the fields of a class and the fields of
@@ -639,6 +854,7 @@ class CheckFieldsVisitor : public RecursiveEdgeVisitor {
     kRawPtrToGCManagedWarning,
     kRefPtrToGCManaged,
     kOwnPtrToGCManaged,
+    kMemberToGCUnmanaged,
     kMemberInUnmanaged,
     kPtrFromHeapToStack,
     kGCDerivedPartObject
@@ -694,6 +910,23 @@ class CheckFieldsVisitor : public RecursiveEdgeVisitor {
         edge->value()->IsGCDerived() &&
         !edge->value()->IsGCMixin()) {
       invalid_fields_.push_back(std::make_pair(current_, kGCDerivedPartObject));
+      return;
+    }
+
+    // If in a stack allocated context, be fairly insistent that T in Member<T>
+    // is GC allocated, as stack allocated objects do not have a trace()
+    // that separately verifies the validity of Member<T>.
+    //
+    // Notice that an error is only reported if T's definition is in scope;
+    // we do not require that it must be brought into scope as that would
+    // prevent declarations of mutually dependent class types.
+    //
+    // (Note: Member<>'s constructor will at run-time verify that the
+    // pointer it wraps is indeed heap allocated.)
+    if (stack_allocated_host_ && Parent() && Parent()->IsMember() &&
+        edge->value()->HasDefinition() && !edge->value()->IsGCAllocated()) {
+      invalid_fields_.push_back(std::make_pair(current_,
+                                               kMemberToGCUnmanaged));
       return;
     }
 
@@ -782,7 +1015,6 @@ class BlinkGCPluginConsumer : public ASTConsumer {
 
     // Only check structures in the blink and WebKit namespaces.
     options_.checked_namespaces.insert("blink");
-    options_.checked_namespaces.insert("WebKit");
 
     // Ignore GC implementation files.
     options_.ignored_directories.push_back("/heap/");
@@ -808,6 +1040,8 @@ class BlinkGCPluginConsumer : public ASTConsumer {
         DiagnosticsEngine::Warning, kClassDoesNotRequireFinalization);
     diag_finalizer_accesses_finalized_field_ = diagnostic_.getCustomDiagID(
         getErrorLevel(), kFinalizerAccessesFinalizedField);
+    diag_finalizer_eagerly_finalized_field_ = diagnostic_.getCustomDiagID(
+        getErrorLevel(), kFinalizerAccessesEagerlyFinalizedField);
     diag_overridden_non_virtual_trace_ = diagnostic_.getCustomDiagID(
         getErrorLevel(), kOverriddenNonVirtualTrace);
     diag_missing_trace_dispatch_method_ = diagnostic_.getCustomDiagID(
@@ -830,6 +1064,9 @@ class BlinkGCPluginConsumer : public ASTConsumer {
         getErrorLevel(), kLeftMostBaseMustBePolymorphic);
     diag_base_class_must_declare_virtual_trace_ = diagnostic_.getCustomDiagID(
         getErrorLevel(), kBaseClassMustDeclareVirtualTrace);
+    diag_class_must_declare_gc_mixin_trace_method_ =
+        diagnostic_.getCustomDiagID(getErrorLevel(),
+                                    kClassMustDeclareGCMixinTraceMethod);
 
     // Register note messages.
     diag_base_requires_tracing_note_ = diagnostic_.getCustomDiagID(
@@ -842,6 +1079,8 @@ class BlinkGCPluginConsumer : public ASTConsumer {
         DiagnosticsEngine::Note, kRefPtrToGCManagedClassNote);
     diag_own_ptr_to_gc_managed_class_note_ = diagnostic_.getCustomDiagID(
         DiagnosticsEngine::Note, kOwnPtrToGCManagedClassNote);
+    diag_member_to_gc_unmanaged_class_note_ = diagnostic_.getCustomDiagID(
+        DiagnosticsEngine::Note, kMemberToGCUnmanagedClassNote);
     diag_stack_allocated_field_note_ = diagnostic_.getCustomDiagID(
         DiagnosticsEngine::Note, kStackAllocatedFieldNote);
     diag_member_in_unmanaged_class_note_ = diagnostic_.getCustomDiagID(
@@ -854,6 +1093,8 @@ class BlinkGCPluginConsumer : public ASTConsumer {
         DiagnosticsEngine::Note, kFieldContainsGCRootNote);
     diag_finalized_field_note_ = diagnostic_.getCustomDiagID(
         DiagnosticsEngine::Note, kFinalizedFieldNote);
+    diag_eagerly_finalized_field_note_ = diagnostic_.getCustomDiagID(
+        DiagnosticsEngine::Note, kEagerlyFinalizedFieldNote);
     diag_user_declared_destructor_note_ = diagnostic_.getCustomDiagID(
         DiagnosticsEngine::Note, kUserDeclaredDestructorNote);
     diag_user_declared_finalizer_note_ = diagnostic_.getCustomDiagID(
@@ -872,6 +1113,8 @@ class BlinkGCPluginConsumer : public ASTConsumer {
     // Don't run the plugin if the compilation unit is already invalid.
     if (diagnostic_.hasErrorOccurred())
       return;
+
+    ParseFunctionTemplates(context.getTranslationUnitDecl());
 
     CollectVisitor visitor;
     visitor.TraverseDecl(context.getTranslationUnitDecl());
@@ -916,6 +1159,31 @@ class BlinkGCPluginConsumer : public ASTConsumer {
       json_->CloseList();
       delete json_;
       json_ = 0;
+    }
+  }
+
+  void ParseFunctionTemplates(TranslationUnitDecl* decl) {
+    if (!instance_.getLangOpts().DelayedTemplateParsing)
+      return;  // Nothing to do.
+
+    std::set<FunctionDecl*> late_parsed_decls =
+        GetLateParsedFunctionDecls(decl);
+    clang::Sema& sema = instance_.getSema();
+
+    for (const FunctionDecl* fd : late_parsed_decls) {
+      assert(fd->isLateTemplateParsed());
+
+      if (!Config::IsTraceMethod(fd))
+        continue;
+
+      if (instance_.getSourceManager().isInSystemHeader(
+              instance_.getSourceManager().getSpellingLoc(fd->getLocation())))
+        continue;
+
+      // Force parsing and AST building of the yet-uninstantiated function
+      // template trace method bodies.
+      clang::LateParsedTemplate* lpt = sema.LateParsedTemplateMap[fd];
+      sema.LateTemplateParser(sema.OpaqueParser, *lpt);
     }
   }
 
@@ -987,7 +1255,15 @@ class BlinkGCPluginConsumer : public ASTConsumer {
         CheckLeftMostDerived(info);
         CheckDispatch(info);
         if (CXXMethodDecl* newop = info->DeclaresNewOperator())
-          ReportClassOverridesNew(info, newop);
+          if (!Config::IsIgnoreAnnotated(newop))
+            ReportClassOverridesNew(info, newop);
+        if (info->IsGCMixinInstance()) {
+          // Require that declared GCMixin implementations
+          // also provide a trace() override.
+          if (info->DeclaresGCMixinMethods()
+              && !info->DeclaresLocalTraceMethod())
+            ReportClassMustDeclareGCMixinTraceMethod(info);
+        }
       }
 
       {
@@ -1042,7 +1318,7 @@ class BlinkGCPluginConsumer : public ASTConsumer {
     while (it != left_most->bases_end()) {
       left_most_base = it->getType()->getAsCXXRecordDecl();
       if (!left_most_base && it->getType()->isDependentType())
-        left_most_base = GetDependentTemplatedDecl(*it->getType());
+        left_most_base = RecordInfo::GetDependentTemplatedDecl(*it->getType());
 
       // TODO: Find a way to correctly check actual instantiations
       // for dependent types. The escape below will be hit, eg, when
@@ -1083,7 +1359,9 @@ class BlinkGCPluginConsumer : public ASTConsumer {
       if (DeclaresVirtualMethods(left_most))
         return;
       if (left_most_base) {
-        ++it; // Get the base next to the "safe polymorphic base"
+        // Get the base next to the "safe polymorphic base"
+        if (it != left_most->bases_end())
+          ++it;
         if (it != left_most->bases_end()) {
           if (CXXRecordDecl* next_base = it->getType()->getAsCXXRecordDecl()) {
             if (CXXRecordDecl* next_left_most = GetLeftMostBase(next_base)) {
@@ -1103,7 +1381,7 @@ class BlinkGCPluginConsumer : public ASTConsumer {
     CXXRecordDecl::base_class_iterator it = left_most->bases_begin();
     while (it != left_most->bases_end()) {
       if (it->getType()->isDependentType())
-        left_most = GetDependentTemplatedDecl(*it->getType());
+        left_most = RecordInfo::GetDependentTemplatedDecl(*it->getType());
       else
         left_most = it->getType()->getAsCXXRecordDecl();
       if (!left_most || !left_most->hasDefinition())
@@ -1122,12 +1400,9 @@ class BlinkGCPluginConsumer : public ASTConsumer {
   }
 
   void CheckLeftMostDerived(RecordInfo* info) {
-    CXXRecordDecl* left_most = info->record();
-    CXXRecordDecl::base_class_iterator it = left_most->bases_begin();
-    while (it != left_most->bases_end()) {
-      left_most = it->getType()->getAsCXXRecordDecl();
-      it = left_most->bases_begin();
-    }
+    CXXRecordDecl* left_most = GetLeftMostBase(info->record());
+    if (!left_most)
+      return;
     if (!Config::IsGCBase(left_most->getName()))
       ReportClassMustLeftMostlyDeriveGC(info);
   }
@@ -1189,7 +1464,7 @@ class BlinkGCPluginConsumer : public ASTConsumer {
     // For finalized classes, check the finalization method if possible.
     if (info->IsGCFinalized()) {
       if (dtor && dtor->hasBody()) {
-        CheckFinalizerVisitor visitor(&cache_);
+        CheckFinalizerVisitor visitor(&cache_, info->IsEagerlyFinalized());
         visitor.TraverseCXXMethodDecl(dtor);
         if (!visitor.finalized_fields().empty()) {
           ReportFinalizerAccessesFinalizedFields(
@@ -1276,21 +1551,21 @@ class BlinkGCPluginConsumer : public ASTConsumer {
 
   // Determine what type of tracing method this is (dispatch or trace).
   void CheckTraceOrDispatchMethod(RecordInfo* parent, CXXMethodDecl* method) {
-    bool isTraceAfterDispatch;
-    if (Config::IsTraceMethod(method, &isTraceAfterDispatch)) {
-      if (isTraceAfterDispatch || !parent->GetTraceDispatchMethod()) {
-        CheckTraceMethod(parent, method, isTraceAfterDispatch);
-      }
-      // Dispatch methods are checked when we identify subclasses.
+    Config::TraceMethodType trace_type = Config::GetTraceMethodType(method);
+    if (trace_type == Config::TRACE_AFTER_DISPATCH_METHOD ||
+        trace_type == Config::TRACE_AFTER_DISPATCH_IMPL_METHOD ||
+        !parent->GetTraceDispatchMethod()) {
+      CheckTraceMethod(parent, method, trace_type);
     }
+    // Dispatch methods are checked when we identify subclasses.
   }
 
   // Check an actual trace method.
   void CheckTraceMethod(RecordInfo* parent,
                         CXXMethodDecl* trace,
-                        bool isTraceAfterDispatch) {
+                        Config::TraceMethodType trace_type) {
     // A trace method must not override any non-virtual trace methods.
-    if (!isTraceAfterDispatch) {
+    if (trace_type == Config::TRACE_METHOD) {
       for (RecordInfo::Bases::iterator it = parent->GetBases().begin();
            it != parent->GetBases().end();
            ++it) {
@@ -1300,8 +1575,14 @@ class BlinkGCPluginConsumer : public ASTConsumer {
       }
     }
 
-    CheckTraceVisitor visitor(trace, parent);
+    CheckTraceVisitor visitor(trace, parent, &cache_);
     visitor.TraverseCXXMethodDecl(trace);
+
+    // Skip reporting if this trace method is a just delegate to
+    // traceImpl (or traceAfterDispatchImpl) method. We will report on
+    // CheckTraceMethod on traceImpl method.
+    if (visitor.delegates_to_traceimpl())
+      return;
 
     for (RecordInfo::Bases::iterator it = parent->GetBases().begin();
          it != parent->GetBases().end();
@@ -1453,6 +1734,9 @@ class BlinkGCPluginConsumer : public ASTConsumer {
     string filename;
     if (!GetFilename(info->record()->getLocStart(), &filename))
       return false;  // TODO: should we ignore non-existing file locations?
+#if defined(LLVM_ON_WIN32)
+    std::replace(filename.begin(), filename.end(), '\\', '/');
+#endif
     std::vector<string>::iterator it = options_.ignored_directories.begin();
     for (; it != options_.ignored_directories.end(); ++it)
       if (filename.find(*it) != string::npos)
@@ -1467,6 +1751,8 @@ class BlinkGCPluginConsumer : public ASTConsumer {
          !context->isTranslationUnit();
          context = context->getParent()) {
       if (NamespaceDecl* decl = dyn_cast<NamespaceDecl>(context)) {
+        if (decl->isAnonymousNamespace())
+          return true;
         if (options_.checked_namespaces.find(decl->getNameAsString()) !=
             options_.checked_namespaces.end()) {
           return true;
@@ -1570,6 +1856,8 @@ class BlinkGCPluginConsumer : public ASTConsumer {
         error = diag_ref_ptr_to_gc_managed_class_note_;
       } else if (it->second == CheckFieldsVisitor::kOwnPtrToGCManaged) {
         error = diag_own_ptr_to_gc_managed_class_note_;
+      } else if (it->second == CheckFieldsVisitor::kMemberToGCUnmanaged) {
+        error = diag_member_to_gc_unmanaged_class_note_;
       } else if (it->second == CheckFieldsVisitor::kMemberInUnmanaged) {
         error = diag_member_in_unmanaged_class_note_;
       } else if (it->second == CheckFieldsVisitor::kPtrFromHeapToStack) {
@@ -1609,12 +1897,19 @@ class BlinkGCPluginConsumer : public ASTConsumer {
     for (CheckFinalizerVisitor::Errors::iterator it = fields->begin();
          it != fields->end();
          ++it) {
-      SourceLocation loc = it->first->getLocStart();
+      SourceLocation loc = it->member_->getLocStart();
       SourceManager& manager = instance_.getSourceManager();
+      bool as_eagerly_finalized = it->as_eagerly_finalized_;
+      unsigned diag_error = as_eagerly_finalized ?
+          diag_finalizer_eagerly_finalized_field_ :
+          diag_finalizer_accesses_finalized_field_;
+      unsigned diag_note = as_eagerly_finalized ?
+          diag_eagerly_finalized_field_note_ :
+          diag_finalized_field_note_;
       FullSourceLoc full_loc(loc, manager);
-      diagnostic_.Report(full_loc, diag_finalizer_accesses_finalized_field_)
-          << dtor << it->second->field();
-      NoteField(it->second, diag_finalized_field_note_);
+      diagnostic_.Report(full_loc, diag_error)
+          << dtor << it->field_->field();
+      NoteField(it->field_, diag_note);
     }
   }
 
@@ -1631,6 +1926,15 @@ class BlinkGCPluginConsumer : public ASTConsumer {
     SourceManager& manager = instance_.getSourceManager();
     FullSourceLoc full_loc(loc, manager);
     diagnostic_.Report(full_loc, diag_class_does_not_require_finalization_)
+        << info->record();
+  }
+
+  void ReportClassMustDeclareGCMixinTraceMethod(RecordInfo* info) {
+    SourceLocation loc = info->record()->getInnerLocStart();
+    SourceManager& manager = instance_.getSourceManager();
+    FullSourceLoc full_loc(loc, manager);
+    diagnostic_.Report(
+        full_loc, diag_class_must_declare_gc_mixin_trace_method_)
         << info->record();
   }
 
@@ -1814,6 +2118,7 @@ class BlinkGCPluginConsumer : public ASTConsumer {
   unsigned diag_class_requires_finalization_;
   unsigned diag_class_does_not_require_finalization_;
   unsigned diag_finalizer_accesses_finalized_field_;
+  unsigned diag_finalizer_eagerly_finalized_field_;
   unsigned diag_overridden_non_virtual_trace_;
   unsigned diag_missing_trace_dispatch_method_;
   unsigned diag_missing_finalize_dispatch_method_;
@@ -1825,18 +2130,21 @@ class BlinkGCPluginConsumer : public ASTConsumer {
   unsigned diag_class_declares_pure_virtual_trace_;
   unsigned diag_left_most_base_must_be_polymorphic_;
   unsigned diag_base_class_must_declare_virtual_trace_;
+  unsigned diag_class_must_declare_gc_mixin_trace_method_;
 
   unsigned diag_base_requires_tracing_note_;
   unsigned diag_field_requires_tracing_note_;
   unsigned diag_raw_ptr_to_gc_managed_class_note_;
   unsigned diag_ref_ptr_to_gc_managed_class_note_;
   unsigned diag_own_ptr_to_gc_managed_class_note_;
+  unsigned diag_member_to_gc_unmanaged_class_note_;
   unsigned diag_stack_allocated_field_note_;
   unsigned diag_member_in_unmanaged_class_note_;
   unsigned diag_part_object_to_gc_derived_class_note_;
   unsigned diag_part_object_contains_gc_root_note_;
   unsigned diag_field_contains_gc_root_note_;
   unsigned diag_finalized_field_note_;
+  unsigned diag_eagerly_finalized_field_note_;
   unsigned diag_user_declared_destructor_note_;
   unsigned diag_user_declared_finalizer_note_;
   unsigned diag_base_requires_finalization_note_;

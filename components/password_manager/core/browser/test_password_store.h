@@ -12,10 +12,6 @@
 #include "base/memory/ref_counted.h"
 #include "components/password_manager/core/browser/password_store.h"
 
-namespace content {
-class BrowserContext;
-}
-
 namespace password_manager {
 
 // A very simple PasswordStore implementation that keeps all of the passwords
@@ -27,7 +23,7 @@ class TestPasswordStore : public PasswordStore {
   TestPasswordStore();
 
   typedef std::map<std::string /* signon_realm */,
-                   std::vector<autofill::PasswordForm> > PasswordMap;
+                   std::vector<autofill::PasswordForm>> PasswordMap;
 
   const PasswordMap& stored_passwords() const;
   void Clear();
@@ -51,28 +47,27 @@ class TestPasswordStore : public PasswordStore {
       const autofill::PasswordForm& form) override;
   PasswordStoreChangeList RemoveLoginImpl(
       const autofill::PasswordForm& form) override;
-  void GetLoginsImpl(const autofill::PasswordForm& form,
-                     PasswordStore::AuthorizationPromptPolicy prompt_policy,
-                     const ConsumerCallbackRunner& runner) override;
-  void WrapModificationTask(ModificationTask task) override;
+  ScopedVector<autofill::PasswordForm> FillMatchingLogins(
+      const autofill::PasswordForm& form,
+      PasswordStore::AuthorizationPromptPolicy prompt_policy) override;
 
   // Unused portions of PasswordStore interface
   void ReportMetricsImpl(const std::string& sync_username,
-                         bool custom_passphrase_sync_enabled) override {}
+                         bool custom_passphrase_sync_enabled) override;
   PasswordStoreChangeList RemoveLoginsCreatedBetweenImpl(
       base::Time begin,
       base::Time end) override;
   PasswordStoreChangeList RemoveLoginsSyncedBetweenImpl(
       base::Time delete_begin,
       base::Time delete_end) override;
-  void GetAutofillableLoginsImpl(
-      PasswordStore::GetLoginsRequest* request) override {}
-  void GetBlacklistLoginsImpl(
-      PasswordStore::GetLoginsRequest* request) override {}
   bool FillAutofillableLogins(
-      std::vector<autofill::PasswordForm*>* forms) override;
+      ScopedVector<autofill::PasswordForm>* forms) override;
   bool FillBlacklistLogins(
-      std::vector<autofill::PasswordForm*>* forms) override;
+      ScopedVector<autofill::PasswordForm>* forms) override;
+  void AddSiteStatsImpl(const InteractionsStats& stats) override;
+  void RemoveSiteStatsImpl(const GURL& origin_domain) override;
+  scoped_ptr<InteractionsStats> GetSiteStatsImpl(
+      const GURL& origin_domain) override;
 
  private:
   PasswordMap stored_passwords_;

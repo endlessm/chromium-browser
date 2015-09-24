@@ -7,15 +7,19 @@
 #include "config.h"
 #include "bindings/core/v8/UnionTypesCore.h"
 
+#include "bindings/core/v8/Dictionary.h"
+#include "bindings/core/v8/UnionTypesCore.h"
 #include "bindings/core/v8/V8ArrayBuffer.h"
 #include "bindings/core/v8/V8ArrayBufferView.h"
 #include "bindings/core/v8/V8Node.h"
 #include "bindings/core/v8/V8NodeList.h"
 #include "bindings/core/v8/V8TestDictionary.h"
 #include "bindings/core/v8/V8TestInterface.h"
+#include "bindings/core/v8/V8TestInterface2.h"
 #include "bindings/core/v8/V8TestInterfaceEmpty.h"
 #include "bindings/core/v8/V8TestInterfaceGarbageCollected.h"
 #include "bindings/core/v8/V8TestInterfaceWillBeGarbageCollected.h"
+#include "bindings/core/v8/V8Uint8Array.h"
 #include "bindings/tests/idls/core/TestImplements2.h"
 #include "bindings/tests/idls/core/TestImplements3Implementation.h"
 #include "bindings/tests/idls/core/TestPartialInterface.h"
@@ -26,6 +30,131 @@
 #include "core/html/LabelsNodeList.h"
 
 namespace blink {
+
+ArrayBufferOrArrayBufferViewOrDictionary::ArrayBufferOrArrayBufferViewOrDictionary()
+    : m_type(SpecificTypeNone)
+{
+}
+
+PassRefPtr<TestArrayBuffer> ArrayBufferOrArrayBufferViewOrDictionary::getAsArrayBuffer() const
+{
+    ASSERT(isArrayBuffer());
+    return m_arrayBuffer;
+}
+
+void ArrayBufferOrArrayBufferViewOrDictionary::setArrayBuffer(PassRefPtr<TestArrayBuffer> value)
+{
+    ASSERT(isNull());
+    m_arrayBuffer = value;
+    m_type = SpecificTypeArrayBuffer;
+}
+
+ArrayBufferOrArrayBufferViewOrDictionary ArrayBufferOrArrayBufferViewOrDictionary::fromArrayBuffer(PassRefPtr<TestArrayBuffer> value)
+{
+    ArrayBufferOrArrayBufferViewOrDictionary container;
+    container.setArrayBuffer(value);
+    return container;
+}
+
+PassRefPtr<TestArrayBufferView> ArrayBufferOrArrayBufferViewOrDictionary::getAsArrayBufferView() const
+{
+    ASSERT(isArrayBufferView());
+    return m_arrayBufferView;
+}
+
+void ArrayBufferOrArrayBufferViewOrDictionary::setArrayBufferView(PassRefPtr<TestArrayBufferView> value)
+{
+    ASSERT(isNull());
+    m_arrayBufferView = value;
+    m_type = SpecificTypeArrayBufferView;
+}
+
+ArrayBufferOrArrayBufferViewOrDictionary ArrayBufferOrArrayBufferViewOrDictionary::fromArrayBufferView(PassRefPtr<TestArrayBufferView> value)
+{
+    ArrayBufferOrArrayBufferViewOrDictionary container;
+    container.setArrayBufferView(value);
+    return container;
+}
+
+Dictionary ArrayBufferOrArrayBufferViewOrDictionary::getAsDictionary() const
+{
+    ASSERT(isDictionary());
+    return m_dictionary;
+}
+
+void ArrayBufferOrArrayBufferViewOrDictionary::setDictionary(Dictionary value)
+{
+    ASSERT(isNull());
+    m_dictionary = value;
+    m_type = SpecificTypeDictionary;
+}
+
+ArrayBufferOrArrayBufferViewOrDictionary ArrayBufferOrArrayBufferViewOrDictionary::fromDictionary(Dictionary value)
+{
+    ArrayBufferOrArrayBufferViewOrDictionary container;
+    container.setDictionary(value);
+    return container;
+}
+
+ArrayBufferOrArrayBufferViewOrDictionary::ArrayBufferOrArrayBufferViewOrDictionary(const ArrayBufferOrArrayBufferViewOrDictionary&) = default;
+ArrayBufferOrArrayBufferViewOrDictionary::~ArrayBufferOrArrayBufferViewOrDictionary() = default;
+ArrayBufferOrArrayBufferViewOrDictionary& ArrayBufferOrArrayBufferViewOrDictionary::operator=(const ArrayBufferOrArrayBufferViewOrDictionary&) = default;
+
+DEFINE_TRACE(ArrayBufferOrArrayBufferViewOrDictionary)
+{
+}
+
+void V8ArrayBufferOrArrayBufferViewOrDictionary::toImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value, ArrayBufferOrArrayBufferViewOrDictionary& impl, ExceptionState& exceptionState)
+{
+    if (v8Value.IsEmpty())
+        return;
+
+    if (V8ArrayBuffer::hasInstance(v8Value, isolate)) {
+        RefPtr<TestArrayBuffer> cppValue = V8ArrayBuffer::toImpl(v8::Local<v8::Object>::Cast(v8Value));
+        impl.setArrayBuffer(cppValue);
+        return;
+    }
+
+    if (V8ArrayBufferView::hasInstance(v8Value, isolate)) {
+        RefPtr<TestArrayBufferView> cppValue = V8ArrayBufferView::toImpl(v8::Local<v8::Object>::Cast(v8Value));
+        impl.setArrayBufferView(cppValue);
+        return;
+    }
+
+    if (isUndefinedOrNull(v8Value) || v8Value->IsObject()) {
+        Dictionary cppValue = Dictionary(v8Value, isolate, exceptionState);
+        if (exceptionState.hadException())
+            return;
+        impl.setDictionary(cppValue);
+        return;
+    }
+
+    exceptionState.throwTypeError("The provided value is not of type '(ArrayBuffer or ArrayBufferView or Dictionary)'");
+}
+
+v8::Local<v8::Value> toV8(const ArrayBufferOrArrayBufferViewOrDictionary& impl, v8::Local<v8::Object> creationContext, v8::Isolate* isolate)
+{
+    switch (impl.m_type) {
+    case ArrayBufferOrArrayBufferViewOrDictionary::SpecificTypeNone:
+        return v8::Null(isolate);
+    case ArrayBufferOrArrayBufferViewOrDictionary::SpecificTypeArrayBuffer:
+        return toV8(impl.getAsArrayBuffer(), creationContext, isolate);
+    case ArrayBufferOrArrayBufferViewOrDictionary::SpecificTypeArrayBufferView:
+        return toV8(impl.getAsArrayBufferView(), creationContext, isolate);
+    case ArrayBufferOrArrayBufferViewOrDictionary::SpecificTypeDictionary:
+        return impl.getAsDictionary().v8Value();
+    default:
+        ASSERT_NOT_REACHED();
+    }
+    return v8::Local<v8::Value>();
+}
+
+ArrayBufferOrArrayBufferViewOrDictionary NativeValueTraits<ArrayBufferOrArrayBufferViewOrDictionary>::nativeValue(v8::Isolate* isolate, v8::Local<v8::Value> value, ExceptionState& exceptionState)
+{
+    ArrayBufferOrArrayBufferViewOrDictionary impl;
+    V8ArrayBufferOrArrayBufferViewOrDictionary::toImpl(isolate, value, impl, exceptionState);
+    return impl;
+}
 
 BooleanOrStringOrUnrestrictedDouble::BooleanOrStringOrUnrestrictedDouble()
     : m_type(SpecificTypeNone)
@@ -45,6 +174,13 @@ void BooleanOrStringOrUnrestrictedDouble::setBoolean(bool value)
     m_type = SpecificTypeBoolean;
 }
 
+BooleanOrStringOrUnrestrictedDouble BooleanOrStringOrUnrestrictedDouble::fromBoolean(bool value)
+{
+    BooleanOrStringOrUnrestrictedDouble container;
+    container.setBoolean(value);
+    return container;
+}
+
 String BooleanOrStringOrUnrestrictedDouble::getAsString() const
 {
     ASSERT(isString());
@@ -56,6 +192,13 @@ void BooleanOrStringOrUnrestrictedDouble::setString(String value)
     ASSERT(isNull());
     m_string = value;
     m_type = SpecificTypeString;
+}
+
+BooleanOrStringOrUnrestrictedDouble BooleanOrStringOrUnrestrictedDouble::fromString(String value)
+{
+    BooleanOrStringOrUnrestrictedDouble container;
+    container.setString(value);
+    return container;
 }
 
 double BooleanOrStringOrUnrestrictedDouble::getAsUnrestrictedDouble() const
@@ -71,32 +214,50 @@ void BooleanOrStringOrUnrestrictedDouble::setUnrestrictedDouble(double value)
     m_type = SpecificTypeUnrestrictedDouble;
 }
 
-void V8BooleanOrStringOrUnrestrictedDouble::toImpl(v8::Isolate* isolate, v8::Handle<v8::Value> v8Value, BooleanOrStringOrUnrestrictedDouble& impl, ExceptionState& exceptionState)
+BooleanOrStringOrUnrestrictedDouble BooleanOrStringOrUnrestrictedDouble::fromUnrestrictedDouble(double value)
+{
+    BooleanOrStringOrUnrestrictedDouble container;
+    container.setUnrestrictedDouble(value);
+    return container;
+}
+
+BooleanOrStringOrUnrestrictedDouble::BooleanOrStringOrUnrestrictedDouble(const BooleanOrStringOrUnrestrictedDouble&) = default;
+BooleanOrStringOrUnrestrictedDouble::~BooleanOrStringOrUnrestrictedDouble() = default;
+BooleanOrStringOrUnrestrictedDouble& BooleanOrStringOrUnrestrictedDouble::operator=(const BooleanOrStringOrUnrestrictedDouble&) = default;
+
+DEFINE_TRACE(BooleanOrStringOrUnrestrictedDouble)
+{
+}
+
+void V8BooleanOrStringOrUnrestrictedDouble::toImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value, BooleanOrStringOrUnrestrictedDouble& impl, ExceptionState& exceptionState)
 {
     if (v8Value.IsEmpty())
         return;
 
     if (v8Value->IsBoolean()) {
-        impl.setBoolean(v8Value->ToBoolean()->Value());
+        impl.setBoolean(v8Value.As<v8::Boolean>()->Value());
         return;
     }
 
     if (v8Value->IsNumber()) {
-        TONATIVE_VOID_EXCEPTIONSTATE(double, cppValue, toDouble(v8Value, exceptionState), exceptionState);
+        double cppValue = toDouble(isolate, v8Value, exceptionState);
+        if (exceptionState.hadException())
+            return;
         impl.setUnrestrictedDouble(cppValue);
         return;
     }
 
     {
-        TOSTRING_VOID_EXCEPTIONSTATE(V8StringResource<>, cppValue, v8Value, exceptionState);
+        V8StringResource<> cppValue = v8Value;
+        if (!cppValue.prepare(exceptionState))
+            return;
         impl.setString(cppValue);
         return;
     }
 
-    exceptionState.throwTypeError("Not a valid union member.");
 }
 
-v8::Handle<v8::Value> toV8(BooleanOrStringOrUnrestrictedDouble& impl, v8::Handle<v8::Object> creationContext, v8::Isolate* isolate)
+v8::Local<v8::Value> toV8(const BooleanOrStringOrUnrestrictedDouble& impl, v8::Local<v8::Object> creationContext, v8::Isolate* isolate)
 {
     switch (impl.m_type) {
     case BooleanOrStringOrUnrestrictedDouble::SpecificTypeNone:
@@ -110,7 +271,14 @@ v8::Handle<v8::Value> toV8(BooleanOrStringOrUnrestrictedDouble& impl, v8::Handle
     default:
         ASSERT_NOT_REACHED();
     }
-    return v8::Handle<v8::Value>();
+    return v8::Local<v8::Value>();
+}
+
+BooleanOrStringOrUnrestrictedDouble NativeValueTraits<BooleanOrStringOrUnrestrictedDouble>::nativeValue(v8::Isolate* isolate, v8::Local<v8::Value> value, ExceptionState& exceptionState)
+{
+    BooleanOrStringOrUnrestrictedDouble impl;
+    V8BooleanOrStringOrUnrestrictedDouble::toImpl(isolate, value, impl, exceptionState);
+    return impl;
 }
 
 DoubleOrString::DoubleOrString()
@@ -131,6 +299,13 @@ void DoubleOrString::setDouble(double value)
     m_type = SpecificTypeDouble;
 }
 
+DoubleOrString DoubleOrString::fromDouble(double value)
+{
+    DoubleOrString container;
+    container.setDouble(value);
+    return container;
+}
+
 String DoubleOrString::getAsString() const
 {
     ASSERT(isString());
@@ -144,27 +319,45 @@ void DoubleOrString::setString(String value)
     m_type = SpecificTypeString;
 }
 
-void V8DoubleOrString::toImpl(v8::Isolate* isolate, v8::Handle<v8::Value> v8Value, DoubleOrString& impl, ExceptionState& exceptionState)
+DoubleOrString DoubleOrString::fromString(String value)
+{
+    DoubleOrString container;
+    container.setString(value);
+    return container;
+}
+
+DoubleOrString::DoubleOrString(const DoubleOrString&) = default;
+DoubleOrString::~DoubleOrString() = default;
+DoubleOrString& DoubleOrString::operator=(const DoubleOrString&) = default;
+
+DEFINE_TRACE(DoubleOrString)
+{
+}
+
+void V8DoubleOrString::toImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value, DoubleOrString& impl, ExceptionState& exceptionState)
 {
     if (v8Value.IsEmpty())
         return;
 
     if (v8Value->IsNumber()) {
-        TONATIVE_VOID_EXCEPTIONSTATE(double, cppValue, toDouble(v8Value, exceptionState), exceptionState);
+        double cppValue = toRestrictedDouble(isolate, v8Value, exceptionState);
+        if (exceptionState.hadException())
+            return;
         impl.setDouble(cppValue);
         return;
     }
 
     {
-        TOSTRING_VOID_EXCEPTIONSTATE(V8StringResource<>, cppValue, v8Value, exceptionState);
+        V8StringResource<> cppValue = v8Value;
+        if (!cppValue.prepare(exceptionState))
+            return;
         impl.setString(cppValue);
         return;
     }
 
-    exceptionState.throwTypeError("Not a valid union member.");
 }
 
-v8::Handle<v8::Value> toV8(DoubleOrString& impl, v8::Handle<v8::Object> creationContext, v8::Isolate* isolate)
+v8::Local<v8::Value> toV8(const DoubleOrString& impl, v8::Local<v8::Object> creationContext, v8::Isolate* isolate)
 {
     switch (impl.m_type) {
     case DoubleOrString::SpecificTypeNone:
@@ -176,7 +369,122 @@ v8::Handle<v8::Value> toV8(DoubleOrString& impl, v8::Handle<v8::Object> creation
     default:
         ASSERT_NOT_REACHED();
     }
-    return v8::Handle<v8::Value>();
+    return v8::Local<v8::Value>();
+}
+
+DoubleOrString NativeValueTraits<DoubleOrString>::nativeValue(v8::Isolate* isolate, v8::Local<v8::Value> value, ExceptionState& exceptionState)
+{
+    DoubleOrString impl;
+    V8DoubleOrString::toImpl(isolate, value, impl, exceptionState);
+    return impl;
+}
+
+LongOrTestDictionary::LongOrTestDictionary()
+    : m_type(SpecificTypeNone)
+{
+}
+
+int LongOrTestDictionary::getAsLong() const
+{
+    ASSERT(isLong());
+    return m_long;
+}
+
+void LongOrTestDictionary::setLong(int value)
+{
+    ASSERT(isNull());
+    m_long = value;
+    m_type = SpecificTypeLong;
+}
+
+LongOrTestDictionary LongOrTestDictionary::fromLong(int value)
+{
+    LongOrTestDictionary container;
+    container.setLong(value);
+    return container;
+}
+
+TestDictionary LongOrTestDictionary::getAsTestDictionary() const
+{
+    ASSERT(isTestDictionary());
+    return m_testDictionary;
+}
+
+void LongOrTestDictionary::setTestDictionary(TestDictionary value)
+{
+    ASSERT(isNull());
+    m_testDictionary = value;
+    m_type = SpecificTypeTestDictionary;
+}
+
+LongOrTestDictionary LongOrTestDictionary::fromTestDictionary(TestDictionary value)
+{
+    LongOrTestDictionary container;
+    container.setTestDictionary(value);
+    return container;
+}
+
+LongOrTestDictionary::LongOrTestDictionary(const LongOrTestDictionary&) = default;
+LongOrTestDictionary::~LongOrTestDictionary() = default;
+LongOrTestDictionary& LongOrTestDictionary::operator=(const LongOrTestDictionary&) = default;
+
+DEFINE_TRACE(LongOrTestDictionary)
+{
+    visitor->trace(m_testDictionary);
+}
+
+void V8LongOrTestDictionary::toImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value, LongOrTestDictionary& impl, ExceptionState& exceptionState)
+{
+    if (v8Value.IsEmpty())
+        return;
+
+    if (isUndefinedOrNull(v8Value) || v8Value->IsObject()) {
+        TestDictionary cppValue;
+        V8TestDictionary::toImpl(isolate, v8Value, cppValue, exceptionState);
+        if (exceptionState.hadException())
+            return;
+        impl.setTestDictionary(cppValue);
+        return;
+    }
+
+    if (v8Value->IsNumber()) {
+        int cppValue = toInt32(isolate, v8Value, NormalConversion, exceptionState);
+        if (exceptionState.hadException())
+            return;
+        impl.setLong(cppValue);
+        return;
+    }
+
+    {
+        int cppValue = toInt32(isolate, v8Value, NormalConversion, exceptionState);
+        if (exceptionState.hadException())
+            return;
+        impl.setLong(cppValue);
+        return;
+    }
+
+}
+
+v8::Local<v8::Value> toV8(const LongOrTestDictionary& impl, v8::Local<v8::Object> creationContext, v8::Isolate* isolate)
+{
+    switch (impl.m_type) {
+    case LongOrTestDictionary::SpecificTypeNone:
+        return v8::Null(isolate);
+    case LongOrTestDictionary::SpecificTypeLong:
+        return v8::Integer::New(isolate, impl.getAsLong());
+    case LongOrTestDictionary::SpecificTypeTestDictionary:
+        return toV8(impl.getAsTestDictionary(), creationContext, isolate);
+    default:
+        ASSERT_NOT_REACHED();
+    }
+    return v8::Local<v8::Value>();
+}
+
+LongOrTestDictionary NativeValueTraits<LongOrTestDictionary>::nativeValue(v8::Isolate* isolate, v8::Local<v8::Value> value, ExceptionState& exceptionState)
+{
+    LongOrTestDictionary impl;
+    V8LongOrTestDictionary::toImpl(isolate, value, impl, exceptionState);
+    return impl;
 }
 
 NodeOrNodeList::NodeOrNodeList()
@@ -197,6 +505,13 @@ void NodeOrNodeList::setNode(PassRefPtrWillBeRawPtr<Node> value)
     m_type = SpecificTypeNode;
 }
 
+NodeOrNodeList NodeOrNodeList::fromNode(PassRefPtrWillBeRawPtr<Node> value)
+{
+    NodeOrNodeList container;
+    container.setNode(value);
+    return container;
+}
+
 PassRefPtrWillBeRawPtr<NodeList> NodeOrNodeList::getAsNodeList() const
 {
     ASSERT(isNodeList());
@@ -210,33 +525,44 @@ void NodeOrNodeList::setNodeList(PassRefPtrWillBeRawPtr<NodeList> value)
     m_type = SpecificTypeNodeList;
 }
 
-void NodeOrNodeList::trace(Visitor* visitor)
+NodeOrNodeList NodeOrNodeList::fromNodeList(PassRefPtrWillBeRawPtr<NodeList> value)
+{
+    NodeOrNodeList container;
+    container.setNodeList(value);
+    return container;
+}
+
+NodeOrNodeList::NodeOrNodeList(const NodeOrNodeList&) = default;
+NodeOrNodeList::~NodeOrNodeList() = default;
+NodeOrNodeList& NodeOrNodeList::operator=(const NodeOrNodeList&) = default;
+
+DEFINE_TRACE(NodeOrNodeList)
 {
     visitor->trace(m_node);
     visitor->trace(m_nodeList);
 }
 
-void V8NodeOrNodeList::toImpl(v8::Isolate* isolate, v8::Handle<v8::Value> v8Value, NodeOrNodeList& impl, ExceptionState& exceptionState)
+void V8NodeOrNodeList::toImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value, NodeOrNodeList& impl, ExceptionState& exceptionState)
 {
     if (v8Value.IsEmpty())
         return;
 
     if (V8Node::hasInstance(v8Value, isolate)) {
-        RefPtrWillBeRawPtr<Node> cppValue = V8Node::toImpl(v8::Handle<v8::Object>::Cast(v8Value));
+        RefPtrWillBeRawPtr<Node> cppValue = V8Node::toImpl(v8::Local<v8::Object>::Cast(v8Value));
         impl.setNode(cppValue);
         return;
     }
 
     if (V8NodeList::hasInstance(v8Value, isolate)) {
-        RefPtrWillBeRawPtr<NodeList> cppValue = V8NodeList::toImpl(v8::Handle<v8::Object>::Cast(v8Value));
+        RefPtrWillBeRawPtr<NodeList> cppValue = V8NodeList::toImpl(v8::Local<v8::Object>::Cast(v8Value));
         impl.setNodeList(cppValue);
         return;
     }
 
-    exceptionState.throwTypeError("Not a valid union member.");
+    exceptionState.throwTypeError("The provided value is not of type '(Node or NodeList)'");
 }
 
-v8::Handle<v8::Value> toV8(NodeOrNodeList& impl, v8::Handle<v8::Object> creationContext, v8::Isolate* isolate)
+v8::Local<v8::Value> toV8(const NodeOrNodeList& impl, v8::Local<v8::Object> creationContext, v8::Isolate* isolate)
 {
     switch (impl.m_type) {
     case NodeOrNodeList::SpecificTypeNone:
@@ -248,7 +574,14 @@ v8::Handle<v8::Value> toV8(NodeOrNodeList& impl, v8::Handle<v8::Object> creation
     default:
         ASSERT_NOT_REACHED();
     }
-    return v8::Handle<v8::Value>();
+    return v8::Local<v8::Value>();
+}
+
+NodeOrNodeList NativeValueTraits<NodeOrNodeList>::nativeValue(v8::Isolate* isolate, v8::Local<v8::Value> value, ExceptionState& exceptionState)
+{
+    NodeOrNodeList impl;
+    V8NodeOrNodeList::toImpl(isolate, value, impl, exceptionState);
+    return impl;
 }
 
 StringOrArrayBufferOrArrayBufferView::StringOrArrayBufferOrArrayBufferView()
@@ -269,6 +602,13 @@ void StringOrArrayBufferOrArrayBufferView::setString(String value)
     m_type = SpecificTypeString;
 }
 
+StringOrArrayBufferOrArrayBufferView StringOrArrayBufferOrArrayBufferView::fromString(String value)
+{
+    StringOrArrayBufferOrArrayBufferView container;
+    container.setString(value);
+    return container;
+}
+
 PassRefPtr<TestArrayBuffer> StringOrArrayBufferOrArrayBufferView::getAsArrayBuffer() const
 {
     ASSERT(isArrayBuffer());
@@ -280,6 +620,13 @@ void StringOrArrayBufferOrArrayBufferView::setArrayBuffer(PassRefPtr<TestArrayBu
     ASSERT(isNull());
     m_arrayBuffer = value;
     m_type = SpecificTypeArrayBuffer;
+}
+
+StringOrArrayBufferOrArrayBufferView StringOrArrayBufferOrArrayBufferView::fromArrayBuffer(PassRefPtr<TestArrayBuffer> value)
+{
+    StringOrArrayBufferOrArrayBufferView container;
+    container.setArrayBuffer(value);
+    return container;
 }
 
 PassRefPtr<TestArrayBufferView> StringOrArrayBufferOrArrayBufferView::getAsArrayBufferView() const
@@ -295,33 +642,49 @@ void StringOrArrayBufferOrArrayBufferView::setArrayBufferView(PassRefPtr<TestArr
     m_type = SpecificTypeArrayBufferView;
 }
 
-void V8StringOrArrayBufferOrArrayBufferView::toImpl(v8::Isolate* isolate, v8::Handle<v8::Value> v8Value, StringOrArrayBufferOrArrayBufferView& impl, ExceptionState& exceptionState)
+StringOrArrayBufferOrArrayBufferView StringOrArrayBufferOrArrayBufferView::fromArrayBufferView(PassRefPtr<TestArrayBufferView> value)
+{
+    StringOrArrayBufferOrArrayBufferView container;
+    container.setArrayBufferView(value);
+    return container;
+}
+
+StringOrArrayBufferOrArrayBufferView::StringOrArrayBufferOrArrayBufferView(const StringOrArrayBufferOrArrayBufferView&) = default;
+StringOrArrayBufferOrArrayBufferView::~StringOrArrayBufferOrArrayBufferView() = default;
+StringOrArrayBufferOrArrayBufferView& StringOrArrayBufferOrArrayBufferView::operator=(const StringOrArrayBufferOrArrayBufferView&) = default;
+
+DEFINE_TRACE(StringOrArrayBufferOrArrayBufferView)
+{
+}
+
+void V8StringOrArrayBufferOrArrayBufferView::toImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value, StringOrArrayBufferOrArrayBufferView& impl, ExceptionState& exceptionState)
 {
     if (v8Value.IsEmpty())
         return;
 
     if (V8ArrayBuffer::hasInstance(v8Value, isolate)) {
-        RefPtr<TestArrayBuffer> cppValue = V8ArrayBuffer::toImpl(v8::Handle<v8::Object>::Cast(v8Value));
+        RefPtr<TestArrayBuffer> cppValue = V8ArrayBuffer::toImpl(v8::Local<v8::Object>::Cast(v8Value));
         impl.setArrayBuffer(cppValue);
         return;
     }
 
     if (V8ArrayBufferView::hasInstance(v8Value, isolate)) {
-        RefPtr<TestArrayBufferView> cppValue = V8ArrayBufferView::toImpl(v8::Handle<v8::Object>::Cast(v8Value));
+        RefPtr<TestArrayBufferView> cppValue = V8ArrayBufferView::toImpl(v8::Local<v8::Object>::Cast(v8Value));
         impl.setArrayBufferView(cppValue);
         return;
     }
 
     {
-        TOSTRING_VOID_EXCEPTIONSTATE(V8StringResource<>, cppValue, v8Value, exceptionState);
+        V8StringResource<> cppValue = v8Value;
+        if (!cppValue.prepare(exceptionState))
+            return;
         impl.setString(cppValue);
         return;
     }
 
-    exceptionState.throwTypeError("Not a valid union member.");
 }
 
-v8::Handle<v8::Value> toV8(StringOrArrayBufferOrArrayBufferView& impl, v8::Handle<v8::Object> creationContext, v8::Isolate* isolate)
+v8::Local<v8::Value> toV8(const StringOrArrayBufferOrArrayBufferView& impl, v8::Local<v8::Object> creationContext, v8::Isolate* isolate)
 {
     switch (impl.m_type) {
     case StringOrArrayBufferOrArrayBufferView::SpecificTypeNone:
@@ -335,7 +698,14 @@ v8::Handle<v8::Value> toV8(StringOrArrayBufferOrArrayBufferView& impl, v8::Handl
     default:
         ASSERT_NOT_REACHED();
     }
-    return v8::Handle<v8::Value>();
+    return v8::Local<v8::Value>();
+}
+
+StringOrArrayBufferOrArrayBufferView NativeValueTraits<StringOrArrayBufferOrArrayBufferView>::nativeValue(v8::Isolate* isolate, v8::Local<v8::Value> value, ExceptionState& exceptionState)
+{
+    StringOrArrayBufferOrArrayBufferView impl;
+    V8StringOrArrayBufferOrArrayBufferView::toImpl(isolate, value, impl, exceptionState);
+    return impl;
 }
 
 StringOrDouble::StringOrDouble()
@@ -356,6 +726,13 @@ void StringOrDouble::setString(String value)
     m_type = SpecificTypeString;
 }
 
+StringOrDouble StringOrDouble::fromString(String value)
+{
+    StringOrDouble container;
+    container.setString(value);
+    return container;
+}
+
 double StringOrDouble::getAsDouble() const
 {
     ASSERT(isDouble());
@@ -369,27 +746,45 @@ void StringOrDouble::setDouble(double value)
     m_type = SpecificTypeDouble;
 }
 
-void V8StringOrDouble::toImpl(v8::Isolate* isolate, v8::Handle<v8::Value> v8Value, StringOrDouble& impl, ExceptionState& exceptionState)
+StringOrDouble StringOrDouble::fromDouble(double value)
+{
+    StringOrDouble container;
+    container.setDouble(value);
+    return container;
+}
+
+StringOrDouble::StringOrDouble(const StringOrDouble&) = default;
+StringOrDouble::~StringOrDouble() = default;
+StringOrDouble& StringOrDouble::operator=(const StringOrDouble&) = default;
+
+DEFINE_TRACE(StringOrDouble)
+{
+}
+
+void V8StringOrDouble::toImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value, StringOrDouble& impl, ExceptionState& exceptionState)
 {
     if (v8Value.IsEmpty())
         return;
 
     if (v8Value->IsNumber()) {
-        TONATIVE_VOID_EXCEPTIONSTATE(double, cppValue, toDouble(v8Value, exceptionState), exceptionState);
+        double cppValue = toRestrictedDouble(isolate, v8Value, exceptionState);
+        if (exceptionState.hadException())
+            return;
         impl.setDouble(cppValue);
         return;
     }
 
     {
-        TOSTRING_VOID_EXCEPTIONSTATE(V8StringResource<>, cppValue, v8Value, exceptionState);
+        V8StringResource<> cppValue = v8Value;
+        if (!cppValue.prepare(exceptionState))
+            return;
         impl.setString(cppValue);
         return;
     }
 
-    exceptionState.throwTypeError("Not a valid union member.");
 }
 
-v8::Handle<v8::Value> toV8(StringOrDouble& impl, v8::Handle<v8::Object> creationContext, v8::Isolate* isolate)
+v8::Local<v8::Value> toV8(const StringOrDouble& impl, v8::Local<v8::Object> creationContext, v8::Isolate* isolate)
 {
     switch (impl.m_type) {
     case StringOrDouble::SpecificTypeNone:
@@ -401,7 +796,324 @@ v8::Handle<v8::Value> toV8(StringOrDouble& impl, v8::Handle<v8::Object> creation
     default:
         ASSERT_NOT_REACHED();
     }
-    return v8::Handle<v8::Value>();
+    return v8::Local<v8::Value>();
+}
+
+StringOrDouble NativeValueTraits<StringOrDouble>::nativeValue(v8::Isolate* isolate, v8::Local<v8::Value> value, ExceptionState& exceptionState)
+{
+    StringOrDouble impl;
+    V8StringOrDouble::toImpl(isolate, value, impl, exceptionState);
+    return impl;
+}
+
+StringOrStringSequence::StringOrStringSequence()
+    : m_type(SpecificTypeNone)
+{
+}
+
+String StringOrStringSequence::getAsString() const
+{
+    ASSERT(isString());
+    return m_string;
+}
+
+void StringOrStringSequence::setString(String value)
+{
+    ASSERT(isNull());
+    m_string = value;
+    m_type = SpecificTypeString;
+}
+
+StringOrStringSequence StringOrStringSequence::fromString(String value)
+{
+    StringOrStringSequence container;
+    container.setString(value);
+    return container;
+}
+
+const Vector<String>& StringOrStringSequence::getAsStringSequence() const
+{
+    ASSERT(isStringSequence());
+    return m_stringSequence;
+}
+
+void StringOrStringSequence::setStringSequence(const Vector<String>& value)
+{
+    ASSERT(isNull());
+    m_stringSequence = value;
+    m_type = SpecificTypeStringSequence;
+}
+
+StringOrStringSequence StringOrStringSequence::fromStringSequence(const Vector<String>& value)
+{
+    StringOrStringSequence container;
+    container.setStringSequence(value);
+    return container;
+}
+
+StringOrStringSequence::StringOrStringSequence(const StringOrStringSequence&) = default;
+StringOrStringSequence::~StringOrStringSequence() = default;
+StringOrStringSequence& StringOrStringSequence::operator=(const StringOrStringSequence&) = default;
+
+DEFINE_TRACE(StringOrStringSequence)
+{
+}
+
+void V8StringOrStringSequence::toImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value, StringOrStringSequence& impl, ExceptionState& exceptionState)
+{
+    if (v8Value.IsEmpty())
+        return;
+
+    if (v8Value->IsArray()) {
+        Vector<String> cppValue = toImplArray<Vector<String>>(v8Value, 0, isolate, exceptionState);
+        if (exceptionState.hadException())
+            return;
+        impl.setStringSequence(cppValue);
+        return;
+    }
+
+    {
+        V8StringResource<> cppValue = v8Value;
+        if (!cppValue.prepare(exceptionState))
+            return;
+        impl.setString(cppValue);
+        return;
+    }
+
+}
+
+v8::Local<v8::Value> toV8(const StringOrStringSequence& impl, v8::Local<v8::Object> creationContext, v8::Isolate* isolate)
+{
+    switch (impl.m_type) {
+    case StringOrStringSequence::SpecificTypeNone:
+        return v8::Null(isolate);
+    case StringOrStringSequence::SpecificTypeString:
+        return v8String(isolate, impl.getAsString());
+    case StringOrStringSequence::SpecificTypeStringSequence:
+        return toV8(impl.getAsStringSequence(), creationContext, isolate);
+    default:
+        ASSERT_NOT_REACHED();
+    }
+    return v8::Local<v8::Value>();
+}
+
+StringOrStringSequence NativeValueTraits<StringOrStringSequence>::nativeValue(v8::Isolate* isolate, v8::Local<v8::Value> value, ExceptionState& exceptionState)
+{
+    StringOrStringSequence impl;
+    V8StringOrStringSequence::toImpl(isolate, value, impl, exceptionState);
+    return impl;
+}
+
+TestEnumOrDouble::TestEnumOrDouble()
+    : m_type(SpecificTypeNone)
+{
+}
+
+String TestEnumOrDouble::getAsTestEnum() const
+{
+    ASSERT(isTestEnum());
+    return m_testEnum;
+}
+
+void TestEnumOrDouble::setTestEnum(String value)
+{
+    ASSERT(isNull());
+    NonThrowableExceptionState exceptionState;
+    static const char* validValues[] = {
+        "",
+        "EnumValue1",
+        "EnumValue2",
+        "EnumValue3",
+    };
+    if (!isValidEnum(value, validValues, WTF_ARRAY_LENGTH(validValues), "TestEnum", exceptionState)) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+    m_testEnum = value;
+    m_type = SpecificTypeTestEnum;
+}
+
+TestEnumOrDouble TestEnumOrDouble::fromTestEnum(String value)
+{
+    TestEnumOrDouble container;
+    container.setTestEnum(value);
+    return container;
+}
+
+double TestEnumOrDouble::getAsDouble() const
+{
+    ASSERT(isDouble());
+    return m_double;
+}
+
+void TestEnumOrDouble::setDouble(double value)
+{
+    ASSERT(isNull());
+    m_double = value;
+    m_type = SpecificTypeDouble;
+}
+
+TestEnumOrDouble TestEnumOrDouble::fromDouble(double value)
+{
+    TestEnumOrDouble container;
+    container.setDouble(value);
+    return container;
+}
+
+TestEnumOrDouble::TestEnumOrDouble(const TestEnumOrDouble&) = default;
+TestEnumOrDouble::~TestEnumOrDouble() = default;
+TestEnumOrDouble& TestEnumOrDouble::operator=(const TestEnumOrDouble&) = default;
+
+DEFINE_TRACE(TestEnumOrDouble)
+{
+}
+
+void V8TestEnumOrDouble::toImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value, TestEnumOrDouble& impl, ExceptionState& exceptionState)
+{
+    if (v8Value.IsEmpty())
+        return;
+
+    if (v8Value->IsNumber()) {
+        double cppValue = toRestrictedDouble(isolate, v8Value, exceptionState);
+        if (exceptionState.hadException())
+            return;
+        impl.setDouble(cppValue);
+        return;
+    }
+
+    {
+        V8StringResource<> cppValue = v8Value;
+        if (!cppValue.prepare(exceptionState))
+            return;
+        static const char* validValues[] = {
+            "",
+            "EnumValue1",
+            "EnumValue2",
+            "EnumValue3",
+        };
+        if (!isValidEnum(cppValue, validValues, WTF_ARRAY_LENGTH(validValues), "TestEnum", exceptionState))
+            return;
+        impl.setTestEnum(cppValue);
+        return;
+    }
+
+}
+
+v8::Local<v8::Value> toV8(const TestEnumOrDouble& impl, v8::Local<v8::Object> creationContext, v8::Isolate* isolate)
+{
+    switch (impl.m_type) {
+    case TestEnumOrDouble::SpecificTypeNone:
+        return v8::Null(isolate);
+    case TestEnumOrDouble::SpecificTypeTestEnum:
+        return v8String(isolate, impl.getAsTestEnum());
+    case TestEnumOrDouble::SpecificTypeDouble:
+        return v8::Number::New(isolate, impl.getAsDouble());
+    default:
+        ASSERT_NOT_REACHED();
+    }
+    return v8::Local<v8::Value>();
+}
+
+TestEnumOrDouble NativeValueTraits<TestEnumOrDouble>::nativeValue(v8::Isolate* isolate, v8::Local<v8::Value> value, ExceptionState& exceptionState)
+{
+    TestEnumOrDouble impl;
+    V8TestEnumOrDouble::toImpl(isolate, value, impl, exceptionState);
+    return impl;
+}
+
+TestInterface2OrUint8Array::TestInterface2OrUint8Array()
+    : m_type(SpecificTypeNone)
+{
+}
+
+PassRefPtr<TestInterface2> TestInterface2OrUint8Array::getAsTestInterface2() const
+{
+    ASSERT(isTestInterface2());
+    return m_testInterface2;
+}
+
+void TestInterface2OrUint8Array::setTestInterface2(PassRefPtr<TestInterface2> value)
+{
+    ASSERT(isNull());
+    m_testInterface2 = value;
+    m_type = SpecificTypeTestInterface2;
+}
+
+TestInterface2OrUint8Array TestInterface2OrUint8Array::fromTestInterface2(PassRefPtr<TestInterface2> value)
+{
+    TestInterface2OrUint8Array container;
+    container.setTestInterface2(value);
+    return container;
+}
+
+PassRefPtr<DOMUint8Array> TestInterface2OrUint8Array::getAsUint8Array() const
+{
+    ASSERT(isUint8Array());
+    return m_uint8Array;
+}
+
+void TestInterface2OrUint8Array::setUint8Array(PassRefPtr<DOMUint8Array> value)
+{
+    ASSERT(isNull());
+    m_uint8Array = value;
+    m_type = SpecificTypeUint8Array;
+}
+
+TestInterface2OrUint8Array TestInterface2OrUint8Array::fromUint8Array(PassRefPtr<DOMUint8Array> value)
+{
+    TestInterface2OrUint8Array container;
+    container.setUint8Array(value);
+    return container;
+}
+
+TestInterface2OrUint8Array::TestInterface2OrUint8Array(const TestInterface2OrUint8Array&) = default;
+TestInterface2OrUint8Array::~TestInterface2OrUint8Array() = default;
+TestInterface2OrUint8Array& TestInterface2OrUint8Array::operator=(const TestInterface2OrUint8Array&) = default;
+
+DEFINE_TRACE(TestInterface2OrUint8Array)
+{
+}
+
+void V8TestInterface2OrUint8Array::toImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value, TestInterface2OrUint8Array& impl, ExceptionState& exceptionState)
+{
+    if (v8Value.IsEmpty())
+        return;
+
+    if (V8TestInterface2::hasInstance(v8Value, isolate)) {
+        RefPtr<TestInterface2> cppValue = V8TestInterface2::toImpl(v8::Local<v8::Object>::Cast(v8Value));
+        impl.setTestInterface2(cppValue);
+        return;
+    }
+
+    if (V8Uint8Array::hasInstance(v8Value, isolate)) {
+        RefPtr<DOMUint8Array> cppValue = V8Uint8Array::toImpl(v8::Local<v8::Object>::Cast(v8Value));
+        impl.setUint8Array(cppValue);
+        return;
+    }
+
+    exceptionState.throwTypeError("The provided value is not of type '(TestInterface2 or Uint8Array)'");
+}
+
+v8::Local<v8::Value> toV8(const TestInterface2OrUint8Array& impl, v8::Local<v8::Object> creationContext, v8::Isolate* isolate)
+{
+    switch (impl.m_type) {
+    case TestInterface2OrUint8Array::SpecificTypeNone:
+        return v8::Null(isolate);
+    case TestInterface2OrUint8Array::SpecificTypeTestInterface2:
+        return toV8(impl.getAsTestInterface2(), creationContext, isolate);
+    case TestInterface2OrUint8Array::SpecificTypeUint8Array:
+        return toV8(impl.getAsUint8Array(), creationContext, isolate);
+    default:
+        ASSERT_NOT_REACHED();
+    }
+    return v8::Local<v8::Value>();
+}
+
+TestInterface2OrUint8Array NativeValueTraits<TestInterface2OrUint8Array>::nativeValue(v8::Isolate* isolate, v8::Local<v8::Value> value, ExceptionState& exceptionState)
+{
+    TestInterface2OrUint8Array impl;
+    V8TestInterface2OrUint8Array::toImpl(isolate, value, impl, exceptionState);
+    return impl;
 }
 
 TestInterfaceGarbageCollectedOrString::TestInterfaceGarbageCollectedOrString()
@@ -409,17 +1121,24 @@ TestInterfaceGarbageCollectedOrString::TestInterfaceGarbageCollectedOrString()
 {
 }
 
-RawPtr<TestInterfaceGarbageCollected> TestInterfaceGarbageCollectedOrString::getAsTestInterfaceGarbageCollected() const
+TestInterfaceGarbageCollected* TestInterfaceGarbageCollectedOrString::getAsTestInterfaceGarbageCollected() const
 {
     ASSERT(isTestInterfaceGarbageCollected());
     return m_testInterfaceGarbageCollected;
 }
 
-void TestInterfaceGarbageCollectedOrString::setTestInterfaceGarbageCollected(RawPtr<TestInterfaceGarbageCollected> value)
+void TestInterfaceGarbageCollectedOrString::setTestInterfaceGarbageCollected(TestInterfaceGarbageCollected* value)
 {
     ASSERT(isNull());
     m_testInterfaceGarbageCollected = value;
     m_type = SpecificTypeTestInterfaceGarbageCollected;
+}
+
+TestInterfaceGarbageCollectedOrString TestInterfaceGarbageCollectedOrString::fromTestInterfaceGarbageCollected(TestInterfaceGarbageCollected* value)
+{
+    TestInterfaceGarbageCollectedOrString container;
+    container.setTestInterfaceGarbageCollected(value);
+    return container;
 }
 
 String TestInterfaceGarbageCollectedOrString::getAsString() const
@@ -435,32 +1154,44 @@ void TestInterfaceGarbageCollectedOrString::setString(String value)
     m_type = SpecificTypeString;
 }
 
-void TestInterfaceGarbageCollectedOrString::trace(Visitor* visitor)
+TestInterfaceGarbageCollectedOrString TestInterfaceGarbageCollectedOrString::fromString(String value)
+{
+    TestInterfaceGarbageCollectedOrString container;
+    container.setString(value);
+    return container;
+}
+
+TestInterfaceGarbageCollectedOrString::TestInterfaceGarbageCollectedOrString(const TestInterfaceGarbageCollectedOrString&) = default;
+TestInterfaceGarbageCollectedOrString::~TestInterfaceGarbageCollectedOrString() = default;
+TestInterfaceGarbageCollectedOrString& TestInterfaceGarbageCollectedOrString::operator=(const TestInterfaceGarbageCollectedOrString&) = default;
+
+DEFINE_TRACE(TestInterfaceGarbageCollectedOrString)
 {
     visitor->trace(m_testInterfaceGarbageCollected);
 }
 
-void V8TestInterfaceGarbageCollectedOrString::toImpl(v8::Isolate* isolate, v8::Handle<v8::Value> v8Value, TestInterfaceGarbageCollectedOrString& impl, ExceptionState& exceptionState)
+void V8TestInterfaceGarbageCollectedOrString::toImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value, TestInterfaceGarbageCollectedOrString& impl, ExceptionState& exceptionState)
 {
     if (v8Value.IsEmpty())
         return;
 
     if (V8TestInterfaceGarbageCollected::hasInstance(v8Value, isolate)) {
-        RawPtr<TestInterfaceGarbageCollected> cppValue = V8TestInterfaceGarbageCollected::toImpl(v8::Handle<v8::Object>::Cast(v8Value));
+        RawPtr<TestInterfaceGarbageCollected> cppValue = V8TestInterfaceGarbageCollected::toImpl(v8::Local<v8::Object>::Cast(v8Value));
         impl.setTestInterfaceGarbageCollected(cppValue);
         return;
     }
 
     {
-        TOSTRING_VOID_EXCEPTIONSTATE(V8StringResource<>, cppValue, v8Value, exceptionState);
+        V8StringResource<> cppValue = v8Value;
+        if (!cppValue.prepare(exceptionState))
+            return;
         impl.setString(cppValue);
         return;
     }
 
-    exceptionState.throwTypeError("Not a valid union member.");
 }
 
-v8::Handle<v8::Value> toV8(TestInterfaceGarbageCollectedOrString& impl, v8::Handle<v8::Object> creationContext, v8::Isolate* isolate)
+v8::Local<v8::Value> toV8(const TestInterfaceGarbageCollectedOrString& impl, v8::Local<v8::Object> creationContext, v8::Isolate* isolate)
 {
     switch (impl.m_type) {
     case TestInterfaceGarbageCollectedOrString::SpecificTypeNone:
@@ -472,7 +1203,14 @@ v8::Handle<v8::Value> toV8(TestInterfaceGarbageCollectedOrString& impl, v8::Hand
     default:
         ASSERT_NOT_REACHED();
     }
-    return v8::Handle<v8::Value>();
+    return v8::Local<v8::Value>();
+}
+
+TestInterfaceGarbageCollectedOrString NativeValueTraits<TestInterfaceGarbageCollectedOrString>::nativeValue(v8::Isolate* isolate, v8::Local<v8::Value> value, ExceptionState& exceptionState)
+{
+    TestInterfaceGarbageCollectedOrString impl;
+    V8TestInterfaceGarbageCollectedOrString::toImpl(isolate, value, impl, exceptionState);
+    return impl;
 }
 
 TestInterfaceOrLong::TestInterfaceOrLong()
@@ -493,6 +1231,13 @@ void TestInterfaceOrLong::setTestInterface(PassRefPtr<TestInterfaceImplementatio
     m_type = SpecificTypeTestInterface;
 }
 
+TestInterfaceOrLong TestInterfaceOrLong::fromTestInterface(PassRefPtr<TestInterfaceImplementation> value)
+{
+    TestInterfaceOrLong container;
+    container.setTestInterface(value);
+    return container;
+}
+
 int TestInterfaceOrLong::getAsLong() const
 {
     ASSERT(isLong());
@@ -506,33 +1251,51 @@ void TestInterfaceOrLong::setLong(int value)
     m_type = SpecificTypeLong;
 }
 
-void V8TestInterfaceOrLong::toImpl(v8::Isolate* isolate, v8::Handle<v8::Value> v8Value, TestInterfaceOrLong& impl, ExceptionState& exceptionState)
+TestInterfaceOrLong TestInterfaceOrLong::fromLong(int value)
+{
+    TestInterfaceOrLong container;
+    container.setLong(value);
+    return container;
+}
+
+TestInterfaceOrLong::TestInterfaceOrLong(const TestInterfaceOrLong&) = default;
+TestInterfaceOrLong::~TestInterfaceOrLong() = default;
+TestInterfaceOrLong& TestInterfaceOrLong::operator=(const TestInterfaceOrLong&) = default;
+
+DEFINE_TRACE(TestInterfaceOrLong)
+{
+}
+
+void V8TestInterfaceOrLong::toImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value, TestInterfaceOrLong& impl, ExceptionState& exceptionState)
 {
     if (v8Value.IsEmpty())
         return;
 
     if (V8TestInterface::hasInstance(v8Value, isolate)) {
-        RefPtr<TestInterfaceImplementation> cppValue = V8TestInterface::toImpl(v8::Handle<v8::Object>::Cast(v8Value));
+        RefPtr<TestInterfaceImplementation> cppValue = V8TestInterface::toImpl(v8::Local<v8::Object>::Cast(v8Value));
         impl.setTestInterface(cppValue);
         return;
     }
 
     if (v8Value->IsNumber()) {
-        TONATIVE_VOID_EXCEPTIONSTATE(int, cppValue, toInt32(v8Value, exceptionState), exceptionState);
+        int cppValue = toInt32(isolate, v8Value, NormalConversion, exceptionState);
+        if (exceptionState.hadException())
+            return;
         impl.setLong(cppValue);
         return;
     }
 
     {
-        TONATIVE_VOID_EXCEPTIONSTATE(int, cppValue, toInt32(v8Value, exceptionState), exceptionState);
+        int cppValue = toInt32(isolate, v8Value, NormalConversion, exceptionState);
+        if (exceptionState.hadException())
+            return;
         impl.setLong(cppValue);
         return;
     }
 
-    exceptionState.throwTypeError("Not a valid union member.");
 }
 
-v8::Handle<v8::Value> toV8(TestInterfaceOrLong& impl, v8::Handle<v8::Object> creationContext, v8::Isolate* isolate)
+v8::Local<v8::Value> toV8(const TestInterfaceOrLong& impl, v8::Local<v8::Object> creationContext, v8::Isolate* isolate)
 {
     switch (impl.m_type) {
     case TestInterfaceOrLong::SpecificTypeNone:
@@ -544,7 +1307,14 @@ v8::Handle<v8::Value> toV8(TestInterfaceOrLong& impl, v8::Handle<v8::Object> cre
     default:
         ASSERT_NOT_REACHED();
     }
-    return v8::Handle<v8::Value>();
+    return v8::Local<v8::Value>();
+}
+
+TestInterfaceOrLong NativeValueTraits<TestInterfaceOrLong>::nativeValue(v8::Isolate* isolate, v8::Local<v8::Value> value, ExceptionState& exceptionState)
+{
+    TestInterfaceOrLong impl;
+    V8TestInterfaceOrLong::toImpl(isolate, value, impl, exceptionState);
+    return impl;
 }
 
 TestInterfaceOrTestInterfaceEmpty::TestInterfaceOrTestInterfaceEmpty()
@@ -565,6 +1335,13 @@ void TestInterfaceOrTestInterfaceEmpty::setTestInterface(PassRefPtr<TestInterfac
     m_type = SpecificTypeTestInterface;
 }
 
+TestInterfaceOrTestInterfaceEmpty TestInterfaceOrTestInterfaceEmpty::fromTestInterface(PassRefPtr<TestInterfaceImplementation> value)
+{
+    TestInterfaceOrTestInterfaceEmpty container;
+    container.setTestInterface(value);
+    return container;
+}
+
 PassRefPtr<TestInterfaceEmpty> TestInterfaceOrTestInterfaceEmpty::getAsTestInterfaceEmpty() const
 {
     ASSERT(isTestInterfaceEmpty());
@@ -578,27 +1355,42 @@ void TestInterfaceOrTestInterfaceEmpty::setTestInterfaceEmpty(PassRefPtr<TestInt
     m_type = SpecificTypeTestInterfaceEmpty;
 }
 
-void V8TestInterfaceOrTestInterfaceEmpty::toImpl(v8::Isolate* isolate, v8::Handle<v8::Value> v8Value, TestInterfaceOrTestInterfaceEmpty& impl, ExceptionState& exceptionState)
+TestInterfaceOrTestInterfaceEmpty TestInterfaceOrTestInterfaceEmpty::fromTestInterfaceEmpty(PassRefPtr<TestInterfaceEmpty> value)
+{
+    TestInterfaceOrTestInterfaceEmpty container;
+    container.setTestInterfaceEmpty(value);
+    return container;
+}
+
+TestInterfaceOrTestInterfaceEmpty::TestInterfaceOrTestInterfaceEmpty(const TestInterfaceOrTestInterfaceEmpty&) = default;
+TestInterfaceOrTestInterfaceEmpty::~TestInterfaceOrTestInterfaceEmpty() = default;
+TestInterfaceOrTestInterfaceEmpty& TestInterfaceOrTestInterfaceEmpty::operator=(const TestInterfaceOrTestInterfaceEmpty&) = default;
+
+DEFINE_TRACE(TestInterfaceOrTestInterfaceEmpty)
+{
+}
+
+void V8TestInterfaceOrTestInterfaceEmpty::toImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value, TestInterfaceOrTestInterfaceEmpty& impl, ExceptionState& exceptionState)
 {
     if (v8Value.IsEmpty())
         return;
 
     if (V8TestInterface::hasInstance(v8Value, isolate)) {
-        RefPtr<TestInterfaceImplementation> cppValue = V8TestInterface::toImpl(v8::Handle<v8::Object>::Cast(v8Value));
+        RefPtr<TestInterfaceImplementation> cppValue = V8TestInterface::toImpl(v8::Local<v8::Object>::Cast(v8Value));
         impl.setTestInterface(cppValue);
         return;
     }
 
     if (V8TestInterfaceEmpty::hasInstance(v8Value, isolate)) {
-        RefPtr<TestInterfaceEmpty> cppValue = V8TestInterfaceEmpty::toImpl(v8::Handle<v8::Object>::Cast(v8Value));
+        RefPtr<TestInterfaceEmpty> cppValue = V8TestInterfaceEmpty::toImpl(v8::Local<v8::Object>::Cast(v8Value));
         impl.setTestInterfaceEmpty(cppValue);
         return;
     }
 
-    exceptionState.throwTypeError("Not a valid union member.");
+    exceptionState.throwTypeError("The provided value is not of type '(TestInterface or TestInterfaceEmpty)'");
 }
 
-v8::Handle<v8::Value> toV8(TestInterfaceOrTestInterfaceEmpty& impl, v8::Handle<v8::Object> creationContext, v8::Isolate* isolate)
+v8::Local<v8::Value> toV8(const TestInterfaceOrTestInterfaceEmpty& impl, v8::Local<v8::Object> creationContext, v8::Isolate* isolate)
 {
     switch (impl.m_type) {
     case TestInterfaceOrTestInterfaceEmpty::SpecificTypeNone:
@@ -610,7 +1402,14 @@ v8::Handle<v8::Value> toV8(TestInterfaceOrTestInterfaceEmpty& impl, v8::Handle<v
     default:
         ASSERT_NOT_REACHED();
     }
-    return v8::Handle<v8::Value>();
+    return v8::Local<v8::Value>();
+}
+
+TestInterfaceOrTestInterfaceEmpty NativeValueTraits<TestInterfaceOrTestInterfaceEmpty>::nativeValue(v8::Isolate* isolate, v8::Local<v8::Value> value, ExceptionState& exceptionState)
+{
+    TestInterfaceOrTestInterfaceEmpty impl;
+    V8TestInterfaceOrTestInterfaceEmpty::toImpl(isolate, value, impl, exceptionState);
+    return impl;
 }
 
 TestInterfaceWillBeGarbageCollectedOrTestDictionary::TestInterfaceWillBeGarbageCollectedOrTestDictionary()
@@ -631,6 +1430,13 @@ void TestInterfaceWillBeGarbageCollectedOrTestDictionary::setTestInterfaceWillBe
     m_type = SpecificTypeTestInterfaceWillBeGarbageCollected;
 }
 
+TestInterfaceWillBeGarbageCollectedOrTestDictionary TestInterfaceWillBeGarbageCollectedOrTestDictionary::fromTestInterfaceWillBeGarbageCollected(PassRefPtrWillBeRawPtr<TestInterfaceWillBeGarbageCollected> value)
+{
+    TestInterfaceWillBeGarbageCollectedOrTestDictionary container;
+    container.setTestInterfaceWillBeGarbageCollected(value);
+    return container;
+}
+
 TestDictionary TestInterfaceWillBeGarbageCollectedOrTestDictionary::getAsTestDictionary() const
 {
     ASSERT(isTestDictionary());
@@ -644,33 +1450,47 @@ void TestInterfaceWillBeGarbageCollectedOrTestDictionary::setTestDictionary(Test
     m_type = SpecificTypeTestDictionary;
 }
 
-void TestInterfaceWillBeGarbageCollectedOrTestDictionary::trace(Visitor* visitor)
+TestInterfaceWillBeGarbageCollectedOrTestDictionary TestInterfaceWillBeGarbageCollectedOrTestDictionary::fromTestDictionary(TestDictionary value)
 {
-    visitor->trace(m_testInterfaceWillBeGarbageCollected);
+    TestInterfaceWillBeGarbageCollectedOrTestDictionary container;
+    container.setTestDictionary(value);
+    return container;
 }
 
-void V8TestInterfaceWillBeGarbageCollectedOrTestDictionary::toImpl(v8::Isolate* isolate, v8::Handle<v8::Value> v8Value, TestInterfaceWillBeGarbageCollectedOrTestDictionary& impl, ExceptionState& exceptionState)
+TestInterfaceWillBeGarbageCollectedOrTestDictionary::TestInterfaceWillBeGarbageCollectedOrTestDictionary(const TestInterfaceWillBeGarbageCollectedOrTestDictionary&) = default;
+TestInterfaceWillBeGarbageCollectedOrTestDictionary::~TestInterfaceWillBeGarbageCollectedOrTestDictionary() = default;
+TestInterfaceWillBeGarbageCollectedOrTestDictionary& TestInterfaceWillBeGarbageCollectedOrTestDictionary::operator=(const TestInterfaceWillBeGarbageCollectedOrTestDictionary&) = default;
+
+DEFINE_TRACE(TestInterfaceWillBeGarbageCollectedOrTestDictionary)
+{
+    visitor->trace(m_testInterfaceWillBeGarbageCollected);
+    visitor->trace(m_testDictionary);
+}
+
+void V8TestInterfaceWillBeGarbageCollectedOrTestDictionary::toImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value, TestInterfaceWillBeGarbageCollectedOrTestDictionary& impl, ExceptionState& exceptionState)
 {
     if (v8Value.IsEmpty())
         return;
 
     if (V8TestInterfaceWillBeGarbageCollected::hasInstance(v8Value, isolate)) {
-        RefPtrWillBeRawPtr<TestInterfaceWillBeGarbageCollected> cppValue = V8TestInterfaceWillBeGarbageCollected::toImpl(v8::Handle<v8::Object>::Cast(v8Value));
+        RefPtrWillBeRawPtr<TestInterfaceWillBeGarbageCollected> cppValue = V8TestInterfaceWillBeGarbageCollected::toImpl(v8::Local<v8::Object>::Cast(v8Value));
         impl.setTestInterfaceWillBeGarbageCollected(cppValue);
         return;
     }
 
     if (isUndefinedOrNull(v8Value) || v8Value->IsObject()) {
-        TestDictionary cppValue = V8TestDictionary::toImpl(isolate, v8Value, exceptionState);
-        if (!exceptionState.hadException())
-            impl.setTestDictionary(cppValue);
+        TestDictionary cppValue;
+        V8TestDictionary::toImpl(isolate, v8Value, cppValue, exceptionState);
+        if (exceptionState.hadException())
+            return;
+        impl.setTestDictionary(cppValue);
         return;
     }
 
-    exceptionState.throwTypeError("Not a valid union member.");
+    exceptionState.throwTypeError("The provided value is not of type '(TestInterfaceWillBeGarbageCollected or TestDictionary)'");
 }
 
-v8::Handle<v8::Value> toV8(TestInterfaceWillBeGarbageCollectedOrTestDictionary& impl, v8::Handle<v8::Object> creationContext, v8::Isolate* isolate)
+v8::Local<v8::Value> toV8(const TestInterfaceWillBeGarbageCollectedOrTestDictionary& impl, v8::Local<v8::Object> creationContext, v8::Isolate* isolate)
 {
     switch (impl.m_type) {
     case TestInterfaceWillBeGarbageCollectedOrTestDictionary::SpecificTypeNone:
@@ -682,7 +1502,112 @@ v8::Handle<v8::Value> toV8(TestInterfaceWillBeGarbageCollectedOrTestDictionary& 
     default:
         ASSERT_NOT_REACHED();
     }
-    return v8::Handle<v8::Value>();
+    return v8::Local<v8::Value>();
+}
+
+TestInterfaceWillBeGarbageCollectedOrTestDictionary NativeValueTraits<TestInterfaceWillBeGarbageCollectedOrTestDictionary>::nativeValue(v8::Isolate* isolate, v8::Local<v8::Value> value, ExceptionState& exceptionState)
+{
+    TestInterfaceWillBeGarbageCollectedOrTestDictionary impl;
+    V8TestInterfaceWillBeGarbageCollectedOrTestDictionary::toImpl(isolate, value, impl, exceptionState);
+    return impl;
+}
+
+UnrestrictedDoubleOrString::UnrestrictedDoubleOrString()
+    : m_type(SpecificTypeNone)
+{
+}
+
+double UnrestrictedDoubleOrString::getAsUnrestrictedDouble() const
+{
+    ASSERT(isUnrestrictedDouble());
+    return m_unrestrictedDouble;
+}
+
+void UnrestrictedDoubleOrString::setUnrestrictedDouble(double value)
+{
+    ASSERT(isNull());
+    m_unrestrictedDouble = value;
+    m_type = SpecificTypeUnrestrictedDouble;
+}
+
+UnrestrictedDoubleOrString UnrestrictedDoubleOrString::fromUnrestrictedDouble(double value)
+{
+    UnrestrictedDoubleOrString container;
+    container.setUnrestrictedDouble(value);
+    return container;
+}
+
+String UnrestrictedDoubleOrString::getAsString() const
+{
+    ASSERT(isString());
+    return m_string;
+}
+
+void UnrestrictedDoubleOrString::setString(String value)
+{
+    ASSERT(isNull());
+    m_string = value;
+    m_type = SpecificTypeString;
+}
+
+UnrestrictedDoubleOrString UnrestrictedDoubleOrString::fromString(String value)
+{
+    UnrestrictedDoubleOrString container;
+    container.setString(value);
+    return container;
+}
+
+UnrestrictedDoubleOrString::UnrestrictedDoubleOrString(const UnrestrictedDoubleOrString&) = default;
+UnrestrictedDoubleOrString::~UnrestrictedDoubleOrString() = default;
+UnrestrictedDoubleOrString& UnrestrictedDoubleOrString::operator=(const UnrestrictedDoubleOrString&) = default;
+
+DEFINE_TRACE(UnrestrictedDoubleOrString)
+{
+}
+
+void V8UnrestrictedDoubleOrString::toImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value, UnrestrictedDoubleOrString& impl, ExceptionState& exceptionState)
+{
+    if (v8Value.IsEmpty())
+        return;
+
+    if (v8Value->IsNumber()) {
+        double cppValue = toDouble(isolate, v8Value, exceptionState);
+        if (exceptionState.hadException())
+            return;
+        impl.setUnrestrictedDouble(cppValue);
+        return;
+    }
+
+    {
+        V8StringResource<> cppValue = v8Value;
+        if (!cppValue.prepare(exceptionState))
+            return;
+        impl.setString(cppValue);
+        return;
+    }
+
+}
+
+v8::Local<v8::Value> toV8(const UnrestrictedDoubleOrString& impl, v8::Local<v8::Object> creationContext, v8::Isolate* isolate)
+{
+    switch (impl.m_type) {
+    case UnrestrictedDoubleOrString::SpecificTypeNone:
+        return v8::Null(isolate);
+    case UnrestrictedDoubleOrString::SpecificTypeUnrestrictedDouble:
+        return v8::Number::New(isolate, impl.getAsUnrestrictedDouble());
+    case UnrestrictedDoubleOrString::SpecificTypeString:
+        return v8String(isolate, impl.getAsString());
+    default:
+        ASSERT_NOT_REACHED();
+    }
+    return v8::Local<v8::Value>();
+}
+
+UnrestrictedDoubleOrString NativeValueTraits<UnrestrictedDoubleOrString>::nativeValue(v8::Isolate* isolate, v8::Local<v8::Value> value, ExceptionState& exceptionState)
+{
+    UnrestrictedDoubleOrString impl;
+    V8UnrestrictedDoubleOrString::toImpl(isolate, value, impl, exceptionState);
+    return impl;
 }
 
 } // namespace blink

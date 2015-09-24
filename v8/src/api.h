@@ -95,6 +95,7 @@ void NeanderObject::set(int offset, v8::internal::Object* value) {
 
 template <typename T> inline T ToCData(v8::internal::Object* obj) {
   STATIC_ASSERT(sizeof(T) == sizeof(v8::internal::Address));
+  if (obj == v8::internal::Smi::FromInt(0)) return nullptr;
   return reinterpret_cast<T>(
       reinterpret_cast<intptr_t>(
           v8::internal::Foreign::cast(obj)->foreign_address()));
@@ -105,6 +106,7 @@ template <typename T>
 inline v8::internal::Handle<v8::internal::Object> FromCData(
     v8::internal::Isolate* isolate, T obj) {
   STATIC_ASSERT(sizeof(T) == sizeof(v8::internal::Address));
+  if (obj == nullptr) return handle(v8::internal::Smi::FromInt(0), isolate);
   return isolate->factory()->NewForeign(
       reinterpret_cast<v8::internal::Address>(reinterpret_cast<intptr_t>(obj)));
 }
@@ -135,43 +137,45 @@ class RegisteredExtension {
 };
 
 
-#define OPEN_HANDLE_LIST(V)                    \
-  V(Template, TemplateInfo)                    \
-  V(FunctionTemplate, FunctionTemplateInfo)    \
-  V(ObjectTemplate, ObjectTemplateInfo)        \
-  V(Signature, SignatureInfo)                  \
-  V(AccessorSignature, FunctionTemplateInfo)   \
-  V(TypeSwitch, TypeSwitchInfo)                \
-  V(Data, Object)                              \
-  V(RegExp, JSRegExp)                          \
-  V(Object, JSObject)                          \
-  V(Array, JSArray)                            \
-  V(ArrayBuffer, JSArrayBuffer)                \
-  V(ArrayBufferView, JSArrayBufferView)        \
-  V(TypedArray, JSTypedArray)                  \
-  V(Uint8Array, JSTypedArray)                  \
-  V(Uint8ClampedArray, JSTypedArray)           \
-  V(Int8Array, JSTypedArray)                   \
-  V(Uint16Array, JSTypedArray)                 \
-  V(Int16Array, JSTypedArray)                  \
-  V(Uint32Array, JSTypedArray)                 \
-  V(Int32Array, JSTypedArray)                  \
-  V(Float32Array, JSTypedArray)                \
-  V(Float64Array, JSTypedArray)                \
-  V(DataView, JSDataView)                      \
-  V(Name, Name)                                \
-  V(String, String)                            \
-  V(Symbol, Symbol)                            \
-  V(Script, JSFunction)                        \
-  V(UnboundScript, SharedFunctionInfo)         \
-  V(Function, JSFunction)                      \
-  V(Message, JSMessageObject)                  \
-  V(Context, Context)                          \
-  V(External, Object)                          \
-  V(StackTrace, JSArray)                       \
-  V(StackFrame, JSObject)                      \
-  V(DeclaredAccessorDescriptor, DeclaredAccessorDescriptor)
-
+#define OPEN_HANDLE_LIST(V)                  \
+  V(Template, TemplateInfo)                  \
+  V(FunctionTemplate, FunctionTemplateInfo)  \
+  V(ObjectTemplate, ObjectTemplateInfo)      \
+  V(Signature, FunctionTemplateInfo)         \
+  V(AccessorSignature, FunctionTemplateInfo) \
+  V(TypeSwitch, TypeSwitchInfo)              \
+  V(Data, Object)                            \
+  V(RegExp, JSRegExp)                        \
+  V(Object, JSObject)                        \
+  V(Array, JSArray)                          \
+  V(Map, JSMap)                              \
+  V(Set, JSSet)                              \
+  V(ArrayBuffer, JSArrayBuffer)              \
+  V(ArrayBufferView, JSArrayBufferView)      \
+  V(TypedArray, JSTypedArray)                \
+  V(Uint8Array, JSTypedArray)                \
+  V(Uint8ClampedArray, JSTypedArray)         \
+  V(Int8Array, JSTypedArray)                 \
+  V(Uint16Array, JSTypedArray)               \
+  V(Int16Array, JSTypedArray)                \
+  V(Uint32Array, JSTypedArray)               \
+  V(Int32Array, JSTypedArray)                \
+  V(Float32Array, JSTypedArray)              \
+  V(Float64Array, JSTypedArray)              \
+  V(DataView, JSDataView)                    \
+  V(SharedArrayBuffer, JSArrayBuffer)        \
+  V(Name, Name)                              \
+  V(String, String)                          \
+  V(Symbol, Symbol)                          \
+  V(Script, JSFunction)                      \
+  V(UnboundScript, SharedFunctionInfo)       \
+  V(Function, JSFunction)                    \
+  V(Message, JSMessageObject)                \
+  V(Context, Context)                        \
+  V(External, Object)                        \
+  V(StackTrace, JSArray)                     \
+  V(StackFrame, JSObject)                    \
+  V(NativeWeakMap, JSWeakMap)
 
 class Utils {
  public:
@@ -203,6 +207,10 @@ class Utils {
       v8::internal::Handle<v8::internal::JSObject> obj);
   static inline Local<Array> ToLocal(
       v8::internal::Handle<v8::internal::JSArray> obj);
+  static inline Local<Map> ToLocal(
+      v8::internal::Handle<v8::internal::JSMap> obj);
+  static inline Local<Set> ToLocal(
+      v8::internal::Handle<v8::internal::JSSet> obj);
   static inline Local<ArrayBuffer> ToLocal(
       v8::internal::Handle<v8::internal::JSArrayBuffer> obj);
   static inline Local<ArrayBufferView> ToLocal(
@@ -231,6 +239,9 @@ class Utils {
   static inline Local<Float64Array> ToLocalFloat64Array(
       v8::internal::Handle<v8::internal::JSTypedArray> obj);
 
+  static inline Local<SharedArrayBuffer> ToLocalShared(
+      v8::internal::Handle<v8::internal::JSArrayBuffer> obj);
+
   static inline Local<Message> MessageToLocal(
       v8::internal::Handle<v8::internal::Object> obj);
   static inline Local<Promise> PromiseToLocal(
@@ -249,16 +260,16 @@ class Utils {
       v8::internal::Handle<v8::internal::FunctionTemplateInfo> obj);
   static inline Local<ObjectTemplate> ToLocal(
       v8::internal::Handle<v8::internal::ObjectTemplateInfo> obj);
-  static inline Local<Signature> ToLocal(
-      v8::internal::Handle<v8::internal::SignatureInfo> obj);
+  static inline Local<Signature> SignatureToLocal(
+      v8::internal::Handle<v8::internal::FunctionTemplateInfo> obj);
   static inline Local<AccessorSignature> AccessorSignatureToLocal(
       v8::internal::Handle<v8::internal::FunctionTemplateInfo> obj);
   static inline Local<TypeSwitch> ToLocal(
       v8::internal::Handle<v8::internal::TypeSwitchInfo> obj);
   static inline Local<External> ExternalToLocal(
       v8::internal::Handle<v8::internal::JSObject> obj);
-  static inline Local<DeclaredAccessorDescriptor> ToLocal(
-      v8::internal::Handle<v8::internal::DeclaredAccessorDescriptor> obj);
+  static inline Local<NativeWeakMap> NativeWeakMapToLocal(
+      v8::internal::Handle<v8::internal::JSWeakMap> obj);
 
 #define DECLARE_OPEN_HANDLE(From, To) \
   static inline v8::internal::Handle<v8::internal::To> \
@@ -320,6 +331,18 @@ inline v8::Local<T> ToApiHandle(
 }
 
 
+template <class T>
+inline bool ToLocal(v8::internal::MaybeHandle<v8::internal::Object> maybe,
+                    Local<T>* local) {
+  v8::internal::Handle<v8::internal::Object> handle;
+  if (maybe.ToHandle(&handle)) {
+    *local = Utils::Convert<v8::internal::Object, T>(handle);
+    return true;
+  }
+  return false;
+}
+
+
 // Implementations of ToLocal
 
 #define MAKE_TO_LOCAL(Name, From, To)                                       \
@@ -328,11 +351,11 @@ inline v8::Local<T> ToApiHandle(
   }
 
 
-#define MAKE_TO_LOCAL_TYPED_ARRAY(Type, typeName, TYPE, ctype, size)        \
-  Local<v8::Type##Array> Utils::ToLocal##Type##Array(                       \
-      v8::internal::Handle<v8::internal::JSTypedArray> obj) {               \
-    DCHECK(obj->type() == kExternal##Type##Array);                          \
-    return Convert<v8::internal::JSTypedArray, v8::Type##Array>(obj);       \
+#define MAKE_TO_LOCAL_TYPED_ARRAY(Type, typeName, TYPE, ctype, size)  \
+  Local<v8::Type##Array> Utils::ToLocal##Type##Array(                 \
+      v8::internal::Handle<v8::internal::JSTypedArray> obj) {         \
+    DCHECK(obj->type() == v8::internal::kExternal##Type##Array);      \
+    return Convert<v8::internal::JSTypedArray, v8::Type##Array>(obj); \
   }
 
 
@@ -345,16 +368,19 @@ MAKE_TO_LOCAL(ToLocal, Symbol, Symbol)
 MAKE_TO_LOCAL(ToLocal, JSRegExp, RegExp)
 MAKE_TO_LOCAL(ToLocal, JSObject, Object)
 MAKE_TO_LOCAL(ToLocal, JSArray, Array)
+MAKE_TO_LOCAL(ToLocal, JSMap, Map)
+MAKE_TO_LOCAL(ToLocal, JSSet, Set)
 MAKE_TO_LOCAL(ToLocal, JSArrayBuffer, ArrayBuffer)
 MAKE_TO_LOCAL(ToLocal, JSArrayBufferView, ArrayBufferView)
 MAKE_TO_LOCAL(ToLocal, JSDataView, DataView)
 MAKE_TO_LOCAL(ToLocal, JSTypedArray, TypedArray)
+MAKE_TO_LOCAL(ToLocalShared, JSArrayBuffer, SharedArrayBuffer)
 
 TYPED_ARRAYS(MAKE_TO_LOCAL_TYPED_ARRAY)
 
 MAKE_TO_LOCAL(ToLocal, FunctionTemplateInfo, FunctionTemplate)
 MAKE_TO_LOCAL(ToLocal, ObjectTemplateInfo, ObjectTemplate)
-MAKE_TO_LOCAL(ToLocal, SignatureInfo, Signature)
+MAKE_TO_LOCAL(SignatureToLocal, FunctionTemplateInfo, Signature)
 MAKE_TO_LOCAL(AccessorSignatureToLocal, FunctionTemplateInfo, AccessorSignature)
 MAKE_TO_LOCAL(ToLocal, TypeSwitchInfo, TypeSwitch)
 MAKE_TO_LOCAL(MessageToLocal, Object, Message)
@@ -365,7 +391,7 @@ MAKE_TO_LOCAL(NumberToLocal, Object, Number)
 MAKE_TO_LOCAL(IntegerToLocal, Object, Integer)
 MAKE_TO_LOCAL(Uint32ToLocal, Object, Uint32)
 MAKE_TO_LOCAL(ExternalToLocal, JSObject, External)
-MAKE_TO_LOCAL(ToLocal, DeclaredAccessorDescriptor, DeclaredAccessorDescriptor)
+MAKE_TO_LOCAL(NativeWeakMapToLocal, JSWeakMap, NativeWeakMap)
 
 #undef MAKE_TO_LOCAL_TYPED_ARRAY
 #undef MAKE_TO_LOCAL
@@ -373,14 +399,14 @@ MAKE_TO_LOCAL(ToLocal, DeclaredAccessorDescriptor, DeclaredAccessorDescriptor)
 
 // Implementations of OpenHandle
 
-#define MAKE_OPEN_HANDLE(From, To)                                          \
-  v8::internal::Handle<v8::internal::To> Utils::OpenHandle(                 \
-    const v8::From* that, bool allow_empty_handle) {                        \
-    EXTRA_CHECK(allow_empty_handle || that != NULL);                        \
-    EXTRA_CHECK(that == NULL ||                                             \
-        (*reinterpret_cast<v8::internal::Object* const*>(that))->Is##To()); \
-    return v8::internal::Handle<v8::internal::To>(                          \
-        reinterpret_cast<v8::internal::To**>(const_cast<v8::From*>(that))); \
+#define MAKE_OPEN_HANDLE(From, To)                                             \
+  v8::internal::Handle<v8::internal::To> Utils::OpenHandle(                    \
+      const v8::From* that, bool allow_empty_handle) {                         \
+    DCHECK(allow_empty_handle || that != NULL);                                \
+    DCHECK(that == NULL ||                                                     \
+           (*reinterpret_cast<v8::internal::Object* const*>(that))->Is##To()); \
+    return v8::internal::Handle<v8::internal::To>(                             \
+        reinterpret_cast<v8::internal::To**>(const_cast<v8::From*>(that)));    \
   }
 
 OPEN_HANDLE_LIST(MAKE_OPEN_HANDLE)
@@ -650,7 +676,7 @@ void HandleScopeImplementer::DeleteExtensions(internal::Object** prev_limit) {
   while (!blocks_.is_empty()) {
     internal::Object** block_start = blocks_.last();
     internal::Object** block_limit = block_start + kHandleBlockSize;
-#ifdef DEBUG
+
     // SealHandleScope may make the prev_limit to point inside the block.
     if (block_start <= prev_limit && prev_limit <= block_limit) {
 #ifdef ENABLE_HANDLE_ZAPPING
@@ -658,9 +684,6 @@ void HandleScopeImplementer::DeleteExtensions(internal::Object** prev_limit) {
 #endif
       break;
     }
-#else
-    if (prev_limit == block_limit) break;
-#endif
 
     blocks_.RemoveLast();
 #ifdef ENABLE_HANDLE_ZAPPING

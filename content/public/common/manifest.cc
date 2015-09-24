@@ -16,9 +16,16 @@ Manifest::Icon::Icon()
 Manifest::Icon::~Icon() {
 }
 
+Manifest::RelatedApplication::RelatedApplication() {
+}
+
+Manifest::RelatedApplication::~RelatedApplication() {
+}
+
 Manifest::Manifest()
     : display(DISPLAY_MODE_UNSPECIFIED),
-      orientation(blink::WebScreenOrientationLockDefault) {
+      orientation(blink::WebScreenOrientationLockDefault),
+      prefer_related_applications(false) {
 }
 
 Manifest::~Manifest() {
@@ -31,6 +38,8 @@ bool Manifest::IsEmpty() const {
          display == DISPLAY_MODE_UNSPECIFIED &&
          orientation == blink::WebScreenOrientationLockDefault &&
          icons.empty() &&
+         related_applications.empty() &&
+         !prefer_related_applications &&
          gcm_sender_id.is_null();
 }
 

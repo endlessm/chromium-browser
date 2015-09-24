@@ -8,7 +8,8 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chromecast/media/cma/base/cma_logging.h"
 #include "chromecast/media/cma/ipc/media_memory_chunk.h"
 #include "chromecast/media/cma/ipc/media_message.h"
@@ -60,12 +61,12 @@ class FifoOwnedMemory : public MediaMemoryChunk {
   FifoOwnedMemory(void* data, size_t size,
                   const scoped_refptr<MediaMessageFlag>& flag,
                   const base::Closure& release_msg_cb);
-  virtual ~FifoOwnedMemory();
+  ~FifoOwnedMemory() override;
 
   // MediaMemoryChunk implementation.
-  virtual void* data() const override { return data_; }
-  virtual size_t size() const override { return size_; }
-  virtual bool valid() const override { return flag_->IsValid(); }
+  void* data() const override { return data_; }
+  size_t size() const override { return size_; }
+  bool valid() const override { return flag_->IsValid(); }
 
  private:
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
@@ -78,15 +79,15 @@ class FifoOwnedMemory : public MediaMemoryChunk {
   DISALLOW_COPY_AND_ASSIGN(FifoOwnedMemory);
 };
 
-FifoOwnedMemory::FifoOwnedMemory(
-    void* data, size_t size,
-    const scoped_refptr<MediaMessageFlag>& flag,
-    const base::Closure& release_msg_cb)
-  : task_runner_(base::MessageLoopProxy::current()),
-    release_msg_cb_(release_msg_cb),
-    data_(data),
-    size_(size),
-    flag_(flag) {
+FifoOwnedMemory::FifoOwnedMemory(void* data,
+                                 size_t size,
+                                 const scoped_refptr<MediaMessageFlag>& flag,
+                                 const base::Closure& release_msg_cb)
+    : task_runner_(base::ThreadTaskRunnerHandle::Get()),
+      release_msg_cb_(release_msg_cb),
+      data_(data),
+      size_(size),
+      flag_(flag) {
 }
 
 FifoOwnedMemory::~FifoOwnedMemory() {
@@ -133,7 +134,7 @@ MediaMessageFifo::MediaMessageFifo(
   }
   CMALOG(kLogControl)
       << "MediaMessageFifo:" << " init=" << init << " size=" << size_;
-  CHECK_GT(size_, 0) << size_;
+  CHECK_GT(size_, 0u) << size_;
 
   weak_this_ = weak_factory_.GetWeakPtr();
   thread_checker_.DetachFromThread();

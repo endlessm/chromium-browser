@@ -7,8 +7,8 @@
 #include "base/bind_helpers.h"
 #include "base/files/file.h"
 #include "base/files/file_util.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/threading/platform_thread.h"
 #include "net/base/completion_callback.h"
 #include "net/base/io_buffer.h"
@@ -598,7 +598,13 @@ TEST_F(DiskCacheEntryTest, ExternalAsyncIO) {
   ExternalAsyncIO();
 }
 
-TEST_F(DiskCacheEntryTest, ExternalAsyncIONoBuffer) {
+// TODO(ios): This test is flaky. http://crbug.com/497101
+#if defined(OS_IOS)
+#define MAYBE_ExternalAsyncIONoBuffer DISABLED_ExternalAsyncIONoBuffer
+#else
+#define MAYBE_ExternalAsyncIONoBuffer ExternalAsyncIONoBuffer
+#endif
+TEST_F(DiskCacheEntryTest, MAYBE_ExternalAsyncIONoBuffer) {
   InitCache();
   cache_impl_->SetFlags(disk_cache::kNoBuffering);
   ExternalAsyncIO();
@@ -670,7 +676,8 @@ void DiskCacheEntryTest::StreamAccess() {
   ASSERT_TRUE(NULL != entry);
   const int kReadBufferSize = 600;
   const int kFinalReadSize = kBufferSize - kReadBufferSize;
-  COMPILE_ASSERT(kFinalReadSize < kReadBufferSize, should_be_exactly_two_reads);
+  static_assert(kFinalReadSize < kReadBufferSize,
+                "should be exactly two reads");
   scoped_refptr<net::IOBuffer> buffer2(new net::IOBuffer(kReadBufferSize));
   for (int i = 0; i < kNumStreams; i++) {
     memset(buffer2->data(), 0, kReadBufferSize);
@@ -1798,6 +1805,111 @@ TEST_F(DiskCacheEntryTest, MemoryOnlyGetAvailableRange) {
   GetAvailableRange();
 }
 
+// Tests that non-sequential writes that are not aligned with the minimum sparse
+// data granularity (1024 bytes) do in fact result in dropped data.
+TEST_F(DiskCacheEntryTest, SparseWriteDropped) {
+  InitCache();
+  std::string key("the first key");
+  disk_cache::Entry* entry;
+  ASSERT_EQ(net::OK, CreateEntry(key, &entry));
+
+  const int kSize = 180;
+  scoped_refptr<net::IOBuffer> buf_1(new net::IOBuffer(kSize));
+  scoped_refptr<net::IOBuffer> buf_2(new net::IOBuffer(kSize));
+  CacheTestFillBuffer(buf_1->data(), kSize, false);
+
+  // Do small writes (180 bytes) that get increasingly close to a 1024-byte
+  // boundary. All data should be dropped until a boundary is crossed, at which
+  // point the data after the boundary is saved (at least for a while).
+  int offset = 1024 - 500;
+  int rv = 0;
+  net::TestCompletionCallback cb;
+  int64 start;
+  for (int i = 0; i < 5; i++) {
+    // Check result of last GetAvailableRange.
+    EXPECT_EQ(0, rv);
+
+    rv = entry->WriteSparseData(offset, buf_1.get(), kSize, cb.callback());
+    EXPECT_EQ(kSize, cb.GetResult(rv));
+
+    rv = entry->GetAvailableRange(offset - 100, kSize, &start, cb.callback());
+    EXPECT_EQ(0, cb.GetResult(rv));
+
+    rv = entry->GetAvailableRange(offset, kSize, &start, cb.callback());
+    rv = cb.GetResult(rv);
+    if (!rv) {
+      rv = entry->ReadSparseData(offset, buf_2.get(), kSize, cb.callback());
+      EXPECT_EQ(0, cb.GetResult(rv));
+      rv = 0;
+    }
+    offset += 1024 * i + 100;
+  }
+
+  // The last write started 100 bytes below a bundary, so there should be 80
+  // bytes after the boundary.
+  EXPECT_EQ(80, rv);
+  EXPECT_EQ(1024 * 7, start);
+  rv = entry->ReadSparseData(start, buf_2.get(), kSize, cb.callback());
+  EXPECT_EQ(80, cb.GetResult(rv));
+  EXPECT_EQ(0, memcmp(buf_1.get()->data() + 100, buf_2.get()->data(), 80));
+
+  // And even that part is dropped when another write changes the offset.
+  offset = start;
+  rv = entry->WriteSparseData(0, buf_1.get(), kSize, cb.callback());
+  EXPECT_EQ(kSize, cb.GetResult(rv));
+
+  rv = entry->GetAvailableRange(offset, kSize, &start, cb.callback());
+  EXPECT_EQ(0, cb.GetResult(rv));
+  entry->Close();
+}
+
+// Tests that small sequential writes are not dropped.
+TEST_F(DiskCacheEntryTest, SparseSquentialWriteNotDropped) {
+  InitCache();
+  std::string key("the first key");
+  disk_cache::Entry* entry;
+  ASSERT_EQ(net::OK, CreateEntry(key, &entry));
+
+  const int kSize = 180;
+  scoped_refptr<net::IOBuffer> buf_1(new net::IOBuffer(kSize));
+  scoped_refptr<net::IOBuffer> buf_2(new net::IOBuffer(kSize));
+  CacheTestFillBuffer(buf_1->data(), kSize, false);
+
+  // Any starting offset is fine as long as it is 1024-bytes aligned.
+  int rv = 0;
+  net::TestCompletionCallback cb;
+  int64 start;
+  int64 offset = 1024 * 11;
+  for (; offset < 20000; offset += kSize) {
+    rv = entry->WriteSparseData(offset, buf_1.get(), kSize, cb.callback());
+    EXPECT_EQ(kSize, cb.GetResult(rv));
+
+    rv = entry->GetAvailableRange(offset, kSize, &start, cb.callback());
+    EXPECT_EQ(kSize, cb.GetResult(rv));
+    EXPECT_EQ(offset, start);
+
+    rv = entry->ReadSparseData(offset, buf_2.get(), kSize, cb.callback());
+    EXPECT_EQ(kSize, cb.GetResult(rv));
+    EXPECT_EQ(0, memcmp(buf_1.get()->data(), buf_2.get()->data(), kSize));
+  }
+
+  entry->Close();
+  FlushQueueForTest();
+
+  // Verify again the last write made.
+  ASSERT_EQ(net::OK, OpenEntry(key, &entry));
+  offset -= kSize;
+  rv = entry->GetAvailableRange(offset, kSize, &start, cb.callback());
+  EXPECT_EQ(kSize, cb.GetResult(rv));
+  EXPECT_EQ(offset, start);
+
+  rv = entry->ReadSparseData(offset, buf_2.get(), kSize, cb.callback());
+  EXPECT_EQ(kSize, cb.GetResult(rv));
+  EXPECT_EQ(0, memcmp(buf_1.get()->data(), buf_2.get()->data(), kSize));
+
+  entry->Close();
+}
+
 void DiskCacheEntryTest::CouldBeSparse() {
   std::string key("the first key");
   disk_cache::Entry* entry;
@@ -2133,7 +2245,11 @@ void DiskCacheEntryTest::PartialSparseEntry() {
   EXPECT_EQ(0, ReadSparseData(entry, 0, buf2.get(), kSize));
 
   // This read should not change anything.
-  EXPECT_EQ(96, ReadSparseData(entry, 24000, buf2.get(), kSize));
+  if (memory_only_ || simple_cache_mode_)
+    EXPECT_EQ(96, ReadSparseData(entry, 24000, buf2.get(), kSize));
+  else
+    EXPECT_EQ(0, ReadSparseData(entry, 24000, buf2.get(), kSize));
+
   EXPECT_EQ(500, ReadSparseData(entry, kSize, buf2.get(), kSize));
   EXPECT_EQ(0, ReadSparseData(entry, 99, buf2.get(), kSize));
 
@@ -2153,7 +2269,11 @@ void DiskCacheEntryTest::PartialSparseEntry() {
   EXPECT_EQ(500, cb.GetResult(rv));
   EXPECT_EQ(kSize, start);
   rv = entry->GetAvailableRange(20 * 1024, 10000, &start, cb.callback());
-  EXPECT_EQ(3616, cb.GetResult(rv));
+  if (memory_only_ || simple_cache_mode_)
+    EXPECT_EQ(3616, cb.GetResult(rv));
+  else
+    EXPECT_EQ(3072, cb.GetResult(rv));
+
   EXPECT_EQ(20 * 1024, start);
 
   // 1. Query before a filled 1KB block.
@@ -3260,7 +3380,7 @@ TEST_F(DiskCacheEntryTest, SimpleCacheEvictOldEntries) {
       // will be checked for outliving the eviction.
       AddDelay();
     }
-    ASSERT_EQ(net::OK, CreateEntry(key2 + base::StringPrintf("%d", i), &entry));
+    ASSERT_EQ(net::OK, CreateEntry(key2 + base::IntToString(i), &entry));
     ScopedEntryPtr entry_closer(entry);
     EXPECT_EQ(kWriteSize,
               WriteData(entry, 1, 0, buffer.get(), kWriteSize, false));
@@ -3275,8 +3395,7 @@ TEST_F(DiskCacheEntryTest, SimpleCacheEvictOldEntries) {
     // Generally there is no guarantee that at this point the backround eviction
     // is finished. We are testing the positive case, i.e. when the eviction
     // never reaches this entry, should be non-flaky.
-    ASSERT_EQ(net::OK, OpenEntry(key2 + base::StringPrintf("%d", entry_no),
-                                 &entry))
+    ASSERT_EQ(net::OK, OpenEntry(key2 + base::IntToString(entry_no), &entry))
         << "Should not have evicted fresh entry " << entry_no;
     entry->Close();
   }
@@ -3412,38 +3531,6 @@ TEST_F(DiskCacheEntryTest, SimpleCacheOpenCreateRaceWithNoIndex) {
   EXPECT_EQ(net::ERR_FAILED, cb1.GetResult(rv1));
   ASSERT_EQ(net::OK, cb2.GetResult(rv2));
   entry2->Close();
-}
-
-// Checks that reading two entries simultaneously does not discard a CRC check.
-// TODO(pasko): make it work with Simple Cache.
-TEST_F(DiskCacheEntryTest, DISABLED_SimpleCacheMultipleReadersCheckCRC) {
-  SetSimpleCacheMode();
-  InitCache();
-
-  const char key[] = "key";
-
-  int size;
-  ASSERT_TRUE(SimpleCacheMakeBadChecksumEntry(key, &size));
-
-  scoped_refptr<net::IOBuffer> read_buffer1(new net::IOBuffer(size));
-  scoped_refptr<net::IOBuffer> read_buffer2(new net::IOBuffer(size));
-
-  // Advance the first reader a little.
-  disk_cache::Entry* entry = NULL;
-  ASSERT_EQ(net::OK, OpenEntry(key, &entry));
-  EXPECT_EQ(1, ReadData(entry, 0, 0, read_buffer1.get(), 1));
-
-  // Make the second reader pass the point where the first one is, and close.
-  disk_cache::Entry* entry2 = NULL;
-  EXPECT_EQ(net::OK, OpenEntry(key, &entry2));
-  EXPECT_EQ(1, ReadData(entry2, 0, 0, read_buffer2.get(), 1));
-  EXPECT_EQ(1, ReadData(entry2, 0, 1, read_buffer2.get(), 1));
-  entry2->Close();
-
-  // Read the data till the end should produce an error.
-  EXPECT_GT(0, ReadData(entry, 0, 1, read_buffer1.get(), size));
-  entry->Close();
-  DisableIntegrityCheck();
 }
 
 // Checking one more scenario of overlapped reading of a bad entry.
@@ -3984,12 +4071,6 @@ TEST_F(DiskCacheEntryTest, SimpleCacheGetAvailableRange) {
   SetSimpleCacheMode();
   InitCache();
   GetAvailableRange();
-}
-
-TEST_F(DiskCacheEntryTest, DISABLED_SimpleCacheCouldBeSparse) {
-  SetSimpleCacheMode();
-  InitCache();
-  CouldBeSparse();
 }
 
 TEST_F(DiskCacheEntryTest, SimpleCacheUpdateSparseEntry) {

@@ -8,14 +8,11 @@
       'variables': {
         # Whether to compress the 4 main ChromeVox scripts.
         'chromevox_compress_js%': '1',
-        'chromevox1_background_script_loader_file': 'chromevox/background/loader.js',
-        'chromevox1_content_script_loader_file': 'chromevox/injected/loader.js',
-        'chromevox1_kbexplorer_loader_file': 'chromevox/background/kbexplorer_loader.js',
-        'chromevox1_options_script_loader_file': 'chromevox/background/options_loader.js',
-        'chromevox2_background_script_loader_file': 'cvox2/background/loader.js',
       },
       'includes': [
+        'chromevox_assets.gypi',
         'chromevox_tests.gypi',
+        'chromevox_vars.gypi',
         'common.gypi',
       ],
       'targets': [
@@ -24,10 +21,8 @@
           'type': 'none',
           'dependencies': [
             'chromevox_resources',
-            'chromevox1_manifest',
-            'chromevox1_guest_manifest',
-            'chromevox2_manifest',
-            'chromevox2_guest_manifest',
+            'chromevox_manifest',
+            'chromevox_guest_manifest',
           ],
         },
         {
@@ -64,13 +59,6 @@
           ],
         },
         {
-          'target_name': 'chromevox_assets',
-          'type': 'none',
-          'includes': [
-            'chromevox_assets.gypi',
-          ],
-        },
-        {
           'target_name': 'chromevox_static_files',
           'type': 'none',
           'copies': [
@@ -83,7 +71,7 @@
               ],
             },
             {
-              'destination': '<(PRODUCT_DIR)/resources/chromeos/chromevox/cvox2/background',
+              'destination': '<(chromevox_dest_dir)/cvox2/background',
               'files': [
                 'cvox2/background/background.html',
               ],
@@ -157,7 +145,7 @@
           'includes': ['generate_deps.gypi'],
         },
         {
-          'target_name': 'chromevox1_manifest',
+          'target_name': 'chromevox_manifest',
           'type': 'none',
           'variables': {
             'output_manifest_path': '<(chromevox_dest_dir)/manifest.json',
@@ -165,30 +153,11 @@
           'includes': [ 'generate_manifest.gypi', ],
         },
         {
-          'target_name': 'chromevox1_guest_manifest',
+          'target_name': 'chromevox_guest_manifest',
           'type': 'none',
           'variables': {
             'output_manifest_path': '<(chromevox_dest_dir)/manifest_guest.json',
             'is_guest_manifest': 1,
-          },
-          'includes': [ 'generate_manifest.gypi', ],
-        },
-        {
-          'target_name': 'chromevox2_manifest',
-          'type': 'none',
-          'variables': {
-            'output_manifest_path': '<(chromevox_dest_dir)/manifest_next.json',
-            'is_chromevox_next': 1,
-          },
-          'includes': [ 'generate_manifest.gypi', ],
-        },
-        {
-          'target_name': 'chromevox2_guest_manifest',
-          'type': 'none',
-          'variables': {
-            'output_manifest_path': '<(chromevox_dest_dir)/manifest_next_guest.json',
-            'is_guest_manifest': 1,
-            'is_chromevox_next': 1,
           },
           'includes': [ 'generate_manifest.gypi', ],
         },

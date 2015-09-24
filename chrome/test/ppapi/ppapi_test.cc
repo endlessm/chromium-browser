@@ -6,9 +6,12 @@
 
 #include "base/command_line.h"
 #include "base/files/file_util.h"
+#include "base/location.h"
 #include "base/path_service.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/profiles/profile.h"
@@ -26,11 +29,11 @@
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/ppapi_test_utils.h"
 #include "media/base/media_switches.h"
 #include "net/base/filename_util.h"
 #include "net/base/test_data_directory.h"
 #include "ppapi/shared_impl/ppapi_switches.h"
-#include "ppapi/shared_impl/test_harness_utils.h"
 #include "ui/gl/gl_switches.h"
 
 using content::DomOperationNotificationDetails;
@@ -93,9 +96,9 @@ void PPAPITestBase::InfoBarObserver::Observe(
   // It's not safe to remove the infobar here, since other observers (e.g. the
   // InfoBarContainer) may still need to access it.  Instead, post a task to
   // do all necessary infobar manipulation as soon as this call stack returns.
-  base::MessageLoop::current()->PostTask(
-      FROM_HERE, base::Bind(&InfoBarObserver::VerifyInfoBarState,
-                            base::Unretained(this)));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE,
+      base::Bind(&InfoBarObserver::VerifyInfoBarState, base::Unretained(this)));
 }
 
 void PPAPITestBase::InfoBarObserver::VerifyInfoBarState() {
@@ -132,9 +135,6 @@ void PPAPITestBase::SetUp() {
 }
 
 void PPAPITestBase::SetUpCommandLine(base::CommandLine* command_line) {
-  // The test sends us the result via a cookie.
-  command_line->AppendSwitch(switches::kEnableFileCookies);
-
   // Some stuff is hung off of the testing interface which is not enabled
   // by default.
   command_line->AppendSwitch(switches::kEnablePepperTesting);
@@ -283,24 +283,14 @@ PPAPITest::PPAPITest() : in_process_(true) {
 void PPAPITest::SetUpCommandLine(base::CommandLine* command_line) {
   PPAPITestBase::SetUpCommandLine(command_line);
 
-  base::FilePath plugin_dir;
-  EXPECT_TRUE(PathService::Get(base::DIR_MODULE, &plugin_dir));
-
-  base::FilePath plugin_lib = plugin_dir.Append(ppapi::GetTestLibraryName());
-  EXPECT_TRUE(base::PathExists(plugin_lib));
-
-  // Append the switch to register the pepper plugin.
-  // library path = <out dir>/<test_name>.<library_extension>
   // library name = "PPAPI Tests"
   // version = "1.2.3"
-  // MIME type = application/x-ppapi-<test_name>
-  base::FilePath::StringType pepper_plugin = plugin_lib.value();
-  pepper_plugin.append(FILE_PATH_LITERAL("#PPAPI Tests"));
-  pepper_plugin.append(FILE_PATH_LITERAL("#"));  // No description.
-  pepper_plugin.append(FILE_PATH_LITERAL("#1.2.3"));
-  pepper_plugin.append(FILE_PATH_LITERAL(";application/x-ppapi-tests"));
-  command_line->AppendSwitchNative(switches::kRegisterPepperPlugins,
-                                   pepper_plugin);
+  base::FilePath::StringType parameters;
+  parameters.append(FILE_PATH_LITERAL("#PPAPI Tests"));
+  parameters.append(FILE_PATH_LITERAL("#"));  // No description.
+  parameters.append(FILE_PATH_LITERAL("#1.2.3"));
+  ASSERT_TRUE(
+      ppapi::RegisterTestPluginWithExtraParameters(command_line, parameters));
 
   command_line->AppendSwitchASCII(switches::kAllowNaClSocketAPI, "127.0.0.1");
   if (in_process_)
@@ -334,9 +324,8 @@ void OutOfProcessPPAPIPrivateTest::SetUpCommandLine(
 }
 
 void PPAPINaClTest::SetUpCommandLine(base::CommandLine* command_line) {
-#if !defined(DISABLE_NACL)
   PPAPITestBase::SetUpCommandLine(command_line);
-
+#if !defined(DISABLE_NACL)
   // Enable running (non-portable) NaCl outside of the Chrome web store.
   command_line->AppendSwitch(switches::kEnableNaCl);
   command_line->AppendSwitchASCII(switches::kAllowNaClSocketAPI, "127.0.0.1");
@@ -427,8 +416,8 @@ void PPAPIPrivateNaClPNaClTest::SetUpCommandLine(
 
 void PPAPINaClPNaClNonSfiTest::SetUpCommandLine(
     base::CommandLine* command_line) {
-#if !defined(DISABLE_NACL)
   PPAPINaClTest::SetUpCommandLine(command_line);
+#if !defined(DISABLE_NACL)
   command_line->AppendSwitch(switches::kEnableNaClNonSfiMode);
 #endif
 }
@@ -440,10 +429,26 @@ std::string PPAPINaClPNaClNonSfiTest::BuildQuery(
                             base.c_str(), test_case.c_str());
 }
 
+void PPAPINaClPNaClTransitionalNonSfiTest::SetUpCommandLine(
+    base::CommandLine* command_line) {
+  PPAPINaClPNaClNonSfiTest::SetUpCommandLine(command_line);
+#if !defined(DISABLE_NACL)
+  command_line->AppendSwitchASCII(switches::kUseNaClHelperNonSfi, "false");
+#endif
+}
+
 void PPAPIPrivateNaClPNaClNonSfiTest::SetUpCommandLine(
     base::CommandLine* command_line) {
   PPAPINaClPNaClNonSfiTest::SetUpCommandLine(command_line);
   AddPrivateSwitches(command_line);
+}
+
+void PPAPIPrivateNaClPNaClTransitionalNonSfiTest::SetUpCommandLine(
+    base::CommandLine* command_line) {
+  PPAPIPrivateNaClPNaClNonSfiTest::SetUpCommandLine(command_line);
+#if !defined(DISABLE_NACL)
+  command_line->AppendSwitchASCII(switches::kUseNaClHelperNonSfi, "false");
+#endif
 }
 
 void PPAPINaClTestDisallowedSockets::SetUpCommandLine(

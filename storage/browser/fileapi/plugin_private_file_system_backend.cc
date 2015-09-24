@@ -9,14 +9,14 @@
 #include "base/stl_util.h"
 #include "base/synchronization/lock.h"
 #include "base/task_runner_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "net/base/net_util.h"
-#include "storage/browser/blob/file_stream_reader.h"
 #include "storage/browser/fileapi/async_file_util_adapter.h"
+#include "storage/browser/fileapi/file_stream_reader.h"
 #include "storage/browser/fileapi/file_stream_writer.h"
 #include "storage/browser/fileapi/file_system_context.h"
 #include "storage/browser/fileapi/file_system_operation.h"
 #include "storage/browser/fileapi/file_system_operation_context.h"
-#include "storage/browser/fileapi/file_system_options.h"
 #include "storage/browser/fileapi/isolated_context.h"
 #include "storage/browser/fileapi/obfuscated_file_util.h"
 #include "storage/browser/fileapi/quota/quota_reservation.h"
@@ -122,7 +122,7 @@ void PluginPrivateFileSystemBackend::OpenPrivateFileSystem(
     OpenFileSystemMode mode,
     const StatusCallback& callback) {
   if (!CanHandleType(type) || file_system_options_.is_incognito()) {
-    base::MessageLoopProxy::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(callback, base::File::FILE_ERROR_SECURITY));
     return;
   }
@@ -149,7 +149,7 @@ void PluginPrivateFileSystemBackend::ResolveURL(
     const OpenFileSystemCallback& callback) {
   // We never allow opening a new plugin-private filesystem via usual
   // ResolveURL.
-  base::MessageLoopProxy::current()->PostTask(
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::Bind(callback, GURL(), std::string(),
                  base::File::FILE_ERROR_SECURITY));

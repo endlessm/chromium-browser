@@ -7,8 +7,8 @@
 #include "gpu/command_buffer/client/transfer_buffer.h"
 
 #include "base/bits.h"
-#include "base/debug/trace_event.h"
 #include "base/logging.h"
+#include "base/trace_event/trace_event.h"
 #include "gpu/command_buffer/client/cmd_buffer_helper.h"
 
 namespace gpu {
@@ -71,6 +71,10 @@ bool TransferBuffer::HaveBuffer() const {
 
 RingBuffer::Offset TransferBuffer::GetOffset(void* pointer) const {
   return ring_buffer_->GetOffset(pointer);
+}
+
+void TransferBuffer::DiscardBlock(void* p) {
+  ring_buffer_->DiscardBlock(p);
 }
 
 void TransferBuffer::FreePendingToken(void* p, unsigned int token) {
@@ -183,6 +187,14 @@ unsigned int TransferBuffer::GetMaxAllocation() const {
 void ScopedTransferBufferPtr::Release() {
   if (buffer_) {
     transfer_buffer_->FreePendingToken(buffer_, helper_->InsertToken());
+    buffer_ = NULL;
+    size_ = 0;
+  }
+}
+
+void ScopedTransferBufferPtr::Discard() {
+  if (buffer_) {
+    transfer_buffer_->DiscardBlock(buffer_);
     buffer_ = NULL;
     size_ = 0;
   }

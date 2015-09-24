@@ -20,7 +20,6 @@
 #include "SkColorPriv.h"
 #include "SkColorFilter.h"
 #include "SkTime.h"
-#include "SkTransparentShader.h"
 #include "SkTypeface.h"
 
 static SkShader* make_bitmapfade(const SkBitmap& bm)
@@ -83,7 +82,7 @@ public:
 
 protected:
     // overrides from SkEventSink
-    virtual bool onQuery(SkEvent* evt) {
+    bool onQuery(SkEvent* evt) override {
         if (SampleCode::TitleQ(*evt)) {
             SampleCode::TitleR(evt, "Shaders");
             return true;
@@ -91,7 +90,7 @@ protected:
         return this->INHERITED::onQuery(evt);
     }
 
-    virtual void onDrawContent(SkCanvas* canvas) {
+    void onDrawContent(SkCanvas* canvas) override {
         canvas->drawBitmap(fBitmap, 0, 0);
 
         canvas->translate(SkIntToScalar(20), SkIntToScalar(120));
@@ -116,18 +115,14 @@ protected:
         canvas->drawRect(r, paint);
         paint.setShader(make_bitmapfade(fBitmap))->unref();
         canvas->drawRect(r, paint);
-
-        paint.setShader(new SkTransparentShader)->unref();
-        canvas->drawRect(r, paint);
     }
 
-    virtual SkView::Click* onFindClickHandler(SkScalar x, SkScalar y,
-                                              unsigned modi) SK_OVERRIDE {
+    SkView::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned modi) override {
         this->inval(NULL);
         return this->INHERITED::onFindClickHandler(x, y, modi);
     }
 
-    virtual bool onClick(Click* click) {
+    bool onClick(Click* click)  override {
         return this->INHERITED::onClick(click);
     }
 

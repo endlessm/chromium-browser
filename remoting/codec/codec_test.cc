@@ -247,7 +247,7 @@ scoped_ptr<DesktopFrame> PrepareFrame(const DesktopSize& size) {
 
 static void TestEncodingRects(VideoEncoder* encoder,
                               VideoEncoderTester* tester,
-                              webrtc::DesktopFrame* frame,
+                              DesktopFrame* frame,
                               const DesktopRect* rects,
                               int count) {
   frame->mutable_updated_region()->Clear();
@@ -267,7 +267,7 @@ void TestVideoEncoder(VideoEncoder* encoder, bool strict) {
   for (size_t xi = 0; xi < arraysize(kSizes); ++xi) {
     for (size_t yi = 0; yi < arraysize(kSizes); ++yi) {
       DesktopSize size = DesktopSize(kSizes[xi], kSizes[yi]);
-      scoped_ptr<webrtc::DesktopFrame> frame = PrepareFrame(size);
+      scoped_ptr<DesktopFrame> frame = PrepareFrame(size);
       std::vector<std::vector<DesktopRect> > test_rect_lists =
           MakeTestRectLists(size);
       for (size_t i = 0; i < test_rect_lists.size(); ++i) {
@@ -275,8 +275,37 @@ void TestVideoEncoder(VideoEncoder* encoder, bool strict) {
         TestEncodingRects(encoder, &tester, frame.get(),
                           &test_rects[0], test_rects.size());
       }
+
+      // Pass some empty frames through the encoder.
+      for (int i = 0; i < 10; ++i) {
+        TestEncodingRects(encoder, &tester, frame.get(), nullptr, 0);
+      }
     }
   }
+}
+
+void TestVideoEncoderEmptyFrames(VideoEncoder* encoder,
+                                 int max_topoff_frames) {
+  const DesktopSize kSize(640, 480);
+  scoped_ptr<DesktopFrame> frame(PrepareFrame(kSize));
+
+  frame->mutable_updated_region()->SetRect(
+      webrtc::DesktopRect::MakeSize(kSize));
+  EXPECT_TRUE(encoder->Encode(*frame));
+
+  int topoff_frames = 0;
+  frame->mutable_updated_region()->Clear();
+  for (int i = 0; i < max_topoff_frames + 1; ++i) {
+    if (!encoder->Encode(*frame))
+      break;
+    topoff_frames++;
+  }
+
+  // If top-off is enabled then our random frame contents should always
+  // trigger it, so expect at least one top-off frame - strictly, though,
+  // an encoder may not always need to top-off.
+  EXPECT_GE(topoff_frames, max_topoff_frames ? 1 : 0);
+  EXPECT_LE(topoff_frames, max_topoff_frames);
 }
 
 static void TestEncodeDecodeRects(VideoEncoder* encoder,

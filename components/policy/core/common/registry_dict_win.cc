@@ -63,7 +63,7 @@ scoped_ptr<base::Value> ConvertValue(const base::Value& value,
   int int_value = 0;
   switch (schema.type()) {
     case base::Value::TYPE_NULL: {
-      return make_scoped_ptr(base::Value::CreateNullValue()).Pass();
+      return base::Value::CreateNullValue();
     }
     case base::Value::TYPE_BOOLEAN: {
       // Accept booleans encoded as either string or integer.
@@ -115,7 +115,7 @@ scoped_ptr<base::Value> ConvertValue(const base::Value& value,
     case base::Value::TYPE_DICTIONARY: {
       // Dictionaries may be encoded as JSON strings.
       if (value.GetAsString(&string_value)) {
-        scoped_ptr<base::Value> result(base::JSONReader::Read(string_value));
+        scoped_ptr<base::Value> result = base::JSONReader::Read(string_value);
         if (result && result->IsType(schema.type()))
           return result.Pass();
       }

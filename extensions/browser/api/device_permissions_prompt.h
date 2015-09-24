@@ -7,9 +7,10 @@
 
 #include <vector>
 
-#include "base/callback.h"
+#include "base/callback_forward.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/scoped_vector.h"
 #include "base/strings/string16.h"
 
 namespace content {
@@ -18,6 +19,8 @@ class WebContents;
 }
 
 namespace device {
+class HidDeviceFilter;
+class HidDeviceInfo;
 class UsbDevice;
 class UsbDeviceFilter;
 }
@@ -30,23 +33,32 @@ class Extension;
 // (similar to choosing files).
 class DevicePermissionsPrompt {
  public:
-  // Context information available to the UI implementation.
-  class Prompt : public base::RefCountedThreadSafe<Prompt> {
-   public:
-    // Displayed properties of a device.
-    struct DeviceInfo {
-      DeviceInfo(scoped_refptr<device::UsbDevice> device,
-                 const base::string16& name,
-                 const base::string16& product_string,
-                 const base::string16& manufacturer_string,
-                 const base::string16& serial_number);
-      ~DeviceInfo();
+  using UsbDevicesCallback = base::Callback<void(
+      const std::vector<scoped_refptr<device::UsbDevice>>&)>;
+  using HidDevicesCallback = base::Callback<void(
+      const std::vector<scoped_refptr<device::HidDeviceInfo>>&)>;
 
-      scoped_refptr<device::UsbDevice> device;
-      base::string16 name;
-      base::string16 product_string;
-      base::string16 manufacturer_string;
-      base::string16 serial_number;
+  // Context information available to the UI implementation.
+  class Prompt : public base::RefCounted<Prompt> {
+   public:
+    // This class stores the device information displayed in the UI. It should
+    // be extended to support particular device types.
+    class DeviceInfo {
+     public:
+      DeviceInfo();
+      virtual ~DeviceInfo();
+
+      const base::string16& name() const { return name_; }
+      const base::string16& serial_number() const { return serial_number_; }
+      bool granted() const { return granted_; }
+      void set_granted() { granted_ = true; }
+
+     protected:
+      base::string16 name_;
+      base::string16 serial_number_;
+
+     private:
+      bool granted_ = false;
     };
 
     // Since the set of devices can change while the UI is visible an
@@ -54,99 +66,88 @@ class DevicePermissionsPrompt {
     class Observer {
      public:
       virtual void OnDevicesChanged() = 0;
+
+     protected:
+      virtual ~Observer();
     };
 
-    Prompt();
+    Prompt(const Extension* extension,
+           content::BrowserContext* context,
+           bool multiple);
 
     // Only one observer may be registered at a time.
-    void SetObserver(Observer* observer);
+    virtual void SetObserver(Observer* observer);
 
-    base::string16 GetHeading() const;
+    virtual base::string16 GetHeading() const = 0;
     base::string16 GetPromptMessage() const;
     size_t GetDeviceCount() const { return devices_.size(); }
-    scoped_refptr<device::UsbDevice> GetDevice(size_t index) const;
-    base::string16 GetDeviceName(size_t index) const {
-      DCHECK_LT(index, devices_.size());
-      return devices_[index].name;
-    }
-    base::string16 GetDeviceSerialNumber(size_t index) const {
-      DCHECK_LT(index, devices_.size());
-      return devices_[index].serial_number;
-    }
+    base::string16 GetDeviceName(size_t index) const;
+    base::string16 GetDeviceSerialNumber(size_t index) const;
 
     // Notifies the DevicePermissionsManager for the current extension that
     // access to the device at the given index is now granted.
-    void GrantDevicePermission(size_t index) const;
+    void GrantDevicePermission(size_t index);
 
-    const extensions::Extension* extension() const { return extension_; }
-    void set_extension(const extensions::Extension* extension) {
-      extension_ = extension;
-    }
+    virtual void Dismissed() = 0;
 
-    void set_browser_context(content::BrowserContext* context) {
-      browser_context_ = context;
-    }
-
+    // Allow the user to select multiple devices.
     bool multiple() const { return multiple_; }
-    void set_multiple(bool multiple) { multiple_ = multiple; }
-
-    const std::vector<device::UsbDeviceFilter>& filters() const {
-      return filters_;
-    }
-    void set_filters(const std::vector<device::UsbDeviceFilter>& filters);
-
-   private:
-    friend class base::RefCountedThreadSafe<Prompt>;
-
-    virtual ~Prompt();
-
-    // Querying for devices must be done asynchronously on the FILE thread.
-    void DoDeviceQuery();
-    void SetDevices(const std::vector<DeviceInfo>& devices);
-
-    const extensions::Extension* extension_;
-    content::BrowserContext* browser_context_;
-    bool multiple_;
-    std::vector<device::UsbDeviceFilter> filters_;
-    std::vector<DeviceInfo> devices_;
-    Observer* observer_;
-  };
-
-  class Delegate {
-   public:
-    // Called with the list of selected USB devices.
-    virtual void OnUsbDevicesChosen(
-        const std::vector<scoped_refptr<device::UsbDevice>>& devices) = 0;
 
    protected:
-    virtual ~Delegate() {}
+    virtual ~Prompt();
+
+    void AddCheckedDevice(scoped_ptr<DeviceInfo> device, bool allowed);
+
+    const Extension* extension() const { return extension_; }
+    Observer* observer() const { return observer_; }
+    content::BrowserContext* browser_context() const {
+      return browser_context_;
+    }
+
+    // Subclasses may fill this with a particular subclass of DeviceInfo and may
+    // assume that only that instances of that type are stored here.
+    ScopedVector<DeviceInfo> devices_;
+
+   private:
+    friend class base::RefCounted<Prompt>;
+
+    const extensions::Extension* extension_ = nullptr;
+    Observer* observer_ = nullptr;
+    content::BrowserContext* browser_context_ = nullptr;
+    bool multiple_ = false;
+
+    DISALLOW_COPY_AND_ASSIGN(Prompt);
   };
 
   DevicePermissionsPrompt(content::WebContents* web_contents);
   virtual ~DevicePermissionsPrompt();
 
-  void AskForUsbDevices(Delegate* delegate,
-                        const Extension* extension,
+  void AskForUsbDevices(const Extension* extension,
                         content::BrowserContext* context,
                         bool multiple,
-                        const std::vector<device::UsbDeviceFilter>& filters);
+                        const std::vector<device::UsbDeviceFilter>& filters,
+                        const UsbDevicesCallback& callback);
+
+  void AskForHidDevices(const Extension* extension,
+                        content::BrowserContext* context,
+                        bool multiple,
+                        const std::vector<device::HidDeviceFilter>& filters,
+                        const HidDevicesCallback& callback);
 
  protected:
   virtual void ShowDialog() = 0;
 
   content::WebContents* web_contents() { return web_contents_; }
-  Delegate* delegate() { return delegate_; }
   scoped_refptr<Prompt> prompt() { return prompt_; }
 
  private:
   // Parent web contents of the device permissions UI dialog.
   content::WebContents* web_contents_;
 
-  // The delegate called after the UI has been dismissed.
-  Delegate* delegate_;
-
   // Parameters available to the UI implementation.
   scoped_refptr<Prompt> prompt_;
+
+  DISALLOW_COPY_AND_ASSIGN(DevicePermissionsPrompt);
 };
 
 }  // namespace extensions

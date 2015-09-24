@@ -7,11 +7,14 @@
 #include <utility>
 
 #include "base/hash.h"
+#include "base/location.h"
 #include "base/logging.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/renderer/media/media_stream.h"
 #include "content/renderer/media/media_stream_audio_source.h"
@@ -157,7 +160,7 @@ void UserMediaClientImpl::requestUserMedia(
       std::string enable;
       if (options.GetFirstAudioConstraintByName(
               kMediaStreamRenderToAssociatedSink, &enable, NULL) &&
-          LowerCaseEqualsASCII(enable, "true")) {
+          base::LowerCaseEqualsASCII(enable, "true")) {
         enable_automatic_output_device_selection = true;
       }
     }
@@ -499,7 +502,7 @@ void UserMediaClientImpl::OnStreamGenerationFailed(
     return;
   }
 
-  GetUserMediaRequestFailed(&request_info->request, result);
+  GetUserMediaRequestFailed(request_info->request, result, "");
   DeleteUserMediaRequestInfo(request_info);
 }
 
@@ -550,7 +553,8 @@ void UserMediaClientImpl::InitializeSourceObject(
   webkit_source->initialize(
       base::UTF8ToUTF16(device.device.id),
       type,
-      base::UTF8ToUTF16(device.device.name));
+      base::UTF8ToUTF16(device.device.name),
+      false /* remote */, true /* readonly */);
 
   DVLOG(1) << "Initialize source object :"
            << "id = " << webkit_source->id().utf8()
@@ -579,10 +583,12 @@ void UserMediaClientImpl::InitializeSourceObject(
 MediaStreamVideoSource* UserMediaClientImpl::CreateVideoSource(
     const StreamDeviceInfo& device,
     const MediaStreamSource::SourceStoppedCallback& stop_callback) {
-  return new content::MediaStreamVideoCapturerSource(
-      device,
-      stop_callback,
-      new VideoCapturerDelegate(device));
+  content::MediaStreamVideoCapturerSource* ret =
+      new content::MediaStreamVideoCapturerSource(
+          stop_callback,
+          make_scoped_ptr(new VideoCapturerDelegate(device)));
+  ret->SetDeviceInfo(device);
+  return ret;
 }
 
 void UserMediaClientImpl::CreateVideoTracks(
@@ -650,12 +656,11 @@ void UserMediaClientImpl::OnCreateNativeTracksCompleted(
   DVLOG(1) << "UserMediaClientImpl::OnCreateNativeTracksComplete("
            << "{request_id = " << request->request_id << "} "
            << "{result = " << result << "})";
+
   if (result == content::MEDIA_DEVICE_OK)
-    GetUserMediaRequestSucceeded(request->web_stream, &request->request);
+    GetUserMediaRequestSucceeded(request->web_stream, request->request);
   else
-    GetUserMediaRequestTrackStartedFailed(&request->request,
-                                          result,
-                                          result_name);
+    GetUserMediaRequestFailed(request->request, result, result_name);
 
   DeleteUserMediaRequestInfo(request);
 }
@@ -715,67 +720,89 @@ void UserMediaClientImpl::OnDeviceOpenFailed(int request_id) {
 
 void UserMediaClientImpl::GetUserMediaRequestSucceeded(
     const blink::WebMediaStream& stream,
-    blink::WebUserMediaRequest* request_info) {
-  DVLOG(1) << "UserMediaClientImpl::GetUserMediaRequestSucceeded";
+    blink::WebUserMediaRequest request_info) {
+  // Completing the getUserMedia request can lead to that the RenderFrame and
+  // the UserMediaClientImpl is destroyed if the JavaScript code request the
+  // frame to be destroyed within the scope of the callback. Therefore,
+  // post a task to complete the request with a clean stack.
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE,
+      base::Bind(&UserMediaClientImpl::DelayedGetUserMediaRequestSucceeded,
+                 weak_factory_.GetWeakPtr(), stream, request_info));
+}
+
+void UserMediaClientImpl::DelayedGetUserMediaRequestSucceeded(
+    const blink::WebMediaStream& stream,
+    blink::WebUserMediaRequest request_info) {
+  DVLOG(1) << "UserMediaClientImpl::DelayedGetUserMediaRequestSucceeded";
   LogUserMediaRequestResult(MEDIA_DEVICE_OK);
-  request_info->requestSucceeded(stream);
+  request_info.requestSucceeded(stream);
 }
 
 void UserMediaClientImpl::GetUserMediaRequestFailed(
-    blink::WebUserMediaRequest* request_info,
-    MediaStreamRequestResult result) {
+    blink::WebUserMediaRequest request_info,
+    MediaStreamRequestResult result,
+    const blink::WebString& result_name) {
+  // Completing the getUserMedia request can lead to that the RenderFrame and
+  // the UserMediaClientImpl is destroyed if the JavaScript code request the
+  // frame to be destroyed within the scope of the callback. Therefore,
+  // post a task to complete the request with a clean stack.
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE,
+      base::Bind(&UserMediaClientImpl::DelayedGetUserMediaRequestFailed,
+                 weak_factory_.GetWeakPtr(), request_info, result,
+                 result_name));
+}
+
+void UserMediaClientImpl::DelayedGetUserMediaRequestFailed(
+    blink::WebUserMediaRequest request_info,
+    MediaStreamRequestResult result,
+    const blink::WebString& result_name) {
   LogUserMediaRequestResult(result);
   switch (result) {
     case MEDIA_DEVICE_OK:
+    case NUM_MEDIA_REQUEST_RESULTS:
       NOTREACHED();
-      break;
+      return;
     case MEDIA_DEVICE_PERMISSION_DENIED:
-      request_info->requestDenied();
-      break;
+      request_info.requestDenied();
+      return;
     case MEDIA_DEVICE_PERMISSION_DISMISSED:
-      request_info->requestFailedUASpecific("PermissionDismissedError");
-      break;
+      request_info.requestFailedUASpecific("PermissionDismissedError");
+      return;
     case MEDIA_DEVICE_INVALID_STATE:
-      request_info->requestFailedUASpecific("InvalidStateError");
-      break;
+      request_info.requestFailedUASpecific("InvalidStateError");
+      return;
     case MEDIA_DEVICE_NO_HARDWARE:
-      request_info->requestFailedUASpecific("DevicesNotFoundError");
-      break;
+      request_info.requestFailedUASpecific("DevicesNotFoundError");
+      return;
     case MEDIA_DEVICE_INVALID_SECURITY_ORIGIN:
-      request_info->requestFailedUASpecific("InvalidSecurityOriginError");
-      break;
+      request_info.requestFailedUASpecific("InvalidSecurityOriginError");
+      return;
     case MEDIA_DEVICE_TAB_CAPTURE_FAILURE:
-      request_info->requestFailedUASpecific("TabCaptureError");
-      break;
+      request_info.requestFailedUASpecific("TabCaptureError");
+      return;
     case MEDIA_DEVICE_SCREEN_CAPTURE_FAILURE:
-      request_info->requestFailedUASpecific("ScreenCaptureError");
-      break;
+      request_info.requestFailedUASpecific("ScreenCaptureError");
+      return;
     case MEDIA_DEVICE_CAPTURE_FAILURE:
-      request_info->requestFailedUASpecific("DeviceCaptureError");
-      break;
-    default:
-      NOTREACHED();
-      request_info->requestFailed();
-      break;
-  }
-}
-
-void UserMediaClientImpl::GetUserMediaRequestTrackStartedFailed(
-    blink::WebUserMediaRequest* request_info,
-    MediaStreamRequestResult result,
-    const blink::WebString& result_name) {
-  switch (result) {
+      request_info.requestFailedUASpecific("DeviceCaptureError");
+      return;
     case MEDIA_DEVICE_CONSTRAINT_NOT_SATISFIED:
-      request_info->requestFailedConstraint(result_name);
-      break;
+      request_info.requestFailedConstraint(result_name);
+      return;
     case MEDIA_DEVICE_TRACK_START_FAILURE:
-      request_info->requestFailedUASpecific("TrackStartError");
-      break;
-    default:
-      NOTREACHED();
-      request_info->requestFailed();
-      break;
+      request_info.requestFailedUASpecific("TrackStartError");
+      return;
+    case MEDIA_DEVICE_NOT_SUPPORTED:
+      request_info.requestFailedUASpecific("MediaDeviceNotSupported");
+      return;
+    case MEDIA_DEVICE_FAILED_DUE_TO_SHUTDOWN:
+      request_info.requestFailedUASpecific("MediaDeviceFailedDueToShutdown");
+      return;
   }
+  NOTREACHED();
+  request_info.requestFailed();
 }
 
 void UserMediaClientImpl::EnumerateDevicesSucceded(

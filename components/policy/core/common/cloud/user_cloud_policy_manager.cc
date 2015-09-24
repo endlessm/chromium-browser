@@ -26,15 +26,16 @@ UserCloudPolicyManager::UserCloudPolicyManager(
     const scoped_refptr<base::SequencedTaskRunner>& task_runner,
     const scoped_refptr<base::SequencedTaskRunner>& file_task_runner,
     const scoped_refptr<base::SequencedTaskRunner>& io_task_runner)
-    : CloudPolicyManager(
-          PolicyNamespaceKey(GetChromeUserPolicyType(), std::string()),
-          store.get(),
-          task_runner,
-          file_task_runner,
-          io_task_runner),
+    : CloudPolicyManager(GetChromeUserPolicyType(),
+                         std::string(),
+                         store.get(),
+                         task_runner,
+                         file_task_runner,
+                         io_task_runner),
       store_(store.Pass()),
       component_policy_cache_path_(component_policy_cache_path),
-      external_data_manager_(external_data_manager.Pass()) {}
+      external_data_manager_(external_data_manager.Pass()) {
+}
 
 UserCloudPolicyManager::~UserCloudPolicyManager() {}
 
@@ -52,15 +53,14 @@ void UserCloudPolicyManager::Connect(
     PrefService* local_state,
     scoped_refptr<net::URLRequestContextGetter> request_context,
     scoped_ptr<CloudPolicyClient> client) {
+  CreateComponentCloudPolicyService(component_policy_cache_path_,
+                                    request_context, client.get());
   core()->Connect(client.Pass());
   core()->StartRefreshScheduler();
   core()->TrackRefreshDelayPref(local_state,
                                 policy_prefs::kUserPolicyRefreshRate);
   if (external_data_manager_)
     external_data_manager_->Connect(request_context);
-
-  CreateComponentCloudPolicyService(component_policy_cache_path_,
-                                    request_context);
 }
 
 // static
@@ -74,7 +74,6 @@ UserCloudPolicyManager::CreateCloudPolicyClient(
           std::string(),
           kPolicyVerificationKeyHash,
           USER_AFFILIATION_NONE,
-          NULL,
           device_management_service,
           request_context)).Pass();
 }

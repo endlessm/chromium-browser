@@ -29,6 +29,10 @@ class TabController {
   // Returns true if multiple selection is supported.
   virtual bool SupportsMultipleSelection() = 0;
 
+  // Returns true if we should force the close buttons of the inactive tabs
+  // to be hidden.
+  virtual bool ShouldHideCloseButtonForInactiveTabs() = 0;
+
   // Selects the tab.
   virtual void SelectTab(Tab* tab) = 0;
 

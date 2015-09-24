@@ -7,10 +7,10 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/logging.h"
-#include "base/mac/mac_util.h"
 #import "base/mac/sdk_forward_declarations.h"
 #include "base/message_loop/message_loop.h"
 #include "base/prefs/pref_service.h"
+#include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -29,10 +29,12 @@
 #import "chrome/browser/ui/cocoa/browser/edit_search_engine_cocoa_controller.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/browser_window_utils.h"
+#import "chrome/browser/ui/cocoa/constrained_window/constrained_window_sheet_controller.h"
 #import "chrome/browser/ui/cocoa/chrome_event_processing_window.h"
 #import "chrome/browser/ui/cocoa/download/download_shelf_controller.h"
 #include "chrome/browser/ui/cocoa/find_bar/find_bar_bridge.h"
 #import "chrome/browser/ui/cocoa/info_bubble_view.h"
+#include "chrome/browser/ui/cocoa/key_equivalent_constants.h"
 #import "chrome/browser/ui/cocoa/location_bar/location_bar_view_mac.h"
 #import "chrome/browser/ui/cocoa/nsmenuitem_additions.h"
 #import "chrome/browser/ui/cocoa/profiles/avatar_base_controller.h"
@@ -43,19 +45,25 @@
 #import "chrome/browser/ui/cocoa/toolbar/toolbar_controller.h"
 #import "chrome/browser/ui/cocoa/web_dialog_window_controller.h"
 #import "chrome/browser/ui/cocoa/website_settings/website_settings_bubble_controller.h"
-#include "chrome/browser/ui/fullscreen/fullscreen_controller.h"
+#include "chrome/browser/ui/exclusive_access/fullscreen_controller.h"
 #include "chrome/browser/ui/search/search_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/grit/generated_resources.h"
 #include "components/translate/core/browser/language_state.h"
 #include "content/public/browser/native_web_keyboard_event.h"
 #include "content/public/browser/notification_details.h"
+#include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/web_contents.h"
+#include "extensions/browser/extension_registry.h"
+#include "extensions/browser/extension_system.h"
+#include "extensions/common/constants.h"
 #include "ui/base/l10n/l10n_util_mac.h"
-#include "ui/gfx/rect.h"
+#include "ui/events/keycodes/keyboard_codes.h"
+#include "ui/gfx/geometry/rect.h"
 
 #if defined(ENABLE_ONE_CLICK_SIGNIN)
 #import "chrome/browser/ui/cocoa/one_click_signin_bubble_controller.h"
@@ -68,21 +76,55 @@ using content::WebContents;
 
 namespace {
 
-NSPoint GetPointForBubble(content::WebContents* web_contents,
-                          int x_offset,
-                          int y_offset) {
-  NSView* view = web_contents->GetNativeView();
-  NSRect bounds = [view bounds];
-  NSPoint point;
-  point.x = NSMinX(bounds) + x_offset;
-  // The view's origin is at the bottom but |rect|'s origin is at the top.
-  point.y = NSMaxY(bounds) - y_offset;
-  point = [view convertPoint:point toView:nil];
-  point = [[view window] convertBaseToScreen:point];
-  return point;
+// These UI constants are used in BrowserWindowCocoa::ShowBookmarkAppBubble.
+// Used for defining the layout of the NSAlert and NSTextField within the
+// accessory view.
+const int kAppTextFieldVerticalSpacing = 2;
+const int kAppTextFieldWidth = 200;
+const int kAppTextFieldHeight = 22;
+const int kBookmarkAppBubbleViewWidth = 200;
+const int kBookmarkAppBubbleViewHeight = 46;
+
+const int kIconPreviewTargetSize = 128;
+
+base::string16 TrimText(NSString* controlText) {
+  base::string16 text = base::SysNSStringToUTF16(controlText);
+  base::TrimWhitespace(text, base::TRIM_ALL, &text);
+  return text;
 }
 
 }  // namespace
+
+@interface TextRequiringDelegate : NSObject<NSTextFieldDelegate> {
+ @private
+  // Disable |control_| when text changes to just whitespace or empty string.
+  NSControl* control_;
+}
+- (id)initWithControl:(NSControl*)control text:(NSString*)text;
+- (void)controlTextDidChange:(NSNotification*)notification;
+@end
+
+@interface TextRequiringDelegate ()
+- (void)validateText:(NSString*)text;
+@end
+
+@implementation TextRequiringDelegate
+- (id)initWithControl:(NSControl*)control text:(NSString*)text {
+  if ((self = [super init])) {
+    control_ = control;
+    [self validateText:text];
+  }
+  return self;
+}
+
+- (void)controlTextDidChange:(NSNotification*)notification {
+  [self validateText:[[notification object] stringValue]];
+}
+
+- (void)validateText:(NSString*)text {
+  [control_ setEnabled:TrimText(text).empty() ? NO : YES];
+}
+@end
 
 BrowserWindowCocoa::BrowserWindowCocoa(Browser* browser,
                                        BrowserWindowController* controller)
@@ -116,8 +158,8 @@ void BrowserWindowCocoa::Show() {
   NSWindowAnimationBehavior saved_animation_behavior =
       NSWindowAnimationBehaviorDefault;
   bool did_save_animation_behavior = false;
-  // Turn off swishing when restoring windows.
-  if (is_session_restore &&
+  // Turn off swishing when restoring windows or showing an app.
+  if ((is_session_restore || browser_->is_app()) &&
       [window() respondsToSelector:@selector(animationBehavior)] &&
       [window() respondsToSelector:@selector(setAnimationBehavior:)]) {
     did_save_animation_behavior = true;
@@ -126,11 +168,11 @@ void BrowserWindowCocoa::Show() {
   }
 
   {
-    TRACE_EVENT0("ui", "BrowserWindowCocoa::Show makeKeyAndOrderFront");
+    TRACE_EVENT0("ui", "BrowserWindowCocoa::Show Activate");
     // This call takes up a substantial part of startup time, and an even more
     // substantial part of startup time when any CALayers are part of the
     // window's NSView heirarchy.
-    [window() makeKeyAndOrderFront:controller_];
+    Activate();
   }
 
   // When creating windows from nibs it is necessary to |makeKeyAndOrderFront:|
@@ -140,7 +182,7 @@ void BrowserWindowCocoa::Show() {
     [window() orderOut:controller_];
     [window() miniaturize:controller_];
   } else if (initial_show_state_ == ui::SHOW_STATE_FULLSCREEN) {
-    chrome::ToggleFullscreenWithChromeOrFallback(browser_);
+    chrome::ToggleFullscreenWithToolbarOrFallback(browser_);
   }
   initial_show_state_ = ui::SHOW_STATE_DEFAULT;
 
@@ -156,7 +198,7 @@ void BrowserWindowCocoa::ShowInactive() {
 }
 
 void BrowserWindowCocoa::Hide() {
-  // Not implemented.
+  [window() orderOut:controller_];
 }
 
 void BrowserWindowCocoa::SetBounds(const gfx::Rect& bounds) {
@@ -248,10 +290,6 @@ gfx::NativeWindow BrowserWindowCocoa::GetNativeWindow() const {
   return window();
 }
 
-BrowserWindowTesting* BrowserWindowCocoa::GetBrowserWindowTesting() {
-  return NULL;
-}
-
 StatusBubble* BrowserWindowCocoa::GetStatusBubble() {
   return [controller_ statusBubble];
 }
@@ -294,11 +332,13 @@ void BrowserWindowCocoa::OnActiveTabChanged(content::WebContents* old_contents,
                                             content::WebContents* new_contents,
                                             int index,
                                             int reason) {
+  [controller_ onActiveTabChanged:old_contents to:new_contents];
   // TODO(pkasting): Perhaps the code in
   // TabStripController::activateTabWithContents should move here?  Or this
   // should call that (instead of TabStripModelObserverBridge doing so)?  It's
   // not obvious to me why Mac doesn't handle tab changes in BrowserWindow the
   // way views and GTK do.
+  // See http://crbug.com/340720 for discussion.
 }
 
 void BrowserWindowCocoa::ZoomChangedForActiveTab(bool can_show_bubble) {
@@ -327,7 +367,10 @@ gfx::Rect BrowserWindowCocoa::GetBounds() const {
 }
 
 bool BrowserWindowCocoa::IsMaximized() const {
-  return [window() isZoomed];
+  // -isZoomed returns YES if the window's frame equals the rect returned by
+  // -windowWillUseStandardFrame:defaultFrame:, even if the window is in the
+  // dock, so have to explicitly check for miniaturization state first.
+  return ![window() isMiniaturized] && [window() isZoomed];
 }
 
 bool BrowserWindowCocoa::IsMinimized() const {
@@ -354,26 +397,25 @@ void BrowserWindowCocoa::Restore() {
 // See browser_window_controller.h for a detailed explanation of the logic in
 // this method.
 void BrowserWindowCocoa::EnterFullscreen(const GURL& url,
-                                         FullscreenExitBubbleType bubble_type) {
-  if (browser_->fullscreen_controller()->IsWindowFullscreenForTabOrPending()) {
+                                         ExclusiveAccessBubbleType bubble_type,
+                                         bool with_toolbar) {
+  if (browser_->exclusive_access_manager()
+          ->fullscreen_controller()
+          ->IsWindowFullscreenForTabOrPending())
     [controller_ enterWebContentFullscreenForURL:url bubbleType:bubble_type];
-    return;
-  }
-
-  if (url.is_empty()) {
-    [controller_ enterPresentationMode];
-  } else {
+  else if (!url.is_empty())
     [controller_ enterExtensionFullscreenForURL:url bubbleType:bubble_type];
-  }
+  else
+    [controller_ enterBrowserFullscreenWithToolbar:with_toolbar];
 }
 
 void BrowserWindowCocoa::ExitFullscreen() {
   [controller_ exitAnyFullscreen];
 }
 
-void BrowserWindowCocoa::UpdateFullscreenExitBubbleContent(
-      const GURL& url,
-      FullscreenExitBubbleType bubble_type) {
+void BrowserWindowCocoa::UpdateExclusiveAccessExitBubbleContent(
+    const GURL& url,
+    ExclusiveAccessBubbleType bubble_type) {
   [controller_ updateFullscreenExitBubbleURL:url bubbleType:bubble_type];
 }
 
@@ -388,6 +430,18 @@ bool BrowserWindowCocoa::IsFullscreen() const {
 
 bool BrowserWindowCocoa::IsFullscreenBubbleVisible() const {
   return false;
+}
+
+bool BrowserWindowCocoa::SupportsFullscreenWithToolbar() const {
+  return chrome::mac::SupportsSystemFullscreen();
+}
+
+void BrowserWindowCocoa::UpdateFullscreenWithToolbar(bool with_toolbar) {
+  [controller_ updateFullscreenWithToolbar:with_toolbar];
+}
+
+bool BrowserWindowCocoa::IsFullscreenWithToolbar() const {
+  return IsFullscreen() && ![controller_ inPresentationMode];
 }
 
 void BrowserWindowCocoa::ConfirmAddSearchProvider(
@@ -421,7 +475,15 @@ void BrowserWindowCocoa::UpdateToolbar(content::WebContents* contents) {
   [controller_ updateToolbarWithContents:contents];
 }
 
+void BrowserWindowCocoa::ResetToolbarTabState(content::WebContents* contents) {
+  [controller_ resetTabState:contents];
+}
+
 void BrowserWindowCocoa::FocusToolbar() {
+  // Not needed on the Mac.
+}
+
+void BrowserWindowCocoa::ToolbarSizeChanged(bool is_animating) {
   // Not needed on the Mac.
 }
 
@@ -483,8 +545,75 @@ void BrowserWindowCocoa::ShowBookmarkBubble(const GURL& url,
 
 void BrowserWindowCocoa::ShowBookmarkAppBubble(
     const WebApplicationInfo& web_app_info,
-    const std::string& extension_id) {
-  NOTIMPLEMENTED();
+    const ShowBookmarkAppBubbleCallback& callback) {
+  base::scoped_nsobject<NSAlert> alert([[NSAlert alloc] init]);
+  [alert setMessageText:l10n_util::GetNSString(
+      IDS_ADD_TO_APPLICATIONS_BUBBLE_TITLE)];
+  [alert setAlertStyle:NSInformationalAlertStyle];
+
+  NSButton* continue_button =
+      [alert addButtonWithTitle:l10n_util::GetNSString(IDS_OK)];
+  [continue_button setKeyEquivalent:kKeyEquivalentReturn];
+  NSButton* cancel_button =
+      [alert addButtonWithTitle:l10n_util::GetNSString(IDS_CANCEL)];
+  [cancel_button setKeyEquivalent:kKeyEquivalentEscape];
+
+  base::scoped_nsobject<NSButton> open_as_window_checkbox(
+      [[NSButton alloc] initWithFrame:NSZeroRect]);
+  [open_as_window_checkbox setButtonType:NSSwitchButton];
+  [open_as_window_checkbox
+      setTitle:l10n_util::GetNSString(IDS_BOOKMARK_APP_BUBBLE_OPEN_AS_WINDOW)];
+  [open_as_window_checkbox setState:web_app_info.open_as_window];
+  [open_as_window_checkbox sizeToFit];
+
+  base::scoped_nsobject<NSTextField> app_title([[NSTextField alloc]
+      initWithFrame:NSMakeRect(0, kAppTextFieldHeight +
+                                      kAppTextFieldVerticalSpacing,
+                               kAppTextFieldWidth, kAppTextFieldHeight)]);
+  NSString* original_title = SysUTF16ToNSString(web_app_info.title);
+  [[app_title cell] setWraps:NO];
+  [[app_title cell] setScrollable:YES];
+  [app_title setStringValue:original_title];
+  base::scoped_nsobject<TextRequiringDelegate> delegate(
+      [[TextRequiringDelegate alloc] initWithControl:continue_button
+                                                text:[app_title stringValue]]);
+  [app_title setDelegate:delegate];
+
+  base::scoped_nsobject<NSView> view([[NSView alloc]
+      initWithFrame:NSMakeRect(0, 0, kBookmarkAppBubbleViewWidth,
+                               kBookmarkAppBubbleViewHeight)]);
+  [view addSubview:open_as_window_checkbox];
+  [view addSubview:app_title];
+  [alert setAccessoryView:view];
+
+  // Find the image with target size.
+  // Assumes that the icons are sorted in ascending order of size.
+  if (!web_app_info.icons.empty()) {
+    for (const WebApplicationInfo::IconInfo& info : web_app_info.icons) {
+      if (info.width == kIconPreviewTargetSize &&
+          info.height == kIconPreviewTargetSize) {
+        gfx::Image icon_image = gfx::Image::CreateFrom1xBitmap(info.data);
+        [alert setIcon:icon_image.ToNSImage()];
+        break;
+      }
+    }
+  }
+
+  NSInteger response = [alert runModal];
+
+  // Prevent |app_title| from accessing |delegate| after it's destroyed.
+  [app_title setDelegate:nil];
+
+  if (response == NSAlertFirstButtonReturn) {
+    WebApplicationInfo updated_info = web_app_info;
+    updated_info.open_as_window = [open_as_window_checkbox state] == NSOnState;
+    updated_info.title = TrimText([app_title stringValue]);
+
+    callback.Run(true, updated_info);
+    return;
+  }
+
+  callback.Run(false, web_app_info);
 }
 
 void BrowserWindowCocoa::ShowTranslateBubble(
@@ -501,6 +630,20 @@ void BrowserWindowCocoa::ShowTranslateBubble(
   [controller_ showTranslateBubbleForWebContents:contents
                                             step:step
                                        errorType:error_type];
+}
+
+bool BrowserWindowCocoa::ShowSessionCrashedBubble() {
+  return false;
+}
+
+bool BrowserWindowCocoa::IsProfileResetBubbleSupported() const {
+  return false;
+}
+
+GlobalErrorBubbleViewBase* BrowserWindowCocoa::ShowProfileResetBubble(
+    const base::WeakPtr<ProfileResetGlobalError>& global_error) {
+  NOTREACHED();
+  return nullptr;
 }
 
 #if defined(ENABLE_ONE_CLICK_SIGNIN)
@@ -551,15 +694,6 @@ void BrowserWindowCocoa::UserChangedTheme() {
   [controller_ userChangedTheme];
 }
 
-int BrowserWindowCocoa::GetExtraRenderViewHeight() const {
-  // Currently this is only used on linux.
-  return 0;
-}
-
-void BrowserWindowCocoa::WebContentsFocused(WebContents* contents) {
-  NOTIMPLEMENTED();
-}
-
 void BrowserWindowCocoa::ShowWebsiteSettings(
     Profile* profile,
     content::WebContents* web_contents,
@@ -574,6 +708,11 @@ void BrowserWindowCocoa::ShowAppMenu() {
 
 bool BrowserWindowCocoa::PreHandleKeyboardEvent(
     const NativeWebKeyboardEvent& event, bool* is_keyboard_shortcut) {
+  // Handle ESC to dismiss permission bubbles, but still forward it
+  // to the window afterwards.
+  if (event.windowsKeyCode == ui::VKEY_ESCAPE)
+    [controller_ dismissPermissionBubble];
+
   if (![BrowserWindowUtils shouldHandleKeyboardEvent:event])
     return false;
 
@@ -603,33 +742,13 @@ void BrowserWindowCocoa::HandleKeyboardEvent(
     [BrowserWindowUtils handleKeyboardEvent:event.os_event inWindow:window()];
 }
 
-void BrowserWindowCocoa::Cut() {
-  [NSApp sendAction:@selector(cut:) to:nil from:nil];
-}
-
-void BrowserWindowCocoa::Copy() {
-  [NSApp sendAction:@selector(copy:) to:nil from:nil];
-}
-
-void BrowserWindowCocoa::Paste() {
-  [NSApp sendAction:@selector(paste:) to:nil from:nil];
-}
-
-void BrowserWindowCocoa::EnterFullscreenWithChrome() {
-  CHECK(chrome::mac::SupportsSystemFullscreen());
-  [controller_ enterFullscreenWithChrome];
-}
-
-void BrowserWindowCocoa::EnterFullscreenWithoutChrome() {
-  [controller_ enterPresentationMode];
-}
-
-bool BrowserWindowCocoa::IsFullscreenWithChrome() {
-  return IsFullscreen() && ![controller_ inPresentationMode];
-}
-
-bool BrowserWindowCocoa::IsFullscreenWithoutChrome() {
-  return IsFullscreen() && [controller_ inPresentationMode];
+void BrowserWindowCocoa::CutCopyPaste(int command_id) {
+  if (command_id == IDC_CUT)
+    [NSApp sendAction:@selector(cut:) to:nil from:nil];
+  else if (command_id == IDC_COPY)
+    [NSApp sendAction:@selector(copy:) to:nil from:nil];
+  else
+    [NSApp sendAction:@selector(paste:) to:nil from:nil];
 }
 
 WindowOpenDisposition BrowserWindowCocoa::GetDispositionForPopupBounds(
@@ -652,7 +771,12 @@ FindBar* BrowserWindowCocoa::CreateFindBar() {
 
 web_modal::WebContentsModalDialogHost*
     BrowserWindowCocoa::GetWebContentsModalDialogHost() {
-  return NULL;
+  DCHECK([controller_ window]);
+  ConstrainedWindowSheetController* sheet_controller =
+      [ConstrainedWindowSheetController
+          controllerForParentWindow:[controller_ window]];
+  DCHECK(sheet_controller);
+  return [sheet_controller dialogHost];
 }
 
 extensions::ActiveTabPermissionGranter*
@@ -681,18 +805,6 @@ NSWindow* BrowserWindowCocoa::window() const {
   return [controller_ window];
 }
 
-void BrowserWindowCocoa::ShowAvatarBubble(WebContents* web_contents,
-                                          const gfx::Rect& rect) {
-  NSPoint point = GetPointForBubble(web_contents, rect.right(), rect.bottom());
-
-  // |menu| will automatically release itself on close.
-  AvatarMenuBubbleController* menu =
-      [[AvatarMenuBubbleController alloc] initWithBrowser:browser_
-                                               anchoredAt:point];
-  [[menu bubble] setAlignment:info_bubble::kAlignEdgeToAnchorEdge];
-  [menu showWindow:nil];
-}
-
 void BrowserWindowCocoa::ShowAvatarBubbleFromAvatarButton(
     AvatarBubbleMode mode,
     const signin::ManageAccountsParams& manage_accounts_params) {
@@ -716,4 +828,27 @@ void BrowserWindowCocoa::ExecuteExtensionCommand(
     const extensions::Extension* extension,
     const extensions::Command& command) {
   [cocoa_controller() executeExtensionCommand:extension->id() command:command];
+}
+
+ExclusiveAccessContext* BrowserWindowCocoa::GetExclusiveAccessContext() {
+  return this;
+}
+
+Profile* BrowserWindowCocoa::GetProfile() {
+  return browser_->profile();
+}
+
+WebContents* BrowserWindowCocoa::GetActiveWebContents() {
+  return browser_->tab_strip_model()->GetActiveWebContents();
+}
+
+void BrowserWindowCocoa::UnhideDownloadShelf() {
+  GetDownloadShelf()->Unhide();
+}
+
+void BrowserWindowCocoa::HideDownloadShelf() {
+  GetDownloadShelf()->Hide();
+  StatusBubble* statusBubble = GetStatusBubble();
+  if (statusBubble)
+    statusBubble->Hide();
 }

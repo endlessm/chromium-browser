@@ -51,6 +51,12 @@
       case ::syncer::AUTOFILL_PROFILE: \
         PER_DATA_TYPE_MACRO("AutofillProfiles"); \
         break; \
+      case ::syncer::AUTOFILL_WALLET_DATA: \
+        PER_DATA_TYPE_MACRO("AutofillWallet"); \
+        break; \
+      case ::syncer::AUTOFILL_WALLET_METADATA: \
+        PER_DATA_TYPE_MACRO("AutofillWalletMetadata"); \
+        break; \
       case ::syncer::THEMES: \
         PER_DATA_TYPE_MACRO("Themes"); \
         break; \
@@ -119,6 +125,9 @@
         break; \
       case ::syncer::SUPERVISED_USER_SHARED_SETTINGS: \
         PER_DATA_TYPE_MACRO("ManagedUserSharedSetting"); \
+        break; \
+      case ::syncer::SUPERVISED_USER_WHITELISTS: \
+        PER_DATA_TYPE_MACRO("ManagedUserWhitelist"); \
         break; \
       case ::syncer::ARTICLES: \
         PER_DATA_TYPE_MACRO("Article"); \

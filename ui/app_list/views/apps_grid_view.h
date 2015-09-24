@@ -27,6 +27,7 @@
 #include "ui/views/view_model.h"
 
 #if defined(OS_WIN)
+#include <wrl/client.h>
 #include "ui/base/dragdrop/drag_source_win.h"
 #endif
 
@@ -79,6 +80,9 @@ class APP_LIST_EXPORT AppsGridView : public views::View,
   int cols() const { return cols_; }
   int rows_per_page() const { return rows_per_page_; }
 
+  // Returns the size of a tile view including its padding.
+  static gfx::Size GetTotalTileSize();
+
   // This resets the grid view to a fresh state for showing the app list.
   void ResetForShowApps();
 
@@ -93,6 +97,7 @@ class APP_LIST_EXPORT AppsGridView : public views::View,
   void ClearSelectedView(AppListItemView* view);
   void ClearAnySelectedView();
   bool IsSelectedView(const AppListItemView* view) const;
+  bool has_selected_view() const { return selected_view_ != nullptr; }
 
   void InitiateDrag(AppListItemView* view,
                     Pointer pointer,
@@ -120,7 +125,7 @@ class APP_LIST_EXPORT AppsGridView : public views::View,
   // Return true if the |bounds_animator_| is animating |view|.
   bool IsAnimatingView(AppListItemView* view);
 
-  bool has_dragged_view() const { return drag_view_ != NULL; }
+  bool has_dragged_view() const { return drag_view_ != nullptr; }
   bool dragging() const { return drag_pointer_ != NONE; }
 
   // Gets the PaginationModel used for the grid view.
@@ -198,7 +203,9 @@ class APP_LIST_EXPORT AppsGridView : public views::View,
   }
 
   // For test: Return if the drag and drop handler was set.
-  bool has_drag_and_drop_host_for_test() { return NULL != drag_and_drop_host_; }
+  bool has_drag_and_drop_host_for_test() {
+    return nullptr != drag_and_drop_host_;
+  }
 
   // For test: Return if the drag and drop operation gets dispatched.
   bool forward_events_to_drag_and_drop_host_for_test() {
@@ -343,8 +350,8 @@ class APP_LIST_EXPORT AppsGridView : public views::View,
   void ReparentItemForReorder(AppListItemView* item_view, const Index& target);
 
   // Updates both data model and view_model_ for re-parenting a folder item
-  // to anther folder target.
-  void ReparentItemToAnotherFolder(AppListItemView* item_view,
+  // to anther folder target. Returns whether the reparent succeeded.
+  bool ReparentItemToAnotherFolder(AppListItemView* item_view,
                                    const Index& target);
 
   // If there is only 1 item left in the source folder after reparenting an item
@@ -458,7 +465,7 @@ class APP_LIST_EXPORT AppsGridView : public views::View,
   bool RunSynchronousDrag();
   void CleanUpSynchronousDrag();
 #if defined(OS_WIN)
-  void OnGotShortcutPath(scoped_refptr<SynchronousDrag> drag,
+  void OnGotShortcutPath(Microsoft::WRL::ComPtr<SynchronousDrag> drag,
                          const base::FilePath& path);
 #endif
 
@@ -505,7 +512,7 @@ class APP_LIST_EXPORT AppsGridView : public views::View,
 #if defined(OS_WIN)
   // Created when a drag is started (ie: drag exceeds the drag threshold), but
   // not Run() until supplied with a shortcut path.
-  scoped_refptr<SynchronousDrag> synchronous_drag_;
+  Microsoft::WRL::ComPtr<SynchronousDrag> synchronous_drag_;
 
   // Whether to use SynchronousDrag to support dropping to task bar etc.
   bool use_synchronous_drag_;

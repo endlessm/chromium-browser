@@ -42,7 +42,7 @@ namespace blink {
 class EntrySync;
 class ExceptionState;
 
-typedef HeapVector<Member<EntrySync> > EntrySyncHeapVector;
+typedef HeapVector<Member<EntrySync>> EntrySyncHeapVector;
 
 class DirectoryReaderSync : public DirectoryReaderBase, public ScriptWrappable {
     DEFINE_WRAPPERTYPEINFO();
@@ -52,7 +52,7 @@ public:
         return new DirectoryReaderSync(fileSystem, fullPath);
     }
 
-    virtual ~DirectoryReaderSync();
+    ~DirectoryReaderSync() override;
 
     EntrySyncHeapVector readEntries(ExceptionState&);
 
@@ -66,7 +66,7 @@ public:
         m_errorCode = code;
     }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     class EntriesCallbackHelper;

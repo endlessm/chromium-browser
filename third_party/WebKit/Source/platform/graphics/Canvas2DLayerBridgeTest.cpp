@@ -23,7 +23,6 @@
  */
 
 #include "config.h"
-
 #include "platform/graphics/Canvas2DLayerBridge.h"
 
 #include "SkDeferredCanvas.h"
@@ -36,14 +35,14 @@
 #include "public/platform/WebThread.h"
 #include "third_party/skia/include/core/SkDevice.h"
 #include "wtf/RefPtr.h"
-
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-using namespace blink;
 using testing::InSequence;
 using testing::Return;
 using testing::Test;
+
+namespace blink {
 
 namespace {
 
@@ -59,12 +58,12 @@ public:
     MockWebGraphicsContext3DProvider(WebGraphicsContext3D* context3d)
         : m_context3d(context3d) { }
 
-    WebGraphicsContext3D* context3d()
+    WebGraphicsContext3D* context3d() override
     {
         return m_context3d;
     }
 
-    GrContext* grContext()
+    GrContext* grContext() override
     {
         return 0;
     }
@@ -92,22 +91,22 @@ private:
 
 class NullWebExternalBitmap : public WebExternalBitmap {
 public:
-    virtual WebSize size()
+    WebSize size() override
     {
         return WebSize();
     }
 
-    virtual void setSize(WebSize)
+    void setSize(WebSize) override
     {
     }
 
-    virtual uint8* pixels()
+    uint8* pixels() override
     {
-        return 0;
+        return nullptr;
     }
 };
 
-} // namespace
+} // anonymous namespace
 
 class Canvas2DLayerBridgeTest : public Test {
 protected:
@@ -115,7 +114,7 @@ protected:
     {
         MockCanvasContext mainMock;
         OwnPtr<MockWebGraphicsContext3DProvider> mainMockProvider = adoptPtr(new MockWebGraphicsContext3DProvider(&mainMock));
-        RefPtr<SkSurface> surface = adoptRef(SkSurface::NewRasterPMColor(300, 150));
+        RefPtr<SkSurface> surface = adoptRef(SkSurface::NewRasterN32Premul(300, 150));
         OwnPtr<SkDeferredCanvas> canvas = adoptPtr(SkDeferredCanvas::Create(surface.get()));
 
         ::testing::Mock::VerifyAndClearExpectations(&mainMock);
@@ -125,8 +124,7 @@ protected:
 
             ::testing::Mock::VerifyAndClearExpectations(&mainMock);
 
-            EXPECT_CALL(mainMock, flush());
-            unsigned textureId = bridge->getBackingTexture();
+            unsigned textureId = bridge->newImageSnapshot()->getTextureHandle(true);
             EXPECT_EQ(textureId, 0u);
 
             ::testing::Mock::VerifyAndClearExpectations(&mainMock);
@@ -139,7 +137,7 @@ protected:
     {
         MockCanvasContext mainMock;
         OwnPtr<MockWebGraphicsContext3DProvider> mainMockProvider = adoptPtr(new MockWebGraphicsContext3DProvider(&mainMock));
-        RefPtr<SkSurface> surface = adoptRef(SkSurface::NewRasterPMColor(300, 150));
+        RefPtr<SkSurface> surface = adoptRef(SkSurface::NewRasterN32Premul(300, 150));
         OwnPtr<SkDeferredCanvas> canvas = adoptPtr(SkDeferredCanvas::Create(surface.get()));
 
         ::testing::Mock::VerifyAndClearExpectations(&mainMock);
@@ -171,7 +169,7 @@ protected:
     void prepareMailboxWithBitmapTest()
     {
         MockCanvasContext mainMock;
-        RefPtr<SkSurface> surface = adoptRef(SkSurface::NewRasterPMColor(300, 150));
+        RefPtr<SkSurface> surface = adoptRef(SkSurface::NewRasterN32Premul(300, 150));
         OwnPtr<SkDeferredCanvas> canvas = adoptPtr(SkDeferredCanvas::Create(surface.get()));
         OwnPtr<MockWebGraphicsContext3DProvider> mainMockProvider = adoptPtr(new MockWebGraphicsContext3DProvider(&mainMock));
         Canvas2DLayerBridgePtr bridge(adoptRef(new Canvas2DLayerBridge(mainMockProvider.release(), canvas.release(), surface, 0, NonOpaque)));
@@ -185,7 +183,7 @@ protected:
     void prepareMailboxAndLoseResourceTest()
     {
         MockCanvasContext mainMock;
-        RefPtr<SkSurface> surface = adoptRef(SkSurface::NewRasterPMColor(300, 150));
+        RefPtr<SkSurface> surface = adoptRef(SkSurface::NewRasterN32Premul(300, 150));
         bool lostResource = true;
 
         // Prepare a mailbox, then report the resource as lost.
@@ -217,8 +215,6 @@ protected:
     }
 };
 
-namespace {
-
 TEST_F(Canvas2DLayerBridgeTest, testFullLifecycleSingleThreaded)
 {
     fullLifecycleTest();
@@ -239,4 +235,4 @@ TEST_F(Canvas2DLayerBridgeTest, testPrepareMailboxAndLoseResource)
     prepareMailboxAndLoseResourceTest();
 }
 
-} // namespace
+} // namespace blink

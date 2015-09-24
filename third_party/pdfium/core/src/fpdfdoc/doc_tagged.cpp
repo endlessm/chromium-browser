@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/fpdfapi/fpdf_parser.h"
@@ -20,10 +20,7 @@ CPDF_StructTree* CPDF_StructTree::LoadPage(const CPDF_Document* pDoc, const CPDF
     if (!IsTagged(pDoc)) {
         return NULL;
     }
-    CPDF_StructTreeImpl* pTree = FX_NEW CPDF_StructTreeImpl(pDoc);
-    if (pTree == NULL) {
-        return NULL;
-    }
+    CPDF_StructTreeImpl* pTree = new CPDF_StructTreeImpl(pDoc);
     pTree->LoadPageTree(pPageDict);
     return pTree;
 }
@@ -32,10 +29,7 @@ CPDF_StructTree* CPDF_StructTree::LoadDoc(const CPDF_Document* pDoc)
     if (!IsTagged(pDoc)) {
         return NULL;
     }
-    CPDF_StructTreeImpl* pTree = FX_NEW CPDF_StructTreeImpl(pDoc);
-    if (pTree == NULL) {
-        return NULL;
-    }
+    CPDF_StructTreeImpl* pTree = new CPDF_StructTreeImpl(pDoc);
     pTree->LoadDocTree();
     return pTree;
 }
@@ -66,10 +60,7 @@ void CPDF_StructTreeImpl::LoadDocTree()
         return;
     }
     if (pKids->GetType() == PDFOBJ_DICTIONARY) {
-        CPDF_StructElementImpl* pStructElementImpl = FX_NEW CPDF_StructElementImpl(this, NULL, (CPDF_Dictionary*)pKids);
-        if (pStructElementImpl == NULL) {
-            return;
-        }
+        CPDF_StructElementImpl* pStructElementImpl = new CPDF_StructElementImpl(this, NULL, (CPDF_Dictionary*)pKids);
         m_Kids.Add(pStructElementImpl);
         return;
     }
@@ -79,10 +70,7 @@ void CPDF_StructTreeImpl::LoadDocTree()
     CPDF_Array* pArray = (CPDF_Array*)pKids;
     for (FX_DWORD i = 0; i < pArray->GetCount(); i ++) {
         CPDF_Dictionary* pKid = pArray->GetDict(i);
-        CPDF_StructElementImpl* pStructElementImpl = FX_NEW CPDF_StructElementImpl(this, NULL, pKid);
-        if (pStructElementImpl == NULL) {
-            return;
-        }
+        CPDF_StructElementImpl* pStructElementImpl = new CPDF_StructElementImpl(this, NULL, pKid);
         m_Kids.Add(pStructElementImpl);
     }
 }
@@ -137,13 +125,10 @@ CPDF_StructElementImpl* CPDF_StructTreeImpl::AddPageNode(CPDF_Dictionary* pDict,
         return NULL;
     }
     CPDF_StructElementImpl* pElement = NULL;
-    if (map.Lookup(pDict, (FX_LPVOID&)pElement)) {
+    if (map.Lookup(pDict, (void*&)pElement)) {
         return pElement;
     }
-    pElement = FX_NEW CPDF_StructElementImpl(this, NULL, pDict);
-    if (pElement == NULL) {
-        return NULL;
-    }
+    pElement = new CPDF_StructElementImpl(this, NULL, pDict);
     map.SetAt(pDict, pElement);
     CPDF_Dictionary* pParent = pDict->GetDict(FX_BSTRC("P"));
     if (pParent == NULL || pParent->GetString(FX_BSTRC("Type")) == FX_BSTRC("StructTreeRoot")) {
@@ -217,9 +202,11 @@ CPDF_StructElementImpl::CPDF_StructElementImpl(CPDF_StructTreeImpl* pTree, CPDF_
     m_pTree = pTree;
     m_pDict = pDict;
     m_Type = pDict->GetString(FX_BSTRC("S"));
-    CFX_ByteString mapped = pTree->m_pRoleMap->GetString(m_Type);
-    if (!mapped.IsEmpty()) {
-        m_Type = mapped;
+    if (pTree->m_pRoleMap) {
+        CFX_ByteString mapped = pTree->m_pRoleMap->GetString(m_Type);
+        if (!mapped.IsEmpty()) {
+            m_Type = mapped;
+        }
     }
     m_pParent = pParent;
     LoadKids(pDict);
@@ -319,13 +306,13 @@ void CPDF_StructElementImpl::LoadKid(FX_DWORD PageObjNum, CPDF_Object* pKidObj, 
         pKid->m_Type = CPDF_StructKid::Element;
         pKid->m_Element.m_pDict = pKidDict;
         if (m_pTree->m_pPage == NULL) {
-            pKid->m_Element.m_pElement = FX_NEW CPDF_StructElementImpl(m_pTree, this, pKidDict);
+            pKid->m_Element.m_pElement = new CPDF_StructElementImpl(m_pTree, this, pKidDict);
         } else {
             pKid->m_Element.m_pElement = NULL;
         }
     }
 }
-static CPDF_Dictionary* FindAttrDict(CPDF_Object* pAttrs, FX_BSTR owner, FX_FLOAT nLevel = 0.0F)
+static CPDF_Dictionary* FindAttrDict(CPDF_Object* pAttrs, const CFX_ByteStringC& owner, FX_FLOAT nLevel = 0.0F)
 {
     if (nLevel > nMaxRecursion) {
         return NULL;
@@ -353,7 +340,7 @@ static CPDF_Dictionary* FindAttrDict(CPDF_Object* pAttrs, FX_BSTR owner, FX_FLOA
     }
     return NULL;
 }
-CPDF_Object* CPDF_StructElementImpl::GetAttr(FX_BSTR owner, FX_BSTR name, FX_BOOL bInheritable, FX_FLOAT fLevel)
+CPDF_Object* CPDF_StructElementImpl::GetAttr(const CFX_ByteStringC& owner, const CFX_ByteStringC& name, FX_BOOL bInheritable, FX_FLOAT fLevel)
 {
     if (fLevel > nMaxRecursion) {
         return NULL;
@@ -404,7 +391,7 @@ CPDF_Object* CPDF_StructElementImpl::GetAttr(FX_BSTR owner, FX_BSTR name, FX_BOO
     }
     return NULL;
 }
-CPDF_Object* CPDF_StructElementImpl::GetAttr(FX_BSTR owner, FX_BSTR name, FX_BOOL bInheritable, int subindex)
+CPDF_Object* CPDF_StructElementImpl::GetAttr(const CFX_ByteStringC& owner, const CFX_ByteStringC& name, FX_BOOL bInheritable, int subindex)
 {
     CPDF_Object* pAttr = GetAttr(owner, name, bInheritable);
     if (pAttr == NULL || subindex == -1 || pAttr->GetType() != PDFOBJ_ARRAY) {
@@ -416,7 +403,7 @@ CPDF_Object* CPDF_StructElementImpl::GetAttr(FX_BSTR owner, FX_BSTR name, FX_BOO
     }
     return pArray->GetElementValue(subindex);
 }
-CFX_ByteString CPDF_StructElementImpl::GetName(FX_BSTR owner, FX_BSTR name, FX_BSTR default_value, FX_BOOL bInheritable, int subindex)
+CFX_ByteString CPDF_StructElementImpl::GetName(const CFX_ByteStringC& owner, const CFX_ByteStringC& name, const CFX_ByteStringC& default_value, FX_BOOL bInheritable, int subindex)
 {
     CPDF_Object* pAttr = GetAttr(owner, name, bInheritable, subindex);
     if (pAttr == NULL || pAttr->GetType() != PDFOBJ_NAME) {
@@ -424,7 +411,7 @@ CFX_ByteString CPDF_StructElementImpl::GetName(FX_BSTR owner, FX_BSTR name, FX_B
     }
     return pAttr->GetString();
 }
-FX_ARGB	CPDF_StructElementImpl::GetColor(FX_BSTR owner, FX_BSTR name, FX_ARGB default_value, FX_BOOL bInheritable, int subindex)
+FX_ARGB	CPDF_StructElementImpl::GetColor(const CFX_ByteStringC& owner, const CFX_ByteStringC& name, FX_ARGB default_value, FX_BOOL bInheritable, int subindex)
 {
     CPDF_Object* pAttr = GetAttr(owner, name, bInheritable, subindex);
     if (pAttr == NULL || pAttr->GetType() != PDFOBJ_ARRAY) {
@@ -433,7 +420,7 @@ FX_ARGB	CPDF_StructElementImpl::GetColor(FX_BSTR owner, FX_BSTR name, FX_ARGB de
     CPDF_Array* pArray = (CPDF_Array*)pAttr;
     return 0xff000000 | ((int)(pArray->GetNumber(0) * 255) << 16) | ((int)(pArray->GetNumber(1) * 255) << 8) | (int)(pArray->GetNumber(2) * 255);
 }
-FX_FLOAT CPDF_StructElementImpl::GetNumber(FX_BSTR owner, FX_BSTR name, FX_FLOAT default_value, FX_BOOL bInheritable, int subindex)
+FX_FLOAT CPDF_StructElementImpl::GetNumber(const CFX_ByteStringC& owner, const CFX_ByteStringC& name, FX_FLOAT default_value, FX_BOOL bInheritable, int subindex)
 {
     CPDF_Object* pAttr = GetAttr(owner, name, bInheritable, subindex);
     if (pAttr == NULL || pAttr->GetType() != PDFOBJ_NUMBER) {
@@ -441,7 +428,7 @@ FX_FLOAT CPDF_StructElementImpl::GetNumber(FX_BSTR owner, FX_BSTR name, FX_FLOAT
     }
     return pAttr->GetNumber();
 }
-int	CPDF_StructElementImpl::GetInteger(FX_BSTR owner, FX_BSTR name, int default_value, FX_BOOL bInheritable, int subindex)
+int	CPDF_StructElementImpl::GetInteger(const CFX_ByteStringC& owner, const CFX_ByteStringC& name, int default_value, FX_BOOL bInheritable, int subindex)
 {
     CPDF_Object* pAttr = GetAttr(owner, name, bInheritable, subindex);
     if (pAttr == NULL || pAttr->GetType() != PDFOBJ_NUMBER) {

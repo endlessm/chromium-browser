@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,31 +6,24 @@
 
 from __future__ import print_function
 
+import mock
 import os
 import signal
 import StringIO
-import sys
 import time
 
-sys.path.insert(0, os.path.abspath('%s/../../..' % os.path.dirname(__file__)))
-from chromite.cbuildbot import cbuildbot_config as config
+from chromite.cbuildbot import config_lib_unittest
 from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot import results_lib
 from chromite.cbuildbot import cbuildbot_run
+from chromite.cbuildbot.builders import simple_builders
 from chromite.cbuildbot.stages import generic_stages
 from chromite.cbuildbot.stages import sync_stages
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_test_lib
 from chromite.lib import parallel
-from chromite.scripts import cbuildbot
 
 
-# TODO(build): Finish test wrapper (http://crosbug.com/37517).
-# Until then, this has to be after the chromite imports.
-import mock
-
-
-# pylint: disable=R0901,W0212
 class PassStage(generic_stages.BuilderStage):
   """PassStage always works"""
 
@@ -60,6 +52,7 @@ class SneakyFailStage(generic_stages.BuilderStage):
 
   def PerformStage(self):
     """Exit without reporting back."""
+    # pylint: disable=protected-access
     os._exit(1)
 
 
@@ -123,7 +116,8 @@ class BuildStagesResultsTest(cros_test_lib.TestCase):
   def setUp(self):
     # Always stub RunCommmand out as we use it in every method.
     self._bot_id = 'x86-generic-paladin'
-    build_config = config.config[self._bot_id]
+    site_config = config_lib_unittest.MockSiteConfig()
+    build_config = site_config[self._bot_id]
     self.build_root = '/fake_root'
 
     # Create a class to hold
@@ -147,7 +141,8 @@ class BuildStagesResultsTest(cros_test_lib.TestCase):
     self._manager = parallel.Manager()
     self._manager.__enter__()
 
-    self._run = cbuildbot_run.BuilderRun(options, build_config, self._manager)
+    self._run = cbuildbot_run.BuilderRun(
+        options, site_config, build_config, self._manager)
 
     results_lib.Results.Clear()
 
@@ -161,8 +156,8 @@ class BuildStagesResultsTest(cros_test_lib.TestCase):
     PassStage(self._run).Run()
     Pass2Stage(self._run).Run()
     self.assertRaises(
-      failures_lib.StepFailure,
-      FailStage(self._run).Run)
+        failures_lib.StepFailure,
+        FailStage(self._run).Run)
 
   def _verifyRunResults(self, expectedResults, max_time=2.0):
     actualResults = results_lib.Results.Get()
@@ -219,8 +214,9 @@ class BuildStagesResultsTest(cros_test_lib.TestCase):
     self.assertFalse(results_lib.Results.BuildSucceededSoFar())
 
   def _TestParallelStages(self, stage_objs):
-    builder = cbuildbot.SimpleBuilder(self._run)
+    builder = simple_builders.SimpleBuilder(self._run)
     error = None
+    # pylint: disable=protected-access
     with mock.patch.multiple(parallel._BackgroundTask, PRINT_INTERVAL=0.01):
       try:
         builder._RunParallelStages(stage_objs)
@@ -386,7 +382,7 @@ class BuildStagesResultsTest(cros_test_lib.TestCase):
         "Failed in stage Archive:\n"
         "\n"
         "FailRunCommand msg\n"
-   )
+    )
 
     expectedLines = expectedResults.split('\n')
     actualLines = results.getvalue().split('\n')
@@ -479,7 +475,3 @@ class BuildStagesResultsTest(cros_test_lib.TestCase):
     results = StringIO.StringIO()
     results_lib.Results.Report(results)
     self.assertTrue('@@@STEP_WARNINGS@@@' in results.getvalue())
-
-
-if __name__ == '__main__':
-  cros_test_lib.main()

@@ -82,7 +82,6 @@ class ContentTranslateDriver : public TranslateDriver,
   bool IsOffTheRecord() override;
   const std::string& GetContentsMimeType() override;
   const GURL& GetLastCommittedURL() override;
-  const GURL& GetActiveURL() override;
   const GURL& GetVisibleURL() override;
   bool HasCurrentPage() override;
   void OpenUrlInNewTab(const GURL& url) override;
@@ -109,7 +108,7 @@ class ContentTranslateDriver : public TranslateDriver,
 
   TranslateManager* translate_manager_;
 
-  ObserverList<Observer, true> observer_list_;
+  base::ObserverList<Observer, true> observer_list_;
 
   // Max number of attempts before checking if a page has been reloaded.
   int max_reload_check_attempts_;

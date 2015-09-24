@@ -6,6 +6,8 @@
 
 #include <vector>
 
+#include "components/data_reduction_proxy/core/common/data_reduction_proxy_event_creator.h"
+#include "components/data_reduction_proxy/core/common/data_reduction_proxy_event_storage_delegate_test_utils.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_headers_test_utils.h"
 #include "net/http/http_response_headers.h"
 #include "net/proxy/proxy_service.h"
@@ -13,7 +15,22 @@
 
 namespace data_reduction_proxy {
 
-class DataReductionProxyHeadersTest : public testing::Test {};
+class DataReductionProxyHeadersTest : public testing::Test {
+ protected:
+  void SetUp() override {
+    storage_delegate_.reset(new TestDataReductionProxyEventStorageDelegate());
+    event_creator_.reset(
+        new DataReductionProxyEventCreator(storage_delegate_.get()));
+  }
+
+  DataReductionProxyEventCreator* event_creator() const {
+    return event_creator_.get();
+  }
+
+ private:
+  scoped_ptr<DataReductionProxyEventCreator> event_creator_;
+  scoped_ptr<TestDataReductionProxyEventStorageDelegate> storage_delegate_;
+};
 
 TEST_F(DataReductionProxyHeadersTest, GetDataReductionProxyActionValue) {
   const struct {
@@ -352,7 +369,7 @@ TEST_F(DataReductionProxyHeadersTest, GetProxyBypassInfo) {
     DataReductionProxyInfo data_reduction_proxy_info;
     EXPECT_EQ(
         tests[i].expected_result,
-        ParseHeadersAndSetProxyInfo(parsed.get(), &data_reduction_proxy_info));
+        ParseHeadersForBypassInfo(parsed.get(), &data_reduction_proxy_info));
     EXPECT_EQ(tests[i].expected_retry_delay,
               data_reduction_proxy_info.bypass_duration.InSeconds());
     EXPECT_EQ(tests[i].expected_bypass_all,
@@ -374,7 +391,7 @@ TEST_F(DataReductionProxyHeadersTest, ParseHeadersAndSetProxyInfo) {
 
   DataReductionProxyInfo data_reduction_proxy_info;
   EXPECT_TRUE(
-      ParseHeadersAndSetProxyInfo(parsed.get(), &data_reduction_proxy_info));
+      ParseHeadersForBypassInfo(parsed.get(), &data_reduction_proxy_info));
   EXPECT_LE(60, data_reduction_proxy_info.bypass_duration.InSeconds());
   EXPECT_GE(5 * 60, data_reduction_proxy_info.bypass_duration.InSeconds());
   EXPECT_FALSE(data_reduction_proxy_info.bypass_all);
@@ -451,48 +468,9 @@ TEST_F(DataReductionProxyHeadersTest, HasDataReductionProxyViaHeader) {
     },
     { "HTTP/1.1 200 OK\n"
       "Via: 1.1 Chrome Compression Proxy\n",
-      true,
-      true,
-      false,
-    },
-    { "HTTP/1.1 200 OK\n"
-      "Via: 1.1 Foo-Bar, 1.1 Chrome Compression Proxy\n",
-      true,
-      true,
-      false,
-    },
-    { "HTTP/1.1 200 OK\n"
-      "Via: 1.1 Chrome Compression Proxy, 1.1 Bar-Foo\n",
-      true,
-      false,
-      false,
-    },
-    { "HTTP/1.1 200 OK\n"
-      "Via: 1.1 chrome compression proxy\n",
       false,
       false,
       false,
-    },
-    { "HTTP/1.1 200 OK\n"
-      "Via: 1.1 Foo-Bar\n"
-      "Via: 1.1 Chrome Compression Proxy\n",
-      true,
-      true,
-      false,
-    },
-    { "HTTP/1.1 200 OK\n"
-      "Via: 1.1 Chrome Compression Proxy\n"
-      "Via: 1.1 Foo-Bar\n",
-      true,
-      false,
-      false,
-    },
-    { "HTTP/1.1 200 OK\n"
-      "Via: 1.1 Chrome Compression Proxy\n"
-      "Via: 1.1 Foo-Bar\n",
-      true,
-      false,
-      true,
     },
   };
   for (size_t i = 0; i < arraysize(tests); ++i) {
@@ -624,9 +602,8 @@ TEST_F(DataReductionProxyHeadersTest, GetDataReductionProxyBypassEventType) {
     scoped_refptr<net::HttpResponseHeaders> parsed(
         new net::HttpResponseHeaders(headers));
     DataReductionProxyInfo chrome_proxy_info;
-    EXPECT_EQ(
-        tests[i].expected_result,
-        GetDataReductionProxyBypassType(parsed.get(), &chrome_proxy_info));
+    EXPECT_EQ(tests[i].expected_result, GetDataReductionProxyBypassType(
+                                            parsed.get(), &chrome_proxy_info));
   }
 }
 

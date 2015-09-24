@@ -7,11 +7,14 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
+#include "base/location.h"
 #include "base/path_service.h"
 #include "base/process/kill.h"
-#include "base/process/process_handle.h"
+#include "base/process/process.h"
 #include "base/process/process_iterator.h"
+#include "base/single_thread_task_runner.h"
 #include "base/test/test_timeouts.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_version_info.h"
@@ -25,12 +28,9 @@
 class ServiceProcessControlBrowserTest
     : public InProcessBrowserTest {
  public:
-  ServiceProcessControlBrowserTest()
-      : service_process_handle_(base::kNullProcessHandle) {
+  ServiceProcessControlBrowserTest() {
   }
   virtual ~ServiceProcessControlBrowserTest() {
-    base::CloseProcessHandle(service_process_handle_);
-    service_process_handle_ = base::kNullProcessHandle;
   }
 
   void HistogramsCallback() {
@@ -68,22 +68,26 @@ class ServiceProcessControlBrowserTest
     ServiceProcessControl::GetInstance()->Disconnect();
   }
 
-  virtual void SetUp() override {
-    service_process_handle_ = base::kNullProcessHandle;
+  void SetUp() override {
+    // This should not be needed because TearDown() ends with a closed
+    // service_process_, but HistogramsTimeout and Histograms fail without this
+    // on Mac.
+    service_process_.Close();
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     if (ServiceProcessControl::GetInstance()->IsConnected())
       EXPECT_TRUE(ServiceProcessControl::GetInstance()->Shutdown());
 #if defined(OS_MACOSX)
     // ForceServiceProcessShutdown removes the process from launched on Mac.
     ForceServiceProcessShutdown("", 0);
 #endif  // OS_MACOSX
-    if (service_process_handle_ != base::kNullProcessHandle) {
-      EXPECT_TRUE(base::WaitForSingleProcess(
-          service_process_handle_,
-          TestTimeouts::action_max_timeout()));
-      service_process_handle_ = base::kNullProcessHandle;
+    if (service_process_.IsValid()) {
+      int exit_code;
+      EXPECT_TRUE(service_process_.WaitForExitWithTimeout(
+          TestTimeouts::action_max_timeout(), &exit_code));
+      EXPECT_EQ(0, exit_code);
+      service_process_.Close();
     }
   }
 
@@ -91,34 +95,36 @@ class ServiceProcessControlBrowserTest
     base::ProcessId service_pid;
     EXPECT_TRUE(GetServiceProcessData(NULL, &service_pid));
     EXPECT_NE(static_cast<base::ProcessId>(0), service_pid);
-    EXPECT_TRUE(base::OpenProcessHandleWithAccess(
-        service_pid,
-        base::kProcessAccessWaitForTermination |
-        // we need query permission to get exit code
-        base::kProcessAccessQueryInformation,
-        &service_process_handle_));
+#if defined(OS_WIN)
+    service_process_ =
+        base::Process::OpenWithAccess(service_pid,
+                                      SYNCHRONIZE | PROCESS_QUERY_INFORMATION);
+#else
+    service_process_ = base::Process::Open(service_pid);
+#endif
+    EXPECT_TRUE(service_process_.IsValid());
     // Quit the current message. Post a QuitTask instead of just calling Quit()
     // because this can get invoked in the context of a Launch() call and we
     // may not be in Run() yet.
-    base::MessageLoop::current()->PostTask(FROM_HERE,
-                                           base::MessageLoop::QuitClosure());
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::MessageLoop::QuitClosure());
   }
 
   void ProcessControlLaunchFailed() {
     ADD_FAILURE();
     // Quit the current message.
-    base::MessageLoop::current()->PostTask(FROM_HERE,
-                                           base::MessageLoop::QuitClosure());
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::MessageLoop::QuitClosure());
   }
 
  private:
-  base::ProcessHandle service_process_handle_;
+  base::Process service_process_;
 };
 
 class RealServiceProcessControlBrowserTest
       : public ServiceProcessControlBrowserTest {
  public:
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ServiceProcessControlBrowserTest::SetUpCommandLine(command_line);
     base::FilePath exe;
     PathService::Get(base::DIR_EXE, &exe);
@@ -183,8 +189,8 @@ IN_PROC_BROWSER_TEST_F(ServiceProcessControlBrowserTest, LaunchTwice) {
 static void DecrementUntilZero(int* count) {
   (*count)--;
   if (!(*count))
-    base::MessageLoop::current()->PostTask(FROM_HERE,
-                                           base::MessageLoop::QuitClosure());
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::MessageLoop::QuitClosure());
 }
 
 // Invoke multiple Launch calls in succession and ensure that all the tasks

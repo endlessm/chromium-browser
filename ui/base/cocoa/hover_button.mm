@@ -38,6 +38,10 @@
     self.hoverState = kHoverStateNone;
 }
 
+- (void)mouseMoved:(NSEvent*)theEvent {
+  [self checkImageState];
+}
+
 - (void)mouseDown:(NSEvent*)theEvent {
   self.hoverState = kHoverStateMouseDown;
   // The hover button needs to hold onto itself here for a bit.  Otherwise,
@@ -60,6 +64,7 @@
     trackingArea_.reset(
         [[CrTrackingArea alloc] initWithRect:NSZeroRect
                                      options:NSTrackingMouseEnteredAndExited |
+                                             NSTrackingMouseMoved |
                                              NSTrackingActiveAlways |
                                              NSTrackingInVisibleRect
                                        owner:self
@@ -78,6 +83,7 @@
                afterDelay:0];
   } else {
     if (trackingArea_.get()) {
+      self.hoverState = kHoverStateNone;
       [self removeTrackingArea:trackingArea_.get()];
       trackingArea_.reset(nil);
     }
@@ -101,8 +107,9 @@
 }
 
 - (void)setHoverState:(HoverState)state {
+  BOOL stateChanged = (hoverState_ != state);
   hoverState_ = state;
-  [self setNeedsDisplay:YES];
+  [self setNeedsDisplay:stateChanged];
 }
 
 @end

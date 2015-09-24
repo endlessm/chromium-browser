@@ -31,7 +31,6 @@
 #include "base/win/windows_version.h"
 #include "chrome/common/importer/ie_importer_utils_win.h"
 #include "chrome/common/importer/imported_bookmark_entry.h"
-#include "chrome/common/importer/imported_favicon_usage.h"
 #include "chrome/common/importer/importer_bridge.h"
 #include "chrome/common/importer/importer_data_types.h"
 #include "chrome/common/importer/importer_url_row.h"
@@ -114,7 +113,7 @@ LPCITEMIDLIST BinaryReadItemIDList(size_t offset, size_t idlist_size,
 struct IEOrderBookmarkComparator {
   bool operator()(const ImportedBookmarkEntry& lhs,
                   const ImportedBookmarkEntry& rhs) const {
-    static const uint32 kNotSorted = 0xfffffffb; // IE uses this magic value.
+    static const uint32 kNotSorted = 0xfffffffb;  // IE uses this magic value.
     base::FilePath lhs_prefix;
     base::FilePath rhs_prefix;
     for (size_t i = 0; i <= lhs.path.size() && i <= rhs.path.size(); ++i) {
@@ -184,7 +183,7 @@ bool ParseFavoritesOrderBlob(
     // Read the size (number of bytes) of the current item.
     uint32 item_size = 0;
     if (!BinaryRead(&item_size, base_offset + kSizeOffset, blob) ||
-        base_offset + item_size <= base_offset || // checking overflow
+        base_offset + item_size <= base_offset ||  // checking overflow
         base_offset + item_size > blob.size())
       return false;
 
@@ -276,7 +275,7 @@ bool LoadInternetShortcut(
     return false;
 
   base::win::ScopedComPtr<IPersistFile> persist_file;
-  if (FAILED(persist_file.QueryFrom(url_locator)))
+  if (FAILED(persist_file.QueryFrom(url_locator.get())))
     return false;
 
   // Loads the Internet Shortcut from persistent storage.
@@ -292,7 +291,7 @@ GURL ReadURLFromInternetShortcut(IUniformResourceLocator* url_locator) {
   base::win::ScopedCoMem<wchar_t> url;
   // GetURL can return S_FALSE (FAILED(S_FALSE) is false) when url == NULL.
   return (FAILED(url_locator->GetURL(&url)) || !url) ?
-      GURL() : GURL(base::WideToUTF16(std::wstring(url)));
+      GURL() : GURL(url.get());
 }
 
 // Reads the URL of the favicon of the internet shortcut.
@@ -307,7 +306,7 @@ GURL ReadFaviconURLFromInternetShortcut(IUniformResourceLocator* url_locator) {
     return GURL();
   }
 
-  PROPSPEC properties[] = {{PRSPEC_PROPID, PID_IS_ICONFILE}};
+  PROPSPEC properties[] = {{PRSPEC_PROPID, {PID_IS_ICONFILE}}};
   // ReadMultiple takes a non-const array of PROPVARIANTs, but since this code
   // only needs an array of size 1: a non-const pointer to |output| is
   // equivalent.
@@ -317,7 +316,7 @@ GURL ReadFaviconURLFromInternetShortcut(IUniformResourceLocator* url_locator) {
   if (FAILED(property_storage->ReadMultiple(1, properties, output.Receive())) ||
       output.get().vt != VT_LPWSTR)
     return GURL();
-  return GURL(base::WideToUTF16(output.get().pwszVal));
+  return GURL(output.get().pwszVal);
 }
 
 // Reads the favicon imaga data in an NTFS alternate data stream. This is where
@@ -366,22 +365,23 @@ bool ReadReencodedFaviconData(const base::string16& file,
 }
 
 // Loads favicon image data and registers to |favicon_map|.
-void UpdateFaviconMap(const base::string16& url_file,
-                      const GURL& url,
-                      IUniformResourceLocator* url_locator,
-                      std::map<GURL, ImportedFaviconUsage>* favicon_map) {
+void UpdateFaviconMap(
+    const base::string16& url_file,
+    const GURL& url,
+    IUniformResourceLocator* url_locator,
+    std::map<GURL, favicon_base::FaviconUsageData>* favicon_map) {
   GURL favicon_url = ReadFaviconURLFromInternetShortcut(url_locator);
   if (!favicon_url.is_valid())
     return;
 
-  std::map<GURL, ImportedFaviconUsage>::iterator it =
-    favicon_map->find(favicon_url);
+  std::map<GURL, favicon_base::FaviconUsageData>::iterator it =
+      favicon_map->find(favicon_url);
   if (it != favicon_map->end()) {
     // Known favicon URL.
     it->second.urls.insert(url);
   } else {
     // New favicon URL. Read the image data and store.
-    ImportedFaviconUsage usage;
+    favicon_base::FaviconUsageData usage;
     if (ReadReencodedFaviconData(url_file, favicon_url, &usage.png_data)) {
       usage.favicon_url = favicon_url;
       usage.urls.insert(url);
@@ -457,7 +457,7 @@ void IEImporter::ImportFavorites() {
     return;
 
   BookmarkVector bookmarks;
-  std::vector<ImportedFaviconUsage> favicons;
+  favicon_base::FaviconUsageDataList favicons;
   ParseFavoritesFolder(info, &bookmarks, &favicons);
 
   if (!bookmarks.empty() && !cancelled()) {
@@ -477,18 +477,24 @@ void IEImporter::ImportHistory() {
   int total_schemes = arraysize(kSchemes);
 
   base::win::ScopedComPtr<IUrlHistoryStg2> url_history_stg2;
-  HRESULT result;
-  result = url_history_stg2.CreateInstance(CLSID_CUrlHistory, NULL,
-                                           CLSCTX_INPROC_SERVER);
-  if (FAILED(result))
+  if (FAILED(url_history_stg2.CreateInstance(CLSID_CUrlHistory, NULL,
+                                             CLSCTX_INPROC_SERVER))) {
     return;
+  }
   base::win::ScopedComPtr<IEnumSTATURL> enum_url;
-  if (SUCCEEDED(result = url_history_stg2->EnumUrls(enum_url.Receive()))) {
+  if (SUCCEEDED(url_history_stg2->EnumUrls(enum_url.Receive()))) {
     std::vector<ImporterURLRow> rows;
     STATURL stat_url;
-    ULONG fetched;
+
+    // IEnumSTATURL::Next() doesn't fill STATURL::dwFlags by default. Need to
+    // call IEnumSTATURL::SetFilter() with STATURL_QUERYFLAG_TOPLEVEL flag to
+    // specify how STATURL structure will be filled.
+    // The first argument of IEnumSTATURL::SetFilter() specifies the URL prefix
+    // that is used by IEnumSTATURL::Next() for filtering items by URL.
+    // So need to pass an empty string here to get all history items.
+    enum_url->SetFilter(L"", STATURL_QUERYFLAG_TOPLEVEL);
     while (!cancelled() &&
-           (result = enum_url->Next(1, &stat_url, &fetched)) == S_OK) {
+           enum_url->Next(1, &stat_url, NULL) == S_OK) {
       base::string16 url_string;
       if (stat_url.pwcsUrl) {
         url_string = stat_url.pwcsUrl;
@@ -510,10 +516,13 @@ void IEImporter::ImportHistory() {
       ImporterURLRow row(url);
       row.title = title_string;
       row.last_visit = base::Time::FromFileTime(stat_url.ftLastVisited);
-      if (stat_url.dwFlags == STATURL_QUERYFLAG_TOPLEVEL) {
+      if (stat_url.dwFlags == STATURLFLAG_ISTOPLEVEL) {
         row.visit_count = 1;
         row.hidden = false;
       } else {
+        // dwFlags should only contain the STATURLFLAG_ISTOPLEVEL bit per
+        // the filter set above.
+        DCHECK(!stat_url.dwFlags);
         row.hidden = true;
       }
 
@@ -604,8 +613,8 @@ void IEImporter::ImportPasswordsIE6() {
       continue;
 
     GURL url(ac_list[i].key.c_str());
-    if (!(LowerCaseEqualsASCII(url.scheme(), url::kHttpScheme) ||
-          LowerCaseEqualsASCII(url.scheme(), url::kHttpsScheme))) {
+    if (!(base::LowerCaseEqualsASCII(url.scheme(), url::kHttpScheme) ||
+          base::LowerCaseEqualsASCII(url.scheme(), url::kHttpsScheme))) {
       continue;
     }
 
@@ -623,9 +632,9 @@ void IEImporter::ImportPasswordsIE6() {
     // This is not precise, because a scheme of https does not imply a valid
     // certificate was presented; however we assign it this way so that if we
     // import a password from IE whose scheme is https, we give it the benefit
-    // of the doubt and DONT auto-fill it unless the form appears under
-    // valid SSL conditions.
-    form.ssl_valid = url.SchemeIsSecure();
+    // of the doubt and DON'T auto-fill it unless the form appears under
+    // valid TLS conditions.
+    form.ssl_valid = url.SchemeIsCryptographic();
 
     // Goes through the list to find out the username field
     // of the web page.
@@ -715,15 +724,15 @@ void IEImporter::ImportSearchEngines() {
     }
   }
   // ProfileWriter::AddKeywords() requires a vector and we have a map.
-  std::vector<importer::URLKeywordInfo> url_keywords;
+  std::vector<importer::SearchEngineInfo> search_engines;
   for (SearchEnginesMap::iterator i = search_engines_map.begin();
        i != search_engines_map.end(); ++i) {
-    importer::URLKeywordInfo url_keyword_info;
-    url_keyword_info.url = GURL(i->first);
-    url_keyword_info.display_name = i->second;
-    url_keywords.push_back(url_keyword_info);
+    importer::SearchEngineInfo search_engine_info;
+    search_engine_info.url = base::UTF8ToUTF16(i->first);
+    search_engine_info.display_name = i->second;
+    search_engines.push_back(search_engine_info);
   }
-  bridge_->SetKeywords(url_keywords, true);
+  bridge_->SetKeywords(search_engines, true);
 }
 
 void IEImporter::ImportHomepage() {
@@ -791,7 +800,7 @@ bool IEImporter::GetFavoritesInfo(IEImporter::FavoritesInfo* info) {
 void IEImporter::ParseFavoritesFolder(
     const FavoritesInfo& info,
     BookmarkVector* bookmarks,
-    std::vector<ImportedFaviconUsage>* favicons) {
+    favicon_base::FaviconUsageDataList* favicons) {
   base::FilePath file;
   std::vector<base::FilePath::StringType> file_list;
   base::FilePath favorites_path(info.path);
@@ -808,20 +817,20 @@ void IEImporter::ParseFavoritesFolder(
 
   // Map from favicon URLs to the favicon data (the binary image data and the
   // set of bookmark URLs referring to the favicon).
-  typedef std::map<GURL, ImportedFaviconUsage> FaviconMap;
+  typedef std::map<GURL, favicon_base::FaviconUsageData> FaviconMap;
   FaviconMap favicon_map;
 
   for (std::vector<base::FilePath::StringType>::iterator it = file_list.begin();
        it != file_list.end(); ++it) {
     base::FilePath shortcut(*it);
-    if (!LowerCaseEqualsASCII(shortcut.Extension(), ".url"))
+    if (!base::LowerCaseEqualsASCII(shortcut.Extension(), ".url"))
       continue;
 
     // Skip the bookmark with invalid URL.
     base::win::ScopedComPtr<IUniformResourceLocator> url_locator;
     if (!LoadInternetShortcut(*it, &url_locator))
       continue;
-    GURL url = ReadURLFromInternetShortcut(url_locator);
+    GURL url = ReadURLFromInternetShortcut(url_locator.get());
     if (!url.is_valid())
       continue;
     // Skip default bookmarks. go.microsoft.com redirects to
@@ -832,7 +841,7 @@ void IEImporter::ParseFavoritesFolder(
     if (url.host() == "go.microsoft.com")
       continue;
     // Read favicon.
-    UpdateFaviconMap(*it, url, url_locator, &favicon_map);
+    UpdateFaviconMap(*it, url, url_locator.get(), &favicon_map);
 
     // Make the relative path from the Favorites folder, without the basename.
     // ex. Suppose that the Favorites folder is C:\Users\Foo\Favorites.

@@ -13,6 +13,7 @@
 #ifndef NATIVE_CLIENT_SRC_TRUSTED_SERVICE_RUNTIME_NACL_CONFIG_H_
 #define NATIVE_CLIENT_SRC_TRUSTED_SERVICE_RUNTIME_NACL_CONFIG_H_
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/nacl_base.h"
 #include "native_client/src/include/nacl_asm.h"
 
@@ -134,17 +135,13 @@
 #define NACL_HALT_SLED_SIZE     32
 
 /*
- * If NACL_MASK_INODES is defined to be 1, then NACL_FAKE_INODE_NUM is
- * used throughout as inode number returned in stat/fstat/getdents
- * system calls.  If NACL_MASK_INODES is defined to be 0, then the
- * service runtime will let the real inode number through.  Exposing
- * inode numbers are a miniscule information leak; more importantly,
+ * NACL_FAKE_INODE_NUM is used throughout as inode number returned in
+ * stat/fstat/getdents system calls, unless NaClAclBypassChecks is
+ * set in which case the real inode numbers are reported.
+ * Exposing inode numbers are a miniscule information leak; more importantly,
  * it is yet another platform difference since none of the standard
  * Windows filesystems have inode numbers.
  */
-#if !defined(NACL_MASK_INODES)
-# define NACL_MASK_INODES 1
-#endif
 #if !defined(NACL_FAKE_INODE_NUM) /* allow alternate value */
 # define NACL_FAKE_INODE_NUM     0x6c43614e
 #endif
@@ -296,6 +293,10 @@
 # define NACL_STACK_PAD_BELOW_ALIGN (0)
 # define NACL_STACK_RED_ZONE        (0)
 /* 16 byte bundles */
+
+#elif NACL_ARCH(NACL_BUILD_ARCH) == NACL_pnacl
+
+/* This is a PNaCl build, so we define no arch-dependent stuff */
 
 #else /* NACL_ARCH(NACL_BUILD_ARCH) */
 

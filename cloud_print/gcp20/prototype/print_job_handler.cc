@@ -85,7 +85,7 @@ LocalPrintJob::CreateResult PrintJobHandler::CreatePrintJob(
     return LocalPrintJob::CREATE_INVALID_TICKET;
 
   // Let's simulate at least some errors just for testing.
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kSimulatePrintingErrors)) {
     if (base::RandDouble() <= kPaperJamProbability) {
       *error_description = "Paper jam, try again";
@@ -175,7 +175,7 @@ LocalPrintJob::SaveResult PrintJobHandler::CompleteLocalPrintJob(
   if (!SavePrintJob(current_job->second.data.content,
                     current_job->second.ticket,
                     base::Time::Now(),
-                    StringPrintf("%s", job_id.c_str()),
+                    job_id,
                     current_job->second.data.job_name, file_extension)) {
     SetJobState(job_id, LocalPrintJob::STATE_ABORTED);
     *error_description_out = "IO error";

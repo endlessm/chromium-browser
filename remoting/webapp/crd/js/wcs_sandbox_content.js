@@ -16,20 +16,11 @@ var remoting = remoting || {};
 
 /** @constructor */
 remoting.WcsSandboxContent = function() {
-  /**
-   * @type {Window}
-   * @private
-   */
+  /** @private {Window} */
   this.parentWindow_ = null;
-  /**
-   * @type {number}
-   * @private
-   */
+  /** @private {number} */
   this.nextXhrId_ = 0;
-  /**
-   * @type {Object.<number, XMLHttpRequest>}
-   * @private
-   */
+  /** @private {Object<number, XMLHttpRequest>} */
   this.pendingXhrs_ = {};
 
   window.addEventListener('message', this.onMessage_.bind(this), false);
@@ -131,6 +122,7 @@ remoting.WcsSandboxContent.prototype.onMessage_ = function(event) {
 remoting.WcsSandboxContent.prototype.onLocalJid_ = function(localJid) {
   remoting.wcs.setOnIq(this.onIq_.bind(this));
   var message = {
+    'source': 'wcs-sandbox',
     'command': 'onLocalJid',
     'localJid': localJid
   };
@@ -140,11 +132,12 @@ remoting.WcsSandboxContent.prototype.onLocalJid_ = function(localJid) {
 /**
  * Callback method to indicate that something went wrong loading the WCS driver.
  *
- * @param {remoting.Error} error Details of the error.
+ * @param {!remoting.Error} error Details of the error.
  * @private
  */
 remoting.WcsSandboxContent.prototype.onError_ = function(error) {
   var message = {
+    'source': 'wcs-sandbox',
     'command': 'onError',
     'error': error
   };
@@ -162,12 +155,13 @@ remoting.WcsSandboxContent.prototype.sendXhr = function(xhr) {
   var id = this.nextXhrId_++;
   this.pendingXhrs_[id] = xhr;
   var message = {
+    'source': 'wcs-sandbox',
     'command': 'sendXhr',
     'id': id,
-    'parameters': xhr.sandbox_ipc
+    'parameters': xhr.sandboxIpc
   };
   this.parentWindow_.postMessage(message, '*');
-  delete xhr.sandbox_ipc;
+  delete xhr.sandboxIpc;
   return id;
 };
 
@@ -184,6 +178,7 @@ remoting.WcsSandboxContent.prototype.abortXhr = function(id) {
     return;
   }
   var message = {
+    'source': 'wcs-sandbox',
     'command': 'abortXhr',
     'id': id
   };
@@ -200,6 +195,7 @@ remoting.WcsSandboxContent.prototype.abortXhr = function(id) {
 remoting.WcsSandboxContent.prototype.onIq_ = function(stanza) {
   remoting.wcs.setOnIq(this.onIq_.bind(this));
   var message = {
+    'source': 'wcs-sandbox',
     'command': 'onIq',
     'stanza': stanza
   };

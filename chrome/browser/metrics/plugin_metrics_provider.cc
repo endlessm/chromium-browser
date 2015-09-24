@@ -11,6 +11,7 @@
 #include "base/prefs/scoped_user_pref_update.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/plugins/plugin_prefs.h"
@@ -301,8 +302,8 @@ void PluginMetricsProvider::LogPluginLoadingError(
   ChildProcessStats& stats = child_process_stats_buffer_[plugin.name];
   // Initialize the type if this entry is new.
   if (stats.process_type == content::PROCESS_TYPE_UNKNOWN) {
-    // The plug-in process might not actually be of type PLUGIN (which means
-    // NPAPI), but we only care that it is *a* plug-in process.
+    // The plugin process might not actually be of type PLUGIN (which means
+    // NPAPI), but we only care that it is *a* plugin process.
     stats.process_type = content::PROCESS_TYPE_PLUGIN;
   } else {
     DCHECK(IsPluginProcess(stats.process_type));
@@ -353,7 +354,8 @@ void PluginMetricsProvider::BrowserChildProcessHostConnected(
 }
 
 void PluginMetricsProvider::BrowserChildProcessCrashed(
-    const content::ChildProcessData& data) {
+    const content::ChildProcessData& data,
+    int exit_code) {
   GetChildProcessStats(data).process_crashes++;
   RecordCurrentStateWithDelay(kRecordStateDelayMs);
 }
@@ -368,7 +370,7 @@ bool PluginMetricsProvider::RecordCurrentStateWithDelay(int delay_sec) {
   if (weak_ptr_factory_.HasWeakPtrs())
     return false;
 
-  base::MessageLoopProxy::current()->PostDelayedTask(
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
       base::Bind(&PluginMetricsProvider::RecordCurrentState,
                 weak_ptr_factory_.GetWeakPtr()),

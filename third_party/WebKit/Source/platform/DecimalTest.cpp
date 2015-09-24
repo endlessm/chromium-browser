@@ -48,10 +48,6 @@ std::ostream& operator<<(std::ostream& os, const Decimal& decimal)
         << ")=" << decimal.toString().ascii().data();
 }
 
-} // namespace blink
-
-using namespace blink;
-
 // Simulate WebCore/html/StepRange
 class DecimalStepRange {
 public:
@@ -76,21 +72,21 @@ public:
 
 class DecimalTest : public ::testing::Test {
 protected:
-    typedef Decimal::Sign Sign;
-    protected: static const Sign Positive = Decimal::Positive;
-    protected: static const Sign Negative = Decimal::Negative;
+    using Sign = Decimal::Sign;
+    static const Sign Positive = Decimal::Positive;
+    static const Sign Negative = Decimal::Negative;
 
     Decimal encode(uint64_t coefficient, int exponent, Sign sign)
     {
         return Decimal(sign, exponent, coefficient);
     }
 
-    protected: Decimal fromString(const String& string)
+    Decimal fromString(const String& string)
     {
         return Decimal::fromString(string);
     }
 
-    protected: Decimal stepDown(const String& minimum, const String& maximum, const String& step, const String& valueString, int numberOfStepTimes)
+    Decimal stepDown(const String& minimum, const String& maximum, const String& step, const String& valueString, int numberOfStepTimes)
     {
         DecimalStepRange stepRange(fromString(minimum), fromString(maximum), fromString(step));
         Decimal value = fromString(valueString);
@@ -101,7 +97,7 @@ protected:
         return value;
     }
 
-    protected: Decimal stepUp(const String& minimum, const String& maximum, const String& step, const String& valueString, int numberOfStepTimes)
+    Decimal stepUp(const String& minimum, const String& maximum, const String& step, const String& valueString, int numberOfStepTimes)
     {
         DecimalStepRange stepRange(fromString(minimum), fromString(maximum), fromString(step));
         Decimal value = fromString(valueString);
@@ -242,6 +238,7 @@ TEST_F(DecimalTest, Ceil)
     EXPECT_EQ(Decimal(0), encode(199, -3, Negative).ceil());
     EXPECT_EQ(Decimal(-1), encode(199, -2, Negative).ceil());
     EXPECT_EQ(Decimal(-2), encode(209, -2, Negative).ceil());
+    EXPECT_EQ(Decimal(1), encode(UINT64_C(123456789012345678), -18, Positive).ceil());
 }
 
 TEST_F(DecimalTest, CeilingBigExponent)
@@ -493,8 +490,9 @@ TEST_F(DecimalTest, Division)
     EXPECT_EQ(encode(5, -1, Negative), Decimal(-1) / Decimal(2));
     EXPECT_EQ(encode(99, 0, Positive), Decimal(99) / Decimal(1));
     EXPECT_EQ(Decimal(1), Decimal(-50) / Decimal(-50));
-    EXPECT_EQ(encode(UINT64_C(33333333333333333), -17, Positive), Decimal(1) / Decimal(3));
+    EXPECT_EQ(encode(UINT64_C(333333333333333333), -18, Positive), Decimal(1) / Decimal(3));
     EXPECT_EQ(encode(UINT64_C(12345678901234), -1, Positive), encode(UINT64_C(12345678901234), 0, Positive) / Decimal(10));
+    EXPECT_EQ(encode(UINT64_C(500005000050000500), -18, Positive), Decimal(50000) / Decimal(99999));
 }
 
 TEST_F(DecimalTest, DivisionBigExponent)
@@ -1121,3 +1119,5 @@ TEST_F(DecimalTest, ToStringSpecialValues)
     EXPECT_DECIMAL_STREQ("-Infinity", Decimal::infinity(Negative));
     EXPECT_DECIMAL_STREQ("NaN", Decimal::nan());
 }
+
+} // namespace blink

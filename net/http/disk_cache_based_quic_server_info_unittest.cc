@@ -14,48 +14,56 @@
 #include "net/quic/quic_server_id.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+using std::string;
+
 namespace net {
 namespace {
 
 // This is an empty transaction, needed to register the URL and the test mode.
 const MockTransaction kHostInfoTransaction1 = {
-  "quicserverinfo:https://www.google.com:443",
-  "",
-  base::Time(),
-  "",
-  LOAD_NORMAL,
-  "",
-  "",
-  base::Time(),
-  "",
-  TEST_MODE_NORMAL,
-  NULL,
-  0
+    "quicserverinfo:https://www.google.com:443",
+    "",
+    base::Time(),
+    "",
+    LOAD_NORMAL,
+    "",
+    "",
+    base::Time(),
+    "",
+    TEST_MODE_NORMAL,
+    nullptr,
+    nullptr,
+    0,
+    0,
+    OK,
 };
 
 const MockTransaction kHostInfoTransaction2 = {
-  "quicserverinfo:http://www.google.com:80",
-  "",
-  base::Time(),
-  "",
-  LOAD_NORMAL,
-  "",
-  "",
-  base::Time(),
-  "",
-  TEST_MODE_NORMAL,
-  NULL,
-  0
+    "quicserverinfo:http://www.google.com:80",
+    "",
+    base::Time(),
+    "",
+    LOAD_NORMAL,
+    "",
+    "",
+    base::Time(),
+    "",
+    TEST_MODE_NORMAL,
+    nullptr,
+    nullptr,
+    0,
+    0,
+    OK,
 };
 
-class DeleteCacheCompletionCallback : public net::TestCompletionCallbackBase {
+class DeleteCacheCompletionCallback : public TestCompletionCallbackBase {
  public:
   explicit DeleteCacheCompletionCallback(QuicServerInfo* server_info)
       : server_info_(server_info),
         callback_(base::Bind(&DeleteCacheCompletionCallback::OnComplete,
                              base::Unretained(this))) {}
 
-  const net::CompletionCallback& callback() const { return callback_; }
+  const CompletionCallback& callback() const { return callback_; }
 
  private:
   void OnComplete(int result) {
@@ -64,7 +72,7 @@ class DeleteCacheCompletionCallback : public net::TestCompletionCallbackBase {
   }
 
   QuicServerInfo* server_info_;
-  net::CompletionCallback callback_;
+  CompletionCallback callback_;
 
   DISALLOW_COPY_AND_ASSIGN(DeleteCacheCompletionCallback);
 };
@@ -414,6 +422,28 @@ TEST(DiskCacheBasedQuicServerInfo, CancelWaitForDataReadyButDataIsReady) {
   EXPECT_EQ(OK, callback.GetResult(rv));
   EXPECT_TRUE(quic_server_info->IsDataReady());
   RemoveMockTransaction(&kHostInfoTransaction1);
+}
+
+TEST(DiskCacheBasedQuicServerInfo, CancelWaitForDataReadyAfterDeleteCache) {
+  scoped_ptr<QuicServerInfo> quic_server_info;
+  {
+    MockHttpCache cache;
+    AddMockTransaction(&kHostInfoTransaction1);
+    TestCompletionCallback callback;
+
+    QuicServerId server_id("www.google.com", 443, true, PRIVACY_MODE_DISABLED);
+    quic_server_info.reset(
+        new DiskCacheBasedQuicServerInfo(server_id, cache.http_cache()));
+    EXPECT_FALSE(quic_server_info->IsDataReady());
+    quic_server_info->Start();
+    int rv = quic_server_info->WaitForDataReady(callback.callback());
+    quic_server_info->CancelWaitForDataReadyCallback();
+    EXPECT_EQ(OK, callback.GetResult(rv));
+    EXPECT_TRUE(quic_server_info->IsDataReady());
+    RemoveMockTransaction(&kHostInfoTransaction1);
+  }
+  // Cancel the callback after Cache is deleted.
+  quic_server_info->ResetWaitForDataReadyCallback();
 }
 
 // Test Start() followed by Persist() without calling WaitForDataReady.

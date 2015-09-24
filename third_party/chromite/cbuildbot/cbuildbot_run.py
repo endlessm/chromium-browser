@@ -37,8 +37,8 @@ import types
 from chromite.cbuildbot import archive_lib
 from chromite.cbuildbot import metadata_lib
 from chromite.cbuildbot import constants
-from chromite.cbuildbot import manifest_version
-from chromite.cbuildbot import validation_pool
+from chromite.cbuildbot import tree_status
+from chromite.lib import cidb
 from chromite.lib import portage_util
 
 
@@ -149,6 +149,7 @@ class RunAttributes(object):
       'chrome_version',   # Set by SyncChromeStage, if it runs.
       'manifest_manager', # Set by ManifestVersionedSyncStage.
       'release_tag',      # Set by cbuildbot after sync stage.
+      'version_info',     # Set by the builder after sync+patch stage.
       'metadata',         # Used by various build stages to record metadata.
   ))
 
@@ -159,8 +160,11 @@ class RunAttributes(object):
       'breakpad_symbols_generated', # Set by DebugSymbolsStage.
       'debug_tarball_generated',    # Set by DebugSymbolsStage.
       'images_generated',           # Set by BuildImageStage.
+      'payloads_generated',         # Set by UploadHWTestArtifacts.
+      'delta_payloads_generated',   # Set by UploadHWTestArtifacts.
       'instruction_urls_per_channel', # Set by ArchiveStage
       'success',                    # Set by cbuildbot.py:Builder
+      'packages_under_test',        # Set by BuildPackagesStage.
   ))
 
   # Attributes that need to be set by stages that can run in parallel
@@ -187,6 +191,10 @@ class RunAttributes(object):
   )
 
   def __init__(self, multiprocess_manager):
+    # The __slots__ logic above confuses pylint.
+    # https://bitbucket.org/logilab/pylint/issue/380/
+    # pylint: disable=assigning-non-slot
+
     # Create queues for all non-board-specific parallel attributes now.
     # Parallel board attributes must wait for the board to be registered.
     self._manager = multiprocess_manager
@@ -550,6 +558,7 @@ class _BuilderRunBase(object):
   _ATTRS = {}
 
   __slots__ = (
+      'site_config',     # SiteConfig for this run.
       'config',          # BuildConfig for this run.
       'options',         # The cbuildbot options object for this run.
 
@@ -572,7 +581,8 @@ class _BuilderRunBase(object):
       # test = (config build_tests AND option tests)
   )
 
-  def __init__(self, options, multiprocess_manager):
+  def __init__(self, site_config, options, multiprocess_manager):
+    self.site_config = site_config
     self.options = options
 
     # Note that self.config is filled in dynamically by either of the classes
@@ -605,6 +615,10 @@ class _BuilderRunBase(object):
     self.debug = self.options.debug
     if self.options.remote_trybot:
       self.debug = self.options.debug_forced
+
+    # The __slots__ logic above confuses pylint.
+    # https://bitbucket.org/logilab/pylint/issue/380/
+    # pylint: disable=assigning-non-slot
 
     # Certain run attributes have sensible defaults which can be set here.
     # This allows all code to safely assume that the run attribute exists.
@@ -642,6 +656,20 @@ class _BuilderRunBase(object):
     """Create a BoardRunAttributes object for this run and given |board|."""
     return BoardRunAttributes(self.attrs, board, self.config.name)
 
+  def GetWaterfall(self):
+    """Gets the waterfall of the current build."""
+    # Metadata dictionary may not have been written at this time (it
+    # should be written in the BuildStartStage), fall back to get the
+    # environment variable in that case. Assume we are on the trybot
+    # waterfall no waterfall can be found.
+    return (self.attrs.metadata.GetDict().get('buildbot-master-name') or
+            os.environ.get('BUILDBOT_MASTERNAME') or
+            constants.WATERFALL_TRYBOT)
+
+  def GetBuilderName(self):
+    """Get the name of this builder on the current waterfall."""
+    return os.environ.get('BUILDBOT_BUILDERNAME', self.config.name)
+
   def ConstructDashboardURL(self, stage=None):
     """Return the dashboard URL
 
@@ -653,9 +681,9 @@ class _BuilderRunBase(object):
     Returns:
       The fully formed URL
     """
-    return validation_pool.ValidationPool.ConstructDashboardURL(
-        self.config.overlays, self.options.remote_trybot,
-        os.environ.get('BUILDBOT_BUILDERNAME', self.config.name),
+    return tree_status.ConstructDashboardURL(
+        self.GetWaterfall(),
+        self.GetBuilderName(),
         self.options.buildnumber, stage=stage)
 
   def ShouldBuildAutotest(self):
@@ -665,6 +693,27 @@ class _BuilderRunBase(object):
   def ShouldUploadPrebuilts(self):
     """Return True if this run should upload prebuilts."""
     return self.options.prebuilts and self.config.prebuilts
+
+  def GetCIDBHandle(self):
+    """Get the build_id and cidb handle, if available.
+
+    Returns:
+      A (build_id, CIDBConnection) tuple if cidb is set up and a build_id is
+      known in metadata. Otherwise, (None, None).
+    """
+    try:
+      build_id = self.attrs.metadata.GetValue('build_id')
+    except KeyError:
+      return (None, None)
+
+    if not cidb.CIDBConnectionFactory.IsCIDBSetup():
+      return (None, None)
+
+    cidb_handle = cidb.CIDBConnectionFactory.GetCIDBConnectionForBuilder()
+    if cidb_handle:
+      return (build_id, cidb_handle)
+    else:
+      return (None, None)
 
   def ShouldReexecAfterSync(self):
     """Return True if this run should re-exec itself after sync stage."""
@@ -679,30 +728,36 @@ class _BuilderRunBase(object):
     """Return True if this run should patch changes after sync stage."""
     return self.options.postsync_patch and self.config.postsync_patch
 
-  @classmethod
-  def GetVersionInfo(cls, buildroot):
+  def InProduction(self):
+    """Return True if this is a production run."""
+    return cidb.CIDBConnectionFactory.GetCIDBConnectionType() == 'prod'
+
+  def GetVersionInfo(self):
     """Helper for picking apart various version bits.
 
-    This method only exists so that tests can override it.
+    The Builder must set attrs.version_info before calling this.  Further, it
+    should do so only after the sources have been fully synced & patched, else
+    it could return a confusing value.
+
+    Returns:
+      A manifest_version.VersionInfo object.
+
+    Raises:
+      RuntimeError if the version has not yet been set.
     """
-    return manifest_version.VersionInfo.from_repo(buildroot)
+    if not hasattr(self.attrs, 'version_info'):
+      raise RuntimeError('builder must call SetVersionInfo first')
+    return self.attrs.version_info
 
   def GetVersion(self):
     """Calculate full R<chrome_version>-<chromeos_version> version string.
 
-    It is required that the sync stage be run before this method is called.
+    See GetVersionInfo() notes about runtime usage.
 
     Returns:
       The version string for this run.
-
-    Raises:
-      AssertionError if the sync stage has not been run first.
     """
-    # This method should never be called before the sync stage has run, or
-    # it would return a confusing value.
-    assert hasattr(self.attrs, 'release_tag'), 'Sync stage must run first.'
-
-    verinfo = self.GetVersionInfo(self.buildroot)
+    verinfo = self.GetVersionInfo()
     release_tag = self.attrs.release_tag
     if release_tag:
       calc_version = 'R%s-%s' % (verinfo.chrome_branch, release_tag)
@@ -767,6 +822,10 @@ class _RealBuilderRun(object):
     run_base = self.__getattribute__('_run_base')
     config = self.__getattribute__('_config')
 
+    # TODO(akeshet): This logic seems to have a subtle flaky bug that only
+    # manifests itself when using unit tests with ParallelMock. As a workaround,
+    # we have simply eliminiated ParallelMock from the affected tests. See
+    # crbug.com/470907 for context.
     try:
       # run_base.config should always be None except when accessed through
       # this routine.  Override the value here, then undo later.
@@ -827,18 +886,20 @@ class _RealBuilderRun(object):
         bot_ids.append(config.name)
     return bot_ids
 
+
 class BuilderRun(_RealBuilderRun):
   """A standard BuilderRun for a top-level build config."""
 
-  def __init__(self, options, build_config, multiprocess_manager):
+  def __init__(self, options, site_config, build_config, multiprocess_manager):
     """Initialize.
 
     Args:
       options: Command line options from this cbuildbot run.
+      site_config: Site config for this cbuildbot run.
       build_config: Build config for this cbuildbot run.
       multiprocess_manager: A multiprocessing.Manager.
     """
-    run_base = _BuilderRunBase(options, multiprocess_manager)
+    run_base = _BuilderRunBase(site_config, options, multiprocess_manager)
     super(BuilderRun, self).__init__(run_base, build_config)
 
 

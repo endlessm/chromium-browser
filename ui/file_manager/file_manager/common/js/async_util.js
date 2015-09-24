@@ -14,8 +14,8 @@ var AsyncUtil = {};
  * The callback can be an asynchronous function, but the execution is
  * sequentially done.
  *
- * @param {Array.<T>} array The array to be iterated.
- * @param {function(function(), T, number, Array.<T>)} callback The iteration
+ * @param {Array<T>} array The array to be iterated.
+ * @param {function(function(), T, number, Array<T>)} callback The iteration
  *     callback. The first argument is a callback to notify the completion of
  *     the iteration.
  * @param {function()} completionCallback Called when all iterations are
@@ -46,6 +46,7 @@ AsyncUtil.forEach = function(
  *
  * @param {number} limit The number of jobs to run at the same time.
  * @constructor
+ * @struct
  */
 AsyncUtil.ConcurrentQueue = function(limit) {
   console.assert(limit > 0, '|limit| must be larger than 0');
@@ -54,8 +55,6 @@ AsyncUtil.ConcurrentQueue = function(limit) {
   this.addedTasks_ = [];
   this.pendingTasks_ = [];
   this.isCancelled_ = false;
-
-  Object.seal(this);
 };
 
 /**
@@ -86,7 +85,7 @@ AsyncUtil.ConcurrentQueue.prototype.getRunningTasksCount = function() {
  */
 AsyncUtil.ConcurrentQueue.prototype.run = function(closure) {
   if (this.isCancelled_) {
-    console.error('Queue is calcelled. Cannot add a new task.');
+    console.error('Queue is cancelled. Cannot add a new task.');
     return;
   }
 
@@ -179,7 +178,7 @@ AsyncUtil.Queue.prototype = {
  *
  * @param {!function(function())} closure Closure with a completion callback to
  *     be executed.
- * @param {!Array.<string>} dependencies Array of dependencies.
+ * @param {!Array<string>} dependencies Array of dependencies.
  * @param {!string} name Task identifier. Specify to use in dependencies.
  *
  * @constructor
@@ -191,7 +190,7 @@ AsyncUtil.GroupTask = function(closure, dependencies, name) {
 };
 
 /**
- * Returns string representation of AsyncUti.GroupTask instance.
+ * Returns string representation of AsyncUtil.GroupTask instance.
  * @return {string} String representation of the instance.
  */
 AsyncUtil.GroupTask.prototype.toString = function() {
@@ -215,7 +214,7 @@ AsyncUtil.Group = function() {
 
 AsyncUtil.Group.prototype = {
   /**
-   * @return {Object.<string, AsyncUtil.GroupTask>} Pending tasks
+   * @return {!Object<AsyncUtil.GroupTask>} Pending tasks
    */
   get pendingTasks() {
     return this.pendingTasks_;
@@ -227,7 +226,7 @@ AsyncUtil.Group.prototype = {
  *
  * @param {function(function())} closure Closure with a completion callback to
  *     be executed.
- * @param {Array.<string>=} opt_dependencies Array of dependencies. If no
+ * @param {Array<string>=} opt_dependencies Array of dependencies. If no
  *     dependencies, then the the closure will be executed immediately.
  * @param {string=} opt_name Task identifier. Specify to use in dependencies.
  */
@@ -381,6 +380,7 @@ AsyncUtil.Aggregator.prototype.cancelScheduledRuns_ = function() {
  * @param {number=} opt_minInterval Minimum interval between each call in
  *     milliseconds. Default is 200 milliseconds.
  * @constructor
+ * @struct
  */
 AsyncUtil.RateLimiter = function(closure, opt_minInterval) {
   /**
@@ -407,8 +407,6 @@ AsyncUtil.RateLimiter = function(closure, opt_minInterval) {
    * @private
    */
   this.lastRunTime_ = 0;
-
-  Object.seal(this);
 };
 
 /**
@@ -452,5 +450,73 @@ AsyncUtil.RateLimiter.prototype.cancelScheduledRuns_ = function() {
   if (this.scheduledRunsTimer_) {
     clearTimeout(this.scheduledRunsTimer_);
     this.scheduledRunsTimer_ = 0;
+  }
+};
+
+/**
+ * Slot to handle promise completion/error.
+ * It can track the last assigned promise. If another promise is
+ * reassigned before the first promise is fulfilled/rejected, the previous
+ * promise is detached from the slot and it no longer trigger the callbacks.
+ * If the detached promise has cancel method, it's called.
+ *
+ * @param {function(*)} onFulfill Callback function to be invoked when the
+ *     assigned promise is fulfilled.
+ * @param {function(*)} onReject Callback function to be invoked when the
+ *     assigned promise is rejected.
+ * @constructor
+ * @struct
+ */
+function PromiseSlot(onFulfill, onReject) {
+  /**
+   * @type {function(*)}
+   * @const
+   * @private
+   */
+  this.onFulfill_ = onFulfill;
+
+  /**
+   * @type {function(*)}
+   * @const
+   * @private
+   */
+  this.onReject_ = onReject;
+
+  /**
+   * Assigned promise.
+   * @type {Promise|{cancel:Function}}
+   */
+  this.promise_ = null;
+}
+
+/**
+ * Checks the promise is still set to the slot and invokes callback functions.
+ * @param {Promise} promise Fulfilled promise.
+ * @param {*} value
+ * @private
+ */
+PromiseSlot.prototype.invokeCallback_ = function(promise, callback, value) {
+  if (promise === this.promise_) {
+    this.promise_ = null;
+    callback(value);
+  }
+};
+
+/**
+ * Assigns the promise to the slot.
+ * If another promise has already been assigned, the previous promise is
+ * detached from the slot. If the previous promise has a cancel method, it's
+ * called.
+ * @param {Promise} promise May be null to detach previous promise.
+ */
+PromiseSlot.prototype.setPromise = function(promise) {
+  if (this.promise_ && this.promise_.cancel)
+    this.promise_.cancel();
+
+  this.promise_ = promise;
+  if (this.promise_) {
+    this.promise_.then(
+        this.invokeCallback_.bind(this, promise, this.onFulfill_),
+        this.invokeCallback_.bind(this, promise, this.onReject_));
   }
 };

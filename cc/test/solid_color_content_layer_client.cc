@@ -14,7 +14,7 @@ namespace cc {
 void SolidColorContentLayerClient::PaintContents(
     SkCanvas* canvas,
     const gfx::Rect& rect,
-    ContentLayerClient::GraphicsContextStatus gc_status) {
+    PaintingControlSetting painting_control) {
   SkPaint paint;
   paint.setStyle(SkPaint::kFill_Style);
   paint.setColor(color_);
@@ -23,6 +23,14 @@ void SolidColorContentLayerClient::PaintContents(
   canvas->drawRect(
       SkRect::MakeXYWH(rect.x(), rect.y(), rect.width(), rect.height()),
       paint);
+}
+
+scoped_refptr<DisplayItemList>
+SolidColorContentLayerClient::PaintContentsToDisplayList(
+    const gfx::Rect& clip,
+    PaintingControlSetting painting_control) {
+  NOTIMPLEMENTED();
+  return nullptr;
 }
 
 bool SolidColorContentLayerClient::FillsBoundsCompletely() const {

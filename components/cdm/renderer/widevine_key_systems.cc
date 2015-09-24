@@ -26,10 +26,21 @@ static std::string GetDirectParentName(std::string name) {
   return name.substr(0u, last_period);
 }
 
-void AddWidevineWithCodecs(WidevineCdmType widevine_cdm_type,
-                           SupportedCodecs supported_codecs,
-                           std::vector<KeySystemInfo>* concrete_key_systems) {
-  KeySystemInfo info(kWidevineKeySystem);
+void AddWidevineWithCodecs(
+    WidevineCdmType widevine_cdm_type,
+    SupportedCodecs supported_codecs,
+#if defined(OS_ANDROID)
+    SupportedCodecs supported_secure_codecs,
+#endif  // defined(OS_ANDROID)
+    media::EmeRobustness max_audio_robustness,
+    media::EmeRobustness max_video_robustness,
+    media::EmeSessionTypeSupport persistent_license_support,
+    media::EmeSessionTypeSupport persistent_release_message_support,
+    media::EmeFeatureSupport persistent_state_support,
+    media::EmeFeatureSupport distinctive_identifier_support,
+    std::vector<KeySystemInfo>* concrete_key_systems) {
+  KeySystemInfo info;
+  info.key_system = kWidevineKeySystem;
 
   switch (widevine_cdm_type) {
     case WIDEVINE:
@@ -49,16 +60,26 @@ void AddWidevineWithCodecs(WidevineCdmType widevine_cdm_type,
   // there are no codecs supported in that container. Fix this when we support
   // initDataType.
   info.supported_codecs = supported_codecs;
+#if defined(OS_ANDROID)
+  info.supported_secure_codecs = supported_secure_codecs;
+#endif  // defined(OS_ANDROID)
 
   // Here we assume that support for a container imples support for the
   // associated initialization data type. KeySystems handles validating
   // |init_data_type| x |container| pairings.
   if (supported_codecs & media::EME_CODEC_WEBM_ALL)
-    info.supported_init_data_types |= media::EME_INIT_DATA_TYPE_WEBM;
+    info.supported_init_data_types |= media::kInitDataTypeMaskWebM;
 #if defined(USE_PROPRIETARY_CODECS)
   if (supported_codecs & media::EME_CODEC_MP4_ALL)
-    info.supported_init_data_types |= media::EME_INIT_DATA_TYPE_CENC;
+    info.supported_init_data_types |= media::kInitDataTypeMaskCenc;
 #endif  // defined(USE_PROPRIETARY_CODECS)
+
+  info.max_audio_robustness = max_audio_robustness;
+  info.max_video_robustness = max_video_robustness;
+  info.persistent_license_support = persistent_license_support;
+  info.persistent_release_message_support = persistent_release_message_support;
+  info.persistent_state_support = persistent_state_support;
+  info.distinctive_identifier_support = distinctive_identifier_support;
 
 #if defined(ENABLE_PEPPER_CDMS)
   info.pepper_type = kWidevineCdmPluginMimeType;

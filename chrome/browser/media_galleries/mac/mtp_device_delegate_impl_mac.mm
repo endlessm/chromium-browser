@@ -173,6 +173,15 @@ void MTPDeviceDelegateImplMac::GetFileInfo(
                  success_callback, error_callback));
 }
 
+void MTPDeviceDelegateImplMac::CreateDirectory(
+    const base::FilePath& directory_path,
+    const bool exclusive,
+    const bool recursive,
+    const CreateDirectorySuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  NOTREACHED();
+}
+
 void MTPDeviceDelegateImplMac::ReadDirectory(
       const base::FilePath& root,
       const ReadDirectorySuccessCallback& success_callback,
@@ -207,6 +216,71 @@ void MTPDeviceDelegateImplMac::ReadBytes(
     const ReadBytesSuccessCallback& success_callback,
     const ErrorCallback& error_callback) {
   NOTREACHED();
+}
+
+bool MTPDeviceDelegateImplMac::IsReadOnly() const {
+  return true;
+}
+
+void MTPDeviceDelegateImplMac::CopyFileLocal(
+    const base::FilePath& source_file_path,
+    const base::FilePath& device_file_path,
+    const CreateTemporaryFileCallback& create_temporary_file_callback,
+    const CopyFileProgressCallback& progress_callback,
+    const CopyFileLocalSuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  NOTREACHED();
+}
+
+void MTPDeviceDelegateImplMac::MoveFileLocal(
+    const base::FilePath& source_file_path,
+    const base::FilePath& device_file_path,
+    const CreateTemporaryFileCallback& create_temporary_file_callback,
+    const MoveFileLocalSuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  NOTREACHED();
+}
+
+void MTPDeviceDelegateImplMac::CopyFileFromLocal(
+    const base::FilePath& source_file_path,
+    const base::FilePath& device_file_path,
+    const CopyFileFromLocalSuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  NOTREACHED();
+}
+
+void MTPDeviceDelegateImplMac::DeleteFile(
+    const base::FilePath& file_path,
+    const DeleteFileSuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  NOTREACHED();
+}
+
+void MTPDeviceDelegateImplMac::DeleteDirectory(
+    const base::FilePath& file_path,
+    const DeleteDirectorySuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  NOTREACHED();
+}
+
+void MTPDeviceDelegateImplMac::AddWatcher(
+    const GURL& origin,
+    const base::FilePath& file_path,
+    const bool recursive,
+    const storage::WatcherManager::StatusCallback& callback,
+    const storage::WatcherManager::NotificationCallback&
+        notification_callback) {
+  NOTIMPLEMENTED();
+  callback.Run(base::File::FILE_ERROR_INVALID_OPERATION);
+}
+
+void MTPDeviceDelegateImplMac::RemoveWatcher(
+    const GURL& origin,
+    const base::FilePath& file_path,
+    const bool recursive,
+    const storage::WatcherManager::StatusCallback& callback) {
+  NOTIMPLEMENTED();
+  callback.Run(base::File::FILE_ERROR_INVALID_OPERATION);
 }
 
 void MTPDeviceDelegateImplMac::CancelPendingTasksAndDeleteDelegate() {
@@ -480,7 +554,11 @@ MTPDeviceDelegateImplMac::ReadDirectoryRequest::~ReadDirectoryRequest() {}
 
 void CreateMTPDeviceAsyncDelegate(
     const base::FilePath::StringType& device_location,
+    const bool read_only,
     const CreateMTPDeviceAsyncDelegateCallback& cb) {
+  // Write operation is not supported on Mac.
+  DCHECK(read_only);
+
   std::string device_name = base::FilePath(device_location).BaseName().value();
   std::string device_id;
   storage_monitor::StorageInfo::Type type;

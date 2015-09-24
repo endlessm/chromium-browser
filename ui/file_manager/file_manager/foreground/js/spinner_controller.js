@@ -3,12 +3,15 @@
 // found in the LICENSE file.
 
 /**
- * Controller for spinner.
+ * Controller for spinners. Spinner requests can be stacked. Eg. if show()
+ * is called 3 times, the hide callback has to be called 3 times to make the
+ * spinner invisible.
+ *
  * @param {!HTMLElement} element
- * @param {!DirectoryModel} directoryModel
  * @constructor
+ * @extends {cr.EventTarget}
  */
-function SpinnerController(element, directoryModel) {
+function SpinnerController(element) {
   /**
    * The container element of the file list.
    * @type {!HTMLElement}
@@ -18,50 +21,79 @@ function SpinnerController(element, directoryModel) {
   this.element_ = element;
 
   /**
-   * Directory model.
-   * @type {!DirectoryModel}
-   * @const
+   * @type {number}
    * @private
    */
-  this.directoryModel_ = directoryModel;
+  this.activeSpinners_ = 0;
+
+  /**
+   * @type {!Object<number, boolean>}
+   * @private
+   */
+  this.pendingSpinnerTimerIds_ = {};
 
   /**
    * @type {number}
    * @private
    */
-  this.timeoutId_ = 0;
+  this.blinkDuration_ = 1000;  // In milliseconds.
 }
 
 /**
- * Shows the spinner.
+ * Blinks the spinner for a short period of time. Hides automatically.
+ */
+SpinnerController.prototype.blink = function() {
+  var hideCallback = this.show();
+  setTimeout(hideCallback, this.blinkDuration_);
+};
+
+/**
+ * Shows the spinner immediately until the returned callback is called.
+ * @return {function()} Hide callback.
  */
 SpinnerController.prototype.show = function() {
-  if (!this.directoryModel_.isScanning())
-    return;
-  this.element_.hidden = false;
-  clearTimeout(this.timeoutId_);
-  this.timeoutId_ = 0;
+  return this.showWithDelay(0, function() {});
 };
 
 /**
- * Hides the spinner.
+ * Shows the spinner until hide is called. The returned callback must be called
+ * when the spinner is not necessary anymore.
+ * @param {number} delay Delay in milliseconds.
+ * @param {function()} callback Show callback.
+ * @return {function()} Hide callback.
  */
-SpinnerController.prototype.hide = function() {
-  if (this.directoryModel_.isScanning() &&
-      this.directoryModel_.getFileList().length == 0) {
+SpinnerController.prototype.showWithDelay = function(delay, callback) {
+  var timerId = setTimeout(function() {
+    this.activeSpinners_++;
+    if (this.activeSpinners_ === 1)
+      this.element_.hidden = false;
+    delete this.pendingSpinnerTimerIds_[timerId];
+    callback();
+  }.bind(this), delay);
+
+  this.pendingSpinnerTimerIds_[timerId] = true;
+  return this.maybeHide_.bind(this, timerId);
+};
+
+/**
+ * @param {number} duration Duration in milliseconds.
+ */
+SpinnerController.prototype.setBlinkDurationForTesting = function(duration) {
+  this.blinkDuration_ = duration;
+};
+
+/**
+ * @param {number} timerId
+ * @private
+ */
+SpinnerController.prototype.maybeHide_ = function(timerId) {
+  if (timerId in this.pendingSpinnerTimerIds_) {
+    clearTimeout(timerId);
+    delete this.pendingSpinnerTimerIds_[timerId];
     return;
   }
-  this.element_.hidden = true;
-  clearTimeout(this.timeoutId_);
-  this.timeoutId_ = 0;
-};
 
-/**
- * Shows the spinner after 500ms.
- */
-SpinnerController.prototype.showLater = function() {
-  if (!this.element_.hidden)
-    return;
-  clearTimeout(this.timeoutId_);
-  this.timeoutId_ = setTimeout(this.show.bind(this), 500);
+  this.activeSpinners_--;
+  if (this.activeSpinners_ === 0)
+    this.element_.hidden = true;
 };

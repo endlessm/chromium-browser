@@ -50,14 +50,14 @@ static SourceEventSender& sourceErrorEventSender()
 class HTMLSourceElement::Listener final : public MediaQueryListListener {
 public:
     explicit Listener(HTMLSourceElement* element) : m_element(element) { }
-    virtual void notifyMediaQueryChanged() override
+    void notifyMediaQueryChanged() override
     {
         if (m_element)
             m_element->notifyMediaQueryChanged();
     }
 
     void clearElement() { m_element = nullptr; }
-    virtual void trace(Visitor* visitor) override
+    DEFINE_INLINE_VIRTUAL_TRACE()
     {
         visitor->trace(m_element);
         MediaQueryListListener::trace(visitor);
@@ -81,6 +81,24 @@ HTMLSourceElement::~HTMLSourceElement()
 #if !ENABLE(OILPAN)
     m_listener->clearElement();
 #endif
+}
+
+void HTMLSourceElement::createMediaQueryList(const AtomicString& media)
+{
+    if (media.isEmpty())
+        return;
+
+    if (m_mediaQueryList)
+        m_mediaQueryList->removeListener(m_listener);
+    RefPtrWillBeRawPtr<MediaQuerySet> set = MediaQuerySet::create(media);
+    m_mediaQueryList = MediaQueryList::create(&document(), &document().mediaQueryMatcher(), set.release());
+    m_mediaQueryList->addListener(m_listener);
+}
+
+void HTMLSourceElement::didMoveToNewDocument(Document& oldDocument)
+{
+    createMediaQueryList(fastGetAttribute(mediaAttr));
+    HTMLElement::didMoveToNewDocument(oldDocument);
 }
 
 Node::InsertionNotificationRequest HTMLSourceElement::insertedInto(ContainerNode* insertionPoint)
@@ -156,13 +174,8 @@ bool HTMLSourceElement::isURLAttribute(const Attribute& attribute) const
 void HTMLSourceElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
 {
     HTMLElement::parseAttribute(name, value);
-    if (name == mediaAttr) {
-        if (m_mediaQueryList)
-            m_mediaQueryList->removeListener(m_listener);
-        RefPtrWillBeRawPtr<MediaQuerySet> set = MediaQuerySet::create(value);
-        m_mediaQueryList = MediaQueryList::create(&document(), &document().mediaQueryMatcher(), set.release());
-        m_mediaQueryList->addListener(m_listener);
-    }
+    if (name == mediaAttr)
+        createMediaQueryList(value);
     if (name == srcsetAttr || name == sizesAttr || name == mediaAttr || name == typeAttr) {
         Element* parent = parentElement();
         if (isHTMLPictureElement(parent))
@@ -177,7 +190,7 @@ void HTMLSourceElement::notifyMediaQueryChanged()
         toHTMLPictureElement(parent)->sourceOrMediaChanged();
 }
 
-void HTMLSourceElement::trace(Visitor* visitor)
+DEFINE_TRACE(HTMLSourceElement)
 {
     visitor->trace(m_mediaQueryList);
     visitor->trace(m_listener);

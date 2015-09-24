@@ -207,7 +207,7 @@ class ExtensionDownloader : public net::URLFetcherDelegate,
 
   // Once a manifest is parsed, this starts fetches of any relevant crx files.
   // If |results| is null, it means something went wrong when parsing it.
-  void HandleManifestResults(const ManifestFetchData& fetch_data,
+  void HandleManifestResults(const ManifestFetchData* fetch_data,
                              const UpdateManifest::Results* results);
 
   // Given a list of potential updates, returns the indices of the ones that are
@@ -245,8 +245,13 @@ class ExtensionDownloader : public net::URLFetcherDelegate,
 
   // Notify delegate and remove ping results.
   void NotifyDelegateDownloadFinished(scoped_ptr<ExtensionFetch> fetch_data,
+                                      bool from_cache,
                                       const base::FilePath& crx_path,
                                       bool file_ownership_passed);
+
+  // Cached extension installation completed. If it was not successful, we will
+  // try to download it from the web store using already fetched manifest.
+  void CacheInstallDone(scoped_ptr<ExtensionFetch> fetch_data, bool installed);
 
   // Potentially updates an ExtensionFetch's authentication state and returns
   // |true| if the fetch should be retried. Returns |false| if the failure was

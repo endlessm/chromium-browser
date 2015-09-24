@@ -29,22 +29,19 @@ enum OscillatorType {
     "triangle",
     "custom"
 };
-    
+
 // OscillatorNode is an audio generator of periodic waveforms.
 [
-    Conditional=WEB_AUDIO
+    Conditional=WEB_AUDIO,
 ] interface OscillatorNode : AudioSourceNode {
 
-    attribute OscillatorType type;
+    [RaisesException=Setter] attribute OscillatorType type;
 
     readonly attribute AudioParam frequency; // in Hertz
     readonly attribute AudioParam detune; // in Cents
 
     [RaisesException] void start(optional double when);
     [RaisesException] void stop(optional double when);
-
-    [RaisesException, ImplementedAs=start] void noteOn(double when);
-    [RaisesException, ImplementedAs=stop] void noteOff(double when);
 
     void setPeriodicWave(PeriodicWave periodicWave);
 

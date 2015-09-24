@@ -29,24 +29,74 @@
 #include "core/fetch/ResourceClient.h"
 #include "core/fetch/ResourceClientWalker.h"
 #include "core/fetch/ResourceFetcher.h"
-#include "core/frame/FrameView.h"
-#include "core/rendering/RenderObject.h"
+#include "core/fetch/ResourceLoader.h"
+#include "core/html/HTMLImageElement.h"
+#include "core/layout/LayoutObject.h"
 #include "core/svg/graphics/SVGImage.h"
+#include "core/svg/graphics/SVGImageForContainer.h"
 #include "platform/Logging.h"
 #include "platform/RuntimeEnabledFeatures.h"
 #include "platform/SharedBuffer.h"
 #include "platform/TraceEvent.h"
 #include "platform/graphics/BitmapImage.h"
+#include "public/platform/Platform.h"
 #include "wtf/CurrentTime.h"
 #include "wtf/StdLibExtras.h"
 
 namespace blink {
 
+void ImageResource::preCacheDataURIImage(const FetchRequest& request, ResourceFetcher* fetcher)
+{
+    const KURL& url = request.resourceRequest().url();
+    ASSERT(url.protocolIsData());
+
+    const String cacheIdentifier = fetcher->getCacheIdentifier();
+    if (memoryCache()->resourceForURL(url, cacheIdentifier))
+        return;
+
+    WebString mimetype;
+    WebString charset;
+    RefPtr<SharedBuffer> data = PassRefPtr<SharedBuffer>(Platform::current()->parseDataURL(url, mimetype, charset));
+    if (!data)
+        return;
+    ResourceResponse response(url, mimetype, data->size(), charset, String());
+
+    Resource* resource = new ImageResource(request.resourceRequest());
+    resource->setOptions(request.options());
+    // FIXME: We should provide a body stream here.
+    resource->responseReceived(response, nullptr);
+    if (data->size())
+        resource->setResourceBuffer(data);
+    resource->setCacheIdentifier(cacheIdentifier);
+    resource->finish();
+    memoryCache()->add(resource);
+    fetcher->scheduleDocumentResourcesGC();
+}
+
+ResourcePtr<ImageResource> ImageResource::fetch(FetchRequest& request, ResourceFetcher* fetcher)
+{
+    if (request.resourceRequest().requestContext() == WebURLRequest::RequestContextUnspecified)
+        request.mutableResourceRequest().setRequestContext(WebURLRequest::RequestContextImage);
+    if (fetcher->context().pageDismissalEventBeingDispatched()) {
+        KURL requestURL = request.resourceRequest().url();
+        if (requestURL.isValid() && fetcher->context().canRequest(Resource::Image, request.resourceRequest(), requestURL, request.options(), request.forPreload(), request.originRestriction()))
+            fetcher->context().sendImagePing(requestURL);
+        return 0;
+    }
+
+    if (request.resourceRequest().url().protocolIsData())
+        ImageResource::preCacheDataURIImage(request, fetcher);
+
+    if (fetcher->clientDefersImage(request.resourceRequest().url()))
+        request.setDefer(FetchRequest::DeferredByClient);
+
+    return toImageResource(fetcher->requestResource(request, ImageResourceFactory()));
+}
+
 ImageResource::ImageResource(const ResourceRequest& resourceRequest)
     : Resource(resourceRequest, Image)
     , m_devicePixelRatioHeaderValue(1.0)
     , m_image(nullptr)
-    , m_loadingMultipartContent(false)
     , m_hasDevicePixelRatioHeaderValue(false)
 {
     WTF_LOG(Timers, "new ImageResource(ResourceRequest) %p", this);
@@ -56,7 +106,9 @@ ImageResource::ImageResource(const ResourceRequest& resourceRequest)
 
 ImageResource::ImageResource(blink::Image* image)
     : Resource(ResourceRequest(""), Image)
+    , m_devicePixelRatioHeaderValue(1.0)
     , m_image(image)
+    , m_hasDevicePixelRatioHeaderValue(false)
 {
     WTF_LOG(Timers, "new ImageResource(Image) %p", this);
     setStatus(Cached);
@@ -106,32 +158,10 @@ void ImageResource::didRemoveClient(ResourceClient* c)
 {
     ASSERT(c);
     ASSERT(c->resourceClientType() == ImageResourceClient::expectedType());
-
-    m_pendingContainerSizeRequests.remove(static_cast<ImageResourceClient*>(c));
-    if (m_svgImageCache)
-        m_svgImageCache->removeClientFromCache(static_cast<ImageResourceClient*>(c));
+    if (m_imageForContainerMap)
+        m_imageForContainerMap->remove(static_cast<ImageResourceClient*>(c));
 
     Resource::didRemoveClient(c);
-}
-
-void ImageResource::switchClientsToRevalidatedResource()
-{
-    ASSERT(resourceToRevalidate());
-    ASSERT(resourceToRevalidate()->isImage());
-    // Pending container size requests need to be transferred to the revalidated resource.
-    if (!m_pendingContainerSizeRequests.isEmpty()) {
-        // A copy of pending size requests is needed as they are deleted during Resource::switchClientsToRevalidateResource().
-        ContainerSizeRequests switchContainerSizeRequests;
-        for (const auto& containerSizeRequest : m_pendingContainerSizeRequests)
-            switchContainerSizeRequests.set(containerSizeRequest.key, containerSizeRequest.value);
-        Resource::switchClientsToRevalidatedResource();
-        ImageResource* revalidatedImageResource = toImageResource(resourceToRevalidate());
-        for (const auto& containerSizeRequest : switchContainerSizeRequests)
-            revalidatedImageResource->setContainerSizeForRenderer(containerSizeRequest.key, containerSizeRequest.value.first, containerSizeRequest.value.second);
-        return;
-    }
-
-    Resource::switchClientsToRevalidatedResource();
 }
 
 bool ImageResource::isSafeToUnlock() const
@@ -152,7 +182,6 @@ void ImageResource::destroyDecodedDataIfPossible()
 
 void ImageResource::allClientsRemoved()
 {
-    m_pendingContainerSizeRequests.clear();
     if (m_image && !errorOccurred())
         m_image->resetAnimation();
     Resource::allClientsRemoved();
@@ -191,7 +220,7 @@ blink::Image* ImageResource::image()
     return blink::Image::nullImage();
 }
 
-blink::Image* ImageResource::imageForRenderer(const RenderObject* renderer)
+blink::Image* ImageResource::imageForLayoutObject(const LayoutObject* layoutObject)
 {
     ASSERT(!isPurgeable());
 
@@ -206,7 +235,7 @@ blink::Image* ImageResource::imageForRenderer(const RenderObject* renderer)
         return blink::Image::nullImage();
 
     if (m_image->isSVGImage()) {
-        blink::Image* image = m_svgImageCache->imageForRenderer(renderer);
+        blink::Image* image = svgImageForLayoutObject(layoutObject);
         if (image != blink::Image::nullImage())
             return image;
     }
@@ -214,22 +243,22 @@ blink::Image* ImageResource::imageForRenderer(const RenderObject* renderer)
     return m_image.get();
 }
 
-void ImageResource::setContainerSizeForRenderer(const ImageResourceClient* renderer, const IntSize& containerSize, float containerZoom)
+void ImageResource::setContainerSizeForLayoutObject(const ImageResourceClient* layoutObject, const IntSize& containerSize, float containerZoom)
 {
     if (containerSize.isEmpty())
         return;
-    ASSERT(renderer);
+    ASSERT(layoutObject);
     ASSERT(containerZoom);
-    if (!m_image) {
-        m_pendingContainerSizeRequests.set(renderer, SizeAndZoom(containerSize, containerZoom));
+    if (!m_image)
         return;
-    }
     if (!m_image->isSVGImage()) {
         m_image->setContainerSize(containerSize);
         return;
     }
 
-    m_svgImageCache->setContainerSizeForRenderer(renderer, containerSize, containerZoom);
+    FloatSize containerSizeWithoutZoom(containerSize);
+    containerSizeWithoutZoom.scale(1 / containerZoom);
+    m_imageForContainerMap->set(layoutObject, SVGImageForContainer::create(toSVGImage(m_image.get()), containerSizeWithoutZoom, containerZoom));
 }
 
 bool ImageResource::usesImageContainerSize() const
@@ -256,21 +285,24 @@ bool ImageResource::imageHasRelativeHeight() const
     return false;
 }
 
-LayoutSize ImageResource::imageSizeForRenderer(const RenderObject* renderer, float multiplier, SizeType sizeType)
+LayoutSize ImageResource::imageSizeForLayoutObject(const LayoutObject* layoutObject, float multiplier, SizeType sizeType)
 {
     ASSERT(!isPurgeable());
 
     if (!m_image)
-        return IntSize();
+        return LayoutSize();
 
     LayoutSize imageSize;
 
-    if (m_image->isBitmapImage() && (renderer && renderer->shouldRespectImageOrientation() == RespectImageOrientation))
-        imageSize = toBitmapImage(m_image.get())->sizeRespectingOrientation();
+    if (m_image->isBitmapImage() && (layoutObject && layoutObject->shouldRespectImageOrientation() == RespectImageOrientation))
+        imageSize = LayoutSize(toBitmapImage(m_image.get())->sizeRespectingOrientation());
     else if (m_image->isSVGImage() && sizeType == NormalSize)
-        imageSize = m_svgImageCache->imageSizeForRenderer(renderer);
+        imageSize = LayoutSize(svgImageSizeForLayoutObject(layoutObject));
     else
-        imageSize = m_image->size();
+        imageSize = LayoutSize(m_image->size());
+
+    if (sizeType == IntrinsicCorrectedToDPR && m_hasDevicePixelRatioHeaderValue && m_devicePixelRatioHeaderValue > 0)
+        multiplier = 1.0 / m_devicePixelRatioHeaderValue;
 
     if (multiplier == 1.0f)
         return imageSize;
@@ -302,14 +334,13 @@ void ImageResource::clear()
 {
     prune();
     clearImage();
-    m_pendingContainerSizeRequests.clear();
     setEncodedSize(0);
 }
 
 void ImageResource::setCustomAcceptHeader()
 {
-    DEFINE_STATIC_LOCAL(const AtomicString, acceptWebP, ("image/webp,*/*;q=0.8", AtomicString::ConstructFromLiteral));
-    setAccept(acceptWebP);
+    DEFINE_STATIC_LOCAL(const AtomicString, acceptImages, ("image/webp,image/*,*/*;q=0.8", AtomicString::ConstructFromLiteral));
+    setAccept(acceptImages);
 }
 
 inline void ImageResource::createImage()
@@ -319,20 +350,10 @@ inline void ImageResource::createImage()
         return;
 
     if (m_response.mimeType() == "image/svg+xml") {
-        RefPtr<SVGImage> svgImage = SVGImage::create(this);
-        m_svgImageCache = SVGImageCache::create(svgImage.get());
-        m_image = svgImage.release();
+        m_image = SVGImage::create(this);
+        m_imageForContainerMap = adoptPtr(new ImageForContainerMap);
     } else {
         m_image = BitmapImage::create(this);
-    }
-
-    if (m_image) {
-        // Send queued container size requests.
-        if (m_image->usesContainerSize()) {
-            for (const auto& containerSizeRequest : m_pendingContainerSizeRequests)
-                setContainerSizeForRenderer(containerSizeRequest.key, containerSizeRequest.value.first, containerSizeRequest.value.second);
-        }
-        m_pendingContainerSizeRequests.clear();
     }
 }
 
@@ -348,7 +369,7 @@ inline void ImageResource::clearImage()
 void ImageResource::appendData(const char* data, unsigned length)
 {
     Resource::appendData(data, length);
-    if (!m_loadingMultipartContent)
+    if (!loadingMultipartContent())
         updateImage(false);
 }
 
@@ -385,24 +406,12 @@ void ImageResource::updateImage(bool allDataReceived)
     }
 }
 
-void ImageResource::updateBitmapImages(HashSet<ImageResource*>& images, bool redecodeImages)
-{
-    for (ImageResource* imageResource : images) {
-        if (!imageResource->hasImage() || imageResource->image()->isNull())
-            continue;
-        BitmapImage* image = toBitmapImage(imageResource->image());
-        if (redecodeImages)
-            image->resetDecoder();
-        imageResource->updateImage(image->isAllDataReceived());
-    }
-}
-
 void ImageResource::finishOnePart()
 {
-    if (m_loadingMultipartContent)
+    if (loadingMultipartContent())
         clear();
     updateImage(true);
-    if (m_loadingMultipartContent)
+    if (loadingMultipartContent())
         m_data.clear();
     Resource::finishOnePart();
 }
@@ -416,16 +425,15 @@ void ImageResource::error(Resource::Status status)
 
 void ImageResource::responseReceived(const ResourceResponse& response, PassOwnPtr<WebDataConsumerHandle> handle)
 {
-    if (m_loadingMultipartContent && m_data)
+    if (loadingMultipartContent() && m_data)
         finishOnePart();
-    else if (response.isMultipart())
-        m_loadingMultipartContent = true;
-    if (RuntimeEnabledFeatures::clientHintsDprEnabled()) {
-        m_devicePixelRatioHeaderValue = response.httpHeaderField("DPR").toFloat(&m_hasDevicePixelRatioHeaderValue);
+    if (RuntimeEnabledFeatures::clientHintsEnabled()) {
+        m_devicePixelRatioHeaderValue = response.httpHeaderField("content-dpr").toFloat(&m_hasDevicePixelRatioHeaderValue);
         if (!m_hasDevicePixelRatioHeaderValue || m_devicePixelRatioHeaderValue <= 0.0) {
             m_devicePixelRatioHeaderValue = 1.0;
             m_hasDevicePixelRatioHeaderValue = false;
         }
+
     }
     Resource::responseReceived(response, handle);
 }
@@ -470,6 +478,24 @@ void ImageResource::animationAdvanced(const blink::Image* image)
     notifyObservers();
 }
 
+void ImageResource::updateImageAnimationPolicy()
+{
+    if (!m_image)
+        return;
+
+    ImageAnimationPolicy newPolicy = ImageAnimationPolicyAllowed;
+    ResourceClientWalker<ImageResourceClient> w(m_clients);
+    while (ImageResourceClient* c = w.next()) {
+        if (c->getImageAnimationPolicy(this, newPolicy))
+            break;
+    }
+
+    if (m_image->animationPolicy() != newPolicy) {
+        m_image->resetAnimation();
+        m_image->setAnimationPolicy(newPolicy);
+    }
+}
+
 void ImageResource::changedInRect(const blink::Image* image, const IntRect& rect)
 {
     if (!image || image != m_image)
@@ -477,11 +503,16 @@ void ImageResource::changedInRect(const blink::Image* image, const IntRect& rect
     notifyObservers(&rect);
 }
 
-bool ImageResource::currentFrameKnownToBeOpaque(const RenderObject* renderer)
+bool ImageResource::currentFrameKnownToBeOpaque(const LayoutObject* layoutObject)
 {
-    blink::Image* image = imageForRenderer(renderer);
-    if (image->isBitmapImage())
-        image->nativeImageForCurrentFrame(); // force decode
+    blink::Image* image = imageForLayoutObject(layoutObject);
+    if (image->isBitmapImage()) {
+        TRACE_EVENT1(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"), "PaintImage", "data", InspectorPaintImageEvent::data(layoutObject, *this));
+        SkBitmap dummy;
+        if (!image->bitmapForCurrentFrame(&dummy)) { // force decode
+            // We don't care about failures here, since we don't use "dummy"
+        }
+    }
     return image->currentFrameKnownToBeOpaque();
 }
 
@@ -494,6 +525,50 @@ bool ImageResource::isAccessAllowed(SecurityOrigin* securityOrigin)
     if (passesAccessControlCheck(securityOrigin))
         return true;
     return !securityOrigin->taintsCanvas(response().url());
+}
+
+IntSize ImageResource::svgImageSizeForLayoutObject(const LayoutObject* layoutObject) const
+{
+    IntSize imageSize = m_image->size();
+    if (!layoutObject)
+        return imageSize;
+
+    ImageForContainerMap::const_iterator it = m_imageForContainerMap->find(layoutObject);
+    if (it == m_imageForContainerMap->end())
+        return imageSize;
+
+    RefPtr<SVGImageForContainer> imageForContainer = it->value;
+    ASSERT(!imageForContainer->size().isEmpty());
+    return imageForContainer->size();
+}
+
+// FIXME: This doesn't take into account the animation timeline so animations will not
+// restart on page load, nor will two animations in different pages have different timelines.
+Image* ImageResource::svgImageForLayoutObject(const LayoutObject* layoutObject)
+{
+    if (!layoutObject)
+        return Image::nullImage();
+
+    ImageForContainerMap::iterator it = m_imageForContainerMap->find(layoutObject);
+    if (it == m_imageForContainerMap->end())
+        return Image::nullImage();
+
+    RefPtr<SVGImageForContainer> imageForContainer = it->value;
+    ASSERT(!imageForContainer->size().isEmpty());
+
+    Node* node = layoutObject->node();
+    if (node && isHTMLImageElement(node)) {
+        const AtomicString& urlString = toHTMLImageElement(node)->imageSourceURL();
+        KURL url = node->document().completeURL(urlString);
+        imageForContainer->setURL(url);
+    }
+
+    return imageForContainer.get();
+}
+
+bool ImageResource::loadingMultipartContent() const
+{
+    return m_loader && m_loader->loadingMultipartContent();
 }
 
 } // namespace blink

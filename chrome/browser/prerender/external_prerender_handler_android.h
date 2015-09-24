@@ -23,14 +23,14 @@ class PrerenderHandle;
 // A class for handling external prerender requests from other applications.
 class ExternalPrerenderHandlerAndroid {
  public:
-  explicit ExternalPrerenderHandlerAndroid();
+  ExternalPrerenderHandlerAndroid();
 
   // Add a prerender with the given url and referrer on the PrerenderManager of
   // the given profile. This is restricted to a single prerender at a time.
   bool AddPrerender(JNIEnv* env,
                     jobject obj,
                     jobject profile,
-                    jlong web_content_ptr,
+                    jobject jweb_contents,
                     jstring url,
                     jstring referrer,
                     jint width,
@@ -44,9 +44,6 @@ class ExternalPrerenderHandlerAndroid {
   static bool HasPrerenderedUrl(Profile* profile,
                                 GURL url,
                                 content::WebContents* web_contents);
-
-  // Whether the cookie store associated with this profile has been loaded.
-  static bool HasCookieStoreLoaded(Profile* profile);
 
   static bool RegisterExternalPrerenderHandlerAndroid(JNIEnv* env);
 

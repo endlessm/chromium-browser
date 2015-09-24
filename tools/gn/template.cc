@@ -41,7 +41,7 @@ Value Template::Invoke(Scope* scope,
                             invocation->function().value().as_string(),
                             block, args, invocation_scope.get(), err))
     return Value();
-  block->ExecuteBlockInScope(invocation_scope.get(), err);
+  block->Execute(invocation_scope.get(), err);
   if (err->has_error())
     return Value();
 
@@ -67,7 +67,7 @@ Value Template::Invoke(Scope* scope,
   // if we instead create a value and then set the scope on it, the copy can
   // be avoided.
   const char kInvoker[] = "invoker";
-  template_scope.SetValue(kInvoker, Value(NULL, scoped_ptr<Scope>()),
+  template_scope.SetValue(kInvoker, Value(nullptr, scoped_ptr<Scope>()),
                           invocation);
   Value* invoker_value = template_scope.GetMutableValue(kInvoker, false);
   invoker_value->SetScopeValue(invocation_scope.Pass());
@@ -80,7 +80,7 @@ Value Template::Invoke(Scope* scope,
 
   // Actually run the template code.
   Value result =
-      definition_->block()->ExecuteBlockInScope(&template_scope, err);
+      definition_->block()->Execute(&template_scope, err);
   if (err->has_error()) {
     // If there was an error, append the caller location so the error message
     // displays a stack trace of how it got here.

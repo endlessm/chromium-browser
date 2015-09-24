@@ -8,6 +8,7 @@
 
 #include "base/command_line.h"
 #include "base/mac/bind_objc_block.h"
+#include "base/mac/foundation_util.h"
 #include "base/mac/mac_util.h"
 #import "base/mac/scoped_nsobject.h"
 #import "base/mac/sdk_forward_declarations.h"
@@ -21,7 +22,9 @@
 #include "chrome/browser/ui/bookmarks/bookmark_tab_helper.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window_state.h"
+#import "chrome/browser/ui/cocoa/browser_window_enter_fullscreen_transition.h"
 #import "chrome/browser/ui/cocoa/browser_window_layout.h"
+#import "chrome/browser/ui/cocoa/custom_frame_view.h"
 #import "chrome/browser/ui/cocoa/dev_tools_controller.h"
 #import "chrome/browser/ui/cocoa/fast_resize_view.h"
 #import "chrome/browser/ui/cocoa/find_bar/find_bar_cocoa_controller.h"
@@ -37,10 +40,10 @@
 #import "chrome/browser/ui/cocoa/tab_contents/overlayable_contents_controller.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_strip_view.h"
 #import "chrome/browser/ui/cocoa/toolbar/toolbar_controller.h"
-#import "chrome/browser/ui/cocoa/version_independent_window.h"
 #import "chrome/browser/ui/cocoa/website_settings/permission_bubble_cocoa.h"
-#include "chrome/browser/ui/fullscreen/fullscreen_controller.h"
+#include "chrome/browser/ui/exclusive_access/fullscreen_controller.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/website_settings/permission_bubble_manager.h"
 #include "chrome/common/chrome_switches.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
@@ -226,6 +229,12 @@ willPositionSheet:(NSWindow*)sheet
   [self applyLayout:layout];
 
   [toolbarController_ setDividerOpacity:[self toolbarDividerOpacity]];
+
+  // Will update the location of the permission bubble when showing/hiding the
+  // top level toolbar in fullscreen.
+  PermissionBubbleManager* manager = [self permissionBubbleManager];
+  if (manager)
+    manager->UpdateAnchorPosition();
 }
 
 - (void)applyTabStripLayout:(const chrome::TabStripLayout&)layout {
@@ -291,9 +300,10 @@ willPositionSheet:(NSWindow*)sheet
 
   // If the relayout shifts the content area up or down, let the renderer know.
   if (contentShifted) {
-    if (WebContents* contents =
-            browser_->tab_strip_model()->GetActiveWebContents()) {
-      if (RenderWidgetHostView* rwhv = contents->GetRenderWidgetHostView())
+    WebContents* contents = [self webContents];
+    if (contents) {
+      RenderWidgetHostView* rwhv = contents->GetRenderWidgetHostView();
+      if (rwhv)
         rwhv->WindowFrameChanged();
     }
   }
@@ -370,13 +380,13 @@ willPositionSheet:(NSWindow*)sheet
 
     [avatarButtonView removeFromSuperview];
     [avatarButtonView setHidden:YES];  // Will be shown in layout.
-    [[destWindow cr_windowView] addSubview:avatarButtonView];
+    [[destWindow contentView] addSubview:avatarButtonView];
   }
 
   // Add the tab strip after setting the content view and moving the incognito
   // badge (if any), so that the tab strip will be on top (in the z-order).
   if ([self hasTabStrip])
-    [self insertTabStripView:tabStripView intoWindow:destWindow];
+    [[destWindow contentView] addSubview:tabStripView];
 
   [sourceWindow setWindowController:nil];
   [self setWindow:destWindow];
@@ -385,6 +395,11 @@ willPositionSheet:(NSWindow*)sheet
   // Move the status bubble over, if we have one.
   if (statusBubble_)
     statusBubble_->SwitchParentWindow(destWindow);
+
+  // Updates the bubble position.
+  PermissionBubbleManager* manager = [self permissionBubbleManager];
+  if (manager)
+    manager->UpdateAnchorPosition();
 
   // Move the title over.
   [destWindow setTitle:[sourceWindow title]];
@@ -413,8 +428,6 @@ willPositionSheet:(NSWindow*)sheet
 }
 
 - (void)permissionBubbleWindowWillClose:(NSNotification*)notification {
-  DCHECK(permissionBubbleCocoa_);
-
   NSNotificationCenter* center = [NSNotificationCenter defaultCenter];
   [center removeObserver:self
                     name:NSWindowWillCloseNotification
@@ -425,18 +438,21 @@ willPositionSheet:(NSWindow*)sheet
 }
 
 - (void)configurePresentationModeController {
-  BOOL fullscreen_for_tab =
-      browser_->fullscreen_controller()->IsWindowFullscreenForTabOrPending();
+  BOOL fullscreen_for_tab = browser_->exclusive_access_manager()
+                                ->fullscreen_controller()
+                                ->IsWindowFullscreenForTabOrPending();
   BOOL kiosk_mode =
-      CommandLine::ForCurrentProcess()->HasSwitch(switches::kKioskMode);
+      base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kKioskMode);
   BOOL showDropdown =
       !fullscreen_for_tab && !kiosk_mode && ([self floatingBarHasFocus]);
-  if (permissionBubbleCocoa_ && permissionBubbleCocoa_->IsVisible()) {
-    DCHECK(permissionBubbleCocoa_->window());
-    // A visible permission bubble will force the dropdown to remain visible.
-    [self lockBarVisibilityForOwner:permissionBubbleCocoa_->window()
-                      withAnimation:NO
-                              delay:NO];
+
+  PermissionBubbleManager* manager = [self permissionBubbleManager];
+  if (manager && manager->IsBubbleVisible()) {
+    NSWindow* bubbleWindow = manager->GetBubbleWindow();
+    DCHECK(bubbleWindow);
+    // A visible permission bubble will force the dropdown to remain
+    // visible.
+    [self lockBarVisibilityForOwner:bubbleWindow withAnimation:NO delay:NO];
     showDropdown = YES;
     // Register to be notified when the permission bubble is closed, to
     // allow fullscreen to hide the dropdown.
@@ -444,8 +460,9 @@ willPositionSheet:(NSWindow*)sheet
     [center addObserver:self
                selector:@selector(permissionBubbleWindowWillClose:)
                    name:NSWindowWillCloseNotification
-                 object:permissionBubbleCocoa_->window()];
+                 object:bubbleWindow];
   }
+
   if (showDropdown) {
     // Turn on layered mode for the window's root view for the entry
     // animation.  Without this, the OS fullscreen animation for entering
@@ -455,8 +472,8 @@ willPositionSheet:(NSWindow*)sheet
     // Leaving wantsLayer on for the duration of presentation mode causes
     // performance issues when the dropdown is animated in/out.  It also does
     // not seem to be required for the exit animation.
-    windowViewWantsLayer_ = [[[self window] cr_windowView] wantsLayer];
-    [[[self window] cr_windowView] setWantsLayer:YES];
+    windowViewWantsLayer_ = [[[self window] contentView] wantsLayer];
+    [[[self window] contentView] setWantsLayer:YES];
   }
 
   NSView* contentView = [[self window] contentView];
@@ -605,25 +622,27 @@ willPositionSheet:(NSWindow*)sheet
 
   [self hideOverlayIfPossibleWithAnimation:NO delay:NO];
 
-  if (fullscreenBubbleType_ == FEB_TYPE_NONE ||
-      fullscreenBubbleType_ == FEB_TYPE_BROWSER_FULLSCREEN_EXIT_INSTRUCTION) {
+  if (exclusiveAccessBubbleType_ == EXCLUSIVE_ACCESS_BUBBLE_TYPE_NONE ||
+      exclusiveAccessBubbleType_ ==
+          EXCLUSIVE_ACCESS_BUBBLE_TYPE_BROWSER_FULLSCREEN_EXIT_INSTRUCTION) {
     // Show no exit instruction bubble on Mac when in Browser Fullscreen.
     [self destroyFullscreenExitBubbleIfNecessary];
   } else {
-    [fullscreenExitBubbleController_ closeImmediately];
-    fullscreenExitBubbleController_.reset(
-        [[FullscreenExitBubbleController alloc]
-            initWithOwner:self
-                  browser:browser_.get()
-                      url:fullscreenUrl_
-               bubbleType:fullscreenBubbleType_]);
-    [fullscreenExitBubbleController_ showWindow];
+    [exclusiveAccessBubbleWindowController_ closeImmediately];
+    exclusiveAccessBubbleWindowController_.reset(
+        [[ExclusiveAccessBubbleWindowController alloc]
+                       initWithOwner:self
+            exclusive_access_manager:browser_.get()->exclusive_access_manager()
+                             profile:browser_.get()->profile()
+                                 url:fullscreenUrl_
+                          bubbleType:exclusiveAccessBubbleType_]);
+    [exclusiveAccessBubbleWindowController_ showWindow];
   }
 }
 
 - (void)destroyFullscreenExitBubbleIfNecessary {
-  [fullscreenExitBubbleController_ closeImmediately];
-  fullscreenExitBubbleController_.reset();
+  [exclusiveAccessBubbleWindowController_ closeImmediately];
+  exclusiveAccessBubbleWindowController_.reset();
 }
 
 - (void)contentViewDidResize:(NSNotification*)notification {
@@ -668,7 +687,9 @@ willPositionSheet:(NSWindow*)sheet
   NSWindow* window = [self window];
   savedRegularWindowFrame_ = [window frame];
   BOOL mode = enteringPresentationMode_ ||
-       browser_->fullscreen_controller()->IsWindowFullscreenForTabOrPending();
+              browser_->exclusive_access_manager()
+                  ->fullscreen_controller()
+                  ->IsWindowFullscreenForTabOrPending();
   enteringAppKitFullscreen_ = YES;
   enteringAppKitFullscreenOnPrimaryScreen_ =
       [[[self window] screen] isEqual:[[NSScreen screens] objectAtIndex:0]];
@@ -681,6 +702,8 @@ willPositionSheet:(NSWindow*)sheet
 }
 
 - (void)windowDidEnterFullScreen:(NSNotification*)notification {
+  enterFullscreenTransition_.reset();
+
   // In Yosemite, some combination of the titlebar and toolbar always show in
   // full-screen mode. We do not want either to show. Search for the window that
   // contains the views, and hide it. There is no need to ever unhide the view.
@@ -728,7 +751,7 @@ willPositionSheet:(NSWindow*)sheet
 
   [self showFullscreenExitBubbleIfNecessary];
   browser_->WindowFullscreenStateChanged();
-  [[[self window] cr_windowView] setWantsLayer:windowViewWantsLayer_];
+  [[[self window] contentView] setWantsLayer:windowViewWantsLayer_];
 }
 
 - (void)windowWillExitFullScreen:(NSNotification*)notification {
@@ -790,38 +813,6 @@ willPositionSheet:(NSWindow*)sheet
   return [bookmarkBarController_ toolbarDividerOpacity];
 }
 
-- (void)updateLayerOrdering:(NSView*)view {
-  // Hold a reference to the view so that it doesn't accidentally get
-  // dealloc'ed.
-  base::scoped_nsobject<NSView> reference([view retain]);
-
-  // If the superview has a layer, then this hack isn't required.
-  NSView* superview = [view superview];
-  if ([superview layer])
-    return;
-
-  // Get the current position of the view.
-  NSArray* subviews = [superview subviews];
-  NSInteger index = [subviews indexOfObject:view];
-  NSView* siblingBelow = nil;
-  if (index > 0)
-    siblingBelow = [subviews objectAtIndex:index - 1];
-
-  // Remove the view.
-  [view removeFromSuperview];
-
-  // Add it to the same position.
-  if (siblingBelow) {
-    [superview addSubview:view
-               positioned:NSWindowAbove
-               relativeTo:siblingBelow];
-  } else {
-    [superview addSubview:view
-               positioned:NSWindowBelow
-               relativeTo:nil];
-  }
-}
-
 - (void)updateInfoBarTipVisibility {
   // If there's no toolbar then hide the infobar tip.
   [infoBarContainerController_
@@ -857,6 +848,28 @@ willPositionSheet:(NSWindow*)sheet
   }
 }
 
+- (NSRect)fullscreenButtonFrame {
+  // NSWindowFullScreenButton is 10.7+ and results in log spam on 10.6 if used.
+  if (base::mac::IsOSSnowLeopard())
+    return NSZeroRect;
+
+  NSButton* fullscreenButton =
+      [[self window] standardWindowButton:NSWindowFullScreenButton];
+  if (!fullscreenButton)
+    return NSZeroRect;
+
+  NSRect buttonFrame = [fullscreenButton frame];
+
+  // When called from -windowWillExitFullScreen:, the button's frame may not
+  // be updated yet to match the new window size.
+  // We need to return where the button should be positioned.
+  NSView* rootView = [[[self window] contentView] superview];
+  if ([rootView respondsToSelector:@selector(_fullScreenButtonOrigin)])
+    buttonFrame.origin = [rootView _fullScreenButtonOrigin];
+
+  return buttonFrame;
+}
+
 - (void)updateLayoutParameters:(BrowserWindowLayout*)layout {
   [layout setContentViewSize:[[[self window] contentView] bounds].size];
   [layout setWindowSize:[[self window] frame].size];
@@ -870,10 +883,8 @@ willPositionSheet:(NSWindow*)sheet
       [presentationModeController_ toolbarFraction]];
 
   [layout setHasTabStrip:[self hasTabStrip]];
-  NSButton* fullScreenButton =
-      [[self window] standardWindowButton:NSWindowFullScreenButton];
-  [layout setFullscreenButtonFrame:fullScreenButton ? [fullScreenButton frame]
-                                                    : NSZeroRect];
+  [layout setFullscreenButtonFrame:[self fullscreenButtonFrame]];
+
   if ([self shouldShowAvatar]) {
     NSView* avatar = [avatarButtonController_ view];
     [layout setShouldShowAvatar:YES];
@@ -924,6 +935,8 @@ willPositionSheet:(NSWindow*)sheet
   [[infoBarContainerController_ view] setFrame:output.infoBarFrame];
   [infoBarContainerController_
       setMaxTopArrowHeight:output.infoBarMaxTopArrowHeight];
+  [infoBarContainerController_
+      setInfobarArrowX:[self locationBarBridge]->GetPageInfoBubblePoint().x];
 
   if (!NSIsEmptyRect(output.downloadShelfFrame))
     [[downloadShelfController_ view] setFrame:output.downloadShelfFrame];
@@ -940,7 +953,7 @@ willPositionSheet:(NSWindow*)sheet
       positionFindBarViewAtMaxY:output.findBarMaxY
                        maxWidth:NSWidth(output.contentAreaFrame)];
 
-  [fullscreenExitBubbleController_
+  [exclusiveAccessBubbleWindowController_
       positionInWindowAtTop:output.fullscreenExitButtonMaxY
                       width:NSWidth(output.contentAreaFrame)];
 }
@@ -950,8 +963,6 @@ willPositionSheet:(NSWindow*)sheet
     [self updateSubviewZOrderFullscreen];
   else
     [self updateSubviewZOrderNormal];
-
-  [self updateSubviewZOrderHack];
 }
 
 - (void)updateSubviewZOrderNormal {
@@ -1012,7 +1023,7 @@ willPositionSheet:(NSWindow*)sheet
   }
 
   // Remove all subviews that aren't the tabContentArea.
-  for (NSView* view in [[self.chromeContentView subviews] copy]) {
+  for (NSView* view in [[[self.chromeContentView subviews] copy] autorelease]) {
     if (view != tabContentArea)
       [view removeFromSuperview];
   }
@@ -1035,49 +1046,78 @@ willPositionSheet:(NSWindow*)sheet
   }
 }
 
-- (void)updateSubviewZOrderHack {
-  // TODO(erikchen): Remove and then add the tabStripView to the root NSView.
-  // This fixes a layer ordering problem that occurs between the contentView
-  // and the tabStripView. This is a hack required because NSThemeFrame is not
-  // layer backed, and because Chrome adds subviews directly to the
-  // NSThemeFrame.
-  // http://crbug.com/407921
-  if (enteringAppKitFullscreen_) {
-    // The tabstrip frequently lies outside the bounds of its superview.
-    // Repeatedly adding/removing the tabstrip from its superview during the
-    // AppKit Fullscreen transition causes graphical glitches on 10.10. The
-    // correct solution is to use the AppKit fullscreen transition APIs added
-    // in 10.7+.
-    // http://crbug.com/408791
-    if (!hasAdjustedTabStripWhileEnteringAppKitFullscreen_) {
-      // Disable implicit animations.
-      [CATransaction begin];
-      [CATransaction setDisableActions:YES];
-
-      [self updateLayerOrdering:[self tabStripView]];
-      [self updateLayerOrdering:[avatarButtonController_ view]];
-
-      [CATransaction commit];
-      hasAdjustedTabStripWhileEnteringAppKitFullscreen_ = YES;
-    }
-  } else {
-    hasAdjustedTabStripWhileEnteringAppKitFullscreen_ = NO;
-  }
++ (BOOL)systemSettingsRequireMavericksAppKitFullscreenHack {
+  if (!base::mac::IsOSMavericks())
+    return NO;
+  return [NSScreen respondsToSelector:@selector(screensHaveSeparateSpaces)] &&
+         [NSScreen screensHaveSeparateSpaces];
 }
 
 - (BOOL)shouldUseMavericksAppKitFullscreenHack {
-  if (!base::mac::IsOSMavericks())
+  if (![[self class] systemSettingsRequireMavericksAppKitFullscreenHack])
     return NO;
-  if (![NSScreen respondsToSelector:@selector(screensHaveSeparateSpaces)] ||
-      ![NSScreen screensHaveSeparateSpaces]) {
-    return NO;
-  }
   if (!enteringAppKitFullscreen_)
     return NO;
   if (enteringAppKitFullscreenOnPrimaryScreen_)
     return NO;
 
   return YES;
+}
+
+- (BOOL)shouldUseCustomAppKitFullscreenTransition {
+  if (base::mac::IsOSMountainLionOrEarlier())
+    return NO;
+
+  NSView* root = [[self.window contentView] superview];
+  if (!root.layer)
+    return NO;
+
+  // AppKit on OSX 10.9 has a bug for applications linked against OSX 10.8 SDK
+  // and earlier. Under specific circumstances, it prevents the custom AppKit
+  // transition from working well. See http://crbug.com/396980 for more
+  // details.
+  if ([[self class] systemSettingsRequireMavericksAppKitFullscreenHack] &&
+      ![[[self window] screen] isEqual:[[NSScreen screens] objectAtIndex:0]]) {
+    return NO;
+  }
+
+  return YES;
+}
+
+- (NSArray*)customWindowsToEnterFullScreenForWindow:(NSWindow*)window {
+  DCHECK([window isEqual:self.window]);
+
+  if (![self shouldUseCustomAppKitFullscreenTransition])
+    return nil;
+
+  enterFullscreenTransition_.reset(
+      [[BrowserWindowEnterFullscreenTransition alloc]
+          initWithWindow:self.window]);
+  return [enterFullscreenTransition_ customWindowsToEnterFullScreen];
+}
+
+- (void)window:(NSWindow*)window
+    startCustomAnimationToEnterFullScreenWithDuration:(NSTimeInterval)duration {
+  DCHECK([window isEqual:self.window]);
+  [enterFullscreenTransition_
+      startCustomAnimationToEnterFullScreenWithDuration:duration];
+}
+
+- (BOOL)shouldConstrainFrameRect {
+  if ([enterFullscreenTransition_ shouldWindowBeUnconstrained])
+    return NO;
+
+  return [super shouldConstrainFrameRect];
+}
+
+- (WebContents*)webContents {
+  return browser_->tab_strip_model()->GetActiveWebContents();
+}
+
+- (PermissionBubbleManager*)permissionBubbleManager {
+  if (WebContents* contents = [self webContents])
+    return PermissionBubbleManager::FromWebContents(contents);
+  return nil;
 }
 
 @end  // @implementation BrowserWindowController(Private)

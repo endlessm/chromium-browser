@@ -11,9 +11,9 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_info_cache.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
-#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/common/pref_names.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "content/public/browser/notification_details.h"
@@ -48,6 +48,9 @@ GAIAInfoUpdateService::~GAIAInfoUpdateService() {
 }
 
 void GAIAInfoUpdateService::Update() {
+  // UMA Profile Metrics should be logged regularly.
+  ProfileMetrics::LogNumberOfProfiles(g_browser_process->profile_manager());
+
   // The user must be logged in.
   SigninManagerBase* signin_manager =
       SigninManagerFactory::GetForProfile(profile_);
@@ -65,10 +68,6 @@ bool GAIAInfoUpdateService::ShouldUseGAIAProfileInfo(Profile* profile) {
 #if defined(OS_CHROMEOS)
   return false;
 #endif
-
-  // Sync must be allowed.
-  if (!profile->GetOriginalProfile()->IsSyncAccessible())
-    return false;
 
   // To enable this feature for testing pass "--google-profile-info".
   if (switches::IsGoogleProfileInfo())
@@ -92,6 +91,10 @@ Profile* GAIAInfoUpdateService::GetBrowserProfile() {
 
 std::string GAIAInfoUpdateService::GetCachedPictureURL() const {
   return profile_->GetPrefs()->GetString(prefs::kProfileGAIAInfoPictureURL);
+}
+
+bool GAIAInfoUpdateService::IsPreSignin() const {
+  return false;
 }
 
 void GAIAInfoUpdateService::OnProfileDownloadSuccess(

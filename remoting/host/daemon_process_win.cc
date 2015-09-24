@@ -17,6 +17,7 @@
 #include "base/time/time.h"
 #include "base/win/registry.h"
 #include "base/win/scoped_handle.h"
+#include "base/win/win_util.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_message_macros.h"
 #include "remoting/base/auto_thread_task_runner.h"
@@ -30,6 +31,7 @@
 #include "remoting/host/pairing_registry_delegate_win.h"
 #include "remoting/host/screen_resolution.h"
 #include "remoting/host/win/launch_process_with_token.h"
+#include "remoting/host/win/security_descriptor.h"
 #include "remoting/host/win/unprivileged_process_delegate.h"
 #include "remoting/host/win/worker_process_launcher.h"
 
@@ -66,28 +68,28 @@ class DaemonProcessWin : public DaemonProcess {
       scoped_refptr<AutoThreadTaskRunner> caller_task_runner,
       scoped_refptr<AutoThreadTaskRunner> io_task_runner,
       const base::Closure& stopped_callback);
-  virtual ~DaemonProcessWin();
+  ~DaemonProcessWin() override;
 
   // WorkerProcessIpcDelegate implementation.
-  virtual void OnChannelConnected(int32 peer_pid) override;
-  virtual void OnPermanentError(int exit_code) override;
+  void OnChannelConnected(int32 peer_pid) override;
+  void OnPermanentError(int exit_code) override;
 
   // DaemonProcess overrides.
-  virtual void SendToNetwork(IPC::Message* message) override;
-  virtual bool OnDesktopSessionAgentAttached(
+  void SendToNetwork(IPC::Message* message) override;
+  bool OnDesktopSessionAgentAttached(
       int terminal_id,
       base::ProcessHandle desktop_process,
       IPC::PlatformFileForTransit desktop_pipe) override;
 
  protected:
   // DaemonProcess implementation.
-  virtual scoped_ptr<DesktopSession> DoCreateDesktopSession(
+  scoped_ptr<DesktopSession> DoCreateDesktopSession(
       int terminal_id,
       const ScreenResolution& resolution,
       bool virtual_terminal) override;
-  virtual void DoCrashNetworkProcess(
+  void DoCrashNetworkProcess(
       const tracked_objects::Location& location) override;
-  virtual void LaunchNetworkProcess() override;
+  void LaunchNetworkProcess() override;
 
   // Changes the service start type to 'manual'.
   void DisableAutoStart();
@@ -138,11 +140,17 @@ void DaemonProcessWin::OnChannelConnected(int32 peer_pid) {
 }
 
 void DaemonProcessWin::OnPermanentError(int exit_code) {
-  // Change the service start type to 'manual' if the host has been deleted
-  // remotely. This way the host will not be started every time the machine
-  // boots until the user re-enable it again.
-  if (exit_code == kInvalidHostIdExitCode)
+  DCHECK(kMinPermanentErrorExitCode <= exit_code &&
+         exit_code <= kMaxPermanentErrorExitCode);
+
+  // Both kInvalidHostIdExitCode and kInvalidOauthCredentialsExitCode are
+  // errors then will never go away with the current config.
+  // Disabling automatic service start until the host is re-enabled and config
+  // updated.
+  if (exit_code == kInvalidHostIdExitCode ||
+      exit_code == kInvalidOauthCredentialsExitCode) {
     DisableAutoStart();
+  }
 
   DaemonProcess::OnPermanentError(exit_code);
 }
@@ -212,11 +220,10 @@ void DaemonProcessWin::LaunchNetworkProcess() {
     return;
   }
 
-  scoped_ptr<CommandLine> target(new CommandLine(host_binary));
+  scoped_ptr<base::CommandLine> target(new base::CommandLine(host_binary));
   target->AppendSwitchASCII(kProcessTypeSwitchName, kProcessTypeHost);
-  target->CopySwitchesFrom(*CommandLine::ForCurrentProcess(),
-                           kCopiedSwitchNames,
-                           arraysize(kCopiedSwitchNames));
+  target->CopySwitchesFrom(*base::CommandLine::ForCurrentProcess(),
+                           kCopiedSwitchNames, arraysize(kCopiedSwitchNames));
 
   scoped_ptr<UnprivilegedProcessDelegate> delegate(
       new UnprivilegedProcessDelegate(io_task_runner(), target.Pass()));
@@ -236,7 +243,7 @@ scoped_ptr<DaemonProcess> DaemonProcess::Create(
 
 void DaemonProcessWin::DisableAutoStart() {
   ScopedScHandle scmanager(
-      OpenSCManager(NULL, SERVICES_ACTIVE_DATABASE,
+      OpenSCManager(nullptr, SERVICES_ACTIVE_DATABASE,
                     SC_MANAGER_CONNECT | SC_MANAGER_ENUMERATE_SERVICE));
   if (!scmanager.IsValid()) {
     PLOG(INFO) << "Failed to connect to the service control manager";
@@ -252,19 +259,19 @@ void DaemonProcessWin::DisableAutoStart() {
     return;
   }
 
-  // Change the service start type to 'manual'. All |NULL| parameters below mean
-  // that there is no change to the corresponding service parameter.
+  // Change the service start type to 'manual'. All |nullptr| parameters below
+  // mean that there is no change to the corresponding service parameter.
   if (!ChangeServiceConfig(service.Get(),
                            SERVICE_NO_CHANGE,
                            SERVICE_DEMAND_START,
                            SERVICE_NO_CHANGE,
-                           NULL,
-                           NULL,
-                           NULL,
-                           NULL,
-                           NULL,
-                           NULL,
-                           NULL)) {
+                           nullptr,
+                           nullptr,
+                           nullptr,
+                           nullptr,
+                           nullptr,
+                           nullptr,
+                           nullptr)) {
     PLOG(INFO) << "Failed to change the '" << kWindowsServiceName
                << "'service start type to 'manual'";
   }
@@ -289,39 +296,84 @@ bool DaemonProcessWin::InitializePairingRegistry() {
   // the passed handles.
   SendToNetwork(new ChromotingDaemonNetworkMsg_InitializePairingRegistry(
       privileged_key, unprivileged_key));
+
   return true;
 }
 
+// A chromoting top crasher revealed that the pairing registry keys sometimes
+// cannot be opened. The speculation is that those keys are absent for some
+// reason. To reduce the host crashes we create those keys here if they are
+// absent. See crbug.com/379360 for details.
 bool DaemonProcessWin::OpenPairingRegistry() {
   DCHECK(!pairing_registry_privileged_key_.Valid());
   DCHECK(!pairing_registry_unprivileged_key_.Valid());
 
-  // Open the root of the pairing registry.
+  // Open the root of the pairing registry. Create if absent.
   base::win::RegKey root;
-  LONG result = root.Open(HKEY_LOCAL_MACHINE, kPairingRegistryKeyName,
-                          KEY_READ);
+  DWORD disposition;
+  LONG result = root.CreateWithDisposition(
+      HKEY_LOCAL_MACHINE, kPairingRegistryKeyName, &disposition,
+      KEY_READ | KEY_CREATE_SUB_KEY);
+
   if (result != ERROR_SUCCESS) {
-    SetLastError(result);
-    PLOG(ERROR) << "Failed to open HKLM\\" << kPairingRegistryKeyName;
+    ::SetLastError(result);
+    PLOG(ERROR) << "Failed to open or create HKLM\\" << kPairingRegistryKeyName;
     return false;
   }
 
-  base::win::RegKey privileged;
-  result = privileged.Open(root.Handle(), kPairingRegistryClientsKeyName,
-                           KEY_READ | KEY_WRITE);
-  if (result != ERROR_SUCCESS) {
-    SetLastError(result);
-    PLOG(ERROR) << "Failed to open HKLM\\" << kPairingRegistryKeyName << "\\"
-                << kPairingRegistryClientsKeyName;
-    return false;
-  }
+  if (disposition == REG_CREATED_NEW_KEY)
+    LOG(WARNING) << "Created pairing registry root key which was absent.";
 
+  // Open the pairing registry clients key. Create if absent.
   base::win::RegKey unprivileged;
-  result = unprivileged.Open(root.Handle(), kPairingRegistrySecretsKeyName,
-                             KEY_READ | KEY_WRITE);
+  result = unprivileged.CreateWithDisposition(
+      root.Handle(), kPairingRegistryClientsKeyName, &disposition,
+      KEY_READ | KEY_WRITE);
+
   if (result != ERROR_SUCCESS) {
-    SetLastError(result);
-    PLOG(ERROR) << "Failed to open HKLM\\" << kPairingRegistrySecretsKeyName
+    ::SetLastError(result);
+    PLOG(ERROR) << "Failed to open or create HKLM\\" << kPairingRegistryKeyName
+                << "\\" << kPairingRegistryClientsKeyName;
+    return false;
+  }
+
+  if (disposition == REG_CREATED_NEW_KEY)
+    LOG(WARNING) << "Created pairing registry client key which was absent.";
+
+  // Open the pairing registry secret key.
+  base::win::RegKey privileged;
+  result = privileged.Open(
+      root.Handle(), kPairingRegistrySecretsKeyName, KEY_READ | KEY_WRITE);
+
+  if (result == ERROR_FILE_NOT_FOUND) {
+    LOG(WARNING) << "Pairing registry privileged key absent, creating.";
+
+    // Create a security descriptor that gives full access to local system and
+    // administrators and denies access by anyone else.
+    std::string security_descriptor = "O:BAG:BAD:(A;;GA;;;BA)(A;;GA;;;SY)";
+
+    ScopedSd sd = ConvertSddlToSd(security_descriptor);
+    if (!sd) {
+      PLOG(ERROR) << "Failed to create a security descriptor for the pairing"
+                  << "registry privileged key.";
+      return false;
+    }
+
+    SECURITY_ATTRIBUTES security_attributes = {0};
+    security_attributes.nLength = sizeof(security_attributes);
+    security_attributes.lpSecurityDescriptor = sd.get();
+    security_attributes.bInheritHandle = FALSE;
+
+    HKEY key = nullptr;
+    result = ::RegCreateKeyEx(
+        root.Handle(), kPairingRegistrySecretsKeyName, 0, nullptr, 0,
+        KEY_READ | KEY_WRITE, &security_attributes, &key, &disposition);
+    privileged.Set(key);
+  }
+
+  if (result != ERROR_SUCCESS) {
+    ::SetLastError(result);
+    PLOG(ERROR) << "Failed to open or create HKLM\\" << kPairingRegistryKeyName
                 << "\\" << kPairingRegistrySecretsKeyName;
     return false;
   }

@@ -7,6 +7,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/time/time.h"
 #include "ui/views/widget/widget_observer.h"
 
 namespace content {
@@ -38,7 +39,7 @@ class CaptivePortalWindowProxy : public views::WidgetObserver {
 
   CaptivePortalWindowProxy(Delegate* delegate,
                            content::WebContents* web_contents);
-  virtual ~CaptivePortalWindowProxy();
+  ~CaptivePortalWindowProxy() override;
 
   // Shows captive portal window only after a redirection has happened. So it is
   // safe to call this method, when the caller isn't 100% sure that the network
@@ -62,9 +63,9 @@ class CaptivePortalWindowProxy : public views::WidgetObserver {
   void OnOriginalURLLoaded();
 
   // Overridden from views::WidgetObserver:
-  virtual void OnWidgetClosing(views::Widget* widget) override;
-  virtual void OnWidgetDestroying(views::Widget* widget) override;
-  virtual void OnWidgetDestroyed(views::Widget* widget) override;
+  void OnWidgetClosing(views::Widget* widget) override;
+  void OnWidgetDestroying(views::Widget* widget) override;
+  void OnWidgetDestroyed(views::Widget* widget) override;
 
  private:
   friend class CaptivePortalWindowTest;
@@ -112,6 +113,8 @@ class CaptivePortalWindowProxy : public views::WidgetObserver {
   content::WebContents* web_contents_;
 
   CaptivePortalView* captive_portal_view_for_testing_;
+
+  base::Time started_loading_at_;
 
   DISALLOW_COPY_AND_ASSIGN(CaptivePortalWindowProxy);
 };

@@ -13,6 +13,7 @@
 #include "base/prefs/pref_service.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
+#include "chrome/common/chrome_constants.h"
 #include "chrome/common/pref_names.h"
 #include "components/metrics/proto/system_profile.pb.h"
 #include "content/public/browser/child_process_data.h"
@@ -31,6 +32,12 @@
 
 #if defined(OS_WIN)
 #include <windows.h>  // Needed for STATUS_* codes
+#include "chrome/installer/util/install_util.h"
+#include "components/browser_watcher/crash_reporting_metrics_win.h"
+#endif
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/memory/system_memory_stats_recorder.h"
 #endif
 
 namespace {
@@ -61,6 +68,54 @@ int MapCrashExitCodeForHistogram(int exit_code) {
 #endif
 
   return std::abs(exit_code);
+}
+
+#if defined(OS_WIN)
+void CountBrowserCrashDumpAttempts() {
+  enum Outcome {
+    OUTCOME_SUCCESS,
+    OUTCOME_FAILURE,
+    OUTCOME_UNKNOWN,
+    OUTCOME_MAX_VALUE
+  };
+
+  browser_watcher::CrashReportingMetrics::Values metrics =
+      browser_watcher::CrashReportingMetrics(
+          InstallUtil::IsChromeSxSProcess()
+              ? chrome::kBrowserCrashDumpAttemptsRegistryPathSxS
+              : chrome::kBrowserCrashDumpAttemptsRegistryPath)
+          .RetrieveAndResetMetrics();
+
+  for (int i = 0; i < metrics.crash_dump_attempts; ++i) {
+    Outcome outcome = OUTCOME_UNKNOWN;
+    if (i < metrics.successful_crash_dumps)
+      outcome = OUTCOME_SUCCESS;
+    else if (i < metrics.successful_crash_dumps + metrics.failed_crash_dumps)
+      outcome = OUTCOME_FAILURE;
+
+    UMA_STABILITY_HISTOGRAM_ENUMERATION("CrashReport.BreakpadCrashDumpOutcome",
+                                        outcome, OUTCOME_MAX_VALUE);
+  }
+
+  for (int i = 0; i < metrics.dump_without_crash_attempts; ++i) {
+    Outcome outcome = OUTCOME_UNKNOWN;
+    if (i < metrics.successful_dumps_without_crash) {
+      outcome = OUTCOME_SUCCESS;
+    } else if (i < metrics.successful_dumps_without_crash +
+                       metrics.failed_dumps_without_crash) {
+      outcome = OUTCOME_FAILURE;
+    }
+
+    UMA_STABILITY_HISTOGRAM_ENUMERATION(
+        "CrashReport.BreakpadDumpWithoutCrashOutcome", outcome,
+        OUTCOME_MAX_VALUE);
+  }
+}
+#endif  // defined(OS_WIN)
+
+void RecordChildKills(bool was_extension_process) {
+  UMA_HISTOGRAM_PERCENTAGE("BrowserRenderProcessHost.ChildKills",
+                           was_extension_process ? 2 : 1);
 }
 
 }  // namespace
@@ -124,6 +179,10 @@ void ChromeStabilityMetricsProvider::ProvideStabilityMetrics(
     stability_proto->set_renderer_hang_count(count);
     pref->SetInteger(prefs::kStabilityRendererHangCount, 0);
   }
+
+#if defined(OS_WIN)
+  CountBrowserCrashDumpAttempts();
+#endif  // defined(OS_WIN)
 }
 
 void ChromeStabilityMetricsProvider::ClearSavedStabilityMetrics() {
@@ -186,7 +245,8 @@ void ChromeStabilityMetricsProvider::Observe(
 }
 
 void ChromeStabilityMetricsProvider::BrowserChildProcessCrashed(
-    const content::ChildProcessData& data) {
+    const content::ChildProcessData& data,
+    int exit_code) {
 #if defined(ENABLE_PLUGINS)
   // Exclude plugin crashes from the count below because we report them via
   // a separate UMA metric.
@@ -235,8 +295,18 @@ void ChromeStabilityMetricsProvider::LogRendererCrash(
     UMA_HISTOGRAM_PERCENTAGE("BrowserRenderProcessHost.ChildCrashes",
                              was_extension_process ? 2 : 1);
   } else if (status == base::TERMINATION_STATUS_PROCESS_WAS_KILLED) {
-    UMA_HISTOGRAM_PERCENTAGE("BrowserRenderProcessHost.ChildKills",
-                             was_extension_process ? 2 : 1);
+    RecordChildKills(was_extension_process);
+#if defined(OS_CHROMEOS)
+  } else if (status == base::TERMINATION_STATUS_PROCESS_WAS_KILLED_BY_OOM) {
+    RecordChildKills(was_extension_process);
+    UMA_HISTOGRAM_ENUMERATION("BrowserRenderProcessHost.ChildKills.OOM",
+                              was_extension_process ? 2 : 1,
+                              3);
+    memory::RecordMemoryStats(
+        was_extension_process
+            ? memory::RECORD_MEMORY_STATS_EXTENSIONS_OOM_KILLED
+            : memory::RECORD_MEMORY_STATS_CONTENTS_OOM_KILLED);
+#endif
   } else if (status == base::TERMINATION_STATUS_STILL_RUNNING) {
     UMA_HISTOGRAM_PERCENTAGE("BrowserRenderProcessHost.DisconnectedAlive",
                              was_extension_process ? 2 : 1);

@@ -4,6 +4,8 @@
 
 #include "components/signin/core/browser/signin_error_controller.h"
 
+#include "components/signin/core/browser/signin_metrics.h"
+
 namespace {
 
 typedef std::set<const SigninErrorController::AuthStatusProvider*>
@@ -62,13 +64,11 @@ void SigninErrorController::AuthStatusChanged() {
     }
 
     std::string account_id = (*it)->GetAccountId();
-    std::string username = (*it)->GetUsername();
 
     // Prioritize this error if it matches the previous |auth_error_|.
     if (error.state() == prev_state && account_id == prev_account_id) {
       auth_error_ = error;
       error_account_id_ = account_id;
-      error_username_ = username;
       error_changed = true;
       break;
     }
@@ -78,7 +78,6 @@ void SigninErrorController::AuthStatusChanged() {
     if (!error_changed) {
       auth_error_ = error;
       error_account_id_ = account_id;
-      error_username_ = username;
       error_changed = true;
     }
   }
@@ -87,11 +86,11 @@ void SigninErrorController::AuthStatusChanged() {
     // No provider reported an error, so clear the error we have now.
     auth_error_ = GoogleServiceAuthError::AuthErrorNone();
     error_account_id_.clear();
-    error_username_.clear();
     error_changed = true;
   }
 
   if (error_changed) {
+    signin_metrics::LogAuthError(auth_error_.state());
     FOR_EACH_OBSERVER(Observer, observer_list_, OnErrorChanged());
   }
 }

@@ -16,9 +16,11 @@ class CrashUploadListWin : public CrashUploadList {
 
  protected:
   // Loads the list of crashes from the Windows Event Log.
-  virtual void LoadUploadList() override;
+  void LoadUploadList() override;
 
  private:
+  ~CrashUploadListWin() override;
+
   // Returns whether the event record is likely a Chrome crash log.
   bool IsPossibleCrashLogRecord(EVENTLOGRECORD* record) const;
 

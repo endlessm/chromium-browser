@@ -9,21 +9,18 @@
 
 #include "base/android/scoped_java_ref.h"
 #include "base/callback.h"
+#include "base/strings/string16.h"
 #include "content/common/content_export.h"
-#include "content/public/browser/navigation_controller.h"
+#include "content/public/browser/readback_types.h"
 #include "third_party/skia/include/core/SkImageInfo.h"
-#include "ui/gfx/rect.h"
-
-class SkBitmap;
+#include "ui/gfx/geometry/rect.h"
 
 namespace cc {
 class Layer;
 }
 
 namespace gfx {
-class Size;
-class SizeF;
-class Vector2dF;
+class Rect;
 }
 
 namespace ui {
@@ -39,15 +36,17 @@ class WebContents;
 // public interface used by native code outside of the content module.
 class CONTENT_EXPORT ContentViewCore {
  public:
-  // Returns the existing ContentViewCore for |web_contents|, or NULL.
+  // Returns the existing ContentViewCore for |web_contents|, or nullptr.
   static ContentViewCore* FromWebContents(WebContents* web_contents);
   static ContentViewCore* GetNativeContentViewCore(JNIEnv* env, jobject obj);
 
   virtual WebContents* GetWebContents() const = 0;
+
+  // May return null reference.
   virtual base::android::ScopedJavaLocalRef<jobject> GetJavaObject() = 0;
   virtual ui::ViewAndroid* GetViewAndroid() const = 0;
   virtual ui::WindowAndroid* GetWindowAndroid() const = 0;
-  virtual scoped_refptr<cc::Layer> GetLayer() const = 0;
+  virtual const scoped_refptr<cc::Layer>& GetLayer() const = 0;
   virtual void ShowPastePopup(int x, int y) = 0;
 
   // Request a scaled content readback. The result is passed through the
@@ -56,16 +55,10 @@ class CONTENT_EXPORT ContentViewCore {
   virtual void GetScaledContentBitmap(
       float scale,
       SkColorType color_type,
-      gfx::Rect src_rect,
-      const base::Callback<void(bool, const SkBitmap&)>& result_callback) = 0;
+      const gfx::Rect& src_rect,
+      ReadbackRequestCallback& result_callback) = 0;
   virtual float GetDpiScale() const = 0;
   virtual void PauseOrResumeGeolocation(bool should_pause) = 0;
-
-  // Observer callback for frame metadata updates.
-  typedef base::Callback<void(
-      const gfx::SizeF& content_size,
-      const gfx::Vector2dF& scroll_offset,
-      float page_scale_factor)> UpdateFrameInfoCallback;
 
   // Text surrounding selection.
   virtual void RequestTextSurroundingSelection(

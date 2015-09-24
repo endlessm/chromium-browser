@@ -41,7 +41,6 @@
 #include "core/frame/LocalDOMWindow.h"
 #include "core/frame/UseCounter.h"
 #include "platform/EventDispatchForbiddenScope.h"
-#include "platform/RuntimeEnabledFeatures.h"
 #include "wtf/StdLibExtras.h"
 #include "wtf/Threading.h"
 #include "wtf/Vector.h"
@@ -90,8 +89,6 @@ inline LocalDOMWindow* EventTarget::executingWindow()
 
 bool EventTarget::addEventListener(const AtomicString& eventType, PassRefPtr<EventListener> listener, bool useCapture)
 {
-    // FIXME: listener null check should throw TypeError (and be done in
-    // generated bindings), but breaks legacy content. http://crbug.com/249598
     if (!listener)
         return false;
 
@@ -108,8 +105,6 @@ bool EventTarget::addEventListener(const AtomicString& eventType, PassRefPtr<Eve
 
 bool EventTarget::removeEventListener(const AtomicString& eventType, PassRefPtr<EventListener> listener, bool useCapture)
 {
-    // FIXME: listener null check should throw TypeError (and be done in
-    // generated bindings), but breaks legacy content. http://crbug.com/249598
     if (!listener)
         return false;
 
@@ -195,9 +190,9 @@ bool EventTarget::dispatchEvent(PassRefPtrWillBeRawPtr<Event> event)
     event->setTarget(this);
     event->setCurrentTarget(this);
     event->setEventPhase(Event::AT_TARGET);
-    bool defaultPrevented = fireEventListeners(event.get());
+    bool defaultWasNotPrevented = fireEventListeners(event.get());
     event->setEventPhase(0);
-    return defaultPrevented;
+    return defaultWasNotPrevented;
 }
 
 void EventTarget::uncaughtExceptionInEventHandler()
@@ -276,13 +271,6 @@ bool EventTarget::fireEventListeners(Event* event)
         legacyListenersVector = d->eventListenerMap.find(legacyTypeName);
 
     EventListenerVector* listenersVector = d->eventListenerMap.find(event->type());
-    if (!RuntimeEnabledFeatures::cssAnimationUnprefixedEnabled() && (event->type() == EventTypeNames::animationiteration || event->type() == EventTypeNames::animationend
-        || event->type() == EventTypeNames::animationstart)
-        // Some code out-there uses custom events to dispatch unprefixed animation events manually,
-        // we can safely remove all this block when cssAnimationUnprefixedEnabled is always on, this
-        // is really a special case. DO NOT ADD MORE EVENTS HERE.
-        && event->interfaceName() != EventNames::CustomEvent)
-        listenersVector = 0;
 
     if (listenersVector) {
         fireEventListeners(event, d, *listenersVector);
@@ -323,6 +311,9 @@ void EventTarget::fireEventListeners(Event* event, EventTargetData* d, EventList
     } else if (event->type() == EventTypeNames::focusin || event->type() == EventTypeNames::focusout) {
         if (LocalDOMWindow* executingWindow = this->executingWindow())
             UseCounter::count(executingWindow->document(), UseCounter::FocusInOutEvent);
+    } else if (event->type() == EventTypeNames::textInput) {
+        if (LocalDOMWindow* executingWindow = this->executingWindow())
+            UseCounter::count(executingWindow->document(), UseCounter::TextInputFired);
     }
 
     size_t i = 0;
@@ -357,15 +348,15 @@ void EventTarget::fireEventListeners(Event* event, EventTargetData* d, EventList
 
 const EventListenerVector& EventTarget::getEventListeners(const AtomicString& eventType)
 {
-    AtomicallyInitializedStatic(EventListenerVector*, emptyVector = new EventListenerVector);
+    AtomicallyInitializedStaticReference(EventListenerVector, emptyVector, new EventListenerVector);
 
     EventTargetData* d = eventTargetData();
     if (!d)
-        return *emptyVector;
+        return emptyVector;
 
     EventListenerVector* listenerVector = d->eventListenerMap.find(eventType);
     if (!listenerVector)
-        return *emptyVector;
+        return emptyVector;
 
     return *listenerVector;
 }

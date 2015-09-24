@@ -8,11 +8,11 @@
 #include "base/android/scoped_java_ref.h"
 #include "base/bind.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/favicon/favicon_service.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/url_constants.h"
+#include "components/favicon/core/favicon_service.h"
 #include "components/history/core/browser/history_types.h"
 #include "jni/NavigationPopup_jni.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -40,8 +40,9 @@ void NavigationPopup::FetchFaviconForUrl(JNIEnv* env,
                                          jobject obj,
                                          jstring jurl) {
   Profile* profile = g_browser_process->profile_manager()->GetLastUsedProfile();
-  FaviconService* favicon_service = FaviconServiceFactory::GetForProfile(
-      profile, Profile::EXPLICIT_ACCESS);
+  favicon::FaviconService* favicon_service =
+      FaviconServiceFactory::GetForProfile(profile,
+                                           ServiceAccessType::EXPLICIT_ACCESS);
   if (!favicon_service)
     return;
   GURL url(base::android::ConvertJavaStringToUTF16(env, jurl));

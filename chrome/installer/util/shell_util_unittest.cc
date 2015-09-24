@@ -52,7 +52,7 @@ class ShellUtilShortcutTest : public testing::Test {
  protected:
   ShellUtilShortcutTest() : test_properties_(ShellUtil::CURRENT_USER) {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     dist_ = BrowserDistribution::GetDistribution();
     ASSERT_TRUE(dist_ != NULL);
     product_.reset(new installer::Product(dist_));
@@ -811,7 +811,7 @@ class ShellUtilRegistryTest : public testing::Test {
   ShellUtilRegistryTest() {}
 
  protected:
-  virtual void SetUp() override {
+  void SetUp() override {
     registry_overrides_.OverrideRegistry(HKEY_CURRENT_USER);
 
     // .test2 files already have a default application.
@@ -979,7 +979,7 @@ TEST(ShellUtilTest, BuildAppModelIdLongEverything) {
 TEST(ShellUtilTest, GetUserSpecificRegistrySuffix) {
   base::string16 suffix;
   ASSERT_TRUE(ShellUtil::GetUserSpecificRegistrySuffix(&suffix));
-  ASSERT_TRUE(StartsWith(suffix, L".", true));
+  ASSERT_TRUE(base::StartsWith(suffix, L".", base::CompareCase::SENSITIVE));
   ASSERT_EQ(27, suffix.length());
   ASSERT_TRUE(base::ContainsOnlyChars(suffix.substr(1),
                                       L"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"));
@@ -988,7 +988,7 @@ TEST(ShellUtilTest, GetUserSpecificRegistrySuffix) {
 TEST(ShellUtilTest, GetOldUserSpecificRegistrySuffix) {
   base::string16 suffix;
   ASSERT_TRUE(ShellUtil::GetOldUserSpecificRegistrySuffix(&suffix));
-  ASSERT_TRUE(StartsWith(suffix, L".", true));
+  ASSERT_TRUE(base::StartsWith(suffix, L".", base::CompareCase::SENSITIVE));
 
   wchar_t user_name[256];
   DWORD size = arraysize(user_name);

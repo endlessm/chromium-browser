@@ -6,23 +6,57 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
+#include "base/logging.h"
 #include "crypto/secure_util.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
+#include "net/cert/cert_status_flags.h"
+#include "net/cert/cert_verifier.h"
+#include "net/cert/cert_verify_result.h"
 #include "net/cert/x509_certificate.h"
 #include "net/http/transport_security_state.h"
-#include "net/socket/client_socket_factory.h"
 #include "net/socket/client_socket_handle.h"
 #include "net/socket/ssl_client_socket.h"
-#include "net/socket/ssl_client_socket_openssl.h"
 #include "net/socket/ssl_server_socket.h"
 #include "net/ssl/ssl_config_service.h"
 #include "remoting/base/rsa_key_pair.h"
 #include "remoting/protocol/auth_util.h"
 
+#if defined(OS_NACL)
+#include "net/socket/ssl_client_socket_openssl.h"
+#else
+#include "net/socket/client_socket_factory.h"
+#endif
+
 namespace remoting {
 namespace protocol {
+
+namespace {
+
+// A CertVerifier which rejects every certificate.
+class FailingCertVerifier : public net::CertVerifier {
+ public:
+  FailingCertVerifier() {}
+  ~FailingCertVerifier() override {}
+
+  int Verify(net::X509Certificate* cert,
+             const std::string& hostname,
+             const std::string& ocsp_response,
+             int flags,
+             net::CRLSet* crl_set,
+             net::CertVerifyResult* verify_result,
+             const net::CompletionCallback& callback,
+             scoped_ptr<Request>* out_req,
+             const net::BoundNetLog& net_log) override {
+    verify_result->verified_cert = cert;
+    verify_result->cert_status = net::CERT_STATUS_INVALID;
+    return net::ERR_CERT_INVALID;
+  }
+};
+
+}  // namespace
 
 // static
 scoped_ptr<SslHmacChannelAuthenticator>
@@ -80,7 +114,7 @@ void SslHmacChannelAuthenticator::SecureAndAuthenticate(
     }
 
     net::SSLConfig ssl_config;
-    ssl_config.require_forward_secrecy = true;
+    ssl_config.require_ecdhe = true;
 
     scoped_ptr<net::SSLServerSocket> server_socket =
         net::CreateSSLServerSocket(socket.Pass(),
@@ -95,6 +129,7 @@ void SslHmacChannelAuthenticator::SecureAndAuthenticate(
 #endif
   } else {
     transport_security_state_.reset(new net::TransportSecurityState);
+    cert_verifier_.reset(new FailingCertVerifier);
 
     net::SSLConfig::CertAndStatus cert_and_status;
     cert_and_status.cert_status = net::CERT_STATUS_AUTHORITY_INVALID;
@@ -108,10 +143,12 @@ void SslHmacChannelAuthenticator::SecureAndAuthenticate(
     ssl_config.cert_io_enabled = false;
     ssl_config.rev_checking_enabled = false;
     ssl_config.allowed_bad_certs.push_back(cert_and_status);
+    ssl_config.require_ecdhe = false;
 
     net::HostPortPair host_and_port(kSslFakeHostName, 0);
     net::SSLClientSocketContext context;
     context.transport_security_state = transport_security_state_.get();
+    context.cert_verifier = cert_verifier_.get();
     scoped_ptr<net::ClientSocketHandle> socket_handle(
         new net::ClientSocketHandle);
     socket_handle->SetSocket(socket.Pass());
@@ -138,12 +175,13 @@ void SslHmacChannelAuthenticator::SecureAndAuthenticate(
 }
 
 bool SslHmacChannelAuthenticator::is_ssl_server() {
-  return local_key_pair_.get() != NULL;
+  return local_key_pair_.get() != nullptr;
 }
 
 void SslHmacChannelAuthenticator::OnConnected(int result) {
   if (result != net::OK) {
-    LOG(WARNING) << "Failed to establish SSL connection";
+    LOG(WARNING) << "Failed to establish SSL connection.  Error: "
+                 << net::ErrorToString(result);
     NotifyError(result);
     return;
   }
@@ -192,8 +230,8 @@ void SslHmacChannelAuthenticator::WriteAuthenticationBytes(
 void SslHmacChannelAuthenticator::OnAuthBytesWritten(int result) {
   DCHECK(CalledOnValidThread());
 
-  if (HandleAuthBytesWritten(result, NULL))
-    WriteAuthenticationBytes(NULL);
+  if (HandleAuthBytesWritten(result, nullptr))
+    WriteAuthenticationBytes(nullptr);
 }
 
 bool SslHmacChannelAuthenticator::HandleAuthBytesWritten(
@@ -210,7 +248,7 @@ bool SslHmacChannelAuthenticator::HandleAuthBytesWritten(
   if (auth_write_buf_->BytesRemaining() > 0)
     return true;
 
-  auth_write_buf_ = NULL;
+  auth_write_buf_ = nullptr;
   CheckDone(callback_called);
   return false;
 }
@@ -254,8 +292,8 @@ bool SslHmacChannelAuthenticator::HandleAuthBytesRead(int read_result) {
     return false;
   }
 
-  auth_read_buf_ = NULL;
-  CheckDone(NULL);
+  auth_read_buf_ = nullptr;
+  CheckDone(nullptr);
   return false;
 }
 
@@ -275,25 +313,17 @@ bool SslHmacChannelAuthenticator::VerifyAuthBytes(
 }
 
 void SslHmacChannelAuthenticator::CheckDone(bool* callback_called) {
-  if (auth_write_buf_.get() == NULL && auth_read_buf_.get() == NULL) {
-    DCHECK(socket_.get() != NULL);
+  if (auth_write_buf_.get() == nullptr && auth_read_buf_.get() == nullptr) {
+    DCHECK(socket_.get() != nullptr);
     if (callback_called)
       *callback_called = true;
 
-    CallDoneCallback(net::OK, socket_.Pass());
+    base::ResetAndReturn(&done_callback_).Run(net::OK, socket_.Pass());
   }
 }
 
 void SslHmacChannelAuthenticator::NotifyError(int error) {
-  CallDoneCallback(error, nullptr);
-}
-
-void SslHmacChannelAuthenticator::CallDoneCallback(
-    int error,
-    scoped_ptr<net::StreamSocket> socket) {
-  DoneCallback callback = done_callback_;
-  done_callback_.Reset();
-  callback.Run(error, socket.Pass());
+  base::ResetAndReturn(&done_callback_).Run(error, nullptr);
 }
 
 }  // namespace protocol

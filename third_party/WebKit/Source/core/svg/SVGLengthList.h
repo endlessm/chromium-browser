@@ -43,23 +43,24 @@ class SVGLengthList final : public SVGListPropertyHelper<SVGLengthList, SVGLengt
 public:
     typedef SVGLengthListTearOff TearOffType;
 
-    static PassRefPtr<SVGLengthList> create(SVGLengthMode mode = LengthModeOther)
+    static PassRefPtrWillBeRawPtr<SVGLengthList> create(SVGLengthMode mode = SVGLengthMode::Other)
     {
-        return adoptRef(new SVGLengthList(mode));
+        return adoptRefWillBeNoop(new SVGLengthList(mode));
     }
 
-    virtual ~SVGLengthList();
+    ~SVGLengthList() override;
 
     void setValueAsString(const String&, ExceptionState&);
 
     // SVGPropertyBase:
-    virtual PassRefPtr<SVGPropertyBase> cloneForAnimation(const String&) const override;
-    virtual PassRefPtr<SVGLengthList> clone() override;
-    virtual String valueAsString() const override;
+    PassRefPtrWillBeRawPtr<SVGPropertyBase> cloneForAnimation(const String&) const override;
+    PassRefPtrWillBeRawPtr<SVGLengthList> clone() override;
+    String valueAsString() const override;
+    SVGLengthMode unitMode() const { return m_mode; }
 
-    virtual void add(PassRefPtrWillBeRawPtr<SVGPropertyBase>, SVGElement*) override;
-    virtual void calculateAnimatedValue(SVGAnimationElement*, float percentage, unsigned repeatCount, PassRefPtr<SVGPropertyBase> fromValue, PassRefPtr<SVGPropertyBase> toValue, PassRefPtr<SVGPropertyBase> toAtEndOfDurationValue, SVGElement*) override;
-    virtual float calculateDistance(PassRefPtr<SVGPropertyBase> to, SVGElement*) override;
+    void add(PassRefPtrWillBeRawPtr<SVGPropertyBase>, SVGElement*) override;
+    void calculateAnimatedValue(SVGAnimationElement*, float percentage, unsigned repeatCount, PassRefPtrWillBeRawPtr<SVGPropertyBase> fromValue, PassRefPtrWillBeRawPtr<SVGPropertyBase> toValue, PassRefPtrWillBeRawPtr<SVGPropertyBase> toAtEndOfDurationValue, SVGElement*) override;
+    float calculateDistance(PassRefPtrWillBeRawPtr<SVGPropertyBase> to, SVGElement*) override;
 
     static AnimatedPropertyType classType() { return AnimatedLengthList; }
 
@@ -68,7 +69,7 @@ private:
 
     // Create SVGLength items used to adjust the list length
     // when animation from/to lists are longer than this list.
-    virtual PassRefPtr<SVGLength> createPaddingItem() const override;
+    PassRefPtrWillBeRawPtr<SVGLength> createPaddingItem() const override;
 
     template <typename CharType>
     void parseInternal(const CharType*& ptr, const CharType* end, ExceptionState&);

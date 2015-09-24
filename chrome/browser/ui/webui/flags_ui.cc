@@ -222,12 +222,12 @@ void FlagsDOMHandler::HandleRestartBrowser(const base::ListValue* args) {
 #if defined(OS_CHROMEOS)
   // On ChromeOS be less intrusive and restart inside the user session after
   // we apply the newly selected flags.
-  CommandLine user_flags(CommandLine::NO_PROGRAM);
+  base::CommandLine user_flags(base::CommandLine::NO_PROGRAM);
   about_flags::ConvertFlagsToSwitches(flags_storage_.get(),
                                       &user_flags,
                                       about_flags::kAddSentinels);
-  CommandLine::StringVector flags;
-  // argv[0] is the program name |CommandLine::NO_PROGRAM|.
+  base::CommandLine::StringVector flags;
+  // argv[0] is the program name |base::CommandLine::NO_PROGRAM|.
   flags.assign(user_flags.argv().begin() + 1, user_flags.argv().end());
   VLOG(1) << "Restarting to apply per-session flags...";
   chromeos::DBusThreadManager::Get()
@@ -262,9 +262,11 @@ void FinishInitialization(base::WeakPtr<FlagsUI> flags_ui,
   // Note that |dom_handler| is owned by the web ui that owns |flags_ui|, so
   // it is still alive if |flags_ui| is.
   if (current_user_is_owner) {
+    chromeos::OwnerSettingsServiceChromeOS* service =
+        chromeos::OwnerSettingsServiceChromeOSFactory::GetForBrowserContext(
+            profile);
     dom_handler->Init(new chromeos::about_flags::OwnerFlagsStorage(
-                          profile->GetPrefs(),
-                          chromeos::CrosSettings::Get()),
+                          profile->GetPrefs(), service),
                       about_flags::kOwnerAccessToFlags);
   } else {
     dom_handler->Init(
@@ -291,15 +293,16 @@ FlagsUI::FlagsUI(content::WebUI* web_ui)
   web_ui->AddMessageHandler(handler);
 
 #if defined(OS_CHROMEOS)
-  chromeos::OwnerSettingsServiceChromeOS* service =
-      chromeos::OwnerSettingsServiceChromeOSFactory::GetForProfile(profile);
-  if (service) {
+  if (base::SysInfo::IsRunningOnChromeOS() &&
+      chromeos::OwnerSettingsServiceChromeOSFactory::GetForBrowserContext(
+          profile)) {
+    chromeos::OwnerSettingsServiceChromeOS* service =
+        chromeos::OwnerSettingsServiceChromeOSFactory::GetForBrowserContext(
+            profile);
     service->IsOwnerAsync(base::Bind(
         &FinishInitialization, weak_factory_.GetWeakPtr(), profile, handler));
   } else {
-    FinishInitialization(weak_factory_.GetWeakPtr(),
-                         profile,
-                         handler,
+    FinishInitialization(weak_factory_.GetWeakPtr(), profile, handler,
                          false /* current_user_is_owner */);
   }
 #else
@@ -330,8 +333,7 @@ void FlagsUI::RegisterPrefs(PrefRegistrySimple* registry) {
 #if defined(OS_CHROMEOS)
 // static
 void FlagsUI::RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterListPref(prefs::kEnabledLabsExperiments,
-                             user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterListPref(prefs::kEnabledLabsExperiments);
 }
 
 #endif

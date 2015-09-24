@@ -10,9 +10,11 @@
 
 #include "base/basictypes.h"
 #include "base/logging.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/browser/autofill_type.h"
+#include "components/autofill/core/common/autofill_l10n_util.h"
 
 namespace autofill {
 
@@ -44,7 +46,7 @@ bool ContainsString(const char* const set[],
   base::TrimString(element, base::ASCIIToUTF16("."), &trimmed_element);
 
   for (size_t i = 0; i < set_size; ++i) {
-    if (LowerCaseEqualsASCII(trimmed_element, set[i]))
+    if (base::LowerCaseEqualsASCII(trimmed_element, set[i]))
       return true;
   }
 
@@ -85,9 +87,9 @@ struct NameParts {
 // TODO(estade): This does Western name splitting. It should do different
 // splitting based on the app locale.
 NameParts SplitName(const base::string16& name) {
-  std::vector<base::string16> name_tokens;
-  Tokenize(name, base::ASCIIToUTF16(" ,"), &name_tokens);
-
+  std::vector<base::string16> name_tokens = base::SplitString(
+      name, base::ASCIIToUTF16(" ,"), base::KEEP_WHITESPACE,
+      base::SPLIT_WANT_NONEMPTY);
   StripPrefixes(&name_tokens);
 
   // Don't assume "Ma" is a suffix in John Ma.
@@ -159,13 +161,11 @@ NameInfo& NameInfo::operator=(const NameInfo& info) {
   return *this;
 }
 
-bool NameInfo::ParsedNamesAreEqual(const NameInfo& info) {
-  return (base::StringToLowerASCII(given_) ==
-              base::StringToLowerASCII(info.given_) &&
-          base::StringToLowerASCII(middle_) ==
-              base::StringToLowerASCII(info.middle_) &&
-          base::StringToLowerASCII(family_) ==
-              base::StringToLowerASCII(info.family_));
+bool NameInfo::ParsedNamesAreEqual(const NameInfo& info) const {
+  l10n::CaseInsensitiveCompare compare;
+  return compare.StringsEqual(given_, info.given_) &&
+         compare.StringsEqual(middle_, info.middle_) &&
+         compare.StringsEqual(family_, info.family_);
 }
 
 void NameInfo::GetSupportedTypes(ServerFieldTypeSet* supported_types) const {

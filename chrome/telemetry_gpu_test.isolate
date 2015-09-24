@@ -3,7 +3,7 @@
 # found in the LICENSE file.
 {
   'includes': [
-    'telemetry.isolate',
+    'telemetry_chrome_test.isolate',
   ],
   'conditions': [
     ['OS=="android" or OS=="linux" or OS=="mac" or OS=="win"', {
@@ -16,10 +16,13 @@
           '../content/test/data/gpu/',
           # For GpuProcess.video
           '../content/test/data/media/bear.ogv',
+          '../testing/test_env.py',
+          '../third_party/trace-viewer/',
           # For webgl_conformance
           '../third_party/webgl/',
         ],
         'command': [
+          '../testing/test_env.py',
           '../content/test/gpu/run_gpu_test.py',
         ],
       },

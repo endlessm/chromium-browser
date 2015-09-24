@@ -92,7 +92,7 @@ class CHROMEOS_EXPORT CertLoader : public net::CertDatabase::Observer {
 
  private:
   CertLoader();
-  virtual ~CertLoader();
+  ~CertLoader() override;
 
   // Trigger a certificate load. If a certificate loading task is already in
   // progress, will start a reload once the current task is finished.
@@ -104,11 +104,11 @@ class CHROMEOS_EXPORT CertLoader : public net::CertDatabase::Observer {
   void NotifyCertificatesLoaded(bool initial_load);
 
   // net::CertDatabase::Observer
-  virtual void OnCACertChanged(const net::X509Certificate* cert) override;
-  virtual void OnCertAdded(const net::X509Certificate* cert) override;
-  virtual void OnCertRemoved(const net::X509Certificate* cert) override;
+  void OnCACertChanged(const net::X509Certificate* cert) override;
+  void OnCertAdded(const net::X509Certificate* cert) override;
+  void OnCertRemoved(const net::X509Certificate* cert) override;
 
-  ObserverList<Observer> observers_;
+  base::ObserverList<Observer> observers_;
 
   // Flags describing current CertLoader state.
   bool certificates_loaded_;

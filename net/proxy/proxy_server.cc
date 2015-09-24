@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include "base/basictypes.h"
 #include "base/strings/string_util.h"
 #include "net/base/net_util.h"
 #include "net/http/http_util.h"
@@ -20,23 +21,23 @@ namespace {
 ProxyServer::Scheme GetSchemeFromPacTypeInternal(
     std::string::const_iterator begin,
     std::string::const_iterator end) {
-  if (LowerCaseEqualsASCII(begin, end, "proxy"))
+  if (base::LowerCaseEqualsASCII(begin, end, "proxy"))
     return ProxyServer::SCHEME_HTTP;
-  if (LowerCaseEqualsASCII(begin, end, "socks")) {
+  if (base::LowerCaseEqualsASCII(begin, end, "socks")) {
     // Default to v4 for compatibility. This is because the SOCKS4 vs SOCKS5
     // notation didn't originally exist, so if a client returns SOCKS they
     // really meant SOCKS4.
     return ProxyServer::SCHEME_SOCKS4;
   }
-  if (LowerCaseEqualsASCII(begin, end, "socks4"))
+  if (base::LowerCaseEqualsASCII(begin, end, "socks4"))
     return ProxyServer::SCHEME_SOCKS4;
-  if (LowerCaseEqualsASCII(begin, end, "socks5"))
+  if (base::LowerCaseEqualsASCII(begin, end, "socks5"))
     return ProxyServer::SCHEME_SOCKS5;
-  if (LowerCaseEqualsASCII(begin, end, "direct"))
+  if (base::LowerCaseEqualsASCII(begin, end, "direct"))
     return ProxyServer::SCHEME_DIRECT;
-  if (LowerCaseEqualsASCII(begin, end, "https"))
+  if (base::LowerCaseEqualsASCII(begin, end, "https"))
     return ProxyServer::SCHEME_HTTPS;
-  if (LowerCaseEqualsASCII(begin, end, "quic"))
+  if (base::LowerCaseEqualsASCII(begin, end, "quic"))
     return ProxyServer::SCHEME_QUIC;
 
   return ProxyServer::SCHEME_INVALID;
@@ -47,19 +48,19 @@ ProxyServer::Scheme GetSchemeFromPacTypeInternal(
 // ProxyServer::ToURI(). If no type could be matched, returns SCHEME_INVALID.
 ProxyServer::Scheme GetSchemeFromURIInternal(std::string::const_iterator begin,
                                              std::string::const_iterator end) {
-  if (LowerCaseEqualsASCII(begin, end, "http"))
+  if (base::LowerCaseEqualsASCII(begin, end, "http"))
     return ProxyServer::SCHEME_HTTP;
-  if (LowerCaseEqualsASCII(begin, end, "socks4"))
+  if (base::LowerCaseEqualsASCII(begin, end, "socks4"))
     return ProxyServer::SCHEME_SOCKS4;
-  if (LowerCaseEqualsASCII(begin, end, "socks"))
+  if (base::LowerCaseEqualsASCII(begin, end, "socks"))
     return ProxyServer::SCHEME_SOCKS5;
-  if (LowerCaseEqualsASCII(begin, end, "socks5"))
+  if (base::LowerCaseEqualsASCII(begin, end, "socks5"))
     return ProxyServer::SCHEME_SOCKS5;
-  if (LowerCaseEqualsASCII(begin, end, "direct"))
+  if (base::LowerCaseEqualsASCII(begin, end, "direct"))
     return ProxyServer::SCHEME_DIRECT;
-  if (LowerCaseEqualsASCII(begin, end, "https"))
+  if (base::LowerCaseEqualsASCII(begin, end, "https"))
     return ProxyServer::SCHEME_HTTPS;
-  if (LowerCaseEqualsASCII(begin, end, "quic"))
+  if (base::LowerCaseEqualsASCII(begin, end, "quic"))
     return ProxyServer::SCHEME_QUIC;
   return ProxyServer::SCHEME_INVALID;
 }
@@ -230,7 +231,7 @@ ProxyServer ProxyServer::FromSchemeHostAndPort(
     std::string host;
     int port = -1;
     // If the scheme has a host/port, parse it.
-    bool ok = net::ParseHostAndPort(begin, end, &host, &port);
+    bool ok = ParseHostAndPort(begin, end, &host, &port);
     if (!ok)
       return ProxyServer();  // Invalid -- failed parsing <host>[":"<port>]
 
@@ -238,7 +239,7 @@ ProxyServer ProxyServer::FromSchemeHostAndPort(
     if (port == -1)
       port = GetDefaultPortForScheme(scheme);
 
-    host_port_pair = HostPortPair(host, port);
+    host_port_pair = HostPortPair(host, static_cast<uint16>(port));
   }
 
   return ProxyServer(scheme, host_port_pair);

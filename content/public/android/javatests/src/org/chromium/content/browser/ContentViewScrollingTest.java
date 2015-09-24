@@ -24,13 +24,12 @@ import org.chromium.content_shell_apk.ContentShellTestBase;
  */
 public class ContentViewScrollingTest extends ContentShellTestBase {
 
-    private static final String LARGE_PAGE = UrlUtils.encodeHtmlDataUri(
-            "<html><head>" +
-            "<meta name=\"viewport\" content=\"width=device-width, " +
-            "initial-scale=2.0, maximum-scale=2.0\" />" +
-            "<style>body { width: 5000px; height: 5000px; }</style></head>" +
-            "<body>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</body>" +
-            "</html>");
+    private static final String LARGE_PAGE = UrlUtils.encodeHtmlDataUri("<html><head>"
+            + "<meta name=\"viewport\" content=\"width=device-width, "
+            + "initial-scale=2.0, maximum-scale=2.0\" />"
+            + "<style>body { width: 5000px; height: 5000px; }</style></head>"
+            + "<body>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</body>"
+            + "</html>");
 
     /**
      * InternalAccessDelegate to ensure AccessibilityEvent notifications (Eg:TYPE_VIEW_SCROLLED)
@@ -108,12 +107,12 @@ public class ContentViewScrollingTest extends ContentShellTestBase {
                 final int minThreshold = 5;
                 final int maxThreshold = 100;
 
-                boolean xCorrect = hugLeft ?
-                        getContentViewCore().getNativeScrollXForTest() < minThreshold :
-                        getContentViewCore().getNativeScrollXForTest() > maxThreshold;
-                boolean yCorrect = hugTop ?
-                        getContentViewCore().getNativeScrollYForTest() < minThreshold :
-                        getContentViewCore().getNativeScrollYForTest() > maxThreshold;
+                boolean xCorrect = hugLeft
+                        ? getContentViewCore().getNativeScrollXForTest() < minThreshold
+                        : getContentViewCore().getNativeScrollXForTest() > maxThreshold;
+                boolean yCorrect = hugTop
+                        ? getContentViewCore().getNativeScrollYForTest() < minThreshold
+                        : getContentViewCore().getNativeScrollYForTest() > maxThreshold;
                 return xCorrect && yCorrect;
             }
         }));
@@ -123,7 +122,7 @@ public class ContentViewScrollingTest extends ContentShellTestBase {
         runTestOnUiThread(new Runnable() {
             @Override
             public void run() {
-                getContentViewCore().flingForTest(SystemClock.uptimeMillis(), 0, 0, vx, vy);
+                getContentViewCore().flingViewport(SystemClock.uptimeMillis(), vx, vy);
             }
         });
     }
@@ -133,6 +132,15 @@ public class ContentViewScrollingTest extends ContentShellTestBase {
             @Override
             public void run() {
                 getContentViewCore().getContainerView().scrollTo(x, y);
+            }
+        });
+    }
+
+    private void scrollBy(final int dx, final int dy) throws Throwable {
+        runTestOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                getContentViewCore().getContainerView().scrollBy(dx, dy);
             }
         });
     }
@@ -182,7 +190,7 @@ public class ContentViewScrollingTest extends ContentShellTestBase {
     @SmallTest
     @RerunWithUpdatedContainerView
     @Feature({"Main"})
-    public void testScroll() throws Throwable {
+    public void testScrollTo() throws Throwable {
         // Vertical scroll to lower-left.
         scrollTo(0, 2500);
         assertWaitForScroll(true, false);
@@ -201,6 +209,38 @@ public class ContentViewScrollingTest extends ContentShellTestBase {
 
         // Diagonal scroll to bottom-right.
         scrollTo(2500, 2500);
+        assertWaitForScroll(false, false);
+    }
+
+    @SmallTest
+    @RerunWithUpdatedContainerView
+    @Feature({"Main"})
+    public void testScrollBy() throws Throwable {
+        scrollTo(0, 0);
+        assertWaitForScroll(true, true);
+
+        // No scroll
+        scrollBy(0, 0);
+        assertWaitForScroll(true, true);
+
+        // Vertical scroll to lower-left.
+        scrollBy(0, 2500);
+        assertWaitForScroll(true, false);
+
+        // Horizontal scroll to lower-right.
+        scrollBy(2500, 0);
+        assertWaitForScroll(false, false);
+
+        // Vertical scroll to upper-right.
+        scrollBy(0, -2500);
+        assertWaitForScroll(false, true);
+
+        // Horizontal scroll to top-left.
+        scrollBy(-2500, 0);
+        assertWaitForScroll(true, true);
+
+        // Diagonal scroll to bottom-right.
+        scrollBy(2500, 2500);
         assertWaitForScroll(false, false);
     }
 

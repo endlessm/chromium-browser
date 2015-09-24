@@ -157,12 +157,6 @@ void PermissionsUpdater::RemovePermissions(
 void PermissionsUpdater::GrantActivePermissions(const Extension* extension) {
   CHECK(extension);
 
-  // We only maintain the granted permissions prefs for INTERNAL and LOAD
-  // extensions.
-  if (!Manifest::IsUnpackedLocation(extension->location()) &&
-      extension->location() != Manifest::INTERNAL)
-    return;
-
   ExtensionPrefs::Get(browser_context_)->AddGrantedPermissions(
       extension->id(),
       extension->permissions_data()->active_permissions().get());
@@ -182,14 +176,14 @@ void PermissionsUpdater::InitializePermissions(const Extension* extension) {
     bounded_active = GetBoundedActivePermissions(extension, active_permissions);
   }
 
-  // Withhold permissions if the switch applies to this extension.
-  // Non-transient extensions also must not have the preference to allow
-  // scripting on all urls.
-  bool should_withhold_permissions =
-      util::ScriptsMayRequireActionForExtension(extension);
-  if ((init_flag_ & INIT_FLAG_TRANSIENT) == 0) {
-    should_withhold_permissions &=
-        !util::AllowedScriptingOnAllUrls(extension->id(), browser_context_);
+  // Determine whether or not to withhold host permissions.
+  bool should_withhold_permissions = false;
+  if (PermissionsData::ScriptsMayRequireActionForExtension(
+          extension, bounded_active.get())) {
+    should_withhold_permissions =
+        init_flag_ & INIT_FLAG_TRANSIENT ?
+            !util::DefaultAllowedScriptingOnAllUrls() :
+            !util::AllowedScriptingOnAllUrls(extension->id(), browser_context_);
   }
 
   URLPatternSet granted_explicit_hosts;
@@ -253,16 +247,29 @@ void PermissionsUpdater::WithholdImpliedAllHosts(const Extension* extension) {
                           &active_explicit,
                           &withheld_explicit);
 
+  URLPatternSet delta_explicit;
+  URLPatternSet::CreateDifference(
+      active->explicit_hosts(), active_explicit, &delta_explicit);
+  URLPatternSet delta_scriptable;
+  URLPatternSet::CreateDifference(
+      active->scriptable_hosts(), active_scriptable, &delta_scriptable);
+
   SetPermissions(extension,
                  new PermissionSet(active->apis(),
                                    active->manifest_permissions(),
                                    active_explicit,
                                    active_scriptable),
-                  new PermissionSet(withheld->apis(),
-                                    withheld->manifest_permissions(),
-                                    withheld_explicit,
-                                    withheld_scriptable));
-  // TODO(rdevlin.cronin) We should notify the observers/renderer.
+                 new PermissionSet(withheld->apis(),
+                                   withheld->manifest_permissions(),
+                                   withheld_explicit,
+                                   withheld_scriptable));
+
+  scoped_refptr<const PermissionSet> delta(new PermissionSet(
+      APIPermissionSet(),
+      ManifestPermissionSet(),
+      delta_explicit,
+      delta_scriptable));
+  NotifyPermissionsUpdated(REMOVED, extension, delta.get());
 }
 
 void PermissionsUpdater::GrantWithheldImpliedAllHosts(
@@ -284,6 +291,13 @@ void PermissionsUpdater::GrantWithheldImpliedAllHosts(
                              withheld->scriptable_hosts(),
                              &scriptable_hosts);
 
+  URLPatternSet delta_explicit;
+  URLPatternSet::CreateDifference(
+      explicit_hosts, active->explicit_hosts(), &delta_explicit);
+  URLPatternSet delta_scriptable;
+  URLPatternSet::CreateDifference(
+      scriptable_hosts, active->scriptable_hosts(), &delta_scriptable);
+
   // Since we only withhold host permissions (so far), we know that withheld
   // permissions will be empty.
   SetPermissions(extension,
@@ -292,7 +306,13 @@ void PermissionsUpdater::GrantWithheldImpliedAllHosts(
                                    explicit_hosts,
                                    scriptable_hosts),
                  new PermissionSet());
-  // TODO(rdevlin.cronin) We should notify the observers/renderer.
+
+  scoped_refptr<const PermissionSet> delta(new PermissionSet(
+      APIPermissionSet(),
+      ManifestPermissionSet(),
+      delta_explicit,
+      delta_scriptable));
+  NotifyPermissionsUpdated(ADDED, extension, delta.get());
 }
 
 void PermissionsUpdater::SetPermissions(
@@ -310,6 +330,7 @@ void PermissionsUpdater::SetPermissions(
 
 void PermissionsUpdater::DispatchEvent(
     const std::string& extension_id,
+    events::HistogramValue histogram_value,
     const char* event_name,
     const PermissionSet* changed_permissions) {
   EventRouter* event_router = EventRouter::Get(browser_context_);
@@ -320,7 +341,7 @@ void PermissionsUpdater::DispatchEvent(
   scoped_ptr<api::permissions::Permissions> permissions =
       PackPermissionSet(changed_permissions);
   value->Append(permissions->ToValue().release());
-  scoped_ptr<Event> event(new Event(event_name, value.Pass()));
+  scoped_ptr<Event> event(new Event(histogram_value, event_name, value.Pass()));
   event->restrict_to_browser_context = browser_context_;
   event_router->DispatchEventToExtension(extension_id, event.Pass());
 }
@@ -334,14 +355,17 @@ void PermissionsUpdater::NotifyPermissionsUpdated(
     return;
 
   UpdatedExtensionPermissionsInfo::Reason reason;
+  events::HistogramValue histogram_value;
   const char* event_name = NULL;
 
   if (event_type == REMOVED) {
     reason = UpdatedExtensionPermissionsInfo::REMOVED;
+    histogram_value = events::PERMISSIONS_ON_REMOVED;
     event_name = permissions::OnRemoved::kEventName;
   } else {
     CHECK_EQ(ADDED, event_type);
     reason = UpdatedExtensionPermissionsInfo::ADDED;
+    histogram_value = events::PERMISSIONS_ON_ADDED;
     event_name = permissions::OnAdded::kEventName;
   }
 
@@ -372,7 +396,7 @@ void PermissionsUpdater::NotifyPermissionsUpdated(
   }
 
   // Trigger the onAdded and onRemoved events in the extension.
-  DispatchEvent(extension->id(), event_name, changed);
+  DispatchEvent(extension->id(), histogram_value, event_name, changed);
 }
 
 }  // namespace extensions

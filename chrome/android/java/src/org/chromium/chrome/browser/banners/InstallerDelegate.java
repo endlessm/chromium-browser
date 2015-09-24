@@ -63,7 +63,7 @@ public class InstallerDelegate implements Runnable {
      * @param observer       Alerted when the package has been completely installed.
      * @param packageName    Name of the package for the app to monitor.
      */
-    InstallerDelegate(
+    public InstallerDelegate(
             Looper looper, PackageManager packageManager, Observer observer, String packageName) {
         mHandler = new Handler(looper);
         mPackageManager = packageManager;
@@ -100,20 +100,30 @@ public class InstallerDelegate implements Runnable {
 
     /**
      * Checks if the app has been installed on the system.
+     * @param packageManager PackageManager to use.
+     * @param packageName Name of the package to check.
      * @return True if the PackageManager reports that the app is installed, false otherwise.
      */
-    private boolean isInstalled() {
-        List<PackageInfo> packs = mPackageManager.getInstalledPackages(0);
+    public static boolean isInstalled(PackageManager packageManager, String packageName) {
+        List<PackageInfo> packs = packageManager.getInstalledPackages(0);
         for (int i = 0; i < packs.size(); i++) {
-            if (TextUtils.equals(packs.get(i).packageName, mPackageName)) return true;
+            if (TextUtils.equals(packs.get(i).packageName, packageName)) return true;
         }
         return false;
     }
 
     /**
+     * Checks if the app has been installed on the system.
+     * @return True if the PackageManager reports that the app is installed, false otherwise.
+     */
+    private boolean isInstalled() {
+        return isInstalled(mPackageManager, mPackageName);
+    }
+
+    /**
      * Prevent rescheduling the Runnable.
      */
-    void cancel() {
+    public void cancel() {
         mIsRunning = false;
     }
 

@@ -39,7 +39,12 @@ void TestAutofillDriver::SendFormDataToRenderer(int query_id,
                                                 const FormData& form_data) {
 }
 
-void TestAutofillDriver::PingRenderer() {}
+void TestAutofillDriver::PingRenderer() {
+}
+
+void TestAutofillDriver::PropagateAutofillPredictions(
+    const std::vector<autofill::FormStructure*>& forms) {
+}
 
 void TestAutofillDriver::SendAutofillTypePredictionsToRenderer(
     const std::vector<FormStructure*>& forms) {
@@ -66,6 +71,9 @@ void TestAutofillDriver::RendererShouldFillFieldWithValue(
 
 void TestAutofillDriver::RendererShouldPreviewFieldWithValue(
     const base::string16& value) {
+}
+
+void TestAutofillDriver::PopupHidden() {
 }
 
 }  // namespace autofill

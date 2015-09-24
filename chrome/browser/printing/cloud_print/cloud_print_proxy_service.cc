@@ -12,10 +12,12 @@
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
 #include "base/metrics/histogram.h"
 #include "base/prefs/pref_service.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
@@ -35,7 +37,6 @@ using content::BrowserThread;
 
 CloudPrintProxyService::CloudPrintProxyService(Profile* profile)
     : profile_(profile),
-      enforcing_connector_policy_(false),
       weak_factory_(this) {
 }
 
@@ -77,14 +78,6 @@ void CloudPrintProxyService::RefreshStatusFromService() {
                  weak_factory_.GetWeakPtr()));
 }
 
-bool CloudPrintProxyService::EnforceCloudPrintConnectorPolicyAndQuit() {
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  enforcing_connector_policy_ = true;
-  if (ApplyCloudPrintConnectorPolicy())
-    return true;
-  return false;
-}
-
 void CloudPrintProxyService::EnableForUserWithRobot(
     const std::string& robot_auth_code,
     const std::string& robot_email,
@@ -124,16 +117,7 @@ bool CloudPrintProxyService::ApplyCloudPrintConnectorPolicy() {
           ServiceProcessControl::SERVICE_EVENT_MAX);
       DisableForUser();
       profile_->GetPrefs()->SetString(prefs::kCloudPrintEmail, std::string());
-      if (enforcing_connector_policy_) {
-        base::MessageLoop::current()->PostTask(
-            FROM_HERE,
-            base::Bind(&CloudPrintProxyService::RefreshCloudPrintProxyStatus,
-                       weak_factory_.GetWeakPtr()));
-      }
       return false;
-    } else if (enforcing_connector_policy_) {
-      base::MessageLoop::current()->PostTask(FROM_HERE,
-                                             base::MessageLoop::QuitClosure());
     }
   }
   return true;
@@ -145,12 +129,12 @@ void CloudPrintProxyService::GetPrinters(const PrintersCallback& callback) {
     return;
 
   base::FilePath list_path(
-      CommandLine::ForCurrentProcess()->GetSwitchValuePath(
+      base::CommandLine::ForCurrentProcess()->GetSwitchValuePath(
           switches::kCloudPrintSetupProxy));
   if (!list_path.empty()) {
     std::string printers_json;
     base::ReadFileToString(list_path, &printers_json);
-    scoped_ptr<base::Value> value(base::JSONReader::Read(printers_json));
+    scoped_ptr<base::Value> value = base::JSONReader::Read(printers_json);
     base::ListValue* list = NULL;
     std::vector<std::string> printers;
     if (value && value->GetAsList(&list) && list) {
@@ -162,8 +146,8 @@ void CloudPrintProxyService::GetPrinters(const PrintersCallback& callback) {
     }
     UMA_HISTOGRAM_COUNTS_10000("CloudPrint.AvailablePrintersList",
                                printers.size());
-    base::MessageLoop::current()->PostTask(FROM_HERE,
-                                           base::Bind(callback, printers));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(callback, printers));
   } else {
     InvokeServiceTask(
         base::Bind(&CloudPrintProxyService::GetCloudPrintProxyPrinters,

@@ -10,6 +10,7 @@
 #include "chrome/browser/ui/omnibox/omnibox_view.h"
 #include "chrome/browser/ui/toolbar/test_toolbar_model.h"
 #include "chrome/test/base/testing_profile.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::ASCIIToUTF16;
@@ -26,8 +27,8 @@ class TestingOmniboxView : public OmniboxView {
   // OmniboxView:
   void SaveStateToTab(WebContents* tab) override {}
   void OnTabChanged(const WebContents* web_contents) override {}
+  void ResetTabState(WebContents* web_contents) override {}
   void Update() override {}
-  void UpdatePlaceholderText() override {}
   void OpenMatch(const AutocompleteMatch& match,
                  WindowOpenDisposition disposition,
                  const GURL& alternate_nav_url,
@@ -108,8 +109,6 @@ class TestingOmniboxEditController : public OmniboxEditController {
   void OnChanged() override {}
   void OnSetFocus() override {}
   void ShowURL() override {}
-  void HideURL() override {}
-  void EndOriginChipAnimations(bool cancel_fade) override {}
   InstantController* GetInstant() override { return NULL; }
   WebContents* GetWebContents() override { return NULL; }
   ToolbarModel* GetToolbarModel() override { return toolbar_model_; }
@@ -130,6 +129,7 @@ class AutocompleteEditTest : public ::testing::Test {
   TestToolbarModel* toolbar_model() { return &toolbar_model_; }
 
  private:
+  content::TestBrowserThreadBundle thread_bundle_;
   TestToolbarModel toolbar_model_;
 };
 

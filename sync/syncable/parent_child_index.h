@@ -9,13 +9,15 @@
 #include <set>
 
 #include "base/basictypes.h"
+#include "base/memory/scoped_vector.h"
 #include "sync/base/sync_export.h"
+#include "sync/internal_api/public/base/model_type.h"
+#include "sync/syncable/syncable_id.h"
 
 namespace syncer {
 namespace syncable {
 
 struct EntryKernel;
-class Id;
 class ParentChildIndex;
 
 // A node ordering function.
@@ -48,14 +50,49 @@ class SYNC_EXPORT_PRIVATE ParentChildIndex {
 
   // Returns all children of the entry with the given Id.  Returns NULL if the
   // node has no children or the Id does not identify a valid directory node.
-  const OrderedChildSet* GetChildren(const Id& id);
+  const OrderedChildSet* GetChildren(const Id& id) const;
+
+  // Returns all children of the entry.  Returns NULL if the node has no
+  // children.
+  const OrderedChildSet* GetChildren(EntryKernel* e) const;
+
+  // Returns all siblings of the entry.
+  const OrderedChildSet* GetSiblings(EntryKernel* e) const;
 
  private:
-  typedef std::map<syncable::Id, OrderedChildSet*> ParentChildrenMap;
+  friend class ParentChildIndexTest;
+
+  typedef std::map<Id, OrderedChildSet*> ParentChildrenMap;
+  typedef std::vector<Id> TypeRootIds;
+  typedef ScopedVector<OrderedChildSet> TypeRootChildSets;
+
+  static bool ShouldUseParentId(const Id& parent_id, ModelType model_type);
+
+  // Returns OrderedChildSet that should contain the specified entry
+  // based on the entry's Parent ID or model type.
+  const OrderedChildSet* GetChildSet(EntryKernel* e) const;
+
+  // Returns OrderedChildSet that contain entries of the |model_type| type.
+  const OrderedChildSet* GetModelTypeChildSet(ModelType model_type) const;
+
+  // Returns mutable OrderedChildSet that contain entries of the |model_type|
+  // type. Create one as necessary.
+  OrderedChildSet* GetOrCreateModelTypeChildSet(ModelType model_type);
+
+  // Returns previously cached model type root ID for the given |model_type|.
+  const Id& GetModelTypeRootId(ModelType model_type) const;
 
   // A map of parent IDs to children.
   // Parents with no children are not included in this map.
   ParentChildrenMap parent_children_map_;
+
+  // This array tracks model type roots IDs.
+  TypeRootIds model_type_root_ids_;
+
+  // This array contains pre-defined child sets for
+  // non-hierarchical types (types with flat hierarchy) that support entries
+  // with implicit parent.
+  TypeRootChildSets type_root_child_sets_;
 
   DISALLOW_COPY_AND_ASSIGN(ParentChildIndex);
 };

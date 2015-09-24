@@ -4,19 +4,17 @@
 
 package org.chromium.android_webview.test;
 
-import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.Color;
+import android.os.Build;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.util.Pair;
 
 import org.chromium.android_webview.AwContents;
-import org.chromium.android_webview.AwContentsClient.ShouldInterceptRequestParams;
 import org.chromium.android_webview.AwWebResourceResponse;
 import org.chromium.android_webview.test.util.AwTestTouchUtils;
 import org.chromium.android_webview.test.util.CommonResources;
 import org.chromium.android_webview.test.util.JSUtils;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.base.test.util.TestFileUtil;
 import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.content.browser.test.util.TestCallbackHelperContainer.OnReceivedErrorHelper;
@@ -36,6 +34,7 @@ import java.util.concurrent.CountDownLatch;
 /**
  * Tests for the WebViewClient.shouldInterceptRequest() method.
  */
+@MinAndroidSdkLevel(Build.VERSION_CODES.KITKAT)
 public class AwContentsClientShouldInterceptRequestTest extends AwTestBase {
 
     private static class TestAwContentsClient
@@ -45,8 +44,8 @@ public class AwContentsClientShouldInterceptRequestTest extends AwTestBase {
             private List<String> mShouldInterceptRequestUrls = new ArrayList<String>();
             private ConcurrentHashMap<String, AwWebResourceResponse> mReturnValuesByUrls =
                     new ConcurrentHashMap<String, AwWebResourceResponse>();
-            private ConcurrentHashMap<String, ShouldInterceptRequestParams> mParamsByUrls =
-                    new ConcurrentHashMap<String, ShouldInterceptRequestParams>();
+            private ConcurrentHashMap<String, AwWebResourceRequest> mRequestsByUrls =
+                    new ConcurrentHashMap<String, AwWebResourceRequest>();
             // This is read from the IO thread, so needs to be marked volatile.
             private volatile AwWebResourceResponse mShouldInterceptRequestReturnValue = null;
             void setReturnValue(AwWebResourceResponse value) {
@@ -64,14 +63,14 @@ public class AwContentsClientShouldInterceptRequestTest extends AwTestBase {
                 if (value != null) return value;
                 return mShouldInterceptRequestReturnValue;
             }
-            public ShouldInterceptRequestParams getParamsForUrl(String url) {
+            public AwWebResourceRequest getRequestsForUrl(String url) {
                 assert getCallCount() > 0;
-                assert mParamsByUrls.containsKey(url);
-                return mParamsByUrls.get(url);
+                assert mRequestsByUrls.containsKey(url);
+                return mRequestsByUrls.get(url);
             }
-            public void notifyCalled(ShouldInterceptRequestParams params) {
-                mShouldInterceptRequestUrls.add(params.url);
-                mParamsByUrls.put(params.url, params);
+            public void notifyCalled(AwWebResourceRequest request) {
+                mShouldInterceptRequestUrls.add(request.url);
+                mRequestsByUrls.put(request.url, request);
                 notifyCalled();
             }
         }
@@ -91,10 +90,10 @@ public class AwContentsClientShouldInterceptRequestTest extends AwTestBase {
         }
 
         @Override
-        public AwWebResourceResponse shouldInterceptRequest(ShouldInterceptRequestParams params) {
+        public AwWebResourceResponse shouldInterceptRequest(AwWebResourceRequest request) {
             AwWebResourceResponse returnValue =
-                    mShouldInterceptRequestHelper.getReturnValue(params.url);
-            mShouldInterceptRequestHelper.notifyCalled(params);
+                    mShouldInterceptRequestHelper.getReturnValue(request.url);
+            mShouldInterceptRequestHelper.notifyCalled(request);
             return returnValue;
         }
 
@@ -199,9 +198,9 @@ public class AwContentsClientShouldInterceptRequestTest extends AwTestBase {
         mShouldInterceptRequestHelper.waitForCallback(callCount, 2);
         assertEquals(2, mShouldInterceptRequestHelper.getUrls().size());
         assertEquals(false,
-                mShouldInterceptRequestHelper.getParamsForUrl(subframeUrl).isMainFrame);
+                mShouldInterceptRequestHelper.getRequestsForUrl(subframeUrl).isMainFrame);
         assertEquals(true,
-                mShouldInterceptRequestHelper.getParamsForUrl(pageWithIframeUrl).isMainFrame);
+                mShouldInterceptRequestHelper.getRequestsForUrl(pageWithIframeUrl).isMainFrame);
     }
 
     @SmallTest
@@ -216,14 +215,14 @@ public class AwContentsClientShouldInterceptRequestTest extends AwTestBase {
         loadUrlAsync(mAwContents, pageWithFormUrl);
         mShouldInterceptRequestHelper.waitForCallback(callCount);
         assertEquals("GET",
-                mShouldInterceptRequestHelper.getParamsForUrl(pageWithFormUrl).method);
+                mShouldInterceptRequestHelper.getRequestsForUrl(pageWithFormUrl).method);
 
         callCount = mShouldInterceptRequestHelper.getCallCount();
         JSUtils.clickOnLinkUsingJs(this, mAwContents,
                 mContentsClient.getOnEvaluateJavaScriptResultHelper(), "link");
         mShouldInterceptRequestHelper.waitForCallback(callCount);
         assertEquals("POST",
-                mShouldInterceptRequestHelper.getParamsForUrl(pageToPostToUrl).method);
+                mShouldInterceptRequestHelper.getRequestsForUrl(pageToPostToUrl).method);
     }
 
     @SmallTest
@@ -238,30 +237,43 @@ public class AwContentsClientShouldInterceptRequestTest extends AwTestBase {
         loadUrlAsync(mAwContents, pageWithLinkUrl);
         mShouldInterceptRequestHelper.waitForCallback(callCount);
         assertEquals(false,
-                mShouldInterceptRequestHelper.getParamsForUrl(pageWithLinkUrl).hasUserGesture);
+                mShouldInterceptRequestHelper.getRequestsForUrl(pageWithLinkUrl).hasUserGesture);
 
-        // TODO(mkosiba): Remove this once we have a real API to wait for the page to load and
-        // display.
-        // http://crbug.com/364612
-        //
-        // The code here is waiting for the "link" (which is a full-screen blue div) to appear on
-        // screen.
-        pollOnUiThread(new Callable<Boolean>() {
-            @Override
-            public Boolean call() throws Exception {
-                Bitmap bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888);
-                Canvas canvas = new Canvas(bitmap);
-                canvas.translate(-(float) mTestContainerView.getWidth() / 2,
-                        -(float) mTestContainerView.getHeight() / 2);
-                mAwContents.onDraw(canvas);
-                return bitmap.getPixel(0, 0) == Color.BLUE;
-            }
-        });
+        waitForPixelColorAtCenterOfView(mAwContents,
+                mTestContainerView, CommonResources.LINK_COLOR);
         callCount = mShouldInterceptRequestHelper.getCallCount();
         AwTestTouchUtils.simulateTouchCenterOfView(mTestContainerView);
         mShouldInterceptRequestHelper.waitForCallback(callCount);
         assertEquals(true,
-                mShouldInterceptRequestHelper.getParamsForUrl(aboutPageUrl).hasUserGesture);
+                mShouldInterceptRequestHelper.getRequestsForUrl(aboutPageUrl).hasUserGesture);
+    }
+
+    @SmallTest
+    @Feature({"AndroidWebView"})
+    public void testCalledWithCorrectRefererHeader() throws Throwable {
+        final String refererHeaderName = "Referer";
+        final String imageUrl = mWebServer.setResponseBase64(
+                "/" + CommonResources.TEST_IMAGE_FILENAME,
+                CommonResources.FAVICON_DATA_BASE64,
+                CommonResources.getImagePngHeaders(true));
+        final String pageUrl = addPageToTestServer(mWebServer, "/main.html",
+                CommonResources.makeHtmlPageFrom(
+                        "", "<img src=\'" + CommonResources.TEST_IMAGE_FILENAME + "\'>"));
+
+        int callCount = mShouldInterceptRequestHelper.getCallCount();
+        loadUrlAsync(mAwContents, pageUrl);
+        mShouldInterceptRequestHelper.waitForCallback(callCount, 2);
+        assertEquals(2, mShouldInterceptRequestHelper.getUrls().size());
+        assertEquals(pageUrl,
+                mShouldInterceptRequestHelper.getUrls().get(0));
+        Map<String, String> headers =
+                mShouldInterceptRequestHelper.getRequestsForUrl(pageUrl).requestHeaders;
+        assertFalse(headers.containsKey(refererHeaderName));
+        assertEquals(imageUrl,
+                mShouldInterceptRequestHelper.getUrls().get(1));
+        headers = mShouldInterceptRequestHelper.getRequestsForUrl(imageUrl).requestHeaders;
+        assertTrue(headers.containsKey(refererHeaderName));
+        assertEquals(pageUrl, headers.get(refererHeaderName));
     }
 
     @SmallTest
@@ -273,12 +285,12 @@ public class AwContentsClientShouldInterceptRequestTest extends AwTestBase {
                 CommonResources.ABOUT_HTML);
         final String mainPageUrl = addPageToTestServer(mWebServer, "/main",
                 CommonResources.makeHtmlPageFrom("",
-                "<script>" +
-                "  var xhr = new XMLHttpRequest();" +
-                "  xhr.open('GET', '" + syncGetUrl + "', false);" +
-                "  xhr.setRequestHeader('" + headerName + "', '" + headerValue + "'); " +
-                "  xhr.send(null);" +
-                "</script>"));
+                "<script>"
+                + "  var xhr = new XMLHttpRequest();"
+                + "  xhr.open('GET', '" + syncGetUrl + "', false);"
+                + "  xhr.setRequestHeader('" + headerName + "', '" + headerValue + "'); "
+                + "  xhr.send(null);"
+                + "</script>"));
         enableJavaScriptOnUiThread(mAwContents);
 
         int callCount = mShouldInterceptRequestHelper.getCallCount();
@@ -286,7 +298,7 @@ public class AwContentsClientShouldInterceptRequestTest extends AwTestBase {
         mShouldInterceptRequestHelper.waitForCallback(callCount, 2);
 
         Map<String, String> headers =
-                mShouldInterceptRequestHelper.getParamsForUrl(syncGetUrl).requestHeaders;
+                mShouldInterceptRequestHelper.getRequestsForUrl(syncGetUrl).requestHeaders;
         assertTrue(headers.containsKey(headerName));
         assertEquals(headerValue, headers.get(headerName));
     }
@@ -487,14 +499,14 @@ public class AwContentsClientShouldInterceptRequestTest extends AwTestBase {
     public void testHttpStatusCodeAndText() throws Throwable {
         final String syncGetUrl = mWebServer.getResponseUrl("/intercept_me");
         final String syncGetJs =
-                "(function() {" +
-                "  var xhr = new XMLHttpRequest();" +
-                "  xhr.open('GET', '" + syncGetUrl + "', false);" +
-                "  xhr.send(null);" +
-                "  console.info('xhr.status = ' + xhr.status);" +
-                "  console.info('xhr.statusText = ' + xhr.statusText);" +
-                "  return '[' + xhr.status + '][' + xhr.statusText + ']';" +
-                "})();";
+                "(function() {"
+                + "  var xhr = new XMLHttpRequest();"
+                + "  xhr.open('GET', '" + syncGetUrl + "', false);"
+                + "  xhr.send(null);"
+                + "  console.info('xhr.status = ' + xhr.status);"
+                + "  console.info('xhr.statusText = ' + xhr.statusText);"
+                + "  return '[' + xhr.status + '][' + xhr.statusText + ']';"
+                + "})();";
         enableJavaScriptOnUiThread(mAwContents);
 
         final String aboutPageUrl = addAboutPageToTestServer(mWebServer);
@@ -520,17 +532,16 @@ public class AwContentsClientShouldInterceptRequestTest extends AwTestBase {
     private String getHeaderValue(AwContents awContents, TestAwContentsClient contentsClient,
             String url, String headerName) throws Exception {
         final String syncGetJs =
-                "(function() {" +
-                "  var xhr = new XMLHttpRequest();" +
-                "  xhr.open('GET', '" + url + "', false);" +
-                "  xhr.send(null);" +
-                "  console.info(xhr.getAllResponseHeaders());" +
-                "  return xhr.getResponseHeader('" + headerName + "');" +
-                "})();";
+                "(function() {"
+                + "  var xhr = new XMLHttpRequest();"
+                + "  xhr.open('GET', '" + url + "', false);"
+                + "  xhr.send(null);"
+                + "  console.info(xhr.getAllResponseHeaders());"
+                + "  return xhr.getResponseHeader('" + headerName + "');"
+                + "})();";
         String header = executeJavaScriptAndWaitForResult(awContents, contentsClient, syncGetJs);
 
-        if (header.equals("null"))
-            return null;
+        if (header.equals("null")) return null;
         // JSON stringification applied by executeJavaScriptAndWaitForResult adds quotes
         // around returned strings.
         assertTrue(header.length() > 2);

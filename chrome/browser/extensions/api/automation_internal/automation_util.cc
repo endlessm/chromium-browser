@@ -10,6 +10,11 @@
 #include "base/values.h"
 #include "chrome/browser/accessibility/ax_tree_id_registry.h"
 #include "chrome/common/extensions/api/automation_internal.h"
+#include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_plugin_guest_manager.h"
+#include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/render_process_host.h"
+#include "content/public/browser/web_contents.h"
 #include "extensions/browser/event_router.h"
 #include "ui/accessibility/ax_enums.h"
 #include "ui/accessibility/ax_node_data.h"
@@ -114,7 +119,8 @@ void DispatchEventInternal(content::BrowserContext* context,
                            const std::string& event_name,
                            scoped_ptr<base::ListValue> args) {
   if (context && EventRouter::Get(context)) {
-    scoped_ptr<Event> event(new Event(event_name, args.Pass()));
+    scoped_ptr<Event> event(
+        new Event(events::UNKNOWN, event_name, args.Pass()));
     event->restrict_to_browser_context = context;
     EventRouter::Get(context)->BroadcastEvent(event.Pass());
   }
@@ -151,6 +157,29 @@ void DispatchAccessibilityEventsToAutomation(
       linked_ptr<api::automation_internal::AXNodeData> out_node(
           new api::automation_internal::AXNodeData());
       PopulateNodeData(src, out_node);
+      if (src.HasBoolAttribute(ui::AX_ATTR_IS_AX_TREE_HOST)) {
+        const auto& iter = event.node_to_browser_plugin_instance_id_map.find(
+            src.id);
+        if (iter != event.node_to_browser_plugin_instance_id_map.end()) {
+          int instance_id = iter->second;
+          content::BrowserPluginGuestManager* guest_manager =
+              browser_context->GetGuestManager();
+          content::WebContents* guest_web_contents =
+              guest_manager->GetGuestByInstanceID(event.process_id,
+                                                  instance_id);
+          if (guest_web_contents) {
+            content::RenderFrameHost* guest_rfh =
+                guest_web_contents->GetMainFrame();
+            int guest_tree_id =
+                AXTreeIDRegistry::GetInstance()->GetOrCreateAXTreeID(
+                    guest_rfh->GetProcess()->GetID(),
+                    guest_rfh->GetRoutingID());
+            out_node->int_attributes->additional_properties.SetInteger(
+                ToString(ui::AX_ATTR_CHILD_TREE_ID),
+                guest_tree_id);
+          }
+        }
+      }
       ax_tree_update.nodes.push_back(out_node);
     }
 

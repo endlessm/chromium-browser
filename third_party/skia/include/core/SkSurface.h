@@ -24,10 +24,23 @@ class GrRenderTarget;
  *
  *  To draw into a canvas, first create the appropriate type of Surface, and
  *  then request the canvas from the surface.
+ *
+ *  SkSurface always has non-zero dimensions. If there is a request for a new surface, and either
+ *  of the requested dimensions are zero, then NULL will be returned.
  */
 class SK_API SkSurface : public SkRefCnt {
 public:
-    SK_DECLARE_INST_COUNT(SkSurface)
+    /**
+     *  Indicates whether a new surface or image should count against a cache budget. Currently this
+     *  is only used by the GPU backend (sw-raster surfaces and images are never counted against the
+     *  resource cache budget.)
+     */
+    enum Budgeted {
+        /** The surface or image does not count against the cache budget. */
+        kNo_Budgeted,
+        /** The surface or image counts against the cache budget. */
+        kYes_Budgeted
+    };
 
     /**
      *  Create a new surface, using the specified pixels/rowbytes as its
@@ -61,7 +74,7 @@ public:
      *  specified width and height, and populates the rest of info to match
      *  pixels in SkPMColor format.
      */
-    static SkSurface* NewRasterPMColor(int width, int height, const SkSurfaceProps* props = NULL) {
+    static SkSurface* NewRasterN32Premul(int width, int height, const SkSurfaceProps* props = NULL) {
         return NewRaster(SkImageInfo::MakeN32Premul(width, height), props);
     }
 
@@ -69,61 +82,44 @@ public:
      *  Return a new surface using the specified render target.
      */
     static SkSurface* NewRenderTargetDirect(GrRenderTarget*, const SkSurfaceProps*);
-    
+
     static SkSurface* NewRenderTargetDirect(GrRenderTarget* target) {
         return NewRenderTargetDirect(target, NULL);
     }
-    
+
+    /**
+     *  Used to wrap a pre-existing backend 3D API texture as a SkSurface. The kRenderTarget flag
+     *  must be set on GrBackendTextureDesc for this to succeed. Skia will not assume ownership
+     *  of the texture and the client must ensure the texture is valid for the lifetime of the
+     *  SkSurface.
+     */
+    static SkSurface* NewFromBackendTexture(GrContext*, const GrBackendTextureDesc&,
+                                            const SkSurfaceProps*);
+    // Legacy alias
+    static SkSurface* NewWrappedRenderTarget(GrContext* ctx, const GrBackendTextureDesc& desc,
+                                             const SkSurfaceProps* props) {
+        return NewFromBackendTexture(ctx, desc, props);
+    }
+
+
+    /**
+     *  Used to wrap a pre-existing 3D API rendering target as a SkSurface. Skia will not assume
+     *  ownership of the render target and the client must ensure the render target is valid for the
+     *  lifetime of the SkSurface.
+     */
+    static SkSurface* NewFromBackendRenderTarget(GrContext*, const GrBackendRenderTargetDesc&,
+                                                 const SkSurfaceProps*);
+
     /**
      *  Return a new surface whose contents will be drawn to an offscreen
      *  render target, allocated by the surface.
      */
-    static SkSurface* NewRenderTarget(GrContext*, const SkImageInfo&, int sampleCount,
+    static SkSurface* NewRenderTarget(GrContext*, Budgeted, const SkImageInfo&, int sampleCount,
                                       const SkSurfaceProps* = NULL);
 
-    static SkSurface* NewRenderTarget(GrContext* gr, const SkImageInfo& info) {
-        return NewRenderTarget(gr, info, 0, NULL);
+    static SkSurface* NewRenderTarget(GrContext* gr, Budgeted b, const SkImageInfo& info) {
+        return NewRenderTarget(gr, b, info, 0, NULL);
     }
-
-    /**
-     *  Return a new surface whose contents will be drawn to an offscreen
-     *  render target, allocated by the surface from the scratch texture pool
-     *  managed by the GrContext. The scratch texture pool serves the purpose
-     *  of retaining textures after they are no longer in use in order to
-     *  re-use them later without having to re-allocate.  Scratch textures
-     *  should be used in cases where high turnover is expected. This allows,
-     *  for example, the copy on write to recycle a texture from a recently
-     *  released SkImage snapshot of the surface.
-     *  Note: Scratch textures count against the GrContext's cached resource
-     *  budget.
-     */
-    static SkSurface* NewScratchRenderTarget(GrContext*, const SkImageInfo&, int sampleCount,
-                                             const SkSurfaceProps* = NULL);
-
-    static SkSurface* NewScratchRenderTarget(GrContext* gr, const SkImageInfo& info) {
-        return NewScratchRenderTarget(gr, info, 0, NULL);
-    }
-
-#ifdef SK_SUPPORT_LEGACY_TEXTRENDERMODE
-    /**
-     *  Text rendering modes that can be passed to NewRenderTarget*
-     */
-    enum TextRenderMode {
-        /**
-         *  This will use the standard text rendering method
-         */
-        kStandard_TextRenderMode,
-        /**
-         *  This will use signed distance fields for text rendering when possible
-         */
-        kDistanceField_TextRenderMode,
-    };
-    static SkSurface* NewRenderTargetDirect(GrRenderTarget*, TextRenderMode);
-    static SkSurface* NewRenderTarget(GrContext*, const SkImageInfo&, int sampleCount,
-                                      TextRenderMode);
-    static SkSurface* NewScratchRenderTarget(GrContext*, const SkImageInfo&, int sampleCount,
-                                             TextRenderMode);
-#endif
 
     int width() const { return fWidth; }
     int height() const { return fHeight; }
@@ -158,8 +154,44 @@ public:
     /**
      *  Call this if the contents are about to change. This will (lazily) force a new
      *  value to be returned from generationID() when it is called next.
+     *
+     *  CAN WE DEPRECATE THIS?
      */
     void notifyContentWillChange(ContentChangeMode mode);
+
+    enum BackendHandleAccess {
+        kFlushRead_BackendHandleAccess,     //!< caller may read from the backend object
+        kFlushWrite_BackendHandleAccess,    //!< caller may write to the backend object
+        kDiscardWrite_BackendHandleAccess,  //!< caller must over-write the entire backend object
+    };
+
+    /*
+     * These are legacy aliases which will be removed soon
+     */
+    static const BackendHandleAccess kFlushRead_TextureHandleAccess =
+            kFlushRead_BackendHandleAccess;
+    static const BackendHandleAccess kFlushWrite_TextureHandleAccess =
+            kFlushWrite_BackendHandleAccess;
+    static const BackendHandleAccess kDiscardWrite_TextureHandleAccess =
+            kDiscardWrite_BackendHandleAccess;
+
+
+    /**
+     *  Retrieves the backend API handle of the texture used by this surface, or 0 if the surface
+     *  is not backed by a GPU texture.
+     *
+     *  The returned texture-handle is only valid until the next draw-call into the surface,
+     *  or the surface is deleted.
+     */
+    GrBackendObject getTextureHandle(BackendHandleAccess);
+
+    /**
+     *  Retrieves the backend API handle of the RenderTarget backing this surface.  Callers must
+     *  ensure this function returns 'true' or else the GrBackendObject will be invalid
+     *
+     *  In OpenGL this will return the FramebufferObject ID.
+     */
+    bool getRenderTargetHandle(GrBackendObject*, BackendHandleAccess);
 
     /**
      *  Return a canvas that will draw into this surface. This will always
@@ -187,12 +219,14 @@ public:
     /**
      *  Returns an image of the current state of the surface pixels up to this
      *  point. Subsequent changes to the surface (by drawing into its canvas)
-     *  will not be reflected in this image.
+     *  will not be reflected in this image. If a copy must be made the Budgeted
+     *  parameter controls whether it counts against the resource budget
+     *  (currently for the gpu backend only).
      */
-    SkImage* newImageSnapshot();
+    SkImage* newImageSnapshot(Budgeted = kYes_Budgeted);
 
     /**
-     *  Thought the caller could get a snapshot image explicitly, and draw that,
+     *  Though the caller could get a snapshot image explicitly, and draw that,
      *  it seems that directly drawing a surface into another canvas might be
      *  a common pattern, and that we could possibly be more efficient, since
      *  we'd know that the "snapshot" need only live until we've handed it off
@@ -211,6 +245,27 @@ public:
      *  ignored.
      */
     const void* peekPixels(SkImageInfo* info, size_t* rowBytes);
+
+    /**
+     *  Copy the pixels from the surface into the specified buffer (pixels + rowBytes),
+     *  converting them into the requested format (dstInfo). The surface pixels are read
+     *  starting at the specified (srcX,srcY) location.
+     *
+     *  The specified ImageInfo and (srcX,srcY) offset specifies a source rectangle
+     *
+     *      srcR.setXYWH(srcX, srcY, dstInfo.width(), dstInfo.height());
+     *
+     *  srcR is intersected with the bounds of the base-layer. If this intersection is not empty,
+     *  then we have two sets of pixels (of equal size). Replace the dst pixels with the
+     *  corresponding src pixels, performing any colortype/alphatype transformations needed
+     *  (in the case where the src and dst have different colortypes or alphatypes).
+     *
+     *  This call can fail, returning false, for several reasons:
+     *  - If srcR does not intersect the surface bounds.
+     *  - If the requested colortype/alphatype cannot be converted from the surface's types.
+     */
+    bool readPixels(const SkImageInfo& dstInfo, void* dstPixels, size_t dstRowBytes,
+                    int srcX, int srcY);
 
     const SkSurfaceProps& props() const { return fProps; }
 

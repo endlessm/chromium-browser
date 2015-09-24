@@ -1,8 +1,10 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
+
+#include <map>
 
 #include "../../include/pdfwindow/PDFWindow.h"
 #include "../../include/pdfwindow/PWL_Wnd.h"
@@ -11,9 +13,14 @@
 
 /* -------------------------- CPWL_Timer -------------------------- */
 
-static CFX_MapPtrTemplate<FX_INT32, CPWL_Timer*>	g_TimeMap;
+static std::map<int32_t, CPWL_Timer*>& GetPWLTimeMap()
+{
+  // Leak the object at shutdown.
+  static auto timeMap = new std::map<int32_t, CPWL_Timer*>;
+  return *timeMap;
+}
 
-CPWL_Timer::CPWL_Timer(CPWL_TimerHandler* pAttached, IFX_SystemHandler* pSystemHandler) : 
+CPWL_Timer::CPWL_Timer(CPWL_TimerHandler* pAttached, IFX_SystemHandler* pSystemHandler) :
 	m_nTimerID(0),
 	m_pAttached(pAttached),
 	m_pSystemHandler(pSystemHandler)
@@ -27,35 +34,35 @@ CPWL_Timer::~CPWL_Timer()
 	KillPWLTimer();
 }
 
-FX_INT32 CPWL_Timer::SetPWLTimer(FX_INT32 nElapse)
-{	
-	if (m_nTimerID != 0) KillPWLTimer();
-	m_nTimerID = m_pSystemHandler->SetTimer(nElapse, TimerProc);
-	g_TimeMap.SetAt(m_nTimerID, this);
-	return m_nTimerID;
+int32_t CPWL_Timer::SetPWLTimer(int32_t nElapse)
+{
+    if (m_nTimerID != 0)
+        KillPWLTimer();
+    m_nTimerID = m_pSystemHandler->SetTimer(nElapse, TimerProc);
+
+    GetPWLTimeMap()[m_nTimerID] = this;
+    return m_nTimerID;
 }
 
 void CPWL_Timer::KillPWLTimer()
 {
-	if (m_nTimerID != 0)
-	{
-		m_pSystemHandler->KillTimer(m_nTimerID);
-		g_TimeMap.RemoveKey(m_nTimerID);
-		m_nTimerID = 0;
-	}
+    if (m_nTimerID == 0)
+        return;
+
+    m_pSystemHandler->KillTimer(m_nTimerID);
+    GetPWLTimeMap().erase(m_nTimerID);
+    m_nTimerID = 0;
 }
 
-void CPWL_Timer::TimerProc(FX_INT32 idEvent)
+void CPWL_Timer::TimerProc(int32_t idEvent)
 {
-	CPWL_Timer* pTimer = NULL;
-	if (g_TimeMap.Lookup(idEvent, pTimer))
-	{
-		if (pTimer)
-		{			
-			if (pTimer->m_pAttached) 
-				pTimer->m_pAttached->TimerProc();
-		}
-	}
+    auto it = GetPWLTimeMap().find(idEvent);
+    if (it == GetPWLTimeMap().end())
+        return;
+
+    CPWL_Timer* pTimer = it->second;
+    if (pTimer->m_pAttached)
+        pTimer->m_pAttached->TimerProc();
 }
 
 /* -------------------------- CPWL_TimerHandler -------------------------- */
@@ -66,10 +73,10 @@ CPWL_TimerHandler::CPWL_TimerHandler() : m_pTimer(NULL)
 
 CPWL_TimerHandler::~CPWL_TimerHandler()
 {
-	if (m_pTimer) delete m_pTimer;
+    delete m_pTimer;
 }
 
-void CPWL_TimerHandler::BeginTimer(FX_INT32 nElapse)
+void CPWL_TimerHandler::BeginTimer(int32_t nElapse)
 {
 	if (!m_pTimer)
 		m_pTimer = new CPWL_Timer(this, GetSystemHandler());
@@ -129,7 +136,7 @@ public:
 	FX_BOOL IsWndCaptureMouse(const CPWL_Wnd * pWnd) const
 	{
 		if (pWnd)
-			for( FX_INT32 i=0,sz=m_aMousePath.GetSize(); i<sz; i++)
+			for( int32_t i=0,sz=m_aMousePath.GetSize(); i<sz; i++)
 				if (m_aMousePath.GetAt(i) == pWnd)
 					return TRUE;
 
@@ -145,10 +152,10 @@ public:
 	FX_BOOL IsWndCaptureKeyboard(const CPWL_Wnd * pWnd) const
 	{
 		if (pWnd)
-			for( FX_INT32 i=0,sz=m_aKeyboardPath.GetSize(); i<sz; i++)
+			for( int32_t i=0,sz=m_aKeyboardPath.GetSize(); i<sz; i++)
 				if (m_aKeyboardPath.GetAt(i) == pWnd)
 					return TRUE;
-		
+
 		return FALSE;
 	}
 
@@ -218,7 +225,7 @@ CPWL_Wnd::CPWL_Wnd() :
 	m_pVScrollBar(NULL),
 	m_rcWindow(),
 	m_rcClip(),
-	m_bCreated(FALSE),			
+	m_bCreated(FALSE),
 	m_bVisible(FALSE),
 	m_bNotifying(FALSE),
 	m_bEnabled(TRUE)
@@ -256,9 +263,9 @@ void CPWL_Wnd::Create(const PWL_CREATEPARAM & cp)
 
 		ccp.dwFlags &= 0xFFFF0000L; //remove sub styles
 		ccp.mtChild = CPDF_Matrix(1,0,0,1,0,0);
-		
+
 		CreateScrollBar(ccp);
-		CreateChildWnd(ccp); 
+		CreateChildWnd(ccp);
 
 		m_bVisible = HasFlag(PWS_VISIBLE);
 
@@ -289,7 +296,7 @@ void CPWL_Wnd::Destroy()
 
 	if (m_bCreated)
 	{
-		for (FX_INT32 i = m_aChildren.GetSize()-1; i >= 0; i --)
+		for (int32_t i = m_aChildren.GetSize()-1; i >= 0; i --)
 		{
 			if (CPWL_Wnd * pChild = m_aChildren[i])
 			{
@@ -307,7 +314,7 @@ void CPWL_Wnd::Destroy()
 	DestroyMsgControl();
 
 	FXSYS_memset(&m_sPrivateParam, 0, sizeof(PWL_CREATEPARAM));
-	m_aChildren.RemoveAll();	
+	m_aChildren.RemoveAll();
 	m_pVScrollBar = NULL;
 }
 
@@ -315,23 +322,22 @@ void CPWL_Wnd::Move(const CPDF_Rect & rcNew, FX_BOOL bReset,FX_BOOL bRefresh)
 {
 	if (IsValid())
 	{
-		CPDF_Rect rcOld = this->GetWindowRect();
+		CPDF_Rect rcOld = GetWindowRect();
 
 		m_rcWindow = rcNew;
 		m_rcWindow.Normalize();
-		//m_rcClip = CPWL_Utils::InflateRect(m_rcWindow,1.0f); //for special caret 
 
 		if (rcOld.left != rcNew.left || rcOld.right != rcNew.right ||
 			rcOld.top != rcNew.top || rcOld.bottom != rcNew.bottom)
 		{
 			if (bReset)
 			{
-				RePosChildWnd();	
-			}	
+				RePosChildWnd();
+			}
 
 		}
 		if (bRefresh)
-		{	
+		{
 			InvalidateRectMove(rcOld,rcNew);
 		}
 
@@ -345,32 +351,6 @@ void  CPWL_Wnd::InvalidateRectMove(const CPDF_Rect & rcOld, const CPDF_Rect & rc
 	rcUnion.Union(rcNew);
 
 	InvalidateRect(&rcUnion);
-
-	/*
-	CPDF_Rect SubArray[4]; 
-
-	rcOld.Substract4(rcNew,SubArray);
-	for (FX_INT32 i=0;i<4;i++)
-	{
-		if (SubArray[i].left == 0 &&
-			SubArray[i].right == 0 &&
-			SubArray[i].top == 0 &&
-			SubArray[i].bottom == 0)continue;
-
-		InvalidateRect(&CPWL_Utils::InflateRect(SubArray[i],2));
-	}
-
-	rcNew.Substract4(rcOld,SubArray);
-	for (FX_INT32 j=0;j<4;j++)
-	{
-		if (SubArray[j].left == 0 &&
-			SubArray[j].right == 0 &&
-			SubArray[j].top == 0 &&
-			SubArray[j].bottom == 0)continue;
-
-		InvalidateRect(&CPWL_Utils::InflateRect(SubArray[j],2));
-	}
-	*/
 }
 
 void CPWL_Wnd::GetAppearanceStream(CFX_ByteString & sAppStream)
@@ -395,30 +375,31 @@ void CPWL_Wnd::GetAppearanceStream(CFX_ByteTextBuf & sAppStream)
 //if don't set,Get default apperance stream
 void CPWL_Wnd::GetThisAppearanceStream(CFX_ByteTextBuf & sAppStream)
 {
-	CPDF_Rect rectWnd = GetWindowRect();
-	if (!rectWnd.IsEmpty())
-	{
-		CFX_ByteTextBuf sThis;
+    CPDF_Rect rectWnd = GetWindowRect();
+    if (!rectWnd.IsEmpty()) {
+        CFX_ByteTextBuf sThis;
 
-		if (HasFlag(PWS_BACKGROUND))
-			sThis << CPWL_Utils::GetRectFillAppStream(rectWnd,this->GetBackgroundColor());
+        if (HasFlag(PWS_BACKGROUND))
+            sThis << CPWL_Utils::GetRectFillAppStream(rectWnd, GetBackgroundColor());
 
-		if (HasFlag(PWS_BORDER))
-			sThis << CPWL_Utils::GetBorderAppStream(rectWnd,
-									(FX_FLOAT)GetBorderWidth(),
-									GetBorderColor(),
-									this->GetBorderLeftTopColor(this->GetBorderStyle()),
-									this->GetBorderRightBottomColor(this->GetBorderStyle()),
-									this->GetBorderStyle(),
-									this->GetBorderDash());
+        if (HasFlag(PWS_BORDER)) {
+            sThis << CPWL_Utils::GetBorderAppStream(
+                rectWnd,
+                (FX_FLOAT)GetBorderWidth(),
+                GetBorderColor(),
+                GetBorderLeftTopColor(GetBorderStyle()),
+                GetBorderRightBottomColor(GetBorderStyle()),
+                GetBorderStyle(),
+                GetBorderDash());
+        }
 
-		sAppStream << sThis;
-	}
+        sAppStream << sThis;
+    }
 }
 
 void CPWL_Wnd::GetChildAppearanceStream(CFX_ByteTextBuf & sAppStream)
 {
-	for (FX_INT32 i=0,sz=m_aChildren.GetSize(); i<sz; i++)
+	for (int32_t i=0,sz=m_aChildren.GetSize(); i<sz; i++)
 	{
 		if (CPWL_Wnd * pChild = m_aChildren.GetAt(i))
 		{
@@ -440,11 +421,11 @@ void CPWL_Wnd::DrawThisAppearance(CFX_RenderDevice* pDevice, CPDF_Matrix* pUser2
 {
 	CPDF_Rect rectWnd = GetWindowRect();
 	if (!rectWnd.IsEmpty())
-	{		
+	{
 		if (HasFlag(PWS_BACKGROUND))
 		{
 			CPDF_Rect rcClient = CPWL_Utils::DeflateRect(rectWnd,(FX_FLOAT)(GetBorderWidth()+GetInnerBorderWidth()));
-			CPWL_Utils::DrawFillRect(pDevice,pUser2Device,rcClient,this->GetBackgroundColor(),GetTransparency());
+			CPWL_Utils::DrawFillRect(pDevice,pUser2Device,rcClient, GetBackgroundColor(), GetTransparency());
 		}
 
 		if (HasFlag(PWS_BORDER))
@@ -453,17 +434,17 @@ void CPWL_Wnd::DrawThisAppearance(CFX_RenderDevice* pDevice, CPDF_Matrix* pUser2
 								rectWnd,
 								(FX_FLOAT)GetBorderWidth(),
 								GetBorderColor(),
-								this->GetBorderLeftTopColor(this->GetBorderStyle()),
-								this->GetBorderRightBottomColor(this->GetBorderStyle()),
-								this->GetBorderStyle(),
-								this->GetBorderDash(),
-								GetTransparency());								
+								GetBorderLeftTopColor(GetBorderStyle()),
+								GetBorderRightBottomColor(GetBorderStyle()),
+								GetBorderStyle(),
+								GetBorderDash(),
+								GetTransparency());
 	}
 }
 
 void CPWL_Wnd::DrawChildAppearance(CFX_RenderDevice* pDevice, CPDF_Matrix* pUser2Device)
 {
-	for (FX_INT32 i=0,sz=m_aChildren.GetSize(); i<sz; i++)
+	for (int32_t i=0,sz=m_aChildren.GetSize(); i<sz; i++)
 	{
 		if (CPWL_Wnd * pChild = m_aChildren.GetAt(i))
 		{
@@ -489,7 +470,7 @@ void CPWL_Wnd::InvalidateRect(CPDF_Rect* pRect)
 
 		if (!HasFlag(PWS_NOREFRESHCLIP))
 		{
-			CPDF_Rect rcClip = GetClipRect();		
+			CPDF_Rect rcClip = GetClipRect();
 			if (!rcClip.IsEmpty())
 			{
 				rcRefresh.Intersect(rcClip);
@@ -519,7 +500,7 @@ FX_BOOL CPWL_Wnd::key_method_name(FX_WORD nChar, FX_DWORD nFlag)\
 	{\
 		if (IsWndCaptureKeyboard(this))\
 		{\
-			for (FX_INT32 i=0,sz=m_aChildren.GetSize(); i<sz; i++)\
+			for (int32_t i=0,sz=m_aChildren.GetSize(); i<sz; i++)\
 			{\
 				if (CPWL_Wnd * pChild = m_aChildren.GetAt(i))\
 				{\
@@ -541,7 +522,7 @@ FX_BOOL CPWL_Wnd::mouse_method_name(const CPDF_Point & point, FX_DWORD nFlag)\
 	{\
 		if (IsWndCaptureMouse(this))\
 		{\
-			for (FX_INT32 i=0,sz=m_aChildren.GetSize(); i<sz; i++)\
+			for (int32_t i=0,sz=m_aChildren.GetSize(); i<sz; i++)\
 			{\
 				if (CPWL_Wnd * pChild = m_aChildren.GetAt(i))\
 				{\
@@ -555,7 +536,7 @@ FX_BOOL CPWL_Wnd::mouse_method_name(const CPDF_Point & point, FX_DWORD nFlag)\
 		}\
 		else\
 		{\
-			for (FX_INT32 i=0,sz=m_aChildren.GetSize(); i<sz; i++)\
+			for (int32_t i=0,sz=m_aChildren.GetSize(); i<sz; i++)\
 			{\
 				if (CPWL_Wnd * pChild = m_aChildren.GetAt(i))\
 				{\
@@ -565,7 +546,7 @@ FX_BOOL CPWL_Wnd::mouse_method_name(const CPDF_Point & point, FX_DWORD nFlag)\
 					}\
 				}\
 			}\
-			if (this->WndHitTest(point))\
+			if (WndHitTest(point))\
 				SetCursor();\
 		}\
 	}\
@@ -582,7 +563,6 @@ PWL_IMPLEMENT_MOUSE_METHOD(OnLButtonUp)
 PWL_IMPLEMENT_MOUSE_METHOD(OnMButtonDblClk)
 PWL_IMPLEMENT_MOUSE_METHOD(OnMButtonDown)
 PWL_IMPLEMENT_MOUSE_METHOD(OnMButtonUp)
-PWL_IMPLEMENT_MOUSE_METHOD(OnRButtonDblClk)
 PWL_IMPLEMENT_MOUSE_METHOD(OnRButtonDown)
 PWL_IMPLEMENT_MOUSE_METHOD(OnRButtonUp)
 PWL_IMPLEMENT_MOUSE_METHOD(OnMouseMove)
@@ -594,7 +574,7 @@ FX_BOOL	CPWL_Wnd::OnMouseWheel(short zDelta, const CPDF_Point & point, FX_DWORD 
 		SetCursor();
 		if (IsWndCaptureKeyboard(this))
 		{
-			for (FX_INT32 i=0,sz=m_aChildren.GetSize(); i<sz; i++)
+			for (int32_t i=0,sz=m_aChildren.GetSize(); i<sz; i++)
 			{
 				if (CPWL_Wnd * pChild = m_aChildren.GetAt(i))
 				{
@@ -616,7 +596,7 @@ void CPWL_Wnd::AddChild(CPWL_Wnd * pWnd)
 
 void CPWL_Wnd::RemoveChild(CPWL_Wnd * pWnd)
 {
-	for (FX_INT32 i = m_aChildren.GetSize()-1; i >= 0; i --)
+	for (int32_t i = m_aChildren.GetSize()-1; i >= 0; i --)
 	{
 		if (CPWL_Wnd* pChild = m_aChildren.GetAt(i))
 		{
@@ -629,15 +609,15 @@ void CPWL_Wnd::RemoveChild(CPWL_Wnd * pWnd)
 	}
 }
 
-void CPWL_Wnd::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, FX_INTPTR wParam, FX_INTPTR lParam)
+void CPWL_Wnd::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, intptr_t wParam, intptr_t lParam)
 {
 	switch (msg)
 	{
 	case PNM_ADDCHILD:
-		this->AddChild(pWnd);
+		AddChild(pWnd);
 		break;
 	case PNM_REMOVECHILD:
-		this->RemoveChild(pWnd);
+		RemoveChild(pWnd);
 		break;
 	default:
 		break;
@@ -674,7 +654,7 @@ CPDF_Rect CPWL_Wnd::GetClientRect() const
 	CPDF_Rect rcWindow = GetWindowRect();
 	CPDF_Rect rcClient = CPWL_Utils::DeflateRect(rcWindow,(FX_FLOAT)(GetBorderWidth()+GetInnerBorderWidth()));
 
-	if (CPWL_ScrollBar * pVSB = this->GetVScrollBar())
+	if (CPWL_ScrollBar * pVSB = GetVScrollBar())
 		rcClient.right -= pVSB->GetScrollBarWidth();
 
 	rcClient.Normalize();
@@ -748,18 +728,18 @@ CPWL_Color CPWL_Wnd::GetTextStrokeColor() const
 	return m_sPrivateParam.sTextStrokeColor;
 }
 
-FX_INT32 CPWL_Wnd::GetBorderStyle() const
+int32_t CPWL_Wnd::GetBorderStyle() const
 {
 	return m_sPrivateParam.nBorderStyle;
 }
 
-void CPWL_Wnd::SetBorderStyle(FX_INT32 nBorderStyle)
+void CPWL_Wnd::SetBorderStyle(int32_t nBorderStyle)
 {
 	if (HasFlag(PWS_BORDER))
 		m_sPrivateParam.nBorderStyle = nBorderStyle;
 }
 
-FX_INT32 CPWL_Wnd::GetBorderWidth() const
+int32_t CPWL_Wnd::GetBorderWidth() const
 {
 	if (HasFlag(PWS_BORDER))
 		return m_sPrivateParam.dwBorderWidth;
@@ -767,7 +747,7 @@ FX_INT32 CPWL_Wnd::GetBorderWidth() const
 	return 0;
 }
 
-FX_INT32 CPWL_Wnd::GetInnerBorderWidth() const
+int32_t CPWL_Wnd::GetInnerBorderWidth() const
 {
 	/*
 	switch (GetBorderStyle())
@@ -780,7 +760,7 @@ FX_INT32 CPWL_Wnd::GetInnerBorderWidth() const
 	return 0;
 }
 
-void CPWL_Wnd::SetBorderWidth(FX_INT32 nBorderWidth)
+void CPWL_Wnd::SetBorderWidth(int32_t nBorderWidth)
 {
 	if (HasFlag(PWS_BORDER))
 		m_sPrivateParam.dwBorderWidth = nBorderWidth;
@@ -837,7 +817,7 @@ void CPWL_Wnd::CreateVScrollBar(const PWL_CREATEPARAM & cp)
 
 		//flags
 		scp.dwFlags = PWS_CHILD| PWS_BACKGROUND | PWS_AUTOTRANSPARENT | PWS_NOREFRESHCLIP;
-		
+
 		scp.pParentWnd = this;
 		scp.sBackgroundColor = PWL_DEFAULT_WHITECOLOR;
 		scp.eCursorType = FXCT_ARROW;
@@ -856,7 +836,7 @@ void CPWL_Wnd::SetCapture()
 
 void CPWL_Wnd::ReleaseCapture()
 {
-	for (FX_INT32 i=0,sz=m_aChildren.GetSize(); i<sz; i++)
+	for (int32_t i=0,sz=m_aChildren.GetSize(); i<sz; i++)
 		if (CPWL_Wnd* pChild = m_aChildren.GetAt(i))
 			pChild->ReleaseCapture();
 
@@ -913,7 +893,7 @@ void CPWL_Wnd::SetVisible(FX_BOOL bVisible)
 {
 	if (IsValid())
 	{
-		for (FX_INT32 i=0,sz=m_aChildren.GetSize(); i<sz; i++)
+		for (int32_t i=0,sz=m_aChildren.GetSize(); i<sz; i++)
 		{
 			if (CPWL_Wnd* pChild = m_aChildren.GetAt(i))
 			{
@@ -924,9 +904,9 @@ void CPWL_Wnd::SetVisible(FX_BOOL bVisible)
 		if (bVisible != m_bVisible)
 		{
 			m_bVisible = bVisible;
-			RePosChildWnd();		
+			RePosChildWnd();
 			InvalidateRect();
-		}	
+		}
 	}
 }
 
@@ -950,7 +930,7 @@ void CPWL_Wnd::RePosChildWnd()
 {
 	CPDF_Rect rcContent = CPWL_Utils::DeflateRect(GetWindowRect(),(FX_FLOAT)(GetBorderWidth()+GetInnerBorderWidth()));
 
-	CPWL_ScrollBar * pVSB = this->GetVScrollBar();
+	CPWL_ScrollBar * pVSB = GetVScrollBar();
 
 	CPDF_Rect rcVScroll = CPDF_Rect(rcContent.right - PWL_SCROLLBAR_WIDTH,
 							rcContent.bottom,
@@ -966,11 +946,11 @@ void CPWL_Wnd::CreateChildWnd(const PWL_CREATEPARAM & cp)
 
 void CPWL_Wnd::SetCursor()
 {
-	if (IsValid()) 
+	if (IsValid())
 	{
 		if (IFX_SystemHandler* pSH = GetSystemHandler())
 		{
-			FX_INT32 nCursorType = this->GetCreationParam().eCursorType;
+			int32_t nCursorType = GetCreationParam().eCursorType;
 			pSH->SetCursor(nCursorType);
 		}
 	}
@@ -1025,17 +1005,17 @@ FX_BOOL CPWL_Wnd::IsFocused() const
 
 CPDF_Rect CPWL_Wnd::GetFocusRect() const
 {
-	return CPWL_Utils::InflateRect(this->GetWindowRect(),1);
+	return CPWL_Utils::InflateRect(GetWindowRect(),1);
 }
 
 FX_FLOAT CPWL_Wnd::GetFontSize() const
 {
-	return this->m_sPrivateParam.fFontSize;
+	return m_sPrivateParam.fFontSize;
 }
 
 void CPWL_Wnd::SetFontSize(FX_FLOAT fFontSize)
 {
-	this->m_sPrivateParam.fFontSize = fFontSize;
+	m_sPrivateParam.fFontSize = fFontSize;
 }
 
 IFX_SystemHandler* CPWL_Wnd::GetSystemHandler() const
@@ -1058,7 +1038,7 @@ IFX_Edit_FontMap* CPWL_Wnd::GetFontMap() const
 	return m_sPrivateParam.pFontMap;
 }
 
-CPWL_Color CPWL_Wnd::GetBorderLeftTopColor(FX_INT32 nBorderStyle) const
+CPWL_Color CPWL_Wnd::GetBorderLeftTopColor(int32_t nBorderStyle) const
 {
 	CPWL_Color color;
 
@@ -1081,7 +1061,7 @@ CPWL_Color CPWL_Wnd::GetBorderLeftTopColor(FX_INT32 nBorderStyle) const
 	return color;
 }
 
-CPWL_Color CPWL_Wnd::GetBorderRightBottomColor(FX_INT32 nBorderStyle) const
+CPWL_Color CPWL_Wnd::GetBorderRightBottomColor(int32_t nBorderStyle) const
 {
 	CPWL_Color color;
 
@@ -1106,14 +1086,14 @@ CPWL_Color CPWL_Wnd::GetBorderRightBottomColor(FX_INT32 nBorderStyle) const
 
 /* ----------------------------------------------------------------- */
 
-FX_INT32 CPWL_Wnd::GetTransparency()
+int32_t CPWL_Wnd::GetTransparency()
 {
 	return m_sPrivateParam.nTransparency;
 }
 
-void CPWL_Wnd::SetTransparency(FX_INT32 nTransparency)
+void CPWL_Wnd::SetTransparency(int32_t nTransparency)
 {
-	for (FX_INT32 i=0,sz=m_aChildren.GetSize(); i<sz; i++)
+	for (int32_t i=0,sz=m_aChildren.GetSize(); i<sz; i++)
 	{
 		if (CPWL_Wnd* pChild = m_aChildren.GetAt(i))
 		{
@@ -1126,7 +1106,7 @@ void CPWL_Wnd::SetTransparency(FX_INT32 nTransparency)
 
 CPDF_Matrix	CPWL_Wnd::GetWindowMatrix() const
 {
-	CPDF_Matrix mt = this->GetChildToRoot();
+	CPDF_Matrix mt = GetChildToRoot();
 
 	if (IPWL_Provider* pProvider = GetProvider())
 	{
@@ -1134,37 +1114,24 @@ CPDF_Matrix	CPWL_Wnd::GetWindowMatrix() const
 		return mt;
 	}
 
-/*
-	if (CReader_App* pApp = CPWL_Module::GetReaderApp())
-		if (CReader_Document* pDocument = pApp->GetCurrentDocument())
-			if (CReader_DocView* pDocView = pDocument->GetCurrentDocView())
-			{
-				CPDF_Matrix mtPageView;
-				pDocView->GetCurrentMatrix(mtPageView);
-				mt.Concat(mtPageView);
-				return mt;
-			}		
-			
-*/
-
 	return mt;
 }
 
-void CPWL_Wnd::PWLtoWnd(const CPDF_Point& point, FX_INT32& x, FX_INT32& y) const
+void CPWL_Wnd::PWLtoWnd(const CPDF_Point& point, int32_t& x, int32_t& y) const
 {
 	CPDF_Matrix mt = GetWindowMatrix();
 	CPDF_Point pt = point;
 	mt.Transform(pt.x,pt.y);
-	x = (FX_INT32)(pt.x+0.5);
-	y = (FX_INT32)(pt.y+0.5);
+	x = (int32_t)(pt.x+0.5);
+	y = (int32_t)(pt.y+0.5);
 }
 
 FX_RECT CPWL_Wnd::PWLtoWnd(const CPDF_Rect & rect) const
 {
 	CPDF_Rect rcTemp = rect;
 	CPDF_Matrix mt = GetWindowMatrix();
-	mt.TransformRect(rcTemp);	
-	return FX_RECT((FX_INT32)(rcTemp.left+0.5), (FX_INT32)(rcTemp.bottom+0.5), (FX_INT32)(rcTemp.right+0.5), (FX_INT32)(rcTemp.top+0.5));
+	mt.TransformRect(rcTemp);
+	return FX_RECT((int32_t)(rcTemp.left+0.5), (int32_t)(rcTemp.bottom+0.5), (int32_t)(rcTemp.right+0.5), (int32_t)(rcTemp.top+0.5));
 }
 
 FX_HWND CPWL_Wnd::GetAttachedHWnd() const
@@ -1229,7 +1196,7 @@ CPDF_Rect CPWL_Wnd::ParentToChild(const CPDF_Rect& rect) const
 CPDF_Matrix CPWL_Wnd::GetChildToRoot() const
 {
 	CPDF_Matrix mt(1,0,0,1,0,0);
-	
+
 	if (HasFlag(PWS_CHILD))
 	{
 		const CPWL_Wnd* pParent = this;
@@ -1270,7 +1237,7 @@ void CPWL_Wnd::EnableWindow(FX_BOOL bEnable)
 {
 	if (m_bEnabled != bEnable)
 	{
-		for (FX_INT32 i=0,sz=m_aChildren.GetSize(); i<sz; i++)
+		for (int32_t i=0,sz=m_aChildren.GetSize(); i<sz; i++)
 		{
 			if (CPWL_Wnd* pChild = m_aChildren.GetAt(i))
 			{
@@ -1278,12 +1245,12 @@ void CPWL_Wnd::EnableWindow(FX_BOOL bEnable)
 			}
 		}
 
-		this->m_bEnabled = bEnable;
+		m_bEnabled = bEnable;
 
 		if (bEnable)
-			this->OnEnabled();
+			OnEnabled();
 		else
-			this->OnDisabled();
+			OnDisabled();
 	}
 }
 

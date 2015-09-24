@@ -955,7 +955,7 @@ IN_PROC_BROWSER_TEST_F(BrowserNavigatorTest,
   // Navigate to a different settings path.
   GURL singleton_url_target(
       "chrome://settings/internet?"
-      "servicePath=/profile/ethernet_00aa00aa00aa&networkType=1");
+      "guid=ethernet_00aa00aa00aa&networkType=1");
   chrome::NavigateParams params(MakeNavigateParams());
   params.disposition = SINGLETON_TAB;
   params.url = singleton_url_target;
@@ -1291,10 +1291,9 @@ IN_PROC_BROWSER_TEST_F(BrowserNavigatorTest,
     observer.Wait();
   }
   EXPECT_EQ(1, browser()->tab_strip_model()->count());
-  EXPECT_TRUE(StartsWithASCII(
+  EXPECT_TRUE(base::StartsWith(
       browser()->tab_strip_model()->GetActiveWebContents()->GetURL().spec(),
-      chrome::kChromeUIBookmarksURL,
-      true));
+      chrome::kChromeUIBookmarksURL, base::CompareCase::SENSITIVE));
 }
 
 IN_PROC_BROWSER_TEST_F(BrowserNavigatorTest,

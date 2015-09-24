@@ -14,6 +14,8 @@
 #include "net/base/net_util.h"
 #include "net/http/http_util.h"
 
+namespace net {
+
 namespace {
 
 enum RFC2047EncodingType {
@@ -32,11 +34,11 @@ bool DecodeQEncoding(const std::string& input, std::string* output) {
       temp.push_back(' ');
     } else if (*it == '=') {
       if ((input.end() - it < 3) ||
-          !IsHexDigit(static_cast<unsigned char>(*(it + 1))) ||
-          !IsHexDigit(static_cast<unsigned char>(*(it + 2))))
+          !base::IsHexDigit(static_cast<unsigned char>(*(it + 1))) ||
+          !base::IsHexDigit(static_cast<unsigned char>(*(it + 2))))
         return false;
-      unsigned char ch = HexDigitToInt(*(it + 1)) * 16 +
-                         HexDigitToInt(*(it + 2));
+      unsigned char ch =
+          base::HexDigitToInt(*(it + 1)) * 16 + base::HexDigitToInt(*(it + 2));
       temp.push_back(static_cast<char>(ch));
       ++it;
       ++it;
@@ -73,7 +75,7 @@ bool DecodeBQEncoding(const std::string& part,
     return true;
   }
 
-  return net::ConvertToUtf8(decoded, charset.c_str(), output);
+  return ConvertToUtf8(decoded, charset.c_str(), output);
 }
 
 bool DecodeWord(const std::string& encoded_word,
@@ -93,15 +95,15 @@ bool DecodeWord(const std::string& encoded_word,
     } else {
       base::string16 utf16_output;
       if (!referrer_charset.empty() &&
-          net::ConvertToUTF16(encoded_word, referrer_charset.c_str(),
-                              &utf16_output)) {
+          ConvertToUTF16(encoded_word, referrer_charset.c_str(),
+                         &utf16_output)) {
         *output = base::UTF16ToUTF8(utf16_output);
       } else {
         *output = base::WideToUTF8(base::SysNativeMBToWide(encoded_word));
       }
     }
 
-    *parse_result_flags |= net::HttpContentDisposition::HAS_NON_ASCII_STRINGS;
+    *parse_result_flags |= HttpContentDisposition::HAS_NON_ASCII_STRINGS;
     return true;
   }
 
@@ -173,7 +175,7 @@ bool DecodeWord(const std::string& encoded_word,
     if (*(encoded_word.end() - 1) == '=') {
       output->swap(decoded_word);
       *parse_result_flags |=
-          net::HttpContentDisposition::HAS_RFC2047_ENCODED_STRINGS;
+          HttpContentDisposition::HAS_RFC2047_ENCODED_STRINGS;
       return true;
     }
     // encoded_word ending prematurelly with '?' or extra '?'
@@ -186,11 +188,9 @@ bool DecodeWord(const std::string& encoded_word,
   // web browser.
 
   // What IE6/7 does: %-escaped UTF-8.
-  decoded_word = net::UnescapeURLComponent(encoded_word,
-                                           net::UnescapeRule::SPACES);
+  decoded_word = UnescapeURLComponent(encoded_word, UnescapeRule::SPACES);
   if (decoded_word != encoded_word)
-    *parse_result_flags |=
-        net::HttpContentDisposition::HAS_PERCENT_ENCODED_STRINGS;
+    *parse_result_flags |= HttpContentDisposition::HAS_PERCENT_ENCODED_STRINGS;
   if (base::IsStringUTF8(decoded_word)) {
     output->swap(decoded_word);
     return true;
@@ -322,15 +322,13 @@ bool DecodeExtValue(const std::string& param_value, std::string* decoded) {
     return true;
   }
 
-  std::string unescaped = net::UnescapeURLComponent(
-      value, net::UnescapeRule::SPACES | net::UnescapeRule::URL_SPECIAL_CHARS);
+  std::string unescaped = UnescapeURLComponent(
+      value, UnescapeRule::SPACES | UnescapeRule::URL_SPECIAL_CHARS);
 
-  return net::ConvertToUtf8AndNormalize(unescaped, charset.c_str(), decoded);
+  return ConvertToUtf8AndNormalize(unescaped, charset.c_str(), decoded);
 }
 
 } // namespace
-
-namespace net {
 
 HttpContentDisposition::HttpContentDisposition(
     const std::string& header, const std::string& referrer_charset)
@@ -361,9 +359,9 @@ std::string::const_iterator HttpContentDisposition::ConsumeDispositionType(
 
   DCHECK(std::find(type_begin, type_end, '=') == type_end);
 
-  if (LowerCaseEqualsASCII(type_begin, type_end, "inline")) {
+  if (base::LowerCaseEqualsASCII(type_begin, type_end, "inline")) {
     type_ = INLINE;
-  } else if (LowerCaseEqualsASCII(type_begin, type_end, "attachment")) {
+  } else if (base::LowerCaseEqualsASCII(type_begin, type_end, "attachment")) {
     type_ = ATTACHMENT;
   } else {
     parse_result_flags_ |= HAS_UNKNOWN_DISPOSITION_TYPE;
@@ -399,28 +397,21 @@ void HttpContentDisposition::Parse(const std::string& header,
   std::string::const_iterator end = header.end();
   pos = ConsumeDispositionType(pos, end);
 
-  std::string name;
   std::string filename;
   std::string ext_filename;
 
   HttpUtil::NameValuePairsIterator iter(pos, end, ';');
   while (iter.GetNext()) {
-    if (filename.empty() && LowerCaseEqualsASCII(iter.name_begin(),
-                                                 iter.name_end(),
-                                                 "filename")) {
+    if (filename.empty() &&
+        base::LowerCaseEqualsASCII(iter.name_begin(), iter.name_end(),
+                                   "filename")) {
       DecodeFilenameValue(iter.value(), referrer_charset, &filename,
                           &parse_result_flags_);
       if (!filename.empty())
         parse_result_flags_ |= HAS_FILENAME;
-    } else if (name.empty() && LowerCaseEqualsASCII(iter.name_begin(),
-                                                    iter.name_end(),
-                                                    "name")) {
-      DecodeFilenameValue(iter.value(), referrer_charset, &name, NULL);
-      if (!name.empty())
-        parse_result_flags_ |= HAS_NAME;
-    } else if (ext_filename.empty() && LowerCaseEqualsASCII(iter.name_begin(),
-                                                            iter.name_end(),
-                                                            "filename*")) {
+    } else if (ext_filename.empty() &&
+               base::LowerCaseEqualsASCII(iter.name_begin(), iter.name_end(),
+                                          "filename*")) {
       DecodeExtValue(iter.raw_value(), &ext_filename);
       if (!ext_filename.empty())
         parse_result_flags_ |= HAS_EXT_FILENAME;
@@ -429,10 +420,8 @@ void HttpContentDisposition::Parse(const std::string& header,
 
   if (!ext_filename.empty())
     filename_ = ext_filename;
-  else if (!filename.empty())
-    filename_ = filename;
   else
-    filename_ = name;
+    filename_ = filename;
 }
 
 }  // namespace net

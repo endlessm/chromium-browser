@@ -6,9 +6,10 @@
 
 #include "base/bind.h"
 #include "base/values.h"
-#include "chrome/browser/history/top_sites.h"
+#include "chrome/browser/history/top_sites_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/ntp/new_tab_ui.h"
+#include "components/history/core/browser/top_sites.h"
 
 namespace extensions {
 
@@ -18,7 +19,8 @@ TopSitesGetFunction::TopSitesGetFunction()
 TopSitesGetFunction::~TopSitesGetFunction() {}
 
 bool TopSitesGetFunction::RunAsync() {
-  history::TopSites* ts = GetProfile()->GetTopSites();
+  scoped_refptr<history::TopSites> ts =
+      TopSitesFactory::GetForProfile(GetProfile());
   if (!ts)
     return false;
 

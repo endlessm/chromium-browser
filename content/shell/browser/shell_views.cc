@@ -11,6 +11,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/context_menu_params.h"
 #include "content/shell/browser/shell_platform_data_aura.h"
+#include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "ui/aura/client/screen_position_client.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
@@ -191,11 +192,6 @@ class ShellWindowDelegateView : public views::WidgetDelegateView,
         views::MenuRunner::MENU_DELETED) {
       return;
     }
-  }
-
-  void OnWebContentsFocused(content::WebContents* web_contents) {
-    if (web_view_->GetWebContents() == web_contents)
-      web_view_->OnWebContentsFocused(web_contents);
   }
 
  private:
@@ -440,6 +436,7 @@ void Shell::PlatformExit() {
   delete platform_;
   platform_ = NULL;
 #if defined(OS_CHROMEOS)
+  device::BluetoothAdapterFactory::Shutdown();
   chromeos::DBusThreadManager::Shutdown();
 #endif
   aura::Env::DeleteInstance();
@@ -555,14 +552,6 @@ bool Shell::PlatformHandleContextMenu(
     static_cast<ShellWindowDelegateView*>(window_widget_->widget_delegate());
   delegate_view->ShowWebViewContextMenu(params);
   return true;
-}
-
-void Shell::PlatformWebContentsFocused(WebContents* contents) {
-  if (headless_)
-    return;
-  ShellWindowDelegateView* delegate_view =
-    static_cast<ShellWindowDelegateView*>(window_widget_->widget_delegate());
-  delegate_view->OnWebContentsFocused(contents);
 }
 
 }  // namespace content

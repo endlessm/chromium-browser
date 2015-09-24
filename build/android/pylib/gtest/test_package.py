@@ -22,7 +22,7 @@ class TestPackage(object):
     Args:
       device: Instance of DeviceUtils.
     """
-    raise NotImplementedError('Method must be overriden.')
+    raise NotImplementedError('Method must be overridden.')
 
   def CreateCommandLineFileOnDevice(self, device, test_filter, test_arguments):
     """Creates a test runner script and pushes to the device.
@@ -32,7 +32,7 @@ class TestPackage(object):
       test_filter: A test_filter flag.
       test_arguments: Additional arguments to pass to the test binary.
     """
-    raise NotImplementedError('Method must be overriden.')
+    raise NotImplementedError('Method must be overridden.')
 
   def GetAllTests(self, device):
     """Returns a list of all tests available in the test suite.
@@ -40,7 +40,7 @@ class TestPackage(object):
     Args:
       device: Instance of DeviceUtils.
     """
-    raise NotImplementedError('Method must be overriden.')
+    raise NotImplementedError('Method must be overridden.')
 
   def GetGTestReturnCode(self, _device):
     return None
@@ -54,7 +54,7 @@ class TestPackage(object):
     Returns:
       An instance of pexpect spawn class.
     """
-    raise NotImplementedError('Method must be overriden.')
+    raise NotImplementedError('Method must be overridden.')
 
   def Install(self, device):
     """Install the test package to the device.
@@ -62,37 +62,15 @@ class TestPackage(object):
     Args:
       device: Instance of DeviceUtils.
     """
-    raise NotImplementedError('Method must be overriden.')
+    raise NotImplementedError('Method must be overridden.')
 
-  @staticmethod
-  def _ParseGTestListTests(raw_list):
-    """Parses a raw test list as provided by --gtest_list_tests.
+  def PullAppFiles(self, device, files, directory):
+    """Pull application data from the device.
 
     Args:
-      raw_list: The raw test listing with the following format:
-
-      IPCChannelTest.
-        SendMessageInChannelConnected
-      IPCSyncChannelTest.
-        Simple
-        DISABLED_SendWithTimeoutMixedOKAndTimeout
-
-    Returns:
-      A list of all tests. For the above raw listing:
-
-      [IPCChannelTest.SendMessageInChannelConnected, IPCSyncChannelTest.Simple,
-       IPCSyncChannelTest.DISABLED_SendWithTimeoutMixedOKAndTimeout]
+      device: Instance of DeviceUtils.
+      files: A list of paths relative to the application data directory to
+        retrieve from the device.
+      directory: The host directory to which files should be pulled.
     """
-    ret = []
-    current = ''
-    for test in raw_list:
-      if not test:
-        continue
-      if test[0] != ' ':
-        test_case = test.split()[0]
-        if test_case.endswith('.'):
-          current = test_case
-      elif not 'YOU HAVE' in test:
-        test_name = test.split()[0]
-        ret += [current + test_name]
-    return ret
+    raise NotImplementedError('Method must be overridden.')

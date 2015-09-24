@@ -9,7 +9,9 @@
 
 #include "extensions/common/constants.h"
 
-class ExtensionService;
+namespace content {
+class BrowserContext;
+}
 
 namespace user_prefs {
 class PrefRegistrySyncable;
@@ -28,7 +30,7 @@ class ExtensionPrefs;
 // Gets the launch type preference. If no preference is set, returns
 // LAUNCH_TYPE_DEFAULT.
 // Returns LAUNCH_TYPE_WINDOW if there's no preference and
-// 'streamlined hosted apps' are enabled.
+// bookmark apps are enabled.
 LaunchType GetLaunchType(const ExtensionPrefs* prefs,
                          const Extension* extension);
 
@@ -38,7 +40,7 @@ LaunchType GetLaunchTypePrefValue(const ExtensionPrefs* prefs,
                                   const std::string& extension_id);
 
 // Sets an extension's launch type preference and syncs the value if necessary.
-void SetLaunchType(ExtensionService* prefs,
+void SetLaunchType(content::BrowserContext* context,
                    const std::string& extension_id,
                    LaunchType launch_type);
 
@@ -53,6 +55,10 @@ LaunchContainer GetLaunchContainer(const ExtensionPrefs* prefs,
 // this returns false.
 bool HasPreferredLaunchContainer(const ExtensionPrefs* prefs,
                                  const Extension* extension);
+
+// Whether |extension| will launch in a window.
+bool LaunchesInWindow(content::BrowserContext* context,
+                      const Extension* extension);
 
 }  // namespace extensions
 

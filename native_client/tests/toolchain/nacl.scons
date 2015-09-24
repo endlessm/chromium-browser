@@ -25,21 +25,9 @@ DEP_LINKFLAGS = (['-Wl,--whole-archive'] + LIBGCC +
 if env.Bit('bitcode'):
   env.Append(CCFLAGS=['-allow-asm'])
 
-# Test C++11 code with both supported C++ standard libraries.
-cpp11_libs = ['libc++']
-if env.Bit('bitcode'):
-  # PNaCl still supports libstdc++ but nacl-clang does not.
-  cpp11_libs.append('libstdc++')
-cpp11_envs = {}
-for lib in cpp11_libs:
-  cpp11_envs[lib] = env.Clone()
-  cpp11_envs[lib].Append(CCFLAGS=['-std=c++11', '-stdlib=' + lib])
-  cpp11_envs[lib].Append(LINKFLAGS=['-stdlib=' + lib])
-  if lib == 'libstdc++':
-    # c++ is added to NONIRT_LIBS for clang to ensure that its dependence on
-    # pthreads can be satisfied by pthread_private instead of pthread. Filter it
-    # out here to ensure that we use libstdc++.
-    cpp11_envs[lib].FilterOut(NONIRT_LIBS=['c++'])
+cpp11_env = env.Clone()
+# TODO(jfb): Change this to -std=c++11 when it's properly supported.
+cpp11_env.Append(CCFLAGS=['-std=gnu++11'])
 
 # All the libraries were already included via -l switches in LINKFLAGS.
 # But we use them again in LIBS so scons knows about the dependencies.
@@ -59,9 +47,16 @@ env.AddNodeToTestSuite(node,
 
 def AddIntrinsicTest(test_env, src, exit_status,
                      golden_file=None, test_suffix='', is_broken=False,
-                     EXTRA_LIBS=[]):
+                     EXTRA_LIBS=[], EXTRA_CCFLAGS='', add_bias=False):
   name = src.split('.')[0]
   name += test_suffix
+
+  if add_bias and test_env.Bit('bitcode'):
+    test_env.AddBiasForPNaCl()
+
+  if EXTRA_CCFLAGS:
+    test_env = test_env.Clone()
+    test_env.Append(CCFLAGS=[EXTRA_CCFLAGS])
 
   obj = test_env.ComponentObject(name, src)
   nexe = test_env.ComponentProgram(
@@ -80,50 +75,54 @@ def AddIntrinsicTest(test_env, src, exit_status,
 AddIntrinsicTest(env, 'intrinsics.cc', '55'),
 AddIntrinsicTest(env, 'float2.c', '0', golden_file=env.File('float2.stdout'))
 AddIntrinsicTest(env, 'synchronization_sync.c', '0',
-                 # TODO(jfb) Blocked on bugs 3579 and 2981. This should
-                 # work on PNaCl because it avoids the broken 16-bit
-                 # instructions on x86-32 by using 32-bit instructions.
-                 # The test also exercises instructions that confuse valgrind.
-                 is_broken=((env.Bit('target_x86_32') and
-                             not env.Bit('bitcode')) or
-                            env.IsRunningUnderValgrind()))
+                 # The test exercises instructions that confuse valgrind.
+                 is_broken=env.IsRunningUnderValgrind())
 AddIntrinsicTest(env, 'synchronization_volatile.c', '0')
 if env.Bit('bitcode') or env.Bit('nacl_clang'):
   # The following tests were only made to work on LLVM for
   # PNaCl. Command-line flags and libraries need to be updated for GCC
   # support.
   # pthread is needed when building with libc++.
-  for lib in cpp11_envs:
-    AddIntrinsicTest(cpp11_envs[lib], 'condition_variable_cpp11.cc', '0',
-                     test_suffix=lib, EXTRA_LIBS=['${PTHREAD_LIBS}'])
-    AddIntrinsicTest(cpp11_envs[lib], 'future_cpp11.cc', '0',
-                     test_suffix=lib, EXTRA_LIBS=['${PTHREAD_LIBS}'])
-    AddIntrinsicTest(cpp11_envs[lib], 'mutex_cpp11.cc', '0',
-                     test_suffix=lib, EXTRA_LIBS=['${PTHREAD_LIBS}'])
-    AddIntrinsicTest(cpp11_envs[lib], 'synchronization_cpp11.cc', '0',
-                     test_suffix=lib, EXTRA_LIBS=['${PTHREAD_LIBS}'])
-    AddIntrinsicTest(cpp11_envs[lib], 'thread_cpp11.cc', '0',
-                     test_suffix=lib, EXTRA_LIBS=['${PTHREAD_LIBS}'])
-    if lib != 'libstdc++':
-      # TODO(jfb) Can't compile with libstdc++.
-      AddIntrinsicTest(cpp11_envs[lib], 'long_double_cpp11.cc', '0',
-                       test_suffix=lib, EXTRA_LIBS=['${PTHREAD_LIBS}'])
+  AddIntrinsicTest(cpp11_env, 'condition_variable_cpp11.cc', '0',
+                   EXTRA_LIBS=['${PTHREAD_LIBS}'])
+  AddIntrinsicTest(cpp11_env, 'future_cpp11.cc', '0',
+                   EXTRA_LIBS=['${PTHREAD_LIBS}'])
+  AddIntrinsicTest(cpp11_env, 'mutex_cpp11.cc', '0',
+                   EXTRA_LIBS=['${PTHREAD_LIBS}'])
+  AddIntrinsicTest(cpp11_env, 'synchronization_cpp11.cc', '0',
+                   EXTRA_LIBS=['${PTHREAD_LIBS}'],
+                   add_bias=True)
+  AddIntrinsicTest(cpp11_env, 'thread_cpp11.cc', '0',
+                   EXTRA_LIBS=['${PTHREAD_LIBS}'])
+  AddIntrinsicTest(cpp11_env, 'long_double_cpp11.cc', '0',
+                   EXTRA_LIBS=['${PTHREAD_LIBS}'])
 
 # This test redirects C function calls to llvm instrinsic functions,
 # so they only work w/ PNaCl.
 if env.Bit('bitcode') or env.Bit('nacl_clang'):
   AddIntrinsicTest(env, 'llvm_bitmanip_intrinsics.c', '0',
                    golden_file=env.File('llvm_bitmanip_intrinsics.stdout'))
-  AddIntrinsicTest(env, 'llvm_math_intrinsics.c', '0',
-                   golden_file=env.File('llvm_math_intrinsics.stdout'))
-  # Also test the math functions with -ffast-math, so we are a tiny bit more
-  # confident that sin() or __builtin_sin() doesn't get turned into
-  # something like llvm.sin.f64.
-  fastmath_env = env.Clone()
-  fastmath_env.Append(CCFLAGS=['-ffast-math'])
-  AddIntrinsicTest(fastmath_env, 'llvm_math_intrinsics.c', '0',
-                   golden_file=env.File('llvm_math_intrinsics.stdout'),
-                   test_suffix='_fast_math')
+  for should_inline in [0, 1]:
+    AddIntrinsicTest(cpp11_env, 'overflow.cc', '0',
+                     test_suffix='inline' if should_inline else 'noinline',
+                     golden_file=env.File('overflow.stdout'),
+                     EXTRA_CCFLAGS='-DSHOULD_INLINE=' + str(should_inline),
+  # inline case is currently broken:
+  # https://code.google.com/p/nativeclient/issues/detail?id=4170
+                     is_broken=should_inline)
+  # The test depends on the llvm.fabs intrinsic which was only allowed
+  # with feature version 12.
+  if env['TOOLCHAIN_FEATURE_VERSION'] >= 12:
+    AddIntrinsicTest(env, 'llvm_math_intrinsics.c', '0',
+                     golden_file=env.File('llvm_math_intrinsics.stdout'))
+    # Also test the math functions with -ffast-math, so we are a tiny bit more
+    # confident that sin() or __builtin_sin() doesn't get turned into
+    # something like llvm.sin.f64.
+    fastmath_env = env.Clone()
+    fastmath_env.Append(CCFLAGS=['-ffast-math'])
+    AddIntrinsicTest(fastmath_env, 'llvm_math_intrinsics.c', '0',
+                     golden_file=env.File('llvm_math_intrinsics.stdout'),
+                     test_suffix='_fast_math')
 
 # Some of the intrinsic tests cover intrinsics that we do not want to
 # support. For example, llvm.frameaddress. If that is the case, we will
@@ -131,7 +130,7 @@ if env.Bit('bitcode') or env.Bit('nacl_clang'):
 nonstable_env = env.Clone()
 if env.Bit('bitcode'):
   nonstable_env.Append(LINKFLAGS=['--pnacl-disable-abi-check'])
-if nonstable_env.AllowNonStableBitcode():
+if nonstable_env.SetNonStableBitcodeIfAllowed():
   # Consider llvm.frameaddress and llvm.returnaddress non-stable,
   # since we may want to hide return and stack addresses in the future.
   AddIntrinsicTest(nonstable_env, 'frame_addresses.c', '0'),
@@ -183,7 +182,7 @@ env.AddNodeToTestSuite(
     # __attribute__((destructor)) is broken in nacl-glibc on x86-64.
     # See http://code.google.com/p/nativeclient/issues/detail?id=3056
     # TODO(mseaborn): Enable this test there when this is fixed.
-    is_broken=env.Bit('nacl_glibc') and env.Bit('target_x86_64'))
+    is_broken=env.Bit('nacl_glibc') and env.Bit('build_x86_64'))
 
 
 nexe = env.ComponentProgram('pthread_cleanup', 'pthread_cleanup.c',
@@ -210,8 +209,9 @@ node = env.CommandSelLdrTestNacl('cpp_threadsafe_static_init.out', nexe)
 env.AddNodeToTestSuite(node, ['toolchain_tests', 'small_tests'],
                        'run_cpp_threadsafe_static_init_test',
                        is_broken=(not env.Bit('bitcode') and
+                                  not env.Bit('nacl_clang') and
                                   not env.Bit('nacl_glibc') and
-                                  not env.Bit('target_x86_32')))
+                                  not env.Bit('build_x86_32')))
 
 
 # NOTE: the tests below break easily under valgrid and since
@@ -251,35 +251,27 @@ EH_ENVIRONMENTS_TO_TRY = []
 
 base_eh_env = env.Clone()
 
-supports_cxx11 = env.Bit('bitcode') or env.Bit('target_arm')
+supports_cxx11 = (env.Bit('bitcode') or env.Bit('build_arm') or
+                  env.Bit('nacl_clang'))
 base_eh_env.Append(CPPDEFINES=[['SUPPORTS_CXX11', str(int(supports_cxx11))]])
-if supports_cxx11:
+if supports_cxx11 and not env.Bit('bitcode') and not env.Bit('nacl_clang'):
   # This flag is necessary for testing std::rethrow_exception(), at
   # least when using libstdc++.
   base_eh_env.Append(CXXFLAGS=['-std=gnu++11'])
 
-if env.Bit('bitcode') and env['TOOLCHAIN_FEATURE_VERSION'] >= 1:
-  for lib in ('libstdc++', 'libc++'):
-    sjlj_eh_env = base_eh_env.Clone()
-    sjlj_eh_env.Append(LINKFLAGS=['--pnacl-exceptions=sjlj',
-                                  '-stdlib=%s' % lib])
-    sjlj_eh_env.Append(CCFLAGS=['-stdlib=%s' % lib])
-    # c++ is added to NONIRT_LIBS for clang to ensure that its dependence on
-    # pthreads can be satisfied by pthread_private instead of pthread. Filter it
-    # out here to ensure that we use libstdc++.
-    if lib == 'libstdc++':
-      sjlj_eh_env.FilterOut(NONIRT_LIBS=['c++'])
-    EH_ENVIRONMENTS_TO_TRY.append(('sjlj_%s' % lib, sjlj_eh_env))
-
 if env.Bit('bitcode'):
+  sjlj_eh_env = base_eh_env.Clone()
+  sjlj_eh_env.Append(LINKFLAGS=['--pnacl-exceptions=sjlj'])
+  EH_ENVIRONMENTS_TO_TRY.append(('sjlj_libc++', sjlj_eh_env))
   zerocost_eh_env = base_eh_env.Clone()
   zerocost_eh_env.Append(LINKFLAGS=['--pnacl-allow-exceptions'])
   zerocost_eh_env.Append(TRANSLATEFLAGS=['--pnacl-allow-exceptions'])
 else:
   zerocost_eh_env = base_eh_env
+
 # Zero-cost C++ exception handling is not currently supported in
 # PNaCl's stable ABI.
-if zerocost_eh_env.AllowNonStableBitcode():
+if zerocost_eh_env.SetNonStableBitcodeIfAllowed():
   EH_ENVIRONMENTS_TO_TRY.extend(
       [('noopt_frame', MakeEnv(zerocost_eh_env, False, True)),
        ('noopt_noframe', MakeEnv(zerocost_eh_env, False, False)),
@@ -348,7 +340,19 @@ for tag, env_to_try in EH_ENVIRONMENTS_TO_TRY:
 # Test that Exception Handling works with the calling conventions that
 # match the PPAPI PNaCl IRT shim's calling conventions.
 exc_env = env.Clone()
-if exc_env.Bit('bitcode') and exc_env.AllowNonStableBitcode():
+# Clear the --target= flags from CFLAGS because zerocost EH is the one nonpexe
+# feature that is really intended to work with portable bitcode. This means
+# that the test code bitcode has a different target triple than the other
+# scons-built code (e.g. libnacl) so the test should be careful in its use of
+# external calls.
+exc_env['BASE_CFLAGS'] = ''
+exc_env['BASE_CXXFLAGS'] = ''
+exc_env['BASE_LINKFLAGS'] = ''
+# Clearing NACL_SDK_LIB means that the crt files, newlib, and libcxx will be
+# le32 instead of biased.
+exc_env['NACL_SDK_LIB'] = ''
+
+if exc_env.Bit('bitcode') and exc_env.SetNonStableBitcodeIfAllowed():
   # Test what happens when all objects are bitcode w/ bitcode linking.
   exc_env.Append(LINKFLAGS=['--pnacl-allow-exceptions'])
   exc_env.Append(TRANSLATEFLAGS=['--pnacl-allow-exceptions'])
@@ -363,7 +367,20 @@ if exc_env.Bit('bitcode') and exc_env.AllowNonStableBitcode():
                                        nexe,
                                        exit_status='55')
   env.AddNodeToTestSuite(node, ['toolchain_tests', 'small_tests'],
-                         'run_eh_separate_files_bc_test')
+                         'run_eh_separate_files_bc_test',
+  # https://code.google.com/p/nativeclient/issues/detail?id=4171
+                         is_broken=env.Bit('build_arm'))
+
+  # Test that vararg functions which get double arguments work in
+  # allow-exceptions mode.
+  if exc_env['TOOLCHAIN_FEATURE_VERSION'] >= 10:
+    nexe = exc_env.ComponentProgram('vaarg_allow_exceptions',
+                                    'vaarg_allow_exceptions.cc',
+                                    EXTRA_LIBS=['${NONIRT_LIBS}'])
+    node = exc_env.CommandSelLdrTestNacl('vaarg_allow_exceptions.out', nexe)
+    env.AddNodeToTestSuite(node, ['toolchain_tests', 'small_tests'],
+                           'run_vaarg_allow_exceptions_test')
+
   # Also test ahead of time translation, which may be used when debugging.
   if not env.Bit('pnacl_generate_pexe'):
     native_env = exc_env.Clone()
@@ -401,7 +418,9 @@ if exc_env.Bit('bitcode') and exc_env.AllowNonStableBitcode():
                                             exit_status='55')
     env.AddNodeToTestSuite(node,
                            testsuite,
-                           'run_eh_separate_files_mixed2_test')
+                           'run_eh_separate_files_mixed2_test',
+    # https://code.google.com/p/nativeclient/issues/detail?id=4171
+                            is_broken=env.Bit('build_arm'))
 
 
 
@@ -447,7 +466,8 @@ debug_env.Append(CFLAGS=['-g', '-O0'])
 debug_env.Append(CCFLAGS=['-g', '-O0'])
 debug_env.Append(LINKFLAGS=['-O0'])
 # This requires preserving nonstable bitcode debug metadata.
-if debug_env.AllowNonStableBitcode():
+if ((debug_env.Bit('bitcode') and debug_env.SetNonStableBitcodeIfAllowed())
+    or debug_env.Bit('nacl_clang')):
   dwarf_local_var_nexe = debug_env.ComponentProgram(
       'dwarf_local_var',
       ['dwarf_local_var.c',
@@ -467,6 +487,27 @@ if debug_env.AllowNonStableBitcode():
   debug_env.AddNodeToTestSuite(node,
                                ['small_tests', 'toolchain_tests'],
                                'run_dwarf_local_var_objdump_test')
+  dwarf_method_ptr_nexe = debug_env.ComponentProgram(
+      'dwarf_method_ptr',
+      ['dwarf_method_ptr.cc'],
+      EXTRA_LIBS=['${NONIRT_LIBS}'])
+
+  # Sanity-check -- make sure it runs.
+  node = debug_env.CommandSelLdrTestNacl('dwarf_method_ptr_run.out',
+                                         dwarf_method_ptr_nexe,
+                                         exit_status=42)
+  debug_env.AddNodeToTestSuite(node,
+                               ['toolchain_tests', 'small_tests'],
+                               'run_dwarf_method_ptr_run_test')
+
+  file = debug_env.File('dwarf_method_ptr.cc')
+  node = debug_env.CommandTestFileDumpCheck('dwarf_method_ptr_objdump.out',
+                                            dwarf_method_ptr_nexe,
+                                            file,
+                                            '-W')
+  debug_env.AddNodeToTestSuite(node,
+                               ['small_tests', 'toolchain_tests'],
+                               'run_dwarf_method_ptr_objdump_test')
 
 if env.Bit('nacl_glibc'):
   nexe = env.ComponentProgram('byteswap64', 'byteswap64.c',
@@ -476,7 +517,8 @@ if env.Bit('nacl_glibc'):
                          ['toolchain_tests', 'small_tests'],
                          'run_byteswap64_test')
 
-if env.Bit('nacl_glibc') or not env.Bit('bitcode'):
+if ((env.Bit('nacl_glibc') or not env.Bit('bitcode'))
+    and not env.Bit('built_elsewhere')):
   def AddAlignedCodeTest(name, object_file):
     node = env.CommandTest(name + '.out',
                            ['${PYTHON}', env.File('aligned_code.py'),
@@ -504,7 +546,7 @@ c99_env = env.Clone()
 c99_env.Append(CFLAGS=['-std=c99'])
 # VLA test is broken on nacl-gcc x86-64 (segfaults in test_two_recursion()).
 # http://code.google.com/p/nativeclient/issues/detail?id=3527
-vla_is_broken = not env.Bit('bitcode') and env.Bit('target_x86_64')
+vla_is_broken = not env.Bit('bitcode') and env.Bit('build_x86_64')
 nexe = c99_env.ComponentProgram('vla', 'vla.c',
                                 EXTRA_LIBS=['${NONIRT_LIBS}'])
 node = env.CommandSelLdrTestNacl('vla.out', nexe,
@@ -541,7 +583,7 @@ if not env.Bit('pnacl_generate_pexe'):
   if not env.Bit('bitcode'):
     pic_env = asm_env.Clone()
     pic_env.Append(CFLAGS=['-fPIC'])
-    if pic_env.Bit('target_arm'):
+    if pic_env.Bit('build_arm'):
       pic_env.Append(LINKFLAGS=['-Wl,--pic-veneer'])
     nexe = pic_env.ComponentProgram('far_call_pic',
                                     FarCallObjects(pic_env, '_pic'),
@@ -581,7 +623,7 @@ node = env.CommandSelLdrTestNacl('wrap.out', nexe,
                                  stdout_golden=env.File('wrap.stdout'))
 env.AddNodeToTestSuite(node, ['toolchain_tests','small_tests'], 'run_wrap_test')
 
-if (env.Bit('target_x86_32') and env.Bit('bitcode') and
+if (env.Bit('build_x86_32') and env.Bit('bitcode') and
     not env.Bit('pnacl_generate_pexe') and
     env['TOOLCHAIN_FEATURE_VERSION'] >= 8):
   # This test compiles a file that will need to generate a call to a compiler-rt
@@ -618,3 +660,39 @@ if (env.Bit('target_x86_32') and env.Bit('bitcode') and
       node,
       ['nonpexe_tests', 'small_tests', 'toolchain_tests'],
       'run_stackalign_test')
+
+alt_env = env.Clone()
+if ((alt_env.Bit('bitcode') and alt_env.SetNonStableBitcodeIfAllowed())
+    or alt_env.Bit('nacl_clang')):
+  # We want to enable optimizations, to ensure "used" entrypoints
+  # are kept.
+  alt_env.Append(CFLAGS=['-O3'])
+  alt_env.Append(CCFLAGS=['-O3'])
+  alt_env.Append(LINKFLAGS=['-O3'])
+
+  exe = alt_env.ComponentProgram(
+      'llvm_used_globals',
+      ['llvm_used_globals.cc'],
+      EXTRA_LIBS=['${NONIRT_LIBS}'])
+
+  c_file = alt_env.File('llvm_used_globals.cc')
+  node = alt_env.CommandTestFileDumpCheck('llvm_used_globals_objdump.out',
+                                            exe,
+                                            c_file,
+                                            '-d')
+  alt_env.AddNodeToTestSuite(node,
+                               ['small_tests', 'toolchain_tests'],
+                               'run_llvm_used_globals_objdump_test')
+
+
+tf_env = env.Clone()
+if tf_env.Bit('bitcode') and tf_env.SetNonStableBitcodeIfAllowed():
+  tf_env.Append(TRANSLATEFLAGS=['-stream-bitcode', '-split-module=2'])
+  obj = tf_env.ComponentObject('aligned_code.trans.bc',
+                               'aligned_code.c')
+  pexe = tf_env.ComponentProgram('nonstable_streaming_bitcode', obj,
+                                 EXTRA_LIBS=['${NONIRT_LIBS}'])
+  node = tf_env.CommandSelLdrTestNacl('nonstable_streaming_bitcode.out', pexe)
+  tf_env.AddNodeToTestSuite(node,
+                            ['small_tests', 'toolchain_tests'],
+                            'run_nonstable_streaming_bitcode_test')

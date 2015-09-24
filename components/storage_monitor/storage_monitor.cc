@@ -134,7 +134,8 @@ void StorageMonitor::EjectDevice(
 }
 
 StorageMonitor::StorageMonitor()
-    : observer_list_(new ObserverListThreadSafe<RemovableStorageObserver>()),
+    : observer_list_(
+          new base::ObserverListThreadSafe<RemovableStorageObserver>()),
       initializing_(false),
       initialized_(false),
       transient_device_ids_(new TransientDeviceIds) {
@@ -172,7 +173,7 @@ void StorageMonitor::ProcessAttach(const StorageInfo& info) {
   DVLOG(1) << "StorageAttached id " << info.device_id();
   if (StorageInfo::IsRemovableDevice(info.device_id())) {
     observer_list_->Notify(
-        &RemovableStorageObserver::OnRemovableStorageAttached, info);
+        FROM_HERE, &RemovableStorageObserver::OnRemovableStorageAttached, info);
   }
 }
 
@@ -190,7 +191,7 @@ void StorageMonitor::ProcessDetach(const std::string& id) {
   DVLOG(1) << "StorageDetached for id " << id;
   if (StorageInfo::IsRemovableDevice(info.device_id())) {
     observer_list_->Notify(
-        &RemovableStorageObserver::OnRemovableStorageDetached, info);
+        FROM_HERE, &RemovableStorageObserver::OnRemovableStorageDetached, info);
   }
 }
 

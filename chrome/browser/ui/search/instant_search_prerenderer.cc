@@ -11,9 +11,11 @@
 #include "chrome/browser/search/instant_service.h"
 #include "chrome/browser/search/instant_service_factory.h"
 #include "chrome/browser/search/search.h"
+#include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/search/search_tab_helper.h"
-#include "components/omnibox/autocomplete_match.h"
+#include "components/omnibox/browser/autocomplete_match.h"
+#include "components/search_engines/template_url_service.h"
 
 namespace {
 
@@ -21,6 +23,16 @@ namespace {
 bool PageSupportsInstantSearch(content::WebContents* contents) {
   // Search results page supports Instant search.
   return SearchTabHelper::FromWebContents(contents)->IsSearchResultsPage();
+}
+
+// Returns true if |match| is associated with the default search provider.
+bool MatchIsFromDefaultSearchProvider(const AutocompleteMatch& match,
+                                      Profile* profile) {
+  DCHECK(profile);
+  TemplateURLService* template_url_service =
+      TemplateURLServiceFactory::GetForProfile(profile);
+  return match.GetTemplateURL(template_url_service, false) ==
+      template_url_service->GetDefaultSearchProvider();
 }
 
 }  // namespace
@@ -46,7 +58,7 @@ InstantSearchPrerenderer* InstantSearchPrerenderer::GetForProfile(
 }
 
 void InstantSearchPrerenderer::Init(
-    const content::SessionStorageNamespaceMap& session_storage_namespace_map,
+    content::SessionStorageNamespace* session_storage_namespace,
     const gfx::Size& size) {
   // TODO(kmadhusu): Enable Instant for Incognito profile.
   if (profile_->IsOffTheRecord())
@@ -59,12 +71,6 @@ void InstantSearchPrerenderer::Init(
   prerender::PrerenderManager* prerender_manager =
       prerender::PrerenderManagerFactory::GetForProfile(profile_);
   if (prerender_manager) {
-    content::SessionStorageNamespace* session_storage_namespace = NULL;
-    content::SessionStorageNamespaceMap::const_iterator it =
-        session_storage_namespace_map.find(std::string());
-    if (it != session_storage_namespace_map.end())
-      session_storage_namespace = it->second.get();
-
     prerender_handle_.reset(prerender_manager->AddPrerenderForInstant(
         prerender_url_, session_storage_namespace, size));
   }
@@ -137,6 +143,13 @@ bool InstantSearchPrerenderer::UsePrerenderedPage(
     return false;
   }
 
+  // Do not use prerendered page for renderer initiated search requests.
+  if (params->is_renderer_initiated &&
+      params->transition == ui::PAGE_TRANSITION_LINK) {
+    Cancel();
+    return false;
+  }
+
   bool success = prerender_manager->MaybeUsePrerenderedPage(
       prerender_contents()->GetURL(), params);
   prerender_handle_.reset();
@@ -145,7 +158,29 @@ bool InstantSearchPrerenderer::UsePrerenderedPage(
 
 bool InstantSearchPrerenderer::IsAllowed(const AutocompleteMatch& match,
                                          content::WebContents* source) const {
+  // We block prerendering for anything but search-type matches associated with
+  // the default search provider.
+  //
+  // This is more restrictive than necessary.  All that's really needed to be
+  // able to successfully prerender is that the |destination_url| of |match| be
+  // from the same origin and path as the default search engine, and the params
+  // to be sent to the server be a subset of the params we can pass to the
+  // prerenderer.  So for example, if we normally prerender search URLs like
+  // https://google.com/search?q=foo&x=bar, then any match with a URL like that,
+  // potentially with the q and/or x params omitted, is prerenderable.
+  //
+  // However, if the URL has other params _not_ normally in the prerendered URL,
+  // there's no way to pass them to the prerendered page, and worse, if the URL
+  // does something like specifying params in both the query and ref sections of
+  // the URL (as Google URLs often do), it can quickly become impossible to
+  // figure out how to correctly tease out the right param names and values to
+  // send.  Rather than try and write parsing code to deal with all these kinds
+  // of cases, for various different search engines, including accommodating
+  // changing behavior over time, we do the simple restriction described above.
+  // This handles the by-far-the-most-common cases while still being simple and
+  // maintainable.
   return source && AutocompleteMatch::IsSearchType(match.type) &&
+      MatchIsFromDefaultSearchProvider(match, profile_) &&
       !PageSupportsInstantSearch(source);
 }
 

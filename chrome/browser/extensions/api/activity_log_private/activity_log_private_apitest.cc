@@ -13,6 +13,10 @@
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
 
+#if defined(OS_MACOSX)
+#include "base/mac/mac_util.h"
+#endif
+
 using net::test_server::BasicHttpResponse;
 using net::test_server::HttpResponse;
 using net::test_server::HttpRequest;
@@ -21,16 +25,16 @@ namespace extensions {
 
 class ActivityLogApiTest : public ExtensionApiTest {
  public:
-  ActivityLogApiTest() : saved_cmdline_(CommandLine::NO_PROGRAM) {}
+  ActivityLogApiTest() : saved_cmdline_(base::CommandLine::NO_PROGRAM) {}
 
   ~ActivityLogApiTest() override {
     ExtensionApiTest::SetUpCommandLine(&saved_cmdline_);
-    *CommandLine::ForCurrentProcess() = saved_cmdline_;
+    *base::CommandLine::ForCurrentProcess() = saved_cmdline_;
   }
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionApiTest::SetUpCommandLine(command_line);
-    saved_cmdline_ = *CommandLine::ForCurrentProcess();
+    saved_cmdline_ = *base::CommandLine::ForCurrentProcess();
     command_line->AppendSwitch(switches::kEnableExtensionActivityLogging);
   }
 
@@ -43,7 +47,7 @@ class ActivityLogApiTest : public ExtensionApiTest {
   }
 
  private:
-  CommandLine saved_cmdline_;
+  base::CommandLine saved_cmdline_;
 };
 
 #if defined(OS_WIN) && !defined(NDEBUG)
@@ -56,6 +60,12 @@ class ActivityLogApiTest : public ExtensionApiTest {
 // The test extension sends a message to its 'friend'. The test completes
 // if it successfully sees the 'friend' receive the message.
 IN_PROC_BROWSER_TEST_F(ActivityLogApiTest, MAYBE_TriggerEvent) {
+#if defined(OS_MACOSX)
+  if (base::mac::IsOSSnowLeopard()) {
+    // This test flakes on 10.6 only. http://crbug.com/499176
+    return;
+  }
+#endif
   ActivityLog::GetInstance(profile())->SetWatchdogAppActiveForTesting(true);
 
   host_resolver()->AddRule("*", "127.0.0.1");

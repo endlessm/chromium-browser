@@ -6,9 +6,12 @@
 #define COMPONENTS_POLICY_CORE_COMMON_CLOUD_CLOUD_POLICY_CONSTANTS_H_
 
 #include <string>
-#include <utility>
 
 #include "components/policy/policy_export.h"
+
+namespace enterprise_management {
+class PolicyData;
+}
 
 namespace policy {
 
@@ -35,8 +38,12 @@ POLICY_EXPORT extern const char kValueRequestApiAuthorization[];
 POLICY_EXPORT extern const char kValueRequestUnregister[];
 POLICY_EXPORT extern const char kValueRequestUploadCertificate[];
 POLICY_EXPORT extern const char kValueRequestDeviceStateRetrieval[];
+POLICY_EXPORT extern const char kValueRequestUploadStatus[];
+POLICY_EXPORT extern const char kValueRequestRemoteCommands[];
 POLICY_EXPORT extern const char kValueUserAffiliationManaged[];
 POLICY_EXPORT extern const char kValueUserAffiliationNone[];
+POLICY_EXPORT extern const char kValueRequestDeviceAttributeUpdatePermission[];
+POLICY_EXPORT extern const char kValueRequestDeviceAttributeUpdate[];
 
 // Policy type strings for the policy_type field in PolicyFetchRequest.
 POLICY_EXPORT extern const char kChromeDevicePolicyType[];
@@ -110,26 +117,50 @@ enum DeviceManagementStatus {
 
 // List of modes that the device can be locked into.
 enum DeviceMode {
-  DEVICE_MODE_PENDING,         // The device mode is not yet available.
-  DEVICE_MODE_NOT_SET,         // The device is not yet enrolled or owned.
-  DEVICE_MODE_CONSUMER,        // The device is locally owned as consumer
-                               // device.
-  DEVICE_MODE_ENTERPRISE,      // The device is enrolled as an enterprise
-                               // device.
-  DEVICE_MODE_RETAIL_KIOSK,    // The device is enrolled as retail kiosk device.
+  DEVICE_MODE_PENDING,             // The device mode is not yet available.
+  DEVICE_MODE_NOT_SET,             // The device is not yet enrolled or owned.
+  DEVICE_MODE_CONSUMER,            // The device is locally owned as consumer
+                                   // device.
+  DEVICE_MODE_ENTERPRISE,          // The device is enrolled as an enterprise
+                                   // device.
+  DEVICE_MODE_LEGACY_RETAIL_MODE,  // The device is enrolled as a retail kiosk
+                                   // device. Even though retail mode is
+                                   // deprecated, we still check for this device
+                                   // mode so that if an existing device is
+                                   // still enrolled in retail mode, we take the
+                                   // appropriate action (currently, launching
+                                   // offline demo mode).
   DEVICE_MODE_CONSUMER_KIOSK_AUTOLAUNCH,  // The device is locally owned as
                                           // consumer kiosk with ability to auto
                                           // launch a kiosk webapp.
 };
-
-// A pair that combines a policy fetch type and entity ID.
-typedef std::pair<std::string, std::string> PolicyNamespaceKey;
 
 // Returns the Chrome user policy type to use. This allows overridding the
 // default user policy type on Android and iOS for testing purposes.
 // TODO(joaodasilva): remove this once the server is ready.
 // http://crbug.com/248527
 POLICY_EXPORT const char* GetChromeUserPolicyType();
+
+// An enum that indicates if a device that has a local owner, is enterprise-
+// managed, or is consumer-managed. This is a copy of ManagementMode in
+// PolicyData. See device_management_backend.proto for the explanation of each
+// mode.
+enum ManagementMode {
+  MANAGEMENT_MODE_LOCAL_OWNER = 0,
+  MANAGEMENT_MODE_ENTERPRISE_MANAGED = 1,
+  MANAGEMENT_MODE_CONSUMER_MANAGED = 2,
+};
+
+// Sets management mode field in the |policy_data|.
+POLICY_EXPORT void SetManagementMode(
+    enterprise_management::PolicyData& policy_data,
+    ManagementMode mode);
+
+// Returns the management mode of |policy_data|. You should use this function
+// instead of using |management_mode| in |policy_data| to handle legacy
+// |policy_data| that doesn't have |management_mode| set.
+POLICY_EXPORT ManagementMode GetManagementMode(
+    const enterprise_management::PolicyData& policy_data);
 
 }  // namespace policy
 

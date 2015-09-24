@@ -33,7 +33,6 @@ class ClipboardMac : public Clipboard {
   // Must be called on the UI thread.
   void Start(scoped_ptr<protocol::ClipboardStub> client_clipboard) override;
   void InjectClipboardEvent(const protocol::ClipboardEvent& event) override;
-  void Stop() override;
 
  private:
   void CheckClipboardForChanges();
@@ -51,7 +50,7 @@ ClipboardMac::ClipboardMac() : current_change_count_(0) {
 ClipboardMac::~ClipboardMac() {
   // In it2me the destructor is not called in the same thread that the timer is
   // created. Thus the timer must have already been destroyed by now.
-  DCHECK(clipboard_polling_timer_.get() == NULL);
+  DCHECK(clipboard_polling_timer_.get() == nullptr);
 }
 
 void ClipboardMac::Start(scoped_ptr<protocol::ClipboardStub> client_clipboard) {
@@ -88,11 +87,6 @@ void ClipboardMac::InjectClipboardEvent(const protocol::ClipboardEvent& event) {
   // Update local change-count to prevent this change from being picked up by
   // CheckClipboardForChanges.
   current_change_count_ = [[NSPasteboard generalPasteboard] changeCount];
-}
-
-void ClipboardMac::Stop() {
-  clipboard_polling_timer_.reset();
-  client_clipboard_.reset();
 }
 
 void ClipboardMac::CheckClipboardForChanges() {

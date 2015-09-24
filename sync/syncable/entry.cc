@@ -8,7 +8,6 @@
 
 #include "base/json/string_escape.h"
 #include "base/strings/string_util.h"
-#include "sync/syncable/blob.h"
 #include "sync/syncable/directory.h"
 #include "sync/syncable/syncable_base_transaction.h"
 #include "sync/syncable/syncable_columns.h"
@@ -60,6 +59,16 @@ base::DictionaryValue* Entry::ToValue(Cryptographer* cryptographer) const {
     entry_info->SetBoolean("isRoot", IsRoot());
   }
   return entry_info;
+}
+
+bool Entry::GetSyncing() const {
+    DCHECK(kernel_);
+    return kernel_->ref(SYNCING);
+}
+
+bool Entry::GetDirtySync() const {
+    DCHECK(kernel_);
+    return kernel_->ref(DIRTY_SYNC);
 }
 
 ModelType Entry::GetServerModelType() const {
@@ -123,13 +132,6 @@ bool Entry::ShouldMaintainPosition() const {
 
 bool Entry::ShouldMaintainHierarchy() const {
   return kernel_->ShouldMaintainHierarchy();
-}
-
-std::ostream& operator<<(std::ostream& s, const Blob& blob) {
-  for (Blob::const_iterator i = blob.begin(); i != blob.end(); ++i)
-    s << std::hex << std::setw(2)
-      << std::setfill('0') << static_cast<unsigned int>(*i);
-  return s << std::dec;
 }
 
 std::ostream& operator<<(std::ostream& os, const Entry& entry) {

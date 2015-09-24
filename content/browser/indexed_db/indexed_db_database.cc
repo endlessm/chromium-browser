@@ -5,12 +5,14 @@
 #include "content/browser/indexed_db/indexed_db_database.h"
 
 #include <math.h>
+#include <limits>
 #include <set>
 
 #include "base/auto_reset.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -21,13 +23,15 @@
 #include "content/browser/indexed_db/indexed_db_factory.h"
 #include "content/browser/indexed_db/indexed_db_index_writer.h"
 #include "content/browser/indexed_db/indexed_db_pending_connection.h"
+#include "content/browser/indexed_db/indexed_db_return_value.h"
 #include "content/browser/indexed_db/indexed_db_tracing.h"
 #include "content/browser/indexed_db/indexed_db_transaction.h"
 #include "content/browser/indexed_db/indexed_db_value.h"
+#include "content/common/indexed_db/indexed_db_constants.h"
 #include "content/common/indexed_db/indexed_db_key_path.h"
 #include "content/common/indexed_db/indexed_db_key_range.h"
 #include "storage/browser/blob/blob_data_handle.h"
-#include "third_party/WebKit/public/platform/WebIDBDatabaseException.h"
+#include "third_party/WebKit/public/platform/modules/indexeddb/WebIDBDatabaseException.h"
 #include "third_party/leveldatabase/env_chromium.h"
 
 using base::ASCIIToUTF16;
@@ -35,6 +39,34 @@ using base::Int64ToString16;
 using blink::WebIDBKeyTypeNumber;
 
 namespace content {
+
+namespace {
+
+// Used for WebCore.IndexedDB.Schema.ObjectStore.KeyPathType and
+// WebCore.IndexedDB.Schema.Index.KeyPathType histograms. Do not
+// modify (delete, re-order, renumber) these values other than
+// the _MAX value.
+enum HistogramIDBKeyPathType {
+  KEY_PATH_TYPE_NONE = 0,
+  KEY_PATH_TYPE_STRING = 1,
+  KEY_PATH_TYPE_ARRAY = 2,
+  KEY_PATH_TYPE_MAX = 3,  // Keep as last/max entry, for histogram range.
+};
+
+HistogramIDBKeyPathType HistogramKeyPathType(const IndexedDBKeyPath& key_path) {
+  switch (key_path.type()) {
+    case blink::WebIDBKeyPathTypeNull:
+      return KEY_PATH_TYPE_NONE;
+    case blink::WebIDBKeyPathTypeString:
+      return KEY_PATH_TYPE_STRING;
+    case blink::WebIDBKeyPathTypeArray:
+      return KEY_PATH_TYPE_ARRAY;
+  }
+  NOTREACHED();
+  return KEY_PATH_TYPE_NONE;
+}
+
+}  // namespace
 
 // PendingUpgradeCall has a scoped_ptr<IndexedDBConnection> because it owns the
 // in-progress connection.
@@ -279,6 +311,11 @@ void IndexedDBDatabase::CreateObjectStore(int64 transaction_id,
     return;
   }
 
+  UMA_HISTOGRAM_ENUMERATION("WebCore.IndexedDB.Schema.ObjectStore.KeyPathType",
+                            HistogramKeyPathType(key_path), KEY_PATH_TYPE_MAX);
+  UMA_HISTOGRAM_BOOLEAN("WebCore.IndexedDB.Schema.ObjectStore.AutoIncrement",
+                        auto_increment);
+
   // Store creation is done synchronously, as it may be followed by
   // index creation (also sync) since preemptive OpenCursor/SetIndexKeys
   // may follow.
@@ -302,7 +339,7 @@ void IndexedDBDatabase::CreateObjectStore(int64 transaction_id,
         ASCIIToUTF16("Internal error creating object store '") +
             object_store_metadata.name + ASCIIToUTF16("'."));
     transaction->Abort(error);
-    if (leveldb_env::IsCorruption(s))
+    if (s.IsCorruption())
       factory_->HandleBackingStoreCorruption(backing_store_->origin_url(),
                                              error);
     return;
@@ -348,6 +385,12 @@ void IndexedDBDatabase::CreateIndex(int64 transaction_id,
   if (!ValidateObjectStoreIdAndNewIndexId(object_store_id, index_id))
     return;
 
+  UMA_HISTOGRAM_ENUMERATION("WebCore.IndexedDB.Schema.Index.KeyPathType",
+                            HistogramKeyPathType(key_path), KEY_PATH_TYPE_MAX);
+  UMA_HISTOGRAM_BOOLEAN("WebCore.IndexedDB.Schema.Index.Unique", unique);
+  UMA_HISTOGRAM_BOOLEAN("WebCore.IndexedDB.Schema.Index.MultiEntry",
+                        multi_entry);
+
   // Index creation is done synchronously since preemptive
   // OpenCursor/SetIndexKeys may follow.
   const IndexedDBIndexMetadata index_metadata(
@@ -381,10 +424,8 @@ void IndexedDBDatabase::CreateIndexAbortOperation(
     int64 object_store_id,
     int64 index_id,
     IndexedDBTransaction* transaction) {
-  IDB_TRACE1("IndexedDBDatabase::CreateIndexAbortOperation",
-             "txn.id",
-             transaction->id());
   DCHECK(!transaction);
+  IDB_TRACE("IndexedDBDatabase::CreateIndexAbortOperation");
   RemoveIndex(object_store_id, index_id);
 }
 
@@ -429,7 +470,7 @@ void IndexedDBDatabase::DeleteIndexOperation(
     IndexedDBDatabaseError error(blink::WebIDBDatabaseExceptionUnknownError,
                                  error_string);
     transaction->Abort(error);
-    if (leveldb_env::IsCorruption(s))
+    if (s.IsCorruption())
       factory_->HandleBackingStoreCorruption(backing_store_->origin_url(),
                                              error);
     return;
@@ -448,9 +489,7 @@ void IndexedDBDatabase::DeleteIndexAbortOperation(
     const IndexedDBIndexMetadata& index_metadata,
     IndexedDBTransaction* transaction) {
   DCHECK(!transaction);
-  IDB_TRACE1("IndexedDBDatabase::DeleteIndexAbortOperation",
-             "txn.id",
-             transaction->id());
+  IDB_TRACE("IndexedDBDatabase::DeleteIndexAbortOperation");
   AddIndex(object_store_id, index_metadata, IndexedDBIndexMetadata::kInvalidId);
 }
 
@@ -488,6 +527,28 @@ void IndexedDBDatabase::Abort(int64 transaction_id,
   IndexedDBTransaction* transaction = GetTransaction(transaction_id);
   if (transaction)
     transaction->Abort(error);
+}
+
+void IndexedDBDatabase::GetAll(int64 transaction_id,
+                               int64 object_store_id,
+                               int64 index_id,
+                               scoped_ptr<IndexedDBKeyRange> key_range,
+                               bool key_only,
+                               int64 max_count,
+                               scoped_refptr<IndexedDBCallbacks> callbacks) {
+  IDB_TRACE1("IndexedDBDatabase::GetAll", "txn.id", transaction_id);
+  IndexedDBTransaction* transaction = GetTransaction(transaction_id);
+  if (!transaction)
+    return;
+
+  if (!ValidateObjectStoreId(object_store_id))
+    return;
+
+  transaction->ScheduleTask(base::Bind(
+      &IndexedDBDatabase::GetAllOperation, this, object_store_id, index_id,
+      Passed(&key_range),
+      key_only ? indexed_db::CURSOR_KEY_ONLY : indexed_db::CURSOR_KEY_AND_VALUE,
+      max_count, callbacks));
 }
 
 void IndexedDBDatabase::Get(int64 transaction_id,
@@ -571,7 +632,7 @@ void IndexedDBDatabase::GetOperation(
       DLOG(ERROR) << "Unable to open cursor operation: " << s.ToString();
       IndexedDBDatabaseError error(blink::WebIDBDatabaseExceptionUnknownError,
                                    "Internal error deleting data in range");
-      if (leveldb_env::IsCorruption(s)) {
+      if (s.IsCorruption()) {
         factory_->HandleBackingStoreCorruption(backing_store_->origin_url(),
                                                error);
       }
@@ -588,7 +649,7 @@ void IndexedDBDatabase::GetOperation(
   scoped_ptr<IndexedDBKey> primary_key;
   if (index_id == IndexedDBIndexMetadata::kInvalidId) {
     // Object Store Retrieval Operation
-    IndexedDBValue value;
+    IndexedDBReturnValue value;
     s = backing_store_->GetRecord(transaction->BackingStoreTransaction(),
                                   id(),
                                   object_store_id,
@@ -599,7 +660,7 @@ void IndexedDBDatabase::GetOperation(
                                    "Internal error in GetRecord.");
       callbacks->OnError(error);
 
-      if (leveldb_env::IsCorruption(s))
+      if (s.IsCorruption())
         factory_->HandleBackingStoreCorruption(backing_store_->origin_url(),
                                                error);
       return;
@@ -612,8 +673,8 @@ void IndexedDBDatabase::GetOperation(
 
     if (object_store_metadata.auto_increment &&
         !object_store_metadata.key_path.IsNull()) {
-      callbacks->OnSuccess(&value, *key, object_store_metadata.key_path);
-      return;
+      value.primary_key = *key;
+      value.key_path = object_store_metadata.key_path;
     }
 
     callbacks->OnSuccess(&value);
@@ -632,7 +693,7 @@ void IndexedDBDatabase::GetOperation(
     IndexedDBDatabaseError error(blink::WebIDBDatabaseExceptionUnknownError,
                                  "Internal error in GetPrimaryKeyViaIndex.");
     callbacks->OnError(error);
-    if (leveldb_env::IsCorruption(s))
+    if (s.IsCorruption())
       factory_->HandleBackingStoreCorruption(backing_store_->origin_url(),
                                              error);
     return;
@@ -648,7 +709,7 @@ void IndexedDBDatabase::GetOperation(
   }
 
   // Index Referenced Value Retrieval Operation
-  IndexedDBValue value;
+  IndexedDBReturnValue value;
   s = backing_store_->GetRecord(transaction->BackingStoreTransaction(),
                                 id(),
                                 object_store_id,
@@ -658,7 +719,7 @@ void IndexedDBDatabase::GetOperation(
     IndexedDBDatabaseError error(blink::WebIDBDatabaseExceptionUnknownError,
                                  "Internal error in GetRecord.");
     callbacks->OnError(error);
-    if (leveldb_env::IsCorruption(s))
+    if (s.IsCorruption())
       factory_->HandleBackingStoreCorruption(backing_store_->origin_url(),
                                              error);
     return;
@@ -670,10 +731,145 @@ void IndexedDBDatabase::GetOperation(
   }
   if (object_store_metadata.auto_increment &&
       !object_store_metadata.key_path.IsNull()) {
-    callbacks->OnSuccess(&value, *primary_key, object_store_metadata.key_path);
-    return;
+    value.primary_key = *primary_key;
+    value.key_path = object_store_metadata.key_path;
   }
   callbacks->OnSuccess(&value);
+}
+
+void IndexedDBDatabase::GetAllOperation(
+    int64 object_store_id,
+    int64 index_id,
+    scoped_ptr<IndexedDBKeyRange> key_range,
+    indexed_db::CursorType cursor_type,
+    int64 max_count,
+    scoped_refptr<IndexedDBCallbacks> callbacks,
+    IndexedDBTransaction* transaction) {
+  IDB_TRACE1("IndexedDBDatabase::GetAllOperation", "txn.id", transaction->id());
+
+  DCHECK_GT(max_count, 0);
+
+  DCHECK(metadata_.object_stores.find(object_store_id) !=
+         metadata_.object_stores.end());
+  const IndexedDBObjectStoreMetadata& object_store_metadata =
+      metadata_.object_stores[object_store_id];
+
+  leveldb::Status s;
+
+  scoped_ptr<IndexedDBBackingStore::Cursor> cursor;
+
+  if (cursor_type == indexed_db::CURSOR_KEY_ONLY) {
+    // Retrieving keys
+    if (index_id == IndexedDBIndexMetadata::kInvalidId) {
+      // Object Store: Key Retrieval Operation
+      cursor = backing_store_->OpenObjectStoreKeyCursor(
+          transaction->BackingStoreTransaction(), id(), object_store_id,
+          *key_range, blink::WebIDBCursorDirectionNext, &s);
+    } else {
+      // Index Value: (Primary Key) Retrieval Operation
+      cursor = backing_store_->OpenIndexKeyCursor(
+          transaction->BackingStoreTransaction(), id(), object_store_id,
+          index_id, *key_range, blink::WebIDBCursorDirectionNext, &s);
+    }
+  } else {
+    // Retrieving values
+    if (index_id == IndexedDBIndexMetadata::kInvalidId) {
+      // Object Store: Value Retrieval Operation
+      cursor = backing_store_->OpenObjectStoreCursor(
+          transaction->BackingStoreTransaction(), id(), object_store_id,
+          *key_range, blink::WebIDBCursorDirectionNext, &s);
+    } else {
+      // Object Store: Referenced Value Retrieval Operation
+      cursor = backing_store_->OpenIndexCursor(
+          transaction->BackingStoreTransaction(), id(), object_store_id,
+          index_id, *key_range, blink::WebIDBCursorDirectionNext, &s);
+    }
+  }
+
+  if (!s.ok()) {
+    DLOG(ERROR) << "Unable to open cursor operation: " << s.ToString();
+    IndexedDBDatabaseError error(blink::WebIDBDatabaseExceptionUnknownError,
+                                 "Internal error in GetAllOperation");
+    callbacks->OnError(error);
+    if (s.IsCorruption()) {
+      factory_->HandleBackingStoreCorruption(backing_store_->origin_url(),
+                                             error);
+    }
+    return;
+  }
+
+  std::vector<IndexedDBKey> found_keys;
+  std::vector<IndexedDBReturnValue> found_values;
+  if (!cursor) {
+    // Doesn't matter if key or value array here - will be empty array when it
+    // hits JavaScript.
+    callbacks->OnSuccessArray(&found_values, object_store_metadata.key_path);
+    return;
+  }
+
+  bool did_first_seek = false;
+  bool generated_key = object_store_metadata.auto_increment &&
+                       !object_store_metadata.key_path.IsNull();
+
+  size_t response_size = kMaxIDBMessageOverhead;
+  int64 num_found_items = 0;
+  while (num_found_items++ < max_count) {
+    bool cursor_valid;
+    if (did_first_seek) {
+      cursor_valid = cursor->Continue(&s);
+    } else {
+      cursor_valid = cursor->FirstSeek(&s);
+      did_first_seek = true;
+    }
+    if (!s.ok()) {
+      IndexedDBDatabaseError error(blink::WebIDBDatabaseExceptionUnknownError,
+                                   "Internal error in GetAllOperation.");
+      callbacks->OnError(error);
+      if (s.IsCorruption())
+        factory_->HandleBackingStoreCorruption(backing_store_->origin_url(),
+                                               error);
+      return;
+    }
+
+    if (!cursor_valid)
+      break;
+
+    IndexedDBReturnValue return_value;
+    IndexedDBKey return_key;
+
+    if (cursor_type == indexed_db::CURSOR_KEY_ONLY) {
+      return_key = cursor->primary_key();
+    } else {
+      // Retrieving values
+      return_value.swap(*cursor->value());
+      if (!return_value.empty() && generated_key) {
+        return_value.primary_key = cursor->primary_key();
+        return_value.key_path = object_store_metadata.key_path;
+      }
+    }
+
+    if (cursor_type == indexed_db::CURSOR_KEY_ONLY)
+      response_size += return_key.size_estimate();
+    else
+      response_size += return_value.SizeEstimate();
+    if (response_size > IPC::Channel::kMaximumMessageSize) {
+      // TODO(cmumford): Reach this limit more gracefully (crbug.com/478949)
+      break;
+    }
+
+    if (cursor_type == indexed_db::CURSOR_KEY_ONLY)
+      found_keys.push_back(return_key);
+    else
+      found_values.push_back(return_value);
+  }
+
+  if (cursor_type == indexed_db::CURSOR_KEY_ONLY) {
+    // IndexedDBKey already supports an array of values so we can leverage  this
+    // to return an array of keys - no need to create our own array of keys.
+    callbacks->OnSuccess(IndexedDBKey(found_keys));
+  } else {
+    callbacks->OnSuccessArray(&found_values, object_store_metadata.key_path);
+  }
 }
 
 static scoped_ptr<IndexedDBKey> GenerateKey(
@@ -804,7 +1000,7 @@ void IndexedDBDatabase::PutOperation(scoped_ptr<PutOperationParams> params,
       IndexedDBDatabaseError error(blink::WebIDBDatabaseExceptionUnknownError,
                                    "Internal error checking key existence.");
       params->callbacks->OnError(error);
-      if (leveldb_env::IsCorruption(s))
+      if (s.IsCorruption())
         factory_->HandleBackingStoreCorruption(backing_store_->origin_url(),
                                                error);
       return;
@@ -857,7 +1053,7 @@ void IndexedDBDatabase::PutOperation(scoped_ptr<PutOperationParams> params,
         blink::WebIDBDatabaseExceptionUnknownError,
         "Internal error: backing store error performing put/add.");
     params->callbacks->OnError(error);
-    if (leveldb_env::IsCorruption(s))
+    if (s.IsCorruption())
       factory_->HandleBackingStoreCorruption(backing_store_->origin_url(),
                                              error);
     return;
@@ -885,7 +1081,7 @@ void IndexedDBDatabase::PutOperation(scoped_ptr<PutOperationParams> params,
       IndexedDBDatabaseError error(blink::WebIDBDatabaseExceptionUnknownError,
                                    "Internal error updating key generator.");
       params->callbacks->OnError(error);
-      if (leveldb_env::IsCorruption(s))
+      if (s.IsCorruption())
         factory_->HandleBackingStoreCorruption(backing_store_->origin_url(),
                                                error);
       return;
@@ -920,7 +1116,7 @@ void IndexedDBDatabase::SetIndexKeys(int64 transaction_id,
     IndexedDBDatabaseError error(blink::WebIDBDatabaseExceptionUnknownError,
                                  "Internal error setting index keys.");
     transaction->Abort(error);
-    if (leveldb_env::IsCorruption(s))
+    if (s.IsCorruption())
       factory_->HandleBackingStoreCorruption(backing_store_->origin_url(),
                                              error);
     return;
@@ -1102,7 +1298,7 @@ void IndexedDBDatabase::OpenCursorOperation(
     DLOG(ERROR) << "Unable to open cursor operation: " << s.ToString();
     IndexedDBDatabaseError error(blink::WebIDBDatabaseExceptionUnknownError,
                                  "Internal error opening cursor operation");
-    if (leveldb_env::IsCorruption(s)) {
+    if (s.IsCorruption()) {
       factory_->HandleBackingStoreCorruption(backing_store_->origin_url(),
                                              error);
     }
@@ -1110,7 +1306,7 @@ void IndexedDBDatabase::OpenCursorOperation(
 
   if (!backing_store_cursor) {
     // Why is Success being called?
-    params->callbacks->OnSuccess(static_cast<IndexedDBValue*>(NULL));
+    params->callbacks->OnSuccess(nullptr);
     return;
   }
 
@@ -1177,7 +1373,7 @@ void IndexedDBDatabase::CountOperation(
     DLOG(ERROR) << "Unable perform count operation: " << s.ToString();
     IndexedDBDatabaseError error(blink::WebIDBDatabaseExceptionUnknownError,
                                  "Internal error performing count operation");
-    if (leveldb_env::IsCorruption(s)) {
+    if (s.IsCorruption()) {
       factory_->HandleBackingStoreCorruption(backing_store_->origin_url(),
                                              error);
     }
@@ -1235,7 +1431,7 @@ void IndexedDBDatabase::DeleteRangeOperation(
     IndexedDBDatabaseError error(blink::WebIDBDatabaseExceptionUnknownError,
                                  error_string);
     transaction->Abort(error);
-    if (leveldb_env::IsCorruption(s)) {
+    if (s.IsCorruption()) {
       factory_->HandleBackingStoreCorruption(backing_store_->origin_url(),
                                              error);
     }
@@ -1271,7 +1467,7 @@ void IndexedDBDatabase::ClearOperation(
     IndexedDBDatabaseError error(blink::WebIDBDatabaseExceptionUnknownError,
                                  "Internal error clearing object store");
     callbacks->OnError(error);
-    if (leveldb_env::IsCorruption(s)) {
+    if (s.IsCorruption()) {
       factory_->HandleBackingStoreCorruption(backing_store_->origin_url(),
                                              error);
     }
@@ -1300,7 +1496,7 @@ void IndexedDBDatabase::DeleteObjectStoreOperation(
     IndexedDBDatabaseError error(blink::WebIDBDatabaseExceptionUnknownError,
                                  error_string);
     transaction->Abort(error);
-    if (leveldb_env::IsCorruption(s))
+    if (s.IsCorruption())
       factory_->HandleBackingStoreCorruption(backing_store_->origin_url(),
                                              error);
     return;
@@ -1749,9 +1945,7 @@ void IndexedDBDatabase::CreateObjectStoreAbortOperation(
     int64 object_store_id,
     IndexedDBTransaction* transaction) {
   DCHECK(!transaction);
-  IDB_TRACE1("IndexedDBDatabase::CreateObjectStoreAbortOperation",
-             "txn.id",
-             transaction->id());
+  IDB_TRACE("IndexedDBDatabase::CreateObjectStoreAbortOperation");
   RemoveObjectStore(object_store_id);
 }
 
@@ -1759,9 +1953,7 @@ void IndexedDBDatabase::DeleteObjectStoreAbortOperation(
     const IndexedDBObjectStoreMetadata& object_store_metadata,
     IndexedDBTransaction* transaction) {
   DCHECK(!transaction);
-  IDB_TRACE1("IndexedDBDatabase::DeleteObjectStoreAbortOperation",
-             "txn.id",
-             transaction->id());
+  IDB_TRACE("IndexedDBDatabase::DeleteObjectStoreAbortOperation");
   AddObjectStore(object_store_metadata,
                  IndexedDBObjectStoreMetadata::kInvalidId);
 }
@@ -1771,9 +1963,7 @@ void IndexedDBDatabase::VersionChangeAbortOperation(
     int64 previous_int_version,
     IndexedDBTransaction* transaction) {
   DCHECK(!transaction);
-  IDB_TRACE1("IndexedDBDatabase::VersionChangeAbortOperation",
-             "txn.id",
-             transaction->id());
+  IDB_TRACE("IndexedDBDatabase::VersionChangeAbortOperation");
   metadata_.version = previous_version;
   metadata_.int_version = previous_int_version;
 }

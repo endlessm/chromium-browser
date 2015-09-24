@@ -11,7 +11,7 @@
 #include "ui/base/ime/composition_text.h"
 #include "ui/base/ime/text_input_mode.h"
 #include "ui/base/ime/text_input_type.h"
-#include "ui/base/ui_base_export.h"
+#include "ui/base/ime/ui_base_ime_export.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/range/range.h"
 
@@ -22,7 +22,7 @@ class Rect;
 namespace ui {
 
 // An interface implemented by a View that needs text input support.
-class UI_BASE_EXPORT TextInputClient {
+class UI_BASE_IME_EXPORT TextInputClient {
  public:
   virtual ~TextInputClient();
 
@@ -56,9 +56,6 @@ class UI_BASE_EXPORT TextInputClient {
   virtual void InsertChar(base::char16 ch, int flags) = 0;
 
   // Input context information -------------------------------------------------
-
-  // Returns native window to which input context is bound.
-  virtual gfx::NativeWindow GetAttachedWindow() const = 0;
 
   // Returns current text input type. It could be changed and even becomes
   // TEXT_INPUT_TYPE_NONE at runtime.
@@ -165,17 +162,15 @@ class UI_BASE_EXPORT TextInputClient {
   // http://crbug.com/360334
   virtual void EnsureCaretInRect(const gfx::Rect& rect) = 0;
 
-  // Called when IME shows a candidate window.
-  virtual void OnCandidateWindowShown() = 0;
-  // Called when IME updates any appearance of the current candidate window.
-  virtual void OnCandidateWindowUpdated() = 0;
-  // Called when IME hides the candidate window.
-  virtual void OnCandidateWindowHidden() = 0;
-
   // Returns true if |command_id| is currently allowed to be executed.
-  virtual bool IsEditingCommandEnabled(int command_id) = 0;
-  // Execute the command specified by |command_id|.
-  virtual void ExecuteEditingCommand(int command_id) = 0;
+  virtual bool IsEditCommandEnabled(int command_id) = 0;
+
+  // Execute the command specified by |command_id| on the next key event.
+  // This allows a TextInputClient to be informed of a platform-independent edit
+  // command that has been derived from the key event currently being dispatched
+  // (but not yet sent to the TextInputClient). The edit command will take into
+  // account any OS-specific, or user-specified, keybindings that may be set up.
+  virtual void SetEditCommandForNextKeyEvent(int command_id) = 0;
 };
 
 }  // namespace ui

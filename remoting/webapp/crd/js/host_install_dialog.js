@@ -27,16 +27,13 @@ remoting.HostInstallDialog = function() {
   this.continueInstallButton_.disabled = false;
   this.cancelInstallButton_.disabled = false;
 
-  /** @private*/
+  /** @private {function():void} */
   this.onDoneHandler_ = function() {};
 
-  /** @param {remoting.Error} error @private */
+  /** @private {function(!remoting.Error):void} */
   this.onErrorHandler_ = function(error) {};
 
-  /**
-   * @type {remoting.HostInstaller}
-   * @private
-   */
+  /** @private {remoting.HostInstaller} */
   this.hostInstaller_ = new remoting.HostInstaller();
 };
 
@@ -46,7 +43,7 @@ remoting.HostInstallDialog = function() {
  * @param {function():void} onDone Callback called when user clicks Ok,
  * presumably after installing the host. The handler must verify that the host
  * has been installed and call tryAgain() otherwise.
- * @param {function(remoting.Error):void} onError Callback called when user
+ * @param {function(!remoting.Error):void} onError Callback called when user
  *    clicks Cancel button or there is some other unexpected error.
  * @return {void}
  */
@@ -57,10 +54,8 @@ remoting.HostInstallDialog.prototype.show = function(onDone, onError) {
       'click', this.onCancelClickedHandler_, false);
   remoting.setMode(remoting.AppMode.HOST_INSTALL_PROMPT);
 
-  /** @type {function():void} */
   this.onDoneHandler_ = onDone;
 
-  /** @type {function(remoting.Error):void} */
   this.onErrorHandler_ = onError;
 
   /** @type {remoting.HostInstaller} */
@@ -73,7 +68,7 @@ remoting.HostInstallDialog.prototype.show = function(onDone, onError) {
     that.continueInstallButton_.click();
     that.hostInstaller_.cancel();
   }, function(){
-    that.onErrorHandler_(remoting.Error.CANCELLED);
+    that.onErrorHandler_(new remoting.Error(remoting.Error.Tag.CANCELLED));
     that.hostInstaller_.cancel();
   });
 };
@@ -108,7 +103,7 @@ remoting.HostInstallDialog.prototype.onCancelClicked_ = function() {
   this.cancelInstallButton_.removeEventListener(
       'click', this.onCancelClickedHandler_, false);
   this.hostInstaller_.cancel();
-  this.onErrorHandler_(remoting.Error.CANCELLED);
+  this.onErrorHandler_(new remoting.Error(remoting.Error.Tag.CANCELLED));
 };
 
 remoting.HostInstallDialog.prototype.onRetryClicked_ = function() {

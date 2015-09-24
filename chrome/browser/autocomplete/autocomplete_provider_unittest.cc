@@ -2,34 +2,38 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "components/omnibox/autocomplete_provider.h"
+#include "components/omnibox/browser/autocomplete_provider.h"
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/location.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/autocomplete/autocomplete_controller.h"
+#include "base/thread_task_runner_handle.h"
+#include "chrome/browser/autocomplete/chrome_autocomplete_provider_client.h"
 #include "chrome/browser/autocomplete/chrome_autocomplete_scheme_classifier.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/metrics/proto/omnibox_event.pb.h"
-#include "components/omnibox/autocomplete_input.h"
-#include "components/omnibox/autocomplete_match.h"
-#include "components/omnibox/autocomplete_provider_listener.h"
-#include "components/omnibox/keyword_provider.h"
-#include "components/omnibox/search_provider.h"
+#include "components/omnibox/browser/autocomplete_controller.h"
+#include "components/omnibox/browser/autocomplete_input.h"
+#include "components/omnibox/browser/autocomplete_match.h"
+#include "components/omnibox/browser/autocomplete_provider_listener.h"
+#include "components/omnibox/browser/keyword_provider.h"
+#include "components/omnibox/browser/search_provider.h"
 #include "components/search_engines/search_engines_switches.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/notification_source.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 static std::ostream& operator<<(std::ostream& os,
@@ -82,12 +86,14 @@ class TestProvider : public AutocompleteProvider {
   const base::string16 match_keyword_;
 };
 
-void TestProvider::Start(const AutocompleteInput& input,
-                         bool minimal_changes) {
+void TestProvider::Start(const AutocompleteInput& input, bool minimal_changes) {
   if (minimal_changes)
     return;
 
   matches_.clear();
+
+  if (input.from_omnibox_focus())
+    return;
 
   // Generate 4 results synchronously, the rest later.
   AddResults(0, 1);
@@ -103,7 +109,7 @@ void TestProvider::Start(const AutocompleteInput& input,
 
   if (input.want_asynchronous_matches()) {
     done_ = false;
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(&TestProvider::Run, this));
   }
 }
@@ -209,8 +215,18 @@ class AutocompleteProviderTest : public testing::Test,
   GURL GetDestinationURL(AutocompleteMatch match,
                          base::TimeDelta query_formulation_time) const;
 
+  void set_search_provider_field_trial_triggered_in_session(bool val) {
+    controller_->search_provider_->set_field_trial_triggered_in_session(val);
+  }
+  bool search_provider_field_trial_triggered_in_session() {
+    return controller_->search_provider_->field_trial_triggered_in_session();
+  }
+  void set_current_page_classification(
+      metrics::OmniboxEventProto::PageClassification classification) {
+    controller_->input_.current_page_classification_ = classification;
+  }
+
   AutocompleteResult result_;
-  scoped_ptr<AutocompleteController> controller_;
 
  private:
   // content::NotificationObserver:
@@ -218,9 +234,10 @@ class AutocompleteProviderTest : public testing::Test,
                const content::NotificationSource& source,
                const content::NotificationDetails& details) override;
 
-  base::MessageLoopForUI message_loop_;
+  content::TestBrowserThreadBundle thread_bundle_;
   content::NotificationRegistrar registrar_;
   TestingProfile profile_;
+  scoped_ptr<AutocompleteController> controller_;
 };
 
 void AutocompleteProviderTest::RegisterTemplateURL(
@@ -232,6 +249,7 @@ void AutocompleteProviderTest::RegisterTemplateURL(
   }
   TemplateURLData data;
   data.SetURL(template_url);
+  data.SetShortName(keyword);
   data.SetKeyword(keyword);
   TemplateURL* default_t_url = new TemplateURL(data);
   TemplateURLService* turl_model =
@@ -280,7 +298,9 @@ void AutocompleteProviderTest::ResetControllerWithTestProviders(
 
   // Reset the controller to contain our new providers.
   controller_.reset(new AutocompleteController(
-      &profile_, TemplateURLServiceFactory::GetForProfile(&profile_), NULL, 0));
+
+      make_scoped_ptr(new ChromeAutocompleteProviderClient(&profile_)), NULL,
+      0));
   // We're going to swap the providers vector, but the old vector should be
   // empty so no elements need to be freed at this point.
   EXPECT_TRUE(controller_->providers_.empty());
@@ -307,6 +327,8 @@ void AutocompleteProviderTest::
 
   // Reset the default TemplateURL.
   TemplateURLData data;
+  data.SetShortName(base::ASCIIToUTF16("default"));
+  data.SetKeyword(base::ASCIIToUTF16("default"));
   data.SetURL("http://defaultturl/{searchTerms}");
   TemplateURL* default_t_url = new TemplateURL(data);
   TemplateURLService* turl_model =
@@ -318,7 +340,7 @@ void AutocompleteProviderTest::
 
   // Create another TemplateURL for KeywordProvider.
   TemplateURLData data2;
-  data2.short_name = base::ASCIIToUTF16("k");
+  data2.SetShortName(base::ASCIIToUTF16("k"));
   data2.SetKeyword(base::ASCIIToUTF16("k"));
   data2.SetURL("http://keyword/{searchTerms}");
   TemplateURL* keyword_t_url = new TemplateURL(data2);
@@ -326,7 +348,8 @@ void AutocompleteProviderTest::
   ASSERT_NE(0, keyword_t_url->id());
 
   controller_.reset(new AutocompleteController(
-      &profile_, TemplateURLServiceFactory::GetForProfile(&profile_), NULL,
+
+      make_scoped_ptr(new ChromeAutocompleteProviderClient(&profile_)), NULL,
       AutocompleteProvider::TYPE_KEYWORD | AutocompleteProvider::TYPE_SEARCH));
 }
 
@@ -339,7 +362,7 @@ void AutocompleteProviderTest::ResetControllerWithKeywordProvider() {
 
   // Create a TemplateURL for KeywordProvider.
   TemplateURLData data;
-  data.short_name = base::ASCIIToUTF16("foo.com");
+  data.SetShortName(base::ASCIIToUTF16("foo.com"));
   data.SetKeyword(base::ASCIIToUTF16("foo.com"));
   data.SetURL("http://foo.com/{searchTerms}");
   TemplateURL* keyword_t_url = new TemplateURL(data);
@@ -348,7 +371,7 @@ void AutocompleteProviderTest::ResetControllerWithKeywordProvider() {
 
   // Make a TemplateURL for KeywordProvider that a shorter version of the
   // first.
-  data.short_name = base::ASCIIToUTF16("f");
+  data.SetShortName(base::ASCIIToUTF16("f"));
   data.SetKeyword(base::ASCIIToUTF16("f"));
   data.SetURL("http://f.com/{searchTerms}");
   keyword_t_url = new TemplateURL(data);
@@ -356,7 +379,7 @@ void AutocompleteProviderTest::ResetControllerWithKeywordProvider() {
   ASSERT_NE(0, keyword_t_url->id());
 
   // Create another TemplateURL for KeywordProvider.
-  data.short_name = base::ASCIIToUTF16("bar.com");
+  data.SetShortName(base::ASCIIToUTF16("bar.com"));
   data.SetKeyword(base::ASCIIToUTF16("bar.com"));
   data.SetURL("http://bar.com/{searchTerms}");
   keyword_t_url = new TemplateURL(data);
@@ -364,7 +387,7 @@ void AutocompleteProviderTest::ResetControllerWithKeywordProvider() {
   ASSERT_NE(0, keyword_t_url->id());
 
   controller_.reset(new AutocompleteController(
-      &profile_, TemplateURLServiceFactory::GetForProfile(&profile_), NULL,
+      make_scoped_ptr(new ChromeAutocompleteProviderClient(&profile_)), NULL,
       AutocompleteProvider::TYPE_KEYWORD));
 }
 
@@ -386,12 +409,13 @@ void AutocompleteProviderTest::RunKeywordTest(const base::string16& input,
     matches.push_back(match);
   }
 
-  AutocompleteResult result;
-  result.AppendMatches(matches);
   controller_->input_ = AutocompleteInput(
       input, base::string16::npos, std::string(), GURL(),
       metrics::OmniboxEventProto::INSTANT_NTP_WITH_OMNIBOX_AS_STARTING_FOCUS,
-      false, true, true, true, ChromeAutocompleteSchemeClassifier(&profile_));
+      false, true, true, true, false,
+      ChromeAutocompleteSchemeClassifier(&profile_));
+  AutocompleteResult result;
+  result.AppendMatches(controller_->input_, matches);
   controller_->UpdateAssociatedKeywords(&result);
 
   for (size_t j = 0; j < result.size(); ++j) {
@@ -418,7 +442,7 @@ void AutocompleteProviderTest::RunAssistedQueryStatsTest(
     matches.push_back(match);
   }
   result_.Reset();
-  result_.AppendMatches(matches);
+  result_.AppendMatches(AutocompleteInput(), matches);
 
   // Update AQS.
   controller_->UpdateAssistedQueryStats(&result_);
@@ -434,7 +458,7 @@ void AutocompleteProviderTest::RunQuery(const base::string16 query) {
   result_.Reset();
   controller_->Start(AutocompleteInput(
       query, base::string16::npos, std::string(), GURL(),
-      metrics::OmniboxEventProto::INVALID_SPEC, true, false, true, true,
+      metrics::OmniboxEventProto::INVALID_SPEC, true, false, true, true, false,
       ChromeAutocompleteSchemeClassifier(&profile_)));
 
   if (!controller_->done())
@@ -454,7 +478,7 @@ void AutocompleteProviderTest::RunExactKeymatchTest(
   controller_->Start(AutocompleteInput(
       base::ASCIIToUTF16("k test"), base::string16::npos, std::string(), GURL(),
       metrics::OmniboxEventProto::INVALID_SPEC, true, false,
-      allow_exact_keyword_match, false,
+      allow_exact_keyword_match, false, false,
       ChromeAutocompleteSchemeClassifier(&profile_)));
   EXPECT_TRUE(controller_->done());
   EXPECT_EQ(AutocompleteProvider::TYPE_SEARCH,
@@ -545,7 +569,7 @@ TEST_F(AutocompleteProviderTest, AllowExactKeywordMatch) {
 // query params set on the command line.
 TEST_F(AutocompleteProviderTest, ExtraQueryParams) {
   ResetControllerWithKeywordAndSearchProviders();
-  CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
       switches::kExtraSearchQueryParams, "a=b");
   RunExactKeymatchTest(true);
   CopyResults();
@@ -712,25 +736,21 @@ TEST_F(AutocompleteProviderTest, GetDestinationURL) {
   EXPECT_EQ("//aqs=chrome.0.69i57j69i58j5l2j0l3j69i59.2456j0j0&", url.path());
 
   // Test field trial triggered bit set.
-  controller_->search_provider_->field_trial_triggered_in_session_ = true;
-  EXPECT_TRUE(
-      controller_->search_provider_->field_trial_triggered_in_session());
+  set_search_provider_field_trial_triggered_in_session(true);
+  EXPECT_TRUE(search_provider_field_trial_triggered_in_session());
   url = GetDestinationURL(match, base::TimeDelta::FromMilliseconds(2456));
   EXPECT_EQ("//aqs=chrome.0.69i57j69i58j5l2j0l3j69i59.2456j1j0&", url.path());
 
   // Test page classification set.
-  controller_->input_.current_page_classification_ =
-      metrics::OmniboxEventProto::OTHER;
-  controller_->search_provider_->field_trial_triggered_in_session_ = false;
-  EXPECT_FALSE(
-      controller_->search_provider_->field_trial_triggered_in_session());
+  set_current_page_classification(metrics::OmniboxEventProto::OTHER);
+  set_search_provider_field_trial_triggered_in_session(false);
+  EXPECT_FALSE(search_provider_field_trial_triggered_in_session());
   url = GetDestinationURL(match, base::TimeDelta::FromMilliseconds(2456));
   EXPECT_EQ("//aqs=chrome.0.69i57j69i58j5l2j0l3j69i59.2456j0j4&", url.path());
 
   // Test page classification and field trial triggered set.
-  controller_->search_provider_->field_trial_triggered_in_session_ = true;
-  EXPECT_TRUE(
-      controller_->search_provider_->field_trial_triggered_in_session());
+  set_search_provider_field_trial_triggered_in_session(true);
+  EXPECT_TRUE(search_provider_field_trial_triggered_in_session());
   url = GetDestinationURL(match, base::TimeDelta::FromMilliseconds(2456));
   EXPECT_EQ("//aqs=chrome.0.69i57j69i58j5l2j0l3j69i59.2456j1j4&", url.path());
 }

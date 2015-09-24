@@ -4,8 +4,8 @@
 
 #include "content/renderer/media/rtc_video_renderer.h"
 
-#include "base/debug/trace_event.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/thread_task_runner_handle.h"
+#include "base/trace_event/trace_event.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/video_frame.h"
 #include "media/base/video_util.h"
@@ -20,7 +20,7 @@ RTCVideoRenderer::RTCVideoRenderer(
     const RepaintCB& repaint_cb)
     : error_cb_(error_cb),
       repaint_cb_(repaint_cb),
-      message_loop_proxy_(base::MessageLoopProxy::current()),
+      task_runner_(base::ThreadTaskRunnerHandle::Get()),
       state_(STOPPED),
       frame_size_(kMinFrameSize, kMinFrameSize),
       video_track_(video_track),
@@ -31,7 +31,7 @@ RTCVideoRenderer::~RTCVideoRenderer() {
 }
 
 void RTCVideoRenderer::Start() {
-  DCHECK(message_loop_proxy_->BelongsToCurrentThread());
+  DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK_EQ(state_, STOPPED);
 
   AddToVideoTrack(
@@ -51,7 +51,7 @@ void RTCVideoRenderer::Start() {
 }
 
 void RTCVideoRenderer::Stop() {
-  DCHECK(message_loop_proxy_->BelongsToCurrentThread());
+  DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK(state_ == STARTED || state_ == PAUSED);
   RemoveFromVideoTrack(this, video_track_);
   weak_factory_.InvalidateWeakPtrs();
@@ -61,34 +61,30 @@ void RTCVideoRenderer::Stop() {
 }
 
 void RTCVideoRenderer::Play() {
-  DCHECK(message_loop_proxy_->BelongsToCurrentThread());
-  if (state_ == PAUSED) {
+  DCHECK(task_runner_->BelongsToCurrentThread());
+  if (state_ == PAUSED)
     state_ = STARTED;
-  }
 }
 
 void RTCVideoRenderer::Pause() {
-  DCHECK(message_loop_proxy_->BelongsToCurrentThread());
-  if (state_ == STARTED) {
+  DCHECK(task_runner_->BelongsToCurrentThread());
+  if (state_ == STARTED)
     state_ = PAUSED;
-  }
 }
 
 void RTCVideoRenderer::OnReadyStateChanged(
     blink::WebMediaStreamSource::ReadyState state) {
-  DCHECK(message_loop_proxy_->BelongsToCurrentThread());
+  DCHECK(task_runner_->BelongsToCurrentThread());
   if (state == blink::WebMediaStreamSource::ReadyStateEnded)
     RenderSignalingFrame();
 }
 
 void RTCVideoRenderer::OnVideoFrame(
     const scoped_refptr<media::VideoFrame>& frame,
-    const media::VideoCaptureFormat& format,
     const base::TimeTicks& estimated_capture_time) {
-  DCHECK(message_loop_proxy_->BelongsToCurrentThread());
-  if (state_ != STARTED) {
+  DCHECK(task_runner_->BelongsToCurrentThread());
+  if (state_ != STARTED)
     return;
-  }
 
   frame_size_ = frame->natural_size();
 
@@ -109,7 +105,7 @@ void RTCVideoRenderer::RenderSignalingFrame() {
   // originates from a video camera.
   scoped_refptr<media::VideoFrame> video_frame =
       media::VideoFrame::CreateBlackFrame(frame_size_);
-  OnVideoFrame(video_frame, media::VideoCaptureFormat(), base::TimeTicks());
+  OnVideoFrame(video_frame, base::TimeTicks());
 }
 
 }  // namespace content

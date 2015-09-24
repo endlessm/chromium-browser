@@ -17,21 +17,16 @@ class GestureRecognizerImplMac : public GestureRecognizer {
   ~GestureRecognizerImplMac() override {}
 
  private:
-  bool ProcessTouchEventPreDispatch(const TouchEvent& event,
+  bool ProcessTouchEventPreDispatch(TouchEvent* event,
                                     GestureConsumer* consumer) override {
     return false;
   }
 
-  Gestures* ProcessTouchEventPostDispatch(const TouchEvent& event,
-                                          ui::EventResult result,
-                                          GestureConsumer* consumer) override {
+  Gestures* AckTouchEvent(uint32 unique_event_id,
+                          ui::EventResult result,
+                          GestureConsumer* consumer) override {
     return NULL;
   }
-  Gestures* ProcessTouchEventOnAsyncAck(const TouchEvent& event,
-                                        ui::EventResult result,
-                                        GestureConsumer* consumer) override {
-    return NULL;
-  };
   bool CleanupStateForConsumer(GestureConsumer* consumer) override {
     return false;
   }
@@ -46,6 +41,7 @@ class GestureRecognizerImplMac : public GestureRecognizer {
                                         int source_device_id) override {
     return NULL;
   }
+  void CancelActiveTouchesExcept(GestureConsumer* not_cancelled) override {}
   void TransferEventsTo(GestureConsumer* current_consumer,
                         GestureConsumer* new_consumer) override {}
   bool GetLastTouchPointForTarget(GestureConsumer* consumer,

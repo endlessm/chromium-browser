@@ -5,64 +5,57 @@
 #include "chrome/browser/extensions/api/webstore_private/webstore_private_api.h"
 
 #include "base/bind_helpers.h"
-#include "base/command_line.h"
 #include "base/lazy_instance.h"
 #include "base/memory/scoped_vector.h"
 #include "base/metrics/histogram.h"
 #include "base/prefs/pref_service.h"
-#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
-#include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "base/version.h"
-#include "chrome/browser/about_flags.h"
 #include "chrome/browser/apps/ephemeral_app_launcher.h"
-#include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/bitmap_fetcher/bitmap_fetcher.h"
 #include "chrome/browser/extensions/crx_installer.h"
 #include "chrome/browser/extensions/extension_install_ui_util.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/install_tracker.h"
-#include "chrome/browser/extensions/webstore_installer.h"
 #include "chrome/browser/gpu/gpu_feature_checker.h"
-#include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/sync/profile_sync_service.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/ui/app_list/app_list_service.h"
 #include "chrome/browser/ui/app_list/app_list_util.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
 #include "components/crx_file/id_util.h"
-#include "content/public/browser/gpu_data_manager.h"
-#include "content/public/browser/notification_details.h"
-#include "content/public/browser/notification_source.h"
+#include "components/signin/core/browser/signin_manager.h"
 #include "content/public/browser/web_contents.h"
-#include "extensions/browser/extension_function_dispatcher.h"
-#include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/extension_util.h"
-#include "extensions/common/error_utils.h"
 #include "extensions/common/extension.h"
-#include "ui/base/l10n/l10n_util.h"
-
-using content::GpuDataManager;
+#include "net/base/load_flags.h"
+#include "net/url_request/url_request.h"
+#include "url/gurl.h"
 
 namespace extensions {
 
 namespace BeginInstallWithManifest3 =
     api::webstore_private::BeginInstallWithManifest3;
-namespace GetEphemeralAppsEnabled =
-    api::webstore_private::GetEphemeralAppsEnabled;
 namespace CompleteInstall = api::webstore_private::CompleteInstall;
 namespace GetBrowserLogin = api::webstore_private::GetBrowserLogin;
+namespace GetEphemeralAppsEnabled =
+    api::webstore_private::GetEphemeralAppsEnabled;
 namespace GetIsLauncherEnabled = api::webstore_private::GetIsLauncherEnabled;
 namespace GetStoreLogin = api::webstore_private::GetStoreLogin;
 namespace GetWebGLStatus = api::webstore_private::GetWebGLStatus;
+namespace InstallBundle = api::webstore_private::InstallBundle;
 namespace IsInIncognitoMode = api::webstore_private::IsInIncognitoMode;
 namespace LaunchEphemeralApp = api::webstore_private::LaunchEphemeralApp;
-namespace LaunchEphemeralAppResult = LaunchEphemeralApp::Results;
 namespace SetStoreLogin = api::webstore_private::SetStoreLogin;
+namespace ShowPermissionPromptForDelegatedInstall =
+    api::webstore_private::ShowPermissionPromptForDelegatedInstall;
+namespace ShowPermissionPromptForDelegatedBundleInstall =
+    api::webstore_private::ShowPermissionPromptForDelegatedBundleInstall;
 
 namespace {
 
@@ -110,15 +103,72 @@ chrome::HostDesktopType GetHostDesktopTypeForWebContents(
       contents->GetTopLevelNativeWindow());
 }
 
+api::webstore_private::Result WebstoreInstallResultToApiResult(
+    webstore_install::Result result) {
+  switch (result) {
+    case webstore_install::SUCCESS:
+      return api::webstore_private::RESULT_SUCCESS;
+    case webstore_install::OTHER_ERROR:
+      return api::webstore_private::RESULT_UNKNOWN_ERROR;
+    case webstore_install::INVALID_ID:
+      return api::webstore_private::RESULT_INVALID_ID;
+    case webstore_install::NOT_PERMITTED:
+    case webstore_install::WEBSTORE_REQUEST_ERROR:
+    case webstore_install::INVALID_WEBSTORE_RESPONSE:
+      return api::webstore_private::RESULT_INSTALL_ERROR;
+    case webstore_install::INVALID_MANIFEST:
+      return api::webstore_private::RESULT_MANIFEST_ERROR;
+    case webstore_install::ICON_ERROR:
+      return api::webstore_private::RESULT_ICON_ERROR;
+    case webstore_install::ABORTED:
+    case webstore_install::USER_CANCELLED:
+      return api::webstore_private::RESULT_USER_CANCELLED;
+    case webstore_install::BLACKLISTED:
+      return api::webstore_private::RESULT_BLACKLISTED;
+    case webstore_install::MISSING_DEPENDENCIES:
+    case webstore_install::REQUIREMENT_VIOLATIONS:
+      return api::webstore_private::RESULT_MISSING_DEPENDENCIES;
+    case webstore_install::BLOCKED_BY_POLICY:
+      return api::webstore_private::RESULT_BLOCKED_BY_POLICY;
+    case webstore_install::LAUNCH_FEATURE_DISABLED:
+      return api::webstore_private::RESULT_FEATURE_DISABLED;
+    case webstore_install::LAUNCH_UNSUPPORTED_EXTENSION_TYPE:
+      return api::webstore_private::RESULT_UNSUPPORTED_EXTENSION_TYPE;
+    case webstore_install::INSTALL_IN_PROGRESS:
+      return api::webstore_private::RESULT_INSTALL_IN_PROGRESS;
+    case webstore_install::LAUNCH_IN_PROGRESS:
+      return api::webstore_private::RESULT_LAUNCH_IN_PROGRESS;
+  }
+  NOTREACHED();
+  return api::webstore_private::RESULT_NONE;
+}
+
+api::webstore_private::Result WebstoreInstallHelperResultToApiResult(
+    WebstoreInstallHelper::Delegate::InstallHelperResultCode result) {
+  switch (result) {
+    case WebstoreInstallHelper::Delegate::UNKNOWN_ERROR:
+      return api::webstore_private::RESULT_UNKNOWN_ERROR;
+    case WebstoreInstallHelper::Delegate::ICON_ERROR:
+      return api::webstore_private::RESULT_ICON_ERROR;
+    case WebstoreInstallHelper::Delegate::MANIFEST_ERROR:
+      return api::webstore_private::RESULT_MANIFEST_ERROR;
+  }
+  NOTREACHED();
+  return api::webstore_private::RESULT_NONE;
+}
+
 static base::LazyInstance<PendingApprovals> g_pending_approvals =
     LAZY_INSTANCE_INITIALIZER;
 
 // A preference set by the web store to indicate login information for
 // purchased apps.
 const char kWebstoreLogin[] = "extensions.webstore_login";
+
+// Error messages that can be returned by the API.
 const char kAlreadyInstalledError[] = "This item is already installed";
 const char kCannotSpecifyIconDataAndUrlError[] =
     "You cannot specify both icon data and an icon url";
+const char kInvalidBundleError[] = "Invalid bundle";
 const char kInvalidIconUrlError[] = "Invalid icon url";
 const char kInvalidIdError[] = "Invalid id";
 const char kInvalidManifestError[] = "Invalid manifest";
@@ -126,7 +176,7 @@ const char kNoPreviousBeginInstallWithManifestError[] =
     "* does not match a previous call to beginInstallWithManifest3";
 const char kUserCancelledError[] = "User cancelled install";
 
-WebstoreInstaller::Delegate* test_webstore_installer_delegate = NULL;
+WebstoreInstaller::Delegate* test_webstore_installer_delegate = nullptr;
 
 // We allow the web store to set a string containing login information when a
 // purchase is made, so that when a user logs into sync with a different
@@ -162,67 +212,78 @@ WebstorePrivateApi::PopApprovalForTesting(
   return g_pending_approvals.Get().PopApproval(profile, extension_id);
 }
 
-WebstorePrivateBeginInstallWithManifest3Function::
-    WebstorePrivateBeginInstallWithManifest3Function() {
+template<typename Params>
+WebstorePrivateFunctionWithPermissionPrompt<Params>::
+    WebstorePrivateFunctionWithPermissionPrompt() {
 }
 
-WebstorePrivateBeginInstallWithManifest3Function::
-    ~WebstorePrivateBeginInstallWithManifest3Function() {
+template<typename Params>
+WebstorePrivateFunctionWithPermissionPrompt<Params>::
+    ~WebstorePrivateFunctionWithPermissionPrompt() {
 }
 
-bool WebstorePrivateBeginInstallWithManifest3Function::RunAsync() {
-  params_ = BeginInstallWithManifest3::Params::Create(*args_);
+template<typename Params>
+ExtensionFunction::ResponseValue
+WebstorePrivateFunctionWithPermissionPrompt<Params>::RunExtraForResponse() {
+  return ExtensionFunction::ResponseValue();
+}
+
+template<typename Params>
+ExtensionFunction::ResponseValue
+WebstorePrivateFunctionWithPermissionPrompt<Params>::BuildResponse(
+    api::webstore_private::Result result, const std::string& error) {
+  if (result != api::webstore_private::RESULT_SUCCESS)
+    return ErrorWithArguments(CreateResults(result), error);
+
+  // The web store expects an empty string on success, so don't use
+  // RESULT_SUCCESS here.
+  return ArgumentList(
+      CreateResults(api::webstore_private::RESULT_EMPTY_STRING));
+}
+
+template<typename Params>
+scoped_ptr<base::DictionaryValue>
+WebstorePrivateFunctionWithPermissionPrompt<Params>::PassParsedManifest() {
+  return parsed_manifest_.Pass();
+}
+
+template<typename Params>
+ExtensionFunction::ResponseAction
+WebstorePrivateFunctionWithPermissionPrompt<Params>::Run() {
+  params_ = Params::Create(*args_);
   EXTENSION_FUNCTION_VALIDATE(params_);
 
   if (!crx_file::id_util::IdIsValid(params_->details.id)) {
-    SetResultCode(INVALID_ID);
-    error_ = kInvalidIdError;
-    return false;
+    return RespondNow(BuildResponse(api::webstore_private::RESULT_INVALID_ID,
+                                    kInvalidIdError));
   }
 
   if (params_->details.icon_data && params_->details.icon_url) {
-    SetResultCode(ICON_ERROR);
-    error_ = kCannotSpecifyIconDataAndUrlError;
-    return false;
+    return RespondNow(BuildResponse(api::webstore_private::RESULT_ICON_ERROR,
+                                    kCannotSpecifyIconDataAndUrlError));
   }
 
   GURL icon_url;
   if (params_->details.icon_url) {
-    std::string tmp_url;
     icon_url = source_url().Resolve(*params_->details.icon_url);
     if (!icon_url.is_valid()) {
-      SetResultCode(INVALID_ICON_URL);
-      error_ = kInvalidIconUrlError;
-      return false;
+      return RespondNow(BuildResponse(
+          api::webstore_private::RESULT_INVALID_ICON_URL,
+          kInvalidIconUrlError));
     }
   }
 
-  if (params_->details.authuser) {
-    authuser_ = *params_->details.authuser;
-  }
+  ExtensionFunction::ResponseValue response = RunExtraForResponse();
+  if (response)
+    return RespondNow(response.Pass());
 
-  std::string icon_data = params_->details.icon_data ?
-      *params_->details.icon_data : std::string();
-
-  Profile* profile = GetProfile();
-  InstallTracker* tracker = InstallTracker::Get(profile);
-  DCHECK(tracker);
-  if (util::IsExtensionInstalledPermanently(params_->details.id, profile) ||
-      tracker->GetActiveInstall(params_->details.id)) {
-    SetResultCode(ALREADY_INSTALLED);
-    error_ = kAlreadyInstalledError;
-    return false;
-  }
-  ActiveInstallData install_data(params_->details.id);
-  scoped_active_install_.reset(new ScopedActiveInstall(tracker, install_data));
-
-  net::URLRequestContextGetter* context_getter = NULL;
+  net::URLRequestContextGetter* context_getter = nullptr;
   if (!icon_url.is_empty())
-    context_getter = GetProfile()->GetRequestContext();
+    context_getter = browser_context()->GetRequestContext();
 
   scoped_refptr<WebstoreInstallHelper> helper = new WebstoreInstallHelper(
-      this, params_->details.id, params_->details.manifest, icon_data, icon_url,
-          context_getter);
+      this, params_->details.id, params_->details.manifest, icon_url,
+      context_getter);
 
   // The helper will call us back via OnWebstoreParseSuccess or
   // OnWebstoreParseFailure.
@@ -233,42 +294,12 @@ bool WebstorePrivateBeginInstallWithManifest3Function::RunAsync() {
 
   // The response is sent asynchronously in OnWebstoreParseSuccess/
   // OnWebstoreParseFailure.
-  return true;
+  return RespondLater();
 }
 
-const char* WebstorePrivateBeginInstallWithManifest3Function::
-    ResultCodeToString(ResultCode code) {
-  switch (code) {
-    case ERROR_NONE:
-      return "";
-    case UNKNOWN_ERROR:
-      return "unknown_error";
-    case USER_CANCELLED:
-      return "user_cancelled";
-    case MANIFEST_ERROR:
-      return "manifest_error";
-    case ICON_ERROR:
-      return "icon_error";
-    case INVALID_ID:
-      return "invalid_id";
-    case PERMISSION_DENIED:
-      return "permission_denied";
-    case INVALID_ICON_URL:
-      return "invalid_icon_url";
-    case ALREADY_INSTALLED:
-      return "already_installed";
-  }
-  NOTREACHED();
-  return "";
-}
-
-void WebstorePrivateBeginInstallWithManifest3Function::SetResultCode(
-    ResultCode code) {
-  results_ = BeginInstallWithManifest3::Results::Create(
-      ResultCodeToString(code));
-}
-
-void WebstorePrivateBeginInstallWithManifest3Function::OnWebstoreParseSuccess(
+template<typename Params>
+void
+WebstorePrivateFunctionWithPermissionPrompt<Params>::OnWebstoreParseSuccess(
     const std::string& id,
     const SkBitmap& icon,
     base::DictionaryValue* parsed_manifest) {
@@ -297,133 +328,167 @@ void WebstorePrivateBeginInstallWithManifest3Function::OnWebstoreParseSuccess(
   }
 
   content::WebContents* web_contents = GetAssociatedWebContents();
-  if (!web_contents)  // The browser window has gone away.
+  if (!web_contents) {
+    // The browser window has gone away.
+    Respond(BuildResponse(api::webstore_private::RESULT_USER_CANCELLED,
+                          kUserCancelledError));
+    // Matches the AddRef in Run().
+    Release();
     return;
+  }
   install_prompt_.reset(new ExtensionInstallPrompt(web_contents));
-  install_prompt_->ConfirmWebstoreInstall(
-      this,
-      dummy_extension_.get(),
-      &icon_,
-      ExtensionInstallPrompt::GetDefaultShowDialogCallback());
+  ShowPrompt(install_prompt_.get());
   // Control flow finishes up in InstallUIProceed or InstallUIAbort.
 }
 
-void WebstorePrivateBeginInstallWithManifest3Function::OnWebstoreParseFailure(
+template<typename Params>
+void
+WebstorePrivateFunctionWithPermissionPrompt<Params>::OnWebstoreParseFailure(
     const std::string& id,
-    WebstoreInstallHelper::Delegate::InstallHelperResultCode result_code,
+    WebstoreInstallHelper::Delegate::InstallHelperResultCode result,
     const std::string& error_message) {
   CHECK_EQ(params_->details.id, id);
 
-  // Map from WebstoreInstallHelper's result codes to ours.
-  switch (result_code) {
-    case WebstoreInstallHelper::Delegate::UNKNOWN_ERROR:
-      SetResultCode(UNKNOWN_ERROR);
-      break;
-    case WebstoreInstallHelper::Delegate::ICON_ERROR:
-      SetResultCode(ICON_ERROR);
-      break;
-    case WebstoreInstallHelper::Delegate::MANIFEST_ERROR:
-      SetResultCode(MANIFEST_ERROR);
-      break;
-    default:
-      CHECK(false);
-  }
-  error_ = error_message;
-  SendResponse(false);
+  Respond(BuildResponse(WebstoreInstallHelperResultToApiResult(result),
+                        error_message));
 
-  // Matches the AddRef in RunAsync().
+  // Matches the AddRef in Run().
   Release();
 }
 
-void WebstorePrivateBeginInstallWithManifest3Function::InstallUIProceed() {
+template<typename Params>
+void WebstorePrivateFunctionWithPermissionPrompt<Params>::InstallUIProceed() {
+  InstallUIProceedHook();
+
+  Respond(BuildResponse(api::webstore_private::RESULT_SUCCESS, std::string()));
+
+  // Matches the AddRef in Run().
+  Release();
+}
+
+template<typename Params>
+void WebstorePrivateFunctionWithPermissionPrompt<Params>::InstallUIAbort(
+    bool user_initiated) {
+  InstallUIAbortHook(user_initiated);
+
+  Respond(BuildResponse(api::webstore_private::RESULT_USER_CANCELLED,
+                        kUserCancelledError));
+
+  // Matches the AddRef in Run().
+  Release();
+}
+
+WebstorePrivateBeginInstallWithManifest3Function::
+    WebstorePrivateBeginInstallWithManifest3Function() : chrome_details_(this) {
+}
+
+WebstorePrivateBeginInstallWithManifest3Function::
+    ~WebstorePrivateBeginInstallWithManifest3Function() {
+}
+
+ExtensionFunction::ResponseValue
+WebstorePrivateBeginInstallWithManifest3Function::RunExtraForResponse() {
+  InstallTracker* tracker = InstallTracker::Get(browser_context());
+  DCHECK(tracker);
+  if (util::IsExtensionInstalledPermanently(details().id, browser_context()) ||
+      tracker->GetActiveInstall(details().id)) {
+    return BuildResponse(api::webstore_private::RESULT_ALREADY_INSTALLED,
+                         kAlreadyInstalledError);
+  }
+  ActiveInstallData install_data(details().id);
+  scoped_active_install_.reset(new ScopedActiveInstall(tracker, install_data));
+  return ExtensionFunction::ResponseValue();
+}
+
+void WebstorePrivateBeginInstallWithManifest3Function::InstallUIProceedHook() {
   // This gets cleared in CrxInstaller::ConfirmInstall(). TODO(asargent) - in
   // the future we may also want to add time-based expiration, where a whitelist
   // entry is only valid for some number of minutes.
   scoped_ptr<WebstoreInstaller::Approval> approval(
       WebstoreInstaller::Approval::CreateWithNoInstallPrompt(
-          GetProfile(), params_->details.id, parsed_manifest_.Pass(), false));
-  approval->use_app_installed_bubble = params_->details.app_install_bubble;
-  approval->enable_launcher = params_->details.enable_launcher;
+          chrome_details_.GetProfile(),
+          details().id,
+          PassParsedManifest(),
+          false));
+  approval->use_app_installed_bubble = details().app_install_bubble;
+  approval->enable_launcher = details().enable_launcher;
   // If we are enabling the launcher, we should not show the app list in order
   // to train the user to open it themselves at least once.
-  approval->skip_post_install_ui = params_->details.enable_launcher;
-  approval->dummy_extension = dummy_extension_;
-  approval->installing_icon = gfx::ImageSkia::CreateFrom1xBitmap(icon_);
-  approval->authuser = authuser_;
+  approval->skip_post_install_ui = details().enable_launcher;
+  approval->dummy_extension = dummy_extension();
+  approval->installing_icon = gfx::ImageSkia::CreateFrom1xBitmap(icon());
+  if (details().authuser)
+    approval->authuser = *details().authuser;
   g_pending_approvals.Get().PushApproval(approval.Pass());
 
   DCHECK(scoped_active_install_.get());
   scoped_active_install_->CancelDeregister();
 
-  SetResultCode(ERROR_NONE);
-  SendResponse(true);
-
   // The Permissions_Install histogram is recorded from the ExtensionService
   // for all extension installs, so we only need to record the web store
   // specific histogram here.
   ExtensionService::RecordPermissionMessagesHistogram(
-      dummy_extension_.get(), "Extensions.Permissions_WebStoreInstall2");
-
-  // Matches the AddRef in RunAsync().
-  Release();
+      dummy_extension().get(), "WebStoreInstall");
 }
 
-void WebstorePrivateBeginInstallWithManifest3Function::InstallUIAbort(
+void WebstorePrivateBeginInstallWithManifest3Function::InstallUIAbortHook(
     bool user_initiated) {
-  error_ = kUserCancelledError;
-  SetResultCode(USER_CANCELLED);
-  SendResponse(false);
-
   // The web store install histograms are a subset of the install histograms.
   // We need to record both histograms here since CrxInstaller::InstallUIAbort
   // is never called for web store install cancellations.
-  std::string histogram_name =
-      user_initiated ? "Extensions.Permissions_WebStoreInstallCancel2"
-                     : "Extensions.Permissions_WebStoreInstallAbort2";
-  ExtensionService::RecordPermissionMessagesHistogram(dummy_extension_.get(),
+  std::string histogram_name = user_initiated ? "WebStoreInstallCancel"
+                                              : "WebStoreInstallAbort";
+  ExtensionService::RecordPermissionMessagesHistogram(dummy_extension().get(),
                                                       histogram_name.c_str());
 
-  histogram_name = user_initiated ? "Extensions.Permissions_InstallCancel2"
-                                  : "Extensions.Permissions_InstallAbort2";
-  ExtensionService::RecordPermissionMessagesHistogram(dummy_extension_.get(),
+  histogram_name = user_initiated ? "InstallCancel" : "InstallAbort";
+  ExtensionService::RecordPermissionMessagesHistogram(dummy_extension().get(),
                                                       histogram_name.c_str());
+}
 
-  // Matches the AddRef in RunAsync().
-  Release();
+void WebstorePrivateBeginInstallWithManifest3Function::ShowPrompt(
+    ExtensionInstallPrompt* install_prompt) {
+  install_prompt->ConfirmWebstoreInstall(
+      this, dummy_extension().get(), &icon(),
+      ExtensionInstallPrompt::GetDefaultShowDialogCallback());
+}
+
+scoped_ptr<base::ListValue>
+WebstorePrivateBeginInstallWithManifest3Function::CreateResults(
+    api::webstore_private::Result result) const {
+  return BeginInstallWithManifest3::Results::Create(result);
 }
 
 WebstorePrivateCompleteInstallFunction::
-    WebstorePrivateCompleteInstallFunction() {}
+    WebstorePrivateCompleteInstallFunction() : chrome_details_(this) {}
 
 WebstorePrivateCompleteInstallFunction::
     ~WebstorePrivateCompleteInstallFunction() {}
 
-bool WebstorePrivateCompleteInstallFunction::RunAsync() {
+ExtensionFunction::ResponseAction
+WebstorePrivateCompleteInstallFunction::Run() {
   scoped_ptr<CompleteInstall::Params> params(
       CompleteInstall::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params);
-  if (!crx_file::id_util::IdIsValid(params->expected_id)) {
-    error_ = kInvalidIdError;
-    return false;
-  }
+  if (!crx_file::id_util::IdIsValid(params->expected_id))
+    return RespondNow(Error(kInvalidIdError));
 
-  approval_ = g_pending_approvals.Get()
-                  .PopApproval(GetProfile(), params->expected_id)
-                  .Pass();
+  approval_ =
+      g_pending_approvals.Get().PopApproval(chrome_details_.GetProfile(),
+                                            params->expected_id).Pass();
   if (!approval_) {
-    error_ = ErrorUtils::FormatErrorMessage(
-        kNoPreviousBeginInstallWithManifestError, params->expected_id);
-    return false;
+    return RespondNow(Error(kNoPreviousBeginInstallWithManifestError,
+                            params->expected_id));
   }
 
   scoped_active_install_.reset(new ScopedActiveInstall(
-      InstallTracker::Get(GetProfile()), params->expected_id));
+      InstallTracker::Get(browser_context()), params->expected_id));
 
   AppListService* app_list_service = AppListService::Get(
       GetHostDesktopTypeForWebContents(GetAssociatedWebContents()));
 
   if (approval_->enable_launcher) {
-    app_list_service->EnableAppList(GetProfile(),
+    app_list_service->EnableAppList(chrome_details_.GetProfile(),
                                     AppListService::ENABLE_FOR_APP_INSTALL);
   }
 
@@ -431,26 +496,29 @@ bool WebstorePrivateCompleteInstallFunction::RunAsync() {
     // Show the app list to show download is progressing. Don't show the app
     // list on first app install so users can be trained to open it themselves.
     app_list_service->ShowForAppInstall(
-        GetProfile(), params->expected_id, approval_->enable_launcher);
+        chrome_details_.GetProfile(),
+        params->expected_id,
+        approval_->enable_launcher);
   }
 
   // If the target extension has already been installed ephemerally and is
   // up to date, it can be promoted to a regular installed extension and
   // downloading from the Web Store is not necessary.
-  const Extension* extension = ExtensionRegistry::Get(GetProfile())->
+  const Extension* extension = ExtensionRegistry::Get(browser_context())->
       GetExtensionById(params->expected_id, ExtensionRegistry::EVERYTHING);
   if (extension && approval_->dummy_extension.get() &&
-      util::IsEphemeralApp(extension->id(), GetProfile()) &&
+      util::IsEphemeralApp(extension->id(), browser_context()) &&
       extension->version()->CompareTo(*approval_->dummy_extension->version()) >=
           0) {
     install_ui::ShowPostInstallUIForApproval(
-        GetProfile(), *approval_, extension);
+        browser_context(), *approval_, extension);
 
     ExtensionService* extension_service =
-        ExtensionSystem::Get(GetProfile())->extension_service();
+        ExtensionSystem::Get(browser_context())->extension_service();
     extension_service->PromoteEphemeralApp(extension, false);
     OnInstallSuccess(extension->id());
-    return true;
+    VLOG(1) << "Install success, sending response";
+    return RespondNow(NoArguments());
   }
 
   // Balanced in OnExtensionInstallSuccess() or OnExtensionInstallFailure().
@@ -459,23 +527,26 @@ bool WebstorePrivateCompleteInstallFunction::RunAsync() {
   // The extension will install through the normal extension install flow, but
   // the whitelist entry will bypass the normal permissions install dialog.
   scoped_refptr<WebstoreInstaller> installer = new WebstoreInstaller(
-      GetProfile(),
+      chrome_details_.GetProfile(),
       this,
-      dispatcher()->delegate()->GetAssociatedWebContents(),
+      chrome_details_.GetAssociatedWebContents(),
       params->expected_id,
       approval_.Pass(),
       WebstoreInstaller::INSTALL_SOURCE_OTHER);
   installer->Start();
 
-  return true;
+  return RespondLater();
 }
 
 void WebstorePrivateCompleteInstallFunction::OnExtensionInstallSuccess(
     const std::string& id) {
   OnInstallSuccess(id);
+  VLOG(1) << "Install success, sending response";
+  Respond(NoArguments());
+
   RecordWebstoreExtensionInstallResult(true);
 
-  // Matches the AddRef in RunAsync().
+  // Matches the AddRef in Run().
   Release();
 }
 
@@ -488,13 +559,12 @@ void WebstorePrivateCompleteInstallFunction::OnExtensionInstallFailure(
         id, error, reason);
   }
 
-  error_ = error;
   VLOG(1) << "Install failed, sending response";
-  SendResponse(false);
+  Respond(Error(error));
 
   RecordWebstoreExtensionInstallResult(false);
 
-  // Matches the AddRef in RunAsync().
+  // Matches the AddRef in Run().
   Release();
 }
 
@@ -502,101 +572,294 @@ void WebstorePrivateCompleteInstallFunction::OnInstallSuccess(
     const std::string& id) {
   if (test_webstore_installer_delegate)
     test_webstore_installer_delegate->OnExtensionInstallSuccess(id);
+}
 
-  VLOG(1) << "Install success, sending response";
-  SendResponse(true);
+WebstorePrivateShowPermissionPromptForDelegatedInstallFunction::
+    WebstorePrivateShowPermissionPromptForDelegatedInstallFunction() {
+}
+
+WebstorePrivateShowPermissionPromptForDelegatedInstallFunction::
+    ~WebstorePrivateShowPermissionPromptForDelegatedInstallFunction() {
+}
+
+void WebstorePrivateShowPermissionPromptForDelegatedInstallFunction::ShowPrompt(
+    ExtensionInstallPrompt* install_prompt) {
+  install_prompt->ConfirmPermissionsForDelegatedInstall(
+      this, dummy_extension().get(), details().delegated_user, &icon());
+}
+
+scoped_ptr<base::ListValue>
+WebstorePrivateShowPermissionPromptForDelegatedInstallFunction::CreateResults(
+    api::webstore_private::Result result) const {
+  return ShowPermissionPromptForDelegatedInstall::Results::Create(result);
+}
+
+template<typename Params>
+WebstorePrivateFunctionWithBundle<Params>::WebstorePrivateFunctionWithBundle()
+  : chrome_details_(this) {
+}
+
+template<typename Params>
+WebstorePrivateFunctionWithBundle<Params>::
+    ~WebstorePrivateFunctionWithBundle() {
+}
+
+template<typename Params>
+ExtensionFunction::ResponseAction
+WebstorePrivateFunctionWithBundle<Params>::Run() {
+  params_ = Params::Create(*args_);
+  EXTENSION_FUNCTION_VALIDATE(params_);
+
+  if (params_->contents.empty())
+    return RespondNow(Error(kInvalidBundleError));
+
+  if (params_->details.icon_url) {
+    GURL icon_url = source_url().Resolve(*params_->details.icon_url);
+    if (!icon_url.is_valid())
+      return RespondNow(Error(kInvalidIconUrlError));
+
+    // The bitmap fetcher will call us back via OnFetchComplete.
+    icon_fetcher_.reset(new chrome::BitmapFetcher(icon_url, this));
+    icon_fetcher_->Init(
+        browser_context()->GetRequestContext(), std::string(),
+        net::URLRequest::CLEAR_REFERRER_ON_TRANSITION_FROM_SECURE_TO_INSECURE,
+        net::LOAD_DO_NOT_SAVE_COOKIES | net::LOAD_DO_NOT_SEND_COOKIES);
+    icon_fetcher_->Start();
+  } else {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::Bind(&WebstorePrivateFunctionWithBundle::OnFetchComplete,
+                   this, GURL(), nullptr));
+  }
+
+  AddRef();  // Balanced in OnFetchComplete.
+
+  // The response is sent asynchronously in OnFetchComplete, OnInstallApproval,
+  // or OnInstallComplete.
+  return RespondLater();
+}
+
+template<typename Params>
+void WebstorePrivateFunctionWithBundle<Params>::OnFetchComplete(
+    const GURL& url, const SkBitmap* bitmap) {
+  BundleInstaller::ItemList items;
+  for (const auto& entry : params_->contents) {
+    if (ShouldSkipItem(entry->id))
+      continue;
+    BundleInstaller::Item item;
+    item.id = entry->id;
+    item.manifest = entry->manifest;
+    item.localized_name = entry->localized_name;
+    if (entry->icon_url)
+      item.icon_url = source_url().Resolve(*entry->icon_url);
+    items.push_back(item);
+  }
+  if (items.empty()) {
+    Respond(Error(kAlreadyInstalledError));
+    Release();  // Matches the AddRef in Run.
+    return;
+  }
+
+  bundle_.reset(new BundleInstaller(chrome_details_.GetCurrentBrowser(),
+                                    params_->details.localized_name,
+                                    bitmap ? *bitmap : SkBitmap(),
+                                    auth_user_, delegated_user_, items));
+
+  bundle_->PromptForApproval(
+      base::Bind(&WebstorePrivateFunctionWithBundle::OnInstallApproval, this));
+
+  Release();  // Matches the AddRef in Run.
+}
+
+template<typename Params>
+void WebstorePrivateFunctionWithBundle<Params>::OnInstallApproval(
+    BundleInstaller::ApprovalState state) {
+  if (state != BundleInstaller::APPROVED) {
+    Respond(Error(state == BundleInstaller::USER_CANCELED
+                      ? kUserCancelledError
+                      : kInvalidBundleError));
+    return;
+  }
+
+  OnInstallApprovalHook();
+}
+
+WebstorePrivateInstallBundleFunction::WebstorePrivateInstallBundleFunction() {
+}
+
+WebstorePrivateInstallBundleFunction::~WebstorePrivateInstallBundleFunction() {
+}
+
+void WebstorePrivateInstallBundleFunction::ProcessParams() {
+  if (details().authuser)
+    set_auth_user(*details().authuser);
+}
+
+bool WebstorePrivateInstallBundleFunction::ShouldSkipItem(
+    const std::string& id) const {
+  // Skip already-installed items.
+  return util::IsExtensionInstalledPermanently(id, browser_context()) ||
+         InstallTracker::Get(browser_context())->GetActiveInstall(id);
+}
+
+void WebstorePrivateInstallBundleFunction::OnInstallApprovalHook() {
+  // The bundle installer will call us back via OnInstallComplete.
+  bundle()->CompleteInstall(
+      GetSenderWebContents(),
+      base::Bind(&WebstorePrivateInstallBundleFunction::OnInstallComplete,
+                 this));
+}
+
+void WebstorePrivateInstallBundleFunction::OnInstallComplete() {
+  Respond(NoArguments());
+}
+
+WebstorePrivateShowPermissionPromptForDelegatedBundleInstallFunction::
+    WebstorePrivateShowPermissionPromptForDelegatedBundleInstallFunction() {
+}
+
+WebstorePrivateShowPermissionPromptForDelegatedBundleInstallFunction::
+    ~WebstorePrivateShowPermissionPromptForDelegatedBundleInstallFunction() {
+}
+
+void WebstorePrivateShowPermissionPromptForDelegatedBundleInstallFunction::
+    ProcessParams() {
+  set_delegated_user(details().delegated_user);
+}
+
+bool WebstorePrivateShowPermissionPromptForDelegatedBundleInstallFunction::
+    ShouldSkipItem(const std::string& id) const {
+  // For delegated installs, don't skip any items (we don't know if any are
+  // installed already).
+  return false;
+}
+
+void WebstorePrivateShowPermissionPromptForDelegatedBundleInstallFunction::
+    OnInstallApprovalHook() {
+  Respond(NoArguments());
 }
 
 WebstorePrivateEnableAppLauncherFunction::
-    WebstorePrivateEnableAppLauncherFunction() {}
+    WebstorePrivateEnableAppLauncherFunction() : chrome_details_(this) {}
 
 WebstorePrivateEnableAppLauncherFunction::
     ~WebstorePrivateEnableAppLauncherFunction() {}
 
-bool WebstorePrivateEnableAppLauncherFunction::RunSync() {
+ExtensionFunction::ResponseAction
+WebstorePrivateEnableAppLauncherFunction::Run() {
   AppListService* app_list_service = AppListService::Get(
-      GetHostDesktopTypeForWebContents(GetAssociatedWebContents()));
-  app_list_service->EnableAppList(GetProfile(),
+      GetHostDesktopTypeForWebContents(
+          chrome_details_.GetAssociatedWebContents()));
+  app_list_service->EnableAppList(chrome_details_.GetProfile(),
                                   AppListService::ENABLE_VIA_WEBSTORE_LINK);
-  return true;
+  return RespondNow(NoArguments());
 }
 
-bool WebstorePrivateGetBrowserLoginFunction::RunSync() {
+WebstorePrivateGetBrowserLoginFunction::
+    WebstorePrivateGetBrowserLoginFunction() : chrome_details_(this) {}
+
+WebstorePrivateGetBrowserLoginFunction::
+    ~WebstorePrivateGetBrowserLoginFunction() {}
+
+ExtensionFunction::ResponseAction
+WebstorePrivateGetBrowserLoginFunction::Run() {
   GetBrowserLogin::Results::Info info;
-  info.login = GetProfile()->GetOriginalProfile()->GetPrefs()->GetString(
-      prefs::kGoogleServicesUsername);
-  results_ = GetBrowserLogin::Results::Create(info);
-  return true;
+  info.login = SigninManagerFactory::GetForProfile(
+                   chrome_details_.GetProfile()->GetOriginalProfile())
+                       ->GetAuthenticatedUsername();
+  return RespondNow(ArgumentList(GetBrowserLogin::Results::Create(info)));
 }
 
-bool WebstorePrivateGetStoreLoginFunction::RunSync() {
-  results_ = GetStoreLogin::Results::Create(GetWebstoreLogin(GetProfile()));
-  return true;
+WebstorePrivateGetStoreLoginFunction::
+    WebstorePrivateGetStoreLoginFunction() : chrome_details_(this) {}
+
+WebstorePrivateGetStoreLoginFunction::
+    ~WebstorePrivateGetStoreLoginFunction() {}
+
+ExtensionFunction::ResponseAction WebstorePrivateGetStoreLoginFunction::Run() {
+  return RespondNow(ArgumentList(GetStoreLogin::Results::Create(
+      GetWebstoreLogin(chrome_details_.GetProfile()))));
 }
 
-bool WebstorePrivateSetStoreLoginFunction::RunSync() {
+WebstorePrivateSetStoreLoginFunction::
+    WebstorePrivateSetStoreLoginFunction() : chrome_details_(this) {}
+
+WebstorePrivateSetStoreLoginFunction::
+    ~WebstorePrivateSetStoreLoginFunction() {}
+
+ExtensionFunction::ResponseAction WebstorePrivateSetStoreLoginFunction::Run() {
   scoped_ptr<SetStoreLogin::Params> params(
       SetStoreLogin::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params);
-  SetWebstoreLogin(GetProfile(), params->login);
-  return true;
+  SetWebstoreLogin(chrome_details_.GetProfile(), params->login);
+  return RespondNow(NoArguments());
 }
 
-WebstorePrivateGetWebGLStatusFunction::WebstorePrivateGetWebGLStatusFunction() {
-  feature_checker_ = new GPUFeatureChecker(
-      gpu::GPU_FEATURE_TYPE_WEBGL,
-      base::Bind(&WebstorePrivateGetWebGLStatusFunction::OnFeatureCheck,
-          base::Unretained(this)));
+WebstorePrivateGetWebGLStatusFunction::WebstorePrivateGetWebGLStatusFunction()
+  : feature_checker_(new GPUFeatureChecker(
+        gpu::GPU_FEATURE_TYPE_WEBGL,
+        base::Bind(&WebstorePrivateGetWebGLStatusFunction::OnFeatureCheck,
+                   base::Unretained(this)))) {
 }
 
 WebstorePrivateGetWebGLStatusFunction::
     ~WebstorePrivateGetWebGLStatusFunction() {}
 
-void WebstorePrivateGetWebGLStatusFunction::CreateResult(bool webgl_allowed) {
-  results_ = GetWebGLStatus::Results::Create(GetWebGLStatus::Results::
-      ParseWebgl_status(webgl_allowed ? "webgl_allowed" : "webgl_blocked"));
-}
-
-bool WebstorePrivateGetWebGLStatusFunction::RunAsync() {
+ExtensionFunction::ResponseAction WebstorePrivateGetWebGLStatusFunction::Run() {
   feature_checker_->CheckGPUFeatureAvailability();
-  return true;
+  return RespondLater();
 }
 
-void WebstorePrivateGetWebGLStatusFunction::
-    OnFeatureCheck(bool feature_allowed) {
-  CreateResult(feature_allowed);
-  SendResponse(true);
+void WebstorePrivateGetWebGLStatusFunction::OnFeatureCheck(
+    bool feature_allowed) {
+  Respond(ArgumentList(
+      GetWebGLStatus::Results::Create(api::webstore_private::ParseWebGlStatus(
+          feature_allowed ? "webgl_allowed" : "webgl_blocked"))));
 }
 
-bool WebstorePrivateGetIsLauncherEnabledFunction::RunSync() {
-  results_ = GetIsLauncherEnabled::Results::Create(IsAppLauncherEnabled());
-  return true;
+WebstorePrivateGetIsLauncherEnabledFunction::
+    WebstorePrivateGetIsLauncherEnabledFunction() {}
+
+WebstorePrivateGetIsLauncherEnabledFunction::
+    ~WebstorePrivateGetIsLauncherEnabledFunction() {}
+
+ExtensionFunction::ResponseAction
+WebstorePrivateGetIsLauncherEnabledFunction::Run() {
+  return RespondNow(ArgumentList(
+      GetIsLauncherEnabled::Results::Create(IsAppLauncherEnabled())));
 }
 
-bool WebstorePrivateIsInIncognitoModeFunction::RunSync() {
-  results_ = IsInIncognitoMode::Results::Create(
-      GetProfile() != GetProfile()->GetOriginalProfile());
-  return true;
+WebstorePrivateIsInIncognitoModeFunction::
+    WebstorePrivateIsInIncognitoModeFunction() : chrome_details_(this) {}
+
+WebstorePrivateIsInIncognitoModeFunction::
+    ~WebstorePrivateIsInIncognitoModeFunction() {}
+
+ExtensionFunction::ResponseAction
+WebstorePrivateIsInIncognitoModeFunction::Run() {
+  Profile* profile = chrome_details_.GetProfile();
+  return RespondNow(ArgumentList(IsInIncognitoMode::Results::Create(
+      profile != profile->GetOriginalProfile())));
 }
 
 WebstorePrivateLaunchEphemeralAppFunction::
-    WebstorePrivateLaunchEphemeralAppFunction() {}
+    WebstorePrivateLaunchEphemeralAppFunction() : chrome_details_(this) {}
 
 WebstorePrivateLaunchEphemeralAppFunction::
     ~WebstorePrivateLaunchEphemeralAppFunction() {}
 
-bool WebstorePrivateLaunchEphemeralAppFunction::RunAsync() {
+ExtensionFunction::ResponseAction
+WebstorePrivateLaunchEphemeralAppFunction::Run() {
   // Check whether the browser window still exists.
-  content::WebContents* web_contents = GetAssociatedWebContents();
-  if (!web_contents) {
-    error_ = "aborted";
-    return false;
-  }
+  content::WebContents* web_contents =
+      chrome_details_.GetAssociatedWebContents();
+  if (!web_contents)
+    return RespondNow(Error("aborted"));
 
   if (!user_gesture()) {
-    SetResult(LaunchEphemeralAppResult::RESULT_USER_GESTURE_REQUIRED,
-              "User gesture is required");
-    return false;
+    return RespondNow(BuildResponse(
+        api::webstore_private::RESULT_USER_GESTURE_REQUIRED,
+        "User gesture is required"));
   }
 
   scoped_ptr<LaunchEphemeralApp::Params> params(
@@ -613,83 +876,34 @@ bool WebstorePrivateLaunchEphemeralAppFunction::RunAsync() {
               &WebstorePrivateLaunchEphemeralAppFunction::OnLaunchComplete,
               base::Unretained(this)));
   launcher->Start();
-  return true;
+
+  return RespondLater();
 }
 
 void WebstorePrivateLaunchEphemeralAppFunction::OnLaunchComplete(
     webstore_install::Result result, const std::string& error) {
-  // Translate between the EphemeralAppLauncher's error codes and the API
-  // error codes.
-  LaunchEphemeralAppResult::Result api_result =
-      LaunchEphemeralAppResult::RESULT_UNKNOWN_ERROR;
-  switch (result) {
-    case webstore_install::SUCCESS:
-      api_result = LaunchEphemeralAppResult::RESULT_SUCCESS;
-      break;
-    case webstore_install::OTHER_ERROR:
-      api_result = LaunchEphemeralAppResult::RESULT_UNKNOWN_ERROR;
-      break;
-    case webstore_install::INVALID_ID:
-      api_result = LaunchEphemeralAppResult::RESULT_INVALID_ID;
-      break;
-    case webstore_install::NOT_PERMITTED:
-    case webstore_install::WEBSTORE_REQUEST_ERROR:
-    case webstore_install::INVALID_WEBSTORE_RESPONSE:
-    case webstore_install::INVALID_MANIFEST:
-    case webstore_install::ICON_ERROR:
-      api_result = LaunchEphemeralAppResult::RESULT_INSTALL_ERROR;
-      break;
-    case webstore_install::ABORTED:
-    case webstore_install::USER_CANCELLED:
-      api_result = LaunchEphemeralAppResult::RESULT_USER_CANCELLED;
-      break;
-    case webstore_install::BLACKLISTED:
-      api_result = LaunchEphemeralAppResult::RESULT_BLACKLISTED;
-      break;
-    case webstore_install::MISSING_DEPENDENCIES:
-    case webstore_install::REQUIREMENT_VIOLATIONS:
-      api_result = LaunchEphemeralAppResult::RESULT_MISSING_DEPENDENCIES;
-      break;
-    case webstore_install::BLOCKED_BY_POLICY:
-      api_result = LaunchEphemeralAppResult::RESULT_BLOCKED_BY_POLICY;
-      break;
-    case webstore_install::LAUNCH_FEATURE_DISABLED:
-      api_result = LaunchEphemeralAppResult::RESULT_FEATURE_DISABLED;
-      break;
-    case webstore_install::LAUNCH_UNSUPPORTED_EXTENSION_TYPE:
-      api_result = LaunchEphemeralAppResult::RESULT_UNSUPPORTED_EXTENSION_TYPE;
-      break;
-    case webstore_install::INSTALL_IN_PROGRESS:
-      api_result = LaunchEphemeralAppResult::RESULT_INSTALL_IN_PROGRESS;
-      break;
-    case webstore_install::LAUNCH_IN_PROGRESS:
-      api_result = LaunchEphemeralAppResult::RESULT_LAUNCH_IN_PROGRESS;
-      break;
-    default:
-      NOTREACHED();
-      break;
-  }
-
-  SetResult(api_result, error);
-  Release();  // Matches AddRef() in RunAsync()
+  Respond(BuildResponse(WebstoreInstallResultToApiResult(result), error));
+  Release();  // Matches AddRef() in Run()
 }
 
-void WebstorePrivateLaunchEphemeralAppFunction::SetResult(
-    LaunchEphemeralAppResult::Result result, const std::string& error) {
-  if (result != LaunchEphemeralAppResult::RESULT_SUCCESS) {
+ExtensionFunction::ResponseValue
+WebstorePrivateLaunchEphemeralAppFunction::BuildResponse(
+    api::webstore_private::Result result, const std::string& error) {
+  if (result != api::webstore_private::RESULT_SUCCESS) {
+    std::string error_message;
     if (error.empty()) {
-      error_ = base::StringPrintf(
-          "[%s]", LaunchEphemeralAppResult::ToString(result).c_str());
+      error_message = base::StringPrintf(
+          "[%s]", api::webstore_private::ToString(result).c_str());
     } else {
-      error_ = base::StringPrintf(
+      error_message = base::StringPrintf(
           "[%s]: %s",
-          LaunchEphemeralAppResult::ToString(result).c_str(),
+          api::webstore_private::ToString(result).c_str(),
           error.c_str());
     }
+    return ErrorWithArguments(LaunchEphemeralApp::Results::Create(result),
+                              error_message);
   }
-
-  results_ = LaunchEphemeralAppResult::Create(result);
-  SendResponse(result == LaunchEphemeralAppResult::RESULT_SUCCESS);
+  return ArgumentList(LaunchEphemeralApp::Results::Create(result));
 }
 
 WebstorePrivateGetEphemeralAppsEnabledFunction::
@@ -698,10 +912,10 @@ WebstorePrivateGetEphemeralAppsEnabledFunction::
 WebstorePrivateGetEphemeralAppsEnabledFunction::
     ~WebstorePrivateGetEphemeralAppsEnabledFunction() {}
 
-bool WebstorePrivateGetEphemeralAppsEnabledFunction::RunSync() {
-  results_ = GetEphemeralAppsEnabled::Results::Create(
-      EphemeralAppLauncher::IsFeatureEnabled());
-  return true;
+ExtensionFunction::ResponseAction
+WebstorePrivateGetEphemeralAppsEnabledFunction::Run() {
+  return RespondNow(ArgumentList(GetEphemeralAppsEnabled::Results::Create(
+      EphemeralAppLauncher::IsFeatureEnabled())));
 }
 
 }  // namespace extensions

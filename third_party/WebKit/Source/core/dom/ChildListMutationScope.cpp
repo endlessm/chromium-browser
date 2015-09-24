@@ -43,7 +43,7 @@ namespace blink {
 // accumulator for a given node even if there are multiple ChildListMutationScopes
 // on the stack. The map is always empty when there are no ChildListMutationScopes
 // on the stack.
-typedef WillBeHeapHashMap<RawPtrWillBeMember<Node>, RawPtrWillBeMember<ChildListMutationAccumulator> > AccumulatorMap;
+typedef WillBeHeapHashMap<RawPtrWillBeMember<Node>, RawPtrWillBeMember<ChildListMutationAccumulator>> AccumulatorMap;
 
 static AccumulatorMap& accumulatorMap()
 {
@@ -75,9 +75,9 @@ PassRefPtrWillBeRawPtr<ChildListMutationAccumulator> ChildListMutationAccumulato
 {
     AccumulatorMap::AddResult result = accumulatorMap().add(&target, nullptr);
     RefPtrWillBeRawPtr<ChildListMutationAccumulator> accumulator;
-    if (!result.isNewEntry)
+    if (!result.isNewEntry) {
         accumulator = result.storedValue->value;
-    else {
+    } else {
         accumulator = adoptRefWillBeNoop(new ChildListMutationAccumulator(PassRefPtrWillBeRawPtr<Node>(target), MutationObserverInterestGroup::createForChildListMutation(target)));
         result.storedValue->value = accumulator.get();
     }
@@ -125,8 +125,9 @@ void ChildListMutationAccumulator::willRemoveChild(PassRefPtrWillBeRawPtr<Node> 
         m_previousSibling = child->previousSibling();
         m_nextSibling = child->nextSibling();
         m_lastAdded = child->previousSibling();
-    } else
+    } else {
         m_nextSibling = child->nextSibling();
+    }
 
     m_removedNodes.append(child.release());
 }
@@ -157,7 +158,7 @@ bool ChildListMutationAccumulator::isEmpty()
     return result;
 }
 
-void ChildListMutationAccumulator::trace(Visitor* visitor)
+DEFINE_TRACE(ChildListMutationAccumulator)
 {
     visitor->trace(m_target);
     visitor->trace(m_removedNodes);

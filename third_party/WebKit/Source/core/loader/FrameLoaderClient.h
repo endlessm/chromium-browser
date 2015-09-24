@@ -30,7 +30,10 @@
 #ifndef FrameLoaderClient_h
 #define FrameLoaderClient_h
 
+#include "core/CoreExport.h"
+#include "core/dom/Document.h"
 #include "core/dom/IconURL.h"
+#include "core/fetch/ResourceLoaderOptions.h"
 #include "core/frame/FrameClient.h"
 #include "core/loader/FrameLoaderTypes.h"
 #include "core/loader/NavigationPolicy.h"
@@ -40,15 +43,6 @@
 #include "wtf/Forward.h"
 #include "wtf/Vector.h"
 #include <v8.h>
-
-namespace blink {
-class WebCookieJar;
-class WebRTCPeerConnectionHandler;
-class WebServiceWorkerProvider;
-class WebSocketHandle;
-class WebApplicationCacheHost;
-class WebApplicationCacheHostClient;
-}
 
 namespace blink {
 
@@ -69,11 +63,17 @@ namespace blink {
     class SecurityOrigin;
     class SharedWorkerRepositoryClient;
     class SubstituteData;
+    class WebApplicationCacheHost;
+    class WebApplicationCacheHostClient;
+    class WebCookieJar;
+    class WebRTCPeerConnectionHandler;
+    class WebServiceWorkerProvider;
+    class WebSocketHandle;
     class Widget;
 
-    class FrameLoaderClient : public FrameClient {
+    class CORE_EXPORT FrameLoaderClient : public FrameClient {
     public:
-        virtual ~FrameLoaderClient() { }
+        ~FrameLoaderClient() override {}
 
         virtual bool hasWebView() const = 0; // mainly for assertions
 
@@ -86,20 +86,19 @@ namespace blink {
         virtual void dispatchDidReceiveServerRedirectForProvisionalLoad() = 0;
         virtual void dispatchDidNavigateWithinPage(HistoryItem*, HistoryCommitType) { }
         virtual void dispatchWillClose() = 0;
-        virtual void dispatchDidStartProvisionalLoad(bool isTransitionNavigation) = 0;
+        virtual void dispatchDidStartProvisionalLoad(double triggeringEventTime) = 0;
         virtual void dispatchDidReceiveTitle(const String&) = 0;
         virtual void dispatchDidChangeIcons(IconType) = 0;
-        virtual void dispatchDidCommitLoad(LocalFrame*, HistoryItem*, HistoryCommitType) = 0;
-        virtual void dispatchDidFailProvisionalLoad(const ResourceError&) = 0;
-        virtual void dispatchDidFailLoad(const ResourceError&) = 0;
+        virtual void dispatchDidCommitLoad(HistoryItem*, HistoryCommitType) = 0;
+        virtual void dispatchDidFailProvisionalLoad(const ResourceError&, HistoryCommitType) = 0;
+        virtual void dispatchDidFailLoad(const ResourceError&, HistoryCommitType) = 0;
         virtual void dispatchDidFinishDocumentLoad() = 0;
         virtual void dispatchDidFinishLoad() = 0;
         virtual void dispatchDidFirstVisuallyNonEmptyLayout() = 0;
         virtual void dispatchDidChangeThemeColor() = 0;
 
-        virtual NavigationPolicy decidePolicyForNavigation(const ResourceRequest&, DocumentLoader*, NavigationPolicy, bool isTransitionNavigation) = 0;
+        virtual NavigationPolicy decidePolicyForNavigation(const ResourceRequest&, DocumentLoader*, NavigationPolicy) = 0;
 
-        virtual void dispatchAddNavigationTransitionData(const String& origin, const String& selector, const String& markup) { }
         virtual void dispatchWillRequestResource(FetchRequest*) { }
 
         virtual void dispatchWillSendSubmitEvent(HTMLFormElement*) = 0;
@@ -133,7 +132,7 @@ namespace blink {
         // that match any element on the frame.
         virtual void selectorMatchChanged(const Vector<String>& addedSelectors, const Vector<String>& removedSelectors) = 0;
 
-        virtual PassRefPtr<DocumentLoader> createDocumentLoader(LocalFrame*, const ResourceRequest&, const SubstituteData&) = 0;
+        virtual PassRefPtrWillBeRawPtr<DocumentLoader> createDocumentLoader(LocalFrame*, const ResourceRequest&, const SubstituteData&) = 0;
 
         virtual String userAgent(const KURL&) = 0;
 
@@ -141,7 +140,7 @@ namespace blink {
 
         virtual void transitionToCommittedForNewPage() = 0;
 
-        virtual PassRefPtrWillBeRawPtr<LocalFrame> createFrame(const KURL&, const AtomicString& name, HTMLFrameOwnerElement*) = 0;
+        virtual PassRefPtrWillBeRawPtr<LocalFrame> createFrame(const FrameLoadRequest&, const AtomicString& name, HTMLFrameOwnerElement*) = 0;
         // Whether or not plugin creation should fail if the HTMLPlugInElement isn't in the DOM after plugin initialization.
         enum DetachedPluginPolicy {
             FailOnDetachedPlugin,
@@ -159,11 +158,14 @@ namespace blink {
 
         virtual ObjectContentType objectContentType(const KURL&, const String& mimeType, bool shouldPreferPlugInsForImages) = 0;
 
+        virtual void didCreateNewDocument() = 0;
         virtual void dispatchDidClearWindowObjectInMainWorld() = 0;
         virtual void documentElementAvailable() = 0;
 
-        virtual void didCreateScriptContext(v8::Handle<v8::Context>, int extensionGroup, int worldId) = 0;
-        virtual void willReleaseScriptContext(v8::Handle<v8::Context>, int worldId) = 0;
+        virtual v8::Local<v8::Value> createTestInterface(const AtomicString& name) = 0;
+
+        virtual void didCreateScriptContext(v8::Local<v8::Context>, int extensionGroup, int worldId) = 0;
+        virtual void willReleaseScriptContext(v8::Local<v8::Context>, int worldId) = 0;
         virtual bool allowScriptExtension(const String& extensionName, int extensionGroup, int worldId) = 0;
 
         virtual void didChangeScrollOffset() { }
@@ -187,13 +189,15 @@ namespace blink {
         // This callback is similar, but for plugins.
         virtual void didNotAllowPlugins() { }
 
-        virtual blink::WebCookieJar* cookieJar() const = 0;
+        virtual WebCookieJar* cookieJar() const = 0;
 
         virtual void didChangeName(const String&) { }
 
-        virtual void dispatchWillOpenWebSocket(blink::WebSocketHandle*) { }
+        virtual void didChangeSandboxFlags(Frame* childFrame, SandboxFlags) { }
 
-        virtual void dispatchWillStartUsingPeerConnectionHandler(blink::WebRTCPeerConnectionHandler*) { }
+        virtual void dispatchWillOpenWebSocket(WebSocketHandle*) { }
+
+        virtual void dispatchWillStartUsingPeerConnectionHandler(WebRTCPeerConnectionHandler*) { }
 
         virtual void didRequestAutocomplete(HTMLFormElement*) = 0;
 
@@ -207,7 +211,7 @@ namespace blink {
 
         virtual void dispatchDidChangeResourcePriority(unsigned long identifier, ResourceLoadPriority, int intraPriorityValue) { }
 
-        virtual PassOwnPtr<blink::WebServiceWorkerProvider> createServiceWorkerProvider() = 0;
+        virtual PassOwnPtr<WebServiceWorkerProvider> createServiceWorkerProvider() = 0;
 
         virtual bool isControlledByServiceWorker(DocumentLoader&) = 0;
 
@@ -215,15 +219,27 @@ namespace blink {
 
         virtual SharedWorkerRepositoryClient* sharedWorkerRepositoryClient() { return 0; }
 
-        virtual PassOwnPtr<blink::WebApplicationCacheHost> createApplicationCacheHost(blink::WebApplicationCacheHostClient*) = 0;
+        virtual PassOwnPtr<WebApplicationCacheHost> createApplicationCacheHost(WebApplicationCacheHostClient*) = 0;
 
         virtual void didStopAllLoaders() { }
 
         virtual void dispatchDidChangeManifest() { }
 
+        virtual void dispatchDidChangeDefaultPresentation() { }
+
         virtual unsigned backForwardLength() { return 0; }
 
         virtual bool isFrameLoaderClientImpl() const { return false; }
+
+        // Called when elements preventing the sudden termination of the frame
+        // become present or stop being present. |type| is the type of element
+        // (BeforeUnload handler, Unload handler).
+        enum SuddenTerminationDisablerType {
+            BeforeUnloadHandler,
+            UnloadHandler,
+        };
+        virtual void suddenTerminationDisablerChanged(bool present, SuddenTerminationDisablerType) { }
+
     };
 
 } // namespace blink

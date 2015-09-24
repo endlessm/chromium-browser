@@ -31,6 +31,8 @@
 #include "core/frame/FrameView.h"
 #include "core/frame/LocalFrame.h"
 #include "core/frame/csp/ContentSecurityPolicy.h"
+#include "core/loader/FrameLoaderClient.h"
+#include "core/xml/DocumentXSLT.h"
 #include "platform/weborigin/SecurityOrigin.h"
 #include "wtf/Assertions.h"
 
@@ -75,18 +77,24 @@ PassRefPtrWillBeRawPtr<Document> XSLTProcessor::createDocumentFromSource(const S
 
     if (frame) {
         RefPtrWillBeRawPtr<Document> oldDocument = frame->document();
-        result = frame->domWindow()->installNewDocument(sourceMIMEType, init, forceXHTML);
-
         // Before parsing, we need to save & detach the old document and get the new document
-        // in place. We have to do this only if we're rendering the result document.
-        if (FrameView* view = frame->view())
-            view->clear();
+        // in place. Document::detach() tears down the FrameView, so remember whether or not
+        // there was one.
+        bool hasView = frame->view();
+        oldDocument->detach();
+        // Re-create the FrameView if needed.
+        if (hasView)
+            frame->loader().client()->transitionToCommittedForNewPage();
+        result = frame->localDOMWindow()->installNewDocument(sourceMIMEType, init, forceXHTML);
 
         if (oldDocument) {
-            result->setTransformSourceDocument(oldDocument.get());
+            DocumentXSLT::from(*result).setTransformSourceDocument(oldDocument.get());
             result->updateSecurityOrigin(oldDocument->securityOrigin());
             result->setCookieURL(oldDocument->cookieURL());
-            result->initContentSecurityPolicy();
+
+            RefPtr<ContentSecurityPolicy> csp = ContentSecurityPolicy::create();
+            csp->copyStateFrom(oldDocument->contentSecurityPolicy());
+            result->initContentSecurityPolicy(csp);
         }
     } else {
         result = LocalDOMWindow::createDocument(sourceMIMEType, init, forceXHTML);
@@ -102,9 +110,6 @@ PassRefPtrWillBeRawPtr<Document> XSLTProcessor::createDocumentFromSource(const S
 
 PassRefPtrWillBeRawPtr<Document> XSLTProcessor::transformToDocument(Node* sourceNode)
 {
-    if (!sourceNode)
-        return nullptr;
-
     String resultMIMEType;
     String resultString;
     String resultEncoding;
@@ -115,9 +120,6 @@ PassRefPtrWillBeRawPtr<Document> XSLTProcessor::transformToDocument(Node* source
 
 PassRefPtrWillBeRawPtr<DocumentFragment> XSLTProcessor::transformToFragment(Node* sourceNode, Document* outputDoc)
 {
-    if (!sourceNode || !outputDoc)
-        return nullptr;
-
     String resultMIMEType;
     String resultString;
     String resultEncoding;
@@ -158,7 +160,7 @@ void XSLTProcessor::reset()
     m_parameters.clear();
 }
 
-void XSLTProcessor::trace(Visitor* visitor)
+DEFINE_TRACE(XSLTProcessor)
 {
     visitor->trace(m_stylesheet);
     visitor->trace(m_stylesheetRootNode);

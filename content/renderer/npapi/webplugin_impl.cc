@@ -7,13 +7,15 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/debug/crash_logging.h"
+#include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/linked_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/user_metrics_action.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "cc/blink/web_layer_impl.h"
 #include "cc/layers/io_surface_layer.h"
 #include "content/child/appcache/web_application_cache_host_impl.h"
@@ -55,7 +57,7 @@
 #include "third_party/WebKit/public/web/WebPluginParams.h"
 #include "third_party/WebKit/public/web/WebURLLoaderOptions.h"
 #include "third_party/WebKit/public/web/WebView.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
 #include "url/url_util.h"
 
@@ -206,7 +208,7 @@ void GetResponseInfo(const WebURLResponse& response,
   WebString content_encoding =
       response.httpHeaderField(WebString::fromUTF8("Content-Encoding"));
   if (!content_encoding.isNull() &&
-      !EqualsASCII(content_encoding, "identity")) {
+      !base::EqualsASCII(content_encoding, "identity")) {
     // Don't send the compressed content length to the plugin, which only
     // cares about the decoded length.
     response_info->expected_length = 0;
@@ -298,31 +300,40 @@ bool WebPluginImpl::getFormValue(blink::WebString& value) {
   return true;
 }
 
-void WebPluginImpl::paint(WebCanvas* canvas, const WebRect& paint_rect) {
-  if (!delegate_ || !container_)
+void WebPluginImpl::layoutIfNeeded() {
+  if (!container_)
     return;
 
 #if defined(OS_WIN)
   // Force a geometry update if needed to allow plugins like media player
-  // which defer the initial geometry update to work.
+  // which defer the initial geometry update to work. Do it now, rather
+  // than in paint, so that the paint rect invalidation is registered.
+  // Otherwise we may never get the paint call.
   container_->reportGeometry();
 #endif  // OS_WIN
+}
+
+void WebPluginImpl::paint(WebCanvas* canvas, const WebRect& paint_rect) {
+  if (!delegate_ || !container_)
+    return;
 
   // Note that |canvas| is only used when in windowless mode.
   delegate_->Paint(canvas, paint_rect);
 }
 
-void WebPluginImpl::updateGeometry(
-    const WebRect& window_rect, const WebRect& clip_rect,
-    const WebVector<WebRect>& cutout_rects, bool is_visible) {
+void WebPluginImpl::updateGeometry(const WebRect& window_rect,
+                                   const WebRect& clip_rect,
+                                   const WebRect& unobscured_rect,
+                                   const WebVector<WebRect>& cut_outs_rects,
+                                   bool is_visible) {
   WebPluginGeometry new_geometry;
   new_geometry.window = window_;
   new_geometry.window_rect = window_rect;
   new_geometry.clip_rect = clip_rect;
   new_geometry.visible = is_visible;
   new_geometry.rects_valid = true;
-  for (size_t i = 0; i < cutout_rects.size(); ++i)
-    new_geometry.cutout_rects.push_back(cutout_rects[i]);
+  for (size_t i = 0; i < cut_outs_rects.size(); ++i)
+    new_geometry.cutout_rects.push_back(cut_outs_rects[i]);
 
   // Only send DidMovePlugin if the geometry changed in some way.
   if (window_ && (first_geometry_update_ || !new_geometry.Equals(geometry_))) {
@@ -355,10 +366,9 @@ void WebPluginImpl::updateGeometry(
       // geometry received by a call to setFrameRect in the Webkit
       // layout code path. To workaround this issue we download the
       // plugin source url on a timer.
-      base::MessageLoop::current()->PostTask(
-          FROM_HERE,
-          base::Bind(&WebPluginImpl::OnDownloadPluginSrcUrl,
-                     weak_factory_.GetWeakPtr()));
+      base::ThreadTaskRunnerHandle::Get()->PostTask(
+          FROM_HERE, base::Bind(&WebPluginImpl::OnDownloadPluginSrcUrl,
+                                weak_factory_.GetWeakPtr()));
     }
   }
 
@@ -379,7 +389,7 @@ void WebPluginImpl::updateGeometry(
   first_geometry_update_ = false;
 }
 
-void WebPluginImpl::updateFocus(bool focused) {
+void WebPluginImpl::updateFocus(bool focused, blink::WebFocusType focus_type) {
   if (accepts_input_events_)
     delegate_->SetFocus(focused);
 }
@@ -650,7 +660,7 @@ bool WebPluginImpl::SetPostData(WebURLRequest* request,
   return rv;
 }
 
-bool WebPluginImpl::IsValidUrl(const GURL& url, Referrer referrer_flag) {
+bool WebPluginImpl::IsValidUrl(const GURL& url, ReferrerValue referrer_flag) {
   if (referrer_flag == PLUGIN_SRC &&
       mime_type_ == kFlashPluginSwfMimeType &&
       url.GetOrigin() != plugin_url_.GetOrigin()) {
@@ -682,7 +692,7 @@ WebPluginImpl::RoutingStatus WebPluginImpl::RouteToFrame(
     const char* buf,
     unsigned int len,
     int notify_id,
-    Referrer referrer_flag) {
+    ReferrerValue referrer_flag) {
   // If there is no target, there is nothing to do
   if (!target)
     return NOT_ROUTED;
@@ -852,7 +862,8 @@ void WebPluginImpl::AcceleratedPluginSwappedIOSurface() {
   if (next_io_surface_allocated_) {
     if (next_io_surface_id_) {
       if (!io_surface_layer_.get()) {
-        io_surface_layer_ = cc::IOSurfaceLayer::Create();
+        io_surface_layer_ =
+            cc::IOSurfaceLayer::Create(cc_blink::WebLayerImpl::LayerSettings());
         web_layer_.reset(new cc_blink::WebLayerImpl(io_surface_layer_));
         container_->setWebLayer(web_layer_.get());
       }
@@ -917,7 +928,7 @@ void WebPluginImpl::willSendRequest(WebURLLoader* loader,
     // Currently this check is just to catch an https -> http redirect when
     // loading the main plugin src URL. Longer term, we could investigate
     // firing mixed diplay or scripting issues for subresource loads
-    // initiated by plug-ins.
+    // initiated by plugins.
     if (client_info->is_plugin_src_load &&
         webframe_ &&
         !webframe_->checkIfRunInsecureContent(request.url())) {
@@ -931,7 +942,7 @@ void WebPluginImpl::willSendRequest(WebURLLoader* loader,
       // just block cross origin 307 POST redirects.
       if (!client_info->notify_redirects) {
         if (response.httpStatusCode() == 307 &&
-            LowerCaseEqualsASCII(request.httpMethod().utf8(), "post")) {
+            base::LowerCaseEqualsASCII(request.httpMethod().utf8(), "post")) {
           GURL original_request_url(response.url());
           GURL response_url(request.url());
           if (original_request_url.GetOrigin() != response_url.GetOrigin()) {
@@ -1161,7 +1172,7 @@ void WebPluginImpl::HandleURLRequestInternal(const char* url,
                                              unsigned int len,
                                              int notify_id,
                                              bool popups_allowed,
-                                             Referrer referrer_flag,
+                                             ReferrerValue referrer_flag,
                                              bool notify_redirects,
                                              bool is_plugin_src_load) {
   // For this request, we either route the output to a frame
@@ -1219,7 +1230,7 @@ void WebPluginImpl::HandleURLRequestInternal(const char* url,
   if (!delegate_)
     return;
 
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kDisableDirectNPAPIRequests)) {
     // We got here either because the plugin called GetURL/PostURL, or because
     // we're fetching the data for an embed tag. If we're in multi-process mode,
@@ -1233,8 +1244,9 @@ void WebPluginImpl::HandleURLRequestInternal(const char* url,
     // WebFrameImpl::setReferrerForRequest does.
     WebURLRequest request(complete_url);
     SetReferrer(&request, referrer_flag);
-    GURL referrer(
-        request.httpHeaderField(WebString::fromUTF8("Referer")).utf8());
+    Referrer referrer(
+        GURL(request.httpHeaderField(WebString::fromUTF8("Referer"))),
+        request.referrerPolicy());
 
     GURL first_party_for_cookies = webframe_->document().firstPartyForCookies();
     delegate_->FetchURL(resource_id, notify_id, complete_url,
@@ -1269,7 +1281,7 @@ bool WebPluginImpl::InitiateHTTPRequest(unsigned long resource_id,
                                         const char* buf,
                                         int buf_len,
                                         const char* range_info,
-                                        Referrer referrer_flag,
+                                        ReferrerValue referrer_flag,
                                         bool notify_redirects,
                                         bool is_plugin_src_load) {
   if (!client) {
@@ -1520,7 +1532,7 @@ void WebPluginImpl::TearDownPluginInstance(
 }
 
 void WebPluginImpl::SetReferrer(blink::WebURLRequest* request,
-                                Referrer referrer_flag) {
+                                ReferrerValue referrer_flag) {
   switch (referrer_flag) {
     case DOCUMENT_URL:
       webframe_->setReferrerForRequest(*request, GURL());

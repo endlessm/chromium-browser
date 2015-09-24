@@ -17,7 +17,18 @@
 
 namespace content {
 
-static const int kRenderProcessId = 11;
+namespace {
+
+const int kRenderProcessId = 11;
+
+void SaveStatusAndCall(ServiceWorkerStatusCode* out,
+                       const base::Closure& callback,
+                       ServiceWorkerStatusCode status) {
+  *out = status;
+  callback.Run();
+}
+
+}  // namespace
 
 class EmbeddedWorkerInstanceTest : public testing::Test {
  protected:
@@ -25,10 +36,22 @@ class EmbeddedWorkerInstanceTest : public testing::Test {
       : thread_bundle_(TestBrowserThreadBundle::IO_MAINLOOP) {}
 
   void SetUp() override {
-    helper_.reset(new EmbeddedWorkerTestHelper(kRenderProcessId));
+    helper_.reset(
+        new EmbeddedWorkerTestHelper(base::FilePath(), kRenderProcessId));
   }
 
   void TearDown() override { helper_.reset(); }
+
+  ServiceWorkerStatusCode StartWorker(EmbeddedWorkerInstance* worker,
+                                      int id, const GURL& pattern,
+                                      const GURL& url) {
+    ServiceWorkerStatusCode status;
+    base::RunLoop run_loop;
+    worker->Start(id, pattern, url, base::Bind(&SaveStatusAndCall, &status,
+                                               run_loop.QuitClosure()));
+    run_loop.Run();
+    return status;
+  }
 
   ServiceWorkerContextCore* context() { return helper_->context(); }
 
@@ -45,13 +68,6 @@ class EmbeddedWorkerInstanceTest : public testing::Test {
  private:
   DISALLOW_COPY_AND_ASSIGN(EmbeddedWorkerInstanceTest);
 };
-
-static void SaveStatusAndCall(ServiceWorkerStatusCode* out,
-                              const base::Closure& callback,
-                              ServiceWorkerStatusCode status) {
-  *out = status;
-  callback.Run();
-}
 
 TEST_F(EmbeddedWorkerInstanceTest, StartAndStop) {
   scoped_ptr<EmbeddedWorkerInstance> worker =
@@ -72,7 +88,6 @@ TEST_F(EmbeddedWorkerInstanceTest, StartAndStop) {
       service_worker_version_id,
       pattern,
       url,
-      false,
       base::Bind(&SaveStatusAndCall, &status, run_loop.QuitClosure()));
   EXPECT_EQ(EmbeddedWorkerInstance::STARTING, worker->status());
   run_loop.Run();
@@ -99,7 +114,7 @@ TEST_F(EmbeddedWorkerInstanceTest, StartAndStop) {
       EmbeddedWorkerMsg_StopWorker::ID));
 }
 
-TEST_F(EmbeddedWorkerInstanceTest, InstanceDestroyedBeforeStartFinishes) {
+TEST_F(EmbeddedWorkerInstanceTest, StopWhenDevToolsAttached) {
   scoped_ptr<EmbeddedWorkerInstance> worker =
       embedded_worker_registry()->CreateWorker();
   EXPECT_EQ(EmbeddedWorkerInstance::STOPPED, worker->status());
@@ -108,25 +123,39 @@ TEST_F(EmbeddedWorkerInstanceTest, InstanceDestroyedBeforeStartFinishes) {
   const GURL pattern("http://example.com/");
   const GURL url("http://example.com/worker.js");
 
-  ServiceWorkerStatusCode status;
-  base::RunLoop run_loop;
-  // Begin starting the worker.
-  context()->process_manager()->AddProcessReferenceToPattern(
-      pattern, kRenderProcessId);
-  worker->Start(
-      service_worker_version_id,
-      pattern,
-      url,
-      false,
-      base::Bind(&SaveStatusAndCall, &status, run_loop.QuitClosure()));
-  // But destroy it before it gets a chance to complete.
-  worker.reset();
-  run_loop.Run();
-  EXPECT_EQ(SERVICE_WORKER_ERROR_ABORT, status);
+  // Simulate adding one process to the pattern.
+  helper_->SimulateAddProcessToPattern(pattern, kRenderProcessId);
 
-  // Verify that we didn't send the message to start the worker.
-  ASSERT_FALSE(
-      ipc_sink()->GetUniqueMessageMatching(EmbeddedWorkerMsg_StartWorker::ID));
+  // Start the worker and then call StopIfIdle().
+  EXPECT_EQ(SERVICE_WORKER_OK,
+            StartWorker(worker.get(), service_worker_version_id, pattern, url));
+  EXPECT_EQ(EmbeddedWorkerInstance::RUNNING, worker->status());
+  EXPECT_EQ(kRenderProcessId, worker->process_id());
+  worker->StopIfIdle();
+  EXPECT_EQ(EmbeddedWorkerInstance::STOPPING, worker->status());
+  base::RunLoop().RunUntilIdle();
+
+  // The worker must be stopped now.
+  EXPECT_EQ(EmbeddedWorkerInstance::STOPPED, worker->status());
+
+  // Set devtools_attached to true, and do the same.
+  worker->set_devtools_attached(true);
+
+  EXPECT_EQ(SERVICE_WORKER_OK,
+            StartWorker(worker.get(), service_worker_version_id, pattern, url));
+  EXPECT_EQ(EmbeddedWorkerInstance::RUNNING, worker->status());
+  EXPECT_EQ(kRenderProcessId, worker->process_id());
+  worker->StopIfIdle();
+  base::RunLoop().RunUntilIdle();
+
+  // The worker must not be stopped this time.
+  EXPECT_EQ(EmbeddedWorkerInstance::RUNNING, worker->status());
+
+  // Calling Stop() actually stops the worker regardless of whether devtools
+  // is attached or not.
+  EXPECT_EQ(SERVICE_WORKER_OK, worker->Stop());
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(EmbeddedWorkerInstance::STOPPED, worker->status());
 }
 
 }  // namespace content

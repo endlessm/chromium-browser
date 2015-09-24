@@ -101,7 +101,7 @@ std::string CellularConfigDocument::GetErrorMessage(const std::string& code) {
 }
 
 void CellularConfigDocument::LoadCellularConfigFile() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
   // Load partner customization startup manifest if it is available.
   base::FilePath config_path(kCellularConfigPath);
   if (!base::PathExists(config_path))
@@ -127,8 +127,8 @@ bool CellularConfigDocument::LoadFromFile(const base::FilePath& config_path) {
   if (!base::ReadFileToString(config_path, &config))
     return false;
 
-  scoped_ptr<base::Value> root(
-      base::JSONReader::Read(config, base::JSON_ALLOW_TRAILING_COMMAS));
+  scoped_ptr<base::Value> root(base::JSONReader::DeprecatedRead(
+      config, base::JSON_ALLOW_TRAILING_COMMAS));
   DCHECK(root.get() != NULL);
   if (!root.get() || root->GetType() != base::Value::TYPE_DICTIONARY) {
     LOG(WARNING) << "Bad cellular config file";
@@ -239,17 +239,17 @@ void MobileActivator::NetworkPropertiesUpdated(const NetworkState* network) {
 }
 
 void MobileActivator::AddObserver(MobileActivator::Observer* observer) {
-  DCHECK(content::BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   observers_.AddObserver(observer);
 }
 
 void MobileActivator::RemoveObserver(MobileActivator::Observer* observer) {
-  DCHECK(content::BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   observers_.RemoveObserver(observer);
 }
 
 void MobileActivator::InitiateActivation(const std::string& service_path) {
-  DCHECK(content::BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   const NetworkState* network =  GetNetworkState(service_path);
   if (!network) {
     LOG(WARNING) << "Cellular service can't be found: " << service_path;
@@ -277,7 +277,7 @@ void MobileActivator::InitiateActivation(const std::string& service_path) {
 }
 
 void MobileActivator::ContinueActivation() {
-  NetworkHandler::Get()->network_configuration_handler()->GetProperties(
+  NetworkHandler::Get()->network_configuration_handler()->GetShillProperties(
       service_path_,
       base::Bind(&MobileActivator::GetPropertiesAndContinueActivation,
                  weak_ptr_factory_.GetWeakPtr()),
@@ -313,11 +313,11 @@ void MobileActivator::GetPropertiesAndContinueActivation(
   // We want shill to connect us after activations, so enable autoconnect.
   base::DictionaryValue auto_connect_property;
   auto_connect_property.SetBoolean(shill::kAutoConnectProperty, true);
-  NetworkHandler::Get()->network_configuration_handler()->SetProperties(
-      service_path_,
-      auto_connect_property,
-      base::Bind(&base::DoNothing),
-      network_handler::ErrorCallback());
+  NetworkHandler::Get()->network_configuration_handler()->SetShillProperties(
+      service_path_, auto_connect_property,
+      // Activation is triggered by the UI.
+      NetworkConfigurationObserver::SOURCE_USER_ACTION,
+      base::Bind(&base::DoNothing), network_handler::ErrorCallback());
   StartActivation();
 }
 

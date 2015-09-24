@@ -8,16 +8,15 @@
 #include <bitset>
 #include <string>
 
-#include "base/callback.h"
+#include "base/callback_forward.h"
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
-#include "chrome/browser/chromeos/policy/enrollment_status_chromeos.h"
 #include "chrome/browser/chromeos/policy/server_backed_state_keys_broker.h"
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
+#include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
-#include "policy/proto/device_management_backend.pb.h"
 
 class PrefService;
 
@@ -26,7 +25,7 @@ class SequencedTaskRunner;
 }
 
 namespace chromeos {
-class DeviceSettingsService;
+class OwnerSettingsServiceChromeOS;
 }
 
 namespace policy {
@@ -34,7 +33,9 @@ namespace policy {
 class DeviceCloudPolicyManagerChromeOS;
 class DeviceCloudPolicyStoreChromeOS;
 class DeviceManagementService;
+struct EnrollmentConfig;
 class EnrollmentHandlerChromeOS;
+class EnrollmentStatus;
 class EnterpriseInstallAttributes;
 
 // This class connects DCPM to the correct device management service, and
@@ -46,8 +47,6 @@ class DeviceCloudPolicyInitializer : public CloudPolicyStore::Observer {
 
   // |background_task_runner| is used to execute long-running background tasks
   // that may involve file I/O.
-  // |on_connected_callback| is invoked after the device cloud policy manager
-  // is connected.
   DeviceCloudPolicyInitializer(
       PrefService* local_state,
       DeviceManagementService* enterprise_service,
@@ -56,11 +55,9 @@ class DeviceCloudPolicyInitializer : public CloudPolicyStore::Observer {
       EnterpriseInstallAttributes* install_attributes,
       ServerBackedStateKeysBroker* state_keys_broker,
       DeviceCloudPolicyStoreChromeOS* device_store,
-      DeviceCloudPolicyManagerChromeOS* manager,
-      chromeos::DeviceSettingsService* device_settings_service,
-      const base::Closure& on_connected_callback);
+      DeviceCloudPolicyManagerChromeOS* manager);
 
-  virtual ~DeviceCloudPolicyInitializer();
+  ~DeviceCloudPolicyInitializer() override;
 
   virtual void Init();
   virtual void Shutdown();
@@ -70,33 +67,31 @@ class DeviceCloudPolicyInitializer : public CloudPolicyStore::Observer {
   // operation.
   // |allowed_modes| specifies acceptable DEVICE_MODE_* constants for
   // enrollment.
-  // |management_mode| should be either ENTERPRISE_MANAGED or CONSUMER_MANAGED.
+  // |management_mode| should be either MANAGEMENT_MODE_ENTERPRISE or
+  // MANAGEMENT_MODE_CONSUMER.
   virtual void StartEnrollment(
-      enterprise_management::PolicyData::ManagementMode management_mode,
+      ManagementMode management_mode,
       DeviceManagementService* device_management_service,
+      chromeos::OwnerSettingsServiceChromeOS* owner_settings_service,
+      const EnrollmentConfig& enrollment_config,
       const std::string& auth_token,
-      bool is_auto_enrollment,
       const AllowedDeviceModes& allowed_modes,
       const EnrollmentCallback& enrollment_callback);
 
-  // Checks whether enterprise enrollment should be a regular step during OOBE.
-  bool ShouldAutoStartEnrollment() const;
-
-  // Checks whether enterprise enrollment recovery is required.
-  bool ShouldRecoverEnrollment() const;
-
-  // Looks up the domain from |install_attributes_|.
-  std::string GetEnrollmentRecoveryDomain() const;
-
-  // Checks whether the user can cancel enrollment.
-  bool CanExitEnrollment() const;
-
-  // Gets the domain this device is supposed to be enrolled to.
-  std::string GetForcedEnrollmentDomain() const;
+  // Get the enrollment configuration that has been set up via signals such as
+  // device requisition, OEM manifest, pre-existing installation-time attributes
+  // or server-backed state retrieval. The configuration is stored in |config|,
+  // |config.mode| will be MODE_NONE if there is no prescribed configuration.
+  // |config.management_domain| will contain the domain the device is supposed
+  // to be enrolled to as decided by factors such as forced re-enrollment,
+  // enrollment recovery, or already-present install attributes. Note that
+  // |config.management_domain| may be non-empty even if |config.mode| is
+  // MODE_NONE.
+  EnrollmentConfig GetPrescribedEnrollmentConfig() const;
 
   // CloudPolicyStore::Observer:
-  virtual void OnStoreLoaded(CloudPolicyStore* store) override;
-  virtual void OnStoreError(CloudPolicyStore* store) override;
+  void OnStoreLoaded(CloudPolicyStore* store) override;
+  void OnStoreError(CloudPolicyStore* store) override;
 
  private:
   // Handles completion signaled by |enrollment_handler_|.
@@ -118,16 +113,12 @@ class DeviceCloudPolicyInitializer : public CloudPolicyStore::Observer {
   ServerBackedStateKeysBroker* state_keys_broker_;
   DeviceCloudPolicyStoreChromeOS* device_store_;
   DeviceCloudPolicyManagerChromeOS* manager_;
-  chromeos::DeviceSettingsService* device_settings_service_;
-  base::Closure on_connected_callback_;
   bool is_initialized_;
 
   // Non-NULL if there is an enrollment operation pending.
   scoped_ptr<EnrollmentHandlerChromeOS> enrollment_handler_;
 
   ServerBackedStateKeysBroker::Subscription state_keys_update_subscription_;
-
-  scoped_ptr<CloudPolicyClient::StatusProvider> device_status_provider_;
 
   DISALLOW_COPY_AND_ASSIGN(DeviceCloudPolicyInitializer);
 };

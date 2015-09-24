@@ -27,6 +27,8 @@
         'init_status.h',
         'meta_table.cc',
         'meta_table.h',
+        'proxy.cc',
+        'proxy.h',
         'recovery.cc',
         'recovery.h',
         'statement.cc',
@@ -52,6 +54,7 @@
         'sql',
         '../base/base.gyp:base',
         '../testing/gtest.gyp:gtest',
+        '../third_party/sqlite/sqlite.gyp:sqlite',
       ],
       'export_dependent_settings': [
         'sql',
@@ -93,6 +96,8 @@
         'test/paths.cc',
         'test/paths.h',
         'test/run_all_unittests.cc',
+        'test/sql_test_base.cc',
+        'test/sql_test_base.h',
         'test/sql_test_suite.cc',
         'test/sql_test_suite.h',
         'transaction_unittest.cc',
@@ -115,11 +120,6 @@
             '../testing/android/native_test.gyp:native_test_native_code',
           ],
         }],
-        ['sqlite_enable_fts2', {
-          'defines': [
-            'SQLITE_ENABLE_FTS2',
-          ],
-        }],
       ],
       # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
       'msvs_disabled_warnings': [4267, ],
@@ -136,6 +136,7 @@
           ],
           'variables': {
             'test_suite_name': 'sql_unittests',
+            'isolate_file': 'sql_unittests.isolate',
           },
           'includes': [ '../build/apk_test.gypi' ],
         },

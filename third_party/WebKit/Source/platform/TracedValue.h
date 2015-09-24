@@ -28,7 +28,6 @@ public:
     void setDouble(const char* name, double);
     void setBoolean(const char* name, bool value);
     void setString(const char* name, const String& value);
-    void setArray(const char* name, PassRefPtr<JSONArray> value);
     void beginArray(const char* name);
     void beginDictionary(const char* name);
 
@@ -39,16 +38,16 @@ public:
     void beginArray();
     void beginDictionary();
 
-    virtual String asTraceFormat() const override;
+    String asTraceFormat() const override;
 
 private:
     TracedValue();
-    virtual ~TracedValue();
+    ~TracedValue() override;
 
     JSONObject* currentDictionary() const;
     JSONArray* currentArray() const;
 
-    Vector<RefPtr<JSONValue> > m_stack;
+    Vector<RefPtr<JSONValue>> m_stack;
 };
 
 } // namespace blink

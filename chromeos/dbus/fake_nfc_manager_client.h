@@ -21,24 +21,24 @@ class CHROMEOS_EXPORT FakeNfcManagerClient : public NfcManagerClient {
  public:
   struct Properties : public NfcManagerClient::Properties {
     explicit Properties(const PropertyChangedCallback& callback);
-    virtual ~Properties();
+    ~Properties() override;
 
     // dbus::PropertySet overrides.
-    virtual void Get(dbus::PropertyBase* property,
-                     dbus::PropertySet::GetCallback callback) override;
-    virtual void GetAll() override;
-    virtual void Set(dbus::PropertyBase* property,
-                     dbus::PropertySet::SetCallback callback) override;
+    void Get(dbus::PropertyBase* property,
+             dbus::PropertySet::GetCallback callback) override;
+    void GetAll() override;
+    void Set(dbus::PropertyBase* property,
+             dbus::PropertySet::SetCallback callback) override;
   };
 
   FakeNfcManagerClient();
-  virtual ~FakeNfcManagerClient();
+  ~FakeNfcManagerClient() override;
 
   // NfcManagerClient overrides.
-  virtual void Init(dbus::Bus* bus) override;
-  virtual void AddObserver(Observer* observer) override;
-  virtual void RemoveObserver(Observer* observer) override;
-  virtual Properties* GetProperties() override;
+  void Init(dbus::Bus* bus) override;
+  void AddObserver(Observer* observer) override;
+  void RemoveObserver(Observer* observer) override;
+  Properties* GetProperties() override;
 
   // Methods to simulate adapters getting added and removed.
   void AddAdapter(const std::string& adapter_path);
@@ -52,7 +52,7 @@ class CHROMEOS_EXPORT FakeNfcManagerClient : public NfcManagerClient {
   void OnPropertyChanged(const std::string& property_name);
 
   // List of observers interested in event notifications.
-  ObserverList<Observer> observers_;
+  base::ObserverList<Observer> observers_;
 
   // Set containing the currently simulated adapters.
   std::set<dbus::ObjectPath> adapters_;

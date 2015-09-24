@@ -28,7 +28,23 @@ namespace autofill {
 // to the requested form group type.
 class AutofillProfile : public AutofillDataModel {
  public:
+  enum RecordType {
+    // A profile stored and editable locally.
+    LOCAL_PROFILE,
+
+    // A profile synced down from the server. These are read-only locally.
+    SERVER_PROFILE,
+
+    // An auxiliary profile, such as a Mac address book entry.
+    AUXILIARY_PROFILE,
+  };
+
   AutofillProfile(const std::string& guid, const std::string& origin);
+
+  // Server profile constructor. The type must be SERVER_PROFILE (this serves
+  // to differentiate this constructor). |server_id| can be empty. If empty,
+  // callers should invoke GenerateServerProfileIdentifier after setting data.
+  AutofillProfile(RecordType type, const std::string& server_id);
 
   // For use in STL containers.
   AutofillProfile();
@@ -49,23 +65,9 @@ class AutofillProfile : public AutofillDataModel {
                const base::string16& value,
                const std::string& app_locale) override;
 
-  // AutofillDataModel:
-  base::string16 GetInfoForVariant(
-      const AutofillType& type,
-      size_t variant,
-      const std::string& app_locale) const override;
-
-  // Multi-value equivalents to |GetInfo| and |SetInfo|.
-  void SetRawMultiInfo(ServerFieldType type,
-                       const std::vector<base::string16>& values);
-  void GetRawMultiInfo(ServerFieldType type,
-                       std::vector<base::string16>* values) const;
-  void SetMultiInfo(const AutofillType& type,
-                    const std::vector<base::string16>& values,
-                    const std::string& app_locale);
-  void GetMultiInfo(const AutofillType& type,
-                    const std::string& app_locale,
-                    std::vector<base::string16>* values) const;
+  // How this card is stored.
+  RecordType record_type() const { return record_type_; }
+  void set_record_type(RecordType type) { record_type_ = type; }
 
   // Returns true if there are no values (field types) set.
   bool IsEmpty(const std::string& app_locale) const;
@@ -87,11 +89,13 @@ class AutofillProfile : public AutofillDataModel {
   // Same as operator==, but ignores differences in origin.
   bool EqualsSansOrigin(const AutofillProfile& profile) const;
 
-  // Same as operator==, but ignores differences in GUID.
-  bool EqualsSansGuid(const AutofillProfile& profile) const;
+  // Same as operator==, but ignores differences in guid and cares about
+  // differences in usage stats.
+  bool EqualsForSyncPurposes(const AutofillProfile& profile) const;
 
   // Equality operators compare GUIDs, origins, language code, and the contents
-  // in the comparison.
+  // in the comparison. Usage metadata (use count, use date, modification date)
+  // are NOT compared.
   bool operator==(const AutofillProfile& profile) const;
   virtual bool operator!=(const AutofillProfile& profile) const;
 
@@ -105,10 +109,21 @@ class AutofillProfile : public AutofillDataModel {
   bool IsSubsetOf(const AutofillProfile& profile,
                   const std::string& app_locale) const;
 
-  // Overwrites the single-valued field data in |profile| with this
-  // Profile.  Or, for multi-valued fields append the new values.
-  void OverwriteWithOrAddTo(const AutofillProfile& profile,
-                            const std::string& app_locale);
+  // Like IsSubsetOf, but only considers the types present in |types|.
+  bool IsSubsetOfForFieldSet(const AutofillProfile& profile,
+                             const std::string& app_locale,
+                             const ServerFieldTypeSet& types) const;
+
+  // Overwrites the field data in |profile| with this Profile.
+  void OverwriteWith(const AutofillProfile& profile,
+                     const std::string& app_locale);
+
+  // Saves info from |profile| into |this|, provided |this| and |profile| do not
+  // have any direct conflicts (i.e. data is present but different). Will not
+  // make changes if |this| is verified and |profile| is not. Returns true if
+  // |this| and |profile| are similar.
+  bool SaveAdditionalInfo(const AutofillProfile& profile,
+                          const std::string& app_locale);
 
   // Returns |true| if |type| accepts multi-values.
   static bool SupportsMultiValue(ServerFieldType type);
@@ -145,18 +160,33 @@ class AutofillProfile : public AutofillDataModel {
     language_code_ = language_code;
   }
 
+  // Nonempty only when type() == SERVER_PROFILE.
+  const std::string& server_id() const { return server_id_; }
+
+  // Creates an identifier and saves it as |server_id_|. Only used for
+  // server credit cards. The server doesn't attach an identifier so Chrome
+  // creates its own. The ID is a hash of the data contained in the profile.
+  void GenerateServerProfileIdentifier();
+
+  // Returns a standardized representation of the given string for comparison
+  // purposes. The resulting string will be lower-cased with all punctuation
+  // substituted by spaces. Whitespace will be converted to ASCII space, and
+  // multiple whitespace characters will be collapsed.
+  //
+  // This string is designed for comparison purposes only and isn't suitable
+  // for storing or displaying to the user.
+  static base::string16 CanonicalizeProfileString(const base::string16& str);
+
+  // Returns true if the given two profile strings are similar enough that
+  // they probably refer to the same thing.
+  static bool AreProfileStringsSimilar(const base::string16& a,
+                                       const base::string16& b);
+
  private:
   typedef std::vector<const FormGroup*> FormGroupList;
 
   // FormGroup:
   void GetSupportedTypes(ServerFieldTypeSet* supported_types) const override;
-
-  // Shared implementation for GetRawMultiInfo() and GetMultiInfo().  Pass an
-  // empty |app_locale| to get the raw info; otherwise, the returned info is
-  // canonicalized according to the given |app_locale|, if appropriate.
-  void GetMultiInfoImpl(const AutofillType& type,
-                        const std::string& app_locale,
-                        std::vector<base::string16>* values) const;
 
   // Builds inferred label from the first |num_fields_to_include| non-empty
   // fields in |label_fields|. Uses as many fields as possible if there are not
@@ -185,22 +215,29 @@ class AutofillProfile : public AutofillDataModel {
   const FormGroup* FormGroupForType(const AutofillType& type) const;
   FormGroup* MutableFormGroupForType(const AutofillType& type);
 
-  // Appends unique names from |names| onto the |name_| list, dropping
-  // duplicates. If a name in |names| has the same full name representation
-  // as a name in |name_|, keeps the variant that has more information (i.e.
+  // If |name| has the same full name representation as |name_|,
+  // this will keep the one that has more information (i.e.
   // is not reconstructible via a heuristic parse of the full name string).
-  void OverwriteOrAppendNames(const std::vector<NameInfo>& names,
-                              const std::string& app_locale);
+  void OverwriteName(const NameInfo& name, const std::string& app_locale);
+
+  // Same as operator==, but ignores differences in GUID.
+  bool EqualsSansGuid(const AutofillProfile& profile) const;
+
+  RecordType record_type_;
 
   // Personal information for this profile.
-  std::vector<NameInfo> name_;
-  std::vector<EmailInfo> email_;
+  NameInfo name_;
+  EmailInfo email_;
   CompanyInfo company_;
-  std::vector<PhoneNumber> phone_number_;
+  PhoneNumber phone_number_;
   Address address_;
 
   // The BCP 47 language code that can be used to format |address_| for display.
   std::string language_code_;
+
+  // ID used for identifying this profile. Only set for SERVER_PROFILEs. This is
+  // a hash of the contents.
+  std::string server_id_;
 };
 
 // So we can compare AutofillProfiles with EXPECT_EQ().

@@ -7,12 +7,13 @@
 
 #include <deque>
 #include <map>
+#include <string>
 
 #include "base/basictypes.h"
 #include "base/memory/linked_ptr.h"
+#include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/threading/thread_checker.h"
-#include "extensions/browser/api/cast_channel/cast_socket.h"
 #include "extensions/browser/api/cast_channel/logger_util.h"
 #include "extensions/common/api/cast_channel/logging.pb.h"
 #include "net/base/ip_endpoint.h"
@@ -26,6 +27,7 @@ namespace core_api {
 namespace cast_channel {
 
 struct AuthResult;
+class CastSocket;
 
 static const int kMaxSocketsToLog = 50;
 static const int kMaxEventsPerSocket = 2000;
@@ -72,7 +74,7 @@ class Logger : public base::RefCounted<Logger> {
 
   // Assembles logs collected so far and return it as a serialized Log proto,
   // compressed in gzip format.
-  // If serialization or compression failed, returns a NULL pointer.
+  // If serialization or compression failed, returns nullptr.
   // |length|: If successful, assigned with size of compressed content.
   scoped_ptr<char[]> GetLogs(size_t* length) const;
 
@@ -134,7 +136,7 @@ class Logger : public base::RefCounted<Logger> {
   DISALLOW_COPY_AND_ASSIGN(Logger);
 };
 }  // namespace cast_channel
-}  // namespace api
+}  // namespace core_api
 }  // namespace extensions
 
 #endif  // EXTENSIONS_BROWSER_API_CAST_CHANNEL_LOGGER_H_

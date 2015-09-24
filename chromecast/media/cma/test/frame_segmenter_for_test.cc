@@ -4,11 +4,13 @@
 
 #include "chromecast/media/cma/test/frame_segmenter_for_test.h"
 
+#include <stdint.h>
+
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/logging.h"
-#include "base/port.h"
 #include "base/run_loop.h"
+#include "base/thread_task_runner_handle.h"
 #include "chromecast/media/cma/base/decoder_buffer_adapter.h"
 #include "media/base/decoder_buffer.h"
 #include "media/base/demuxer.h"
@@ -82,7 +84,7 @@ AudioFrameHeader FindNextMp3Header(const uint8* data, size_t data_size) {
   return header;
 }
 
-}
+}  // namespace
 
 BufferList Mp3SegmenterForTest(const uint8* data, size_t data_size) {
   size_t offset = 0;
@@ -107,7 +109,7 @@ BufferList Mp3SegmenterForTest(const uint8* data, size_t data_size) {
 
     // 1152 samples in an MP3 frame.
     timestamp += base::TimeDelta::FromMicroseconds(
-        (GG_UINT64_C(1152) * 1000 * 1000) / header.sampling_frequency);
+        (UINT64_C(1152) * 1000 * 1000) / header.sampling_frequency);
   }
   return audio_frames;
 }
@@ -139,7 +141,6 @@ BufferList H264SegmenterForTest(const uint8* data, size_t data_size) {
   scoped_ptr< ::media::H264Parser> h264_parser(new ::media::H264Parser());
   h264_parser->SetStream(data, data_size);
 
-  size_t offset = 0;
   while (true) {
     bool is_eos = false;
     ::media::H264NALU nalu;
@@ -263,8 +264,8 @@ BufferList H264SegmenterForTest(const uint8* data, size_t data_size) {
   return video_frames;
 }
 
-void OnDemuxerNeedKey(const std::string& type,
-                      const std::vector<uint8>& init_data) {
+void OnEncryptedMediaInitData(::media::EmeInitDataType init_data_type,
+                              const std::vector<uint8>& init_data) {
   LOG(FATAL) << "Unexpected test failure: file is encrypted.";
 }
 
@@ -282,16 +283,16 @@ void OnNewBuffer(BufferList* buffer_list,
 class FakeDemuxerHost : public ::media::DemuxerHost {
  public:
   // DemuxerHost implementation.
-  virtual void AddBufferedTimeRange(base::TimeDelta start,
-                                    base::TimeDelta end) override {}
-  virtual void SetDuration(base::TimeDelta duration) override {}
-  virtual void OnDemuxerError(::media::PipelineStatus error) override {
+  void AddBufferedTimeRange(base::TimeDelta start,
+                            base::TimeDelta end) override {}
+  void SetDuration(base::TimeDelta duration) override {}
+  void OnDemuxerError(::media::PipelineStatus error) override {
     LOG(FATAL) << "OnDemuxerError: " << error;
   }
-  virtual void AddTextStream(::media::DemuxerStream* text_stream,
-                             const ::media::TextTrackConfig& config) override {
+  void AddTextStream(::media::DemuxerStream* text_stream,
+                     const ::media::TextTrackConfig& config) override {
   }
-  virtual void RemoveTextStream(::media::DemuxerStream* text_stream) override {
+  void RemoveTextStream(::media::DemuxerStream* text_stream) override {
   }
 };
 
@@ -307,10 +308,9 @@ DemuxResult FFmpegDemuxForTest(const base::FilePath& filepath,
   ::media::FileDataSource data_source;
   CHECK(data_source.Initialize(filepath));
 
-  ::media::FFmpegDemuxer demuxer(base::MessageLoopProxy::current(),
-                                 &data_source,
-                                 base::Bind(&OnDemuxerNeedKey),
-                                 new ::media::MediaLog());
+  ::media::FFmpegDemuxer demuxer(
+      base::ThreadTaskRunnerHandle::Get(), &data_source,
+      base::Bind(&OnEncryptedMediaInitData), new ::media::MediaLog());
   ::media::WaitableMessageLoopEvent init_event;
   demuxer.Initialize(&fake_demuxer_host,
                      init_event.GetPipelineStatusCB(),

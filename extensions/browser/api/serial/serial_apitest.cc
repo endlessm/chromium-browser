@@ -11,11 +11,11 @@
 #include "device/serial/test_serial_io_handler.h"
 #include "extensions/browser/api/serial/serial_api.h"
 #include "extensions/browser/api/serial/serial_connection.h"
+#include "extensions/browser/api/serial/serial_service_factory.h"
 #include "extensions/browser/extension_function.h"
 #include "extensions/common/api/serial.h"
 #include "extensions/common/switches.h"
 #include "extensions/test/result_catcher.h"
-#include "extensions/test/test_service_registration_manager.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 using testing::_;
@@ -40,7 +40,7 @@ class FakeSerialGetDevicesFunction : public AsyncExtensionFunction {
   }
 
  protected:
-  ~FakeSerialGetDevicesFunction() {}
+  ~FakeSerialGetDevicesFunction() override {}
 };
 
 class FakeSerialDeviceEnumerator : public device::SerialDeviceEnumerator {
@@ -97,7 +97,7 @@ class FakeSerialConnectFunction : public core_api::SerialConnectFunction {
   }
 
  protected:
-  ~FakeSerialConnectFunction() {}
+  ~FakeSerialConnectFunction() override {}
 };
 
 class SerialApiTest : public ExtensionApiTest,
@@ -109,12 +109,16 @@ class SerialApiTest : public ExtensionApiTest,
     ExtensionApiTest::SetUpCommandLine(command_line);
     if (GetParam())
       command_line->AppendSwitch(switches::kEnableMojoSerialService);
-    test_service_registration_manager_.reset(
-        new TestServiceRegistrationManager);
+  }
+
+  void TearDownOnMainThread() override {
+    SetSerialServiceFactoryForTest(nullptr);
+    ExtensionApiTest::TearDownOnMainThread();
   }
 
  protected:
-  scoped_ptr<TestServiceRegistrationManager> test_service_registration_manager_;
+  base::Callback<void(mojo::InterfaceRequest<device::serial::SerialService>)>
+      serial_service_factory_;
 };
 
 ExtensionFunction* FakeSerialGetDevicesFunctionFactory() {
@@ -134,9 +138,8 @@ void CreateTestSerialServiceOnFileThread(
           content::BrowserThread::IO));
   scoped_ptr<device::SerialDeviceEnumerator> device_enumerator(
       new FakeSerialDeviceEnumerator);
-  mojo::BindToRequest(new device::SerialServiceImpl(connection_factory,
-                                                    device_enumerator.Pass()),
-                      &request);
+  new device::SerialServiceImpl(connection_factory, device_enumerator.Pass(),
+                                request.Pass());
 }
 
 void CreateTestSerialService(
@@ -175,8 +178,8 @@ IN_PROC_BROWSER_TEST_P(SerialApiTest, SerialFakeHardware) {
 
 #if SIMULATE_SERIAL_PORTS
   if (GetParam()) {
-    test_service_registration_manager_->OverrideServiceFactoryForTest(
-        base::Bind(&CreateTestSerialService));
+    serial_service_factory_ = base::Bind(&CreateTestSerialService);
+    SetSerialServiceFactoryForTest(&serial_service_factory_);
   } else {
     ASSERT_TRUE(ExtensionFunctionDispatcher::OverrideFunction(
         "serial.getDevices", FakeSerialGetDevicesFunctionFactory));

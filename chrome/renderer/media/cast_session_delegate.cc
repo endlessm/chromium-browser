@@ -4,9 +4,12 @@
 
 #include "chrome/renderer/media/cast_session_delegate.h"
 
+#include "base/callback_helpers.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/single_thread_task_runner.h"
+#include "base/strings/stringprintf.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/common/chrome_version_info.h"
 #include "chrome/renderer/media/cast_threads.h"
 #include "chrome/renderer/media/cast_transport_sender_ipc.h"
@@ -29,22 +32,92 @@ using media::cast::VideoSenderConfig;
 static base::LazyInstance<CastThreads> g_cast_threads =
     LAZY_INSTANCE_INITIALIZER;
 
-CastSessionDelegate::CastSessionDelegate()
-    : io_message_loop_proxy_(
+CastSessionDelegateBase::CastSessionDelegateBase()
+    : io_task_runner_(
           content::RenderThread::Get()->GetIOMessageLoopProxy()),
       weak_factory_(this) {
-  DCHECK(io_message_loop_proxy_.get());
+  DCHECK(io_task_runner_.get());
+#if defined(OS_WIN)
+  // Note that this also increases the accuracy of PostDelayTask,
+  // which is is very helpful to cast.
+  if (!base::Time::ActivateHighResolutionTimer(true)) {
+    LOG(WARNING) << "Failed to activate high resolution timers for cast.";
+  }
+#endif
+}
+
+CastSessionDelegateBase::~CastSessionDelegateBase() {
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
+#if defined(OS_WIN)
+  base::Time::ActivateHighResolutionTimer(false);
+#endif
+}
+
+void CastSessionDelegateBase::StartUDP(
+    const net::IPEndPoint& local_endpoint,
+    const net::IPEndPoint& remote_endpoint,
+    scoped_ptr<base::DictionaryValue> options,
+    const ErrorCallback& error_callback) {
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
+
+  // CastSender uses the renderer's IO thread as the main thread. This reduces
+  // thread hopping for incoming video frames and outgoing network packets.
+  // TODO(hubbe): Create cast environment in ctor instead.
+  cast_environment_ = new CastEnvironment(
+      scoped_ptr<base::TickClock>(new base::DefaultTickClock()).Pass(),
+      base::ThreadTaskRunnerHandle::Get(),
+      g_cast_threads.Get().GetAudioEncodeMessageLoopProxy(),
+      g_cast_threads.Get().GetVideoEncodeMessageLoopProxy());
+
+  // Rationale for using unretained: The callback cannot be called after the
+  // destruction of CastTransportSenderIPC, and they both share the same thread.
+  cast_transport_.reset(new CastTransportSenderIPC(
+      local_endpoint,
+      remote_endpoint,
+      options.Pass(),
+      base::Bind(&CastSessionDelegateBase::ReceivePacket,
+                 base::Unretained(this)),
+      base::Bind(&CastSessionDelegateBase::StatusNotificationCB,
+                 base::Unretained(this), error_callback),
+      base::Bind(&CastSessionDelegateBase::LogRawEvents,
+                 base::Unretained(this))));
+}
+
+void CastSessionDelegateBase::StatusNotificationCB(
+    const ErrorCallback& error_callback,
+    media::cast::CastTransportStatus status) {
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
+  std::string error_message;
+
+  switch (status) {
+    case media::cast::TRANSPORT_AUDIO_UNINITIALIZED:
+    case media::cast::TRANSPORT_VIDEO_UNINITIALIZED:
+    case media::cast::TRANSPORT_AUDIO_INITIALIZED:
+    case media::cast::TRANSPORT_VIDEO_INITIALIZED:
+      return; // Not errors, do nothing.
+    case media::cast::TRANSPORT_INVALID_CRYPTO_CONFIG:
+      error_callback.Run("Invalid encrypt/decrypt configuration.");
+      break;
+    case media::cast::TRANSPORT_SOCKET_ERROR:
+      error_callback.Run("Socket error.");
+      break;
+  }
+}
+
+CastSessionDelegate::CastSessionDelegate()
+    : weak_factory_(this) {
+  DCHECK(io_task_runner_.get());
 }
 
 CastSessionDelegate::~CastSessionDelegate() {
-  DCHECK(io_message_loop_proxy_->BelongsToCurrentThread());
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
 }
 
 void CastSessionDelegate::StartAudio(
     const AudioSenderConfig& config,
     const AudioFrameInputAvailableCallback& callback,
     const ErrorCallback& error_callback) {
-  DCHECK(io_message_loop_proxy_->BelongsToCurrentThread());
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
 
   if (!cast_transport_ || !cast_sender_) {
     error_callback.Run("Destination not set.");
@@ -54,8 +127,8 @@ void CastSessionDelegate::StartAudio(
   audio_frame_input_available_callback_ = callback;
   cast_sender_->InitializeAudio(
       config,
-      base::Bind(&CastSessionDelegate::InitializationResultCB,
-                 weak_factory_.GetWeakPtr(), error_callback));
+      base::Bind(&CastSessionDelegate::OnOperationalStatusChange,
+                 weak_factory_.GetWeakPtr(), true, error_callback));
 }
 
 void CastSessionDelegate::StartVideo(
@@ -65,7 +138,7 @@ void CastSessionDelegate::StartVideo(
     const media::cast::CreateVideoEncodeAcceleratorCallback& create_vea_cb,
     const media::cast::CreateVideoEncodeMemoryCallback&
         create_video_encode_mem_cb) {
-  DCHECK(io_message_loop_proxy_->BelongsToCurrentThread());
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
 
   if (!cast_transport_ || !cast_sender_) {
     error_callback.Run("Destination not set.");
@@ -76,41 +149,31 @@ void CastSessionDelegate::StartVideo(
 
   cast_sender_->InitializeVideo(
       config,
-      base::Bind(&CastSessionDelegate::InitializationResultCB,
-                 weak_factory_.GetWeakPtr(), error_callback),
+      base::Bind(&CastSessionDelegate::OnOperationalStatusChange,
+                 weak_factory_.GetWeakPtr(), false, error_callback),
       create_vea_cb,
       create_video_encode_mem_cb);
 }
 
-void CastSessionDelegate::StartUDP(const net::IPEndPoint& remote_endpoint,
-                                   scoped_ptr<base::DictionaryValue> options) {
-  DCHECK(io_message_loop_proxy_->BelongsToCurrentThread());
 
-  // CastSender uses the renderer's IO thread as the main thread. This reduces
-  // thread hopping for incoming video frames and outgoing network packets.
-  cast_environment_ = new CastEnvironment(
-      scoped_ptr<base::TickClock>(new base::DefaultTickClock()).Pass(),
-      base::MessageLoopProxy::current(),
-      g_cast_threads.Get().GetAudioEncodeMessageLoopProxy(),
-      g_cast_threads.Get().GetVideoEncodeMessageLoopProxy());
-
+void CastSessionDelegate::StartUDP(
+    const net::IPEndPoint& local_endpoint,
+    const net::IPEndPoint& remote_endpoint,
+    scoped_ptr<base::DictionaryValue> options,
+    const ErrorCallback& error_callback) {
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
+  CastSessionDelegateBase::StartUDP(local_endpoint,
+                                    remote_endpoint,
+                                    options.Pass(),
+                                    error_callback);
   event_subscribers_.reset(
       new media::cast::RawEventSubscriberBundle(cast_environment_));
-
-  // Rationale for using unretained: The callback cannot be called after the
-  // destruction of CastTransportSenderIPC, and they both share the same thread.
-  cast_transport_.reset(new CastTransportSenderIPC(
-      remote_endpoint,
-      options.Pass(),
-      base::Bind(&CastSessionDelegate::StatusNotificationCB,
-                 base::Unretained(this)),
-      base::Bind(&CastSessionDelegate::LogRawEvents, base::Unretained(this))));
 
   cast_sender_ = CastSender::Create(cast_environment_, cast_transport_.get());
 }
 
 void CastSessionDelegate::ToggleLogging(bool is_audio, bool enable) {
-  DCHECK(io_message_loop_proxy_->BelongsToCurrentThread());
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
   if (!event_subscribers_.get())
     return;
 
@@ -124,7 +187,7 @@ void CastSessionDelegate::GetEventLogsAndReset(
     bool is_audio,
     const std::string& extra_data,
     const EventLogsCallback& callback) {
-  DCHECK(io_message_loop_proxy_->BelongsToCurrentThread());
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
 
   if (!event_subscribers_.get()) {
     callback.Run(make_scoped_ptr(new base::BinaryValue).Pass());
@@ -164,7 +227,7 @@ void CastSessionDelegate::GetEventLogsAndReset(
                                               &output_bytes);
 
   if (!success) {
-    VLOG(2) << "Failed to serialize event log.";
+    DVLOG(2) << "Failed to serialize event log.";
     callback.Run(make_scoped_ptr(new base::BinaryValue).Pass());
     return;
   }
@@ -178,7 +241,7 @@ void CastSessionDelegate::GetEventLogsAndReset(
 
 void CastSessionDelegate::GetStatsAndReset(bool is_audio,
                                            const StatsCallback& callback) {
-  DCHECK(io_message_loop_proxy_->BelongsToCurrentThread());
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
 
   if (!event_subscribers_.get()) {
     callback.Run(make_scoped_ptr(new base::DictionaryValue).Pass());
@@ -198,58 +261,64 @@ void CastSessionDelegate::GetStatsAndReset(bool is_audio,
   callback.Run(stats.Pass());
 }
 
-void CastSessionDelegate::StatusNotificationCB(
-    media::cast::CastTransportStatus unused_status) {
-  DCHECK(io_message_loop_proxy_->BelongsToCurrentThread());
-  // TODO(hubbe): Call javascript UDPTransport error function.
-}
-
-void CastSessionDelegate::InitializationResultCB(
+void CastSessionDelegate::OnOperationalStatusChange(
+    bool is_for_audio,
     const ErrorCallback& error_callback,
-    media::cast::CastInitializationStatus result) const {
+    media::cast::OperationalStatus status) {
   DCHECK(cast_sender_);
 
-  switch (result) {
-    case media::cast::STATUS_AUDIO_INITIALIZED:
-      audio_frame_input_available_callback_.Run(
-          cast_sender_->audio_frame_input());
+  switch (status) {
+    case media::cast::STATUS_UNINITIALIZED:
+    case media::cast::STATUS_CODEC_REINIT_PENDING:
+      // Not an error.
+      // TODO(miu): As an optimization, signal the client to pause sending more
+      // frames until the state becomes STATUS_INITIALIZED again.
       break;
-    case media::cast::STATUS_VIDEO_INITIALIZED:
-      video_frame_input_available_callback_.Run(
-          cast_sender_->video_frame_input());
+    case media::cast::STATUS_INITIALIZED:
+      // Once initialized, run the "frame input available" callback to allow the
+      // client to begin sending frames.  If STATUS_INITIALIZED is encountered
+      // again, do nothing since this is only an indication that the codec has
+      // successfully re-initialized.
+      if (is_for_audio) {
+        if (!audio_frame_input_available_callback_.is_null()) {
+          base::ResetAndReturn(&audio_frame_input_available_callback_).Run(
+              cast_sender_->audio_frame_input());
+        }
+      } else {
+        if (!video_frame_input_available_callback_.is_null()) {
+          base::ResetAndReturn(&video_frame_input_available_callback_).Run(
+              cast_sender_->video_frame_input());
+        }
+      }
       break;
-    case media::cast::STATUS_INVALID_CAST_ENVIRONMENT:
-      error_callback.Run("Invalid cast environment.");
+    case media::cast::STATUS_INVALID_CONFIGURATION:
+      error_callback.Run(base::StringPrintf("Invalid %s configuration.",
+                                            is_for_audio ? "audio" : "video"));
       break;
-    case media::cast::STATUS_INVALID_CRYPTO_CONFIGURATION:
-      error_callback.Run("Invalid encryption keys.");
+    case media::cast::STATUS_UNSUPPORTED_CODEC:
+      error_callback.Run(base::StringPrintf("%s codec not supported.",
+                                            is_for_audio ? "Audio" : "Video"));
       break;
-    case media::cast::STATUS_UNSUPPORTED_AUDIO_CODEC:
-      error_callback.Run("Audio codec not supported.");
+    case media::cast::STATUS_CODEC_INIT_FAILED:
+      error_callback.Run(base::StringPrintf("%s codec initialization failed.",
+                                            is_for_audio ? "Audio" : "Video"));
       break;
-    case media::cast::STATUS_UNSUPPORTED_VIDEO_CODEC:
-      error_callback.Run("Video codec not supported.");
-      break;
-    case media::cast::STATUS_INVALID_AUDIO_CONFIGURATION:
-      error_callback.Run("Invalid audio configuration.");
-      break;
-    case media::cast::STATUS_INVALID_VIDEO_CONFIGURATION:
-      error_callback.Run("Invalid video configuration.");
-      break;
-    case media::cast::STATUS_HW_VIDEO_ENCODER_NOT_SUPPORTED:
-      error_callback.Run("Hardware video encoder not supported.");
-      break;
-    case media::cast::STATUS_AUDIO_UNINITIALIZED:
-    case media::cast::STATUS_VIDEO_UNINITIALIZED:
-      NOTREACHED() << "Not an error.";
+    case media::cast::STATUS_CODEC_RUNTIME_ERROR:
+      error_callback.Run(base::StringPrintf("%s codec runtime error.",
+                                            is_for_audio ? "Audio" : "Video"));
       break;
   }
+}
+
+void CastSessionDelegate::ReceivePacket(
+    scoped_ptr<media::cast::Packet> packet) {
+  // Do nothing (frees packet)
 }
 
 void CastSessionDelegate::LogRawEvents(
     const std::vector<media::cast::PacketEvent>& packet_events,
     const std::vector<media::cast::FrameEvent>& frame_events) {
-  DCHECK(io_message_loop_proxy_->BelongsToCurrentThread());
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
 
   for (std::vector<media::cast::PacketEvent>::const_iterator it =
            packet_events.begin();

@@ -385,7 +385,7 @@ scoped_ptr<const HeaderMatcher> HeaderMatcher::Create(
         HeaderMatchTest::Create(tests));
     if (header_test.get() == NULL)
       return scoped_ptr<const HeaderMatcher>();
-    header_tests.push_back(header_test.release());
+    header_tests.push_back(header_test.Pass());
   }
 
   return scoped_ptr<const HeaderMatcher>(new HeaderMatcher(&header_tests));
@@ -422,12 +422,12 @@ bool HeaderMatcher::StringMatchTest::Matches(
     const std::string& str) const {
   switch (type_) {
     case kPrefix:
-      return StartsWithASCII(str, data_, case_sensitive_);
+      return base::StartsWithASCII(str, data_, case_sensitive_);
     case kSuffix:
-      return EndsWith(str, data_, case_sensitive_);
+      return base::EndsWith(str, data_, case_sensitive_);
     case kEquals:
       return str.size() == data_.size() &&
-             StartsWithASCII(str, data_, case_sensitive_);
+             base::StartsWithASCII(str, data_, case_sensitive_);
     case kContains:
       if (!case_sensitive_) {
         return std::search(str.begin(), str.end(), data_.begin(), data_.end(),

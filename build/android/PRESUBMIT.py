@@ -5,27 +5,8 @@
 """Presubmit script for android buildbot.
 
 See http://dev.chromium.org/developers/how-tos/depottools/presubmit-scripts for
-details on the presubmit API built into gcl.
+details on the presubmit API built into depot_tools.
 """
-
-_DELETIONS_ONLY_FILES = (
-    'build/android/findbugs_filter/findbugs_known_bugs.txt',
-)
-
-
-def _CheckDeletionsOnlyFiles(input_api, output_api):
-  """Check that a certain listed files only have deletions.
-  """
-  warnings = []
-  for f in input_api.AffectedFiles():
-    if f.LocalPath() in _DELETIONS_ONLY_FILES:
-      if f.ChangedContents():
-        warnings.append(f.LocalPath())
-  results = []
-  if warnings:
-    results.append(output_api.PresubmitPromptWarning(
-        'Following files should only contain deletions.', warnings))
-  return results
 
 
 def CommonChecks(input_api, output_api):
@@ -61,12 +42,17 @@ def CommonChecks(input_api, output_api):
       input_api,
       output_api,
       unit_tests=[
+          J('pylib', 'base', 'test_dispatcher_unittest.py'),
+          J('pylib', 'device', 'battery_utils_test.py'),
           J('pylib', 'device', 'device_utils_test.py'),
-          J('pylib', 'gtest', 'test_package_test.py'),
-          J('pylib', 'instrumentation', 'test_runner_test.py'),
+          J('pylib', 'device', 'logcat_monitor_test.py'),
+          J('pylib', 'gtest', 'gtest_test_instance_test.py'),
+          J('pylib', 'instrumentation',
+            'instrumentation_test_instance_test.py'),
+          J('pylib', 'results', 'json_results_test.py'),
+          J('pylib', 'utils', 'md5sum_test.py'),
       ],
       env=pylib_test_env))
-  output.extend(_CheckDeletionsOnlyFiles(input_api, output_api))
   return output
 
 

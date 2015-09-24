@@ -31,19 +31,9 @@
         {
           'target_name': 'metro_driver_version_resources',
           'type': 'none',
-          'conditions': [
-            ['branding == "Chrome"', {
-              'variables': {
-                 'branding_path': '../../chrome/app/theme/google_chrome/BRANDING',
-              },
-            }, { # else branding!="Chrome"
-              'variables': {
-                 'branding_path': '../../chrome/app/theme/chromium/BRANDING',
-              },
-            }],
-          ],
           'variables': {
             'output_dir': 'metro_driver',
+            'branding_path': '../../chrome/app/theme/<(branding_path_component)/BRANDING',
             'template_input_path': '../../chrome/app/chrome_version.rc.version',
           },
           'sources': [
@@ -61,7 +51,6 @@
             '../../chrome/common_constants.gyp:common_constants',
             '../../chrome/chrome.gyp:installer_util',
             '../../crypto/crypto.gyp:crypto',
-            '../../google_update/google_update.gyp:google_update',
             '../../ipc/ipc.gyp:ipc',
             '../../sandbox/sandbox.gyp:sandbox',
             '../../ui/metro_viewer/metro_viewer.gyp:metro_viewer_messages',

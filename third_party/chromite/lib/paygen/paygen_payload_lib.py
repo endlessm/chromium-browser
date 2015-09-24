@@ -10,15 +10,14 @@ import base64
 import datetime
 import filecmp
 import json
-import logging
 import os
 import shutil
+import sys
 import tempfile
 
-import fixup_path
-fixup_path.FixupPath()
-
+from chromite.cbuildbot import constants
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import osutils
 from chromite.lib.paygen import dryrun_lib
 from chromite.lib.paygen import filelib
@@ -28,7 +27,12 @@ from chromite.lib.paygen import urilib
 from chromite.lib.paygen import utils
 
 
-DESCRIPTION_FILE_VERSION = 1
+# Needed for the dev.host.lib import below.
+sys.path.insert(0, os.path.join(constants.SOURCE_ROOT, 'src', 'platform'))
+
+
+DESCRIPTION_FILE_VERSION = 2
+
 
 class Error(Exception):
   """Base class for payload generation errors."""
@@ -44,13 +48,6 @@ class PayloadVerificationError(Error):
 
 class _PaygenPayload(object):
   """Class to manage the process of generating and signing a payload."""
-
-  # GeneratorUri uses these to ensure we don't use generators that are too
-  # old to be supported.
-  MINIMUM_GENERATOR_VERSION = '6303.0.0'
-  MINIMUM_GENERATOR_URI = (
-      'gs://chromeos-releases/canary-channel/x86-mario/%s/au-generator.zip' %
-      MINIMUM_GENERATOR_VERSION)
 
   # What keys do we sign payloads with, and what size are they?
   PAYLOAD_SIGNATURE_KEYSETS = ('update_signer',)
@@ -116,7 +113,8 @@ class _PaygenPayload(object):
       self.signer = signer_payloads_client.SignerPayloadsClientGoogleStorage(
           payload.tgt_image.channel,
           payload.tgt_image.board,
-          payload.tgt_image.version)
+          payload.tgt_image.version,
+          payload.tgt_image.bucket)
 
   def _MetadataUri(self, uri):
     """Given a payload uri, find the uri for the metadata signature."""
@@ -130,38 +128,18 @@ class _PaygenPayload(object):
     """Given a payload uri, find the uri for the json payload description."""
     return uri + '.json'
 
-  def _GeneratorUri(self):
-    """Find the URI for the au-generator.zip to use to generate this payload.
-
-    The intent is to always find a generator compatible with the version
-    that will process the update generated. Notice that Full updates must
-    be compatible with all versions, no matter how old.
-
-    Returns:
-      URI of an au-generator.zip in string form.
-    """
-    if self._au_generator_uri_override:
-      return self._au_generator_uri_override
-
-    if (self.payload.src_image and
-        gspaths.VersionGreater(self.payload.src_image.version,
-                               self.MINIMUM_GENERATOR_VERSION)):
-      # If we are a delta, and newer than the minimum delta age,
-      # Use the generator from the src.
-      return gspaths.ChromeosReleases.GeneratorUri(
-          self.payload.src_image.channel,
-          self.payload.src_image.board,
-          self.payload.src_image.version)
-    else:
-      # If we are a full update, or a delta from older than minimum, use
-      # the minimum generator version.
-      return self.MINIMUM_GENERATOR_URI
-
   def _PrepareGenerator(self):
-    """Download, and extract au-generate.zip into self.generator_dir."""
-    generator_uri = self._GeneratorUri()
+    """Download, and extract au-generator.zip into self.generator_dir."""
+    if self._au_generator_uri_override:
+      generator_uri = self._au_generator_uri_override
+    else:
+      generator_uri = gspaths.ChromeosReleases.GeneratorUri(
+          self.payload.tgt_image.channel,
+          self.payload.tgt_image.board,
+          self.payload.tgt_image.version,
+          self.payload.tgt_image.bucket)
 
-    logging.info('Preparing au-generate.zip from %s.', generator_uri)
+    logging.info('Preparing au-generator.zip from %s.', generator_uri)
 
     # Extract zipped delta generator files to the expected directory.
     tmp_zip = self.cache.GetFileInTempFile(generator_uri)
@@ -187,7 +165,6 @@ class _PaygenPayload(object):
 
     Raises:
       cros_build_lib.RunCommandError if the command exited with a nonzero code.
-
     """
     # Adjust the command name to match the directory it's in.
     cmd[0] = os.path.join(self.generator_dir, cmd[0])
@@ -233,7 +210,6 @@ class _PaygenPayload(object):
       'bar']), unless flag is empty/None, in which case returns a list
       containing only the value argument (e.g.  ['bar']). Otherwise, returns an
       empty list.
-
     """
     arg_list = []
     val = dict_obj.get(key) or default
@@ -302,8 +278,7 @@ class _PaygenPayload(object):
            '--image', self.tgt_image_file,
            '--channel', tgt_image.channel,
            '--board', tgt_image.board,
-           '--version', tgt_image.version,
-          ]
+           '--version', tgt_image.version]
     cmd += self._BuildArg('--key', tgt_image, 'key', default='test')
     cmd += self._BuildArg('--build_channel', tgt_image, 'image_channel',
                           default=tgt_image.channel)
@@ -315,8 +290,7 @@ class _PaygenPayload(object):
       cmd += ['--src_image', self.src_image_file,
               '--src_channel', src_image.channel,
               '--src_board', src_image.board,
-              '--src_version', src_image.version,
-             ]
+              '--src_version', src_image.version]
       cmd += self._BuildArg('--src_key', src_image, 'key', default='test')
       cmd += self._BuildArg('--src_build_channel', src_image, 'image_channel',
                             default=src_image.channel)
@@ -341,12 +315,30 @@ class _PaygenPayload(object):
 
     with tempfile.NamedTemporaryFile('rb') as payload_hash_file:
       cmd = ['delta_generator',
-             '-in_file', self.payload_file,
-             '-out_hash_file', payload_hash_file.name,
-             '-signature_size', ':'.join(signature_sizes)]
+             '-in_file=' + self.payload_file,
+             '-out_hash_file=' + payload_hash_file.name,
+             '-signature_size=' + ':'.join(signature_sizes)]
 
       self._RunGeneratorCmd(cmd)
       return payload_hash_file.read()
+
+  def _MetadataSize(self, payload_file):
+    """Discover the metadata size.
+
+    The payload generator should return this information when calculating the
+    metadata hash, but would require a lot of new plumbing. Instead we just
+    look it up ourselves.
+
+    Args:
+      payload_file: Which payload file to extract metadata size from.
+
+    Returns:
+      int value of the metadata size.
+    """
+    with open(payload_file) as payload_fd:
+      payload = self._update_payload.Payload(payload_fd)
+      payload.Init()
+      return payload.data_offset
 
   def _GenMetadataHash(self):
     """Generate a hash of payload and metadata.
@@ -363,9 +355,9 @@ class _PaygenPayload(object):
 
     with tempfile.NamedTemporaryFile('rb') as metadata_hash_file:
       cmd = ['delta_generator',
-             '-in_file', self.payload_file,
-             '-out_metadata_hash_file', metadata_hash_file.name,
-             '-signature_size', ':'.join(signature_sizes)]
+             '-in_file=' + self.payload_file,
+             '-out_metadata_hash_file=' + metadata_hash_file.name,
+             '-signature_size=' + ':'.join(signature_sizes)]
 
       self._RunGeneratorCmd(cmd)
       return metadata_hash_file.read()
@@ -438,9 +430,9 @@ class _PaygenPayload(object):
     signature_file_names = [f.name for f in signature_files]
 
     cmd = ['delta_generator',
-           '-in_file', self.payload_file,
-           '-signature_file', ':'.join(signature_file_names),
-           '-out_file', self.signed_payload_file]
+           '-in_file=' + self.payload_file,
+           '-signature_file=' + ':'.join(signature_file_names),
+           '-out_file=' + self.signed_payload_file]
 
     self._RunGeneratorCmd(cmd)
 
@@ -476,17 +468,25 @@ class _PaygenPayload(object):
     fields populated.
 
     {
-      "version": 1,
+      "version": 2,
       "sha1_hex": <payload sha1 hash as a hex encoded string>,
       "sha256_hex": <payload sha256 hash as a hex encoded string>,
+      "md5_hex": <payload md5 hash as a hex encoded string>,
+      "metadata_size": <integer of payload metadata covered by signature>,
       "metadata_signature": <metadata signature as base64 encoded string or nil>
     }
 
     Args:
       metadata_signatures: A list of signatures in binary string format.
     """
+    # Decide if we use the signed or unsigned payload file.
+    payload_file = self.payload_file
+    if self.signer:
+      payload_file = self.signed_payload_file
+
     # Locate everything we put in the json.
-    sha1_hex, sha256_hex = filelib.ShaSums(self.payload_file)
+    sha1_hex, sha256_hex = filelib.ShaSums(payload_file)
+    md5_hex = filelib.MD5Sum(payload_file)
 
     metadata_signature = None
     if metadata_signatures:
@@ -499,10 +499,12 @@ class _PaygenPayload(object):
     # Bundle it up in a map matching the Json format.
     # Increment DESCRIPTION_FILE_VERSION, if changing this map.
     payload_map = {
-      'version': DESCRIPTION_FILE_VERSION,
-      'sha1_hex': sha1_hex,
-      'sha256_hex': sha256_hex,
-      'metadata_signature': metadata_signature,
+        'version': DESCRIPTION_FILE_VERSION,
+        'sha1_hex': sha1_hex,
+        'sha256_hex': sha256_hex,
+        'md5_hex': md5_hex,
+        'metadata_size': self._MetadataSize(payload_file),
+        'metadata_signature': metadata_signature,
     }
 
     # Convert to Json.
@@ -528,14 +530,16 @@ class _PaygenPayload(object):
 
     Returns:
       List of payload signatures, List of metadata signatures.
-      """
+    """
     # Create hashes to sign.
     payload_hash = self._GenPayloadHash()
     metadata_hash = self._GenMetadataHash()
 
     # Sign them.
+    # pylint: disable=unpacking-non-sequence
     payload_signatures, metadata_signatures = self._SignHashes(
         [payload_hash, metadata_hash])
+    # pylint: enable=unpacking-non-sequence
 
     # Insert payload signature(s).
     self._InsertPayloadSignatures(payload_signatures)
@@ -571,7 +575,6 @@ class _PaygenPayload(object):
 
     # Store hash and signatures json.
     self._StorePayloadJson(metadata_signatures)
-
 
   def _CheckPayloadIntegrity(self, payload, is_delta, metadata_sig_file_name):
     """Checks the integrity of a generated payload.

@@ -28,7 +28,7 @@
 #include "net/base/net_errors.h"
 #include "net/base/net_util.h"
 #include "net/base/rand_callback.h"
-#include "net/udp/udp_socket.h"
+#include "net/udp/udp_server_socket.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using media::cast::test::GetFreeLocalPort;
@@ -37,7 +37,7 @@ namespace extensions {
 
 class CastStreamingApiTest : public ExtensionApiTest {
  public:
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionApiTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII(
         extensions::switches::kWhitelistedExtensionID,
@@ -176,7 +176,7 @@ class TestPatternReceiver : public media::cast::InProcessReceiver {
     }
     crossings /= audio_frame->channels();  // Take the average.
     const float seconds_per_frame =
-        audio_frame->frames() / static_cast<float>(audio_config().frequency);
+        audio_frame->frames() / static_cast<float>(audio_config().rtp_timebase);
     const float frequency = crossings / seconds_per_frame / 2.0f;
     VLOG(1) << "Current audio tone frequency: " << frequency;
 
@@ -321,7 +321,7 @@ class CastStreamingApiTestWithPixelOutput : public CastStreamingApiTest {
     CastStreamingApiTest::SetUp();
   }
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitchASCII(::switches::kWindowSize, "128,128");
     CastStreamingApiTest::SetUpCommandLine(command_line);
   }
@@ -333,24 +333,18 @@ class CastStreamingApiTestWithPixelOutput : public CastStreamingApiTest {
 // in-process Cast receiver, listening on a localhost UDP socket, to receive the
 // content and check whether it matches expectations.
 //
-// TODO(miu): In order to get this test up-and-running again, we will first
-// confirm it is stable on Release build bots, then later we will enable it for
-// the Debug build bots.  http://crbug.com/396413
-// Also, it seems that the test fails to generate any video (audio is fine) on
-// the ChromeOS bot.  Need to root-cause and resolve that issue.
-#if defined(NDEBUG) && !defined(OS_CHROMEOS)
+// TODO(miu): Now that this test has been long-stable on Release build bots, it
+// should be enabled for the Debug build bots.  http://crbug.com/396413
+#if defined(NDEBUG)
 #define MAYBE_EndToEnd EndToEnd
 #else
 #define MAYBE_EndToEnd DISABLED_EndToEnd
 #endif
 IN_PROC_BROWSER_TEST_F(CastStreamingApiTestWithPixelOutput, MAYBE_EndToEnd) {
-  scoped_ptr<net::UDPSocket> receive_socket(
-      new net::UDPSocket(net::DatagramSocket::DEFAULT_BIND,
-                         net::RandIntCallback(),
-                         NULL,
-                         net::NetLog::Source()));
+  scoped_ptr<net::UDPServerSocket> receive_socket(
+      new net::UDPServerSocket(NULL, net::NetLog::Source()));
   receive_socket->AllowAddressReuse();
-  ASSERT_EQ(net::OK, receive_socket->Bind(GetFreeLocalPort()));
+  ASSERT_EQ(net::OK, receive_socket->Listen(GetFreeLocalPort()));
   net::IPEndPoint receiver_end_point;
   ASSERT_EQ(net::OK, receive_socket->GetLocalAddress(&receiver_end_point));
   receive_socket.reset();

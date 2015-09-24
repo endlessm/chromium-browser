@@ -5,7 +5,7 @@
 #include "extensions/renderer/send_request_natives.h"
 
 #include "base/json/json_reader.h"
-#include "content/public/renderer/v8_value_converter.h"
+#include "content/public/child/v8_value_converter.h"
 #include "extensions/renderer/request_sender.h"
 #include "extensions/renderer/script_context.h"
 
@@ -74,7 +74,7 @@ void SendRequestNatives::GetGlobal(
   CHECK_EQ(1, args.Length());
   CHECK(args[0]->IsObject());
   args.GetReturnValue().Set(
-      v8::Handle<v8::Object>::Cast(args[0])->CreationContext()->Global());
+      v8::Local<v8::Object>::Cast(args[0])->CreationContext()->Global());
 }
 
 }  // namespace extensions

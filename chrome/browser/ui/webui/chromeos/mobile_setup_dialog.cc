@@ -19,7 +19,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "content/public/browser/browser_thread.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/views/widget/widget.h"
 #include "ui/web_dialogs/web_dialog_delegate.h"
 
@@ -38,24 +38,22 @@ class MobileSetupDialogDelegate : public WebDialogDelegate {
   friend struct DefaultSingletonTraits<MobileSetupDialogDelegate>;
 
   MobileSetupDialogDelegate();
-  virtual ~MobileSetupDialogDelegate();
+  ~MobileSetupDialogDelegate() override;
 
   void OnCloseDialog();
 
   // WebDialogDelegate overrides.
-  virtual ui::ModalType GetDialogModalType() const override;
-  virtual base::string16 GetDialogTitle() const override;
-  virtual GURL GetDialogContentURL() const override;
-  virtual void GetWebUIMessageHandlers(
+  ui::ModalType GetDialogModalType() const override;
+  base::string16 GetDialogTitle() const override;
+  GURL GetDialogContentURL() const override;
+  void GetWebUIMessageHandlers(
       std::vector<WebUIMessageHandler*>* handlers) const override;
-  virtual void GetDialogSize(gfx::Size* size) const override;
-  virtual std::string GetDialogArgs() const override;
-  virtual void OnDialogClosed(const std::string& json_retval) override;
-  virtual void OnCloseContents(WebContents* source,
-                               bool* out_close_dialog) override;
-  virtual bool ShouldShowDialogTitle() const override;
-  virtual bool HandleContextMenu(
-      const content::ContextMenuParams& params) override;
+  void GetDialogSize(gfx::Size* size) const override;
+  std::string GetDialogArgs() const override;
+  void OnDialogClosed(const std::string& json_retval) override;
+  void OnCloseContents(WebContents* source, bool* out_close_dialog) override;
+  bool ShouldShowDialogTitle() const override;
+  bool HandleContextMenu(const content::ContextMenuParams& params) override;
 
  private:
   gfx::NativeWindow dialog_window_;

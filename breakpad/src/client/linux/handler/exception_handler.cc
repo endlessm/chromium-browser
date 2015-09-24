@@ -91,6 +91,7 @@
 #include "common/linux/linux_libc_support.h"
 #include "common/memory.h"
 #include "client/linux/log/log.h"
+#include "client/linux/microdump_writer/microdump_writer.h"
 #include "client/linux/minidump_writer/linux_dumper.h"
 #include "client/linux/minidump_writer/minidump_writer.h"
 #include "common/linux/eintr_wrapper.h"
@@ -187,6 +188,24 @@ void RestoreAlternateStackLocked() {
   stack_installed = false;
 }
 
+void InstallDefaultHandler(int sig) {
+#if defined(__ANDROID__)
+  // Android L+ expose signal and sigaction symbols that override the system
+  // ones. There is a bug in these functions where a request to set the handler
+  // to SIG_DFL is ignored. In that case, an infinite loop is entered as the
+  // signal is repeatedly sent to breakpad's signal handler.
+  // To work around this, directly call the system's sigaction.
+  struct kernel_sigaction sa;
+  memset(&sa, 0, sizeof(sa));
+  sys_sigemptyset(&sa.sa_mask);
+  sa.sa_handler_ = SIG_DFL;
+  sa.sa_flags = SA_RESTART;
+  sys_rt_sigaction(sig, &sa, NULL, sizeof(kernel_sigset_t));
+#else
+  signal(sig, SIG_DFL);
+#endif
+}
+
 // The global exception handler stack. This is needed because there may exist
 // multiple ExceptionHandler instances in a process. Each will have itself
 // registered in this stack.
@@ -210,7 +229,8 @@ ExceptionHandler::ExceptionHandler(const MinidumpDescriptor& descriptor,
   if (server_fd >= 0)
     crash_generation_client_.reset(CrashGenerationClient::TryCreate(server_fd));
 
-  if (!IsOutOfProcess() && !minidump_descriptor_.IsFD())
+  if (!IsOutOfProcess() && !minidump_descriptor_.IsFD() &&
+      !minidump_descriptor_.IsMicrodumpOnConsole())
     minidump_descriptor_.UpdatePath();
 
   pthread_mutex_lock(&g_handler_stack_mutex_);
@@ -281,7 +301,7 @@ void ExceptionHandler::RestoreHandlersLocked() {
 
   for (int i = 0; i < kNumHandledSignals; ++i) {
     if (sigaction(kExceptionSignals[i], &old_handlers[i], NULL) == -1) {
-      signal(kExceptionSignals[i], SIG_DFL);
+      InstallDefaultHandler(kExceptionSignals[i]);
     }
   }
   handlers_installed = false;
@@ -321,7 +341,7 @@ void ExceptionHandler::SignalHandler(int sig, siginfo_t* info, void* uc) {
     if (sigaction(sig, &cur_handler, NULL) == -1) {
       // When resetting the handler fails, try to reset the
       // default one to avoid an infinite loop here.
-      signal(sig, SIG_DFL);
+      InstallDefaultHandler(sig);
     }
     pthread_mutex_unlock(&g_handler_stack_mutex_);
     return;
@@ -338,14 +358,15 @@ void ExceptionHandler::SignalHandler(int sig, siginfo_t* info, void* uc) {
   // previously installed handler. Then, when the signal is retriggered, it will
   // be delivered to the appropriate handler.
   if (handled) {
-    signal(sig, SIG_DFL);
+    InstallDefaultHandler(sig);
   } else {
     RestoreHandlersLocked();
   }
 
   pthread_mutex_unlock(&g_handler_stack_mutex_);
 
-  if (info->si_pid || sig == SIGABRT) {
+  // info->si_code <= 0 iff SI_FROMUSER (SI_FROMKERNEL otherwise).
+  if (info->si_code <= 0 || sig == SIGABRT) {
     // This signal was triggered by somebody sending us the signal with kill().
     // In order to retrigger it, we have to queue a new signal by calling
     // kill() ourselves.  The special case (si_pid == 0 && sig == SIGABRT) is
@@ -548,6 +569,15 @@ void ExceptionHandler::WaitForContinueSignal() {
 // Runs on the cloned process.
 bool ExceptionHandler::DoDump(pid_t crashing_process, const void* context,
                               size_t context_size) {
+  if (minidump_descriptor_.IsMicrodumpOnConsole()) {
+    return google_breakpad::WriteMicrodump(
+        crashing_process,
+        context,
+        context_size,
+        mapping_list_,
+        minidump_descriptor_.microdump_build_fingerprint(),
+        minidump_descriptor_.microdump_product_info());
+  }
   if (minidump_descriptor_.IsFD()) {
     return google_breakpad::WriteMinidump(minidump_descriptor_.fd(),
                                           minidump_descriptor_.size_limit(),
@@ -583,7 +613,8 @@ bool ExceptionHandler::WriteMinidump(const string& dump_path,
 __attribute__((optimize("no-omit-frame-pointer")))
 #endif
 bool ExceptionHandler::WriteMinidump() {
-  if (!IsOutOfProcess() && !minidump_descriptor_.IsFD()) {
+  if (!IsOutOfProcess() && !minidump_descriptor_.IsFD() &&
+      !minidump_descriptor_.IsMicrodumpOnConsole()) {
     // Update the path of the minidump so that this can be called multiple times
     // and new files are created for each minidump.  This is done before the
     // generation happens, as clients may want to access the MinidumpDescriptor

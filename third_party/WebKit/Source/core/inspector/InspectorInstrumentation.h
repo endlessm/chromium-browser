@@ -32,6 +32,7 @@
 #define InspectorInstrumentation_h
 
 #include "bindings/core/v8/ScriptString.h"
+#include "core/CoreExport.h"
 #include "core/css/CSSSelector.h"
 #include "core/css/CSSStyleDeclaration.h"
 #include "core/css/CSSStyleSheet.h"
@@ -41,9 +42,9 @@
 #include "core/events/NodeEventContext.h"
 #include "core/frame/LocalFrame.h"
 #include "core/inspector/ConsoleAPITypes.h"
-#include "core/rendering/HitTestResult.h"
-#include "core/rendering/RenderImage.h"
-#include "core/storage/StorageArea.h"
+#include "core/layout/HitTestResult.h"
+#include "core/layout/LayoutImage.h"
+#include "core/page/ChromeClient.h"
 #include "platform/network/FormData.h"
 #include "platform/network/WebSocketHandshakeRequest.h"
 #include "platform/network/WebSocketHandshakeResponse.h"
@@ -54,8 +55,6 @@ namespace blink {
 class Document;
 class EventTarget;
 class ExecutionContext;
-class FrameHost;
-class InspectorTimelineAgent;
 class InstrumentingAgents;
 class ThreadableLoaderClient;
 class WorkerGlobalScope;
@@ -63,27 +62,25 @@ class WorkerInspectorProxy;
 
 #define FAST_RETURN_IF_NO_FRONTENDS(value) if (!hasFrontends()) return value;
 
-class InspectorInstrumentationCookie {
+class CORE_EXPORT InspectorInstrumentationCookie {
     STACK_ALLOCATED();
 public:
     InspectorInstrumentationCookie();
-    InspectorInstrumentationCookie(InstrumentingAgents*, int);
+    explicit InspectorInstrumentationCookie(InstrumentingAgents*);
     InspectorInstrumentationCookie(const InspectorInstrumentationCookie&);
     InspectorInstrumentationCookie& operator=(const InspectorInstrumentationCookie&);
     ~InspectorInstrumentationCookie();
 
     InstrumentingAgents* instrumentingAgents() const { return m_instrumentingAgents.get(); }
     bool isValid() const { return !!m_instrumentingAgents; }
-    bool hasMatchingTimelineAgentId(int id) const { return m_timelineAgentId == id; }
 
 private:
     RefPtrWillBeMember<InstrumentingAgents> m_instrumentingAgents;
-    int m_timelineAgentId;
 };
 
 namespace InspectorInstrumentation {
 
-class FrontendCounter {
+class CORE_EXPORT FrontendCounter {
 private:
     friend void frontendCreated();
     friend void frontendDeleted();
@@ -95,31 +92,26 @@ inline void frontendCreated() { atomicIncrement(&FrontendCounter::s_frontendCoun
 inline void frontendDeleted() { atomicDecrement(&FrontendCounter::s_frontendCounter); }
 inline bool hasFrontends() { return FrontendCounter::s_frontendCounter; }
 
-void registerInstrumentingAgents(InstrumentingAgents*);
-void unregisterInstrumentingAgents(InstrumentingAgents*);
-
-InspectorTimelineAgent* retrieveTimelineAgent(const InspectorInstrumentationCookie&);
+CORE_EXPORT void registerInstrumentingAgents(InstrumentingAgents*);
+CORE_EXPORT void unregisterInstrumentingAgents(InstrumentingAgents*);
 
 // Called from generated instrumentation code.
-InstrumentingAgents* instrumentingAgentsFor(Page*);
-InstrumentingAgents* instrumentingAgentsFor(LocalFrame*);
+CORE_EXPORT InstrumentingAgents* instrumentingAgentsFor(LocalFrame*);
 InstrumentingAgents* instrumentingAgentsFor(EventTarget*);
 InstrumentingAgents* instrumentingAgentsFor(ExecutionContext*);
 InstrumentingAgents* instrumentingAgentsFor(Document&);
 InstrumentingAgents* instrumentingAgentsFor(Document*);
-InstrumentingAgents* instrumentingAgentsFor(RenderObject*);
+InstrumentingAgents* instrumentingAgentsFor(LayoutObject*);
 InstrumentingAgents* instrumentingAgentsFor(Node*);
 InstrumentingAgents* instrumentingAgentsFor(WorkerGlobalScope*);
-InstrumentingAgents* instrumentingAgentsFor(FrameHost*);
 
 // Helper for the one above.
-InstrumentingAgents* instrumentingAgentsForNonDocumentContext(ExecutionContext*);
+CORE_EXPORT InstrumentingAgents* instrumentingAgentsForNonDocumentContext(ExecutionContext*);
 
 }  // namespace InspectorInstrumentation
 
 namespace InstrumentationEvents {
 extern const char PaintSetup[];
-extern const char RasterTask[];
 extern const char Paint[];
 extern const char Layer[];
 extern const char RequestMainThreadFrame[];
@@ -146,17 +138,12 @@ inline InstrumentingAgents* instrumentingAgentsFor(ExecutionContext* context)
     return context->isDocument() ? instrumentingAgentsFor(*toDocument(context)) : instrumentingAgentsForNonDocumentContext(context);
 }
 
-inline InstrumentingAgents* instrumentingAgentsFor(LocalFrame* frame)
-{
-    return frame ? instrumentingAgentsFor(frame->page()) : 0;
-}
-
 inline InstrumentingAgents* instrumentingAgentsFor(Document& document)
 {
-    Page* page = document.page();
-    if (!page && document.templateDocumentHost())
-        page = document.templateDocumentHost()->page();
-    return instrumentingAgentsFor(page);
+    LocalFrame* frame = document.frame();
+    if (!frame && document.templateDocumentHost())
+        frame = document.templateDocumentHost()->frame();
+    return instrumentingAgentsFor(frame);
 }
 
 inline InstrumentingAgents* instrumentingAgentsFor(Document* document)
@@ -180,8 +167,6 @@ inline InstrumentingAgents* instrumentingAgentsFor(CSSStyleDeclaration* declarat
 }
 
 } // namespace InspectorInstrumentation
-
-InstrumentingAgents* instrumentationForPage(Page*);
 
 InstrumentingAgents* instrumentationForWorkerGlobalScope(WorkerGlobalScope*);
 

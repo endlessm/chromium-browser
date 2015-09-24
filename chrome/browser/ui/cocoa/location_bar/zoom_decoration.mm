@@ -11,8 +11,9 @@
 #import "chrome/browser/ui/cocoa/location_bar/autocomplete_text_field_cell.h"
 #import "chrome/browser/ui/cocoa/location_bar/location_bar_view_mac.h"
 #import "chrome/browser/ui/cocoa/omnibox/omnibox_view_mac.h"
-#include "chrome/browser/ui/zoom/zoom_controller.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/ui/zoom/zoom_controller.h"
+#include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 
 ZoomDecoration::ZoomDecoration(LocationBarViewMac* owner)
@@ -22,9 +23,11 @@ ZoomDecoration::ZoomDecoration(LocationBarViewMac* owner)
 
 ZoomDecoration::~ZoomDecoration() {
   [bubble_ closeWithoutAnimation];
+  bubble_.delegate = nil;
 }
 
-bool ZoomDecoration::UpdateIfNecessary(ZoomController* zoom_controller) {
+bool ZoomDecoration::UpdateIfNecessary(
+    ui_zoom::ZoomController* zoom_controller, bool default_zoom_changed) {
   if (!ShouldShowDecoration()) {
     if (!IsVisible() && !bubble_)
       return false;
@@ -38,16 +41,22 @@ bool ZoomDecoration::UpdateIfNecessary(ZoomController* zoom_controller) {
   NSString* zoom_string =
       l10n_util::GetNSStringFWithFixup(IDS_TOOLTIP_ZOOM, zoom_percent);
 
-  if (IsVisible() && [tooltip_ isEqualToString:zoom_string])
+  if (IsVisible() && [tooltip_ isEqualToString:zoom_string] &&
+      !default_zoom_changed) {
     return false;
+  }
 
   ShowAndUpdateUI(zoom_controller, zoom_string);
   return true;
 }
 
 void ZoomDecoration::ShowBubble(BOOL auto_close) {
-  if (bubble_)
-    return;
+  if (bubble_) {
+    bubble_.delegate = nil;
+    [[bubble_.window parentWindow] removeChildWindow:bubble_.window];
+    [bubble_.window orderOut:nil];
+    [bubble_ closeWithoutAnimation];
+  }
 
   content::WebContents* web_contents = owner_->GetWebContents();
   if (!web_contents)
@@ -77,10 +86,17 @@ void ZoomDecoration::HideUI() {
   SetVisible(false);
 }
 
-void ZoomDecoration::ShowAndUpdateUI(ZoomController* zoom_controller,
+void ZoomDecoration::ShowAndUpdateUI(ui_zoom::ZoomController* zoom_controller,
                                      NSString* tooltip_string) {
-  SetImage(OmniboxViewMac::ImageForResource(
-      zoom_controller->GetResourceForZoomLevel()));
+  int image_id = IDR_ZOOM_NORMAL;
+  ui_zoom::ZoomController::RelativeZoom relative_zoom =
+      zoom_controller->GetZoomRelativeToDefault();
+  if (relative_zoom == ui_zoom::ZoomController::ZOOM_BELOW_DEFAULT_ZOOM)
+    image_id = IDR_ZOOM_MINUS;
+  else if (relative_zoom == ui_zoom::ZoomController::ZOOM_ABOVE_DEFAULT_ZOOM)
+    image_id = IDR_ZOOM_PLUS;
+
+  SetImage(OmniboxViewMac::ImageForResource(image_id));
 
   tooltip_.reset([tooltip_string retain]);
 
@@ -97,8 +113,8 @@ bool ZoomDecoration::IsAtDefaultZoom() const {
   if (!web_contents)
     return false;
 
-  ZoomController* zoomController =
-      ZoomController::FromWebContents(web_contents);
+  ui_zoom::ZoomController* zoomController =
+      ui_zoom::ZoomController::FromWebContents(web_contents);
   return zoomController && zoomController->IsAtDefaultZoom();
 }
 
@@ -129,6 +145,7 @@ content::WebContents* ZoomDecoration::GetWebContents() {
 }
 
 void ZoomDecoration::OnClose() {
+  bubble_.delegate = nil;
   bubble_ = nil;
 
   // If the page is at default zoom then hiding the zoom decoration

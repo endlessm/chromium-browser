@@ -1,6 +1,6 @@
 /*
  * libjingle
- * Copyright 2013, Google Inc.
+ * Copyright 2013 Google Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -41,6 +41,19 @@ public class PeerConnectionFactory {
 
   private final long nativeFactory;
 
+  public static class Options {
+    // Keep in sync with webrtc/base/network.h!
+    static final int ADAPTER_TYPE_UNKNOWN = 0;
+    static final int ADAPTER_TYPE_ETHERNET = 1 << 0;
+    static final int ADAPTER_TYPE_WIFI = 1 << 1;
+    static final int ADAPTER_TYPE_CELLULAR = 1 << 2;
+    static final int ADAPTER_TYPE_VPN = 1 << 3;
+    static final int ADAPTER_TYPE_LOOPBACK = 1 << 4;
+
+    public int networkIgnoreMask;
+    public boolean disableEncryption;
+  }
+
   // |context| is an android.content.Context object, but we keep it untyped here
   // to allow building on non-Android platforms.
   // Callers may specify either |initializeAudio| or |initializeVideo| as false
@@ -51,7 +64,11 @@ public class PeerConnectionFactory {
   // decoding thread.
   public static native boolean initializeAndroidGlobals(
       Object context, boolean initializeAudio, boolean initializeVideo,
-      Object renderEGLContext);
+      boolean vp8HwAcceleration, Object renderEGLContext);
+
+  // Field trial initialization. Must be called before PeerConnectionFactory
+  // is created.
+  public static native void initializeFieldTrials(String fieldTrialsInitString);
 
   public PeerConnectionFactory() {
     nativeFactory = nativeCreatePeerConnectionFactory();
@@ -60,9 +77,8 @@ public class PeerConnectionFactory {
     }
   }
 
-
   public PeerConnection createPeerConnection(
-      List<PeerConnection.IceServer> iceServers,
+      PeerConnection.RTCConfiguration rtcConfig,
       MediaConstraints constraints,
       PeerConnection.Observer observer) {
     long nativeObserver = nativeCreateObserver(observer);
@@ -70,11 +86,20 @@ public class PeerConnectionFactory {
       return null;
     }
     long nativePeerConnection = nativeCreatePeerConnection(
-        nativeFactory, iceServers, constraints, nativeObserver);
+        nativeFactory, rtcConfig, constraints, nativeObserver);
     if (nativePeerConnection == 0) {
       return null;
     }
     return new PeerConnection(nativePeerConnection, nativeObserver);
+  }
+
+  public PeerConnection createPeerConnection(
+      List<PeerConnection.IceServer> iceServers,
+      MediaConstraints constraints,
+      PeerConnection.Observer observer) {
+    PeerConnection.RTCConfiguration rtcConfig =
+        new PeerConnection.RTCConfiguration(iceServers);
+    return createPeerConnection(rtcConfig, constraints, observer);
   }
 
   public MediaStream createLocalMediaStream(String label) {
@@ -102,9 +127,15 @@ public class PeerConnectionFactory {
         nativeFactory, id, source.nativeSource));
   }
 
+  public void setOptions(Options options) {
+    nativeSetOptions(nativeFactory, options);
+  }
+
   public void dispose() {
     freeFactory(nativeFactory);
   }
+
+  public native void nativeSetOptions(long nativeFactory, Options options);
 
   private static native long nativeCreatePeerConnectionFactory();
 
@@ -112,7 +143,7 @@ public class PeerConnectionFactory {
       PeerConnection.Observer observer);
 
   private static native long nativeCreatePeerConnection(
-      long nativeFactory, List<PeerConnection.IceServer> iceServers,
+      long nativeFactory, PeerConnection.RTCConfiguration rtcConfig,
       MediaConstraints constraints, long nativeObserver);
 
   private static native long nativeCreateLocalMediaStream(

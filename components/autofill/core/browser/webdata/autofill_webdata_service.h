@@ -21,7 +21,7 @@
 class WebDatabaseService;
 
 namespace base {
-class MessageLoopProxy;
+class SingleThreadTaskRunner;
 }
 
 namespace autofill {
@@ -39,11 +39,11 @@ class CreditCard;
 class AutofillWebDataService : public AutofillWebData,
                                public WebDataServiceBase {
  public:
-  AutofillWebDataService(scoped_refptr<base::MessageLoopProxy> ui_thread,
-                         scoped_refptr<base::MessageLoopProxy> db_thread);
+  AutofillWebDataService(scoped_refptr<base::SingleThreadTaskRunner> ui_thread,
+                         scoped_refptr<base::SingleThreadTaskRunner> db_thread);
   AutofillWebDataService(scoped_refptr<WebDatabaseService> wdbs,
-                         scoped_refptr<base::MessageLoopProxy> ui_thread,
-                         scoped_refptr<base::MessageLoopProxy> db_thread,
+                         scoped_refptr<base::SingleThreadTaskRunner> ui_thread,
+                         scoped_refptr<base::SingleThreadTaskRunner> db_thread,
                          const ProfileErrorCallback& callback);
 
   // WebDataServiceBase implementation.
@@ -63,18 +63,40 @@ class AutofillWebDataService : public AutofillWebData,
                                       const base::Time& delete_end) override;
   void RemoveFormValueForElementName(const base::string16& name,
                                      const base::string16& value) override;
+
+  // Profiles.
   void AddAutofillProfile(const AutofillProfile& profile) override;
   void UpdateAutofillProfile(const AutofillProfile& profile) override;
   void RemoveAutofillProfile(const std::string& guid) override;
   WebDataServiceBase::Handle GetAutofillProfiles(
       WebDataServiceConsumer* consumer) override;
+
+  // Server profiles.
+  WebDataServiceBase::Handle GetServerProfiles(
+      WebDataServiceConsumer* consumer) override;
+
   void UpdateAutofillEntries(
       const std::vector<AutofillEntry>& autofill_entries) override;
+
+  // Credit cards.
   void AddCreditCard(const CreditCard& credit_card) override;
   void UpdateCreditCard(const CreditCard& credit_card) override;
   void RemoveCreditCard(const std::string& guid) override;
   WebDataServiceBase::Handle GetCreditCards(
       WebDataServiceConsumer* consumer) override;
+
+  // Server cards.
+  WebDataServiceBase::Handle GetServerCreditCards(
+      WebDataServiceConsumer* consumer) override;
+  void UnmaskServerCreditCard(const CreditCard& card,
+                              const base::string16& full_number) override;
+  void MaskServerCreditCard(const std::string& id) override;
+
+  void ClearAllServerData();
+
+  void UpdateServerCardUsageStats(const CreditCard& credit_card) override;
+  void UpdateServerAddressUsageStats(const AutofillProfile& profile) override;
+
   void RemoveAutofillDataModifiedBetween(const base::Time& delete_begin,
                                          const base::Time& delete_end) override;
   void RemoveOriginURLsModifiedBetween(const base::Time& delete_begin,
@@ -108,13 +130,14 @@ class AutofillWebDataService : public AutofillWebData,
   }
 
  private:
-  ObserverList<AutofillWebDataServiceObserverOnUIThread> ui_observer_list_;
+  base::ObserverList<AutofillWebDataServiceObserverOnUIThread>
+      ui_observer_list_;
 
-    // The MessageLoopProxy that this class uses as its UI thread.
-  scoped_refptr<base::MessageLoopProxy> ui_thread_;
+  // The task runner that this class uses as its UI thread.
+  scoped_refptr<base::SingleThreadTaskRunner> ui_thread_;
 
-  // The MessageLoopProxy that this class uses as its DB thread.
-  scoped_refptr<base::MessageLoopProxy> db_thread_;
+  // The task runner that this class uses as its DB thread.
+  scoped_refptr<base::SingleThreadTaskRunner> db_thread_;
 
   scoped_refptr<AutofillWebDataBackendImpl> autofill_backend_;
 

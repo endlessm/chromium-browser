@@ -84,13 +84,13 @@ std::string SuggestionsToResponse(const NavigationCorrection* corrections,
   for (int i = 0; i < num_corrections; ++i)
     url_corrections->Append(corrections[i].ToValue());
 
-  scoped_ptr<base::DictionaryValue> response(new base::DictionaryValue());
-  response->Set("result.UrlCorrections", url_corrections);
-  response->SetString("result.eventId", kNavigationCorrectionEventId);
-  response->SetString("result.fingerprint", kNavigationCorrectionFingerprint);
+  base::DictionaryValue response;
+  response.Set("result.UrlCorrections", url_corrections);
+  response.SetString("result.eventId", kNavigationCorrectionEventId);
+  response.SetString("result.fingerprint", kNavigationCorrectionFingerprint);
 
   std::string json;
-  base::JSONWriter::Write(response.get(), &json);
+  base::JSONWriter::Write(response, &json);
   return json;
 }
 
@@ -126,18 +126,26 @@ WebURLError ProbeError(DnsProbeStatus status) {
   return error;
 }
 
-WebURLError NetError(net::Error net_error) {
+WebURLError NetErrorForURL(net::Error net_error, const GURL& url) {
   WebURLError error;
-  error.unreachableURL = GURL(kFailedUrl);
+  error.unreachableURL = url;
   error.domain = blink::WebString::fromUTF8(net::kErrorDomain);
   error.reason = net_error;
   return error;
+}
+
+WebURLError NetError(net::Error net_error) {
+  return NetErrorForURL(net_error, GURL(kFailedUrl));
 }
 
 // Convenience functions that create an error string for a non-POST request.
 
 std::string ProbeErrorString(DnsProbeStatus status) {
   return ErrorToString(ProbeError(status), false);
+}
+
+std::string NetErrorStringForURL(net::Error net_error, const GURL& url) {
+  return ErrorToString(NetErrorForURL(net_error, url), false);
 }
 
 std::string NetErrorString(net::Error net_error) {
@@ -151,7 +159,7 @@ class NetErrorHelperCoreTest : public testing::Test,
                              update_count_(0),
                              error_html_update_count_(0),
                              reload_count_(0),
-                             load_stale_count_(0),
+                             show_saved_count_(0),
                              enable_page_helper_functions_count_(0),
                              default_url_(GURL(kFailedUrl)),
                              error_url_(GURL(content::kUnreachableWebDataURL)),
@@ -188,12 +196,12 @@ class NetErrorHelperCoreTest : public testing::Test,
     return reload_count_;
   }
 
-  int load_stale_count() const {
-    return load_stale_count_;
+  int show_saved_count() const {
+    return show_saved_count_;
   }
 
-  const GURL& load_stale_url() const {
-    return load_stale_url_;
+  const GURL& show_saved_url() const {
+    return show_saved_url_;
   }
 
   const GURL& default_url() const {
@@ -241,20 +249,24 @@ class NetErrorHelperCoreTest : public testing::Test,
     core()->OnNavigationCorrectionsFetched(result, "en", false);
   }
 
-  void DoErrorLoad(net::Error error) {
+  void DoErrorLoadOfURL(net::Error error, const GURL& url) {
     core()->OnStartLoad(NetErrorHelperCore::MAIN_FRAME,
                        NetErrorHelperCore::NON_ERROR_PAGE);
     std::string html;
     core()->GetErrorHTML(NetErrorHelperCore::MAIN_FRAME,
-                        NetError(error), false, &html);
+                        NetErrorForURL(error, url), false, &html);
     EXPECT_FALSE(html.empty());
-    EXPECT_EQ(NetErrorString(error), html);
+    EXPECT_EQ(NetErrorStringForURL(error, url), html);
 
     core()->OnStartLoad(NetErrorHelperCore::MAIN_FRAME,
                        NetErrorHelperCore::ERROR_PAGE);
     core()->OnCommitLoad(NetErrorHelperCore::MAIN_FRAME,
                         error_url());
     core()->OnFinishLoad(NetErrorHelperCore::MAIN_FRAME);
+  }
+
+  void DoErrorLoad(net::Error error) {
+    DoErrorLoadOfURL(error, GURL(kFailedUrl));
   }
 
   void DoSuccessLoad() {
@@ -298,11 +310,15 @@ class NetErrorHelperCoreTest : public testing::Test,
                                   bool is_failed_post,
                                   scoped_ptr<ErrorPageParams> params,
                                   bool* reload_button_shown,
-                                  bool* load_stale_button_shown,
+                                  bool* show_saved_copy_button_shown,
+                                  bool* show_cached_copy_button_shown,
+                                  bool* show_cached_page_button_shown,
                                   std::string* html) const override {
     last_error_page_params_.reset(params.release());
     *reload_button_shown = false;
-    *load_stale_button_shown = false;
+    *show_saved_copy_button_shown = false;
+    *show_cached_copy_button_shown = false;
+    *show_cached_page_button_shown = false;
     *html = ErrorToString(error, is_failed_post);
   }
 
@@ -355,8 +371,8 @@ class NetErrorHelperCoreTest : public testing::Test,
   void ReloadPage() override { reload_count_++; }
 
   void LoadPageFromCache(const GURL& error_url) override {
-    load_stale_count_++;
-    load_stale_url_ = error_url;
+    show_saved_count_++;
+    show_saved_url_ = error_url;
   }
 
   void SendTrackingRequest(const GURL& tracking_url,
@@ -402,8 +418,8 @@ class NetErrorHelperCoreTest : public testing::Test,
   mutable scoped_ptr<ErrorPageParams> last_error_page_params_;
 
   int reload_count_;
-  int load_stale_count_;
-  GURL load_stale_url_;
+  int show_saved_count_;
+  GURL show_saved_url_;
 
   int enable_page_helper_functions_count_;
 
@@ -2188,6 +2204,12 @@ TEST_F(NetErrorHelperCoreAutoReloadTest, DoesNotReload) {
 
   DoErrorLoad(net::ERR_BAD_SSL_CLIENT_AUTH_CERT);
   EXPECT_FALSE(timer()->IsRunning());
+
+  DoErrorLoadOfURL(net::ERR_ACCESS_DENIED, GURL("data://some-data-here"));
+  EXPECT_FALSE(timer()->IsRunning());
+
+  DoErrorLoadOfURL(net::ERR_ACCESS_DENIED, GURL("chrome-extension://foo"));
+  EXPECT_FALSE(timer()->IsRunning());
 }
 
 TEST_F(NetErrorHelperCoreAutoReloadTest, ShouldSuppressErrorPage) {
@@ -2196,12 +2218,14 @@ TEST_F(NetErrorHelperCoreAutoReloadTest, ShouldSuppressErrorPage) {
   DoErrorLoad(net::ERR_CONNECTION_RESET);
   timer()->Fire();
 
+  // Sub-frame load.
   EXPECT_FALSE(core()->ShouldSuppressErrorPage(NetErrorHelperCore::SUB_FRAME,
                                               GURL(kFailedUrl)));
-  EXPECT_FALSE(core()->ShouldSuppressErrorPage(NetErrorHelperCore::MAIN_FRAME,
-                                              GURL("http://some.other.url")));
   EXPECT_TRUE(core()->ShouldSuppressErrorPage(NetErrorHelperCore::MAIN_FRAME,
-                                             GURL(kFailedUrl)));
+                                              GURL(kFailedUrl)));
+  // No auto-reload attempt in flight.
+  EXPECT_FALSE(core()->ShouldSuppressErrorPage(NetErrorHelperCore::MAIN_FRAME,
+                                               GURL(kFailedUrl)));
 }
 
 TEST_F(NetErrorHelperCoreAutoReloadTest, HiddenAndShown) {
@@ -2242,6 +2266,15 @@ TEST_F(NetErrorHelperCoreAutoReloadTest, ShownWhileNotReloading) {
   EXPECT_FALSE(timer()->IsRunning());
   core()->OnWasShown();
   EXPECT_TRUE(timer()->IsRunning());
+}
+
+TEST_F(NetErrorHelperCoreAutoReloadTest, ManualReloadShowsError) {
+  SetUpCore(true, true, true);
+  DoErrorLoad(net::ERR_CONNECTION_RESET);
+  core()->OnStartLoad(NetErrorHelperCore::MAIN_FRAME,
+                      NetErrorHelperCore::ERROR_PAGE);
+  EXPECT_FALSE(core()->ShouldSuppressErrorPage(NetErrorHelperCore::MAIN_FRAME,
+                                               GURL(kFailedUrl)));
 }
 
 class NetErrorHelperCoreHistogramTest
@@ -2294,7 +2327,6 @@ TEST_F(NetErrorHelperCoreHistogramTest, SuccessAtSecondAttempt) {
   timer()->Fire();
   EXPECT_TRUE(core()->ShouldSuppressErrorPage(NetErrorHelperCore::MAIN_FRAME,
                                              default_url()));
-//  DoErrorLoad(net::ERR_CONNECTION_RESET);
   timer()->Fire();
   DoSuccessLoad();
 
@@ -2430,16 +2462,16 @@ TEST_F(NetErrorHelperCoreHistogramTest, SuccessPageLoadedBeforeTimerFires) {
 TEST_F(NetErrorHelperCoreTest, ExplicitReloadSucceeds) {
   DoErrorLoad(net::ERR_CONNECTION_RESET);
   EXPECT_EQ(0, reload_count());
-  core()->ExecuteButtonPress(NetErrorHelperCore::RELOAD_BUTTON);
+  core()->ExecuteButtonPress(true, NetErrorHelperCore::RELOAD_BUTTON);
   EXPECT_EQ(1, reload_count());
 }
 
-TEST_F(NetErrorHelperCoreTest, ExplicitLoadStaleSucceeds) {
+TEST_F(NetErrorHelperCoreTest, ExplicitShowSavedSucceeds) {
   DoErrorLoad(net::ERR_CONNECTION_RESET);
-  EXPECT_EQ(0, load_stale_count());
-  core()->ExecuteButtonPress(NetErrorHelperCore::LOAD_STALE_BUTTON);
-  EXPECT_EQ(1, load_stale_count());
-  EXPECT_EQ(GURL(kFailedUrl), load_stale_url());
+  EXPECT_EQ(0, show_saved_count());
+  core()->ExecuteButtonPress(true, NetErrorHelperCore::SHOW_SAVED_COPY_BUTTON);
+  EXPECT_EQ(1, show_saved_count());
+  EXPECT_EQ(GURL(kFailedUrl), show_saved_url());
 }
 
 }  // namespace

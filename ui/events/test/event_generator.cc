@@ -9,7 +9,7 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
-#include "base/time/default_tick_clock.h"
+#include "base/time/tick_clock.h"
 #include "ui/events/event.h"
 #include "ui/events/event_source.h"
 #include "ui/events/event_utils.h"
@@ -31,6 +31,21 @@ namespace {
 
 void DummyCallback(EventType, const gfx::Vector2dF&) {
 }
+
+class TestTickClock : public base::TickClock {
+ public:
+  // Starts off with a clock set to TimeTicks().
+  TestTickClock() {}
+
+  base::TimeTicks NowTicks() override {
+    return base::TimeTicks::FromInternalValue(ticks_++ * 1000);
+  }
+
+ private:
+  int64 ticks_ = 1;
+
+  DISALLOW_COPY_AND_ASSIGN(TestTickClock);
+};
 
 class TestKeyEvent : public ui::KeyEvent {
  public:
@@ -66,7 +81,8 @@ EventGenerator::EventGenerator(gfx::NativeWindow root_window)
       flags_(0),
       grab_(false),
       async_(false),
-      tick_clock_(new base::DefaultTickClock()) {
+      targeting_application_(false),
+      tick_clock_(new TestTickClock()) {
   Init(root_window, NULL);
 }
 
@@ -77,7 +93,8 @@ EventGenerator::EventGenerator(gfx::NativeWindow root_window,
       flags_(0),
       grab_(false),
       async_(false),
-      tick_clock_(new base::DefaultTickClock()) {
+      targeting_application_(false),
+      tick_clock_(new TestTickClock()) {
   Init(root_window, NULL);
 }
 
@@ -87,7 +104,8 @@ EventGenerator::EventGenerator(gfx::NativeWindow root_window,
       flags_(0),
       grab_(false),
       async_(false),
-      tick_clock_(new base::DefaultTickClock()) {
+      targeting_application_(false),
+      tick_clock_(new TestTickClock()) {
   Init(root_window, window);
 }
 
@@ -97,7 +115,8 @@ EventGenerator::EventGenerator(EventGeneratorDelegate* delegate)
       flags_(0),
       grab_(false),
       async_(false),
-      tick_clock_(new base::DefaultTickClock()) {
+      targeting_application_(false),
+      tick_clock_(new TestTickClock()) {
   Init(NULL, NULL);
 }
 
@@ -123,10 +142,11 @@ void EventGenerator::ClickLeftButton() {
 }
 
 void EventGenerator::DoubleClickLeftButton() {
+  flags_ &= ~ui::EF_IS_DOUBLE_CLICK;
+  ClickLeftButton();
   flags_ |= ui::EF_IS_DOUBLE_CLICK;
-  PressLeftButton();
-  flags_ ^= ui::EF_IS_DOUBLE_CLICK;
-  ReleaseLeftButton();
+  ClickLeftButton();
+  flags_ &= ~ui::EF_IS_DOUBLE_CLICK;
 }
 
 void EventGenerator::PressRightButton() {
@@ -139,7 +159,8 @@ void EventGenerator::ReleaseRightButton() {
 
 void EventGenerator::MoveMouseWheel(int delta_x, int delta_y) {
   gfx::Point location = GetLocationInCurrentRoot();
-  ui::MouseEvent mouseev(ui::ET_MOUSEWHEEL, location, location, flags_, 0);
+  ui::MouseEvent mouseev(ui::ET_MOUSEWHEEL, location, location,
+                         ui::EventTimeForNow(), flags_, 0);
   ui::MouseWheelEvent wheelev(mouseev, delta_x, delta_y);
   Dispatch(&wheelev);
 }
@@ -148,14 +169,15 @@ void EventGenerator::SendMouseExit() {
   gfx::Point exit_location(current_location_);
   delegate()->ConvertPointToTarget(current_target_, &exit_location);
   ui::MouseEvent mouseev(ui::ET_MOUSE_EXITED, exit_location, exit_location,
-                         flags_, 0);
+                         ui::EventTimeForNow(), flags_, 0);
   Dispatch(&mouseev);
 }
 
 void EventGenerator::MoveMouseToInHost(const gfx::Point& point_in_host) {
   const ui::EventType event_type = (flags_ & ui::EF_LEFT_MOUSE_BUTTON) ?
       ui::ET_MOUSE_DRAGGED : ui::ET_MOUSE_MOVED;
-  ui::MouseEvent mouseev(event_type, point_in_host, point_in_host, flags_, 0);
+  ui::MouseEvent mouseev(event_type, point_in_host, point_in_host,
+                         ui::EventTimeForNow(), flags_, 0);
   Dispatch(&mouseev);
 
   current_location_ = point_in_host;
@@ -176,7 +198,8 @@ void EventGenerator::MoveMouseTo(const gfx::Point& point_in_screen,
     if (!grab_)
       UpdateCurrentDispatcher(move_point);
     delegate()->ConvertPointToTarget(current_target_, &move_point);
-    ui::MouseEvent mouseev(event_type, move_point, move_point, flags_, 0);
+    ui::MouseEvent mouseev(event_type, move_point, move_point,
+                           ui::EventTimeForNow(), flags_, 0);
     Dispatch(&mouseev);
   }
   current_location_ = point_in_screen;
@@ -278,6 +301,16 @@ void EventGenerator::GestureTapDownAndUp(const gfx::Point& location) {
       ui::ET_TOUCH_RELEASED, location, kTouchId,
       press.time_stamp() + base::TimeDelta::FromMilliseconds(1000));
   Dispatch(&release);
+}
+
+base::TimeDelta EventGenerator::CalculateScrollDurationForFlingVelocity(
+    const gfx::Point& start,
+    const gfx::Point& end,
+    float velocity,
+    int steps) {
+  const float kGestureDistance = (start - end).Length();
+  const float kFlingStepDelay = (kGestureDistance / velocity) / steps * 1000000;
+  return base::TimeDelta::FromMicroseconds(kFlingStepDelay);
 }
 
 void EventGenerator::GestureScrollSequence(const gfx::Point& start,
@@ -519,12 +552,14 @@ void EventGenerator::DispatchKeyEvent(bool is_press,
   }
   MSG native_event =
       { NULL, (is_press ? key_press : WM_KEYUP), key_code, 0 };
+  native_event.time = Now().InMicroseconds();
   TestKeyEvent keyev(native_event, flags);
 #elif defined(USE_X11)
   ui::ScopedXI2Event xevent;
   xevent.InitKeyEvent(is_press ? ui::ET_KEY_PRESSED : ui::ET_KEY_RELEASED,
                       key_code,
                       flags);
+  static_cast<XEvent*>(xevent)->xkey.time = Now().InMicroseconds();
   ui::KeyEvent keyev(xevent);
 #else
   ui::EventType type = is_press ? ui::ET_KEY_PRESSED : ui::ET_KEY_RELEASED;
@@ -542,8 +577,8 @@ void EventGenerator::PressButton(int flag) {
     flags_ |= flag;
     grab_ = (flags_ & kAllButtonMask) != 0;
     gfx::Point location = GetLocationInCurrentRoot();
-    ui::MouseEvent mouseev(ui::ET_MOUSE_PRESSED, location, location, flags_,
-                           flag);
+    ui::MouseEvent mouseev(ui::ET_MOUSE_PRESSED, location, location,
+                           ui::EventTimeForNow(), flags_, flag);
     Dispatch(&mouseev);
   }
 }
@@ -551,8 +586,8 @@ void EventGenerator::PressButton(int flag) {
 void EventGenerator::ReleaseButton(int flag) {
   if (flags_ & flag) {
     gfx::Point location = GetLocationInCurrentRoot();
-    ui::MouseEvent mouseev(ui::ET_MOUSE_RELEASED, location,
-                           location, flags_, flag);
+    ui::MouseEvent mouseev(ui::ET_MOUSE_RELEASED, location, location,
+                           ui::EventTimeForNow(), flags_, flag);
     Dispatch(&mouseev);
     flags_ ^= flag;
   }

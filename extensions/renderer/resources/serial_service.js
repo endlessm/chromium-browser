@@ -10,13 +10,15 @@ define('serial_service', [
     'device/serial/serial_serialization.mojom',
     'mojo/public/js/core',
     'mojo/public/js/router',
+    'stash_client',
 ], function(serviceProvider,
             dataReceiver,
             dataSender,
             serialMojom,
             serialization,
             core,
-            routerModule) {
+            routerModule,
+            stashClient) {
   /**
    * A Javascript client for the serial service and connection Mojo services.
    *
@@ -132,16 +134,20 @@ define('serial_service', [
       clientOptions.sendTimeout = options.sendTimeout;
     if ('bufferSize' in options)
       clientOptions.bufferSize = options.bufferSize;
+    if ('persistent' in options)
+      clientOptions.persistent = options.persistent;
   };
 
-  function Connection(connection, router, receivePipe, sendPipe, id, options) {
+  function Connection(connection, router, receivePipe, receiveClientPipe,
+                      sendPipe, id, options) {
     var state = new serialization.ConnectionState();
     state.connectionId = id;
     updateClientOptions(state, options);
     var receiver = new dataReceiver.DataReceiver(
-        receivePipe, state.bufferSize, serialMojom.ReceiveError.DISCONNECTED);
-    var sender = new dataSender.DataSender(
-        sendPipe, state.bufferSize, serialMojom.SendError.DISCONNECTED);
+        receivePipe, receiveClientPipe, state.bufferSize,
+        serialMojom.ReceiveError.DISCONNECTED);
+    var sender = new dataSender.DataSender(sendPipe, state.bufferSize,
+                                           serialMojom.SendError.DISCONNECTED);
     this.init_(state,
                connection,
                router,
@@ -188,11 +194,13 @@ define('serial_service', [
     var pipe = core.createMessagePipe();
     var sendPipe = core.createMessagePipe();
     var receivePipe = core.createMessagePipe();
+    var receivePipeClient = core.createMessagePipe();
     service.connect(path,
                     serviceOptions,
                     pipe.handle0,
                     sendPipe.handle0,
-                    receivePipe.handle0);
+                    receivePipe.handle0,
+                    receivePipeClient.handle0);
     var router = new routerModule.Router(pipe.handle1);
     var connection = new serialMojom.Connection.proxyClass(router);
     return connection.getInfo().then(convertServiceInfo).then(function(info) {
@@ -201,6 +209,7 @@ define('serial_service', [
       router.close();
       core.close(sendPipe.handle1);
       core.close(receivePipe.handle1);
+      core.close(receivePipeClient.handle1);
       throw e;
     }).then(function(results) {
       var info = results[0];
@@ -208,6 +217,7 @@ define('serial_service', [
       var serialConnectionClient = new Connection(connection,
                                                   router,
                                                   receivePipe.handle1,
+                                                  receivePipeClient.handle1,
                                                   sendPipe.handle1,
                                                   id,
                                                   options);
@@ -440,7 +450,7 @@ define('serial_service', [
   Connection.deserialize = function(serialized) {
     var serialConnection = $Object.create(Connection.prototype);
     var router = new routerModule.Router(serialized.connection);
-    var connection = new serialMojom.ConnectionProxy(router);
+    var connection = new serialMojom.Connection.proxyClass(router);
     var receiver = dataReceiver.DataReceiver.deserialize(serialized.receiver);
     var sender = dataSender.DataSender.deserialize(serialized.sender);
 
@@ -474,9 +484,12 @@ define('serial_service', [
   // All accesses to connections_ and nextConnectionId_ other than those
   // involved in deserialization should ensure that
   // connectionDeserializationComplete_ has resolved first.
-  // Note: this will not immediately resolve once serial connection stashing and
-  // restoring is implemented.
-  var connectionDeserializationComplete_ = Promise.resolve();
+  var connectionDeserializationComplete_ = stashClient.retrieve(
+      'serial', serialization.SerializedConnection).then(function(decoded) {
+    if (!decoded)
+      return;
+    return Promise.all($Array.map(decoded, Connection.deserialize));
+  });
 
   // The map of connection ID to connection object.
   var connections_ = new Map();
@@ -503,6 +516,27 @@ define('serial_service', [
       return nextConnectionId_++;
     });
   }
+
+  stashClient.registerClient(
+      'serial', serialization.SerializedConnection, function() {
+    return connectionDeserializationComplete_.then(function() {
+      var clientPromises = [];
+      for (var connection of connections_.values()) {
+        if (connection.state_.persistent)
+          clientPromises.push(connection.serialize());
+        else
+          connection.close();
+      }
+      return Promise.all($Array.map(clientPromises, function(promise) {
+        return promise.then(function(serialization) {
+          return {
+            serialization: serialization,
+            monitorHandles: !serialization.paused,
+          };
+        });
+      }));
+    });
+  });
 
   return {
     getDevices: getDevices,

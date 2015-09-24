@@ -10,12 +10,14 @@
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
+#include "base/prefs/pref_registry.h"
 #include "base/strings/string_split.h"
 #include "base/values.h"
 #include "components/content_settings/core/browser/content_settings_provider.h"
 #include "components/content_settings/core/browser/content_settings_rule.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
+#include "components/pref_registry/pref_registry_syncable.h"
 #include "url/gurl.h"
 
 namespace {
@@ -47,12 +49,12 @@ const char* kTypeNames[] = {
 #elif defined(OS_ANDROID) || defined(OS_CHROMEOS)
   "protected-media-identifier",
 #endif
-#if defined(OS_ANDROID)
   "app-banner",
-#endif
+  "site-engagement",
+  "durable-storage"
 };
-COMPILE_ASSERT(arraysize(kTypeNames) == CONTENT_SETTINGS_NUM_TYPES,
-               type_names_incorrect_size);
+static_assert(arraysize(kTypeNames) == CONTENT_SETTINGS_NUM_TYPES,
+              "kTypeNames should have CONTENT_SETTINGS_NUM_TYPES elements");
 
 const char kPatternSeparator[] = ",";
 
@@ -62,17 +64,6 @@ namespace content_settings {
 
 std::string GetTypeName(ContentSettingsType type) {
   return std::string(kTypeNames[type]);
-}
-
-bool GetTypeFromName(const std::string& name,
-                     ContentSettingsType* return_setting) {
-  for (size_t type = 0; type < CONTENT_SETTINGS_NUM_TYPES; ++type) {
-    if (name.compare(kTypeNames[type]) == 0) {
-      *return_setting = static_cast<ContentSettingsType>(type);
-      return true;
-    }
-  }
-  return false;
 }
 
 std::string ContentSettingToString(ContentSetting setting) {
@@ -85,13 +76,15 @@ std::string ContentSettingToString(ContentSetting setting) {
       return "block";
     case CONTENT_SETTING_SESSION_ONLY:
       return "session";
+    case CONTENT_SETTING_DETECT_IMPORTANT_CONTENT:
+      return "detect";
     case CONTENT_SETTING_DEFAULT:
       return "default";
     case CONTENT_SETTING_NUM_SETTINGS:
       NOTREACHED();
   }
 
-  return std::string();
+  return ResourceIdentifier();
 }
 
 ContentSetting ContentSettingFromString(const std::string& name) {
@@ -103,6 +96,8 @@ ContentSetting ContentSettingFromString(const std::string& name) {
     return CONTENT_SETTING_BLOCK;
   if (name == "session")
     return CONTENT_SETTING_SESSION_ONLY;
+  if (name == "detect")
+    return CONTENT_SETTING_DETECT_IMPORTANT_CONTENT;
 
   NOTREACHED() << name << " is not a recognized content setting.";
   return CONTENT_SETTING_DEFAULT;
@@ -167,6 +162,14 @@ bool ParseContentSettingValue(const base::Value* value,
   return *setting != CONTENT_SETTING_DEFAULT;
 }
 
+scoped_ptr<base::Value> ContentSettingToValue(ContentSetting setting) {
+  if (setting <= CONTENT_SETTING_DEFAULT ||
+      setting >= CONTENT_SETTING_NUM_SETTINGS) {
+    return nullptr;
+  }
+  return make_scoped_ptr(new base::FundamentalValue(setting));
+}
+
 base::Value* GetContentSettingValueAndPatterns(
     const ProviderInterface* provider,
     const GURL& primary_url,
@@ -219,9 +222,25 @@ base::Value* GetContentSettingValueAndPatterns(
 void GetRendererContentSettingRules(const HostContentSettingsMap* map,
                                     RendererContentSettingRules* rules) {
   map->GetSettingsForOneType(
-      CONTENT_SETTINGS_TYPE_IMAGES, std::string(), &(rules->image_rules));
+      CONTENT_SETTINGS_TYPE_IMAGES,
+      ResourceIdentifier(),
+      &(rules->image_rules));
   map->GetSettingsForOneType(
-      CONTENT_SETTINGS_TYPE_JAVASCRIPT, std::string(), &(rules->script_rules));
+      CONTENT_SETTINGS_TYPE_JAVASCRIPT,
+      ResourceIdentifier(),
+      &(rules->script_rules));
+}
+
+uint32 PrefRegistrationFlagsForType(ContentSettingsType content_type) {
+  uint32 flags = PrefRegistry::NO_REGISTRATION_FLAGS;
+
+  if (IsContentSettingsTypeSyncable(content_type))
+    flags |= user_prefs::PrefRegistrySyncable::SYNCABLE_PREF;
+
+  if (IsContentSettingsTypeLossy(content_type))
+    flags |= PrefRegistry::LOSSY_PREF;
+
+  return flags;
 }
 
 }  // namespace content_settings

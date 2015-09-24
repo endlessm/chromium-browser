@@ -13,7 +13,6 @@
 #include <sys/socket.h>
 #include <sys/sysctl.h>
 
-#include "base/ios/ios_util.h"
 #include "base/logging.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/memory/scoped_ptr.h"
@@ -60,7 +59,7 @@ std::string GetPlatform() {
   std::string platform;
   size_t size = 0;
   sysctlbyname("hw.machine", NULL, &size, NULL, 0);
-  sysctlbyname("hw.machine", WriteInto(&platform, size), &size, NULL, 0);
+  sysctlbyname("hw.machine", base::WriteInto(&platform, size), &size, NULL, 0);
   return platform;
 }
 

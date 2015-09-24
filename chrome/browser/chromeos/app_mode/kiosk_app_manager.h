@@ -37,10 +37,8 @@ namespace chromeos {
 class KioskAppData;
 class KioskAppExternalLoader;
 class KioskAppManagerObserver;
-
-#if !defined(USE_ATHENA)
 class KioskExternalUpdater;
-#endif
+class OwnerSettingsServiceChromeOS;
 
 // KioskAppManager manages cached app data.
 class KioskAppManager : public KioskAppDataDelegate,
@@ -62,7 +60,9 @@ class KioskAppManager : public KioskAppDataDelegate,
 
   // Struct to hold app info returned from GetApps() call.
   struct App {
-    App(const KioskAppData& data, bool is_extension_pending);
+    App(const KioskAppData& data,
+        bool is_extension_pending,
+        bool was_auto_launched_with_zero_delay);
     App();
     ~App();
 
@@ -71,6 +71,7 @@ class KioskAppManager : public KioskAppDataDelegate,
     std::string name;
     gfx::ImageSkia icon;
     bool is_loading;
+    bool was_auto_launched_with_zero_delay;
   };
   typedef std::vector<App> Apps;
 
@@ -102,6 +103,9 @@ class KioskAppManager : public KioskAppDataDelegate,
   // Registers kiosk app entries in local state.
   static void RegisterPrefs(PrefRegistrySimple* registry);
 
+  // Removes cryptohomes which could not be removed during the previous session.
+  static void RemoveObsoleteCryptohomes();
+
   // Initiates reading of consumer kiosk mode auto-launch status.
   void GetConsumerKioskAutoLaunchStatus(
       const GetConsumerKioskAutoLaunchStatusCallback& callback);
@@ -118,7 +122,8 @@ class KioskAppManager : public KioskAppDataDelegate,
   std::string GetAutoLaunchApp() const;
 
   // Sets |app_id| as the app to auto launch at start up.
-  void SetAutoLaunchApp(const std::string& app_id);
+  void SetAutoLaunchApp(const std::string& app_id,
+                        OwnerSettingsServiceChromeOS* service);
 
   // Returns true if there is a pending auto-launch request.
   bool IsAutoLaunchRequested() const;
@@ -131,8 +136,9 @@ class KioskAppManager : public KioskAppDataDelegate,
 
   // Adds/removes a kiosk app by id. When removed, all locally cached data
   // will be removed as well.
-  void AddApp(const std::string& app_id);
-  void RemoveApp(const std::string& app_id);
+  void AddApp(const std::string& app_id, OwnerSettingsServiceChromeOS* service);
+  void RemoveApp(const std::string& app_id,
+                 OwnerSettingsServiceChromeOS* service);
 
   // Gets info of all apps that have no meta data load error.
   void GetApps(Apps* apps) const;
@@ -140,10 +146,6 @@ class KioskAppManager : public KioskAppDataDelegate,
   // Gets app data for the given app id. Returns true if |app_id| is known and
   // |app| is populated. Otherwise, return false.
   bool GetApp(const std::string& app_id, App* app) const;
-
-  // Gets the raw icon data for the given app id. Returns NULL if |app_id|
-  // is unknown.
-  const base::RefCountedString* GetAppRawIcon(const std::string& app_id) const;
 
   // Gets whether the bailout shortcut is disabled.
   bool GetDisableBailoutShortcut() const;
@@ -202,6 +204,12 @@ class KioskAppManager : public KioskAppDataDelegate,
 
   bool external_loader_created() const { return external_loader_created_; }
 
+  // Notifies the KioskAppManager that a given app was auto-launched
+  // automatically with no delay on startup. Certain privacy-sensitive
+  // kiosk-mode behavior (such as network reporting) is only enabled for
+  // kiosk apps that are immediately auto-launched on startup.
+  void SetAppWasAutoLaunchedWithZeroDelay(const std::string& app_id);
+
  private:
   friend struct base::DefaultLazyInstanceTraits<KioskAppManager>;
   friend struct base::DefaultDeleter<KioskAppManager>;
@@ -217,7 +225,7 @@ class KioskAppManager : public KioskAppDataDelegate,
   };
 
   KioskAppManager();
-  virtual ~KioskAppManager();
+  ~KioskAppManager() override;
 
   // Stop all data loading and remove its dependency on CrosSettings.
   void CleanUp();
@@ -230,15 +238,14 @@ class KioskAppManager : public KioskAppDataDelegate,
   void UpdateAppData();
 
   // KioskAppDataDelegate overrides:
-  virtual void GetKioskAppIconCacheDir(base::FilePath* cache_dir) override;
-  virtual void OnKioskAppDataChanged(const std::string& app_id) override;
-  virtual void OnKioskAppDataLoadFailure(const std::string& app_id) override;
+  void GetKioskAppIconCacheDir(base::FilePath* cache_dir) override;
+  void OnKioskAppDataChanged(const std::string& app_id) override;
+  void OnKioskAppDataLoadFailure(const std::string& app_id) override;
 
   // ExternalCache::Delegate:
-  virtual void OnExtensionListsUpdated(
-      const base::DictionaryValue* prefs) override;
-  virtual void OnExtensionLoadedInCache(const std::string& id) override;
-  virtual void OnExtensionDownloadFailed(
+  void OnExtensionListsUpdated(const base::DictionaryValue* prefs) override;
+  void OnExtensionLoadedInCache(const std::string& id) override;
+  void OnExtensionDownloadFailed(
       const std::string& id,
       extensions::ExtensionDownloaderDelegate::Error error) override;
 
@@ -269,7 +276,8 @@ class KioskAppManager : public KioskAppDataDelegate,
   bool ownership_established_;
   ScopedVector<KioskAppData> apps_;
   std::string auto_launch_app_id_;
-  ObserverList<KioskAppManagerObserver, true> observers_;
+  std::string currently_auto_launched_with_zero_delay_app_;
+  base::ObserverList<KioskAppManagerObserver, true> observers_;
 
   scoped_ptr<CrosSettings::ObserverSubscription>
       local_accounts_subscription_;
@@ -278,9 +286,7 @@ class KioskAppManager : public KioskAppDataDelegate,
 
   scoped_ptr<ExternalCache> external_cache_;
 
-#if !defined(USE_ATHENA)
   scoped_ptr<KioskExternalUpdater> usb_stick_updater_;
-#endif
 
   // The extension external loader for installing kiosk app.
   bool external_loader_created_;

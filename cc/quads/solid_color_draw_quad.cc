@@ -4,8 +4,8 @@
 
 #include "cc/quads/solid_color_draw_quad.h"
 
-#include "base/debug/trace_event_argument.h"
 #include "base/logging.h"
+#include "base/trace_event/trace_event_argument.h"
 #include "base/values.h"
 
 namespace cc {
@@ -39,16 +39,14 @@ void SolidColorDrawQuad::SetAll(const SharedQuadState* shared_quad_state,
   this->force_anti_aliasing_off = force_anti_aliasing_off;
 }
 
-void SolidColorDrawQuad::IterateResources(
-    const ResourceIteratorCallback& callback) {}
-
 const SolidColorDrawQuad* SolidColorDrawQuad::MaterialCast(
     const DrawQuad* quad) {
   DCHECK(quad->material == DrawQuad::SOLID_COLOR);
   return static_cast<const SolidColorDrawQuad*>(quad);
 }
 
-void SolidColorDrawQuad::ExtendValue(base::debug::TracedValue* value) const {
+void SolidColorDrawQuad::ExtendValue(
+    base::trace_event::TracedValue* value) const {
   value->SetInteger("color", color);
   value->SetBoolean("force_anti_aliasing_off", force_anti_aliasing_off);
 }

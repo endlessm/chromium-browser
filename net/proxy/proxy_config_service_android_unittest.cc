@@ -23,7 +23,7 @@ class TestObserver : public ProxyConfigService::Observer {
   TestObserver() : availability_(ProxyConfigService::CONFIG_UNSET) {}
 
   // ProxyConfigService::Observer:
-  virtual void OnProxyConfigChanged(
+  void OnProxyConfigChanged(
       const ProxyConfig& config,
       ProxyConfigService::ConfigAvailability availability) override {
     config_ = config;
@@ -54,22 +54,20 @@ class ProxyConfigServiceAndroidTestBase : public testing::Test {
   ProxyConfigServiceAndroidTestBase(const StringMap& initial_configuration)
       : configuration_(initial_configuration),
         message_loop_(base::MessageLoop::current()),
-        service_(message_loop_->message_loop_proxy(),
-                 message_loop_->message_loop_proxy(),
+        service_(message_loop_->task_runner(),
+                 message_loop_->task_runner(),
                  base::Bind(&ProxyConfigServiceAndroidTestBase::GetProperty,
                             base::Unretained(this))) {}
 
-  virtual ~ProxyConfigServiceAndroidTestBase() {}
+  ~ProxyConfigServiceAndroidTestBase() override {}
 
   // testing::Test:
-  virtual void SetUp() override {
+  void SetUp() override {
     message_loop_->RunUntilIdle();
     service_.AddObserver(&observer_);
   }
 
-  virtual void TearDown() override {
-    service_.RemoveObserver(&observer_);
-  }
+  void TearDown() override { service_.RemoveObserver(&observer_); }
 
   void ClearConfiguration() {
     configuration_.clear();

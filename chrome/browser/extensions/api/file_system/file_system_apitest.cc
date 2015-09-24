@@ -64,7 +64,7 @@ const int kGraylistedPath = base::DIR_HOME;
 
 class FileSystemApiTest : public PlatformAppBrowserTest {
  public:
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     PlatformAppBrowserTest::SetUpCommandLine(command_line);
     test_root_folder_ = test_data_dir_.AppendASCII("api_test")
         .AppendASCII("file_system");
@@ -631,5 +631,14 @@ IN_PROC_BROWSER_TEST_F(FileSystemApiTest, FileSystemApiRestoreDirectoryEntry) {
   ASSERT_TRUE(RunPlatformAppTest("api_test/file_system/restore_directory"))
       << message_;
 }
+
+#if !defined(OS_CHROMEOS)
+IN_PROC_BROWSER_TEST_F(FileSystemApiTest, RequestFileSystem_NotChromeOS) {
+  ASSERT_TRUE(RunPlatformAppTestWithFlags(
+      "api_test/file_system/request_file_system_not_chromeos",
+      kFlagIgnoreManifestWarnings))
+      << message_;
+}
+#endif
 
 }  // namespace extensions

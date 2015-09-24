@@ -18,6 +18,7 @@
 
 using testing::InvokeWithoutArgs;
 using testing::Mock;
+using testing::_;
 
 namespace chromeos {
 
@@ -47,7 +48,7 @@ IN_PROC_BROWSER_TEST_F(EnrollmentScreenTest, TestCancel) {
             enrollment_screen);
 
   EXPECT_CALL(mock_base_screen_delegate,
-              OnExit(BaseScreenDelegate::ENTERPRISE_ENROLLMENT_COMPLETED))
+              OnExit(_, BaseScreenDelegate::ENTERPRISE_ENROLLMENT_COMPLETED, _))
       .WillOnce(InvokeWithoutArgs(&run_loop, &base::RunLoop::Quit));
   enrollment_screen->OnCancel();
   content::RunThisRunLoop(&run_loop);
@@ -74,8 +75,7 @@ IN_PROC_BROWSER_TEST_F(EnrollmentScreenTest, DISABLED_TestSuccess) {
   ASSERT_EQ(WizardController::default_controller()->current_screen(),
             enrollment_screen);
 
-  enrollment_screen->ReportEnrollmentStatus(policy::EnrollmentStatus::ForStatus(
-      policy::EnrollmentStatus::STATUS_SUCCESS));
+  enrollment_screen->OnDeviceEnrolled("");
   run_loop.RunUntilIdle();
   EXPECT_TRUE(StartupUtils::IsOobeCompleted());
 
@@ -89,7 +89,7 @@ class ProvisionedEnrollmentScreenTest : public EnrollmentScreenTest {
 
  private:
   // Overridden from InProcessBrowserTest:
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     base::FilePath test_data_dir;
     ASSERT_TRUE(chromeos::test_utils::GetTestDataPath(
                     "app_mode", "kiosk_manifest", &test_data_dir));
@@ -117,7 +117,7 @@ IN_PROC_BROWSER_TEST_F(ProvisionedEnrollmentScreenTest, TestBackButton) {
             enrollment_screen);
 
   EXPECT_CALL(mock_base_screen_delegate,
-              OnExit(BaseScreenDelegate::ENTERPRISE_ENROLLMENT_BACK))
+              OnExit(_, BaseScreenDelegate::ENTERPRISE_ENROLLMENT_BACK, _))
       .WillOnce(InvokeWithoutArgs(&run_loop, &base::RunLoop::Quit));
   enrollment_screen->OnCancel();
   content::RunThisRunLoop(&run_loop);

@@ -8,7 +8,9 @@
 #include "base/command_line.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/local_discovery/privet_http_impl.h"
+#include "chrome/browser/local_discovery/service_discovery_shared_client.h"
 #include "chrome/common/chrome_switches.h"
+#include "net/base/net_util.h"
 
 namespace local_discovery {
 
@@ -28,10 +30,8 @@ std::string IPAddressToHostString(const net::IPAddressNumber& address) {
 }  // namespace
 
 PrivetHTTPAsynchronousFactoryImpl::PrivetHTTPAsynchronousFactoryImpl(
-    ServiceDiscoveryClient* service_discovery_client,
     net::URLRequestContextGetter* request_context)
-    : service_discovery_client_(service_discovery_client),
-      request_context_(request_context) {
+    : request_context_(request_context) {
 }
 
 PrivetHTTPAsynchronousFactoryImpl::~PrivetHTTPAsynchronousFactoryImpl() {
@@ -39,44 +39,19 @@ PrivetHTTPAsynchronousFactoryImpl::~PrivetHTTPAsynchronousFactoryImpl() {
 
 scoped_ptr<PrivetHTTPResolution>
 PrivetHTTPAsynchronousFactoryImpl::CreatePrivetHTTP(
-    const std::string& name,
-    const net::HostPortPair& address,
-    const ResultCallback& callback) {
+    const std::string& service_name) {
   return scoped_ptr<PrivetHTTPResolution>(
-      new ResolutionImpl(name,
-                         address,
-                         callback,
-                         service_discovery_client_,
-                         request_context_.get()));
+      new ResolutionImpl(service_name, request_context_.get()));
 }
 
 PrivetHTTPAsynchronousFactoryImpl::ResolutionImpl::ResolutionImpl(
-    const std::string& name,
-    const net::HostPortPair& address,
-    const ResultCallback& callback,
-    ServiceDiscoveryClient* service_discovery_client,
+    const std::string& service_name,
     net::URLRequestContextGetter* request_context)
-    : name_(name),
-      hostport_(address),
-      callback_(callback),
-      request_context_(request_context) {
-  net::AddressFamily address_family = net::ADDRESS_FAMILY_UNSPECIFIED;
-
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kPrivetIPv6Only)) {
-    address_family = net::ADDRESS_FAMILY_IPV6;
-  }
-
-  resolver_ = service_discovery_client->CreateLocalDomainResolver(
-      address.host(),
-      address_family,
-      base::Bind(&ResolutionImpl::ResolveComplete, base::Unretained(this)));
+    : name_(service_name), request_context_(request_context) {
+  service_discovery_client_ = ServiceDiscoverySharedClient::GetInstance();
 }
 
 PrivetHTTPAsynchronousFactoryImpl::ResolutionImpl::~ResolutionImpl() {
-}
-
-void PrivetHTTPAsynchronousFactoryImpl::ResolutionImpl::Start() {
-  resolver_->Start();
 }
 
 const std::string&
@@ -84,12 +59,56 @@ PrivetHTTPAsynchronousFactoryImpl::ResolutionImpl::GetName() {
   return name_;
 }
 
-void PrivetHTTPAsynchronousFactoryImpl::ResolutionImpl::ResolveComplete(
+void PrivetHTTPAsynchronousFactoryImpl::ResolutionImpl::Start(
+    const ResultCallback& callback) {
+  service_resolver_ = service_discovery_client_->CreateServiceResolver(
+      name_, base::Bind(&ResolutionImpl::ServiceResolveComplete,
+                        base::Unretained(this), callback));
+  service_resolver_->StartResolving();
+}
+
+void PrivetHTTPAsynchronousFactoryImpl::ResolutionImpl::ServiceResolveComplete(
+    const ResultCallback& callback,
+    ServiceResolver::RequestStatus result,
+    const ServiceDescription& description) {
+  if (result != ServiceResolver::STATUS_SUCCESS)
+    return callback.Run(scoped_ptr<PrivetHTTPClient>());
+
+  Start(description.address, callback);
+}
+
+void PrivetHTTPAsynchronousFactoryImpl::ResolutionImpl::Start(
+    const net::HostPortPair& address,
+    const ResultCallback& callback) {
+#if defined(OS_MACOSX)
+  net::IPAddressNumber ip_address;
+  DCHECK(net::ParseIPLiteralToNumber(address.host(), &ip_address));
+  // MAC already has IP there.
+  callback.Run(scoped_ptr<PrivetHTTPClient>(
+      new PrivetHTTPClientImpl(name_, address, request_context_.get())));
+#else  // OS_MACOSX
+  net::AddressFamily address_family = net::ADDRESS_FAMILY_UNSPECIFIED;
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kPrivetIPv6Only)) {
+    address_family = net::ADDRESS_FAMILY_IPV6;
+  }
+
+  domain_resolver_ = service_discovery_client_->CreateLocalDomainResolver(
+      address.host(), address_family,
+      base::Bind(&ResolutionImpl::DomainResolveComplete, base::Unretained(this),
+                 address.port(), callback));
+  domain_resolver_->Start();
+#endif  // OS_MACOSX
+}
+
+void PrivetHTTPAsynchronousFactoryImpl::ResolutionImpl::DomainResolveComplete(
+    uint16 port,
+    const ResultCallback& callback,
     bool success,
     const net::IPAddressNumber& address_ipv4,
     const net::IPAddressNumber& address_ipv6) {
   if (!success) {
-    callback_.Run(scoped_ptr<PrivetHTTPClient>());
+    callback.Run(scoped_ptr<PrivetHTTPClient>());
     return;
   }
 
@@ -100,8 +119,8 @@ void PrivetHTTPAsynchronousFactoryImpl::ResolutionImpl::ResolveComplete(
   DCHECK(!address.empty());
 
   net::HostPortPair new_address =
-      net::HostPortPair(IPAddressToHostString(address), hostport_.port());
-  callback_.Run(scoped_ptr<PrivetHTTPClient>(
+      net::HostPortPair(IPAddressToHostString(address), port);
+  callback.Run(scoped_ptr<PrivetHTTPClient>(
       new PrivetHTTPClientImpl(name_, new_address, request_context_.get())));
 }
 

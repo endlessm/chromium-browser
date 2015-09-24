@@ -30,13 +30,13 @@
 #include "wtf/MainThread.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/PartitionAlloc.h"
+#include "wtf/Partitions.h"
 #include "wtf/PassOwnPtr.h"
 #include "wtf/StdLibExtras.h"
-#include "wtf/WTF.h"
 #include "wtf/text/AtomicString.h"
+#include "wtf/text/CharacterNames.h"
 #include "wtf/text/StringBuffer.h"
 #include "wtf/text/StringHash.h"
-#include "wtf/unicode/CharacterNames.h"
 #include <unicode/translit.h>
 #include <unicode/unistr.h>
 
@@ -44,7 +44,6 @@
 #include "wtf/DataLog.h"
 #include "wtf/HashMap.h"
 #include "wtf/HashSet.h"
-#include "wtf/ProcessID.h"
 #include "wtf/RefCounted.h"
 #include "wtf/ThreadingPrimitives.h"
 #include <unistd.h>
@@ -56,7 +55,7 @@ namespace WTF {
 
 using namespace Unicode;
 
-COMPILE_ASSERT(sizeof(StringImpl) == 3 * sizeof(int), StringImpl_should_stay_small);
+static_assert(sizeof(StringImpl) == 3 * sizeof(int), "StringImpl should stay small");
 
 #ifdef STRING_STATS
 
@@ -189,17 +188,17 @@ static void printLiveStringStats(void*)
     MutexLocker locker(statsMutex());
     HashSet<void*>& strings = liveStrings();
 
-    HashMap<StringImpl*, RefPtr<PerStringStats> > stats;
+    HashMap<StringImpl*, RefPtr<PerStringStats>> stats;
     for (HashSet<void*>::iterator iter = strings.begin(); iter != strings.end(); ++iter) {
         StringImpl* string = static_cast<StringImpl*>(*iter);
-        HashMap<StringImpl*, RefPtr<PerStringStats> >::iterator entry = stats.find(string);
+        HashMap<StringImpl*, RefPtr<PerStringStats>>::iterator entry = stats.find(string);
         RefPtr<PerStringStats> value = entry == stats.end() ? RefPtr<PerStringStats>(PerStringStats::create()) : entry->value;
         value->add(string);
         stats.set(string, value.release());
     }
 
-    Vector<RefPtr<PerStringStats> > all;
-    for (HashMap<StringImpl*, RefPtr<PerStringStats> >::iterator iter = stats.begin(); iter != stats.end(); ++iter)
+    Vector<RefPtr<PerStringStats>> all;
+    for (HashMap<StringImpl*, RefPtr<PerStringStats>>::iterator iter = stats.begin(); iter != stats.end(); ++iter)
         all.append(iter->value);
 
     std::sort(all.begin(), all.end());
@@ -233,7 +232,7 @@ void StringStats::removeString(StringImpl* string)
 
 void StringStats::printStats()
 {
-    dataLogF("String stats for process id %d:\n", getCurrentProcessID());
+    dataLogF("String stats for process id %d:\n", getpid());
 
     unsigned long long totalNumberCharacters = m_total8BitData + m_total16BitData;
     double percent8Bit = m_totalNumberStrings ? ((double)m_number8BitStrings * 100) / (double)m_totalNumberStrings : 0.0;
@@ -255,19 +254,19 @@ void StringStats::printStats()
     double overheadPercent = (double)totalOverhead / (double)totalDataBytes * 100;
     dataLogF("         StringImpl overheader: %8u (%5.2f%%)\n", totalOverhead, overheadPercent);
 
-    callOnMainThread(printLiveStringStats, 0);
+    internal::callOnMainThread(&printLiveStringStats, nullptr);
 }
 #endif
 
 void* StringImpl::operator new(size_t size)
 {
     ASSERT(size == sizeof(StringImpl));
-    return partitionAllocGeneric(Partitions::getBufferPartition(), size);
+    return partitionAllocGeneric(Partitions::bufferPartition(), size);
 }
 
 void StringImpl::operator delete(void* ptr)
 {
-    partitionFreeGeneric(Partitions::getBufferPartition(), ptr);
+    partitionFreeGeneric(Partitions::bufferPartition(), ptr);
 }
 
 inline StringImpl::~StringImpl()
@@ -296,7 +295,7 @@ PassRefPtr<StringImpl> StringImpl::createUninitialized(unsigned length, LChar*& 
     // Allocate a single buffer large enough to contain the StringImpl
     // struct as well as the data which it contains. This removes one
     // heap allocation from this call.
-    StringImpl* string = static_cast<StringImpl*>(partitionAllocGeneric(Partitions::getBufferPartition(), allocationSize<LChar>(length)));
+    StringImpl* string = static_cast<StringImpl*>(partitionAllocGeneric(Partitions::bufferPartition(), allocationSize<LChar>(length)));
 
     data = reinterpret_cast<LChar*>(string + 1);
     return adoptRef(new (string) StringImpl(length, Force8BitConstructor));
@@ -312,7 +311,7 @@ PassRefPtr<StringImpl> StringImpl::createUninitialized(unsigned length, UChar*& 
     // Allocate a single buffer large enough to contain the StringImpl
     // struct as well as the data which it contains. This removes one
     // heap allocation from this call.
-    StringImpl* string = static_cast<StringImpl*>(partitionAllocGeneric(Partitions::getBufferPartition(), allocationSize<UChar>(length)));
+    StringImpl* string = static_cast<StringImpl*>(partitionAllocGeneric(Partitions::bufferPartition(), allocationSize<UChar>(length)));
 
     data = reinterpret_cast<UChar*>(string + 1);
     return adoptRef(new (string) StringImpl(length));
@@ -329,7 +328,7 @@ PassRefPtr<StringImpl> StringImpl::reallocate(PassRefPtr<StringImpl> originalStr
     // Same as createUninitialized() except here we use realloc.
     size_t size = is8Bit ? allocationSize<LChar>(length) : allocationSize<UChar>(length);
     originalString->~StringImpl();
-    StringImpl* string = static_cast<StringImpl*>(partitionReallocGeneric(Partitions::getBufferPartition(), originalString.leakRef(), size));
+    StringImpl* string = static_cast<StringImpl*>(partitionReallocGeneric(Partitions::bufferPartition(), originalString.leakRef(), size));
     if (is8Bit)
         return adoptRef(new (string) StringImpl(length, Force8BitConstructor));
     return adoptRef(new (string) StringImpl(length));
@@ -380,7 +379,7 @@ StringImpl* StringImpl::createStatic(const char* string, unsigned length, unsign
     size_t size = sizeof(StringImpl) + length * sizeof(LChar);
 
     WTF_ANNOTATE_SCOPED_MEMORY_LEAK;
-    StringImpl* impl = static_cast<StringImpl*>(partitionAllocGeneric(Partitions::getBufferPartition(), size));
+    StringImpl* impl = static_cast<StringImpl*>(partitionAllocGeneric(Partitions::bufferPartition(), size));
 
     LChar* data = reinterpret_cast<LChar*>(impl + 1);
     impl = new (impl) StringImpl(length, hash, StaticString);
@@ -449,7 +448,7 @@ PassRefPtr<StringImpl> StringImpl::create(const LChar* string)
 bool StringImpl::containsOnlyWhitespace()
 {
     // FIXME: The definition of whitespace here includes a number of characters
-    // that are not whitespace from the point of view of RenderText; I wonder if
+    // that are not whitespace from the point of view of LayoutText; I wonder if
     // that's a problem in practice.
     if (is8Bit()) {
         for (unsigned i = 0; i < m_length; ++i) {
@@ -502,38 +501,35 @@ PassRefPtr<StringImpl> StringImpl::lower()
     // no-op code path up through the first 'return' statement.
 
     // First scan the string for uppercase and non-ASCII characters:
-    bool noUpper = true;
-    UChar ored = 0;
     if (is8Bit()) {
-        const LChar* end = characters8() + m_length;
-        for (const LChar* chp = characters8(); chp != end; ++chp) {
-            if (UNLIKELY(isASCIIUpper(*chp)))
-                noUpper = false;
-            ored |= *chp;
+        unsigned firstIndexToBeLowered = m_length;
+        for (unsigned i = 0; i < m_length; ++i) {
+            LChar ch = characters8()[i];
+            if (UNLIKELY(isASCIIUpper(ch) || ch & ~0x7F)) {
+                firstIndexToBeLowered = i;
+                break;
+            }
         }
+
         // Nothing to do if the string is all ASCII with no uppercase.
-        if (noUpper && !(ored & ~0x7F))
+        if (firstIndexToBeLowered == m_length)
             return this;
 
-        RELEASE_ASSERT(m_length <= static_cast<unsigned>(numeric_limits<int32_t>::max()));
-        int32_t length = m_length;
-
         LChar* data8;
-        RefPtr<StringImpl> newImpl = createUninitialized(length, data8);
+        RefPtr<StringImpl> newImpl = createUninitialized(m_length, data8);
+        memcpy(data8, characters8(), firstIndexToBeLowered);
 
-        if (!(ored & ~0x7F)) {
-            for (int32_t i = 0; i < length; ++i)
-                data8[i] = toASCIILower(characters8()[i]);
-
-            return newImpl.release();
+        for (unsigned i = firstIndexToBeLowered; i < m_length; ++i) {
+            LChar ch = characters8()[i];
+            data8[i] = UNLIKELY(ch & ~0x7F) ? static_cast<LChar>(Unicode::toLower(ch))
+                                            : toASCIILower(ch);
         }
-
-        // Do a slower implementation for cases that include non-ASCII Latin-1 characters.
-        for (int32_t i = 0; i < length; ++i)
-            data8[i] = static_cast<LChar>(Unicode::toLower(characters8()[i]));
 
         return newImpl.release();
     }
+
+    bool noUpper = true;
+    UChar ored = 0;
 
     const UChar* end = characters16() + m_length;
     for (const UChar* chp = characters16(); chp != end; ++chp) {
@@ -606,7 +602,7 @@ PassRefPtr<StringImpl> StringImpl::upper()
         //  2. Lower case sharp-S converts to "SS" (two characters)
         for (int32_t i = 0; i < length; ++i) {
             LChar c = characters8()[i];
-            if (UNLIKELY(c == smallLetterSharpS))
+            if (UNLIKELY(c == smallLetterSharpSCharacter))
                 ++numberSharpSCharacters;
             UChar upper = static_cast<UChar>(Unicode::toUpper(c));
             if (UNLIKELY(upper > 0xff)) {
@@ -626,7 +622,7 @@ PassRefPtr<StringImpl> StringImpl::upper()
 
         for (int32_t i = 0; i < length; ++i) {
             LChar c = characters8()[i];
-            if (c == smallLetterSharpS) {
+            if (c == smallLetterSharpSCharacter) {
                 *dest++ = 'S';
                 *dest++ = 'S';
             } else
@@ -678,7 +674,7 @@ static bool inline localeIdMatchesLang(const AtomicString& localeId, const char*
     for (int i = 0; i < 3; ++i) {
         localeIdPrefix[langLength] = delimeter[i];
         // case-insensitive comparison
-        if (localeId.impl() && localeId.impl()->startsWith(localeIdPrefix, langLength + 1, false))
+        if (localeId.impl() && localeId.impl()->startsWith(localeIdPrefix, langLength + 1, TextCaseInsensitive))
             return true;
     }
     return false;
@@ -689,13 +685,14 @@ typedef int32_t (*icuCaseConverter)(UChar*, int32_t, const UChar*, int32_t, cons
 static PassRefPtr<StringImpl> caseConvert(const UChar* source16, size_t length, icuCaseConverter converter, const char* locale, StringImpl* originalString)
 {
     UChar* data16;
-    int32_t targetLength = length;
+    size_t targetLength = length;
     RefPtr<StringImpl> output = StringImpl::createUninitialized(length, data16);
     do {
         UErrorCode status = U_ZERO_ERROR;
         targetLength = converter(data16, targetLength, source16, length, locale, &status);
         if (U_SUCCESS(status)) {
-            output->truncateAssumingIsolated(targetLength);
+            if (length > 0)
+                output->truncateAssumingIsolated(targetLength);
             return output.release();
         }
         if (status != U_BUFFER_OVERFLOW_ERROR)
@@ -1069,11 +1066,30 @@ float StringImpl::toFloat(bool* ok)
     return charactersToFloat(characters16(), m_length, ok);
 }
 
+// Table is based on ftp://ftp.unicode.org/Public/UNIDATA/CaseFolding.txt
+const UChar StringImpl::latin1CaseFoldTable[256] = {
+    0x0000, 0x0001, 0x0002, 0x0003, 0x0004, 0x0005, 0x0006, 0x0007, 0x0008, 0x0009, 0x000a, 0x000b, 0x000c, 0x000d, 0x000e, 0x000f,
+    0x0010, 0x0011, 0x0012, 0x0013, 0x0014, 0x0015, 0x0016, 0x0017, 0x0018, 0x0019, 0x001a, 0x001b, 0x001c, 0x001d, 0x001e, 0x001f,
+    0x0020, 0x0021, 0x0022, 0x0023, 0x0024, 0x0025, 0x0026, 0x0027, 0x0028, 0x0029, 0x002a, 0x002b, 0x002c, 0x002d, 0x002e, 0x002f,
+    0x0030, 0x0031, 0x0032, 0x0033, 0x0034, 0x0035, 0x0036, 0x0037, 0x0038, 0x0039, 0x003a, 0x003b, 0x003c, 0x003d, 0x003e, 0x003f,
+    0x0040, 0x0061, 0x0062, 0x0063, 0x0064, 0x0065, 0x0066, 0x0067, 0x0068, 0x0069, 0x006a, 0x006b, 0x006c, 0x006d, 0x006e, 0x006f,
+    0x0070, 0x0071, 0x0072, 0x0073, 0x0074, 0x0075, 0x0076, 0x0077, 0x0078, 0x0079, 0x007a, 0x005b, 0x005c, 0x005d, 0x005e, 0x005f,
+    0x0060, 0x0061, 0x0062, 0x0063, 0x0064, 0x0065, 0x0066, 0x0067, 0x0068, 0x0069, 0x006a, 0x006b, 0x006c, 0x006d, 0x006e, 0x006f,
+    0x0070, 0x0071, 0x0072, 0x0073, 0x0074, 0x0075, 0x0076, 0x0077, 0x0078, 0x0079, 0x007a, 0x007b, 0x007c, 0x007d, 0x007e, 0x007f,
+    0x0080, 0x0081, 0x0082, 0x0083, 0x0084, 0x0085, 0x0086, 0x0087, 0x0088, 0x0089, 0x008a, 0x008b, 0x008c, 0x008d, 0x008e, 0x008f,
+    0x0090, 0x0091, 0x0092, 0x0093, 0x0094, 0x0095, 0x0096, 0x0097, 0x0098, 0x0099, 0x009a, 0x009b, 0x009c, 0x009d, 0x009e, 0x009f,
+    0x00a0, 0x00a1, 0x00a2, 0x00a3, 0x00a4, 0x00a5, 0x00a6, 0x00a7, 0x00a8, 0x00a9, 0x00aa, 0x00ab, 0x00ac, 0x00ad, 0x00ae, 0x00af,
+    0x00b0, 0x00b1, 0x00b2, 0x00b3, 0x00b4, 0x03bc, 0x00b6, 0x00b7, 0x00b8, 0x00b9, 0x00ba, 0x00bb, 0x00bc, 0x00bd, 0x00be, 0x00bf,
+    0x00e0, 0x00e1, 0x00e2, 0x00e3, 0x00e4, 0x00e5, 0x00e6, 0x00e7, 0x00e8, 0x00e9, 0x00ea, 0x00eb, 0x00ec, 0x00ed, 0x00ee, 0x00ef,
+    0x00f0, 0x00f1, 0x00f2, 0x00f3, 0x00f4, 0x00f5, 0x00f6, 0x00d7, 0x00f8, 0x00f9, 0x00fa, 0x00fb, 0x00fc, 0x00fd, 0x00fe, 0x00df,
+    0x00e0, 0x00e1, 0x00e2, 0x00e3, 0x00e4, 0x00e5, 0x00e6, 0x00e7, 0x00e8, 0x00e9, 0x00ea, 0x00eb, 0x00ec, 0x00ed, 0x00ee, 0x00ef,
+    0x00f0, 0x00f1, 0x00f2, 0x00f3, 0x00f4, 0x00f5, 0x00f6, 0x00f7, 0x00f8, 0x00f9, 0x00fa, 0x00fb, 0x00fc, 0x00fd, 0x00fe, 0x00ff,
+};
+
 bool equalIgnoringCase(const LChar* a, const LChar* b, unsigned length)
 {
     while (length--) {
-        LChar bc = *b++;
-        if (foldCase(*a++) != foldCase(bc))
+        if (StringImpl::latin1CaseFoldTable[*a++] != StringImpl::latin1CaseFoldTable[*b++])
             return false;
     }
     return true;
@@ -1082,8 +1098,7 @@ bool equalIgnoringCase(const LChar* a, const LChar* b, unsigned length)
 bool equalIgnoringCase(const UChar* a, const LChar* b, unsigned length)
 {
     while (length--) {
-        LChar bc = *b++;
-        if (foldCase(*a++) != foldCase(bc))
+        if (foldCase(*a++) != StringImpl::latin1CaseFoldTable[*b++])
             return false;
     }
     return true;
@@ -1458,13 +1473,13 @@ size_t StringImpl::reverseFindIgnoringCase(StringImpl* matchString, unsigned ind
     return reverseFindIgnoringCaseInner(characters16(), matchString->characters16(), index, ourLength, matchLength);
 }
 
-ALWAYS_INLINE static bool equalInner(const StringImpl* stringImpl, unsigned startOffset, const char* matchString, unsigned matchLength, bool caseSensitive)
+ALWAYS_INLINE static bool equalInner(const StringImpl* stringImpl, unsigned startOffset, const char* matchString, unsigned matchLength, TextCaseSensitivity caseSensitivity)
 {
     ASSERT(stringImpl);
     ASSERT(matchLength <= stringImpl->length());
     ASSERT(startOffset + matchLength <= stringImpl->length());
 
-    if (caseSensitive) {
+    if (caseSensitivity == TextCaseSensitive) {
         if (stringImpl->is8Bit())
             return equal(stringImpl->characters8() + startOffset, reinterpret_cast<const LChar*>(matchString), matchLength);
         return equal(stringImpl->characters16() + startOffset, reinterpret_cast<const LChar*>(matchString), matchLength);
@@ -1479,20 +1494,22 @@ bool StringImpl::startsWith(UChar character) const
     return m_length && (*this)[0] == character;
 }
 
-bool StringImpl::startsWith(const char* matchString, unsigned matchLength, bool caseSensitive) const
+bool StringImpl::startsWith(const char* matchString, unsigned matchLength, TextCaseSensitivity caseSensitivity) const
 {
     ASSERT(matchLength);
     if (matchLength > length())
         return false;
-    return equalInner(this, 0, matchString, matchLength, caseSensitive);
+    return equalInner(this, 0, matchString, matchLength, caseSensitivity);
 }
 
-bool StringImpl::endsWith(StringImpl* matchString, bool caseSensitive)
+bool StringImpl::endsWith(StringImpl* matchString, TextCaseSensitivity caseSensitivity)
 {
     ASSERT(matchString);
     if (m_length >= matchString->m_length) {
         unsigned start = m_length - matchString->m_length;
-        return (caseSensitive ? find(matchString, start) : findIgnoringCase(matchString, start)) == start;
+        if (caseSensitivity == TextCaseSensitive)
+            return find(matchString, start) == start;
+        return findIgnoringCase(matchString, start) == start;
     }
     return false;
 }
@@ -1502,13 +1519,13 @@ bool StringImpl::endsWith(UChar character) const
     return m_length && (*this)[m_length - 1] == character;
 }
 
-bool StringImpl::endsWith(const char* matchString, unsigned matchLength, bool caseSensitive) const
+bool StringImpl::endsWith(const char* matchString, unsigned matchLength, TextCaseSensitivity caseSensitivity) const
 {
     ASSERT(matchLength);
     if (matchLength > length())
         return false;
     unsigned startOffset = length() - matchLength;
-    return equalInner(this, startOffset, matchString, matchLength, caseSensitive);
+    return equalInner(this, startOffset, matchString, matchLength, caseSensitivity);
 }
 
 PassRefPtr<StringImpl> StringImpl::replace(UChar oldC, UChar newC)
@@ -2089,6 +2106,23 @@ size_t StringImpl::sizeInBytes() const
     if (!is8Bit())
         size *= 2;
     return size + sizeof(*this);
+}
+
+UChar32 toUpper(UChar32 c, const AtomicString& localeIdentifier)
+{
+    if (!localeIdentifier.isNull()) {
+        if (localeIdMatchesLang(localeIdentifier, "tr") || localeIdMatchesLang(localeIdentifier, "az")) {
+            if (c == 'i')
+                return latinCapitalLetterIWithDotAbove;
+            if (c == latinSmallLetterDotlessI)
+                return 'I';
+        } else if (localeIdMatchesLang(localeIdentifier, "lt")) {
+            // TODO(rob.buis) implement upper-casing rules for lt
+            // like in StringImpl::upper(locale).
+        }
+    }
+
+    return toUpper(c);
 }
 
 } // namespace WTF

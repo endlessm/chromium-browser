@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2013 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,16 +6,11 @@
 
 from __future__ import print_function
 
-import logging
 import mock
 import os
-import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                '..', '..'))
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_test_lib
-from chromite.lib import git
 from chromite.lib import gs
 from chromite.lib import gs_unittest
 from chromite.lib import osutils
@@ -28,13 +22,15 @@ from chromite.scripts import pushimage
 class InputInsnsTest(cros_test_lib.MockTestCase):
   """Tests for InputInsns"""
 
+  def setUp(self):
+    self.StartPatcher(gs_unittest.GSContextMock())
+
   def testBasic(self):
     """Simple smoke test"""
-    with mock.patch.object(gs.GSContext, 'Exists', return_value=False):
-      insns = pushimage.InputInsns('test.board')
-      insns.GetInsnFile('recovery')
-      self.assertEqual(insns.GetChannels(), ['dev', 'canary'])
-      self.assertEqual(insns.GetKeysets(), ['stumpy-mp-v3'])
+    insns = pushimage.InputInsns('test.board')
+    insns.GetInsnFile('recovery')
+    self.assertEqual(insns.GetChannels(), ['dev', 'canary'])
+    self.assertEqual(insns.GetKeysets(), ['stumpy-mp-v3'])
 
   def testGetInsnFile(self):
     """Verify various inputs result in right insns path"""
@@ -122,8 +118,7 @@ class MarkImageToBeSignedTest(gs_unittest.AbstractGSContextTest):
   def setUp(self):
     # Minor optimization -- we call this for logging purposes in the main
     # code, but don't really care about it for testing.  It just slows us.
-    self.PatchObject(git, 'RunGit',
-                     return_value=cros_build_lib.CommandResult(output='1234\n'))
+    self.PatchObject(cros_build_lib, 'MachineDetails', return_value='1234\n')
 
   def testBasic(self):
     """Simple smoke test"""
@@ -145,24 +140,6 @@ class MarkImageToBeSignedTest(gs_unittest.AbstractGSContextTest):
       self.assertRaises(ValueError, pushimage.MarkImageToBeSigned, self.ctx,
                         '', '', prio)
 
-  def testTbsFile(self):
-    """Make sure the tbs file we write has useful data"""
-    WriteFile = osutils.WriteFile
-    def _write_check(*args, **kwargs):
-      # We can't mock every call, so do the actual write for most.
-      WriteFile(*args, **kwargs)
-
-    m = self.PatchObject(osutils, 'WriteFile')
-    m.side_effect = _write_check
-    pushimage.MarkImageToBeSigned(self.ctx, '', '', 50)
-    # We assume the first call is the one we care about.
-    self.assertTrue(m.called)
-    content = m.call_args_list[0][0][1]
-    self.assertIn('USER=', content)
-    self.assertIn('HOSTNAME=', content)
-    self.assertIn('GIT_REV=1234', content)
-    self.assertIn('\n', content)
-
   def testTbsUpload(self):
     """Make sure we actually try to upload the file"""
     pushimage.MarkImageToBeSigned(self.ctx, '', '', 50)
@@ -179,11 +156,11 @@ class PushImageTests(gs_unittest.AbstractGSContextTest):
     """Simple smoke test"""
     EXPECTED = {
         'canary': [
-            'gs://chromeos-releases/canary-channel/test.board-hi/5126.0.0/'
-              'ChromeOS-recovery-R34-5126.0.0-test.board-hi.instructions'],
+            ('gs://chromeos-releases/canary-channel/test.board-hi/5126.0.0/'
+             'ChromeOS-recovery-R34-5126.0.0-test.board-hi.instructions')],
         'dev': [
-            'gs://chromeos-releases/dev-channel/test.board-hi/5126.0.0/'
-              'ChromeOS-recovery-R34-5126.0.0-test.board-hi.instructions'],
+            ('gs://chromeos-releases/dev-channel/test.board-hi/5126.0.0/'
+             'ChromeOS-recovery-R34-5126.0.0-test.board-hi.instructions')],
     }
     with mock.patch.object(gs.GSContext, 'Exists', return_value=True):
       urls = pushimage.PushImage('/src', 'test.board', 'R34-5126.0.0',
@@ -211,11 +188,11 @@ class PushImageTests(gs_unittest.AbstractGSContextTest):
     """Only sign the requested recovery type"""
     EXPECTED = {
         'canary': [
-            'gs://chromeos-releases/canary-channel/test.board/5126.0.0/'
-              'ChromeOS-recovery-R34-5126.0.0-test.board.instructions'],
+            ('gs://chromeos-releases/canary-channel/test.board/5126.0.0/'
+             'ChromeOS-recovery-R34-5126.0.0-test.board.instructions')],
         'dev': [
-            'gs://chromeos-releases/dev-channel/test.board/5126.0.0/'
-              'ChromeOS-recovery-R34-5126.0.0-test.board.instructions'],
+            ('gs://chromeos-releases/dev-channel/test.board/5126.0.0/'
+             'ChromeOS-recovery-R34-5126.0.0-test.board.instructions')],
     }
 
     urls = pushimage.PushImage('/src', 'test.board', 'R34-5126.0.0',
@@ -252,10 +229,10 @@ class MainTests(cros_test_lib.MockTestCase):
     pushimage.main(['--board', 'test.board', '/src', '--yes'])
 
 
-if __name__ == '__main__':
+def main(_argv):
   # Use our local copy of insns for testing as the main one is not
   # available in the public manifest.
   signing.INPUT_INSN_DIR = signing.TEST_INPUT_INSN_DIR
 
   # Run the tests.
-  cros_test_lib.main(level=logging.INFO)
+  cros_test_lib.main(level='info', module=__name__)

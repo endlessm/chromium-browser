@@ -11,14 +11,13 @@
 #include "SkChecksum.h"
 #include "SkColorFilter.h"
 #include "SkData.h"
-#include "SkDeviceProperties.h"
 #include "SkDraw.h"
 #include "SkFontDescriptor.h"
-#include "SkFontHost.h"
 #include "SkGlyphCache.h"
 #include "SkImageFilter.h"
 #include "SkMaskFilter.h"
 #include "SkMaskGamma.h"
+#include "SkMutex.h"
 #include "SkReadBuffer.h"
 #include "SkWriteBuffer.h"
 #include "SkPaintDefaults.h"
@@ -33,6 +32,7 @@
 #include "SkTextToPathIter.h"
 #include "SkTLazy.h"
 #include "SkTypeface.h"
+#include "SkSurfacePriv.h"
 #include "SkXfermode.h"
 
 // define this to get a printf for out-of-range parameter in setters
@@ -117,8 +117,6 @@ SkPaint& SkPaint::operator=(const SkPaint& src) {
 #define COPY(field) field = src.field
 #define REF_COPY(field) SkSafeUnref(field); field = SkSafeRef(src.field)
 
-    SkASSERT(&src);
-
     REF_COPY(fTypeface);
     REF_COPY(fPathEffect);
     REF_COPY(fShader);
@@ -172,8 +170,8 @@ void SkPaint::reset() {
     *this = init;
 }
 
-void SkPaint::setFilterLevel(FilterLevel level) {
-    fBitfields.fFilterLevel = level;
+void SkPaint::setFilterQuality(SkFilterQuality quality) {
+    fBitfields.fFilterQuality = quality;
 }
 
 void SkPaint::setHinting(Hinting hintingLevel) {
@@ -230,10 +228,6 @@ void SkPaint::setFakeBoldText(bool doFakeBold) {
 
 void SkPaint::setDevKernText(bool doDevKern) {
     this->setFlags(SkSetClearMask(fBitfields.fFlags, doDevKern, kDevKernText_Flag));
-}
-
-void SkPaint::setDistanceFieldTextTEMP(bool doDistanceFieldText) {
-    this->setFlags(SkSetClearMask(fBitfields.fFlags, doDistanceFieldText, kDistanceFieldTextTEMP_Flag));
 }
 
 void SkPaint::setStyle(Style style) {
@@ -526,8 +520,7 @@ bool SkPaint::containsText(const void* textData, size_t byteLength) const {
     return true;
 }
 
-void SkPaint::glyphsToUnichars(const uint16_t glyphs[], int count,
-                               SkUnichar textData[]) const {
+void SkPaint::glyphsToUnichars(const uint16_t glyphs[], int count, SkUnichar textData[]) const {
     if (count <= 0) {
         return;
     }
@@ -535,7 +528,8 @@ void SkPaint::glyphsToUnichars(const uint16_t glyphs[], int count,
     SkASSERT(glyphs != NULL);
     SkASSERT(textData != NULL);
 
-    SkAutoGlyphCache autoCache(*this, NULL, NULL);
+    SkSurfaceProps props(0, kUnknown_SkPixelGeometry);
+    SkAutoGlyphCache autoCache(*this, &props, NULL);
     SkGlyphCache*    cache = autoCache.getCache();
 
     for (int index = 0; index < count; index++) {
@@ -803,14 +797,6 @@ static void set_bounds(const SkGlyph& g, SkRect* bounds) {
                 SkIntToScalar(g.fTop),
                 SkIntToScalar(g.fLeft + g.fWidth),
                 SkIntToScalar(g.fTop + g.fHeight));
-}
-
-// 64bits wide, with a 16bit bias. Useful when accumulating lots of 16.16 so
-// we don't overflow along the way
-typedef int64_t Sk48Dot16;
-
-static inline float Sk48Dot16ToScalar(Sk48Dot16 x) {
-    return (float) (x * 1.5258789e-5);   // x * (1 / 65536.0f)
 }
 
 static void join_bounds_x(const SkGlyph& g, SkRect* bounds, Sk48Dot16 dx) {
@@ -1237,12 +1223,26 @@ void SkPaint::getPosTextPath(const void* textData, size_t length,
     }
 }
 
+SkRect SkPaint::getFontBounds() const {
+    SkMatrix m;
+    m.setScale(fTextSize * fTextScaleX, fTextSize);
+    m.postSkew(fTextSkewX, 0);
+
+    SkTypeface* typeface = this->getTypeface();
+    if (NULL == typeface) {
+        typeface = SkTypeface::GetDefaultTypeface();
+    }
+
+    SkRect bounds;
+    m.mapRect(&bounds, typeface->getBounds());
+    return bounds;
+}
+
 static void add_flattenable(SkDescriptor* desc, uint32_t tag,
                             SkWriteBuffer* buffer) {
     buffer->writeToMemory(desc->addEntry(tag, buffer->bytesWritten(), NULL));
 }
 
-// SkFontHost can override this choice in FilterRec()
 static SkMask::Format computeMaskFormat(const SkPaint& paint) {
     uint32_t flags = paint.getFlags();
 
@@ -1286,9 +1286,9 @@ static bool justAColor(const SkPaint& paint, SkColor* color) {
     return true;
 }
 
-static SkColor computeLuminanceColor(const SkPaint& paint) {
+SkColor SkPaint::computeLuminanceColor() const {
     SkColor c;
-    if (!justAColor(paint, &c)) {
+    if (!justAColor(*this, &c)) {
         c = SkColorSetRGB(0x7F, 0x80, 0x7F);
     }
     return c;
@@ -1326,7 +1326,7 @@ static SkScalar sk_relax(SkScalar x) {
 }
 
 void SkScalerContext::MakeRec(const SkPaint& paint,
-                              const SkDeviceProperties* deviceProperties,
+                              const SkSurfaceProps* surfaceProps,
                               const SkMatrix* deviceMatrix,
                               Rec* rec) {
     SkASSERT(deviceMatrix == NULL || !deviceMatrix->hasPerspective());
@@ -1407,13 +1407,13 @@ void SkScalerContext::MakeRec(const SkPaint& paint,
 
     rec->fMaskFormat = SkToU8(computeMaskFormat(paint));
 
-    if (SkMask::kLCD16_Format == rec->fMaskFormat || SkMask::kLCD32_Format == rec->fMaskFormat) {
+    if (SkMask::kLCD16_Format == rec->fMaskFormat) {
         if (too_big_for_lcd(*rec, checkPost2x2)) {
             rec->fMaskFormat = SkMask::kA8_Format;
             flags |= SkScalerContext::kGenA8FromLCD_Flag;
         } else {
-            SkPixelGeometry geometry = deviceProperties
-                                     ? deviceProperties->pixelGeometry()
+            SkPixelGeometry geometry = surfaceProps
+                                     ? surfaceProps->pixelGeometry()
                                      : SkSurfacePropsDefaultPixelGeometry();
             switch (geometry) {
                 case kUnknown_SkPixelGeometry:
@@ -1458,20 +1458,14 @@ void SkScalerContext::MakeRec(const SkPaint& paint,
     // these modify fFlags, so do them after assigning fFlags
     rec->setHinting(computeHinting(paint));
 
-    rec->setLuminanceColor(computeLuminanceColor(paint));
+    rec->setLuminanceColor(paint.computeLuminanceColor());
 
-    if (NULL == deviceProperties) {
-        rec->setDeviceGamma(SK_GAMMA_EXPONENT);
-        rec->setPaintGamma(SK_GAMMA_EXPONENT);
-    } else {
-        rec->setDeviceGamma(deviceProperties->gamma());
-
-        //For now always set the paint gamma equal to the device gamma.
-        //The math in SkMaskGamma can handle them being different,
-        //but it requires superluminous masks when
-        //Ex : deviceGamma(x) < paintGamma(x) and x is sufficiently large.
-        rec->setPaintGamma(deviceProperties->gamma());
-    }
+    //For now always set the paint gamma equal to the device gamma.
+    //The math in SkMaskGamma can handle them being different,
+    //but it requires superluminous masks when
+    //Ex : deviceGamma(x) < paintGamma(x) and x is sufficiently large.
+    rec->setDeviceGamma(SK_GAMMA_EXPONENT);
+    rec->setPaintGamma(SK_GAMMA_EXPONENT);
 
 #ifdef SK_GAMMA_CONTRAST
     rec->setContrast(SK_GAMMA_CONTRAST);
@@ -1553,8 +1547,7 @@ void SkScalerContext::PostMakeRec(const SkPaint&, SkScalerContext::Rec* rec) {
      *  the lum of one of them.
      */
     switch (rec->fMaskFormat) {
-        case SkMask::kLCD16_Format:
-        case SkMask::kLCD32_Format: {
+        case SkMask::kLCD16_Format: {
             // filter down the luminance color to a finite number of bits
             SkColor color = rec->getLuminanceColor();
             rec->setLuminanceColor(SkMaskGamma::CanonicalColor(color));
@@ -1585,131 +1578,185 @@ void SkScalerContext::PostMakeRec(const SkPaint&, SkScalerContext::Rec* rec) {
     #define TEST_DESC
 #endif
 
+static void write_out_descriptor(SkDescriptor* desc, const SkScalerContext::Rec& rec,
+                                 const SkPathEffect* pe, SkWriteBuffer* peBuffer,
+                                 const SkMaskFilter* mf, SkWriteBuffer* mfBuffer,
+                                 const SkRasterizer* ra, SkWriteBuffer* raBuffer,
+                                 size_t descSize) {
+    desc->init();
+    desc->addEntry(kRec_SkDescriptorTag, sizeof(rec), &rec);
+
+    if (pe) {
+        add_flattenable(desc, kPathEffect_SkDescriptorTag, peBuffer);
+    }
+    if (mf) {
+        add_flattenable(desc, kMaskFilter_SkDescriptorTag, mfBuffer);
+    }
+    if (ra) {
+        add_flattenable(desc, kRasterizer_SkDescriptorTag, raBuffer);
+    }
+
+    desc->computeChecksum();
+}
+
+static size_t fill_out_rec(const SkPaint& paint, SkScalerContext::Rec* rec,
+                           const SkSurfaceProps* surfaceProps,
+                           const SkMatrix* deviceMatrix, bool ignoreGamma,
+                           const SkPathEffect* pe, SkWriteBuffer* peBuffer,
+                           const SkMaskFilter* mf, SkWriteBuffer* mfBuffer,
+                           const SkRasterizer* ra, SkWriteBuffer* raBuffer) {
+    SkScalerContext::MakeRec(paint, surfaceProps, deviceMatrix, rec);
+    if (ignoreGamma) {
+        rec->ignorePreBlend();
+    }
+
+    int entryCount = 1;
+    size_t descSize = sizeof(*rec);
+
+    if (pe) {
+        peBuffer->writeFlattenable(pe);
+        descSize += peBuffer->bytesWritten();
+        entryCount += 1;
+        rec->fMaskFormat = SkMask::kA8_Format;  // force antialiasing when we do the scan conversion
+        // seems like we could support kLCD as well at this point...
+    }
+    if (mf) {
+        mfBuffer->writeFlattenable(mf);
+        descSize += mfBuffer->bytesWritten();
+        entryCount += 1;
+        rec->fMaskFormat = SkMask::kA8_Format;   // force antialiasing with maskfilters
+        /* Pre-blend is not currently applied to filtered text.
+           The primary filter is blur, for which contrast makes no sense,
+           and for which the destination guess error is more visible.
+           Also, all existing users of blur have calibrated for linear. */
+        rec->ignorePreBlend();
+    }
+    if (ra) {
+        raBuffer->writeFlattenable(ra);
+        descSize += raBuffer->bytesWritten();
+        entryCount += 1;
+        rec->fMaskFormat = SkMask::kA8_Format;  // force antialiasing when we do the scan conversion
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+    // Now that we're done tweaking the rec, call the PostMakeRec cleanup
+    SkScalerContext::PostMakeRec(paint, rec);
+
+    descSize += SkDescriptor::ComputeOverhead(entryCount);
+    return descSize;
+}
+
+#ifdef TEST_DESC
+static void test_desc(const SkScalerContext::Rec& rec,
+                      const SkPathEffect* pe, SkWriteBuffer* peBuffer,
+                      const SkMaskFilter* mf, SkWriteBuffer* mfBuffer,
+                      const SkRasterizer* ra, SkWriteBuffer* raBuffer,
+                      const SkDescriptor* desc, size_t descSize) {
+    // Check that we completely write the bytes in desc (our key), and that
+    // there are no uninitialized bytes. If there were, then we would get
+    // false-misses (or worse, false-hits) in our fontcache.
+    //
+    // We do this buy filling 2 others, one with 0s and the other with 1s
+    // and create those, and then check that all 3 are identical.
+    SkAutoDescriptor    ad1(descSize);
+    SkAutoDescriptor    ad2(descSize);
+    SkDescriptor*       desc1 = ad1.getDesc();
+    SkDescriptor*       desc2 = ad2.getDesc();
+
+    memset(desc1, 0x00, descSize);
+    memset(desc2, 0xFF, descSize);
+
+    desc1->init();
+    desc2->init();
+    desc1->addEntry(kRec_SkDescriptorTag, sizeof(rec), &rec);
+    desc2->addEntry(kRec_SkDescriptorTag, sizeof(rec), &rec);
+
+    if (pe) {
+        add_flattenable(desc1, kPathEffect_SkDescriptorTag, peBuffer);
+        add_flattenable(desc2, kPathEffect_SkDescriptorTag, peBuffer);
+    }
+    if (mf) {
+        add_flattenable(desc1, kMaskFilter_SkDescriptorTag, mfBuffer);
+        add_flattenable(desc2, kMaskFilter_SkDescriptorTag, mfBuffer);
+    }
+    if (ra) {
+        add_flattenable(desc1, kRasterizer_SkDescriptorTag, raBuffer);
+        add_flattenable(desc2, kRasterizer_SkDescriptorTag, raBuffer);
+    }
+
+    SkASSERT(descSize == desc1->getLength());
+    SkASSERT(descSize == desc2->getLength());
+    desc1->computeChecksum();
+    desc2->computeChecksum();
+    SkASSERT(!memcmp(desc, desc1, descSize));
+    SkASSERT(!memcmp(desc, desc2, descSize));
+}
+#endif
+
+/* see the note on ignoreGamma on descriptorProc */
+void SkPaint::getScalerContextDescriptor(SkAutoDescriptor* ad,
+                                         const SkSurfaceProps& surfaceProps,
+                                         const SkMatrix* deviceMatrix, bool ignoreGamma) const {
+    SkScalerContext::Rec    rec;
+
+    SkPathEffect*   pe = this->getPathEffect();
+    SkMaskFilter*   mf = this->getMaskFilter();
+    SkRasterizer*   ra = this->getRasterizer();
+
+    SkWriteBuffer   peBuffer, mfBuffer, raBuffer;
+    size_t descSize = fill_out_rec(*this, &rec, &surfaceProps, deviceMatrix, ignoreGamma,
+                                   pe, &peBuffer, mf, &mfBuffer, ra, &raBuffer);
+
+    ad->reset(descSize);
+    SkDescriptor* desc = ad->getDesc();
+
+    write_out_descriptor(desc, rec, pe, &peBuffer, mf, &mfBuffer, ra, &raBuffer, descSize);
+
+    SkASSERT(descSize == desc->getLength());
+
+#ifdef TEST_DESC
+    test_desc(rec, pe, &peBuffer, mf, &mfBuffer, ra, &raBuffer, desc, descSize);
+#endif
+}
+
 /*
  *  ignoreGamma tells us that the caller just wants metrics that are unaffected
  *  by gamma correction, so we set the rec to ignore preblend: i.e. gamma = 1,
  *  contrast = 0, luminanceColor = transparent black.
  */
-void SkPaint::descriptorProc(const SkDeviceProperties* deviceProperties,
+void SkPaint::descriptorProc(const SkSurfaceProps* surfaceProps,
                              const SkMatrix* deviceMatrix,
                              void (*proc)(SkTypeface*, const SkDescriptor*, void*),
                              void* context, bool ignoreGamma) const {
     SkScalerContext::Rec    rec;
 
-    SkScalerContext::MakeRec(*this, deviceProperties, deviceMatrix, &rec);
-    if (ignoreGamma) {
-        rec.ignorePreBlend();
-    }
-
-    size_t          descSize = sizeof(rec);
-    int             entryCount = 1;
     SkPathEffect*   pe = this->getPathEffect();
     SkMaskFilter*   mf = this->getMaskFilter();
     SkRasterizer*   ra = this->getRasterizer();
 
-    SkWriteBuffer    peBuffer, mfBuffer, raBuffer;
-
-    if (pe) {
-        peBuffer.writeFlattenable(pe);
-        descSize += peBuffer.bytesWritten();
-        entryCount += 1;
-        rec.fMaskFormat = SkMask::kA8_Format;   // force antialiasing when we do the scan conversion
-        // seems like we could support kLCD as well at this point...
-    }
-    if (mf) {
-        mfBuffer.writeFlattenable(mf);
-        descSize += mfBuffer.bytesWritten();
-        entryCount += 1;
-        rec.fMaskFormat = SkMask::kA8_Format;   // force antialiasing with maskfilters
-        /* Pre-blend is not currently applied to filtered text.
-           The primary filter is blur, for which contrast makes no sense,
-           and for which the destination guess error is more visible.
-           Also, all existing users of blur have calibrated for linear. */
-        rec.ignorePreBlend();
-    }
-    if (ra) {
-        raBuffer.writeFlattenable(ra);
-        descSize += raBuffer.bytesWritten();
-        entryCount += 1;
-        rec.fMaskFormat = SkMask::kA8_Format;   // force antialiasing when we do the scan conversion
-    }
-
-    ///////////////////////////////////////////////////////////////////////////
-    // Now that we're done tweaking the rec, call the PostMakeRec cleanup
-    SkScalerContext::PostMakeRec(*this, &rec);
-
-    descSize += SkDescriptor::ComputeOverhead(entryCount);
+    SkWriteBuffer   peBuffer, mfBuffer, raBuffer;
+    size_t descSize = fill_out_rec(*this, &rec, surfaceProps, deviceMatrix, ignoreGamma,
+                                   pe, &peBuffer, mf, &mfBuffer, ra, &raBuffer);
 
     SkAutoDescriptor    ad(descSize);
     SkDescriptor*       desc = ad.getDesc();
 
-    desc->init();
-    desc->addEntry(kRec_SkDescriptorTag, sizeof(rec), &rec);
-
-    if (pe) {
-        add_flattenable(desc, kPathEffect_SkDescriptorTag, &peBuffer);
-    }
-    if (mf) {
-        add_flattenable(desc, kMaskFilter_SkDescriptorTag, &mfBuffer);
-    }
-    if (ra) {
-        add_flattenable(desc, kRasterizer_SkDescriptorTag, &raBuffer);
-    }
+    write_out_descriptor(desc, rec, pe, &peBuffer, mf, &mfBuffer, ra, &raBuffer, descSize);
 
     SkASSERT(descSize == desc->getLength());
-    desc->computeChecksum();
 
 #ifdef TEST_DESC
-    {
-        // Check that we completely write the bytes in desc (our key), and that
-        // there are no uninitialized bytes. If there were, then we would get
-        // false-misses (or worse, false-hits) in our fontcache.
-        //
-        // We do this buy filling 2 others, one with 0s and the other with 1s
-        // and create those, and then check that all 3 are identical.
-        SkAutoDescriptor    ad1(descSize);
-        SkAutoDescriptor    ad2(descSize);
-        SkDescriptor*       desc1 = ad1.getDesc();
-        SkDescriptor*       desc2 = ad2.getDesc();
-
-        memset(desc1, 0x00, descSize);
-        memset(desc2, 0xFF, descSize);
-
-        desc1->init();
-        desc2->init();
-        desc1->addEntry(kRec_SkDescriptorTag, sizeof(rec), &rec);
-        desc2->addEntry(kRec_SkDescriptorTag, sizeof(rec), &rec);
-
-        if (pe) {
-            add_flattenable(desc1, kPathEffect_SkDescriptorTag, &peBuffer);
-            add_flattenable(desc2, kPathEffect_SkDescriptorTag, &peBuffer);
-        }
-        if (mf) {
-            add_flattenable(desc1, kMaskFilter_SkDescriptorTag, &mfBuffer);
-            add_flattenable(desc2, kMaskFilter_SkDescriptorTag, &mfBuffer);
-        }
-        if (ra) {
-            add_flattenable(desc1, kRasterizer_SkDescriptorTag, &raBuffer);
-            add_flattenable(desc2, kRasterizer_SkDescriptorTag, &raBuffer);
-        }
-
-        SkASSERT(descSize == desc1->getLength());
-        SkASSERT(descSize == desc2->getLength());
-        desc1->computeChecksum();
-        desc2->computeChecksum();
-        SkASSERT(!memcmp(desc, desc1, descSize));
-        SkASSERT(!memcmp(desc, desc2, descSize));
-    }
+    test_desc(rec, pe, &peBuffer, mf, &mfBuffer, ra, &raBuffer, desc, descSize);
 #endif
 
     proc(fTypeface, desc, context);
 }
 
-SkGlyphCache* SkPaint::detachCache(const SkDeviceProperties* deviceProperties,
+SkGlyphCache* SkPaint::detachCache(const SkSurfaceProps* surfaceProps,
                                    const SkMatrix* deviceMatrix,
                                    bool ignoreGamma) const {
     SkGlyphCache* cache;
-    this->descriptorProc(deviceProperties, deviceMatrix, DetachDescProc, &cache, ignoreGamma);
+    this->descriptorProc(surfaceProps, deviceMatrix, DetachDescProc, &cache, ignoreGamma);
     return cache;
 }
 
@@ -1800,11 +1847,10 @@ static uint32_t pack_4(unsigned a, unsigned b, unsigned c, unsigned d) {
 #endif
 
 enum FlatFlags {
-    kHasTypeface_FlatFlag                      = 0x01,
-    kHasEffects_FlatFlag                       = 0x02,
-    kHasNonDefaultPaintOptionsAndroid_FlatFlag = 0x04,
+    kHasTypeface_FlatFlag = 0x1,
+    kHasEffects_FlatFlag  = 0x2,
 
-    kFlatFlagMask = 0x7,
+    kFlatFlagMask         = 0x3,
 };
 
 enum BitsPerField {
@@ -1836,38 +1882,7 @@ static FlatFlags unpack_paint_flags(SkPaint* paint, uint32_t packed) {
     paint->setFlags(packed >> 16);
     paint->setHinting((SkPaint::Hinting)((packed >> 14) & BPF_Mask(kHint_BPF)));
     paint->setTextAlign((SkPaint::Align)((packed >> 12) & BPF_Mask(kAlign_BPF)));
-    paint->setFilterLevel((SkPaint::FilterLevel)((packed >> 10) & BPF_Mask(kFilter_BPF)));
-    return (FlatFlags)(packed & kFlatFlagMask);
-}
-
-// V22_COMPATIBILITY_CODE
-static FlatFlags unpack_paint_flags_v22(SkPaint* paint, uint32_t packed) {
-    enum {
-        kFilterBitmap_Flag    = 0x02,
-        kHighQualityFilterBitmap_Flag = 0x4000,
-
-        kAll_Flags = kFilterBitmap_Flag | kHighQualityFilterBitmap_Flag
-    };
-
-    // previously flags:16, textAlign:8, flatFlags:8
-    // now flags:16, hinting:4, textAlign:4, flatFlags:8
-    unsigned flags = packed >> 16;
-    int filter = 0;
-    if (flags & kFilterBitmap_Flag) {
-        filter |= 1;
-    }
-    if (flags & kHighQualityFilterBitmap_Flag) {
-        filter |= 2;
-    }
-    paint->setFilterLevel((SkPaint::FilterLevel)filter);
-    flags &= ~kAll_Flags;   // remove these (now dead) bit flags
-
-    paint->setFlags(flags);
-
-    // hinting added later. 0 in this nibble means use the default.
-    uint32_t hinting = (packed >> 12) & 0xF;
-    paint->setHinting(0 == hinting ? SkPaint::kNormal_Hinting : static_cast<SkPaint::Hinting>(hinting-1));
-    paint->setTextAlign(static_cast<SkPaint::Align>((packed >> 8) & 0xF));
+    paint->setFilterQuality((SkFilterQuality)((packed >> 10) & BPF_Mask(kFilter_BPF)));
     return (FlatFlags)(packed & kFlatFlagMask);
 }
 
@@ -1908,7 +1923,7 @@ void SkPaint::flatten(SkWriteBuffer& buffer) const {
     *ptr++ = this->getColor();
 
     *ptr++ = pack_paint_flags(this->getFlags(), this->getHinting(), this->getTextAlign(),
-                              this->getFilterLevel(), flatFlags);
+                              this->getFilterQuality(), flatFlags);
     *ptr++ = pack_4(this->getStrokeCap(), this->getStrokeJoin(),
                     this->getStyle(), this->getTextEncoding());
 
@@ -1949,12 +1964,7 @@ void SkPaint::unflatten(SkReadBuffer& buffer) {
     this->setStrokeMiter(read_scalar(pod));
     this->setColor(*pod++);
 
-    unsigned flatFlags = 0;
-    if (buffer.isVersionLT(SkReadBuffer::kFilterLevelIsEnum_Version)) {
-        flatFlags = unpack_paint_flags_v22(this, *pod++);
-    } else {
-        flatFlags = unpack_paint_flags(this, *pod++);
-    }
+    unsigned flatFlags = unpack_paint_flags(this, *pod++);
 
     uint32_t tmp = *pod++;
     this->setStrokeCap(static_cast<Cap>((tmp >> 24) & 0xFF));
@@ -1990,14 +2000,6 @@ void SkPaint::unflatten(SkReadBuffer& buffer) {
         this->setRasterizer(NULL);
         this->setLooper(NULL);
         this->setImageFilter(NULL);
-    }
-
-    if (buffer.isVersionLT(SkReadBuffer::kRemoveAndroidPaintOpts_Version) &&
-            flatFlags & kHasNonDefaultPaintOptionsAndroid_FlatFlag) {
-        SkString tag;
-        buffer.readUInt();
-        buffer.readString(&tag);
-        buffer.readBool();
     }
 }
 
@@ -2036,9 +2038,9 @@ SkMaskFilter* SkPaint::setMaskFilter(SkMaskFilter* filter) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-bool SkPaint::getFillPath(const SkPath& src, SkPath* dst,
-                          const SkRect* cullRect) const {
-    SkStrokeRec rec(*this);
+bool SkPaint::getFillPath(const SkPath& src, SkPath* dst, const SkRect* cullRect,
+                          SkScalar resScale) const {
+    SkStrokeRec rec(*this, resScale);
 
     const SkPath* srcPtr = &src;
     SkPath tmpPath;
@@ -2117,7 +2119,7 @@ void SkPaint::toString(SkString* str) const {
     if (typeface) {
         SkDynamicMemoryWStream ostream;
         typeface->serialize(&ostream);
-        SkAutoTUnref<SkStreamAsset> istream(ostream.detachAsStream());
+        SkAutoTDelete<SkStreamAsset> istream(ostream.detachAsStream());
         SkFontDescriptor descriptor(istream);
 
         str->append("<dt>Font Family Name:</dt><dd>");
@@ -2126,8 +2128,6 @@ void SkPaint::toString(SkString* str) const {
         str->append(descriptor.getFullName());
         str->append("</dd><dt>Font PS Name:</dt><dd>");
         str->append(descriptor.getPostscriptName());
-        str->append("</dd><dt>Font File Name:</dt><dd>");
-        str->append(descriptor.getFontFileName());
         str->append("</dd>");
     }
 
@@ -2146,6 +2146,7 @@ void SkPaint::toString(SkString* str) const {
     SkPathEffect* pathEffect = this->getPathEffect();
     if (pathEffect) {
         str->append("<dt>PathEffect:</dt><dd>");
+        pathEffect->toString(str);
         str->append("</dd>");
     }
 
@@ -2193,6 +2194,7 @@ void SkPaint::toString(SkString* str) const {
     SkImageFilter* imageFilter = this->getImageFilter();
     if (imageFilter) {
         str->append("<dt>ImageFilter:</dt><dd>");
+        imageFilter->toString(str);
         str->append("</dd>");
     }
 
@@ -2239,8 +2241,8 @@ void SkPaint::toString(SkString* str) const {
     str->append(")</dd>");
 
     str->append("<dt>FilterLevel:</dt><dd>");
-    static const char* gFilterLevelStrings[] = { "None", "Low", "Medium", "High" };
-    str->append(gFilterLevelStrings[this->getFilterLevel()]);
+    static const char* gFilterQualityStrings[] = { "None", "Low", "Medium", "High" };
+    str->append(gFilterQualityStrings[this->getFilterQuality()]);
     str->append("</dd>");
 
     str->append("<dt>TextAlign:</dt><dd>");
@@ -2284,10 +2286,10 @@ static bool has_thick_frame(const SkPaint& paint) {
             paint.getStyle() != SkPaint::kFill_Style;
 }
 
-SkTextToPathIter::SkTextToPathIter( const char text[], size_t length,
-                                    const SkPaint& paint,
-                                    bool applyStrokeAndPathEffects)
-                                    : fPaint(paint) {
+SkTextToPathIter::SkTextToPathIter(const char text[], size_t length,
+                                   const SkPaint& paint,
+                                   bool applyStrokeAndPathEffects)
+    : fPaint(paint) {
     fGlyphCacheProc = paint.getMeasureCacheProc(true);
 
     fPaint.setLinearText(true);
@@ -2302,7 +2304,7 @@ SkTextToPathIter::SkTextToPathIter( const char text[], size_t length,
         fPaint.setTextSize(SkIntToScalar(SkPaint::kCanonicalTextSizeForPaths));
         fScale = paint.getTextSize() / SkPaint::kCanonicalTextSizeForPaths;
         if (has_thick_frame(fPaint)) {
-            fPaint.setStrokeWidth(SkScalarDiv(fPaint.getStrokeWidth(), fScale));
+            fPaint.setStrokeWidth(fPaint.getStrokeWidth() / fScale);
         }
     } else {
         fScale = SK_Scalar1;
@@ -2377,6 +2379,18 @@ bool SkTextToPathIter::next(const SkPath** path, SkScalar* xpos) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+// return true if the filter exists, and may affect alpha
+static bool affects_alpha(const SkColorFilter* cf) {
+    return cf && !(cf->getFlags() & SkColorFilter::kAlphaUnchanged_Flag);
+}
+
+// return true if the filter exists, and may affect alpha
+static bool affects_alpha(const SkImageFilter* imf) {
+    // TODO: check if we should allow imagefilters to broadcast that they don't affect alpha
+    // ala colorfilters
+    return imf != NULL;
+}
+
 bool SkPaint::nothingToDraw() const {
     if (fLooper) {
         return false;
@@ -2389,7 +2403,10 @@ bool SkPaint::nothingToDraw() const {
             case SkXfermode::kDstOut_Mode:
             case SkXfermode::kDstOver_Mode:
             case SkXfermode::kPlus_Mode:
-                return 0 == this->getAlpha();
+                if (0 == this->getAlpha()) {
+                    return !affects_alpha(fColorFilter) && !affects_alpha(fImageFilter);
+                }
+                break;
             case SkXfermode::kDst_Mode:
                 return true;
             default:

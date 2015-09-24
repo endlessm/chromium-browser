@@ -4,17 +4,18 @@
 
 #include "chrome/browser/chromeos/policy/auto_enrollment_client.h"
 
+#include <stdint.h>
+
 #include "base/bind.h"
 #include "base/guid.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/prefs/pref_registry_simple.h"
 #include "base/prefs/pref_service.h"
 #include "base/prefs/scoped_user_pref_update.h"
-#include "chrome/browser/browser_process.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/chromeos/policy/server_backed_device_state.h"
 #include "chrome/common/chrome_content_client.h"
 #include "chrome/common/pref_names.h"
@@ -44,7 +45,7 @@ const char kUMANetworkErrorCode[] =
 // Returns the power of the next power-of-2 starting at |value|.
 int NextPowerOf2(int64 value) {
   for (int i = 0; i <= AutoEnrollmentClient::kMaximumPower; ++i) {
-    if ((GG_INT64_C(1) << i) >= value)
+    if ((INT64_C(1) << i) >= value)
       return i;
   }
   // No other value can be represented in an int64.
@@ -91,7 +92,6 @@ AutoEnrollmentClient::AutoEnrollmentClient(
     PrefService* local_state,
     scoped_refptr<net::URLRequestContextGetter> system_request_context,
     const std::string& server_backed_state_key,
-    bool retrieve_device_state,
     int power_initial,
     int power_limit)
     : progress_callback_(callback),
@@ -100,7 +100,6 @@ AutoEnrollmentClient::AutoEnrollmentClient(
       device_state_available_(false),
       device_id_(base::GenerateGUID()),
       server_backed_state_key_(server_backed_state_key),
-      retrieve_device_state_(retrieve_device_state),
       current_power_(power_initial),
       power_limit_(power_limit),
       modulus_updates_received_(0),
@@ -111,10 +110,9 @@ AutoEnrollmentClient::AutoEnrollmentClient(
 
   DCHECK_LE(current_power_, power_limit_);
   DCHECK(!progress_callback_.is_null());
-  if (!server_backed_state_key_.empty()) {
-    server_backed_state_key_hash_ =
-        crypto::SHA256HashString(server_backed_state_key_);
-  }
+  CHECK(!server_backed_state_key_.empty());
+  server_backed_state_key_hash_ =
+      crypto::SHA256HashString(server_backed_state_key_);
 }
 
 AutoEnrollmentClient::~AutoEnrollmentClient() {
@@ -125,14 +123,6 @@ AutoEnrollmentClient::~AutoEnrollmentClient() {
 void AutoEnrollmentClient::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(prefs::kShouldAutoEnroll, false);
   registry->RegisterIntegerPref(prefs::kAutoEnrollmentPowerLimit, -1);
-}
-
-// static
-void AutoEnrollmentClient::CancelAutoEnrollment() {
-  PrefService* local_state = g_browser_process->local_state();
-  local_state->SetBoolean(prefs::kShouldAutoEnroll, false);
-  local_state->ClearPref(prefs::kServerBackedDeviceState);
-  local_state->CommitPendingWrite();
 }
 
 void AutoEnrollmentClient::Start() {
@@ -207,15 +197,15 @@ bool AutoEnrollmentClient::RetryStep() {
     // The bucket download check has completed already. If it came back
     // positive, then device state should be (re-)downloaded.
     if (has_server_state_) {
-      if (retrieve_device_state_ && !device_state_available_ &&
-          SendDeviceStateRequest()) {
+      if (!device_state_available_) {
+        SendDeviceStateRequest();
         return true;
       }
     }
   } else {
     // Start bucket download.
-    if (SendBucketDownloadRequest())
-      return true;
+    SendBucketDownloadRequest();
+    return true;
   }
 
   return false;
@@ -224,7 +214,7 @@ bool AutoEnrollmentClient::RetryStep() {
 void AutoEnrollmentClient::ReportProgress(AutoEnrollmentState state) {
   state_ = state;
   if (progress_callback_.is_null()) {
-    base::MessageLoopProxy::current()->DeleteSoon(FROM_HERE, this);
+    base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
   } else {
     progress_callback_.Run(state_);
   }
@@ -233,25 +223,17 @@ void AutoEnrollmentClient::ReportProgress(AutoEnrollmentState state) {
 void AutoEnrollmentClient::NextStep() {
   if (!RetryStep()) {
     // Protocol finished successfully, report result.
-    bool trigger_enrollment = false;
-    if (retrieve_device_state_) {
-      const RestoreMode restore_mode = GetRestoreMode();
-      trigger_enrollment =
-          (restore_mode == RESTORE_MODE_REENROLLMENT_REQUESTED ||
-           restore_mode == RESTORE_MODE_REENROLLMENT_ENFORCED);
-    } else {
-      trigger_enrollment = has_server_state_;
-    }
+    const RestoreMode restore_mode = GetRestoreMode();
+    bool trigger_enrollment =
+        (restore_mode == RESTORE_MODE_REENROLLMENT_REQUESTED ||
+         restore_mode == RESTORE_MODE_REENROLLMENT_ENFORCED);
 
     ReportProgress(trigger_enrollment ? AUTO_ENROLLMENT_STATE_TRIGGER_ENROLLMENT
                                       : AUTO_ENROLLMENT_STATE_NO_ENROLLMENT);
   }
 }
 
-bool AutoEnrollmentClient::SendBucketDownloadRequest() {
-  if (server_backed_state_key_hash_.empty())
-    return false;
-
+void AutoEnrollmentClient::SendBucketDownloadRequest() {
   // Only power-of-2 moduli are supported for now. These are computed by taking
   // the lower |current_power_| bits of the hash.
   uint64 remainder = 0;
@@ -259,7 +241,7 @@ bool AutoEnrollmentClient::SendBucketDownloadRequest() {
     uint64 byte = server_backed_state_key_hash_[31 - i] & 0xff;
     remainder = remainder | (byte << (8 * i));
   }
-  remainder = remainder & ((GG_UINT64_C(1) << current_power_) - 1);
+  remainder = remainder & ((UINT64_C(1) << current_power_) - 1);
 
   ReportProgress(AUTO_ENROLLMENT_STATE_PENDING);
 
@@ -271,15 +253,14 @@ bool AutoEnrollmentClient::SendBucketDownloadRequest() {
   em::DeviceAutoEnrollmentRequest* request =
       request_job_->GetRequest()->mutable_auto_enrollment_request();
   request->set_remainder(remainder);
-  request->set_modulus(GG_INT64_C(1) << current_power_);
+  request->set_modulus(INT64_C(1) << current_power_);
   request_job_->Start(
       base::Bind(&AutoEnrollmentClient::HandleRequestCompletion,
                  base::Unretained(this),
                  &AutoEnrollmentClient::OnBucketDownloadRequestCompletion));
-  return true;
 }
 
-bool AutoEnrollmentClient::SendDeviceStateRequest() {
+void AutoEnrollmentClient::SendDeviceStateRequest() {
   ReportProgress(AUTO_ENROLLMENT_STATE_PENDING);
 
   request_job_.reset(
@@ -294,7 +275,6 @@ bool AutoEnrollmentClient::SendDeviceStateRequest() {
       base::Bind(&AutoEnrollmentClient::HandleRequestCompletion,
                  base::Unretained(this),
                  &AutoEnrollmentClient::OnDeviceStateRequestCompletion));
-  return true;
 }
 
 void AutoEnrollmentClient::HandleRequestCompletion(
@@ -311,7 +291,7 @@ void AutoEnrollmentClient::HandleRequestCompletion(
 
     // Abort if CancelAndDeleteSoon has been called meanwhile.
     if (progress_callback_.is_null()) {
-      base::MessageLoopProxy::current()->DeleteSoon(FROM_HERE, this);
+      base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
     } else {
       ReportProgress(status == DM_STATUS_REQUEST_FAILED
                          ? AUTO_ENROLLMENT_STATE_CONNECTION_ERROR
@@ -343,7 +323,7 @@ bool AutoEnrollmentClient::OnBucketDownloadRequestCompletion(
 
     int64 modulus = enrollment_response.expected_modulus();
     int power = NextPowerOf2(modulus);
-    if ((GG_INT64_C(1) << power) != modulus) {
+    if ((INT64_C(1) << power) != modulus) {
       LOG(WARNING) << "Auto enrollment: the server didn't ask for a power-of-2 "
                    << "modulus. Using the closest power-of-2 instead "
                    << "(" << modulus << " vs 2^" << power << ")";

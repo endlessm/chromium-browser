@@ -31,7 +31,7 @@
 <title>WebGL2 Constants and Properties Test</title>
 <link rel="stylesheet" href="../../resources/js-test-style.css"/>
 <script src="../../resources/js-test-pre.js"></script>
-<script src="../../conformance/resources/webgl-test-utils.js"></script>
+<script src="../../resources/webgl-test-utils.js"></script>
 </head>
 <body>
 <div id="description"></div>
@@ -497,8 +497,6 @@ TEXTURE_COMPARE_FUNC : 0x884D,
 CURRENT_QUERY : 0x8865,
 QUERY_RESULT : 0x8866,
 QUERY_RESULT_AVAILABLE : 0x8867,
-BUFFER_MAPPED : 0x88BC,
-BUFFER_MAP_POINTER : 0x88BD,
 STREAM_READ : 0x88E1,
 STREAM_COPY : 0x88E2,
 STATIC_READ : 0x88E5,
@@ -638,12 +636,6 @@ COLOR_ATTACHMENT15 : 0x8CEF,
 FRAMEBUFFER_INCOMPLETE_MULTISAMPLE : 0x8D56,
 MAX_SAMPLES : 0x8D57,
 HALF_FLOAT : 0x140B,
-MAP_READ_BIT : 0x0001,
-MAP_WRITE_BIT : 0x0002,
-MAP_INVALIDATE_RANGE_BIT : 0x0004,
-MAP_INVALIDATE_BUFFER_BIT : 0x0008,
-MAP_FLUSH_EXPLICIT_BIT : 0x0010,
-MAP_UNSYNCHRONIZED_BIT : 0x0020,
 RG : 0x8227,
 RG_INTEGER : 0x8228,
 R8 : 0x8229,
@@ -670,7 +662,6 @@ RG8_SNORM : 0x8F95,
 RGB8_SNORM : 0x8F96,
 RGBA8_SNORM : 0x8F97,
 SIGNED_NORMALIZED : 0x8F9C,
-PRIMITIVE_RESTART_FIXED_INDEX : 0x8D69,
 COPY_READ_BUFFER : 0x8F36,
 COPY_WRITE_BUFFER : 0x8F37,
 COPY_READ_BUFFER_BINDING : 0x8F36,
@@ -724,10 +715,6 @@ ANY_SAMPLES_PASSED : 0x8C2F,
 ANY_SAMPLES_PASSED_CONSERVATIVE : 0x8D6A,
 SAMPLER_BINDING : 0x8919,
 RGB10_A2UI : 0x906F,
-TEXTURE_SWIZZLE_R : 0x8E42,
-TEXTURE_SWIZZLE_G : 0x8E43,
-TEXTURE_SWIZZLE_B : 0x8E44,
-TEXTURE_SWIZZLE_A : 0x8E45,
 GREEN : 0x1904,
 BLUE : 0x1905,
 INT_2_10_10_10_REV : 0x8D9F,
@@ -748,7 +735,10 @@ COMPRESSED_SRGB8_ALPHA8_ETC2_EAC : 0x9279,
 TEXTURE_IMMUTABLE_FORMAT : 0x912F,
 MAX_ELEMENT_INDEX : 0x8D6B,
 NUM_SAMPLE_COUNTS : 0x9380,
-TEXTURE_IMMUTABLE_LEVELS : 0x82DF
+TEXTURE_IMMUTABLE_LEVELS : 0x82DF,
+
+/* WebGL-specific enums */
+MAX_CLIENT_WAIT_TIMEOUT_WEBGL: 0x9247
 };
 
 // Other non-function properties on the WebGL object
@@ -766,6 +756,9 @@ var ignoredProperties = [
 
 // Constants removed from the WebGL spec compared to ES 3.0
 var removedConstants = {
+BUFFER_ACCESS_FLAGS                   : 0x911F,
+BUFFER_MAP_LENGTH                     : 0x9120,
+BUFFER_MAP_OFFSET                     : 0x9121,
 NUM_COMPRESSED_TEXTURE_FORMATS        : 0x86A2,
 FIXED                                 : 0x140C,
 ACTIVE_UNIFORM_MAX_LENGTH             : 0x8B87,
@@ -775,6 +768,12 @@ EXTENSIONS                            : 0x1F03,
 UNIFORM_NAME_LENGTH                   : 0x8A39,
 UNIFORM_BLOCK_NAME_LENGTH             : 0x8A41,
 INFO_LOG_LENGTH                       : 0x8B84,
+MAP_READ_BIT                          : 0x0001,
+MAP_WRITE_BIT                         : 0x0002,
+MAP_INVALIDATE_RANGE_BIT              : 0x0004,
+MAP_INVALIDATE_BUFFER_BIT             : 0x0008,
+MAP_FLUSH_EXPLICIT_BIT                : 0x0010,
+MAP_UNSYNCHRONIZED_BIT                : 0x0020,
 SHADER_SOURCE_LENGTH                  : 0x8B88,
 SHADER_COMPILER                       : 0x8DFA,
 SHADER_BINARY_FORMATS                 : 0x8DF8,
@@ -785,6 +784,11 @@ PROGRAM_BINARY_RETRIEVABLE_HINT       : 0x8257,
 PROGRAM_BINARY_LENGTH                 : 0x8741,
 PROGRAM_BINARY_FORMATS                : 0x87FE,
 NUM_PROGRAM_BINARY_FORMATS            : 0x87FF,
+TEXTURE_SWIZZLE_A                     : 0x8E45,
+TEXTURE_SWIZZLE_B                     : 0x8E44,
+TEXTURE_SWIZZLE_G                     : 0x8E43,
+TEXTURE_SWIZZLE_R                     : 0x8E42,
+PRIMITIVE_RESTART_FIXED_INDEX         : 0x8D69,
 };
 
 function assertProperty(v, p) {
@@ -842,7 +846,7 @@ for (var i in gl) {
   } else if (otherProperties[i] !== undefined &&
              (otherProperties[i] == "implementation-dependent" || typeof gl[i] == otherProperties[i])) {
     // OK; known property of known type
-  } else if (typeof gl[i] != "function") {
+  } else if (typeof gl[i] != "function" && removedConstants[i] === undefined) {
     if (!extended) {
       extended = true;
       testFailed("Also found the following extra properties:");

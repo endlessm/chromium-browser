@@ -9,6 +9,7 @@
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/signin/account_tracker_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/chrome_pages.h"
@@ -18,6 +19,7 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_frame_host.h"
@@ -186,9 +188,8 @@ IN_PROC_BROWSER_TEST_F(OptionsUIBrowserTest, LoadOptionsByURL) {
   VerifyNavbar();
 }
 
-// Flaky on win_rel when the profile is deleted crbug.com/103355
-// Also related to crbug.com/104851
-#if defined(OS_WIN)
+// Flaky on Linux, Mac and Win: http://crbug.com/469113
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 #define MAYBE_VerifyManagedSignout DISABLED_VerifyManagedSignout
 #else
 #define MAYBE_VerifyManagedSignout VerifyManagedSignout
@@ -230,10 +231,6 @@ IN_PROC_BROWSER_TEST_F(OptionsUIBrowserTest, MAYBE_VerifyManagedSignout) {
   EXPECT_TRUE(profile_info_cache.GetIndexOfProfileWithPath(profile_dir) !=
               std::string::npos);
 
-  content::WindowedNotificationObserver wait_for_profile_deletion(
-      chrome::NOTIFICATION_PROFILE_CACHED_INFO_CHANGED,
-      content::NotificationService::AllSources());
-
   // TODO(kaliamoorthi): Get the macos problem fixed and remove this code.
   // Deleting the Profile also destroys all browser windows of that Profile.
   // Wait for the current browser to close before resuming, otherwise
@@ -246,8 +243,6 @@ IN_PROC_BROWSER_TEST_F(OptionsUIBrowserTest, MAYBE_VerifyManagedSignout) {
       browser()->tab_strip_model()->GetActiveWebContents(),
       "$('disconnect-managed-profile-ok').click();"));
 
-  wait_for_profile_deletion.Wait();
-
   EXPECT_TRUE(profile_info_cache.GetIndexOfProfileWithPath(profile_dir) ==
               std::string::npos);
 
@@ -255,9 +250,11 @@ IN_PROC_BROWSER_TEST_F(OptionsUIBrowserTest, MAYBE_VerifyManagedSignout) {
 }
 
 IN_PROC_BROWSER_TEST_F(OptionsUIBrowserTest, VerifyUnmanagedSignout) {
+  const std::string user = "test@example.com";
+  AccountTrackerServiceFactory::GetForProfile(browser()->profile())
+      ->SeedAccountInfo("12345", user);
   SigninManager* signin =
       SigninManagerFactory::GetForProfile(browser()->profile());
-  const std::string user = "test@example.com";
   signin->OnExternalSigninCompleted(user);
 
   NavigateToSettingsFrame();
@@ -284,7 +281,7 @@ IN_PROC_BROWSER_TEST_F(OptionsUIBrowserTest, VerifyUnmanagedSignout) {
 
   sign_out_waiter.Wait();
 
-  EXPECT_TRUE(browser()->profile()->GetProfileName() != user);
+  EXPECT_TRUE(browser()->profile()->GetProfileUserName() != user);
   EXPECT_FALSE(signin->IsAuthenticated());
 }
 

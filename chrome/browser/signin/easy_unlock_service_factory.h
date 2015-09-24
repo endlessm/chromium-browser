@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_SIGNIN_EASY_UNLOCK_SERVICE_FACTORY_H_
 #define CHROME_BROWSER_SIGNIN_EASY_UNLOCK_SERVICE_FACTORY_H_
 
+#include "base/files/file_path.h"
 #include "base/macros.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 
@@ -21,7 +22,12 @@ class EasyUnlockServiceFactory : public BrowserContextKeyedServiceFactory {
  public:
   static EasyUnlockServiceFactory* GetInstance();
 
-  static EasyUnlockService* GetForProfile(Profile* profile);
+  static EasyUnlockService* GetForBrowserContext(
+      content::BrowserContext* browser_context);
+
+  void set_app_path_for_testing(const base::FilePath& app_path) {
+    app_path_for_testing_ = app_path;
+  }
 
  private:
   friend struct DefaultSingletonTraits<EasyUnlockServiceFactory>;
@@ -36,6 +42,8 @@ class EasyUnlockServiceFactory : public BrowserContextKeyedServiceFactory {
       content::BrowserContext* context) const override;
   bool ServiceIsCreatedWithBrowserContext() const override;
   bool ServiceIsNULLWhileTesting() const override;
+
+  base::FilePath app_path_for_testing_;
 
   DISALLOW_COPY_AND_ASSIGN(EasyUnlockServiceFactory);
 };

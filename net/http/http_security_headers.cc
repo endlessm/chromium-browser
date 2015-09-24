@@ -14,7 +14,7 @@ namespace net {
 
 namespace {
 
-COMPILE_ASSERT(kMaxHSTSAgeSecs <= kuint32max, kMaxHSTSAgeSecsTooLarge);
+static_assert(kMaxHSTSAgeSecs <= kuint32max, "kMaxHSTSAgeSecs too large");
 
 // MaxAgeToInt converts a string representation of a "whole number" of
 // seconds into a uint32. The string may contain an arbitrarily large number,
@@ -118,12 +118,15 @@ StringPair Split(const std::string& source, char delimiter) {
 bool ParseAndAppendPin(const std::string& value,
                        HashValueTag tag,
                        HashValueVector* hashes) {
-  std::string unquoted = HttpUtil::Unquote(value);
-  std::string decoded;
+  // Pins are always quoted.
+  if (value.empty() || !HttpUtil::IsQuote(value[0]))
+    return false;
 
+  std::string unquoted = HttpUtil::Unquote(value);
   if (unquoted.empty())
       return false;
 
+  std::string decoded;
   if (!base::Base64Decode(unquoted, &decoded))
     return false;
 
@@ -194,13 +197,13 @@ bool ParseHSTSHeader(const std::string& value,
     switch (state) {
       case START:
       case DIRECTIVE_END:
-        if (IsAsciiWhitespace(*tokenizer.token_begin()))
+        if (base::IsAsciiWhitespace(*tokenizer.token_begin()))
           continue;
-        if (LowerCaseEqualsASCII(tokenizer.token(), "max-age")) {
+        if (base::LowerCaseEqualsASCII(tokenizer.token(), "max-age")) {
           state = AFTER_MAX_AGE_LABEL;
           max_age_observed++;
-        } else if (LowerCaseEqualsASCII(tokenizer.token(),
-                                        "includesubdomains")) {
+        } else if (base::LowerCaseEqualsASCII(tokenizer.token(),
+                                              "includesubdomains")) {
           state = AFTER_INCLUDE_SUBDOMAINS;
           include_subdomains_observed++;
           include_subdomains_candidate = true;
@@ -210,7 +213,7 @@ bool ParseHSTSHeader(const std::string& value,
         break;
 
       case AFTER_MAX_AGE_LABEL:
-        if (IsAsciiWhitespace(*tokenizer.token_begin()))
+        if (base::IsAsciiWhitespace(*tokenizer.token_begin()))
           continue;
         if (*tokenizer.token_begin() != '=')
           return false;
@@ -219,7 +222,7 @@ bool ParseHSTSHeader(const std::string& value,
         break;
 
       case AFTER_MAX_AGE_EQUALS:
-        if (IsAsciiWhitespace(*tokenizer.token_begin()))
+        if (base::IsAsciiWhitespace(*tokenizer.token_begin()))
           continue;
         unquoted = HttpUtil::Unquote(tokenizer.token());
         if (!MaxAgeToInt(unquoted.begin(), unquoted.end(), &max_age_candidate))
@@ -229,7 +232,7 @@ bool ParseHSTSHeader(const std::string& value,
 
       case AFTER_MAX_AGE:
       case AFTER_INCLUDE_SUBDOMAINS:
-        if (IsAsciiWhitespace(*tokenizer.token_begin()))
+        if (base::IsAsciiWhitespace(*tokenizer.token_begin()))
           continue;
         else if (*tokenizer.token_begin() == ';')
           state = DIRECTIVE_END;
@@ -293,20 +296,20 @@ bool ParseHPKPHeader(const std::string& value,
     equals.first = Strip(equals.first);
     equals.second = Strip(equals.second);
 
-    if (LowerCaseEqualsASCII(equals.first, "max-age")) {
+    if (base::LowerCaseEqualsASCII(equals.first, "max-age")) {
       if (equals.second.empty() ||
           !MaxAgeToInt(equals.second.begin(), equals.second.end(),
                        &max_age_candidate)) {
         return false;
       }
       parsed_max_age = true;
-    } else if (LowerCaseEqualsASCII(equals.first, "pin-sha1")) {
+    } else if (base::LowerCaseEqualsASCII(equals.first, "pin-sha1")) {
       if (!ParseAndAppendPin(equals.second, HASH_VALUE_SHA1, &pins))
         return false;
-    } else if (LowerCaseEqualsASCII(equals.first, "pin-sha256")) {
+    } else if (base::LowerCaseEqualsASCII(equals.first, "pin-sha256")) {
       if (!ParseAndAppendPin(equals.second, HASH_VALUE_SHA256, &pins))
         return false;
-    } else if (LowerCaseEqualsASCII(equals.first, "includesubdomains")) {
+    } else if (base::LowerCaseEqualsASCII(equals.first, "includesubdomains")) {
       include_subdomains_candidate = true;
     } else {
       // Silently ignore unknown directives for forward compatibility.
@@ -323,21 +326,7 @@ bool ParseHPKPHeader(const std::string& value,
 
   *max_age = base::TimeDelta::FromSeconds(max_age_candidate);
   *include_subdomains = include_subdomains_candidate;
-  for (HashValueVector::const_iterator i = pins.begin();
-       i != pins.end(); ++i) {
-    bool found = false;
-
-    for (HashValueVector::const_iterator j = hashes->begin();
-         j != hashes->end(); ++j) {
-      if (j->Equals(*i)) {
-        found = true;
-        break;
-      }
-    }
-
-    if (!found)
-      hashes->push_back(*i);
-  }
+  hashes->swap(pins);
 
   return true;
 }

@@ -39,37 +39,38 @@ class WebRTCDTMFSenderHandler;
 class WebRTCPeerConnectionHandler;
 
 class RTCDTMFSender final
-    : public RefCountedGarbageCollectedWillBeGarbageCollectedFinalized<RTCDTMFSender>
-    , public EventTargetWithInlineData
+    : public RefCountedGarbageCollectedEventTargetWithInlineData<RTCDTMFSender>
     , public WebRTCDTMFSenderHandlerClient
     , public ActiveDOMObject {
-    DEFINE_EVENT_TARGET_REFCOUNTING_WILL_BE_REMOVED(RefCountedGarbageCollectedWillBeGarbageCollectedFinalized<RTCDTMFSender>);
-    DEFINE_WRAPPERTYPEINFO();
+    REFCOUNTED_GARBAGE_COLLECTED_EVENT_TARGET(RTCDTMFSender);
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(RTCDTMFSender);
+    DEFINE_WRAPPERTYPEINFO();
 public:
     static RTCDTMFSender* create(ExecutionContext*, WebRTCPeerConnectionHandler*, MediaStreamTrack*, ExceptionState&);
-    virtual ~RTCDTMFSender();
+    ~RTCDTMFSender() override;
 
     bool canInsertDTMF() const;
     MediaStreamTrack* track() const;
     String toneBuffer() const;
-    long duration() const { return m_duration; }
-    long interToneGap() const { return m_interToneGap; }
+    int duration() const { return m_duration; }
+    int interToneGap() const { return m_interToneGap; }
 
     void insertDTMF(const String& tones, ExceptionState&);
-    void insertDTMF(const String& tones, long duration, ExceptionState&);
-    void insertDTMF(const String& tones, long duration, long interToneGap, ExceptionState&);
+    void insertDTMF(const String& tones, int duration, ExceptionState&);
+    void insertDTMF(const String& tones, int duration, int interToneGap, ExceptionState&);
 
     DEFINE_ATTRIBUTE_EVENT_LISTENER(tonechange);
 
     // EventTarget
-    virtual const AtomicString& interfaceName() const override;
-    virtual ExecutionContext* executionContext() const override;
+    const AtomicString& interfaceName() const override;
+    ExecutionContext* executionContext() const override;
 
     // ActiveDOMObject
-    virtual void stop() override;
+    void stop() override;
 
-    virtual void trace(Visitor*) override;
+    // Oilpan: need to eagerly finalize m_handler
+    EAGERLY_FINALIZE();
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     RTCDTMFSender(ExecutionContext*, MediaStreamTrack*, PassOwnPtr<WebRTCDTMFSenderHandler>);
@@ -78,18 +79,18 @@ private:
     void scheduledEventTimerFired(Timer<RTCDTMFSender>*);
 
     // WebRTCDTMFSenderHandlerClient
-    virtual void didPlayTone(const WebString&) override;
+    void didPlayTone(const WebString&) override;
 
     Member<MediaStreamTrack> m_track;
-    long m_duration;
-    long m_interToneGap;
+    int m_duration;
+    int m_interToneGap;
 
     OwnPtr<WebRTCDTMFSenderHandler> m_handler;
 
     bool m_stopped;
 
     Timer<RTCDTMFSender> m_scheduledEventTimer;
-    WillBeHeapVector<RefPtrWillBeMember<Event> > m_scheduledEvents;
+    WillBeHeapVector<RefPtrWillBeMember<Event>> m_scheduledEvents;
 };
 
 } // namespace blink

@@ -34,7 +34,6 @@
 namespace blink {
 
 class DatabaseContext;
-class TaskSynchronizer;
 class DatabaseThread;
 class ExecutionContext;
 class SecurityOrigin;
@@ -42,17 +41,18 @@ class SecurityOrigin;
 class DatabaseContext final
     : public GarbageCollectedFinalized<DatabaseContext>
     , public ActiveDOMObject {
+    WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(DatabaseContext);
 public:
     friend class DatabaseManager;
 
     static DatabaseContext* create(ExecutionContext*);
 
-    virtual ~DatabaseContext();
-    void trace(Visitor*);
+    ~DatabaseContext() override;
+    DECLARE_VIRTUAL_TRACE();
 
     // For life-cycle management (inherited from ActiveDOMObject):
-    virtual void contextDestroyed() override;
-    virtual void stop() override;
+    void contextDestroyed() override;
+    void stop() override;
 
     DatabaseContext* backend();
     DatabaseThread* databaseThread();

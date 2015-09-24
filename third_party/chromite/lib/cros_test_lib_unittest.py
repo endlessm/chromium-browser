@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,27 +6,44 @@
 
 from __future__ import print_function
 
+import mock
 import os
 import sys
 import time
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                '..', '..'))
-
+from chromite.lib import bootstrap_lib
 from chromite.lib import cros_test_lib
+from chromite.lib import cros_build_lib
 from chromite.lib import cros_build_lib_unittest
+from chromite.lib import osutils
 from chromite.lib import partial_mock
 from chromite.lib import timeout_util
+from chromite.lib import workspace_lib
 
-# TODO(build): Finish test wrapper (http://crosbug.com/37517).
-# Until then, this has to be after the chromite imports.
-import mock
 
 # pylint: disable=W0212,W0233
 
 # Convenience alias
 Dir = cros_test_lib.Directory
+
+
+class CrosTestCaseTest(cros_test_lib.TestCase):
+  """Test the cros_test_lib.TestCase."""
+
+  def testAssertStartsWith(self):
+    s = "abcdef"
+    prefix = "abc"
+    self.assertStartsWith(s, prefix)
+    prefix = "def"
+    self.assertRaises(AssertionError, self.assertStartsWith, s, prefix)
+
+  def testAssertEndsWith(self):
+    s = "abcdef"
+    suffix = "abc"
+    self.assertRaises(AssertionError, self.assertEndsWith, s, suffix)
+    suffix = "def"
+    self.assertEndsWith(s, suffix)
 
 
 class TruthTableTest(cros_test_lib.TestCase):
@@ -160,7 +176,7 @@ class MockTestCaseTest(cros_test_lib.TestCase):
     TO_BE_MOCKED3 = 20
 
   def GetPatcher(self, attr, val):
-    return mock.patch('__main__.MockTestCaseTest.Mockable.%s' % attr,
+    return mock.patch('%s.MockTestCaseTest.Mockable.%s' % (__name__, attr),
                       new=val)
 
   def testPatchRemovalError(self):
@@ -204,5 +220,141 @@ class TestCaseTest(unittest.TestCase):
     self.assertRaises(timeout_util.TimeoutError, test.testSleeping)
 
 
-if __name__ == '__main__':
-  cros_test_lib.main()
+class OutputTestCaseTest(cros_test_lib.OutputTestCase,
+                         cros_test_lib.TempDirTestCase):
+  """Tests OutputTestCase functionality."""
+
+  def testStdoutAndStderr(self):
+    """Check capturing stdout and stderr."""
+    with self.OutputCapturer():
+      print('foo')
+      print('bar', file=sys.stderr)
+    self.AssertOutputContainsLine('foo')
+    self.AssertOutputContainsLine('bar', check_stdout=False, check_stderr=True)
+
+  def testStdoutReadDuringCapture(self):
+    """Check reading stdout mid-capture."""
+    with self.OutputCapturer():
+      print('foo')
+      self.AssertOutputContainsLine('foo')
+      print('bar')
+      self.AssertOutputContainsLine('bar')
+    self.AssertOutputContainsLine('foo')
+    self.AssertOutputContainsLine('bar')
+
+  def testClearCaptured(self):
+    """Check writing data, clearing it, then writing more data."""
+    with self.OutputCapturer() as cap:
+      print('foo')
+      self.AssertOutputContainsLine('foo')
+      cap.ClearCaptured()
+      self.AssertOutputContainsLine('foo', invert=True)
+      print('bar')
+    self.AssertOutputContainsLine('bar')
+
+  def testRunCommandCapture(self):
+    """Check capturing RunCommand() subprocess output."""
+    with self.OutputCapturer():
+      cros_build_lib.RunCommand(['sh', '-c', 'echo foo; echo bar >&2'],
+                                mute_output=False)
+    self.AssertOutputContainsLine('foo')
+    self.AssertOutputContainsLine('bar', check_stdout=False, check_stderr=True)
+
+  def testCapturingStdoutAndStderrToFile(self):
+    """Check that OutputCapturer captures to a named file."""
+    stdout_path = os.path.join(self.tempdir, 'stdout')
+    stderr_path = os.path.join(self.tempdir, 'stderr')
+    with self.OutputCapturer(stdout_path=stdout_path, stderr_path=stderr_path):
+      print('foo')
+      print('bar', file=sys.stderr)
+
+    # Check that output can be read by OutputCapturer.
+    self.AssertOutputContainsLine('foo')
+    self.AssertOutputContainsLine('bar', check_stdout=False, check_stderr=True)
+    # Verify that output is actually written to the correct files.
+    self.assertEqual('foo\n', osutils.ReadFile(stdout_path))
+    self.assertEqual('bar\n', osutils.ReadFile(stderr_path))
+
+
+class WorkspaceTestCaseTest(cros_test_lib.WorkspaceTestCase):
+  """Verification for WorkspaceTestCase."""
+
+  def testCreateWorkspace(self):
+    """Tests CreateWorkspace()."""
+    self.CreateWorkspace()
+    self.assertExists(self.workspace_path)
+    self.assertEqual(self.workspace_path, workspace_lib.WorkspacePath())
+
+  def testCreateWorkspaceSdk(self):
+    """Tests CreateWorkspace() with an SDK version."""
+    self.CreateWorkspace(sdk_version='1.2.3')
+    self.assertEqual('1.2.3',
+                     workspace_lib.GetActiveSdkVersion(self.workspace_path))
+
+  def testCreateBootstrap(self):
+    """Tests CreateBootstrap()."""
+    self.CreateBootstrap()
+    self.assertExists(self.bootstrap_path)
+    self.assertEqual(self.bootstrap_path, bootstrap_lib.FindBootstrapPath())
+
+  def testCreateBootstrapSdk(self):
+    """Tests CreateBootstrap() with an SDK version."""
+    self.CreateBootstrap(sdk_version='1.2.3')
+    self.assertExists(
+        bootstrap_lib.ComputeSdkPath(self.bootstrap_path, '1.2.3'))
+
+  def testCreateBrick(self):
+    """Tests CreateBrick()."""
+    self.CreateWorkspace()
+
+    self.CreateBrick(name='bar')
+    brick = self.CreateBrick(name='foo', main_package='category/bar',
+                             dependencies=['//bar'])
+    self.assertEqual(os.path.join(self.workspace_path, 'foo'), brick.brick_dir)
+    self.assertEqual('foo', brick.FriendlyName())
+    self.assertEqual(['category/bar'], brick.MainPackages())
+    self.assertEqual(['//bar'], [b.brick_locator for b in brick.Dependencies()])
+
+  def testCreateBlueprint(self):
+    """Tests CreateBlueprint()."""
+    brick_path = '//foo_brick'
+    bsp_path = '//foo_bsp'
+    blueprint_path = 'foo.json'
+
+    self.CreateWorkspace()
+    self.CreateBrick(brick_path)
+    self.CreateBrick(bsp_path)
+
+    blueprint = self.CreateBlueprint(name=blueprint_path, bsp=bsp_path,
+                                     bricks=[brick_path])
+    self.assertExists(os.path.join(self.workspace_path, blueprint_path))
+    self.assertEqual(bsp_path, blueprint.GetBSP())
+    self.assertEqual([brick_path], blueprint.GetBricks())
+
+  def testAssertBlueprintExists(self):
+    """Tests AssertBlueprintExists()."""
+    brick_path = '//foo_brick'
+    bsp_path = '//foo_bsp'
+    blueprint_path = 'foo.json'
+
+    self.CreateWorkspace()
+    self.CreateBrick(brick_path)
+    self.CreateBrick(bsp_path)
+    self.CreateBlueprint(name=blueprint_path, bsp=bsp_path, bricks=[brick_path])
+
+    # Test success conditions.
+    self.AssertBlueprintExists(blueprint_path)
+    self.AssertBlueprintExists(blueprint_path, bsp=bsp_path)
+    self.AssertBlueprintExists(blueprint_path, bricks=[brick_path])
+    self.AssertBlueprintExists(blueprint_path, bsp=bsp_path,
+                               bricks=[brick_path])
+
+    # Test failure conditions.
+    def TestFailure(blueprint_path, bsp=None, bricks=None):
+      with self.assertRaises(Exception):
+        self.AssertBlueprintExists(blueprint_path, bsp=bsp, bricks=bricks)
+
+    TestFailure('//no/blueprint')
+    TestFailure(blueprint_path, bsp='//no/bsp')
+    TestFailure(blueprint_path, bricks=['//no/brick'])
+    TestFailure(blueprint_path, bricks=[brick_path, '//no/brick'])

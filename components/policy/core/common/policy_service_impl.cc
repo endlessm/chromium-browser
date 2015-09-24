@@ -7,8 +7,10 @@
 #include <algorithm>
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "components/policy/core/common/policy_bundle.h"
 #include "components/policy/core/common/policy_map.h"
@@ -88,6 +90,7 @@ PolicyServiceImpl::PolicyServiceImpl(const Providers& providers)
 }
 
 PolicyServiceImpl::~PolicyServiceImpl() {
+  DCHECK(thread_checker_.CalledOnValidThread());
   for (Iterator it = providers_.begin(); it != providers_.end(); ++it)
     (*it)->RemoveObserver(this);
   STLDeleteValues(&observers_);
@@ -95,6 +98,7 @@ PolicyServiceImpl::~PolicyServiceImpl() {
 
 void PolicyServiceImpl::AddObserver(PolicyDomain domain,
                                     PolicyService::Observer* observer) {
+  DCHECK(thread_checker_.CalledOnValidThread());
   Observers*& list = observers_[domain];
   if (!list)
     list = new Observers();
@@ -103,6 +107,7 @@ void PolicyServiceImpl::AddObserver(PolicyDomain domain,
 
 void PolicyServiceImpl::RemoveObserver(PolicyDomain domain,
                                        PolicyService::Observer* observer) {
+  DCHECK(thread_checker_.CalledOnValidThread());
   ObserverMap::iterator it = observers_.find(domain);
   if (it == observers_.end()) {
     NOTREACHED();
@@ -117,15 +122,19 @@ void PolicyServiceImpl::RemoveObserver(PolicyDomain domain,
 
 const PolicyMap& PolicyServiceImpl::GetPolicies(
     const PolicyNamespace& ns) const {
+  DCHECK(thread_checker_.CalledOnValidThread());
   return policy_bundle_.Get(ns);
 }
 
 bool PolicyServiceImpl::IsInitializationComplete(PolicyDomain domain) const {
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(domain >= 0 && domain < POLICY_DOMAIN_SIZE);
   return initialization_complete_[domain];
 }
 
 void PolicyServiceImpl::RefreshPolicies(const base::Closure& callback) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
   if (!callback.is_null())
     refresh_callbacks_.push_back(callback);
 
@@ -133,10 +142,9 @@ void PolicyServiceImpl::RefreshPolicies(const base::Closure& callback) {
     // Refresh is immediately complete if there are no providers. See the note
     // on OnUpdatePolicy() about why this is a posted task.
     update_task_ptr_factory_.InvalidateWeakPtrs();
-    base::MessageLoop::current()->PostTask(
-        FROM_HERE,
-        base::Bind(&PolicyServiceImpl::MergeAndTriggerUpdates,
-                   update_task_ptr_factory_.GetWeakPtr()));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(&PolicyServiceImpl::MergeAndTriggerUpdates,
+                              update_task_ptr_factory_.GetWeakPtr()));
   } else {
     // Some providers might invoke OnUpdatePolicy synchronously while handling
     // RefreshPolicies. Mark all as pending before refreshing.
@@ -160,16 +168,16 @@ void PolicyServiceImpl::OnUpdatePolicy(ConfigurationPolicyProvider* provider) {
   // MergeAndTriggerUpdates. Also, cancel a pending update if there is any,
   // since both will produce the same PolicyBundle.
   update_task_ptr_factory_.InvalidateWeakPtrs();
-  base::MessageLoop::current()->PostTask(
-      FROM_HERE,
-      base::Bind(&PolicyServiceImpl::MergeAndTriggerUpdates,
-                 update_task_ptr_factory_.GetWeakPtr()));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&PolicyServiceImpl::MergeAndTriggerUpdates,
+                            update_task_ptr_factory_.GetWeakPtr()));
 }
 
 void PolicyServiceImpl::NotifyNamespaceUpdated(
     const PolicyNamespace& ns,
     const PolicyMap& previous,
     const PolicyMap& current) {
+  DCHECK(thread_checker_.CalledOnValidThread());
   ObserverMap::iterator iterator = observers_.find(ns.domain);
   if (iterator != observers_.end()) {
     FOR_EACH_OBSERVER(PolicyService::Observer,
@@ -231,6 +239,8 @@ void PolicyServiceImpl::MergeAndTriggerUpdates() {
 }
 
 void PolicyServiceImpl::CheckInitializationComplete() {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
   // Check if all the providers just became initialized for each domain; if so,
   // notify that domain's observers.
   for (int domain = 0; domain < POLICY_DOMAIN_SIZE; ++domain) {

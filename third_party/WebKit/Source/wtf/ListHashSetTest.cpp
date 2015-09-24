@@ -32,6 +32,8 @@
 #include "wtf/RefPtr.h"
 #include <gtest/gtest.h>
 
+namespace WTF {
+
 namespace {
 
 template<typename Set>
@@ -65,13 +67,13 @@ void removeFirstHelper()
 
 TEST(ListHashSetTest, RemoveFirst)
 {
-    removeFirstHelper<ListHashSet<int> >();
-    removeFirstHelper<ListHashSet<int, 1> >();
+    removeFirstHelper<ListHashSet<int>>();
+    removeFirstHelper<ListHashSet<int, 1>>();
 }
 
 TEST(LinkedHashSetTest, RemoveFirst)
 {
-    removeFirstHelper<LinkedHashSet<int> >();
+    removeFirstHelper<LinkedHashSet<int>>();
 }
 
 template<typename Set>
@@ -99,13 +101,13 @@ void appendOrMoveToLastNewItems()
 
 TEST(ListHashSetTest, AppendOrMoveToLastNewItems)
 {
-    appendOrMoveToLastNewItems<ListHashSet<int> >();
-    appendOrMoveToLastNewItems<ListHashSet<int, 1> >();
+    appendOrMoveToLastNewItems<ListHashSet<int>>();
+    appendOrMoveToLastNewItems<ListHashSet<int, 1>>();
 }
 
 TEST(LinkedHashSetTest, AppendOrMoveToLastNewItems)
 {
-    appendOrMoveToLastNewItems<LinkedHashSet<int> >();
+    appendOrMoveToLastNewItems<LinkedHashSet<int>>();
 }
 
 template<typename Set>
@@ -150,13 +152,13 @@ void appendOrMoveToLastWithDuplicates()
 
 TEST(ListHashSetTest, AppendOrMoveToLastWithDuplicates)
 {
-    appendOrMoveToLastWithDuplicates<ListHashSet<int> >();
-    appendOrMoveToLastWithDuplicates<ListHashSet<int, 1> >();
+    appendOrMoveToLastWithDuplicates<ListHashSet<int>>();
+    appendOrMoveToLastWithDuplicates<ListHashSet<int, 1>>();
 }
 
 TEST(LinkedHashSetTest, AppendOrMoveToLastWithDuplicates)
 {
-    appendOrMoveToLastWithDuplicates<LinkedHashSet<int> >();
+    appendOrMoveToLastWithDuplicates<LinkedHashSet<int>>();
 }
 
 template<typename Set>
@@ -184,13 +186,13 @@ void prependOrMoveToFirstNewItems()
 
 TEST(ListHashSetTest, PrependOrMoveToFirstNewItems)
 {
-    prependOrMoveToFirstNewItems<ListHashSet<int> >();
-    prependOrMoveToFirstNewItems<ListHashSet<int, 1> >();
+    prependOrMoveToFirstNewItems<ListHashSet<int>>();
+    prependOrMoveToFirstNewItems<ListHashSet<int, 1>>();
 }
 
 TEST(LinkedHashSetTest, PrependOrMoveToFirstNewItems)
 {
-    prependOrMoveToFirstNewItems<LinkedHashSet<int> >();
+    prependOrMoveToFirstNewItems<LinkedHashSet<int>>();
 }
 
 template<typename Set>
@@ -235,16 +237,16 @@ void prependOrMoveToLastWithDuplicates()
 
 TEST(ListHashSetTest, PrependOrMoveToLastWithDuplicates)
 {
-    prependOrMoveToLastWithDuplicates<ListHashSet<int> >();
-    prependOrMoveToLastWithDuplicates<ListHashSet<int, 1> >();
+    prependOrMoveToLastWithDuplicates<ListHashSet<int>>();
+    prependOrMoveToLastWithDuplicates<ListHashSet<int, 1>>();
 }
 
 TEST(LinkedHashSetTest, PrependOrMoveToLastWithDuplicates)
 {
-    prependOrMoveToLastWithDuplicates<LinkedHashSet<int> >();
+    prependOrMoveToLastWithDuplicates<LinkedHashSet<int>>();
 }
 
-class DummyRefCounted: public WTF::RefCounted<DummyRefCounted> {
+class DummyRefCounted : public RefCounted<DummyRefCounted> {
 public:
     DummyRefCounted(bool& isDeleted) : m_isDeleted(isDeleted) { m_isDeleted = false; }
     ~DummyRefCounted() { m_isDeleted = true; }
@@ -295,13 +297,13 @@ void withRefPtr()
 
 TEST(ListHashSetTest, WithRefPtr)
 {
-    withRefPtr<ListHashSet<RefPtr<DummyRefCounted> > >();
-    withRefPtr<ListHashSet<RefPtr<DummyRefCounted>, 1> >();
+    withRefPtr<ListHashSet<RefPtr<DummyRefCounted>>>();
+    withRefPtr<ListHashSet<RefPtr<DummyRefCounted>, 1>>();
 }
 
 TEST(LinkedHashSetTest, WithRefPtr)
 {
-    withRefPtr<LinkedHashSet<RefPtr<DummyRefCounted> > >();
+    withRefPtr<LinkedHashSet<RefPtr<DummyRefCounted>>>();
 }
 
 template<typename Set, typename SetRef, typename Iterator>
@@ -386,13 +388,13 @@ void insertBeforeHelper(bool canModifyWhileIterating)
 
 TEST(ListHashSetTest, InsertBefore)
 {
-    insertBeforeHelper<ListHashSet<int> >(true);
-    insertBeforeHelper<ListHashSet<int, 1> >(true);
+    insertBeforeHelper<ListHashSet<int>>(true);
+    insertBeforeHelper<ListHashSet<int, 1>>(true);
 }
 
 TEST(LinkedHashSetTest, InsertBefore)
 {
-    insertBeforeHelper<LinkedHashSet<int> >(false);
+    insertBeforeHelper<LinkedHashSet<int>>(false);
 }
 
 template<typename Set>
@@ -444,13 +446,13 @@ void addReturnIterator(bool canModifyWhileIterating)
 
 TEST(ListHashSetTest, AddReturnIterator)
 {
-    addReturnIterator<ListHashSet<int> >(true);
-    addReturnIterator<ListHashSet<int, 1> >(true);
+    addReturnIterator<ListHashSet<int>>(true);
+    addReturnIterator<ListHashSet<int, 1>>(true);
 }
 
 TEST(LinkedHashSetTest, AddReturnIterator)
 {
-    addReturnIterator<LinkedHashSet<int> >(false);
+    addReturnIterator<LinkedHashSet<int>>(false);
 }
 
 template<typename Set>
@@ -492,13 +494,13 @@ void excerciseValuePeekInType()
 
 TEST(ListHashSetTest, ExcerciseValuePeekInType)
 {
-    excerciseValuePeekInType<ListHashSet<RefPtr<DummyRefCounted> > >();
-    excerciseValuePeekInType<ListHashSet<RefPtr<DummyRefCounted>, 1> >();
+    excerciseValuePeekInType<ListHashSet<RefPtr<DummyRefCounted>>>();
+    excerciseValuePeekInType<ListHashSet<RefPtr<DummyRefCounted>, 1>>();
 }
 
 TEST(LinkedHashSetTest, ExcerciseValuePeekInType)
 {
-    excerciseValuePeekInType<LinkedHashSet<RefPtr<DummyRefCounted> > >();
+    excerciseValuePeekInType<LinkedHashSet<RefPtr<DummyRefCounted>>>();
 }
 
 struct Simple {
@@ -563,13 +565,13 @@ void translatorTest()
 
 TEST(ListHashSetTest, ComplexityTranslator)
 {
-    translatorTest<ListHashSet<Complicated, 256, ComplicatedHashFunctions> >();
-    translatorTest<ListHashSet<Complicated, 1, ComplicatedHashFunctions> >();
+    translatorTest<ListHashSet<Complicated, 256, ComplicatedHashFunctions>>();
+    translatorTest<ListHashSet<Complicated, 1, ComplicatedHashFunctions>>();
 }
 
 TEST(LinkedHashSetTest, ComplexityTranslator)
 {
-    translatorTest<LinkedHashSet<Complicated, ComplicatedHashFunctions> >();
+    translatorTest<LinkedHashSet<Complicated, ComplicatedHashFunctions>>();
 }
 
 struct Dummy {
@@ -587,7 +589,7 @@ TEST(ListHashSetTest, WithOwnPtr)
 {
     bool deleted1 = false, deleted2 = false;
 
-    typedef ListHashSet<OwnPtr<Dummy> > OwnPtrSet;
+    typedef ListHashSet<OwnPtr<Dummy>> OwnPtrSet;
     OwnPtrSet set;
 
     Dummy* ptr1 = new Dummy(deleted1);
@@ -710,12 +712,14 @@ void swapTestHelper()
 
 TEST(ListHashSetTest, Swap)
 {
-    swapTestHelper<ListHashSet<int> >();
+    swapTestHelper<ListHashSet<int>>();
 }
 
 TEST(LinkedHashSetTest, Swap)
 {
-    swapTestHelper<LinkedHashSet<int> >();
+    swapTestHelper<LinkedHashSet<int>>();
 }
 
-} // namespace
+} // anonymous namespace
+
+} // namespace WTF

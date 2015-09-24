@@ -4,13 +4,8 @@
 
 #include "extensions/common/permissions/permission_set.h"
 
-#include <algorithm>
-#include <iterator>
-#include <string>
-
 #include "extensions/common/permissions/permissions_info.h"
 #include "extensions/common/url_pattern.h"
-#include "extensions/common/url_pattern_set.h"
 #include "url/gurl.h"
 
 namespace extensions {
@@ -144,6 +139,10 @@ bool PermissionSet::operator==(
       manifest_permissions_ == rhs.manifest_permissions_ &&
       scriptable_hosts_ == rhs.scriptable_hosts_ &&
       explicit_hosts_ == rhs.explicit_hosts_;
+}
+
+bool PermissionSet::operator!=(const PermissionSet& rhs) const {
+  return !(*this == rhs);
 }
 
 bool PermissionSet::Contains(const PermissionSet& set) const {

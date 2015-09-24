@@ -8,13 +8,17 @@
 #include "chrome/browser/chromeos/extensions/file_manager/event_router.h"
 #include "chrome/browser/chromeos/file_manager/drive_test_util.h"
 #include "chrome/browser/chromeos/file_manager/file_watcher.h"
+#include "chrome/browser/chromeos/file_system_provider/provided_file_system_info.h"
 #include "chrome/browser/extensions/extension_apitest.h"
+#include "chrome/common/extensions/api/file_system_provider_capabilities/file_system_provider_capabilities_handler.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "chromeos/dbus/cros_disks_client.h"
 #include "chromeos/disks/mock_disk_mount_manager.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/install_warning.h"
+#include "google_apis/drive/test_util.h"
+#include "storage/browser/fileapi/external_mount_points.h"
 
 using ::testing::_;
 using ::testing::ReturnRef;
@@ -128,6 +132,29 @@ void DispatchDirectoryChangeEventImpl(
 
 void AddFileWatchCallback(bool success) {}
 
+bool InitializeLocalFileSystem(std::string mount_point_name,
+                               base::ScopedTempDir* temp_dir,
+                               base::FilePath* mount_point_dir) {
+  const char kTestFileContent[] = "The five boxing wizards jumped quickly";
+  if (!temp_dir->CreateUniqueTempDir())
+    return false;
+
+  *mount_point_dir = temp_dir->path().AppendASCII(mount_point_name);
+  // Create the mount point.
+  if (!base::CreateDirectory(*mount_point_dir))
+    return false;
+
+  const base::FilePath test_dir = mount_point_dir->AppendASCII("test_dir");
+  if (!base::CreateDirectory(test_dir))
+    return false;
+
+  const base::FilePath test_file = test_dir.AppendASCII("test_file.txt");
+  if (!google_apis::test_util::WriteStringToFile(test_file, kTestFileContent))
+    return false;
+
+  return true;
+}
+
 }  // namespace
 
 class FileManagerPrivateApiTest : public ExtensionApiTest {
@@ -137,21 +164,21 @@ class FileManagerPrivateApiTest : public ExtensionApiTest {
     InitMountPoints();
   }
 
-  virtual ~FileManagerPrivateApiTest() {
+  ~FileManagerPrivateApiTest() override {
     DCHECK(!disk_mount_manager_mock_);
     DCHECK(!testing_profile_);
     DCHECK(!event_router_);
     STLDeleteValues(&volumes_);
   }
 
-  virtual void SetUpOnMainThread() override {
+  void SetUpOnMainThread() override {
     ExtensionApiTest::SetUpOnMainThread();
 
     testing_profile_.reset(new TestingProfile());
     event_router_.reset(new file_manager::EventRouter(testing_profile_.get()));
   }
 
-  virtual void TearDownOnMainThread() override {
+  void TearDownOnMainThread() override {
     event_router_->Shutdown();
 
     event_router_.reset();
@@ -161,7 +188,7 @@ class FileManagerPrivateApiTest : public ExtensionApiTest {
   }
 
   // ExtensionApiTest override
-  virtual void SetUpInProcessBrowserTestFixture() override {
+  void SetUpInProcessBrowserTestFixture() override {
     ExtensionApiTest::SetUpInProcessBrowserTestFixture();
     disk_mount_manager_mock_ = new chromeos::disks::MockDiskMountManager;
     chromeos::disks::DiskMountManager::InitializeForTesting(
@@ -178,7 +205,7 @@ class FileManagerPrivateApiTest : public ExtensionApiTest {
   }
 
   // ExtensionApiTest override
-  virtual void TearDownInProcessBrowserTestFixture() override {
+  void TearDownInProcessBrowserTestFixture() override {
     chromeos::disks::DiskMountManager::Shutdown();
     disk_mount_manager_mock_ = NULL;
 
@@ -286,6 +313,18 @@ IN_PROC_BROWSER_TEST_F(FileManagerPrivateApiTest, Mount) {
   file_manager::test_util::WaitUntilDriveMountPointIsAdded(
       browser()->profile());
 
+  // Add a provided file system, to test passing the |configurable| and
+  // |source| flags properly down to Files app.
+  chromeos::file_system_provider::ProvidedFileSystemInfo info(
+      "testing-extension-id", chromeos::file_system_provider::MountOptions(),
+      base::FilePath(), true /* configurable */, false /* watchable */,
+      extensions::SOURCE_NETWORK);
+
+  file_manager::VolumeManager::Get(browser()->profile())
+      ->AddVolumeForTesting(
+          make_linked_ptr(file_manager::Volume::CreateForProvidedFileSystem(
+              info, file_manager::MOUNT_CONTEXT_AUTO)));
+
   // We will call fileManagerPrivate.unmountVolume once. To test that method, we
   // check that UnmountPath is really called with the same value.
   EXPECT_CALL(*disk_mount_manager_mock_, UnmountPath(_, _, _))
@@ -349,7 +388,7 @@ IN_PROC_BROWSER_TEST_F(FileManagerPrivateApiTest, OnFileChanged) {
   FileChange first_change;
   first_change.Update(
       base::FilePath(FILE_PATH_LITERAL("/no-existing-fs/root/a")),
-      FileType::FILE_TYPE_DIRECTORY, ChangeType::DELETE);
+      FileType::FILE_TYPE_DIRECTORY, ChangeType::CHANGE_TYPE_DELETE);
   event_router_->OnFileChanged(first_change);
   EXPECT_EQ(2, counter);
 
@@ -357,7 +396,7 @@ IN_PROC_BROWSER_TEST_F(FileManagerPrivateApiTest, OnFileChanged) {
   FileChange second_change;
   second_change.Update(
       base::FilePath(FILE_PATH_LITERAL("/no-existing-fs/root/a/b/c")),
-      FileType::FILE_TYPE_DIRECTORY, ChangeType::DELETE);
+      FileType::FILE_TYPE_DIRECTORY, ChangeType::CHANGE_TYPE_DELETE);
   event_router_->OnFileChanged(second_change);
   EXPECT_EQ(3, counter);
 
@@ -365,7 +404,7 @@ IN_PROC_BROWSER_TEST_F(FileManagerPrivateApiTest, OnFileChanged) {
   FileChange third_change;
   third_change.Update(
       base::FilePath(FILE_PATH_LITERAL("/no-existing-fs/root/z/y")),
-      FileType::FILE_TYPE_DIRECTORY, ChangeType::DELETE);
+      FileType::FILE_TYPE_DIRECTORY, ChangeType::CHANGE_TYPE_DELETE);
   event_router_->OnFileChanged(third_change);
   EXPECT_EQ(3, counter);
 
@@ -383,4 +422,25 @@ IN_PROC_BROWSER_TEST_F(FileManagerPrivateApiTest, OnFileChanged) {
   // event_router->removeFileWatch create some tasks which are performed on
   // message loop of BrowserThread::FILE. Wait until they are done.
   content::RunAllPendingInMessageLoop(content::BrowserThread::FILE);
+}
+
+IN_PROC_BROWSER_TEST_F(FileManagerPrivateApiTest, ContentChecksum) {
+  base::ScopedTempDir temp_dir;
+  base::FilePath mount_point_dir;
+  const char kLocalMountPointName[] = "local";
+
+  ASSERT_TRUE(InitializeLocalFileSystem(kLocalMountPointName, &temp_dir,
+                                        &mount_point_dir))
+      << "Failed to initialize test file system";
+
+  EXPECT_TRUE(content::BrowserContext::GetMountPoints(browser()->profile())
+                  ->RegisterFileSystem(
+                      kLocalMountPointName, storage::kFileSystemTypeNativeLocal,
+                      storage::FileSystemMountOption(), mount_point_dir));
+  file_manager::VolumeManager::Get(browser()->profile())
+      ->AddVolumeForTesting(mount_point_dir, file_manager::VOLUME_TYPE_TESTING,
+                            chromeos::DEVICE_TYPE_UNKNOWN,
+                            false /* read_only */);
+
+  ASSERT_TRUE(RunComponentExtensionTest("file_browser/content_checksum_test"));
 }

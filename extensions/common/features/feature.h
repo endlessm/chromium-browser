@@ -73,12 +73,16 @@ class Feature {
     NOT_PRESENT,
     UNSUPPORTED_CHANNEL,
     FOUND_IN_BLACKLIST,
+    MISSING_COMMAND_LINE_SWITCH,
   };
 
   // Container for AvailabiltyResult that also exposes a user-visible error
   // message in cases where the feature is not available.
   class Availability {
    public:
+    Availability(AvailabilityResult result, const std::string& message)
+        : result_(result), message_(message) {}
+
     AvailabilityResult result() const { return result_; }
     bool is_available() const { return result_ == IS_AVAILABLE; }
     const std::string& message() const { return message_; }
@@ -87,22 +91,12 @@ class Feature {
     friend class SimpleFeature;
     friend class Feature;
 
-    // Instances should be created via Feature::CreateAvailability.
-    Availability(AvailabilityResult result, const std::string& message)
-        : result_(result), message_(message) { }
-
     const AvailabilityResult result_;
     const std::string message_;
   };
 
   Feature();
   virtual ~Feature();
-
-  // Used by ChromeV8Context until the feature system is fully functional.
-  // TODO(kalman): This is no longer used by ChromeV8Context, so what is the
-  // comment trying to say?
-  static Availability CreateAvailability(AvailabilityResult result,
-                                         const std::string& message);
 
   const std::string& name() const { return name_; }
   void set_name(const std::string& name) { name_ = name; }
@@ -130,7 +124,7 @@ class Feature {
                                              Platform platform) const = 0;
 
   // Returns true if the feature is available to |extension|.
-  Availability IsAvailableToExtension(const Extension* extension);
+  Availability IsAvailableToExtension(const Extension* extension) const;
 
   // Returns true if the feature is available to be used in the specified
   // extension and context.
@@ -148,6 +142,17 @@ class Feature {
                                              Manifest::Type type,
                                              const GURL& url,
                                              Context context) const = 0;
+
+  // Returns true if the feature is available to the current environment,
+  // without needing to know information about an Extension or any other
+  // contextual information. Typically used when the Feature is purely
+  // configured by command line flags and/or Chrome channel.
+  //
+  // Generally try not to use this function. Even if you don't think a Feature
+  // relies on an Extension now - maybe it will, one day, so if there's an
+  // Extension available (or a runtime context, etc) then use the more targeted
+  // method instead.
+  Availability IsAvailableToEnvironment() const;
 
   virtual bool IsIdInBlacklist(const std::string& extension_id) const = 0;
   virtual bool IsIdInWhitelist(const std::string& extension_id) const = 0;

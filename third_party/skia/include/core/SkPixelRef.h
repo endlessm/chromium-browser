@@ -8,15 +8,16 @@
 #ifndef SkPixelRef_DEFINED
 #define SkPixelRef_DEFINED
 
+#include "SkAtomics.h"
 #include "SkBitmap.h"
-#include "SkDynamicAnnotations.h"
-#include "SkRefCnt.h"
-#include "SkString.h"
+#include "SkFilterQuality.h"
 #include "SkImageInfo.h"
+#include "SkMutex.h"
+#include "SkPixmap.h"
+#include "SkRefCnt.h"
 #include "SkSize.h"
+#include "SkString.h"
 #include "SkTDArray.h"
-
-//#define xed
 
 #ifdef SK_DEBUG
     /**
@@ -35,7 +36,6 @@
 class SkColorTable;
 class SkData;
 struct SkIRect;
-class SkMutex;
 
 class GrTexture;
 
@@ -49,8 +49,6 @@ class GrTexture;
 */
 class SK_API SkPixelRef : public SkRefCnt {
 public:
-    SK_DECLARE_INST_COUNT(SkPixelRef)
-
     explicit SkPixelRef(const SkImageInfo&);
     SkPixelRef(const SkImageInfo&, SkBaseMutex* mutex);
     virtual ~SkPixelRef();
@@ -75,6 +73,8 @@ public:
      *  Calling lockPixels returns a LockRec struct (on success).
      */
     struct LockRec {
+        LockRec() : fPixels(NULL), fColorTable(NULL) {}
+
         void*           fPixels;
         SkColorTable*   fColorTable;
         size_t          fRowBytes;
@@ -86,11 +86,7 @@ public:
         }
     };
 
-    /**
-     *  Returns true if the lockcount > 0
-     */
-    bool isLocked() const { return fLockCount > 0; }
-
+    SkDEBUGCODE(bool isLocked() const { return fLockCount > 0; })
     SkDEBUGCODE(int getLockCount() const { return fLockCount; })
 
     /**
@@ -126,6 +122,18 @@ public:
         called), a different generation ID will be returned.
     */
     uint32_t getGenerationID() const;
+
+#ifdef SK_BUILD_FOR_ANDROID_FRAMEWORK
+    /** Returns a non-zero, unique value corresponding to this SkPixelRef.
+        Unlike the generation ID, this ID remains the same even when the pixels
+        are changed. IDs are not reused (until uint32_t wraps), so it is safe
+        to consider this ID unique even after this SkPixelRef is deleted.
+
+        Can be used as a key which uniquely identifies this SkPixelRef
+        regardless of changes to its pixels or deletion of this object.
+     */
+    uint32_t getStableID() const { return fStableID; }
+#endif
 
     /**
      *  Call this if you have changed the contents of the pixels. This will in-
@@ -185,36 +193,31 @@ public:
         return this->onRefEncodedData();
     }
 
-    /**
-     *  Experimental -- tells the caller if it is worth it to call decodeInto().
-     *  Just an optimization at this point, to avoid checking the cache first.
-     *  We may remove/change this call in the future.
-     */
-    bool implementsDecodeInto() {
-        return this->onImplementsDecodeInto();
-    }
+    struct LockRequest {
+        SkISize         fSize;
+        SkFilterQuality fQuality;
+    };
 
-    /**
-     *  Return a decoded instance of this pixelRef in bitmap. If this cannot be
-     *  done, return false and the bitmap parameter is ignored/unchanged.
-     *
-     *  pow2 is the requeste power-of-two downscale that the caller needs. This
-     *  can be ignored, and the "original" size can be returned, but if the
-     *  underlying codec can efficiently return a smaller size, that should be
-     *  done. Some examples:
-     *
-     *  To request the "base" version (original scale), pass 0 for pow2
-     *  To request 1/2 scale version (1/2 width, 1/2 height), pass 1 for pow2
-     *  To request 1/4 scale version (1/4 width, 1/4 height), pass 2 for pow2
-     *  ...
-     *
-     *  If this returns true, then bitmap must be "locked" such that
-     *  bitmap->getPixels() will return the correct address.
-     */
-    bool decodeInto(int pow2, SkBitmap* bitmap) {
-        SkASSERT(pow2 >= 0);
-        return this->onDecodeInto(pow2, bitmap);
-    }
+    struct LockResult {
+        LockResult() : fPixels(NULL), fCTable(NULL) {}
+
+        void        (*fUnlockProc)(void* ctx);
+        void*       fUnlockContext;
+
+        const void* fPixels;
+        SkColorTable* fCTable;  // should be NULL unless colortype is kIndex8
+        size_t      fRowBytes;
+        SkISize     fSize;
+
+        void unlock() {
+            if (fUnlockProc) {
+                fUnlockProc(fUnlockContext);
+                fUnlockProc = NULL; // can't unlock twice!
+            }
+        }
+    };
+
+    bool requestLock(const LockRequest&, LockResult*);
 
     /** Are we really wrapping a texture instead of a bitmap?
      */
@@ -241,31 +244,16 @@ public:
     /**
      *  Makes a deep copy of this PixelRef, respecting the requested config.
      *  @param colorType Desired colortype.
+     *  @param profileType Desired colorprofiletype.
      *  @param subset Subset of this PixelRef to copy. Must be fully contained within the bounds of
      *         of this PixelRef.
      *  @return A new SkPixelRef, or NULL if either there is an error (e.g. the destination could
      *          not be created with the given config), or this PixelRef does not support deep
      *          copies.
      */
-    virtual SkPixelRef* deepCopy(SkColorType colortype, const SkIRect* subset) {
+    virtual SkPixelRef* deepCopy(SkColorType, SkColorProfileType, const SkIRect* /*subset*/) {
         return NULL;
     }
-
-#ifdef SK_BUILD_FOR_ANDROID
-    /**
-     *  Acquire a "global" ref on this object.
-     *  The default implementation just calls ref(), but subclasses can override
-     *  this method to implement additional behavior.
-     */
-    virtual void globalRef(void* data=NULL);
-
-    /**
-     *  Release a "global" ref on this object.
-     *  The default implementation just calls unref(), but subclasses can override
-     *  this method to implement additional behavior.
-     */
-    virtual void globalUnref();
-#endif
 
     // Register a listener that may be called the next time our generation ID changes.
     //
@@ -282,6 +270,12 @@ public:
 
     // Takes ownership of listener.
     void addGenIDChangeListener(GenIDChangeListener* listener);
+
+    // Call when this pixelref is part of the key to a resourcecache entry. This allows the cache
+    // to know automatically those entries can be purged when this pixelref is changed or deleted.
+    void notifyAddedToCache() {
+        fAddedToCache.store(true);
+    }
 
 protected:
     /**
@@ -306,11 +300,6 @@ protected:
     /** Default impl returns true */
     virtual bool onLockPixelsAreWritable() const;
 
-    // returns false;
-    virtual bool onImplementsDecodeInto();
-    // returns false;
-    virtual bool onDecodeInto(int pow2, SkBitmap* bitmap);
-
     /**
      *  For pixelrefs that don't have access to their raw pixels, they may be
      *  able to make a copy of them (e.g. if the pixels are on the GPU).
@@ -321,6 +310,9 @@ protected:
 
     // default impl returns NULL.
     virtual SkData* onRefEncodedData();
+
+    // default impl does nothing.
+    virtual void onNotifyPixelsChanged();
 
     // default impl returns false.
     virtual bool onGetYUV8Planes(SkISize sizes[3], void* planes[3], size_t rowBytes[3],
@@ -335,6 +327,8 @@ protected:
      *  @return default impl returns 0.
      */
     virtual size_t getAllocatedSizeInBytes() const;
+
+    virtual bool onRequestLock(const LockRequest&, LockResult*);
 
     /** Return the mutex associated with this pixelref. This value is assigned
         in the constructor, and cannot change during the lifetime of the object.
@@ -356,17 +350,26 @@ private:
     LockRec         fRec;
     int             fLockCount;
 
-    mutable SkTRacy<uint32_t> fGenerationID;
-    mutable SkTRacy<bool>     fUniqueGenerationID;
+    bool lockPixelsInsideMutex();
+
+    // Bottom bit indicates the Gen ID is unique.
+    bool genIDIsUnique() const { return SkToBool(fTaggedGenID.load() & 1); }
+    mutable SkAtomic<uint32_t> fTaggedGenID;
+
+#ifdef SK_BUILD_FOR_ANDROID_FRAMEWORK
+    const uint32_t fStableID;
+#endif
 
     SkTDArray<GenIDChangeListener*> fGenIDChangeListeners;  // pointers are owned
 
     SkString    fURI;
 
+    // Set true by caches when they cache content that's derived from the current pixels.
+    SkAtomic<bool> fAddedToCache;
     // can go from false to true, but never from true to false
-    bool    fIsImmutable;
+    bool fIsImmutable;
     // only ever set in constructor, const after that
-    bool    fPreLocked;
+    bool fPreLocked;
 
     void needsNewGenID();
     void callGenIDChangeListeners();

@@ -8,7 +8,7 @@
 #include "components/signin/core/browser/signin_manager_base.h"
 #include "google_apis/gaia/gaia_constants.h"
 
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
 #include "chrome/browser/supervised_user/supervised_user_constants.h"
 #endif
 
@@ -25,24 +25,24 @@ SigninManagerBase* SupervisedUserSigninManagerWrapper::GetOriginal() {
 }
 
 std::string SupervisedUserSigninManagerWrapper::GetEffectiveUsername() const {
-#if defined(ENABLE_MANAGED_USERS)
-  if (!original_->IsAuthenticated() && profile_->IsSupervised())
+#if defined(ENABLE_SUPERVISED_USERS)
+  if (profile_->IsLegacySupervised())
     return supervised_users::kSupervisedUserPseudoEmail;
 #endif
   return original_->GetAuthenticatedUsername();
 }
 
 std::string SupervisedUserSigninManagerWrapper::GetAccountIdToUse() const {
-#if defined(ENABLE_MANAGED_USERS)
-  if (!original_->IsAuthenticated() && profile_->IsSupervised())
+#if defined(ENABLE_SUPERVISED_USERS)
+  if (profile_->IsLegacySupervised())
     return supervised_users::kSupervisedUserPseudoEmail;
 #endif
   return original_->GetAuthenticatedAccountId();
 }
 
 std::string SupervisedUserSigninManagerWrapper::GetSyncScopeToUse() const {
-#if defined(ENABLE_MANAGED_USERS)
-  if (!original_->IsAuthenticated() && profile_->IsSupervised())
+#if defined(ENABLE_SUPERVISED_USERS)
+  if (profile_->IsLegacySupervised())
     return GaiaConstants::kChromeSyncSupervisedOAuth2Scope;
 #endif
   return GaiaConstants::kChromeSyncOAuth2Scope;

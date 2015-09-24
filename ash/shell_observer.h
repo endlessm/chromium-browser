@@ -29,6 +29,9 @@ class ASH_EXPORT ShellObserver {
   // unlocked.
   virtual void OnLockStateChanged(bool locked) {}
 
+  // Called when a casting session is started or stopped.
+  virtual void OnCastingSessionStartedOrStopped(bool started) {}
+
   // Invoked after a non-primary root window is created.
   virtual void OnRootWindowAdded(aura::Window* root_window) {}
 
@@ -49,9 +52,8 @@ class ASH_EXPORT ShellObserver {
   // get re-arranged).
   virtual void OnOverviewModeStarting() {}
 
-  // Called before the overview mode is ending (before the windows get arranged
-  // to their final position).
-  virtual void OnOverviewModeEnding() {}
+  // Called after overview mode has ended.
+  virtual void OnOverviewModeEnded() {}
 
   // Called when the always maximize mode has started. Windows might still
   // animate though.

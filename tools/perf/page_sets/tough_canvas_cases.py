@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 from telemetry.page import page as page_module
-from telemetry.page import page_set as page_set_module
+from telemetry import story
 
 
 class ToughCanvasCasesPage(page_module.Page):
@@ -12,12 +12,13 @@ class ToughCanvasCasesPage(page_module.Page):
     self.archive_data_file = 'data/tough_canvas_cases.json'
 
   def RunNavigateSteps(self, action_runner):
-    action_runner.NavigateToPage(self)
+    super(ToughCanvasCasesPage, self).RunNavigateSteps(action_runner)
     action_runner.WaitForJavaScriptCondition(
         "document.readyState == 'complete'")
 
-  def RunSmoothness(self, action_runner):
-    action_runner.Wait(5)
+  def RunPageInteractions(self, action_runner):
+    with action_runner.CreateInteraction('CanvasAnimation'):
+      action_runner.Wait(5)
 
 
 class MicrosofFirefliesPage(ToughCanvasCasesPage):
@@ -29,7 +30,7 @@ class MicrosofFirefliesPage(ToughCanvasCasesPage):
       page_set=page_set)
 
 
-class ToughCanvasCasesPageSet(page_set_module.PageSet):
+class ToughCanvasCasesPageSet(story.StorySet):
 
   """
   Description: Self-driven Canvas2D animation examples
@@ -38,10 +39,10 @@ class ToughCanvasCasesPageSet(page_set_module.PageSet):
   def __init__(self):
     super(ToughCanvasCasesPageSet, self).__init__(
       archive_data_file='data/tough_canvas_cases.json',
-      bucket=page_set_module.PARTNER_BUCKET)
+      cloud_storage_bucket=story.PARTNER_BUCKET)
 
     # Crashes on Galaxy Nexus. crbug.com/314131
-    # self.AddPage(MicrosofFirefliesPage(self))
+    # self.AddStory(MicrosofFirefliesPage(self))
 
     # Failing on Nexus 5 (http://crbug.com/364248):
     # 'http://geoapis.appspot.com/agdnZW9hcGlzchMLEgtFeGFtcGxlQ29kZRjh1wIM',
@@ -65,7 +66,8 @@ class ToughCanvasCasesPageSet(page_set_module.PageSet):
       'http://spielzeugz.de/html5/liquid-particles.html',
       'http://hakim.se/experiments/html5/magnetic/02/',
       'http://ie.microsoft.com/testdrive/Performance/LetItSnow/',
-      'http://ie.microsoft.com/testdrive/Graphics/WorkerFountains/Default.html',
+      # crbug.com/501406 causes OOM failures on perf bots
+      # 'http://ie.microsoft.com/testdrive/Graphics/WorkerFountains/Default.html',
       'http://ie.microsoft.com/testdrive/Graphics/TweetMap/Default.html',
       'http://ie.microsoft.com/testdrive/Graphics/VideoCity/Default.html',
       'http://ie.microsoft.com/testdrive/Performance/AsteroidBelt/Default.html',
@@ -78,10 +80,11 @@ class ToughCanvasCasesPageSet(page_set_module.PageSet):
       'file://tough_canvas_cases/canvas2d_balls_common/bouncing_balls.html?ball=filled_path&back=gradient',
       # pylint: disable=C0301
       'file://tough_canvas_cases/canvas2d_balls_common/bouncing_balls.html?ball=text&back=white&ball_count=15',
+      'file://tough_canvas_cases/canvas-font-cycler.html',
       'file://tough_canvas_cases/canvas-animation-no-clear.html',
       'file://../../../chrome/test/data/perf/canvas_bench/single_image.html',
       'file://../../../chrome/test/data/perf/canvas_bench/many_images.html'
     ]
 
     for url in urls_list:
-      self.AddPage(ToughCanvasCasesPage(url, self))
+      self.AddStory(ToughCanvasCasesPage(url, self))

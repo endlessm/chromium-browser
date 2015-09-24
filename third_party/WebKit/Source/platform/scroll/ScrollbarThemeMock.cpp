@@ -28,6 +28,7 @@
 
 #include "platform/RuntimeEnabledFeatures.h"
 #include "platform/graphics/GraphicsContext.h"
+#include "platform/graphics/paint/DrawingRecorder.h"
 #include "platform/scroll/ScrollbarThemeClient.h"
 
 namespace blink {
@@ -51,13 +52,23 @@ bool ScrollbarThemeMock::usesOverlayScrollbars() const
 
 void ScrollbarThemeMock::paintTrackBackground(GraphicsContext* context, ScrollbarThemeClient* scrollbar, const IntRect& trackRect)
 {
+    if (DrawingRecorder::useCachedDrawingIfPossible(*context, *scrollbar, DisplayItem::ScrollbarTrackBackground))
+        return;
+
+    DrawingRecorder recorder(*context, *scrollbar, DisplayItem::ScrollbarTrackBackground, trackRect);
     context->fillRect(trackRect, scrollbar->enabled() ? Color::lightGray : Color(0xFFE0E0E0));
 }
 
 void ScrollbarThemeMock::paintThumb(GraphicsContext* context, ScrollbarThemeClient* scrollbar, const IntRect& thumbRect)
 {
-    if (scrollbar->enabled())
-        context->fillRect(thumbRect, Color::darkGray);
+    if (!scrollbar->enabled())
+        return;
+
+    if (DrawingRecorder::useCachedDrawingIfPossible(*context, *scrollbar, DisplayItem::ScrollbarThumb))
+        return;
+
+    DrawingRecorder recorder(*context, *scrollbar, DisplayItem::ScrollbarThumb, thumbRect);
+    context->fillRect(thumbRect, Color::darkGray);
 }
 
 }

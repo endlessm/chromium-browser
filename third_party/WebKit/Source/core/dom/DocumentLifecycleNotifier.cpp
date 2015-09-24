@@ -27,33 +27,47 @@
 #include "config.h"
 #include "core/dom/DocumentLifecycleNotifier.h"
 
-#include "wtf/Assertions.h"
+#include "core/dom/DocumentLifecycleObserver.h"
 
 namespace blink {
 
-DocumentLifecycleNotifier::DocumentLifecycleNotifier(Document* document)
-    : LifecycleNotifier<Document>(document)
+void DocumentLifecycleNotifier::notifyDocumentWasDetached()
 {
-}
-
-void DocumentLifecycleNotifier::addObserver(DocumentLifecycleNotifier::Observer* observer)
-{
-    if (observer->observerType() == Observer::DocumentLifecycleObserverType) {
-        RELEASE_ASSERT(m_iterating != IteratingOverDocumentObservers);
-        m_documentObservers.add(static_cast<DocumentLifecycleObserver*>(observer));
+    TemporaryChange<IterationType> scope(m_iterating, IteratingOverAll);
+#if !ENABLE(OILPAN)
+    // Notifications perform unknown amounts of heap allocations,
+    // which might trigger (conservative) GCs. This will flush out
+    // dead observers, causing the _non-heap_ set be updated. Snapshot
+    // the observers and explicitly check if they're still alive before
+    // notifying.
+    Vector<RawPtr<DocumentLifecycleObserver>> snapshotOfObservers;
+    copyToVector(m_observers, snapshotOfObservers);
+    for (DocumentLifecycleObserver* observer : snapshotOfObservers) {
+        if (m_observers.contains(observer))
+            observer->documentWasDetached();
     }
-
-    LifecycleNotifier<Document>::addObserver(observer);
+#else
+    for (DocumentLifecycleObserver* observer : m_observers)
+        observer->documentWasDetached();
+#endif
 }
 
-void DocumentLifecycleNotifier::removeObserver(DocumentLifecycleNotifier::Observer* observer)
+#if !ENABLE(OILPAN)
+void DocumentLifecycleNotifier::notifyDocumentWasDisposed()
 {
-    if (observer->observerType() == Observer::DocumentLifecycleObserverType) {
-        RELEASE_ASSERT(m_iterating != IteratingOverDocumentObservers);
-        m_documentObservers.remove(static_cast<DocumentLifecycleObserver*>(observer));
+    TemporaryChange<IterationType> scope(m_iterating, IteratingOverAll);
+    // Notifications perform unknown amounts of heap allocations,
+    // which might trigger (conservative) GCs. This will flush out
+    // dead observers, causing the _non-heap_ set be updated. Snapshot
+    // the observers and explicitly check if they're still alive before
+    // notifying.
+    Vector<RawPtr<DocumentLifecycleObserver>> snapshotOfObservers;
+    copyToVector(m_observers, snapshotOfObservers);
+    for (DocumentLifecycleObserver* observer : snapshotOfObservers) {
+        if (m_observers.contains(observer))
+            observer->documentWasDisposed();
     }
-
-    LifecycleNotifier<Document>::removeObserver(observer);
 }
+#endif
 
 } // namespace blink

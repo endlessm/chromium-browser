@@ -72,8 +72,10 @@ int MaskForKey(const char* key) {
     return BrowsingDataRemover::REMOVE_APPCACHE;
   if (strcmp(key, extension_browsing_data_api_constants::kCacheKey) == 0)
     return BrowsingDataRemover::REMOVE_CACHE;
-  if (strcmp(key, extension_browsing_data_api_constants::kCookiesKey) == 0)
-    return BrowsingDataRemover::REMOVE_COOKIES;
+  if (strcmp(key, extension_browsing_data_api_constants::kCookiesKey) == 0) {
+    return BrowsingDataRemover::REMOVE_COOKIES |
+        BrowsingDataRemover::REMOVE_WEBRTC_IDENTITY;
+  }
   if (strcmp(key, extension_browsing_data_api_constants::kDownloadsKey) == 0)
     return BrowsingDataRemover::REMOVE_DOWNLOADS;
   if (strcmp(key, extension_browsing_data_api_constants::kFileSystemsKey) == 0)
@@ -239,7 +241,7 @@ bool BrowsingDataRemoverFunction::RunAsync() {
   EXTENSION_FUNCTION_VALIDATE(args_->GetDictionary(0, &options));
   DCHECK(options);
 
-  origin_set_mask_ = ParseOriginSetMask(*options);
+  origin_type_mask_ = ParseOriginTypeMask(*options);
 
   // If |ms_since_epoch| isn't set, default it to 0.
   double ms_since_epoch;
@@ -310,10 +312,10 @@ void BrowsingDataRemoverFunction::StartRemoving() {
   BrowsingDataRemover* remover = BrowsingDataRemover::CreateForRange(
       GetProfile(), remove_since_, base::Time::Max());
   remover->AddObserver(this);
-  remover->Remove(removal_mask_, origin_set_mask_);
+  remover->Remove(removal_mask_, origin_type_mask_);
 }
 
-int BrowsingDataRemoverFunction::ParseOriginSetMask(
+int BrowsingDataRemoverFunction::ParseOriginTypeMask(
     const base::DictionaryValue& options) {
   // Parse the |options| dictionary to generate the origin set mask. Default to
   // UNPROTECTED_WEB if the developer doesn't specify anything.
@@ -391,7 +393,8 @@ int BrowsingDataRemoveCacheFunction::GetRemovalMask() {
 
 int BrowsingDataRemoveCookiesFunction::GetRemovalMask() {
   return BrowsingDataRemover::REMOVE_COOKIES |
-         BrowsingDataRemover::REMOVE_CHANNEL_IDS;
+         BrowsingDataRemover::REMOVE_CHANNEL_IDS |
+         BrowsingDataRemover::REMOVE_WEBRTC_IDENTITY;
 }
 
 int BrowsingDataRemoveDownloadsFunction::GetRemovalMask() {

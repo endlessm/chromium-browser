@@ -4,11 +4,14 @@
 
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
+#include "base/location.h"
 #include "base/prefs/pref_service.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
-#include "chrome/browser/devtools/browser_list_tabcontents_provider.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/devtools/device/devtools_android_bridge.h"
-#include "chrome/browser/devtools/device/self_device_provider.h"
+#include "chrome/browser/devtools/device/tcp_device_provider.h"
+#include "chrome/browser/devtools/remote_debugging_server.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -25,13 +28,19 @@ const char kPortForwardingTestPage[] =
     "files/devtools/port_forwarding/main.html";
 
 const int kDefaultDebuggingPort = 9223;
+const int kAlternativeDebuggingPort = 9224;
+
 }
 
 class PortForwardingTest: public InProcessBrowserTest {
-  void SetUpCommandLine(CommandLine* command_line) override {
+  virtual int GetRemoteDebuggingPort() {
+    return kDefaultDebuggingPort;
+  }
+
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     InProcessBrowserTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII(switches::kRemoteDebuggingPort,
-        base::IntToString(kDefaultDebuggingPort));
+        base::IntToString(GetRemoteDebuggingPort()));
   }
 
  protected:
@@ -52,7 +61,7 @@ class PortForwardingTest: public InProcessBrowserTest {
     void PortStatusChanged(const ForwardingStatus& status) override {
       if (status.empty() && skip_empty_devices_)
         return;
-      base::MessageLoop::current()->PostTask(
+      base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::MessageLoop::QuitClosure());
     }
 
@@ -66,12 +75,15 @@ class PortForwardingTest: public InProcessBrowserTest {
   };
 };
 
+// Flaky on all platforms. https://crbug.com/477696
 IN_PROC_BROWSER_TEST_F(PortForwardingTest,
-                       LoadPageWithStyleAnsScript) {
+                       DISABLED_LoadPageWithStyleAnsScript) {
   Profile* profile = browser()->profile();
 
   AndroidDeviceManager::DeviceProviders device_providers;
-  device_providers.push_back(new SelfAsDeviceProvider(kDefaultDebuggingPort));
+
+  device_providers.push_back(
+      TCPDeviceProvider::CreateForLocalhost(kDefaultDebuggingPort));
   DevToolsAndroidBridge::Factory::GetForProfile(profile)->
       set_device_providers_for_test(device_providers);
 
@@ -93,7 +105,7 @@ IN_PROC_BROWSER_TEST_F(PortForwardingTest,
   Listener wait_for_port_forwarding(profile);
   content::RunMessageLoop();
 
-  BrowserListTabContentsProvider::EnableTethering();
+  RemoteDebuggingServer::EnableTetheringForDebug();
 
   ui_test_utils::NavigateToURL(browser(), forwarding_url);
 
@@ -128,13 +140,19 @@ IN_PROC_BROWSER_TEST_F(PortForwardingTest,
   content::RunMessageLoop();
 }
 
-IN_PROC_BROWSER_TEST_F(PortForwardingTest, DisconnectOnRelease) {
+class PortForwardingDisconnectTest : public PortForwardingTest {
+  int GetRemoteDebuggingPort() override {
+    return kAlternativeDebuggingPort;
+  }
+};
+
+IN_PROC_BROWSER_TEST_F(PortForwardingDisconnectTest, DisconnectOnRelease) {
   Profile* profile = browser()->profile();
 
   AndroidDeviceManager::DeviceProviders device_providers;
 
-  scoped_refptr<SelfAsDeviceProvider> self_provider(
-      new SelfAsDeviceProvider(kDefaultDebuggingPort));
+  scoped_refptr<TCPDeviceProvider> self_provider(
+      TCPDeviceProvider::CreateForLocalhost(kAlternativeDebuggingPort));
   device_providers.push_back(self_provider);
 
   DevToolsAndroidBridge::Factory::GetForProfile(profile)->

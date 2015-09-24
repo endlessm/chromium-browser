@@ -12,6 +12,7 @@
 #include "base/files/file_path.h"
 #include "base/i18n/break_iterator.h"
 #include "base/i18n/rtl.h"
+#include "base/location.h"
 #include "base/metrics/histogram.h"
 #include "base/prefs/pref_service.h"
 #include "base/strings/string_util.h"
@@ -274,6 +275,11 @@ void DownloadItemView::OnExtractIconComplete(gfx::Image* icon_bitmap) {
 void DownloadItemView::OnDownloadUpdated(DownloadItem* download_item) {
   DCHECK_EQ(download(), download_item);
 
+  if (!model_.ShouldShowInShelf()) {
+    shelf_->RemoveDownloadView(this);  // This will delete us!
+    return;
+  }
+
   if (IsShowingWarningDialog() && !model_.IsDangerous()) {
     // We have been approved.
     ClearWarningDialog();
@@ -345,7 +351,7 @@ void DownloadItemView::OnDownloadDestroyed(DownloadItem* download) {
 void DownloadItemView::OnDownloadOpened(DownloadItem* download) {
   disabled_while_opening_ = true;
   SetEnabled(false);
-  base::MessageLoop::current()->PostDelayedTask(
+  base::MessageLoop::current()->task_runner()->PostDelayedTask(
       FROM_HERE,
       base::Bind(&DownloadItemView::Reenable, weak_ptr_factory_.GetWeakPtr()),
       base::TimeDelta::FromMilliseconds(kDisabledOnOpenDuration));
@@ -867,32 +873,18 @@ void DownloadItemView::OnPaintBackground(gfx::Canvas* canvas) {
       DownloadShelf::BoundsAdjusterCallback rtl_mirror =
           base::Bind(&RTLMirrorXForView, base::Unretained(this));
       if (state == DownloadItem::IN_PROGRESS) {
-        DownloadShelf::PaintDownloadProgress(canvas,
-                                             rtl_mirror,
-                                             0,
-                                             0,
+        DownloadShelf::PaintDownloadProgress(canvas, rtl_mirror, 0, 0,
                                              progress_angle_,
-                                             model_.PercentComplete(),
-                                             DownloadShelf::SMALL);
+                                             model_.PercentComplete());
       } else if (complete_animation_.get() &&
                  complete_animation_->is_animating()) {
         if (state == DownloadItem::INTERRUPTED) {
           DownloadShelf::PaintDownloadInterrupted(
-              canvas,
-              rtl_mirror,
-              0,
-              0,
-              complete_animation_->GetCurrentValue(),
-              DownloadShelf::SMALL);
+              canvas, rtl_mirror, 0, 0, complete_animation_->GetCurrentValue());
         } else {
           DCHECK_EQ(DownloadItem::COMPLETE, state);
           DownloadShelf::PaintDownloadComplete(
-              canvas,
-              rtl_mirror,
-              0,
-              0,
-              complete_animation_->GetCurrentValue(),
-              DownloadShelf::SMALL);
+              canvas, rtl_mirror, 0, 0, complete_animation_->GetCurrentValue());
         }
       }
     }
@@ -1023,16 +1015,14 @@ void DownloadItemView::ShowContextMenuImpl(const gfx::Point& p,
   // Post a task to release the button.  When we call the Run method on the menu
   // below, it runs an inner message loop that might cause us to be deleted.
   // Posting a task with a WeakPtr lets us safely handle the button release.
-  base::MessageLoop::current()->PostNonNestableTask(
-      FROM_HERE,
-      base::Bind(&DownloadItemView::ReleaseDropDown,
-                 weak_ptr_factory_.GetWeakPtr()));
+  base::MessageLoop::current()->task_runner()->PostNonNestableTask(
+      FROM_HERE, base::Bind(&DownloadItemView::ReleaseDropDown,
+                            weak_ptr_factory_.GetWeakPtr()));
   views::View::ConvertPointToScreen(this, &point);
 
-  if (!context_menu_.get()) {
-    context_menu_.reset(
-        new DownloadShelfContextMenuView(download(), shelf_->GetNavigator()));
-  }
+  if (!context_menu_.get())
+    context_menu_.reset(new DownloadShelfContextMenuView(download()));
+
   context_menu_->Run(GetWidget()->GetTopLevelWidget(),
                      gfx::Rect(point, size), source_type);
   // We could be deleted now.

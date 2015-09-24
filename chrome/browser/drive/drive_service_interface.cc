@@ -6,26 +6,22 @@
 
 namespace drive {
 
-DriveServiceInterface::AddNewDirectoryOptions::AddNewDirectoryOptions() {
+AddNewDirectoryOptions::AddNewDirectoryOptions() {
 }
 
-DriveServiceInterface::AddNewDirectoryOptions::~AddNewDirectoryOptions() {
+AddNewDirectoryOptions::~AddNewDirectoryOptions() {
 }
 
-DriveServiceInterface::InitiateUploadNewFileOptions::
-    InitiateUploadNewFileOptions() {
+UploadNewFileOptions::UploadNewFileOptions() {
 }
 
-DriveServiceInterface::InitiateUploadNewFileOptions::
-    ~InitiateUploadNewFileOptions() {
+UploadNewFileOptions::~UploadNewFileOptions() {
 }
 
-DriveServiceInterface::InitiateUploadExistingFileOptions::
-    InitiateUploadExistingFileOptions() {
+UploadExistingFileOptions::UploadExistingFileOptions() {
 }
 
-DriveServiceInterface::InitiateUploadExistingFileOptions::
-    ~InitiateUploadExistingFileOptions() {
+UploadExistingFileOptions::~UploadExistingFileOptions() {
 }
 
 }  // namespace drive

@@ -9,7 +9,7 @@
 #include "base/observer_list.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/drive/drive_notification_observer.h"
-#include "components/invalidation/invalidation_handler.h"
+#include "components/invalidation/public/invalidation_handler.h"
 #include "components/keyed_service/core/keyed_service.h"
 
 class ProfileSyncService;
@@ -73,7 +73,7 @@ class DriveNotificationManager : public KeyedService,
   static std::string NotificationSourceToString(NotificationSource source);
 
   invalidation::InvalidationService* invalidation_service_;
-  ObserverList<DriveNotificationObserver> observers_;
+  base::ObserverList<DriveNotificationObserver> observers_;
 
   // True when Drive File Sync Service is registered for Drive notifications.
   bool push_notification_registered_;

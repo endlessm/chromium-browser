@@ -61,10 +61,14 @@ void ShowMemory(Browser* browser);
 // Constructs a settings GURL for the specified |sub_page|.
 GURL GetSettingsUrl(const std::string& sub_page);
 
+// Returns true if |url| is the URL for the settings subpage |sub_page|.
+bool IsSettingsSubPage(const GURL& url, const std::string& sub_page);
+
 // Returns true if |browser| is a trusted popup window containing a page with
 // matching |scheme| (or any trusted popup if |scheme| is empty).
 bool IsTrustedPopupWindowWithScheme(const Browser* browser,
                                     const std::string& scheme);
+
 
 // Various things that open in a settings UI.
 void ShowSettings(Browser* browser);
@@ -82,9 +86,13 @@ void ShowAboutChrome(Browser* browser);
 void ShowSearchEngineSettings(Browser* browser);
 
 #if !defined(OS_ANDROID) && !defined(OS_IOS)
+// Initiates signin in a new browser tab.
+void ShowBrowserSignin(Browser* browser, signin_metrics::Source source);
+
 // If the user is already signed in, shows the "Signin" portion of Settings,
-// otherwise initiates signin.
-void ShowBrowserSignin(Browser* browser, signin::Source source);
+// otherwise initiates signin in a new browser tab.
+void ShowBrowserSigninOrSettings(Browser* browser,
+                                 signin_metrics::Source source);
 #endif
 
 }  // namespace chrome

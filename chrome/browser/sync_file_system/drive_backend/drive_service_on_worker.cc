@@ -12,7 +12,6 @@
 #include "chrome/browser/sync_file_system/drive_backend/callback_helper.h"
 #include "chrome/browser/sync_file_system/drive_backend/drive_service_wrapper.h"
 #include "google_apis/drive/drive_api_parser.h"
-#include "google_apis/drive/gdata_wapi_parser.h"
 
 namespace sync_file_system {
 namespace drive_backend {
@@ -32,7 +31,7 @@ DriveServiceOnWorker::~DriveServiceOnWorker() {}
 google_apis::CancelCallback DriveServiceOnWorker::AddNewDirectory(
     const std::string& parent_resource_id,
     const std::string& directory_title,
-    const AddNewDirectoryOptions& options,
+    const drive::AddNewDirectoryOptions& options,
     const google_apis::FileResourceCallback& callback) {
   DCHECK(sequence_checker_.CalledOnValidSequencedThread());
 
@@ -320,6 +319,7 @@ google_apis::CancelCallback DriveServiceOnWorker::UpdateResource(
     const std::string& new_title,
     const base::Time& last_modified,
     const base::Time& last_viewed_by_me,
+    const google_apis::drive::Properties& properties,
     const google_apis::FileResourceCallback& callback) {
   NOTREACHED();
   return google_apis::CancelCallback();
@@ -338,7 +338,7 @@ google_apis::CancelCallback DriveServiceOnWorker::InitiateUploadNewFile(
     int64 content_length,
     const std::string& parent_resource_id,
     const std::string& title,
-    const InitiateUploadNewFileOptions& options,
+    const drive::UploadNewFileOptions& options,
     const google_apis::InitiateUploadCallback& callback) {
   NOTREACHED();
   return google_apis::CancelCallback();
@@ -348,7 +348,7 @@ google_apis::CancelCallback DriveServiceOnWorker::InitiateUploadExistingFile(
     const std::string& content_type,
     int64 content_length,
     const std::string& resource_id,
-    const InitiateUploadExistingFileOptions& options,
+    const drive::UploadExistingFileOptions& options,
     const google_apis::InitiateUploadCallback& callback) {
   NOTREACHED();
   return google_apis::CancelCallback();
@@ -373,6 +373,37 @@ google_apis::CancelCallback DriveServiceOnWorker::GetUploadStatus(
     const google_apis::drive::UploadRangeCallback& callback) {
   NOTREACHED();
   return google_apis::CancelCallback();
+}
+
+google_apis::CancelCallback DriveServiceOnWorker::MultipartUploadNewFile(
+    const std::string& content_type,
+    int64 content_length,
+    const std::string& parent_resource_id,
+    const std::string& title,
+    const base::FilePath& local_file_path,
+    const drive::UploadNewFileOptions& options,
+    const google_apis::FileResourceCallback& callback,
+    const google_apis::ProgressCallback& progress_callback) {
+  NOTREACHED();
+  return google_apis::CancelCallback();
+}
+
+google_apis::CancelCallback DriveServiceOnWorker::MultipartUploadExistingFile(
+    const std::string& content_type,
+    int64 content_length,
+    const std::string& parent_resource_id,
+    const base::FilePath& local_file_path,
+    const drive::UploadExistingFileOptions& options,
+    const google_apis::FileResourceCallback& callback,
+    const google_apis::ProgressCallback& progress_callback) {
+  NOTREACHED();
+  return google_apis::CancelCallback();
+}
+
+scoped_ptr<drive::BatchRequestConfiguratorInterface>
+DriveServiceOnWorker::StartBatchRequest() {
+  NOTREACHED();
+  return scoped_ptr<drive::BatchRequestConfiguratorInterface>();
 }
 
 google_apis::CancelCallback DriveServiceOnWorker::AuthorizeApp(

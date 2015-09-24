@@ -5,14 +5,13 @@
 #include "ui/base/test/ui_controls.h"
 
 #import <Cocoa/Cocoa.h>
-#include <mach/mach_time.h>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/message_loop/message_loop.h"
 #include "ui/events/keycodes/keyboard_code_conversion_mac.h"
-
+#import "ui/events/test/cocoa_test_event_utils.h"
 
 // Implementation details: We use [NSApplication sendEvent:] instead
 // of [NSApplication postEvent:atStart:] so that the event gets sent
@@ -43,6 +42,9 @@
 // 2. On OSX 10.6, [NSEvent addLocalMonitorForEventsMatchingMask:handler:] may
 //    be used, so that we don't need to poll the event queue time to time.
 
+using cocoa_test_event_utils::SynthesizeKeyEvent;
+using cocoa_test_event_utils::TimeIntervalSinceSystemStartup;
+
 namespace {
 
 // Stores the current mouse location on the screen. So that we can use it
@@ -50,81 +52,6 @@ namespace {
 NSPoint g_mouse_location = { 0, 0 };
 
 bool g_ui_controls_enabled = false;
-
-// From
-// http://stackoverflow.com/questions/1597383/cgeventtimestamp-to-nsdate
-// Which credits Apple sample code for this routine.
-uint64_t UpTimeInNanoseconds(void) {
-  uint64_t time;
-  uint64_t timeNano;
-  static mach_timebase_info_data_t sTimebaseInfo;
-
-  time = mach_absolute_time();
-
-  // Convert to nanoseconds.
-
-  // If this is the first time we've run, get the timebase.
-  // We can use denom == 0 to indicate that sTimebaseInfo is
-  // uninitialised because it makes no sense to have a zero
-  // denominator is a fraction.
-  if (sTimebaseInfo.denom == 0) {
-    (void) mach_timebase_info(&sTimebaseInfo);
-  }
-
-  // This could overflow; for testing needs we probably don't care.
-  timeNano = time * sTimebaseInfo.numer / sTimebaseInfo.denom;
-  return timeNano;
-}
-
-NSTimeInterval TimeIntervalSinceSystemStartup() {
-  return UpTimeInNanoseconds() / 1000000000.0;
-}
-
-// Creates and returns an autoreleased key event.
-NSEvent* SynthesizeKeyEvent(NSWindow* window,
-                            bool keyDown,
-                            ui::KeyboardCode keycode,
-                            NSUInteger flags) {
-  unichar character;
-  unichar characterIgnoringModifiers;
-  int macKeycode = ui::MacKeyCodeForWindowsKeyCode(
-      keycode, flags, &character, &characterIgnoringModifiers);
-
-  if (macKeycode < 0)
-    return nil;
-
-  NSString* charactersIgnoringModifiers =
-      [[[NSString alloc] initWithCharacters:&characterIgnoringModifiers
-                                     length:1]
-        autorelease];
-  NSString* characters =
-      [[[NSString alloc] initWithCharacters:&character length:1] autorelease];
-
-  NSEventType type = (keyDown ? NSKeyDown : NSKeyUp);
-
-  // Modifier keys generate NSFlagsChanged event rather than
-  // NSKeyDown/NSKeyUp events.
-  if (keycode == ui::VKEY_CONTROL || keycode == ui::VKEY_SHIFT ||
-      keycode == ui::VKEY_MENU || keycode == ui::VKEY_COMMAND)
-    type = NSFlagsChanged;
-
-  // For events other than mouse moved, [event locationInWindow] is
-  // UNDEFINED if the event is not NSMouseMoved.  Thus, the (0,0)
-  // location should be fine.
-  NSEvent* event =
-      [NSEvent keyEventWithType:type
-                       location:NSZeroPoint
-                  modifierFlags:flags
-                      timestamp:TimeIntervalSinceSystemStartup()
-                   windowNumber:[window windowNumber]
-                        context:nil
-                     characters:characters
-    charactersIgnoringModifiers:charactersIgnoringModifiers
-                      isARepeat:NO
-                        keyCode:(unsigned short)macKeycode];
-
-  return event;
-}
 
 // Creates the proper sequence of autoreleased key events for a key down + up.
 void SynthesizeKeyEventsSequence(NSWindow* window,
@@ -219,8 +146,28 @@ void EventQueueWatcher(const base::Closure& task) {
 NSWindow* WindowAtCurrentMouseLocation() {
   NSInteger window_number = [NSWindow windowNumberAtPoint:g_mouse_location
                               belowWindowWithWindowNumber:0];
-  return
+  NSWindow* window =
       [[NSApplication sharedApplication] windowWithWindowNumber:window_number];
+  if (window)
+    return window;
+
+  // It's possible for a window owned by another application to be at that
+  // location. Cocoa won't provide an NSWindow* for those. Tests should not care
+  // about other applications, and raising windows in a headless application is
+  // flaky due to OS restrictions. For tests, hunt through all of this
+  // application's windows, top to bottom, looking for a good candidate.
+  NSArray* window_list = [[NSApplication sharedApplication] orderedWindows];
+  for (window in window_list) {
+    // Note this skips the extra checks (e.g. fully-transparent windows), that
+    // +[NSWindow windowNumberAtPoint:] performs. Tests that care about that
+    // should check separately (the goal here is to minimize flakiness).
+    if (NSPointInRect(g_mouse_location, [window frame]))
+      return window;
+  }
+
+  // Note that -[NSApplication orderedWindows] won't include NSPanels. If a test
+  // uses those, it will need to handle that itself.
+  return nil;
 }
 
 }  // namespace
@@ -332,7 +279,7 @@ bool SendMouseEventsNotifyWhenDone(MouseButton type, int state,
     return (SendMouseEventsNotifyWhenDone(type, DOWN, base::Closure()) &&
             SendMouseEventsNotifyWhenDone(type, UP, task));
   }
-  NSEventType etype = 0;
+  NSEventType etype = NSLeftMouseDown;
   if (type == LEFT) {
     if (state == UP) {
       etype = NSLeftMouseUp;

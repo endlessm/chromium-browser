@@ -4,20 +4,22 @@
 
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/strings/pattern.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_function_test_utils.h"
-#include "chrome/browser/extensions/extension_install_prompt.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/api/management/management_api.h"
 #include "extensions/browser/api/management/management_api_constants.h"
+#include "extensions/browser/extension_dialog_auto_confirm.h"
 #include "extensions/browser/extension_host.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_system.h"
@@ -109,51 +111,6 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionManagementApiBrowserTest,
-                       UninstallWithConfirmDialog) {
-  ExtensionService* service = ExtensionSystem::Get(browser()->profile())->
-      extension_service();
-
-  // Install an extension.
-  const Extension* extension = InstallExtension(
-      test_data_dir_.AppendASCII("api_test/management/enabled_extension"), 1);
-  ASSERT_TRUE(extension);
-
-  const std::string id = extension->id();
-
-  scoped_refptr<Extension> empty_extension(test_util::CreateEmptyExtension());
-  // Uninstall, then cancel via the confirm dialog.
-  scoped_refptr<ManagementUninstallFunction> uninstall_function(
-      new ManagementUninstallFunction());
-  uninstall_function->set_extension(empty_extension.get());
-  uninstall_function->set_user_gesture(true);
-  ManagementUninstallFunction::SetAutoConfirmForTest(false);
-
-  EXPECT_TRUE(MatchPattern(
-      util::RunFunctionAndReturnError(
-          uninstall_function.get(),
-          base::StringPrintf("[\"%s\", {\"showConfirmDialog\": true}]",
-                             id.c_str()),
-          browser()),
-      keys::kUninstallCanceledError));
-
-  // Make sure the extension wasn't uninstalled.
-  EXPECT_TRUE(service->GetExtensionById(id, false) != NULL);
-
-  // Uninstall, then accept via the confirm dialog.
-  uninstall_function = new ManagementUninstallFunction();
-  uninstall_function->set_extension(empty_extension.get());
-  ManagementUninstallFunction::SetAutoConfirmForTest(true);
-  uninstall_function->set_user_gesture(true);
-  util::RunFunctionAndReturnSingleResult(
-      uninstall_function.get(),
-      base::StringPrintf("[\"%s\", {\"showConfirmDialog\": true}]", id.c_str()),
-      browser());
-
-  // Make sure the extension was uninstalled.
-  EXPECT_TRUE(service->GetExtensionById(id, false) == NULL);
-}
-
-IN_PROC_BROWSER_TEST_F(ExtensionManagementApiBrowserTest,
                        CreateAppShortcutConfirmDialog) {
   const Extension* app = InstallExtension(
       test_data_dir_.AppendASCII("api_test/management/packaged_app"), 1);
@@ -173,7 +130,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiBrowserTest,
   create_shortcut_function = new ManagementCreateAppShortcutFunction();
   create_shortcut_function->set_user_gesture(true);
   ManagementCreateAppShortcutFunction::SetAutoConfirmForTest(false);
-  EXPECT_TRUE(MatchPattern(
+  EXPECT_TRUE(base::MatchPattern(
       util::RunFunctionAndReturnError(
           create_shortcut_function.get(),
           base::StringPrintf("[\"%s\"]", app_id.c_str()),
@@ -253,6 +210,8 @@ class ExtensionManagementApiEscalationTest :
     const char* const enabled_string = enabled ? "true" : "false";
     if (user_gesture)
       function->set_user_gesture(true);
+    function->SetRenderFrameHost(browser()->tab_strip_model()->
+        GetActiveWebContents()->GetMainFrame());
     bool response = util::RunFunction(
         function.get(),
         base::StringPrintf("[\"%s\", %s]", kId, enabled_string),
@@ -296,31 +255,40 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiEscalationTest,
   // Expect an error about no gesture.
   SetEnabled(true, false, keys::kGestureNeededForEscalationError);
 
-  // Expect an error that user cancelled the dialog.
-  ExtensionInstallPrompt::g_auto_confirm_for_tests =
-      ExtensionInstallPrompt::CANCEL;
-  SetEnabled(true, true, keys::kUserDidNotReEnableError);
+  {
+    // Expect an error that user cancelled the dialog.
+    ScopedTestDialogAutoConfirm auto_confirm(
+        ScopedTestDialogAutoConfirm::CANCEL);
+    SetEnabled(true, true, keys::kUserDidNotReEnableError);
+  }
 
-  // This should succeed when user accepts dialog.  We must wait for the process
-  // to connect *and* for the channel to finish initializing before trying to
-  // crash it.  (NOTIFICATION_RENDERER_PROCESS_CREATED does not wait for the
-  // latter and can cause KillProcess to fail on Windows.)
-  content::WindowedNotificationObserver observer(
-      extensions::NOTIFICATION_EXTENSION_HOST_CREATED,
-      content::NotificationService::AllSources());
-  ExtensionInstallPrompt::g_auto_confirm_for_tests =
-      ExtensionInstallPrompt::ACCEPT;
-  SetEnabled(true, true, std::string());
-  observer.Wait();
+  {
+    // This should succeed when user accepts dialog. We must wait for the
+    // process to connect *and* for the channel to finish initializing before
+    // trying to crash it. (NOTIFICATION_RENDERER_PROCESS_CREATED does not wait
+    // for the latter and can cause KillProcess to fail on Windows.)
+    content::WindowedNotificationObserver observer(
+        extensions::NOTIFICATION_EXTENSION_HOST_CREATED,
+        content::NotificationService::AllSources());
+    ScopedTestDialogAutoConfirm auto_confirm(
+        ScopedTestDialogAutoConfirm::ACCEPT);
+    SetEnabled(true, true, std::string());
+    observer.Wait();
+  }
 
-  // Crash the extension. Mock a reload by disabling and then enabling. The
-  // extension should be reloaded and enabled.
-  ASSERT_TRUE(CrashEnabledExtension(kId));
-  SetEnabled(false, true, std::string());
-  SetEnabled(true, true, std::string());
-  const Extension* extension = ExtensionSystem::Get(browser()->profile())
-      ->extension_service()->GetExtensionById(kId, false);
-  EXPECT_TRUE(extension);
+  {
+    // Crash the extension. Mock a reload by disabling and then enabling. The
+    // extension should be reloaded and enabled.
+    ScopedTestDialogAutoConfirm auto_confirm(
+        ScopedTestDialogAutoConfirm::ACCEPT);
+    ASSERT_TRUE(CrashEnabledExtension(kId));
+    SetEnabled(false, true, std::string());
+    SetEnabled(true, true, std::string());
+    const Extension* extension = ExtensionSystem::Get(browser()->profile())
+                                     ->extension_service()
+                                     ->GetExtensionById(kId, false);
+    EXPECT_TRUE(extension);
+  }
 }
 
 }  // namespace extensions

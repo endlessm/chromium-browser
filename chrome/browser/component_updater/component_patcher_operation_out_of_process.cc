@@ -9,7 +9,11 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/files/file_path.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/common/chrome_utility_messages.h"
+#include "chrome/grit/generated_resources.h"
 #include "components/component_updater/component_updater_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/utility_process_host.h"
@@ -17,6 +21,7 @@
 #include "courgette/courgette.h"
 #include "courgette/third_party/bsdiff.h"
 #include "ipc/ipc_message_macros.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace component_updater {
 
@@ -53,7 +58,9 @@ void PatchHost::StartProcess(scoped_ptr<IPC::Message> message) {
   // The DeltaUpdateOpPatchHost is not responsible for deleting the
   // UtilityProcessHost object.
   content::UtilityProcessHost* host = content::UtilityProcessHost::Create(
-      this, base::MessageLoopProxy::current().get());
+      this, base::ThreadTaskRunnerHandle::Get().get());
+  host->SetName(l10n_util::GetStringUTF16(
+      IDS_UTILITY_PROCESS_COMPONENT_PATCHER_NAME));
   host->DisableSandbox();
   host->Send(message.release());
 }
@@ -96,10 +103,10 @@ void ChromeOutOfProcessPatcher::Patch(
     base::Callback<void(int result)> callback) {
   host_ = new PatchHost(callback, task_runner);
   scoped_ptr<IPC::Message> patch_message;
-  if (operation == kBsdiff) {
+  if (operation == update_client::kBsdiff) {
     patch_message.reset(new ChromeUtilityMsg_PatchFileBsdiff(
         input_abs_path, patch_abs_path, output_abs_path));
-  } else if (operation == kCourgette) {
+  } else if (operation == update_client::kCourgette) {
     patch_message.reset(new ChromeUtilityMsg_PatchFileCourgette(
         input_abs_path, patch_abs_path, output_abs_path));
   } else {

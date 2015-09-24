@@ -22,7 +22,7 @@
 #ifndef ElementRareData_h
 #define ElementRareData_h
 
-#include "core/animation/ActiveAnimations.h"
+#include "core/animation/ElementAnimations.h"
 #include "core/dom/Attr.h"
 #include "core/dom/DatasetDOMStringMap.h"
 #include "core/dom/NamedNodeMap.h"
@@ -31,8 +31,7 @@
 #include "core/dom/custom/CustomElementDefinition.h"
 #include "core/dom/shadow/ElementShadow.h"
 #include "core/html/ClassList.h"
-#include "core/html/ime/InputMethodContext.h"
-#include "core/rendering/style/StyleInheritedData.h"
+#include "core/style/StyleInheritedData.h"
 #include "platform/heap/Handle.h"
 #include "wtf/OwnPtr.h"
 
@@ -42,9 +41,9 @@ class HTMLElement;
 
 class ElementRareData : public NodeRareData {
 public:
-    static ElementRareData* create(RenderObject* renderer)
+    static ElementRareData* create(LayoutObject* layoutObject)
     {
-        return new ElementRareData(renderer);
+        return new ElementRareData(layoutObject);
     }
 
     ~ElementRareData();
@@ -80,8 +79,8 @@ public:
     NamedNodeMap* attributeMap() const { return m_attributeMap.get(); }
     void setAttributeMap(PassOwnPtrWillBeRawPtr<NamedNodeMap> attributeMap) { m_attributeMap = attributeMap; }
 
-    RenderStyle* computedStyle() const { return m_computedStyle.get(); }
-    void setComputedStyle(PassRefPtr<RenderStyle> computedStyle) { m_computedStyle = computedStyle; }
+    ComputedStyle* ensureComputedStyle() const { return m_computedStyle.get(); }
+    void setComputedStyle(PassRefPtr<ComputedStyle> computedStyle) { m_computedStyle = computedStyle; }
     void clearComputedStyle() { m_computedStyle = nullptr; }
 
     ClassList* classList() const { return m_classList.get(); }
@@ -102,34 +101,37 @@ public:
     IntSize savedLayerScrollOffset() const { return m_savedLayerScrollOffset; }
     void setSavedLayerScrollOffset(IntSize size) { m_savedLayerScrollOffset = size; }
 
-    ActiveAnimations* activeAnimations() { return m_activeAnimations.get(); }
-    void setActiveAnimations(PassOwnPtrWillBeRawPtr<ActiveAnimations> activeAnimations)
+    ElementAnimations* elementAnimations() { return m_elementAnimations.get(); }
+    void setElementAnimations(PassOwnPtrWillBeRawPtr<ElementAnimations> elementAnimations)
     {
-        m_activeAnimations = activeAnimations;
-    }
-
-    bool hasInputMethodContext() const { return m_inputMethodContext; }
-    InputMethodContext& ensureInputMethodContext(HTMLElement* element)
-    {
-        if (!m_inputMethodContext)
-            m_inputMethodContext = InputMethodContext::create(element);
-        return *m_inputMethodContext;
+        m_elementAnimations = elementAnimations;
     }
 
     bool hasPseudoElements() const;
     void clearPseudoElements();
 
-    void setCustomElementDefinition(PassRefPtr<CustomElementDefinition> definition) { m_customElementDefinition = definition; }
+    uint32_t incrementProxyCount() { return ++m_proxyCount; }
+    uint32_t decrementProxyCount()
+    {
+        ASSERT(m_proxyCount);
+        return --m_proxyCount;
+    }
+    uint32_t proxyCount() const { return m_proxyCount; }
+
+    void setCustomElementDefinition(PassRefPtrWillBeRawPtr<CustomElementDefinition> definition) { m_customElementDefinition = definition; }
     CustomElementDefinition* customElementDefinition() const { return m_customElementDefinition.get(); }
 
-    WillBeHeapVector<RefPtrWillBeMember<Attr> >& ensureAttrNodeList();
-    WillBeHeapVector<RefPtrWillBeMember<Attr> >* attrNodeList() { return m_attrNodeList.get(); }
+    AttrNodeList& ensureAttrNodeList();
+    AttrNodeList* attrNodeList() { return m_attrNodeList.get(); }
     void removeAttrNodeList() { m_attrNodeList.clear(); }
 
-    void traceAfterDispatch(Visitor*);
+    DECLARE_TRACE_AFTER_DISPATCH();
 
 private:
     short m_tabindex;
+    // As m_proxyCount usually doesn't exceed 10bits (1024), if you want to add some booleans you
+    // can steal some bits from m_proxyCount by using bitfields to prevent ElementRareData bloat.
+    unsigned short m_proxyCount;
 
     LayoutSize m_minimumSizeForResizing;
     IntSize m_savedLayerScrollOffset;
@@ -138,29 +140,30 @@ private:
     OwnPtrWillBeMember<ClassList> m_classList;
     OwnPtrWillBeMember<ElementShadow> m_shadow;
     OwnPtrWillBeMember<NamedNodeMap> m_attributeMap;
-    OwnPtrWillBeMember<WillBeHeapVector<RefPtrWillBeMember<Attr> > > m_attrNodeList;
-    OwnPtrWillBeMember<InputMethodContext> m_inputMethodContext;
-    OwnPtrWillBeMember<ActiveAnimations> m_activeAnimations;
+    OwnPtrWillBeMember<AttrNodeList> m_attrNodeList;
+    OwnPtrWillBeMember<ElementAnimations> m_elementAnimations;
     OwnPtrWillBeMember<InlineCSSStyleDeclaration> m_cssomWrapper;
 
-    RefPtr<RenderStyle> m_computedStyle;
-    RefPtr<CustomElementDefinition> m_customElementDefinition;
+    RefPtr<ComputedStyle> m_computedStyle;
+    RefPtrWillBeMember<CustomElementDefinition> m_customElementDefinition;
 
     RefPtrWillBeMember<PseudoElement> m_generatedBefore;
     RefPtrWillBeMember<PseudoElement> m_generatedAfter;
+    RefPtrWillBeMember<PseudoElement> m_generatedFirstLetter;
     RefPtrWillBeMember<PseudoElement> m_backdrop;
 
-    explicit ElementRareData(RenderObject*);
+    explicit ElementRareData(LayoutObject*);
 };
 
-inline IntSize defaultMinimumSizeForResizing()
+inline LayoutSize defaultMinimumSizeForResizing()
 {
-    return IntSize(LayoutUnit::max(), LayoutUnit::max());
+    return LayoutSize(LayoutUnit::max(), LayoutUnit::max());
 }
 
-inline ElementRareData::ElementRareData(RenderObject* renderer)
-    : NodeRareData(renderer)
+inline ElementRareData::ElementRareData(LayoutObject* layoutObject)
+    : NodeRareData(layoutObject)
     , m_tabindex(0)
+    , m_proxyCount(0)
     , m_minimumSizeForResizing(defaultMinimumSizeForResizing())
 {
     m_isElementRareData = true;
@@ -173,12 +176,13 @@ inline ElementRareData::~ElementRareData()
 #endif
     ASSERT(!m_generatedBefore);
     ASSERT(!m_generatedAfter);
+    ASSERT(!m_generatedFirstLetter);
     ASSERT(!m_backdrop);
 }
 
 inline bool ElementRareData::hasPseudoElements() const
 {
-    return m_generatedBefore || m_generatedAfter || m_backdrop;
+    return m_generatedBefore || m_generatedAfter || m_backdrop || m_generatedFirstLetter;
 }
 
 inline void ElementRareData::clearPseudoElements()
@@ -186,6 +190,7 @@ inline void ElementRareData::clearPseudoElements()
     setPseudoElement(BEFORE, nullptr);
     setPseudoElement(AFTER, nullptr);
     setPseudoElement(BACKDROP, nullptr);
+    setPseudoElement(FIRST_LETTER, nullptr);
 }
 
 inline void ElementRareData::setPseudoElement(PseudoId pseudoId, PassRefPtrWillBeRawPtr<PseudoElement> element)
@@ -206,6 +211,11 @@ inline void ElementRareData::setPseudoElement(PseudoId pseudoId, PassRefPtrWillB
             m_backdrop->dispose();
         m_backdrop = element;
         break;
+    case FIRST_LETTER:
+        if (m_generatedFirstLetter)
+            m_generatedFirstLetter->dispose();
+        m_generatedFirstLetter = element;
+        break;
     default:
         ASSERT_NOT_REACHED();
     }
@@ -220,6 +230,8 @@ inline PseudoElement* ElementRareData::pseudoElement(PseudoId pseudoId) const
         return m_generatedAfter.get();
     case BACKDROP:
         return m_backdrop.get();
+    case FIRST_LETTER:
+        return m_generatedFirstLetter.get();
     default:
         return 0;
     }

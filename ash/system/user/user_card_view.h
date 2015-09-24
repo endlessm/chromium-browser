@@ -22,10 +22,10 @@ class UserCardView : public views::View {
                int multiprofile_index);
   ~UserCardView() override;
 
- private:
-  // Creates the content for the retail logged in mode.
-  void AddRetailModeUserContent();
+  // views::View overrides.
+  void GetAccessibleState(ui::AXViewState* state) override;
 
+ private:
   // Creates the content for the public mode.
   void AddPublicModeUserContent(int max_width);
 

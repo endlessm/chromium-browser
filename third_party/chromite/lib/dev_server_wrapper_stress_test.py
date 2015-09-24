@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2013 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -11,9 +10,9 @@ dev_server_wrapper. Even very rare hangs will cause significant build flake.
 
 from __future__ import print_function
 
-import logging
-
+from chromite.lib import cros_logging as logging
 from chromite.lib import dev_server_wrapper
+
 
 _ITERATIONS = 10000
 

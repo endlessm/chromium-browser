@@ -8,13 +8,22 @@
 #include "chrome/browser/browser_about_handler.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/testing_profile.h"
+#include "content/public/browser/navigation_controller.h"
+#include "content/public/browser/navigation_entry.h"
+#include "content/public/common/referrer.h"
 #include "content/public/test/test_browser_thread.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
 using content::BrowserThread;
+using content::NavigationController;
+using content::NavigationEntry;
+using content::Referrer;
 
-typedef testing::Test BrowserAboutHandlerTest;
+class BrowserAboutHandlerTest : public testing::Test {
+  content::TestBrowserThreadBundle thread_bundle_;
+};
 
 TEST_F(BrowserAboutHandlerTest, WillHandleBrowserAboutURL) {
   std::string chrome_prefix(content::kChromeUIScheme);
@@ -64,8 +73,6 @@ TEST_F(BrowserAboutHandlerTest, WillHandleBrowserAboutURL) {
         GURL(chrome_prefix + "host/path?query#ref"),
       }
   };
-  base::MessageLoopForUI message_loop;
-  content::TestBrowserThread ui_thread(BrowserThread::UI, &message_loop);
   TestingProfile profile;
 
   for (size_t i = 0; i < arraysize(test_data); ++i) {
@@ -73,4 +80,25 @@ TEST_F(BrowserAboutHandlerTest, WillHandleBrowserAboutURL) {
     WillHandleBrowserAboutURL(&url, &profile);
     EXPECT_EQ(test_data[i].result_url, url);
   }
+}
+
+// Ensure that minor BrowserAboutHandler fixup to a URL does not cause us to
+// keep a separate virtual URL, which would not be updated on redirects.
+// See https://crbug.com/449829.
+TEST_F(BrowserAboutHandlerTest, NoVirtualURLForFixup) {
+  GURL url("view-source:http://.foo");
+
+  // Fixup will remove the dot and add a slash.
+  GURL fixed_url("view-source:http://foo/");
+
+  // Rewriters will remove the view-source prefix and expect it to stay in the
+  // virtual URL.
+  GURL rewritten_url("http://foo/");
+
+  TestingProfile profile;
+  scoped_ptr<NavigationEntry> entry(NavigationController::CreateNavigationEntry(
+      url, Referrer(), ui::PAGE_TRANSITION_RELOAD, false, std::string(),
+      &profile));
+  EXPECT_EQ(fixed_url, entry->GetVirtualURL());
+  EXPECT_EQ(rewritten_url, entry->GetURL());
 }

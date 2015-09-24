@@ -27,8 +27,8 @@
 #include "native_client/src/include/elf_auxv.h"
 #include "native_client/src/include/nacl/nacl_exception.h"
 #include "native_client/src/include/nacl_macros.h"
-#include "native_client/src/nonsfi/linux/irt_exception_handling.h"
 #include "native_client/src/public/irt_core.h"
+#include "native_client/src/public/nonsfi/irt_exception_handling.h"
 #include "native_client/src/trusted/service_runtime/include/machine/_types.h"
 #include "native_client/src/trusted/service_runtime/include/sys/mman.h"
 #include "native_client/src/trusted/service_runtime/include/sys/stat.h"
@@ -37,6 +37,15 @@
 #include "native_client/src/untrusted/irt/irt.h"
 #include "native_client/src/untrusted/irt/irt_dev.h"
 #include "native_client/src/untrusted/irt/irt_interfaces.h"
+#include "native_client/src/untrusted/nacl/nacl_random.h"
+
+#if defined(__native_client__) && defined(__arm__)
+#include "native_client/src/nonsfi/irt/irt_icache.h"
+#endif
+
+#if defined(__native_client__)
+# include "native_client/src/nonsfi/linux/linux_pthread_private.h"
+#endif
 
 /*
  * This is an implementation of NaCl's IRT interfaces that runs
@@ -349,6 +358,19 @@ static void *start_thread(void *arg) {
 
 static int thread_create(void (*start_func)(void), void *stack,
                          void *thread_ptr) {
+#if defined(__native_client__)
+  struct thread_args *args = malloc(sizeof(struct thread_args));
+  if (args == NULL) {
+    return ENOMEM;
+  }
+  args->start_func = start_func;
+  args->thread_ptr = thread_ptr;
+  /* In Linux, it is possible to use the provided stack directly. */
+  int error = nacl_user_thread_create(start_thread, stack, args);
+  if (error != 0)
+    free(args);
+  return error;
+#else
   /*
    * For now, we ignore the stack that user code provides and just use
    * the stack that the host libpthread allocates.
@@ -374,11 +396,16 @@ static int thread_create(void (*start_func)(void), void *stack,
  cleanup:
   pthread_attr_destroy(&attr);
   return error;
+#endif
 }
 
 static void thread_exit(int32_t *stack_flag) {
+#if defined(__native_client__)
+  nacl_user_thread_exit(stack_flag);
+#else
   *stack_flag = 0;  /* Indicate that the user code's stack can be freed. */
   pthread_exit(NULL);
+#endif
 }
 
 static int thread_nice(const int nice) {
@@ -599,6 +626,10 @@ const struct nacl_irt_futex nacl_irt_futex = {
 };
 #endif
 
+const struct nacl_irt_random nacl_irt_random = {
+  nacl_secure_random,
+};
+
 #if defined(__linux__) || defined(__native_client__)
 const struct nacl_irt_clock nacl_irt_clock = {
   irt_clock_getres,
@@ -643,6 +674,22 @@ const struct nacl_irt_exception_handling nacl_irt_exception_handling = {
 };
 #endif
 
+#if defined(__native_client__) && defined(__arm__)
+const struct nacl_irt_icache nacl_irt_icache = {
+  irt_clear_cache,
+};
+#endif
+
+static int g_allow_dev_interfaces = 0;
+
+void nacl_irt_nonsfi_allow_dev_interfaces() {
+  g_allow_dev_interfaces = 1;
+}
+
+static int irt_dev_filter(void) {
+  return g_allow_dev_interfaces;
+}
+
 static const struct nacl_irt_interface irt_interfaces[] = {
   { NACL_IRT_BASIC_v0_1, &nacl_irt_basic, sizeof(nacl_irt_basic), NULL },
   { NACL_IRT_FDIO_v0_1, &nacl_irt_fdio, sizeof(nacl_irt_fdio), NULL },
@@ -650,16 +697,20 @@ static const struct nacl_irt_interface irt_interfaces[] = {
   { NACL_IRT_TLS_v0_1, &nacl_irt_tls, sizeof(nacl_irt_tls), NULL },
   { NACL_IRT_THREAD_v0_1, &nacl_irt_thread, sizeof(nacl_irt_thread), NULL },
   { NACL_IRT_FUTEX_v0_1, &nacl_irt_futex, sizeof(nacl_irt_futex), NULL },
+  { NACL_IRT_RANDOM_v0_1, &nacl_irt_random, sizeof(nacl_irt_random), NULL },
 #if defined(__linux__) || defined(__native_client__)
   { NACL_IRT_CLOCK_v0_1, &nacl_irt_clock, sizeof(nacl_irt_clock), NULL },
 #endif
   { NACL_IRT_DEV_FILENAME_v0_3, &nacl_irt_dev_filename,
-    sizeof(nacl_irt_dev_filename), NULL },
+    sizeof(nacl_irt_dev_filename), irt_dev_filter },
   { NACL_IRT_DEV_GETPID_v0_1, &nacl_irt_dev_getpid,
-    sizeof(nacl_irt_dev_getpid), NULL },
+    sizeof(nacl_irt_dev_getpid), irt_dev_filter },
 #if defined(__native_client__)
   { NACL_IRT_EXCEPTION_HANDLING_v0_1, &nacl_irt_exception_handling,
-    sizeof(nacl_irt_exception_handling), NULL},
+    sizeof(nacl_irt_exception_handling), NULL },
+#endif
+#if defined(__native_client__) && defined(__arm__)
+  { NACL_IRT_ICACHE_v0_1, &nacl_irt_icache, sizeof(nacl_irt_icache), NULL },
 #endif
 };
 
@@ -713,6 +764,7 @@ int nacl_irt_nonsfi_entry(int argc, char **argv, char **environ,
 
 #if defined(DEFINE_MAIN)
 int main(int argc, char **argv, char **environ) {
+  nacl_irt_nonsfi_allow_dev_interfaces();
   /*
    * On Linux, we rename _start() to _user_start() to avoid a clash
    * with the "_start" routine in the host toolchain.  On Mac OS X,

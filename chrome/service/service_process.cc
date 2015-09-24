@@ -11,11 +11,14 @@
 #include "base/command_line.h"
 #include "base/environment.h"
 #include "base/i18n/rtl.h"
+#include "base/location.h"
 #include "base/memory/singleton.h"
 #include "base/path_service.h"
 #include "base/prefs/json_pref_store.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
@@ -47,10 +50,6 @@ namespace {
 // a shutdown.
 const int kShutdownDelaySeconds = 60;
 
-// Delay in hours between launching a browser process to check the
-// policy for us.
-const int64 kPolicyCheckDelayHours = 8;
-
 const char kDefaultServiceProcessLocale[] = "en-US";
 
 class ServiceIOThread : public base::Thread {
@@ -79,7 +78,7 @@ void ServiceIOThread::CleanUp() {
 // environment block so they are accessible in the early stages of the
 // chrome executable's lifetime.
 void PrepareRestartOnCrashEnviroment(
-    const CommandLine &parsed_command_line) {
+    const base::CommandLine& parsed_command_line) {
   scoped_ptr<base::Environment> env(base::Environment::Create());
   // Clear this var so child processes don't show the dialog by default.
   env->UnSetVar(env_vars::kShowRestart);
@@ -123,7 +122,7 @@ ServiceProcess::ServiceProcess()
 }
 
 bool ServiceProcess::Initialize(base::MessageLoopForUI* message_loop,
-                                const CommandLine& command_line,
+                                const base::CommandLine& command_line,
                                 ServiceProcessState* state) {
 #if defined(USE_GLIB)
   // g_type_init has been deprecated since version 2.35.
@@ -197,7 +196,7 @@ bool ServiceProcess::Initialize(base::MessageLoopForUI* message_loop,
   // After the IPC server has started we signal that the service process is
   // ready.
   if (!service_process_state_->SignalReady(
-          io_thread_->message_loop_proxy().get(),
+          io_thread_->task_runner().get(),
           base::Bind(&ServiceProcess::Terminate, base::Unretained(this)))) {
     return false;
   }
@@ -205,9 +204,6 @@ bool ServiceProcess::Initialize(base::MessageLoopForUI* message_loop,
   // See if we need to stay running.
   ScheduleShutdownCheck();
 
-  // Occasionally check to see if we need to launch the browser to get the
-  // policy state information.
-  CloudPrintPolicyCheckIfNeeded();
   return true;
 }
 
@@ -260,7 +256,8 @@ void ServiceProcess::Shutdown() {
 }
 
 void ServiceProcess::Terminate() {
-  main_message_loop_->PostTask(FROM_HERE, base::MessageLoop::QuitClosure());
+  main_message_loop_->task_runner()->PostTask(FROM_HERE,
+                                              base::MessageLoop::QuitClosure());
 }
 
 bool ServiceProcess::HandleClientDisconnect() {
@@ -309,7 +306,7 @@ ServiceProcess::GetServiceURLRequestContextGetter() {
 void ServiceProcess::OnServiceEnabled() {
   enabled_services_++;
   if ((1 == enabled_services_) &&
-      !CommandLine::ForCurrentProcess()->HasSwitch(
+      !base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kNoServiceAutorun)) {
     if (!service_process_state_->AddToAutoRun()) {
       // TODO(scottbyer/sanjeevr/dmaclach): Handle error condition
@@ -332,7 +329,7 @@ void ServiceProcess::OnServiceDisabled() {
 }
 
 void ServiceProcess::ScheduleShutdownCheck() {
-  base::MessageLoop::current()->PostDelayedTask(
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
       base::Bind(&ServiceProcess::ShutdownIfNeeded, base::Unretained(this)),
       base::TimeDelta::FromSeconds(kShutdownDelaySeconds));
@@ -350,21 +347,6 @@ void ServiceProcess::ShutdownIfNeeded() {
       Shutdown();
     }
   }
-}
-
-void ServiceProcess::ScheduleCloudPrintPolicyCheck() {
-  base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::Bind(&ServiceProcess::CloudPrintPolicyCheckIfNeeded,
-                 base::Unretained(this)),
-      base::TimeDelta::FromHours(kPolicyCheckDelayHours));
-}
-
-void ServiceProcess::CloudPrintPolicyCheckIfNeeded() {
-  if (enabled_services_ && !ipc_server_->is_client_connected()) {
-    GetCloudPrintProxy()->CheckCloudPrintProxyPolicy();
-  }
-  ScheduleCloudPrintPolicyCheck();
 }
 
 ServiceProcess::~ServiceProcess() {

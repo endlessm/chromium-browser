@@ -37,13 +37,16 @@ PLATFORM_EXPORT extern const char errorDomainBlinkInternal[]; // Used for errors
 class PLATFORM_EXPORT ResourceError {
 public:
     static ResourceError cancelledError(const String& failingURL);
+    static ResourceError cancelledDueToAccessCheckError(const String& failingURL);
 
     ResourceError()
         : m_errorCode(0)
         , m_isNull(true)
         , m_isCancellation(false)
+        , m_isAccessCheck(false)
         , m_isTimeout(false)
         , m_staleCopyInCache(false)
+        , m_wasIgnoredByHandler(false)
     {
     }
 
@@ -54,8 +57,10 @@ public:
         , m_localizedDescription(localizedDescription)
         , m_isNull(false)
         , m_isCancellation(false)
+        , m_isAccessCheck(false)
         , m_isTimeout(false)
         , m_staleCopyInCache(false)
+        , m_wasIgnoredByHandler(false)
     {
     }
 
@@ -72,10 +77,16 @@ public:
     void setIsCancellation(bool isCancellation) { m_isCancellation = isCancellation; }
     bool isCancellation() const { return m_isCancellation; }
 
+    void setIsAccessCheck(bool isAccessCheck) { m_isAccessCheck = isAccessCheck; }
+    bool isAccessCheck() const { return m_isAccessCheck; }
+
     void setIsTimeout(bool isTimeout) { m_isTimeout = isTimeout; }
     bool isTimeout() const { return m_isTimeout; }
     void setStaleCopyInCache(bool staleCopyInCache) { m_staleCopyInCache = staleCopyInCache; }
     bool staleCopyInCache() const { return m_staleCopyInCache; }
+
+    void setWasIgnoredByHandler(bool ignoredByHandler) { m_wasIgnoredByHandler = ignoredByHandler; }
+    bool wasIgnoredByHandler() const { return m_wasIgnoredByHandler; }
 
     static bool compare(const ResourceError&, const ResourceError&);
 
@@ -86,8 +97,10 @@ private:
     String m_localizedDescription;
     bool m_isNull;
     bool m_isCancellation;
+    bool m_isAccessCheck;
     bool m_isTimeout;
     bool m_staleCopyInCache;
+    bool m_wasIgnoredByHandler;
 };
 
 inline bool operator==(const ResourceError& a, const ResourceError& b) { return ResourceError::compare(a, b); }

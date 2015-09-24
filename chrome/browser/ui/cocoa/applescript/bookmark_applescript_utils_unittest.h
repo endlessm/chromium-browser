@@ -14,8 +14,6 @@
 #include "chrome/browser/ui/cocoa/cocoa_profile_test.h"
 #include "testing/platform_test.h"
 
-class BookmarkModel;
-
 // The fake object that acts as our app's delegate, useful for testing purposes.
 @interface FakeAppDelegate : AppController {
  @public
@@ -39,8 +37,9 @@ class BookmarkModel;
 class BookmarkAppleScriptTest : public CocoaProfileTest {
  public:
   BookmarkAppleScriptTest();
-  virtual ~BookmarkAppleScriptTest();
-  virtual void SetUp() override;
+  ~BookmarkAppleScriptTest() override;
+  void SetUp() override;
+
  private:
   base::scoped_nsobject<FakeAppDelegate> appDelegate_;
 

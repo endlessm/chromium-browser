@@ -4,11 +4,6 @@
 
 #include "components/crash/app/hard_error_handler_win.h"
 
-#if defined(_WIN32_WINNT_WIN8) && _MSC_VER < 1700
-// The Windows 8 SDK defines FACILITY_VISUALCPP in winerror.h, and in
-// delayimp.h previous to VS2012.
-#undef FACILITY_VISUALCPP
-#endif
 #include <DelayIMP.h>
 #include <winternl.h>
 
@@ -60,7 +55,8 @@ void RaiseHardErrorMsg(long nt_status, const std::string& p1,
     return;
   count += p1.size() + p2.size() + 1;
   base::string16 message;
-  ::wsprintf(WriteInto(&message, count), msg_template, p1.c_str(), p2.c_str());
+  ::wsprintf(base::WriteInto(&message, count), msg_template,
+             p1.c_str(), p2.c_str());
   // The MB_SERVICE_NOTIFICATION causes this message to be displayed by
   // csrss. This means that we are not creating windows or pumping WM messages
   // in this process.
@@ -107,12 +103,8 @@ bool HardErrorHandler(EXCEPTION_POINTERS* ex_info) {
     EntryPointNotFoundHardError(ex_info->ExceptionRecord);
     return true;
   } else if (FacilityFromException(exception) == FACILITY_GRAPHICS_KERNEL) {
-#if defined(USE_AURA)
     RaiseHardErrorMsg(exception, std::string(), std::string());
     return true;
-#else
-    return false;
-#endif
   }
   return false;
 }

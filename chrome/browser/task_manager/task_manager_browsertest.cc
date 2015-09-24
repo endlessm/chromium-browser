@@ -6,6 +6,7 @@
 
 #include "base/files/file_path.h"
 #include "base/strings/stringprintf.h"
+#include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/devtools/devtools_window_testing.h"
@@ -35,8 +36,11 @@
 #include "components/infobars/core/confirm_infobar_delegate.h"
 #include "components/infobars/core/infobar.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/browser/page_navigator.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
+#include "content/public/test/content_browser_test_utils.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/extension.h"
 #include "net/dns/mock_host_resolver.h"
@@ -49,11 +53,16 @@ using content::WebContents;
 using task_manager::browsertest_util::MatchAboutBlankTab;
 using task_manager::browsertest_util::MatchAnyApp;
 using task_manager::browsertest_util::MatchAnyExtension;
+using task_manager::browsertest_util::MatchAnySubframe;
 using task_manager::browsertest_util::MatchAnyTab;
+using task_manager::browsertest_util::MatchAnyUtility;
 using task_manager::browsertest_util::MatchApp;
 using task_manager::browsertest_util::MatchExtension;
+using task_manager::browsertest_util::MatchSubframe;
 using task_manager::browsertest_util::MatchTab;
+using task_manager::browsertest_util::MatchUtility;
 using task_manager::browsertest_util::WaitForTaskManagerRows;
+using task_manager::browsertest_util::WaitForTaskManagerStatToExceed;
 
 namespace {
 
@@ -76,6 +85,13 @@ class TaskManagerBrowserTest : public ExtensionBrowserTest {
     // Show the task manager. This populates the model, and helps with debugging
     // (you see the task manager).
     chrome::ShowTaskManager(browser());
+  }
+
+  void HideTaskManager() {
+    // Hide the task manager, and wait for the model to be depopulated.
+    chrome::HideTaskManager();
+    base::RunLoop().RunUntilIdle();  // OnWindowClosed happens asynchronously.
+    EXPECT_EQ(0, model()->ResourceCount());
   }
 
   void Refresh() {
@@ -101,7 +117,7 @@ class TaskManagerBrowserTest : public ExtensionBrowserTest {
   }
 
  protected:
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionBrowserTest::SetUpCommandLine(command_line);
 
     // Do not launch device discovery process.
@@ -111,6 +127,51 @@ class TaskManagerBrowserTest : public ExtensionBrowserTest {
  private:
   DISALLOW_COPY_AND_ASSIGN(TaskManagerBrowserTest);
 };
+
+class TaskManagerUtilityProcessBrowserTest : public TaskManagerBrowserTest {
+ public:
+  TaskManagerUtilityProcessBrowserTest() {}
+
+ protected:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    TaskManagerBrowserTest::SetUpCommandLine(command_line);
+
+    // Enable out-of-process proxy resolver. Use a trivial PAC script to ensure
+    // that some javascript is being executed.
+    command_line->AppendSwitch(switches::kV8PacMojoOutOfProcess);
+    command_line->AppendSwitchASCII(
+        switches::kProxyPacUrl,
+        "data:,function FindProxyForURL(url, host){return \"DIRECT;\";}");
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(TaskManagerUtilityProcessBrowserTest);
+};
+
+// Parameterized variant of TaskManagerBrowserTest which runs with/without
+// --site-per-process, which enables out of process iframes (OOPIFs).
+class TaskManagerOOPIFBrowserTest : public TaskManagerBrowserTest,
+                                    public testing::WithParamInterface<bool> {
+ public:
+  TaskManagerOOPIFBrowserTest() {}
+
+ protected:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    TaskManagerBrowserTest::SetUpCommandLine(command_line);
+    if (GetParam())
+      command_line->AppendSwitch(switches::kSitePerProcess);
+  }
+
+  bool ShouldExpectSubframes() {
+    return base::CommandLine::ForCurrentProcess()->HasSwitch(
+        switches::kSitePerProcess);
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(TaskManagerOOPIFBrowserTest);
+};
+
+INSTANTIATE_TEST_CASE_P(, TaskManagerOOPIFBrowserTest, ::testing::Bool());
 
 #if defined(OS_MACOSX) || defined(OS_LINUX)
 #define MAYBE_ShutdownWhileOpen DISABLED_ShutdownWhileOpen
@@ -167,6 +228,59 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, KillTab) {
   chrome::Reload(browser(), CURRENT_TAB);
   ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchTab("title1.html")));
   ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(2, MatchAnyTab()));
+}
+
+// Test for http://crbug.com/444945, which is not fixed yet.
+IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest,
+                       DISABLED_NavigateAwayFromHungRenderer) {
+  host_resolver()->AddRule("*", "127.0.0.1");
+  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  ShowTaskManager();
+
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAboutBlankTab()));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAnyTab()));
+
+  GURL url1(embedded_test_server()->GetURL("/title2.html"));
+  GURL url3(embedded_test_server()->GetURL("a.com", "/iframe.html"));
+
+  // Open a new tab and make sure the task manager notices it.
+  AddTabAtIndex(0, url1, ui::PAGE_TRANSITION_TYPED);
+  ASSERT_NO_FATAL_FAILURE(
+      WaitForTaskManagerRows(1, MatchTab("Title Of Awesomeness")));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAboutBlankTab()));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(2, MatchAnyTab()));
+  WebContents* tab1 = browser()->tab_strip_model()->GetActiveWebContents();
+
+  // Initiate a navigation that will create a new WebContents in the same
+  // SiteInstace...
+  content::WebContentsAddedObserver web_contents_added_observer;
+  tab1->GetMainFrame()->ExecuteJavaScriptWithUserGestureForTests(
+      base::ASCIIToUTF16("window.open('title3.html', '_blank');"));
+  // ... then immediately hang the renderer so that title3.html can't load.
+  tab1->GetMainFrame()->ExecuteJavaScript(base::ASCIIToUTF16("while(1);"));
+
+  // Blocks until a new WebContents appears.
+  WebContents* tab2 = web_contents_added_observer.GetWebContents();
+
+  // Make sure the new WebContents is in tab1's hung renderer process.
+  ASSERT_NE(nullptr, tab2);
+  ASSERT_NE(tab1, tab2);
+  ASSERT_EQ(tab1->GetMainFrame()->GetProcess(),
+            tab2->GetMainFrame()->GetProcess())
+      << "New WebContents must be in the same process as the old WebContents, "
+      << "so that the new tab doesn't finish loading (what this test is all "
+      << "about)";
+  ASSERT_EQ(tab1->GetSiteInstance(), tab2->GetSiteInstance())
+      << "New WebContents must initially be in the same site instance as the "
+      << "old WebContents";
+
+  // Now navigate this tab to a different site. This should wind up in a
+  // different renderer process, so it should complete and show up in the task
+  // manager.
+  tab2->OpenURL(content::OpenURLParams(url3, content::Referrer(), CURRENT_TAB,
+                                       ui::PAGE_TRANSITION_TYPED, false));
+
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchTab("iframe test")));
 }
 
 IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticePanel) {
@@ -515,8 +629,7 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeHostedAppTabChanges) {
   host_resolver()->AddRule("*", "127.0.0.1");
   ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
   GURL::Replacements replace_host;
-  std::string host_str("localhost");  // must stay in scope with replace_host
-  replace_host.SetHostStr(host_str);
+  replace_host.SetHostStr("localhost");
   GURL base_url = embedded_test_server()->GetURL(
       "/extensions/api_test/app_process/");
   base_url = base_url.ReplaceComponents(replace_host);
@@ -580,8 +693,7 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeHostedAppTabAfterReload) {
   host_resolver()->AddRule("*", "127.0.0.1");
   ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
   GURL::Replacements replace_host;
-  std::string host_str("localhost");  // must stay in scope with replace_host
-  replace_host.SetHostStr(host_str);
+  replace_host.SetHostStr("localhost");
   GURL base_url =
       embedded_test_server()->GetURL("/extensions/api_test/app_process/");
   base_url = base_url.ReplaceComponents(replace_host);
@@ -616,8 +728,7 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeHostedAppTabBeforeReload) {
   host_resolver()->AddRule("*", "127.0.0.1");
   ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
   GURL::Replacements replace_host;
-  std::string host_str("localhost");  // must stay in scope with replace_host
-  replace_host.SetHostStr(host_str);
+  replace_host.SetHostStr("localhost");
   GURL base_url =
       embedded_test_server()->GetURL("/extensions/api_test/app_process/");
   base_url = base_url.ReplaceComponents(replace_host);
@@ -690,41 +801,89 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest,
 
 // Checks that task manager counts a worker thread JS heap size.
 // http://crbug.com/241066
-// Flaky, http://crbug.com/259368
-IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, DISABLED_WebWorkerJSHeapMemory) {
+IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, WebWorkerJSHeapMemory) {
+  ShowTaskManager();
   ui_test_utils::NavigateToURL(browser(), GetTestURL());
-  const int extra_timeout_ms = 500;
-  size_t minimal_heap_size = 2 * 1024 * 1024 * sizeof(void*);
+  size_t minimal_heap_size = 4 * 1024 * 1024 * sizeof(void*);
   std::string test_js = base::StringPrintf(
       "var blob = new Blob([\n"
       "    'mem = new Array(%lu);',\n"
-      "    'for (var i = 0; i < mem.length; i += 16) mem[i] = i;',\n"
-      "    'postMessage();']);\n"
+      "    'for (var i = 0; i < mem.length; i += 16)',"
+      "    '  mem[i] = i;',\n"
+      "    'postMessage(\"okay\");']);\n"
       "blobURL = window.URL.createObjectURL(blob);\n"
-      "worker = new Worker(blobURL);\n"
-      "// Give the task manager few seconds to poll for JS heap sizes.\n"
-      "worker.onmessage = setTimeout.bind(\n"
-      "    this,\n"
-      "    function () { window.domAutomationController.send(true); },\n"
-      "    %d);\n"
-      "worker.postMessage();\n",
-      static_cast<unsigned long>(minimal_heap_size),
-      GetUpdateTimeMs() + extra_timeout_ms);
-  bool ok;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
+      "var worker = new Worker(blobURL);\n"
+      "worker.addEventListener('message', function(e) {\n"
+      "  window.domAutomationController.send(e.data);\n"  // e.data == "okay"
+      "});\n"
+      "worker.postMessage('go');\n",
+      static_cast<unsigned long>(minimal_heap_size));
+  std::string ok;
+  ASSERT_TRUE(content::ExecuteScriptAndExtractString(
       browser()->tab_strip_model()->GetActiveWebContents(), test_js, &ok));
-  ASSERT_TRUE(ok);
+  ASSERT_EQ("okay", ok);
 
-  int resource_index = TaskManager::GetInstance()->model()->ResourceCount() - 1;
-  size_t result;
+  // The worker has allocated objects of at least |minimal_heap_size| bytes.
+  // Wait for the heap stats to reflect this.
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerStatToExceed(
+      MatchTab("title1.html"), task_manager::browsertest_util::V8_MEMORY,
+      minimal_heap_size));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerStatToExceed(
+      MatchTab("title1.html"), task_manager::browsertest_util::V8_MEMORY_USED,
+      minimal_heap_size));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAnyTab()));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchTab("title1.html")));
+}
 
-  ASSERT_TRUE(model()->GetV8Memory(resource_index, &result));
-  LOG(INFO) << "Got V8 Heap Size " << result << " bytes";
-  EXPECT_GE(result, minimal_heap_size);
+// Checks that task manager counts renderer JS heap size.
+IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, JSHeapMemory) {
+  ShowTaskManager();
+  ui_test_utils::NavigateToURL(browser(), GetTestURL());
+  size_t minimal_heap_size = 4 * 1024 * 1024 * sizeof(void*);
+  std::string test_js = base::StringPrintf(
+      "mem = new Array(%lu);\n"
+      "for (var i = 0; i < mem.length; i += 16)\n"
+      "  mem[i] = i;\n"
+      "window.domAutomationController.send(\"okay\");\n",
+      static_cast<unsigned long>(minimal_heap_size));
+  std::string ok;
+  ASSERT_TRUE(content::ExecuteScriptAndExtractString(
+      browser()->tab_strip_model()->GetActiveWebContents(), test_js, &ok));
+  ASSERT_EQ("okay", ok);
 
-  ASSERT_TRUE(model()->GetV8MemoryUsed(resource_index, &result));
-  LOG(INFO) << "Got V8 Used Heap Size " << result << " bytes";
-  EXPECT_GE(result, minimal_heap_size);
+  // The page's js has allocated objects of at least |minimal_heap_size| bytes.
+  // Wait for the heap stats to reflect this.
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerStatToExceed(
+      MatchTab("title1.html"), task_manager::browsertest_util::V8_MEMORY,
+      minimal_heap_size));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerStatToExceed(
+      MatchTab("title1.html"), task_manager::browsertest_util::V8_MEMORY_USED,
+      minimal_heap_size));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAnyTab()));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchTab("title1.html")));
+}
+
+// Checks that task manager counts utility process JS heap size.
+IN_PROC_BROWSER_TEST_F(TaskManagerUtilityProcessBrowserTest,
+                       UtilityJSHeapMemory) {
+  ShowTaskManager();
+  ui_test_utils::NavigateToURL(browser(), GetTestURL());
+  // The PAC script is trivial, so don't expect a large heap.
+  size_t minimal_heap_size = 1024;
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerStatToExceed(
+      MatchUtility(
+          l10n_util::GetStringUTF16(IDS_UTILITY_PROCESS_PROXY_RESOLVER_NAME)),
+      task_manager::browsertest_util::V8_MEMORY,
+      minimal_heap_size));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerStatToExceed(
+      MatchUtility(
+          l10n_util::GetStringUTF16(IDS_UTILITY_PROCESS_PROXY_RESOLVER_NAME)),
+      task_manager::browsertest_util::V8_MEMORY_USED,
+      minimal_heap_size));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAnyUtility()));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(
+      1, MatchUtility(l10n_util::GetStringUTF16(
+          IDS_UTILITY_PROCESS_PROXY_RESOLVER_NAME))));
 }
 
 IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, DevToolsNewDockedWindow) {
@@ -764,4 +923,292 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, DevToolsOldUnockedWindow) {
   ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(3, MatchAnyTab()));
   ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(3, MatchAnyTab()));
   DevToolsWindowTesting::CloseDevToolsWindowSync(devtools);
+}
+
+IN_PROC_BROWSER_TEST_P(TaskManagerOOPIFBrowserTest, KillSubframe) {
+  ShowTaskManager();
+
+  host_resolver()->AddRule("*", "127.0.0.1");
+  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  content::SetupCrossSiteRedirector(embedded_test_server());
+
+  GURL main_url(embedded_test_server()->GetURL(
+      "/cross-site/a.com/iframe_cross_site.html"));
+  browser()->OpenURL(content::OpenURLParams(main_url, content::Referrer(),
+                                            CURRENT_TAB,
+                                            ui::PAGE_TRANSITION_TYPED, false));
+
+  ASSERT_NO_FATAL_FAILURE(
+      WaitForTaskManagerRows(1, MatchTab("cross-site iframe test")));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAnyTab()));
+
+  if (!ShouldExpectSubframes()) {
+    ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(0, MatchAnySubframe()));
+  } else {
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(1, MatchSubframe("http://b.com/")));
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(1, MatchSubframe("http://c.com/")));
+    ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(2, MatchAnySubframe()));
+    int subframe_b = FindResourceIndex(MatchSubframe("http://b.com/"));
+    ASSERT_NE(-1, subframe_b);
+    ASSERT_TRUE(model()->GetResourceWebContents(subframe_b) != NULL);
+    ASSERT_TRUE(model()->CanActivate(subframe_b));
+
+    TaskManager::GetInstance()->KillProcess(subframe_b);
+
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(0, MatchSubframe("http://b.com/")));
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(1, MatchSubframe("http://c.com/")));
+    ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAnySubframe()));
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(1, MatchTab("cross-site iframe test")));
+  }
+
+  HideTaskManager();
+  ShowTaskManager();
+
+  if (!ShouldExpectSubframes()) {
+    ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(0, MatchAnySubframe()));
+  } else {
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(0, MatchSubframe("http://b.com/")));
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(1, MatchSubframe("http://c.com/")));
+    ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAnySubframe()));
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(1, MatchTab("cross-site iframe test")));
+  }
+}
+
+// Tests what happens when a tab navigates to a site (a.com) that it previously
+// has a cross-process subframe into (b.com).
+//
+// TODO(nick): http://crbug.com/442532. Disabled because the second navigation
+// hits an ASSERT(frame()) in WebLocalFrameImpl::loadRequest under --site-per-
+// process.
+IN_PROC_BROWSER_TEST_P(TaskManagerOOPIFBrowserTest,
+                       DISABLED_NavigateToSubframeProcess) {
+  ShowTaskManager();
+
+  host_resolver()->AddRule("*", "127.0.0.1");
+  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  content::SetupCrossSiteRedirector(embedded_test_server());
+
+  // Navigate the tab to a page on a.com with cross-process subframes to
+  // b.com and c.com.
+  GURL a_dotcom(embedded_test_server()->GetURL(
+      "/cross-site/a.com/iframe_cross_site.html"));
+  browser()->OpenURL(content::OpenURLParams(a_dotcom, content::Referrer(),
+                                            CURRENT_TAB,
+                                            ui::PAGE_TRANSITION_TYPED, false));
+
+  ASSERT_NO_FATAL_FAILURE(
+      WaitForTaskManagerRows(1, MatchTab("cross-site iframe test")));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAnyTab()));
+
+  if (!ShouldExpectSubframes()) {
+    ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(0, MatchAnySubframe()));
+  } else {
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(1, MatchSubframe("http://b.com/")));
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(1, MatchSubframe("http://c.com/")));
+    ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(2, MatchAnySubframe()));
+  }
+
+  // Now navigate to a page on b.com with a simple (same-site) iframe.
+  // This should not show any subframe resources in the task manager.
+  GURL b_dotcom(
+      embedded_test_server()->GetURL("/cross-site/b.com/iframe.html"));
+
+  browser()->OpenURL(content::OpenURLParams(b_dotcom, content::Referrer(),
+                                            CURRENT_TAB,
+                                            ui::PAGE_TRANSITION_TYPED, false));
+
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchTab("iframe test")));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAnyTab()));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(0, MatchAnySubframe()));
+  HideTaskManager();
+  ShowTaskManager();
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchTab("iframe test")));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAnyTab()));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(0, MatchAnySubframe()));
+}
+
+// TODO(nick): Fails flakily under OOPIF due to a ASSERT_NOT_REACHED in
+// WebRemoteFrame, at least under debug OSX. http://crbug.com/437956
+IN_PROC_BROWSER_TEST_P(TaskManagerOOPIFBrowserTest,
+                       DISABLED_NavigateToSiteWithSubframeToOriginalSite) {
+  ShowTaskManager();
+
+  host_resolver()->AddRule("*", "127.0.0.1");
+  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  content::SetupCrossSiteRedirector(embedded_test_server());
+
+  // Navigate to a page on b.com with a simple (same-site) iframe.
+  // This should not show any subframe resources in the task manager.
+  GURL b_dotcom(
+      embedded_test_server()->GetURL("/cross-site/b.com/iframe.html"));
+
+  browser()->OpenURL(content::OpenURLParams(b_dotcom, content::Referrer(),
+                                            CURRENT_TAB,
+                                            ui::PAGE_TRANSITION_TYPED, false));
+
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchTab("iframe test")));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAnyTab()));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(0, MatchAnySubframe()));
+
+  // Now navigate the tab to a page on a.com with cross-process subframes to
+  // b.com and c.com.
+  GURL a_dotcom(embedded_test_server()->GetURL(
+      "/cross-site/a.com/iframe_cross_site.html"));
+  browser()->OpenURL(content::OpenURLParams(a_dotcom, content::Referrer(),
+                                            CURRENT_TAB,
+                                            ui::PAGE_TRANSITION_TYPED, false));
+
+  ASSERT_NO_FATAL_FAILURE(
+      WaitForTaskManagerRows(1, MatchTab("cross-site iframe test")));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAnyTab()));
+
+  if (!ShouldExpectSubframes()) {
+    ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(0, MatchAnySubframe()));
+  } else {
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(1, MatchSubframe("http://b.com/")));
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(1, MatchSubframe("http://c.com/")));
+    ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(2, MatchAnySubframe()));
+  }
+
+  HideTaskManager();
+  ShowTaskManager();
+
+  if (!ShouldExpectSubframes()) {
+    ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(0, MatchAnySubframe()));
+  } else {
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(1, MatchSubframe("http://b.com/")));
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(1, MatchSubframe("http://c.com/")));
+    ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(2, MatchAnySubframe()));
+  }
+}
+
+// Tests what happens when a tab navigates a cross-frame iframe (to b.com)
+// back to the site of the parent document (a.com).
+IN_PROC_BROWSER_TEST_P(TaskManagerOOPIFBrowserTest,
+                       CrossSiteIframeBecomesSameSite) {
+  ShowTaskManager();
+
+  host_resolver()->AddRule("*", "127.0.0.1");
+  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  content::SetupCrossSiteRedirector(embedded_test_server());
+
+  // Navigate the tab to a page on a.com with cross-process subframes to
+  // b.com and c.com.
+  GURL a_dotcom(embedded_test_server()->GetURL(
+      "/cross-site/a.com/iframe_cross_site.html"));
+  browser()->OpenURL(content::OpenURLParams(a_dotcom, content::Referrer(),
+                                            CURRENT_TAB,
+                                            ui::PAGE_TRANSITION_TYPED, false));
+
+  ASSERT_NO_FATAL_FAILURE(
+      WaitForTaskManagerRows(1, MatchTab("cross-site iframe test")));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAnyTab()));
+
+  if (!ShouldExpectSubframes()) {
+    ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(0, MatchAnySubframe()));
+  } else {
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(1, MatchSubframe("http://b.com/")));
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(1, MatchSubframe("http://c.com/")));
+    ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(2, MatchAnySubframe()));
+  }
+
+  // Navigate the b.com frame back to a.com. It is no longer a cross-site iframe
+  ASSERT_TRUE(content::ExecuteScript(
+      browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame(),
+      "document.getElementById('frame1').src='/title1.html';"
+      "document.title='aac';"));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchTab("aac")));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAnyTab()));
+  if (!ShouldExpectSubframes()) {
+    ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(0, MatchAnySubframe()));
+  } else {
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(0, MatchSubframe("http://b.com/")));
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(1, MatchSubframe("http://c.com/")));
+    ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAnySubframe()));
+  }
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchTab("aac")));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAnyTab()));
+
+  HideTaskManager();
+  ShowTaskManager();
+
+  if (!ShouldExpectSubframes()) {
+    ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(0, MatchAnySubframe()));
+  } else {
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(0, MatchSubframe("http://b.com/")));
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(1, MatchSubframe("http://c.com/")));
+    ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAnySubframe()));
+  }
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchTab("aac")));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAnyTab()));
+}
+
+// Tests what happens when a tab does a same-site navigation away from a page
+// with cross-site iframes.
+IN_PROC_BROWSER_TEST_P(TaskManagerOOPIFBrowserTest,
+                       LeavePageWithCrossSiteIframes) {
+  ShowTaskManager();
+
+  host_resolver()->AddRule("*", "127.0.0.1");
+  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  content::SetupCrossSiteRedirector(embedded_test_server());
+
+  // Navigate the tab to a page on a.com with cross-process subframes.
+  GURL a_dotcom_with_iframes(embedded_test_server()->GetURL(
+      "/cross-site/a.com/iframe_cross_site.html"));
+  browser()->OpenURL(content::OpenURLParams(a_dotcom_with_iframes,
+                                            content::Referrer(), CURRENT_TAB,
+                                            ui::PAGE_TRANSITION_TYPED, false));
+
+  ASSERT_NO_FATAL_FAILURE(
+      WaitForTaskManagerRows(1, MatchTab("cross-site iframe test")));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, MatchAnyTab()));
+
+  if (!ShouldExpectSubframes()) {
+    ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(0, MatchAnySubframe()));
+  } else {
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(1, MatchSubframe("http://b.com/")));
+    ASSERT_NO_FATAL_FAILURE(
+        WaitForTaskManagerRows(1, MatchSubframe("http://c.com/")));
+    ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(2, MatchAnySubframe()));
+  }
+
+  // Navigate the tab to a page on a.com without cross-process subframes, and
+  // the subframe processes should disappear.
+  GURL a_dotcom_simple(
+      embedded_test_server()->GetURL("/cross-site/a.com/title2.html"));
+  browser()->OpenURL(content::OpenURLParams(a_dotcom_simple,
+                                            content::Referrer(), CURRENT_TAB,
+                                            ui::PAGE_TRANSITION_TYPED, false));
+  ASSERT_NO_FATAL_FAILURE(
+      WaitForTaskManagerRows(1, MatchTab("Title Of Awesomeness")));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(0, MatchAnySubframe()));
+
+  HideTaskManager();
+  ShowTaskManager();
+
+  ASSERT_NO_FATAL_FAILURE(
+      WaitForTaskManagerRows(1, MatchTab("Title Of Awesomeness")));
+  ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(0, MatchAnySubframe()));
 }

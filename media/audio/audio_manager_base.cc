@@ -7,7 +7,9 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "media/audio/audio_output_dispatcher_impl.h"
 #include "media/audio/audio_output_proxy.h"
@@ -76,10 +78,11 @@ AudioManagerBase::AudioManagerBase(AudioLogFactory* audio_log_factory)
       max_num_input_streams_(kDefaultMaxInputStreams),
       num_output_streams_(0),
       num_input_streams_(0),
-      // TODO(dalecurtis): Switch this to an ObserverListThreadSafe, so we don't
+      // TODO(dalecurtis): Switch this to an base::ObserverListThreadSafe, so we
+      // don't
       // block the UI thread when swapping devices.
       output_listeners_(
-          ObserverList<AudioDeviceListener>::NOTIFY_EXISTING_ONLY),
+          base::ObserverList<AudioDeviceListener>::NOTIFY_EXISTING_ONLY),
       audio_thread_("AudioThread"),
       audio_log_factory_(audio_log_factory) {
 #if defined(OS_WIN)
@@ -90,13 +93,13 @@ AudioManagerBase::AudioManagerBase(AudioLogFactory* audio_log_factory)
   // thread leads to crashes and odd behavior.  See http://crbug.com/158170.
   // TODO(dalecurtis): We should require the message loop to be passed in.
   if (base::MessageLoopForUI::IsCurrent()) {
-    task_runner_ = base::MessageLoopProxy::current();
+    task_runner_ = base::ThreadTaskRunnerHandle::Get();
     return;
   }
 #endif
 
   CHECK(audio_thread_.Start());
-  task_runner_ = audio_thread_.message_loop_proxy();
+  task_runner_ = audio_thread_.task_runner();
 }
 
 AudioManagerBase::~AudioManagerBase() {
@@ -126,7 +129,7 @@ AudioManagerBase::GetWorkerTaskRunner() {
   if (!audio_thread_.IsRunning())
     CHECK(audio_thread_.Start());
 
-  return audio_thread_.message_loop_proxy();
+  return audio_thread_.task_runner();
 }
 
 AudioOutputStream* AudioManagerBase::MakeAudioOutputStream(
@@ -197,6 +200,9 @@ AudioInputStream* AudioManagerBase::MakeAudioInputStream(
                 << " exceed the max allowed number " << max_num_input_streams_;
     return NULL;
   }
+
+  DVLOG(2) << "Creating a new AudioInputStream with buffer size = "
+           << params.frames_per_buffer();
 
   AudioInputStream* stream;
   switch (params.format()) {
@@ -385,7 +391,7 @@ std::string AudioManagerBase::GetDefaultOutputDeviceID() {
 }
 
 int AudioManagerBase::GetUserBufferSize() {
-  const CommandLine* cmd_line = CommandLine::ForCurrentProcess();
+  const base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
   int buffer_size = 0;
   std::string buffer_size_str(cmd_line->GetSwitchValueASCII(
       switches::kAudioBufferSize));

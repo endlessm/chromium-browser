@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2013 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -8,12 +7,7 @@
 from __future__ import print_function
 
 import datetime
-import os
-import sys
 import time
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))))
 
 from chromite.lib import cros_test_lib
 from chromite.lib import timeout_util
@@ -47,7 +41,7 @@ class TestTimeouts(cros_test_lib.TestCase):
       except timeout_util.TimeoutError:
         pass
       else:
-        self.assertTrue(False, 'Should have thrown an exception')
+        self.fail('Should have thrown an exception')
 
 
 class TestWaitFors(cros_test_lib.TestCase):
@@ -136,6 +130,32 @@ class TestWaitFors(cros_test_lib.TestCase):
     self.assertEquals(1, self.GetTryCount())
     self.assertEquals(0, self.GetTrySeconds())
 
+  def testWaitForCallback(self):
+    """Verify side_effect_func works."""
+    side_effect_called = [False]
+    def _SideEffect(remaining):
+      self.assertTrue(isinstance(remaining, datetime.timedelta))
+      side_effect_called[0] = True
+    self.assertEquals(1, self._TestWaitForSuccess(
+        1, 10, period=0.1, side_effect_func=_SideEffect))
+    self.assertTrue(side_effect_called[0])
 
-if __name__ == '__main__':
-  cros_test_lib.main()
+  def testWaitForCallbackSleepsLong(self):
+    """Verify a long running side effect doesn't call time.sleep(<negative>)."""
+    side_effect_called = [False]
+    def _SideEffect(_remaining):
+      time.sleep(0.3)
+      side_effect_called[0] = True
+    self.assertRaises(timeout_util.TimeoutError, self._TestWaitForSuccess,
+                      10, 0, period=0.1, side_effect_func=_SideEffect)
+    self.assertTrue(side_effect_called[0])
+
+  def testWaitForCallbackAfterTimeout(self):
+    """If side_effect is called after the timeout, remaining should be zero."""
+    side_effect_called = [False]
+    def _SideEffect(remaining):
+      self.assertGreaterEqual(remaining.total_seconds(), 0)
+      side_effect_called[0] = True
+    self.assertRaises(timeout_util.TimeoutError, self._TestWaitForSuccess,
+                      10, 0, period=0.1, side_effect_func=_SideEffect)
+    self.assertTrue(side_effect_called[0])

@@ -7,13 +7,19 @@
 
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest,
                        ExtensionFullscreenAccessFail) {
-  // Test that fullscreen can be accessed from an extension without permission.
+  // Test that fullscreen cannot be accessed from an extension without
+  // permission.
   ASSERT_TRUE(RunPlatformAppTest("fullscreen/no_permission")) << message_;
 }
 
-// Disabled, a user gesture is required for fullscreen. http://crbug.com/174178
-IN_PROC_BROWSER_TEST_F(ExtensionApiTest,
-                       DISABLED_ExtensionFullscreenAccessPass) {
+#if defined(OS_MACOSX)
+// Fails on MAC: http://crbug.com/480370
+#define MAYBE_ExtensionFullscreenAccessPass \
+    DISABLED_ExtensionFullscreenAccessPass
+#else
+#define MAYBE_ExtensionFullscreenAccessPass ExtensionFullscreenAccessPass
+#endif  // defined(OS_MACOSX)
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest, MAYBE_ExtensionFullscreenAccessPass) {
   // Test that fullscreen can be accessed from an extension with permission.
   ASSERT_TRUE(RunPlatformAppTest("fullscreen/has_permission")) << message_;
 }
@@ -21,7 +27,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest,
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest,
                        FocusWindowDoesNotExitFullscreen) {
   browser()->window()->EnterFullscreen(
-      GURL(), FEB_TYPE_BROWSER_FULLSCREEN_EXIT_INSTRUCTION);
+      GURL(), EXCLUSIVE_ACCESS_BUBBLE_TYPE_BROWSER_FULLSCREEN_EXIT_INSTRUCTION,
+      false);
   bool is_fullscreen = browser()->window()->IsFullscreen();
   ASSERT_TRUE(RunExtensionTest("window_update/focus")) << message_;
   ASSERT_EQ(is_fullscreen, browser()->window()->IsFullscreen());
@@ -31,7 +38,20 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest,
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest,
                        DISABLED_UpdateWindowSizeExitsFullscreen) {
   browser()->window()->EnterFullscreen(
-      GURL(), FEB_TYPE_BROWSER_FULLSCREEN_EXIT_INSTRUCTION);
+      GURL(), EXCLUSIVE_ACCESS_BUBBLE_TYPE_BROWSER_FULLSCREEN_EXIT_INSTRUCTION,
+      false);
   ASSERT_TRUE(RunExtensionTest("window_update/sizing")) << message_;
   ASSERT_FALSE(browser()->window()->IsFullscreen());
+}
+
+#if defined(OS_MACOSX)
+// Fails on MAC: http://crbug.com/480370
+#define MAYBE_DisplayModeWindowIsInFullscreen DISABLED_DisplayModeWindowIsInFullscreen
+#else
+#define MAYBE_DisplayModeWindowIsInFullscreen DisplayModeWindowIsInFullscreen
+#endif  // defined(OS_MACOSX)
+
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest,
+                       MAYBE_DisplayModeWindowIsInFullscreen) {
+  ASSERT_TRUE(RunPlatformAppTest("fullscreen/mq_display_mode")) << message_;
 }

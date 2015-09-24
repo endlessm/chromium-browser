@@ -1,17 +1,15 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _FX_GE_H_
-#define _FX_GE_H_
-#ifndef _FX_DIB_H_
+#ifndef CORE_INCLUDE_FXGE_FX_GE_H_
+#define CORE_INCLUDE_FXGE_FX_GE_H_
+
 #include "fx_dib.h"
-#endif
-#ifndef _FX_FONT_H_
 #include "fx_font.h"
-#endif
+
 class CFX_ClipRgn;
 class CFX_PathData;
 class CFX_GraphStateData;
@@ -23,7 +21,8 @@ class CFX_RenderDevice;
 class IFX_RenderDeviceDriver;
 class CCodec_ModuleMgr;
 class IFXG_PaintModuleMgr;
-class CFX_GEModule : public CFX_Object
+
+class CFX_GEModule
 {
 public:
 
@@ -42,7 +41,7 @@ public:
         return m_pFontMgr;
     }
     void					SetTextGamma(FX_FLOAT gammaValue);
-    FX_LPCBYTE				GetTextGammaTable();
+    const uint8_t*				GetTextGammaTable();
     void					SetExtFontMapper(IFX_FontMapper* pFontMapper);
 
     void					SetCodecModule(CCodec_ModuleMgr* pCodecModule)
@@ -66,7 +65,7 @@ protected:
     void					InitPlatform();
     void					DestroyPlatform();
 private:
-    FX_BYTE					m_GammaValue[256];
+    uint8_t					m_GammaValue[256];
     CFX_FontCache*			m_pFontCache;
     CFX_FontMgr*			m_pFontMgr;
     CCodec_ModuleMgr*		m_pCodecModule;
@@ -87,7 +86,7 @@ typedef struct {
 #define FXPT_TYPE				0x06
 #define FXFILL_ALTERNATE		1
 #define FXFILL_WINDING			2
-class CFX_ClipRgn : public CFX_Object
+class CFX_ClipRgn
 {
 public:
 
@@ -134,8 +133,8 @@ protected:
 
     void			IntersectMaskRect(FX_RECT rect, FX_RECT mask_box, CFX_DIBitmapRef Mask);
 };
-extern const FX_BYTE g_GammaRamp[256];
-extern const FX_BYTE g_GammaInverse[256];
+extern const uint8_t g_GammaRamp[256];
+extern const uint8_t g_GammaInverse[256];
 #define FX_GAMMA(value)			(value)
 #define FX_GAMMA_INVERSE(value)	(value)
 inline FX_ARGB ArgbGamma(FX_ARGB argb)
@@ -146,7 +145,7 @@ inline FX_ARGB ArgbGammaInverse(FX_ARGB argb)
 {
     return argb;
 }
-class CFX_PathData : public CFX_Object
+class CFX_PathData
 {
 public:
 
@@ -186,11 +185,9 @@ public:
         return m_pPoints;
     }
 
-    FX_BOOL				SetPointCount(int nPoints);
-
-    FX_BOOL				AllocPointCount(int nPoints);
-
-    FX_BOOL				AddPointCount(int addPoints);
+    void SetPointCount(int nPoints);
+    void AllocPointCount(int nPoints);
+    void AddPointCount(int addPoints);
 
     CFX_FloatRect		GetBoundingBox() const;
 
@@ -204,15 +201,14 @@ public:
 
     FX_BOOL				IsRect(const CFX_AffineMatrix* pMatrix, CFX_FloatRect* rect) const;
 
-    FX_BOOL				Append(const CFX_PathData* pSrc, const CFX_AffineMatrix* pMatrix);
-
-    FX_BOOL				AppendRect(FX_FLOAT left, FX_FLOAT bottom, FX_FLOAT right, FX_FLOAT top);
+    void Append(const CFX_PathData* pSrc, const CFX_AffineMatrix* pMatrix);
+    void AppendRect(FX_FLOAT left, FX_FLOAT bottom, FX_FLOAT right, FX_FLOAT top);
 
     void				SetPoint(int index, FX_FLOAT x, FX_FLOAT y, int flag);
 
     void				TrimPoints(int nPoints);
 
-    FX_BOOL				Copy(const CFX_PathData &src);
+    void Copy(const CFX_PathData &src);
 protected:
     friend class		CPDF_Path;
 
@@ -222,7 +218,7 @@ protected:
 
     int					m_AllocCount;
 };
-class CFX_GraphStateData : public CFX_Object
+class CFX_GraphStateData
 {
 public:
 
@@ -305,7 +301,7 @@ typedef struct {
     FX_DWORD			m_ExtGID;
     FX_BOOL				m_bFontStyle;
 } FXTEXT_CHARPOS;
-class CFX_RenderDevice : public CFX_Object
+class CFX_RenderDevice
 {
 public:
     CFX_RenderDevice();
@@ -427,12 +423,12 @@ public:
                                    FX_DWORD color, FX_DWORD flags = 0, int alpha_flag = 0, void* pIccTransform = NULL);
 
     FX_BOOL			StartDIBits(const CFX_DIBSource* pBitmap, int bitmap_alpha, FX_DWORD color,
-                                const CFX_AffineMatrix* pMatrix, FX_DWORD flags, FX_LPVOID& handle,
+                                const CFX_AffineMatrix* pMatrix, FX_DWORD flags, void*& handle,
                                 int alpha_flag = 0, void* pIccTransform = NULL, int blend_type = FXDIB_BLEND_NORMAL);
 
-    FX_BOOL			ContinueDIBits(FX_LPVOID handle, IFX_Pause* pPause);
+    FX_BOOL			ContinueDIBits(void* handle, IFX_Pause* pPause);
 
-    void			CancelDIBits(FX_LPVOID handle);
+    void			CancelDIBits(void* handle);
 
     FX_BOOL			DrawNormalText(int nChars, const FXTEXT_CHARPOS* pCharPos,
                                    CFX_Font* pFont, CFX_FontCache* pCache,
@@ -505,7 +501,7 @@ protected:
 
     FX_BOOL			m_bOwnedBitmap;
 };
-class IFX_RenderDeviceDriver : public CFX_Object
+class IFX_RenderDeviceDriver
 {
 public:
 
@@ -605,15 +601,15 @@ public:
                                   int alpha_flag = 0, void* pIccTransform = NULL, int blend_type = FXDIB_BLEND_NORMAL) = 0;
 
     virtual FX_BOOL	StartDIBits(const CFX_DIBSource* pBitmap, int bitmap_alpha, FX_DWORD color,
-                                const CFX_AffineMatrix* pMatrix, FX_DWORD flags, FX_LPVOID& handle,
+                                const CFX_AffineMatrix* pMatrix, FX_DWORD flags, void*& handle,
                                 int alpha_flag = 0, void* pIccTransform = NULL, int blend_type = FXDIB_BLEND_NORMAL) = 0;
 
-    virtual FX_BOOL	ContinueDIBits(FX_LPVOID handle, IFX_Pause* pPause)
+    virtual FX_BOOL	ContinueDIBits(void* handle, IFX_Pause* pPause)
     {
         return FALSE;
     }
 
-    virtual void	CancelDIBits(FX_LPVOID handle) {}
+    virtual void	CancelDIBits(void* handle) {}
 
     virtual FX_BOOL DrawDeviceText(int nChars, const FXTEXT_CHARPOS* pCharPos, CFX_Font* pFont,
                                    CFX_FontCache* pCache, const CFX_AffineMatrix* pObject2Device, FX_FLOAT font_size, FX_DWORD color,
@@ -637,12 +633,14 @@ public:
 class IFX_PSOutput
 {
 public:
-
-    virtual void	OutputPS(FX_LPCSTR string, int len) = 0;
     virtual void  Release() = 0;
+    virtual void	OutputPS(const FX_CHAR* string, int len) = 0;
+
+protected:
+    ~IFX_PSOutput() { }
 };
 class CPSFont;
-class CFX_PSRenderer : public CFX_Object
+class CFX_PSRenderer
 {
 public:
 
@@ -728,6 +726,7 @@ private:
 
     void			FindPSFontGlyph(CFX_FaceCache* pFaceCache, CFX_Font* pFont, const FXTEXT_CHARPOS& charpos, int& ps_fontnum, int &ps_glyphindex);
 
-    void			WritePSBinary(FX_LPCBYTE data, int len);
+    void			WritePSBinary(const uint8_t* data, int len);
 };
-#endif
+
+#endif  // CORE_INCLUDE_FXGE_FX_GE_H_

@@ -2,22 +2,27 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef ASH_SYSTEM_CHROMEOS_NETWORK_NETWORK_STATE_LIST_DETAILED_VIEW_H
-#define ASH_SYSTEM_CHROMEOS_NETWORK_NETWORK_STATE_LIST_DETAILED_VIEW_H
+#ifndef ASH_SYSTEM_CHROMEOS_NETWORK_NETWORK_STATE_LIST_DETAILED_VIEW_H_
+#define ASH_SYSTEM_CHROMEOS_NETWORK_NETWORK_STATE_LIST_DETAILED_VIEW_H_
 
 #include <string>
 
 #include "ash/system/chromeos/network/network_detailed_view.h"
 #include "ash/system/tray/view_click_listener.h"
 #include "ash/system/user/login_status.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
-#include "ui/chromeos/network/network_list.h"
 #include "ui/chromeos/network/network_list_delegate.h"
+#include "ui/gfx/image/image.h"
 #include "ui/views/controls/button/button.h"
 
 namespace chromeos {
 class NetworkTypePattern;
+}
+
+namespace ui {
+class NetworkListViewBase;
 }
 
 namespace views {
@@ -38,31 +43,24 @@ class NetworkStateListDetailedView
       public ui::NetworkListDelegate,
       public base::SupportsWeakPtr<NetworkStateListDetailedView> {
  public:
-  enum ListType {
-    LIST_TYPE_NETWORK,
-    LIST_TYPE_VPN
-  };
+  enum ListType { LIST_TYPE_NETWORK, LIST_TYPE_VPN };
 
   NetworkStateListDetailedView(SystemTrayItem* owner,
                                ListType list_type,
                                user::LoginStatus login);
-  virtual ~NetworkStateListDetailedView();
+  ~NetworkStateListDetailedView() override;
 
   // Overridden from NetworkDetailedView:
-  virtual void Init() override;
-  virtual DetailedViewType GetViewType() const override;
-  virtual void ManagerChanged() override;
-  virtual void NetworkListChanged() override;
-  virtual void NetworkServiceChanged(
-      const chromeos::NetworkState* network) override;
+  void Init() override;
+  DetailedViewType GetViewType() const override;
+  void Update() override;
 
  protected:
   // Overridden from ButtonListener.
-  virtual void ButtonPressed(views::Button* sender,
-                             const ui::Event& event) override;
+  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
   // Overridden from ViewClickListener.
-  virtual void OnViewClicked(views::View* sender) override;
+  void OnViewClicked(views::View* sender) override;
 
  private:
   class InfoBubble;
@@ -92,6 +90,12 @@ class NetworkStateListDetailedView
   bool ResetInfoBubble();
   void OnInfoBubbleDestroyed();
   views::View* CreateNetworkInfoView();
+  const gfx::ImageSkia* GetControlledByExtensionIcon();
+
+  // Creates the view of an extra icon appearing next to the network name
+  // indicating that the network is controlled by an extension. If no extension
+  // is registered for this network, returns |nullptr|.
+  views::View* CreateControlledByExtensionView(const ui::NetworkInfo& info);
 
   // Periodically request a network scan.
   void CallRequestScan();
@@ -100,14 +104,13 @@ class NetworkStateListDetailedView
   void ToggleMobile();
 
   // ui::NetworkListDelegate:
-  virtual views::View* CreateViewForNetwork(
-      const ui::NetworkInfo& info) override;
-  virtual bool IsViewHovered(views::View* view) override;
-  virtual chromeos::NetworkTypePattern GetNetworkTypePattern() const override;
-  virtual void UpdateViewForNetwork(views::View* view,
-                                    const ui::NetworkInfo& info) override;
-  virtual views::Label* CreateInfoLabel() override;
-  virtual void RelayoutScrollList() override;
+  views::View* CreateViewForNetwork(const ui::NetworkInfo& info) override;
+  bool IsViewHovered(views::View* view) override;
+  chromeos::NetworkTypePattern GetNetworkTypePattern() const override;
+  void UpdateViewForNetwork(views::View* view,
+                            const ui::NetworkInfo& info) override;
+  views::Label* CreateInfoLabel() override;
+  void RelayoutScrollList() override;
 
   // Type of list (all networks or vpn)
   ListType list_type_;
@@ -122,14 +125,15 @@ class NetworkStateListDetailedView
   TrayPopupLabelButton* other_wifi_;
   TrayPopupLabelButton* turn_on_wifi_;
   TrayPopupLabelButton* other_mobile_;
-  TrayPopupLabelButton* other_vpn_;
   TrayPopupLabelButton* settings_;
   TrayPopupLabelButton* proxy_settings_;
 
   // A small bubble for displaying network info.
   views::BubbleDelegateView* info_bubble_;
 
-  ui::NetworkListView network_list_view_;
+  gfx::Image controlled_by_extension_icon_;
+
+  scoped_ptr<ui::NetworkListViewBase> network_list_view_;
 
   DISALLOW_COPY_AND_ASSIGN(NetworkStateListDetailedView);
 };
@@ -137,4 +141,4 @@ class NetworkStateListDetailedView
 }  // namespace tray
 }  // namespace ash
 
-#endif  // ASH_SYSTEM_CHROMEOS_NETWORK_NETWORK_STATE_LIST_DETAILED_VIEW
+#endif  // ASH_SYSTEM_CHROMEOS_NETWORK_NETWORK_STATE_LIST_DETAILED_VIEW_H_

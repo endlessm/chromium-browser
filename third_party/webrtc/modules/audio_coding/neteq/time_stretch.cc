@@ -12,24 +12,23 @@
 
 #include <algorithm>  // min, max
 
+#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/common_audio/signal_processing/include/signal_processing_library.h"
 #include "webrtc/modules/audio_coding/neteq/background_noise.h"
 #include "webrtc/modules/audio_coding/neteq/dsp_helper.h"
-#include "webrtc/system_wrappers/interface/scoped_ptr.h"
 
 namespace webrtc {
 
-TimeStretch::ReturnCodes TimeStretch::Process(
-    const int16_t* input,
-    size_t input_len,
-    AudioMultiVector* output,
-    int16_t* length_change_samples) {
-
+TimeStretch::ReturnCodes TimeStretch::Process(const int16_t* input,
+                                              size_t input_len,
+                                              bool fast_mode,
+                                              AudioMultiVector* output,
+                                              int16_t* length_change_samples) {
   // Pre-calculate common multiplication with |fs_mult_|.
   int fs_mult_120 = fs_mult_ * 120;  // Corresponds to 15 ms.
 
   const int16_t* signal;
-  scoped_ptr<int16_t[]> signal_array;
+  rtc::scoped_ptr<int16_t[]> signal_array;
   size_t signal_len;
   if (num_channels_ == 1) {
     signal = input;
@@ -140,8 +139,9 @@ TimeStretch::ReturnCodes TimeStretch::Process(
 
 
   // Check accelerate criteria and stretch the signal.
-  ReturnCodes return_value = CheckCriteriaAndStretch(
-      input, input_len, peak_index, best_correlation, active_speech, output);
+  ReturnCodes return_value =
+      CheckCriteriaAndStretch(input, input_len, peak_index, best_correlation,
+                              active_speech, fast_mode, output);
   switch (return_value) {
     case kSuccess:
       *length_change_samples = peak_index;

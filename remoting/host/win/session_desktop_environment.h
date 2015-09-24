@@ -17,10 +17,10 @@ namespace remoting {
 // with Windows sessions.
 class SessionDesktopEnvironment : public Me2MeDesktopEnvironment {
  public:
-  virtual ~SessionDesktopEnvironment();
+  ~SessionDesktopEnvironment() override;
 
   // DesktopEnvironment implementation.
-  virtual scoped_ptr<InputInjector> CreateInputInjector() override;
+  scoped_ptr<InputInjector> CreateInputInjector() override;
 
  private:
   friend class SessionDesktopEnvironmentFactory;
@@ -28,7 +28,8 @@ class SessionDesktopEnvironment : public Me2MeDesktopEnvironment {
       scoped_refptr<base::SingleThreadTaskRunner> caller_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> input_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner,
-      const base::Closure& inject_sas);
+      const base::Closure& inject_sas,
+      bool supports_touch_events);
 
   // Used to ask the daemon to inject Secure Attention Sequence.
   base::Closure inject_sas_;
@@ -44,10 +45,10 @@ class SessionDesktopEnvironmentFactory : public Me2MeDesktopEnvironmentFactory {
       scoped_refptr<base::SingleThreadTaskRunner> input_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner,
       const base::Closure& inject_sas);
-  virtual ~SessionDesktopEnvironmentFactory();
+  ~SessionDesktopEnvironmentFactory() override;
 
   // DesktopEnvironmentFactory implementation.
-  virtual scoped_ptr<DesktopEnvironment> Create(
+  scoped_ptr<DesktopEnvironment> Create(
       base::WeakPtr<ClientSessionControl> client_session_control) override;
 
  private:

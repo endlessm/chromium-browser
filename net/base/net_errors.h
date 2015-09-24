@@ -10,6 +10,7 @@
 
 #include "base/basictypes.h"
 #include "base/files/file.h"
+#include "base/logging.h"
 #include "net/base/net_export.h"
 
 namespace net {
@@ -45,16 +46,7 @@ NET_EXPORT bool IsCertificateError(int error);
 NET_EXPORT bool IsClientCertificateError(int error);
 
 // Map system error code to Error.
-NET_EXPORT Error MapSystemError(int os_error);
-
-// Returns a list of all the possible net error codes (not counting OK). This
-// is intended for use with UMA histograms that are reporting the result of
-// an action that is represented as a net error code.
-//
-// Note that the error codes are all positive (since histograms expect positive
-// sample values). Also note that a guard bucket is created after any valid
-// error code that is not followed immediately by a valid error code.
-NET_EXPORT std::vector<int> GetAllErrorCodesForUma();
+NET_EXPORT Error MapSystemError(logging::SystemErrorCode os_error);
 
 // A convenient function to translate file error to net error code.
 NET_EXPORT Error FileErrorToNetError(base::File::Error file_error);

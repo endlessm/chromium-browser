@@ -159,14 +159,14 @@ void WebHistoryItem::setDocumentSequenceNumber(long long documentSequenceNumber)
     m_private->setDocumentSequenceNumber(documentSequenceNumber);
 }
 
-long long WebHistoryItem::frameSequenceNumber() const
+WebHistoryScrollRestorationType WebHistoryItem::scrollRestorationType() const
 {
-    return m_private->frameSequenceNumber();
+    return static_cast<WebHistoryScrollRestorationType>(m_private->scrollRestorationType());
 }
 
-void WebHistoryItem::setFrameSequenceNumber(long long frameSequenceNumber)
+void WebHistoryItem::setScrollRestorationType(WebHistoryScrollRestorationType type)
 {
-    m_private->setFrameSequenceNumber(frameSequenceNumber);
+    m_private->setScrollRestorationType(static_cast<HistoryScrollRestorationType>(type));
 }
 
 WebSerializedScriptValue WebHistoryItem::stateObject() const

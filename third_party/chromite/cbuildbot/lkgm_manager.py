@@ -6,18 +6,16 @@
 
 from __future__ import print_function
 
-import logging
 import os
 import re
-import tempfile
 from xml.dom import minidom
 
-from chromite.cbuildbot import cbuildbot_config
+from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 from chromite.cbuildbot import manifest_version
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import git
-from chromite.lib import timeout_util
 
 
 # Paladin constants for manifest names.
@@ -38,20 +36,12 @@ PALADIN_TOTAL_FAIL_COUNT_ATTR = 'total_fail_count'
 
 CHROME_ELEMENT = 'chrome'
 CHROME_VERSION_ATTR = 'version'
-
-MANIFEST_ELEMENT = 'manifest'
-DEFAULT_ELEMENT = 'default'
-PROJECT_ELEMENT = 'project'
-PROJECT_NAME_ATTR = 'name'
-PROJECT_REMOTE_ATTR = 'remote'
+LKGM_ELEMENT = 'lkgm'
+LKGM_VERSION_ATTR = 'version'
 
 
 class PromoteCandidateException(Exception):
   """Exception thrown for failure to promote manifest candidate."""
-
-
-class FilterManifestException(Exception):
-  """Exception thrown when failing to filter the internal manifest."""
 
 
 class _LKGMCandidateInfo(manifest_version.VersionInfo):
@@ -98,12 +88,10 @@ class _LKGMCandidateInfo(manifest_version.VersionInfo):
     return '%s.%s.%s-rc%s' % (self.build_number, self.branch_build_number,
                               self.patch_number, self.revision_number)
 
-  @classmethod
-  def VersionCompare(cls, version_string):
-    """Useful method to return a comparable version of a LKGM string."""
-    lkgm = cls(version_string)
-    return map(int, [lkgm.build_number, lkgm.branch_build_number,
-                     lkgm.patch_number, lkgm.revision_number])
+  def VersionComponents(self):
+    """Return an array of ints of the version fields for comparing."""
+    return map(int, [self.build_number, self.branch_build_number,
+                     self.patch_number, self.revision_number])
 
   def IncrementVersion(self):
     """Increments the version by incrementing the revision #."""
@@ -128,18 +116,16 @@ class LKGMManager(manifest_version.BuildSpecsManager):
   CHROME_PFQ_SUBDIR = 'chrome-LKGM-candidates'
   COMMIT_QUEUE_SUBDIR = 'paladin'
 
-  # Set path in repository to keep latest approved LKGM manifest.
-  LKGM_PATH = 'LKGM/lkgm.xml'
-
   def __init__(self, source_repo, manifest_repo, build_names, build_type,
                incr_type, force, branch, manifest=constants.DEFAULT_MANIFEST,
-               dry_run=True, master=False):
+               dry_run=True, master=False,
+               lkgm_path_rel=constants.LKGM_MANIFEST):
     """Initialize an LKGM Manager.
 
     Args:
       source_repo: Repository object for the source code.
       manifest_repo: Manifest repository for manifest versions/buildspecs.
-      build_names: Identifiers for the build. Must match cbuildbot_config
+      build_names: Identifiers for the build. Must match config_lib
           entries. If multiple identifiers are provided, the first item in the
           list must be an identifier for the group.
       build_type: Type of build.  Must be a pfq type.
@@ -149,23 +135,24 @@ class LKGMManager(manifest_version.BuildSpecsManager):
       manifest: Manifest to use for checkout. E.g. 'full' or 'buildtools'.
       dry_run: Whether we actually commit changes we make or not.
       master: Whether we are the master builder.
+      lkgm_path_rel: Path to the LKGM symlink, relative to manifest dir.
     """
     super(LKGMManager, self).__init__(
         source_repo=source_repo, manifest_repo=manifest_repo,
         manifest=manifest, build_names=build_names, incr_type=incr_type,
         force=force, branch=branch, dry_run=dry_run, master=master)
 
-    self.lkgm_path = os.path.join(self.manifest_dir, self.LKGM_PATH)
+    self.lkgm_path = os.path.join(self.manifest_dir, lkgm_path_rel)
     self.compare_versions_fn = _LKGMCandidateInfo.VersionCompare
     self.build_type = build_type
     # Chrome PFQ and PFQ's exist at the same time and version separately so they
     # must have separate subdirs in the manifest-versions repository.
     if self.build_type == constants.CHROME_PFQ_TYPE:
       self.rel_working_dir = self.CHROME_PFQ_SUBDIR
-    elif cbuildbot_config.IsCQType(self.build_type):
+    elif config_lib.IsCQType(self.build_type):
       self.rel_working_dir = self.COMMIT_QUEUE_SUBDIR
     else:
-      assert cbuildbot_config.IsPFQType(self.build_type)
+      assert config_lib.IsPFQType(self.build_type)
       self.rel_working_dir = self.LKGM_SUBDIR
 
   def GetCurrentVersionInfo(self):
@@ -174,6 +161,27 @@ class LKGMManager(manifest_version.BuildSpecsManager):
     return _LKGMCandidateInfo(version_info.VersionString(),
                               chrome_branch=version_info.chrome_branch,
                               incr_type=self.incr_type)
+
+  def _AddLKGMToManifest(self, manifest):
+    """Write the last known good version string to the manifest.
+
+    Args:
+      manifest: Path to the manifest.
+    """
+    # Get the last known good version string.
+    try:
+      lkgm_filename = os.path.basename(os.readlink(self.lkgm_path))
+      lkgm_version, _ = os.path.splitext(lkgm_filename)
+    except OSError:
+      return
+
+    # Write the last known good version string to the manifest.
+    manifest_dom = minidom.parse(manifest)
+    lkgm_element = manifest_dom.createElement(LKGM_ELEMENT)
+    lkgm_element.setAttribute(LKGM_VERSION_ATTR, lkgm_version)
+    manifest_dom.documentElement.appendChild(lkgm_element)
+    with open(manifest, 'w+') as manifest_file:
+      manifest_dom.writexml(manifest_file)
 
   def _AddChromeVersionToManifest(self, manifest, chrome_version):
     """Adds the chrome element with version |chrome_version| to |manifest|.
@@ -229,76 +237,6 @@ class LKGMManager(manifest_version.BuildSpecsManager):
     with open(manifest, 'w+') as manifest_file:
       manifest_dom.writexml(manifest_file)
 
-  @staticmethod
-  def _GetDefaultRemote(manifest_dom):
-    """Returns the default remote in a manifest (if any).
-
-    Args:
-      manifest_dom: DOM Document object representing the manifest.
-
-    Returns:
-      Default remote if one exists, None otherwise.
-    """
-    default_nodes = manifest_dom.getElementsByTagName(DEFAULT_ELEMENT)
-    if default_nodes:
-      if len(default_nodes) > 1:
-        raise FilterManifestException(
-            'More than one <default> element found in manifest')
-      return default_nodes[0].getAttribute(PROJECT_REMOTE_ATTR)
-    return None
-
-  @staticmethod
-  def _FilterCrosInternalProjectsFromManifest(
-      manifest, whitelisted_remotes=constants.EXTERNAL_REMOTES):
-    """Returns a path to a new manifest with internal repositories stripped.
-
-    Args:
-      manifest: Path to an existing manifest that may have internal
-        repositories.
-      whitelisted_remotes: Tuple of remotes to allow in the external manifest.
-        Only projects with those remotes will be included in the external
-        manifest.
-
-    Returns:
-      Path to a new manifest that is a copy of the original without internal
-        repositories or pending commits.
-    """
-    temp_fd, new_path = tempfile.mkstemp('external_manifest')
-    manifest_dom = minidom.parse(manifest)
-    manifest_node = manifest_dom.getElementsByTagName(MANIFEST_ELEMENT)[0]
-    projects = manifest_dom.getElementsByTagName(PROJECT_ELEMENT)
-    pending_commits = manifest_dom.getElementsByTagName(PALADIN_COMMIT_ELEMENT)
-
-    default_remote = LKGMManager._GetDefaultRemote(manifest_dom)
-    internal_projects = set()
-    for project_element in projects:
-      project_remote = project_element.getAttribute(PROJECT_REMOTE_ATTR)
-      project = project_element.getAttribute(PROJECT_NAME_ATTR)
-      if not project_remote:
-        if not default_remote:
-          # This should not happen for a valid manifest. Either each
-          # project must have a remote specified or there should
-          # be manifest default we could use.
-          raise FilterManifestException(
-              'Project %s has unspecified remote with no default' % project)
-        project_remote = default_remote
-      if project_remote not in whitelisted_remotes:
-        internal_projects.add(project)
-        manifest_node.removeChild(project_element)
-
-    for commit_element in pending_commits:
-      if commit_element.getAttribute(
-          PALADIN_PROJECT_ATTR) in internal_projects:
-        manifest_node.removeChild(commit_element)
-
-    with os.fdopen(temp_fd, 'w') as manifest_file:
-      # Filter out empty lines.
-      filtered_manifest_noempty = filter(
-          str.strip, manifest_dom.toxml('utf-8').splitlines())
-      manifest_file.write(os.linesep.join(filtered_manifest_noempty))
-
-    return new_path
-
   def CreateNewCandidate(self, validation_pool=None,
                          chrome_version=None,
                          retries=manifest_version.NUM_RETRIES,
@@ -326,7 +264,7 @@ class LKGMManager(manifest_version.BuildSpecsManager):
     self.RefreshManifestCheckout()
     self.InitializeManifestVariables(version_info)
 
-    self._GenerateBlameListSinceLKGM()
+    self.GenerateBlameListSinceLKGM()
     new_manifest = self.CreateManifest()
 
     # For Chrome PFQ, add the version of Chrome to use.
@@ -339,10 +277,15 @@ class LKGMManager(manifest_version.BuildSpecsManager):
       # we're not also a pfq type, we got nothing to do.
       assert self.cros_source.directory == validation_pool.build_root
       if (not validation_pool.ApplyPoolIntoRepo() and
-          not cbuildbot_config.IsPFQType(self.build_type)):
+          not config_lib.IsPFQType(self.build_type)):
         return None
 
       self._AddPatchesToManifest(new_manifest, validation_pool.changes)
+
+      # Add info about the last known good version to the manifest. This will
+      # be used by slaves to calculate what artifacts from old builds are safe
+      # to use.
+      self._AddLKGMToManifest(new_manifest)
 
     last_error = None
     for attempt in range(0, retries + 1):
@@ -380,11 +323,11 @@ class LKGMManager(manifest_version.BuildSpecsManager):
         err_msg = 'Failed to generate LKGM Candidate. error: %s' % e
         logging.error(err_msg)
         last_error = err_msg
-    else:
-      raise manifest_version.GenerateBuildSpecException(last_error)
+
+    raise manifest_version.GenerateBuildSpecException(last_error)
 
   def CreateFromManifest(self, manifest, retries=manifest_version.NUM_RETRIES,
-                         dashboard_url=None, build_id=None):
+                         build_id=None):
     """Sets up an lkgm_manager from the given manifest.
 
     This method sets up an LKGM manager and publishes a new manifest to the
@@ -396,7 +339,6 @@ class LKGMManager(manifest_version.BuildSpecsManager):
         is named with the given version we want to create a new manifest from
         i.e R20-1920.0.1-rc7.xml where R20-1920.0.1-rc7 is the version.
       retries: Number of retries for updating the status.
-      dashboard_url: Optional url linking to builder dashboard for this build.
       build_id: Optional integer cidb build id of the build publishing the
                 manifest.
 
@@ -405,7 +347,8 @@ class LKGMManager(manifest_version.BuildSpecsManager):
         manifest because of a git error or the manifest is already checked-in.
     """
     last_error = None
-    new_manifest = self._FilterCrosInternalProjectsFromManifest(manifest)
+    new_manifest = manifest_version.FilterManifest(
+        manifest, whitelisted_remotes=constants.EXTERNAL_REMOTES)
     version_info = self.GetCurrentVersionInfo()
     for _attempt in range(0, retries + 1):
       try:
@@ -417,70 +360,14 @@ class LKGMManager(manifest_version.BuildSpecsManager):
         version = os.path.splitext(os.path.basename(manifest))[0]
         logging.info('Publishing filtered build spec')
         self.PublishManifest(new_manifest, version, build_id=build_id)
-        self.SetInFlight(version, dashboard_url=dashboard_url)
         self.current_version = version
         return self.GetLocalManifest(version)
       except cros_build_lib.RunCommandError as e:
         err_msg = 'Failed to generate LKGM Candidate. error: %s' % e
         logging.error(err_msg)
         last_error = err_msg
-    else:
-      raise manifest_version.GenerateBuildSpecException(last_error)
 
-  def GetLatestCandidate(self, dashboard_url=None, timeout=3 * 60):
-    """Gets and syncs to the next candiate manifest.
-
-    Args:
-      retries: Number of retries for updating the status
-      dashboard_url: Optional url linking to builder dashboard for this build.
-      timeout: The timeout in seconds.
-
-    Returns:
-      Local path to manifest to build or None in case of no need to build.
-
-    Raises:
-      GenerateBuildSpecException in case of failure to generate a buildspec
-    """
-    def _AttemptToGetLatestCandidate():
-      """Attempts to acquire latest candidate using manifest repo."""
-      self.RefreshManifestCheckout()
-      self.InitializeManifestVariables(self.GetCurrentVersionInfo())
-      if self.latest_unprocessed:
-        return self.latest_unprocessed
-      elif self.dry_run and self.latest:
-        return self.latest
-
-    def _PrintRemainingTime(minutes_left):
-      logging.info('Found nothing new to build, will keep trying for %d more'
-                   ' minutes.', minutes_left)
-      logging.info('If this is a PFQ, then you should have forced the master'
-                   ', which runs cbuildbot_master')
-
-    # TODO(sosa):  We only really need the overlay for the version info but we
-    # do a full checkout here because we have no way of refining it currently.
-    self.CheckoutSourceCode()
-    try:
-      version_to_build = timeout_util.WaitForSuccess(
-          lambda x: x is None,
-          _AttemptToGetLatestCandidate,
-          timeout,
-          period=self.SLEEP_TIMEOUT,
-          side_effect_func=_PrintRemainingTime)
-    except timeout_util.TimeoutError:
-      version_to_build = None
-
-    if version_to_build:
-      logging.info('Starting build spec: %s', version_to_build)
-      self.SetInFlight(version_to_build, dashboard_url=dashboard_url)
-      self.current_version = version_to_build
-
-      # Actually perform the sync.
-      manifest = self.GetLocalManifest(version_to_build)
-      self.cros_source.Sync(manifest)
-      self._GenerateBlameListSinceLKGM()
-      return manifest
-    else:
-      return None
+    raise manifest_version.GenerateBuildSpecException(last_error)
 
   def PromoteCandidate(self, retries=manifest_version.NUM_RETRIES):
     """Promotes the current LKGM candidate to be a real versioned LKGM."""
@@ -498,29 +385,28 @@ class LKGMManager(manifest_version.BuildSpecsManager):
         git.CreatePushBranch(manifest_version.PUSH_BRANCH,
                              self.manifest_dir, sync=False)
         manifest_version.CreateSymlink(path_to_candidate, self.lkgm_path)
-        git.RunGit(self.manifest_dir, ['add', self.LKGM_PATH])
+        git.RunGit(self.manifest_dir, ['add', self.lkgm_path])
         self.PushSpecChanges(
             'Automatic: %s promoting %s to LKGM' % (self.build_names[0],
                                                     self.current_version))
         return
       except cros_build_lib.RunCommandError as e:
         last_error = 'Failed to promote manifest. error: %s' % e
-        logging.error(last_error)
-        logging.error('Retrying to promote manifest:  Retry %d/%d', attempt + 1,
-                      retries)
+        logging.info(last_error)
+        logging.info('Retrying to promote manifest:  Retry %d/%d', attempt + 1,
+                     retries)
 
-    else:
-      raise PromoteCandidateException(last_error)
+    raise PromoteCandidateException(last_error)
 
   def _ShouldGenerateBlameListSinceLKGM(self):
     """Returns True if we should generate the blamelist."""
     # We want to generate the blamelist only for valid pfq types and if we are
     # building on the master branch i.e. revving the build number.
     return (self.incr_type == 'build' and
-            cbuildbot_config.IsPFQType(self.build_type) and
+            config_lib.IsPFQType(self.build_type) and
             self.build_type != constants.CHROME_PFQ_TYPE)
 
-  def _GenerateBlameListSinceLKGM(self):
+  def GenerateBlameListSinceLKGM(self):
     """Prints out links to all CL's that have been committed since LKGM.
 
     Add buildbot trappings to print <a href='url'>text</a> in the waterfall for
@@ -559,7 +445,7 @@ def GenerateBlameList(source_repo, lkgm_path, only_print_chumps=False):
     # Additional case in case the repo has been removed from the manifest.
     src_path = source_repo.GetRelativePath(rel_src_path)
     if not os.path.exists(src_path):
-      cros_build_lib.Info('Detected repo removed from manifest %s' % project)
+      logging.info('Detected repo removed from manifest %s' % project)
       continue
 
     revision = checkout['revision']
@@ -570,7 +456,7 @@ def GenerateBlameList(source_repo, lkgm_path, only_print_chumps=False):
       # Git returns 128 when the revision does not exist.
       if ex.result.returncode != 128:
         raise
-      cros_build_lib.Warning('Detected branch removed from local checkout.')
+      logging.warning('Detected branch removed from local checkout.')
       cros_build_lib.PrintBuildbotStepWarnings()
       return
     current_author = None

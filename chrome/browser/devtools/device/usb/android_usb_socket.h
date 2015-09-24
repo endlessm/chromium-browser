@@ -5,20 +5,16 @@
 #ifndef CHROME_BROWSER_DEVTOOLS_DEVICE_USB_ANDROID_USB_SOCKET_H_
 #define CHROME_BROWSER_DEVTOOLS_DEVICE_USB_ANDROID_USB_SOCKET_H_
 
-#include <deque>
-
 #include "base/memory/ref_counted.h"
+#include "base/memory/weak_ptr.h"
 #include "base/threading/non_thread_safe.h"
 #include "chrome/browser/devtools/device/usb/android_usb_device.h"
 #include "net/base/ip_endpoint.h"
-#include "net/base/net_errors.h"
 #include "net/socket/stream_socket.h"
 
 namespace base {
 class MessageLoop;
 }
-
-class AdbMessage;
 
 class AndroidUsbSocket : public net::StreamSocket,
                          public base::NonThreadSafe {
@@ -26,10 +22,10 @@ class AndroidUsbSocket : public net::StreamSocket,
   AndroidUsbSocket(scoped_refptr<AndroidUsbDevice> device,
                    uint32 socket_id,
                    const std::string& command,
-                   base::Callback<void(uint32)> delete_callback);
+                   base::Closure delete_callback);
   ~AndroidUsbSocket() override;
 
-  void HandleIncoming(scoped_refptr<AdbMessage> message);
+  void HandleIncoming(scoped_ptr<AdbMessage> message);
 
   void Terminated(bool closed_by_device);
 
@@ -56,34 +52,30 @@ class AndroidUsbSocket : public net::StreamSocket,
   bool WasNpnNegotiated() const override;
   net::NextProto GetNegotiatedProtocol() const override;
   bool GetSSLInfo(net::SSLInfo* ssl_info) override;
+  void GetConnectionAttempts(net::ConnectionAttempts* out) const override;
+  void ClearConnectionAttempts() override {}
+  void AddConnectionAttempts(const net::ConnectionAttempts& attempts) override {
+  }
 
  private:
-  class IORequest {
-   public:
-    IORequest(net::IOBuffer* buffer,
-              int length,
-              const net::CompletionCallback& callback);
-    ~IORequest();
-
-    scoped_refptr<net::IOBuffer> buffer;
-    int length;
-    net::CompletionCallback callback;
-  };
-
-  void RespondToReaders(bool diconnect);
-  void RespondToWriters();
+  void RespondToReader(bool disconnect);
+  void RespondToWriter(int result);
 
   scoped_refptr<AndroidUsbDevice> device_;
   std::string command_;
-  base::Callback<void(uint32)> delete_callback_;
   uint32 local_id_;
   uint32 remote_id_;
   net::BoundNetLog net_log_;
   bool is_connected_;
   std::string read_buffer_;
+  scoped_refptr<net::IOBuffer> read_io_buffer_;
+  int read_length_;
+  int write_length_;
   net::CompletionCallback connect_callback_;
-  std::deque<IORequest> read_requests_;
-  std::deque<IORequest> write_requests_;
+  net::CompletionCallback read_callback_;
+  net::CompletionCallback write_callback_;
+  base::Closure delete_callback_;
+  base::WeakPtrFactory<AndroidUsbSocket> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(AndroidUsbSocket);
 };

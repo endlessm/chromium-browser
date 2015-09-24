@@ -39,12 +39,16 @@ class APP_LIST_EXPORT AppListModel : public AppListItemListObserver {
     STATUS_SYNCING,  // Syncing apps or installing synced apps.
   };
 
+  // Do not change the order of these as they are used for metrics.
   enum State {
-    STATE_APPS,
+    STATE_APPS = 0,
     STATE_SEARCH_RESULTS,
     STATE_START,
+    STATE_CUSTOM_LAUNCHER_PAGE,
+    // Add new values here.
 
     INVALID_STATE,
+    STATE_LAST = INVALID_STATE,
   };
 
   typedef ui::ListModel<SearchResult> SearchResults;
@@ -121,12 +125,47 @@ class APP_LIST_EXPORT AppListModel : public AppListItemListObserver {
   // appropriate folder.
   void DeleteItem(const std::string& id);
 
+  // Wrapper around DeleteItem() which will also clean up if its parent folder
+  // has a single child left.
+  void DeleteUninstalledItem(const std::string& id);
+
   // Call OnExtensionPreferenceChanged() for all items in the model.
   void NotifyExtensionPreferenceChanged();
 
-  // Sets wither or not folder UI should be enabled. If |folders_enabled| is
-  // false, removes any non-OEM folders.
+  // Sets whether or not the folder UI should be enabled. If |folders_enabled|
+  // is false, removes any non-OEM folders.
   void SetFoldersEnabled(bool folders_enabled);
+
+  // Sets whether or not the custom launcher page should be enabled.
+  void SetCustomLauncherPageEnabled(bool enabled);
+  bool custom_launcher_page_enabled() const {
+    return custom_launcher_page_enabled_;
+  }
+
+  void set_custom_launcher_page_name(const std::string& name) {
+    custom_launcher_page_name_ = name;
+  }
+
+  const std::string& custom_launcher_page_name() const {
+    return custom_launcher_page_name_;
+  }
+
+  // Pushes a custom launcher page's subpage into the state stack in the model.
+  void PushCustomLauncherPageSubpage();
+
+  // If the state stack is not empty, pops a subpage from the stack and returns
+  // true. Returns false if the stack was empty.
+  bool PopCustomLauncherPageSubpage();
+
+  // Clears the custom launcher page's subpage state stack from the model.
+  void ClearCustomLauncherPageSubpages();
+
+  int custom_launcher_page_subpage_depth() {
+    return custom_launcher_page_subpage_depth_;
+  }
+
+  void SetSearchEngineIsGoogle(bool is_google);
+  bool search_engine_is_google() const { return search_engine_is_google_; }
 
   // Filters the given |results| by |display_type|. The returned list is
   // truncated to |max_results|.
@@ -181,8 +220,14 @@ class APP_LIST_EXPORT AppListModel : public AppListItemListObserver {
 
   Status status_;
   State state_;
-  ObserverList<AppListModelObserver, true> observers_;
+  base::ObserverList<AppListModelObserver, true> observers_;
   bool folders_enabled_;
+  bool custom_launcher_page_enabled_;
+  std::string custom_launcher_page_name_;
+  bool search_engine_is_google_;
+
+  // The current number of subpages the custom launcher page has pushed.
+  int custom_launcher_page_subpage_depth_;
 
   DISALLOW_COPY_AND_ASSIGN(AppListModel);
 };

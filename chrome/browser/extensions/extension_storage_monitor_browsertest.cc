@@ -9,12 +9,15 @@
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_storage_monitor.h"
+#include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "content/public/test/test_utils.h"
+#include "extensions/browser/extension_dialog_auto_confirm.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/test_extension_registry_observer.h"
+#include "extensions/common/constants.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/message_center_observer.h"
@@ -148,12 +151,6 @@ class ExtensionStorageMonitorTest : public ExtensionBrowserTest {
     WriteBytes(extension, num_bytes, false);
   }
 
-  void SimulateUninstallDialogAccept() {
-    // Ensure the uninstall dialog was shown and fake an accept.
-    ASSERT_TRUE(monitor()->uninstall_dialog_.get());
-    monitor()->ExtensionUninstallAccepted();
-  }
-
  private:
   void InitStorageMonitor() {
     storage_monitor_ = ExtensionStorageMonitor::Get(profile());
@@ -179,8 +176,8 @@ class ExtensionStorageMonitorTest : public ExtensionBrowserTest {
     NotificationObserver notification_observer(
         GetNotificationId(extension->id()));
 
-    OpenApplication(AppLaunchParams(
-        profile(), extension, LAUNCH_CONTAINER_NONE, NEW_WINDOW));
+    OpenApplication(AppLaunchParams(profile(), extension, LAUNCH_CONTAINER_NONE,
+                                    NEW_WINDOW, extensions::SOURCE_TEST));
     ASSERT_TRUE(launched_listener.WaitUntilSatisfied());
 
     // Instruct the app to write |num_bytes| of data.
@@ -325,15 +322,15 @@ IN_PROC_BROWSER_TEST_F(ExtensionStorageMonitorTest, UninstallExtension) {
   ASSERT_TRUE(extension);
   WriteBytesExpectingNotification(extension, GetInitialExtensionThreshold());
 
-  // Fake clicking the notification button to uninstall.
+  // Fake clicking the notification button to uninstall and accepting the
+  // uninstall.
+  ScopedTestDialogAutoConfirm scoped_autoconfirm(
+      ScopedTestDialogAutoConfirm::ACCEPT);
+  TestExtensionRegistryObserver observer(ExtensionRegistry::Get(profile()),
+                                         extension->id());
   message_center::MessageCenter::Get()->ClickOnNotificationButton(
       GetNotificationId(extension->id()),
       ExtensionStorageMonitor::BUTTON_UNINSTALL);
-
-  // Also fake accepting the uninstall.
-  TestExtensionRegistryObserver observer(ExtensionRegistry::Get(profile()),
-                                         extension->id());
-  SimulateUninstallDialogAccept();
   observer.WaitForExtensionUninstalled();
 }
 

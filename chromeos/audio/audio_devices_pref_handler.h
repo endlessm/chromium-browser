@@ -22,6 +22,10 @@ struct AudioDevice;
 class CHROMEOS_EXPORT AudioDevicesPrefHandler
     : public base::RefCountedThreadSafe<AudioDevicesPrefHandler> {
  public:
+  // Integer because C++ does not allow static const double in header files.
+  static const int kDefaultOutputVolumePercent = 75;
+  static const int kDefaultHdmiOutputVolumePercent = 100;
+
   // Gets the audio output volume value from prefs for a device. Since we can
   // only have either a gain or a volume for a device (depending on whether it
   // is input or output), we don't really care which value it is.
@@ -35,8 +39,6 @@ class CHROMEOS_EXPORT AudioDevicesPrefHandler
   // Sets the audio mute value to prefs for a device.
   virtual void SetMuteValue(const AudioDevice& device, bool mute_on) = 0;
 
-  // Reads the audio capture allowed value from prefs.
-  virtual bool GetAudioCaptureAllowedValue() = 0;
   // Reads the audio output allowed value from prefs.
   virtual bool GetAudioOutputAllowedValue() = 0;
 
@@ -44,9 +46,6 @@ class CHROMEOS_EXPORT AudioDevicesPrefHandler
   virtual void AddAudioPrefObserver(AudioPrefObserver* observer) = 0;
   // Removes an audio preference observer.
   virtual void RemoveAudioPrefObserver(AudioPrefObserver* observer) = 0;
-
-  // Creates the instance.
-  static AudioDevicesPrefHandler* Create(PrefService* local_state);
 
  protected:
   virtual ~AudioDevicesPrefHandler() {}

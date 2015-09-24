@@ -11,6 +11,9 @@
 #import "chrome/browser/ui/cocoa/cocoa_profile_test.h"
 #include "chrome/test/base/testing_profile.h"
 
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
+
 namespace {
 
 class BookmarkModelObserverForCocoaTest : public CocoaProfileTest {
@@ -53,7 +56,7 @@ TEST_F(BookmarkModelObserverForCocoaTest, TestCallback) {
   EXPECT_EQ(3U, pings);
   EXPECT_EQ(0U, deletions);
 
-  model->Remove(node->parent(), 0);
+  model->Remove(node->parent()->GetChild(0));
   EXPECT_EQ(4U, pings);
   EXPECT_EQ(1U, deletions);
 }

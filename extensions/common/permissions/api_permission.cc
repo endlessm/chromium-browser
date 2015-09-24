@@ -4,6 +4,7 @@
 
 #include "extensions/common/permissions/api_permission.h"
 
+#include "extensions/common/permissions/api_permission_set.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace {
@@ -19,6 +20,12 @@ class SimpleAPIPermission : public APIPermission {
     : APIPermission(permission) { }
 
   ~SimpleAPIPermission() override {}
+
+  extensions::PermissionIDSet GetPermissions() const override {
+    extensions::PermissionIDSet permissions;
+    permissions.insert(id());
+    return permissions;
+  }
 
   bool HasMessages() const override {
     return info()->message_id() > PermissionMessage::kNone;
@@ -77,7 +84,7 @@ class SimpleAPIPermission : public APIPermission {
 
   void Write(IPC::Message* m) const override {}
 
-  bool Read(const IPC::Message* m, PickleIterator* iter) override {
+  bool Read(const IPC::Message* m, base::PickleIterator* iter) override {
     return true;
   }
 

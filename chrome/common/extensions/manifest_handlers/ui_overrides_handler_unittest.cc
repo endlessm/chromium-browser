@@ -47,11 +47,10 @@ class UIOverrideTest : public testing::Test {
 TEST_F(UIOverrideTest, ParseManifest) {
   extensions::ScopedCurrentChannel channel(chrome::VersionInfo::CHANNEL_DEV);
   // This functionality requires a feature flag.
-  CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-      "--enable-override-bookmarks-ui",
-      "1");
+  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+      "--enable-override-bookmarks-ui", "1");
   std::string manifest(kManifest);
-  JSONStringValueSerializer json(&manifest);
+  JSONStringValueDeserializer json(manifest);
   std::string error;
   scoped_ptr<base::Value> root(json.Deserialize(NULL, &error));
   ASSERT_TRUE(root);
@@ -76,11 +75,10 @@ TEST_F(UIOverrideTest, ParseManifest) {
 TEST_F(UIOverrideTest, ParseBrokenManifest) {
   extensions::ScopedCurrentChannel channel(chrome::VersionInfo::CHANNEL_DEV);
   // This functionality requires a feature flag.
-  CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-      "--enable-override-bookmarks-ui",
-      "1");
+  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+      "--enable-override-bookmarks-ui", "1");
   std::string manifest(kBrokenManifest);
-  JSONStringValueSerializer json(&manifest);
+  JSONStringValueDeserializer json(manifest);
   std::string error;
   scoped_ptr<base::Value> root(json.Deserialize(NULL, &error));
   ASSERT_TRUE(root);

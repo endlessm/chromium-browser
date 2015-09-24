@@ -5,6 +5,7 @@
 #include "ash/ash_switches.h"
 
 #include "base/command_line.h"
+#include "base/sys_info.h"
 
 namespace ash {
 namespace switches {
@@ -17,9 +18,6 @@ namespace switches {
 const char kAshAnimateFromBootSplashScreen[] =
     "ash-animate-from-boot-splash-screen";
 
-// Constrains the pointer movement within a root window on desktop.
-const char kAshConstrainPointerToRoot[] = "ash-constrain-pointer-to-root";
-
 // Copies the host window's content to the system background layer at startup.
 // Can make boot slightly slower, but also hides an even-longer awkward period
 // where we display a white background if the login wallpaper takes a long time
@@ -29,18 +27,15 @@ const char kAshCopyHostBackgroundAtBoot[] = "ash-copy-host-background-at-boot";
 // Enable keyboard shortcuts useful for debugging.
 const char kAshDebugShortcuts[] = "ash-debug-shortcuts";
 
-// Indicates that the wallpaper images specified by
-// kAshDefaultWallpaper{Large,Small} are OEM-specific (i.e. they are not
-// downloadable from Google).
-const char kAshDefaultWallpaperIsOem[] = "ash-default-wallpaper-is-oem";
+// Disables the window backdrops normally used in maximize mode (TouchView).
+const char kAshDisableMaximizeModeWindowBackdrop[] =
+    "ash-disable-maximize-mode-window-backdrop";
 
-// Default wallpaper to use (as paths to trusted, non-user-writable JPEG files).
-const char kAshDefaultWallpaperLarge[] = "ash-default-wallpaper-large";
-const char kAshDefaultWallpaperSmall[] = "ash-default-wallpaper-small";
-
-// Disables LockLayoutManager used for LockScreenContainer, return back to
-// WorkspaceLayoutManager.
-const char kAshDisableLockLayoutManager[] = "ash-disable-lock-layout-manager";
+#if defined(OS_CHROMEOS)
+// Disable the support for WebContents to lock the screen orientation.
+const char kAshDisableScreenOrientationLock[] =
+    "ash-disable-screen-orientation-lock";
+#endif
 
 // Disable the Touch Exploration Mode. Touch Exploration Mode will no longer be
 // turned on automatically when spoken feedback is enabled when this flag is
@@ -49,18 +44,37 @@ const char kAshDisableTouchExplorationMode[] =
     "ash-disable-touch-exploration-mode";
 
 #if defined(OS_CHROMEOS)
+// Enables fullscreen app list if Ash is in maximize mode.
+const char kAshEnableFullscreenAppList[] = "ash-enable-fullscreen-app-list";
+
 // Enables key bindings to scroll magnified screen.
 const char kAshEnableMagnifierKeyScroller[] =
     "ash-enable-magnifier-key-scroller";
+
+// Enables unified desktop mode.
+const char kAshEnableUnifiedDesktop[] = "ash-enable-unified-desktop";
+
 #endif
 
-// Enables text filtering with the keyboard in Overview Mode.
-const char kAshDisableTextFilteringInOverviewMode[] =
-    "ash-disable-text-filtering-in-overview-mode";
+// Enables mirrored screen.
+const char kAshEnableMirroredScreen[] = "ash-enable-mirrored-screen";
+
+// Enables / disables a stable order between overview sessions, independent of
+// the MRU order which attempts to preserve relative window positions.
+const char kAshDisableStableOverviewOrder[] =
+    "ash-disable-stable-overview-order";
+const char kAshEnableStableOverviewOrder[] = "ash-enable-stable-overview-order";
 
 // Enables quick, non-cancellable locking of the screen when in maximize mode.
 const char kAshEnablePowerButtonQuickLock[] =
     "ash-enable-power-button-quick-lock";
+
+// Specifies the screen rotation animation to use. Possible values are:
+// "partial-rotation", "partial-rotation-slow", "full-rotation", and
+// "full-rotation-slow". See ash/rotator/screen_rotation_animator.cc for more
+// details.
+const char kAshEnableScreenRotationAnimation[] =
+    "ash-screen-rotation-animation";
 
 // Enables software based mirroring.
 const char kAshEnableSoftwareMirroring[] = "ash-enable-software-mirroring";
@@ -73,14 +87,6 @@ const char kAshEnableTouchViewTesting[] = "ash-enable-touch-view-testing";
 // When this flag is set, system sounds will be played whether the
 // ChromeVox is enabled or not.
 const char kAshEnableSystemSounds[] = "ash-enable-system-sounds";
-
-// Enables showing the tray bubble by dragging on the shelf.
-const char kAshEnableTrayDragging[] = "ash-enable-tray-dragging";
-
-// Wallpaper to use in guest mode (as paths to trusted, non-user-writable JPEG
-// files).
-const char kAshGuestWallpaperLarge[] = "ash-guest-wallpaper-large";
-const char kAshGuestWallpaperSmall[] = "ash-guest-wallpaper-small";
 
 // Hides notifications that are irrelevant to Chrome OS device factory testing,
 // such as battery level updates.
@@ -117,6 +123,23 @@ const char kAuraLegacyPowerButton[] = "aura-legacy-power-button";
 // Force Ash to open its root window on the desktop, even on Windows 8 where
 // it would normally end up in metro.
 const char kForceAshToDesktop[] = "ash-force-desktop";
+
+#endif
+
+#if defined(OS_CHROMEOS)
+// Constrains the pointer movement within a root window on desktop.
+bool ConstrainPointerToRoot() {
+  const char kAshConstrainPointerToRoot[] = "ash-constrain-pointer-to-root";
+
+  return base::SysInfo::IsRunningOnChromeOS() ||
+         base::CommandLine::ForCurrentProcess()->HasSwitch(
+             kAshConstrainPointerToRoot);
+}
+
+bool UnifiedDesktopEnabled() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      kAshEnableUnifiedDesktop);
+}
 
 #endif
 

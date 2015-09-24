@@ -5,8 +5,9 @@
 #include "sync/engine/directory_update_handler.h"
 
 #include "base/compiler_specific.h"
+#include "base/containers/scoped_ptr_map.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/stl_util.h"
 #include "sync/engine/syncer_proto_util.h"
 #include "sync/internal_api/public/base/attachment_id_proto.h"
 #include "sync/internal_api/public/base/model_type.h"
@@ -29,6 +30,7 @@
 
 namespace syncer {
 
+using syncable::Id;
 using syncable::UNITTEST;
 
 static const int64 kDefaultVersion = 1000;
@@ -44,15 +46,11 @@ class DirectoryUpdateHandlerProcessUpdateTest : public ::testing::Test {
       : ui_worker_(new FakeModelWorker(GROUP_UI)) {
   }
 
-  virtual ~DirectoryUpdateHandlerProcessUpdateTest() {}
+  ~DirectoryUpdateHandlerProcessUpdateTest() override {}
 
-  virtual void SetUp() override {
-    dir_maker_.SetUp();
-  }
+  void SetUp() override { dir_maker_.SetUp(); }
 
-  virtual void TearDown() override {
-    dir_maker_.TearDown();
-  }
+  void TearDown() override { dir_maker_.TearDown(); }
 
   syncable::Directory* dir() {
     return dir_maker_.directory();
@@ -83,13 +81,19 @@ class DirectoryUpdateHandlerProcessUpdateTest : public ::testing::Test {
   bool EntryExists(const std::string& id) {
     syncable::ReadTransaction trans(FROM_HERE, dir());
     syncable::Entry e(&trans, syncable::GET_BY_ID,
-                      syncable::Id::CreateFromServerId(id));
+                      Id::CreateFromServerId(id));
+    return e.good() && !e.GetIsDel();
+  }
+
+  bool TypeRootExists(ModelType model_type) {
+    syncable::ReadTransaction trans(FROM_HERE, dir());
+    syncable::Entry e(&trans, syncable::GET_TYPE_ROOT, model_type);
     return e.good() && !e.GetIsDel();
   }
 
  protected:
   // Used in the construction of DirectoryTypeDebugInfoEmitters.
-  ObserverList<TypeDebugInfoObserver> type_observers_;
+  base::ObserverList<TypeDebugInfoObserver> type_observers_;
 
  private:
   base::MessageLoop loop_;  // Needed to initialize the directory.
@@ -136,13 +140,13 @@ TEST_F(DirectoryUpdateHandlerProcessUpdateTest, NewBookmarkTag) {
   sessions::StatusController status;
 
   // Add a bookmark item to the update message.
-  std::string root = syncable::GetNullId().GetServerId();
-  syncable::Id server_id = syncable::Id::CreateFromServerId("b1");
+  std::string root = Id::GetRoot().GetServerId();
+  Id server_id = Id::CreateFromServerId("b1");
   scoped_ptr<sync_pb::SyncEntity> e =
       CreateUpdate(SyncableIdToProto(server_id), root, BOOKMARKS);
   e->set_originator_cache_guid(
       std::string(kCacheGuid, arraysize(kCacheGuid)-1));
-  syncable::Id client_id = syncable::Id::CreateFromClientString("-2");
+  Id client_id = Id::CreateFromClientString("-2");
   e->set_originator_client_item_id(client_id.GetServerId());
   e->set_position_in_parent(0);
 
@@ -175,8 +179,8 @@ TEST_F(DirectoryUpdateHandlerProcessUpdateTest,
   sessions::StatusController status;
 
   // Create an update that mimics the bookmark root.
-  syncable::Id server_id = syncable::Id::CreateFromServerId("xyz");
-  std::string root = syncable::GetNullId().GetServerId();
+  Id server_id = Id::CreateFromServerId("xyz");
+  std::string root = Id::GetRoot().GetServerId();
   scoped_ptr<sync_pb::SyncEntity> e =
       CreateUpdate(SyncableIdToProto(server_id), root, BOOKMARKS);
   e->set_server_defined_unique_tag("google_chrome_bookmarks");
@@ -209,8 +213,8 @@ TEST_F(DirectoryUpdateHandlerProcessUpdateTest, ReceiveNonBookmarkItem) {
   sync_pb::GetUpdatesResponse gu_response;
   sessions::StatusController status;
 
-  std::string root = syncable::GetNullId().GetServerId();
-  syncable::Id server_id = syncable::Id::CreateFromServerId("xyz");
+  std::string root = Id::GetRoot().GetServerId();
+  Id server_id = Id::CreateFromServerId("xyz");
   scoped_ptr<sync_pb::SyncEntity> e =
       CreateUpdate(SyncableIdToProto(server_id), root, AUTOFILL);
   e->set_server_defined_unique_tag("9PGRuKdX5sHyGMB17CvYTXuC43I=");
@@ -270,28 +274,17 @@ TEST_F(DirectoryUpdateHandlerProcessUpdateTest, GarbageCollectionByVersion) {
   context.set_context("context");
   context.set_version(1);
 
-  scoped_ptr<sync_pb::SyncEntity> type_root =
-      CreateUpdate(SyncableIdToProto(syncable::Id::CreateFromServerId("root")),
-                   syncable::GetNullId().GetServerId(),
-                   SYNCED_NOTIFICATIONS);
-  type_root->set_server_defined_unique_tag(
-      ModelTypeToRootTag(SYNCED_NOTIFICATIONS));
-  type_root->set_folder(true);
-
   scoped_ptr<sync_pb::SyncEntity> e1 =
-      CreateUpdate(SyncableIdToProto(syncable::Id::CreateFromServerId("e1")),
-                   type_root->id_string(),
+      CreateUpdate(SyncableIdToProto(Id::CreateFromServerId("e1")), "",
                    SYNCED_NOTIFICATIONS);
 
   scoped_ptr<sync_pb::SyncEntity> e2 =
-      CreateUpdate(SyncableIdToProto(syncable::Id::CreateFromServerId("e2")),
-                   type_root->id_string(),
+      CreateUpdate(SyncableIdToProto(Id::CreateFromServerId("e2")), "",
                    SYNCED_NOTIFICATIONS);
   e2->set_version(kDefaultVersion + 100);
 
   // Add to the applicable updates list.
   SyncEntityList updates;
-  updates.push_back(type_root.get());
   updates.push_back(e1.get());
   updates.push_back(e2.get());
 
@@ -302,7 +295,7 @@ TEST_F(DirectoryUpdateHandlerProcessUpdateTest, GarbageCollectionByVersion) {
   handler.ApplyUpdates(&status);
 
   // Verify none is deleted because they are unapplied during GC.
-  EXPECT_TRUE(EntryExists(type_root->id_string()));
+  EXPECT_TRUE(TypeRootExists(SYNCED_NOTIFICATIONS));
   EXPECT_TRUE(EntryExists(e1->id_string()));
   EXPECT_TRUE(EntryExists(e2->id_string()));
 
@@ -312,7 +305,6 @@ TEST_F(DirectoryUpdateHandlerProcessUpdateTest, GarbageCollectionByVersion) {
             handler.ProcessGetUpdatesResponse(
                 progress, context, SyncEntityList(), &status));
   handler.ApplyUpdates(&status);
-  EXPECT_TRUE(EntryExists(type_root->id_string()));
   EXPECT_FALSE(EntryExists(e1->id_string()));
   EXPECT_TRUE(EntryExists(e2->id_string()));
 }
@@ -334,20 +326,11 @@ TEST_F(DirectoryUpdateHandlerProcessUpdateTest, ContextVersion) {
   old_context.set_context("data");
   old_context.set_data_type_id(field_number);
 
-  scoped_ptr<sync_pb::SyncEntity> type_root =
-      CreateUpdate(SyncableIdToProto(syncable::Id::CreateFromServerId("root")),
-                   syncable::GetNullId().GetServerId(),
-                   SYNCED_NOTIFICATIONS);
-  type_root->set_server_defined_unique_tag(
-      ModelTypeToRootTag(SYNCED_NOTIFICATIONS));
-  type_root->set_folder(true);
   scoped_ptr<sync_pb::SyncEntity> e1 =
-      CreateUpdate(SyncableIdToProto(syncable::Id::CreateFromServerId("e1")),
-                   type_root->id_string(),
+      CreateUpdate(SyncableIdToProto(Id::CreateFromServerId("e1")), "",
                    SYNCED_NOTIFICATIONS);
 
   SyncEntityList updates;
-  updates.push_back(type_root.get());
   updates.push_back(e1.get());
 
   // The first response should be processed fine.
@@ -356,7 +339,9 @@ TEST_F(DirectoryUpdateHandlerProcessUpdateTest, ContextVersion) {
                 progress, old_context, updates, &status));
   handler.ApplyUpdates(&status);
 
-  EXPECT_TRUE(EntryExists(type_root->id_string()));
+  // The PREFERENCES root should be auto-created.
+  EXPECT_TRUE(TypeRootExists(SYNCED_NOTIFICATIONS));
+
   EXPECT_TRUE(EntryExists(e1->id_string()));
 
   {
@@ -373,8 +358,7 @@ TEST_F(DirectoryUpdateHandlerProcessUpdateTest, ContextVersion) {
   new_context.set_data_type_id(field_number);
 
   scoped_ptr<sync_pb::SyncEntity> e2 =
-      CreateUpdate(SyncableIdToProto(syncable::Id::CreateFromServerId("e2")),
-                   type_root->id_string(),
+      CreateUpdate(SyncableIdToProto(Id::CreateFromServerId("e2")), "",
                    SYNCED_NOTIFICATIONS);
   updates.clear();
   updates.push_back(e2.get());
@@ -415,22 +399,12 @@ TEST_F(DirectoryUpdateHandlerProcessUpdateTest,
   context.set_context("context");
   context.set_version(1);
 
-  scoped_ptr<sync_pb::SyncEntity> type_root =
-      CreateUpdate(SyncableIdToProto(syncable::Id::CreateFromServerId("root")),
-                   syncable::GetNullId().GetServerId(),
-                   ARTICLES);
-  type_root->set_server_defined_unique_tag(ModelTypeToRootTag(ARTICLES));
-  type_root->set_folder(true);
-
-  scoped_ptr<sync_pb::SyncEntity> e1 =
-      CreateUpdate(SyncableIdToProto(syncable::Id::CreateFromServerId("e1")),
-                   type_root->id_string(),
-                   ARTICLES);
+  scoped_ptr<sync_pb::SyncEntity> e1 = CreateUpdate(
+      SyncableIdToProto(Id::CreateFromServerId("e1")), "", ARTICLES);
   sync_pb::AttachmentIdProto* attachment_id = e1->add_attachment_id();
-  *attachment_id = CreateAttachmentIdProto();
+  *attachment_id = CreateAttachmentIdProto(0, 0);
 
   SyncEntityList updates;
-  updates.push_back(type_root.get());
   updates.push_back(e1.get());
 
   // Process and apply updates.
@@ -439,13 +413,13 @@ TEST_F(DirectoryUpdateHandlerProcessUpdateTest,
       handler.ProcessGetUpdatesResponse(progress, context, updates, &status));
   handler.ApplyUpdates(&status);
 
-  ASSERT_TRUE(EntryExists(type_root->id_string()));
+  ASSERT_TRUE(TypeRootExists(ARTICLES));
   ASSERT_TRUE(EntryExists(e1->id_string()));
   {
     syncable::ReadTransaction trans(FROM_HERE, dir());
     syncable::Entry e(&trans,
                       syncable::GET_BY_ID,
-                      syncable::Id::CreateFromServerId(e1->id_string()));
+                      Id::CreateFromServerId(e1->id_string()));
 
     // See that the attachment_metadata is correct.
     sync_pb::AttachmentMetadata attachment_metadata = e.GetAttachmentMetadata();
@@ -483,32 +457,26 @@ class DirectoryUpdateHandlerApplyUpdateTest : public ::testing::Test {
         passive_worker_(new FakeModelWorker(GROUP_PASSIVE)),
         bookmarks_emitter_(BOOKMARKS, &type_observers_),
         passwords_emitter_(PASSWORDS, &type_observers_),
-        articles_emitter_(ARTICLES, &type_observers_),
-        update_handler_map_deleter_(&update_handler_map_) {}
+        articles_emitter_(ARTICLES, &type_observers_) {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     dir_maker_.SetUp();
     entry_factory_.reset(new TestEntryFactory(directory()));
 
-    update_handler_map_.insert(std::make_pair(
+    update_handler_map_.insert(
         BOOKMARKS,
-        new DirectoryUpdateHandler(directory(), BOOKMARKS,
-                                   ui_worker_, &bookmarks_emitter_)));
-    update_handler_map_.insert(std::make_pair(
+        make_scoped_ptr(new DirectoryUpdateHandler(
+            directory(), BOOKMARKS, ui_worker_, &bookmarks_emitter_)));
+    update_handler_map_.insert(
         PASSWORDS,
-        new DirectoryUpdateHandler(directory(),
-                                   PASSWORDS,
-                                   password_worker_,
-                                   &passwords_emitter_)));
-    update_handler_map_.insert(std::make_pair(
-        ARTICLES,
-        new DirectoryUpdateHandler(
-            directory(), ARTICLES, ui_worker_, &articles_emitter_)));
+        make_scoped_ptr(new DirectoryUpdateHandler(
+            directory(), PASSWORDS, password_worker_, &passwords_emitter_)));
+    update_handler_map_.insert(
+        ARTICLES, make_scoped_ptr(new DirectoryUpdateHandler(
+                      directory(), ARTICLES, ui_worker_, &articles_emitter_)));
   }
 
-  virtual void TearDown() override {
-    dir_maker_.TearDown();
-  }
+  void TearDown() override { dir_maker_.TearDown(); }
 
   const UpdateCounters& GetBookmarksUpdateCounters() {
     return bookmarks_emitter_.GetUpdateCounters();
@@ -524,15 +492,15 @@ class DirectoryUpdateHandlerApplyUpdateTest : public ::testing::Test {
 
  protected:
   void ApplyBookmarkUpdates(sessions::StatusController* status) {
-    update_handler_map_[BOOKMARKS]->ApplyUpdates(status);
+    update_handler_map_.find(BOOKMARKS)->second->ApplyUpdates(status);
   }
 
   void ApplyPasswordUpdates(sessions::StatusController* status) {
-    update_handler_map_[PASSWORDS]->ApplyUpdates(status);
+    update_handler_map_.find(PASSWORDS)->second->ApplyUpdates(status);
   }
 
   void ApplyArticlesUpdates(sessions::StatusController* status) {
-    update_handler_map_[ARTICLES]->ApplyUpdates(status);
+    update_handler_map_.find(ARTICLES)->second->ApplyUpdates(status);
   }
 
   TestEntryFactory* entry_factory() {
@@ -544,8 +512,6 @@ class DirectoryUpdateHandlerApplyUpdateTest : public ::testing::Test {
   }
 
  private:
-  typedef std::map<ModelType, UpdateHandler*> UpdateHandlerMap;
-
   base::MessageLoop loop_;  // Needed to initialize the directory.
   TestDirectorySetterUpper dir_maker_;
   scoped_ptr<TestEntryFactory> entry_factory_;
@@ -554,13 +520,12 @@ class DirectoryUpdateHandlerApplyUpdateTest : public ::testing::Test {
   scoped_refptr<FakeModelWorker> password_worker_;
   scoped_refptr<FakeModelWorker> passive_worker_;
 
-  ObserverList<TypeDebugInfoObserver> type_observers_;
+  base::ObserverList<TypeDebugInfoObserver> type_observers_;
   DirectoryTypeDebugInfoEmitter bookmarks_emitter_;
   DirectoryTypeDebugInfoEmitter passwords_emitter_;
   DirectoryTypeDebugInfoEmitter articles_emitter_;
 
-  UpdateHandlerMap update_handler_map_;
-  STLValueDeleter<UpdateHandlerMap> update_handler_map_deleter_;
+  base::ScopedPtrMap<ModelType, scoped_ptr<UpdateHandler>> update_handler_map_;
 };
 
 namespace {
@@ -575,7 +540,7 @@ sync_pb::EntitySpecifics DefaultBookmarkSpecifics() {
 TEST_F(DirectoryUpdateHandlerApplyUpdateTest, SimpleBookmark) {
   sessions::StatusController status;
 
-  std::string root_server_id = syncable::GetNullId().GetServerId();
+  std::string root_server_id = Id::GetRoot().GetServerId();
   int64 parent_handle =
       entry_factory()->CreateUnappliedNewBookmarkItemWithParent(
           "parent", DefaultBookmarkSpecifics(), root_server_id);
@@ -613,7 +578,7 @@ TEST_F(DirectoryUpdateHandlerApplyUpdateTest, SimpleBookmark) {
 TEST_F(DirectoryUpdateHandlerApplyUpdateTest,
        BookmarkChildrenBeforeParent) {
   // Start with some bookmarks whose parents are unknown.
-  std::string root_server_id = syncable::GetNullId().GetServerId();
+  std::string root_server_id = Id::GetRoot().GetServerId();
   int64 a_handle = entry_factory()->CreateUnappliedNewBookmarkItemWithParent(
       "a_child_created_first", DefaultBookmarkSpecifics(), "parent");
   int64 x_handle = entry_factory()->CreateUnappliedNewBookmarkItemWithParent(
@@ -790,7 +755,7 @@ TEST_F(DirectoryUpdateHandlerApplyUpdateTest,
   // Create a locally deleted parent item.
   int64 parent_handle;
   entry_factory()->CreateUnsyncedItem(
-      syncable::Id::CreateFromServerId("parent"), TestIdFactory::root(),
+      Id::CreateFromServerId("parent"), TestIdFactory::root(),
       "parent", true, BOOKMARKS, &parent_handle);
   {
     syncable::WriteTransaction trans(FROM_HERE, UNITTEST, directory());
@@ -903,7 +868,7 @@ TEST_F(DirectoryUpdateHandlerApplyUpdateTest,
 // fail due to hierarchy conflicts.  Others should succeed.
 TEST_F(DirectoryUpdateHandlerApplyUpdateTest, ItemsBothKnownAndUnknown) {
   // See what happens when there's a mixture of good and bad updates.
-  std::string root_server_id = syncable::GetNullId().GetServerId();
+  std::string root_server_id = Id::GetRoot().GetServerId();
   int64 u1_handle = entry_factory()->CreateUnappliedNewItemWithParent(
       "first_unknown_item", DefaultBookmarkSpecifics(), "unknown_parent");
   int64 k1_handle = entry_factory()->CreateUnappliedNewItemWithParent(
@@ -994,7 +959,7 @@ TEST_F(DirectoryUpdateHandlerApplyUpdateTest, UndecryptableData) {
   sync_pb::EntitySpecifics encrypted_bookmark;
   encrypted_bookmark.mutable_encrypted();
   AddDefaultFieldValue(BOOKMARKS, &encrypted_bookmark);
-  std::string root_server_id = syncable::GetNullId().GetServerId();
+  std::string root_server_id = Id::GetRoot().GetServerId();
   int64 folder_handle = entry_factory()->CreateUnappliedNewItemWithParent(
       "folder",
       encrypted_bookmark,
@@ -1109,8 +1074,10 @@ TEST_F(DirectoryUpdateHandlerApplyUpdateTest,
   *specifics.mutable_article() = sync_pb::ArticleSpecifics();
   int64 handle = entry_factory()->CreateSyncedItem("art1", ARTICLES, is_folder);
 
-  sync_pb::AttachmentIdProto local_attachment_id = CreateAttachmentIdProto();
-  sync_pb::AttachmentIdProto server_attachment_id = CreateAttachmentIdProto();
+  sync_pb::AttachmentIdProto local_attachment_id =
+      CreateAttachmentIdProto(0, 0);
+  sync_pb::AttachmentIdProto server_attachment_id =
+      CreateAttachmentIdProto(0, 0);
 
   // Add an attachment to the local attachment metadata.
   sync_pb::AttachmentMetadata local_metadata;
@@ -1151,8 +1118,8 @@ TEST_F(DirectoryUpdateHandlerApplyUpdateTest,
   *specifics.mutable_article() = sync_pb::ArticleSpecifics();
   int64 handle = entry_factory()->CreateSyncedItem("art1", ARTICLES, is_folder);
 
-  sync_pb::AttachmentIdProto id1 = CreateAttachmentIdProto();
-  sync_pb::AttachmentIdProto id2 = CreateAttachmentIdProto();
+  sync_pb::AttachmentIdProto id1 = CreateAttachmentIdProto(0, 0);
+  sync_pb::AttachmentIdProto id2 = CreateAttachmentIdProto(0, 0);
 
   // Add id1, then id2 to the local attachment metadata.
   sync_pb::AttachmentMetadata local_metadata;

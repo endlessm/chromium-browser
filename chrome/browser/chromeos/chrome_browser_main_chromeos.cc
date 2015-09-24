@@ -20,26 +20,28 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/sys_info.h"
+#include "base/task_runner_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part_chromeos.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/accessibility/magnification_manager.h"
+#include "chrome/browser/chromeos/accessibility/spoken_feedback_event_rewriter.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_launch_error.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_mode_idle_app_name_notification.h"
-#include "chrome/browser/chromeos/boot_times_loader.h"
-#include "chrome/browser/chromeos/dbus/cros_dbus_service.h"
-#include "chrome/browser/chromeos/device/input_service_proxy.h"
+#include "chrome/browser/chromeos/boot_times_recorder.h"
+#include "chrome/browser/chromeos/dbus/chrome_console_service_provider_delegate.h"
+#include "chrome/browser/chromeos/dbus/chrome_display_power_service_provider_delegate.h"
+#include "chrome/browser/chromeos/dbus/chrome_proxy_resolver_delegate.h"
+#include "chrome/browser/chromeos/dbus/screen_lock_service_provider.h"
 #include "chrome/browser/chromeos/events/event_rewriter.h"
 #include "chrome/browser/chromeos/events/event_rewriter_controller.h"
 #include "chrome/browser/chromeos/events/keyboard_driven_event_rewriter.h"
 #include "chrome/browser/chromeos/extensions/default_app_order.h"
-#include "chrome/browser/chromeos/extensions/extension_system_event_observer.h"
 #include "chrome/browser/chromeos/external_metrics.h"
 #include "chrome/browser/chromeos/input_method/input_method_configuration.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
-#include "chrome/browser/chromeos/kiosk_mode/kiosk_mode_settings.h"
 #include "chrome/browser/chromeos/language_preferences.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/lock/screen_locker.h"
@@ -47,16 +49,16 @@
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
+#include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
-#include "chrome/browser/chromeos/memory/oom_priority_manager.h"
 #include "chrome/browser/chromeos/net/network_portal_detector_impl.h"
+#include "chrome/browser/chromeos/net/wake_on_wifi_manager.h"
 #include "chrome/browser/chromeos/options/cert_library.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos_factory.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/policy/device_local_account.h"
 #include "chrome/browser/chromeos/power/freezer_cgroup_process_manager.h"
 #include "chrome/browser/chromeos/power/idle_action_warning_observer.h"
-#include "chrome/browser/chromeos/power/light_bar.h"
 #include "chrome/browser/chromeos/power/peripheral_battery_observer.h"
 #include "chrome/browser/chromeos/power/power_button_observer.h"
 #include "chrome/browser/chromeos/power/power_data_collector.h"
@@ -81,7 +83,7 @@
 #include "chrome/common/chrome_version_info.h"
 #include "chrome/common/logging_chrome.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/audio/audio_devices_pref_handler.h"
+#include "chromeos/audio/audio_devices_pref_handler_impl.h"
 #include "chromeos/audio/cras_audio_handler.h"
 #include "chromeos/cert_loader.h"
 #include "chromeos/chromeos_paths.h"
@@ -90,10 +92,14 @@
 #include "chromeos/cryptohome/homedir_methods.h"
 #include "chromeos/cryptohome/system_salt_getter.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/dbus/power_policy_controller.h"
+#include "chromeos/dbus/services/console_service_provider.h"
+#include "chromeos/dbus/services/cros_dbus_service.h"
+#include "chromeos/dbus/services/display_power_service_provider.h"
+#include "chromeos/dbus/services/liveness_service_provider.h"
+#include "chromeos/dbus/services/proxy_resolution_service_provider.h"
 #include "chromeos/dbus/session_manager_client.h"
 #include "chromeos/disks/disk_mount_manager.h"
-#include "chromeos/ime/ime_keyboard.h"
-#include "chromeos/ime/input_method_manager.h"
 #include "chromeos/login/login_state.h"
 #include "chromeos/login/user_names.h"
 #include "chromeos/login_event_recorder.h"
@@ -101,21 +107,25 @@
 #include "chromeos/network/network_change_notifier_factory_chromeos.h"
 #include "chromeos/network/network_handler.h"
 #include "chromeos/system/statistics_provider.h"
-#include "chromeos/tpm_token_loader.h"
+#include "chromeos/tpm/tpm_token_loader.h"
+#include "components/device_event_log/device_event_log.h"
 #include "components/metrics/metrics_service.h"
 #include "components/ownership/owner_key_util.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
+#include "components/wallpaper/wallpaper_manager_base.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
-#include "content/public/browser/power_save_blocker.h"
 #include "content/public/common/main_function_params.h"
+#include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "media/audio/sounds/sounds_manager.h"
 #include "net/base/network_change_notifier.h"
 #include "net/socket/ssl_server_socket.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context_getter.h"
+#include "ui/base/ime/chromeos/ime_keyboard.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
 #include "ui/base/touch/touch_device.h"
 #include "ui/events/event_utils.h"
 
@@ -124,12 +134,6 @@
 #include "chrome/browser/chromeos/device_uma.h"
 #include "chrome/browser/chromeos/events/system_key_event_listener.h"
 #include "chrome/browser/chromeos/events/xinput_hierarchy_changed_event_listener.h"
-#endif
-
-#if !defined(USE_ATHENA)
-#include "chrome/browser/chromeos/kiosk_mode/kiosk_mode_idle_logout.h"
-#include "chrome/browser/chromeos/kiosk_mode/kiosk_mode_screensaver.h"
-#include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #endif
 
 namespace chromeos {
@@ -161,7 +165,19 @@ class DBusServices {
     // Initialize DBusThreadManager for the browser. This must be done after
     // the main message loop is started, as it uses the message loop.
     DBusThreadManager::Initialize();
-    CrosDBusService::Initialize();
+    PowerPolicyController::Initialize(
+        DBusThreadManager::Get()->GetPowerManagerClient());
+
+    ScopedVector<CrosDBusService::ServiceProviderInterface> service_providers;
+    service_providers.push_back(ProxyResolutionServiceProvider::Create(
+        make_scoped_ptr(new ChromeProxyResolverDelegate())));
+    service_providers.push_back(new DisplayPowerServiceProvider(
+        make_scoped_ptr(new ChromeDisplayPowerServiceProviderDelegate)));
+    service_providers.push_back(new LivenessServiceProvider);
+    service_providers.push_back(new ScreenLockServiceProvider);
+    service_providers.push_back(new ConsoleServiceProvider(
+        make_scoped_ptr(new ChromeConsoleServiceProviderDelegate)));
+    CrosDBusService::Initialize(service_providers.Pass());
 
     // Initialize PowerDataCollector after DBusThreadManager is initialized.
     PowerDataCollector::Initialize();
@@ -203,22 +219,18 @@ class DBusServices {
   ~DBusServices() {
     ui::NetworkConnect::Shutdown();
     network_connect_delegate_.reset();
-
     CertLibrary::Shutdown();
     NetworkHandler::Shutdown();
-
     cryptohome::AsyncMethodCaller::Shutdown();
     disks::DiskMountManager::Shutdown();
-
     SystemSaltGetter::Shutdown();
     LoginState::Shutdown();
     CertLoader::Shutdown();
     TPMTokenLoader::Shutdown();
-
     CrosDBusService::Shutdown();
-
-    // Shutdown the PowerDataCollector before shutting down DBusThreadManager.
     PowerDataCollector::Shutdown();
+    PowerPolicyController::Shutdown();
+    device::BluetoothAdapterFactory::Shutdown();
 
     // NOTE: This must only be called if Initialize() was called.
     DBusThreadManager::Shutdown();
@@ -240,21 +252,17 @@ ChromeBrowserMainPartsChromeos::ChromeBrowserMainPartsChromeos(
 }
 
 ChromeBrowserMainPartsChromeos::~ChromeBrowserMainPartsChromeos() {
-#if !defined(USE_ATHENA)
-  if (KioskModeSettings::Get()->IsKioskModeEnabled())
-    ShutdownKioskModeScreensaver();
-#endif
-
   // To be precise, logout (browser shutdown) is not yet done, but the
   // remaining work is negligible, hence we say LogoutDone here.
-  BootTimesLoader::Get()->AddLogoutTimeMarker("LogoutDone", false);
-  BootTimesLoader::Get()->WriteLogoutTimes();
+  BootTimesRecorder::Get()->AddLogoutTimeMarker("LogoutDone", false);
+  BootTimesRecorder::Get()->WriteLogoutTimes();
 }
 
 // content::BrowserMainParts and ChromeBrowserMainExtraParts overrides ---------
 
 void ChromeBrowserMainPartsChromeos::PreEarlyInitialization() {
-  CommandLine* singleton_command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* singleton_command_line =
+      base::CommandLine::ForCurrentProcess();
 
   if (parsed_command_line().HasSwitch(switches::kGuestSession)) {
     // Disable sync and extensions if we're in "browse without sign-in" mode.
@@ -301,6 +309,9 @@ void ChromeBrowserMainPartsChromeos::PreMainMessageLoopStart() {
 }
 
 void ChromeBrowserMainPartsChromeos::PostMainMessageLoopStart() {
+  // device_event_log must be initialized after the message loop.
+  device_event_log::Initialize(0 /* default max entries */);
+
   base::FilePath user_data_dir;
   if (!base::SysInfo::IsRunningOnChromeOS() &&
       PathService::Get(chrome::DIR_USER_DATA, &user_data_dir)) {
@@ -328,7 +339,7 @@ void ChromeBrowserMainPartsChromeos::PreMainMessageLoopRun() {
           content::BrowserThread::IO));
 
   CrasAudioHandler::Initialize(
-      AudioDevicesPrefHandler::Create(g_browser_process->local_state()));
+      new AudioDevicesPrefHandlerImpl(g_browser_process->local_state()));
 
   // Start loading machine statistics here. StatisticsProvider::Shutdown()
   // will ensure that loading is aborted on early exit.
@@ -343,6 +354,8 @@ void ChromeBrowserMainPartsChromeos::PreMainMessageLoopRun() {
 
   DeviceOAuth2TokenServiceFactory::Initialize();
 
+  wake_on_wifi_manager_.reset(new WakeOnWifiManager());
+
   ChromeBrowserMainPartsLinux::PreMainMessageLoopRun();
 }
 
@@ -351,8 +364,8 @@ void ChromeBrowserMainPartsChromeos::PreProfileInit() {
   // -- immediately before Profile creation().
 
   // Now that the file thread exists we can record our stats.
-  BootTimesLoader::Get()->RecordChromeMainStats();
-  LoginEventRecorder::Get()->SetDelegate(BootTimesLoader::Get());
+  BootTimesRecorder::Get()->RecordChromeMainStats();
+  LoginEventRecorder::Get()->SetDelegate(BootTimesRecorder::Get());
 
   // Trigger prefetching of ownership status.
   DeviceSettingsService::Get()->Load();
@@ -362,16 +375,7 @@ void ChromeBrowserMainPartsChromeos::PreProfileInit() {
 
   g_browser_process->platform_part()->InitializeChromeUserManager();
 
-#if defined(USE_ATHENA)
   ScreenLocker::InitClass();
-#else
-  // Initialize the screen locker now so that it can receive
-  // LOGIN_USER_CHANGED notification from UserManager.
-  if (KioskModeSettings::Get()->IsKioskModeEnabled())
-    KioskModeIdleLogout::Initialize();
-  else
-    ScreenLocker::InitClass();
-#endif
 
   // This forces the ProfileManager to be created and register for the
   // notification it needs to track the logged in user.
@@ -392,7 +396,7 @@ void ChromeBrowserMainPartsChromeos::PreProfileInit() {
   // logged in and we should behave accordingly.
   bool immediate_login =
       parsed_command_line().HasSwitch(switches::kLoginUser);
-  if (immediate_login){
+  if (immediate_login) {
     // Redirects Chrome logging to the user data dir.
     logging::RedirectChromeLogging(parsed_command_line());
 
@@ -411,19 +415,24 @@ void ChromeBrowserMainPartsChromeos::PreProfileInit() {
   // Initialize magnification manager before ash tray is created. And this must
   // be placed after UserManager::SessionStarted();
   AccessibilityManager::Initialize();
-#if !defined(USE_ATHENA)
-  // TODO(oshima): MagnificationManager/WallpaperManager depends on ash.
-  // crbug.com/408733, crbug.com/408734.
   MagnificationManager::Initialize();
+
+  wallpaper::WallpaperManagerBase::SetPathIds(
+      chrome::DIR_USER_DATA,
+      chrome::DIR_CHROMEOS_WALLPAPERS,
+      chrome::DIR_CHROMEOS_CUSTOM_WALLPAPERS);
 
   // Add observers for WallpaperManager. This depends on PowerManagerClient,
   // TimezoneSettings and CrosSettings.
+  WallpaperManager::Initialize();
   WallpaperManager::Get()->AddObservers();
-#endif
 
-  cros_version_loader_.GetVersion(VersionLoader::VERSION_FULL,
-                                  base::Bind(&ChromeOSVersionCallback),
-                                  &tracker_);
+  base::PostTaskAndReplyWithResult(
+      content::BrowserThread::GetBlockingPool(),
+      FROM_HERE,
+      base::Bind(&version_loader::GetVersion,
+                 version_loader::VERSION_FULL),
+      base::Bind(&ChromeOSVersionCallback));
 
   // Make sure that wallpaper boot transition and other delays in OOBE
   // are disabled for tests and kiosk app launch by default.
@@ -433,8 +442,7 @@ void ChromeBrowserMainPartsChromeos::PreProfileInit() {
     WizardController::SetZeroDelays();
   }
 
-  power_prefs_.reset(new PowerPrefs(
-      DBusThreadManager::Get()->GetPowerPolicyController()));
+  power_prefs_.reset(new PowerPrefs(PowerPolicyController::Get()));
 
   // In Aura builds this will initialize ash::Shell.
   ChromeBrowserMainPartsLinux::PreProfileInit();
@@ -472,9 +480,7 @@ class GuestLanguageSetCallbackData {
 
   // Must match SwitchLanguageCallback type.
   static void Callback(const scoped_ptr<GuestLanguageSetCallbackData>& self,
-                       const std::string& locale,
-                       const std::string& loaded_locale,
-                       bool success);
+                       const locale_util::LanguageSwitchResult& result);
 
   Profile* profile;
 };
@@ -482,9 +488,7 @@ class GuestLanguageSetCallbackData {
 // static
 void GuestLanguageSetCallbackData::Callback(
     const scoped_ptr<GuestLanguageSetCallbackData>& self,
-    const std::string& locale,
-    const std::string& loaded_locale,
-    bool success) {
+    const locale_util::LanguageSwitchResult& result) {
   input_method::InputMethodManager* manager =
       input_method::InputMethodManager::Get();
   scoped_refptr<input_method::InputMethodManager::State> ime_state =
@@ -500,7 +504,7 @@ void GuestLanguageSetCallbackData::Callback(
   // Second, enable locale based input methods.
   const std::string locale_default_input_method =
       manager->GetInputMethodUtil()->GetLanguageDefaultInputMethodId(
-          loaded_locale);
+          result.loaded_locale);
   if (!locale_default_input_method.empty()) {
     PrefService* user_prefs = self->profile->GetPrefs();
     user_prefs->SetString(prefs::kLanguagePreviousInputMethod,
@@ -518,20 +522,25 @@ void GuestLanguageSetCallbackData::Callback(
 void SetGuestLocale(Profile* const profile) {
   scoped_ptr<GuestLanguageSetCallbackData> data(
       new GuestLanguageSetCallbackData(profile));
-  scoped_ptr<locale_util::SwitchLanguageCallback> callback(
-      new locale_util::SwitchLanguageCallback(base::Bind(
-          &GuestLanguageSetCallbackData::Callback, base::Passed(data.Pass()))));
-  user_manager::User* const user =
+  locale_util::SwitchLanguageCallback callback(base::Bind(
+      &GuestLanguageSetCallbackData::Callback, base::Passed(data.Pass())));
+  const user_manager::User* const user =
       ProfileHelper::Get()->GetUserByProfile(profile);
   UserSessionManager::GetInstance()->RespectLocalePreference(
-      profile, user, callback.Pass());
+      profile, user, callback);
 }
 
 void ChromeBrowserMainPartsChromeos::PostProfileInit() {
   // -- This used to be in ChromeBrowserMainParts::PreMainMessageLoopRun()
   // -- just after CreateProfile().
 
-  BootTimesLoader::Get()->OnChromeProcessStart();
+  // Force loading of signin profile if it was not loaded before. It is possible
+  // when we are restoring session or skipping login screen for some other
+  // reason.
+  if (!chromeos::ProfileHelper::IsSigninProfile(profile()))
+    chromeos::ProfileHelper::GetSigninProfile();
+
+  BootTimesRecorder::Get()->OnChromeProcessStart();
 
   // Initialize the network portal detector for Chrome OS. The network
   // portal detector starts to listen for notifications from
@@ -572,22 +581,11 @@ void ChromeBrowserMainPartsChromeos::PostProfileInit() {
   if (user_manager::UserManager::Get()->IsLoggedInAsGuest())
     SetGuestLocale(profile());
 
-  // These observers must be initialized after the profile because
-  // they use the profile to dispatch extension events.
-  extension_system_event_observer_.reset(new ExtensionSystemEventObserver());
-  if (KioskModeSettings::Get()->IsKioskModeEnabled()) {
-    retail_mode_power_save_blocker_ = content::PowerSaveBlocker::Create(
-        content::PowerSaveBlocker::kPowerSaveBlockPreventDisplaySleep,
-        "Retail mode");
-  }
-
   peripheral_battery_observer_.reset(new PeripheralBatteryObserver());
 
   renderer_freezer_.reset(
       new RendererFreezer(scoped_ptr<RendererFreezer::Delegate>(
           new FreezerCgroupProcessManager())));
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kWakeOnPackets))
-    light_bar_.reset(new LightBar());
 
   g_browser_process->platform_part()->InitializeAutomaticRebootManager();
   g_browser_process->platform_part()->InitializeDeviceDisablingManager();
@@ -630,13 +628,8 @@ void ChromeBrowserMainPartsChromeos::PreBrowserStart() {
   // -- This used to be in ChromeBrowserMainParts::PreMainMessageLoopRun()
   // -- immediately after ChildProcess::WaitForDebugger().
 
-  // Start the out-of-memory priority manager here so that we give the most
-  // amount of time for the other services to start up before we start
-  // adjusting the oom priority.
-  g_browser_process->platform_part()->oom_priority_manager()->Start();
-
   if (ui::ShouldDefaultToNaturalScroll()) {
-    CommandLine::ForCurrentProcess()->AppendSwitch(
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
         chromeos::switches::kNaturalScrollDefault);
     system::InputDeviceSettings::Get()->SetTapToClick(true);
   }
@@ -647,34 +640,26 @@ void ChromeBrowserMainPartsChromeos::PreBrowserStart() {
 void ChromeBrowserMainPartsChromeos::PostBrowserStart() {
   // These are dependent on the ash::Shell singleton already having been
   // initialized.
-#if !defined(USE_ATHENA)
   // TODO(oshima): Remove ash dependency in PowerButtonObserver.
   // crbug.com/408832.
   power_button_observer_.reset(new PowerButtonObserver);
-#endif
   data_promo_notification_.reset(new DataPromoNotification());
 
-#if !defined(USE_ATHENA)
-  // TODO(oshima): Support accessibility on athena. crbug.com/408733.
   keyboard_event_rewriters_.reset(new EventRewriterController());
   keyboard_event_rewriters_->AddEventRewriter(
       scoped_ptr<ui::EventRewriter>(new KeyboardDrivenEventRewriter()));
+  keyboard_event_rewriters_->AddEventRewriter(
+      scoped_ptr<ui::EventRewriter>(new SpokenFeedbackEventRewriter()));
   keyboard_event_rewriters_->AddEventRewriter(scoped_ptr<ui::EventRewriter>(
       new EventRewriter(ash::Shell::GetInstance()->sticky_keys_controller())));
   keyboard_event_rewriters_->Init();
-#endif
 
   ChromeBrowserMainPartsLinux::PostBrowserStart();
 }
 
 // Shut down services before the browser process, etc are destroyed.
 void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
-  BootTimesLoader::Get()->AddLogoutTimeMarker("UIMessageLoopEnded", true);
-
-  g_browser_process->platform_part()->oom_priority_manager()->Stop();
-
-  // Early wake-up of HID device service.
-  InputServiceProxy::WarmUp();
+  BootTimesRecorder::Get()->AddLogoutTimeMarker("UIMessageLoopEnded", true);
 
   // Destroy the application name notifier for Kiosk mode.
   KioskModeIdleAppNameNotification::Shutdown();
@@ -701,18 +686,11 @@ void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
 
   // We should remove observers attached to D-Bus clients before
   // DBusThreadManager is shut down.
-  extension_system_event_observer_.reset();
-  retail_mode_power_save_blocker_.reset();
   peripheral_battery_observer_.reset();
   power_prefs_.reset();
   renderer_freezer_.reset();
-  light_bar_.reset();
-
-  // Let the ScreenLocker unregister itself from SessionManagerClient before
-  // DBusThreadManager is shut down.
-  if (!KioskModeSettings::Get()->IsKioskModeEnabled())
-    ScreenLocker::ShutDownClass();
-
+  wake_on_wifi_manager_.reset();
+  ScreenLocker::ShutDownClass();
   keyboard_event_rewriters_.reset();
 #if defined(USE_X11)
   // The XInput2 event listener needs to be shut down earlier than when
@@ -726,15 +704,11 @@ void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
   SystemKeyEventListener::Shutdown();
 #endif
 
-  CrasAudioHandler::Shutdown();
-
   // Detach D-Bus clients before DBusThreadManager is shut down.
   power_button_observer_.reset();
   idle_action_warning_observer_.reset();
 
-#if !defined(USE_ATHENA)
   MagnificationManager::Shutdown();
-#endif
 
   AccessibilityManager::Shutdown();
 
@@ -747,9 +721,7 @@ void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
   // that the UserManager has no URLRequest pending (see
   // http://crbug.com/276659).
   g_browser_process->platform_part()->user_manager()->Shutdown();
-#if !defined(USE_ATHENA)
-  WallpaperManager::Get()->Shutdown();
-#endif
+  WallpaperManager::Shutdown();
 
   // Let the DeviceDisablingManager unregister itself as an observer of the
   // CrosSettings singleton before it is destroyed.
@@ -777,6 +749,9 @@ void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
   // Stops all in-flight OAuth2 token fetchers before the IO thread stops.
   DeviceOAuth2TokenServiceFactory::Shutdown();
 
+  // Shutdown after PostMainMessageLoopRun() which should destroy all observers.
+  CrasAudioHandler::Shutdown();
+
   // Called after
   // ChromeBrowserMainPartsLinux::PostMainMessageLoopRun() to be
   // executed after execution of chrome::CloseAsh(), because some
@@ -784,6 +759,9 @@ void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
   NetworkPortalDetector::Shutdown();
 
   g_browser_process->platform_part()->DestroyChromeUserManager();
+
+  // Make sure that there is no pending URLRequests.
+  UserSessionManager::GetInstance()->Shutdown();
 
   g_browser_process->platform_part()->ShutdownSessionManager();
 }

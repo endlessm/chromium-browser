@@ -23,14 +23,14 @@ class ScreenOrientationDispatcher final : public GarbageCollectedFinalized<Scree
 public:
     static ScreenOrientationDispatcher& instance();
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     ScreenOrientationDispatcher();
 
     // Inherited from PlatformEventDispatcher.
-    virtual void startListening() override;
-    virtual void stopListening() override;
+    void startListening() override;
+    void stopListening() override;
 };
 
 } // namespace blink

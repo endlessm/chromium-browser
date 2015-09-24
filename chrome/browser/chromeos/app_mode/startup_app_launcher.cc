@@ -22,6 +22,7 @@
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
+#include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -33,6 +34,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "extensions/browser/extension_system.h"
+#include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest_handlers/kiosk_mode_info.h"
 #include "extensions/common/manifest_handlers/offline_enabled_info.h"
@@ -88,6 +90,8 @@ StartupAppLauncher::~StartupAppLauncher() {
   // through a user bailout shortcut.
   ProfileOAuth2TokenServiceFactory::GetForProfile(profile_)
       ->RemoveObserver(this);
+  extensions::InstallTrackerFactory::GetForBrowserContext(profile_)
+      ->RemoveObserver(this);
 }
 
 void StartupAppLauncher::Initialize() {
@@ -121,17 +125,17 @@ void StartupAppLauncher::StartLoadingOAuthFile() {
 // static.
 void StartupAppLauncher::LoadOAuthFileOnBlockingPool(
     KioskOAuthParams* auth_params) {
-  int error_code = JSONFileValueSerializer::JSON_NO_ERROR;
+  int error_code = JSONFileValueDeserializer::JSON_NO_ERROR;
   std::string error_msg;
   base::FilePath user_data_dir;
   CHECK(PathService::Get(chrome::DIR_USER_DATA, &user_data_dir));
   base::FilePath auth_file = user_data_dir.Append(kOAuthFileName);
-  scoped_ptr<JSONFileValueSerializer> serializer(
-      new JSONFileValueSerializer(user_data_dir.Append(kOAuthFileName)));
+  scoped_ptr<JSONFileValueDeserializer> deserializer(
+      new JSONFileValueDeserializer(user_data_dir.Append(kOAuthFileName)));
   scoped_ptr<base::Value> value(
-      serializer->Deserialize(&error_code, &error_msg));
+      deserializer->Deserialize(&error_code, &error_msg));
   base::DictionaryValue* dict = NULL;
-  if (error_code != JSONFileValueSerializer::JSON_NO_ERROR ||
+  if (error_code != JSONFileValueDeserializer::JSON_NO_ERROR ||
       !value.get() || !value->GetAsDictionary(&dict)) {
     LOG(WARNING) << "Can't find auth file at " << auth_file.value();
     return;
@@ -270,8 +274,13 @@ void StartupAppLauncher::MaybeLaunchApp() {
 
 void StartupAppLauncher::OnFinishCrxInstall(const std::string& extension_id,
                                             bool success) {
-  if (extension_id != app_id_)
+  // Wait for pending updates or dependent extensions to download.
+  if (extensions::ExtensionSystem::Get(profile_)
+          ->extension_service()
+          ->pending_extension_manager()
+          ->HasPendingExtensions()) {
     return;
+  }
 
   extensions::InstallTracker* tracker =
       extensions::InstallTrackerFactory::GetForBrowserContext(profile_);
@@ -331,7 +340,7 @@ void StartupAppLauncher::LaunchApp() {
   // Always open the app in a window.
   OpenApplication(AppLaunchParams(profile_, extension,
                                   extensions::LAUNCH_CONTAINER_WINDOW,
-                                  NEW_WINDOW));
+                                  NEW_WINDOW, extensions::SOURCE_KIOSK));
   InitAppSession(profile_, app_id_);
 
   user_manager::UserManager::Get()->SessionStarted();

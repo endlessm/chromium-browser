@@ -12,6 +12,7 @@
 #include "chrome/browser/services/gcm/gcm_profile_service.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
+#include "components/gcm_driver/gcm_channel_status_syncer.h"
 
 namespace invalidation {
 
@@ -23,7 +24,7 @@ TiclProfileSettingsProvider::TiclProfileSettingsProvider(Profile* profile)
       base::Bind(&TiclProfileSettingsProvider::FireOnUseGCMChannelChanged,
                  base::Unretained(this)));
   registrar_.Add(
-      prefs::kGCMChannelEnabled,
+      gcm::prefs::kGCMChannelStatus,
       base::Bind(&TiclProfileSettingsProvider::FireOnUseGCMChannelChanged,
                  base::Unretained(this)));
 }
@@ -32,18 +33,13 @@ TiclProfileSettingsProvider::~TiclProfileSettingsProvider() {
 }
 
 bool TiclProfileSettingsProvider::UseGCMChannel() const {
-  if (!gcm::GCMProfileService::IsGCMEnabled(profile_)) {
-    // Do not try to use GCM channel if GCM is disabled.
-    return false;
-  }
-
   if (profile_->GetPrefs()->GetBoolean(
           prefs::kInvalidationServiceUseGCMChannel)) {
     // Use GCM channel if it was enabled via prefs.
     return true;
   }
 
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kInvalidationUseGCMChannel)) {
     // Use GCM channel if it was enabled via a command-line switch.
     return true;

@@ -15,14 +15,21 @@ import subprocess
 import sys
 import tempfile
 
+try:
+  from dateutil import parser as dateutilparser
+except:
+  sys.stdout.write("Please `apt-get install python-dateutil`: "
+                   "Python's datetime packages don't handle timezones.")
+  raise
+
+
 BUILD_DIR = os.path.dirname(__file__)
 NACL_DIR = os.path.dirname(BUILD_DIR)
 TOOLCHAIN_REV_DIR = os.path.join(NACL_DIR, 'toolchain_revisions')
 PKG_VER = os.path.join(BUILD_DIR, 'package_version', 'package_version.py')
 
-PKGS = ['pnacl_newlib', 'pnacl_translator']
-REV_FILES = [os.path.join(TOOLCHAIN_REV_DIR, '%s.json' % package)
-             for package in PKGS]
+DEFAULT_HASH='0000000000000000000000000000000000000000'
+PNACL_PACKAGE = 'pnacl_newlib'
 
 
 def ParseArgs(args):
@@ -30,11 +37,11 @@ def ParseArgs(args):
       formatter_class=argparse.RawDescriptionHelpFormatter,
       description="""Update pnacl_newlib.json PNaCl version.
 
-LLVM and other projects are checked-in to the NaCl repository, but their
-head isn't necessarily the one that we currently use in PNaCl. The
-pnacl_newlib.json and pnacl_translator.json files point at subversion
-revisions to use for tools such as LLVM. Our build process then
-downloads pre-built tool tarballs from the toolchain build waterfall.
+LLVM and other projects are checked-in to the NaCl repository, but their head
+isn't necessarily the one that we currently use in PNaCl. The pnacl_newlib.json
+and pnacl_translator.json files point at git revisions to use for tools such as
+LLVM. Our build process then downloads pre-built tool tarballs from the
+toolchain build waterfall.
 
 git repository before running this script:
          ______________________
@@ -56,26 +63,29 @@ git repository after running this script:
                        v             |
   ...----A------B------C------D------E------ NaCl HEAD
 
-Note that there could be any number of non-PNaCl changes between each of
-these changelists, and that the user can also decide to update the
-pointer to B instead of C.
+Note that there could be any number of non-PNaCl changes between each of these
+changelists, and that the user can also decide to update the pointer to B
+instead of C.
 
 There is further complication when toolchain builds are merged.
 """)
   parser.add_argument('--email', metavar='ADDRESS', type=str,
                       default=getpass.getuser()+'@chromium.org',
                       help="Email address to send errors to.")
-  parser.add_argument('--svn-id', metavar='SVN_ID', type=int, default=0,
-                      help="Update to a specific SVN ID instead of the most "
-                      "recent SVN ID with a PNaCl change. This value must "
+  parser.add_argument('--hash', metavar='HASH',
+                      help="Update to a specific git hash instead of the most "
+                      "recent git hash with a PNaCl change. This value must "
                       "be more recent than the one in the current "
                       "pnacl_newlib.json. This option is useful when multiple "
                       "changelists' toolchain builds were merged, or when "
                       "too many PNaCl changes would be pulled in at the "
                       "same time.")
-  parser.add_argument('--dry-run', default=False, action='store_true',
+  parser.add_argument('-n', '--dry-run', default=False, action='store_true',
                       help="Print the changelist that would be sent, but "
                       "don't actually send anything to review.")
+  parser.add_argument('--ignore-branch', default=False, action='store_true',
+                      help='Allow script to run from branches other than '
+                      'master')
   # TODO(jfb) The following options come from download_toolchain.py and
   #           should be shared in some way.
   parser.add_argument('--filter_out_predicates', default=[],
@@ -93,35 +103,46 @@ def ExecCommand(command):
 
 
 def GetCurrentRevision():
-  return [ExecCommand([sys.executable, PKG_VER,
-                       'getrevision',
-                       '--revision-package', package]).strip()
-          for package in PKGS]
+  return ExecCommand([sys.executable, PKG_VER,
+                      'getrevision',
+                      '--revision-package', PNACL_PACKAGE]).strip()
 
 
-def SetCurrentRevision(revision_num):
-  for package in PKGS:
-    ExecCommand([sys.executable, PKG_VER,
-                 'setrevision',
-                 '--revision-package', package,
-                 '--revision', str(revision_num)])
+def SetCurrentRevision(hash):
+  ExecCommand([sys.executable, PKG_VER,
+               'setrevision',
+               '--revision-set', PNACL_PACKAGE,
+               '--revision', hash])
+
+
+def GetRevisionPackageFiles():
+  out = ExecCommand([sys.executable, PKG_VER,
+                     'revpackages',
+                     '--revision-set', PNACL_PACKAGE])
+  package_list = [package.strip() for package in out.strip().split('\n')]
+  return [os.path.join(TOOLCHAIN_REV_DIR, '%s.json' % package)
+          for package in package_list]
 
 
 def GitCurrentBranch():
   return ExecCommand(['git', 'symbolic-ref', 'HEAD', '--short']).strip()
 
 
+def GitRevParse(rev):
+  return ExecCommand(['git', 'rev-parse', rev]).strip()
+
+
 def GitStatus():
   """List of statuses, one per path, of paths in the current git branch.
   Ignores untracked paths."""
-  out = ExecCommand(['git', 'status', '--porcelain']).strip().split('\n')
+  out = ExecCommand(['git', 'status', '--porcelain']).strip()
+  if not out:
+    return []
+  out = out.split('\n')
   return [f.strip() for f in out if not re.match('^\?\? (.*)$', f.strip())]
 
 
 def SyncSources():
-  """Assumes a git-svn checkout of NaCl. See:
-  www.chromium.org/nativeclient/how-tos/how-to-use-git-svn-with-native-client
-  """
   ExecCommand(['gclient', 'sync'])
 
 
@@ -133,12 +154,12 @@ def GitCommitInfo(info='', obj=None, num=None, extra=[]):
   # Shorthands for git's pretty formats.
   # See PRETTY FORMATS format:<string> in `git help log`.
   git_formats = {
-      '':        '',
-      'hash':    '%H',
-      'date':    '%ci',
-      'author':  '%aN',
-      'subject': '%s',
-      'body':    '%b',
+      '':             '',
+      'hash':         '%H',
+      'date':         '%cI',
+      'author email': '%aE',
+      'subject':      '%s',
+      'body':         '%b',
   }
   cmd = ['git', 'log', '--format=format:%s' % git_formats[info]] + extra
   if num: cmd += ['-n'+str(num)]
@@ -180,7 +201,7 @@ def GitCheckout(branch, force=False):
 
 def GitCheckoutNewBranch(branch):
   """Create and checkout a new git branch."""
-  ExecCommand(['git', 'checkout', '-b', branch])
+  ExecCommand(['git', 'checkout', '-b', branch, 'origin/master'])
 
 
 def GitDeleteBranch(branch, force=False):
@@ -210,25 +231,12 @@ def GitTry():
   return ExecCommand(['git', 'cl', 'try'])
 
 
-def FindCommitWithGitSvnId(git_svn_id):
-  while True:
-    # This command needs to retry because git-svn partially rebuild its
-    # revision map for every commit. Asking it a second time fixes the
-    # issue.
-    out = ExecCommand(['git', 'svn', 'find-rev', 'r' + git_svn_id]).strip()
-    if not re.match('^Partial-rebuilding ', out):
-      break
-  return out
-
-
 def CommitMessageToCleanDict(commit_message):
   """Extract and clean commit message fields that follow the NaCl commit
   message convention. Don't repeat them as-is, to avoid confusing our
   infrastructure."""
   res = {}
   fields = [
-      ['git svn id',    ('\s*git-svn-id: '
-                        'svn://[^@]+@([0-9]+) [a-f0-9\-]+'), '<none>'],
       ['reviewers tbr', '\s*TBR=([^\n]+)',                 ''],
       ['reviewers',     '\s*R=([^\n]+)',                   ''],
       ['review url',    '\s*Review URL: *([^\n]+)',        '<none>'],
@@ -274,9 +282,8 @@ class CLInfo:
   def __init__(self, desc):
     self._desc = desc
     self._vals = collections.OrderedDict([
-        ('git svn id', None),
         ('hash', None),
-        ('author', None),
+        ('author email', None),
         ('date', None),
         ('subject', None),
         ('commits since', None),
@@ -296,18 +303,18 @@ class CLInfo:
     """Changelist to string.
 
     A short description of the change, e.g.:
-      r12345: (tom@example.com) Subject of the change.
+      1c0ffee: (tom@example.com) Subject of the change.
 
     If the change is itself pulling in other changes from
     sub-repositories then take its relevant description and append it to
     the string. These sub-directory updates are also script-generated
     and therefore have a predictable format. e.g.:
-      r12345: (tom@example.com) Subject of the change.
+      1c0ff33: (tom@example.com) Subject of the change.
         | dead123: (dick@example.com) Other change in another repository.
         | beef456: (harry@example.com) Yet another cross-repository change.
     """
-    desc = ('  r' + self._vals['git svn id'] + ': (' +
-            self._vals['author'] + ') ' +
+    desc = ('  ' + self._vals['hash'][:7] + ': (' +
+            self._vals['author email'] + ') ' +
             self._vals['subject'])
     if GitChangesPath(self._vals['hash'], 'pnacl/COMPONENT_REVISIONS'):
       git_hash_abbrev = '[0-9a-fA-F]{7}'
@@ -318,72 +325,89 @@ class CLInfo:
     return desc
 
 
-def FmtOut(tr_points_at, pnacl_changes, new_svn_id, err=[], msg=[]):
+def FmtOut(tr_points_at, pnacl_changes, new_git_hash, err=[], msg=[]):
   assert isinstance(err, list)
   assert isinstance(msg, list)
-  old_svn_id = tr_points_at['git svn id']
+  old_git_hash = tr_points_at['hash']
   changes = '\n'.join([str(cl) for cl in pnacl_changes])
-  bugs = '\n'.join(list(set(
+  bugs = '\n'.join(sorted(list(set(
       ['BUG= ' + cl['bug'].strip() if cl['bug'] else '' for
-       cl in pnacl_changes]) - set([''])))
-  reviewers = ', '.join(list(set(
+       cl in pnacl_changes]) - set(['']))))
+  reviewers = ', '.join(sorted(list(set(
       [r.strip() for r in
        (','.join([
-           cl['author'] + ',' + cl['reviewers tbr'] + ',' + cl['reviewers']
-           for cl in pnacl_changes])).split(',')]) - set([''])))
+           cl['author email'] + ',' +
+           cl['reviewers tbr'] + ',' +
+           cl['reviewers']
+           for cl in pnacl_changes])).split(',')]) - set(['']))))
   return (('*** ERROR ***\n' if err else '') +
           '\n\n'.join(err) +
           '\n\n'.join(msg) +
           ('\n\n' if err or msg else '') +
-          ('Update revision for PNaCl r%s->r%s\n\n'
+          ('Update revision for PNaCl\n\n'
+           'Update %s -> %s\n\n'
            'Pull the following PNaCl changes into NaCl:\n%s\n\n'
            '%s\n'
            'R= %s\n'
-           'TEST=git try\n'
-           'NOTRY=true\n'
+           'TEST=git cl try\n'
            '(Please LGTM this change and tick the "commit" box)\n' %
-           (old_svn_id, new_svn_id, changes, bugs, reviewers)))
+           (old_git_hash, new_git_hash, changes, bugs, reviewers)))
 
 
-def Main():
-  args = ParseArgs(sys.argv[1:])
+def Main(args):
+  args = ParseArgs(args)
+
+  new_pnacl_revision = args.hash
+  user_provided_hash = args.hash is not None
+  if user_provided_hash:
+    new_pnacl_revision = GitRevParse(new_pnacl_revision)
 
   tr_points_at = CLInfo('revision update points at PNaCl version')
   pnacl_changes = []
   msg = []
 
-  branch = GitCurrentBranch()
-  assert branch == 'master', ('Must be on branch master, currently on %s' %
-                              branch)
+  orig_branch = GitCurrentBranch()
+  if not args.dry_run and not args.ignore_branch:
+    if orig_branch != 'master':
+      raise Exception('Must be on branch master, currently on %s' % orig_branch)
+
+  if not args.dry_run:
+    status = GitStatus()
+    if len(status) != 0:
+      raise Exception("Repository isn't clean:\n  %s" % '\n  '.join(status))
 
   try:
-    status = GitStatus()
-    assert len(status) == 0, ("Repository isn't clean:\n  %s" %
-                              '\n  '.join(status))
-    SyncSources()
+    if not args.dry_run:
+      SyncSources()
 
-    # The current revision file points at a specific PNaCl LLVM
-    # version. LLVM is checked-in to the NaCl repository, but its head
-    # isn't necessarily the one that we currently use in PNaCl.
-    (pnacl_revision, translator_revision) = GetCurrentRevision()
-    tr_points_at['git svn id'] = pnacl_revision
-    tr_points_at['hash'] = FindCommitWithGitSvnId(tr_points_at['git svn id'])
+    # The current revision file points at a specific PNaCl LLVM version. LLVM is
+    # checked-in to the NaCl repository, but its head isn't necessarily the one
+    # that we currently use in PNaCl.
+    tr_points_at['hash'] = GetCurrentRevision()
     tr_points_at['date'] = GitCommitInfo(
         info='date', obj=tr_points_at['hash'], num=1)
-    tr_points_at['subject'] = GitCommitInfo(
-        info='subject', obj=tr_points_at['hash'], num=1)
     recent_commits = GitCommitsSince(tr_points_at['date'])
     tr_points_at['commits since'] = len(recent_commits)
     assert len(recent_commits) > 1
 
-    if args.svn_id and args.svn_id <= int(tr_points_at['git svn id']):
-      Done(FmtOut(tr_points_at, pnacl_changes, args.svn_id,
-                  err=["Can't update to SVN ID r%s, the current "
-                       "PNaCl revision's SVN ID (r%s) is more recent." %
-                       (args.svn_id, tr_points_at['git svn id'])]))
+    if not user_provided_hash:
+      # No update hash specified, take the latest commit.
+      new_pnacl_revision = recent_commits[0]
+    else:
+      new_pnacl_revision_date = GitCommitInfo(
+          info='date', obj=new_pnacl_revision, num=1)
+      new_date = dateutilparser.parse(new_pnacl_revision_date)
+      old_date = dateutilparser.parse(tr_points_at['date'])
+      if new_date <= old_date:
+        Done(FmtOut(tr_points_at, pnacl_changes, new_pnacl_revision,
+                    err=["Can't update to git hash %s committed on %s: "
+                         "the current PNaCl revision's current hash %s "
+                         "committed on %s is more recent." %
+                         (new_pnacl_revision, new_pnacl_revision_date,
+                          tr_points_at['hash'], tr_points_at['date'])]))
 
-    # Find the commits changing PNaCl files that follow the previous
-    # PNaCl revision pointer.
+    # Find the commits changing PNaCl files that follow the previous PNaCl
+    # revision pointer.
     pnacl_pathes = ['pnacl/', 'toolchain_build/']
     pnacl_hashes = list(set(reduce(
         lambda acc, lst: acc + lst,
@@ -393,55 +417,58 @@ def Main():
     for hash in pnacl_hashes:
       cl = CLInfo('PNaCl change ' + hash)
       cl['hash'] = hash
-      for i in ['author', 'date', 'subject']:
+      for i in ['author email', 'date', 'subject']:
         cl[i] = GitCommitInfo(info=i, obj=hash, num=1)
       for k,v in CommitMessageToCleanDict(
           GitCommitInfo(info='body', obj=hash, num=1)).iteritems():
         cl[k] = v
       pnacl_changes.append(cl)
 
-    # The PNaCl hashes weren't ordered chronologically, make sure the
-    # changes are.
-    pnacl_changes.sort(key=lambda x: int(x['git svn id']))
+    # Hashes aren't ordered chronologically, make sure the changes are.
+    pnacl_changes.sort(key=lambda x: dateutilparser.parse(x['date']))
 
-    if args.svn_id:
-      pnacl_changes = [cl for cl in pnacl_changes if
-                       int(cl['git svn id']) <= args.svn_id]
+    # Remove commits later than the current commit or the user-provided one.
+    cutoff_date = dateutilparser.parse(GitCommitInfo(
+        info='date', obj=new_pnacl_revision, num=1))
+    pnacl_changes = [cl for cl in pnacl_changes if
+                     dateutilparser.parse(cl['date']) <= cutoff_date]
 
     if len(pnacl_changes) == 0:
-      Done(FmtOut(tr_points_at, pnacl_changes, pnacl_revision,
-                  msg=['No PNaCl change since r%s.' %
-                       tr_points_at['git svn id']]))
+      Done(FmtOut(tr_points_at, pnacl_changes, new_pnacl_revision,
+                  msg=['No PNaCl change since %s on %s.' %
+                       (tr_points_at['hash'], tr_points_at['date'])]))
 
-    new_pnacl_revision = args.svn_id or pnacl_changes[-1]['git svn id']
+    if not user_provided_hash:
+      # Take the latest commit that touched PNaCl.
+      new_pnacl_revision = pnacl_changes[-1]['hash']
 
-    new_branch_name = ('pnacl-revision-update-to-%s' %
-                       new_pnacl_revision)
+    new_branch_name = 'pnacl-revision-update-to-%s' % new_pnacl_revision
     if GitBranchExists(new_branch_name):
-      # TODO(jfb) Figure out if git-try succeeded, checkout the branch
-      #           and dcommit.
+      # TODO(jfb) Figure out if tryjobs succeeded, checkout the branch and land.
       raise Exception("Branch %s already exists, the change hasn't "
-                      "landed yet.\nPlease check trybots and dcommit it "
+                      "landed yet.\nPlease check trybots and land it "
                       "manually." % new_branch_name)
+
     if args.dry_run:
       DryRun("Would check out branch: " + new_branch_name)
-    else:
-      GitCheckoutNewBranch(new_branch_name)
-
-    if args.dry_run:
       DryRun("Would update PNaCl revision to: %s" % new_pnacl_revision)
     else:
-      SetCurrentRevision(new_pnacl_revision)
-      for f in REV_FILES:
-        GitAdd(f)
-      GitCommit(FmtOut(tr_points_at, pnacl_changes, new_pnacl_revision))
+      GitCheckoutNewBranch(new_branch_name)
+      try:
+        SetCurrentRevision(new_pnacl_revision)
+        for f in GetRevisionPackageFiles():
+          GitAdd(f)
+        GitCommit(FmtOut(tr_points_at, pnacl_changes, new_pnacl_revision))
 
-      upload_res = UploadChanges()
-      msg += ['Upload result:\n%s' % upload_res]
-      try_res = GitTry()
-      msg += ['Try result:\n%s' % try_res]
+        upload_res = UploadChanges()
+        msg += ['Upload result:\n%s' % upload_res]
+        try_res = GitTry()
+        msg += ['Try result:\n%s' % try_res]
 
-      GitCheckout('master', force=False)
+        GitCheckout(orig_branch, force=False)
+      except:
+        GitCheckout(orig_branch, force=True)
+        raise
 
     Done(FmtOut(tr_points_at, pnacl_changes, new_pnacl_revision, msg=msg))
 
@@ -454,12 +481,13 @@ def Main():
     # runs of the cronjob from succeeding until the failure is fixed.
     out = FmtOut(tr_points_at, pnacl_changes, new_pnacl_revision, msg=msg,
                  err=['Failed at %s: %s' % (datetime.datetime.now(), e)])
-    sys.stderr.write(out)
+    sys.stderr.write('%s\n' % e)
     if not args.dry_run:
       SendEmail(args.email, out)
-      GitCheckout('master', force=True)
     raise
+
+  return 0
 
 
 if __name__ == '__main__':
-  Main()
+  sys.exit(Main(sys.argv[1:]))

@@ -10,8 +10,8 @@
 #include "base/compiler_specific.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/native_widget_types.h"
-#include "ui/gfx/size.h"
 #include "ui/web_dialogs/web_dialog_delegate.h"
 #include "url/gurl.h"
 
@@ -47,7 +47,7 @@ class LoginWebDialog : public ui::WebDialogDelegate,
                  gfx::NativeWindow parent_window,
                  const base::string16& title,
                  const GURL& url);
-  virtual ~LoginWebDialog();
+  ~LoginWebDialog() override;
 
   void Show();
 
@@ -65,29 +65,31 @@ class LoginWebDialog : public ui::WebDialogDelegate,
 
  protected:
   // ui::WebDialogDelegate implementation.
-  virtual ui::ModalType GetDialogModalType() const override;
-  virtual base::string16 GetDialogTitle() const override;
-  virtual GURL GetDialogContentURL() const override;
-  virtual void GetWebUIMessageHandlers(
+  ui::ModalType GetDialogModalType() const override;
+  base::string16 GetDialogTitle() const override;
+  GURL GetDialogContentURL() const override;
+  void GetWebUIMessageHandlers(
       std::vector<content::WebUIMessageHandler*>* handlers) const override;
-  virtual void GetDialogSize(gfx::Size* size) const override;
-  virtual void GetMinimumDialogSize(gfx::Size* size) const override;
-  virtual std::string GetDialogArgs() const override;
-  virtual void OnDialogShown(
-      content::WebUI* webui,
-      content::RenderViewHost* render_view_host) override;
+  void GetDialogSize(gfx::Size* size) const override;
+  void GetMinimumDialogSize(gfx::Size* size) const override;
+  std::string GetDialogArgs() const override;
+  void OnDialogShown(content::WebUI* webui,
+                     content::RenderViewHost* render_view_host) override;
   // NOTE: This function deletes this object at the end.
-  virtual void OnDialogClosed(const std::string& json_retval) override;
-  virtual void OnCloseContents(
-      content::WebContents* source, bool* out_close_dialog) override;
-  virtual bool ShouldShowDialogTitle() const override;
-  virtual bool HandleContextMenu(
-      const content::ContextMenuParams& params) override;
+  void OnDialogClosed(const std::string& json_retval) override;
+  void OnCloseContents(content::WebContents* source,
+                       bool* out_close_dialog) override;
+  bool ShouldShowDialogTitle() const override;
+  bool HandleContextMenu(const content::ContextMenuParams& params) override;
+  bool HandleOpenURLFromTab(content::WebContents* source,
+                            const content::OpenURLParams& params,
+                            content::WebContents** out_new_contents) override;
+  bool HandleShouldCreateWebContents() override;
 
   // content::NotificationObserver implementation.
-  virtual void Observe(int type,
-                       const content::NotificationSource& source,
-                       const content::NotificationDetails& details) override;
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override;
 
  private:
   content::BrowserContext* browser_context_;

@@ -6,7 +6,6 @@
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/run_loop.h"
 #include "content/public/test/async_file_test_helper.h"
 #include "content/public/test/test_file_system_context.h"
@@ -40,9 +39,9 @@ const storage::StorageType kPersistent = storage::kStorageTypePersistent;
 class FileSystemQuotaClientTest : public testing::Test {
  public:
   FileSystemQuotaClientTest()
-      : weak_factory_(this),
-        additional_callback_count_(0),
-        deletion_status_(storage::kQuotaStatusUnknown) {}
+      : additional_callback_count_(0),
+        deletion_status_(storage::kQuotaStatusUnknown),
+        weak_factory_(this) {}
 
   void SetUp() override {
     ASSERT_TRUE(data_dir_.CreateUniqueTempDir());
@@ -230,11 +229,11 @@ class FileSystemQuotaClientTest : public testing::Test {
   base::ScopedTempDir data_dir_;
   base::MessageLoop message_loop_;
   scoped_refptr<storage::FileSystemContext> file_system_context_;
-  base::WeakPtrFactory<FileSystemQuotaClientTest> weak_factory_;
   int64 usage_;
   int additional_callback_count_;
   std::set<GURL> origins_;
   storage::QuotaStatusCode deletion_status_;
+  base::WeakPtrFactory<FileSystemQuotaClientTest> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(FileSystemQuotaClientTest);
 };

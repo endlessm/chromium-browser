@@ -29,6 +29,7 @@
 #include "remoting/host/host_mock_objects.h"
 #include "remoting/host/ipc_desktop_environment.h"
 #include "remoting/protocol/protocol_mock_objects.h"
+#include "remoting/protocol/test_event_matchers.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_geometry.h"
@@ -41,10 +42,14 @@ using testing::AtLeast;
 using testing::AtMost;
 using testing::DeleteArg;
 using testing::DoAll;
+using testing::InSequence;
 using testing::Return;
 using testing::ReturnRef;
 
 namespace remoting {
+
+using protocol::test::EqualsTouchEvent;
+using protocol::test::EqualsTouchEventTypeAndId;
 
 namespace {
 
@@ -52,10 +57,10 @@ namespace {
 class FakeDaemonSender : public IPC::Sender {
  public:
   FakeDaemonSender() {}
-  virtual ~FakeDaemonSender() {}
+  ~FakeDaemonSender() override {}
 
   // IPC::Sender implementation.
-  virtual bool Send(IPC::Message* message) override;
+  bool Send(IPC::Message* message) override;
 
   MOCK_METHOD3(ConnectTerminal, void(int, const ScreenResolution&, bool));
   MOCK_METHOD1(DisconnectTerminal, void(int));
@@ -71,9 +76,9 @@ class FakeDaemonSender : public IPC::Sender {
 class MockDaemonListener : public IPC::Listener {
  public:
   MockDaemonListener() {}
-  virtual ~MockDaemonListener() {}
+  ~MockDaemonListener() override {}
 
-  virtual bool OnMessageReceived(const IPC::Message& message) override;
+  bool OnMessageReceived(const IPC::Message& message) override;
 
   MOCK_METHOD1(OnDesktopAttached, void(IPC::PlatformFileForTransit));
   MOCK_METHOD1(OnChannelConnected, void(int32));
@@ -124,6 +129,7 @@ class IpcDesktopEnvironmentTest : public testing::Test {
   ~IpcDesktopEnvironmentTest() override;
 
   void SetUp() override;
+  void TearDown() override;
 
   void ConnectTerminal(int terminal_id,
                        const ScreenResolution& resolution,
@@ -164,14 +170,13 @@ class IpcDesktopEnvironmentTest : public testing::Test {
   // received.
   void OnDesktopAttached(IPC::PlatformFileForTransit desktop_pipe);
 
+  void RunMainLoopUntilDone();
+
   // The main message loop.
   base::MessageLoopForUI message_loop_;
 
   // Runs until |desktop_session_proxy_| is connected to the desktop.
   scoped_ptr<base::RunLoop> setup_run_loop_;
-
-  // Runs until there are references to |task_runner_|.
-  base::RunLoop main_run_loop_;
 
   scoped_refptr<AutoThreadTaskRunner> task_runner_;
   scoped_refptr<AutoThreadTaskRunner> io_task_runner_;
@@ -217,12 +222,16 @@ class IpcDesktopEnvironmentTest : public testing::Test {
 
   MockClientSessionControl client_session_control_;
   base::WeakPtrFactory<ClientSessionControl> client_session_control_factory_;
+
+ private:
+  // Runs until there are references to |task_runner_|.
+  base::RunLoop main_run_loop_;
 };
 
 IpcDesktopEnvironmentTest::IpcDesktopEnvironmentTest()
     : client_jid_("user@domain/rest-of-jid"),
-      clipboard_stub_(NULL),
-      remote_input_injector_(NULL),
+      clipboard_stub_(nullptr),
+      remote_input_injector_(nullptr),
       terminal_id_(-1),
       client_session_control_factory_(&client_session_control_) {
 }
@@ -233,7 +242,7 @@ IpcDesktopEnvironmentTest::~IpcDesktopEnvironmentTest() {
 void IpcDesktopEnvironmentTest::SetUp() {
   // Arrange to run |message_loop_| until no components depend on it.
   task_runner_ = new AutoThreadTaskRunner(
-      message_loop_.message_loop_proxy(), main_run_loop_.QuitClosure());
+      message_loop_.task_runner(), main_run_loop_.QuitClosure());
 
   io_task_runner_ = AutoThread::CreateWithType(
       "IPC thread", task_runner_, base::MessageLoop::TYPE_IO);
@@ -297,6 +306,10 @@ void IpcDesktopEnvironmentTest::SetUp() {
   desktop_environment_->SetCapabilities(std::string());
 }
 
+void IpcDesktopEnvironmentTest::TearDown() {
+  RunMainLoopUntilDone();
+}
+
 void IpcDesktopEnvironmentTest::ConnectTerminal(
     int terminal_id,
     const ScreenResolution& resolution,
@@ -345,7 +358,7 @@ DesktopEnvironment* IpcDesktopEnvironmentTest::CreateDesktopEnvironment() {
 }
 
 InputInjector* IpcDesktopEnvironmentTest::CreateInputInjector() {
-  EXPECT_TRUE(remote_input_injector_ == NULL);
+  EXPECT_TRUE(remote_input_injector_ == nullptr);
   remote_input_injector_ = new testing::StrictMock<MockInputInjector>();
 
   EXPECT_CALL(*remote_input_injector_, StartPtr(_));
@@ -411,7 +424,7 @@ void IpcDesktopEnvironmentTest::DestoyDesktopProcess() {
     desktop_process_->OnChannelError();
     desktop_process_.reset();
   }
-  remote_input_injector_ = NULL;
+  remote_input_injector_ = nullptr;
 }
 
 void IpcDesktopEnvironmentTest::OnDisconnectCallback() {
@@ -421,9 +434,22 @@ void IpcDesktopEnvironmentTest::OnDisconnectCallback() {
 void IpcDesktopEnvironmentTest::OnDesktopAttached(
     IPC::PlatformFileForTransit desktop_pipe) {
 
+  base::ProcessHandle process_handle = base::GetCurrentProcessHandle();
+#if defined(OS_WIN)
+  ASSERT_NE(FALSE, ::DuplicateHandle(GetCurrentProcess(), process_handle,
+                                     GetCurrentProcess(), &process_handle,
+                                     0, FALSE, DUPLICATE_SAME_ACCESS));
+#endif
+
   // Instruct DesktopSessionProxy to connect to the network-to-desktop pipe.
   desktop_environment_factory_->OnDesktopSessionAgentAttached(
-      terminal_id_, base::GetCurrentProcessHandle(), desktop_pipe);
+      terminal_id_, process_handle, desktop_pipe);
+}
+
+void IpcDesktopEnvironmentTest::RunMainLoopUntilDone() {
+  task_runner_ = nullptr;
+  io_task_runner_ = nullptr;
+  main_run_loop_.Run();
 }
 
 // Runs until the desktop is attached and exits immediately after that.
@@ -441,10 +467,51 @@ TEST_F(IpcDesktopEnvironmentTest, Basic) {
 
   // Stop the test.
   DeleteDesktopEnvironment();
+}
 
-  task_runner_ = NULL;
-  io_task_runner_ = NULL;
-  main_run_loop_.Run();
+// Check Capabilities.
+TEST_F(IpcDesktopEnvironmentTest, CapabilitiesNoTouch) {
+  scoped_ptr<protocol::MockClipboardStub> clipboard_stub(
+      new protocol::MockClipboardStub());
+  EXPECT_CALL(*clipboard_stub, InjectClipboardEvent(_))
+      .Times(0);
+
+  EXPECT_EQ("rateLimitResizeRequests", desktop_environment_->GetCapabilities());
+
+  // Start the input injector and screen capturer.
+  input_injector_->Start(clipboard_stub.Pass());
+
+  // Run the message loop until the desktop is attached.
+  setup_run_loop_->Run();
+
+  // Stop the test.
+  DeleteDesktopEnvironment();
+}
+
+// Check touchEvents capability is set when the desktop environment can
+// inject touch events.
+TEST_F(IpcDesktopEnvironmentTest, TouchEventsCapabilities) {
+  // Create an environment with multi touch enabled.
+  desktop_environment_factory_->set_supports_touch_events(true);
+  desktop_environment_ = desktop_environment_factory_->Create(
+      client_session_control_factory_.GetWeakPtr());
+
+  scoped_ptr<protocol::MockClipboardStub> clipboard_stub(
+      new protocol::MockClipboardStub());
+  EXPECT_CALL(*clipboard_stub, InjectClipboardEvent(_))
+      .Times(0);
+
+  EXPECT_EQ("rateLimitResizeRequests touchEvents",
+            desktop_environment_->GetCapabilities());
+
+  // Start the input injector and screen capturer.
+  input_injector_->Start(clipboard_stub.Pass());
+
+  // Run the message loop until the desktop is attached.
+  setup_run_loop_->Run();
+
+  // Stop the test.
+  DeleteDesktopEnvironment();
 }
 
 // Tests that the video capturer receives a frame over IPC.
@@ -470,10 +537,6 @@ TEST_F(IpcDesktopEnvironmentTest, CaptureFrame) {
 
   // Capture a single frame.
   video_capturer_->Capture(webrtc::DesktopRegion());
-
-  task_runner_ = NULL;
-  io_task_runner_ = NULL;
-  main_run_loop_.Run();
 }
 
 // Tests that attaching to a new desktop works.
@@ -498,10 +561,6 @@ TEST_F(IpcDesktopEnvironmentTest, Reattach) {
 
   // Stop the test.
   DeleteDesktopEnvironment();
-
-  task_runner_ = NULL;
-  io_task_runner_ = NULL;
-  main_run_loop_.Run();
 }
 
 // Tests injection of clipboard events.
@@ -534,10 +593,6 @@ TEST_F(IpcDesktopEnvironmentTest, InjectClipboardEvent) {
   event.set_mime_type(kMimeTypeTextUtf8);
   event.set_data("a");
   input_injector_->InjectClipboardEvent(event);
-
-  task_runner_ = NULL;
-  io_task_runner_ = NULL;
-  main_run_loop_.Run();
 }
 
 // Tests injection of key events.
@@ -565,10 +620,6 @@ TEST_F(IpcDesktopEnvironmentTest, InjectKeyEvent) {
   event.set_usb_keycode(0x070004);
   event.set_pressed(true);
   input_injector_->InjectKeyEvent(event);
-
-  task_runner_ = NULL;
-  io_task_runner_ = NULL;
-  main_run_loop_.Run();
 }
 
 // Tests injection of text events.
@@ -595,10 +646,6 @@ TEST_F(IpcDesktopEnvironmentTest, InjectTextEvent) {
   protocol::TextEvent event;
   event.set_text("hello");
   input_injector_->InjectTextEvent(event);
-
-  task_runner_ = NULL;
-  io_task_runner_ = NULL;
-  main_run_loop_.Run();
 }
 
 // Tests injection of mouse events.
@@ -626,10 +673,48 @@ TEST_F(IpcDesktopEnvironmentTest, InjectMouseEvent) {
   event.set_x(0);
   event.set_y(0);
   input_injector_->InjectMouseEvent(event);
+}
 
-  task_runner_ = NULL;
-  io_task_runner_ = NULL;
-  main_run_loop_.Run();
+// Tests injection of touch events.
+TEST_F(IpcDesktopEnvironmentTest, InjectTouchEvent) {
+  scoped_ptr<protocol::MockClipboardStub> clipboard_stub(
+      new protocol::MockClipboardStub());
+  EXPECT_CALL(*clipboard_stub, InjectClipboardEvent(_))
+      .Times(0);
+
+  // Start the input injector and screen capturer.
+  input_injector_->Start(clipboard_stub.Pass());
+  video_capturer_->Start(&desktop_capturer_callback_);
+
+  // Run the message loop until the desktop is attached.
+  setup_run_loop_->Run();
+
+  protocol::TouchEvent event;
+  event.set_event_type(protocol::TouchEvent::TOUCH_POINT_START);
+  protocol::TouchEventPoint* point = event.add_touch_points();
+  point->set_id(0u);
+  point->set_x(0.0f);
+  point->set_y(0.0f);
+  point->set_radius_x(0.0f);
+  point->set_radius_y(0.0f);
+  point->set_angle(0.0f);
+  point->set_pressure(0.0f);
+
+  ON_CALL(*remote_input_injector_, InjectTouchEvent(_))
+      .WillByDefault(InvokeWithoutArgs(
+          this, &IpcDesktopEnvironmentTest::DeleteDesktopEnvironment));
+
+  InSequence s;
+  // Expect that the event gets propagated to remote_input_injector_.
+  // And one more call for ReleaseAll().
+  EXPECT_CALL(*remote_input_injector_,
+              InjectTouchEvent(EqualsTouchEvent(event)));
+  EXPECT_CALL(*remote_input_injector_,
+              InjectTouchEvent(EqualsTouchEventTypeAndId(
+                  protocol::TouchEvent::TOUCH_POINT_CANCEL, 0u)));
+
+  // Send the touch event.
+  input_injector_->InjectTouchEvent(event);
 }
 
 // Tests that setting the desktop resolution works.
@@ -655,10 +740,6 @@ TEST_F(IpcDesktopEnvironmentTest, SetScreenResolution) {
   screen_controls_->SetScreenResolution(ScreenResolution(
       webrtc::DesktopSize(100, 100),
       webrtc::DesktopVector(96, 96)));
-
-  task_runner_ = NULL;
-  io_task_runner_ = NULL;
-  main_run_loop_.Run();
 }
 
 }  // namespace remoting

@@ -10,10 +10,12 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "chrome/common/importer/imported_bookmark_entry.h"
-#include "chrome/common/importer/imported_favicon_usage.h"
 #include "chrome/utility/importer/favicon_reencode.h"
+#include "components/search_engines/search_terms_data.h"
+#include "components/search_engines/template_url.h"
 #include "net/base/data_url.h"
 #include "net/base/escape.h"
 #include "url/gurl.h"
@@ -52,10 +54,9 @@ bool GetAttribute(const std::string& attribute_list,
 
 // Given the URL of a page and a favicon data URL, adds an appropriate record
 // to the given favicon usage vector.
-void DataURLToFaviconUsage(
-    const GURL& link_url,
-    const GURL& favicon_data,
-    std::vector<ImportedFaviconUsage>* favicons) {
+void DataURLToFaviconUsage(const GURL& link_url,
+                           const GURL& favicon_data,
+                           favicon_base::FaviconUsageDataList* favicons) {
   if (!link_url.is_valid() || !favicon_data.is_valid() ||
       !favicon_data.SchemeIs(url::kDataScheme))
     return;
@@ -66,7 +67,7 @@ void DataURLToFaviconUsage(
       data.empty())
     return;
 
-  ImportedFaviconUsage usage;
+  favicon_base::FaviconUsageData usage;
   if (!importer::ReencodeFavicon(
           reinterpret_cast<const unsigned char*>(&data[0]),
           data.size(), &usage.png_data))
@@ -87,11 +88,12 @@ void DataURLToFaviconUsage(
 namespace bookmark_html_reader {
 
 void ImportBookmarksFile(
-      const base::Callback<bool(void)>& cancellation_callback,
-      const base::Callback<bool(const GURL&)>& valid_url_callback,
-      const base::FilePath& file_path,
-      std::vector<ImportedBookmarkEntry>* bookmarks,
-      std::vector<ImportedFaviconUsage>* favicons) {
+    const base::Callback<bool(void)>& cancellation_callback,
+    const base::Callback<bool(const GURL&)>& valid_url_callback,
+    const base::FilePath& file_path,
+    std::vector<ImportedBookmarkEntry>* bookmarks,
+    std::vector<importer::SearchEngineInfo>* search_engines,
+    favicon_base::FaviconUsageDataList* favicons) {
   std::string content;
   base::ReadFileToString(file_path, &content);
   std::vector<std::string> lines;
@@ -104,7 +106,7 @@ void ImportBookmarksFile(
   base::Time last_folder_add_date;
   std::vector<base::string16> path;
   size_t toolbar_folder_index = 0;
-  std::string charset;
+  std::string charset = "UTF-8";  // If no charset is specified, assume utf-8.
   for (size_t i = 0;
        i < lines.size() &&
            (cancellation_callback.is_null() || !cancellation_callback.Run());
@@ -117,7 +119,8 @@ void ImportBookmarksFile(
     // multiple "<HR>" tags at the beginning of a single line.
     // See http://crbug.com/257474.
     static const char kHrTag[] = "<HR>";
-    while (StartsWithASCII(line, kHrTag, false)) {
+    while (base::StartsWith(line, kHrTag,
+                            base::CompareCase::INSENSITIVE_ASCII)) {
       line.erase(0, arraysize(kHrTag) - 1);
       base::TrimString(line, " ", &line);
     }
@@ -149,6 +152,20 @@ void ImportBookmarksFile(
                                         &url, &favicon, &shortcut,
                                         &add_date, &post_data) ||
         internal::ParseMinimumBookmarkFromLine(line, charset, &title, &url);
+
+    // If bookmark contains a valid replaceable url and a keyword then import
+    // it as search engine.
+    std::string search_engine_url;
+    if (is_bookmark && post_data.empty() &&
+        CanImportURLAsSearchEngine(url, &search_engine_url) &&
+            !shortcut.empty()) {
+      importer::SearchEngineInfo search_engine_info;
+      search_engine_info.url.assign(base::UTF8ToUTF16(search_engine_url));
+      search_engine_info.keyword = shortcut;
+      search_engine_info.display_name = title;
+      search_engines->push_back(search_engine_info);
+      continue;
+    }
 
     if (is_bookmark)
       last_folder_is_empty = false;
@@ -189,7 +206,7 @@ void ImportBookmarksFile(
     }
 
     // Bookmarks in sub-folder are encapsulated with <DL> tag.
-    if (StartsWithASCII(line, "<DL>", false)) {
+    if (base::StartsWith(line, "<DL>", base::CompareCase::INSENSITIVE_ASCII)) {
       has_subfolder = true;
       if (!last_folder.empty()) {
         path.push_back(last_folder);
@@ -200,7 +217,8 @@ void ImportBookmarksFile(
 
       // Mark next folder empty as initial state.
       last_folder_is_empty = true;
-    } else if (StartsWithASCII(line, "</DL>", false)) {
+    } else if (base::StartsWith(line, "</DL>",
+                                base::CompareCase::INSENSITIVE_ASCII)) {
       if (path.empty())
         break;  // Mismatch <DL>.
 
@@ -238,13 +256,33 @@ void ImportBookmarksFile(
   }
 }
 
+bool CanImportURLAsSearchEngine(const GURL& url,
+                                std::string* search_engine_url) {
+  std::string url_spec = url.possibly_invalid_spec();
+
+  if (url_spec.empty())
+    return false;
+
+  url_spec = net::UnescapeURLComponent(url_spec,
+                                       net::UnescapeRule::URL_SPECIAL_CHARS);
+
+  // Replace replacement terms ("%s") in |url_spec| with {searchTerms}.
+  url_spec =
+      TemplateURLRef::DisplayURLToURLRef(base::UTF8ToUTF16(url_spec));
+
+  TemplateURLData data;
+  data.SetURL(url_spec);
+  *search_engine_url = url_spec;
+  return TemplateURL(data).SupportsReplacement(SearchTermsData());
+}
+
 namespace internal {
 
 bool ParseCharsetFromLine(const std::string& line, std::string* charset) {
   const char kCharset[] = "charset=";
-  if (StartsWithASCII(line, "<META", false) &&
+  if (base::StartsWith(line, "<META", base::CompareCase::INSENSITIVE_ASCII) &&
       (line.find("CONTENT=\"") != std::string::npos ||
-          line.find("content=\"") != std::string::npos)) {
+       line.find("content=\"") != std::string::npos)) {
     size_t begin = line.find(kCharset);
     if (begin == std::string::npos)
       return false;
@@ -266,7 +304,7 @@ bool ParseFolderNameFromLine(const std::string& line,
   const char kToolbarFolderAttribute[] = "PERSONAL_TOOLBAR_FOLDER";
   const char kAddDateAttribute[] = "ADD_DATE";
 
-  if (!StartsWithASCII(line, kFolderOpen, true))
+  if (!base::StartsWith(line, kFolderOpen, base::CompareCase::SENSITIVE))
     return false;
 
   size_t end = line.find(kFolderClose);
@@ -293,7 +331,7 @@ bool ParseFolderNameFromLine(const std::string& line,
   }
 
   if (GetAttribute(attribute_list, kToolbarFolderAttribute, &value) &&
-      LowerCaseEqualsASCII(value, "true"))
+      base::LowerCaseEqualsASCII(value, "true"))
     *is_toolbar_folder = true;
   else
     *is_toolbar_folder = false;
@@ -325,7 +363,7 @@ bool ParseBookmarkFromLine(const std::string& line,
   post_data->clear();
   *add_date = base::Time();
 
-  if (!StartsWithASCII(line, kItemOpen, true))
+  if (!base::StartsWith(line, kItemOpen, base::CompareCase::SENSITIVE))
     return false;
 
   size_t end = line.find(kItemClose);
@@ -401,7 +439,7 @@ bool ParseMinimumBookmarkFromLine(const std::string& line,
   *url = GURL();
 
   // Case-insensitive check of open tag.
-  if (!StartsWithASCII(line, kItemOpen, false))
+  if (!base::StartsWith(line, kItemOpen, base::CompareCase::INSENSITIVE_ASCII))
     return false;
 
   // Find any close tag.

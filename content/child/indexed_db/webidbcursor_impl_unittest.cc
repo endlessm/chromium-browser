@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/memory/scoped_ptr.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "content/child/indexed_db/indexed_db_dispatcher.h"
 #include "content/child/indexed_db/indexed_db_key_builders.h"
@@ -12,7 +13,7 @@
 #include "ipc/ipc_sync_message_filter.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/WebKit/public/platform/WebData.h"
-#include "third_party/WebKit/public/platform/WebIDBCallbacks.h"
+#include "third_party/WebKit/public/platform/modules/indexeddb/WebIDBCallbacks.h"
 
 using blink::WebBlobInfo;
 using blink::WebData;
@@ -97,21 +98,21 @@ class MockContinueCallbacks : public WebIDBCallbacks {
  public:
   MockContinueCallbacks(IndexedDBKey* key = 0,
                         WebVector<WebBlobInfo>* webBlobInfo = 0)
-      : key_(key), webBlobInfo_(webBlobInfo) {}
+      : key_(key), web_blob_info_(webBlobInfo) {}
 
-  virtual void onSuccess(const WebIDBKey& key,
-                         const WebIDBKey& primaryKey,
-                         const WebData& value,
-                         const WebVector<WebBlobInfo>& webBlobInfo) override {
+  void onSuccess(const WebIDBKey& key,
+                 const WebIDBKey& primaryKey,
+                 const WebData& value,
+                 const WebVector<WebBlobInfo>& webBlobInfo) override {
     if (key_)
       *key_ = IndexedDBKeyBuilder::Build(key);
-    if (webBlobInfo_)
-      *webBlobInfo_ = webBlobInfo;
+    if (web_blob_info_)
+      *web_blob_info_ = webBlobInfo;
   }
 
  private:
   IndexedDBKey* key_;
-  WebVector<WebBlobInfo>* webBlobInfo_;
+  WebVector<WebBlobInfo>* web_blob_info_;
 };
 
 }  // namespace
@@ -122,12 +123,13 @@ class WebIDBCursorImplTest : public testing::Test {
     null_key_.assignNull();
     sync_message_filter_ = new IPC::SyncMessageFilter(NULL);
     thread_safe_sender_ = new ThreadSafeSender(
-        base::MessageLoopProxy::current(), sync_message_filter_.get());
+        base::ThreadTaskRunnerHandle::Get(), sync_message_filter_.get());
     dispatcher_ =
         make_scoped_ptr(new MockDispatcher(thread_safe_sender_.get()));
   }
 
  protected:
+  base::MessageLoop message_loop_;
   WebIDBKey null_key_;
   scoped_refptr<ThreadSafeSender> thread_safe_sender_;
   scoped_ptr<MockDispatcher> dispatcher_;

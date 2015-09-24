@@ -11,8 +11,10 @@
 #include "base/i18n/case_conversion.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/metrics/field_trial.h"
 #include "base/sha1.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -27,6 +29,8 @@
 #include "components/autofill/core/common/form_data_predictions.h"
 #include "components/autofill/core/common/form_field_data.h"
 #include "components/autofill/core/common/form_field_data_predictions.h"
+#include "components/rappor/rappor_service.h"
+#include "components/rappor/rappor_utils.h"
 #include "third_party/icu/source/i18n/unicode/regex.h"
 #include "third_party/webrtc/libjingle/xmllite/xmlelement.h"
 
@@ -40,9 +44,12 @@ const char kAttributeClientVersion[] = "clientversion";
 const char kAttributeDataPresent[] = "datapresent";
 const char kAttributeFieldID[] = "fieldid";
 const char kAttributeFieldType[] = "fieldtype";
+const char kAttributeFieldLabel[] = "label";
 const char kAttributeFormSignature[] = "formsignature";
 const char kAttributeName[] = "name";
 const char kAttributeSignature[] = "signature";
+const char kAttributeControlType[] = "type";
+const char kAttributeAutocomplete[] = "autocomplete";
 const char kClientVersion[] = "6.1.1715.1442/en (GGLL)";
 const char kXMLDeclaration[] = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
 const char kXMLElementAutofillQuery[] = "autofillquery";
@@ -54,8 +61,19 @@ const char kXMLElementForm[] = "form";
 const char kBillingMode[] = "billing";
 const char kShippingMode[] = "shipping";
 
-// Stip away >= 5 consecutive digits.
+// Strip away >= 5 consecutive digits.
 const char kIgnorePatternInFieldName[] = "\\d{5,}+";
+
+// A form is considered to have a high prediction mismatch rate if the number of
+// mismatches exceeds this threshold.
+const int kNumberOfMismatchesThreshold = 3;
+
+// Returns whether sending autofill field metadata to the server is enabled.
+bool IsAutofillFieldMetadataEnabled() {
+  const std::string group_name =
+      base::FieldTrialList::FindFullName("AutofillFieldMetadata");
+  return base::StartsWithASCII(group_name, "Enabled", true);
+}
 
 // Helper for |EncodeUploadRequest()| that creates a bit field corresponding to
 // |available_field_types| and returns the hex representation as a string.
@@ -94,6 +112,31 @@ std::string EncodeFieldTypes(const ServerFieldTypeSet& available_field_types) {
   return data_presence;
 }
 
+// Helper for |EncodeFormRequest()| and |EncodeFieldForUpload| that returns an
+// XmlElement for the given field in query xml, and also add it to the parent
+// XmlElement.
+buzz::XmlElement* EncodeFieldForQuery(const AutofillField& field,
+                                      buzz::XmlElement* parent) {
+  buzz::XmlElement* field_element = new buzz::XmlElement(
+      buzz::QName(kXMLElementField));
+  field_element->SetAttr(buzz::QName(kAttributeSignature),
+                         field.FieldSignature());
+  if (IsAutofillFieldMetadataEnabled()) {
+    if (!field.name.empty()) {
+      field_element->SetAttr(buzz::QName(kAttributeName),
+                             base::UTF16ToUTF8(field.name));
+    }
+    field_element->SetAttr(buzz::QName(kAttributeControlType),
+                           field.form_control_type);
+    if (!field.label.empty()) {
+      field_element->SetAttr(buzz::QName(kAttributeFieldLabel),
+                             base::UTF16ToUTF8(field.label));
+    }
+  }
+  parent->AddElement(field_element);
+  return field_element;
+}
+
 // Helper for |EncodeFormRequest()| that creates XmlElements for the given field
 // in upload xml, and also add them to the parent XmlElement.
 void EncodeFieldForUpload(const AutofillField& field,
@@ -106,26 +149,18 @@ void EncodeFieldForUpload(const AutofillField& field,
   // |types| could be empty in unit-tests only.
   for (ServerFieldTypeSet::iterator field_type = types.begin();
        field_type != types.end(); ++field_type) {
-    buzz::XmlElement *field_element = new buzz::XmlElement(
-        buzz::QName(kXMLElementField));
+    // We use the same field elements as the query and add a few more below.
+    buzz::XmlElement* field_element = EncodeFieldForQuery(field, parent);
 
-    field_element->SetAttr(buzz::QName(kAttributeSignature),
-                           field.FieldSignature());
+    if (IsAutofillFieldMetadataEnabled() &&
+        !field.autocomplete_attribute.empty()) {
+      field_element->SetAttr(buzz::QName(kAttributeAutocomplete),
+                             field.autocomplete_attribute);
+    }
+
     field_element->SetAttr(buzz::QName(kAttributeAutofillType),
                            base::IntToString(*field_type));
-    parent->AddElement(field_element);
   }
-}
-
-// Helper for |EncodeFormRequest()| that creates XmlElement for the given field
-// in query xml, and also add it to the parent XmlElement.
-void EncodeFieldForQuery(const AutofillField& field,
-                         buzz::XmlElement* parent) {
-  buzz::XmlElement *field_element = new buzz::XmlElement(
-      buzz::QName(kXMLElementField));
-  field_element->SetAttr(buzz::QName(kAttributeSignature),
-                         field.FieldSignature());
-  parent->AddElement(field_element);
 }
 
 // Helper for |EncodeFormRequest()| that creates XmlElements for the given field
@@ -246,7 +281,7 @@ HtmlFieldType FieldTypeFromAutocompleteAttributeValue(
   // content_switches.h isn't accessible from here, hence we have
   // to copy the string literal. This should be removed soon anyway.
   if (autocomplete_attribute_value == "address" &&
-      CommandLine::ForCurrentProcess()->HasSwitch(
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
           "enable-experimental-web-platform-features")) {
     return HTML_TYPE_FULL_ADDRESS;
   }
@@ -353,41 +388,36 @@ FormStructure::FormStructure(const FormData& form)
       active_field_count_(0),
       upload_required_(USE_UPLOAD_RATES),
       has_author_specified_types_(false),
-      has_password_field_(false) {
+      has_password_field_(false),
+      is_form_tag_(form.is_form_tag) {
   // Copy the form fields.
   std::map<base::string16, size_t> unique_names;
-  for (std::vector<FormFieldData>::const_iterator field =
-           form.fields.begin();
-       field != form.fields.end(); ++field) {
-    if (!ShouldSkipField(*field)) {
+  for (const FormFieldData& field : form.fields) {
+    if (!ShouldSkipField(field)) {
       // Add all supported form fields (including with empty names) to the
       // signature.  This is a requirement for Autofill servers.
       form_signature_field_names_.append("&");
-      form_signature_field_names_.append(StripDigitsIfRequired(field->name));
+      form_signature_field_names_.append(StripDigitsIfRequired(field.name));
 
       ++active_field_count_;
     }
 
-    if (field->form_control_type == "password")
+    if (field.form_control_type == "password")
       has_password_field_ = true;
 
     // Generate a unique name for this field by appending a counter to the name.
     // Make sure to prepend the counter with a non-numeric digit so that we are
     // guaranteed to avoid collisions.
-    if (!unique_names.count(field->name))
-      unique_names[field->name] = 1;
-    else
-      ++unique_names[field->name];
-    base::string16 unique_name = field->name + base::ASCIIToUTF16("_") +
-        base::IntToString16(unique_names[field->name]);
-    fields_.push_back(new AutofillField(*field, unique_name));
+    base::string16 unique_name =
+        field.name + base::ASCIIToUTF16("_") +
+        base::IntToString16(++unique_names[field.name]);
+    fields_.push_back(new AutofillField(field, unique_name));
   }
 }
 
 FormStructure::~FormStructure() {}
 
-void FormStructure::DetermineHeuristicTypes(
-    const AutofillMetrics& metric_logger) {
+void FormStructure::DetermineHeuristicTypes() {
   // First, try to detect field types based on each field's |autocomplete|
   // attribute value.  If there is at least one form field that specifies an
   // autocomplete type hint, don't try to apply other heuristics to match fields
@@ -398,7 +428,7 @@ void FormStructure::DetermineHeuristicTypes(
 
   if (!has_author_specified_types_) {
     ServerFieldTypeMap field_type_map;
-    FormField::ParseFormFields(fields_.get(), &field_type_map);
+    FormField::ParseFormFields(fields_.get(), is_form_tag_, &field_type_map);
     for (size_t i = 0; i < field_count(); ++i) {
       AutofillField* field = fields_[i];
       ServerFieldTypeMap::iterator iter =
@@ -412,10 +442,10 @@ void FormStructure::DetermineHeuristicTypes(
   IdentifySections(has_author_specified_sections);
 
   if (IsAutofillable()) {
-    metric_logger.LogDeveloperEngagementMetric(
+    AutofillMetrics::LogDeveloperEngagementMetric(
         AutofillMetrics::FILLABLE_FORM_PARSED);
     if (has_author_specified_types_) {
-      metric_logger.LogDeveloperEngagementMetric(
+      AutofillMetrics::LogDeveloperEngagementMetric(
           AutofillMetrics::FILLABLE_FORM_CONTAINS_TYPE_HINTS);
     }
   }
@@ -544,11 +574,11 @@ bool FormStructure::EncodeQueryRequest(
 }
 
 // static
-void FormStructure::ParseQueryResponse(
-    const std::string& response_xml,
-    const std::vector<FormStructure*>& forms,
-    const AutofillMetrics& metric_logger) {
-  metric_logger.LogServerQueryMetric(AutofillMetrics::QUERY_RESPONSE_RECEIVED);
+void FormStructure::ParseQueryResponse(const std::string& response_xml,
+                                       const std::vector<FormStructure*>& forms,
+                                       rappor::RapporService* rappor_service) {
+  AutofillMetrics::LogServerQueryMetric(
+      AutofillMetrics::QUERY_RESPONSE_RECEIVED);
 
   // Parse the field types from the server response to the query.
   std::vector<AutofillServerFieldInfo> field_infos;
@@ -560,7 +590,7 @@ void FormStructure::ParseQueryResponse(
   if (!parse_handler.succeeded())
     return;
 
-  metric_logger.LogServerQueryMetric(AutofillMetrics::QUERY_RESPONSE_PARSED);
+  AutofillMetrics::LogServerQueryMetric(AutofillMetrics::QUERY_RESPONSE_PARSED);
 
   bool heuristics_detected_fillable_field = false;
   bool query_response_overrode_heuristics = false;
@@ -573,6 +603,7 @@ void FormStructure::ParseQueryResponse(
     FormStructure* form = *iter;
     form->upload_required_ = upload_required;
 
+    bool query_response_has_no_server_data = true;
     for (std::vector<AutofillField*>::iterator field = form->fields_.begin();
          field != form->fields_.end(); ++field) {
       if (form->ShouldSkipField(**field))
@@ -582,6 +613,9 @@ void FormStructure::ParseQueryResponse(
       // Quit the update of the types then.
       if (current_info == field_infos.end())
         break;
+
+      query_response_has_no_server_data &=
+          current_info->field_type == NO_SERVER_DATA;
 
       // If |form->has_author_specified_types| only password fields should be
       // updated.
@@ -606,6 +640,12 @@ void FormStructure::ParseQueryResponse(
       ++current_info;
     }
 
+    if (query_response_has_no_server_data && form->source_url().is_valid()) {
+      rappor::SampleDomainAndRegistryFromGURL(
+          rappor_service, "Autofill.QueryResponseHasNoServerDataForForm",
+          form->source_url());
+    }
+
     form->UpdateAutofillCount();
     form->IdentifySections(false);
   }
@@ -620,21 +660,21 @@ void FormStructure::ParseQueryResponse(
   } else {
     metric = AutofillMetrics::QUERY_RESPONSE_MATCHED_LOCAL_HEURISTICS;
   }
-  metric_logger.LogServerQueryMetric(metric);
+  AutofillMetrics::LogServerQueryMetric(metric);
 }
 
 // static
-void FormStructure::GetFieldTypePredictions(
-    const std::vector<FormStructure*>& form_structures,
-    std::vector<FormDataPredictions>* forms) {
-  forms->clear();
-  forms->reserve(form_structures.size());
+std::vector<FormDataPredictions> FormStructure::GetFieldTypePredictions(
+    const std::vector<FormStructure*>& form_structures) {
+  std::vector<FormDataPredictions> forms;
+  forms.reserve(form_structures.size());
   for (size_t i = 0; i < form_structures.size(); ++i) {
     FormStructure* form_structure = form_structures[i];
     FormDataPredictions form;
     form.data.name = form_structure->form_name_;
     form.data.origin = form_structure->source_url_;
     form.data.action = form_structure->target_url_;
+    form.data.is_form_tag = form_structure->is_form_tag_;
     form.signature = form_structure->FormSignature();
 
     for (std::vector<AutofillField*>::const_iterator field =
@@ -652,8 +692,9 @@ void FormStructure::GetFieldTypePredictions(
       form.fields.push_back(annotated_field);
     }
 
-    forms->push_back(form);
+    forms.push_back(form);
   }
+  return forms;
 }
 
 std::string FormStructure::FormSignature() const {
@@ -743,6 +784,8 @@ void FormStructure::UpdateFromCache(const FormStructure& cached_form) {
 
       field->set_heuristic_type(cached_field->second->heuristic_type());
       field->set_server_type(cached_field->second->server_type());
+      field->SetHtmlType(cached_field->second->html_type(),
+                         cached_field->second->html_mode());
     }
   }
 
@@ -760,11 +803,13 @@ void FormStructure::UpdateFromCache(const FormStructure& cached_form) {
 }
 
 void FormStructure::LogQualityMetrics(
-    const AutofillMetrics& metric_logger,
     const base::TimeTicks& load_time,
     const base::TimeTicks& interaction_time,
-    const base::TimeTicks& submission_time) const {
+    const base::TimeTicks& submission_time,
+    rappor::RapporService* rappor_service) const {
   size_t num_detected_field_types = 0;
+  size_t num_server_mismatches = 0;
+  size_t num_heuristic_mismatches = 0;
   bool did_autofill_all_possible_fields = true;
   bool did_autofill_some_possible_fields = false;
   for (size_t i = 0; i < field_count(); ++i) {
@@ -819,52 +864,65 @@ void FormStructure::LogQualityMetrics(
     // Log heuristic, server, and overall type quality metrics, independently of
     // whether the field was autofilled.
     if (heuristic_type == UNKNOWN_TYPE) {
-      metric_logger.LogHeuristicTypePrediction(AutofillMetrics::TYPE_UNKNOWN,
-                                               field_type);
+      AutofillMetrics::LogHeuristicTypePrediction(AutofillMetrics::TYPE_UNKNOWN,
+                                                  field_type);
     } else if (field_types.count(heuristic_type)) {
-      metric_logger.LogHeuristicTypePrediction(AutofillMetrics::TYPE_MATCH,
-                                               field_type);
+      AutofillMetrics::LogHeuristicTypePrediction(AutofillMetrics::TYPE_MATCH,
+                                                  field_type);
     } else {
-      metric_logger.LogHeuristicTypePrediction(AutofillMetrics::TYPE_MISMATCH,
-                                               field_type);
+      ++num_heuristic_mismatches;
+      AutofillMetrics::LogHeuristicTypePrediction(
+          AutofillMetrics::TYPE_MISMATCH, field_type);
     }
 
     if (server_type == NO_SERVER_DATA) {
-      metric_logger.LogServerTypePrediction(AutofillMetrics::TYPE_UNKNOWN,
-                                            field_type);
+      AutofillMetrics::LogServerTypePrediction(AutofillMetrics::TYPE_UNKNOWN,
+                                               field_type);
     } else if (field_types.count(server_type)) {
-      metric_logger.LogServerTypePrediction(AutofillMetrics::TYPE_MATCH,
-                                            field_type);
+      AutofillMetrics::LogServerTypePrediction(AutofillMetrics::TYPE_MATCH,
+                                               field_type);
     } else {
-      metric_logger.LogServerTypePrediction(AutofillMetrics::TYPE_MISMATCH,
-                                            field_type);
+      ++num_server_mismatches;
+      AutofillMetrics::LogServerTypePrediction(AutofillMetrics::TYPE_MISMATCH,
+                                               field_type);
     }
 
     if (predicted_type == UNKNOWN_TYPE) {
-      metric_logger.LogOverallTypePrediction(AutofillMetrics::TYPE_UNKNOWN,
-                                             field_type);
+      AutofillMetrics::LogOverallTypePrediction(AutofillMetrics::TYPE_UNKNOWN,
+                                                field_type);
     } else if (field_types.count(predicted_type)) {
-      metric_logger.LogOverallTypePrediction(AutofillMetrics::TYPE_MATCH,
-                                             field_type);
+      AutofillMetrics::LogOverallTypePrediction(AutofillMetrics::TYPE_MATCH,
+                                                field_type);
     } else {
-      metric_logger.LogOverallTypePrediction(AutofillMetrics::TYPE_MISMATCH,
-                                             field_type);
+      AutofillMetrics::LogOverallTypePrediction(AutofillMetrics::TYPE_MISMATCH,
+                                                field_type);
     }
   }
 
   if (num_detected_field_types < kRequiredAutofillFields) {
-    metric_logger.LogUserHappinessMetric(
+    AutofillMetrics::LogUserHappinessMetric(
         AutofillMetrics::SUBMITTED_NON_FILLABLE_FORM);
   } else {
     if (did_autofill_all_possible_fields) {
-      metric_logger.LogUserHappinessMetric(
+      AutofillMetrics::LogUserHappinessMetric(
           AutofillMetrics::SUBMITTED_FILLABLE_FORM_AUTOFILLED_ALL);
     } else if (did_autofill_some_possible_fields) {
-      metric_logger.LogUserHappinessMetric(
+      AutofillMetrics::LogUserHappinessMetric(
           AutofillMetrics::SUBMITTED_FILLABLE_FORM_AUTOFILLED_SOME);
     } else {
-      metric_logger.LogUserHappinessMetric(
+      AutofillMetrics::LogUserHappinessMetric(
           AutofillMetrics::SUBMITTED_FILLABLE_FORM_AUTOFILLED_NONE);
+    }
+
+    // Log some RAPPOR metrics for problematic cases.
+    if (num_server_mismatches >= kNumberOfMismatchesThreshold) {
+      rappor::SampleDomainAndRegistryFromGURL(
+          rappor_service, "Autofill.HighNumberOfServerMismatches", source_url_);
+    }
+    if (num_heuristic_mismatches >= kNumberOfMismatchesThreshold) {
+      rappor::SampleDomainAndRegistryFromGURL(
+          rappor_service, "Autofill.HighNumberOfHeuristicMismatches",
+          source_url_);
     }
 
     // Unlike the other times, the |submission_time| should always be available.
@@ -877,9 +935,9 @@ void FormStructure::LogQualityMetrics(
       DCHECK(submission_time > load_time);
       base::TimeDelta elapsed = submission_time - load_time;
       if (did_autofill_some_possible_fields)
-        metric_logger.LogFormFillDurationFromLoadWithAutofill(elapsed);
+        AutofillMetrics::LogFormFillDurationFromLoadWithAutofill(elapsed);
       else
-        metric_logger.LogFormFillDurationFromLoadWithoutAutofill(elapsed);
+        AutofillMetrics::LogFormFillDurationFromLoadWithoutAutofill(elapsed);
     }
 
     // The |interaction_time| might be unset, in the case that the user
@@ -889,9 +947,10 @@ void FormStructure::LogQualityMetrics(
       DCHECK(submission_time > interaction_time);
       base::TimeDelta elapsed = submission_time - interaction_time;
       if (did_autofill_some_possible_fields) {
-        metric_logger.LogFormFillDurationFromInteractionWithAutofill(elapsed);
+        AutofillMetrics::LogFormFillDurationFromInteractionWithAutofill(
+            elapsed);
       } else {
-        metric_logger.LogFormFillDurationFromInteractionWithoutAutofill(
+        AutofillMetrics::LogFormFillDurationFromInteractionWithoutAutofill(
             elapsed);
       }
     }
@@ -954,7 +1013,7 @@ bool FormStructure::operator!=(const FormData& form) const {
 
 std::string FormStructure::Hash64Bit(const std::string& str) {
   std::string hash_bin = base::SHA1HashString(str);
-  DCHECK_EQ(20U, hash_bin.length());
+  DCHECK_EQ(base::kSHA1Length, hash_bin.length());
 
   uint64 hash64 = (((static_cast<uint64>(hash_bin[0])) & 0xFF) << 56) |
                   (((static_cast<uint64>(hash_bin[1])) & 0xFF) << 48) |
@@ -1046,8 +1105,9 @@ void FormStructure::ParseFieldTypesFromAutocompleteAttributes(
 
     // Tokenize the attribute value.  Per the spec, the tokens are parsed in
     // reverse order.
-    std::vector<std::string> tokens;
-    Tokenize(autocomplete_attribute, " ", &tokens);
+    std::vector<std::string> tokens = base::SplitString(
+        autocomplete_attribute, " ", base::KEEP_WHITESPACE,
+        base::SPLIT_WANT_NONEMPTY);
 
     // The final token must be the field type.
     // If it is not one of the known types, abort.
@@ -1092,7 +1152,7 @@ void FormStructure::ParseFieldTypesFromAutocompleteAttributes(
     // The preceding token, if any, may be a named section.
     const std::string kSectionPrefix = "section-";
     if (!tokens.empty() &&
-        StartsWithASCII(tokens.back(), kSectionPrefix, true)) {
+        base::StartsWithASCII(tokens.back(), kSectionPrefix, true)) {
       // Prepend this section name to the suffix set in the preceding block.
       section = tokens.back().substr(kSectionPrefix.size()) + section;
       tokens.pop_back();
@@ -1195,9 +1255,8 @@ void FormStructure::IdentifySections(bool has_author_specified_sections) {
     std::set<ServerFieldType> seen_types;
     ServerFieldType previous_type = UNKNOWN_TYPE;
 
-    for (std::vector<AutofillField*>::iterator field = fields_.begin();
-         field != fields_.end(); ++field) {
-      const ServerFieldType current_type = (*field)->Type().GetStorableType();
+    for (AutofillField* field : fields_) {
+      const ServerFieldType current_type = field->Type().GetStorableType();
 
       bool already_saw_current_type = seen_types.count(current_type) > 0;
 
@@ -1205,6 +1264,13 @@ void FormStructure::IdentifySections(bool has_author_specified_sections) {
       // evening phone number.  Our phone number detection is also generally a
       // little off.  Hence, ignore this field type as a signal here.
       if (AutofillType(current_type).group() == PHONE_HOME)
+        already_saw_current_type = false;
+
+      // Ignore non-focusable field and presentation role fields while inferring
+      // boundaries between sections.
+      bool ignored_field = !field->is_focusable ||
+          field->role == FormFieldData::ROLE_ATTRIBUTE_PRESENTATION;
+      if (ignored_field)
         already_saw_current_type = false;
 
       // Some forms have adjacent fields of the same type.  Two common examples:
@@ -1219,28 +1285,36 @@ void FormStructure::IdentifySections(bool has_author_specified_sections) {
       if (current_type == previous_type)
         already_saw_current_type = false;
 
-      previous_type = current_type;
-
       if (current_type != UNKNOWN_TYPE && already_saw_current_type) {
         // We reached the end of a section, so start a new section.
         seen_types.clear();
-        current_section = (*field)->unique_name();
+        current_section = field->unique_name();
       }
 
-      seen_types.insert(current_type);
-      (*field)->set_section(base::UTF16ToUTF8(current_section));
+      // Only consider a type "seen" if it was not ignored. Some forms have
+      // sections for different locales, only one of which is enabled at a
+      // time. Each section may duplicate some information (e.g. postal code)
+      // and we don't want that to cause section splits.
+      // Also only set |previous_type| when the field was not ignored. This
+      // prevents ignored fields from breaking up fields that are otherwise
+      // adjacent.
+      if (!ignored_field) {
+        seen_types.insert(current_type);
+        previous_type = current_type;
+      }
+
+      field->set_section(base::UTF16ToUTF8(current_section));
     }
   }
 
   // Ensure that credit card and address fields are in separate sections.
   // This simplifies the section-aware logic in autofill_manager.cc.
-  for (std::vector<AutofillField*>::iterator field = fields_.begin();
-       field != fields_.end(); ++field) {
-    FieldTypeGroup field_type_group = (*field)->Type().group();
+  for (AutofillField* field : fields_) {
+    FieldTypeGroup field_type_group = field->Type().group();
     if (field_type_group == CREDIT_CARD)
-      (*field)->set_section((*field)->section() + "-cc");
+      field->set_section(field->section() + "-cc");
     else
-      (*field)->set_section((*field)->section() + "-default");
+      field->set_section(field->section() + "-default");
   }
 }
 

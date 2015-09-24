@@ -93,7 +93,7 @@ class AsYouTypeFormatter {
   // existing template.
   bool MaybeCreateNewTemplate();
 
-  void GetAvailableFormats(const string& leading_three_digits);
+  void GetAvailableFormats(const string& leading_digits);
 
   void NarrowDownPossibleFormats(const string& leading_digits);
 
@@ -114,6 +114,8 @@ class AsYouTypeFormatter {
                                               string* phone_number);
 
   void AttemptToChoosePatternWithPrefixExtracted(string* formatted_number);
+
+  const string& GetExtractedNationalPrefix() const;
 
   // Some national prefixes are a substring of others. If extracting the
   // shorter NDD doesn't result in a number we can format, we try to see if we
@@ -222,7 +224,7 @@ class AsYouTypeFormatter {
   bool should_add_space_after_national_prefix_;
   // This contains the national prefix that has been extracted. It contains only
   // digits without formatting.
-  string national_prefix_extracted_;
+  string extracted_national_prefix_;
   string national_number_;
 
   list<const NumberFormat*> possible_formats_;

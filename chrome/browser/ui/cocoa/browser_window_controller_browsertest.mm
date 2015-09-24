@@ -12,7 +12,6 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/devtools/devtools_window_testing.h"
 #include "chrome/browser/infobars/infobar_service.h"
-#include "chrome/browser/infobars/simple_alert_infobar_delegate.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/bookmarks/bookmark_utils.h"
@@ -34,9 +33,11 @@
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/find_bar/find_bar.h"
 #include "chrome/browser/ui/find_bar/find_bar_controller.h"
+#include "chrome/browser/ui/infobar_container_delegate.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/infobars/core/simple_alert_infobar_delegate.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/test_utils.h"
 #import "testing/gtest_mac.h"
@@ -585,7 +586,7 @@ IN_PROC_BROWSER_TEST_F(BrowserWindowControllerTest,
       gfx::Rect(10, 10, 100, 100));
 
   NSPoint originWithDevTools = [controller() statusBubbleBaseFrame].origin;
-  EXPECT_FALSE(NSEqualPoints(origin, originWithDevTools));
+  EXPECT_NSNE(origin, originWithDevTools);
 
   DevToolsWindowTesting::CloseDevToolsWindowSync(devtools_window);
 }
@@ -602,8 +603,9 @@ IN_PROC_BROWSER_TEST_F(BrowserWindowControllerTest,
   EXPECT_FALSE([[controller() infoBarContainerController]
       shouldSuppressTopInfoBarTip]);
 
-  NSInteger max_tip_height = infobars::InfoBar::kMaximumArrowTargetHeight +
-      infobars::InfoBar::kSeparatorLineHeight;
+  NSInteger max_tip_height =
+      InfoBarContainerDelegate::kMaximumArrowTargetHeight +
+          InfoBarContainerDelegate::kSeparatorLineHeight;
 
   chrome::ExecuteCommand(browser(), IDC_SHOW_BOOKMARK_BAR);
   WaitForBookmarkBarAnimationToFinish();

@@ -11,6 +11,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/testing_pref_service_syncable.h"
 #include "components/autofill/content/browser/content_autofill_driver.h"
+#include "components/autofill/content/browser/content_autofill_driver_factory.h"
 #include "components/autofill/core/browser/autofill_manager.h"
 #include "components/autofill/core/browser/test_autofill_client.h"
 #include "content/public/browser/navigation_controller.h"
@@ -21,7 +22,7 @@
 #include "content/public/test/test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace autofill {
 namespace {
@@ -37,13 +38,10 @@ class MockAutofillClient : public TestAutofillClient {
     return prefs_.registry();
   }
 
-  MOCK_METHOD7(ShowAutofillPopup,
+  MOCK_METHOD4(ShowAutofillPopup,
                void(const gfx::RectF& element_bounds,
                     base::i18n::TextDirection text_direction,
-                    const std::vector<base::string16>& values,
-                    const std::vector<base::string16>& labels,
-                    const std::vector<base::string16>& icons,
-                    const std::vector<int>& identifiers,
+                    const std::vector<autofill::Suggestion>& suggestions,
                     base::WeakPtr<AutofillPopupDelegate> delegate));
 
   MOCK_METHOD0(HideAutofillPopup, void());
@@ -58,10 +56,10 @@ class MockAutofillClient : public TestAutofillClient {
 // instance.
 class TestContentAutofillDriver : public ContentAutofillDriver {
  public:
-  TestContentAutofillDriver(content::WebContents* web_contents,
+  TestContentAutofillDriver(content::RenderFrameHost* rfh,
                             AutofillClient* client)
       : ContentAutofillDriver(
-            web_contents,
+            rfh,
             client,
             g_browser_process->GetApplicationLocale(),
             AutofillManager::ENABLE_AUTOFILL_DOWNLOAD_MANAGER) {}
@@ -79,42 +77,37 @@ class ContentAutofillDriverBrowserTest : public InProcessBrowserTest,
   ContentAutofillDriverBrowserTest() {}
   virtual ~ContentAutofillDriverBrowserTest() {}
 
-  virtual void SetUpOnMainThread() override {
+  void SetUpOnMainThread() override {
     content::WebContents* web_contents =
         browser()->tab_strip_model()->GetActiveWebContents();
     ASSERT_TRUE(web_contents != NULL);
     Observe(web_contents);
     AutofillManager::RegisterProfilePrefs(autofill_client_.GetPrefRegistry());
 
-    autofill_driver_.reset(
-        new TestContentAutofillDriver(web_contents, &autofill_client_));
+    web_contents->RemoveUserData(
+        ContentAutofillDriverFactory::
+            kContentAutofillDriverFactoryWebContentsUserDataKey);
+    ContentAutofillDriverFactory::CreateForWebContentsAndDelegate(
+        web_contents, &autofill_client_, "en-US",
+        AutofillManager::DISABLE_AUTOFILL_DOWNLOAD_MANAGER);
   }
 
-  // Normally the WebContents will automatically delete the driver, but here
-  // the driver is owned by this test, so we have to manually destroy.
-  virtual void WebContentsDestroyed() override {
-    autofill_driver_.reset();
-  }
-
-  virtual void WasHidden() override {
+  void WasHidden() override {
     if (!web_contents_hidden_callback_.is_null())
       web_contents_hidden_callback_.Run();
   }
 
-  virtual void NavigationEntryCommitted(
+  void NavigationEntryCommitted(
       const content::LoadCommittedDetails& load_details) override {
     if (!nav_entry_committed_callback_.is_null())
       nav_entry_committed_callback_.Run();
   }
 
  protected:
-  content::WebContents* web_contents_;
-
   base::Closure web_contents_hidden_callback_;
   base::Closure nav_entry_committed_callback_;
 
   testing::NiceMock<MockAutofillClient> autofill_client_;
-  scoped_ptr<TestContentAutofillDriver> autofill_driver_;
 };
 
 IN_PROC_BROWSER_TEST_F(ContentAutofillDriverBrowserTest,

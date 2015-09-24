@@ -5,6 +5,7 @@
 #include "components/policy/core/common/cloud/cloud_policy_service.h"
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/mock_cloud_policy_client.h"
@@ -32,24 +33,25 @@ class MockCloudPolicyServiceObserver : public CloudPolicyService::Observer {
 class CloudPolicyServiceTest : public testing::Test {
  public:
   CloudPolicyServiceTest()
-      : policy_ns_key_(dm_protocol::kChromeUserPolicyType, std::string()),
-        service_(policy_ns_key_, &client_, &store_) {}
+      : policy_type_(dm_protocol::kChromeUserPolicyType),
+        service_(policy_type_, std::string(), &client_, &store_) {}
 
   MOCK_METHOD1(OnPolicyRefresh, void(bool));
+  MOCK_METHOD1(OnUnregister, void(bool));
 
  protected:
-  PolicyNamespaceKey policy_ns_key_;
+  std::string policy_type_;
   MockCloudPolicyClient client_;
   MockCloudPolicyStore store_;
   CloudPolicyService service_;
 };
 
-MATCHER_P(ProtoMatches, proto, "") {
+MATCHER_P(ProtoMatches, proto, std::string()) {
   return arg.SerializePartialAsString() == proto.SerializePartialAsString();
 }
 
 TEST_F(CloudPolicyServiceTest, ManagedByEmptyPolicy) {
-  EXPECT_EQ("", service_.ManagedBy());
+  EXPECT_EQ(std::string(), service_.ManagedBy());
 }
 
 TEST_F(CloudPolicyServiceTest, ManagedByValidPolicy) {
@@ -61,7 +63,7 @@ TEST_F(CloudPolicyServiceTest, ManagedByValidPolicy) {
 TEST_F(CloudPolicyServiceTest, PolicyUpdateSuccess) {
   em::PolicyFetchResponse policy;
   policy.set_policy_data("fake policy");
-  client_.SetPolicy(policy_ns_key_, policy);
+  client_.SetPolicy(policy_type_, std::string(), policy);
   EXPECT_CALL(store_, Store(ProtoMatches(policy))).Times(1);
   client_.NotifyPolicyFetched();
 
@@ -104,7 +106,7 @@ TEST_F(CloudPolicyServiceTest, RefreshPolicySuccess) {
   // Client responds, push policy to store.
   em::PolicyFetchResponse policy;
   policy.set_policy_data("fake policy");
-  client_.SetPolicy(policy_ns_key_, policy);
+  client_.SetPolicy(policy_type_, std::string(), policy);
   client_.fetched_invalidation_version_ = 12345;
   EXPECT_CALL(store_, Store(ProtoMatches(policy))).Times(1);
   EXPECT_EQ(0, store_.invalidation_version());
@@ -160,7 +162,7 @@ TEST_F(CloudPolicyServiceTest, RefreshPolicyStoreError) {
   // Client responds, push policy to store.
   em::PolicyFetchResponse policy;
   policy.set_policy_data("fake policy");
-  client_.SetPolicy(policy_ns_key_, policy);
+  client_.SetPolicy(policy_type_, std::string(), policy);
   EXPECT_CALL(store_, Store(ProtoMatches(policy))).Times(1);
   client_.NotifyPolicyFetched();
 
@@ -188,7 +190,7 @@ TEST_F(CloudPolicyServiceTest, RefreshPolicyConcurrent) {
   // Client responds, push policy to store.
   em::PolicyFetchResponse policy;
   policy.set_policy_data("fake policy");
-  client_.SetPolicy(policy_ns_key_, policy);
+  client_.SetPolicy(policy_type_, std::string(), policy);
   EXPECT_CALL(store_, Store(ProtoMatches(policy))).Times(1);
   client_.NotifyPolicyFetched();
 
@@ -210,11 +212,51 @@ TEST_F(CloudPolicyServiceTest, RefreshPolicyConcurrent) {
   store_.NotifyStoreLoaded();
 }
 
+TEST_F(CloudPolicyServiceTest, UnregisterSucceeds) {
+  EXPECT_CALL(client_, Unregister());
+  EXPECT_CALL(*this, OnUnregister(true));
+
+  service_.Unregister(base::Bind(&CloudPolicyServiceTest::OnUnregister,
+                                 base::Unretained(this)));
+  client_.NotifyRegistrationStateChanged();
+}
+
+TEST_F(CloudPolicyServiceTest, UnregisterFailsOnClientError) {
+  EXPECT_CALL(client_, Unregister());
+  EXPECT_CALL(*this, OnUnregister(false));
+
+  service_.Unregister(base::Bind(&CloudPolicyServiceTest::OnUnregister,
+                                 base::Unretained(this)));
+  client_.NotifyClientError();
+}
+
+TEST_F(CloudPolicyServiceTest, UnregisterRevokesAllOnGoingPolicyRefreshes) {
+  EXPECT_CALL(client_, Unregister());
+  EXPECT_CALL(*this, OnPolicyRefresh(false)).Times(2);
+
+  service_.RefreshPolicy(base::Bind(&CloudPolicyServiceTest::OnPolicyRefresh,
+                                    base::Unretained(this)));
+  service_.RefreshPolicy(base::Bind(&CloudPolicyServiceTest::OnPolicyRefresh,
+                                    base::Unretained(this)));
+  service_.Unregister(base::Bind(&CloudPolicyServiceTest::OnUnregister,
+                                 base::Unretained(this)));
+}
+
+TEST_F(CloudPolicyServiceTest, RefreshPolicyFailsWhenUnregistering) {
+  EXPECT_CALL(client_, Unregister());
+  EXPECT_CALL(*this, OnPolicyRefresh(false));
+
+  service_.Unregister(base::Bind(&CloudPolicyServiceTest::OnUnregister,
+                                 base::Unretained(this)));
+  service_.RefreshPolicy(base::Bind(&CloudPolicyServiceTest::OnPolicyRefresh,
+                                    base::Unretained(this)));
+}
+
 TEST_F(CloudPolicyServiceTest, StoreAlreadyInitialized) {
   // Service should start off initialized if the store has already loaded
   // policy.
   store_.NotifyStoreLoaded();
-  CloudPolicyService service(policy_ns_key_, &client_, &store_);
+  CloudPolicyService service(policy_type_, std::string(), &client_, &store_);
   EXPECT_TRUE(service.IsInitializationComplete());
 }
 

@@ -31,6 +31,7 @@
 #ifndef DedicatedWorkerGlobalScope_h
 #define DedicatedWorkerGlobalScope_h
 
+#include "core/CoreExport.h"
 #include "core/dom/MessagePort.h"
 #include "core/frame/csp/ContentSecurityPolicy.h"
 #include "core/workers/WorkerGlobalScope.h"
@@ -41,11 +42,11 @@ namespace blink {
 class DedicatedWorkerThread;
 class WorkerThreadStartupData;
 
-class DedicatedWorkerGlobalScope final : public WorkerGlobalScope {
+class CORE_EXPORT DedicatedWorkerGlobalScope final : public WorkerGlobalScope {
     DEFINE_WRAPPERTYPEINFO();
 public:
     typedef WorkerGlobalScope Base;
-    static PassRefPtrWillBeRawPtr<DedicatedWorkerGlobalScope> create(DedicatedWorkerThread*, PassOwnPtrWillBeRawPtr<WorkerThreadStartupData>, double timeOrigin);
+    static PassRefPtrWillBeRawPtr<DedicatedWorkerGlobalScope> create(DedicatedWorkerThread*, PassOwnPtr<WorkerThreadStartupData>, double timeOrigin);
     virtual ~DedicatedWorkerGlobalScope();
 
     virtual bool isDedicatedWorkerGlobalScope() const override { return true; }
@@ -64,7 +65,7 @@ public:
 
     DedicatedWorkerThread* thread() const;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     DedicatedWorkerGlobalScope(const KURL&, const String& userAgent, DedicatedWorkerThread*, double timeOrigin, const SecurityOrigin*, PassOwnPtrWillBeRawPtr<WorkerClients>);

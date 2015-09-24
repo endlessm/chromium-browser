@@ -4,15 +4,16 @@
 
 #include <vector>
 
-#include "chrome/browser/history/android/visit_sql_handler.h"
-
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/history/android/urls_sql_handler.h"
-#include "chrome/browser/history/history_database.h"
 #include "chrome/common/chrome_constants.h"
+#include "components/history/core/browser/android/urls_sql_handler.h"
+#include "components/history/core/browser/android/visit_sql_handler.h"
+#include "components/history/core/browser/history_constants.h"
+#include "components/history/core/browser/history_database.h"
+#include "components/history/core/test/test_history_database.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::Time;
@@ -24,23 +25,21 @@ class VisitSQLHandlerTest : public testing::Test {
  public:
   VisitSQLHandlerTest()
       : urls_sql_handler_(&history_db_),
-        visit_sql_handler_(&history_db_) {
-  }
-  virtual ~VisitSQLHandlerTest() {}
+        visit_sql_handler_(&history_db_, &history_db_) {}
+  ~VisitSQLHandlerTest() override {}
 
  protected:
-  virtual void SetUp() {
+  void SetUp() override {
     // Get a temporary directory for the test DB files.
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
-    base::FilePath history_db_name = temp_dir_.path().AppendASCII(
-        chrome::kHistoryFilename);
+    base::FilePath history_db_name =
+        temp_dir_.path().AppendASCII(kHistoryFilename);
     ASSERT_EQ(sql::INIT_OK, history_db_.Init(history_db_name));
   }
 
-  virtual void TearDown() {
-  }
+  void TearDown() override {}
 
-  HistoryDatabase history_db_;
+  TestHistoryDatabase history_db_;
   base::ScopedTempDir temp_dir_;
   UrlsSQLHandler urls_sql_handler_;
   VisitSQLHandler visit_sql_handler_;

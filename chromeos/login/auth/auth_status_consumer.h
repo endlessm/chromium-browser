@@ -29,15 +29,14 @@ class CHROMEOS_EXPORT AuthFailure {
     UNLOCK_FAILED,
     NETWORK_AUTH_FAILED,     // Could not authenticate against Google
     OWNER_REQUIRED,          // Only the device owner can log-in.
-    WHITELIST_CHECK_FAILED,  // Login attempt blocked by whitelist. This value
-                             // is
-                             // synthesized by the ExistingUserController and
-                             // passed to the login_status_consumer_ in tests
-    // only. It is never generated or seen by any of the
-    // other authenticator classes.
-    TPM_ERROR,             // Critical TPM error encountered.
-    USERNAME_HASH_FAILED,  // Could not get username hash.
-    NUM_FAILURE_REASONS,   // This has to be the last item.
+    WHITELIST_CHECK_FAILED,  // Login attempt blocked by whitelist. This
+    // value is synthesized by the ExistingUserController and passed to the
+    // login_status_consumer_ in tests only. It is never generated or seen by
+    // any of the other authenticator classes.
+    TPM_ERROR,                   // Critical TPM error encountered.
+    USERNAME_HASH_FAILED,        // Could not get username hash.
+    FAILED_TO_INITIALIZE_TOKEN,  // Could not get OAuth2 Token,
+    NUM_FAILURE_REASONS,         // This has to be the last item.
   };
 
   explicit AuthFailure(FailureReason reason)
@@ -85,6 +84,8 @@ class CHROMEOS_EXPORT AuthFailure {
         return "Login is restricted to the owner's account only.";
       case WHITELIST_CHECK_FAILED:
         return "Login attempt blocked by whitelist.";
+      case FAILED_TO_INITIALIZE_TOKEN:
+        return "OAuth2 token fetch failed.";
       default:
         NOTREACHED();
         return std::string();
@@ -111,10 +112,6 @@ class CHROMEOS_EXPORT AuthStatusConsumer {
   // The current login attempt has ended in failure, with error |error|.
   virtual void OnAuthFailure(const AuthFailure& error) = 0;
 
-  // The current retail mode login attempt has succeeded.
-  // Unless overridden for special processing, this should always call
-  // OnLoginSuccess with the magic |kRetailModeUserEMail| constant.
-  virtual void OnRetailModeAuthSuccess(const UserContext& user_context);
   // The current login attempt has succeeded for |user_context|.
   virtual void OnAuthSuccess(const UserContext& user_context) = 0;
   // The current guest login attempt has succeeded.

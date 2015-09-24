@@ -8,6 +8,7 @@
 #import "base/mac/scoped_sending_event.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/sys_string_conversions.h"
+#include "base/tracked_objects.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/grit/generated_resources.h"
 #include "content/public/browser/render_view_host.h"
@@ -96,12 +97,16 @@ void RenderViewContextMenuMac::Show() {
       [[MenuController alloc] initWithModel:&menu_model_
                      useWithPopUpButtonCell:NO]);
 
+  gfx::Point params_position(params_.x, params_.y);
+  params_position += RenderViewContextMenu::GetOffset(GetRenderFrameHost());
+
   // Synthesize an event for the click, as there is no certainty that
   // [NSApp currentEvent] will return a valid event.
   NSEvent* currentEvent = [NSApp currentEvent];
   NSWindow* window = [parent_view_ window];
   NSPoint position =
-      NSMakePoint(params_.x, NSHeight([parent_view_ bounds]) - params_.y);
+      NSMakePoint(params_position.x(),
+                  NSHeight([parent_view_ bounds]) - params_position.y());
   position = [parent_view_ convertPoint:position toView:nil];
   NSTimeInterval eventTime = [currentEvent timestamp];
   NSEvent* clickEvent = [NSEvent mouseEventWithType:NSRightMouseDown
@@ -126,10 +131,15 @@ void RenderViewContextMenuMac::Show() {
     // be done manually.
     base::mac::ScopedSendingEvent sendingEventScoper;
 
+    // Use task stopwatch to exclude the loop run time from the current task, if
+    // any.
+    tracked_objects::TaskStopwatch stopwatch;
+    stopwatch.Start();
     // Show the menu.
     [NSMenu popUpContextMenu:[menu_controller_ menu]
                    withEvent:clickEvent
                      forView:parent_view_];
+    stopwatch.Stop();
   }
 }
 

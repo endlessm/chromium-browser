@@ -30,31 +30,33 @@ namespace android_webview {
 class AwContentsClientBridge : public AwContentsClientBridgeBase {
  public:
   AwContentsClientBridge(JNIEnv* env, jobject obj);
-  virtual ~AwContentsClientBridge();
+  ~AwContentsClientBridge() override;
 
   // AwContentsClientBridgeBase implementation
-  virtual void AllowCertificateError(int cert_error,
-                                     net::X509Certificate* cert,
-                                     const GURL& request_url,
-                                     const base::Callback<void(bool)>& callback,
-                                     bool* cancel_request) override;
-  virtual void SelectClientCertificate(
+  void AllowCertificateError(int cert_error,
+                             net::X509Certificate* cert,
+                             const GURL& request_url,
+                             const base::Callback<void(bool)>& callback,
+                             bool* cancel_request) override;
+  void SelectClientCertificate(
       net::SSLCertRequestInfo* cert_request_info,
-      const SelectCertificateCallback& callback) override;
+      scoped_ptr<content::ClientCertificateDelegate> delegate) override;
 
-  virtual void RunJavaScriptDialog(
+  void RunJavaScriptDialog(
       content::JavaScriptMessageType message_type,
       const GURL& origin_url,
       const base::string16& message_text,
       const base::string16& default_prompt_text,
       const content::JavaScriptDialogManager::DialogClosedCallback& callback)
       override;
-  virtual void RunBeforeUnloadDialog(
+  void RunBeforeUnloadDialog(
       const GURL& origin_url,
       const base::string16& message_text,
       const content::JavaScriptDialogManager::DialogClosedCallback& callback)
       override;
-  virtual bool ShouldOverrideUrlLoading(const base::string16& url) override;
+  bool ShouldOverrideUrlLoading(const base::string16& url,
+                                bool has_user_gesture,
+                                bool is_redirect) override;
 
   // Methods called from Java.
   void ProceedSslError(JNIEnv* env, jobject obj, jboolean proceed, jint id);
@@ -73,8 +75,10 @@ class AwContentsClientBridge : public AwContentsClientBridgeBase {
   IDMap<CertErrorCallback, IDMapOwnPointer> pending_cert_error_callbacks_;
   IDMap<content::JavaScriptDialogManager::DialogClosedCallback, IDMapOwnPointer>
       pending_js_dialog_callbacks_;
-  IDMap<SelectCertificateCallback, IDMapOwnPointer>
-      pending_client_cert_request_callbacks_;
+  // |pending_client_cert_request_delegates_| owns its pointers, but IDMap
+  // doesn't provide Release, so ownership is managed manually.
+  IDMap<content::ClientCertificateDelegate>
+      pending_client_cert_request_delegates_;
 };
 
 bool RegisterAwContentsClientBridge(JNIEnv* env);

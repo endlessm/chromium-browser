@@ -12,6 +12,7 @@
 #include "base/strings/string_piece.h"
 #include "tools/gn/escape.h"
 #include "tools/gn/source_dir.h"
+#include "tools/gn/unique_vector.h"
 
 class OutputFile;
 class SourceFile;
@@ -33,7 +34,8 @@ class PathOutput {
     DIR_NO_LAST_SLASH,
   };
 
-  PathOutput(const SourceDir& current_dir, EscapingMode escaping);
+  PathOutput(const SourceDir& current_dir, const base::StringPiece& source_root,
+             EscapingMode escaping);
   ~PathOutput();
 
   // Read-only since inverse_current_dir_ is computed depending on this.
@@ -54,6 +56,8 @@ class PathOutput {
   // write an initial space before the first item.
   void WriteFiles(std::ostream& out,
                   const std::vector<OutputFile>& files) const;
+  void WriteFiles(std::ostream& out,
+                  const UniqueVector<OutputFile>& files) const;
 
   // This variant assumes the dir ends in a trailing slash or is empty.
   void WriteDir(std::ostream& out,

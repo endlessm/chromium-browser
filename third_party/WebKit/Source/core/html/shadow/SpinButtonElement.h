@@ -27,13 +27,14 @@
 #ifndef SpinButtonElement_h
 #define SpinButtonElement_h
 
+#include "core/CoreExport.h"
 #include "core/html/HTMLDivElement.h"
 #include "core/page/PopupOpeningObserver.h"
 #include "platform/Timer.h"
 
 namespace blink {
 
-class SpinButtonElement final : public HTMLDivElement, public PopupOpeningObserver {
+class CORE_EXPORT SpinButtonElement final : public HTMLDivElement, public PopupOpeningObserver {
 public:
     enum UpDownState {
         Indeterminate, // Hovered, but the event is not handled.
@@ -65,30 +66,30 @@ public:
 
     void step(int amount);
 
-    virtual bool willRespondToMouseMoveEvents() override;
-    virtual bool willRespondToMouseClickEvents() override;
+    bool willRespondToMouseMoveEvents() override;
+    bool willRespondToMouseClickEvents() override;
 
     void forwardEvent(Event*);
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     SpinButtonElement(Document&, SpinButtonOwner&);
 
-    virtual void detach(const AttachContext&) override;
-    virtual bool isSpinButtonElement() const override { return true; }
-    virtual bool isDisabledFormControl() const override { return shadowHost() && shadowHost()->isDisabledFormControl(); }
-    virtual bool matchesReadOnlyPseudoClass() const override;
-    virtual bool matchesReadWritePseudoClass() const override;
-    virtual void defaultEventHandler(Event*) override;
-    virtual void willOpenPopup() override;
+    void detach(const AttachContext&) override;
+    bool isSpinButtonElement() const override { return true; }
+    bool isDisabledFormControl() const override { return shadowHost() && shadowHost()->isDisabledFormControl(); }
+    bool matchesReadOnlyPseudoClass() const override;
+    bool matchesReadWritePseudoClass() const override;
+    void defaultEventHandler(Event*) override;
+    void willOpenPopup() override;
     void doStepAction(int);
     void startRepeatingTimer();
     void stopRepeatingTimer();
     void repeatingTimerFired(Timer<SpinButtonElement>*);
-    virtual void setHovered(bool = true) override;
+    void setHovered(bool = true) override;
     bool shouldRespondToMouseEvents();
-    virtual bool isMouseFocusable() const override { return false; }
+    bool isMouseFocusable() const override { return false; }
 
     RawPtrWillBeMember<SpinButtonOwner> m_spinButtonOwner;
     bool m_capturing;

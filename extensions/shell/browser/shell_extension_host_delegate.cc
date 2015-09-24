@@ -4,7 +4,9 @@
 
 #include "extensions/shell/browser/shell_extension_host_delegate.h"
 
+#include "base/lazy_instance.h"
 #include "base/logging.h"
+#include "extensions/browser/serial_extension_host_queue.h"
 #include "extensions/shell/browser/media_capture_util.h"
 #include "extensions/shell/browser/shell_extension_web_contents_observer.h"
 
@@ -36,7 +38,7 @@ ShellExtensionHostDelegate::GetJavaScriptDialogManager() {
 void ShellExtensionHostDelegate::CreateTab(content::WebContents* web_contents,
                                            const std::string& extension_id,
                                            WindowOpenDisposition disposition,
-                                           const gfx::Rect& initial_pos,
+                                           const gfx::Rect& initial_rect,
                                            bool user_gesture) {
   // TODO(jamescook): Should app_shell support opening popup windows?
   NOTREACHED();
@@ -59,6 +61,13 @@ bool ShellExtensionHostDelegate::CheckMediaAccessPermission(
     const Extension* extension) {
   media_capture_util::VerifyMediaAccessPermission(type, extension);
   return true;
+}
+
+static base::LazyInstance<SerialExtensionHostQueue> g_queue =
+    LAZY_INSTANCE_INITIALIZER;
+
+ExtensionHostQueue* ShellExtensionHostDelegate::GetExtensionHostQueue() const {
+  return g_queue.Pointer();
 }
 
 }  // namespace extensions

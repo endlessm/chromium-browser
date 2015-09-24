@@ -31,6 +31,7 @@
 #define InjectedScriptManager_h
 
 #include "bindings/core/v8/ScriptState.h"
+#include "core/CoreExport.h"
 #include "wtf/Forward.h"
 #include "wtf/HashMap.h"
 #include "wtf/text/WTFString.h"
@@ -38,25 +39,19 @@
 
 namespace blink {
 
-class LocalDOMWindow;
 class InjectedScript;
 class InjectedScriptHost;
+class InjectedScriptNative;
 class ScriptValue;
 
-class InjectedScriptManager : public NoBaseWillBeGarbageCollectedFinalized<InjectedScriptManager> {
+class CORE_EXPORT InjectedScriptManager : public NoBaseWillBeGarbageCollectedFinalized<InjectedScriptManager> {
     WTF_MAKE_NONCOPYABLE(InjectedScriptManager);
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
+    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(InjectedScriptManager);
 public:
-    struct CallbackData {
-        ScopedPersistent<v8::Object> handle;
-        RefPtrWillBePersistent<InjectedScriptHost> host;
-        InjectedScriptManager* injectedScriptManager;
-    };
-
     static PassOwnPtrWillBeRawPtr<InjectedScriptManager> createForPage();
     static PassOwnPtrWillBeRawPtr<InjectedScriptManager> createForWorker();
     ~InjectedScriptManager();
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
     void disconnect();
 
@@ -67,21 +62,19 @@ public:
     int injectedScriptIdFor(ScriptState*);
     InjectedScript injectedScriptForObjectId(const String& objectId);
     void discardInjectedScripts();
-    void discardInjectedScriptsFor(LocalDOMWindow*);
+    void discardInjectedScriptFor(ScriptState*);
     void releaseObjectGroup(const String& objectGroup);
 
     typedef bool (*InspectedStateAccessCheck)(ScriptState*);
     InspectedStateAccessCheck inspectedStateAccessCheck() const { return m_inspectedStateAccessCheck; }
 
-    static void setWeakCallback(const v8::WeakCallbackData<v8::Object, CallbackData>&);
-    CallbackData* createCallbackData(InjectedScriptManager*);
-    void removeCallbackData(CallbackData*);
+    void setCustomObjectFormatterEnabled(bool);
 
 private:
     explicit InjectedScriptManager(InspectedStateAccessCheck);
 
     String injectedScriptSource();
-    ScriptValue createInjectedScript(const String& source, ScriptState*, int id);
+    ScriptValue createInjectedScript(const String& source, ScriptState*, int id, InjectedScriptNative*);
 
     static bool canAccessInspectedWindow(ScriptState*);
     static bool canAccessInspectedWorkerGlobalScope(ScriptState*);
@@ -93,7 +86,7 @@ private:
     InspectedStateAccessCheck m_inspectedStateAccessCheck;
     typedef HashMap<RefPtr<ScriptState>, int> ScriptStateToId;
     ScriptStateToId m_scriptStateToId;
-    HashSet<OwnPtr<CallbackData> > m_callbackDataSet;
+    bool m_customObjectFormatterEnabled;
 };
 
 } // namespace blink

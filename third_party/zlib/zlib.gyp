@@ -8,14 +8,28 @@
       'target_name' : 'zlib_x86_simd',
       'type': 'static_library',
       'conditions': [
-        # See http://crbug.com/420616 gyp on mac & ios doesn't apply cflags
-        ['OS!="ios" and OS!="mac" and (target_arch=="ia32" or target_arch=="x64")', {
-          'cflags' : ["-msse2", "-msse4.2", "-mpclmul"],
-          'sources' : [ 'crc_folding.c',
-                        'fill_window_sse.c']
+        ['OS!="ios" and (target_arch=="ia32" or target_arch=="x64")', {
+          'cflags' : ['-msse4.2', '-mpclmul'],
+          'xcode_settings' : {
+             'OTHER_CFLAGS' : ['-msse4.2', '-mpclmul'],
+          },
+          'sources' : [
+            'crc_folding.c',
+            'fill_window_sse.c',
+          ],
+          'conditions': [
+            ['OS=="win" and clang==1', {
+              'msvs_settings': {
+                'VCCLCompilerTool': {
+                  'AdditionalOptions': [ '-msse4.2', '-mpclmul' ],
+                },
+              },
+            }],
+          ],
         }, {
           'sources' : [ 'simd_stub.c' ],
-        }], ['OS=="android"', {
+        }],
+        ['OS=="android"', {
           'toolsets': ['target', 'host'],
         }],
       ],
@@ -65,8 +79,13 @@
         ],
       },
       'conditions': [
-        ['OS!="ios" and OS!="mac" and (target_arch=="ia32" or target_arch=="x64")', {
+        ['OS!="ios" and (target_arch=="ia32" or target_arch=="x64")', {
           'sources' : [ 'x86.c', ],
+          'variables': {
+            'clang_warning_flags': [
+              '-Wno-incompatible-pointer-types',
+            ],
+          },
         }],
         ['OS!="win"', {
           'product_name': 'chrome_zlib',

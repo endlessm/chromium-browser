@@ -28,10 +28,16 @@ const char* paintInvalidationReasonToString(PaintInvalidationReason reason)
         return "compositing update";
     case PaintInvalidationBorderBoxChange:
         return "border box change";
+    case PaintInvalidationContentBoxChange:
+        return "content box change";
+    case PaintInvalidationLayoutOverflowBoxChange:
+        return "layout overflow box change";
     case PaintInvalidationBoundsChange:
         return "bounds change";
     case PaintInvalidationLocationChange:
         return "location change";
+    case PaintInvalidationBackgroundObscurationChange:
+        return "background obscuration change";
     case PaintInvalidationBecameVisible:
         return "became visible";
     case PaintInvalidationBecameInvisible:
@@ -40,12 +46,16 @@ const char* paintInvalidationReasonToString(PaintInvalidationReason reason)
         return "scroll";
     case PaintInvalidationSelection:
         return "selection";
+    case PaintInvalidationFocusRing:
+        return "focus ring";
     case PaintInvalidationLayer:
         return "layer";
-    case PaintInvalidationRendererInsertion:
-        return "renderer insertion";
-    case PaintInvalidationRendererRemoval:
-        return "renderer removal";
+    case PaintInvalidationLayoutObjectInsertion:
+        return "layoutObject insertion";
+    case PaintInvalidationLayoutObjectRemoval:
+        return "layoutObject removal";
+    case PaintInvalidationDelayedFull:
+        return "delayed full";
     }
     ASSERT_NOT_REACHED();
     return "";

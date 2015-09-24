@@ -9,7 +9,7 @@
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/scoped_ptr.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/views/layout/layout_manager.h"
 
 class BookmarkBarView;
@@ -45,7 +45,7 @@ class BrowserViewLayout : public views::LayoutManager {
   ~BrowserViewLayout() override;
 
   // Sets all the views to be managed. Takes ownership of |delegate|.
-  // |browser_view| may be NULL in tests.
+  // |browser_view| may be null in tests.
   void Init(BrowserViewLayoutDelegate* delegate,
             Browser* browser,
             views::ClientView* browser_view,

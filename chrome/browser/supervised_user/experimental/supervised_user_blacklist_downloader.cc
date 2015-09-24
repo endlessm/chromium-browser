@@ -28,15 +28,15 @@ SupervisedUserBlacklistDownloader::SupervisedUserBlacklistDownloader(
       weak_ptr_factory_(this) {
   fetcher_->SetRequestContext(request_context);
   fetcher_->SetLoadFlags(net::LOAD_DO_NOT_SEND_COOKIES |
-                         net::LOAD_DO_NOT_SAVE_COOKIES |
-                         net::LOAD_IS_DOWNLOAD);
+                         net::LOAD_DO_NOT_SAVE_COOKIES);
   fetcher_->SetAutomaticallyRetryOnNetworkChanges(kNumRetries);
   fetcher_->SaveResponseToFileAtPath(
       path,
       BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE));
 
   base::PostTaskAndReplyWithResult(
-      BrowserThread::GetBlockingPool(),
+      BrowserThread::GetBlockingPool()->GetTaskRunnerWithShutdownBehavior(
+          base::SequencedWorkerPool::CONTINUE_ON_SHUTDOWN).get(),
       FROM_HERE,
       base::Bind(&base::PathExists, path),
       base::Bind(&SupervisedUserBlacklistDownloader::OnFileExistsCheckDone,

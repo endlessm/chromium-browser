@@ -13,6 +13,7 @@ import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.TouchCommon;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.content_public.browser.WebContentsObserver;
 import org.chromium.content_shell_apk.ContentShellActivity;
 import org.chromium.content_shell_apk.ContentShellTestBase;
 
@@ -88,21 +89,20 @@ public class InterstitialPageTest extends ContentShellTestBase {
     @Feature({"Navigation"})
     public void testCloseInterstitial() throws InterruptedException, ExecutionException {
         final String proceedCommand = "PROCEED";
-        final String htmlContent =
-                "<html>" +
-                        "<head>" +
-                        "<script>" +
-                                "function sendCommand(command) {" +
-                                        "window.domAutomationController.setAutomationId(1);" +
-                                        "window.domAutomationController.send(command);" +
-                                "}" +
-                        "</script>" +
-                        "</head>" +
-                        "<body style='background-color:#FF0000' " +
-                                "onclick='sendCommand(\"" + proceedCommand + "\");'>" +
-                                "<h1>This is a scary interstitial page</h1>" +
-                        "</body>" +
-                "</html>";
+        final String htmlContent = "<html>"
+                + "<head>"
+                + "  <script>"
+                + "    function sendCommand(command) {"
+                + "      window.domAutomationController.setAutomationId(1);"
+                + "      window.domAutomationController.send(command);"
+                + "    }"
+                + "  </script>"
+                + "</head>"
+                + "<body style='background-color:#FF0000' "
+                + "  onclick='sendCommand(\"" + proceedCommand + "\");'>"
+                + "  <h1>This is a scary interstitial page</h1>"
+                + "</body>"
+                + "</html>";
         final InterstitialPageDelegateAndroid delegate =
                 new InterstitialPageDelegateAndroid(htmlContent) {
             @Override

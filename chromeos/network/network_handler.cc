@@ -4,6 +4,7 @@
 
 #include "chromeos/network/network_handler.h"
 
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/worker_pool.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/network/auto_connect_handler.h"
@@ -15,7 +16,6 @@
 #include "chromeos/network/network_configuration_handler.h"
 #include "chromeos/network/network_connection_handler.h"
 #include "chromeos/network/network_device_handler_impl.h"
-#include "chromeos/network/network_event_log.h"
 #include "chromeos/network/network_profile_handler.h"
 #include "chromeos/network/network_profile_observer.h"
 #include "chromeos/network/network_sms_handler.h"
@@ -27,10 +27,8 @@ namespace chromeos {
 static NetworkHandler* g_network_handler = NULL;
 
 NetworkHandler::NetworkHandler()
-    : message_loop_(base::MessageLoopProxy::current()) {
+    : task_runner_(base::ThreadTaskRunnerHandle::Get()) {
   CHECK(DBusThreadManager::IsInitialized());
-
-  network_event_log::Initialize();
 
   network_state_handler_.reset(new NetworkStateHandler());
   network_device_handler_.reset(new NetworkDeviceHandlerImpl());
@@ -50,14 +48,14 @@ NetworkHandler::NetworkHandler()
 }
 
 NetworkHandler::~NetworkHandler() {
-  network_event_log::Shutdown();
 }
 
 void NetworkHandler::Init() {
   network_state_handler_->InitShillPropertyHandler();
   network_device_handler_->Init(network_state_handler_.get());
   network_profile_handler_->Init();
-  network_configuration_handler_->Init(network_state_handler_.get());
+  network_configuration_handler_->Init(network_state_handler_.get(),
+                                       network_device_handler_.get());
   managed_network_configuration_handler_->Init(
       network_state_handler_.get(),
       network_profile_handler_.get(),

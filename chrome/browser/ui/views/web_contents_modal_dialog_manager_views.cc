@@ -10,8 +10,8 @@
 #include "components/web_modal/single_web_contents_dialog_manager.h"
 #include "components/web_modal/web_contents_modal_dialog_host.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
-#include "ui/gfx/point.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/views/border.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
@@ -27,7 +27,6 @@
 #include "ui/wm/core/window_modality_controller.h"
 #endif
 
-using web_modal::NativeWebContentsModalDialog;
 using web_modal::SingleWebContentsDialogManager;
 using web_modal::SingleWebContentsDialogManagerDelegate;
 using web_modal::WebContentsModalDialogHost;
@@ -41,7 +40,7 @@ class NativeWebContentsModalDialogManagerViews
       public views::WidgetObserver {
  public:
   NativeWebContentsModalDialogManagerViews(
-      NativeWebContentsModalDialog dialog,
+      gfx::NativeWindow dialog,
       SingleWebContentsDialogManagerDelegate* native_delegate)
       : native_delegate_(native_delegate),
         dialog_(dialog),
@@ -103,7 +102,7 @@ class NativeWebContentsModalDialogManagerViews
 #endif
     // Host may be NULL during tab drag on Views/Win32.
     if (host_)
-      UpdateWebContentsModalDialogPosition(widget, host_);
+      constrained_window::UpdateWebContentsModalDialogPosition(widget, host_);
     widget->Show();
     Focus();
 
@@ -148,7 +147,7 @@ class NativeWebContentsModalDialogManagerViews
     for (std::set<views::Widget*>::iterator it = observed_widgets_.begin();
          it != observed_widgets_.end();
          ++it) {
-      UpdateWebContentsModalDialogPosition(*it, host_);
+      constrained_window::UpdateWebContentsModalDialogPosition(*it, host_);
     }
   }
 
@@ -196,10 +195,10 @@ class NativeWebContentsModalDialogManagerViews
     }
   }
 
-  NativeWebContentsModalDialog dialog() override { return dialog_; }
+  gfx::NativeWindow dialog() override { return dialog_; }
 
  private:
-  static views::Widget* GetWidget(NativeWebContentsModalDialog dialog) {
+  static views::Widget* GetWidget(gfx::NativeWindow dialog) {
     views::Widget* widget = views::Widget::GetWidgetForNativeWindow(dialog);
     DCHECK(widget);
     return widget;
@@ -220,11 +219,11 @@ class NativeWebContentsModalDialogManagerViews
 #endif
 
     // Will cause this object to be deleted.
-    native_delegate_->WillClose(widget->GetNativeView());
+    native_delegate_->WillClose(widget->GetNativeWindow());
   }
 
   SingleWebContentsDialogManagerDelegate* native_delegate_;
-  NativeWebContentsModalDialog dialog_;
+  gfx::NativeWindow dialog_;
   WebContentsModalDialogHost* host_;
   std::set<views::Widget*> observed_widgets_;
   std::set<views::Widget*> shown_widgets_;
@@ -236,9 +235,9 @@ class NativeWebContentsModalDialogManagerViews
 
 namespace web_modal {
 
-SingleWebContentsDialogManager* WebContentsModalDialogManager::
-CreateNativeWebModalManager(
-    NativeWebContentsModalDialog dialog,
+SingleWebContentsDialogManager*
+WebContentsModalDialogManager::CreateNativeWebModalManager(
+    gfx::NativeWindow dialog,
     SingleWebContentsDialogManagerDelegate* native_delegate) {
   return new NativeWebContentsModalDialogManagerViews(dialog, native_delegate);
 }

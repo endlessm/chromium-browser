@@ -1,3 +1,7 @@
+  # Copyright 2015 Google Inc.
+#
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
 #
 {
   'conditions' : [
@@ -18,10 +22,6 @@
             'xml.gyp:xml',
           ],
           'sources': [
-            '../bench/GMBench.cpp',
-            '../bench/RecordingBench.cpp',
-            '../bench/SKPBench.cpp',
-            '../bench/nanobench.cpp',
             '../tests/skia_test.cpp',
             '../tools/iOSShell.cpp',
             '../src/views/mac/SkEventNotifier.mm',
@@ -44,7 +44,6 @@
             '../experimental/iOSSampleApp/iPhone/MainWindow_iPhone.xib',
 
             '../src/views/ios/SkOSWindow_iOS.mm',
-            '../src/utils/ios/SkStream_NSData.mm',
             '../src/utils/mac/SkCreateCGImageRef.cpp',
           ],
           'link_settings': {

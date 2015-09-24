@@ -10,6 +10,7 @@ in manifest.
 # pylint is convinced the email module is missing attributes
 # pylint: disable=E1101
 
+import argparse
 import buildbot_common
 import csv
 import cStringIO
@@ -18,7 +19,6 @@ import email
 import logging
 import logging.handlers
 import manifest_util
-import optparse
 import os
 import posixpath
 import re
@@ -879,24 +879,25 @@ class CapturedFile(object):
 
 
 def main(args):
-  parser = optparse.OptionParser()
-  parser.add_option('--gsutil', help='path to gsutil.')
-  parser.add_option('-d', '--debug', help='run in debug mode.',
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--gsutil', help='path to gsutil.')
+  parser.add_argument('-d', '--debug', help='run in debug mode.',
       action='store_true')
-  parser.add_option('--mailfrom', help='email address of sender.')
-  parser.add_option('--mailto', help='send error mails to...', action='append')
-  parser.add_option('-n', '--dryrun', help="don't upload the manifest.",
+  parser.add_argument('--mailfrom', help='email address of sender.')
+  parser.add_argument('--mailto', help='send error mails to...',
+      action='append')
+  parser.add_argument('-n', '--dryrun', help="don't upload the manifest.",
       action='store_true')
-  parser.add_option('-v', '--verbose', help='print more diagnotic messages. '
+  parser.add_argument('-v', '--verbose', help='print more diagnotic messages. '
       'Use more than once for more info.',
       action='count')
-  parser.add_option('--log-file', metavar='FILE', help='log to FILE')
-  parser.add_option('--upload-log', help='Upload log alongside the manifest.',
-                    action='store_true')
-  parser.add_option('--bundle-version',
+  parser.add_argument('--log-file', metavar='FILE', help='log to FILE')
+  parser.add_argument('--upload-log', help='Upload log alongside the manifest.',
+      action='store_true')
+  parser.add_argument('--bundle-version',
       help='Manually set a bundle version. This can be passed more than once. '
       'format: --bundle-version pepper_24=24.0.1312.25', action='append')
-  options, args = parser.parse_args(args[1:])
+  options = parser.parse_args(args)
 
   if (options.mailfrom is None) != (not options.mailto):
     options.mailfrom = None
@@ -936,7 +937,6 @@ def main(args):
       extra_archives = [('naclports.tar.bz2', '27.0.0.0')]
       Run(delegate, ('mac', 'win', 'linux'), extra_archives,
           fixed_bundle_versions)
-      return 0
     except Exception:
       if options.mailfrom and options.mailto:
         traceback.print_exc()
@@ -957,6 +957,7 @@ def main(args):
     sys.stderr.write(str(e) + '\n')
     return 1
 
+  return 0
 
 if __name__ == '__main__':
-  sys.exit(main(sys.argv))
+  sys.exit(main(sys.argv[1:]))

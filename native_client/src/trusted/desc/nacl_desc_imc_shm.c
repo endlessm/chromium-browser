@@ -8,6 +8,7 @@
  * NaCl Service Runtime.  Transferrable shared memory objects.
  */
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/portability.h"
 #include "native_client/src/include/nacl_platform.h"
 
@@ -269,7 +270,7 @@ static int NaClDescImcShmFstat(struct NaClDesc         *vself,
   }
 
   stbp->nacl_abi_st_dev = 0;
-  stbp->nacl_abi_st_ino = 0x6c43614e;
+  stbp->nacl_abi_st_ino = NACL_FAKE_INODE_NUM;
   stbp->nacl_abi_st_mode = (NACL_ABI_S_IFSHM |
                             NACL_ABI_S_IRUSR |
                             NACL_ABI_S_IWUSR);
@@ -362,14 +363,12 @@ static struct NaClDescVtbl const kNaClDescImcShmVtbl = {
 };
 
 int NaClDescImcShmInternalize(struct NaClDesc               **out_desc,
-                              struct NaClDescXferState      *xfer,
-                              struct NaClDescQuotaInterface *quota_interface) {
+                              struct NaClDescXferState      *xfer) {
   int                   rv;
   struct NaClDescImcShm *ndisp;
   NaClHandle            h;
   nacl_off64_t          hsize;
 
-  UNREFERENCED_PARAMETER(quota_interface);
   rv = -NACL_ABI_EIO;
 
   ndisp = malloc(sizeof *ndisp);

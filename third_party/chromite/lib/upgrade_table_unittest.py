@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2011 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,17 +6,10 @@
 
 from __future__ import print_function
 
-import os
-import sys
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))))
-
 from chromite.lib import cros_test_lib
 from chromite.lib import upgrade_table as utable
 
 
-# pylint: disable=W0212,R0904
 class UpgradeTableTest(cros_test_lib.TestCase):
   """Unittests for UpgradeTable."""
   ARCH = 'some-arch'
@@ -68,17 +60,18 @@ class UpgradeTableTest(cros_test_lib.TestCase):
     t2 = self._CreateTable(True)
 
     # All these columns should be in both tables, with same name.
-    cols = [t1.COL_PACKAGE,
-            t1.COL_SLOT,
-            t1.COL_OVERLAY,
-            t1.COL_CURRENT_VER,
-            t1.COL_STABLE_UPSTREAM_VER,
-            t1.COL_LATEST_UPSTREAM_VER,
-            t1.COL_STATE,
-            t1.COL_DEPENDS_ON,
-            t1.COL_USED_BY,
-            t1.COL_TARGET,
-            ]
+    cols = [
+        t1.COL_PACKAGE,
+        t1.COL_SLOT,
+        t1.COL_OVERLAY,
+        t1.COL_CURRENT_VER,
+        t1.COL_STABLE_UPSTREAM_VER,
+        t1.COL_LATEST_UPSTREAM_VER,
+        t1.COL_STATE,
+        t1.COL_DEPENDS_ON,
+        t1.COL_USED_BY,
+        t1.COL_TARGET,
+    ]
 
     for col in cols:
       self.assertTrue(t1.HasColumn(col))
@@ -88,6 +81,3 @@ class UpgradeTableTest(cros_test_lib.TestCase):
     col = t1.COL_UPGRADED
     self.assertFalse(t1.HasColumn(col))
     self.assertTrue(t2.HasColumn(col))
-
-if __name__ == "__main__":
-  cros_test_lib.main()

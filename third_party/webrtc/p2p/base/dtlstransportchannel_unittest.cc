@@ -54,6 +54,7 @@ class DtlsTestClient : public sigslot::has_slots<> {
       protocol_(cricket::ICEPROTO_GOOGLE),
       packet_size_(0),
       use_dtls_srtp_(false),
+      ssl_max_version_(rtc::SSL_PROTOCOL_DTLS_10),
       negotiated_dtls_(false),
       received_dtls_client_hello_(false),
       received_dtls_server_hello_(false) {
@@ -68,6 +69,10 @@ class DtlsTestClient : public sigslot::has_slots<> {
   void SetupSrtp() {
     ASSERT(identity_.get() != NULL);
     use_dtls_srtp_ = true;
+  }
+  void SetupMaxProtocolVersion(rtc::SSLProtocolVersion version) {
+    ASSERT(transport_.get() == NULL);
+    ssl_max_version_ = version;
   }
   void SetupChannels(int count, cricket::IceRole role) {
     transport_.reset(new cricket::DtlsTransport<cricket::FakeTransport>(
@@ -85,6 +90,7 @@ class DtlsTestClient : public sigslot::has_slots<> {
           static_cast<cricket::DtlsTransportChannelWrapper*>(
               transport_->CreateChannel(i));
       ASSERT_TRUE(channel != NULL);
+      channel->SetSslMaxProtocolVersion(ssl_max_version_);
       channel->SignalWritableState.connect(this,
         &DtlsTestClient::OnTransportChannelWritableState);
       channel->SignalReadPacket.connect(this,
@@ -126,14 +132,24 @@ class DtlsTestClient : public sigslot::has_slots<> {
     rtc::scoped_ptr<rtc::SSLFingerprint> local_fingerprint;
     rtc::scoped_ptr<rtc::SSLFingerprint> remote_fingerprint;
     if (local_identity) {
+      std::string digest_algorithm;
+      ASSERT_TRUE(local_identity->certificate().GetSignatureDigestAlgorithm(
+          &digest_algorithm));
+      ASSERT_FALSE(digest_algorithm.empty());
       local_fingerprint.reset(rtc::SSLFingerprint::Create(
-          rtc::DIGEST_SHA_1, local_identity));
+          digest_algorithm, local_identity));
       ASSERT_TRUE(local_fingerprint.get() != NULL);
+      EXPECT_EQ(rtc::DIGEST_SHA_256, digest_algorithm);
     }
     if (remote_identity) {
+      std::string digest_algorithm;
+      ASSERT_TRUE(remote_identity->certificate().GetSignatureDigestAlgorithm(
+          &digest_algorithm));
+      ASSERT_FALSE(digest_algorithm.empty());
       remote_fingerprint.reset(rtc::SSLFingerprint::Create(
-          rtc::DIGEST_SHA_1, remote_identity));
+          digest_algorithm, remote_identity));
       ASSERT_TRUE(remote_fingerprint.get() != NULL);
+      EXPECT_EQ(rtc::DIGEST_SHA_256, digest_algorithm);
     }
 
     if (use_dtls_srtp_ && !(flags & NF_REOFFER)) {
@@ -203,6 +219,22 @@ class DtlsTestClient : public sigslot::has_slots<> {
       std::string cipher;
 
       bool rv = (*it)->GetSrtpCipher(&cipher);
+      if (negotiated_dtls_ && !expected_cipher.empty()) {
+        ASSERT_TRUE(rv);
+
+        ASSERT_EQ(cipher, expected_cipher);
+      } else {
+        ASSERT_FALSE(rv);
+      }
+    }
+  }
+
+  void CheckSsl(const std::string& expected_cipher) {
+    for (std::vector<cricket::DtlsTransportChannelWrapper*>::iterator it =
+           channels_.begin(); it != channels_.end(); ++it) {
+      std::string cipher;
+
+      bool rv = (*it)->GetSslCipher(&cipher);
       if (negotiated_dtls_ && !expected_cipher.empty()) {
         ASSERT_TRUE(rv);
 
@@ -351,6 +383,7 @@ class DtlsTestClient : public sigslot::has_slots<> {
   size_t packet_size_;
   std::set<int> received_;
   bool use_dtls_srtp_;
+  rtc::SSLProtocolVersion ssl_max_version_;
   bool negotiated_dtls_;
   bool received_dtls_client_hello_;
   bool received_dtls_server_hello_;
@@ -366,11 +399,18 @@ class DtlsTransportChannelTest : public testing::Test {
                rtc::Thread::Current()),
       channel_ct_(1),
       use_dtls_(false),
-      use_dtls_srtp_(false) {
+      use_dtls_srtp_(false),
+      ssl_expected_version_(rtc::SSL_PROTOCOL_DTLS_10) {
   }
 
   void SetChannelCount(size_t channel_ct) {
     channel_ct_ = static_cast<int>(channel_ct);
+  }
+  void SetMaxProtocolVersions(rtc::SSLProtocolVersion c1,
+                              rtc::SSLProtocolVersion c2) {
+    client1_.SetupMaxProtocolVersion(c1);
+    client2_.SetupMaxProtocolVersion(c2);
+    ssl_expected_version_ = std::min(c1, c2);
   }
   void PrepareDtls(bool c1, bool c2) {
     if (c1) {
@@ -433,6 +473,10 @@ class DtlsTransportChannelTest : public testing::Test {
       client1_.CheckSrtp("");
       client2_.CheckSrtp("");
     }
+    client1_.CheckSsl(
+        rtc::SSLStreamAdapter::GetDefaultSslCipher(ssl_expected_version_));
+    client2_.CheckSsl(
+        rtc::SSLStreamAdapter::GetDefaultSslCipher(ssl_expected_version_));
 
     return true;
   }
@@ -500,6 +544,7 @@ class DtlsTransportChannelTest : public testing::Test {
   int channel_ct_;
   bool use_dtls_;
   bool use_dtls_srtp_;
+  rtc::SSLProtocolVersion ssl_expected_version_;
 };
 
 // Test that transport negotiation of ICE, no DTLS works properly.
@@ -598,6 +643,42 @@ TEST_F(DtlsTransportChannelTest, TestTransferDtlsNotOffered) {
   PrepareDtls(false, true);
   ASSERT_TRUE(Connect());
   TestTransfer(0, 1000, 100, false);
+}
+
+// Create two channels with DTLS 1.0 and check ciphers.
+TEST_F(DtlsTransportChannelTest, TestDtls12None) {
+  MAYBE_SKIP_TEST(HaveDtls);
+  SetChannelCount(2);
+  PrepareDtls(true, true);
+  SetMaxProtocolVersions(rtc::SSL_PROTOCOL_DTLS_10, rtc::SSL_PROTOCOL_DTLS_10);
+  ASSERT_TRUE(Connect());
+}
+
+// Create two channels with DTLS 1.2 and check ciphers.
+TEST_F(DtlsTransportChannelTest, TestDtls12Both) {
+  MAYBE_SKIP_TEST(HaveDtls);
+  SetChannelCount(2);
+  PrepareDtls(true, true);
+  SetMaxProtocolVersions(rtc::SSL_PROTOCOL_DTLS_12, rtc::SSL_PROTOCOL_DTLS_12);
+  ASSERT_TRUE(Connect());
+}
+
+// Create two channels with DTLS 1.0 / DTLS 1.2 and check ciphers.
+TEST_F(DtlsTransportChannelTest, TestDtls12Client1) {
+  MAYBE_SKIP_TEST(HaveDtls);
+  SetChannelCount(2);
+  PrepareDtls(true, true);
+  SetMaxProtocolVersions(rtc::SSL_PROTOCOL_DTLS_12, rtc::SSL_PROTOCOL_DTLS_10);
+  ASSERT_TRUE(Connect());
+}
+
+// Create two channels with DTLS 1.2 / DTLS 1.0 and check ciphers.
+TEST_F(DtlsTransportChannelTest, TestDtls12Client2) {
+  MAYBE_SKIP_TEST(HaveDtls);
+  SetChannelCount(2);
+  PrepareDtls(true, true);
+  SetMaxProtocolVersions(rtc::SSL_PROTOCOL_DTLS_10, rtc::SSL_PROTOCOL_DTLS_12);
+  ASSERT_TRUE(Connect());
 }
 
 // Connect with DTLS, negotiate DTLS-SRTP, and transfer SRTP using bypass.

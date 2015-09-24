@@ -5,7 +5,6 @@
 #include "components/wifi/fake_wifi_service.h"
 
 #include "base/bind.h"
-#include "base/json/json_reader.h"
 #include "base/message_loop/message_loop.h"
 #include "components/onc/onc_constants.h"
 
@@ -23,20 +22,6 @@ FakeWiFiService::FakeWiFiService() {
     network_properties.ssid = "wifi1";
     network_properties.security = onc::wifi::kWEP_PSK;
     network_properties.signal_strength = 40;
-    network_properties.json_extra =
-      "{"
-      "  \"MacAddress\": \"00:11:22:AA:BB:CC\","
-      "  \"IPConfigs\": [{"
-      "     \"Gateway\": \"0.0.0.1\","
-      "     \"IPAddress\": \"0.0.0.0\","
-      "     \"RoutingPrefix\": 0,"
-      "     \"Type\": \"IPv4\""
-      "  }],"
-      "  \"WiFi\": {"
-      "    \"Frequency\": 2400,"
-      "    \"FrequencyList\": [2400]"
-      "  }"
-      "}";
     networks_.push_back(network_properties);
   }
   {
@@ -173,15 +158,21 @@ void FakeWiFiService::GetKeyFromSystem(const std::string& network_guid,
 }
 
 void FakeWiFiService::SetEventObservers(
-    scoped_refptr<base::MessageLoopProxy> message_loop_proxy,
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner,
     const NetworkGuidListCallback& networks_changed_observer,
     const NetworkGuidListCallback& network_list_changed_observer) {
-  message_loop_proxy_.swap(message_loop_proxy);
+  task_runner_.swap(task_runner);
   networks_changed_observer_ = networks_changed_observer;
   network_list_changed_observer_ = network_list_changed_observer;
 }
 
 void FakeWiFiService::RequestConnectedNetworkUpdate() {
+}
+
+void FakeWiFiService::GetConnectedNetworkSSID(std::string* ssid,
+                                              std::string* error) {
+  *ssid = "";
+  *error = "";
 }
 
 NetworkList::iterator FakeWiFiService::FindNetwork(
@@ -215,13 +206,13 @@ void FakeWiFiService::NotifyNetworkListChanged(const NetworkList& networks) {
     current_networks.push_back(it->guid);
   }
 
-  message_loop_proxy_->PostTask(
+  task_runner_->PostTask(
       FROM_HERE, base::Bind(network_list_changed_observer_, current_networks));
 }
 
 void FakeWiFiService::NotifyNetworkChanged(const std::string& network_guid) {
   WiFiService::NetworkGuidList changed_networks(1, network_guid);
-  message_loop_proxy_->PostTask(
+  task_runner_->PostTask(
       FROM_HERE, base::Bind(networks_changed_observer_, changed_networks));
 }
 

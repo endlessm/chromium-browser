@@ -10,21 +10,16 @@ package power_manager;
 
 // Power supply status sent from powerd to Chrome.
 message PowerSupplyProperties {
+  // For any of these power sources, the system may be consuming power at a high
+  // enough rate that the battery is discharging rather than charging; see
+  // BatteryState.
   enum ExternalPower {
-    // AC/line/mains power is connected. This is generally the
-    // highest-power source that can be attached to the system, but the
-    // system may be drawing power at a high enough rate that the battery
-    // is discharging rather than charging; see BatteryState.
+    // AC/line/mains or USB PD power is connected. This is typically the
+    // highest-power source that can be attached to the system.
     AC = 0;
 
-    // A USB power source (SDP, DCP, CDP, or ACA) is connected. The battery
-    // may be charging or discharging depending on the instantaneous power
-    // consumption and the negotiated current; see BatteryState.
+    // A low-power USB source (SDP, DCP, CDP, or ACA) is connected.
     USB = 1;
-
-    // An original spring AC charger (as identified by an ID sampled by the EC)
-    // is connected.
-    ORIGINAL_SPRING_CHARGER = 3;
 
     // No external power source is connected.
     DISCONNECTED = 2;
@@ -39,12 +34,11 @@ message PowerSupplyProperties {
     // The battery is being charged but is not yet full.
     CHARGING = 1;
 
-    // The battery is discharging. Note that an external power source may
-    // be connected but not supplying enough power to offset the system's
-    // instantaneous power consumption; see ExternalPower. This state is
-    // also used if the battery is neither charging nor discharging (i.e.
-    // current is zero) in a non-full state, which may indicate a battery
-    // defect.
+    // The battery is discharging. Note that an external power source may be
+    // connected but not supplying enough power to offset the system's
+    // instantaneous power consumption. This state is also used if the battery
+    // is neither charging nor discharging (i.e. current is zero) in a non-full
+    // state, which may indicate a battery defect.
     DISCHARGING = 2;
 
     // The system doesn't have a battery.
@@ -55,11 +49,41 @@ message PowerSupplyProperties {
 
   // Details about a potential source of power to the system.
   message PowerSource {
+    enum Port {
+      // The location of the port is unknown, or there's only one port.
+      UNKNOWN = 0;
+
+      // Various positions on the device. The first word describes the side of
+      // the device where the port is located while the second clarifies the
+      // position. For example, LEFT_BACK means the farthest-back port on the
+      // left side, while BACK_LEFT means the leftmost port on the back of the
+      // device.
+      LEFT        = 1;
+      RIGHT       = 2;
+      BACK        = 3;
+      FRONT       = 4;
+      LEFT_FRONT  = 5;
+      LEFT_BACK   = 6;
+      RIGHT_FRONT = 7;
+      RIGHT_BACK  = 8;
+      BACK_LEFT   = 9;
+      BACK_RIGHT  = 10;
+
+      // Next value to use: 11
+    }
+
     // Opaque ID corresponding to the device; see |external_power_source_id|.
     optional string id = 1;
 
-    // User-friendly name describing the device.
-    optional string name = 2;
+    // The charging port to which this power source is connected.
+    optional Port port = 7;
+
+    // Raw strings read from |manufacturer| and |model_name| files in sysfs.
+    optional string manufacturer_id = 4;
+    optional string model_id = 5;
+
+    // Maximum power this source is capable of delivering, in watts.
+    optional double max_power = 6;
 
     // True if the power source will automatically deliver charge to the system
     // when connected (assuming there isn't another |active_by_default| source
@@ -67,7 +91,7 @@ message PowerSupplyProperties {
     // to do so by the user.
     optional bool active_by_default = 3;
 
-    // Next ID to use: 4
+    // Next ID to use: 8
   }
 
   // Current state of the external power source.
@@ -104,5 +128,9 @@ message PowerSupplyProperties {
   // being discharged and negative if it's being charged.
   optional double battery_discharge_rate = 16;
 
-  // Next ID to use: 19
+  // True if it is possible for some connected devices to function as either
+  // sources or sinks (i.e. to either deliver or receive charge).
+  optional bool supports_dual_role_devices = 19;
+
+  // Next ID to use: 20
 }

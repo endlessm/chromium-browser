@@ -7,19 +7,20 @@
 #include "base/bind.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
+#include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "base/sequenced_task_runner.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/extensions/extension_garbage_collector_factory.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/install_tracker.h"
 #include "chrome/browser/extensions/pending_extension_manager.h"
-#include "chrome/common/extensions/manifest_handlers/app_isolation_info.h"
 #include "components/crx_file/id_util.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
@@ -29,6 +30,7 @@
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/file_util.h"
+#include "extensions/common/manifest_handlers/app_isolation_info.h"
 #include "extensions/common/one_shot_event.h"
 
 namespace extensions {
@@ -159,7 +161,7 @@ void ExtensionGarbageCollector::GarbageCollectExtensionsOnFileThread(
 }
 
 void ExtensionGarbageCollector::GarbageCollectExtensions() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   ExtensionPrefs* extension_prefs = ExtensionPrefs::Get(context_);
   DCHECK(extension_prefs);
@@ -171,7 +173,7 @@ void ExtensionGarbageCollector::GarbageCollectExtensions() {
     // Don't garbage collect while there are installations in progress,
     // which may be using the temporary installation directory. Try to garbage
     // collect again later.
-    base::MessageLoop::current()->PostDelayedTask(
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE,
         base::Bind(&ExtensionGarbageCollector::GarbageCollectExtensions,
                    weak_factory_.GetWeakPtr()),
@@ -205,7 +207,7 @@ void ExtensionGarbageCollector::GarbageCollectExtensions() {
 }
 
 void ExtensionGarbageCollector::GarbageCollectIsolatedStorageIfNeeded() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   ExtensionPrefs* extension_prefs = ExtensionPrefs::Get(context_);
   DCHECK(extension_prefs);

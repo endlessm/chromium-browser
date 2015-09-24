@@ -23,8 +23,8 @@
 #include "base/logging.h"
 #include "base/mac/authorization_util.h"
 #include "base/mac/bundle_locations.h"
+#include "base/mac/foundation_util.h"
 #include "base/mac/mac_logging.h"
-#import "base/mac/mac_util.h"
 #include "base/mac/mach_logging.h"
 #include "base/mac/scoped_authorizationref.h"
 #include "base/mac/scoped_cftyperef.h"
@@ -148,7 +148,7 @@ bool MediaResidesOnDiskImage(io_service_t media, std::string* image_path) {
       LOG(ERROR) << "image_path_data is unexpectedly empty";
       return true;
     }
-    char* image_path_c = WriteInto(image_path, length + 1);
+    char* image_path_c = base::WriteInto(image_path, length + 1);
     CFDataGetBytes(image_path_data,
                    CFRangeMake(0, length),
                    reinterpret_cast<UInt8*>(image_path_c));
@@ -365,7 +365,7 @@ bool LaunchInstalledApp(NSString* installed_path,
   helper_path = helper_path.Append(chrome::kHelperProcessExecutablePath);
 
   std::vector<std::string> args =
-      CommandLine::ForCurrentProcess()->argv();
+      base::CommandLine::ForCurrentProcess()->argv();
   args[0] = browser_path.value();
 
   std::vector<std::string> relauncher_args;

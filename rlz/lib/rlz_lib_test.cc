@@ -445,7 +445,7 @@ TEST_F(RlzLibTest, SendFinancialPing) {
 
   scoped_refptr<net::TestURLRequestContextGetter> context =
       new net::TestURLRequestContextGetter(
-          io_thread.message_loop()->message_loop_proxy());
+          io_thread.message_loop()->task_runner());
   rlz_lib::SetURLRequestContext(context.get());
 
   URLRequestRAII set_context(context.get());
@@ -498,7 +498,7 @@ TEST_F(RlzLibTest, SendFinancialPingDuringShutdown) {
 
   scoped_refptr<net::TestURLRequestContextGetter> context =
       new net::TestURLRequestContextGetter(
-          io_thread.message_loop()->message_loop_proxy());
+          io_thread.message_loop()->task_runner());
   rlz_lib::SetURLRequestContext(context.get());
 
   URLRequestRAII set_context(context.get());
@@ -838,13 +838,14 @@ TEST_F(RlzLibTest, BrandingWithStatefulEvents) {
 #if defined(OS_POSIX)
 class ReadonlyRlzDirectoryTest : public RlzLibTestNoMachineState {
  protected:
-  virtual void SetUp() override;
+  void SetUp() override;
 };
 
 void ReadonlyRlzDirectoryTest::SetUp() {
   RlzLibTestNoMachineState::SetUp();
   // Make the rlz directory non-writeable.
-  int chmod_result = chmod(temp_dir_.path().value().c_str(), 0500);
+  int chmod_result = chmod(m_rlz_test_helper_.temp_dir_.path().value().c_str(),
+                           0500);
   ASSERT_EQ(0, chmod_result);
 }
 

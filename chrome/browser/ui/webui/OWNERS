@@ -1,4 +1,3 @@
-arv@chromium.org
 bauerb@chromium.org
 dbeam@chromium.org
 estade@chromium.org
@@ -9,3 +8,6 @@ xiyuan@chromium.org
 
 per-file devtools_ui*=pfeldman@chromium.org
 per-file inspect_ui*=pfeldman@chromium.org
+
+# Maintaining ownership from this file's original Chrome OS location.
+per-file device_log_ui*=stevenjb@chromium.org

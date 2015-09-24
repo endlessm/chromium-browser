@@ -12,6 +12,7 @@
 class GURL;
 
 namespace net {
+class HttpResponseHeaders;
 class URLRequest;
 }
 
@@ -69,7 +70,6 @@ class AwContentsIoThreadClient {
 
   // This method is called on the IO thread only.
   virtual scoped_ptr<AwWebResourceResponse> ShouldInterceptRequest(
-      const GURL& location,
       const net::URLRequest* request) = 0;
 
   // Retrieve the AllowContentAccess setting value of this AwContents.
@@ -102,6 +102,15 @@ class AwContentsIoThreadClient {
   virtual void NewLoginRequest(const std::string& realm,
                                const std::string& account,
                                const std::string& args) = 0;
+
+  // Called when a resource loading error has occured (e.g. an I/O error,
+  // host name lookup failure etc.)
+  virtual void OnReceivedError(const net::URLRequest* request) = 0;
+
+  // Called when a response from the server is received with status code >= 400.
+  virtual void OnReceivedHttpError(
+      const net::URLRequest* request,
+      const net::HttpResponseHeaders* response_headers) = 0;
 };
 
 } // namespace android_webview

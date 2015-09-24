@@ -6,6 +6,10 @@ package org.chromium.content.browser.crypto;
 
 import android.os.Bundle;
 import android.test.InstrumentationTestCase;
+import android.test.suitebuilder.annotation.MediumTest;
+
+import org.chromium.base.ThreadUtils;
+import org.chromium.content.browser.crypto.CipherFactory.CipherDataObserver;
 
 import java.io.IOException;
 import java.security.GeneralSecurityException;
@@ -44,7 +48,30 @@ public class CipherFactoryTest extends InstrumentationTestCase {
             return bytes;
         }
     }
+
+    /** A test implementation to verify observer is correctly notified. */
+    private static class TestCipherDataObserver implements CipherDataObserver {
+        private int mDataObserverNotifiedCount;
+
+        @Override
+        public void onCipherDataGenerated() {
+            mDataObserverNotifiedCount++;
+        }
+
+        /** Whether the cipher data observer has been notified that cipher data is generated. */
+        public int getTimesNotified() {
+            return mDataObserverNotifiedCount;
+        }
+    }
+
     private DeterministicParameterGenerator mNumberProvider;
+
+    private Runnable mEmptyRunnable = new Runnable() {
+        @Override
+        public void run() {
+            // Do nothing.
+        }
+    };
 
     /**
      * Overrides the {@link ByteArrayGenerator} used by the {@link CipherFactory} to ensure
@@ -60,6 +87,7 @@ public class CipherFactoryTest extends InstrumentationTestCase {
     /**
      * {@link Cipher} instances initialized using the same parameters work in exactly the same way.
      */
+    @MediumTest
     public void testCipherUse() throws Exception {
         // Check encryption.
         Cipher aEncrypt = CipherFactory.getInstance().getCipher(Cipher.ENCRYPT_MODE);
@@ -77,6 +105,7 @@ public class CipherFactoryTest extends InstrumentationTestCase {
      * Restoring a {@link Bundle} containing the same parameters already in use by the
      * {@link CipherFactory} should keep the same keys.
      */
+    @MediumTest
     public void testSameBundleRestoration() throws Exception {
         // Create two bundles with the same saved state.
         Bundle aBundle = new Bundle();
@@ -105,6 +134,7 @@ public class CipherFactoryTest extends InstrumentationTestCase {
      * by the {@link CipherFactory} should fail. Any Ciphers created after the failed restoration
      * attempt should use the already-existing keys.
      */
+    @MediumTest
     public void testDifferentBundleRestoration() throws Exception {
         // Restore one set of parameters.
         Bundle aBundle = new Bundle();
@@ -131,6 +161,7 @@ public class CipherFactoryTest extends InstrumentationTestCase {
     /**
      * Restoration from a {@link Bundle} missing data should fail.
      */
+    @MediumTest
     public void testIncompleteBundleRestoration() throws Exception {
         // Make sure we handle the null case.
         assertFalse(CipherFactory.getInstance().restoreFromBundle(null));
@@ -153,6 +184,7 @@ public class CipherFactoryTest extends InstrumentationTestCase {
      * parameters from a {@link Bundle} before this point should result in {@link Cipher}s using the
      * restored parameters instead of any generated ones.
      */
+    @MediumTest
     public void testRestorationSucceedsBeforeCipherCreated() throws Exception {
         byte[] iv = mNumberProvider.getBytes(CipherFactory.NUM_BYTES, (byte) 50);
         byte[] key = mNumberProvider.getBytes(CipherFactory.NUM_BYTES, (byte) 100);
@@ -170,6 +202,7 @@ public class CipherFactoryTest extends InstrumentationTestCase {
      * If the {@link CipherFactory} has already generated parameters, restorations of different data
      * should fail. All {@link Cipher}s should use the generated parameters.
      */
+    @MediumTest
     public void testRestorationDiscardsAfterOtherCipherAlreadyCreated() throws Exception {
         byte[] iv = mNumberProvider.getBytes(CipherFactory.NUM_BYTES, (byte) 50);
         byte[] key = mNumberProvider.getBytes(CipherFactory.NUM_BYTES, (byte) 100);
@@ -189,6 +222,7 @@ public class CipherFactoryTest extends InstrumentationTestCase {
     /**
      * Data saved out to the {@link Bundle} should match what is held by the {@link CipherFactory}.
      */
+    @MediumTest
     public void testSavingToBundle() throws Exception {
         // Nothing should get saved out before Cipher data exists.
         Bundle initialBundle = new Bundle();
@@ -205,6 +239,44 @@ public class CipherFactoryTest extends InstrumentationTestCase {
 
         // Confirm the saved keys match by restoring it.
         assertTrue(CipherFactory.getInstance().restoreFromBundle(afterBundle));
+    }
+
+    /**
+     * Checks that an observer is notified when cipher data is created.
+     */
+    @MediumTest
+    public void testCipherFactoryObserver() throws Exception {
+        TestCipherDataObserver observer = new TestCipherDataObserver();
+        CipherFactory.getInstance().addCipherDataObserver(observer);
+        assertEquals(0, observer.getTimesNotified());
+        CipherFactory.getInstance().getCipher(Cipher.DECRYPT_MODE);
+        ThreadUtils.runOnUiThreadBlocking(mEmptyRunnable);
+        assertEquals(1, observer.getTimesNotified());
+        CipherFactory.getInstance().getCipher(Cipher.DECRYPT_MODE);
+        ThreadUtils.runOnUiThreadBlocking(mEmptyRunnable);
+        assertEquals(1, observer.getTimesNotified());
+        CipherFactory.getInstance().getCipher(Cipher.ENCRYPT_MODE);
+        ThreadUtils.runOnUiThreadBlocking(mEmptyRunnable);
+        assertEquals(1, observer.getTimesNotified());
+        CipherFactory.getInstance().removeCipherDataObserver(observer);
+    }
+
+    /**
+     * Verifies that if the observer is attached after cipher data has already been
+     * created the observer doesn't fire.
+     */
+    @MediumTest
+    public void testCipherFactoryObserverTooLate() throws Exception {
+        CipherFactory.getInstance().getCipher(Cipher.DECRYPT_MODE);
+        // Ensures that cipher finishes initializing before running the rest of the test.
+        ThreadUtils.runOnUiThreadBlocking(mEmptyRunnable);
+        TestCipherDataObserver observer = new TestCipherDataObserver();
+        CipherFactory.getInstance().addCipherDataObserver(observer);
+        ThreadUtils.runOnUiThreadBlocking(mEmptyRunnable);
+        assertEquals(0, observer.getTimesNotified());
+        CipherFactory.getInstance().getCipher(Cipher.DECRYPT_MODE);
+        ThreadUtils.runOnUiThreadBlocking(mEmptyRunnable);
+        assertEquals(0, observer.getTimesNotified());
     }
 
     /**

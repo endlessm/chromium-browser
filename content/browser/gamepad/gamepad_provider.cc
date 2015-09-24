@@ -7,9 +7,11 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/single_thread_task_runner.h"
+#include "base/third_party/dynamic_annotations/dynamic_annotations.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "content/browser/gamepad/gamepad_data_fetcher.h"
@@ -28,9 +30,8 @@ namespace content {
 
 GamepadProvider::ClosureAndThread::ClosureAndThread(
     const base::Closure& c,
-    const scoped_refptr<base::MessageLoopProxy>& m)
-    : closure(c),
-      message_loop(m) {
+    const scoped_refptr<base::SingleThreadTaskRunner>& m)
+    : closure(c), task_runner(m) {
 }
 
 GamepadProvider::ClosureAndThread::~ClosureAndThread() {
@@ -82,7 +83,7 @@ void GamepadProvider::Pause() {
     is_paused_ = true;
   }
   base::MessageLoop* polling_loop = polling_thread_->message_loop();
-  polling_loop->PostTask(
+  polling_loop->task_runner()->PostTask(
       FROM_HERE,
       base::Bind(&GamepadProvider::SendPauseHint, Unretained(this), true));
 }
@@ -96,18 +97,18 @@ void GamepadProvider::Resume() {
   }
 
   base::MessageLoop* polling_loop = polling_thread_->message_loop();
-  polling_loop->PostTask(
+  polling_loop->task_runner()->PostTask(
       FROM_HERE,
       base::Bind(&GamepadProvider::SendPauseHint, Unretained(this), false));
-  polling_loop->PostTask(
+  polling_loop->task_runner()->PostTask(
       FROM_HERE,
       base::Bind(&GamepadProvider::ScheduleDoPoll, Unretained(this)));
 }
 
 void GamepadProvider::RegisterForUserGesture(const base::Closure& closure) {
   base::AutoLock lock(user_gesture_lock_);
-  user_gesture_observers_.push_back(ClosureAndThread(
-      closure, base::MessageLoop::current()->message_loop_proxy()));
+  user_gesture_observers_.push_back(
+      ClosureAndThread(closure, base::MessageLoop::current()->task_runner()));
 }
 
 void GamepadProvider::OnDevicesChanged(base::SystemMonitor::DeviceType type) {
@@ -143,11 +144,9 @@ void GamepadProvider::Initialize(scoped_ptr<GamepadDataFetcher> fetcher) {
 #endif
   polling_thread_->StartWithOptions(base::Thread::Options(kMessageLoopType, 0));
 
-  polling_thread_->message_loop()->PostTask(
-      FROM_HERE,
-      base::Bind(&GamepadProvider::DoInitializePollingThread,
-                 base::Unretained(this),
-                 base::Passed(&fetcher)));
+  polling_thread_->task_runner()->PostTask(
+      FROM_HERE, base::Bind(&GamepadProvider::DoInitializePollingThread,
+                            base::Unretained(this), base::Passed(&fetcher)));
 }
 
 void GamepadProvider::DoInitializePollingThread(
@@ -170,34 +169,34 @@ bool GamepadProvider::PadState::Match(const WebGamepad& pad) const {
   return connected_ == pad.connected &&
          axes_length_ == pad.axesLength &&
          buttons_length_ == pad.buttonsLength &&
-         memcmp(id_, pad.id, arraysize(id_)) == 0 &&
-         memcmp(mapping_, pad.mapping, arraysize(mapping_)) == 0;
+         memcmp(id_, pad.id, sizeof(id_)) == 0 &&
+         memcmp(mapping_, pad.mapping, sizeof(mapping_)) == 0;
 }
 
 void GamepadProvider::PadState::SetPad(const WebGamepad& pad) {
   connected_ = pad.connected;
   axes_length_ = pad.axesLength;
   buttons_length_ = pad.buttonsLength;
-  memcpy(id_, pad.id, arraysize(id_));
-  memcpy(mapping_, pad.mapping, arraysize(mapping_));
+  memcpy(id_, pad.id, sizeof(id_));
+  memcpy(mapping_, pad.mapping, sizeof(mapping_));
 }
 
 void GamepadProvider::PadState::SetDisconnected() {
   connected_ = false;
   axes_length_ = 0;
   buttons_length_ = 0;
-  memset(id_, 0, arraysize(id_));
-  memset(mapping_, 0, arraysize(mapping_));
+  memset(id_, 0, sizeof(id_));
+  memset(mapping_, 0, sizeof(mapping_));
 }
 
 void GamepadProvider::PadState::AsWebGamepad(WebGamepad* pad) {
   pad->connected = connected_;
   pad->axesLength = axes_length_;
   pad->buttonsLength = buttons_length_;
-  memcpy(pad->id, id_, arraysize(id_));
-  memcpy(pad->mapping, mapping_, arraysize(mapping_));
-  memset(pad->axes, 0, arraysize(pad->axes));
-  memset(pad->buttons, 0, arraysize(pad->buttons));
+  memcpy(pad->id, id_, sizeof(id_));
+  memcpy(pad->mapping, mapping_, sizeof(mapping_));
+  memset(pad->axes, 0, sizeof(pad->axes));
+  memset(pad->buttons, 0, sizeof(pad->buttons));
 }
 
 void GamepadProvider::DoPoll() {
@@ -263,9 +262,8 @@ void GamepadProvider::ScheduleDoPoll() {
       return;
   }
 
-  base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::Bind(&GamepadProvider::DoPoll, Unretained(this)),
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, base::Bind(&GamepadProvider::DoPoll, Unretained(this)),
       base::TimeDelta::FromMilliseconds(kDesiredSamplingIntervalMs));
   have_scheduled_do_poll_ = true;
 }
@@ -312,8 +310,8 @@ void GamepadProvider::CheckForUserGesture() {
   if (GamepadsHaveUserGesture(pads)) {
     ever_had_user_gesture_ = true;
     for (size_t i = 0; i < user_gesture_observers_.size(); i++) {
-      user_gesture_observers_[i].message_loop->PostTask(FROM_HERE,
-          user_gesture_observers_[i].closure);
+      user_gesture_observers_[i].task_runner->PostTask(
+          FROM_HERE, user_gesture_observers_[i].closure);
     }
     user_gesture_observers_.clear();
   }

@@ -4,10 +4,12 @@
 
 #include "chrome/browser/nacl_host/nacl_browser_delegate_impl.h"
 
+#include <vector>
+
 #include "base/path_service.h"
 #include "base/strings/string_split.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/component_updater/pnacl/pnacl_component_installer.h"
+#include "chrome/browser/component_updater/pnacl_component_installer.h"
 #if defined(ENABLE_EXTENSIONS)
 #include "chrome/browser/extensions/extension_service.h"
 #endif
@@ -29,7 +31,6 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/url_pattern.h"
 #endif
-#include "ppapi/c/private/ppb_nacl_private.h"
 #include "url/gurl.h"
 
 namespace {
@@ -58,11 +59,11 @@ const char* const kAllowedNonSfiOrigins[] = {
 void OnKeepaliveOnUIThread(
     const content::BrowserPpapiHost::OnKeepaliveInstanceData& instance_data,
     const base::FilePath& profile_data_directory) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   // Only one instance will exist for NaCl embeds, even when more than one
   // embed of the same plugin exists on the same page.
-  DCHECK(instance_data.size() == 1);
+  DCHECK_EQ(1U, instance_data.size());
   if (instance_data.size() < 1)
     return;
 
@@ -140,16 +141,21 @@ ppapi::host::HostFactory* NaClBrowserDelegateImpl::CreatePpapiHostFactory(
   return new chrome::ChromeBrowserPepperHostFactory(ppapi_host);
 }
 
-void NaClBrowserDelegateImpl::SetDebugPatterns(std::string debug_patterns) {
-  if (!debug_patterns.empty() && debug_patterns[0] == '!') {
-    inverse_debug_patterns_ = true;
-    debug_patterns.erase(0, 1);
-  }
+void NaClBrowserDelegateImpl::SetDebugPatterns(
+    const std::string& debug_patterns) {
+#if defined(ENABLE_EXTENSIONS)
   if (debug_patterns.empty()) {
     return;
   }
   std::vector<std::string> patterns;
-  base::SplitString(debug_patterns, ',', &patterns);
+  if (debug_patterns[0] == '!') {
+    std::string negated_patterns = debug_patterns;
+    inverse_debug_patterns_ = true;
+    negated_patterns.erase(0, 1);
+    base::SplitString(negated_patterns, ',', &patterns);
+  } else {
+    base::SplitString(debug_patterns, ',', &patterns);
+  }
   for (std::vector<std::string>::iterator iter = patterns.begin();
        iter != patterns.end(); ++iter) {
     // Allow chrome:// schema, which is used to filter out the internal
@@ -166,10 +172,12 @@ void NaClBrowserDelegateImpl::SetDebugPatterns(std::string debug_patterns) {
       debug_patterns_.push_back(pattern);
     }
   }
+#endif  // defined(ENABLE_EXTENSIONS)
 }
 
 bool NaClBrowserDelegateImpl::URLMatchesDebugPatterns(
     const GURL& manifest_url) {
+#if defined(ENABLE_EXTENSIONS)
   // Empty patterns are forbidden so we ignore them.
   if (debug_patterns_.empty()) {
     return true;
@@ -187,6 +195,9 @@ bool NaClBrowserDelegateImpl::URLMatchesDebugPatterns(
   } else {
     return matches;
   }
+#else
+  return false;
+#endif  // defined(ENABLE_EXTENSIONS)
 }
 
 // This function is security sensitive.  Be sure to check with a security

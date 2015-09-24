@@ -15,8 +15,10 @@
 #ifndef OVERRIDES_WEBRTC_BASE_BASICTYPES_H__
 #define OVERRIDES_WEBRTC_BASE_BASICTYPES_H__
 
-#include "base/basictypes.h"
-#include "build/build_config.h"
+// We can't include these files directly via "base/foo.h" since we might
+// inadvertently include the very files we're overriding.
+#include "../../../../../base/basictypes.h"
+#include "../../../../../build/build_config.h"
 
 #ifndef INT_TYPES_DEFINED
 #define INT_TYPES_DEFINED
@@ -79,30 +81,22 @@ typedef __int64 int64;
 typedef int socklen_t;
 #endif
 
-namespace rtc {
-template<class T> inline T _min(T a, T b) { return (a > b) ? b : a; }
-template<class T> inline T _max(T a, T b) { return (a < b) ? b : a; }
-
-// For wait functions that take a number of milliseconds, kForever indicates
-// unlimited time.
-const int kForever = -1;
-}
-
 #if defined(WEBRTC_WIN)
 #if _MSC_VER < 1700
   #define alignof(t) __alignof(t)
 #endif
-#else  // !WEBRTC_WIN 
+#else  // !WEBRTC_WIN
 #define alignof(t) __alignof__(t)
-#endif  // !WEBRTC_WIN 
-#define RTC_IS_ALIGNED(p, a) (0==(reinterpret_cast<uintptr_t>(p) & ((a)-1)))
+#endif  // !WEBRTC_WIN
+#ifndef ALIGNP
 #define ALIGNP(p, t) \
   (reinterpret_cast<uint8*>(((reinterpret_cast<uintptr_t>(p) + \
   ((t)-1)) & ~((t)-1))))
+#endif
+#define RTC_IS_ALIGNED(p, a) (0==(reinterpret_cast<uintptr_t>(p) & ((a)-1)))
 
-// LIBJINGLE_DEFINE_STATIC_LOCAL() is a libjingle's copy
-// of CR_DEFINE_STATIC_LOCAL().
-#define LIBJINGLE_DEFINE_STATIC_LOCAL(type, name, arguments) \
+// RTC_DEFINE_STATIC_LOCAL() is libjingle's copy of CR_DEFINE_STATIC_LOCAL().
+#define RTC_DEFINE_STATIC_LOCAL(type, name, arguments) \
   CR_DEFINE_STATIC_LOCAL(type, name, arguments)
 
 #endif // OVERRIDES_WEBRTC_BASE_BASICTYPES_H__

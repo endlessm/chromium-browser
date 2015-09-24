@@ -19,6 +19,7 @@
 #include "content/common/plugin_process_messages.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/common/child_process_host.h"
 #include "content/public/common/content_constants.h"
 #include "content/public/common/pepper_plugin_info.h"
 #include "ppapi/proxy/ppapi_messages.h"
@@ -69,7 +70,7 @@ class PluginDataRemoverImpl::Context
         is_removing_(false),
         browser_context_path_(browser_context->GetPath()),
         resource_context_(browser_context->GetResourceContext()) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
   }
 
   void Init(const std::string& mime_type) {
@@ -91,11 +92,16 @@ class PluginDataRemoverImpl::Context
     std::vector<WebPluginInfo> plugins;
     plugin_service->GetPluginInfoArray(
         GURL(), mime_type, false, &plugins, NULL);
-    base::FilePath plugin_path;
-    if (!plugins.empty())  // May be empty for some tests.
-      plugin_path = plugins[0].path;
 
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+    if (plugins.empty()) {
+      // May be empty for some tests and on the CrOS login OOBE screen.
+      event_->Signal();
+      return;
+    }
+
+    base::FilePath plugin_path = plugins[0].path;
+
+    DCHECK_CURRENTLY_ON(BrowserThread::IO);
     remove_start_time_ = base::Time::Now();
     is_removing_ = true;
     // Balanced in On[Ppapi]ChannelOpened or OnError. Exactly one them will
@@ -212,16 +218,17 @@ class PluginDataRemoverImpl::Context
                                       kClearAllData, max_age);
   }
 
-  // Connects the client side of a newly opened plug-in channel.
+  // Connects the client side of a newly opened plugin channel.
   void ConnectToChannel(const IPC::ChannelHandle& handle, bool is_ppapi) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+    DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
     // If we timed out, don't bother connecting.
     if (!is_removing_)
       return;
 
     DCHECK(!channel_.get());
-    channel_ = IPC::Channel::CreateClient(handle, this);
+    channel_ = IPC::Channel::CreateClient(
+        handle, this, content::ChildProcessHost::GetAttachmentBroker());
     if (!channel_->Connect()) {
       NOTREACHED() << "Couldn't connect to plugin";
       SignalDone();
@@ -264,7 +271,7 @@ class PluginDataRemoverImpl::Context
   // Signals that we are finished with removing data (successful or not). This
   // method is safe to call multiple times.
   void SignalDone() {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+    DCHECK_CURRENTLY_ON(BrowserThread::IO);
     if (!is_removing_)
       return;
     is_removing_ = false;
@@ -288,7 +295,7 @@ class PluginDataRemoverImpl::Context
   // The name of the plugin. Use only on the I/O thread.
   std::string plugin_name_;
 
-  // The channel is NULL until we have opened a connection to the plug-in
+  // The channel is NULL until we have opened a connection to the plugin
   // process.
   scoped_ptr<IPC::Channel> channel_;
 };

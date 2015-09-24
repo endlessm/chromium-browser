@@ -75,26 +75,6 @@ IPC_STRUCT_TRAITS_END()
 // Utility process messages:
 // These are messages from the browser to the utility process.
 
-// Tells the utility process to unpack the given extension file in its
-// directory and verify that it is valid.
-IPC_MESSAGE_CONTROL4(ChromeUtilityMsg_UnpackExtension,
-                     base::FilePath /* extension_filename */,
-                     std::string /* extension_id */,
-                     int /* Manifest::Location */,
-                     int /* InitFromValue flags */)
-
-IPC_MESSAGE_CONTROL2(ChromeUtilityMsg_UnzipToDir,
-                     base::FilePath /* zip_file */,
-                     base::FilePath /* dir */)
-
-// Tell the utility process to decode the given image data, which is base64
-// encoded.
-IPC_MESSAGE_CONTROL1(ChromeUtilityMsg_DecodeImageBase64,
-                     std::string)  // base64 encoded image contents
-
-// Tell the utility process to parse a JSON string into a Value object.
-IPC_MESSAGE_CONTROL1(ChromeUtilityMsg_ParseJSON,
-                     std::string /* JSON to parse */)
 
 #if defined(OS_WIN)
 // Tell the utility process to parse the iTunes preference XML file contents
@@ -165,44 +145,6 @@ IPC_MESSAGE_CONTROL0(ChromeUtilityMsg_ImageWriter_Cancel)
 //------------------------------------------------------------------------------
 // Utility process host messages:
 // These are messages from the utility process to the browser.
-
-// Reply when the utility process is done unpacking an extension.  |manifest|
-// is the parsed manifest.json file.
-// The unpacker should also have written out files containing the decoded
-// images and message catalogs from the extension. The data is written into a
-// DecodedImages struct into a file named kDecodedImagesFilename in the
-// directory that was passed in. This is done because the data is too large to
-// pass over IPC.
-IPC_MESSAGE_CONTROL1(ChromeUtilityHostMsg_UnpackExtension_Succeeded,
-                     base::DictionaryValue /* manifest */)
-
-// Reply when the utility process has failed while unpacking an extension.
-// |error_message| is a user-displayable explanation of what went wrong.
-IPC_MESSAGE_CONTROL1(ChromeUtilityHostMsg_UnpackExtension_Failed,
-                     base::string16 /* error_message, if any */)
-
-// Reply when the utility process is done unzipping a file. |unpacked_path|
-// is the directory which contains the unzipped contents.
-IPC_MESSAGE_CONTROL1(ChromeUtilityHostMsg_UnzipToDir_Succeeded,
-                     base::FilePath /* unpacked_path */)
-
-// Reply when the utility process failed to unzip a file. |error| contains
-// an error string to be reported to the user.
-IPC_MESSAGE_CONTROL1(ChromeUtilityHostMsg_UnzipToDir_Failed,
-                     std::string /* error */)
-
-// Reply when the utility process successfully parsed a JSON string.
-//
-// WARNING: The result can be of any Value subclass type, but we can't easily
-// pass indeterminate value types by const object reference with our IPC macros,
-// so we put the result Value into a ListValue. Handlers should examine the
-// first (and only) element of the ListValue for the actual result.
-IPC_MESSAGE_CONTROL1(ChromeUtilityHostMsg_ParseJSON_Succeeded,
-                     base::ListValue)
-
-// Reply when the utility process failed in parsing a JSON string.
-IPC_MESSAGE_CONTROL1(ChromeUtilityHostMsg_ParseJSON_Failed,
-                     std::string /* error message, if any*/)
 
 #if defined(OS_WIN)
 // Reply after parsing the iTunes preferences XML file contents with either the

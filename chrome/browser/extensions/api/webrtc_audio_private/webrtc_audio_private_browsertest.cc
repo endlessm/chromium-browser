@@ -32,7 +32,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::JSONWriter;
-using content::RenderViewHost;
+using content::RenderProcessHost;
 using content::WebContents;
 using media::AudioDeviceNames;
 using media::AudioManager;
@@ -49,7 +49,7 @@ class AudioWaitingExtensionTest : public ExtensionApiTest {
     // or more AudioOutputController objects for our tab.
     bool audio_playing = false;
     for (size_t remaining_tries = 50; remaining_tries > 0; --remaining_tries) {
-      tab->GetRenderViewHost()->GetAudioOutputControllers(
+      tab->GetRenderProcessHost()->GetAudioOutputControllers(
           base::Bind(OnAudioControllers, &audio_playing));
       base::MessageLoop::current()->RunUntilIdle();
       if (audio_playing)
@@ -65,7 +65,7 @@ class AudioWaitingExtensionTest : public ExtensionApiTest {
   // Used by the test above to wait until audio is playing.
   static void OnAudioControllers(
       bool* audio_playing,
-      const RenderViewHost::AudioOutputControllerList& list) {
+      const RenderProcessHost::AudioOutputControllerList& list) {
     if (!list.empty())
       *audio_playing = true;
   }
@@ -84,11 +84,17 @@ class WebrtcAudioPrivateTest : public AudioWaitingExtensionTest {
   }
 
  protected:
+  void AppendTabIdToRequestInfo(base::ListValue* params, int tab_id) {
+    base::DictionaryValue* request_info = new base::DictionaryValue();
+    request_info->SetInteger("tabId", tab_id);
+    params->Append(request_info);
+  }
+
   std::string InvokeGetActiveSink(int tab_id) {
     base::ListValue parameters;
-    parameters.AppendInteger(tab_id);
+    AppendTabIdToRequestInfo(&parameters, tab_id);
     std::string parameter_string;
-    JSONWriter::Write(&parameters, &parameter_string);
+    JSONWriter::Write(parameters, &parameter_string);
 
     scoped_refptr<WebrtcAudioPrivateGetActiveSinkFunction> function =
         new WebrtcAudioPrivateGetActiveSinkFunction();
@@ -174,7 +180,7 @@ IN_PROC_BROWSER_TEST_F(WebrtcAudioPrivateTest, GetSinks) {
   scoped_ptr<base::Value> result = InvokeGetSinks(&sink_list);
 
   std::string result_string;
-  JSONWriter::Write(result.get(), &result_string);
+  JSONWriter::Write(*result, &result_string);
   VLOG(2) << result_string;
 
   EXPECT_EQ(devices.size(), sink_list->GetSize());
@@ -221,9 +227,9 @@ IN_PROC_BROWSER_TEST_F(WebrtcAudioPrivateTest, GetActiveSinkNoMediaStream) {
   WebContents* tab = browser()->tab_strip_model()->GetActiveWebContents();
   int tab_id = ExtensionTabUtil::GetTabId(tab);
   base::ListValue parameters;
-  parameters.AppendInteger(tab_id);
+  AppendTabIdToRequestInfo(&parameters, tab_id);
   std::string parameter_string;
-  JSONWriter::Write(&parameters, &parameter_string);
+  JSONWriter::Write(parameters, &parameter_string);
 
   scoped_refptr<WebrtcAudioPrivateGetActiveSinkFunction> function =
       new WebrtcAudioPrivateGetActiveSinkFunction();
@@ -234,7 +240,7 @@ IN_PROC_BROWSER_TEST_F(WebrtcAudioPrivateTest, GetActiveSinkNoMediaStream) {
                                        browser()));
 
   std::string result_string;
-  JSONWriter::Write(result.get(), &result_string);
+  JSONWriter::Write(*result, &result_string);
   EXPECT_EQ("\"\"", result_string);
 }
 
@@ -244,10 +250,10 @@ IN_PROC_BROWSER_TEST_F(WebrtcAudioPrivateTest, SetActiveSinkNoMediaStream) {
   WebContents* tab = browser()->tab_strip_model()->GetActiveWebContents();
   int tab_id = ExtensionTabUtil::GetTabId(tab);
   base::ListValue parameters;
-  parameters.AppendInteger(tab_id);
+  AppendTabIdToRequestInfo(&parameters, tab_id);
   parameters.AppendString("no such id");
   std::string parameter_string;
-  JSONWriter::Write(&parameters, &parameter_string);
+  JSONWriter::Write(parameters, &parameter_string);
 
   scoped_refptr<WebrtcAudioPrivateSetActiveSinkFunction> function =
       new WebrtcAudioPrivateSetActiveSinkFunction();
@@ -255,7 +261,7 @@ IN_PROC_BROWSER_TEST_F(WebrtcAudioPrivateTest, SetActiveSinkNoMediaStream) {
   std::string error(RunFunctionAndReturnError(function.get(),
                                               parameter_string,
                                               browser()));
-  EXPECT_EQ(base::StringPrintf("No active stream for tab with id: %d.", tab_id),
+  EXPECT_EQ(base::StringPrintf("No active stream for tabId %d", tab_id),
             error);
 }
 
@@ -290,10 +296,10 @@ IN_PROC_BROWSER_TEST_F(WebrtcAudioPrivateTest, GetAndSetWithMediaStream) {
     dict->GetString("sinkId", &target_device);
 
     base::ListValue parameters;
-    parameters.AppendInteger(tab_id);
+    AppendTabIdToRequestInfo(&parameters, tab_id);
     parameters.AppendString(target_device);
     std::string parameter_string;
-    JSONWriter::Write(&parameters, &parameter_string);
+    JSONWriter::Write(parameters, &parameter_string);
 
     scoped_refptr<WebrtcAudioPrivateSetActiveSinkFunction> function =
       new WebrtcAudioPrivateSetActiveSinkFunction();
@@ -339,14 +345,14 @@ IN_PROC_BROWSER_TEST_F(WebrtcAudioPrivateTest, GetAssociatedSink) {
     parameters.AppendString(origin.spec());
     parameters.AppendString(source_id_in_origin);
     std::string parameter_string;
-    JSONWriter::Write(&parameters, &parameter_string);
+    JSONWriter::Write(parameters, &parameter_string);
 
     scoped_ptr<base::Value> result(
         RunFunctionAndReturnSingleResult(function.get(),
                                          parameter_string,
                                          browser()));
     std::string result_string;
-    JSONWriter::Write(result.get(), &result_string);
+    JSONWriter::Write(*result, &result_string);
     VLOG(2) << "Results: " << result_string;
   }
 }
@@ -390,7 +396,8 @@ IN_PROC_BROWSER_TEST_F(HangoutServicesBrowserTest,
   // The "externally connectable" extension permission doesn't seem to
   // like when we use 127.0.0.1 as the host, but using localhost works.
   std::string url_spec = url.spec();
-  ReplaceFirstSubstringAfterOffset(&url_spec, 0, "127.0.0.1", "localhost");
+  base::ReplaceFirstSubstringAfterOffset(
+      &url_spec, 0, "127.0.0.1", "localhost");
   GURL localhost_url(url_spec);
   ui_test_utils::NavigateToURL(browser(), localhost_url);
 

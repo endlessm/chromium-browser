@@ -8,42 +8,45 @@
 #define V8TestInterfaceDocument_h
 
 #include "bindings/core/v8/ScriptWrappable.h"
+#include "bindings/core/v8/ToV8.h"
 #include "bindings/core/v8/V8Binding.h"
 #include "bindings/core/v8/V8DOMWrapper.h"
 #include "bindings/core/v8/V8Document.h"
 #include "bindings/core/v8/WrapperTypeInfo.h"
 #include "bindings/tests/idls/core/TestInterfaceDocument.h"
+#include "core/CoreExport.h"
 #include "platform/heap/Handle.h"
 
 namespace blink {
 
 class V8TestInterfaceDocument {
 public:
-    static bool hasInstance(v8::Handle<v8::Value>, v8::Isolate*);
-    static v8::Handle<v8::Object> findInstanceInPrototypeChain(v8::Handle<v8::Value>, v8::Isolate*);
-    static v8::Handle<v8::FunctionTemplate> domTemplate(v8::Isolate*);
-    static TestInterfaceDocument* toImpl(v8::Handle<v8::Object> object)
+    CORE_EXPORT static bool hasInstance(v8::Local<v8::Value>, v8::Isolate*);
+    static v8::Local<v8::Object> findInstanceInPrototypeChain(v8::Local<v8::Value>, v8::Isolate*);
+    CORE_EXPORT static v8::Local<v8::FunctionTemplate> domTemplate(v8::Isolate*);
+    static TestInterfaceDocument* toImpl(v8::Local<v8::Object> object)
     {
-        return blink::toScriptWrappableBase(object)->toImpl<TestInterfaceDocument>();
+        return toScriptWrappable(object)->toImpl<TestInterfaceDocument>();
     }
-    static TestInterfaceDocument* toImplWithTypeCheck(v8::Isolate*, v8::Handle<v8::Value>);
-    static const WrapperTypeInfo wrapperTypeInfo;
-    static void refObject(ScriptWrappableBase*);
-    static void derefObject(ScriptWrappableBase*);
-    static void trace(Visitor* visitor, ScriptWrappableBase* scriptWrappableBase)
+    CORE_EXPORT static TestInterfaceDocument* toImplWithTypeCheck(v8::Isolate*, v8::Local<v8::Value>);
+    CORE_EXPORT static const WrapperTypeInfo wrapperTypeInfo;
+    static void refObject(ScriptWrappable*);
+    static void derefObject(ScriptWrappable*);
+    template<typename VisitorDispatcher>
+    static void trace(VisitorDispatcher visitor, ScriptWrappable* scriptWrappable)
     {
 #if ENABLE(OILPAN)
-        visitor->trace(scriptWrappableBase->toImpl<TestInterfaceDocument>());
+        visitor->trace(scriptWrappable->toImpl<TestInterfaceDocument>());
 #endif
     }
-    static EventTarget* toEventTarget(v8::Handle<v8::Object>);
     static const int internalFieldCount = v8DefaultWrapperInternalFieldCount + 0;
-    static inline ScriptWrappableBase* toScriptWrappableBase(TestInterfaceDocument* impl)
-    {
-        return impl->toScriptWrappableBase();
-    }
-    static void installConditionallyEnabledProperties(v8::Handle<v8::Object>, v8::Isolate*) { }
-    static void installConditionallyEnabledMethods(v8::Handle<v8::Object>, v8::Isolate*) { }
+    static void installConditionallyEnabledProperties(v8::Local<v8::Object>, v8::Isolate*) { }
+    static void preparePrototypeObject(v8::Isolate*, v8::Local<v8::Object> prototypeObject, v8::Local<v8::FunctionTemplate> interfaceTemplate) { }
+};
+
+template <>
+struct V8TypeOf<TestInterfaceDocument> {
+    typedef V8TestInterfaceDocument Type;
 };
 
 } // namespace blink

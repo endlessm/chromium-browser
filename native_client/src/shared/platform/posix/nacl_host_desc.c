@@ -22,6 +22,8 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include "native_client/src/include/build_config.h"
+
 #if NACL_LINUX
 # include <pthread.h>
 /* pthread_once for NaClHostDescInit, which is no-op on other OSes */
@@ -94,7 +96,7 @@ static INLINE int NaClMapAccessMode(int nacl_mode) {
 static INLINE int NaClMapOpenFlags(int nacl_flags) {
   int host_os_flags;
 
-  nacl_flags &= (NACL_ABI_O_ACCMODE | NACL_ABI_O_CREAT
+  nacl_flags &= (NACL_ABI_O_ACCMODE | NACL_ABI_O_CREAT | NACL_ABI_O_EXCL
                  | NACL_ABI_O_TRUNC | NACL_ABI_O_APPEND);
 
   host_os_flags = 0;
@@ -113,6 +115,7 @@ static INLINE int NaClMapOpenFlags(int nacl_flags) {
     }                                           \
   } while (0)
   M(O_CREAT);
+  M(O_EXCL);
   M(O_TRUNC);
   M(O_APPEND);
 #undef M
@@ -338,7 +341,6 @@ int NaClHostDescOpen(struct NaClHostDesc  *d,
                      int                  flags,
                      int                  mode) {
   int host_desc;
-  nacl_host_stat_t stbuf;
   int posix_flags;
 
   NaClLog(3, "NaClHostDescOpen(0x%08"NACL_PRIxPTR", %s, 0x%x, 0x%x)\n",
@@ -378,21 +380,6 @@ int NaClHostDescOpen(struct NaClHostDesc  *d,
   if (-1 == host_desc) {
     NaClLog(2, "NaClHostDescOpen: open returned -1, errno %d\n", errno);
     return -NaClXlateErrno(errno);
-  }
-  if (-1 == NACL_HOST_FSTAT64(host_desc, &stbuf)
-      ) {
-    NaClLog(LOG_ERROR,
-            "NaClHostDescOpen: fstat failed?!?  errno %d\n", errno);
-    (void) close(host_desc);
-    return -NaClXlateErrno(errno);
-  }
-  if (!S_ISREG(stbuf.st_mode) && !S_ISCHR(stbuf.st_mode)
-      && !S_ISBLK(stbuf.st_mode)) {
-    NaClLog(LOG_INFO,
-            "NaClHostDescOpen: file type 0x%x, not a file\n", stbuf.st_mode);
-    (void) close(host_desc);
-    /* cannot access anything other than files or char/block devices */
-    return -NACL_ABI_EPERM;
   }
   return NaClHostDescCtor(d, host_desc, flags);
 }

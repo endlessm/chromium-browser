@@ -8,25 +8,34 @@
 #include "base/compiler_specific.h"
 #include "base/prefs/pref_member.h"
 #include "chrome/browser/ui/webui/options/options_ui.h"
+#include "ui/events/devices/input_device_event_observer.h"
 
 namespace chromeos {
 namespace options {
 
 // Customize modifier keys overlay page UI handler.
-class KeyboardHandler : public ::options::OptionsPageUIHandler {
+class KeyboardHandler
+    : public ::options::OptionsPageUIHandler,
+      public ui::InputDeviceEventObserver {
  public:
   KeyboardHandler();
-  virtual ~KeyboardHandler();
+  ~KeyboardHandler() override;
 
   // OptionsPageUIHandler implementation.
-  virtual void GetLocalizedValues(
-      base::DictionaryValue* localized_strings) override;
-  virtual void InitializePage() override;
-  virtual void RegisterMessages() override;
+  void GetLocalizedValues(base::DictionaryValue* localized_strings) override;
+  void InitializePage() override;
+  void RegisterMessages() override;
+
+  // ui::InputDeviceEventObserver:
+  void OnKeyboardDeviceConfigurationChanged() override;
 
  private:
   // Show the keyboard shortcuts overlay from the options page.
   void HandleShowKeyboardShortcuts(const base::ListValue* args);
+
+  // Shows or hides the CapsLock options based on whether or not there is an
+  // external keyboard connected.
+  void UpdateCapsLockOptions() const;
 
   DISALLOW_COPY_AND_ASSIGN(KeyboardHandler);
 };

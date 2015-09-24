@@ -4,6 +4,8 @@
 
 package org.chromium.net;
 
+import android.util.Pair;
+
 import java.util.List;
 import java.util.Map;
 
@@ -31,9 +33,21 @@ public interface ResponseInfo {
     int getHttpStatusCode();
 
     /**
+     * @return the HTTP status text of the status line. For example, if the
+     * request has a "HTTP/1.1 200 OK" response, this method returns "OK".
+     */
+    String getHttpStatusText();
+
+    /**
+     * @return an unmodifiable list of response header field and value pairs.
+     * The headers are in the same order they are received over the wire.
+     */
+    List<Pair<String, String>> getAllHeadersAsList();
+
+    /**
      * @return an unmodifiable map of the response-header fields and values.
-     * The null key is mapped to the HTTP status line for compatibility with
-     * HttpUrlConnection.
+     * Each list of values for a single header field is in the same order they
+     * were received over the wire.
      */
     Map<String, List<String>> getAllHeaders();
 
@@ -54,4 +68,9 @@ public interface ResponseInfo {
      * and without a revalidation request.
      */
     String getNegotiatedProtocol();
+
+    /**
+     * @return the proxy server that was used for the request.
+     */
+    String getProxyServer();
 };

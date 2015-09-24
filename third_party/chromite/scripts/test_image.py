@@ -6,15 +6,15 @@
 
 from __future__ import print_function
 
-import logging
 import os
 import unittest
 
 from chromite.cbuildbot import constants
-from chromite.cros.tests import image_test
 from chromite.lib import commandline
-from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
+from chromite.lib import image_test_lib
 from chromite.lib import osutils
+from chromite.lib import path_util
 
 
 def ParseArgs(args):
@@ -62,13 +62,13 @@ def main(args):
 
   # Build up test suites.
   loader = unittest.TestLoader()
-  loader.suiteClass = image_test.ImageTestSuite
+  loader.suiteClass = image_test_lib.ImageTestSuite
   # We use a different prefix here so that unittest DO NOT pick up the
   # image tests automatically because they depend on a proper environment.
   loader.testMethodPrefix = 'Test'
-  all_tests = loader.loadTestsFromName('chromite.cros.tests.image_test')
-  forgiving = image_test.ImageTestSuite()
-  non_forgiving = image_test.ImageTestSuite()
+  all_tests = loader.loadTestsFromName('chromite.cros.test.image_test')
+  forgiving = image_test_lib.ImageTestSuite()
+  non_forgiving = image_test_lib.ImageTestSuite()
   for suite in all_tests:
     for test in suite.GetTests():
       if test.IsForgiving():
@@ -77,11 +77,11 @@ def main(args):
         non_forgiving.addTest(test)
 
   # Run them in the image directory.
-  runner = image_test.ImageTestRunner()
+  runner = image_test_lib.ImageTestRunner()
   runner.SetBoard(opts.board)
   runner.SetResultDir(opts.test_results_root)
   image_file = FindImage(opts.image_dir)
-  tmp_in_chroot = cros_build_lib.FromChrootPath('/tmp')
+  tmp_in_chroot = path_util.FromChrootPath('/tmp')
   with osutils.TempDir(base_dir=tmp_in_chroot) as temp_dir:
     with osutils.MountImageContext(image_file, temp_dir):
       with osutils.ChdirContext(temp_dir):

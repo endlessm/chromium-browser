@@ -17,9 +17,9 @@
 #include "pdf/preview_mode_client.h"
 
 #include "ppapi/c/private/ppb_pdf.h"
+#include "ppapi/c/private/ppp_pdf.h"
 #include "ppapi/cpp/dev/printing_dev.h"
 #include "ppapi/cpp/dev/scriptable_object_deprecated.h"
-#include "ppapi/cpp/dev/selection_dev.h"
 #include "ppapi/cpp/graphics_2d.h"
 #include "ppapi/cpp/image_data.h"
 #include "ppapi/cpp/input_event.h"
@@ -38,47 +38,42 @@ namespace chrome_pdf {
 class OutOfProcessInstance : public pp::Instance,
                              public pp::Find_Private,
                              public pp::Printing_Dev,
-                             public pp::Selection_Dev,
                              public PaintManager::Client,
                              public PDFEngine::Client,
                              public PreviewModeClient::Client {
  public:
   explicit OutOfProcessInstance(PP_Instance instance);
-  virtual ~OutOfProcessInstance();
+  ~OutOfProcessInstance() override;
 
   // pp::Instance implementation.
-  virtual bool Init(uint32_t argc,
-                    const char* argn[],
-                    const char* argv[]) override;
-  virtual void HandleMessage(const pp::Var& message) override;
-  virtual bool HandleInputEvent(const pp::InputEvent& event) override;
-  virtual void DidChangeView(const pp::View& view) override;
+  bool Init(uint32_t argc, const char* argn[], const char* argv[]) override;
+  void HandleMessage(const pp::Var& message) override;
+  bool HandleInputEvent(const pp::InputEvent& event) override;
+  void DidChangeView(const pp::View& view) override;
 
   // pp::Find_Private implementation.
-  virtual bool StartFind(const std::string& text, bool case_sensitive) override;
-  virtual void SelectFindResult(bool forward) override;
-  virtual void StopFind() override;
+  bool StartFind(const std::string& text, bool case_sensitive) override;
+  void SelectFindResult(bool forward) override;
+  void StopFind() override;
 
   // pp::PaintManager::Client implementation.
-  virtual void OnPaint(const std::vector<pp::Rect>& paint_rects,
-                       std::vector<PaintManager::ReadyRect>* ready,
-                       std::vector<pp::Rect>* pending) override;
+  void OnPaint(const std::vector<pp::Rect>& paint_rects,
+               std::vector<PaintManager::ReadyRect>* ready,
+               std::vector<pp::Rect>* pending) override;
 
   // pp::Printing_Dev implementation.
-  virtual uint32_t QuerySupportedPrintOutputFormats() override;
-  virtual int32_t PrintBegin(
-      const PP_PrintSettings_Dev& print_settings) override;
-  virtual pp::Resource PrintPages(
+  uint32_t QuerySupportedPrintOutputFormats() override;
+  int32_t PrintBegin(const PP_PrintSettings_Dev& print_settings) override;
+  pp::Resource PrintPages(
       const PP_PrintPageNumberRange_Dev* page_ranges,
       uint32_t page_range_count) override;
-  virtual void PrintEnd() override;
-  virtual bool IsPrintScalingDisabled() override;
+  void PrintEnd() override;
+  bool IsPrintScalingDisabled() override;
 
   // pp::Private implementation.
   virtual pp::Var GetLinkAtPosition(const pp::Point& point);
-
-  // PPP_Selection_Dev implementation.
-  virtual pp::Var GetSelectedText(bool html) override;
+  virtual void GetPrintPresetOptionsFromDocument(
+      PP_PdfPrintPresetOptions_Dev* options);
 
   void FlushCallback(int32_t result);
   void DidOpen(int32_t result);
@@ -133,6 +128,8 @@ class OutOfProcessInstance : public pp::Instance,
   void DocumentLoadProgress(uint32 available, uint32 doc_size) override;
   void FormTextFieldFocusChange(bool in_focus) override;
   bool IsPrintPreview() override;
+  uint32 GetBackgroundColor() override;
+  void IsSelectingChanged(bool is_selecting) override;
 
   // PreviewModeClient::Client implementation.
   void PreviewDocumentLoadComplete() override;
@@ -169,12 +166,6 @@ class OutOfProcessInstance : public pp::Instance,
   // Creates a URL loader and allows it to access all urls, i.e. not just the
   // frame's origin.
   pp::URLLoader CreateURLLoaderInternal();
-
-  // Figure out the initial page to display based on #page=N and #nameddest=foo
-  // in the |url_|.
-  // Returns -1 if there is no valid fragment. The returned value is 0-based,
-  // whereas page=N is 1-based.
-  int GetInitialPage(const std::string& url);
 
   void FormDidOpen(int32_t result);
 
@@ -233,7 +224,6 @@ class OutOfProcessInstance : public pp::Instance,
   double zoom_;  // Current zoom factor.
 
   float device_scale_;  // Current device scale factor.
-  bool printing_enabled_;
   // True if the plugin is full-page.
   bool full_;
 
@@ -280,6 +270,9 @@ class OutOfProcessInstance : public pp::Instance,
 
   // Used for printing without re-entrancy issues.
   pp::CompletionCallbackFactory<OutOfProcessInstance> print_callback_factory_;
+
+  // The callback for receiving the password from the page.
+  scoped_ptr<pp::CompletionCallbackWithOutput<pp::Var> > password_callback_;
 
   // True if we haven't painted the plugin viewport yet.
   bool first_paint_;
@@ -337,8 +330,10 @@ class OutOfProcessInstance : public pp::Instance,
   // zooming the plugin so that flickering doesn't occur while zooming.
   bool stop_scrolling_;
 
-  // The callback for receiving the password from the page.
-  scoped_ptr<pp::CompletionCallbackWithOutput<pp::Var> > password_callback_;
+  // The background color of the PDF viewer.
+  uint32 background_color_;
+
+  DISALLOW_COPY_AND_ASSIGN(OutOfProcessInstance);
 };
 
 }  // namespace chrome_pdf

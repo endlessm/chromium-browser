@@ -149,18 +149,18 @@ int LoadFrameworkAndStart(app_mode::ChromeAppModeInfo* info) {
     return ChromeAppModeStart(info);
 
   LOG(ERROR) << "Loading Chrome failed, launching Chrome with command line";
-  CommandLine command_line(executable_path);
+  base::CommandLine command_line(executable_path);
   // The user_data_dir from the plist is actually the app data dir.
   command_line.AppendSwitchPath(
       switches::kUserDataDir,
       info->user_data_dir.DirName().DirName().DirName());
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           app_mode::kLaunchedByChromeProcessId) ||
       info->app_mode_id == app_mode::kAppListModeId) {
     // Pass --app-shim-error to have Chrome rebuild this shim.
     // If Chrome has rebuilt this shim once already, then rebuilding doesn't fix
     // the problem, so don't try again.
-    if (!CommandLine::ForCurrentProcess()->HasSwitch(
+    if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
             app_mode::kLaunchedAfterRebuild)) {
       command_line.AppendSwitchPath(app_mode::kAppShimError,
                                     app_mode_bundle_path);
@@ -178,7 +178,7 @@ int LoadFrameworkAndStart(app_mode::ChromeAppModeInfo* info) {
   // Launch the executable directly since base::mac::OpenApplicationWithPath
   // uses LSOpenApplication which doesn't pass command line arguments if the
   // application is already running.
-  if (!base::LaunchProcess(command_line, base::LaunchOptions(), NULL)) {
+  if (!base::LaunchProcess(command_line, base::LaunchOptions()).IsValid()) {
     LOG(ERROR) << "Could not launch Chrome: "
                << command_line.GetCommandLineString();
     return 1;
@@ -191,7 +191,7 @@ int LoadFrameworkAndStart(app_mode::ChromeAppModeInfo* info) {
 
 __attribute__((visibility("default")))
 int main(int argc, char** argv) {
-  CommandLine::Init(argc, argv);
+  base::CommandLine::Init(argc, argv);
   app_mode::ChromeAppModeInfo info;
 
   // Hard coded info parameters.

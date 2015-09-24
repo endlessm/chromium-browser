@@ -5,7 +5,6 @@
 #include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
 
 #include "base/metrics/histogram.h"
-#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/install_tracker_factory.h"
 #include "chrome/browser/extensions/launch_util.h"
@@ -38,10 +37,9 @@ namespace {
 
 const extensions::Extension* GetExtension(Profile* profile,
                                           const std::string& extension_id) {
-  const ExtensionService* service =
-      extensions::ExtensionSystem::Get(profile)->extension_service();
+  const ExtensionRegistry* registry = ExtensionRegistry::Get(profile);
   const extensions::Extension* extension =
-      service->GetInstalledExtension(extension_id);
+      registry->GetInstalledExtension(extension_id);
   return extension;
 }
 
@@ -87,18 +85,19 @@ bool AppListControllerDelegate::UserMayModifySettings(
 }
 
 bool AppListControllerDelegate::CanDoShowAppInfoFlow() {
-  return app_list::switches::IsAppInfoEnabled();
+#if defined(OS_MACOSX)
+  // Cocoa app list doesn't yet support the app info dialog.
+  if (!app_list::switches::IsMacViewsAppListEnabled())
+    return false;
+#endif
+  return CanShowAppInfoDialog();
 }
 
 void AppListControllerDelegate::DoShowAppInfoFlow(
     Profile* profile,
     const std::string& extension_id) {
   DCHECK(CanDoShowAppInfoFlow());
-  ExtensionService* service =
-      extensions::ExtensionSystem::Get(profile)->extension_service();
-  DCHECK(service);
-  const extensions::Extension* extension = service->GetInstalledExtension(
-      extension_id);
+  const extensions::Extension* extension = GetExtension(profile, extension_id);
   DCHECK(extension);
 
   OnShowChildDialog();
@@ -188,10 +187,7 @@ void AppListControllerDelegate::SetExtensionLaunchType(
     Profile* profile,
     const std::string& extension_id,
     extensions::LaunchType launch_type) {
-  ExtensionService* service =
-      extensions::ExtensionSystem::Get(profile)->extension_service();
-  extensions::SetLaunchType(
-      service, extension_id, launch_type);
+  extensions::SetLaunchType(profile, extension_id, launch_type);
 }
 
 bool AppListControllerDelegate::IsExtensionInstalled(

@@ -34,6 +34,8 @@ namespace {
 
 const DWORD kMaxPathBufLen = MAX_PATH + 1;
 
+const char kDeviceInfoTaskRunnerName[] = "device-info-task-runner";
+
 enum DeviceType {
   FLOPPY,
   REMOVABLE,
@@ -68,16 +70,17 @@ DeviceType GetDeviceType(const base::string16& mount_point) {
   // Check device strings of the form "X:" and "\\.\X:"
   // For floppy drives, these will return strings like "/Device/Floppy0"
   base::string16 device = mount_point;
-  if (EndsWith(mount_point, L"\\", false))
+  if (base::EndsWith(mount_point, L"\\", false))
     device = mount_point.substr(0, mount_point.length() - 1);
   base::string16 device_path;
   base::string16 device_path_slash;
   DWORD dos_device = QueryDosDevice(
-      device.c_str(), WriteInto(&device_path, kMaxPathBufLen), kMaxPathBufLen);
+      device.c_str(), base::WriteInto(&device_path, kMaxPathBufLen),
+      kMaxPathBufLen);
   base::string16 device_slash = base::string16(L"\\\\.\\");
   device_slash += device;
   DWORD dos_device_slash = QueryDosDevice(
-      device_slash.c_str(), WriteInto(&device_path_slash, kMaxPathBufLen),
+      device_slash.c_str(), base::WriteInto(&device_path_slash, kMaxPathBufLen),
       kMaxPathBufLen);
   if (dos_device == 0 && dos_device_slash == 0)
     return FLOPPY;
@@ -124,7 +127,7 @@ bool GetDeviceDetails(const base::FilePath& device_path, StorageInfo* info) {
 
   base::string16 mount_point;
   if (!GetVolumePathName(device_path.value().c_str(),
-                         WriteInto(&mount_point, kMaxPathBufLen),
+                         base::WriteInto(&mount_point, kMaxPathBufLen),
                          kMaxPathBufLen)) {
     return false;
   }
@@ -134,13 +137,13 @@ bool GetDeviceDetails(const base::FilePath& device_path, StorageInfo* info) {
   // returns a GUID associated with the device, not the volume.
   base::string16 guid;
   if (!GetVolumeNameForVolumeMountPoint(mount_point.c_str(),
-                                        WriteInto(&guid, kMaxPathBufLen),
+                                        base::WriteInto(&guid, kMaxPathBufLen),
                                         kMaxPathBufLen)) {
     return false;
   }
   // In case it has two GUID's (see above mentioned blog), do it again.
   if (!GetVolumeNameForVolumeMountPoint(guid.c_str(),
-                                        WriteInto(&guid, kMaxPathBufLen),
+                                        base::WriteInto(&guid, kMaxPathBufLen),
                                         kMaxPathBufLen)) {
     return false;
   }
@@ -166,7 +169,7 @@ bool GetDeviceDetails(const base::FilePath& device_path, StorageInfo* info) {
   // name set.
   base::string16 volume_label;
   GetVolumeInformationW(device_path.value().c_str(),
-                        WriteInto(&volume_label, kMaxPathBufLen),
+                        base::WriteInto(&volume_label, kMaxPathBufLen),
                         kMaxPathBufLen, NULL, NULL, NULL, NULL, 0);
 
   uint64 total_size_in_bytes = GetVolumeSize(mount_point);
@@ -185,20 +188,21 @@ bool GetDeviceDetails(const base::FilePath& device_path, StorageInfo* info) {
 std::vector<base::FilePath> GetAttachedDevices() {
   std::vector<base::FilePath> result;
   base::string16 volume_name;
-  HANDLE find_handle = FindFirstVolume(WriteInto(&volume_name, kMaxPathBufLen),
-                                       kMaxPathBufLen);
+  HANDLE find_handle = FindFirstVolume(
+      base::WriteInto(&volume_name, kMaxPathBufLen), kMaxPathBufLen);
   if (find_handle == INVALID_HANDLE_VALUE)
     return result;
 
   while (true) {
     base::string16 volume_path;
     DWORD return_count;
-    if (GetVolumePathNamesForVolumeName(volume_name.c_str(),
-                                        WriteInto(&volume_path, kMaxPathBufLen),
-                                        kMaxPathBufLen, &return_count)) {
+    if (GetVolumePathNamesForVolumeName(
+            volume_name.c_str(), base::WriteInto(&volume_path, kMaxPathBufLen),
+            kMaxPathBufLen, &return_count)) {
       result.push_back(base::FilePath(volume_path));
     }
-    if (!FindNextVolume(find_handle, WriteInto(&volume_name, kMaxPathBufLen),
+    if (!FindNextVolume(find_handle,
+                        base::WriteInto(&volume_name, kMaxPathBufLen),
                         kMaxPathBufLen)) {
       if (GetLastError() != ERROR_NO_MORE_FILES)
         DPLOG(ERROR);
@@ -324,18 +328,12 @@ void EjectDeviceInThreadPool(
 
 }  // namespace
 
-const int kWorkerPoolNumThreads = 3;
-const char* kWorkerPoolNamePrefix = "DeviceInfoPool";
-
 VolumeMountWatcherWin::VolumeMountWatcherWin()
-    : device_info_worker_pool_(new base::SequencedWorkerPool(
-          kWorkerPoolNumThreads, kWorkerPoolNamePrefix)),
-      notifications_(NULL),
-      weak_factory_(this) {
-  task_runner_ =
-      device_info_worker_pool_->GetSequencedTaskRunnerWithShutdownBehavior(
-          device_info_worker_pool_->GetSequenceToken(),
-          base::SequencedWorkerPool::CONTINUE_ON_SHUTDOWN);
+    : notifications_(NULL), weak_factory_(this) {
+  base::SequencedWorkerPool* pool = content::BrowserThread::GetBlockingPool();
+  device_info_task_runner_ = pool->GetSequencedTaskRunnerWithShutdownBehavior(
+      pool->GetNamedSequenceToken(kDeviceInfoTaskRunnerName),
+      base::SequencedWorkerPool::CONTINUE_ON_SHUTDOWN);
 }
 
 // static
@@ -355,26 +353,26 @@ base::FilePath VolumeMountWatcherWin::DriveNumberToFilePath(int drive_number) {
 // c) Retrieve metadata on the volumes and then
 // d) Notify that metadata to listeners.
 void VolumeMountWatcherWin::Init() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   // When VolumeMountWatcherWin is created, the message pumps are not running
   // so a posted task from the constructor would never run. Therefore, do all
   // the initializations here.
-  base::PostTaskAndReplyWithResult(task_runner_, FROM_HERE,
-      GetAttachedDevicesCallback(),
+  base::PostTaskAndReplyWithResult(
+      device_info_task_runner_.get(), FROM_HERE, GetAttachedDevicesCallback(),
       base::Bind(&VolumeMountWatcherWin::AddDevicesOnUIThread,
                  weak_factory_.GetWeakPtr()));
 }
 
 void VolumeMountWatcherWin::AddDevicesOnUIThread(
     std::vector<base::FilePath> removable_devices) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   for (size_t i = 0; i < removable_devices.size(); i++) {
     if (ContainsKey(pending_device_checks_, removable_devices[i]))
       continue;
     pending_device_checks_.insert(removable_devices[i]);
-    task_runner_->PostTask(
+    device_info_task_runner_->PostTask(
         FROM_HERE,
         base::Bind(&VolumeMountWatcherWin::RetrieveInfoForDeviceAndAdd,
                    removable_devices[i], GetDeviceDetailsCallback(),
@@ -404,7 +402,7 @@ void VolumeMountWatcherWin::RetrieveInfoForDeviceAndAdd(
 
 void VolumeMountWatcherWin::DeviceCheckComplete(
     const base::FilePath& device_path) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   pending_device_checks_.erase(device_path);
 
   if (pending_device_checks_.size() == 0) {
@@ -425,7 +423,7 @@ VolumeMountWatcherWin::GetDeviceDetailsCallbackType
 
 bool VolumeMountWatcherWin::GetDeviceInfo(const base::FilePath& device_path,
                                           StorageInfo* info) const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(info);
   base::FilePath path(device_path);
   MountPointDeviceMetadataMap::const_iterator iter =
@@ -443,7 +441,7 @@ bool VolumeMountWatcherWin::GetDeviceInfo(const base::FilePath& device_path,
 }
 
 void VolumeMountWatcherWin::OnWindowMessage(UINT event_type, LPARAM data) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   switch (event_type) {
     case DBT_DEVICEARRIVAL: {
       if (IsLogicalVolumeStructure(data)) {
@@ -503,13 +501,12 @@ void VolumeMountWatcherWin::SetNotifications(
 
 VolumeMountWatcherWin::~VolumeMountWatcherWin() {
   weak_factory_.InvalidateWeakPtrs();
-  device_info_worker_pool_->Shutdown();
 }
 
 void VolumeMountWatcherWin::HandleDeviceAttachEventOnUIThread(
     const base::FilePath& device_path,
     const StorageInfo& info) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   device_metadata_[device_path] = info;
 
@@ -521,7 +518,7 @@ void VolumeMountWatcherWin::HandleDeviceAttachEventOnUIThread(
 
 void VolumeMountWatcherWin::HandleDeviceDetachEventOnUIThread(
     const base::string16& device_location) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   MountPointDeviceMetadataMap::const_iterator device_info =
       device_metadata_.find(base::FilePath(device_location));
@@ -537,7 +534,7 @@ void VolumeMountWatcherWin::HandleDeviceDetachEventOnUIThread(
 void VolumeMountWatcherWin::EjectDevice(
     const std::string& device_id,
     base::Callback<void(StorageMonitor::EjectStatus)> callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   base::FilePath device = MediaStorageUtil::FindDevicePathById(device_id);
   if (device.empty()) {
     callback.Run(StorageMonitor::EJECT_FAILURE);
@@ -548,9 +545,9 @@ void VolumeMountWatcherWin::EjectDevice(
     return;
   }
 
-  task_runner_->PostTask(
-      FROM_HERE,
-      base::Bind(&EjectDeviceInThreadPool, device, callback, task_runner_, 0));
+  device_info_task_runner_->PostTask(
+      FROM_HERE, base::Bind(&EjectDeviceInThreadPool, device, callback,
+                            device_info_task_runner_, 0));
 }
 
 }  // namespace storage_monitor

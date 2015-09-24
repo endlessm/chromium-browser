@@ -25,6 +25,15 @@ void FakeSyncableService::set_process_sync_changes_error(
   process_sync_changes_error_ = error;
 }
 
+void FakeSyncableService::set_attachment_store(
+    scoped_ptr<AttachmentStore> attachment_store) {
+  attachment_store_ = attachment_store.Pass();
+}
+
+const AttachmentService* FakeSyncableService::attachment_service() const {
+  return attachment_service_.get();
+}
+
 bool FakeSyncableService::syncing() const {
   return syncing_;
 }
@@ -59,6 +68,17 @@ SyncError FakeSyncableService::ProcessSyncChanges(
     const tracked_objects::Location& from_here,
     const SyncChangeList& change_list) {
   return process_sync_changes_error_;
+}
+
+scoped_ptr<AttachmentStoreForSync>
+FakeSyncableService::GetAttachmentStoreForSync() {
+  return attachment_store_ ? attachment_store_->CreateAttachmentStoreForSync()
+                           : scoped_ptr<AttachmentStoreForSync>();
+}
+
+void FakeSyncableService::SetAttachmentService(
+    scoped_ptr<AttachmentService> attachment_service) {
+  attachment_service_ = attachment_service.Pass();
 }
 
 }  // namespace syncer

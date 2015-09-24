@@ -7,6 +7,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/scoped_observer.h"
+#include "base/strings/string16.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "extensions/browser/api/management/management_api_delegate.h"
 #include "extensions/browser/browser_context_keyed_api_factory.h"
@@ -20,6 +21,7 @@ struct WebApplicationInfo;
 
 namespace extensions {
 class ExtensionRegistry;
+class RequirementsChecker;
 
 class ManagementFunction : public SyncExtensionFunction {
  protected:
@@ -83,7 +85,7 @@ class ManagementGetPermissionWarningsByManifestFunction
                              MANAGEMENT_GETPERMISSIONWARNINGSBYMANIFEST);
 
   // Called when utility process finishes.
-  void OnParseSuccess(scoped_ptr<base::DictionaryValue> parsed_manifest);
+  void OnParseSuccess(scoped_ptr<base::Value> value);
   void OnParseFailure(const std::string& error);
 
  protected:
@@ -104,7 +106,7 @@ class ManagementLaunchAppFunction : public ManagementFunction {
   bool RunSync() override;
 };
 
-class ManagementSetEnabledFunction : public AsyncManagementFunction {
+class ManagementSetEnabledFunction : public UIThreadExtensionFunction {
  public:
   DECLARE_EXTENSION_FUNCTION("management.setEnabled", MANAGEMENT_SETENABLED)
 
@@ -117,35 +119,38 @@ class ManagementSetEnabledFunction : public AsyncManagementFunction {
   ~ManagementSetEnabledFunction() override;
 
   // ExtensionFunction:
-  bool RunAsync() override;
+  ResponseAction Run() override;
 
  private:
+  void OnRequirementsChecked(const std::vector<std::string>& requirements);
+
   std::string extension_id_;
 
   scoped_ptr<InstallPromptDelegate> install_prompt_;
+
+  scoped_ptr<RequirementsChecker> requirements_checker_;
 };
 
-class ManagementUninstallFunctionBase : public AsyncManagementFunction {
+class ManagementUninstallFunctionBase : public UIThreadExtensionFunction {
  public:
   ManagementUninstallFunctionBase();
 
-  static void SetAutoConfirmForTest(bool should_proceed);
-
-  void ExtensionUninstallAccepted();
-  void ExtensionUninstallCanceled();
+  void OnExtensionUninstallDialogClosed(bool did_start_uninstall,
+                                        const base::string16& error);
 
  protected:
   ~ManagementUninstallFunctionBase() override;
-
-  bool Uninstall(const std::string& extension_id, bool show_confirm_dialog);
+  ResponseAction Uninstall(const std::string& extension_id,
+                           bool show_confirm_dialog);
 
  private:
-  // If should_uninstall is true, this method does the actual uninstall.
-  // If |show_uninstall_dialog|, then this function will be called by one of the
-  // Accepted/Canceled callbacks. Otherwise, it's called directly from RunAsync.
-  void Finish(bool should_uninstall);
+  // Uninstalls the extension without showing the dialog.
+  void UninstallExtension();
 
-  std::string extension_id_;
+  // Finishes and responds to the extension.
+  void Finish(bool did_start_uninstall, const std::string& error);
+
+  std::string target_extension_id_;
 
   scoped_ptr<UninstallDialogDelegate> uninstall_dialog_;
 };
@@ -153,26 +158,22 @@ class ManagementUninstallFunctionBase : public AsyncManagementFunction {
 class ManagementUninstallFunction : public ManagementUninstallFunctionBase {
  public:
   DECLARE_EXTENSION_FUNCTION("management.uninstall", MANAGEMENT_UNINSTALL)
-
   ManagementUninstallFunction();
 
  private:
   ~ManagementUninstallFunction() override;
-
-  bool RunAsync() override;
+  ResponseAction Run() override;
 };
 
 class ManagementUninstallSelfFunction : public ManagementUninstallFunctionBase {
  public:
   DECLARE_EXTENSION_FUNCTION("management.uninstallSelf",
                              MANAGEMENT_UNINSTALLSELF);
-
   ManagementUninstallSelfFunction();
 
  private:
   ~ManagementUninstallSelfFunction() override;
-
-  bool RunAsync() override;
+  ResponseAction Run() override;
 };
 
 class ManagementCreateAppShortcutFunction : public AsyncManagementFunction {

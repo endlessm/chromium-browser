@@ -4,7 +4,6 @@
 
 #include <deque>
 
-#include "content/common/media/webrtc_identity_messages.h"
 #include "content/renderer/media/webrtc_identity_service.h"
 #include "ipc/ipc_message.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -13,14 +12,14 @@ namespace content {
 
 namespace {
 
-static const char FAKE_ORIGIN[] = "http://fake.com";
+static const char FAKE_URL[] = "http://fake.com";
 static const char FAKE_IDENTITY_NAME[] = "fake identity";
 static const char FAKE_COMMON_NAME[] = "fake common name";
 static const char FAKE_CERTIFICATE[] = "fake cert";
 static const char FAKE_PRIVATE_KEY[] = "fake private key";
 static const int FAKE_ERROR = 100;
 
-class WebRTCIdentityServiceForTest : public WebRTCIdentityService {
+class WebRtcIdentityServiceForTest : public WebRTCIdentityService {
  public:
   bool Send(IPC::Message* message) override {
     messages_.push_back(*message);
@@ -42,10 +41,10 @@ class WebRTCIdentityServiceForTest : public WebRTCIdentityService {
   std::deque<IPC::Message> messages_;
 };
 
-class WebRTCIdentityServiceTest : public ::testing::Test {
+class WebRtcIdentityServiceTest : public ::testing::Test {
  public:
-  WebRTCIdentityServiceTest()
-      : service_(new WebRTCIdentityServiceForTest()), last_error_(0) {}
+  WebRtcIdentityServiceTest()
+      : service_(new WebRtcIdentityServiceForTest()), last_error_(0) {}
 
  protected:
   void OnIdentityReady(const std::string& cert, const std::string& key) {
@@ -63,16 +62,14 @@ class WebRTCIdentityServiceTest : public ::testing::Test {
 
   int RequestIdentity() {
     return service_->RequestIdentity(
-        GURL(FAKE_ORIGIN),
-        FAKE_IDENTITY_NAME,
-        FAKE_COMMON_NAME,
-        base::Bind(&WebRTCIdentityServiceTest::OnIdentityReady,
+        GURL(FAKE_URL), GURL(FAKE_URL), FAKE_IDENTITY_NAME, FAKE_COMMON_NAME,
+        base::Bind(&WebRtcIdentityServiceTest::OnIdentityReady,
                    base::Unretained(this)),
-        base::Bind(&WebRTCIdentityServiceTest::OnRequestFailed,
+        base::Bind(&WebRtcIdentityServiceTest::OnRequestFailed,
                    base::Unretained(this)));
   }
 
-  scoped_ptr<WebRTCIdentityServiceForTest> service_;
+  scoped_ptr<WebRtcIdentityServiceForTest> service_;
   std::string last_certificate_;
   std::string last_private_key_;
   int last_error_;
@@ -80,14 +77,14 @@ class WebRTCIdentityServiceTest : public ::testing::Test {
 
 }  // namespace
 
-TEST_F(WebRTCIdentityServiceTest, TestSendRequest) {
+TEST_F(WebRtcIdentityServiceTest, TestSendRequest) {
   RequestIdentity();
 
   IPC::Message ipc = service_->GetLastMessage();
   EXPECT_EQ(ipc.type(), WebRTCIdentityMsg_RequestIdentity::ID);
 }
 
-TEST_F(WebRTCIdentityServiceTest, TestSuccessCallback) {
+TEST_F(WebRtcIdentityServiceTest, TestSuccessCallback) {
   int id = RequestIdentity();
 
   service_->OnControlMessageReceived(WebRTCIdentityHostMsg_IdentityReady(
@@ -96,7 +93,7 @@ TEST_F(WebRTCIdentityServiceTest, TestSuccessCallback) {
   EXPECT_EQ(FAKE_PRIVATE_KEY, last_private_key_);
 }
 
-TEST_F(WebRTCIdentityServiceTest, TestFailureCallback) {
+TEST_F(WebRtcIdentityServiceTest, TestFailureCallback) {
   int id = RequestIdentity();
 
   service_->OnControlMessageReceived(
@@ -104,7 +101,7 @@ TEST_F(WebRTCIdentityServiceTest, TestFailureCallback) {
   EXPECT_EQ(FAKE_ERROR, last_error_);
 }
 
-TEST_F(WebRTCIdentityServiceTest, TestCancelRequest) {
+TEST_F(WebRtcIdentityServiceTest, TestCancelRequest) {
   int request_id = RequestIdentity();
   service_->ClearMessages();
 
@@ -114,7 +111,7 @@ TEST_F(WebRTCIdentityServiceTest, TestCancelRequest) {
   EXPECT_EQ(ipc.type(), WebRTCIdentityMsg_CancelRequest::ID);
 }
 
-TEST_F(WebRTCIdentityServiceTest, TestQueuedRequestSentAfterSuccess) {
+TEST_F(WebRtcIdentityServiceTest, TestQueuedRequestSentAfterSuccess) {
   int id = RequestIdentity();
   RequestIdentity();
   EXPECT_EQ(1, service_->GetNumberOfMessages());
@@ -127,7 +124,7 @@ TEST_F(WebRTCIdentityServiceTest, TestQueuedRequestSentAfterSuccess) {
   EXPECT_EQ(ipc.type(), WebRTCIdentityMsg_RequestIdentity::ID);
 }
 
-TEST_F(WebRTCIdentityServiceTest, TestQueuedRequestSentAfterFailure) {
+TEST_F(WebRtcIdentityServiceTest, TestQueuedRequestSentAfterFailure) {
   int id = RequestIdentity();
   RequestIdentity();
   EXPECT_EQ(1, service_->GetNumberOfMessages());
@@ -140,7 +137,7 @@ TEST_F(WebRTCIdentityServiceTest, TestQueuedRequestSentAfterFailure) {
   EXPECT_EQ(ipc.type(), WebRTCIdentityMsg_RequestIdentity::ID);
 }
 
-TEST_F(WebRTCIdentityServiceTest, TestQueuedRequestSentAfterCancelOutstanding) {
+TEST_F(WebRtcIdentityServiceTest, TestQueuedRequestSentAfterCancelOutstanding) {
   int outstand_request_id = RequestIdentity();
   RequestIdentity();
 
@@ -156,7 +153,7 @@ TEST_F(WebRTCIdentityServiceTest, TestQueuedRequestSentAfterCancelOutstanding) {
   EXPECT_EQ(ipc.type(), WebRTCIdentityMsg_RequestIdentity::ID);
 }
 
-TEST_F(WebRTCIdentityServiceTest, TestCancelQueuedRequest) {
+TEST_F(WebRtcIdentityServiceTest, TestCancelQueuedRequest) {
   int sent_id = RequestIdentity();
   int queued_request_id = RequestIdentity();
   EXPECT_EQ(1, service_->GetNumberOfMessages());
@@ -172,7 +169,7 @@ TEST_F(WebRTCIdentityServiceTest, TestCancelQueuedRequest) {
   EXPECT_EQ(0, service_->GetNumberOfMessages());
 }
 
-TEST_F(WebRTCIdentityServiceTest, TestQueuedRequestSuccessCallback) {
+TEST_F(WebRtcIdentityServiceTest, TestQueuedRequestSuccessCallback) {
   int id1 = RequestIdentity();
   int id2 = RequestIdentity();
 
@@ -190,7 +187,7 @@ TEST_F(WebRTCIdentityServiceTest, TestQueuedRequestSuccessCallback) {
   EXPECT_EQ(FAKE_PRIVATE_KEY, last_private_key_);
 }
 
-TEST_F(WebRTCIdentityServiceTest, TestQueuedRequestFailureCallback) {
+TEST_F(WebRtcIdentityServiceTest, TestQueuedRequestFailureCallback) {
   int id1 = RequestIdentity();
   int id2 = RequestIdentity();
 
@@ -209,7 +206,7 @@ TEST_F(WebRTCIdentityServiceTest, TestQueuedRequestFailureCallback) {
 
 // Verifies that receiving a response for a cancelled request does not incur the
 // callbacks.
-TEST_F(WebRTCIdentityServiceTest, TestRequestCompletedAfterCancelled) {
+TEST_F(WebRtcIdentityServiceTest, TestRequestCompletedAfterCancelled) {
   int id1 = RequestIdentity();
   RequestIdentity();
   service_->CancelRequest(id1);

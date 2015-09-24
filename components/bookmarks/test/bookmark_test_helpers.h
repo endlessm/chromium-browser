@@ -7,10 +7,11 @@
 
 #include <string>
 
+namespace bookmarks {
+
 class BookmarkModel;
 class BookmarkNode;
 
-namespace bookmarks {
 namespace test {
 
 // Blocks until |model| finishes loading.

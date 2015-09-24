@@ -8,118 +8,110 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#ifndef WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_H_
+#define WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_H_
+
 #include <map>
 #include <string>
 #include <vector>
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webrtc/base/constructormagic.h"
 #include "webrtc/modules/remote_bitrate_estimator/include/remote_bitrate_estimator.h"
+#include "webrtc/modules/remote_bitrate_estimator/test/bwe.h"
 #include "webrtc/modules/remote_bitrate_estimator/test/bwe_test_framework.h"
 
 namespace webrtc {
 
-struct RemoteBitrateEstimatorFactory;
-
 namespace testing {
 namespace bwe {
 
-struct BweTestConfig {
-  struct EstimatorConfig {
-    EstimatorConfig()
-        : debug_name(),
-          flow_id(0),
-          estimator_factory(NULL),
-          control_type(kMimdControl),
-          update_baseline(false),
-          plot_delay(true),
-          plot_estimate(true) {
-    }
-    EstimatorConfig(std::string debug_name,
-                    int flow_id,
-                    const RemoteBitrateEstimatorFactory* estimator_factory,
-                    bool plot_delay,
-                    bool plot_estimate)
-        : debug_name(debug_name),
-          flow_id(flow_id),
-          estimator_factory(estimator_factory),
-          control_type(kMimdControl),
-          update_baseline(false),
-          plot_delay(plot_delay),
-          plot_estimate(plot_estimate) {
-    }
-    EstimatorConfig(std::string debug_name,
-                    int flow_id,
-                    const RemoteBitrateEstimatorFactory* estimator_factory,
-                    RateControlType control_type,
-                    bool plot_delay,
-                    bool plot_estimate)
-        : debug_name(debug_name),
-          flow_id(flow_id),
-          estimator_factory(estimator_factory),
-          control_type(control_type),
-          update_baseline(false),
-          plot_delay(plot_delay),
-          plot_estimate(plot_estimate) {
-    }
-    EstimatorConfig(std::string debug_name,
-                    int flow_id,
-                    const RemoteBitrateEstimatorFactory* estimator_factory,
-                    RateControlType control_type,
-                    bool update_baseline)
-        : debug_name(debug_name),
-          flow_id(flow_id),
-          estimator_factory(estimator_factory),
-          control_type(control_type),
-          update_baseline(update_baseline),
-          plot_delay(false),
-          plot_estimate(false) {
-    }
-    std::string debug_name;
-    int flow_id;
-    const RemoteBitrateEstimatorFactory* estimator_factory;
-    RateControlType control_type;
-    bool update_baseline;
-    bool plot_delay;
-    bool plot_estimate;
-  };
+class BweReceiver;
+class PacketReceiver;
+class PacketSender;
 
-  std::vector<EstimatorConfig> estimator_configs;
+class PacketProcessorRunner {
+ public:
+  explicit PacketProcessorRunner(PacketProcessor* processor);
+  ~PacketProcessorRunner();
+
+  bool RunsProcessor(const PacketProcessor* processor) const;
+  void RunFor(int64_t time_ms, int64_t time_now_ms, Packets* in_out);
+
+ private:
+  void FindPacketsToProcess(const FlowIds& flow_ids, Packets* in, Packets* out);
+  void QueuePackets(Packets* batch, int64_t end_of_batch_time_us);
+
+  PacketProcessor* processor_;
+  Packets queue_;
 };
 
-class TestedEstimator;
-class PacketProcessorRunner;
-
-class BweTest : public PacketProcessorListener {
+class Link : public PacketProcessorListener {
  public:
-  BweTest();
-  virtual ~BweTest();
+  virtual ~Link() {}
 
-  virtual void AddPacketProcessor(PacketProcessor* processor, bool is_sender);
+  virtual void AddPacketProcessor(PacketProcessor* processor,
+                                  ProcessorType type);
   virtual void RemovePacketProcessor(PacketProcessor* processor);
 
+  void Run(int64_t run_for_ms, int64_t now_ms, Packets* packets);
+
+  const std::vector<PacketSender*>& senders() { return senders_; }
+  const std::vector<PacketProcessorRunner>& processors() { return processors_; }
+
+ private:
+  std::vector<PacketSender*> senders_;
+  std::vector<PacketReceiver*> receivers_;
+  std::vector<PacketProcessorRunner> processors_;
+};
+
+class BweTest {
+ public:
+  BweTest();
+  ~BweTest();
+
  protected:
-  void SetupTestFromConfig(const BweTestConfig& config);
+  void SetUp();
+
   void VerboseLogging(bool enable);
   void RunFor(int64_t time_ms);
   std::string GetTestName() const;
 
- private:
-  typedef std::map<int, TestedEstimator*> EstimatorMap;
+  void PrintResults(double max_throughput_kbps,
+                    Stats<double> throughput_kbps,
+                    int flow_id,
+                    Stats<double> flow_delay_ms,
+                    Stats<double> flow_throughput_kbps);
 
+  void PrintResults(double max_throughput_kbps,
+                    Stats<double> throughput_kbps,
+                    std::map<int, Stats<double>> flow_delay_ms,
+                    std::map<int, Stats<double>> flow_throughput_kbps);
+
+  void RunFairnessTest(BandwidthEstimatorType bwe_type,
+                       size_t num_media_flows,
+                       size_t num_tcp_flows,
+                       int64_t run_time_seconds,
+                       int capacity_kbps,
+                       int max_delay_ms);
+
+  Link downlink_;
+  Link uplink_;
+
+ private:
   void FindPacketsToProcess(const FlowIds& flow_ids, Packets* in,
                             Packets* out);
-  void GiveFeedbackToAffectedSenders(int flow_id, TestedEstimator* estimator);
+  void GiveFeedbackToAffectedSenders(PacketReceiver* receiver);
 
   int64_t run_time_ms_;
   int64_t time_now_ms_;
   int64_t simulation_interval_ms_;
-  EstimatorMap estimators_;
-  Packets previous_packets_;
-  std::vector<PacketSender*> senders_;
-  std::vector<PacketProcessorRunner> processors_;
+  std::vector<Link*> links_;
+  Packets packets_;
 
   DISALLOW_COPY_AND_ASSIGN(BweTest);
 };
 }  // namespace bwe
 }  // namespace testing
 }  // namespace webrtc
+
+#endif  // WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_H_

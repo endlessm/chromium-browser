@@ -3,7 +3,8 @@
 # found in the LICENSE file.
 
 import("../android/config.gni")
-if (cpu_arch == "arm") {
+import("//native_client/build/config/chrome_build.gni")
+if (current_cpu == "arm") {
   import("../arm.gni")
 }
 if (is_posix) {
@@ -32,7 +33,10 @@ config("compiler") {
   defines = []
   include_dirs = []
 
-  include_dirs += [ "//", root_gen_dir ]
+  include_dirs += [
+    "//",
+    root_gen_dir,
+  ]
 
   # In general, Windows is totally different, but all the other builds share
   # some common GCC configuration. This section sets up Windows and the common
@@ -47,19 +51,16 @@ config("compiler") {
       "/FS",  # Preserve previous PDB behavior.
     ]
     if (is_component_build) {
-      cflags += [
-        "/EHsc",  # Assume C functions can't throw exceptions and don't catch
-                  # structured exceptions (only C++ ones).
-      ]
+      cflags += [ "/EHsc" ]  # Assume C functions can't throw exceptions and don't catch
+                             # structured exceptions (only C++ ones).
     }
   } else {
     # Common GCC compiler flags setup.
     # --------------------------------
-    cflags += [
-      "-fno-strict-aliasing",  # See http://crbug.com/32204
-    ]
+    cflags += [ "-fno-strict-aliasing" ]  # See http://crbug.com/32204
     cflags_cc += [
       "-fno-threadsafe-statics",
+
       # Not exporting C++ inline functions can generally be applied anywhere
       # so we do so here. Normal function visibility is controlled by
       # //build/config/gcc:symbol_visibility_hidden.
@@ -70,11 +71,14 @@ config("compiler") {
     if (is_mac) {
       cflags += [ "-fstack-protector-all" ]
     } else if (is_linux) {
-      cflags += [ "-fstack-protector", "--param=ssp-buffer-size=4" ]
+      cflags += [
+        "-fstack-protector",
+        "--param=ssp-buffer-size=4",
+      ]
     }
 
     # Linker warnings.
-    if (!(is_chromeos && cpu_arch == "arm") && !is_mac) {
+    if (!(is_chromeos && current_cpu == "arm") && !is_mac) {
       # TODO(jochen): Enable this on chromeos on arm. http://crbug.com/356580
       ldflags += [ "-Wl,--fatal-warnings" ]
     }
@@ -87,17 +91,23 @@ config("compiler") {
     common_mac_flags = []
 
     # CPU architecture.
-    if (cpu_arch == "x64") {
-      common_mac_flags += [ "-arch", "x86_64" ]
-    } else if (cpu_arch == "x86") {
-      common_mac_flags += [ "-arch", "i386" ]
+    if (current_cpu == "x64") {
+      common_mac_flags += [
+        "-arch",
+        "x86_64",
+      ]
+    } else if (current_cpu == "x86") {
+      common_mac_flags += [
+        "-arch",
+        "i386",
+      ]
     }
 
     cflags += common_mac_flags
 
     # Without this, the constructors and destructors of a C++ object inside
     # an Objective C struct won't be called, which is very bad.
-    cflags_objcc = [ "-fobjc-call-cxx-cdtors", ]
+    cflags_objcc = [ "-fobjc-call-cxx-cdtors" ]
 
     cflags_c += [ "-std=c99" ]
     cflags_cc += [ "-std=gnu++11" ]
@@ -107,36 +117,30 @@ config("compiler") {
     # Non-Mac Posix compiler flags setup.
     # -----------------------------------
     if (gcc_version >= 48) {
-      cflags_cc += [
-        "-std=gnu++11",
-      ]
+      cflags_cc += [ "-std=gnu++11" ]
     }
 
     # CPU architecture. We may or may not be doing a cross compile now, so for
     # simplicity we always explicitly set the architecture.
-    if (cpu_arch == "x64") {
+    if (current_cpu == "x64") {
       cflags += [ "-m64" ]
       ldflags += [ "-m64" ]
-    } else if (cpu_arch == "x86") {
+    } else if (current_cpu == "x86") {
       cflags += [ "-m32" ]
       ldflags += [ "-m32" ]
-    } else if (cpu_arch == "arm") {
-      # Don't set the compiler flags for the WebView build. These will come
-      # from the Android build system.
-      if (!is_android_webview_build) {
-        cflags += [
-          "-march=$arm_arch",
-          "-mfpu=$arm_fpu",
-          "-mfloat-abi=$arm_float_abi",
-        ]
-        if (arm_tune != "") {
-          cflags += [ "-mtune=$arm_tune" ]
-        }
-        if (arm_use_thumb) {
-          cflags += [ "-mthumb" ]
-          if (is_android && !is_clang) {  # Clang doesn't support this option.
-            cflags += [ "-mthumb-interwork" ]
-          }
+    } else if (current_cpu == "arm") {
+      cflags += [
+        "-march=$arm_arch",
+        "-mfpu=$arm_fpu",
+        "-mfloat-abi=$arm_float_abi",
+      ]
+      if (arm_tune != "") {
+        cflags += [ "-mtune=$arm_tune" ]
+      }
+      if (arm_use_thumb) {
+        cflags += [ "-mthumb" ]
+        if (is_android && !is_clang) {  # Clang doesn't support this option.
+          cflags += [ "-mthumb-interwork" ]
         }
       }
     }
@@ -176,7 +180,7 @@ config("compiler") {
   if (is_linux) {
     cflags += [ "-pthread" ]
 
-    if (cpu_arch == "x64" && use_gold) {
+    if (current_cpu == "x64" && use_gold) {
       # Use gold for linking on 64-bit Linux only (on 32-bit it runs out of
       # address space, and it doesn't support cross-compiling).
       gold_path = rebase_path("//third_party/binutils/Linux_x64/Release/bin",
@@ -204,20 +208,14 @@ config("compiler") {
       ]
     }
 
-    ldflags += [
-      "-pthread",
-    ]
+    ldflags += [ "-pthread" ]
   }
 
   # Clang-specific compiler flags setup.
   # ------------------------------------
   if (is_clang) {
-    cflags += [
-      "-fcolor-diagnostics",
-    ]
-    cflags_cc += [
-      "-std=gnu++11",
-    ]
+    cflags += [ "-fcolor-diagnostics" ]
+    cflags_cc += [ "-std=gnu++11" ]
   }
 
   # Android-specific flags setup.
@@ -232,6 +230,7 @@ config("compiler") {
       # Clang doesn't support these flags.
       cflags += [
         "-finline-limit=64",
+
         # The following 6 options are disabled to save on
         # binary size in gcc 4.8.
         # TODO(fdegans) Reevaluate when we upgrade GCC.
@@ -243,15 +242,6 @@ config("compiler") {
         "-fno-caller-saves",
       ]
     }
-    if (is_android_webview_build) {
-      # Android predefines this as 1; undefine it here so Chromium can redefine
-      # it later to be 2 for chromium code and unset for third party code. This
-      # works because cflags are added before defines.
-      # TODO(brettw) the above comment seems incorrect. We specify defines
-      # before cflags on our compiler command lines.
-      cflags += [ "-U_FORTIFY_SOURCE" ]
-    }
-
     if (is_asan) {
       # Android build relies on -Wl,--gc-sections removing unreachable code.
       # ASan instrumentation for globals inhibits this and results in a library
@@ -260,22 +250,22 @@ config("compiler") {
       cflags += [ "-mllvm -asan-globals=0" ]
     }
 
-    defines += [ "ANDROID" ]
-    if (!is_android_webview_build) {
+    defines += [
+      "ANDROID",
+
       # The NDK has these things, but doesn't define the constants
       # to say that it does. Define them here instead.
-      defines += [ "HAVE_SYS_UIO_H" ]
-    }
+      "HAVE_SYS_UIO_H",
+    ]
 
     # Use gold for Android for most CPU architectures.
-    if (cpu_arch == "x86" || cpu_arch == "x64" || cpu_arch == "arm") {
+    if (current_cpu == "x86" || current_cpu == "x64" || current_cpu == "arm") {
       if (is_clang) {
         # Clang does not support -fuse-ld to invoke the built-in gold linker,
         # so use the -B option which requires us to specify the path.
-        ldflags += [
-          "-B" + rebase_path("//build/android/arm-linux-androideabi-gold",
-                             root_build_dir)
-        ]
+        ldflags +=
+            [ "-B" + rebase_path("//build/android/arm-linux-androideabi-gold",
+                                 root_build_dir) ]
       } else {
         ldflags += [ "-fuse-ld=gold" ]
       }
@@ -283,10 +273,11 @@ config("compiler") {
 
     ldflags += [
       "-Wl,--no-undefined",
+
       # Don't export symbols from statically linked libraries.
       "-Wl,--exclude-libs=ALL",
     ]
-    if (cpu_arch == "arm") {
+    if (current_cpu == "arm") {
       ldflags += [
         # Enable identical code folding to reduce size.
         "-Wl,--icf=safe",
@@ -294,12 +285,10 @@ config("compiler") {
     }
 
     if (is_clang) {
-      if (cpu_arch == "arm") {
-        cflags += [
-          "-target arm-linux-androideabi",
-        ]
+      if (current_cpu == "arm") {
+        cflags += [ "-target arm-linux-androideabi" ]
         ldflags += [ "-target arm-linux-androideabi" ]
-      } else if (cpu_arch == "x86") {
+      } else if (current_cpu == "x86") {
         cflags += [ "-target x86-linux-androideabi" ]
         ldflags += [ "-target x86-linux-androideabi" ]
       }
@@ -388,32 +377,19 @@ config("runtime_library") {
     # arm-linux-androideabi-4.4.3 toolchain (circa Gingerbread) will exhibit
     # strange errors. The include ordering here is important; change with
     # caution.
-    if (use_system_stlport) {
-      cflags += [
-        # For libstdc++/include, which is used by stlport.
-        "-I" + rebase_path("$android_src/bionic", root_build_dir),
-        "-I" + rebase_path("$android_src/external/stlport/stlport",
-                           root_build_dir),
-      ]
-      libs += [
-        "stlport",
-      ]
+    android_stlport_root = "$android_ndk_root/sources/cxx-stl/stlport"
+
+    cflags +=
+        [ "-I" + rebase_path("$android_stlport_root/stlport", root_build_dir) ]
+    lib_dirs += [ "$android_stlport_root/libs/$android_app_abi" ]
+
+    if (component_mode == "shared_library") {
+      libs += [ "stlport_shared" ]
     } else {
-      android_stlport_root = "$android_ndk_root/sources/cxx-stl/stlport"
-
-      cflags += [
-        "-I" + rebase_path("$android_stlport_root/stlport", root_build_dir)
-      ]
-      lib_dirs += [ "$android_stlport_root/libs/$android_app_abi" ]
-
-      if (component_mode == "shared_library") {
-        libs += [ "stlport_shared" ]
-      } else {
-        libs += [ "stlport_static" ]
-      }
+      libs += [ "stlport_static" ]
     }
 
-    if (cpu_arch == "mipsel") {
+    if (current_cpu == "mipsel") {
       libs += [
         # ld linker is used for mips Android, and ld does not accept library
         # absolute path prefixed by "-l"; Since libgcc does not exist in mips
@@ -434,7 +410,6 @@ config("runtime_library") {
       "dl",
       "m",
     ]
-
   }
 }
 
@@ -509,20 +484,6 @@ config("no_chromium_code") {
       # Don't warn about hash_map in third-party code.
       "-Wno-deprecated",
     ]
-  }
-
-  if (is_android_webview_build) {
-    # There is a class of warning which:
-    #  1) Android always enables and also treats as errors
-    #  2) Chromium ignores in third party code
-    # So we re-enable those warnings when building Android.
-    cflags += [
-      "-Wno-address",
-      "-Wno-format-security",
-      "-Wno-return-type",
-      "-Wno-sequence-point",
-    ]
-    cflags_cc += [ "-Wno-non-virtual-dtor" ]
   }
 }
 
@@ -600,12 +561,9 @@ config("default_warnings") {
       # have to turn off this warning (and be careful about how object
       # destruction happens in such cases).
       "/wd4611",
-
-
       # Warnings to evaluate and possibly fix/reenable later:
 
       "/wd4100",  # Unreferenced formal function parameter.
-      "/wd4189",  # A variable was declared and initialized but never used.
       "/wd4244",  # Conversion: possible loss of data.
       "/wd4481",  # Nonstandard extension: override specifier.
       "/wd4505",  # Unreferenced local function has been removed.
@@ -626,9 +584,7 @@ config("default_warnings") {
     cflags_cc = []
 
     if (is_mac) {
-      cflags += [
-        "-Wnewline-eof",
-      ]
+      cflags += [ "-Wnewline-eof" ]
     }
 
     if (is_clang) {
@@ -658,15 +614,14 @@ config("default_warnings") {
       ]
 
       if (!is_mac && !is_ios) {
-        cflags_cc += [
-          "-Wno-reserved-user-defined-literal",
-        ]
+        cflags_cc += [ "-Wno-reserved-user-defined-literal" ]
       }
     }
     if (gcc_version >= 48) {
       cflags_cc += [
         # See comment for -Wno-c++11-narrowing.
         "-Wno-narrowing",
+
         # TODO(thakis): Remove, http://crbug.com/263960
         "-Wno-literal-suffix",
       ]
@@ -674,7 +629,7 @@ config("default_warnings") {
 
     # Suppress warnings about ABI changes on ARM (Clang doesn't give this
     # warning).
-    if (cpu_arch == "arm" && !is_clang) {
+    if (current_cpu == "arm" && !is_clang) {
       cflags += [ "-Wno-psabi" ]
     }
 
@@ -693,6 +648,7 @@ config("default_warnings") {
         # correctly when building with the Android build system.
         # TODO(torne): Fix this in WebKit.
         "-Wno-error=c++0x-compat",
+
         # Other things unrelated to -Wextra:
         "-Wno-non-virtual-dtor",
         "-Wno-sign-promo",
@@ -703,9 +659,7 @@ config("default_warnings") {
       # Don't warn about the "typedef 'foo' locally defined but not used"
       # for gcc 4.8.
       # TODO: remove this flag once all builds work. See crbug.com/227506
-      cflags += [
-        "-Wno-unused-local-typedefs",
-      ]
+      cflags += [ "-Wno-unused-local-typedefs" ]
     }
   }
 }
@@ -736,7 +690,7 @@ if (is_win) {
     "/O2",
     "/Ob2",  # both explicit and auto inlining.
     "/Oy-",  # disable omitting frame pointers, must be after /o2.
-    "/Os",   # favor size over speed.
+    "/Os",  # favor size over speed.
   ]
   common_optimize_on_ldflags = []
 } else {
@@ -744,6 +698,7 @@ if (is_win) {
     # Don't emit the GCC version ident directives, they just end up in the
     # .comment section taking up binary size.
     "-fno-ident",
+
     # Put data and code in their own sections, so that unused symbols
     # can be removed at link time with --gc-sections.
     "-fdata-sections",
@@ -752,9 +707,7 @@ if (is_win) {
   common_optimize_on_ldflags = []
 
   if (is_android) {
-    common_optimize_on_cflags += [
-      "-fomit-frame-pointer",
-    ]
+    common_optimize_on_cflags += [ "-fomit-frame-pointer" ]
     common_optimize_on_ldflags += [
       # Warn in case of text relocations.
       "-Wl,--warn-shared-textrel",
@@ -764,9 +717,7 @@ if (is_win) {
   if (is_mac) {
     if (symbol_level == 2) {
       # Mac dead code stripping requires symbols.
-      common_optimize_on_ldflags += [
-        "-Wl,-dead_strip",
-      ]
+      common_optimize_on_ldflags += [ "-Wl,-dead_strip" ]
     }
   } else {
     # Non-Mac Posix linker flags.
@@ -785,17 +736,11 @@ config("optimize") {
   cflags = common_optimize_on_cflags
   ldflags = common_optimize_on_ldflags
   if (is_win) {
-    cflags += [
-      "/Os",   # favor size over speed.
-    ]
+    cflags += [ "/Os" ]  # favor size over speed.
   } else if (is_android || is_ios) {
-    cflags += [
-      "-Os",  # Favor size over speed.
-    ]
+    cflags += [ "-Os" ]  # Favor size over speed.
   } else {
-    cflags += [
-      "-O2",
-    ]
+    cflags += [ "-O2" ]
   }
 }
 
@@ -830,8 +775,9 @@ config("optimize_max") {
   ldflags = common_optimize_on_ldflags
   if (is_win) {
     cflags += [
-      "/Ot",   # Favor speed over size.
-      "/GL",   # Whole program optimization.
+      "/Ot",  # Favor speed over size.
+      "/GL",  # Whole program optimization.
+
       # Disable Warning 4702 ("Unreachable code") for the WPO/PGO builds.
       # Probably anything that this would catch that wouldn't be caught in a
       # normal build isn't going to actually be a bug, so the incremental value
@@ -839,9 +785,7 @@ config("optimize_max") {
       "/wd4702",
     ]
   } else {
-    cflags += [
-      "-O2",
-    ]
+    cflags += [ "-O2" ]
   }
 }
 

@@ -7,72 +7,56 @@ var remoting = remoting || {};
 
 (function(){
 
-/** @param {remoting.AppLauncher} appLauncher */
-function initializeAppV2(appLauncher) {
-  /** @type {string} */
-  var kNewWindowId = 'new-window';
-
-  /** @param {OnClickData} info */
-  function onContextMenu(info) {
-    if (info.menuItemId == kNewWindowId) {
-      appLauncher.launch();
-    }
-  }
-
-  function initializeContextMenu() {
-    chrome.contextMenus.create({
-       id: kNewWindowId,
-       contexts: ['launcher'],
-       title: chrome.i18n.getMessage(/*i18n-content*/'NEW_WINDOW')
-    });
-    chrome.contextMenus.onClicked.addListener(onContextMenu);
-  }
-
-  initializeContextMenu();
-  chrome.app.runtime.onLaunched.addListener(
-      appLauncher.launch.bind(appLauncher)
-  );
-}
+'use strict';
 
 /**
- * The background service is responsible for listening to incoming connection
- * requests from Hangouts and the webapp.
- *
- * @param {remoting.AppLauncher} appLauncher
+ * @constructor
  */
-function initializeBackgroundService(appLauncher) {
-  function initializeIt2MeService() {
-    /** @type {remoting.It2MeService} */
-    remoting.it2meService = new remoting.It2MeService(appLauncher);
-    remoting.it2meService.init();
-  }
-
-  chrome.runtime.onSuspend.addListener(function() {
-    base.debug.assert(remoting.it2meService != null);
-    remoting.it2meService.dispose();
-    remoting.it2meService = null;
-  });
-
-  remoting.settings = new remoting.Settings();
-
-  chrome.runtime.onSuspendCanceled.addListener(initializeIt2MeService);
-  initializeIt2MeService();
-}
-
-function main() {
-  if (base.isAppsV2()) {
-    var appLauncher = new remoting.V2AppLauncher();
-    initializeAppV2(appLauncher);
-  }
-}
-
-remoting.enableHangoutsRemoteAssistance = function() {
-  /** @type {remoting.AppLauncher} */
-  var appLauncher = base.isAppsV2() ? new remoting.V1AppLauncher():
-                                      new remoting.V2AppLauncher();
-  initializeBackgroundService(appLauncher);
+var BackgroundPage = function() {
+  /** @private {remoting.AppLauncher} */
+  this.appLauncher_ = null;
+  /** @private {remoting.ActivationHandler} */
+  this.activationHandler_ = null;
+  /** @private {remoting.TelemetryEventWriter.Service} */
+  this.telemetryService_ = null;
+  /** @private */
+  this.disposables_ = new base.Disposables();
+  this.preInit_();
 };
 
-window.addEventListener('load', main, false);
+/**
+ * Initialize members and globals that are valid throughout the entire lifetime
+ * of the background page.
+ *
+ * @private
+ */
+BackgroundPage.prototype.preInit_ = function() {
+  remoting.settings = new remoting.Settings();
+  if (base.isAppsV2()) {
+    remoting.identity = new remoting.Identity();
+  } else {
+    remoting.oauth2 = new remoting.OAuth2();
+    var oauth2 = /** @type {*} */ (remoting.oauth2);
+    remoting.identity = /** @type {remoting.Identity} */ (oauth2);
+  }
+
+  if (base.isAppsV2()) {
+    this.appLauncher_ = new remoting.V2AppLauncher();
+    this.telemetryService_ = remoting.TelemetryEventWriter.Service.create();
+    this.telemetryService_.init();
+    this.activationHandler_ = new remoting.ActivationHandler(
+        base.Ipc.getInstance(), this.appLauncher_, this.telemetryService_);
+    this.disposables_.add(new base.EventHook(
+        this.activationHandler_, remoting.ActivationHandler.Events.windowClosed,
+        this.telemetryService_.unbindSession.bind(this.telemetryService_)));
+  } else {
+    this.appLauncher_ = new remoting.V1AppLauncher();
+  }
+};
+
+
+window.addEventListener('load', function() {
+  remoting.backgroundPage = new BackgroundPage();
+}, false);
 
 }());

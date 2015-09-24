@@ -71,6 +71,8 @@ WMEventType WMEventTypeFromShowState(ui::WindowShowState requested_show_state) {
       return WM_EVENT_FULLSCREEN;
     case ui::SHOW_STATE_INACTIVE:
       return WM_EVENT_SHOW_INACTIVE;
+    case ui::SHOW_STATE_DOCKED:
+      return WM_EVENT_DOCK;
     case ui::SHOW_STATE_END:
       NOTREACHED() << "No WMEvent defined for the show state:"
                    << requested_show_state;
@@ -141,6 +143,11 @@ bool WindowState::IsDocked() const {
          GetStateType() == WINDOW_STATE_TYPE_DOCKED_MINIMIZED;
 }
 
+bool WindowState::IsUserPositionable() const {
+  return (window()->type() == ui::wm::WINDOW_TYPE_NORMAL ||
+          window()->type() == ui::wm::WINDOW_TYPE_PANEL);
+}
+
 bool WindowState::CanMaximize() const {
   // Window must have the kCanMaximizeKey and have no maximum width or height.
   if (!window()->GetProperty(aura::client::kCanMaximizeKey))
@@ -206,6 +213,38 @@ void WindowState::Restore() {
   if (!IsNormalStateType()) {
     const WMEvent event(WM_EVENT_NORMAL);
     OnWMEvent(&event);
+  }
+}
+
+void WindowState::DisableAlwaysOnTop(aura::Window* window_on_top) {
+  DCHECK(window_on_top);
+  if (GetAlwaysOnTop()) {
+    // |window_| is hidden first to avoid canceling fullscreen mode when it is
+    // no longer always on top and gets added to default container. This avoids
+    // sending redundant OnFullscreenStateChanged to the layout manager. The
+    // |window_| visibility is restored after it no longer obscures the
+    // |window_on_top|.
+    bool visible = window_->IsVisible();
+    if (visible)
+      window_->Hide();
+    window_->SetProperty(aura::client::kAlwaysOnTopKey, false);
+    // Technically it is possible that a |window_| could make itself
+    // always_on_top really quickly. This is probably not a realistic case but
+    // check if the two windows are in the same container just in case.
+    if (window_on_top->parent() == window_->parent())
+      window_->parent()->StackChildAbove(window_on_top, window_);
+    if (visible)
+      window_->Show();
+    cached_always_on_top_ = true;
+  }
+}
+
+void WindowState::RestoreAlwaysOnTop() {
+  if (delegate() && delegate()->RestoreAlwaysOnTop(this))
+    return;
+  if (cached_always_on_top_) {
+    cached_always_on_top_ = false;
+    window_->SetProperty(aura::client::kAlwaysOnTopKey, true);
   }
 }
 
@@ -311,9 +350,14 @@ WindowState::WindowState(aura::Window* window)
       hide_shelf_when_fullscreen_(true),
       minimum_visibility_(false),
       can_be_dragged_(true),
+      cached_always_on_top_(false),
       ignore_property_change_(false),
       current_state_(new DefaultState(ToWindowStateType(GetShowState()))) {
   window_->AddObserver(this);
+}
+
+bool WindowState::GetAlwaysOnTop() const {
+  return window_->GetProperty(aura::client::kAlwaysOnTopKey);
 }
 
 ui::WindowShowState WindowState::GetShowState() const {

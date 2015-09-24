@@ -75,7 +75,7 @@ bool ColorTypeToFormat(SkColorType colorType, ImageFormat* out) {
   return true;
 }
 
-bool PickleImage(Pickle* pickle, const gfx::ImageSkia& image) {
+bool PickleImage(base::Pickle* pickle, const gfx::ImageSkia& image) {
   std::vector<gfx::ImageSkiaRep> reps(image.image_reps());
   pickle->WriteInt(static_cast<int>(reps.size()));
   for (std::vector<gfx::ImageSkiaRep>::const_iterator it = reps.begin();
@@ -96,7 +96,7 @@ bool PickleImage(Pickle* pickle, const gfx::ImageSkia& image) {
   return true;
 }
 
-bool UnpickleImage(PickleIterator* it, gfx::ImageSkia* out) {
+bool UnpickleImage(base::PickleIterator* it, gfx::ImageSkia* out) {
   int rep_count = 0;
   if (!it->ReadInt(&rep_count))
     return false;
@@ -147,7 +147,7 @@ bool UnpickleImage(PickleIterator* it, gfx::ImageSkia* out) {
 }  // namespace
 
 scoped_ptr<AppListItem> FastShowPickler::UnpickleAppListItem(
-    PickleIterator* it) {
+    base::PickleIterator* it) {
   std::string id;
   if (!it->ReadString(&id))
     return scoped_ptr<AppListItem>();
@@ -159,24 +159,20 @@ scoped_ptr<AppListItem> FastShowPickler::UnpickleAppListItem(
   if (!it->ReadString(&short_name))
     return scoped_ptr<AppListItem>();
   result->SetNameAndShortName(name, short_name);
-  bool has_shadow = false;
-  if (!it->ReadBool(&has_shadow))
-    return scoped_ptr<AppListItem>();
   gfx::ImageSkia icon;
   if (!UnpickleImage(it, &icon))
     return scoped_ptr<AppListItem>();
-  result->SetIcon(icon, has_shadow);
+  result->SetIcon(icon);
   return result.Pass();
 }
 
-bool FastShowPickler::PickleAppListItem(Pickle* pickle, AppListItem* item) {
+bool FastShowPickler::PickleAppListItem(base::Pickle* pickle,
+                                        AppListItem* item) {
   if (!pickle->WriteString(item->id()))
     return false;
   if (!pickle->WriteString(item->name()))
     return false;
   if (!pickle->WriteString(item->short_name()))
-    return false;
-  if (!pickle->WriteBool(item->has_shadow()))
     return false;
   if (!PickleImage(pickle, item->icon()))
     return false;
@@ -186,25 +182,25 @@ bool FastShowPickler::PickleAppListItem(Pickle* pickle, AppListItem* item) {
 void FastShowPickler::CopyOverItem(AppListItem* src_item,
                                    AppListItem* dest_item) {
   dest_item->SetNameAndShortName(src_item->name(), src_item->short_name());
-  dest_item->SetIcon(src_item->icon(), src_item->has_shadow());
+  dest_item->SetIcon(src_item->icon());
   // Do not set folder_id, pass that to AppListModel::AddItemToFolder() instead.
 }
 
 // The version of the pickle format defined here. This needs to be incremented
 // whenever this format is changed so new clients can invalidate old versions.
-const int FastShowPickler::kVersion = 3;
+const int FastShowPickler::kVersion = 4;
 
-scoped_ptr<Pickle> FastShowPickler::PickleAppListModelForFastShow(
+scoped_ptr<base::Pickle> FastShowPickler::PickleAppListModelForFastShow(
     AppListModel* model) {
-  scoped_ptr<Pickle> result(new Pickle);
+  scoped_ptr<base::Pickle> result(new base::Pickle);
   if (!result->WriteInt(kVersion))
-    return scoped_ptr<Pickle>();
+    return scoped_ptr<base::Pickle>();
   if (!result->WriteInt((int)model->top_level_item_list()->item_count()))
-    return scoped_ptr<Pickle>();
+    return scoped_ptr<base::Pickle>();
   for (size_t i = 0; i < model->top_level_item_list()->item_count(); ++i) {
     if (!PickleAppListItem(result.get(),
                            model->top_level_item_list()->item_at(i))) {
-      return scoped_ptr<Pickle>();
+      return scoped_ptr<base::Pickle>();
     }
   }
   return result.Pass();
@@ -220,9 +216,9 @@ void FastShowPickler::CopyOver(AppListModel* src, AppListModel* dest) {
   }
 }
 
-scoped_ptr<AppListModel>
-FastShowPickler::UnpickleAppListModelForFastShow(Pickle* pickle) {
-  PickleIterator it(*pickle);
+scoped_ptr<AppListModel> FastShowPickler::UnpickleAppListModelForFastShow(
+    base::Pickle* pickle) {
+  base::PickleIterator it(*pickle);
   int read_version = 0;
   if (!it.ReadInt(&read_version))
     return scoped_ptr<AppListModel>();

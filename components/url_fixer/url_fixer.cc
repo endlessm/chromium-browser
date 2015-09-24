@@ -18,8 +18,8 @@
 #include "net/base/filename_util.h"
 #include "net/base/net_util.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
+#include "url/third_party/mozilla/url_parse.h"
 #include "url/url_file.h"
-#include "url/url_parse.h"
 #include "url/url_util.h"
 
 const char* url_fixer::home_directory_override = NULL;
@@ -343,7 +343,7 @@ bool HasPort(const std::string& original_text,
 
   // Scan the range to see if it is entirely digits.
   for (size_t i = port_start; i < port_end; ++i) {
-    if (!IsAsciiDigit(original_text[i]))
+    if (!base::IsAsciiDigit(original_text[i]))
       return false;
   }
 
@@ -436,8 +436,8 @@ std::string SegmentURLInternal(std::string* text, url::Parsed* parts) {
     if (!found_scheme) {
       // Couldn't determine the scheme, so just pick one.
       parts->scheme.reset();
-      scheme = StartsWithASCII(*text, "ftp.", false) ? url::kFtpScheme
-                                                     : url::kHttpScheme;
+      scheme = base::StartsWithASCII(*text, "ftp.", false) ? url::kFtpScheme
+                                                           : url::kHttpScheme;
     }
   }
 
@@ -467,7 +467,8 @@ std::string SegmentURLInternal(std::string* text, url::Parsed* parts) {
   // We need to add a scheme in order for ParseStandardURL to be happy.
   // Find the first non-whitespace character.
   std::string::iterator first_nonwhite = text->begin();
-  while ((first_nonwhite != text->end()) && IsWhitespace(*first_nonwhite))
+  while ((first_nonwhite != text->end()) &&
+         base::IsUnicodeWhitespace(*first_nonwhite))
     ++first_nonwhite;
 
   // Construct the text to parse by inserting the scheme.
@@ -527,7 +528,7 @@ GURL url_fixer::FixupURL(const std::string& text,
   if (scheme == kViewSourceScheme) {
     // Reject "view-source:view-source:..." to avoid deep recursion.
     std::string view_source(kViewSourceScheme + std::string(":"));
-    if (!StartsWithASCII(text, view_source + view_source, false)) {
+    if (!base::StartsWithASCII(text, view_source + view_source, false)) {
       return GURL(kViewSourceScheme + std::string(":") +
                   FixupURL(trimmed.substr(scheme.length() + 1), desired_tld)
                       .possibly_invalid_spec());
@@ -547,7 +548,7 @@ GURL url_fixer::FixupURL(const std::string& text,
 
   // Parse and rebuild about: and chrome: URLs, except about:blank.
   bool chrome_url =
-      !LowerCaseEqualsASCII(trimmed, url::kAboutBlankURL) &&
+      !base::LowerCaseEqualsASCII(trimmed, url::kAboutBlankURL) &&
       ((scheme == url::kAboutScheme) || (scheme == kChromeUIScheme));
 
   // For some schemes whose layouts we understand, we rebuild it.

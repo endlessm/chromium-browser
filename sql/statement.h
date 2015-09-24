@@ -5,10 +5,11 @@
 #ifndef SQL_STATEMENT_H_
 #define SQL_STATEMENT_H_
 
+#include <stdint.h>
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string16.h"
 #include "sql/connection.h"
@@ -104,7 +105,7 @@ class SQL_EXPORT Statement {
   bool BindNull(int col);
   bool BindBool(int col, bool val);
   bool BindInt(int col, int val);
-  bool BindInt64(int col, int64 val);
+  bool BindInt64(int col, int64_t val);
   bool BindDouble(int col, double val);
   bool BindCString(int col, const char* val);
   bool BindString(int col, const std::string& val);
@@ -128,7 +129,7 @@ class SQL_EXPORT Statement {
   // These all take a 0-based argument index.
   bool ColumnBool(int col) const;
   int ColumnInt(int col) const;
-  int64 ColumnInt64(int col) const;
+  int64_t ColumnInt64(int col) const;
   double ColumnDouble(int col) const;
   std::string ColumnString(int col) const;
   base::string16 ColumnString16(int col) const;
@@ -149,6 +150,8 @@ class SQL_EXPORT Statement {
   const char* GetSQLStatement();
 
  private:
+  friend class Connection;
+
   // This is intended to check for serious errors and report them to the
   // connection object. It takes a sqlite error code, and returns the same
   // code. Currently this function just updates the succeeded flag, but will be
@@ -172,6 +175,16 @@ class SQL_EXPORT Statement {
   // release and test. In test, we're ensuring correct SQL. In release, we're
   // ensuring that contracts are honored in error edge cases.
   bool CheckValid() const;
+
+  // Helper for Run() and Step(), calls sqlite3_step() and then generates
+  // sql::Connection histograms based on the results.  Timing and change count
+  // are only recorded if |timer_flag| is true.  The checked value from
+  // sqlite3_step() is returned.
+  int StepInternal(bool timer_flag);
+
+  // sql::Connection uses cached statments for transactions, but tracks their
+  // runtime independently.
+  bool RunWithoutTimers();
 
   // The actual sqlite statement. This may be unique to us, or it may be cached
   // by the connection, which is why it's refcounted. This pointer is

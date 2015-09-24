@@ -31,11 +31,11 @@ class DeviceEventRouterImpl : public DeviceEventRouter {
   DeviceEventRouterImpl()
       : DeviceEventRouter(base::TimeDelta::FromSeconds(0)),
         external_storage_disabled(false) {}
-  virtual ~DeviceEventRouterImpl() {}
+  ~DeviceEventRouterImpl() override {}
 
   // DeviceEventRouter overrides.
-  virtual void OnDeviceEvent(file_manager_private::DeviceEventType type,
-                             const std::string& device_path) override {
+  void OnDeviceEvent(file_manager_private::DeviceEventType type,
+                     const std::string& device_path) override {
     DeviceEvent event;
     event.type = type;
     event.device_path = device_path;
@@ -43,7 +43,7 @@ class DeviceEventRouterImpl : public DeviceEventRouter {
   }
 
   // DeviceEventRouter overrides.
-  virtual bool IsExternalStorageDisabled() override {
+  bool IsExternalStorageDisabled() override {
     return external_storage_disabled;
   }
 
@@ -61,7 +61,7 @@ class DeviceEventRouterImpl : public DeviceEventRouter {
 
 class DeviceEventRouterTest : public testing::Test {
  protected:
-  virtual void SetUp() override {
+  void SetUp() override {
     device_event_router.reset(new DeviceEventRouterImpl());
   }
 
@@ -90,16 +90,6 @@ class DeviceEventRouterTest : public testing::Test {
                 false);
   }
 
-  // Creates a volume info instance with |device_path| and |mount_path| for
-  // testing.
-  VolumeInfo CreateTestVolumeInfo(const std::string& device_path,
-                                  const std::string& mount_path) {
-    VolumeInfo volume_info;
-    volume_info.system_path_prefix = base::FilePath(device_path);
-    volume_info.mount_path = base::FilePath(mount_path);
-    return volume_info;
-  }
-
   scoped_ptr<DeviceEventRouterImpl> device_event_router;
 
  private:
@@ -109,13 +99,15 @@ class DeviceEventRouterTest : public testing::Test {
 TEST_F(DeviceEventRouterTest, AddAndRemoveDevice) {
   const Disk disk1 = CreateTestDisk("/device/test", "/mount/path1");
   const Disk disk1_unmounted = CreateTestDisk("/device/test", "");
-  const VolumeInfo volumeInfo =
-      CreateTestVolumeInfo("/device/test", "/mount/path1");
+  scoped_ptr<Volume> volume(Volume::CreateForTesting(
+      base::FilePath(FILE_PATH_LITERAL("/device/test")),
+      base::FilePath(FILE_PATH_LITERAL("/mount/path1"))));
   device_event_router->OnDeviceAdded("/device/test");
   device_event_router->OnDiskAdded(disk1, true);
-  device_event_router->OnVolumeMounted(chromeos::MOUNT_ERROR_NONE, volumeInfo);
+  device_event_router->OnVolumeMounted(chromeos::MOUNT_ERROR_NONE,
+                                       *volume.get());
   device_event_router->OnVolumeUnmounted(chromeos::MOUNT_ERROR_NONE,
-                                         volumeInfo);
+                                         *volume.get());
   device_event_router->OnDiskRemoved(disk1_unmounted);
   device_event_router->OnDeviceRemoved("/device/test");
   ASSERT_EQ(1u, device_event_router->events.size());

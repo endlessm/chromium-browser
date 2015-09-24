@@ -85,7 +85,7 @@ static int ConvertToInterchangeValid(char* start, int len) {
       }
     }
     // Is the current string invalid UTF8 or just non-interchange UTF8?
-    char32 rune;
+    Rune rune;
     int n;
     if (isvalidcharntorune(start, end - start, &rune, &n)) {
       // structurally valid UTF8, but not interchange valid
@@ -362,7 +362,8 @@ UnicodeText::~UnicodeText() {}
 void UnicodeText::push_back(char32 c) {
   if (UniLib::IsValidCodepoint(c)) {
     char buf[UTFmax];
-    int len = runetochar(buf, &c);
+    Rune rune = c;
+    int len = runetochar(buf, &rune);
     if (UniLib::IsInterchangeValid(buf, len)) {
       repr_.append(buf, len);
     } else {
@@ -493,6 +494,7 @@ int UnicodeText::const_iterator::get_utf8(char* utf8_output) const {
 
 
 UnicodeText::const_iterator UnicodeText::MakeIterator(const char* p) const {
+#ifndef NDEBUG
   assert(p != NULL);
   const char* start = utf8_data();
   int len = utf8_length();
@@ -500,6 +502,7 @@ UnicodeText::const_iterator UnicodeText::MakeIterator(const char* p) const {
   assert(p >= start);
   assert(p <= end);
   assert(p == end || !UniLib::IsTrailByte(*p));
+#endif
   return const_iterator(p);
 }
 

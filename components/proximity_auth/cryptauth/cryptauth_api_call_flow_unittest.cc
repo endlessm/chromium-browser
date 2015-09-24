@@ -25,8 +25,7 @@ class ProximityAuthCryptAuthApiCallFlowTest
  protected:
   ProximityAuthCryptAuthApiCallFlowTest()
       : url_request_context_getter_(new net::TestURLRequestContextGetter(
-            new base::TestSimpleTaskRunner())),
-        flow_(GURL(kRequestUrl)) {}
+            new base::TestSimpleTaskRunner())) {}
 
   void SetUp() override {
     // The TestURLFetcherFactory will override the global URLFetcherFactory for
@@ -36,9 +35,8 @@ class ProximityAuthCryptAuthApiCallFlowTest
   }
 
   void StartApiCallFlow() {
-    flow_.Start(url_request_context_getter_.get(),
-                "access_token",
-                kSerializedRequestProto,
+    flow_.Start(GURL(kRequestUrl), url_request_context_getter_.get(),
+                "access_token", kSerializedRequestProto,
                 base::Bind(&ProximityAuthCryptAuthApiCallFlowTest::OnResult,
                            base::Unretained(this)),
                 base::Bind(&ProximityAuthCryptAuthApiCallFlowTest::OnError,
@@ -102,6 +100,8 @@ class ProximityAuthCryptAuthApiCallFlowTest
   scoped_refptr<net::TestURLRequestContextGetter> url_request_context_getter_;
   scoped_ptr<net::TestURLFetcherFactory> url_fetcher_factory_;
   CryptAuthApiCallFlow flow_;
+
+  DISALLOW_COPY_AND_ASSIGN(ProximityAuthCryptAuthApiCallFlowTest);
 };
 
 TEST_F(ProximityAuthCryptAuthApiCallFlowTest, RequestSuccess) {
@@ -128,12 +128,13 @@ TEST_F(ProximityAuthCryptAuthApiCallFlowTest, RequestStatus500) {
   EXPECT_EQ("HTTP status: 500", *error_message_);
 }
 
+// The empty string is a valid protocol buffer message serialization.
 TEST_F(ProximityAuthCryptAuthApiCallFlowTest, ResponseWithNoBody) {
   StartApiCallFlow();
   CompleteCurrentRequest(
       net::URLRequestStatus::SUCCESS, net::HTTP_OK, std::string());
-  EXPECT_FALSE(result_);
-  EXPECT_EQ("No response body", *error_message_);
+  EXPECT_EQ(std::string(), *result_);
+  EXPECT_FALSE(error_message_);
 }
 
 }  // namespace proximity_auth

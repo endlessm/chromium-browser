@@ -22,8 +22,17 @@ ManifestFetcher::~ManifestFetcher() {
     Cancel();
 }
 
-void ManifestFetcher::Start(blink::WebFrame* frame, const Callback& callback) {
+void ManifestFetcher::Start(blink::WebFrame* frame,
+                            bool use_credentials,
+                            const Callback& callback) {
   callback_ = callback;
+
+  blink::WebURLLoaderOptions options;
+  options.allowCredentials = use_credentials;
+  options.crossOriginRequestPolicy =
+      blink::WebURLLoaderOptions::CrossOriginRequestPolicyUseAccessControl;
+  fetcher_->SetLoaderOptions(options);
+
   fetcher_->Start(frame,
                   blink::WebURLRequest::RequestContextManifest,
                   blink::WebURLRequest::FrameTypeNone,

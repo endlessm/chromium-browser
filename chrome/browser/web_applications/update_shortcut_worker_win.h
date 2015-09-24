@@ -26,16 +26,17 @@ namespace web_app {
 class UpdateShortcutWorker : public content::NotificationObserver {
  public:
   explicit UpdateShortcutWorker(content::WebContents* web_contents);
+  ~UpdateShortcutWorker() override;
 
   void Run();
 
  private:
   // Overridden from content::NotificationObserver:
-  virtual void Observe(int type,
-                       const content::NotificationSource& source,
-                       const content::NotificationDetails& details);
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override;
 
-  // Downloads icon via the FaviconTabHelper.
+  // Downloads icon via the FaviconDriver.
   void DownloadIcon();
 
   // Favicon download callback.
@@ -70,7 +71,7 @@ class UpdateShortcutWorker : public content::NotificationObserver {
   web_app::IconInfoList unprocessed_icons_;
 
   // Cached shortcut data from the web_contents_.
-  web_app::ShortcutInfo shortcut_info_;
+  scoped_ptr<web_app::ShortcutInfo> shortcut_info_;
 
   // Our copy of profile path.
   base::FilePath profile_path_;

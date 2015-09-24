@@ -12,12 +12,12 @@
 #include "ui/base/resource/resource_bundle.h"
 
 // static
-void AvatarMenu::GetImageForMenuButton(Profile* profile,
+void AvatarMenu::GetImageForMenuButton(const base::FilePath& profile_path,
                                        gfx::Image* image,
                                        bool* is_rectangle) {
   ProfileInfoCache& cache =
       g_browser_process->profile_manager()->GetProfileInfoCache();
-  size_t index = cache.GetIndexOfProfileWithPath(profile->GetPath());
+  size_t index = cache.GetIndexOfProfileWithPath(profile_path);
   if (index == std::string::npos) {
     NOTREACHED();
     return;

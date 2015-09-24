@@ -5,56 +5,34 @@
  * found in the LICENSE file.
  */
 
-#include "SkFontConfigParser_android.h"
 #include "SkFontDescriptor.h"
 #include "SkFontHost_FreeType_common.h"
 #include "SkFontMgr.h"
+#include "SkFontMgr_android.h"
+#include "SkFontMgr_android_parser.h"
 #include "SkFontStyle.h"
 #include "SkStream.h"
 #include "SkTDArray.h"
 #include "SkTSearch.h"
 #include "SkTypeface.h"
-#include "SkTypeface_android.h"
 #include "SkTypefaceCache.h"
 
 #include <limits>
-#include <stdlib.h>
-
-#ifndef SK_FONT_FILE_PREFIX
-#    define SK_FONT_FILE_PREFIX "/fonts/"
-#endif
-
-#ifndef SK_DEBUG_FONTS
-    #define SK_DEBUG_FONTS 0
-#endif
-
-#if SK_DEBUG_FONTS
-#    define DEBUG_FONT(args) SkDebugf args
-#else
-#    define DEBUG_FONT(args)
-#endif
-
-// For test only.
-static const char* gTestMainConfigFile = NULL;
-static const char* gTestFallbackConfigFile = NULL;
-static const char* gTestFontFilePrefix = NULL;
 
 class SkTypeface_Android : public SkTypeface_FreeType {
 public:
-    SkTypeface_Android(int index,
-                       const SkFontStyle& style,
+    SkTypeface_Android(const SkFontStyle& style,
                        bool isFixedPitch,
                        const SkString& familyName)
         : INHERITED(style, SkTypefaceCache::NewFontID(), isFixedPitch)
-        , fIndex(index)
-        , fFamilyName(familyName) { }
+        , fFamilyName(familyName)
+        { }
 
 protected:
-    virtual void onGetFamilyName(SkString* familyName) const SK_OVERRIDE {
+    void onGetFamilyName(SkString* familyName) const override {
         *familyName = fFamilyName;
     }
 
-    int fIndex;
     SkString fFamilyName;
 
 private:
@@ -65,31 +43,37 @@ class SkTypeface_AndroidSystem : public SkTypeface_Android {
 public:
     SkTypeface_AndroidSystem(const SkString& pathName,
                              int index,
+                             const SkFixed* axes, int axesCount,
                              const SkFontStyle& style,
                              bool isFixedPitch,
                              const SkString& familyName,
                              const SkLanguage& lang,
                              FontVariant variantStyle)
-        : INHERITED(index, style, isFixedPitch, familyName)
+        : INHERITED(style, isFixedPitch, familyName)
         , fPathName(pathName)
+        , fIndex(index)
+        , fAxes(axes, axesCount)
         , fLang(lang)
         , fVariantStyle(variantStyle) { }
 
-    virtual void onGetFontDescriptor(SkFontDescriptor* desc,
-                                     bool* serialize) const SK_OVERRIDE {
+    virtual void onGetFontDescriptor(SkFontDescriptor* desc, bool* serialize) const override {
         SkASSERT(desc);
         SkASSERT(serialize);
         desc->setFamilyName(fFamilyName.c_str());
-        desc->setFontFileName(fPathName.c_str());
-        desc->setFontIndex(fIndex);
         *serialize = false;
     }
-    virtual SkStream* onOpenStream(int* ttcIndex) const SK_OVERRIDE {
+    SkStreamAsset* onOpenStream(int* ttcIndex) const override {
         *ttcIndex = fIndex;
         return SkStream::NewFromFile(fPathName.c_str());
     }
+    SkFontData* onCreateFontData() const override {
+        return new SkFontData(SkStream::NewFromFile(fPathName.c_str()), fIndex,
+                              fAxes.begin(), fAxes.count());
+    }
 
     const SkString fPathName;
+    int fIndex;
+    const SkSTArray<4, SkFixed, true> fAxes;
     const SkLanguage fLang;
     const FontVariant fVariantStyle;
 
@@ -98,49 +82,41 @@ public:
 
 class SkTypeface_AndroidStream : public SkTypeface_Android {
 public:
-    SkTypeface_AndroidStream(SkStream* stream,
-                             int index,
+    SkTypeface_AndroidStream(SkFontData* data,
                              const SkFontStyle& style,
                              bool isFixedPitch,
                              const SkString& familyName)
-        : INHERITED(index, style, isFixedPitch, familyName)
-        , fStream(SkRef(stream)) { }
+        : INHERITED(style, isFixedPitch, familyName)
+        , fData(data)
+    { }
 
     virtual void onGetFontDescriptor(SkFontDescriptor* desc,
-                                     bool* serialize) const SK_OVERRIDE {
+                                     bool* serialize) const override {
         SkASSERT(desc);
         SkASSERT(serialize);
         desc->setFamilyName(fFamilyName.c_str());
-        desc->setFontFileName(NULL);
         *serialize = true;
     }
 
-    virtual SkStream* onOpenStream(int* ttcIndex) const SK_OVERRIDE {
-        *ttcIndex = fIndex;
-        return fStream->duplicate();
+    SkStreamAsset* onOpenStream(int* ttcIndex) const override {
+        *ttcIndex = fData->getIndex();
+        return fData->duplicateStream();
+    }
+
+    SkFontData* onCreateFontData() const override {
+        return new SkFontData(*fData.get());
     }
 
 private:
-    SkAutoTUnref<SkStream> fStream;
-
+    const SkAutoTDelete<const SkFontData> fData;
     typedef SkTypeface_Android INHERITED;
 };
 
-void get_path_for_sys_fonts(const char* basePath, const SkString& name, SkString* full) {
-    if (basePath) {
-        full->set(basePath);
-    } else {
-        full->set(getenv("ANDROID_ROOT"));
-        full->append(SK_FONT_FILE_PREFIX);
-    }
-    full->append(name);
-}
-
 class SkFontStyleSet_Android : public SkFontStyleSet {
+    typedef SkTypeface_FreeType::Scanner Scanner;
+
 public:
-    explicit SkFontStyleSet_Android(const FontFamily& family, const char* basePath,
-                                    const SkTypeface_FreeType::Scanner& scanner)
-    {
+    explicit SkFontStyleSet_Android(const FontFamily& family, const Scanner& scanner) {
         const SkString* cannonicalFamilyName = NULL;
         if (family.fNames.count() > 0) {
             cannonicalFamilyName = &family.fNames[0];
@@ -149,12 +125,13 @@ public:
         for (int i = 0; i < family.fFonts.count(); ++i) {
             const FontFileInfo& fontFile = family.fFonts[i];
 
-            SkString pathName;
-            get_path_for_sys_fonts(basePath, fontFile.fFileName, &pathName);
+            SkString pathName(family.fBasePath);
+            pathName.append(fontFile.fFileName);
 
-            SkAutoTUnref<SkStream> stream(SkStream::NewFromFile(pathName.c_str()));
+            SkAutoTDelete<SkStream> stream(SkStream::NewFromFile(pathName.c_str()));
             if (!stream.get()) {
-                DEBUG_FONT(("---- SystemFonts[%d] file=%s (NOT EXIST)", i, pathName.c_str()));
+                SkDEBUGF(("Requested font file %s does not exist or cannot be opened.\n",
+                          pathName.c_str()));
                 continue;
             }
 
@@ -162,14 +139,24 @@ public:
             SkString familyName;
             SkFontStyle style;
             bool isFixedWidth;
-            if (!scanner.scanFont(stream.get(), ttcIndex, &familyName, &style, &isFixedWidth)) {
-                DEBUG_FONT(("---- SystemFonts[%d] file=%s (INVALID)", i, pathName.c_str()));
+            Scanner::AxisDefinitions axisDefinitions;
+            if (!scanner.scanFont(stream.get(), ttcIndex,
+                                  &familyName, &style, &isFixedWidth, &axisDefinitions))
+            {
+                SkDEBUGF(("Requested font file %s exists, but is not a valid font.\n",
+                          pathName.c_str()));
                 continue;
             }
 
-            if (fontFile.fWeight != 0) {
-                style = SkFontStyle(fontFile.fWeight, style.width(), style.slant());
+            int weight = fontFile.fWeight != 0 ? fontFile.fWeight : style.weight();
+            SkFontStyle::Slant slant = style.slant();
+            switch (fontFile.fStyle) {
+                case FontFileInfo::Style::kAuto: slant = style.slant(); break;
+                case FontFileInfo::Style::kNormal: slant = SkFontStyle::kUpright_Slant; break;
+                case FontFileInfo::Style::kItalic: slant = SkFontStyle::kItalic_Slant; break;
+                default: SkASSERT(false); break;
             }
+            style = SkFontStyle(weight, style.width(), slant);
 
             const SkLanguage& lang = family.fLanguage;
             uint32_t variant = family.fVariant;
@@ -184,17 +171,66 @@ public:
                 familyName = *cannonicalFamilyName;
             }
 
+            SkAutoSTMalloc<4, SkFixed> axisValues(axisDefinitions.count());
+            for (int i = 0; i < axisDefinitions.count(); ++i) {
+                const Scanner::AxisDefinition& axisDefinition = axisDefinitions[i];
+                axisValues[i] = axisDefinition.fDefault;
+                for (int j = 0; j < fontFile.fAxes.count(); ++j) {
+                    const FontFileInfo::Axis& axisSpecified = fontFile.fAxes[j];
+                    if (axisDefinition.fTag == axisSpecified.fTag) {
+                        axisValues[i] = SkTPin(axisSpecified.fValue, axisDefinition.fMinimum,
+                                                                     axisDefinition.fMaximum);
+                        if (axisValues[i] != axisSpecified.fValue) {
+                            SkDEBUGF(("Requested font axis value out of range: "
+                                      "%s '%c%c%c%c' %f; pinned to %f.\n",
+                                      familyName.c_str(),
+                                      (axisDefinition.fTag >> 24) & 0xFF,
+                                      (axisDefinition.fTag >> 16) & 0xFF,
+                                      (axisDefinition.fTag >>  8) & 0xFF,
+                                      (axisDefinition.fTag      ) & 0xFF,
+                                      SkFixedToDouble(axisSpecified.fValue),
+                                      SkFixedToDouble(axisValues[i])));
+                        }
+                        break;
+                    }
+                }
+                // TODO: warn on defaulted axis?
+            }
+
+            SkDEBUGCODE (
+                // Check for axis specified, but not matched in font.
+                for (int i = 0; i < fontFile.fAxes.count(); ++i) {
+                    SkFourByteTag skTag = fontFile.fAxes[i].fTag;
+                    bool found = false;
+                    for (int j = 0; j < axisDefinitions.count(); ++j) {
+                        if (skTag == axisDefinitions[j].fTag) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        SkDEBUGF(("Requested font axis not found: %s '%c%c%c%c'\n",
+                                  familyName.c_str(),
+                                  (skTag >> 24) & 0xFF,
+                                  (skTag >> 16) & 0xFF,
+                                  (skTag >>  8) & 0xFF,
+                                  (skTag      ) & 0xFF));
+                    }
+                }
+            )
+
             fStyles.push_back().reset(SkNEW_ARGS(SkTypeface_AndroidSystem,
                                                  (pathName, ttcIndex,
+                                                  axisValues.get(), axisDefinitions.count(),
                                                   style, isFixedWidth, familyName,
                                                   lang, variant)));
         }
     }
 
-    virtual int count() SK_OVERRIDE {
+    int count() override {
         return fStyles.count();
     }
-    virtual void getStyle(int index, SkFontStyle* style, SkString* name) SK_OVERRIDE {
+    void getStyle(int index, SkFontStyle* style, SkString* name) override {
         if (index < 0 || fStyles.count() <= index) {
             return;
         }
@@ -205,7 +241,7 @@ public:
             name->reset();
         }
     }
-    virtual SkTypeface_AndroidSystem* createTypeface(int index) SK_OVERRIDE {
+    SkTypeface_AndroidSystem* createTypeface(int index) override {
         if (index < 0 || fStyles.count() <= index) {
             return NULL;
         }
@@ -216,7 +252,7 @@ public:
      *  TODO: consider replacing with SkStyleSet_Indirect::matchStyle();
      *  this simpler version using match_score() passes all our tests.
      */
-    virtual SkTypeface_AndroidSystem* matchStyle(const SkFontStyle& pattern) SK_OVERRIDE {
+    SkTypeface_AndroidSystem* matchStyle(const SkFontStyle& pattern) override {
         if (0 == fStyles.count()) {
             return NULL;
         }
@@ -265,30 +301,37 @@ struct NameToFamily {
 
 class SkFontMgr_Android : public SkFontMgr {
 public:
-    SkFontMgr_Android() {
-        SkTDArray<FontFamily*> fontFamilies;
-        SkFontConfigParser::GetFontFamilies(fontFamilies);
-        this->buildNameToFamilyMap(fontFamilies, NULL);
+    SkFontMgr_Android(const SkFontMgr_Android_CustomFonts* custom) {
+        SkTDArray<FontFamily*> families;
+        if (custom && SkFontMgr_Android_CustomFonts::kPreferSystem != custom->fSystemFontUse) {
+            SkString base(custom->fBasePath);
+            SkFontMgr_Android_Parser::GetCustomFontFamilies(
+                families, base, custom->fFontsXml, custom->fFallbackFontsXml);
+        }
+        if (!custom ||
+            (custom && SkFontMgr_Android_CustomFonts::kOnlyCustom != custom->fSystemFontUse))
+        {
+            SkFontMgr_Android_Parser::GetSystemFontFamilies(families);
+        }
+        if (custom && SkFontMgr_Android_CustomFonts::kPreferSystem == custom->fSystemFontUse) {
+            SkString base(custom->fBasePath);
+            SkFontMgr_Android_Parser::GetCustomFontFamilies(
+                families, base, custom->fFontsXml, custom->fFallbackFontsXml);
+        }
+        this->buildNameToFamilyMap(families);
         this->findDefaultFont();
-    }
-    SkFontMgr_Android(const char* mainConfigFile, const char* fallbackConfigFile,
-                      const char* basePath)
-    {
-        SkTDArray<FontFamily*> fontFamilies;
-        SkFontConfigParser::GetTestFontFamilies(fontFamilies, mainConfigFile, fallbackConfigFile);
-        this->buildNameToFamilyMap(fontFamilies, basePath);
-        this->findDefaultFont();
+        families.deleteAll();
     }
 
 protected:
     /** Returns not how many families we have, but how many unique names
      *  exist among the families.
      */
-    virtual int onCountFamilies() const SK_OVERRIDE {
+    int onCountFamilies() const override {
         return fNameToFamilyMap.count();
     }
 
-    virtual void onGetFamilyName(int index, SkString* familyName) const SK_OVERRIDE {
+    void onGetFamilyName(int index, SkString* familyName) const override {
         if (index < 0 || fNameToFamilyMap.count() <= index) {
             familyName->reset();
             return;
@@ -296,14 +339,14 @@ protected:
         familyName->set(fNameToFamilyMap[index].name);
     }
 
-    virtual SkFontStyleSet* onCreateStyleSet(int index) const SK_OVERRIDE {
+    SkFontStyleSet* onCreateStyleSet(int index) const override {
         if (index < 0 || fNameToFamilyMap.count() <= index) {
             return NULL;
         }
         return SkRef(fNameToFamilyMap[index].styleSet);
     }
 
-    virtual SkFontStyleSet* onMatchFamily(const char familyName[]) const SK_OVERRIDE {
+    SkFontStyleSet* onMatchFamily(const char familyName[]) const override {
         if (!familyName) {
             return NULL;
         }
@@ -323,13 +366,13 @@ protected:
     }
 
     virtual SkTypeface* onMatchFamilyStyle(const char familyName[],
-                                           const SkFontStyle& style) const SK_OVERRIDE {
+                                           const SkFontStyle& style) const override {
         SkAutoTUnref<SkFontStyleSet> sset(this->matchFamily(familyName));
         return sset->matchStyle(style);
     }
 
     virtual SkTypeface* onMatchFaceStyle(const SkTypeface* typeface,
-                                         const SkFontStyle& style) const SK_OVERRIDE {
+                                         const SkFontStyle& style) const override {
         for (int i = 0; i < fFontStyleSets.count(); ++i) {
             for (int j = 0; j < fFontStyleSets[i]->fStyles.count(); ++j) {
                 if (fFontStyleSets[i]->fStyles[j] == typeface) {
@@ -340,51 +383,42 @@ protected:
         return NULL;
     }
 
-static SkTypeface_AndroidSystem* find_family_style_character(
-        const SkTDArray<NameToFamily>& fallbackNameToFamilyMap,
-        const SkFontStyle& style, bool elegant,
-        const SkString& langTag, SkUnichar character)
-{
-    for (int i = 0; i < fallbackNameToFamilyMap.count(); ++i) {
-        SkFontStyleSet_Android* family = fallbackNameToFamilyMap[i].styleSet;
-        SkAutoTUnref<SkTypeface_AndroidSystem> face(family->matchStyle(style));
+    static SkTypeface_AndroidSystem* find_family_style_character(
+            const SkTDArray<NameToFamily>& fallbackNameToFamilyMap,
+            const SkFontStyle& style, bool elegant,
+            const SkString& langTag, SkUnichar character)
+    {
+        for (int i = 0; i < fallbackNameToFamilyMap.count(); ++i) {
+            SkFontStyleSet_Android* family = fallbackNameToFamilyMap[i].styleSet;
+            SkAutoTUnref<SkTypeface_AndroidSystem> face(family->matchStyle(style));
 
-        if (!langTag.isEmpty() && !face->fLang.getTag().startsWith(langTag.c_str())) {
-            continue;
+            if (!langTag.isEmpty() && !face->fLang.getTag().startsWith(langTag.c_str())) {
+                continue;
+            }
+
+            if (SkToBool(face->fVariantStyle & kElegant_FontVariant) != elegant) {
+                continue;
+            }
+
+            SkPaint paint;
+            paint.setTypeface(face);
+            paint.setTextEncoding(SkPaint::kUTF32_TextEncoding);
+
+            uint16_t glyphID;
+            paint.textToGlyphs(&character, sizeof(character), &glyphID);
+            if (glyphID != 0) {
+                return face.detach();
+            }
         }
-
-        if (SkToBool(face->fVariantStyle & kElegant_FontVariant) != elegant) {
-            continue;
-        }
-
-        SkPaint paint;
-        paint.setTypeface(face);
-        paint.setTextEncoding(SkPaint::kUTF32_TextEncoding);
-
-        uint16_t glyphID;
-        paint.textToGlyphs(&character, sizeof(character), &glyphID);
-        if (glyphID != 0) {
-            return face.detach();
-        }
+        return NULL;
     }
-    return NULL;
-}
-#ifdef SK_FM_NEW_MATCH_FAMILY_STYLE_CHARACTER
+
     virtual SkTypeface* onMatchFamilyStyleCharacter(const char familyName[],
                                                     const SkFontStyle& style,
                                                     const char* bcp47[],
                                                     int bcp47Count,
-                                                    SkUnichar character) const SK_OVERRIDE
+                                                    SkUnichar character) const override
     {
-#else
-    virtual SkTypeface* onMatchFamilyStyleCharacter(const char familyName[],
-                                                    const SkFontStyle& style,
-                                                    const char bcp47_val[],
-                                                    SkUnichar character) const SK_OVERRIDE
-    {
-        const char** bcp47 = &bcp47_val;
-        int bcp47Count = bcp47_val ? 1 : 0;
-#endif
         // The variant 'elegant' is 'not squashed', 'compact' is 'stays in ascent/descent'.
         // The variant 'default' means 'compact and elegant'.
         // As a result, it is not possible to know the variant context from the font alone.
@@ -417,30 +451,41 @@ static SkTypeface_AndroidSystem* find_family_style_character(
         return NULL;
     }
 
-    virtual SkTypeface* onCreateFromData(SkData* data, int ttcIndex) const SK_OVERRIDE {
-        SkAutoTUnref<SkStream> stream(new SkMemoryStream(data));
-        return this->createFromStream(stream, ttcIndex);
+    SkTypeface* onCreateFromData(SkData* data, int ttcIndex) const override {
+        return this->createFromStream(new SkMemoryStream(data), ttcIndex);
     }
 
-    virtual SkTypeface* onCreateFromFile(const char path[], int ttcIndex) const SK_OVERRIDE {
-        SkAutoTUnref<SkStream> stream(SkStream::NewFromFile(path));
-        return stream.get() ? this->createFromStream(stream, ttcIndex) : NULL;
+    SkTypeface* onCreateFromFile(const char path[], int ttcIndex) const override {
+        SkAutoTDelete<SkStreamAsset> stream(SkStream::NewFromFile(path));
+        return stream.get() ? this->createFromStream(stream.detach(), ttcIndex) : NULL;
     }
 
-    virtual SkTypeface* onCreateFromStream(SkStream* stream, int ttcIndex) const SK_OVERRIDE {
+    SkTypeface* onCreateFromStream(SkStreamAsset* bareStream, int ttcIndex) const override {
+        SkAutoTDelete<SkStreamAsset> stream(bareStream);
         bool isFixedPitch;
         SkFontStyle style;
         SkString name;
-        if (!fScanner.scanFont(stream, ttcIndex, &name, &style, &isFixedPitch)) {
+        if (!fScanner.scanFont(stream, ttcIndex, &name, &style, &isFixedPitch, NULL)) {
             return NULL;
         }
-        return SkNEW_ARGS(SkTypeface_AndroidStream, (stream, ttcIndex,
-                                                     style, isFixedPitch, name));
+        SkFontData* data(new SkFontData(stream.detach(), ttcIndex, NULL, 0));
+        return SkNEW_ARGS(SkTypeface_AndroidStream, (data, style, isFixedPitch, name));
+    }
+
+    SkTypeface* onCreateFromFontData(SkFontData* data) const override {
+        SkStreamAsset* stream(data->getStream());
+        bool isFixedPitch;
+        SkFontStyle style;
+        SkString name;
+        if (!fScanner.scanFont(stream, data->getIndex(), &name, &style, &isFixedPitch, NULL)) {
+            return NULL;
+        }
+        return SkNEW_ARGS(SkTypeface_AndroidStream, (data, style, isFixedPitch, name));
     }
 
 
     virtual SkTypeface* onLegacyCreateTypeface(const char familyName[],
-                                               unsigned styleBits) const SK_OVERRIDE {
+                                               unsigned styleBits) const override {
         SkFontStyle style = SkFontStyle(styleBits);
 
         if (familyName) {
@@ -465,7 +510,7 @@ private:
     SkTDArray<NameToFamily> fNameToFamilyMap;
     SkTDArray<NameToFamily> fFallbackNameToFamilyMap;
 
-    void buildNameToFamilyMap(SkTDArray<FontFamily*> families, const char* basePath) {
+    void buildNameToFamilyMap(SkTDArray<FontFamily*> families) {
         for (int i = 0; i < families.count(); i++) {
             FontFamily& family = *families[i];
 
@@ -480,7 +525,7 @@ private:
             }
 
             SkFontStyleSet_Android* newSet =
-                SkNEW_ARGS(SkFontStyleSet_Android, (family, basePath, fScanner));
+                SkNEW_ARGS(SkFontStyleSet_Android, (family, fScanner));
             if (0 == newSet->count()) {
                 SkDELETE(newSet);
                 continue;
@@ -523,38 +568,21 @@ private:
     typedef SkFontMgr INHERITED;
 };
 
-///////////////////////////////////////////////////////////////////////////////
-
-SkFontMgr* SkFontMgr::Factory() {
-    // The call to SkGetTestFontConfiguration is so that Chromium can override the environment.
-    // TODO: these globals need to be removed, in favor of a constructor / separate Factory
-    // which can be used instead.
-    const char* mainConfigFile;
-    const char* fallbackConfigFile;
-    const char* basePath;
-    SkGetTestFontConfiguration(&mainConfigFile, &fallbackConfigFile, &basePath);
-    if (mainConfigFile) {
-        return SkNEW_ARGS(SkFontMgr_Android, (mainConfigFile, fallbackConfigFile, basePath));
+#ifdef SK_DEBUG
+static char const * const gSystemFontUseStrings[] = {
+    "OnlyCustom", "PreferCustom", "PreferSystem"
+};
+#endif
+SkFontMgr* SkFontMgr_New_Android(const SkFontMgr_Android_CustomFonts* custom) {
+    if (custom) {
+        SkASSERT(0 <= custom->fSystemFontUse);
+        SkASSERT(custom->fSystemFontUse < SK_ARRAY_COUNT(gSystemFontUseStrings));
+        SkDEBUGF(("SystemFontUse: %s BasePath: %s Fonts: %s FallbackFonts: %s\n",
+                  gSystemFontUseStrings[custom->fSystemFontUse],
+                  custom->fBasePath,
+                  custom->fFontsXml,
+                  custom->fFallbackFontsXml));
     }
 
-    return SkNEW(SkFontMgr_Android);
-}
-
-void SkUseTestFontConfigFile(const char* mainconf, const char* fallbackconf,
-                             const char* fontsdir) {
-    gTestMainConfigFile = mainconf;
-    gTestFallbackConfigFile = fallbackconf;
-    gTestFontFilePrefix = fontsdir;
-    SkASSERT(gTestMainConfigFile);
-    SkASSERT(gTestFallbackConfigFile);
-    SkASSERT(gTestFontFilePrefix);
-    SkDEBUGF(("Use Test Config File Main %s, Fallback %s, Font Dir %s",
-              gTestMainConfigFile, gTestFallbackConfigFile, gTestFontFilePrefix));
-}
-
-void SkGetTestFontConfiguration(const char** mainconf, const char** fallbackconf,
-                                const char** fontsdir) {
-    *mainconf = gTestMainConfigFile;
-    *fallbackconf = gTestFallbackConfigFile;
-    *fontsdir = gTestFontFilePrefix;
+    return SkNEW_ARGS(SkFontMgr_Android, (custom));
 }

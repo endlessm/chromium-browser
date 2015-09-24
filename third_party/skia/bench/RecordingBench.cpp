@@ -33,9 +33,11 @@ void RecordingBench::onDraw(const int loops, SkCanvas*) {
     const SkScalar w = fSrc->cullRect().width(),
                    h = fSrc->cullRect().height();
 
+    uint32_t flags = SkPictureRecorder::kComputeSaveLayerInfo_RecordFlag
+                   | SkPictureRecorder::kPlaybackDrawPicture_RecordFlag;
     for (int i = 0; i < loops; i++) {
         SkPictureRecorder recorder;
-        fSrc->playback(recorder.beginRecording(w, h, fUseBBH ? &factory : NULL));
-        SkDELETE(recorder.endRecording());
+        fSrc->playback(recorder.beginRecording(w, h, fUseBBH ? &factory : NULL, flags));
+        SkSafeUnref(recorder.endRecording());
     }
 }

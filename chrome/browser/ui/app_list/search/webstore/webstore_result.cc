@@ -35,8 +35,6 @@
 
 namespace {
 
-const int kLaunchEphemeralAppAction = 1;
-
 // BadgedImageSource adds a webstore badge to a webstore app icon.
 class BadgedIconSource : public gfx::CanvasImageSource {
  public:
@@ -63,14 +61,12 @@ namespace app_list {
 
 WebstoreResult::WebstoreResult(Profile* profile,
                                const std::string& app_id,
-                               const std::string& localized_name,
                                const GURL& icon_url,
                                bool is_paid,
                                extensions::Manifest::Type item_type,
                                AppListControllerDelegate* controller)
     : profile_(profile),
       app_id_(app_id),
-      localized_name_(localized_name),
       icon_url_(icon_url),
       is_paid_(is_paid),
       item_type_(item_type),
@@ -79,9 +75,7 @@ WebstoreResult::WebstoreResult(Profile* profile,
       extension_registry_(NULL),
       weak_factory_(this) {
   set_id(extensions::Extension::GetBaseURLFromExtensionId(app_id_).spec());
-  set_relevance(0.0);  // What is the right value to use?
 
-  set_title(base::UTF8ToUTF16(localized_name_));
   SetDefaultDetails();
 
   InitAndStartObserving();
@@ -125,17 +119,16 @@ void WebstoreResult::InvokeAction(int action_index, int event_flags) {
     return;
   }
 
-  StartInstall(action_index == kLaunchEphemeralAppAction);
+  StartInstall();
 }
 
-scoped_ptr<SearchResult> WebstoreResult::Duplicate() {
-  return scoped_ptr<SearchResult>(new WebstoreResult(profile_,
-                                                     app_id_,
-                                                     localized_name_,
-                                                     icon_url_,
-                                                     is_paid_,
-                                                     item_type_,
-                                                     controller_));
+scoped_ptr<SearchResult> WebstoreResult::Duplicate() const {
+  scoped_ptr<SearchResult> copy(new WebstoreResult(
+      profile_, app_id_, icon_url_, is_paid_, item_type_, controller_));
+  copy->set_title(title());
+  copy->set_title_tags(title_tags());
+  copy->set_relevance(relevance());
+  return copy;
 }
 
 void WebstoreResult::InitAndStartObserving() {
@@ -164,23 +157,9 @@ void WebstoreResult::UpdateActions() {
       extensions::util::IsExtensionInstalledPermanently(app_id_, profile_);
 
   if (!is_otr && !is_installed && !is_installing()) {
-    if (EphemeralAppLauncher::IsFeatureEnabled()) {
-      actions.push_back(Action(
-          l10n_util::GetStringUTF16(IDS_WEBSTORE_RESULT_INSTALL),
-          l10n_util::GetStringUTF16(
-              IDS_EXTENSION_INLINE_INSTALL_PROMPT_TITLE)));
-      if ((item_type_ == extensions::Manifest::TYPE_PLATFORM_APP ||
-           item_type_ == extensions::Manifest::TYPE_HOSTED_APP) &&
-          !is_paid_) {
-        actions.push_back(Action(
-            l10n_util::GetStringUTF16(IDS_WEBSTORE_RESULT_LAUNCH),
-            l10n_util::GetStringUTF16(IDS_WEBSTORE_RESULT_LAUNCH_APP_TOOLTIP)));
-      }
-    } else {
-      actions.push_back(Action(
-          l10n_util::GetStringUTF16(IDS_EXTENSION_INLINE_INSTALL_PROMPT_TITLE),
-          base::string16()));
-    }
+    actions.push_back(Action(
+        l10n_util::GetStringUTF16(IDS_EXTENSION_INLINE_INSTALL_PROMPT_TITLE),
+        base::string16()));
   }
 
   SetActions(actions);
@@ -209,21 +188,9 @@ void WebstoreResult::OnIconLoaded() {
   SetIcon(icon_);
 }
 
-void WebstoreResult::StartInstall(bool launch_ephemeral_app) {
+void WebstoreResult::StartInstall() {
   SetPercentDownloaded(0);
   SetIsInstalling(true);
-
-  if (launch_ephemeral_app) {
-    scoped_refptr<EphemeralAppLauncher> installer =
-        EphemeralAppLauncher::CreateForLauncher(
-            app_id_,
-            profile_,
-            controller_->GetAppListWindow(),
-            base::Bind(&WebstoreResult::LaunchCallback,
-                       weak_factory_.GetWeakPtr()));
-    installer->Start();
-    return;
-  }
 
   scoped_refptr<WebstoreInstaller> installer =
       new WebstoreInstaller(

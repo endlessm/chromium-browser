@@ -7,6 +7,7 @@
 
 #include "base/callback.h"
 #include "base/memory/ref_counted.h"
+#include "content/public/common/page_type.h"
 #include "ui/gfx/native_widget_types.h"
 #include "url/gurl.h"
 
@@ -26,9 +27,7 @@ class Rect;
 namespace content {
 
 class MessageLoopRunner;
-class RenderViewCreatedObserver;
 class Shell;
-class WebContents;
 
 // Generate the file path for testing a particular test.
 // The file for the tests is all located in
@@ -42,21 +41,30 @@ base::FilePath GetTestFilePath(const char* dir, const char* file);
 // The returned path is GURL format.
 GURL GetTestUrl(const char* dir, const char* file);
 
-// Navigates the selected tab of |window| to |url|, blocking until the
-// navigation finishes.
-void NavigateToURL(Shell* window, const GURL& url);
+// Navigates |window| to |url|, blocking until the navigation finishes.
+// Returns true if the page was loaded successfully and the last committed
+// URL matches |url|.
+// TODO(alexmos): any tests that use this function and expect successful
+// navigations should do EXPECT_TRUE(NavigateToURL()).
+bool NavigateToURL(Shell* window, const GURL& url);
+
 void LoadDataWithBaseURL(Shell* window,
                          const GURL& url,
                          const std::string data,
                          const GURL& base_url);
 
-// Navigates the selected tab of |window| to |url|, blocking until the given
-// number of navigations finishes.
+// Navigates |window| to |url|, blocking until the given number of navigations
+// finishes.
 void NavigateToURLBlockUntilNavigationsComplete(Shell* window,
                                                 const GURL& url,
                                                 int number_of_navigations);
-// Reloads the selected tab of |window|, blocking until the given number of
-// navigations finishes.
+
+// Navigates |window| to |url|, blocks until the navigation finishes, and
+// checks that the navigation did not commit (e.g., due to a crash or
+// download).
+bool NavigateToURLAndExpectNoCommit(Shell* window, const GURL& url);
+
+// Reloads |window|, blocking until the given number of navigations finishes.
 void ReloadBlockUntilNavigationsComplete(Shell* window,
                                          int number_of_navigations);
 
@@ -81,33 +89,6 @@ class ShellAddedObserver {
   scoped_refptr<MessageLoopRunner> runner_;
 
   DISALLOW_COPY_AND_ASSIGN(ShellAddedObserver);
-};
-
-// Used to wait for a new WebContents to be created. Instantiate this object
-// before the operation that will create the window.
-class WebContentsAddedObserver {
- public:
-  WebContentsAddedObserver();
-  ~WebContentsAddedObserver();
-
-  // Will run a message loop to wait for the new window if it hasn't been
-  // created since the constructor
-  WebContents* GetWebContents();
-
-  // Will tell whether RenderViewCreated Callback has invoked
-  bool RenderViewCreatedCalled();
-
-  base::Callback<void(WebContents*)> web_contents_created_callback_;
-
- private:
-  void WebContentsCreated(WebContents* web_contents);
-
-  // Callback invoked on WebContents creation.
-  WebContents* web_contents_;
-  scoped_ptr<RenderViewCreatedObserver> child_observer_;
-  scoped_refptr<MessageLoopRunner> runner_;
-
-  DISALLOW_COPY_AND_ASSIGN(WebContentsAddedObserver);
 };
 
 #if defined OS_MACOSX

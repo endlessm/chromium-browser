@@ -9,15 +9,12 @@
 namespace views {
 
 TestViewsDelegate::TestViewsDelegate()
-    : use_desktop_native_widgets_(false),
+    : context_factory_(nullptr),
+      use_desktop_native_widgets_(false),
       use_transparent_windows_(false) {
-  DCHECK(!ViewsDelegate::views_delegate);
-  ViewsDelegate::views_delegate = this;
 }
 
 TestViewsDelegate::~TestViewsDelegate() {
-  if (ViewsDelegate::views_delegate == this)
-    ViewsDelegate::views_delegate = NULL;
 }
 
 void TestViewsDelegate::OnBeforeWidgetInit(
@@ -31,6 +28,10 @@ void TestViewsDelegate::OnBeforeWidgetInit(
   // TODO(tapted): This should return a *Desktop*NativeWidgetMac.
   if (!params->native_widget && use_desktop_native_widgets_)
     params->native_widget = new NativeWidgetMac(delegate);
+}
+
+ui::ContextFactory* TestViewsDelegate::GetContextFactory() {
+  return context_factory_;
 }
 
 }  // namespace views

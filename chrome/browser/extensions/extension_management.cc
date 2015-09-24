@@ -9,9 +9,12 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/logging.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/prefs/pref_service.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
+#include "base/trace_event/trace_event.h"
+#include "base/version.h"
 #include "chrome/browser/extensions/extension_management_constants.h"
 #include "chrome/browser/extensions/extension_management_internal.h"
 #include "chrome/browser/extensions/external_policy_loader.h"
@@ -34,6 +37,8 @@ namespace extensions {
 
 ExtensionManagement::ExtensionManagement(PrefService* pref_service)
     : pref_service_(pref_service) {
+  TRACE_EVENT0("browser,startup",
+               "ExtensionManagement::ExtensionManagement::ctor");
   pref_change_registrar_.Init(pref_service_);
   base::Closure pref_change_callback = base::Bind(
       &ExtensionManagement::OnExtensionPrefChanged, base::Unretained(this));
@@ -217,7 +222,24 @@ bool ExtensionManagement::IsPermissionSetAllowed(
   return true;
 }
 
+bool ExtensionManagement::CheckMinimumVersion(
+    const Extension* extension,
+    std::string* required_version) const {
+  auto iter = settings_by_id_.find(extension->id());
+  // If there are no minimum version required for |extension|, return true.
+  if (iter == settings_by_id_.end() || !iter->second->minimum_version_required)
+    return true;
+  bool meets_requirement = extension->version()->CompareTo(
+                             *iter->second->minimum_version_required) >= 0;
+  // Output a human readable version string for prompting if necessary.
+  if (!meets_requirement && required_version)
+    *required_version = iter->second->minimum_version_required->GetString();
+  return meets_requirement;
+}
+
 void ExtensionManagement::Refresh() {
+  TRACE_EVENT0("browser,startup", "ExtensionManagement::Refresh");
+  SCOPED_UMA_HISTOGRAM_TIMER("Extensions.ExtensionManagement_RefreshTime");
   // Load all extension management settings preferences.
   const base::ListValue* allowed_list_pref =
       static_cast<const base::ListValue*>(LoadPreference(
@@ -352,8 +374,8 @@ void ExtensionManagement::Refresh() {
         continue;
       if (!iter.value().GetAsDictionary(&subdict))
         continue;
-      if (StartsWithASCII(iter.key(), schema_constants::kUpdateUrlPrefix,
-                          true)) {
+      if (base::StartsWith(iter.key(), schema_constants::kUpdateUrlPrefix,
+                           base::CompareCase::SENSITIVE)) {
         const std::string& update_url =
             iter.key().substr(strlen(schema_constants::kUpdateUrlPrefix));
         if (!GURL(update_url).is_valid()) {
@@ -419,7 +441,7 @@ internal::IndividualSettings* ExtensionManagement::AccessById(
   SettingsIdMap::iterator it = settings_by_id_.find(id);
   if (it == settings_by_id_.end()) {
     scoped_ptr<internal::IndividualSettings> settings(
-        new internal::IndividualSettings(*default_settings_));
+        new internal::IndividualSettings(default_settings_.get()));
     it = settings_by_id_.add(id, settings.Pass()).first;
   }
   return it->second;
@@ -431,7 +453,7 @@ internal::IndividualSettings* ExtensionManagement::AccessByUpdateUrl(
   SettingsUpdateUrlMap::iterator it = settings_by_update_url_.find(update_url);
   if (it == settings_by_update_url_.end()) {
     scoped_ptr<internal::IndividualSettings> settings(
-        new internal::IndividualSettings(*default_settings_));
+        new internal::IndividualSettings(default_settings_.get()));
     it = settings_by_update_url_.add(update_url, settings.Pass()).first;
   }
   return it->second;
@@ -458,6 +480,8 @@ ExtensionManagementFactory::~ExtensionManagementFactory() {
 
 KeyedService* ExtensionManagementFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
+  TRACE_EVENT0("browser,startup",
+               "ExtensionManagementFactory::BuildServiceInstanceFor");
   return new ExtensionManagement(
       Profile::FromBrowserContext(context)->GetPrefs());
 }
@@ -469,9 +493,7 @@ content::BrowserContext* ExtensionManagementFactory::GetBrowserContextToUse(
 
 void ExtensionManagementFactory::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* user_prefs) {
-  user_prefs->RegisterDictionaryPref(
-      pref_names::kExtensionManagement,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  user_prefs->RegisterDictionaryPref(pref_names::kExtensionManagement);
 }
 
 }  // namespace extensions

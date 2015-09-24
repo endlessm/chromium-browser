@@ -9,12 +9,11 @@
 #define GrGLProgramDataManager_DEFINED
 
 #include "gl/GrGLShaderVar.h"
-#include "gl/GrGLSL.h"
 #include "GrAllocator.h"
 
 #include "SkTArray.h"
 
-class GrGpuGL;
+class GrGLGpu;
 class SkMatrix;
 class GrGLProgram;
 class GrGLProgramBuilder;
@@ -23,7 +22,7 @@ class GrGLProgramBuilder;
  * The resources are objects the program uses to communicate with the
  * application code.
  */
-class GrGLProgramDataManager : public SkRefCnt {
+class GrGLProgramDataManager : SkNoncopyable {
 public:
     // Opaque handle to a uniform
     class ShaderResourceHandle {
@@ -54,6 +53,7 @@ public:
 
         friend class GrGLProgramDataManager; // For accessing toProgramDataIndex().
         friend class GrGLProgramBuilder; // For accessing toShaderBuilderIndex().
+        friend class GrGLGeometryProcessor;
     };
 
     struct UniformInfo {
@@ -67,7 +67,7 @@ public:
     // name strings. Otherwise, we'd have to hand out copies.
     typedef GrTAllocator<UniformInfo> UniformInfoArray;
 
-    GrGLProgramDataManager(GrGpuGL*, const UniformInfoArray&);
+    GrGLProgramDataManager(GrGLGpu*, const UniformInfoArray&);
 
     /** Functions for uploading uniform values. The varities ending in v can be used to upload to an
      *  array of uniforms. arrayCount must be <= the array count of the uniform.
@@ -105,9 +105,12 @@ private:
         );
     };
 
-    SkTArray<Uniform, true> fUniforms;
-    GrGpuGL* fGpu;
+    SkDEBUGCODE(void printUnused(const Uniform&) const;)
 
-    typedef SkRefCnt INHERITED;
+    SkTArray<Uniform, true> fUniforms;
+    GrGLGpu* fGpu;
+
+    typedef SkNoncopyable INHERITED;
 };
+
 #endif

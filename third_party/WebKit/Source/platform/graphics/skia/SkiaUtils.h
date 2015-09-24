@@ -33,15 +33,13 @@
 #ifndef SkiaUtils_h
 #define SkiaUtils_h
 
-#include "SkMatrix.h"
-#include "SkPaint.h"
-#include "SkPath.h"
-#include "SkXfermode.h"
 #include "platform/PlatformExport.h"
 #include "platform/geometry/FloatRect.h"
 #include "platform/graphics/Color.h"
 #include "platform/graphics/GraphicsTypes.h"
 #include "platform/transforms/AffineTransform.h"
+#include "third_party/skia/include/core/SkCanvas.h"
+#include "third_party/skia/include/effects/SkCornerPathEffect.h"
 #include "wtf/MathExtras.h"
 
 namespace blink {
@@ -49,15 +47,25 @@ namespace blink {
 class GraphicsContext;
 
 SkXfermode::Mode PLATFORM_EXPORT WebCoreCompositeToSkiaComposite(CompositeOperator, WebBlendMode = WebBlendModeNormal);
+CompositeOperator PLATFORM_EXPORT compositeOperatorFromSkia(SkXfermode::Mode);
+WebBlendMode PLATFORM_EXPORT blendModeFromSkia(SkXfermode::Mode);
 
-// move this guy into SkColor.h
-SkColor SkPMColorToColor(SkPMColor);
+// Map alpha values from [0, 1] to [0, 256] for alpha blending.
+int PLATFORM_EXPORT clampedAlphaForBlending(float);
 
-inline SkPaint::FilterLevel WebCoreInterpolationQualityToSkFilterLevel(InterpolationQuality quality)
+// Multiply a color's alpha channel by an additional alpha factor where
+// alpha is in the range [0, 1].
+SkColor PLATFORM_EXPORT scaleAlpha(SkColor, float);
+
+// Multiply a color's alpha channel by an additional alpha factor where
+// alpha is in the range [0, 256].
+SkColor PLATFORM_EXPORT scaleAlpha(SkColor, int);
+
+inline SkFilterQuality WebCoreInterpolationQualityToSkFilterQuality(InterpolationQuality quality)
 {
     // FIXME: this reflects existing client mappings, but should probably
     // be expanded to map higher level interpolations more accurately.
-    return quality != InterpolationNone ? SkPaint::kLow_FilterLevel : SkPaint::kNone_FilterLevel;
+    return quality != InterpolationNone ? kLow_SkFilterQuality : kNone_SkFilterQuality;
 }
 
 // Skia has problems when passed infinite, etc floats, filter them to 0.
@@ -87,8 +95,21 @@ inline SkPath::FillType WebCoreWindRuleToSkFillType(WindRule rule)
     return static_cast<SkPath::FillType>(rule);
 }
 
+inline WindRule SkFillTypeToWindRule(SkPath::FillType fillType)
+{
+    switch (fillType) {
+    case SkPath::kWinding_FillType:
+    case SkPath::kEvenOdd_FillType:
+        return static_cast<WindRule>(fillType);
+    default:
+        ASSERT_NOT_REACHED();
+        break;
+    }
+    return RULE_NONZERO;
+}
+
 // Determine if a given WebKit point is contained in a path
-bool PLATFORM_EXPORT SkPathContainsPoint(const SkPath&, const FloatPoint&, SkPath::FillType);
+bool SkPathContainsPoint(const SkPath&, const FloatPoint&, SkPath::FillType);
 
 SkMatrix PLATFORM_EXPORT affineTransformToSkMatrix(const AffineTransform&);
 
@@ -97,14 +118,21 @@ bool nearlyIntegral(float value);
 InterpolationQuality limitInterpolationQuality(const GraphicsContext*, InterpolationQuality resampling);
 
 InterpolationQuality computeInterpolationQuality(
-    const SkMatrix&,
     float srcWidth,
     float srcHeight,
     float destWidth,
     float destHeight,
     bool isDataComplete = true);
 
-bool shouldDrawAntiAliased(const GraphicsContext*, const SkRect& destRect);
+// This replicates the old skia behavior when it used to take radius for blur. Now it takes sigma.
+inline SkScalar skBlurRadiusToSigma(SkScalar radius)
+{
+    SkASSERT(radius >= 0);
+    return 0.288675f * radius + 0.5f;
+}
+
+template<typename PrimitiveType>
+void drawPlatformFocusRing(const PrimitiveType&, SkCanvas*, SkColor, int width);
 
 } // namespace blink
 

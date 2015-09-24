@@ -59,12 +59,12 @@ BluetoothHostPairingController::BluetoothHostPairingController()
     : current_stage_(STAGE_NONE),
       update_status_(UPDATE_STATUS_UNKNOWN),
       enrollment_status_(ENROLLMENT_STATUS_UNKNOWN),
-      device_(NULL),
       proto_decoder_(new ProtoDecoder(this)),
       ptr_factory_(this) {
 }
 
 BluetoothHostPairingController::~BluetoothHostPairingController() {
+  Reset();
   if (adapter_.get()) {
     if (adapter_->IsDiscoverable()) {
       adapter_->SetDiscoverable(false, base::Closure(), base::Closure());
@@ -88,6 +88,8 @@ void BluetoothHostPairingController::SendHostStatus() {
   host_status.set_api_version(kPairingAPIVersion);
   if (!enrollment_domain_.empty())
     host_status.mutable_parameters()->set_domain(enrollment_domain_);
+  if (!permanent_id_.empty())
+    host_status.mutable_parameters()->set_permanent_id(permanent_id_);
 
   // TODO(zork): Get these values from the UI. (http://crbug.com/405744)
   host_status.mutable_parameters()->set_connectivity(
@@ -308,11 +310,12 @@ void BluetoothHostPairingController::OnHostStatusMessage(
 void BluetoothHostPairingController::OnConfigureHostMessage(
     const pairing_api::ConfigureHost& message) {
   FOR_EACH_OBSERVER(Observer, observers_,
-                    ConfigureHost(message.parameters().accepted_eula(),
-                                  message.parameters().lang(),
-                                  message.parameters().timezone(),
-                                  message.parameters().send_reports(),
-                                  message.parameters().keyboard_layout()));
+                    ConfigureHostRequested(
+                        message.parameters().accepted_eula(),
+                        message.parameters().lang(),
+                        message.parameters().timezone(),
+                        message.parameters().send_reports(),
+                        message.parameters().keyboard_layout()));
 }
 
 void BluetoothHostPairingController::OnPairDevicesMessage(
@@ -320,7 +323,8 @@ void BluetoothHostPairingController::OnPairDevicesMessage(
   DCHECK(thread_checker_.CalledOnValidThread());
   ChangeStage(STAGE_ENROLLING);
   FOR_EACH_OBSERVER(Observer, observers_,
-                    EnrollHost(message.parameters().admin_access_token()));
+                    EnrollHostRequested(
+                        message.parameters().admin_access_token()));
 }
 
 void BluetoothHostPairingController::OnCompleteSetupMessage(
@@ -338,6 +342,13 @@ void BluetoothHostPairingController::OnCompleteSetupMessage(
 void BluetoothHostPairingController::OnErrorMessage(
     const pairing_api::Error& message) {
   NOTREACHED();
+}
+
+void BluetoothHostPairingController::OnAddNetworkMessage(
+    const pairing_api::AddNetwork& message) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  FOR_EACH_OBSERVER(Observer, observers_,
+                    AddNetworkRequested(message.parameters().onc_spec()));
 }
 
 void BluetoothHostPairingController::AdapterPresentChanged(
@@ -410,6 +421,11 @@ void BluetoothHostPairingController::OnEnrollmentStatusChanged(
                    kErrorEnrollmentFailed);
   }
   SendHostStatus();
+}
+
+void BluetoothHostPairingController::SetPermanentId(
+    const std::string& permanent_id) {
+  permanent_id_ = permanent_id;
 }
 
 void BluetoothHostPairingController::RequestPinCode(

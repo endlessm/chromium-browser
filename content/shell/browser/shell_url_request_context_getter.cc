@@ -6,6 +6,7 @@
 
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -74,7 +75,7 @@ ShellURLRequestContextGetter::ShellURLRequestContextGetter(
       net_log_(net_log),
       request_interceptors_(request_interceptors.Pass()) {
   // Must first be created on the UI thread.
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   std::swap(protocol_handlers_, *protocol_handlers);
 
@@ -93,7 +94,7 @@ net::NetworkDelegate* ShellURLRequestContextGetter::CreateNetworkDelegate() {
 
 net::ProxyConfigService* ShellURLRequestContextGetter::GetProxyConfigService() {
   return net::ProxyService::CreateSystemProxyConfigService(
-      io_loop_->message_loop_proxy(), file_loop_->message_loop_proxy());
+      io_loop_->task_runner(), file_loop_->task_runner());
 }
 
 net::ProxyService* ShellURLRequestContextGetter::GetProxyService() {
@@ -103,10 +104,11 @@ net::ProxyService* ShellURLRequestContextGetter::GetProxyService() {
 }
 
 net::URLRequestContext* ShellURLRequestContextGetter::GetURLRequestContext() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   if (!url_request_context_) {
-    const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+    const base::CommandLine& command_line =
+        *base::CommandLine::ForCurrentProcess();
 
     url_request_context_.reset(new net::URLRequestContext());
     url_request_context_->set_net_log(net_log_);
@@ -115,9 +117,9 @@ net::URLRequestContext* ShellURLRequestContextGetter::GetURLRequestContext() {
     storage_.reset(
         new net::URLRequestContextStorage(url_request_context_.get()));
     storage_->set_cookie_store(CreateCookieStore(CookieStoreConfig()));
-    storage_->set_channel_id_service(new net::ChannelIDService(
-        new net::DefaultChannelIDStore(NULL),
-        base::WorkerPool::GetTaskRunner(true)));
+    storage_->set_channel_id_service(make_scoped_ptr(
+        new net::ChannelIDService(new net::DefaultChannelIDStore(NULL),
+                                  base::WorkerPool::GetTaskRunner(true))));
     storage_->set_http_user_agent_settings(
         new net::StaticHttpUserAgentSettings(
             "en-us,en", GetShellUserAgent()));

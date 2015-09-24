@@ -38,20 +38,20 @@ class Audio : public Resource, public PPB_Audio_Shared {
         PP_Resource config_id,
         const AudioCallbackCombined& callback,
         void* user_data);
-  virtual ~Audio();
+  ~Audio() override;
 
   // Resource overrides.
-  virtual PPB_Audio_API* AsPPB_Audio_API();
+  PPB_Audio_API* AsPPB_Audio_API() override;
 
   // PPB_Audio_API implementation.
-  virtual PP_Resource GetCurrentConfig() override;
-  virtual PP_Bool StartPlayback() override;
-  virtual PP_Bool StopPlayback() override;
-  virtual int32_t Open(
-      PP_Resource config_id,
-      scoped_refptr<TrackedCallback> create_callback) override;
-  virtual int32_t GetSyncSocket(int* sync_socket) override;
-  virtual int32_t GetSharedMemory(int* shm_handle, uint32_t* shm_size) override;
+  PP_Resource GetCurrentConfig() override;
+  PP_Bool StartPlayback() override;
+  PP_Bool StopPlayback() override;
+  int32_t Open(PP_Resource config_id,
+               scoped_refptr<TrackedCallback> create_callback) override;
+  int32_t GetSyncSocket(int* sync_socket) override;
+  int32_t GetSharedMemory(base::SharedMemory** shm,
+                          uint32_t* shm_size) override;
 
  private:
   // Owning reference to the current config object. This isn't actually used,
@@ -123,7 +123,7 @@ int32_t Audio::GetSyncSocket(int* sync_socket) {
   return PP_ERROR_NOTSUPPORTED;  // Don't proxy the trusted interface.
 }
 
-int32_t Audio::GetSharedMemory(int* shm_handle, uint32_t* shm_size) {
+int32_t Audio::GetSharedMemory(base::SharedMemory** shm, uint32_t* shm_size) {
   return PP_ERROR_NOTSUPPORTED;  // Don't proxy the trusted interface.
 }
 
@@ -247,7 +247,7 @@ void PPB_Audio_Proxy::AudioChannelConnected(
     const HostResource& resource) {
   IPC::PlatformFileForTransit socket_handle =
       IPC::InvalidPlatformFileForTransit();
-  base::SharedMemoryHandle shared_memory = IPC::InvalidPlatformFileForTransit();
+  base::SharedMemoryHandle shared_memory = base::SharedMemory::NULLHandle();
   uint32_t audio_buffer_length = 0;
 
   int32_t result_code = result;
@@ -291,16 +291,16 @@ int32_t PPB_Audio_Proxy::GetAudioConnectedHandles(
     return PP_ERROR_FAILED;
 
   // Get the shared memory for the buffer.
-  int shared_memory_handle;
-  result = enter.object()->GetSharedMemory(&shared_memory_handle,
-                                           shared_memory_length);
+  base::SharedMemory* shared_memory;
+  result =
+      enter.object()->GetSharedMemory(&shared_memory, shared_memory_length);
   if (result != PP_OK)
     return result;
 
   // shared_memory_handle doesn't belong to us: don't close it.
-  *foreign_shared_memory_handle = dispatcher()->ShareHandleWithRemote(
-      IntToPlatformFile(shared_memory_handle), false);
-  if (*foreign_shared_memory_handle == IPC::InvalidPlatformFileForTransit())
+  *foreign_shared_memory_handle =
+      dispatcher()->ShareSharedMemoryHandleWithRemote(shared_memory->handle());
+  if (!base::SharedMemory::IsHandleValid(*foreign_shared_memory_handle))
     return PP_ERROR_FAILED;
 
   return PP_OK;

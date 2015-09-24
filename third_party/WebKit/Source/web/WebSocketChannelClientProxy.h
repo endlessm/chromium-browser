@@ -11,6 +11,7 @@
 #include "wtf/PassOwnPtr.h"
 #include "wtf/Vector.h"
 #include "wtf/text/WTFString.h"
+#include <stdint.h>
 
 namespace blink {
 
@@ -27,35 +28,40 @@ public:
         return new WebSocketChannelClientProxy(impl);
     }
 
-    virtual void didConnect(const String& subprotocol, const String& extensions) override
+    void didConnect(const String& subprotocol, const String& extensions) override
     {
         m_impl->didConnect(subprotocol, extensions);
     }
-    virtual void didReceiveTextMessage(const String& payload) override
+    void didReceiveTextMessage(const String& payload) override
     {
         m_impl->didReceiveTextMessage(payload);
     }
-    virtual void didReceiveBinaryMessage(PassOwnPtr<Vector<char> > payload) override
+    void didReceiveBinaryMessage(PassOwnPtr<Vector<char>> payload) override
     {
         m_impl->didReceiveBinaryMessage(payload);
     }
-    virtual void didError() override
+    void didError() override
     {
         m_impl->didError();
     }
-    virtual void didConsumeBufferedAmount(unsigned long consumed) override
+    void didConsumeBufferedAmount(uint64_t consumed) override
     {
         m_impl->didConsumeBufferedAmount(consumed);
     }
-    virtual void didStartClosingHandshake() override
+    void didStartClosingHandshake() override
     {
         m_impl->didStartClosingHandshake();
     }
-    virtual void didClose(ClosingHandshakeCompletionStatus status, unsigned short code, const String& reason) override
+    void didClose(ClosingHandshakeCompletionStatus status, unsigned short code, const String& reason) override
     {
         WebSocketImpl* impl = m_impl;
         m_impl = nullptr;
         impl->didClose(status, code, reason);
+    }
+
+    DEFINE_INLINE_VIRTUAL_TRACE()
+    {
+        WebSocketChannelClient::trace(visitor);
     }
 
 private:

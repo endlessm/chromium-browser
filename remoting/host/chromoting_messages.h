@@ -11,7 +11,6 @@
 #include "remoting/host/screen_resolution.h"
 #include "remoting/protocol/transport.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_geometry.h"
-#include "third_party/webrtc/modules/desktop_capture/mouse_cursor_shape.h"
 
 #endif  // REMOTING_HOST_CHROMOTING_MESSAGES_H_
 
@@ -86,9 +85,9 @@ IPC_MESSAGE_CONTROL2(ChromotingNetworkDaemonMsg_SetScreenResolution,
 IPC_STRUCT_BEGIN(SerializedTransportRoute)
   IPC_STRUCT_MEMBER(int, type)
   IPC_STRUCT_MEMBER(net::IPAddressNumber, remote_address)
-  IPC_STRUCT_MEMBER(int, remote_port)
+  IPC_STRUCT_MEMBER(uint16, remote_port)
   IPC_STRUCT_MEMBER(net::IPAddressNumber, local_address)
-  IPC_STRUCT_MEMBER(int, local_port)
+  IPC_STRUCT_MEMBER(uint16, local_port)
 IPC_STRUCT_END()
 
 // Hosts status notifications (see HostStatusObserver interface) sent by
@@ -161,8 +160,8 @@ IPC_STRUCT_BEGIN(SerializedDesktopFrame)
   // Time spent in capture. Unit is in milliseconds.
   IPC_STRUCT_MEMBER(int64, capture_time_ms)
 
-  // Sequence number supplied by client for performance tracking.
-  IPC_STRUCT_MEMBER(int64, client_sequence_number)
+  // Latest event timestamp supplied by the client for performance tracking.
+  IPC_STRUCT_MEMBER(int64, latest_event_timestamp)
 
   // DPI for this frame.
   IPC_STRUCT_MEMBER(webrtc::DesktopVector, dpi)
@@ -219,6 +218,11 @@ IPC_MESSAGE_CONTROL1(ChromotingNetworkDesktopMsg_InjectTextEvent,
 // Carries a mouse event from the client to the desktop session agent.
 // |serialized_event| is a serialized protocol::MouseEvent.
 IPC_MESSAGE_CONTROL1(ChromotingNetworkDesktopMsg_InjectMouseEvent,
+                     std::string /* serialized_event */ )
+
+// Carries a touch event from the client to the desktop session agent.
+// |serialized_event| is a serialized protocol::TouchEvent.
+IPC_MESSAGE_CONTROL1(ChromotingNetworkDesktopMsg_InjectTouchEvent,
                      std::string /* serialized_event */ )
 
 // Changes the screen resolution in the desktop session.

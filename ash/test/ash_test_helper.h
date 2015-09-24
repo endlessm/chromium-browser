@@ -29,6 +29,7 @@ namespace test {
 
 class TestScreenshotDelegate;
 class TestShellDelegate;
+class TestSessionStateDelegate;
 
 // A helper class that does common initialization required for Ash. Creates a
 // root window and an ash::Shell instance with a test delegate.
@@ -51,6 +52,8 @@ class AshTestHelper {
   aura::Window* CurrentContext();
 
   void RunAllPendingInMessageLoop();
+
+  static TestSessionStateDelegate* GetTestSessionStateDelegate();
 
   base::MessageLoopForUI* message_loop() { return message_loop_; }
   TestShellDelegate* test_shell_delegate() { return test_shell_delegate_; }
@@ -79,8 +82,10 @@ class AshTestHelper {
 
   scoped_ptr<views::ViewsDelegate> views_delegate_;
 
+#if defined(OS_CHROMEOS)
   // Check if DBus Thread Manager was initialized here.
   bool dbus_thread_manager_initialized_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(AshTestHelper);
 };

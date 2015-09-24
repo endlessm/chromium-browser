@@ -6,7 +6,7 @@
 
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
@@ -27,8 +27,8 @@ QuicDefaultPacketWriter::~QuicDefaultPacketWriter() {}
 WriteResult QuicDefaultPacketWriter::WritePacket(
     const char* buffer,
     size_t buf_len,
-    const net::IPAddressNumber& self_address,
-    const net::IPEndPoint& peer_address) {
+    const IPAddressNumber& self_address,
+    const IPEndPoint& peer_address) {
   scoped_refptr<StringIOBuffer> buf(
       new StringIOBuffer(std::string(buffer, buf_len)));
   DCHECK(!IsWriteBlocked());

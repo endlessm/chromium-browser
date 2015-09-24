@@ -25,7 +25,7 @@ struct EscapeOptions;
 //
 // Example:
 //   for (ConfigValueIterator iter(target); !iter.done(); iter.Next())
-//     DoSomething(iter->cur());
+//     DoSomething(iter.cur());
 class ConfigValuesIterator {
  public:
   explicit ConfigValuesIterator(const Target* target)
@@ -43,11 +43,11 @@ class ConfigValuesIterator {
     return target_->configs()[cur_index_].ptr->config_values();
   }
 
-  // Returns the origin of who added this config, if any. This will alwsya be
+  // Returns the origin of who added this config, if any. This will always be
   // null for the config values of a target itself.
   const ParseNode* origin() const {
     if (cur_index_ == -1)
-      return NULL;
+      return nullptr;
     return target_->configs()[cur_index_].origin;
   }
 
@@ -59,7 +59,7 @@ class ConfigValuesIterator {
   // config values associated with the target itself.
   const Config* GetCurrentConfig() const {
     if (cur_index_ == -1)
-      return NULL;
+      return nullptr;
     return target_->configs()[cur_index_].ptr;
   }
 
@@ -80,7 +80,7 @@ inline void ConfigValuesToStream(
   const std::vector<T>& v = (values.*getter)();
   for (size_t i = 0; i < v.size(); i++)
     writer(v[i], out);
-};
+}
 
 // Writes a given config value that applies to a given target. This collects
 // all values from the target itself and all configs that apply, and writes

@@ -7,11 +7,13 @@
 #include "base/command_line.h"
 #include "base/files/file_proxy.h"
 #include "base/files/file_util.h"
-#include "base/message_loop/message_loop.h"
-#include "base/metrics/histogram.h"
+#include "base/location.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
 #include "base/pickle.h"
 #include "base/rand_util.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/win/windows_version.h"
 #include "build/build_config.h"
@@ -66,6 +68,7 @@ const base::FilePath::StringType NaClIrtName() {
   return irt_name;
 }
 
+#if !defined(OS_ANDROID)
 bool CheckEnvVar(const char* name, bool default_value) {
   bool result = default_value;
   const char* var = getenv(name);
@@ -74,6 +77,7 @@ bool CheckEnvVar(const char* name, bool default_value) {
   }
   return result;
 }
+#endif
 
 void ReadCache(const base::FilePath& filename, std::string* data) {
   if (!base::ReadFileToString(filename, data)) {
@@ -82,7 +86,7 @@ void ReadCache(const base::FilePath& filename, std::string* data) {
   }
 }
 
-void WriteCache(const base::FilePath& filename, const Pickle* pickle) {
+void WriteCache(const base::FilePath& filename, const base::Pickle* pickle) {
   base::WriteFile(filename, static_cast<const char*>(pickle->data()),
                        pickle->size());
 }
@@ -140,14 +144,17 @@ NaClBrowser::NaClBrowser()
     : irt_filepath_(),
       irt_state_(NaClResourceUninitialized),
       validation_cache_file_path_(),
-      validation_cache_is_enabled_(
-          CheckEnvVar("NACL_VALIDATION_CACHE",
-                      kValidationCacheEnabledByDefault)),
+      validation_cache_is_enabled_(false),
       validation_cache_is_modified_(false),
       validation_cache_state_(NaClResourceUninitialized),
       path_cache_(kFilePathCacheSize),
       ok_(true),
       weak_factory_(this) {
+#if !defined(OS_ANDROID)
+      validation_cache_is_enabled_ =
+          CheckEnvVar("NACL_VALIDATION_CACHE",
+                      kValidationCacheEnabledByDefault);
+#endif
 }
 
 void NaClBrowser::SetDelegate(NaClBrowserDelegate* delegate) {
@@ -163,7 +170,7 @@ NaClBrowserDelegate* NaClBrowser::GetDelegate() {
 }
 
 void NaClBrowser::EarlyStartup() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   InitIrtFilePath();
   InitValidationCacheFilePath();
 }
@@ -220,21 +227,21 @@ bool NaClBrowser::IsOk() const {
 }
 
 const base::File& NaClBrowser::IrtFile() const {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   CHECK_EQ(irt_state_, NaClResourceReady);
   CHECK(irt_file_.IsValid());
   return irt_file_;
 }
 
 void NaClBrowser::EnsureAllResourcesAvailable() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   EnsureIrtAvailable();
   EnsureValidationCacheAvailable();
 }
 
 // Load the IRT async.
 void NaClBrowser::EnsureIrtAvailable() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   if (IsOk() && irt_state_ == NaClResourceUninitialized) {
     irt_state_ = NaClResourceRequested;
     // TODO(ncbray) use blocking pool.
@@ -255,7 +262,7 @@ void NaClBrowser::EnsureIrtAvailable() {
 
 void NaClBrowser::OnIrtOpened(scoped_ptr<base::FileProxy> file_proxy,
                               base::File::Error error_code) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   DCHECK_EQ(irt_state_, NaClResourceRequested);
   if (file_proxy->IsValid()) {
     irt_file_ = file_proxy->TakeFile();
@@ -317,7 +324,7 @@ void NaClBrowser::InitValidationCacheFilePath() {
 }
 
 void NaClBrowser::EnsureValidationCacheAvailable() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   if (IsOk() && validation_cache_state_ == NaClResourceUninitialized) {
     if (ValidationCacheIsEnabled()) {
       validation_cache_state_ = NaClResourceRequested;
@@ -342,7 +349,7 @@ void NaClBrowser::EnsureValidationCacheAvailable() {
 }
 
 void NaClBrowser::OnValidationCacheLoaded(const std::string *data) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   // Did the cache get cleared before the load completed?  If so, ignore the
   // incoming data.
   if (validation_cache_state_ == NaClResourceReady)
@@ -352,7 +359,7 @@ void NaClBrowser::OnValidationCacheLoaded(const std::string *data) {
     // No file found.
     validation_cache_.Reset();
   } else {
-    Pickle pickle(data->data(), data->size());
+    base::Pickle pickle(data->data(), data->size());
     validation_cache_.Deserialize(&pickle);
   }
   validation_cache_state_ = NaClResourceReady;
@@ -368,7 +375,7 @@ void NaClBrowser::RunWithoutValidationCache() {
 }
 
 void NaClBrowser::CheckWaiting() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   if (!IsOk() || IsReady()) {
     // Queue the waiting tasks into the message loop.  This helps avoid
     // re-entrancy problems that could occur if the closure was invoked
@@ -376,7 +383,7 @@ void NaClBrowser::CheckWaiting() {
     // process host.
     for (std::vector<base::Closure>::iterator iter = waiting_.begin();
          iter != waiting_.end(); ++iter) {
-      base::MessageLoop::current()->PostTask(FROM_HERE, *iter);
+      base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, *iter);
     }
     waiting_.clear();
   }
@@ -399,7 +406,7 @@ const base::FilePath& NaClBrowser::GetIrtFilePath() {
 
 void NaClBrowser::PutFilePath(const base::FilePath& path, uint64* file_token_lo,
                               uint64* file_token_hi) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   while (true) {
     uint64 file_token[2] = {base::RandUint64(), base::RandUint64()};
     // A zero file_token indicates there is no file_token, if we get zero, ask
@@ -420,7 +427,7 @@ void NaClBrowser::PutFilePath(const base::FilePath& path, uint64* file_token_lo,
 
 bool NaClBrowser::GetFilePath(uint64 file_token_lo, uint64 file_token_hi,
                               base::FilePath* path) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   uint64 file_token[2] = {file_token_lo, file_token_hi};
   std::string key(reinterpret_cast<char*>(file_token), sizeof(file_token));
   PathCacheType::iterator iter = path_cache_.Peek(key);
@@ -436,7 +443,7 @@ bool NaClBrowser::GetFilePath(uint64 file_token_lo, uint64 file_token_hi,
 
 bool NaClBrowser::QueryKnownToValidate(const std::string& signature,
                                        bool off_the_record) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   if (off_the_record) {
     // If we're off the record, don't reorder the main cache.
     return validation_cache_.QueryKnownToValidate(signature, false) ||
@@ -452,7 +459,7 @@ bool NaClBrowser::QueryKnownToValidate(const std::string& signature,
 
 void NaClBrowser::SetKnownToValidate(const std::string& signature,
                                      bool off_the_record) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   if (off_the_record) {
     off_the_record_validation_cache_.SetKnownToValidate(signature);
   } else {
@@ -465,7 +472,7 @@ void NaClBrowser::SetKnownToValidate(const std::string& signature,
 }
 
 void NaClBrowser::ClearValidationCache(const base::Closure& callback) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   // Note: this method may be called before EnsureValidationCacheAvailable has
   // been invoked.  In other words, this method may be called before any NaCl
   // processes have been created.  This method must succeed and invoke the
@@ -507,23 +514,22 @@ void NaClBrowser::MarkValidationCacheAsModified() {
   if (!validation_cache_is_modified_) {
     // Wait before persisting to disk.  This can coalesce multiple cache
     // modifications info a single disk write.
-    base::MessageLoop::current()->PostDelayedTask(
-         FROM_HERE,
-         base::Bind(&NaClBrowser::PersistValidationCache,
-                    weak_factory_.GetWeakPtr()),
-         base::TimeDelta::FromMilliseconds(kValidationCacheCoalescingTimeMS));
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE, base::Bind(&NaClBrowser::PersistValidationCache,
+                              weak_factory_.GetWeakPtr()),
+        base::TimeDelta::FromMilliseconds(kValidationCacheCoalescingTimeMS));
     validation_cache_is_modified_ = true;
   }
 }
 
 void NaClBrowser::PersistValidationCache() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   // validation_cache_is_modified_ may be false if the cache was cleared while
   // this delayed task was pending.
   // validation_cache_file_path_ may be empty if something went wrong during
   // initialization.
   if (validation_cache_is_modified_ && !validation_cache_file_path_.empty()) {
-    Pickle* pickle = new Pickle();
+    base::Pickle* pickle = new base::Pickle();
     validation_cache_.Serialize(pickle);
 
     // Pass the serialized data to another thread to write to disk.  File IO is
@@ -544,7 +550,7 @@ void NaClBrowser::OnProcessEnd(int process_id) {
 }
 
 void NaClBrowser::OnProcessCrashed() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   if (crash_times_.size() == kMaxCrashesPerInterval) {
     crash_times_.pop_front();
   }
@@ -553,7 +559,7 @@ void NaClBrowser::OnProcessCrashed() {
 }
 
 bool NaClBrowser::IsThrottled() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   if (crash_times_.size() != kMaxCrashesPerInterval) {
     return false;
   }

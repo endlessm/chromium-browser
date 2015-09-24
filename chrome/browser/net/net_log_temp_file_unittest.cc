@@ -7,11 +7,14 @@
 #include "base/basictypes.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/json/json_reader.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/net/chrome_net_log.h"
 #include "content/public/test/test_browser_thread.h"
+#include "net/log/write_to_file_net_log_observer.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using content::BrowserThread;
@@ -97,14 +100,26 @@ class NetLogTempFileTest : public ::testing::Test {
 
   // Make sure the export file has been created and is non-empty, as net
   // constants will always be written to it on creation.
-  void VerifyNetExportLog() {
+  void VerifyNetExportLogExists() const {
     EXPECT_EQ(net_export_log_, net_log_temp_file_->log_path_);
-    EXPECT_TRUE(base::PathExists(net_export_log_));
+    ASSERT_TRUE(base::PathExists(net_export_log_));
 
     int64 file_size;
     // base::GetFileSize returns proper file size on open handles.
-    EXPECT_TRUE(base::GetFileSize(net_export_log_, &file_size));
+    ASSERT_TRUE(base::GetFileSize(net_export_log_, &file_size));
     EXPECT_GT(file_size, 0);
+  }
+
+  // Make sure the export file has been created and a valid JSON file.  This
+  // should always be the case once logging has been stopped.
+  void VerifyNetExportLogComplete() const {
+    VerifyNetExportLogExists();
+
+    std::string log;
+    ASSERT_TRUE(ReadFileToString(net_export_log_, &log));
+    base::JSONReader reader;
+    scoped_ptr<base::Value> json = base::JSONReader::Read(log);
+    EXPECT_TRUE(json);
   }
 
   // Verify state and GetFilePath return correct values if EnsureInit() fails.
@@ -130,66 +145,42 @@ class NetLogTempFileTest : public ::testing::Test {
     EXPECT_FALSE(net_log_temp_file_->NetExportLogExists());
   }
 
-  // Make sure the export file has been successfully initialized.
+  // The following methods make sure the export file has been successfully
+  // initialized by a DO_START command of the given type.
+
   void VerifyFileAndStateAfterDoStart() {
-    EXPECT_EQ("LOGGING", GetStateString());
-    EXPECT_EQ(NetLogTempFile::STATE_LOGGING, net_log_temp_file_->state());
-    EXPECT_EQ("NORMAL", GetLogTypeString());
-    EXPECT_EQ(NetLogTempFile::LOG_TYPE_NORMAL, net_log_temp_file_->log_type());
-
-    // Check GetFilePath returns false, if we are still writing to file.
-    base::FilePath net_export_file_path;
-    EXPECT_FALSE(net_log_temp_file_->GetFilePath(&net_export_file_path));
-
-    VerifyNetExportLog();
-    EXPECT_EQ(net::NetLog::LOG_ALL_BUT_BYTES, net_log_->GetLogLevel());
+    VerifyFileAndStateAfterStart(
+        NetLogTempFile::LOG_TYPE_NORMAL, "NORMAL",
+        net::NetLogCaptureMode::IncludeCookiesAndCredentials());
   }
 
-  // Make sure the export file has been successfully initialized.
-  void VerifyFileAndStateAfterDoStartStripPrivateData() {
-    EXPECT_EQ("LOGGING", GetStateString());
-    EXPECT_EQ(NetLogTempFile::STATE_LOGGING, net_log_temp_file_->state());
-    EXPECT_EQ("STRIP_PRIVATE_DATA", GetLogTypeString());
-    EXPECT_EQ(NetLogTempFile::LOG_TYPE_STRIP_PRIVATE_DATA,
-              net_log_temp_file_->log_type());
-
-    // Check GetFilePath returns false, if we are still writing to file.
-    base::FilePath net_export_file_path;
-    EXPECT_FALSE(net_log_temp_file_->GetFilePath(&net_export_file_path));
-
-    VerifyNetExportLog();
-    EXPECT_EQ(net::NetLog::LOG_STRIP_PRIVATE_DATA, net_log_->GetLogLevel());
+  void VerifyFileAndStateAfterDoStartStripPrivateData() const {
+    VerifyFileAndStateAfterStart(NetLogTempFile::LOG_TYPE_STRIP_PRIVATE_DATA,
+                                 "STRIP_PRIVATE_DATA",
+                                 net::NetLogCaptureMode::Default());
   }
 
-  // Make sure the export file has been successfully initialized.
-  void VerifyFileAndStateAfterDoStop() {
-    EXPECT_EQ("NOT_LOGGING", GetStateString());
-    EXPECT_EQ(NetLogTempFile::STATE_NOT_LOGGING, net_log_temp_file_->state());
-    EXPECT_EQ("NORMAL", GetLogTypeString());
-    EXPECT_EQ(NetLogTempFile::LOG_TYPE_NORMAL, net_log_temp_file_->log_type());
-
-    base::FilePath net_export_file_path;
-    EXPECT_TRUE(net_log_temp_file_->GetFilePath(&net_export_file_path));
-    EXPECT_TRUE(base::PathExists(net_export_file_path));
-    EXPECT_EQ(net_export_log_, net_export_file_path);
-
-    VerifyNetExportLog();
+  void VerifyFileAndStateAfterDoStartLogBytes() const {
+    VerifyFileAndStateAfterStart(NetLogTempFile::LOG_TYPE_LOG_BYTES,
+                                 "LOG_BYTES",
+                                 net::NetLogCaptureMode::IncludeSocketBytes());
   }
 
-  // Make sure the export file has been successfully initialized.
-  void VerifyFileAndStateAfterDoStopWithStripPrivateData() {
-    EXPECT_EQ("NOT_LOGGING", GetStateString());
-    EXPECT_EQ(NetLogTempFile::STATE_NOT_LOGGING, net_log_temp_file_->state());
-    EXPECT_EQ("STRIP_PRIVATE_DATA", GetLogTypeString());
-    EXPECT_EQ(NetLogTempFile::LOG_TYPE_STRIP_PRIVATE_DATA,
-              net_log_temp_file_->log_type());
+  // Make sure the export file has been successfully initialized after DO_STOP
+  // command following a DO_START command of the given type.
 
-    base::FilePath net_export_file_path;
-    EXPECT_TRUE(net_log_temp_file_->GetFilePath(&net_export_file_path));
-    EXPECT_TRUE(base::PathExists(net_export_file_path));
-    EXPECT_EQ(net_export_log_, net_export_file_path);
+  void VerifyFileAndStateAfterDoStop() const {
+    VerifyFileAndStateAfterDoStop(NetLogTempFile::LOG_TYPE_NORMAL, "NORMAL");
+  }
 
-    VerifyNetExportLog();
+  void VerifyFileAndStateAfterDoStopWithStripPrivateData() const {
+    VerifyFileAndStateAfterDoStop(NetLogTempFile::LOG_TYPE_STRIP_PRIVATE_DATA,
+                                  "STRIP_PRIVATE_DATA");
+  }
+
+  void VerifyFileAndStateAfterDoStopWithLogBytes() const {
+    VerifyFileAndStateAfterDoStop(NetLogTempFile::LOG_TYPE_LOG_BYTES,
+                                  "LOG_BYTES");
   }
 
   scoped_ptr<ChromeNetLog> net_log_;
@@ -199,6 +190,40 @@ class NetLogTempFileTest : public ::testing::Test {
   base::FilePath net_export_log_;
 
  private:
+  // Checks state after one of the DO_START* commands.
+  void VerifyFileAndStateAfterStart(
+      NetLogTempFile::LogType expected_log_type,
+      const std::string& expected_log_type_string,
+      net::NetLogCaptureMode expected_capture_mode) const {
+    EXPECT_EQ(NetLogTempFile::STATE_LOGGING, net_log_temp_file_->state());
+    EXPECT_EQ("LOGGING", GetStateString());
+    EXPECT_EQ(expected_log_type, net_log_temp_file_->log_type());
+    EXPECT_EQ(expected_log_type_string, GetLogTypeString());
+    EXPECT_EQ(expected_capture_mode,
+              net_log_temp_file_->write_to_file_observer_->capture_mode());
+
+    // Check GetFilePath returns false when still writing to the file.
+    base::FilePath net_export_file_path;
+    EXPECT_FALSE(net_log_temp_file_->GetFilePath(&net_export_file_path));
+
+    VerifyNetExportLogExists();
+  }
+
+  void VerifyFileAndStateAfterDoStop(
+      NetLogTempFile::LogType expected_log_type,
+      const std::string& expected_log_type_string) const {
+    EXPECT_EQ(NetLogTempFile::STATE_NOT_LOGGING, net_log_temp_file_->state());
+    EXPECT_EQ("NOT_LOGGING", GetStateString());
+    EXPECT_EQ(expected_log_type, net_log_temp_file_->log_type());
+    EXPECT_EQ(expected_log_type_string, GetLogTypeString());
+
+    base::FilePath net_export_file_path;
+    EXPECT_TRUE(net_log_temp_file_->GetFilePath(&net_export_file_path));
+    EXPECT_EQ(net_export_log_, net_export_file_path);
+
+    VerifyNetExportLogComplete();
+  }
+
   base::MessageLoop message_loop_;
   content::TestBrowserThread file_user_blocking_thread_;
 };
@@ -248,8 +273,16 @@ TEST_F(NetLogTempFileTest, ProcessCommandDoStartAndStop) {
   net_log_temp_file_->ProcessCommand(NetLogTempFile::DO_START);
   VerifyFileAndStateAfterDoStart();
 
-  // Calling DO_START second time should be a no-op.
+  // Calling a second time should be a no-op.
   net_log_temp_file_->ProcessCommand(NetLogTempFile::DO_START);
+  VerifyFileAndStateAfterDoStart();
+
+  // starting with other log levels should also be no-ops.
+  net_log_temp_file_->ProcessCommand(
+      NetLogTempFile::DO_START_STRIP_PRIVATE_DATA);
+  VerifyFileAndStateAfterDoStart();
+  net_log_temp_file_->ProcessCommand(
+      NetLogTempFile::DO_START_LOG_BYTES);
   VerifyFileAndStateAfterDoStart();
 
   net_log_temp_file_->ProcessCommand(NetLogTempFile::DO_STOP);
@@ -266,7 +299,7 @@ TEST_F(NetLogTempFileTest,
       NetLogTempFile::DO_START_STRIP_PRIVATE_DATA);
   VerifyFileAndStateAfterDoStartStripPrivateData();
 
-  // Calling DO_START_STRIP_PRIVATE_DATA second time should be a no-op.
+  // Calling a second time should be a no-op.
   net_log_temp_file_->ProcessCommand(
       NetLogTempFile::DO_START_STRIP_PRIVATE_DATA);
   VerifyFileAndStateAfterDoStartStripPrivateData();
@@ -277,6 +310,23 @@ TEST_F(NetLogTempFileTest,
   // Calling DO_STOP second time should be a no-op.
   net_log_temp_file_->ProcessCommand(NetLogTempFile::DO_STOP);
   VerifyFileAndStateAfterDoStopWithStripPrivateData();
+}
+
+TEST_F(NetLogTempFileTest,
+       ProcessCommandDoStartAndStopWithByteLogging) {
+  net_log_temp_file_->ProcessCommand(NetLogTempFile::DO_START_LOG_BYTES);
+  VerifyFileAndStateAfterDoStartLogBytes();
+
+  // Calling a second time should be a no-op.
+  net_log_temp_file_->ProcessCommand(NetLogTempFile::DO_START_LOG_BYTES);
+  VerifyFileAndStateAfterDoStartLogBytes();
+
+  net_log_temp_file_->ProcessCommand(NetLogTempFile::DO_STOP);
+  VerifyFileAndStateAfterDoStopWithLogBytes();
+
+  // Calling DO_STOP second time should be a no-op.
+  net_log_temp_file_->ProcessCommand(NetLogTempFile::DO_STOP);
+  VerifyFileAndStateAfterDoStopWithLogBytes();
 }
 
 TEST_F(NetLogTempFileTest, DoStartClearsFile) {

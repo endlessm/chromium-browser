@@ -46,26 +46,8 @@ void VideoProcessingModule::Destroy(VideoProcessingModule* module) {
     delete static_cast<VideoProcessingModuleImpl*>(module);
 }
 
-int32_t VideoProcessingModuleImpl::ChangeUniqueId(const int32_t id) {
-  CriticalSectionScoped mutex(&mutex_);
-  id_ = id;
-  brightness_detection_.ChangeUniqueId(id);
-  deflickering_.ChangeUniqueId(id);
-  frame_pre_processor_.ChangeUniqueId(id);
-  return VPM_OK;
-}
-
-int32_t VideoProcessingModuleImpl::Id() const {
-  CriticalSectionScoped mutex(&mutex_);
-  return id_;
-}
-
 VideoProcessingModuleImpl::VideoProcessingModuleImpl(const int32_t id)
-    : id_(id),
-    mutex_(*CriticalSectionWrapper::CreateCriticalSection()) {
-  brightness_detection_.ChangeUniqueId(id);
-  deflickering_.ChangeUniqueId(id);
-  frame_pre_processor_.ChangeUniqueId(id);
+    : mutex_(*CriticalSectionWrapper::CreateCriticalSection()) {
 }
 
 VideoProcessingModuleImpl::~VideoProcessingModuleImpl() {
@@ -80,7 +62,7 @@ void VideoProcessingModuleImpl::Reset() {
 }
 
 int32_t VideoProcessingModule::GetFrameStats(FrameStats* stats,
-                                             const I420VideoFrame& frame) {
+                                             const VideoFrame& frame) {
   if (frame.IsZeroSize()) {
     LOG(LS_ERROR) << "Zero size frame.";
     return VPM_PARAMETER_ERROR;
@@ -129,23 +111,19 @@ void VideoProcessingModule::ClearFrameStats(FrameStats* stats) {
   memset(stats->hist, 0, sizeof(stats->hist));
 }
 
-int32_t VideoProcessingModule::ColorEnhancement(I420VideoFrame* frame) {
-  return VideoProcessing::ColorEnhancement(frame);
-}
-
-int32_t VideoProcessingModule::Brighten(I420VideoFrame* frame, int delta) {
+int32_t VideoProcessingModule::Brighten(VideoFrame* frame, int delta) {
   return VideoProcessing::Brighten(frame, delta);
 }
 
-int32_t VideoProcessingModuleImpl::Deflickering(I420VideoFrame* frame,
+int32_t VideoProcessingModuleImpl::Deflickering(VideoFrame* frame,
                                                 FrameStats* stats) {
   CriticalSectionScoped mutex(&mutex_);
   return deflickering_.ProcessFrame(frame, stats);
 }
 
 int32_t VideoProcessingModuleImpl::BrightnessDetection(
-  const I420VideoFrame& frame,
-  const FrameStats& stats) {
+    const VideoFrame& frame,
+    const FrameStats& stats) {
   CriticalSectionScoped mutex(&mutex_);
   return brightness_detection_.ProcessFrame(frame, stats);
 }
@@ -186,8 +164,8 @@ uint32_t VideoProcessingModuleImpl::DecimatedHeight() const {
 }
 
 int32_t VideoProcessingModuleImpl::PreprocessFrame(
-    const I420VideoFrame& frame,
-    I420VideoFrame **processed_frame) {
+    const VideoFrame& frame,
+    VideoFrame** processed_frame) {
   CriticalSectionScoped mutex(&mutex_);
   return frame_pre_processor_.PreprocessFrame(frame, processed_frame);
 }

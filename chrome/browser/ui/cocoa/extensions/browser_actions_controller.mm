@@ -4,52 +4,37 @@
 
 #import "chrome/browser/ui/cocoa/extensions/browser_actions_controller.h"
 
-#include <cmath>
 #include <string>
 
 #include "base/strings/sys_string_conversions.h"
-#include "chrome/browser/extensions/extension_action.h"
-#include "chrome/browser/extensions/extension_action_manager.h"
-#include "chrome/browser/extensions/extension_toolbar_model.h"
-#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/extensions/extension_message_bubble_controller.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
+#import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/extensions/browser_action_button.h"
 #import "chrome/browser/ui/cocoa/extensions/browser_actions_container_view.h"
+#import "chrome/browser/ui/cocoa/extensions/extension_message_bubble_bridge.h"
 #import "chrome/browser/ui/cocoa/extensions/extension_popup_controller.h"
+#import "chrome/browser/ui/cocoa/extensions/toolbar_actions_bar_bubble_mac.h"
 #import "chrome/browser/ui/cocoa/image_button_cell.h"
 #import "chrome/browser/ui/cocoa/menu_button.h"
-#include "chrome/browser/ui/extensions/extension_action_view_controller.h"
+#import "chrome/browser/ui/cocoa/toolbar/toolbar_controller.h"
+#include "chrome/browser/ui/extensions/extension_toolbar_icon_surfacing_bubble_delegate.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/toolbar/toolbar_action_view_controller.h"
+#include "chrome/browser/ui/toolbar/toolbar_actions_bar.h"
+#include "chrome/browser/ui/toolbar/toolbar_actions_bar_delegate.h"
 #include "grit/theme_resources.h"
 #import "third_party/google_toolbox_for_mac/src/AppKit/GTMNSAnimation+Duration.h"
-
-using extensions::Extension;
-using extensions::ExtensionList;
 
 NSString* const kBrowserActionVisibilityChangedNotification =
     @"BrowserActionVisibilityChangedNotification";
 
 namespace {
+
 const CGFloat kAnimationDuration = 0.2;
 
 const CGFloat kChevronWidth = 18;
-
-// Since the container is the maximum height of the toolbar, we have
-// to move the buttons up by this amount in order to have them look
-// vertically centered within the toolbar.
-const CGFloat kBrowserActionOriginYOffset = 5.0;
-
-// The size of each button on the toolbar.
-const CGFloat kBrowserActionHeight = 29.0;
-const CGFloat kBrowserActionWidth = 29.0;
-
-// The padding between browser action buttons.
-const CGFloat kBrowserActionButtonPadding = 2.0;
-
-// Padding between Omnibox and first button.  Since the buttons have a
-// pixel of internal padding, this needs an extra pixel.
-const CGFloat kBrowserActionLeftPadding = kBrowserActionButtonPadding + 1.0;
 
 // How far to inset from the bottom of the view to get the top border
 // of the popup 2px below the bottom of the Omnibox.
@@ -58,42 +43,49 @@ const CGFloat kBrowserActionBubbleYOffset = 3.0;
 }  // namespace
 
 @interface BrowserActionsController(Private)
-// Used during initialization to create the BrowserActionButton objects from the
-// stored toolbar model.
-- (void)createButtons;
 
-// Creates and then adds the given extension's action button to the container
-// at the given index within the container. It does not affect the toolbar model
-// object since it is called when the toolbar model changes.
-- (void)createActionButtonForExtension:(const Extension*)extension
-                             withIndex:(NSUInteger)index;
+// Creates and adds a view for the given |action| at |index|.
+- (void)addViewForAction:(ToolbarActionViewController*)action
+               withIndex:(NSUInteger)index;
 
-// Removes an action button for the given extension from the container. This
-// method also does not affect the underlying toolbar model since it is called
-// when the toolbar model changes.
-- (void)removeActionButtonForExtension:(const Extension*)extension;
+// Removes the view for the given |action| from the ccontainer.
+- (void)removeViewForAction:(ToolbarActionViewController*)action;
 
-// Useful in the case of a Browser Action being added/removed from the middle of
-// the container, this method repositions each button according to the current
-// toolbar model.
-- (void)positionActionButtonsAndAnimate:(BOOL)animate;
+// Removes views for all actions.
+- (void)removeAllViews;
+
+// Redraws the BrowserActionsContainerView and updates the button order to match
+// the order in the ToolbarActionsBar.
+- (void)redraw;
+
+// Resizes the container to the specified |width|, and animates according to
+// the ToolbarActionsBar.
+- (void)resizeContainerToWidth:(CGFloat)width;
+
+// Sets the container to be either hidden or visible based on whether there are
+// any actions to show.
+// Returns whether the container is visible.
+- (BOOL)updateContainerVisibility;
 
 // During container resizing, buttons become more transparent as they are pushed
 // off the screen. This method updates each button's opacity determined by the
 // position of the button.
 - (void)updateButtonOpacity;
 
+// When the container is resizing, there's a chance that the buttons' frames
+// need to be adjusted (for instance, if an action is added to the left, the
+// frames of the actions to the right should gradually move right in the
+// container). Adjust the frames accordingly.
+- (void)updateButtonPositions;
+
 // Returns the existing button associated with the given id; nil if it cannot be
 // found.
 - (BrowserActionButton*)buttonForId:(const std::string&)id;
 
-// Returns the preferred width of the container given the number of visible
-// buttons |buttonCount|.
-- (CGFloat)containerWidthWithButtonCount:(NSUInteger)buttonCount;
-
-// Returns the number of buttons that can fit in the container according to its
-// current size.
-- (NSUInteger)containerButtonCapacity;
+// Returns the button at the given index. This is just a wrapper around
+// [NSArray objectAtIndex:], since that technically defaults to returning ids
+// (and can cause compile errors).
+- (BrowserActionButton*)buttonAtIndex:(NSUInteger)index;
 
 // Notification handlers for events registered by the class.
 
@@ -104,17 +96,20 @@ const CGFloat kBrowserActionBubbleYOffset = 3.0;
 // container out smoothly shows the Browser Action buttons.
 - (void)containerDragStart:(NSNotification*)notification;
 
-// Sends a notification for the toolbar to reposition surrounding UI elements.
-- (void)containerDragging:(NSNotification*)notification;
-
 // Determines which buttons need to be hidden based on the new size, hides them
 // and updates the chevron overflow menu. Also fires a notification to let the
 // toolbar know that the drag has finished.
 - (void)containerDragFinished:(NSNotification*)notification;
 
-// Sends a notification for the toolbar to determine whether the container can
-// translate with a delta on x-axis.
-- (void)containerWillTranslateOnX:(NSNotification*)notification;
+// Shows the toolbar info bubble, if it should be displayed.
+- (void)containerMouseEntered:(NSNotification*)notification;
+
+// Notifies the controlling ToolbarActionsBar that any running animation has
+// ended.
+- (void)containerAnimationEnded:(NSNotification*)notification;
+
+// Processes a key event from the container.
+- (void)containerKeyEvent:(NSNotification*)notification;
 
 // Adjusts the position of the surrounding action buttons depending on where the
 // button is within the container.
@@ -125,16 +120,19 @@ const CGFloat kBrowserActionBubbleYOffset = 3.0;
 // sync visually.
 - (void)actionButtonDragFinished:(NSNotification*)notification;
 
+// Returns the frame that the button with the given |index| should have.
+- (NSRect)frameForIndex:(NSUInteger)index;
+
+// Returns the popup point for the given |view| with |bounds|.
+- (NSPoint)popupPointForView:(NSView*)view
+                  withBounds:(NSRect)bounds;
+
 // Moves the given button both visually and within the toolbar model to the
 // specified index.
 - (void)moveButton:(BrowserActionButton*)button
-           toIndex:(NSUInteger)index
-           animate:(BOOL)animate;
+           toIndex:(NSUInteger)index;
 
-// Handles when the given BrowserActionButton object is clicked and whether
-// it should grant tab permissions. API-simulated clicks should not grant.
-- (BOOL)browserActionClicked:(BrowserActionButton*)button
-                 shouldGrant:(BOOL)shouldGrant;
+// Handles clicks for BrowserActionButtons.
 - (BOOL)browserActionClicked:(BrowserActionButton*)button;
 
 // The reason |frame| is specified in these chevron functions is because the
@@ -144,106 +142,189 @@ const CGFloat kBrowserActionBubbleYOffset = 3.0;
 
 // Shows the overflow chevron button depending on whether there are any hidden
 // extensions within the frame given.
-- (void)showChevronIfNecessaryInFrame:(NSRect)frame animate:(BOOL)animate;
+- (void)showChevronIfNecessaryInFrame:(NSRect)frame;
 
 // Moves the chevron to its correct position within |frame|.
 - (void)updateChevronPositionInFrame:(NSRect)frame;
 
-// Shows or hides the chevron, animating as specified by |animate|.
+// Shows or hides the chevron in the given |frame|.
 - (void)setChevronHidden:(BOOL)hidden
-                 inFrame:(NSRect)frame
-                 animate:(BOOL)animate;
+                 inFrame:(NSRect)frame;
 
 // Handles when a menu item within the chevron overflow menu is selected.
 - (void)chevronItemSelected:(id)menuItem;
 
 // Updates the container's grippy cursor based on the number of hidden buttons.
 - (void)updateGrippyCursors;
+
+// Returns the associated ToolbarController.
+- (ToolbarController*)toolbarController;
+
+// Creates a message bubble anchored to the given |anchorAction|, or the wrench
+// menu if no |anchorAction| is null.
+- (ToolbarActionsBarBubbleMac*)createMessageBubble:
+    (scoped_ptr<ToolbarActionsBarBubbleDelegate>)delegate
+    anchorAction:(ToolbarActionViewController*)anchorAction;
+
+// Called when the window for the active bubble is closing, and sets the active
+// bubble to nil.
+- (void)bubbleWindowClosing:(NSNotification*)notification;
+
+// Sets the current focused view. Should only be used for the overflow
+// container.
+- (void)setFocusedViewIndex:(NSInteger)index;
+
 @end
 
-// A helper class to proxy extension notifications to the view controller's
-// appropriate methods.
-class ExtensionServiceObserverBridge
-    : public extensions::ExtensionToolbarModel::Observer {
+namespace {
+
+// A bridge between the ToolbarActionsBar and the BrowserActionsController.
+class ToolbarActionsBarBridge : public ToolbarActionsBarDelegate {
  public:
-  ExtensionServiceObserverBridge(BrowserActionsController* owner,
-                                 Browser* browser)
-    : owner_(owner), browser_(browser) {
-  }
+  explicit ToolbarActionsBarBridge(BrowserActionsController* controller);
+  ~ToolbarActionsBarBridge() override;
 
-  // extensions::ExtensionToolbarModel::Observer implementation.
-  void ToolbarExtensionAdded(const Extension* extension, int index) override {
-    [owner_ createActionButtonForExtension:extension withIndex:index];
-    [owner_ resizeContainerAndAnimate:NO];
-  }
-
-  void ToolbarExtensionRemoved(const Extension* extension) override {
-    [owner_ removeActionButtonForExtension:extension];
-    [owner_ resizeContainerAndAnimate:NO];
-  }
-
-  void ToolbarExtensionMoved(const Extension* extension, int index) override {}
-
-  void ToolbarExtensionUpdated(const Extension* extension) override {
-    BrowserActionButton* button = [owner_ buttonForId:extension->id()];
-    if (button)
-      [button updateState];
-  }
-
-  bool ShowExtensionActionPopup(const Extension* extension,
-                                bool grant_active_tab) override {
-    // Do not override other popups and only show in active window.
-    ExtensionPopupController* popup = [ExtensionPopupController popup];
-    if (popup || !browser_->window()->IsActive())
-      return false;
-
-    BrowserActionButton* button = [owner_ buttonForId:extension->id()];
-    return button && [button viewController]->ExecuteAction(grant_active_tab);
-  }
-
-  void ToolbarVisibleCountChanged() override {}
-
-  void OnToolbarReorderNecessary(content::WebContents* web_contents) override {
-    // TODO(devlin): Implement on mac.
-  }
-
-  void ToolbarHighlightModeChanged(bool is_highlighting) override {}
-
-  void OnToolbarModelInitialized() override {
-    [owner_ createButtons];
-  }
-
-  Browser* GetBrowser() override { return browser_; }
+  BrowserActionsController* controller_for_test() { return controller_; }
 
  private:
-  // The object we need to inform when we get a notification. Weak. Owns us.
-  BrowserActionsController* owner_;
+  // ToolbarActionsBarDelegate:
+  void AddViewForAction(ToolbarActionViewController* action,
+                        size_t index) override;
+  void RemoveViewForAction(ToolbarActionViewController* action) override;
+  void RemoveAllViews() override;
+  void Redraw(bool order_changed) override;
+  void ResizeAndAnimate(gfx::Tween::Type tween_type,
+                        int target_width,
+                        bool suppress_chevron) override;
+  void SetChevronVisibility(bool chevron_visible) override;
+  int GetWidth() const override;
+  bool IsAnimating() const override;
+  void StopAnimating() override;
+  int GetChevronWidth() const override;
+  void OnOverflowedActionWantsToRunChanged(bool overflowed_action_wants_to_run)
+      override;
+  void ShowExtensionMessageBubble(
+      scoped_ptr<extensions::ExtensionMessageBubbleController> controller,
+      ToolbarActionViewController* anchor_action) override;
 
-  // The browser we listen for events from. Weak.
-  Browser* browser_;
+  // The owning BrowserActionsController; weak.
+  BrowserActionsController* controller_;
 
-  DISALLOW_COPY_AND_ASSIGN(ExtensionServiceObserverBridge);
+  DISALLOW_COPY_AND_ASSIGN(ToolbarActionsBarBridge);
 };
+
+ToolbarActionsBarBridge::ToolbarActionsBarBridge(
+    BrowserActionsController* controller)
+    : controller_(controller) {
+}
+
+ToolbarActionsBarBridge::~ToolbarActionsBarBridge() {
+}
+
+void ToolbarActionsBarBridge::AddViewForAction(
+    ToolbarActionViewController* action,
+    size_t index) {
+  [controller_ addViewForAction:action
+                      withIndex:index];
+}
+
+void ToolbarActionsBarBridge::RemoveViewForAction(
+    ToolbarActionViewController* action) {
+  [controller_ removeViewForAction:action];
+}
+
+void ToolbarActionsBarBridge::RemoveAllViews() {
+  [controller_ removeAllViews];
+}
+
+void ToolbarActionsBarBridge::Redraw(bool order_changed) {
+  [controller_ redraw];
+}
+
+void ToolbarActionsBarBridge::ResizeAndAnimate(gfx::Tween::Type tween_type,
+                                               int target_width,
+                                               bool suppress_chevron) {
+  [controller_ resizeContainerToWidth:target_width];
+}
+
+void ToolbarActionsBarBridge::SetChevronVisibility(bool chevron_visible) {
+  [controller_ setChevronHidden:!chevron_visible
+                        inFrame:[[controller_ containerView] frame]];
+}
+
+int ToolbarActionsBarBridge::GetWidth() const {
+  return NSWidth([[controller_ containerView] frame]);
+}
+
+bool ToolbarActionsBarBridge::IsAnimating() const {
+  return [[controller_ containerView] isAnimating];
+}
+
+void ToolbarActionsBarBridge::StopAnimating() {
+  // Unfortunately, animating the browser actions container affects neighboring
+  // views (like the omnibox), which could also be animating. Because of this,
+  // instead of just ending the animation, the cleanest way to terminate is to
+  // "animate" to the current frame.
+  [controller_ resizeContainerToWidth:
+      NSWidth([[controller_ containerView] frame])];
+}
+
+int ToolbarActionsBarBridge::GetChevronWidth() const {
+  return kChevronWidth;
+}
+
+void ToolbarActionsBarBridge::OnOverflowedActionWantsToRunChanged(
+    bool overflowed_action_wants_to_run) {
+  [[controller_ toolbarController]
+      setOverflowedToolbarActionWantsToRun:overflowed_action_wants_to_run];
+}
+
+void ToolbarActionsBarBridge::ShowExtensionMessageBubble(
+    scoped_ptr<extensions::ExtensionMessageBubbleController> controller,
+    ToolbarActionViewController* anchor_action) {
+  // This goop is a by-product of needing to wire together abstract classes,
+  // C++/Cocoa bridges, and ExtensionMessageBubbleController's somewhat strange
+  // Show() interface. It's ugly, but it's pretty confined, so it's probably
+  // okay (but if we ever need to expand, it might need to be reconsidered).
+  scoped_ptr<ExtensionMessageBubbleBridge> bridge(
+      new ExtensionMessageBubbleBridge(controller.Pass(),
+                                       anchor_action != nullptr));
+  ExtensionMessageBubbleBridge* weak_bridge = bridge.get();
+  ToolbarActionsBarBubbleMac* bubble =
+      [controller_ createMessageBubble:bridge.Pass()
+                          anchorAction:anchor_action];
+  weak_bridge->SetBubble(bubble);
+  weak_bridge->controller()->Show(weak_bridge);
+}
+
+}  // namespace
 
 @implementation BrowserActionsController
 
 @synthesize containerView = containerView_;
+@synthesize browser = browser_;
+@synthesize isOverflow = isOverflow_;
+@synthesize activeBubble = activeBubble_;
 
 #pragma mark -
 #pragma mark Public Methods
 
 - (id)initWithBrowser:(Browser*)browser
-        containerView:(BrowserActionsContainerView*)container {
+        containerView:(BrowserActionsContainerView*)container
+       mainController:(BrowserActionsController*)mainController {
   DCHECK(browser && container);
 
   if ((self = [super init])) {
     browser_ = browser;
-    profile_ = browser->profile();
+    isOverflow_ = mainController != nil;
 
-    observer_.reset(new ExtensionServiceObserverBridge(self, browser_));
-    toolbarModel_ = extensions::ExtensionToolbarModel::Get(profile_);
-    if (toolbarModel_)
-      toolbarModel_->AddObserver(observer_.get());
+    toolbarActionsBarBridge_.reset(new ToolbarActionsBarBridge(self));
+    ToolbarActionsBar* mainBar =
+        mainController ? [mainController toolbarActionsBar] : nullptr;
+    toolbarActionsBar_.reset(
+        new ToolbarActionsBar(toolbarActionsBarBridge_.get(),
+                              browser_,
+                              mainBar));
 
     containerView_ = container;
     [containerView_ setPostsFrameChangedNotifications:YES];
@@ -259,18 +340,18 @@ class ExtensionServiceObserverBridge
              object:containerView_];
     [[NSNotificationCenter defaultCenter]
         addObserver:self
-           selector:@selector(containerDragging:)
-               name:kBrowserActionGrippyDraggingNotification
-             object:containerView_];
-    [[NSNotificationCenter defaultCenter]
-        addObserver:self
            selector:@selector(containerDragFinished:)
                name:kBrowserActionGrippyDragFinishedNotification
              object:containerView_];
     [[NSNotificationCenter defaultCenter]
         addObserver:self
-           selector:@selector(containerWillTranslateOnX:)
-               name:kBrowserActionGrippyWillDragNotification
+           selector:@selector(containerAnimationEnded:)
+               name:kBrowserActionsContainerAnimationEnded
+             object:containerView_];
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(containerKeyEvent:)
+               name:kBrowserActionsContainerReceivedKeyEvent
              object:containerView_];
     // Listen for a finished drag from any button to make sure each open window
     // stays in sync.
@@ -280,40 +361,59 @@ class ExtensionServiceObserverBridge
              name:kBrowserActionButtonDragEndNotification
            object:nil];
 
-    chevronAnimation_.reset([[NSViewAnimation alloc] init]);
-    [chevronAnimation_ gtm_setDuration:kAnimationDuration
-                             eventMask:NSLeftMouseUpMask];
-    [chevronAnimation_ setAnimationBlockingMode:NSAnimationNonblocking];
+    suppressChevron_ = NO;
+    if (toolbarActionsBar_->platform_settings().chevron_enabled) {
+      chevronAnimation_.reset([[NSViewAnimation alloc] init]);
+      [chevronAnimation_ gtm_setDuration:kAnimationDuration
+                               eventMask:NSLeftMouseUpMask];
+      [chevronAnimation_ setAnimationBlockingMode:NSAnimationNonblocking];
+    }
 
-    hiddenButtons_.reset([[NSMutableArray alloc] init]);
-    buttons_.reset([[NSMutableDictionary alloc] init]);
-    if (toolbarModel_ && toolbarModel_->extensions_initialized())
-      [self createButtons];
-    [self showChevronIfNecessaryInFrame:[containerView_ frame] animate:NO];
+    if (isOverflow_)
+      toolbarActionsBar_->SetOverflowRowWidth(NSWidth([containerView_ frame]));
+
+    buttons_.reset([[NSMutableArray alloc] init]);
+    toolbarActionsBar_->CreateActions();
+    [self showChevronIfNecessaryInFrame:[containerView_ frame]];
     [self updateGrippyCursors];
-    [container setResizable:!profile_->IsOffTheRecord()];
+    [container setIsOverflow:isOverflow_];
+    if (ExtensionToolbarIconSurfacingBubbleDelegate::ShouldShowForProfile(
+            browser_->profile())) {
+      [containerView_ setTrackingEnabled:YES];
+      [[NSNotificationCenter defaultCenter]
+          addObserver:self
+             selector:@selector(containerMouseEntered:)
+                 name:kBrowserActionsContainerMouseEntered
+               object:containerView_];
+    }
+
+    focusedViewIndex_ = -1;
   }
 
   return self;
 }
 
 - (void)dealloc {
-  if (toolbarModel_)
-    toolbarModel_->RemoveObserver(observer_.get());
-  for (BrowserActionButton* button in [buttons_ allValues]) {
-    [button removeFromSuperview];
-    [button onRemoved];
-  }
-  [hiddenButtons_ removeAllObjects];
-  [buttons_ removeAllObjects];
-
-  [[NSNotificationCenter defaultCenter] removeObserver:self];
+  [self browserWillBeDestroyed];
   [super dealloc];
 }
 
+- (void)browserWillBeDestroyed {
+  [overflowMenu_ setDelegate:nil];
+  // Explicitly destroy the ToolbarActionsBar so all buttons get removed with a
+  // valid BrowserActionsController, and so we can verify state before
+  // destruction.
+  if (toolbarActionsBar_.get()) {
+    toolbarActionsBar_->DeleteActions();
+    toolbarActionsBar_.reset();
+  }
+  DCHECK_EQ(0u, [buttons_ count]);
+  [[NSNotificationCenter defaultCenter] removeObserver:self];
+  browser_ = nullptr;
+}
+
 - (void)update {
-  for (BrowserActionButton* button in [buttons_ allValues])
-    [button updateState];
+  toolbarActionsBar_->Update();
 }
 
 - (NSUInteger)buttonCount {
@@ -321,50 +421,33 @@ class ExtensionServiceObserverBridge
 }
 
 - (NSUInteger)visibleButtonCount {
-  return [self buttonCount] - [hiddenButtons_ count];
+  NSUInteger visibleCount = 0;
+  for (BrowserActionButton* button in buttons_.get())
+    visibleCount += [button superview] == containerView_;
+  return visibleCount;
 }
 
-- (void)resizeContainerAndAnimate:(BOOL)animate {
-  int iconCount = toolbarModel_->visible_icon_count();
-
-  [containerView_ resizeToWidth:[self containerWidthWithButtonCount:iconCount]
-                        animate:animate];
-  NSRect frame = animate ? [containerView_ animationEndFrame] :
-                           [containerView_ frame];
-
-  [self showChevronIfNecessaryInFrame:frame animate:animate];
-
-  if (!animate) {
-    [[NSNotificationCenter defaultCenter]
-        postNotificationName:kBrowserActionVisibilityChangedNotification
-                      object:self];
-  }
-}
-
-- (CGFloat)savedWidth {
-  if (!toolbarModel_)
-    return 0;
-
-  int savedButtonCount = toolbarModel_->visible_icon_count();
-  if (static_cast<NSUInteger>(savedButtonCount) > [self buttonCount])
-    savedButtonCount = [self buttonCount];
-  return [self containerWidthWithButtonCount:savedButtonCount];
+- (gfx::Size)preferredSize {
+  return toolbarActionsBar_->GetPreferredSize();
 }
 
 - (NSPoint)popupPointForId:(const std::string&)id {
-  NSButton* button = [self buttonForId:id];
+  BrowserActionButton* button = [self buttonForId:id];
   if (!button)
     return NSZeroPoint;
 
-  if ([hiddenButtons_ containsObject:button])
-    button = chevronMenuButton_.get();
+  NSRect bounds;
+  NSView* referenceButton = button;
+  if ([button superview] != containerView_ || isOverflow_) {
+    referenceButton = toolbarActionsBar_->platform_settings().chevron_enabled ?
+         chevronMenuButton_.get() : [[self toolbarController] wrenchButton];
+    bounds = [referenceButton bounds];
+  } else {
+    bounds = [button convertRect:[button frameAfterAnimation]
+                        fromView:[button superview]];
+  }
 
-  // Anchor point just above the center of the bottom.
-  const NSRect bounds = [button bounds];
-  DCHECK([button isFlipped]);
-  NSPoint anchor = NSMakePoint(NSMidX(bounds),
-                               NSMaxY(bounds) - kBrowserActionBubbleYOffset);
-  return [button convertPoint:anchor toView:nil];
+  return [self popupPointForView:referenceButton withBounds:bounds];
 }
 
 - (BOOL)chevronIsHidden {
@@ -390,15 +473,27 @@ class ExtensionServiceObserverBridge
   return YES;
 }
 
-- (void)activateBrowserAction:(const std::string&)id {
-  BrowserActionButton* button = [self buttonForId:id];
-  // |button| can be nil when the browser action has its button hidden.
-  if (button)
-    [self browserActionClicked:button];
-}
-
 - (content::WebContents*)currentWebContents {
   return browser_->tab_strip_model()->GetActiveWebContents();
+}
+
+- (BrowserActionButton*)mainButtonForId:(const std::string&)id {
+  BrowserActionsController* mainController = isOverflow_ ?
+      [[self toolbarController] browserActionsController] : self;
+  return [mainController buttonForId:id];
+}
+
+- (ToolbarActionsBar*)toolbarActionsBar {
+  return toolbarActionsBar_.get();
+}
+
+- (void)setFocusedInOverflow:(BOOL)focused {
+  BOOL isFocused = focusedViewIndex_ != -1;
+  if (isFocused != focused) {
+    int index = focused ?
+        [buttons_ count] - toolbarActionsBar_->GetIconCount() : -1;
+    [self setFocusedViewIndex:index];
+  }
 }
 
 #pragma mark -
@@ -410,7 +505,11 @@ class ExtensionServiceObserverBridge
   // See menu_button.h for documentation on why this is needed.
   [menu addItemWithTitle:@"" action:nil keyEquivalent:@""];
 
-  for (BrowserActionButton* button in hiddenButtons_.get()) {
+  NSUInteger iconCount = toolbarActionsBar_->GetIconCount();
+  NSRange hiddenButtonRange =
+      NSMakeRange(iconCount, [buttons_ count] - iconCount);
+  for (BrowserActionButton* button in
+           [buttons_ subarrayWithRange:hiddenButtonRange]) {
     NSString* name =
         base::SysUTF16ToNSString([button viewController]->GetActionName());
     NSMenuItem* item =
@@ -427,49 +526,20 @@ class ExtensionServiceObserverBridge
 #pragma mark -
 #pragma mark Private Methods
 
-- (void)createButtons {
-  if (!toolbarModel_)
-    return;
-
-  NSUInteger i = 0;
-  for (ExtensionList::const_iterator iter =
-           toolbarModel_->toolbar_items().begin();
-       iter != toolbarModel_->toolbar_items().end(); ++iter) {
-    [self createActionButtonForExtension:iter->get() withIndex:i++];
-  }
-
-  [self resizeContainerAndAnimate:NO];
-}
-
-- (void)createActionButtonForExtension:(const Extension*)extension
-                             withIndex:(NSUInteger)index {
-  // Show the container if it's the first button. Otherwise it will be shown
-  // already.
-  if ([self buttonCount] == 0)
-    [containerView_ setHidden:NO];
-
-  NSRect buttonFrame = NSMakeRect(0.0, kBrowserActionOriginYOffset,
-                                  kBrowserActionWidth, kBrowserActionHeight);
-  ExtensionAction* extensionAction =
-      extensions::ExtensionActionManager::Get(browser_->profile())->
-          GetExtensionAction(*extension);
-  DCHECK(extensionAction)
-        << "Don't create a BrowserActionButton if there is no browser action.";
-  scoped_ptr<ToolbarActionViewController> viewController(
-      new ExtensionActionViewController(extension, browser_, extensionAction));
+- (void)addViewForAction:(ToolbarActionViewController*)action
+               withIndex:(NSUInteger)index {
+  NSRect buttonFrame = NSMakeRect(NSMaxX([containerView_ bounds]),
+                                  0,
+                                  ToolbarActionsBar::IconWidth(false),
+                                  ToolbarActionsBar::IconHeight());
   BrowserActionButton* newButton =
       [[[BrowserActionButton alloc]
          initWithFrame:buttonFrame
-        viewController:viewController.Pass()
+        viewController:action
             controller:self] autorelease];
   [newButton setTarget:self];
   [newButton setAction:@selector(browserActionClicked:)];
-  NSString* buttonKey = base::SysUTF8ToNSString(extension->id());
-  if (!buttonKey)
-    return;
-  [buttons_ setObject:newButton forKey:buttonKey];
-
-  [self positionActionButtonsAndAnimate:NO];
+  [buttons_ insertObject:newButton atIndex:index];
 
   [[NSNotificationCenter defaultCenter]
       addObserver:self
@@ -477,53 +547,119 @@ class ExtensionServiceObserverBridge
              name:kBrowserActionButtonDraggingNotification
            object:newButton];
 
-
-  [containerView_ setMaxWidth:
-      [self containerWidthWithButtonCount:[self buttonCount]]];
-  [containerView_ setNeedsDisplay:YES];
+  [containerView_ setMaxDesiredWidth:toolbarActionsBar_->GetMaximumWidth()];
 }
 
-- (void)removeActionButtonForExtension:(const Extension*)extension {
-  NSString* buttonKey = base::SysUTF8ToNSString(extension->id());
-  if (!buttonKey)
-    return;
+- (void)redraw {
+  if (![self updateContainerVisibility])
+    return;  // Container is hidden; no need to update.
 
-  BrowserActionButton* button = [buttons_ objectForKey:buttonKey];
+  [containerView_ setIsHighlighting:toolbarActionsBar_->is_highlighting()];
+
+  std::vector<ToolbarActionViewController*> toolbar_actions =
+      toolbarActionsBar_->GetActions();
+  for (NSUInteger i = 0; i < [buttons_ count]; ++i) {
+    ToolbarActionViewController* controller =
+        [[self buttonAtIndex:i] viewController];
+    if (controller != toolbar_actions[i]) {
+      size_t j = i + 1;
+      while (true) {
+        ToolbarActionViewController* other_controller =
+            [[self buttonAtIndex:j] viewController];
+        if (other_controller == toolbar_actions[i])
+          break;
+        ++j;
+      }
+      [buttons_ exchangeObjectAtIndex:i withObjectAtIndex:j];
+    }
+  }
+
+  [self showChevronIfNecessaryInFrame:[containerView_ frame]];
+  NSUInteger minIndex = isOverflow_ ?
+      [buttons_ count] - toolbarActionsBar_->GetIconCount() : 0;
+  NSUInteger maxIndex = isOverflow_ ?
+      [buttons_ count] : toolbarActionsBar_->GetIconCount();
+  for (NSUInteger i = 0; i < [buttons_ count]; ++i) {
+    BrowserActionButton* button = [buttons_ objectAtIndex:i];
+    if ([button isBeingDragged])
+      continue;
+
+    [self moveButton:[buttons_ objectAtIndex:i] toIndex:i - minIndex];
+
+    if (i >= minIndex && i < maxIndex) {
+      // Make sure the button is within the visible container.
+      if ([button superview] != containerView_) {
+        // We add the subview under the sibling views so that when it
+        // "slides in", it does so under its neighbors.
+        [containerView_ addSubview:button
+                        positioned:NSWindowBelow
+                        relativeTo:nil];
+      }
+      // We need to set the alpha value in case the container has resized.
+      [button setAlphaValue:1.0];
+    } else if ([button superview] == containerView_ &&
+               ![containerView_ userIsResizing]) {
+      // If the user is resizing, all buttons are (and should be) on the
+      // container view.
+      [button removeFromSuperview];
+      [button setAlphaValue:0.0];
+    }
+  }
+}
+
+- (void)removeViewForAction:(ToolbarActionViewController*)action {
+  BrowserActionButton* button = [self buttonForId:action->GetId()];
 
   [button removeFromSuperview];
   [button onRemoved];
-  // It may or may not be hidden, but it won't matter to NSMutableArray either
-  // way.
-  [hiddenButtons_ removeObject:button];
+  [buttons_ removeObject:button];
 
-  [buttons_ removeObjectForKey:buttonKey];
-  if ([self buttonCount] == 0) {
-    // No more buttons? Hide the container.
-    [containerView_ setHidden:YES];
-  } else {
-    [self positionActionButtonsAndAnimate:NO];
-  }
-  [containerView_ setMaxWidth:
-      [self containerWidthWithButtonCount:[self buttonCount]]];
-  [containerView_ setNeedsDisplay:YES];
+  [containerView_ setMaxDesiredWidth:toolbarActionsBar_->GetMaximumWidth()];
 }
 
-- (void)positionActionButtonsAndAnimate:(BOOL)animate {
-  NSUInteger i = 0;
-  for (ExtensionList::const_iterator iter =
-           toolbarModel_->toolbar_items().begin();
-       iter != toolbarModel_->toolbar_items().end(); ++iter) {
-    BrowserActionButton* button = [self buttonForId:(iter->get()->id())];
-    if (!button)
-      continue;
-    if (![button isBeingDragged])
-      [self moveButton:button toIndex:i animate:animate];
-    ++i;
+- (void)removeAllViews {
+  for (BrowserActionButton* button in buttons_.get()) {
+    [button removeFromSuperview];
+    [button onRemoved];
   }
+  [buttons_ removeAllObjects];
+}
+
+- (void)resizeContainerToWidth:(CGFloat)width {
+  // Cocoa goes a little crazy if we try and change animations while adjusting
+  // child frames (i.e., the buttons). If the toolbar is already animating,
+  // just jump to the new frame. (This typically only happens if someone is
+  // "spamming" a button to add/remove an action.)
+  BOOL animate = !toolbarActionsBar_->suppress_animation() &&
+      ![containerView_ isAnimating];
+  [self updateContainerVisibility];
+  [containerView_ resizeToWidth:width
+                        animate:animate];
+  NSRect frame = animate ? [containerView_ animationEndFrame] :
+                           [containerView_ frame];
+
+  [self showChevronIfNecessaryInFrame:frame];
+
+  [containerView_ setNeedsDisplay:YES];
+
+  if (!animate) {
+    [[NSNotificationCenter defaultCenter]
+        postNotificationName:kBrowserActionVisibilityChangedNotification
+                      object:self];
+  }
+  [self redraw];
+  [self updateGrippyCursors];
+}
+
+- (BOOL)updateContainerVisibility {
+  BOOL hidden = [buttons_ count] == 0;
+  if ([containerView_ isHidden] != hidden)
+    [containerView_ setHidden:hidden];
+  return !hidden;
 }
 
 - (void)updateButtonOpacity {
-  for (BrowserActionButton* button in [buttons_ allValues]) {
+  for (BrowserActionButton* button in buttons_.get()) {
     NSRect buttonFrame = [button frame];
     if (NSContainsRect([containerView_ bounds], buttonFrame)) {
       if ([button alphaValue] != 1.0)
@@ -540,190 +676,264 @@ class ExtensionServiceObserverBridge
   }
 }
 
+- (void)updateButtonPositions {
+  for (NSUInteger index = 0; index < [buttons_ count]; ++index) {
+    BrowserActionButton* button = [buttons_ objectAtIndex:index];
+    NSRect buttonFrame = [self frameForIndex:index];
+
+    // If the button is at the proper position (or animating to it), then we
+    // don't need to update its position.
+    if (NSMinX([button frameAfterAnimation]) == NSMinX(buttonFrame))
+      continue;
+
+    // We set the x-origin by calculating the proper distance from the right
+    // edge in the container so that, if the container is animating, the
+    // button appears stationary.
+    buttonFrame.origin.x = NSWidth([containerView_ frame]) -
+        (toolbarActionsBar_->GetPreferredSize().width() - NSMinX(buttonFrame));
+    [button setFrame:buttonFrame animate:NO];
+  }
+}
+
 - (BrowserActionButton*)buttonForId:(const std::string&)id {
-  NSString* nsId = base::SysUTF8ToNSString(id);
-  DCHECK(nsId);
-  if (!nsId)
-    return nil;
-  return [buttons_ objectForKey:nsId];
+  for (BrowserActionButton* button in buttons_.get()) {
+    if ([button viewController]->GetId() == id)
+      return button;
+  }
+  return nil;
 }
 
-- (CGFloat)containerWidthWithButtonCount:(NSUInteger)buttonCount {
-  // Left-side padding which works regardless of whether a button or
-  // chevron leads.
-  CGFloat width = kBrowserActionLeftPadding;
-
-  // Include the buttons and padding between.
-  if (buttonCount > 0) {
-    width += buttonCount * kBrowserActionWidth;
-    width += (buttonCount - 1) * kBrowserActionButtonPadding;
-  }
-
-  // Make room for the chevron if any buttons are hidden.
-  if ([self buttonCount] != [self visibleButtonCount]) {
-    // Chevron and buttons both include 1px padding w/in their bounds,
-    // so this leaves 2px between the last browser action and chevron,
-    // and also works right if the chevron is the only button.
-    width += kChevronWidth;
-  }
-
-  return width;
-}
-
-- (NSUInteger)containerButtonCapacity {
-  // Edge-to-edge span of the browser action buttons.
-  CGFloat actionSpan = [self savedWidth] - kBrowserActionLeftPadding;
-
-  // Add in some padding for the browser action on the end, then
-  // divide out to get the number of action buttons that fit.
-  return (actionSpan + kBrowserActionButtonPadding) /
-      (kBrowserActionWidth + kBrowserActionButtonPadding);
+- (BrowserActionButton*)buttonAtIndex:(NSUInteger)index {
+  return static_cast<BrowserActionButton*>([buttons_ objectAtIndex:index]);
 }
 
 - (void)containerFrameChanged:(NSNotification*)notification {
+  [self updateButtonPositions];
   [self updateButtonOpacity];
   [[containerView_ window] invalidateCursorRectsForView:containerView_];
   [self updateChevronPositionInFrame:[containerView_ frame]];
 }
 
 - (void)containerDragStart:(NSNotification*)notification {
-  [self setChevronHidden:YES inFrame:[containerView_ frame] animate:YES];
-  while([hiddenButtons_ count] > 0) {
-    BrowserActionButton* button = [hiddenButtons_ objectAtIndex:0];
-    [button setAlphaValue:1.0];
-    [containerView_ addSubview:button];
-    [hiddenButtons_ removeObjectAtIndex:0];
+  [self setChevronHidden:YES inFrame:[containerView_ frame]];
+  for (BrowserActionButton* button in buttons_.get()) {
+    if ([button superview] != containerView_) {
+      [button setAlphaValue:1.0];
+      [containerView_ addSubview:button];
+    }
   }
 }
 
-- (void)containerDragging:(NSNotification*)notification {
-  [[NSNotificationCenter defaultCenter]
-      postNotificationName:kBrowserActionGrippyDraggingNotification
-                    object:self];
-}
-
 - (void)containerDragFinished:(NSNotification*)notification {
-  for (ExtensionList::const_iterator iter =
-           toolbarModel_->toolbar_items().begin();
-       iter != toolbarModel_->toolbar_items().end(); ++iter) {
-    BrowserActionButton* button = [self buttonForId:(iter->get()->id())];
+  for (BrowserActionButton* button in buttons_.get()) {
     NSRect buttonFrame = [button frame];
     if (NSContainsRect([containerView_ bounds], buttonFrame))
       continue;
 
     CGFloat intersectionWidth =
         NSWidth(NSIntersectionRect([containerView_ bounds], buttonFrame));
-    // Pad the threshold by 5 pixels in order to have the buttons hide more
-    // easily.
+    // Hide the button if it's not "mostly" visible. "Mostly" here equates to
+    // having three or fewer pixels hidden.
     if (([containerView_ grippyPinned] && intersectionWidth > 0) ||
-        (intersectionWidth <= (NSWidth(buttonFrame) / 2) + 5.0)) {
+        (intersectionWidth <= NSWidth(buttonFrame) - 3.0)) {
       [button setAlphaValue:0.0];
       [button removeFromSuperview];
-      [hiddenButtons_ addObject:button];
     }
   }
+
+  toolbarActionsBar_->OnResizeComplete(
+      toolbarActionsBar_->IconCountToWidth([self visibleButtonCount]));
+
   [self updateGrippyCursors];
-
-  toolbarModel_->SetVisibleIconCount([self visibleButtonCount]);
-
-  [[NSNotificationCenter defaultCenter]
-      postNotificationName:kBrowserActionGrippyDragFinishedNotification
-                    object:self];
+  [self resizeContainerToWidth:toolbarActionsBar_->GetPreferredSize().width()];
 }
 
-- (void)containerWillTranslateOnX:(NSNotification*)notification {
+- (void)containerAnimationEnded:(NSNotification*)notification {
+  if (![containerView_ isAnimating])
+    toolbarActionsBar_->OnAnimationEnded();
+}
+
+- (void)containerKeyEvent:(NSNotification*)notification {
+  DCHECK(isOverflow_);  // We only manually process key events in overflow.
+
+  NSDictionary* dict = [notification userInfo];
+  BrowserActionsContainerKeyAction action =
+      static_cast<BrowserActionsContainerKeyAction>(
+          [[dict objectForKey:kBrowserActionsContainerKeyEventKey] intValue]);
+  switch (action) {
+    case BROWSER_ACTIONS_DECREMENT_FOCUS:
+    case BROWSER_ACTIONS_INCREMENT_FOCUS: {
+      NSInteger newIndex = focusedViewIndex_ +
+          (action == BROWSER_ACTIONS_INCREMENT_FOCUS ? 1 : -1);
+      NSInteger minIndex =
+          [buttons_ count] - toolbarActionsBar_->GetIconCount();
+      if (newIndex >= minIndex && newIndex < static_cast<int>([buttons_ count]))
+        [self setFocusedViewIndex:newIndex];
+      break;
+    }
+    case BROWSER_ACTIONS_EXECUTE_CURRENT: {
+      if (focusedViewIndex_ != -1) {
+        BrowserActionButton* focusedButton =
+            [self buttonAtIndex:focusedViewIndex_];
+        [focusedButton performClick:focusedButton];
+      }
+      break;
+    }
+    case BROWSER_ACTIONS_INVALID_KEY_ACTION:
+      NOTREACHED();
+  }
+}
+
+- (void)containerMouseEntered:(NSNotification*)notification {
+  if (!activeBubble_ &&  // only show one bubble at a time
+      ExtensionToolbarIconSurfacingBubbleDelegate::ShouldShowForProfile(
+          browser_->profile())) {
+    ToolbarActionViewController* anchorAction = [buttons_ count] > 0 ?
+        [[self buttonAtIndex:0] viewController] : nullptr;
+    scoped_ptr<ToolbarActionsBarBubbleDelegate> delegate(
+        new ExtensionToolbarIconSurfacingBubbleDelegate(browser_->profile()));
+    ToolbarActionsBarBubbleMac* bubble =
+        [self createMessageBubble:delegate.Pass()
+                     anchorAction:anchorAction];
+    [bubble showWindow:nil];
+  }
+  [containerView_ setTrackingEnabled:NO];
   [[NSNotificationCenter defaultCenter]
-      postNotificationName:kBrowserActionGrippyWillDragNotification
-                    object:self
-                  userInfo:notification.userInfo];
+      removeObserver:self
+                name:kBrowserActionsContainerMouseEntered
+              object:containerView_];
 }
 
 - (void)actionButtonDragging:(NSNotification*)notification {
+  suppressChevron_ = YES;
   if (![self chevronIsHidden])
-    [self setChevronHidden:YES inFrame:[containerView_ frame] animate:YES];
+    [self setChevronHidden:YES inFrame:[containerView_ frame]];
 
   // Determine what index the dragged button should lie in, alter the model and
   // reposition the buttons.
-  CGFloat dragThreshold = std::floor(kBrowserActionWidth / 2);
   BrowserActionButton* draggedButton = [notification object];
   NSRect draggedButtonFrame = [draggedButton frame];
+  // Find the mid-point. We flip the y-coordinates so that y = 0 is at the
+  // top of the container to make row calculation more logical.
+  NSPoint midPoint =
+      NSMakePoint(NSMidX(draggedButtonFrame),
+                  NSMaxY([containerView_ bounds]) - NSMidY(draggedButtonFrame));
 
-  NSUInteger index = 0;
-  for (ExtensionList::const_iterator iter =
-           toolbarModel_->toolbar_items().begin();
-       iter != toolbarModel_->toolbar_items().end(); ++iter) {
-    BrowserActionButton* button = [self buttonForId:(iter->get()->id())];
-    CGFloat intersectionWidth =
-        NSWidth(NSIntersectionRect(draggedButtonFrame, [button frame]));
+  // Calculate the row index and the index in the row. We bound the latter
+  // because the view can go farther right than the right-most icon in the last
+  // row of the overflow menu.
+  NSInteger rowIndex = midPoint.y / ToolbarActionsBar::IconHeight();
+  int icons_per_row = isOverflow_ ?
+      toolbarActionsBar_->platform_settings().icons_per_overflow_menu_row :
+      toolbarActionsBar_->GetIconCount();
+  NSInteger indexInRow = std::min(icons_per_row - 1,
+      static_cast<int>(midPoint.x / ToolbarActionsBar::IconWidth(true)));
 
-    if (intersectionWidth > dragThreshold && button != draggedButton &&
-        ![button isAnimating] && index < [self visibleButtonCount]) {
-      toolbarModel_->MoveExtensionIcon([draggedButton viewController]->GetId(),
-                                       index);
-      [self positionActionButtonsAndAnimate:YES];
-      return;
-    }
-    ++index;
-  }
+  // Find the desired index for the button.
+  NSInteger maxIndex = [buttons_ count] - 1;
+  NSInteger offset = isOverflow_ ?
+      [buttons_ count] - toolbarActionsBar_->GetIconCount() : 0;
+  NSInteger index =
+      std::min(maxIndex, offset + rowIndex * icons_per_row + indexInRow);
+
+  toolbarActionsBar_->OnDragDrop([buttons_ indexOfObject:draggedButton],
+                                 index,
+                                 ToolbarActionsBar::DRAG_TO_SAME);
 }
 
 - (void)actionButtonDragFinished:(NSNotification*)notification {
-  [self showChevronIfNecessaryInFrame:[containerView_ frame] animate:YES];
-  [self positionActionButtonsAndAnimate:YES];
+  suppressChevron_ = NO;
+  [self redraw];
+}
+
+- (NSRect)frameForIndex:(NSUInteger)index {
+  const ToolbarActionsBar::PlatformSettings& platformSettings =
+      toolbarActionsBar_->platform_settings();
+  int icons_per_overflow_row = platformSettings.icons_per_overflow_menu_row;
+  NSUInteger rowIndex = isOverflow_ ? index / icons_per_overflow_row : 0;
+  NSUInteger indexInRow = isOverflow_ ? index % icons_per_overflow_row : index;
+
+  CGFloat xOffset = platformSettings.left_padding +
+      (indexInRow * ToolbarActionsBar::IconWidth(true));
+  CGFloat yOffset = NSHeight([containerView_ frame]) -
+       (ToolbarActionsBar::IconHeight() * (rowIndex + 1));
+
+  return NSMakeRect(xOffset,
+                    yOffset,
+                    ToolbarActionsBar::IconWidth(false),
+                    ToolbarActionsBar::IconHeight());
+}
+
+- (NSPoint)popupPointForView:(NSView*)view
+                  withBounds:(NSRect)bounds {
+  // Anchor point just above the center of the bottom.
+  DCHECK([view isFlipped]);
+  NSPoint anchor = NSMakePoint(NSMidX(bounds),
+                               NSMaxY(bounds) - kBrowserActionBubbleYOffset);
+  // Convert the point to the container view's frame, and adjust for animation.
+  NSPoint anchorInContainer =
+      [containerView_ convertPoint:anchor fromView:view];
+  anchorInContainer.x -= NSMinX([containerView_ frame]) -
+      NSMinX([containerView_ animationEndFrame]);
+
+  return [containerView_ convertPoint:anchorInContainer toView:nil];
 }
 
 - (void)moveButton:(BrowserActionButton*)button
-           toIndex:(NSUInteger)index
-           animate:(BOOL)animate {
-  CGFloat xOffset = kBrowserActionLeftPadding +
-      (index * (kBrowserActionWidth + kBrowserActionButtonPadding));
-  NSRect buttonFrame = [button frame];
-  buttonFrame.origin.x = xOffset;
-  [button setFrame:buttonFrame animate:animate];
+           toIndex:(NSUInteger)index {
+  NSRect buttonFrame = [self frameForIndex:index];
 
-  if (index < [self containerButtonCapacity]) {
-    // Make sure the button is within the visible container.
-    if ([button superview] != containerView_) {
-      [containerView_ addSubview:button];
-      [button setAlphaValue:1.0];
-      [hiddenButtons_ removeObjectIdenticalTo:button];
-    }
-  } else if (![hiddenButtons_ containsObject:button]) {
-    [hiddenButtons_ addObject:button];
-    [button removeFromSuperview];
-    [button setAlphaValue:0.0];
+  CGFloat currentX = NSMinX([button frame]);
+  CGFloat xLeft = toolbarActionsBar_->GetPreferredSize().width() -
+      NSMinX(buttonFrame);
+  // We check if the button is already in the correct place for the toolbar's
+  // current size. This could mean that the button could be the correct distance
+  // from the left or from the right edge. If it has the correct distance, we
+  // don't move it, and it will be updated when the container frame changes.
+  // This way, if the user has extensions A and C installed, and installs
+  // extension B between them, extension C appears to stay stationary on the
+  // screen while the toolbar expands to the left (even though C's bounds within
+  // the container change).
+  if ((currentX == NSMinX(buttonFrame) ||
+       currentX == NSWidth([containerView_ frame]) - xLeft) &&
+      NSMinY([button frame]) == NSMinY(buttonFrame))
+    return;
+
+  // It's possible the button is already animating to the right place. Don't
+  // call move again, because it will stop the current animation.
+  if (!NSEqualRects(buttonFrame, [button frameAfterAnimation])) {
+    [button setFrame:buttonFrame
+             animate:!toolbarActionsBar_->suppress_animation() && !isOverflow_];
   }
 }
 
-- (BOOL)browserActionClicked:(BrowserActionButton*)button
-                 shouldGrant:(BOOL)shouldGrant {
-  return [button viewController]->ExecuteAction(shouldGrant);
-}
-
 - (BOOL)browserActionClicked:(BrowserActionButton*)button {
-  return [self browserActionClicked:button
-                        shouldGrant:YES];
+  return [button viewController]->ExecuteAction(true);
 }
 
-- (void)showChevronIfNecessaryInFrame:(NSRect)frame animate:(BOOL)animate {
-  [self setChevronHidden:([self buttonCount] == [self visibleButtonCount])
-                 inFrame:frame
-                 animate:animate];
+- (void)showChevronIfNecessaryInFrame:(NSRect)frame {
+  if (!toolbarActionsBar_->platform_settings().chevron_enabled)
+    return;
+  bool hidden = suppressChevron_ ||
+      toolbarActionsBar_->GetIconCount() == [self buttonCount];
+  [self setChevronHidden:hidden inFrame:frame];
 }
 
 - (void)updateChevronPositionInFrame:(NSRect)frame {
-  CGFloat xPos = NSWidth(frame) - kChevronWidth;
+  CGFloat xPos = NSWidth(frame) - kChevronWidth -
+      toolbarActionsBar_->platform_settings().right_padding;
   NSRect buttonFrame = NSMakeRect(xPos,
-                                  kBrowserActionOriginYOffset,
+                                  0,
                                   kChevronWidth,
-                                  kBrowserActionHeight);
+                                  ToolbarActionsBar::IconHeight());
+  [chevronAnimation_ stopAnimation];
   [chevronMenuButton_ setFrame:buttonFrame];
 }
 
 - (void)setChevronHidden:(BOOL)hidden
-                 inFrame:(NSRect)frame
-                 animate:(BOOL)animate {
-  if (hidden == [self chevronIsHidden])
+                 inFrame:(NSRect)frame {
+  if (!toolbarActionsBar_->platform_settings().chevron_enabled ||
+      hidden == [self chevronIsHidden])
     return;
 
   if (!chevronMenuButton_.get()) {
@@ -752,24 +962,22 @@ class ExtensionServiceObserverBridge
   // Stop any running animation.
   [chevronAnimation_ stopAnimation];
 
-  if (!animate) {
+  if (toolbarActionsBar_->suppress_animation()) {
     [chevronMenuButton_ setHidden:hidden];
     return;
   }
 
-  NSDictionary* animationDictionary;
+  NSString* animationEffect;
   if (hidden) {
-    animationDictionary = [NSDictionary dictionaryWithObjectsAndKeys:
-        chevronMenuButton_.get(), NSViewAnimationTargetKey,
-        NSViewAnimationFadeOutEffect, NSViewAnimationEffectKey,
-        nil];
+    animationEffect = NSViewAnimationFadeOutEffect;
   } else {
     [chevronMenuButton_ setHidden:NO];
-    animationDictionary = [NSDictionary dictionaryWithObjectsAndKeys:
-        chevronMenuButton_.get(), NSViewAnimationTargetKey,
-        NSViewAnimationFadeInEffect, NSViewAnimationEffectKey,
-        nil];
+    animationEffect = NSViewAnimationFadeInEffect;
   }
+  NSDictionary* animationDictionary = @{
+      NSViewAnimationTargetKey : chevronMenuButton_.get(),
+      NSViewAnimationEffectKey : animationEffect
+  };
   [chevronAnimation_ setViewAnimations:
       [NSArray arrayWithObject:animationDictionary]];
   [chevronAnimation_ startAnimation];
@@ -780,22 +988,57 @@ class ExtensionServiceObserverBridge
 }
 
 - (void)updateGrippyCursors {
-  [containerView_ setCanDragLeft:[hiddenButtons_ count] > 0];
+  [containerView_
+      setCanDragLeft:toolbarActionsBar_->GetIconCount() != [buttons_ count]];
   [containerView_ setCanDragRight:[self visibleButtonCount] > 0];
   [[containerView_ window] invalidateCursorRectsForView:containerView_];
+}
+
+- (ToolbarController*)toolbarController {
+  return [[BrowserWindowController browserWindowControllerForWindow:
+             browser_->window()->GetNativeWindow()] toolbarController];
+}
+
+- (ToolbarActionsBarBubbleMac*)createMessageBubble:
+    (scoped_ptr<ToolbarActionsBarBubbleDelegate>)delegate
+    anchorAction:(ToolbarActionViewController*)anchorAction {
+  DCHECK_GE([buttons_ count], 0u);
+  NSPoint anchor;
+  if (anchorAction) {
+    anchor = [self popupPointForId:anchorAction->GetId()];
+  } else {
+    NSView* wrenchButton = [[self toolbarController] wrenchButton];
+    anchor = [self popupPointForView:wrenchButton
+                          withBounds:[wrenchButton bounds]];
+  }
+
+  anchor = [[containerView_ window] convertBaseToScreen:anchor];
+  activeBubble_ = [[ToolbarActionsBarBubbleMac alloc]
+      initWithParentWindow:[containerView_ window]
+               anchorPoint:anchor
+                  delegate:delegate.Pass()];
+  [[NSNotificationCenter defaultCenter]
+      addObserver:self
+         selector:@selector(bubbleWindowClosing:)
+             name:NSWindowWillCloseNotification
+           object:[activeBubble_ window]];
+  return activeBubble_;
+}
+
+- (void)bubbleWindowClosing:(NSNotification*)notification {
+  activeBubble_ = nil;
+}
+
+- (void)setFocusedViewIndex:(NSInteger)index {
+  DCHECK(isOverflow_);
+  focusedViewIndex_ = index;
 }
 
 #pragma mark -
 #pragma mark Testing Methods
 
 - (BrowserActionButton*)buttonWithIndex:(NSUInteger)index {
-  const extensions::ExtensionList& toolbar_items =
-      toolbarModel_->toolbar_items();
-  if (index < toolbar_items.size()) {
-    const Extension* extension = toolbar_items[index].get();
-    return [buttons_ objectForKey:base::SysUTF8ToNSString(extension->id())];
-  }
-  return nil;
+  return index < [buttons_ count] ? [buttons_ objectAtIndex:index] : nil;
 }
 
 @end

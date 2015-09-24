@@ -15,12 +15,12 @@
 #include "base/message_loop/message_loop.h"
 #include "base/rand_util.h"
 #include "base/threading/thread.h"
-#include "components/invalidation/invalidation_handler.h"
-#include "components/invalidation/invalidation_state_tracker.h"
-#include "components/invalidation/invalidation_util.h"
-#include "components/invalidation/invalidator.h"
-#include "components/invalidation/non_blocking_invalidator.h"
-#include "components/invalidation/object_id_invalidation_map.h"
+#include "components/invalidation/impl/invalidation_state_tracker.h"
+#include "components/invalidation/impl/invalidator.h"
+#include "components/invalidation/impl/non_blocking_invalidator.h"
+#include "components/invalidation/public/invalidation_handler.h"
+#include "components/invalidation/public/invalidation_util.h"
+#include "components/invalidation/public/object_id_invalidation_map.h"
 #include "jingle/notifier/base/notification_method.h"
 #include "jingle/notifier/base/notifier_options.h"
 #include "net/base/host_port_pair.h"
@@ -109,9 +109,8 @@ class MyTestURLRequestContextGetter : public net::TestURLRequestContextGetter {
 };
 
 notifier::NotifierOptions ParseNotifierOptions(
-    const CommandLine& command_line,
-    const scoped_refptr<net::URLRequestContextGetter>&
-        request_context_getter) {
+    const base::CommandLine& command_line,
+    const scoped_refptr<net::URLRequestContextGetter>& request_context_getter) {
   notifier::NotifierOptions notifier_options;
   notifier_options.request_context_getter = request_context_getter;
 
@@ -142,7 +141,7 @@ int SyncListenNotificationsMain(int argc, char* argv[]) {
   base::mac::ScopedNSAutoreleasePool pool;
 #endif
   base::AtExitManager exit_manager;
-  CommandLine::Init(argc, argv);
+  base::CommandLine::Init(argc, argv);
   logging::LoggingSettings settings;
   settings.logging_dest = logging::LOG_TO_SYSTEM_DEBUG_LOG;
   logging::InitLogging(settings);
@@ -154,7 +153,8 @@ int SyncListenNotificationsMain(int argc, char* argv[]) {
   io_thread.StartWithOptions(options);
 
   // Parse command line.
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
   std::string email = command_line.GetSwitchValueASCII(kEmailSwitch);
   std::string token = command_line.GetSwitchValueASCII(kTokenSwitch);
   // TODO(akalin): Write a wrapper script that gets a token for an
@@ -179,7 +179,7 @@ int SyncListenNotificationsMain(int argc, char* argv[]) {
   const notifier::NotifierOptions& notifier_options =
       ParseNotifierOptions(
           command_line,
-          new MyTestURLRequestContextGetter(io_thread.message_loop_proxy()));
+          new MyTestURLRequestContextGetter(io_thread.task_runner()));
   syncer::NetworkChannelCreator network_channel_creator =
       syncer::NonBlockingInvalidator::MakePushClientChannelCreator(
           notifier_options);
@@ -201,8 +201,8 @@ int SyncListenNotificationsMain(int argc, char* argv[]) {
 
   // Listen for notifications for all known types.
   invalidator->RegisterHandler(&notification_printer);
-  invalidator->UpdateRegisteredIds(
-      &notification_printer, ModelTypeSetToObjectIdSet(ModelTypeSet::All()));
+  CHECK(invalidator->UpdateRegisteredIds(
+      &notification_printer, ModelTypeSetToObjectIdSet(ModelTypeSet::All())));
 
   ui_loop.Run();
 

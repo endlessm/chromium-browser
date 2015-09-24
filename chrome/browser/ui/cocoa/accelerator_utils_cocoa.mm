@@ -2,10 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/accelerator_utils.h"
+
+#import <Cocoa/Cocoa.h>
+
+#include "chrome/browser/global_keyboard_shortcuts_mac.h"
 #include "chrome/browser/ui/cocoa/accelerators_cocoa.h"
-#import "chrome/browser/ui/cocoa/browser_window_utils.h"
-#include "content/public/browser/native_web_keyboard_event.h"
 #include "ui/base/accelerators/accelerator.h"
 #import "ui/base/accelerators/platform_accelerator_cocoa.h"
 #import "ui/events/keycodes/keyboard_code_conversion_mac.h"
@@ -19,14 +21,12 @@ bool IsChromeAccelerator(const ui::Accelerator& accelerator, Profile* profile) {
   // accelerator. We find common ground by converting the passed in Windows key
   // code to a character and use that when comparing against the Accelerator
   // list.
-  unichar character;
-  unichar characterIgnoringModifiers;
-  ui::MacKeyCodeForWindowsKeyCode(accelerator.key_code(),
-                                  0,
-                                  &character,
-                                  &characterIgnoringModifiers);
+  unichar shifted_character;
+  ui::MacKeyCodeForWindowsKeyCode(accelerator.key_code(), 0, &shifted_character,
+                                  nullptr);
   NSString* characters =
-      [[[NSString alloc] initWithCharacters:&character length:1] autorelease];
+      [[[NSString alloc] initWithCharacters:&shifted_character
+                                     length:1] autorelease];
 
   NSUInteger modifiers =
       (accelerator.IsCtrlDown() ? NSControlKeyMask : 0) |
@@ -45,9 +45,7 @@ bool IsChromeAccelerator(const ui::Accelerator& accelerator, Profile* profile) {
                                    isARepeat:NO
                                      keyCode:accelerator.key_code()];
 
-  content::NativeWebKeyboardEvent keyboard_event(event);
-  int id = [BrowserWindowUtils getCommandId:keyboard_event];
-  return id != -1;
+  return CommandForKeyEvent(event) != -1;
 }
 
 ui::Accelerator GetPrimaryChromeAcceleratorForCommandId(int command_id) {

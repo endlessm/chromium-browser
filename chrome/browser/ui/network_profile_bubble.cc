@@ -41,12 +41,12 @@ const int kMaxWarnings = 2;
 // window.
 class BrowserListObserver : public chrome::BrowserListObserver {
  private:
-  virtual ~BrowserListObserver();
+  ~BrowserListObserver() override;
 
   // Overridden from chrome::BrowserListObserver:
-  virtual void OnBrowserAdded(Browser* browser) override;
-  virtual void OnBrowserRemoved(Browser* browser) override;
-  virtual void OnBrowserSetLastActive(Browser* browser) override;
+  void OnBrowserAdded(Browser* browser) override;
+  void OnBrowserRemoved(Browser* browser) override;
+  void OnBrowserSetLastActive(Browser* browser) override;
 };
 
 BrowserListObserver::~BrowserListObserver() {
@@ -101,7 +101,7 @@ void NetworkProfileBubble::CheckNetworkProfile(
   // start faster.
   // Collect a lot of stats along the way to see which cases do occur in the
   // wild often enough.
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kNoNetworkProfileWarning)) {
     RecordUmaEvent(METRIC_CHECK_SUPPRESSED);
     return;
@@ -159,14 +159,9 @@ void NetworkProfileBubble::SetNotificationShown(bool shown) {
 // static
 void NetworkProfileBubble::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterIntegerPref(
-      prefs::kNetworkProfileWarningsLeft,
-      kMaxWarnings,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterInt64Pref(
-      prefs::kNetworkProfileLastWarningTime,
-      0,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterIntegerPref(prefs::kNetworkProfileWarningsLeft,
+                                kMaxWarnings);
+  registry->RegisterInt64Pref(prefs::kNetworkProfileLastWarningTime, 0);
 }
 
 // static

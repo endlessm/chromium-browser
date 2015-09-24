@@ -82,12 +82,14 @@ bool SegregatedPrefStore::GetValue(const std::string& key,
   return StoreForKey(key)->GetValue(key, result);
 }
 
-void SegregatedPrefStore::SetValue(const std::string& key, base::Value* value) {
-  StoreForKey(key)->SetValue(key, value);
+void SegregatedPrefStore::SetValue(const std::string& key,
+                                   scoped_ptr<base::Value> value,
+                                   uint32 flags) {
+  StoreForKey(key)->SetValue(key, value.Pass(), flags);
 }
 
-void SegregatedPrefStore::RemoveValue(const std::string& key) {
-  StoreForKey(key)->RemoveValue(key);
+void SegregatedPrefStore::RemoveValue(const std::string& key, uint32 flags) {
+  StoreForKey(key)->RemoveValue(key, flags);
 }
 
 bool SegregatedPrefStore::GetMutableValue(const std::string& key,
@@ -95,13 +97,15 @@ bool SegregatedPrefStore::GetMutableValue(const std::string& key,
   return StoreForKey(key)->GetMutableValue(key, result);
 }
 
-void SegregatedPrefStore::ReportValueChanged(const std::string& key) {
-  StoreForKey(key)->ReportValueChanged(key);
+void SegregatedPrefStore::ReportValueChanged(const std::string& key,
+                                             uint32 flags) {
+  StoreForKey(key)->ReportValueChanged(key, flags);
 }
 
 void SegregatedPrefStore::SetValueSilently(const std::string& key,
-                                           base::Value* value) {
-  StoreForKey(key)->SetValueSilently(key, value);
+                                           scoped_ptr<base::Value> value,
+                                           uint32 flags) {
+  StoreForKey(key)->SetValueSilently(key, value.Pass(), flags);
 }
 
 bool SegregatedPrefStore::ReadOnly() const {
@@ -144,6 +148,11 @@ void SegregatedPrefStore::ReadPrefsAsync(ReadErrorDelegate* error_delegate) {
 void SegregatedPrefStore::CommitPendingWrite() {
   default_pref_store_->CommitPendingWrite();
   selected_pref_store_->CommitPendingWrite();
+}
+
+void SegregatedPrefStore::SchedulePendingLossyWrites() {
+  default_pref_store_->SchedulePendingLossyWrites();
+  selected_pref_store_->SchedulePendingLossyWrites();
 }
 
 SegregatedPrefStore::~SegregatedPrefStore() {

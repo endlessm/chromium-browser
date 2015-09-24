@@ -8,25 +8,23 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/command_line.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/thread_task_runner_handle.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/api/messaging/native_messaging_test_util.h"
 #include "components/policy/core/common/policy_service.h"
+#include "content/public/browser/browser_thread.h"
 #include "extensions/common/constants.h"
-#include "extensions/common/switches.h"
 #include "extensions/common/url_pattern.h"
 #include "net/url_request/url_request_context_getter.h"
-#if defined(USE_X11)
 #include "remoting/host/chromoting_host_context.h"
 #include "remoting/host/it2me/it2me_native_messaging_host.h"
-# endif  // defined(USE_X11)
 #include "ui/gfx/native_widget_types.h"
 #include "url/gurl.h"
 
@@ -50,13 +48,11 @@ class EchoHost : public NativeMessageHost {
 
   EchoHost() : message_number_(0), client_(NULL) {}
 
-  virtual void Start(Client* client) override {
-    client_ = client;
-  }
+  void Start(Client* client) override { client_ = client; }
 
-  virtual void OnMessage(const std::string& request_string) override {
+  void OnMessage(const std::string& request_string) override {
     scoped_ptr<base::Value> request_value(
-        base::JSONReader::Read(request_string));
+        base::JSONReader::DeprecatedRead(request_string));
     scoped_ptr<base::DictionaryValue> request(
       static_cast<base::DictionaryValue*>(request_value.release()));
     if (request_string.find("stopHostTest") != std::string::npos) {
@@ -68,19 +64,18 @@ class EchoHost : public NativeMessageHost {
     }
   };
 
-  virtual scoped_refptr<base::SingleThreadTaskRunner> task_runner()
-      const override {
-    return base::MessageLoopProxy::current();
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner() const override {
+    return base::ThreadTaskRunnerHandle::Get();
   };
 
  private:
   void ProcessEcho(const base::DictionaryValue& request) {
-    scoped_ptr<base::DictionaryValue> response(new base::DictionaryValue());
-    response->SetInteger("id", ++message_number_);
-    response->Set("echo", request.DeepCopy());
-    response->SetString("caller_url", kEchoHostOrigins[0]);
+    base::DictionaryValue response;
+    response.SetInteger("id", ++message_number_);
+    response.Set("echo", request.CreateDeepCopy());
+    response.SetString("caller_url", kEchoHostOrigins[0]);
     std::string response_string;
-    base::JSONWriter::Write(response.get(), &response_string);
+    base::JSONWriter::Write(response, &response_string);
     client_->PostMessageFromNativeHost(response_string);
   }
 
@@ -97,23 +92,22 @@ struct BuiltInHost {
   scoped_ptr<NativeMessageHost>(*create_function)();
 };
 
-// Remote assistance currently only supports X11.
-// TODO(kelvinp): Migrate to ozone once it is ready (crbug.com/426716).
-#if defined(USE_X11)
 scoped_ptr<NativeMessageHost> CreateIt2MeHost() {
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableRemoteAssistance)) {
-    scoped_ptr<remoting::It2MeHostFactory> host_factory(
-        new remoting::It2MeHostFactory());
-    host_factory->set_policy_service(g_browser_process->policy_service());
-    scoped_ptr<remoting::ChromotingHostContext> context =
-        remoting::ChromotingHostContext::CreateForChromeOS(
-            make_scoped_refptr(g_browser_process->system_request_context()));
-    scoped_ptr<NativeMessageHost> host(new remoting::It2MeNativeMessagingHost(
-        context.Pass(), host_factory.Pass()));
-    return host.Pass();
-  }
-  return nullptr;
+  scoped_ptr<remoting::It2MeHostFactory> host_factory(
+      new remoting::It2MeHostFactory());
+  host_factory->set_policy_service(g_browser_process->policy_service());
+  scoped_ptr<remoting::ChromotingHostContext> context =
+      remoting::ChromotingHostContext::CreateForChromeOS(
+          make_scoped_refptr(g_browser_process->system_request_context()),
+          content::BrowserThread::GetMessageLoopProxyForThread(
+              content::BrowserThread::IO),
+          content::BrowserThread::GetMessageLoopProxyForThread(
+              content::BrowserThread::UI),
+          content::BrowserThread::GetMessageLoopProxyForThread(
+              content::BrowserThread::FILE));
+  scoped_ptr<NativeMessageHost> host(new remoting::It2MeNativeMessagingHost(
+      context.Pass(), host_factory.Pass()));
+  return host.Pass();
 }
 
 // If you modify the list of allowed_origins, don't forget to update
@@ -130,19 +124,16 @@ const char* const kRemotingIt2MeOrigins[] = {
     "chrome-extension://dokpleeekgeeiehdhmdkeimnkmoifgdd/",
     "chrome-extension://ajoainacpilcemgiakehflpbkbfipojk/",
     "chrome-extension://hmboipgjngjoiaeicfdifdoeacilalgc/"};
-#endif  // defined(USE_X11)
 
 static const BuiltInHost kBuiltInHost[] = {
     {"com.google.chrome.test.echo", // ScopedTestNativeMessagingHost::kHostName
      kEchoHostOrigins,
      arraysize(kEchoHostOrigins),
      &EchoHost::Create},
-#if defined(USE_X11)
      {"com.google.chrome.remote_assistance",
      kRemotingIt2MeOrigins,
      arraysize(kRemotingIt2MeOrigins),
      &CreateIt2MeHost},
-#endif  // defined(USE_X11)
 };
 
 bool MatchesSecurityOrigin(const BuiltInHost& host,

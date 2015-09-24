@@ -12,16 +12,17 @@
 
 namespace net {
 
-base::Value* NetLogX509CertificateCallback(const X509Certificate* certificate,
-                                           NetLog::LogLevel log_level) {
-  base::DictionaryValue* dict = new base::DictionaryValue();
-  base::ListValue* certs = new base::ListValue();
+scoped_ptr<base::Value> NetLogX509CertificateCallback(
+    const X509Certificate* certificate,
+    NetLogCaptureMode capture_mode) {
+  scoped_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
+  scoped_ptr<base::ListValue> certs(new base::ListValue());
   std::vector<std::string> encoded_chain;
   certificate->GetPEMEncodedChain(&encoded_chain);
   for (size_t i = 0; i < encoded_chain.size(); ++i)
     certs->Append(new base::StringValue(encoded_chain[i]));
-  dict->Set("certificates", certs);
-  return dict;
+  dict->Set("certificates", certs.Pass());
+  return dict.Pass();
 }
 
 }  // namespace net

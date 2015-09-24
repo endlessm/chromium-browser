@@ -7,6 +7,8 @@
 #include "base/bind.h"
 #include "base/format_macros.h"
 #include "base/guid.h"
+#include "base/json/json_string_value_serializer.h"
+#include "base/json/json_writer.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
@@ -15,11 +17,9 @@
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "chromeos/network/device_state.h"
-#include "chromeos/network/managed_state.h"
 #include "chromeos/network/network_event_log.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler_observer.h"
-#include "chromeos/network/shill_property_handler.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
 namespace chromeos {
@@ -27,10 +27,12 @@ namespace chromeos {
 namespace {
 
 bool ConnectionStateChanged(NetworkState* network,
-                            const std::string& prev_connection_state) {
-  return (network->connection_state() != prev_connection_state) &&
-         (network->connection_state() != shill::kStateIdle ||
-          !prev_connection_state.empty());
+                            const std::string& prev_connection_state,
+                            bool prev_is_captive_portal) {
+  return ((network->connection_state() != prev_connection_state) &&
+          !((network->connection_state() == shill::kStateIdle) &&
+            prev_connection_state.empty())) ||
+         (network->is_captive_portal() != prev_is_captive_portal);
 }
 
 std::string GetManagedStateLogType(const ManagedState* state) {
@@ -51,13 +53,19 @@ std::string GetLogName(const ManagedState* state) {
                             state->path().c_str());
 }
 
+std::string ValueAsString(const base::Value& value) {
+  std::string vstr;
+  base::JSONWriter::WriteWithOptions(
+      value, base::JSONWriter::OPTIONS_OMIT_BINARY_VALUES, &vstr);
+  return vstr.empty() ? "''" : vstr;
+}
+
 }  // namespace
 
 const char NetworkStateHandler::kDefaultCheckPortalList[] =
     "ethernet,wifi,cellular";
 
-NetworkStateHandler::NetworkStateHandler()
-    : network_list_sorted_(false) {
+NetworkStateHandler::NetworkStateHandler() : network_list_sorted_(false) {
 }
 
 NetworkStateHandler::~NetworkStateHandler() {
@@ -82,20 +90,20 @@ void NetworkStateHandler::AddObserver(
     NetworkStateHandlerObserver* observer,
     const tracked_objects::Location& from_here) {
   observers_.AddObserver(observer);
-  network_event_log::internal::AddEntry(
-      from_here.file_name(), from_here.line_number(),
-      network_event_log::LOG_LEVEL_DEBUG,
-      "NetworkStateHandler::AddObserver", "");
+  device_event_log::AddEntry(from_here.file_name(), from_here.line_number(),
+                             device_event_log::LOG_TYPE_NETWORK,
+                             device_event_log::LOG_LEVEL_DEBUG,
+                             "NetworkStateHandler::AddObserver");
 }
 
 void NetworkStateHandler::RemoveObserver(
     NetworkStateHandlerObserver* observer,
     const tracked_objects::Location& from_here) {
   observers_.RemoveObserver(observer);
-  network_event_log::internal::AddEntry(
-      from_here.file_name(), from_here.line_number(),
-      network_event_log::LOG_LEVEL_DEBUG,
-      "NetworkStateHandler::RemoveObserver", "");
+  device_event_log::AddEntry(from_here.file_name(), from_here.line_number(),
+                             device_event_log::LOG_TYPE_NETWORK,
+                             device_event_log::LOG_LEVEL_DEBUG,
+                             "NetworkStateHandler::RemoveObserver");
 }
 
 NetworkStateHandler::TechnologyState NetworkStateHandler::GetTechnologyState(
@@ -122,15 +130,15 @@ void NetworkStateHandler::SetTechnologyEnabled(
     const network_handler::ErrorCallback& error_callback) {
   ScopedVector<std::string> technologies = GetTechnologiesForType(type);
   for (ScopedVector<std::string>::iterator it = technologies.begin();
-      it != technologies.end(); ++it) {
+       it != technologies.end(); ++it) {
     std::string* technology = *it;
     DCHECK(technology);
     if (!shill_property_handler_->IsTechnologyAvailable(*technology))
       continue;
     NET_LOG_USER("SetTechnologyEnabled",
                  base::StringPrintf("%s:%d", technology->c_str(), enabled));
-    shill_property_handler_->SetTechnologyEnabled(
-        *technology, enabled, error_callback);
+    shill_property_handler_->SetTechnologyEnabled(*technology, enabled,
+                                                  error_callback);
   }
   // Signal Device/Technology state changed.
   NotifyDeviceListChanged();
@@ -140,7 +148,7 @@ const DeviceState* NetworkStateHandler::GetDeviceState(
     const std::string& device_path) const {
   const DeviceState* device = GetModifiableDeviceState(device_path);
   if (device && !device->update_received())
-    return NULL;
+    return nullptr;
   return device;
 }
 
@@ -154,7 +162,7 @@ const DeviceState* NetworkStateHandler::GetDeviceStateByType(
     if (device->Matches(type))
       return device->AsDeviceState();
   }
-  return NULL;
+  return nullptr;
 }
 
 bool NetworkStateHandler::GetScanningByType(
@@ -175,13 +183,13 @@ const NetworkState* NetworkStateHandler::GetNetworkState(
     const std::string& service_path) const {
   const NetworkState* network = GetModifiableNetworkState(service_path);
   if (network && !network->update_received())
-    return NULL;
+    return nullptr;
   return network;
 }
 
 const NetworkState* NetworkStateHandler::DefaultNetwork() const {
   if (default_network_path_.empty())
-    return NULL;
+    return nullptr;
   return GetNetworkState(default_network_path_);
 }
 
@@ -199,7 +207,7 @@ const NetworkState* NetworkStateHandler::ConnectedNetworkByType(
     if (network->Matches(type))
       return network;
   }
-  return NULL;
+  return nullptr;
 }
 
 const NetworkState* NetworkStateHandler::ConnectingNetworkByType(
@@ -216,7 +224,7 @@ const NetworkState* NetworkStateHandler::ConnectingNetworkByType(
     if (network->Matches(type))
       return network;
   }
-  return NULL;
+  return nullptr;
 }
 
 const NetworkState* NetworkStateHandler::FirstNetworkByType(
@@ -234,12 +242,12 @@ const NetworkState* NetworkStateHandler::FirstNetworkByType(
     if (network->Matches(type))
       return network;
   }
-  return NULL;
+  return nullptr;
 }
 
 std::string NetworkStateHandler::FormattedHardwareAddressForType(
     const NetworkTypePattern& type) const {
-  const DeviceState* device = NULL;
+  const DeviceState* device = nullptr;
   const NetworkState* network = ConnectedNetworkByType(type);
   if (network)
     device = GetDeviceState(network->device_path());
@@ -253,11 +261,8 @@ std::string NetworkStateHandler::FormattedHardwareAddressForType(
 void NetworkStateHandler::GetVisibleNetworkListByType(
     const NetworkTypePattern& type,
     NetworkStateList* list) {
-  GetNetworkListByType(type,
-                       false /* configured_only */,
-                       true /* visible_only */,
-                       0 /* no limit */,
-                       list);
+  GetNetworkListByType(type, false /* configured_only */,
+                       true /* visible_only */, 0 /* no limit */, list);
 }
 
 void NetworkStateHandler::GetVisibleNetworkList(NetworkStateList* list) {
@@ -297,12 +302,12 @@ const NetworkState* NetworkStateHandler::GetNetworkStateFromServicePath(
   ManagedState* managed =
       GetModifiableManagedState(&network_list_, service_path);
   if (!managed)
-    return NULL;
+    return nullptr;
   const NetworkState* network = managed->AsNetworkState();
   DCHECK(network);
   if (!network->update_received() ||
       (configured_only && !network->IsInProfile())) {
-    return NULL;
+    return nullptr;
   }
   return network;
 }
@@ -316,7 +321,7 @@ const NetworkState* NetworkStateHandler::GetNetworkStateFromGuid(
     if (network->guid() == guid)
       return network;
   }
-  return NULL;
+  return nullptr;
 }
 
 void NetworkStateHandler::GetDeviceList(DeviceStateList* list) const {
@@ -341,28 +346,14 @@ void NetworkStateHandler::RequestScan() const {
   shill_property_handler_->RequestScan();
 }
 
-void NetworkStateHandler::WaitForScan(const std::string& type,
-                                      const base::Closure& callback) {
-  scan_complete_callbacks_[type].push_back(callback);
-  if (!GetScanningByType(NetworkTypePattern::Primitive(type)))
-    RequestScan();
-}
-
-void NetworkStateHandler::ConnectToBestWifiNetwork() {
-  NET_LOG_USER("ConnectToBestWifiNetwork", "");
-  WaitForScan(shill::kTypeWifi,
-              base::Bind(&internal::ShillPropertyHandler::ConnectToBestServices,
-                         shill_property_handler_->AsWeakPtr()));
-}
-
 void NetworkStateHandler::RequestUpdateForNetwork(
     const std::string& service_path) {
   NetworkState* network = GetModifiableNetworkState(service_path);
   if (network)
     network->set_update_requested(true);
   NET_LOG_EVENT("RequestUpdate", service_path);
-  shill_property_handler_->RequestProperties(
-      ManagedState::MANAGED_TYPE_NETWORK, service_path);
+  shill_property_handler_->RequestProperties(ManagedState::MANAGED_TYPE_NETWORK,
+                                             service_path);
 }
 
 void NetworkStateHandler::ClearLastErrorForNetwork(
@@ -389,45 +380,51 @@ const NetworkState* NetworkStateHandler::GetEAPForEthernet(
   const NetworkState* network = GetNetworkState(service_path);
   if (!network) {
     NET_LOG_ERROR("GetEAPForEthernet", "Unknown service path " + service_path);
-    return NULL;
+    return nullptr;
   }
   if (network->type() != shill::kTypeEthernet) {
     NET_LOG_ERROR("GetEAPForEthernet", "Not of type Ethernet: " + service_path);
-    return NULL;
+    return nullptr;
   }
   if (!network->IsConnectedState())
-    return NULL;
+    return nullptr;
 
   // The same EAP service is shared for all ethernet services/devices.
   // However EAP is used/enabled per device and only if the connection was
   // successfully established.
   const DeviceState* device = GetDeviceState(network->device_path());
   if (!device) {
-    NET_LOG_ERROR(
-        "GetEAPForEthernet",
-        base::StringPrintf("Unknown device %s of connected ethernet service %s",
-                           network->device_path().c_str(),
-                           service_path.c_str()));
-    return NULL;
+    NET_LOG(ERROR) << "GetEAPForEthernet: Unknown device "
+                   << network->device_path()
+                   << " for connected ethernet service: " << service_path;
+    return nullptr;
   }
   if (!device->eap_authentication_completed())
-    return NULL;
+    return nullptr;
 
   NetworkStateList list;
   GetNetworkListByType(NetworkTypePattern::Primitive(shill::kTypeEthernetEap),
-                       true /* configured_only */,
-                       false /* visible_only */,
-                       1 /* limit */,
-                       &list);
+                       true /* configured_only */, false /* visible_only */,
+                       1 /* limit */, &list);
   if (list.empty()) {
     NET_LOG_ERROR("GetEAPForEthernet",
                   base::StringPrintf(
                       "Ethernet service %s connected using EAP, but no "
                       "EAP service found.",
                       service_path.c_str()));
-    return NULL;
+    return nullptr;
   }
   return list.front();
+}
+
+void NetworkStateHandler::SetLastErrorForTest(const std::string& service_path,
+                                              const std::string& error) {
+  NetworkState* network_state = GetModifiableNetworkState(service_path);
+  if (!network_state) {
+    LOG(ERROR) << "No matching NetworkState for: " << service_path;
+    return;
+  }
+  network_state->last_error_ = error;
 }
 
 //------------------------------------------------------------------------------
@@ -509,8 +506,8 @@ void NetworkStateHandler::UpdateManagedStateProperties(
     UpdateNetworkStateProperties(managed->AsNetworkState(), properties);
   } else {
     // Device
-    for (base::DictionaryValue::Iterator iter(properties);
-         !iter.IsAtEnd(); iter.Advance()) {
+    for (base::DictionaryValue::Iterator iter(properties); !iter.IsAtEnd();
+         iter.Advance()) {
       managed->PropertyChanged(iter.key(), iter.value());
     }
     managed->InitialPropertiesReceived(properties);
@@ -524,8 +521,9 @@ void NetworkStateHandler::UpdateNetworkStateProperties(
   DCHECK(network);
   bool network_property_updated = false;
   std::string prev_connection_state = network->connection_state();
-  for (base::DictionaryValue::Iterator iter(properties);
-       !iter.IsAtEnd(); iter.Advance()) {
+  bool prev_is_captive_portal = network->is_captive_portal();
+  for (base::DictionaryValue::Iterator iter(properties); !iter.IsAtEnd();
+       iter.Advance()) {
     if (network->PropertyChanged(iter.key(), iter.value()))
       network_property_updated = true;
   }
@@ -536,8 +534,10 @@ void NetworkStateHandler::UpdateNetworkStateProperties(
   // Notify observers of NetworkState changes.
   if (network_property_updated || network->update_requested()) {
     // Signal connection state changed after all properties have been updated.
-    if (ConnectionStateChanged(network, prev_connection_state))
+    if (ConnectionStateChanged(network, prev_connection_state,
+                               prev_is_captive_portal)) {
       OnNetworkConnectionStateChanged(network);
+    }
     NET_LOG_EVENT("NetworkPropertiesUpdated", GetLogName(network));
     NotifyNetworkPropertiesUpdated(network);
   }
@@ -547,11 +547,13 @@ void NetworkStateHandler::UpdateNetworkServiceProperty(
     const std::string& service_path,
     const std::string& key,
     const base::Value& value) {
+  SCOPED_NET_LOG_IF_SLOW();
   bool changed = false;
   NetworkState* network = GetModifiableNetworkState(service_path);
   if (!network)
     return;
   std::string prev_connection_state = network->connection_state();
+  bool prev_is_captive_portal = network->is_captive_portal();
   std::string prev_profile_path = network->profile_path();
   changed |= network->PropertyChanged(key, value);
   if (!changed)
@@ -559,7 +561,8 @@ void NetworkStateHandler::UpdateNetworkServiceProperty(
 
   if (key == shill::kStateProperty || key == shill::kVisibleProperty) {
     network_list_sorted_ = false;
-    if (ConnectionStateChanged(network, prev_connection_state)) {
+    if (ConnectionStateChanged(network, prev_connection_state,
+                               prev_is_captive_portal)) {
       OnNetworkConnectionStateChanged(network);
       // If the connection state changes, other properties such as IPConfig
       // may have changed, so request a full update.
@@ -583,12 +586,12 @@ void NetworkStateHandler::UpdateNetworkServiceProperty(
       }
       // Log event.
       std::string detail = network->name() + "." + key;
-      detail += " = " + network_event_log::ValueAsString(value);
-      network_event_log::LogLevel log_level;
+      detail += " = " + ValueAsString(value);
+      device_event_log::LogLevel log_level;
       if (key == shill::kErrorProperty || key == shill::kErrorDetailsProperty) {
-        log_level = network_event_log::LOG_LEVEL_ERROR;
+        log_level = device_event_log::LOG_LEVEL_ERROR;
       } else {
-        log_level = network_event_log::LOG_LEVEL_EVENT;
+        log_level = device_event_log::LOG_LEVEL_EVENT;
       }
       NET_LOG_LEVEL(log_level, log_event, detail);
     }
@@ -606,6 +609,7 @@ void NetworkStateHandler::UpdateNetworkServiceProperty(
 void NetworkStateHandler::UpdateDeviceProperty(const std::string& device_path,
                                                const std::string& key,
                                                const base::Value& value) {
+  SCOPED_NET_LOG_IF_SLOW();
   DeviceState* device = GetModifiableDeviceState(device_path);
   if (!device)
     return;
@@ -613,22 +617,21 @@ void NetworkStateHandler::UpdateDeviceProperty(const std::string& device_path,
     return;
 
   std::string detail = device->name() + "." + key;
-  detail += " = " + network_event_log::ValueAsString(value);
+  detail += " = " + ValueAsString(value);
   NET_LOG_EVENT("DevicePropertyUpdated", detail);
 
   NotifyDeviceListChanged();
   NotifyDevicePropertiesUpdated(device);
 
-  if (key == shill::kScanningProperty && device->scanning() == false)
-    ScanCompleted(device->type());
+  if (key == shill::kScanningProperty && device->scanning() == false) {
+    NotifyScanCompleted(device);
+  }
   if (key == shill::kEapAuthenticationCompletedProperty) {
     // Notify a change for each Ethernet service using this device.
     NetworkStateList ethernet_services;
     GetNetworkListByType(NetworkTypePattern::Ethernet(),
-                         false /* configured_only */,
-                         false /* visible_only */,
-                         0 /* no limit */,
-                         &ethernet_services);
+                         false /* configured_only */, false /* visible_only */,
+                         0 /* no limit */, &ethernet_services);
     for (NetworkStateList::const_iterator it = ethernet_services.begin();
          it != ethernet_services.end(); ++it) {
       const NetworkState* ethernet_service = *it;
@@ -645,7 +648,7 @@ void NetworkStateHandler::UpdateIPConfigProperties(
     ManagedState::ManagedType type,
     const std::string& path,
     const std::string& ip_config_path,
-    const base::DictionaryValue& properties)  {
+    const base::DictionaryValue& properties) {
   if (type == ManagedState::MANAGED_TYPE_NETWORK) {
     NetworkState* network = GetModifiableNetworkState(path);
     if (!network)
@@ -682,6 +685,7 @@ void NetworkStateHandler::TechnologyListChanged() {
 
 void NetworkStateHandler::ManagedStateListChanged(
     ManagedState::ManagedType type) {
+  SCOPED_NET_LOG_IF_SLOW();
   if (type == ManagedState::MANAGED_TYPE_NETWORK) {
     SortNetworkList();
     UpdateNetworkStats();
@@ -732,13 +736,13 @@ void NetworkStateHandler::SortNetworkList() {
   }
   network_list_.clear();
   network_list_.insert(network_list_.end(), active.begin(), active.end());
-  network_list_.insert(
-      network_list_.end(), non_wifi_visible.begin(), non_wifi_visible.end());
-  network_list_.insert(
-      network_list_.end(), wifi_visible.begin(), wifi_visible.end());
+  network_list_.insert(network_list_.end(), non_wifi_visible.begin(),
+                       non_wifi_visible.end());
+  network_list_.insert(network_list_.end(), wifi_visible.begin(),
+                       wifi_visible.end());
   network_list_.insert(network_list_.end(), hidden.begin(), hidden.end());
-  network_list_.insert(
-      network_list_.end(), new_networks.begin(), new_networks.end());
+  network_list_.insert(network_list_.end(), new_networks.begin(),
+                       new_networks.end());
   network_list_sorted_ = true;
 }
 
@@ -772,21 +776,29 @@ void NetworkStateHandler::DefaultNetworkServiceChanged(
 
   default_network_path_ = service_path;
   NET_LOG_EVENT("DefaultNetworkServiceChanged:", default_network_path_);
-  const NetworkState* network = NULL;
+  const NetworkState* network = nullptr;
   if (!default_network_path_.empty()) {
     network = GetNetworkState(default_network_path_);
     if (!network) {
       // If NetworkState is not available yet, do not notify observers here,
       // they will be notified when the state is received.
-      NET_LOG_DEBUG("Default NetworkState not available",
-                    default_network_path_);
+      NET_LOG(EVENT) << "Default NetworkState not available: "
+                     << default_network_path_;
       return;
     }
   }
   if (network && !network->IsConnectedState()) {
-    NET_LOG_ERROR(
-        "DefaultNetwork is not connected: " + network->connection_state(),
-        network->path());
+    if (network->IsConnectingState()) {
+      NET_LOG(EVENT) << "DefaultNetwork is connecting: " << GetLogName(network)
+                     << ": " << network->connection_state();
+    } else {
+      NET_LOG(ERROR) << "DefaultNetwork in unexpected state: "
+                     << GetLogName(network) << ": "
+                     << network->connection_state();
+    }
+    // Do not notify observers here, the notification will occur when the
+    // connection state changes.
+    return;
   }
   NotifyDefaultNetworkChanged(network);
 }
@@ -821,6 +833,7 @@ void NetworkStateHandler::UpdateGuid(NetworkState* network) {
 }
 
 void NetworkStateHandler::NotifyDeviceListChanged() {
+  SCOPED_NET_LOG_IF_SLOW();
   NET_LOG_DEBUG("NOTIFY:DeviceListChanged",
                 base::StringPrintf("Size:%" PRIuS, device_list_.size()));
   FOR_EACH_OBSERVER(NetworkStateHandlerObserver, observers_,
@@ -831,7 +844,7 @@ DeviceState* NetworkStateHandler::GetModifiableDeviceState(
     const std::string& device_path) const {
   ManagedState* managed = GetModifiableManagedState(&device_list_, device_path);
   if (!managed)
-    return NULL;
+    return nullptr;
   return managed->AsDeviceState();
 }
 
@@ -840,7 +853,7 @@ NetworkState* NetworkStateHandler::GetModifiableNetworkState(
   ManagedState* managed =
       GetModifiableManagedState(&network_list_, service_path);
   if (!managed)
-    return NULL;
+    return nullptr;
   return managed->AsNetworkState();
 }
 
@@ -853,7 +866,7 @@ ManagedState* NetworkStateHandler::GetModifiableManagedState(
     if (managed->path() == path)
       return managed;
   }
-  return NULL;
+  return nullptr;
 }
 
 NetworkStateHandler::ManagedStateList* NetworkStateHandler::GetManagedList(
@@ -865,34 +878,46 @@ NetworkStateHandler::ManagedStateList* NetworkStateHandler::GetManagedList(
       return &device_list_;
   }
   NOTREACHED();
-  return NULL;
+  return nullptr;
 }
 
 void NetworkStateHandler::OnNetworkConnectionStateChanged(
     NetworkState* network) {
+  SCOPED_NET_LOG_IF_SLOW();
   DCHECK(network);
-  std::string event = "NetworkConnectionStateChanged";
+  bool notify_default = false;
   if (network->path() == default_network_path_) {
-    event = "Default" + event;
-    if (!network->IsConnectedState()) {
-      NET_LOG_EVENT(
-          "DefaultNetwork is not connected: " + network->connection_state(),
-          network->path());
+    if (network->IsConnectedState()) {
+      notify_default = true;
+    } else if (network->IsConnectingState()) {
+      // Wait until the network is actually connected to notify that the default
+      // network changed.
+      NET_LOG(EVENT) << "Default network is not connected: "
+                     << GetLogName(network)
+                     << "State: " << network->connection_state();
+    } else {
+      NET_LOG(ERROR) << "Default network in unexpected state: "
+                     << GetLogName(network)
+                     << "State: " << network->connection_state();
       default_network_path_.clear();
       SortNetworkList();
-      NotifyDefaultNetworkChanged(NULL);
+      NotifyDefaultNetworkChanged(nullptr);
     }
   }
-  NET_LOG_EVENT("NOTIFY:" + event + ": " + network->connection_state(),
-                GetLogName(network));
+  std::string desc = "NetworkConnectionStateChanged";
+  if (notify_default)
+    desc = "Default" + desc;
+  NET_LOG(EVENT) << "NOTIFY: " << desc << ": " << GetLogName(network) << ": "
+                 << network->connection_state();
   FOR_EACH_OBSERVER(NetworkStateHandlerObserver, observers_,
                     NetworkConnectionStateChanged(network));
-  if (network->path() == default_network_path_)
+  if (notify_default)
     NotifyDefaultNetworkChanged(network);
 }
 
 void NetworkStateHandler::NotifyDefaultNetworkChanged(
     const NetworkState* default_network) {
+  SCOPED_NET_LOG_IF_SLOW();
   NET_LOG_EVENT("NOTIFY:DefaultNetworkChanged", GetLogName(default_network));
   FOR_EACH_OBSERVER(NetworkStateHandlerObserver, observers_,
                     DefaultNetworkChanged(default_network));
@@ -900,6 +925,7 @@ void NetworkStateHandler::NotifyDefaultNetworkChanged(
 
 void NetworkStateHandler::NotifyNetworkPropertiesUpdated(
     const NetworkState* network) {
+  SCOPED_NET_LOG_IF_SLOW();
   NET_LOG_DEBUG("NOTIFY:NetworkPropertiesUpdated", GetLogName(network));
   FOR_EACH_OBSERVER(NetworkStateHandlerObserver, observers_,
                     NetworkPropertiesUpdated(network));
@@ -907,23 +933,17 @@ void NetworkStateHandler::NotifyNetworkPropertiesUpdated(
 
 void NetworkStateHandler::NotifyDevicePropertiesUpdated(
     const DeviceState* device) {
+  SCOPED_NET_LOG_IF_SLOW();
   NET_LOG_DEBUG("NOTIFY:DevicePropertiesUpdated", GetLogName(device));
   FOR_EACH_OBSERVER(NetworkStateHandlerObserver, observers_,
                     DevicePropertiesUpdated(device));
 }
 
-void NetworkStateHandler::ScanCompleted(const std::string& type) {
-  size_t num_callbacks = scan_complete_callbacks_.count(type);
-  NET_LOG_EVENT("ScanCompleted",
-                base::StringPrintf("%s:%" PRIuS, type.c_str(), num_callbacks));
-  if (num_callbacks == 0)
-    return;
-  ScanCallbackList& callback_list = scan_complete_callbacks_[type];
-  for (ScanCallbackList::iterator iter = callback_list.begin();
-       iter != callback_list.end(); ++iter) {
-    (*iter).Run();
-  }
-  scan_complete_callbacks_.erase(type);
+void NetworkStateHandler::NotifyScanCompleted(const DeviceState* device) {
+  SCOPED_NET_LOG_IF_SLOW();
+  NET_LOG_DEBUG("NOTIFY:ScanCompleted", GetLogName(device));
+  FOR_EACH_OBSERVER(NetworkStateHandlerObserver, observers_,
+                    ScanCompleted(device));
 }
 
 std::string NetworkStateHandler::GetTechnologyForType(

@@ -16,6 +16,7 @@
 #include "base/metrics/histogram.h"
 #include "base/process/kill.h"
 #include "base/process/launch.h"
+#include "base/process/process.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -51,7 +52,7 @@ const char kVendorID[] = "ID_VENDOR_ID";
 
 // Construct a device id using label or manufacturer (vendor and model) details.
 std::string MakeDeviceUniqueId(struct udev_device* device) {
-  std::string uuid = GetUdevDevicePropertyValue(device, kFsUUID);
+  std::string uuid = device::UdevDeviceGetPropertyValue(device, kFsUUID);
   // Keep track of device uuid, to see how often we receive empty uuid values.
   UMA_HISTOGRAM_BOOLEAN(
       "RemovableDeviceNotificationsLinux.device_file_system_uuid_available",
@@ -64,10 +65,10 @@ std::string MakeDeviceUniqueId(struct udev_device* device) {
   // in the string is empty.
   // Format: VendorModelSerial:VendorInfo:ModelInfo:SerialShortInfo
   // E.g.: VendorModelSerial:Kn:DataTravel_12.10:8000000000006CB02CDB
-  std::string vendor = GetUdevDevicePropertyValue(device, kVendorID);
-  std::string model = GetUdevDevicePropertyValue(device, kModelID);
-  std::string serial_short = GetUdevDevicePropertyValue(device,
-                                                        kSerialShort);
+  std::string vendor = device::UdevDeviceGetPropertyValue(device, kVendorID);
+  std::string model = device::UdevDeviceGetPropertyValue(device, kModelID);
+  std::string serial_short =
+      device::UdevDeviceGetPropertyValue(device, kSerialShort);
   if (vendor.empty() && model.empty() && serial_short.empty())
     return std::string();
 
@@ -99,8 +100,8 @@ class ScopedGetDeviceInfoResultRecorder {
 uint64 GetDeviceStorageSize(const base::FilePath& device_path,
                             struct udev_device* device) {
   // sysfs provides the device size in units of 512-byte blocks.
-  const std::string partition_size = udev_device_get_sysattr_value(
-      device, kSizeSysAttr);
+  const std::string partition_size =
+      device::UdevDeviceGetSysattrValue(device, kSizeSysAttr);
 
   // Keep track of device size, to see how often this information is
   // unavailable.
@@ -118,14 +119,14 @@ uint64 GetDeviceStorageSize(const base::FilePath& device_path,
 // Gets the device information using udev library.
 scoped_ptr<StorageInfo> GetDeviceInfo(const base::FilePath& device_path,
                                       const base::FilePath& mount_point) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
   DCHECK(!device_path.empty());
 
   scoped_ptr<StorageInfo> storage_info;
 
   ScopedGetDeviceInfoResultRecorder results_recorder;
 
-  device::ScopedUdevPtr udev_obj(udev_new());
+  device::ScopedUdevPtr udev_obj(device::udev_new());
   if (!udev_obj.get())
     return storage_info.Pass();
 
@@ -142,17 +143,17 @@ scoped_ptr<StorageInfo> GetDeviceInfo(const base::FilePath& device_path,
     return storage_info.Pass();  // Not a supported type.
 
   device::ScopedUdevDevicePtr device(
-      udev_device_new_from_devnum(udev_obj.get(), device_type,
-                                  device_stat.st_rdev));
+      device::udev_device_new_from_devnum(udev_obj.get(), device_type,
+                                          device_stat.st_rdev));
   if (!device.get())
     return storage_info.Pass();
 
-  base::string16 volume_label =
-      base::UTF8ToUTF16(GetUdevDevicePropertyValue(device.get(), kLabel));
-  base::string16 vendor_name =
-      base::UTF8ToUTF16(GetUdevDevicePropertyValue(device.get(), kVendor));
-  base::string16 model_name =
-      base::UTF8ToUTF16(GetUdevDevicePropertyValue(device.get(), kModel));
+  base::string16 volume_label = base::UTF8ToUTF16(
+      device::UdevDeviceGetPropertyValue(device.get(), kLabel));
+  base::string16 vendor_name = base::UTF8ToUTF16(
+      device::UdevDeviceGetPropertyValue(device.get(), kVendor));
+  base::string16 model_name = base::UTF8ToUTF16(
+      device::UdevDeviceGetPropertyValue(device.get(), kModel));
 
   std::string unique_id = MakeDeviceUniqueId(device.get());
 
@@ -160,15 +161,17 @@ scoped_ptr<StorageInfo> GetDeviceInfo(const base::FilePath& device_path,
   MediaStorageUtil::RecordDeviceInfoHistogram(true, unique_id, volume_label);
 
   const char* value =
-      udev_device_get_sysattr_value(device.get(), kRemovableSysAttr);
+      device::udev_device_get_sysattr_value(device.get(), kRemovableSysAttr);
   if (!value) {
     // |parent_device| is owned by |device| and does not need to be cleaned
     // up.
     struct udev_device* parent_device =
-        udev_device_get_parent_with_subsystem_devtype(device.get(),
-                                                      kBlockSubsystemKey,
-                                                      kDiskDeviceTypeKey);
-    value = udev_device_get_sysattr_value(parent_device, kRemovableSysAttr);
+        device::udev_device_get_parent_with_subsystem_devtype(
+            device.get(),
+            kBlockSubsystemKey,
+            kDiskDeviceTypeKey);
+    value = device::udev_device_get_sysattr_value(parent_device,
+                                                  kRemovableSysAttr);
   }
   const bool is_removable = (value && atoi(value) == 1);
 
@@ -195,7 +198,7 @@ scoped_ptr<StorageInfo> GetDeviceInfo(const base::FilePath& device_path,
 MtabWatcherLinux* CreateMtabWatcherLinuxOnFileThread(
     const base::FilePath& mtab_path,
     base::WeakPtr<MtabWatcherLinux::Delegate> delegate) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
   // Owned by caller.
   return new MtabWatcherLinux(mtab_path, delegate);
 }
@@ -203,7 +206,7 @@ MtabWatcherLinux* CreateMtabWatcherLinuxOnFileThread(
 StorageMonitor::EjectStatus EjectPathOnFileThread(
     const base::FilePath& path,
     const base::FilePath& device) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
 
   // Note: Linux LSB says umount should exist in /bin.
   static const char kUmountBinary[] = "/bin/umount";
@@ -212,15 +215,15 @@ StorageMonitor::EjectStatus EjectPathOnFileThread(
   command.push_back(path.value());
 
   base::LaunchOptions options;
-  base::ProcessHandle handle;
-  if (!base::LaunchProcess(command, options, &handle))
+  base::Process process = base::LaunchProcess(command, options);
+  if (!process.IsValid())
     return StorageMonitor::EJECT_FAILURE;
 
   int exit_code = -1;
-  if (!base::WaitForExitCodeWithTimeout(handle, &exit_code,
-      base::TimeDelta::FromMilliseconds(3000))) {
-    base::KillProcess(handle, -1, false);
-    base::EnsureProcessTerminated(handle);
+  if (!process.WaitForExitWithTimeout(base::TimeDelta::FromMilliseconds(3000),
+                                      &exit_code)) {
+    process.Terminate(-1, false);
+    base::EnsureProcessTerminated(process.Pass());
     return StorageMonitor::EJECT_FAILURE;
   }
 
@@ -241,11 +244,11 @@ StorageMonitorLinux::StorageMonitorLinux(const base::FilePath& path)
     : mtab_path_(path),
       get_device_info_callback_(base::Bind(&GetDeviceInfo)),
       weak_ptr_factory_(this) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 }
 
 StorageMonitorLinux::~StorageMonitorLinux() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 }
 
 void StorageMonitorLinux::Init() {
@@ -260,10 +263,9 @@ void StorageMonitorLinux::Init() {
                  weak_ptr_factory_.GetWeakPtr()));
 
   if (!media_transfer_protocol_manager_) {
-    scoped_refptr<base::MessageLoopProxy> loop_proxy =
-        BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE);
     media_transfer_protocol_manager_.reset(
-        device::MediaTransferProtocolManager::Initialize(loop_proxy));
+        device::MediaTransferProtocolManager::Initialize(
+            BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE)));
   }
 
   media_transfer_protocol_device_observer_.reset(
@@ -275,7 +277,7 @@ bool StorageMonitorLinux::GetStorageInfoForPath(
     const base::FilePath& path,
     StorageInfo* device_info) const {
   DCHECK(device_info);
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   // TODO(thestig) |media_transfer_protocol_device_observer_| should always be
   // valid.
@@ -356,12 +358,12 @@ void StorageMonitorLinux::EjectDevice(
 }
 
 void StorageMonitorLinux::OnMtabWatcherCreated(MtabWatcherLinux* watcher) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   mtab_watcher_.reset(watcher);
 }
 
 void StorageMonitorLinux::UpdateMtab(const MountPointDeviceMap& new_mtab) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   // Check existing mtab entries for unaccounted mount points.
   // These mount points must have been removed in the new mtab.
@@ -462,14 +464,14 @@ void StorageMonitorLinux::UpdateMtab(const MountPointDeviceMap& new_mtab) {
 
 bool StorageMonitorLinux::IsDeviceAlreadyMounted(
     const base::FilePath& mount_device) const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   return ContainsKey(mount_priority_map_, mount_device);
 }
 
 void StorageMonitorLinux::HandleDeviceMountedMultipleTimes(
     const base::FilePath& mount_device,
     const base::FilePath& mount_point) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   MountPriorityMap::iterator priority = mount_priority_map_.find(mount_device);
   DCHECK(priority != mount_priority_map_.end());
@@ -481,7 +483,7 @@ void StorageMonitorLinux::HandleDeviceMountedMultipleTimes(
 
 void StorageMonitorLinux::AddNewMount(const base::FilePath& mount_device,
                                       scoped_ptr<StorageInfo> storage_info) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (!storage_info)
     return;

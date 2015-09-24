@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 from telemetry.page import page as page_module
-from telemetry.page import page_set as page_set_module
+from telemetry import story
 
 
 class KeyDesktopSitesPage(page_module.Page):
@@ -12,11 +12,9 @@ class KeyDesktopSitesPage(page_module.Page):
         url=url, page_set=page_set, credentials_path = 'data/credentials.json')
     self.archive_data_file = 'data/key_desktop_sites.json'
 
-  def RunSmoothness(self, action_runner):
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
+  def RunPageInteractions(self, action_runner):
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
 
 
 class FacebookPage(KeyDesktopSitesPage):
@@ -44,11 +42,9 @@ class GmailPage(KeyDesktopSitesPage):
       }'''
     self.credentials = 'google'
 
-  def RunSmoothness(self, action_runner):
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
+  def RunPageInteractions(self, action_runner):
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
     action_runner.WaitForJavaScriptCondition(
         'window.gmonkey !== undefined && '
         'document.getElementById("gb") !== null')
@@ -81,11 +77,9 @@ class GoogleDrivePage(KeyDesktopSitesPage):
       }'''
     self.credentials = 'google'
 
-  def RunSmoothness(self, action_runner):
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
+  def RunPageInteractions(self, action_runner):
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
     action_runner.WaitForJavaScriptCondition(
         'document.getElementsByClassName("doclistview-list").length')
 
@@ -104,29 +98,27 @@ class GoogleDocPage(KeyDesktopSitesPage):
       }'''
     self.credentials = 'google'
 
-  def RunSmoothness(self, action_runner):
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
+  def RunPageInteractions(self, action_runner):
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
     action_runner.WaitForJavaScriptCondition(
         'document.getElementsByClassName("kix-appview-editor").length')
 
 
-class KeyDesktopSitesPageSet(page_set_module.PageSet):
+class KeyDesktopSitesPageSet(story.StorySet):
 
   """ Sites of Interest """
 
   def __init__(self):
     super(KeyDesktopSitesPageSet, self).__init__(
       archive_data_file='data/key_desktop_sites.json',
-      bucket=page_set_module.PARTNER_BUCKET)
+      cloud_storage_bucket=story.PARTNER_BUCKET)
 
-    self.AddPage(FacebookPage(self))
-    self.AddPage(GmailPage(self))
-    self.AddPage(GoogleCalendarPage(self))
-    self.AddPage(GoogleDrivePage(self))
-    self.AddPage(GoogleDocPage(self))
+    self.AddStory(FacebookPage(self))
+    self.AddStory(GmailPage(self))
+    self.AddStory(GoogleCalendarPage(self))
+    self.AddStory(GoogleDrivePage(self))
+    self.AddStory(GoogleDocPage(self))
 
     urls_list = [
       'http://www.google.com/nexus/5/#/',
@@ -850,4 +842,4 @@ class KeyDesktopSitesPageSet(page_set_module.PageSet):
     ]
 
     for url in urls_list:
-      self.AddPage(KeyDesktopSitesPage(url, self))
+      self.AddStory(KeyDesktopSitesPage(url, self))

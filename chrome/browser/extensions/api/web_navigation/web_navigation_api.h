@@ -31,8 +31,7 @@ namespace extensions {
 
 // Tab contents observer that forwards navigation events to the event router.
 class WebNavigationTabObserver
-    : public content::NotificationObserver,
-      public content::WebContentsObserver,
+    : public content::WebContentsObserver,
       public content::WebContentsUserData<WebNavigationTabObserver> {
  public:
   ~WebNavigationTabObserver() override;
@@ -44,18 +43,11 @@ class WebNavigationTabObserver
     return navigation_state_;
   }
 
-  content::RenderViewHost* GetRenderViewHostInProcess(int process_id) const;
-
-  // content::NotificationObserver implementation.
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override;
-
   // content::WebContentsObserver implementation.
   void RenderFrameDeleted(content::RenderFrameHost* render_frame_host) override;
-  void RenderViewDeleted(content::RenderViewHost* render_view_host) override;
-  void AboutToNavigateRenderView(
-      content::RenderViewHost* render_view_host) override;
+  void FrameDeleted(content::RenderFrameHost* render_frame_host) override;
+  void RenderFrameHostChanged(content::RenderFrameHost* old_host,
+                              content::RenderFrameHost* new_host) override;
   void DidStartProvisionalLoadForFrame(
       content::RenderFrameHost* render_frame_host,
       const GURL& validated_url,
@@ -68,7 +60,8 @@ class WebNavigationTabObserver
   void DidFailProvisionalLoad(content::RenderFrameHost* render_frame_host,
                               const GURL& validated_url,
                               int error_code,
-                              const base::string16& error_description) override;
+                              const base::string16& error_description,
+                              bool was_ignored_by_handler) override;
   void DocumentLoadedInFrame(
       content::RenderFrameHost* render_frame_host) override;
   void DidFinishLoad(content::RenderFrameHost* render_frame_host,
@@ -76,16 +69,17 @@ class WebNavigationTabObserver
   void DidFailLoad(content::RenderFrameHost* render_frame_host,
                    const GURL& validated_url,
                    int error_code,
-                   const base::string16& error_description) override;
+                   const base::string16& error_description,
+                   bool was_ignored_by_handler) override;
   void DidGetRedirectForResourceRequest(
-      content::RenderViewHost* render_view_host,
+      content::RenderFrameHost* render_frame_host,
       const content::ResourceRedirectDetails& details) override;
   void DidOpenRequestedURL(content::WebContents* new_contents,
+                           content::RenderFrameHost* source_render_frame_host,
                            const GURL& url,
                            const content::Referrer& referrer,
                            WindowOpenDisposition disposition,
-                           ui::PageTransition transition,
-                           int64 source_frame_num) override;
+                           ui::PageTransition transition) override;
   void WebContentsDestroyed() override;
 
  private:
@@ -111,13 +105,6 @@ class WebNavigationTabObserver
 
   // Used for tracking registrations to redirect notifications.
   content::NotificationRegistrar registrar_;
-
-  // The current RenderViewHost of the observed WebContents.
-  content::RenderViewHost* render_view_host_;
-
-  // During a cross site navigation, the WebContents has a second, pending
-  // RenderViewHost.
-  content::RenderViewHost* pending_render_view_host_;
 
   DISALLOW_COPY_AND_ASSIGN(WebNavigationTabObserver);
 };

@@ -166,12 +166,12 @@ extern const char kCsdWhiteList[];
 extern const char kDownloadWhiteList[];
 // SafeBrowsing extension list name.
 extern const char kExtensionBlacklist[];
-// SafeBrowsing side-effect free whitelist name.
-extern const char kSideEffectFreeWhitelist[];
 // SafeBrowsing csd malware IP blacklist name.
 extern const char kIPBlacklist[];
 // SafeBrowsing unwanted URL list.
 extern const char kUnwantedUrlList[];
+// SafeBrowsing off-domain inclusion whitelist list name.
+extern const char kInclusionWhitelist[];
 
 // This array must contain all Safe Browsing lists.
 extern const char* kAllLists[9];
@@ -190,19 +190,14 @@ enum ListType {
   // See above comment. Leave 7 available.
   EXTENSIONBLACKLIST = 8,
   // See above comment. Leave 9 available.
-  SIDEEFFECTFREEWHITELIST = 10,
+  // Obsolete SIDEEFFECTFREEWHITELIST = 10,
   // See above comment. Leave 11 available.
   IPBLACKLIST = 12,
   // See above comment.  Leave 13 available.
   UNWANTEDURL = 14,
   // See above comment.  Leave 15 available.
-};
-
-// M40 experimental flag controls rollout of the UwS warning.
-enum UnwantedStatus {
-  UWS_OFF,
-  UWS_ON_INVISIBLE,
-  UWS_ON
+  INCLUSIONWHITELIST = 16,
+  // See above comment.  Leave 17 available.
 };
 
 // Maps a list name to ListType.
@@ -234,9 +229,6 @@ GURL GeneratePhishingReportUrl(const std::string& report_page,
 
 SBFullHash StringToSBFullHash(const std::string& hash_in);
 std::string SBFullHashToString(const SBFullHash& hash_out);
-
-// Look up the status of the UwS warning. The default is off.
-UnwantedStatus GetUnwantedTrialGroup();
 
 }  // namespace safe_browsing_util
 

@@ -27,9 +27,9 @@ namespace {
 using FakeResponse = std::pair<std::string, net::HttpStatusCode>;
 
 // TODO(rockot): In general there's enough mock-Omaha-noise that this might be
-// better placed into some test library code in //components/omaha_client (which
-// would be renamed from omaha_query_params).
-FakeResponse CreateFakeOmahaResponse(const std::string& id, size_t crx_length) {
+// better placed into some test library code in //components/update_client.
+FakeResponse CreateFakeUpdateResponse(const std::string& id,
+                                      size_t crx_length) {
   std::string response_text = base::StringPrintf(
       "<gupdate xmlns=\"http://www.google.com/update2/response\" "
       "    protocol=\"2.0\" server=\"prod\">\n"
@@ -46,7 +46,7 @@ FakeResponse CreateFakeOmahaResponse(const std::string& id, size_t crx_length) {
   return std::make_pair(response_text, net::HTTP_OK);
 }
 
-FakeResponse CreateFakeOmahaNotFoundResponse() {
+FakeResponse CreateFakeUpdateNotFoundResponse() {
   return std::make_pair(
       std::string(
           "<gupdate xmlns=\"http://www.google.com/update2/response\" "
@@ -77,7 +77,7 @@ bool ExtractKeyValueFromComponent(const std::string& component_str,
 // This function extracts the 'x' query parameter (e.g. "id%3Dabcdef...."),
 // unescapes its value (to become e.g., "id=abcdef...", and then extracts the
 // 'id' value from the result (e.g. "abcdef...").
-bool ExtractIdFromOmahaQuery(const std::string& query_str, std::string* id) {
+bool ExtractIdFromUpdateQuery(const std::string& query_str, std::string* id) {
   std::string data_string;
   if (!ExtractKeyValueFromComponent(query_str, "x", &data_string))
     return false;
@@ -100,12 +100,12 @@ class FakeUpdateURLFetcherFactory : public net::URLFetcherFactory {
 
   void RegisterFakeExtension(const std::string& id,
                              const std::string& contents) {
-    CHECK(id.size() == 32);
+    CHECK_EQ(32u, id.size());
     fake_extensions_.insert(std::make_pair(id, contents));
   }
 
   // net::URLFetcherFactory:
-  net::URLFetcher* CreateURLFetcher(
+  scoped_ptr<net::URLFetcher> CreateURLFetcher(
       int id,
       const GURL& url,
       net::URLFetcher::RequestType request_type,
@@ -122,29 +122,30 @@ class FakeUpdateURLFetcherFactory : public net::URLFetcherFactory {
   }
 
  private:
-  net::URLFetcher* CreateUpdateManifestFetcher(
+  scoped_ptr<net::URLFetcher> CreateUpdateManifestFetcher(
       const GURL& url,
       net::URLFetcherDelegate* delegate) {
     // If we have a fake CRX for the ID, return a fake update blob for it.
     // Otherwise return an invalid-ID response.
     FakeResponse response;
     std::string extension_id;
-    if (!ExtractIdFromOmahaQuery(url.query(), &extension_id)) {
-      response = CreateFakeOmahaNotFoundResponse();
+    if (!ExtractIdFromUpdateQuery(url.query(), &extension_id)) {
+      response = CreateFakeUpdateNotFoundResponse();
     } else {
       const auto& iter = fake_extensions_.find(extension_id);
       if (iter == fake_extensions_.end())
-        response = CreateFakeOmahaNotFoundResponse();
+        response = CreateFakeUpdateNotFoundResponse();
       else
-        response = CreateFakeOmahaResponse(extension_id, iter->second.size());
+        response = CreateFakeUpdateResponse(extension_id, iter->second.size());
     }
-    return new net::FakeURLFetcher(url, delegate, response.first,
-                                   response.second,
-                                   net::URLRequestStatus::SUCCESS);
+    return scoped_ptr<net::URLFetcher>(
+        new net::FakeURLFetcher(url, delegate, response.first, response.second,
+                                net::URLRequestStatus::SUCCESS));
   }
 
-  net::URLFetcher* CreateCrxFetcher(const GURL& url,
-                                    net::URLFetcherDelegate* delegate) {
+  scoped_ptr<net::URLFetcher> CreateCrxFetcher(
+      const GURL& url,
+      net::URLFetcherDelegate* delegate) {
     FakeResponse response;
     std::string extension_id = url.path().substr(1, 32);
     const auto& iter = fake_extensions_.find(extension_id);
@@ -156,7 +157,7 @@ class FakeUpdateURLFetcherFactory : public net::URLFetcherFactory {
         new net::FakeURLFetcher(url, delegate, response.first, response.second,
                                 net::URLRequestStatus::SUCCESS);
     fetcher->SetResponseFilePath(base::FilePath::FromUTF8Unsafe(url.path()));
-    return fetcher;
+    return scoped_ptr<net::URLFetcher>(fetcher);
   }
 
   std::map<std::string, std::string> fake_extensions_;

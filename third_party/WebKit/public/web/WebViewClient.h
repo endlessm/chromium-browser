@@ -32,6 +32,7 @@
 #define WebViewClient_h
 
 #include "../platform/WebGraphicsContext3D.h"
+#include "../platform/WebPageVisibilityState.h"
 #include "../platform/WebString.h"
 #include "WebAXEnums.h"
 #include "WebContentDetectionResult.h"
@@ -39,8 +40,6 @@
 #include "WebFileChooserCompletion.h"
 #include "WebFileChooserParams.h"
 #include "WebFrame.h"
-#include "WebNavigatorContentUtilsClient.h"
-#include "WebPageVisibilityState.h"
 #include "WebPopupType.h"
 #include "WebTextAffinity.h"
 #include "WebTextDirection.h"
@@ -49,26 +48,18 @@
 namespace blink {
 
 class WebAXObject;
-class WebCompositorOutputSurface;
 class WebDateTimeChooserCompletion;
 class WebDragData;
-class WebElement;
 class WebFileChooserCompletion;
-class WebGestureEvent;
 class WebHitTestResult;
 class WebImage;
-class WebInputElement;
-class WebKeyboardEvent;
 class WebNode;
-class WebPushClient;
-class WebRange;
 class WebSpeechRecognizer;
 class WebStorageNamespace;
 class WebURL;
 class WebURLRequest;
 class WebView;
 class WebWidget;
-struct WebConsoleMessage;
 struct WebDateTimeChooserParams;
 struct WebPoint;
 struct WebPopupMenuInfo;
@@ -99,9 +90,8 @@ public:
         return 0;
     }
 
-    // Create a new WebPopupMenu.
+    // Create a new popup WebWidget.
     virtual WebWidget* createPopupMenu(WebPopupType) { return 0; }
-    virtual WebWidget* createPopupMenu(const WebPopupMenuInfo&) { return 0; }
 
     // Create a session storage namespace object associated with this WebView.
     virtual WebStorageNamespace* createSessionStorageNamespace() { return 0; }
@@ -142,7 +132,6 @@ public:
     // indicating that the default action should be suppressed.
     virtual bool handleCurrentKeyboardEvent() { return false; }
 
-
     // Dialogs -------------------------------------------------------------
 
     // This method returns immediately after showing the dialog. When the
@@ -159,16 +148,18 @@ public:
     // true. This function is used only if ExternalDateTimeChooser is used.
     virtual bool openDateTimeChooser(const WebDateTimeChooserParams&, WebDateTimeChooserCompletion*) { return false; }
 
-    // Show a notification popup for the specified form vaidation messages
+    // Show a notification popup for the specified form validation messages
     // besides the anchor rectangle. An implementation of this function should
     // not hide the popup until hideValidationMessage call.
-    virtual void showValidationMessage(const WebRect& anchorInRootView, const WebString& mainText, WebTextDirection mainTextDir, const WebString& supplementalText, WebTextDirection supplementalTextDir) { }
+    // FIXME: Clarify anchor coordinates in variable name on Chromium-side.
+    virtual void showValidationMessage(const WebRect& anchorInViewport, const WebString& mainText, WebTextDirection mainTextDir, const WebString& supplementalText, WebTextDirection supplementalTextDir) { }
 
     // Hide notifation popup for form validation messages.
     virtual void hideValidationMessage() { }
 
     // Move the existing notifation popup to the new anchor position.
-    virtual void moveValidationMessage(const WebRect& anchorInRootView) { }
+    // FIXME: Clarify anchor coordinates in variable name on Chromium-side.
+    virtual void moveValidationMessage(const WebRect& anchorInViewport) { }
 
 
     // UI ------------------------------------------------------------------
@@ -194,8 +185,9 @@ public:
     virtual void focusNext() { }
     virtual void focusPrevious() { }
 
-    // Called when a new node gets focused.
-    virtual void focusedNodeChanged(const WebNode&) { }
+    // Called when a new node gets focused. |fromNode| is the previously focused node, |toNode|
+    // is the newly focused node. Either can be null.
+    virtual void focusedNodeChanged(const WebNode& fromNode, const WebNode& toNode) { }
 
     // Indicates two things:
     //   1) This view may have a new layout now.
@@ -224,12 +216,6 @@ public:
     virtual int historyForwardListCount() { return 0; }
 
 
-    // Accessibility -------------------------------------------------------
-
-    // Notifies embedder about an accessibility event.
-    virtual void postAccessibilityEvent(const WebAXObject&, WebAXEvent) { }
-
-
     // Developer tools -----------------------------------------------------
 
     // Called to notify the client that the inspector's settings were
@@ -255,22 +241,8 @@ public:
     // action that wasn't initiated by the client.
     virtual void zoomLevelChanged() { }
 
-
-    // Navigator Content Utils  --------------------------------------------
-
-    // Registers a new URL handler for the given protocol.
-    virtual void registerProtocolHandler(const WebString& scheme,
-        const WebURL& url,
-        const WebString& title) { }
-
-    // Unregisters a given URL handler for the given protocol.
-    virtual void unregisterProtocolHandler(const WebString& scheme, const WebURL& url) { }
-
-    // Check if a given URL handler is registered for the given protocol.
-    virtual WebCustomHandlersState isProtocolHandlerRegistered(const WebString& scheme, const WebURL& url)
-    {
-        return WebCustomHandlersNew;
-    }
+    // Informs the browser that the page scale has changed.
+    virtual void pageScaleFactorChanged() { }
 
 
     // Visibility -----------------------------------------------------------
@@ -280,11 +252,6 @@ public:
     {
         return WebPageVisibilityStateVisible;
     }
-
-
-    // Push Messaging -------------------------------------------------------
-
-    virtual WebPushClient* webPushClient() { return 0; }
 
 
     // Content detection ----------------------------------------------------

@@ -8,9 +8,28 @@ import os
 import re
 import stat
 import subprocess
+import sys
 
 from telemetry.core.platform import desktop_platform_backend
 from telemetry.core.platform import ps_util
+
+
+def _BinaryExistsInSudoersFiles(path, sudoers_file_contents):
+  """Returns True if the binary in |path| features in the sudoers file.
+  """
+  for line in sudoers_file_contents.splitlines():
+    if re.match(r'\s*\(.+\) NOPASSWD: %s(\s\S+)*$' % re.escape(path), line):
+      return True
+  return False
+
+
+def _CanRunElevatedWithSudo(path):
+  """Returns True if the binary at |path| appears in the sudoers file.
+  If this function returns true then the binary at |path| can be run via sudo
+  without prompting for a password.
+  """
+  sudoers = subprocess.check_output(['/usr/bin/sudo', '-l'])
+  return _BinaryExistsInSudoersFiles(path, sudoers)
 
 
 class PosixPlatformBackend(desktop_platform_backend.DesktopPlatformBackend):
@@ -34,11 +53,7 @@ class PosixPlatformBackend(desktop_platform_backend.DesktopPlatformBackend):
       pid: If not None, returns only the information of the process
          with the pid.
     """
-    args = ['ps']
-    args.extend(['-p', str(pid)] if pid != None else ['-e'])
-    for c in columns:
-      args.extend(['-o', c + '='])
-    return self.RunCommand(args).splitlines()
+    return ps_util.GetPsOutputWithPlatformBackend(self, columns, pid)
 
   def _GetTopOutput(self, pid, columns):
     """Returns output of the 'top' command as a list of lines.
@@ -56,7 +71,7 @@ class PosixPlatformBackend(desktop_platform_backend.DesktopPlatformBackend):
     """Returns a list of child pids of |pid|."""
     ps_output = self.GetPsOutput(['pid', 'ppid', 'state'])
     ps_line_re = re.compile(
-        '\s*(?P<pid>\d+)\s*(?P<ppid>\d+)\s*(?P<state>\S*)\s*')
+        r'\s*(?P<pid>\d+)\s*(?P<ppid>\d+)\s*(?P<state>\S*)\s*')
     processes = []
     for pid_ppid_state in ps_output:
       m = ps_line_re.match(pid_ppid_state)
@@ -74,7 +89,7 @@ class PosixPlatformBackend(desktop_platform_backend.DesktopPlatformBackend):
   def IsApplicationRunning(self, application):
     ps_output = self.GetPsOutput(['command'])
     application_re = re.compile(
-        '(.*%s|^)%s(\s|$)' % (os.path.sep, application))
+        r'(.*%s|^)%s(\s|$)' % (os.path.sep, application))
     return any(application_re.match(cmd) for cmd in ps_output)
 
   def LaunchApplication(
@@ -91,18 +106,11 @@ class PosixPlatformBackend(desktop_platform_backend.DesktopPlatformBackend):
       assert isinstance(parameters, list), 'parameters must be a list'
       args += parameters
 
-    def CanRunWithSudo(path):
-      if os.stat(path).st_mode & stat.S_ISUID == stat.S_ISUID:
-        return True
-
-      sudoers = subprocess.check_output(['/usr/bin/sudo', '-l'])
-      for line in sudoers.splitlines():
-        if re.match(r'\s*\(.+\) NOPASSWD: %s$' % path, line):
-          return True
-
-      return False
-
     def IsElevated():
+      """ Returns True if the current process is elevated via sudo i.e. running
+      sudo will not prompt for a password. Returns False if not authenticated
+      via sudo or if telemetry is run on a non-interactive TTY."""
+      # `sudo -v` will always fail if run from a non-interactive TTY.
       p = subprocess.Popen(
           ['/usr/bin/sudo', '-nv'], stdin=subprocess.PIPE,
           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -112,19 +120,30 @@ class PosixPlatformBackend(desktop_platform_backend.DesktopPlatformBackend):
       # required and no output when the user is already authenticated.
       return not p.returncode and not stdout
 
-    if elevate_privilege and not CanRunWithSudo(application):
+    def IsSetUID(path):
+      """Returns True if the binary at |path| has the setuid bit set."""
+      return (os.stat(path).st_mode & stat.S_ISUID) == stat.S_ISUID
+
+    if elevate_privilege and not IsSetUID(application):
       args = ['/usr/bin/sudo'] + args
-      if not IsElevated():
+      if not _CanRunElevatedWithSudo(application) and not IsElevated():
+        if not sys.stdout.isatty():
+          # Without an interactive terminal (or a configured 'askpass', but
+          # that is rarely relevant), there's no way to prompt the user for
+          # sudo. Fail with a helpful error message. For more information, see:
+          #   https://code.google.com/p/chromium/issues/detail?id=426720
+          text = ('Telemetry needs to run %s with elevated privileges, but the '
+                 'setuid bit is not set and there is no interactive terminal '
+                 'for a prompt. Please ask an administrator to set the setuid '
+                 'bit on this executable and ensure that it is owned by a user '
+                 'with the necessary privileges. Aborting.' % application)
+          print text
+          raise Exception(text)
+        # Else, there is a tty that can be used for a useful interactive prompt.
         print ('Telemetry needs to run %s under sudo. Please authenticate.' %
                application)
         # Synchronously authenticate.
         subprocess.check_call(['/usr/bin/sudo', '-v'])
-
-        prompt = ('Would you like to always allow %s to be run as the current '
-                  'user without sudo? If so, Telemetry will '
-                  '`sudo chmod +s %s`. (y/N)' % (application, application))
-        if raw_input(prompt).lower() == 'y':
-          subprocess.check_call(['/usr/bin/sudo', 'chmod', '+s', application])
 
     stderror_destination = subprocess.PIPE
     if logging.getLogger().isEnabledFor(logging.DEBUG):

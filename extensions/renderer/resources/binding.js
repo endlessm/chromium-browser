@@ -77,11 +77,15 @@ APIFunctions.prototype.setHandleRequestWithPromise =
         return module.createKeepAlive();
       });
       $Function.apply(customizedFunction, this, args).then(function(result) {
-        sendRequestHandler.safeCallbackApply(
-            name, {'stack': stack}, callback, [result]);
+        if (callback) {
+          sendRequestHandler.safeCallbackApply(name, {'stack': stack}, callback,
+                                               [result]);
+        }
       }).catch(function(error) {
-        var message = exceptionHandler.safeErrorToString(error, true);
-        lastError.run(name, message, stack, callback);
+        if (callback) {
+          var message = exceptionHandler.safeErrorToString(error, true);
+          lastError.run(name, message, stack, callback);
+        }
       }).then(function() {
         keepAlivePromise.then(function(keepAlive) {
           keepAlive.close();
@@ -271,13 +275,48 @@ Binding.prototype = {
       mod = mod[name];
     }
 
-    // Add types to global schemaValidator, the types we depend on from other
-    // namespaces will be added as needed.
     if (schema.types) {
       $Array.forEach(schema.types, function(t) {
         if (!isSchemaNodeSupported(t, platform, manifestVersion))
           return;
+
+        // Add types to global schemaValidator; the types we depend on from
+        // other namespaces will be added as needed.
         schemaUtils.schemaValidator.addTypes(t);
+
+        // Generate symbols for enums.
+        var enumValues = t['enum'];
+        if (enumValues) {
+          // Type IDs are qualified with the namespace during compilation,
+          // unfortunately, so remove it here.
+          logging.DCHECK($String.substr(t.id, 0, schema.namespace.length) ==
+                             schema.namespace);
+          // Note: + 1 because it ends in a '.', e.g., 'fooApi.Type'.
+          var id = $String.substr(t.id, schema.namespace.length + 1);
+          mod[id] = {};
+          $Array.forEach(enumValues, function(enumValue) {
+            // Note: enums can be declared either as a list of strings
+            // ['foo', 'bar'] or as a list of objects
+            // [{'name': 'foo'}, {'name': 'bar'}].
+            enumValue = $Object.hasOwnProperty(enumValue, 'name') ?
+                enumValue.name : enumValue;
+            if (enumValue) {  // Avoid setting any empty enums.
+              // Make all properties in ALL_CAPS_STYLE.
+              // Replace myEnum-Foo with my_Enum-Foo:
+              var propertyName =
+                  $String.replace(enumValue, /([a-z])([A-Z])/g, '$1_$2');
+              // Replace my_Enum-Foo with my_Enum_Foo:
+              propertyName = $String.replace(propertyName, /\W/g, '_');
+              // If the first character is a digit (we know it must be one of
+              // a digit, a letter, or an underscore), precede it with an
+              // underscore.
+              propertyName = $String.replace(propertyName, /^(\d)/g, '_$1');
+              // Uppercase (replace my_Enum_Foo with MY_ENUM_FOO):
+              propertyName = $String.toUpperCase(propertyName);
+              mod[id][propertyName] = enumValue;
+            }
+          });
+        }
       }, this);
     }
 

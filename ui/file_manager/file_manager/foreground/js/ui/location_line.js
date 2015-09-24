@@ -3,31 +3,18 @@
 // found in the LICENSE file.
 
 /**
- * TODO(hirono): Remove metadataCache and volumeManager dependencies from the UI
- * class.
+ * Location line.
+ *
  * @extends {cr.EventTarget}
  * @param {!Element} breadcrumbs Container element for breadcrumbs.
- * @param {!Element} volumeIcon Volume icon.
- * @param {MetadataCache} metadataCache To retrieve metadata.
- * @param {VolumeManagerWrapper} volumeManager Volume manager.
+ * @param {!VolumeManagerWrapper} volumeManager Volume manager.
  * @constructor
  */
-function LocationLine(breadcrumbs, volumeIcon, metadataCache, volumeManager) {
+function LocationLine(breadcrumbs, volumeManager) {
   this.breadcrumbs_ = breadcrumbs;
-  this.volumeIcon_ = volumeIcon;
-  this.metadataCache_ = metadataCache;
   this.volumeManager_ = volumeManager;
   this.entry_ = null;
-
-  /**
-   * Sequence value to skip requests that are out of date.
-   * @type {number}
-   * @private
-   */
-  this.showSequence_ = 0;
-
-  // Register events and seql the object.
-  breadcrumbs.addEventListener('click', this.onClick_.bind(this));
+  this.components_ = [];
 }
 
 /**
@@ -36,151 +23,152 @@ function LocationLine(breadcrumbs, volumeIcon, metadataCache, volumeManager) {
 LocationLine.prototype.__proto__ = cr.EventTarget.prototype;
 
 /**
- * Shows breadcrumbs.
+ * Shows breadcrumbs. This operation is done without IO.
  *
- * @param {Entry} entry Target entry.
+ * @param {!Entry|!FakeEntry} entry Target entry or fake entry.
  */
 LocationLine.prototype.show = function(entry) {
   if (entry === this.entry_)
     return;
 
-  this.entry_ = entry;
-  this.showSequence_++;
+  this.update_(this.getComponents_(entry));
+};
 
-  // Clear the background image for the icon and the sub type (if any).
-  this.volumeIcon_.removeAttribute('style');
-  this.volumeIcon_.removeAttribute('volume-subtype');
-
-  // Updates volume icon.
+/**
+ * Get components for the path of entry.
+ * @param {!Entry|!FakeEntry} entry An entry.
+ * @return {!Array<!LocationLine.PathComponent>} Components.
+ * @private
+ */
+LocationLine.prototype.getComponents_ = function(entry) {
+  var components = [];
   var locationInfo = this.volumeManager_.getLocationInfo(entry);
-  if (locationInfo && locationInfo.rootType && locationInfo.isRootEntry) {
-    if (locationInfo.volumeInfo.volumeType ===
-            VolumeManagerCommon.VolumeType.PROVIDED) {
-      var extensionId = locationInfo.volumeInfo.extensionId;
-      var backgroundImage = '-webkit-image-set(' +
-          'url(chrome://extension-icon/' + extensionId + '/16/1) 1x, ' +
-          'url(chrome://extension-icon/' + extensionId + '/32/1) 2x);';
-      this.volumeIcon_.setAttribute(
-          'style', 'background-image: ' + backgroundImage);
-    }
-    this.volumeIcon_.setAttribute(
-        'volume-type-icon', locationInfo.rootType);
-  } else {
-    this.volumeIcon_.setAttribute(
-        'volume-type-icon', locationInfo.volumeInfo.volumeType);
-    this.volumeIcon_.setAttribute(
-        'volume-subtype', locationInfo.volumeInfo.deviceType || '');
+
+  if (!locationInfo)
+    return components;
+
+  if (util.isFakeEntry(entry)) {
+    components.push(new LocationLine.PathComponent(
+        util.getRootTypeLabel(locationInfo), entry.toURL(),
+        /** @type {!FakeEntry} */ (entry)));
+    return components;
   }
 
-  var queue = new AsyncUtil.Queue();
-  var entries = [];
-  var error = false;
+  // Add volume component.
+  var displayRootUrl = locationInfo.volumeInfo.displayRoot.toURL();
+  var displayRootFullPath = locationInfo.volumeInfo.displayRoot.fullPath;
+  if (locationInfo.rootType === VolumeManagerCommon.RootType.DRIVE_OTHER) {
+    // When target path is a shared directory, volume should be shared with me.
+    displayRootUrl = displayRootUrl.slice(
+        0, displayRootUrl.length - '/root'.length) + '/other';
+    displayRootFullPath = '/other';
+    var sharedWithMeFakeEntry = locationInfo.volumeInfo.fakeEntries[
+        VolumeManagerCommon.RootType.DRIVE_SHARED_WITH_ME];
+    components.push(new LocationLine.PathComponent(
+        str('DRIVE_SHARED_WITH_ME_COLLECTION_LABEL'),
+        sharedWithMeFakeEntry.toURL(),
+        sharedWithMeFakeEntry));
+  } else {
+    components.push(new LocationLine.PathComponent(
+        util.getRootTypeLabel(locationInfo), displayRootUrl));
+  }
 
-  // Obtain entries from the target entry to the root.
-  var resolveParent = function(currentEntry, previousEntry, callback) {
-    var entryLocationInfo = this.volumeManager_.getLocationInfo(currentEntry);
-    if (!entryLocationInfo) {
-      error = true;
-      callback();
-      return;
-    }
+  // Get relative path to display root (e.g. /root/foo/bar -> foo/bar).
+  var relativePath = entry.fullPath.slice(displayRootFullPath.length);
+  if (relativePath.indexOf('/') === 0) {
+    relativePath = relativePath.slice(1);
+  }
+  if (relativePath.length === 0)
+    return components;
 
-    if (entryLocationInfo.isRootEntry &&
-        entryLocationInfo.rootType ===
-            VolumeManagerCommon.RootType.DRIVE_OTHER) {
-      this.metadataCache_.getOne(previousEntry, 'external', function(result) {
-        if (result && result.sharedWithMe) {
-          // Adds the shared-with-me entry instead.
-          var driveVolumeInfo = entryLocationInfo.volumeInfo;
-          var sharedWithMeEntry =
-              driveVolumeInfo.fakeEntries[
-                  VolumeManagerCommon.RootType.DRIVE_SHARED_WITH_ME];
-          if (sharedWithMeEntry)
-            entries.unshift(sharedWithMeEntry);
-          else
-            error = true;
-        } else {
-          entries.unshift(currentEntry);
-        }
-        // Finishes traversal since the current is root.
-        callback();
-      });
-      return;
-    }
+  // currentUrl should be without trailing slash.
+  var currentUrl = /^.+\/$/.test(displayRootUrl) ?
+      displayRootUrl.slice(0, displayRootUrl.length - 1) : displayRootUrl;
 
-    entries.unshift(currentEntry);
-    if (!entryLocationInfo.isRootEntry) {
-      currentEntry.getParent(function(parentEntry) {
-        resolveParent(parentEntry, currentEntry, callback);
-      }.bind(this), function() {
-        error = true;
-        callback();
-      });
-    } else {
-      callback();
-    }
-  }.bind(this);
+  // Add directory components to the target path.
+  var paths = relativePath.split('/');
+  for (var i = 0; i < paths.length; i++) {
+    currentUrl += '/' + paths[i];
+    components.push(new LocationLine.PathComponent(paths[i], currentUrl));
+  }
 
-  queue.run(resolveParent.bind(this, entry, null));
-
-  queue.run(function(callback) {
-    // If an error occurred, just skip.
-    if (error) {
-      callback();
-      return;
-    }
-
-    // If the path is not under the drive other root, it is not needed to
-    // override root type.
-    var locationInfo = this.volumeManager_.getLocationInfo(entry);
-    if (!locationInfo)
-      error = true;
-
-    callback();
-  }.bind(this));
-
-  // Update DOM element.
-  queue.run(function(sequence, callback) {
-    // Check the sequence number to skip requests that are out of date.
-    if (this.showSequence_ === sequence) {
-      this.breadcrumbs_.hidden = false;
-      this.breadcrumbs_.textContent = '';
-      if (!error)
-        this.updateInternal_(entries);
-    }
-    callback();
-  }.bind(this, this.showSequence_));
+  return components;
 };
 
 /**
  * Updates the breadcrumb display.
- * @param {Array.<!Entry>} entries Entries on the target path.
+ * @param {!Array<!LocationLine.PathComponent>} components Components to the
+ *     target path.
  * @private
  */
-LocationLine.prototype.updateInternal_ = function(entries) {
-  // Make elements.
-  var doc = this.breadcrumbs_.ownerDocument;
-  for (var i = 0; i < entries.length; i++) {
+LocationLine.prototype.update_ = function(components) {
+  this.components_ = components;
+
+  // Make the new breadcrumbs temporarily.
+  var newBreadcrumbs = document.createElement('div');
+  for (var i = 0; i < components.length; i++) {
     // Add a component.
-    var entry = entries[i];
-    var div = doc.createElement('div');
-    div.className = 'breadcrumb-path entry-name';
-    div.textContent = util.getEntryLabel(this.volumeManager_, entry);
-    div.entry = entry;
-    this.breadcrumbs_.appendChild(div);
+    var component = components[i];
+    var button = document.createElement('button');
+    button.classList.add(
+        'breadcrumb-path', 'entry-name', 'imitate-paper-button');
+    var nameElement = document.createElement('div');
+    nameElement.classList.add('name');
+    nameElement.textContent = component.name;
+    button.appendChild(nameElement);
+    button.addEventListener('click', this.onClick_.bind(this, i));
+    newBreadcrumbs.appendChild(button);
+
+    var ripple = document.createElement('paper-ripple');
+    ripple.classList.add('recenteringTouch');
+    ripple.setAttribute('fit', '');
+    button.appendChild(ripple);
 
     // If this is the last component, break here.
-    if (i === entries.length - 1) {
-      div.classList.add('breadcrumb-last');
+    if (i === components.length - 1)
       break;
-    }
 
     // Add a separator.
-    var separator = doc.createElement('div');
-    separator.className = 'separator';
-    this.breadcrumbs_.appendChild(separator);
+    var separator = document.createElement('span');
+    separator.classList.add('separator');
+    newBreadcrumbs.appendChild(separator);
   }
 
+  // Replace the shown breadcrumbs with the new one, keeping the DOMs for common
+  // prefix of the path.
+  // 1. Forward the references to the path element while in the common prefix.
+  var childOriginal = this.breadcrumbs_.firstChild;
+  var childNew = newBreadcrumbs.firstChild;
+  var cnt = 0;
+  while (childOriginal && childNew &&
+         childOriginal.textContent === childNew.textContent) {
+    childOriginal = childOriginal.nextSibling;
+    childNew = childNew.nextSibling;
+    cnt++;
+  }
+  // 2. Remove all elements in original breadcrumbs which are not in the common
+  // prefix.
+  while (childOriginal) {
+    var childToRemove = childOriginal;
+    childOriginal = childOriginal.nextSibling;
+    this.breadcrumbs_.removeChild(childToRemove);
+  }
+  // 3. Append new elements after the common prefix.
+  while (childNew) {
+    var childToAppend = childNew;
+    childNew = childNew.nextSibling;
+    this.breadcrumbs_.appendChild(childToAppend);
+  }
+  // 4. Reset the tab index and class 'breadcrumb-last'.
+  for (var el = this.breadcrumbs_.firstChild; el; el = el.nextSibling) {
+    if (el.classList.contains('breadcrumb-path')) {
+      var isLast = !el.nextSibling;
+      el.tabIndex = isLast ? -1 : 8;
+      el.classList.toggle('breadcrumb-last', isLast);
+    }
+  }
+
+  this.breadcrumbs_.hidden = false;
   this.truncate();
 };
 
@@ -191,14 +179,15 @@ LocationLine.prototype.truncate = function() {
   if (!this.breadcrumbs_.firstChild)
     return;
 
-  // Assume style.width == clientWidth (items have no margins or paddings).
+  // Assume style.width == clientWidth (items have no margins).
 
   for (var item = this.breadcrumbs_.firstChild; item; item = item.nextSibling) {
     item.removeAttribute('style');
     item.removeAttribute('collapsed');
+    item.removeAttribute('hidden');
   }
 
-  var containerWidth = this.breadcrumbs_.clientWidth;
+  var containerWidth = this.breadcrumbs_.getBoundingClientRect().width;
 
   var pathWidth = 0;
   var currentWidth = 0;
@@ -206,10 +195,10 @@ LocationLine.prototype.truncate = function() {
   for (var item = this.breadcrumbs_.firstChild; item; item = item.nextSibling) {
     if (item.className == 'separator') {
       pathWidth += currentWidth;
-      currentWidth = item.clientWidth;
+      currentWidth = item.getBoundingClientRect().width;
       lastSeparator = item;
     } else {
-      currentWidth += item.clientWidth;
+      currentWidth += item.getBoundingClientRect().width;
     }
   }
   if (pathWidth + currentWidth <= containerWidth)
@@ -219,7 +208,7 @@ LocationLine.prototype.truncate = function() {
         Math.min(currentWidth, containerWidth) + 'px';
     return;
   }
-  var lastCrumbSeparatorWidth = lastSeparator.clientWidth;
+  var lastCrumbSeparatorWidth = lastSeparator.getBoundingClientRect().width;
   // Current directory name may occupy up to 70% of space or even more if the
   // path is short.
   var maxPathWidth = Math.max(Math.round(containerWidth * 0.3),
@@ -227,15 +216,24 @@ LocationLine.prototype.truncate = function() {
   maxPathWidth = Math.min(pathWidth, maxPathWidth);
 
   var parentCrumb = lastSeparator.previousSibling;
+
+  // Pre-calculate the minimum width for crumbs.
+  parentCrumb.setAttribute('collapsed', '');
+  var minCrumbWidth = parentCrumb.getBoundingClientRect().width;
+  parentCrumb.removeAttribute('collapsed');
+
   var collapsedWidth = 0;
-  if (parentCrumb && pathWidth - maxPathWidth > parentCrumb.clientWidth) {
+  if (parentCrumb &&
+      pathWidth - parentCrumb.getBoundingClientRect().width + minCrumbWidth >
+          maxPathWidth) {
     // At least one crumb is hidden completely (or almost completely).
     // Show sign of hidden crumbs like this:
     // root > some di... > ... > current directory.
     parentCrumb.setAttribute('collapsed', '');
-    collapsedWidth = Math.min(maxPathWidth, parentCrumb.clientWidth);
+    collapsedWidth = Math.min(maxPathWidth,
+                              parentCrumb.getBoundingClientRect().width);
     maxPathWidth -= collapsedWidth;
-    if (parentCrumb.clientWidth != collapsedWidth)
+    if (parentCrumb.getBoundingClientRect().width != collapsedWidth)
       parentCrumb.style.width = collapsedWidth + 'px';
 
     lastSeparator = parentCrumb.previousSibling;
@@ -250,18 +248,29 @@ LocationLine.prototype.truncate = function() {
        item = item.nextSibling) {
     // TODO(serya): Mixing access item.clientWidth and modifying style and
     // attributes could cause multiple layout reflows.
-    if (pathWidth + item.clientWidth <= maxPathWidth) {
-      pathWidth += item.clientWidth;
-    } else if (pathWidth == maxPathWidth) {
-      item.style.width = '0';
-    } else if (item.classList.contains('separator')) {
-      // Do not truncate separator. Instead let the last crumb be longer.
-      item.style.width = '0';
-      maxPathWidth = pathWidth;
+    if (pathWidth === maxPathWidth) {
+      item.setAttribute('hidden', '');
     } else {
-      // Truncate the last visible crumb.
-      item.style.width = (maxPathWidth - pathWidth) + 'px';
-      pathWidth = maxPathWidth;
+      if (item.classList.contains('separator')) {
+        // If the current separator and the following crumb don't fit in the
+        // breadcrumbs area, hide remaining separators and crumbs.
+        if (pathWidth + item.getBoundingClientRect().width + minCrumbWidth >
+                maxPathWidth) {
+          item.setAttribute('hidden', '');
+          maxPathWidth = pathWidth;
+        } else {
+          pathWidth += item.getBoundingClientRect().width;
+        }
+      } else {
+        // If the current crumb doesn't fully fit in the breadcrumbs area,
+        // shorten the crumb and hide remaining separators and crums.
+        if (pathWidth + item.getBoundingClientRect().width > maxPathWidth) {
+          item.style.width = (maxPathWidth - pathWidth) + 'px';
+          pathWidth = maxPathWidth;
+        } else {
+          pathWidth += item.getBoundingClientRect().width;
+        }
+      }
     }
   }
 
@@ -279,16 +288,55 @@ LocationLine.prototype.hide = function() {
 };
 
 /**
- * Handle a click event on a breadcrumb element.
- * @param {Event} event The click event.
+ * Execute an element.
+ * @param {number} index The index of clicked path component.
+ * @param {!Event} event The MouseEvent object.
  * @private
  */
-LocationLine.prototype.onClick_ = function(event) {
-  if (!event.target.classList.contains('breadcrumb-path') ||
-      event.target.classList.contains('breadcrumb-last'))
+LocationLine.prototype.onClick_ = function(index, event) {
+  if (index >= this.components_.length - 1)
     return;
 
-  var newEvent = new Event('pathclick');
-  newEvent.entry = event.target.entry;
-  this.dispatchEvent(newEvent);
+  // Remove 'focused' state from the clicked button.
+  var button = event.target;
+  while (button && !button.classList.contains('breadcrumb-path'))
+    button = button.parentElement;
+  if (button)
+    button.blur();
+
+  var pathComponent = this.components_[index];
+  pathComponent.resolveEntry().then(function(entry) {
+    var pathClickEvent = new Event('pathclick');
+    pathClickEvent.entry = entry;
+    this.dispatchEvent(pathClickEvent);
+  }.bind(this));
+};
+
+/**
+ * Path component.
+ * @param {string} name Name.
+ * @param {string} url Url.
+ * @param {FakeEntry=} opt_fakeEntry Fake entry should be set when this
+ *     component represents fake entry.
+ * @constructor
+ * @struct
+ */
+LocationLine.PathComponent = function(name, url, opt_fakeEntry) {
+  this.name = name;
+  this.url_ = url;
+  this.fakeEntry_ = opt_fakeEntry || null;
+};
+
+/**
+ * Resolve an entry of the component.
+ * @return {!Promise<!Entry|!FakeEntry>} A promise which is resolved with an
+ *     entry.
+ */
+LocationLine.PathComponent.prototype.resolveEntry = function() {
+  if (this.fakeEntry_)
+    return /** @type {!Promise<!Entry|!FakeEntry>} */ (
+        Promise.resolve(this.fakeEntry_));
+  else
+    return new Promise(
+        window.webkitResolveLocalFileSystemURL.bind(null, this.url_));
 };

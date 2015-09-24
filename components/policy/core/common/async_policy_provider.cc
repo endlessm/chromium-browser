@@ -7,9 +7,9 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/location.h"
-#include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/sequenced_task_runner.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "components/policy/core/common/async_policy_loader.h"
 #include "components/policy/core/common/policy_bundle.h"
 #include "components/policy/core/common/schema_registry.h"
@@ -19,7 +19,7 @@ namespace policy {
 AsyncPolicyProvider::AsyncPolicyProvider(
     SchemaRegistry* registry,
     scoped_ptr<AsyncPolicyLoader> loader)
-    : loader_(loader.release()),
+    : loader_(loader.Pass()),
       weak_factory_(this) {
   // Make an immediate synchronous load on startup.
   OnLoaderReloaded(loader_->InitialLoad(registry->schema_map()));
@@ -27,8 +27,6 @@ AsyncPolicyProvider::AsyncPolicyProvider(
 
 AsyncPolicyProvider::~AsyncPolicyProvider() {
   DCHECK(CalledOnValidThread());
-  // Shutdown() must have been called before.
-  DCHECK(!loader_);
 }
 
 void AsyncPolicyProvider::Init(SchemaRegistry* registry) {
@@ -40,12 +38,12 @@ void AsyncPolicyProvider::Init(SchemaRegistry* registry) {
 
   AsyncPolicyLoader::UpdateCallback callback =
       base::Bind(&AsyncPolicyProvider::LoaderUpdateCallback,
-                 base::MessageLoopProxy::current(),
+                 base::ThreadTaskRunnerHandle::Get(),
                  weak_factory_.GetWeakPtr());
   bool post = loader_->task_runner()->PostTask(
       FROM_HERE,
       base::Bind(&AsyncPolicyLoader::Init,
-                 base::Unretained(loader_),
+                 base::Unretained(loader_.get()),
                  callback));
   DCHECK(post) << "AsyncPolicyProvider::Init() called with threads not running";
 }
@@ -59,11 +57,11 @@ void AsyncPolicyProvider::Shutdown() {
   // is only posted from here. The |loader_| posts back to the
   // AsyncPolicyProvider through the |update_callback_|, which has a WeakPtr to
   // |this|.
-  if (!loader_->task_runner()->DeleteSoon(FROM_HERE, loader_)) {
-    // The background thread doesn't exist; this only happens on unit tests.
-    delete loader_;
-  }
-  loader_ = NULL;
+  // If threads are spinning, delete the loader on the thread it lives on. If
+  // there are no threads, kill it immediately.
+  AsyncPolicyLoader* loader_to_delete = loader_.release();
+  if (!loader_to_delete->task_runner()->DeleteSoon(FROM_HERE, loader_to_delete))
+    delete loader_to_delete;
   ConfigurationPolicyProvider::Shutdown();
 }
 
@@ -108,7 +106,7 @@ void AsyncPolicyProvider::ReloadAfterRefreshSync() {
   loader_->task_runner()->PostTask(
       FROM_HERE,
       base::Bind(&AsyncPolicyLoader::RefreshPolicies,
-                 base::Unretained(loader_),
+                 base::Unretained(loader_.get()),
                  schema_map()));
 }
 
@@ -122,10 +120,10 @@ void AsyncPolicyProvider::OnLoaderReloaded(scoped_ptr<PolicyBundle> bundle) {
 
 // static
 void AsyncPolicyProvider::LoaderUpdateCallback(
-    scoped_refptr<base::MessageLoopProxy> loop,
+    scoped_refptr<base::SingleThreadTaskRunner> runner,
     base::WeakPtr<AsyncPolicyProvider> weak_this,
     scoped_ptr<PolicyBundle> bundle) {
-  loop->PostTask(FROM_HERE,
+  runner->PostTask(FROM_HERE,
                  base::Bind(&AsyncPolicyProvider::OnLoaderReloaded,
                             weak_this,
                             base::Passed(&bundle)));

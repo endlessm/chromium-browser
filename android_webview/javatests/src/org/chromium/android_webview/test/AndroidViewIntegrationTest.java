@@ -4,6 +4,8 @@
 
 package org.chromium.android_webview.test;
 
+import android.graphics.Color;
+import android.os.Build;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.view.View;
 import android.view.ViewGroup.LayoutParams;
@@ -13,7 +15,9 @@ import org.chromium.android_webview.AwContents;
 import org.chromium.android_webview.AwContentsClient;
 import org.chromium.android_webview.AwLayoutSizer;
 import org.chromium.android_webview.test.util.CommonResources;
+import org.chromium.android_webview.test.util.GraphicsTestUtils;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.ui.gfx.DeviceDisplayInfo;
 
@@ -22,6 +26,7 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Tests for certain edge cases related to integrating with the Android view system.
  */
+@MinAndroidSdkLevel(Build.VERSION_CODES.KITKAT)
 public class AndroidViewIntegrationTest extends AwTestBase {
     private static final int CONTENT_SIZE_CHANGE_STABILITY_TIMEOUT_MS = 1000;
 
@@ -207,19 +212,19 @@ public class AndroidViewIntegrationTest extends AwTestBase {
     private String makeHtmlPageOfSize(int widthCss, int heightCss, boolean heightPercent) {
         String content = "<div class=\"normal\">a</div>";
         if (heightPercent) content += "<div class=\"heightPercent\"></div>";
-        return CommonResources.makeHtmlPageFrom(
-            "<style type=\"text/css\">" +
-                "body { margin:0px; padding:0px; } " +
-                ".normal { " +
-                   "width:" + widthCss + "px; " +
-                   "height:" + heightCss + "px; " +
-                   "background-color: red; " +
-                 "} " +
-                 ".heightPercent { " +
-                   "height: 150%; " +
-                   "background-color: blue; " +
-                 "} " +
-            "</style>", content);
+        return CommonResources.makeHtmlPageFrom("<style type=\"text/css\">"
+                        + "  body { margin:0px; padding:0px; } "
+                        + "  .normal { "
+                        + "    width:" + widthCss + "px; "
+                        + "    height:" + heightCss + "px; "
+                        + "    background-color: #227788; "
+                        + "  } "
+                        + "  .heightPercent { "
+                        + "    height: 150%; "
+                        + "    background-color: blue; "
+                        + "  } "
+                        + "</style>",
+                content);
     }
 
     private void waitForContentSizeToChangeTo(OnContentSizeChangedHelper helper, int callCount,
@@ -227,8 +232,8 @@ public class AndroidViewIntegrationTest extends AwTestBase {
         final int maxSizeChangeNotificationsToWaitFor = 5;
         for (int i = 1; i <= maxSizeChangeNotificationsToWaitFor; i++) {
             helper.waitForCallback(callCount, i);
-            if ((heightCss == -1 || helper.getHeight() == heightCss) &&
-                    (widthCss == -1 || helper.getWidth() == widthCss)) {
+            if ((heightCss == -1 || helper.getHeight() == heightCss)
+                    && (widthCss == -1 || helper.getWidth() == widthCss)) {
                 break;
             }
             // This means that we hit the max number of iterations but the expected contents size
@@ -282,22 +287,48 @@ public class AndroidViewIntegrationTest extends AwTestBase {
         final int widthCss = 142;
         final int heightCss = 180;
 
-        final String htmlData = CommonResources.makeHtmlPageFrom(
-                "<style type=\"text/css\">" +
-                "  body { margin:0px; padding:0px; } " +
-                "  div { " +
-                "    position: absolute; " +
-                "    width:" + widthCss + "px; " +
-                "    height:" + heightCss + "px; " +
-                "    background-color: red; " +
-                "  } " +
-                "</style>", "<div>a</div>");
+        final String htmlData = CommonResources.makeHtmlPageFrom("<style type=\"text/css\">"
+                + "  body { margin:0px; padding:0px; } "
+                + "  div { "
+                + "    position: absolute; "
+                + "    width:" + widthCss + "px; "
+                + "    height:" + heightCss + "px; "
+                + "    background-color: red; "
+                + "  } "
+                + "</style>", "<div>a</div>");
 
         final int contentSizeChangeCallCount = mOnContentSizeChangedHelper.getCallCount();
         loadDataAsync(testContainerView.getAwContents(), htmlData, "text/html", false);
 
         waitForContentSizeToChangeTo(mOnContentSizeChangedHelper, contentSizeChangeCallCount,
                 widthCss, heightCss);
+    }
+
+    @SmallTest
+    @Feature({"AndroidWebView"})
+    public void testViewIsNotBlankInWrapContentsMode() throws Throwable {
+        final TestAwContentsClient contentsClient = new TestAwContentsClient();
+        final AwTestContainerView testContainerView =
+                createCustomTestContainerViewOnMainSync(contentsClient, View.VISIBLE);
+        assertZeroHeight(testContainerView);
+
+        final double deviceDIPScale =
+                DeviceDisplayInfo.create(testContainerView.getContext()).getDIPScale();
+
+        final int contentWidthCss = 142;
+        final int contentHeightCss = 180;
+
+        // In wrap-content mode the AwLayoutSizer will size the view to be as wide as the parent
+        // view.
+        final int expectedWidthCss =
+                (int) Math.ceil(getRootLayoutWidthOnMainThread() / deviceDIPScale);
+        final int expectedHeightCss = contentHeightCss;
+
+        loadPageOfSizeAndWaitForSizeChange(testContainerView.getAwContents(),
+                mOnContentSizeChangedHelper, expectedWidthCss, expectedHeightCss, false);
+
+        GraphicsTestUtils.pollForBackgroundColor(
+                testContainerView.getAwContents(), Color.rgb(0x22, 0x77, 0x88));
     }
 
     @SmallTest

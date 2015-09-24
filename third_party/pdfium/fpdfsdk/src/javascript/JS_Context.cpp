@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/javascript/JavaScript.h"
@@ -14,7 +14,7 @@
 
 /* -------------------------- CJS_Context -------------------------- */
 
-CJS_Context::CJS_Context(CJS_Runtime* pRuntime) : 	
+CJS_Context::CJS_Context(CJS_Runtime* pRuntime) :
 	m_pRuntime(pRuntime),
 	m_bBusy(FALSE),
 	m_bMsgBoxEnable(TRUE)
@@ -41,17 +41,17 @@ CPDFSDK_Document* CJS_Context::GetReaderDocument()
 CPDFDoc_Environment* CJS_Context::GetReaderApp()
 {
 	ASSERT(m_pRuntime != NULL);
-	
+
 	return m_pRuntime->GetReaderApp();
 }
 
 FX_BOOL CJS_Context::DoJob(int nMode, const CFX_WideString& script, CFX_WideString& info)
 {
 	if (m_bBusy)
-	{		
+	{
 		info = JSGetStringFromID(this, IDS_STRING_JSBUSY);
 		return FALSE;
-	}	
+	}
 
 	m_bBusy = TRUE;
 
@@ -66,24 +66,24 @@ FX_BOOL CJS_Context::DoJob(int nMode, const CFX_WideString& script, CFX_WideStri
 	}
 
 	FXJSErr error ={NULL,NULL, 0};
-	int nRet = 0;	
+	int nRet = 0;
 
 	if (script.GetLength() > 0)
 	{
 		if (nMode == 0)
 		{
-			nRet = JS_Execute(*m_pRuntime, this, script, script.GetLength(), &error);
+			nRet = JS_Execute(*m_pRuntime, this, script.c_str(), script.GetLength(), &error);
 		}
 		else
 		{
-			nRet = JS_Parse(*m_pRuntime, this, script, script.GetLength(), &error);
+			nRet = JS_Parse(*m_pRuntime, this, script.c_str(), script.GetLength(), &error);
 		}
 	}
 
 	if (nRet < 0)
 	{
 		CFX_WideString sLine;
-		sLine.Format((FX_LPCWSTR)L"[ Line: %05d { %s } ] : %s",error.linnum-1,error.srcline,error.message);
+		sLine.Format(L"[ Line: %05d { %s } ] : %s",error.linnum-1,error.srcline,error.message);
 
 //			TRACE(L"/* -------------- JS Error -------------- */\n");
 //			TRACE(sLine);
@@ -99,7 +99,7 @@ FX_BOOL CJS_Context::DoJob(int nMode, const CFX_WideString& script, CFX_WideStri
 	m_pRuntime->RemoveEventInLoop(m_pEventHandler->TargetName(), m_pEventHandler->EventType());
 
 	m_pEventHandler->Destroy();
-	m_bBusy = FALSE;	
+	m_bBusy = FALSE;
 
 	return nRet >= 0;
 }
@@ -232,21 +232,20 @@ void CJS_Context::OnField_Calculate(CPDF_FormField* pSource, CPDF_FormField* pTa
 	m_pEventHandler->OnField_Calculate(pSource, pTarget, Value, bRc);
 }
 
-void CJS_Context::OnField_Format(int nCommitKey, CPDF_FormField* pTarget, CFX_WideString& Value, FX_BOOL bWillCommit)
+void CJS_Context::OnField_Format(CPDF_FormField* pTarget, CFX_WideString& Value, FX_BOOL bWillCommit)
 {
-	ASSERT(m_pEventHandler != NULL);
-	m_pEventHandler->OnField_Format(nCommitKey, pTarget, Value, bWillCommit);
+    m_pEventHandler->OnField_Format(pTarget, Value, bWillCommit);
 }
 
 
-void CJS_Context::OnField_Keystroke(int nCommitKey, CFX_WideString& strChange, const CFX_WideString& strChangeEx,
+void CJS_Context::OnField_Keystroke(CFX_WideString& strChange, const CFX_WideString& strChangeEx,
 									FX_BOOL bKeyDown, FX_BOOL bModifier, int &nSelEnd,int &nSelStart,
 									FX_BOOL bShift, CPDF_FormField* pTarget, CFX_WideString& Value,
 									FX_BOOL bWillCommit, FX_BOOL bFieldFull, FX_BOOL& bRc)
 {
-	ASSERT(m_pEventHandler != NULL);
-	m_pEventHandler->OnField_Keystroke(nCommitKey, strChange, strChangeEx, bKeyDown,
-		bModifier, nSelEnd, nSelStart, bShift, pTarget, Value, bWillCommit, bFieldFull, bRc);
+    m_pEventHandler->OnField_Keystroke(
+        strChange, strChangeEx, bKeyDown, bModifier, nSelEnd, nSelStart,
+        bShift, pTarget, Value, bWillCommit, bFieldFull, bRc);
 }
 
 void CJS_Context::OnField_Validate(CFX_WideString& strChange,const CFX_WideString& strChangeEx,
@@ -343,7 +342,7 @@ void CJS_Context::OnExternal_Exec()
 
 void CJS_Context::OnBatchExec(CPDFSDK_Document* pTarget)
 {
-	ASSERT(m_pEventHandler != NULL);	
+	ASSERT(m_pEventHandler != NULL);
 	m_pEventHandler->OnBatchExec(pTarget);
 }
 

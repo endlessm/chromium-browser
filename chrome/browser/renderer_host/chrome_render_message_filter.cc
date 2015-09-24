@@ -8,27 +8,31 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/metrics/histogram.h"
+#include "base/logging.h"
+#include "base/metrics/field_trial.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/content_settings/cookie_settings.h"
+#include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
 #include "chrome/browser/net/predictor.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/render_messages.h"
+#include "components/content_settings/content/common/content_settings_messages.h"
+#include "components/content_settings/core/browser/cookie_settings.h"
+#include "components/network_hints/common/network_hints_common.h"
+#include "components/network_hints/common/network_hints_messages.h"
+#include "components/rappor/rappor_service.h"
+#include "components/rappor/rappor_utils.h"
 #include "components/web_cache/browser/web_cache_manager.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_process_host.h"
 
 #if defined(ENABLE_EXTENSIONS)
-#include "chrome/common/extensions/api/i18n/default_locale_handler.h"
 #include "extensions/browser/guest_view/web_view/web_view_permission_helper.h"
 #include "extensions/browser/guest_view/web_view/web_view_renderer_state.h"
-#endif
-
-#if defined(ENABLE_TASK_MANAGER)
-#include "chrome/browser/task_manager/task_manager.h"
+#include "extensions/common/manifest_handlers/default_locale_handler.h"
 #endif
 
 #if defined(USE_TCMALLOC)
@@ -42,19 +46,20 @@ namespace {
 
 const uint32 kFilteredMessageClasses[] = {
   ChromeMsgStart,
+  ContentSettingsMsgStart,
+  NetworkHintsMsgStart,
 };
 
 }  // namespace
 
-ChromeRenderMessageFilter::ChromeRenderMessageFilter(
-    int render_process_id,
-    Profile* profile)
+ChromeRenderMessageFilter::ChromeRenderMessageFilter(int render_process_id,
+                                                     Profile* profile)
     : BrowserMessageFilter(kFilteredMessageClasses,
                            arraysize(kFilteredMessageClasses)),
       render_process_id_(render_process_id),
       profile_(profile),
       predictor_(profile_->GetNetworkPredictor()),
-      cookie_settings_(CookieSettings::Factory::GetForProfile(profile)) {
+      cookie_settings_(CookieSettingsFactory::GetForProfile(profile)) {
 }
 
 ChromeRenderMessageFilter::~ChromeRenderMessageFilter() {
@@ -63,13 +68,10 @@ ChromeRenderMessageFilter::~ChromeRenderMessageFilter() {
 bool ChromeRenderMessageFilter::OnMessageReceived(const IPC::Message& message) {
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(ChromeRenderMessageFilter, message)
-    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_DnsPrefetch, OnDnsPrefetch)
-    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_Preconnect, OnPreconnect)
-    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_ResourceTypeStats,
-                        OnResourceTypeStats)
+    IPC_MESSAGE_HANDLER(NetworkHintsMsg_DNSPrefetch, OnDnsPrefetch)
+    IPC_MESSAGE_HANDLER(NetworkHintsMsg_Preconnect, OnPreconnect)
     IPC_MESSAGE_HANDLER(ChromeViewHostMsg_UpdatedCacheStats,
                         OnUpdatedCacheStats)
-    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_V8HeapStats, OnV8HeapStats)
     IPC_MESSAGE_HANDLER(ChromeViewHostMsg_AllowDatabase, OnAllowDatabase)
     IPC_MESSAGE_HANDLER(ChromeViewHostMsg_AllowDOMStorage, OnAllowDOMStorage)
     IPC_MESSAGE_HANDLER_DELAY_REPLY(
@@ -82,6 +84,10 @@ bool ChromeRenderMessageFilter::OnMessageReceived(const IPC::Message& message) {
     IPC_MESSAGE_HANDLER(ChromeViewHostMsg_IsCrashReportingEnabled,
                         OnIsCrashReportingEnabled)
 #endif
+    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_FieldTrialActivated,
+                        OnFieldTrialActivated)
+    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_RecordRappor, OnRecordRappor)
+    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_RecordRapporURL, OnRecordRapporURL)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
 
@@ -91,8 +97,9 @@ bool ChromeRenderMessageFilter::OnMessageReceived(const IPC::Message& message) {
 void ChromeRenderMessageFilter::OverrideThreadForMessage(
     const IPC::Message& message, BrowserThread::ID* thread) {
   switch (message.type()) {
-    case ChromeViewHostMsg_ResourceTypeStats::ID:
     case ChromeViewHostMsg_UpdatedCacheStats::ID:
+    case ChromeViewHostMsg_RecordRappor::ID:
+    case ChromeViewHostMsg_RecordRapporURL::ID:
       *thread = BrowserThread::UI;
       break;
     default:
@@ -101,67 +108,28 @@ void ChromeRenderMessageFilter::OverrideThreadForMessage(
 }
 
 void ChromeRenderMessageFilter::OnDnsPrefetch(
-    const std::vector<std::string>& hostnames) {
+    const network_hints::LookupRequest& request) {
   if (predictor_)
-    predictor_->DnsPrefetchList(hostnames);
+    predictor_->DnsPrefetchList(request.hostname_list);
 }
 
-void ChromeRenderMessageFilter::OnPreconnect(const GURL& url) {
-  if (predictor_)
+void ChromeRenderMessageFilter::OnPreconnect(const GURL& url, int count) {
+  if (count < 1) {
+    LOG(WARNING) << "NetworkHintsMsg_Preconnect IPC with invalid count: "
+                 << count;
+    return;
+  }
+  if (predictor_ && url.is_valid() && url.has_host() && url.has_scheme() &&
+      url.SchemeIsHTTPOrHTTPS()) {
     predictor_->PreconnectUrl(
-        url, GURL(), chrome_browser_net::UrlInfo::MOUSE_OVER_MOTIVATED, 1);
-}
-
-void ChromeRenderMessageFilter::OnResourceTypeStats(
-    const WebCache::ResourceTypeStats& stats) {
-  LOCAL_HISTOGRAM_COUNTS("WebCoreCache.ImagesSizeKB",
-                         static_cast<int>(stats.images.size / 1024));
-  LOCAL_HISTOGRAM_COUNTS("WebCoreCache.CSSStylesheetsSizeKB",
-                         static_cast<int>(stats.cssStyleSheets.size / 1024));
-  LOCAL_HISTOGRAM_COUNTS("WebCoreCache.ScriptsSizeKB",
-                         static_cast<int>(stats.scripts.size / 1024));
-  LOCAL_HISTOGRAM_COUNTS("WebCoreCache.XSLStylesheetsSizeKB",
-                         static_cast<int>(stats.xslStyleSheets.size / 1024));
-  LOCAL_HISTOGRAM_COUNTS("WebCoreCache.FontsSizeKB",
-                         static_cast<int>(stats.fonts.size / 1024));
-
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-#if defined(ENABLE_TASK_MANAGER)
-  TaskManager::GetInstance()->model()->NotifyResourceTypeStats(peer_pid(),
-                                                               stats);
-#endif  // defined(ENABLE_TASK_MANAGER)
+        url, GURL(), chrome_browser_net::UrlInfo::EARLY_LOAD_MOTIVATED, count);
+  }
 }
 
 void ChromeRenderMessageFilter::OnUpdatedCacheStats(
     const WebCache::UsageStats& stats) {
   web_cache::WebCacheManager::GetInstance()->ObserveStats(
       render_process_id_, stats);
-}
-
-void ChromeRenderMessageFilter::OnV8HeapStats(int v8_memory_allocated,
-                                              int v8_memory_used) {
-  if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
-        base::Bind(&ChromeRenderMessageFilter::OnV8HeapStats, this,
-                   v8_memory_allocated, v8_memory_used));
-    return;
-  }
-
-  base::ProcessId renderer_id = peer_pid();
-
-#if defined(ENABLE_TASK_MANAGER)
-  TaskManager::GetInstance()->model()->NotifyV8HeapStats(
-      renderer_id,
-      static_cast<size_t>(v8_memory_allocated),
-      static_cast<size_t>(v8_memory_used));
-#endif  // defined(ENABLE_TASK_MANAGER)
-
-  V8HeapStatsDetails details(v8_memory_allocated, v8_memory_used);
-  content::NotificationService::current()->Notify(
-      chrome::NOTIFICATION_RENDERER_V8_HEAP_STATS_COMPUTED,
-      content::Source<const base::ProcessId>(&renderer_id),
-      content::Details<const V8HeapStatsDetails>(&details));
 }
 
 void ChromeRenderMessageFilter::OnAllowDatabase(
@@ -361,3 +329,25 @@ void ChromeRenderMessageFilter::OnIsCrashReportingEnabled(bool* enabled) {
   *enabled = ChromeMetricsServiceAccessor::IsCrashReportingEnabled();
 }
 #endif
+
+void ChromeRenderMessageFilter::OnFieldTrialActivated(
+    const std::string& trial_name) {
+  // Activate the trial in the browser process to match its state in the
+  // renderer. This is done by calling FindFullName which finalizes the group
+  // and activates the trial.
+  base::FieldTrialList::FindFullName(trial_name);
+}
+
+void ChromeRenderMessageFilter::OnRecordRappor(const std::string& metric,
+                                               const std::string& sample) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  rappor::SampleString(g_browser_process->rappor_service(), metric,
+                       rappor::ETLD_PLUS_ONE_RAPPOR_TYPE, sample);
+}
+
+void ChromeRenderMessageFilter::OnRecordRapporURL(const std::string& metric,
+                                                  const GURL& sample) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  rappor::SampleDomainAndRegistryFromGURL(g_browser_process->rappor_service(),
+                                          metric, sample);
+}

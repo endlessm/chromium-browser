@@ -25,7 +25,7 @@ class SingleClientSupervisedUserSettingsSyncTest : public SyncTest {
   ~SingleClientSupervisedUserSettingsSyncTest() override {}
 
   // SyncTest overrides:
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     SyncTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII(switches::kSupervisedUserId, "asdf");
   }
@@ -41,6 +41,8 @@ IN_PROC_BROWSER_TEST_F(SingleClientSupervisedUserSettingsSyncTest, Sanity) {
 
   SupervisedUserService* supervised_user_service =
       SupervisedUserServiceFactory::GetForProfile(profile);
+
+  supervised_user_service->Init();
 
   // This call triggers a separate, supervised user-specific codepath
   // that does not normally execute for sync.

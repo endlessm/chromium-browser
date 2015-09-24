@@ -7,7 +7,10 @@
 #include <cstring>
 
 #include "base/compiler_specific.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/test/net/url_request_abort_on_end_job.h"
 #include "net/base/io_buffer.h"
@@ -15,6 +18,7 @@
 #include "net/http/http_response_headers.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_filter.h"
+#include "net/url_request/url_request_interceptor.h"
 #include "net/url_request/url_request_status.h"
 
 namespace content {
@@ -22,19 +26,29 @@ namespace {
 
 const char kPageContent[] = "some data\r\n";
 
-net::URLRequestJob* JobFactory(
-    net::URLRequest* request,
-    net::NetworkDelegate* network_delegate,
-    const std::string& scheme) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
-  return new URLRequestAbortOnEndJob(request, network_delegate);
-}
+class Interceptor : public net::URLRequestInterceptor {
+ public:
+  Interceptor() {}
+  ~Interceptor() override {}
+
+  // URLRequestInterceptor implementation:
+  net::URLRequestJob* MaybeInterceptRequest(
+      net::URLRequest* request,
+      net::NetworkDelegate* network_delegate) const override {
+    DCHECK_CURRENTLY_ON(BrowserThread::IO);
+    return new URLRequestAbortOnEndJob(request, network_delegate);
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(Interceptor);
+};
 
 void AddUrlHandlerOnIOThread() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   net::URLRequestFilter* filter = net::URLRequestFilter::GetInstance();
-  filter->AddUrlHandler(GURL(URLRequestAbortOnEndJob::k400AbortOnEndUrl),
-                        &JobFactory);
+  filter->AddUrlInterceptor(
+      GURL(URLRequestAbortOnEndJob::k400AbortOnEndUrl),
+      scoped_ptr<net::URLRequestInterceptor>(new Interceptor()));
 }
 
 }  // anonymous namespace
@@ -53,8 +67,8 @@ void URLRequestAbortOnEndJob::GetResponseInfoConst(
     net::HttpResponseInfo* info) const {
   // Send back mock headers.
   std::string raw_headers;
-  if (LowerCaseEqualsASCII(k400AbortOnEndUrl,
-                           request_->url().spec().c_str())) {
+  if (base::LowerCaseEqualsASCII(k400AbortOnEndUrl,
+                                 request_->url().spec().c_str())) {
     raw_headers.append(
       "HTTP/1.1 400 This is not OK\n"
       "Content-type: text/plain\n");
@@ -62,7 +76,8 @@ void URLRequestAbortOnEndJob::GetResponseInfoConst(
     NOTREACHED();
   }
   // ParseRawHeaders expects \0 to end each header line.
-  ReplaceSubstringsAfterOffset(&raw_headers, 0, "\n", std::string("\0", 1));
+  base::ReplaceSubstringsAfterOffset(
+      &raw_headers, 0, "\n", base::StringPiece("\0", 1));
   info->headers = new net::HttpResponseHeaders(raw_headers);
 }
 
@@ -91,10 +106,9 @@ void URLRequestAbortOnEndJob::StartAsync() {
 }
 
 void URLRequestAbortOnEndJob::Start() {
-  base::MessageLoop::current()->PostTask(
-      FROM_HERE,
-      base::Bind(&URLRequestAbortOnEndJob::StartAsync,
-                 weak_factory_.GetWeakPtr()));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&URLRequestAbortOnEndJob::StartAsync,
+                            weak_factory_.GetWeakPtr()));
 }
 
 bool URLRequestAbortOnEndJob::ReadRawData(net::IOBuffer* buf,

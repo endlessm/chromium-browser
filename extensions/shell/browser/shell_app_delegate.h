@@ -6,10 +6,12 @@
 #define EXTENSIONS_SHELL_BROWSER_SHELL_APP_DELEGATE_H_
 
 #include "extensions/browser/app_window/app_delegate.h"
+#include "content/public/browser/web_contents_observer.h"
 
 namespace extensions {
 
-// app_shell's AppDelegate implementation.
+// AppDelegate implementation for app_shell. Sets focus after the WebContents is
+// created. Ignores most operations that would create a new dialog or window.
 class ShellAppDelegate : public AppDelegate {
  public:
   ShellAppDelegate();
@@ -17,6 +19,7 @@ class ShellAppDelegate : public AppDelegate {
 
   // AppDelegate overrides:
   void InitWebContents(content::WebContents* web_contents) override;
+  void RenderViewCreated(content::RenderViewHost* render_view_host) override;
   void ResizeWebContents(content::WebContents* web_contents,
                          const gfx::Size& size) override;
   content::WebContents* OpenURLFromTab(
@@ -26,7 +29,7 @@ class ShellAppDelegate : public AppDelegate {
   void AddNewContents(content::BrowserContext* context,
                       content::WebContents* new_contents,
                       WindowOpenDisposition disposition,
-                      const gfx::Rect& initial_pos,
+                      const gfx::Rect& initial_rect,
                       bool user_gesture,
                       bool* was_blocked) override;
   content::ColorChooser* ShowColorChooser(content::WebContents* web_contents,
@@ -47,6 +50,8 @@ class ShellAppDelegate : public AppDelegate {
                              bool blocked) override;
   bool IsWebContentsVisible(content::WebContents* web_contents) override;
   void SetTerminatingCallback(const base::Closure& callback) override;
+  void OnHide() override {}
+  void OnShow() override {}
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ShellAppDelegate);

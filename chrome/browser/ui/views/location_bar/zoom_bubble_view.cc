@@ -7,7 +7,6 @@
 #include "base/i18n/rtl.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/chrome_page_zoom.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
@@ -15,10 +14,12 @@
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/location_bar/zoom_view.h"
-#include "chrome/browser/ui/zoom/zoom_controller.h"
 #include "chrome/common/extensions/api/extension_action/action_info.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/ui/zoom/page_zoom.h"
+#include "components/ui/zoom/zoom_controller.h"
 #include "content/public/browser/notification_source.h"
+#include "extensions/browser/extension_zoom_request_client.h"
 #include "extensions/common/manifest_handlers/icons_handler.h"
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -31,17 +32,6 @@
 #include "ui/views/layout/layout_constants.h"
 #include "ui/views/widget/widget.h"
 
-namespace {
-
-// The number of milliseconds the bubble should stay on the screen if it will
-// close automatically.
-const int kBubbleCloseDelay = 1500;
-
-// The bubble's padding from the screen edge, used in fullscreen.
-const int kFullscreenPaddingEnd = 20;
-
-}  // namespace
-
 // static
 ZoomBubbleView* ZoomBubbleView::zoom_bubble_ = NULL;
 
@@ -49,7 +39,8 @@ ZoomBubbleView* ZoomBubbleView::zoom_bubble_ = NULL;
 void ZoomBubbleView::ShowBubble(content::WebContents* web_contents,
                                 bool auto_close) {
   Browser* browser = chrome::FindBrowserWithWebContents(web_contents);
-  DCHECK(browser && browser->window() && browser->fullscreen_controller());
+  DCHECK(browser && browser->window() &&
+         browser->exclusive_access_manager()->fullscreen_controller());
 
   BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser);
   bool is_fullscreen = browser_view->IsFullscreen();
@@ -59,16 +50,14 @@ void ZoomBubbleView::ShowBubble(content::WebContents* web_contents,
       browser_view->GetLocationBarView()->zoom_view() : NULL;
 
   // Find the extension that initiated the zoom change, if any.
-  ZoomController* zoom_controller =
-      ZoomController::FromWebContents(web_contents);
-  const extensions::Extension* extension = zoom_controller->last_extension();
+  ui_zoom::ZoomController* zoom_controller =
+      ui_zoom::ZoomController::FromWebContents(web_contents);
+  const ui_zoom::ZoomRequestClient* client = zoom_controller->last_client();
 
   // If the bubble is already showing in this window and the zoom change was not
   // initiated by an extension, then the bubble can be reused and only the label
   // text needs to be updated.
-  if (zoom_bubble_ &&
-      zoom_bubble_->GetAnchorView() == anchor_view &&
-      !extension) {
+  if (zoom_bubble_ && zoom_bubble_->GetAnchorView() == anchor_view && !client) {
     DCHECK_EQ(web_contents, zoom_bubble_->web_contents_);
     zoom_bubble_->Refresh();
     return;
@@ -78,20 +67,20 @@ void ZoomBubbleView::ShowBubble(content::WebContents* web_contents,
   // bubble must be closed and a new one created.
   CloseBubble();
 
-  zoom_bubble_ = new ZoomBubbleView(anchor_view,
-                                    web_contents,
-                                    auto_close,
-                                    browser_view->immersive_mode_controller(),
-                                    browser->fullscreen_controller());
+  zoom_bubble_ = new ZoomBubbleView(anchor_view, web_contents, auto_close,
+                                    browser_view->immersive_mode_controller());
 
   // If the zoom change was initiated by an extension, capture the relevent
   // information from it.
-  if (extension)
-    zoom_bubble_->SetExtensionInfo(extension);
+  if (client) {
+    zoom_bubble_->SetExtensionInfo(
+        static_cast<const extensions::ExtensionZoomRequestClient*>(client)
+            ->extension());
+  }
 
   // If we do not have an anchor view, parent the bubble to the content area.
   if (!anchor_to_view)
-    zoom_bubble_->set_parent_window(web_contents->GetTopLevelNativeWindow());
+    zoom_bubble_->set_parent_window(web_contents->GetNativeView());
 
   views::BubbleDelegateView::CreateBubble(zoom_bubble_);
 
@@ -112,14 +101,7 @@ void ZoomBubbleView::CloseBubble() {
 }
 
 // static
-bool ZoomBubbleView::IsShowing() {
-  // The bubble is considered showing while closing.
-  return zoom_bubble_ != NULL && (zoom_bubble_->GetWidget()->IsVisible() ||
-                                  zoom_bubble_->GetWidget()->IsClosed());
-}
-
-// static
-const ZoomBubbleView* ZoomBubbleView::GetZoomBubbleForTest() {
+ZoomBubbleView* ZoomBubbleView::GetZoomBubble() {
   return zoom_bubble_;
 }
 
@@ -127,10 +109,8 @@ ZoomBubbleView::ZoomBubbleView(
     views::View* anchor_view,
     content::WebContents* web_contents,
     bool auto_close,
-    ImmersiveModeController* immersive_mode_controller,
-    FullscreenController* fullscreen_controller)
-    : BubbleDelegateView(anchor_view, anchor_view ?
-          views::BubbleBorder::TOP_RIGHT : views::BubbleBorder::NONE),
+    ImmersiveModeController* immersive_mode_controller)
+    : ManagedFullScreenBubbleDelegateView(anchor_view, web_contents),
       image_button_(NULL),
       label_(NULL),
       web_contents_(web_contents),
@@ -139,12 +119,6 @@ ZoomBubbleView::ZoomBubbleView(
   // Compensate for built-in vertical padding in the anchor view's image.
   set_anchor_view_insets(gfx::Insets(5, 0, 5, 0));
   set_notify_enter_exit_on_child(true);
-
-  // Add observers to close the bubble if the fullscreen state or immersive
-  // fullscreen revealed state changes.
-  registrar_.Add(this,
-                 chrome::NOTIFICATION_FULLSCREEN_CHANGED,
-                 content::Source<FullscreenController>(fullscreen_controller));
   immersive_mode_controller_->AddObserver(this);
 }
 
@@ -153,25 +127,84 @@ ZoomBubbleView::~ZoomBubbleView() {
     immersive_mode_controller_->RemoveObserver(this);
 }
 
-void ZoomBubbleView::AdjustForFullscreen(const gfx::Rect& screen_bounds) {
-  if (GetAnchorView())
+void ZoomBubbleView::OnGestureEvent(ui::GestureEvent* event) {
+  if (!zoom_bubble_ || !zoom_bubble_->auto_close_ ||
+      event->type() != ui::ET_GESTURE_TAP) {
     return;
+  }
 
-  // TODO(dbeam): should RTL logic be done in views::BubbleDelegateView?
-  const size_t bubble_half_width = width() / 2;
-  const int x_pos = base::i18n::IsRTL() ?
-      screen_bounds.x() + bubble_half_width + kFullscreenPaddingEnd :
-      screen_bounds.right() - bubble_half_width - kFullscreenPaddingEnd;
-  SetAnchorRect(gfx::Rect(x_pos, screen_bounds.y(), 0, 0));
+  auto_close_ = false;
+  StopTimer();
+  event->SetHandled();
 }
 
-void ZoomBubbleView::Refresh() {
-  ZoomController* zoom_controller =
-      ZoomController::FromWebContents(web_contents_);
-  int zoom_percent = zoom_controller->GetZoomPercent();
-  label_->SetText(
-      l10n_util::GetStringFUTF16Int(IDS_TOOLTIP_ZOOM, zoom_percent));
+void ZoomBubbleView::OnMouseEntered(const ui::MouseEvent& event) {
+  StopTimer();
+}
+
+void ZoomBubbleView::OnMouseExited(const ui::MouseEvent& event) {
   StartTimerIfNecessary();
+}
+
+void ZoomBubbleView::Init() {
+  // Set up the layout of the zoom bubble. A grid layout is used because
+  // sometimes an extension icon is shown next to the zoom label.
+  views::GridLayout* grid_layout = new views::GridLayout(this);
+  SetLayoutManager(grid_layout);
+  views::ColumnSet* columns = grid_layout->AddColumnSet(0);
+  // First row.
+  if (extension_info_.icon_image) {
+    columns->AddColumn(views::GridLayout::CENTER, views::GridLayout::CENTER, 2,
+                       views::GridLayout::USE_PREF, 0, 0);
+  }
+  columns->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 1,
+                     views::GridLayout::USE_PREF, 0, 0);
+  grid_layout->StartRow(0, 0);
+
+  // If this zoom change was initiated by an extension, that extension will be
+  // attributed by showing its icon in the zoom bubble.
+  if (extension_info_.icon_image) {
+    image_button_ = new views::ImageButton(this);
+    image_button_->SetTooltipText(
+        l10n_util::GetStringFUTF16(IDS_TOOLTIP_ZOOM_EXTENSION_ICON,
+                                   base::UTF8ToUTF16(extension_info_.name)));
+    image_button_->SetImage(views::Button::STATE_NORMAL,
+                            &extension_info_.icon_image->image_skia());
+    grid_layout->AddView(image_button_);
+  }
+
+  // Add zoom label with the new zoom percent.
+  ui_zoom::ZoomController* zoom_controller =
+      ui_zoom::ZoomController::FromWebContents(web_contents_);
+  int zoom_percent = zoom_controller->GetZoomPercent();
+  label_ = new views::Label(
+      l10n_util::GetStringFUTF16Int(IDS_TOOLTIP_ZOOM, zoom_percent));
+  label_->SetFontList(ui::ResourceBundle::GetSharedInstance().GetFontList(
+      ui::ResourceBundle::MediumFont));
+  grid_layout->AddView(label_);
+
+  // Second row.
+  grid_layout->AddPaddingRow(0, 8);
+  columns = grid_layout->AddColumnSet(1);
+  columns->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 1,
+                     views::GridLayout::USE_PREF, 0, 0);
+  grid_layout->StartRow(0, 1);
+
+  // Add "Reset to Default" button.
+  views::LabelButton* set_default_button = new views::LabelButton(
+      this, l10n_util::GetStringUTF16(IDS_ZOOM_SET_DEFAULT));
+  set_default_button->SetStyle(views::Button::STYLE_BUTTON);
+  set_default_button->SetHorizontalAlignment(gfx::ALIGN_CENTER);
+  grid_layout->AddView(set_default_button);
+
+  StartTimerIfNecessary();
+}
+
+void ZoomBubbleView::WindowClosing() {
+  // |zoom_bubble_| can be a new bubble by this point (as Close(); doesn't
+  // call this right away). Only set to NULL when it's this bubble.
+  if (zoom_bubble_ == this)
+    zoom_bubble_ = NULL;
 }
 
 void ZoomBubbleView::Close() {
@@ -179,7 +212,45 @@ void ZoomBubbleView::Close() {
   // this. Additionally web_contents_ may have been destroyed.
   zoom_bubble_ = NULL;
   web_contents_ = NULL;
-  GetWidget()->Close();
+  ManagedFullScreenBubbleDelegateView::Close();
+}
+
+void ZoomBubbleView::ButtonPressed(views::Button* sender,
+                                   const ui::Event& event) {
+  if (sender == image_button_) {
+    DCHECK(extension_info_.icon_image) << "Invalid button press.";
+    Browser* browser = chrome::FindBrowserWithWebContents(web_contents_);
+    chrome::AddSelectedTabWithURL(
+        browser, GURL(base::StringPrintf("chrome://extensions?id=%s",
+                                         extension_info_.id.c_str())),
+        ui::PAGE_TRANSITION_FROM_API);
+  } else {
+    ui_zoom::PageZoom::Zoom(web_contents_, content::PAGE_ZOOM_RESET);
+  }
+}
+
+void ZoomBubbleView::OnImmersiveRevealStarted() {
+  CloseBubble();
+}
+
+void ZoomBubbleView::OnImmersiveModeControllerDestroyed() {
+  immersive_mode_controller_ = NULL;
+}
+
+void ZoomBubbleView::OnExtensionIconImageChanged(
+    extensions::IconImage* /* image */) {
+  image_button_->SetImage(views::Button::STATE_NORMAL,
+                          &extension_info_.icon_image->image_skia());
+  image_button_->SchedulePaint();
+}
+
+void ZoomBubbleView::Refresh() {
+  ui_zoom::ZoomController* zoom_controller =
+      ui_zoom::ZoomController::FromWebContents(web_contents_);
+  int zoom_percent = zoom_controller->GetZoomPercent();
+  label_->SetText(
+      l10n_util::GetStringFUTF16Int(IDS_TOOLTIP_ZOOM, zoom_percent));
+  StartTimerIfNecessary();
 }
 
 void ZoomBubbleView::SetExtensionInfo(const extensions::Extension* extension) {
@@ -231,6 +302,9 @@ void ZoomBubbleView::StartTimerIfNecessary() {
     if (timer_.IsRunning()) {
       timer_.Reset();
     } else {
+      // The number of milliseconds the bubble should stay on the screen if it
+      // will close automatically.
+      const int kBubbleCloseDelay = 1500;
       timer_.Start(
           FROM_HERE,
           base::TimeDelta::FromMilliseconds(kBubbleCloseDelay),
@@ -242,124 +316,6 @@ void ZoomBubbleView::StartTimerIfNecessary() {
 
 void ZoomBubbleView::StopTimer() {
   timer_.Stop();
-}
-
-void ZoomBubbleView::OnExtensionIconImageChanged(
-    extensions::IconImage* /* image */) {
-  image_button_->SetImage(views::Button::STATE_NORMAL,
-                          &extension_info_.icon_image->image_skia());
-  image_button_->SchedulePaint();
-}
-
-void ZoomBubbleView::OnMouseEntered(const ui::MouseEvent& event) {
-  StopTimer();
-}
-
-void ZoomBubbleView::OnMouseExited(const ui::MouseEvent& event) {
-  StartTimerIfNecessary();
-}
-
-void ZoomBubbleView::OnGestureEvent(ui::GestureEvent* event) {
-  if (!zoom_bubble_ || !zoom_bubble_->auto_close_ ||
-      event->type() != ui::ET_GESTURE_TAP) {
-    return;
-  }
-
-  auto_close_ = false;
-  StopTimer();
-  event->SetHandled();
-}
-
-void ZoomBubbleView::ButtonPressed(views::Button* sender,
-                                   const ui::Event& event) {
-  if (sender == image_button_) {
-    DCHECK(extension_info_.icon_image) << "Invalid button press.";
-    Browser* browser = chrome::FindBrowserWithWebContents(web_contents_);
-    chrome::AddSelectedTabWithURL(
-        browser,
-        GURL(base::StringPrintf("chrome://extensions?id=%s",
-                                extension_info_.id.c_str())),
-        ui::PAGE_TRANSITION_FROM_API);
-  } else {
-    chrome_page_zoom::Zoom(web_contents_, content::PAGE_ZOOM_RESET);
-  }
-}
-
-void ZoomBubbleView::Init() {
-  // Set up the layout of the zoom bubble. A grid layout is used because
-  // sometimes an extension icon is shown next to the zoom label.
-  views::GridLayout* grid_layout = new views::GridLayout(this);
-  SetLayoutManager(grid_layout);
-  views::ColumnSet* columns = grid_layout->AddColumnSet(0);
-  // First row.
-  if (extension_info_.icon_image) {
-    columns->AddColumn(views::GridLayout::CENTER,views::GridLayout::CENTER, 2,
-                       views::GridLayout::USE_PREF, 0, 0);
-  }
-  columns->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 1,
-                     views::GridLayout::USE_PREF, 0, 0);
-  grid_layout->StartRow(0, 0);
-
-  // If this zoom change was initiated by an extension, that extension will be
-  // attributed by showing its icon in the zoom bubble.
-  if (extension_info_.icon_image) {
-    image_button_ = new views::ImageButton(this);
-    image_button_->SetTooltipText(l10n_util::GetStringFUTF16(
-        IDS_TOOLTIP_ZOOM_EXTENSION_ICON,
-        base::UTF8ToUTF16(extension_info_.name)));
-    image_button_->SetImage(views::Button::STATE_NORMAL,
-                            &extension_info_.icon_image->image_skia());
-    grid_layout->AddView(image_button_);
-  }
-
-  // Add zoom label with the new zoom percent.
-  ZoomController* zoom_controller =
-      ZoomController::FromWebContents(web_contents_);
-  int zoom_percent = zoom_controller->GetZoomPercent();
-  label_ = new views::Label(
-      l10n_util::GetStringFUTF16Int(IDS_TOOLTIP_ZOOM, zoom_percent));
-  label_->SetFontList(
-      ui::ResourceBundle::GetSharedInstance().GetFontList(
-          ui::ResourceBundle::MediumFont));
-  grid_layout->AddView(label_);
-
-  // Second row.
-  grid_layout->AddPaddingRow(0, 8);
-  columns = grid_layout->AddColumnSet(1);
-  columns->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 1,
-                     views::GridLayout::USE_PREF, 0, 0);
-  grid_layout->StartRow(0, 1);
-
-  // Add "Reset to Default" button.
-  views::LabelButton* set_default_button = new views::LabelButton(
-      this, l10n_util::GetStringUTF16(IDS_ZOOM_SET_DEFAULT));
-  set_default_button->SetStyle(views::Button::STYLE_BUTTON);
-  set_default_button->SetHorizontalAlignment(gfx::ALIGN_CENTER);
-  grid_layout->AddView(set_default_button);
-
-  StartTimerIfNecessary();
-}
-
-void ZoomBubbleView::Observe(int type,
-                             const content::NotificationSource& source,
-                             const content::NotificationDetails& details) {
-  DCHECK_EQ(type, chrome::NOTIFICATION_FULLSCREEN_CHANGED);
-  CloseBubble();
-}
-
-void ZoomBubbleView::OnImmersiveRevealStarted() {
-  CloseBubble();
-}
-
-void ZoomBubbleView::OnImmersiveModeControllerDestroyed() {
-  immersive_mode_controller_ = NULL;
-}
-
-void ZoomBubbleView::WindowClosing() {
-  // |zoom_bubble_| can be a new bubble by this point (as Close(); doesn't
-  // call this right away). Only set to NULL when it's this bubble.
-  if (zoom_bubble_ == this)
-    zoom_bubble_ = NULL;
 }
 
 ZoomBubbleView::ZoomBubbleExtensionInfo::ZoomBubbleExtensionInfo() {}

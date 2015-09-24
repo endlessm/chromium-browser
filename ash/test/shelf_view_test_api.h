@@ -5,6 +5,7 @@
 #ifndef ASH_TEST_SHELF_VIEW_TEST_API_H_
 #define ASH_TEST_SHELF_VIEW_TEST_API_H_
 
+#include "ash/shelf/shelf_item_delegate.h"
 #include "ash/shelf/shelf_item_types.h"
 #include "base/basictypes.h"
 
@@ -24,6 +25,7 @@ class Button;
 namespace ash {
 class OverflowBubble;
 class ShelfButton;
+class ShelfButtonPressedMetricTracker;
 class ShelfDelegate;
 class ShelfView;
 
@@ -95,6 +97,9 @@ class ShelfViewTestAPI {
 
   // Returns true if an item is ripped off and entered into shelf.
   bool DraggedItemFromOverflowToShelf();
+
+  // An accessor for |shelf_button_pressed_metric_tracker_|.
+  ShelfButtonPressedMetricTracker* shelf_button_pressed_metric_tracker();
 
  private:
   ShelfView* shelf_view_;

@@ -4,11 +4,11 @@
 
 package org.chromium.content.app;
 
-import android.content.Context;
 import android.os.Looper;
 import android.os.MessageQueue;
 
 import org.chromium.base.BaseChromiumApplication;
+import org.chromium.base.VisibleForTesting;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.content.browser.TracingControllerAndroid;
 
@@ -18,6 +18,7 @@ import org.chromium.content.browser.TracingControllerAndroid;
  */
 public abstract class ContentApplication extends BaseChromiumApplication {
     private TracingControllerAndroid mTracingController;
+    private boolean mLibraryDependenciesInitialized;
 
     TracingControllerAndroid getTracingController() {
         if (mTracingController == null) {
@@ -46,6 +47,25 @@ public abstract class ContentApplication extends BaseChromiumApplication {
                 return false;
             }
         });
+
+        initializeLibraryDependencies();
+        mLibraryDependenciesInitialized = true;
+    }
+
+    /**
+     * Initialize all the dependencies that need to be setup before library loading can be
+     * kicked off.
+     */
+    protected void initializeLibraryDependencies() {
+    }
+
+    /**
+     * @return Whether the library dependencies have been initialized and it is safe to issue
+     *         requests to load the native library.
+     */
+    @VisibleForTesting
+    public boolean areLibraryDependenciesInitialized() {
+        return mLibraryDependenciesInitialized;
     }
 
     /**
@@ -64,11 +84,4 @@ public abstract class ContentApplication extends BaseChromiumApplication {
 
         super.onTerminate();
     }
-
-    public abstract void initCommandLine();
-
-    /// This must only be called for contexts whose application is a subclass of ContentApplication.
-    public static void initCommandLine(Context context) {
-        ((ContentApplication) context.getApplicationContext()).initCommandLine();
-    };
 }

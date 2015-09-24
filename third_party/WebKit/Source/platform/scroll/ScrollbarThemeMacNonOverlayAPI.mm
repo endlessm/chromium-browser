@@ -33,6 +33,7 @@
 
 #include "platform/graphics/GraphicsContext.h"
 #include "platform/graphics/ImageBuffer.h"
+#include "platform/graphics/paint/DrawingRecorder.h"
 #include "platform/mac/ThemeMac.h"
 #include "platform/scroll/ScrollbarThemeClient.h"
 #include "public/platform/Platform.h"
@@ -77,6 +78,12 @@ void ScrollbarThemeMacNonOverlayAPI::updateButtonPlacement()
 //     - Skia specific changes
 bool ScrollbarThemeMacNonOverlayAPI::paint(ScrollbarThemeClient* scrollbar, GraphicsContext* context, const IntRect& damageRect)
 {
+    DisplayItem::Type displayItemType = scrollbar->orientation() == HorizontalScrollbar ? DisplayItem::ScrollbarHorizontal : DisplayItem::ScrollbarVertical;
+    if (DrawingRecorder::useCachedDrawingIfPossible(*context, *scrollbar, displayItemType))
+        return true;
+
+    DrawingRecorder recorder(*context, *scrollbar, displayItemType, scrollbar->frameRect());
+
     // Get the tickmarks for the frameview.
     Vector<IntRect> tickmarks;
     scrollbar->getTickmarks(tickmarks);
@@ -108,8 +115,8 @@ bool ScrollbarThemeMacNonOverlayAPI::paint(ScrollbarThemeClient* scrollbar, Grap
 
     // The Aqua scrollbar is buggy when rotated and scaled.  We will just draw into a bitmap if we detect a scale or rotation.
     bool canDrawDirectly = currentCTM.a == 1.0f && currentCTM.b == 0.0f && currentCTM.c == 0.0f && (currentCTM.d == 1.0f || currentCTM.d == -1.0f);
-    GraphicsContext* drawingContext = context;
     OwnPtr<ImageBuffer> imageBuffer;
+    SkCanvas* drawingCanvas;
     if (!canDrawDirectly) {
         trackInfo.bounds = IntRect(IntPoint(), scrollbar->frameRect().size());
 
@@ -121,14 +128,16 @@ bool ScrollbarThemeMacNonOverlayAPI::paint(ScrollbarThemeClient* scrollbar, Grap
         if (!imageBuffer)
             return true;
 
-        drawingContext = imageBuffer->context();
+        drawingCanvas = imageBuffer->canvas();
+    } else {
+        drawingCanvas = canvas;
     }
 
     // Draw the track and its thumb.
     gfx::SkiaBitLocker bitLocker(
-        drawingContext->canvas(),
+        drawingCanvas,
         ThemeMac::inflateRectForAA(scrollbar->frameRect()),
-        drawingContext->deviceScaleFactor());
+        canDrawDirectly ? context->deviceScaleFactor() : 1.0f);
     CGContextRef cgContext = bitLocker.cgContext();
     HIThemeDrawTrack(&trackInfo, 0, cgContext, kHIThemeOrientationNormal);
 
@@ -142,12 +151,14 @@ bool ScrollbarThemeMacNonOverlayAPI::paint(ScrollbarThemeClient* scrollbar, Grap
     // Inset a bit.
     tickmarkTrackRect.setX(tickmarkTrackRect.x() + 2);
     tickmarkTrackRect.setWidth(tickmarkTrackRect.width() - 5);
-    paintGivenTickmarks(drawingContext, scrollbar, tickmarkTrackRect, tickmarks);
+    paintGivenTickmarks(drawingCanvas, scrollbar, tickmarkTrackRect, tickmarks);
 
     if (!canDrawDirectly) {
         ASSERT(imageBuffer);
-        context->drawImageBuffer(imageBuffer.get(),
-            FloatRect(scrollbar->frameRect().location(), imageBuffer->size()));
+        if (!context->contextDisabled()) {
+            imageBuffer->draw(context, FloatRect(scrollbar->frameRect().location(), imageBuffer->size()),
+                nullptr, SkXfermode::kSrcOver_Mode);
+        }
     }
 
     return true;

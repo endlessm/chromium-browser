@@ -16,22 +16,27 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
+#include <utime.h>
 
 #include "native_client/src/include/nacl_assert.h"
-#include "native_client/src/trusted/service_runtime/include/sys/nacl_syscalls.h"
+#include "native_client/src/trusted/service_runtime/nacl_config.h"
 
 #define PRINT_HEADER 0
 #define TEXT_LINE_SIZE 1024
 
 /*
- * TODO(sbc): remove this test once these declarations get added to the prebuilt
+ * TODO(sbc): remove this test once these declarations get added to the
  * newlib toolchain
  */
 #ifndef __GLIBC__
-extern "C" int gethostname(char *name, size_t len);
-extern "C" int utimes(const char *filename, const struct timeval times[2]);
-extern "C" int eaccess(const char *pathname, int mode);
+extern "C" {
+int gethostname(char *name, size_t len);
+int utimes(const char *filename, const struct timeval times[2]);
+int utime(const char *filename, const struct utimbuf *times);
+int eaccess(const char *pathname, int mode);
+}
 #endif
 
 /*
@@ -172,6 +177,33 @@ bool test_getcwd() {
   char *rtn = getcwd(dirname, PATH_MAX);
   ASSERT_EQ_MSG(rtn, dirname, "getcwd() failed to return dirname");
   ASSERT_NE_MSG(strlen(dirname), 0, "getcwd() failed to set valid dirname");
+
+  // Call with size == 0 and buf == NULL should return a malloc'd buffer
+  char *rtn2 = getcwd(NULL, 0);
+  ASSERT_NE(rtn2, NULL);
+  ASSERT_EQ(strcmp(rtn, rtn2), 0);
+  free(rtn2);
+
+  // Call with buf == NULL and non-zero size should return a malloc'd buffer
+  // that is 'size' bytes long.
+  rtn2 = getcwd(NULL, PATH_MAX*2);
+  ASSERT_NE(rtn2, NULL);
+  ASSERT_EQ(strcmp(rtn, rtn2), 0);
+  // Overwrite all bytes in the allocation. We have no way to verify that
+  // the allocation really is this big but memory sanitisers should fail here
+  // if it's not.
+  memset(rtn2, 0xba, PATH_MAX*2);
+  free(rtn2);
+
+  // Call with size == 0 and buf != NULL should fail (with EINVAL)
+  rtn = getcwd(dirname, 0);
+  ASSERT_EQ(rtn, NULL);
+  ASSERT_EQ(errno, EINVAL);
+
+  // Check that when size is too small ERANGE gets set
+  rtn = getcwd(dirname, 1);
+  ASSERT_EQ(rtn, NULL);
+  ASSERT_EQ(errno, ERANGE);
 
   // Calculate parent folder.
   strncpy(parent, dirname, PATH_MAX);
@@ -447,6 +479,23 @@ bool test_utimes(const char *test_file) {
   return passed("test_utimes", "all");
 }
 
+bool test_utime(const char *test_file) {
+  // TODO(mseaborn): Implement utimes for unsandboxed mode.
+  if (NONSFI_MODE)
+    return true;
+  printf("test_utime");
+  struct utimbuf times;
+  times.actime = 0;
+  times.modtime = 0;
+  // utimes() is currently not implemented and should always
+  // fail with ENOSYS
+  printf("test_utime 2");
+
+  ASSERT_EQ(utime("dummy", &times), -1);
+  ASSERT_EQ(errno, ENOSYS);
+  return passed("test_utime", "all");
+}
+
 bool test_truncate(const char *test_file) {
   char temp_file[PATH_MAX];
   snprintf(temp_file, PATH_MAX, "%s.tmp_truncate", test_file);
@@ -497,6 +546,74 @@ bool test_truncate(const char *test_file) {
   return passed("test_truncate", "all");
 }
 
+bool test_open_trunc(const char *test_file) {
+  int fd;
+  char buffer[100];
+  struct stat buf;
+  const char *testname = "test_open_trunc";
+  char temp_file[PATH_MAX];
+  snprintf(temp_file, PATH_MAX, "%s.open_truncate", test_file);
+
+  // Write some data to a new file.
+  fd = open(temp_file, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
+  ASSERT_NE(-1, fd);
+  memset(buffer, 0, 100);
+  ASSERT_EQ(100, write(fd, buffer, 100));
+  ASSERT_EQ(0, close(fd));
+
+  // Verify size is 100.
+  ASSERT_EQ(0, stat(temp_file, &buf));
+  ASSERT_EQ(100, buf.st_size);
+
+  // Open the file without O_TRUNC
+  fd = open(temp_file, O_RDWR);
+  ASSERT_NE(-1, fd);
+  ASSERT_EQ(0, close(fd));
+
+  // Verify size is still 100.
+  ASSERT_EQ(0, stat(temp_file, &buf));
+  ASSERT_EQ(100, buf.st_size);
+
+  // Open the file again with O_TRUNC.
+  fd = open(temp_file, O_RDWR | O_TRUNC);
+  ASSERT_NE(-1, fd);
+  ASSERT_EQ(0, close(fd));
+
+  // Verify size is now 0.
+  ASSERT_EQ(0, stat(temp_file, &buf));
+  ASSERT_EQ(0, buf.st_size);
+
+  return passed(testname, "all");
+}
+
+// O_DIRECTORY tells open to insist that it's a directory.
+bool test_open_directory(const char *test_file) {
+  // Currently nonsfi mode does no translation (or validation) of the O_*
+  // flag values for open; on Linux/ARM, the O_DIRECTORY value does not
+  // match the NaCl value used here, so this doesn't do the right thing.
+  //
+  // TODO(mcgrathr): Re-enable when nonsfi mode translates O_* values
+#if defined(__arm__) || defined(__pnacl__)
+  if (NONSFI_MODE)
+    return true;
+#endif
+
+  const char *testname = "test_open_directory";
+  int fd;
+
+  // file exists and is not a directory
+  fd = open(test_file, O_RDONLY | O_DIRECTORY);
+  ASSERT_EQ_MSG(fd, -1, "open(test_file, O_RDONLY | O_DIRECTORY)");
+  ASSERT_EQ(errno, ENOTDIR);
+
+  // directory OK
+  fd = open(".", O_RDONLY | O_DIRECTORY);
+  ASSERT_NE_MSG(fd, -1, "open(., O_RDONLY | O_DIRECTORY)");
+  close(fd);
+
+  return passed(testname, "all");
+}
+
 // open() returns the new file descriptor, or -1 if an error occurred
 bool test_open(const char *test_file) {
   int fd;
@@ -504,46 +621,71 @@ bool test_open(const char *test_file) {
 
   // file OK, flag OK
   fd = open(test_file, O_RDONLY);
-  if (fd == -1)
-    return failed(testname, "open(test_file, O_RDONLY)");
+  ASSERT_NE_MSG(fd, -1, "open(test_file, O_RDONLY)");
   close(fd);
 
   errno = 0;
   // file does not exist, flags OK
   fd = open("testdata/file_none.txt", O_RDONLY);
-  if (fd != -1)
-    return failed(testname, "open(testdata/file_none.txt, O_RDONLY)");
+  ASSERT_EQ_MSG(fd, -1, "open(testdata/file_none.txt, O_RDONLY)");
   // no such file or directory
-  if (ENOENT != errno)
-    return failed(testname, "ENOENT != errno");
-  close(fd);
+  ASSERT_EQ(errno, ENOENT);
 
   // file OK, flags OK, mode OK
   fd = open(test_file, O_WRONLY, S_IRUSR);
-  if (fd == -1)
-    return failed(testname, "open(test_file, O_WRONLY, S_IRUSR)");
+  ASSERT_NE_MSG(fd, -1, "open(test_file, O_WRONLY, S_IRUSR)");
   close(fd);
 
   // too many args
   fd = open(test_file, O_RDWR, S_IRUSR, O_APPEND);
-  if (fd == -1)
-    return failed(testname, "open(test_file, O_RDWR, S_IRUSR, O_APPEND)");
+  ASSERT_NE_MSG(fd, -1, "open(test_file, O_RDWR, S_IRUSR, O_APPEND)");
   close(fd);
 
   // directory OK
   fd = open(".", O_RDONLY);
-  if (fd == -1)
-    return failed(testname, "open(., O_RDONLY)");
+  ASSERT_NE_MSG(fd, -1, "open(., O_RDONLY)");
   close(fd);
+
+  // open with O_CREAT | O_EXCL should fail on existing directories.
+  fd = open(".", O_RDONLY | O_CREAT | O_EXCL);
+  ASSERT_EQ_MSG(fd, -1, "open(., O_RDONLY | O_EXCL)");
 
   errno = 0;
   // directory does not exist
   fd = open("nosuchdir", O_RDONLY);
-  if (fd != -1)
-    return failed(testname, "open(nosuchdir, O_RDONLY)");
+  ASSERT_EQ_MSG(fd, -1, "open(nosuchdir, O_RDONLY)");
   // no such file or directory
-  if (ENOENT != errno)
-    return failed(testname, "ENOENT != errno");
+  ASSERT_EQ(errno, ENOENT);
+
+  // open exiting file with O_CREAT should succeed
+  fd = open(test_file, O_RDONLY | O_CREAT, S_IRUSR | S_IWUSR);
+  ASSERT_NE_MSG(fd, -1, "open(test_file, O_RDONLY | O_CREAT)");
+
+  // open exiting file with O_CREAT | O_EXCL should fail
+  fd = open(test_file, O_RDONLY | O_CREAT | O_EXCL);
+  ASSERT_EQ_MSG(fd, -1, "open(test_file, O_RDONLY | O_CREAT | O_EXCL)");
+
+#if defined(__GLIBC__)
+  if (!TESTS_USE_IRT) {
+    // These final two cases rely on ensure_file_is_absent which does not work
+    // under glibc-non-irt.
+    return passed(testname, "all");
+  }
+#endif
+
+  char temp_file[PATH_MAX];
+  snprintf(temp_file, PATH_MAX, "%s.new_file", test_file);
+
+  // open new file with O_CREAT
+  ensure_file_is_absent(temp_file);
+  fd = open(temp_file, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+  ASSERT_NE_MSG(fd, -1, "open(new_file, O_RDWR | O_CREAT)");
+  close(fd);
+
+  // open new file with O_EXCL
+  ensure_file_is_absent(temp_file);
+  fd = open(temp_file, O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+  ASSERT_NE_MSG(fd, -1, "open(new_file, O_RDWR | O_CREAT | O_EXCL)");
   close(fd);
 
   return passed(testname, "all");
@@ -572,10 +714,39 @@ bool test_stat(const char *test_file) {
   ASSERT_EQ(buf.st_size, buf2.st_size);
   ASSERT_EQ(buf.st_blksize, buf2.st_blksize);
   ASSERT_EQ(buf.st_blocks, buf2.st_blocks);
+  ASSERT_EQ(buf.st_ino, buf2.st_ino);
   // Do not check st_atime as it seems to be updated by open or fstat
   // on Windows.
   ASSERT_EQ(buf.st_mtime, buf2.st_mtime);
   ASSERT_EQ(buf.st_ctime, buf2.st_ctime);
+  rc = close(fd);
+  ASSERT_EQ(rc, 0);
+
+  // Open a new file to verify that st_dev matches and st_ino does not.
+  char temp_file[PATH_MAX];
+  snprintf(temp_file, PATH_MAX, "%s.tmp_stat", test_file);
+
+  fd = open(temp_file, O_CREAT, S_IRUSR | S_IWUSR);
+  ASSERT_NE(fd, -1);
+  rc = fstat(fd, &buf2);
+  ASSERT_EQ(rc, 0);
+
+  ASSERT_EQ(buf.st_dev, buf2.st_dev);
+
+  // Non-sfi-nacl mode always masks inode numbers so we should get the same
+  // value for all files.
+  if (NONSFI_MODE && !TESTS_USE_IRT) {
+    ASSERT_EQ(buf.st_ino, NACL_FAKE_INODE_NUM);
+    ASSERT_EQ(buf.st_ino, buf2.st_ino);
+  } else {
+    // Otherwise expect genuine (and therefore different) inode numbers.
+    // Except on Windows where we don't expose any inode numbers and
+    // they will both be zero.
+    if (buf.st_ino != NACL_FAKE_INODE_NUM &&
+        buf2.st_ino != NACL_FAKE_INODE_NUM) {
+      ASSERT_NE(buf.st_ino, buf2.st_ino);
+    }
+  }
   rc = close(fd);
   ASSERT_EQ(rc, 0);
 
@@ -591,7 +762,6 @@ bool test_stat(const char *test_file) {
 #if 0
   char buffer[PATH_MAX];
   snprintf(buffer, PATH_MAX, "%s.readonly", test_file);
-  buffer[PATH_MAX - 1] = '\0';
   unlink(buffer);
   ASSERT_EQ(stat(buffer, &buf), -1);
   int fd = open(buffer, O_RDWR | O_CREAT, S_IRUSR);
@@ -927,7 +1097,7 @@ bool test_isatty(const char *test_file) {
   // TODO(sbc): isatty() in glibc is not yet hooked up to the IRT
   // interfaces. Remove this conditional once this gets addressed:
   // https://code.google.com/p/nativeclient/issues/detail?id=3709
-#if defined(__GLIBC__)
+#if defined(__GLIBC__) && __GLIBC__ == 2 && __GLIBC_MINOR__ == 9
   return true;
 #endif
 
@@ -963,7 +1133,7 @@ bool test_isatty(const char *test_file) {
 bool test_gethostname() {
   char hostname[256];
   ASSERT_EQ(gethostname(hostname, 1), -1);
-#ifdef __GLIBC__
+#if defined(__GLIBC__) && __GLIBC__ == 2 && __GLIBC_MINOR__ == 9
   // glibc only provides a stub gethostbyname() that returns
   // ENOSYS in all cases.
   ASSERT_EQ(errno, ENOSYS);
@@ -993,6 +1163,8 @@ bool testSuite(const char *test_file) {
   ret &= test_sysconf();
   ret &= test_stat(test_file);
   ret &= test_open(test_file);
+  ret &= test_open_trunc(test_file);
+  ret &= test_open_directory(test_file);
   ret &= test_close(test_file);
   ret &= test_read(test_file);
   ret &= test_write(test_file);
@@ -1017,10 +1189,11 @@ bool testSuite(const char *test_file) {
 // TODO(sbc): remove this restriction once glibc's truncate calls
 // is hooked up to the IRT dev-filename-0.2 interface:
 // https://code.google.com/p/nativeclient/issues/detail?id=3709
-#if !defined(__GLIBC__)
+#if !(defined(__GLIBC__) && __GLIBC__ == 2 && __GLIBC_MINOR__ == 9)
   ret &= test_truncate(test_file);
 #endif
   ret &= test_utimes(test_file);
+  ret &= test_utime(test_file);
   return ret;
 }
 

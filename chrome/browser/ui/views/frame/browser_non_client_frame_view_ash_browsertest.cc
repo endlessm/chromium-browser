@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,8 @@
 #include "base/command_line.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
-#include "chrome/browser/ui/fullscreen/fullscreen_controller.h"
-#include "chrome/browser/ui/fullscreen/fullscreen_controller_test.h"
+#include "chrome/browser/ui/exclusive_access/fullscreen_controller.h"
+#include "chrome/browser/ui/exclusive_access/fullscreen_controller_test.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/immersive_mode_controller.h"
 #include "chrome/browser/ui/views/tabs/tab.h"
@@ -22,6 +22,13 @@
 #include "ui/base/hit_test.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/views/widget/widget.h"
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/profiles/profile_avatar_icon_util.h"
+#include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
+#include "chrome/browser/ui/ash/multi_user/multi_user_window_manager_test.h"
+#include "chrome/browser/ui/views/profiles/avatar_menu_button.h"
+#endif  // defined(OS_CHROMEOS)
 
 using views::Widget;
 
@@ -73,8 +80,10 @@ IN_PROC_BROWSER_TEST_F(BrowserNonClientFrameViewAshTest,
     // NOTIFICATION_FULLSCREEN_CHANGED is sent asynchronously.
     scoped_ptr<FullscreenNotificationObserver> waiter(
         new FullscreenNotificationObserver());
-    browser()->fullscreen_controller()->ToggleFullscreenModeForTab(
-        web_contents, true);
+    browser()
+        ->exclusive_access_manager()
+        ->fullscreen_controller()
+        ->EnterFullscreenModeForTab(web_contents, GURL());
     waiter->Wait();
   }
   EXPECT_FALSE(browser_view->immersive_mode_controller()->IsEnabled());
@@ -131,8 +140,10 @@ IN_PROC_BROWSER_TEST_F(BrowserNonClientFrameViewAshTest, ImmersiveFullscreen) {
   {
     scoped_ptr<FullscreenNotificationObserver> waiter(
         new FullscreenNotificationObserver());
-    browser()->fullscreen_controller()->ToggleFullscreenModeForTab(
-        web_contents, true);
+    browser()
+        ->exclusive_access_manager()
+        ->fullscreen_controller()
+        ->EnterFullscreenModeForTab(web_contents, GURL());
     waiter->Wait();
   }
   EXPECT_TRUE(immersive_mode_controller->IsEnabled());
@@ -158,8 +169,10 @@ IN_PROC_BROWSER_TEST_F(BrowserNonClientFrameViewAshTest, ImmersiveFullscreen) {
   {
     scoped_ptr<FullscreenNotificationObserver> waiter(
         new FullscreenNotificationObserver());
-    browser()->fullscreen_controller()->ToggleFullscreenModeForTab(
-        web_contents, false);
+    browser()
+        ->exclusive_access_manager()
+        ->fullscreen_controller()
+        ->ExitFullscreenModeForTab(web_contents);
     waiter->Wait();
   }
 
@@ -197,6 +210,62 @@ IN_PROC_BROWSER_TEST_F(BrowserNonClientFrameViewAshTest, ImmersiveFullscreen) {
   EXPECT_LT(Tab::GetImmersiveHeight(),
             frame_view->header_painter_->GetHeaderHeightForPainting());
 }
+
+// Tests that Avatar icon should show on the top left corner of the teleported
+// browser window on ChromeOS.
+IN_PROC_BROWSER_TEST_F(BrowserNonClientFrameViewAshTest,
+                       AvatarDisplayOnTeleportedWindow) {
+  BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser());
+  Widget* widget = browser_view->GetWidget();
+  // We know we're using Ash, so static cast.
+  BrowserNonClientFrameViewAsh* frame_view =
+      static_cast<BrowserNonClientFrameViewAsh*>(
+          widget->non_client_view()->frame_view());
+  aura::Window* window = browser()->window()->GetNativeWindow();
+
+  EXPECT_FALSE(chrome::MultiUserWindowManager::ShouldShowAvatar(window));
+
+  const std::string current_user =
+      multi_user_util::GetUserIDFromProfile(browser()->profile());
+  TestMultiUserWindowManager* manager =
+      new TestMultiUserWindowManager(browser(), current_user);
+
+  // Teleport the window to another desktop.
+  const std::string user2 = "user2";
+  manager->ShowWindowForUser(window, user2);
+  EXPECT_TRUE(chrome::MultiUserWindowManager::ShouldShowAvatar(window));
+
+  // Avatar should show on the top left corner of the teleported browser window.
+  EXPECT_TRUE(frame_view->avatar_button());
+}
+
+// Hit Test for Avatar Menu Button on ChromeOS.
+IN_PROC_BROWSER_TEST_F(BrowserNonClientFrameViewAshTest,
+                       AvatarMenuButtonHitTestOnChromeOS) {
+  BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser());
+  Widget* widget = browser_view->GetWidget();
+  // We know we're using Ash, so static cast.
+  BrowserNonClientFrameViewAsh* frame_view =
+      static_cast<BrowserNonClientFrameViewAsh*>(
+          widget->non_client_view()->frame_view());
+
+  gfx::Point avatar_center(profiles::kAvatarIconWidth / 2,
+                           profiles::kAvatarIconHeight / 2);
+  EXPECT_EQ(HTCLIENT, frame_view->NonClientHitTest(avatar_center));
+
+  const std::string current_user =
+      multi_user_util::GetUserIDFromProfile(browser()->profile());
+  TestMultiUserWindowManager* manager =
+      new TestMultiUserWindowManager(browser(), current_user);
+
+  // Teleport the window to another desktop.
+  const std::string user2 = "user2";
+  manager->ShowWindowForUser(browser()->window()->GetNativeWindow(), user2);
+  // Clicking on the avatar icon should have same behaviour like clicking on
+  // the caption area, i.e., allow the user to drag the browser window around.
+  EXPECT_EQ(HTCAPTION, frame_view->NonClientHitTest(avatar_center));
+}
+
 #endif  // defined(OS_CHROMEOS)
 
 // Tests that FrameCaptionButtonContainer has been relaid out in response to

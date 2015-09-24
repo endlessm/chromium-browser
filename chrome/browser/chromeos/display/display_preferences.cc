@@ -15,13 +15,14 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
+#include "base/sys_info.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/common/pref_names.h"
 #include "components/user_manager/user_manager.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 #include "ui/gfx/display.h"
-#include "ui/gfx/insets.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/screen.h"
 #include "url/url_canon.h"
 #include "url/url_util.h"
@@ -100,7 +101,7 @@ ash::DisplayManager* GetDisplayManager() {
 bool UserCanSaveDisplayPreference() {
   user_manager::UserManager* user_manager = user_manager::UserManager::Get();
   return user_manager->IsUserLoggedIn() &&
-      (user_manager->IsLoggedInAsRegularUser() ||
+      (user_manager->IsLoggedInAsUserWithGaiaAccount() ||
        user_manager->IsLoggedInAsSupervisedUser() ||
        user_manager->IsLoggedInAsKioskApp());
 }
@@ -225,14 +226,15 @@ void StoreDisplayLayoutPref(const ash::DisplayIdPair& pair,
 }
 
 void StoreCurrentDisplayLayoutPrefs() {
+  ash::DisplayManager* display_manager = GetDisplayManager();
   if (!UserCanSaveDisplayPreference() ||
-      GetDisplayManager()->num_connected_displays() < 2) {
+      display_manager->num_connected_displays() < 2) {
     return;
   }
 
-  ash::DisplayIdPair pair = GetDisplayManager()->GetCurrentDisplayIdPair();
+  ash::DisplayIdPair pair = display_manager->GetCurrentDisplayIdPair();
   ash::DisplayLayout display_layout =
-      GetDisplayManager()->layout_store()->GetRegisteredDisplayLayout(pair);
+      display_manager->layout_store()->GetRegisteredDisplayLayout(pair);
   StoreDisplayLayoutPref(pair, display_layout);
 }
 
@@ -251,7 +253,9 @@ void StoreCurrentDisplayProperties() {
 
     scoped_ptr<base::DictionaryValue> property_value(
         new base::DictionaryValue());
-    property_value->SetInteger("rotation", static_cast<int>(info.rotation()));
+    property_value->SetInteger(
+        "rotation",
+        static_cast<int>(info.GetRotation(gfx::Display::ROTATION_SOURCE_USER)));
     property_value->SetInteger(
         "ui-scale",
         static_cast<int>(info.configured_ui_scale() * 1000));
@@ -348,16 +352,17 @@ void StoreDisplayPrefs() {
 }
 
 void StoreDisplayRotationPrefs(bool rotation_lock) {
-  ash::DisplayManager* display_manager = GetDisplayManager();
-  if (!display_manager->HasInternalDisplay())
+  if (!gfx::Display::HasInternalDisplay())
     return;
 
   PrefService* local_state = g_browser_process->local_state();
   DictionaryPrefUpdate update(local_state, prefs::kDisplayRotationLock);
   base::DictionaryValue* pref_data = update.Get();
   pref_data->SetBoolean("lock", rotation_lock);
-  gfx::Display::Rotation rotation = display_manager->
-      GetDisplayInfo(gfx::Display::InternalDisplayId()).rotation();
+  gfx::Display::Rotation rotation =
+      GetDisplayManager()
+          ->GetDisplayInfo(gfx::Display::InternalDisplayId())
+          .GetRotation(gfx::Display::ROTATION_SOURCE_ACCELEROMETER);
   pref_data->SetInteger("orientation", static_cast<int>(rotation));
 }
 

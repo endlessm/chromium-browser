@@ -13,9 +13,10 @@
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
 #include "components/bookmarks/test/bookmark_test_helpers.h"
-#include "components/history/core/android/android_history_types.h"
+#include "components/history/core/browser/android/android_history_types.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_browser_thread.h"
+#include "sql/statement.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -40,11 +41,10 @@ class AndroidHistoryProviderServiceTest : public testing::Test {
         ui_thread_(BrowserThread::UI, &message_loop_),
         file_thread_(BrowserThread::FILE, &message_loop_) {
   }
-  virtual ~AndroidHistoryProviderServiceTest() {
-  }
+  ~AndroidHistoryProviderServiceTest() override {}
 
  protected:
-  virtual void SetUp() override {
+  void SetUp() override {
     // Setup the testing profile, so the bookmark_model_sql_handler could
     // get the bookmark model from it.
     ASSERT_TRUE(profile_manager_.SetUp());
@@ -60,7 +60,7 @@ class AndroidHistoryProviderServiceTest : public testing::Test {
     service_.reset(new AndroidHistoryProviderService(testing_profile_));
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     testing_profile_->DestroyHistoryService();
     profile_manager_.DeleteTestingProfile(chrome::kInitialProfile);
     testing_profile_=NULL;

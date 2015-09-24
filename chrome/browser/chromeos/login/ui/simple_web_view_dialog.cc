@@ -57,7 +57,7 @@ class ToolbarRowView : public views::View {
     set_background(views::Background::CreateSolidBackground(kDialogColor));
   }
 
-  virtual ~ToolbarRowView() {}
+  ~ToolbarRowView() override {}
 
   void Init(views::View* back,
             views::View* forward,
@@ -103,18 +103,15 @@ namespace chromeos {
 class StubBubbleModelDelegate : public ContentSettingBubbleModelDelegate {
  public:
   StubBubbleModelDelegate() {}
-  virtual ~StubBubbleModelDelegate() {}
+  ~StubBubbleModelDelegate() override {}
 
   // ContentSettingBubbleModelDelegate implementation:
-  virtual void ShowCollectedCookiesDialog(
-      content::WebContents* web_contents) override {
+  void ShowCollectedCookiesDialog(content::WebContents* web_contents) override {
   }
 
-  virtual void ShowContentSettingsPage(ContentSettingsType type) override {
-  }
+  void ShowContentSettingsPage(ContentSettingsType type) override {}
 
-  virtual void ShowLearnMorePage(ContentSettingsType type) override {
-  }
+  void ShowLearnMorePage(ContentSettingsType type) override {}
 
  private:
   DISALLOW_COPY_AND_ASSIGN(StubBubbleModelDelegate);
@@ -263,7 +260,8 @@ content::WebContents* SimpleWebViewDialog::OpenURL(
 }
 
 void SimpleWebViewDialog::NavigationStateChanged(
-    const WebContents* source, content::InvalidateTypes changed_flags) {
+    WebContents* source,
+    content::InvalidateTypes changed_flags) {
   if (location_bar_) {
     location_bar_->Update(NULL);
     UpdateButtons();
@@ -308,7 +306,7 @@ void SimpleWebViewDialog::ShowWebsiteSettings(
     const GURL& url,
     const content::SSLStatus& ssl) {
   NOTIMPLEMENTED();
-  // TODO (ygorshenin@,markusheintz@): implement this
+  // TODO (markusheintz@): implement this
 }
 
 PageActionImageView* SimpleWebViewDialog::CreatePageActionImageView(
@@ -322,10 +320,6 @@ PageActionImageView* SimpleWebViewDialog::CreatePageActionImageView(
 
 content::WebContents* SimpleWebViewDialog::GetActiveWebContents() const {
   return web_view_->web_contents();
-}
-
-bool SimpleWebViewDialog::InTabbedBrowser() const {
-  return false;
 }
 
 void SimpleWebViewDialog::ExecuteCommandWithDisposition(

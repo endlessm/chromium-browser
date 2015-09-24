@@ -7,55 +7,40 @@
  * Class to communicate with the It2me Host component via Native Messaging.
  */
 
-'use strict';
-
 /** @suppress {duplicate} */
 var remoting = remoting || {};
 
+(function() {
+
+'use strict';
+
 /**
  * @constructor
+ * @implements {base.Disposable}
  */
 remoting.It2MeHostFacade = function() {
-  /**
-   * @type {number}
-   * @private
-   */
+  /** @private {number} */
   this.nextId_ = 0;
 
-  /**
-   * @type {?chrome.runtime.Port}
-   * @private
-   */
+  /** @private {?Port} */
   this.port_ = null;
 
-  /**
-   * @type {string}
-   * @private
-   */
+  /** @private {string} */
   this.accessCode_ = '';
 
-  /**
-   * @type {number}
-   * @private
-   */
+  /** @private {number} */
   this.accessCodeLifetime_ = 0;
 
-  /**
-   * @type {string}
-   * @private
-   */
+  /** @private {string} */
   this.clientId_ = '';
 
-  /**
-   * @type {boolean}
-   * @private
-   */
+  /** @private {boolean} */
   this.initialized_ = false;
 
-  /**
-   * @type {?function():void}
- * @private
-   */
+  /** @private {base.Disposables} */
+  this.eventHooks_ = null;
+
+  /** @private {?function():void} */
   this.onInitialized_ = function() {};
 
   /**
@@ -67,22 +52,24 @@ remoting.It2MeHostFacade = function() {
   /**
    * Called if the It2Me Native Messaging host sends a malformed message:
    * missing required attributes, attributes with incorrect types, etc.
-   * @param {remoting.Error} error
-   * @private
+   * @private {?function(!remoting.Error):void}
    */
   this.onError_ = function(error) {};
 
-  /**
-   * @type {?function(remoting.HostSession.State):void}
-   * @private
-   */
+  /** @private {?function(remoting.HostSession.State):void} */
   this.onStateChanged_ = function() {};
 
-  /**
-   * @type {?function(boolean):void}
-   * @private
-   */
+  /** @private {?function(boolean):void} */
   this.onNatPolicyChanged_ = function() {};
+};
+
+remoting.It2MeHostFacade.prototype.dispose = function() {
+  base.dispose(this.eventHooks_);
+  this.eventHooks_ = null;
+  if (this.port_) {
+    this.port_.disconnect();
+    this.port_ = null;
+  }
 };
 
 /**
@@ -91,9 +78,9 @@ remoting.It2MeHostFacade = function() {
  * native messaging host is not installed, onInitializationFailed is invoked.
  * Otherwise, onInitialized is invoked.
  *
- * @param {function():void} onInitialized Called after successful
+ * @param {function(*=):void} onInitialized Called after successful
  *     initialization.
- * @param {function():void} onInitializationFailed Called if cannot connect to
+ * @param {function(*=):void} onInitializationFailed Called if cannot connect to
  *     the native messaging host.
  * @return {void}
  */
@@ -105,12 +92,14 @@ remoting.It2MeHostFacade.prototype.initialize =
   try {
     this.port_ = chrome.runtime.connectNative(
         'com.google.chrome.remote_assistance');
-    this.port_.onMessage.addListener(this.onIncomingMessage_.bind(this));
-    this.port_.onDisconnect.addListener(this.onHostDisconnect_.bind(this));
+    this.eventHooks_ = new base.Disposables(
+        new base.ChromeEventHook(this.port_.onMessage,
+                                 this.onIncomingMessage_.bind(this)),
+        new base.ChromeEventHook(this.port_.onDisconnect,
+                                 this.onHostDisconnect_.bind(this)));
     this.port_.postMessage({type: 'hello'});
-  } catch (err) {
-    console.log('Native Messaging initialization failed: ',
-                /** @type {*} */ (err));
+  } catch (/** @type {*} */ err) {
+    console.log('Native Messaging initialization failed: ', err);
     onInitializationFailed();
     return;
   }
@@ -132,7 +121,7 @@ remoting.It2MeHostFacade.prototype.initialize =
  *     XMPP server
  * @param {string} directoryBotJid XMPP JID for the remoting directory server
  *     bot.
- * @param {function(remoting.Error):void} onError Callback to invoke in case of
+ * @param {function(!remoting.Error):void} onError Callback to invoke in case of
  *     an error.
  * @return {void}
  */
@@ -143,7 +132,7 @@ remoting.It2MeHostFacade.prototype.connect =
   if (!this.port_) {
     console.error(
         'remoting.It2MeHostFacade.connect() without initialization.');
-    onError(remoting.Error.UNEXPECTED);
+    onError(remoting.Error.unexpected());
     return;
   }
 
@@ -219,11 +208,11 @@ remoting.It2MeHostFacade.prototype.getClient = function() {
  */
 remoting.It2MeHostFacade.prototype.onIncomingMessage_ =
     function(message) {
-  var type = getStringAttr(message, 'type');
+  var type = base.getStringAttr(message, 'type');
 
   switch (type) {
     case 'helloResponse':
-      var version = getStringAttr(message, 'version');
+      var version = base.getStringAttr(message, 'version');
       console.log('Host version: ', version);
       this.initialized_ = true;
       // A "hello" request is sent immediately after the native messaging host
@@ -247,19 +236,21 @@ remoting.It2MeHostFacade.prototype.onIncomingMessage_ =
       break;
 
     case 'hostStateChanged':
-      var stateString = getStringAttr(message, 'state');
-      console.log('hostStateChanged received: ', stateString);
+      var stateString = base.getStringAttr(message, 'state');
+      var errorMessage = base.getStringAttr(message, 'error_message', '');
+      console.log('hostStateChanged received: ' + stateString);
       var state = remoting.HostSession.State.fromString(stateString);
 
       switch (state) {
         case remoting.HostSession.State.RECEIVED_ACCESS_CODE:
-          var accessCode = getStringAttr(message, 'accessCode');
-          var accessCodeLifetime = getNumberAttr(message, 'accessCodeLifetime');
+          var accessCode = base.getStringAttr(message, 'accessCode');
+          var accessCodeLifetime =
+              base.getNumberAttr(message, 'accessCodeLifetime');
           this.onReceivedAccessCode_(accessCode, accessCodeLifetime);
           break;
 
         case remoting.HostSession.State.CONNECTED:
-          var client = getStringAttr(message, 'client');
+          var client = base.getStringAttr(message, 'client');
           this.onConnected_(client);
           break;
       }
@@ -271,15 +262,15 @@ remoting.It2MeHostFacade.prototype.onIncomingMessage_ =
     case 'natPolicyChanged':
       if (this.onNatPolicyChanged_) {
         var natTraversalEnabled =
-            getBooleanAttr(message, 'natTraversalEnabled');
+            base.getBooleanAttr(message, 'natTraversalEnabled');
         this.onNatPolicyChanged_(natTraversalEnabled);
       }
       break;
 
     case 'error':
-      console.error(getStringAttr(message, 'description'));
+      console.error(base.getStringAttr(message, 'description'));
       if (this.onError_) {
-        this.onError_(remoting.Error.UNEXPECTED);
+        this.onError_(remoting.Error.unexpected());
       }
       break;
 
@@ -327,6 +318,8 @@ remoting.It2MeHostFacade.prototype.onHostDisconnect_ = function() {
   } else {
     console.error('Native Messaging port disconnected.');
     this.port_ = null;
-    this.onError_(remoting.Error.UNEXPECTED);
+    this.onError_(remoting.Error.unexpected());
   }
-}
+};
+
+})();

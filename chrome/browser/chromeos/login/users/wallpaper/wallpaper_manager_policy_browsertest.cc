@@ -163,7 +163,7 @@ class WallpaperManagerPolicyTest
   }
 
   // LoginManagerTest:
-  virtual void SetUpInProcessBrowserTestFixture() override {
+  void SetUpInProcessBrowserTestFixture() override {
     DBusThreadManager::GetSetterForTesting()->SetSessionManagerClient(
         scoped_ptr<SessionManagerClient>(fake_session_manager_client_));
 
@@ -171,7 +171,7 @@ class WallpaperManagerPolicyTest
     ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir_));
   }
 
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     // Set the same switches as LoginManagerTest, except that kMultiProfiles is
     // only set when GetParam() is true and except that kLoginProfile is set
     // when GetParam() is false.  The latter seems to be required for the sane
@@ -180,7 +180,7 @@ class WallpaperManagerPolicyTest
     command_line->AppendSwitch(switches::kForceLoginManagerInTests);
   }
 
-  virtual void SetUpOnMainThread() override {
+  void SetUpOnMainThread() override {
     LoginManagerTest::SetUpOnMainThread();
     ash::Shell::GetInstance()->
         desktop_background_controller()->AddObserver(this);
@@ -192,14 +192,14 @@ class WallpaperManagerPolicyTest
     ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
   }
 
-  virtual void TearDownOnMainThread() override {
+  void TearDownOnMainThread() override {
     ash::Shell::GetInstance()->
         desktop_background_controller()->RemoveObserver(this);
     LoginManagerTest::TearDownOnMainThread();
   }
 
   // ash::DesktopBackgroundControllerObserver:
-  virtual void OnWallpaperDataChanged() override {
+  void OnWallpaperDataChanged() override {
     ++wallpaper_change_count_;
     if (run_loop_)
       run_loop_->Quit();
@@ -220,10 +220,12 @@ class WallpaperManagerPolicyTest
       ADD_FAILURE();
     }
     std::string policy;
-    base::JSONWriter::Write(policy::test::ConstructExternalDataReference(
-        embedded_test_server()->GetURL(std::string("/") + relative_path).spec(),
-        image_data).get(),
-        &policy);
+    base::JSONWriter::Write(*policy::test::ConstructExternalDataReference(
+                                embedded_test_server()
+                                    ->GetURL(std::string("/") + relative_path)
+                                    .spec(),
+                                image_data),
+                            &policy);
     return policy;
   }
 
@@ -234,7 +236,7 @@ class WallpaperManagerPolicyTest
     const std::string user_id = kTestUsers[user_number];
     policy::UserPolicyBuilder* builder =
         user_policy_builders_[user_number].get();
-    if (filename != "") {
+    if (!filename.empty()) {
       builder->payload().
           mutable_wallpaperimage()->set_value(ConstructPolicy(filename));
     } else {
@@ -254,7 +256,8 @@ class WallpaperManagerPolicyTest
   }
 
   // Obtain WallpaperInfo for |user_number| from WallpaperManager.
-  void GetUserWallpaperInfo(int user_number, WallpaperInfo* wallpaper_info) {
+  void GetUserWallpaperInfo(int user_number,
+                            wallpaper::WallpaperInfo* wallpaper_info) {
     WallpaperManager::Get()->
         GetUserWallpaperInfo(kTestUsers[user_number], wallpaper_info);
   }
@@ -280,7 +283,7 @@ IN_PROC_BROWSER_TEST_F(WallpaperManagerPolicyTest, PRE_SetResetClear) {
 // user.  Also verifies that after the policy has been cleared, the wallpaper
 // reverts to default.
 IN_PROC_BROWSER_TEST_F(WallpaperManagerPolicyTest, SetResetClear) {
-  WallpaperInfo info;
+  wallpaper::WallpaperInfo info;
   LoginUser(kTestUsers[0]);
   base::RunLoop().RunUntilIdle();
 

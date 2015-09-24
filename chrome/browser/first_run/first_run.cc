@@ -36,7 +36,6 @@
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/shell_integration.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
-#include "chrome/browser/signin/signin_promo.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/chrome_pages.h"
@@ -172,7 +171,7 @@ void DoDelayedInstallExtensionsIfNeeded(
     installer::MasterPreferences* install_prefs) {
   base::DictionaryValue* extensions = 0;
   if (install_prefs->GetExtensionsBlock(&extensions)) {
-    VLOG(1) << "Extensions block found in master preferences";
+    DVLOG(1) << "Extensions block found in master preferences";
     DoDelayedInstallExtensions();
   }
 }
@@ -365,22 +364,23 @@ void FirstRunBubbleLauncher::Observe(
   content::WebContents* contents =
       browser->tab_strip_model()->GetActiveWebContents();
 
-  // Suppress the first run bubble if a Gaia sign in page, the continue
-  // URL for the sign in page or the sync setup page is showing.
+  // Suppress the first run bubble if a Gaia sign in page or the sync setup
+  // page is showing.
   if (contents &&
       (contents->GetURL().GetOrigin().spec() ==
            chrome::kChromeUIChromeSigninURL ||
        gaia::IsGaiaSignonRealm(contents->GetURL().GetOrigin()) ||
-       signin::IsContinueUrlForWebBasedSigninFlow(contents->GetURL()) ||
-       (contents->GetURL() ==
-        chrome::GetSettingsUrl(chrome::kSyncSetupSubPage)))) {
+       contents->GetURL() ==
+           chrome::GetSettingsUrl(chrome::kSyncSetupSubPage))) {
     return;
   }
 
   if (contents && contents->GetURL().SchemeIs(content::kChromeUIScheme)) {
+#if defined(OS_WIN)
     // Suppress the first run bubble if 'make chrome metro' flow is showing.
     if (contents->GetURL().host() == chrome::kChromeUIMetroFlowHost)
       return;
+#endif
 
     // Suppress the first run bubble if the NTP sync promo bubble is showing
     // or if sign in is in progress.
@@ -542,6 +542,8 @@ void SetupMasterPrefsFromInstallPrefs(
       installer::master_preferences::kDistroImportBookmarksFromFilePref,
       &out_prefs->import_bookmarks_path);
 
+  out_prefs->compressed_variations_seed =
+      install_prefs.GetCompressedVariationsSeed();
   out_prefs->variations_seed = install_prefs.GetVariationsSeed();
   out_prefs->variations_seed_signature =
       install_prefs.GetVariationsSeedSignature();
@@ -549,6 +551,13 @@ void SetupMasterPrefsFromInstallPrefs(
   install_prefs.GetString(
       installer::master_preferences::kDistroSuppressDefaultBrowserPromptPref,
       &out_prefs->suppress_default_browser_prompt_for_version);
+
+  if (install_prefs.GetBool(
+          installer::master_preferences::kDistroWelcomePageOnOSUpgradeEnabled,
+          &value) &&
+      !value) {
+    out_prefs->welcome_page_on_os_upgrade_enabled = false;
+  }
 }
 
 bool GetFirstRunSentinelFilePath(base::FilePath* path) {
@@ -583,7 +592,8 @@ MasterPrefs::MasterPrefs()
       do_import_items(0),
       dont_import_items(0),
       make_chrome_default_for_user(false),
-      suppress_first_run_default_browser_prompt(false) {
+      suppress_first_run_default_browser_prompt(false),
+      welcome_page_on_os_upgrade_enabled(true) {
 }
 
 MasterPrefs::~MasterPrefs() {}
@@ -591,7 +601,8 @@ MasterPrefs::~MasterPrefs() {}
 bool IsChromeFirstRun() {
   if (internal::g_first_run == internal::FIRST_RUN_UNKNOWN) {
     internal::g_first_run = internal::FIRST_RUN_FALSE;
-    const CommandLine* command_line = CommandLine::ForCurrentProcess();
+    const base::CommandLine* command_line =
+        base::CommandLine::ForCurrentProcess();
     if (command_line->HasSwitch(switches::kForceFirstRun) ||
         (!command_line->HasSwitch(switches::kNoFirstRun) &&
          !internal::IsFirstRunSentinelPresent())) {
@@ -602,7 +613,7 @@ bool IsChromeFirstRun() {
 }
 
 #if defined(OS_MACOSX)
-bool IsFirstRunSuppressed(const CommandLine& command_line) {
+bool IsFirstRunSuppressed(const base::CommandLine& command_line) {
   return command_line.HasSwitch(switches::kNoFirstRun);
 }
 #endif
@@ -619,10 +630,7 @@ std::string GetPingDelayPrefName() {
 }
 
 void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterIntegerPref(
-      GetPingDelayPrefName().c_str(),
-      0,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterIntegerPref(GetPingDelayPrefName().c_str(), 0);
 }
 
 bool SetShowFirstRunBubblePref(FirstRunBubbleOptions show_bubble_option) {

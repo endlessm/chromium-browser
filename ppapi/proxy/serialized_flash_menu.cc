@@ -20,7 +20,9 @@ const uint32_t kMaxMenuEntries = 1000;
 bool CheckMenu(int depth, const PP_Flash_Menu* menu);
 void FreeMenu(const PP_Flash_Menu* menu);
 void WriteMenu(IPC::Message* m, const PP_Flash_Menu* menu);
-PP_Flash_Menu* ReadMenu(int depth, const IPC::Message* m, PickleIterator* iter);
+PP_Flash_Menu* ReadMenu(int depth,
+                        const IPC::Message* m,
+                        base::PickleIterator* iter);
 
 bool CheckMenuItem(int depth, const PP_Flash_MenuItem* item) {
   if (item->type == PP_FLASH_MENUITEM_TYPE_SUBMENU)
@@ -78,21 +80,21 @@ void FreeMenu(const PP_Flash_Menu* menu) {
 
 bool ReadMenuItem(int depth,
                   const IPC::Message* m,
-                  PickleIterator* iter,
+                  base::PickleIterator* iter,
                   PP_Flash_MenuItem* menu_item) {
   uint32_t type;
-  if (!m->ReadUInt32(iter, &type))
+  if (!iter->ReadUInt32(&type))
     return false;
   if (type > PP_FLASH_MENUITEM_TYPE_SUBMENU)
     return false;
   menu_item->type = static_cast<PP_Flash_MenuItem_Type>(type);
   std::string name;
-  if (!m->ReadString(iter, &name))
+  if (!iter->ReadString(&name))
     return false;
   menu_item->name = new char[name.size() + 1];
   std::copy(name.begin(), name.end(), menu_item->name);
   menu_item->name[name.size()] = 0;
-  if (!m->ReadInt(iter, &menu_item->id))
+  if (!iter->ReadInt(&menu_item->id))
     return false;
   if (!IPC::ParamTraits<PP_Bool>::Read(m, iter, &menu_item->enabled))
     return false;
@@ -108,7 +110,7 @@ bool ReadMenuItem(int depth,
 
 PP_Flash_Menu* ReadMenu(int depth,
                         const IPC::Message* m,
-                        PickleIterator* iter) {
+                        base::PickleIterator* iter) {
   if (depth > kMaxMenuDepth)
     return NULL;
   ++depth;
@@ -116,7 +118,7 @@ PP_Flash_Menu* ReadMenu(int depth,
   PP_Flash_Menu* menu = new PP_Flash_Menu;
   menu->items = NULL;
 
-  if (!m->ReadUInt32(iter, &menu->count)) {
+  if (!iter->ReadUInt32(&menu->count)) {
     FreeMenu(menu);
     return NULL;
   }
@@ -167,7 +169,7 @@ void SerializedFlashMenu::WriteToMessage(IPC::Message* m) const {
 }
 
 bool SerializedFlashMenu::ReadFromMessage(const IPC::Message* m,
-                                          PickleIterator* iter) {
+                                          base::PickleIterator* iter) {
   DCHECK(!pp_menu_);
   pp_menu_ = ReadMenu(0, m, iter);
   if (!pp_menu_)

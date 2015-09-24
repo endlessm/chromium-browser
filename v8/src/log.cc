@@ -19,9 +19,7 @@
 #include "src/log-inl.h"
 #include "src/log-utils.h"
 #include "src/macro-assembler.h"
-#include "src/perf-jit.h"
 #include "src/runtime-profiler.h"
-#include "src/serialize.h"
 #include "src/string-stream.h"
 #include "src/vm-state-inl.h"
 
@@ -49,12 +47,14 @@ for (int i = 0; i < listeners_.length(); ++i) { \
     }                                                     \
   } while (false);
 
-// ComputeMarker must only be used when SharedFunctionInfo is known.
-static const char* ComputeMarker(Code* code) {
+static const char* ComputeMarker(SharedFunctionInfo* shared, Code* code) {
   switch (code->kind()) {
-    case Code::FUNCTION: return code->optimizable() ? "~" : "";
-    case Code::OPTIMIZED_FUNCTION: return "*";
-    default: return "";
+    case Code::FUNCTION:
+      return shared->optimization_disabled() ? "" : "~";
+    case Code::OPTIMIZED_FUNCTION:
+      return "*";
+    default:
+      return "";
   }
 }
 
@@ -184,7 +184,7 @@ void CodeEventLogger::CodeCreateEvent(Logger::LogEventsAndTags tag,
                                       CompilationInfo* info,
                                       Name* name) {
   name_buffer_->Init(tag);
-  name_buffer_->AppendBytes(ComputeMarker(code));
+  name_buffer_->AppendBytes(ComputeMarker(shared, code));
   name_buffer_->AppendName(name);
   LogRecordedBuffer(code, shared, name_buffer_->get(), name_buffer_->size());
 }
@@ -196,7 +196,7 @@ void CodeEventLogger::CodeCreateEvent(Logger::LogEventsAndTags tag,
                                       CompilationInfo* info,
                                       Name* source, int line, int column) {
   name_buffer_->Init(tag);
-  name_buffer_->AppendBytes(ComputeMarker(code));
+  name_buffer_->AppendBytes(ComputeMarker(shared, code));
   name_buffer_->AppendString(shared->DebugName());
   name_buffer_->AppendByte(' ');
   if (source->IsString()) {
@@ -271,7 +271,7 @@ PerfBasicLogger::PerfBasicLogger()
   CHECK_NE(size, -1);
   perf_output_handle_ =
       base::OS::FOpen(perf_dump_name.start(), base::OS::LogFileOpenMode);
-  CHECK_NE(perf_output_handle_, NULL);
+  CHECK_NOT_NULL(perf_output_handle_);
   setvbuf(perf_output_handle_, NULL, _IOFBF, kLogBufferSize);
 }
 
@@ -402,6 +402,8 @@ void LowLevelLogger::LogCodeInfo() {
   const char arch[] = "x32";
 #elif V8_TARGET_ARCH_ARM
   const char arch[] = "arm";
+#elif V8_TARGET_ARCH_PPC
+  const char arch[] = "ppc";
 #elif V8_TARGET_ARCH_MIPS
   const char arch[] = "mips";
 #elif V8_TARGET_ARCH_X87
@@ -775,7 +777,6 @@ Logger::Logger(Isolate* isolate)
     is_logging_(false),
     log_(new Log(this)),
     perf_basic_logger_(NULL),
-    perf_jit_logger_(NULL),
     ll_logger_(NULL),
     jit_logger_(NULL),
     listeners_(5),
@@ -874,34 +875,16 @@ void Logger::ApiEvent(const char* format, ...) {
 }
 
 
-void Logger::ApiNamedSecurityCheck(Object* key) {
+void Logger::ApiSecurityCheck() {
   if (!log_->IsEnabled() || !FLAG_log_api) return;
-  if (key->IsString()) {
-    SmartArrayPointer<char> str =
-        String::cast(key)->ToCString(DISALLOW_NULLS, ROBUST_STRING_TRAVERSAL);
-    ApiEvent("api,check-security,\"%s\"", str.get());
-  } else if (key->IsSymbol()) {
-    Symbol* symbol = Symbol::cast(key);
-    if (symbol->name()->IsUndefined()) {
-      ApiEvent("api,check-security,symbol(hash %x)", Symbol::cast(key)->Hash());
-    } else {
-      SmartArrayPointer<char> str = String::cast(symbol->name())->ToCString(
-          DISALLOW_NULLS, ROBUST_STRING_TRAVERSAL);
-      ApiEvent("api,check-security,symbol(\"%s\" hash %x)", str.get(),
-               Symbol::cast(key)->Hash());
-    }
-  } else if (key->IsUndefined()) {
-    ApiEvent("api,check-security,undefined");
-  } else {
-    ApiEvent("api,check-security,['no-name']");
-  }
+  ApiEvent("api,check-security");
 }
 
 
 void Logger::SharedLibraryEvent(const std::string& library_path,
                                 uintptr_t start,
                                 uintptr_t end) {
-  if (!log_->IsEnabled() || !FLAG_prof) return;
+  if (!log_->IsEnabled() || !FLAG_prof_cpp) return;
   Log::MessageBuilder msg(log_);
   msg.Append("shared-library,\"%s\",0x%08" V8PRIxPTR ",0x%08" V8PRIxPTR,
              library_path.c_str(), start, end);
@@ -909,9 +892,9 @@ void Logger::SharedLibraryEvent(const std::string& library_path,
 }
 
 
-void Logger::CodeDeoptEvent(Code* code) {
-  if (!log_->IsEnabled()) return;
-  DCHECK(FLAG_log_internal_timer_events);
+void Logger::CodeDeoptEvent(Code* code, Address pc, int fp_to_sp_delta) {
+  PROFILER_LOG(CodeDeoptEvent(code, pc, fp_to_sp_delta));
+  if (!log_->IsEnabled() || !FLAG_log_internal_timer_events) return;
   Log::MessageBuilder msg(log_);
   int since_epoch = static_cast<int>(timer_.Elapsed().InMicroseconds());
   msg.Append("code-deopt,%ld,%d", since_epoch, code->CodeSize());
@@ -921,7 +904,7 @@ void Logger::CodeDeoptEvent(Code* code) {
 
 void Logger::CurrentTimeEvent() {
   if (!log_->IsEnabled()) return;
-  DCHECK(FLAG_log_internal_timer_events);
+  DCHECK(FLAG_log_timer_events || FLAG_prof_cpp);
   Log::MessageBuilder msg(log_);
   int since_epoch = static_cast<int>(timer_.Elapsed().InMicroseconds());
   msg.Append("current-time,%ld", since_epoch);
@@ -970,65 +953,60 @@ TIMER_EVENTS_LIST(V)
 #undef V
 
 
-void Logger::LogRegExpSource(Handle<JSRegExp> regexp) {
+namespace {
+// Emits the source code of a regexp. Used by regexp events.
+void LogRegExpSource(Handle<JSRegExp> regexp, Isolate* isolate,
+                     Log::MessageBuilder* msg) {
   // Prints "/" + re.source + "/" +
   //      (re.global?"g":"") + (re.ignorecase?"i":"") + (re.multiline?"m":"")
-  Log::MessageBuilder msg(log_);
 
-  Handle<Object> source = Object::GetProperty(
-      isolate_, regexp, "source").ToHandleChecked();
+  Handle<Object> source =
+      Object::GetProperty(isolate, regexp, "source").ToHandleChecked();
   if (!source->IsString()) {
-    msg.Append("no source");
+    msg->Append("no source");
     return;
   }
 
   switch (regexp->TypeTag()) {
     case JSRegExp::ATOM:
-      msg.Append('a');
+      msg->Append('a');
       break;
     default:
       break;
   }
-  msg.Append('/');
-  msg.AppendDetailed(*Handle<String>::cast(source), false);
-  msg.Append('/');
+  msg->Append('/');
+  msg->AppendDetailed(*Handle<String>::cast(source), false);
+  msg->Append('/');
 
   // global flag
-  Handle<Object> global = Object::GetProperty(
-      isolate_, regexp, "global").ToHandleChecked();
+  Handle<Object> global =
+      Object::GetProperty(isolate, regexp, "global").ToHandleChecked();
   if (global->IsTrue()) {
-    msg.Append('g');
+    msg->Append('g');
   }
   // ignorecase flag
-  Handle<Object> ignorecase = Object::GetProperty(
-      isolate_, regexp, "ignoreCase").ToHandleChecked();
+  Handle<Object> ignorecase =
+      Object::GetProperty(isolate, regexp, "ignoreCase").ToHandleChecked();
   if (ignorecase->IsTrue()) {
-    msg.Append('i');
+    msg->Append('i');
   }
   // multiline flag
-  Handle<Object> multiline = Object::GetProperty(
-      isolate_, regexp, "multiline").ToHandleChecked();
+  Handle<Object> multiline =
+      Object::GetProperty(isolate, regexp, "multiline").ToHandleChecked();
   if (multiline->IsTrue()) {
-    msg.Append('m');
+    msg->Append('m');
   }
-
-  msg.WriteToLogFile();
 }
+}  // namespace
 
 
 void Logger::RegExpCompileEvent(Handle<JSRegExp> regexp, bool in_cache) {
   if (!log_->IsEnabled() || !FLAG_log_regexp) return;
   Log::MessageBuilder msg(log_);
   msg.Append("regexp-compile,");
-  LogRegExpSource(regexp);
+  LogRegExpSource(regexp, isolate_, &msg);
   msg.Append(in_cache ? ",hit" : ",miss");
   msg.WriteToLogFile();
-}
-
-
-void Logger::ApiIndexedSecurityCheck(uint32_t index) {
-  if (!log_->IsEnabled() || !FLAG_log_api) return;
-  ApiEvent("api,check-security,%u", index);
 }
 
 
@@ -1099,16 +1077,6 @@ void Logger::DeleteEvent(const char* name, void* object) {
   Log::MessageBuilder msg(log_);
   msg.Append("delete,%s,0x%" V8PRIxPTR, name, object);
   msg.WriteToLogFile();
-}
-
-
-void Logger::NewEventStatic(const char* name, void* object, size_t size) {
-  Isolate::Current()->logger()->NewEvent(name, object, size);
-}
-
-
-void Logger::DeleteEventStatic(const char* name, void* object) {
-  Isolate::Current()->logger()->DeleteEvent(name, object);
 }
 
 
@@ -1232,7 +1200,7 @@ void Logger::CodeCreateEvent(LogEventsAndTags tag,
   }
   msg.Append(',');
   msg.AppendAddress(shared->address());
-  msg.Append(",%s", ComputeMarker(code));
+  msg.Append(",%s", ComputeMarker(shared, code));
   msg.WriteToLogFile();
 }
 
@@ -1266,7 +1234,7 @@ void Logger::CodeCreateEvent(LogEventsAndTags tag,
   }
   msg.Append(":%d:%d\",", line, column);
   msg.AppendAddress(shared->address());
-  msg.Append(",%s", ComputeMarker(code));
+  msg.Append(",%s", ComputeMarker(shared, code));
   msg.WriteToLogFile();
 }
 
@@ -1300,7 +1268,7 @@ void Logger::CodeDisableOptEvent(Code* code,
   SmartArrayPointer<char> name =
       shared->DebugName()->ToCString(DISALLOW_NULLS, ROBUST_STRING_TRAVERSAL);
   msg.Append("\"%s\",", name.get());
-  msg.Append("\"%s\"", GetBailoutReason(shared->DisableOptimizationReason()));
+  msg.Append("\"%s\"", GetBailoutReason(shared->disable_optimization_reason()));
   msg.WriteToLogFile();
 }
 
@@ -1409,8 +1377,6 @@ void Logger::SnapshotPositionEvent(Address addr, int pos) {
 
 
 void Logger::SharedFunctionInfoMoveEvent(Address from, Address to) {
-  PROFILER_LOG(SharedFunctionInfoMoveEvent(from, to));
-
   if (!is_logging_code_events()) return;
   MoveEventInternal(SHARED_FUNC_MOVE_EVENT, from, to);
 }
@@ -1514,7 +1480,7 @@ void Logger::DebugEvent(const char* event_type, Vector<uint16_t> parameter) {
 
 
 void Logger::TickEvent(TickSample* sample, bool overflow) {
-  if (!log_->IsEnabled() || !FLAG_prof) return;
+  if (!log_->IsEnabled() || !FLAG_prof_cpp) return;
   Log::MessageBuilder msg(log_);
   msg.Append("%s,", kLogEventsNames[TICK_EVENT]);
   msg.AppendAddress(sample->pc);
@@ -1645,7 +1611,7 @@ void Logger::LogCodeObject(Object* object) {
       tag = Logger::REG_EXP_TAG;
       break;
     case Code::BUILTIN:
-      description = "A builtin from the snapshot";
+      description = isolate_->builtins()->name(code_object->builtin_index());
       tag = Logger::BUILTIN_TAG;
       break;
     case Code::HANDLER:
@@ -1790,8 +1756,16 @@ static void AddIsolateIdIfNeeded(std::ostream& os,  // NOLINT
 
 static void PrepareLogFileName(std::ostream& os,  // NOLINT
                                Isolate* isolate, const char* file_name) {
-  AddIsolateIdIfNeeded(os, isolate);
+  int dir_separator_count = 0;
   for (const char* p = file_name; *p; p++) {
+    if (base::OS::isDirectorySeparator(*p)) dir_separator_count++;
+  }
+
+  for (const char* p = file_name; *p; p++) {
+    if (dir_separator_count == 0) {
+      AddIsolateIdIfNeeded(os, isolate);
+      dir_separator_count--;
+    }
     if (*p == '%') {
       p++;
       switch (*p) {
@@ -1817,6 +1791,7 @@ static void PrepareLogFileName(std::ostream& os,  // NOLINT
           break;
       }
     } else {
+      if (base::OS::isDirectorySeparator(*p)) dir_separator_count--;
       os << *p;
     }
   }
@@ -1843,11 +1818,6 @@ bool Logger::SetUp(Isolate* isolate) {
     addCodeEventListener(perf_basic_logger_);
   }
 
-  if (FLAG_perf_jit_prof) {
-    perf_jit_logger_ = new PerfJitLogger();
-    addCodeEventListener(perf_jit_logger_);
-  }
-
   if (FLAG_ll_prof) {
     ll_logger_ = new LowLevelLogger(log_file_name.str().c_str());
     addCodeEventListener(ll_logger_);
@@ -1859,9 +1829,9 @@ bool Logger::SetUp(Isolate* isolate) {
     is_logging_ = true;
   }
 
-  if (FLAG_log_internal_timer_events || FLAG_prof) timer_.Start();
+  if (FLAG_log_internal_timer_events || FLAG_prof_cpp) timer_.Start();
 
-  if (FLAG_prof) {
+  if (FLAG_prof_cpp) {
     profiler_ = new Profiler(isolate);
     is_logging_ = true;
     profiler_->Engage();
@@ -1916,12 +1886,6 @@ FILE* Logger::TearDown() {
     perf_basic_logger_ = NULL;
   }
 
-  if (perf_jit_logger_) {
-    removeCodeEventListener(perf_jit_logger_);
-    delete perf_jit_logger_;
-    perf_jit_logger_ = NULL;
-  }
-
   if (ll_logger_) {
     removeCodeEventListener(ll_logger_);
     delete ll_logger_;
@@ -1937,4 +1901,5 @@ FILE* Logger::TearDown() {
   return log_->Close();
 }
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

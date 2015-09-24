@@ -5,12 +5,9 @@
 #include "chrome/browser/ui/webui/extensions/extensions_ui.h"
 
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/webui/extensions/command_handler.h"
-#include "chrome/browser/ui/webui/extensions/extension_error_handler.h"
 #include "chrome/browser/ui/webui/extensions/extension_loader_handler.h"
 #include "chrome/browser/ui/webui/extensions/extension_settings_handler.h"
 #include "chrome/browser/ui/webui/extensions/install_extension_handler.h"
-#include "chrome/browser/ui/webui/extensions/pack_extension_handler.h"
 #include "chrome/browser/ui/webui/metrics_handler.h"
 #include "chrome/common/url_constants.h"
 #include "content/public/browser/web_ui.h"
@@ -20,6 +17,7 @@
 #include "ui/base/resource/resource_bundle.h"
 
 #if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos_factory.h"
 #include "chrome/browser/ui/webui/extensions/chromeos/kiosk_apps_handler.h"
 #endif
 
@@ -51,19 +49,6 @@ ExtensionsUI::ExtensionsUI(content::WebUI* web_ui) : WebUIController(web_ui) {
   handler->GetLocalizedValues(source);
   web_ui->AddMessageHandler(handler);
 
-  PackExtensionHandler* pack_handler = new PackExtensionHandler();
-  pack_handler->GetLocalizedValues(source);
-  web_ui->AddMessageHandler(pack_handler);
-
-  CommandHandler* commands_handler = new CommandHandler(profile);
-  commands_handler->GetLocalizedValues(source);
-  web_ui->AddMessageHandler(commands_handler);
-
-  ExtensionErrorHandler* extension_error_handler =
-      new ExtensionErrorHandler(profile);
-  extension_error_handler->GetLocalizedValues(source);
-  web_ui->AddMessageHandler(extension_error_handler);
-
   ExtensionLoaderHandler* extension_loader_handler =
       new ExtensionLoaderHandler(profile);
   extension_loader_handler->GetLocalizedValues(source);
@@ -76,7 +61,9 @@ ExtensionsUI::ExtensionsUI(content::WebUI* web_ui) : WebUIController(web_ui) {
 
 #if defined(OS_CHROMEOS)
   chromeos::KioskAppsHandler* kiosk_app_handler =
-      new chromeos::KioskAppsHandler();
+      new chromeos::KioskAppsHandler(
+          chromeos::OwnerSettingsServiceChromeOSFactory::GetForBrowserContext(
+              profile));
   kiosk_app_handler->GetLocalizedValues(source);
   web_ui->AddMessageHandler(kiosk_app_handler);
 #endif

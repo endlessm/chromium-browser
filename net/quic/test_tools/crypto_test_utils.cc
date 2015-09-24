@@ -17,6 +17,7 @@
 #include "net/quic/quic_crypto_stream.h"
 #include "net/quic/quic_server_id.h"
 #include "net/quic/test_tools/quic_connection_peer.h"
+#include "net/quic/test_tools/quic_framer_peer.h"
 #include "net/quic/test_tools/quic_test_utils.h"
 #include "net/quic/test_tools/simple_quic_framer.h"
 
@@ -89,11 +90,8 @@ void MovePackets(PacketSavingConnection* source_conn,
       break;
     }
 
-    for (vector<QuicStreamFrame>::const_iterator
-         i =  framer.stream_frames().begin();
-         i != framer.stream_frames().end(); ++i) {
-      scoped_ptr<string> frame_data(i->GetDataAsString());
-      ASSERT_TRUE(crypto_framer.ProcessInput(*frame_data));
+    for (const QuicStreamFrame& stream_frame : framer.stream_frames()) {
+      ASSERT_TRUE(crypto_framer.ProcessInput(stream_frame.data));
       ASSERT_FALSE(crypto_visitor.error());
     }
   }
@@ -103,10 +101,8 @@ void MovePackets(PacketSavingConnection* source_conn,
 
   ASSERT_EQ(0u, crypto_framer.InputBytesRemaining());
 
-  for (vector<CryptoHandshakeMessage>::const_iterator
-       i = crypto_visitor.messages().begin();
-       i != crypto_visitor.messages().end(); ++i) {
-    dest_stream->OnHandshakeMessage(*i);
+  for (const CryptoHandshakeMessage& message : crypto_visitor.messages()) {
+    dest_stream->OnHandshakeMessage(message);
   }
 }
 
@@ -183,27 +179,25 @@ CryptoTestUtils::FakeClientOptions::FakeClientOptions()
 int CryptoTestUtils::HandshakeWithFakeServer(
     PacketSavingConnection* client_conn,
     QuicCryptoClientStream* client) {
-  PacketSavingConnection* server_conn =
-      new PacketSavingConnection(true, client_conn->supported_versions());
-  TestSession server_session(server_conn, DefaultQuicConfig());
-  server_session.InitializeSession();
+  PacketSavingConnection* server_conn = new PacketSavingConnection(
+      Perspective::IS_SERVER, client_conn->supported_versions());
+
+  QuicConfig config = DefaultQuicConfig();
   QuicCryptoServerConfig crypto_config(QuicCryptoServerConfig::TESTING,
                                        QuicRandom::GetInstance());
+  SetupCryptoServerConfigForTest(server_conn->clock(),
+                                 server_conn->random_generator(), &config,
+                                 &crypto_config);
 
-  SetupCryptoServerConfigForTest(
-      server_session.connection()->clock(),
-      server_session.connection()->random_generator(),
-      server_session.config(), &crypto_config);
-
-  QuicCryptoServerStream server(crypto_config, &server_session);
-  server_session.SetCryptoStream(&server);
+  TestQuicSpdyServerSession server_session(server_conn, config, &crypto_config);
 
   // The client's handshake must have been started already.
-  CHECK_NE(0u, client_conn->packets_.size());
+  CHECK_NE(0u, client_conn->encrypted_packets_.size());
 
-  CommunicateHandshakeMessages(client_conn, client, server_conn, &server);
+  CommunicateHandshakeMessages(client_conn, client, server_conn,
+                               server_session.GetCryptoStream());
 
-  CompareClientAndServerKeys(client, &server);
+  CompareClientAndServerKeys(client, server_session.GetCryptoStream());
 
   return client->num_sent_client_hellos();
 }
@@ -213,15 +207,12 @@ int CryptoTestUtils::HandshakeWithFakeClient(
     PacketSavingConnection* server_conn,
     QuicCryptoServerStream* server,
     const FakeClientOptions& options) {
-  PacketSavingConnection* client_conn = new PacketSavingConnection(false);
-  TestClientSession client_session(client_conn, DefaultQuicConfig());
-  QuicCryptoClientConfig crypto_config;
+  PacketSavingConnection* client_conn =
+      new PacketSavingConnection(Perspective::IS_CLIENT);
+  // Advance the time, because timers do not like uninitialized times.
+  client_conn->AdvanceTime(QuicTime::Delta::FromSeconds(1));
 
-  if (!options.dont_verify_certs) {
-    // TODO(wtc): replace this with ProofVerifierForTesting() when we have
-    // a working ProofSourceForTesting().
-    crypto_config.SetProofVerifier(FakeProofVerifierForTesting());
-  }
+  QuicCryptoClientConfig crypto_config;
   bool is_https = false;
   AsyncTestChannelIDSource* async_channel_id_source = nullptr;
   if (options.channel_id_enabled) {
@@ -236,18 +227,22 @@ int CryptoTestUtils::HandshakeWithFakeClient(
   }
   QuicServerId server_id(kServerHostname, kServerPort, is_https,
                          PRIVACY_MODE_DISABLED);
-  QuicCryptoClientStream client(server_id, &client_session,
-                                ProofVerifyContextForTesting(),
-                                &crypto_config);
-  client_session.SetCryptoStream(&client);
+  if (!options.dont_verify_certs) {
+    // TODO(wtc): replace this with ProofVerifierForTesting() when we have
+    // a working ProofSourceForTesting().
+    crypto_config.SetProofVerifier(FakeProofVerifierForTesting());
+  }
+  TestQuicSpdyClientSession client_session(client_conn, DefaultQuicConfig(),
+                                           server_id, &crypto_config);
 
-  CHECK(client.CryptoConnect());
-  CHECK_EQ(1u, client_conn->packets_.size());
+  client_session.GetCryptoStream()->CryptoConnect();
+  CHECK_EQ(1u, client_conn->encrypted_packets_.size());
 
   CommunicateHandshakeMessagesAndRunCallbacks(
-      client_conn, &client, server_conn, server, async_channel_id_source);
+      client_conn, client_session.GetCryptoStream(), server_conn, server,
+      async_channel_id_source);
 
-  CompareClientAndServerKeys(&client, server);
+  CompareClientAndServerKeys(client_session.GetCryptoStream(), server);
 
   if (options.channel_id_enabled) {
     scoped_ptr<ChannelIDKey> channel_id_key;
@@ -256,11 +251,12 @@ int CryptoTestUtils::HandshakeWithFakeClient(
     EXPECT_EQ(QUIC_SUCCESS, status);
     EXPECT_EQ(channel_id_key->SerializeKey(),
               server->crypto_negotiated_params().channel_id);
-    EXPECT_EQ(options.channel_id_source_async,
-              client.WasChannelIDSourceCallbackRun());
+    EXPECT_EQ(
+        options.channel_id_source_async,
+        client_session.GetCryptoStream()->WasChannelIDSourceCallbackRun());
   }
 
-  return client.num_sent_client_hellos();
+  return client_session.GetCryptoStream()->num_sent_client_hellos();
 }
 
 // static
@@ -293,17 +289,17 @@ void CryptoTestUtils::CommunicateHandshakeMessagesAndRunCallbacks(
     CallbackSource* callback_source) {
   size_t a_i = 0, b_i = 0;
   while (!a->handshake_confirmed()) {
-    ASSERT_GT(a_conn->packets_.size(), a_i);
-    LOG(INFO) << "Processing " << a_conn->packets_.size() - a_i
-              << " packets a->b";
+    ASSERT_GT(a_conn->encrypted_packets_.size(), a_i);
+    VLOG(1) << "Processing " << a_conn->encrypted_packets_.size() - a_i
+            << " packets a->b";
     MovePackets(a_conn, &a_i, b, b_conn);
     if (callback_source) {
       callback_source->RunPendingCallbacks();
     }
 
-    ASSERT_GT(b_conn->packets_.size(), b_i);
-    LOG(INFO) << "Processing " << b_conn->packets_.size() - b_i
-              << " packets b->a";
+    ASSERT_GT(b_conn->encrypted_packets_.size(), b_i);
+    VLOG(1) << "Processing " << b_conn->encrypted_packets_.size() - b_i
+            << " packets b->a";
     MovePackets(b_conn, &b_i, a, a_conn);
     if (callback_source) {
       callback_source->RunPendingCallbacks();
@@ -319,18 +315,18 @@ pair<size_t, size_t> CryptoTestUtils::AdvanceHandshake(
     PacketSavingConnection* b_conn,
     QuicCryptoStream* b,
     size_t b_i) {
-  LOG(INFO) << "Processing " << a_conn->packets_.size() - a_i
-            << " packets a->b";
+  VLOG(1) << "Processing " << a_conn->encrypted_packets_.size() - a_i
+          << " packets a->b";
   MovePackets(a_conn, &a_i, b, b_conn);
 
-  LOG(INFO) << "Processing " << b_conn->packets_.size() - b_i
-            << " packets b->a";
-  if (b_conn->packets_.size() - b_i == 2) {
-    LOG(INFO) << "here";
+  VLOG(1) << "Processing " << b_conn->encrypted_packets_.size() - b_i
+          << " packets b->a";
+  if (b_conn->encrypted_packets_.size() - b_i == 2) {
+    VLOG(1) << "here";
   }
   MovePackets(b_conn, &b_i, a, a_conn);
 
-  return make_pair(a_i, b_i);
+  return std::make_pair(a_i, b_i);
 }
 
 // static
@@ -408,20 +404,24 @@ CommonCertSets* CryptoTestUtils::MockCommonCertSets(StringPiece cert,
 void CryptoTestUtils::CompareClientAndServerKeys(
     QuicCryptoClientStream* client,
     QuicCryptoServerStream* server) {
+  QuicFramer* client_framer =
+      QuicConnectionPeer::GetFramer(client->session()->connection());
+  QuicFramer* server_framer =
+      QuicConnectionPeer::GetFramer(server->session()->connection());
   const QuicEncrypter* client_encrypter(
-      client->session()->connection()->encrypter(ENCRYPTION_INITIAL));
+      QuicFramerPeer::GetEncrypter(client_framer, ENCRYPTION_INITIAL));
   const QuicDecrypter* client_decrypter(
       client->session()->connection()->decrypter());
   const QuicEncrypter* client_forward_secure_encrypter(
-      client->session()->connection()->encrypter(ENCRYPTION_FORWARD_SECURE));
+      QuicFramerPeer::GetEncrypter(client_framer, ENCRYPTION_FORWARD_SECURE));
   const QuicDecrypter* client_forward_secure_decrypter(
       client->session()->connection()->alternative_decrypter());
   const QuicEncrypter* server_encrypter(
-      server->session()->connection()->encrypter(ENCRYPTION_INITIAL));
+      QuicFramerPeer::GetEncrypter(server_framer, ENCRYPTION_INITIAL));
   const QuicDecrypter* server_decrypter(
       server->session()->connection()->decrypter());
   const QuicEncrypter* server_forward_secure_encrypter(
-      server->session()->connection()->encrypter(ENCRYPTION_FORWARD_SECURE));
+      QuicFramerPeer::GetEncrypter(server_framer, ENCRYPTION_FORWARD_SECURE));
   const QuicDecrypter* server_forward_secure_decrypter(
       server->session()->connection()->alternative_decrypter());
 

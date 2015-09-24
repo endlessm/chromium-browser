@@ -77,7 +77,7 @@ MergeSessionThrottle::MergeSessionThrottle(net::URLRequest* request,
 }
 
 MergeSessionThrottle::~MergeSessionThrottle() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 }
 
 void MergeSessionThrottle::WillStartRequest(bool* defer) {
@@ -112,7 +112,7 @@ bool MergeSessionThrottle::AreAllSessionMergedAlready() {
 }
 
 void MergeSessionThrottle::OnBlockingPageComplete() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   controller()->Resume();
 }
 
@@ -160,11 +160,12 @@ void MergeSessionThrottle::UnblockProfile(Profile* profile) {
 bool MergeSessionThrottle::ShouldDelayRequest(
     int render_process_id,
     int render_view_id) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (!user_manager::UserManager::Get()->IsUserLoggedIn()) {
     return false;
-  } else if (!user_manager::UserManager::Get()->IsLoggedInAsRegularUser()) {
+  } else if (!user_manager::UserManager::Get()->
+      IsLoggedInAsUserWithGaiaAccount()) {
     // This is not a regular user session, let's remove the throttle
     // permanently.
     if (!AreAllSessionMergedAlready())
@@ -205,7 +206,7 @@ bool MergeSessionThrottle::ShouldDelayRequest(
       // In theory this should not happen since we should
       // kick off the session restore process for the newly added profile
       // before we attempt loading any page.
-      if (user_manager::UserManager::Get()->IsLoggedInAsRegularUser() &&
+      if (user_manager::UserManager::Get()->IsLoggedInAsUserWithGaiaAccount() &&
           !user_manager::UserManager::Get()->IsLoggedInAsStub()) {
         LOG(WARNING) << "Loading content for a profile without "
                      << "session restore?";
@@ -246,7 +247,7 @@ void MergeSessionThrottle::DeleayResourceLoadingOnUIThread(
     int render_view_id,
     const GURL& url,
     const CompletionCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (ShouldDelayRequest(render_process_id, render_view_id)) {
     // There is a chance that the tab closed after we decided to show

@@ -1,8 +1,10 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
+#ifndef CORE_SRC_FXGE_WIN32_WIN32_INT_H_
+#define CORE_SRC_FXGE_WIN32_WIN32_INT_H_
 
 struct  WINDIB_Open_Args_;
 class CGdiplusExt
@@ -27,7 +29,7 @@ public:
                              int fill_mode
                       );
 
-    void*			LoadMemFont(FX_BYTE* pData, FX_DWORD size);
+    void*			LoadMemFont(uint8_t* pData, FX_DWORD size);
     void			DeleteMemFont(void* pFontCollection);
     FX_BOOL         GdipCreateFromImage(void* bitmap, void** graphics);
     void            GdipDeleteGraphics(void* graphics);
@@ -39,7 +41,7 @@ public:
     void            GdipDeleteBrush(void* pBrush);
     void            GdipCreateMatrix(FX_FLOAT a, FX_FLOAT b, FX_FLOAT c, FX_FLOAT d, FX_FLOAT e, FX_FLOAT f, void** matrix);
     void            GdipDeleteMatrix(void* matrix);
-    FX_BOOL         GdipCreateFontFamilyFromName(FX_LPCWSTR name, void* pFontCollection, void**pFamily);
+    FX_BOOL         GdipCreateFontFamilyFromName(const FX_WCHAR* name, void* pFontCollection, void**pFamily);
     void            GdipDeleteFontFamily(void* pFamily);
     FX_BOOL         GdipCreateFontFromFamily(void* pFamily, FX_FLOAT font_size, int fontstyle, int flag, void** pFont);
     void*           GdipCreateFontFromCollection(void* pFontCollection, FX_FLOAT font_size, int fontstyle);
@@ -58,7 +60,7 @@ protected:
     HMODULE         m_GdiModule;
 };
 #include "dwrite_int.h"
-class CWin32Platform : public CFX_Object
+class CWin32Platform
 {
 public:
     FX_BOOL			m_bHalfTone;
@@ -103,10 +105,10 @@ protected:
                              int alpha_flag, void* pIccTransform, int blend_type);
     virtual FX_BOOL	DrawCosmeticLine(FX_FLOAT x1, FX_FLOAT y1, FX_FLOAT x2, FX_FLOAT y2, FX_DWORD color,
                                      int alpha_flag, void* pIccTransform, int blend_type);
-    virtual FX_LPVOID GetClipRgn() ;
-    virtual FX_BOOL SetClipRgn(FX_LPVOID pRgn) ;
+    virtual void* GetClipRgn() ;
+    virtual FX_BOOL SetClipRgn(void* pRgn) ;
     virtual FX_BOOL GetClipBox(FX_RECT* pRect);
-    virtual FX_BOOL DeleteDeviceRgn(FX_LPVOID pRgn);
+    virtual FX_BOOL DeleteDeviceRgn(void* pRgn);
     virtual void	DrawLine(FX_FLOAT x1, FX_FLOAT y1, FX_FLOAT x2, FX_FLOAT y2);
     virtual void*	GetPlatformSurface()
     {
@@ -138,7 +140,7 @@ protected:
                                   int dest_width, int dest_height, const FX_RECT* pClipRect, FX_DWORD flags,
                                   int alpha_flag, void* pIccTransform, int blend_type);
     virtual FX_BOOL	StartDIBits(const CFX_DIBSource* pBitmap, int bitmap_alpha, FX_DWORD color,
-                                const CFX_AffineMatrix* pMatrix, FX_DWORD render_flags, FX_LPVOID& handle,
+                                const CFX_AffineMatrix* pMatrix, FX_DWORD render_flags, void*& handle,
                                 int alpha_flag, void* pIccTransform, int blend_type)
     {
         return FALSE;
@@ -159,12 +161,12 @@ protected:
                                   int dest_width, int dest_height, const FX_RECT* pClipRect, FX_DWORD flags,
                                   int alpha_flag, void* pIccTransform, int blend_type);
     virtual FX_BOOL	StartDIBits(const CFX_DIBSource* pBitmap, int bitmap_alpha, FX_DWORD color,
-                                const CFX_AffineMatrix* pMatrix, FX_DWORD render_flags, FX_LPVOID& handle,
+                                const CFX_AffineMatrix* pMatrix, FX_DWORD render_flags, void*& handle,
                                 int alpha_flag, void* pIccTransform, int blend_type);
     int				m_HorzSize, m_VertSize;
     FX_BOOL			m_bSupportROP;
 };
-class CPSOutput : public IFX_PSOutput, public CFX_Object
+class CPSOutput : public IFX_PSOutput
 {
 public:
     CPSOutput(HDC hDC);
@@ -174,9 +176,9 @@ public:
         delete this;
     }
     void Init();
-    virtual void	OutputPS(FX_LPCSTR string, int len);
+    virtual void	OutputPS(const FX_CHAR* string, int len);
     HDC				m_hDC;
-    FX_LPSTR        m_pBuf;
+    FX_CHAR*        m_pBuf;
 };
 class CPSPrinterDriver : public IFX_RenderDeviceDriver
 {
@@ -219,7 +221,7 @@ protected:
                                   int dest_width, int dest_height, const FX_RECT* pClipRect, FX_DWORD flags,
                                   int alpha_flag, void* pIccTransform, int blend_type);
     virtual FX_BOOL	StartDIBits(const CFX_DIBSource* pBitmap, int bitmap_alpha, FX_DWORD color,
-                                const CFX_AffineMatrix* pMatrix, FX_DWORD render_flags, FX_LPVOID& handle,
+                                const CFX_AffineMatrix* pMatrix, FX_DWORD render_flags, void*& handle,
                                 int alpha_flag, void* pIccTransform, int blend_type);
     virtual FX_BOOL DrawDeviceText(int nChars, const FXTEXT_CHARPOS* pCharPos, CFX_Font* pFont,
                                    CFX_FontCache* pCache, const CFX_AffineMatrix* pObject2Device, FX_FLOAT font_size, FX_DWORD color,
@@ -236,3 +238,5 @@ protected:
     CFX_PSRenderer	m_PSRenderer;
 };
 void _Color2Argb(FX_ARGB& argb, FX_DWORD color, int alpha_flag, void* pIccTransform);
+
+#endif  // CORE_SRC_FXGE_WIN32_WIN32_INT_H_

@@ -13,13 +13,13 @@
 #include "base/prefs/pref_service.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/history/history_service.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/safe_browsing/csd.pb.h"
 #include "chrome/common/safe_browsing/download_protection_util.h"
-#include "content/public/browser/download_item.h"
+#include "components/history/core/browser/download_constants.h"
+#include "components/history/core/browser/history_service.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
@@ -47,7 +47,7 @@ int64 GetEndTime(const ClientIncidentReport_DownloadDetails& details) {
 bool IsBinaryDownload(const history::DownloadRow& row) {
   // TODO(grt): Peek into archives to see if they contain binaries;
   // http://crbug.com/386915.
-  return (download_protection_util::IsBinaryFile(row.target_path) &&
+  return (download_protection_util::IsSupportedBinaryFile(row.target_path) &&
           !download_protection_util::IsArchiveFile(row.target_path));
 }
 
@@ -85,7 +85,7 @@ const history::DownloadRow* FindMostInteresting(
   for (size_t i = 0; i < downloads.size(); ++i) {
     const history::DownloadRow& row = downloads[i];
     // Ignore incomplete downloads.
-    if (row.state != content::DownloadItem::COMPLETE)
+    if (row.state != history::DownloadState::COMPLETE)
       continue;
     if (!most_recent_row || IsMoreInterestingThan(row, *most_recent_row))
       most_recent_row = &row;
@@ -159,7 +159,8 @@ scoped_ptr<LastDownloadFinder> LastDownloadFinder::Create(
   return finder.Pass();
 }
 
-LastDownloadFinder::LastDownloadFinder() : weak_ptr_factory_(this) {
+LastDownloadFinder::LastDownloadFinder()
+    : history_service_observer_(this), weak_ptr_factory_(this) {
 }
 
 LastDownloadFinder::LastDownloadFinder(
@@ -168,14 +169,12 @@ LastDownloadFinder::LastDownloadFinder(
     const LastDownloadCallback& callback)
     : download_details_getter_(download_details_getter),
       callback_(callback),
+      history_service_observer_(this),
       weak_ptr_factory_(this) {
   // Observe profile lifecycle events so that the finder can begin or abandon
   // the search in profiles while it is running.
   notification_registrar_.Add(this,
                               chrome::NOTIFICATION_PROFILE_ADDED,
-                              content::NotificationService::AllSources());
-  notification_registrar_.Add(this,
-                              chrome::NOTIFICATION_HISTORY_LOADED,
                               content::NotificationService::AllSources());
   notification_registrar_.Add(this,
                               chrome::NOTIFICATION_PROFILE_DESTROYED,
@@ -198,7 +197,7 @@ void LastDownloadFinder::SearchInProfile(Profile* profile) {
 
   // Exit early if already processing this profile. This could happen if, for
   // example, NOTIFICATION_PROFILE_ADDED arrives after construction while
-  // waiting for NOTIFICATION_HISTORY_LOADED.
+  // waiting for OnHistoryServiceLoaded.
   if (profile_states_.count(profile))
     return;
 
@@ -228,8 +227,9 @@ void LastDownloadFinder::OnMetadataQuery(
   } else {
     // Search history since no metadata was found.
     iter->second = WAITING_FOR_HISTORY;
-    HistoryService* history_service =
-        HistoryServiceFactory::GetForProfile(profile, Profile::IMPLICIT_ACCESS);
+    history::HistoryService* history_service =
+        HistoryServiceFactory::GetForProfile(
+            profile, ServiceAccessType::IMPLICIT_ACCESS);
     // No history service is returned for profiles that do not save history.
     if (!history_service) {
       RemoveProfileAndReportIfDone(iter);
@@ -240,24 +240,10 @@ void LastDownloadFinder::OnMetadataQuery(
           base::Bind(&LastDownloadFinder::OnDownloadQuery,
                      weak_ptr_factory_.GetWeakPtr(),
                      profile));
-    }  // else wait until history is loaded.
-  }
-}
-
-void LastDownloadFinder::OnProfileHistoryLoaded(
-    Profile* profile,
-    HistoryService* history_service) {
-  auto iter = profile_states_.find(profile);
-  if (iter == profile_states_.end())
-    return;
-
-  // Start the query in the history service if the finder was waiting for the
-  // service to load.
-  if (iter->second == WAITING_FOR_HISTORY) {
-    history_service->QueryDownloads(
-        base::Bind(&LastDownloadFinder::OnDownloadQuery,
-                   weak_ptr_factory_.GetWeakPtr(),
-                   profile));
+    } else {
+      // else wait until history is loaded.
+      history_service_observer_.Add(history_service);
+    }
   }
 }
 
@@ -327,16 +313,36 @@ void LastDownloadFinder::Observe(int type,
     case chrome::NOTIFICATION_PROFILE_ADDED:
       SearchInProfile(content::Source<Profile>(source).ptr());
       break;
-    case chrome::NOTIFICATION_HISTORY_LOADED:
-      OnProfileHistoryLoaded(content::Source<Profile>(source).ptr(),
-                             content::Details<HistoryService>(details).ptr());
-      break;
     case chrome::NOTIFICATION_PROFILE_DESTROYED:
       AbandonSearchInProfile(content::Source<Profile>(source).ptr());
       break;
     default:
       break;
   }
+}
+
+void LastDownloadFinder::OnHistoryServiceLoaded(
+    history::HistoryService* history_service) {
+  for (const auto& pair : profile_states_) {
+    history::HistoryService* hs = HistoryServiceFactory::GetForProfileIfExists(
+        pair.first, ServiceAccessType::EXPLICIT_ACCESS);
+    if (hs == history_service) {
+      // Start the query in the history service if the finder was waiting for
+      // the service to load.
+      if (pair.second == WAITING_FOR_HISTORY) {
+        history_service->QueryDownloads(
+            base::Bind(&LastDownloadFinder::OnDownloadQuery,
+                       weak_ptr_factory_.GetWeakPtr(),
+                       pair.first));
+      }
+      return;
+    }
+  }
+}
+
+void LastDownloadFinder::HistoryServiceBeingDeleted(
+    history::HistoryService* history_service) {
+  history_service_observer_.Remove(history_service);
 }
 
 }  // namespace safe_browsing

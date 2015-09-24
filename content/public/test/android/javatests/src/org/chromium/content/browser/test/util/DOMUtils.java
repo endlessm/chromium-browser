@@ -22,39 +22,61 @@ import java.util.concurrent.TimeoutException;
  */
 public class DOMUtils {
     /**
-     * Pauses the video with given {@code nodeId}.
+     * Plays the media with given {@code id}.
+     * @param webContents The WebContents in which the media element lives.
+     * @param id The element's id to be played.
      */
-    public static void pauseVideo(final WebContents webContents, final String nodeId)
+    public static void playMedia(final WebContents webContents, final String id)
             throws InterruptedException, TimeoutException {
         StringBuilder sb = new StringBuilder();
         sb.append("(function() {");
-        sb.append("  var video = document.getElementById('" + nodeId + "');");
-        sb.append("  if (video) video.pause();");
+        sb.append("  var media = document.getElementById('" + id + "');");
+        sb.append("  if (media) media.play();");
         sb.append("})();");
         JavaScriptUtils.executeJavaScriptAndWaitForResult(
                 webContents, sb.toString());
     }
 
     /**
-     * Returns whether the video with given {@code nodeId} is paused.
+     * Pauses the media with given {@code id}
+     * @param webContents The WebContents in which the media element lives.
+     * @param id The element's id to be paused.
      */
-    public static boolean isVideoPaused(final WebContents webContents, final String nodeId)
+    public static void pauseMedia(final WebContents webContents, final String id)
             throws InterruptedException, TimeoutException {
-        return getNodeField("paused", webContents, nodeId, Boolean.class);
+        StringBuilder sb = new StringBuilder();
+        sb.append("(function() {");
+        sb.append("  var media = document.getElementById('" + id + "');");
+        sb.append("  if (media) media.pause();");
+        sb.append("})();");
+        JavaScriptUtils.executeJavaScriptAndWaitForResult(
+                webContents, sb.toString());
     }
 
     /**
-     * Waits until the playback of the video with given {@code nodeId} has started.
-     *
+     * Returns whether the media with given {@code id} is paused.
+     * @param webContents The WebContents in which the media element lives.
+     * @param id The element's id to check.
+     * @return whether the media is paused.
+     */
+    public static boolean isMediaPaused(final WebContents webContents, final String id)
+            throws InterruptedException, TimeoutException {
+        return getNodeField("paused", webContents, id, Boolean.class);
+    }
+
+    /**
+     * Waits until the playback of the media with given {@code id} has started.
+     * @param webContents The WebContents in which the media element lives.
+     * @param id The element's id to check.
      * @return Whether the playback has started.
      */
-    public static boolean waitForVideoPlay(final WebContents webContents, final String nodeId)
+    public static boolean waitForMediaPlay(final WebContents webContents, final String id)
             throws InterruptedException {
         return CriteriaHelper.pollForCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 try {
-                    return !DOMUtils.isVideoPaused(webContents, nodeId);
+                    return !DOMUtils.isMediaPaused(webContents, id);
                 } catch (InterruptedException e) {
                     // Intentionally do nothing
                     return false;
@@ -67,7 +89,33 @@ public class DOMUtils {
     }
 
     /**
-     * Returns whether the document is in fullscreen.
+     * Waits until the playback of the media with given {@code id} has stopped.
+     * @param webContents The WebContents in which the media element lives.
+     * @param id The element's id to check.
+     * @return Whether the playback has paused.
+     */
+    public static boolean waitForMediaPause(final WebContents webContents, final String id)
+            throws InterruptedException {
+        return CriteriaHelper.pollForCriteria(new Criteria() {
+            @Override
+            public boolean isSatisfied() {
+                try {
+                    return DOMUtils.isMediaPaused(webContents, id);
+                } catch (InterruptedException e) {
+                    // Intentionally do nothing
+                    return false;
+                } catch (TimeoutException e) {
+                    // Intentionally do nothing
+                    return false;
+                }
+            }
+        });
+    }
+
+    /**
+     * Returns whether the document is fullscreen.
+     * @param webContents The WebContents to check.
+     * @return Whether the document is fullsscreen.
      */
     public static boolean isFullscreen(final WebContents webContents)
             throws InterruptedException, TimeoutException {
@@ -83,6 +131,7 @@ public class DOMUtils {
 
     /**
      * Makes the document exit fullscreen.
+     * @param webContents The WebContents to make fullscreen.
      */
     public static void exitFullscreen(final WebContents webContents) {
         StringBuilder sb = new StringBuilder();
@@ -95,12 +144,284 @@ public class DOMUtils {
 
     /**
      * Returns the rect boundaries for a node by its id.
+     * @param webContents The WebContents in which the node lives.
+     * @param nodeId The id of the node.
+     * @return The rect boundaries for the node.
      */
     public static Rect getNodeBounds(final WebContents webContents, String nodeId)
+            throws InterruptedException, TimeoutException {
+        String jsCode = "document.getElementById('" + nodeId + "')";
+        return getNodeBoundsByJs(webContents, jsCode);
+    }
+
+    /**
+     * Focus a DOM node by its id.
+     * @param webContents The WebContents in which the node lives.
+     * @param nodeId The id of the node.
+     */
+    public static void focusNode(final WebContents webContents, String nodeId)
             throws InterruptedException, TimeoutException {
         StringBuilder sb = new StringBuilder();
         sb.append("(function() {");
         sb.append("  var node = document.getElementById('" + nodeId + "');");
+        sb.append("  if (node) node.focus();");
+        sb.append("})();");
+
+        JavaScriptUtils.executeJavaScriptAndWaitForResult(webContents, sb.toString());
+    }
+
+    /**
+     * Get the id of the currently focused node.
+     * @param webContents The WebContents in which the node lives.
+     * @return The id of the currently focused node.
+     */
+    public static String getFocusedNode(WebContents webContents)
+            throws InterruptedException, TimeoutException {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(function() {");
+        sb.append("  var node = document.activeElement;");
+        sb.append("  if (!node) return null;");
+        sb.append("  return node.id;");
+        sb.append("})();");
+
+        String id = JavaScriptUtils.executeJavaScriptAndWaitForResult(webContents, sb.toString());
+
+        // String results from JavaScript includes surrounding quotes.  Remove them.
+        if (id != null && id.length() >= 2 && id.charAt(0) == '"') {
+            id = id.substring(1, id.length() - 1);
+        }
+        return id;
+    }
+
+    /**
+     * Click a DOM node by its id.
+     * @param activityTestCase The ActivityInstrumentationTestCase2 to instrument.
+     * @param viewCore The ContentViewCore in which the node lives.
+     * @param nodeId The id of the node.
+     */
+    public static void clickNode(ActivityInstrumentationTestCase2 activityTestCase,
+            final ContentViewCore viewCore, String nodeId)
+            throws InterruptedException, TimeoutException {
+        int[] clickTarget = getClickTargetForNode(viewCore, nodeId);
+        TouchCommon.singleClickView(viewCore.getContainerView(), clickTarget[0], clickTarget[1]);
+    }
+
+    /**
+     * Long-press a DOM node by its id.
+     * @param activityTestCase The ActivityInstrumentationTestCase2 to instrument.
+     * @param viewCore The ContentViewCore in which the node lives.
+     * @param nodeId The id of the node.
+     */
+    public static void longPressNode(ActivityInstrumentationTestCase2 activityTestCase,
+            final ContentViewCore viewCore, String nodeId)
+            throws InterruptedException, TimeoutException {
+        String jsCode = "document.getElementById('" + nodeId + "')";
+        longPressNodeByJs(activityTestCase, viewCore, jsCode);
+    }
+
+    /**
+     * Long-press a DOM node by its id.
+     * @param activityTestCase The ActivityInstrumentationTestCase2 to instrument.
+     * @param viewCore The ContentViewCore in which the node lives.
+     * @param nodeId The id of the node.
+     */
+    public static void longPressNodeByJs(ActivityInstrumentationTestCase2 activityTestCase,
+            final ContentViewCore viewCore, String jsCode)
+            throws InterruptedException, TimeoutException {
+        int[] clickTarget = getClickTargetForNodeByJs(viewCore, jsCode);
+        TouchCommon.longPressView(viewCore.getContainerView(), clickTarget[0], clickTarget[1]);
+    }
+
+    /**
+     * Scrolls the view to ensure that the required DOM node is visible.
+     * @param webContents The WebContents in which the node lives.
+     * @param nodeId The id of the node.
+     */
+    public static void scrollNodeIntoView(WebContents webContents, String nodeId)
+            throws InterruptedException, TimeoutException {
+        JavaScriptUtils.executeJavaScriptAndWaitForResult(webContents,
+                "document.getElementById('" + nodeId + "').scrollIntoView()");
+    }
+
+    /**
+     * Returns the text contents of a given node.
+     * @param webContents The WebContents in which the node lives.
+     * @param nodeId The id of the node.
+     * @return the text contents of the node.
+     */
+    public static String getNodeContents(WebContents webContents, String nodeId)
+            throws InterruptedException, TimeoutException {
+        return getNodeField("textContent", webContents, nodeId, String.class);
+    }
+
+    /**
+     * Returns the value of a given node.
+     * @param webContents The WebContents in which the node lives.
+     * @param nodeId The id of the node.
+     * @return the value of the node.
+     */
+    public static String getNodeValue(final WebContents webContents, String nodeId)
+            throws InterruptedException, TimeoutException {
+        return getNodeField("value", webContents, nodeId, String.class);
+    }
+
+    /**
+     * Returns the string value of a field of a given node.
+     * @param fieldName The field to return the value from.
+     * @param webContents The WebContents in which the node lives.
+     * @param nodeId The id of the node.
+     * @return the value of the field.
+     */
+    public static String getNodeField(String fieldName, final WebContents webContents,
+            String nodeId)
+            throws InterruptedException, TimeoutException {
+        return getNodeField(fieldName, webContents, nodeId, String.class);
+    }
+
+    /**
+     * Wait until a given node has non-zero bounds.
+     * @param webContents The WebContents in which the node lives.
+     * @param nodeId The id of the node.
+     * @return Whether the node started having non-zero bounds.
+     */
+    public static boolean waitForNonZeroNodeBounds(final WebContents webContents,
+            final String nodeId)
+            throws InterruptedException {
+        return CriteriaHelper.pollForCriteria(new Criteria() {
+            @Override
+            public boolean isSatisfied() {
+                try {
+                    return !DOMUtils.getNodeBounds(webContents, nodeId).isEmpty();
+                } catch (InterruptedException e) {
+                    // Intentionally do nothing
+                    return false;
+                } catch (TimeoutException e) {
+                    // Intentionally do nothing
+                    return false;
+                }
+            }
+        });
+    }
+
+    /**
+     * Returns the value of a given field of type {@code valueType} as a {@code T}.
+     * @param fieldName The field to return the value from.
+     * @param webContents The WebContents in which the node lives.
+     * @param nodeId The id of the node.
+     * @param valueType The type of the value to read.
+     * @return the field's value.
+     */
+    private static <T> T getNodeField(String fieldName, final WebContents webContents,
+            String nodeId, Class<T> valueType)
+            throws InterruptedException, TimeoutException {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(function() {");
+        sb.append("  var node = document.getElementById('" + nodeId + "');");
+        sb.append("  if (!node) return null;");
+        sb.append("  return [ node." + fieldName + " ];");
+        sb.append("})();");
+
+        String jsonText = JavaScriptUtils.executeJavaScriptAndWaitForResult(
+                webContents, sb.toString());
+        Assert.assertFalse("Failed to retrieve contents for " + nodeId,
+                jsonText.trim().equalsIgnoreCase("null"));
+        return readValue(jsonText, valueType);
+    }
+
+    /**
+     * Returns the next value of type {@code valueType} as a {@code T}.
+     * @param jsonText The unparsed json text.
+     * @param valueType The type of the value to read.
+     * @return the read value.
+     */
+    private static <T> T readValue(String jsonText, Class<T> valueType) {
+        JsonReader jsonReader = new JsonReader(new StringReader(jsonText));
+        T value = null;
+        try {
+            jsonReader.beginArray();
+            if (jsonReader.hasNext()) value = readValue(jsonReader, valueType);
+            jsonReader.endArray();
+            Assert.assertNotNull("Invalid contents returned.", value);
+
+            jsonReader.close();
+        } catch (IOException exception) {
+            Assert.fail("Failed to evaluate JavaScript: " + jsonText + "\n" + exception);
+        }
+        return value;
+    }
+
+    /**
+     * Returns the next value of type {@code valueType} as a {@code T}.
+     * @param jsonReader JsonReader instance to be used.
+     * @param valueType The type of the value to read.
+     * @throws IllegalArgumentException If the {@code valueType} isn't known.
+     * @return the read value.
+     */
+    @SuppressWarnings("unchecked")
+    private static <T> T readValue(JsonReader jsonReader, Class<T> valueType)
+            throws IOException {
+        if (valueType.equals(String.class)) return ((T) jsonReader.nextString());
+        if (valueType.equals(Boolean.class)) return ((T) ((Boolean) jsonReader.nextBoolean()));
+        if (valueType.equals(Integer.class)) return ((T) ((Integer) jsonReader.nextInt()));
+        if (valueType.equals(Long.class)) return ((T) ((Long) jsonReader.nextLong()));
+        if (valueType.equals(Double.class)) return ((T) ((Double) jsonReader.nextDouble()));
+
+        throw new IllegalArgumentException("Cannot read values of type " + valueType);
+    }
+
+    /**
+     * Returns click target for a given DOM node.
+     * @param viewCore The ContentViewCore in which the node lives.
+     * @param nodeId The id of the node.
+     * @return the click target of the node in the form of a [ x, y ] array.
+     */
+    private static int[] getClickTargetForNode(ContentViewCore viewCore, String nodeId)
+            throws InterruptedException, TimeoutException {
+        String jsCode = "document.getElementById('" + nodeId + "')";
+        return getClickTargetForNodeByJs(viewCore, jsCode);
+    }
+
+    /**
+     * Returns click target for a given DOM node.
+     * @param viewCore The ContentViewCore in which the node lives.
+     * @param jsCode The javascript to get the node.
+     * @return the click target of the node in the form of a [ x, y ] array.
+     */
+    private static int[] getClickTargetForNodeByJs(ContentViewCore viewCore, String jsCode)
+            throws InterruptedException, TimeoutException {
+        Rect bounds = getNodeBoundsByJs(viewCore.getWebContents(), jsCode);
+        Assert.assertNotNull(
+                "Failed to get DOM element bounds of element='" + jsCode + "'.", bounds);
+
+        return getClickTargetForBounds(viewCore, bounds);
+    }
+
+    /**
+     * Returns click target for the DOM node specified by the rect boundaries.
+     * @param viewCore The ContentViewCore in which the node lives.
+     * @param bounds The rect boundaries of a DOM node.
+     * @return the click target of the node in the form of a [ x, y ] array.
+     */
+    private static int[] getClickTargetForBounds(ContentViewCore viewCore, Rect bounds) {
+        int topControlsLayoutHeight = viewCore.doTopControlsShrinkBlinkSize()
+                ? viewCore.getTopControlsHeightPix() : 0;
+        int clickX = (int) viewCore.getRenderCoordinates().fromLocalCssToPix(bounds.exactCenterX());
+        int clickY = (int) viewCore.getRenderCoordinates().fromLocalCssToPix(bounds.exactCenterY())
+                + topControlsLayoutHeight;
+        return new int[] { clickX, clickY };
+    }
+
+    /**
+     * Returns the rect boundaries for a node by the javascript to get the node.
+     * @param webContents The WebContents in which the node lives.
+     * @param jsCode The javascript to get the node.
+     * @return The rect boundaries for the node.
+     */
+    private static Rect getNodeBoundsByJs(final WebContents webContents, String jsCode)
+            throws InterruptedException, TimeoutException {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(function() {");
+        sb.append("  var node = " + jsCode + ";");
         sb.append("  if (!node) return null;");
         sb.append("  var width = Math.round(node.offsetWidth);");
         sb.append("  var height = Math.round(node.offsetHeight);");
@@ -116,7 +437,7 @@ public class DOMUtils {
         String jsonText = JavaScriptUtils.executeJavaScriptAndWaitForResult(
                 webContents, sb.toString());
 
-        Assert.assertFalse("Failed to retrieve bounds for " + nodeId,
+        Assert.assertFalse("Failed to retrieve bounds for element: " + jsCode,
                 jsonText.trim().equalsIgnoreCase("null"));
 
         JsonReader jsonReader = new JsonReader(new StringReader(jsonText));
@@ -136,155 +457,5 @@ public class DOMUtils {
         }
 
         return new Rect(bounds[0], bounds[1], bounds[0] + bounds[2], bounds[1] + bounds[3]);
-    }
-
-    /**
-     * Focus a DOM node by its id.
-     */
-    public static void focusNode(final WebContents webContents, String nodeId)
-            throws InterruptedException, TimeoutException {
-        StringBuilder sb = new StringBuilder();
-        sb.append("(function() {");
-        sb.append("  var node = document.getElementById('" + nodeId + "');");
-        sb.append("  if (node) node.focus();");
-        sb.append("})();");
-
-        JavaScriptUtils.executeJavaScriptAndWaitForResult(webContents, sb.toString());
-    }
-
-    /**
-     * Click a DOM node by its id.
-     */
-    public static void clickNode(ActivityInstrumentationTestCase2 activityTestCase,
-            final ContentViewCore viewCore, String nodeId)
-            throws InterruptedException, TimeoutException {
-        int[] clickTarget = getClickTargetForNode(viewCore, nodeId);
-        TouchCommon.singleClickView(viewCore.getContainerView(), clickTarget[0], clickTarget[1]);
-    }
-
-    /**
-     * Long-press a DOM node by its id.
-     */
-    public static void longPressNode(ActivityInstrumentationTestCase2 activityTestCase,
-            final ContentViewCore viewCore, String nodeId)
-            throws InterruptedException, TimeoutException {
-        int[] clickTarget = getClickTargetForNode(viewCore, nodeId);
-        TouchCommon.longPressView(viewCore.getContainerView(), clickTarget[0], clickTarget[1]);
-    }
-
-    /**
-     * Scrolls the view to ensure that the required DOM node is visible.
-     */
-    public static void scrollNodeIntoView(WebContents webContents, String nodeId)
-            throws InterruptedException, TimeoutException {
-        JavaScriptUtils.executeJavaScriptAndWaitForResult(webContents,
-                "document.getElementById('" + nodeId + "').scrollIntoView()");
-    }
-
-    /**
-     * Returns the contents of the node by its id.
-     */
-    public static String getNodeContents(WebContents webContents, String nodeId)
-            throws InterruptedException, TimeoutException {
-        return getNodeField("textContent", webContents, nodeId, String.class);
-    }
-
-    /**
-     * Returns the value of the node by its id.
-     */
-    public static String getNodeValue(final WebContents webContents, String nodeId)
-            throws InterruptedException, TimeoutException {
-        return getNodeField("value", webContents, nodeId, String.class);
-    }
-
-    /**
-     * Returns the string value of a field of the node by its id.
-     */
-    public static String getNodeField(String fieldName, final WebContents webContents,
-            String nodeId)
-            throws InterruptedException, TimeoutException {
-        return getNodeField(fieldName, webContents, nodeId, String.class);
-    }
-
-    private static <T> T getNodeField(String fieldName, final WebContents webContents,
-            String nodeId, Class<T> valueType)
-            throws InterruptedException, TimeoutException {
-        StringBuilder sb = new StringBuilder();
-        sb.append("(function() {");
-        sb.append("  var node = document.getElementById('" + nodeId + "');");
-        sb.append("  if (!node) return null;");
-        sb.append("  return [ node." + fieldName + " ];");
-        sb.append("})();");
-
-        String jsonText = JavaScriptUtils.executeJavaScriptAndWaitForResult(
-                webContents, sb.toString());
-        Assert.assertFalse("Failed to retrieve contents for " + nodeId,
-                jsonText.trim().equalsIgnoreCase("null"));
-        return readValue(jsonText, valueType);
-    }
-
-    private static <T> T readValue(String jsonText, Class<T> valueType) {
-        JsonReader jsonReader = new JsonReader(new StringReader(jsonText));
-        T value = null;
-        try {
-            jsonReader.beginArray();
-            if (jsonReader.hasNext()) value = readValue(jsonReader, valueType);
-            jsonReader.endArray();
-            Assert.assertNotNull("Invalid contents returned.", value);
-
-            jsonReader.close();
-        } catch (IOException exception) {
-            Assert.fail("Failed to evaluate JavaScript: " + jsonText + "\n" + exception);
-        }
-        return value;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static <T> T readValue(JsonReader jsonReader, Class<T> valueType)
-            throws IOException {
-        if (valueType.equals(String.class)) return ((T) jsonReader.nextString());
-        if (valueType.equals(Boolean.class)) return ((T) ((Boolean) jsonReader.nextBoolean()));
-        if (valueType.equals(Integer.class)) return ((T) ((Integer) jsonReader.nextInt()));
-        if (valueType.equals(Long.class)) return ((T) ((Long) jsonReader.nextLong()));
-        if (valueType.equals(Double.class)) return ((T) ((Double) jsonReader.nextDouble()));
-
-        throw new IllegalArgumentException("Cannot read values of type " + valueType);
-    }
-
-    /**
-     * Wait until a given node has non-zero bounds.
-     * @return Whether the node started having non-zero bounds.
-     */
-    public static boolean waitForNonZeroNodeBounds(final WebContents webContents,
-            final String nodeName)
-            throws InterruptedException {
-        return CriteriaHelper.pollForCriteria(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                try {
-                    return !DOMUtils.getNodeBounds(webContents, nodeName).isEmpty();
-                } catch (InterruptedException e) {
-                    // Intentionally do nothing
-                    return false;
-                } catch (TimeoutException e) {
-                    // Intentionally do nothing
-                    return false;
-                }
-            }
-        });
-    }
-
-    /**
-     * Returns click targets for a given DOM node.
-     */
-    private static int[] getClickTargetForNode(ContentViewCore viewCore, String nodeName)
-            throws InterruptedException, TimeoutException {
-        Rect bounds = getNodeBounds(viewCore.getWebContents(), nodeName);
-        Assert.assertNotNull("Failed to get DOM element bounds of '" + nodeName + "'.", bounds);
-
-        int clickX = (int) viewCore.getRenderCoordinates().fromLocalCssToPix(bounds.exactCenterX());
-        int clickY = (int) viewCore.getRenderCoordinates().fromLocalCssToPix(bounds.exactCenterY())
-                + viewCore.getTopControlsLayoutHeightPix();
-        return new int[] { clickX, clickY };
     }
 }

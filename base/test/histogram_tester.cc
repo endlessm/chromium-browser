@@ -73,6 +73,19 @@ void HistogramTester::ExpectTotalCount(const std::string& name,
   }
 }
 
+std::vector<Bucket> HistogramTester::GetAllSamples(const std::string& name) {
+  std::vector<Bucket> samples;
+  scoped_ptr<HistogramSamples> snapshot =
+      GetHistogramSamplesSinceCreation(name);
+  for (auto it = snapshot->Iterator(); !it->Done(); it->Next()) {
+    HistogramBase::Sample sample;
+    HistogramBase::Count count;
+    it->Get(&sample, nullptr, &count);
+    samples.push_back(Bucket(sample, count));
+  }
+  return samples;
+}
+
 scoped_ptr<HistogramSamples> HistogramTester::GetHistogramSamplesSinceCreation(
     const std::string& histogram_name) {
   HistogramBase* histogram = StatisticsRecorder::FindHistogram(histogram_name);
@@ -90,7 +103,7 @@ void HistogramTester::CheckBucketCount(
     const std::string& name,
     base::HistogramBase::Sample sample,
     base::HistogramBase::Count expected_count,
-    base::HistogramSamples& samples) const {
+    const base::HistogramSamples& samples) const {
   int actual_count = samples.GetCount(sample);
   std::map<std::string, HistogramSamples*>::const_iterator histogram_data;
   histogram_data = histograms_snapshot_.find(name);
@@ -104,9 +117,10 @@ void HistogramTester::CheckBucketCount(
       << ").";
 }
 
-void HistogramTester::CheckTotalCount(const std::string& name,
-                                      base::HistogramBase::Count expected_count,
-                                      base::HistogramSamples& samples) const {
+void HistogramTester::CheckTotalCount(
+    const std::string& name,
+    base::HistogramBase::Count expected_count,
+    const base::HistogramSamples& samples) const {
   int actual_count = samples.TotalCount();
   std::map<std::string, HistogramSamples*>::const_iterator histogram_data;
   histogram_data = histograms_snapshot_.find(name);
@@ -117,6 +131,14 @@ void HistogramTester::CheckTotalCount(const std::string& name,
       << "Histogram \"" << name
       << "\" does not have the right total number of samples ("
       << expected_count << "). It has (" << actual_count << ").";
+}
+
+bool Bucket::operator==(const Bucket& other) const {
+  return min == other.min && count == other.count;
+}
+
+void PrintTo(const Bucket& bucket, std::ostream* os) {
+  *os << "Bucket " << bucket.min << ": " << bucket.count;
 }
 
 }  // namespace base

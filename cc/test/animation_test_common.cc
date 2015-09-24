@@ -5,9 +5,11 @@
 #include "cc/test/animation_test_common.h"
 
 #include "cc/animation/animation_id_provider.h"
+#include "cc/animation/animation_player.h"
 #include "cc/animation/keyframed_animation_curve.h"
 #include "cc/animation/layer_animation_controller.h"
 #include "cc/animation/transform_operations.h"
+#include "cc/base/time_util.h"
 #include "cc/layers/layer.h"
 #include "cc/layers/layer_impl.h"
 
@@ -35,16 +37,16 @@ int AddOpacityTransition(Target* target,
   if (!use_timing_function)
     func = EaseTimingFunction::Create();
   if (duration > 0.0)
-    curve->AddKeyframe(FloatKeyframe::Create(0.0, start_opacity, func.Pass()));
-  curve->AddKeyframe(FloatKeyframe::Create(duration, end_opacity, nullptr));
+    curve->AddKeyframe(
+        FloatKeyframe::Create(base::TimeDelta(), start_opacity, func.Pass()));
+  curve->AddKeyframe(FloatKeyframe::Create(
+      base::TimeDelta::FromSecondsD(duration), end_opacity, nullptr));
 
   int id = AnimationIdProvider::NextAnimationId();
 
   scoped_ptr<Animation> animation(
-      Animation::Create(curve.Pass(),
-                        id,
-                        AnimationIdProvider::NextGroupId(),
-                        Animation::Opacity));
+      Animation::Create(curve.Pass(), id, AnimationIdProvider::NextGroupId(),
+                        Animation::OPACITY));
   animation->set_needs_synchronized_start_time(true);
 
   target->AddAnimation(animation.Pass());
@@ -60,19 +62,18 @@ int AddAnimatedTransform(Target* target,
       curve(KeyframedTransformAnimationCurve::Create());
 
   if (duration > 0.0) {
-    curve->AddKeyframe(
-        TransformKeyframe::Create(0.0, start_operations, nullptr));
+    curve->AddKeyframe(TransformKeyframe::Create(base::TimeDelta(),
+                                                 start_operations, nullptr));
   }
 
-  curve->AddKeyframe(TransformKeyframe::Create(duration, operations, nullptr));
+  curve->AddKeyframe(TransformKeyframe::Create(
+      base::TimeDelta::FromSecondsD(duration), operations, nullptr));
 
   int id = AnimationIdProvider::NextAnimationId();
 
   scoped_ptr<Animation> animation(
-      Animation::Create(curve.Pass(),
-                        id,
-                        AnimationIdProvider::NextGroupId(),
-                        Animation::Transform));
+      Animation::Create(curve.Pass(), id, AnimationIdProvider::NextGroupId(),
+                        Animation::TRANSFORM));
   animation->set_needs_synchronized_start_time(true);
 
   target->AddAnimation(animation.Pass());
@@ -86,7 +87,7 @@ int AddAnimatedTransform(Target* target,
                          int delta_y) {
   TransformOperations start_operations;
   if (duration > 0.0) {
-    start_operations.AppendTranslate(delta_x, delta_y, 0.0);
+    start_operations.AppendTranslate(0, 0, 0.0);
   }
 
   TransformOperations operations;
@@ -106,17 +107,19 @@ int AddAnimatedFilter(Target* target,
     FilterOperations start_filters;
     start_filters.Append(
         FilterOperation::CreateBrightnessFilter(start_brightness));
-    curve->AddKeyframe(FilterKeyframe::Create(0.0, start_filters, nullptr));
+    curve->AddKeyframe(
+        FilterKeyframe::Create(base::TimeDelta(), start_filters, nullptr));
   }
 
   FilterOperations filters;
   filters.Append(FilterOperation::CreateBrightnessFilter(end_brightness));
-  curve->AddKeyframe(FilterKeyframe::Create(duration, filters, nullptr));
+  curve->AddKeyframe(FilterKeyframe::Create(
+      base::TimeDelta::FromSecondsD(duration), filters, nullptr));
 
   int id = AnimationIdProvider::NextAnimationId();
 
   scoped_ptr<Animation> animation(Animation::Create(
-      curve.Pass(), id, AnimationIdProvider::NextGroupId(), Animation::Filter));
+      curve.Pass(), id, AnimationIdProvider::NextGroupId(), Animation::FILTER));
   animation->set_needs_synchronized_start_time(true);
 
   target->AddAnimation(animation.Pass());
@@ -124,18 +127,20 @@ int AddAnimatedFilter(Target* target,
 }
 
 FakeFloatAnimationCurve::FakeFloatAnimationCurve()
-    : duration_(1.0) {}
+    : duration_(base::TimeDelta::FromSecondsD(1.0)) {
+}
 
 FakeFloatAnimationCurve::FakeFloatAnimationCurve(double duration)
-    : duration_(duration) {}
+    : duration_(base::TimeDelta::FromSecondsD(duration)) {
+}
 
 FakeFloatAnimationCurve::~FakeFloatAnimationCurve() {}
 
-double FakeFloatAnimationCurve::Duration() const {
+base::TimeDelta FakeFloatAnimationCurve::Duration() const {
   return duration_;
 }
 
-float FakeFloatAnimationCurve::GetValue(double now) const {
+float FakeFloatAnimationCurve::GetValue(base::TimeDelta now) const {
   return 0.0f;
 }
 
@@ -144,15 +149,16 @@ scoped_ptr<AnimationCurve> FakeFloatAnimationCurve::Clone() const {
 }
 
 FakeTransformTransition::FakeTransformTransition(double duration)
-    : duration_(duration) {}
+    : duration_(base::TimeDelta::FromSecondsD(duration)) {
+}
 
 FakeTransformTransition::~FakeTransformTransition() {}
 
-double FakeTransformTransition::Duration() const {
+base::TimeDelta FakeTransformTransition::Duration() const {
   return duration_;
 }
 
-gfx::Transform FakeTransformTransition::GetValue(double time) const {
+gfx::Transform FakeTransformTransition::GetValue(base::TimeDelta time) const {
   return gfx::Transform();
 }
 
@@ -165,6 +171,16 @@ bool FakeTransformTransition::AffectsScale() const { return false; }
 
 bool FakeTransformTransition::IsTranslation() const { return true; }
 
+bool FakeTransformTransition::PreservesAxisAlignment() const {
+  return true;
+}
+
+bool FakeTransformTransition::AnimationStartScale(bool forward_direction,
+                                                  float* start_scale) const {
+  *start_scale = 1.f;
+  return true;
+}
+
 bool FakeTransformTransition::MaximumTargetScale(bool forward_direction,
                                                  float* max_scale) const {
   *max_scale = 1.f;
@@ -175,26 +191,26 @@ scoped_ptr<AnimationCurve> FakeTransformTransition::Clone() const {
   return make_scoped_ptr(new FakeTransformTransition(*this));
 }
 
-
 FakeFloatTransition::FakeFloatTransition(double duration, float from, float to)
-    : duration_(duration), from_(from), to_(to) {}
+    : duration_(base::TimeDelta::FromSecondsD(duration)), from_(from), to_(to) {
+}
 
 FakeFloatTransition::~FakeFloatTransition() {}
 
-double FakeFloatTransition::Duration() const {
+base::TimeDelta FakeFloatTransition::Duration() const {
   return duration_;
 }
 
-float FakeFloatTransition::GetValue(double time) const {
-  time /= duration_;
-  if (time >= 1.0)
-    time = 1.0;
-  return (1.0 - time) * from_ + time * to_;
+float FakeFloatTransition::GetValue(base::TimeDelta time) const {
+  double progress = TimeUtil::Divide(time, duration_);
+  if (progress >= 1.0)
+    progress = 1.0;
+  return (1.0 - progress) * from_ + progress * to_;
 }
 
 FakeLayerAnimationValueObserver::FakeLayerAnimationValueObserver()
-    : opacity_(0.0f),
-      animation_waiting_for_deletion_(false) {}
+    : opacity_(0.0f), animation_waiting_for_deletion_(false) {
+}
 
 FakeLayerAnimationValueObserver::~FakeLayerAnimationValueObserver() {}
 
@@ -341,6 +357,29 @@ int AddAnimatedFilterToLayer(LayerImpl* layer,
                            duration,
                            start_brightness,
                            end_brightness);
+}
+
+int AddAnimatedTransformToPlayer(AnimationPlayer* player,
+                                 double duration,
+                                 int delta_x,
+                                 int delta_y) {
+  return AddAnimatedTransform(player, duration, delta_x, delta_y);
+}
+
+int AddOpacityTransitionToPlayer(AnimationPlayer* player,
+                                 double duration,
+                                 float start_opacity,
+                                 float end_opacity,
+                                 bool use_timing_function) {
+  return AddOpacityTransition(player, duration, start_opacity, end_opacity,
+                              use_timing_function);
+}
+
+int AddAnimatedFilterToPlayer(AnimationPlayer* player,
+                              double duration,
+                              float start_brightness,
+                              float end_brightness) {
+  return AddAnimatedFilter(player, duration, start_brightness, end_brightness);
 }
 
 }  // namespace cc

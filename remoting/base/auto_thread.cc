@@ -77,11 +77,11 @@ scoped_refptr<AutoThreadTaskRunner> AutoThread::CreateWithLoopAndComInitTypes(
     scoped_refptr<AutoThreadTaskRunner> joiner,
     base::MessageLoop::Type loop_type,
     ComInitType com_init_type) {
-  AutoThread* thread = new AutoThread(name, joiner);
+  AutoThread* thread = new AutoThread(name, joiner.get());
   thread->SetComInitType(com_init_type);
   scoped_refptr<AutoThreadTaskRunner> task_runner =
       thread->StartWithType(loop_type);
-  if (!task_runner)
+  if (!task_runner.get())
     delete thread;
   return task_runner;
 }
@@ -183,17 +183,17 @@ void AutoThread::ThreadMain() {
   base::MessageLoop message_loop(startup_data_->loop_type);
 
   // Complete the initialization of our AutoThread object.
-  base::PlatformThread::SetName(name_.c_str());
+  base::PlatformThread::SetName(name_);
   ANNOTATE_THREAD_NAME(name_.c_str());  // Tell the name to race detector.
   message_loop.set_thread_name(name_);
 
   // Return an AutoThreadTaskRunner that will cleanly quit this thread when
   // no more references to it remain.
   startup_data_->task_runner =
-      new AutoThreadTaskRunner(message_loop.message_loop_proxy(),
+      new AutoThreadTaskRunner(message_loop.task_runner(),
           base::Bind(&AutoThread::QuitThread,
                      base::Unretained(this),
-                     message_loop.message_loop_proxy()));
+                     message_loop.task_runner()));
 
   startup_data_->event.Signal();
   // startup_data_ can't be touched anymore since the starting thread is now

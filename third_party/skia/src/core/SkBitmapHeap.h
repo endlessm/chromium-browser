@@ -12,8 +12,7 @@
 #include "SkFlattenable.h"
 #include "SkRefCnt.h"
 #include "SkTDArray.h"
-#include "SkThread.h"
-#include "SkTRefArray.h"
+#include "SkAtomics.h"
 
 /**
  * SkBitmapHeapEntry provides users of SkBitmapHeap (using internal storage) with a means to...
@@ -53,7 +52,7 @@ private:
 
 class SkBitmapHeapReader : public SkRefCnt {
 public:
-    SK_DECLARE_INST_COUNT(SkBitmapHeapReader)
+
 
     SkBitmapHeapReader() : INHERITED() {}
     virtual SkBitmap* getBitmap(int32_t slot) const = 0;
@@ -70,7 +69,7 @@ class SkBitmapHeap : public SkBitmapHeapReader {
 public:
     class ExternalStorage : public SkRefCnt {
      public:
-        SK_DECLARE_INST_COUNT(ExternalStorage)
+
 
         virtual bool insert(const SkBitmap& bitmap, int32_t slot) = 0;
 
@@ -114,19 +113,11 @@ public:
     virtual ~SkBitmapHeap();
 
     /**
-     * Makes a shallow copy of all bitmaps currently in the heap and returns them as an array. The
-     * array indices match their position in the heap.
-     *
-     * @return  a ptr to an array of bitmaps or NULL if external storage is being used.
-     */
-    SkTRefArray<SkBitmap>* extractBitmaps() const;
-
-    /**
      * Retrieves the bitmap from the specified slot in the heap
      *
      * @return  The bitmap located at that slot or NULL if external storage is being used.
      */
-    virtual SkBitmap* getBitmap(int32_t slot) const SK_OVERRIDE {
+    SkBitmap* getBitmap(int32_t slot) const override {
         SkASSERT(fExternalStorage == NULL);
         SkBitmapHeapEntry* entry = getEntry(slot);
         if (entry) {
@@ -140,7 +131,7 @@ public:
      *
      * @return  The bitmap located at that slot or NULL if external storage is being used.
      */
-    virtual void releaseRef(int32_t slot) SK_OVERRIDE {
+    void releaseRef(int32_t slot) override {
         SkASSERT(fExternalStorage == NULL);
         if (fOwnerCount != IGNORE_OWNERS) {
             SkBitmapHeapEntry* entry = getEntry(slot);

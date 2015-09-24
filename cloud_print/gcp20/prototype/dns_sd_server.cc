@@ -98,7 +98,8 @@ void DnsSdServer::UpdateMetadata(const std::vector<std::string>& metadata) {
   // then send it now.
 
   uint32 current_ttl = GetCurrentTLL();
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(switches::kNoAnnouncement)) {
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kNoAnnouncement)) {
     DnsResponseBuilder builder(current_ttl);
 
     builder.AppendTxt(serv_params_.service_name_, current_ttl, metadata_, true);
@@ -122,9 +123,7 @@ bool DnsSdServer::CreateSocket() {
   DCHECK(success);
 
 
-  socket_.reset(new net::UDPSocket(net::DatagramSocket::DEFAULT_BIND,
-                                   net::RandIntCallback(), NULL,
-                                   net::NetLog::Source()));
+  socket_.reset(new net::UDPServerSocket(NULL, net::NetLog::Source()));
 
   net::IPEndPoint local_address = net::IPEndPoint(local_ip_any,
                                                   kDefaultPortMulticast);
@@ -133,7 +132,7 @@ bool DnsSdServer::CreateSocket() {
 
   socket_->AllowAddressReuse();
 
-  int status = socket_->Bind(local_address);
+  int status = socket_->Listen(local_address);
   if (status < 0)
     return false;
 
@@ -142,9 +141,6 @@ bool DnsSdServer::CreateSocket() {
 
   if (status < 0)
     return false;
-
-  DCHECK(socket_->is_connected());
-
   return true;
 }
 
@@ -183,8 +179,8 @@ void DnsSdServer::ProcessMessage(int len, net::IOBufferWithSize* buf) {
 
   VLOG(1) << "Current TTL for respond: " << current_ttl;
 
-  bool unicast_respond =
-      CommandLine::ForCurrentProcess()->HasSwitch(switches::kUnicastRespond);
+  bool unicast_respond = base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kUnicastRespond);
   socket_->SendTo(buffer.get(), buffer.get()->size(),
                   unicast_respond ? recv_address_ : multicast_address_,
                   base::Bind(&DoNothingAfterSendToSocket));
@@ -205,7 +201,7 @@ void DnsSdServer::ProccessQuery(uint32 current_ttl, const DnsQueryRecord& query,
         builder->AppendPtr(query.qname, current_ttl,
                            serv_params_.service_name_, true);
 
-        if (CommandLine::ForCurrentProcess()->HasSwitch(
+        if (base::CommandLine::ForCurrentProcess()->HasSwitch(
                 switches::kExtendedResponce)) {
           builder->AppendSrv(serv_params_.service_name_, current_ttl,
                              kSrvPriority, kSrvWeight, serv_params_.http_port_,
@@ -280,7 +276,8 @@ void DnsSdServer::OnDatagramReceived() {
 }
 
 void DnsSdServer::SendAnnouncement(uint32 ttl) {
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(switches::kNoAnnouncement)) {
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kNoAnnouncement)) {
     DnsResponseBuilder builder(ttl);
 
     builder.AppendPtr(serv_params_.service_type_, ttl,

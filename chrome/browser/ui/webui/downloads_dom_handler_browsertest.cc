@@ -7,13 +7,15 @@
 #include "base/json/json_reader.h"
 #include "base/prefs/pref_service.h"
 #include "base/values.h"
-#include "chrome/browser/history/download_row.h"
+#include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/webui/downloads_dom_handler.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/test/mock_download_item.h"
+#include "content/public/test/mock_download_manager.h"
 #include "content/public/test/test_utils.h"
 
 namespace {
@@ -23,7 +25,7 @@ namespace {
 // corresponding dictionary in |left_list|. Ignores keys in dictionaries in
 // |left_list| that are not in the corresponding dictionary in |right_list|.
 bool ListMatches(base::ListValue* left_list, const std::string& right_json) {
-  scoped_ptr<base::Value> right_value(base::JSONReader::Read(right_json));
+  scoped_ptr<base::Value> right_value = base::JSONReader::Read(right_json);
   base::ListValue* right_list = NULL;
   CHECK(right_value->GetAsList(&right_list));
   for (size_t i = 0; i < left_list->GetSize(); ++i) {
@@ -37,7 +39,8 @@ bool ListMatches(base::ListValue* left_list, const std::string& right_json) {
       if (left_dict->HasKey(iter.key()) &&
           left_dict->Get(iter.key(), &left_value) &&
           !iter.value().Equals(left_value)) {
-        LOG(WARNING) << iter.key();
+        LOG(WARNING) << "key \"" << iter.key() << "\" doesn't match ("
+                     << iter.value() << " vs. " << *left_value << ")";
         return false;
       }
     }
@@ -52,22 +55,23 @@ class MockDownloadsDOMHandler : public DownloadsDOMHandler {
   explicit MockDownloadsDOMHandler(content::DownloadManager* dlm)
     : DownloadsDOMHandler(dlm),
       waiting_list_(false),
-      waiting_updated_(false) {
+      waiting_updated_(false),
+      manager_(nullptr) {
   }
   ~MockDownloadsDOMHandler() override {}
 
   base::ListValue* downloads_list() { return downloads_list_.get(); }
-  base::ListValue* download_updated() { return download_updated_.get(); }
+  base::DictionaryValue* download_updated() { return download_updated_.get(); }
 
   void WaitForDownloadsList() {
-    if (downloads_list_.get())
+    if (downloads_list_)
       return;
     base::AutoReset<bool> reset_waiting(&waiting_list_, true);
     content::RunMessageLoop();
   }
 
   void WaitForDownloadUpdated() {
-    if (download_updated_.get())
+    if (download_updated_)
       return;
     base::AutoReset<bool> reset_waiting(&waiting_updated_, true);
     content::RunMessageLoop();
@@ -80,11 +84,15 @@ class MockDownloadsDOMHandler : public DownloadsDOMHandler {
   void reset_downloads_list() { downloads_list_.reset(); }
   void reset_download_updated() { download_updated_.reset(); }
 
+  void set_manager(content::DownloadManager* manager) { manager_ = manager; }
+
+  using DownloadsDOMHandler::FinalizeRemovals;
+
  protected:
   content::WebContents* GetWebUIWebContents() override { return NULL; }
 
-  void CallDownloadsList(const base::ListValue& downloads) override {
-    downloads_list_.reset(downloads.DeepCopy());
+  void CallUpdateAll(const base::ListValue& list) override {
+    downloads_list_.reset(list.DeepCopy());
     if (waiting_list_) {
       content::BrowserThread::PostTask(content::BrowserThread::UI,
                                        FROM_HERE,
@@ -92,8 +100,8 @@ class MockDownloadsDOMHandler : public DownloadsDOMHandler {
     }
   }
 
-  void CallDownloadUpdated(const base::ListValue& download) override {
-    download_updated_.reset(download.DeepCopy());
+  void CallUpdateItem(const base::DictionaryValue& item) override {
+    download_updated_.reset(item.DeepCopy());
     if (waiting_updated_) {
       content::BrowserThread::PostTask(content::BrowserThread::UI,
                                        FROM_HERE,
@@ -101,11 +109,16 @@ class MockDownloadsDOMHandler : public DownloadsDOMHandler {
     }
   }
 
+  content::DownloadManager* GetMainNotifierManager() override {
+    return manager_ ? manager_ : DownloadsDOMHandler::GetMainNotifierManager();
+  }
+
  private:
   scoped_ptr<base::ListValue> downloads_list_;
-  scoped_ptr<base::ListValue> download_updated_;
+  scoped_ptr<base::DictionaryValue> download_updated_;
   bool waiting_list_;
   bool waiting_updated_;
+  content::DownloadManager* manager_;  // weak.
 
   DISALLOW_COPY_AND_ASSIGN(MockDownloadsDOMHandler);
 };
@@ -155,13 +168,14 @@ class DownloadsDOMHandlerTest : public InProcessBrowserTest {
         content::DOWNLOAD_INTERRUPT_REASON_NONE,
         false);
 
+    mock_handler_->ForceSendCurrentDownloads();
     mock_handler_->WaitForDownloadsList();
     ASSERT_EQ(1, static_cast<int>(mock_handler_->downloads_list()->GetSize()));
     EXPECT_TRUE(ListMatches(
         mock_handler_->downloads_list(),
         "[{\"file_externally_removed\": false,"
         "  \"file_name\": \"file\","
-        "  \"id\": 1,"
+        "  \"id\": \"1\","
         "  \"otr\": false,"
         "  \"since_string\": \"Today\","
         "  \"state\": \"COMPLETE\","
@@ -185,6 +199,8 @@ IN_PROC_BROWSER_TEST_F(DownloadsDOMHandlerTest, RemoveAll) {
   browser()->profile()->GetPrefs()->SetBoolean(
       prefs::kAllowDeletingBrowserHistory, false);
   mock_handler_->HandleClearAll(NULL);
+  // Attempting to clear all shouldn't do anything when deletion is disabled.
+  mock_handler_->ForceSendCurrentDownloads();
   mock_handler_->WaitForDownloadsList();
   ASSERT_EQ(1, static_cast<int>(mock_handler_->downloads_list()->GetSize()));
 
@@ -200,7 +216,7 @@ IN_PROC_BROWSER_TEST_F(DownloadsDOMHandlerTest, RemoveAll) {
 IN_PROC_BROWSER_TEST_F(DownloadsDOMHandlerTest, RemoveOneItem) {
   DownloadAnItem();
   base::ListValue item;
-  item.AppendInteger(1);
+  item.AppendString("1");
 
   mock_handler_->reset_downloads_list();
   browser()->profile()->GetPrefs()->SetBoolean(
@@ -220,6 +236,24 @@ IN_PROC_BROWSER_TEST_F(DownloadsDOMHandlerTest, RemoveOneItem) {
   EXPECT_EQ(0, static_cast<int>(mock_handler_->downloads_list()->GetSize()));
 }
 
+IN_PROC_BROWSER_TEST_F(DownloadsDOMHandlerTest, ClearAllSkipsInProgress) {
+  content::MockDownloadManager manager;
+  mock_handler_->set_manager(&manager);
+
+  content::MockDownloadItem item;
+  EXPECT_CALL(item, GetState()).WillRepeatedly(
+      testing::Return(content::DownloadItem::IN_PROGRESS));
+  EXPECT_CALL(item, UpdateObservers()).Times(0);
+
+  std::vector<content::DownloadItem*> items;
+  items.push_back(&item);
+  EXPECT_CALL(manager, GetAllDownloads(testing::_)).WillOnce(
+      testing::SetArgPointee<0>(items));
+
+  mock_handler_->HandleClearAll(NULL);
+  EXPECT_TRUE(DownloadItemModel(&item).ShouldShowInShelf());
+}
+
 // Tests that DownloadsDOMHandler detects new downloads and relays them to the
 // renderer.
 // crbug.com/159390: This test fails when daylight savings time ends.
@@ -227,11 +261,16 @@ IN_PROC_BROWSER_TEST_F(DownloadsDOMHandlerTest, DownloadsRelayed) {
   DownloadAnItem();
 
   mock_handler_->WaitForDownloadUpdated();
-  ASSERT_EQ(1, static_cast<int>(mock_handler_->download_updated()->GetSize()));
-  EXPECT_TRUE(ListMatches(
-      mock_handler_->download_updated(),
-      "[{\"file_externally_removed\": true,"
-      "  \"id\": 1}]"));
+  const base::DictionaryValue* update = mock_handler_->download_updated();
+  ASSERT_TRUE(update);
+
+  bool removed;
+  ASSERT_TRUE(update->GetBoolean("file_externally_removed", &removed));
+  EXPECT_TRUE(removed);
+
+  std::string id;
+  ASSERT_TRUE(update->GetString("id", &id));
+  EXPECT_EQ("1", id);
 
   mock_handler_->reset_downloads_list();
   browser()->profile()->GetPrefs()->SetBoolean(
@@ -241,6 +280,34 @@ IN_PROC_BROWSER_TEST_F(DownloadsDOMHandlerTest, DownloadsRelayed) {
   EXPECT_EQ(0, static_cast<int>(mock_handler_->downloads_list()->GetSize()));
 }
 
+// Tests that DownloadsDOMHandler actually calls DownloadItem::Remove() when
+// it's closed (and removals can no longer be undone).
+IN_PROC_BROWSER_TEST_F(DownloadsDOMHandlerTest, RemoveCalledOnPageClose) {
+  content::MockDownloadManager manager;
+  mock_handler_->set_manager(&manager);
+
+  content::MockDownloadItem item;
+  EXPECT_CALL(item, GetId()).WillRepeatedly(testing::Return(1));
+  EXPECT_CALL(item, GetState()).WillRepeatedly(
+      testing::Return(content::DownloadItem::COMPLETE));
+
+  DownloadItemModel model(&item);
+  EXPECT_TRUE(model.ShouldShowInShelf());
+
+  EXPECT_CALL(manager, GetDownload(1)).WillRepeatedly(testing::Return(&item));
+
+  base::ListValue remove;
+  remove.AppendString("1");
+  EXPECT_CALL(item, UpdateObservers()).Times(1);
+  mock_handler_->HandleRemove(&remove);
+  EXPECT_FALSE(model.ShouldShowInShelf());
+
+  EXPECT_CALL(item, Remove()).Times(1);
+  // Call |mock_handler_->FinalizeRemovals()| instead of |mock_handler_.reset()|
+  // because the vtable is affected during destruction and the fake manager
+  // rigging doesn't work.
+  mock_handler_->FinalizeRemovals();
+}
 
 // TODO(benjhayden): Test the extension downloads filter for both
 // mock_handler_.downloads_list() and mock_handler_.download_updated().

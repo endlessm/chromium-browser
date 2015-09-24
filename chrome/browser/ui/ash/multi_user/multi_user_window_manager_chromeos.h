@@ -39,7 +39,7 @@ class MultiUserWindowManagerChromeOSTest;
 namespace chrome {
 
 class AppObserver;
-class UserSwichAnimatorChromeOS;
+class UserSwitchAnimatorChromeOS;
 
 // This ChromeOS implementation of the MultiUserWindowManager interface is
 // detecting app and browser creations, tagging their windows automatically and
@@ -70,45 +70,46 @@ class MultiUserWindowManagerChromeOS
 
   // Create the manager and use |active_user_id| as the active user.
   explicit MultiUserWindowManagerChromeOS(const std::string& active_user_id);
-  virtual ~MultiUserWindowManagerChromeOS();
+  ~MultiUserWindowManagerChromeOS() override;
+
+  // Initializes the manager after its creation. Should only be called once.
+  void Init();
 
   // MultiUserWindowManager overrides:
-  virtual void SetWindowOwner(
+  void SetWindowOwner(
       aura::Window* window, const std::string& user_id) override;
-  virtual const std::string& GetWindowOwner(
+  const std::string& GetWindowOwner(
       aura::Window* window) const override;
-  virtual void ShowWindowForUser(
+  void ShowWindowForUser(
       aura::Window* window, const std::string& user_id) override;
-  virtual bool AreWindowsSharedAmongUsers() const override;
-  virtual void GetOwnersOfVisibleWindows(
+  bool AreWindowsSharedAmongUsers() const override;
+  void GetOwnersOfVisibleWindows(
       std::set<std::string>* user_ids) const override;
-  virtual bool IsWindowOnDesktopOfUser(
+  bool IsWindowOnDesktopOfUser(
       aura::Window* window,
       const std::string& user_id) const override;
-  virtual const std::string& GetUserPresentingWindow(
+  const std::string& GetUserPresentingWindow(
       aura::Window* window) const override;
-  virtual void AddUser(content::BrowserContext* context) override;
-  virtual void AddObserver(Observer* observer) override;
-  virtual void RemoveObserver(Observer* observer) override;
+  void AddUser(content::BrowserContext* context) override;
+  void AddObserver(Observer* observer) override;
+  void RemoveObserver(Observer* observer) override;
 
   // SessionStateObserver overrides:
-  virtual void ActiveUserChanged(const std::string& user_id) override;
+  void ActiveUserChanged(const std::string& user_id) override;
 
   // WindowObserver overrides:
-  virtual void OnWindowDestroyed(aura::Window* window) override;
-  virtual void OnWindowVisibilityChanging(aura::Window* window,
-                                          bool visible) override;
-  virtual void OnWindowVisibilityChanged(aura::Window* window,
-                                         bool visible) override;
+  void OnWindowDestroyed(aura::Window* window) override;
+  void OnWindowVisibilityChanging(aura::Window* window, bool visible) override;
+  void OnWindowVisibilityChanged(aura::Window* window, bool visible) override;
 
   // TransientWindowObserver overrides:
-  virtual void OnTransientChildAdded(aura::Window* window,
-                                     aura::Window* transient) override;
-  virtual void OnTransientChildRemoved(aura::Window* window,
-                                       aura::Window* transient) override;
+  void OnTransientChildAdded(aura::Window* window,
+                             aura::Window* transient) override;
+  void OnTransientChildRemoved(aura::Window* window,
+                               aura::Window* transient) override;
 
   // content::NotificationObserver overrides:
-  virtual void Observe(int type,
+  void Observe(int type,
                const content::NotificationSource& source,
                const content::NotificationDetails& details) override;
 
@@ -122,7 +123,7 @@ class MultiUserWindowManagerChromeOS
   const std::string& GetCurrentUserForTest() const;
 
  protected:
-  friend class UserSwichAnimatorChromeOS;
+  friend class UserSwitchAnimatorChromeOS;
 
   class WindowEntry {
    public:
@@ -233,7 +234,7 @@ class MultiUserWindowManagerChromeOS
   UserIDToAppWindowObserver user_id_to_app_observer_;
 
   // An observer list to be notified upon window owner changes.
-  ObserverList<Observer> observers_;
+  base::ObserverList<Observer> observers_;
 
   // A map which remembers for owned transient windows their own visibility.
   TransientWindowToVisibility transient_window_to_visibility_;
@@ -253,15 +254,11 @@ class MultiUserWindowManagerChromeOS
   // Suppress changes to the visibility flag while we are changing it ourselves.
   bool suppress_visibility_changes_;
 
-  // Caching the current multi profile mode since the detection which mode is
-  // used is quite expensive.
-  static MultiProfileMode multi_user_mode_;
-
   // The speed which is used to perform any animations.
   AnimationSpeed animation_speed_;
 
   // The animation between users.
-  scoped_ptr<UserSwichAnimatorChromeOS> animation_;
+  scoped_ptr<UserSwitchAnimatorChromeOS> animation_;
 
   DISALLOW_COPY_AND_ASSIGN(MultiUserWindowManagerChromeOS);
 };

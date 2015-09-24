@@ -40,6 +40,7 @@
 #include "core/html/parser/HTMLToken.h"
 #include "core/html/parser/HTMLTokenizer.h"
 #include "core/html/parser/HTMLTreeBuilderSimulator.h"
+#include "core/html/parser/ParserSynchronizationPolicy.h"
 #include "core/html/parser/TextResourceDecoder.h"
 #include "core/html/parser/XSSAuditor.h"
 #include "core/html/parser/XSSAuditorDelegate.h"
@@ -56,6 +57,7 @@ class CompactHTMLToken;
 class Document;
 class DocumentEncodingData;
 class DocumentFragment;
+class Element;
 class HTMLDocument;
 class HTMLParserScheduler;
 class HTMLScriptRunner;
@@ -65,15 +67,15 @@ class HTMLResourcePreloader;
 class PumpSession;
 
 class HTMLDocumentParser :  public ScriptableDocumentParser, private HTMLScriptRunnerHost {
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
+    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(HTMLDocumentParser);
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(HTMLDocumentParser);
 public:
-    static PassRefPtrWillBeRawPtr<HTMLDocumentParser> create(HTMLDocument& document, bool reportErrors)
+    static PassRefPtrWillBeRawPtr<HTMLDocumentParser> create(HTMLDocument& document, bool reportErrors, ParserSynchronizationPolicy backgroundParsingPolicy)
     {
-        return adoptRefWillBeNoop(new HTMLDocumentParser(document, reportErrors));
+        return adoptRefWillBeNoop(new HTMLDocumentParser(document, reportErrors, backgroundParsingPolicy));
     }
-    virtual ~HTMLDocumentParser();
-    virtual void trace(Visitor*) override;
+    ~HTMLDocumentParser() override;
+    DECLARE_VIRTUAL_TRACE();
 
     // Exposed for HTMLParserScheduler
     void resumeParsingAfterYield();
@@ -82,11 +84,12 @@ public:
 
     HTMLTokenizer* tokenizer() const { return m_tokenizer.get(); }
 
-    virtual TextPosition textPosition() const override final;
-    virtual OrdinalNumber lineNumber() const override final;
+    TextPosition textPosition() const final;
+    bool isParsingAtLineNumber() const final;
+    OrdinalNumber lineNumber() const final;
 
-    virtual void suspendScheduledTasks() override final;
-    virtual void resumeScheduledTasks() override final;
+    void suspendScheduledTasks() final;
+    void resumeScheduledTasks() final;
 
     struct ParsedChunk {
         OwnPtr<CompactHTMLTokenStream> tokens;
@@ -96,22 +99,23 @@ public:
         HTMLTreeBuilderSimulator::State treeBuilderState;
         HTMLInputCheckpoint inputCheckpoint;
         TokenPreloadScannerCheckpoint preloadScannerCheckpoint;
+        bool startingScript;
     };
     void didReceiveParsedChunkFromBackgroundParser(PassOwnPtr<ParsedChunk>);
     void didReceiveEncodingDataFromBackgroundParser(const DocumentEncodingData&);
 
-    virtual void appendBytes(const char* bytes, size_t length) override;
-    virtual void flush() override final;
-    virtual void setDecoder(PassOwnPtr<TextResourceDecoder>) override final;
+    void appendBytes(const char* bytes, size_t length) override;
+    void flush() final;
+    void setDecoder(PassOwnPtr<TextResourceDecoder>) final;
 
     UseCounter* useCounter() { return UseCounter::getFrom(contextForParsingSession()); }
 
 protected:
-    virtual void insert(const SegmentedString&) override final;
-    virtual void append(PassRefPtr<StringImpl>) override;
-    virtual void finish() override final;
+    void insert(const SegmentedString&) final;
+    void append(const String&) override;
+    void finish() final;
 
-    HTMLDocumentParser(HTMLDocument&, bool reportErrors);
+    HTMLDocumentParser(HTMLDocument&, bool reportErrors, ParserSynchronizationPolicy);
     HTMLDocumentParser(DocumentFragment*, Element* contextElement, ParserContentPolicy);
 
     HTMLTreeBuilder* treeBuilder() const { return m_treeBuilder.get(); }
@@ -125,27 +129,26 @@ private:
     }
 
     // DocumentParser
-    virtual void pinToMainThread() override final;
-    virtual void detach() override final;
-    virtual bool hasInsertionPoint() override final;
-    virtual bool processingData() const override final;
-    virtual void prepareToStopParsing() override final;
-    virtual void stopParsing() override final;
-    virtual bool isWaitingForScripts() const override final;
-    virtual bool isExecutingScript() const override final;
-    virtual void executeScriptsWaitingForResources() override final;
+    void detach() final;
+    bool hasInsertionPoint() final;
+    bool processingData() const final;
+    void prepareToStopParsing() final;
+    void stopParsing() final;
+    bool isWaitingForScripts() const final;
+    bool isExecutingScript() const final;
+    void executeScriptsWaitingForResources() final;
 
     // HTMLScriptRunnerHost
-    virtual void notifyScriptLoaded(Resource*) override final;
-    virtual HTMLInputStream& inputStream() override final { return m_input; }
-    virtual bool hasPreloadScanner() const override final { return m_preloadScanner.get() && !shouldUseThreading(); }
-    virtual void appendCurrentInputStreamToPreloadScannerAndScan() override final;
+    void notifyScriptLoaded(Resource*) final;
+    HTMLInputStream& inputStream() final { return m_input; }
+    bool hasPreloadScanner() const final { return m_preloadScanner.get() && !shouldUseThreading(); }
+    void appendCurrentInputStreamToPreloadScannerAndScan() final;
 
     void startBackgroundParser();
     void stopBackgroundParser();
     void validateSpeculations(PassOwnPtr<ParsedChunk> lastChunk);
     void discardSpeculationsAndResumeFrom(PassOwnPtr<ParsedChunk> lastChunk, PassOwnPtr<HTMLToken>, PassOwnPtr<HTMLTokenizer>);
-    void processParsedChunkFromBackgroundParser(PassOwnPtr<ParsedChunk>);
+    size_t processParsedChunkFromBackgroundParser(PassOwnPtr<ParsedChunk>);
     void pumpPendingSpeculations();
 
     Document* contextForParsingSession();
@@ -164,7 +167,7 @@ private:
     void attemptToRunDeferredScriptsAndEnd();
     void end();
 
-    bool shouldUseThreading() const { return !m_isPinnedToMainThread; }
+    bool shouldUseThreading() const { return m_shouldUseThreading; }
 
     bool isParsingFragment() const;
     bool isScheduledForResume() const;
@@ -195,11 +198,15 @@ private:
     WeakPtrFactory<HTMLDocumentParser> m_weakFactory;
     WeakPtr<BackgroundHTMLParser> m_backgroundParser;
     OwnPtrWillBeMember<HTMLResourcePreloader> m_preloader;
+    PreloadRequestStream m_queuedPreloads;
 
-    bool m_isPinnedToMainThread;
+    bool m_shouldUseThreading;
     bool m_endWasDelayed;
     bool m_haveBackgroundParser;
+    bool m_tasksWereSuspended;
     unsigned m_pumpSessionNestingLevel;
+    unsigned m_pumpSpeculationsSessionNestingLevel;
+    bool m_isParsingAtLineNumber;
 };
 
 }

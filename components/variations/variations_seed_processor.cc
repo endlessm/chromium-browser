@@ -58,6 +58,14 @@ void RegisterVariationIds(const Study_Experiment& experiment,
                                     experiment.name(),
                                     variation_id);
   }
+  if (experiment.has_chrome_sync_experiment_id()) {
+    const VariationID variation_id =
+        static_cast<VariationID>(experiment.chrome_sync_experiment_id());
+    AssociateGoogleVariationIDForce(CHROME_SYNC_SERVICE,
+                                    trial_name,
+                                    experiment.name(),
+                                    variation_id);
+  }
 }
 
 // Executes |callback| on every override defined by |experiment|.
@@ -87,10 +95,12 @@ void VariationsSeedProcessor::CreateTrialsFromSeed(
     Study_Channel channel,
     Study_FormFactor form_factor,
     const std::string& hardware_class,
+    const std::string& permanent_consistency_country,
     const UIStringOverrideCallback& override_callback) {
   std::vector<ProcessedStudy> filtered_studies;
   FilterAndValidateStudies(seed, locale, reference_date, version, channel,
-                           form_factor, hardware_class, &filtered_studies);
+                           form_factor, hardware_class,
+                           permanent_consistency_country, &filtered_studies);
 
   for (size_t i = 0; i < filtered_studies.size(); ++i)
     CreateTrialFromStudy(filtered_studies[i], override_callback);
@@ -103,7 +113,7 @@ void VariationsSeedProcessor::CreateTrialFromStudy(
 
   // Check if any experiments need to be forced due to a command line
   // flag. Force the first experiment with an existing flag.
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   for (int i = 0; i < study.experiment_size(); ++i) {
     const Study_Experiment& experiment = study.experiment(i);
     if (experiment.has_forcing_flag() &&
@@ -136,7 +146,11 @@ void VariationsSeedProcessor::CreateTrialFromStudy(
   base::FieldTrial::RandomizationType randomization_type =
       base::FieldTrial::SESSION_RANDOMIZED;
   if (study.has_consistency() &&
-      study.consistency() == Study_Consistency_PERMANENT) {
+      study.consistency() == Study_Consistency_PERMANENT &&
+      // If all assignments are to a single group, no need to enable one time
+      // randomization (which is more expensive to compute), since the result
+      // will be the same.
+      !processed_study.all_assignments_to_one_group()) {
     randomization_type = base::FieldTrial::ONE_TIME_RANDOMIZED;
     if (study.has_randomization_seed())
       randomization_seed = study.randomization_seed();

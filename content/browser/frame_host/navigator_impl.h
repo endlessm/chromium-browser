@@ -9,14 +9,12 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
-#include "base/tuple.h"
 #include "content/browser/frame_host/navigation_controller_impl.h"
 #include "content/browser/frame_host/navigator.h"
 #include "content/common/content_export.h"
 #include "url/gurl.h"
 
 class GURL;
-struct FrameMsg_Navigate_Params;
 
 namespace content {
 
@@ -36,10 +34,10 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
                 NavigatorDelegate* delegate);
 
   // Navigator implementation.
+  NavigatorDelegate* GetDelegate() override;
   NavigationController* GetController() override;
   void DidStartProvisionalLoad(RenderFrameHostImpl* render_frame_host,
-                               const GURL& url,
-                               bool is_transition_navigation) override;
+                               const GURL& url) override;
   void DidFailProvisionalLoadWithError(
       RenderFrameHostImpl* render_frame_host,
       const FrameHostMsg_DidFailProvisionalLoadWithError_Params& params)
@@ -47,21 +45,25 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
   void DidFailLoadWithError(RenderFrameHostImpl* render_frame_host,
                             const GURL& url,
                             int error_code,
-                            const base::string16& error_description) override;
+                            const base::string16& error_description,
+                            bool was_ignored_by_handler) override;
   void DidNavigate(RenderFrameHostImpl* render_frame_host,
                    const FrameHostMsg_DidCommitProvisionalLoad_Params&
                        input_params) override;
-  bool NavigateToPendingEntry(
-      RenderFrameHostImpl* render_frame_host,
-      NavigationController::ReloadType reload_type) override;
+  bool NavigateToPendingEntry(FrameTreeNode* frame_tree_node,
+                              const FrameNavigationEntry& frame_entry,
+                              NavigationController::ReloadType reload_type,
+                              bool is_same_document_history_load) override;
   void RequestOpenURL(RenderFrameHostImpl* render_frame_host,
                       const GURL& url,
+                      SiteInstance* source_site_instance,
                       const Referrer& referrer,
                       WindowOpenDisposition disposition,
                       bool should_replace_current_entry,
                       bool user_gesture) override;
   void RequestTransferURL(RenderFrameHostImpl* render_frame_host,
                           const GURL& url,
+                          SiteInstance* source_site_instance,
                           const std::vector<GURL>& redirect_chain,
                           const Referrer& referrer,
                           ui::PageTransition page_transition,
@@ -69,12 +71,17 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
                           const GlobalRequestID& transferred_global_request_id,
                           bool should_replace_current_entry,
                           bool user_gesture) override;
+  void OnBeforeUnloadACK(FrameTreeNode* frame_tree_node, bool proceed) override;
   void OnBeginNavigation(FrameTreeNode* frame_tree_node,
-                         const FrameHostMsg_BeginNavigation_Params& params,
-                         const CommonNavigationParams& common_params) override;
+                         const CommonNavigationParams& common_params,
+                         const BeginNavigationParams& begin_params,
+                         scoped_refptr<ResourceRequestBody> body) override;
   void CommitNavigation(FrameTreeNode* frame_tree_node,
                         ResourceResponse* response,
                         scoped_ptr<StreamHandle> body) override;
+  void FailedNavigation(FrameTreeNode* frame_tree_node,
+                        bool has_stale_copy_in_cache,
+                        int error_code) override;
   void LogResourceRequestTime(base::TimeTicks timestamp,
                               const GURL& url) override;
   void LogBeforeUnloadTime(
@@ -86,15 +93,16 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
   // Holds data used to track browser side navigation metrics.
   struct NavigationMetricsData;
 
-  friend class NavigatorTest;
+  friend class NavigatorTestWithBrowserSideNavigation;
   ~NavigatorImpl() override;
 
   // Navigates to the given entry, which must be the pending entry.  Private
   // because all callers should use NavigateToPendingEntry.
-  bool NavigateToEntry(
-      RenderFrameHostImpl* render_frame_host,
-      const NavigationEntryImpl& entry,
-      NavigationController::ReloadType reload_type);
+  bool NavigateToEntry(FrameTreeNode* frame_tree_node,
+                       const FrameNavigationEntry& frame_entry,
+                       const NavigationEntryImpl& entry,
+                       NavigationController::ReloadType reload_type,
+                       bool is_same_document_history_load);
 
   bool ShouldAssignSiteForURL(const GURL& url);
 
@@ -102,18 +110,28 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
     RenderFrameHostImpl* render_frame_host,
     const GURL& url);
 
-  // PlzNavigate: sends a RequestNavigation IPC to the renderer to ask it to
-  // navigate. If no live renderer is present, then the navigation request will
-  // be sent directly to the ResourceDispatcherHost.
-  bool RequestNavigation(FrameTreeNode* frame_tree_node,
+  // PlzNavigate: if needed, sends a BeforeUnload IPC to the renderer to ask it
+  // to execute the beforeUnload event. Otherwise, the navigation request will
+  // be started.
+  void RequestNavigation(FrameTreeNode* frame_tree_node,
+                         const GURL& dest_url,
+                         const Referrer& dest_referrer,
+                         const FrameNavigationEntry& frame_entry,
                          const NavigationEntryImpl& entry,
                          NavigationController::ReloadType reload_type,
+                         bool is_same_document_history_load,
                          base::TimeTicks navigation_start);
 
   void RecordNavigationMetrics(
       const LoadCommittedDetails& details,
       const FrameHostMsg_DidCommitProvisionalLoad_Params& params,
       SiteInstance* site_instance);
+
+  // Called when a navigation has started in a main frame, to update the pending
+  // NavigationEntry if the controller does not currently have a
+  // browser-initiated one.
+  void DidStartMainFrameNavigation(const GURL& url,
+                                   SiteInstanceImpl* site_instance);
 
   // The NavigationController that will keep track of session history for all
   // RenderFrameHost objects using this NavigatorImpl.
@@ -126,11 +144,6 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
   NavigatorDelegate* delegate_;
 
   scoped_ptr<NavigatorImpl::NavigationMetricsData> navigation_data_;
-
-  // PlzNavigate: used to track the various ongoing NavigationRequests in the
-  // different FrameTreeNodes, based on the frame_tree_node_id.
-  typedef base::ScopedPtrHashMap<int64, NavigationRequest> NavigationRequestMap;
-  NavigationRequestMap navigation_request_map_;
 
   DISALLOW_COPY_AND_ASSIGN(NavigatorImpl);
 };

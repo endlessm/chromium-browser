@@ -10,9 +10,9 @@
 
 #include "base/strings/string16.h"
 #include "ppapi/cpp/rect.h"
-#include "third_party/pdfium/fpdfsdk/include/fpdfdoc.h"
-#include "third_party/pdfium/fpdfsdk/include/fpdfformfill.h"
-#include "third_party/pdfium/fpdfsdk/include/fpdftext.h"
+#include "third_party/pdfium/public/fpdf_doc.h"
+#include "third_party/pdfium/public/fpdf_formfill.h"
+#include "third_party/pdfium/public/fpdf_text.h"
 
 namespace base {
 class Value;
@@ -64,7 +64,7 @@ class PDFiumPage {
   // Target is optional. It will be filled in for WEBLINK_AREA or
   // DOCLINK_AREA only.
   Area GetCharIndex(const pp::Point& point, int rotation, int* char_index,
-                    LinkTarget* target);
+                    int* form_type, LinkTarget* target);
 
   // Gets the character at the given index.
   base::char16 GetCharAtIndex(int index);

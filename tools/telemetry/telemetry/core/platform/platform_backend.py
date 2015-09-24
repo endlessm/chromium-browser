@@ -5,44 +5,11 @@
 import weakref
 
 from telemetry.core.platform import network_controller_backend
-from telemetry.core.platform import profiling_controller_backend
 from telemetry.core.platform import tracing_controller_backend
+from telemetry.internal.forwarders import do_nothing_forwarder
 
 
 # pylint: disable=W0613
-
-# pylint: disable=W0212
-class OSVersion(str):
-  def __new__(cls, friendly_name, sortable_name, *args, **kwargs):
-    version = str.__new__(cls, friendly_name)
-    version._sortable_name = sortable_name
-    return version
-
-  def __lt__(self, other):
-    return self._sortable_name < other._sortable_name
-
-  def __gt__(self, other):
-    return self._sortable_name > other._sortable_name
-
-  def __le__(self, other):
-    return self._sortable_name <= other._sortable_name
-
-  def __ge__(self, other):
-    return self._sortable_name >= other._sortable_name
-
-
-XP =           OSVersion('xp',            5.1)
-VISTA =        OSVersion('vista',         6.0)
-WIN7 =         OSVersion('win7',          6.1)
-WIN8 =         OSVersion('win8',          6.2)
-
-LEOPARD =      OSVersion('leopard',      105)
-SNOWLEOPARD =  OSVersion('snowleopard',  106)
-LION =         OSVersion('lion',         107)
-MOUNTAINLION = OSVersion('mountainlion', 108)
-MAVERICKS =    OSVersion('mavericks',    109)
-YOSEMITE =     OSVersion('yosemite',     1010)
-
 
 class PlatformBackend(object):
 
@@ -60,18 +27,31 @@ class PlatformBackend(object):
       raise ValueError('Unsupported device: %s' % device.name)
     self._platform = None
     self._running_browser_backends = weakref.WeakSet()
+    self._network_controller_backend = None
+    self._tracing_controller_backend = None
+    self._forwarder_factory = None
+
+  def InitPlatformBackend(self):
     self._network_controller_backend = (
         network_controller_backend.NetworkControllerBackend(self))
     self._tracing_controller_backend = (
         tracing_controller_backend.TracingControllerBackend(self))
-    self._profiling_controller_backend = (
-        profiling_controller_backend.ProfilingControllerBackend(self))
+
+  @classmethod
+  def IsPlatformBackendForHost(cls):
+    """ Returns whether this platform backend is the platform backend to be used
+    for the host device which telemetry is running on. """
+    return False
 
   @classmethod
   def SupportsDevice(cls, device):
     """ Returns whether this platform backend supports intialization from the
     device. """
     return False
+
+  @classmethod
+  def CreatePlatformForDevice(cls, device, finder_options):
+    raise NotImplementedError
 
   def SetPlatform(self, platform):
     assert self._platform == None
@@ -80,6 +60,10 @@ class PlatformBackend(object):
   @property
   def platform(self):
     return self._platform
+
+  @property
+  def is_host_platform(self):
+    return self._platform.is_host_platform
 
   @property
   def running_browser_backends(self):
@@ -94,11 +78,17 @@ class PlatformBackend(object):
     return self._tracing_controller_backend
 
   @property
-  def profiling_controller_backend(self):
-    return self._profiling_controller_backend
+  def forwarder_factory(self):
+    if not self._forwarder_factory:
+      self._forwarder_factory = do_nothing_forwarder.DoNothingForwarderFactory()
+    return self._forwarder_factory
+
+  def GetRemotePort(self, port):
+    return port
 
   def DidCreateBrowser(self, browser, browser_backend):
-    self.SetFullPerformanceModeEnabled(True)
+    browser_options = browser_backend.browser_options
+    self.SetFullPerformanceModeEnabled(browser_options.full_performance_mode)
 
     # TODO(slamm): Remove this call when replay browser_backend dependencies
     # get moved to platform. https://crbug.com/423962
@@ -107,42 +97,40 @@ class PlatformBackend(object):
   def DidStartBrowser(self, browser, browser_backend):
     assert browser not in self._running_browser_backends
     self._running_browser_backends.add(browser_backend)
-    self._tracing_controller_backend.DidStartBrowser(
-        browser, browser_backend)
 
   def WillCloseBrowser(self, browser, browser_backend):
-    self._tracing_controller_backend.WillCloseBrowser(
-        browser, browser_backend)
-    self._profiling_controller_backend.WillCloseBrowser(
-        browser_backend)
     # TODO(slamm): Move this call when replay's life cycle is no longer
     # tied to the browser. https://crbug.com/424777
     self._network_controller_backend.StopReplay()
 
-    is_last_browser = len(self._running_browser_backends) == 1
+    is_last_browser = len(self._running_browser_backends) <= 1
     if is_last_browser:
       self.SetFullPerformanceModeEnabled(False)
 
-    self._running_browser_backends.remove(browser_backend)
+    self._running_browser_backends.discard(browser_backend)
 
-  def GetBackendForBrowser(self, browser):
-    matches = [x for x in self._running_browser_backends
-               if x.browser == browser]
-    if len(matches) == 0:
-      raise Exception('No browser found')
-    assert len(matches) == 1
-    return matches[0]
+  @property
+  def wpr_http_device_port(self):
+    return self._network_controller_backend.wpr_http_device_port
 
-  def IsRawDisplayFrameRateSupported(self):
+  @property
+  def wpr_https_device_port(self):
+    return self._network_controller_backend.wpr_https_device_port
+
+  def IsDisplayTracingSupported(self):
     return False
 
-  def StartRawDisplayFrameRateMeasurement(self):
+  def StartDisplayTracing(self):
+    """Start gathering a trace with frame timestamps close to physical
+    display."""
     raise NotImplementedError()
 
-  def StopRawDisplayFrameRateMeasurement(self):
-    raise NotImplementedError()
+  def StopDisplayTracing(self):
+    """Stop gathering a trace with frame timestamps close to physical display.
 
-  def GetRawDisplayFrameRateMeasurements(self):
+    Returns a raw tracing events that contains the timestamps of physical
+    display.
+    """
     raise NotImplementedError()
 
   def SetFullPerformanceModeEnabled(self, enabled):
@@ -175,13 +163,13 @@ class PlatformBackend(object):
   def GetMemoryStats(self, pid):
     return {}
 
-  def GetIOStats(self, pid):
-    return {}
-
   def GetChildPids(self, pid):
     raise NotImplementedError()
 
   def GetCommandLine(self, pid):
+    raise NotImplementedError()
+
+  def GetDeviceTypeName(self):
     raise NotImplementedError()
 
   def GetArchName(self):
@@ -199,7 +187,7 @@ class PlatformBackend(object):
   def FlushEntireSystemCache(self):
     raise NotImplementedError()
 
-  def FlushSystemCacheForDirectory(self, directory, ignoring=None):
+  def FlushSystemCacheForDirectory(self, directory):
     raise NotImplementedError()
 
   def FlushDnsCache(self):
@@ -243,6 +231,12 @@ class PlatformBackend(object):
   def StopMonitoringPower(self):
     raise NotImplementedError()
 
+  def CanMonitorNetworkData(self):
+    return False
+
+  def GetNetworkData(self, browser):
+    raise NotImplementedError()
+
   def ReadMsr(self, msr_number, start=0, length=64):
     """Read a CPU model-specific register (MSR).
 
@@ -254,5 +248,30 @@ class PlatformBackend(object):
       start: The least significant bit to read, zero-indexed.
           (Said another way, the number of bits to right-shift the MSR value.)
       length: The number of bits to read. MSRs are 64 bits, even on 32-bit CPUs.
+    """
+    raise NotImplementedError()
+
+  @property
+  def wpr_ca_cert_path(self):
+    return None
+
+  def IsCooperativeShutdownSupported(self):
+    """Indicates whether CooperativelyShutdown, below, is supported.
+    It is not necessary to implement it on all platforms."""
+    return False
+
+  def CooperativelyShutdown(self, proc, app_name):
+    """Cooperatively shut down the given process from subprocess.Popen.
+
+    Currently this is only implemented on Windows. See
+    crbug.com/424024 for background on why it was added.
+
+    Args:
+      proc: a process object returned from subprocess.Popen.
+      app_name: on Windows, is the prefix of the application's window
+          class name that should be searched for. This helps ensure
+          that only the application's windows are closed.
+
+    Returns True if it is believed the attempt succeeded.
     """
     raise NotImplementedError()

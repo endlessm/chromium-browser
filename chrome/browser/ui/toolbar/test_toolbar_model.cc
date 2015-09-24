@@ -8,11 +8,11 @@
 
 TestToolbarModel::TestToolbarModel()
     : ToolbarModel(),
-      omit_url_due_to_origin_chip_(false),
       perform_search_term_replacement_(false),
-      security_level_(NONE),
+      security_level_(connection_security::NONE),
       icon_(IDR_LOCATION_BAR_HTTP),
-      should_display_url_(true) {}
+      should_display_url_(true) {
+}
 
 TestToolbarModel::~TestToolbarModel() {}
 
@@ -32,16 +32,12 @@ GURL TestToolbarModel::GetURL() const {
   return url_;
 }
 
-bool TestToolbarModel::WouldOmitURLDueToOriginChip() const {
-  return omit_url_due_to_origin_chip_;
-}
-
 bool TestToolbarModel::WouldPerformSearchTermReplacement(
     bool ignore_editing) const {
   return perform_search_term_replacement_;
 }
 
-ToolbarModel::SecurityLevel TestToolbarModel::GetSecurityLevel(
+connection_security::SecurityLevel TestToolbarModel::GetSecurityLevel(
     bool ignore_editing) const {
   return security_level_;
 }
@@ -50,12 +46,14 @@ int TestToolbarModel::GetIcon() const {
   return icon_;
 }
 
-int TestToolbarModel::GetIconForSecurityLevel(SecurityLevel level) const {
+int TestToolbarModel::GetIconForSecurityLevel(
+    connection_security::SecurityLevel level) const {
   return icon_;
 }
 
 base::string16 TestToolbarModel::GetEVCertName() const {
-  return (security_level_ == EV_SECURE) ? ev_cert_name_ : base::string16();
+  return (security_level_ == connection_security::EV_SECURE) ? ev_cert_name_
+                                                             : base::string16();
 }
 
 bool TestToolbarModel::ShouldDisplayURL() const {

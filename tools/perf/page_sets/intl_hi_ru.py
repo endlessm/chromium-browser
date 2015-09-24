@@ -2,32 +2,27 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 from telemetry.page import page as page_module
-from telemetry.page import page_set as page_set_module
+from telemetry.page import shared_page_state
+from telemetry import story
 
 
 class IntlHiRuPage(page_module.Page):
 
   def __init__(self, url, page_set):
-    super(IntlHiRuPage, self).__init__(url=url, page_set=page_set)
-    self.user_agent_type = 'desktop'
+    super(IntlHiRuPage, self).__init__(
+        url=url, page_set=page_set,
+        shared_page_state_class=shared_page_state.SharedDesktopPageState)
     self.archive_data_file = 'data/intl_hi_ru.json'
 
-  def RunSmoothness(self, action_runner):
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
 
-
-class IntlHiRuPageSet(page_set_module.PageSet):
+class IntlHiRuPageSet(story.StorySet):
 
   """ Popular pages in Hindi and Russian. """
 
   def __init__(self):
     super(IntlHiRuPageSet, self).__init__(
-      user_agent_type='desktop',
       archive_data_file='data/intl_hi_ru.json',
-      bucket=page_set_module.PARTNER_BUCKET)
+      cloud_storage_bucket=story.PARTNER_BUCKET)
 
     urls_list = [
       # Why: #12 site in Russia
@@ -50,4 +45,4 @@ class IntlHiRuPageSet(page_set_module.PageSet):
     ]
 
     for url in urls_list:
-      self.AddPage(IntlHiRuPage(url, self))
+      self.AddStory(IntlHiRuPage(url, self))

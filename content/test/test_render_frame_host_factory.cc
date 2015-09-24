@@ -21,16 +21,17 @@ TestRenderFrameHostFactory::~TestRenderFrameHostFactory() {
 
 scoped_ptr<RenderFrameHostImpl>
 TestRenderFrameHostFactory::CreateRenderFrameHost(
+    SiteInstance* site_instance,
     RenderViewHostImpl* render_view_host,
     RenderFrameHostDelegate* delegate,
+    RenderWidgetHostDelegate* rwh_delegate,
     FrameTree* frame_tree,
     FrameTreeNode* frame_tree_node,
     int routing_id,
-    bool is_swapped_out) {
-  return make_scoped_ptr(
-      new TestRenderFrameHost(
-          render_view_host, delegate, frame_tree, frame_tree_node, routing_id,
-          is_swapped_out));
+    int flags) {
+  return make_scoped_ptr(new TestRenderFrameHost(
+      site_instance, render_view_host, delegate, rwh_delegate, frame_tree,
+      frame_tree_node, routing_id, flags));
 }
 
 }  // namespace content

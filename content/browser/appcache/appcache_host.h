@@ -111,7 +111,8 @@ class CONTENT_EXPORT AppCacheHost
   // May return NULL if the request isn't subject to retrieval from an appache.
   AppCacheRequestHandler* CreateRequestHandler(
       net::URLRequest* request,
-      ResourceType resource_type);
+      ResourceType resource_type,
+      bool should_reset_appcache);
 
   // Support for devtools inspecting appcache resources.
   void GetResourceList(std::vector<AppCacheResourceInfo>* resource_infos);
@@ -162,6 +163,7 @@ class CONTENT_EXPORT AppCacheHost
   AppCacheStorage* storage() const { return storage_; }
   AppCacheFrontend* frontend() const { return frontend_; }
   AppCache* associated_cache() const { return associated_cache_.get(); }
+  bool was_select_cache_called() const { return was_select_cache_called_; }
 
   void enable_cache_selection(bool enable) {
     is_cache_selection_enabled_ = enable;
@@ -268,6 +270,9 @@ class CONTENT_EXPORT AppCacheHost
   int64 pending_selected_cache_id_;
   GURL pending_selected_manifest_url_;
 
+  // Used to defend against bad IPC messages.
+  bool was_select_cache_called_;
+
   // Used to avoid stepping on pages controlled by ServiceWorkers.
   bool is_cache_selection_enabled_;
 
@@ -312,7 +317,7 @@ class CONTENT_EXPORT AppCacheHost
   bool associated_cache_info_pending_;
 
   // List of objects observing us.
-  ObserverList<Observer> observers_;
+  base::ObserverList<Observer> observers_;
 
   // Used to inform the QuotaManager of what origins are currently in use.
   GURL origin_in_use_;

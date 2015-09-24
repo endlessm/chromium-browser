@@ -12,8 +12,7 @@
 #include "chrome/browser/chromeos/policy/device_network_configuration_updater.h"
 #include "chrome/browser/chromeos/policy/user_network_configuration_updater.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
-#include "chrome/browser/chromeos/settings/device_settings_service.h"
-#include "chrome/browser/chromeos/settings/stub_cros_settings_provider.h"
+#include "chrome/browser/chromeos/settings/scoped_cros_settings_test_helper.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chromeos/network/fake_network_device_handler.h"
 #include "chromeos/network/mock_managed_network_configuration_handler.h"
@@ -57,10 +56,10 @@ class FakeUser : public user_manager::User {
     set_display_email(kFakeUserEmail);
     set_username_hash(kFakeUsernameHash);
   }
-  virtual ~FakeUser() {}
+  ~FakeUser() override {}
 
   // User overrides
-  virtual user_manager::UserType GetType() const override {
+  user_manager::UserType GetType() const override {
     return user_manager::USER_TYPE_REGULAR;
   }
 
@@ -73,7 +72,7 @@ class FakeWebTrustedCertsObserver
  public:
   FakeWebTrustedCertsObserver() {}
 
-  virtual void OnTrustAnchorsChanged(
+  void OnTrustAnchorsChanged(
       const net::CertificateList& trust_anchors) override {
     trust_anchors_ = trust_anchors;
   }
@@ -84,14 +83,14 @@ class FakeWebTrustedCertsObserver
 };
 
 class FakeNetworkDeviceHandler : public chromeos::FakeNetworkDeviceHandler {
-  public:
-   FakeNetworkDeviceHandler() : allow_roaming_(false) {}
+ public:
+  FakeNetworkDeviceHandler() : allow_roaming_(false) {}
 
-   virtual void SetCellularAllowRoaming(bool allow_roaming) override {
-     allow_roaming_ = allow_roaming;
-   }
+  void SetCellularAllowRoaming(bool allow_roaming) override {
+    allow_roaming_ = allow_roaming;
+  }
 
-   bool allow_roaming_;
+  bool allow_roaming_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(FakeNetworkDeviceHandler);
@@ -101,7 +100,7 @@ class FakeCertificateImporter : public chromeos::onc::CertificateImporter {
  public:
   FakeCertificateImporter()
       : expected_onc_source_(::onc::ONC_SOURCE_UNKNOWN), call_count_(0) {}
-  virtual ~FakeCertificateImporter() {}
+  ~FakeCertificateImporter() override {}
 
   void SetTrustedCertificatesResult(
       net::CertificateList onc_trusted_certificates) {
@@ -122,9 +121,9 @@ class FakeCertificateImporter : public chromeos::onc::CertificateImporter {
     return count;
   }
 
-  virtual void ImportCertificates(const base::ListValue& certificates,
-                                  ::onc::ONCSource source,
-                                  const DoneCallback& done_callback) override {
+  void ImportCertificates(const base::ListValue& certificates,
+                          ::onc::ONCSource source,
+                          const DoneCallback& done_callback) override {
     if (expected_onc_source_ != ::onc::ONC_SOURCE_UNKNOWN)
       EXPECT_EQ(expected_onc_source_, source);
     if (expected_onc_certificates_) {
@@ -150,7 +149,7 @@ const char kFakeONC[] =
     "      \"Type\": \"WiFi\","
     "      \"Name\": \"My WiFi Network\","
     "      \"WiFi\": {"
-    "        \"SSID\": \"ssid-none\","
+    "        \"HexSSID\": \"737369642D6E6F6E65\","  // "ssid-none"
     "        \"Security\": \"None\" }"
     "    }"
     "  ],"
@@ -160,7 +159,7 @@ const char kFakeONC[] =
     "  \"Certificates\": ["
     "    { \"GUID\": \"{f998f760-272b-6939-4c2beffe428697ac}\","
     "      \"PKCS12\": \"abc\","
-    "       \"Type\": \"Client\" }"
+    "      \"Type\": \"Client\" }"
     "  ],"
     "  \"Type\": \"UnencryptedConfiguration\""
     "}";
@@ -202,7 +201,7 @@ class NetworkConfigurationUpdaterTest : public testing::Test {
  protected:
   NetworkConfigurationUpdaterTest() : certificate_importer_(NULL) {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     EXPECT_CALL(provider_, IsInitializationComplete(_))
         .WillRepeatedly(Return(false));
     provider_.Init();
@@ -232,7 +231,7 @@ class NetworkConfigurationUpdaterTest : public testing::Test {
     certificate_importer_owned_.reset(certificate_importer_);
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     network_configuration_updater_.reset();
     provider_.Shutdown();
     base::RunLoop().RunUntilIdle();
@@ -287,10 +286,7 @@ class NetworkConfigurationUpdaterTest : public testing::Test {
   StrictMock<chromeos::MockManagedNetworkConfigurationHandler>
       network_config_handler_;
   FakeNetworkDeviceHandler network_device_handler_;
-
-  // Not used directly. Required for CrosSettings.
-  chromeos::ScopedTestDeviceSettingsService scoped_device_settings_service_;
-  chromeos::ScopedTestCrosSettings scoped_cros_settings_;
+  chromeos::ScopedCrosSettingsTestHelper settings_helper_;
 
   // Ownership of certificate_importer_owned_ is passed to the
   // NetworkConfigurationUpdater. When that happens, |certificate_importer_|
@@ -313,28 +309,16 @@ TEST_F(NetworkConfigurationUpdaterTest, CellularAllowRoaming) {
   // Ignore network config updates.
   EXPECT_CALL(network_config_handler_, SetPolicy(_, _, _, _)).Times(AtLeast(1));
 
-  // Setup the DataRoaming device setting.
-  chromeos::CrosSettings* cros_settings = chromeos::CrosSettings::Get();
-  chromeos::CrosSettingsProvider* device_settings_provider =
-      cros_settings->GetProvider(chromeos::kSignedDataRoamingEnabled);
-  cros_settings->RemoveSettingsProvider(device_settings_provider);
-  delete device_settings_provider;
-  chromeos::StubCrosSettingsProvider* stub_settings_provider =
-      new chromeos::StubCrosSettingsProvider;
-  cros_settings->AddSettingsProvider(stub_settings_provider);
-
-  chromeos::CrosSettings::Get()->Set(chromeos::kSignedDataRoamingEnabled,
-                                     base::FundamentalValue(false));
+  settings_helper_.ReplaceProvider(chromeos::kSignedDataRoamingEnabled);
+  settings_helper_.SetBoolean(chromeos::kSignedDataRoamingEnabled, false);
   EXPECT_FALSE(network_device_handler_.allow_roaming_);
 
   CreateNetworkConfigurationUpdaterForDevicePolicy();
   MarkPolicyProviderInitialized();
-  chromeos::CrosSettings::Get()->Set(chromeos::kSignedDataRoamingEnabled,
-                                     base::FundamentalValue(true));
+  settings_helper_.SetBoolean(chromeos::kSignedDataRoamingEnabled, true);
   EXPECT_TRUE(network_device_handler_.allow_roaming_);
 
-  chromeos::CrosSettings::Get()->Set(chromeos::kSignedDataRoamingEnabled,
-                                     base::FundamentalValue(false));
+  settings_helper_.SetBoolean(chromeos::kSignedDataRoamingEnabled, false);
   EXPECT_FALSE(network_device_handler_.allow_roaming_);
 }
 

@@ -1,3 +1,10 @@
+/*
+ * Copyright 2015 Google Inc.
+ *
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
+
 #ifndef SkXfermode_opts_arm_neon_DEFINED
 #define SkXfermode_opts_arm_neon_DEFINED
 
@@ -9,18 +16,14 @@ public:
                             void* procSIMD)
             : INHERITED(rec, mode), fProcSIMD(procSIMD) {}
 
-    virtual void xfer32(SkPMColor dst[], const SkPMColor src[], int count,
-                        const SkAlpha aa[]) const SK_OVERRIDE;
-    virtual void xfer16(uint16_t* SK_RESTRICT dst, const SkPMColor* SK_RESTRICT src,
-                        int count, const SkAlpha* SK_RESTRICT aa) const SK_OVERRIDE;
+    void xfer32(SkPMColor dst[], const SkPMColor src[], int count,
+                const SkAlpha aa[]) const override;
+    void xfer16(uint16_t* SK_RESTRICT dst, const SkPMColor* SK_RESTRICT src,
+                int count, const SkAlpha* SK_RESTRICT aa) const override;
 
     SK_TO_STRING_OVERRIDE()
 
 private:
-#ifdef SK_SUPPORT_LEGACY_DEEPFLATTENING
-    SkNEONProcCoeffXfermode(SkReadBuffer& buffer);
-#endif
-
     // void* is used to avoid pulling arm_neon.h in the core and having to build
     // it with -mfpu=neon.
     void* fProcSIMD;

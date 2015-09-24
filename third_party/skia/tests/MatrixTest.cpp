@@ -71,6 +71,45 @@ static bool is_identity(const SkMatrix& m) {
     return nearly_equal(m, identity);
 }
 
+static void assert9(skiatest::Reporter* reporter, const SkMatrix& m,
+                    SkScalar a, SkScalar b, SkScalar c,
+                    SkScalar d, SkScalar e, SkScalar f,
+                    SkScalar g, SkScalar h, SkScalar i) {
+    SkScalar buffer[9];
+    m.get9(buffer);
+    REPORTER_ASSERT(reporter, buffer[0] == a);
+    REPORTER_ASSERT(reporter, buffer[1] == b);
+    REPORTER_ASSERT(reporter, buffer[2] == c);
+    REPORTER_ASSERT(reporter, buffer[3] == d);
+    REPORTER_ASSERT(reporter, buffer[4] == e);
+    REPORTER_ASSERT(reporter, buffer[5] == f);
+    REPORTER_ASSERT(reporter, buffer[6] == g);
+    REPORTER_ASSERT(reporter, buffer[7] == h);
+    REPORTER_ASSERT(reporter, buffer[8] == i);
+}
+
+static void test_set9(skiatest::Reporter* reporter) {
+
+    SkMatrix m;
+    m.reset();
+    assert9(reporter, m, 1, 0, 0, 0, 1, 0, 0, 0, 1);
+    
+    m.setScale(2, 3);
+    assert9(reporter, m, 2, 0, 0, 0, 3, 0, 0, 0, 1);
+    
+    m.postTranslate(4, 5);
+    assert9(reporter, m, 2, 0, 4, 0, 3, 5, 0, 0, 1);
+
+    SkScalar buffer[9];
+    sk_bzero(buffer, sizeof(buffer));
+    buffer[SkMatrix::kMScaleX] = 1;
+    buffer[SkMatrix::kMScaleY] = 1;
+    buffer[SkMatrix::kMPersp2] = 1;
+    REPORTER_ASSERT(reporter, !m.isIdentity());
+    m.set9(buffer);
+    REPORTER_ASSERT(reporter, m.isIdentity());
+}
+
 static void test_matrix_recttorect(skiatest::Reporter* reporter) {
     SkRect src, dst;
     SkMatrix matrix;
@@ -163,7 +202,7 @@ static void test_matrix_min_max_scale(skiatest::Reporter* reporter) {
 
     SkMatrix perspX;
     perspX.reset();
-    perspX.setPerspX(SkScalarToPersp(SK_Scalar1 / 1000));
+    perspX.setPerspX(SK_Scalar1 / 1000);
     REPORTER_ASSERT(reporter, -SK_Scalar1 == perspX.getMinScale());
     REPORTER_ASSERT(reporter, -SK_Scalar1 == perspX.getMaxScale());
     // Verify that getMinMaxScales() doesn't update the scales array on failure.
@@ -174,7 +213,7 @@ static void test_matrix_min_max_scale(skiatest::Reporter* reporter) {
 
     SkMatrix perspY;
     perspY.reset();
-    perspY.setPerspY(SkScalarToPersp(-SK_Scalar1 / 500));
+    perspY.setPerspY(-SK_Scalar1 / 500);
     REPORTER_ASSERT(reporter, -SK_Scalar1 == perspY.getMinScale());
     REPORTER_ASSERT(reporter, -SK_Scalar1 == perspY.getMaxScale());
     scales[0] = -5;
@@ -231,8 +270,8 @@ static void test_matrix_min_max_scale(skiatest::Reporter* reporter) {
         mat.mapVectors(vectors, SK_ARRAY_COUNT(vectors));
         for (size_t i = 0; i < SK_ARRAY_COUNT(vectors); ++i) {
             SkScalar d = vectors[i].length();
-            REPORTER_ASSERT(reporter, SkScalarDiv(d, maxScale) < gVectorScaleTol);
-            REPORTER_ASSERT(reporter, SkScalarDiv(minScale, d) < gVectorScaleTol);
+            REPORTER_ASSERT(reporter, d / maxScale < gVectorScaleTol);
+            REPORTER_ASSERT(reporter, minScale / d < gVectorScaleTol);
             if (max < d) {
                 max = d;
             }
@@ -240,8 +279,8 @@ static void test_matrix_min_max_scale(skiatest::Reporter* reporter) {
                 min = d;
             }
         }
-        REPORTER_ASSERT(reporter, SkScalarDiv(max, maxScale) >= gCloseScaleTol);
-        REPORTER_ASSERT(reporter, SkScalarDiv(minScale, min) >= gCloseScaleTol);
+        REPORTER_ASSERT(reporter, max / maxScale >= gCloseScaleTol);
+        REPORTER_ASSERT(reporter, minScale / min >= gCloseScaleTol);
     }
 }
 
@@ -319,13 +358,13 @@ static void test_matrix_preserve_shape(skiatest::Reporter* reporter) {
 
     // perspective x
     mat.reset();
-    mat.setPerspX(SkScalarToPersp(SK_Scalar1 / 2));
+    mat.setPerspX(SK_Scalar1 / 2);
     REPORTER_ASSERT(reporter, !mat.isSimilarity());
     REPORTER_ASSERT(reporter, !mat.preservesRightAngles());
 
     // perspective y
     mat.reset();
-    mat.setPerspY(SkScalarToPersp(SK_Scalar1 / 2));
+    mat.setPerspY(SK_Scalar1 / 2);
     REPORTER_ASSERT(reporter, !mat.isSimilarity());
     REPORTER_ASSERT(reporter, !mat.preservesRightAngles());
 
@@ -732,6 +771,34 @@ static void test_matrix_homogeneous(skiatest::Reporter* reporter) {
 
 }
 
+static bool check_decompScale(const SkMatrix& matrix) {
+    SkSize scale;
+    SkMatrix remaining;
+
+    if (!matrix.decomposeScale(&scale, &remaining)) {
+        return false;
+    }
+    if (scale.width() <= 0 || scale.height() <= 0) {
+        return false;
+    }
+    remaining.preScale(scale.width(), scale.height());
+    return nearly_equal(matrix, remaining);
+}
+
+static void test_decompScale(skiatest::Reporter* reporter) {
+    SkMatrix m;
+
+    m.reset();
+    REPORTER_ASSERT(reporter, check_decompScale(m));
+    m.setScale(2, 3);
+    REPORTER_ASSERT(reporter, check_decompScale(m));
+    m.setRotate(35, 0, 0);
+    REPORTER_ASSERT(reporter, check_decompScale(m));
+
+    m.setScale(1, 0);
+    REPORTER_ASSERT(reporter, !check_decompScale(m));
+}
+
 DEF_TEST(Matrix, reporter) {
     SkMatrix    mat, inverse, iden1, iden2;
 
@@ -768,6 +835,13 @@ DEF_TEST(Matrix, reporter) {
     REPORTER_ASSERT(reporter, !mat.invert(NULL));
     REPORTER_ASSERT(reporter, !mat.invert(&inverse));
     mat.setScale(SK_Scalar1, 0);
+    REPORTER_ASSERT(reporter, !mat.invert(NULL));
+    REPORTER_ASSERT(reporter, !mat.invert(&inverse));
+
+    // Inverting this matrix results in a non-finite matrix
+    mat.setAll(0.0f, 1.0f, 2.0f,
+               0.0f, 1.0f, -3.40277175e+38f,
+               1.00003040f, 1.0f, 0.0f);
     REPORTER_ASSERT(reporter, !mat.invert(NULL));
     REPORTER_ASSERT(reporter, !mat.invert(&inverse));
 
@@ -828,7 +902,7 @@ DEF_TEST(Matrix, reporter) {
     REPORTER_ASSERT(reporter, affineEqual(TransY));
     #undef affineEqual
 
-    mat.set(SkMatrix::kMPersp1, SkScalarToPersp(SK_Scalar1 / 2));
+    mat.set(SkMatrix::kMPersp1, SK_Scalar1 / 2);
     REPORTER_ASSERT(reporter, !mat.asAffine(affine));
 
     SkMatrix mat2;
@@ -849,6 +923,9 @@ DEF_TEST(Matrix, reporter) {
     test_matrix_recttorect(reporter);
     test_matrix_decomposition(reporter);
     test_matrix_homogeneous(reporter);
+    test_set9(reporter);
+
+    test_decompScale(reporter);
 }
 
 DEF_TEST(Matrix_Concat, r) {

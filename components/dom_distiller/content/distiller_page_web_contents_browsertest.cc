@@ -5,7 +5,9 @@
 #include "base/memory/weak_ptr.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "components/dom_distiller/content/distiller_javascript_utils.h"
 #include "components/dom_distiller/content/distiller_page_web_contents.h"
 #include "components/dom_distiller/content/web_contents_main_frame_observer.h"
 #include "components/dom_distiller/core/distiller_page.h"
@@ -16,6 +18,7 @@
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "content/public/common/isolated_world_ids.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/shell/browser/shell.h"
 #include "grit/components_strings.h"
@@ -30,104 +33,7 @@ using testing::ContainsRegex;
 using testing::HasSubstr;
 using testing::Not;
 
-namespace dom_distiller {
-
-const char* kSimpleArticlePath = "/simple_article.html";
-const char* kVideoArticlePath = "/video_article.html";
-
-class DistillerPageWebContentsTest : public ContentBrowserTest {
- public:
-  // ContentBrowserTest:
-  void SetUpOnMainThread() override {
-    AddComponentsResources();
-    SetUpTestServer();
-    ContentBrowserTest::SetUpOnMainThread();
-  }
-
-  void DistillPage(const base::Closure& quit_closure, const std::string& url) {
-    quit_closure_ = quit_closure;
-    distiller_page_->DistillPage(
-        embedded_test_server()->GetURL(url),
-        dom_distiller::proto::DomDistillerOptions(),
-        base::Bind(&DistillerPageWebContentsTest::OnPageDistillationFinished,
-                   this));
-  }
-
-  void OnPageDistillationFinished(
-      scoped_ptr<proto::DomDistillerResult> distiller_result,
-      bool distillation_successful) {
-    distiller_result_ = distiller_result.Pass();
-    quit_closure_.Run();
-  }
-
- private:
-  void AddComponentsResources() {
-    base::FilePath pak_file;
-    base::FilePath pak_dir;
-    PathService::Get(base::DIR_MODULE, &pak_dir);
-    pak_file = pak_dir.Append(FILE_PATH_LITERAL("components_resources.pak"));
-    ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(
-        pak_file, ui::SCALE_FACTOR_NONE);
-  }
-
-  void SetUpTestServer() {
-    base::FilePath path;
-    PathService::Get(base::DIR_SOURCE_ROOT, &path);
-    path = path.AppendASCII("components/test/data/dom_distiller");
-    embedded_test_server()->ServeFilesFromDirectory(path);
-    ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
-  }
-
- protected:
-  void RunUseCurrentWebContentsTest(const std::string& url,
-                                    bool expect_new_web_contents,
-                                    bool setup_main_frame_observer,
-                                    bool wait_for_document_loaded);
-
-  DistillerPageWebContents* distiller_page_;
-  base::Closure quit_closure_;
-  scoped_ptr<proto::DomDistillerResult> distiller_result_;
-};
-
-// Use this class to be able to leak the WebContents, which is needed for when
-// the current WebContents is used for distillation.
-class TestDistillerPageWebContents : public DistillerPageWebContents {
- public:
-  TestDistillerPageWebContents(
-      content::BrowserContext* browser_context,
-      const gfx::Size& render_view_size,
-      scoped_ptr<SourcePageHandleWebContents> optional_web_contents_handle,
-      bool expect_new_web_contents)
-      : DistillerPageWebContents(browser_context, render_view_size,
-                                 optional_web_contents_handle.Pass()),
-        expect_new_web_contents_(expect_new_web_contents),
-        new_web_contents_created_(false) {}
-
-  void CreateNewWebContents(const GURL& url) override {
-    ASSERT_EQ(true, expect_new_web_contents_);
-    new_web_contents_created_ = true;
-    // DistillerPageWebContents::CreateNewWebContents resets the scoped_ptr to
-    // the WebContents, so intentionally leak WebContents here, since it is
-    // owned by the shell.
-    content::WebContents* web_contents = web_contents_.release();
-    web_contents->GetLastCommittedURL();
-    DistillerPageWebContents::CreateNewWebContents(url);
-  }
-
-  ~TestDistillerPageWebContents() override {
-    if (!expect_new_web_contents_) {
-      // Intentionally leaking WebContents, since it is owned by the shell.
-      content::WebContents* web_contents = web_contents_.release();
-      web_contents->GetLastCommittedURL();
-    }
-  }
-
-  bool new_web_contents_created() { return new_web_contents_created_; }
-
- private:
-  bool expect_new_web_contents_;
-  bool new_web_contents_created_;
-};
+namespace {
 
 // Helper class to know how far in the loading process the current WebContents
 // has come. It will call the callback either after
@@ -163,6 +69,110 @@ class WebContentsMainFrameHelper : public content::WebContentsObserver {
  private:
   base::Closure callback_;
   bool wait_for_document_loaded_;
+};
+
+}  // namespace
+
+namespace dom_distiller {
+
+const char* kSimpleArticlePath = "/simple_article.html";
+const char* kVideoArticlePath = "/video_article.html";
+
+class DistillerPageWebContentsTest : public ContentBrowserTest {
+ public:
+  // ContentBrowserTest:
+  void SetUpOnMainThread() override {
+    if (!DistillerJavaScriptWorldIdIsSet()) {
+      SetDistillerJavaScriptWorldId(content::ISOLATED_WORLD_ID_CONTENT_END);
+    }
+    AddComponentsResources();
+    SetUpTestServer();
+    ContentBrowserTest::SetUpOnMainThread();
+  }
+
+  void DistillPage(const base::Closure& quit_closure, const std::string& url) {
+    distiller_page_->DistillPage(
+        embedded_test_server()->GetURL(url),
+        dom_distiller::proto::DomDistillerOptions(),
+        base::Bind(&DistillerPageWebContentsTest::OnPageDistillationFinished,
+                   this, quit_closure));
+  }
+
+  void OnPageDistillationFinished(
+      base::Closure quit_closure,
+      scoped_ptr<proto::DomDistillerResult> distiller_result,
+      bool distillation_successful) {
+    distiller_result_ = distiller_result.Pass();
+    quit_closure.Run();
+  }
+
+  void OnJsExecutionDone(base::Closure callback, const base::Value* value) {
+    js_result_.reset(value->DeepCopy());
+    callback.Run();
+  }
+
+ private:
+  void AddComponentsResources() {
+    base::FilePath pak_file;
+    base::FilePath pak_dir;
+#if defined(OS_ANDROID)
+    CHECK(PathService::Get(base::DIR_ANDROID_APP_DATA, &pak_dir));
+    pak_dir = pak_dir.Append(FILE_PATH_LITERAL("paks"));
+#else
+    PathService::Get(base::DIR_MODULE, &pak_dir);
+#endif  // OS_ANDROID
+    pak_file =
+        pak_dir.Append(FILE_PATH_LITERAL("components_tests_resources.pak"));
+    ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(
+        pak_file, ui::SCALE_FACTOR_NONE);
+  }
+
+  void SetUpTestServer() {
+    base::FilePath path;
+    PathService::Get(base::DIR_SOURCE_ROOT, &path);
+    embedded_test_server()->ServeFilesFromDirectory(
+        path.AppendASCII("components/test/data/dom_distiller"));
+    embedded_test_server()->ServeFilesFromDirectory(
+        path.AppendASCII("components/dom_distiller/core/javascript"));
+    ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  }
+
+ protected:
+  void RunUseCurrentWebContentsTest(const std::string& url,
+                                    bool expect_new_web_contents,
+                                    bool setup_main_frame_observer,
+                                    bool wait_for_document_loaded);
+
+  DistillerPageWebContents* distiller_page_;
+  scoped_ptr<proto::DomDistillerResult> distiller_result_;
+  scoped_ptr<base::Value> js_result_;
+};
+
+// Use this class to be able to leak the WebContents, which is needed for when
+// the current WebContents is used for distillation.
+class TestDistillerPageWebContents : public DistillerPageWebContents {
+ public:
+  TestDistillerPageWebContents(
+      content::BrowserContext* browser_context,
+      const gfx::Size& render_view_size,
+      scoped_ptr<SourcePageHandleWebContents> optional_web_contents_handle,
+      bool expect_new_web_contents)
+      : DistillerPageWebContents(browser_context, render_view_size,
+                                 optional_web_contents_handle.Pass()),
+        expect_new_web_contents_(expect_new_web_contents),
+        new_web_contents_created_(false) {}
+
+  void CreateNewWebContents(const GURL& url) override {
+    ASSERT_EQ(true, expect_new_web_contents_);
+    new_web_contents_created_ = true;
+    DistillerPageWebContents::CreateNewWebContents(url);
+  }
+
+  bool new_web_contents_created() { return new_web_contents_created_; }
+
+ private:
+  bool expect_new_web_contents_;
+  bool new_web_contents_created_;
 };
 
 IN_PROC_BROWSER_TEST_F(DistillerPageWebContentsTest, BasicDistillationWorks) {
@@ -341,9 +351,8 @@ void DistillerPageWebContentsTest::RunUseCurrentWebContentsTest(
       std::string());
   url_loaded_runner.Run();
 
-  scoped_ptr<content::WebContents> old_web_contents_sptr(current_web_contents);
   scoped_ptr<SourcePageHandleWebContents> source_page_handle(
-      new SourcePageHandleWebContents(old_web_contents_sptr.Pass()));
+      new SourcePageHandleWebContents(current_web_contents, false));
 
   TestDistillerPageWebContents distiller_page(
       shell()->web_contents()->GetBrowserContext(),
@@ -359,6 +368,49 @@ void DistillerPageWebContentsTest::RunUseCurrentWebContentsTest(
   // Sanity check of distillation process.
   EXPECT_EQ(expect_new_web_contents, distiller_page.new_web_contents_created());
   EXPECT_EQ("Test Page Title", distiller_result_->title());
+}
+
+IN_PROC_BROWSER_TEST_F(DistillerPageWebContentsTest,
+                       PageDestroyedBeforeFinishDistillation) {
+
+  content::WebContents* current_web_contents = shell()->web_contents();
+
+  dom_distiller::WebContentsMainFrameObserver::CreateForWebContents(
+      current_web_contents);
+
+  base::RunLoop url_loaded_runner;
+  WebContentsMainFrameHelper main_frame_loaded(current_web_contents,
+                                               url_loaded_runner.QuitClosure(),
+                                               true);
+  current_web_contents->GetController().LoadURL(
+      embedded_test_server()->GetURL(kSimpleArticlePath),
+      content::Referrer(),
+      ui::PAGE_TRANSITION_TYPED,
+      std::string());
+  url_loaded_runner.Run();
+
+  scoped_ptr<SourcePageHandleWebContents> source_page_handle(
+      new SourcePageHandleWebContents(current_web_contents, false));
+
+  TestDistillerPageWebContents* distiller_page(
+      new TestDistillerPageWebContents(
+          current_web_contents->GetBrowserContext(),
+          current_web_contents->GetContainerBounds().size(),
+          source_page_handle.Pass(),
+          false));
+  distiller_page_ = distiller_page;
+
+  base::RunLoop run_loop;
+  DistillPage(run_loop.QuitClosure(), kSimpleArticlePath);
+
+  // It can not crash the loop when returning the result.
+  delete distiller_page_;
+
+  // Make sure the test ends when it does not crash.
+  base::MessageLoop::current()->PostDelayedTask(
+      FROM_HERE, run_loop.QuitClosure(), base::TimeDelta::FromSeconds(2));
+
+  run_loop.Run();
 }
 
 IN_PROC_BROWSER_TEST_F(DistillerPageWebContentsTest, MarkupInfo) {
@@ -413,109 +465,60 @@ IN_PROC_BROWSER_TEST_F(DistillerPageWebContentsTest, MarkupInfo) {
 }
 
 IN_PROC_BROWSER_TEST_F(DistillerPageWebContentsTest,
-                       TestTitleAndContentAreNeverEmpty) {
-  const std::string some_title = "some title";
-  const std::string some_content = "some content";
-  const std::string no_title =
-      l10n_util::GetStringUTF8(IDS_DOM_DISTILLER_VIEWER_NO_DATA_TITLE);
+                       TestNoContentDoesNotCrash) {
   const std::string no_content =
       l10n_util::GetStringUTF8(IDS_DOM_DISTILLER_VIEWER_NO_DATA_CONTENT);
 
-  {  // Test non-empty title and content for article.
+  {  // Test zero pages.
     scoped_ptr<DistilledArticleProto> article_proto(
         new DistilledArticleProto());
-    article_proto->set_title(some_title);
-    (*(article_proto->add_pages())).set_html(some_content);
-    std::string html = viewer::GetUnsafeArticleHtml(article_proto.get(),
-        DistilledPagePrefs::LIGHT, DistilledPagePrefs::SERIF);
-    EXPECT_THAT(html, HasSubstr(some_title));
-    EXPECT_THAT(html, HasSubstr(some_content));
-    EXPECT_THAT(html, Not(HasSubstr(no_title)));
-    EXPECT_THAT(html, Not(HasSubstr(no_content)));
+    std::string js = viewer::GetUnsafeArticleContentJs(article_proto.get());
+    EXPECT_THAT(js, HasSubstr(no_content));
   }
 
-  {  // Test empty title and content for article.
+  {  // Test empty content.
     scoped_ptr<DistilledArticleProto> article_proto(
         new DistilledArticleProto());
-    article_proto->set_title("");
     (*(article_proto->add_pages())).set_html("");
-    std::string html = viewer::GetUnsafeArticleHtml(article_proto.get(),
-        DistilledPagePrefs::LIGHT, DistilledPagePrefs::SERIF);
-    EXPECT_THAT(html, HasSubstr(no_title));
-    EXPECT_THAT(html, HasSubstr(no_content));
-    EXPECT_THAT(html, Not(HasSubstr(some_title)));
-    EXPECT_THAT(html, Not(HasSubstr(some_content)));
+    std::string js = viewer::GetUnsafeArticleContentJs(article_proto.get());
+    EXPECT_THAT(js, HasSubstr(no_content));
   }
+}
 
-  {  // Test missing title and non-empty content for article.
-    scoped_ptr<DistilledArticleProto> article_proto(
-        new DistilledArticleProto());
-    (*(article_proto->add_pages())).set_html(some_content);
-    std::string html = viewer::GetUnsafeArticleHtml(article_proto.get(),
-        DistilledPagePrefs::LIGHT, DistilledPagePrefs::SERIF);
-    EXPECT_THAT(html, HasSubstr(no_title));
-    EXPECT_THAT(html, HasSubstr(no_content));
-    EXPECT_THAT(html, Not(HasSubstr(some_title)));
-    EXPECT_THAT(html, Not(HasSubstr(some_content)));
-  }
+IN_PROC_BROWSER_TEST_F(DistillerPageWebContentsTest,
+                       TestPinch) {
+  // Load the test file in content shell and wait until it has fully loaded.
+  content::WebContents* web_contents = shell()->web_contents();
+  dom_distiller::WebContentsMainFrameObserver::CreateForWebContents(
+      web_contents);
+  base::RunLoop url_loaded_runner;
+  WebContentsMainFrameHelper main_frame_loaded(web_contents,
+                                               url_loaded_runner.QuitClosure(),
+                                               true);
+  web_contents->GetController().LoadURL(
+      embedded_test_server()->GetURL("/pinch_tester.html"),
+      content::Referrer(),
+      ui::PAGE_TRANSITION_TYPED,
+      std::string());
+  url_loaded_runner.Run();
 
-  {  // Test non-empty title and missing content for article.
-    scoped_ptr<DistilledArticleProto> article_proto(
-        new DistilledArticleProto());
-    article_proto->set_title(some_title);
-    std::string html = viewer::GetUnsafeArticleHtml(article_proto.get(),
-        DistilledPagePrefs::LIGHT, DistilledPagePrefs::SERIF);
-    EXPECT_THAT(html, HasSubstr(no_title));
-    EXPECT_THAT(html, HasSubstr(no_content));
-    EXPECT_THAT(html, Not(HasSubstr(some_title)));
-    EXPECT_THAT(html, Not(HasSubstr(some_content)));
-  }
+  // Execute the JS to run the tests, and wait until it has finished.
+  base::RunLoop run_loop;
+  web_contents->GetMainFrame()->ExecuteJavaScript(
+      base::UTF8ToUTF16("(function() {return pinchtest.run();})();"),
+      base::Bind(&DistillerPageWebContentsTest::OnJsExecutionDone,
+                 base::Unretained(this), run_loop.QuitClosure()));
+  run_loop.Run();
 
-  {  // Test non-empty title and content for page.
-    scoped_ptr<DistilledPageProto> page_proto(new DistilledPageProto());
-    page_proto->set_title(some_title);
-    page_proto->set_html(some_content);
-    std::string html = viewer::GetUnsafePartialArticleHtml(page_proto.get(),
-        DistilledPagePrefs::LIGHT, DistilledPagePrefs::SERIF);
-    EXPECT_THAT(html, HasSubstr(some_title));
-    EXPECT_THAT(html, HasSubstr(some_content));
-    EXPECT_THAT(html, Not(HasSubstr(no_title)));
-    EXPECT_THAT(html, Not(HasSubstr(no_content)));
-  }
+  // Convert to dictionary and parse the results.
+  const base::DictionaryValue* dict;
+  ASSERT_TRUE(js_result_);
+  ASSERT_TRUE(js_result_->GetAsDictionary(&dict));
 
-  {  // Test empty title and content for page.
-    scoped_ptr<DistilledPageProto> page_proto(new DistilledPageProto());
-    page_proto->set_title("");
-    page_proto->set_html("");
-    std::string html = viewer::GetUnsafePartialArticleHtml(page_proto.get(),
-        DistilledPagePrefs::LIGHT, DistilledPagePrefs::SERIF);
-    EXPECT_THAT(html, HasSubstr(no_title));
-    EXPECT_THAT(html, HasSubstr(no_content));
-    EXPECT_THAT(html, Not(HasSubstr(some_title)));
-    EXPECT_THAT(html, Not(HasSubstr(some_content)));
-  }
-
-  {  // Test missing title and non-empty content for page.
-    scoped_ptr<DistilledPageProto> page_proto(new DistilledPageProto());
-    page_proto->set_html(some_content);
-    std::string html = viewer::GetUnsafePartialArticleHtml(page_proto.get(),
-        DistilledPagePrefs::LIGHT, DistilledPagePrefs::SERIF);
-    EXPECT_THAT(html, HasSubstr(no_title));
-    EXPECT_THAT(html, HasSubstr(some_content));
-    EXPECT_THAT(html, Not(HasSubstr(some_title)));
-    EXPECT_THAT(html, Not(HasSubstr(no_content)));
-  }
-
-  {  // Test non-empty title and missing content for page.
-    scoped_ptr<DistilledPageProto> page_proto(new DistilledPageProto());
-    page_proto->set_title(some_title);
-    std::string html = viewer::GetUnsafePartialArticleHtml(page_proto.get(),
-        DistilledPagePrefs::LIGHT, DistilledPagePrefs::SERIF);
-    EXPECT_THAT(html, HasSubstr(some_title));
-    EXPECT_THAT(html, HasSubstr(no_content));
-    EXPECT_THAT(html, Not(HasSubstr(no_title)));
-    EXPECT_THAT(html, Not(HasSubstr(some_content)));
-  }
+  ASSERT_TRUE(dict->HasKey("success"));
+  bool success;
+  ASSERT_TRUE(dict->GetBoolean("success", &success));
+  EXPECT_TRUE(success);
 }
 
 }  // namespace dom_distiller

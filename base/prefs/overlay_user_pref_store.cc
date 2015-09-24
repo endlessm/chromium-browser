@@ -58,39 +58,41 @@ bool OverlayUserPrefStore::GetMutableValue(const std::string& key,
     return false;
 
   *result = underlay_value->DeepCopy();
-  overlay_.SetValue(key, *result);
+  overlay_.SetValue(key, make_scoped_ptr(*result));
   return true;
 }
 
 void OverlayUserPrefStore::SetValue(const std::string& key,
-                                    base::Value* value) {
+                                    scoped_ptr<base::Value> value,
+                                    uint32 flags) {
   if (!ShallBeStoredInOverlay(key)) {
-    underlay_->SetValue(GetUnderlayKey(key), value);
+    underlay_->SetValue(GetUnderlayKey(key), value.Pass(), flags);
     return;
   }
 
-  if (overlay_.SetValue(key, value))
-    ReportValueChanged(key);
+  if (overlay_.SetValue(key, value.Pass()))
+    ReportValueChanged(key, flags);
 }
 
 void OverlayUserPrefStore::SetValueSilently(const std::string& key,
-                                            base::Value* value) {
+                                            scoped_ptr<base::Value> value,
+                                            uint32 flags) {
   if (!ShallBeStoredInOverlay(key)) {
-    underlay_->SetValueSilently(GetUnderlayKey(key), value);
+    underlay_->SetValueSilently(GetUnderlayKey(key), value.Pass(), flags);
     return;
   }
 
-  overlay_.SetValue(key, value);
+  overlay_.SetValue(key, value.Pass());
 }
 
-void OverlayUserPrefStore::RemoveValue(const std::string& key) {
+void OverlayUserPrefStore::RemoveValue(const std::string& key, uint32 flags) {
   if (!ShallBeStoredInOverlay(key)) {
-    underlay_->RemoveValue(GetUnderlayKey(key));
+    underlay_->RemoveValue(GetUnderlayKey(key), flags);
     return;
   }
 
   if (overlay_.RemoveValue(key))
-    ReportValueChanged(key);
+    ReportValueChanged(key, flags);
 }
 
 bool OverlayUserPrefStore::ReadOnly() const {
@@ -119,13 +121,18 @@ void OverlayUserPrefStore::CommitPendingWrite() {
   // We do not write our content intentionally.
 }
 
-void OverlayUserPrefStore::ReportValueChanged(const std::string& key) {
+void OverlayUserPrefStore::SchedulePendingLossyWrites() {
+  underlay_->SchedulePendingLossyWrites();
+}
+
+void OverlayUserPrefStore::ReportValueChanged(const std::string& key,
+                                              uint32 flags) {
   FOR_EACH_OBSERVER(PrefStore::Observer, observers_, OnPrefValueChanged(key));
 }
 
 void OverlayUserPrefStore::OnPrefValueChanged(const std::string& key) {
   if (!overlay_.GetValue(GetOverlayKey(key), NULL))
-    ReportValueChanged(GetOverlayKey(key));
+    ReportValueChanged(GetOverlayKey(key), DEFAULT_PREF_WRITE_FLAGS);
 }
 
 void OverlayUserPrefStore::OnInitializationCompleted(bool succeeded) {

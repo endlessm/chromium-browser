@@ -26,9 +26,15 @@ class SESSIONS_EXPORT_PRIVATE ContentSerializedNavigationDriver
 
   // SerializedNavigationDriver implementation.
   int GetDefaultReferrerPolicy() const override;
+  bool MapReferrerPolicyToOldValues(int referrer_policy,
+                                    int* mapped_referrer_policy) const override;
+  bool MapReferrerPolicyToNewValues(int referrer_policy,
+                                    int* mapped_referrer_policy) const override;
   std::string GetSanitizedPageStateForPickle(
       const SerializedNavigationEntry* navigation) const override;
   void Sanitize(SerializedNavigationEntry* navigation) const override;
+  std::string StripReferrerFromPageState(
+      const std::string& page_state) const override;
 
  private:
   ContentSerializedNavigationDriver();

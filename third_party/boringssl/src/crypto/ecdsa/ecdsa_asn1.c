@@ -55,6 +55,7 @@
 #include <openssl/asn1.h>
 #include <openssl/asn1t.h>
 #include <openssl/ec_key.h>
+#include <openssl/mem.h>
 
 #include "../ec/internal.h"
 
@@ -67,29 +68,23 @@ ASN1_SEQUENCE(ECDSA_SIG) = {
     ASN1_SIMPLE(ECDSA_SIG, s, CBIGNUM),
 } ASN1_SEQUENCE_END(ECDSA_SIG);
 
-IMPLEMENT_ASN1_FUNCTIONS_const(ECDSA_SIG);
+IMPLEMENT_ASN1_ENCODE_FUNCTIONS_const_fname(ECDSA_SIG, ECDSA_SIG, ECDSA_SIG);
 
 size_t ECDSA_size(const EC_KEY *key) {
-  size_t ret, i, group_order_size;
-  ASN1_INTEGER bs;
-  BIGNUM *order = NULL;
-  unsigned char buf[4];
-  const EC_GROUP *group;
+  if (key == NULL) {
+    return 0;
+  }
 
+  size_t group_order_size;
   if (key->ecdsa_meth && key->ecdsa_meth->group_order_size) {
     group_order_size = key->ecdsa_meth->group_order_size(key);
   } else {
-    size_t num_bits;
-
-    if (key == NULL) {
-      return 0;
-    }
-    group = EC_KEY_get0_group(key);
+    const EC_GROUP *group = EC_KEY_get0_group(key);
     if (group == NULL) {
       return 0;
     }
 
-    order = BN_new();
+    BIGNUM *order = BN_new();
     if (order == NULL) {
       return 0;
     }
@@ -98,19 +93,67 @@ size_t ECDSA_size(const EC_KEY *key) {
       return 0;
     }
 
-    num_bits = BN_num_bits(order);
-    group_order_size = (num_bits + 7) / 8;
+    group_order_size = BN_num_bytes(order);
+    BN_clear_free(order);
   }
 
-  bs.length = group_order_size;
-  bs.data = buf;
-  bs.type = V_ASN1_INTEGER;
-  /* If the top bit is set the ASN.1 encoding is 1 larger. */
-  buf[0] = 0xff;
+  return ECDSA_SIG_max_len(group_order_size);
+}
 
-  i = i2d_ASN1_INTEGER(&bs, NULL);
-  i += i; /* r and s */
-  ret = ASN1_object_size(1, i, V_ASN1_SEQUENCE);
-  BN_clear_free(order);
+ECDSA_SIG *ECDSA_SIG_new(void) {
+  ECDSA_SIG *sig = OPENSSL_malloc(sizeof(ECDSA_SIG));
+  if (sig == NULL) {
+    return NULL;
+  }
+  sig->r = BN_new();
+  sig->s = BN_new();
+  if (sig->r == NULL || sig->s == NULL) {
+    ECDSA_SIG_free(sig);
+    return NULL;
+  }
+  return sig;
+}
+
+void ECDSA_SIG_free(ECDSA_SIG *sig) {
+  if (sig == NULL) {
+    return;
+  }
+
+  BN_free(sig->r);
+  BN_free(sig->s);
+  OPENSSL_free(sig);
+}
+
+/* der_len_len returns the number of bytes needed to represent a length of |len|
+ * in DER. */
+static size_t der_len_len(size_t len) {
+  if (len < 0x80) {
+    return 1;
+  }
+  size_t ret = 1;
+  while (len > 0) {
+    ret++;
+    len >>= 8;
+  }
+  return ret;
+}
+
+size_t ECDSA_SIG_max_len(size_t order_len) {
+  /* Compute the maximum length of an |order_len| byte integer. Defensively
+   * assume that the leading 0x00 is included. */
+  size_t integer_len = 1 /* tag */ + der_len_len(order_len + 1) + 1 + order_len;
+  if (integer_len < order_len) {
+    return 0;
+  }
+  /* An ECDSA signature is two INTEGERs. */
+  size_t value_len = 2 * integer_len;
+  if (value_len < integer_len) {
+    return 0;
+  }
+  /* Add the header. */
+  size_t ret = 1 /* tag */ + der_len_len(value_len) + value_len;
+  if (ret < value_len) {
+    return 0;
+  }
   return ret;
 }

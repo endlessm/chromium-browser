@@ -27,22 +27,14 @@
 #define MediaEncryptedEvent_h
 
 #include "modules/EventModules.h"
+#include "modules/encryptedmedia/MediaEncryptedEventInit.h"
 
 namespace blink {
-
-class DOMArrayBuffer;
-
-struct MediaEncryptedEventInit : public EventInit {
-    MediaEncryptedEventInit();
-
-    String initDataType;
-    RefPtr<DOMArrayBuffer> initData;
-};
 
 class MediaEncryptedEvent final : public Event {
     DEFINE_WRAPPERTYPEINFO();
 public:
-    virtual ~MediaEncryptedEvent();
+    ~MediaEncryptedEvent() override;
 
     static PassRefPtrWillBeRawPtr<MediaEncryptedEvent> create()
     {
@@ -54,12 +46,12 @@ public:
         return adoptRefWillBeNoop(new MediaEncryptedEvent(type, initializer));
     }
 
-    virtual const AtomicString& interfaceName() const override;
+    const AtomicString& interfaceName() const override;
 
     String initDataType() const { return m_initDataType; }
     DOMArrayBuffer* initData() const { return m_initData.get(); }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     MediaEncryptedEvent();

@@ -20,6 +20,7 @@
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/animation/throb_animation.h"
 #include "ui/gfx/canvas.h"
+#include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/image/image_skia_operations.h"
 #include "ui/gfx/skbitmap_operations.h"
@@ -97,7 +98,7 @@ class ShelfButtonAnimation : public gfx::AnimationDelegate {
   }
 
   gfx::ThrobAnimation animation_;
-  ObserverList<Observer> observers_;
+  base::ObserverList<Observer> observers_;
 
   DISALLOW_COPY_AND_ASSIGN(ShelfButtonAnimation);
 };
@@ -227,9 +228,9 @@ ShelfButton::ShelfButton(views::ButtonListener* listener,
   SetAccessibilityFocusable(true);
 
   const gfx::ShadowValue kShadows[] = {
-    gfx::ShadowValue(gfx::Point(0, 2), 0, SkColorSetARGB(0x1A, 0, 0, 0)),
-    gfx::ShadowValue(gfx::Point(0, 3), 1, SkColorSetARGB(0x1A, 0, 0, 0)),
-    gfx::ShadowValue(gfx::Point(0, 0), 1, SkColorSetARGB(0x54, 0, 0, 0)),
+      gfx::ShadowValue(gfx::Vector2d(0, 2), 0, SkColorSetARGB(0x1A, 0, 0, 0)),
+      gfx::ShadowValue(gfx::Vector2d(0, 3), 1, SkColorSetARGB(0x1A, 0, 0, 0)),
+      gfx::ShadowValue(gfx::Vector2d(0, 0), 1, SkColorSetARGB(0x54, 0, 0, 0)),
   };
   icon_shadows_.assign(kShadows, kShadows + arraysize(kShadows));
 
@@ -405,11 +406,16 @@ void ShelfButton::Layout() {
       icon_width = button_bounds.width() - (x_offset + kBarSize);
   }
 
-  icon_view_->SetBoundsRect(gfx::Rect(
-      button_bounds.x() + x_offset,
-      button_bounds.y() + y_offset,
-      icon_width,
-      icon_height));
+  // Expand bounds to include shadows.
+  gfx::Insets insets_shadows = gfx::ShadowValue::GetMargin(icon_shadows_);
+  // Adjust offsets to center icon, not icon + shadow.
+  x_offset += (insets_shadows.left() - insets_shadows.right()) / 2;
+  y_offset += (insets_shadows.top() - insets_shadows.bottom()) / 2;
+  gfx::Rect icon_view_bounds =
+      gfx::Rect(button_bounds.x() + x_offset, button_bounds.y() + y_offset,
+                icon_width, icon_height);
+  icon_view_bounds.Inset(insets_shadows);
+  icon_view_->SetBoundsRect(icon_view_bounds);
 
   // Icon size has been incorrect when running
   // PanelLayoutManagerTest.PanelAlignmentSecondDisplay on valgrind bot, see

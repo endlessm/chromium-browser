@@ -29,7 +29,6 @@
  */
 
 #include "config.h"
-
 #include "platform/image-decoders/ImageDecoder.h"
 
 #include "platform/image-decoders/ImageFrame.h"
@@ -38,7 +37,7 @@
 #include "wtf/Vector.h"
 #include <gtest/gtest.h>
 
-using namespace blink;
+namespace blink {
 
 class TestImageDecoder : public ImageDecoder {
 public:
@@ -47,8 +46,7 @@ public:
     {
     }
 
-    virtual String filenameExtension() const override { return ""; }
-    virtual ImageFrame* frameBufferAtIndex(size_t) override { return 0; }
+    String filenameExtension() const override { return ""; }
 
     Vector<ImageFrame, 1>& frameBufferCache()
     {
@@ -68,6 +66,10 @@ public:
         for (size_t i = 0; i < numFrames; ++i)
             m_frameBufferCache[i].setOriginalFrameRect(IntRect(0, 0, width, height));
     }
+
+private:
+    void decodeSize() override { }
+    void decode(size_t index) override { }
 };
 
 TEST(ImageDecoderTest, sizeCalculationMayOverflow)
@@ -247,3 +249,5 @@ TEST(ImageDecoderTest, clearCacheExceptFramePreverveClearExceptFrame)
             EXPECT_EQ(ImageFrame::FrameEmpty, frameBuffers[i].status());
     }
 }
+
+} // namespace blink

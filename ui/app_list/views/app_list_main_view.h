@@ -11,6 +11,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/timer/timer.h"
 #include "ui/app_list/app_list_export.h"
+#include "ui/app_list/app_list_model_observer.h"
 #include "ui/app_list/views/apps_grid_view_delegate.h"
 #include "ui/app_list/views/search_box_view_delegate.h"
 #include "ui/app_list/views/search_result_list_view_delegate.h"
@@ -26,7 +27,6 @@ class AppListItem;
 class AppListModel;
 class AppListViewDelegate;
 class ApplicationDragAndDropHost;
-class ContentsSwitcherView;
 class ContentsView;
 class PaginationModel;
 class SearchBoxView;
@@ -35,10 +35,10 @@ class SearchBoxView;
 // when the user is signed in.
 class APP_LIST_EXPORT AppListMainView : public views::View,
                                         public AppsGridViewDelegate,
+                                        public AppListModelObserver,
                                         public SearchBoxViewDelegate,
                                         public SearchResultListViewDelegate {
  public:
-  // Takes ownership of |delegate|.
   explicit AppListMainView(AppListViewDelegate* delegate);
   ~AppListMainView() override;
 
@@ -56,10 +56,6 @@ class APP_LIST_EXPORT AppListMainView : public views::View,
 
   void ModelChanged();
 
-  void UpdateSearchBoxVisibility();
-
-  void OnStartPageSearchTextfieldChanged(const base::string16& new_contents);
-
   SearchBoxView* search_box_view() const { return search_box_view_; }
 
   // If |drag_and_drop_host| is not NULL it will be called upon drag and drop
@@ -68,10 +64,8 @@ class APP_LIST_EXPORT AppListMainView : public views::View,
       ApplicationDragAndDropHost* drag_and_drop_host);
 
   ContentsView* contents_view() const { return contents_view_; }
-  ContentsSwitcherView* contents_switcher_view() const {
-    return contents_switcher_view_;
-  }
   AppListModel* model() { return model_; }
+  AppListViewDelegate* view_delegate() { return delegate_; }
 
   // Returns true if the app list should be centered and in landscape mode.
   bool ShouldCenterWindow() const;
@@ -79,10 +73,17 @@ class APP_LIST_EXPORT AppListMainView : public views::View,
   // Called when the search box's visibility is changed.
   void NotifySearchBoxVisibilityChanged();
 
+  bool ShouldShowCustomLauncherPage() const;
+  void UpdateCustomLauncherPageVisibility();
+
+  // Overridden from AppListModelObserver:
+  void OnCustomLauncherPageEnabledStateChanged(bool enabled) override;
+  void OnSearchEngineIsGoogleChanged(bool is_google) override;
+
  private:
   class IconLoader;
 
-  // Adds the ContentsView and the ContentsSwitcherView.
+  // Adds the ContentsView.
   void AddContentsViews();
 
   // Gets the PaginationModel owned by the AppsGridView.
@@ -107,10 +108,11 @@ class APP_LIST_EXPORT AppListMainView : public views::View,
 
   // Overridden from SearchBoxViewDelegate:
   void QueryChanged(SearchBoxView* sender) override;
+  void BackButtonPressed() override;
+  void SetSearchResultSelection(bool select) override;
 
   // Overridden from SearchResultListViewDelegate:
   void OnResultInstalled(SearchResult* result) override;
-  void OnResultUninstalled(SearchResult* result) override;
 
   AppListViewDelegate* delegate_;  // Owned by parent view (AppListView).
   AppListModel* model_;  // Unowned; ownership is handled by |delegate_|.
@@ -118,9 +120,6 @@ class APP_LIST_EXPORT AppListMainView : public views::View,
   // Created by AppListView. Owned by views hierarchy.
   SearchBoxView* search_box_view_;
   ContentsView* contents_view_;  // Owned by views hierarchy.
-
-  // Owned by views hierarchy. NULL in the non-experimental app list.
-  ContentsSwitcherView* contents_switcher_view_;
 
   // A timer that fires when maximum allowed time to wait for icon loading has
   // passed.

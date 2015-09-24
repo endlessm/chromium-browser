@@ -37,34 +37,33 @@
 #include "core/events/EventListener.h"
 #include "core/events/EventTarget.h"
 #include "modules/EventModules.h"
+#include "modules/ModulesExport.h"
 #include "modules/indexeddb/IDBAny.h"
 #include "modules/indexeddb/IDBTransaction.h"
 #include "modules/indexeddb/IndexedDB.h"
 #include "platform/blob/BlobData.h"
 #include "platform/heap/Handle.h"
 #include "public/platform/WebBlobInfo.h"
-#include "public/platform/WebIDBCursor.h"
-#include "public/platform/WebIDBTypes.h"
+#include "public/platform/modules/indexeddb/WebIDBCursor.h"
+#include "public/platform/modules/indexeddb/WebIDBTypes.h"
 
 namespace blink {
 
 class ExceptionState;
 class IDBCursor;
 struct IDBDatabaseMetadata;
-class SharedBuffer;
+class IDBValue;
 
-class IDBRequest
-    : public RefCountedGarbageCollectedWillBeGarbageCollectedFinalized<IDBRequest>
-    , public EventTargetWithInlineData
+class MODULES_EXPORT IDBRequest
+    : public RefCountedGarbageCollectedEventTargetWithInlineData<IDBRequest>
     , public ActiveDOMObject {
-    DEFINE_EVENT_TARGET_REFCOUNTING_WILL_BE_REMOVED(RefCountedGarbageCollected<IDBRequest>);
+    REFCOUNTED_GARBAGE_COLLECTED_EVENT_TARGET(IDBRequest);
     DEFINE_WRAPPERTYPEINFO();
-    WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(IDBRequest);
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(IDBRequest);
 public:
     static IDBRequest* create(ScriptState*, IDBAny* source, IDBTransaction*);
-    virtual ~IDBRequest();
-    virtual void trace(Visitor*) override;
+    ~IDBRequest() override;
+    DECLARE_VIRTUAL_TRACE();
 
     ScriptState* scriptState() { return m_scriptState.get(); }
     ScriptValue result(ExceptionState&);
@@ -86,20 +85,6 @@ public:
         EarlyDeath = 3
     };
 
-    class IDBBlobHolder {
-        WTF_MAKE_NONCOPYABLE(IDBBlobHolder);
-    public:
-        explicit IDBBlobHolder(PassOwnPtr<Vector<WebBlobInfo>>);
-        virtual ~IDBBlobHolder() { }
-
-        const Vector<WebBlobInfo>* getInfo() const { return m_blobInfo.get(); }
-        Vector<String> getUUIDs() const;
-
-    private:
-        OwnPtr<Vector<WebBlobInfo>> m_blobInfo;
-        OwnPtr<Vector<RefPtr<BlobDataHandle>>> m_blobData;
-    };
-
     const String& readyState() const;
 
     DEFINE_ATTRIBUTE_EVENT_LISTENER(success);
@@ -111,13 +96,13 @@ public:
 
     virtual void onError(DOMError*);
     virtual void onSuccess(const Vector<String>&);
-    virtual void onSuccess(PassOwnPtr<WebIDBCursor>, IDBKey*, IDBKey* primaryKey, PassRefPtr<SharedBuffer>, PassOwnPtr<Vector<WebBlobInfo> >);
+    virtual void onSuccess(PassOwnPtr<WebIDBCursor>, IDBKey*, IDBKey* primaryKey, PassRefPtr<IDBValue>);
     virtual void onSuccess(IDBKey*);
-    virtual void onSuccess(PassRefPtr<SharedBuffer>, PassOwnPtr<Vector<WebBlobInfo> >);
-    virtual void onSuccess(PassRefPtr<SharedBuffer>, PassOwnPtr<Vector<WebBlobInfo> >, IDBKey*, const IDBKeyPath&);
+    virtual void onSuccess(PassRefPtr<IDBValue>);
+    virtual void onSuccess(const Vector<RefPtr<IDBValue>>&);
     virtual void onSuccess(int64_t);
     virtual void onSuccess();
-    virtual void onSuccess(IDBKey*, IDBKey* primaryKey, PassRefPtr<SharedBuffer>, PassOwnPtr<Vector<WebBlobInfo> >);
+    virtual void onSuccess(IDBKey*, IDBKey* primaryKey, PassRefPtr<IDBValue>);
 
     // Only IDBOpenDBRequest instances should receive these:
     virtual void onBlocked(int64_t oldVersion) { ASSERT_NOT_REACHED(); }
@@ -125,16 +110,16 @@ public:
     virtual void onSuccess(PassOwnPtr<WebIDBDatabase>, const IDBDatabaseMetadata&) { ASSERT_NOT_REACHED(); }
 
     // ActiveDOMObject
-    virtual bool hasPendingActivity() const override final;
-    virtual void stop() override final;
+    bool hasPendingActivity() const final;
+    void stop() final;
 
     // EventTarget
-    virtual const AtomicString& interfaceName() const override;
-    virtual ExecutionContext* executionContext() const override final;
-    virtual void uncaughtExceptionInEventHandler() override final;
+    const AtomicString& interfaceName() const override;
+    ExecutionContext* executionContext() const final;
+    void uncaughtExceptionInEventHandler() final;
 
     using EventTarget::dispatchEvent;
-    virtual bool dispatchEvent(PassRefPtrWillBeRawPtr<Event>) override;
+    bool dispatchEvent(PassRefPtrWillBeRawPtr<Event>) override;
 
     // Called by a version change transaction that has finished to set this
     // request back from DONE (following "upgradeneeded") back to PENDING (for
@@ -157,8 +142,9 @@ protected:
     bool m_requestAborted; // May be aborted by transaction then receive async onsuccess; ignore vs. assert.
 
 private:
-    void setResultCursor(IDBCursor*, IDBKey*, IDBKey* primaryKey, PassRefPtr<SharedBuffer> value, PassOwnPtr<Vector<WebBlobInfo> >);
-    void setBlobInfo(PassOwnPtr<Vector<WebBlobInfo>>);
+    void setResultCursor(IDBCursor*, IDBKey*, IDBKey* primaryKey, PassRefPtr<IDBValue>);
+    void ackReceivedBlobs(const IDBValue*);
+    void ackReceivedBlobs(const Vector<RefPtr<IDBValue>>&);
 
     RefPtr<ScriptState> m_scriptState;
     Member<IDBAny> m_source;
@@ -166,7 +152,7 @@ private:
     Member<DOMError> m_error;
 
     bool m_hasPendingActivity;
-    WillBeHeapVector<RefPtrWillBeMember<Event> > m_enqueuedEvents;
+    WillBeHeapVector<RefPtrWillBeMember<Event>> m_enqueuedEvents;
 
     // Only used if the result type will be a cursor.
     IndexedDB::CursorType m_cursorType;
@@ -176,8 +162,7 @@ private:
     // New state is not applied to the cursor object until the event is dispatched.
     Member<IDBKey> m_cursorKey;
     Member<IDBKey> m_cursorPrimaryKey;
-    RefPtr<SharedBuffer> m_cursorValue;
-    OwnPtr<IDBBlobHolder> m_blobs;
+    RefPtr<IDBValue> m_cursorValue;
 
     bool m_didFireUpgradeNeededEvent;
     bool m_preventPropagation;

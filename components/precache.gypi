@@ -21,8 +21,6 @@
         # Note: sources list duplicated in GN build.
         'precache/content/precache_manager.cc',
         'precache/content/precache_manager.h',
-        'precache/content/precache_manager_factory.cc',
-        'precache/content/precache_manager_factory.h',
       ],
     },
     {
@@ -47,7 +45,6 @@
         'precache/core/precache_switches.h',
         'precache/core/precache_url_table.cc',
         'precache/core/precache_url_table.h',
-        'precache/core/url_list_provider.h',
       ],
       'includes': [ 'precache/precache_defines.gypi', ],
       'direct_dependent_settings': {
@@ -69,5 +66,32 @@
       },
       'includes': [ '../build/protoc.gypi', ],
     },
+  ],
+  'conditions': [
+    ['OS=="android"', {
+      'targets': [{
+        'target_name': 'precache_java',
+        'type': 'none',
+        'dependencies': [
+          '../base/base.gyp:base',
+          '../content/content.gyp:content_java',
+        ],
+        'variables': {
+          'java_in_dir': 'precache/android/java',
+        },
+        'includes': [ '../build/java.gypi' ],
+      }, {
+        'target_name': 'precache_javatests',
+        'type': 'none',
+        'dependencies': [
+          'precache_java',
+          '../base/base.gyp:base_java_test_support',
+        ],
+        'variables': {
+          'java_in_dir': 'precache/android/javatests',
+        },
+        'includes': [ '../build/java.gypi' ],
+      }],
+    }],
   ],
 }

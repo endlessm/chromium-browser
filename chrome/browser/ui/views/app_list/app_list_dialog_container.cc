@@ -28,6 +28,12 @@
 
 namespace {
 
+#if defined(OS_MACOSX)
+const ui::ModalType kModalType = ui::MODAL_TYPE_CHILD;
+#else
+const ui::ModalType kModalType = ui::MODAL_TYPE_WINDOW;
+#endif
+
 // The background for App List dialogs, which appears as a rounded rectangle
 // with the same border radius and color as the app list contents.
 class AppListOverlayBackground : public views::Background {
@@ -53,22 +59,69 @@ class AppListOverlayBackground : public views::Background {
   DISALLOW_COPY_AND_ASSIGN(AppListOverlayBackground);
 };
 
+// Base container for modal dialogs. Encases a content view in a modal dialog
+// with an accelerator to close on escape.
+class BaseDialogContainer : public views::DialogDelegateView {
+ public:
+  BaseDialogContainer(views::View* dialog_body,
+                      const base::Closure& close_callback)
+      : dialog_body_(dialog_body),
+        close_callback_(close_callback) {
+    AddChildView(dialog_body_);
+    // Since we are using a ClientView instead of a DialogClientView, we need to
+    // manually bind the escape key to close the dialog.
+    ui::Accelerator escape(ui::VKEY_ESCAPE, ui::EF_NONE);
+    AddAccelerator(escape);
+  }
+  ~BaseDialogContainer() override {}
+
+ protected:
+  views::View* dialog_body() { return dialog_body_; }
+
+ private:
+  // Overridden from views::View:
+  void ViewHierarchyChanged(
+      const ViewHierarchyChangedDetails& details) override {
+    views::DialogDelegateView::ViewHierarchyChanged(details);
+    if (details.is_add && details.child == this)
+      GetFocusManager()->AdvanceFocus(false);
+  }
+
+  bool AcceleratorPressed(const ui::Accelerator& accelerator) override {
+    DCHECK_EQ(accelerator.key_code(), ui::VKEY_ESCAPE);
+    GetWidget()->Close();
+    return true;
+  }
+
+  // Overridden from views::DialogDelegate:
+  int GetDialogButtons() const override { return ui::DIALOG_BUTTON_NONE; }
+
+  // Overridden from views::WidgetDelegate:
+  ui::ModalType GetModalType() const override { return kModalType; }
+  void WindowClosing() override {
+    if (!close_callback_.is_null())
+      close_callback_.Run();
+  }
+  views::ClientView* CreateClientView(views::Widget* widget) override {
+    return new views::ClientView(widget, GetContentsView());
+  }
+
+  views::View* dialog_body_;
+  const base::Closure close_callback_;
+
+  DISALLOW_COPY_AND_ASSIGN(BaseDialogContainer);
+};
+
 // The contents view for an App List Dialog, which covers the entire app list
 // and adds a close button.
-class AppListDialogContainer : public views::DialogDelegateView,
+class AppListDialogContainer : public BaseDialogContainer,
                                public views::ButtonListener {
  public:
   AppListDialogContainer(views::View* dialog_body,
                          const base::Closure& close_callback)
-      : dialog_body_(dialog_body),
-        close_button_(NULL),
-        close_callback_(close_callback) {
+      : BaseDialogContainer(dialog_body, close_callback) {
     set_background(new AppListOverlayBackground());
-    AddChildView(dialog_body_);
-
     close_button_ = views::BubbleFrameView::CreateCloseButton(this);
-    ui::Accelerator escape(ui::VKEY_ESCAPE, ui::EF_NONE);
-    close_button_->AddAccelerator(escape);
     AddChildView(close_button_);
   }
   ~AppListDialogContainer() override {}
@@ -83,26 +136,11 @@ class AppListDialogContainer : public views::DialogDelegateView,
         gfx::Point(width() - close_button_->width() - kCloseButtonDialogMargin,
                    kCloseButtonDialogMargin));
 
-    dialog_body_->SetBoundsRect(GetContentsBounds());
+    dialog_body()->SetBoundsRect(GetContentsBounds());
     views::DialogDelegateView::Layout();
-  }
-  void ViewHierarchyChanged(
-      const ViewHierarchyChangedDetails& details) override {
-    views::DialogDelegateView::ViewHierarchyChanged(details);
-    if (details.is_add && details.child == this)
-      GetFocusManager()->AdvanceFocus(false);
   }
 
   // Overridden from views::WidgetDelegate:
-  views::View* GetInitiallyFocusedView() override { return NULL; }
-  ui::ModalType GetModalType() const override { return ui::MODAL_TYPE_WINDOW; }
-  void WindowClosing() override {
-    if (!close_callback_.is_null())
-      close_callback_.Run();
-  }
-  views::ClientView* CreateClientView(views::Widget* widget) override {
-    return new views::ClientView(widget, GetContentsView());
-  }
   views::NonClientFrameView* CreateNonClientFrameView(
       views::Widget* widget) override {
     return new views::NativeFrameView(widget);
@@ -117,9 +155,7 @@ class AppListDialogContainer : public views::DialogDelegateView,
     }
   }
 
-  views::View* dialog_body_;
   views::LabelButton* close_button_;
-  const base::Closure close_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(AppListDialogContainer);
 };
@@ -138,8 +174,13 @@ class FullSizeBubbleFrameView : public views::BubbleFrameView {
                          const gfx::Rect& rect) const override {
     // Make sure click events can still reach the close button, even if the
     // ClientView overlaps it.
-    if (IsCloseButtonVisible() && GetCloseButtonBounds().Intersects(rect))
+    // NOTE: |rect| is in the mirrored coordinate space, so we must use the
+    // close button's mirrored bounds to correctly target the close button when
+    // in RTL mode.
+    if (IsCloseButtonVisible() &&
+        GetCloseButtonMirroredBounds().Intersects(rect)) {
       return true;
+    }
     return views::BubbleFrameView::DoesIntersectRect(target, rect);
   }
 
@@ -150,38 +191,22 @@ class FullSizeBubbleFrameView : public views::BubbleFrameView {
 };
 
 // A container view for a native dialog, which sizes to the given fixed |size|.
-class NativeDialogContainer : public views::DialogDelegateView {
+class NativeDialogContainer : public BaseDialogContainer {
  public:
   NativeDialogContainer(views::View* dialog_body,
                         const gfx::Size& size,
                         const base::Closure& close_callback)
-      : size_(size),
-        dialog_body_(dialog_body),
-        close_callback_(close_callback) {
+      : BaseDialogContainer(dialog_body, close_callback),
+        size_(size) {
     SetLayoutManager(new views::FillLayout());
-    AddChildView(dialog_body_);
   }
   ~NativeDialogContainer() override {}
 
  private:
   // Overridden from views::View:
   gfx::Size GetPreferredSize() const override { return size_; }
-  void ViewHierarchyChanged(
-      const ViewHierarchyChangedDetails& details) override {
-    views::DialogDelegateView::ViewHierarchyChanged(details);
-    if (details.is_add && details.child == this)
-      GetFocusManager()->AdvanceFocus(false);
-  }
 
   // Overridden from views::WidgetDelegate:
-  ui::ModalType GetModalType() const override { return ui::MODAL_TYPE_WINDOW; }
-  void WindowClosing() override {
-    if (!close_callback_.is_null())
-      close_callback_.Run();
-  }
-
-  // Overridden from views::DialogDelegate:
-  int GetDialogButtons() const override { return ui::DIALOG_BUTTON_NONE; }
   views::NonClientFrameView* CreateNonClientFrameView(
       views::Widget* widget) override {
     FullSizeBubbleFrameView* frame = new FullSizeBubbleFrameView();
@@ -195,8 +220,6 @@ class NativeDialogContainer : public views::DialogDelegateView {
   }
 
   const gfx::Size size_;
-  views::View* dialog_body_;
-  const base::Closure close_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(NativeDialogContainer);
 };

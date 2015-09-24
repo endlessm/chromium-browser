@@ -2,23 +2,25 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 from telemetry.page import page as page_module
-from telemetry.page import page_set as page_set_module
+from telemetry import story
 
 
 class ToughFiltersCasesPage(page_module.Page):
 
-  def RunSmoothness(self, action_runner):
-    action_runner.Wait(10)
+  def RunPageInteractions(self, action_runner):
+    with action_runner.CreateInteraction('Filter'):
+      action_runner.Wait(10)
 
 
 class PirateMarkPage(page_module.Page):
 
-  def RunSmoothness(self, action_runner):
-    action_runner.EvaluateJavaScript(
-        'document.getElementById("benchmarkButtonText").click()')
-    action_runner.Wait(10)
+  def RunPageInteractions(self, action_runner):
+    with action_runner.CreateInteraction('Filter'):
+      action_runner.EvaluateJavaScript(
+          'document.getElementById("benchmarkButtonText").click()')
+      action_runner.Wait(10)
 
-class ToughFiltersCasesPageSet(page_set_module.PageSet):
+class ToughFiltersCasesPageSet(story.StorySet):
 
   """
   Description: Self-driven filters animation examples
@@ -27,7 +29,7 @@ class ToughFiltersCasesPageSet(page_set_module.PageSet):
   def __init__(self):
     super(ToughFiltersCasesPageSet, self).__init__(
       archive_data_file='data/tough_filters_cases.json',
-      bucket=page_set_module.PARTNER_BUCKET)
+      cloud_storage_bucket=story.PARTNER_BUCKET)
 
     urls_list = [
       'http://letmespellitoutforyou.com/samples/svg/filter_terrain.svg',
@@ -35,7 +37,7 @@ class ToughFiltersCasesPageSet(page_set_module.PageSet):
     ]
 
     for url in urls_list:
-      self.AddPage(ToughFiltersCasesPage(url, self))
+      self.AddStory(ToughFiltersCasesPage(url, self))
 
-    self.AddPage(PirateMarkPage(
+    self.AddStory(PirateMarkPage(
         'http://ie.microsoft.com/testdrive/Performance/Pirates/', self))

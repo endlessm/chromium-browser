@@ -9,6 +9,7 @@
 #include "base/memory/scoped_vector.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
@@ -19,6 +20,7 @@
 #include "net/cookies/cookie_util.h"
 #include "net/ssl/ssl_client_cert_type.h"
 #include "net/test/cert_test_util.h"
+#include "net/test/channel_id_test_util.h"
 #include "sql/statement.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -45,28 +47,6 @@ class QuotaPolicyChannelIDStoreTest : public testing::Test {
   }
 
  protected:
-  static base::Time GetTestCertExpirationTime() {
-    // Cert expiration time from 'dumpasn1 unittest.originbound.der':
-    // GeneralizedTime 19/11/2111 02:23:45 GMT
-    // base::Time::FromUTCExploded can't generate values past 2038 on 32-bit
-    // linux, so we use the raw value here.
-    return base::Time::FromInternalValue(GG_INT64_C(16121816625000000));
-  }
-
-  static base::Time GetTestCertCreationTime() {
-    // UTCTime 13/12/2011 02:23:45 GMT
-    base::Time::Exploded exploded_time;
-    exploded_time.year = 2011;
-    exploded_time.month = 12;
-    exploded_time.day_of_week = 0;  // Unused.
-    exploded_time.day_of_month = 13;
-    exploded_time.hour = 2;
-    exploded_time.minute = 23;
-    exploded_time.second = 45;
-    exploded_time.millisecond = 0;
-    return base::Time::FromUTCExploded(exploded_time);
-  }
-
   void SetUp() override {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
     store_ = new QuotaPolicyChannelIDStore(
@@ -76,13 +56,6 @@ class QuotaPolicyChannelIDStoreTest : public testing::Test {
     ScopedVector<net::DefaultChannelIDStore::ChannelID> channel_ids;
     Load(&channel_ids);
     ASSERT_EQ(0u, channel_ids.size());
-    // Make sure the store gets written at least once.
-    store_->AddChannelID(
-        net::DefaultChannelIDStore::ChannelID("google.com",
-                                              base::Time::FromInternalValue(1),
-                                              base::Time::FromInternalValue(2),
-                                              "a",
-                                              "b"));
   }
 
   void TearDown() override {
@@ -98,12 +71,14 @@ class QuotaPolicyChannelIDStoreTest : public testing::Test {
 
 // Test if data is stored as expected in the QuotaPolicy database.
 TEST_F(QuotaPolicyChannelIDStoreTest, TestPersistence) {
-  store_->AddChannelID(
-      net::DefaultChannelIDStore::ChannelID("foo.com",
-                                            base::Time::FromInternalValue(3),
-                                            base::Time::FromInternalValue(4),
-                                            "c",
-                                            "d"));
+  scoped_ptr<crypto::ECPrivateKey> goog_key(crypto::ECPrivateKey::Create());
+  scoped_ptr<crypto::ECPrivateKey> foo_key(crypto::ECPrivateKey::Create());
+  store_->AddChannelID(net::DefaultChannelIDStore::ChannelID(
+      "google.com", base::Time::FromInternalValue(1),
+      make_scoped_ptr(goog_key->Copy())));
+  store_->AddChannelID(net::DefaultChannelIDStore::ChannelID(
+      "foo.com", base::Time::FromInternalValue(3),
+      make_scoped_ptr(foo_key->Copy())));
 
   ScopedVector<net::DefaultChannelIDStore::ChannelID> channel_ids;
   // Replace the store effectively destroying the current one and forcing it
@@ -114,7 +89,7 @@ TEST_F(QuotaPolicyChannelIDStoreTest, TestPersistence) {
   base::RunLoop().RunUntilIdle();
   store_ = new QuotaPolicyChannelIDStore(
       temp_dir_.path().Append(kTestChannelIDFilename),
-      base::MessageLoopProxy::current(),
+      base::ThreadTaskRunnerHandle::Get(),
       NULL);
 
   // Reload and test for persistence
@@ -130,17 +105,13 @@ TEST_F(QuotaPolicyChannelIDStoreTest, TestPersistence) {
     foo_channel_id = channel_ids[0];
   }
   ASSERT_EQ("google.com", goog_channel_id->server_identifier());
-  ASSERT_STREQ("a", goog_channel_id->private_key().c_str());
-  ASSERT_STREQ("b", goog_channel_id->cert().c_str());
+  EXPECT_TRUE(net::KeysEqual(goog_key.get(), goog_channel_id->key()));
   ASSERT_EQ(1, goog_channel_id->creation_time().ToInternalValue());
-  ASSERT_EQ(2, goog_channel_id->expiration_time().ToInternalValue());
   ASSERT_EQ("foo.com", foo_channel_id->server_identifier());
-  ASSERT_STREQ("c", foo_channel_id->private_key().c_str());
-  ASSERT_STREQ("d", foo_channel_id->cert().c_str());
+  EXPECT_TRUE(net::KeysEqual(foo_key.get(), foo_channel_id->key()));
   ASSERT_EQ(3, foo_channel_id->creation_time().ToInternalValue());
-  ASSERT_EQ(4, foo_channel_id->expiration_time().ToInternalValue());
 
-  // Now delete the cert and check persistence again.
+  // Now delete the channel ID and check persistence again.
   store_->DeleteChannelID(*channel_ids[0]);
   store_->DeleteChannelID(*channel_ids[1]);
   store_ = NULL;
@@ -149,22 +120,22 @@ TEST_F(QuotaPolicyChannelIDStoreTest, TestPersistence) {
   channel_ids.clear();
   store_ = new QuotaPolicyChannelIDStore(
       temp_dir_.path().Append(kTestChannelIDFilename),
-      base::MessageLoopProxy::current(),
+      base::ThreadTaskRunnerHandle::Get(),
       NULL);
 
-  // Reload and check if the cert has been removed.
+  // Reload and check if the channel ID has been removed.
   Load(&channel_ids);
   ASSERT_EQ(0U, channel_ids.size());
 }
 
 // Test if data is stored as expected in the QuotaPolicy database.
 TEST_F(QuotaPolicyChannelIDStoreTest, TestPolicy) {
-  store_->AddChannelID(
-      net::DefaultChannelIDStore::ChannelID("foo.com",
-                                            base::Time::FromInternalValue(3),
-                                            base::Time::FromInternalValue(4),
-                                            "c",
-                                            "d"));
+  store_->AddChannelID(net::DefaultChannelIDStore::ChannelID(
+      "google.com", base::Time::FromInternalValue(1),
+      make_scoped_ptr(crypto::ECPrivateKey::Create())));
+  store_->AddChannelID(net::DefaultChannelIDStore::ChannelID(
+      "nonpersistent.com", base::Time::FromInternalValue(3),
+      make_scoped_ptr(crypto::ECPrivateKey::Create())));
 
   ScopedVector<net::DefaultChannelIDStore::ChannelID> channel_ids;
   // Replace the store effectively destroying the current one and forcing it
@@ -173,31 +144,46 @@ TEST_F(QuotaPolicyChannelIDStoreTest, TestPolicy) {
   store_ = NULL;
   // Make sure we wait until the destructor has run.
   base::RunLoop().RunUntilIdle();
-  // Specify storage policy that makes "foo.com" session only.
+  // Specify storage policy that makes "nonpersistent.com" session only.
   scoped_refptr<content::MockSpecialStoragePolicy> storage_policy =
       new content::MockSpecialStoragePolicy();
   storage_policy->AddSessionOnly(
-      net::cookie_util::CookieOriginToURL("foo.com", true));
-  // Reload store, it should still have both channel ids.
+      net::cookie_util::CookieOriginToURL("nonpersistent.com", true));
+  // Reload store, it should still have both channel IDs.
   store_ = new QuotaPolicyChannelIDStore(
       temp_dir_.path().Append(kTestChannelIDFilename),
-      base::MessageLoopProxy::current(),
+      base::ThreadTaskRunnerHandle::Get(),
       storage_policy);
   Load(&channel_ids);
   ASSERT_EQ(2U, channel_ids.size());
 
-  // Now close the store, and "foo.com" should be deleted according to policy.
+  // Add another two channel IDs before closing the store. Because additions are
+  // delayed and committed to disk in batches, these will not be committed until
+  // the store is destroyed, which is after the policy is applied. The pending
+  // operation pruning logic should prevent the "nonpersistent.com" ID from
+  // being committed to disk.
+  store_->AddChannelID(net::DefaultChannelIDStore::ChannelID(
+      "nonpersistent.com", base::Time::FromInternalValue(5),
+      make_scoped_ptr(crypto::ECPrivateKey::Create())));
+  store_->AddChannelID(net::DefaultChannelIDStore::ChannelID(
+      "persistent.com", base::Time::FromInternalValue(7),
+      make_scoped_ptr(crypto::ECPrivateKey::Create())));
+
+  // Now close the store, and the nonpersistent.com channel IDs should be
+  // deleted according to policy.
   store_ = NULL;
   // Make sure we wait until the destructor has run.
   base::RunLoop().RunUntilIdle();
   channel_ids.clear();
   store_ = new QuotaPolicyChannelIDStore(
       temp_dir_.path().Append(kTestChannelIDFilename),
-      base::MessageLoopProxy::current(),
+      base::ThreadTaskRunnerHandle::Get(),
       NULL);
 
-  // Reload and check that the "foo.com" cert has been removed.
+  // Reload and check that the nonpersistent.com channel IDs have been removed.
   Load(&channel_ids);
-  ASSERT_EQ(1U, channel_ids.size());
-  ASSERT_EQ("google.com", channel_ids[0]->server_identifier());
+  ASSERT_EQ(2U, channel_ids.size());
+  for (const auto& id : channel_ids) {
+    ASSERT_NE("nonpersistent.com", id->server_identifier());
+  }
 }

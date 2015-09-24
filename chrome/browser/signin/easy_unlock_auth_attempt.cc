@@ -4,13 +4,12 @@
 
 #include "chrome/browser/signin/easy_unlock_auth_attempt.h"
 
+#include "base/bind.h"
 #include "base/logging.h"
-#include "chrome/browser/extensions/api/screenlock_private/screenlock_private_api.h"
-#include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/signin/screenlock_bridge.h"
+#include "chrome/browser/signin/easy_unlock_app_manager.h"
+#include "components/proximity_auth/screenlock_bridge.h"
 #include "crypto/encryptor.h"
 #include "crypto/symmetric_key.h"
-
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_key_manager.h"
@@ -45,15 +44,54 @@ std::string UnwrapSecret(const std::string& wrapped_secret,
   return secret;
 }
 
+void DefaultAuthAttemptFinalizedHandler(
+    EasyUnlockAuthAttempt::Type auth_attempt_type,
+    bool success,
+    const std::string& user_id,
+    const std::string& key_secret,
+    const std::string& key_label) {
+  if (!proximity_auth::ScreenlockBridge::Get()->IsLocked())
+    return;
+
+  switch (auth_attempt_type) {
+    case EasyUnlockAuthAttempt::TYPE_UNLOCK:
+      if (success) {
+        proximity_auth::ScreenlockBridge::Get()->lock_handler()->Unlock(
+            user_id);
+      } else {
+        proximity_auth::ScreenlockBridge::Get()->lock_handler()->EnableInput();
+      }
+      return;
+    case EasyUnlockAuthAttempt::TYPE_SIGNIN:
+      if (success) {
+        proximity_auth::ScreenlockBridge::Get()
+            ->lock_handler()
+            ->AttemptEasySignin(user_id, key_secret, key_label);
+      } else {
+        // Attempting signin with an empty secret is equivalent to canceling the
+        // attempt.
+        proximity_auth::ScreenlockBridge::Get()
+            ->lock_handler()
+            ->AttemptEasySignin(user_id, std::string(), std::string());
+      }
+      return;
+  }
+}
+
 }  // namespace
 
-EasyUnlockAuthAttempt::EasyUnlockAuthAttempt(Profile* profile,
-                                             const std::string& user_id,
-                                             Type type)
-    : profile_(profile),
+EasyUnlockAuthAttempt::EasyUnlockAuthAttempt(
+    EasyUnlockAppManager* app_manager,
+    const std::string& user_id,
+    Type type,
+    const FinalizedCallback& finalized_callback)
+    : app_manager_(app_manager),
       state_(STATE_IDLE),
       user_id_(user_id),
-      type_(type) {
+      type_(type),
+      finalized_callback_(finalized_callback) {
+  if (finalized_callback_.is_null())
+    finalized_callback_ = base::Bind(&DefaultAuthAttemptFinalizedHandler);
 }
 
 EasyUnlockAuthAttempt::~EasyUnlockAuthAttempt() {
@@ -61,34 +99,29 @@ EasyUnlockAuthAttempt::~EasyUnlockAuthAttempt() {
     Cancel(user_id_);
 }
 
-bool EasyUnlockAuthAttempt::Start(const std::string& user_id) {
-  DCHECK(state_ == STATE_IDLE);
+bool EasyUnlockAuthAttempt::Start() {
+  DCHECK_EQ(STATE_IDLE, state_);
 
-  if (!ScreenlockBridge::Get()->IsLocked())
+  if (!proximity_auth::ScreenlockBridge::Get()->IsLocked())
     return false;
 
-  if (user_id != user_id_) {
-    Cancel(user_id);
-    return false;
-  }
+  proximity_auth::ScreenlockBridge::LockHandler::AuthType auth_type =
+      proximity_auth::ScreenlockBridge::Get()->lock_handler()->GetAuthType(
+          user_id_);
 
-  ScreenlockBridge::LockHandler::AuthType auth_type =
-      ScreenlockBridge::Get()->lock_handler()->GetAuthType(user_id);
-
-  if (auth_type != ScreenlockBridge::LockHandler::USER_CLICK) {
-    Cancel(user_id);
+  if (auth_type != proximity_auth::ScreenlockBridge::LockHandler::USER_CLICK) {
+    Cancel(user_id_);
     return false;
   }
 
   state_ = STATE_RUNNING;
 
-  // TODO(tbarzic): Replace this with an easyUnlockPrivate event that will
-  // report more context to the app (e.g. user id, whether the attempt is for
-  // signin or unlock).
-  extensions::ScreenlockPrivateEventRouter* router =
-      extensions::ScreenlockPrivateEventRouter::GetFactoryInstance()->Get(
-          profile_);
-  return router->OnAuthAttempted(auth_type, "");
+  if (!app_manager_->SendAuthAttemptEvent()) {
+    Cancel(user_id_);
+    return false;
+  }
+
+  return true;
 }
 
 void EasyUnlockAuthAttempt::FinalizeUnlock(const std::string& user_id,
@@ -96,20 +129,16 @@ void EasyUnlockAuthAttempt::FinalizeUnlock(const std::string& user_id,
   if (state_ != STATE_RUNNING || user_id != user_id_)
     return;
 
+  if (!proximity_auth::ScreenlockBridge::Get()->IsLocked())
+    return;
+
   if (type_ != TYPE_UNLOCK) {
     Cancel(user_id_);
     return;
   }
 
-  if (!ScreenlockBridge::Get()->IsLocked())
-    return;
-
-  if (success) {
-    ScreenlockBridge::Get()->lock_handler()->Unlock(user_id_);
-  } else {
-    ScreenlockBridge::Get()->lock_handler()->EnableInput();
-  }
-
+  finalized_callback_.Run(type_, success, user_id, std::string(),
+                          std::string());
   state_ = STATE_DONE;
 }
 
@@ -119,14 +148,18 @@ void EasyUnlockAuthAttempt::FinalizeSignin(const std::string& user_id,
   if (state_ != STATE_RUNNING || user_id != user_id_)
     return;
 
+  if (!proximity_auth::ScreenlockBridge::Get()->IsLocked())
+    return;
+
   if (type_ != TYPE_SIGNIN) {
     Cancel(user_id_);
     return;
   }
 
-  if (!ScreenlockBridge::Get()->IsLocked())
+  if (wrapped_secret.empty()) {
+    Cancel(user_id_);
     return;
-
+  }
 
   std::string unwrapped_secret = UnwrapSecret(wrapped_secret, raw_session_key);
 
@@ -135,17 +168,16 @@ void EasyUnlockAuthAttempt::FinalizeSignin(const std::string& user_id,
   key_label = chromeos::EasyUnlockKeyManager::GetKeyLabel(0u);
 #endif  // defined(OS_CHROMEOS)
 
-  ScreenlockBridge::Get()->lock_handler()->AttemptEasySignin(
-      user_id,
-      unwrapped_secret,
-      key_label);
+  const bool kSuccess = true;
+  finalized_callback_.Run(type_, kSuccess, user_id, unwrapped_secret,
+                          key_label);
   state_ = STATE_DONE;
 }
 
 void EasyUnlockAuthAttempt::Cancel(const std::string& user_id) {
-  if (type_ == TYPE_UNLOCK)
-    FinalizeUnlock(user_id, false);
-  else
-    FinalizeSignin(user_id, "", "");
   state_ = STATE_DONE;
+
+  const bool kFailure = false;
+  finalized_callback_.Run(type_, kFailure, user_id, std::string(),
+                          std::string());
 }

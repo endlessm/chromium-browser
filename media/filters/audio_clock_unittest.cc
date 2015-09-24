@@ -19,7 +19,7 @@ class AudioClockTest : public testing::Test {
   void WroteAudio(int frames_written,
                   int frames_requested,
                   int delay_frames,
-                  float playback_rate) {
+                  double playback_rate) {
     clock_.WroteAudio(
         frames_written, frames_requested, delay_frames, playback_rate);
   }
@@ -32,11 +32,6 @@ class AudioClockTest : public testing::Test {
 
   int BackTimestampInMilliseconds() {
     return clock_.back_timestamp().InMilliseconds();
-  }
-
-  int TimestampSinceLastWritingInMilliseconds(int milliseconds) {
-    return clock_.TimestampSinceWriting(base::TimeDelta::FromMilliseconds(
-                                            milliseconds)).InMilliseconds();
   }
 
   int TimeUntilPlaybackInMilliseconds(int timestamp_ms) {
@@ -76,14 +71,6 @@ TEST_F(AudioClockTest, BackTimestampStartsAtStartTimestamp) {
   AudioClock clock(expected, sample_rate_);
 
   EXPECT_EQ(expected, clock.back_timestamp());
-}
-
-TEST_F(AudioClockTest, TimestampSinceWritingStartsAtStartTimestamp) {
-  base::TimeDelta expected = base::TimeDelta::FromSeconds(123);
-  AudioClock clock(expected, sample_rate_);
-
-  base::TimeDelta time_since_writing = base::TimeDelta::FromSeconds(456);
-  EXPECT_EQ(expected, clock.TimestampSinceWriting(time_since_writing));
 }
 
 TEST_F(AudioClockTest, ContiguousAudioDataBufferedStartsAtZero) {
@@ -280,47 +267,6 @@ TEST_F(AudioClockTest, ZeroDelay) {
   EXPECT_EQ(0, ContiguousAudioDataBufferedInMilliseconds());
 }
 
-TEST_F(AudioClockTest, TimestampSinceLastWriting) {
-  // Construct an audio clock with the following representation:
-  //
-  // |- existing  delay -|------------ calls to WroteAudio() -----------------|
-  // +-------------------+----------------+------------------+----------------+
-  // | 20 frames silence | 10 frames @ 1x | 10 frames @ 0.5x | 10 frames @ 2x |
-  // +-------------------+----------------+------------------+----------------+
-  // Media timestamp:    0              1000               1500             3500
-  // Wall clock time:  2000             3000               4000             5000
-  WroteAudio(10, 10, 40, 1.0);
-  WroteAudio(10, 10, 40, 0.5);
-  WroteAudio(10, 10, 40, 2.0);
-  EXPECT_EQ(0, FrontTimestampInMilliseconds());
-  EXPECT_EQ(3500, BackTimestampInMilliseconds());
-  EXPECT_EQ(0, ContiguousAudioDataBufferedInMilliseconds());
-
-  // Simulate passing 2000ms of initial delay in the audio hardware.
-  EXPECT_EQ(0, TimestampSinceLastWritingInMilliseconds(0));
-  EXPECT_EQ(0, TimestampSinceLastWritingInMilliseconds(500));
-  EXPECT_EQ(0, TimestampSinceLastWritingInMilliseconds(1000));
-  EXPECT_EQ(0, TimestampSinceLastWritingInMilliseconds(1500));
-  EXPECT_EQ(0, TimestampSinceLastWritingInMilliseconds(2000));
-
-  // Now we should see the 1.0x buffer.
-  EXPECT_EQ(500, TimestampSinceLastWritingInMilliseconds(2500));
-  EXPECT_EQ(1000, TimestampSinceLastWritingInMilliseconds(3000));
-
-  // Now we should see the 0.5x buffer.
-  EXPECT_EQ(1250, TimestampSinceLastWritingInMilliseconds(3500));
-  EXPECT_EQ(1500, TimestampSinceLastWritingInMilliseconds(4000));
-
-  // Now we should see the 2.0x buffer.
-  EXPECT_EQ(2500, TimestampSinceLastWritingInMilliseconds(4500));
-  EXPECT_EQ(3500, TimestampSinceLastWritingInMilliseconds(5000));
-
-  // Times beyond the known length of the audio clock should return the last
-  // media timestamp we know of.
-  EXPECT_EQ(3500, TimestampSinceLastWritingInMilliseconds(5001));
-  EXPECT_EQ(3500, TimestampSinceLastWritingInMilliseconds(6000));
-}
-
 TEST_F(AudioClockTest, TimeUntilPlayback) {
   // Construct an audio clock with the following representation:
   //
@@ -382,6 +328,32 @@ TEST_F(AudioClockTest, SupportsYearsWorthOfAudioData) {
       huge_amount_of_frames, huge_amount_of_frames, huge_amount_of_frames, 1.0);
   EXPECT_EQ((huge * 3).InDays(), FrontTimestampInDays());
   EXPECT_EQ((huge * 2).InDays(), ContiguousAudioDataBufferedInDays());
+}
+
+TEST_F(AudioClockTest, CompensateForSuspendedWrites) {
+  // Buffer 6 seconds of delay and 1 second of audio data.
+  WroteAudio(10, 10, 60, 1.0);
+
+  // Media timestamp zero has to wait for silence to pass.
+  const int kBaseTimeMs = 6000;
+  EXPECT_EQ(kBaseTimeMs, TimeUntilPlaybackInMilliseconds(0));
+
+  // Elapsing frames less than we have buffered should do nothing.
+  const int kDelayFrames = 2;
+  for (int i = 1000; i <= kBaseTimeMs; i += 1000) {
+    clock_.CompensateForSuspendedWrites(base::TimeDelta::FromMilliseconds(i),
+                                        kDelayFrames);
+    EXPECT_EQ(kBaseTimeMs - (i - 1000), TimeUntilPlaybackInMilliseconds(0));
+
+    // Write silence to simulate maintaining a 7s output buffer.
+    WroteAudio(0, 10, 60, 1.0);
+  }
+
+  // Exhausting all frames should advance timestamps and prime the buffer with
+  // our delay frames value.
+  clock_.CompensateForSuspendedWrites(base::TimeDelta::FromMilliseconds(7000),
+                                      kDelayFrames);
+  EXPECT_EQ(kDelayFrames * 100, TimeUntilPlaybackInMilliseconds(1000));
 }
 
 }  // namespace media

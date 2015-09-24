@@ -2,11 +2,12 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from telemetry.page import page_test
+
 from metrics import cpu
 from metrics import media
-from metrics import system_memory
 from metrics import power
-from telemetry.page import page_test
+from metrics import system_memory
 
 
 class Media(page_test.PageTest):
@@ -17,7 +18,7 @@ class Media(page_test.PageTest):
   """
 
   def __init__(self):
-    super(Media, self).__init__('RunPageInteractions')
+    super(Media, self).__init__()
     self._media_metric = None
     # Used to add browser power and CPU metrics to results per test.
     self._add_browser_metrics = False

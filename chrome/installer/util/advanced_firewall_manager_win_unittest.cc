@@ -5,7 +5,7 @@
 #include "chrome/installer/util/advanced_firewall_manager_win.h"
 
 #include "base/path_service.h"
-#include "base/process/process_handle.h"
+#include "base/process/process_info.h"
 #include "base/win/scoped_bstr.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -17,13 +17,11 @@ class AdvancedFirewallManagerTest : public ::testing::Test {
 
  protected:
   // Sets up the test fixture.
-  virtual void SetUp() override {
-    base::IntegrityLevel level = base::INTEGRITY_UNKNOWN;
-    if (!GetProcessIntegrityLevel(base::GetCurrentProcessHandle(), &level) ||
-        level != base::HIGH_INTEGRITY) {
+  void SetUp() override {
+    if (base::GetCurrentProcessIntegrityLevel() != base::HIGH_INTEGRITY) {
       LOG(WARNING) << "XP or not elevated. Skipping the test.";
       return;
-    };
+    }
     skip_test_ = false;
     base::FilePath exe_path;
     PathService::Get(base::FILE_EXE, &exe_path);
@@ -32,7 +30,7 @@ class AdvancedFirewallManagerTest : public ::testing::Test {
   }
 
   // Tears down the test fixture.
-  virtual void TearDown() override {
+  void TearDown() override {
     if (!skip_test_)
       manager_.DeleteAllRules();
   }

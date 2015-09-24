@@ -111,7 +111,7 @@ bool AvatarMenuButton::GetAvatarImages(Profile* profile,
 #if !defined(OS_CHROMEOS)
     bool is_badge_rectangle = false;
     // The taskbar badge should be the profile avatar, not the OTR avatar.
-    AvatarMenu::GetImageForMenuButton(profile,
+    AvatarMenu::GetImageForMenuButton(profile->GetPath(),
                                       taskbar_badge_avatar,
                                       &is_badge_rectangle);
 #endif
@@ -131,12 +131,14 @@ bool AvatarMenuButton::GetAvatarImages(Profile* profile,
       // AvatarMenu::GetImageForMenuButton().
 #if !defined(OS_CHROMEOS)
       bool is_badge_rectangle = false;
-      AvatarMenu::GetImageForMenuButton(profile,
+      AvatarMenu::GetImageForMenuButton(profile->GetPath(),
                                         taskbar_badge_avatar,
                                         &is_badge_rectangle);
 #endif
     } else {
-      AvatarMenu::GetImageForMenuButton(profile, avatar, is_rectangle);
+      AvatarMenu::GetImageForMenuButton(profile->GetPath(),
+                                        avatar,
+                                        is_rectangle);
     }
   }
   return true;

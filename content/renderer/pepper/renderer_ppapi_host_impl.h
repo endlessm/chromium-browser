@@ -91,6 +91,8 @@ class RendererPpapiHostImpl : public RendererPpapiHost {
   IPC::PlatformFileForTransit ShareHandleWithRemote(
       base::PlatformFile handle,
       bool should_close_source) override;
+  base::SharedMemoryHandle ShareSharedMemoryHandleWithRemote(
+      const base::SharedMemoryHandle& handle) override;
   bool IsRunningInProcess() const override;
   std::string GetPluginName() const override;
   void SetToExternalPluginHost() override;
@@ -99,7 +101,7 @@ class RendererPpapiHostImpl : public RendererPpapiHost {
       const std::vector<IPC::Message>& nested_msgs,
       const base::Callback<void(const std::vector<int>&)>& callback)
       const override;
-  GURL GetDocumentURL(PP_Instance instance) const override;
+  GURL GetDocumentURL(PP_Instance pp_instance) const override;
 
  private:
   RendererPpapiHostImpl(PluginModule* module,

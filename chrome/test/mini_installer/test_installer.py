@@ -168,16 +168,18 @@ def RunCommand(command, variable_expander):
         expanded_command, exit_status))
 
 
-def DeleteGoogleUpdateRegistration(system_level, variable_expander):
+def DeleteGoogleUpdateRegistration(system_level, registry_subkey,
+                                   variable_expander):
   """Deletes Chrome's registration with Google Update.
 
   Args:
     system_level: True if system-level Chrome is to be deleted.
+    registry_subkey: The pre-expansion registry subkey for the product.
     variable_expander: A VariableExpander object.
   """
   root = (_winreg.HKEY_LOCAL_MACHINE if system_level
           else _winreg.HKEY_CURRENT_USER)
-  key_name = variable_expander.Expand('$CHROME_UPDATE_REGISTRY_SUBKEY')
+  key_name = variable_expander.Expand(registry_subkey)
   try:
     key_handle = _winreg.OpenKey(root, key_name, 0,
                                  _winreg.KEY_SET_VALUE |
@@ -196,17 +198,28 @@ def RunCleanCommand(force_clean, variable_expander):
         installations.
     variable_expander: A VariableExpander object.
   """
-  # TODO(sukolsak): Handle Chrome SxS installs.
+  # A list of (system_level, product_name, product_switch, registry_subkey)
+  # tuples for the possible installed products.
+  data = [
+    (False, '$CHROME_LONG_NAME', '',
+     '$CHROME_UPDATE_REGISTRY_SUBKEY'),
+    (True, '$CHROME_LONG_NAME', '--system-level',
+     '$CHROME_UPDATE_REGISTRY_SUBKEY'),
+  ]
+  if variable_expander.Expand('$SUPPORTS_SXS') == 'True':
+    data.append((False, '$CHROME_LONG_NAME_SXS', '',
+                 '$CHROME_UPDATE_REGISTRY_SUBKEY_SXS'))
+
   interactive_option = '--interactive' if not force_clean else ''
-  for system_level in (False, True):
-    level_option = '--system-level' if system_level else ''
+  for system_level, product_name, product_switch, registry_subkey in data:
     command = ('python uninstall_chrome.py '
-               '--chrome-long-name="$CHROME_LONG_NAME" '
+               '--chrome-long-name="%s" '
                '--no-error-if-absent %s %s' %
-               (level_option, interactive_option))
+               (product_name, product_switch, interactive_option))
     RunCommand(command, variable_expander)
     if force_clean:
-      DeleteGoogleUpdateRegistration(system_level, variable_expander)
+      DeleteGoogleUpdateRegistration(system_level, registry_subkey,
+                                     variable_expander)
 
 
 def MergePropertyDictionaries(current_property, new_property):
@@ -233,13 +246,31 @@ def MergePropertyDictionaries(current_property, new_property):
           current_property[key].items() + value.items())
 
 
-def ParsePropertyFiles(directory, filenames):
+def FilterConditionalElem(elem, condition_name, variable_expander):
+  """Returns True if a conditional element should be processed.
+
+  Args:
+    elem: A dictionary.
+    condition_name: The name of the condition property in |elem|.
+    variable_expander: A variable expander used to evaluate conditions.
+
+  Returns:
+    True if |elem| should be processed.
+  """
+  if condition_name not in elem:
+    return True
+  condition = variable_expander.Expand(elem[condition_name])
+  return eval(condition, {'__builtins__': {'False': False, 'True': True}})
+
+
+def ParsePropertyFiles(directory, filenames, variable_expander):
   """Parses an array of .prop files.
 
   Args:
-    property_filenames: An array of Property filenames.
     directory: The directory where the Config file and all Property files
         reside in.
+    filenames: An array of Property filenames.
+    variable_expander: A variable expander used to evaluate conditions.
 
   Returns:
     A property dictionary created by merging all property dictionaries specified
@@ -249,11 +280,17 @@ def ParsePropertyFiles(directory, filenames):
   for filename in filenames:
     path = os.path.join(directory, filename)
     new_property = json.load(open(path))
+    if not FilterConditionalElem(new_property, 'Condition', variable_expander):
+      continue
+    # Remove any Condition from the propery dict before merging since it serves
+    # no purpose from here on out.
+    if 'Condition' in new_property:
+      del new_property['Condition']
     MergePropertyDictionaries(current_property, new_property)
   return current_property
 
 
-def ParseConfigFile(filename):
+def ParseConfigFile(filename, variable_expander):
   """Parses a .config file.
 
   Args:
@@ -268,26 +305,17 @@ def ParseConfigFile(filename):
 
   config = Config()
   config.tests = config_data['tests']
+  # Drop conditional tests that should not be run in the current configuration.
+  config.tests = filter(lambda t: FilterConditionalElem(t, 'condition',
+                                                        variable_expander),
+                        config.tests)
   for state_name, state_property_filenames in config_data['states']:
     config.states[state_name] = ParsePropertyFiles(directory,
-                                                   state_property_filenames)
+                                                   state_property_filenames,
+                                                   variable_expander)
   for action_name, action_command in config_data['actions']:
     config.actions[action_name] = action_command
   return config
-
-
-def IsComponentBuild(mini_installer_path):
-  """ Invokes the mini_installer asking whether it is a component build.
-
-  Args:
-    mini_installer_path: The path to mini_installer.exe.
-
-  Returns:
-    True if the mini_installer is a component build, False otherwise.
-  """
-  query_command = [ mini_installer_path, '--query-component-build' ]
-  exit_status = subprocess.call(query_command)
-  return exit_status == 0
 
 
 def main():
@@ -320,26 +348,22 @@ def main():
 
   # Set the env var used by mini_installer.exe to decide to not show UI.
   os.environ['MINI_INSTALLER_TEST'] = '1'
-  is_component_build = IsComponentBuild(mini_installer_path)
-  if not is_component_build:
-    config = ParseConfigFile(args.config)
 
-    variable_expander = VariableExpander(mini_installer_path)
-    RunCleanCommand(args.force_clean, variable_expander)
-    for test in config.tests:
-      # If tests were specified via |tests|, their names are formatted like so:
-      test_name = '%s/%s/%s' % (InstallerTest.__module__,
-                                InstallerTest.__name__,
-                                test['name'])
-      if not args.test or test_name in args.test:
-        suite.addTest(InstallerTest(test['name'], test['traversal'], config,
-                                    variable_expander, args.quiet))
+  variable_expander = VariableExpander(mini_installer_path)
+  config = ParseConfigFile(args.config, variable_expander)
+
+  RunCleanCommand(args.force_clean, variable_expander)
+  for test in config.tests:
+    # If tests were specified via |tests|, their names are formatted like so:
+    test_name = '%s/%s/%s' % (InstallerTest.__module__,
+                              InstallerTest.__name__,
+                              test['name'])
+    if not args.test or test_name in args.test:
+      suite.addTest(InstallerTest(test['name'], test['traversal'], config,
+                                  variable_expander, args.quiet))
 
   verbosity = 2 if not args.quiet else 1
   result = unittest.TextTestRunner(verbosity=verbosity).run(suite)
-  if is_component_build:
-    sys.stderr.write('Component build is currently unsupported by the '
-                     'mini_installer: http://crbug.com/377839\n')
   if args.write_full_results_to:
     with open(args.write_full_results_to, 'w') as fp:
       json.dump(_FullResults(suite, result, {}), fp, indent=2)

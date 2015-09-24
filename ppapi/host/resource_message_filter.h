@@ -12,7 +12,7 @@
 #include "ppapi/host/resource_message_handler.h"
 
 namespace base {
-class MessageLoopProxy;
+class SingleThreadTaskRunner;
 class TaskRunner;
 }
 
@@ -48,16 +48,15 @@ struct PPAPI_HOST_EXPORT ResourceMessageFilterDeleteTraits {
 // subclass as follows:
 // class MyMessageFilter : public ResourceMessageFilter {
 //  protected:
-//   virtual scoped_refptr<base::TaskRunner> OverrideTaskRunnerForMessage(
+//   scoped_refptr<base::TaskRunner> OverrideTaskRunnerForMessage(
 //       const IPC::Message& message) override {
 //     if (message.type() == MyMessage::ID)
 //       return BrowserThread::GetMessageLoopProxyForThread(BrowserThread::UI);
 //     return NULL;
 //   }
 //
-//   virtual int32_t OnResourceMessageReceived(
-//       const IPC::Message& msg,
-//       HostMessageContext* context) override {
+//   int32_t OnResourceMessageReceived(const IPC::Message& msg,
+//                                     HostMessageContext* context) override {
 //     IPC_BEGIN_MESSAGE_MAP(MyMessageFilter, msg)
 //       PPAPI_DISPATCH_HOST_RESOURCE_CALL(MyMessage, OnMyMessage)
 //     IPC_END_MESSAGE_MAP()
@@ -87,7 +86,7 @@ class PPAPI_HOST_EXPORT ResourceMessageFilter
   // Test constructor. Allows you to specify the message loop which will be used
   // to dispatch replies on.
   ResourceMessageFilter(
-      scoped_refptr<base::MessageLoopProxy> reply_thread_message_loop_proxy);
+      scoped_refptr<base::SingleThreadTaskRunner> reply_thread_task_runner);
 
   // Called when a filter is added to a ResourceHost.
   void OnFilterAdded(ResourceHost* resource_host);
@@ -96,15 +95,15 @@ class PPAPI_HOST_EXPORT ResourceMessageFilter
 
   // This will dispatch the message handler on the target thread. It returns
   // true if the message was handled by this filter and false otherwise.
-  virtual bool HandleMessage(const IPC::Message& msg,
-                             HostMessageContext* context) override;
+  bool HandleMessage(const IPC::Message& msg,
+                     HostMessageContext* context) override;
 
   // This can be called from any thread.
-  virtual void SendReply(const ReplyMessageContext& context,
-      const IPC::Message& msg) override;
+  void SendReply(const ReplyMessageContext& context,
+                 const IPC::Message& msg) override;
 
  protected:
-  virtual ~ResourceMessageFilter();
+  ~ResourceMessageFilter() override;
 
   // Please see the comments of |resource_host_| for on which thread it can be
   // used and when it is NULL.
@@ -125,12 +124,12 @@ class PPAPI_HOST_EXPORT ResourceMessageFilter
   void DispatchMessage(const IPC::Message& msg,
                        HostMessageContext context);
 
-  scoped_refptr<base::MessageLoopProxy> deletion_message_loop_proxy_;
+  scoped_refptr<base::SingleThreadTaskRunner> deletion_task_runner_;
 
   // Message loop to send resource message replies on. This will be the message
   // loop proxy of the IO thread for the browser process or the main thread for
   // the renderer process.
-  scoped_refptr<base::MessageLoopProxy> reply_thread_message_loop_proxy_;
+  scoped_refptr<base::SingleThreadTaskRunner> reply_thread_task_runner_;
 
   // Non-owning pointer to the resource host owning this filter. Should only be
   // accessed from the thread which sends messages to the plugin resource (i.e.

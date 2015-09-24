@@ -781,7 +781,7 @@ GrGLvoid GR_GL_FUNCTION_TYPE debugGLGetBufferParameteriv(GrGLenum target,
 struct GrDebugGLInterface : public GrGLInterface {
 
 public:
-    SK_DECLARE_INST_COUNT(GrDebugGLInterface)
+    
 
     GrDebugGLInterface()
         : fWrapped(NULL) {
@@ -796,7 +796,7 @@ public:
         fWrapped.reset(interface);
     }
 
-    virtual void abandon() const SK_OVERRIDE {
+    void abandon() const override {
         GrDebugGL::abandon();
     }
 
@@ -850,6 +850,7 @@ const GrGLInterface* GrGLCreateDebugInterface() {
     functions->fBindTexture = debugGLBindTexture;
     functions->fBindVertexArray = debugGLBindVertexArray;
     functions->fBlendColor = noOpGLBlendColor;
+    functions->fBlendEquation = noOpGLBlendEquation;
     functions->fBlendFunc = noOpGLBlendFunc;
     functions->fBufferData = debugGLBufferData;
     functions->fBufferSubData = noOpGLBufferSubData;
@@ -874,9 +875,11 @@ const GrGLInterface* GrGLCreateDebugInterface() {
     functions->fDisable = noOpGLDisable;
     functions->fDisableVertexAttribArray = noOpGLDisableVertexAttribArray;
     functions->fDrawArrays = noOpGLDrawArrays;
+    functions->fDrawArraysInstanced = noOpGLDrawArraysInstanced;
     functions->fDrawBuffer = noOpGLDrawBuffer;
     functions->fDrawBuffers = noOpGLDrawBuffers;
     functions->fDrawElements = noOpGLDrawElements;
+    functions->fDrawElementsInstanced = noOpGLDrawElementsInstanced;
     functions->fEnable = noOpGLEnable;
     functions->fEnableVertexAttribArray = noOpGLEnableVertexAttribArray;
     functions->fEndQuery = noOpGLEndQuery;
@@ -953,6 +956,7 @@ const GrGLInterface* GrGLCreateDebugInterface() {
     functions->fVertexAttrib3fv = noOpGLVertexAttrib3fv;
     functions->fVertexAttrib4fv = noOpGLVertexAttrib4fv;
     functions->fVertexAttribPointer = noOpGLVertexAttribPointer;
+    functions->fVertexAttribDivisor = noOpGLVertexAttribDivisor;
     functions->fViewport = noOpGLViewport;
     functions->fBindFramebuffer = debugGLBindFramebuffer;
     functions->fBindRenderbuffer = debugGLBindRenderbuffer;

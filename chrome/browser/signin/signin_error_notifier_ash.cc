@@ -117,7 +117,8 @@ SigninErrorNotifier::SigninErrorNotifier(SigninErrorController* controller,
     : error_controller_(controller),
       profile_(profile) {
   // Create a unique notification ID for this profile.
-  notification_id_ = kProfileSigninNotificationId + profile->GetProfileName();
+  notification_id_ =
+      kProfileSigninNotificationId + profile->GetProfileUserName();
 
   error_controller_->AddObserver(this);
   OnErrorChanged();
@@ -183,10 +184,9 @@ void SigninErrorNotifier::OnErrorChanged() {
       GetMessageBody(),
       ui::ResourceBundle::GetSharedInstance().GetImageNamed(
           IDR_NOTIFICATION_ALERT),
-      blink::WebTextDirectionDefault,
       notifier_id,
       base::string16(),  // display_source
-      base::ASCIIToUTF16(notification_id_),
+      notification_id_,
       data,
       delegate);
 

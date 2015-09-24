@@ -9,8 +9,8 @@
 #include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/task_runner_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/chromeos/drive/drive.pb.h"
 #include "chrome/browser/chromeos/drive/file_cache.h"
 #include "chrome/browser/chromeos/drive/file_errors.h"
@@ -18,9 +18,6 @@
 #include "chrome/browser/chromeos/drive/file_system/download_operation.h"
 #include "chrome/browser/chromeos/drive/file_system/operation_delegate.h"
 #include "chrome/browser/chromeos/drive/job_scheduler.h"
-#include "content/public/browser/browser_thread.h"
-
-using content::BrowserThread;
 
 namespace drive {
 namespace file_system {
@@ -50,7 +47,7 @@ void OpenFileOperation::OpenFile(const base::FilePath& file_path,
                                  OpenMode open_mode,
                                  const std::string& mime_type,
                                  const OpenFileCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   switch (open_mode) {
@@ -83,7 +80,7 @@ void OpenFileOperation::OpenFileAfterCreateFile(
     const base::FilePath& file_path,
     const OpenFileCallback& callback,
     FileError error) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   if (error != FILE_ERROR_OK) {
@@ -106,7 +103,7 @@ void OpenFileOperation::OpenFileAfterFileDownloaded(
     FileError error,
     const base::FilePath& local_file_path,
     scoped_ptr<ResourceEntry> entry) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   if (error == FILE_ERROR_OK) {
@@ -145,7 +142,7 @@ void OpenFileOperation::OpenFileAfterOpenForWrite(
     const OpenFileCallback& callback,
     scoped_ptr<base::ScopedClosureRunner>* file_closer,
     FileError error) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   if (error != FILE_ERROR_OK) {
@@ -164,13 +161,14 @@ void OpenFileOperation::OpenFileAfterOpenForWrite(
 void OpenFileOperation::CloseFile(
     const std::string& local_id,
     scoped_ptr<base::ScopedClosureRunner> file_closer) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK_GT(open_files_[local_id], 0);
 
   if (--open_files_[local_id] == 0) {
     // All clients closes this file, so notify to upload the file.
     open_files_.erase(local_id);
-    delegate_->OnEntryUpdatedByOperation(local_id);
+    delegate_->OnEntryUpdatedByOperation(ClientContext(USER_INITIATED),
+                                         local_id);
 
     // Clients may have enlarged the file. By FreeDiskpSpaceIfNeededFor(0),
     // we try to ensure (0 + the-minimum-safe-margin = 512MB as of now) space.

@@ -38,9 +38,9 @@
     }
 
     if (window.layoutTestController) {
-      layoutTestController.overridePreference("WebKitWebGLEnabled", "1");
-      layoutTestController.dumpAsText();
-      layoutTestController.waitUntilDone();
+      window.layoutTestController.overridePreference("WebKitWebGLEnabled", "1");
+      window.layoutTestController.dumpAsText();
+      window.layoutTestController.waitUntilDone();
     }
     if (window.internals) {
       // The WebKit testing system compares console output.
@@ -67,7 +67,7 @@
 function nonKhronosFrameworkNotifyDone() {
   // WebKit Specific code. Add your code here.
   if (window.layoutTestController) {
-    layoutTestController.notifyDone();
+    window.layoutTestController.notifyDone();
   }
 }
 
@@ -86,10 +86,34 @@ function notifyFinishedToHarness() {
   }
 }
 
-function _logToConsole(msg)
+var _bufferedConsoleLogs = [];
+
+function _bufferedLogToConsole(msg)
 {
-    if (window.console)
-      window.console.log(msg);
+  if (_bufferedConsoleLogs) {
+    _bufferedConsoleLogs.push(msg);
+  } else if (window.console) {
+    window.console.log(msg);
+  }
+}
+
+// Public entry point exposed to many other files.
+function bufferedLogToConsole(msg)
+{
+  _bufferedLogToConsole(msg);
+}
+
+// Called implicitly by testFailed().
+function _flushBufferedLogsToConsole()
+{
+  if (_bufferedConsoleLogs) {
+    if (window.console) {
+      for (var ii = 0; ii < _bufferedConsoleLogs.length; ++ii) {
+        window.console.log(_bufferedConsoleLogs[ii]);
+      }
+    }
+    _bufferedConsoleLogs = null;
+  }
 }
 
 var _jsTestPreVerboseLogging = false;
@@ -114,7 +138,7 @@ function description(msg)
     else
         description.appendChild(span);
     if (_jsTestPreVerboseLogging) {
-        _logToConsole(msg);
+        _bufferedLogToConsole(msg);
     }
 }
 
@@ -129,7 +153,7 @@ function debug(msg)
 {
     _addSpan(msg);
     if (_jsTestPreVerboseLogging) {
-	_logToConsole(msg);
+	_bufferedLogToConsole(msg);
     }
 }
 
@@ -137,13 +161,22 @@ function escapeHTML(text)
 {
     return text.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 }
+/**
+ * Defines the exception type for a test failure.
+ * @constructor
+ * @param {string} message The error message.
+ */
+var TestFailedException = function (message) {
+   this.message = message;
+   this.name = "TestFailedException";
+};
 
 function testPassed(msg)
 {
     reportTestResultsToHarness(true, msg);
     _addSpan('<span><span class="pass">PASS</span> ' + escapeHTML(msg) + '</span>');
     if (_jsTestPreVerboseLogging) {
-	_logToConsole('PASS ' + msg);
+	_bufferedLogToConsole('PASS ' + msg);
     }
 }
 
@@ -151,7 +184,62 @@ function testFailed(msg)
 {
     reportTestResultsToHarness(false, msg);
     _addSpan('<span><span class="fail">FAIL</span> ' + escapeHTML(msg) + '</span>');
-    _logToConsole('FAIL ' + msg);
+    _bufferedLogToConsole('FAIL ' + msg);
+    _flushBufferedLogsToConsole();
+}
+
+var _currentTestName;
+
+/**
+ * Sets the current test name for usage within testPassedOptions/testFailedOptions.
+ * @param {string=} name The name to set as the current test name.
+ */
+function setCurrentTestName(name)
+{
+    _currentTestName = name;
+}
+
+/**
+ * Gets the current test name in use within testPassedOptions/testFailedOptions.
+ * @return {string} The name of the current test.
+ */
+function getCurrentTestName()
+{
+    return _currentTestName;
+}
+
+/**
+ * Variation of the testPassed function, with the option to not show (and thus not count) the test's pass result.
+ * @param {string} msg The message to be shown in the pass result.
+ * @param {boolean} addSpan Indicates whether the message will be visible (thus counted in the results) or not.
+ */
+function testPassedOptions(msg, addSpan)
+{
+    if (addSpan)
+	{
+        reportTestResultsToHarness(true, _currentTestName + ": " + msg);
+        _addSpan('<span><span class="pass">PASS</span> ' + escapeHTML(_currentTestName) + ": " + escapeHTML(msg) + '</span>');
+	}
+    if (_jsTestPreVerboseLogging) {
+		_bufferedLogToConsole('PASS ' + msg);
+    }
+}
+
+/**
+ * Variation of the testFailed function, with the option to throw an exception or not.
+ * @param {string} msg The message to be shown in the fail result.
+ * @param {boolean} exthrow Indicates whether the function will throw a TestFailedException or not.
+ */
+function testFailedOptions(msg, exthrow)
+{
+    reportTestResultsToHarness(false, _currentTestName + ": " + msg);
+    _addSpan('<span><span class="fail">FAIL</span> ' + escapeHTML(_currentTestName) + ": " + escapeHTML(msg) + '</span>');
+    _bufferedLogToConsole('FAIL ' + msg);
+    _flushBufferedLogsToConsole();
+    if (exthrow) {
+        _currentTestName = ""; //Remembering to set the name of current testcase to empty string.
+        throw new TestFailedException(msg);
+    }
 }
 
 function areArraysEqual(_a, _b)
@@ -283,7 +371,7 @@ function shouldEvaluateTo(actual, expected) {
   } else if (typeof expected == "function") {
     // All this fuss is to avoid the string-arg warning from shouldBe().
     try {
-      actualValue = eval(actual);
+      var actualValue = eval(actual);
     } catch (e) {
       testFailed("Evaluating " + actual + ": Threw exception " + e);
       return;
@@ -463,6 +551,16 @@ function shouldBeType(_a, _type) {
     }
 }
 
+/**
+ * Shows a message in case expression test fails.
+ * @param {boolean} exp
+ * @param {straing} message
+ */
+function checkMessage(exp, message) {
+    if ( !exp )
+        _addSpan('<span><span class="warn">WARNING</span> ' + escapeHTML(_currentTestName) + ": " + escapeHTML(msg) + '</span>');
+}
+
 function assertMsg(assertion, msg) {
     if (assertion) {
         testPassed(msg);
@@ -471,7 +569,24 @@ function assertMsg(assertion, msg) {
     }
 }
 
-function gc() {
+/**
+ * Variation of the assertMsg function, with the option to not show (and thus not count) the test's pass result,
+ * and throw or not a TestFailedException in case of failure.
+ * @param {boolean} assertion If this is true, means success, else failure.
+ * @param {?string} msg The message to be shown in the result.
+ * @param {boolean} verbose In case of success, determines if the test will show it's result and count in the results.
+ * @param {boolean} exthrow In case of failure, determines if the function will throw a TestFailedException.
+ */
+function assertMsgOptions(assertion, msg, verbose, exthrow) {
+    if (assertion) {
+        testPassedOptions(msg, verbose);
+    } else {
+        testFailedOptions(msg, exthrow);
+    }
+}
+
+
+function webglHarnessCollectGarbage() {
     if (window.GCController) {
         window.GCController.collect();
         return;
@@ -488,6 +603,16 @@ function gc() {
               .garbageCollect();
         return;
     } catch(e) {}
+
+    if (window.gc) {
+        window.gc();
+        return;
+    }
+
+    if (window.CollectGarbage) {
+        CollectGarbage();
+        return;
+    }
 
     function gcRec(n) {
         if (n < 1)

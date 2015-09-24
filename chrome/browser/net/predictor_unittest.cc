@@ -8,15 +8,17 @@
 #include <sstream>
 #include <string>
 
+#include "base/location.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/timer/timer.h"
 #include "base/values.h"
 #include "chrome/browser/net/predictor.h"
-#include "chrome/browser/net/spdyproxy/proxy_advisor.h"
 #include "chrome/browser/net/url_info.h"
-#include "chrome/common/net/predictor_common.h"
+#include "components/network_hints/common/network_hints_common.h"
 #include "content/public/test/test_browser_thread.h"
 #include "net/base/address_list.h"
 #include "net/base/load_flags.h"
@@ -149,9 +151,8 @@ TEST_F(PredictorTest, ShutdownWhenResolutionIsPendingTest) {
 
   testing_master.ResolveList(names, UrlInfo::PAGE_SCAN_MOTIVATED);
 
-  base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::MessageLoop::QuitClosure(),
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, base::MessageLoop::QuitClosure(),
       base::TimeDelta::FromMilliseconds(500));
   base::MessageLoop::current()->Run();
 
@@ -767,107 +768,6 @@ TEST_F(PredictorTest, HSTSRedirectSubresources) {
 
   predictor.Shutdown();
 }
-
-#if defined(OS_ANDROID) || defined(OS_IOS)
-// Tests for the predictor with a proxy advisor
-
-class TestProxyAdvisor : public ProxyAdvisor {
- public:
-  TestProxyAdvisor()
-      : ProxyAdvisor(NULL, NULL),
-        would_proxy_(false),
-        advise_count_(0),
-        would_proxy_count_(0) {
-  }
-
-  virtual ~TestProxyAdvisor() {}
-
-  virtual void Advise(const GURL& url,
-                      UrlInfo::ResolutionMotivation motivation,
-                      bool is_preconnect) override {
-    ++advise_count_;
-  }
-
-  virtual bool WouldProxyURL(const GURL& url) override {
-    ++would_proxy_count_;
-    return would_proxy_;
-  }
-
-  bool would_proxy_;
-  int advise_count_;
-  int would_proxy_count_;
-};
-
-TEST_F(PredictorTest, SingleLookupTestWithDisabledAdvisor) {
-  Predictor testing_master(true, true);
-  TestProxyAdvisor* advisor = new TestProxyAdvisor();
-  testing_master.SetHostResolver(host_resolver_.get());
-  testing_master.proxy_advisor_.reset(advisor);
-
-  GURL goog("http://www.google.com:80");
-
-  advisor->would_proxy_ = false;
-
-  UrlList names;
-  names.push_back(goog);
-  testing_master.ResolveList(names, UrlInfo::PAGE_SCAN_MOTIVATED);
-
-  WaitForResolution(&testing_master, names);
-  EXPECT_TRUE(testing_master.WasFound(goog));
-  EXPECT_EQ(advisor->would_proxy_count_, 1);
-  EXPECT_EQ(advisor->advise_count_, 1);
-
-  base::MessageLoop::current()->RunUntilIdle();
-
-  testing_master.Shutdown();
-}
-
-TEST_F(PredictorTest, SingleLookupTestWithEnabledAdvisor) {
-  Predictor testing_master(true, true);
-  testing_master.SetHostResolver(host_resolver_.get());
-  TestProxyAdvisor* advisor = new TestProxyAdvisor();
-  testing_master.proxy_advisor_.reset(advisor);
-
-  GURL goog("http://www.google.com:80");
-
-  advisor->would_proxy_ = true;
-
-  UrlList names;
-  names.push_back(goog);
-
-  testing_master.ResolveList(names, UrlInfo::PAGE_SCAN_MOTIVATED);
-
-  // Attempt to resolve a few times.
-  WaitForResolutionWithLimit(&testing_master, names, 10);
-
-  // Because the advisor indicated that the url would be proxied,
-  // no resolution should have occurred.
-  EXPECT_FALSE(testing_master.WasFound(goog));
-  EXPECT_EQ(advisor->would_proxy_count_, 1);
-  EXPECT_EQ(advisor->advise_count_, 1);
-
-  base::MessageLoop::current()->RunUntilIdle();
-
-  testing_master.Shutdown();
-}
-
-TEST_F(PredictorTest, TestSimplePreconnectAdvisor) {
-  Predictor testing_master(true, true);
-  testing_master.SetHostResolver(host_resolver_.get());
-  TestProxyAdvisor* advisor = new TestProxyAdvisor();
-  testing_master.proxy_advisor_.reset(advisor);
-
-  GURL goog("http://www.google.com:80");
-
-  testing_master.PreconnectUrl(goog, goog, UrlInfo::OMNIBOX_MOTIVATED, 2);
-
-  EXPECT_EQ(advisor->would_proxy_count_, 0);
-  EXPECT_EQ(advisor->advise_count_, 1);
-
-  testing_master.Shutdown();
-}
-
-#endif  // defined(OS_ANDROID) || defined(OS_IOS)
 
 TEST_F(PredictorTest, NoProxyService) {
   // Don't actually try to resolve names.

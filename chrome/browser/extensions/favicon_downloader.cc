@@ -5,11 +5,11 @@
 #include "chrome/browser/extensions/favicon_downloader.h"
 
 #include "base/bind.h"
-#include "chrome/browser/favicon/favicon_tab_helper.h"
+#include "components/favicon/content/content_favicon_driver.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/favicon_url.h"
 #include "third_party/skia/include/core/SkBitmap.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 
 FaviconDownloader::FaviconDownloader(
   content::WebContents* web_contents,
@@ -42,18 +42,21 @@ int FaviconDownloader::DownloadImage(const GURL& url) {
       url,
       true,  // is_favicon
       0,     // no max size
+      false,  // normal cache policy
       base::Bind(&FaviconDownloader::DidDownloadFavicon,
                  weak_ptr_factory_.GetWeakPtr()));
 }
 
 std::vector<content::FaviconURL>
     FaviconDownloader::GetFaviconURLsFromWebContents() {
-  FaviconTabHelper* favicon_tab_helper =
-      web_contents() ? FaviconTabHelper::FromWebContents(web_contents()) : NULL;
+  favicon::ContentFaviconDriver* content_favicon_driver =
+      web_contents()
+          ? favicon::ContentFaviconDriver::FromWebContents(web_contents())
+          : nullptr;
   // If favicon_urls() is empty, we are guaranteed that DidUpdateFaviconURLs has
   // not yet been called for the current page's navigation.
-  return favicon_tab_helper ? favicon_tab_helper->favicon_urls()
-                            : std::vector<content::FaviconURL>();
+  return content_favicon_driver ? content_favicon_driver->favicon_urls()
+                                : std::vector<content::FaviconURL>();
 }
 
 void FaviconDownloader::FetchIcons(

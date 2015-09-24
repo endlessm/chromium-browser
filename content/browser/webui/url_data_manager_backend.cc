@@ -11,14 +11,16 @@
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/debug/alias.h"
-#include "base/debug/trace_event.h"
 #include "base/lazy_instance.h"
+#include "base/location.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop.h"
+#include "base/profiler/scoped_tracker.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/trace_event/trace_event.h"
 #include "content/browser/appcache/view_appcache_internals_job.h"
 #include "content/browser/fileapi/chrome_blob_storage_context.h"
 #include "content/browser/histogram_internals_request_job.h"
@@ -365,15 +367,15 @@ bool URLRequestChromeJob::ReadRawData(net::IOBuffer* buf, int buf_size,
 
 void URLRequestChromeJob::CompleteRead(net::IOBuffer* buf, int buf_size,
                                        int* bytes_read) {
-  // http://crbug.com/373841
-  char url_buf[128];
-  base::strlcpy(url_buf, request_->url().spec().c_str(), arraysize(url_buf));
-  base::debug::Alias(url_buf);
-
   int remaining = static_cast<int>(data_->size()) - data_offset_;
   if (buf_size > remaining)
     buf_size = remaining;
   if (buf_size > 0) {
+    // TODO(pkasting): Remove ScopedTracker below once crbug.com/455423 is
+    // fixed.
+    tracked_objects::ScopedTracker tracking_profile(
+        FROM_HERE_WITH_EXPLICIT_FUNCTION(
+            "455423 URLRequestChromeJob::CompleteRead memcpy"));
     memcpy(buf->data(), data_->front() + data_offset_, buf_size);
     data_offset_ += buf_size;
   }
@@ -434,7 +436,7 @@ namespace {
 void GetMimeTypeOnUI(URLDataSourceImpl* source,
                      const std::string& path,
                      const base::WeakPtr<URLRequestChromeJob>& job) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   std::string mime_type = source->source()->GetMimeType(path);
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
@@ -550,7 +552,7 @@ URLDataManagerBackend::CreateProtocolHandler(
 
 void URLDataManagerBackend::AddDataSource(
     URLDataSourceImpl* source) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DataSourceMap::iterator i = data_sources_.find(source->source_name());
   if (i != data_sources_.end()) {
     if (!source->source()->ShouldReplaceExistingSource())
@@ -638,19 +640,17 @@ bool URLDataManagerBackend::StartRequest(const net::URLRequest* request,
     // is guaranteed because request for mime type is placed in the
     // message loop before request for data. And correspondingly their
     // replies are put on the IO thread in the same order.
-    target_message_loop->PostTask(
+    target_message_loop->task_runner()->PostTask(
         FROM_HERE,
-        base::Bind(&GetMimeTypeOnUI,
-                   scoped_refptr<URLDataSourceImpl>(source),
+        base::Bind(&GetMimeTypeOnUI, scoped_refptr<URLDataSourceImpl>(source),
                    path, job->AsWeakPtr()));
 
     // The DataSource wants StartDataRequest to be called on a specific thread,
     // usually the UI thread, for this path.
-    target_message_loop->PostTask(
-        FROM_HERE,
-        base::Bind(&URLDataManagerBackend::CallStartRequest,
-                   make_scoped_refptr(source), path, render_process_id,
-                   render_frame_id, request_id));
+    target_message_loop->task_runner()->PostTask(
+        FROM_HERE, base::Bind(&URLDataManagerBackend::CallStartRequest,
+                              make_scoped_refptr(source), path,
+                              render_process_id, render_frame_id, request_id));
   }
   return true;
 }
@@ -713,7 +713,7 @@ void URLDataManagerBackend::DataAvailable(RequestID request_id,
   // Forward this data on to the pending net::URLRequest, if it exists.
   PendingRequestMap::iterator i = pending_requests_.find(request_id);
   if (i != pending_requests_.end()) {
-    URLRequestChromeJob* job(i->second);
+    URLRequestChromeJob* job = i->second;
     pending_requests_.erase(i);
     job->DataAvailable(bytes);
   }

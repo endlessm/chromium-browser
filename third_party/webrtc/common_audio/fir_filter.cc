@@ -13,10 +13,10 @@
 #include <assert.h>
 #include <string.h>
 
+#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/common_audio/fir_filter_neon.h"
 #include "webrtc/common_audio/fir_filter_sse.h"
 #include "webrtc/system_wrappers/interface/cpu_features_wrapper.h"
-#include "webrtc/system_wrappers/interface/scoped_ptr.h"
 
 namespace webrtc {
 
@@ -25,13 +25,13 @@ class FIRFilterC : public FIRFilter {
   FIRFilterC(const float* coefficients,
              size_t coefficients_length);
 
-  virtual void Filter(const float* in, size_t length, float* out) OVERRIDE;
+  void Filter(const float* in, size_t length, float* out) override;
 
  private:
   size_t coefficients_length_;
   size_t state_length_;
-  scoped_ptr<float[]> coefficients_;
-  scoped_ptr<float[]> state_;
+  rtc::scoped_ptr<float[]> coefficients_;
+  rtc::scoped_ptr<float[]> state_;
 };
 
 FIRFilter* FIRFilter::Create(const float* coefficients,
@@ -57,19 +57,16 @@ FIRFilter* FIRFilter::Create(const float* coefficients,
     filter = new FIRFilterC(coefficients, coefficients_length);
   }
 #endif
-#elif defined(WEBRTC_ARCH_ARM_V7)
-#if defined(WEBRTC_ARCH_ARM_NEON)
+#elif defined(WEBRTC_HAS_NEON)
   filter =
       new FIRFilterNEON(coefficients, coefficients_length, max_input_length);
-#else
-  // ARM CPU detection required.
+#elif defined(WEBRTC_DETECT_NEON)
   if (WebRtc_GetCPUFeaturesARM() & kCPUFeatureNEON) {
     filter =
         new FIRFilterNEON(coefficients, coefficients_length, max_input_length);
   } else {
     filter = new FIRFilterC(coefficients, coefficients_length);
   }
-#endif
 #else
   filter = new FIRFilterC(coefficients, coefficients_length);
 #endif

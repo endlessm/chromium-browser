@@ -42,11 +42,11 @@ TEST_F(SyncPrefsTest, Basic) {
   sync_prefs.SetSyncSetupCompleted();
   EXPECT_TRUE(sync_prefs.HasSyncSetupCompleted());
 
-  EXPECT_FALSE(sync_prefs.IsStartSuppressed());
-  sync_prefs.SetStartSuppressed(true);
-  EXPECT_TRUE(sync_prefs.IsStartSuppressed());
-  sync_prefs.SetStartSuppressed(false);
-  EXPECT_FALSE(sync_prefs.IsStartSuppressed());
+  EXPECT_TRUE(sync_prefs.IsSyncRequested());
+  sync_prefs.SetSyncRequested(false);
+  EXPECT_FALSE(sync_prefs.IsSyncRequested());
+  sync_prefs.SetSyncRequested(true);
+  EXPECT_TRUE(sync_prefs.IsSyncRequested());
 
   EXPECT_EQ(base::Time(), sync_prefs.GetLastSyncedTime());
   const base::Time& now = base::Time::Now();
@@ -140,6 +140,8 @@ TEST_F(SyncPrefsTest, PreferredTypesNotKeepEverythingSynced) {
     syncer::ModelTypeSet expected_preferred_types(preferred_types);
     if (it.Get() == syncer::AUTOFILL) {
       expected_preferred_types.Put(syncer::AUTOFILL_PROFILE);
+      expected_preferred_types.Put(syncer::AUTOFILL_WALLET_DATA);
+      expected_preferred_types.Put(syncer::AUTOFILL_WALLET_METADATA);
     }
     if (it.Get() == syncer::PREFERENCES) {
       expected_preferred_types.Put(syncer::DICTIONARY);
@@ -198,21 +200,6 @@ TEST_F(SyncPrefsTest, ObservedPrefs) {
   EXPECT_FALSE(sync_prefs.IsManaged());
 
   sync_prefs.RemoveSyncPrefObserver(&mock_sync_pref_observer);
-}
-
-TEST_F(SyncPrefsTest, AcknowledgeSyncedTypes) {
-  SyncPrefs sync_prefs(&pref_service_);
-
-  syncer::ModelTypeSet expected_acknowledge_synced_types =
-      sync_prefs.GetAcknowledgeSyncedTypesForTest();
-  for (int i = syncer::EXTENSION_SETTINGS; i < syncer::MODEL_TYPE_COUNT; ++i) {
-    const syncer::ModelType type = syncer::ModelTypeFromInt(i);
-    syncer::ModelTypeSet acknowledge_synced_types(type);
-    expected_acknowledge_synced_types.Put(type);
-    sync_prefs.AcknowledgeSyncedTypes(acknowledge_synced_types);
-    EXPECT_TRUE(expected_acknowledge_synced_types.Equals(
-        sync_prefs.GetAcknowledgeSyncedTypesForTest()));
-  }
 }
 
 TEST_F(SyncPrefsTest, ClearPreferences) {

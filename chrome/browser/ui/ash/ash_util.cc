@@ -21,14 +21,14 @@ bool ShouldOpenAshOnStartup() {
   return true;
 #else
   // TODO(scottmg): http://crbug.com/133312, will need this for Win8 too.
-  return CommandLine::ForCurrentProcess()->HasSwitch(switches::kOpenAsh);
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kOpenAsh);
 #endif
 }
 
 bool IsNativeViewInAsh(gfx::NativeView native_view) {
 #if defined(OS_CHROMEOS)
-  // Optimization. There is only ash or only athena on ChromeOS.
-  return ash::Shell::HasInstance();
+  // Optimization. There is only ash on ChromeOS.
+  return true;
 #endif
 
   if (!ash::Shell::HasInstance())

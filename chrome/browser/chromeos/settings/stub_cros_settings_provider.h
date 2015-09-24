@@ -12,25 +12,24 @@
 
 namespace chromeos {
 
-class CrosSettings;
-
 // CrosSettingsProvider implementation that stores settings in memory unsigned.
 class StubCrosSettingsProvider : public CrosSettingsProvider {
  public:
   explicit StubCrosSettingsProvider(const NotifyObserversCallback& notify_cb);
   StubCrosSettingsProvider();
-  virtual ~StubCrosSettingsProvider();
+  ~StubCrosSettingsProvider() override;
 
   // CrosSettingsProvider implementation.
-  virtual const base::Value* Get(const std::string& path) const override;
-  virtual TrustedStatus PrepareTrustedValues(
-      const base::Closure& callback) override;
-  virtual bool HandlesSetting(const std::string& path) const override;
+  const base::Value* Get(const std::string& path) const override;
+  TrustedStatus PrepareTrustedValues(const base::Closure& callback) override;
+  bool HandlesSetting(const std::string& path) const override;
+
+  void SetTrustedStatus(TrustedStatus status);
+  void SetCurrentUserIsOwner(bool owner);
 
  private:
   // CrosSettingsProvider implementation:
-  virtual void DoSet(const std::string& path,
-                     const base::Value& value) override;
+  void DoSet(const std::string& path, const base::Value& value) override;
 
   // Initializes settings to their defaults.
   void SetDefaults();
@@ -38,7 +37,13 @@ class StubCrosSettingsProvider : public CrosSettingsProvider {
   // In-memory settings storage.
   PrefValueMap values_;
 
-  CrosSettings* cros_settings_;
+  // Some tests imply that calling Set() as non-owner doesn't change the actual
+  // value but still trigger a notification. For such cases, it is possible to
+  // emulate this behavior by changing the ownership status to non-owner with
+  // |SetCurrentUserIsOwner(false)|.
+  bool current_user_is_owner_ = true;
+
+  TrustedStatus trusted_status_ = CrosSettingsProvider::TRUSTED;
 
   DISALLOW_COPY_AND_ASSIGN(StubCrosSettingsProvider);
 };

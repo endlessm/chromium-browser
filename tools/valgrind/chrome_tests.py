@@ -33,7 +33,7 @@ class ExecutableNotFound(Exception): pass
 class BadBinary(Exception): pass
 
 class ChromeTests:
-  SLOW_TOOLS = ["memcheck", "tsan", "tsan_rv", "drmemory"]
+  SLOW_TOOLS = ["memcheck", "drmemory"]
   LAYOUT_TESTS_DEFAULT_CHUNK_SIZE = 300
 
   def __init__(self, options, args, test):
@@ -129,11 +129,14 @@ class ChromeTests:
       # TODO(timurrrr): also check TSan and MSan?
       # `nm` might not be available, so use try-except.
       try:
-        nm_output = subprocess.check_output(["nm", exe_path])
-        if nm_output.find("__asan_init") != -1:
-          raise BadBinary("You're trying to run an executable instrumented "
-                          "with AddressSanitizer under %s. Please provide "
-                          "an uninstrumented executable." % tool_name)
+        # Do not perform this check on OS X, as 'nm' on 10.6 can't handle
+        # binaries built with Clang 3.5+.
+        if not common.IsMac():
+          nm_output = subprocess.check_output(["nm", exe_path])
+          if nm_output.find("__asan_init") != -1:
+            raise BadBinary("You're trying to run an executable instrumented "
+                            "with AddressSanitizer under %s. Please provide "
+                            "an uninstrumented executable." % tool_name)
       except OSError:
         pass
 
@@ -150,10 +153,12 @@ class ChromeTests:
       cmd.append("--gtest_shuffle")
     if self._options.gtest_break_on_failure:
       cmd.append("--gtest_break_on_failure")
-    if self._options.brave_new_test_launcher:
-      cmd.append("--brave-new-test-launcher")
     if self._options.test_launcher_bot_mode:
       cmd.append("--test-launcher-bot-mode")
+    if self._options.test_launcher_total_shards is not None:
+      cmd.append("--test-launcher-total-shards=%d" % self._options.test_launcher_total_shards)
+    if self._options.test_launcher_shard_index is not None:
+      cmd.append("--test-launcher-shard-index=%d" % self._options.test_launcher_shard_index)
     return cmd
 
   def Run(self):
@@ -359,9 +364,6 @@ class ChromeTests:
   def TestExtensions(self):
     return self.SimpleTest("extensions", "extensions_unittests")
 
-  def TestFFmpeg(self):
-    return self.SimpleTest("chrome", "ffmpeg_unittests")
-
   def TestFFmpegRegressions(self):
     return self.SimpleTest("chrome", "ffmpeg_regression_tests")
 
@@ -398,6 +400,9 @@ class ChromeTests:
 
   def TestMessageCenter(self):
     return self.SimpleTest("message_center", "message_center_unittests")
+
+  def TestMidi(self):
+    return self.SimpleTest("chrome", "midi_unittests")
 
   def TestMojoCommon(self):
     return self.SimpleTest("mojo_common", "mojo_common_unittests")
@@ -446,6 +451,9 @@ class ChromeTests:
                                "--ui-test-action-timeout=60000",
                                "--ui-test-action-max-timeout=150000"])
 
+  def TestSkia(self):
+    return self.SimpleTest("skia", "skia_unittests")
+
   def TestSql(self):
     return self.SimpleTest("chrome", "sql_unittests")
 
@@ -467,8 +475,8 @@ class ChromeTests:
   def TestUIBaseUnit(self):
     return self.SimpleTest("chrome", "ui_base_unittests")
 
-  def TestUIUnit(self):
-    return self.SimpleTest("chrome", "ui_unittests")
+  def TestUIChromeOS(self):
+    return self.SimpleTest("chrome", "ui_chromeos_unittests")
 
   def TestURL(self):
     return self.SimpleTest("chrome", "url_unittests")
@@ -562,7 +570,8 @@ class ChromeTests:
                   "--no-retry-failures",  # retrying takes too much time
                   # http://crbug.com/176908: Don't launch a browser when done.
                   "--no-show-results",
-                  "--nocheck-sys-deps"]
+                  "--nocheck-sys-deps",
+                  "--additional-driver-flag=--no-sandbox"]
     # Pass build mode to run-webkit-tests.  We aren't passed it directly,
     # so parse it out of build_dir.  run-webkit-tests can only handle
     # the two values "Release" and "Debug".
@@ -675,7 +684,6 @@ class ChromeTests:
     "display": TestDisplay,      "display_unittests": TestDisplay,
     "events": TestEvents,        "events_unittests": TestEvents,
     "extensions": TestExtensions, "extensions_unittests": TestExtensions,
-    "ffmpeg": TestFFmpeg,        "ffmpeg_unittests": TestFFmpeg,
     "ffmpeg_regression_tests": TestFFmpegRegressions,
     "gcm": TestGCM,              "gcm_unit_tests": TestGCM,
     "gin": TestGin,              "gin_unittests": TestGin,
@@ -691,6 +699,7 @@ class ChromeTests:
     "media": TestMedia,          "media_unittests": TestMedia,
     "message_center": TestMessageCenter,
     "message_center_unittests" : TestMessageCenter,
+    "midi": TestMidi,             "midi_unittests": TestMidi,
     "mojo_common": TestMojoCommon,
     "mojo_system": TestMojoSystem,
     "mojo_public_system": TestMojoPublicSystem,
@@ -707,12 +716,13 @@ class ChromeTests:
     "remoting": TestRemoting,    "remoting_unittests": TestRemoting,
     "safe_browsing": TestSafeBrowsing, "safe_browsing_tests": TestSafeBrowsing,
     "sandbox": TestLinuxSandbox, "sandbox_linux_unittests": TestLinuxSandbox,
+    "skia": TestSkia,            "skia_unittests": TestSkia,
     "sql": TestSql,              "sql_unittests": TestSql,
     "sync": TestSync,            "sync_unit_tests": TestSync,
     "sync_integration_tests": TestSyncIntegration,
     "sync_integration": TestSyncIntegration,
     "ui_base_unit": TestUIBaseUnit,       "ui_base_unittests": TestUIBaseUnit,
-    "ui_unit": TestUIUnit,       "ui_unittests": TestUIUnit,
+    "ui_chromeos": TestUIChromeOS, "ui_chromeos_unittests": TestUIChromeOS,
     "unit": TestUnit,            "unit_tests": TestUnit,
     "url": TestURL,              "url_unittests": TestURL,
     "views": TestViews,          "views_unittests": TestViews,
@@ -759,13 +769,12 @@ def _main():
   parser.add_option("-n", "--num_tests", type="int",
                     default=ChromeTests.LAYOUT_TESTS_DEFAULT_CHUNK_SIZE,
                     help="for layout tests: # of subtests per run.  0 for all.")
-  # TODO(thestig) Remove this if we can.
-  parser.add_option("--gtest_color", dest="gtest_color", default="no",
-                    help="dummy compatibility flag for sharding_supervisor.")
-  parser.add_option("--brave-new-test-launcher", action="store_true",
-                    help="run the tests with --brave-new-test-launcher")
   parser.add_option("--test-launcher-bot-mode", action="store_true",
                     help="run the tests with --test-launcher-bot-mode")
+  parser.add_option("--test-launcher-total-shards", type=int,
+                    help="run the tests with --test-launcher-total-shards")
+  parser.add_option("--test-launcher-shard-index", type=int,
+                    help="run the tests with --test-launcher-shard-index")
 
   options, args = parser.parse_args()
 

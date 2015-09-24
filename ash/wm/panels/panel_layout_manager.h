@@ -95,6 +95,7 @@ class ASH_EXPORT PanelLayoutManager
   void OnShelfIconPositionsChanged() override;
 
   // Overridden from ShellObserver
+  void OnOverviewModeEnded() override;
   void OnShelfAlignmentChanged(aura::Window* root_window) override;
 
   // Overridden from aura::WindowObserver
@@ -107,8 +108,10 @@ class ASH_EXPORT PanelLayoutManager
                                    wm::WindowStateType old_type) override;
 
   // Overridden from aura::client::ActivationChangeObserver
-  void OnWindowActivated(aura::Window* gained_active,
-                         aura::Window* lost_active) override;
+  void OnWindowActivated(
+      aura::client::ActivationChangeObserver::ActivationReason reason,
+      aura::Window* gained_active,
+      aura::Window* lost_active) override;
 
   // Overridden from DisplayController::Observer
   void OnDisplayConfigurationChanged() override;

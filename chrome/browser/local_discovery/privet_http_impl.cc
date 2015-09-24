@@ -8,24 +8,23 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
 #include "base/rand_util.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/local_discovery/privet_constants.h"
-#include "components/cloud_devices/common/printer_description.h"
 #include "net/base/url_util.h"
-#include "printing/pwg_raster_settings.h"
-#include "printing/units.h"
-#include "ui/gfx/text_elider.h"
 #include "url/gurl.h"
 
 #if defined(ENABLE_PRINT_PREVIEW)
 #include "chrome/browser/local_discovery/pwg_raster_converter.h"
+#include "components/cloud_devices/common/printer_description.h"
+#include "printing/pdf_render_settings.h"
+#include "printing/pwg_raster_settings.h"
+#include "ui/gfx/text_elider.h"
 #endif  // ENABLE_PRINT_PREVIEW
-
-using namespace cloud_devices::printer;
 
 namespace cloud_print {
 extern const char kContentTypeJSON[];
@@ -149,7 +148,7 @@ void PrivetRegisterOperationImpl::Cancel() {
     // Owned by the message loop.
     Cancelation* cancelation = new Cancelation(privet_client_, user_);
 
-    base::MessageLoop::current()->PostDelayedTask(
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE,
         base::Bind(&PrivetRegisterOperationImpl::Cancelation::Cleanup,
                    base::Owned(cancelation)),
@@ -390,81 +389,6 @@ void PrivetJSONOperationImpl::OnNeedPrivetToken(
   privet_client_->RefreshPrivetToken(callback);
 }
 
-PrivetDataReadOperationImpl::PrivetDataReadOperationImpl(
-    PrivetHTTPClient* privet_client,
-    const std::string& path,
-    const std::string& query_params,
-    const PrivetDataReadOperation::ResultCallback& callback)
-    : privet_client_(privet_client),
-      path_(path),
-      query_params_(query_params),
-      callback_(callback),
-      has_range_(false),
-      save_to_file_(false) {
-}
-
-PrivetDataReadOperationImpl::~PrivetDataReadOperationImpl() {
-}
-
-
-void PrivetDataReadOperationImpl::Start() {
-  url_fetcher_ = privet_client_->CreateURLFetcher(
-      CreatePrivetParamURL(path_, query_params_), net::URLFetcher::GET, this);
-  url_fetcher_->DoNotRetryOnTransientError();
-
-  if (has_range_) {
-    url_fetcher_->SetByteRange(range_start_, range_end_);
-  }
-
-  if (save_to_file_) {
-    url_fetcher_->SaveResponseToFile();
-  }
-
-  url_fetcher_->Start();
-}
-
-void PrivetDataReadOperationImpl::SetDataRange(int range_start, int range_end) {
-  has_range_ = true;
-  range_start_ = range_start;
-  range_end_ = range_end;
-}
-
-void PrivetDataReadOperationImpl::SaveDataToFile() {
-  save_to_file_ = false;
-}
-
-PrivetHTTPClient* PrivetDataReadOperationImpl::GetHTTPClient() {
-  return privet_client_;
-}
-
-void PrivetDataReadOperationImpl::OnError(
-    PrivetURLFetcher* fetcher,
-    PrivetURLFetcher::ErrorType error) {
-  callback_.Run(RESPONSE_TYPE_ERROR, std::string(), base::FilePath());
-}
-
-void PrivetDataReadOperationImpl::OnParsedJson(
-    PrivetURLFetcher* fetcher,
-    const base::DictionaryValue& value,
-    bool has_error) {
-  NOTREACHED();
-}
-
-void PrivetDataReadOperationImpl::OnNeedPrivetToken(
-    PrivetURLFetcher* fetcher,
-    const PrivetURLFetcher::TokenCallback& callback) {
-  privet_client_->RefreshPrivetToken(callback);
-}
-
-bool PrivetDataReadOperationImpl::OnRawData(PrivetURLFetcher* fetcher,
-                                            bool is_file,
-                                            const std::string& data_str,
-                                            const base::FilePath& file_path) {
-  ResponseType type = (is_file) ? RESPONSE_TYPE_FILE : RESPONSE_TYPE_STRING;
-  callback_.Run(type, data_str, file_path);
-  return true;
-}
-
 #if defined(ENABLE_PRINT_PREVIEW)
 PrivetLocalPrintOperationImpl::PrivetLocalPrintOperationImpl(
     PrivetHTTPClient* privet_client,
@@ -475,7 +399,6 @@ PrivetLocalPrintOperationImpl::PrivetLocalPrintOperationImpl(
       has_extended_workflow_(false),
       started_(false),
       offline_(false),
-      dpi_(printing::kDefaultPdfDpi),
       invalid_job_retries_(0),
       weak_factory_(this) {
 }
@@ -528,7 +451,7 @@ void PrivetLocalPrintOperationImpl::OnPrivetInfoDone(
 
 void PrivetLocalPrintOperationImpl::StartInitialRequest() {
   use_pdf_ = false;
-  ContentTypesCapability content_types;
+  cloud_devices::printer::ContentTypesCapability content_types;
   if (content_types.LoadFrom(capabilities_)) {
     use_pdf_ = content_types.Contains(kPrivetContentTypePDF) ||
                content_types.Contains(kPrivetContentTypeAny);
@@ -537,10 +460,6 @@ void PrivetLocalPrintOperationImpl::StartInitialRequest() {
   if (use_pdf_) {
     StartPrinting();
   } else {
-    DpiCapability dpis;
-    if (dpis.LoadFrom(capabilities_)) {
-      dpi_ = std::max(dpis.GetDefault().horizontal, dpis.GetDefault().vertical);
-    }
     StartConvertToPWG();
   }
 }
@@ -550,7 +469,7 @@ void PrivetLocalPrintOperationImpl::DoCreatejob() {
       &PrivetLocalPrintOperationImpl::OnCreatejobResponse,
       base::Unretained(this));
 
-  url_fetcher_= privet_client_->CreateURLFetcher(
+  url_fetcher_ = privet_client_->CreateURLFetcher(
       CreatePrivetURL(kPrivetCreatejobPath), net::URLFetcher::POST, this);
   url_fetcher_->SetUploadData(cloud_print::kContentTypeJSON,
                               ticket_.ToString());
@@ -598,8 +517,8 @@ void PrivetLocalPrintOperationImpl::DoSubmitdoc() {
                                     kPrivetURLValueOffline);
   }
 
-  url_fetcher_= privet_client_->CreateURLFetcher(
-      url, net::URLFetcher::POST, this);
+  url_fetcher_ =
+      privet_client_->CreateURLFetcher(url, net::URLFetcher::POST, this);
 
   if (!use_pdf_) {
     url_fetcher_->SetUploadFilePath(kPrivetContentTypePWGRaster,
@@ -621,70 +540,14 @@ void PrivetLocalPrintOperationImpl::StartPrinting() {
   }
 }
 
-void PrivetLocalPrintOperationImpl::FillPwgRasterSettings(
-    printing::PwgRasterSettings* transform_settings) {
-  PwgRasterConfigCapability raster_capability;
-  // If the raster capability fails to load, raster_capability will contain
-  // the default value.
-  raster_capability.LoadFrom(capabilities_);
-
-  DuplexTicketItem duplex_item;
-  DuplexType duplex_value = NO_DUPLEX;
-
-  DocumentSheetBack document_sheet_back =
-      raster_capability.value().document_sheet_back;
-
-  if (duplex_item.LoadFrom(ticket_)) {
-    duplex_value = duplex_item.value();
-  }
-
-  transform_settings->odd_page_transform = printing::TRANSFORM_NORMAL;
-  switch (duplex_value) {
-    case NO_DUPLEX:
-      transform_settings->odd_page_transform = printing::TRANSFORM_NORMAL;
-      break;
-    case LONG_EDGE:
-      if (document_sheet_back == ROTATED) {
-        transform_settings->odd_page_transform = printing::TRANSFORM_ROTATE_180;
-      } else if (document_sheet_back == FLIPPED) {
-        transform_settings->odd_page_transform =
-            printing::TRANSFORM_FLIP_VERTICAL;
-      }
-      break;
-    case SHORT_EDGE:
-      if (document_sheet_back == MANUAL_TUMBLE) {
-        transform_settings->odd_page_transform = printing::TRANSFORM_ROTATE_180;
-      } else if (document_sheet_back == FLIPPED) {
-        transform_settings->odd_page_transform =
-            printing::TRANSFORM_FLIP_HORIZONTAL;
-      }
-  }
-
-  transform_settings->rotate_all_pages =
-      raster_capability.value().rotate_all_pages;
-
-  transform_settings->reverse_page_order =
-      raster_capability.value().reverse_order_streaming;
-}
-
 void PrivetLocalPrintOperationImpl::StartConvertToPWG() {
-  printing::PwgRasterSettings transform_settings;
-
-  FillPwgRasterSettings(&transform_settings);
-
   if (!pwg_raster_converter_)
     pwg_raster_converter_ = PWGRasterConverter::CreateDefault();
 
-  double scale = dpi_;
-  scale /= printing::kPointsPerInch;
-  // Make vertical rectangle to optimize streaming to printer. Fix orientation
-  // by autorotate.
-  gfx::Rect area(std::min(page_size_.width(), page_size_.height()) * scale,
-                 std::max(page_size_.width(), page_size_.height()) * scale);
   pwg_raster_converter_->Start(
       data_.get(),
-      printing::PdfRenderSettings(area, dpi_, true),
-      transform_settings,
+      PWGRasterConverter::GetConversionSettings(capabilities_, page_size_),
+      PWGRasterConverter::GetBitmapSettings(capabilities_, ticket_),
       base::Bind(&PrivetLocalPrintOperationImpl::OnPWGRasterConverted,
                  base::Unretained(this)));
 }
@@ -712,7 +575,7 @@ void PrivetLocalPrintOperationImpl::OnSubmitdocResponse(
 
       timeout = std::max(timeout, kPrivetMinimumTimeout);
 
-      base::MessageLoop::current()->PostDelayedTask(
+      base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
           FROM_HERE, base::Bind(&PrivetLocalPrintOperationImpl::DoCreatejob,
                                 weak_factory_.GetWeakPtr()),
           base::TimeDelta::FromSeconds(timeout));
@@ -803,7 +666,7 @@ void PrivetLocalPrintOperationImpl::SetCapabilities(
 
 void PrivetLocalPrintOperationImpl::SetUsername(const std::string& user) {
   DCHECK(!started_);
-  user_= user;
+  user_ = user;
 }
 
 void PrivetLocalPrintOperationImpl::SetJobname(const std::string& jobname) {

@@ -106,6 +106,11 @@ int32_t NaClSysImcConnect(struct NaClAppThread *natp,
   NaClLog(3, "Entered NaClSysImcConnectAddr(0x%08"NACL_PRIxPTR", %d)\n",
           (uintptr_t) natp, d);
 
+  /* This syscall is not used in Chromium so is disabled by default. */
+  if (!NaClAclBypassChecks) {
+    return -NACL_ABI_EACCES;
+  }
+
   ndp = NaClAppGetDesc(nap, d);
   if (NULL == ndp) {
     retval = -NACL_ABI_EBADF;
@@ -408,8 +413,7 @@ int32_t NaClSysImcRecvmsg(struct NaClAppThread *natp,
                       kern_naiov[i].base,
                       kern_naiov[i].base + kern_naiov[i].length - 1);
   }
-  ssize_retval = NACL_VTBL(NaClDesc, ndp)->RecvMsg(ndp, &recv_hdr, flags,
-      (struct NaClDescQuotaInterface *) nap->desc_quota_interface);
+  ssize_retval = NACL_VTBL(NaClDesc, ndp)->RecvMsg(ndp, &recv_hdr, flags);
   /* unlock user memory ranges in kern_naiov */
   for (i = 0; i < kern_nanimh.iov_length; ++i) {
     NaClVmIoHasEnded(nap,

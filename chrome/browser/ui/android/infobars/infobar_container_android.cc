@@ -8,7 +8,6 @@
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
 #include "chrome/browser/infobars/infobar_service.h"
-#include "chrome/browser/ui/android/infobars/auto_login_infobar_delegate_android.h"
 #include "chrome/browser/ui/android/infobars/infobar_android.h"
 #include "components/infobars/core/infobar.h"
 #include "components/infobars/core/infobar_delegate.h"
@@ -19,14 +18,20 @@
 // InfoBarContainerAndroid ----------------------------------------------------
 
 InfoBarContainerAndroid::InfoBarContainerAndroid(JNIEnv* env,
-                                                 jobject obj,
-                                                 jobject auto_login_delegate)
+                                                 jobject obj)
     : infobars::InfoBarContainer(NULL),
-      weak_java_infobar_container_(env, obj),
-      weak_java_auto_login_delegate_(env, auto_login_delegate) {}
+      weak_java_infobar_container_(env, obj) {}
 
 InfoBarContainerAndroid::~InfoBarContainerAndroid() {
   RemoveAllInfoBarsForDestruction();
+}
+
+void InfoBarContainerAndroid::SetWebContents(JNIEnv* env,
+                                             jobject obj,
+                                             jobject web_contents) {
+  InfoBarService* infobar_service = InfoBarService::FromWebContents(
+      content::WebContents::FromJavaWebContents(web_contents));
+  ChangeInfoBarManager(infobar_service);
 }
 
 void InfoBarContainerAndroid::Destroy(JNIEnv* env, jobject obj) {
@@ -47,14 +52,6 @@ void InfoBarContainerAndroid::PlatformSpecificAddInfoBar(
     return;
   }
 
-  if (infobar->delegate()->AsAutoLoginInfoBarDelegate()) {
-    AutoLoginInfoBarDelegateAndroid* auto_login_delegate =
-        static_cast<AutoLoginInfoBarDelegateAndroid*>(
-            infobar->delegate()->AsAutoLoginInfoBarDelegate());
-    if (!auto_login_delegate->AttachAccount(weak_java_auto_login_delegate_))
-      return;
-  }
-
   AttachJavaInfoBar(android_bar);
 }
 
@@ -66,7 +63,7 @@ void InfoBarContainerAndroid::AttachJavaInfoBar(InfoBarAndroid* android_bar) {
       android_bar->CreateRenderInfoBar(env);
   Java_InfoBarContainer_addInfoBar(
       env, weak_java_infobar_container_.get(env).obj(), java_infobar.obj());
-  android_bar->set_java_infobar(java_infobar);
+  android_bar->SetJavaInfoBar(java_infobar);
 }
 
 void InfoBarContainerAndroid::PlatformSpecificReplaceInfoBar(
@@ -85,15 +82,9 @@ void InfoBarContainerAndroid::PlatformSpecificRemoveInfoBar(
 
 // Native JNI methods ---------------------------------------------------------
 
-static jlong Init(JNIEnv* env,
-                  jobject obj,
-                  jobject web_contents,
-                  jobject auto_login_delegate) {
+static jlong Init(JNIEnv* env, jobject obj) {
   InfoBarContainerAndroid* infobar_container =
-      new InfoBarContainerAndroid(env, obj, auto_login_delegate);
-  InfoBarService* infobar_service = InfoBarService::FromWebContents(
-      content::WebContents::FromJavaWebContents(web_contents));
-  infobar_container->ChangeInfoBarManager(infobar_service);
+      new InfoBarContainerAndroid(env, obj);
   return reinterpret_cast<intptr_t>(infobar_container);
 }
 

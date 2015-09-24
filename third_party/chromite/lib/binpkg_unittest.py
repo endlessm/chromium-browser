@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -8,15 +7,20 @@
 from __future__ import print_function
 
 import os
-import sys
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))))
 
 from chromite.lib import binpkg
 from chromite.lib import cros_test_lib
 from chromite.lib import gs_unittest
+from chromite.lib import osutils
 
+
+PACKAGES_CONTENT = """USE: test
+
+CPV: chromeos-base/shill-0.0.1-r1
+
+CPV: chromeos-base/test-0.0.1-r1
+DEBUG_SYMBOLS: yes
+"""
 
 class FetchTarballsTest(cros_test_lib.MockTempDirTestCase):
   """Tests for GSContext that go over the network."""
@@ -43,5 +47,18 @@ PATH boo/baz.tbz2
     binpkg.FetchTarballs([uri], self.tempdir)
 
 
-if __name__ == '__main__':
-  cros_test_lib.main()
+class DebugSymbolsTest(cros_test_lib.TempDirTestCase):
+  """Tests for the debug symbols handling in binpkg."""
+
+  def testDebugSymbolsDetected(self):
+    """When generating the Packages file, DEBUG_SYMBOLS is updated."""
+    osutils.WriteFile(os.path.join(self.tempdir,
+                                   'chromeos-base/shill-0.0.1-r1.debug.tbz2'),
+                      'hello', makedirs=True)
+    osutils.WriteFile(os.path.join(self.tempdir, 'Packages'),
+                      PACKAGES_CONTENT)
+
+    index = binpkg.GrabLocalPackageIndex(self.tempdir)
+    self.assertEquals(index.packages[0]['CPV'], 'chromeos-base/shill-0.0.1-r1')
+    self.assertEquals(index.packages[0].get('DEBUG_SYMBOLS'), 'yes')
+    self.assertFalse('DEBUG_SYMBOLS' in index.packages[1])

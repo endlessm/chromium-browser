@@ -94,11 +94,6 @@ class Resource {
   // on all live resources.
   virtual void Refresh() {}
 
-  virtual void NotifyResourceTypeStats(
-      const blink::WebCache::ResourceTypeStats& stats) {}
-  virtual void NotifyV8HeapStats(size_t v8_memory_allocated,
-                                 size_t v8_memory_used) {}
-
   static const char* GetResourceTypeAsString(const Type type) {
     switch (type) {
       TASKMANAGER_RESOURCE_TYPE_LIST(TASKMANAGER_RESOURCE_TYPE_LIST_AS_STRING)

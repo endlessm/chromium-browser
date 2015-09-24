@@ -16,7 +16,6 @@
 #include "chrome/browser/ui/ash/app_list/app_list_service_ash.h"
 #include "chrome/browser/ui/views/app_list/linux/app_list_linux.h"
 #include "chrome/grit/chromium_strings.h"
-#include "chrome/grit/google_chrome_strings.h"
 #include "content/public/browser/browser_thread.h"
 #include "ui/app_list/app_list_constants.h"
 #include "ui/app_list/app_list_switches.h"
@@ -95,7 +94,8 @@ AppListService* AppListService::Get(chrome::HostDesktopType desktop_type) {
 }
 
 // static
-void AppListService::InitAll(Profile* initial_profile) {
+void AppListService::InitAll(Profile* initial_profile,
+                             const base::FilePath& profile_path) {
   AppListServiceAsh::GetInstance()->Init(initial_profile);
   AppListServiceLinux::GetInstance()->Init(initial_profile);
 }

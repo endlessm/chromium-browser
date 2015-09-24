@@ -19,11 +19,11 @@ import gyp_environment
 import logging
 import optparse
 import os
-import shutil
 import sys
 import subprocess
 import time
 
+import clobber
 import landmine_utils
 
 
@@ -44,11 +44,12 @@ def get_build_dir(build_tool, is_iphone=False):
   if build_tool == 'xcode':
     ret = os.path.join(SRC_DIR, 'xcodebuild')
   elif build_tool in ['make', 'ninja', 'ninja-ios']:  # TODO: Remove ninja-ios.
-    if ('CHROMIUM_OUT_DIR' not in os.environ and
-        'output_dir' in landmine_utils.gyp_generator_flags()):
-      output_dir = landmine_utils.gyp_generator_flags()['output_dir']
+    if 'CHROMIUM_OUT_DIR' in os.environ:
+      output_dir = os.environ.get('CHROMIUM_OUT_DIR').strip()
+      if not output_dir:
+        raise Error('CHROMIUM_OUT_DIR environment variable is set but blank!')
     else:
-      output_dir = os.environ.get('CHROMIUM_OUT_DIR', 'out')
+      output_dir = landmine_utils.gyp_generator_flags().get('output_dir', 'out')
     ret = os.path.join(SRC_DIR, output_dir)
   else:
     raise NotImplementedError('Unexpected GYP_GENERATORS (%s)' % build_tool)
@@ -76,14 +77,7 @@ def clobber_if_necessary(new_landmines):
       sys.stdout.write('Clobbering due to:\n')
       sys.stdout.writelines(diff)
 
-      # Clobber contents of build directory but not directory itself: some
-      # checkouts have the build directory mounted.
-      for f in os.listdir(out_dir):
-        path = os.path.join(out_dir, f)
-        if os.path.isfile(path):
-          os.unlink(path)
-        elif os.path.isdir(path):
-          shutil.rmtree(path)
+      clobber.clobber(out_dir)
 
   # Save current set of landmines for next time.
   with open(landmines_path, 'w') as f:

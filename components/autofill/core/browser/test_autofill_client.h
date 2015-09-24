@@ -10,6 +10,9 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/prefs/pref_service.h"
 #include "components/autofill/core/browser/autofill_client.h"
+#include "components/rappor/test_rappor_service.h"
+#include "google_apis/gaia/fake_identity_provider.h"
+#include "google_apis/gaia/fake_oauth2_token_service.h"
 
 namespace autofill {
 
@@ -23,38 +26,56 @@ class TestAutofillClient : public AutofillClient {
   PersonalDataManager* GetPersonalDataManager() override;
   scoped_refptr<AutofillWebDataService> GetDatabase() override;
   PrefService* GetPrefs() override;
+  IdentityProvider* GetIdentityProvider() override;
+  rappor::RapporService* GetRapporService() override;
   void HideRequestAutocompleteDialog() override;
   void ShowAutofillSettings() override;
-  void ConfirmSaveCreditCard(const AutofillMetrics& metric_logger,
-                             const base::Closure& save_card_callback) override;
+  void ShowUnmaskPrompt(const CreditCard& card,
+                        base::WeakPtr<CardUnmaskDelegate> delegate) override;
+  void OnUnmaskVerificationResult(GetRealPanResult result) override;
+  void ConfirmSaveCreditCard(const base::Closure& save_card_callback) override;
+  bool HasCreditCardScanFeature() override;
+  void ScanCreditCard(const CreditCardScanCallback& callback) override;
   void ShowRequestAutocompleteDialog(const FormData& form,
-                                     const GURL& source_url,
+                                     content::RenderFrameHost* rfh,
                                      const ResultCallback& callback) override;
   void ShowAutofillPopup(
       const gfx::RectF& element_bounds,
       base::i18n::TextDirection text_direction,
-      const std::vector<base::string16>& values,
-      const std::vector<base::string16>& labels,
-      const std::vector<base::string16>& icons,
-      const std::vector<int>& identifiers,
+      const std::vector<Suggestion>& suggestions,
       base::WeakPtr<AutofillPopupDelegate> delegate) override;
   void UpdateAutofillPopupDataListValues(
       const std::vector<base::string16>& values,
       const std::vector<base::string16>& labels) override;
   void HideAutofillPopup() override;
   bool IsAutocompleteEnabled() override;
-
-  void DetectAccountCreationForms(
+  void PropagateAutofillPredictions(
+      content::RenderFrameHost* rfh,
       const std::vector<autofill::FormStructure*>& forms) override;
-
   void DidFillOrPreviewField(const base::string16& autofilled_value,
                              const base::string16& profile_full_name) override;
+  void OnFirstUserGestureObserved() override;
+  void LinkClicked(const GURL& url, WindowOpenDisposition disposition) override;
+  bool IsContextSecure(const GURL& form_origin) override;
+
+  void set_is_context_secure(bool is_context_secure) {
+    is_context_secure_ = is_context_secure;
+  };
 
   void SetPrefs(scoped_ptr<PrefService> prefs) { prefs_ = prefs.Pass(); }
+
+  rappor::TestRapporService* test_rappor_service() {
+    return rappor_service_.get();
+  }
 
  private:
   // NULL by default.
   scoped_ptr<PrefService> prefs_;
+  scoped_ptr<FakeOAuth2TokenService> token_service_;
+  scoped_ptr<FakeIdentityProvider> identity_provider_;
+  scoped_ptr<rappor::TestRapporService> rappor_service_;
+
+  bool is_context_secure_;
 
   DISALLOW_COPY_AND_ASSIGN(TestAutofillClient);
 };

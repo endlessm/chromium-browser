@@ -2,20 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/autocomplete/shortcuts_backend.h"
+#include "components/omnibox/browser/shortcuts_backend.h"
 
 #include "base/files/scoped_temp_dir.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/autocomplete/shortcuts_backend_factory.h"
-#include "chrome/browser/history/shortcuts_database.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
+#include "chrome/browser/search_engines/ui_thread_search_terms_data.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/omnibox/browser/shortcuts_database.h"
 #include "components/search_engines/template_url_service.h"
 #include "content/public/test/test_browser_thread.h"
-#include "sql/statement.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -27,11 +27,11 @@ class ShortcutsBackendTest : public testing::Test,
  public:
   ShortcutsBackendTest();
 
-  history::ShortcutsDatabase::Shortcut::MatchCore MatchCoreForTesting(
-    const std::string& url,
-    const std::string& contents_class = std::string(),
-    const std::string& description_class = std::string(),
-    AutocompleteMatch::Type type = AutocompleteMatchType::URL_WHAT_YOU_TYPED);
+  ShortcutsDatabase::Shortcut::MatchCore MatchCoreForTesting(
+      const std::string& url,
+      const std::string& contents_class = std::string(),
+      const std::string& description_class = std::string(),
+      AutocompleteMatch::Type type = AutocompleteMatchType::URL_WHAT_YOU_TYPED);
   void SetSearchProvider();
 
   void SetUp() override;
@@ -49,20 +49,23 @@ class ShortcutsBackendTest : public testing::Test,
   }
 
   void InitBackend();
-  bool AddShortcut(const history::ShortcutsDatabase::Shortcut& shortcut);
-  bool UpdateShortcut(const history::ShortcutsDatabase::Shortcut& shortcut);
+  bool AddShortcut(const ShortcutsDatabase::Shortcut& shortcut);
+  bool UpdateShortcut(const ShortcutsDatabase::Shortcut& shortcut);
   bool DeleteShortcutsWithURL(const GURL& url);
   bool DeleteShortcutsWithIDs(
-      const history::ShortcutsDatabase::ShortcutIDs& deleted_ids);
-
- protected:
-  TestingProfile profile_;
+      const ShortcutsDatabase::ShortcutIDs& deleted_ids);
 
  private:
-  scoped_refptr<ShortcutsBackend> backend_;
   base::MessageLoopForUI ui_message_loop_;
   content::TestBrowserThread ui_thread_;
   content::TestBrowserThread db_thread_;
+
+ protected:
+  TestingProfile profile_;
+  UIThreadSearchTermsData search_terms_data_;
+
+ private:
+  scoped_refptr<ShortcutsBackend> backend_;
 
   bool load_notified_;
   bool changed_notified_;
@@ -73,16 +76,16 @@ class ShortcutsBackendTest : public testing::Test,
 ShortcutsBackendTest::ShortcutsBackendTest()
     : ui_thread_(content::BrowserThread::UI, &ui_message_loop_),
       db_thread_(content::BrowserThread::DB),
+      search_terms_data_(&profile_),
       load_notified_(false),
       changed_notified_(false) {
 }
 
-history::ShortcutsDatabase::Shortcut::MatchCore
-    ShortcutsBackendTest::MatchCoreForTesting(
-    const std::string& url,
-    const std::string& contents_class,
-    const std::string& description_class,
-    AutocompleteMatch::Type type) {
+ShortcutsDatabase::Shortcut::MatchCore
+ShortcutsBackendTest::MatchCoreForTesting(const std::string& url,
+                                          const std::string& contents_class,
+                                          const std::string& description_class,
+                                          AutocompleteMatch::Type type) {
   AutocompleteMatch match(NULL, 0, 0, type);
   match.destination_url = GURL(url);
   match.contents = base::ASCIIToUTF16("test");
@@ -92,7 +95,9 @@ history::ShortcutsDatabase::Shortcut::MatchCore
       AutocompleteMatch::ClassificationsFromString(description_class);
   match.search_terms_args.reset(
       new TemplateURLRef::SearchTermsArgs(match.contents));
-  return ShortcutsBackend::MatchToMatchCore(match, &profile_);
+  return ShortcutsBackend::MatchToMatchCore(
+      match, TemplateURLServiceFactory::GetForProfile(&profile_),
+      &search_terms_data_);
 }
 
 void ShortcutsBackendTest::SetSearchProvider() {
@@ -100,6 +105,7 @@ void ShortcutsBackendTest::SetSearchProvider() {
       TemplateURLServiceFactory::GetForProfile(&profile_);
   TemplateURLData data;
   data.SetURL("http://foo.com/search?bar={searchTerms}");
+  data.SetShortName(base::UTF8ToUTF16("foo"));
   data.SetKeyword(base::UTF8ToUTF16("foo"));
 
   TemplateURL* template_url = new TemplateURL(data);
@@ -149,12 +155,12 @@ void ShortcutsBackendTest::InitBackend() {
 }
 
 bool ShortcutsBackendTest::AddShortcut(
-    const history::ShortcutsDatabase::Shortcut& shortcut) {
+    const ShortcutsDatabase::Shortcut& shortcut) {
   return backend_->AddShortcut(shortcut);
 }
 
 bool ShortcutsBackendTest::UpdateShortcut(
-    const history::ShortcutsDatabase::Shortcut& shortcut) {
+    const ShortcutsDatabase::Shortcut& shortcut) {
   return backend_->UpdateShortcut(shortcut);
 }
 
@@ -163,7 +169,7 @@ bool ShortcutsBackendTest::DeleteShortcutsWithURL(const GURL& url) {
 }
 
 bool ShortcutsBackendTest::DeleteShortcutsWithIDs(
-    const history::ShortcutsDatabase::ShortcutIDs& deleted_ids) {
+    const ShortcutsDatabase::ShortcutIDs& deleted_ids) {
   return backend_->DeleteShortcutsWithIDs(deleted_ids);
 }
 
@@ -192,21 +198,18 @@ TEST_F(ShortcutsBackendTest, SanitizeMatchCore) {
       "0,1",     "0,0",      AutocompleteMatchType::SEARCH_HISTORY },
     { "0,1",     "0,0",      AutocompleteMatchType::SEARCH_SUGGEST_ENTITY,
       "",        "",         AutocompleteMatchType::SEARCH_HISTORY },
-    { "0,1",     "0,0",      AutocompleteMatchType::SEARCH_SUGGEST_INFINITE,
+    { "0,1",     "0,0",      AutocompleteMatchType::SEARCH_SUGGEST_TAIL,
       "",        "",         AutocompleteMatchType::SEARCH_HISTORY },
     { "0,1",     "0,0",      AutocompleteMatchType::SEARCH_SUGGEST_PERSONALIZED,
       "",        "",         AutocompleteMatchType::SEARCH_HISTORY },
     { "0,1",     "0,0",      AutocompleteMatchType::SEARCH_SUGGEST_PROFILE,
       "",        "",         AutocompleteMatchType::SEARCH_HISTORY },
-    { "0,1",     "0,0",      AutocompleteMatchType::SEARCH_SUGGEST_ANSWER,
-      "",        "",         AutocompleteMatchType::SEARCH_HISTORY },
   };
 
   for (size_t i = 0; i < arraysize(cases); ++i) {
-    history::ShortcutsDatabase::Shortcut::MatchCore match_core(
-        MatchCoreForTesting(std::string(), cases[i].input_contents_class,
-                            cases[i].input_description_class,
-                            cases[i].input_type));
+    ShortcutsDatabase::Shortcut::MatchCore match_core(MatchCoreForTesting(
+        std::string(), cases[i].input_contents_class,
+        cases[i].input_description_class, cases[i].input_type));
     EXPECT_EQ(cases[i].output_contents_class, match_core.contents_class)
         << ":i:" << i << ":type:" << cases[i].input_type;
     EXPECT_EQ(cases[i].output_description_class, match_core.description_class)
@@ -232,9 +235,10 @@ TEST_F(ShortcutsBackendTest, EntitySuggestionTest) {
   match.search_terms_args.reset(
       new TemplateURLRef::SearchTermsArgs(match.fill_into_edit));
 
-  history::ShortcutsDatabase::Shortcut::MatchCore match_core =
-      ShortcutsBackend::MatchToMatchCore(match, &profile_);
-
+  ShortcutsDatabase::Shortcut::MatchCore match_core =
+      ShortcutsBackend::MatchToMatchCore(
+          match, TemplateURLServiceFactory::GetForProfile(&profile_),
+          &search_terms_data_);
   EXPECT_EQ("http://foo.com/search?bar=franklin+d+roosevelt",
             match_core.destination_url.spec());
   EXPECT_EQ(match.fill_into_edit, match_core.contents);
@@ -247,7 +251,7 @@ TEST_F(ShortcutsBackendTest, AddAndUpdateShortcut) {
   InitBackend();
   EXPECT_FALSE(changed_notified());
 
-  history::ShortcutsDatabase::Shortcut shortcut(
+  ShortcutsDatabase::Shortcut shortcut(
       "BD85DBA2-8C29-49F9-84AE-48E1E90880DF", base::ASCIIToUTF16("goog"),
       MatchCoreForTesting("http://www.google.com"), base::Time::Now(), 100);
   EXPECT_TRUE(AddShortcut(shortcut));
@@ -272,22 +276,22 @@ TEST_F(ShortcutsBackendTest, AddAndUpdateShortcut) {
 
 TEST_F(ShortcutsBackendTest, DeleteShortcuts) {
   InitBackend();
-  history::ShortcutsDatabase::Shortcut shortcut1(
+  ShortcutsDatabase::Shortcut shortcut1(
       "BD85DBA2-8C29-49F9-84AE-48E1E90880DF", base::ASCIIToUTF16("goog"),
       MatchCoreForTesting("http://www.google.com"), base::Time::Now(), 100);
   EXPECT_TRUE(AddShortcut(shortcut1));
 
-  history::ShortcutsDatabase::Shortcut shortcut2(
+  ShortcutsDatabase::Shortcut shortcut2(
       "BD85DBA2-8C29-49F9-84AE-48E1E90880E0", base::ASCIIToUTF16("gle"),
       MatchCoreForTesting("http://www.google.com"), base::Time::Now(), 100);
   EXPECT_TRUE(AddShortcut(shortcut2));
 
-  history::ShortcutsDatabase::Shortcut shortcut3(
+  ShortcutsDatabase::Shortcut shortcut3(
       "BD85DBA2-8C29-49F9-84AE-48E1E90880E1", base::ASCIIToUTF16("sp"),
       MatchCoreForTesting("http://www.sport.com"), base::Time::Now(), 10);
   EXPECT_TRUE(AddShortcut(shortcut3));
 
-  history::ShortcutsDatabase::Shortcut shortcut4(
+  ShortcutsDatabase::Shortcut shortcut4(
       "BD85DBA2-8C29-49F9-84AE-48E1E90880E2", base::ASCIIToUTF16("mov"),
       MatchCoreForTesting("http://www.film.com"), base::Time::Now(), 10);
   EXPECT_TRUE(AddShortcut(shortcut4));
@@ -312,7 +316,7 @@ TEST_F(ShortcutsBackendTest, DeleteShortcuts) {
   ASSERT_TRUE(shortcut4_iter != shortcuts_map().end());
   EXPECT_EQ(shortcut4.id, shortcut4_iter->second.id);
 
-  history::ShortcutsDatabase::ShortcutIDs deleted_ids;
+  ShortcutsDatabase::ShortcutIDs deleted_ids;
   deleted_ids.push_back(shortcut3.id);
   deleted_ids.push_back(shortcut4.id);
   EXPECT_TRUE(DeleteShortcutsWithIDs(deleted_ids));

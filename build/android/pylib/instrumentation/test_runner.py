@@ -16,8 +16,10 @@ from pylib import valgrind_tools
 from pylib.base import base_test_result
 from pylib.base import base_test_runner
 from pylib.device import device_errors
+from pylib.instrumentation import instrumentation_test_instance
 from pylib.instrumentation import json_perf_parser
 from pylib.instrumentation import test_result
+from pylib.local.device import local_device_instrumentation_test_run
 
 sys.path.append(os.path.join(constants.DIR_SOURCE_ROOT, 'build', 'util', 'lib',
                              'common'))
@@ -27,32 +29,13 @@ import perf_tests_results_helper # pylint: disable=F0401
 _PERF_TEST_ANNOTATION = 'PerfTest'
 
 
-def _GetDataFilesForTestSuite(suite_basename):
-  """Returns a list of data files/dirs needed by the test suite.
-
-  Args:
-    suite_basename: The test suite basename for which to return file paths.
-
-  Returns:
-    A list of test file and directory paths.
-  """
-  test_files = []
-  if suite_basename in ['ChromeTest', 'ContentShellTest']:
-    test_files += [
-        'net/data/ssl/certificates/',
-    ]
-  return test_files
-
-
 class TestRunner(base_test_runner.BaseTestRunner):
   """Responsible for running a series of tests connected to a single device."""
 
-  _DEVICE_DATA_DIR = 'chrome/test/data'
   _DEVICE_COVERAGE_DIR = 'chrome/test/coverage'
   _HOSTMACHINE_PERF_OUTPUT_FILE = '/tmp/chrome-profile'
   _DEVICE_PERF_OUTPUT_SEARCH_PREFIX = (constants.DEVICE_PERF_OUTPUT_DIR +
                                        '/chrome-profile*')
-  _DEVICE_HAS_TEST_FILES = {}
 
   def __init__(self, test_options, device, shard_index, test_pkg,
                additional_flags=None):
@@ -65,9 +48,9 @@ class TestRunner(base_test_runner.BaseTestRunner):
       test_pkg: A TestPackage object.
       additional_flags: A list of additional flags to add to the command line.
     """
-    super(TestRunner, self).__init__(device, test_options.tool,
-                                     test_options.cleanup_test_files)
+    super(TestRunner, self).__init__(device, test_options.tool)
     self._lighttp_port = constants.LIGHTTPD_RANDOM_PORT_FIRST + shard_index
+    self._logcat_monitor = None
 
     self.coverage_device_file = None
     self.coverage_dir = test_options.coverage_dir
@@ -88,45 +71,6 @@ class TestRunner(base_test_runner.BaseTestRunner):
   #override
   def InstallTestPackage(self):
     self.test_pkg.Install(self.device)
-
-  #override
-  def PushDataDeps(self):
-    # TODO(frankf): Implement a general approach for copying/installing
-    # once across test runners.
-    if TestRunner._DEVICE_HAS_TEST_FILES.get(self.device, False):
-      logging.warning('Already copied test files to device %s, skipping.',
-                      str(self.device))
-      return
-
-    host_device_file_tuples = []
-    test_data = _GetDataFilesForTestSuite(self.test_pkg.GetApkName())
-    if test_data:
-      # Make sure SD card is ready.
-      self.device.WaitUntilFullyBooted(timeout=20)
-      host_device_file_tuples += [
-          (os.path.join(constants.DIR_SOURCE_ROOT, p),
-           os.path.join(self.device.GetExternalStoragePath(), p))
-          for p in test_data]
-
-    # TODO(frankf): Specify test data in this file as opposed to passing
-    # as command-line.
-    for dest_host_pair in self.options.test_data:
-      dst_src = dest_host_pair.split(':', 1)
-      dst_layer = dst_src[0]
-      host_src = dst_src[1]
-      host_test_files_path = os.path.join(constants.DIR_SOURCE_ROOT,
-                                          host_src)
-      if os.path.exists(host_test_files_path):
-        host_device_file_tuples += [(
-            host_test_files_path,
-            '%s/%s/%s' % (
-                self.device.GetExternalStoragePath(),
-                TestRunner._DEVICE_DATA_DIR,
-                dst_layer))]
-    if host_device_file_tuples:
-      self.device.PushChangedFiles(host_device_file_tuples)
-    self.tool.CopyFiles(self.device)
-    TestRunner._DEVICE_HAS_TEST_FILES[str(self.device)] = True
 
   def _GetInstrumentationArgs(self):
     ret = {}
@@ -151,11 +95,12 @@ class TestRunner(base_test_runner.BaseTestRunner):
       logging.warning('Unable to enable java asserts for %s, non rooted device',
                       str(self.device))
     else:
-      if self.device.SetJavaAsserts(True):
+      if self.device.SetJavaAsserts(self.options.set_asserts):
         # TODO(jbudorick) How to best do shell restart after the
         #                 android_commands refactor?
         self.device.RunShellCommand('stop')
         self.device.RunShellCommand('start')
+        self.device.WaitUntilFullyBooted()
 
     # We give different default value to launch HTTP server based on shard index
     # because it may have race condition when multiple processes are trying to
@@ -208,8 +153,8 @@ class TestRunner(base_test_runner.BaseTestRunner):
     Returns:
       Whether the feature being tested is FirstRunExperience.
     """
-    freFeature = 'Feature:FirstRunExperience'
-    return freFeature in self.test_pkg.GetTestAnnotations(test)
+    annotations = self.test_pkg.GetTestAnnotations(test)
+    return 'FirstRunExperience' == annotations.get('Feature', None)
 
   def _IsPerfTest(self, test):
     """Determines whether a test is a performance test.
@@ -230,9 +175,10 @@ class TestRunner(base_test_runner.BaseTestRunner):
     """
     if not self._IsPerfTest(test):
       return
-    self.device.old_interface.Adb().SendCommand(
-        'shell rm ' + TestRunner._DEVICE_PERF_OUTPUT_SEARCH_PREFIX)
-    self.device.old_interface.StartMonitoringLogcat()
+    self.device.RunShellCommand(
+        ['rm', TestRunner._DEVICE_PERF_OUTPUT_SEARCH_PREFIX])
+    self._logcat_monitor = self.device.GetLogcatMonitor()
+    self._logcat_monitor.Start()
 
   def TestTeardown(self, test, result):
     """Cleans up the test harness after running a particular test.
@@ -275,15 +221,15 @@ class TestRunner(base_test_runner.BaseTestRunner):
     raw_test_name = test.split('#')[1]
 
     # Wait and grab annotation data so we can figure out which traces to parse
-    regex = self.device.old_interface.WaitForLogMatch(
-        re.compile('\*\*PERFANNOTATION\(' + raw_test_name + '\)\:(.*)'), None)
+    regex = self._logcat_monitor.WaitFor(
+        re.compile(r'\*\*PERFANNOTATION\(' + raw_test_name + r'\)\:(.*)'))
 
     # If the test is set to run on a specific device type only (IE: only
     # tablet or phone) and it is being run on the wrong device, the test
     # just quits and does not do anything.  The java test harness will still
     # print the appropriate annotation for us, but will add --NORUN-- for
     # us so we know to ignore the results.
-    # The --NORUN-- tag is managed by MainActivityTestBase.java
+    # The --NORUN-- tag is managed by ChromeTabbedActivityTestBase.java
     if regex.group(1) != '--NORUN--':
 
       # Obtain the relevant perf data.  The data is dumped to a
@@ -292,10 +238,8 @@ class TestRunner(base_test_runner.BaseTestRunner):
           '/data/data/com.google.android.apps.chrome/files/PerfTestData.txt',
           as_root=True)
 
-      if json_string:
-        json_string = '\n'.join(json_string)
-      else:
-        raise Exception('Perf file does not exist or is empty')
+      if not json_string:
+        raise Exception('Perf file is empty')
 
       if self.options.save_perf_json:
         json_local_file = '/tmp/chromium-android-perf-json-' + raw_test_name
@@ -329,10 +273,11 @@ class TestRunner(base_test_runner.BaseTestRunner):
     annotations = self.test_pkg.GetTestAnnotations(test)
     timeout_scale = 1
     if 'TimeoutScale' in annotations:
-      for annotation in annotations:
-        scale_match = re.match('TimeoutScale:([0-9]+)', annotation)
-        if scale_match:
-          timeout_scale = int(scale_match.group(1))
+      try:
+        timeout_scale = int(annotations['TimeoutScale'])
+      except ValueError:
+        logging.warning('Non-integer value of TimeoutScale ignored. (%s)'
+                        % annotations['TimeoutScale'])
     if self.options.wait_for_debugger:
       timeout_scale *= 100
     return timeout_scale
@@ -355,8 +300,8 @@ class TestRunner(base_test_runner.BaseTestRunner):
     if 'SmallTest' in annotations:
       return 1 * 60
 
-    logging.warn(("Test size not found in annotations for test '{0}', using " +
-                  "1 minute for timeout.").format(test))
+    logging.warn(("Test size not found in annotations for test '%s', using " +
+                  "1 minute for timeout.") % test)
     return 1 * 60
 
   def _RunTest(self, test, timeout):
@@ -369,134 +314,22 @@ class TestRunner(base_test_runner.BaseTestRunner):
     Returns:
       The raw output of am instrument as a list of lines.
     """
-    # Build the 'am instrument' command
-    instrumentation_path = (
-        '%s/%s' % (self.test_pkg.GetPackageName(), self.options.test_runner))
+    extras = self._GetInstrumentationArgs()
+    extras['class'] = test
+    return self.device.StartInstrumentation(
+        '%s/%s' % (self.test_pkg.GetPackageName(), self.options.test_runner),
+        raw=True, extras=extras, timeout=timeout, retries=3)
 
-    cmd = ['am', 'instrument', '-r']
-    for k, v in self._GetInstrumentationArgs().iteritems():
-      cmd.extend(['-e', k, v])
-    cmd.extend(['-e', 'class', test])
-    cmd.extend(['-w', instrumentation_path])
-    return self.device.RunShellCommand(cmd, timeout=timeout, retries=0)
-
-  @staticmethod
-  def _ParseAmInstrumentRawOutput(raw_output):
-    """Parses the output of an |am instrument -r| call.
-
-    Args:
-      raw_output: the output of an |am instrument -r| call as a list of lines
-    Returns:
-      A 3-tuple containing:
-        - the instrumentation code as an integer
-        - the instrumentation result as a list of lines
-        - the instrumentation statuses received as a list of 2-tuples
-          containing:
-          - the status code as an integer
-          - the bundle dump as a dict mapping string keys to a list of
-            strings, one for each line.
-    """
-    INSTR_STATUS = 'INSTRUMENTATION_STATUS: '
-    INSTR_STATUS_CODE = 'INSTRUMENTATION_STATUS_CODE: '
-    INSTR_RESULT = 'INSTRUMENTATION_RESULT: '
-    INSTR_CODE = 'INSTRUMENTATION_CODE: '
-
-    last = None
-    instr_code = None
-    instr_result = []
-    instr_statuses = []
-    bundle = {}
-    for line in raw_output:
-      if line.startswith(INSTR_STATUS):
-        instr_var = line[len(INSTR_STATUS):]
-        if '=' in instr_var:
-          k, v = instr_var.split('=', 1)
-          bundle[k] = [v]
-          last = INSTR_STATUS
-          last_key = k
-        else:
-          logging.debug('Unknown "%s" line: %s' % (INSTR_STATUS, line))
-
-      elif line.startswith(INSTR_STATUS_CODE):
-        instr_status = line[len(INSTR_STATUS_CODE):]
-        instr_statuses.append((int(instr_status), bundle))
-        bundle = {}
-        last = INSTR_STATUS_CODE
-
-      elif line.startswith(INSTR_RESULT):
-        instr_result.append(line[len(INSTR_RESULT):])
-        last = INSTR_RESULT
-
-      elif line.startswith(INSTR_CODE):
-        instr_code = int(line[len(INSTR_CODE):])
-        last = INSTR_CODE
-
-      elif last == INSTR_STATUS:
-        bundle[last_key].append(line)
-
-      elif last == INSTR_RESULT:
-        instr_result.append(line)
-
-    return (instr_code, instr_result, instr_statuses)
-
-  def _GenerateTestResult(self, test, instr_statuses, start_ms, duration_ms):
-    """Generate the result of |test| from |instr_statuses|.
-
-    Args:
-      instr_statuses: A list of 2-tuples containing:
-        - the status code as an integer
-        - the bundle dump as a dict mapping string keys to string values
-        Note that this is the same as the third item in the 3-tuple returned by
-        |_ParseAmInstrumentRawOutput|.
-      start_ms: The start time of the test in milliseconds.
-      duration_ms: The duration of the test in milliseconds.
-    Returns:
-      An InstrumentationTestResult object.
-    """
-    INSTR_STATUS_CODE_START = 1
-    INSTR_STATUS_CODE_OK = 0
-    INSTR_STATUS_CODE_ERROR = -1
-    INSTR_STATUS_CODE_FAIL = -2
-
-    log = ''
-    result_type = base_test_result.ResultType.UNKNOWN
-
-    for status_code, bundle in instr_statuses:
-      if status_code == INSTR_STATUS_CODE_START:
-        pass
-      elif status_code == INSTR_STATUS_CODE_OK:
-        bundle_test = '%s#%s' % (
-            ''.join(bundle.get('class', [''])),
-            ''.join(bundle.get('test', [''])))
-        skipped = ''.join(bundle.get('test_skipped', ['']))
-
-        if (test == bundle_test and
-            result_type == base_test_result.ResultType.UNKNOWN):
-          result_type = base_test_result.ResultType.PASS
-        elif skipped.lower() in ('true', '1', 'yes'):
-          result_type = base_test_result.ResultType.SKIP
-          logging.info('Skipped ' + test)
-      else:
-        if status_code not in (INSTR_STATUS_CODE_ERROR,
-                               INSTR_STATUS_CODE_FAIL):
-          logging.info('Unrecognized status code %d. Handling as an error.',
-                       status_code)
-        result_type = base_test_result.ResultType.FAIL
-        if 'stack' in bundle:
-          log = '\n'.join(bundle['stack'])
-        # Dismiss any error dialogs. Limit the number in case we have an error
-        # loop or we are failing to dismiss.
-        for _ in xrange(10):
-          package = self.device.old_interface.DismissCrashDialogIfNeeded()
-          if not package:
-            break
-          # Assume test package convention of ".test" suffix
-          if package in self.test_pkg.GetPackageName():
-            result_type = base_test_result.ResultType.CRASH
-            break
-
+  def _GenerateTestResult(self, test, instr_result_code, instr_result_bundle,
+                          statuses, start_ms, duration_ms):
+    results = instrumentation_test_instance.GenerateTestResults(
+        instr_result_code, instr_result_bundle, statuses, start_ms, duration_ms)
+    for r in results:
+      if r.GetName() == test:
+        return r
+    logging.error('Could not find result for test: %s', test)
     return test_result.InstrumentationTestResult(
-        test, result_type, start_ms, duration_ms, log=log)
+        test, base_test_result.ResultType.UNKNOWN, start_ms, duration_ms)
 
   #override
   def RunTest(self, test):
@@ -504,14 +337,16 @@ class TestRunner(base_test_runner.BaseTestRunner):
     timeout = (self._GetIndividualTestTimeoutSecs(test) *
                self._GetIndividualTestTimeoutScale(test) *
                self.tool.GetTimeoutScale())
-    if (self.device.GetProp('ro.build.version.sdk')
-        < constants.ANDROID_SDK_VERSION_CODES.JELLY_BEAN):
-      timeout *= 4
 
     start_ms = 0
     duration_ms = 0
     try:
       self.TestSetup(test)
+
+      try:
+        self.device.GoHome()
+      except device_errors.CommandTimeoutError:
+        logging.exception('Failed to focus the launcher.')
 
       time_ms = lambda: int(time.time() * 1000)
       start_ms = time_ms()
@@ -519,8 +354,13 @@ class TestRunner(base_test_runner.BaseTestRunner):
       duration_ms = time_ms() - start_ms
 
       # Parse the test output
-      _, _, statuses = self._ParseAmInstrumentRawOutput(raw_output)
-      result = self._GenerateTestResult(test, statuses, start_ms, duration_ms)
+      result_code, result_bundle, statuses = (
+          instrumentation_test_instance.ParseAmInstrumentRawOutput(raw_output))
+      result = self._GenerateTestResult(
+          test, result_code, result_bundle, statuses, start_ms, duration_ms)
+      if local_device_instrumentation_test_run.DidPackageCrashOnDevice(
+          self.test_pkg.GetPackageName(), self.device):
+        result.SetType(base_test_result.ResultType.CRASH)
       results.AddResult(result)
     except device_errors.CommandTimeoutError as e:
       results.AddResult(test_result.InstrumentationTestResult(

@@ -139,10 +139,6 @@ class ActivityLog : public BrowserContextKeyedAPI,
   // --enable-extension-activity-logging flag is set.
   bool IsDatabaseEnabled();
 
-  // Delayed initialization of ExtensionRegistry which waits until after the
-  // ExtensionSystem/ExtensionService are done with their own setup.
-  void StartObserving();
-
   // ScriptExecutionObserver implementation.
   // Fires when a ContentScript is executed.
   void OnScriptsExecuted(const content::WebContents* web_contents,
@@ -161,7 +157,7 @@ class ActivityLog : public BrowserContextKeyedAPI,
   static const bool kServiceRedirectedInIncognito = true;
   static const bool kServiceIsCreatedWithBrowserContext = false;
 
-  typedef ObserverListThreadSafe<Observer> ObserverList;
+  typedef base::ObserverListThreadSafe<Observer> ObserverList;
   scoped_refptr<ObserverList> observers_;
 
   // Policy objects are owned by the ActivityLog, but cannot be scoped_ptrs

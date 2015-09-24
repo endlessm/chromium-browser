@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../../include/fpdfapi/fpdf_serial.h"
@@ -19,37 +19,29 @@ CFDF_Document::~CFDF_Document()
 }
 CFDF_Document* CFDF_Document::CreateNewDoc()
 {
-    CFDF_Document* pDoc = FX_NEW CFDF_Document;
-    pDoc->m_pRootDict = FX_NEW CPDF_Dictionary;
+    CFDF_Document* pDoc = new CFDF_Document;
+    pDoc->m_pRootDict = new CPDF_Dictionary;
     pDoc->AddIndirectObject(pDoc->m_pRootDict);
-    CPDF_Dictionary* pFDFDict = FX_NEW CPDF_Dictionary;
+    CPDF_Dictionary* pFDFDict = new CPDF_Dictionary;
     pDoc->m_pRootDict->SetAt(FX_BSTRC("FDF"), pFDFDict);
     return pDoc;
 }
-CFDF_Document* CFDF_Document::ParseFile(FX_LPCSTR file_path)
-{
-    return CFDF_Document::ParseFile(FX_CreateFileRead(file_path), TRUE);
-}
-CFDF_Document* CFDF_Document::ParseFile(FX_LPCWSTR file_path)
-{
-    return CFDF_Document::ParseFile(FX_CreateFileRead(file_path), TRUE);
-}
 CFDF_Document* CFDF_Document::ParseFile(IFX_FileRead *pFile, FX_BOOL bOwnFile)
 {
-    if (!pFile) {
-        return NULL;
-    }
-    CFDF_Document* pDoc = FX_NEW CFDF_Document;
-    pDoc->ParseStream(pFile, bOwnFile);
-    if (pDoc->m_pRootDict == NULL) {
-        delete pDoc;
-        return NULL;
-    }
-    return pDoc;
+  if (!pFile) {
+    return NULL;
+  }
+  CFDF_Document* pDoc = new CFDF_Document;
+  pDoc->ParseStream(pFile, bOwnFile);
+  if (pDoc->m_pRootDict == NULL) {
+    delete pDoc;
+    return NULL;
+  }
+  return pDoc;
 }
-CFDF_Document* CFDF_Document::ParseMemory(FX_LPCBYTE pData, FX_DWORD size)
+CFDF_Document* CFDF_Document::ParseMemory(const uint8_t* pData, FX_DWORD size)
 {
-    return CFDF_Document::ParseFile(FX_CreateMemoryStream((FX_LPBYTE)pData, size), TRUE);
+    return CFDF_Document::ParseFile(FX_CreateMemoryStream((uint8_t*)pData, size), TRUE);
 }
 void CFDF_Document::ParseStream(IFX_FileRead *pFile, FX_BOOL bOwnFile)
 {
@@ -103,7 +95,7 @@ FX_BOOL CFDF_Document::WriteBuf(CFX_ByteTextBuf& buf) const
     while(pos) {
         size_t objnum;
         CPDF_Object* pObj;
-        m_IndirectObjs.GetNextAssoc(pos, (FX_LPVOID&)objnum, (FX_LPVOID&)pObj);
+        m_IndirectObjs.GetNextAssoc(pos, (void*&)objnum, (void*&)pObj);
         buf << (FX_DWORD)objnum << FX_BSTRC(" 0 obj\r\n") << pObj << FX_BSTRC("\r\nendobj\r\n\r\n");
     }
     buf << FX_BSTRC("trailer\r\n<</Root ") << m_pRootDict->GetObjNum() << FX_BSTRC(" 0 R>>\r\n%%EOF\r\n");
@@ -121,37 +113,7 @@ CFX_WideString CFDF_Document::GetWin32Path() const
     }
     return FPDF_FileSpec_GetWin32Path(pFileSpec);
 }
-FX_BOOL CFDF_Document::WriteFile(FX_LPCSTR file_path) const
-{
-    IFX_FileWrite *pFile = FX_CreateFileWrite(file_path);
-    if (!pFile) {
-        return FALSE;
-    }
-    FX_BOOL bRet = WriteFile(pFile);
-    pFile->Release();
-    return bRet;
-}
-FX_BOOL CFDF_Document::WriteFile(FX_LPCWSTR file_path) const
-{
-    IFX_FileWrite *pFile = FX_CreateFileWrite(file_path);
-    if (!pFile) {
-        return FALSE;
-    }
-    FX_BOOL bRet = WriteFile(pFile);
-    pFile->Release();
-    return bRet;
-}
-FX_BOOL CFDF_Document::WriteFile(IFX_FileWrite *pFile) const
-{
-    CFX_ByteTextBuf buf;
-    WriteBuf(buf);
-    FX_BOOL bRet = pFile->WriteBlock(buf.GetBuffer(), buf.GetSize());
-    if (bRet) {
-        pFile->Flush();
-    }
-    return bRet;
-}
-static CFX_WideString ChangeSlash(FX_LPCWSTR str)
+static CFX_WideString ChangeSlash(const FX_WCHAR* str)
 {
     CFX_WideString result;
     while (*str) {
@@ -175,11 +137,11 @@ void FPDF_FileSpec_SetWin32Path(CPDF_Object* pFileSpec, const CFX_WideString& fi
         if (filepath[2] != '\\') {
             result += '/';
         }
-        result += ChangeSlash((FX_LPCWSTR)filepath + 2);
+        result += ChangeSlash(filepath.c_str() + 2);
     } else if (filepath.GetLength() > 1 && filepath[0] == '\\' && filepath[1] == '\\') {
-        result = ChangeSlash((FX_LPCWSTR)filepath + 1);
+        result = ChangeSlash(filepath.c_str() + 1);
     } else {
-        result = ChangeSlash(filepath);
+        result = ChangeSlash(filepath.c_str());
     }
     if (pFileSpec->GetType() == PDFOBJ_STRING) {
         pFileSpec->SetString(CFX_ByteString::FromUnicode(result));
@@ -211,18 +173,18 @@ CFX_WideString	FPDF_FileSpec_GetWin32Path(const CPDF_Object* pFileSpec)
         wsFileName = CFX_WideString::FromLocal(pFileSpec->GetString());
     }
     if (wsFileName[0] != '/') {
-        return ChangeSlash(wsFileName);
+        return ChangeSlash(wsFileName.c_str());
     }
     if (wsFileName[2] == '/') {
         CFX_WideString result;
         result += wsFileName[1];
         result += ':';
-        result += ChangeSlash(((FX_LPCWSTR)wsFileName) + 2);
+        result += ChangeSlash(wsFileName.c_str() + 2);
         return result;
     } else {
         CFX_WideString result;
         result += '\\';
-        result += ChangeSlash(wsFileName);
+        result += ChangeSlash(wsFileName.c_str());
         return result;
     }
 }

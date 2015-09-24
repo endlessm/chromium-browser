@@ -7,9 +7,11 @@
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
 #include "base/command_line.h"
+#include "chrome/browser/android/feature_utilities.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/file_select_helper.h"
 #include "chrome/browser/media/media_capture_devices_dispatcher.h"
+#include "chrome/browser/media/media_stream_capture_indicator.h"
 #include "chrome/browser/media/protected_media_identifier_permission_context.h"
 #include "chrome/browser/media/protected_media_identifier_permission_context_factory.h"
 #include "chrome/browser/prerender/prerender_manager.h"
@@ -21,7 +23,7 @@
 #include "chrome/browser/ui/find_bar/find_tab_helper.h"
 #include "chrome/browser/ui/tab_helpers.h"
 #include "chrome/common/chrome_switches.h"
-#include "components/app_modal_dialogs/javascript_dialog_manager.h"
+#include "components/app_modal/javascript_dialog_manager.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
@@ -31,8 +33,8 @@
 #include "content/public/common/file_chooser_params.h"
 #include "jni/ChromeWebContentsDelegateAndroid_jni.h"
 #include "third_party/WebKit/public/web/WebWindowFeatures.h"
-#include "ui/gfx/rect.h"
-#include "ui/gfx/rect_f.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/rect_f.h"
 
 #if defined(ENABLE_PLUGINS)
 #include "chrome/browser/pepper_broker_infobar_delegate.h"
@@ -214,8 +216,9 @@ void ChromeWebContentsDelegateAndroid::FindMatchRectsReply(
 }
 
 content::JavaScriptDialogManager*
-ChromeWebContentsDelegateAndroid::GetJavaScriptDialogManager() {
-  return GetJavaScriptDialogManagerInstance();
+ChromeWebContentsDelegateAndroid::GetJavaScriptDialogManager(
+    WebContents* source) {
+  return app_modal::JavaScriptDialogManager::GetInstance();
 }
 
 void ChromeWebContentsDelegateAndroid::RequestMediaAccessPermission(
@@ -280,7 +283,7 @@ WebContents* ChromeWebContentsDelegateAndroid::OpenURLFromTab(
        params.disposition == NEW_BACKGROUND_TAB ||
        params.disposition == NEW_WINDOW) &&
       !params.user_gesture &&
-      !CommandLine::ForCurrentProcess()->HasSwitch(
+      !base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kDisablePopupBlocking)) {
     if (popup_blocker_helper->MaybeBlockPopup(nav_params,
                                               blink::WebWindowFeatures())) {
@@ -303,11 +306,22 @@ WebContents* ChromeWebContentsDelegateAndroid::OpenURLFromTab(
   return WebContentsDelegateAndroid::OpenURLFromTab(source, params);
 }
 
+bool ChromeWebContentsDelegateAndroid::ShouldResumeRequestsForCreatedWindow() {
+  JNIEnv* env = base::android::AttachCurrentThread();
+  ScopedJavaLocalRef<jobject> obj = GetJavaDelegate(env);
+  if (obj.is_null())
+    return true;
+
+  return Java_ChromeWebContentsDelegateAndroid_shouldResumeRequestsForCreatedWindow(
+      env,
+      obj.obj());
+}
+
 void ChromeWebContentsDelegateAndroid::AddNewContents(
     WebContents* source,
     WebContents* new_contents,
     WindowOpenDisposition disposition,
-    const gfx::Rect& initial_pos,
+    const gfx::Rect& initial_rect,
     bool user_gesture,
     bool* was_blocked) {
   // No code for this yet.
@@ -321,11 +335,18 @@ void ChromeWebContentsDelegateAndroid::AddNewContents(
   ScopedJavaLocalRef<jobject> obj = GetJavaDelegate(env);
   bool handled = false;
   if (!obj.is_null()) {
+    ScopedJavaLocalRef<jobject> jsource;
+    if (source)
+      jsource = source->GetJavaWebContents();
+    ScopedJavaLocalRef<jobject> jnew_contents;
+    if (new_contents)
+      jnew_contents = new_contents->GetJavaWebContents();
+
     handled = Java_ChromeWebContentsDelegateAndroid_addNewContents(
         env,
         obj.obj(),
-        reinterpret_cast<intptr_t>(source),
-        reinterpret_cast<intptr_t>(new_contents),
+        jsource.obj(),
+        jnew_contents.obj(),
         static_cast<jint>(disposition),
         NULL,
         user_gesture);
@@ -339,3 +360,33 @@ void ChromeWebContentsDelegateAndroid::AddNewContents(
 
 }  // namespace android
 }  // namespace chrome
+
+jboolean IsCapturingAudio(JNIEnv* env,
+                          jclass clazz,
+                          jobject java_web_contents) {
+  content::WebContents* web_contents =
+      content::WebContents::FromJavaWebContents(java_web_contents);
+  scoped_refptr<MediaStreamCaptureIndicator> indicator =
+      MediaCaptureDevicesDispatcher::GetInstance()->
+          GetMediaStreamCaptureIndicator();
+  return indicator->IsCapturingAudio(web_contents);
+}
+
+jboolean IsCapturingVideo(JNIEnv* env,
+                          jclass clazz,
+                          jobject java_web_contents) {
+  content::WebContents* web_contents =
+      content::WebContents::FromJavaWebContents(java_web_contents);
+  scoped_refptr<MediaStreamCaptureIndicator> indicator =
+      MediaCaptureDevicesDispatcher::GetInstance()->
+          GetMediaStreamCaptureIndicator();
+  return indicator->IsCapturingVideo(web_contents);
+}
+
+jboolean HasAudibleAudio(JNIEnv* env,
+                         jclass clazz,
+                         jobject java_web_contents) {
+  content::WebContents* web_contents =
+      content::WebContents::FromJavaWebContents(java_web_contents);
+  return web_contents->WasRecentlyAudible();
+}

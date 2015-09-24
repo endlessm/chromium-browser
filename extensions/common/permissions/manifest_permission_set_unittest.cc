@@ -21,6 +21,8 @@ class MockManifestPermission : public ManifestPermission {
 
   std::string id() const override { return name(); }
 
+  PermissionIDSet GetPermissions() const override { return PermissionIDSet(); }
+
   bool HasMessages() const override { return false; }
 
   PermissionMessages GetMessages() const override {
@@ -30,7 +32,7 @@ class MockManifestPermission : public ManifestPermission {
   bool FromValue(const base::Value* value) override { return true; }
 
   scoped_ptr<base::Value> ToValue() const override {
-    return make_scoped_ptr(base::Value::CreateNullValue());
+    return base::Value::CreateNullValue();
   }
 
   ManifestPermission* Diff(const ManifestPermission* rhs) const override {

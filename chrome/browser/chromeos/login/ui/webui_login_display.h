@@ -9,87 +9,83 @@
 #include <vector>
 
 #include "base/compiler_specific.h"
-#include "chrome/browser/chromeos/login/screens/gaia_screen.h"
-#include "chrome/browser/chromeos/login/screens/user_selection_screen.h"
 #include "chrome/browser/chromeos/login/signin_specifics.h"
 #include "chrome/browser/chromeos/login/ui/login_display.h"
 #include "chrome/browser/ui/webui/chromeos/login/native_window_delegate.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
 #include "components/user_manager/user.h"
+#include "ui/base/user_activity/user_activity_observer.h"
 #include "ui/views/widget/widget.h"
-#include "ui/wm/core/user_activity_observer.h"
 
 namespace chromeos {
+
 // WebUI-based login UI implementation.
 class WebUILoginDisplay : public LoginDisplay,
                           public NativeWindowDelegate,
                           public SigninScreenHandlerDelegate,
-                          public wm::UserActivityObserver {
+                          public ui::UserActivityObserver {
  public:
   explicit WebUILoginDisplay(LoginDisplay::Delegate* delegate);
-  virtual ~WebUILoginDisplay();
+  ~WebUILoginDisplay() override;
 
   // LoginDisplay implementation:
-  virtual void ClearAndEnablePassword() override;
-  virtual void Init(const user_manager::UserList& users,
-                    bool show_guest,
-                    bool show_users,
-                    bool show_new_user) override;
-  virtual void OnPreferencesChanged() override;
-  virtual void OnBeforeUserRemoved(const std::string& username) override;
-  virtual void OnUserImageChanged(const user_manager::User& user) override;
-  virtual void OnUserRemoved(const std::string& username) override;
-  virtual void SetUIEnabled(bool is_enabled) override;
-  virtual void ShowError(int error_msg_id,
-                         int login_attempts,
-                         HelpAppLauncher::HelpTopic help_topic_id) override;
-  virtual void ShowErrorScreen(LoginDisplay::SigninError error_id) override;
-  virtual void ShowGaiaPasswordChanged(const std::string& username) override;
-  virtual void ShowPasswordChangedDialog(bool show_password_error) override;
-  virtual void ShowSigninUI(const std::string& email) override;
+  void ClearAndEnablePassword() override;
+  void Init(const user_manager::UserList& users,
+            bool show_guest,
+            bool show_users,
+            bool show_new_user) override;
+  void OnPreferencesChanged() override;
+  void RemoveUser(const std::string& user_id) override;
+  void SetUIEnabled(bool is_enabled) override;
+  void ShowError(int error_msg_id,
+                 int login_attempts,
+                 HelpAppLauncher::HelpTopic help_topic_id) override;
+  void ShowErrorScreen(LoginDisplay::SigninError error_id) override;
+  void ShowGaiaPasswordChanged(const std::string& username) override;
+  void ShowPasswordChangedDialog(bool show_password_error,
+                                 const std::string& email) override;
+  void ShowSigninUI(const std::string& email) override;
+  void ShowWhitelistCheckFailedError() override;
 
   // NativeWindowDelegate implementation:
-  virtual gfx::NativeWindow GetNativeWindow() const override;
+  gfx::NativeWindow GetNativeWindow() const override;
 
   // SigninScreenHandlerDelegate implementation:
-  virtual void CancelPasswordChangedFlow() override;
-  virtual void ResyncUserData() override;
-  virtual void MigrateUserData(const std::string& old_password) override;
+  void CancelPasswordChangedFlow() override;
+  void ResyncUserData() override;
+  void MigrateUserData(const std::string& old_password) override;
 
-  virtual void Login(const UserContext& user_context,
-                     const SigninSpecifics& specifics) override;
-  virtual bool IsSigninInProgress() const override;
-  virtual void Signout() override;
-  virtual void CreateAccount() override;
-  virtual void CompleteLogin(const UserContext& user_context) override;
+  void Login(const UserContext& user_context,
+             const SigninSpecifics& specifics) override;
+  bool IsSigninInProgress() const override;
+  void Signout() override;
+  void CreateAccount() override;
+  void CompleteLogin(const UserContext& user_context) override;
 
-  virtual void OnSigninScreenReady() override;
-  virtual void CancelUserAdding() override;
-  virtual void LoadWallpaper(const std::string& username) override;
-  virtual void LoadSigninWallpaper() override;
-  virtual void RemoveUser(const std::string& username) override;
-  virtual void ShowEnterpriseEnrollmentScreen() override;
-  virtual void ShowKioskEnableScreen() override;
-  virtual void ShowKioskAutolaunchScreen() override;
-  virtual void ShowWrongHWIDScreen() override;
-  virtual void SetWebUIHandler(
-      LoginDisplayWebUIHandler* webui_handler) override;
+  void OnSigninScreenReady() override;
+  void CancelUserAdding() override;
+  void LoadWallpaper(const std::string& username) override;
+  void LoadSigninWallpaper() override;
+  void ShowEnterpriseEnrollmentScreen() override;
+  void ShowEnableDebuggingScreen() override;
+  void ShowKioskEnableScreen() override;
+  void ShowKioskAutolaunchScreen() override;
+  void ShowWrongHWIDScreen() override;
+  void SetWebUIHandler(LoginDisplayWebUIHandler* webui_handler) override;
   virtual void ShowSigninScreenForCreds(const std::string& username,
                                         const std::string& password);
-  virtual const user_manager::UserList& GetUsers() const override;
-  virtual bool IsShowGuest() const override;
-  virtual bool IsShowUsers() const override;
-  virtual bool IsUserSigninCompleted() const override;
-  virtual void SetDisplayEmail(const std::string& email) override;
-  virtual void HandleGetUsers() override;
-  virtual void SetAuthType(
-      const std::string& username,
-      ScreenlockBridge::LockHandler::AuthType auth_type) override;
-  virtual ScreenlockBridge::LockHandler::AuthType GetAuthType(
-      const std::string& username) const override;
+  bool IsShowGuest() const override;
+  bool IsShowUsers() const override;
+  bool IsUserSigninCompleted() const override;
+  void SetDisplayEmail(const std::string& email) override;
 
-  // wm::UserActivityDetector implementation:
-  virtual void OnUserActivity(const ui::Event* event) override;
+  void HandleGetUsers() override;
+  void CheckUserStatus(const std::string& user_id) override;
+  const user_manager::UserList& GetUsers() const override;
+  bool IsUserWhitelisted(const std::string& user_id) override;
+
+  // ui::UserActivityDetector implementation:
+  void OnUserActivity(const ui::Event* event) override;
 
  private:
 
@@ -105,9 +101,6 @@ class WebUILoginDisplay : public LoginDisplay,
 
   // Reference to the WebUI handling layer for the login screen
   LoginDisplayWebUIHandler* webui_handler_;
-
-  scoped_ptr<GaiaScreen> gaia_screen_;
-  scoped_ptr<UserSelectionScreen> user_selection_screen_;
 
   DISALLOW_COPY_AND_ASSIGN(WebUILoginDisplay);
 };

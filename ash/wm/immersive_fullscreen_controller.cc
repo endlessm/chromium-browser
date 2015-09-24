@@ -20,8 +20,8 @@
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/gfx/display.h"
-#include "ui/gfx/point.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/screen.h"
 #include "ui/views/bubble/bubble_delegate.h"
 #include "ui/views/view.h"
@@ -303,10 +303,6 @@ void ImmersiveFullscreenController::SetEnabled(WindowType window_type,
       // Reveal was unsuccessful. Reacquire the revealed locks if appropriate.
       UpdateLocatedEventRevealedLock(NULL);
       UpdateFocusRevealedLock();
-    } else {
-      // Clearing focus is important because it closes focus-related popups like
-      // the touch selection handles.
-      widget_->GetFocusManager()->ClearFocus();
     }
   } else {
     // Stop cursor-at-top tracking.

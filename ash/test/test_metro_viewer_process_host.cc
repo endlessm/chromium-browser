@@ -7,6 +7,7 @@
 #include <windef.h>
 
 #include "base/logging.h"
+#include "base/process/process.h"
 #include "ui/aura/remote_window_tree_host_win.h"
 #include "ui/gfx/win/dpi.h"
 
@@ -14,9 +15,8 @@ namespace ash {
 namespace test {
 
 TestMetroViewerProcessHost::TestMetroViewerProcessHost(
-    base::SingleThreadTaskRunner* ipc_task_runner)
-    : MetroViewerProcessHost(ipc_task_runner),
-      closed_unexpectedly_(false) {
+    const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner)
+    : MetroViewerProcessHost(ipc_task_runner), closed_unexpectedly_(false) {
 }
 
 TestMetroViewerProcessHost::~TestMetroViewerProcessHost() {
@@ -25,15 +25,12 @@ TestMetroViewerProcessHost::~TestMetroViewerProcessHost() {
 void TestMetroViewerProcessHost::TerminateViewer() {
   base::ProcessId viewer_process_id = GetViewerProcessId();
   if (viewer_process_id != base::kNullProcessId) {
-    base::ProcessHandle viewer_process = NULL;
-    base::OpenProcessHandleWithAccess(
+    base::Process viewer_process = base::Process::OpenWithAccess(
         viewer_process_id,
-        PROCESS_QUERY_INFORMATION | SYNCHRONIZE | PROCESS_TERMINATE,
-        &viewer_process);
-    if (viewer_process) {
-      ::TerminateProcess(viewer_process, 0);
-      ::WaitForSingleObject(viewer_process, INFINITE);
-      ::CloseHandle(viewer_process);
+        PROCESS_QUERY_INFORMATION | SYNCHRONIZE | PROCESS_TERMINATE);
+    if (viewer_process.IsValid()) {
+      viewer_process.Terminate(0, false);
+      viewer_process.WaitForExit(nullptr);
     }
   }
 }

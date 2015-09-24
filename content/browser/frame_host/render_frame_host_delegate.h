@@ -11,6 +11,7 @@
 #include "base/i18n/rtl.h"
 #include "content/common/content_export.h"
 #include "content/common/frame_message_enums.h"
+#include "content/public/browser/site_instance.h"
 #include "content/public/common/javascript_message_type.h"
 #include "content/public/common/media_stream_request.h"
 #include "net/http/http_response_headers.h"
@@ -57,23 +58,8 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
   // Informs the delegate whenever a RenderFrameHost is deleted.
   virtual void RenderFrameDeleted(RenderFrameHost* render_frame_host) {}
 
-  // The top-level RenderFrame began loading a new page. This corresponds to
-  // Blink's notion of the throbber starting.
-  // |to_different_document| will be true unless the load is a fragment
-  // navigation, or triggered by history.pushState/replaceState.
-  virtual void DidStartLoading(RenderFrameHost* render_frame_host,
-                               bool to_different_document) {}
-
   // The RenderFrameHost has been swapped out.
   virtual void SwappedOut(RenderFrameHost* render_frame_host) {}
-
-  // Notification that the navigation on the main frame is blocked waiting
-  // for transition to occur.
-  virtual void DidDeferAfterResponseStarted(
-      const TransitionLayerData& transition_data) {}
-
-  // Used to query whether the navigation transition will be handled.
-  virtual bool WillHandleDeferAfterResponseStarted();
 
   // Notification that a worker process has crashed.
   virtual void WorkerCrashed(RenderFrameHost* render_frame_host) {}
@@ -100,9 +86,9 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
   // is no longer safe to display a pending URL without risking a URL spoof.
   virtual void DidAccessInitialDocument() {}
 
-  // The frame set its opener to null, disowning it for the lifetime of the
-  // window. Only called for the top-level frame.
-  virtual void DidDisownOpener(RenderFrameHost* render_frame_host) {}
+  // The frame changed its window.name property.
+  virtual void DidChangeName(RenderFrameHost* render_frame_host,
+                             const std::string& name) {}
 
   // The onload handler in the frame has completed. Only called for the top-
   // level frame.
@@ -144,12 +130,42 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
   virtual void AccessibilityEventReceived(
       const std::vector<AXEventNotificationDetails>& details) {}
 
-  // Find a guest RenderFrameHost by its browser plugin instance id.
+  // Find a guest RenderFrameHost by its parent |render_frame_host| and
+  // |browser_plugin_instance_id|.
   virtual RenderFrameHost* GetGuestByInstanceID(
+      RenderFrameHost* render_frame_host,
       int browser_plugin_instance_id);
 
   // Gets the GeolocationServiceContext associated with this delegate.
   virtual GeolocationServiceContext* GetGeolocationServiceContext();
+
+  // Notification that the frame wants to go into fullscreen mode.
+  // |origin| represents the origin of the frame that requests fullscreen.
+  virtual void EnterFullscreenMode(const GURL& origin) {}
+
+  // Notification that the frame wants to go out of fullscreen mode.
+  virtual void ExitFullscreenMode() {}
+
+  // Let the delegate decide whether postMessage should be delivered to
+  // |target_rfh| from a source frame in the given SiteInstance.  This defaults
+  // to false and overrides the RenderFrameHost's decision if true.
+  virtual bool ShouldRouteMessageEvent(
+      RenderFrameHost* target_rfh,
+      SiteInstance* source_site_instance) const;
+
+  // Ensure that |source_rfh| has swapped-out RenderViews and
+  // RenderFrameProxies for itself and for all frames on its opener chain in
+  // the current frame's SiteInstance. Returns the routing ID of the
+  // swapped-out RenderView corresponding to |source_rfh|.
+  //
+  // TODO(alexmos): This method currently supports cross-process postMessage,
+  // where we may need to create any missing proxies for the message's source
+  // frame and its opener chain. It currently exists in WebContents due to a
+  // special case for <webview> guests, but this logic should eventually be
+  // moved down into RenderFrameProxyHost::RouteMessageEvent when <webview>
+  // refactoring for --site-per-process mode is further along.  See
+  // https://crbug.com/330264.
+  virtual void EnsureOpenerProxiesExist(RenderFrameHost* source_rfh) {}
 
 #if defined(OS_WIN)
   // Returns the frame's parent's NativeViewAccessible.

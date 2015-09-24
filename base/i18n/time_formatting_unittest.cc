@@ -5,10 +5,14 @@
 #include "base/i18n/time_formatting.h"
 
 #include "base/i18n/rtl.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/icu/source/common/unicode/uversion.h"
+#include "third_party/icu/source/i18n/unicode/calendar.h"
+#include "third_party/icu/source/i18n/unicode/timezone.h"
+#include "third_party/icu/source/i18n/unicode/tzfmt.h"
 
 namespace base {
 namespace {
@@ -17,6 +21,22 @@ const Time::Exploded kTestDateTimeExploded = {
   2011, 4, 6, 30, // Sat, Apr 30, 2011
   15, 42, 7, 0    // 15:42:07.000
 };
+
+// Returns difference between the local time and GMT formatted as string.
+// This function gets |time| because the difference depends on time,
+// see https://en.wikipedia.org/wiki/Daylight_saving_time for details.
+base::string16 GetShortTimeZone(const Time& time) {
+  UErrorCode status = U_ZERO_ERROR;
+  scoped_ptr<icu::TimeZone> zone(icu::TimeZone::createDefault());
+  scoped_ptr<icu::TimeZoneFormat> zone_formatter(
+      icu::TimeZoneFormat::createInstance(icu::Locale::getDefault(), status));
+  EXPECT_TRUE(U_SUCCESS(status));
+  icu::UnicodeString name;
+  zone_formatter->format(UTZFMT_STYLE_SPECIFIC_SHORT, *zone,
+                         static_cast<UDate>(time.ToDoubleT() * 1000),
+                         name, nullptr);
+  return base::string16(name.getBuffer(), name.length());
+}
 
 TEST(TimeFormattingTest, TimeFormatTimeOfDayDefault12h) {
   // Test for a locale defaulted to 12h clock.
@@ -27,9 +47,11 @@ TEST(TimeFormattingTest, TimeFormatTimeOfDayDefault12h) {
   string16 clock24h(ASCIIToUTF16("15:42"));
   string16 clock12h_pm(ASCIIToUTF16("3:42 PM"));
   string16 clock12h(ASCIIToUTF16("3:42"));
+  string16 clock24h_millis(ASCIIToUTF16("15:42:07.000"));
 
   // The default is 12h clock.
   EXPECT_EQ(clock12h_pm, TimeFormatTimeOfDay(time));
+  EXPECT_EQ(clock24h_millis, TimeFormatTimeOfDayWithMilliseconds(time));
   EXPECT_EQ(k12HourClock, GetHourClockType());
   // k{Keep,Drop}AmPm should not affect for 24h clock.
   EXPECT_EQ(clock24h,
@@ -58,16 +80,13 @@ TEST(TimeFormattingTest, TimeFormatTimeOfDayDefault24h) {
 
   Time time(Time::FromLocalExploded(kTestDateTimeExploded));
   string16 clock24h(ASCIIToUTF16("15:42"));
-#if U_ICU_VERSION_MAJOR_NUM >= 50
   string16 clock12h_pm(ASCIIToUTF16("3:42 pm"));
-#else
-  // TODO(phajdan.jr): Clean up after bundled ICU gets updated to 50.
-  string16 clock12h_pm(ASCIIToUTF16("3:42 PM"));
-#endif
   string16 clock12h(ASCIIToUTF16("3:42"));
+  string16 clock24h_millis(ASCIIToUTF16("15:42:07.000"));
 
   // The default is 24h clock.
   EXPECT_EQ(clock24h, TimeFormatTimeOfDay(time));
+  EXPECT_EQ(clock24h_millis, TimeFormatTimeOfDayWithMilliseconds(time));
   EXPECT_EQ(k24HourClock, GetHourClockType());
   // k{Keep,Drop}AmPm should not affect for 24h clock.
   EXPECT_EQ(clock24h,
@@ -132,23 +151,13 @@ TEST(TimeFormattingTest, TimeFormatDateUS) {
   EXPECT_EQ(ASCIIToUTF16("Apr 30, 2011"), TimeFormatShortDate(time));
   EXPECT_EQ(ASCIIToUTF16("4/30/11"), TimeFormatShortDateNumeric(time));
 
-#if U_ICU_VERSION_MAJOR_NUM >= 50
   EXPECT_EQ(ASCIIToUTF16("4/30/11, 3:42:07 PM"),
             TimeFormatShortDateAndTime(time));
-#else
-  // TODO(phajdan.jr): Clean up after bundled ICU gets updated to 50.
-  EXPECT_EQ(ASCIIToUTF16("4/30/11 3:42:07 PM"),
-            TimeFormatShortDateAndTime(time));
-#endif
+  EXPECT_EQ(ASCIIToUTF16("4/30/11, 3:42:07 PM ") + GetShortTimeZone(time),
+            TimeFormatShortDateAndTimeWithTimeZone(time));
 
-#if U_ICU_VERSION_MAJOR_NUM >= 50
   EXPECT_EQ(ASCIIToUTF16("Saturday, April 30, 2011 at 3:42:07 PM"),
             TimeFormatFriendlyDateAndTime(time));
-#else
-  // TODO(phajdan.jr): Clean up after bundled ICU gets updated to 50.
-  EXPECT_EQ(ASCIIToUTF16("Saturday, April 30, 2011 3:42:07 PM"),
-            TimeFormatFriendlyDateAndTime(time));
-#endif
 
   EXPECT_EQ(ASCIIToUTF16("Saturday, April 30, 2011"),
             TimeFormatFriendlyDate(time));
@@ -163,9 +172,11 @@ TEST(TimeFormattingTest, TimeFormatDateGB) {
 
   EXPECT_EQ(ASCIIToUTF16("30 Apr 2011"), TimeFormatShortDate(time));
   EXPECT_EQ(ASCIIToUTF16("30/04/2011"), TimeFormatShortDateNumeric(time));
-  EXPECT_EQ(ASCIIToUTF16("30/04/2011 15:42:07"),
+  EXPECT_EQ(ASCIIToUTF16("30/04/2011, 15:42:07"),
             TimeFormatShortDateAndTime(time));
-  EXPECT_EQ(ASCIIToUTF16("Saturday, 30 April 2011 15:42:07"),
+  EXPECT_EQ(ASCIIToUTF16("30/04/2011, 15:42:07 ") + GetShortTimeZone(time),
+            TimeFormatShortDateAndTimeWithTimeZone(time));
+  EXPECT_EQ(ASCIIToUTF16("Saturday, 30 April 2011 at 15:42:07"),
             TimeFormatFriendlyDateAndTime(time));
   EXPECT_EQ(ASCIIToUTF16("Saturday, 30 April 2011"),
             TimeFormatFriendlyDate(time));

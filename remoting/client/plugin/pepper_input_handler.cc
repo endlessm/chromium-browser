@@ -10,40 +10,135 @@
 #include "ppapi/cpp/module_impl.h"
 #include "ppapi/cpp/mouse_cursor.h"
 #include "ppapi/cpp/point.h"
+#include "ppapi/cpp/touch_point.h"
 #include "ppapi/cpp/var.h"
 #include "remoting/proto/event.pb.h"
-#include "ui/events/keycodes/dom4/keycode_converter.h"
+#include "remoting/protocol/input_event_tracker.h"
+#include "remoting/protocol/input_stub.h"
+#include "ui/events/keycodes/dom/keycode_converter.h"
 
 namespace remoting {
 
+namespace {
+
+void SetTouchEventType(PP_InputEvent_Type pp_type,
+                       protocol::TouchEvent* touch_event) {
+  DCHECK(touch_event);
+  switch (pp_type) {
+    case PP_INPUTEVENT_TYPE_TOUCHSTART:
+      touch_event->set_event_type(protocol::TouchEvent::TOUCH_POINT_START);
+      return;
+    case PP_INPUTEVENT_TYPE_TOUCHMOVE:
+      touch_event->set_event_type(protocol::TouchEvent::TOUCH_POINT_MOVE);
+      return;
+    case PP_INPUTEVENT_TYPE_TOUCHEND:
+      touch_event->set_event_type(protocol::TouchEvent::TOUCH_POINT_END);
+      return;
+    case PP_INPUTEVENT_TYPE_TOUCHCANCEL:
+      touch_event->set_event_type(protocol::TouchEvent::TOUCH_POINT_CANCEL);
+      return;
+    default:
+      NOTREACHED() << "Unknown event type: " << pp_type;
+      return;
+  }
+}
+
+// Creates a protocol::TouchEvent instance from |pp_touch_event|.
+// Note that only the changed touches are added to the TouchEvent.
+protocol::TouchEvent MakeTouchEvent(const pp::TouchInputEvent& pp_touch_event) {
+  protocol::TouchEvent touch_event;
+  SetTouchEventType(pp_touch_event.GetType(), &touch_event);
+  DCHECK(touch_event.has_event_type());
+
+  for (uint32_t i = 0;
+       i < pp_touch_event.GetTouchCount(PP_TOUCHLIST_TYPE_CHANGEDTOUCHES);
+       ++i) {
+    pp::TouchPoint pp_point =
+        pp_touch_event.GetTouchByIndex(PP_TOUCHLIST_TYPE_CHANGEDTOUCHES, i);
+    protocol::TouchEventPoint* point = touch_event.add_touch_points();
+    point->set_id(pp_point.id());
+    point->set_x(pp_point.position().x());
+    point->set_y(pp_point.position().y());
+    point->set_radius_x(pp_point.radii().x());
+    point->set_radius_y(pp_point.radii().y());
+    point->set_angle(pp_point.rotation_angle());
+  }
+
+  return touch_event;
+}
+
+// Builds the Chromotocol lock states flags for the PPAPI |event|.
+uint32_t MakeLockStates(const pp::InputEvent& event) {
+  uint32_t modifiers = event.GetModifiers();
+  uint32_t lock_states = 0;
+
+  if (modifiers & PP_INPUTEVENT_MODIFIER_CAPSLOCKKEY)
+    lock_states |= protocol::KeyEvent::LOCK_STATES_CAPSLOCK;
+
+  if (modifiers & PP_INPUTEVENT_MODIFIER_NUMLOCKKEY)
+    lock_states |= protocol::KeyEvent::LOCK_STATES_NUMLOCK;
+
+  return lock_states;
+}
+
+// Builds a protocol::KeyEvent from the supplied PPAPI event.
+protocol::KeyEvent MakeKeyEvent(const pp::KeyboardInputEvent& pp_key_event) {
+  protocol::KeyEvent key_event;
+  std::string dom_code = pp_key_event.GetCode().AsString();
+  key_event.set_usb_keycode(
+      ui::KeycodeConverter::CodeToUsbKeycode(dom_code.c_str()));
+  key_event.set_pressed(pp_key_event.GetType() == PP_INPUTEVENT_TYPE_KEYDOWN);
+  key_event.set_lock_states(MakeLockStates(pp_key_event));
+  return key_event;
+}
+
+// Builds a protocol::MouseEvent from the supplied PPAPI event.
+protocol::MouseEvent MakeMouseEvent(const pp::MouseInputEvent& pp_mouse_event,
+                                    bool set_deltas) {
+  protocol::MouseEvent mouse_event;
+  mouse_event.set_x(pp_mouse_event.GetPosition().x());
+  mouse_event.set_y(pp_mouse_event.GetPosition().y());
+  if (set_deltas) {
+    pp::Point delta = pp_mouse_event.GetMovement();
+    mouse_event.set_delta_x(delta.x());
+    mouse_event.set_delta_y(delta.y());
+  }
+  return mouse_event;
+}
+
+}  // namespace
+
 PepperInputHandler::PepperInputHandler(
-    pp::Instance* instance)
-    : pp::MouseLock(instance),
-      instance_(instance),
-      input_stub_(NULL),
-      callback_factory_(this),
+    protocol::InputEventTracker* input_tracker)
+    : input_stub_(nullptr),
+      input_tracker_(input_tracker),
       has_focus_(false),
       send_mouse_input_when_unfocused_(false),
-      mouse_lock_state_(MouseLockDisallowed),
+      send_mouse_move_deltas_(false),
       wheel_delta_x_(0),
       wheel_delta_y_(0),
       wheel_ticks_x_(0),
-      wheel_ticks_y_(0) {
-}
-
-PepperInputHandler::~PepperInputHandler() {}
-
-// Helper function to get the USB key code using the Dev InputEvent interface.
-uint32_t GetUsbKeyCode(pp::KeyboardInputEvent pp_key_event) {
-  // Get the DOM3 |code| as a string.
-  std::string codestr = pp_key_event.GetCode().AsString();
-
-  // Convert the |code| string into a USB keycode.
-  return ui::KeycodeConverter::CodeToUsbKeycode(codestr.c_str());
+      wheel_ticks_y_(0),
+      detect_stuck_modifiers_(false) {
 }
 
 bool PepperInputHandler::HandleInputEvent(const pp::InputEvent& event) {
+  if (detect_stuck_modifiers_)
+    ReleaseAllIfModifiersStuck(event);
+
   switch (event.GetType()) {
+    // Touch input cases.
+    case PP_INPUTEVENT_TYPE_TOUCHSTART:
+    case PP_INPUTEVENT_TYPE_TOUCHMOVE:
+    case PP_INPUTEVENT_TYPE_TOUCHEND:
+    case PP_INPUTEVENT_TYPE_TOUCHCANCEL: {
+      if (!input_stub_)
+        return true;
+      pp::TouchInputEvent pp_touch_event(event);
+      input_stub_->InjectTouchEvent(MakeTouchEvent(pp_touch_event));
+      return true;
+    }
+
     case PP_INPUTEVENT_TYPE_CONTEXTMENU: {
       // We need to return true here or else we'll get a local (plugin) context
       // menu instead of the mouseup event for the right click.
@@ -52,23 +147,10 @@ bool PepperInputHandler::HandleInputEvent(const pp::InputEvent& event) {
 
     case PP_INPUTEVENT_TYPE_KEYDOWN:
     case PP_INPUTEVENT_TYPE_KEYUP: {
+      if (!input_stub_)
+        return true;
       pp::KeyboardInputEvent pp_key_event(event);
-      uint32_t modifiers = event.GetModifiers();
-      uint32_t lock_states = 0;
-
-      if (modifiers & PP_INPUTEVENT_MODIFIER_CAPSLOCKKEY)
-        lock_states |= protocol::KeyEvent::LOCK_STATES_CAPSLOCK;
-
-      if (modifiers & PP_INPUTEVENT_MODIFIER_NUMLOCKKEY)
-        lock_states |= protocol::KeyEvent::LOCK_STATES_NUMLOCK;
-
-      protocol::KeyEvent key_event;
-      key_event.set_usb_keycode(GetUsbKeyCode(pp_key_event));
-      key_event.set_pressed(event.GetType() == PP_INPUTEVENT_TYPE_KEYDOWN);
-      key_event.set_lock_states(lock_states);
-
-      if (input_stub_)
-        input_stub_->InjectKeyEvent(key_event);
+      input_stub_->InjectKeyEvent(MakeKeyEvent(pp_key_event));
       return true;
     }
 
@@ -76,9 +158,12 @@ bool PepperInputHandler::HandleInputEvent(const pp::InputEvent& event) {
     case PP_INPUTEVENT_TYPE_MOUSEUP: {
       if (!has_focus_ && !send_mouse_input_when_unfocused_)
         return false;
+      if (!input_stub_)
+        return true;
 
       pp::MouseInputEvent pp_mouse_event(event);
-      protocol::MouseEvent mouse_event;
+      protocol::MouseEvent mouse_event(
+          MakeMouseEvent(pp_mouse_event, send_mouse_move_deltas_));
       switch (pp_mouse_event.GetButton()) {
         case PP_INPUTEVENT_MOUSEBUTTON_LEFT:
           mouse_event.set_button(protocol::MouseEvent::BUTTON_LEFT);
@@ -95,19 +180,9 @@ bool PepperInputHandler::HandleInputEvent(const pp::InputEvent& event) {
       if (mouse_event.has_button()) {
         bool is_down = (event.GetType() == PP_INPUTEVENT_TYPE_MOUSEDOWN);
         mouse_event.set_button_down(is_down);
-        mouse_event.set_x(pp_mouse_event.GetPosition().x());
-        mouse_event.set_y(pp_mouse_event.GetPosition().y());
-
-        // Add relative movement if the mouse is locked.
-        if (mouse_lock_state_ == MouseLockOn) {
-          pp::Point delta = pp_mouse_event.GetMovement();
-          mouse_event.set_delta_x(delta.x());
-          mouse_event.set_delta_y(delta.y());
-        }
-
-        if (input_stub_)
-          input_stub_->InjectMouseEvent(mouse_event);
+        input_stub_->InjectMouseEvent(mouse_event);
       }
+
       return true;
     }
 
@@ -116,33 +191,27 @@ bool PepperInputHandler::HandleInputEvent(const pp::InputEvent& event) {
     case PP_INPUTEVENT_TYPE_MOUSELEAVE: {
       if (!has_focus_ && !send_mouse_input_when_unfocused_)
         return false;
+      if (!input_stub_)
+        return true;
 
       pp::MouseInputEvent pp_mouse_event(event);
-      protocol::MouseEvent mouse_event;
-      mouse_event.set_x(pp_mouse_event.GetPosition().x());
-      mouse_event.set_y(pp_mouse_event.GetPosition().y());
+      input_stub_->InjectMouseEvent(
+          MakeMouseEvent(pp_mouse_event, send_mouse_move_deltas_));
 
-      // Add relative movement if the mouse is locked.
-      if (mouse_lock_state_ == MouseLockOn) {
-        pp::Point delta = pp_mouse_event.GetMovement();
-        mouse_event.set_delta_x(delta.x());
-        mouse_event.set_delta_y(delta.y());
-      }
-
-      if (input_stub_)
-        input_stub_->InjectMouseEvent(mouse_event);
       return true;
     }
 
     case PP_INPUTEVENT_TYPE_WHEEL: {
       if (!has_focus_ && !send_mouse_input_when_unfocused_)
         return false;
+      if (!input_stub_)
+        return true;
 
       pp::WheelInputEvent pp_wheel_event(event);
 
-      // Don't handle scroll-by-page events, for now.
+      // Ignore scroll-by-page events, for now.
       if (pp_wheel_event.GetScrollByPage())
-        return false;
+        return true;
 
       // Add this event to our accumulated sub-pixel deltas and clicks.
       pp::FloatPoint delta = pp_wheel_event.GetDelta();
@@ -176,8 +245,7 @@ bool PepperInputHandler::HandleInputEvent(const pp::InputEvent& event) {
         mouse_event.set_wheel_ticks_x(ticks_x);
         mouse_event.set_wheel_ticks_y(ticks_y);
 
-        if (input_stub_)
-          input_stub_->InjectMouseEvent(mouse_event);
+        input_stub_->InjectMouseEvent(mouse_event);
       }
       return true;
     }
@@ -195,117 +263,33 @@ bool PepperInputHandler::HandleInputEvent(const pp::InputEvent& event) {
   return false;
 }
 
-void PepperInputHandler::AllowMouseLock() {
-  DCHECK_EQ(mouse_lock_state_, MouseLockDisallowed);
-  mouse_lock_state_ = MouseLockOff;
-}
-
 void PepperInputHandler::DidChangeFocus(bool has_focus) {
   has_focus_ = has_focus;
-  if (has_focus_)
-    RequestMouseLock();
 }
 
-void PepperInputHandler::SetMouseCursor(scoped_ptr<pp::ImageData> image,
-                                        const pp::Point& hotspot) {
-  cursor_image_ = image.Pass();
-  cursor_hotspot_ = hotspot;
-
-  if (mouse_lock_state_ != MouseLockDisallowed && !cursor_image_) {
-    RequestMouseLock();
-  } else {
-    CancelMouseLock();
-  }
-}
-
-void PepperInputHandler::HideMouseCursor() {
-  cursor_image_.reset();
-  pp::MouseCursor::SetCursor(instance_, PP_MOUSECURSOR_TYPE_NONE);
-}
-
-void PepperInputHandler::MouseLockLost() {
-  DCHECK(mouse_lock_state_ == MouseLockOn ||
-         mouse_lock_state_ == MouseLockCancelling);
-
-  mouse_lock_state_ = MouseLockOff;
-  UpdateMouseCursor();
-}
-
-void PepperInputHandler::RequestMouseLock() {
-  // Request mouse lock only if the plugin is focused, the host-supplied cursor
-  // is empty and no callback is pending.
-  if (has_focus_ && !cursor_image_ && mouse_lock_state_ == MouseLockOff) {
-    pp::CompletionCallback callback =
-        callback_factory_.NewCallback(&PepperInputHandler::OnMouseLocked);
-    int result = pp::MouseLock::LockMouse(callback);
-    DCHECK_EQ(result, PP_OK_COMPLETIONPENDING);
-
-    // Hide cursor to avoid it becoming a black square (see crbug.com/285809).
-    pp::MouseCursor::SetCursor(instance_, PP_MOUSECURSOR_TYPE_NONE);
-
-    mouse_lock_state_ = MouseLockRequestPending;
-  }
-}
-
-void PepperInputHandler::CancelMouseLock() {
-  switch (mouse_lock_state_) {
-    case MouseLockDisallowed:
-    case MouseLockOff:
-      UpdateMouseCursor();
+void PepperInputHandler::ReleaseAllIfModifiersStuck(
+    const pp::InputEvent& event) {
+  switch (event.GetType()) {
+    case PP_INPUTEVENT_TYPE_MOUSEMOVE:
+    case PP_INPUTEVENT_TYPE_MOUSEENTER:
+    case PP_INPUTEVENT_TYPE_MOUSELEAVE:
+      // Don't check modifiers on every mouse move event.
       break;
 
-    case MouseLockCancelling:
+    case PP_INPUTEVENT_TYPE_KEYUP:
+      // PPAPI doesn't always set modifiers correctly on KEYUP events. See
+      // crbug.com/464791 for details.
       break;
 
-    case MouseLockRequestPending:
-      // The mouse lock request is pending. Delay UnlockMouse() call until
-      // the callback is called.
-      mouse_lock_state_ = MouseLockCancelling;
-      break;
-
-    case MouseLockOn:
-      pp::MouseLock::UnlockMouse();
-
-      // Note that mouse-lock has been cancelled. We will continue to receive
-      // locked events until MouseLockLost() is called back.
-      mouse_lock_state_ = MouseLockCancelling;
-      break;
-
-    default:
-      NOTREACHED();
+    default: {
+      uint32_t modifiers = event.GetModifiers();
+      input_tracker_->ReleaseAllIfModifiersStuck(
+          (modifiers & PP_INPUTEVENT_MODIFIER_ALTKEY) != 0,
+          (modifiers & PP_INPUTEVENT_MODIFIER_CONTROLKEY) != 0,
+          (modifiers & PP_INPUTEVENT_MODIFIER_METAKEY) != 0,
+          (modifiers & PP_INPUTEVENT_MODIFIER_SHIFTKEY) != 0);
+    }
   }
-}
-
-void PepperInputHandler::UpdateMouseCursor() {
-  DCHECK(mouse_lock_state_ == MouseLockDisallowed ||
-         mouse_lock_state_ == MouseLockOff);
-
-  if (cursor_image_) {
-    pp::MouseCursor::SetCursor(instance_, PP_MOUSECURSOR_TYPE_CUSTOM,
-                               *cursor_image_,
-                               cursor_hotspot_);
-  } else {
-    pp::MouseCursor::SetCursor(instance_, PP_MOUSECURSOR_TYPE_NONE);
-  }
-}
-
-void PepperInputHandler::OnMouseLocked(int error) {
-  DCHECK(mouse_lock_state_ == MouseLockRequestPending ||
-         mouse_lock_state_ == MouseLockCancelling);
-
-  bool should_cancel = (mouse_lock_state_ == MouseLockCancelling);
-
-  // See if the operation succeeded.
-  if (error == PP_OK) {
-    mouse_lock_state_ = MouseLockOn;
-  } else {
-    mouse_lock_state_ = MouseLockOff;
-    UpdateMouseCursor();
-  }
-
-  // Cancel as needed.
-  if (should_cancel)
-    CancelMouseLock();
 }
 
 }  // namespace remoting

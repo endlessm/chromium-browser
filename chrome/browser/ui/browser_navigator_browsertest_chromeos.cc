@@ -1,150 +1,22 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/browser_navigator_browsertest.h"
 
-#include <string>
-
 #include "base/command_line.h"
 #include "chrome/browser/chromeos/login/chrome_restart_request.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
-#include "chrome/browser/ui/ash/multi_user/multi_user_window_manager.h"
+#include "chrome/browser/ui/ash/multi_user/multi_user_window_manager_test.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_navigator.h"
-#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
 #include "chromeos/chromeos_switches.h"
 #include "content/public/browser/web_contents.h"
 
 namespace {
-
-// This is a test implementation of a MultiUserWindowManager which allows to
-// test a visiting window on another desktop. It will install and remove itself
-// from the system upon creation / destruction.
-// The creation function gets a |browser| which is shown on |desktop_owner|'s
-// desktop.
-class TestMultiUserWindowManager : public chrome::MultiUserWindowManager {
- public:
-  TestMultiUserWindowManager(
-      Browser* visiting_browser,
-      const std::string& desktop_owner);
-  virtual ~TestMultiUserWindowManager();
-
-  aura::Window* created_window() { return created_window_; }
-
-  // MultiUserWindowManager overrides:
-  virtual void SetWindowOwner(
-      aura::Window* window, const std::string& user_id) override;
-  virtual const std::string& GetWindowOwner(
-      aura::Window* window) const override;
-  virtual void ShowWindowForUser(
-      aura::Window* window, const std::string& user_id) override;
-  virtual bool AreWindowsSharedAmongUsers() const override;
-  virtual void GetOwnersOfVisibleWindows(
-      std::set<std::string>* user_ids) const override;
-  virtual bool IsWindowOnDesktopOfUser(
-      aura::Window* window,
-      const std::string& user_id) const override;
-  virtual const std::string& GetUserPresentingWindow(
-      aura::Window* window) const override;
-  virtual void AddUser(content::BrowserContext* profile) override;
-  virtual void AddObserver(Observer* observer) override;
-  virtual void RemoveObserver(Observer* observer) override;
-
- private:
-  // The window of the visiting browser.
-  aura::Window* browser_window_;
-  // The owner of the visiting browser.
-  std::string browser_owner_;
-  // The owner of the currently shown desktop.
-  std::string desktop_owner_;
-  // The created window.
-  aura::Window* created_window_;
-  // The location of the window.
-  std::string created_window_shown_for_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestMultiUserWindowManager);
-};
-
-TestMultiUserWindowManager::TestMultiUserWindowManager(
-    Browser* visiting_browser,
-    const std::string& desktop_owner)
-    : browser_window_(visiting_browser->window()->GetNativeWindow()),
-      browser_owner_(multi_user_util::GetUserIDFromProfile(
-          visiting_browser->profile())),
-      desktop_owner_(desktop_owner),
-      created_window_(NULL),
-      created_window_shown_for_(browser_owner_) {
-  // Create a window manager for a visiting user.
-  chrome::MultiUserWindowManager::SetInstanceForTest(
-      this,
-      chrome::MultiUserWindowManager::MULTI_PROFILE_MODE_SEPARATED);
-}
-
-TestMultiUserWindowManager::~TestMultiUserWindowManager() {
-  // This object is owned by the MultiUserWindowManager since the
-  // SetInstanceForTest call. As such no uninstall is required.
-}
-
-// MultiUserWindowManager overrides:
-void TestMultiUserWindowManager::SetWindowOwner(
-    aura::Window* window, const std::string& user_id) {
-  NOTREACHED();
-}
-
-const std::string& TestMultiUserWindowManager::GetWindowOwner(
-    aura::Window* window) const {
-  // No matter which window will get queried - all browsers belong to the
-  // original browser's user.
-  return browser_owner_;
-}
-
-void TestMultiUserWindowManager::ShowWindowForUser(
-    aura::Window* window,
-    const std::string& user_id) {
-  // This class is only able to handle one additional window <-> user
-  // association beside the creation parameters.
-  // If no association has yet been requested remember it now.
-  DCHECK(!created_window_);
-  created_window_ = window;
-  created_window_shown_for_ = user_id;
-}
-
-bool TestMultiUserWindowManager::AreWindowsSharedAmongUsers() const {
-  return browser_owner_ != desktop_owner_;
-}
-
-void TestMultiUserWindowManager::GetOwnersOfVisibleWindows(
-    std::set<std::string>* user_ids) const {
-}
-
-bool TestMultiUserWindowManager::IsWindowOnDesktopOfUser(
-    aura::Window* window,
-    const std::string& user_id) const {
-  return GetUserPresentingWindow(window) == user_id;
-}
-
-const std::string& TestMultiUserWindowManager::GetUserPresentingWindow(
-    aura::Window* window) const {
-  if (window == browser_window_)
-    return desktop_owner_;
-  if (created_window_ && window == created_window_)
-    return created_window_shown_for_;
-  // We can come here before the window gets registered.
-  return browser_owner_;
-}
-
-void TestMultiUserWindowManager::AddUser(content::BrowserContext* profile) {
-}
-
-void TestMultiUserWindowManager::AddObserver(Observer* observer) {
-}
-
-void TestMultiUserWindowManager::RemoveObserver(Observer* observer) {
-}
 
 GURL GetGoogleURL() {
   return GURL("http://www.google.com/");
@@ -153,10 +25,11 @@ GURL GetGoogleURL() {
 // Subclass that tests navigation while in the Guest session.
 class BrowserGuestSessionNavigatorTest: public BrowserNavigatorTest {
  protected:
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
-    CommandLine command_line_copy = *command_line;
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    base::CommandLine command_line_copy = *command_line;
     command_line_copy.AppendSwitchASCII(
         chromeos::switches::kLoginProfile, "user");
+    command_line_copy.AppendSwitch(chromeos::switches::kGuestSession);
     chromeos::GetOffTheRecordCommandLine(GetGoogleURL(),
                                          true,
                                          command_line_copy,
@@ -193,8 +66,10 @@ IN_PROC_BROWSER_TEST_F(BrowserGuestSessionNavigatorTest,
 
 // Test that in multi user environments a newly created browser gets created
 // on the same desktop as the browser is shown on.
+//
+// Flakily hits assert: http://crbug.com/469717
 IN_PROC_BROWSER_TEST_F(BrowserGuestSessionNavigatorTest,
-                       Browser_Gets_Created_On_Visiting_Desktop) {
+                       DISABLED_Browser_Gets_Created_On_Visiting_Desktop) {
   // Test 1: Test that a browser created from a visiting browser will be on the
   // same visiting desktop.
   {

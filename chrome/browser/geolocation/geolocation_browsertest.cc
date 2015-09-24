@@ -4,6 +4,7 @@
 
 #include <string>
 
+#include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
@@ -11,20 +12,19 @@
 #include "base/test/simple_test_clock.h"
 #include "base/time/clock.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/content_settings/content_settings_usages_state.h"
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
-#include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/website_settings/permission_bubble_manager.h"
 #include "chrome/common/chrome_paths.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/content_settings/core/browser/content_settings_usages_state.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
-#include "components/infobars/core/confirm_infobar_delegate.h"
-#include "components/infobars/core/infobar.h"
 #include "content/public/browser/dom_operation_notification_details.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/notification_details.h"
@@ -121,102 +121,40 @@ void IFrameLoader::Observe(int type,
     base::MessageLoopForUI::current()->Quit();
 }
 
-// GeolocationNotificationObserver --------------------------------------------
+// PermissionRequestObserver ---------------------------------------------------
 
-class GeolocationNotificationObserver : public content::NotificationObserver {
+// Used to observe the creation of permission prompt without responding.
+class PermissionRequestObserver : public PermissionBubbleManager::Observer {
  public:
-  // If |wait_for_infobar| is true, AddWatchAndWaitForNotification will block
-  // until the infobar has been displayed; otherwise it will block until the
-  // navigation is completed.
-  explicit GeolocationNotificationObserver(bool wait_for_infobar);
-  ~GeolocationNotificationObserver() override;
+  explicit PermissionRequestObserver(content::WebContents* web_contents)
+      : bubble_manager_(PermissionBubbleManager::FromWebContents(web_contents)),
+        request_shown_(false),
+        message_loop_runner_(new content::MessageLoopRunner) {
+    bubble_manager_->AddObserver(this);
+  }
+  ~PermissionRequestObserver() override {
+    // Safe to remove twice if it happens.
+    bubble_manager_->RemoveObserver(this);
+  }
 
-  // content::NotificationObserver:
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override;
+  void Wait() { message_loop_runner_->Run(); }
 
-  void AddWatchAndWaitForNotification(
-      content::RenderFrameHost* render_frame_host);
-
-  bool has_infobar() const { return !!infobar_; }
-  infobars::InfoBar* infobar() { return infobar_; }
+  bool request_shown() { return request_shown_; }
 
  private:
-  content::NotificationRegistrar registrar_;
-  bool wait_for_infobar_;
-  infobars::InfoBar* infobar_;
-  bool navigation_started_;
-  bool navigation_completed_;
-  std::string javascript_response_;
+  // PermissionBubbleManager::Observer
+  void OnBubbleAdded() override {
+    request_shown_ = true;
+    bubble_manager_->RemoveObserver(this);
+    message_loop_runner_->Quit();
+  }
 
-  DISALLOW_COPY_AND_ASSIGN(GeolocationNotificationObserver);
+  PermissionBubbleManager* bubble_manager_;
+  bool request_shown_;
+  scoped_refptr<content::MessageLoopRunner> message_loop_runner_;
+
+  DISALLOW_COPY_AND_ASSIGN(PermissionRequestObserver);
 };
-
-GeolocationNotificationObserver::GeolocationNotificationObserver(
-    bool wait_for_infobar)
-    : wait_for_infobar_(wait_for_infobar),
-      infobar_(NULL),
-      navigation_started_(false),
-      navigation_completed_(false) {
-  registrar_.Add(this, content::NOTIFICATION_DOM_OPERATION_RESPONSE,
-                 content::NotificationService::AllSources());
-  if (wait_for_infobar) {
-    registrar_.Add(this, chrome::NOTIFICATION_TAB_CONTENTS_INFOBAR_ADDED,
-                   content::NotificationService::AllSources());
-  } else {
-    registrar_.Add(this, content::NOTIFICATION_NAV_ENTRY_COMMITTED,
-                   content::NotificationService::AllSources());
-    registrar_.Add(this, content::NOTIFICATION_LOAD_START,
-                   content::NotificationService::AllSources());
-    registrar_.Add(this, content::NOTIFICATION_LOAD_STOP,
-                   content::NotificationService::AllSources());
-  }
-}
-
-GeolocationNotificationObserver::~GeolocationNotificationObserver() {
-}
-
-void GeolocationNotificationObserver::Observe(
-    int type,
-    const content::NotificationSource& source,
-    const content::NotificationDetails& details) {
-  if (type == chrome::NOTIFICATION_TAB_CONTENTS_INFOBAR_ADDED) {
-    infobar_ = content::Details<infobars::InfoBar::AddedDetails>(details).ptr();
-    ASSERT_FALSE(infobar_->delegate()->GetIcon().IsEmpty());
-    ASSERT_TRUE(infobar_->delegate()->AsConfirmInfoBarDelegate());
-  } else if (type == content::NOTIFICATION_DOM_OPERATION_RESPONSE) {
-    content::Details<DomOperationNotificationDetails> dom_op_details(details);
-    javascript_response_ = dom_op_details->json;
-    LOG(WARNING) << "javascript_response " << javascript_response_;
-  } else if ((type == content::NOTIFICATION_NAV_ENTRY_COMMITTED) ||
-             (type == content::NOTIFICATION_LOAD_START)) {
-    navigation_started_ = true;
-  } else if ((type == content::NOTIFICATION_LOAD_STOP) && navigation_started_) {
-    navigation_started_ = false;
-    navigation_completed_ = true;
-  }
-
-  // We're either waiting for just the infobar, or for both a javascript
-  // prompt and response.
-  if ((wait_for_infobar_ && infobar_) ||
-      (navigation_completed_ && !javascript_response_.empty()))
-    base::MessageLoopForUI::current()->Quit();
-}
-
-void GeolocationNotificationObserver::AddWatchAndWaitForNotification(
-    content::RenderFrameHost* render_frame_host) {
-  LOG(WARNING) << "will add geolocation watch";
-  std::string script(
-      "window.domAutomationController.setAutomationId(0);"
-      "window.domAutomationController.send(geoStart());");
-  render_frame_host->ExecuteJavaScript(base::UTF8ToUTF16(script));
-  content::RunMessageLoop();
-  registrar_.RemoveAll();
-  LOG(WARNING) << "got geolocation watch" << javascript_response_;
-  EXPECT_NE("\"0\"", javascript_response_);
-  EXPECT_TRUE(wait_for_infobar_ ? (infobar_ != NULL) : navigation_completed_);
-}
 
 }  // namespace
 
@@ -225,11 +163,11 @@ void GeolocationNotificationObserver::AddWatchAndWaitForNotification(
 
 // This is a browser test for Geolocation.
 // It exercises various integration points from javascript <-> browser:
-// 1. Infobar is displayed when a geolocation is requested from an unauthorized
-// origin.
-// 2. Denying the infobar triggers the correct error callback.
-// 3. Allowing the infobar does not trigger an error, and allow a geoposition to
-// be passed to javascript.
+// 1. Prompt is displayed when a geolocation is requested from an unauthorized
+//    origin.
+// 2. Denying the request triggers the correct error callback.
+// 3. Allowing the request does not trigger an error, and allow a geoposition to
+//    be passed to javascript.
 // 4. Permissions persisted in disk are respected.
 // 5. Incognito profiles don't use saved permissions.
 class GeolocationBrowserTest : public InProcessBrowserTest {
@@ -267,19 +205,25 @@ class GeolocationBrowserTest : public InProcessBrowserTest {
   // Specifies which frame is to be used for JavaScript calls.
   void SetFrameHost(const std::string& frame_name);
 
-  // Start watching for geolocation notifications. If |wait_for_infobar| is
-  // true, wait for the infobar to be displayed. Otherwise wait for a javascript
-  // response.
-  void AddGeolocationWatch(bool wait_for_infobar);
+  // Check geolocation and accept or deny the resulting permission bubble.
+  // Returns |true| if the expected behavior happened.
+  bool RequestAndAcceptPermission() WARN_UNUSED_RESULT;
+  bool RequestAndDenyPermission() WARN_UNUSED_RESULT;
+
+  // Check geolocation and observe whether the permission bubble was shown.
+  // Callers should set |bubble_should_display| to |true| if they expect a
+  // bubble to display.
+  void RequestPermissionAndObserve(bool bubble_should_display);
 
   // Checks that no errors have been received in javascript, and checks that the
   // position most recently received in javascript matches |latitude| and
   // |longitude|.
   void CheckGeoposition(double latitude, double longitude);
 
-  // For |requesting_url| if |allowed| is true accept the infobar. Otherwise
-  // cancel it.
-  void SetInfoBarResponse(const GURL& requesting_url, bool allowed);
+  // Checks whether a coordinate change has been registered yet (and waits if
+  // it hasn't). After sending new geoposition coordinates, call this before
+  // CheckGeoposition to avoid a race condition.
+  bool CheckGeopositionUpdated() WARN_UNUSED_RESULT;
 
   // Executes |function| in |render_frame_host| and checks that the return value
   // matches |expected|.
@@ -292,11 +236,18 @@ class GeolocationBrowserTest : public InProcessBrowserTest {
   void CheckStringValueFromJavascript(const std::string& expected,
                                       const std::string& function);
 
-  // Sets a new position and sends a notification with the new position.
+  // Sets a new position and sends a notification with the new position. Call
+  // CheckGeopositionReadyCallback after this to make sure that the value has
+  // been received by the JavaScript.
   void NotifyGeoposition(double latitude, double longitude);
 
+  // Convenience method to look up the number of queued permission bubbles.
+  int GetBubblesQueueSize(PermissionBubbleManager* mgr);
+
  private:
-  infobars::InfoBar* infobar_;
+  std::string RequestAndRespondToPermission(
+      PermissionBubbleManager::AutoResponseType bubble_response);
+
   Browser* current_browser_;
   // path element of a URL referencing the html content for this test.
   std::string html_for_tests_;
@@ -313,12 +264,11 @@ class GeolocationBrowserTest : public InProcessBrowserTest {
 };
 
 GeolocationBrowserTest::GeolocationBrowserTest()
-  : infobar_(NULL),
-    current_browser_(NULL),
-    html_for_tests_("/geolocation/simple.html"),
-    render_frame_host_(NULL),
-    fake_latitude_(1.23),
-    fake_longitude_(4.56) {
+    : current_browser_(nullptr),
+      html_for_tests_("/geolocation/simple.html"),
+      render_frame_host_(nullptr),
+      fake_latitude_(1.23),
+      fake_longitude_(4.56) {
 }
 
 GeolocationBrowserTest::~GeolocationBrowserTest() {
@@ -340,7 +290,6 @@ bool GeolocationBrowserTest::Initialize(InitializationOptions options) {
   }
 
   current_url_ = embedded_test_server()->GetURL(html_for_tests_);
-  LOG(WARNING) << "before navigate";
   if (options == INITIALIZATION_OFFTHERECORD) {
     current_browser_ = ui_test_utils::OpenURLOffTheRecord(
         browser()->profile(), current_url_);
@@ -348,9 +297,9 @@ bool GeolocationBrowserTest::Initialize(InitializationOptions options) {
     current_browser_ = browser();
     if (options == INITIALIZATION_NEWTAB)
       chrome::NewTab(current_browser_);
-    ui_test_utils::NavigateToURL(current_browser_, current_url_);
   }
-  LOG(WARNING) << "after navigate";
+  if (options != INITIALIZATION_OFFTHERECORD)
+    ui_test_utils::NavigateToURL(current_browser_, current_url_);
 
   EXPECT_TRUE(current_browser_);
   return !!current_browser_;
@@ -370,7 +319,7 @@ void GeolocationBrowserTest::LoadIFrames(int number_iframes) {
 void GeolocationBrowserTest::SetFrameHost(const std::string& frame_name) {
   WebContents* web_contents =
       current_browser_->tab_strip_model()->GetActiveWebContents();
-  render_frame_host_ = NULL;
+  render_frame_host_ = nullptr;
 
   if (frame_name.empty()) {
     render_frame_host_ = web_contents->GetMainFrame();
@@ -381,13 +330,46 @@ void GeolocationBrowserTest::SetFrameHost(const std::string& frame_name) {
   DCHECK(render_frame_host_);
 }
 
-void GeolocationBrowserTest::AddGeolocationWatch(bool wait_for_infobar) {
-  GeolocationNotificationObserver notification_observer(wait_for_infobar);
-  notification_observer.AddWatchAndWaitForNotification(render_frame_host_);
-  if (wait_for_infobar) {
-    EXPECT_TRUE(notification_observer.has_infobar());
-    infobar_ = notification_observer.infobar();
+bool GeolocationBrowserTest::RequestAndAcceptPermission() {
+  std::string result =
+      RequestAndRespondToPermission(PermissionBubbleManager::ACCEPT_ALL);
+  return "request-callback-success" == result;
+}
+
+bool GeolocationBrowserTest::RequestAndDenyPermission() {
+  std::string result =
+      RequestAndRespondToPermission(PermissionBubbleManager::DENY_ALL);
+  return "request-callback-error" == result;
+}
+
+std::string GeolocationBrowserTest::RequestAndRespondToPermission(
+    PermissionBubbleManager::AutoResponseType bubble_response) {
+  std::string result;
+  PermissionBubbleManager::FromWebContents(
+      current_browser_->tab_strip_model()->GetActiveWebContents())
+      ->set_auto_response_for_test(bubble_response);
+  EXPECT_TRUE(content::ExecuteScriptAndExtractString(
+      render_frame_host_, "geoStartWithAsyncResponse();", &result));
+  return result;
+}
+
+void GeolocationBrowserTest::RequestPermissionAndObserve(
+    bool bubble_should_display) {
+  std::string result;
+  PermissionRequestObserver observer(
+      current_browser_->tab_strip_model()->GetActiveWebContents());
+  if (bubble_should_display) {
+    // Control will return as soon as the API call is made, and then the
+    // observer will wait for the bubble to display.
+    EXPECT_TRUE(content::ExecuteScriptAndExtractString(
+        render_frame_host_, "geoStartWithSyncResponse()", &result));
+    observer.Wait();
+  } else {
+    // Control will return once one of the callbacks fires.
+    EXPECT_TRUE(content::ExecuteScriptAndExtractString(
+        render_frame_host_, "geoStartWithAsyncResponse()", &result));
   }
+  EXPECT_EQ(bubble_should_display, observer.request_shown());
 }
 
 void GeolocationBrowserTest::CheckGeoposition(double latitude,
@@ -400,40 +382,16 @@ void GeolocationBrowserTest::CheckGeoposition(double latitude,
                                  "geoGetLastPositionLongitude()");
 }
 
-void GeolocationBrowserTest::SetInfoBarResponse(const GURL& requesting_url,
-                                                bool allowed) {
-  WebContents* web_contents =
-      current_browser_->tab_strip_model()->GetActiveWebContents();
-  TabSpecificContentSettings* content_settings =
-      TabSpecificContentSettings::FromWebContents(web_contents);
-  const ContentSettingsUsagesState& usages_state =
-      content_settings->geolocation_usages_state();
-  size_t state_map_size = usages_state.state_map().size();
-  ASSERT_TRUE(infobar_);
-  LOG(WARNING) << "will set infobar response";
-  {
-    content::WindowedNotificationObserver observer(
-        content::NOTIFICATION_LOAD_STOP,
-        content::Source<NavigationController>(&web_contents->GetController()));
-    if (allowed)
-      infobar_->delegate()->AsConfirmInfoBarDelegate()->Accept();
-    else
-      infobar_->delegate()->AsConfirmInfoBarDelegate()->Cancel();
-    observer.Wait();
-  }
-
-  InfoBarService* infobar_service =
-      InfoBarService::FromWebContents(web_contents);
-  infobar_service->RemoveInfoBar(infobar_);
-  LOG(WARNING) << "infobar response set";
-  infobar_ = NULL;
-  EXPECT_GT(usages_state.state_map().size(), state_map_size);
-  GURL requesting_origin(requesting_url.GetOrigin());
-  EXPECT_EQ(1U, usages_state.state_map().count(requesting_origin));
-  ContentSetting expected_setting =
-        allowed ? CONTENT_SETTING_ALLOW : CONTENT_SETTING_BLOCK;
-  EXPECT_EQ(expected_setting,
-            usages_state.state_map().find(requesting_origin)->second);
+bool GeolocationBrowserTest::CheckGeopositionUpdated() {
+  // Control will return (a) if the update has already been received, or (b)
+  // when the update is received. This will hang if the geolocation is never
+  // updated. Currently this expects geoposition to be updated once; if your
+  // test updates geoposition repeatedly, |position_updated| (JS) needs to
+  // change to an int to count how often it's been updated.
+  std::string result;
+  EXPECT_TRUE(content::ExecuteScriptAndExtractString(
+      render_frame_host_, "checkIfGeopositionUpdated();", &result));
+  return result == "geoposition-updated";
 }
 
 void GeolocationBrowserTest::CheckStringValueFromJavascriptForFrame(
@@ -460,223 +418,179 @@ void GeolocationBrowserTest::NotifyGeoposition(double latitude,
   fake_latitude_ = latitude;
   fake_longitude_ = longitude;
   ui_test_utils::OverrideGeolocation(latitude, longitude);
-  LOG(WARNING) << "MockLocationProvider listeners updated";
 }
 
+int GeolocationBrowserTest::GetBubblesQueueSize(PermissionBubbleManager* mgr) {
+  return static_cast<int>(mgr->requests_.size());
+}
 
 // Tests ----------------------------------------------------------------------
 
-IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, DisplaysPermissionBar) {
+IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, DisplaysPrompt) {
   ASSERT_TRUE(Initialize(INITIALIZATION_NONE));
   SetFrameHost("");
-  AddGeolocationWatch(true);
+  ASSERT_TRUE(RequestAndAcceptPermission());
 }
 
 IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, Geoposition) {
   ASSERT_TRUE(Initialize(INITIALIZATION_NONE));
   SetFrameHost("");
-  AddGeolocationWatch(true);
-  SetInfoBarResponse(current_url(), true);
+  ASSERT_TRUE(RequestAndAcceptPermission());
   CheckGeoposition(fake_latitude(), fake_longitude());
 }
 
-IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest,
-                       ErrorOnPermissionDenied) {
+IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, ErrorOnPermissionDenied) {
   ASSERT_TRUE(Initialize(INITIALIZATION_NONE));
   SetFrameHost("");
-  AddGeolocationWatch(true);
-  // Infobar was displayed, deny access and check for error code.
-  SetInfoBarResponse(current_url(), false);
+  EXPECT_TRUE(RequestAndDenyPermission());
   CheckStringValueFromJavascript("1", "geoGetLastError()");
 }
 
-// See http://crbug.com/308358
-IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, DISABLED_NoInfobarForSecondTab) {
+IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, NoPromptForSecondTab) {
   ASSERT_TRUE(Initialize(INITIALIZATION_NONE));
   SetFrameHost("");
-  AddGeolocationWatch(true);
-  SetInfoBarResponse(current_url(), true);
-  // Disables further prompts from this tab.
-  CheckStringValueFromJavascript("0", "geoSetMaxNavigateCount(0)");
+  ASSERT_TRUE(RequestAndAcceptPermission());
 
-  // Checks infobar will not be created in a second tab.
+  // Checks bubble is not needed in a second tab.
   ASSERT_TRUE(Initialize(INITIALIZATION_NEWTAB));
   SetFrameHost("");
-  AddGeolocationWatch(false);
+  RequestPermissionAndObserve(false);
   CheckGeoposition(fake_latitude(), fake_longitude());
 }
 
-IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, NoInfobarForDeniedOrigin) {
+IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, NoPromptForDeniedOrigin) {
   ASSERT_TRUE(Initialize(INITIALIZATION_NONE));
   current_browser()->profile()->GetHostContentSettingsMap()->SetContentSetting(
       ContentSettingsPattern::FromURLNoWildcard(current_url()),
       ContentSettingsPattern::FromURLNoWildcard(current_url()),
       CONTENT_SETTINGS_TYPE_GEOLOCATION, std::string(), CONTENT_SETTING_BLOCK);
+
+  // Check that the bubble wasn't shown but we get an error for this origin.
   SetFrameHost("");
-  AddGeolocationWatch(false);
-  // Checks we have an error for this denied origin.
+  RequestPermissionAndObserve(false);
   CheckStringValueFromJavascript("1", "geoGetLastError()");
-  // Checks infobar will not be created a second tab.
+
+  // Checks prompt will not be created a second tab.
   ASSERT_TRUE(Initialize(INITIALIZATION_NEWTAB));
   SetFrameHost("");
-  AddGeolocationWatch(false);
+  RequestPermissionAndObserve(false);
   CheckStringValueFromJavascript("1", "geoGetLastError()");
 }
 
-IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, NoInfobarForAllowedOrigin) {
+IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, NoPromptForAllowedOrigin) {
   ASSERT_TRUE(Initialize(INITIALIZATION_NONE));
   current_browser()->profile()->GetHostContentSettingsMap()->SetContentSetting(
       ContentSettingsPattern::FromURLNoWildcard(current_url()),
       ContentSettingsPattern::FromURLNoWildcard(current_url()),
       CONTENT_SETTINGS_TYPE_GEOLOCATION, std::string(), CONTENT_SETTING_ALLOW);
-  // Checks no infobar will be created and there's no error callback.
+  // Checks no prompt will be created and there's no error callback.
   SetFrameHost("");
-  AddGeolocationWatch(false);
+  RequestPermissionAndObserve(false);
   CheckGeoposition(fake_latitude(), fake_longitude());
 }
 
-IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, NoInfobarForOffTheRecord) {
-  // First, check infobar will be created for regular profile
+IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, NoPromptForOffTheRecord) {
+  // Check prompt will be created and persisted for regular profile.
   ASSERT_TRUE(Initialize(INITIALIZATION_NONE));
   SetFrameHost("");
-  AddGeolocationWatch(true);
-  // Response will be persisted.
-  SetInfoBarResponse(current_url(), true);
+  ASSERT_TRUE(RequestAndAcceptPermission());
   CheckGeoposition(fake_latitude(), fake_longitude());
-  // Disables further prompts from this tab.
-  CheckStringValueFromJavascript("0", "geoSetMaxNavigateCount(0)");
-  // Go incognito, and checks no infobar will be created.
+
+  // Go incognito, and check no prompt will be created.
   ASSERT_TRUE(Initialize(INITIALIZATION_OFFTHERECORD));
   SetFrameHost("");
-  AddGeolocationWatch(false);
+  RequestPermissionAndObserve(false);
   CheckGeoposition(fake_latitude(), fake_longitude());
 }
 
 IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, NoLeakFromOffTheRecord) {
-  // First, check infobar will be created for incognito profile.
+  // Check prompt will be created for incognito profile.
   ASSERT_TRUE(Initialize(INITIALIZATION_OFFTHERECORD));
   SetFrameHost("");
-  AddGeolocationWatch(true);
-  // Response won't be persisted.
-  SetInfoBarResponse(current_url(), true);
+  ASSERT_TRUE(RequestAndAcceptPermission());
   CheckGeoposition(fake_latitude(), fake_longitude());
-  // Disables further prompts from this tab.
-  CheckStringValueFromJavascript("0", "geoSetMaxNavigateCount(0)");
-  // Go to the regular profile, infobar will be created.
+
+  // Check prompt will be created for the regular profile.
   ASSERT_TRUE(Initialize(INITIALIZATION_NONE));
   SetFrameHost("");
-  AddGeolocationWatch(true);
-  SetInfoBarResponse(current_url(), false);
-  CheckStringValueFromJavascript("1", "geoGetLastError()");
+  ASSERT_TRUE(RequestAndAcceptPermission());
+  CheckGeoposition(fake_latitude(), fake_longitude());
 }
 
 IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, IFramesWithFreshPosition) {
-  set_html_for_tests("/geolocation/iframes_different_origin.html");
+  set_html_for_tests("/geolocation/two_iframes.html");
   ASSERT_TRUE(Initialize(INITIALIZATION_IFRAMES));
   LoadIFrames(2);
-  LOG(WARNING) << "frames loaded";
 
+  // Request permission from the first frame.
   SetFrameHost("iframe_0");
-  AddGeolocationWatch(true);
-  SetInfoBarResponse(iframe_url(0), true);
+  ASSERT_TRUE(RequestAndAcceptPermission());
   CheckGeoposition(fake_latitude(), fake_longitude());
-  // Disables further prompts from this iframe.
-  CheckStringValueFromJavascript("0", "geoSetMaxNavigateCount(0)");
 
   // Test second iframe from a different origin with a cached geoposition will
-  // create the infobar.
+  // create the prompt.
   SetFrameHost("iframe_1");
-  AddGeolocationWatch(true);
+  RequestPermissionAndObserve(true);
 
   // Back to the first frame, enable navigation and refresh geoposition.
   SetFrameHost("iframe_0");
-  CheckStringValueFromJavascript("1", "geoSetMaxNavigateCount(1)");
   double fresh_position_latitude = 3.17;
   double fresh_position_longitude = 4.23;
-  content::WindowedNotificationObserver observer(
-      content::NOTIFICATION_LOAD_STOP,
-      content::Source<NavigationController>(
-          &current_browser()->tab_strip_model()->GetActiveWebContents()->
-              GetController()));
   NotifyGeoposition(fresh_position_latitude, fresh_position_longitude);
-  observer.Wait();
+  ASSERT_TRUE(CheckGeopositionUpdated());
   CheckGeoposition(fresh_position_latitude, fresh_position_longitude);
 
-  // Disable navigation for this frame.
-  CheckStringValueFromJavascript("0", "geoSetMaxNavigateCount(0)");
-
-  // Now go ahead an authorize the second frame.
+  // Authorize the second frame and check it works.
   SetFrameHost("iframe_1");
-  // Infobar was displayed, allow access and check there's no error code.
-  SetInfoBarResponse(iframe_url(1), true);
-  LOG(WARNING) << "Checking position...";
-  CheckGeoposition(fresh_position_latitude, fresh_position_longitude);
-  LOG(WARNING) << "...done.";
+  ASSERT_TRUE(RequestAndAcceptPermission());
+  CheckGeoposition(fake_latitude(), fake_longitude());
 }
 
-IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest,
-                       IFramesWithCachedPosition) {
-  set_html_for_tests("/geolocation/iframes_different_origin.html");
+IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, IFramesWithCachedPosition) {
+  set_html_for_tests("/geolocation/two_iframes.html");
   ASSERT_TRUE(Initialize(INITIALIZATION_IFRAMES));
   LoadIFrames(2);
 
+  // Request permission from the first frame.
   SetFrameHost("iframe_0");
-  AddGeolocationWatch(true);
-  SetInfoBarResponse(iframe_url(0), true);
+  ASSERT_TRUE(RequestAndAcceptPermission());
   CheckGeoposition(fake_latitude(), fake_longitude());
 
   // Refresh geoposition, but let's not yet create the watch on the second frame
   // so that it'll fetch from cache.
   double cached_position_latitude = 5.67;
   double cached_position_lognitude = 8.09;
-  content::WindowedNotificationObserver observer(
-      content::NOTIFICATION_LOAD_STOP,
-      content::Source<NavigationController>(
-          &current_browser()->tab_strip_model()->GetActiveWebContents()->
-              GetController()));
   NotifyGeoposition(cached_position_latitude, cached_position_lognitude);
-  observer.Wait();
+  ASSERT_TRUE(CheckGeopositionUpdated());
   CheckGeoposition(cached_position_latitude, cached_position_lognitude);
 
-  // Disable navigation for this frame.
-  CheckStringValueFromJavascript("0", "geoSetMaxNavigateCount(0)");
-
-  // Now go ahead and authorize the second frame.
+  // Now check the second frame gets cached values as well.
   SetFrameHost("iframe_1");
-  AddGeolocationWatch(true);
-  // WebKit will use its cache, but we also broadcast a position shortly
-  // afterwards. We're only interested in the first navigation for the success
-  // callback from the cached position.
-  CheckStringValueFromJavascript("1", "geoSetMaxNavigateCount(1)");
-  SetInfoBarResponse(iframe_url(1), true);
+  ASSERT_TRUE(RequestAndAcceptPermission());
   CheckGeoposition(cached_position_latitude, cached_position_lognitude);
 }
 
 IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, CancelPermissionForFrame) {
-  set_html_for_tests("/geolocation/iframes_different_origin.html");
+  set_html_for_tests("/geolocation/two_iframes.html");
   ASSERT_TRUE(Initialize(INITIALIZATION_IFRAMES));
   LoadIFrames(2);
-  LOG(WARNING) << "frames loaded";
 
   SetFrameHost("iframe_0");
-  AddGeolocationWatch(true);
-  SetInfoBarResponse(iframe_url(0), true);
+  ASSERT_TRUE(RequestAndAcceptPermission());
   CheckGeoposition(fake_latitude(), fake_longitude());
-  // Disables further prompts from this iframe.
-  CheckStringValueFromJavascript("0", "geoSetMaxNavigateCount(0)");
 
   // Test second iframe from a different origin with a cached geoposition will
-  // create the infobar.
+  // create the prompt.
   SetFrameHost("iframe_1");
-  AddGeolocationWatch(true);
+  RequestPermissionAndObserve(true);
 
-  InfoBarService* infobar_service = InfoBarService::FromWebContents(
-      current_browser()->tab_strip_model()->GetActiveWebContents());
-  size_t num_infobars_before_cancel = infobar_service->infobar_count();
-  // Change the iframe, and ensure the infobar is gone.
+  // Navigate the iframe, and ensure the prompt is gone.
+  WebContents* web_contents =
+      current_browser()->tab_strip_model()->GetActiveWebContents();
   IFrameLoader change_iframe_1(current_browser(), 1, current_url());
-  size_t num_infobars_after_cancel = infobar_service->infobar_count();
-  EXPECT_EQ(num_infobars_before_cancel, num_infobars_after_cancel + 1);
+  int num_bubbles_after_cancel = GetBubblesQueueSize(
+      PermissionBubbleManager::FromWebContents(web_contents));
+  EXPECT_EQ(0, num_bubbles_after_cancel);
 }
 
 IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, InvalidUrlRequest) {
@@ -693,77 +607,67 @@ IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, InvalidUrlRequest) {
                                          original_tab->GetMainFrame());
 }
 
-IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, NoInfoBarBeforeStart) {
+IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, NoPromptBeforeStart) {
   // See http://crbug.com/42789
-  set_html_for_tests("/geolocation/iframes_different_origin.html");
+  set_html_for_tests("/geolocation/two_iframes.html");
   ASSERT_TRUE(Initialize(INITIALIZATION_IFRAMES));
   LoadIFrames(2);
-  LOG(WARNING) << "frames loaded";
 
   // Access navigator.geolocation, but ensure it won't request permission.
   SetFrameHost("iframe_1");
   CheckStringValueFromJavascript("object", "geoAccessNavigatorGeolocation()");
 
   SetFrameHost("iframe_0");
-  AddGeolocationWatch(true);
-  SetInfoBarResponse(iframe_url(0), true);
+  ASSERT_TRUE(RequestAndAcceptPermission());
   CheckGeoposition(fake_latitude(), fake_longitude());
-  CheckStringValueFromJavascript("0", "geoSetMaxNavigateCount(0)");
 
   // Permission should be requested after adding a watch.
   SetFrameHost("iframe_1");
-  AddGeolocationWatch(true);
-  SetInfoBarResponse(iframe_url(1), true);
+  ASSERT_TRUE(RequestAndAcceptPermission());
   CheckGeoposition(fake_latitude(), fake_longitude());
 }
 
 IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, TwoWatchesInOneFrame) {
   set_html_for_tests("/geolocation/two_watches.html");
   ASSERT_TRUE(Initialize(INITIALIZATION_NONE));
+  SetFrameHost("");
 
-  // First, set the JavaScript to navigate when it receives |final_position|.
+  // Tell the JS what to expect as the final coordinates.
   double final_position_latitude = 3.17;
   double final_position_longitude = 4.23;
-  std::string script = base::StringPrintf(
-      "window.domAutomationController.send(geoSetFinalPosition(%f, %f))",
-      final_position_latitude, final_position_longitude);
-  std::string js_result;
-  EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-      current_browser()->tab_strip_model()->GetActiveWebContents(), script,
-      &js_result));
-  EXPECT_EQ(js_result, "ok");
+  std::string script =
+      base::StringPrintf("geoSetFinalPosition(%f, %f)", final_position_latitude,
+                         final_position_longitude);
+  CheckStringValueFromJavascript("ok", script);
 
-  // Send a position which both geolocation watches will receive.
-  SetFrameHost("");
-  AddGeolocationWatch(true);
-  SetInfoBarResponse(current_url(), true);
+  // Request permission and set two watches for the initial success callback.
+  ASSERT_TRUE(RequestAndAcceptPermission());
   CheckGeoposition(fake_latitude(), fake_longitude());
 
   // The second watch will now have cancelled. Ensure an update still makes
   // its way through to the first watcher.
-  content::WindowedNotificationObserver observer(
-      content::NOTIFICATION_LOAD_STOP,
-      content::Source<NavigationController>(
-          &current_browser()->tab_strip_model()->GetActiveWebContents()->
-              GetController()));
   NotifyGeoposition(final_position_latitude, final_position_longitude);
-  observer.Wait();
+  ASSERT_TRUE(CheckGeopositionUpdated());
   CheckGeoposition(final_position_latitude, final_position_longitude);
 }
 
-IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, TabDestroyed) {
-  set_html_for_tests("/geolocation/tab_destroyed.html");
+// TODO(felt): Disabled because the second permission request hangs.
+IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, DISABLED_PendingChildFrames) {
+  set_html_for_tests("/geolocation/two_iframes.html");
   ASSERT_TRUE(Initialize(INITIALIZATION_IFRAMES));
-  LoadIFrames(3);
+  LoadIFrames(2);
 
   SetFrameHost("iframe_0");
-  AddGeolocationWatch(true);
+  RequestPermissionAndObserve(true);
 
   SetFrameHost("iframe_1");
-  AddGeolocationWatch(false);
+  RequestPermissionAndObserve(true);
+}
 
-  SetFrameHost("iframe_2");
-  AddGeolocationWatch(false);
+IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, TabDestroyed) {
+  ASSERT_TRUE(Initialize(INITIALIZATION_NONE));
+  SetFrameHost("");
+  RequestPermissionAndObserve(true);
 
   std::string script =
       "window.domAutomationController.send(window.close());";
@@ -803,7 +707,7 @@ IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, LastUsageUpdated) {
 
   // Watching should trigger the last usage update.
   SetFrameHost("");
-  AddGeolocationWatch(false);
+  RequestPermissionAndObserve(false);
   CheckGeoposition(fake_latitude(), fake_longitude());
 
   // Last usage has been updated.

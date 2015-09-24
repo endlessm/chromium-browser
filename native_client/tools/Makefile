@@ -33,17 +33,7 @@ THISMAKEFILE := $(lastword $(MAKEFILE_LIST))
 
 SHELL = /bin/bash
 
-# By default, checkout from read-only repository:
-#   http://git.chromium.org/native_client
-# Maintainers can either override this with read-write repository:
-#   ssh://gerrit.chromium.org/native_client
-# or add to git config:
-#   [url "ssh://gerrit.chromium.org"]
-#     pushinsteadof = http://git.chromium.org
-# or add to git-cl codereview.settings:
-#   PUSH_URL_CONFIG: url.ssh://gerrit.chromium.org.pushinsteadof
-#   ORIGIN_URL_CONFIG: http://git.chromium.org
-GIT_BASE_URL = http://git.chromium.org/native_client
+GIT_BASE_URL = https://chromium.googlesource.com/native_client
 
 CROSSARCH = x86_64-nacl
 TOOLCHAINLOC ?= out
@@ -65,7 +55,7 @@ HOST_TOOLCHAIN_BITS = 32
 # If CANNED_REVISION is "no" then it's "from git build": Makefile uses file
 # named "REVISIONS" to pull infomation from git and builds that.
 # If CANNED_REVISION is set to some revision then Makefile will try to download
-# sources from commondatastorage.googleapis.com and use them.
+# sources from storage.googleapis.com and use them.
 # You can also set CANNED_REVISION to "yes" if you want to just build sources
 # already unpacked and ready to be built from SRC subdirectory.
 CANNED_REVISION = no
@@ -73,6 +63,12 @@ ifeq ($(CANNED_REVISION), no)
 include REVISIONS
 endif
 export NACL_FAKE_SONAME = $(shell commit=$(NACL_GLIBC_COMMIT);echo $${commit:0:8})
+
+# Recent version of makeinfo (such as the one in ubuntu trusty) fail to
+# compile the info files in our version of gcc. Setting this variable to
+# no stops gcc from detecteing a modern version of makeinfo and effectivly
+# stops it from building the info files.
+export gcc_cv_prog_makeinfo_modern=no
 
 # Toplevel installation directory.
 # MUST be an absolute pathname, for configure --prefix=$(PREFIX)
@@ -115,18 +111,20 @@ ifeq ($(PLATFORM), win)
   # I'm explicitly coding the path.
   BUILDPATH = $(DESTDIR)$(PREFIX)/bin:/usr/local/bin:/usr/bin:/bin
   SCONS ?= scons.bat
-  SVN ?= svn.bat
-  SVNVERSION ?= svnversion.bat | tr -d $$"\r"
+  GIT ?= $(shell python ../build/find_depot_tools.py)/git.bat
+  REVISION ?= $(shell $(GIT) rev-parse HEAD | tr -d $$"\r")
   PREFIX_NATIVE = $(shell cygpath -m $(PREFIX))
   CREATE_REDIRECTORS = ./create_redirectors_cygwin.sh
 else
   BUILDPATH = $(DESTDIR)$(PREFIX)/bin:$(PATH)
   SCONS ?= scons
-  SVN ?= svn
-  SVNVERSION ?= svnversion
+  GIT ?= git
+  REVISION ?= $(shell git rev-parse HEAD)
   PREFIX_NATIVE = $(DESTDIR)$(PREFIX)
   CREATE_REDIRECTORS = ./create_redirectors.sh
 endif
+
+REVISION_DATE ?= $(shell $(GIT) show --no-patch --format=%cd --date=short $(REVISION) | sed -e s'+\(....\)-\(..\)-\(..\).*+\1\2\3+')
 
 ##################################################################
 #  The version numbers for the tools we will be building.
@@ -143,12 +141,12 @@ mpc: $(MPC_VERSION), \
 ppl: $(PPL_VERSION), \
 cloog-ppl: $(CLOOG_PPL_VERSION)
 endef
-BINUTILS_VERSION = 2.20.1
-NACL_BINUTILS_GIT_BASE = 1beca2258eb9a92e8d6c6f081fc1255773b1fb8b
+BINUTILS_VERSION = 2.24.0
+NACL_BINUTILS_GIT_BASE = 237df3fa4a1d939e6fd1af0c3e5029a25a137310
 GCC_VERSION = 4.4.3
 NACL_GCC_GIT_BASE = 4e0ae761f59baae95282ab07efa9b831ac524642
-NEWLIB_VERSION = 1.20.0
-NACL_NEWLIB_GIT_BASE = 151b2c72fb87849bbc6e3ef569718c6344eed2e6
+NEWLIB_VERSION = 2.1.0
+NACL_NEWLIB_GIT_BASE = e14046f93c76ef701d8ad133d0ea2b96d3c1b578
 GLIBC_VERSION = 2.9
 NACL_GLIBC_GIT_BASE = 5c46008d0874c9b9d5f5f201a10e975d1fe84787
 
@@ -930,10 +928,10 @@ buildbot-build-with-newlib: | \
 
 # Don't generate patch files for things like gmp or linux-headers-for-nacl
 # because these are not changed from upstream.
-BINUTILS_PATCHNAME := naclbinutils-$(BINUTILS_VERSION)-r$(shell $(SVNVERSION) | tr : _)
-GCC_PATCHNAME := naclgcc-$(GCC_VERSION)-r$(shell $(SVNVERSION) | tr : _)
-GLIBC_PATCHNAME := naclglibc-$(GLIBC_VERSION)-r$(shell $(SVNVERSION) | tr : _)
-NEWLIB_PATCHNAME := naclnewlib-$(NEWLIB_VERSION)-r$(shell $(SVNVERSION) | tr : _)
+BINUTILS_PATCHNAME := naclbinutils-$(BINUTILS_VERSION)-$(REVISION)
+GCC_PATCHNAME := naclgcc-$(GCC_VERSION)-$(REVISION)
+GLIBC_PATCHNAME := naclglibc-$(GLIBC_VERSION)-$(REVISION)
+NEWLIB_PATCHNAME := naclnewlib-$(NEWLIB_VERSION)-$(REVISION)
 
 patch-names = $(BINUTILS_PATCHNAME) $(GCC_PATCHNAME) \
 	      $(GLIBC_PATCHNAME) $(NEWLIB_PATCHNAME)
@@ -943,12 +941,12 @@ $(patch-list): SRC/%.patch:
 	package=$@ && \
 	package=$${package#SRC/nacl} && \
 	package=$${package/.patch/} && \
-	basename=$${package/-*-r*} && \
+	basename=$${package/-*-*} && \
 	cd SRC/$${basename} && \
 	  git diff --patience --patch-with-stat --no-renames \
 	    --src-prefix=$$basename/ \
 	    --dst-prefix=$$basename/ \
-	    $(NACL_$(shell n=$@ ; n=$${n#SRC/nacl} ; echo $${n/-*-r*/} | \
+	    $(NACL_$(shell n=$@ ; n=$${n#SRC/nacl} ; echo $${n/-*-*/} | \
 	             tr '[:lower:]-' '[:upper:]_')_GIT_BASE) \
 	    > ../../$@
 
@@ -970,15 +968,14 @@ buildbot-build-with-glibc: | \
 buildbot-mark-version: | \
   pinned-src-binutils \
   pinned-src-gcc
-	cd SRC/binutils
 	printf -- "--- SRC/binutils/bfd/version.h\n\
 	+++ SRC/binutils/bfd/version.h\n\
 	@@ -3 +3 @@\n\
 	-#define BFD_VERSION_STRING  @bfd_version_package@ @bfd_version_string@\n\
-	+#define BFD_VERSION_STRING  @bfd_version_package@ @bfd_version_string@ \" `LC_ALL=C $(SVN) info | grep 'Last Changed Date' | sed -e s'+Last Changed Date: \(....\)-\(..\)-\(..\).*+\1\2\3+'` (Native Client r`LC_ALL=C $(SVNVERSION)`, Git Commit `cd SRC/binutils ; LC_ALL=C git rev-parse HEAD`)\"\n" |\
+	+#define BFD_VERSION_STRING  @bfd_version_package@ @bfd_version_string@ \" $(REVISION_DATE) (Native Client $(REVISION), Git Commit `cd SRC/binutils ; LC_ALL=C git rev-parse HEAD`)\"\n" |\
 	patch -p0
-	LC_ALL=C $(SVN) info | grep 'Last Changed Date' | sed -e s'+Last Changed Date: \(....\)-\(..\)-\(..\).*+\1\2\3+' > SRC/gcc/gcc/DATESTAMP
-	echo "Native Client r`LC_ALL=C $(SVNVERSION)`, Git Commit `cd SRC/gcc ; LC_ALL=C git rev-parse HEAD`" > SRC/gcc/gcc/DEV-PHASE
+	echo $(REVISION_DATE) > SRC/gcc/gcc/DATESTAMP
+	echo "Native Client $(REVISION), Git Commit `cd SRC/gcc ; LC_ALL=C git rev-parse HEAD`" > SRC/gcc/gcc/DEV-PHASE
 endif
 
 ##################################################################

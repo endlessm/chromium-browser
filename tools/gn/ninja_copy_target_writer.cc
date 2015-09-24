@@ -25,23 +25,23 @@ NinjaCopyTargetWriter::~NinjaCopyTargetWriter() {
 void NinjaCopyTargetWriter::Run() {
   const Tool* copy_tool = target_->toolchain()->GetTool(Toolchain::TYPE_COPY);
   if (!copy_tool) {
-    g_scheduler->FailWithError(Err(NULL,
-        "Copy tool not defined",
+    g_scheduler->FailWithError(Err(
+        nullptr, "Copy tool not defined",
         "The toolchain " +
-        target_->toolchain()->label().GetUserVisibleName(false) +
-        "\n used by target " + target_->label().GetUserVisibleName(false) +
-        "\n doesn't define a \"copy\" tool."));
+            target_->toolchain()->label().GetUserVisibleName(false) +
+            "\n used by target " + target_->label().GetUserVisibleName(false) +
+            "\n doesn't define a \"copy\" tool."));
     return;
   }
 
   const Tool* stamp_tool = target_->toolchain()->GetTool(Toolchain::TYPE_STAMP);
   if (!stamp_tool) {
-    g_scheduler->FailWithError(Err(NULL,
-        "Copy tool not defined",
+    g_scheduler->FailWithError(Err(
+        nullptr, "Copy tool not defined",
         "The toolchain " +
-        target_->toolchain()->label().GetUserVisibleName(false) +
-        "\n used by target " + target_->label().GetUserVisibleName(false) +
-        "\n doesn't define a \"stamp\" tool."));
+            target_->toolchain()->label().GetUserVisibleName(false) +
+            "\n used by target " + target_->label().GetUserVisibleName(false) +
+            "\n doesn't define a \"stamp\" tool."));
     return;
   }
 
@@ -100,9 +100,7 @@ void NinjaCopyTargetWriter::WriteCopyRules(
   // where a command might need to make sure something else runs before it runs
   // to avoid conflicts. Such cases should be avoided where possible, but
   // sometimes that's not possible.
-  for (size_t i = 0; i < target_->sources().size(); i++) {
-    const SourceFile& input_file = target_->sources()[i];
-
+  for (const auto& input_file : target_->sources()) {
     OutputFile output_file =
         SubstitutionWriter::ApplyPatternToSourceAsOutputFile(
             target_->settings(), output_subst, input_file);

@@ -26,7 +26,7 @@ class SkColorTable;
  */
 class SkCachingPixelRef : public SkPixelRef {
 public:
-    SK_DECLARE_INST_COUNT(SkCachingPixelRef)
+    
     /**
      *  Takes ownership of SkImageGenerator.  If this method fails for
      *  whatever reason, it will return false and immediatetely delete
@@ -42,11 +42,11 @@ public:
 
 protected:
     virtual ~SkCachingPixelRef();
-    virtual bool onNewLockPixels(LockRec*) SK_OVERRIDE;
-    virtual void onUnlockPixels() SK_OVERRIDE;
-    virtual bool onLockPixelsAreWritable() const SK_OVERRIDE { return false; }
+    bool onNewLockPixels(LockRec*) override;
+    void onUnlockPixels() override;
+    bool onLockPixelsAreWritable() const override { return false; }
 
-    virtual SkData* onRefEncodedData() SK_OVERRIDE {
+    SkData* onRefEncodedData() override {
         return fImageGenerator->refEncodedData();
     }
 

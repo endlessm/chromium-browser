@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_GUEST_VIEW_WEB_VIEW_CHROME_WEB_VIEW_PERMISSION_HELPER_DELEGATE_H_
 #define CHROME_BROWSER_GUEST_VIEW_WEB_VIEW_CHROME_WEB_VIEW_PERMISSION_HELPER_DELEGATE_H_
 
+#include "components/content_settings/core/common/content_settings.h"
 #include "extensions/browser/guest_view/web_view/web_view_permission_helper.h"
 #include "extensions/browser/guest_view/web_view/web_view_permission_helper_delegate.h"
 
@@ -19,8 +20,7 @@ class ChromeWebViewPermissionHelperDelegate :
   ~ChromeWebViewPermissionHelperDelegate() override;
 
   // WebViewPermissionHelperDelegate implementation.
-  void CanDownload(content::RenderViewHost* render_view_host,
-                   const GURL& url,
+  void CanDownload(const GURL& url,
                    const std::string& request_method,
                    const base::Callback<void(bool)>& callback) override;
   void RequestPointerLockPermission(
@@ -78,7 +78,7 @@ class ChromeWebViewPermissionHelperDelegate :
   void OnGeolocationPermissionResponse(
       int bridge_id,
       bool user_gesture,
-      const base::Callback<void(bool)>& callback,
+      const base::Callback<void(ContentSetting)>& callback,
       bool allow,
       const std::string& user_input);
 

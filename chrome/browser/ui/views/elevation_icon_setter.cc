@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/views/elevation_icon_setter.h"
 
+#include "base/callback.h"
 #include "base/task_runner_util.h"
 #include "content/public/browser/browser_thread.h"
 #include "ui/views/controls/button/label_button.h"
@@ -14,6 +15,7 @@
 #include "base/win/win_util.h"
 #include "base/win/windows_version.h"
 #include "ui/gfx/icon_util.h"
+#include "ui/gfx/win/dpi.h"
 #endif
 
 
@@ -55,7 +57,8 @@ scoped_ptr<SkBitmap> GetElevationIcon() {
 
 // ElevationIconSetter --------------------------------------------------------
 
-ElevationIconSetter::ElevationIconSetter(views::LabelButton* button)
+ElevationIconSetter::ElevationIconSetter(views::LabelButton* button,
+                                         const base::Closure& callback)
     : button_(button),
       weak_factory_(this) {
   base::PostTaskAndReplyWithResult(
@@ -63,18 +66,29 @@ ElevationIconSetter::ElevationIconSetter(views::LabelButton* button)
       FROM_HERE,
       base::Bind(&GetElevationIcon),
       base::Bind(&ElevationIconSetter::SetButtonIcon,
-                 weak_factory_.GetWeakPtr()));
+                 weak_factory_.GetWeakPtr(),
+                 callback));
 }
 
 ElevationIconSetter::~ElevationIconSetter() {
 }
 
-void ElevationIconSetter::SetButtonIcon(scoped_ptr<SkBitmap> icon) {
+void ElevationIconSetter::SetButtonIcon(const base::Closure& callback,
+                                        scoped_ptr<SkBitmap> icon) {
   if (icon) {
-    button_->SetImage(views::Button::STATE_NORMAL,
-                      gfx::ImageSkia::CreateFrom1xBitmap(*icon));
+    float device_scale_factor = 1.0f;
+#if defined(OS_WIN)
+    // Windows gives us back a correctly-scaled image for the current DPI, so
+    // mark this image as having been scaled for the current DPI already.
+    device_scale_factor = gfx::GetDPIScale();
+#endif
+    button_->SetImage(
+        views::Button::STATE_NORMAL,
+        gfx::ImageSkia(gfx::ImageSkiaRep(*icon, device_scale_factor)));
     button_->SizeToPreferredSize();
     if (button_->parent())
       button_->parent()->Layout();
+    if (!callback.is_null())
+      callback.Run();
   }
 }

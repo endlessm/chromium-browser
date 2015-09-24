@@ -1,15 +1,17 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/fpdfdoc/fpdf_doc.h"
+
 CPDF_LinkList::~CPDF_LinkList()
 {
     FX_POSITION pos = m_PageMap.GetStartPosition();
     while (pos) {
-        FX_LPVOID key, value;
+        void* key;
+        void* value;
         m_PageMap.GetNextAssoc(pos, key, value);
         delete (CFX_PtrArray*)value;
     }
@@ -21,12 +23,9 @@ CFX_PtrArray* CPDF_LinkList::GetPageLinks(CPDF_Page* pPage)
         return NULL;
     }
     CFX_PtrArray* pPageLinkList = NULL;
-    if (!m_PageMap.Lookup((FX_LPVOID)(FX_UINTPTR)objnum, (FX_LPVOID&)pPageLinkList)) {
-        pPageLinkList = FX_NEW CFX_PtrArray;
-        if (pPageLinkList == NULL) {
-            return NULL;
-        }
-        m_PageMap.SetAt((FX_LPVOID)(FX_UINTPTR)objnum, pPageLinkList);
+    if (!m_PageMap.Lookup((void*)(uintptr_t)objnum, (void*&)pPageLinkList)) {
+        pPageLinkList = new CFX_PtrArray;
+        m_PageMap.SetAt((void*)(uintptr_t)objnum, pPageLinkList);
         LoadPageLinks(pPage, pPageLinkList);
     }
     return pPageLinkList;
@@ -42,26 +41,26 @@ int CPDF_LinkList::CountLinks(CPDF_Page* pPage)
 CPDF_Link CPDF_LinkList::GetLink(CPDF_Page* pPage, int index)
 {
     CFX_PtrArray* pPageLinkList = GetPageLinks(pPage);
-    if (pPageLinkList == NULL) {
-        return NULL;
+    if (!pPageLinkList) {
+        return CPDF_Link();
     }
-    return (CPDF_Dictionary*)pPageLinkList->GetAt(index);
+    return CPDF_Link((CPDF_Dictionary*)pPageLinkList->GetAt(index));
 }
 CPDF_Link CPDF_LinkList::GetLinkAtPoint(CPDF_Page* pPage, FX_FLOAT pdf_x, FX_FLOAT pdf_y)
 {
     CFX_PtrArray* pPageLinkList = GetPageLinks(pPage);
-    if (pPageLinkList == NULL) {
-        return NULL;
+    if (!pPageLinkList) {
+        return CPDF_Link();
     }
     int size = pPageLinkList->GetSize();
-    for (int i = 0; i < size; i ++) {
-        CPDF_Link Link = (CPDF_Dictionary*)pPageLinkList->GetAt(i);
-        CPDF_Rect rect = Link.GetRect();
+    for (int i = size - 1; i >= 0; --i) {
+        CPDF_Link link((CPDF_Dictionary*)pPageLinkList->GetAt(i));
+        CPDF_Rect rect = link.GetRect();
         if (rect.Contains(pdf_x, pdf_y)) {
-            return Link;
+            return link;
         }
     }
-    return NULL;
+    return CPDF_Link();
 }
 void CPDF_LinkList::LoadPageLinks(CPDF_Page* pPage, CFX_PtrArray* pList)
 {
@@ -88,18 +87,19 @@ CPDF_Dest CPDF_Link::GetDest(CPDF_Document* pDoc)
 {
     CPDF_Object* pDest = m_pDict->GetElementValue("Dest");
     if (pDest == NULL) {
-        return NULL;
+        return CPDF_Dest();
     }
     if (pDest->GetType() == PDFOBJ_STRING || pDest->GetType() == PDFOBJ_NAME) {
         CPDF_NameTree name_tree(pDoc, FX_BSTRC("Dests"));
         CFX_ByteStringC name = pDest->GetString();
-        return name_tree.LookupNamedDest(pDoc, name);
-    } else if (pDest->GetType() == PDFOBJ_ARRAY) {
-        return (CPDF_Array*)pDest;
+        return CPDF_Dest(name_tree.LookupNamedDest(pDoc, name));
     }
-    return NULL;
+    if (pDest->GetType() == PDFOBJ_ARRAY) {
+        return CPDF_Dest((CPDF_Array*)pDest);
+    }
+    return CPDF_Dest();
 }
 CPDF_Action CPDF_Link::GetAction()
 {
-    return m_pDict->GetDict("A");
+    return CPDF_Action(m_pDict->GetDict("A"));
 }

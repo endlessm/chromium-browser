@@ -48,7 +48,7 @@ ScreenshotTester::Result::~Result() {
 }
 
 bool ScreenshotTester::TryInitialize() {
-  CommandLine& command_line = *CommandLine::ForCurrentProcess();
+  base::CommandLine& command_line = *base::CommandLine::ForCurrentProcess();
   if (!command_line.HasSwitch(switches::kEnableScreenshotTestingWithMode))
     return false;
 
@@ -203,7 +203,7 @@ void ScreenshotTester::ReturnScreenshot(const PNGFile& screenshot,
 }
 
 ScreenshotTester::PNGFile ScreenshotTester::TakeScreenshot() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   aura::Window* primary_window = ash::Shell::GetPrimaryRootWindow();
   gfx::Rect rect = primary_window->bounds();
   PNGFile screenshot = new base::RefCountedBytes;

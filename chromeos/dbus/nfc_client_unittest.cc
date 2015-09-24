@@ -3,7 +3,9 @@
 // found in the LICENSE file.
 
 #include "base/bind.h"
+#include "base/location.h"
 #include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "chromeos/dbus/nfc_adapter_client.h"
 #include "chromeos/dbus/nfc_client_helpers.h"
 #include "chromeos/dbus/nfc_device_client.h"
@@ -88,9 +90,9 @@ class MockNfcTagObserver : public NfcTagClient::Observer {
 class NfcClientTest : public testing::Test {
  public:
   NfcClientTest() : response_(NULL) {}
-  virtual ~NfcClientTest() {}
+  ~NfcClientTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     // Create the mock bus.
     dbus::Bus::Options options;
     options.bus_type = dbus::Bus::SYSTEM;
@@ -222,7 +224,7 @@ class NfcClientTest : public testing::Test {
     message_loop_.RunUntilIdle();
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     tag_client_->RemoveObserver(&mock_tag_observer_);
     device_client_->RemoveObserver(&mock_device_observer_);
     adapter_client_->RemoveObserver(&mock_adapter_observer_);
@@ -378,10 +380,9 @@ class NfcClientTest : public testing::Test {
       else if (signal_name == nfc_manager::kAdapterRemovedSignal)
         manager_adapter_removed_signal_callback_ = signal_callback;
     }
-    message_loop_.PostTask(FROM_HERE, base::Bind(on_connected_callback,
-                                                 interface_name,
-                                                 signal_name,
-                                                 true));
+    message_loop_.task_runner()->PostTask(
+        FROM_HERE,
+        base::Bind(on_connected_callback, interface_name, signal_name, true));
   }
 };
 

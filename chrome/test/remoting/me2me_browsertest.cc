@@ -4,31 +4,34 @@
 
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "chrome/browser/ui/browser_window.h"
+#include "chrome/test/remoting/key_code_test_map.h"
 #include "chrome/test/remoting/remote_desktop_browsertest.h"
+#include "chrome/test/remoting/remote_test_helper.h"
 #include "chrome/test/remoting/waiter.h"
+#include "extensions/browser/app_window/app_window.h"
 
 namespace remoting {
 
 class Me2MeBrowserTest : public RemoteDesktopBrowserTest {
  protected:
-  void TestKeyboardInput();
-  void TestMouseInput();
+  void TestKeypressInput(ui::KeyboardCode, const char*);
 
   void ConnectPinlessAndCleanupPairings(bool cleanup_all);
   bool IsPairingSpinnerHidden();
+  void SetupForRemoteHostTest();
+
+  void RestoreApp();
+  void MinimizeApp();
 };
 
-IN_PROC_BROWSER_TEST_F(Me2MeBrowserTest,
-                       MANUAL_Me2Me_Connect_Local_Host) {
-  SetUpTestForMe2Me();
+IN_PROC_BROWSER_TEST_F(Me2MeBrowserTest, MANUAL_Me2Me_Connect_Local_Host) {
+  content::WebContents* content = SetUpTest();
+  LoadScript(content, FILE_PATH_LITERAL("me2me_browser_test.js"));
+  RunJavaScriptTest(content, "ConnectToLocalHost", "{"
+    "pin: '" + me2me_pin() + "'"
+  "}");
 
-  ConnectToLocalHost(false);
-
-  // TODO(chaitali): Change the mouse input test to also work in the
-  // HTTP server framework
-  // TestMouseInput();
-
-  DisconnectMe2Me();
   Cleanup();
 }
 
@@ -36,7 +39,7 @@ IN_PROC_BROWSER_TEST_F(Me2MeBrowserTest,
                        MANUAL_Me2Me_Connect_Remote_Host) {
   VerifyInternetAccess();
   Install();
-  LaunchChromotingApp();
+  LaunchChromotingApp(false);
 
   // Authorize, Authenticate, and Approve.
   Auth();
@@ -53,8 +56,64 @@ IN_PROC_BROWSER_TEST_F(Me2MeBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_F(Me2MeBrowserTest,
+                       MANUAL_Me2Me_Remote_Host_Keypress) {
+  SetupForRemoteHostTest();
+
+  // Test all key characters
+  int length = sizeof(test_alpha_map)/sizeof(KeyCodeTestMap);
+  for (int i = 0; i < length; i++) {
+    KeyCodeTestMap key = test_alpha_map[i];
+    TestKeypressInput(key.vkey_code, key.code);
+  }
+  DisconnectMe2Me();
+  Cleanup();
+}
+
+IN_PROC_BROWSER_TEST_F(Me2MeBrowserTest,
+                       MANUAL_Me2Me_Remote_Host_Digitpress) {
+  SetupForRemoteHostTest();
+
+  // Test all digit characters
+  int length = sizeof(test_digit_map)/sizeof(KeyCodeTestMap);
+  for (int i = 0; i < length; i++) {
+    KeyCodeTestMap key = test_digit_map[i];
+    TestKeypressInput(key.vkey_code, key.code);
+  }
+  DisconnectMe2Me();
+  Cleanup();
+}
+
+IN_PROC_BROWSER_TEST_F(Me2MeBrowserTest,
+                       MANUAL_Me2Me_Remote_Host_Specialpress) {
+  SetupForRemoteHostTest();
+
+  // Test all special characters
+  int length = sizeof(test_special_map)/sizeof(KeyCodeTestMap);
+  for (int i = 0; i < length; i++) {
+    KeyCodeTestMap key = test_special_map[i];
+    TestKeypressInput(key.vkey_code, key.code);
+  }
+  DisconnectMe2Me();
+  Cleanup();
+}
+
+IN_PROC_BROWSER_TEST_F(Me2MeBrowserTest,
+                       MANUAL_Me2Me_Remote_Host_Numpadpress) {
+  SetupForRemoteHostTest();
+
+  // Test all numpad characters
+  int length = sizeof(test_numpad_map)/sizeof(KeyCodeTestMap);
+  for (int i = 0; i < length; i++) {
+    KeyCodeTestMap key = test_numpad_map[i];
+    TestKeypressInput(key.vkey_code, key.code);
+  }
+  DisconnectMe2Me();
+  Cleanup();
+}
+
+IN_PROC_BROWSER_TEST_F(Me2MeBrowserTest,
                        MANUAL_Me2Me_Connect_Pinless) {
-  SetUpTestForMe2Me();
+  SetUpTest();
 
   ASSERT_FALSE(HtmlElementVisible("paired-client-manager-message"))
       << "The host must have no pairings before running the pinless test.";
@@ -66,40 +125,63 @@ IN_PROC_BROWSER_TEST_F(Me2MeBrowserTest,
   Cleanup();
 }
 
-void Me2MeBrowserTest::TestKeyboardInput() {
-  // We will assume here that the browser window is already open on the host
-  // and in focus.
-  // Press tab to put focus on the textbox.
-  SimulateKeyPressWithCode(ui::VKEY_TAB, "Tab", false, false, false, false);
+IN_PROC_BROWSER_TEST_F(Me2MeBrowserTest, MANUAL_Me2Me_v2_Alive_OnLostFocus) {
+  content::WebContents* content = SetUpTest();
+  LoadScript(content, FILE_PATH_LITERAL("me2me_browser_test.js"));
+  RunJavaScriptTest(content, "AliveOnLostFocus", "{"
+    "pin: '" + me2me_pin() + "'"
+  "}");
 
-  // Write some text in the box and press enter
-  std::string text = "Abigail";
-  SimulateStringInput(text);
-  SimulateKeyPressWithCode(
-      ui::VKEY_RETURN, "Enter", false, false, false, false);
-
-  // Wait until the client tab sets the right variables
-  ConditionalTimeoutWaiter waiter(
-          base::TimeDelta::FromSeconds(10),
-          base::TimeDelta::FromMilliseconds(500),
-          base::Bind(&RemoteDesktopBrowserTest::IsHostActionComplete,
-                     client_web_content(),
-                     "testResult.keypressSucceeded"));
-  EXPECT_TRUE(waiter.Wait());
-
-  // Check that the text we got is correct
-  EXPECT_TRUE(ExecuteScriptAndExtractBool(
-      client_web_content(),
-      "testResult.keypressText == '" + text + "'"));
+  Cleanup();
 }
 
-void Me2MeBrowserTest::TestMouseInput() {
-  SimulateMouseLeftClickAt(10, 50);
-  // TODO: Verify programatically the mouse events are received by the host.
-  // This will be tricky as it depends on the host OS, window manager, desktop
-  // layout, and screen resolution. Until then we need to visually verify that
-  // "Dash Home" is clicked on a Unity window manager.
-  ASSERT_TRUE(TimeoutWaiter(base::TimeDelta::FromSeconds(5)).Wait());
+IN_PROC_BROWSER_TEST_F(Me2MeBrowserTest, MANUAL_Me2Me_RetryOnHostOffline) {
+  content::WebContents* content = SetUpTest();
+  LoadScript(content, FILE_PATH_LITERAL("me2me_browser_test.js"));
+  RunJavaScriptTest(content, "RetryOnHostOffline", "{"
+    "pin: '" + me2me_pin() + "'"
+  "}");
+
+  Cleanup();
+}
+
+IN_PROC_BROWSER_TEST_F(Me2MeBrowserTest,
+                       MANUAL_Me2Me_Disable_Remote_Connection) {
+  SetUpTest();
+
+  DisableRemoteConnection();
+  EXPECT_FALSE(IsLocalHostReady());
+
+  Cleanup();
+}
+
+void Me2MeBrowserTest::SetupForRemoteHostTest() {
+  VerifyInternetAccess();
+  OpenClientBrowserPage();
+  Install();
+  LaunchChromotingApp(false);
+
+  // Authorize, Authenticate, and Approve.
+  Auth();
+  ExpandMe2Me();
+  ConnectToRemoteHost(remote_host_name(), false);
+
+  // Wake up the machine if it's sleeping.
+  // This is only needed when testing manually as the host machine
+  // may be sleeping.
+  SimulateKeyPressWithCode(ui::VKEY_RETURN, "Enter");
+}
+
+void Me2MeBrowserTest::TestKeypressInput(
+    ui::KeyboardCode keyCode,
+    const char* code) {
+  remote_test_helper()->ClearLastEvent();
+  VLOG(1) << "Pressing " << code;
+  SimulateKeyPressWithCode(keyCode, code);
+  Event event;
+  remote_test_helper()->GetLastEvent(&event);
+  ASSERT_EQ(Action::Keydown, event.action);
+  ASSERT_EQ(keyCode, event.value);
 }
 
 void Me2MeBrowserTest::ConnectPinlessAndCleanupPairings(bool cleanup_all) {
@@ -110,7 +192,7 @@ void Me2MeBrowserTest::ConnectPinlessAndCleanupPairings(bool cleanup_all) {
   // TODO(jamiewalch): This reload is only needed because there's a bug in the
   // web-app whereby it doesn't refresh its pairing state correctly.
   // http://crbug.com/311290
-  LaunchChromotingApp();
+  LaunchChromotingApp(false);
   ASSERT_TRUE(HtmlElementVisible("paired-client-manager-message"));
 
   // Second connection: verify that no PIN is requested.

@@ -31,11 +31,11 @@ class MockSearchMetrics : public GoogleSearchMetrics {
 class GoogleSearchCounterAndroidTest : public testing::Test {
  protected:
   GoogleSearchCounterAndroidTest();
-  virtual ~GoogleSearchCounterAndroidTest();
+  ~GoogleSearchCounterAndroidTest() override;
 
   // testing::Test
-  virtual void SetUp();
-  virtual void TearDown();
+  void SetUp() override;
+  void TearDown() override;
 
   // Test if |url| is a Google search for specific types. When |is_omnibox| is
   // true, this method will append Omnibox identifiers to the simulated URL
@@ -60,13 +60,16 @@ class GoogleSearchCounterAndroidTest : public testing::Test {
   scoped_ptr<GoogleSearchCounterAndroid> search_counter_;
   // Weak ptr. Actual instance owned by GoogleSearchCounter.
   ::testing::StrictMock<MockSearchMetrics>* mock_search_metrics_;
+  prerender::PrerenderManager::PrerenderManagerMode original_prerender_mode_;
 };
 
 GoogleSearchCounterAndroidTest::GoogleSearchCounterAndroidTest()
     : ui_thread_(content::BrowserThread::UI, &message_loop_),
       profile_(new TestingProfile()),
       search_counter_(new GoogleSearchCounterAndroid(profile_.get())),
-      mock_search_metrics_(NULL) {
+      mock_search_metrics_(NULL),
+      original_prerender_mode_(
+          prerender::PrerenderManager::PRERENDER_MODE_DISABLED) {
 }
 
 GoogleSearchCounterAndroidTest::~GoogleSearchCounterAndroidTest() {
@@ -78,12 +81,14 @@ void GoogleSearchCounterAndroidTest::SetUp() {
   mock_search_metrics_ = new ::testing::StrictMock<MockSearchMetrics>;
   GoogleSearchCounter::GetInstance()->SetSearchMetricsForTesting(
       mock_search_metrics_);
+  original_prerender_mode_ = prerender::PrerenderManager::GetMode();
   prerender::PrerenderManager::SetMode(
       prerender::PrerenderManager::PRERENDER_MODE_ENABLED);
 }
 
 void GoogleSearchCounterAndroidTest::TearDown() {
   mock_search_metrics_ = NULL;
+  prerender::PrerenderManager::SetMode(original_prerender_mode_);
 }
 
 void GoogleSearchCounterAndroidTest::TestGoogleSearch(

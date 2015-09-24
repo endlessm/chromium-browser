@@ -6,18 +6,27 @@
 
 #include "base/lazy_instance.h"
 #include "base/memory/linked_ptr.h"
+#include "base/prefs/pref_service.h"
 #include "chrome/browser/copresence/chrome_whispernet_client.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/services/gcm/gcm_profile_service.h"
 #include "chrome/browser/services/gcm/gcm_profile_service_factory.h"
 #include "chrome/common/chrome_version_info.h"
 #include "chrome/common/extensions/api/copresence.h"
+#include "chrome/common/extensions/manifest_handlers/copresence_manifest.h"
+#include "chrome/common/pref_names.h"
 #include "components/copresence/copresence_manager_impl.h"
 #include "components/copresence/proto/data.pb.h"
 #include "components/copresence/proto/enums.pb.h"
 #include "components/copresence/proto/rpcs.pb.h"
-#include "components/copresence/public/whispernet_client.h"
+#include "components/pref_registry/pref_registry_syncable.h"
 #include "content/public/browser/browser_context.h"
 #include "extensions/browser/event_router.h"
+#include "extensions/browser/extension_registry.h"
+#include "extensions/common/extension.h"
+#include "extensions/common/manifest_constants.h"
+
+using user_prefs::PrefRegistrySyncable;
 
 namespace extensions {
 
@@ -30,10 +39,20 @@ const char kInvalidOperationsMessage[] =
     "Invalid operation in operations array.";
 const char kShuttingDownMessage[] = "Shutting down.";
 
+const std::string GetPrefName(bool authenticated) {
+  return authenticated ? prefs::kCopresenceAuthenticatedDeviceId
+                       : prefs::kCopresenceAnonymousDeviceId;
+}
+
 }  // namespace
 
+namespace Execute = api::copresence::Execute;
+namespace OnMessagesReceived = api::copresence::OnMessagesReceived;
+namespace OnStatusUpdated = api::copresence::OnStatusUpdated;
+namespace SetApiKey = api::copresence::SetApiKey;
+namespace SetAuthToken = api::copresence::SetAuthToken;
 
-// CopresenceService implementation.
+// Public functions.
 
 CopresenceService::CopresenceService(content::BrowserContext* context)
     : is_shutting_down_(false), browser_context_(context) {}
@@ -52,10 +71,11 @@ copresence::CopresenceManager* CopresenceService::manager() {
   return manager_.get();
 }
 
-copresence::WhispernetClient* CopresenceService::whispernet_client() {
-  if (!whispernet_client_ && !is_shutting_down_)
-    whispernet_client_.reset(new ChromeWhispernetClient(browser_context_));
-  return whispernet_client_.get();
+const std::string CopresenceService::auth_token(const std::string& app_id)
+    const {
+  // This won't be const if we use map[]
+  const auto& key = auth_tokens_by_app_.find(app_id);
+  return key == auth_tokens_by_app_.end() ? std::string() : key->second;
 }
 
 void CopresenceService::set_api_key(const std::string& app_id,
@@ -64,8 +84,10 @@ void CopresenceService::set_api_key(const std::string& app_id,
   api_keys_by_app_[app_id] = api_key;
 }
 
-void CopresenceService::set_auth_token(const std::string& token) {
-  auth_token_ = token;
+void CopresenceService::set_auth_token(const std::string& app_id,
+                                       const std::string& token) {
+  DCHECK(!app_id.empty());
+  auth_tokens_by_app_[app_id] = token;
 }
 
 void CopresenceService::set_manager_for_testing(
@@ -73,11 +95,29 @@ void CopresenceService::set_manager_for_testing(
   manager_ = manager.Pass();
 }
 
+void CopresenceService::ResetState() {
+  DVLOG(2) << "Deleting copresence state";
+  GetPrefService()->ClearPref(prefs::kCopresenceAuthenticatedDeviceId);
+  GetPrefService()->ClearPref(prefs::kCopresenceAnonymousDeviceId);
+  manager_ = nullptr;
+}
+
+// static
+void CopresenceService::RegisterProfilePrefs(PrefRegistrySyncable* registry) {
+  registry->RegisterStringPref(prefs::kCopresenceAuthenticatedDeviceId,
+                               std::string());
+  registry->RegisterStringPref(prefs::kCopresenceAnonymousDeviceId,
+                               std::string());
+}
+
 // static
 BrowserContextKeyedAPIFactory<CopresenceService>*
 CopresenceService::GetFactoryInstance() {
   return g_factory.Pointer();
 }
+
+
+// Private functions.
 
 void CopresenceService::HandleMessages(
     const std::string& /* app_id */,
@@ -100,16 +140,16 @@ void CopresenceService::HandleMessages(
   for (int m = 0; m < message_count; ++m) {
     api_messages[m].reset(new api::copresence::Message);
     api_messages[m]->type = messages[m].type().type();
-    api_messages[m]->payload = messages[m].payload();
+    api_messages[m]->payload.assign(messages[m].payload().begin(),
+                                    messages[m].payload().end());
     DVLOG(2) << "Dispatching message of type " << api_messages[m]->type << ":\n"
-             << api_messages[m]->payload;
+             << messages[m].payload();
   }
 
   // Send the messages to the client app.
   scoped_ptr<Event> event(
-      new Event(api::copresence::OnMessagesReceived::kEventName,
-                api::copresence::OnMessagesReceived::Create(subscription_id,
-                                                            api_messages),
+      new Event(events::UNKNOWN, OnMessagesReceived::kEventName,
+                OnMessagesReceived::Create(subscription_id, api_messages),
                 browser_context_));
   EventRouter::Get(browser_context_)
       ->DispatchEventToExtension(app_id, event.Pass());
@@ -119,10 +159,10 @@ void CopresenceService::HandleMessages(
 
 void CopresenceService::HandleStatusUpdate(
     copresence::CopresenceStatus status) {
+  DCHECK_EQ(copresence::AUDIO_FAIL, status);
   scoped_ptr<Event> event(
-      new Event(api::copresence::OnStatusUpdated::kEventName,
-                api::copresence::OnStatusUpdated::Create(
-                    api::copresence::STATUS_AUDIOFAILED),
+      new Event(events::UNKNOWN, OnStatusUpdated::kEventName,
+                OnStatusUpdated::Create(api::copresence::STATUS_AUDIOFAILED),
                 browser_context_));
   EventRouter::Get(browser_context_)->BroadcastEvent(event.Pass());
   DVLOG(2) << "Sent Audio Failed status update.";
@@ -136,20 +176,59 @@ const std::string CopresenceService::GetPlatformVersionString() const {
   return chrome::VersionInfo().CreateVersionString();
 }
 
-const std::string CopresenceService::GetAPIKey(const std::string& app_id)
-    const {
-  // This won't be const if we use map[]
+const std::string
+CopresenceService::GetAPIKey(const std::string& app_id) const {
+  // Check first if the app has set its key via the API.
   const auto& key = api_keys_by_app_.find(app_id);
-  return key == api_keys_by_app_.end() ? std::string() : key->second;
+  if (key != api_keys_by_app_.end())
+    return key->second;
+
+  // If no key was found, look in the manifest.
+  if (!app_id.empty()) {
+    const Extension* extension = ExtensionRegistry::Get(browser_context_)
+        ->GetExtensionById(app_id, ExtensionRegistry::ENABLED);
+    DCHECK(extension) << "Invalid extension ID";
+    CopresenceManifestData* manifest_data =
+        static_cast<CopresenceManifestData*>(
+            extension->GetManifestData(manifest_keys::kCopresence));
+    if (manifest_data)
+      return manifest_data->api_key;
+  }
+
+  return std::string();
 }
 
-copresence::WhispernetClient* CopresenceService::GetWhispernetClient() {
-  return whispernet_client();
+audio_modem::WhispernetClient* CopresenceService::GetWhispernetClient() {
+  if (!whispernet_client_ && !is_shutting_down_)
+    whispernet_client_.reset(new ChromeWhispernetClient(browser_context_));
+  return whispernet_client_.get();
 }
 
 gcm::GCMDriver* CopresenceService::GetGCMDriver() {
-  return gcm::GCMProfileServiceFactory::GetForProfile(browser_context_)
-      ->driver();
+  gcm::GCMProfileService* gcm_service =
+      gcm::GCMProfileServiceFactory::GetForProfile(browser_context_);
+  return gcm_service ? gcm_service->driver() : nullptr;
+}
+
+const std::string CopresenceService::GetDeviceId(bool authenticated) {
+  std::string id = GetPrefService()->GetString(GetPrefName(authenticated));
+  DVLOG(3) << "Retrieved device ID \"" << id << "\", "
+           << "authenticated = " << authenticated;
+  return id;
+}
+
+void CopresenceService::SaveDeviceId(bool authenticated,
+                                     const std::string& device_id) {
+  DVLOG(3) << "Storing device ID \"" << device_id << "\", "
+           << "authenticated = " << authenticated;
+  if (device_id.empty())
+    GetPrefService()->ClearPref(GetPrefName(authenticated));
+  else
+    GetPrefService()->SetString(GetPrefName(authenticated), device_id);
+}
+
+PrefService* CopresenceService::GetPrefService() {
+  return Profile::FromBrowserContext(browser_context_)->GetPrefs();
 }
 
 template <>
@@ -160,8 +239,7 @@ BrowserContextKeyedAPIFactory<CopresenceService>::DeclareFactoryDependencies() {
 
 // CopresenceExecuteFunction implementation.
 ExtensionFunction::ResponseAction CopresenceExecuteFunction::Run() {
-  scoped_ptr<api::copresence::Execute::Params> params(
-      api::copresence::Execute::Params::Create(*args_));
+  scoped_ptr<Execute::Params> params(Execute::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
   CopresenceService* service =
@@ -184,7 +262,7 @@ ExtensionFunction::ResponseAction CopresenceExecuteFunction::Run() {
   service->manager()->ExecuteReportRequest(
       request,
       extension_id(),
-      service->auth_token(),
+      service->auth_token(extension_id()),
       base::Bind(&CopresenceExecuteFunction::SendResult, this));
   return RespondLater();
 }
@@ -194,14 +272,16 @@ void CopresenceExecuteFunction::SendResult(
   api::copresence::ExecuteStatus api_status =
       (status == copresence::SUCCESS) ? api::copresence::EXECUTE_STATUS_SUCCESS
                                       : api::copresence::EXECUTE_STATUS_FAILED;
-  Respond(ArgumentList(api::copresence::Execute::Results::Create(api_status)));
+  Respond(ArgumentList(Execute::Results::Create(api_status)));
 }
 
 // CopresenceSetApiKeyFunction implementation.
 ExtensionFunction::ResponseAction CopresenceSetApiKeyFunction::Run() {
-  scoped_ptr<api::copresence::SetApiKey::Params> params(
-      api::copresence::SetApiKey::Params::Create(*args_));
+  scoped_ptr<SetApiKey::Params> params(SetApiKey::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
+
+  LOG(WARNING) << "copresence.setApiKey() is deprecated. "
+               << "Put the key in the manifest at copresence.api_key instead.";
 
   // The api key may be set to empty, to clear it.
   CopresenceService::GetFactoryInstance()->Get(browser_context())
@@ -211,14 +291,12 @@ ExtensionFunction::ResponseAction CopresenceSetApiKeyFunction::Run() {
 
 // CopresenceSetAuthTokenFunction implementation
 ExtensionFunction::ResponseAction CopresenceSetAuthTokenFunction::Run() {
-  scoped_ptr<api::copresence::SetAuthToken::Params> params(
-      api::copresence::SetAuthToken::Params::Create(*args_));
+  scoped_ptr<SetAuthToken::Params> params(SetAuthToken::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
   // The token may be set to empty, to clear it.
-  // TODO(ckehoe): Scope the auth token appropriately (crbug/423517).
   CopresenceService::GetFactoryInstance()->Get(browser_context())
-      ->set_auth_token(params->token);
+      ->set_auth_token(extension_id(), params->token);
   return RespondNow(NoArguments());
 }
 

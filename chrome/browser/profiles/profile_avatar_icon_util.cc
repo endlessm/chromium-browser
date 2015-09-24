@@ -10,6 +10,9 @@
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
+#include "chrome/browser/browser_process.h"
+#include "chrome/browser/profiles/profile_info_cache.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_paths.h"
 #include "grit/theme_resources.h"
 #include "skia/ext/image_operations.h"
@@ -17,11 +20,12 @@
 #include "third_party/skia/include/core/SkPath.h"
 #include "third_party/skia/include/core/SkScalar.h"
 #include "third_party/skia/include/core/SkXfermode.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/image/canvas_image_source.h"
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/image/image_skia_operations.h"
-#include "ui/gfx/rect.h"
 #include "ui/gfx/skia_util.h"
 
 // Helper methods for transforming and drawing avatar icons.
@@ -198,9 +202,6 @@ const char kDefaultUrlPrefix[] = "chrome://theme/IDR_PROFILE_AVATAR_";
 const char kGAIAPictureFileName[] = "Google Profile Picture.png";
 const char kHighResAvatarFolderName[] = "Avatars";
 
-// This avatar does not exist on the server, the high res copy is in the build.
-const char kNoHighResAvatar[] = "NothingToDownload";
-
 // The size of the function-static kDefaultAvatarIconResources array below.
 const size_t kDefaultAvatarIconsCount = 27;
 
@@ -208,7 +209,7 @@ const size_t kDefaultAvatarIconsCount = 27;
 const size_t kGenericAvatarIconsCount = 8;
 
 // The avatar used as a placeholder (grey silhouette).
-const int kPlaceholderAvatarIcon = 26;
+const size_t kPlaceholderAvatarIcon = 26;
 
 gfx::Image GetSizedAvatarIcon(const gfx::Image& image,
                               bool is_rectangle,
@@ -296,43 +297,44 @@ size_t GetGenericAvatarIconCount() {
   return kGenericAvatarIconsCount;
 }
 
-int GetPlaceholderAvatarIndex() {
+size_t GetPlaceholderAvatarIndex() {
   return kPlaceholderAvatarIcon;
 }
 
 int GetPlaceholderAvatarIconResourceID() {
-  return IDR_PROFILE_AVATAR_26;
+  return IDR_PROFILE_AVATAR_PLACEHOLDER_LARGE;
 }
 
 const IconResourceInfo* GetDefaultAvatarIconResourceInfo(size_t index) {
+  DCHECK(index < kDefaultAvatarIconsCount);
   static const IconResourceInfo resource_info[kDefaultAvatarIconsCount] = {
-    { IDR_PROFILE_AVATAR_0, "avatar_generic.png"},
-    { IDR_PROFILE_AVATAR_1, "avatar_generic_aqua.png"},
-    { IDR_PROFILE_AVATAR_2, "avatar_generic_blue.png"},
-    { IDR_PROFILE_AVATAR_3, "avatar_generic_green.png"},
-    { IDR_PROFILE_AVATAR_4, "avatar_generic_orange.png"},
-    { IDR_PROFILE_AVATAR_5, "avatar_generic_purple.png"},
-    { IDR_PROFILE_AVATAR_6, "avatar_generic_red.png"},
-    { IDR_PROFILE_AVATAR_7, "avatar_generic_yellow.png"},
-    { IDR_PROFILE_AVATAR_8, "avatar_secret_agent.png"},
-    { IDR_PROFILE_AVATAR_9, "avatar_superhero.png"},
-    { IDR_PROFILE_AVATAR_10, "avatar_volley_ball.png"},
-    { IDR_PROFILE_AVATAR_11, "avatar_businessman.png"},
-    { IDR_PROFILE_AVATAR_12, "avatar_ninja.png"},
-    { IDR_PROFILE_AVATAR_13, "avatar_alien.png"},
-    { IDR_PROFILE_AVATAR_14, "avatar_smiley.png"},
-    { IDR_PROFILE_AVATAR_15, "avatar_flower.png"},
-    { IDR_PROFILE_AVATAR_16, "avatar_pizza.png"},
-    { IDR_PROFILE_AVATAR_17, "avatar_soccer.png"},
-    { IDR_PROFILE_AVATAR_18, "avatar_burger.png"},
-    { IDR_PROFILE_AVATAR_19, "avatar_cat.png"},
-    { IDR_PROFILE_AVATAR_20, "avatar_cupcake.png"},
-    { IDR_PROFILE_AVATAR_21, "avatar_dog.png"},
-    { IDR_PROFILE_AVATAR_22, "avatar_horse.png"},
-    { IDR_PROFILE_AVATAR_23, "avatar_margarita.png"},
-    { IDR_PROFILE_AVATAR_24, "avatar_note.png"},
-    { IDR_PROFILE_AVATAR_25, "avatar_sun_cloud.png"},
-    { IDR_PROFILE_AVATAR_26, kNoHighResAvatar},
+      {IDR_PROFILE_AVATAR_0, "avatar_generic.png"},
+      {IDR_PROFILE_AVATAR_1, "avatar_generic_aqua.png"},
+      {IDR_PROFILE_AVATAR_2, "avatar_generic_blue.png"},
+      {IDR_PROFILE_AVATAR_3, "avatar_generic_green.png"},
+      {IDR_PROFILE_AVATAR_4, "avatar_generic_orange.png"},
+      {IDR_PROFILE_AVATAR_5, "avatar_generic_purple.png"},
+      {IDR_PROFILE_AVATAR_6, "avatar_generic_red.png"},
+      {IDR_PROFILE_AVATAR_7, "avatar_generic_yellow.png"},
+      {IDR_PROFILE_AVATAR_8, "avatar_secret_agent.png"},
+      {IDR_PROFILE_AVATAR_9, "avatar_superhero.png"},
+      {IDR_PROFILE_AVATAR_10, "avatar_volley_ball.png"},
+      {IDR_PROFILE_AVATAR_11, "avatar_businessman.png"},
+      {IDR_PROFILE_AVATAR_12, "avatar_ninja.png"},
+      {IDR_PROFILE_AVATAR_13, "avatar_alien.png"},
+      {IDR_PROFILE_AVATAR_14, "avatar_smiley.png"},
+      {IDR_PROFILE_AVATAR_15, "avatar_flower.png"},
+      {IDR_PROFILE_AVATAR_16, "avatar_pizza.png"},
+      {IDR_PROFILE_AVATAR_17, "avatar_soccer.png"},
+      {IDR_PROFILE_AVATAR_18, "avatar_burger.png"},
+      {IDR_PROFILE_AVATAR_19, "avatar_cat.png"},
+      {IDR_PROFILE_AVATAR_20, "avatar_cupcake.png"},
+      {IDR_PROFILE_AVATAR_21, "avatar_dog.png"},
+      {IDR_PROFILE_AVATAR_22, "avatar_horse.png"},
+      {IDR_PROFILE_AVATAR_23, "avatar_margarita.png"},
+      {IDR_PROFILE_AVATAR_24, "avatar_note.png"},
+      {IDR_PROFILE_AVATAR_25, "avatar_sun_cloud.png"},
+      {IDR_PROFILE_AVATAR_26, NULL},
   };
   return &resource_info[index];
 }
@@ -344,17 +346,14 @@ int GetDefaultAvatarIconResourceIDAtIndex(size_t index) {
 
 const char* GetDefaultAvatarIconFileNameAtIndex(size_t index) {
   DCHECK(index < kDefaultAvatarIconsCount);
+  DCHECK(index != kPlaceholderAvatarIcon);
   return GetDefaultAvatarIconResourceInfo(index)->filename;
 }
 
-const char* GetNoHighResAvatarFileName() {
-  return kNoHighResAvatar;
-}
-
 base::FilePath GetPathOfHighResAvatarAtIndex(size_t index) {
-  std::string file_name = GetDefaultAvatarIconResourceInfo(index)->filename;
+  const char* file_name = GetDefaultAvatarIconFileNameAtIndex(index);
   base::FilePath user_data_dir;
-  PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
+  CHECK(PathService::Get(chrome::DIR_USER_DATA, &user_data_dir));
   return user_data_dir.AppendASCII(
       kHighResAvatarFolderName).AppendASCII(file_name);
 }

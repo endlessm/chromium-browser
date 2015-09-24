@@ -10,6 +10,7 @@
 #import <Cocoa/Cocoa.h>
 #include <vector>
 
+#include "base/files/file_path.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
@@ -22,6 +23,8 @@ class AppControllerProfileObserver;
 class BookmarkMenuBridge;
 class CommandUpdater;
 class GURL;
+class HandoffActiveURLObserverBridge;
+@class HandoffManager;
 class HistoryMenuBridge;
 class Profile;
 @class ProfileMenuController;
@@ -35,6 +38,7 @@ class WorkAreaWatcherObserver;
 // This handles things like responding to menus when there are no windows
 // open, etc and acts as the NSApplication delegate.
 @interface AppController : NSObject<NSUserInterfaceValidations,
+                                    NSMenuDelegate,
                                     NSApplicationDelegate> {
  @private
   // Manages the state of the command menu items.
@@ -49,8 +53,13 @@ class WorkAreaWatcherObserver;
   scoped_ptr<AppControllerProfileObserver> profileInfoCacheObserver_;
 
   // Management of the bookmark menu which spans across all windows
-  // (and Browser*s).
-  scoped_ptr<BookmarkMenuBridge> bookmarkMenuBridge_;
+  // (and Browser*s). |profileBookmarkMenuBridgeMap_| is a cache that owns one
+  // pointer to a BookmarkMenuBridge for each profile. |bookmarkMenuBridge_| is
+  // a weak pointer that is updated to match the corresponding cache entry
+  // during a profile switch.
+  BookmarkMenuBridge* bookmarkMenuBridge_;
+  std::map<base::FilePath, BookmarkMenuBridge*> profileBookmarkMenuBridgeMap_;
+
   scoped_ptr<HistoryMenuBridge> historyMenuBridge_;
 
   // Controller that manages main menu items for packaged apps.
@@ -71,31 +80,43 @@ class WorkAreaWatcherObserver;
   // tabs it has.
   IBOutlet NSMenuItem* closeTabMenuItem_;
   IBOutlet NSMenuItem* closeWindowMenuItem_;
-  BOOL fileMenuUpdatePending_;  // ensure we only do this once per notificaion.
 
   // Outlet for the help menu so we can bless it so Cocoa adds the search item
   // to it.
   IBOutlet NSMenu* helpMenu_;
-
-  // Indicates wheter an NSPopover is currently being shown.
-  BOOL hasPopover_;
 
   // If we are expecting a workspace change in response to a reopen
   // event, the time we got the event. A null time otherwise.
   base::TimeTicks reopenTime_;
 
   // Observers that listen to the work area changes.
-  ObserverList<ui::WorkAreaWatcherObserver> workAreaChangeObservers_;
+  base::ObserverList<ui::WorkAreaWatcherObserver> workAreaChangeObservers_;
 
   scoped_ptr<PrefChangeRegistrar> profilePrefRegistrar_;
   PrefChangeRegistrar localPrefRegistrar_;
 
   // Displays a notification when quitting while apps are running.
   scoped_refptr<QuitWithAppsController> quitWithAppsController_;
+
+  // Responsible for maintaining all state related to the Handoff feature.
+  base::scoped_nsobject<HandoffManager> handoffManager_;
+
+  // Observes changes to the active URL.
+  scoped_ptr<HandoffActiveURLObserverBridge>
+      handoff_active_url_observer_bridge_;
+
+  // This will be true after receiving a NSWorkspaceWillPowerOffNotification.
+  BOOL isPoweringOff_;
 }
 
 @property(readonly, nonatomic) BOOL startupComplete;
 @property(readonly, nonatomic) Profile* lastProfile;
+
+// Helper method used to update the "Signin" menu item in the main menu and the
+// wrench menu to reflect the current signed in state.
++ (void)updateSigninItem:(id)signinItem
+              shouldShow:(BOOL)showSigninMenuItem
+          currentProfile:(Profile*)profile;
 
 - (void)didEndMainMessageLoop;
 
@@ -105,6 +126,9 @@ class WorkAreaWatcherObserver;
 // Stop trying to terminate the application. That is, prevent the final browser
 // window closure from causing the application to quit.
 - (void)stopTryingToTerminateApplication:(NSApplication*)app;
+
+// Indicate that the system is powering off or logging out.
+- (void)willPowerOff:(NSNotification*)inNotification;
 
 // Returns true if there is a modal window (either window- or application-
 // modal) blocking the active browser. Note that tab modal dialogs (HTTP auth
@@ -133,6 +157,7 @@ class WorkAreaWatcherObserver;
 - (const std::vector<GURL>&)startupUrls;
 
 - (BookmarkMenuBridge*)bookmarkMenuBridge;
+- (HistoryMenuBridge*)historyMenuBridge;
 
 // Subscribes/unsubscribes from the work area change notification.
 - (void)addObserverForWorkAreaChange:(ui::WorkAreaWatcherObserver*)observer;

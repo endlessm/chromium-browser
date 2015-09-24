@@ -4,20 +4,19 @@
 
 #include "chrome/browser/ui/webui/options/chromeos/keyboard_handler.h"
 
+#include "ash/new_window_delegate.h"
+#include "ash/shell.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/values.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/chromeos_switches.h"
-#include "chromeos/ime/ime_keyboard.h"
 #include "content/public/browser/web_ui.h"
+#include "ui/base/ime/chromeos/ime_keyboard.h"
 #include "ui/base/l10n/l10n_util.h"
-
-#if !defined(USE_ATHENA)
-#include "ash/new_window_delegate.h"
-#include "ash/shell.h"
-#endif
+#include "ui/events/devices/device_data_manager.h"
+#include "ui/events/devices/keyboard_device.h"
 
 namespace {
 const struct ModifierKeysSelectItem {
@@ -45,15 +44,27 @@ const char* kDataValuesNames[] = {
   "remapCapsLockKeyToValue",
   "remapDiamondKeyToValue",
 };
+
+bool HasExternalKeyboard() {
+  for (const ui::KeyboardDevice& keyboard :
+       ui::DeviceDataManager::GetInstance()->keyboard_devices()) {
+    if (keyboard.type == ui::InputDeviceType::INPUT_DEVICE_EXTERNAL)
+      return true;
+  }
+
+  return false;
+}
 }  // namespace
 
 namespace chromeos {
 namespace options {
 
 KeyboardHandler::KeyboardHandler() {
+  ui::DeviceDataManager::GetInstance()->AddObserver(this);
 }
 
 KeyboardHandler::~KeyboardHandler() {
+  ui::DeviceDataManager::GetInstance()->RemoveObserver(this);
 }
 
 void KeyboardHandler::GetLocalizedValues(
@@ -134,20 +145,15 @@ void KeyboardHandler::GetLocalizedValues(
 }
 
 void KeyboardHandler::InitializePage() {
-  bool chromeos_keyboard = CommandLine::ForCurrentProcess()->HasSwitch(
-      chromeos::switches::kHasChromeOSKeyboard);
-  const base::FundamentalValue show_caps_lock_options(!chromeos_keyboard);
-
-  bool has_diamond_key = CommandLine::ForCurrentProcess()->HasSwitch(
+  bool has_diamond_key = base::CommandLine::ForCurrentProcess()->HasSwitch(
       chromeos::switches::kHasChromeOSDiamondKey);
   const base::FundamentalValue show_diamond_key_options(has_diamond_key);
 
   web_ui()->CallJavascriptFunction(
-      "options.KeyboardOverlay.showCapsLockOptions",
-      show_caps_lock_options);
-  web_ui()->CallJavascriptFunction(
       "options.KeyboardOverlay.showDiamondKeyOptions",
       show_diamond_key_options);
+
+  UpdateCapsLockOptions();
 }
 
 void KeyboardHandler::RegisterMessages() {
@@ -158,13 +164,19 @@ void KeyboardHandler::RegisterMessages() {
                  base::Unretained(this)));
 }
 
+void KeyboardHandler::OnKeyboardDeviceConfigurationChanged() {
+  UpdateCapsLockOptions();
+}
+
 void KeyboardHandler::HandleShowKeyboardShortcuts(const base::ListValue* args) {
-#if !defined(USE_ATHENA)
-  // Athena doesn't have ash::Shell and its new_window_delegate so keyboard
-  // shortcut overlays are not supported.
-  // TODO(mukai): re-enable this.
   ash::Shell::GetInstance()->new_window_delegate()->ShowKeyboardOverlay();
-#endif
+}
+
+void KeyboardHandler::UpdateCapsLockOptions() const {
+  const base::FundamentalValue show_caps_lock_options(HasExternalKeyboard());
+  web_ui()->CallJavascriptFunction(
+      "options.KeyboardOverlay.showCapsLockOptions",
+      show_caps_lock_options);
 }
 
 }  // namespace options

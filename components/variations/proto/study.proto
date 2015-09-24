@@ -44,7 +44,7 @@ message Study {
 
   // An experiment within the study.
   //
-  // Next tag: 10
+  // Next tag: 11
   message Experiment {
     // A named parameter value for this experiment.
     //
@@ -75,6 +75,9 @@ message Study {
 
     // Optional id used to uniquely identify this experiment for Google Update.
     optional uint64 google_update_experiment_id = 4;
+
+    // Optional id used to uniquely identify this experiment for Chrome Sync.
+    optional uint64 chrome_sync_experiment_id = 10;
 
     // Optional name of a Chrome flag that, when present, causes this experiment
     // to be forced. If the forcing_flag field is set, users will not be
@@ -164,7 +167,7 @@ message Study {
   // Filtering criteria specifying whether this study is applicable to a given
   // Chrome instance.
   //
-  // Next tag: 10
+  // Next tag: 12
   message Filter {
     // The start date of the study in Unix time format. (Seconds since midnight
     // January 1, 1970 UTC). See: http://en.wikipedia.org/wiki/Unix_time
@@ -220,6 +223,19 @@ message Study {
     // unless |hardware_class| is specified. Mutually exclusive with
     // |hardware_class|.
     repeated string exclude_hardware_class = 9;
+
+    // List of lowercase ISO 3166-1 alpha-2 country codes that will receive this
+    // study. If omitted, the study applies to all countries unless
+    // |exclude_country| is specified. Mutually exclusive with
+    // |exclude_country|.
+    // Ex: ["in", "us"]
+    repeated string country = 10;
+
+    // List of lowercase ISO 3166-1 alpha-2 country codes that will be excluded
+    // in this study. If omitted, the study applies to all countries unless
+    // |country| is specified. Mutually exclusive with |country|.
+    // Ex: ["in", "us"]
+    repeated string exclude_country = 11;
   }
 
   // Filtering criteria for this study. A study that is filtered out for a given

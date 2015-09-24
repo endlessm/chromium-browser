@@ -5,6 +5,7 @@
 #include "sync/test/fake_server/fake_server_network_resources.h"
 
 #include "base/memory/scoped_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "sync/internal_api/public/base/cancelation_signal.h"
 #include "sync/internal_api/public/http_post_provider_factory.h"
@@ -18,8 +19,9 @@ using syncer::NetworkTimeUpdateCallback;
 
 namespace fake_server {
 
-FakeServerNetworkResources::FakeServerNetworkResources(FakeServer* fake_server)
-    : fake_server_(fake_server) { }
+FakeServerNetworkResources::FakeServerNetworkResources(
+    const base::WeakPtr<FakeServer>& fake_server)
+        : fake_server_(fake_server) { }
 
 FakeServerNetworkResources::~FakeServerNetworkResources() {}
 
@@ -31,7 +33,7 @@ FakeServerNetworkResources::GetHttpPostProviderFactory(
   return make_scoped_ptr<syncer::HttpPostProviderFactory>(
       new FakeServerHttpPostProviderFactory(
           fake_server_,
-          base::MessageLoop::current()->message_loop_proxy()));
+          base::MessageLoop::current()->task_runner()));
 }
 
 }  // namespace fake_server

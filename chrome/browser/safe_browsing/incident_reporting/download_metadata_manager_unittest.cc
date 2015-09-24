@@ -33,6 +33,7 @@ using ::testing::ResultOf;
 using ::testing::Return;
 using ::testing::SaveArg;
 using ::testing::StrEq;
+using ::testing::_;
 
 namespace safe_browsing {
 
@@ -188,6 +189,7 @@ class DownloadMetadataManagerTestBase : public ::testing::Test {
       // returned as desired.
       other_item_.reset();
       test_item_.reset();
+      zero_item_.reset();
       dm_observer_ = nullptr;
     }
   }
@@ -203,6 +205,8 @@ class DownloadMetadataManagerTestBase : public ::testing::Test {
         .WillByDefault(Return(&profile_));
     ON_CALL(*test_item_, GetEndTime())
         .WillByDefault(Return(base::Time::FromJsTime(kTestDownloadEndTimeMs)));
+    ON_CALL(*test_item_, GetState())
+        .WillByDefault(Return(content::DownloadItem::COMPLETE));
     dm_observer_->OnDownloadCreated(&download_manager_, test_item_.get());
 
     // Add another item.
@@ -214,6 +218,34 @@ class DownloadMetadataManagerTestBase : public ::testing::Test {
     ON_CALL(*test_item_, GetEndTime())
         .WillByDefault(Return(base::Time::FromJsTime(kTestDownloadEndTimeMs)));
     dm_observer_->OnDownloadCreated(&download_manager_, other_item_.get());
+
+    // Add an item with an id of zero.
+    zero_item_.reset(new NiceMock<content::MockDownloadItem>);
+    ON_CALL(*zero_item_, GetId())
+        .WillByDefault(Return(0));
+    ON_CALL(*zero_item_, GetBrowserContext())
+        .WillByDefault(Return(&profile_));
+    ON_CALL(*zero_item_, GetEndTime())
+        .WillByDefault(Return(base::Time::FromJsTime(kTestDownloadEndTimeMs)));
+    ON_CALL(*zero_item_, GetState())
+        .WillByDefault(Return(content::DownloadItem::COMPLETE));
+    dm_observer_->OnDownloadCreated(&download_manager_, zero_item_.get());
+
+    ON_CALL(download_manager_, GetAllDownloads(_))
+        .WillByDefault(
+            Invoke(this, &DownloadMetadataManagerTestBase::GetAllDownloads));
+  }
+
+  // An implementation of the MockDownloadManager's
+  // DownloadManager::GetAllDownloads method that returns all items.
+  void GetAllDownloads(content::DownloadManager::DownloadVector* downloads) {
+    downloads->clear();
+    if (test_item_)
+      downloads->push_back(test_item_.get());
+    if (other_item_)
+      downloads->push_back(other_item_.get());
+    if (zero_item_)
+      downloads->push_back(zero_item_.get());
   }
 
   content::TestBrowserThreadBundle thread_bundle_;
@@ -222,6 +254,10 @@ class DownloadMetadataManagerTestBase : public ::testing::Test {
   NiceMock<content::MockDownloadManager> download_manager_;
   scoped_ptr<content::MockDownloadItem> test_item_;
   scoped_ptr<content::MockDownloadItem> other_item_;
+  scoped_ptr<content::MockDownloadItem> zero_item_;
+
+  // The DownloadMetadataManager's content::DownloadManager::Observer. Captured
+  // by download_manager_'s AddObserver action.
   content::DownloadManager::Observer* dm_observer_;
 };
 
@@ -466,6 +502,9 @@ TEST_P(SetRequestTest, SetRequest) {
   }
   manager_.GetDownloadDetails(&profile_, details_getter.GetCallback());
 
+  // In http://crbug.com/433928, open after SetRequest(nullpr) caused a crash.
+  test_item_->NotifyObserversDownloadOpened();
+
   ShutdownDownloadManager();
 
   scoped_ptr<DownloadMetadata> metadata(ReadTestMetadataFile());
@@ -489,27 +528,97 @@ INSTANTIATE_TEST_CASE_P(
                      testing::Values("waiting", "loaded"),
                      testing::Values("clear", "set")));
 
-class DownloadMetadataManagerTest : public DownloadMetadataManagerTestBase {
- protected:
-};
+TEST_F(DownloadMetadataManagerTestBase, ActiveDownloadNoRequest) {
+  // Put some metadata on disk from a previous download.
+  WriteTestMetadataFileForItem(kOtherDownloadId);
 
-// Test that that opening an item when there is no corresponding metadata works.
-TEST_F(DownloadMetadataManagerTest, OpenDownloadNoMetadata) {
-  // Add a download manager and some items.
-  WriteTestMetadataFile();
   AddDownloadManager();
   AddDownloadItems();
 
-  // Allow the metadata manager to discover that no metadata is available.
+  // Allow everything to load into steady-state.
   RunAllTasks();
 
-  // Clear metadata.
-  manager_.SetRequest(test_item_.get(), nullptr);
+  // The test item is in progress.
+  ON_CALL(*test_item_, GetState())
+      .WillByDefault(Return(content::DownloadItem::IN_PROGRESS));
+  test_item_->NotifyObserversDownloadUpdated();
+  test_item_->NotifyObserversDownloadUpdated();
 
-  // Open an item.
-  test_item_->NotifyObserversDownloadOpened();
+  // The test item completes.
+  ON_CALL(*test_item_, GetState())
+      .WillByDefault(Return(content::DownloadItem::COMPLETE));
+  test_item_->NotifyObserversDownloadUpdated();
 
-  // Shut down.
+  RunAllTasks();
+
+  MockDownloadDetailsGetter details_getter;
+  // Expect that the callback is invoked with null to clear stale metadata.
+  EXPECT_CALL(details_getter, OnDownloadDetails(IsNull()));
+  manager_.GetDownloadDetails(&profile_, details_getter.GetCallback());
+
+  ShutdownDownloadManager();
+
+  // Expect that the file is not present.
+  scoped_ptr<DownloadMetadata> metadata(ReadTestMetadataFile());
+  ASSERT_FALSE(metadata);
+}
+
+TEST_F(DownloadMetadataManagerTestBase, ActiveDownloadWithRequest) {
+  // Put some metadata on disk from a previous download.
+  WriteTestMetadataFileForItem(kOtherDownloadId);
+
+  AddDownloadManager();
+  AddDownloadItems();
+
+  // Allow everything to load into steady-state.
+  RunAllTasks();
+
+  // The test item is in progress.
+  ON_CALL(*test_item_, GetState())
+      .WillByDefault(Return(content::DownloadItem::IN_PROGRESS));
+  test_item_->NotifyObserversDownloadUpdated();
+
+  // A request is set for it.
+  static const char kNewUrl[] = "http://blorf";
+  manager_.SetRequest(test_item_.get(), MakeTestRequest(kNewUrl).get());
+
+  test_item_->NotifyObserversDownloadUpdated();
+
+  // The test item completes.
+  ON_CALL(*test_item_, GetState())
+      .WillByDefault(Return(content::DownloadItem::COMPLETE));
+  test_item_->NotifyObserversDownloadUpdated();
+
+  RunAllTasks();
+
+  MockDownloadDetailsGetter details_getter;
+  // Expect that the callback is invoked with details for this item.
+  EXPECT_CALL(
+      details_getter,
+      OnDownloadDetails(ResultOf(GetDetailsDownloadUrl, StrEq(kNewUrl))));
+  manager_.GetDownloadDetails(&profile_, details_getter.GetCallback());
+
+  ShutdownDownloadManager();
+
+  // Expect that the file contains metadata for the download.
+  scoped_ptr<DownloadMetadata> metadata(ReadTestMetadataFile());
+  ASSERT_TRUE(metadata);
+  EXPECT_EQ(kTestDownloadId, metadata->download_id());
+  EXPECT_STREQ(kNewUrl, metadata->download().download().url().c_str());
+}
+
+// Regression test for http://crbug.com/504092: open an item with id==0 when
+// there is no metadata loaded.
+TEST_F(DownloadMetadataManagerTestBase, OpenItemWithZeroId) {
+  AddDownloadManager();
+  AddDownloadItems();
+
+  // Allow everything to load into steady-state.
+  RunAllTasks();
+
+  // Open the zero-id item.
+  zero_item_->NotifyObserversDownloadOpened();
+
   ShutdownDownloadManager();
 }
 

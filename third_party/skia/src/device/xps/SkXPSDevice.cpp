@@ -5,13 +5,14 @@
  * found in the LICENSE file.
  */
 
+#include "SkTypes.h"
+
 #ifndef UNICODE
 #define UNICODE
 #endif
 #ifndef _UNICODE
 #define _UNICODE
 #endif
-#include "SkTypes.h"
 #include <ObjBase.h>
 #include <XpsObjectModel.h>
 #include <T2EmbApi.h>
@@ -23,7 +24,7 @@
 #include "SkDraw.h"
 #include "SkDrawProcs.h"
 #include "SkEndian.h"
-#include "SkFontHost.h"
+#include "SkGeometry.h"
 #include "SkGlyphCache.h"
 #include "SkHRESULT.h"
 #include "SkImageEncoder.h"
@@ -111,8 +112,23 @@ static SkBitmap make_fake_bitmap(int width, int height) {
 
 // TODO: should inherit from SkBaseDevice instead of SkBitmapDevice...
 SkXPSDevice::SkXPSDevice()
-    : SkBitmapDevice(make_fake_bitmap(10000, 10000))
+    : INHERITED(make_fake_bitmap(10000, 10000), SkSurfaceProps(0, kUnknown_SkPixelGeometry))
     , fCurrentPage(0) {
+}
+
+SkXPSDevice::SkXPSDevice(IXpsOMObjectFactory* xpsFactory)
+    : INHERITED(make_fake_bitmap(10000, 10000), SkSurfaceProps(0, kUnknown_SkPixelGeometry))
+    , fCurrentPage(0) {
+
+    HRVM(CoCreateInstance(
+             CLSID_XpsOMObjectFactory,
+             NULL,
+             CLSCTX_INPROC_SERVER,
+             IID_PPV_ARGS(&this->fXpsFactory)),
+         "Could not create factory for layer.");
+
+    HRVM(this->fXpsFactory->CreateCanvas(&this->fCurrentXpsCanvas),
+         "Could not create canvas for layer.");
 }
 
 SkXPSDevice::~SkXPSDevice() {
@@ -385,7 +401,7 @@ static HRESULT subset_typeface(SkXPSDevice::TypefaceUse* current) {
         ttcfHeader->numOffsets = SkEndian_SwapBE32(ttcCount);
         SK_OT_ULONG* offsetPtr = SkTAfter<SK_OT_ULONG>(ttcfHeader);
         for (int i = 0; i < ttcCount; ++i, ++offsetPtr) {
-            *offsetPtr = SkEndian_SwapBE32(extra);
+            *offsetPtr = SkEndian_SwapBE32(SkToU32(extra));
         }
 
         // Fix up offsets in sfnt table entries.
@@ -395,14 +411,14 @@ static HRESULT subset_typeface(SkXPSDevice::TypefaceUse* current) {
             SkTAfter<SkSFNTHeader::TableDirectoryEntry>(sfntHeader);
         for (int i = 0; i < numTables; ++i, ++tableDirectory) {
             tableDirectory->offset = SkEndian_SwapBE32(
-                SkEndian_SwapBE32(tableDirectory->offset) + extra);
+                SkToU32(SkEndian_SwapBE32(SkToU32(tableDirectory->offset)) + extra));
         }
     } else {
         extra = 0;
         fontPackageBuffer.realloc(bytesWritten);
     }
 
-    SkAutoTUnref<SkMemoryStream> newStream(new SkMemoryStream());
+    SkAutoTDelete<SkMemoryStream> newStream(new SkMemoryStream());
     newStream->setMemoryOwned(fontPackageBuffer.detach(), bytesWritten + extra);
 
     SkTScopedComPtr<IStream> newIStream;
@@ -511,7 +527,7 @@ static void transform_offsets(SkScalar* stopOffsets, const int numOffsets,
         SkScalar startToStop = (stopTransformed.fX - startTransformed.fX)
                              + (stopTransformed.fY - startTransformed.fY);
         //Percentage along transformed line.
-        stopOffsets[i] = SkScalarDiv(startToStop, startToEnd);
+        stopOffsets[i] = startToStop / startToEnd;
     }
 }
 
@@ -1043,8 +1059,7 @@ HRESULT SkXPSDevice::createXpsBrush(const SkPaint& skPaint,
             return S_OK;
         }
 
-        if (SkShader::kRadial2_GradientType == gradientType ||
-            SkShader::kConical_GradientType == gradientType) {
+        if (SkShader::kConical_GradientType == gradientType) {
             //simple if affine and one is 0, otherwise will have to fake
         }
 
@@ -1060,8 +1075,6 @@ HRESULT SkXPSDevice::createXpsBrush(const SkPaint& skPaint,
                                                         &outMatrix,
                                                         xy);
     switch (bitmapType) {
-        case SkShader::kNone_BitmapType:
-            break;
         case SkShader::kDefault_BitmapType: {
             //TODO: outMatrix??
             SkMatrix localMatrix = shader->getLocalMatrix();
@@ -1080,9 +1093,6 @@ HRESULT SkXPSDevice::createXpsBrush(const SkPaint& skPaint,
 
             return S_OK;
         }
-        case SkShader::kRadial_BitmapType:
-        case SkShader::kSweep_BitmapType:
-        case SkShader::kTwoPointRadial_BitmapType:
         default:
             break;
     }
@@ -1157,11 +1167,6 @@ HRESULT SkXPSDevice::createXpsQuad(const SkPoint (&points)[4],
     HRM((*xpsQuad)->SetIsFilled(fill), "Could not set quad fill.");
 
     return S_OK;
-}
-
-void SkXPSDevice::clear(SkColor color) {
-    //TODO: override this for XPS
-    SkDEBUGF(("XPS clear not yet implemented."));
 }
 
 void SkXPSDevice::drawPoints(const SkDraw& d, SkCanvas::PointMode mode,
@@ -1369,6 +1374,21 @@ HRESULT SkXPSDevice::addXpsPathGeometry(
                 segmentData.push(SkScalarToFLOAT(points[3].fX));
                 segmentData.push(SkScalarToFLOAT(points[3].fY));
                 break;
+            case SkPath::kConic_Verb: {
+                const SkScalar tol = SK_Scalar1 / 4;
+                SkAutoConicToQuads converter;
+                const SkPoint* quads =
+                    converter.computeQuads(points, iter.conicWeight(), tol);
+                for (int i = 0; i < converter.countQuads(); ++i) {
+                    segmentTypes.push(XPS_SEGMENT_TYPE_QUADRATIC_BEZIER);
+                    segmentStrokes.push(stroke);
+                    segmentData.push(SkScalarToFLOAT(quads[2 * i + 1].fX));
+                    segmentData.push(SkScalarToFLOAT(quads[2 * i + 1].fY));
+                    segmentData.push(SkScalarToFLOAT(quads[2 * i + 2].fX));
+                    segmentData.push(SkScalarToFLOAT(quads[2 * i + 2].fY));
+                }
+                break;
+            }
             case SkPath::kClose_Verb:
                 // we ignore these, and just get the whole segment from
                 // the corresponding line/quad/cubic verbs
@@ -1391,10 +1411,8 @@ void SkXPSDevice::convertToPpm(const SkMaskFilter* filter,
                                SkVector* ppuScale,
                                const SkIRect& clip, SkIRect* clipIRect) {
     //This action is in unit space, but the ppm is specified in physical space.
-    ppuScale->fX = SkScalarDiv(this->fCurrentPixelsPerMeter.fX,
-                               this->fCurrentUnitsPerMeter.fX);
-    ppuScale->fY = SkScalarDiv(this->fCurrentPixelsPerMeter.fY,
-                               this->fCurrentUnitsPerMeter.fY);
+    ppuScale->set(fCurrentPixelsPerMeter.fX / fCurrentUnitsPerMeter.fX,
+                  fCurrentPixelsPerMeter.fY / fCurrentUnitsPerMeter.fY);
 
     matrix->postScale(ppuScale->fX, ppuScale->fY);
 
@@ -1931,7 +1949,7 @@ HRESULT SkXPSDevice::CreateTypefaceUse(const SkPaint& paint,
     newTypefaceUse.fontData = fontData;
     newTypefaceUse.xpsFont = xpsFontResource.release();
 
-    SkAutoGlyphCache agc(paint, NULL, &SkMatrix::I());
+    SkAutoGlyphCache agc(paint, &this->surfaceProps(), &SkMatrix::I());
     SkGlyphCache* glyphCache = agc.getCache();
     unsigned int glyphCount = glyphCache->getGlyphCount();
     newTypefaceUse.glyphsUsed = new SkBitSet(glyphCount);
@@ -2046,15 +2064,15 @@ public:
 };
 
 static void xps_draw_1_glyph(const SkDraw1Glyph& state,
-                             SkFixed x, SkFixed y,
+                             Sk48Dot16 fx, Sk48Dot16 fy,
                              const SkGlyph& skGlyph) {
     SkASSERT(skGlyph.fWidth > 0 && skGlyph.fHeight > 0);
 
     SkXPSDrawProcs* procs = static_cast<SkXPSDrawProcs*>(state.fDraw->fProcs);
 
     //Draw pre-adds half the sampling frequency for floor rounding.
-    x -= state.fHalfSampleX;
-    y -= state.fHalfSampleY;
+    SkScalar x = Sk48Dot16ToScalar(fx) - state.fHalfSampleX;
+    SkScalar y = Sk48Dot16ToScalar(fy) - state.fHalfSampleY;
 
     XPS_GLYPH_INDEX* xpsGlyph = procs->xpsGlyphs.append();
     uint16_t glyphID = skGlyph.getGlyphID();
@@ -2062,14 +2080,14 @@ static void xps_draw_1_glyph(const SkDraw1Glyph& state,
     xpsGlyph->index = glyphID;
     if (1 == procs->xpsGlyphs.count()) {
         xpsGlyph->advanceWidth = 0.0f;
-        xpsGlyph->horizontalOffset = SkFixedToFloat(x) * procs->centemPerUnit;
-        xpsGlyph->verticalOffset = SkFixedToFloat(y) * -procs->centemPerUnit;
+        xpsGlyph->horizontalOffset = SkScalarToFloat(x) * procs->centemPerUnit;
+        xpsGlyph->verticalOffset = SkScalarToFloat(y) * -procs->centemPerUnit;
     } else {
         const XPS_GLYPH_INDEX& first = procs->xpsGlyphs[0];
         xpsGlyph->advanceWidth = 0.0f;
-        xpsGlyph->horizontalOffset = (SkFixedToFloat(x) * procs->centemPerUnit)
+        xpsGlyph->horizontalOffset = (SkScalarToFloat(x) * procs->centemPerUnit)
                                      - first.horizontalOffset;
-        xpsGlyph->verticalOffset = (SkFixedToFloat(y) * -procs->centemPerUnit)
+        xpsGlyph->verticalOffset = (SkScalarToFloat(y) * -procs->centemPerUnit)
                                    - first.verticalOffset;
     }
 }
@@ -2079,7 +2097,7 @@ static void text_draw_init(const SkPaint& paint,
                            SkBitSet& glyphsUsed,
                            SkDraw& myDraw, SkXPSDrawProcs& procs) {
     procs.fD1GProc = xps_draw_1_glyph;
-    size_t numGlyphGuess;
+    int numGlyphGuess;
     switch (paint.getTextEncoding()) {
         case SkPaint::kUTF8_TextEncoding:
             numGlyphGuess = SkUTF8_CountUnichars(
@@ -2089,10 +2107,10 @@ static void text_draw_init(const SkPaint& paint,
         case SkPaint::kUTF16_TextEncoding:
             numGlyphGuess = SkUTF16_CountUnichars(
                 static_cast<const uint16_t *>(text),
-                byteLength);
+                SkToInt(byteLength));
             break;
         case SkPaint::kGlyphID_TextEncoding:
-            numGlyphGuess = byteLength / 2;
+            numGlyphGuess = SkToInt(byteLength / 2);
             break;
         default:
             SK_ALWAYSBREAK(true);
@@ -2213,13 +2231,6 @@ void SkXPSDevice::drawPosText(const SkDraw& d,
                   paint));
 }
 
-void SkXPSDevice::drawTextOnPath(const SkDraw& d, const void* text, size_t len,
-                                 const SkPath& path, const SkMatrix* matrix,
-                                 const SkPaint& paint) {
-    //This will call back into the device to do the drawing.
-     d.drawTextOnPath((const char*)text, len, path, matrix, paint);
-}
-
 void SkXPSDevice::drawDevice(const SkDraw& d, SkBaseDevice* dev,
                              int x, int y,
                              const SkPaint&) {
@@ -2247,10 +2258,10 @@ void SkXPSDevice::drawDevice(const SkDraw& d, SkBaseDevice* dev,
          "Could not add layer to current visuals.");
 }
 
-SkBaseDevice* SkXPSDevice::onCreateDevice(const SkImageInfo&, Usage) {
+SkBaseDevice* SkXPSDevice::onCreateDevice(const CreateInfo& info, const SkPaint*) {
 //Conditional for bug compatibility with PDF device.
 #if 0
-    if (SkBaseDevice::kGeneral_Usage == usage) {
+    if (SkBaseDevice::kGeneral_Usage == info.fUsage) {
         return NULL;
         SK_CRASH();
         //To what stream do we write?
@@ -2263,21 +2274,3 @@ SkBaseDevice* SkXPSDevice::onCreateDevice(const SkImageInfo&, Usage) {
     return new SkXPSDevice(this->fXpsFactory.get());
 }
 
-SkXPSDevice::SkXPSDevice(IXpsOMObjectFactory* xpsFactory)
-    : SkBitmapDevice(make_fake_bitmap(10000, 10000))
-    , fCurrentPage(0) {
-
-    HRVM(CoCreateInstance(
-             CLSID_XpsOMObjectFactory,
-             NULL,
-             CLSCTX_INPROC_SERVER,
-             IID_PPV_ARGS(&this->fXpsFactory)),
-         "Could not create factory for layer.");
-
-    HRVM(this->fXpsFactory->CreateCanvas(&this->fCurrentXpsCanvas),
-         "Could not create canvas for layer.");
-}
-
-bool SkXPSDevice::allowImageFilter(const SkImageFilter*) {
-    return false;
-}

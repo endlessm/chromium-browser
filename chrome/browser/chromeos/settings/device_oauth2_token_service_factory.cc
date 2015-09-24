@@ -6,6 +6,7 @@
 
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/settings/device_oauth2_token_service.h"
+#include "chrome/browser/chromeos/settings/device_oauth2_token_service_delegate.h"
 #include "chrome/browser/chromeos/settings/token_encryptor.h"
 #include "chromeos/cryptohome/system_salt_getter.h"
 #include "content/public/browser/browser_thread.h"
@@ -20,22 +21,23 @@ static DeviceOAuth2TokenService* g_device_oauth2_token_service_ = NULL;
 
 // static
 DeviceOAuth2TokenService* DeviceOAuth2TokenServiceFactory::Get() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   return g_device_oauth2_token_service_;
 }
 
 // static
 void DeviceOAuth2TokenServiceFactory::Initialize() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(!g_device_oauth2_token_service_);
-  g_device_oauth2_token_service_ = new DeviceOAuth2TokenService(
-      g_browser_process->system_request_context(),
-      g_browser_process->local_state());
+  g_device_oauth2_token_service_ =
+      new DeviceOAuth2TokenService(new DeviceOAuth2TokenServiceDelegate(
+          g_browser_process->system_request_context(),
+          g_browser_process->local_state()));
 }
 
 // static
 void DeviceOAuth2TokenServiceFactory::Shutdown() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (g_device_oauth2_token_service_) {
     delete g_device_oauth2_token_service_;
     g_device_oauth2_token_service_ = NULL;

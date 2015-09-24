@@ -7,16 +7,13 @@
 #include <windows.h>
 #include "base/win/scoped_hdc.h"
 #include "ui/gfx/display.h"
-#include "ui/gfx/point_conversions.h"
-#include "ui/gfx/rect_conversions.h"
-#include "ui/gfx/size_conversions.h"
+#include "ui/gfx/geometry/point_conversions.h"
+#include "ui/gfx/geometry/rect_conversions.h"
+#include "ui/gfx/geometry/size_conversions.h"
 
 namespace {
 
-int kDefaultDPIX = 96;
-int kDefaultDPIY = 96;
-
-bool force_highdpi_for_testing = false;
+int kDefaultDPI = 96;
 
 float g_device_scale_factor = 0.0f;
 
@@ -26,7 +23,7 @@ float GetUnforcedDeviceScaleFactor() {
   if (g_device_scale_factor)
     return g_device_scale_factor;
   return static_cast<float>(gfx::GetDPI().width()) /
-      static_cast<float>(kDefaultDPIX);
+      static_cast<float>(kDefaultDPI);
 }
 
 }  // namespace

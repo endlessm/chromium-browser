@@ -11,12 +11,12 @@
 #include "base/callback_forward.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
-#include "chrome/browser/favicon/favicon_tab_helper_observer.h"
 #include "chrome/browser/search/instant_service_observer.h"
 #include "chrome/browser/sync/glue/synced_tab_delegate_android.h"
 #include "chrome/browser/ui/search/search_tab_helper_delegate.h"
 #include "chrome/browser/ui/tab_contents/core_tab_helper_delegate.h"
 #include "chrome/browser/ui/toolbar/toolbar_model.h"
+#include "components/favicon/core/favicon_driver_observer.h"
 #include "components/sessions/session_id.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -25,6 +25,10 @@ class GURL;
 class Profile;
 class SkBitmap;
 
+namespace cc {
+class Layer;
+}
+
 namespace chrome {
 struct NavigateParams;
 }
@@ -32,6 +36,7 @@ struct NavigateParams;
 namespace chrome {
 namespace android {
 class ChromeWebContentsDelegateAndroid;
+class TabContentManager;
 }
 }
 
@@ -48,7 +53,7 @@ class TabAndroid : public CoreTabHelperDelegate,
                    public InstantServiceObserver,
                    public SearchTabHelperDelegate,
                    public content::NotificationObserver,
-                   public FaviconTabHelperObserver {
+                   public favicon::FaviconDriverObserver {
  public:
   // A Java counterpart will be generated for this enum.
   // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser
@@ -71,12 +76,15 @@ class TabAndroid : public CoreTabHelperDelegate,
   static void AttachTabHelpers(content::WebContents* web_contents);
 
   TabAndroid(JNIEnv* env, jobject obj);
-  virtual ~TabAndroid();
+  ~TabAndroid() override;
 
   base::android::ScopedJavaLocalRef<jobject> GetJavaObject();
 
   // Return the WebContents, if any, currently owned by this TabAndroid.
   content::WebContents* web_contents() const { return web_contents_.get(); }
+
+  // Return the cc::Layer that represents the content for this TabAndroid.
+  scoped_refptr<cc::Layer> GetContentLayer() const;
 
   // Return specific id information regarding this TabAndroid.
   const SessionID& session_id() const { return session_tab_id_; }
@@ -101,7 +109,7 @@ class TabAndroid : public CoreTabHelperDelegate,
   void SetWindowSessionID(SessionID::id_type window_id);
   void SetSyncId(int sync_id);
 
-  virtual void HandlePopupNavigation(chrome::NavigateParams* params);
+  void HandlePopupNavigation(chrome::NavigateParams* params);
 
   bool HasPrerenderedUrl(GURL gurl);
 
@@ -111,59 +119,101 @@ class TabAndroid : public CoreTabHelperDelegate,
 
   // CoreTabHelperDelegate ----------------------------------------------------
 
-  virtual void SwapTabContents(content::WebContents* old_contents,
-                               content::WebContents* new_contents,
-                               bool did_start_load,
-                               bool did_finish_load) override;
+  void SwapTabContents(content::WebContents* old_contents,
+                       content::WebContents* new_contents,
+                       bool did_start_load,
+                       bool did_finish_load) override;
 
   // Overridden from InstantServiceObserver:
-  void DefaultSearchProviderChanged() override;
+  void DefaultSearchProviderChanged(
+      bool google_base_url_domain_changed) override;
 
   // Overridden from SearchTabHelperDelegate:
-  virtual void OnWebContentsInstantSupportDisabled(
+  void OnWebContentsInstantSupportDisabled(
       const content::WebContents* web_contents) override;
 
   // NotificationObserver -----------------------------------------------------
-  virtual void Observe(int type,
-                       const content::NotificationSource& source,
-                       const content::NotificationDetails& details) override;
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override;
 
-  // FaviconTabHelperObserver -----------------------------------------------
-  virtual void OnFaviconAvailable(const gfx::Image& image) override;
+  // favicon::FaviconDriverObserver -------------------------------------------
+  void OnFaviconAvailable(const gfx::Image& image) override;
+  void OnFaviconUpdated(favicon::FaviconDriver* favicon_driver,
+                        bool icon_url_changed) override;
 
   // Methods called from Java via JNI -----------------------------------------
 
-  virtual void Destroy(JNIEnv* env, jobject obj);
-  virtual void InitWebContents(JNIEnv* env,
-                               jobject obj,
-                               jboolean incognito,
-                               jobject jcontent_view_core,
-                               jobject jweb_contents_delegate,
-                               jobject jcontext_menu_populator);
-  virtual void DestroyWebContents(JNIEnv* env,
-                                  jobject obj,
-                                  jboolean delete_native);
+  void Destroy(JNIEnv* env, jobject obj);
+  void InitWebContents(JNIEnv* env,
+                       jobject obj,
+                       jboolean incognito,
+                       jobject jcontent_view_core,
+                       jobject jweb_contents_delegate,
+                       jobject jcontext_menu_populator);
+  void DestroyWebContents(JNIEnv* env, jobject obj, jboolean delete_native);
   base::android::ScopedJavaLocalRef<jobject> GetProfileAndroid(JNIEnv* env,
                                                                jobject obj);
-  virtual TabLoadStatus LoadUrl(JNIEnv* env,
-                                jobject obj,
-                                jstring url,
-                                jstring j_extra_headers,
-                                jbyteArray j_post_data,
-                                jint page_transition,
-                                jstring j_referrer_url,
-                                jint referrer_policy,
-                                jboolean is_renderer_initiated);
+  TabLoadStatus LoadUrl(JNIEnv* env,
+                        jobject obj,
+                        jstring url,
+                        jstring j_extra_headers,
+                        jbyteArray j_post_data,
+                        jint page_transition,
+                        jstring j_referrer_url,
+                        jint referrer_policy,
+                        jboolean is_renderer_initiated,
+                        jlong intent_received_timestamp);
   void SetActiveNavigationEntryTitleForUrl(JNIEnv* env,
                                            jobject obj,
                                            jstring jurl,
                                            jstring jtitle);
   bool Print(JNIEnv* env, jobject obj);
+
+  // Sets the tab as content to be printed through JNI.
+  void SetPendingPrint();
+
   // Called to get default favicon of current tab, return null if no
   // favicon is avaliable for current tab.
   base::android::ScopedJavaLocalRef<jobject> GetFavicon(JNIEnv* env,
                                                         jobject obj);
-  jboolean IsFaviconValid(JNIEnv* env, jobject jobj);
+
+  void CreateHistoricalTab(JNIEnv* env, jobject obj);
+
+  static void CreateHistoricalTabFromContents(
+      content::WebContents* web_contents);
+
+  void UpdateTopControlsState(JNIEnv* env,
+                              jobject obj,
+                              jint constraints,
+                              jint current,
+                              jboolean animate);
+
+  void LoadOriginalImage(JNIEnv* env, jobject obj);
+
+  void SearchByImageInNewTabAsync(JNIEnv* env, jobject obj);
+
+  jlong GetBookmarkId(JNIEnv* env, jobject obj, jboolean only_editable);
+
+  void SetInterceptNavigationDelegate(JNIEnv* env,
+                                      jobject obj,
+                                      jobject delegate);
+
+  // TODO(dtrainor): Remove this, pull content_layer() on demand.
+  void AttachToTabContentManager(JNIEnv* env,
+                                 jobject obj,
+                                 jobject jtab_content_manager);
+
+  void AttachOverlayContentViewCore(JNIEnv* env,
+                                    jobject obj,
+                                    jobject jcontent_view_core,
+                                    jboolean visible);
+
+  void DetachOverlayContentViewCore(JNIEnv* env,
+                                    jobject obj,
+                                    jobject jcontent_view_core);
+
+  bool HasPrerenderedUrl(JNIEnv* env, jobject obj, jstring url);
 
   // Register the Tab's native methods through JNI.
   static bool RegisterTabAndroid(JNIEnv* env);
@@ -180,6 +230,9 @@ class TabAndroid : public CoreTabHelperDelegate,
   SessionID session_window_id_;
 
   content::NotificationRegistrar notification_registrar_;
+
+  scoped_refptr<cc::Layer> content_layer_;
+  chrome::android::TabContentManager* tab_content_manager_;
 
   scoped_ptr<content::WebContents> web_contents_;
   scoped_ptr<chrome::android::ChromeWebContentsDelegateAndroid>

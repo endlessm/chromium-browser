@@ -24,41 +24,41 @@
 #ifndef HTMLFieldSetElement_h
 #define HTMLFieldSetElement_h
 
+#include "core/CoreExport.h"
 #include "core/html/HTMLFormControlElement.h"
 
 namespace blink {
 
-class FormAssociatedElement;
 class HTMLFormControlsCollection;
 
-class HTMLFieldSetElement final : public HTMLFormControlElement {
+class CORE_EXPORT HTMLFieldSetElement final : public HTMLFormControlElement {
     DEFINE_WRAPPERTYPEINFO();
 public:
     static PassRefPtrWillBeRawPtr<HTMLFieldSetElement> create(Document&, HTMLFormElement*);
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
     HTMLLegendElement* legend() const;
 
     PassRefPtrWillBeRawPtr<HTMLFormControlsCollection> elements();
 
     const FormAssociatedElement::List& associatedElements() const;
 
-    void setNeedsValidityCheck();
-
 protected:
-    virtual void disabledAttributeChanged() override;
+    void disabledAttributeChanged() override;
 
 private:
     HTMLFieldSetElement(Document&, HTMLFormElement*);
 
-    virtual bool isEnumeratable() const override { return true; }
-    virtual bool supportsFocus() const override;
-    virtual RenderObject* createRenderer(RenderStyle*) override;
-    virtual const AtomicString& formControlType() const override;
-    virtual bool recalcWillValidate() const override { return false; }
-    virtual bool matchesValidityPseudoClasses() const override final;
-    virtual bool isValidElement() override final;
-    virtual void childrenChanged(const ChildrenChange&) override;
-    virtual bool areAuthorShadowsAllowed() const override { return false; }
+    bool isEnumeratable() const override { return true; }
+    bool supportsFocus() const override;
+    LayoutObject* createLayoutObject(const ComputedStyle&) override;
+    const AtomicString& formControlType() const override;
+    bool recalcWillValidate() const override { return false; }
+    bool matchesValidityPseudoClasses() const final;
+    bool isValidElement() final;
+    void childrenChanged(const ChildrenChange&) override;
+    bool areAuthorShadowsAllowed() const override { return false; }
+    bool isSubmittableElement() override;
+    bool alwaysCreateUserAgentShadowRoot() const override { return false; }
 
     static void invalidateDisabledStateUnder(Element&);
     void refreshElementsIfNeeded() const;

@@ -23,7 +23,7 @@ class ProxyPolicyProviderTest : public testing::Test {
     proxy_provider_.AddObserver(&observer_);
   }
 
-  virtual ~ProxyPolicyProviderTest() {
+  ~ProxyPolicyProviderTest() override {
     proxy_provider_.RemoveObserver(&observer_);
     proxy_provider_.Shutdown();
     mock_provider_.Shutdown();
@@ -40,6 +40,7 @@ class ProxyPolicyProviderTest : public testing::Test {
     return copy.Pass();
   }
 
+ private:
   DISALLOW_COPY_AND_ASSIGN(ProxyPolicyProviderTest);
 };
 

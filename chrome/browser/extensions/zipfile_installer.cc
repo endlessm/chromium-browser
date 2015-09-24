@@ -6,13 +6,16 @@
 
 #include "base/files/file_util.h"
 #include "base/path_service.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/extensions/extension_error_reporter.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/unpacked_installer.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/common/extensions/chrome_utility_extensions_messages.h"
+#include "chrome/grit/generated_resources.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/utility_process_host.h"
+#include "extensions/common/extension_utility_messages.h"
+#include "ui/base/l10n/l10n_util.h"
 
 using content::BrowserThread;
 using content::UtilityProcessHost;
@@ -32,7 +35,7 @@ ZipFileInstaller::ZipFileInstaller(ExtensionService* extension_service)
 }
 
 void ZipFileInstaller::LoadFromZipFile(const base::FilePath& path) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   zip_path_ = path;
   BrowserThread::PostTask(BrowserThread::FILE,
                           FROM_HERE,
@@ -72,9 +75,12 @@ scoped_refptr<ZipFileInstaller> ZipFileInstaller::Create(
 void ZipFileInstaller::StartWorkOnIOThread(const base::FilePath& temp_dir) {
   CHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   UtilityProcessHost* host =
-      UtilityProcessHost::Create(this, base::MessageLoopProxy::current().get());
+      UtilityProcessHost::Create(this,
+                                 base::ThreadTaskRunnerHandle::Get().get());
+  host->SetName(l10n_util::GetStringUTF16(
+      IDS_UTILITY_PROCESS_ZIP_FILE_INSTALLER_NAME));
   host->SetExposedDir(temp_dir);
-  host->Send(new ChromeUtilityMsg_UnzipToDir(zip_path_, temp_dir));
+  host->Send(new ExtensionUtilityMsg_UnzipToDir(zip_path_, temp_dir));
 }
 
 void ZipFileInstaller::ReportSuccessOnUIThread(
@@ -97,7 +103,7 @@ void ZipFileInstaller::ReportErrorOnUIThread(const std::string& error) {
 }
 
 void ZipFileInstaller::OnUnzipSucceeded(const base::FilePath& unzipped_path) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   BrowserThread::PostTask(
       BrowserThread::UI,
       FROM_HERE,
@@ -106,7 +112,7 @@ void ZipFileInstaller::OnUnzipSucceeded(const base::FilePath& unzipped_path) {
 }
 
 void ZipFileInstaller::OnUnzipFailed(const std::string& error) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   BrowserThread::PostTask(
       BrowserThread::UI,
       FROM_HERE,
@@ -116,9 +122,9 @@ void ZipFileInstaller::OnUnzipFailed(const std::string& error) {
 bool ZipFileInstaller::OnMessageReceived(const IPC::Message& message) {
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(ZipFileInstaller, message)
-  IPC_MESSAGE_HANDLER(ChromeUtilityHostMsg_UnzipToDir_Succeeded,
+  IPC_MESSAGE_HANDLER(ExtensionUtilityHostMsg_UnzipToDir_Succeeded,
                       OnUnzipSucceeded)
-  IPC_MESSAGE_HANDLER(ChromeUtilityHostMsg_UnzipToDir_Failed, OnUnzipFailed)
+  IPC_MESSAGE_HANDLER(ExtensionUtilityHostMsg_UnzipToDir_Failed, OnUnzipFailed)
   IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;

@@ -6,99 +6,55 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/common/gpu/gpu_channel.h"
 #include "content/common/gpu/gpu_memory_buffer_factory.h"
 #include "content/common/gpu/gpu_memory_manager.h"
 #include "content/common/gpu/gpu_messages.h"
-#include "content/common/gpu/sync_point_manager.h"
 #include "content/common/message_router.h"
+#include "gpu/command_buffer/common/value_state.h"
 #include "gpu/command_buffer/service/feature_info.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
 #include "gpu/command_buffer/service/mailbox_manager_impl.h"
 #include "gpu/command_buffer/service/memory_program_cache.h"
 #include "gpu/command_buffer/service/shader_translator_cache.h"
+#include "gpu/command_buffer/service/sync_point_manager.h"
 #include "ipc/message_filter.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_share_group.h"
+#if defined(USE_OZONE)
+#include "ui/ozone/public/gpu_platform_support.h"
+#include "ui/ozone/public/ozone_platform.h"
+#endif
 
 namespace content {
 
-namespace {
-
-class GpuChannelManagerMessageFilter : public IPC::MessageFilter {
- public:
-  GpuChannelManagerMessageFilter(
-      GpuMemoryBufferFactory* gpu_memory_buffer_factory)
-      : sender_(NULL), gpu_memory_buffer_factory_(gpu_memory_buffer_factory) {}
-
-  void OnFilterAdded(IPC::Sender* sender) override {
-    DCHECK(!sender_);
-    sender_ = sender;
-  }
-
-  void OnFilterRemoved() override {
-    DCHECK(sender_);
-    sender_ = NULL;
-  }
-
-  bool OnMessageReceived(const IPC::Message& message) override {
-    DCHECK(sender_);
-    bool handled = true;
-    IPC_BEGIN_MESSAGE_MAP(GpuChannelManagerMessageFilter, message)
-      IPC_MESSAGE_HANDLER(GpuMsg_CreateGpuMemoryBuffer, OnCreateGpuMemoryBuffer)
-      IPC_MESSAGE_UNHANDLED(handled = false)
-    IPC_END_MESSAGE_MAP()
-    return handled;
-  }
-
- protected:
-  ~GpuChannelManagerMessageFilter() override {}
-
-  void OnCreateGpuMemoryBuffer(
-      const GpuMsg_CreateGpuMemoryBuffer_Params& params) {
-    TRACE_EVENT2("gpu",
-                 "GpuChannelManagerMessageFilter::OnCreateGpuMemoryBuffer",
-                 "id",
-                 params.id,
-                 "client_id",
-                 params.client_id);
-    sender_->Send(new GpuHostMsg_GpuMemoryBufferCreated(
-        gpu_memory_buffer_factory_->CreateGpuMemoryBuffer(params.type,
-                                                          params.id,
-                                                          params.size,
-                                                          params.format,
-                                                          params.usage,
-                                                          params.client_id)));
-  }
-
-  IPC::Sender* sender_;
-  GpuMemoryBufferFactory* gpu_memory_buffer_factory_;
-};
-
-}  // namespace
-
-GpuChannelManager::GpuChannelManager(MessageRouter* router,
-                                     GpuWatchdog* watchdog,
-                                     base::MessageLoopProxy* io_message_loop,
-                                     base::WaitableEvent* shutdown_event,
-                                     IPC::SyncChannel* channel)
-    : io_message_loop_(io_message_loop),
+GpuChannelManager::GpuChannelManager(
+    MessageRouter* router,
+    GpuWatchdog* watchdog,
+    base::SingleThreadTaskRunner* io_task_runner,
+    base::WaitableEvent* shutdown_event,
+    IPC::SyncChannel* channel,
+    IPC::AttachmentBroker* broker,
+    GpuMemoryBufferFactory* gpu_memory_buffer_factory)
+    : io_task_runner_(io_task_runner),
       shutdown_event_(shutdown_event),
       router_(router),
       gpu_memory_manager_(
           this,
           GpuMemoryManager::kDefaultMaxSurfacesWithFrontbufferSoftLimit),
       watchdog_(watchdog),
-      sync_point_manager_(new SyncPointManager),
-      gpu_memory_buffer_factory_(GpuMemoryBufferFactory::Create()),
+      sync_point_manager_(gpu::SyncPointManager::Create(false)),
+      gpu_memory_buffer_factory_(gpu_memory_buffer_factory),
       channel_(channel),
-      filter_(new GpuChannelManagerMessageFilter(
-          gpu_memory_buffer_factory_.get())),
+      relinquish_resources_pending_(false),
+      attachment_broker_(broker),
       weak_factory_(this) {
   DCHECK(router_);
-  DCHECK(io_message_loop);
+  DCHECK(io_task_runner);
   DCHECK(shutdown_event);
-  channel_->AddFilter(filter_.get());
 }
 
 GpuChannelManager::~GpuChannelManager() {
@@ -113,7 +69,7 @@ gpu::gles2::ProgramCache* GpuChannelManager::program_cache() {
   if (!program_cache_.get() &&
       (gfx::g_driver_gl.ext.b_GL_ARB_get_program_binary ||
        gfx::g_driver_gl.ext.b_GL_OES_get_program_binary) &&
-      !CommandLine::ForCurrentProcess()->HasSwitch(
+      !base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kDisableGpuProgramCache)) {
     program_cache_.reset(new gpu::gles2::MemoryProgramCache());
   }
@@ -130,6 +86,7 @@ GpuChannelManager::shader_translator_cache() {
 void GpuChannelManager::RemoveChannel(int client_id) {
   Send(new GpuHostMsg_DestroyChannel(client_id));
   gpu_channels_.erase(client_id);
+  CheckRelinquishGpuResources();
 }
 
 int GpuChannelManager::GenerateRouteID() {
@@ -162,6 +119,8 @@ bool GpuChannelManager::OnMessageReceived(const IPC::Message& msg) {
                         OnCreateViewCommandBuffer)
     IPC_MESSAGE_HANDLER(GpuMsg_DestroyGpuMemoryBuffer, OnDestroyGpuMemoryBuffer)
     IPC_MESSAGE_HANDLER(GpuMsg_LoadedShader, OnLoadedShader)
+    IPC_MESSAGE_HANDLER(GpuMsg_RelinquishResources, OnRelinquishResources)
+    IPC_MESSAGE_HANDLER(GpuMsg_UpdateValueState, OnUpdateValueState)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
@@ -193,7 +152,7 @@ void GpuChannelManager::OnEstablishChannel(int client_id,
                                                 client_id,
                                                 false,
                                                 allow_future_sync_points));
-  channel->Init(io_message_loop_.get(), shutdown_event_);
+  channel->Init(io_task_runner_.get(), shutdown_event_, attachment_broker_);
   channel_handle.name = channel->GetChannelName();
 
 #if defined(OS_POSIX)
@@ -215,6 +174,7 @@ void GpuChannelManager::OnCloseChannel(
        iter != gpu_channels_.end(); ++iter) {
     if (iter->second->GetChannelName() == channel_handle.name) {
       gpu_channels_.erase(iter);
+      CheckRelinquishGpuResources();
       return;
     }
   }
@@ -239,40 +199,42 @@ void GpuChannelManager::OnCreateViewCommandBuffer(
 }
 
 void GpuChannelManager::DestroyGpuMemoryBuffer(
-    gfx::GpuMemoryBufferType type,
     gfx::GpuMemoryBufferId id,
     int client_id) {
-  io_message_loop_->PostTask(
-      FROM_HERE,
-      base::Bind(&GpuChannelManager::DestroyGpuMemoryBufferOnIO,
-                 base::Unretained(this),
-                 type,
-                 id,
-                 client_id));
+  io_task_runner_->PostTask(
+      FROM_HERE, base::Bind(&GpuChannelManager::DestroyGpuMemoryBufferOnIO,
+                            base::Unretained(this), id, client_id));
 }
 
 void GpuChannelManager::DestroyGpuMemoryBufferOnIO(
-    gfx::GpuMemoryBufferType type,
     gfx::GpuMemoryBufferId id,
     int client_id) {
-  gpu_memory_buffer_factory_->DestroyGpuMemoryBuffer(type, id, client_id);
+  gpu_memory_buffer_factory_->DestroyGpuMemoryBuffer(id, client_id);
 }
 
 void GpuChannelManager::OnDestroyGpuMemoryBuffer(
-    gfx::GpuMemoryBufferType type,
     gfx::GpuMemoryBufferId id,
     int client_id,
     int32 sync_point) {
   if (!sync_point) {
-    DestroyGpuMemoryBuffer(type, id, client_id);
+    DestroyGpuMemoryBuffer(id, client_id);
   } else {
     sync_point_manager()->AddSyncPointCallback(
         sync_point,
         base::Bind(&GpuChannelManager::DestroyGpuMemoryBuffer,
                    base::Unretained(this),
-                   type,
                    id,
                    client_id));
+  }
+}
+
+void GpuChannelManager::OnUpdateValueState(
+    int client_id, unsigned int target, const gpu::ValueState& state) {
+  // Only pass updated state to the channel corresponding to the
+  // render_widget_host where the event originated.
+  GpuChannelMap::const_iterator iter = gpu_channels_.find(client_id);
+  if (iter != gpu_channels_.end()) {
+    iter->second->HandleUpdateValueState(target, state);
   }
 }
 
@@ -305,14 +267,14 @@ void GpuChannelManager::LoseAllContexts() {
        iter != gpu_channels_.end(); ++iter) {
     iter->second->MarkAllContextsLost();
   }
-  base::MessageLoop::current()->PostTask(
-      FROM_HERE,
-      base::Bind(&GpuChannelManager::OnLoseAllContexts,
-                 weak_factory_.GetWeakPtr()));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&GpuChannelManager::OnLoseAllContexts,
+                            weak_factory_.GetWeakPtr()));
 }
 
 void GpuChannelManager::OnLoseAllContexts() {
   gpu_channels_.clear();
+  CheckRelinquishGpuResources();
 }
 
 gfx::GLSurface* GpuChannelManager::GetDefaultOffscreenSurface() {
@@ -321,6 +283,34 @@ gfx::GLSurface* GpuChannelManager::GetDefaultOffscreenSurface() {
         gfx::GLSurface::CreateOffscreenGLSurface(gfx::Size());
   }
   return default_offscreen_surface_.get();
+}
+
+void GpuChannelManager::OnRelinquishResources() {
+  relinquish_resources_pending_ = true;
+  CheckRelinquishGpuResources();
+}
+
+void GpuChannelManager::CheckRelinquishGpuResources() {
+  if (relinquish_resources_pending_ && gpu_channels_.size() <= 1) {
+    relinquish_resources_pending_ = false;
+    if (default_offscreen_surface_.get()) {
+      default_offscreen_surface_->DestroyAndTerminateDisplay();
+      default_offscreen_surface_ = NULL;
+    }
+#if defined(USE_OZONE)
+    ui::OzonePlatform::GetInstance()
+        ->GetGpuPlatformSupport()
+        ->RelinquishGpuResources(
+            base::Bind(&GpuChannelManager::OnResourcesRelinquished,
+                       weak_factory_.GetWeakPtr()));
+#else
+    OnResourcesRelinquished();
+#endif
+  }
+}
+
+void GpuChannelManager::OnResourcesRelinquished() {
+  Send(new GpuHostMsg_ResourcesRelinquished());
 }
 
 }  // namespace content

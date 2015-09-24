@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2011 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,11 +6,6 @@
 
 from __future__ import print_function
 
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                '..', '..'))
 from chromite.lib import cros_test_lib
 from chromite.lib import gdata_lib
 from chromite.lib import upgrade_table as utable
@@ -54,14 +48,14 @@ class SyncerTest(cros_test_lib.MoxOutputTestCase):
     syncer = sps.Syncer('tcomm_obj', 'scomm_obj')
 
     tests = {
-      'build/bdavirro': 'build',
-      'build/rtc': 'build',
-      'build': 'build',
-      'UI/zel': 'ui',
-      'UI': 'ui',
-      'Build': 'build',
-      None: None,
-      }
+        'build/bdavirro': 'build',
+        'build/rtc': 'build',
+        'build': 'build',
+        'UI/zel': 'ui',
+        'UI': 'ui',
+        'Build': 'build',
+        None: None,
+    }
 
     # Verify
     for key in tests:
@@ -72,13 +66,13 @@ class SyncerTest(cros_test_lib.MoxOutputTestCase):
     syncer = sps.Syncer('tcomm_obj', 'scomm_obj')
 
     tests = {
-      'joe': 'joe',
-      'Joe': 'joe',
-      'joe@chromium.org': 'joe',
-      'Joe@chromium.org': 'joe',
-      'Joe.Bob@chromium.org': 'joe.bob',
-      None: None,
-      }
+        'joe': 'joe',
+        'Joe': 'joe',
+        'joe@chromium.org': 'joe',
+        'Joe@chromium.org': 'joe',
+        'Joe.Bob@chromium.org': 'joe.bob',
+        None: None,
+    }
 
     # Verify
     for key in tests:
@@ -89,13 +83,13 @@ class SyncerTest(cros_test_lib.MoxOutputTestCase):
     syncer = sps.Syncer('tcomm_obj', 'scomm_obj')
 
     tests = {
-      'build:system:ui': set(['build', 'system', 'ui']),
-      'Build:system:UI': set(['build', 'system', 'ui']),
-      'kernel': set(['kernel']),
-      'KERNEL': set(['kernel']),
-      None: None,
-      '': None,
-      }
+        'build:system:ui': set(['build', 'system', 'ui']),
+        'Build:system:UI': set(['build', 'system', 'ui']),
+        'kernel': set(['kernel']),
+        'KERNEL': set(['kernel']),
+        None: None,
+        '': None,
+    }
 
     # Verify
     for test in tests:
@@ -117,14 +111,14 @@ class SyncerTest(cros_test_lib.MoxOutputTestCase):
     syncer = sps.Syncer('tcomm_obj', 'scomm_obj')
 
     tests = {
-      'joe:bill:bob': set(['joe', 'bill', 'bob']),
-      'Joe:Bill:BOB': set(['joe', 'bill', 'bob']),
-      'joe@chromium.org:bill:bob': set(['joe', 'bill', 'bob']),
-      'joe': set(['joe']),
-      'joe@chromium.org': set(['joe']),
-      '': None,
-      None: None,
-      }
+        'joe:bill:bob': set(['joe', 'bill', 'bob']),
+        'Joe:Bill:BOB': set(['joe', 'bill', 'bob']),
+        'joe@chromium.org:bill:bob': set(['joe', 'bill', 'bob']),
+        'joe': set(['joe']),
+        'joe@chromium.org': set(['joe']),
+        '': None,
+        None: None,
+    }
 
     # Verify
     for test in tests:
@@ -134,10 +128,10 @@ class SyncerTest(cros_test_lib.MoxOutputTestCase):
   def testRowPassesFilters(self):
     mocked_syncer = self.mox.CreateMock(sps.Syncer)
 
-    row1 = { sps.COL_TEAM: 'build', sps.COL_OWNER: 'joe' }
-    row2 = { sps.COL_TEAM: 'build', sps.COL_OWNER: 'bob' }
-    row3 = { sps.COL_TEAM: 'build', sps.COL_OWNER: None }
-    row4 = { sps.COL_TEAM: None, sps.COL_OWNER: None }
+    row1 = {sps.COL_TEAM: 'build', sps.COL_OWNER: 'joe'}
+    row2 = {sps.COL_TEAM: 'build', sps.COL_OWNER: 'bob'}
+    row3 = {sps.COL_TEAM: 'build', sps.COL_OWNER: None}
+    row4 = {sps.COL_TEAM: None, sps.COL_OWNER: None}
 
     teams1 = set(['build'])
     teams2 = set(['kernel'])
@@ -148,35 +142,35 @@ class SyncerTest(cros_test_lib.MoxOutputTestCase):
     owners3 = set(['joe', 'dan'])
 
     tests = [
-      { 'row': row1, 'teams': None, 'owners': None, 'result': True },
-      { 'row': row1, 'teams': teams1, 'owners': None, 'result': True },
-      { 'row': row1, 'teams': teams2, 'owners': None, 'result': False },
-      { 'row': row1, 'teams': teams3, 'owners': None, 'result': True },
-      { 'row': row1, 'teams': teams1, 'owners': owners1, 'result': True },
-      { 'row': row1, 'teams': None, 'owners': owners2, 'result': False },
-      { 'row': row1, 'teams': None, 'owners': owners3, 'result': True },
+        {'row': row1, 'teams': None, 'owners': None, 'result': True},
+        {'row': row1, 'teams': teams1, 'owners': None, 'result': True},
+        {'row': row1, 'teams': teams2, 'owners': None, 'result': False},
+        {'row': row1, 'teams': teams3, 'owners': None, 'result': True},
+        {'row': row1, 'teams': teams1, 'owners': owners1, 'result': True},
+        {'row': row1, 'teams': None, 'owners': owners2, 'result': False},
+        {'row': row1, 'teams': None, 'owners': owners3, 'result': True},
 
-      { 'row': row2, 'teams': None, 'owners': None, 'result': True },
-      { 'row': row2, 'teams': teams1, 'owners': None, 'result': True },
-      { 'row': row2, 'teams': teams2, 'owners': None, 'result': False },
-      { 'row': row2, 'teams': teams3, 'owners': None, 'result': True },
-      { 'row': row2, 'teams': teams1, 'owners': owners1, 'result': False },
-      { 'row': row2, 'teams': None, 'owners': owners2, 'result': True },
-      { 'row': row2, 'teams': None, 'owners': owners3, 'result': False },
+        {'row': row2, 'teams': None, 'owners': None, 'result': True},
+        {'row': row2, 'teams': teams1, 'owners': None, 'result': True},
+        {'row': row2, 'teams': teams2, 'owners': None, 'result': False},
+        {'row': row2, 'teams': teams3, 'owners': None, 'result': True},
+        {'row': row2, 'teams': teams1, 'owners': owners1, 'result': False},
+        {'row': row2, 'teams': None, 'owners': owners2, 'result': True},
+        {'row': row2, 'teams': None, 'owners': owners3, 'result': False},
 
-      { 'row': row3, 'teams': None, 'owners': None, 'result': True },
-      { 'row': row3, 'teams': teams1, 'owners': None, 'result': True },
-      { 'row': row3, 'teams': teams2, 'owners': None, 'result': False },
-      { 'row': row3, 'teams': teams3, 'owners': None, 'result': True },
-      { 'row': row3, 'teams': teams1, 'owners': owners1, 'result': False },
-      { 'row': row3, 'teams': None, 'owners': owners2, 'result': False },
-      { 'row': row3, 'teams': None, 'owners': owners3, 'result': False },
+        {'row': row3, 'teams': None, 'owners': None, 'result': True},
+        {'row': row3, 'teams': teams1, 'owners': None, 'result': True},
+        {'row': row3, 'teams': teams2, 'owners': None, 'result': False},
+        {'row': row3, 'teams': teams3, 'owners': None, 'result': True},
+        {'row': row3, 'teams': teams1, 'owners': owners1, 'result': False},
+        {'row': row3, 'teams': None, 'owners': owners2, 'result': False},
+        {'row': row3, 'teams': None, 'owners': owners3, 'result': False},
 
-      { 'row': row4, 'teams': None, 'owners': None, 'result': True },
-      { 'row': row4, 'teams': teams1, 'owners': None, 'result': False },
-      { 'row': row4, 'teams': teams1, 'owners': owners1, 'result': False },
-      { 'row': row4, 'teams': None, 'owners': owners2, 'result': False },
-      ]
+        {'row': row4, 'teams': None, 'owners': None, 'result': True},
+        {'row': row4, 'teams': teams1, 'owners': None, 'result': False},
+        {'row': row4, 'teams': teams1, 'owners': owners1, 'result': False},
+        {'row': row4, 'teams': None, 'owners': owners2, 'result': False},
+    ]
 
     # Replay script
     for test in tests:
@@ -228,9 +222,9 @@ class SyncerTest(cros_test_lib.MoxOutputTestCase):
     mocked_syncer.tcomm = mocked_tcomm
 
     rows = [
-      { sps.COL_PACKAGE: 'd/f', sps.COL_TEAM: 'build', sps.COL_OWNER: None },
-      { sps.COL_PACKAGE: 'd/f', sps.COL_TEAM: 'build', sps.COL_OWNER: 'joe' },
-      ]
+        {sps.COL_PACKAGE: 'd/f', sps.COL_TEAM: 'build', sps.COL_OWNER: None},
+        {sps.COL_PACKAGE: 'd/f', sps.COL_TEAM: 'build', sps.COL_OWNER: 'joe'},
+    ]
 
     # Replay script
     mocked_scomm.GetColumnIndex(sps.COL_TRACKER).AndReturn(1) # Any index ok.
@@ -255,9 +249,9 @@ class SyncerTest(cros_test_lib.MoxOutputTestCase):
     mocked_syncer.tcomm = mocked_tcomm
 
     rows = [
-      { sps.COL_PACKAGE: 'd/f', sps.COL_TEAM: 'build', sps.COL_OWNER: None },
-      { sps.COL_PACKAGE: 'd/f', sps.COL_TEAM: 'build', sps.COL_OWNER: 'joe' },
-      ]
+        {sps.COL_PACKAGE: 'd/f', sps.COL_TEAM: 'build', sps.COL_OWNER: None},
+        {sps.COL_PACKAGE: 'd/f', sps.COL_TEAM: 'build', sps.COL_OWNER: 'joe'},
+    ]
 
     # Replay script
     mocked_scomm.GetColumnIndex(sps.COL_TRACKER).AndReturn(1) # Any index ok.
@@ -282,9 +276,9 @@ class SyncerTest(cros_test_lib.MoxOutputTestCase):
     mocked_syncer.tcomm = mocked_tcomm
 
     rows = [
-      { sps.COL_PACKAGE: 'd/f', sps.COL_TEAM: 'build', sps.COL_OWNER: None },
-      { sps.COL_PACKAGE: 'd/f', sps.COL_TEAM: 'build', sps.COL_OWNER: 'joe' },
-      ]
+        {sps.COL_PACKAGE: 'd/f', sps.COL_TEAM: 'build', sps.COL_OWNER: None},
+        {sps.COL_PACKAGE: 'd/f', sps.COL_TEAM: 'build', sps.COL_OWNER: 'joe'},
+    ]
 
     # Replay script
     mocked_scomm.GetColumnIndex(sps.COL_TRACKER).AndReturn(1) # Any index ok.
@@ -302,11 +296,11 @@ class SyncerTest(cros_test_lib.MoxOutputTestCase):
     mocked_syncer = self.mox.CreateMock(sps.Syncer)
 
     row = {
-      self.col_amd64: 'ABC',
-      self.col_arm: 'XYZ',
-      self.col_x86: 'FooBar',
-      sps.COL_TEAM: 'build',
-      }
+        self.col_amd64: 'ABC',
+        self.col_arm: 'XYZ',
+        self.col_x86: 'FooBar',
+        sps.COL_TEAM: 'build',
+    }
 
     # Replay script
     self.mox.ReplayAll()
@@ -358,13 +352,13 @@ class SyncerTest(cros_test_lib.MoxOutputTestCase):
 
   def testGenIssueForRowNeedsUpgrade1(self):
     row = {
-      self.col_amd64: utable.UpgradeTable.STATE_NEEDS_UPGRADE,
-      self.col_arm: 'Not important',
-      self.col_x86: 'Not important',
-      sps.COL_TEAM: 'build',
-      sps.COL_OWNER: None,
-      sps.COL_PACKAGE: 'dev/foo',
-      }
+        self.col_amd64: utable.UpgradeTable.STATE_NEEDS_UPGRADE,
+        self.col_arm: 'Not important',
+        self.col_x86: 'Not important',
+        sps.COL_TEAM: 'build',
+        sps.COL_OWNER: None,
+        sps.COL_PACKAGE: 'dev/foo',
+    }
 
     result = self._TestGenIssueForRowNeedsUpgrade(row)
     self.assertEquals(None, result.owner)
@@ -373,13 +367,13 @@ class SyncerTest(cros_test_lib.MoxOutputTestCase):
 
   def testGenIssueForRowNeedsUpgrade2(self):
     row = {
-      self.col_amd64: utable.UpgradeTable.STATE_NEEDS_UPGRADE,
-      self.col_arm: utable.UpgradeTable.STATE_NEEDS_UPGRADE_AND_PATCHED,
-      self.col_x86: 'Not important',
-      sps.COL_TEAM: 'build',
-      sps.COL_OWNER: 'joe',
-      sps.COL_PACKAGE: 'dev/foo',
-      }
+        self.col_amd64: utable.UpgradeTable.STATE_NEEDS_UPGRADE,
+        self.col_arm: utable.UpgradeTable.STATE_NEEDS_UPGRADE_AND_PATCHED,
+        self.col_x86: 'Not important',
+        sps.COL_TEAM: 'build',
+        sps.COL_OWNER: 'joe',
+        sps.COL_PACKAGE: 'dev/foo',
+    }
 
     result = self._TestGenIssueForRowNeedsUpgrade(row)
     self.assertEquals('joe@chromium.org', result.owner)
@@ -390,13 +384,13 @@ class SyncerTest(cros_test_lib.MoxOutputTestCase):
     mocked_syncer = self.mox.CreateMock(sps.Syncer)
 
     row = {
-      self.col_amd64: utable.UpgradeTable.STATE_NEEDS_UPGRADE,
-      self.col_arm: utable.UpgradeTable.STATE_NEEDS_UPGRADE_AND_PATCHED,
-      self.col_x86: 'Not important',
-      sps.COL_TEAM: None,
-      sps.COL_OWNER: 'joe',
-      sps.COL_PACKAGE: 'dev/foo',
-      }
+        self.col_amd64: utable.UpgradeTable.STATE_NEEDS_UPGRADE,
+        self.col_arm: utable.UpgradeTable.STATE_NEEDS_UPGRADE_AND_PATCHED,
+        self.col_x86: 'Not important',
+        sps.COL_TEAM: None,
+        sps.COL_OWNER: 'joe',
+        sps.COL_PACKAGE: 'dev/foo',
+    }
 
     # Replay script
     for arch in sps.ARCHES:
@@ -418,13 +412,13 @@ class SyncerTest(cros_test_lib.MoxOutputTestCase):
     mocked_syncer = self.mox.CreateMock(sps.Syncer)
 
     row = {
-      self.col_amd64: 'Not important',
-      self.col_arm: 'Not important',
-      self.col_x86: 'Not important',
-      sps.COL_TEAM: None,
-      sps.COL_OWNER: 'joe',
-      sps.COL_PACKAGE: 'dev/foo',
-      }
+        self.col_amd64: 'Not important',
+        self.col_arm: 'Not important',
+        self.col_x86: 'Not important',
+        sps.COL_TEAM: None,
+        sps.COL_OWNER: 'joe',
+        sps.COL_PACKAGE: 'dev/foo',
+    }
 
     # Replay script
     for arch in sps.ARCHES:
@@ -442,7 +436,7 @@ class SyncerTest(cros_test_lib.MoxOutputTestCase):
   def testGetRowTrackerId(self):
     mocked_syncer = self.mox.CreateMock(sps.Syncer)
 
-    row = { sps.COL_TRACKER: '321' }
+    row = {sps.COL_TRACKER: '321'}
 
     # Replay script
     self.mox.ReplayAll()
@@ -457,7 +451,7 @@ class SyncerTest(cros_test_lib.MoxOutputTestCase):
     mocked_syncer = self.mox.CreateMock(sps.Syncer)
     mocked_syncer.pretend = True
 
-    row = { sps.COL_PACKAGE: 'dev/foo' }
+    row = {sps.COL_PACKAGE: 'dev/foo'}
 
     # Replay script
     self.mox.ReplayAll()
@@ -477,7 +471,7 @@ class SyncerTest(cros_test_lib.MoxOutputTestCase):
     mocked_syncer.pretend = False
 
     row_ix = 5
-    row = { sps.COL_PACKAGE: 'dev/foo' }
+    row = {sps.COL_PACKAGE: 'dev/foo'}
     issue = 'SomeIssue'
     issue_id = 234
     ss_issue_val = 'Hyperlink%d' % issue_id
@@ -516,7 +510,7 @@ class SyncerTest(cros_test_lib.MoxOutputTestCase):
     mocked_syncer.pretend = False
 
     row_ix = 44
-    row = { sps.COL_PACKAGE: 'dev/foo' }
+    row = {sps.COL_PACKAGE: 'dev/foo'}
 
     # Replay script
     mocked_scomm.ClearCellValue(row_ix, mocked_syncer.tracker_col_ix)
@@ -535,7 +529,7 @@ class SyncerTest(cros_test_lib.MoxOutputTestCase):
     mocked_syncer.pretend = True
 
     row_ix = 44
-    row = { sps.COL_PACKAGE: 'dev/foo' }
+    row = {sps.COL_PACKAGE: 'dev/foo'}
 
     # Replay script
     self.mox.ReplayAll()
@@ -544,7 +538,3 @@ class SyncerTest(cros_test_lib.MoxOutputTestCase):
     with self.OutputCapturer():
       sps.Syncer._ClearRowIssue(mocked_syncer, row_ix, row)
     self.mox.VerifyAll()
-
-
-if __name__ == '__main__':
-  cros_test_lib.main()

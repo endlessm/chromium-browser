@@ -118,10 +118,10 @@ int FPURegister::ToAllocationIndex(FPURegister reg) {
 // RelocInfo.
 
 void RelocInfo::apply(intptr_t delta, ICacheFlushMode icache_flush_mode) {
-  if (IsInternalReference(rmode_)) {
+  if (IsInternalReference(rmode_) || IsInternalReferenceEncoded(rmode_)) {
     // Absolute code pointer inside code object moves with the code object.
     byte* p = reinterpret_cast<byte*>(pc_);
-    int count = Assembler::RelocateInternalReference(p, delta);
+    int count = Assembler::RelocateInternalReference(rmode_, p, delta);
     CpuFeatures::FlushICache(p, count * sizeof(uint32_t));
   }
 }
@@ -194,6 +194,36 @@ Address Assembler::break_address_from_return_address(Address pc) {
 }
 
 
+void Assembler::set_target_internal_reference_encoded_at(Address pc,
+                                                         Address target) {
+  // Encoded internal references are j/jal instructions.
+  Instr instr = Assembler::instr_at(pc + 0 * Assembler::kInstrSize);
+
+  uint64_t imm28 =
+      (reinterpret_cast<uint64_t>(target) & static_cast<uint64_t>(kImm28Mask));
+
+  instr &= ~kImm26Mask;
+  uint64_t imm26 = imm28 >> 2;
+  DCHECK(is_uint26(imm26));
+
+  instr_at_put(pc, instr | (imm26 & kImm26Mask));
+  // Currently used only by deserializer, and all code will be flushed
+  // after complete deserialization, no need to flush on each reference.
+}
+
+
+void Assembler::deserialization_set_target_internal_reference_at(
+    Address pc, Address target, RelocInfo::Mode mode) {
+  if (mode == RelocInfo::INTERNAL_REFERENCE_ENCODED) {
+    DCHECK(IsJ(instr_at(pc)));
+    set_target_internal_reference_encoded_at(pc, target);
+  } else {
+    DCHECK(mode == RelocInfo::INTERNAL_REFERENCE);
+    Memory::Address_at(pc) = target;
+  }
+}
+
+
 Object* RelocInfo::target_object() {
   DCHECK(IsCodeTarget(rmode_) || rmode_ == EMBEDDED_OBJECT);
   return reinterpret_cast<Object*>(Assembler::target_address_at(pc_, host_));
@@ -223,9 +253,31 @@ void RelocInfo::set_target_object(Object* target,
 }
 
 
-Address RelocInfo::target_reference() {
+Address RelocInfo::target_external_reference() {
   DCHECK(rmode_ == EXTERNAL_REFERENCE);
   return Assembler::target_address_at(pc_, host_);
+}
+
+
+Address RelocInfo::target_internal_reference() {
+  if (rmode_ == INTERNAL_REFERENCE) {
+    return Memory::Address_at(pc_);
+  } else {
+    // Encoded internal references are j/jal instructions.
+    DCHECK(rmode_ == INTERNAL_REFERENCE_ENCODED);
+    Instr instr = Assembler::instr_at(pc_ + 0 * Assembler::kInstrSize);
+    instr &= kImm26Mask;
+    uint64_t imm28 = instr << 2;
+    uint64_t segment =
+        (reinterpret_cast<uint64_t>(pc_) & ~static_cast<uint64_t>(kImm28Mask));
+    return reinterpret_cast<Address>(segment | imm28);
+  }
+}
+
+
+Address RelocInfo::target_internal_reference_address() {
+  DCHECK(rmode_ == INTERNAL_REFERENCE || rmode_ == INTERNAL_REFERENCE_ENCODED);
+  return reinterpret_cast<Address>(pc_);
 }
 
 
@@ -301,8 +353,8 @@ Address RelocInfo::call_address() {
   DCHECK((IsJSReturn(rmode()) && IsPatchedReturnSequence()) ||
          (IsDebugBreakSlot(rmode()) && IsPatchedDebugBreakSlotSequence()));
   // The pc_ offset of 0 assumes mips patched return sequence per
-  // debug-mips.cc BreakLocationIterator::SetDebugBreakAtReturn(), or
-  // debug break slot per BreakLocationIterator::SetDebugBreakAtSlot().
+  // debug-mips.cc BreakLocation::SetDebugBreakAtReturn(), or
+  // debug break slot per BreakLocation::SetDebugBreakAtSlot().
   return Assembler::target_address_at(pc_, host_);
 }
 
@@ -311,8 +363,8 @@ void RelocInfo::set_call_address(Address target) {
   DCHECK((IsJSReturn(rmode()) && IsPatchedReturnSequence()) ||
          (IsDebugBreakSlot(rmode()) && IsPatchedDebugBreakSlotSequence()));
   // The pc_ offset of 0 assumes mips patched return sequence per
-  // debug-mips.cc BreakLocationIterator::SetDebugBreakAtReturn(), or
-  // debug break slot per BreakLocationIterator::SetDebugBreakAtSlot().
+  // debug-mips.cc BreakLocation::SetDebugBreakAtReturn(), or
+  // debug break slot per BreakLocation::SetDebugBreakAtSlot().
   Assembler::set_target_address_at(pc_, host_, target);
   if (host() != NULL) {
     Object* target_code = Code::GetCodeFromTargetAddress(target);
@@ -340,11 +392,16 @@ void RelocInfo::set_call_object(Object* target) {
 
 
 void RelocInfo::WipeOut() {
-  DCHECK(IsEmbeddedObject(rmode_) ||
-         IsCodeTarget(rmode_) ||
-         IsRuntimeEntry(rmode_) ||
-         IsExternalReference(rmode_));
-  Assembler::set_target_address_at(pc_, host_, NULL);
+  DCHECK(IsEmbeddedObject(rmode_) || IsCodeTarget(rmode_) ||
+         IsRuntimeEntry(rmode_) || IsExternalReference(rmode_) ||
+         IsInternalReference(rmode_) || IsInternalReferenceEncoded(rmode_));
+  if (IsInternalReference(rmode_)) {
+    Memory::Address_at(pc_) = NULL;
+  } else if (IsInternalReferenceEncoded(rmode_)) {
+    Assembler::set_target_internal_reference_encoded_at(pc_, nullptr);
+  } else {
+    Assembler::set_target_address_at(pc_, host_, NULL);
+  }
 }
 
 
@@ -380,6 +437,9 @@ void RelocInfo::Visit(Isolate* isolate, ObjectVisitor* visitor) {
     visitor->VisitCell(this);
   } else if (mode == RelocInfo::EXTERNAL_REFERENCE) {
     visitor->VisitExternalReference(this);
+  } else if (mode == RelocInfo::INTERNAL_REFERENCE ||
+             mode == RelocInfo::INTERNAL_REFERENCE_ENCODED) {
+    visitor->VisitInternalReference(this);
   } else if (RelocInfo::IsCodeAgeSequence(mode)) {
     visitor->VisitCodeAgeSequence(this);
   } else if (((RelocInfo::IsJSReturn(mode) &&
@@ -405,6 +465,9 @@ void RelocInfo::Visit(Heap* heap) {
     StaticVisitor::VisitCell(heap, this);
   } else if (mode == RelocInfo::EXTERNAL_REFERENCE) {
     StaticVisitor::VisitExternalReference(this);
+  } else if (mode == RelocInfo::INTERNAL_REFERENCE ||
+             mode == RelocInfo::INTERNAL_REFERENCE_ENCODED) {
+    StaticVisitor::VisitInternalReference(this);
   } else if (RelocInfo::IsCodeAgeSequence(mode)) {
     StaticVisitor::VisitCodeAgeSequence(heap, this);
   } else if (heap->isolate()->debug()->has_break_points() &&
@@ -430,8 +493,8 @@ void Assembler::CheckBuffer() {
 }
 
 
-void Assembler::CheckTrampolinePoolQuick() {
-  if (pc_offset() >= next_buffer_check_) {
+void Assembler::CheckTrampolinePoolQuick(int extra_instructions) {
+  if (pc_offset() >= next_buffer_check_ - extra_instructions * kInstrSize) {
     CheckTrampolinePool();
   }
 }

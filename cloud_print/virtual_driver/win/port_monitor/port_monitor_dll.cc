@@ -16,7 +16,7 @@
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
-#include "base/process/process.h"
+#include "base/process/process_info.h"
 #include "base/strings/string16.h"
 #include "base/win/registry.h"
 #include "base/win/scoped_handle.h"
@@ -32,6 +32,7 @@ namespace cloud_print {
 const wchar_t kChromeExePath[] = L"google\\chrome\\application\\chrome.exe";
 const wchar_t kChromeExePathRegValue[] = L"PathToChromeExe";
 const wchar_t kChromeProfilePathRegValue[] = L"PathToChromeProfile";
+const wchar_t kPrintCommandRegValue[] = L"PrintCommand";
 const bool kIsUnittest = false;
 
 namespace {
@@ -55,13 +56,8 @@ bool CanRegister() {
     return false;
   }
   if (base::win::GetVersion() >= base::win::VERSION_VISTA) {
-    base::IntegrityLevel level = base::INTEGRITY_UNKNOWN;
-    if (!GetProcessIntegrityLevel(base::GetCurrentProcessHandle(), &level)) {
+    if (base::GetCurrentProcessIntegrityLevel() != base::HIGH_INTEGRITY)
       return false;
-    }
-    if (level != base::HIGH_INTEGRITY) {
-      return false;
-    }
   }
   return true;
 }

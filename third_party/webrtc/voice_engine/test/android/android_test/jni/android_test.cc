@@ -139,19 +139,20 @@ class my_transportation : public Transport
       netw(network) {
   }
 
-  virtual int SendPacket(int channel,const void *data,int len) OVERRIDE;
-  virtual int SendRTCPPacket(int channel, const void *data, int len) OVERRIDE;
+  int SendPacket(int channel, const void* data, size_t len) override;
+  int SendRTCPPacket(int channel, const void* data, size_t len) override;
+
  private:
   VoENetwork * netw;
 };
 
-int my_transportation::SendPacket(int channel,const void *data,int len)
+int my_transportation::SendPacket(int channel, const void *data, size_t len)
 {
   netw->ReceivedRTPPacket(channel, data, len);
   return len;
 }
 
-int my_transportation::SendRTCPPacket(int channel, const void *data, int len)
+int my_transportation::SendRTCPPacket(int channel, const void *data, size_t len)
 {
   netw->ReceivedRTCPPacket(channel, data, len);
   return len;
@@ -176,27 +177,18 @@ private:
     static bool Run(void* ptr);
     bool Process();
 private:
-    ThreadWrapper* _thread;
+    rtc::scoped_ptr<ThreadWrapper> _thread;
 };
 
 ThreadTest::~ThreadTest()
 {
     if (_thread)
-    {
-        _thread->SetNotAlive();
-        if (_thread->Stop())
-        {
-            delete _thread;
-            _thread = NULL;
-        }
-    }
+        _thread->Stop();
 }
 
-ThreadTest::ThreadTest() :
-    _thread(NULL)
+ThreadTest::ThreadTest()
 {
-    _thread = ThreadWrapper::CreateThread(Run, this, kNormalPriority,
-                                          "ThreadTest thread");
+    _thread = ThreadWrapper::CreateThread(Run, this, "ThreadTest thread");
 }
 
 bool ThreadTest::Run(void* ptr)
@@ -229,7 +221,6 @@ bool ThreadTest::Process()
         __android_log_write(ANDROID_LOG_ERROR, WEBRTC_LOG_TAG,
                 "set local receiver 2 failed");
     }
-    veData2.hardware->SetLoudspeakerStatus(false);
     veData2.volume->SetSpeakerVolume(204);
     veData2.base->StartReceive(0);
     if(veData2.base->StartPlayout(0) < 0)
@@ -270,7 +261,6 @@ bool ThreadTest::Process()
             "sending instance started from thread");
 #endif
 
-    _thread->SetNotAlive();
     _thread->Stop();
 
     //res = veData1.jvm->DetachCurrentThread();
@@ -282,8 +272,7 @@ int ThreadTest::RunTest()
 {
     if (_thread)
     {
-        unsigned int id;
-        _thread->Start(id);
+        _thread->Start();
     }
     return 0;
 }
@@ -1121,43 +1110,6 @@ Java_org_webrtc_voiceengine_test_AndroidTest_SetSpeakerVolume(
     {
         return -1;
     }
-
-    return 0;
-}
-
-/////////////////////////////////////////////
-// [Hardware] Set loudspeaker status
-//
-JNIEXPORT jint JNICALL
-Java_org_webrtc_voiceengine_test_AndroidTest_SetLoudspeakerStatus(
-        JNIEnv *,
-        jobject,
-        jboolean enable)
-{
-    VALIDATE_HARDWARE_POINTER;
-    if (veData1.hardware->SetLoudspeakerStatus(enable) != 0)
-    {
-        return -1;
-    }
-
-    /*VALIDATE_RTP_RTCP_POINTER;
-
-     if (veData1.rtp_rtcp->SetREDStatus(0, enable, -1) != 0)
-     {
-     __android_log_write(ANDROID_LOG_ERROR, WEBRTC_LOG_TAG,
-         "Could not set RED");
-     return -1;
-     }
-     else if(enable)
-     {
-     __android_log_write(ANDROID_LOG_ERROR, WEBRTC_LOG_TAG,
-         "Could enable RED");
-     }
-     else
-     {
-     __android_log_write(ANDROID_LOG_ERROR, WEBRTC_LOG_TAG,
-         "Could disable RED");
-     }*/
 
     return 0;
 }

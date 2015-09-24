@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CONTENT_RENDERER_SHARED_WORKER_EMBEDDED_SHARED_WORKER_STUB_H
-#define CONTENT_RENDERER_SHARED_WORKER_EMBEDDED_SHARED_WORKER_STUB_H
+#ifndef CONTENT_RENDERER_SHARED_WORKER_EMBEDDED_SHARED_WORKER_STUB_H_
+#define CONTENT_RENDERER_SHARED_WORKER_EMBEDDED_SHARED_WORKER_STUB_H_
 
 #include <vector>
 
@@ -22,7 +22,7 @@ class WebMessagePortChannel;
 class WebNotificationPresenter;
 class WebSecurityOrigin;
 class WebSharedWorker;
-class WebWorkerPermissionClientProxy;
+class WebWorkerContentSettingsClientProxy;
 }
 
 namespace content {
@@ -30,6 +30,16 @@ class SharedWorkerDevToolsAgent;
 class WebApplicationCacheHostImpl;
 class WebMessagePortChannelImpl;
 
+// A stub class to receive IPC from browser process and talk to
+// blink::WebSharedWorker. Implements blink::WebSharedWorkerClient.
+// This class is self-destruct (no one explicitly owns this), and
+// deletes itself (via private Shutdown() method) when either one of
+// following methods is called by blink::WebSharedWorker:
+// - workerScriptLoadFailed() or
+// - workerContextDestroyed()
+//
+// In either case the corresponding blink::WebSharedWorker also deletes
+// itself.
 class EmbeddedSharedWorkerStub : public IPC::Listener,
                                  public blink::WebSharedWorkerClient {
  public:
@@ -55,12 +65,15 @@ class EmbeddedSharedWorkerStub : public IPC::Listener,
   virtual blink::WebNotificationPresenter* notificationPresenter() override;
   virtual blink::WebApplicationCacheHost* createApplicationCacheHost(
       blink::WebApplicationCacheHostClient*) override;
-  virtual blink::WebWorkerPermissionClientProxy*
-      createWorkerPermissionClientProxy(
+  virtual blink::WebWorkerContentSettingsClientProxy*
+      createWorkerContentSettingsClientProxy(
           const blink::WebSecurityOrigin& origin) override;
-  virtual void dispatchDevToolsMessage(
-      const blink::WebString& message) override;
-  virtual void saveDevToolsAgentState(const blink::WebString& state) override;
+  virtual blink::WebServiceWorkerNetworkProvider*
+      createServiceWorkerNetworkProvider(blink::WebDataSource*) override;
+  virtual void sendDevToolsMessage(
+      int call_id,
+      const blink::WebString& message,
+      const blink::WebString& state) override;
 
  private:
   ~EmbeddedSharedWorkerStub() override;
@@ -76,19 +89,19 @@ class EmbeddedSharedWorkerStub : public IPC::Listener,
 
   int route_id_;
   base::string16 name_;
-  bool runing_;
+  bool running_ = false;
   GURL url_;
-  blink::WebSharedWorker* impl_;
+  blink::WebSharedWorker* impl_ = nullptr;
   scoped_ptr<SharedWorkerDevToolsAgent> worker_devtools_agent_;
 
   typedef std::vector<WebMessagePortChannelImpl*> PendingChannelList;
   PendingChannelList pending_channels_;
 
   ScopedChildProcessReference process_ref_;
-  WebApplicationCacheHostImpl* app_cache_host_;
+  WebApplicationCacheHostImpl* app_cache_host_ = nullptr;
   DISALLOW_COPY_AND_ASSIGN(EmbeddedSharedWorkerStub);
 };
 
 }  // namespace content
 
-#endif  // CONTENT_RENDERER_SHARED_WORKER_EMBEDDED_SHARED_WORKER_STUB_H
+#endif  // CONTENT_RENDERER_SHARED_WORKER_EMBEDDED_SHARED_WORKER_STUB_H_

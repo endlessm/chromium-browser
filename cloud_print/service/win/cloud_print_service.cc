@@ -2,7 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// Work around warning in atlbase.h
+// https://connect.microsoft.com/VisualStudio/feedback/details/1032199/atlbase-h-gives-warning-c4189-when-compiling-with-atl-no-com-support
+#pragma warning(push)
+#pragma warning(disable:4189)
 #include <atlbase.h>
+#pragma warning(pop)
 #include <security.h>
 
 #include <iomanip>
@@ -142,7 +147,7 @@ class CloudPrintServiceModule
         controller_(new ServiceController()) {
   }
 
-  static wchar_t* GetAppIdT() {
+  static const wchar_t* GetAppIdT() {
     return ServiceController::GetAppIdT();
   };
 
@@ -154,7 +159,7 @@ class CloudPrintServiceModule
 
   bool ParseCommandLine(LPCTSTR lpCmdLine, HRESULT* pnRetCode) {
     CHECK(pnRetCode);
-    CommandLine command_line(CommandLine::NO_PROGRAM);
+    base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
     command_line.ParseFromString(lpCmdLine);
 
     LOG(INFO) << command_line.GetCommandLineString();
@@ -198,7 +203,8 @@ class CloudPrintServiceModule
   }
 
  private:
-  HRESULT ParseCommandLine(const CommandLine& command_line, bool* is_service) {
+  HRESULT ParseCommandLine(const base::CommandLine& command_line,
+                           bool* is_service) {
     if (!is_service)
       return E_INVALIDARG;
     *is_service = false;
@@ -333,10 +339,9 @@ class CloudPrintServiceModule
     base::FilePath file = user_data_dir.Append(chrome::kServiceStateFileName);
 
     std::string contents;
+    base::ReadFileToString(file, &contents);
     ServiceState service_state;
-
-    bool is_valid = base::ReadFileToString(file, &contents) &&
-                    service_state.FromString(contents);
+    service_state.FromString(contents);
     std::string proxy_id = service_state.proxy_id();
 
     LOG(INFO) << file.value() << ": " << contents;
@@ -404,7 +409,8 @@ BOOL CloudPrintServiceModule::ConsoleCtrlHandler(DWORD type) {
 }
 
 int main(int argc, char** argv) {
-  CommandLine::Init(argc, argv);
+  base::CommandLine::Init(argc, argv);
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   base::AtExitManager at_exit;
 
   logging::LoggingSettings settings;
@@ -412,7 +418,7 @@ int main(int argc, char** argv) {
   logging::InitLogging(settings);
 
   logging::SetMinLogLevel(
-      CommandLine::ForCurrentProcess()->HasSwitch(switches::kEnableLogging) ?
+      command_line->HasSwitch(switches::kEnableLogging) ?
       logging::LOG_INFO : logging::LOG_FATAL);
 
   return _AtlModule.WinMain(0);

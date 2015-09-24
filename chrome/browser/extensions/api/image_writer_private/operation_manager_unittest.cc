@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/command_line.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/extensions/api/image_writer_private/error_messages.h"
 #include "chrome/browser/extensions/api/image_writer_private/operation_manager.h"
 #include "chrome/browser/extensions/api/image_writer_private/test_utils.h"
@@ -11,6 +12,7 @@
 #include "chrome/browser/extensions/test_extension_system.h"
 #include "chrome/test/base/testing_profile.h"
 #include "extensions/browser/event_router.h"
+#include "extensions/browser/event_router_factory.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/login/users/scoped_test_user_manager.h"
@@ -33,23 +35,10 @@ class FakeEventRouter : public extensions::EventRouter {
   }
 };
 
-// A fake ExtensionSystem that returns a FakeEventRouter for event_router().
-class FakeExtensionSystem : public extensions::TestExtensionSystem {
- public:
-  explicit FakeExtensionSystem(Profile* profile)
-      : TestExtensionSystem(profile) {
-    fake_event_router_.reset(new FakeEventRouter(profile));
-  }
-
-  EventRouter* event_router() override { return fake_event_router_.get(); }
-
- private:
-  scoped_ptr<FakeEventRouter> fake_event_router_;
-};
-
-// Factory function to register for the ExtensionSystem.
-KeyedService* BuildFakeExtensionSystem(content::BrowserContext* profile) {
-  return new FakeExtensionSystem(static_cast<Profile*>(profile));
+// FakeEventRouter factory function
+scoped_ptr<KeyedService> FakeEventRouterFactoryFunction(
+    content::BrowserContext* context) {
+  return make_scoped_ptr(new FakeEventRouter(static_cast<Profile*>(context)));
 }
 
 namespace {
@@ -76,11 +65,9 @@ class ImageWriterOperationManagerTest : public ImageWriterUnitTestBase {
 
   void SetUp() override {
     ImageWriterUnitTestBase::SetUp();
-    extension_system_ = static_cast<FakeExtensionSystem*>(
-        ExtensionSystemFactory::GetInstance()->
-            SetTestingFactoryAndUse(&test_profile_, &BuildFakeExtensionSystem));
     event_router_ = static_cast<FakeEventRouter*>(
-        extension_system_->event_router());
+        extensions::EventRouterFactory::GetInstance()->SetTestingFactoryAndUse(
+            &test_profile_, &FakeEventRouterFactoryFunction));
   }
 
   bool started_;
@@ -92,7 +79,6 @@ class ImageWriterOperationManagerTest : public ImageWriterUnitTestBase {
   std::string cancel_error_;
 
   TestingProfile test_profile_;
-  FakeExtensionSystem* extension_system_;
   FakeEventRouter* event_router_;
 
 #if defined(OS_CHROMEOS)

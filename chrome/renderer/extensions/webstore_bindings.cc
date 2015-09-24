@@ -8,12 +8,13 @@
 #include "chrome/common/extensions/api/webstore/webstore_api_constants.h"
 #include "chrome/common/extensions/chrome_extension_messages.h"
 #include "components/crx_file/id_util.h"
-#include "content/public/renderer/render_view.h"
+#include "content/public/renderer/render_frame.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_urls.h"
 #include "extensions/renderer/script_context.h"
 #include "third_party/WebKit/public/web/WebDocument.h"
 #include "third_party/WebKit/public/web/WebElement.h"
+#include "third_party/WebKit/public/web/WebLocalFrame.h"
 #include "third_party/WebKit/public/web/WebNode.h"
 #include "third_party/WebKit/public/web/WebNodeList.h"
 #include "third_party/WebKit/public/web/WebUserGestureIndicator.h"
@@ -22,7 +23,6 @@
 
 using blink::WebDocument;
 using blink::WebElement;
-using blink::WebFrame;
 using blink::WebNode;
 using blink::WebNodeList;
 using blink::WebUserGestureIndicator;
@@ -50,15 +50,15 @@ int g_next_install_id = 0;
 } // anonymous namespace
 
 WebstoreBindings::WebstoreBindings(ScriptContext* context)
-    : ObjectBackedNativeHandler(context), ChromeV8ExtensionHandler(context) {
+    : ObjectBackedNativeHandler(context) {
   RouteFunction("Install",
                 base::Bind(&WebstoreBindings::Install, base::Unretained(this)));
 }
 
 void WebstoreBindings::Install(
     const v8::FunctionCallbackInfo<v8::Value>& args) {
-  content::RenderView* render_view = context()->GetRenderView();
-  if (!render_view)
+  content::RenderFrame* render_frame = context()->GetRenderFrame();
+  if (!render_frame)
     return;
 
   // The first two arguments indicate whether or not there are install stage
@@ -79,7 +79,7 @@ void WebstoreBindings::Install(
 
   std::string webstore_item_id;
   std::string error;
-  WebFrame* frame = context()->web_frame();
+  blink::WebLocalFrame* frame = context()->web_frame();
 
   if (!GetWebstoreItemIdFromFrame(
       frame, preferred_store_link_url, &webstore_item_id, &error)) {
@@ -90,20 +90,19 @@ void WebstoreBindings::Install(
 
   int install_id = g_next_install_id++;
 
-  Send(new ExtensionHostMsg_InlineWebstoreInstall(render_view->GetRoutingID(),
-                                                  install_id,
-                                                  GetRoutingID(),
-                                                  webstore_item_id,
-                                                  frame->document().url(),
-                                                  listener_mask));
+  Send(new ExtensionHostMsg_InlineWebstoreInstall(
+      render_frame->GetRoutingID(), install_id, GetRoutingID(),
+      webstore_item_id, frame->document().url(), listener_mask));
 
   args.GetReturnValue().Set(static_cast<int32_t>(install_id));
 }
 
 // static
 bool WebstoreBindings::GetWebstoreItemIdFromFrame(
-      WebFrame* frame, const std::string& preferred_store_link_url,
-      std::string* webstore_item_id, std::string* error) {
+    blink::WebLocalFrame* frame,
+    const std::string& preferred_store_link_url,
+    std::string* webstore_item_id,
+    std::string* error) {
   if (frame != frame->top()) {
     *error = kNotInTopFrameError;
     return false;
@@ -140,7 +139,7 @@ bool WebstoreBindings::GetWebstoreItemIdFromFrame(
       continue;
 
     std::string rel = elem.getAttribute("rel").utf8();
-    if (!LowerCaseEqualsASCII(rel, kWebstoreLinkRelation))
+    if (!base::LowerCaseEqualsASCII(rel, kWebstoreLinkRelation))
       continue;
 
     std::string webstore_url_string(elem.getAttribute("href").utf8());
@@ -158,8 +157,8 @@ bool WebstoreBindings::GetWebstoreItemIdFromFrame(
 
     if (webstore_url.scheme() != webstore_base_url.scheme() ||
         webstore_url.host() != webstore_base_url.host() ||
-        !StartsWithASCII(
-            webstore_url.path(), webstore_base_url.path(), true)) {
+        !base::StartsWith(webstore_url.path(), webstore_base_url.path(),
+                          base::CompareCase::SENSITIVE)) {
       *error = kInvalidWebstoreItemUrlError;
       return false;
     }
@@ -208,7 +207,7 @@ void WebstoreBindings::OnInlineWebstoreInstallResponse(
   v8::Isolate* isolate = context()->isolate();
   v8::HandleScope handle_scope(isolate);
   v8::Context::Scope context_scope(context()->v8_context());
-  v8::Handle<v8::Value> argv[] = {
+  v8::Local<v8::Value> argv[] = {
     v8::Integer::New(isolate, install_id),
     v8::Boolean::New(isolate, success),
     v8::String::NewFromUtf8(isolate, error.c_str()),
@@ -234,7 +233,7 @@ void WebstoreBindings::OnInlineInstallStageChanged(int stage) {
   v8::Isolate* isolate = context()->isolate();
   v8::HandleScope handle_scope(isolate);
   v8::Context::Scope context_scope(context()->v8_context());
-  v8::Handle<v8::Value> argv[] = {
+  v8::Local<v8::Value> argv[] = {
       v8::String::NewFromUtf8(isolate, stage_string)};
   context()->module_system()->CallModuleMethod(
       "webstore", "onInstallStageChanged", arraysize(argv), argv);
@@ -244,7 +243,7 @@ void WebstoreBindings::OnInlineInstallDownloadProgress(int percent_downloaded) {
   v8::Isolate* isolate = context()->isolate();
   v8::HandleScope handle_scope(isolate);
   v8::Context::Scope context_scope(context()->v8_context());
-  v8::Handle<v8::Value> argv[] = {
+  v8::Local<v8::Value> argv[] = {
       v8::Number::New(isolate, percent_downloaded / 100.0)};
   context()->module_system()->CallModuleMethod(
       "webstore", "onDownloadProgress", arraysize(argv), argv);

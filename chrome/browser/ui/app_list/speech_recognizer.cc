@@ -15,7 +15,8 @@
 #include "content/public/browser/speech_recognition_event_listener.h"
 #include "content/public/browser/speech_recognition_manager.h"
 #include "content/public/browser/speech_recognition_session_config.h"
-#include "content/public/browser/web_contents.h"
+#include "content/public/browser/speech_recognition_session_preamble.h"
+#include "content/public/common/child_process_host.h"
 #include "content/public/common/speech_recognition_error.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "ui/app_list/speech_ui_model_observer.h"
@@ -24,6 +25,9 @@ namespace app_list {
 
 // Length of timeout to cancel recognition if there's no speech heard.
 static const int kNoSpeechTimeoutInSeconds = 5;
+
+// Length of timeout to cancel recognition if no different results are received.
+static const int kNoNewSpeechTimeoutInSeconds = 2;
 
 // Invalid speech session.
 static const int kInvalidSessionId = -1;
@@ -43,16 +47,21 @@ class SpeechRecognizer::EventListener
                 net::URLRequestContextGetter* url_request_context_getter,
                 const std::string& locale);
 
-  void StartOnIOThread(int render_process_id);
+  void StartOnIOThread(
+      const std::string& auth_scope,
+      const std::string& auth_token,
+      const scoped_refptr<content::SpeechRecognitionSessionPreamble>& preamble);
   void StopOnIOThread();
 
  private:
   friend class base::RefCountedThreadSafe<SpeechRecognizer::EventListener>;
-  ~EventListener();
+  ~EventListener() override;
 
   void NotifyRecognitionStateChanged(SpeechRecognitionState new_state);
 
-  void StartSpeechTimeout();
+  // Starts a timer for |timeout_seconds|. When the timer expires, will stop
+  // capturing audio and get a final utterance from the recognition manager.
+  void StartSpeechTimeout(int timeout_seconds);
   void StopSpeechTimeout();
   void SpeechTimeout();
 
@@ -81,6 +90,7 @@ class SpeechRecognizer::EventListener
   std::string locale_;
   base::Timer speech_timeout_;
   int session_;
+  base::string16 last_result_str_;
 
   base::WeakPtrFactory<EventListener> weak_factory_;
 
@@ -104,7 +114,10 @@ SpeechRecognizer::EventListener::~EventListener() {
   DCHECK(!speech_timeout_.IsRunning());
 }
 
-void SpeechRecognizer::EventListener::StartOnIOThread(int render_process_id) {
+void SpeechRecognizer::EventListener::StartOnIOThread(
+    const std::string& auth_scope,
+    const std::string& auth_token,
+    const scoped_refptr<content::SpeechRecognitionSessionPreamble>& preamble) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   if (session_ != kInvalidSessionId)
     StopOnIOThread();
@@ -118,7 +131,13 @@ void SpeechRecognizer::EventListener::StartOnIOThread(int render_process_id) {
   config.filter_profanities = true;
   config.url_request_context_getter = url_request_context_getter_;
   config.event_listener = weak_factory_.GetWeakPtr();
-  config.initial_context.render_process_id = render_process_id;
+  // kInvalidUniqueID is not a valid render process, so the speech permission
+  // check allows the request through.
+  config.initial_context.render_process_id =
+      content::ChildProcessHost::kInvalidUniqueID;
+  config.auth_scope = auth_scope;
+  config.auth_token = auth_token;
+  config.preamble = preamble;
 
   auto speech_instance = content::SpeechRecognitionManager::GetInstance();
   session_ = speech_instance->CreateSession(config);
@@ -148,11 +167,11 @@ void SpeechRecognizer::EventListener::NotifyRecognitionStateChanged(
                  new_state));
 }
 
-void SpeechRecognizer::EventListener::StartSpeechTimeout() {
+void SpeechRecognizer::EventListener::StartSpeechTimeout(int timeout_seconds) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   speech_timeout_.Start(
       FROM_HERE,
-      base::TimeDelta::FromSeconds(kNoSpeechTimeoutInSeconds),
+      base::TimeDelta::FromSeconds(timeout_seconds),
       base::Bind(&SpeechRecognizer::EventListener::SpeechTimeout, this));
 }
 
@@ -179,12 +198,14 @@ void SpeechRecognizer::EventListener::OnRecognitionResults(
     int session_id, const content::SpeechRecognitionResults& results) {
   base::string16 result_str;
   size_t final_count = 0;
+  // The number of results with |is_provisional| false. If |final_count| ==
+  // results.size(), then all results are non-provisional and the recognition is
+  // complete.
   for (const auto& result : results) {
     if (!result.is_provisional)
       final_count++;
     result_str += result.hypotheses[0].utterance;
   }
-  StopSpeechTimeout();
   content::BrowserThread::PostTask(
       content::BrowserThread::UI,
       FROM_HERE,
@@ -193,9 +214,15 @@ void SpeechRecognizer::EventListener::OnRecognitionResults(
                  result_str,
                  final_count == results.size()));
 
-  // Stop the moment we have a final result.
+  // Stop the moment we have a final result. If we receive any new or changed
+  // text, restart the timer to give the user more time to speak. (The timer is
+  // recording the amount of time since the most recent utterance.)
   if (final_count == results.size())
     StopOnIOThread();
+  else if (result_str != last_result_str_)
+    StartSpeechTimeout(kNoNewSpeechTimeoutInSeconds);
+
+  last_result_str_ = result_str;
 }
 
 void SpeechRecognizer::EventListener::OnRecognitionError(
@@ -208,7 +235,7 @@ void SpeechRecognizer::EventListener::OnRecognitionError(
 }
 
 void SpeechRecognizer::EventListener::OnSoundStart(int session_id) {
-  StartSpeechTimeout();
+  StartSpeechTimeout(kNoSpeechTimeoutInSeconds);
   NotifyRecognitionStateChanged(SPEECH_RECOGNITION_IN_SPEECH);
 }
 
@@ -251,7 +278,7 @@ SpeechRecognizer::SpeechRecognizer(
     const std::string& locale)
     : delegate_(delegate),
       speech_event_listener_(new EventListener(
-          delegate, url_request_context_getter, locale)){
+          delegate, url_request_context_getter, locale)) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 }
 
@@ -260,23 +287,21 @@ SpeechRecognizer::~SpeechRecognizer() {
   Stop();
 }
 
-void SpeechRecognizer::Start() {
+void SpeechRecognizer::Start(
+    const scoped_refptr<content::SpeechRecognitionSessionPreamble>& preamble) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  // The speech recognizer checks to see if the request is allowed by looking
-  // up the renderer process. A renderer containing the app-list is hard-coded
-  // to be allowed.
-  if (!delegate_)
-    return;
-  content::WebContents* contents = delegate_->GetSpeechContents();
-  if (!contents)
-    return;
+  std::string auth_scope;
+  std::string auth_token;
+  delegate_->GetSpeechAuthParameters(&auth_scope, &auth_token);
 
   content::BrowserThread::PostTask(
       content::BrowserThread::IO,
       FROM_HERE,
       base::Bind(&SpeechRecognizer::EventListener::StartOnIOThread,
                  speech_event_listener_,
-                 contents->GetRenderProcessHost()->GetID()));
+                 auth_scope,
+                 auth_token,
+                 preamble));
 }
 
 void SpeechRecognizer::Stop() {

@@ -18,7 +18,6 @@
 #include "media/base/limits.h"
 #include "media/base/media_switches.h"
 #include "media/base/pipeline.h"
-#include "media/base/video_decoder_config.h"
 #include "media/base/video_frame.h"
 #include "media/base/video_util.h"
 #include "media/ffmpeg/ffmpeg_common.h"
@@ -44,7 +43,7 @@ static int GetThreadCount(AVCodecID codec_id) {
   // Refer to http://crbug.com/93932 for tsan suppressions on decoding.
   int decode_threads = kDecodeThreads;
 
-  const CommandLine* cmd_line = CommandLine::ForCurrentProcess();
+  const base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
   std::string threads(cmd_line->GetSwitchValueASCII(switches::kVideoThreads));
   if (threads.empty() || !base::StringToInt(threads, &decode_threads))
     return decode_threads;
@@ -85,11 +84,13 @@ int FFmpegVideoDecoder::GetVideoBuffer(struct AVCodecContext* codec_context,
   // whereas |codec_context| contains the current threads's
   // updated width/height/pix_fmt, which can change for adaptive
   // content.
-  VideoFrame::Format format = PixelFormatToVideoFormat(codec_context->pix_fmt);
+  const VideoFrame::Format format =
+      PixelFormatToVideoFormat(codec_context->pix_fmt);
+
   if (format == VideoFrame::UNKNOWN)
     return AVERROR(EINVAL);
   DCHECK(format == VideoFrame::YV12 || format == VideoFrame::YV16 ||
-         format == VideoFrame::YV12J || format == VideoFrame::YV24);
+         format == VideoFrame::YV24);
 
   gfx::Size size(codec_context->width, codec_context->height);
   const int ret = av_image_check_size(size.width(), size.height(), 0, NULL);
@@ -119,12 +120,20 @@ int FFmpegVideoDecoder::GetVideoBuffer(struct AVCodecContext* codec_context,
       RoundUp(std::max(size.width(), codec_context->coded_width), 2),
       RoundUp(std::max(size.height(), codec_context->coded_height), 2));
 
-  if (!VideoFrame::IsValidConfig(
-          format, coded_size, gfx::Rect(size), natural_size))
+  if (!VideoFrame::IsValidConfig(format, VideoFrame::STORAGE_UNKNOWN,
+                                 coded_size, gfx::Rect(size), natural_size)) {
     return AVERROR(EINVAL);
+  }
 
   scoped_refptr<VideoFrame> video_frame = frame_pool_.CreateFrame(
       format, coded_size, gfx::Rect(size), natural_size, kNoTimestamp());
+  if (codec_context->color_range == AVCOL_RANGE_JPEG)
+    video_frame->metadata()->SetInteger(VideoFrameMetadata::COLOR_SPACE,
+                                        VideoFrame::COLOR_SPACE_JPEG);
+  else if (codec_context->colorspace == AVCOL_SPC_BT709) {
+    video_frame->metadata()->SetInteger(VideoFrameMetadata::COLOR_SPACE,
+                                        VideoFrame::COLOR_SPACE_HD_REC709);
+  }
 
   for (int i = 0; i < 3; i++) {
     frame->data[i] = video_frame->data(i);
@@ -155,7 +164,7 @@ std::string FFmpegVideoDecoder::GetDisplayName() const {
 
 void FFmpegVideoDecoder::Initialize(const VideoDecoderConfig& config,
                                     bool low_delay,
-                                    const PipelineStatusCB& status_cb,
+                                    const InitCB& init_cb,
                                     const OutputCB& output_cb) {
   DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK(!config.is_encrypted());
@@ -164,10 +173,10 @@ void FFmpegVideoDecoder::Initialize(const VideoDecoderConfig& config,
   FFmpegGlue::InitializeFFmpeg();
 
   config_ = config;
-  PipelineStatusCB initialize_cb = BindToCurrentLoop(status_cb);
+  InitCB bound_init_cb = BindToCurrentLoop(init_cb);
 
   if (!config.IsValidConfig() || !ConfigureDecoder(low_delay)) {
-    initialize_cb.Run(DECODER_ERROR_NOT_SUPPORTED);
+    bound_init_cb.Run(false);
     return;
   }
 
@@ -175,7 +184,7 @@ void FFmpegVideoDecoder::Initialize(const VideoDecoderConfig& config,
 
   // Success!
   state_ = kNormal;
-  initialize_cb.Run(PIPELINE_OK);
+  bound_init_cb.Run(true);
 }
 
 void FFmpegVideoDecoder::Decode(const scoped_refptr<DecoderBuffer>& buffer,
@@ -234,6 +243,8 @@ void FFmpegVideoDecoder::Decode(const scoped_refptr<DecoderBuffer>& buffer,
   if (buffer->end_of_stream())
     state_ = kDecodeFinished;
 
+  // VideoDecoderShim expects that |decode_cb| is called only after
+  // |output_cb_|.
   decode_cb_bound.Run(kOk);
 }
 

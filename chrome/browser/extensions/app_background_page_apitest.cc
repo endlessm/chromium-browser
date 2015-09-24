@@ -2,14 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/location.h"
 #include "base/path_service.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/background/background_contents_service.h"
 #include "chrome/browser/background/background_contents_service_factory.h"
 #include "chrome/browser/background/background_mode_manager.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
@@ -42,7 +44,7 @@ using extensions::Extension;
 
 class AppBackgroundPageApiTest : public ExtensionApiTest {
  public:
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionApiTest::SetUpCommandLine(command_line);
     command_line->AppendSwitch(switches::kDisablePopupBlocking);
     command_line->AppendSwitch(extensions::switches::kAllowHTTPBackgroundPage);
@@ -94,22 +96,8 @@ class AppBackgroundPageApiTest : public ExtensionApiTest {
 #endif
   }
 
-  void CloseBrowser(Browser* browser) {
-    content::WindowedNotificationObserver observer(
-        chrome::NOTIFICATION_BROWSER_CLOSED,
-        content::NotificationService::AllSources());
-    browser->window()->Close();
-#if defined(OS_MACOSX)
-    // BrowserWindowController depends on the auto release pool being recycled
-    // in the message loop to delete itself, which frees the Browser object
-    // which fires this event.
-    AutoreleasePool()->Recycle();
-#endif
-    observer.Wait();
-  }
-
   void UnloadExtensionViaTask(const std::string& id) {
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(&AppBackgroundPageApiTest::UnloadExtension, this, id));
   }
@@ -226,7 +214,7 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, MAYBE_Basic) {
       "      \"http://a.com/\""
       "    ],"
       "    \"launch\": {"
-      "      \"web_url\": \"http://a.com:%d/\""
+      "      \"web_url\": \"http://a.com:%u/\""
       "    }"
       "  },"
       "  \"permissions\": [\"background\"]"
@@ -259,7 +247,7 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, DISABLED_LacksPermission) {
       "      \"http://a.com/\""
       "    ],"
       "    \"launch\": {"
-      "      \"web_url\": \"http://a.com:%d/\""
+      "      \"web_url\": \"http://a.com:%u/\""
       "    }"
       "  }"
       "}",
@@ -287,12 +275,12 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, ManifestBackgroundPage) {
       "      \"http://a.com/\""
       "    ],"
       "    \"launch\": {"
-      "      \"web_url\": \"http://a.com:%d/\""
+      "      \"web_url\": \"http://a.com:%u/\""
       "    }"
       "  },"
       "  \"permissions\": [\"background\"],"
       "  \"background\": {"
-      "    \"page\": \"http://a.com:%d/test.html\""
+      "    \"page\": \"http://a.com:%u/test.html\""
       "  }"
       "}",
       embedded_test_server()->port(),
@@ -340,7 +328,7 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, NoJsBackgroundPage) {
       "      \"http://a.com/\""
       "    ],"
       "    \"launch\": {"
-      "      \"web_url\": \"http://a.com:%d/test.html\""
+      "      \"web_url\": \"http://a.com:%u/test.html\""
       "    }"
       "  },"
       "  \"permissions\": [\"background\"],"
@@ -384,12 +372,12 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, NoJsManifestBackgroundPage) {
       "      \"http://a.com/\""
       "    ],"
       "    \"launch\": {"
-      "      \"web_url\": \"http://a.com:%d/\""
+      "      \"web_url\": \"http://a.com:%u/\""
       "    }"
       "  },"
       "  \"permissions\": [\"background\"],"
       "  \"background\": {"
-      "    \"page\": \"http://a.com:%d/bg.html\","
+      "    \"page\": \"http://a.com:%u/bg.html\","
       "    \"allow_js_access\": false"
       "  }"
       "}",
@@ -424,7 +412,7 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, OpenTwoBackgroundPages) {
       "      \"http://a.com/\""
       "    ],"
       "    \"launch\": {"
-      "      \"web_url\": \"http://a.com:%d/\""
+      "      \"web_url\": \"http://a.com:%u/\""
       "    }"
       "  },"
       "  \"permissions\": [\"background\"]"
@@ -453,11 +441,11 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, OpenTwoPagesWithManifest) {
       "      \"http://a.com/\""
       "    ],"
       "    \"launch\": {"
-      "      \"web_url\": \"http://a.com:%d/\""
+      "      \"web_url\": \"http://a.com:%u/\""
       "    }"
       "  },"
       "  \"background\": {"
-      "    \"page\": \"http://a.com:%d/bg.html\""
+      "    \"page\": \"http://a.com:%u/bg.html\""
       "  },"
       "  \"permissions\": [\"background\"]"
       "}",
@@ -488,10 +476,10 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, DISABLED_OpenPopupFromBGPage) {
       "      \"http://a.com/\""
       "    ],"
       "    \"launch\": {"
-      "      \"web_url\": \"http://a.com:%d/\""
+      "      \"web_url\": \"http://a.com:%u/\""
       "    }"
       "  },"
-      "  \"background\": { \"page\": \"http://a.com:%d/extensions/api_test/"
+      "  \"background\": { \"page\": \"http://a.com:%u/extensions/api_test/"
       "app_background_page/bg_open/bg_open_bg.html\" },"
       "  \"permissions\": [\"background\"]"
       "}",
@@ -518,7 +506,7 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, DISABLED_OpenThenClose) {
       "      \"http://a.com/\""
       "    ],"
       "    \"launch\": {"
-      "      \"web_url\": \"http://a.com:%d/\""
+      "      \"web_url\": \"http://a.com:%u/\""
       "    }"
       "  },"
       "  \"permissions\": [\"background\"]"
@@ -564,12 +552,12 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, UnloadExtensionWhileHidden) {
       "      \"http://a.com/\""
       "    ],"
       "    \"launch\": {"
-      "      \"web_url\": \"http://a.com:%d/\""
+      "      \"web_url\": \"http://a.com:%u/\""
       "    }"
       "  },"
       "  \"permissions\": [\"background\"],"
       "  \"background\": {"
-      "    \"page\": \"http://a.com:%d/test.html\""
+      "    \"page\": \"http://a.com:%u/test.html\""
       "  }"
       "}",
       embedded_test_server()->port(),
@@ -591,7 +579,7 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, UnloadExtensionWhileHidden) {
 
   // Close all browsers - app should continue running.
   set_exit_when_last_browser_closes(false);
-  CloseBrowser(browser());
+  CloseBrowserSynchronously(browser());
 
   // Post a task to unload the extension - this should cause Chrome to exit
   // cleanly (not crash).
@@ -605,7 +593,9 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, UnloadExtensionWhileHidden) {
 #if defined(OS_WIN)
 #define MAYBE_BackgroundKeepaliveActive DISABLED_BackgroundKeepaliveActive
 #else
-#define MAYBE_BackgroundKeepaliveActive BackgroundKeepaliveActive
+// Disabling other platforms too since the test started failing
+// consistently. http://crbug.com/490440
+#define MAYBE_BackgroundKeepaliveActive DISABLED_BackgroundKeepaliveActive
 #endif
 IN_PROC_BROWSER_TEST_F(AppBackgroundPageNaClTest,
                        MAYBE_BackgroundKeepaliveActive) {

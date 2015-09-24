@@ -108,7 +108,7 @@ bool ValidateExpireDateFormat(const std::string& input) {
     if (i == 4 ||  i == 7) {
       if (input[i] != '-')
         return false;
-    } else if (!IsAsciiDigit(input[i])) {
+    } else if (!base::IsAsciiDigit(input[i])) {
       return false;
     }
   }
@@ -287,8 +287,9 @@ class InstallSigner::FetcherDelegate : public net::URLFetcherDelegate {
 
 // static
 ExtensionIdSet InstallSigner::GetForcedNotFromWebstore() {
-  std::string value = CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-      switches::kExtensionsNotWebstore);
+  std::string value =
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          switches::kExtensionsNotWebstore);
   if (value.empty())
     return ExtensionIdSet();
 
@@ -368,8 +369,8 @@ void InstallSigner::GetSignature(const SignatureCallback& callback) {
                                      base::Unretained(this));
 
   delegate_.reset(new FetcherDelegate(closure));
-  url_fetcher_.reset(net::URLFetcher::Create(
-      GetBackendUrl(), net::URLFetcher::POST, delegate_.get()));
+  url_fetcher_ = net::URLFetcher::Create(GetBackendUrl(), net::URLFetcher::POST,
+                                         delegate_.get());
   url_fetcher_->SetRequestContext(context_getter_);
 
   // The request protocol is JSON of the form:
@@ -387,7 +388,7 @@ void InstallSigner::GetSignature(const SignatureCallback& callback) {
   }
   dictionary.Set(kIdsKey, id_list.release());
   std::string json;
-  base::JSONWriter::Write(&dictionary, &json);
+  base::JSONWriter::Write(dictionary, &json);
   if (json.empty()) {
     ReportErrorViaCallback();
     return;
@@ -433,7 +434,7 @@ void InstallSigner::ParseFetchResponse() {
   // could not be verified to be in the webstore.
 
   base::DictionaryValue* dictionary = NULL;
-  scoped_ptr<base::Value> parsed(base::JSONReader::Read(response));
+  scoped_ptr<base::Value> parsed = base::JSONReader::Read(response);
   bool json_success = parsed.get() && parsed->GetAsDictionary(&dictionary);
   UMA_HISTOGRAM_BOOLEAN("ExtensionInstallSigner.ParseJsonSuccess",
                         json_success);

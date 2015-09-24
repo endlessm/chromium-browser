@@ -9,7 +9,7 @@
 #include "core/events/EventTarget.h"
 #include "core/frame/DOMWindowProperty.h"
 #include "platform/heap/Handle.h"
-#include "public/platform/WebScreenOrientationType.h"
+#include "public/platform/modules/screen_orientation/WebScreenOrientationType.h"
 #include "wtf/text/AtomicString.h"
 #include "wtf/text/WTFString.h"
 
@@ -22,20 +22,19 @@ class ScriptState;
 class ScreenOrientationController;
 
 class ScreenOrientation final
-    : public RefCountedGarbageCollectedWillBeGarbageCollectedFinalized<ScreenOrientation>
-    , public EventTargetWithInlineData
+    : public RefCountedGarbageCollectedEventTargetWithInlineData<ScreenOrientation>
     , public DOMWindowProperty {
-    DEFINE_EVENT_TARGET_REFCOUNTING_WILL_BE_REMOVED(RefCountedGarbageCollectedWillBeGarbageCollectedFinalized<ScreenOrientation>);
+    REFCOUNTED_GARBAGE_COLLECTED_EVENT_TARGET(ScreenOrientation);
     DEFINE_WRAPPERTYPEINFO();
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(ScreenOrientation);
 public:
     static ScreenOrientation* create(LocalFrame*);
 
-    virtual ~ScreenOrientation();
+    ~ScreenOrientation() override;
 
     // EventTarget implementation.
-    virtual const WTF::AtomicString& interfaceName() const override;
-    virtual ExecutionContext* executionContext() const override;
+    const WTF::AtomicString& interfaceName() const override;
+    ExecutionContext* executionContext() const override;
 
     String type() const;
     unsigned short angle() const;
@@ -51,7 +50,7 @@ public:
     // Helper being used by this class and LockOrientationCallback.
     static const AtomicString& orientationTypeToString(WebScreenOrientationType);
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     explicit ScreenOrientation(LocalFrame*);

@@ -7,14 +7,14 @@
 #include "chrome/browser/ui/cocoa/cocoa_profile_test.h"
 #include "chrome/browser/ui/omnibox/omnibox_edit_controller.h"
 #include "chrome/browser/ui/omnibox/omnibox_popup_model.h"
-#include "chrome/browser/ui/omnibox/omnibox_popup_view.h"
 #include "chrome/browser/ui/toolbar/toolbar_model_delegate.h"
 #include "chrome/browser/ui/toolbar/toolbar_model_impl.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/omnibox/browser/omnibox_popup_view.h"
 #include "testing/platform_test.h"
-#include "ui/gfx/image/image.h"
 #include "ui/gfx/font.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/image/image.h"
 
 namespace {
 
@@ -69,7 +69,6 @@ class TestingToolbarModelDelegate : public ToolbarModelDelegate {
 
   // Overridden from ToolbarModelDelegate:
   content::WebContents* GetActiveWebContents() const override { return NULL; }
-  bool InTabbedBrowser() const override { return true; }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TestingToolbarModelDelegate);
@@ -89,8 +88,6 @@ class TestingOmniboxEditController : public OmniboxEditController {
   void OnChanged() override {}
   void OnSetFocus() override {}
   void ShowURL() override {}
-  void HideURL() override {}
-  void EndOriginChipAnimations(bool cancel_fade) override {}
   InstantController* GetInstant() override { return NULL; }
   content::WebContents* GetWebContents() override { return NULL; }
   ToolbarModel* GetToolbarModel() override { return toolbar_model_; }

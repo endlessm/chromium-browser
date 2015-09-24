@@ -21,12 +21,14 @@
 #ifndef PrintContext_h
 #define PrintContext_h
 
+#include "core/CoreExport.h"
 #include "platform/heap/Handle.h"
-#include "platform/weborigin/KURLHash.h"
 #include "wtf/Forward.h"
 #include "wtf/HashMap.h"
 #include "wtf/Vector.h"
 #include "wtf/text/WTFString.h"
+
+class SkCanvas;
 
 namespace blink {
 
@@ -34,11 +36,10 @@ class Element;
 class LocalFrame;
 class FloatRect;
 class FloatSize;
-class GraphicsContext;
 class IntRect;
 class Node;
 
-class PrintContext : public NoBaseWillBeGarbageCollectedFinalized<PrintContext> {
+class CORE_EXPORT PrintContext : public NoBaseWillBeGarbageCollectedFinalized<PrintContext> {
 public:
     explicit PrintContext(LocalFrame*);
     virtual ~PrintContext();
@@ -53,7 +54,7 @@ public:
 
     // Deprecated. Page size computation is already in this class, clients shouldn't be copying it.
     // FIXME: Everyone passes |false| for the second paramer. We should remove the second parameter.
-    virtual void computePageRectsWithPageSize(const FloatSize& pageSizeInPixels, bool allowHorizontalTiling);
+    virtual void computePageRectsWithPageSize(const FloatSize& pageSizeInPixels);
 
     // These are only valid after page rects are computed.
     size_t pageCount() const { return m_pageRects.size(); }
@@ -74,24 +75,23 @@ public:
     static String pageSizeAndMarginsInPixels(LocalFrame* frame, int pageNumber, int width, int height, int marginTop, int marginRight, int marginBottom, int marginLeft);
     static int numberOfPages(LocalFrame*, const FloatSize& pageSizeInPixels);
 
-    virtual void trace(Visitor*);
+    DECLARE_VIRTUAL_TRACE();
 
 protected:
-    void outputLinkAndLinkedDestinations(GraphicsContext&, Node*, const IntRect& pageRect);
+    void outputLinkedDestinations(SkCanvas*, const IntRect& pageRect);
 
     RawPtrWillBeMember<LocalFrame> m_frame;
     Vector<IntRect> m_pageRects;
 
 private:
-    void computePageRectsWithPageSizeInternal(const FloatSize& pageSizeInPixels, bool allowHorizontalTiling);
-    void collectLinkAndLinkedDestinations(Node*);
+    void computePageRectsWithPageSizeInternal(const FloatSize& pageSizeInPixels);
+    void collectLinkedDestinations(Node*);
 
     // Used to prevent misuses of begin() and end() (e.g., call end without begin).
     bool m_isPrinting;
 
-    WillBeHeapHashMap<RawPtrWillBeMember<Element>, KURL> m_linkDestinations;
     WillBeHeapHashMap<String, RawPtrWillBeMember<Element>> m_linkedDestinations;
-    bool m_linkAndLinkedDestinationsValid;
+    bool m_linkedDestinationsValid;
 };
 
 }

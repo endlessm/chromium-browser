@@ -9,6 +9,7 @@
 #include "base/strings/string_util.h"
 #include "base/time/tick_clock.h"
 #include "extensions/browser/api/cast_channel/cast_auth_util.h"
+#include "extensions/browser/api/cast_channel/cast_socket.h"
 #include "extensions/browser/api/cast_channel/logger_util.h"
 #include "net/base/net_errors.h"
 #include "third_party/zlib/zlib.h"
@@ -75,7 +76,8 @@ scoped_ptr<char[]> Compress(const std::string& input, size_t* length) {
   size_t out_size = deflateBound(&stream, input.size());
   scoped_ptr<char[]> out(new char[out_size]);
 
-  COMPILE_ASSERT(sizeof(uint8) == sizeof(char), uint8_char_different_sizes);
+  static_assert(sizeof(uint8) == sizeof(char),
+                "uint8 char should be of different sizes");
 
   stream.next_in = reinterpret_cast<uint8*>(const_cast<char*>(input.data()));
   stream.avail_in = input.size();
@@ -143,10 +145,9 @@ Logger::~Logger() {
 void Logger::LogNewSocketEvent(const CastSocket& cast_socket) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  int channel_id = cast_socket.id();
   SocketEvent event = CreateEvent(proto::CAST_SOCKET_CREATED);
   AggregatedSocketEvent& aggregated_socket_event =
-      LogSocketEvent(channel_id, event);
+      LogSocketEvent(cast_socket.id(), event);
 
   const net::IPAddressNumber& ip = cast_socket.ip_endpoint().address();
   aggregated_socket_event.set_endpoint_id(ip.back());
@@ -250,7 +251,7 @@ void Logger::LogSocketEventForMessage(int channel_id,
   DCHECK(thread_checker_.CalledOnValidThread());
 
   SocketEvent event = CreateEvent(event_type);
-  if (StartsWithASCII(message_namespace, kInternalNamespacePrefix, false))
+  if (base::StartsWithASCII(message_namespace, kInternalNamespacePrefix, false))
     event.set_message_namespace(message_namespace);
   event.set_details(details);
 

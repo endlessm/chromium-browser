@@ -4,8 +4,12 @@
 
 #include "chrome/browser/notifications/notification_conversion_helper.h"
 
+#include <string>
+#include <vector>
+
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/common/extensions/api/notification_provider.h"
 #include "chrome/common/extensions/api/notifications/notification_style.h"
@@ -123,44 +127,42 @@ void NotificationConversionHelper::GfxImageToNotificationBitmap(
   uint32_t* bitmap_pixels = sk_bitmap.getAddr32(0, 0);
   const unsigned char* bitmap =
       reinterpret_cast<const unsigned char*>(bitmap_pixels);
-  scoped_ptr<unsigned char[]> rgba_bitmap_data(
-      new unsigned char[pixel_count * BYTES_PER_PIXEL]);
+  scoped_ptr<std::vector<char>> rgba_bitmap_data(
+      new std::vector<char>(pixel_count * BYTES_PER_PIXEL));
 
-  gfx::ConvertSkiaToRGBA(bitmap, pixel_count, rgba_bitmap_data.get());
+  gfx::ConvertSkiaToRGBA(bitmap, pixel_count,
+                         reinterpret_cast<unsigned char*>(
+                             vector_as_array(rgba_bitmap_data.get())));
   sk_bitmap.unlockPixels();
 
-  notification_bitmap->data.reset(new std::string(
-      rgba_bitmap_data.get(),
-      (rgba_bitmap_data.get() + pixel_count * BYTES_PER_PIXEL)));
+  notification_bitmap->data = rgba_bitmap_data.Pass();
   return;
 }
 
 bool NotificationConversionHelper::NotificationBitmapToGfxImage(
     float max_scale,
     const gfx::Size& target_size_dips,
-    extensions::api::notifications::NotificationBitmap* notification_bitmap,
+    const extensions::api::notifications::NotificationBitmap&
+        notification_bitmap,
     gfx::Image* return_image) {
-  if (!notification_bitmap)
-    return false;
-
   const int max_device_pixel_width = target_size_dips.width() * max_scale;
   const int max_device_pixel_height = target_size_dips.height() * max_scale;
 
   const int BYTES_PER_PIXEL = 4;
 
-  const int width = notification_bitmap->width;
-  const int height = notification_bitmap->height;
+  const int width = notification_bitmap.width;
+  const int height = notification_bitmap.height;
 
   if (width < 0 || height < 0 || width > max_device_pixel_width ||
       height > max_device_pixel_height)
     return false;
 
   // Ensure we have rgba data.
-  std::string* rgba_data = notification_bitmap->data.get();
+  std::vector<char>* rgba_data = notification_bitmap.data.get();
   if (!rgba_data)
     return false;
 
-  const size_t rgba_data_length = rgba_data->length();
+  const size_t rgba_data_length = rgba_data->size();
   const size_t rgba_area = width * height;
 
   if (rgba_data_length != rgba_area * BYTES_PER_PIXEL)

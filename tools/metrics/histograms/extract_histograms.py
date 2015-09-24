@@ -291,6 +291,16 @@ def _ExtractHistogramsFromXmlTree(tree, enums):
   return histograms, have_errors
 
 
+# Finds an <obsolete> node amongst |node|'s immediate children and returns its
+# content as a string. Returns None if no such node exists.
+def _GetObsoleteReason(node):
+  for child in node.childNodes:
+    if child.localName == 'obsolete':
+      # There can be at most 1 obsolete element per node.
+      return _JoinChildNodes(child)
+  return None
+
+
 def _UpdateHistogramsWithSuffixes(tree, histograms):
   """Process <histogram_suffixes> tags and combine with affected histograms.
 
@@ -355,6 +365,10 @@ def _UpdateHistogramsWithSuffixes(tree, histograms):
         have_errors = True
         continue
 
+    # If the suffix group has an obsolete tag, all suffixes it generates inherit
+    # its reason.
+    group_obsolete_reason = _GetObsoleteReason(histogram_suffixes)
+
     name = histogram_suffixes.getAttribute('name')
     suffix_nodes = histogram_suffixes.getElementsByTagName(suffix_tag)
     suffix_labels = {}
@@ -409,6 +423,18 @@ def _UpdateHistogramsWithSuffixes(tree, histograms):
           # owners of its parents.
           if owners:
             histograms[new_histogram_name]['owners'] = owners
+
+          # If a suffix has an obsolete node, it's marked as obsolete for the
+          # specified reason, overwriting its group's obsoletion reason if the
+          # group itself was obsolete as well.
+          obsolete_reason = _GetObsoleteReason(suffix)
+          if not obsolete_reason:
+            obsolete_reason = group_obsolete_reason
+
+          # If the suffix has an obsolete tag, all histograms it generates
+          # inherit it.
+          if obsolete_reason:
+            histograms[new_histogram_name]['obsolete'] = obsolete_reason
 
         except Error:
           have_errors = True

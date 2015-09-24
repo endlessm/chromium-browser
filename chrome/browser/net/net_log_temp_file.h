@@ -11,13 +11,14 @@
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/scoped_ptr.h"
+#include "net/log/net_log.h"
 
 namespace base {
 class DictionaryValue;
 }
 
 namespace net {
-class NetLogLogger;
+class WriteToFileNetLogObserver;
 }
 
 class ChromeNetLog;
@@ -43,6 +44,7 @@ class NetLogTempFile {
  public:
   // This enum lists the UI button commands it could receive.
   enum Command {
+    DO_START_LOG_BYTES,  // Call StartNetLog logging all bytes received.
     DO_START,  // Call StartNetLog.
     DO_START_STRIP_PRIVATE_DATA,  // Call StartNetLog stripping private data.
     DO_STOP,   // Call StopNetLog.
@@ -103,11 +105,16 @@ class NetLogTempFile {
     // The file predates this session. May or may not have private data.
     // TODO(davidben): This state is kind of silly.
     LOG_TYPE_UNKNOWN,
-    // The file has credentials and cookies stripped.
-    LOG_TYPE_STRIP_PRIVATE_DATA,
+    // The log includes raw bytes.
+    LOG_TYPE_LOG_BYTES,
     // The file includes all data.
     LOG_TYPE_NORMAL,
+    // The file has credentials and cookies stripped.
+    LOG_TYPE_STRIP_PRIVATE_DATA,
   };
+
+  // Returns the NetLog::CaptureMode corresponding to a LogType.
+  static net::NetLogCaptureMode GetCaptureModeForLogType(LogType log_type);
 
   // Initializes the |state_| to STATE_NOT_LOGGING and |log_type_| to
   // LOG_TYPE_NONE (if there is no temporary file from earlier run) or
@@ -116,10 +123,11 @@ class NetLogTempFile {
   bool EnsureInit();
 
   // Start collecting NetLog data into chrome-net-export-log.json file in
-  // base::GetTempDir() directory. If |strip_private_data| is true, do not log
-  // cookies and credentials. It is a no-op if we are already collecting data
-  // into a file.
-  void StartNetLog(bool strip_private_data);
+  // base::GetTempDir() directory, using the specified capture mode. It is a
+  // no-op if we are already collecting data into a file, and |capture_mode| is
+  // ignored.
+  // TODO(mmenke):  That's rather weird behavior, think about improving it.
+  void StartNetLog(LogType log_type);
 
   // Stop collecting NetLog data into the temporary file. It is a no-op if we
   // are not collecting data into a file.
@@ -143,9 +151,9 @@ class NetLogTempFile {
 
   base::FilePath log_path_;  // base::FilePath to the temporary file.
 
-  // |net_log_logger_| watches the NetLog event stream, and sends all entries to
-  // the file created in StartNetLog().
-  scoped_ptr<net::NetLogLogger> net_log_logger_;
+  // |write_to_file_observer_| watches the NetLog event stream, and
+  // sends all entries to the file created in StartNetLog().
+  scoped_ptr<net::WriteToFileNetLogObserver> write_to_file_observer_;
 
   // The |chrome_net_log_| is owned by the browser process, cached here to avoid
   // using global (g_browser_process).

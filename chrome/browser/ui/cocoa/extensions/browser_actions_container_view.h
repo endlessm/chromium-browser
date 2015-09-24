@@ -7,6 +7,9 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include "base/mac/scoped_nsobject.h"
+#import "ui/base/cocoa/tracking_area.h"
+
 // Sent when a user-initiated drag to resize the container is initiated.
 extern NSString* const kBrowserActionGrippyDragStartedNotification;
 
@@ -16,32 +19,55 @@ extern NSString* const kBrowserActionGrippyDraggingNotification;
 // Sent when a user-initiated drag to resize the container has finished.
 extern NSString* const kBrowserActionGrippyDragFinishedNotification;
 
-// Sent before the dragging will resize the container.
-extern NSString* const kBrowserActionGrippyWillDragNotification;
+// Sent when the Browser Actions container view is about to animate.
+extern NSString* const kBrowserActionsContainerWillAnimate;
+
+// Sent when the mouse enters the browser actions container (if tracking is
+// enabled).
+extern NSString* const kBrowserActionsContainerMouseEntered;
+
+// Sent when a running animation has ended.
+extern NSString* const kBrowserActionsContainerAnimationEnded;
 
 // Key which is used to notify the translation with delta.
 extern NSString* const kTranslationWithDelta;
 
+// Sent when the container receives a key event that should be processed.
+// The userInfo contains a single entry with the key event.
+extern NSString* const kBrowserActionsContainerReceivedKeyEvent;
+
+// The key into the userInfo dictionary to retrieve the key event (stored as an
+// integer).
+extern NSString* const kBrowserActionsContainerKeyEventKey;
+
+// The possible key actions to process.
+enum BrowserActionsContainerKeyAction {
+  BROWSER_ACTIONS_INCREMENT_FOCUS = 0,
+  BROWSER_ACTIONS_DECREMENT_FOCUS = 1,
+  BROWSER_ACTIONS_EXECUTE_CURRENT = 2,
+  BROWSER_ACTIONS_INVALID_KEY_ACTION = 3,
+};
+
+class BrowserActionsContainerViewSizeDelegate {
+ public:
+  virtual CGFloat GetMaxAllowedWidth() = 0;
+  virtual ~BrowserActionsContainerViewSizeDelegate() {}
+};
+
 // The view that encompasses the Browser Action buttons in the toolbar and
 // provides mechanisms for resizing.
-@interface BrowserActionsContainerView : NSView {
+@interface BrowserActionsContainerView : NSView<NSAnimationDelegate> {
  @private
   // The frame encompasing the grippy used for resizing the container.
   NSRect grippyRect_;
-
-  // The end frame of the animation currently running for this container or
-  // NSZeroRect if none is in progress.
-  NSRect animationEndFrame_;
 
   // Used to cache the original position within the container that initiated the
   // drag.
   NSPoint initialDragPoint_;
 
-  // Used to cache the previous x-pos of the frame rect for resizing purposes.
-  CGFloat lastXPos_;
-
-  // The maximum width of the container.
-  CGFloat maxWidth_;
+  // The maximum width the container could want; i.e., the width required to
+  // display all the icons.
+  CGFloat maxDesiredWidth_;
 
   // Whether the container is currently being resized by the user.
   BOOL userIsResizing_;
@@ -50,6 +76,10 @@ extern NSString* const kTranslationWithDelta;
   // mode since any changes done in incognito mode are not saved anyway, and
   // also to avoid a crash. http://crbug.com/42848
   BOOL resizable_;
+
+  // Whether or not the container is the overflow container, and is shown in the
+  // wrench menu.
+  BOOL isOverflow_;
 
   // Whether the user is allowed to drag the grippy to the left. NO if all
   // extensions are shown or the location bar has hit its minimum width (handled
@@ -65,24 +95,49 @@ extern NSString* const kTranslationWithDelta;
   // as letting the container expand when the window is going from super small
   // to large.
   BOOL grippyPinned_;
+
+  // Whether the toolbar is currently highlighting its actions (in which case it
+  // is drawn with an orange background).
+  BOOL isHighlighting_;
+
+  // A tracking area to receive mouseEntered events, if tracking is enabled.
+  ui::ScopedCrTrackingArea trackingArea_;
+
+  // The size delegate, if any.
+  // Weak; delegate is responsible for adding/removing itself.
+  BrowserActionsContainerViewSizeDelegate* sizeDelegate_;
+
+  base::scoped_nsobject<NSViewAnimation> resizeAnimation_;
 }
 
-// Resizes the container to the given ideal width, adjusting the |lastXPos_| so
-// that |resizeDeltaX| is accurate.
+// Sets whether or not tracking (for mouseEntered events) is enabled.
+- (void)setTrackingEnabled:(BOOL)enabled;
+
+// Sets whether or not the container is the overflow container.
+- (void)setIsOverflow:(BOOL)isOverflow;
+
+// Sets whether or not the container is highlighting.
+- (void)setIsHighlighting:(BOOL)isHighlighting;
+
+// Resizes the container to the given ideal width, optionally animating.
 - (void)resizeToWidth:(CGFloat)width animate:(BOOL)animate;
 
-// Returns the change in the x-pos of the frame rect during resizing. Meant to
-// be queried when a NSViewFrameDidChangeNotification is fired to determine
-// placement of surrounding elements.
-- (CGFloat)resizeDeltaX;
+// Returns the frame of the container after the running animation has finished.
+// If no animation is running, returns the container's current frame.
+- (NSRect)animationEndFrame;
 
-@property(nonatomic, readonly) NSRect animationEndFrame;
+// Returns true if the view is animating.
+- (BOOL)isAnimating;
+
+// Stops any animation in progress.
+- (void)stopAnimation;
+
 @property(nonatomic) BOOL canDragLeft;
 @property(nonatomic) BOOL canDragRight;
 @property(nonatomic) BOOL grippyPinned;
-@property(nonatomic,getter=isResizable) BOOL resizable;
-@property(nonatomic) CGFloat maxWidth;
+@property(nonatomic) CGFloat maxDesiredWidth;
 @property(readonly, nonatomic) BOOL userIsResizing;
+@property(nonatomic) BrowserActionsContainerViewSizeDelegate* delegate;
 
 @end
 

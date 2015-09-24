@@ -6,14 +6,17 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/common/gpu/client/command_buffer_proxy_impl.h"
 #include "content/common/gpu/client/gpu_channel_host.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/web_preferences.h"
 #include "content/renderer/pepper/host_globals.h"
 #include "content/renderer/pepper/pepper_plugin_instance_impl.h"
+#include "content/renderer/pepper/plugin_instance_throttler_impl.h"
 #include "content/renderer/pepper/plugin_module.h"
 #include "content/renderer/render_thread_impl.h"
 #include "content/renderer/render_view_impl.h"
@@ -37,10 +40,11 @@ using blink::WebString;
 namespace content {
 
 namespace {
+
 const int32 kCommandBufferSize = 1024 * 1024;
 const int32 kTransferBufferSize = 1024 * 1024;
 
-}  // namespace.
+}  // namespace
 
 PPB_Graphics3D_Impl::PPB_Graphics3D_Impl(PP_Instance instance)
     : PPB_Graphics3D_Shared(instance),
@@ -163,8 +167,6 @@ void PPB_Graphics3D_Impl::ViewInitiatedPaint() {
     SwapBuffersACK(PP_OK);
 }
 
-void PPB_Graphics3D_Impl::ViewFlushedPaint() {}
-
 int PPB_Graphics3D_Impl::GetCommandBufferRouteId() {
   DCHECK(command_buffer_);
   return command_buffer_->GetRouteID();
@@ -242,6 +244,11 @@ bool PPB_Graphics3D_Impl::InitRaw(
   if (!prefs.pepper_3d_enabled)
     return false;
 
+  // Force SW rendering for keyframe extraction to avoid pixel reads from VRAM.
+  PluginInstanceThrottlerImpl* throttler = plugin_instance->throttler();
+  if (throttler && throttler->needs_representative_keyframe())
+    return false;
+
   RenderThreadImpl* render_thread = RenderThreadImpl::current();
   if (!render_thread)
     return false;
@@ -307,7 +314,7 @@ bool PPB_Graphics3D_Impl::InitRaw(
     return false;
   sync_point_ = command_buffer_->InsertSyncPoint();
 
-  command_buffer_->SetChannelErrorCallback(base::Bind(
+  command_buffer_->SetContextLostCallback(base::Bind(
       &PPB_Graphics3D_Impl::OnContextLost, weak_ptr_factory_.GetWeakPtr()));
 
   command_buffer_->SetOnConsoleMessageCallback(base::Bind(
@@ -349,10 +356,9 @@ void PPB_Graphics3D_Impl::OnContextLost() {
 
   // Send context lost to plugin. This may have been caused by a PPAPI call, so
   // avoid re-entering.
-  base::MessageLoop::current()->PostTask(
-      FROM_HERE,
-      base::Bind(&PPB_Graphics3D_Impl::SendContextLost,
-                 weak_ptr_factory_.GetWeakPtr()));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&PPB_Graphics3D_Impl::SendContextLost,
+                            weak_ptr_factory_.GetWeakPtr()));
 }
 
 void PPB_Graphics3D_Impl::SendContextLost() {

@@ -54,15 +54,16 @@ class CHROMEOS_EXPORT LoginPerformer : public AuthStatusConsumer,
   // Delegate class to get notifications from the LoginPerformer.
   class Delegate : public AuthStatusConsumer {
    public:
-    virtual ~Delegate() {}
+    ~Delegate() override {}
     virtual void WhiteListCheckFailed(const std::string& email) = 0;
     virtual void PolicyLoadFailed() = 0;
     virtual void OnOnlineChecked(const std::string& email, bool success) = 0;
   };
 
   LoginPerformer(scoped_refptr<base::TaskRunner> task_runner,
-                 Delegate* delegate);
-  virtual ~LoginPerformer();
+                 Delegate* delegate,
+                 bool disable_client_login);
+  ~LoginPerformer() override;
 
   // Performs a login for |user_context|.
   // If auth_mode is AUTH_MODE_EXTENSION, there are no further auth checks,
@@ -72,9 +73,6 @@ class CHROMEOS_EXPORT LoginPerformer : public AuthStatusConsumer,
 
   // Performs supervised user login with a given |user_context|.
   void LoginAsSupervisedUser(const UserContext& user_context);
-
-  // Performs retail mode login.
-  void LoginRetailMode();
 
   // Performs actions to prepare guest mode login.
   void LoginOffTheRecord();
@@ -87,12 +85,10 @@ class CHROMEOS_EXPORT LoginPerformer : public AuthStatusConsumer,
                            bool use_guest_mount);
 
   // AuthStatusConsumer implementation:
-  virtual void OnAuthFailure(const AuthFailure& error) override;
-  virtual void OnRetailModeAuthSuccess(
-      const UserContext& user_context) override;
-  virtual void OnAuthSuccess(const UserContext& user_context) override;
-  virtual void OnOffTheRecordAuthSuccess() override;
-  virtual void OnPasswordChangeDetected() override;
+  void OnAuthFailure(const AuthFailure& error) override;
+  void OnAuthSuccess(const UserContext& user_context) override;
+  void OnOffTheRecordAuthSuccess() override;
+  void OnPasswordChangeDetected() override;
 
   // Migrates cryptohome using |old_password| specified.
   void RecoverEncryptedData(const std::string& old_password);
@@ -121,9 +117,15 @@ class CHROMEOS_EXPORT LoginPerformer : public AuthStatusConsumer,
 
   AuthorizationMode auth_mode() const { return auth_mode_; }
 
+  // Check if user is allowed to sign in on device. |wildcard_match| will
+  // contain additional information whether this user is explicitly listed or
+  // not (may be relevant for extension-based sign-in).
+  virtual bool IsUserWhitelisted(const std::string& user_id,
+                                 bool* wildcard_match) = 0;
+
  protected:
   // Implements OnlineAttemptHost::Delegate.
-  virtual void OnChecked(const std::string& user_id, bool success) override;
+  void OnChecked(const std::string& user_id, bool success) override;
 
   // Platform-dependant methods to be implemented by concrete class.
 
@@ -132,18 +134,13 @@ class CHROMEOS_EXPORT LoginPerformer : public AuthStatusConsumer,
   // PolicyLoadFailed() or |callback| will be called upon actual check.
   virtual bool RunTrustedCheck(const base::Closure& callback) = 0;
 
-  // Check if user is allowed to sign in on device. |wildcard_match| will
-  // contain additional information whether this user is explicitly listed or
-  // not (may be relevant for extension-based sign-in).
-  virtual bool IsUserWhitelisted(const std::string& user_id,
-                                 bool* wildcard_match) = 0;
-
   // This method should run addional online check if user can sign in on device.
   // Either |success_callback| or |failure_callback| should be called upon this
   // check.
   virtual void RunOnlineWhitelistCheck(
       const std::string& user_id,
       bool wildcard_match,
+      const std::string& refresh_token,
       const base::Closure& success_callback,
       const base::Closure& failure_callback) = 0;
 
@@ -229,6 +226,9 @@ class CHROMEOS_EXPORT LoginPerformer : public AuthStatusConsumer,
 
   // Authorization mode type.
   AuthorizationMode auth_mode_;
+
+  // TODO(antrim): remove once we got rid of /ClientLogin.
+  bool disable_client_login_;
 
   base::WeakPtrFactory<LoginPerformer> weak_factory_;
   DISALLOW_COPY_AND_ASSIGN(LoginPerformer);

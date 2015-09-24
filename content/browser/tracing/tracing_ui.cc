@@ -11,8 +11,6 @@
 #include "base/base64.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/command_line.h"
-#include "base/debug/trace_event.h"
 #include "base/format_macros.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
@@ -21,48 +19,47 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/trace_event/trace_event.h"
 #include "base/values.h"
 #include "content/browser/tracing/grit/tracing_resources.h"
-#include "content/browser/tracing/trace_uploader.h"
 #include "content/browser/tracing/tracing_controller_impl.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/content_browser_client.h"
+#include "content/public/browser/trace_uploader.h"
 #include "content/public/browser/tracing_controller.h"
+#include "content/public/browser/tracing_delegate.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/common/content_client.h"
-#include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
 
 namespace content {
 namespace {
 
-const char kUploadURL[] = "https://clients2.google.com/cr/staging_report";
-
 void OnGotCategories(const WebUIDataSource::GotDataCallback& callback,
                      const std::set<std::string>& categorySet) {
-  scoped_ptr<base::ListValue> category_list(new base::ListValue());
+  base::ListValue category_list;
   for (std::set<std::string>::const_iterator it = categorySet.begin();
        it != categorySet.end(); it++) {
-    category_list->AppendString(*it);
+    category_list.AppendString(*it);
   }
 
   base::RefCountedString* res = new base::RefCountedString();
-  base::JSONWriter::Write(category_list.get(), &res->data());
+  base::JSONWriter::Write(category_list, &res->data());
   callback.Run(res);
 }
 
 bool GetTracingOptions(const std::string& data64,
-                       base::debug::CategoryFilter* category_filter,
-                       base::debug::TraceOptions* tracing_options) {
+                       base::trace_event::TraceConfig* trace_config) {
   std::string data;
   if (!base::Base64Decode(data64, &data)) {
     LOG(ERROR) << "Options were not base64 encoded.";
     return false;
   }
 
-  scoped_ptr<base::Value> optionsRaw(base::JSONReader::Read(data));
+  scoped_ptr<base::Value> optionsRaw = base::JSONReader::Read(data);
   if (!optionsRaw) {
     LOG(ERROR) << "Options were not valid JSON";
     return false;
@@ -73,34 +70,30 @@ bool GetTracingOptions(const std::string& data64,
     return false;
   }
 
-  if (!category_filter) {
-    LOG(ERROR) << "category_filter can't be passed as NULL";
-    return false;
-  }
-
-  if (!tracing_options) {
-    LOG(ERROR) << "tracing_options can't be passed as NULL";
+  if (!trace_config) {
+    LOG(ERROR) << "trace_config can't be passed as NULL";
     return false;
   }
 
   bool options_ok = true;
   std::string category_filter_string;
   options_ok &= options->GetString("categoryFilter", &category_filter_string);
-  *category_filter = base::debug::CategoryFilter(category_filter_string);
 
-  options_ok &= options->GetBoolean("useSystemTracing",
-                                    &tracing_options->enable_systrace);
-  options_ok &=
-      options->GetBoolean("useSampling", &tracing_options->enable_sampling);
+  std::string record_mode;
+  options_ok &= options->GetString("tracingRecordMode", &record_mode);
 
-  bool use_continuous_tracing;
-  options_ok &=
-      options->GetBoolean("useContinuousTracing", &use_continuous_tracing);
+  *trace_config = base::trace_event::TraceConfig(category_filter_string,
+                                                 record_mode);
 
-  if (use_continuous_tracing)
-    tracing_options->record_mode = base::debug::RECORD_CONTINUOUSLY;
-  else
-    tracing_options->record_mode = base::debug::RECORD_UNTIL_FULL;
+  bool enable_systrace;
+  options_ok &= options->GetBoolean("useSystemTracing", &enable_systrace);
+  if (enable_systrace)
+    trace_config->EnableSystrace();
+
+  bool enable_sampling;
+  options_ok &= options->GetBoolean("useSampling", &enable_sampling);
+  if (enable_sampling)
+    trace_config->EnableSampling();
 
   if (!options_ok) {
     LOG(ERROR) << "Malformed options";
@@ -113,14 +106,12 @@ void OnRecordingEnabledAck(const WebUIDataSource::GotDataCallback& callback);
 
 bool BeginRecording(const std::string& data64,
                     const WebUIDataSource::GotDataCallback& callback) {
-  base::debug::CategoryFilter category_filter("");
-  base::debug::TraceOptions tracing_options;
-  if (!GetTracingOptions(data64, &category_filter, &tracing_options))
+  base::trace_event::TraceConfig trace_config("", "");
+  if (!GetTracingOptions(data64, &trace_config))
     return false;
 
   return TracingController::GetInstance()->EnableRecording(
-      category_filter,
-      tracing_options,
+      trace_config,
       base::Bind(&OnRecordingEnabledAck, callback));
 }
 
@@ -129,24 +120,38 @@ void OnRecordingEnabledAck(const WebUIDataSource::GotDataCallback& callback) {
   callback.Run(res);
 }
 
-void OnTraceBufferPercentFullResult(
-    const WebUIDataSource::GotDataCallback& callback, float result) {
-  std::string str = base::DoubleToString(result);
+void OnTraceBufferUsageResult(const WebUIDataSource::GotDataCallback& callback,
+                              float percent_full,
+                              size_t approximate_event_count) {
+  std::string str = base::DoubleToString(percent_full);
   callback.Run(base::RefCountedString::TakeString(&str));
+}
+
+void OnTraceBufferStatusResult(const WebUIDataSource::GotDataCallback& callback,
+                               float percent_full,
+                               size_t approximate_event_count) {
+  base::DictionaryValue status;
+  status.SetDouble("percentFull", percent_full);
+  status.SetInteger("approximateEventCount", approximate_event_count);
+
+  std::string status_json;
+  base::JSONWriter::Write(status, &status_json);
+
+  base::RefCountedString* status_base64 = new base::RefCountedString();
+  base::Base64Encode(status_json, &status_base64->data());
+  callback.Run(status_base64);
 }
 
 void OnMonitoringEnabledAck(const WebUIDataSource::GotDataCallback& callback);
 
 bool EnableMonitoring(const std::string& data64,
                       const WebUIDataSource::GotDataCallback& callback) {
-  base::debug::TraceOptions tracing_options;
-  base::debug::CategoryFilter category_filter("");
-  if (!GetTracingOptions(data64, &category_filter, &tracing_options))
+  base::trace_event::TraceConfig trace_config("", "");
+  if (!GetTracingOptions(data64, &trace_config))
     return false;
 
   return TracingController::GetInstance()->EnableMonitoring(
-      category_filter,
-      tracing_options,
+      trace_config,
       base::Bind(OnMonitoringEnabledAck, callback));
 }
 
@@ -162,23 +167,22 @@ void OnMonitoringDisabled(const WebUIDataSource::GotDataCallback& callback) {
 
 void GetMonitoringStatus(const WebUIDataSource::GotDataCallback& callback) {
   bool is_monitoring;
-  base::debug::CategoryFilter category_filter("");
-  base::debug::TraceOptions options;
+  base::trace_event::TraceConfig config("", "");
   TracingController::GetInstance()->GetMonitoringStatus(
-      &is_monitoring, &category_filter, &options);
+      &is_monitoring, &config);
 
-  scoped_ptr<base::DictionaryValue>
-    monitoring_options(new base::DictionaryValue());
-  monitoring_options->SetBoolean("isMonitoring", is_monitoring);
-  monitoring_options->SetString("categoryFilter", category_filter.ToString());
-  monitoring_options->SetBoolean("useSystemTracing", options.enable_systrace);
-  monitoring_options->SetBoolean(
+  base::DictionaryValue monitoring_options;
+  monitoring_options.SetBoolean("isMonitoring", is_monitoring);
+  monitoring_options.SetString("categoryFilter",
+                               config.ToCategoryFilterString());
+  monitoring_options.SetBoolean("useSystemTracing", config.IsSystraceEnabled());
+  monitoring_options.SetBoolean(
       "useContinuousTracing",
-      options.record_mode == base::debug::RECORD_CONTINUOUSLY);
-  monitoring_options->SetBoolean("useSampling", options.enable_sampling);
+      config.GetTraceRecordMode() == base::trace_event::RECORD_CONTINUOUSLY);
+  monitoring_options.SetBoolean("useSampling", config.IsSamplingEnabled());
 
   std::string monitoring_options_json;
-  base::JSONWriter::Write(monitoring_options.get(), &monitoring_options_json);
+  base::JSONWriter::Write(monitoring_options, &monitoring_options_json);
 
   base::RefCountedString* monitoring_options_base64 =
     new base::RefCountedString();
@@ -187,9 +191,12 @@ void GetMonitoringStatus(const WebUIDataSource::GotDataCallback& callback) {
   callback.Run(monitoring_options_base64);
 }
 
-void TracingCallbackWrapper(const WebUIDataSource::GotDataCallback& callback,
-                            base::RefCountedString* data) {
-  callback.Run(data);
+void TracingCallbackWrapperBase64(
+    const WebUIDataSource::GotDataCallback& callback,
+    base::RefCountedString* data) {
+  base::RefCountedString* data_base64 = new base::RefCountedString();
+  base::Base64Encode(data->data(), &data_base64->data());
+  callback.Run(data_base64);
 }
 
 bool OnBeginJSONRequest(const std::string& path,
@@ -200,18 +207,23 @@ bool OnBeginJSONRequest(const std::string& path,
   }
 
   const char* beginRecordingPath = "json/begin_recording?";
-  if (StartsWithASCII(path, beginRecordingPath, true)) {
+  if (base::StartsWithASCII(path, beginRecordingPath, true)) {
     std::string data = path.substr(strlen(beginRecordingPath));
     return BeginRecording(data, callback);
   }
   if (path == "json/get_buffer_percent_full") {
-    return TracingController::GetInstance()->GetTraceBufferPercentFull(
-        base::Bind(OnTraceBufferPercentFullResult, callback));
+    return TracingController::GetInstance()->GetTraceBufferUsage(
+        base::Bind(OnTraceBufferUsageResult, callback));
   }
-  if (path == "json/end_recording") {
+  if (path == "json/get_buffer_status") {
+    return TracingController::GetInstance()->GetTraceBufferUsage(
+        base::Bind(OnTraceBufferStatusResult, callback));
+  }
+  if (path == "json/end_recording_compressed") {
     return TracingController::GetInstance()->DisableRecording(
-        TracingControllerImpl::CreateStringSink(
-            base::Bind(TracingCallbackWrapper, callback)));
+        TracingController::CreateCompressedStringSink(
+            TracingController::CreateCallbackEndpoint(
+                base::Bind(TracingCallbackWrapperBase64, callback))));
   }
 
   const char* enableMonitoringPath = "json/begin_monitoring?";
@@ -223,10 +235,11 @@ bool OnBeginJSONRequest(const std::string& path,
     return TracingController::GetInstance()->DisableMonitoring(
         base::Bind(OnMonitoringDisabled, callback));
   }
-  if (path == "json/capture_monitoring") {
+  if (path == "json/capture_monitoring_compressed") {
     TracingController::GetInstance()->CaptureMonitoringSnapshot(
-        TracingControllerImpl::CreateStringSink(
-            base::Bind(TracingCallbackWrapper, callback)));
+        TracingController::CreateCompressedStringSink(
+            TracingController::CreateCallbackEndpoint(
+                base::Bind(TracingCallbackWrapperBase64, callback))));
     return true;
   }
   if (path == "json/get_monitoring_status") {
@@ -240,7 +253,7 @@ bool OnBeginJSONRequest(const std::string& path,
 
 bool OnTracingRequest(const std::string& path,
                       const WebUIDataSource::GotDataCallback& callback) {
-  if (StartsWithASCII(path, "json/", true)) {
+  if (base::StartsWithASCII(path, "json/", true)) {
     if (!OnBeginJSONRequest(path, callback)) {
       std::string error("##ERROR##");
       callback.Run(base::RefCountedString::TakeString(&error));
@@ -261,10 +274,14 @@ bool OnTracingRequest(const std::string& path,
 
 TracingUI::TracingUI(WebUI* web_ui)
     : WebUIController(web_ui),
+      delegate_(GetContentClient()->browser()->GetTracingDelegate()),
       weak_factory_(this) {
   web_ui->RegisterMessageCallback(
-        "doUpload",
-        base::Bind(&TracingUI::DoUpload, base::Unretained(this)));
+      "doUpload",
+      base::Bind(&TracingUI::DoUpload, base::Unretained(this)));
+  web_ui->RegisterMessageCallback(
+      "doUploadBase64",
+      base::Bind(&TracingUI::DoUploadBase64Encoded, base::Unretained(this)));
 
   // Set up the chrome://tracing/ source.
   BrowserContext* browser_context =
@@ -288,28 +305,44 @@ void TracingUI::OnMonitoringStateChanged(bool is_monitoring) {
       "onMonitoringStateChanged", base::FundamentalValue(is_monitoring));
 }
 
-void TracingUI::DoUpload(const base::ListValue* args) {
-  const base::CommandLine& command_line =
-      *base::CommandLine::ForCurrentProcess();
-  std::string upload_url = kUploadURL;
-  if (command_line.HasSwitch(switches::kTraceUploadURL)) {
-    upload_url =
-        command_line.GetSwitchValueASCII(switches::kTraceUploadURL);
-  }
-  if (!GURL(upload_url).is_valid()) {
-    upload_url.clear();
-  }
-
-  if (upload_url.empty()) {
+void TracingUI::DoUploadBase64Encoded(const base::ListValue* args) {
+  std::string file_contents_base64;
+  if (!args || args->empty() || !args->GetString(0, &file_contents_base64)) {
     web_ui()->CallJavascriptFunction("onUploadError",
-        base::StringValue("Upload URL empty or invalid"));
+                                     base::StringValue("Missing data"));
     return;
   }
 
   std::string file_contents;
+  base::Base64Decode(file_contents_base64, &file_contents);
+
+  // doUploadBase64 is used to upload binary data which is assumed to already
+  // be compressed.
+  DoUploadInternal(file_contents, TraceUploader::UNCOMPRESSED_UPLOAD);
+}
+
+void TracingUI::DoUpload(const base::ListValue* args) {
+  std::string file_contents;
   if (!args || args->empty() || !args->GetString(0, &file_contents)) {
     web_ui()->CallJavascriptFunction("onUploadError",
                                      base::StringValue("Missing data"));
+    return;
+  }
+
+  DoUploadInternal(file_contents, TraceUploader::COMPRESSED_UPLOAD);
+}
+
+void TracingUI::DoUploadInternal(const std::string& file_contents,
+                                 TraceUploader::UploadMode upload_mode) {
+  if (!delegate_) {
+    web_ui()->CallJavascriptFunction("onUploadError",
+                                     base::StringValue("Not implemented"));
+    return;
+  }
+
+  if (trace_uploader_) {
+    web_ui()->CallJavascriptFunction("onUploadError",
+                                     base::StringValue("Upload in progress"));
     return;
   }
 
@@ -320,44 +353,11 @@ void TracingUI::DoUpload(const base::ListValue* args) {
       base::Bind(&TracingUI::OnTraceUploadComplete,
       weak_factory_.GetWeakPtr());
 
-#if defined(OS_WIN)
-  const char product[] = "Chrome";
-#elif defined(OS_MACOSX)
-  const char product[] = "Chrome_Mac";
-#elif defined(OS_LINUX)
-  const char product[] = "Chrome_Linux";
-#elif defined(OS_ANDROID)
-  const char product[] = "Chrome_Android";
-#elif defined(OS_CHROMEOS)
-  const char product[] = "Chrome_ChromeOS";
-#else
-#error Platform not supported.
-#endif
-
-  // GetProduct() returns a string like "Chrome/aa.bb.cc.dd", split out
-  // the part before the "/".
-  std::vector<std::string> product_components;
-  base::SplitString(content::GetContentClient()->GetProduct(), '/',
-                    &product_components);
-  DCHECK_EQ(2U, product_components.size());
-  std::string version;
-  if (product_components.size() == 2U) {
-    version = product_components[1];
-  } else {
-    version = "unknown";
-  }
-
-  BrowserContext* browser_context =
-      web_ui()->GetWebContents()->GetBrowserContext();
-  TraceUploader* uploader = new TraceUploader(
-      product, version, upload_url, browser_context->GetRequestContext());
-
-  BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE, base::Bind(
-     &TraceUploader::DoUpload,
-     base::Unretained(uploader),
-     file_contents,
-     progress_callback,
-     done_callback));
+  trace_uploader_ = delegate_->GetTraceUploader(
+      web_ui()->GetWebContents()->GetBrowserContext()->GetRequestContext());
+  DCHECK(trace_uploader_);
+  trace_uploader_->DoUpload(file_contents, upload_mode, nullptr,
+                            progress_callback, done_callback);
   // TODO(mmandlis): Add support for stopping the upload in progress.
 }
 
@@ -372,15 +372,15 @@ void TracingUI::OnTraceUploadProgress(int64 current, int64 total) {
 }
 
 void TracingUI::OnTraceUploadComplete(bool success,
-                                      const std::string& report_id,
-                                      const std::string& error_message) {
+                                      const std::string& feedback) {
   if (success) {
     web_ui()->CallJavascriptFunction("onUploadComplete",
-                                     base::StringValue(report_id));
+                                     base::StringValue(feedback));
   } else {
     web_ui()->CallJavascriptFunction("onUploadError",
-                                     base::StringValue(error_message));
+                                     base::StringValue(feedback));
   }
+  trace_uploader_.reset();
 }
 
 }  // namespace content

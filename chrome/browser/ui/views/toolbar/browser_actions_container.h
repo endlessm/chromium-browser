@@ -7,16 +7,18 @@
 
 #include "base/observer_list.h"
 #include "chrome/browser/extensions/extension_keybinding_registry.h"
-#include "chrome/browser/extensions/extension_toolbar_model.h"
+#include "chrome/browser/ui/toolbar/toolbar_actions_bar.h"
+#include "chrome/browser/ui/toolbar/toolbar_actions_bar_delegate.h"
 #include "chrome/browser/ui/views/extensions/extension_keybinding_registry_views.h"
 #include "chrome/browser/ui/views/toolbar/chevron_menu_button.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_action_view.h"
 #include "ui/gfx/animation/animation_delegate.h"
+#include "ui/gfx/animation/slide_animation.h"
 #include "ui/gfx/animation/tween.h"
-#include "ui/views/controls/button/menu_button_listener.h"
 #include "ui/views/controls/resize_area_delegate.h"
 #include "ui/views/drag_controller.h"
 #include "ui/views/view.h"
+#include "ui/views/widget/widget_observer.h"
 
 class BrowserActionsContainerObserver;
 class ExtensionPopup;
@@ -27,11 +29,8 @@ class Command;
 class Extension;
 }
 
-namespace gfx {
-class SlideAnimation;
-}
-
 namespace views {
+class BubbleDelegateView;
 class ResizeArea;
 }
 
@@ -124,16 +123,13 @@ class ResizeArea;
 ////////////////////////////////////////////////////////////////////////////////
 class BrowserActionsContainer
     : public views::View,
+      public ToolbarActionsBarDelegate,
       public views::ResizeAreaDelegate,
       public gfx::AnimationDelegate,
-      public extensions::ExtensionToolbarModel::Observer,
       public ToolbarActionView::Delegate,
+      public views::WidgetObserver,
       public extensions::ExtensionKeybindingRegistry::Delegate {
  public:
-  // Horizontal spacing between most items in the container, as well as after
-  // the last item or chevron (if visible).
-  static const int kItemSpacing;
-
   // Constructs a BrowserActionContainer for a particular |browser| object. For
   // documentation of |main_container|, see class comments.
   BrowserActionsContainer(Browser* browser,
@@ -145,15 +141,16 @@ class BrowserActionsContainer
   // Get the number of toolbar actions being displayed.
   size_t num_toolbar_actions() const { return toolbar_action_views_.size(); }
 
-  // Whether we are performing resize animation on the container.
-  bool animating() const { return animation_target_size_ > 0; }
-
   // Returns the chevron, if any.
   views::View* chevron() { return chevron_; }
   const views::View* chevron() const { return chevron_; }
 
-  // Returns the profile this container is associated with.
-  Profile* profile() const { return profile_; }
+  // Returns the browser this container is associated with.
+  Browser* browser() const { return browser_; }
+
+  ToolbarActionsBar* toolbar_actions_bar() {
+    return toolbar_actions_bar_.get();
+  }
 
   // The class that registers for keyboard shortcuts for extension commands.
   extensions::ExtensionKeybindingRegistry* extension_keybinding_registry() {
@@ -165,22 +162,20 @@ class BrowserActionsContainer
     return toolbar_action_views_[index];
   }
 
+  // Whether we are performing resize animation on the container.
+  bool animating() const {
+    return resize_animation_ && resize_animation_->is_animating();
+  }
+
   // Returns the ID of the action represented by the view at |index|.
-  const std::string& GetIdAt(size_t index);
+  const std::string& GetIdAt(size_t index) const;
 
   // Returns the ToolbarActionView* associated with the given |extension|, or
   // NULL if none exists.
-  ToolbarActionView* GetViewForExtension(
-      const extensions::Extension* extension);
+  ToolbarActionView* GetViewForId(const std::string& id);
 
   // Update the views to reflect the state of the toolbar actions.
   void RefreshToolbarActionViews();
-
-  // Sets up the toolbar action view vector.
-  void CreateToolbarActionViews();
-
-  // Delete all toolbar action views.
-  void DeleteToolbarActionViews();
 
   // Returns how many actions are currently visible. If the intent is to find
   // how many are visible once the container finishes animation, see
@@ -195,10 +190,6 @@ class BrowserActionsContainer
   void ExecuteExtensionCommand(const extensions::Extension* extension,
                                const extensions::Command& command);
 
-  // Notify the container that an extension has been moved to the overflow
-  // container.
-  void NotifyActionMovedToOverflow();
-
   // Add or remove an observer.
   void AddObserver(BrowserActionsContainerObserver* observer);
   void RemoveObserver(BrowserActionsContainerObserver* observer);
@@ -208,6 +199,7 @@ class BrowserActionsContainer
   int GetHeightForWidth(int width) const override;
   gfx::Size GetMinimumSize() const override;
   void Layout() override;
+  void OnMouseEntered(const ui::MouseEvent& event) override;
   bool GetDropFormats(
       int* formats,
       std::set<ui::OSExchangeData::CustomFormat>* custom_formats) override;
@@ -232,6 +224,7 @@ class BrowserActionsContainer
 
   // Overridden from gfx::AnimationDelegate:
   void AnimationProgressed(const gfx::Animation* animation) override;
+  void AnimationCanceled(const gfx::Animation* animation) override;
   void AnimationEnded(const gfx::Animation* animation) override;
 
   // Overridden from ToolbarActionView::Delegate:
@@ -239,27 +232,36 @@ class BrowserActionsContainer
   bool ShownInsideMenu() const override;
   void OnToolbarActionViewDragDone() override;
   views::MenuButton* GetOverflowReferenceView() override;
-  void SetPopupOwner(ToolbarActionView* popup_owner) override;
-  void HideActivePopup() override;
-  ToolbarActionView* GetMainViewForAction(ToolbarActionView* view) override;
+
+  // ToolbarActionsBarDelegate:
+  void AddViewForAction(ToolbarActionViewController* action,
+                        size_t index) override;
+  void RemoveViewForAction(ToolbarActionViewController* action) override;
+  void RemoveAllViews() override;
+  void Redraw(bool order_changed) override;
+  void ResizeAndAnimate(gfx::Tween::Type tween_type,
+                        int target_width,
+                        bool suppress_chevron) override;
+  void SetChevronVisibility(bool chevron_visible) override;
+  int GetWidth() const override;
+  bool IsAnimating() const override;
+  void StopAnimating() override;
+  int GetChevronWidth() const override;
+  void OnOverflowedActionWantsToRunChanged(
+      bool overflowed_action_wants_to_run) override;
+  void ShowExtensionMessageBubble(
+      scoped_ptr<extensions::ExtensionMessageBubbleController> controller,
+      ToolbarActionViewController* anchor_action) override;
+
+  // views::WidgetObserver:
+  void OnWidgetClosing(views::Widget* widget) override;
+  void OnWidgetDestroying(views::Widget* widget) override;
 
   // Overridden from extension::ExtensionKeybindingRegistry::Delegate:
   extensions::ActiveTabPermissionGranter* GetActiveTabPermissionGranter()
       override;
 
-  // Retrieve the current popup.  This should only be used by unit tests.
-  gfx::NativeView TestGetPopup();
-
-  // Returns the width of an icon, optionally with its padding.
-  static int IconWidth(bool include_padding);
-
-  // Returns the height of an icon.
-  static int IconHeight();
-
-  // During testing we can disable animations by setting this flag to true,
-  // so that the bar resizes instantly, instead of having to poll it while it
-  // animates to open/closed status.
-  static bool disable_animations_during_testing_;
+  views::BubbleDelegateView* active_bubble() { return active_bubble_; }
 
  protected:
   // Overridden from views::View:
@@ -274,75 +276,24 @@ class BrowserActionsContainer
 
   typedef std::vector<ToolbarActionView*> ToolbarActionViews;
 
-  // extensions::ExtensionToolbarModel::Observer implementation.
-  void ToolbarExtensionAdded(const extensions::Extension* extension,
-                             int index) override;
-  void ToolbarExtensionRemoved(const extensions::Extension* extension) override;
-  void ToolbarExtensionMoved(const extensions::Extension* extension,
-                             int index) override;
-  void ToolbarExtensionUpdated(const extensions::Extension* extension) override;
-  bool ShowExtensionActionPopup(const extensions::Extension* extension,
-                                bool grant_active_tab) override;
-  void ToolbarVisibleCountChanged() override;
-  void ToolbarHighlightModeChanged(bool is_highlighting) override;
-  void OnToolbarModelInitialized() override;
-  void OnToolbarReorderNecessary(content::WebContents* web_contents) override;
-  Browser* GetBrowser() override;
-
   void LoadImages();
 
-  // Called when an action's visibility may have changed.
-  void OnBrowserActionVisibilityChanged();
+  // Clears the |active_bubble_|, and unregisters the container as an observer.
+  void ClearActiveBubble(views::Widget* widget);
 
-  // Returns the preferred width of the container in order to show all icons
-  // that should be visible and, optionally, the chevron.
-  int GetPreferredWidth();
-
-  // Sets the chevron to be visible or not based on whether all actions are
-  // displayed.
-  void SetChevronVisibility();
-
-  // Given a number of |icons|, returns the pixels needed to draw the entire
-  // container (including the chevron if the number of icons is not all the
-  // icons and there's not a separate overflow container). For convenience,
-  // callers can set |icons| to -1 to mean "all icons".
-  int IconCountToWidth(int icons) const;
-
-  // Given a pixel width, returns the number of icons that fit.  (This
-  // automatically determines whether a chevron will be needed and includes it
-  // in the calculation.)
-  size_t WidthToIconCount(int pixels) const;
-
-  // Returns the absolute minimum size you can shrink the container down to and
-  // still show it. If there's no chevron (i.e., there's a separate overflow
-  // container), this leaves only enough room for the resize area; otherwise,
-  // this assumes a visible chevron because the only way we would not have a
-  // chevron when shrinking down this far is if there were no icons, in which
-  // case the container wouldn't be shown at all.
-  int MinimumNonemptyWidth() const;
-
-  // Animates to the target size (unless testing, in which case we go straight
-  // to the target size).
-  void Animate(gfx::Tween::Type type, size_t num_visible_icons);
-
-  // Reorders the views to match the toolbar model for the active tab.
-  void ReorderViews();
-
-  // Returns the number of icons that this container should draw. This differs
-  // from the model's visible_icon_count if this container is for the overflow.
-  size_t GetIconCount() const;
+  const ToolbarActionsBar::PlatformSettings& platform_settings() const {
+    return toolbar_actions_bar_->platform_settings();
+  }
 
   // Whether this container is in overflow mode (as opposed to in 'main'
   // mode). See class comments for details on the difference.
   bool in_overflow_mode() const { return main_container_ != NULL; }
 
-  // Whether or not the container has been initialized.
-  bool initialized_;
+  // The controlling ToolbarActionsBar, which handles most non-view logic.
+  scoped_ptr<ToolbarActionsBar> toolbar_actions_bar_;
 
   // The vector of toolbar actions (icons/image buttons for each action).
   ToolbarActionViews toolbar_action_views_;
-
-  Profile* profile_;
 
   // The Browser object the container is associated with.
   Browser* browser_;
@@ -351,13 +302,6 @@ class BrowserActionsContainer
   // class is the the main container. See class comments for details on
   // the difference between main and overflow.
   BrowserActionsContainer* main_container_;
-
-  // The view that triggered the current popup (just a reference to a view
-  // from toolbar_action_views_).
-  ToolbarActionView* popup_owner_;
-
-  // The model that tracks the order of the toolbar icons.
-  extensions::ExtensionToolbarModel* model_;
 
   // The current width of the container.
   int container_width_;
@@ -378,13 +322,11 @@ class BrowserActionsContainer
   // Don't show the chevron while animating.
   bool suppress_chevron_;
 
-  // True if we should suppress animation; we typically do this e.g. when
-  // switching tabs changes the state of the icons.
-  bool suppress_animation_;
+  // True if the container has been added to the parent view.
+  bool added_to_view_;
 
-  // True if we should suppress layout, such as when we are creating or
-  // adjusting a lot of views.
-  bool suppress_layout_;
+  // Whether or not the info bubble has been shown, if it should be.
+  bool shown_bubble_;
 
   // This is used while the user is resizing (and when the animations are in
   // progress) to know how wide the delta is between the current state and what
@@ -402,11 +344,10 @@ class BrowserActionsContainer
   // The class that registers for keyboard shortcuts for extension commands.
   scoped_ptr<ExtensionKeybindingRegistryViews> extension_keybinding_registry_;
 
-  ObserverList<BrowserActionsContainerObserver> observers_;
+  // The extension bubble that is actively showing, if any.
+  views::BubbleDelegateView* active_bubble_;
 
-  // The maximum number of icons to show per row when in overflow mode (showing
-  // icons in the application menu).
-  static int icons_per_overflow_menu_row_;
+  base::ObserverList<BrowserActionsContainerObserver> observers_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserActionsContainer);
 };

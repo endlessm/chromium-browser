@@ -45,7 +45,7 @@ class WtsSessionProcessDelegate::Core
       public IPC::Listener {
  public:
   Core(scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
-       scoped_ptr<CommandLine> target,
+       scoped_ptr<base::CommandLine> target,
        bool launch_elevated,
        const std::string& channel_security);
 
@@ -63,17 +63,17 @@ class WtsSessionProcessDelegate::Core
 
  private:
   friend class base::RefCountedThreadSafe<Core>;
-  virtual ~Core();
+  ~Core() override;
 
   // base::MessagePumpForIO::IOHandler implementation.
-  virtual void OnIOCompleted(base::MessagePumpForIO::IOContext* context,
-                             DWORD bytes_transferred,
-                             DWORD error) override;
+  void OnIOCompleted(base::MessagePumpForIO::IOContext* context,
+                     DWORD bytes_transferred,
+                     DWORD error) override;
 
   // IPC::Listener implementation.
-  virtual bool OnMessageReceived(const IPC::Message& message) override;
-  virtual void OnChannelConnected(int32 peer_pid) override;
-  virtual void OnChannelError() override;
+  bool OnMessageReceived(const IPC::Message& message) override;
+  void OnChannelConnected(int32 peer_pid) override;
+  void OnChannelError() override;
 
   // The actual implementation of LaunchProcess()
   void DoLaunchProcess();
@@ -133,7 +133,7 @@ class WtsSessionProcessDelegate::Core
   base::win::ScopedHandle session_token_;
 
   // Command line of the launched process.
-  scoped_ptr<CommandLine> target_command_;
+  scoped_ptr<base::CommandLine> target_command_;
 
   // The handle of the worker process, if launched.
   base::win::ScopedHandle worker_process_;
@@ -143,14 +143,14 @@ class WtsSessionProcessDelegate::Core
 
 WtsSessionProcessDelegate::Core::Core(
     scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
-    scoped_ptr<CommandLine> target_command,
+    scoped_ptr<base::CommandLine> target_command,
     bool launch_elevated,
     const std::string& channel_security)
     : caller_task_runner_(base::ThreadTaskRunnerHandle::Get()),
       io_task_runner_(io_task_runner),
       channel_security_(channel_security),
-      event_handler_(NULL),
-      get_named_pipe_client_pid_(NULL),
+      event_handler_(nullptr),
+      get_named_pipe_client_pid_(nullptr),
       launch_elevated_(launch_elevated),
       launch_pending_(false),
       target_command_(target_command.Pass()) {
@@ -166,15 +166,15 @@ bool WtsSessionProcessDelegate::Core::Initialize(uint32 session_id) {
   if (launch_elevated_) {
     // GetNamedPipeClientProcessId() is available starting from Vista.
     HMODULE kernel32 = ::GetModuleHandle(L"kernel32.dll");
-    CHECK(kernel32 != NULL);
+    CHECK(kernel32 != nullptr);
 
     get_named_pipe_client_pid_ =
         reinterpret_cast<GetNamedPipeClientProcessIdFn>(
             GetProcAddress(kernel32, "GetNamedPipeClientProcessId"));
-    CHECK(get_named_pipe_client_pid_ != NULL);
+    CHECK(get_named_pipe_client_pid_ != nullptr);
 
     ScopedHandle job;
-    job.Set(CreateJobObject(NULL, NULL));
+    job.Set(CreateJobObject(nullptr, nullptr));
     if (!job.IsValid()) {
       PLOG(ERROR) << "Failed to create a job object";
       return false;
@@ -255,7 +255,7 @@ void WtsSessionProcessDelegate::Core::KillProcess() {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
   channel_.reset();
-  event_handler_ = NULL;
+  event_handler_ = nullptr;
   launch_pending_ = false;
   pipe_.Close();
 
@@ -395,8 +395,8 @@ void WtsSessionProcessDelegate::Core::DoLaunchProcess() {
   if (!LaunchProcessWithToken(command_line.GetProgram(),
                               command_line.GetCommandLineString(),
                               session_token_.Get(),
-                              NULL,
-                              NULL,
+                              nullptr,
+                              nullptr,
                               false,
                               CREATE_SUSPENDED | CREATE_BREAKAWAY_FROM_JOB,
                               base::UTF8ToUTF16(kDefaultDesktopName).c_str(),
@@ -496,7 +496,7 @@ void WtsSessionProcessDelegate::Core::ReportFatalError() {
   pipe_.Close();
 
   WorkerProcessLauncher* event_handler = event_handler_;
-  event_handler_ = NULL;
+  event_handler_ = nullptr;
   event_handler->OnFatalError();
 }
 
@@ -530,7 +530,7 @@ void WtsSessionProcessDelegate::Core::ReportProcessLaunched(
 
 WtsSessionProcessDelegate::WtsSessionProcessDelegate(
     scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
-    scoped_ptr<CommandLine> target_command,
+    scoped_ptr<base::CommandLine> target_command,
     bool launch_elevated,
     const std::string& channel_security) {
   core_ = new Core(io_task_runner,

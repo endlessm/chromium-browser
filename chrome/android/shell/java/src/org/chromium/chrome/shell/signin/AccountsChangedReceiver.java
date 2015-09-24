@@ -12,6 +12,8 @@ import android.content.Intent;
 import android.util.Log;
 
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.annotations.SuppressFBWarnings;
+import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.library_loader.ProcessInitException;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.signin.OAuth2TokenService;
@@ -52,9 +54,11 @@ public class AccountsChangedReceiver extends BroadcastReceiver {
             final BrowserStartupController.StartupCallback callback) {
         ThreadUtils.runOnUiThread(new Runnable() {
             @Override
+            @SuppressFBWarnings("DM_EXIT")
             public void run() {
                 try {
-                    BrowserStartupController.get(context).startBrowserProcessesAsync(callback);
+                    BrowserStartupController.get(context, LibraryProcessType.PROCESS_BROWSER)
+                            .startBrowserProcessesAsync(callback);
                 } catch (ProcessInitException e) {
                     Log.e(TAG, "Unable to load native library.", e);
                     System.exit(-1);

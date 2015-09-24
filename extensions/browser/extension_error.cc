@@ -6,24 +6,13 @@
 
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/values.h"
 #include "extensions/common/constants.h"
 #include "url/gurl.h"
-
-using base::DictionaryValue;
 
 namespace extensions {
 
 ////////////////////////////////////////////////////////////////////////////////
 // ExtensionError
-
-// Static JSON keys.
-const char ExtensionError::kExtensionIdKey[] = "extensionId";
-const char ExtensionError::kFromIncognitoKey[] = "fromIncognito";
-const char ExtensionError::kLevelKey[] = "level";
-const char ExtensionError::kMessageKey[] = "message";
-const char ExtensionError::kSourceKey[] = "source";
-const char ExtensionError::kTypeKey[] = "type";
 
 ExtensionError::ExtensionError(Type type,
                                const std::string& extension_id,
@@ -33,6 +22,7 @@ ExtensionError::ExtensionError(Type type,
                                const base::string16& message)
     : type_(type),
       extension_id_(extension_id),
+      id_(0),
       from_incognito_(from_incognito),
       level_(level),
       source_(source),
@@ -43,21 +33,7 @@ ExtensionError::ExtensionError(Type type,
 ExtensionError::~ExtensionError() {
 }
 
-scoped_ptr<DictionaryValue> ExtensionError::ToValue() const {
-  // TODO(rdevlin.cronin): Use ValueBuilder when it's moved from
-  // chrome/common/extensions.
-  scoped_ptr<DictionaryValue> value(new DictionaryValue);
-  value->SetInteger(kTypeKey, static_cast<int>(type_));
-  value->SetString(kExtensionIdKey, extension_id_);
-  value->SetBoolean(kFromIncognitoKey, from_incognito_);
-  value->SetInteger(kLevelKey, static_cast<int>(level_));
-  value->SetString(kSourceKey, source_);
-  value->SetString(kMessageKey, message_);
-
-  return value.Pass();
-}
-
-std::string ExtensionError::PrintForTest() const {
+std::string ExtensionError::GetDebugString() const {
   return std::string("Extension Error:") +
          "\n  OTR:     " + std::string(from_incognito_ ? "true" : "false") +
          "\n  Level:   " + base::IntToString(static_cast<int>(level_)) +
@@ -78,10 +54,6 @@ bool ExtensionError::IsEqual(const ExtensionError* rhs) const {
 ////////////////////////////////////////////////////////////////////////////////
 // ManifestError
 
-// Static JSON keys.
-const char ManifestError::kManifestKeyKey[] = "manifestKey";
-const char ManifestError::kManifestSpecificKey[] = "manifestSpecific";
-
 ManifestError::ManifestError(const std::string& extension_id,
                              const base::string16& message,
                              const base::string16& manifest_key,
@@ -99,17 +71,8 @@ ManifestError::ManifestError(const std::string& extension_id,
 ManifestError::~ManifestError() {
 }
 
-scoped_ptr<DictionaryValue> ManifestError::ToValue() const {
-  scoped_ptr<DictionaryValue> value = ExtensionError::ToValue();
-  if (!manifest_key_.empty())
-    value->SetString(kManifestKeyKey, manifest_key_);
-  if (!manifest_specific_.empty())
-    value->SetString(kManifestSpecificKey, manifest_specific_);
-  return value.Pass();
-}
-
-std::string ManifestError::PrintForTest() const {
-  return ExtensionError::PrintForTest() +
+std::string ManifestError::GetDebugString() const {
+  return ExtensionError::GetDebugString() +
          "\n  Type:    ManifestError";
 }
 
@@ -122,16 +85,6 @@ bool ManifestError::IsEqualImpl(const ExtensionError* rhs) const {
 ////////////////////////////////////////////////////////////////////////////////
 // RuntimeError
 
-// Static JSON keys.
-const char RuntimeError::kColumnNumberKey[] = "columnNumber";
-const char RuntimeError::kContextUrlKey[] = "contextUrl";
-const char RuntimeError::kFunctionNameKey[] = "functionName";
-const char RuntimeError::kLineNumberKey[] = "lineNumber";
-const char RuntimeError::kStackTraceKey[] = "stackTrace";
-const char RuntimeError::kUrlKey[] = "url";
-const char RuntimeError::kRenderProcessIdKey[] = "renderProcessId";
-const char RuntimeError::kRenderViewIdKey[] = "renderViewId";
-
 RuntimeError::RuntimeError(const std::string& extension_id,
                            bool from_incognito,
                            const base::string16& source,
@@ -139,7 +92,7 @@ RuntimeError::RuntimeError(const std::string& extension_id,
                            const StackTrace& stack_trace,
                            const GURL& context_url,
                            logging::LogSeverity level,
-                           int render_view_id,
+                           int render_frame_id,
                            int render_process_id)
     : ExtensionError(ExtensionError::RUNTIME_ERROR,
                      !extension_id.empty() ? extension_id : GURL(source).host(),
@@ -149,7 +102,7 @@ RuntimeError::RuntimeError(const std::string& extension_id,
                      message),
       context_url_(context_url),
       stack_trace_(stack_trace),
-      render_view_id_(render_view_id),
+      render_frame_id_(render_frame_id),
       render_process_id_(render_process_id) {
   CleanUpInit();
 }
@@ -157,34 +110,8 @@ RuntimeError::RuntimeError(const std::string& extension_id,
 RuntimeError::~RuntimeError() {
 }
 
-scoped_ptr<DictionaryValue> RuntimeError::ToValue() const {
-  // The items which are to be written into value are also described in
-  // chrome/browser/resources/extensions/extension_error_overlay.js in @typedef
-  // for RuntimeError and StackTrace. Please update them whenever you add or
-  // remove any keys here.
-  scoped_ptr<DictionaryValue> value = ExtensionError::ToValue();
-  value->SetString(kContextUrlKey, context_url_.spec());
-  value->SetInteger(kRenderViewIdKey, render_view_id_);
-  value->SetInteger(kRenderProcessIdKey, render_process_id_);
-
-  base::ListValue* trace_value = new base::ListValue;
-  for (StackTrace::const_iterator iter = stack_trace_.begin();
-       iter != stack_trace_.end(); ++iter) {
-    DictionaryValue* frame_value = new DictionaryValue;
-    frame_value->SetInteger(kLineNumberKey, iter->line_number);
-    frame_value->SetInteger(kColumnNumberKey, iter->column_number);
-    frame_value->SetString(kUrlKey, iter->source);
-    frame_value->SetString(kFunctionNameKey, iter->function);
-    trace_value->Append(frame_value);
-  }
-
-  value->Set(kStackTraceKey, trace_value);
-
-  return value.Pass();
-}
-
-std::string RuntimeError::PrintForTest() const {
-  std::string result = ExtensionError::PrintForTest() +
+std::string RuntimeError::GetDebugString() const {
+  std::string result = ExtensionError::GetDebugString() +
          "\n  Type:    RuntimeError"
          "\n  Context: " + context_url_.spec() +
          "\n  Stack Trace: ";
@@ -232,6 +159,33 @@ void RuntimeError::CleanUpInit() {
   // of the error.
   if (!stack_trace_.empty() && source_ != stack_trace_[0].source)
     source_ = stack_trace_[0].source;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// InternalError
+
+InternalError::InternalError(const std::string& extension_id,
+                             const base::string16& message,
+                             logging::LogSeverity level)
+    : ExtensionError(ExtensionError::INTERNAL_ERROR,
+                     extension_id,
+                     false,  // not incognito.
+                     level,
+                     base::string16(),
+                     message) {
+}
+
+InternalError::~InternalError() {
+}
+
+std::string InternalError::GetDebugString() const {
+  return ExtensionError::GetDebugString() +
+         "\n  Type:    InternalError";
+}
+
+bool InternalError::IsEqualImpl(const ExtensionError* rhs) const {
+  // ExtensionError logic is sufficient for comparison.
+  return true;
 }
 
 }  // namespace extensions

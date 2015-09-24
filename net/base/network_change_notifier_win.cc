@@ -9,8 +9,7 @@
 
 #include "base/bind.h"
 #include "base/logging.h"
-#include "base/metrics/histogram.h"
-#include "base/profiler/scoped_tracker.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/threading/thread.h"
 #include "base/time/time.h"
 #include "net/base/winsock_init.h"
@@ -33,18 +32,14 @@ class NetworkChangeNotifierWin::DnsConfigServiceThread : public base::Thread {
  public:
   DnsConfigServiceThread() : base::Thread("DnsConfigService") {}
 
-  virtual ~DnsConfigServiceThread() {
-    Stop();
-  }
+  ~DnsConfigServiceThread() override { Stop(); }
 
-  virtual void Init() override {
+  void Init() override {
     service_ = DnsConfigService::CreateSystemService();
     service_->WatchConfig(base::Bind(&NetworkChangeNotifier::SetDnsConfig));
   }
 
-  virtual void CleanUp() override {
-    service_.reset();
-  }
+  void CleanUp() override { service_.reset(); }
 
  private:
   scoped_ptr<DnsConfigService> service_;
@@ -56,11 +51,11 @@ NetworkChangeNotifierWin::NetworkChangeNotifierWin()
     : NetworkChangeNotifier(NetworkChangeCalculatorParamsWin()),
       is_watching_(false),
       sequential_failures_(0),
-      weak_factory_(this),
       dns_config_service_thread_(new DnsConfigServiceThread()),
       last_computed_connection_type_(RecomputeCurrentConnectionType()),
-      last_announced_offline_(
-          last_computed_connection_type_ == CONNECTION_NONE) {
+      last_announced_offline_(last_computed_connection_type_ ==
+                              CONNECTION_NONE),
+      weak_factory_(this) {
   memset(&addr_overlapped_, 0, sizeof addr_overlapped_);
   addr_overlapped_.hEvent = WSACreateEvent();
 }
@@ -219,11 +214,6 @@ void NetworkChangeNotifierWin::SetCurrentConnectionType(
 }
 
 void NetworkChangeNotifierWin::OnObjectSignaled(HANDLE object) {
-  // TODO(vadimt): Remove ScopedTracker below once crbug.com/418183 is fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "NetworkChangeNotifierWin_OnObjectSignaled"));
-
   DCHECK(CalledOnValidThread());
   DCHECK(is_watching_);
   is_watching_ = false;

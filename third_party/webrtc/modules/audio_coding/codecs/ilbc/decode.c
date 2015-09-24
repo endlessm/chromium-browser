@@ -39,7 +39,7 @@
 void WebRtcIlbcfix_DecodeImpl(
     int16_t *decblock,    /* (o) decoded signal block */
     const uint16_t *bytes, /* (i) encoded signal bits */
-    iLBC_Dec_Inst_t *iLBCdec_inst, /* (i/o) the decoder state
+    IlbcDecoder *iLBCdec_inst, /* (i/o) the decoder state
                                            structure */
     int16_t mode      /* (i) 0: bad packet, PLC,
                                                                    1: normal */
@@ -103,9 +103,10 @@ void WebRtcIlbcfix_DecodeImpl(
       WebRtcIlbcfix_DecodeResidual(iLBCdec_inst, iLBCbits_inst, decresidual, syntdenum);
 
       /* preparing the plc for a future loss! */
-      WebRtcIlbcfix_DoThePlc( PLCresidual, PLClpc, 0,
-                              decresidual, syntdenum + (LPC_FILTERORDER + 1)*(iLBCdec_inst->nsub - 1),
-                              (int16_t)(iLBCdec_inst->last_lag), iLBCdec_inst);
+      WebRtcIlbcfix_DoThePlc(
+          PLCresidual, PLClpc, 0, decresidual,
+          syntdenum + (LPC_FILTERORDER + 1) * (iLBCdec_inst->nsub - 1),
+          (int16_t)(iLBCdec_inst->last_lag), iLBCdec_inst);
 
       /* Use the output from doThePLC */
       WEBRTC_SPL_MEMCPY_W16(decresidual, PLCresidual, iLBCdec_inst->blockl);
@@ -120,8 +121,8 @@ void WebRtcIlbcfix_DecodeImpl(
 
     /* packet loss conceal */
 
-    WebRtcIlbcfix_DoThePlc( PLCresidual, PLClpc, 1,
-                            decresidual, syntdenum, (int16_t)(iLBCdec_inst->last_lag), iLBCdec_inst);
+    WebRtcIlbcfix_DoThePlc(PLCresidual, PLClpc, 1, decresidual, syntdenum,
+                           (int16_t)(iLBCdec_inst->last_lag), iLBCdec_inst);
 
     WEBRTC_SPL_MEMCPY_W16(decresidual, PLCresidual, iLBCdec_inst->blockl);
 
@@ -206,7 +207,7 @@ void WebRtcIlbcfix_DecodeImpl(
     }
 
     /* Store lag (it is needed if next packet is lost) */
-    (*iLBCdec_inst).last_lag = (int)lag;
+    (*iLBCdec_inst).last_lag = lag;
 
     /* copy data and run synthesis filter */
     WEBRTC_SPL_MEMCPY_W16(data, decresidual, iLBCdec_inst->blockl);

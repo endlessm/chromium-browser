@@ -268,7 +268,9 @@ scoped_ptr<base::ListValue> AutomaticProfileResetterDelegateImpl::
 bool AutomaticProfileResetterDelegateImpl::TriggerPrompt() {
   DCHECK(global_error_service_);
 
-  if (!ProfileResetGlobalError::IsSupportedOnPlatform())
+  Browser* browser = chrome::FindTabbedBrowser(
+      profile_, false /*match_original_profiles*/, chrome::GetActiveDesktop());
+  if (!browser || !ProfileResetGlobalError::IsSupportedOnPlatform(browser))
     return false;
 
   ProfileResetGlobalError* global_error = new ProfileResetGlobalError(profile_);
@@ -282,14 +284,8 @@ bool AutomaticProfileResetterDelegateImpl::TriggerPrompt() {
     if ((*it)->GetBubbleView())
       break;
   }
-  if (it == global_errors.end()) {
-    Browser* browser = chrome::FindTabbedBrowser(
-        profile_,
-        false /*match_original_profiles*/,
-        chrome::GetActiveDesktop());
-    if (browser)
-      global_error->ShowBubbleView(browser);
-  }
+  if (it == global_errors.end())
+    global_error->ShowBubbleView(browser);
   return true;
 }
 
@@ -309,7 +305,7 @@ void AutomaticProfileResetterDelegateImpl::TriggerProfileSettingsReset(
 }
 
 void AutomaticProfileResetterDelegateImpl::OnTemplateURLServiceChanged() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(template_url_service_);
   if (template_url_service_->loaded() &&
       !template_url_service_ready_event_.is_signaled())
@@ -332,7 +328,7 @@ void AutomaticProfileResetterDelegateImpl::Observe(
     int type,
     const content::NotificationSource& source,
     const content::NotificationDetails& details) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (type == chrome::NOTIFICATION_MODULE_LIST_ENUMERATED &&
       !modules_have_been_enumerated_event_.is_signaled()) {
 #if defined(OS_WIN)
@@ -368,7 +364,7 @@ void AutomaticProfileResetterDelegateImpl::RunProfileSettingsReset(
 
 void AutomaticProfileResetterDelegateImpl::
     OnBrandcodedDefaultsFetched() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(brandcoded_config_fetcher_);
   DCHECK(!brandcoded_config_fetcher_->IsActive());
   brandcoded_defaults_ = brandcoded_config_fetcher_->GetSettings();
@@ -380,7 +376,7 @@ void AutomaticProfileResetterDelegateImpl::
 void AutomaticProfileResetterDelegateImpl::OnProfileSettingsResetCompleted(
     const base::Closure& user_callback,
     scoped_ptr<ResettableSettingsSnapshot> old_settings_snapshot) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (old_settings_snapshot) {
     ResettableSettingsSnapshot new_settings_snapshot(profile_);
     int difference =

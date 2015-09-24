@@ -7,7 +7,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/content_settings/cookie_settings.h"
+#include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/net/url_request_mock_util.h"
 #include "chrome/browser/plugins/chrome_plugin_service_filter.h"
@@ -20,6 +20,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/test_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_observer.h"
@@ -73,24 +74,11 @@ class ContentSettingsTest : public InProcessBrowserTest {
     ASSERT_TRUE(content::GetCookies(browser()->profile(), url).empty());
 
     // Ensure cookies get wiped after last incognito window closes.
-    content::WindowedNotificationObserver signal(
-        chrome::NOTIFICATION_BROWSER_CLOSED,
-        content::Source<Browser>(incognito));
-
-    chrome::CloseWindow(incognito);
-
-#if defined(OS_MACOSX)
-    // BrowserWindowController depends on the auto release pool being recycled
-    // in the message loop to delete itself, which frees the Browser object
-    // which fires this event.
-    AutoreleasePool()->Recycle();
-#endif
-
-    signal.Wait();
+    CloseBrowserSynchronously(incognito);
 
     incognito = CreateIncognitoBrowser();
     ASSERT_TRUE(content::GetCookies(incognito->profile(), url).empty());
-    chrome::CloseWindow(incognito);
+    CloseBrowserSynchronously(incognito);
   }
 
   void PreBasic(const GURL& url) {
@@ -139,8 +127,8 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsTest, BasicCookiesHttps) {
 // Verify that cookies are being blocked.
 IN_PROC_BROWSER_TEST_F(ContentSettingsTest, PRE_BlockCookies) {
   ASSERT_TRUE(test_server()->Start());
-  CookieSettings::Factory::GetForProfile(browser()->profile())->
-      SetDefaultCookieSetting(CONTENT_SETTING_BLOCK);
+  CookieSettingsFactory::GetForProfile(browser()->profile())
+      ->SetDefaultCookieSetting(CONTENT_SETTING_BLOCK);
   GURL url = test_server()->GetURL("files/setcookie.html");
   ui_test_utils::NavigateToURL(browser(), url);
   ASSERT_TRUE(GetCookies(browser()->profile(), url).empty());
@@ -149,10 +137,9 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsTest, PRE_BlockCookies) {
 
 // Ensure that the setting persists.
 IN_PROC_BROWSER_TEST_F(ContentSettingsTest, BlockCookies) {
-  ASSERT_EQ(
-      CONTENT_SETTING_BLOCK,
-      CookieSettings::Factory::GetForProfile(browser()->profile())->
-          GetDefaultCookieSetting(NULL));
+  ASSERT_EQ(CONTENT_SETTING_BLOCK,
+            CookieSettingsFactory::GetForProfile(browser()->profile())
+                ->GetDefaultCookieSetting(NULL));
 }
 
 // Verify that cookies can be allowed and set using exceptions for particular
@@ -160,8 +147,8 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsTest, BlockCookies) {
 IN_PROC_BROWSER_TEST_F(ContentSettingsTest, AllowCookiesUsingExceptions) {
   ASSERT_TRUE(test_server()->Start());
   GURL url = test_server()->GetURL("files/setcookie.html");
-  CookieSettings* settings =
-      CookieSettings::Factory::GetForProfile(browser()->profile()).get();
+  content_settings::CookieSettings* settings =
+      CookieSettingsFactory::GetForProfile(browser()->profile()).get();
   settings->SetDefaultCookieSetting(CONTENT_SETTING_BLOCK);
 
   ui_test_utils::NavigateToURL(browser(), url);
@@ -179,8 +166,8 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsTest, AllowCookiesUsingExceptions) {
 IN_PROC_BROWSER_TEST_F(ContentSettingsTest, BlockCookiesUsingExceptions) {
   ASSERT_TRUE(test_server()->Start());
   GURL url = test_server()->GetURL("files/setcookie.html");
-  CookieSettings* settings =
-      CookieSettings::Factory::GetForProfile(browser()->profile()).get();
+  content_settings::CookieSettings* settings =
+      CookieSettingsFactory::GetForProfile(browser()->profile()).get();
   settings->SetCookieSetting(ContentSettingsPattern::FromURL(url),
                              ContentSettingsPattern::Wildcard(),
                              CONTENT_SETTING_BLOCK);
@@ -207,8 +194,8 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsTest,
   // across the restart.
   GURL url = URLRequestMockHTTPJob::GetMockUrl(
       base::FilePath(FILE_PATH_LITERAL("setcookie.html")));
-  CookieSettings* settings =
-      CookieSettings::Factory::GetForProfile(browser()->profile()).get();
+  content_settings::CookieSettings* settings =
+      CookieSettingsFactory::GetForProfile(browser()->profile()).get();
   settings->SetDefaultCookieSetting(CONTENT_SETTING_BLOCK);
 
   ui_test_utils::NavigateToURL(browser(), url);
@@ -236,8 +223,8 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsTest, RedirectLoopCookies) {
 
   GURL test_url = test_server()->GetURL("files/redirect-loop.html");
 
-  CookieSettings::Factory::GetForProfile(browser()->profile())->
-      SetDefaultCookieSetting(CONTENT_SETTING_BLOCK);
+  CookieSettingsFactory::GetForProfile(browser()->profile())
+      ->SetDefaultCookieSetting(CONTENT_SETTING_BLOCK);
 
   ui_test_utils::NavigateToURL(browser(), test_url);
 
@@ -279,8 +266,8 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsTest, RedirectCrossOrigin) {
       host_port.port()));
   GURL test_url = test_server()->GetURL("server-redirect?" + redirect);
 
-  CookieSettings::Factory::GetForProfile(browser()->profile())->
-      SetDefaultCookieSetting(CONTENT_SETTING_BLOCK);
+  CookieSettingsFactory::GetForProfile(browser()->profile())
+      ->SetDefaultCookieSetting(CONTENT_SETTING_BLOCK);
 
   ui_test_utils::NavigateToURL(browser(), test_url);
 
@@ -291,186 +278,13 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsTest, RedirectCrossOrigin) {
       IsContentBlocked(CONTENT_SETTINGS_TYPE_COOKIES));
 }
 
-// On Aura NPAPI only works on Windows.
-#if !defined(USE_AURA) || defined(OS_WIN)
-
-class ClickToPlayPluginTest : public ContentSettingsTest {
- public:
-  ClickToPlayPluginTest() {}
-
-#if defined(OS_MACOSX)
-  void SetUpCommandLine(CommandLine* command_line) override {
-    base::FilePath plugin_dir;
-    PathService::Get(base::DIR_MODULE, &plugin_dir);
-    plugin_dir = plugin_dir.AppendASCII("plugins");
-    // The plugins directory isn't read by default on the Mac, so it needs to be
-    // explicitly registered.
-    command_line->AppendSwitchPath(switches::kExtraPluginDir, plugin_dir);
-  }
-#endif
-};
-
-IN_PROC_BROWSER_TEST_F(ClickToPlayPluginTest, Basic) {
-  browser()->profile()->GetHostContentSettingsMap()->SetDefaultContentSetting(
-      CONTENT_SETTINGS_TYPE_PLUGINS, CONTENT_SETTING_BLOCK);
-
-  GURL url = ui_test_utils::GetTestUrl(
-      base::FilePath(), base::FilePath().AppendASCII("clicktoplay.html"));
-  ui_test_utils::NavigateToURL(browser(), url);
-
-  base::string16 expected_title(base::ASCIIToUTF16("OK"));
-  content::TitleWatcher title_watcher(
-      browser()->tab_strip_model()->GetActiveWebContents(), expected_title);
-
-  content::WebContents* web_contents =
-      browser()->tab_strip_model()->GetActiveWebContents();
-  ChromePluginServiceFilter* filter = ChromePluginServiceFilter::GetInstance();
-  int process_id = web_contents->GetMainFrame()->GetProcess()->GetID();
-  base::FilePath path(FILE_PATH_LITERAL("blah"));
-  EXPECT_FALSE(filter->CanLoadPlugin(process_id, path));
-  filter->AuthorizeAllPlugins(web_contents, true, std::string());
-  EXPECT_TRUE(filter->CanLoadPlugin(process_id, path));
-
-  EXPECT_EQ(expected_title, title_watcher.WaitAndGetTitle());
-}
-
-// Verify that plugins can be allowed on a domain by adding an exception
-IN_PROC_BROWSER_TEST_F(ClickToPlayPluginTest, AllowException) {
-  GURL url = ui_test_utils::GetTestUrl(
-      base::FilePath(), base::FilePath().AppendASCII("clicktoplay.html"));
-
-  browser()->profile()->GetHostContentSettingsMap()->SetDefaultContentSetting(
-      CONTENT_SETTINGS_TYPE_PLUGINS, CONTENT_SETTING_BLOCK);
-  browser()->profile()->GetHostContentSettingsMap()
-      ->SetContentSetting(ContentSettingsPattern::FromURL(url),
-                          ContentSettingsPattern::Wildcard(),
-                          CONTENT_SETTINGS_TYPE_PLUGINS,
-                          std::string(),
-                          CONTENT_SETTING_ALLOW);
-
-  base::string16 expected_title(base::ASCIIToUTF16("OK"));
-  content::TitleWatcher title_watcher(
-      browser()->tab_strip_model()->GetActiveWebContents(), expected_title);
-  ui_test_utils::NavigateToURL(browser(), url);
-  EXPECT_EQ(expected_title, title_watcher.WaitAndGetTitle());
-}
-
-// Verify that plugins can be blocked on a domain by adding an exception.
-IN_PROC_BROWSER_TEST_F(ClickToPlayPluginTest, BlockException) {
-  GURL url = ui_test_utils::GetTestUrl(
-      base::FilePath(), base::FilePath().AppendASCII("clicktoplay.html"));
-
-  browser()->profile()->GetHostContentSettingsMap()
-      ->SetContentSetting(ContentSettingsPattern::FromURL(url),
-                          ContentSettingsPattern::Wildcard(),
-                          CONTENT_SETTINGS_TYPE_PLUGINS,
-                          std::string(),
-                          CONTENT_SETTING_BLOCK);
-
-  base::string16 expected_title(base::ASCIIToUTF16("Click To Play"));
-  content::TitleWatcher title_watcher(
-      browser()->tab_strip_model()->GetActiveWebContents(), expected_title);
-  ui_test_utils::NavigateToURL(browser(), url);
-  EXPECT_EQ(expected_title, title_watcher.WaitAndGetTitle());
-}
-
-// Crashes on Mac Asan.  http://crbug.com/239169
-#if defined(OS_MACOSX)
-#define MAYBE_LoadAllBlockedPlugins DISABLED_LoadAllBlockedPlugins
-// TODO(jschuh): Flaky plugin tests. crbug.com/244653
-#elif defined(OS_WIN) && defined(ARCH_CPU_X86_64)
-#define MAYBE_LoadAllBlockedPlugins DISABLED_LoadAllBlockedPlugins
-#else
-#define MAYBE_LoadAllBlockedPlugins LoadAllBlockedPlugins
-#endif
-IN_PROC_BROWSER_TEST_F(ClickToPlayPluginTest, MAYBE_LoadAllBlockedPlugins) {
-  browser()->profile()->GetHostContentSettingsMap()->SetDefaultContentSetting(
-      CONTENT_SETTINGS_TYPE_PLUGINS, CONTENT_SETTING_BLOCK);
-
-  GURL url = ui_test_utils::GetTestUrl(
-      base::FilePath(),
-      base::FilePath().AppendASCII("load_all_blocked_plugins.html"));
-  ui_test_utils::NavigateToURL(browser(), url);
-
-  base::string16 expected_title1(base::ASCIIToUTF16("1"));
-  content::TitleWatcher title_watcher1(
-      browser()->tab_strip_model()->GetActiveWebContents(), expected_title1);
-
-  ChromePluginServiceFilter::GetInstance()->AuthorizeAllPlugins(
-      browser()->tab_strip_model()->GetActiveWebContents(), true,
-      std::string());
-  EXPECT_EQ(expected_title1, title_watcher1.WaitAndGetTitle());
-
-  base::string16 expected_title2(base::ASCIIToUTF16("2"));
-  content::TitleWatcher title_watcher2(
-      browser()->tab_strip_model()->GetActiveWebContents(), expected_title2);
-
-  ASSERT_TRUE(content::ExecuteScript(
-      browser()->tab_strip_model()->GetActiveWebContents(), "window.inject()"));
-
-  EXPECT_EQ(expected_title2, title_watcher2.WaitAndGetTitle());
-}
-
-// If this flakes, use http://crbug.com/113057.
-// TODO(jschuh): Hanging plugin tests. crbug.com/244653
-#if !defined(OS_WIN) && !defined(ARCH_CPU_X86_64)
-IN_PROC_BROWSER_TEST_F(ClickToPlayPluginTest, NoCallbackAtLoad) {
-  browser()->profile()->GetHostContentSettingsMap()->SetDefaultContentSetting(
-      CONTENT_SETTINGS_TYPE_PLUGINS, CONTENT_SETTING_BLOCK);
-
-  GURL url("data:application/vnd.npapi-test,CallOnStartup();");
-  ui_test_utils::NavigateToURL(browser(), url);
-
-  std::string script("CallOnStartup = function() { ");
-  script.append("document.documentElement.appendChild");
-  script.append("(document.createElement(\"head\")); ");
-  script.append("document.title = \"OK\"; }");
-
-  // Inject the callback function into the HTML page generated by the browser.
-  ASSERT_TRUE(content::ExecuteScript(
-      browser()->tab_strip_model()->GetActiveWebContents(), script));
-
-  base::string16 expected_title(base::ASCIIToUTF16("OK"));
-  content::TitleWatcher title_watcher(
-      browser()->tab_strip_model()->GetActiveWebContents(), expected_title);
-
-  ChromePluginServiceFilter::GetInstance()->AuthorizeAllPlugins(
-      browser()->tab_strip_model()->GetActiveWebContents(), true,
-      std::string());
-
-  EXPECT_EQ(expected_title, title_watcher.WaitAndGetTitle());
-}
-#endif
-
-IN_PROC_BROWSER_TEST_F(ClickToPlayPluginTest, DeleteSelfAtLoad) {
-  browser()->profile()->GetHostContentSettingsMap()->SetDefaultContentSetting(
-      CONTENT_SETTINGS_TYPE_PLUGINS, CONTENT_SETTING_BLOCK);
-
-  GURL url = ui_test_utils::GetTestUrl(
-      base::FilePath(),
-      base::FilePath().AppendASCII("plugin_delete_self_at_load.html"));
-  ui_test_utils::NavigateToURL(browser(), url);
-
-  base::string16 expected_title(base::ASCIIToUTF16("OK"));
-  content::TitleWatcher title_watcher(
-      browser()->tab_strip_model()->GetActiveWebContents(), expected_title);
-
-  ChromePluginServiceFilter::GetInstance()->AuthorizeAllPlugins(
-      browser()->tab_strip_model()->GetActiveWebContents(), true,
-      std::string());
-
-  EXPECT_EQ(expected_title, title_watcher.WaitAndGetTitle());
-}
-
-#endif  // !defined(USE_AURA) || defined(OS_WIN)
-
 #if defined(ENABLE_PLUGINS)
 class PepperContentSettingsSpecialCasesTest : public ContentSettingsTest {
  protected:
   static const char* const kExternalClearKeyMimeType;
 
   // Registers any CDM plugins not registered by default.
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
 #if defined(ENABLE_PEPPER_CDMS)
     // Platform-specific filename relative to the chrome executable.
 #if defined(OS_WIN)
@@ -594,17 +408,15 @@ class PepperContentSettingsSpecialCasesTest : public ContentSettingsTest {
     EXPECT_TRUE(base::PathExists(plugin_lib));
 
     base::FilePath::StringType pepper_plugin = plugin_lib.value();
-    pepper_plugin.append(FILE_PATH_LITERAL("#"));
+    std::string string_to_append = "#";
+    string_to_append.append(display_name);
+    string_to_append.append("#A CDM#0.1.0.0;");
+    string_to_append.append(mime_type);
+
 #if defined(OS_WIN)
-    pepper_plugin.append(base::ASCIIToWide(display_name));
+    pepper_plugin.append(base::ASCIIToUTF16(string_to_append));
 #else
-    pepper_plugin.append(display_name);
-#endif
-    pepper_plugin.append(FILE_PATH_LITERAL("#A CDM#0.1.0.0;"));
-#if defined(OS_WIN)
-    pepper_plugin.append(base::ASCIIToWide(mime_type));
-#else
-    pepper_plugin.append(mime_type);
+    pepper_plugin.append(string_to_append);
 #endif
 
     return pepper_plugin;
@@ -643,7 +455,8 @@ class PepperContentSettingsSpecialCasesJavaScriptBlockedTest
 IN_PROC_BROWSER_TEST_F(PepperContentSettingsSpecialCasesTest, Baseline) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
   browser()->profile()->GetHostContentSettingsMap()->SetDefaultContentSetting(
@@ -654,7 +467,7 @@ IN_PROC_BROWSER_TEST_F(PepperContentSettingsSpecialCasesTest, Baseline) {
 #endif  // defined(ENABLE_PEPPER_CDMS)
 
 // The following tests verify that Pepper plugins that use JavaScript settings
-// instead of Plug-ins settings still work when Plug-ins are blocked.
+// instead of Plugins settings still work when Plugins are blocked.
 
 #if defined(ENABLE_PEPPER_CDMS)
 // The plugin successfully loaded above is blocked.
@@ -662,7 +475,8 @@ IN_PROC_BROWSER_TEST_F(PepperContentSettingsSpecialCasesPluginsBlockedTest,
                        Normal) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
   RunLoadPepperPluginTest(kExternalClearKeyMimeType, false);
@@ -673,7 +487,8 @@ IN_PROC_BROWSER_TEST_F(PepperContentSettingsSpecialCasesPluginsBlockedTest,
                        WidevineCdm) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
   RunLoadPepperPluginTest(kWidevineCdmPluginMimeType, true);
@@ -686,7 +501,8 @@ IN_PROC_BROWSER_TEST_F(PepperContentSettingsSpecialCasesPluginsBlockedTest,
                        NaCl) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
   RunLoadPepperPluginTest("application/x-nacl", true);
@@ -702,7 +518,8 @@ IN_PROC_BROWSER_TEST_F(PepperContentSettingsSpecialCasesJavaScriptBlockedTest,
                        Normal) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
   RunJavaScriptBlockedTest("load_clearkey_no_js.html", false);
@@ -713,7 +530,8 @@ IN_PROC_BROWSER_TEST_F(PepperContentSettingsSpecialCasesJavaScriptBlockedTest,
                        WidevineCdm) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
   RunJavaScriptBlockedTest("load_widevine_no_js.html", true);
@@ -726,7 +544,8 @@ IN_PROC_BROWSER_TEST_F(PepperContentSettingsSpecialCasesJavaScriptBlockedTest,
                        NaCl) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
   RunJavaScriptBlockedTest("load_nacl_no_js.html", true);

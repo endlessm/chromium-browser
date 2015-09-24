@@ -7,6 +7,7 @@
 #include <map>
 #include <set>
 
+#include "base/barrier_closure.h"
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -21,24 +22,25 @@
 #include "chrome/browser/chromeos/app_mode/kiosk_app_data.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_external_loader.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager_observer.h"
+#include "chrome/browser/chromeos/app_mode/kiosk_external_updater.h"
+#include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos_factory.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/policy/device_local_account.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/extensions/external_loader.h"
 #include "chrome/browser/extensions/external_provider_impl.h"
+#include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chromeos/chromeos_paths.h"
 #include "chromeos/cryptohome/async_method_caller.h"
+#include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/settings/cros_settings_names.h"
 #include "components/ownership/owner_key_util.h"
+#include "components/user_manager/user_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/common/extension_urls.h"
-
-#if !defined(USE_ATHENA)
-#include "chrome/browser/chromeos/app_mode/kiosk_external_updater.h"
-#endif
 
 namespace chromeos {
 
@@ -47,16 +49,65 @@ namespace {
 // Domain that is used for kiosk-app account IDs.
 const char kKioskAppAccountDomain[] = "kiosk-apps";
 
+// Preference for the dictionary of user ids for which cryptohomes have to be
+// removed upon browser restart.
+const char kKioskUsersToRemove[] = "kiosk-users-to-remove";
+
 std::string GenerateKioskAppAccountId(const std::string& app_id) {
   return app_id + '@' + kKioskAppAccountDomain;
 }
 
-void OnRemoveAppCryptohomeComplete(const std::string& app,
+void ScheduleDelayedCryptohomeRemoval(const std::string& user_id,
+                                      const std::string& app_id) {
+  PrefService* local_state = g_browser_process->local_state();
+  DictionaryPrefUpdate dict_update(local_state, kKioskUsersToRemove);
+  dict_update->SetStringWithoutPathExpansion(user_id, app_id);
+  local_state->CommitPendingWrite();
+}
+
+void CancelDelayedCryptohomeRemoval(const std::string& user_id) {
+  PrefService* local_state = g_browser_process->local_state();
+  DictionaryPrefUpdate dict_update(local_state, kKioskUsersToRemove);
+  dict_update->RemoveWithoutPathExpansion(user_id, NULL);
+  local_state->CommitPendingWrite();
+}
+
+void OnRemoveAppCryptohomeComplete(const std::string& user_id,
+                                   const std::string& app,
+                                   const base::Closure& callback,
                                    bool success,
                                    cryptohome::MountError return_code) {
-  if (!success) {
+  if (success) {
+    CancelDelayedCryptohomeRemoval(user_id);
+  } else {
+    ScheduleDelayedCryptohomeRemoval(user_id, app);
     LOG(ERROR) << "Remove cryptohome for " << app
         << " failed, return code: " << return_code;
+  }
+  if (!callback.is_null())
+    callback.Run();
+}
+
+void PerformDelayedCryptohomeRemovals(bool service_is_available) {
+  if (!service_is_available) {
+    LOG(ERROR) << "Crypthomed is not available.";
+    return;
+  }
+
+  PrefService* local_state = g_browser_process->local_state();
+  const base::DictionaryValue* dict =
+      local_state->GetDictionary(kKioskUsersToRemove);
+  for (base::DictionaryValue::Iterator it(*dict); !it.IsAtEnd(); it.Advance()) {
+    std::string user_id = it.key();
+    std::string app_id;
+    it.value().GetAsString(&app_id);
+    VLOG(1) << "Removing obsolete crypthome for " << app_id;
+    cryptohome::AsyncMethodCaller::GetInstance()->AsyncRemove(
+        user_id,
+        base::Bind(&OnRemoveAppCryptohomeComplete,
+                   user_id,
+                   app_id,
+                   base::Closure()));
   }
 }
 
@@ -101,37 +152,58 @@ void KioskAppManager::Shutdown() {
 // static
 void KioskAppManager::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterDictionaryPref(kKioskDictionaryName);
+  registry->RegisterDictionaryPref(kKioskUsersToRemove);
 }
 
-KioskAppManager::App::App(const KioskAppData& data, bool is_extension_pending)
+// static
+void KioskAppManager::RemoveObsoleteCryptohomes() {
+  chromeos::CryptohomeClient* client =
+      chromeos::DBusThreadManager::Get()->GetCryptohomeClient();
+  client->WaitForServiceToBeAvailable(
+      base::Bind(&PerformDelayedCryptohomeRemovals));
+}
+
+KioskAppManager::App::App(
+    const KioskAppData& data,
+    bool is_extension_pending,
+    bool auto_launched_with_zero_delay)
     : app_id(data.app_id()),
       user_id(data.user_id()),
       name(data.name()),
       icon(data.icon()),
-      is_loading(data.IsLoading() || is_extension_pending) {
+      is_loading(data.IsLoading() || is_extension_pending),
+      was_auto_launched_with_zero_delay(auto_launched_with_zero_delay) {
 }
 
-KioskAppManager::App::App() : is_loading(false) {}
+KioskAppManager::App::App() : is_loading(false),
+                              was_auto_launched_with_zero_delay(false) {}
+
 KioskAppManager::App::~App() {}
 
 std::string KioskAppManager::GetAutoLaunchApp() const {
   return auto_launch_app_id_;
 }
 
-void KioskAppManager::SetAutoLaunchApp(const std::string& app_id) {
+void KioskAppManager::SetAutoLaunchApp(const std::string& app_id,
+                                       OwnerSettingsServiceChromeOS* service) {
   SetAutoLoginState(AUTOLOGIN_REQUESTED);
   // Clean first, so the proper change callbacks are triggered even
   // if we are only changing AutoLoginState here.
   if (!auto_launch_app_id_.empty()) {
-    CrosSettings::Get()->SetString(kAccountsPrefDeviceLocalAccountAutoLoginId,
-                                   std::string());
+    service->SetString(kAccountsPrefDeviceLocalAccountAutoLoginId,
+                       std::string());
   }
 
-  CrosSettings::Get()->SetString(
+  service->SetString(
       kAccountsPrefDeviceLocalAccountAutoLoginId,
       app_id.empty() ? std::string() : GenerateKioskAppAccountId(app_id));
-  CrosSettings::Get()->SetInteger(
-      kAccountsPrefDeviceLocalAccountAutoLoginDelay, 0);
+  service->SetInteger(kAccountsPrefDeviceLocalAccountAutoLoginDelay, 0);
+}
+
+void KioskAppManager::SetAppWasAutoLaunchedWithZeroDelay(
+    const std::string& app_id) {
+  DCHECK_EQ(auto_launch_app_id_, app_id);
+  currently_auto_launched_with_zero_delay_app_ = app_id;
 }
 
 void KioskAppManager::EnableConsumerKioskAutoLaunch(
@@ -261,7 +333,8 @@ bool KioskAppManager::IsAutoLaunchEnabled() const {
   return GetAutoLoginState() == AUTOLOGIN_APPROVED;
 }
 
-void KioskAppManager::AddApp(const std::string& app_id) {
+void KioskAppManager::AddApp(const std::string& app_id,
+                             OwnerSettingsServiceChromeOS* service) {
   std::vector<policy::DeviceLocalAccount> device_local_accounts =
       policy::GetDeviceLocalAccounts(CrosSettings::Get());
 
@@ -282,13 +355,14 @@ void KioskAppManager::AddApp(const std::string& app_id) {
       app_id,
       std::string()));
 
-  policy::SetDeviceLocalAccounts(CrosSettings::Get(), device_local_accounts);
+  policy::SetDeviceLocalAccounts(service, device_local_accounts);
 }
 
-void KioskAppManager::RemoveApp(const std::string& app_id) {
+void KioskAppManager::RemoveApp(const std::string& app_id,
+                                OwnerSettingsServiceChromeOS* service) {
   // Resets auto launch app if it is the removed app.
   if (auto_launch_app_id_ == app_id)
-    SetAutoLaunchApp(std::string());
+    SetAutoLaunchApp(std::string(), service);
 
   std::vector<policy::DeviceLocalAccount> device_local_accounts =
       policy::GetDeviceLocalAccounts(CrosSettings::Get());
@@ -306,7 +380,7 @@ void KioskAppManager::RemoveApp(const std::string& app_id) {
     }
   }
 
-  policy::SetDeviceLocalAccounts(CrosSettings::Get(), device_local_accounts);
+  policy::SetDeviceLocalAccounts(service, device_local_accounts);
 }
 
 void KioskAppManager::GetApps(Apps* apps) const {
@@ -314,9 +388,11 @@ void KioskAppManager::GetApps(Apps* apps) const {
   apps->reserve(apps_.size());
   for (size_t i = 0; i < apps_.size(); ++i) {
     const KioskAppData& app_data = *apps_[i];
-    if (app_data.status() != KioskAppData::STATUS_ERROR)
+    if (app_data.status() != KioskAppData::STATUS_ERROR) {
       apps->push_back(App(
-          app_data, external_cache_->IsExtensionPending(app_data.app_id())));
+          app_data, external_cache_->IsExtensionPending(app_data.app_id()),
+          app_data.app_id() == currently_auto_launched_with_zero_delay_app_));
+    }
   }
 }
 
@@ -325,17 +401,9 @@ bool KioskAppManager::GetApp(const std::string& app_id, App* app) const {
   if (!data)
     return false;
 
-  *app = App(*data, external_cache_->IsExtensionPending(app_id));
+  *app = App(*data, external_cache_->IsExtensionPending(app_id),
+             app_id == currently_auto_launched_with_zero_delay_app_);
   return true;
-}
-
-const base::RefCountedString* KioskAppManager::GetAppRawIcon(
-    const std::string& app_id) const {
-  const KioskAppData* data = GetAppData(app_id);
-  if (!data)
-    return NULL;
-
-  return data->raw_icon();
 }
 
 bool KioskAppManager::GetDisableBailoutShortcut() const {
@@ -467,23 +535,19 @@ KioskAppManager::KioskAppManager()
 KioskAppManager::~KioskAppManager() {}
 
 void KioskAppManager::MonitorKioskExternalUpdate() {
-#if !defined(USE_ATHENA)
   base::FilePath cache_dir;
   GetCrxCacheDir(&cache_dir);
   base::FilePath unpack_dir;
   GetCrxUnpackDir(&unpack_dir);
   usb_stick_updater_.reset(new KioskExternalUpdater(
       GetBackgroundTaskRunner(), cache_dir, unpack_dir));
-#endif
 }
 
 void KioskAppManager::CleanUp() {
   local_accounts_subscription_.reset();
   local_account_auto_login_id_subscription_.reset();
   apps_.clear();
-#if !defined(USE_ATHENA)
   usb_stick_updater_.reset();
-#endif
   external_cache_.reset();
 }
 
@@ -537,6 +601,23 @@ void KioskAppManager::UpdateAppData() {
       apps_.push_back(new_app);  // Takes ownership of |new_app|.
       new_app->Load();
     }
+    CancelDelayedCryptohomeRemoval(it->user_id);
+  }
+
+  base::Closure cryptohomes_barrier_closure;
+
+  const user_manager::User* active_user =
+      user_manager::UserManager::Get()->GetActiveUser();
+  if (active_user) {
+    std::string active_user_id = active_user->GetUserID();
+    for (const auto& it : old_apps) {
+      if (it.second->user_id() == active_user_id) {
+        VLOG(1) << "Currently running kiosk app removed from policy, exiting";
+        cryptohomes_barrier_closure = BarrierClosure(
+            old_apps.size(), base::Bind(&chrome::AttemptUserExit));
+        break;
+      }
+    }
   }
 
   // Clears cache and deletes the remaining old data.
@@ -546,7 +627,10 @@ void KioskAppManager::UpdateAppData() {
     it->second->ClearCache();
     cryptohome::AsyncMethodCaller::GetInstance()->AsyncRemove(
         it->second->user_id(),
-        base::Bind(&OnRemoveAppCryptohomeComplete, it->first));
+        base::Bind(&OnRemoveAppCryptohomeComplete,
+                   it->second->user_id(),
+                   it->first,
+                   cryptohomes_barrier_closure));
     apps_to_remove.push_back(it->second->app_id());
   }
   STLDeleteValues(&old_apps);
@@ -602,6 +686,12 @@ void KioskAppManager::OnExtensionLoadedInCache(const std::string& id) {
   KioskAppData* app_data = GetAppDataMutable(id);
   if (!app_data)
     return;
+
+  base::FilePath crx_path;
+  std::string version;
+  if (GetCachedCrx(id, &crx_path, &version))
+    app_data->SetCachedCrx(crx_path);
+
   FOR_EACH_OBSERVER(KioskAppManagerObserver,
                     observers_,
                     OnKioskExtensionLoadedInCache(id));

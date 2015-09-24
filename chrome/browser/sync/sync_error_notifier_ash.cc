@@ -103,7 +103,8 @@ SyncErrorNotifier::SyncErrorNotifier(SyncErrorController* controller,
     : error_controller_(controller),
       profile_(profile) {
   // Create a unique notification ID for this profile.
-  notification_id_ = kProfileSyncNotificationId + profile_->GetProfileName();
+  notification_id_ =
+      kProfileSyncNotificationId + profile_->GetProfileUserName();
 
   error_controller_->AddObserver(this);
   OnErrorChanged();
@@ -175,10 +176,9 @@ void SyncErrorNotifier::OnErrorChanged() {
       l10n_util::GetStringUTF16(IDS_SYNC_PASSPHRASE_ERROR_BUBBLE_VIEW_MESSAGE),
       ui::ResourceBundle::GetSharedInstance().GetImageNamed(
           IDR_NOTIFICATION_ALERT),
-      blink::WebTextDirectionDefault,
       notifier_id,
       base::string16(),  // display_source
-      base::ASCIIToUTF16(notification_id_),
+      notification_id_,
       data,
       delegate);
   notification_ui_manager->Add(notification, profile_);

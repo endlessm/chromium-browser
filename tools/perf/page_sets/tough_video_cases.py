@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 from telemetry.page import page as page_module
-from telemetry.page import page_set as page_set_module
+from telemetry import story
 
 
 class ToughVideoCasesPage(page_module.Page):
@@ -485,47 +485,61 @@ class Page35(ToughVideoCasesPage):
   def RunPageInteractions(self, action_runner):
     self.SeekBeforeAndAfterPlayhead(action_runner)
 
-class ToughVideoCasesPageSet(page_set_module.PageSet):
+class Page36(ToughVideoCasesPage):
+
+  def __init__(self, page_set):
+    super(Page36, self).__init__(
+      url=('file://tough_video_cases/video.html?src='
+           'smpte_3840x2160_60fps_vp9.webm'),
+      page_set=page_set)
+
+    self.add_browser_metrics = True
+
+  def RunPageInteractions(self, action_runner):
+    self.SeekBeforeAndAfterPlayhead(action_runner)
+
+class ToughVideoCasesPageSet(story.StorySet):
 
   """
   Description: Video Stack Perf benchmark
   """
   def __init__(self):
     super(ToughVideoCasesPageSet, self).__init__(
-            bucket=page_set_module.INTERNAL_BUCKET)
+            cloud_storage_bucket=story.PARTNER_BUCKET)
 
-    self.AddPage(Page1(self))
-    self.AddPage(Page2(self))
-    self.AddPage(Page3(self))
-    self.AddPage(Page4(self))
-    self.AddPage(Page5(self))
-    self.AddPage(Page6(self))
-    self.AddPage(Page7(self))
-    self.AddPage(Page8(self))
-    self.AddPage(Page9(self))
-    self.AddPage(Page10(self))
-    self.AddPage(Page11(self))
-    self.AddPage(Page12(self))
-    self.AddPage(Page13(self))
-    self.AddPage(Page14(self))
-    self.AddPage(Page15(self))
-    self.AddPage(Page16(self))
-    self.AddPage(Page17(self))
-    self.AddPage(Page18(self))
-    self.AddPage(Page19(self))
-    self.AddPage(Page20(self))
-    self.AddPage(Page21(self))
-    self.AddPage(Page22(self))
-    self.AddPage(Page23(self))
-    self.AddPage(Page24(self))
-    self.AddPage(Page25(self))
-    self.AddPage(Page26(self))
-    self.AddPage(Page27(self))
-    self.AddPage(Page28(self))
-    self.AddPage(Page29(self))
-    self.AddPage(Page30(self))
-    self.AddPage(Page31(self))
-    self.AddPage(Page32(self))
-    self.AddPage(Page33(self))
-    self.AddPage(Page34(self))
-    self.AddPage(Page35(self))
+    self.AddStory(Page1(self))
+    self.AddStory(Page2(self))
+    self.AddStory(Page3(self))
+    self.AddStory(Page4(self))
+    self.AddStory(Page5(self))
+    self.AddStory(Page6(self))
+    self.AddStory(Page7(self))
+    self.AddStory(Page8(self))
+    self.AddStory(Page9(self))
+    self.AddStory(Page10(self))
+    self.AddStory(Page11(self))
+    self.AddStory(Page12(self))
+    self.AddStory(Page13(self))
+    self.AddStory(Page14(self))
+    self.AddStory(Page15(self))
+    self.AddStory(Page16(self))
+    self.AddStory(Page17(self))
+    self.AddStory(Page18(self))
+    self.AddStory(Page19(self))
+    self.AddStory(Page20(self))
+    self.AddStory(Page21(self))
+    self.AddStory(Page22(self))
+    self.AddStory(Page23(self))
+    self.AddStory(Page24(self))
+    self.AddStory(Page25(self))
+    self.AddStory(Page26(self))
+    self.AddStory(Page27(self))
+    self.AddStory(Page28(self))
+    self.AddStory(Page29(self))
+    self.AddStory(Page30(self))
+    self.AddStory(Page31(self))
+    self.AddStory(Page32(self))
+    self.AddStory(Page33(self))
+    self.AddStory(Page34(self))
+    self.AddStory(Page35(self))
+    self.AddStory(Page36(self))

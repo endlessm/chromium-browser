@@ -4,8 +4,8 @@
 
 #include "extensions/renderer/dom_activity_logger.h"
 
+#include "content/public/child/v8_value_converter.h"
 #include "content/public/renderer/render_thread.h"
-#include "content/public/renderer/v8_value_converter.h"
 #include "extensions/common/dom_action_types.h"
 #include "extensions/common/extension_messages.h"
 #include "extensions/renderer/activity_log_converter_strategy.h"
@@ -23,7 +23,7 @@ namespace {
 // Converts the given |v8_value| and appends it to the given |list|, if the
 // conversion succeeds.
 void AppendV8Value(const std::string& api_name,
-                   const v8::Handle<v8::Value>& v8_value,
+                   const v8::Local<v8::Value>& v8_value,
                    base::ListValue* list) {
   DCHECK(list);
   scoped_ptr<V8ValueConverter> converter(V8ValueConverter::create());
@@ -69,15 +69,15 @@ void DOMActivityLogger::logGetter(const WebString& api_name,
 }
 
 void DOMActivityLogger::logSetter(const WebString& api_name,
-                                  const v8::Handle<v8::Value>& new_value,
+                                  const v8::Local<v8::Value>& new_value,
                                   const WebURL& url,
                                   const WebString& title) {
-  logSetter(api_name, new_value, v8::Handle<v8::Value>(), url, title);
+  logSetter(api_name, new_value, v8::Local<v8::Value>(), url, title);
 }
 
 void DOMActivityLogger::logSetter(const WebString& api_name,
-                                  const v8::Handle<v8::Value>& new_value,
-                                  const v8::Handle<v8::Value>& old_value,
+                                  const v8::Local<v8::Value>& new_value,
+                                  const v8::Local<v8::Value>& old_value,
                                   const WebURL& url,
                                   const WebString& title) {
   scoped_ptr<base::ListValue> args(new base::ListValue);
@@ -91,7 +91,7 @@ void DOMActivityLogger::logSetter(const WebString& api_name,
 
 void DOMActivityLogger::logMethod(const WebString& api_name,
                                   int argc,
-                                  const v8::Handle<v8::Value>* argv,
+                                  const v8::Local<v8::Value>* argv,
                                   const WebURL& url,
                                   const WebString& title) {
   scoped_ptr<base::ListValue> args(new base::ListValue);

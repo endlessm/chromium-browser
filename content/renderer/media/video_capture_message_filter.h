@@ -13,10 +13,13 @@
 #include <map>
 
 #include "base/memory/shared_memory.h"
+#include "base/values.h"
 #include "content/common/content_export.h"
 #include "content/common/media/video_capture.h"
 #include "ipc/message_filter.h"
-#include "media/video/capture/video_capture_types.h"
+#include "media/base/video_capture_types.h"
+
+struct VideoCaptureMsg_BufferReady_Params;
 
 namespace gpu {
 struct MailboxHolder;
@@ -35,18 +38,16 @@ class CONTENT_EXPORT VideoCaptureMessageFilter : public IPC::MessageFilter {
 
     virtual void OnBufferDestroyed(int buffer_id) = 0;
 
-    // Called when a video frame buffer is received from the browser process.
+    // Called when a buffer referencing a captured VideoFrame is received from
+    // Browser process.
     virtual void OnBufferReceived(int buffer_id,
-                                  const media::VideoCaptureFormat& format,
+                                  base::TimeTicks timestamp,
+                                  const base::DictionaryValue& metadata,
+                                  media::VideoFrame::Format pixel_format,
+                                  media::VideoFrame::StorageType storage_type,
+                                  const gfx::Size& coded_size,
                                   const gfx::Rect& visible_rect,
-                                  base::TimeTicks timestamp) = 0;
-
-    // Called when a video mailbox buffer is received from the browser process.
-    virtual void OnMailboxBufferReceived(
-        int buffer_id,
-        const gpu::MailboxHolder& mailbox_holder,
-        const media::VideoCaptureFormat& format,
-        base::TimeTicks timestamp) = 0;
+                                  const gpu::MailboxHolder& mailbox_holder) = 0;
 
     // Called when state of a video capture device has changed in the browser
     // process.
@@ -102,18 +103,7 @@ class CONTENT_EXPORT VideoCaptureMessageFilter : public IPC::MessageFilter {
                          int buffer_id);
 
   // Receive a filled buffer from browser process.
-  void OnBufferReceived(int device_id,
-                        int buffer_id,
-                        const media::VideoCaptureFormat& format,
-                        const gfx::Rect& visible_rect,
-                        base::TimeTicks timestamp);
-
-  // Receive a filled texture mailbox buffer from browser process.
-  void OnMailboxBufferReceived(int device_id,
-                               int buffer_id,
-                               const gpu::MailboxHolder& mailbox_holder,
-                               const media::VideoCaptureFormat& format,
-                               base::TimeTicks timestamp);
+  void OnBufferReceived(const VideoCaptureMsg_BufferReady_Params& params);
 
   // State of browser process' video capture device has changed.
   void OnDeviceStateChanged(int device_id, VideoCaptureState state);

@@ -54,7 +54,9 @@ public:
 
     ~SVGListPropertyHelper()
     {
+#if !ENABLE(OILPAN)
         clear();
+#endif
     }
 
     // used from Blink C++ code:
@@ -73,7 +75,7 @@ public:
 
     class ConstIterator {
     private:
-        typedef typename Vector<RefPtr<ItemPropertyType> >::const_iterator WrappedType;
+        typedef typename WillBeHeapVector<RefPtrWillBeMember<ItemPropertyType>>::const_iterator WrappedType;
 
     public:
         ConstIterator(WrappedType it)
@@ -86,8 +88,8 @@ public:
         bool operator==(const ConstIterator& o) const { return m_it == o.m_it; }
         bool operator!=(const ConstIterator& o) const { return m_it != o.m_it; }
 
-        PassRefPtr<ItemPropertyType> operator*() { return *m_it; }
-        PassRefPtr<ItemPropertyType> operator->() { return *m_it; }
+        PassRefPtrWillBeRawPtr<ItemPropertyType> operator*() { return *m_it; }
+        PassRefPtrWillBeRawPtr<ItemPropertyType> operator->() { return *m_it; }
 
     private:
         WrappedType m_it;
@@ -108,9 +110,9 @@ public:
         return ConstIterator(m_values.end());
     }
 
-    void append(PassRefPtr<ItemPropertyType> passNewItem)
+    void append(PassRefPtrWillBeRawPtr<ItemPropertyType> passNewItem)
     {
-        RefPtr<ItemPropertyType> newItem = passNewItem;
+        RefPtrWillBeRawPtr<ItemPropertyType> newItem = passNewItem;
 
         ASSERT(newItem);
         m_values.append(newItem);
@@ -128,9 +130,9 @@ public:
         return !length();
     }
 
-    virtual PassRefPtr<Derived> clone()
+    virtual PassRefPtrWillBeRawPtr<Derived> clone()
     {
-        RefPtr<Derived> svgList = Derived::create();
+        RefPtrWillBeRawPtr<Derived> svgList = Derived::create();
         svgList->deepCopy(static_cast<Derived*>(this));
         return svgList.release();
     }
@@ -144,36 +146,41 @@ public:
 
     void clear();
 
-    PassRefPtr<ItemPropertyType> initialize(PassRefPtr<ItemPropertyType>);
-    PassRefPtr<ItemPropertyType> getItem(size_t, ExceptionState&);
-    PassRefPtr<ItemPropertyType> insertItemBefore(PassRefPtr<ItemPropertyType>, size_t);
-    PassRefPtr<ItemPropertyType> removeItem(size_t, ExceptionState&);
-    PassRefPtr<ItemPropertyType> appendItem(PassRefPtr<ItemPropertyType>);
-    PassRefPtr<ItemPropertyType> replaceItem(PassRefPtr<ItemPropertyType>, size_t, ExceptionState&);
+    PassRefPtrWillBeRawPtr<ItemPropertyType> initialize(PassRefPtrWillBeRawPtr<ItemPropertyType>);
+    PassRefPtrWillBeRawPtr<ItemPropertyType> getItem(size_t, ExceptionState&);
+    PassRefPtrWillBeRawPtr<ItemPropertyType> insertItemBefore(PassRefPtrWillBeRawPtr<ItemPropertyType>, size_t);
+    PassRefPtrWillBeRawPtr<ItemPropertyType> removeItem(size_t, ExceptionState&);
+    PassRefPtrWillBeRawPtr<ItemPropertyType> appendItem(PassRefPtrWillBeRawPtr<ItemPropertyType>);
+    PassRefPtrWillBeRawPtr<ItemPropertyType> replaceItem(PassRefPtrWillBeRawPtr<ItemPropertyType>, size_t, ExceptionState&);
+
+    DEFINE_INLINE_VIRTUAL_TRACE()
+    {
+        visitor->trace(m_values);
+        SVGPropertyHelper<Derived>::trace(visitor);
+    }
 
 protected:
-    void deepCopy(PassRefPtr<Derived>);
+    void deepCopy(PassRefPtrWillBeRawPtr<Derived>);
 
-    bool adjustFromToListValues(PassRefPtr<Derived> fromList, PassRefPtr<Derived> toList, float percentage, AnimationMode);
+    bool adjustFromToListValues(PassRefPtrWillBeRawPtr<Derived> fromList, PassRefPtrWillBeRawPtr<Derived> toList, float percentage, AnimationMode);
 
-    virtual PassRefPtr<ItemPropertyType> createPaddingItem() const
+    virtual PassRefPtrWillBeRawPtr<ItemPropertyType> createPaddingItem() const
     {
         return ItemPropertyType::create();
     }
 
 private:
     inline bool checkIndexBound(size_t, ExceptionState&);
-    bool removeFromOldOwnerListAndAdjustIndex(PassRefPtr<ItemPropertyType>, size_t* indexToModify);
-    size_t findItem(PassRefPtr<ItemPropertyType>);
+    size_t findItem(PassRefPtrWillBeRawPtr<ItemPropertyType>);
 
-    Vector<RefPtr<ItemPropertyType> > m_values;
+    WillBeHeapVector<RefPtrWillBeMember<ItemPropertyType>> m_values;
 
-    static PassRefPtr<Derived> toDerived(PassRefPtr<SVGPropertyBase> passBase)
+    static PassRefPtrWillBeRawPtr<Derived> toDerived(PassRefPtrWillBeRawPtr<SVGPropertyBase> passBase)
     {
         if (!passBase)
             return nullptr;
 
-        RefPtr<SVGPropertyBase> base = passBase;
+        RefPtrWillBeRawPtr<SVGPropertyBase> base = passBase;
         ASSERT(base->type() == Derived::classType());
         return static_pointer_cast<Derived>(base);
     }
@@ -198,8 +205,8 @@ template<typename Derived, typename ItemProperty>
 void SVGListPropertyHelper<Derived, ItemProperty>::clear()
 {
     // detach all list items as they are no longer part of this list
-    typename Vector<RefPtr<ItemPropertyType> >::const_iterator it = m_values.begin();
-    typename Vector<RefPtr<ItemPropertyType> >::const_iterator itEnd = m_values.end();
+    typename WillBeHeapVector<RefPtrWillBeMember<ItemPropertyType>>::const_iterator it = m_values.begin();
+    typename WillBeHeapVector<RefPtrWillBeMember<ItemPropertyType>>::const_iterator itEnd = m_values.end();
     for (; it != itEnd; ++it) {
         ASSERT((*it)->ownerList() == this);
         (*it)->setOwnerList(0);
@@ -209,12 +216,9 @@ void SVGListPropertyHelper<Derived, ItemProperty>::clear()
 }
 
 template<typename Derived, typename ItemProperty>
-PassRefPtr<ItemProperty> SVGListPropertyHelper<Derived, ItemProperty>::initialize(PassRefPtr<ItemProperty> passNewItem)
+PassRefPtrWillBeRawPtr<ItemProperty> SVGListPropertyHelper<Derived, ItemProperty>::initialize(PassRefPtrWillBeRawPtr<ItemProperty> passNewItem)
 {
-    RefPtr<ItemPropertyType> newItem = passNewItem;
-
-    // Spec: If the inserted item is already in a list, it is removed from its previous list before it is inserted into this list.
-    removeFromOldOwnerListAndAdjustIndex(newItem, 0);
+    RefPtrWillBeRawPtr<ItemPropertyType> newItem = passNewItem;
 
     // Spec: Clears all existing current items from the list and re-initializes the list to hold the single item specified by the parameter.
     clear();
@@ -223,7 +227,7 @@ PassRefPtr<ItemProperty> SVGListPropertyHelper<Derived, ItemProperty>::initializ
 }
 
 template<typename Derived, typename ItemProperty>
-PassRefPtr<ItemProperty> SVGListPropertyHelper<Derived, ItemProperty>::getItem(size_t index, ExceptionState& exceptionState)
+PassRefPtrWillBeRawPtr<ItemProperty> SVGListPropertyHelper<Derived, ItemProperty>::getItem(size_t index, ExceptionState& exceptionState)
 {
     if (!checkIndexBound(index, exceptionState))
         return nullptr;
@@ -234,19 +238,13 @@ PassRefPtr<ItemProperty> SVGListPropertyHelper<Derived, ItemProperty>::getItem(s
 }
 
 template<typename Derived, typename ItemProperty>
-PassRefPtr<ItemProperty> SVGListPropertyHelper<Derived, ItemProperty>::insertItemBefore(PassRefPtr<ItemProperty> passNewItem, size_t index)
+PassRefPtrWillBeRawPtr<ItemProperty> SVGListPropertyHelper<Derived, ItemProperty>::insertItemBefore(PassRefPtrWillBeRawPtr<ItemProperty> passNewItem, size_t index)
 {
     // Spec: If the index is greater than or equal to length, then the new item is appended to the end of the list.
     if (index > m_values.size())
         index = m_values.size();
 
-    RefPtr<ItemPropertyType> newItem = passNewItem;
-
-    // Spec: If newItem is already in a list, it is removed from its previous list before it is inserted into this list.
-    if (!removeFromOldOwnerListAndAdjustIndex(newItem, &index)) {
-        // Inserting the item before itself is a no-op.
-        return newItem.release();
-    }
+    RefPtrWillBeRawPtr<ItemPropertyType> newItem = passNewItem;
 
     // Spec: Inserts a new item into the list at the specified position. The index of the item before which the new item is to be
     // inserted. The first item is number 0. If the index is equal to 0, then the new item is inserted at the front of the list.
@@ -257,26 +255,23 @@ PassRefPtr<ItemProperty> SVGListPropertyHelper<Derived, ItemProperty>::insertIte
 }
 
 template<typename Derived, typename ItemProperty>
-PassRefPtr<ItemProperty> SVGListPropertyHelper<Derived, ItemProperty>::removeItem(size_t index, ExceptionState& exceptionState)
+PassRefPtrWillBeRawPtr<ItemProperty> SVGListPropertyHelper<Derived, ItemProperty>::removeItem(size_t index, ExceptionState& exceptionState)
 {
     if (index >= m_values.size()) {
         exceptionState.throwDOMException(IndexSizeError, ExceptionMessages::indexExceedsMaximumBound("index", index, m_values.size()));
         return nullptr;
     }
     ASSERT(m_values.at(index)->ownerList() == this);
-    RefPtr<ItemPropertyType> oldItem = m_values.at(index);
+    RefPtrWillBeRawPtr<ItemPropertyType> oldItem = m_values.at(index);
     m_values.remove(index);
     oldItem->setOwnerList(0);
     return oldItem.release();
 }
 
 template<typename Derived, typename ItemProperty>
-PassRefPtr<ItemProperty> SVGListPropertyHelper<Derived, ItemProperty>::appendItem(PassRefPtr<ItemProperty> passNewItem)
+PassRefPtrWillBeRawPtr<ItemProperty> SVGListPropertyHelper<Derived, ItemProperty>::appendItem(PassRefPtrWillBeRawPtr<ItemProperty> passNewItem)
 {
-    RefPtr<ItemPropertyType> newItem = passNewItem;
-
-    // Spec: If newItem is already in a list, it is removed from its previous list before it is inserted into this list.
-    removeFromOldOwnerListAndAdjustIndex(newItem, 0);
+    RefPtrWillBeRawPtr<ItemPropertyType> newItem = passNewItem;
 
     // Append the value and wrapper at the end of the list.
     append(newItem);
@@ -285,19 +280,12 @@ PassRefPtr<ItemProperty> SVGListPropertyHelper<Derived, ItemProperty>::appendIte
 }
 
 template<typename Derived, typename ItemProperty>
-PassRefPtr<ItemProperty> SVGListPropertyHelper<Derived, ItemProperty>::replaceItem(PassRefPtr<ItemProperty> passNewItem, size_t index, ExceptionState& exceptionState)
+PassRefPtrWillBeRawPtr<ItemProperty> SVGListPropertyHelper<Derived, ItemProperty>::replaceItem(PassRefPtrWillBeRawPtr<ItemProperty> passNewItem, size_t index, ExceptionState& exceptionState)
 {
     if (!checkIndexBound(index, exceptionState))
         return nullptr;
 
-    RefPtr<ItemPropertyType> newItem = passNewItem;
-
-    // Spec: If newItem is already in a list, it is removed from its previous list before it is inserted into this list.
-    // Spec: If the item is already in this list, note that the index of the item to replace is before the removal of the item.
-    if (!removeFromOldOwnerListAndAdjustIndex(newItem, &index)) {
-        // Replacing the item with itself is a no-op.
-        return newItem.release();
-    }
+    RefPtrWillBeRawPtr<ItemPropertyType> newItem = passNewItem;
 
     if (m_values.isEmpty()) {
         // 'newItem' already lived in our list, we removed it, and now we're empty, which means there's nothing to replace.
@@ -306,7 +294,7 @@ PassRefPtr<ItemProperty> SVGListPropertyHelper<Derived, ItemProperty>::replaceIt
     }
 
     // Update the value at the desired position 'index'.
-    RefPtr<ItemPropertyType>& position = m_values[index];
+    RefPtrWillBeMember<ItemPropertyType>& position = m_values[index];
     ASSERT(position->ownerList() == this);
     position->setOwnerList(0);
     position = newItem;
@@ -327,64 +315,29 @@ bool SVGListPropertyHelper<Derived, ItemProperty>::checkIndexBound(size_t index,
 }
 
 template<typename Derived, typename ItemProperty>
-bool SVGListPropertyHelper<Derived, ItemProperty>::removeFromOldOwnerListAndAdjustIndex(PassRefPtr<ItemPropertyType> passItem, size_t* indexToModify)
-{
-    RefPtr<ItemPropertyType> item = passItem;
-    ASSERT(item);
-    RefPtr<Derived> ownerList = toDerived(item->ownerList());
-    if (!ownerList)
-        return true;
-
-    // Spec: If newItem is already in a list, it is removed from its previous list before it is inserted into this list.
-    // 'newItem' is already living in another list. If it's not our list, synchronize the other lists wrappers after the removal.
-    bool livesInOtherList = ownerList.get() != this;
-    size_t indexToRemove = ownerList->findItem(item);
-    ASSERT(indexToRemove != WTF::kNotFound);
-
-    // Do not remove newItem if already in this list at the target index.
-    if (!livesInOtherList && indexToModify && indexToRemove == *indexToModify)
-        return false;
-
-    ownerList->removeItem(indexToRemove, ASSERT_NO_EXCEPTION);
-
-    if (!indexToModify)
-        return true;
-
-    // If the item lived in our list, adjust the insertion index.
-    if (!livesInOtherList) {
-        size_t& index = *indexToModify;
-        // Spec: If the item is already in this list, note that the index of the item to (replace|insert before) is before the removal of the item.
-        if (static_cast<size_t>(indexToRemove) < index)
-            --index;
-    }
-
-    return true;
-}
-
-template<typename Derived, typename ItemProperty>
-size_t SVGListPropertyHelper<Derived, ItemProperty>::findItem(PassRefPtr<ItemPropertyType> item)
+size_t SVGListPropertyHelper<Derived, ItemProperty>::findItem(PassRefPtrWillBeRawPtr<ItemPropertyType> item)
 {
     return m_values.find(item);
 }
 
 template<typename Derived, typename ItemProperty>
-void SVGListPropertyHelper<Derived, ItemProperty>::deepCopy(PassRefPtr<Derived> passFrom)
+void SVGListPropertyHelper<Derived, ItemProperty>::deepCopy(PassRefPtrWillBeRawPtr<Derived> passFrom)
 {
-    RefPtr<Derived> from = passFrom;
+    RefPtrWillBeRawPtr<Derived> from = passFrom;
 
     clear();
-    typename Vector<RefPtr<ItemPropertyType> >::const_iterator it = from->m_values.begin();
-    typename Vector<RefPtr<ItemPropertyType> >::const_iterator itEnd = from->m_values.end();
+    typename WillBeHeapVector<RefPtrWillBeMember<ItemPropertyType>>::const_iterator it = from->m_values.begin();
+    typename WillBeHeapVector<RefPtrWillBeMember<ItemPropertyType>>::const_iterator itEnd = from->m_values.end();
     for (; it != itEnd; ++it) {
         append((*it)->clone());
     }
 }
 
 template<typename Derived, typename ItemProperty>
-bool SVGListPropertyHelper<Derived, ItemProperty>::adjustFromToListValues(PassRefPtr<Derived> passFromList, PassRefPtr<Derived> passToList, float percentage, AnimationMode mode)
+bool SVGListPropertyHelper<Derived, ItemProperty>::adjustFromToListValues(PassRefPtrWillBeRawPtr<Derived> passFromList, PassRefPtrWillBeRawPtr<Derived> passToList, float percentage, AnimationMode mode)
 {
-    RefPtr<Derived> fromList = passFromList;
-    RefPtr<Derived> toList = passToList;
+    RefPtrWillBeRawPtr<Derived> fromList = passFromList;
+    RefPtrWillBeRawPtr<Derived> toList = passToList;
 
     // If no 'to' value is given, nothing to animate.
     size_t toListSize = toList->length();

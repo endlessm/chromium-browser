@@ -47,29 +47,9 @@ FEGaussianBlur::FEGaussianBlur(Filter* filter, float x, float y)
 {
 }
 
-PassRefPtr<FEGaussianBlur> FEGaussianBlur::create(Filter* filter, float x, float y)
+PassRefPtrWillBeRawPtr<FEGaussianBlur> FEGaussianBlur::create(Filter* filter, float x, float y)
 {
-    return adoptRef(new FEGaussianBlur(filter, x, y));
-}
-
-float FEGaussianBlur::stdDeviationX() const
-{
-    return m_stdX;
-}
-
-void FEGaussianBlur::setStdDeviationX(float x)
-{
-    m_stdX = x;
-}
-
-float FEGaussianBlur::stdDeviationY() const
-{
-    return m_stdY;
-}
-
-void FEGaussianBlur::setStdDeviationY(float y)
-{
-    m_stdY = y;
+    return adoptRefWillBeNoop(new FEGaussianBlur(filter, x, y));
 }
 
 IntSize FEGaussianBlur::calculateUnscaledKernelSize(const FloatPoint& std)

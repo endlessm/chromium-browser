@@ -6,21 +6,30 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/logging.h"
 #include "base/prefs/pref_service.h"
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
 #include "components/policy/core/common/cloud/cloud_policy_refresh_scheduler.h"
 #include "components/policy/core/common/cloud/cloud_policy_service.h"
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
+#include "components/policy/core/common/remote_commands/remote_commands_factory.h"
+#include "components/policy/core/common/remote_commands/remote_commands_service.h"
 
 namespace policy {
 
 CloudPolicyCore::Observer::~Observer() {}
 
+void CloudPolicyCore::Observer::OnRemoteCommandsServiceStarted(
+    CloudPolicyCore* core) {
+}
+
 CloudPolicyCore::CloudPolicyCore(
-    const PolicyNamespaceKey& key,
+    const std::string& policy_type,
+    const std::string& settings_entity_id,
     CloudPolicyStore* store,
     const scoped_refptr<base::SequencedTaskRunner>& task_runner)
-    : policy_ns_key_(key),
+    : policy_type_(policy_type),
+      settings_entity_id_(settings_entity_id),
       store_(store),
       task_runner_(task_runner) {}
 
@@ -30,7 +39,8 @@ void CloudPolicyCore::Connect(scoped_ptr<CloudPolicyClient> client) {
   CHECK(!client_);
   CHECK(client);
   client_ = client.Pass();
-  service_.reset(new CloudPolicyService(policy_ns_key_, client_.get(), store_));
+  service_.reset(new CloudPolicyService(policy_type_, settings_entity_id_,
+                                        client_.get(), store_));
   FOR_EACH_OBSERVER(Observer, observers_, OnCoreConnected(this));
 }
 
@@ -39,8 +49,23 @@ void CloudPolicyCore::Disconnect() {
     FOR_EACH_OBSERVER(Observer, observers_, OnCoreDisconnecting(this));
   refresh_delay_.reset();
   refresh_scheduler_.reset();
+  remote_commands_service_.reset();
   service_.reset();
   client_.reset();
+}
+
+void CloudPolicyCore::StartRemoteCommandsService(
+    scoped_ptr<RemoteCommandsFactory> factory) {
+  DCHECK(client_);
+  DCHECK(factory);
+
+  remote_commands_service_.reset(
+      new RemoteCommandsService(factory.Pass(), client_.get()));
+
+  // Do an initial remote commands fetch immediately.
+  remote_commands_service_->FetchRemoteCommands();
+
+  FOR_EACH_OBSERVER(Observer, observers_, OnRemoteCommandsServiceStarted(this));
 }
 
 void CloudPolicyCore::RefreshSoon() {

@@ -11,6 +11,10 @@
 #include "chrome/browser/ui/toolbar/wrench_icon_painter.h"
 #include "ui/views/controls/button/menu_button.h"
 
+namespace views {
+class LabelButtonBorder;
+}
+
 class ToolbarView;
 
 // TODO(gbillock): Rename this? No longer a wrench.
@@ -24,17 +28,24 @@ class WrenchToolbarButton : public views::MenuButton,
 
   // views::MenuButton:
   gfx::Size GetPreferredSize() const override;
-  void OnPaint(gfx::Canvas* canvas) override;
 
   // WrenchIconPainter::Delegate:
   void ScheduleWrenchIconPaint() override;
+
+  // Sets |overflowed_toolbar_action_wants_to_run_| and schedules a paint.
+  void SetOverflowedToolbarActionWantsToRun(bool wants_to_run);
+
+  bool overflowed_toolbar_action_wants_to_run_for_testing() const {
+    return overflowed_toolbar_action_wants_to_run_for_testing_;
+  }
 
   // Opens the wrench menu immediately during a drag-and-drop operation.
   // Used only in testing.
   static bool g_open_wrench_immediately_for_testing;
 
  private:
-  // views::View:
+  // views::MenuButton:
+  const char* GetClassName() const override;
   bool GetDropFormats(
       int* formats,
       std::set<ui::OSExchangeData::CustomFormat>* custom_formats) override;
@@ -44,6 +55,7 @@ class WrenchToolbarButton : public views::MenuButton,
   int OnDragUpdated(const ui::DropTargetEvent& event) override;
   void OnDragExited() override;
   int OnPerformDrop(const ui::DropTargetEvent& event) override;
+  void OnPaint(gfx::Canvas* canvas) override;
 
   // Show the extension action overflow menu (which is in the app menu).
   void ShowOverflowMenu();
@@ -56,6 +68,10 @@ class WrenchToolbarButton : public views::MenuButton,
   // Whether or not we should allow dragging extension icons onto this button
   // (in order to open the overflow in the app/wrench menu).
   bool allow_extension_dragging_;
+
+  // A flag for whether or not any overflowed toolbar actions want to run.
+  // Only needed for testing.
+  bool overflowed_toolbar_action_wants_to_run_for_testing_;
 
   // Used to spawn weak pointers for delayed tasks to open the overflow menu.
   base::WeakPtrFactory<WrenchToolbarButton> weak_factory_;

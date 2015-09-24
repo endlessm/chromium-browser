@@ -89,7 +89,8 @@ LogoTracker::~LogoTracker() {
 void LogoTracker::SetServerAPI(
     const GURL& logo_url,
     const ParseLogoResponse& parse_logo_response_func,
-    const AppendFingerprintToLogoURL& append_fingerprint_func) {
+    const AppendQueryparamsToLogoURL& append_queryparams_func,
+    bool wants_cta) {
   if (logo_url == logo_url_)
     return;
 
@@ -97,7 +98,8 @@ void LogoTracker::SetServerAPI(
 
   logo_url_ = logo_url;
   parse_logo_response_func_ = parse_logo_response_func;
-  append_fingerprint_func_ = append_fingerprint_func;
+  append_queryparams_func_ = append_queryparams_func;
+  wants_cta_ = wants_cta;
 }
 
 void LogoTracker::GetLogo(LogoObserver* observer) {
@@ -199,15 +201,14 @@ void LogoTracker::FetchLogo() {
   DCHECK(!is_idle_);
 
   GURL url;
+  std::string fingerprint;
   if (cached_logo_ && !cached_logo_->metadata.fingerprint.empty() &&
       cached_logo_->metadata.expiration_time >= clock_->Now()) {
-    url = append_fingerprint_func_.Run(logo_url_,
-                                       cached_logo_->metadata.fingerprint);
-  } else {
-    url = logo_url_;
+    fingerprint = cached_logo_->metadata.fingerprint;
   }
+  url = append_queryparams_func_.Run(logo_url_, fingerprint, wants_cta_);
 
-  fetcher_.reset(net::URLFetcher::Create(url, net::URLFetcher::GET, this));
+  fetcher_ = net::URLFetcher::Create(url, net::URLFetcher::GET, this);
   fetcher_->SetRequestContext(request_context_getter_.get());
   fetcher_->Start();
 }
@@ -242,6 +243,8 @@ void LogoTracker::OnFreshLogoAvailable(scoped_ptr<EncodedLogo> encoded_logo,
       encoded_logo->metadata.fingerprint ==
           cached_logo_->metadata.fingerprint) {
     // The cached logo was revalidated, i.e. its fingerprint was verified.
+    // mime_type isn't sent when revalidating, so copy it from the cached logo.
+    encoded_logo->metadata.mime_type = cached_logo_->metadata.mime_type;
     SetCachedMetadata(encoded_logo->metadata);
   } else if (encoded_logo && image.isNull()) {
     // Image decoding failed. Do nothing.

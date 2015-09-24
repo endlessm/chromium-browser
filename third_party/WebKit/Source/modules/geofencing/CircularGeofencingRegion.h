@@ -5,20 +5,21 @@
 #ifndef CircularGeofencingRegion_h
 #define CircularGeofencingRegion_h
 
+#include "modules/ModulesExport.h"
 #include "modules/geofencing/GeofencingRegion.h"
 #include "public/platform/WebCircularGeofencingRegion.h"
 
 namespace blink {
 
-class Dictionary;
+class CircularGeofencingRegionInit;
 
-class CircularGeofencingRegion final : public GeofencingRegion {
+class MODULES_EXPORT CircularGeofencingRegion final : public GeofencingRegion {
     DEFINE_WRAPPERTYPEINFO();
     WTF_MAKE_NONCOPYABLE(CircularGeofencingRegion);
 public:
-    static CircularGeofencingRegion* create(const Dictionary& init);
+    static CircularGeofencingRegion* create(const CircularGeofencingRegionInit&);
     static CircularGeofencingRegion* create(const WebString& id, const WebCircularGeofencingRegion&);
-    virtual ~CircularGeofencingRegion() { }
+    ~CircularGeofencingRegion() override { }
 
     double latitude() const { return m_webRegion.latitude; }
     double longitude() const { return m_webRegion.longitude; }
@@ -26,9 +27,9 @@ public:
 
     WebCircularGeofencingRegion webRegion() const;
 
-    virtual void trace(Visitor* visitor) override { GeofencingRegion::trace(visitor); }
+    DEFINE_INLINE_VIRTUAL_TRACE() { GeofencingRegion::trace(visitor); }
 
-    virtual bool isCircularGeofencingRegion() const override { return true; }
+    bool isCircularGeofencingRegion() const override { return true; }
 
 private:
     explicit CircularGeofencingRegion(const String& id, const WebCircularGeofencingRegion&);

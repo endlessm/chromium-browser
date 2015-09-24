@@ -4,13 +4,13 @@
 
 #include "base/compiler_specific.h"
 #include "chrome/browser/chromeos/login/screens/user_selection_screen.h"
-#include "chrome/browser/chromeos/login/users/fake_user_manager.h"
+#include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/multi_profile_user_controller.h"
 #include "chrome/browser/chromeos/login/users/multi_profile_user_controller_delegate.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
-#include "chrome/browser/signin/screenlock_bridge.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile_manager.h"
+#include "components/proximity_auth/screenlock_bridge.h"
 #include "components/user_manager/user.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -35,14 +35,12 @@ class SigninPrepareUserListTest
       public MultiProfileUserControllerDelegate {
  public:
   SigninPrepareUserListTest()
-      : fake_user_manager_(new FakeUserManager()),
-        user_manager_enabler_(fake_user_manager_) {
-  }
+      : fake_user_manager_(new FakeChromeUserManager()),
+        user_manager_enabler_(fake_user_manager_) {}
 
-  virtual ~SigninPrepareUserListTest() {
-  }
+  ~SigninPrepareUserListTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     profile_manager_.reset(
         new TestingProfileManager(TestingBrowserProcess::GetGlobal()));
     ASSERT_TRUE(profile_manager_->SetUp());
@@ -59,20 +57,19 @@ class SigninPrepareUserListTest
     fake_user_manager_->set_owner_email(kOwner);
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     controller_.reset();
     profile_manager_.reset();
   }
 
   // MultiProfileUserControllerDelegate overrides:
-  virtual void OnUserNotAllowed(const std::string& user_email) override {
-  }
+  void OnUserNotAllowed(const std::string& user_email) override {}
 
-  FakeUserManager* fake_user_manager_;
+  FakeChromeUserManager* fake_user_manager_;
   ScopedUserManagerEnabler user_manager_enabler_;
   scoped_ptr<TestingProfileManager> profile_manager_;
-  std::map<std::string,
-           ScreenlockBridge::LockHandler::AuthType> user_auth_type_map;
+  std::map<std::string, proximity_auth::ScreenlockBridge::LockHandler::AuthType>
+      user_auth_type_map;
   scoped_ptr<MultiProfileUserController> controller_;
 
   DISALLOW_COPY_AND_ASSIGN(SigninPrepareUserListTest);

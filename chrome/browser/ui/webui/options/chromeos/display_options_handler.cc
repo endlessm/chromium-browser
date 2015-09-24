@@ -6,10 +6,12 @@
 
 #include <string>
 
+#include "ash/ash_switches.h"
 #include "ash/display/display_configurator_animation.h"
 #include "ash/display/display_controller.h"
 #include "ash/display/display_manager.h"
 #include "ash/display/resolution_notification_controller.h"
+#include "ash/rotator/screen_rotation_animator.h"
 #include "ash/shell.h"
 #include "base/bind.h"
 #include "base/logging.h"
@@ -23,9 +25,9 @@
 #include "grit/ash_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/display.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/screen.h"
-#include "ui/gfx/size_conversions.h"
 
 using ash::DisplayManager;
 
@@ -123,9 +125,9 @@ bool ConvertValueToDisplayMode(const base::DictionaryValue* dict,
 
 base::DictionaryValue* ConvertDisplayModeToValue(int64 display_id,
                                                  const ash::DisplayMode& mode) {
-  bool is_internal = GetDisplayManager()->IsInternalDisplayId(display_id);
+  bool is_internal = gfx::Display::InternalDisplayId() == display_id;
   base::DictionaryValue* result = new base::DictionaryValue();
-  gfx::Size size_dip = mode.GetSizeInDIP();
+  gfx::Size size_dip = mode.GetSizeInDIP(is_internal);
   result->SetInteger("width", size_dip.width());
   result->SetInteger("height", size_dip.height());
   result->SetInteger("originalWidth", mode.size.width());
@@ -200,13 +202,15 @@ void DisplayOptionsHandler::GetLocalizedValues(
   localized_strings->SetString(
       "selectedDisplayColorProfile", l10n_util::GetStringUTF16(
           IDS_OPTIONS_SETTINGS_DISPLAY_OPTIONS_COLOR_PROFILE));
+  localized_strings->SetString(
+      "enableUnifiedDesktop",
+      l10n_util::GetStringUTF16(
+          IDS_OPTIONS_SETTINGS_DISPLAY_OPTIONS_ENABLE_UNIFIED_DESKTOP));
 }
 
 void DisplayOptionsHandler::InitializePage() {
   DCHECK(web_ui());
-  web_ui()->CallJavascriptFunction(
-      "options.BrowserOptions.enableDisplayButton",
-      base::FundamentalValue(true));
+  UpdateDisplaySettingsEnabled();
 }
 
 void DisplayOptionsHandler::RegisterMessages() {
@@ -238,12 +242,17 @@ void DisplayOptionsHandler::RegisterMessages() {
       "setColorProfile",
       base::Bind(&DisplayOptionsHandler::HandleSetColorProfile,
                  base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "setUnifiedDesktopEnabled",
+      base::Bind(&DisplayOptionsHandler::HandleSetUnifiedDesktopEnabled,
+                 base::Unretained(this)));
 }
 
 void DisplayOptionsHandler::OnDisplayConfigurationChanging() {
 }
 
 void DisplayOptionsHandler::OnDisplayConfigurationChanged() {
+  UpdateDisplaySettingsEnabled();
   SendAllDisplayInfo();
 }
 
@@ -260,12 +269,14 @@ void DisplayOptionsHandler::SendAllDisplayInfo() {
 void DisplayOptionsHandler::SendDisplayInfo(
     const std::vector<gfx::Display>& displays) {
   DisplayManager* display_manager = GetDisplayManager();
-  base::FundamentalValue mirroring(display_manager->IsMirrored());
+  base::FundamentalValue mode(
+      display_manager->IsInMirrorMode() ? DisplayManager::MIRRORING :
+      (display_manager->IsInUnifiedMode() ? DisplayManager::UNIFIED :
+       DisplayManager::EXTENDED));
 
   int64 primary_id = ash::Shell::GetScreen()->GetPrimaryDisplay().id();
   base::ListValue js_displays;
-  for (size_t i = 0; i < displays.size(); ++i) {
-    const gfx::Display& display = displays[i];
+  for (const gfx::Display& display : displays) {
     const ash::DisplayInfo& display_info =
         display_manager->GetDisplayInfo(display.id());
     const gfx::Rect& bounds = display.bounds();
@@ -280,34 +291,32 @@ void DisplayOptionsHandler::SendDisplayInfo(
     js_display->SetBoolean("isPrimary", display.id() == primary_id);
     js_display->SetBoolean("isInternal", display.IsInternal());
     js_display->SetInteger("orientation",
-                           static_cast<int>(display_info.rotation()));
+                           static_cast<int>(display_info.GetActiveRotation()));
 
     base::ListValue* js_resolutions = new base::ListValue();
-    const std::vector<ash::DisplayMode>& display_modes =
-        display_info.display_modes();
-    for (size_t i = 0; i < display_modes.size(); ++i) {
+    for (const ash::DisplayMode& display_mode : display_info.display_modes()) {
       js_resolutions->Append(
-          ConvertDisplayModeToValue(display.id(), display_modes[i]));
+          ConvertDisplayModeToValue(display.id(), display_mode));
     }
     js_display->Set("resolutions", js_resolutions);
 
     js_display->SetInteger("colorProfile", display_info.color_profile());
     base::ListValue* available_color_profiles = new base::ListValue();
-    for (size_t i = 0;
-         i < display_info.available_color_profiles().size(); ++i) {
+    for (const auto& color_profile : display_info.available_color_profiles()) {
+      const base::string16 profile_name = GetColorProfileName(color_profile);
+      if (profile_name.empty())
+        continue;
       base::DictionaryValue* color_profile_dict = new base::DictionaryValue();
-      ui::ColorCalibrationProfile color_profile =
-          display_info.available_color_profiles()[i];
       color_profile_dict->SetInteger("profileId", color_profile);
-      color_profile_dict->SetString("name", GetColorProfileName(color_profile));
+      color_profile_dict->SetString("name", profile_name);
       available_color_profiles->Append(color_profile_dict);
     }
     js_display->Set("availableColorProfiles", available_color_profiles);
     js_displays.Append(js_display);
   }
 
-  scoped_ptr<base::Value> layout_value(base::Value::CreateNullValue());
-  scoped_ptr<base::Value> offset_value(base::Value::CreateNullValue());
+  scoped_ptr<base::Value> layout_value = base::Value::CreateNullValue();
+  scoped_ptr<base::Value> offset_value = base::Value::CreateNullValue();
   if (display_manager->GetNumDisplays() > 1) {
     const ash::DisplayLayout layout =
         display_manager->GetCurrentDisplayLayout();
@@ -317,7 +326,17 @@ void DisplayOptionsHandler::SendDisplayInfo(
 
   web_ui()->CallJavascriptFunction(
       "options.DisplayOptions.setDisplayInfo",
-      mirroring, js_displays, *layout_value.get(), *offset_value.get());
+      mode, js_displays, *layout_value.get(), *offset_value.get());
+}
+
+void DisplayOptionsHandler::UpdateDisplaySettingsEnabled() {
+  bool enabled = GetDisplayManager()->num_connected_displays() <= 2;
+  bool show_unified_desktop = ash::switches::UnifiedDesktopEnabled();
+
+  web_ui()->CallJavascriptFunction(
+      "options.BrowserOptions.enableDisplaySettings",
+      base::FundamentalValue(enabled),
+      base::FundamentalValue(show_unified_desktop));
 }
 
 void DisplayOptionsHandler::OnFadeOutForMirroringFinished(bool is_mirroring) {
@@ -388,7 +407,7 @@ void DisplayOptionsHandler::HandleSetDisplayMode(const base::ListValue* args) {
   if (display_id == gfx::Display::kInvalidDisplayID)
     return;
 
-  const base::DictionaryValue* mode_data = NULL;
+  const base::DictionaryValue* mode_data = nullptr;
   if (!args->GetDictionary(1, &mode_data)) {
     LOG(ERROR) << "Failed to get mode data";
     return;
@@ -434,7 +453,8 @@ void DisplayOptionsHandler::HandleSetOrientation(const base::ListValue* args) {
 
   content::RecordAction(
       base::UserMetricsAction("Options_DisplaySetOrientation"));
-  GetDisplayManager()->SetDisplayRotation(display_id, new_rotation);
+  ash::ScreenRotationAnimator(display_id)
+      .Rotate(new_rotation, gfx::Display::ROTATION_SOURCE_USER);
 }
 
 void DisplayOptionsHandler::HandleSetColorProfile(const base::ListValue* args) {
@@ -464,6 +484,17 @@ void DisplayOptionsHandler::HandleSetColorProfile(const base::ListValue* args) {
   GetDisplayManager()->SetColorCalibrationProfile(
       display_id, static_cast<ui::ColorCalibrationProfile>(profile_id));
   SendAllDisplayInfo();
+}
+
+void DisplayOptionsHandler::HandleSetUnifiedDesktopEnabled(
+    const base::ListValue* args) {
+  DCHECK(ash::switches::UnifiedDesktopEnabled());
+  bool enable = false;
+  if (args->GetBoolean(0, &enable)) {
+    GetDisplayManager()->SetDefaultMultiDisplayMode(
+        enable ? DisplayManager::UNIFIED : DisplayManager::EXTENDED);
+    GetDisplayManager()->ReconfigureDisplays();
+  }
 }
 
 }  // namespace options

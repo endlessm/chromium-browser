@@ -10,6 +10,7 @@
 #include "base/prefs/pref_change_registrar.h"
 #include "base/scoped_observer.h"
 #include "base/threading/thread_checker.h"
+#include "components/keyed_service/core/keyed_service.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "extensions/browser/error_map.h"
@@ -17,6 +18,7 @@
 #include "extensions/browser/extension_registry_observer.h"
 
 namespace content {
+class BrowserContext;
 class NotificationDetails;
 class NotificationSource;
 class RenderViewHost;
@@ -35,13 +37,20 @@ class ExtensionRegistry;
 // errors can be viewed at chrome://extensions in developer mode.
 // This class is owned by ExtensionSystem, making it, in effect, a
 // BrowserContext-keyed service.
-class ErrorConsole : public content::NotificationObserver,
+class ErrorConsole : public KeyedService,
+                     public content::NotificationObserver,
                      public ExtensionRegistryObserver {
  public:
   class Observer {
    public:
     // Sent when a new error is reported to the error console.
-    virtual void OnErrorAdded(const ExtensionError* error) = 0;
+    virtual void OnErrorAdded(const ExtensionError* error);
+
+    // Sent when errors are removed from the error console. |extension_ids| is
+    // the set of ids that were affected.
+    // Note: This is not sent when an extension is uninstalled, or when a
+    // profile is destroyed.
+    virtual void OnErrorsRemoved(const std::set<std::string>& extension_ids);
 
     // Sent upon destruction to allow any observers to invalidate any references
     // they have to the error console.
@@ -51,8 +60,8 @@ class ErrorConsole : public content::NotificationObserver,
   explicit ErrorConsole(Profile* profile);
   ~ErrorConsole() override;
 
-  // Convenience method to return the ErrorConsole for a given profile.
-  static ErrorConsole* Get(Profile* profile);
+  // Convenience method to return the ErrorConsole for a given |context|.
+  static ErrorConsole* Get(content::BrowserContext* context);
 
   // Set whether or not errors of the specified |type| are stored for the
   // extension with the given |extension_id|. This will be stored in the
@@ -75,6 +84,9 @@ class ErrorConsole : public content::NotificationObserver,
 
   // Report an extension error, and add it to the list.
   void ReportError(scoped_ptr<ExtensionError> error);
+
+  // Removes errors from the map according to the given |filter|.
+  void RemoveErrors(const ErrorMap::Filter& filter);
 
   // Get a collection of weak pointers to all errors relating to the extension
   // with the given |extension_id|.
@@ -156,11 +168,11 @@ class ErrorConsole : public content::NotificationObserver,
   // - This is a Dev Channel release.
   bool enabled_;
 
-  // Needed because ObserverList is not thread-safe.
+  // Needed because base::ObserverList is not thread-safe.
   base::ThreadChecker thread_checker_;
 
   // The list of all observers for the ErrorConsole.
-  ObserverList<Observer> observers_;
+  base::ObserverList<Observer> observers_;
 
   // The errors which we have received so far.
   ErrorMap errors_;

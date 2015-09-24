@@ -9,6 +9,7 @@
 
   'targets': [
   {
+    # GN: //sync/tools:common
     'target_name': 'sync_tools_helper',
     'type': 'static_library',
     'include_dirs': [
@@ -16,7 +17,7 @@
     ],
     'dependencies': [
       '../../base/base.gyp:base',
-      '../../components/components.gyp:invalidation',
+      '../../components/components.gyp:invalidation_impl',
       '../sync.gyp:sync',
     ],
     'export_dependent_settings': [
@@ -32,6 +33,7 @@
   },
   # A tool to listen to sync notifications and print them out.
   {
+    # GN: //sync/tools:sync_listen_notifications
     'target_name': 'sync_listen_notifications',
     'type': 'executable',
     'defines': [
@@ -39,7 +41,7 @@
     ],
     'dependencies': [
       '../../base/base.gyp:base',
-      '../../components/components.gyp:invalidation',
+      '../../components/components.gyp:invalidation_impl',
       '../../jingle/jingle.gyp:notifier',
       '../../net/net.gyp:net',
       '../../net/net.gyp:net_test_support',
@@ -53,6 +55,7 @@
 
   # A standalone command-line sync client.
   {
+    # GN: //sync/tools:sync_client
     'target_name': 'sync_client',
     'type': 'executable',
     'defines': [
@@ -60,7 +63,7 @@
     ],
     'dependencies': [
       '../../base/base.gyp:base',
-      '../../components/components.gyp:invalidation',
+      '../../components/components.gyp:invalidation_impl',
       '../../jingle/jingle.gyp:notifier',
       '../../net/net.gyp:net',
       '../../net/net.gyp:net_test_support',

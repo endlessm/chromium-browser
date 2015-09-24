@@ -4,11 +4,16 @@
 
 #include "chrome/browser/ui/webui/options/chromeos/consumer_management_handler.h"
 
+#include "ash/system/chromeos/devicetype_utils.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/logging.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/policy/consumer_management_service.h"
+#include "chrome/browser/chromeos/policy/consumer_management_stage.h"
+#include "chrome/browser/chromeos/policy/consumer_unenrollment_handler.h"
+#include "chrome/browser/chromeos/policy/consumer_unenrollment_handler_factory.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/power_manager_client.h"
@@ -37,11 +42,11 @@ void ConsumerManagementHandler::GetLocalizedValues(
   // Enroll.
   localized_strings->SetString(
       "consumerManagementOverlayEnrollTitle",
-      l10n_util::GetStringUTF16(
+      ash::SubstituteChromeOSDeviceType(
           IDS_OPTIONS_CONSUMER_MANAGEMENT_OVERLAY_ENROLL_TITLE));
   localized_strings->SetString(
       "consumerManagementOverlayEnrollMessage",
-      l10n_util::GetStringUTF16(
+      ash::SubstituteChromeOSDeviceType(
           IDS_OPTIONS_CONSUMER_MANAGEMENT_OVERLAY_ENROLL_MESSAGE));
   localized_strings->SetString(
       "consumerManagementOverlayEnroll",
@@ -51,11 +56,11 @@ void ConsumerManagementHandler::GetLocalizedValues(
   // Unenroll.
   localized_strings->SetString(
       "consumerManagementOverlayUnenrollTitle",
-      l10n_util::GetStringUTF16(
+      ash::SubstituteChromeOSDeviceType(
           IDS_OPTIONS_CONSUMER_MANAGEMENT_OVERLAY_UNENROLL_TITLE));
   localized_strings->SetString(
       "consumerManagementOverlayUnenrollMessage",
-      l10n_util::GetStringUTF16(
+      ash::SubstituteChromeOSDeviceType(
           IDS_OPTIONS_CONSUMER_MANAGEMENT_OVERLAY_UNENROLL_MESSAGE));
   localized_strings->SetString(
       "consumerManagementOverlayUnenroll",
@@ -83,14 +88,24 @@ void ConsumerManagementHandler::HandleEnrollConsumerManagement(
   }
 
   CHECK(management_service_);
-  management_service_->SetEnrollmentStage(
-      policy::ConsumerManagementService::ENROLLMENT_STAGE_REQUESTED);
+  management_service_->SetStage(
+      policy::ConsumerManagementStage::EnrollmentRequested());
   chromeos::DBusThreadManager::Get()->GetPowerManagerClient()->RequestRestart();
 }
 
 void ConsumerManagementHandler::HandleUnenrollConsumerManagement(
     const base::ListValue* args) {
-  NOTIMPLEMENTED();
+  if (!user_manager::UserManager::Get()->IsCurrentUserOwner()) {
+    LOG(ERROR) << "Received unenrollConsumerManagement, but the current user "
+               << "is not the owner.";
+    return;
+  }
+
+  CHECK(management_service_);
+  management_service_->SetStage(
+      policy::ConsumerManagementStage::UnenrollmentRequested());
+  policy::ConsumerUnenrollmentHandlerFactory::GetForBrowserContext(
+      Profile::FromWebUI(web_ui()))->Start();
 }
 
 }  // namespace options

@@ -32,10 +32,7 @@ class NewAvatarButton : public views::LabelButton,
   void OnMouseReleased(const ui::MouseEvent& event) override;
 
  private:
-  friend class NewAvatarMenuButtonTest;
-  friend class ProfileChooserViewBrowserTest;
-  FRIEND_TEST_ALL_PREFIXES(NewAvatarMenuButtonTest, SignOut);
-  FRIEND_TEST_ALL_PREFIXES(ProfileChooserViewBrowserTest, ViewProfileUMA);
+  friend class ProfileChooserViewExtensionsTest;
 
   // ProfileInfoCacheObserver:
   void OnProfileAdded(const base::FilePath& profile_path) override;
@@ -43,7 +40,6 @@ class NewAvatarButton : public views::LabelButton,
                            const base::string16& profile_name) override;
   void OnProfileNameChanged(const base::FilePath& profile_path,
                             const base::string16& old_profile_name) override;
-  void OnProfileAvatarChanged(const base::FilePath& profile_path) override;
   void OnProfileSupervisedUserIdChanged(
       const base::FilePath& profile_path) override;
 
@@ -52,7 +48,7 @@ class NewAvatarButton : public views::LabelButton,
 
   // Called when the profile info cache has changed, which means we might
   // have to update the icon/text of the button.
-  void UpdateAvatarButtonAndRelayoutParent();
+  void Update();
 
   Browser* browser_;
 

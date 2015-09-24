@@ -9,11 +9,13 @@
 #include "cc/test/fake_layer_tree_host_impl.h"
 
 namespace cc {
+class TaskGraphRunner;
 
 class FakeUIResourceLayerTreeHostImpl : public FakeLayerTreeHostImpl {
  public:
   explicit FakeUIResourceLayerTreeHostImpl(Proxy* proxy,
-                                           SharedBitmapManager* manager);
+                                           SharedBitmapManager* manager,
+                                           TaskGraphRunner* task_graph_runner);
   ~FakeUIResourceLayerTreeHostImpl() override;
 
   void CreateUIResource(UIResourceId uid,
@@ -21,13 +23,11 @@ class FakeUIResourceLayerTreeHostImpl : public FakeLayerTreeHostImpl {
 
   void DeleteUIResource(UIResourceId uid) override;
 
-  ResourceProvider::ResourceId ResourceIdForUIResource(
-      UIResourceId uid) const override;
+  ResourceId ResourceIdForUIResource(UIResourceId uid) const override;
 
   bool IsUIResourceOpaque(UIResourceId uid) const override;
 
  private:
-  ResourceProvider::ResourceId fake_next_resource_id_;
   typedef base::hash_map<UIResourceId, LayerTreeHostImpl::UIResourceData>
       UIResourceMap;
   UIResourceMap fake_ui_resource_map_;

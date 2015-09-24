@@ -8,6 +8,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/browser/sync/glue/synced_window_delegate.h"
+#include "chrome/browser/sync/sessions/sessions_util.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
@@ -17,7 +18,7 @@
 #include "extensions/common/extension.h"
 #endif
 
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
 #include "chrome/browser/supervised_user/supervised_user_navigation_observer.h"
 #endif
 
@@ -87,7 +88,7 @@ bool TabContentsSyncedTabDelegate::ProfileIsSupervised() const {
 
 const std::vector<const content::NavigationEntry*>*
 TabContentsSyncedTabDelegate::GetBlockedNavigations() const {
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
   SupervisedUserNavigationObserver* navigation_observer =
       SupervisedUserNavigationObserver::FromWebContents(web_contents_);
   DCHECK(navigation_observer);
@@ -100,8 +101,7 @@ TabContentsSyncedTabDelegate::GetBlockedNavigations() const {
 
 bool TabContentsSyncedTabDelegate::IsPinned() const {
   const browser_sync::SyncedWindowDelegate* window =
-      browser_sync::SyncedWindowDelegate::FindSyncedWindowDelegateWithId(
-          GetWindowId());
+      browser_sync::SyncedWindowDelegate::FindById(GetWindowId());
   // We might not have a parent window, e.g. Developer Tools.
   return window ? window->IsTabPinned(this) : false;
 }
@@ -118,4 +118,8 @@ int TabContentsSyncedTabDelegate::GetSyncId() const {
 
 void TabContentsSyncedTabDelegate::SetSyncId(int sync_id) {
   sync_session_id_ = sync_id;
+}
+
+bool TabContentsSyncedTabDelegate::ShouldSync() const {
+  return browser_sync::sessions_util::ShouldSyncTab(*this);
 }

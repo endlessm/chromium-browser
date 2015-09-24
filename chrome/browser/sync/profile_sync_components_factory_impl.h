@@ -13,6 +13,7 @@
 #include "chrome/browser/sync/profile_sync_components_factory.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
 #include "google_apis/gaia/oauth2_token_service.h"
+#include "sync/internal_api/public/base/model_type.h"
 
 class Profile;
 
@@ -65,8 +66,10 @@ class ProfileSyncComponentsFactoryImpl : public ProfileSyncComponentsFactory {
   base::WeakPtr<syncer::SyncableService> GetSyncableServiceForType(
       syncer::ModelType type) override;
   scoped_ptr<syncer::AttachmentService> CreateAttachmentService(
-      const scoped_refptr<syncer::AttachmentStore>& attachment_store,
+      scoped_ptr<syncer::AttachmentStoreForSync> attachment_store,
       const syncer::UserShare& user_share,
+      const std::string& store_birthday,
+      syncer::ModelType model_type,
       syncer::AttachmentService::Delegate* delegate) override;
 
   // Legacy datatypes that need to be converted to the SyncableService API.

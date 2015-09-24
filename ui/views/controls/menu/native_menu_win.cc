@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
+#include "base/profiler/scoped_tracker.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/win/wrapped_window_proc.h"
@@ -282,11 +283,6 @@ class NativeMenuWin::MenuHostWindow {
           state = draw_item_struct->itemState & ODS_SELECTED ?
               NativeTheme::kHovered : NativeTheme::kNormal;
         }
-        int height =
-            draw_item_struct->rcItem.bottom - draw_item_struct->rcItem.top;
-        int icon_y = kItemTopMargin +
-            (height - kItemTopMargin - kItemBottomMargin -
-             config.check_height) / 2;
         gfx::Canvas canvas(gfx::Size(config.check_width, config.check_height),
                            1.0f,
                            false);
@@ -400,9 +396,9 @@ NativeMenuWin::NativeMenuWin(ui::MenuModel* model, HWND system_menu_for)
       menu_action_(MENU_ACTION_NONE),
       menu_to_select_(NULL),
       position_to_select_(-1),
-      menu_to_select_factory_(this),
       parent_(NULL),
-      destroyed_flag_(NULL) {
+      destroyed_flag_(NULL),
+      menu_to_select_factory_(this) {
 }
 
 NativeMenuWin::~NativeMenuWin() {
@@ -436,7 +432,6 @@ void NativeMenuWin::RunMenuAt(const gfx::Point& point, int alignment) {
 
   // Command dispatch is done through WM_MENUCOMMAND, handled by the host
   // window.
-  HWND hwnd = host_window_->hwnd();
   menu_to_select_ = NULL;
   position_to_select_ = -1;
   menu_to_select_factory_.InvalidateWeakPtrs();
@@ -697,7 +692,7 @@ void NativeMenuWin::UpdateMenuItemInfoForString(MENUITEMINFO* mii,
   ui::MenuModel::ItemType type = model_->GetTypeAt(model_index);
   // Strip out any tabs, otherwise they get interpreted as accelerators and can
   // lead to weird behavior.
-  ReplaceSubstringsAfterOffset(&formatted, 0, L"\t", L" ");
+  base::ReplaceSubstringsAfterOffset(&formatted, 0, L"\t", L" ");
   if (type != ui::MenuModel::TYPE_SUBMENU) {
     // Add accelerator details to the label if provided.
     ui::Accelerator accelerator(ui::VKEY_UNKNOWN, ui::EF_NONE);

@@ -4,10 +4,24 @@
 
 #include "components/metrics/net/net_metrics_log_uploader.h"
 
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "net/base/load_flags.h"
+#include "net/base/network_change_notifier.h"
 #include "net/url_request/url_fetcher.h"
 #include "url/gurl.h"
+
+namespace {
+
+// Records the network connection type if upload was successful.
+void RecordConnectionType(int response_code) {
+  if (response_code == 200) {
+    UMA_HISTOGRAM_ENUMERATION("UMA.LogUpload.ConnetionType",
+                              net::NetworkChangeNotifier::GetConnectionType(),
+                              net::NetworkChangeNotifier::CONNECTION_LAST);
+  }
+}
+
+}  // namespace
 
 namespace metrics {
 
@@ -25,8 +39,8 @@ NetMetricsLogUploader::~NetMetricsLogUploader() {
 
 bool NetMetricsLogUploader::UploadLog(const std::string& compressed_log_data,
                                       const std::string& log_hash) {
-  current_fetch_.reset(
-      net::URLFetcher::Create(GURL(server_url_), net::URLFetcher::POST, this));
+  current_fetch_ =
+      net::URLFetcher::Create(GURL(server_url_), net::URLFetcher::POST, this);
   current_fetch_->SetRequestContext(request_context_getter_);
   current_fetch_->SetUploadData(mime_type_, compressed_log_data);
 
@@ -53,8 +67,9 @@ void NetMetricsLogUploader::OnURLFetchComplete(const net::URLFetcher* source) {
   int response_code = source->GetResponseCode();
   if (response_code == net::URLFetcher::RESPONSE_CODE_INVALID)
     response_code = -1;
-  on_upload_complete_.Run(response_code);
   current_fetch_.reset();
+  RecordConnectionType(response_code);
+  on_upload_complete_.Run(response_code);
 }
 
 }  // namespace metrics

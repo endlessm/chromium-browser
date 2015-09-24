@@ -4,16 +4,22 @@
 
 #include "chrome/browser/extensions/api/runtime/chrome_runtime_api_delegate.h"
 
-#include "base/message_loop/message_loop.h"
+#include <string>
+#include <utility>
+
+#include "base/location.h"
 #include "base/metrics/histogram.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/extension_tab_util.h"
 #include "chrome/browser/extensions/updater/extension_updater.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "components/omaha_query_params/omaha_query_params.h"
+#include "components/update_client/update_query_params.h"
 #include "content/public/browser/notification_service.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/notification_types.h"
@@ -115,29 +121,23 @@ void ChromeRuntimeAPIDelegate::ReloadExtension(
     // extension function unloading the extension has to be done
     // asynchronously. Fortunately PostTask guarentees FIFO order so just
     // post both tasks.
-    base::MessageLoop::current()->PostTask(
-        FROM_HERE,
-        base::Bind(&ExtensionService::TerminateExtension,
-                   service->AsWeakPtr(),
-                   extension_id));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(&ExtensionService::TerminateExtension,
+                              service->AsWeakPtr(), extension_id));
     extensions::WarningSet warnings;
     warnings.insert(
         extensions::Warning::CreateReloadTooFrequentWarning(
             extension_id));
-    base::MessageLoop::current()->PostTask(
-        FROM_HERE,
-        base::Bind(&extensions::WarningService::NotifyWarningsOnUI,
-                   browser_context_,
-                   warnings));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(&extensions::WarningService::NotifyWarningsOnUI,
+                              browser_context_, warnings));
   } else {
     // We can't call ReloadExtension directly, since when this method finishes
     // it tries to decrease the reference count for the extension, which fails
     // if the extension has already been reloaded; so instead we post a task.
-    base::MessageLoop::current()->PostTask(
-        FROM_HERE,
-        base::Bind(&ExtensionService::ReloadExtension,
-                   service->AsWeakPtr(),
-                   extension_id));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(&ExtensionService::ReloadExtension,
+                              service->AsWeakPtr(), extension_id));
   }
 }
 
@@ -155,7 +155,7 @@ bool ChromeRuntimeAPIDelegate::CheckForUpdates(
           base::Bind(&ChromeRuntimeAPIDelegate::UpdateCheckComplete,
                      base::Unretained(this),
                      extension_id))) {
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(callback, UpdateCheckResult(true, kUpdateThrottled, "")));
   } else {
@@ -181,41 +181,44 @@ void ChromeRuntimeAPIDelegate::OpenURL(const GURL& uninstall_url) {
 }
 
 bool ChromeRuntimeAPIDelegate::GetPlatformInfo(PlatformInfo* info) {
-  const char* os = omaha_query_params::OmahaQueryParams::GetOS();
+  const char* os = update_client::UpdateQueryParams::GetOS();
   if (strcmp(os, "mac") == 0) {
-    info->os = PlatformInfo::OS_MAC_;
+    info->os = extensions::core_api::runtime::PLATFORM_OS_MAC;
   } else if (strcmp(os, "win") == 0) {
-    info->os = PlatformInfo::OS_WIN_;
+    info->os = extensions::core_api::runtime::PLATFORM_OS_WIN;
   } else if (strcmp(os, "cros") == 0) {
-    info->os = PlatformInfo::OS_CROS_;
+    info->os = extensions::core_api::runtime::PLATFORM_OS_CROS;
   } else if (strcmp(os, "linux") == 0) {
-    info->os = PlatformInfo::OS_LINUX_;
+    info->os = extensions::core_api::runtime::PLATFORM_OS_LINUX;
   } else if (strcmp(os, "openbsd") == 0) {
-    info->os = PlatformInfo::OS_OPENBSD_;
+    info->os = extensions::core_api::runtime::PLATFORM_OS_OPENBSD;
   } else {
     NOTREACHED();
     return false;
   }
 
-  const char* arch = omaha_query_params::OmahaQueryParams::GetArch();
+  const char* arch = update_client::UpdateQueryParams::GetArch();
   if (strcmp(arch, "arm") == 0) {
-    info->arch = PlatformInfo::ARCH_ARM;
+    info->arch = extensions::core_api::runtime::PLATFORM_ARCH_ARM;
   } else if (strcmp(arch, "x86") == 0) {
-    info->arch = PlatformInfo::ARCH_X86_32;
+    info->arch = extensions::core_api::runtime::PLATFORM_ARCH_X86_32;
   } else if (strcmp(arch, "x64") == 0) {
-    info->arch = PlatformInfo::ARCH_X86_64;
+    info->arch = extensions::core_api::runtime::PLATFORM_ARCH_X86_64;
   } else {
     NOTREACHED();
     return false;
   }
 
-  const char* nacl_arch = omaha_query_params::OmahaQueryParams::GetNaclArch();
+  const char* nacl_arch = update_client::UpdateQueryParams::GetNaclArch();
   if (strcmp(nacl_arch, "arm") == 0) {
-    info->nacl_arch = PlatformInfo::NACL_ARCH_ARM;
+    info->nacl_arch =
+        extensions::core_api::runtime::PLATFORM_NACL_ARCH_ARM;
   } else if (strcmp(nacl_arch, "x86-32") == 0) {
-    info->nacl_arch = PlatformInfo::NACL_ARCH_X86_32;
+    info->nacl_arch =
+        extensions::core_api::runtime::PLATFORM_NACL_ARCH_X86_32;
   } else if (strcmp(nacl_arch, "x86-64") == 0) {
-    info->nacl_arch = PlatformInfo::NACL_ARCH_X86_64;
+    info->nacl_arch =
+        extensions::core_api::runtime::PLATFORM_NACL_ARCH_X86_64;
   } else {
     NOTREACHED();
     return false;
@@ -235,6 +238,15 @@ bool ChromeRuntimeAPIDelegate::RestartDevice(std::string* error_message) {
 #endif
   *error_message = "Function available only for ChromeOS kiosk mode.";
   return false;
+}
+
+bool ChromeRuntimeAPIDelegate::OpenOptionsPage(const Extension* extension) {
+  Profile* profile = Profile::FromBrowserContext(browser_context_);
+  Browser* browser =
+      chrome::FindLastActiveWithProfile(profile, chrome::GetActiveDesktop());
+  if (!browser)
+    return false;
+  return extensions::ExtensionTabUtil::OpenOptionsPage(extension, browser);
 }
 
 void ChromeRuntimeAPIDelegate::Observe(

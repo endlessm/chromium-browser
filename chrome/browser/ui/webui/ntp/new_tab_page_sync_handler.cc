@@ -125,13 +125,13 @@ void NewTabPageSyncHandler::BuildAndSendSyncStatus() {
 
 void NewTabPageSyncHandler::HandleSyncLinkClicked(const base::ListValue* args) {
   DCHECK(!waiting_for_initial_page_load_);
-  if (!sync_service_ || !sync_service_->IsSyncEnabled())
+  if (!sync_service_ || !sync_service_->IsSyncAllowedByFlag())
     return;
   Browser* browser =
       chrome::FindBrowserWithWebContents(web_ui()->GetWebContents());
   if (!browser || browser->IsAttemptingToCloseBrowser())
     return;
-  chrome::ShowBrowserSignin(browser, signin::SOURCE_NTP_LINK);
+  chrome::ShowBrowserSignin(browser, signin_metrics::SOURCE_NTP_LINK);
 
   if (sync_service_->HasSyncSetupCompleted()) {
     base::string16 user = base::UTF8ToUTF16(SigninManagerFactory::GetForProfile(

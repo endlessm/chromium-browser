@@ -33,12 +33,10 @@ class CC_EXPORT SolidColorDrawQuad : public DrawQuad {
   SkColor color;
   bool force_anti_aliasing_off;
 
-  void IterateResources(const ResourceIteratorCallback& callback) override;
-
   static const SolidColorDrawQuad* MaterialCast(const DrawQuad*);
 
  private:
-  void ExtendValue(base::debug::TracedValue* value) const override;
+  void ExtendValue(base::trace_event::TracedValue* value) const override;
 };
 
 }  // namespace cc

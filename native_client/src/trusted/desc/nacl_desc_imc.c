@@ -12,6 +12,7 @@
 #include <string.h>
 #include <errno.h>
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/portability.h"
 
 #include "native_client/src/trusted/desc/nacl_desc_base.h"
@@ -497,12 +498,10 @@ static struct NaClDescVtbl const kNaClDescXferableDataDescVtbl = {
 
 int NaClDescXferableDataDescInternalize(
     struct NaClDesc               **baseptr,
-    struct NaClDescXferState      *xfer,
-    struct NaClDescQuotaInterface *quota_interface) {
+    struct NaClDescXferState      *xfer) {
   int                             rv;
   struct NaClDescXferableDataDesc *ndxdp;
 
-  UNREFERENCED_PARAMETER(quota_interface);
   NaClLog(4, "Entered NaClDescXferableDataDescInternalize\n");
 
   ndxdp = malloc(sizeof *ndxdp);

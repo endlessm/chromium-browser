@@ -1,27 +1,28 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
+#include "../../public/fpdf_edit.h"
+#include "../../public/fpdf_save.h"
 #include "../include/fsdk_define.h"
-#include "../include/fpdfsave.h"
-#include "../include/fpdfedit.h"
+
 #if _FX_OS_ == _FX_ANDROID_
 #include "time.h"
 #else
 #include <ctime>
 #endif
 
-class CFX_IFileWrite FX_FINAL : public IFX_StreamWrite
+class CFX_IFileWrite final : public IFX_StreamWrite
 {
-	
+
 public:
 	CFX_IFileWrite();
 	FX_BOOL				Init( FPDF_FILEWRITE * pFileWriteStruct );
-	virtual	FX_BOOL		WriteBlock(const void* pData, size_t size) FX_OVERRIDE;
-	virtual void		Release() FX_OVERRIDE {}
-	
+	virtual	FX_BOOL		WriteBlock(const void* pData, size_t size) override;
+	virtual void		Release() override {}
+
 protected:
 	FPDF_FILEWRITE*		m_pFileWriteStruct;
 };
@@ -49,7 +50,7 @@ FX_BOOL CFX_IFileWrite::WriteBlock(const void* pData, size_t size)
 		m_pFileWriteStruct->WriteBlock( m_pFileWriteStruct, pData, size );
 		return TRUE;
 	}
-	else 
+	else
 		return FALSE;
 }
 
@@ -57,14 +58,14 @@ FPDF_BOOL _FPDF_Doc_Save(FPDF_DOCUMENT document,FPDF_FILEWRITE * pFileWrite,FPDF
 						 int fileVerion)
 {
 	CPDF_Document* pDoc = (CPDF_Document*)document;
-	if (!pDoc) 
+	if (!pDoc)
 		return 0;
-	
+
 	if ( flags < FPDF_INCREMENTAL || flags > FPDF_REMOVE_SECURITY )
 	{
 		flags = 0;
 	}
-	
+
 	CPDF_Creator FileMaker(pDoc);
 	if(bSetVersion)
 		FileMaker.SetFileVersion(fileVerion);

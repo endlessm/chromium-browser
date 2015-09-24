@@ -50,8 +50,8 @@ class BluetoothGattDescriptorServiceProviderImpl
     DCHECK(!uuid_.empty());
     DCHECK(object_path_.IsValid());
     DCHECK(characteristic_path_.IsValid());
-    DCHECK(StartsWithASCII(
-        object_path_.value(), characteristic_path_.value() + "/", true));
+    DCHECK(base::StartsWithASCII(object_path_.value(),
+                                 characteristic_path_.value() + "/", true));
 
     exported_object_ = bus_->GetExportedObject(object_path_);
 
@@ -80,14 +80,14 @@ class BluetoothGattDescriptorServiceProviderImpl
                    weak_ptr_factory_.GetWeakPtr()));
   }
 
-  virtual ~BluetoothGattDescriptorServiceProviderImpl() {
+  ~BluetoothGattDescriptorServiceProviderImpl() override {
     VLOG(1) << "Cleaning up Bluetooth GATT characteristic descriptor: "
             << object_path_.value();
     bus_->UnregisterExportedObject(object_path_);
   }
 
   // BluetoothGattDescriptorServiceProvider override.
-  virtual void SendValueChanged(const std::vector<uint8>& value) override {
+  void SendValueChanged(const std::vector<uint8>& value) override {
     VLOG(2) << "Emitting a PropertiesChanged signal for descriptor value.";
     dbus::Signal signal(
         dbus::kDBusPropertiesInterface,

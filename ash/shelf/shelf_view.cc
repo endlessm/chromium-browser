@@ -20,7 +20,6 @@
 #include "ash/shelf/shelf_constants.h"
 #include "ash/shelf/shelf_delegate.h"
 #include "ash/shelf/shelf_icon_observer.h"
-#include "ash/shelf/shelf_item_delegate.h"
 #include "ash/shelf/shelf_item_delegate_manager.h"
 #include "ash/shelf/shelf_layout_manager.h"
 #include "ash/shelf/shelf_menu_model.h"
@@ -43,8 +42,9 @@
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animator.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
+#include "ui/events/event_utils.h"
 #include "ui/gfx/canvas.h"
-#include "ui/gfx/point.h"
+#include "ui/gfx/geometry/point.h"
 #include "ui/views/animation/bounds_animator.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/image_button.h"
@@ -136,6 +136,7 @@ class BoundsAnimatorDisabler {
 
 // The MenuModelAdapter gets slightly changed to adapt the menu appearance to
 // our requirements.
+// TODO(bruthig): ShelfMenuModelAdapter does not appear to be used, remove it.
 class ShelfMenuModelAdapter : public views::MenuModelAdapter {
  public:
   explicit ShelfMenuModelAdapter(ShelfMenuModel* menu_model);
@@ -172,8 +173,8 @@ const gfx::FontList* ShelfMenuModelAdapter::GetLabelFontList(
   if (command_id != kCommandIdOfMenuName)
     return MenuModelAdapter::GetLabelFontList(command_id);
 
-  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
-  return &rb.GetFontList(ui::ResourceBundle::BoldFont);
+  ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
+  return &rb->GetFontList(ui::ResourceBundle::BoldFont);
 }
 
 bool ShelfMenuModelAdapter::IsCommandEnabled(int id) const {
@@ -389,7 +390,9 @@ ShelfView::ShelfView(ShelfModel* model,
       layout_manager_(manager),
       overflow_mode_(false),
       main_shelf_(NULL),
-      dragged_off_from_overflow_to_shelf_(false) {
+      dragged_off_from_overflow_to_shelf_(false),
+      is_repost_event_(false),
+      last_pressed_index_(-1) {
   DCHECK(model_);
   bounds_animator_.reset(new views::BoundsAnimator(this));
   bounds_animator_->AddObserver(this);
@@ -619,7 +622,8 @@ bool ShelfView::StartDrag(const std::string& app_id,
   gfx::Point point_in_root = location_in_screen_coordinates;
   ::wm::ConvertPointFromScreen(
       ash::wm::GetRootWindowAt(location_in_screen_coordinates), &point_in_root);
-  ui::MouseEvent event(ui::ET_MOUSE_PRESSED, pt, point_in_root, 0, 0);
+  ui::MouseEvent event(ui::ET_MOUSE_PRESSED, pt, point_in_root,
+                       ui::EventTimeForNow(), 0, 0);
   PointerPressedOnButton(drag_and_drop_view,
                          ShelfButtonHost::DRAG_AND_DROP,
                          event);
@@ -641,7 +645,8 @@ bool ShelfView::Drag(const gfx::Point& location_in_screen_coordinates) {
   gfx::Point point_in_root = location_in_screen_coordinates;
   ::wm::ConvertPointFromScreen(
       ash::wm::GetRootWindowAt(location_in_screen_coordinates), &point_in_root);
-  ui::MouseEvent event(ui::ET_MOUSE_DRAGGED, pt, point_in_root, 0, 0);
+  ui::MouseEvent event(ui::ET_MOUSE_DRAGGED, pt, point_in_root,
+                       ui::EventTimeForNow(), 0, 0);
   PointerDraggedOnButton(drag_and_drop_view,
                          ShelfButtonHost::DRAG_AND_DROP,
                          event);
@@ -726,10 +731,8 @@ void ShelfView::CalculateIdealBounds(IdealBounds* bounds) const {
     }
 
     view_model_->set_ideal_bounds(i, gfx::Rect(x, y, w, h));
-    if (i != last_button_index) {
-      x = layout_manager_->PrimaryAxisValue(x + w + button_spacing, x);
-      y = layout_manager_->PrimaryAxisValue(y, y + h + button_spacing);
-    }
+    x = layout_manager_->PrimaryAxisValue(x + w + button_spacing, x);
+    y = layout_manager_->PrimaryAxisValue(y, y + h + button_spacing);
   }
 
   if (is_overflow_mode()) {
@@ -771,9 +774,27 @@ void ShelfView::CalculateIdealBounds(IdealBounds* bounds) const {
       last_hidden_index_ >= first_panel_index;
 
   // Create Space for the overflow button
-  if (show_overflow &&
-      last_visible_index_ > 0 && last_visible_index_ < last_button_index)
-    --last_visible_index_;
+  if (show_overflow) {
+    // The following code makes sure that platform apps icons (aligned to left /
+    // top) are favored over panel apps icons (aligned to right / bottom).
+    if (last_visible_index_ > 0 && last_visible_index_ < last_button_index) {
+      // This condition means that we will take one platform app and replace it
+      // with the overflow button and put the app in the overflow bubble.
+      // This happens when the space needed for platform apps exceeds the
+      // reserved area for non-panel icons,
+      // (i.e. |last_icon_position| > |reserved_icon_space|).
+      --last_visible_index_;
+    } else if (last_hidden_index_ >= first_panel_index &&
+               last_hidden_index_ < view_model_->view_size() - 1) {
+      // This condition means that we will take a panel app icon and replace it
+      // with the overflow button.
+      // This happens when there is still room for platform apps in the reserved
+      // area for non-panel icons,
+      // (i.e. |last_icon_position| < |reserved_icon_space|).
+      ++last_hidden_index_;
+    }
+  }
+
   for (int i = 0; i < view_model_->view_size(); ++i) {
     bool visible = i <= last_visible_index_ || i > last_hidden_index_;
     // To receive drag event continuously from |drag_view_| during the dragging
@@ -1412,7 +1433,10 @@ void ShelfView::GetAccessibleState(ui::AXViewState* state) {
 }
 
 void ShelfView::OnGestureEvent(ui::GestureEvent* event) {
-  if (gesture_handler_.ProcessGestureEvent(*event))
+  aura::Window* target_window = static_cast<views::View*>(event->target())
+                                    ->GetWidget()
+                                    ->GetNativeWindow();
+  if (gesture_handler_.ProcessGestureEvent(*event, target_window))
     event->StopPropagation();
 }
 
@@ -1571,6 +1595,10 @@ void ShelfView::PointerPressedOnButton(views::View* view,
   if (view_model_->view_size() <= 1 || !item_delegate->IsDraggable())
     return;  // View is being deleted or not draggable, ignore request.
 
+  // Only when the repost event occurs on the same shelf item, we should ignore
+  // the call in ShelfView::ButtonPressed(...).
+  is_repost_event_ = IsRepostEvent(event) && (last_pressed_index_ == index);
+
   CHECK_EQ(ShelfButton::kViewClassName, view->GetClassName());
   drag_view_ = static_cast<ShelfButton*>(view);
   drag_origin_ = gfx::Point(event.x(), event.y());
@@ -1600,6 +1628,9 @@ void ShelfView::PointerDraggedOnButton(views::View* view,
 void ShelfView::PointerReleasedOnButton(views::View* view,
                                         Pointer pointer,
                                         bool canceled) {
+  // Reset |is_repost_event| to false.
+  is_repost_event_ = false;
+
   if (canceled) {
     CancelDrag(-1);
   } else if (drag_pointer_ == pointer) {
@@ -1655,6 +1686,8 @@ void ShelfView::ButtonPressed(views::Button* sender, const ui::Event& event) {
 
   if (sender == overflow_button_) {
     ToggleOverflowBubble();
+    shelf_button_pressed_metric_tracker_.ButtonPressed(
+        event, sender, ShelfItemDelegate::kNoAction);
     return;
   }
 
@@ -1663,10 +1696,14 @@ void ShelfView::ButtonPressed(views::Button* sender, const ui::Event& event) {
   if (view_index == -1)
     return;
 
-  // If the previous menu was closed by the same event as this one, we ignore
-  // the call.
-  if (!IsUsableEvent(event))
+  // If the menu was just closed by the same event as this one, we ignore
+  // the call and don't open the menu again. See crbug.com/343005 for more
+  // detail.
+  if (is_repost_event_)
     return;
+
+  // Record the index for the last pressed shelf item.
+  last_pressed_index_ = view_index;
 
   // Don't activate the item twice on double-click. Otherwise the window starts
   // animating open due to the first click, then immediately minimizes due to
@@ -1709,9 +1746,14 @@ void ShelfView::ButtonPressed(views::Button* sender, const ui::Event& event) {
         break;
     }
 
-    ShelfItemDelegate* item_delegate =
-        item_manager_->GetShelfItemDelegate(model_->items()[view_index].id);
-    if (!item_delegate->ItemSelected(event))
+    ShelfItemDelegate::PerformedAction performed_action =
+        item_manager_->GetShelfItemDelegate(model_->items()[view_index].id)
+            ->ItemSelected(event);
+
+    shelf_button_pressed_metric_tracker_.ButtonPressed(event, sender,
+                                                       performed_action);
+
+    if (performed_action != ShelfItemDelegate::kNewWindowCreated)
       ShowListMenuForView(model_->items()[view_index], sender, event);
   }
 }
@@ -1877,16 +1919,16 @@ void ShelfView::OnBoundsAnimatorDone(views::BoundsAnimator* animator) {
   }
 }
 
-bool ShelfView::IsUsableEvent(const ui::Event& event) {
+bool ShelfView::IsRepostEvent(const ui::Event& event) {
   if (closing_event_time_ == base::TimeDelta())
-    return true;
+    return false;
 
   base::TimeDelta delta =
       base::TimeDelta(event.time_stamp() - closing_event_time_);
   closing_event_time_ = base::TimeDelta();
-  // TODO(skuhne): This time seems excessive, but it appears that the reposting
-  // takes that long.  Need to come up with a better way of doing this.
-  return (delta.InMilliseconds() < 0 || delta.InMilliseconds() > 130);
+  // If the current (press down) event is a repost event, the time stamp of
+  // these two events should be the same.
+  return (delta.InMilliseconds() == 0);
 }
 
 const ShelfItem* ShelfView::ShelfItemForView(const views::View* view) const {

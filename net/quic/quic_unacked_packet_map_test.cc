@@ -4,10 +4,14 @@
 
 #include "net/quic/quic_unacked_packet_map.h"
 
+#include "net/quic/quic_ack_notifier_manager.h"
+#include "net/quic/quic_flags.h"
+#include "net/quic/quic_utils.h"
 #include "net/quic/test_tools/quic_test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using std::min;
+using std::vector;
 
 namespace net {
 namespace test {
@@ -20,19 +24,38 @@ const uint32 kDefaultLength = 1000;
 class QuicUnackedPacketMapTest : public ::testing::Test {
  protected:
   QuicUnackedPacketMapTest()
-      : now_(QuicTime::Zero().Add(QuicTime::Delta::FromMilliseconds(1000))) {
+      : unacked_packets_(&ack_notifier_manager_),
+        now_(QuicTime::Zero().Add(QuicTime::Delta::FromMilliseconds(1000))) {}
+
+  ~QuicUnackedPacketMapTest() override {
+    STLDeleteElements(&packets_);
   }
 
   SerializedPacket CreateRetransmittablePacket(
       QuicPacketSequenceNumber sequence_number) {
+    packets_.push_back(new QuicEncryptedPacket(nullptr, kDefaultLength));
     return SerializedPacket(sequence_number, PACKET_1BYTE_SEQUENCE_NUMBER,
-                            nullptr, 0, new RetransmittableFrames());
+                            packets_.back(), 0,
+                            new RetransmittableFrames(ENCRYPTION_NONE));
+  }
+
+  SerializedPacket CreateRetransmittablePacketForStream(
+      QuicPacketSequenceNumber sequence_number,
+      QuicStreamId stream_id) {
+    packets_.push_back(new QuicEncryptedPacket(nullptr, kDefaultLength));
+    RetransmittableFrames* frames = new RetransmittableFrames(ENCRYPTION_NONE);
+    QuicStreamFrame* frame = new QuicStreamFrame();
+    frame->stream_id = stream_id;
+    frames->AddFrame(QuicFrame(frame));
+    return SerializedPacket(sequence_number, PACKET_1BYTE_SEQUENCE_NUMBER,
+                            packets_.back(), 0, frames);
   }
 
   SerializedPacket CreateNonRetransmittablePacket(
       QuicPacketSequenceNumber sequence_number) {
+    packets_.push_back(new QuicEncryptedPacket(nullptr, kDefaultLength));
     return SerializedPacket(sequence_number, PACKET_1BYTE_SEQUENCE_NUMBER,
-                            nullptr, 0, nullptr);
+                            packets_.back(), 0, nullptr);
   }
 
   void VerifyInFlightPackets(QuicPacketSequenceNumber* packets,
@@ -94,7 +117,8 @@ class QuicUnackedPacketMapTest : public ::testing::Test {
           << " packets[" << i << "]:" << packets[i];
     }
   }
-
+  vector<QuicEncryptedPacket*> packets_;
+  AckNotifierManager ack_notifier_manager_;
   QuicUnackedPacketMap unacked_packets_;
   QuicTime now_;
 };
@@ -117,6 +141,7 @@ TEST_F(QuicUnackedPacketMapTest, RttOnly) {
 }
 
 TEST_F(QuicUnackedPacketMapTest, DiscardOldRttOnly) {
+  ValueRestore<bool> old_flag(&FLAGS_quic_use_is_useless_packet, false);
   // Acks are only tracked for RTT measurement purposes, and are discarded
   // when more than 200 accumulate.
   const size_t kNumUnackedPackets = 200;
@@ -157,6 +182,64 @@ TEST_F(QuicUnackedPacketMapTest, RetransmittableInflightAndRtt) {
   VerifyRetransmittablePackets(nullptr, 0);
 }
 
+TEST_F(QuicUnackedPacketMapTest, StopRetransmission) {
+  const QuicStreamId stream_id = 2;
+  unacked_packets_.AddSentPacket(
+      CreateRetransmittablePacketForStream(1, stream_id), 0, NOT_RETRANSMISSION,
+      now_, kDefaultLength, true);
+
+  QuicPacketSequenceNumber unacked[] = {1};
+  VerifyUnackedPackets(unacked, arraysize(unacked));
+  VerifyInFlightPackets(unacked, arraysize(unacked));
+  QuicPacketSequenceNumber retransmittable[] = {1};
+  VerifyRetransmittablePackets(retransmittable, arraysize(retransmittable));
+
+  unacked_packets_.CancelRetransmissionsForStream(stream_id);
+  VerifyUnackedPackets(unacked, arraysize(unacked));
+  VerifyInFlightPackets(unacked, arraysize(unacked));
+  VerifyRetransmittablePackets(nullptr, 0);
+}
+
+TEST_F(QuicUnackedPacketMapTest, StopRetransmissionOnOtherStream) {
+  const QuicStreamId stream_id = 2;
+  unacked_packets_.AddSentPacket(
+      CreateRetransmittablePacketForStream(1, stream_id), 0, NOT_RETRANSMISSION,
+      now_, kDefaultLength, true);
+
+  QuicPacketSequenceNumber unacked[] = {1};
+  VerifyUnackedPackets(unacked, arraysize(unacked));
+  VerifyInFlightPackets(unacked, arraysize(unacked));
+  QuicPacketSequenceNumber retransmittable[] = {1};
+  VerifyRetransmittablePackets(retransmittable, arraysize(retransmittable));
+
+  // Stop retransmissions on another stream and verify the packet is unchanged.
+  unacked_packets_.CancelRetransmissionsForStream(stream_id + 2);
+  VerifyUnackedPackets(unacked, arraysize(unacked));
+  VerifyInFlightPackets(unacked, arraysize(unacked));
+  VerifyRetransmittablePackets(retransmittable, arraysize(retransmittable));
+}
+
+TEST_F(QuicUnackedPacketMapTest, StopRetransmissionAfterRetransmission) {
+  const QuicStreamId stream_id = 2;
+  unacked_packets_.AddSentPacket(
+      CreateRetransmittablePacketForStream(1, stream_id), 0, NOT_RETRANSMISSION,
+      now_, kDefaultLength, true);
+  unacked_packets_.AddSentPacket(CreateNonRetransmittablePacket(2), 1,
+                                 LOSS_RETRANSMISSION, now_, kDefaultLength,
+                                 true);
+
+  QuicPacketSequenceNumber unacked[] = {1, 2};
+  VerifyUnackedPackets(unacked, arraysize(unacked));
+  VerifyInFlightPackets(unacked, arraysize(unacked));
+  QuicPacketSequenceNumber retransmittable[] = {2};
+  VerifyRetransmittablePackets(retransmittable, arraysize(retransmittable));
+
+  unacked_packets_.CancelRetransmissionsForStream(stream_id);
+  VerifyUnackedPackets(unacked, arraysize(unacked));
+  VerifyInFlightPackets(unacked, arraysize(unacked));
+  VerifyRetransmittablePackets(nullptr, 0);
+}
+
 TEST_F(QuicUnackedPacketMapTest, RetransmittedPacket) {
   // Simulate a retransmittable packet being sent, retransmitted, and the first
   // transmission being acked.
@@ -185,8 +268,8 @@ TEST_F(QuicUnackedPacketMapTest, RetransmittedPacket) {
 
   unacked_packets_.RemoveFromInFlight(2);
   QuicPacketSequenceNumber unacked2[] = { 1 };
-  VerifyUnackedPackets(unacked, arraysize(unacked2));
-  VerifyInFlightPackets(unacked, arraysize(unacked2));
+  VerifyUnackedPackets(unacked2, arraysize(unacked2));
+  VerifyInFlightPackets(unacked2, arraysize(unacked2));
   VerifyRetransmittablePackets(nullptr, 0);
 
   unacked_packets_.RemoveFromInFlight(1);
@@ -340,32 +423,6 @@ TEST_F(QuicUnackedPacketMapTest, RetransmitFourTimes) {
   VerifyRetransmittablePackets(retransmittable4, arraysize(retransmittable4));
 }
 
-TEST_F(QuicUnackedPacketMapTest, RestoreInflight) {
-  // Simulate a retransmittable packet being sent, retransmitted, and the first
-  // transmission being acked.
-  unacked_packets_.AddSentPacket(CreateRetransmittablePacket(1), 0,
-                                 NOT_RETRANSMISSION, now_, kDefaultLength,
-                                 true);
-  unacked_packets_.RemoveFromInFlight(1);
-  unacked_packets_.AddSentPacket(CreateNonRetransmittablePacket(2), 1,
-                                 RTO_RETRANSMISSION, now_, kDefaultLength,
-                                 true);
-
-  QuicPacketSequenceNumber unacked[] = { 1, 2 };
-  VerifyUnackedPackets(unacked, arraysize(unacked));
-  QuicPacketSequenceNumber retransmittable[] = { 2 };
-  VerifyInFlightPackets(retransmittable, arraysize(retransmittable));
-  VerifyRetransmittablePackets(retransmittable, arraysize(retransmittable));
-  EXPECT_EQ(kDefaultLength, unacked_packets_.bytes_in_flight());
-
-  // Simulate an F-RTO, and restore 1 to flight.
-  unacked_packets_.RestoreInFlight(1);
-  VerifyUnackedPackets(unacked, arraysize(unacked));
-  VerifyInFlightPackets(unacked, arraysize(unacked));
-  VerifyRetransmittablePackets(retransmittable, arraysize(retransmittable));
-  EXPECT_EQ(2 * kDefaultLength, unacked_packets_.bytes_in_flight());
-}
-
 TEST_F(QuicUnackedPacketMapTest, SendWithGap) {
   // Simulate a retransmittable packet being sent, retransmitted, and the first
   // transmission being acked.
@@ -387,7 +444,6 @@ TEST_F(QuicUnackedPacketMapTest, SendWithGap) {
   EXPECT_TRUE(unacked_packets_.IsUnacked(5));
   EXPECT_EQ(5u, unacked_packets_.largest_sent_packet());
 }
-
 
 }  // namespace
 }  // namespace test

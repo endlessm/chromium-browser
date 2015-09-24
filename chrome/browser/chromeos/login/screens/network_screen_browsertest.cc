@@ -27,8 +27,7 @@ namespace chromeos {
 
 class DummyButtonListener : public views::ButtonListener {
  public:
-  virtual void ButtonPressed(views::Button* sender,
-                             const ui::Event& event) override {}
+  void ButtonPressed(views::Button* sender, const ui::Event& event) override {}
 };
 
 namespace login {
@@ -49,7 +48,7 @@ class NetworkScreenTest : public WizardInProcessBrowserTest {
   }
 
  protected:
-  virtual void SetUpInProcessBrowserTestFixture() override {
+  void SetUpInProcessBrowserTestFixture() override {
     WizardInProcessBrowserTest::SetUpInProcessBrowserTestFixture();
 
     fake_session_manager_client_ = new FakeSessionManagerClient;
@@ -57,7 +56,7 @@ class NetworkScreenTest : public WizardInProcessBrowserTest {
         scoped_ptr<SessionManagerClient>(fake_session_manager_client_));
   }
 
-  virtual void SetUpOnMainThread() override {
+  void SetUpOnMainThread() override {
     WizardInProcessBrowserTest::SetUpOnMainThread();
     mock_base_screen_delegate_.reset(new MockBaseScreenDelegate());
     ASSERT_TRUE(WizardController::default_controller() != NULL);
@@ -67,23 +66,23 @@ class NetworkScreenTest : public WizardInProcessBrowserTest {
     ASSERT_EQ(WizardController::default_controller()->current_screen(),
               network_screen_);
     network_screen_->base_screen_delegate_ = mock_base_screen_delegate_.get();
-    ASSERT_TRUE(network_screen_->actor() != NULL);
+    ASSERT_TRUE(network_screen_->view_ != nullptr);
 
     mock_network_state_helper_ = new login::MockNetworkStateHelper;
     SetDefaultNetworkStateHelperExpectations();
     network_screen_->SetNetworkStateHelperForTest(mock_network_state_helper_);
   }
 
-  virtual void TearDownInProcessBrowserTestFixture() override {
+  void TearDownInProcessBrowserTestFixture() override {
     InProcessBrowserTest::TearDownInProcessBrowserTestFixture();
   }
 
   void EmulateContinueButtonExit(NetworkScreen* network_screen) {
     EXPECT_CALL(*mock_base_screen_delegate_,
-                OnExit(BaseScreenDelegate::NETWORK_CONNECTED)).Times(1);
+                OnExit(_, BaseScreenDelegate::NETWORK_CONNECTED, _)).Times(1);
     EXPECT_CALL(*mock_network_state_helper_, IsConnected())
         .WillOnce(Return(true));
-    network_screen->OnContinuePressed();
+    network_screen->OnContinueButtonPressed();
     content::RunAllPendingInMessageLoop();
   }
 

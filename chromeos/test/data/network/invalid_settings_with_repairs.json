@@ -158,6 +158,68 @@
         },
         "ConnectionState": "NotConnected"
     },
+    "wifi-hexssid-invalid-length": {
+        "GUID": "guid",
+        "Type": "WiFi",
+        "Name": "name",
+        "WiFi": {
+            "Passphrase": "some passphrase",
+            "HexSSID": "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEFAB",
+            "Security": "WPA-PSK"
+        }
+    },
+    "wifi-ssid-invalid-length": {
+        "GUID": "guid",
+        "Type": "WiFi",
+        "Name": "name",
+        "WiFi": {
+            "Passphrase": "some passphrase",
+            "SSID": "a ssid longer than 32 bytes is invalid",
+            "Security": "WPA-PSK"
+        }
+    },
+    "wifi-invalid-hexssid": {
+        "GUID": "guid",
+        "Type": "WiFi",
+        "Name": "name",
+        "WiFi": {
+            "Passphrase": "some passphrase",
+            "HexSSID": "invalidhex",
+            "Security": "WPA-PSK"
+        }
+    },
+    "wifi-ssid-and-hexssid-inconsistent": {
+        "GUID": "guid",
+        "Type": "WiFi",
+        "Name": "name",
+        "WiFi": {
+            "Passphrase": "some passphrase",
+            "SSID": "ssid",
+            "HexSSID": "FFFFFF",
+            "Security": "WPA-PSK"
+        }
+    },
+    "wifi-ssid-and-hexssid-partially-invalid": {
+        "GUID": "guid",
+        "Type": "WiFi",
+        "Name": "name",
+        "WiFi": {
+            "Passphrase": "some passphrase",
+            "SSID": "a ssid longer than 32 bytes is invalid",
+            "HexSSID": "FFFFFF",
+            "Security": "WPA-PSK"
+        }
+    },
+    "wifi-ssid-and-hexssid-repaired": {
+        "GUID": "guid",
+        "Type": "WiFi",
+        "Name": "name",
+        "WiFi": {
+            "Passphrase": "some passphrase",
+            "HexSSID": "FFFFFF",
+            "Security": "WPA-PSK"
+        }
+    },
     "network-unknown-value": {
         "GUID": "guid",
         "Type": "LTE",
@@ -189,6 +251,12 @@
     },
     "network-missing-required": {
         "Type": "Ethernet",
+        "Name": "name",
+        "Ethernet": {
+            "Authentication": "None"
+        }
+    },
+    "network-missing-required-type": {
         "Name": "name",
         "Ethernet": {
             "Authentication": "None"
@@ -326,6 +394,15 @@
             "Type": "unknown type"
           }
         }
+      }
+    },
+    "third-party-vpn-missing-extension-id": {
+      "GUID": "guid",
+      "Name": "third-party VPN",
+      "Type": "VPN",
+      "VPN": {
+        "Type": "ThirdPartyVPN",
+        "ThirdPartyVPN": { }
       }
     },
     "toplevel-empty": {

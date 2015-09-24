@@ -16,6 +16,7 @@
 
 #include "webrtc/p2p/base/transportchannelimpl.h"
 #include "webrtc/base/buffer.h"
+#include "webrtc/base/bufferqueue.h"
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/base/sslstreamadapter.h"
 #include "webrtc/base/stream.h"
@@ -24,15 +25,9 @@ namespace cricket {
 
 // A bridge between a packet-oriented/channel-type interface on
 // the bottom and a StreamInterface on the top.
-class StreamInterfaceChannel : public rtc::StreamInterface,
-                               public sigslot::has_slots<> {
+class StreamInterfaceChannel : public rtc::StreamInterface {
  public:
-  StreamInterfaceChannel(rtc::Thread* owner, TransportChannel* channel)
-      : channel_(channel),
-        state_(rtc::SS_OPEN),
-        fifo_(kFifoSize, owner) {
-    fifo_.SignalEvent.connect(this, &StreamInterfaceChannel::OnEvent);
-  }
+  StreamInterfaceChannel(TransportChannel* channel);
 
   // Push in a packet; this gets pulled out from Read().
   bool OnPacketReceived(const char* data, size_t size);
@@ -46,14 +41,9 @@ class StreamInterfaceChannel : public rtc::StreamInterface,
                                         size_t* written, int* error);
 
  private:
-  static const size_t kFifoSize = 8192;
-
-  // Forward events
-  virtual void OnEvent(rtc::StreamInterface* stream, int sig, int err);
-
   TransportChannel* channel_;  // owned by DtlsTransportChannelWrapper
   rtc::StreamState state_;
-  rtc::FifoBuffer fifo_;
+  rtc::BufferQueue packets_;
 
   DISALLOW_COPY_AND_ASSIGN(StreamInterfaceChannel);
 };
@@ -109,9 +99,6 @@ class DtlsTransportChannelWrapper : public TransportChannelImpl {
   virtual IceRole GetIceRole() const {
     return channel_->GetIceRole();
   }
-  virtual size_t GetConnectionCount() const {
-    return channel_->GetConnectionCount();
-  }
   virtual bool SetLocalIdentity(rtc::SSLIdentity *identity);
   virtual bool GetLocalIdentity(rtc::SSLIdentity** identity) const;
 
@@ -129,6 +116,9 @@ class DtlsTransportChannelWrapper : public TransportChannelImpl {
   virtual int SetOption(rtc::Socket::Option opt, int value) {
     return channel_->SetOption(opt, value);
   }
+  virtual bool GetOption(rtc::Socket::Option opt, int* value) {
+    return channel_->GetOption(opt, value);
+  }
   virtual int GetError() {
     return channel_->GetError();
   }
@@ -138,6 +128,8 @@ class DtlsTransportChannelWrapper : public TransportChannelImpl {
   virtual const std::string SessionId() const {
     return channel_->SessionId();
   }
+
+  virtual bool SetSslMaxProtocolVersion(rtc::SSLProtocolVersion version);
 
   // Set up the ciphers to use for DTLS-SRTP. If this method is not called
   // before DTLS starts, or |ciphers| is empty, SRTP keys won't be negotiated.
@@ -149,6 +141,9 @@ class DtlsTransportChannelWrapper : public TransportChannelImpl {
 
   virtual bool GetSslRole(rtc::SSLRole* role) const;
   virtual bool SetSslRole(rtc::SSLRole role);
+
+  // Find out which DTLS cipher was negotiated
+  virtual bool GetSslCipher(std::string* cipher);
 
   // Once DTLS has been established, this method retrieves the certificate in
   // use by the remote peer, for use in external identity verification.
@@ -175,6 +170,10 @@ class DtlsTransportChannelWrapper : public TransportChannelImpl {
   virtual Transport* GetTransport() {
     return transport_;
   }
+
+  virtual TransportChannelState GetState() const {
+    return channel_->GetState();
+  }
   virtual void SetIceTiebreaker(uint64 tiebreaker) {
     channel_->SetIceTiebreaker(tiebreaker);
   }
@@ -197,7 +196,6 @@ class DtlsTransportChannelWrapper : public TransportChannelImpl {
   }
 
   virtual void Connect();
-  virtual void Reset();
 
   virtual void OnSignalingReady() {
     channel_->OnSignalingReady();
@@ -215,6 +213,7 @@ class DtlsTransportChannelWrapper : public TransportChannelImpl {
   void OnReadPacket(TransportChannel* channel, const char* data, size_t size,
                     const rtc::PacketTime& packet_time, int flags);
   void OnReadyToSend(TransportChannel* channel);
+  void OnReceivingState(TransportChannel* channel);
   void OnDtlsEvent(rtc::StreamInterface* stream_, int sig, int err);
   bool SetupDtls();
   bool MaybeStartDtls();
@@ -235,6 +234,7 @@ class DtlsTransportChannelWrapper : public TransportChannelImpl {
   State dtls_state_;
   rtc::SSLIdentity* local_identity_;
   rtc::SSLRole ssl_role_;
+  rtc::SSLProtocolVersion ssl_max_version_;
   rtc::Buffer remote_fingerprint_value_;
   std::string remote_fingerprint_algorithm_;
 

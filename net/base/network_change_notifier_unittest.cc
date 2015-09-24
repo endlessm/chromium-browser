@@ -4,6 +4,7 @@
 
 #include "net/base/network_change_notifier.h"
 
+#include "net/base/net_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
@@ -55,6 +56,69 @@ TEST(NetworkChangeNotifierTest, NetMaxBandwidthRange) {
       EXPECT_LE(24.0, max_bandwidth);
       break;
   }
+}
+
+TEST(NetworkChangeNotifierTest, ConnectionTypeFromInterfaceList) {
+  NetworkInterfaceList list;
+
+  // Test empty list.
+  EXPECT_EQ(NetworkChangeNotifier::ConnectionTypeFromInterfaceList(list),
+            NetworkChangeNotifier::CONNECTION_NONE);
+
+  for (int i = NetworkChangeNotifier::CONNECTION_UNKNOWN;
+       i <= NetworkChangeNotifier::CONNECTION_LAST; i++) {
+    // Check individual types.
+    NetworkInterface interface;
+    interface.type = static_cast<NetworkChangeNotifier::ConnectionType>(i);
+    list.clear();
+    list.push_back(interface);
+    EXPECT_EQ(NetworkChangeNotifier::ConnectionTypeFromInterfaceList(list), i);
+    // Check two types.
+    for (int j = NetworkChangeNotifier::CONNECTION_UNKNOWN;
+         j <= NetworkChangeNotifier::CONNECTION_LAST; j++) {
+      list.clear();
+      interface.type = static_cast<NetworkChangeNotifier::ConnectionType>(i);
+      list.push_back(interface);
+      interface.type = static_cast<NetworkChangeNotifier::ConnectionType>(j);
+      list.push_back(interface);
+      EXPECT_EQ(NetworkChangeNotifier::ConnectionTypeFromInterfaceList(list),
+                i == j ? i : NetworkChangeNotifier::CONNECTION_UNKNOWN);
+    }
+  }
+}
+
+TEST(NetworkChangeNotifierTest, IgnoreTeredoOnWindows) {
+  NetworkInterfaceList list;
+  NetworkInterface interface_teredo;
+  interface_teredo.type = NetworkChangeNotifier::CONNECTION_ETHERNET;
+  interface_teredo.friendly_name = "Teredo Tunneling Pseudo-Interface";
+  list.push_back(interface_teredo);
+
+#if defined(OS_WIN)
+  EXPECT_EQ(NetworkChangeNotifier::CONNECTION_NONE,
+            NetworkChangeNotifier::ConnectionTypeFromInterfaceList(list));
+#else
+  EXPECT_EQ(NetworkChangeNotifier::CONNECTION_ETHERNET,
+            NetworkChangeNotifier::ConnectionTypeFromInterfaceList(list));
+#endif
+}
+
+TEST(NetworkChangeNotifierTest, IgnoreVMInterfaces) {
+  NetworkInterfaceList list;
+  NetworkInterface interface_vmnet_linux;
+  interface_vmnet_linux.type = NetworkChangeNotifier::CONNECTION_ETHERNET;
+  interface_vmnet_linux.name = "vmnet1";
+  interface_vmnet_linux.friendly_name = "vmnet1";
+  list.push_back(interface_vmnet_linux);
+
+  NetworkInterface interface_vmnet_win;
+  interface_vmnet_win.type = NetworkChangeNotifier::CONNECTION_ETHERNET;
+  interface_vmnet_win.name = "virtualdevice";
+  interface_vmnet_win.friendly_name = "VMware Network Adapter VMnet1";
+  list.push_back(interface_vmnet_win);
+
+  EXPECT_EQ(NetworkChangeNotifier::CONNECTION_NONE,
+            NetworkChangeNotifier::ConnectionTypeFromInterfaceList(list));
 }
 
 }  // namespace net

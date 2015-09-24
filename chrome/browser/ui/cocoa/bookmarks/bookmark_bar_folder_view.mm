@@ -13,6 +13,8 @@
 #include "content/public/browser/user_metrics.h"
 
 using base::UserMetricsAction;
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
 
 #import "third_party/mozilla/NSPasteboard+Utils.h"
 
@@ -57,7 +59,7 @@ using base::UserMetricsAction;
   if (![[self controller] draggingAllowed:info])
     return NSDragOperationNone;
   if ([[info draggingPasteboard] dataForType:kBookmarkButtonDragType] ||
-      PasteboardContainsBookmarks(ui::CLIPBOARD_TYPE_DRAG) ||
+      bookmarks::PasteboardContainsBookmarks(ui::CLIPBOARD_TYPE_DRAG) ||
       [[info draggingPasteboard] containsURLData]) {
     // Find the position of the drop indicator.
     BOOL showIt = [[self controller]

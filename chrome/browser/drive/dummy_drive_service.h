@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_DRIVE_DUMMY_DRIVE_SERVICE_H_
 #define CHROME_BROWSER_DRIVE_DUMMY_DRIVE_SERVICE_H_
 
+#include <string>
+
 #include "chrome/browser/drive/drive_service_interface.h"
 #include "google_apis/drive/auth_service_interface.h"
 
@@ -86,6 +88,7 @@ class DummyDriveService : public DriveServiceInterface {
       const std::string& new_title,
       const base::Time& last_modified,
       const base::Time& last_viewed_by_me,
+      const google_apis::drive::Properties& properties,
       const google_apis::FileResourceCallback& callback) override;
   google_apis::CancelCallback AddResourceToDirectory(
       const std::string& parent_resource_id,
@@ -105,13 +108,13 @@ class DummyDriveService : public DriveServiceInterface {
       int64 content_length,
       const std::string& parent_resource_id,
       const std::string& title,
-      const InitiateUploadNewFileOptions& options,
+      const UploadNewFileOptions& options,
       const google_apis::InitiateUploadCallback& callback) override;
   google_apis::CancelCallback InitiateUploadExistingFile(
       const std::string& content_type,
       int64 content_length,
       const std::string& resource_id,
-      const InitiateUploadExistingFileOptions& options,
+      const UploadExistingFileOptions& options,
       const google_apis::InitiateUploadCallback& callback) override;
   google_apis::CancelCallback ResumeUpload(
       const GURL& upload_url,
@@ -126,6 +129,23 @@ class DummyDriveService : public DriveServiceInterface {
       const GURL& upload_url,
       int64 content_length,
       const google_apis::drive::UploadRangeCallback& callback) override;
+  google_apis::CancelCallback MultipartUploadNewFile(
+      const std::string& content_type,
+      int64 content_length,
+      const std::string& parent_resource_id,
+      const std::string& title,
+      const base::FilePath& local_file_path,
+      const UploadNewFileOptions& options,
+      const google_apis::FileResourceCallback& callback,
+      const google_apis::ProgressCallback& progress_callback) override;
+  google_apis::CancelCallback MultipartUploadExistingFile(
+      const std::string& content_type,
+      int64 content_length,
+      const std::string& resource_id,
+      const base::FilePath& local_file_path,
+      const UploadExistingFileOptions& options,
+      const google_apis::FileResourceCallback& callback,
+      const google_apis::ProgressCallback& progress_callback) override;
   google_apis::CancelCallback AuthorizeApp(
       const std::string& resource_id,
       const std::string& app_id,
@@ -138,6 +158,7 @@ class DummyDriveService : public DriveServiceInterface {
       const std::string& email,
       google_apis::drive::PermissionRole role,
       const google_apis::EntryActionCallback& callback) override;
+  scoped_ptr<BatchRequestConfiguratorInterface> StartBatchRequest() override;
 };
 
 }  // namespace drive

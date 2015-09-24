@@ -136,6 +136,10 @@ typedef void (
 #define GL_SCANOUT_CHROMIUM 0x78F2
 #endif
 
+#ifndef GL_RGB_YUV_420_CHROMIUM
+#define GL_RGB_YUV_420_CHROMIUM 0x78FA
+#endif
+
 #ifdef GL_GLEXT_PROTOTYPES
 GL_APICALL GLuint GL_APIENTRY glCreateGpuMemoryBufferImageCHROMIUM(
     GLsizei width,
@@ -200,7 +204,7 @@ typedef void (GL_APIENTRYP PFNGLREQUESTEXTENSIONCHROMIUMPROC) (
 
 #ifndef GL_GET_ERROR_QUERY_CHROMIUM
 // TODO(gman): Get official numbers for this constants.
-#define GL_GET_ERROR_QUERY_CHROMIUM 0x84F3
+#define GL_GET_ERROR_QUERY_CHROMIUM 0x6003
 #endif
 #endif  /* GL_CHROMIUM_get_error_query */
 
@@ -256,7 +260,7 @@ typedef void (GL_APIENTRYP PFNGLBINDUNIFORMLOCATIONCHROMIUMPROC) (
 
 #ifndef GL_COMMANDS_ISSUED_CHROMIUM
 // TODO(gman): Get official numbers for this constants.
-#define GL_COMMANDS_ISSUED_CHROMIUM 0x84F2
+#define GL_COMMANDS_ISSUED_CHROMIUM 0x6004
 #endif
 #endif  /* GL_CHROMIUM_command_buffer_query */
 
@@ -367,10 +371,10 @@ typedef void (GL_APIENTRYP PFNGLBLITFRAMEBUFFERCHROMIUMPROC) (GLint srcX0, GLint
 #define GL_CHROMIUM_async_pixel_transfers 1
 
 #ifndef GL_ASYNC_PIXEL_UNPACK_COMPLETED_CHROMIUM
-#define GL_ASYNC_PIXEL_UNPACK_COMPLETED_CHROMIUM 0x84F5
+#define GL_ASYNC_PIXEL_UNPACK_COMPLETED_CHROMIUM 0x6005
 #endif
 #ifndef GL_ASYNC_PIXEL_PACK_COMPLETED_CHROMIUM
-#define GL_ASYNC_PIXEL_PACK_COMPLETED_CHROMIUM 0x84F6
+#define GL_ASYNC_PIXEL_PACK_COMPLETED_CHROMIUM 0x6006
 #endif
 #endif  /* GL_CHROMIUM_async_pixel_transfers */
 
@@ -386,22 +390,66 @@ typedef void (GL_APIENTRYP PFNGLBLITFRAMEBUFFERCHROMIUMPROC) (GLint srcX0, GLint
 #define GL_UNPACK_COLORSPACE_CONVERSION_CHROMIUM 0x9243
 #endif
 
-#ifndef GL_UNPACK_UNPREMULTIPLY_ALPHA_CHROMIUM
-#define GL_UNPACK_UNPREMULTIPLY_ALPHA_CHROMIUM 0x9242
-#endif
-
-#ifndef GL_UNPACK_PREMULTIPLY_ALPHA_CHROMIUM
-#define GL_UNPACK_PREMULTIPLY_ALPHA_CHROMIUM 0x9241
-#endif
 #ifdef GL_GLEXT_PROTOTYPES
 GL_APICALL void GL_APIENTRY glCopyTextureCHROMIUM(
-    GLenum target, GLenum source_id, GLenum dest_id, GLint level,
-    GLint internalformat, GLenum dest_type);
+    GLenum target,
+    GLenum source_id,
+    GLenum dest_id,
+    GLint internalformat,
+    GLenum dest_type,
+    GLboolean unpack_flip_y,
+    GLboolean unpack_premultiply_alpha,
+    GLboolean unpack_unmultiply_alpha);
+
+GL_APICALL void GL_APIENTRY glCopySubTextureCHROMIUM(
+    GLenum target,
+    GLenum source_id,
+    GLenum dest_id,
+    GLint xoffset,
+    GLint yoffset,
+    GLint x,
+    GLint y,
+    GLsizei width,
+    GLsizei height,
+    GLboolean unpack_flip_y,
+    GLboolean unpack_premultiply_alpha,
+    GLboolean unpack_unmultiply_alpha);
 #endif
-typedef void (GL_APIENTRYP PFNGLCOPYTEXTURECHROMIUMPROC) (
-    GLenum target, GLenum source_id, GLenum dest_id, GLint level,
-    GLint internalformat, GLenum dest_type);
+typedef void(GL_APIENTRYP PFNGLCOPYTEXTURECHROMIUMPROC)(
+    GLenum target,
+    GLenum source_id,
+    GLenum dest_id,
+    GLint internalformat,
+    GLenum dest_type,
+    GLboolean unpack_flip_y,
+    GLboolean unpack_premultiply_alpha,
+    GLboolean unpack_unmultiply_alpha);
+
+typedef void(GL_APIENTRYP PFNGLCOPYSUBTEXTURECHROMIUMPROC)(
+    GLenum target,
+    GLenum source_id,
+    GLenum dest_id,
+    GLint xoffset,
+    GLint yoffset,
+    GLint x,
+    GLint y,
+    GLsizei width,
+    GLsizei height,
+    GLboolean unpack_flip_y,
+    GLboolean unpack_premultiply_alpha,
+    GLboolean unpack_unmultiply_alpha);
 #endif  /* GL_CHROMIUM_copy_texture */
+
+/* GL_CHROMIUM_compressed_copy_texture */
+#ifndef GL_CHROMIUM_compressed_copy_texture
+#define GL_CHROMIUM_compressed_copy_texture 1
+#ifdef GL_GLEXT_PROTOTYPES
+GL_APICALL void GL_APIENTRY glCompressedCopyTextureCHROMIUM(
+    GLenum target, GLenum source_id, GLenum dest_id);
+#endif
+typedef void(GL_APIENTRYP PFNGLCOMPRESSEDCOPYTEXTURECHROMIUMPROC)(
+    GLenum target, GLenum source_id, GLenum dest_id);
+#endif  /* GL_CHROMIUM_compressed_copy_texture */
 
 /* GL_CHROMIUM_lose_context */
 #ifndef GL_CHROMIUM_lose_context
@@ -412,15 +460,6 @@ GL_APICALL void GL_APIENTRY glLoseContextCHROMIUM(GLenum current, GLenum other);
 typedef void (GL_APIENTRYP PFNGLLOSECONTEXTCHROMIUMPROC) (
     GLenum current, GLenum other);
 #endif  /* GL_CHROMIUM_lose_context */
-
-/* GL_CHROMIUM_flipy */
-#ifndef GL_CHROMIUM_flipy
-#define GL_CHROMIUM_flipy 1
-
-#ifndef GL_UNPACK_FLIP_Y_CHROMIUM
-#define GL_UNPACK_FLIP_Y_CHROMIUM 0x9240
-#endif
-#endif  /* GL_CHROMIUM_flipy */
 
 /* GL_ARB_texture_rectangle */
 #ifndef GL_ARB_texture_rectangle
@@ -455,7 +494,7 @@ typedef GLboolean (GL_APIENTRYP PFNGLENABLEFEATURECHROMIUMPROC) (
 
 #ifndef GL_LATENCY_QUERY_CHROMIUM
 // TODO(gman): Get official numbers for these constants.
-#define GL_LATENCY_QUERY_CHROMIUM 0x84F4
+#define GL_LATENCY_QUERY_CHROMIUM 0x6007
 #endif
 #endif  /* GL_CHROMIUM_command_buffer_latency_query */
 
@@ -623,13 +662,9 @@ typedef void (GL_APIENTRYP PFNGLRESIZECHROMIUMPROC) (
 #ifndef GL_CHROMIUM_get_multiple
 #define GL_CHROMIUM_get_multiple 1
 #ifdef GL_GLEXT_PROTOTYPES
-GL_APICALL void GL_APIENTRY glGetMultipleIntegervCHROMIUM(
-    const GLenum* pnames, GLuint count, GLint* results, GLsizeiptr size);
 GL_APICALL void GL_APIENTRY glGetProgramInfoCHROMIUM(
     GLuint program, GLsizei bufsize, GLsizei* size, void* info);
 #endif
-typedef void (GL_APIENTRYP PFNGLGETMULTIPLEINTEGERVCHROMIUMPROC) (
-   const GLenum* pnames, GLuint count, GLint* results, GLsizeiptr size);
 typedef void (GL_APIENTRYP PFNGLGETPROGRAMINFOCHROMIUMPROC) (
    GLuint program, GLsizei bufsize, GLsizei* size, void* info);
 #endif  /* GL_CHROMIUM_get_multiple */

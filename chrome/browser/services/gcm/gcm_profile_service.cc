@@ -9,7 +9,6 @@
 #include "base/logging.h"
 #include "base/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/common/pref_names.h"
 #include "components/gcm_driver/gcm_driver.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 
@@ -17,9 +16,6 @@
 #include "components/gcm_driver/gcm_driver_android.h"
 #else
 #include "base/bind.h"
-#if defined(OS_CHROMEOS)
-#include "chrome/browser/services/gcm/chromeos_gcm_connection_observer.h"
-#endif
 #include "base/files/file_path.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/services/gcm/gcm_account_tracker.h"
@@ -29,6 +25,7 @@
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service_factory.h"
 #include "chrome/common/chrome_constants.h"
+#include "components/gcm_driver/gcm_channel_status_syncer.h"
 #include "components/gcm_driver/gcm_client_factory.h"
 #include "components/gcm_driver/gcm_driver_desktop.h"
 #include "components/signin/core/browser/signin_manager.h"
@@ -50,8 +47,6 @@ class GCMProfileService::IdentityObserver : public IdentityProvider::Observer {
   // IdentityProvider::Observer:
   void OnActiveAccountLogin() override;
   void OnActiveAccountLogout() override;
-
-  std::string SignedInUserName() const;
 
  private:
   void StartAccountTracker();
@@ -94,23 +89,17 @@ void GCMProfileService::IdentityObserver::OnActiveAccountLogin() {
   const std::string account_id = identity_provider_->GetActiveAccountId();
   if (account_id == account_id_)
     return;
-
   account_id_ = account_id;
+
+  // Still need to notify GCMDriver for UMA purpose.
   driver_->OnSignedIn();
 }
 
 void GCMProfileService::IdentityObserver::OnActiveAccountLogout() {
   account_id_.clear();
 
-  // When sign-in enforcement is not dropped, OnSignedOut will also clear all
-  // the GCM data and a new GCM ID will be retrieved after the user signs in
-  // again. Otherwise, the user sign-out will not affect the existing GCM
-  // data.
+  // Still need to notify GCMDriver for UMA purpose.
   driver_->OnSignedOut();
-}
-
-std::string GCMProfileService::IdentityObserver::SignedInUserName() const {
-  return driver_->IsStarted() ? account_id_ : std::string();
 }
 
 void GCMProfileService::IdentityObserver::StartAccountTracker() {
@@ -131,24 +120,38 @@ void GCMProfileService::IdentityObserver::StartAccountTracker() {
 
 // static
 bool GCMProfileService::IsGCMEnabled(Profile* profile) {
-  return profile->GetPrefs()->GetBoolean(prefs::kGCMChannelEnabled);
-}
-
-// static
-void GCMProfileService::RegisterProfilePrefs(
-    user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterBooleanPref(
-      prefs::kGCMChannelEnabled,
-      true,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  PushMessagingServiceImpl::RegisterProfilePrefs(registry);
+#if defined(OS_ANDROID)
+  return true;
+#else
+  return profile->GetPrefs()->GetBoolean(gcm::prefs::kGCMChannelStatus);
+#endif  // defined(OS_ANDROID)
 }
 
 #if defined(OS_ANDROID)
+static GCMProfileService* debug_instance = nullptr;
+
 GCMProfileService::GCMProfileService(Profile* profile)
-    : profile_(profile),
-      push_messaging_service_(this, profile) {
-  DCHECK(!profile->IsOffTheRecord());
+    : profile_(profile) {
+  CHECK(!profile->IsOffTheRecord());
+
+  // TODO(johnme): Remove debug_instance and this logging code once
+  // crbug.com/437827 is fixed.
+  if (debug_instance != nullptr) {
+    LOG(FATAL) << "An instance of GCMProfileService already exists!"
+               << " Old profile: " << debug_instance->profile_ << " "
+               << debug_instance->profile_->GetDebugName() << " "
+               << debug_instance->profile_->GetProfileType() << " "
+               << debug_instance->profile_->IsSupervised() << " "
+               << debug_instance->profile_->IsNewProfile() << " "
+               << debug_instance->profile_->GetStartTime().ToInternalValue()
+               << ", new profile: " << profile << " "
+               << profile->GetDebugName() << " "
+               << profile->GetProfileType() << " "
+               << profile->IsSupervised() << " "
+               << profile->IsNewProfile() << " "
+               << profile->GetStartTime().ToInternalValue();
+  }
+  debug_instance = this;
 
   driver_.reset(new GCMDriverAndroid);
 }
@@ -156,8 +159,7 @@ GCMProfileService::GCMProfileService(Profile* profile)
 GCMProfileService::GCMProfileService(
     Profile* profile,
     scoped_ptr<GCMClientFactory> gcm_client_factory)
-    : profile_(profile),
-      push_messaging_service_(this, profile) {
+    : profile_(profile) {
   DCHECK(!profile->IsOffTheRecord());
 
   driver_ = CreateGCMDriverDesktop(
@@ -166,21 +168,18 @@ GCMProfileService::GCMProfileService(
       profile_->GetPath().Append(chrome::kGCMStoreDirname),
       profile_->GetRequestContext());
 
-#if defined(OS_CHROMEOS)
-  chromeos_connection_observer_.reset(new gcm::ChromeOSGCMConnectionObserver);
-  driver_->AddConnectionObserver(chromeos_connection_observer_.get());
-#endif
-
   identity_observer_.reset(new IdentityObserver(profile, driver_.get()));
 }
 #endif  // defined(OS_ANDROID)
 
 GCMProfileService::GCMProfileService()
-    : profile_(NULL),
-      push_messaging_service_(this, NULL) {
+    : profile_(NULL) {
 }
 
 GCMProfileService::~GCMProfileService() {
+#if defined(OS_ANDROID)
+  debug_instance = nullptr;
+#endif
 }
 
 void GCMProfileService::Shutdown() {
@@ -188,22 +187,9 @@ void GCMProfileService::Shutdown() {
   identity_observer_.reset();
 #endif  // !defined(OS_ANDROID)
   if (driver_) {
-#if defined(OS_CHROMEOS)
-    driver_->RemoveConnectionObserver(chromeos_connection_observer_.get());
-    chromeos_connection_observer_.reset();
-#endif
     driver_->Shutdown();
     driver_.reset();
   }
-}
-
-std::string GCMProfileService::SignedInUserName() const {
-#if defined(OS_ANDROID)
-  return std::string();
-#else
-  return identity_observer_ ? identity_observer_->SignedInUserName()
-                            : std::string();
-#endif  // defined(OS_ANDROID)
 }
 
 void GCMProfileService::SetDriverForTesting(GCMDriver* driver) {

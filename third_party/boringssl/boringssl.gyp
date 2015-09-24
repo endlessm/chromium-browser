@@ -11,7 +11,8 @@
         'boringssl.gypi',
       ],
       'sources': [
-        '<@(boringssl_lib_sources)',
+        '<@(boringssl_crypto_sources)',
+        '<@(boringssl_ssl_sources)',
       ],
       'defines': [
         'BORINGSSL_IMPLEMENTATION',
@@ -26,12 +27,27 @@
             'BORINGSSL_SHARED_LIBRARY',
           ],
         }],
-        ['target_arch == "arm"', {
-          'sources': [ '<@(boringssl_linux_arm_sources)' ],
-        }],
-        ['target_arch == "ia32"', {
+        ['target_arch == "arm" and msan == 0', {
           'conditions': [
-            ['OS == "mac"', {
+            ['OS == "linux" or OS == "android"', {
+              'sources': [ '<@(boringssl_linux_arm_sources)' ],
+            }, {
+              'defines': [ 'OPENSSL_NO_ASM' ],
+            }],
+          ],
+        }],
+        ['target_arch == "arm64" and msan == 0', {
+          'conditions': [
+            ['OS == "linux" or OS == "android"', {
+              'sources': [ '<@(boringssl_linux_aarch64_sources)' ],
+            }, {
+              'defines': [ 'OPENSSL_NO_ASM' ],
+            }],
+          ],
+        }],
+        ['target_arch == "ia32" and msan == 0', {
+          'conditions': [
+            ['OS == "mac" or OS == "ios"', {
               'sources': [ '<@(boringssl_mac_x86_sources)' ],
             }],
             ['OS == "linux" or OS == "android"', {
@@ -48,14 +64,14 @@
                 '../yasm/yasm_compile.gypi',
               ],
             }],
-            ['OS != "mac" and OS != "linux" and OS != "win" and OS != "android"', {
+            ['OS != "mac" and OS != "ios" and OS != "linux" and OS != "win" and OS != "android"', {
               'defines': [ 'OPENSSL_NO_ASM' ],
             }],
           ]
         }],
-        ['target_arch == "x64"', {
+        ['target_arch == "x64" and msan == 0', {
           'conditions': [
-            ['OS == "mac"', {
+            ['OS == "mac" or OS == "ios"', {
               'sources': [ '<@(boringssl_mac_x86_64_sources)' ],
             }],
             ['OS == "linux" or OS == "android"', {
@@ -72,12 +88,12 @@
                 '../yasm/yasm_compile.gypi',
               ],
             }],
-            ['OS != "mac" and OS != "linux" and OS != "win" and OS != "android"', {
+            ['OS != "mac" and OS != "ios" and OS != "linux" and OS != "win" and OS != "android"', {
               'defines': [ 'OPENSSL_NO_ASM' ],
             }],
           ]
         }],
-        ['target_arch != "arm" and target_arch != "ia32" and target_arch != "x64"', {
+        ['msan == 1 or (target_arch != "arm" and target_arch != "ia32" and target_arch != "x64" and target_arch != "arm64")', {
           'defines': [ 'OPENSSL_NO_ASM' ],
         }],
       ],

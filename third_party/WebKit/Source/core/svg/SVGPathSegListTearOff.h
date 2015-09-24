@@ -44,17 +44,24 @@ public:
     // FIXME: Currently SVGPathSegitself is a tear-off.
     typedef SVGPathSeg ItemTearOffType;
 
-    static PassRefPtr<ItemPropertyType> getValueForInsertionFromTearOff(PassRefPtr<ItemTearOffType> passNewItem, SVGElement* contextElement, const QualifiedName& attributeName)
+    static PassRefPtrWillBeRawPtr<ItemPropertyType> getValueForInsertionFromTearOff(PassRefPtrWillBeRawPtr<ItemTearOffType> passNewItem, SVGElement* contextElement, const QualifiedName& attributeName)
     {
         ASSERT(attributeName == SVGNames::dAttr);
-        RefPtr<ItemTearOffType> newItem = passNewItem;
+        RefPtrWillBeRawPtr<ItemTearOffType> newItem = passNewItem;
+
+        // Spec: If newItem is already in a list, then a new SVGPathSeg object is created with the same values as newItem and this item is inserted into the list.
+        // Otherwise, newItem itself is inserted into the list.
+        // https://svgwg.org/svg2-draft/paths.html#InterfaceSVGPathSegList
+        if (newItem->ownerList())
+            newItem = newItem->clone();
+
         newItem->setContextElement(contextElement);
         return newItem.release();
     }
 
-    static PassRefPtr<ItemTearOffType> createTearOff(PassRefPtr<ItemPropertyType> passValue, SVGElement* contextElement, PropertyIsAnimValType, const QualifiedName&)
+    static PassRefPtrWillBeRawPtr<ItemTearOffType> createTearOff(PassRefPtrWillBeRawPtr<ItemPropertyType> passValue, SVGElement* contextElement, PropertyIsAnimValType, const QualifiedName&)
     {
-        RefPtr<SVGPathSeg> value = passValue;
+        RefPtrWillBeRawPtr<SVGPathSeg> value = passValue;
         value->setContextElement(contextElement);
         return value.release();
     }
@@ -65,13 +72,13 @@ class SVGPathSegListTearOff final
     , public ScriptWrappable {
     DEFINE_WRAPPERTYPEINFO();
 public:
-    static PassRefPtr<SVGPathSegListTearOff> create(PassRefPtr<SVGPathSegList> target, SVGElement* contextElement, PropertyIsAnimValType propertyIsAnimVal, const QualifiedName& attributeName = QualifiedName::null())
+    static PassRefPtrWillBeRawPtr<SVGPathSegListTearOff> create(PassRefPtrWillBeRawPtr<SVGPathSegList> target, SVGElement* contextElement, PropertyIsAnimValType propertyIsAnimVal, const QualifiedName& attributeName = QualifiedName::null())
     {
-        return adoptRef(new SVGPathSegListTearOff(target, contextElement, propertyIsAnimVal, attributeName));
+        return adoptRefWillBeNoop(new SVGPathSegListTearOff(target, contextElement, propertyIsAnimVal, attributeName));
     }
 
 private:
-    SVGPathSegListTearOff(PassRefPtr<SVGPathSegList> target, SVGElement* contextElement, PropertyIsAnimValType propertyIsAnimVal, const QualifiedName& attributeName = QualifiedName::null())
+    SVGPathSegListTearOff(PassRefPtrWillBeRawPtr<SVGPathSegList> target, SVGElement* contextElement, PropertyIsAnimValType propertyIsAnimVal, const QualifiedName& attributeName = QualifiedName::null())
         : SVGListPropertyTearOffHelper<SVGPathSegListTearOff, SVGPathSegList>(target, contextElement, propertyIsAnimVal, attributeName) { }
 };
 

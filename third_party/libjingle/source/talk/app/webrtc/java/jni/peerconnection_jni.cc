@@ -1,6 +1,6 @@
 /*
  * libjingle
- * Copyright 2013, Google Inc.
+ * Copyright 2013 Google Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -56,56 +56,39 @@
 #undef JNIEXPORT
 #define JNIEXPORT __attribute__((visibility("default")))
 
-#include <asm/unistd.h>
-#include <sys/prctl.h>
-#include <sys/syscall.h>
-#include <unistd.h>
 #include <limits>
-#include <map>
 
+#include "talk/app/webrtc/java/jni/classreferenceholder.h"
+#include "talk/app/webrtc/java/jni/jni_helpers.h"
+#include "talk/app/webrtc/java/jni/native_handle_impl.h"
 #include "talk/app/webrtc/mediaconstraintsinterface.h"
 #include "talk/app/webrtc/peerconnectioninterface.h"
 #include "talk/app/webrtc/videosourceinterface.h"
 #include "talk/media/base/videocapturer.h"
 #include "talk/media/base/videorenderer.h"
 #include "talk/media/devices/videorendererfactory.h"
-#include "talk/media/webrtc/webrtcvideocapturer.h"
 #include "talk/media/webrtc/webrtcvideodecoderfactory.h"
 #include "talk/media/webrtc/webrtcvideoencoderfactory.h"
-#include "third_party/icu/source/common/unicode/unistr.h"
-#include "third_party/libyuv/include/libyuv/convert.h"
-#include "third_party/libyuv/include/libyuv/convert_from.h"
-#include "third_party/libyuv/include/libyuv/video_common.h"
 #include "webrtc/base/bind.h"
 #include "webrtc/base/checks.h"
 #include "webrtc/base/logging.h"
 #include "webrtc/base/messagequeue.h"
 #include "webrtc/base/ssladapter.h"
-#include "webrtc/common_video/interface/texture_video_frame.h"
-#include "webrtc/modules/video_coding/codecs/interface/video_codec_interface.h"
-#include "webrtc/system_wrappers/interface/compile_assert.h"
+#include "webrtc/base/stringutils.h"
+#include "webrtc/system_wrappers/interface/field_trial_default.h"
 #include "webrtc/system_wrappers/interface/trace.h"
-#include "webrtc/video_engine/include/vie_base.h"
 #include "webrtc/voice_engine/include/voe_base.h"
 
 #if defined(ANDROID) && !defined(WEBRTC_CHROMIUM_BUILD)
-#include <android/log.h>
-#include "webrtc/modules/video_capture/video_capture_internal.h"
+#include "talk/app/webrtc/androidvideocapturer.h"
+#include "talk/app/webrtc/java/jni/androidmediadecoder_jni.h"
+#include "talk/app/webrtc/java/jni/androidmediaencoder_jni.h"
+#include "talk/app/webrtc/java/jni/androidvideocapturer_jni.h"
 #include "webrtc/modules/video_render/video_render_internal.h"
 #include "webrtc/system_wrappers/interface/logcat_trace_context.h"
-#include "webrtc/system_wrappers/interface/tick_util.h"
-using webrtc::CodecSpecificInfo;
-using webrtc::DecodedImageCallback;
-using webrtc::EncodedImage;
-using webrtc::I420VideoFrame;
 using webrtc::LogcatTraceContext;
-using webrtc::RTPFragmentationHeader;
-using webrtc::TextureVideoFrame;
-using webrtc::TickTime;
-using webrtc::VideoCodec;
 #endif
 
-using icu::UnicodeString;
 using rtc::Bind;
 using rtc::Thread;
 using rtc::ThreadManager;
@@ -119,7 +102,6 @@ using webrtc::DataChannelInit;
 using webrtc::DataChannelInterface;
 using webrtc::DataChannelObserver;
 using webrtc::IceCandidateInterface;
-using webrtc::NativeHandle;
 using webrtc::MediaConstraintsInterface;
 using webrtc::MediaSourceInterface;
 using webrtc::MediaStreamInterface;
@@ -131,389 +113,47 @@ using webrtc::SessionDescriptionInterface;
 using webrtc::SetSessionDescriptionObserver;
 using webrtc::StatsObserver;
 using webrtc::StatsReport;
+using webrtc::StatsReports;
 using webrtc::VideoRendererInterface;
 using webrtc::VideoSourceInterface;
 using webrtc::VideoTrackInterface;
 using webrtc::VideoTrackVector;
 using webrtc::kVideoCodecVP8;
 
-// Abort the process if |jni| has a Java exception pending.
-// This macros uses the comma operator to execute ExceptionDescribe
-// and ExceptionClear ignoring their return values and sending ""
-// to the error stream.
-#define CHECK_EXCEPTION(jni)    \
-  CHECK(!jni->ExceptionCheck()) \
-      << (jni->ExceptionDescribe(), jni->ExceptionClear(), "")
+namespace webrtc_jni {
 
-// Helper that calls ptr->Release() and aborts the process with a useful
-// message if that didn't actually delete *ptr because of extra refcounts.
-#define CHECK_RELEASE(ptr) \
-  CHECK_EQ(0, (ptr)->Release()) << "Unexpected refcount."
-
-namespace {
-
-static JavaVM* g_jvm = NULL;  // Set in JNI_OnLoad().
-
-static pthread_once_t g_jni_ptr_once = PTHREAD_ONCE_INIT;
-// Key for per-thread JNIEnv* data.  Non-NULL in threads attached to |g_jvm| by
-// AttachCurrentThreadIfNeeded(), NULL in unattached threads and threads that
-// were attached by the JVM because of a Java->native call.
-static pthread_key_t g_jni_ptr;
+// Field trials initialization string
+static char *field_trials_init_string = NULL;
 
 #if defined(ANDROID) && !defined(WEBRTC_CHROMIUM_BUILD)
 // Set in PeerConnectionFactory_initializeAndroidGlobals().
 static bool factory_static_initialized = false;
+static bool vp8_hw_acceleration_enabled = true;
 #endif
 
+extern "C" jint JNIEXPORT JNICALL JNI_OnLoad(JavaVM *jvm, void *reserved) {
+  jint ret = InitGlobalJniVariables(jvm);
+  if (ret < 0)
+    return -1;
 
-// Return thread ID as a string.
-static std::string GetThreadId() {
-  char buf[21];  // Big enough to hold a kuint64max plus terminating NULL.
-  CHECK_LT(snprintf(buf, sizeof(buf), "%llu", syscall(__NR_gettid)),
-           sizeof(buf))
-      << "Thread id is bigger than uint64??";
-  return std::string(buf);
-}
+  CHECK(rtc::InitializeSSL()) << "Failed to InitializeSSL()";
+  LoadGlobalClassReferenceHolder();
 
-// Return the current thread's name.
-static std::string GetThreadName() {
-  char name[17];
-  CHECK_EQ(0, prctl(PR_GET_NAME, name)) << "prctl(PR_GET_NAME) failed";
-  name[16] = '\0';
-  return std::string(name);
-}
-
-// Return a |JNIEnv*| usable on this thread or NULL if this thread is detached.
-static JNIEnv* GetEnv() {
-  void* env = NULL;
-  jint status = g_jvm->GetEnv(&env, JNI_VERSION_1_6);
-  CHECK(((env != NULL) && (status == JNI_OK)) ||
-        ((env == NULL) && (status == JNI_EDETACHED)))
-      << "Unexpected GetEnv return: " << status << ":" << env;
-  return reinterpret_cast<JNIEnv*>(env);
-}
-
-static void ThreadDestructor(void* prev_jni_ptr) {
-  // This function only runs on threads where |g_jni_ptr| is non-NULL, meaning
-  // we were responsible for originally attaching the thread, so are responsible
-  // for detaching it now.  However, because some JVM implementations (notably
-  // Oracle's http://goo.gl/eHApYT) also use the pthread_key_create mechanism,
-  // the JVMs accounting info for this thread may already be wiped out by the
-  // time this is called. Thus it may appear we are already detached even though
-  // it was our responsibility to detach!  Oh well.
-  if (!GetEnv())
-    return;
-
-  CHECK(GetEnv() == prev_jni_ptr)
-      << "Detaching from another thread: " << prev_jni_ptr << ":" << GetEnv();
-  jint status = g_jvm->DetachCurrentThread();
-  CHECK(status == JNI_OK) << "Failed to detach thread: " << status;
-  CHECK(!GetEnv()) << "Detaching was a successful no-op???";
-}
-
-static void CreateJNIPtrKey() {
-  CHECK(!pthread_key_create(&g_jni_ptr, &ThreadDestructor))
-      << "pthread_key_create";
-}
-
-// Return a |JNIEnv*| usable on this thread.  Attaches to |g_jvm| if necessary.
-static JNIEnv* AttachCurrentThreadIfNeeded() {
-  JNIEnv* jni = GetEnv();
-  if (jni)
-    return jni;
-  CHECK(!pthread_getspecific(g_jni_ptr))
-      << "TLS has a JNIEnv* but not attached?";
-
-  char* name = strdup((GetThreadName() + " - " + GetThreadId()).c_str());
-  JavaVMAttachArgs args;
-  args.version = JNI_VERSION_1_6;
-  args.name = name;
-  args.group = NULL;
-  // Deal with difference in signatures between Oracle's jni.h and Android's.
-#ifdef _JAVASOFT_JNI_H_  // Oracle's jni.h violates the JNI spec!
-  void* env = NULL;
-#else
-  JNIEnv* env = NULL;
-#endif
-  CHECK(!g_jvm->AttachCurrentThread(&env, &args)) << "Failed to attach thread";
-  free(name);
-  CHECK(env) << "AttachCurrentThread handed back NULL!";
-  jni = reinterpret_cast<JNIEnv*>(env);
-  CHECK(!pthread_setspecific(g_jni_ptr, jni)) << "pthread_setspecific";
-  return jni;
-}
-
-// Return a |jlong| that will correctly convert back to |ptr|.  This is needed
-// because the alternative (of silently passing a 32-bit pointer to a vararg
-// function expecting a 64-bit param) picks up garbage in the high 32 bits.
-static jlong jlongFromPointer(void* ptr) {
-  COMPILE_ASSERT(sizeof(intptr_t) <= sizeof(jlong),
-                 Time_to_rethink_the_use_of_jlongs);
-  // Going through intptr_t to be obvious about the definedness of the
-  // conversion from pointer to integral type.  intptr_t to jlong is a standard
-  // widening by the COMPILE_ASSERT above.
-  jlong ret = reinterpret_cast<intptr_t>(ptr);
-  assert(reinterpret_cast<void*>(ret) == ptr);
   return ret;
 }
 
-// Android's FindClass() is trickier than usual because the app-specific
-// ClassLoader is not consulted when there is no app-specific frame on the
-// stack.  Consequently, we only look up classes once in JNI_OnLoad.
-// http://developer.android.com/training/articles/perf-jni.html#faq_FindClass
-class ClassReferenceHolder {
- public:
-  explicit ClassReferenceHolder(JNIEnv* jni) {
-    LoadClass(jni, "java/nio/ByteBuffer");
-    LoadClass(jni, "org/webrtc/AudioTrack");
-    LoadClass(jni, "org/webrtc/DataChannel");
-    LoadClass(jni, "org/webrtc/DataChannel$Buffer");
-    LoadClass(jni, "org/webrtc/DataChannel$Init");
-    LoadClass(jni, "org/webrtc/DataChannel$State");
-    LoadClass(jni, "org/webrtc/IceCandidate");
-#if defined(ANDROID) && !defined(WEBRTC_CHROMIUM_BUILD)
-    LoadClass(jni, "android/graphics/SurfaceTexture");
-    LoadClass(jni, "org/webrtc/MediaCodecVideoEncoder");
-    LoadClass(jni, "org/webrtc/MediaCodecVideoEncoder$OutputBufferInfo");
-    LoadClass(jni, "org/webrtc/MediaCodecVideoDecoder");
-    LoadClass(jni, "org/webrtc/MediaCodecVideoDecoder$DecoderOutputBufferInfo");
-    jclass j_decoder_class = GetClass("org/webrtc/MediaCodecVideoDecoder");
-    jmethodID j_is_egl14_supported_method = jni->GetStaticMethodID(
-        j_decoder_class, "isEGL14Supported", "()Z");
-    bool is_egl14_supported = jni->CallStaticBooleanMethod(
-        j_decoder_class, j_is_egl14_supported_method);
-    CHECK_EXCEPTION(jni);
-    if (is_egl14_supported) {
-      LoadClass(jni, "android/opengl/EGLContext");
-    }
-#endif
-    LoadClass(jni, "org/webrtc/MediaSource$State");
-    LoadClass(jni, "org/webrtc/MediaStream");
-    LoadClass(jni, "org/webrtc/MediaStreamTrack$State");
-    LoadClass(jni, "org/webrtc/PeerConnection$IceConnectionState");
-    LoadClass(jni, "org/webrtc/PeerConnection$IceGatheringState");
-    LoadClass(jni, "org/webrtc/PeerConnection$SignalingState");
-    LoadClass(jni, "org/webrtc/SessionDescription");
-    LoadClass(jni, "org/webrtc/SessionDescription$Type");
-    LoadClass(jni, "org/webrtc/StatsReport");
-    LoadClass(jni, "org/webrtc/StatsReport$Value");
-    LoadClass(jni, "org/webrtc/VideoRenderer$I420Frame");
-    LoadClass(jni, "org/webrtc/VideoTrack");
-  }
-
-  ~ClassReferenceHolder() {
-    CHECK(classes_.empty()) << "Must call FreeReferences() before dtor!";
-  }
-
-  void FreeReferences(JNIEnv* jni) {
-    for (std::map<std::string, jclass>::const_iterator it = classes_.begin();
-         it != classes_.end(); ++it) {
-      jni->DeleteGlobalRef(it->second);
-    }
-    classes_.clear();
-  }
-
-  jclass GetClass(const std::string& name) {
-    std::map<std::string, jclass>::iterator it = classes_.find(name);
-    CHECK(it != classes_.end()) << "Unexpected GetClass() call for: " << name;
-    return it->second;
-  }
-
- private:
-  void LoadClass(JNIEnv* jni, const std::string& name) {
-    jclass localRef = jni->FindClass(name.c_str());
-    CHECK_EXCEPTION(jni) << "error during FindClass: " << name;
-    CHECK(localRef) << name;
-    jclass globalRef = reinterpret_cast<jclass>(jni->NewGlobalRef(localRef));
-    CHECK_EXCEPTION(jni) << "error during NewGlobalRef: " << name;
-    CHECK(globalRef) << name;
-    bool inserted = classes_.insert(std::make_pair(name, globalRef)).second;
-    CHECK(inserted) << "Duplicate class name: " << name;
-  }
-
-  std::map<std::string, jclass> classes_;
-};
-
-// Allocated in JNI_OnLoad(), freed in JNI_OnUnLoad().
-static ClassReferenceHolder* g_class_reference_holder = NULL;
-
-// JNIEnv-helper methods that CHECK success: no Java exception thrown and found
-// object/class/method/field is non-null.
-jmethodID GetMethodID(
-    JNIEnv* jni, jclass c, const std::string& name, const char* signature) {
-  jmethodID m = jni->GetMethodID(c, name.c_str(), signature);
-  CHECK_EXCEPTION(jni) << "error during GetMethodID: " << name << ", "
-                       << signature;
-  CHECK(m) << name << ", " << signature;
-  return m;
-}
-
-jmethodID GetStaticMethodID(
-    JNIEnv* jni, jclass c, const char* name, const char* signature) {
-  jmethodID m = jni->GetStaticMethodID(c, name, signature);
-  CHECK_EXCEPTION(jni) << "error during GetStaticMethodID: " << name << ", "
-                       << signature;
-  CHECK(m) << name << ", " << signature;
-  return m;
-}
-
-jfieldID GetFieldID(
-    JNIEnv* jni, jclass c, const char* name, const char* signature) {
-  jfieldID f = jni->GetFieldID(c, name, signature);
-  CHECK_EXCEPTION(jni) << "error during GetFieldID";
-  CHECK(f) << name << ", " << signature;
-  return f;
-}
-
-// Returns a global reference guaranteed to be valid for the lifetime of the
-// process.
-jclass FindClass(JNIEnv* jni, const char* name) {
-  return g_class_reference_holder->GetClass(name);
-}
-
-jclass GetObjectClass(JNIEnv* jni, jobject object) {
-  jclass c = jni->GetObjectClass(object);
-  CHECK_EXCEPTION(jni) << "error during GetObjectClass";
-  CHECK(c) << "GetObjectClass returned NULL";
-  return c;
-}
-
-jobject GetObjectField(JNIEnv* jni, jobject object, jfieldID id) {
-  jobject o = jni->GetObjectField(object, id);
-  CHECK_EXCEPTION(jni) << "error during GetObjectField";
-  CHECK(o) << "GetObjectField returned NULL";
-  return o;
-}
-
-jstring GetStringField(JNIEnv* jni, jobject object, jfieldID id) {
-  return static_cast<jstring>(GetObjectField(jni, object, id));
-}
-
-jlong GetLongField(JNIEnv* jni, jobject object, jfieldID id) {
-  jlong l = jni->GetLongField(object, id);
-  CHECK_EXCEPTION(jni) << "error during GetLongField";
-  return l;
-}
-
-jint GetIntField(JNIEnv* jni, jobject object, jfieldID id) {
-  jint i = jni->GetIntField(object, id);
-  CHECK_EXCEPTION(jni) << "error during GetIntField";
-  return i;
-}
-
-bool GetBooleanField(JNIEnv* jni, jobject object, jfieldID id) {
-  jboolean b = jni->GetBooleanField(object, id);
-  CHECK_EXCEPTION(jni) << "error during GetBooleanField";
-  return b;
-}
-
-jobject NewGlobalRef(JNIEnv* jni, jobject o) {
-  jobject ret = jni->NewGlobalRef(o);
-  CHECK_EXCEPTION(jni) << "error during NewGlobalRef";
-  CHECK(ret);
-  return ret;
-}
-
-void DeleteGlobalRef(JNIEnv* jni, jobject o) {
-  jni->DeleteGlobalRef(o);
-  CHECK_EXCEPTION(jni) << "error during DeleteGlobalRef";
-}
-
-// Given a jweak reference, allocate a (strong) local reference scoped to the
-// lifetime of this object if the weak reference is still valid, or NULL
-// otherwise.
-class WeakRef {
- public:
-  WeakRef(JNIEnv* jni, jweak ref)
-      : jni_(jni), obj_(jni_->NewLocalRef(ref)) {
-    CHECK_EXCEPTION(jni) << "error during NewLocalRef";
-  }
-  ~WeakRef() {
-    if (obj_) {
-      jni_->DeleteLocalRef(obj_);
-      CHECK_EXCEPTION(jni_) << "error during DeleteLocalRef";
-    }
-  }
-  jobject obj() { return obj_; }
-
- private:
-  JNIEnv* const jni_;
-  jobject const obj_;
-};
-
-// Scope Java local references to the lifetime of this object.  Use in all C++
-// callbacks (i.e. entry points that don't originate in a Java callstack
-// through a "native" method call).
-class ScopedLocalRefFrame {
- public:
-  explicit ScopedLocalRefFrame(JNIEnv* jni) : jni_(jni) {
-    CHECK(!jni_->PushLocalFrame(0)) << "Failed to PushLocalFrame";
-  }
-  ~ScopedLocalRefFrame() {
-    jni_->PopLocalFrame(NULL);
-  }
-
- private:
-  JNIEnv* jni_;
-};
-
-// Scoped holder for global Java refs.
-template<class T>  // T is jclass, jobject, jintArray, etc.
-class ScopedGlobalRef {
- public:
-  ScopedGlobalRef(JNIEnv* jni, T obj)
-      : obj_(static_cast<T>(jni->NewGlobalRef(obj))) {}
-  ~ScopedGlobalRef() {
-    DeleteGlobalRef(AttachCurrentThreadIfNeeded(), obj_);
-  }
-  T operator*() const {
-    return obj_;
-  }
- private:
-  T obj_;
-};
-
-// Java references to "null" can only be distinguished as such in C++ by
-// creating a local reference, so this helper wraps that logic.
-static bool IsNull(JNIEnv* jni, jobject obj) {
-  ScopedLocalRefFrame local_ref_frame(jni);
-  return jni->NewLocalRef(obj) == NULL;
+extern "C" void JNIEXPORT JNICALL JNI_OnUnLoad(JavaVM *jvm, void *reserved) {
+  FreeGlobalClassReferenceHolder();
+  CHECK(rtc::CleanupSSL()) << "Failed to CleanupSSL()";
 }
 
 // Return the (singleton) Java Enum object corresponding to |index|;
 // |state_class_fragment| is something like "MediaSource$State".
-jobject JavaEnumFromIndex(
+static jobject JavaEnumFromIndex(
     JNIEnv* jni, const std::string& state_class_fragment, int index) {
-  std::string state_class_name = "org/webrtc/" + state_class_fragment;
-  jclass state_class = FindClass(jni, state_class_name.c_str());
-  jmethodID state_values_id = GetStaticMethodID(
-      jni, state_class, "values", ("()[L" + state_class_name  + ";").c_str());
-  jobjectArray state_values = static_cast<jobjectArray>(
-      jni->CallStaticObjectMethod(state_class, state_values_id));
-  CHECK_EXCEPTION(jni) << "error during CallStaticObjectMethod";
-  jobject ret = jni->GetObjectArrayElement(state_values, index);
-  CHECK_EXCEPTION(jni) << "error during GetObjectArrayElement";
-  return ret;
-}
-
-// Given a UTF-8 encoded |native| string return a new (UTF-16) jstring.
-static jstring JavaStringFromStdString(JNIEnv* jni, const std::string& native) {
-  UnicodeString ustr(UnicodeString::fromUTF8(native));
-  jstring jstr = jni->NewString(ustr.getBuffer(), ustr.length());
-  CHECK_EXCEPTION(jni) << "error during NewString";
-  return jstr;
-}
-
-// Given a (UTF-16) jstring return a new UTF-8 native string.
-static std::string JavaToStdString(JNIEnv* jni, const jstring& j_string) {
-  const jchar* jchars = jni->GetStringChars(j_string, NULL);
-  CHECK_EXCEPTION(jni) << "Error during GetStringChars";
-  UnicodeString ustr(jchars, jni->GetStringLength(j_string));
-  CHECK_EXCEPTION(jni) << "Error during GetStringLength";
-  jni->ReleaseStringChars(j_string, jchars);
-  CHECK_EXCEPTION(jni) << "Error during ReleaseStringChars";
-  std::string ret;
-  return ustr.toUTF8String(ret);
+  const std::string state_class = "org/webrtc/" + state_class_fragment;
+  return JavaEnumFromIndex(jni, FindClass(jni, state_class.c_str()),
+                           state_class, index);
 }
 
 static DataChannelInit JavaDataChannelInitToNative(
@@ -568,7 +208,7 @@ class PCOJava : public PeerConnectionObserver {
 
   virtual ~PCOJava() {}
 
-  virtual void OnIceCandidate(const IceCandidateInterface* candidate) OVERRIDE {
+  void OnIceCandidate(const IceCandidateInterface* candidate) override {
     ScopedLocalRefFrame local_ref_frame(jni());
     std::string sdp;
     CHECK(candidate->ToString(&sdp)) << "got so far: " << sdp;
@@ -586,8 +226,8 @@ class PCOJava : public PeerConnectionObserver {
     CHECK_EXCEPTION(jni()) << "error during CallVoidMethod";
   }
 
-  virtual void OnSignalingChange(
-      PeerConnectionInterface::SignalingState new_state) OVERRIDE {
+  void OnSignalingChange(
+      PeerConnectionInterface::SignalingState new_state) override {
     ScopedLocalRefFrame local_ref_frame(jni());
     jmethodID m = GetMethodID(
         jni(), *j_observer_class_, "onSignalingChange",
@@ -598,8 +238,8 @@ class PCOJava : public PeerConnectionObserver {
     CHECK_EXCEPTION(jni()) << "error during CallVoidMethod";
   }
 
-  virtual void OnIceConnectionChange(
-      PeerConnectionInterface::IceConnectionState new_state) OVERRIDE {
+  void OnIceConnectionChange(
+      PeerConnectionInterface::IceConnectionState new_state) override {
     ScopedLocalRefFrame local_ref_frame(jni());
     jmethodID m = GetMethodID(
         jni(), *j_observer_class_, "onIceConnectionChange",
@@ -610,8 +250,16 @@ class PCOJava : public PeerConnectionObserver {
     CHECK_EXCEPTION(jni()) << "error during CallVoidMethod";
   }
 
-  virtual void OnIceGatheringChange(
-      PeerConnectionInterface::IceGatheringState new_state) OVERRIDE {
+  void OnIceConnectionReceivingChange(bool receiving) override {
+    ScopedLocalRefFrame local_ref_frame(jni());
+    jmethodID m = GetMethodID(
+        jni(), *j_observer_class_, "onIceConnectionReceivingChange", "(Z)V");
+    jni()->CallVoidMethod(*j_observer_global_, m, receiving);
+    CHECK_EXCEPTION(jni()) << "error during CallVoidMethod";
+  }
+
+  void OnIceGatheringChange(
+      PeerConnectionInterface::IceGatheringState new_state) override {
     ScopedLocalRefFrame local_ref_frame(jni());
     jmethodID m = GetMethodID(
         jni(), *j_observer_class_, "onIceGatheringChange",
@@ -622,7 +270,7 @@ class PCOJava : public PeerConnectionObserver {
     CHECK_EXCEPTION(jni()) << "error during CallVoidMethod";
   }
 
-  virtual void OnAddStream(MediaStreamInterface* stream) OVERRIDE {
+  void OnAddStream(MediaStreamInterface* stream) override {
     ScopedLocalRefFrame local_ref_frame(jni());
     jobject j_stream = jni()->NewObject(
         *j_media_stream_class_, j_media_stream_ctor_, (jlong)stream);
@@ -678,7 +326,7 @@ class PCOJava : public PeerConnectionObserver {
     CHECK_EXCEPTION(jni()) << "error during CallVoidMethod";
   }
 
-  virtual void OnRemoveStream(MediaStreamInterface* stream) OVERRIDE {
+  void OnRemoveStream(MediaStreamInterface* stream) override {
     ScopedLocalRefFrame local_ref_frame(jni());
     NativeToJavaStreamsMap::iterator it = streams_.find(stream);
     CHECK(it != streams_.end()) << "unexpected stream: " << std::hex << stream;
@@ -694,7 +342,7 @@ class PCOJava : public PeerConnectionObserver {
     CHECK_EXCEPTION(jni()) << "error during CallVoidMethod";
   }
 
-  virtual void OnDataChannel(DataChannelInterface* channel) OVERRIDE {
+  void OnDataChannel(DataChannelInterface* channel) override {
     ScopedLocalRefFrame local_ref_frame(jni());
     jobject j_channel = jni()->NewObject(
         *j_data_channel_class_, j_data_channel_ctor_, (jlong)channel);
@@ -714,7 +362,7 @@ class PCOJava : public PeerConnectionObserver {
     CHECK_EXCEPTION(jni()) << "error during CallVoidMethod";
   }
 
-  virtual void OnRenegotiationNeeded() OVERRIDE {
+  void OnRenegotiationNeeded() override {
     ScopedLocalRefFrame local_ref_frame(jni());
     jmethodID m =
         GetMethodID(jni(), *j_observer_class_, "onRenegotiationNeeded", "()V");
@@ -763,13 +411,9 @@ class ConstraintsWrapper : public MediaConstraintsInterface {
   virtual ~ConstraintsWrapper() {}
 
   // MediaConstraintsInterface.
-  virtual const Constraints& GetMandatory() const OVERRIDE {
-    return mandatory_;
-  }
+  const Constraints& GetMandatory() const override { return mandatory_; }
 
-  virtual const Constraints& GetOptional() const OVERRIDE {
-    return optional_;
-  }
+  const Constraints& GetOptional() const override { return optional_; }
 
  private:
   // Helper for translating a List<Pair<String, String>> to a Constraints.
@@ -849,7 +493,7 @@ class SdpObserverWrapper : public T {
 
   virtual ~SdpObserverWrapper() {}
 
-  // Can't mark OVERRIDE because of templating.
+  // Can't mark override because of templating.
   virtual void OnSuccess() {
     ScopedLocalRefFrame local_ref_frame(jni());
     jmethodID m = GetMethodID(jni(), *j_observer_class_, "onSetSuccess", "()V");
@@ -857,7 +501,7 @@ class SdpObserverWrapper : public T {
     CHECK_EXCEPTION(jni()) << "error during CallVoidMethod";
   }
 
-  // Can't mark OVERRIDE because of templating.
+  // Can't mark override because of templating.
   virtual void OnSuccess(SessionDescriptionInterface* desc) {
     ScopedLocalRefFrame local_ref_frame(jni());
     jmethodID m = GetMethodID(
@@ -896,7 +540,7 @@ class CreateSdpObserverWrapper
                            ConstraintsWrapper* constraints)
       : SdpObserverWrapper(jni, j_observer, constraints) {}
 
-  virtual void OnFailure(const std::string& error) OVERRIDE {
+  void OnFailure(const std::string& error) override {
     ScopedLocalRefFrame local_ref_frame(jni());
     SdpObserverWrapper::OnFailure(std::string("Create"), error);
   }
@@ -909,7 +553,7 @@ class SetSdpObserverWrapper
                         ConstraintsWrapper* constraints)
       : SdpObserverWrapper(jni, j_observer, constraints) {}
 
-  virtual void OnFailure(const std::string& error) OVERRIDE {
+  void OnFailure(const std::string& error) override {
     ScopedLocalRefFrame local_ref_frame(jni());
     SdpObserverWrapper::OnFailure(std::string("Set"), error);
   }
@@ -923,27 +567,34 @@ class DataChannelObserverWrapper : public DataChannelObserver {
       : j_observer_global_(jni, j_observer),
         j_observer_class_(jni, GetObjectClass(jni, j_observer)),
         j_buffer_class_(jni, FindClass(jni, "org/webrtc/DataChannel$Buffer")),
-        j_on_state_change_mid_(GetMethodID(jni, *j_observer_class_,
-                                           "onStateChange", "()V")),
+        j_on_buffered_amount_change_mid_(GetMethodID(
+            jni, *j_observer_class_, "onBufferedAmountChange", "(J)V")),
+        j_on_state_change_mid_(
+            GetMethodID(jni, *j_observer_class_, "onStateChange", "()V")),
         j_on_message_mid_(GetMethodID(jni, *j_observer_class_, "onMessage",
                                       "(Lorg/webrtc/DataChannel$Buffer;)V")),
-        j_buffer_ctor_(GetMethodID(jni, *j_buffer_class_,
-                                   "<init>", "(Ljava/nio/ByteBuffer;Z)V")) {
-  }
+        j_buffer_ctor_(GetMethodID(jni, *j_buffer_class_, "<init>",
+                                   "(Ljava/nio/ByteBuffer;Z)V")) {}
 
   virtual ~DataChannelObserverWrapper() {}
 
-  virtual void OnStateChange() OVERRIDE {
+  void OnBufferedAmountChange(uint64 previous_amount) override {
+    ScopedLocalRefFrame local_ref_frame(jni());
+    jni()->CallVoidMethod(*j_observer_global_, j_on_buffered_amount_change_mid_,
+                          previous_amount);
+    CHECK_EXCEPTION(jni()) << "error during CallVoidMethod";
+  }
+
+  void OnStateChange() override {
     ScopedLocalRefFrame local_ref_frame(jni());
     jni()->CallVoidMethod(*j_observer_global_, j_on_state_change_mid_);
     CHECK_EXCEPTION(jni()) << "error during CallVoidMethod";
   }
 
-  virtual void OnMessage(const DataBuffer& buffer) OVERRIDE {
+  void OnMessage(const DataBuffer& buffer) override {
     ScopedLocalRefFrame local_ref_frame(jni());
-    jobject byte_buffer =
-        jni()->NewDirectByteBuffer(const_cast<char*>(buffer.data.data()),
-                                   buffer.data.length());
+    jobject byte_buffer = jni()->NewDirectByteBuffer(
+        const_cast<char*>(buffer.data.data<char>()), buffer.data.size());
     jobject j_buffer = jni()->NewObject(*j_buffer_class_, j_buffer_ctor_,
                                         byte_buffer, buffer.binary);
     jni()->CallVoidMethod(*j_observer_global_, j_on_message_mid_, j_buffer);
@@ -958,6 +609,7 @@ class DataChannelObserverWrapper : public DataChannelObserver {
   const ScopedGlobalRef<jobject> j_observer_global_;
   const ScopedGlobalRef<jclass> j_observer_class_;
   const ScopedGlobalRef<jclass> j_buffer_class_;
+  const jmethodID j_on_buffered_amount_change_mid_;
   const jmethodID j_on_state_change_mid_;
   const jmethodID j_on_message_mid_;
   const jmethodID j_buffer_ctor_;
@@ -984,7 +636,7 @@ class StatsObserverWrapper : public StatsObserver {
 
   virtual ~StatsObserverWrapper() {}
 
-  virtual void OnComplete(const std::vector<StatsReport>& reports) OVERRIDE {
+  void OnComplete(const StatsReports& reports) override {
     ScopedLocalRefFrame local_ref_frame(jni());
     jobjectArray j_reports = ReportsToJava(jni(), reports);
     jmethodID m = GetMethodID(jni(), *j_observer_class_, "onComplete",
@@ -995,22 +647,22 @@ class StatsObserverWrapper : public StatsObserver {
 
  private:
   jobjectArray ReportsToJava(
-      JNIEnv* jni, const std::vector<StatsReport>& reports) {
+      JNIEnv* jni, const StatsReports& reports) {
     jobjectArray reports_array = jni->NewObjectArray(
         reports.size(), *j_stats_report_class_, NULL);
-    for (int i = 0; i < reports.size(); ++i) {
+    int i = 0;
+    for (const auto* report : reports) {
       ScopedLocalRefFrame local_ref_frame(jni);
-      const StatsReport& report = reports[i];
-      jstring j_id = JavaStringFromStdString(jni, report.id);
-      jstring j_type = JavaStringFromStdString(jni, report.type);
-      jobjectArray j_values = ValuesToJava(jni, report.values);
+      jstring j_id = JavaStringFromStdString(jni, report->id()->ToString());
+      jstring j_type = JavaStringFromStdString(jni, report->TypeToString());
+      jobjectArray j_values = ValuesToJava(jni, report->values());
       jobject j_report = jni->NewObject(*j_stats_report_class_,
                                         j_stats_report_ctor_,
                                         j_id,
                                         j_type,
-                                        report.timestamp,
+                                        report->timestamp(),
                                         j_values);
-      jni->SetObjectArrayElement(reports_array, i, j_report);
+      jni->SetObjectArrayElement(reports_array, i++, j_report);
     }
     return reports_array;
   }
@@ -1018,14 +670,16 @@ class StatsObserverWrapper : public StatsObserver {
   jobjectArray ValuesToJava(JNIEnv* jni, const StatsReport::Values& values) {
     jobjectArray j_values = jni->NewObjectArray(
         values.size(), *j_value_class_, NULL);
-    for (int i = 0; i < values.size(); ++i) {
+    int i = 0;
+    for (const auto& it : values) {
       ScopedLocalRefFrame local_ref_frame(jni);
-      const StatsReport::Value& value = values[i];
-      jstring j_name = JavaStringFromStdString(jni, value.name);
-      jstring j_value = JavaStringFromStdString(jni, value.value);
+      // Should we use the '.name' enum value here instead of converting the
+      // name to a string?
+      jstring j_name = JavaStringFromStdString(jni, it.second->display_name());
+      jstring j_value = JavaStringFromStdString(jni, it.second->ToString());
       jobject j_element_value =
           jni->NewObject(*j_value_class_, j_value_ctor_, j_name, j_value);
-      jni->SetObjectArrayElement(j_values, i, j_element_value);
+      jni->SetObjectArrayElement(j_values, i++, j_element_value);
     }
     return j_values;
   }
@@ -1054,54 +708,27 @@ class VideoRendererWrapper : public VideoRendererInterface {
 
   virtual ~VideoRendererWrapper() {}
 
-  virtual void SetSize(int width, int height) OVERRIDE {
+  // This wraps VideoRenderer which still has SetSize.
+  void RenderFrame(const cricket::VideoFrame* video_frame) override {
     ScopedLocalRefFrame local_ref_frame(AttachCurrentThreadIfNeeded());
-    const bool kNotReserved = false;  // What does this param mean??
-    renderer_->SetSize(width, height, kNotReserved);
-  }
-
-  virtual void RenderFrame(const cricket::VideoFrame* frame) OVERRIDE {
-    ScopedLocalRefFrame local_ref_frame(AttachCurrentThreadIfNeeded());
+    const cricket::VideoFrame* frame =
+      video_frame->GetCopyWithRotationApplied();
+    if (width_ != frame->GetWidth() || height_ != frame->GetHeight()) {
+      width_ = frame->GetWidth();
+      height_ = frame->GetHeight();
+      renderer_->SetSize(width_, height_, 0);
+    }
     renderer_->RenderFrame(frame);
   }
 
+  // TODO(guoweis): Remove this once chrome code base is updated.
+  bool CanApplyRotation() override { return true; }
+
  private:
   explicit VideoRendererWrapper(cricket::VideoRenderer* renderer)
-      : renderer_(renderer) {}
-
+    : width_(0), height_(0), renderer_(renderer) {}
+  int width_, height_;
   scoped_ptr<cricket::VideoRenderer> renderer_;
-};
-
-// Wrapper for texture object in TextureVideoFrame.
-class NativeHandleImpl : public NativeHandle {
- public:
-  NativeHandleImpl() :
-    ref_count_(0), texture_object_(NULL), texture_id_(-1) {}
-  virtual ~NativeHandleImpl() {}
-  virtual int32_t AddRef() {
-    return ++ref_count_;
-  }
-  virtual int32_t Release() {
-    return --ref_count_;
-  }
-  virtual void* GetHandle() {
-    return texture_object_;
-  }
-  int GetTextureId() {
-    return texture_id_;
-  }
-  void SetTextureObject(void *texture_object, int texture_id) {
-    texture_object_ = reinterpret_cast<jobject>(texture_object);
-    texture_id_ = texture_id;
-  }
-  int32_t ref_count() {
-    return ref_count_;
-  }
-
- private:
-  int32_t ref_count_;
-  jobject texture_object_;
-  int32_t texture_id_;
 };
 
 // Wrapper dispatching webrtc::VideoRendererInterface to a Java VideoRenderer
@@ -1110,32 +737,36 @@ class JavaVideoRendererWrapper : public VideoRendererInterface {
  public:
   JavaVideoRendererWrapper(JNIEnv* jni, jobject j_callbacks)
       : j_callbacks_(jni, j_callbacks),
-        j_set_size_id_(GetMethodID(
-            jni, GetObjectClass(jni, j_callbacks), "setSize", "(II)V")),
         j_render_frame_id_(GetMethodID(
             jni, GetObjectClass(jni, j_callbacks), "renderFrame",
             "(Lorg/webrtc/VideoRenderer$I420Frame;)V")),
+        j_can_apply_rotation_id_(GetMethodID(
+            jni, GetObjectClass(jni, j_callbacks),
+            "canApplyRotation", "()Z")),
         j_frame_class_(jni,
                        FindClass(jni, "org/webrtc/VideoRenderer$I420Frame")),
         j_i420_frame_ctor_id_(GetMethodID(
-            jni, *j_frame_class_, "<init>", "(II[I[Ljava/nio/ByteBuffer;)V")),
+            jni, *j_frame_class_, "<init>", "(III[I[Ljava/nio/ByteBuffer;)V")),
         j_texture_frame_ctor_id_(GetMethodID(
             jni, *j_frame_class_, "<init>",
-            "(IILjava/lang/Object;I)V")),
-        j_byte_buffer_class_(jni, FindClass(jni, "java/nio/ByteBuffer")) {
+            "(IIILjava/lang/Object;I)V")),
+        j_byte_buffer_class_(jni, FindClass(jni, "java/nio/ByteBuffer")),
+        can_apply_rotation_set_(false),
+        can_apply_rotation_(false) {
     CHECK_EXCEPTION(jni);
   }
 
   virtual ~JavaVideoRendererWrapper() {}
 
-  virtual void SetSize(int width, int height) OVERRIDE {
+  void RenderFrame(const cricket::VideoFrame* video_frame) override {
     ScopedLocalRefFrame local_ref_frame(jni());
-    jni()->CallVoidMethod(*j_callbacks_, j_set_size_id_, width, height);
-    CHECK_EXCEPTION(jni());
-  }
 
-  virtual void RenderFrame(const cricket::VideoFrame* frame) OVERRIDE {
-    ScopedLocalRefFrame local_ref_frame(jni());
+    // Calling CanApplyRotation here to ensure can_apply_rotation_ is set.
+    CanApplyRotation();
+
+    const cricket::VideoFrame* frame =
+        can_apply_rotation_ ? video_frame
+                            : video_frame->GetCopyWithRotationApplied();
     if (frame->GetNativeHandle() != NULL) {
       jobject j_frame = CricketToJavaTextureFrame(frame);
       jni()->CallVoidMethod(*j_callbacks_, j_render_frame_id_, j_frame);
@@ -1145,6 +776,21 @@ class JavaVideoRendererWrapper : public VideoRendererInterface {
       jni()->CallVoidMethod(*j_callbacks_, j_render_frame_id_, j_frame);
       CHECK_EXCEPTION(jni());
     }
+  }
+
+  // TODO(guoweis): Report that rotation is supported as RenderFrame calls
+  // GetCopyWithRotationApplied.
+  virtual bool CanApplyRotation() override {
+    if (can_apply_rotation_set_) {
+      return can_apply_rotation_;
+    }
+    ScopedLocalRefFrame local_ref_frame(jni());
+    jboolean ret =
+        jni()->CallBooleanMethod(*j_callbacks_, j_can_apply_rotation_id_);
+    CHECK_EXCEPTION(jni());
+    can_apply_rotation_ = ret;
+    can_apply_rotation_set_ = true;
+    return ret;
   }
 
  private:
@@ -1169,7 +815,9 @@ class JavaVideoRendererWrapper : public VideoRendererInterface {
     jni()->SetObjectArrayElement(planes, 2, v_buffer);
     return jni()->NewObject(
         *j_frame_class_, j_i420_frame_ctor_id_,
-        frame->GetWidth(), frame->GetHeight(), strides, planes);
+        frame->GetWidth(), frame->GetHeight(),
+        static_cast<int>(frame->GetVideoRotation()),
+        strides, planes);
   }
 
   // Return a VideoRenderer.I420Frame referring texture object in |frame|.
@@ -1180,7 +828,9 @@ class JavaVideoRendererWrapper : public VideoRendererInterface {
     int texture_id = handle->GetTextureId();
     return jni()->NewObject(
         *j_frame_class_, j_texture_frame_ctor_id_,
-        frame->GetWidth(), frame->GetHeight(), texture_object, texture_id);
+        frame->GetWidth(), frame->GetHeight(),
+        static_cast<int>(frame->GetVideoRotation()),
+        texture_object, texture_id);
   }
 
   JNIEnv* jni() {
@@ -1188,1483 +838,16 @@ class JavaVideoRendererWrapper : public VideoRendererInterface {
   }
 
   ScopedGlobalRef<jobject> j_callbacks_;
-  jmethodID j_set_size_id_;
   jmethodID j_render_frame_id_;
+  jmethodID j_can_apply_rotation_id_;
   ScopedGlobalRef<jclass> j_frame_class_;
   jmethodID j_i420_frame_ctor_id_;
   jmethodID j_texture_frame_ctor_id_;
   ScopedGlobalRef<jclass> j_byte_buffer_class_;
+  bool can_apply_rotation_set_;
+  bool can_apply_rotation_;
 };
 
-#if defined(ANDROID) && !defined(WEBRTC_CHROMIUM_BUILD)
-// TODO(fischman): consider pulling MediaCodecVideoEncoder out of this file and
-// into its own .h/.cc pair, if/when the JNI helper stuff above is extracted
-// from this file.
-
-//#define TRACK_BUFFER_TIMING
-#define TAG "MediaCodecVideo"
-#ifdef TRACK_BUFFER_TIMING
-#define ALOGV(...) __android_log_print(ANDROID_LOG_VERBOSE, TAG, __VA_ARGS__)
-#else
-#define ALOGV(...)
-#endif
-#define ALOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
-#define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
-
-// Color formats supported by encoder - should mirror supportedColorList
-// from MediaCodecVideoEncoder.java
-enum COLOR_FORMATTYPE {
-  COLOR_FormatYUV420Planar = 0x13,
-  COLOR_FormatYUV420SemiPlanar = 0x15,
-  COLOR_QCOM_FormatYUV420SemiPlanar = 0x7FA30C00,
-  // NV12 color format supported by QCOM codec, but not declared in MediaCodec -
-  // see /hardware/qcom/media/mm-core/inc/OMX_QCOMExtns.h
-  // This format is presumably similar to COLOR_FormatYUV420SemiPlanar,
-  // but requires some (16, 32?) byte alignment.
-  COLOR_QCOM_FORMATYUV420PackedSemiPlanar32m = 0x7FA30C04
-};
-
-// Arbitrary interval to poll the codec for new outputs.
-enum { kMediaCodecPollMs = 10 };
-// Media codec maximum output buffer ready timeout.
-enum { kMediaCodecTimeoutMs = 500 };
-// Interval to print codec statistics (bitrate, fps, encoding/decoding time).
-enum { kMediaCodecStatisticsIntervalMs = 3000 };
-
-static int64_t GetCurrentTimeMs() {
-  return TickTime::Now().Ticks() / 1000000LL;
-}
-
-// Allow Invoke() calls from from current thread.
-static void AllowBlockingCalls() {
-  Thread* current_thread = Thread::Current();
-  if (current_thread != NULL)
-    current_thread->SetAllowBlockingCalls(true);
-}
-
-// MediaCodecVideoEncoder is a webrtc::VideoEncoder implementation that uses
-// Android's MediaCodec SDK API behind the scenes to implement (hopefully)
-// HW-backed video encode.  This C++ class is implemented as a very thin shim,
-// delegating all of the interesting work to org.webrtc.MediaCodecVideoEncoder.
-// MediaCodecVideoEncoder is created, operated, and destroyed on a single
-// thread, currently the libjingle Worker thread.
-class MediaCodecVideoEncoder : public webrtc::VideoEncoder,
-                               public rtc::MessageHandler {
- public:
-  virtual ~MediaCodecVideoEncoder();
-  explicit MediaCodecVideoEncoder(JNIEnv* jni);
-
-  // webrtc::VideoEncoder implementation.  Everything trampolines to
-  // |codec_thread_| for execution.
-  virtual int32_t InitEncode(const webrtc::VideoCodec* codec_settings,
-                             int32_t /* number_of_cores */,
-                             uint32_t /* max_payload_size */) OVERRIDE;
-  virtual int32_t Encode(
-      const webrtc::I420VideoFrame& input_image,
-      const webrtc::CodecSpecificInfo* /* codec_specific_info */,
-      const std::vector<webrtc::VideoFrameType>* frame_types) OVERRIDE;
-  virtual int32_t RegisterEncodeCompleteCallback(
-      webrtc::EncodedImageCallback* callback) OVERRIDE;
-  virtual int32_t Release() OVERRIDE;
-  virtual int32_t SetChannelParameters(uint32_t /* packet_loss */,
-                                       int /* rtt */) OVERRIDE;
-  virtual int32_t SetRates(uint32_t new_bit_rate, uint32_t frame_rate) OVERRIDE;
-
-  // rtc::MessageHandler implementation.
-  virtual void OnMessage(rtc::Message* msg) OVERRIDE;
-
- private:
-  // CHECK-fail if not running on |codec_thread_|.
-  void CheckOnCodecThread();
-
-  // Release() and InitEncode() in an attempt to restore the codec to an
-  // operable state.  Necessary after all manner of OMX-layer errors.
-  void ResetCodec();
-
-  // Implementation of webrtc::VideoEncoder methods above, all running on the
-  // codec thread exclusively.
-  //
-  // If width==0 then this is assumed to be a re-initialization and the
-  // previously-current values are reused instead of the passed parameters
-  // (makes it easier to reason about thread-safety).
-  int32_t InitEncodeOnCodecThread(int width, int height, int kbps, int fps);
-  int32_t EncodeOnCodecThread(
-      const webrtc::I420VideoFrame& input_image,
-      const std::vector<webrtc::VideoFrameType>* frame_types);
-  int32_t RegisterEncodeCompleteCallbackOnCodecThread(
-      webrtc::EncodedImageCallback* callback);
-  int32_t ReleaseOnCodecThread();
-  int32_t SetRatesOnCodecThread(uint32_t new_bit_rate, uint32_t frame_rate);
-
-  // Helper accessors for MediaCodecVideoEncoder$OutputBufferInfo members.
-  int GetOutputBufferInfoIndex(JNIEnv* jni, jobject j_output_buffer_info);
-  jobject GetOutputBufferInfoBuffer(JNIEnv* jni, jobject j_output_buffer_info);
-  bool GetOutputBufferInfoIsKeyFrame(JNIEnv* jni, jobject j_output_buffer_info);
-  jlong GetOutputBufferInfoPresentationTimestampUs(
-      JNIEnv* jni,
-      jobject j_output_buffer_info);
-
-  // Deliver any outputs pending in the MediaCodec to our |callback_| and return
-  // true on success.
-  bool DeliverPendingOutputs(JNIEnv* jni);
-
-  // Valid all the time since RegisterEncodeCompleteCallback() Invoke()s to
-  // |codec_thread_| synchronously.
-  webrtc::EncodedImageCallback* callback_;
-
-  // State that is constant for the lifetime of this object once the ctor
-  // returns.
-  scoped_ptr<Thread> codec_thread_;  // Thread on which to operate MediaCodec.
-  ScopedGlobalRef<jclass> j_media_codec_video_encoder_class_;
-  ScopedGlobalRef<jobject> j_media_codec_video_encoder_;
-  jmethodID j_init_encode_method_;
-  jmethodID j_dequeue_input_buffer_method_;
-  jmethodID j_encode_method_;
-  jmethodID j_release_method_;
-  jmethodID j_set_rates_method_;
-  jmethodID j_dequeue_output_buffer_method_;
-  jmethodID j_release_output_buffer_method_;
-  jfieldID j_color_format_field_;
-  jfieldID j_info_index_field_;
-  jfieldID j_info_buffer_field_;
-  jfieldID j_info_is_key_frame_field_;
-  jfieldID j_info_presentation_timestamp_us_field_;
-
-  // State that is valid only between InitEncode() and the next Release().
-  // Touched only on codec_thread_ so no explicit synchronization necessary.
-  int width_;   // Frame width in pixels.
-  int height_;  // Frame height in pixels.
-  bool inited_;
-  uint16_t picture_id_;
-  enum libyuv::FourCC encoder_fourcc_; // Encoder color space format.
-  int last_set_bitrate_kbps_;  // Last-requested bitrate in kbps.
-  int last_set_fps_;  // Last-requested frame rate.
-  int64_t current_timestamp_us_;  // Current frame timestamps in us.
-  int frames_received_;  // Number of frames received by encoder.
-  int frames_dropped_;  // Number of frames dropped by encoder.
-  int frames_resolution_update_;  // Number of frames with new codec resolution.
-  int frames_in_queue_;  // Number of frames in encoder queue.
-  int64_t start_time_ms_;  // Start time for statistics.
-  int current_frames_;  // Number of frames in the current statistics interval.
-  int current_bytes_;  // Encoded bytes in the current statistics interval.
-  int current_encoding_time_ms_;  // Overall encoding time in the current second
-  int64_t last_input_timestamp_ms_;  // Timestamp of last received yuv frame.
-  int64_t last_output_timestamp_ms_;  // Timestamp of last encoded frame.
-  std::vector<int32_t> timestamps_;  // Video frames timestamp queue.
-  std::vector<int64_t> render_times_ms_;  // Video frames render time queue.
-  std::vector<int64_t> frame_rtc_times_ms_;  // Time when video frame is sent to
-                                             // encoder input.
-  // Frame size in bytes fed to MediaCodec.
-  int yuv_size_;
-  // True only when between a callback_->Encoded() call return a positive value
-  // and the next Encode() call being ignored.
-  bool drop_next_input_frame_;
-  // Global references; must be deleted in Release().
-  std::vector<jobject> input_buffers_;
-};
-
-MediaCodecVideoEncoder::~MediaCodecVideoEncoder() {
-  // Call Release() to ensure no more callbacks to us after we are deleted.
-  Release();
-}
-
-MediaCodecVideoEncoder::MediaCodecVideoEncoder(JNIEnv* jni)
-  : callback_(NULL),
-    inited_(false),
-    picture_id_(0),
-    codec_thread_(new Thread()),
-    j_media_codec_video_encoder_class_(
-        jni,
-        FindClass(jni, "org/webrtc/MediaCodecVideoEncoder")),
-    j_media_codec_video_encoder_(
-        jni,
-        jni->NewObject(*j_media_codec_video_encoder_class_,
-                       GetMethodID(jni,
-                                   *j_media_codec_video_encoder_class_,
-                                   "<init>",
-                                   "()V"))) {
-  ScopedLocalRefFrame local_ref_frame(jni);
-  // It would be nice to avoid spinning up a new thread per MediaCodec, and
-  // instead re-use e.g. the PeerConnectionFactory's |worker_thread_|, but bug
-  // 2732 means that deadlocks abound.  This class synchronously trampolines
-  // to |codec_thread_|, so if anything else can be coming to _us_ from
-  // |codec_thread_|, or from any thread holding the |_sendCritSect| described
-  // in the bug, we have a problem.  For now work around that with a dedicated
-  // thread.
-  codec_thread_->SetName("MediaCodecVideoEncoder", NULL);
-  CHECK(codec_thread_->Start()) << "Failed to start MediaCodecVideoEncoder";
-
-  jclass j_output_buffer_info_class =
-      FindClass(jni, "org/webrtc/MediaCodecVideoEncoder$OutputBufferInfo");
-  j_init_encode_method_ = GetMethodID(jni,
-                                      *j_media_codec_video_encoder_class_,
-                                      "initEncode",
-                                      "(IIII)[Ljava/nio/ByteBuffer;");
-  j_dequeue_input_buffer_method_ = GetMethodID(
-      jni, *j_media_codec_video_encoder_class_, "dequeueInputBuffer", "()I");
-  j_encode_method_ = GetMethodID(
-      jni, *j_media_codec_video_encoder_class_, "encode", "(ZIIJ)Z");
-  j_release_method_ =
-      GetMethodID(jni, *j_media_codec_video_encoder_class_, "release", "()V");
-  j_set_rates_method_ = GetMethodID(
-      jni, *j_media_codec_video_encoder_class_, "setRates", "(II)Z");
-  j_dequeue_output_buffer_method_ =
-      GetMethodID(jni,
-                  *j_media_codec_video_encoder_class_,
-                  "dequeueOutputBuffer",
-                  "()Lorg/webrtc/MediaCodecVideoEncoder$OutputBufferInfo;");
-  j_release_output_buffer_method_ = GetMethodID(
-      jni, *j_media_codec_video_encoder_class_, "releaseOutputBuffer", "(I)Z");
-
-  j_color_format_field_ =
-      GetFieldID(jni, *j_media_codec_video_encoder_class_, "colorFormat", "I");
-  j_info_index_field_ =
-      GetFieldID(jni, j_output_buffer_info_class, "index", "I");
-  j_info_buffer_field_ = GetFieldID(
-      jni, j_output_buffer_info_class, "buffer", "Ljava/nio/ByteBuffer;");
-  j_info_is_key_frame_field_ =
-      GetFieldID(jni, j_output_buffer_info_class, "isKeyFrame", "Z");
-  j_info_presentation_timestamp_us_field_ = GetFieldID(
-      jni, j_output_buffer_info_class, "presentationTimestampUs", "J");
-  CHECK_EXCEPTION(jni) << "MediaCodecVideoEncoder ctor failed";
-  AllowBlockingCalls();
-}
-
-int32_t MediaCodecVideoEncoder::InitEncode(
-    const webrtc::VideoCodec* codec_settings,
-    int32_t /* number_of_cores */,
-    uint32_t /* max_payload_size */) {
-  // Factory should guard against other codecs being used with us.
-  CHECK(codec_settings->codecType == kVideoCodecVP8) << "Unsupported codec";
-
-  return codec_thread_->Invoke<int32_t>(
-      Bind(&MediaCodecVideoEncoder::InitEncodeOnCodecThread,
-           this,
-           codec_settings->width,
-           codec_settings->height,
-           codec_settings->startBitrate,
-           codec_settings->maxFramerate));
-}
-
-int32_t MediaCodecVideoEncoder::Encode(
-    const webrtc::I420VideoFrame& frame,
-    const webrtc::CodecSpecificInfo* /* codec_specific_info */,
-    const std::vector<webrtc::VideoFrameType>* frame_types) {
-  return codec_thread_->Invoke<int32_t>(Bind(
-      &MediaCodecVideoEncoder::EncodeOnCodecThread, this, frame, frame_types));
-}
-
-int32_t MediaCodecVideoEncoder::RegisterEncodeCompleteCallback(
-    webrtc::EncodedImageCallback* callback) {
-  return codec_thread_->Invoke<int32_t>(
-      Bind(&MediaCodecVideoEncoder::RegisterEncodeCompleteCallbackOnCodecThread,
-           this,
-           callback));
-}
-
-int32_t MediaCodecVideoEncoder::Release() {
-  return codec_thread_->Invoke<int32_t>(
-      Bind(&MediaCodecVideoEncoder::ReleaseOnCodecThread, this));
-}
-
-int32_t MediaCodecVideoEncoder::SetChannelParameters(uint32_t /* packet_loss */,
-                                                     int /* rtt */) {
-  return WEBRTC_VIDEO_CODEC_OK;
-}
-
-int32_t MediaCodecVideoEncoder::SetRates(uint32_t new_bit_rate,
-                                         uint32_t frame_rate) {
-  return codec_thread_->Invoke<int32_t>(
-      Bind(&MediaCodecVideoEncoder::SetRatesOnCodecThread,
-           this,
-           new_bit_rate,
-           frame_rate));
-}
-
-void MediaCodecVideoEncoder::OnMessage(rtc::Message* msg) {
-  JNIEnv* jni = AttachCurrentThreadIfNeeded();
-  ScopedLocalRefFrame local_ref_frame(jni);
-
-  // We only ever send one message to |this| directly (not through a Bind()'d
-  // functor), so expect no ID/data.
-  CHECK(!msg->message_id) << "Unexpected message!";
-  CHECK(!msg->pdata) << "Unexpected message!";
-  CheckOnCodecThread();
-  if (!inited_) {
-    return;
-  }
-
-  // It would be nice to recover from a failure here if one happened, but it's
-  // unclear how to signal such a failure to the app, so instead we stay silent
-  // about it and let the next app-called API method reveal the borkedness.
-  DeliverPendingOutputs(jni);
-  codec_thread_->PostDelayed(kMediaCodecPollMs, this);
-}
-
-void MediaCodecVideoEncoder::CheckOnCodecThread() {
-  CHECK(codec_thread_ == ThreadManager::Instance()->CurrentThread())
-      << "Running on wrong thread!";
-}
-
-void MediaCodecVideoEncoder::ResetCodec() {
-  ALOGE("ResetCodec");
-  if (Release() != WEBRTC_VIDEO_CODEC_OK ||
-      codec_thread_->Invoke<int32_t>(Bind(
-          &MediaCodecVideoEncoder::InitEncodeOnCodecThread, this,
-          width_, height_, 0, 0)) != WEBRTC_VIDEO_CODEC_OK) {
-    // TODO(fischman): wouldn't it be nice if there was a way to gracefully
-    // degrade to a SW encoder at this point?  There isn't one AFAICT :(
-    // https://code.google.com/p/webrtc/issues/detail?id=2920
-  }
-}
-
-int32_t MediaCodecVideoEncoder::InitEncodeOnCodecThread(
-    int width, int height, int kbps, int fps) {
-  CheckOnCodecThread();
-  JNIEnv* jni = AttachCurrentThreadIfNeeded();
-  ScopedLocalRefFrame local_ref_frame(jni);
-
-  ALOGD("InitEncodeOnCodecThread %d x %d. Bitrate: %d kbps. Fps: %d",
-      width, height, kbps, fps);
-  if (kbps == 0) {
-    kbps = last_set_bitrate_kbps_;
-  }
-  if (fps == 0) {
-    fps = last_set_fps_;
-  }
-
-  width_ = width;
-  height_ = height;
-  last_set_bitrate_kbps_ = kbps;
-  last_set_fps_ = fps;
-  yuv_size_ = width_ * height_ * 3 / 2;
-  frames_received_ = 0;
-  frames_dropped_ = 0;
-  frames_resolution_update_ = 0;
-  frames_in_queue_ = 0;
-  current_timestamp_us_ = 0;
-  start_time_ms_ = GetCurrentTimeMs();
-  current_frames_ = 0;
-  current_bytes_ = 0;
-  current_encoding_time_ms_ = 0;
-  last_input_timestamp_ms_ = -1;
-  last_output_timestamp_ms_ = -1;
-  timestamps_.clear();
-  render_times_ms_.clear();
-  frame_rtc_times_ms_.clear();
-  drop_next_input_frame_ = false;
-  picture_id_ = static_cast<uint16_t>(rand()) & 0x7FFF;
-  // We enforce no extra stride/padding in the format creation step.
-  jobjectArray input_buffers = reinterpret_cast<jobjectArray>(
-      jni->CallObjectMethod(*j_media_codec_video_encoder_,
-                            j_init_encode_method_,
-                            width_,
-                            height_,
-                            kbps,
-                            fps));
-  CHECK_EXCEPTION(jni);
-  if (IsNull(jni, input_buffers))
-    return WEBRTC_VIDEO_CODEC_ERROR;
-
-  inited_ = true;
-  switch (GetIntField(jni, *j_media_codec_video_encoder_,
-      j_color_format_field_)) {
-    case COLOR_FormatYUV420Planar:
-      encoder_fourcc_ = libyuv::FOURCC_YU12;
-      break;
-    case COLOR_FormatYUV420SemiPlanar:
-    case COLOR_QCOM_FormatYUV420SemiPlanar:
-    case COLOR_QCOM_FORMATYUV420PackedSemiPlanar32m:
-      encoder_fourcc_ = libyuv::FOURCC_NV12;
-      break;
-    default:
-      LOG(LS_ERROR) << "Wrong color format.";
-      return WEBRTC_VIDEO_CODEC_ERROR;
-  }
-  size_t num_input_buffers = jni->GetArrayLength(input_buffers);
-  CHECK(input_buffers_.empty())
-      << "Unexpected double InitEncode without Release";
-  input_buffers_.resize(num_input_buffers);
-  for (size_t i = 0; i < num_input_buffers; ++i) {
-    input_buffers_[i] =
-        jni->NewGlobalRef(jni->GetObjectArrayElement(input_buffers, i));
-    int64 yuv_buffer_capacity =
-        jni->GetDirectBufferCapacity(input_buffers_[i]);
-    CHECK_EXCEPTION(jni);
-    CHECK(yuv_buffer_capacity >= yuv_size_) << "Insufficient capacity";
-  }
-  CHECK_EXCEPTION(jni);
-
-  codec_thread_->PostDelayed(kMediaCodecPollMs, this);
-  return WEBRTC_VIDEO_CODEC_OK;
-}
-
-int32_t MediaCodecVideoEncoder::EncodeOnCodecThread(
-    const webrtc::I420VideoFrame& frame,
-    const std::vector<webrtc::VideoFrameType>* frame_types) {
-  CheckOnCodecThread();
-  JNIEnv* jni = AttachCurrentThreadIfNeeded();
-  ScopedLocalRefFrame local_ref_frame(jni);
-
-  if (!inited_) {
-    return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
-  }
-  frames_received_++;
-  if (!DeliverPendingOutputs(jni)) {
-    ResetCodec();
-    // Continue as if everything's fine.
-  }
-
-  if (drop_next_input_frame_) {
-    ALOGV("Encoder drop frame - failed callback.");
-    drop_next_input_frame_ = false;
-    return WEBRTC_VIDEO_CODEC_OK;
-  }
-
-  CHECK(frame_types->size() == 1) << "Unexpected stream count";
-  if (frame.width() != width_ || frame.height() != height_) {
-    frames_resolution_update_++;
-    ALOGD("Unexpected frame resolution change from %d x %d to %d x %d",
-        width_, height_, frame.width(), frame.height());
-    if (frames_resolution_update_ > 3) {
-      // Reset codec if we received more than 3 frames with new resolution.
-      width_ = frame.width();
-      height_ = frame.height();
-      frames_resolution_update_ = 0;
-      ResetCodec();
-    }
-    return WEBRTC_VIDEO_CODEC_OK;
-  }
-  frames_resolution_update_ = 0;
-
-  bool key_frame = frame_types->front() != webrtc::kDeltaFrame;
-
-  // Check if we accumulated too many frames in encoder input buffers
-  // or the encoder latency exceeds 70 ms and drop frame if so.
-  if (frames_in_queue_ > 0 && last_input_timestamp_ms_ >= 0) {
-    int encoder_latency_ms = last_input_timestamp_ms_ -
-        last_output_timestamp_ms_;
-    if (frames_in_queue_ > 2 || encoder_latency_ms > 70) {
-      ALOGD("Drop frame - encoder is behind by %d ms. Q size: %d",
-          encoder_latency_ms, frames_in_queue_);
-      frames_dropped_++;
-      return WEBRTC_VIDEO_CODEC_OK;
-    }
-  }
-
-  int j_input_buffer_index = jni->CallIntMethod(*j_media_codec_video_encoder_,
-                                                j_dequeue_input_buffer_method_);
-  CHECK_EXCEPTION(jni);
-  if (j_input_buffer_index == -1) {
-    // Video codec falls behind - no input buffer available.
-    ALOGV("Encoder drop frame - no input buffers available");
-    frames_dropped_++;
-    return WEBRTC_VIDEO_CODEC_OK;  // TODO(fischman): see webrtc bug 2887.
-  }
-  if (j_input_buffer_index == -2) {
-    ResetCodec();
-    return WEBRTC_VIDEO_CODEC_ERROR;
-  }
-
-  ALOGV("Encode frame # %d. Buffer # %d. TS: %lld.",
-      frames_received_, j_input_buffer_index, current_timestamp_us_ / 1000);
-
-  jobject j_input_buffer = input_buffers_[j_input_buffer_index];
-  uint8* yuv_buffer =
-      reinterpret_cast<uint8*>(jni->GetDirectBufferAddress(j_input_buffer));
-  CHECK_EXCEPTION(jni);
-  CHECK(yuv_buffer) << "Indirect buffer??";
-  CHECK(!libyuv::ConvertFromI420(
-          frame.buffer(webrtc::kYPlane), frame.stride(webrtc::kYPlane),
-          frame.buffer(webrtc::kUPlane), frame.stride(webrtc::kUPlane),
-          frame.buffer(webrtc::kVPlane), frame.stride(webrtc::kVPlane),
-          yuv_buffer, width_,
-          width_, height_,
-          encoder_fourcc_))
-      << "ConvertFromI420 failed";
-  last_input_timestamp_ms_ = current_timestamp_us_ / 1000;
-  frames_in_queue_++;
-
-  // Save input image timestamps for later output
-  timestamps_.push_back(frame.timestamp());
-  render_times_ms_.push_back(frame.render_time_ms());
-  frame_rtc_times_ms_.push_back(GetCurrentTimeMs());
-
-  bool encode_status = jni->CallBooleanMethod(*j_media_codec_video_encoder_,
-                                              j_encode_method_,
-                                              key_frame,
-                                              j_input_buffer_index,
-                                              yuv_size_,
-                                              current_timestamp_us_);
-  CHECK_EXCEPTION(jni);
-  current_timestamp_us_ += 1000000 / last_set_fps_;
-
-  if (!encode_status || !DeliverPendingOutputs(jni)) {
-    ResetCodec();
-    return WEBRTC_VIDEO_CODEC_ERROR;
-  }
-
-  return WEBRTC_VIDEO_CODEC_OK;
-}
-
-int32_t MediaCodecVideoEncoder::RegisterEncodeCompleteCallbackOnCodecThread(
-    webrtc::EncodedImageCallback* callback) {
-  CheckOnCodecThread();
-  JNIEnv* jni = AttachCurrentThreadIfNeeded();
-  ScopedLocalRefFrame local_ref_frame(jni);
-  callback_ = callback;
-  return WEBRTC_VIDEO_CODEC_OK;
-}
-
-int32_t MediaCodecVideoEncoder::ReleaseOnCodecThread() {
-  if (!inited_) {
-    return WEBRTC_VIDEO_CODEC_OK;
-  }
-  CheckOnCodecThread();
-  JNIEnv* jni = AttachCurrentThreadIfNeeded();
-  ALOGD("EncoderRelease: Frames received: %d. Frames dropped: %d.",
-      frames_received_,frames_dropped_);
-  ScopedLocalRefFrame local_ref_frame(jni);
-  for (size_t i = 0; i < input_buffers_.size(); ++i)
-    jni->DeleteGlobalRef(input_buffers_[i]);
-  input_buffers_.clear();
-  jni->CallVoidMethod(*j_media_codec_video_encoder_, j_release_method_);
-  CHECK_EXCEPTION(jni);
-  rtc::MessageQueueManager::Clear(this);
-  inited_ = false;
-  return WEBRTC_VIDEO_CODEC_OK;
-}
-
-int32_t MediaCodecVideoEncoder::SetRatesOnCodecThread(uint32_t new_bit_rate,
-                                                      uint32_t frame_rate) {
-  CheckOnCodecThread();
-  if (last_set_bitrate_kbps_ == new_bit_rate &&
-      last_set_fps_ == frame_rate) {
-    return WEBRTC_VIDEO_CODEC_OK;
-  }
-  JNIEnv* jni = AttachCurrentThreadIfNeeded();
-  ScopedLocalRefFrame local_ref_frame(jni);
-  if (new_bit_rate > 0) {
-    last_set_bitrate_kbps_ = new_bit_rate;
-  }
-  if (frame_rate > 0) {
-    last_set_fps_ = frame_rate;
-  }
-  bool ret = jni->CallBooleanMethod(*j_media_codec_video_encoder_,
-                                       j_set_rates_method_,
-                                       last_set_bitrate_kbps_,
-                                       last_set_fps_);
-  CHECK_EXCEPTION(jni);
-  if (!ret) {
-    ResetCodec();
-    return WEBRTC_VIDEO_CODEC_ERROR;
-  }
-  return WEBRTC_VIDEO_CODEC_OK;
-}
-
-int MediaCodecVideoEncoder::GetOutputBufferInfoIndex(
-    JNIEnv* jni,
-    jobject j_output_buffer_info) {
-  return GetIntField(jni, j_output_buffer_info, j_info_index_field_);
-}
-
-jobject MediaCodecVideoEncoder::GetOutputBufferInfoBuffer(
-    JNIEnv* jni,
-    jobject j_output_buffer_info) {
-  return GetObjectField(jni, j_output_buffer_info, j_info_buffer_field_);
-}
-
-bool MediaCodecVideoEncoder::GetOutputBufferInfoIsKeyFrame(
-    JNIEnv* jni,
-    jobject j_output_buffer_info) {
-  return GetBooleanField(jni, j_output_buffer_info, j_info_is_key_frame_field_);
-}
-
-jlong MediaCodecVideoEncoder::GetOutputBufferInfoPresentationTimestampUs(
-    JNIEnv* jni,
-    jobject j_output_buffer_info) {
-  return GetLongField(
-      jni, j_output_buffer_info, j_info_presentation_timestamp_us_field_);
-}
-
-bool MediaCodecVideoEncoder::DeliverPendingOutputs(JNIEnv* jni) {
-  while (true) {
-    jobject j_output_buffer_info = jni->CallObjectMethod(
-        *j_media_codec_video_encoder_, j_dequeue_output_buffer_method_);
-    CHECK_EXCEPTION(jni);
-    if (IsNull(jni, j_output_buffer_info)) {
-      break;
-    }
-
-    int output_buffer_index =
-        GetOutputBufferInfoIndex(jni, j_output_buffer_info);
-    if (output_buffer_index == -1) {
-      ResetCodec();
-      return false;
-    }
-
-    // Get frame timestamps from a queue.
-    last_output_timestamp_ms_ =
-        GetOutputBufferInfoPresentationTimestampUs(jni, j_output_buffer_info) /
-        1000;
-    int32_t timestamp = timestamps_.front();
-    timestamps_.erase(timestamps_.begin());
-    int64_t render_time_ms = render_times_ms_.front();
-    render_times_ms_.erase(render_times_ms_.begin());
-    int64_t frame_encoding_time_ms = GetCurrentTimeMs() -
-        frame_rtc_times_ms_.front();
-    frame_rtc_times_ms_.erase(frame_rtc_times_ms_.begin());
-    frames_in_queue_--;
-
-    // Extract payload and key frame flag.
-    int32_t callback_status = 0;
-    jobject j_output_buffer =
-        GetOutputBufferInfoBuffer(jni, j_output_buffer_info);
-    bool key_frame = GetOutputBufferInfoIsKeyFrame(jni, j_output_buffer_info);
-    size_t payload_size = jni->GetDirectBufferCapacity(j_output_buffer);
-    uint8* payload = reinterpret_cast<uint8_t*>(
-        jni->GetDirectBufferAddress(j_output_buffer));
-    CHECK_EXCEPTION(jni);
-
-    ALOGV("Encoder got output buffer # %d. Size: %d. TS: %lld. Latency: %lld."
-        " EncTime: %lld",
-        output_buffer_index, payload_size, last_output_timestamp_ms_,
-        last_input_timestamp_ms_ - last_output_timestamp_ms_,
-        frame_encoding_time_ms);
-
-    // Calculate and print encoding statistics - every 3 seconds.
-    current_frames_++;
-    current_bytes_ += payload_size;
-    current_encoding_time_ms_ += frame_encoding_time_ms;
-    int statistic_time_ms = GetCurrentTimeMs() - start_time_ms_;
-    if (statistic_time_ms >= kMediaCodecStatisticsIntervalMs &&
-        current_frames_ > 0) {
-      ALOGD("Encoder bitrate: %d, target: %d kbps, fps: %d,"
-          " encTime: %d for last %d ms",
-          current_bytes_ * 8 / statistic_time_ms,
-          last_set_bitrate_kbps_,
-          (current_frames_ * 1000 + statistic_time_ms / 2) / statistic_time_ms,
-          current_encoding_time_ms_ / current_frames_, statistic_time_ms);
-      start_time_ms_ = GetCurrentTimeMs();
-      current_frames_ = 0;
-      current_bytes_= 0;
-      current_encoding_time_ms_ = 0;
-    }
-
-    // Callback - return encoded frame.
-    if (callback_) {
-      scoped_ptr<webrtc::EncodedImage> image(
-          new webrtc::EncodedImage(payload, payload_size, payload_size));
-      image->_encodedWidth = width_;
-      image->_encodedHeight = height_;
-      image->_timeStamp = timestamp;
-      image->capture_time_ms_ = render_time_ms;
-      image->_frameType = (key_frame ? webrtc::kKeyFrame : webrtc::kDeltaFrame);
-      image->_completeFrame = true;
-
-      webrtc::CodecSpecificInfo info;
-      memset(&info, 0, sizeof(info));
-      info.codecType = kVideoCodecVP8;
-      info.codecSpecific.VP8.pictureId = picture_id_;
-      info.codecSpecific.VP8.nonReference = false;
-      info.codecSpecific.VP8.simulcastIdx = 0;
-      info.codecSpecific.VP8.temporalIdx = webrtc::kNoTemporalIdx;
-      info.codecSpecific.VP8.layerSync = false;
-      info.codecSpecific.VP8.tl0PicIdx = webrtc::kNoTl0PicIdx;
-      info.codecSpecific.VP8.keyIdx = webrtc::kNoKeyIdx;
-      picture_id_ = (picture_id_ + 1) & 0x7FFF;
-
-      // Generate a header describing a single fragment.
-      webrtc::RTPFragmentationHeader header;
-      memset(&header, 0, sizeof(header));
-      header.VerifyAndAllocateFragmentationHeader(1);
-      header.fragmentationOffset[0] = 0;
-      header.fragmentationLength[0] = image->_length;
-      header.fragmentationPlType[0] = 0;
-      header.fragmentationTimeDiff[0] = 0;
-
-      callback_status = callback_->Encoded(*image, &info, &header);
-    }
-
-    // Return output buffer back to the encoder.
-    bool success = jni->CallBooleanMethod(*j_media_codec_video_encoder_,
-                                          j_release_output_buffer_method_,
-                                          output_buffer_index);
-    CHECK_EXCEPTION(jni);
-    if (!success) {
-      ResetCodec();
-      return false;
-    }
-
-    if (callback_status > 0) {
-      drop_next_input_frame_ = true;
-    // Theoretically could handle callback_status<0 here, but unclear what that
-    // would mean for us.
-    }
-  }
-
-  return true;
-}
-
-// Simplest-possible implementation of an encoder factory, churns out
-// MediaCodecVideoEncoders on demand (or errors, if that's not possible).
-class MediaCodecVideoEncoderFactory
-    : public cricket::WebRtcVideoEncoderFactory {
- public:
-  MediaCodecVideoEncoderFactory();
-  virtual ~MediaCodecVideoEncoderFactory();
-
-  // WebRtcVideoEncoderFactory implementation.
-  virtual webrtc::VideoEncoder* CreateVideoEncoder(webrtc::VideoCodecType type)
-      OVERRIDE;
-  virtual const std::vector<VideoCodec>& codecs() const OVERRIDE;
-  virtual void DestroyVideoEncoder(webrtc::VideoEncoder* encoder) OVERRIDE;
-
- private:
-  // Empty if platform support is lacking, const after ctor returns.
-  std::vector<VideoCodec> supported_codecs_;
-};
-
-MediaCodecVideoEncoderFactory::MediaCodecVideoEncoderFactory() {
-  JNIEnv* jni = AttachCurrentThreadIfNeeded();
-  ScopedLocalRefFrame local_ref_frame(jni);
-  jclass j_encoder_class = FindClass(jni, "org/webrtc/MediaCodecVideoEncoder");
-  bool is_platform_supported = jni->CallStaticBooleanMethod(
-      j_encoder_class,
-      GetStaticMethodID(jni, j_encoder_class, "isPlatformSupported", "()Z"));
-  CHECK_EXCEPTION(jni);
-  if (!is_platform_supported)
-    return;
-
-  // Wouldn't it be nice if MediaCodec exposed the maximum capabilities of the
-  // encoder?  Sure would be.  Too bad it doesn't.  So we hard-code some
-  // reasonable defaults.
-  supported_codecs_.push_back(
-      VideoCodec(kVideoCodecVP8, "VP8", 1280, 1280, 30));
-}
-
-MediaCodecVideoEncoderFactory::~MediaCodecVideoEncoderFactory() {}
-
-webrtc::VideoEncoder* MediaCodecVideoEncoderFactory::CreateVideoEncoder(
-    webrtc::VideoCodecType type) {
-  if (type != kVideoCodecVP8 || supported_codecs_.empty())
-    return NULL;
-  return new MediaCodecVideoEncoder(AttachCurrentThreadIfNeeded());
-}
-
-const std::vector<MediaCodecVideoEncoderFactory::VideoCodec>&
-MediaCodecVideoEncoderFactory::codecs() const {
-  return supported_codecs_;
-}
-
-void MediaCodecVideoEncoderFactory::DestroyVideoEncoder(
-    webrtc::VideoEncoder* encoder) {
-  delete encoder;
-}
-
-class MediaCodecVideoDecoder : public webrtc::VideoDecoder,
-                               public rtc::MessageHandler {
- public:
-  explicit MediaCodecVideoDecoder(JNIEnv* jni);
-  virtual ~MediaCodecVideoDecoder();
-
-  static int SetAndroidObjects(JNIEnv* jni, jobject render_egl_context);
-
-  virtual int32_t InitDecode(const VideoCodec* codecSettings,
-      int32_t numberOfCores) OVERRIDE;
-
-  virtual int32_t
-  Decode(const EncodedImage& inputImage, bool missingFrames,
-         const RTPFragmentationHeader* fragmentation,
-         const CodecSpecificInfo* codecSpecificInfo = NULL,
-         int64_t renderTimeMs = -1) OVERRIDE;
-
-  virtual int32_t RegisterDecodeCompleteCallback(
-      DecodedImageCallback* callback) OVERRIDE;
-
-  virtual int32_t Release() OVERRIDE;
-
-  virtual int32_t Reset() OVERRIDE;
-  // rtc::MessageHandler implementation.
-  virtual void OnMessage(rtc::Message* msg) OVERRIDE;
-
- private:
-  // CHECK-fail if not running on |codec_thread_|.
-  void CheckOnCodecThread();
-
-  int32_t InitDecodeOnCodecThread();
-  int32_t ReleaseOnCodecThread();
-  int32_t DecodeOnCodecThread(const EncodedImage& inputImage);
-  // Deliver any outputs pending in the MediaCodec to our |callback_| and return
-  // true on success.
-  bool DeliverPendingOutputs(JNIEnv* jni, int dequeue_timeout_us);
-
-
-  bool key_frame_required_;
-  bool inited_;
-  bool use_surface_;
-  int error_count_;
-  VideoCodec codec_;
-  I420VideoFrame decoded_image_;
-  NativeHandleImpl native_handle_;
-  DecodedImageCallback* callback_;
-  int frames_received_;  // Number of frames received by decoder.
-  int frames_decoded_;  // Number of frames decoded by decoder
-  int64_t start_time_ms_;  // Start time for statistics.
-  int current_frames_;  // Number of frames in the current statistics interval.
-  int current_bytes_;  // Encoded bytes in the current statistics interval.
-  int current_decoding_time_ms_;  // Overall decoding time in the current second
-  uint32_t max_pending_frames_;  // Maximum number of pending input frames
-  std::vector<int32_t> timestamps_;
-  std::vector<int64_t> ntp_times_ms_;
-  std::vector<int64_t> frame_rtc_times_ms_;  // Time when video frame is sent to
-                                             // decoder input.
-
-  // State that is constant for the lifetime of this object once the ctor
-  // returns.
-  scoped_ptr<Thread> codec_thread_;  // Thread on which to operate MediaCodec.
-  ScopedGlobalRef<jclass> j_media_codec_video_decoder_class_;
-  ScopedGlobalRef<jobject> j_media_codec_video_decoder_;
-  jmethodID j_init_decode_method_;
-  jmethodID j_release_method_;
-  jmethodID j_dequeue_input_buffer_method_;
-  jmethodID j_queue_input_buffer_method_;
-  jmethodID j_dequeue_output_buffer_method_;
-  jmethodID j_release_output_buffer_method_;
-  // MediaCodecVideoDecoder fields.
-  jfieldID j_input_buffers_field_;
-  jfieldID j_output_buffers_field_;
-  jfieldID j_color_format_field_;
-  jfieldID j_width_field_;
-  jfieldID j_height_field_;
-  jfieldID j_stride_field_;
-  jfieldID j_slice_height_field_;
-  jfieldID j_surface_texture_field_;
-  jfieldID j_textureID_field_;
-  // MediaCodecVideoDecoder.DecoderOutputBufferInfo fields.
-  jfieldID j_info_index_field_;
-  jfieldID j_info_offset_field_;
-  jfieldID j_info_size_field_;
-  jfieldID j_info_presentation_timestamp_us_field_;
-
-  // Global references; must be deleted in Release().
-  std::vector<jobject> input_buffers_;
-  jobject surface_texture_;
-  jobject previous_surface_texture_;
-
-  // Render EGL context.
-  static jobject render_egl_context_;
-};
-
-jobject MediaCodecVideoDecoder::render_egl_context_ = NULL;
-
-int MediaCodecVideoDecoder::SetAndroidObjects(JNIEnv* jni,
-    jobject render_egl_context) {
-  if (render_egl_context_) {
-    jni->DeleteGlobalRef(render_egl_context_);
-  }
-  if (IsNull(jni, render_egl_context)) {
-    render_egl_context_ = NULL;
-  } else {
-    render_egl_context_ = jni->NewGlobalRef(render_egl_context);
-    CHECK_EXCEPTION(jni) << "error calling NewGlobalRef for EGL Context.";
-    jclass j_egl_context_class = FindClass(jni, "android/opengl/EGLContext");
-    if (!jni->IsInstanceOf(render_egl_context_, j_egl_context_class)) {
-      ALOGE("Wrong EGL Context.");
-      jni->DeleteGlobalRef(render_egl_context_);
-      render_egl_context_ = NULL;
-    }
-  }
-  if (render_egl_context_ == NULL) {
-    ALOGD("NULL VideoDecoder EGL context - HW surface decoding is disabled.");
-  }
-  return 0;
-}
-
-MediaCodecVideoDecoder::MediaCodecVideoDecoder(JNIEnv* jni)
-  : key_frame_required_(true),
-    inited_(false),
-    error_count_(0),
-    surface_texture_(NULL),
-    previous_surface_texture_(NULL),
-    codec_thread_(new Thread()),
-    j_media_codec_video_decoder_class_(
-        jni,
-        FindClass(jni, "org/webrtc/MediaCodecVideoDecoder")),
-          j_media_codec_video_decoder_(
-              jni,
-              jni->NewObject(*j_media_codec_video_decoder_class_,
-                   GetMethodID(jni,
-                              *j_media_codec_video_decoder_class_,
-                              "<init>",
-                              "()V"))) {
-  ScopedLocalRefFrame local_ref_frame(jni);
-  codec_thread_->SetName("MediaCodecVideoDecoder", NULL);
-  CHECK(codec_thread_->Start()) << "Failed to start MediaCodecVideoDecoder";
-
-  j_init_decode_method_ = GetMethodID(
-      jni, *j_media_codec_video_decoder_class_, "initDecode",
-      "(IIZZLandroid/opengl/EGLContext;)Z");
-  j_release_method_ =
-      GetMethodID(jni, *j_media_codec_video_decoder_class_, "release", "()V");
-  j_dequeue_input_buffer_method_ = GetMethodID(
-      jni, *j_media_codec_video_decoder_class_, "dequeueInputBuffer", "()I");
-  j_queue_input_buffer_method_ = GetMethodID(
-      jni, *j_media_codec_video_decoder_class_, "queueInputBuffer", "(IIJ)Z");
-  j_dequeue_output_buffer_method_ = GetMethodID(
-      jni, *j_media_codec_video_decoder_class_, "dequeueOutputBuffer",
-      "(I)Lorg/webrtc/MediaCodecVideoDecoder$DecoderOutputBufferInfo;");
-  j_release_output_buffer_method_ = GetMethodID(
-      jni, *j_media_codec_video_decoder_class_, "releaseOutputBuffer", "(IZ)Z");
-
-  j_input_buffers_field_ = GetFieldID(
-      jni, *j_media_codec_video_decoder_class_,
-      "inputBuffers", "[Ljava/nio/ByteBuffer;");
-  j_output_buffers_field_ = GetFieldID(
-      jni, *j_media_codec_video_decoder_class_,
-      "outputBuffers", "[Ljava/nio/ByteBuffer;");
-  j_color_format_field_ = GetFieldID(
-      jni, *j_media_codec_video_decoder_class_, "colorFormat", "I");
-  j_width_field_ = GetFieldID(
-      jni, *j_media_codec_video_decoder_class_, "width", "I");
-  j_height_field_ = GetFieldID(
-      jni, *j_media_codec_video_decoder_class_, "height", "I");
-  j_stride_field_ = GetFieldID(
-      jni, *j_media_codec_video_decoder_class_, "stride", "I");
-  j_slice_height_field_ = GetFieldID(
-      jni, *j_media_codec_video_decoder_class_, "sliceHeight", "I");
-  j_textureID_field_ = GetFieldID(
-      jni, *j_media_codec_video_decoder_class_, "textureID", "I");
-  j_surface_texture_field_ = GetFieldID(
-      jni, *j_media_codec_video_decoder_class_, "surfaceTexture",
-      "Landroid/graphics/SurfaceTexture;");
-
-  jclass j_decoder_output_buffer_info_class = FindClass(jni,
-      "org/webrtc/MediaCodecVideoDecoder$DecoderOutputBufferInfo");
-  j_info_index_field_ = GetFieldID(
-      jni, j_decoder_output_buffer_info_class, "index", "I");
-  j_info_offset_field_ = GetFieldID(
-      jni, j_decoder_output_buffer_info_class, "offset", "I");
-  j_info_size_field_ = GetFieldID(
-      jni, j_decoder_output_buffer_info_class, "size", "I");
-  j_info_presentation_timestamp_us_field_ = GetFieldID(
-      jni, j_decoder_output_buffer_info_class, "presentationTimestampUs", "J");
-
-  CHECK_EXCEPTION(jni) << "MediaCodecVideoDecoder ctor failed";
-  use_surface_ = true;
-  if (render_egl_context_ == NULL)
-    use_surface_ = false;
-  memset(&codec_, 0, sizeof(codec_));
-  AllowBlockingCalls();
-}
-
-MediaCodecVideoDecoder::~MediaCodecVideoDecoder() {
-  // Call Release() to ensure no more callbacks to us after we are deleted.
-  Release();
-  // Delete global references.
-  JNIEnv* jni = AttachCurrentThreadIfNeeded();
-  if (previous_surface_texture_ != NULL)
-    jni->DeleteGlobalRef(previous_surface_texture_);
-  if (surface_texture_ != NULL)
-    jni->DeleteGlobalRef(surface_texture_);
-}
-
-int32_t MediaCodecVideoDecoder::InitDecode(const VideoCodec* inst,
-    int32_t numberOfCores) {
-  if (inst == NULL) {
-    return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
-  }
-  int ret_val = Release();
-  if (ret_val < 0) {
-    return ret_val;
-  }
-  // Save VideoCodec instance for later.
-  if (&codec_ != inst) {
-    codec_ = *inst;
-  }
-  codec_.maxFramerate = (codec_.maxFramerate >= 1) ? codec_.maxFramerate : 1;
-
-  // Always start with a complete key frame.
-  key_frame_required_ = true;
-  frames_received_ = 0;
-  frames_decoded_ = 0;
-
-  // Call Java init.
-  return codec_thread_->Invoke<int32_t>(
-      Bind(&MediaCodecVideoDecoder::InitDecodeOnCodecThread, this));
-}
-
-int32_t MediaCodecVideoDecoder::InitDecodeOnCodecThread() {
-  CheckOnCodecThread();
-  JNIEnv* jni = AttachCurrentThreadIfNeeded();
-  ScopedLocalRefFrame local_ref_frame(jni);
-  ALOGD("InitDecodeOnCodecThread: %d x %d. Fps: %d. Errors: %d",
-      codec_.width, codec_.height, codec_.maxFramerate, error_count_);
-  bool use_sw_codec = false;
-  if (error_count_ > 1) {
-    // If more than one critical errors happen for HW codec, switch to SW codec.
-    use_sw_codec = true;
-  }
-
-  bool success = jni->CallBooleanMethod(*j_media_codec_video_decoder_,
-                                       j_init_decode_method_,
-                                       codec_.width,
-                                       codec_.height,
-                                       use_sw_codec,
-                                       use_surface_,
-                                       render_egl_context_);
-  CHECK_EXCEPTION(jni);
-  if (!success) {
-    return WEBRTC_VIDEO_CODEC_ERROR;
-  }
-  inited_ = true;
-
-  max_pending_frames_ = 0;
-  if (use_surface_) {
-    max_pending_frames_ = 1;
-  }
-  start_time_ms_ = GetCurrentTimeMs();
-  current_frames_ = 0;
-  current_bytes_ = 0;
-  current_decoding_time_ms_ = 0;
-  timestamps_.clear();
-  ntp_times_ms_.clear();
-  frame_rtc_times_ms_.clear();
-
-  jobjectArray input_buffers = (jobjectArray)GetObjectField(
-      jni, *j_media_codec_video_decoder_, j_input_buffers_field_);
-  size_t num_input_buffers = jni->GetArrayLength(input_buffers);
-  input_buffers_.resize(num_input_buffers);
-  for (size_t i = 0; i < num_input_buffers; ++i) {
-    input_buffers_[i] =
-        jni->NewGlobalRef(jni->GetObjectArrayElement(input_buffers, i));
-    CHECK_EXCEPTION(jni);
-  }
-
-  if (use_surface_) {
-    jobject surface_texture = GetObjectField(
-        jni, *j_media_codec_video_decoder_, j_surface_texture_field_);
-    if (previous_surface_texture_ != NULL) {
-      jni->DeleteGlobalRef(previous_surface_texture_);
-    }
-    previous_surface_texture_ = surface_texture_;
-    surface_texture_ = jni->NewGlobalRef(surface_texture);
-  }
-  codec_thread_->PostDelayed(kMediaCodecPollMs, this);
-
-  return WEBRTC_VIDEO_CODEC_OK;
-}
-
-int32_t MediaCodecVideoDecoder::Release() {
-  return codec_thread_->Invoke<int32_t>(
-        Bind(&MediaCodecVideoDecoder::ReleaseOnCodecThread, this));
-}
-
-int32_t MediaCodecVideoDecoder::ReleaseOnCodecThread() {
-  if (!inited_) {
-    return WEBRTC_VIDEO_CODEC_OK;
-  }
-  CheckOnCodecThread();
-  JNIEnv* jni = AttachCurrentThreadIfNeeded();
-  ALOGD("DecoderRelease: Frames received: %d.", frames_received_);
-  ScopedLocalRefFrame local_ref_frame(jni);
-  for (size_t i = 0; i < input_buffers_.size(); i++) {
-    jni->DeleteGlobalRef(input_buffers_[i]);
-  }
-  input_buffers_.clear();
-  jni->CallVoidMethod(*j_media_codec_video_decoder_, j_release_method_);
-  CHECK_EXCEPTION(jni);
-  rtc::MessageQueueManager::Clear(this);
-  inited_ = false;
-  return WEBRTC_VIDEO_CODEC_OK;
-}
-
-
-void MediaCodecVideoDecoder::CheckOnCodecThread() {
-  CHECK(codec_thread_ == ThreadManager::Instance()->CurrentThread())
-      << "Running on wrong thread!";
-}
-
-int32_t MediaCodecVideoDecoder::Decode(
-    const EncodedImage& inputImage,
-    bool missingFrames,
-    const RTPFragmentationHeader* fragmentation,
-    const CodecSpecificInfo* codecSpecificInfo,
-    int64_t renderTimeMs) {
-  if (!inited_) {
-    return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
-  }
-  if (callback_ == NULL) {
-    return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
-  }
-  if (inputImage._buffer == NULL && inputImage._length > 0) {
-    return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
-  }
-  // Check if encoded frame dimension has changed.
-  if ((inputImage._encodedWidth * inputImage._encodedHeight > 0) &&
-      (inputImage._encodedWidth != codec_.width ||
-      inputImage._encodedHeight != codec_.height)) {
-    codec_.width = inputImage._encodedWidth;
-    codec_.height = inputImage._encodedHeight;
-    InitDecode(&codec_, 1);
-  }
-
-  // Always start with a complete key frame.
-  if (key_frame_required_) {
-    if (inputImage._frameType != webrtc::kKeyFrame) {
-      return WEBRTC_VIDEO_CODEC_ERROR;
-    }
-    if (!inputImage._completeFrame) {
-      return WEBRTC_VIDEO_CODEC_ERROR;
-    }
-    key_frame_required_ = false;
-  }
-  if (inputImage._length == 0) {
-    return WEBRTC_VIDEO_CODEC_ERROR;
-  }
-
-  return codec_thread_->Invoke<int32_t>(Bind(
-      &MediaCodecVideoDecoder::DecodeOnCodecThread, this, inputImage));
-}
-
-int32_t MediaCodecVideoDecoder::DecodeOnCodecThread(
-    const EncodedImage& inputImage) {
-  static uint8_t yVal_ = 0x7f;
-
-  CheckOnCodecThread();
-  JNIEnv* jni = AttachCurrentThreadIfNeeded();
-  ScopedLocalRefFrame local_ref_frame(jni);
-
-  // Try to drain the decoder and wait until output is not too
-  // much behind the input.
-  if (frames_received_ > frames_decoded_ + max_pending_frames_) {
-    ALOGV("Wait for output...");
-    if (!DeliverPendingOutputs(jni, kMediaCodecTimeoutMs * 1000)) {
-      error_count_++;
-      Reset();
-      return WEBRTC_VIDEO_CODEC_ERROR;
-    }
-    if (frames_received_ > frames_decoded_ + max_pending_frames_) {
-      ALOGE("Output buffer dequeue timeout");
-      error_count_++;
-      Reset();
-      return WEBRTC_VIDEO_CODEC_ERROR;
-    }
-  }
-
-  // Get input buffer.
-  int j_input_buffer_index = jni->CallIntMethod(*j_media_codec_video_decoder_,
-                                                j_dequeue_input_buffer_method_);
-  CHECK_EXCEPTION(jni);
-  if (j_input_buffer_index < 0) {
-    ALOGE("dequeueInputBuffer error");
-    error_count_++;
-    Reset();
-    return WEBRTC_VIDEO_CODEC_ERROR;
-  }
-
-  // Copy encoded data to Java ByteBuffer.
-  jobject j_input_buffer = input_buffers_[j_input_buffer_index];
-  uint8* buffer =
-      reinterpret_cast<uint8*>(jni->GetDirectBufferAddress(j_input_buffer));
-  CHECK(buffer) << "Indirect buffer??";
-  int64 buffer_capacity = jni->GetDirectBufferCapacity(j_input_buffer);
-  CHECK_EXCEPTION(jni);
-  if (buffer_capacity < inputImage._length) {
-    ALOGE("Input frame size %d is bigger than buffer size %d.",
-        inputImage._length, buffer_capacity);
-    error_count_++;
-    Reset();
-    return WEBRTC_VIDEO_CODEC_ERROR;
-  }
-  ALOGV("Decoder frame in # %d. Buffer # %d. Size: %d",
-      frames_received_, j_input_buffer_index, inputImage._length);
-  memcpy(buffer, inputImage._buffer, inputImage._length);
-
-  // Save input image timestamps for later output.
-  frames_received_++;
-  current_bytes_ += inputImage._length;
-  timestamps_.push_back(inputImage._timeStamp);
-  ntp_times_ms_.push_back(inputImage.ntp_time_ms_);
-  frame_rtc_times_ms_.push_back(GetCurrentTimeMs());
-
-  // Feed input to decoder.
-  jlong timestamp_us = (frames_received_ * 1000000) / codec_.maxFramerate;
-  bool success = jni->CallBooleanMethod(*j_media_codec_video_decoder_,
-                                        j_queue_input_buffer_method_,
-                                        j_input_buffer_index,
-                                        inputImage._length,
-                                        timestamp_us);
-  CHECK_EXCEPTION(jni);
-  if (!success) {
-    ALOGE("queueInputBuffer error");
-    error_count_++;
-    Reset();
-    return WEBRTC_VIDEO_CODEC_ERROR;
-  }
-
-  // Try to drain the decoder
-  if (!DeliverPendingOutputs(jni, 0)) {
-    ALOGE("DeliverPendingOutputs error");
-    error_count_++;
-    Reset();
-    return WEBRTC_VIDEO_CODEC_ERROR;
-  }
-
-  return WEBRTC_VIDEO_CODEC_OK;
-}
-
-bool MediaCodecVideoDecoder::DeliverPendingOutputs(
-    JNIEnv* jni, int dequeue_timeout_us) {
-  if (frames_received_ <= frames_decoded_) {
-    // No need to query for output buffers - decoder is drained.
-    return true;
-  }
-  // Get decoder output.
-  jobject j_decoder_output_buffer_info = jni->CallObjectMethod(
-      *j_media_codec_video_decoder_,
-      j_dequeue_output_buffer_method_,
-      dequeue_timeout_us);
-
-  CHECK_EXCEPTION(jni);
-  if (IsNull(jni, j_decoder_output_buffer_info)) {
-    return true;
-  }
-
-  // Extract output buffer info from Java DecoderOutputBufferInfo.
-  int output_buffer_index =
-      GetIntField(jni, j_decoder_output_buffer_info, j_info_index_field_);
-  if (output_buffer_index < 0) {
-    ALOGE("dequeueOutputBuffer error : %d", output_buffer_index);
-    return false;
-  }
-  int output_buffer_offset =
-      GetIntField(jni, j_decoder_output_buffer_info, j_info_offset_field_);
-  int output_buffer_size =
-      GetIntField(jni, j_decoder_output_buffer_info, j_info_size_field_);
-  CHECK_EXCEPTION(jni);
-
-  // Get decoded video frame properties.
-  int color_format = GetIntField(jni, *j_media_codec_video_decoder_,
-      j_color_format_field_);
-  int width = GetIntField(jni, *j_media_codec_video_decoder_, j_width_field_);
-  int height = GetIntField(jni, *j_media_codec_video_decoder_, j_height_field_);
-  int stride = GetIntField(jni, *j_media_codec_video_decoder_, j_stride_field_);
-  int slice_height = GetIntField(jni, *j_media_codec_video_decoder_,
-      j_slice_height_field_);
-  int texture_id = GetIntField(jni, *j_media_codec_video_decoder_,
-      j_textureID_field_);
-
-  // Extract data from Java ByteBuffer and create output yuv420 frame -
-  // for non surface decoding only.
-  if (!use_surface_) {
-    if (output_buffer_size < width * height * 3 / 2) {
-      ALOGE("Insufficient output buffer size: %d", output_buffer_size);
-      return false;
-    }
-    jobjectArray output_buffers = reinterpret_cast<jobjectArray>(GetObjectField(
-        jni, *j_media_codec_video_decoder_, j_output_buffers_field_));
-    jobject output_buffer =
-        jni->GetObjectArrayElement(output_buffers, output_buffer_index);
-    uint8_t* payload = reinterpret_cast<uint8_t*>(jni->GetDirectBufferAddress(
-        output_buffer));
-    CHECK_EXCEPTION(jni);
-    payload += output_buffer_offset;
-
-    // Create yuv420 frame.
-    if (color_format == COLOR_FormatYUV420Planar) {
-      decoded_image_.CreateFrame(
-          stride * slice_height, payload,
-          (stride * slice_height) / 4, payload + (stride * slice_height),
-          (stride * slice_height) / 4, payload + (5 * stride * slice_height / 4),
-          width, height,
-          stride, stride / 2, stride / 2);
-    } else {
-      // All other supported formats are nv12.
-      decoded_image_.CreateEmptyFrame(width, height, width,
-          width / 2, width / 2);
-      libyuv::NV12ToI420(
-          payload, stride,
-          payload + stride * slice_height, stride,
-          decoded_image_.buffer(webrtc::kYPlane),
-          decoded_image_.stride(webrtc::kYPlane),
-          decoded_image_.buffer(webrtc::kUPlane),
-          decoded_image_.stride(webrtc::kUPlane),
-          decoded_image_.buffer(webrtc::kVPlane),
-          decoded_image_.stride(webrtc::kVPlane),
-          width, height);
-    }
-  }
-
-  // Get frame timestamps from a queue.
-  int32_t timestamp = timestamps_.front();
-  timestamps_.erase(timestamps_.begin());
-  int64_t ntp_time_ms = ntp_times_ms_.front();
-  ntp_times_ms_.erase(ntp_times_ms_.begin());
-  int64_t frame_decoding_time_ms = GetCurrentTimeMs() -
-      frame_rtc_times_ms_.front();
-  frame_rtc_times_ms_.erase(frame_rtc_times_ms_.begin());
-
-  ALOGV("Decoder frame out # %d. %d x %d. %d x %d. Color: 0x%x. Size: %d."
-      " DecTime: %lld", frames_decoded_, width, height, stride, slice_height,
-      color_format, output_buffer_size, frame_decoding_time_ms);
-
-  // Return output buffer back to codec.
-  bool success = jni->CallBooleanMethod(
-      *j_media_codec_video_decoder_,
-      j_release_output_buffer_method_,
-      output_buffer_index,
-      use_surface_);
-  CHECK_EXCEPTION(jni);
-  if (!success) {
-    ALOGE("releaseOutputBuffer error");
-    return false;
-  }
-
-  // Calculate and print decoding statistics - every 3 seconds.
-  frames_decoded_++;
-  current_frames_++;
-  current_decoding_time_ms_ += frame_decoding_time_ms;
-  int statistic_time_ms = GetCurrentTimeMs() - start_time_ms_;
-  if (statistic_time_ms >= kMediaCodecStatisticsIntervalMs &&
-      current_frames_ > 0) {
-    ALOGD("Decoder bitrate: %d kbps, fps: %d, decTime: %d for last %d ms",
-        current_bytes_ * 8 / statistic_time_ms,
-        (current_frames_ * 1000 + statistic_time_ms / 2) / statistic_time_ms,
-        current_decoding_time_ms_ / current_frames_, statistic_time_ms);
-    start_time_ms_ = GetCurrentTimeMs();
-    current_frames_ = 0;
-    current_bytes_= 0;
-    current_decoding_time_ms_ = 0;
-  }
-
-  // Callback - output decoded frame.
-  int32_t callback_status = WEBRTC_VIDEO_CODEC_OK;
-  if (use_surface_) {
-    native_handle_.SetTextureObject(surface_texture_, texture_id);
-    TextureVideoFrame texture_image(
-        &native_handle_, width, height, timestamp, 0);
-    texture_image.set_ntp_time_ms(ntp_time_ms);
-    callback_status = callback_->Decoded(texture_image);
-  } else {
-    decoded_image_.set_timestamp(timestamp);
-    decoded_image_.set_ntp_time_ms(ntp_time_ms);
-    callback_status = callback_->Decoded(decoded_image_);
-  }
-  if (callback_status > 0) {
-    ALOGE("callback error");
-  }
-
-  return true;
-}
-
-int32_t MediaCodecVideoDecoder::RegisterDecodeCompleteCallback(
-    DecodedImageCallback* callback) {
-  callback_ = callback;
-  return WEBRTC_VIDEO_CODEC_OK;
-}
-
-int32_t MediaCodecVideoDecoder::Reset() {
-  ALOGD("DecoderReset");
-  if (!inited_) {
-    return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
-  }
-  return InitDecode(&codec_, 1);
-}
-
-void MediaCodecVideoDecoder::OnMessage(rtc::Message* msg) {
-  JNIEnv* jni = AttachCurrentThreadIfNeeded();
-  ScopedLocalRefFrame local_ref_frame(jni);
-  if (!inited_) {
-    return;
-  }
-  // We only ever send one message to |this| directly (not through a Bind()'d
-  // functor), so expect no ID/data.
-  CHECK(!msg->message_id) << "Unexpected message!";
-  CHECK(!msg->pdata) << "Unexpected message!";
-  CheckOnCodecThread();
-
-  if (!DeliverPendingOutputs(jni, 0)) {
-    error_count_++;
-    Reset();
-  }
-  codec_thread_->PostDelayed(kMediaCodecPollMs, this);
-}
-
-class MediaCodecVideoDecoderFactory
-    : public cricket::WebRtcVideoDecoderFactory {
- public:
-  MediaCodecVideoDecoderFactory();
-  virtual ~MediaCodecVideoDecoderFactory();
-  // WebRtcVideoDecoderFactory implementation.
-  virtual webrtc::VideoDecoder* CreateVideoDecoder(
-      webrtc::VideoCodecType type) OVERRIDE;
-
-  virtual void DestroyVideoDecoder(webrtc::VideoDecoder* decoder) OVERRIDE;
-
- private:
-  bool is_platform_supported_;
-};
-
-MediaCodecVideoDecoderFactory::MediaCodecVideoDecoderFactory() {
-  JNIEnv* jni = AttachCurrentThreadIfNeeded();
-  ScopedLocalRefFrame local_ref_frame(jni);
-  jclass j_decoder_class = FindClass(jni, "org/webrtc/MediaCodecVideoDecoder");
-  is_platform_supported_ = jni->CallStaticBooleanMethod(
-      j_decoder_class,
-      GetStaticMethodID(jni, j_decoder_class, "isPlatformSupported", "()Z"));
-  CHECK_EXCEPTION(jni);
-}
-
-MediaCodecVideoDecoderFactory::~MediaCodecVideoDecoderFactory() {}
-
-webrtc::VideoDecoder* MediaCodecVideoDecoderFactory::CreateVideoDecoder(
-    webrtc::VideoCodecType type) {
-  if (type != kVideoCodecVP8 || !is_platform_supported_) {
-    return NULL;
-  }
-  return new MediaCodecVideoDecoder(AttachCurrentThreadIfNeeded());
-}
-
-
-void MediaCodecVideoDecoderFactory::DestroyVideoDecoder(
-    webrtc::VideoDecoder* decoder) {
-  delete decoder;
-}
-
-#endif  // #if defined(ANDROID) && !defined(WEBRTC_CHROMIUM_BUILD)
-
-}  // anonymous namespace
-
-// Convenience macro defining JNI-accessible methods in the org.webrtc package.
-// Eliminates unnecessary boilerplate and line-wraps, reducing visual clutter.
-#define JOW(rettype, name) extern "C" rettype JNIEXPORT JNICALL \
-  Java_org_webrtc_##name
-
-extern "C" jint JNIEXPORT JNICALL JNI_OnLoad(JavaVM *jvm, void *reserved) {
-  CHECK(!g_jvm) << "JNI_OnLoad called more than once!";
-  g_jvm = jvm;
-  CHECK(g_jvm) << "JNI_OnLoad handed NULL?";
-
-  CHECK(!pthread_once(&g_jni_ptr_once, &CreateJNIPtrKey)) << "pthread_once";
-
-  CHECK(rtc::InitializeSSL()) << "Failed to InitializeSSL()";
-
-  JNIEnv* jni;
-  if (jvm->GetEnv(reinterpret_cast<void**>(&jni), JNI_VERSION_1_6) != JNI_OK)
-    return -1;
-  g_class_reference_holder = new ClassReferenceHolder(jni);
-
-  return JNI_VERSION_1_6;
-}
-
-extern "C" void JNIEXPORT JNICALL JNI_OnUnLoad(JavaVM *jvm, void *reserved) {
-  g_class_reference_holder->FreeReferences(AttachCurrentThreadIfNeeded());
-  delete g_class_reference_holder;
-  g_class_reference_holder = NULL;
-  CHECK(rtc::CleanupSSL()) << "Failed to CleanupSSL()";
-  g_jvm = NULL;
-}
 
 static DataChannelInterface* ExtractNativeDC(JNIEnv* jni, jobject j_dc) {
   jfieldID native_dc_id = GetFieldID(jni,
@@ -2740,7 +923,10 @@ JOW(void, Logging_nativeEnableTracing)(
     }
 #endif
   }
-  rtc::LogMessage::LogToDebug(nativeSeverity);
+  if (nativeSeverity >= rtc::LS_SENSITIVE && nativeSeverity <= rtc::LS_ERROR) {
+    rtc::LogMessage::LogToDebug(
+        static_cast<rtc::LoggingSeverity>(nativeSeverity));
+  }
 }
 
 JOW(void, PeerConnection_freePeerConnection)(JNIEnv*, jclass, jlong j_p) {
@@ -2814,24 +1000,40 @@ JOW(jlong, PeerConnectionFactory_nativeCreateObserver)(
 JOW(jboolean, PeerConnectionFactory_initializeAndroidGlobals)(
     JNIEnv* jni, jclass, jobject context,
     jboolean initialize_audio, jboolean initialize_video,
-    jobject render_egl_context) {
-  CHECK(g_jvm) << "JNI_OnLoad failed to run?";
+    jboolean vp8_hw_acceleration, jobject render_egl_context) {
   bool failure = false;
+  vp8_hw_acceleration_enabled = vp8_hw_acceleration;
   if (!factory_static_initialized) {
     if (initialize_video) {
-      failure |= webrtc::SetCaptureAndroidVM(g_jvm, context);
-      failure |= webrtc::SetRenderAndroidVM(g_jvm);
+      failure |= webrtc::SetRenderAndroidVM(GetJVM());
+      failure |= AndroidVideoCapturerJni::SetAndroidObjects(jni, context);
     }
     if (initialize_audio)
-      failure |= webrtc::VoiceEngine::SetAndroidObjects(g_jvm, jni, context);
+      failure |= webrtc::VoiceEngine::SetAndroidObjects(GetJVM(), context);
     factory_static_initialized = true;
   }
-  if (initialize_video)
-    failure |= MediaCodecVideoDecoder::SetAndroidObjects(jni,
+  if (initialize_video) {
+    failure |= MediaCodecVideoDecoderFactory::SetAndroidObjects(jni,
         render_egl_context);
+  }
   return !failure;
 }
 #endif  // defined(ANDROID) && !defined(WEBRTC_CHROMIUM_BUILD)
+
+JOW(void, PeerConnectionFactory_initializeFieldTrials)(
+    JNIEnv* jni, jclass, jstring j_trials_init_string) {
+  field_trials_init_string = NULL;
+  if (j_trials_init_string != NULL) {
+    const char* init_string =
+        jni->GetStringUTFChars(j_trials_init_string, NULL);
+    int init_string_length = jni->GetStringUTFLength(j_trials_init_string);
+    field_trials_init_string = new char[init_string_length + 1];
+    rtc::strcpyn(field_trials_init_string, init_string_length + 1, init_string);
+    jni->ReleaseStringUTFChars(j_trials_init_string, init_string);
+    LOG(LS_INFO) << "initializeFieldTrials: " << field_trials_init_string;
+  }
+  webrtc::field_trial::InitFieldTrialsFromString(field_trials_init_string);
+}
 
 // Helper struct for working around the fact that CreatePeerConnectionFactory()
 // comes in two flavors: either entirely automagical (constructing its own
@@ -2876,8 +1078,10 @@ JOW(jlong, PeerConnectionFactory_nativeCreatePeerConnectionFactory)(
   scoped_ptr<cricket::WebRtcVideoEncoderFactory> encoder_factory;
   scoped_ptr<cricket::WebRtcVideoDecoderFactory> decoder_factory;
 #if defined(ANDROID) && !defined(WEBRTC_CHROMIUM_BUILD)
-  encoder_factory.reset(new MediaCodecVideoEncoderFactory());
-  decoder_factory.reset(new MediaCodecVideoDecoderFactory());
+  if (vp8_hw_acceleration_enabled) {
+    encoder_factory.reset(new MediaCodecVideoEncoderFactory());
+    decoder_factory.reset(new MediaCodecVideoDecoderFactory());
+  }
 #endif
   rtc::scoped_refptr<PeerConnectionFactoryInterface> factory(
       webrtc::CreatePeerConnectionFactory(worker_thread,
@@ -2892,6 +1096,11 @@ JOW(jlong, PeerConnectionFactory_nativeCreatePeerConnectionFactory)(
 
 JOW(void, PeerConnectionFactory_freeFactory)(JNIEnv*, jclass, jlong j_p) {
   delete reinterpret_cast<OwnedFactoryAndThreads*>(j_p);
+  if (field_trials_init_string) {
+    webrtc::field_trial::InitFieldTrialsFromString(NULL);
+    delete field_trials_init_string;
+    field_trials_init_string = NULL;
+  }
   webrtc::Trace::ReturnTrace();
 }
 
@@ -2956,6 +1165,116 @@ JOW(jlong, PeerConnectionFactory_nativeCreateAudioTrack)(
   return (jlong)track.release();
 }
 
+JOW(void, PeerConnectionFactory_nativeSetOptions)(
+    JNIEnv* jni, jclass, jlong native_factory, jobject options) {
+  rtc::scoped_refptr<PeerConnectionFactoryInterface> factory(
+      factoryFromJava(native_factory));
+  jclass options_class = jni->GetObjectClass(options);
+  jfieldID network_ignore_mask_field =
+      jni->GetFieldID(options_class, "networkIgnoreMask", "I");
+  int network_ignore_mask =
+      jni->GetIntField(options, network_ignore_mask_field);
+
+  jfieldID disable_encryption_field =
+      jni->GetFieldID(options_class, "disableEncryption", "Z");
+  bool disable_encryption =
+      jni->GetBooleanField(options, disable_encryption_field);
+
+  PeerConnectionFactoryInterface::Options options_to_set;
+
+  // This doesn't necessarily match the c++ version of this struct; feel free
+  // to add more parameters as necessary.
+  options_to_set.network_ignore_mask = network_ignore_mask;
+  options_to_set.disable_encryption = disable_encryption;
+  factory->SetOptions(options_to_set);
+}
+
+static std::string
+GetJavaEnumName(JNIEnv* jni, const std::string& className, jobject j_enum) {
+  jclass enumClass = FindClass(jni, className.c_str());
+  jmethodID nameMethod =
+      GetMethodID(jni, enumClass, "name", "()Ljava/lang/String;");
+  jstring name =
+      reinterpret_cast<jstring>(jni->CallObjectMethod(j_enum, nameMethod));
+  CHECK_EXCEPTION(jni) << "error during CallObjectMethod for "
+                       << className << ".name";
+  return JavaToStdString(jni, name);
+}
+
+static PeerConnectionInterface::IceTransportsType
+JavaIceTransportsTypeToNativeType(JNIEnv* jni, jobject j_ice_transports_type) {
+  std::string enum_name = GetJavaEnumName(
+      jni, "org/webrtc/PeerConnection$IceTransportsType",
+      j_ice_transports_type);
+
+  if (enum_name == "ALL")
+    return PeerConnectionInterface::kAll;
+
+  if (enum_name == "RELAY")
+    return PeerConnectionInterface::kRelay;
+
+  if (enum_name == "NOHOST")
+    return PeerConnectionInterface::kNoHost;
+
+  if (enum_name == "NONE")
+    return PeerConnectionInterface::kNone;
+
+  CHECK(false) << "Unexpected IceTransportsType enum_name " << enum_name;
+  return PeerConnectionInterface::kAll;
+}
+
+static PeerConnectionInterface::BundlePolicy
+JavaBundlePolicyToNativeType(JNIEnv* jni, jobject j_bundle_policy) {
+  std::string enum_name = GetJavaEnumName(
+      jni, "org/webrtc/PeerConnection$BundlePolicy",
+      j_bundle_policy);
+
+  if (enum_name == "BALANCED")
+    return PeerConnectionInterface::kBundlePolicyBalanced;
+
+  if (enum_name == "MAXBUNDLE")
+    return PeerConnectionInterface::kBundlePolicyMaxBundle;
+
+  if (enum_name == "MAXCOMPAT")
+    return PeerConnectionInterface::kBundlePolicyMaxCompat;
+
+  CHECK(false) << "Unexpected BundlePolicy enum_name " << enum_name;
+  return PeerConnectionInterface::kBundlePolicyBalanced;
+}
+
+static PeerConnectionInterface::RtcpMuxPolicy
+JavaRtcpMuxPolicyToNativeType(JNIEnv* jni, jobject j_rtcp_mux_policy) {
+  std::string enum_name = GetJavaEnumName(
+      jni, "org/webrtc/PeerConnection$RtcpMuxPolicy",
+      j_rtcp_mux_policy);
+
+  if (enum_name == "NEGOTIATE")
+    return PeerConnectionInterface::kRtcpMuxPolicyNegotiate;
+
+  if (enum_name == "REQUIRE")
+    return PeerConnectionInterface::kRtcpMuxPolicyRequire;
+
+  CHECK(false) << "Unexpected RtcpMuxPolicy enum_name " << enum_name;
+  return PeerConnectionInterface::kRtcpMuxPolicyNegotiate;
+}
+
+static PeerConnectionInterface::TcpCandidatePolicy
+JavaTcpCandidatePolicyToNativeType(
+    JNIEnv* jni, jobject j_tcp_candidate_policy) {
+  std::string enum_name = GetJavaEnumName(
+      jni, "org/webrtc/PeerConnection$TcpCandidatePolicy",
+      j_tcp_candidate_policy);
+
+  if (enum_name == "ENABLED")
+    return PeerConnectionInterface::kTcpCandidatePolicyEnabled;
+
+  if (enum_name == "DISABLED")
+    return PeerConnectionInterface::kTcpCandidatePolicyDisabled;
+
+  CHECK(false) << "Unexpected TcpCandidatePolicy enum_name " << enum_name;
+  return PeerConnectionInterface::kTcpCandidatePolicyEnabled;
+}
+
 static void JavaIceServersToJsepIceServers(
     JNIEnv* jni, jobject j_ice_servers,
     PeerConnectionInterface::IceServers* ice_servers) {
@@ -2995,17 +1314,67 @@ static void JavaIceServersToJsepIceServers(
 }
 
 JOW(jlong, PeerConnectionFactory_nativeCreatePeerConnection)(
-    JNIEnv *jni, jclass, jlong factory, jobject j_ice_servers,
+    JNIEnv *jni, jclass, jlong factory, jobject j_rtc_config,
     jobject j_constraints, jlong observer_p) {
   rtc::scoped_refptr<PeerConnectionFactoryInterface> f(
       reinterpret_cast<PeerConnectionFactoryInterface*>(
           factoryFromJava(factory)));
-  PeerConnectionInterface::IceServers servers;
-  JavaIceServersToJsepIceServers(jni, j_ice_servers, &servers);
+
+  jclass j_rtc_config_class = GetObjectClass(jni, j_rtc_config);
+
+  jfieldID j_ice_transports_type_id = GetFieldID(
+      jni, j_rtc_config_class, "iceTransportsType",
+      "Lorg/webrtc/PeerConnection$IceTransportsType;");
+  jobject j_ice_transports_type = GetObjectField(
+      jni, j_rtc_config, j_ice_transports_type_id);
+
+  jfieldID j_bundle_policy_id = GetFieldID(
+      jni, j_rtc_config_class, "bundlePolicy",
+      "Lorg/webrtc/PeerConnection$BundlePolicy;");
+  jobject j_bundle_policy = GetObjectField(
+      jni, j_rtc_config, j_bundle_policy_id);
+
+  jfieldID j_rtcp_mux_policy_id = GetFieldID(
+      jni, j_rtc_config_class, "rtcpMuxPolicy",
+      "Lorg/webrtc/PeerConnection$RtcpMuxPolicy;");
+  jobject j_rtcp_mux_policy = GetObjectField(
+      jni, j_rtc_config, j_rtcp_mux_policy_id);
+
+  jfieldID j_tcp_candidate_policy_id = GetFieldID(
+      jni, j_rtc_config_class, "tcpCandidatePolicy",
+      "Lorg/webrtc/PeerConnection$TcpCandidatePolicy;");
+  jobject j_tcp_candidate_policy = GetObjectField(
+      jni, j_rtc_config, j_tcp_candidate_policy_id);
+
+  jfieldID j_ice_servers_id = GetFieldID(
+      jni, j_rtc_config_class, "iceServers",
+      "Ljava/util/List;");
+  jobject j_ice_servers = GetObjectField(jni, j_rtc_config, j_ice_servers_id);
+
+  jfieldID j_audio_jitter_buffer_max_packets_id = GetFieldID(
+      jni, j_rtc_config_class, "audioJitterBufferMaxPackets",
+      "I");
+  jfieldID j_audio_jitter_buffer_fast_accelerate_id = GetFieldID(
+      jni, j_rtc_config_class, "audioJitterBufferFastAccelerate", "Z");
+  PeerConnectionInterface::RTCConfiguration rtc_config;
+
+  rtc_config.type =
+      JavaIceTransportsTypeToNativeType(jni, j_ice_transports_type);
+  rtc_config.bundle_policy = JavaBundlePolicyToNativeType(jni, j_bundle_policy);
+  rtc_config.rtcp_mux_policy =
+      JavaRtcpMuxPolicyToNativeType(jni, j_rtcp_mux_policy);
+  rtc_config.tcp_candidate_policy =
+      JavaTcpCandidatePolicyToNativeType(jni, j_tcp_candidate_policy);
+  JavaIceServersToJsepIceServers(jni, j_ice_servers, &rtc_config.servers);
+  rtc_config.audio_jitter_buffer_max_packets =
+      GetIntField(jni, j_rtc_config, j_audio_jitter_buffer_max_packets_id);
+  rtc_config.audio_jitter_buffer_fast_accelerate = GetBooleanField(
+      jni, j_rtc_config, j_audio_jitter_buffer_fast_accelerate_id);
+
   PCOJava* observer = reinterpret_cast<PCOJava*>(observer_p);
   observer->SetConstraints(new ConstraintsWrapper(jni, j_constraints));
   rtc::scoped_refptr<PeerConnectionInterface> pc(f->CreatePeerConnection(
-      servers, observer->constraints(), NULL, NULL, observer));
+      rtc_config, observer->constraints(), NULL, NULL, observer));
   return (jlong)pc.release();
 }
 
@@ -3170,10 +1539,10 @@ JOW(jobject, PeerConnection_iceConnectionState)(JNIEnv* jni, jobject j_pc) {
   return JavaEnumFromIndex(jni, "PeerConnection$IceConnectionState", state);
 }
 
-JOW(jobject, PeerGathering_iceGatheringState)(JNIEnv* jni, jobject j_pc) {
+JOW(jobject, PeerConnection_iceGatheringState)(JNIEnv* jni, jobject j_pc) {
   PeerConnectionInterface::IceGatheringState state =
       ExtractNativePC(jni, j_pc)->ice_gathering_state();
-  return JavaEnumFromIndex(jni, "PeerGathering$IceGatheringState", state);
+  return JavaEnumFromIndex(jni, "PeerConnection$IceGatheringState", state);
 }
 
 JOW(void, PeerConnection_close)(JNIEnv* jni, jobject j_pc) {
@@ -3187,8 +1556,27 @@ JOW(jobject, MediaSource_nativeState)(JNIEnv* jni, jclass, jlong j_p) {
   return JavaEnumFromIndex(jni, "MediaSource$State", p->state());
 }
 
-JOW(jlong, VideoCapturer_nativeCreateVideoCapturer)(
+JOW(jobject, VideoCapturer_nativeCreateVideoCapturer)(
     JNIEnv* jni, jclass, jstring j_device_name) {
+// Since we can't create platform specific java implementations in Java, we
+// defer the creation to C land.
+#if defined(ANDROID)
+  jclass j_video_capturer_class(
+      FindClass(jni, "org/webrtc/VideoCapturerAndroid"));
+  const jmethodID j_videocapturer_ctor(GetMethodID(
+      jni, j_video_capturer_class, "<init>", "()V"));
+  jobject j_video_capturer = jni->NewObject(j_video_capturer_class,
+                                            j_videocapturer_ctor);
+  CHECK_EXCEPTION(jni) << "error during NewObject";
+
+  rtc::scoped_refptr<AndroidVideoCapturerJni> delegate =
+      AndroidVideoCapturerJni::Create(jni, j_video_capturer, j_device_name);
+  if (!delegate.get())
+    return nullptr;
+  rtc::scoped_ptr<webrtc::AndroidVideoCapturer> capturer(
+      new webrtc::AndroidVideoCapturer(delegate));
+
+#else
   std::string device_name = JavaToStdString(jni, j_device_name);
   scoped_ptr<cricket::DeviceManagerInterface> device_manager(
       cricket::DeviceManagerFactory::Create());
@@ -3200,7 +1588,24 @@ JOW(jlong, VideoCapturer_nativeCreateVideoCapturer)(
   }
   scoped_ptr<cricket::VideoCapturer> capturer(
       device_manager->CreateVideoCapturer(device));
-  return (jlong)capturer.release();
+
+  jclass j_video_capturer_class(
+      FindClass(jni, "org/webrtc/VideoCapturer"));
+  const jmethodID j_videocapturer_ctor(GetMethodID(
+      jni, j_video_capturer_class, "<init>", "()V"));
+  jobject j_video_capturer =
+      jni->NewObject(j_video_capturer_class,
+                     j_videocapturer_ctor);
+  CHECK_EXCEPTION(jni) << "error during creation of VideoCapturer";
+
+#endif
+  const jmethodID j_videocapturer_set_native_capturer(GetMethodID(
+      jni, j_video_capturer_class, "setNativeCapturer", "(J)V"));
+  jni->CallVoidMethod(j_video_capturer,
+                      j_videocapturer_set_native_capturer,
+                      (jlong)capturer.release());
+  CHECK_EXCEPTION(jni) << "error during setNativeCapturer";
+  return j_video_capturer;
 }
 
 JOW(jlong, VideoRenderer_nativeCreateGuiVideoRenderer)(
@@ -3217,28 +1622,39 @@ JOW(jlong, VideoRenderer_nativeWrapVideoRenderer)(
   return (jlong)renderer.release();
 }
 
-JOW(jlong, VideoSource_stop)(JNIEnv* jni, jclass, jlong j_p) {
-  cricket::VideoCapturer* capturer =
-      reinterpret_cast<VideoSourceInterface*>(j_p)->GetVideoCapturer();
-  scoped_ptr<cricket::VideoFormatPod> format(
-      new cricket::VideoFormatPod(*capturer->GetCaptureFormat()));
-  capturer->Stop();
-  return jlongFromPointer(format.release());
+JOW(void, VideoRenderer_nativeCopyPlane)(
+    JNIEnv *jni, jclass, jobject j_src_buffer, jint width, jint height,
+    jint src_stride, jobject j_dst_buffer, jint dst_stride) {
+  size_t src_size = jni->GetDirectBufferCapacity(j_src_buffer);
+  size_t dst_size = jni->GetDirectBufferCapacity(j_dst_buffer);
+  CHECK(src_stride >= width) << "Wrong source stride " << src_stride;
+  CHECK(dst_stride >= width) << "Wrong destination stride " << dst_stride;
+  CHECK(src_size >= src_stride * height)
+      << "Insufficient source buffer capacity " << src_size;
+  CHECK(dst_size >= dst_stride * height)
+      << "Isufficient destination buffer capacity " << dst_size;
+  uint8_t *src =
+      reinterpret_cast<uint8_t*>(jni->GetDirectBufferAddress(j_src_buffer));
+  uint8_t *dst =
+      reinterpret_cast<uint8_t*>(jni->GetDirectBufferAddress(j_dst_buffer));
+  if (src_stride == dst_stride) {
+    memcpy(dst, src, src_stride * height);
+  } else {
+    for (int i = 0; i < height; i++) {
+      memcpy(dst, src, width);
+      src += src_stride;
+      dst += dst_stride;
+    }
+  }
+}
+
+JOW(void, VideoSource_stop)(JNIEnv* jni, jclass, jlong j_p) {
+  reinterpret_cast<VideoSourceInterface*>(j_p)->Stop();
 }
 
 JOW(void, VideoSource_restart)(
     JNIEnv* jni, jclass, jlong j_p_source, jlong j_p_format) {
-  CHECK(j_p_source);
-  CHECK(j_p_format);
-  scoped_ptr<cricket::VideoFormatPod> format(
-      reinterpret_cast<cricket::VideoFormatPod*>(j_p_format));
-  reinterpret_cast<VideoSourceInterface*>(j_p_source)->GetVideoCapturer()->
-      StartCapturing(cricket::VideoFormat(*format));
-}
-
-JOW(void, VideoSource_freeNativeVideoFormat)(
-    JNIEnv* jni, jclass, jlong j_p) {
-  delete reinterpret_cast<cricket::VideoFormatPod*>(j_p);
+  reinterpret_cast<VideoSourceInterface*>(j_p_source)->Restart();
 }
 
 JOW(jstring, MediaStreamTrack_nativeId)(JNIEnv* jni, jclass, jlong j_p) {
@@ -3289,3 +1705,5 @@ JOW(void, VideoTrack_nativeRemoveRenderer)(
   reinterpret_cast<VideoTrackInterface*>(j_video_track_pointer)->RemoveRenderer(
       reinterpret_cast<VideoRendererInterface*>(j_renderer_pointer));
 }
+
+}  // namespace webrtc_jni

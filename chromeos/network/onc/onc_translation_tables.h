@@ -33,6 +33,7 @@ CHROMEOS_EXPORT extern const StringTranslationEntry kEAPOuterTable[];
 CHROMEOS_EXPORT extern const StringTranslationEntry kEAP_PEAP_InnerTable[];
 CHROMEOS_EXPORT extern const StringTranslationEntry kEAP_TTLS_InnerTable[];
 CHROMEOS_EXPORT extern const StringTranslationEntry kActivationStateTable[];
+CHROMEOS_EXPORT extern const StringTranslationEntry kNetworkTechnologyTable[];
 CHROMEOS_EXPORT extern const StringTranslationEntry kRoamingStateTable[];
 
 // A separate translation table for cellular properties that are stored in a
@@ -43,6 +44,10 @@ extern const FieldTranslationEntry kCellularDeviceTable[];
 const FieldTranslationEntry* GetFieldTranslationTable(
     const OncValueSignature& onc_signature);
 
+// Returns the path at which the translation of an ONC object will be stored in
+// a Shill dictionary if its signature is |onc_signature|.
+// The default is that values are stored directly in the top level of the Shill
+// dictionary.
 std::vector<std::string> GetPathToNestedShillDictionary(
     const OncValueSignature& onc_signature);
 

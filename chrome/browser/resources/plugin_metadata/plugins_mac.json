@@ -1,5 +1,5 @@
 {
-  "x-version": 7,
+  "x-version": 13,
   "google-talk": {
     "mime_types": [
     ],
@@ -99,7 +99,7 @@
       {
         "version": "0",
         "status": "requires_authorization",
-        "comment": "The Real Player plug-in for mac doesn't expose a version at all."
+        "comment": "The Real Player plugin for mac doesn't expose a version at all."
       }
     ],
     "lang": "en-US",
@@ -115,14 +115,14 @@
     ],
     "versions": [
       {
-        "version": "16.0.0.235",
+        "version": "18.0.0.232",
         "status": "requires_authorization",
-        "reference": "https://helpx.adobe.com/security/products/flash-player/apsb14-27.html"
+        "reference": "https://helpx.adobe.com/security/products/flash-player/apsb15-19.html"
       }
     ],
     "lang": "en-US",
     "name": "Adobe Flash Player",
-    "url": "http://get.adobe.com/flashplayer/",
+    "url": "https://support.google.com/chrome/answer/6258784",
     "help_url": "https://support.google.com/chrome/?p=plugin_flash",
     "displayurl": true,
     "group_name_matcher": "*Shockwave Flash*"
@@ -283,6 +283,19 @@
     ],
     "name": "Chrome PDF Viewer",
     "group_name_matcher": "*Chrome PDF Viewer*"
+  },
+  "chromium-pdf": {
+    "mime_types": [
+    ],
+    "versions": [
+      {
+        "version": "0",
+        "status": "up_to_date",
+        "comment": "Chrome PDF Viewer has no version information."
+      }
+    ],
+    "name": "Chromium PDF Viewer",
+    "group_name_matcher": "*Chromium PDF Viewer*"
   },
   "facebook-video-calling": {
     "mime_types": [

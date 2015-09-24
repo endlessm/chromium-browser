@@ -29,10 +29,11 @@
 #include "core/dom/Document.h"
 #include "core/dom/ElementTraversal.h"
 #include "core/editing/FrameSelection.h"
+#include "core/editing/SelectionController.h"
 #include "core/events/MouseEvent.h"
 #include "core/frame/LocalFrame.h"
 #include "core/html/FormAssociatedElement.h"
-#include "core/page/EventHandler.h"
+#include "core/input/EventHandler.h"
 
 namespace blink {
 
@@ -51,7 +52,7 @@ PassRefPtrWillBeRawPtr<HTMLLabelElement> HTMLLabelElement::create(Document& docu
     return labelElement.release();
 }
 
-bool HTMLLabelElement::rendererIsFocusable() const
+bool HTMLLabelElement::layoutObjectIsFocusable() const
 {
     HTMLLabelElement* that = const_cast<HTMLLabelElement*>(this);
     return that->isContentEditable();
@@ -86,28 +87,28 @@ HTMLFormElement* HTMLLabelElement::formOwner() const
 
 void HTMLLabelElement::setActive(bool down)
 {
-    if (down == active())
-        return;
-
-    // Update our status first.
-    HTMLElement::setActive(down);
+    if (down != active()) {
+        // Update our status first.
+        HTMLElement::setActive(down);
+    }
 
     // Also update our corresponding control.
-    if (HTMLElement* element = control())
-        element->setActive(down);
+    HTMLElement* controlElement = control();
+    if (controlElement && controlElement->active() != active())
+        controlElement->setActive(active());
 }
 
 void HTMLLabelElement::setHovered(bool over)
 {
-    if (over == hovered())
-        return;
-
-    // Update our status first.
-    HTMLElement::setHovered(over);
+    if (over != hovered()) {
+        // Update our status first.
+        HTMLElement::setHovered(over);
+    }
 
     // Also update our corresponding control.
-    if (HTMLElement* element = control())
-        element->setHovered(over);
+    HTMLElement* element = control();
+    if (element && element->hovered() != hovered())
+        element->setHovered(hovered());
 }
 
 bool HTMLLabelElement::isInteractiveContent() const
@@ -160,7 +161,7 @@ void HTMLLabelElement::defaultEventHandler(Event* evt)
             if (LocalFrame* frame = document().frame()) {
                 // Check if there is a selection and click is not on the
                 // selection.
-                if (frame->selection().isRange() && !frame->eventHandler().mouseDownWasSingleClickInSelection())
+                if (!Position::nodeIsUserSelectNone(this) && frame->selection().isRange() && !frame->eventHandler().selectionController().mouseDownWasSingleClickInSelection())
                     isLabelTextSelected = true;
                 // If selection is there and is single click i.e. text is
                 // selected by dragging over label text, then return.
@@ -182,7 +183,7 @@ void HTMLLabelElement::defaultEventHandler(Event* evt)
             // In case of double click or triple click, selection will be there,
             // so do not focus the control element.
             if (!isLabelTextSelected)
-                element->focus(true, FocusTypeMouse);
+                element->focus(true, WebFocusTypeMouse);
         }
 
         // Click the corresponding control.
@@ -204,7 +205,7 @@ bool HTMLLabelElement::willRespondToMouseClickEvents()
     return HTMLElement::willRespondToMouseClickEvents();
 }
 
-void HTMLLabelElement::focus(bool, FocusType type)
+void HTMLLabelElement::focus(bool, WebFocusType type)
 {
     // to match other browsers, always restore previous selection
     if (HTMLElement* element = control())
@@ -254,6 +255,11 @@ Node::InsertionNotificationRequest HTMLLabelElement::insertedInto(ContainerNode*
         if (scope == treeScope() && scope.shouldCacheLabelsByForAttribute())
             updateLabel(scope, nullAtom, fastGetAttribute(forAttr));
     }
+
+    // Trigger for elements outside of forms.
+    if (!formOwner() && insertionPoint->inDocument())
+        document().didAssociateFormControl(this);
+
     return result;
 }
 
@@ -266,9 +272,10 @@ void HTMLLabelElement::removedFrom(ContainerNode* insertionPoint)
     }
     HTMLElement::removedFrom(insertionPoint);
     FormAssociatedElement::removedFrom(insertionPoint);
+    document().removeFormAssociation(this);
 }
 
-void HTMLLabelElement::trace(Visitor* visitor)
+DEFINE_TRACE(HTMLLabelElement)
 {
     HTMLElement::trace(visitor);
     FormAssociatedElement::trace(visitor);

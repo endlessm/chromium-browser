@@ -31,6 +31,7 @@
 #ifndef LabelableElement_h
 #define LabelableElement_h
 
+#include "core/CoreExport.h"
 #include "core/html/HTMLElement.h"
 
 namespace blink {
@@ -39,19 +40,19 @@ class LabelsNodeList;
 
 // LabelableElement represents "labelable element" defined in the HTML
 // specification, and provides the implementation of the "labels" attribute.
-class LabelableElement : public HTMLElement {
+class CORE_EXPORT LabelableElement : public HTMLElement {
 public:
-    virtual ~LabelableElement();
+    ~LabelableElement() override;
     PassRefPtrWillBeRawPtr<LabelsNodeList> labels();
     virtual bool supportLabels() const { return false; }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 protected:
     LabelableElement(const QualifiedName& tagName, Document&);
 
 private:
-    virtual bool isLabelable() const override final { return true; }
+    bool isLabelable() const final { return true; }
 };
 
 inline bool isLabelableElement(const HTMLElement& element)

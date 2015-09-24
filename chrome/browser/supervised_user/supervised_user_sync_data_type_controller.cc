@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "supervised_user_sync_data_type_controller.h"
+#include "chrome/browser/supervised_user/supervised_user_sync_data_type_controller.h"
 
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/glue/chrome_report_unrecoverable_error.h"
@@ -21,7 +21,8 @@ SupervisedUserSyncDataTypeController::SupervisedUserSyncDataTypeController(
       profile_(profile) {
   DCHECK(type == syncer::SUPERVISED_USERS ||
          type == syncer::SUPERVISED_USER_SETTINGS ||
-         type == syncer::SUPERVISED_USER_SHARED_SETTINGS);
+         type == syncer::SUPERVISED_USER_SHARED_SETTINGS ||
+         type == syncer::SUPERVISED_USER_WHITELISTS);
 }
 
 SupervisedUserSyncDataTypeController::~SupervisedUserSyncDataTypeController() {}
@@ -31,9 +32,10 @@ bool SupervisedUserSyncDataTypeController::ReadyForStart() const {
     case syncer::SUPERVISED_USERS:
       return !profile_->IsSupervised();
     case syncer::SUPERVISED_USER_SETTINGS:
+    case syncer::SUPERVISED_USER_WHITELISTS:
       return profile_->IsSupervised();
     case syncer::SUPERVISED_USER_SHARED_SETTINGS:
-      return true;
+      return !profile_->IsChild();
     default:
       NOTREACHED();
   }

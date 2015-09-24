@@ -4,30 +4,40 @@
  
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
+#include <map>
+#include <list>
 #include "JBig2_Context.h"
+
+// Implement a very small least recently used (LRU) cache. It is very
+// common for a JBIG2 dictionary to span multiple pages in a PDF file,
+// and we do not want to decode the same dictionary over and over
+// again. We key off of the memory location of the dictionary. The
+// list keeps track of the freshness of entries, with freshest ones
+// at the front. Even a tiny cache size like 2 makes a dramatic
+// difference for typical JBIG2 documents.
+const int kSymbolDictCacheMaxSize = 2;
+
 void OutputBitmap(CJBig2_Image* pImage)
 {
     if(!pImage) {
         return;
     }
 }
-CJBig2_Context *CJBig2_Context::CreateContext(CJBig2_Module *pModule, FX_BYTE *pGlobalData, FX_DWORD dwGlobalLength,
-        FX_BYTE *pData, FX_DWORD dwLength, FX_INT32 nStreamType, IFX_Pause* pPause)
+CJBig2_Context *CJBig2_Context::CreateContext(CJBig2_Module *pModule, uint8_t *pGlobalData, FX_DWORD dwGlobalLength,
+        uint8_t *pData, FX_DWORD dwLength, int32_t nStreamType, std::list<CJBig2_CachePair>* pSymbolDictCache, IFX_Pause* pPause)
 {
-    return new(pModule) CJBig2_Context(pGlobalData, dwGlobalLength, pData, dwLength, nStreamType, pPause);
+    return new(pModule)CJBig2_Context(pGlobalData, dwGlobalLength, pData, dwLength, nStreamType, pSymbolDictCache, pPause);
 }
 void CJBig2_Context::DestroyContext(CJBig2_Context *pContext)
 {
-    if(pContext) {
-        delete pContext;
-    }
+    delete pContext;
 }
-CJBig2_Context::CJBig2_Context(FX_BYTE *pGlobalData, FX_DWORD dwGlobalLength,
-                               FX_BYTE *pData, FX_DWORD dwLength, FX_INT32 nStreamType, IFX_Pause* pPause)
+CJBig2_Context::CJBig2_Context(uint8_t *pGlobalData, FX_DWORD dwGlobalLength,
+                               uint8_t *pData, FX_DWORD dwLength, int32_t nStreamType, std::list<CJBig2_CachePair>* pSymbolDictCache, IFX_Pause* pPause)
 {
     if(pGlobalData && (dwGlobalLength > 0)) {
         JBIG2_ALLOC(m_pGlobalContext, CJBig2_Context(NULL, 0, pGlobalData, dwGlobalLength,
-                    JBIG2_EMBED_STREAM, pPause));
+                    JBIG2_EMBED_STREAM, pSymbolDictCache, pPause));
     } else {
         m_pGlobalContext = NULL;
     }
@@ -47,48 +57,37 @@ CJBig2_Context::CJBig2_Context(FX_BYTE *pGlobalData, FX_DWORD dwGlobalLength,
     m_pSegment = NULL;
     m_dwOffset = 0;
     m_ProcessiveStatus = FXCODEC_STATUS_FRAME_READY;
+    m_pSymbolDictCache = pSymbolDictCache;
 }
 CJBig2_Context::~CJBig2_Context()
 {
-    if(m_pArithDecoder) {
-        delete m_pArithDecoder;
-    }
+    delete m_pArithDecoder;
     m_pArithDecoder = NULL;
-    if(m_pGRD) {
-        delete m_pGRD;
-    }
+    delete m_pGRD;
     m_pGRD = NULL;
     if(m_gbContext) {
         m_pModule->JBig2_Free(m_gbContext);
     }
     m_gbContext = NULL;
-    if(m_pGlobalContext) {
-        delete m_pGlobalContext;
-    }
+    delete m_pGlobalContext;
     m_pGlobalContext = NULL;
-    if(m_pPageInfoList) {
-        delete m_pPageInfoList;
-    }
+    delete m_pPageInfoList;
     m_pPageInfoList = NULL;
-    if(m_bBufSpecified && m_pPage) {
+    if(m_bBufSpecified) {
         delete m_pPage;
     }
     m_pPage = NULL;
-    if(m_pStream) {
-        delete m_pStream;
-    }
+    delete m_pStream;
     m_pStream = NULL;
-    if(m_pSegmentList) {
-        delete m_pSegmentList;
-    }
+    delete m_pSegmentList;
     m_pSegmentList = NULL;
 }
-FX_INT32 CJBig2_Context::decodeFile(IFX_Pause* pPause)
+int32_t CJBig2_Context::decodeFile(IFX_Pause* pPause)
 {
-    FX_BYTE cFlags;
+    uint8_t cFlags;
     FX_DWORD dwTemp;
-    const FX_BYTE fileID[] = {0x97, 0x4A, 0x42, 0x32, 0x0D, 0x0A, 0x1A, 0x0A};
-    FX_INT32 nRet;
+    const uint8_t fileID[] = {0x97, 0x4A, 0x42, 0x32, 0x0D, 0x0A, 0x1A, 0x0A};
+    int32_t nRet;
     if(m_pStream->getByteLeft() < 8) {
         m_pModule->JBig2_Error("file header too short.");
         nRet = JBIG2_ERROR_TOO_SHORT;
@@ -126,9 +125,9 @@ FX_INT32 CJBig2_Context::decodeFile(IFX_Pause* pPause)
 failed:
     return nRet;
 }
-FX_INT32 CJBig2_Context::decode_SquentialOrgnazation(IFX_Pause* pPause)
+int32_t CJBig2_Context::decode_SquentialOrgnazation(IFX_Pause* pPause)
 {
-    FX_INT32 nRet;
+    int32_t nRet;
     if(m_pStream->getByteLeft() > 0) {
         while(m_pStream->getByteLeft() >= JBIG2_MIN_SEGMENT_SIZE) {
             if(m_pSegment == NULL) {
@@ -176,14 +175,14 @@ FX_INT32 CJBig2_Context::decode_SquentialOrgnazation(IFX_Pause* pPause)
     }
     return JBIG2_SUCCESS;
 }
-FX_INT32 CJBig2_Context::decode_EmbedOrgnazation(IFX_Pause* pPause)
+int32_t CJBig2_Context::decode_EmbedOrgnazation(IFX_Pause* pPause)
 {
     return decode_SquentialOrgnazation(pPause);
 }
-FX_INT32 CJBig2_Context::decode_RandomOrgnazation_FirstPage(IFX_Pause* pPause)
+int32_t CJBig2_Context::decode_RandomOrgnazation_FirstPage(IFX_Pause* pPause)
 {
     CJBig2_Segment *pSegment;
-    FX_INT32 nRet;
+    int32_t nRet;
     while(m_pStream->getByteLeft() > JBIG2_MIN_SEGMENT_SIZE) {
         JBIG2_ALLOC(pSegment, CJBig2_Segment());
         nRet = parseSegmentHeader(pSegment);
@@ -204,9 +203,9 @@ FX_INT32 CJBig2_Context::decode_RandomOrgnazation_FirstPage(IFX_Pause* pPause)
     m_nSegmentDecoded = 0;
     return decode_RandomOrgnazation(pPause);
 }
-FX_INT32 CJBig2_Context::decode_RandomOrgnazation(IFX_Pause* pPause)
+int32_t CJBig2_Context::decode_RandomOrgnazation(IFX_Pause* pPause)
 {
-    FX_INT32 nRet;
+    int32_t nRet;
     for(; m_nSegmentDecoded < m_pSegmentList->getLength(); m_nSegmentDecoded++) {
         nRet = parseSegmentData(m_pSegmentList->getAt(m_nSegmentDecoded), pPause);
         if((nRet == JBIG2_END_OF_PAGE) || (nRet == JBIG2_END_OF_FILE)) {
@@ -222,9 +221,9 @@ FX_INT32 CJBig2_Context::decode_RandomOrgnazation(IFX_Pause* pPause)
     }
     return JBIG2_SUCCESS;
 }
-FX_INT32 CJBig2_Context::getFirstPage(FX_BYTE *pBuf, FX_INT32 width, FX_INT32 height, FX_INT32 stride, IFX_Pause* pPause)
+int32_t CJBig2_Context::getFirstPage(uint8_t *pBuf, int32_t width, int32_t height, int32_t stride, IFX_Pause* pPause)
 {
-    FX_INT32 nRet = 0;
+    int32_t nRet = 0;
     if(m_pGlobalContext) {
         nRet = m_pGlobalContext->decode_EmbedOrgnazation(pPause);
         if(nRet != JBIG2_SUCCESS) {
@@ -234,9 +233,7 @@ FX_INT32 CJBig2_Context::getFirstPage(FX_BYTE *pBuf, FX_INT32 width, FX_INT32 he
     }
     m_bFirstPage = TRUE;
     m_PauseStep = 0;
-    if(m_pPage) {
-        delete m_pPage;
-    }
+    delete m_pPage;
     JBIG2_ALLOC(m_pPage, CJBig2_Image(width, height, stride, pBuf));
     m_bBufSpecified = TRUE;
     if(m_pPage && pPause && pPause->NeedToPauseNow()) {
@@ -247,10 +244,10 @@ FX_INT32 CJBig2_Context::getFirstPage(FX_BYTE *pBuf, FX_INT32 width, FX_INT32 he
     int ret = Continue(pPause);
     return ret;
 }
-FX_INT32 CJBig2_Context::Continue(IFX_Pause* pPause)
+int32_t CJBig2_Context::Continue(IFX_Pause* pPause)
 {
     m_ProcessiveStatus = FXCODEC_STATUS_DECODE_READY;
-    FX_INT32 nRet;
+    int32_t nRet;
     if(m_PauseStep <= 1) {
         switch(m_nStreamType) {
             case JBIG2_FILE_STREAM:
@@ -298,14 +295,12 @@ FX_INT32 CJBig2_Context::Continue(IFX_Pause* pPause)
     }
     return nRet;
 }
-FX_INT32 CJBig2_Context::getNextPage(FX_BYTE *pBuf, FX_INT32 width, FX_INT32 height, FX_INT32 stride, IFX_Pause* pPause)
+int32_t CJBig2_Context::getNextPage(uint8_t *pBuf, int32_t width, int32_t height, int32_t stride, IFX_Pause* pPause)
 {
-    FX_INT32 nRet = JBIG2_ERROR_STREAM_TYPE;
+    int32_t nRet = JBIG2_ERROR_STREAM_TYPE;
     m_bFirstPage = FALSE;
     m_PauseStep = 0;
-    if(m_pPage) {
-        delete m_pPage;
-    }
+    delete m_pPage;
     JBIG2_ALLOC(m_pPage, CJBig2_Image(width, height, stride, pBuf));
     m_bBufSpecified = TRUE;
     if(m_pPage && pPause && pPause->NeedToPauseNow()) {
@@ -332,9 +327,9 @@ FX_INT32 CJBig2_Context::getNextPage(FX_BYTE *pBuf, FX_INT32 width, FX_INT32 hei
     }
     return nRet;
 }
-FX_INT32 CJBig2_Context::getFirstPage(CJBig2_Image **image, IFX_Pause* pPause)
+int32_t CJBig2_Context::getFirstPage(CJBig2_Image **image, IFX_Pause* pPause)
 {
-    FX_INT32 nRet;
+    int32_t nRet;
     m_bFirstPage = TRUE;
     m_PauseStep = 0;
     if(m_pGlobalContext) {
@@ -346,9 +341,9 @@ FX_INT32 CJBig2_Context::getFirstPage(CJBig2_Image **image, IFX_Pause* pPause)
     m_bBufSpecified = FALSE;
     return Continue(pPause);
 }
-FX_INT32 CJBig2_Context::getNextPage(CJBig2_Image **image, IFX_Pause* pPause)
+int32_t CJBig2_Context::getNextPage(CJBig2_Image **image, IFX_Pause* pPause)
 {
-    FX_INT32 nRet;
+    int32_t nRet;
     m_bBufSpecified = FALSE;
     m_bFirstPage = FALSE;
     m_PauseStep = 0;
@@ -378,7 +373,7 @@ FX_INT32 CJBig2_Context::getNextPage(CJBig2_Image **image, IFX_Pause* pPause)
 CJBig2_Segment *CJBig2_Context::findSegmentByNumber(FX_DWORD dwNumber)
 {
     CJBig2_Segment *pSeg;
-    FX_INT32 i;
+    int32_t i;
     if(m_pGlobalContext) {
         pSeg = m_pGlobalContext->findSegmentByNumber(dwNumber);
         if(pSeg) {
@@ -394,10 +389,10 @@ CJBig2_Segment *CJBig2_Context::findSegmentByNumber(FX_DWORD dwNumber)
     return NULL;
 }
 CJBig2_Segment *CJBig2_Context::findReferredSegmentByTypeAndIndex(CJBig2_Segment *pSegment,
-        FX_BYTE cType, FX_INT32 nIndex)
+        uint8_t cType, int32_t nIndex)
 {
     CJBig2_Segment *pSeg;
-    FX_INT32 i, count;
+    int32_t i, count;
     count = 0;
     for(i = 0; i < pSegment->m_nReferred_to_segment_count; i++) {
         pSeg = findSegmentByNumber(pSegment->m_pReferred_to_segment_numbers[i]);
@@ -411,10 +406,10 @@ CJBig2_Segment *CJBig2_Context::findReferredSegmentByTypeAndIndex(CJBig2_Segment
     }
     return NULL;
 }
-FX_INT32 CJBig2_Context::parseSegmentHeader(CJBig2_Segment *pSegment)
+int32_t CJBig2_Context::parseSegmentHeader(CJBig2_Segment *pSegment)
 {
-    FX_BYTE  cSSize, cPSize;
-    FX_BYTE cTemp;
+    uint8_t  cSSize, cPSize;
+    uint8_t cTemp;
     FX_WORD wTemp;
     FX_DWORD dwTemp;
     if((m_pStream->readInteger(&pSegment->m_dwNumber) != 0)
@@ -444,7 +439,7 @@ FX_INT32 CJBig2_Context::parseSegmentHeader(CJBig2_Segment *pSegment)
     if(pSegment->m_nReferred_to_segment_count) {
         pSegment->m_pReferred_to_segment_numbers = (FX_DWORD*)m_pModule->JBig2_Malloc2(
                     sizeof(FX_DWORD), pSegment->m_nReferred_to_segment_count);
-        for(FX_INT32 i = 0; i < pSegment->m_nReferred_to_segment_count; i++) {
+        for(int32_t i = 0; i < pSegment->m_nReferred_to_segment_count; i++) {
             switch(cSSize) {
                 case 1:
                     if(m_pStream->read1Byte(&cTemp) != 0) {
@@ -491,15 +486,15 @@ failed:
     m_pModule->JBig2_Error("header too short.");
     return JBIG2_ERROR_TOO_SHORT;
 }
-FX_INT32 CJBig2_Context::parseSegmentData(CJBig2_Segment *pSegment, IFX_Pause* pPause)
+int32_t CJBig2_Context::parseSegmentData(CJBig2_Segment *pSegment, IFX_Pause* pPause)
 {
-    FX_INT32 ret = ProcessiveParseSegmentData(pSegment, pPause);
+    int32_t ret = ProcessiveParseSegmentData(pSegment, pPause);
     while(m_ProcessiveStatus  == FXCODEC_STATUS_DECODE_TOBECONTINUE && m_pStream->getByteLeft() > 0) {
         ret = ProcessiveParseSegmentData(pSegment, pPause);
     }
     return ret;
 }
-FX_INT32 CJBig2_Context::ProcessiveParseSegmentData(CJBig2_Segment *pSegment, IFX_Pause* pPause)
+int32_t CJBig2_Context::ProcessiveParseSegmentData(CJBig2_Segment *pSegment, IFX_Pause* pPause)
 {
     switch(pSegment->m_cFlags.s.type) {
         case 0:
@@ -558,9 +553,7 @@ FX_INT32 CJBig2_Context::ProcessiveParseSegmentData(CJBig2_Segment *pSegment, IF
                     pPageInfo->m_bIsStriped = 1;
                 }
                 if(!m_bBufSpecified) {
-                    if(m_pPage) {
-                        delete m_pPage;
-                    }
+                    delete m_pPage;
                     if(pPageInfo->m_dwHeight == 0xffffffff) {
                         JBIG2_ALLOC(m_pPage, CJBig2_Image(pPageInfo->m_dwWidth, pPageInfo->m_wMaxStripeSize));
                     } else {
@@ -600,13 +593,13 @@ failed2:
     m_pModule->JBig2_Error("segment syntax error.");
     return JBIG2_ERROR_FETAL;
 }
-FX_INT32 CJBig2_Context::parseSymbolDict(CJBig2_Segment *pSegment, IFX_Pause* pPause)
+int32_t CJBig2_Context::parseSymbolDict(CJBig2_Segment *pSegment, IFX_Pause* pPause)
 {
     FX_DWORD dwTemp;
     FX_WORD wFlags;
-    FX_BYTE cSDHUFFDH, cSDHUFFDW, cSDHUFFBMSIZE, cSDHUFFAGGINST;
+    uint8_t cSDHUFFDH, cSDHUFFDW, cSDHUFFBMSIZE, cSDHUFFAGGINST;
     CJBig2_HuffmanTable *Table_B1 = NULL, *Table_B2 = NULL, *Table_B3 = NULL, *Table_B4 = NULL, *Table_B5 = NULL;
-    FX_INT32 i, nIndex, nRet;
+    int32_t i, nIndex, nRet;
     CJBig2_Segment *pSeg = NULL, *pLRSeg = NULL;
     FX_BOOL bUsed;
     CJBig2_Image ** SDINSYMS = NULL;
@@ -614,6 +607,8 @@ FX_INT32 CJBig2_Context::parseSymbolDict(CJBig2_Segment *pSegment, IFX_Pause* pP
     JBig2ArithCtx *gbContext = NULL, *grContext = NULL;
     CJBig2_ArithDecoder *pArithDecoder;
     JBIG2_ALLOC(pSymbolDictDecoder, CJBig2_SDDProc());
+    uint8_t *key = pSegment->m_pData;
+    FX_BOOL cache_hit = false;
     if(m_pStream->readShortInteger(&wFlags) != 0) {
         m_pModule->JBig2_Error("symbol dictionary segment : data header too short.");
         nRet = JBIG2_ERROR_TOO_SHORT;
@@ -633,8 +628,8 @@ FX_INT32 CJBig2_Context::parseSymbolDict(CJBig2_Segment *pSegment, IFX_Pause* pP
         } else {
             dwTemp = 2;
         }
-        for(i = 0; i < (FX_INT32)dwTemp; i++) {
-            if(m_pStream->read1Byte((FX_BYTE*)&pSymbolDictDecoder->SDAT[i]) != 0) {
+        for(i = 0; i < (int32_t)dwTemp; i++) {
+            if(m_pStream->read1Byte((uint8_t*)&pSymbolDictDecoder->SDAT[i]) != 0) {
                 m_pModule->JBig2_Error("symbol dictionary segment : data header too short.");
                 nRet = JBIG2_ERROR_TOO_SHORT;
                 goto failed;
@@ -643,7 +638,7 @@ FX_INT32 CJBig2_Context::parseSymbolDict(CJBig2_Segment *pSegment, IFX_Pause* pP
     }
     if((pSymbolDictDecoder->SDREFAGG == 1) && (pSymbolDictDecoder->SDRTEMPLATE == 0)) {
         for(i = 0; i < 4; i++) {
-            if(m_pStream->read1Byte((FX_BYTE*)&pSymbolDictDecoder->SDRAT[i]) != 0) {
+            if(m_pStream->read1Byte((uint8_t*)&pSymbolDictDecoder->SDRAT[i]) != 0) {
                 m_pModule->JBig2_Error("symbol dictionary segment : data header too short.");
                 nRet = JBIG2_ERROR_TOO_SHORT;
                 goto failed;
@@ -791,23 +786,43 @@ FX_INT32 CJBig2_Context::parseSymbolDict(CJBig2_Segment *pSegment, IFX_Pause* pP
         }
     }
     pSegment->m_nResultType = JBIG2_SYMBOL_DICT_POINTER;
-    if(pSymbolDictDecoder->SDHUFF == 0) {
-        JBIG2_ALLOC(pArithDecoder, CJBig2_ArithDecoder(m_pStream));
-        pSegment->m_Result.sd = pSymbolDictDecoder->decode_Arith(pArithDecoder, gbContext, grContext);
-        delete pArithDecoder;
-        if(pSegment->m_Result.sd == NULL) {
-            nRet = JBIG2_ERROR_FETAL;
-            goto failed;
+    for(std::list<CJBig2_CachePair>::iterator it =
+            m_pSymbolDictCache->begin(); it != m_pSymbolDictCache->end(); ++it) {
+        if (it->first == key) {
+            pSegment->m_Result.sd = it->second->DeepCopy();
+            m_pSymbolDictCache->push_front(*it);
+            m_pSymbolDictCache->erase(it);
+            cache_hit = true;
+            break;
         }
-        m_pStream->alignByte();
-        m_pStream->offset(2);
-    } else {
-        pSegment->m_Result.sd = pSymbolDictDecoder->decode_Huffman(m_pStream, gbContext, grContext, pPause);
-        if(pSegment->m_Result.sd == NULL) {
-            nRet = JBIG2_ERROR_FETAL;
-            goto failed;
+    }
+    if (!cache_hit) {
+        if(pSymbolDictDecoder->SDHUFF == 0) {
+            JBIG2_ALLOC(pArithDecoder, CJBig2_ArithDecoder(m_pStream));
+            pSegment->m_Result.sd = pSymbolDictDecoder->decode_Arith(pArithDecoder, gbContext, grContext);
+            delete pArithDecoder;
+            if(pSegment->m_Result.sd == NULL) {
+                nRet = JBIG2_ERROR_FETAL;
+                goto failed;
+            }
+            m_pStream->alignByte();
+            m_pStream->offset(2);
+        } else {
+            pSegment->m_Result.sd = pSymbolDictDecoder->decode_Huffman(m_pStream, gbContext, grContext, pPause);
+            if(pSegment->m_Result.sd == NULL) {
+                nRet = JBIG2_ERROR_FETAL;
+                goto failed;
+            }
+            m_pStream->alignByte();
         }
-        m_pStream->alignByte();
+        CJBig2_SymbolDict *value = pSegment->m_Result.sd->DeepCopy();
+        if (value && kSymbolDictCacheMaxSize > 0) {
+            while (m_pSymbolDictCache->size() >= kSymbolDictCacheMaxSize) {
+                delete m_pSymbolDictCache->back().second;
+                m_pSymbolDictCache->pop_back();
+            }
+            m_pSymbolDictCache->push_front(CJBig2_CachePair(key, value));
+        }
     }
     if(wFlags & 0x0200) {
         pSegment->m_Result.sd->m_bContextRetained = TRUE;
@@ -825,21 +840,11 @@ FX_INT32 CJBig2_Context::parseSymbolDict(CJBig2_Segment *pSegment, IFX_Pause* pP
     if(SDINSYMS) {
         m_pModule->JBig2_Free(SDINSYMS);
     }
-    if(Table_B1) {
-        delete Table_B1;
-    }
-    if(Table_B2) {
-        delete Table_B2;
-    }
-    if(Table_B3) {
-        delete Table_B3;
-    }
-    if(Table_B4) {
-        delete Table_B4;
-    }
-    if(Table_B5) {
-        delete Table_B5;
-    }
+    delete Table_B1;
+    delete Table_B2;
+    delete Table_B3;
+    delete Table_B4;
+    delete Table_B5;
     if(bUsed == FALSE) {
         if(gbContext) {
             m_pModule->JBig2_Free(gbContext);
@@ -854,21 +859,11 @@ failed:
     if(SDINSYMS) {
         m_pModule->JBig2_Free(SDINSYMS);
     }
-    if(Table_B1) {
-        delete Table_B1;
-    }
-    if(Table_B2) {
-        delete Table_B2;
-    }
-    if(Table_B3) {
-        delete Table_B3;
-    }
-    if(Table_B4) {
-        delete Table_B4;
-    }
-    if(Table_B5) {
-        delete Table_B5;
-    }
+    delete Table_B1;
+    delete Table_B2;
+    delete Table_B3;
+    delete Table_B4;
+    delete Table_B5;
     if(gbContext) {
         m_pModule->JBig2_Free(gbContext);
     }
@@ -882,12 +877,12 @@ FX_BOOL CJBig2_Context::parseTextRegion(CJBig2_Segment *pSegment)
 {
     FX_DWORD dwTemp;
     FX_WORD wFlags;
-    FX_INT32 i, nIndex, nRet;
+    int32_t i, nIndex, nRet;
     JBig2RegionInfo ri;
     CJBig2_Segment *pSeg;
     CJBig2_Image **SBSYMS = NULL;
     JBig2HuffmanCode *SBSYMCODES = NULL;
-    FX_BYTE cSBHUFFFS, cSBHUFFDS, cSBHUFFDT, cSBHUFFRDW, cSBHUFFRDH, cSBHUFFRDX, cSBHUFFRDY, cSBHUFFRSIZE;
+    uint8_t cSBHUFFFS, cSBHUFFDS, cSBHUFFDT, cSBHUFFRDW, cSBHUFFRDH, cSBHUFFRDX, cSBHUFFRDY, cSBHUFFRSIZE;
     CJBig2_HuffmanTable *Table_B1 = NULL,
                          *Table_B6 = NULL,
                           *Table_B7 = NULL,
@@ -941,7 +936,7 @@ FX_BOOL CJBig2_Context::parseTextRegion(CJBig2_Segment *pSegment)
     }
     if((pTRD->SBREFINE == 1) && (pTRD->SBRTEMPLATE == 0)) {
         for(i = 0; i < 4; i++) {
-            if(m_pStream->read1Byte((FX_BYTE*)&pTRD->SBRAT[i]) != 0) {
+            if(m_pStream->read1Byte((uint8_t*)&pTRD->SBRAT[i]) != 0) {
                 m_pModule->JBig2_Error("text region segment : data header too short.");
                 nRet = JBIG2_ERROR_TOO_SHORT;
                 goto failed;
@@ -997,7 +992,7 @@ FX_BOOL CJBig2_Context::parseTextRegion(CJBig2_Segment *pSegment)
         while((FX_DWORD)(1 << dwTemp) < pTRD->SBNUMSYMS) {
             dwTemp ++;
         }
-        pTRD->SBSYMCODELEN = (FX_BYTE)dwTemp;
+        pTRD->SBSYMCODELEN = (uint8_t)dwTemp;
     }
     if(pTRD->SBHUFF == 1) {
         if((cSBHUFFFS == 2) || (cSBHUFFRDW == 2) || (cSBHUFFRDH == 2)
@@ -1207,39 +1202,17 @@ FX_BOOL CJBig2_Context::parseTextRegion(CJBig2_Segment *pSegment)
     if(grContext) {
         m_pModule->JBig2_Free(grContext);
     }
-    if(Table_B1) {
-        delete Table_B1;
-    }
-    if(Table_B6) {
-        delete Table_B6;
-    }
-    if(Table_B7) {
-        delete Table_B7;
-    }
-    if(Table_B8) {
-        delete Table_B8;
-    }
-    if(Table_B9) {
-        delete Table_B9;
-    }
-    if(Table_B10) {
-        delete Table_B10;
-    }
-    if(Table_B11) {
-        delete Table_B11;
-    }
-    if(Table_B12) {
-        delete Table_B12;
-    }
-    if(Table_B13) {
-        delete Table_B13;
-    }
-    if(Table_B14) {
-        delete Table_B14;
-    }
-    if(Table_B15) {
-        delete Table_B15;
-    }
+    delete Table_B1;
+    delete Table_B6;
+    delete Table_B7;
+    delete Table_B8;
+    delete Table_B9;
+    delete Table_B10;
+    delete Table_B11;
+    delete Table_B12;
+    delete Table_B13;
+    delete Table_B14;
+    delete Table_B15;
     return JBIG2_SUCCESS;
 failed:
     delete pTRD;
@@ -1252,50 +1225,28 @@ failed:
     if(grContext) {
         m_pModule->JBig2_Free(grContext);
     }
-    if(Table_B1) {
-        delete Table_B1;
-    }
-    if(Table_B6) {
-        delete Table_B6;
-    }
-    if(Table_B7) {
-        delete Table_B7;
-    }
-    if(Table_B8) {
-        delete Table_B8;
-    }
-    if(Table_B9) {
-        delete Table_B9;
-    }
-    if(Table_B10) {
-        delete Table_B10;
-    }
-    if(Table_B11) {
-        delete Table_B11;
-    }
-    if(Table_B12) {
-        delete Table_B12;
-    }
-    if(Table_B13) {
-        delete Table_B13;
-    }
-    if(Table_B14) {
-        delete Table_B14;
-    }
-    if(Table_B15) {
-        delete Table_B15;
-    }
+    delete Table_B1;
+    delete Table_B6;
+    delete Table_B7;
+    delete Table_B8;
+    delete Table_B9;
+    delete Table_B10;
+    delete Table_B11;
+    delete Table_B12;
+    delete Table_B13;
+    delete Table_B14;
+    delete Table_B15;
     return nRet;
 }
 
 FX_BOOL CJBig2_Context::parsePatternDict(CJBig2_Segment *pSegment, IFX_Pause* pPause)
 {
     FX_DWORD dwTemp;
-    FX_BYTE cFlags;
+    uint8_t cFlags;
     JBig2ArithCtx *gbContext;
     CJBig2_ArithDecoder *pArithDecoder;
     CJBig2_PDDProc *pPDD;
-    FX_INT32 nRet;
+    int32_t nRet;
     JBIG2_ALLOC(pPDD, CJBig2_PDDProc());
     if((m_pStream->read1Byte(&cFlags) != 0)
             || (m_pStream->read1Byte(&pPDD->HDPW) != 0)
@@ -1345,14 +1296,14 @@ failed:
 FX_BOOL CJBig2_Context::parseHalftoneRegion(CJBig2_Segment *pSegment, IFX_Pause* pPause)
 {
     FX_DWORD dwTemp;
-    FX_BYTE cFlags;
+    uint8_t cFlags;
     JBig2RegionInfo ri;
     CJBig2_Segment *pSeg;
     CJBig2_PatternDict *pPatternDict;
     JBig2ArithCtx *gbContext;
     CJBig2_ArithDecoder *pArithDecoder;
     CJBig2_HTRDProc *pHRD;
-    FX_INT32 nRet;
+    int32_t nRet;
     JBIG2_ALLOC(pHRD, CJBig2_HTRDProc());
     if((parseRegionInfo(&ri) != JBIG2_SUCCESS)
             || (m_pStream->read1Byte(&cFlags) != 0)
@@ -1439,8 +1390,8 @@ failed:
 FX_BOOL CJBig2_Context::parseGenericRegion(CJBig2_Segment *pSegment, IFX_Pause* pPause)
 {
     FX_DWORD dwTemp;
-    FX_BYTE cFlags;
-    FX_INT32 i, nRet;
+    uint8_t cFlags;
+    int32_t i, nRet;
     if(m_pGRD == NULL) {
         JBIG2_ALLOC(m_pGRD, CJBig2_GRDProc());
         if((parseRegionInfo(&m_ri) != JBIG2_SUCCESS)
@@ -1462,7 +1413,7 @@ FX_BOOL CJBig2_Context::parseGenericRegion(CJBig2_Segment *pSegment, IFX_Pause* 
         if(m_pGRD->MMR == 0) {
             if(m_pGRD->GBTEMPLATE == 0) {
                 for(i = 0; i < 8; i++) {
-                    if(m_pStream->read1Byte((FX_BYTE*)&m_pGRD->GBAT[i]) != 0) {
+                    if(m_pStream->read1Byte((uint8_t*)&m_pGRD->GBAT[i]) != 0) {
                         m_pModule->JBig2_Error("generic region segment : data header too short.");
                         nRet = JBIG2_ERROR_TOO_SHORT;
                         goto failed;
@@ -1470,7 +1421,7 @@ FX_BOOL CJBig2_Context::parseGenericRegion(CJBig2_Segment *pSegment, IFX_Pause* 
                 }
             } else {
                 for(i = 0; i < 2; i++) {
-                    if(m_pStream->read1Byte((FX_BYTE*)&m_pGRD->GBAT[i]) != 0) {
+                    if(m_pStream->read1Byte((uint8_t*)&m_pGRD->GBAT[i]) != 0) {
                         m_pModule->JBig2_Error("generic region segment : data header too short.");
                         nRet = JBIG2_ERROR_TOO_SHORT;
                         goto failed;
@@ -1558,8 +1509,8 @@ FX_BOOL CJBig2_Context::parseGenericRefinementRegion(CJBig2_Segment *pSegment)
     FX_DWORD dwTemp;
     JBig2RegionInfo ri;
     CJBig2_Segment *pSeg;
-    FX_INT32 i, nRet;
-    FX_BYTE cFlags;
+    int32_t i, nRet;
+    uint8_t cFlags;
     JBig2ArithCtx *grContext;
     CJBig2_GRRDProc *pGRRD;
     CJBig2_ArithDecoder *pArithDecoder;
@@ -1576,7 +1527,7 @@ FX_BOOL CJBig2_Context::parseGenericRefinementRegion(CJBig2_Segment *pSegment)
     pGRRD->TPGRON = (cFlags >> 1) & 0x01;
     if(pGRRD->GRTEMPLATE == 0) {
         for(i = 0; i < 4; i++) {
-            if(m_pStream->read1Byte((FX_BYTE*)&pGRRD->GRAT[i]) != 0) {
+            if(m_pStream->read1Byte((uint8_t*)&pGRRD->GRAT[i]) != 0) {
                 m_pModule->JBig2_Error("generic refinement region segment : data header too short.");
                 nRet = JBIG2_ERROR_TOO_SHORT;
                 goto failed;
@@ -1586,7 +1537,7 @@ FX_BOOL CJBig2_Context::parseGenericRefinementRegion(CJBig2_Segment *pSegment)
     pSeg = NULL;
     if(pSegment->m_nReferred_to_segment_count > 0) {
         for(i = 0; i < pSegment->m_nReferred_to_segment_count; i++) {
-            pSeg = this->findSegmentByNumber(pSegment->m_pReferred_to_segment_numbers[0]);
+            pSeg = findSegmentByNumber(pSegment->m_pReferred_to_segment_numbers[0]);
             if(pSeg == NULL) {
                 m_pModule->JBig2_Error("generic refinement region segment : can't find refered to segments");
                 nRet = JBIG2_ERROR_FETAL;
@@ -1652,7 +1603,7 @@ FX_BOOL CJBig2_Context::parseTable(CJBig2_Segment *pSegment)
     m_pStream->alignByte();
     return JBIG2_SUCCESS;
 }
-FX_INT32 CJBig2_Context::parseRegionInfo(JBig2RegionInfo *pRI)
+int32_t CJBig2_Context::parseRegionInfo(JBig2RegionInfo *pRI)
 {
     if((m_pStream->readInteger((FX_DWORD*)&pRI->width) != 0)
             || (m_pStream->readInteger((FX_DWORD*)&pRI->height) != 0)
@@ -1667,9 +1618,9 @@ JBig2HuffmanCode *CJBig2_Context::decodeSymbolIDHuffmanTable(CJBig2_BitStream *p
         FX_DWORD SBNUMSYMS)
 {
     JBig2HuffmanCode *SBSYMCODES;
-    FX_INT32 runcodes[35], runcodes_len[35], runcode;
-    FX_INT32 i, j, nTemp, nVal, nBits;
-    FX_INT32 run;
+    int32_t runcodes[35], runcodes_len[35], runcode;
+    int32_t i, j, nTemp, nVal, nBits;
+    int32_t run;
     SBSYMCODES = (JBig2HuffmanCode*)m_pModule->JBig2_Malloc2(sizeof(JBig2HuffmanCode), SBNUMSYMS);
     for (i = 0; i < 35; i ++) {
         if(pStream->readNBits(4, &runcodes_len[i]) != 0) {

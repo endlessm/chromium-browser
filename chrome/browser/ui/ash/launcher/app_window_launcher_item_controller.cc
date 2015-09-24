@@ -8,13 +8,13 @@
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
 #include "chrome/browser/extensions/webstore_install_with_prompt.h"
-#include "chrome/browser/favicon/favicon_tab_helper.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_app_menu_item.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_app_menu_item_v2app.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chrome/browser/ui/ash/launcher/launcher_application_menu_item_model.h"
 #include "chrome/browser/ui/ash/launcher/launcher_context_menu.h"
 #include "chrome/browser/ui/ash/launcher/launcher_item_controller.h"
+#include "components/favicon/content/content_favicon_driver.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/app_window/app_window.h"
 #include "extensions/browser/app_window/native_app_window.h"
@@ -134,12 +134,13 @@ void AppWindowLauncherItemController::Launch(ash::LaunchSource source,
   launcher_controller()->LaunchApp(app_id(), source, ui::EF_NONE);
 }
 
-bool AppWindowLauncherItemController::Activate(ash::LaunchSource source) {
+ash::ShelfItemDelegate::PerformedAction
+AppWindowLauncherItemController::Activate(ash::LaunchSource source) {
   DCHECK(!app_windows_.empty());
   AppWindow* window_to_activate =
       last_active_app_window_ ? last_active_app_window_ : app_windows_.back();
   window_to_activate->GetBaseWindow()->Activate();
-  return false;
+  return kExistingWindowActivated;
 }
 
 void AppWindowLauncherItemController::Close() {
@@ -204,9 +205,10 @@ ChromeLauncherAppMenuItems AppWindowLauncherItemController::GetApplicationList(
 
     // If the app's web contents provides a favicon, use it. Otherwise, use a
     // scaled down app icon.
-    FaviconTabHelper* favicon_tab_helper =
-        FaviconTabHelper::FromWebContents(app_window->web_contents());
-    gfx::Image result = favicon_tab_helper->GetFavicon();
+    favicon::FaviconDriver* favicon_driver =
+        favicon::ContentFaviconDriver::FromWebContents(
+            app_window->web_contents());
+    gfx::Image result = favicon_driver->GetFavicon();
     if (result.IsEmpty())
       result = GetAppListIcon(app_window);
 
@@ -222,11 +224,12 @@ ChromeLauncherAppMenuItems AppWindowLauncherItemController::GetApplicationList(
   return items.Pass();
 }
 
-bool AppWindowLauncherItemController::ItemSelected(const ui::Event& event) {
+ash::ShelfItemDelegate::PerformedAction
+AppWindowLauncherItemController::ItemSelected(const ui::Event& event) {
   if (app_windows_.empty())
-    return false;
+    return kNoAction;
   if (type() == TYPE_APP_PANEL) {
-    DCHECK(app_windows_.size() == 1);
+    DCHECK_EQ(app_windows_.size(), 1u);
     AppWindow* panel = app_windows_.front();
     aura::Window* panel_window = panel->GetNativeWindow();
     // If the panel is attached on another display, move it to the current
@@ -234,9 +237,9 @@ bool AppWindowLauncherItemController::ItemSelected(const ui::Event& event) {
     if (ash::wm::GetWindowState(panel_window)->panel_attached() &&
         ash::wm::MoveWindowToEventRoot(panel_window, event)) {
       if (!panel->GetBaseWindow()->IsActive())
-        ShowAndActivateOrMinimize(panel);
+        return ShowAndActivateOrMinimize(panel);
     } else {
-      ShowAndActivateOrMinimize(panel);
+      return ShowAndActivateOrMinimize(panel);
     }
   } else {
     AppWindow* window_to_show = last_active_app_window_
@@ -247,12 +250,12 @@ bool AppWindowLauncherItemController::ItemSelected(const ui::Event& event) {
     if (app_windows_.size() >= 1 &&
         window_to_show->GetBaseWindow()->IsActive() &&
         event.type() == ui::ET_KEY_RELEASED) {
-      ActivateOrAdvanceToNextAppWindow(window_to_show);
+      return ActivateOrAdvanceToNextAppWindow(window_to_show);
     } else {
-      ShowAndActivateOrMinimize(window_to_show);
+      return ShowAndActivateOrMinimize(window_to_show);
     }
   }
-  return false;
+  return kNoAction;
 }
 
 base::string16 AppWindowLauncherItemController::GetTitle() {
@@ -309,14 +312,16 @@ void AppWindowLauncherItemController::OnWindowPropertyChanged(
   }
 }
 
-void AppWindowLauncherItemController::ShowAndActivateOrMinimize(
+ash::ShelfItemDelegate::PerformedAction
+AppWindowLauncherItemController::ShowAndActivateOrMinimize(
     AppWindow* app_window) {
   // Either show or minimize windows when shown from the launcher.
-  launcher_controller()->ActivateWindowOrMinimizeIfActive(
+  return launcher_controller()->ActivateWindowOrMinimizeIfActive(
       app_window->GetBaseWindow(), GetApplicationList(0).size() == 2);
 }
 
-void AppWindowLauncherItemController::ActivateOrAdvanceToNextAppWindow(
+ash::ShelfItemDelegate::PerformedAction
+AppWindowLauncherItemController::ActivateOrAdvanceToNextAppWindow(
     AppWindow* window_to_show) {
   AppWindowList::iterator i(
       std::find(app_windows_.begin(), app_windows_.end(), window_to_show));
@@ -332,6 +337,7 @@ void AppWindowLauncherItemController::ActivateOrAdvanceToNextAppWindow(
     AnimateWindow(window_to_show->GetNativeWindow(),
                   wm::WINDOW_ANIMATION_TYPE_BOUNCE);
   } else {
-    ShowAndActivateOrMinimize(window_to_show);
+    return ShowAndActivateOrMinimize(window_to_show);
   }
+  return kNoAction;
 }

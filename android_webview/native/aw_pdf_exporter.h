@@ -30,7 +30,7 @@ class AwPdfExporter : public PrintManagerDelegate {
                 jobject obj,
                 content::WebContents* web_contents);
 
-  virtual ~AwPdfExporter();
+  ~AwPdfExporter() override;
 
   void ExportToPdf(JNIEnv* env,
                    jobject obj,
@@ -38,8 +38,8 @@ class AwPdfExporter : public PrintManagerDelegate {
                    jobject cancel_signal);
 
   // Implement PrintManagerDelegate methods
-  virtual void DidExportPdf(bool success) override;
-  virtual bool IsCancelled() override;
+  void DidExportPdf(bool success) override;
+  bool IsCancelled() override;
 
  private:
   void CreatePdfSettings(JNIEnv* env, jobject obj);
@@ -47,7 +47,6 @@ class AwPdfExporter : public PrintManagerDelegate {
   JavaObjectWeakGlobalRef java_ref_;
   content::WebContents* web_contents_;
 
-  scoped_ptr<PrintManager> print_manager_;
   scoped_ptr<printing::PrintSettings> print_settings_;
 
   DISALLOW_COPY_AND_ASSIGN(AwPdfExporter);

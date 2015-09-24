@@ -18,7 +18,7 @@
 #endif
 
 #if !defined(OS_ANDROID)
-#include "chrome/browser/ui/zoom/zoom_controller.h"
+#include "components/ui/zoom/zoom_controller.h"
 #endif
 
 #if defined(TOOLKIT_VIEWS)
@@ -41,18 +41,26 @@ void UpdateFromSystemSettings(content::RendererPreferences* prefs,
   prefs->enable_referrers = pref_service->GetBoolean(prefs::kEnableReferrers);
   prefs->enable_do_not_track =
       pref_service->GetBoolean(prefs::kEnableDoNotTrack);
-
-  double default_zoom_level = -1;
-#if !defined(OS_ANDROID)
-  ZoomController* zoom_controller =
-      ZoomController::FromWebContents(web_contents);
-  if (zoom_controller)
-    default_zoom_level = zoom_controller->GetDefaultZoomLevel();
+#if defined(ENABLE_WEBRTC)
+  prefs->enable_webrtc_multiple_routes =
+      pref_service->GetBoolean(prefs::kWebRTCMultipleRoutesEnabled);
 #endif
 
-  if (default_zoom_level < 0) {
-    default_zoom_level = content::HostZoomMap::GetDefaultForBrowserContext(
-        web_contents->GetBrowserContext())->GetDefaultZoomLevel();
+  double default_zoom_level = 0;
+  bool default_zoom_level_set = false;
+#if !defined(OS_ANDROID)
+  ui_zoom::ZoomController* zoom_controller =
+      ui_zoom::ZoomController::FromWebContents(web_contents);
+  if (zoom_controller) {
+    default_zoom_level = zoom_controller->GetDefaultZoomLevel();
+    default_zoom_level_set = true;
+  }
+#endif
+
+  if (!default_zoom_level_set) {
+    default_zoom_level =
+        content::HostZoomMap::Get(web_contents->GetSiteInstance())
+            ->GetDefaultZoomLevel();
   }
   prefs->default_zoom_level = default_zoom_level;
 
@@ -93,9 +101,9 @@ void UpdateFromSystemSettings(content::RendererPreferences* prefs,
   }
 #endif
 
-#if defined(OS_LINUX) || defined(OS_ANDROID)
+#if defined(OS_LINUX) || defined(OS_ANDROID) || defined(OS_WIN)
   CR_DEFINE_STATIC_LOCAL(const gfx::FontRenderParams, params,
-      (gfx::GetFontRenderParams(gfx::FontRenderParamsQuery(true), NULL)));
+      (gfx::GetFontRenderParams(gfx::FontRenderParamsQuery(), NULL)));
   prefs->should_antialias_text = params.antialiasing;
   prefs->use_subpixel_positioning = params.subpixel_positioning;
   prefs->hinting = params.hinting;

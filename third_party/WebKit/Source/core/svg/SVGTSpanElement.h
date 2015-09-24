@@ -33,8 +33,8 @@ public:
 private:
     explicit SVGTSpanElement(Document&);
 
-    virtual RenderObject* createRenderer(RenderStyle*) override;
-    virtual bool rendererIsNeeded(const RenderStyle&) override;
+    LayoutObject* createLayoutObject(const ComputedStyle&) override;
+    bool layoutObjectIsNeeded(const ComputedStyle&) override;
 };
 
 } // namespace blink

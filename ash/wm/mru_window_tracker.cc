@@ -10,9 +10,11 @@
 #include "ash/shell.h"
 #include "ash/shell_window_ids.h"
 #include "ash/switchable_windows.h"
+#include "ash/wm/ash_focus_rules.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
 #include "ash/wm/workspace_controller.h"
+#include "base/bind.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/events/event.h"
 #include "ui/events/event_handler.h"
@@ -21,6 +23,8 @@
 namespace ash {
 
 namespace {
+
+typedef base::Callback<bool(aura::Window*)> CanActivateWindowPredicate;
 
 // Adds the windows that can be cycled through for the specified window id to
 // |windows|.
@@ -32,19 +36,6 @@ void AddTrackedWindows(aura::Window* root,
   windows->insert(windows->end(), children.begin(), children.end());
 }
 
-// Adds windows being dragged in the docked container to |windows| list.
-void AddDraggedWindows(aura::Window* root,
-                       MruWindowTracker::WindowList* windows) {
-  aura::Window* container =
-      Shell::GetContainer(root, kShellWindowId_DockedContainer);
-  const MruWindowTracker::WindowList& children = container->children();
-  for (MruWindowTracker::WindowList::const_iterator iter = children.begin();
-       iter != children.end(); ++iter) {
-    if (wm::GetWindowState(*iter)->is_dragged())
-      windows->insert(windows->end(), *iter);
-  }
-}
-
 // Returns whether |w1| should be considered less recently used than |w2|. This
 // is used for a stable sort to move minimized windows to the LRU end of the
 // list.
@@ -54,11 +45,11 @@ bool CompareWindowState(aura::Window* w1, aura::Window* w2) {
 
 // Returns a list of windows ordered by their stacking order.
 // If |mru_windows| is passed, these windows are moved to the front of the list.
-// If |top_most_at_end|, the list is returned in descending (bottom-most / least
-// recently used) order.
+// It uses the given |should_include_window_predicate| to determine whether to
+// include a window in the returned list or not.
 MruWindowTracker::WindowList BuildWindowListInternal(
     const std::list<aura::Window*>* mru_windows,
-    bool top_most_at_end) {
+    const CanActivateWindowPredicate& should_include_window_predicate) {
   MruWindowTracker::WindowList windows;
   aura::Window::Windows root_windows = Shell::GetAllRootWindows();
 
@@ -76,17 +67,14 @@ MruWindowTracker::WindowList BuildWindowListInternal(
   for (size_t i = 0; i < kSwitchableWindowContainerIdsLength; ++i)
     AddTrackedWindows(active_root, kSwitchableWindowContainerIds[i], &windows);
 
-  // Dragged windows are temporarily parented in docked container. Include them
-  // in the in tracked list.
-  AddDraggedWindows(active_root, &windows);
-
   // Removes unfocusable windows.
-  MruWindowTracker::WindowList::iterator last =
-      std::remove_if(
-          windows.begin(),
-          windows.end(),
-          std::not1(std::ptr_fun(ash::wm::CanActivateWindow)));
-  windows.erase(last, windows.end());
+  std::vector<aura::Window*>::iterator itr = windows.begin();
+  while (itr != windows.end()) {
+    if (!should_include_window_predicate.Run(*itr))
+      itr = windows.erase(itr);
+    else
+      ++itr;
+  }
 
   // Put the windows in the mru_windows list at the head, if it's available.
   if (mru_windows) {
@@ -98,7 +86,7 @@ MruWindowTracker::WindowList BuildWindowListInternal(
       // Exclude windows in non-switchable containers and those which cannot
       // be activated.
       if (!IsSwitchableContainer((*ix)->parent()) ||
-          !ash::wm::CanActivateWindow(*ix)) {
+          !should_include_window_predicate.Run(*ix)) {
         continue;
       }
 
@@ -115,8 +103,7 @@ MruWindowTracker::WindowList BuildWindowListInternal(
   std::stable_sort(windows.begin(), windows.end(), CompareWindowState);
 
   // Window cycling expects the topmost window at the front of the list.
-  if (!top_most_at_end)
-    std::reverse(windows.begin(), windows.end());
+  std::reverse(windows.begin(), windows.end());
 
   return windows;
 }
@@ -127,8 +114,10 @@ MruWindowTracker::WindowList BuildWindowListInternal(
 // MruWindowTracker, public:
 
 MruWindowTracker::MruWindowTracker(
-    aura::client::ActivationClient* activation_client)
+    aura::client::ActivationClient* activation_client,
+    ash::wm::AshFocusRules* focus_rules)
     : activation_client_(activation_client),
+      focus_rules_(focus_rules),
       ignore_window_activations_(false) {
   activation_client_->AddObserver(this);
 }
@@ -142,14 +131,17 @@ MruWindowTracker::~MruWindowTracker() {
   activation_client_->RemoveObserver(this);
 }
 
-// static
-MruWindowTracker::WindowList MruWindowTracker::BuildWindowList(
-    bool top_most_at_end) {
-  return BuildWindowListInternal(NULL, top_most_at_end);
+MruWindowTracker::WindowList MruWindowTracker::BuildMruWindowList() const {
+  return BuildWindowListInternal(&mru_windows_,
+                                 base::Bind(&ash::wm::CanActivateWindow));
 }
 
-MruWindowTracker::WindowList MruWindowTracker::BuildMruWindowList() {
-  return BuildWindowListInternal(&mru_windows_, false);
+MruWindowTracker::WindowList
+MruWindowTracker::BuildWindowListIgnoreModal() const {
+  return BuildWindowListInternal(
+      NULL,
+      base::Bind(&MruWindowTracker::IsWindowConsideredActivateable,
+                 base::Unretained(this)));
 }
 
 void MruWindowTracker::SetIgnoreActivations(bool ignore) {
@@ -182,8 +174,10 @@ void MruWindowTracker::SetActiveWindow(aura::Window* active_window) {
   mru_windows_.push_front(active_window);
 }
 
-void MruWindowTracker::OnWindowActivated(aura::Window* gained_active,
-                                         aura::Window* lost_active) {
+void MruWindowTracker::OnWindowActivated(
+    aura::client::ActivationChangeObserver::ActivationReason reason,
+    aura::Window* gained_active,
+    aura::Window* lost_active) {
   if (!ignore_window_activations_)
     SetActiveWindow(gained_active);
 }
@@ -194,6 +188,11 @@ void MruWindowTracker::OnWindowDestroyed(aura::Window* window) {
   // else we may end up with a deleted window in |mru_windows_|.
   mru_windows_.remove(window);
   window->RemoveObserver(this);
+}
+
+bool MruWindowTracker::IsWindowConsideredActivateable(
+    aura::Window* window) const {
+  return focus_rules_->IsWindowConsideredActivatable(window);
 }
 
 }  // namespace ash

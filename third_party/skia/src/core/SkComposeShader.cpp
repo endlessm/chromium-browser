@@ -26,20 +26,6 @@ SkComposeShader::SkComposeShader(SkShader* sA, SkShader* sB, SkXfermode* mode) {
     SkSafeRef(mode);
 }
 
-#ifdef SK_SUPPORT_LEGACY_DEEPFLATTENING
-SkComposeShader::SkComposeShader(SkReadBuffer& buffer) : INHERITED(buffer) {
-    fShaderA = buffer.readShader();
-    if (NULL == fShaderA) {
-        fShaderA = SkNEW_ARGS(SkColorShader, ((SkColor)0));
-    }
-    fShaderB = buffer.readShader();
-    if (NULL == fShaderB) {
-        fShaderB = SkNEW_ARGS(SkColorShader, ((SkColor)0));
-    }
-    fMode = buffer.readXfermode();
-}
-#endif
-
 SkComposeShader::~SkComposeShader() {
     SkSafeUnref(fMode);
     fShaderB->unref();
@@ -216,8 +202,10 @@ void SkComposeShader::toString(SkString* str) const {
     fShaderA->toString(str);
     str->append(" ShaderB: ");
     fShaderB->toString(str);
-    str->append(" Xfermode: ");
-    fMode->toString(str);
+    if (fMode) {
+        str->append(" Xfermode: ");
+        fMode->toString(str);
+    }
 
     this->INHERITED::toString(str);
 

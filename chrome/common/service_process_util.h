@@ -26,27 +26,21 @@ class NSString;
 
 namespace base {
 class CommandLine;
-class MessageLoopProxy;
+class SingleThreadTaskRunner;
 }
 
 // Return the IPC channel to connect to the service process.
 IPC::ChannelHandle GetServiceProcessChannel();
 
-#if !defined(OS_MACOSX)
 // Return a name that is scoped to this instance of the service process. We
 // use the user-data-dir as a scoping prefix.
 std::string GetServiceProcessScopedName(const std::string& append_str);
 
+#if !defined(OS_MACOSX)
 // Return a name that is scoped to this instance of the service process. We
 // use the user-data-dir and the version as a scoping prefix.
 std::string GetServiceProcessScopedVersionedName(const std::string& append_str);
-#endif  // OS_MACOSX
-
-#if defined(OS_MACOSX)
-// Return the name that is used to extract the socket path out of the
-// dictionary provided by launchd.
-NSString* GetServiceProcessLaunchDSocketEnvVar();
-#endif
+#endif  // !OS_MACOSX
 
 #if defined(OS_POSIX)
 // Attempts to take a lock named |name|. If |waiting| is true then this will
@@ -94,11 +88,10 @@ class ServiceProcessState {
   // This method is called when the service process is running and initialized.
   // |terminate_task| is invoked when we get a terminate request from another
   // process (in the same thread that called SignalReady). It can be NULL.
-  // |message_loop_proxy| must be of type IO and is the loop that POSIX uses
+  // |task_runner| must be of type IO and is the loop that POSIX uses
   // to monitor the service process.
-  bool SignalReady(
-      base::MessageLoopProxy* message_loop_proxy,
-      const base::Closure& terminate_task);
+  bool SignalReady(base::SingleThreadTaskRunner* task_runner,
+                   const base::Closure& terminate_task);
 
   // Signal that the service process is stopped.
   void SignalStopped();

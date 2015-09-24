@@ -1,6 +1,6 @@
 /*
  * libjingle
- * Copyright 2012, Google Inc.
+ * Copyright 2012 Google Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -35,6 +35,7 @@
 
 #include "webrtc/base/basictypes.h"
 #include "webrtc/base/buffer.h"
+#include "webrtc/base/checks.h"
 #include "webrtc/base/refcount.h"
 
 
@@ -75,7 +76,7 @@ struct DataBuffer {
       : data(text.data(), text.length()),
         binary(false) {
   }
-  size_t size() const { return data.length(); }
+  size_t size() const { return data.size(); }
 
   rtc::Buffer data;
   // Indicates if the received data contains UTF-8 or binary data.
@@ -90,6 +91,8 @@ class DataChannelObserver {
   virtual void OnStateChange() = 0;
   //  A data buffer was successfully received.
   virtual void OnMessage(const DataBuffer& buffer) = 0;
+  // The data channel's buffered_amount has changed.
+  virtual void OnBufferedAmountChange(uint64 previous_amount){};
 
  protected:
   virtual ~DataChannelObserver() {}
@@ -105,6 +108,21 @@ class DataChannelInterface : public rtc::RefCountInterface {
     kClosing,
     kClosed
   };
+
+  static const char* DataStateString(DataState state) {
+    switch (state) {
+      case kConnecting:
+        return "connecting";
+      case kOpen:
+        return "open";
+      case kClosing:
+        return "closing";
+      case kClosed:
+        return "closed";
+    }
+    CHECK(false) << "Unknown DataChannel state: " << state;
+    return "";
+  }
 
   virtual void RegisterObserver(DataChannelObserver* observer) = 0;
   virtual void UnregisterObserver() = 0;

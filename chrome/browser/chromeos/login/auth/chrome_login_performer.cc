@@ -8,7 +8,9 @@
 #include "base/thread_task_runner_handle.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_user_login_flow.h"
-#include "chrome/browser/chromeos/login/login_utils.h"
+#include "chrome/browser/chromeos/login/helper.h"
+#include "chrome/browser/chromeos/login/session/user_session_manager.h"
+#include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/login/supervised/supervised_user_authentication.h"
 #include "chrome/browser/chromeos/login/supervised/supervised_user_constants.h"
 #include "chrome/browser/chromeos/login/supervised/supervised_user_login_flow.h"
@@ -22,7 +24,9 @@
 namespace chromeos {
 
 ChromeLoginPerformer::ChromeLoginPerformer(Delegate* delegate)
-    : LoginPerformer(base::ThreadTaskRunnerHandle::Get(), delegate),
+    : LoginPerformer(base::ThreadTaskRunnerHandle::Get(),
+                     delegate,
+                     StartupUtils::IsWebviewSigninEnabled()),
       weak_factory_(this) {
 }
 
@@ -85,12 +89,13 @@ void ChromeLoginPerformer::DidRunTrustedCheck(const base::Closure& callback) {
 
 bool ChromeLoginPerformer::IsUserWhitelisted(const std::string& user_id,
                                              bool* wildcard_match) {
-  return LoginUtils::IsWhitelisted(user_id, wildcard_match);
+  return CrosSettings::IsWhitelisted(user_id, wildcard_match);
 }
 
 void ChromeLoginPerformer::RunOnlineWhitelistCheck(
     const std::string& user_id,
     bool wildcard_match,
+    const std::string& refresh_token,
     const base::Closure& success_callback,
     const base::Closure& failure_callback) {
   // On enterprise devices, reconfirm login permission with the server.
@@ -99,19 +104,26 @@ void ChromeLoginPerformer::RunOnlineWhitelistCheck(
   if (connector->IsEnterpriseManaged() && wildcard_match &&
       !connector->IsNonEnterpriseUser(user_id)) {
     wildcard_login_checker_.reset(new policy::WildcardLoginChecker());
-    wildcard_login_checker_->Start(
-        ProfileHelper::GetSigninProfile()->GetRequestContext(),
-        base::Bind(&ChromeLoginPerformer::OnlineWildcardLoginCheckCompleted,
-                   weak_factory_.GetWeakPtr(),
-                   success_callback,
-                   failure_callback));
+    if (refresh_token.empty()) {
+      wildcard_login_checker_->StartWithSigninContext(
+          GetSigninRequestContext(),
+          base::Bind(&ChromeLoginPerformer::OnlineWildcardLoginCheckCompleted,
+                     weak_factory_.GetWeakPtr(), success_callback,
+                     failure_callback));
+    } else {
+      wildcard_login_checker_->StartWithRefreshToken(
+          refresh_token,
+          base::Bind(&ChromeLoginPerformer::OnlineWildcardLoginCheckCompleted,
+                     weak_factory_.GetWeakPtr(), success_callback,
+                     failure_callback));
+    }
   } else {
     success_callback.Run();
   }
 }
 
 scoped_refptr<Authenticator> ChromeLoginPerformer::CreateAuthenticator() {
-  return LoginUtils::Get()->CreateAuthenticator(this);
+  return UserSessionManager::GetInstance()->CreateAuthenticator(this);
 }
 
 bool ChromeLoginPerformer::AreSupervisedUsersAllowed() {
@@ -160,7 +172,7 @@ content::BrowserContext* ChromeLoginPerformer::GetSigninContext() {
 }
 
 net::URLRequestContextGetter* ChromeLoginPerformer::GetSigninRequestContext() {
-  return ProfileHelper::GetSigninProfile()->GetRequestContext();
+  return login::GetSigninContext();
 }
 
 void ChromeLoginPerformer::OnlineWildcardLoginCheckCompleted(

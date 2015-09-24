@@ -5,21 +5,25 @@
 #ifndef ChildNode_h
 #define ChildNode_h
 
-#include "core/dom/ElementTraversal.h"
 #include "core/dom/Node.h"
 
 namespace blink {
 
 class ChildNode {
 public:
-    static Element* previousElementSibling(Node& node)
+    static void before(Node& node, const HeapVector<NodeOrString>& nodes, ExceptionState& exceptionState)
     {
-        return ElementTraversal::previousSibling(node);
+        return node.before(nodes, exceptionState);
     }
 
-    static Element* nextElementSibling(Node& node)
+    static void after(Node& node, const HeapVector<NodeOrString>& nodes, ExceptionState& exceptionState)
     {
-        return ElementTraversal::nextSibling(node);
+        return node.after(nodes, exceptionState);
+    }
+
+    static void replaceWith(Node& node, const HeapVector<NodeOrString>& nodes, ExceptionState& exceptionState)
+    {
+        return node.replaceWith(nodes, exceptionState);
     }
 
     static void remove(Node& node, ExceptionState& exceptionState)

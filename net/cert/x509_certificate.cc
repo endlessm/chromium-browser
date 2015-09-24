@@ -16,8 +16,9 @@
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/singleton.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/pickle.h"
+#include "base/profiler/scoped_tracker.h"
 #include "base/sha1.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
@@ -45,7 +46,7 @@ const char kCertificateHeader[] = "CERTIFICATE";
 // The PEM block header used for PKCS#7 data
 const char kPKCS7Header[] = "PKCS7";
 
-#if !defined(USE_NSS)
+#if !defined(USE_NSS_CERTS)
 // A thread-safe cache for OS certificate handles.
 //
 // Within each of the supported underlying crypto libraries, a certificate
@@ -186,19 +187,19 @@ void X509CertificateCache::Remove(X509Certificate::OSCertHandle cert_handle) {
     cache_.erase(pos);
   }
 }
-#endif  // !defined(USE_NSS)
+#endif  // !defined(USE_NSS_CERTS)
 
 // See X509CertificateCache::InsertOrUpdate. NSS has a built-in cache, so there
 // is no point in wrapping another cache around it.
 void InsertOrUpdateCache(X509Certificate::OSCertHandle* cert_handle) {
-#if !defined(USE_NSS)
+#if !defined(USE_NSS_CERTS)
   g_x509_certificate_cache.Pointer()->InsertOrUpdate(cert_handle);
 #endif
 }
 
 // See X509CertificateCache::Remove.
 void RemoveFromCache(X509Certificate::OSCertHandle cert_handle) {
-#if !defined(USE_NSS)
+#if !defined(USE_NSS_CERTS)
   g_x509_certificate_cache.Pointer()->Remove(cert_handle);
 #endif
 }
@@ -262,6 +263,11 @@ X509Certificate* X509Certificate::CreateFromHandle(
 // static
 X509Certificate* X509Certificate::CreateFromDERCertChain(
     const std::vector<base::StringPiece>& der_certs) {
+  // TODO(cbentzel): Remove ScopedTracker below once crbug.com/424386 is fixed.
+  tracked_objects::ScopedTracker tracking_profile(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "424386 X509Certificate::CreateFromDERCertChain"));
+
   if (der_certs.empty())
     return NULL;
 
@@ -306,9 +312,9 @@ X509Certificate* X509Certificate::CreateFromBytes(const char* data,
 }
 
 // static
-X509Certificate* X509Certificate::CreateFromPickle(const Pickle& pickle,
-                                                   PickleIterator* pickle_iter,
-                                                   PickleType type) {
+X509Certificate* X509Certificate::CreateFromPickle(
+    base::PickleIterator* pickle_iter,
+    PickleType type) {
   if (type == PICKLETYPE_CERTIFICATE_CHAIN_V3) {
     int chain_length = 0;
     if (!pickle_iter->ReadLength(&chain_length))
@@ -333,7 +339,7 @@ X509Certificate* X509Certificate::CreateFromPickle(const Pickle& pickle,
     return NULL;
 
   OSCertHandles intermediates;
-  uint32 num_intermediates = 0;
+  uint32_t num_intermediates = 0;
   if (type != PICKLETYPE_SINGLE_CERTIFICATE) {
     if (!pickle_iter->ReadUInt32(&num_intermediates)) {
       FreeOSCertHandle(cert_handle);
@@ -354,8 +360,8 @@ X509Certificate* X509Certificate::CreateFromPickle(const Pickle& pickle,
     // bits of zeroes. Now we always write 32 bits, so after a while, these old
     // cached pickles will all get replaced.
     // TODO(mdm): remove this compatibility code in April 2013 or so.
-    PickleIterator saved_iter = *pickle_iter;
-    uint32 zero_check = 0;
+    base::PickleIterator saved_iter = *pickle_iter;
+    uint32_t zero_check = 0;
     if (!pickle_iter->ReadUInt32(&zero_check)) {
       // This may not be an error. If there are no intermediates, and we're
       // reading an old 32-bit pickle, and there's nothing else after this in
@@ -373,7 +379,7 @@ X509Certificate* X509Certificate::CreateFromPickle(const Pickle& pickle,
       *pickle_iter = saved_iter;
 #endif  // defined(OS_POSIX) && !defined(OS_MACOSX) && defined(__x86_64__)
 
-    for (uint32 i = 0; i < num_intermediates; ++i) {
+    for (uint32_t i = 0; i < num_intermediates; ++i) {
       OSCertHandle intermediate = ReadOSCertHandleFromPickle(pickle_iter);
       if (!intermediate)
         break;
@@ -408,9 +414,9 @@ CertificateList X509Certificate::CreateCertificateListFromBytes(
   if (format & FORMAT_PKCS7)
     pem_headers.push_back(kPKCS7Header);
 
-  PEMTokenizer pem_tok(data_string, pem_headers);
-  while (pem_tok.GetNext()) {
-    std::string decoded(pem_tok.data());
+  PEMTokenizer pem_tokenizer(data_string, pem_headers);
+  while (pem_tokenizer.GetNext()) {
+    std::string decoded(pem_tokenizer.data());
 
     OSCertHandle handle = NULL;
     if (format & FORMAT_PEM_CERT_SEQUENCE)
@@ -468,7 +474,7 @@ CertificateList X509Certificate::CreateCertificateListFromBytes(
   return results;
 }
 
-void X509Certificate::Persist(Pickle* pickle) {
+void X509Certificate::Persist(base::Pickle* pickle) {
   DCHECK(cert_handle_);
   // This would be an absolutely insane number of intermediates.
   if (intermediate_ca_certs_.size() > static_cast<size_t>(INT_MAX) - 1) {
@@ -629,27 +635,16 @@ bool X509Certificate::VerifyHostname(
     if (presented_domain != reference_domain)
       continue;
 
-    base::StringPiece pattern_begin, pattern_end;
-    SplitOnChar(presented_host, '*', &pattern_begin, &pattern_end);
-
-    if (pattern_end.empty()) {  // No '*' in the presented_host
+    if (presented_host != "*") {
       if (presented_host == reference_host)
         return true;
       continue;
     }
-    pattern_end.remove_prefix(1);  // move past the *
 
     if (!allow_wildcards)
       continue;
 
-    // * must not match a substring of an IDN A label; just a whole fragment.
-    if (reference_host.starts_with("xn--") &&
-        !(pattern_begin.empty() && pattern_end.empty()))
-      continue;
-
-    if (reference_host.starts_with(pattern_begin) &&
-        reference_host.ends_with(pattern_end))
-      return true;
+    return true;
   }
   return false;
 }

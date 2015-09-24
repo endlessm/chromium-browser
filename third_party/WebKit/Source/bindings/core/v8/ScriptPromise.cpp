@@ -33,28 +33,16 @@
 
 #include "bindings/core/v8/ExceptionMessages.h"
 #include "bindings/core/v8/ExceptionState.h"
-#include "bindings/core/v8/V8Binding.h"
+#include "bindings/core/v8/ToV8.h"
 #include "bindings/core/v8/V8ThrowException.h"
 #include "core/dom/DOMException.h"
-
+#include "core/inspector/InstanceCounters.h"
 #include <v8.h>
 
 namespace blink {
 
-namespace {
-
-struct WithScriptState {
-    // Used by ToV8Value<WithScriptState, ScriptState*>.
-    static v8::Handle<v8::Object> getCreationContext(ScriptState* scriptState)
-    {
-        return scriptState->context()->Global();
-    }
-};
-
-} // namespace
-
 ScriptPromise::InternalResolver::InternalResolver(ScriptState* scriptState)
-    : m_resolver(scriptState, v8::Promise::Resolver::New(scriptState->isolate())) { }
+    : m_resolver(scriptState, v8::Promise::Resolver::New(scriptState->context())) { }
 
 v8::Local<v8::Promise> ScriptPromise::InternalResolver::v8Promise() const
 {
@@ -74,7 +62,7 @@ void ScriptPromise::InternalResolver::resolve(v8::Local<v8::Value> value)
 {
     if (m_resolver.isEmpty())
         return;
-    m_resolver.v8Value().As<v8::Promise::Resolver>()->Resolve(value);
+    m_resolver.v8Value().As<v8::Promise::Resolver>()->Resolve(m_resolver.context(), value);
     clear();
 }
 
@@ -82,25 +70,45 @@ void ScriptPromise::InternalResolver::reject(v8::Local<v8::Value> value)
 {
     if (m_resolver.isEmpty())
         return;
-    m_resolver.v8Value().As<v8::Promise::Resolver>()->Reject(value);
+    m_resolver.v8Value().As<v8::Promise::Resolver>()->Reject(m_resolver.context(), value);
     clear();
 }
 
-ScriptPromise::ScriptPromise(ScriptState* scriptState, v8::Handle<v8::Value> value)
+ScriptPromise::ScriptPromise()
+{
+    increaseInstanceCount();
+}
+
+ScriptPromise::ScriptPromise(ScriptState* scriptState, v8::Local<v8::Value> value)
     : m_scriptState(scriptState)
 {
+    increaseInstanceCount();
+
     if (value.IsEmpty())
         return;
 
     if (!value->IsPromise()) {
-        m_promise = ScriptValue(scriptState, v8::Handle<v8::Value>());
+        m_promise = ScriptValue(scriptState, v8::Local<v8::Value>());
         V8ThrowException::throwTypeError(scriptState->isolate(), "the given value is not a Promise");
         return;
     }
     m_promise = ScriptValue(scriptState, value);
 }
 
-ScriptPromise ScriptPromise::then(v8::Handle<v8::Function> onFulfilled, v8::Handle<v8::Function> onRejected)
+ScriptPromise::ScriptPromise(const ScriptPromise& other)
+{
+    increaseInstanceCount();
+
+    this->m_scriptState = other.m_scriptState;
+    this->m_promise = other.m_promise;
+}
+
+ScriptPromise::~ScriptPromise()
+{
+    decreaseInstanceCount();
+}
+
+ScriptPromise ScriptPromise::then(v8::Local<v8::Function> onFulfilled, v8::Local<v8::Function> onRejected)
 {
     if (m_promise.isEmpty())
         return ScriptPromise();
@@ -113,15 +121,13 @@ ScriptPromise ScriptPromise::then(v8::Handle<v8::Function> onFulfilled, v8::Hand
     // but that is not a problem in this case.
     v8::Local<v8::Promise> resultPromise = promise.As<v8::Promise>();
     if (!onFulfilled.IsEmpty()) {
-        resultPromise = resultPromise->Then(onFulfilled);
-        if (resultPromise.IsEmpty()) {
-            // v8::Promise::Then may return an empty value, for example when
-            // the stack is exhausted.
+        if (!resultPromise->Then(m_scriptState->context(), onFulfilled).ToLocal(&resultPromise))
             return ScriptPromise();
-        }
     }
-    if (!onRejected.IsEmpty())
-        resultPromise = resultPromise->Catch(onRejected);
+    if (!onRejected.IsEmpty()) {
+        if (!resultPromise->Catch(m_scriptState->context(), onRejected).ToLocal(&resultPromise))
+            return ScriptPromise();
+    }
 
     return ScriptPromise(m_scriptState.get(), resultPromise);
 }
@@ -131,7 +137,7 @@ ScriptPromise ScriptPromise::cast(ScriptState* scriptState, const ScriptValue& v
     return ScriptPromise::cast(scriptState, value.v8Value());
 }
 
-ScriptPromise ScriptPromise::cast(ScriptState* scriptState, v8::Handle<v8::Value> value)
+ScriptPromise ScriptPromise::cast(ScriptState* scriptState, v8::Local<v8::Value> value)
 {
     if (value.IsEmpty())
         return ScriptPromise();
@@ -149,7 +155,7 @@ ScriptPromise ScriptPromise::reject(ScriptState* scriptState, const ScriptValue&
     return ScriptPromise::reject(scriptState, value.v8Value());
 }
 
-ScriptPromise ScriptPromise::reject(ScriptState* scriptState, v8::Handle<v8::Value> value)
+ScriptPromise ScriptPromise::reject(ScriptState* scriptState, v8::Local<v8::Value> value)
 {
     if (value.IsEmpty())
         return ScriptPromise();
@@ -159,20 +165,37 @@ ScriptPromise ScriptPromise::reject(ScriptState* scriptState, v8::Handle<v8::Val
     return promise;
 }
 
-ScriptPromise ScriptPromise::rejectWithDOMException(ScriptState* scriptState, PassRefPtrWillBeRawPtr<DOMException> exception)
+ScriptPromise ScriptPromise::rejectWithDOMException(ScriptState* scriptState, DOMException* exception)
 {
     ASSERT(scriptState->isolate()->InContext());
-    return reject(scriptState, V8ValueTraits<PassRefPtrWillBeRawPtr<DOMException> >::toV8Value(exception, scriptState->context()->Global(), scriptState->isolate()));
+    return reject(scriptState, toV8(exception, scriptState->context()->Global(), scriptState->isolate()));
 }
 
-v8::Local<v8::Promise> ScriptPromise::rejectRaw(v8::Isolate* isolate, v8::Handle<v8::Value> value)
+v8::Local<v8::Promise> ScriptPromise::rejectRaw(ScriptState* scriptState, v8::Local<v8::Value> value)
 {
     if (value.IsEmpty())
         return v8::Local<v8::Promise>();
-    v8::Local<v8::Promise::Resolver> resolver = v8::Promise::Resolver::New(isolate);
+    v8::Local<v8::Promise::Resolver> resolver;
+    if (!v8::Promise::Resolver::New(scriptState->context()).ToLocal(&resolver))
+        return v8::Local<v8::Promise>();
     v8::Local<v8::Promise> promise = resolver->GetPromise();
-    resolver->Reject(value);
+    resolver->Reject(scriptState->context(), value);
     return promise;
+}
+
+void ScriptPromise::increaseInstanceCount()
+{
+    // An instance is only counted only on the main thread. This is because the
+    // leak detector can detect leaks on the main thread so far. We plan to fix
+    // the leak detector to work on worker threads (crbug.com/507224).
+    if (isMainThread())
+        InstanceCounters::incrementCounter(InstanceCounters::ScriptPromiseCounter);
+}
+
+void ScriptPromise::decreaseInstanceCount()
+{
+    if (isMainThread())
+        InstanceCounters::decrementCounter(InstanceCounters::ScriptPromiseCounter);
 }
 
 } // namespace blink

@@ -9,7 +9,6 @@
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/chromeos/file_system_provider/operations/operation.h"
 #include "chrome/browser/chromeos/file_system_provider/provided_file_system_info.h"
-#include "chrome/browser/chromeos/file_system_provider/provided_file_system_interface.h"
 #include "chrome/browser/chromeos/file_system_provider/request_value.h"
 #include "storage/browser/fileapi/async_file_util.h"
 
@@ -34,20 +33,19 @@ class DeleteEntry : public Operation {
               const base::FilePath& entry_path,
               bool recursive,
               const storage::AsyncFileUtil::StatusCallback& callback);
-  virtual ~DeleteEntry();
+  ~DeleteEntry() override;
 
   // Operation overrides.
-  virtual bool Execute(int request_id) override;
-  virtual void OnSuccess(int request_id,
-                         scoped_ptr<RequestValue> result,
-                         bool has_more) override;
-  virtual void OnError(int request_id,
-                       scoped_ptr<RequestValue> result,
-                       base::File::Error error) override;
+  bool Execute(int request_id) override;
+  void OnSuccess(int request_id,
+                 scoped_ptr<RequestValue> result,
+                 bool has_more) override;
+  void OnError(int request_id,
+               scoped_ptr<RequestValue> result,
+               base::File::Error error) override;
 
  private:
   base::FilePath entry_path_;
-  ProvidedFileSystemInterface::OpenFileMode mode_;
   bool recursive_;
   const storage::AsyncFileUtil::StatusCallback callback_;
 

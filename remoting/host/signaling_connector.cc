@@ -26,10 +26,12 @@ const int kMaxReconnectDelaySeconds = 10 * 60;
 SignalingConnector::SignalingConnector(
     XmppSignalStrategy* signal_strategy,
     scoped_ptr<DnsBlackholeChecker> dns_blackhole_checker,
+    OAuthTokenGetter* oauth_token_getter,
     const base::Closure& auth_failed_callback)
     : signal_strategy_(signal_strategy),
       auth_failed_callback_(auth_failed_callback),
       dns_blackhole_checker_(dns_blackhole_checker.Pass()),
+      oauth_token_getter_(oauth_token_getter),
       reconnect_attempts_(0) {
   DCHECK(!auth_failed_callback_.is_null());
   DCHECK(dns_blackhole_checker_.get());
@@ -43,10 +45,6 @@ SignalingConnector::~SignalingConnector() {
   signal_strategy_->RemoveListener(this);
   net::NetworkChangeNotifier::RemoveConnectionTypeObserver(this);
   net::NetworkChangeNotifier::RemoveIPAddressObserver(this);
-}
-
-void SignalingConnector::EnableOAuth(OAuthTokenGetter* oauth_token_getter) {
-  oauth_token_getter_ = oauth_token_getter;
 }
 
 void SignalingConnector::OnSignalStrategyStateChange(
@@ -109,7 +107,7 @@ void SignalingConnector::OnAccessToken(OAuthTokenGetter::Status status,
   DCHECK_EQ(status, OAuthTokenGetter::SUCCESS);
   HOST_LOG << "Received user info.";
 
-  signal_strategy_->SetAuthInfo(user_email, access_token, "oauth2");
+  signal_strategy_->SetAuthInfo(user_email, access_token);
 
   // Now that we've refreshed the token and verified that it's for the correct
   // user account, try to connect using the new token.

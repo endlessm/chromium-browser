@@ -11,12 +11,13 @@
 #include "components/metrics/serialization/metric_sample.h"
 #include "components/metrics/serialization/serialization_utils.h"
 #include "content/public/test/test_browser_thread_bundle.h"
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace chromeos {  // Need this because of the FRIEND_TEST
 
 class ExternalMetricsTest : public testing::Test {
  public:
-  virtual void SetUp() override {
+  void SetUp() override {
     ASSERT_TRUE(dir_.CreateUniqueTempDir());
     external_metrics_ = ExternalMetrics::CreateForTesting(
         dir_.path().Append("testfile").value());

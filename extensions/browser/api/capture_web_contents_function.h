@@ -5,6 +5,7 @@
 #ifndef EXTENSIONS_BROWSER_API_CAPTURE_WEB_CONTENTS_FUNCTION_H_
 #define EXTENSIONS_BROWSER_API_CAPTURE_WEB_CONTENTS_FUNCTION_H_
 
+#include "content/public/browser/readback_types.h"
 #include "extensions/browser/extension_function.h"
 #include "extensions/common/api/extension_types.h"
 
@@ -40,9 +41,9 @@ class CaptureWebContentsFunction : public AsyncExtensionFunction {
   virtual void OnCaptureFailure(FailureReason reason) = 0;
 
  private:
-  typedef core_api::extension_types::ImageDetails ImageDetails;
 
-  void CopyFromBackingStoreComplete(bool succeed, const SkBitmap& bitmap);
+  void CopyFromBackingStoreComplete(const SkBitmap& bitmap,
+                                    content::ReadbackResponse response);
   void OnCaptureSuccess(const SkBitmap& bitmap);
 
   // |context_id_| is the ID used to find the relevant WebContents. In the
@@ -52,7 +53,7 @@ class CaptureWebContentsFunction : public AsyncExtensionFunction {
   int context_id_;
 
   // The format (JPEG vs PNG) of the resulting image.  Set in RunAsync().
-  ImageDetails::Format image_format_;
+  core_api::extension_types::ImageFormat image_format_;
 
   // Quality setting to use when encoding jpegs.  Set in RunAsync().
   int image_quality_;

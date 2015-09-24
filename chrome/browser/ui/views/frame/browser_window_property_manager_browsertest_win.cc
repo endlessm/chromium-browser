@@ -25,6 +25,7 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_iterator.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/browser/web_applications/web_app_win.h"
@@ -34,6 +35,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/test_switches.h"
 #include "content/public/test/test_utils.h"
+#include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "ui/views/win/hwnd_util.h"
 
@@ -79,7 +81,8 @@ void ValidateBrowserWindowProperties(
   EXPECT_EQ(S_OK, pps->GetValue(PKEY_AppUserModel_RelaunchCommand,
                                 prop_var.Receive()));
   EXPECT_EQ(VT_LPWSTR, prop_var.get().vt);
-  CommandLine cmd_line(CommandLine::FromString(prop_var.get().pwszVal));
+  base::CommandLine cmd_line(
+      base::CommandLine::FromString(prop_var.get().pwszVal));
   EXPECT_EQ(browser->profile()->GetPath().BaseName().value(),
             cmd_line.GetSwitchValueNative(switches::kProfileDirectory));
   prop_var.Reset();
@@ -118,7 +121,8 @@ void ValidateHostedAppWindowProperties(const Browser* browser,
       S_OK,
       pps->GetValue(PKEY_AppUserModel_RelaunchCommand, prop_var.Receive()));
   EXPECT_EQ(VT_LPWSTR, prop_var.get().vt);
-  CommandLine cmd_line(CommandLine::FromString(prop_var.get().pwszVal));
+  base::CommandLine cmd_line(
+      base::CommandLine::FromString(prop_var.get().pwszVal));
   EXPECT_EQ(browser->profile()->GetPath().BaseName().value(),
             cmd_line.GetSwitchValueNative(switches::kProfileDirectory));
   EXPECT_EQ(base::UTF8ToWide(extension->id()),
@@ -165,7 +169,7 @@ class BrowserTestWithProfileShortcutManager : public InProcessBrowserTest {
  public:
   BrowserTestWithProfileShortcutManager() {}
 
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(switches::kEnableProfileShortcutManager);
   }
 
@@ -178,7 +182,8 @@ class BrowserTestWithProfileShortcutManager : public InProcessBrowserTest {
 IN_PROC_BROWSER_TEST_F(BrowserTestWithProfileShortcutManager,
                        DISABLED_WindowProperties) {
   // Disable this test in Metro+Ash where Windows window properties aren't used.
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 
   // This test checks HWND properties that are only available on Win7+.
@@ -210,10 +215,10 @@ IN_PROC_BROWSER_TEST_F(BrowserTestWithProfileShortcutManager,
   content::RunMessageLoop();
 
   // The default profile's name should be part of the relaunch name.
-  WaitAndValidateBrowserWindowProperties(
-      base::Bind(&ValidateBrowserWindowProperties,
-                 browser(),
-                 base::UTF8ToUTF16(browser()->profile()->GetProfileName())));
+  WaitAndValidateBrowserWindowProperties(base::Bind(
+      &ValidateBrowserWindowProperties,
+      browser(),
+      base::UTF8ToUTF16(browser()->profile()->GetProfileUserName())));
 
   // The second profile's name should be part of the relaunch name.
   Browser* profile2_browser =
@@ -229,7 +234,8 @@ IN_PROC_BROWSER_TEST_F(BrowserTestWithProfileShortcutManager,
 IN_PROC_BROWSER_TEST_F(BrowserWindowPropertyManagerTest, DISABLED_HostedApp) {
 #if defined(USE_ASH)
   // Disable this test in Metro+Ash where Windows window properties aren't used.
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -242,10 +248,9 @@ IN_PROC_BROWSER_TEST_F(BrowserWindowPropertyManagerTest, DISABLED_HostedApp) {
       LoadExtension(test_data_dir_.AppendASCII("app/"));
   EXPECT_TRUE(extension);
 
-  OpenApplication(AppLaunchParams(browser()->profile(),
-                                  extension,
-                                  extensions::LAUNCH_CONTAINER_WINDOW,
-                                  NEW_FOREGROUND_TAB));
+  OpenApplication(AppLaunchParams(
+      browser()->profile(), extension, extensions::LAUNCH_CONTAINER_WINDOW,
+      NEW_FOREGROUND_TAB, extensions::SOURCE_TEST));
 
   // Check that the new browser has an app name.
   // The launch should have created a new browser.
@@ -254,7 +259,7 @@ IN_PROC_BROWSER_TEST_F(BrowserWindowPropertyManagerTest, DISABLED_HostedApp) {
                                     browser()->host_desktop_type()));
 
   // Find the new browser.
-  Browser* app_browser = NULL;
+  Browser* app_browser = nullptr;
   for (chrome::BrowserIterator it; !it.done() && !app_browser; it.Next()) {
     if (*it != browser())
       app_browser = *it;

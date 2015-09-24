@@ -12,7 +12,9 @@ import java.util.Map;
 
 /**
  * HTTP request (GET or POST).
+ * @deprecated Use {@link UrlRequest} instead.
  */
+@Deprecated
 public interface HttpUrlRequest {
 
     public static final int REQUEST_PRIORITY_IDLE = 0;
@@ -114,6 +116,11 @@ public interface HttpUrlRequest {
     String getNegotiatedProtocol();
 
     /**
+     * Returns whether the response is serviced from the cache.
+     */
+    boolean wasCached();
+
+    /**
      * Returns the entire response as a ByteBuffer.
      */
     ByteBuffer getByteBuffer();
@@ -144,7 +151,8 @@ public interface HttpUrlRequest {
 
     /**
      * Returns the HTTP status text of the status line. For example, if the
-     * request has a "HTTP/1.1 200 OK" response, this method returns "OK".
+     * request has a "HTTP/1.1 200 OK" response, this method returns "OK". It
+     * returns null if the request has not started.
      */
     String getHttpStatusText();
 

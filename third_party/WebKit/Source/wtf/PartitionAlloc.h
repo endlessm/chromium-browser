@@ -45,7 +45,7 @@
 // THE ONLY LEGITIMATE WAY TO OBTAIN A PartitionRoot IS THROUGH THE
 // SizeSpecificPartitionAllocator / PartitionAllocatorGeneric classes. To
 // minimize the instruction count to the fullest extent possible, the
-// PartitonRoot is really just a header adjacent to other data areas provided
+// PartitionRoot is really just a header adjacent to other data areas provided
 // by the allocator class.
 //
 // The partitionAlloc() variant of the API has the following caveats:
@@ -153,6 +153,28 @@ static const size_t kMaxSystemPagesPerSlotSpan = kNumSystemPagesPerPartitionPage
 // metadata in the first few pages of each 2MB aligned section. This leads to
 // a very fast free(). We specifically choose 2MB because this virtual address
 // block represents a full but single PTE allocation on ARM, ia32 and x64.
+//
+// The layout of the super page is as follows. The sizes below are the same
+// for 32 bit and 64 bit.
+//
+//   | Guard page (4KB) | Metadata page (4KB) | Guard pages (8KB) | Slot span | Slot span | ... | Slot span | Guard page (4KB) |
+//
+//   - Each slot span is a contiguous range of one or more PartitionPages.
+//   - The metadata page has the following format. Note that the PartitionPage
+//     that is not at the head of a slot span is "unused". In other words,
+//     the metadata for the slot span is stored only in the first PartitionPage
+//     of the slot span. Metadata accesses to other PartitionPages are
+//     redirected to the first PartitionPage.
+//
+//     | SuperPageExtentEntry (32B) | PartitionPage of slot span 1 (32B, used) | PartitionPage of slot span 1 (32B, unused) | PartitionPage of slot span 1 (32B, unused) | PartitionPage of slot span 2 (32B, used) | PartitionPage of slot span 3 (32B, used) | ... | PartitionPage of slot span N (32B, unused) |
+//
+// A direct mapped page has a similar layout to fake it looking like a super page:
+//
+//     | Guard page (4KB) | Metadata page (4KB) | Guard pages (8KB) | Direct mapped object | Guard page (4KB) |
+//
+//    - The metadata page has the following layout:
+//
+//     | SuperPageExtentEntry (32B) | PartitionPage (32B) | PartitionBucket (32B) | PartitionDirectMapExtent (8B) |
 static const size_t kSuperPageShift = 21; // 2MB
 static const size_t kSuperPageSize = 1 << kSuperPageShift;
 static const size_t kSuperPageOffsetMask = kSuperPageSize - 1;
@@ -174,6 +196,7 @@ static const size_t kGenericMaxBucketedOrder = 20; // Largest bucketed order is 
 static const size_t kGenericNumBucketedOrders = (kGenericMaxBucketedOrder - kGenericMinBucketedOrder) + 1;
 static const size_t kGenericNumBucketsPerOrderBits = 3; // Eight buckets per order (for the higher orders), e.g. order 8 is 128, 144, 160, ..., 240
 static const size_t kGenericNumBucketsPerOrder = 1 << kGenericNumBucketsPerOrderBits;
+static const size_t kGenericNumBuckets = kGenericNumBucketedOrders * kGenericNumBucketsPerOrder;
 static const size_t kGenericSmallestBucket = 1 << (kGenericMinBucketedOrder - 1);
 static const size_t kGenericMaxBucketSpacing = 1 << ((kGenericMaxBucketedOrder - 1) - kGenericNumBucketsPerOrderBits);
 static const size_t kGenericMaxBucketed = (1 << (kGenericMaxBucketedOrder - 1)) + ((kGenericNumBucketsPerOrder - 1) * kGenericMaxBucketSpacing);
@@ -184,12 +207,19 @@ static const size_t kBitsPerSizet = sizeof(void*) * CHAR_BIT;
 // Constants for the memory reclaim logic.
 static const size_t kMaxFreeableSpans = 16;
 
+// If the total size in bytes of allocated but not committed pages exceeds this
+// value (probably it is a "out of virtual address space" crash),
+// a special crash stack trace is generated at |partitionOutOfMemory|.
+// This is to distinguish "out of virtual address space" from
+// "out of physical memory" in crash reports.
+static const size_t kReasonableSizeOfUnusedPages = 1024 * 1024 * 1024; // 1GiB
+
 #if ENABLE(ASSERT)
 // These two byte values match tcmalloc.
 static const unsigned char kUninitializedByte = 0xAB;
 static const unsigned char kFreedByte = 0xCD;
-static const uint32_t kCookieValue = 0xDEADBEEFu;
 static const size_t kCookieSize = 16; // Handles alignment up to XMM instructions on Intel.
+static const unsigned char kCookieValue[kCookieSize] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xD0, 0x0D, 0x13, 0x37, 0xF0, 0x05, 0xBA, 0x11, 0xAB, 0x1E };
 #endif
 
 struct PartitionBucket;
@@ -199,39 +229,45 @@ struct PartitionFreelistEntry {
     PartitionFreelistEntry* next;
 };
 
-// Some notes on page states. A page can be in one of three major states:
+// Some notes on page states. A page can be in one of four major states:
 // 1) Active.
 // 2) Full.
-// 3) Free.
-// An active page has available free slots. A full page has no free slots. A
-// free page has had its backing memory released back to the system.
+// 3) Empty.
+// 4) Decommitted.
+// An active page has available free slots. A full page has no free slots. An
+// empty page has no free slots, and a decommitted page is an empty page that
+// had its backing memory released back to the system.
 // There are two linked lists tracking the pages. The "active page" list is an
-// approximation of a list of active pages. It is an approximation because both
-// free and full pages may briefly be present in the list until we next do a
-// scan over it. The "free page" list is an accurate list of pages which have
-// been returned back to the system.
+// approximation of a list of active pages. It is an approximation because
+// full, empty and decommitted pages may briefly be present in the list until
+// we next do a scan over it.
+// The "empty page" list is an accurate list of pages which are either empty
+// or decommitted.
+//
 // The significant page transitions are:
 // - free() will detect when a full page has a slot free()'d and immediately
 // return the page to the head of the active list.
 // - free() will detect when a page is fully emptied. It _may_ add it to the
-// free list and it _may_ leave it on the active list until a future list scan.
+// empty list or it _may_ leave it on the active list until a future list scan.
 // - malloc() _may_ scan the active page list in order to fulfil the request.
-// If it does this, full and free pages encountered will be booted out of the
-// active list. If there are no suitable active pages found, a free page (if one
-// exists) will be pulled from the free list on to the active list.
+// If it does this, full, empty and decommitted pages encountered will be
+// booted out of the active list. If there are no suitable active pages found,
+// an empty or decommitted page (if one exists) will be pulled from the empty
+// list on to the active list.
 struct PartitionPage {
     PartitionFreelistEntry* freelistHead;
     PartitionPage* nextPage;
     PartitionBucket* bucket;
-    int16_t numAllocatedSlots; // Deliberately signed, -1 for free page, -n for full pages.
+    int16_t numAllocatedSlots; // Deliberately signed, 0 for empty or decommitted page, -n for full pages.
     uint16_t numUnprovisionedSlots;
     uint16_t pageOffset;
-    int16_t freeCacheIndex; // -1 if not in the free cache.
+    int16_t emptyCacheIndex; // -1 if not in the empty cache.
 };
 
 struct PartitionBucket {
     PartitionPage* activePagesHead; // Accessed most in hot path => goes first.
-    PartitionPage* freePagesHead;
+    PartitionPage* emptyPagesHead;
+    PartitionPage* decommittedPagesHead;
     uint32_t slotSize;
     uint16_t numSystemPagesPerSlotSpan;
     uint16_t numFullPages;
@@ -247,9 +283,18 @@ struct PartitionSuperPageExtentEntry {
     PartitionSuperPageExtentEntry* next;
 };
 
+struct PartitionDirectMapExtent {
+    PartitionDirectMapExtent* nextExtent;
+    PartitionDirectMapExtent* prevExtent;
+    PartitionBucket* bucket;
+    size_t mapSize; // Mapped size, not including guard pages and meta-data.
+};
+
 struct WTF_EXPORT PartitionRootBase {
     size_t totalSizeOfCommittedPages;
     size_t totalSizeOfSuperPages;
+    size_t totalSizeOfDirectMappedPages;
+    // Invariant: totalSizeOfCommittedPages <= totalSizeOfSuperPages + totalSizeOfDirectMappedPages.
     unsigned numBuckets;
     unsigned maxAllocation;
     bool initialized;
@@ -258,12 +303,17 @@ struct WTF_EXPORT PartitionRootBase {
     char* nextPartitionPageEnd;
     PartitionSuperPageExtentEntry* currentExtent;
     PartitionSuperPageExtentEntry* firstExtent;
+    PartitionDirectMapExtent* directMapList;
     PartitionPage* globalEmptyPageRing[kMaxFreeableSpans];
     int16_t globalEmptyPageRingIndex;
     uintptr_t invertedSelf;
 
     static int gInitializedLock;
     static bool gInitialized;
+    // gSeedPage is used as a sentinel to indicate that there is no page
+    // in the active page list. We can use nullptr, but in that case we need
+    // to add a null-check branch to the hot allocation path. We want to avoid
+    // that.
     static PartitionPage gSeedPage;
     static PartitionBucket gPagedBucket;
 };
@@ -286,7 +336,7 @@ struct PartitionRootGeneric : public PartitionRootBase {
     // It is one flat array instead of a 2D array because in the 2D world, we'd
     // need to index array[blah][max+1] which risks undefined behavior.
     PartitionBucket* bucketLookups[((kBitsPerSizet + 1) * kGenericNumBucketsPerOrder) + 1];
-    PartitionBucket buckets[kGenericNumBucketedOrders * kGenericNumBucketsPerOrder];
+    PartitionBucket buckets[kGenericNumBuckets];
 };
 
 // Flags for partitionAllocGenericFlags.
@@ -294,18 +344,54 @@ enum PartitionAllocFlags {
     PartitionAllocReturnNull = 1 << 0,
 };
 
+// Struct used to retrieve memory statistics about a partition bucket. Used by
+// PartitionStatsDumper implementation.
+struct PartitionBucketMemoryStats {
+    bool isValid; // Used to check if the stats is valid.
+    bool isDirectMap; // True if this is a direct mapping; size will not be unique.
+    uint32_t bucketSlotSize; // The size of the slot in bytes.
+    uint32_t allocatedPageSize; // Total size the partition page allocated from the system.
+    uint32_t activeBytes; // Total active bytes used in the bucket.
+    uint32_t residentBytes; // Total bytes provisioned in the bucket.
+    uint32_t decommittableBytes; // Total bytes that could be decommitted.
+    uint32_t discardableBytes; // Total bytes that could be discarded.
+    uint32_t numFullPages; // Number of pages with all slots allocated.
+    uint32_t numActivePages; // Number of pages that have at least one provisioned slot.
+    uint32_t numEmptyPages; // Number of pages that are empty but not decommitted.
+    uint32_t numDecommittedPages; // Number of pages that are empty and decommitted.
+};
+
+// Interface that is passed to partitionDumpStats and
+// partitionDumpStatsGeneric for using the memory statistics.
+class WTF_EXPORT PartitionStatsDumper {
+public:
+    virtual void partitionsDumpBucketStats(const char* partitionName, const PartitionBucketMemoryStats*) = 0;
+};
+
 WTF_EXPORT void partitionAllocInit(PartitionRoot*, size_t numBuckets, size_t maxAllocation);
 WTF_EXPORT bool partitionAllocShutdown(PartitionRoot*);
 WTF_EXPORT void partitionAllocGenericInit(PartitionRootGeneric*);
 WTF_EXPORT bool partitionAllocGenericShutdown(PartitionRootGeneric*);
 
+enum PartitionPurgeFlags {
+    // Decommitting the ring list of empty pages is reasonably fast.
+    PartitionPurgeDecommitEmptyPages = 1 << 0,
+    // Discarding unused system pages is slower, because it involves walking all
+    // freelists in all active partition pages of all buckets >= system page
+    // size. It often frees a similar amount of memory to decommitting the empty
+    // pages, though.
+    PartitionPurgeDiscardUnusedSystemPages = 1 << 1,
+};
+
+WTF_EXPORT void partitionPurgeMemory(PartitionRoot*, int);
+WTF_EXPORT void partitionPurgeMemoryGeneric(PartitionRootGeneric*, int);
+
 WTF_EXPORT NEVER_INLINE void* partitionAllocSlowPath(PartitionRootBase*, int, size_t, PartitionBucket*);
 WTF_EXPORT NEVER_INLINE void partitionFreeSlowPath(PartitionPage*);
 WTF_EXPORT NEVER_INLINE void* partitionReallocGeneric(PartitionRootGeneric*, void*, size_t);
 
-#ifndef NDEBUG
-WTF_EXPORT void partitionDumpStats(const PartitionRoot&);
-#endif
+WTF_EXPORT void partitionDumpStats(PartitionRoot*, const char* partitionName, PartitionStatsDumper*);
+WTF_EXPORT void partitionDumpStatsGeneric(PartitionRootGeneric*, const char* partitionName, PartitionStatsDumper*);
 
 ALWAYS_INLINE PartitionFreelistEntry* partitionFreelistMask(PartitionFreelistEntry* ptr)
 {
@@ -357,18 +443,18 @@ ALWAYS_INLINE void* partitionCookieFreePointerAdjust(void* ptr)
 ALWAYS_INLINE void partitionCookieWriteValue(void* ptr)
 {
 #if ENABLE(ASSERT)
-    uint32_t* cookiePtr = reinterpret_cast<uint32_t*>(ptr);
-    for (size_t i = 0; i < kCookieSize / sizeof(kCookieValue); ++i, ++cookiePtr)
-        *cookiePtr = kCookieValue;
+    unsigned char* cookiePtr = reinterpret_cast<unsigned char*>(ptr);
+    for (size_t i = 0; i < kCookieSize; ++i, ++cookiePtr)
+        *cookiePtr = kCookieValue[i];
 #endif
 }
 
 ALWAYS_INLINE void partitionCookieCheckValue(void* ptr)
 {
 #if ENABLE(ASSERT)
-    uint32_t* cookiePtr = reinterpret_cast<uint32_t*>(ptr);
-    for (size_t i = 0; i < kCookieSize / sizeof(kCookieValue); ++i, ++cookiePtr)
-        ASSERT(*cookiePtr == kCookieValue);
+    unsigned char* cookiePtr = reinterpret_cast<unsigned char*>(ptr);
+    for (size_t i = 0; i < kCookieSize; ++i, ++cookiePtr)
+        ASSERT(*cookiePtr == kCookieValue[i]);
 #endif
 }
 
@@ -386,17 +472,18 @@ ALWAYS_INLINE PartitionPage* partitionPointerToPageNoAlignmentCheck(void* ptr)
     uintptr_t pointerAsUint = reinterpret_cast<uintptr_t>(ptr);
     char* superPagePtr = reinterpret_cast<char*>(pointerAsUint & kSuperPageBaseMask);
     uintptr_t partitionPageIndex = (pointerAsUint & kSuperPageOffsetMask) >> kPartitionPageShift;
-    // Index 0 is invalid because it is the metadata area and the last index is invalid because it is a guard page.
+    // Index 0 is invalid because it is the metadata and guard area and
+    // the last index is invalid because it is a guard page.
     ASSERT(partitionPageIndex);
     ASSERT(partitionPageIndex < kNumPartitionPagesPerSuperPage - 1);
     PartitionPage* page = reinterpret_cast<PartitionPage*>(partitionSuperPageToMetadataArea(superPagePtr) + (partitionPageIndex << kPageMetadataShift));
-    // Many partition pages can share the same page object. Adjust for that.
+    // Partition pages in the same slot span can share the same page object. Adjust for that.
     size_t delta = page->pageOffset << kPageMetadataShift;
     page = reinterpret_cast<PartitionPage*>(reinterpret_cast<char*>(page) - delta);
     return page;
 }
 
-ALWAYS_INLINE void* partitionPageToPointer(PartitionPage* page)
+ALWAYS_INLINE void* partitionPageToPointer(const PartitionPage* page)
 {
     uintptr_t pointerAsUint = reinterpret_cast<uintptr_t>(page);
     uintptr_t superPageOffset = (pointerAsUint & kSuperPageOffsetMask);
@@ -419,6 +506,44 @@ ALWAYS_INLINE PartitionPage* partitionPointerToPage(void* ptr)
     return page;
 }
 
+ALWAYS_INLINE bool partitionBucketIsDirectMapped(const PartitionBucket* bucket)
+{
+    return !bucket->numSystemPagesPerSlotSpan;
+}
+
+ALWAYS_INLINE size_t partitionBucketBytes(const PartitionBucket* bucket)
+{
+    return bucket->numSystemPagesPerSlotSpan * kSystemPageSize;
+}
+
+ALWAYS_INLINE uint16_t partitionBucketSlots(const PartitionBucket* bucket)
+{
+    return static_cast<uint16_t>(partitionBucketBytes(bucket) / bucket->slotSize);
+}
+
+ALWAYS_INLINE size_t* partitionPageGetRawSizePtr(PartitionPage* page)
+{
+    // For single-slot buckets which span more than one partition page, we
+    // have some spare metadata space to store the raw allocation size. We
+    // can use this to report better statistics.
+    PartitionBucket* bucket = page->bucket;
+    if (bucket->slotSize <= kMaxSystemPagesPerSlotSpan * kSystemPageSize)
+        return nullptr;
+
+    ASSERT((bucket->slotSize % kSystemPageSize) == 0);
+    ASSERT(partitionBucketIsDirectMapped(bucket) || partitionBucketSlots(bucket) == 1);
+    page++;
+    return reinterpret_cast<size_t*>(&page->freelistHead);
+}
+
+ALWAYS_INLINE size_t partitionPageGetRawSize(PartitionPage* page)
+{
+    size_t* rawSizePtr = partitionPageGetRawSizePtr(page);
+    if (UNLIKELY(rawSizePtr != nullptr))
+        return *rawSizePtr;
+    return 0;
+}
+
 ALWAYS_INLINE PartitionRootBase* partitionPageToRoot(PartitionPage* page)
 {
     PartitionSuperPageExtentEntry* extentEntry = reinterpret_cast<PartitionSuperPageExtentEntry*>(reinterpret_cast<uintptr_t>(page) & kSystemPageBaseMask);
@@ -435,29 +560,40 @@ ALWAYS_INLINE bool partitionPointerIsValid(void* ptr)
 ALWAYS_INLINE void* partitionBucketAlloc(PartitionRootBase* root, int flags, size_t size, PartitionBucket* bucket)
 {
     PartitionPage* page = bucket->activePagesHead;
+    // Check that this page is neither full nor freed.
     ASSERT(page->numAllocatedSlots >= 0);
     void* ret = page->freelistHead;
     if (LIKELY(ret != 0)) {
         // If these asserts fire, you probably corrupted memory.
         ASSERT(partitionPointerIsValid(ret));
+        // All large allocations must go through the slow path to correctly
+        // update the size metadata.
+        ASSERT(partitionPageGetRawSize(page) == 0);
         PartitionFreelistEntry* newHead = partitionFreelistMask(static_cast<PartitionFreelistEntry*>(ret)->next);
         page->freelistHead = newHead;
-        ASSERT(!ret || partitionPointerIsValid(ret));
         page->numAllocatedSlots++;
     } else {
         ret = partitionAllocSlowPath(root, flags, size, bucket);
+        ASSERT(!ret || partitionPointerIsValid(ret));
     }
 #if ENABLE(ASSERT)
     if (!ret)
         return 0;
-    // Fill the uninitialized pattern. and write the cookies.
+    // Fill the uninitialized pattern, and write the cookies.
     page = partitionPointerToPage(ret);
-    size_t bucketSize = page->bucket->slotSize;
-    memset(ret, kUninitializedByte, bucketSize);
-    partitionCookieWriteValue(ret);
-    partitionCookieWriteValue(reinterpret_cast<char*>(ret) + bucketSize - kCookieSize);
+    size_t slotSize = page->bucket->slotSize;
+    size_t rawSize = partitionPageGetRawSize(page);
+    if (rawSize) {
+        ASSERT(rawSize == size);
+        slotSize = rawSize;
+    }
+    size_t noCookieSize = partitionCookieSizeAdjustSubtract(slotSize);
+    char* charRet = static_cast<char*>(ret);
     // The value given to the application is actually just after the cookie.
-    ret = static_cast<char*>(ret) + kCookieSize;
+    ret = charRet + kCookieSize;
+    memset(ret, kUninitializedByte, noCookieSize);
+    partitionCookieWriteValue(charRet);
+    partitionCookieWriteValue(charRet + kCookieSize + noCookieSize);
 #endif
     return ret;
 }
@@ -483,22 +619,30 @@ ALWAYS_INLINE void partitionFreeWithPage(void* ptr, PartitionPage* page)
 {
     // If these asserts fire, you probably corrupted memory.
 #if ENABLE(ASSERT)
-    size_t bucketSize = page->bucket->slotSize;
+    size_t slotSize = page->bucket->slotSize;
+    size_t rawSize = partitionPageGetRawSize(page);
+    if (rawSize)
+        slotSize = rawSize;
     partitionCookieCheckValue(ptr);
-    partitionCookieCheckValue(reinterpret_cast<char*>(ptr) + bucketSize - kCookieSize);
-    memset(ptr, kFreedByte, bucketSize);
+    partitionCookieCheckValue(reinterpret_cast<char*>(ptr) + slotSize - kCookieSize);
+    memset(ptr, kFreedByte, slotSize);
 #endif
     ASSERT(page->numAllocatedSlots);
     PartitionFreelistEntry* freelistHead = page->freelistHead;
     ASSERT(!freelistHead || partitionPointerIsValid(freelistHead));
-    RELEASE_ASSERT(ptr != freelistHead); // Catches an immediate double free.
-    ASSERT(!freelistHead || ptr != partitionFreelistMask(freelistHead->next)); // Look for double free one level deeper in debug.
+    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(ptr != freelistHead); // Catches an immediate double free.
+    ASSERT_WITH_SECURITY_IMPLICATION(!freelistHead || ptr != partitionFreelistMask(freelistHead->next)); // Look for double free one level deeper in debug.
     PartitionFreelistEntry* entry = static_cast<PartitionFreelistEntry*>(ptr);
     entry->next = partitionFreelistMask(freelistHead);
     page->freelistHead = entry;
     --page->numAllocatedSlots;
-    if (UNLIKELY(page->numAllocatedSlots <= 0))
+    if (UNLIKELY(page->numAllocatedSlots <= 0)) {
         partitionFreeSlowPath(page);
+    } else {
+        // All single-slot allocations must go through the slow path to
+        // correctly update the size metadata.
+        ASSERT(partitionPageGetRawSize(page) == 0);
+    }
 }
 
 ALWAYS_INLINE void partitionFree(void* ptr)
@@ -565,11 +709,6 @@ ALWAYS_INLINE void partitionFreeGeneric(PartitionRootGeneric* root, void* ptr)
     partitionFreeWithPage(ptr, page);
     spinLockUnlock(&root->lock);
 #endif
-}
-
-ALWAYS_INLINE bool partitionBucketIsDirectMapped(PartitionBucket* bucket)
-{
-    return !bucket->numSystemPagesPerSlotSpan;
 }
 
 ALWAYS_INLINE size_t partitionDirectMapSize(size_t size)

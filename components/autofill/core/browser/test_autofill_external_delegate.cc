@@ -4,7 +4,7 @@
 
 #include "components/autofill/core/browser/test_autofill_external_delegate.h"
 
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace autofill {
 
@@ -16,14 +16,11 @@ void GenerateTestAutofillPopup(
   field.is_focusable = true;
   field.should_autocomplete = true;
   gfx::RectF bounds(100.f, 100.f);
-  autofill_external_delegate->OnQuery(query_id, form, field, bounds, false);
+  autofill_external_delegate->OnQuery(query_id, form, field, bounds);
 
-  std::vector<base::string16> autofill_item;
-  autofill_item.push_back(base::string16());
-  std::vector<int> autofill_id;
-  autofill_id.push_back(0);
-  autofill_external_delegate->OnSuggestionsReturned(
-      query_id, autofill_item, autofill_item, autofill_item, autofill_id);
+  std::vector<Suggestion> suggestions;
+  suggestions.push_back(Suggestion());
+  autofill_external_delegate->OnSuggestionsReturned(query_id, suggestions);
 }
 
 }  // namespace autofill

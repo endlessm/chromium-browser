@@ -8,9 +8,11 @@
 #include <string>
 
 #include "base/basictypes.h"
+#include "base/memory/scoped_ptr.h"
 
 namespace base {
 class DictionaryValue;
+class FilePath;
 }  // namespace base
 
 namespace remoting {
@@ -25,12 +27,8 @@ extern const char kHostOwnerConfigPath[];
 extern const char kHostOwnerEmailConfigPath[];
 // Login used to authenticate in XMPP network (could be a service account).
 extern const char kXmppLoginConfigPath[];
-// Auth token used to authenticate to XMPP network.
-extern const char kXmppAuthTokenConfigPath[];
 // OAuth refresh token used to fetch an access token for the XMPP network.
 extern const char kOAuthRefreshTokenConfigPath[];
-// Auth service used to authenticate to XMPP network.
-extern const char kXmppAuthServiceConfigPath[];
 // Unique identifier of the host used to register the host in directory.
 // Normally a random UUID.
 extern const char kHostIdConfigPath[];
@@ -46,42 +44,19 @@ extern const char kUsageStatsConsentConfigPath[];
 extern const char kEnableVp9ConfigPath[];
 // Number of Kibibytes of frame data to allow each client to record.
 extern const char kFrameRecorderBufferKbConfigPath[];
+// The GCD device ID of this host (if registered with GCD).
+extern const char kGcdDeviceIdConfigPath[];
 
-// HostConfig interace provides read-only access to host configuration.
-class HostConfig {
- public:
-  HostConfig() {}
-  virtual ~HostConfig() {}
+// Helpers for serializing/deserializing Host configuration dictonaries.
+scoped_ptr<base::DictionaryValue> HostConfigFromJson(
+    const std::string& serialized);
+std::string HostConfigToJson(const base::DictionaryValue& host_config);
 
-  virtual bool GetString(const std::string& path,
-                         std::string* out_value) const = 0;
-  virtual bool GetBoolean(const std::string& path, bool* out_value) const = 0;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(HostConfig);
-};
-
-// MutableHostConfig extends HostConfig for mutability.
-class MutableHostConfig : public HostConfig {
- public:
-  MutableHostConfig() {}
-
-  // SetString() updates specified config value. Save() must be called to save
-  // the changes on the disk.
-  virtual void SetString(const std::string& path,
-                         const std::string& in_value) = 0;
-  virtual void SetBoolean(const std::string& path, bool in_value) = 0;
-
-  // Copy configuration from specified |dictionary|. Returns false if the
-  // |dictionary| contains some values that cannot be saved in the config. In
-  // that case, all other values are still copied.
-  virtual bool CopyFrom(const base::DictionaryValue* dictionary) = 0;
-
-  // Saves changes.
-  virtual bool Save() = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(MutableHostConfig);
-};
+// Helpers for loading/saving host configurations from/to files.
+scoped_ptr<base::DictionaryValue> HostConfigFromJsonFile(
+    const base::FilePath& config_file);
+bool HostConfigToJsonFile(const base::DictionaryValue& host_config,
+                          const base::FilePath& config_file);
 
 }  // namespace remoting
 

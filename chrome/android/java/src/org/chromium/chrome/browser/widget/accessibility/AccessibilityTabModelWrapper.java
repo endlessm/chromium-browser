@@ -13,7 +13,9 @@ import android.widget.ListView;
 
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.Tab;
+import org.chromium.chrome.browser.tabmodel.EmptyTabModelSelectorObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
+import org.chromium.chrome.browser.tabmodel.TabModelSelectorObserver;
 import org.chromium.chrome.browser.widget.accessibility.AccessibilityTabModelAdapter.AccessibilityTabModelAdapterListener;
 
 /**
@@ -29,9 +31,8 @@ public class AccessibilityTabModelWrapper extends LinearLayout {
     private ImageButton mIncognitoButton;
 
     private TabModelSelector mTabModelSelector;
-    private TabModelSelector.ChangeListener mTabModelChangeListener =
-            new TabModelSelector.ChangeListener() {
-
+    private TabModelSelectorObserver mTabModelSelectorObserver =
+            new EmptyTabModelSelectorObserver() {
         @Override
         public void onChange() {
             getAdapter().notifyDataSetChanged();
@@ -39,6 +40,7 @@ public class AccessibilityTabModelWrapper extends LinearLayout {
 
         @Override
         public void onNewTabCreated(Tab tab) {
+            getAdapter().notifyDataSetChanged();
         }
     };
 
@@ -106,11 +108,11 @@ public class AccessibilityTabModelWrapper extends LinearLayout {
      */
     public void setTabModelSelector(TabModelSelector modelSelector) {
         if (mIsAttachedToWindow) {
-            mTabModelSelector.unregisterChangeListener(mTabModelChangeListener);
+            mTabModelSelector.removeObserver(mTabModelSelectorObserver);
         }
         mTabModelSelector = modelSelector;
         if (mIsAttachedToWindow) {
-            modelSelector.registerChangeListener(mTabModelChangeListener);
+            modelSelector.addObserver(mTabModelSelectorObserver);
         }
         setStateBasedOnModel();
     }
@@ -134,13 +136,15 @@ public class AccessibilityTabModelWrapper extends LinearLayout {
         }
 
         if (incognitoSelected) {
-            mIncognitoButton.setBackgroundResource(
-                    R.drawable.ntp_toolbar_button_background_selected);
-            mStandardButton.setBackgroundResource(R.drawable.ntp_toolbar_button_background);
+            mIncognitoButton.setBackgroundResource(R.drawable.btn_bg_holo_active);
+            mStandardButton.setBackgroundResource(R.drawable.btn_bg_holo);
+            mAccessibilityView.setContentDescription(getContext().getString(
+                    R.string.accessibility_tab_switcher_incognito_stack));
         } else {
-            mIncognitoButton.setBackgroundResource(R.drawable.ntp_toolbar_button_background);
-            mStandardButton.setBackgroundResource(
-                    R.drawable.ntp_toolbar_button_background_selected);
+            mIncognitoButton.setBackgroundResource(R.drawable.btn_bg_holo);
+            mStandardButton.setBackgroundResource(R.drawable.btn_bg_holo_active);
+            mAccessibilityView.setContentDescription(getContext().getString(
+                    R.string.accessibility_tab_switcher_standard_stack));
         }
 
         getAdapter().setTabModel(mTabModelSelector.getModel(incognitoSelected));
@@ -152,14 +156,13 @@ public class AccessibilityTabModelWrapper extends LinearLayout {
 
     @Override
     protected void onAttachedToWindow() {
-        mTabModelSelector.registerChangeListener(mTabModelChangeListener);
+        mTabModelSelector.addObserver(mTabModelSelectorObserver);
         mIsAttachedToWindow = true;
         super.onAttachedToWindow();
     }
 
     @Override
     protected void onDetachedFromWindow() {
-        mTabModelSelector.unregisterChangeListener(mTabModelChangeListener);
         mIsAttachedToWindow = false;
         super.onDetachedFromWindow();
     }

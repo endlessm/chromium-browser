@@ -5,6 +5,9 @@
 // Tests for chromium style checks for virtual/override/final specifiers on
 // virtual methods.
 
+// Note: This is not actual windows.h but the stub file in system/windows.h
+#include <windows.h>
+
 // Purposely use macros to test that the FixIt hints don't try to remove the
 // macro body.
 #define OVERRIDE override
@@ -79,7 +82,13 @@ class PureVirtualOverride : public Base {
   virtual void F() override = 0;
 };
 
-// Finally, some simple sanity tests that overrides in the testing namespace
+// Test that the redundant virtual warning is suppressed when the virtual
+// keyword comes from a macro in a system header.
+class COMIsAwesome : public Base {
+  STDMETHOD(F)() override = 0;
+};
+
+// Some tests that overrides in the testing namespace
 // don't trigger warnings, except for testing::Test.
 namespace testing {
 
@@ -107,4 +116,17 @@ class MyNotTest : public testing::NotTest {
  public:
   virtual ~MyNotTest();
   virtual void SetUp() override;
+};
+
+class MacroBase {
+ public:
+  virtual void AddRef() = 0;
+  virtual void Virtual() {}
+};
+
+class Sub : public MacroBase {
+  // Shouldn't warn.
+  END_COM_MAP()
+  SYSTEM_REDUNDANT1;
+  SYSTEM_REDUNDANT2;
 };

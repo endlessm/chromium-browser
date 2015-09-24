@@ -5,13 +5,19 @@
 package org.chromium.android_webview.test;
 
 import android.graphics.Rect;
+import android.os.Build;
 import android.test.InstrumentationTestCase;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.widget.OverScroller;
 
 import org.chromium.android_webview.AwScrollOffsetManager;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.MinAndroidSdkLevel;
 
+/**
+ * Integration tests for ScrollOffsetManager.
+ */
+@MinAndroidSdkLevel(Build.VERSION_CODES.KITKAT)
 public class AwScrollOffsetManagerTest extends InstrumentationTestCase {
     private static class TestScrollOffsetManagerDelegate implements AwScrollOffsetManager.Delegate {
         private int mOverScrollDeltaX;
@@ -88,6 +94,10 @@ public class AwScrollOffsetManagerTest extends InstrumentationTestCase {
         @Override
         public void invalidate() {
             mInvalidateCount += 1;
+        }
+
+        @Override
+        public void cancelFling() {
         }
     }
 
@@ -339,24 +349,6 @@ public class AwScrollOffsetManagerTest extends InstrumentationTestCase {
         assertEquals(scrollY, delegate.getScrollY());
         assertEquals(scrollX, delegate.getNativeScrollX());
         assertEquals(scrollY, delegate.getNativeScrollY());
-    }
-
-    @SmallTest
-    @Feature({"AndroidWebView"})
-    public void testFlingScroll() {
-        TestScrollOffsetManagerDelegate delegate = new TestScrollOffsetManagerDelegate();
-        OverScroller scroller = new OverScroller(getInstrumentation().getContext());
-        AwScrollOffsetManager offsetManager = new AwScrollOffsetManager(delegate, scroller);
-
-        offsetManager.flingScroll(0, 101);
-        assertTrue(!scroller.isFinished());
-        assertTrue(delegate.getInvalidateCount() == 1);
-        assertEquals(101, (int) scroller.getCurrVelocity());
-
-        offsetManager.flingScroll(111, 0);
-        assertTrue(!scroller.isFinished());
-        assertTrue(delegate.getInvalidateCount() == 2);
-        assertEquals(111, (int) scroller.getCurrVelocity());
     }
 
     @SmallTest

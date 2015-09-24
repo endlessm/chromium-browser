@@ -5,9 +5,6 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_TOOLBAR_TOOLBAR_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_TOOLBAR_TOOLBAR_VIEW_H_
 
-#include <set>
-#include <string>
-
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
 #include "base/prefs/pref_member.h"
@@ -34,7 +31,6 @@ class WrenchToolbarButton;
 namespace extensions {
 class Command;
 class Extension;
-class ExtensionMessageBubbleFactory;
 }
 
 namespace views {
@@ -68,6 +64,9 @@ class ToolbarView : public views::AccessiblePaneView,
   // as well.
   void Update(content::WebContents* tab);
 
+  // Clears the current state for |tab|.
+  void ResetTabState(content::WebContents* tab);
+
   // Set focus to the toolbar with complete keyboard access, with the
   // focus initially set to the app menu. Focus will be restored
   // to the last focused view if the user escapes.
@@ -98,12 +97,15 @@ class ToolbarView : public views::AccessiblePaneView,
   // opened for a drag-and-drop operation.
   void ShowAppMenu(bool for_drop);
 
+  // Closes the App Menu, if it's open.
+  void CloseAppMenu();
+
   // Accessors.
   Browser* browser() const { return browser_; }
   BrowserActionsContainer* browser_actions() const { return browser_actions_; }
   ReloadButton* reload_button() const { return reload_; }
   LocationBarView* location_bar() const { return location_bar_; }
-  views::MenuButton* app_menu() const;
+  WrenchToolbarButton* app_menu() const { return app_menu_; }
   HomeButton* home_button() const { return home_; }
 
   // AccessiblePaneView:
@@ -137,7 +139,6 @@ class ToolbarView : public views::AccessiblePaneView,
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
   // views::WidgetObserver:
-  void OnWidgetVisibilityChanged(views::Widget* widget, bool visible) override;
   void OnWidgetActivationChanged(views::Widget* widget, bool active) override;
 
   // content::NotificationObserver:
@@ -245,13 +246,8 @@ class ToolbarView : public views::AccessiblePaneView,
   scoped_ptr<WrenchMenuModel> wrench_menu_model_;
   scoped_ptr<WrenchMenu> wrench_menu_;
 
-  // The factory to create bubbles to warn about dangerous/suspicious
-  // extensions.
-  scoped_ptr<extensions::ExtensionMessageBubbleFactory>
-      extension_message_bubble_factory_;
-
   // A list of listeners to call when the menu opens.
-  ObserverList<views::MenuListener> menu_listeners_;
+  base::ObserverList<views::MenuListener> menu_listeners_;
 
   content::NotificationRegistrar registrar_;
 

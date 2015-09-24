@@ -24,6 +24,10 @@ namespace blink {
 class WebLayerTreeView;
 }
 
+namespace scheduler {
+class RendererScheduler;
+}
+
 namespace content {
 
 // An implementation of blink::WebUnitTestSupport and BlinkPlatformImpl for
@@ -61,14 +65,6 @@ class TestBlinkWebUnitTestSupport : public blink::WebUnitTestSupport,
 
   virtual blink::WebCompositorSupport* compositorSupport();
 
-  WebURLLoaderMockFactory* url_loader_factory() {
-    return url_loader_factory_.get();
-  }
-
-  const base::FilePath& file_system_root() const {
-    return file_system_root_.path();
-  }
-
   virtual blink::WebGestureCurve* createFlingAnimationCurve(
       blink::WebGestureDevice device_source,
       const blink::WebFloatPoint& velocity,
@@ -89,6 +85,14 @@ class TestBlinkWebUnitTestSupport : public blink::WebUnitTestSupport,
   virtual blink::WebString webKitRootDir();
   virtual blink::WebLayerTreeView* createLayerTreeViewForTesting();
   virtual blink::WebData readFromFile(const blink::WebString& path);
+  virtual bool getBlobItems(const blink::WebString& uuid,
+                            blink::WebVector<blink::WebBlobData::Item*>* items);
+  virtual blink::WebThread* currentThread();
+  virtual void enterRunLoop();
+  virtual void exitRunLoop();
+
+  virtual void getPluginList(bool refresh,
+                             blink::WebPluginListBuilder* builder);
 
  private:
   MockWebBlobRegistryImpl blob_registry_;
@@ -98,7 +102,8 @@ class TestBlinkWebUnitTestSupport : public blink::WebUnitTestSupport,
   base::ScopedTempDir file_system_root_;
   scoped_ptr<WebURLLoaderMockFactory> url_loader_factory_;
   cc_blink::WebCompositorSupportImpl compositor_support_;
-  scoped_ptr<base::StatsTable> stats_table_;
+  scoped_ptr<scheduler::RendererScheduler> renderer_scheduler_;
+  scoped_ptr<blink::WebThread> web_thread_;
 
 #if defined(OS_WIN) || defined(OS_MACOSX)
   blink::WebThemeEngine* active_theme_engine_;

@@ -8,8 +8,11 @@
 
 #include "base/bind.h"
 #include "base/compiler_specific.h"
+#include "base/location.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
@@ -26,9 +29,9 @@ namespace net {
 namespace {
 
 const int kMagicChunkSize = 1024;
-COMPILE_ASSERT(
-    (HttpResponseBodyDrainer::kDrainBodyBufferSize % kMagicChunkSize) == 0,
-    chunk_size_needs_to_divide_evenly_into_buffer_size);
+static_assert((HttpResponseBodyDrainer::kDrainBodyBufferSize %
+               kMagicChunkSize) == 0,
+              "chunk size needs to divide evenly into buffer size");
 
 class CloseResultWaiter {
  public:
@@ -170,7 +173,7 @@ int MockHttpStream::ReadResponseBody(IOBuffer* buf,
     user_buf_ = buf;
     buf_len_ = buf_len;
     callback_ = callback;
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(&MockHttpStream::CompleteRead, weak_factory_.GetWeakPtr()));
     return ERR_IO_PENDING;

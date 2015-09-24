@@ -7,11 +7,12 @@
 #include "base/base64.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/single_thread_task_runner.h"
 #include "base/task_runner_util.h"
 #include "base/values.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
-#include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/api/declarative/rules_registry_service.h"
 #include "extensions/browser/api/extensions_api_client.h"
@@ -33,26 +34,7 @@ namespace extensions {
 
 namespace {
 
-const char kWebRequest[] = "declarativeWebRequest.";
-const char kWebViewExpectedError[] = "Webview event with Webview ID expected.";
-
-bool IsWebViewEvent(const std::string& event_name) {
-  // Sample event names:
-  // webViewInternal.onRequest.
-  // webViewInternal.onMessage.
-  return event_name.compare(0,
-                            strlen(webview::kWebViewEventPrefix),
-                            webview::kWebViewEventPrefix) == 0;
-}
-
-std::string GetWebRequestEventName(const std::string& event_name) {
-  std::string web_request_event_name(event_name);
-  if (IsWebViewEvent(web_request_event_name)) {
-    web_request_event_name.replace(
-        0, strlen(webview::kWebViewEventPrefix), kWebRequest);
-  }
-  return web_request_event_name;
-}
+const char kDeclarativeEventPrefix[] = "declarative";
 
 void ConvertBinaryDictionaryValuesToBase64(base::DictionaryValue* dict);
 
@@ -122,40 +104,46 @@ RulesFunction::~RulesFunction() {}
 bool RulesFunction::HasPermission() {
   std::string event_name;
   EXTENSION_FUNCTION_VALIDATE(args_->GetString(0, &event_name));
-  if (IsWebViewEvent(event_name) &&
+  int web_view_instance_id = 0;
+  EXTENSION_FUNCTION_VALIDATE(args_->GetInteger(1, &web_view_instance_id));
+
+  // <webview> embedders use the declarativeWebRequest API via
+  // <webview>.onRequest.
+  if (web_view_instance_id != 0 &&
       extension_->permissions_data()->HasAPIPermission(
           extensions::APIPermission::kWebView))
     return true;
-  Feature::Availability availability =
-      ExtensionAPI::GetSharedInstance()->IsAvailable(
-          event_name,
-          extension_.get(),
-          Feature::BLESSED_EXTENSION_CONTEXT,
-          source_url());
-  return availability.is_available();
+  return ExtensionFunction::HasPermission();
 }
 
 bool RulesFunction::RunAsync() {
   std::string event_name;
   EXTENSION_FUNCTION_VALIDATE(args_->GetString(0, &event_name));
 
-  int webview_instance_id = 0;
-  EXTENSION_FUNCTION_VALIDATE(args_->GetInteger(1, &webview_instance_id));
-  int embedder_process_id = render_view_host()->GetProcess()->GetID();
+  int web_view_instance_id = 0;
+  EXTENSION_FUNCTION_VALIDATE(args_->GetInteger(1, &web_view_instance_id));
+  int embedder_process_id = render_frame_host()->GetProcess()->GetID();
 
-  bool has_webview = webview_instance_id != 0;
-  if (has_webview != IsWebViewEvent(event_name))
-    EXTENSION_FUNCTION_ERROR(kWebViewExpectedError);
-  event_name = GetWebRequestEventName(event_name);
+  bool from_web_view = web_view_instance_id != 0;
+  // If we are not operating on a particular <webview>, then the key is 0.
+  int rules_registry_id = RulesRegistryService::kDefaultRulesRegistryID;
+  if (from_web_view) {
+    // Sample event names:
+    // webViewInternal.declarativeWebRequest.onRequest.
+    // webViewInternal.declarativeWebRequest.onMessage.
+    // The "webViewInternal." prefix is removed from the event name.
+    std::size_t found = event_name.find(kDeclarativeEventPrefix);
+    EXTENSION_FUNCTION_VALIDATE(found != std::string::npos);
+    event_name = event_name.substr(found);
 
-  // If we are not operating on a particular <webview>, then the key is (0, 0).
-  RulesRegistry::WebViewKey key(
-      webview_instance_id ? embedder_process_id : 0, webview_instance_id);
+    rules_registry_id = WebViewGuest::GetOrGenerateRulesRegistryID(
+        embedder_process_id, web_view_instance_id);
+  }
 
   // The following call will return a NULL pointer for apps_shell, but should
   // never be called there anyways.
   rules_registry_ = RulesRegistryService::Get(browser_context())->
-      GetRulesRegistry(key, event_name);
+      GetRulesRegistry(rules_registry_id, event_name);
   DCHECK(rules_registry_.get());
   // Raw access to this function is not available to extensions, therefore
   // there should never be a request for a nonexisting rules registry.
@@ -165,12 +153,11 @@ bool RulesFunction::RunAsync() {
     bool success = RunAsyncOnCorrectThread();
     SendResponse(success);
   } else {
-    scoped_refptr<base::MessageLoopProxy> message_loop_proxy =
+    scoped_refptr<base::SingleThreadTaskRunner> thread_task_runner =
         content::BrowserThread::GetMessageLoopProxyForThread(
             rules_registry_->owner_thread());
     base::PostTaskAndReplyWithResult(
-        message_loop_proxy.get(),
-        FROM_HERE,
+        thread_task_runner.get(), FROM_HERE,
         base::Bind(&RulesFunction::RunAsyncOnCorrectThread, this),
         base::Bind(&RulesFunction::SendResponse, this));
   }

@@ -50,13 +50,12 @@ class ResourceResponse;
 class TextResourceDecoder;
 class ThreadableLoader;
 
-class EventSource final : public RefCountedWillBeGarbageCollectedFinalized<EventSource>, public EventTargetWithInlineData, private ThreadableLoaderClient, public ActiveDOMObject {
+class EventSource final : public RefCountedGarbageCollectedEventTargetWithInlineData<EventSource>, private ThreadableLoaderClient, public ActiveDOMObject {
     DEFINE_WRAPPERTYPEINFO();
-    REFCOUNTED_EVENT_TARGET(EventSource);
+    REFCOUNTED_GARBAGE_COLLECTED_EVENT_TARGET(EventSource);
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(EventSource);
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
 public:
-    static PassRefPtrWillBeRawPtr<EventSource> create(ExecutionContext*, const String& url, const EventSourceInit&, ExceptionState&);
+    static EventSource* create(ExecutionContext*, const String& url, const EventSourceInit&, ExceptionState&);
     virtual ~EventSource();
 
     static const unsigned long long defaultReconnectDelay;
@@ -89,6 +88,8 @@ public:
     virtual void stop() override;
 
     virtual bool hasPendingActivity() const override;
+
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     EventSource(ExecutionContext*, const KURL&, const EventSourceInit&);

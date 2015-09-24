@@ -5,7 +5,9 @@
 #include "chrome/browser/sync/glue/sync_backend_host_impl.h"
 
 #include "base/command_line.h"
+#include "base/location.h"
 #include "base/logging.h"
+#include "base/single_thread_task_runner.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile.h"
@@ -14,8 +16,8 @@
 #include "chrome/browser/sync/glue/sync_backend_host_core.h"
 #include "chrome/browser/sync/glue/sync_backend_registrar.h"
 #include "chrome/common/chrome_switches.h"
-#include "components/invalidation/invalidation_service.h"
-#include "components/invalidation/object_id_invalidation_map.h"
+#include "components/invalidation/public/invalidation_service.h"
+#include "components/invalidation/public/object_id_invalidation_map.h"
 #include "components/network_time/network_time_tracker.h"
 #include "components/signin/core/browser/signin_client.h"
 #include "components/sync_driver/sync_frontend.h"
@@ -104,9 +106,9 @@ void SyncBackendHostImpl::Initialize(
     bool delete_sync_data_folder,
     scoped_ptr<syncer::SyncManagerFactory> sync_manager_factory,
     scoped_ptr<syncer::UnrecoverableErrorHandler> unrecoverable_error_handler,
-    syncer::ReportUnrecoverableErrorFunction
-        report_unrecoverable_error_function,
-    syncer::NetworkResources* network_resources) {
+    const base::Closure& report_unrecoverable_error_function,
+    syncer::NetworkResources* network_resources,
+    scoped_ptr<syncer::SyncEncryptionHandler::NigoriState> saved_nigori_state) {
   registrar_.reset(new browser_sync::SyncBackendRegistrar(name_,
                                             profile_,
                                             sync_thread.Pass()));
@@ -125,7 +127,7 @@ void SyncBackendHostImpl::Initialize(
     InternalComponentsFactory::BACKOFF_NORMAL
   };
 
-  CommandLine* cl = CommandLine::ForCurrentProcess();
+  base::CommandLine* cl = base::CommandLine::ForCurrentProcess();
   if (cl->HasSwitch(switches::kSyncShortInitialRetryOverride)) {
     factory_switches.backoff_override =
         InternalComponentsFactory::BACKOFF_SHORT_INITIAL_RETRY_OVERRIDE;
@@ -134,39 +136,37 @@ void SyncBackendHostImpl::Initialize(
     factory_switches.pre_commit_updates_policy =
         InternalComponentsFactory::FORCE_ENABLE_PRE_COMMIT_UPDATE_AVOIDANCE;
   }
+  syncer::PassphraseTransitionClearDataOption clear_data_option =
+      syncer::PASSPHRASE_TRANSITION_DO_NOT_CLEAR_DATA;
+  if (cl->HasSwitch(switches::kSyncEnableClearDataOnPassphraseEncryption))
+    clear_data_option = syncer::PASSPHRASE_TRANSITION_CLEAR_DATA;
 
   scoped_ptr<DoInitializeOptions> init_opts(new DoInitializeOptions(
-      registrar_->sync_thread()->message_loop(),
-      registrar_.get(),
-      routing_info,
-      workers,
-      extensions_activity_monitor_.GetExtensionsActivity(),
-      event_handler,
-      sync_service_url,
+      registrar_->sync_thread()->message_loop(), registrar_.get(), routing_info,
+      workers, extensions_activity_monitor_.GetExtensionsActivity(),
+      event_handler, sync_service_url,
       network_resources->GetHttpPostProviderFactory(
           make_scoped_refptr(profile_->GetRequestContext()),
           base::Bind(&UpdateNetworkTime),
           core_->GetRequestContextCancelationSignal()),
-      credentials,
-      invalidator_ ? invalidator_->GetInvalidatorClientId() : "",
-      sync_manager_factory.Pass(),
-      delete_sync_data_folder,
+      credentials, invalidator_ ? invalidator_->GetInvalidatorClientId() : "",
+      sync_manager_factory.Pass(), delete_sync_data_folder,
       sync_prefs_->GetEncryptionBootstrapToken(),
       sync_prefs_->GetKeystoreEncryptionBootstrapToken(),
       scoped_ptr<InternalComponentsFactory>(
-          new syncer::InternalComponentsFactoryImpl(factory_switches)).Pass(),
-      unrecoverable_error_handler.Pass(),
-      report_unrecoverable_error_function));
+          new syncer::InternalComponentsFactoryImpl(factory_switches))
+          .Pass(),
+      unrecoverable_error_handler.Pass(), report_unrecoverable_error_function,
+      saved_nigori_state.Pass(), clear_data_option));
   InitCore(init_opts.Pass());
 }
 
 void SyncBackendHostImpl::UpdateCredentials(
     const syncer::SyncCredentials& credentials) {
   DCHECK(registrar_->sync_thread()->IsRunning());
-  registrar_->sync_thread()->message_loop()->PostTask(FROM_HERE,
-      base::Bind(&SyncBackendHostCore::DoUpdateCredentials,
-                 core_.get(),
-                 credentials));
+  registrar_->sync_thread()->task_runner()->PostTask(
+      FROM_HERE, base::Bind(&SyncBackendHostCore::DoUpdateCredentials,
+                            core_.get(), credentials));
 }
 
 void SyncBackendHostImpl::StartSyncingWithServer() {
@@ -175,9 +175,9 @@ void SyncBackendHostImpl::StartSyncingWithServer() {
   syncer::ModelSafeRoutingInfo routing_info;
   registrar_->GetModelSafeRoutingInfo(&routing_info);
 
-  registrar_->sync_thread()->message_loop()->PostTask(FROM_HERE,
-      base::Bind(&SyncBackendHostCore::DoStartSyncing,
-                 core_.get(), routing_info));
+  registrar_->sync_thread()->task_runner()->PostTask(
+      FROM_HERE, base::Bind(&SyncBackendHostCore::DoStartSyncing, core_.get(),
+                            routing_info, sync_prefs_->GetLastPollTime()));
 }
 
 void SyncBackendHostImpl::SetEncryptionPassphrase(const std::string& passphrase,
@@ -201,10 +201,9 @@ void SyncBackendHostImpl::SetEncryptionPassphrase(const std::string& passphrase,
          cached_passphrase_type_ == syncer::IMPLICIT_PASSPHRASE);
 
   // Post an encryption task on the syncer thread.
-  registrar_->sync_thread()->message_loop()->PostTask(FROM_HERE,
-      base::Bind(&SyncBackendHostCore::DoSetEncryptionPassphrase,
-                 core_.get(),
-                 passphrase, is_explicit));
+  registrar_->sync_thread()->task_runner()->PostTask(
+      FROM_HERE, base::Bind(&SyncBackendHostCore::DoSetEncryptionPassphrase,
+                            core_.get(), passphrase, is_explicit));
 }
 
 bool SyncBackendHostImpl::SetDecryptionPassphrase(
@@ -231,10 +230,9 @@ bool SyncBackendHostImpl::SetDecryptionPassphrase(
     return false;
 
   // Post a decryption task on the syncer thread.
-  registrar_->sync_thread()->message_loop()->PostTask(FROM_HERE,
-      base::Bind(&SyncBackendHostCore::DoSetDecryptionPassphrase,
-                 core_.get(),
-                 passphrase));
+  registrar_->sync_thread()->task_runner()->PostTask(
+      FROM_HERE, base::Bind(&SyncBackendHostCore::DoSetDecryptionPassphrase,
+                            core_.get(), passphrase));
 
   // Since we were able to decrypt the cached pending keys with the passphrase
   // provided, we immediately alert the UI layer that the passphrase was
@@ -287,18 +285,16 @@ scoped_ptr<base::Thread> SyncBackendHostImpl::Shutdown(
   invalidation_handler_registered_ = false;
 
   // Shut down and destroy sync manager.
-  registrar_->sync_thread()->message_loop()->PostTask(
+  registrar_->sync_thread()->task_runner()->PostTask(
       FROM_HERE,
-      base::Bind(&SyncBackendHostCore::DoShutdown,
-                 core_.get(), reason));
+      base::Bind(&SyncBackendHostCore::DoShutdown, core_.get(), reason));
   core_ = NULL;
 
   // Worker cleanup.
   SyncBackendRegistrar* detached_registrar = registrar_.release();
-  detached_registrar->sync_thread()->message_loop()->PostTask(
-      FROM_HERE,
-      base::Bind(&SyncBackendRegistrar::Shutdown,
-                 base::Unretained(detached_registrar)));
+  detached_registrar->sync_thread()->task_runner()->PostTask(
+      FROM_HERE, base::Bind(&SyncBackendRegistrar::Shutdown,
+                            base::Unretained(detached_registrar)));
 
   if (sync_thread_claimed)
     return detached_registrar->ReleaseSyncThread();
@@ -308,17 +304,16 @@ scoped_ptr<base::Thread> SyncBackendHostImpl::Shutdown(
 
 void SyncBackendHostImpl::UnregisterInvalidationIds() {
   if (invalidation_handler_registered_) {
-    invalidator_->UpdateRegisteredInvalidationIds(
-        this,
-        syncer::ObjectIdSet());
+    CHECK(invalidator_->UpdateRegisteredInvalidationIds(this,
+                                                        syncer::ObjectIdSet()));
   }
 }
 
-void SyncBackendHostImpl::ConfigureDataTypes(
+syncer::ModelTypeSet SyncBackendHostImpl::ConfigureDataTypes(
     syncer::ConfigureReason reason,
     const DataTypeConfigStateMap& config_state_map,
-    const base::Callback<void(syncer::ModelTypeSet,
-                              syncer::ModelTypeSet)>& ready_task,
+    const base::Callback<void(syncer::ModelTypeSet, syncer::ModelTypeSet)>&
+        ready_task,
     const base::Callback<void()>& retry_callback) {
   // Only one configure is allowed at a time.  This is guaranteed by our
   // callers.  The SyncBackendHostImpl requests one configure as the backend is
@@ -435,12 +430,18 @@ void SyncBackendHostImpl::ConfigureDataTypes(
                          routing_info,
                          ready_task,
                          retry_callback);
+
+  DCHECK(syncer::Intersection(active_types, types_to_purge).Empty());
+  DCHECK(syncer::Intersection(active_types, fatal_types).Empty());
+  DCHECK(syncer::Intersection(active_types, unapply_types).Empty());
+  DCHECK(syncer::Intersection(active_types, inactive_types).Empty());
+  return syncer::Difference(active_types, types_to_download);
 }
 
 void SyncBackendHostImpl::EnableEncryptEverything() {
-  registrar_->sync_thread()->message_loop()->PostTask(FROM_HERE,
-     base::Bind(&SyncBackendHostCore::DoEnableEncryptEverything,
-                core_.get()));
+  registrar_->sync_thread()->task_runner()->PostTask(
+      FROM_HERE,
+      base::Bind(&SyncBackendHostCore::DoEnableEncryptEverything, core_.get()));
 }
 
 void SyncBackendHostImpl::ActivateDataType(
@@ -514,7 +515,7 @@ void SyncBackendHostImpl::FlushDirectory() const {
 }
 
 void SyncBackendHostImpl::RequestBufferedProtocolEventsAndEnableForwarding() {
-  registrar_->sync_thread()->message_loop()->PostTask(
+  registrar_->sync_thread()->task_runner()->PostTask(
       FROM_HERE,
       base::Bind(
           &SyncBackendHostCore::SendBufferedProtocolEventsAndEnableForwarding,
@@ -522,29 +523,25 @@ void SyncBackendHostImpl::RequestBufferedProtocolEventsAndEnableForwarding() {
 }
 
 void SyncBackendHostImpl::DisableProtocolEventForwarding() {
-  registrar_->sync_thread()->message_loop()->PostTask(
+  registrar_->sync_thread()->task_runner()->PostTask(
       FROM_HERE,
-      base::Bind(
-          &SyncBackendHostCore::DisableProtocolEventForwarding,
-          core_));
+      base::Bind(&SyncBackendHostCore::DisableProtocolEventForwarding, core_));
 }
 
 void SyncBackendHostImpl::EnableDirectoryTypeDebugInfoForwarding() {
   DCHECK(initialized());
-  registrar_->sync_thread()->message_loop()->PostTask(
+  registrar_->sync_thread()->task_runner()->PostTask(
       FROM_HERE,
-      base::Bind(
-          &SyncBackendHostCore::EnableDirectoryTypeDebugInfoForwarding,
-          core_));
+      base::Bind(&SyncBackendHostCore::EnableDirectoryTypeDebugInfoForwarding,
+                 core_));
 }
 
 void SyncBackendHostImpl::DisableDirectoryTypeDebugInfoForwarding() {
   DCHECK(initialized());
-  registrar_->sync_thread()->message_loop()->PostTask(
+  registrar_->sync_thread()->task_runner()->PostTask(
       FROM_HERE,
-      base::Bind(
-          &SyncBackendHostCore::DisableDirectoryTypeDebugInfoForwarding,
-          core_));
+      base::Bind(&SyncBackendHostCore::DisableDirectoryTypeDebugInfoForwarding,
+                 core_));
 }
 
 void SyncBackendHostImpl::GetAllNodesForTypes(
@@ -552,19 +549,15 @@ void SyncBackendHostImpl::GetAllNodesForTypes(
     base::Callback<void(const std::vector<syncer::ModelType>&,
                         ScopedVector<base::ListValue>)> callback) {
   DCHECK(initialized());
-  registrar_->sync_thread()->message_loop()->PostTask(FROM_HERE,
-       base::Bind(
-           &SyncBackendHostCore::GetAllNodesForTypes,
-           core_,
-           types,
-           frontend_loop_->message_loop_proxy(),
-           callback));
+  registrar_->sync_thread()->task_runner()->PostTask(
+      FROM_HERE, base::Bind(&SyncBackendHostCore::GetAllNodesForTypes, core_,
+                            types, frontend_loop_->task_runner(), callback));
 }
 
 void SyncBackendHostImpl::InitCore(scoped_ptr<DoInitializeOptions> options) {
-  registrar_->sync_thread()->message_loop()->PostTask(FROM_HERE,
-      base::Bind(&SyncBackendHostCore::DoInitialize,
-                 core_.get(), base::Passed(&options)));
+  registrar_->sync_thread()->task_runner()->PostTask(
+      FROM_HERE, base::Bind(&SyncBackendHostCore::DoInitialize, core_.get(),
+                            base::Passed(&options)));
 }
 
 void SyncBackendHostImpl::RequestConfigureSyncer(
@@ -583,14 +576,10 @@ void SyncBackendHostImpl::RequestConfigureSyncer(
   config_types.to_purge = to_purge;
   config_types.to_journal = to_journal;
   config_types.to_unapply = to_unapply;
-  registrar_->sync_thread()->message_loop()->PostTask(FROM_HERE,
-       base::Bind(&SyncBackendHostCore::DoConfigureSyncer,
-                  core_.get(),
-                  reason,
-                  config_types,
-                  routing_info,
-                  ready_task,
-                  retry_callback));
+  registrar_->sync_thread()->task_runner()->PostTask(
+      FROM_HERE,
+      base::Bind(&SyncBackendHostCore::DoConfigureSyncer, core_.get(), reason,
+                 config_types, routing_info, ready_task, retry_callback));
 }
 
 void SyncBackendHostImpl::FinishConfigureDataTypesOnFrontendLoop(
@@ -603,9 +592,8 @@ void SyncBackendHostImpl::FinishConfigureDataTypesOnFrontendLoop(
     return;
 
   if (invalidator_) {
-    invalidator_->UpdateRegisteredInvalidationIds(
-        this,
-        ModelTypeSetToObjectIdSet(enabled_types));
+    CHECK(invalidator_->UpdateRegisteredInvalidationIds(
+        this, ModelTypeSetToObjectIdSet(enabled_types)));
   }
 
   if (!ready_task.is_null())
@@ -616,12 +604,13 @@ void SyncBackendHostImpl::Observe(
     int type,
     const content::NotificationSource& source,
     const content::NotificationDetails& details) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK_EQ(type, chrome::NOTIFICATION_SYNC_REFRESH_LOCAL);
 
   content::Details<const syncer::ModelTypeSet> state_details(details);
   const syncer::ModelTypeSet& types = *(state_details.ptr());
-  registrar_->sync_thread()->message_loop()->PostTask(FROM_HERE,
+  registrar_->sync_thread()->task_runner()->PostTask(
+      FROM_HERE,
       base::Bind(&SyncBackendHostCore::DoRefreshTypes, core_.get(), types));
 }
 
@@ -693,6 +682,9 @@ void SyncBackendHostImpl::HandleSyncCycleCompletedOnFrontendLoop(
 
   SDVLOG(1) << "Got snapshot " << snapshot.ToString();
 
+  if (!snapshot.poll_finish_time().is_null())
+    sync_prefs_->SetLastPollTime(snapshot.poll_finish_time());
+
   // Process any changes to the datatypes we're syncing.
   // TODO(sync): add support for removing types.
   if (initialized())
@@ -712,7 +704,6 @@ void SyncBackendHostImpl::PersistEncryptionBootstrapToken(
     const std::string& token,
     syncer::BootstrapTokenType token_type) {
   CHECK(sync_prefs_.get());
-  DCHECK(!token.empty());
   if (token_type == syncer::PASSPHRASE_BOOTSTRAP_TOKEN)
     sync_prefs_->SetEncryptionBootstrapToken(token);
   else
@@ -737,20 +728,16 @@ void SyncBackendHostImpl::HandleMigrationRequestedOnFrontendLoop(
 
 void SyncBackendHostImpl::OnInvalidatorStateChange(
     syncer::InvalidatorState state) {
-  registrar_->sync_thread()->message_loop()->PostTask(
-      FROM_HERE,
-      base::Bind(&SyncBackendHostCore::DoOnInvalidatorStateChange,
-                 core_.get(),
-                 state));
+  registrar_->sync_thread()->task_runner()->PostTask(
+      FROM_HERE, base::Bind(&SyncBackendHostCore::DoOnInvalidatorStateChange,
+                            core_.get(), state));
 }
 
 void SyncBackendHostImpl::OnIncomingInvalidation(
     const syncer::ObjectIdInvalidationMap& invalidation_map) {
-  registrar_->sync_thread()->message_loop()->PostTask(
-      FROM_HERE,
-      base::Bind(&SyncBackendHostCore::DoOnIncomingInvalidation,
-                 core_.get(),
-                 invalidation_map));
+  registrar_->sync_thread()->task_runner()->PostTask(
+      FROM_HERE, base::Bind(&SyncBackendHostCore::DoOnIncomingInvalidation,
+                            core_.get(), invalidation_map));
 }
 
 std::string SyncBackendHostImpl::GetOwnerName() const {
@@ -823,6 +810,12 @@ void SyncBackendHostImpl::HandlePassphraseTypeChangedOnFrontendLoop(
   cached_explicit_passphrase_time_ = explicit_passphrase_time;
 }
 
+void SyncBackendHostImpl::HandleLocalSetPassphraseEncryptionOnFrontendLoop(
+    const syncer::SyncEncryptionHandler::NigoriState& nigori_state) {
+  DCHECK_EQ(base::MessageLoop::current(), frontend_loop_);
+  frontend_->OnLocalSetPassphraseEncryption(nigori_state);
+}
+
 void SyncBackendHostImpl::HandleConnectionStatusChangeOnFrontendLoop(
     syncer::ConnectionStatus status) {
   if (!frontend_)
@@ -869,6 +862,14 @@ void SyncBackendHostImpl::HandleDirectoryStatusCountersUpdatedOnFrontendLoop(
 
 base::MessageLoop* SyncBackendHostImpl::GetSyncLoopForTesting() {
   return registrar_->sync_thread()->message_loop();
+}
+
+void SyncBackendHostImpl::RefreshTypesForTest(syncer::ModelTypeSet types) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  registrar_->sync_thread()->task_runner()->PostTask(
+      FROM_HERE,
+      base::Bind(&SyncBackendHostCore::DoRefreshTypes, core_.get(), types));
 }
 
 }  // namespace browser_sync

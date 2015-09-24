@@ -45,6 +45,7 @@ public:
     virtual bool isWaitingForScripts() const = 0;
 
     // These are used to expose the current line/column to the scripting system.
+    virtual bool isParsingAtLineNumber() const;
     virtual OrdinalNumber lineNumber() const = 0;
     virtual TextPosition textPosition() const = 0;
 
@@ -57,7 +58,7 @@ protected:
     explicit ScriptableDocumentParser(Document&, ParserContentPolicy = AllowScriptingContent);
 
 private:
-    virtual ScriptableDocumentParser* asScriptableDocumentParser() override final { return this; }
+    ScriptableDocumentParser* asScriptableDocumentParser() final { return this; }
 
     // http://www.whatwg.org/specs/web-apps/current-work/#script-created-parser
     bool m_wasCreatedByScript;

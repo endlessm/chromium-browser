@@ -13,6 +13,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/events/event.h"
 #include "ui/strings/grit/ui_strings.h"
 
 #if !defined(OS_WIN) && (defined(USE_AURA) || defined(OS_MACOSX))
@@ -20,6 +21,13 @@
 #endif
 
 namespace ui {
+
+namespace {
+
+const int kEventFlagsMask = ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN |
+                            ui::EF_ALT_DOWN | ui::EF_COMMAND_DOWN;
+
+}  // namespace
 
 Accelerator::Accelerator()
     : key_code_(ui::VKEY_UNKNOWN),
@@ -33,6 +41,13 @@ Accelerator::Accelerator(KeyboardCode keycode, int modifiers)
       type_(ui::ET_KEY_PRESSED),
       modifiers_(modifiers),
       is_repeat_(false) {
+}
+
+Accelerator::Accelerator(const KeyEvent& key_event)
+    : key_code_(key_event.key_code()),
+      type_(key_event.type()),
+      modifiers_(key_event.flags() & kEventFlagsMask),
+      is_repeat_(key_event.IsRepeat()) {
 }
 
 Accelerator::Accelerator(const Accelerator& accelerator) {
@@ -116,6 +131,9 @@ base::string16 Accelerator::GetShortcutText() const {
       break;
     case ui::VKEY_ESCAPE:
       string_id = IDS_APP_ESC_KEY;
+      break;
+    case ui::VKEY_SPACE:
+      string_id = IDS_APP_SPACE_KEY;
       break;
     case ui::VKEY_PRIOR:
       string_id = IDS_APP_PAGEUP_KEY;
@@ -210,7 +228,7 @@ base::string16 Accelerator::GetShortcutText() const {
   base::string16 shortcut_rtl;
   bool adjust_shortcut_for_rtl = false;
   if (base::i18n::IsRTL() && shortcut.length() == 1 &&
-      !IsAsciiAlpha(shortcut[0]) && !IsAsciiDigit(shortcut[0])) {
+      !base::IsAsciiAlpha(shortcut[0]) && !base::IsAsciiDigit(shortcut[0])) {
     adjust_shortcut_for_rtl = true;
     shortcut_rtl.assign(shortcut);
   }
@@ -226,8 +244,15 @@ base::string16 Accelerator::GetShortcutText() const {
   else if (IsAltDown())
     shortcut = l10n_util::GetStringFUTF16(IDS_APP_ALT_MODIFIER, shortcut);
 
-  if (IsCmdDown())
+  if (IsCmdDown()) {
+#if defined(OS_MACOSX)
     shortcut = l10n_util::GetStringFUTF16(IDS_APP_COMMAND_MODIFIER, shortcut);
+#elif defined(OS_CHROMEOS)
+    shortcut = l10n_util::GetStringFUTF16(IDS_APP_SEARCH_MODIFIER, shortcut);
+#else
+    NOTREACHED();
+#endif
+  }
 
   // For some reason, menus in Windows ignore standard Unicode directionality
   // marks (such as LRE, PDF, etc.). On RTL locales, we use RTL menus and

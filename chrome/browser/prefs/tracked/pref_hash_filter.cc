@@ -28,9 +28,11 @@ void CleanupDeprecatedTrackedPreferences(
     PrefHashStoreTransaction* hash_store_transaction) {
   // Add deprecated previously tracked preferences below for them to be cleaned
   // up from both the pref files and the hash store.
-  static const char* kDeprecatedTrackedPreferences[] = {
-    // TODO(gab): Remove in M41+.
-    "extensions.known_disabled",
+  static const char* const kDeprecatedTrackedPreferences[] = {
+    // TODO(grt): Remove in M44+.
+    "safebrowsing.incident_report_sent",
+    // TODO(mad): Remove in M48+.
+    "software_reporter.prompt_reason",
   };
 
   for (size_t i = 0; i < arraysize(kDeprecatedTrackedPreferences); ++i) {
@@ -66,6 +68,7 @@ PrefHashFilter::PrefHashFilter(
                                         metadata.reporting_id,
                                         reporting_ids_count,
                                         metadata.enforcement_level,
+                                        metadata.value_type,
                                         delegate));
         break;
       case TRACKING_STRATEGY_SPLIT:
@@ -74,6 +77,7 @@ PrefHashFilter::PrefHashFilter(
                                        metadata.reporting_id,
                                        reporting_ids_count,
                                        metadata.enforcement_level,
+                                       metadata.value_type,
                                        delegate));
         break;
     }
@@ -97,8 +101,7 @@ void PrefHashFilter::RegisterProfilePrefs(
   // See GetResetTime for why this is a StringPref and not Int64Pref.
   registry->RegisterStringPref(
       prefs::kPreferenceResetTime,
-      base::Int64ToString(base::Time().ToInternalValue()),
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+      base::Int64ToString(base::Time().ToInternalValue()));
 }
 
 // static

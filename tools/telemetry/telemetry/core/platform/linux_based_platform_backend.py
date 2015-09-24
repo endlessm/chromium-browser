@@ -7,9 +7,11 @@ try:
 except ImportError:
   resource = None  # Not available on all platforms
 
-from telemetry import decorators
+import re
+
 from telemetry.core import exceptions
 from telemetry.core.platform import platform_backend
+from telemetry import decorators
 
 
 class LinuxBasedPlatformBackend(platform_backend.PlatformBackend):
@@ -21,15 +23,16 @@ class LinuxBasedPlatformBackend(platform_backend.PlatformBackend):
   Subclasses must implement RunCommand, GetFileContents, GetPsOutput, and
   ParseCStateSample."""
 
+  # Get the commit charge in kB.
   def GetSystemCommitCharge(self):
     meminfo_contents = self.GetFileContents('/proc/meminfo')
     meminfo = self._GetProcFileDict(meminfo_contents)
     if not meminfo:
       return None
-    return (self._ConvertKbToByte(meminfo['MemTotal'])
-            - self._ConvertKbToByte(meminfo['MemFree'])
-            - self._ConvertKbToByte(meminfo['Buffers'])
-            - self._ConvertKbToByte(meminfo['Cached']))
+    return (self._ConvertToKb(meminfo['MemTotal'])
+            - self._ConvertToKb(meminfo['MemFree'])
+            - self._ConvertToKb(meminfo['Buffers'])
+            - self._ConvertToKb(meminfo['Cached']))
 
   @decorators.Cache
   def GetSystemTotalPhysicalMemory(self):
@@ -37,7 +40,7 @@ class LinuxBasedPlatformBackend(platform_backend.PlatformBackend):
     meminfo = self._GetProcFileDict(meminfo_contents)
     if not meminfo:
       return None
-    return self._ConvertKbToByte(meminfo['MemTotal'])
+    return self._ConvertToBytes(meminfo['MemTotal'])
 
   def GetCpuStats(self, pid):
     results = {}
@@ -53,8 +56,7 @@ class LinuxBasedPlatformBackend(platform_backend.PlatformBackend):
     return results
 
   def GetCpuTimestamp(self):
-    timer_list = self.GetFileContents('/proc/timer_list')
-    total_jiffies = float(self._GetProcJiffies(timer_list))
+    total_jiffies = self._GetProcJiffies()
     clock_ticks = self.GetClockTicks()
     return {'TotalTime': total_jiffies / clock_ticks}
 
@@ -65,30 +67,22 @@ class LinuxBasedPlatformBackend(platform_backend.PlatformBackend):
     if not status or not stats or 'Z' in status['State']:
       return {}
     vm = int(stats[22])
-    vm_peak = (self._ConvertKbToByte(status['VmPeak'])
+    vm_peak = (self._ConvertToBytes(status['VmPeak'])
                if 'VmPeak' in status else vm)
     wss = int(stats[23]) * resource.getpagesize()
-    wss_peak = (self._ConvertKbToByte(status['VmHWM'])
+    wss_peak = (self._ConvertToBytes(status['VmHWM'])
                 if 'VmHWM' in status else wss)
 
     private_dirty_bytes = 0
     for line in self._GetProcFileForPid(pid, 'smaps').splitlines():
       if line.startswith('Private_Dirty:'):
-        private_dirty_bytes += self._ConvertKbToByte(line.split(':')[1].strip())
+        private_dirty_bytes += self._ConvertToBytes(line.split(':')[1].strip())
 
     return {'VM': vm,
             'VMPeak': vm_peak,
             'PrivateDirty': private_dirty_bytes,
             'WorkingSetSize': wss,
             'WorkingSetSizePeak': wss_peak}
-
-  def GetIOStats(self, pid):
-    io_contents = self._GetProcFileForPid(pid, 'io')
-    io = self._GetProcFileDict(io_contents)
-    return {'ReadOperationCount': int(io['syscr']),
-            'WriteOperationCount': int(io['syscw']),
-            'ReadTransferCount': int(io['rchar']),
-            'WriteTransferCount': int(io['wchar'])}
 
   @decorators.Cache
   def GetClockTicks(self):
@@ -107,6 +101,13 @@ class LinuxBasedPlatformBackend(platform_backend.PlatformBackend):
     raise NotImplementedError()
 
   def RunCommand(self, cmd):
+    """Runs the specified command.
+
+    Args:
+        cmd: A list of program arguments or the path string of the program.
+    Returns:
+        A string whose content is the output of the command.
+    """
     raise NotImplementedError()
 
   @staticmethod
@@ -137,8 +138,11 @@ class LinuxBasedPlatformBackend(platform_backend.PlatformBackend):
         raise exceptions.ProcessGoneException()
       raise
 
-  def _ConvertKbToByte(self, value):
-    return int(value.replace('kB','')) * 1024
+  def _ConvertToKb(self, value):
+    return int(value.replace('kB', ''))
+
+  def _ConvertToBytes(self, value):
+    return self._ConvertToKb(value) * 1024
 
   def _GetProcFileDict(self, contents):
     retval = {}
@@ -147,15 +151,21 @@ class LinuxBasedPlatformBackend(platform_backend.PlatformBackend):
       retval[key.strip()] = value.strip()
     return retval
 
-  def _GetProcJiffies(self, timer_list):
+  def _GetProcJiffies(self):
     """Parse '/proc/timer_list' output and returns the first jiffies attribute.
 
     Multi-CPU machines will have multiple 'jiffies:' lines, all of which will be
     essentially the same.  Return the first one."""
-    if isinstance(timer_list, str):
-      timer_list = timer_list.splitlines()
-    for line in timer_list:
-      if line.startswith('jiffies:'):
-        _, value = line.split(':')
-        return value
-    raise Exception('Unable to find jiffies from /proc/timer_list')
+    jiffies_timer_lines = self.RunCommand(
+        ['grep', 'jiffies', '/proc/timer_list'])
+    if not jiffies_timer_lines:
+      raise Exception('Unable to find jiffies from /proc/timer_list')
+    jiffies_timer_list = jiffies_timer_lines.splitlines()
+    # Each line should look something like 'jiffies: 4315883489'.
+    for line in jiffies_timer_list:
+      match = re.match('\s*jiffies\s*:\s*(\d+)', line)
+      if match:
+        value = match.group(1)
+        return float(value)
+    raise Exception('Unable to parse jiffies attribute: %s' %
+                    repr(jiffies_timer_lines))

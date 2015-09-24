@@ -21,7 +21,7 @@ namespace {
 
 // A list of OIDs to decode. Any OID not on this list will be ignored for
 // purposes of parsing.
-const char* kOIDs[] = {
+const char* const kOIDs[] = {
   szOID_COMMON_NAME,
   szOID_LOCALITY_NAME,
   szOID_STATE_OR_PROVINCE_NAME,
@@ -50,7 +50,7 @@ bool GetAttributeValue(PCERT_RDN_ATTR attribute,
   std::wstring wide_name;
   DWORD chars_written = CertRDNValueToStrW(
       attribute->dwValueType, &attribute->Value,
-      WriteInto(&wide_name, chars_needed), chars_needed);
+      base::WriteInto(&wide_name, chars_needed), chars_needed);
   if (chars_written <= 1)
     return false;
   wide_name.resize(chars_written - 1);

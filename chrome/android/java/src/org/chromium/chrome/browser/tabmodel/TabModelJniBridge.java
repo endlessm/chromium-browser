@@ -4,15 +4,25 @@
 
 package org.chromium.chrome.browser.tabmodel;
 
+import android.os.SystemClock;
+
 import org.chromium.base.CalledByNative;
 import org.chromium.chrome.browser.Tab;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.content_public.browser.WebContents;
 
 /**
  * Bridges between the C++ and Java {@link TabModel} interfaces.
  */
 public abstract class TabModelJniBridge implements TabModel {
     private final boolean mIsIncognito;
+
+    // TODO(dtrainor, simonb): Make these non-static so we don't break if we have multiple instances
+    // of chrome running.  Also investigate how this affects document mode.
+    private static long sTabSwitchStartTime;
+    private static TabSelectionType sTabSelectionType;
+    private static boolean sTabSwitchLatencyMetricRequired;
+    private static boolean sPerceivedTabSwitchLatencyMetricLogged;
 
     /** Native TabModelJniBridge pointer, which will be set by {@link #initializeNative()}. */
     private long mNativeTabModelJniBridge;
@@ -89,12 +99,12 @@ public abstract class TabModelJniBridge implements TabModel {
     /**
      * Creates a Tab with the given WebContents.
      * @param incognito Whether or not the tab is incognito.
-     * @param nativeWebContents Pointer to the native WebContents.
+     * @param webContents A {@link WebContents} object.
      * @param parentId ID of the parent.
      */
     @CalledByNative
-    protected abstract Tab createTabWithNativeContents(
-            boolean incognito, long nativeWebContents, int parentId);
+    protected abstract Tab createTabWithWebContents(
+            boolean incognito, WebContents webContents, int parentId);
 
     /**
      * Creates a Tab with the given WebContents for DevTools.
@@ -115,9 +125,78 @@ public abstract class TabModelJniBridge implements TabModel {
     @CalledByNative
     protected abstract boolean isSessionRestoreInProgress();
 
+    /**
+     * Register the start of tab switch latency timing. Called when setIndex() indicates a tab
+     * switch event.
+     * @param type The type of action that triggered the tab selection.
+     */
+    public static void startTabSwitchLatencyTiming(final TabSelectionType type) {
+        sTabSwitchStartTime = SystemClock.uptimeMillis();
+        sTabSelectionType = type;
+        sTabSwitchLatencyMetricRequired = false;
+        sPerceivedTabSwitchLatencyMetricLogged = false;
+    }
+
+    /**
+     * Should be called a visible {@link ChromeTab} gets a frame to render in the browser process.
+     * If we don't get this call, we ignore requests to
+     * {@link #flushActualTabSwitchLatencyMetric()}.
+     */
+    public static void setActualTabSwitchLatencyMetricRequired() {
+        if (sTabSwitchStartTime <= 0) return;
+        sTabSwitchLatencyMetricRequired = true;
+    }
+
+    /**
+     * Logs the perceived tab switching latency metric.  This will automatically be logged if
+     * the actual metric is set and flushed.
+     */
+    public static void logPerceivedTabSwitchLatencyMetric() {
+        if (sTabSwitchStartTime <= 0 || sPerceivedTabSwitchLatencyMetricLogged) return;
+
+        flushTabSwitchLatencyMetric(true);
+        sPerceivedTabSwitchLatencyMetricLogged = true;
+    }
+
+    /**
+     * Flush the latency metric if called after the indication that a frame is ready.
+     */
+    public static void flushActualTabSwitchLatencyMetric() {
+        if (sTabSwitchStartTime <= 0 || !sTabSwitchLatencyMetricRequired) return;
+        logPerceivedTabSwitchLatencyMetric();
+        flushTabSwitchLatencyMetric(false);
+
+        sTabSwitchStartTime = 0;
+        sTabSwitchLatencyMetricRequired = false;
+    }
+
+    private static void flushTabSwitchLatencyMetric(boolean perceived) {
+        if (sTabSwitchStartTime <= 0) return;
+        final long ms = SystemClock.uptimeMillis() - sTabSwitchStartTime;
+        switch (sTabSelectionType) {
+            case FROM_CLOSE:
+                nativeLogFromCloseMetric(ms, perceived);
+                break;
+            case FROM_EXIT:
+                nativeLogFromExitMetric(ms, perceived);
+                break;
+            case FROM_NEW:
+                nativeLogFromNewMetric(ms, perceived);
+                break;
+            case FROM_USER:
+                nativeLogFromUserMetric(ms, perceived);
+                break;
+        }
+    }
+
     private native long nativeInit(boolean isIncognito);
     private native Profile nativeGetProfileAndroid(long nativeTabModelJniBridge);
     private native void nativeBroadcastSessionRestoreComplete(long nativeTabModelJniBridge);
     private native void nativeDestroy(long nativeTabModelJniBridge);
     private native void nativeTabAddedToModel(long nativeTabModelJniBridge, Tab tab);
+    // Native methods for tab switch latency metrics.
+    private static native void nativeLogFromCloseMetric(long ms, boolean perceived);
+    private static native void nativeLogFromExitMetric(long ms, boolean perceived);
+    private static native void nativeLogFromNewMetric(long ms, boolean perceived);
+    private static native void nativeLogFromUserMetric(long ms, boolean perceived);
 }

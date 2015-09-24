@@ -65,8 +65,7 @@ util.KEYSETS_USE_US = [
   'pinyin-zh-TW',
   'quick',
   't13n',
-  'wubi',
-  'zhuyin'
+  'wubi'
 ];
 
 
@@ -95,7 +94,6 @@ util.KEYSETS_HAVE_EN_SWTICHER = [
  * @type {!Array.<string>}
  */
 util.KEYSETS_HAVE_COMPACT = [
-  'be',
   'ca',
   'ca-eng',
   'de',
@@ -105,6 +103,7 @@ util.KEYSETS_HAVE_COMPACT = [
   'gb-extd',
   'ie',
   'is',
+  'nl',
   'no',
   'pinyin-zh-CN',
   'se',
@@ -266,6 +265,11 @@ util.getVisibleCharacter = function(invisibleCharacter) {
   if (map[invisibleCharacter]) {
     return map[invisibleCharacter];
   }
+  // For non-spacing marks (e.g. \u05b1), ChromeOS cannot display it correctly
+  // until there is a character before it to combine with.
+  if (/[\u0591-\u05cf]/.test(invisibleCharacter)) {
+    return '\u00a0' + invisibleCharacter;
+  }
   return invisibleCharacter;
 };
 
@@ -305,7 +309,7 @@ util.supportDeadKey = function(character) {
  * @return {boolean} .
  */
 util.needAutoCap = function(text) {
-  if (goog.string.isEmpty(text)) {
+  if (goog.string.isEmptyOrWhitespace(text)) {
     return false;
   } else {
     return util.END_SENTENCE_REGEX_.test(text);
@@ -322,6 +326,64 @@ util.needAutoCap = function(text) {
 util.getConfigName = function(keyboardCode) {
   // Strips out all the suffixes in the keyboard code.
   return keyboardCode.replace(/\..*$/, '');
+};
+
+
+/**
+ * Checks that the word is a valid delete from the old to new context.
+ *
+ * @param {string} oldContext The old context.
+ * @param {string} newContext The new context.
+ * @param {string} deletionCandidate A possible word deletion.
+ *
+ * @return {boolean} Whether the deletion was valid.
+ */
+util.isPossibleDelete = function(
+    oldContext, newContext, deletionCandidate) {
+  // Check that deletionCandidate exists in oldContext. We don't check if it's a
+  // tail since our heuristic may have trimmed whitespace.
+  var rootEnd = oldContext.lastIndexOf(deletionCandidate);
+  if (rootEnd != -1) {
+    // Check that remaining text in root persisted in newContext.
+    var root = oldContext.slice(0, rootEnd);
+    return root == newContext.slice(-rootEnd);
+  }
+  return false;
+};
+
+
+/**
+ * Checks whether a letter deletion would cause the observed context transform.
+ *
+ * @param {string} oldContext The old context.
+ * @param {string} newContext The new context.
+ *
+ * @return {boolean} Whether the transform is valid.
+ */
+util.isLetterDelete = function(oldContext, newContext) {
+  if (oldContext == '') {
+    return false;
+  }
+  // Handle buffer overflow.
+  if (oldContext.length == newContext.length) {
+    return util.isLetterDelete(oldContext, newContext.slice(1));
+  }
+  return oldContext.length == newContext.length + 1 &&
+      oldContext.indexOf(newContext) == 0;
+};
+
+
+/**
+ * Checks whether a letter restoration would cause the observed context
+ * transform.
+ *
+ * @param {string} oldContext The old context.
+ * @param {string} newContext The new context.
+ *
+ * @return {boolean} Whether the transform is valid.
+ */
+util.isLetterRestore = function(oldContext, newContext) {
+  return util.isLetterDelete(newContext, oldContext);
 };
 
 });  // goog.scope

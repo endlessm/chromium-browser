@@ -11,6 +11,7 @@
 #include "media/base/audio_decoder.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/demuxer_stream.h"
+#include "media/base/media_log.h"
 #include "media/base/pipeline.h"
 #include "media/base/video_decoder.h"
 #include "media/filters/decoder_stream_traits.h"
@@ -52,12 +53,13 @@ template <DemuxerStream::Type StreamType>
 DecoderSelector<StreamType>::DecoderSelector(
     const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
     ScopedVector<Decoder> decoders,
-    const SetDecryptorReadyCB& set_decryptor_ready_cb)
+    const scoped_refptr<MediaLog>& media_log)
     : task_runner_(task_runner),
       decoders_(decoders.Pass()),
-      set_decryptor_ready_cb_(set_decryptor_ready_cb),
+      media_log_(media_log),
       input_stream_(NULL),
-      weak_ptr_factory_(this) {}
+      weak_ptr_factory_(this) {
+}
 
 template <DemuxerStream::Type StreamType>
 DecoderSelector<StreamType>::~DecoderSelector() {
@@ -74,12 +76,17 @@ DecoderSelector<StreamType>::~DecoderSelector() {
 template <DemuxerStream::Type StreamType>
 void DecoderSelector<StreamType>::SelectDecoder(
     DemuxerStream* stream,
-    bool low_delay,
+    const SetDecryptorReadyCB& set_decryptor_ready_cb,
     const SelectDecoderCB& select_decoder_cb,
-    const typename Decoder::OutputCB& output_cb) {
+    const typename Decoder::OutputCB& output_cb,
+    const base::Closure& waiting_for_decryption_key_cb) {
   DVLOG(2) << __FUNCTION__;
   DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK(stream);
+  DCHECK(select_decoder_cb_.is_null());
+
+  set_decryptor_ready_cb_ = set_decryptor_ready_cb;
+  waiting_for_decryption_key_cb_ = waiting_for_decryption_key_cb;
 
   // Make sure |select_decoder_cb| runs on a different execution stack.
   select_decoder_cb_ = BindToCurrentLoop(select_decoder_cb);
@@ -91,7 +98,6 @@ void DecoderSelector<StreamType>::SelectDecoder(
   }
 
   input_stream_ = stream;
-  low_delay_ = low_delay;
   output_cb_ = output_cb;
 
   if (!IsStreamEncrypted(input_stream_)) {
@@ -99,31 +105,29 @@ void DecoderSelector<StreamType>::SelectDecoder(
     return;
   }
 
-  // This could happen if Encrypted Media Extension (EME) is not enabled.
+  // This could be null if Encrypted Media Extension (EME) is not enabled.
   if (set_decryptor_ready_cb_.is_null()) {
     ReturnNullDecoder();
     return;
   }
 
   decoder_.reset(new typename StreamTraits::DecryptingDecoderType(
-      task_runner_, set_decryptor_ready_cb_));
+      task_runner_, media_log_, set_decryptor_ready_cb_,
+      waiting_for_decryption_key_cb_));
 
-  DecoderStreamTraits<StreamType>::Initialize(
-      decoder_.get(),
-      StreamTraits::GetDecoderConfig(*input_stream_),
-      low_delay_,
+  DecoderStreamTraits<StreamType>::InitializeDecoder(
+      decoder_.get(), input_stream_,
       base::Bind(&DecoderSelector<StreamType>::DecryptingDecoderInitDone,
                  weak_ptr_factory_.GetWeakPtr()),
       output_cb_);
 }
 
 template <DemuxerStream::Type StreamType>
-void DecoderSelector<StreamType>::DecryptingDecoderInitDone(
-    PipelineStatus status) {
+void DecoderSelector<StreamType>::DecryptingDecoderInitDone(bool success) {
   DVLOG(2) << __FUNCTION__;
   DCHECK(task_runner_->BelongsToCurrentThread());
 
-  if (status == PIPELINE_OK) {
+  if (success) {
     base::ResetAndReturn(&select_decoder_cb_)
         .Run(decoder_.Pass(), scoped_ptr<DecryptingDemuxerStream>());
     return;
@@ -131,8 +135,9 @@ void DecoderSelector<StreamType>::DecryptingDecoderInitDone(
 
   decoder_.reset();
 
-  decrypted_stream_.reset(
-      new DecryptingDemuxerStream(task_runner_, set_decryptor_ready_cb_));
+  decrypted_stream_.reset(new DecryptingDemuxerStream(
+      task_runner_, media_log_, set_decryptor_ready_cb_,
+      waiting_for_decryption_key_cb_));
 
   decrypted_stream_->Initialize(
       input_stream_,
@@ -170,21 +175,19 @@ void DecoderSelector<StreamType>::InitializeDecoder() {
   decoder_.reset(decoders_.front());
   decoders_.weak_erase(decoders_.begin());
 
-  DecoderStreamTraits<StreamType>::Initialize(
-      decoder_.get(),
-      StreamTraits::GetDecoderConfig(*input_stream_),
-      low_delay_,
+  DecoderStreamTraits<StreamType>::InitializeDecoder(
+      decoder_.get(), input_stream_,
       base::Bind(&DecoderSelector<StreamType>::DecoderInitDone,
                  weak_ptr_factory_.GetWeakPtr()),
       output_cb_);
 }
 
 template <DemuxerStream::Type StreamType>
-void DecoderSelector<StreamType>::DecoderInitDone(PipelineStatus status) {
+void DecoderSelector<StreamType>::DecoderInitDone(bool success) {
   DVLOG(2) << __FUNCTION__;
   DCHECK(task_runner_->BelongsToCurrentThread());
 
-  if (status != PIPELINE_OK) {
+  if (!success) {
     decoder_.reset();
     InitializeDecoder();
     return;

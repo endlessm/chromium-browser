@@ -41,8 +41,8 @@ class MediaInternalsTestBase {
     std::string utf8_update = base::UTF16ToUTF8(update);
     const std::string::size_type first_brace = utf8_update.find('{');
     const std::string::size_type last_brace = utf8_update.rfind('}');
-    scoped_ptr<base::Value> output_value(base::JSONReader::Read(
-        utf8_update.substr(first_brace, last_brace - first_brace + 1)));
+    scoped_ptr<base::Value> output_value = base::JSONReader::Read(
+        utf8_update.substr(first_brace, last_brace - first_brace + 1));
     CHECK(output_value);
 
     base::DictionaryValue* output_dict = NULL;
@@ -109,22 +109,30 @@ class MediaInternalsVideoCaptureDeviceTest : public testing::Test,
   MediaInternals::UpdateCallback update_cb_;
 };
 
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX) || \
+    defined(OS_ANDROID)
 TEST_F(MediaInternalsVideoCaptureDeviceTest,
        AllCaptureApiTypesHaveProperStringRepresentation) {
   typedef media::VideoCaptureDevice::Name VideoCaptureDeviceName;
   typedef std::map<VideoCaptureDeviceName::CaptureApiType, std::string>
       CaptureApiTypeStringMap;
   CaptureApiTypeStringMap m;
-#if defined(OS_WIN)
+#if defined(OS_LINUX)
+  m[VideoCaptureDeviceName::V4L2_SINGLE_PLANE] = "V4L2 SPLANE";
+  m[VideoCaptureDeviceName::V4L2_MULTI_PLANE] = "V4L2 MPLANE";
+#elif defined(OS_WIN)
   m[VideoCaptureDeviceName::MEDIA_FOUNDATION] = "Media Foundation";
   m[VideoCaptureDeviceName::DIRECT_SHOW] = "Direct Show";
-  m[VideoCaptureDeviceName::DIRECT_SHOW_WDM_CROSSBAR] =
-      "Direct Show WDM Crossbar";
 #elif defined(OS_MACOSX)
   m[VideoCaptureDeviceName::AVFOUNDATION] = "AV Foundation";
   m[VideoCaptureDeviceName::QTKIT] = "QTKit";
   m[VideoCaptureDeviceName::DECKLINK] = "DeckLink";
+#elif defined(OS_ANDROID)
+  m[VideoCaptureDeviceName::API1] = "Camera API1";
+  m[VideoCaptureDeviceName::API2_LEGACY] = "Camera API2 Legacy";
+  m[VideoCaptureDeviceName::API2_FULL] = "Camera API2 Full";
+  m[VideoCaptureDeviceName::API2_LIMITED] = "Camera API2 Limited";
+  m[VideoCaptureDeviceName::TANGO] = "Tango API";
 #endif
   EXPECT_EQ(media::VideoCaptureDevice::Name::API_TYPE_UNKNOWN, m.size());
   for (CaptureApiTypeStringMap::iterator it = m.begin(); it != m.end(); ++it) {
@@ -144,15 +152,16 @@ TEST_F(MediaInternalsVideoCaptureDeviceTest,
   const float kFrameRate = 30.0f;
   const gfx::Size kFrameSize(1280, 720);
   const media::VideoPixelFormat kPixelFormat = media::PIXEL_FORMAT_I420;
-  const media::VideoCaptureFormat capture_format(
-      kFrameSize, kFrameRate, kPixelFormat);
-  const std::string expected_string =
-      base::StringPrintf("resolution: %s, fps: %f, pixel format: %s",
-                         kFrameSize.ToString().c_str(),
-                         kFrameRate,
-                         media::VideoCaptureFormat::PixelFormatToString(
-                              kPixelFormat).c_str());
-  EXPECT_EQ(expected_string, capture_format.ToString());
+  const media::VideoPixelStorage kPixelStorage = media::PIXEL_STORAGE_CPU;
+  const media::VideoCaptureFormat capture_format(kFrameSize, kFrameRate,
+                                                 kPixelFormat, kPixelStorage);
+  const std::string expected_string = base::StringPrintf(
+      "(%s)@%.3ffps, pixel format: %s storage: %s.",
+      kFrameSize.ToString().c_str(), kFrameRate,
+      media::VideoCaptureFormat::PixelFormatToString(kPixelFormat).c_str(),
+      media::VideoCaptureFormat::PixelStorageToString(kPixelStorage).c_str());
+  EXPECT_EQ(expected_string,
+            media::VideoCaptureFormat::ToString(capture_format));
 }
 
 TEST_F(MediaInternalsVideoCaptureDeviceTest,
@@ -172,8 +181,13 @@ TEST_F(MediaInternalsVideoCaptureDeviceTest,
 #elif defined(OS_WIN)
       media::VideoCaptureDevice::Name("dummy", "dummy",
           media::VideoCaptureDevice::Name::DIRECT_SHOW),
-#elif defined(OS_LINUX) || defined(OS_CHROMEOS)
-      media::VideoCaptureDevice::Name("dummy", "/dev/dummy"),
+#elif defined(OS_LINUX)
+      media::VideoCaptureDevice::Name(
+          "dummy", "/dev/dummy",
+          media::VideoCaptureDevice::Name::V4L2_SINGLE_PLANE),
+#elif defined(OS_ANDROID)
+      media::VideoCaptureDevice::Name("dummy", "dummy",
+          media::VideoCaptureDevice::Name::API2_LEGACY),
 #else
       media::VideoCaptureDevice::Name("dummy", "dummy"),
 #endif
@@ -187,19 +201,23 @@ TEST_F(MediaInternalsVideoCaptureDeviceTest,
   // exactly one device_info in the |device_infos|.
   media_internals_->UpdateVideoCaptureDeviceCapabilities(device_infos);
 
-#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+#if defined(OS_LINUX)
   ExpectString("id", "/dev/dummy");
 #else
   ExpectString("id", "dummy");
 #endif
   ExpectString("name", "dummy");
   base::ListValue expected_list;
-  expected_list.AppendString(format_hd.ToString());
+  expected_list.AppendString(media::VideoCaptureFormat::ToString(format_hd));
   ExpectListOfStrings("formats", expected_list);
-#if defined(OS_MACOSX)
-  ExpectString("captureApi", "QTKit");
+#if defined(OS_LINUX)
+  ExpectString("captureApi", "V4L2 SPLANE");
 #elif defined(OS_WIN)
   ExpectString("captureApi", "Direct Show");
+#elif defined(OS_MACOSX)
+  ExpectString("captureApi", "QTKit");
+#elif defined(OS_ANDROID)
+  ExpectString("captureApi", "Camera API2 Legacy");
 #endif
 }
 

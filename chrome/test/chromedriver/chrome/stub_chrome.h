@@ -21,8 +21,8 @@ class StubChrome : public Chrome {
   ~StubChrome() override;
 
   // Overridden from Chrome:
-  ChromeDesktopImpl* GetAsDesktop() override;
-  const BrowserInfo* GetBrowserInfo() override;
+  Status GetAsDesktop(ChromeDesktopImpl** desktop) override;
+  const BrowserInfo* GetBrowserInfo() const override;
   bool HasCrashedWebView() override;
   Status GetWebViewIds(std::list<std::string>* web_view_ids) override;
   Status GetWebViewById(const std::string& id, WebView** web_view) override;
@@ -30,6 +30,7 @@ class StubChrome : public Chrome {
   Status ActivateWebView(const std::string& id) override;
   std::string GetOperatingSystemName() override;
   bool IsMobileEmulationEnabled() const override;
+  bool HasTouchScreen() const override;
   Status Quit() override;
 
  private:

@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
 #include "chrome/browser/sync/profile_sync_service.h"
@@ -35,10 +36,9 @@ class ProfileSyncServiceMock : public ProfileSyncService {
 
   // Helper routine to be used in conjunction with
   // BrowserContextKeyedServiceFactory::SetTestingFactory().
-  static KeyedService* BuildMockProfileSyncService(
+  static scoped_ptr<KeyedService> BuildMockProfileSyncService(
       content::BrowserContext* profile);
 
-  MOCK_METHOD0(DisableForUser, void());
   MOCK_METHOD4(OnBackendInitialized,
       void(const syncer::WeakHandle<syncer::JsBackend>&,
            const syncer::WeakHandle<syncer::DataTypeDebugInfoListener>&,
@@ -63,10 +63,11 @@ class ProfileSyncServiceMock : public ProfileSyncService {
   MOCK_METHOD1(DisableDatatype, void(const syncer::SyncError&));
   MOCK_CONST_METHOD0(GetUserShare, syncer::UserShare*());
   MOCK_METHOD1(DeactivateDataType, void(syncer::ModelType));
-  MOCK_METHOD0(UnsuppressAndStart, void());
+  MOCK_METHOD0(RequestStart, void());
+  MOCK_METHOD1(RequestStop, void(ProfileSyncService::SyncStopDataFate));
 
-  MOCK_METHOD1(AddObserver, void(ProfileSyncServiceBase::Observer*));
-  MOCK_METHOD1(RemoveObserver, void(ProfileSyncServiceBase::Observer*));
+  MOCK_METHOD1(AddObserver, void(sync_driver::SyncServiceObserver*));
+  MOCK_METHOD1(RemoveObserver, void(sync_driver::SyncServiceObserver*));
   MOCK_METHOD0(GetJsController, base::WeakPtr<syncer::JsController>());
   MOCK_CONST_METHOD0(HasSyncSetupCompleted, bool());
 
@@ -88,9 +89,9 @@ class ProfileSyncServiceMock : public ProfileSyncService {
   MOCK_CONST_METHOD0(FirstSetupInProgress, bool());
   MOCK_CONST_METHOD0(GetLastSyncedTimeString, base::string16());
   MOCK_CONST_METHOD0(HasUnrecoverableError, bool());
-  MOCK_CONST_METHOD0(SyncActive, bool());
+  MOCK_CONST_METHOD0(IsSyncActive, bool());
   MOCK_CONST_METHOD0(backend_initialized, bool());
-  MOCK_CONST_METHOD0(IsStartSuppressed, bool());
+  MOCK_CONST_METHOD0(IsSyncRequested, bool());
   MOCK_CONST_METHOD0(waiting_for_auth, bool());
   MOCK_METHOD1(OnActionableError, void(const syncer::SyncProtocolError&));
   MOCK_METHOD1(SetSetupInProgress, void(bool));
@@ -102,7 +103,7 @@ class ProfileSyncServiceMock : public ProfileSyncService {
                void(const sync_driver::DataTypeManager::ConfigureResult&));
   MOCK_METHOD0(OnConfigureStart, void());
 
-  MOCK_METHOD0(IsSyncEnabledAndLoggedIn, bool());
+  MOCK_CONST_METHOD0(CanSyncStart, bool());
   MOCK_CONST_METHOD0(IsManaged, bool());
   MOCK_METHOD0(IsOAuthRefreshTokenAvailable, bool());
 

@@ -13,38 +13,28 @@ namespace syncer {
 
 const char kFaviconSyncTag[] = "favicon_sync";
 const char kPreCommitUpdateAvoidanceTag[] = "pre_commit_update_avoidance";
-const char kGCMChannelTag[] = "gcm_channel";
 const char kEnhancedBookmarksTag[] = "enhanced_bookmarks";
 const char kGCMInvalidationsTag[] = "gcm_invalidations";
+const char kWalletSyncTag[] = "wallet_sync";
 
 // A structure to hold the enable status of experimental sync features.
 struct Experiments {
-  enum GCMChannelState {
-    UNSET,
-    SUPPRESSED,
-    ENABLED,
-  };
-
   Experiments()
       : favicon_sync_limit(200),
-        gcm_channel_state(UNSET),
         enhanced_bookmarks_enabled(false),
-        gcm_invalidations_enabled(true)  // By default GCM channel is enabled.
-  {}
+        gcm_invalidations_enabled(true),  // By default GCM channel is enabled.
+        wallet_sync_enabled(false) {}
 
   bool Matches(const Experiments& rhs) {
     return (favicon_sync_limit == rhs.favicon_sync_limit &&
-            gcm_channel_state == rhs.gcm_channel_state &&
             enhanced_bookmarks_enabled == rhs.enhanced_bookmarks_enabled &&
             enhanced_bookmarks_ext_id == rhs.enhanced_bookmarks_ext_id &&
-            gcm_invalidations_enabled == rhs.gcm_invalidations_enabled);
+            gcm_invalidations_enabled == rhs.gcm_invalidations_enabled &&
+            wallet_sync_enabled == rhs.wallet_sync_enabled);
   }
 
   // The number of favicons that a client is permitted to sync.
   int favicon_sync_limit;
-
-  // Enable state of the GCM channel.
-  GCMChannelState gcm_channel_state;
 
   // Enable the enhanced bookmarks sync datatype.
   bool enhanced_bookmarks_enabled;
@@ -54,6 +44,9 @@ struct Experiments {
 
   // Enhanced bookmarks extension id.
   std::string enhanced_bookmarks_ext_id;
+
+  // Enable the Wallet Autofill sync datatype.
+  bool wallet_sync_enabled;
 };
 
 }  // namespace syncer

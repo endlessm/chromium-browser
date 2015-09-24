@@ -9,10 +9,12 @@ found in the LICENSE file.
   <head>
     <meta charset="utf-8">
     <link rel="icon" type="image/png" href="chromoting16.webp">
-    <link rel="stylesheet" href="open_sans.css">
+    <link rel="stylesheet" href="butter_bar.css">
     <link rel="stylesheet" href="connection_stats.css">
+    <link rel="stylesheet" href="crd_main.css">
     <link rel="stylesheet" href="main.css">
     <link rel="stylesheet" href="menu_button.css">
+    <link rel="stylesheet" href="open_sans.css">
     <link rel="stylesheet" href="toolbar.css">
     <link rel="stylesheet" href="window_frame.css">
 
@@ -32,10 +34,16 @@ found in the LICENSE file.
            hidden, but are shown appropriately when the mode changes. -->
       <section id="loading-mode" data-ui-mode="">
         <em>Loading&hellip;</em>
+        <div id="browser-test-deferred-init" hidden>
+        <p>
+          Running in test mode. If you are seeing this message in any other
+          context, please <a href="http://crbug.com" target="_blank">file a
+          bug</a>.
+        </p>
+        <p>
+          <button id="browser-test-continue-init">Continue</button>
+        </p>
       </section>
-
-      <div id="daemon-plugin-container"></div>
-      <div id="host-plugin-container"></div>
 
       <iframe id="wcs-sandbox" src="wcs_sandbox.html" hidden></iframe>
 
@@ -45,7 +53,7 @@ found in the LICENSE file.
              hidden>
 
           <meta-include src="webapp/crd/html/ui_header.html"/>
-          <meta-include src="webapp/crd/html/butterbar.html"/>
+          <meta-include src="webapp/crd/html/butter_bar.html"/>
           <meta-include src="webapp/crd/html/ui_it2me.html"/>
           <meta-include src="webapp/crd/html/ui_me2me.html"/>
 
@@ -70,7 +78,7 @@ found in the LICENSE file.
 
       </div>  <!-- scroller -->
 
-      <meta-include src="webapp/base/html/dialog_auth.html"/>
+      <meta-include src="webapp/crd/html/dialog_auth.html"/>
 
       <div class="dialog-screen"
            data-ui-mode="home.host home.client home.history home.confirm-host-delete home.host-setup home.token-refresh-failed home.manage-pairings home.host-setup home.host-install"

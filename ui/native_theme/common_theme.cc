@@ -9,10 +9,9 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_utils.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/image/image_skia.h"
-#include "ui/gfx/rect.h"
 #include "ui/gfx/skia_util.h"
-#include "ui/gfx/sys_color_change_listener.h"
 #include "ui/resources/grit/ui_resources.h"
 
 namespace {
@@ -40,6 +39,10 @@ const SkColor kBlueButtonDisabledColor = SK_ColorWHITE;
 const SkColor kBlueButtonPressedColor = SK_ColorWHITE;
 const SkColor kBlueButtonHoverColor = SK_ColorWHITE;
 const SkColor kBlueButtonShadowColor = SkColorSetRGB(0x53, 0x8C, 0xEA);
+// Material spinner/throbber:
+const SkColor kThrobberSpinningColor = SkColorSetRGB(0x42, 0x81, 0xF4);
+const SkColor kThrobberWaitingColor = SkColorSetRGB(0xA6, 0xA6, 0xA6);
+const SkColor kThrobberLightColor = SkColorSetRGB(0xF4, 0xF8, 0xFD);
 
 }  // namespace
 
@@ -106,11 +109,21 @@ bool CommonThemeGetSystemColor(NativeTheme::ColorId color_id, SkColor* color) {
     case NativeTheme::kColorId_BlueButtonShadowColor:
       *color = kBlueButtonShadowColor;
       break;
+    // Material spinner/throbber
+    case NativeTheme::kColorId_ThrobberSpinningColor:
+      *color = kThrobberSpinningColor;
+      break;
+    case NativeTheme::kColorId_ThrobberWaitingColor:
+      *color = kThrobberWaitingColor;
+      break;
+    case NativeTheme::kColorId_ThrobberLightColor:
+      *color = kThrobberLightColor;
+      break;
     default:
       return false;
   }
 
-  if (gfx::IsInvertedColorScheme()) {
+  if (color_utils::IsInvertedColorScheme()) {
     switch (color_id) {
       case NativeTheme::kColorId_FocusedMenuItemBackgroundColor:
         *color = kMenuInvertedSchemeHighlightBackgroundColor;
@@ -207,8 +220,7 @@ scoped_ptr<gfx::Canvas> CommonThemeCreateCanvas(SkCanvas* sk_canvas) {
   // scale factor from canvas scale.
   SkMatrix m = sk_canvas->getTotalMatrix();
   float device_scale = static_cast<float>(SkScalarAbs(m.getScaleX()));
-  return scoped_ptr<gfx::Canvas>(
-      gfx::Canvas::CreateCanvasWithoutScaling(sk_canvas, device_scale));
+  return make_scoped_ptr(new gfx::Canvas(sk_canvas, device_scale));
 }
 
 }  // namespace ui

@@ -25,30 +25,12 @@ Profile* ChromeUIThreadExtensionFunction::GetProfile() const {
   return Profile::FromBrowserContext(context_);
 }
 
-bool ChromeUIThreadExtensionFunction::CanOperateOnWindow(
-    const extensions::WindowController* window_controller) const {
-  // |extension()| is NULL for unit tests only.
-  if (extension() != NULL &&
-      !window_controller->IsVisibleToExtension(extension())) {
-    return false;
-  }
-
-  if (GetProfile() == window_controller->profile())
-    return true;
-
-  if (!include_incognito())
-    return false;
-
-  return GetProfile()->HasOffTheRecordProfile() &&
-         GetProfile()->GetOffTheRecordProfile() == window_controller->profile();
-}
-
 // TODO(stevenjb): Replace this with GetExtensionWindowController().
 Browser* ChromeUIThreadExtensionFunction::GetCurrentBrowser() {
   // If the delegate has an associated browser, return it.
   if (dispatcher()) {
     extensions::WindowController* window_controller =
-        dispatcher()->delegate()->GetExtensionWindowController();
+        dispatcher()->GetExtensionWindowController();
     if (window_controller) {
       Browser* browser = window_controller->GetBrowser();
       if (browser)
@@ -63,9 +45,10 @@ Browser* ChromeUIThreadExtensionFunction::GetCurrentBrowser() {
   // |include_incognito|. Look only for browsers on the active desktop as it is
   // preferable to pretend no browser is open then to return a browser on
   // another desktop.
-  if (render_view_host_) {
-    Profile* profile = Profile::FromBrowserContext(
-        render_view_host_->GetProcess()->GetBrowserContext());
+  content::WebContents* web_contents = GetSenderWebContents();
+  if (web_contents) {
+    Profile* profile =
+        Profile::FromBrowserContext(web_contents->GetBrowserContext());
     Browser* browser = chrome::FindAnyBrowser(
         profile, include_incognito_, chrome::GetActiveDesktop());
     if (browser)
@@ -87,13 +70,13 @@ ChromeUIThreadExtensionFunction::GetExtensionWindowController() {
   // If the delegate has an associated window controller, return it.
   if (dispatcher()) {
     extensions::WindowController* window_controller =
-        dispatcher()->delegate()->GetExtensionWindowController();
+        dispatcher()->GetExtensionWindowController();
     if (window_controller)
       return window_controller;
   }
 
   return extensions::WindowControllerList::GetInstance()
-      ->CurrentWindowForFunction(ChromeExtensionFunctionDetails(this));
+      ->CurrentWindowForFunction(this);
 }
 
 content::WebContents*

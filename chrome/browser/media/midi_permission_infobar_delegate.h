@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_MEDIA_MIDI_PERMISSION_INFOBAR_DELEGATE_H_
 
 #include <string>
-#include "chrome/browser/content_settings/permission_infobar_delegate.h"
+#include "chrome/browser/permissions/permission_infobar_delegate.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 
 class GURL;
@@ -31,14 +31,13 @@ class MidiPermissionInfoBarDelegate : public PermissionInfobarDelegate {
   MidiPermissionInfoBarDelegate(PermissionQueueController* controller,
                                 const PermissionRequestID& id,
                                 const GURL& requesting_frame,
-                                int contents_unique_id,
                                 const std::string& display_languages,
                                 ContentSettingsType type);
   ~MidiPermissionInfoBarDelegate() override;
 
   // ConfirmInfoBarDelegate:
-  base::string16 GetMessageText() const override;
   int GetIconID() const override;
+  base::string16 GetMessageText() const override;
 
   GURL requesting_frame_;
   std::string display_languages_;

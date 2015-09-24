@@ -13,8 +13,7 @@
 namespace webrtc {
 
 VPMFramePreprocessor::VPMFramePreprocessor()
-    : id_(0),
-      content_metrics_(NULL),
+    : content_metrics_(NULL),
       resampled_frame_(),
       enable_ca_(false),
       frame_cnt_(0) {
@@ -28,11 +27,6 @@ VPMFramePreprocessor::~VPMFramePreprocessor() {
   delete spatial_resampler_;
   delete ca_;
   delete vd_;
-}
-
-int32_t VPMFramePreprocessor::ChangeUniqueId(const int32_t id) {
-  id_ = id;
-  return VPM_OK;
 }
 
 void  VPMFramePreprocessor::Reset() {
@@ -92,9 +86,8 @@ uint32_t VPMFramePreprocessor::DecimatedHeight() const {
   return spatial_resampler_->TargetHeight();
 }
 
-
-int32_t VPMFramePreprocessor::PreprocessFrame(const I420VideoFrame& frame,
-    I420VideoFrame** processed_frame) {
+int32_t VPMFramePreprocessor::PreprocessFrame(const VideoFrame& frame,
+                                              VideoFrame** processed_frame) {
   if (frame.IsZeroSize()) {
     return VPM_PARAMETER_ERROR;
   }

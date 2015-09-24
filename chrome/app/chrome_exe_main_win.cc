@@ -3,6 +3,8 @@
 // found in the LICENSE file.
 
 #include <windows.h>
+#include <malloc.h>
+#include <shellscalingapi.h>
 #include <tchar.h>
 
 #include <string>
@@ -15,7 +17,6 @@
 #include "chrome/app/client_util.h"
 #include "chrome/browser/chrome_process_finder_win.h"
 #include "chrome/browser/policy/policy_path_parser.h"
-#include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths_internal.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome_elf/chrome_elf_main.h"
@@ -24,15 +25,6 @@
 #include "ui/gfx/win/dpi.h"
 
 namespace {
-
-void CheckSafeModeLaunch() {
-  unsigned short k1 = ::GetAsyncKeyState(VK_CONTROL);
-  unsigned short k2 = ::GetAsyncKeyState(VK_MENU);
-  const unsigned short kPressedMask = 0x8000;
-  if ((k1 & kPressedMask) && (k2 & kPressedMask))
-    ::SetEnvironmentVariableA(chrome::kSafeModeEnvVar, "1");
-}
-
 // List of switches that it's safe to rendezvous early with. Fast start should
 // not be done if a command line contains a switch not in this set.
 // Note this is currently stored as a list of two because it's probably faster
@@ -51,11 +43,11 @@ bool IsFastStartSwitch(const std::string& command_line_switch) {
   return false;
 }
 
-bool ContainsNonFastStartFlag(const CommandLine& command_line) {
-  const CommandLine::SwitchMap& switches = command_line.GetSwitches();
+bool ContainsNonFastStartFlag(const base::CommandLine& command_line) {
+  const base::CommandLine::SwitchMap& switches = command_line.GetSwitches();
   if (switches.size() > arraysize(kFastStartSwitches))
     return true;
-  for (CommandLine::SwitchMap::const_iterator it = switches.begin();
+  for (base::CommandLine::SwitchMap::const_iterator it = switches.begin();
        it != switches.end(); ++it) {
     if (!IsFastStartSwitch(it->first))
       return true;
@@ -63,7 +55,7 @@ bool ContainsNonFastStartFlag(const CommandLine& command_line) {
   return false;
 }
 
-bool AttemptFastNotify(const CommandLine& command_line) {
+bool AttemptFastNotify(const base::CommandLine& command_line) {
   if (ContainsNonFastStartFlag(command_line))
     return false;
 
@@ -79,27 +71,13 @@ bool AttemptFastNotify(const CommandLine& command_line) {
       chrome::NOTIFY_SUCCESS;
 }
 
-// Duplicated from Win8.1 SDK ShellScalingApi.h
-typedef enum PROCESS_DPI_AWARENESS {
-    PROCESS_DPI_UNAWARE = 0,
-    PROCESS_SYSTEM_DPI_AWARE = 1,
-    PROCESS_PER_MONITOR_DPI_AWARE = 2
-} PROCESS_DPI_AWARENESS;
-
-typedef enum MONITOR_DPI_TYPE {
-    MDT_EFFECTIVE_DPI = 0,
-    MDT_ANGULAR_DPI = 1,
-    MDT_RAW_DPI = 2,
-    MDT_DEFAULT = MDT_EFFECTIVE_DPI
-} MONITOR_DPI_TYPE;
-
 // Win8.1 supports monitor-specific DPI scaling.
 bool SetProcessDpiAwarenessWrapper(PROCESS_DPI_AWARENESS value) {
   typedef HRESULT(WINAPI *SetProcessDpiAwarenessPtr)(PROCESS_DPI_AWARENESS);
   SetProcessDpiAwarenessPtr set_process_dpi_awareness_func =
       reinterpret_cast<SetProcessDpiAwarenessPtr>(
           GetProcAddress(GetModuleHandleA("user32.dll"),
-                          "SetProcessDpiAwarenessInternal"));
+                         "SetProcessDpiAwarenessInternal"));
   if (set_process_dpi_awareness_func) {
     HRESULT hr = set_process_dpi_awareness_func(value);
     if (SUCCEEDED(hr)) {
@@ -114,7 +92,7 @@ bool SetProcessDpiAwarenessWrapper(PROCESS_DPI_AWARENESS value) {
 }
 
 // This function works for Windows Vista through Win8. Win8.1 must use
-// SetProcessDpiAwareness[Wrapper]
+// SetProcessDpiAwareness[Wrapper].
 BOOL SetProcessDPIAwareWrapper() {
   typedef BOOL(WINAPI *SetProcessDPIAwarePtr)(VOID);
   SetProcessDPIAwarePtr set_process_dpi_aware_func =
@@ -125,10 +103,20 @@ BOOL SetProcessDPIAwareWrapper() {
     set_process_dpi_aware_func();
 }
 
-
 void EnableHighDPISupport() {
   if (!SetProcessDpiAwarenessWrapper(PROCESS_SYSTEM_DPI_AWARE)) {
     SetProcessDPIAwareWrapper();
+  }
+}
+
+void SwitchToLFHeap() {
+  // Only needed on XP but harmless on other Windows flavors.
+  auto crt_heap = _get_heap_handle();
+  ULONG enable_LFH = 2;
+  if (HeapSetInformation(reinterpret_cast<HANDLE>(crt_heap),
+                         HeapCompatibilityInformation,
+                         &enable_LFH, sizeof(enable_LFH))) {
+    VLOG(1) << "Low fragmentation heap enabled.";
   }
 }
 
@@ -142,28 +130,29 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE prev, wchar_t*, int) {
 int main() {
   HINSTANCE instance = GetModuleHandle(NULL);
 #endif
+  SwitchToLFHeap();
+
   startup_metric_utils::RecordExeMainEntryTime();
 
   // Signal Chrome Elf that Chrome has begun to start.
   SignalChromeElf();
 
   // Initialize the commandline singleton from the environment.
-  CommandLine::Init(0, NULL);
+  base::CommandLine::Init(0, NULL);
   // The exit manager is in charge of calling the dtors of singletons.
   base::AtExitManager exit_manager;
 
-  // We don't want to set DPI awareness on Vista because we don't support
+  // We don't want to set DPI awareness on pre-Win7 because we don't support
   // DirectWrite there. GDI fonts are kerned very badly, so better to leave
   // DPI-unaware and at effective 1.0. See also ShouldUseDirectWrite().
-  if (base::win::GetVersion() > base::win::VERSION_VISTA)
+  if (base::win::GetVersion() >= base::win::VERSION_WIN7)
     EnableHighDPISupport();
 
-  if (AttemptFastNotify(*CommandLine::ForCurrentProcess()))
+  if (AttemptFastNotify(*base::CommandLine::ForCurrentProcess()))
     return 0;
 
-  CheckSafeModeLaunch();
-
   // Load and launch the chrome dll. *Everything* happens inside.
+  VLOG(1) << "About to load main DLL.";
   MainDllLoader* loader = MakeMainDllLoader();
   int rc = loader->Launch(instance);
   loader->RelaunchChromeBrowserWithNewCommandLineIfNeeded();

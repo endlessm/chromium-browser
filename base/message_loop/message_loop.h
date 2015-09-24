@@ -16,8 +16,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/incoming_task_queue.h"
-#include "base/message_loop/message_loop_proxy.h"
-#include "base/message_loop/message_loop_proxy_impl.h"
+#include "base/message_loop/message_loop_task_runner.h"
 #include "base/message_loop/message_pump.h"
 #include "base/message_loop/timer_slack.h"
 #include "base/observer_list.h"
@@ -106,7 +105,7 @@ class BASE_EXPORT MessageLoop : public MessagePump::Delegate {
     TYPE_IO,
 #if defined(OS_ANDROID)
     TYPE_JAVA,
-#endif // defined(OS_ANDROID)
+#endif  // defined(OS_ANDROID)
   };
 
   // Normally, it is not necessary to instantiate a MessageLoop.  Instead, it
@@ -114,7 +113,8 @@ class BASE_EXPORT MessageLoop : public MessagePump::Delegate {
   explicit MessageLoop(Type type = TYPE_DEFAULT);
   // Creates a TYPE_CUSTOM MessageLoop with the supplied MessagePump, which must
   // be non-NULL.
-  explicit MessageLoop(scoped_ptr<base::MessagePump> pump);
+  explicit MessageLoop(scoped_ptr<MessagePump> pump);
+
   ~MessageLoop() override;
 
   // Returns the MessageLoop object for the current thread, or null if none.
@@ -155,6 +155,9 @@ class BASE_EXPORT MessageLoop : public MessagePump::Delegate {
   // DestructionObserver is receiving a notification callback.
   void RemoveDestructionObserver(DestructionObserver* destruction_observer);
 
+  // NOTE: Deprecated; prefer task_runner() and the TaskRunner interfaces.
+  // TODO(skyostil): Remove these functions (crbug.com/465354).
+  //
   // The "PostTask" family of methods call the task's Run method asynchronously
   // from within a message loop at some point in the future.
   //
@@ -292,17 +295,17 @@ class BASE_EXPORT MessageLoop : public MessagePump::Delegate {
   }
   const std::string& thread_name() const { return thread_name_; }
 
-  // Gets the message loop proxy associated with this message loop.
-  //
-  // NOTE: Deprecated; prefer task_runner() and the TaskRunner interfaces
-  scoped_refptr<MessageLoopProxy> message_loop_proxy() {
-    return message_loop_proxy_;
+  // Gets the TaskRunner associated with this message loop.
+  const scoped_refptr<SingleThreadTaskRunner>& task_runner() {
+    return task_runner_;
   }
 
-  // Gets the TaskRunner associated with this message loop.
-  scoped_refptr<SingleThreadTaskRunner> task_runner() {
-    return message_loop_proxy_;
-  }
+  // Sets a new TaskRunner for this message loop. The message loop must already
+  // have been bound to a thread prior to this call, and the task runner must
+  // belong to that thread. Note that changing the task runner will also affect
+  // the ThreadTaskRunnerHandle for the target thread. Must be called on the
+  // thread to which the message loop is bound.
+  void SetTaskRunner(scoped_refptr<SingleThreadTaskRunner> task_runner);
 
   // Enables or disables the recursive task processing. This happens in the case
   // of recursive message loops. Some unwanted message loop may occurs when
@@ -389,10 +392,6 @@ class BASE_EXPORT MessageLoop : public MessagePump::Delegate {
   // Returns true if the message loop is "idle". Provided for testing.
   bool IsIdleForTesting();
 
-  // Wakes up the message pump. Can be called on any thread. The caller is
-  // responsible for synchronizing ScheduleWork() calls.
-  void ScheduleWork(bool was_empty);
-
   // Returns the TaskAnnotator which is used to add debug information to posted
   // tasks.
   debug::TaskAnnotator* task_annotator() { return &task_annotator_; }
@@ -406,9 +405,33 @@ class BASE_EXPORT MessageLoop : public MessagePump::Delegate {
 
  private:
   friend class RunLoop;
+  friend class internal::IncomingTaskQueue;
+  friend class ScheduleWorkTest;
+  friend class Thread;
 
-  // Configures various members for the two constructors.
-  void Init();
+  using MessagePumpFactoryCallback = Callback<scoped_ptr<MessagePump>()>;
+
+  // Creates a MessageLoop without binding to a thread.
+  // If |type| is TYPE_CUSTOM non-null |pump_factory| must be also given
+  // to create a message pump for this message loop.  Otherwise a default
+  // message pump for the |type| is created.
+  //
+  // It is valid to call this to create a new message loop on one thread,
+  // and then pass it to the thread where the message loop actually runs.
+  // The message loop's BindToCurrentThread() method must be called on the
+  // thread the message loop runs on, before calling Run().
+  // Before BindToCurrentThread() is called only Post*Task() functions can
+  // be called on the message loop.
+  static scoped_ptr<MessageLoop> CreateUnbound(
+      Type type,
+      MessagePumpFactoryCallback pump_factory);
+
+  // Common private constructor. Other constructors delegate the initialization
+  // to this constructor.
+  MessageLoop(Type type, MessagePumpFactoryCallback pump_factory);
+
+  // Configure various members and bind this message loop to the current thread.
+  void BindToCurrentThread();
 
   // Invokes the actual run loop using the message pump.
   void RunHandler();
@@ -432,6 +455,10 @@ class BASE_EXPORT MessageLoop : public MessagePump::Delegate {
   // empty.
   void ReloadWorkQueue();
 
+  // Wakes up the message pump. Can be called on any thread. The caller is
+  // responsible for synchronizing ScheduleWork() calls.
+  void ScheduleWork();
+
   // Start recording histogram info about events and action IF it was enabled
   // and IF the statistics recorder can accept a registration of our histogram.
   void StartHistogrammer();
@@ -452,6 +479,7 @@ class BASE_EXPORT MessageLoop : public MessagePump::Delegate {
   // this queue is only accessed (push/pop) by our current thread.
   TaskQueue work_queue_;
 
+#if defined(OS_WIN)
   // How many high resolution tasks are in the pending task queue. This value
   // increases by N every time we call ReloadWorkQueue() and decreases by 1
   // every time we call RunTask() if the task needs a high resolution timer.
@@ -459,6 +487,7 @@ class BASE_EXPORT MessageLoop : public MessagePump::Delegate {
   // Tracks if we have requested high resolution timers. Its only use is to
   // turn off the high resolution timer upon loop destruction.
   bool in_high_res_mode_;
+#endif
 
   // Contains delayed tasks, sorted by their 'delayed_run_time' property.
   DelayedTaskQueue delayed_work_queue_;
@@ -483,6 +512,10 @@ class BASE_EXPORT MessageLoop : public MessagePump::Delegate {
   bool os_modal_loop_;
 #endif
 
+  // pump_factory_.Run() is called to create a message pump for this loop
+  // if type_ is TYPE_CUSTOM and pump_ is null.
+  MessagePumpFactoryCallback pump_factory_;
+
   std::string thread_name_;
   // A profiling histogram showing the counts of various messages and events.
   HistogramBase* message_histogram_;
@@ -495,8 +528,11 @@ class BASE_EXPORT MessageLoop : public MessagePump::Delegate {
 
   scoped_refptr<internal::IncomingTaskQueue> incoming_task_queue_;
 
-  // The message loop proxy associated with this message loop.
-  scoped_refptr<internal::MessageLoopProxyImpl> message_loop_proxy_;
+  // A task runner which we haven't bound to a thread yet.
+  scoped_refptr<internal::MessageLoopTaskRunner> unbound_task_runner_;
+
+  // The task runner associated with this message loop.
+  scoped_refptr<SingleThreadTaskRunner> task_runner_;
   scoped_ptr<ThreadTaskRunnerHandle> thread_task_runner_handle_;
 
   template <class T, class R> friend class base::subtle::DeleteHelperInternal;
@@ -639,8 +675,8 @@ class BASE_EXPORT MessageLoopForIO : public MessageLoop {
   bool WatchFileDescriptor(int fd,
                            bool persistent,
                            Mode mode,
-                           FileDescriptorWatcher *controller,
-                           Watcher *delegate);
+                           FileDescriptorWatcher* controller,
+                           Watcher* delegate);
 #endif  // defined(OS_IOS) || defined(OS_POSIX)
 #endif  // !defined(OS_NACL_SFI)
 };

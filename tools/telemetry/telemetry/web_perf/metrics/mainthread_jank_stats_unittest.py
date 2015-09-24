@@ -4,10 +4,10 @@
 
 import unittest
 
-from telemetry.timeline import model as model_module
 from telemetry.timeline import async_slice
-from telemetry.web_perf import timeline_interaction_record as tir_module
+from telemetry.timeline import model as model_module
 from telemetry.web_perf.metrics import mainthread_jank_stats
+from telemetry.web_perf import timeline_interaction_record as tir_module
 
 
 class MainthreadJankTests(unittest.TestCase):
@@ -15,7 +15,7 @@ class MainthreadJankTests(unittest.TestCase):
   def CreateTestRecord(self, name, start, end, thread_start, thread_end,
                        parent_thread):
     s = async_slice.AsyncSlice(
-        'cat', 'Interaction.%s/is_responsive' % name,
+        'cat', 'Interaction.%s' % name,
         timestamp=start, duration=end - start, start_thread=parent_thread,
         end_thread=parent_thread, thread_start=thread_start,
         thread_duration=thread_end - thread_start)

@@ -8,7 +8,7 @@
 #include <string>
 
 #include "base/strings/string16.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/view.h"
 
@@ -66,6 +66,7 @@ class IconLabelBubbleView : public views::View {
   static int GetBubbleOuterPadding(bool by_icon);
 
   // views::View:
+  const char* GetClassName() const override;
   void OnPaint(gfx::Canvas* canvas) override;
 
   int GetPreLabelWidth() const;

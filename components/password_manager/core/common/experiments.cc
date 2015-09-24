@@ -14,7 +14,7 @@ bool ManageAccountLinkExperimentEnabled() {
   std::string group_name =
       base::FieldTrialList::FindFullName("PasswordLinkInSettings");
 
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kDisablePasswordLink))
     return false;
 
@@ -22,6 +22,11 @@ bool ManageAccountLinkExperimentEnabled() {
     return true;
 
   return group_name == "Enabled";
+}
+
+bool ForceSavingExperimentEnabled() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      password_manager::switches::kEnablePasswordForceSaving);
 }
 
 }  // namespace password_manager

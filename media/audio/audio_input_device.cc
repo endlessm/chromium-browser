@@ -4,7 +4,6 @@
 
 #include "media/audio/audio_input_device.h"
 
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/memory/scoped_vector.h"
 #include "base/threading/thread_restrictions.h"
@@ -60,9 +59,9 @@ AudioInputDevice::AudioInputDevice(
 
   // The correctness of the code depends on the relative values assigned in the
   // State enum.
-  COMPILE_ASSERT(IPC_CLOSED < IDLE, invalid_enum_value_assignment_0);
-  COMPILE_ASSERT(IDLE < CREATING_STREAM, invalid_enum_value_assignment_1);
-  COMPILE_ASSERT(CREATING_STREAM < RECORDING, invalid_enum_value_assignment_2);
+  static_assert(IPC_CLOSED < IDLE, "invalid enum value assignment 0");
+  static_assert(IDLE < CREATING_STREAM, "invalid enum value assignment 1");
+  static_assert(CREATING_STREAM < RECORDING, "invalid enum value assignment 2");
 }
 
 void AudioInputDevice::Initialize(const AudioParameters& params,
@@ -119,11 +118,10 @@ void AudioInputDevice::OnStreamCreated(
     int length,
     int total_segments) {
   DCHECK(task_runner()->BelongsToCurrentThread());
+  DCHECK(base::SharedMemory::IsHandleValid(handle));
 #if defined(OS_WIN)
-  DCHECK(handle);
   DCHECK(socket_handle);
 #else
-  DCHECK_GE(handle.fd, 0);
   DCHECK_GE(socket_handle, 0);
 #endif
   DCHECK_GT(length, 0);
@@ -153,7 +151,7 @@ void AudioInputDevice::OnVolume(double volume) {
 }
 
 void AudioInputDevice::OnStateChanged(
-    AudioInputIPCDelegate::State state) {
+    AudioInputIPCDelegateState state) {
   DCHECK(task_runner()->BelongsToCurrentThread());
 
   // Do nothing if the stream has been closed.
@@ -163,14 +161,14 @@ void AudioInputDevice::OnStateChanged(
   // TODO(miu): Clean-up inconsistent and incomplete handling here.
   // http://crbug.com/180640
   switch (state) {
-    case AudioInputIPCDelegate::kStopped:
+    case AUDIO_INPUT_IPC_DELEGATE_STATE_STOPPED:
       ShutDownOnIOThread();
       break;
-    case AudioInputIPCDelegate::kRecording:
+    case AUDIO_INPUT_IPC_DELEGATE_STATE_RECORDING:
       NOTIMPLEMENTED();
       break;
-    case AudioInputIPCDelegate::kError:
-      DLOG(WARNING) << "AudioInputDevice::OnStateChanged(kError)";
+    case AUDIO_INPUT_IPC_DELEGATE_STATE_ERROR:
+      DLOG(WARNING) << "AudioInputDevice::OnStateChanged(ERROR)";
       // Don't dereference the callback object if the audio thread
       // is stopped or stopping.  That could mean that the callback
       // object has been deleted.
@@ -290,7 +288,7 @@ void AudioInputDevice::AudioThreadCallback::MapSharedMemory() {
         reinterpret_cast<media::AudioInputBuffer*>(ptr);
     scoped_ptr<media::AudioBus> audio_bus =
         media::AudioBus::WrapMemory(audio_parameters_, buffer->audio);
-    audio_buses_.push_back(audio_bus.release());
+    audio_buses_.push_back(audio_bus.Pass());
     ptr += segment_length_;
   }
 }

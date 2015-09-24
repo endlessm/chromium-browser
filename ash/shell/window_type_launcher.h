@@ -59,7 +59,6 @@ class WindowTypeLauncher : public views::WidgetDelegateView,
                               ui::MenuSourceType source_type) override;
 
   views::LabelButton* create_button_;
-  views::LabelButton* create_persistant_button_;
   views::LabelButton* panel_button_;
   views::LabelButton* create_nonresizable_button_;
   views::LabelButton* bubble_button_;
@@ -71,7 +70,6 @@ class WindowTypeLauncher : public views::WidgetDelegateView,
   views::LabelButton* transient_button_;
   views::LabelButton* examples_button_;
   views::LabelButton* show_hide_window_button_;
-  views::LabelButton* show_screensaver_;
   views::LabelButton* show_web_notification_;
   scoped_ptr<views::MenuRunner> menu_runner_;
 

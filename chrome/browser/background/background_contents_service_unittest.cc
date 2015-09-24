@@ -7,15 +7,14 @@
 #include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "base/prefs/pref_service.h"
 #include "base/prefs/scoped_user_pref_update.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/background/background_contents.h"
 #include "chrome/browser/background/background_contents_service.h"
 #include "chrome/browser/background/background_contents_service_factory.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/tab_contents/background_contents.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/extensions/extension_test_util.h"
 #include "chrome/common/pref_names.h"
@@ -25,6 +24,7 @@
 #include "chrome/test/base/testing_profile_manager.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/test/test_browser_thread.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "extensions/common/extension.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
@@ -43,7 +43,12 @@ class BackgroundContentsServiceTest : public testing::Test {
   BackgroundContentsServiceTest() {}
   ~BackgroundContentsServiceTest() override {}
   void SetUp() override {
-    command_line_.reset(new CommandLine(CommandLine::NO_PROGRAM));
+    command_line_.reset(new base::CommandLine(base::CommandLine::NO_PROGRAM));
+    BackgroundContentsService::DisableCloseBalloonForTesting(true);
+  }
+
+  void TearDown() override {
+    BackgroundContentsService::DisableCloseBalloonForTesting(false);
   }
 
   const base::DictionaryValue* GetPrefs(Profile* profile) {
@@ -62,7 +67,8 @@ class BackgroundContentsServiceTest : public testing::Test {
     return url;
   }
 
-  scoped_ptr<CommandLine> command_line_;
+  content::TestBrowserThreadBundle thread_bundle_;
+  scoped_ptr<base::CommandLine> command_line_;
 };
 
 class MockBackgroundContents : public BackgroundContents {
@@ -77,9 +83,8 @@ class MockBackgroundContents : public BackgroundContents {
   }
 
   void SendOpenedNotification(BackgroundContentsService* service) {
-    base::string16 frame_name = base::ASCIIToUTF16("background");
     BackgroundContentsOpenedDetails details = {
-        this, frame_name, appid_ };
+        this, "background", appid_ };
     service->BackgroundContentsOpened(&details, profile_);
   }
 

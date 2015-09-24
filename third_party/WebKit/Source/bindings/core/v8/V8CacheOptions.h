@@ -34,9 +34,10 @@
 namespace blink {
 
 enum V8CacheOptions {
-    V8CacheOptionsOff,
-    V8CacheOptionsParse,
-    V8CacheOptionsCode
+    V8CacheOptionsDefault, // Use whatever the current default is.
+    V8CacheOptionsNone, // V8 caching turned off.
+    V8CacheOptionsParse, // Use parser caching.
+    V8CacheOptionsCode, // Use code caching.
 };
 
 } // namespace blink

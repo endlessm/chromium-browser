@@ -16,40 +16,52 @@
 namespace gfx {
 namespace {
 
-bool ValidFormat(unsigned internalformat, gfx::GpuMemoryBuffer::Format format) {
+bool ValidInternalFormat(unsigned internalformat) {
   switch (internalformat) {
     case GL_RGB:
-      switch (format) {
-        case gfx::GpuMemoryBuffer::RGBX_8888:
-          return true;
-        case gfx::GpuMemoryBuffer::RGBA_8888:
-        case gfx::GpuMemoryBuffer::BGRA_8888:
-          return false;
-      }
-      NOTREACHED();
-      return false;
-    case GL_RGBA:
-      switch (format) {
-        case gfx::GpuMemoryBuffer::BGRA_8888:
-          return true;
-        case gfx::GpuMemoryBuffer::RGBX_8888:
-        case gfx::GpuMemoryBuffer::RGBA_8888:
-          return false;
-      }
-      NOTREACHED();
-      return false;
+    case GL_BGRA_EXT:
+      return true;
     default:
       return false;
   }
 }
 
+bool ValidFormat(gfx::GpuMemoryBuffer::Format format) {
+  switch (format) {
+    case GpuMemoryBuffer::BGRA_8888:
+    case GpuMemoryBuffer::RGBX_8888:
+      return true;
+    case GpuMemoryBuffer::ATC:
+    case GpuMemoryBuffer::ATCIA:
+    case GpuMemoryBuffer::DXT1:
+    case GpuMemoryBuffer::DXT5:
+    case GpuMemoryBuffer::ETC1:
+    case GpuMemoryBuffer::R_8:
+    case GpuMemoryBuffer::RGBA_4444:
+    case GpuMemoryBuffer::RGBA_8888:
+    case GpuMemoryBuffer::YUV_420:
+      return false;
+  }
+
+  NOTREACHED();
+  return false;
+}
+
 EGLint FourCC(gfx::GpuMemoryBuffer::Format format) {
   switch (format) {
-    case gfx::GpuMemoryBuffer::BGRA_8888:
+    case GpuMemoryBuffer::BGRA_8888:
       return DRM_FORMAT_ARGB8888;
-    case gfx::GpuMemoryBuffer::RGBX_8888:
+    case GpuMemoryBuffer::RGBX_8888:
       return DRM_FORMAT_XRGB8888;
-    case gfx::GpuMemoryBuffer::RGBA_8888:
+    case GpuMemoryBuffer::ATC:
+    case GpuMemoryBuffer::ATCIA:
+    case GpuMemoryBuffer::DXT1:
+    case GpuMemoryBuffer::DXT5:
+    case GpuMemoryBuffer::ETC1:
+    case GpuMemoryBuffer::R_8:
+    case GpuMemoryBuffer::RGBA_4444:
+    case GpuMemoryBuffer::RGBA_8888:
+    case GpuMemoryBuffer::YUV_420:
       NOTREACHED();
       return 0;
   }
@@ -64,7 +76,7 @@ bool IsHandleValid(const base::FileDescriptor& handle) {
 
 }  // namespace
 
-GLImageLinuxDMABuffer::GLImageLinuxDMABuffer(const gfx::Size& size,
+GLImageLinuxDMABuffer::GLImageLinuxDMABuffer(const Size& size,
                                              unsigned internalformat)
     : GLImageEGL(size), internalformat_(internalformat) {
 }
@@ -73,10 +85,15 @@ GLImageLinuxDMABuffer::~GLImageLinuxDMABuffer() {
 }
 
 bool GLImageLinuxDMABuffer::Initialize(const base::FileDescriptor& handle,
-                                       gfx::GpuMemoryBuffer::Format format,
+                                       GpuMemoryBuffer::Format format,
                                        int pitch) {
-  if (!ValidFormat(internalformat_, format)) {
-    LOG(ERROR) << "Invalid format: " << internalformat_;
+  if (!ValidInternalFormat(internalformat_)) {
+    LOG(ERROR) << "Invalid internalformat: " << internalformat_;
+    return false;
+  }
+
+  if (!ValidFormat(format)) {
+    LOG(ERROR) << "Invalid format: " << format;
     return false;
   }
 
@@ -103,5 +120,7 @@ bool GLImageLinuxDMABuffer::Initialize(const base::FileDescriptor& handle,
   return GLImageEGL::Initialize(
       EGL_LINUX_DMA_BUF_EXT, static_cast<EGLClientBuffer>(NULL), attrs);
 }
+
+unsigned GLImageLinuxDMABuffer::GetInternalFormat() { return internalformat_; }
 
 }  // namespace gfx

@@ -28,14 +28,17 @@ void MutableEntry::Init(WriteTransaction* trans,
 
   kernel->put(ID, trans->directory_->NextId());
   kernel->put(META_HANDLE, trans->directory_->NextMetahandle());
-  kernel->mark_dirty(&trans->directory_->kernel_->dirty_metahandles);
-  kernel->put(PARENT_ID, parent_id);
+  kernel->mark_dirty(&trans->directory_->kernel()->dirty_metahandles);
   kernel->put(NON_UNIQUE_NAME, name);
   const base::Time& now = base::Time::Now();
   kernel->put(CTIME, now);
   kernel->put(MTIME, now);
   // We match the database defaults here
   kernel->put(BASE_VERSION, CHANGES_VERSION);
+
+  if (!parent_id.IsNull()) {
+    kernel->put(PARENT_ID, parent_id);
+  }
 
   // Normally the SPECIFICS setting code is wrapped in logic to deal with
   // unknown fields and encryption.  Since all we want to do here is ensure that
@@ -52,6 +55,20 @@ void MutableEntry::Init(WriteTransaction* trans,
 
   // Now swap the pointers.
   kernel_ = kernel.release();
+}
+
+MutableEntry::MutableEntry(WriteTransaction* trans,
+                           Create,
+                           ModelType model_type,
+                           const string& name)
+    : ModelNeutralMutableEntry(trans), write_transaction_(trans) {
+  Init(trans, model_type, Id(), name);
+  // We need to have a valid position ready before we can index the item.
+  DCHECK_NE(BOOKMARKS, model_type);
+  DCHECK(!ShouldMaintainPosition());
+
+  bool result = trans->directory()->InsertEntry(trans, kernel_);
+  DCHECK(result);
 }
 
 MutableEntry::MutableEntry(WriteTransaction* trans,
@@ -109,7 +126,7 @@ void MutableEntry::PutLocalExternalId(int64 value) {
   if (kernel_->ref(LOCAL_EXTERNAL_ID) != value) {
     ScopedKernelLock lock(dir());
     kernel_->put(LOCAL_EXTERNAL_ID, value);
-    kernel_->mark_dirty(&dir()->kernel_->dirty_metahandles);
+    kernel_->mark_dirty(&dir()->kernel()->dirty_metahandles);
   }
 }
 
@@ -118,7 +135,7 @@ void MutableEntry::PutMtime(base::Time value) {
   write_transaction()->TrackChangesTo(kernel_);
   if (kernel_->ref(MTIME) != value) {
     kernel_->put(MTIME, value);
-    kernel_->mark_dirty(&dir()->kernel_->dirty_metahandles);
+    kernel_->mark_dirty(&dir()->kernel()->dirty_metahandles);
   }
 }
 
@@ -127,7 +144,7 @@ void MutableEntry::PutCtime(base::Time value) {
   write_transaction()->TrackChangesTo(kernel_);
   if (kernel_->ref(CTIME) != value) {
     kernel_->put(CTIME, value);
-    kernel_->mark_dirty(&dir()->kernel_->dirty_metahandles);
+    kernel_->mark_dirty(&dir()->kernel()->dirty_metahandles);
   }
 }
 
@@ -167,11 +184,11 @@ void MutableEntry::PutIsDel(bool value) {
     // - Ensure that the item is never committed to the server.
     // - Allow any items with the same UNIQUE_CLIENT_TAG created on other
     //   clients to override this entry.
-    // - Let us delete this entry permanently through
-    //   DirectoryBackingStore::DropDeletedEntries() when we next restart sync.
-    //   This will save memory and avoid crbug.com/125381.
-    // Note: do not unset IsUnsynced if the syncer is in the middle of
-    // attempting to commit this entity.
+    // - Let us delete this entry permanently when we next restart sync - see
+    //   DirectoryBackingStore::SafeToPurgeOnLoading.
+    //   This will avoid crbug.com/125381.
+    // Note: do not unset IsUnsynced if the syncer has started but not yet
+    // finished committing this entity.
     if (!GetId().ServerKnows() && !GetSyncing()) {
       PutIsUnsynced(false);
     }
@@ -182,10 +199,10 @@ void MutableEntry::PutIsDel(bool value) {
     // Some indices don't include deleted items and must be updated
     // upon a value change.
     ScopedParentChildIndexUpdater updater(lock, kernel_,
-        &dir()->kernel_->parent_child_index);
+        &dir()->kernel()->parent_child_index);
 
     kernel_->put(IS_DEL, value);
-    kernel_->mark_dirty(&dir()->kernel_->dirty_metahandles);
+    kernel_->mark_dirty(&dir()->kernel()->dirty_metahandles);
   }
 }
 
@@ -195,7 +212,7 @@ void MutableEntry::PutNonUniqueName(const std::string& value) {
 
   if (kernel_->ref(NON_UNIQUE_NAME) != value) {
     kernel_->put(NON_UNIQUE_NAME, value);
-    kernel_->mark_dirty(&dir()->kernel_->dirty_metahandles);
+    kernel_->mark_dirty(&dir()->kernel()->dirty_metahandles);
   }
 }
 
@@ -205,10 +222,17 @@ void MutableEntry::PutSpecifics(const sync_pb::EntitySpecifics& value) {
   write_transaction()->TrackChangesTo(kernel_);
   // TODO(ncarter): This is unfortunately heavyweight.  Can we do
   // better?
-  if (kernel_->ref(SPECIFICS).SerializeAsString() !=
-      value.SerializeAsString()) {
-    kernel_->put(SPECIFICS, value);
-    kernel_->mark_dirty(&dir()->kernel_->dirty_metahandles);
+  const std::string& serialized_value = value.SerializeAsString();
+  if (serialized_value != kernel_->ref(SPECIFICS).SerializeAsString()) {
+    // Check for potential sharing - SPECIFICS is often
+    // copied from SERVER_SPECIFICS.
+    if (serialized_value ==
+        kernel_->ref(SERVER_SPECIFICS).SerializeAsString()) {
+      kernel_->copy(SERVER_SPECIFICS, SPECIFICS);
+    } else {
+      kernel_->put(SPECIFICS, value);
+    }
+    kernel_->mark_dirty(&dir()->kernel()->dirty_metahandles);
   }
 }
 
@@ -220,31 +244,42 @@ void MutableEntry::PutUniquePosition(const UniquePosition& value) {
     DCHECK(value.IsValid());
     ScopedKernelLock lock(dir());
     ScopedParentChildIndexUpdater updater(
-        lock, kernel_, &dir()->kernel_->parent_child_index);
+        lock, kernel_, &dir()->kernel()->parent_child_index);
     kernel_->put(UNIQUE_POSITION, value);
-    kernel_->mark_dirty(&dir()->kernel_->dirty_metahandles);
+    kernel_->mark_dirty(&dir()->kernel()->dirty_metahandles);
   }
 }
 
 bool MutableEntry::PutPredecessor(const Id& predecessor_id) {
-  MutableEntry predecessor(write_transaction(), GET_BY_ID, predecessor_id);
-  if (!predecessor.good())
-    return false;
-  dir()->PutPredecessor(kernel_, predecessor.kernel_);
+  if (predecessor_id.IsNull()) {
+    dir()->PutPredecessor(kernel_, NULL);
+  } else {
+    MutableEntry predecessor(write_transaction(), GET_BY_ID, predecessor_id);
+    if (!predecessor.good())
+      return false;
+    dir()->PutPredecessor(kernel_, predecessor.kernel_);
+  }
   return true;
 }
 
 void MutableEntry::PutAttachmentMetadata(
-    const sync_pb::AttachmentMetadata& attachment_metadata) {
+    const sync_pb::AttachmentMetadata& value) {
   DCHECK(kernel_);
   write_transaction()->TrackChangesTo(kernel_);
-  if (kernel_->ref(ATTACHMENT_METADATA).SerializeAsString() !=
-      attachment_metadata.SerializeAsString()) {
+  const std::string& serialized_value = value.SerializeAsString();
+  if (serialized_value !=
+      kernel_->ref(ATTACHMENT_METADATA).SerializeAsString()) {
     dir()->UpdateAttachmentIndex(GetMetahandle(),
-                                 kernel_->ref(ATTACHMENT_METADATA),
-                                 attachment_metadata);
-    kernel_->put(ATTACHMENT_METADATA, attachment_metadata);
-    kernel_->mark_dirty(&dir()->kernel_->dirty_metahandles);
+                                 kernel_->ref(ATTACHMENT_METADATA), value);
+    // Check for potential sharing - ATTACHMENT_METADATA is often
+    // copied from SERVER_ATTACHMENT_METADATA.
+    if (serialized_value ==
+        kernel_->ref(SERVER_ATTACHMENT_METADATA).SerializeAsString()) {
+      kernel_->copy(SERVER_ATTACHMENT_METADATA, ATTACHMENT_METADATA);
+    } else {
+      kernel_->put(ATTACHMENT_METADATA, value);
+    }
+    kernel_->mark_dirty(&dir()->kernel()->dirty_metahandles);
   }
 }
 
@@ -253,8 +288,8 @@ void MutableEntry::MarkAttachmentAsOnServer(
   DCHECK(kernel_);
   DCHECK(!attachment_id.unique_id().empty());
   write_transaction()->TrackChangesTo(kernel_);
-  sync_pb::AttachmentMetadata& attachment_metadata =
-      kernel_->mutable_ref(ATTACHMENT_METADATA);
+  sync_pb::AttachmentMetadata attachment_metadata =
+      kernel_->ref(ATTACHMENT_METADATA);
   for (int i = 0; i < attachment_metadata.record_size(); ++i) {
     sync_pb::AttachmentMetadataRecord* record =
         attachment_metadata.mutable_record(i);
@@ -262,7 +297,8 @@ void MutableEntry::MarkAttachmentAsOnServer(
       continue;
     record->set_is_on_server(true);
   }
-  kernel_->mark_dirty(&dir()->kernel_->dirty_metahandles);
+  kernel_->put(ATTACHMENT_METADATA, attachment_metadata);
+  kernel_->mark_dirty(&dir()->kernel()->dirty_metahandles);
   MarkForSyncing(this);
 }
 
@@ -272,7 +308,8 @@ bool MarkForSyncing(MutableEntry* e) {
   DCHECK(!e->IsRoot()) << "We shouldn't mark a permanent object for syncing.";
   if (!(e->PutIsUnsynced(true)))
     return false;
-  e->PutSyncing(false);
+  if (e->GetSyncing())
+    e->PutDirtySync(true);
   return true;
 }
 

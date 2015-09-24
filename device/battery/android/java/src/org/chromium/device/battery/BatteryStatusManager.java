@@ -4,6 +4,7 @@
 
 package org.chromium.device.battery;
 
+import android.annotation.TargetApi;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -12,20 +13,27 @@ import android.os.BatteryManager;
 import android.os.Build;
 import android.util.Log;
 
-import org.chromium.base.CalledByNative;
-import org.chromium.base.JNINamespace;
 import org.chromium.base.VisibleForTesting;
+import org.chromium.mojom.device.BatteryStatus;
+
+import javax.annotation.Nullable;
 
 /**
- * Android implementation of the battery status APIs.
+ * Data source for battery status information. This class registers for battery status notifications
+ * from the system and calls the callback passed on construction whenever a notification is
+ * received.
  */
-@JNINamespace("device")
 class BatteryStatusManager {
 
     private static final String TAG = "BatteryStatusManager";
 
+    interface BatteryStatusCallback {
+        void onBatteryStatusChanged(BatteryStatus batteryStatus);
+    }
+
     // A reference to the application context in order to acquire the SensorService.
     private final Context mAppContext;
+    private final BatteryStatusCallback mCallback;
     private final IntentFilter mFilter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
     private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
         @Override
@@ -34,50 +42,74 @@ class BatteryStatusManager {
         }
     };
 
-    // Non-zero if and only if we're listening for events.
-    // To avoid race conditions on the C++ side, access must be synchronized.
-    private long mNativePtr;
-    // The lock to access the mNativePtr.
-    private final Object mNativePtrLock = new Object();
+    // This is to workaround a Galaxy Nexus bug, see the comment in the constructor.
+    private final boolean mIgnoreBatteryPresentState;
+
+    // Only used in L (API level 21) and higher.
+    private AndroidBatteryManagerWrapper mAndroidBatteryManager;
 
     private boolean mEnabled = false;
 
-    protected BatteryStatusManager(Context context) {
-        mAppContext = context.getApplicationContext();
+    @VisibleForTesting
+    static class AndroidBatteryManagerWrapper {
+        private final BatteryManager mBatteryManager;
+
+        protected AndroidBatteryManagerWrapper(BatteryManager batteryManager) {
+            mBatteryManager = batteryManager;
+        }
+
+        public int getIntProperty(int id) {
+            return mBatteryManager.getIntProperty(id);
+        }
     }
 
-    @CalledByNative
-    static BatteryStatusManager getInstance(Context appContext) {
-        return new BatteryStatusManager(appContext);
+    private BatteryStatusManager(Context context, BatteryStatusCallback callback,
+            boolean ignoreBatteryPresentState,
+            @Nullable AndroidBatteryManagerWrapper batteryManager) {
+        mAppContext = context.getApplicationContext();
+        mCallback = callback;
+        mIgnoreBatteryPresentState = ignoreBatteryPresentState;
+        mAndroidBatteryManager = batteryManager;
+    }
+
+    BatteryStatusManager(Context context, BatteryStatusCallback callback) {
+        // BatteryManager.EXTRA_PRESENT appears to be unreliable on Galaxy Nexus,
+        // Android 4.2.1, it always reports false. See http://crbug.com/384348.
+        this(context, callback, Build.MODEL.equals("Galaxy Nexus"),
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP
+                        ? new AndroidBatteryManagerWrapper(
+                                (BatteryManager) context.getSystemService(Context.BATTERY_SERVICE))
+                        : null);
     }
 
     /**
-     * Start listening for intents
+     * Creates a BatteryStatusManager without the Galaxy Nexus workaround for consistency in
+     * testing.
+     */
+    static BatteryStatusManager createBatteryStatusManagerForTesting(Context context,
+            BatteryStatusCallback callback, @Nullable AndroidBatteryManagerWrapper batteryManager) {
+        return new BatteryStatusManager(context, callback, false, batteryManager);
+    }
+
+    /**
+     * Starts listening for intents.
      * @return True on success.
      */
-    @CalledByNative
-    boolean start(long nativePtr) {
-        synchronized (mNativePtrLock) {
-            if (!mEnabled && mAppContext.registerReceiver(mReceiver, mFilter) != null) {
-                // success
-                mNativePtr = nativePtr;
-                mEnabled = true;
-            }
+    boolean start() {
+        if (!mEnabled && mAppContext.registerReceiver(mReceiver, mFilter) != null) {
+            // success
+            mEnabled = true;
         }
         return mEnabled;
     }
 
     /**
-     * Stop listening to intents.
+     * Stops listening to intents.
      */
-    @CalledByNative
     void stop() {
-        synchronized (mNativePtrLock) {
-            if (mEnabled) {
-                mAppContext.unregisterReceiver(mReceiver);
-                mNativePtr = 0;
-                mEnabled = false;
-            }
+        if (mEnabled) {
+            mAppContext.unregisterReceiver(mReceiver);
+            mEnabled = false;
         }
     }
 
@@ -88,19 +120,16 @@ class BatteryStatusManager {
             return;
         }
 
-        boolean present = ignoreBatteryPresentState()
-                ? true : intent.getBooleanExtra(BatteryManager.EXTRA_PRESENT, false);
+        boolean present = mIgnoreBatteryPresentState
+                ? true
+                : intent.getBooleanExtra(BatteryManager.EXTRA_PRESENT, false);
         int pluggedStatus = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1);
 
         if (!present || pluggedStatus == -1) {
             // No battery or no plugged status: return default values.
-            gotBatteryStatus(true, 0, Double.POSITIVE_INFINITY, 1);
+            mCallback.onBatteryStatusChanged(new BatteryStatus());
             return;
         }
-
-        boolean charging = pluggedStatus != 0;
-        int status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
-        boolean batteryFull = status == BatteryManager.BATTERY_STATUS_FULL;
 
         int current = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
         int max = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
@@ -110,39 +139,54 @@ class BatteryStatusManager {
             level = 1.0;
         }
 
-        // Currently Android does not provide charging/discharging time, as a work-around
-        // we could compute it manually based on level delta.
+        // Currently Android (below L) does not provide charging/discharging time, as a work-around
+        // we could compute it manually based on the evolution of level delta.
         // TODO(timvolodine): add proper projection for chargingTime, dischargingTime
         // (see crbug.com/401553).
-        double chargingTime = (charging & batteryFull) ? 0 : Double.POSITIVE_INFINITY;
-        double dischargingTime = Double.POSITIVE_INFINITY;
+        boolean charging = pluggedStatus != 0;
+        int status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+        boolean batteryFull = status == BatteryManager.BATTERY_STATUS_FULL;
+        double chargingTimeSeconds = (charging && batteryFull) ? 0 : Double.POSITIVE_INFINITY;
+        double dischargingTimeSeconds = Double.POSITIVE_INFINITY;
 
-        gotBatteryStatus(charging, chargingTime, dischargingTime, level);
+        BatteryStatus batteryStatus = new BatteryStatus();
+        batteryStatus.charging = charging;
+        batteryStatus.chargingTime = chargingTimeSeconds;
+        batteryStatus.dischargingTime = dischargingTimeSeconds;
+        batteryStatus.level = level;
+
+        if (mAndroidBatteryManager != null) {
+            updateBatteryStatusForLollipop(batteryStatus);
+        }
+
+        mCallback.onBatteryStatusChanged(batteryStatus);
     }
 
-    /**
-     * Returns whether the BatteryStatusManager should ignore the battery present state.
-     * It is required for some devices that incorrectly set the EXTRA_PRESENT property.
-     */
-    protected boolean ignoreBatteryPresentState() {
-        // BatteryManager.EXTRA_PRESENT appears to be unreliable on Galaxy Nexus,
-        // Android 4.2.1, it always reports false. See crbug.com/384348.
-        return Build.MODEL.equals("Galaxy Nexus");
-    }
+    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+    private void updateBatteryStatusForLollipop(BatteryStatus batteryStatus) {
+        assert mAndroidBatteryManager != null;
 
-    protected void gotBatteryStatus(boolean charging, double chargingTime,
-            double dischargingTime, double level) {
-        synchronized (mNativePtrLock) {
-            if (mNativePtr != 0) {
-                nativeGotBatteryStatus(mNativePtr, charging, chargingTime, dischargingTime, level);
+        // On Lollipop we can provide a better estimate for chargingTime and dischargingTime.
+        double remainingCapacityRatio = mAndroidBatteryManager.getIntProperty(
+                BatteryManager.BATTERY_PROPERTY_CAPACITY) / 100.0;
+        double batteryCapacityMicroAh = mAndroidBatteryManager.getIntProperty(
+                BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER);
+        double averageCurrentMicroA = mAndroidBatteryManager.getIntProperty(
+                BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE);
+
+        if (batteryStatus.charging) {
+            if (batteryStatus.chargingTime == Double.POSITIVE_INFINITY
+                    && averageCurrentMicroA > 0) {
+                double chargeFromEmptyHours = batteryCapacityMicroAh / averageCurrentMicroA;
+                batteryStatus.chargingTime =
+                        Math.ceil((1 - remainingCapacityRatio) * chargeFromEmptyHours * 3600.0);
+            }
+        } else {
+            if (averageCurrentMicroA < 0) {
+                double dischargeFromFullHours = batteryCapacityMicroAh / -averageCurrentMicroA;
+                batteryStatus.dischargingTime =
+                        Math.floor(remainingCapacityRatio * dischargeFromFullHours * 3600.0);
             }
         }
     }
-
-    /**
-     * Native JNI call
-     * see device/battery/battery_status_manager_android.cc
-     */
-    private native void nativeGotBatteryStatus(long nativeBatteryStatusManagerAndroid,
-            boolean charging, double chargingTime, double dischargingTime, double level);
 }

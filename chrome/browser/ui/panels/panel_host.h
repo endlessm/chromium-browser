@@ -12,7 +12,6 @@
 #include "content/public/common/page_zoom.h"
 #include "extensions/browser/extension_function_dispatcher.h"
 
-class FaviconTabHelper;
 class GURL;
 class Panel;
 class PrefsTabHelper;
@@ -51,12 +50,12 @@ class PanelHost : public content::WebContentsDelegate,
   content::WebContents* OpenURLFromTab(
       content::WebContents* source,
       const content::OpenURLParams& params) override;
-  void NavigationStateChanged(const content::WebContents* source,
+  void NavigationStateChanged(content::WebContents* source,
                               content::InvalidateTypes changed_flags) override;
   void AddNewContents(content::WebContents* source,
                       content::WebContents* new_contents,
                       WindowOpenDisposition disposition,
-                      const gfx::Rect& initial_pos,
+                      const gfx::Rect& initial_rect,
                       bool user_gesture,
                       bool* was_blocked) override;
   void ActivateContents(content::WebContents* contents) override;
@@ -71,15 +70,12 @@ class PanelHost : public content::WebContentsDelegate,
   void HandleKeyboardEvent(
       content::WebContents* source,
       const content::NativeWebKeyboardEvent& event) override;
-  void WebContentsFocused(content::WebContents* contents) override;
   void ResizeDueToAutoResize(content::WebContents* web_contents,
                              const gfx::Size& new_size) override;
 
   // content::WebContentsObserver overrides.
-  void RenderViewCreated(content::RenderViewHost* render_view_host) override;
   void RenderProcessGone(base::TerminationStatus status) override;
   void WebContentsDestroyed() override;
-  bool OnMessageReceived(const IPC::Message& message) override;
 
   // extensions::ExtensionFunctionDispatcher::Delegate overrides.
   extensions::WindowController* GetExtensionWindowController() const override;
@@ -95,12 +91,8 @@ class PanelHost : public content::WebContentsDelegate,
   // Helper to close panel via the message loop.
   void ClosePanel();
 
-  // Message handlers.
-  void OnRequest(const ExtensionHostMsg_Request_Params& params);
-
   Panel* panel_;  // Weak, owns us.
   Profile* profile_;
-  extensions::ExtensionFunctionDispatcher extension_function_dispatcher_;
 
   scoped_ptr<content::WebContents> web_contents_;
 

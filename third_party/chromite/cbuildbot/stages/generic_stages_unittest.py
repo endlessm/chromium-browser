@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -9,18 +8,20 @@ from __future__ import print_function
 
 import contextlib
 import copy
-import mox
+import mock
 import os
 import sys
 import unittest
 
-sys.path.insert(0, os.path.abspath('%s/../../..' % os.path.dirname(__file__)))
 from chromite.cbuildbot import commands
-from chromite.cbuildbot import cbuildbot_config as config
+from chromite.cbuildbot import config_lib
+from chromite.cbuildbot import constants
 from chromite.cbuildbot import failures_lib
+from chromite.cbuildbot import chromeos_config
 from chromite.cbuildbot import results_lib
 from chromite.cbuildbot import cbuildbot_run
 from chromite.cbuildbot.stages import generic_stages
+from chromite.lib import cidb
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_build_lib_unittest
 from chromite.lib import cros_test_lib
@@ -30,19 +31,19 @@ from chromite.lib import partial_mock
 from chromite.lib import portage_util
 from chromite.scripts import cbuildbot
 
-# TODO(build): Finish test wrapper (http://crosbug.com/37517).
-# Until then, this has to be after the chromite imports.
-import mock
-
 
 DEFAULT_BUILD_NUMBER = 1234321
 DEFAULT_BUILD_ID = 31337
+DEFAULT_BUILD_STAGE_ID = 313377
+
+
+# pylint: disable=protected-access
+
 
 # The inheritence order ensures the patchers are stopped before
 # cleaning up the temporary directories.
-# pylint: disable=E1111,E1120,W0212,R0901,R0904
-class StageTest(cros_test_lib.MockOutputTestCase,
-                cros_test_lib.MoxTempDirTestCase):
+class StageTestCase(cros_test_lib.MockOutputTestCase,
+                    cros_test_lib.TempDirTestCase):
   """Test running a single stage in isolation."""
 
   TARGET_MANIFEST_BRANCH = 'ooga_booga'
@@ -71,7 +72,10 @@ class StageTest(cros_test_lib.MockOutputTestCase,
     self._run = None
 
   def _Prepare(self, bot_id=None, extra_config=None, cmd_args=None,
-               extra_cmd_args=None, build_id=DEFAULT_BUILD_ID):
+               extra_cmd_args=None, build_id=DEFAULT_BUILD_ID,
+               waterfall=constants.WATERFALL_INTERNAL,
+               master_build_id=None,
+               site_config=None):
     """Prepare a BuilderRun at self._run for this test.
 
     This method must allow being called more than once.  Subclasses can
@@ -82,7 +86,7 @@ class StageTest(cros_test_lib.MockOutputTestCase,
 
     This will populate the following attributes on self:
       run: A BuilderRun object.
-      bot_id: The bot id (name) that was used from config.config.
+      bot_id: The bot id (name) that was used from the site_config.
       self._boards: Same as self._run.config.boards.  TODO(mtennant): remove.
       self._current_board: First board in list, if there is one.
 
@@ -96,6 +100,9 @@ class StageTest(cros_test_lib.MockOutputTestCase,
         Example: ['branch-name', 'some-branch-name'] will effectively cause
         self._run.options.branch_name to be set to 'some-branch-name'.
       build_id: mock build id
+      waterfall: One of constants.CIDB_KNOWN_WATERFALLS.
+      master_build_id: mock build id of master build.
+      site_config: SiteConfig to use (or MockSiteConfig)
     """
     # Use cbuildbot parser to create options object and populate default values.
     parser = cbuildbot._CreateParser()
@@ -123,13 +130,17 @@ class StageTest(cros_test_lib.MockOutputTestCase,
       args = [self._bot_id]
     cbuildbot._FinishParsing(options, args)
 
+    if site_config is None:
+      site_config = chromeos_config.GetConfig()
+
     # Populate build_config corresponding to self._bot_id.
-    build_config = copy.deepcopy(config.config[self._bot_id])
+    build_config = copy.deepcopy(site_config[self._bot_id])
     build_config['manifest_repo_url'] = 'fake_url'
     if extra_config:
       build_config.update(extra_config)
     if options.remote_trybot:
-      build_config = config.OverrideConfigForTrybot(build_config, options)
+      build_config = config_lib.OverrideConfigForTrybot(
+          build_config, options)
     options.managed_chrome = build_config['sync_chrome']
 
     self._boards = build_config['boards']
@@ -139,10 +150,16 @@ class StageTest(cros_test_lib.MockOutputTestCase,
     self.assertEquals(options.buildroot, self.build_root)
 
     # Construct a real BuilderRun using options and build_config.
-    self._run = cbuildbot_run.BuilderRun(options, build_config, self._manager)
+    self._run = cbuildbot_run.BuilderRun(
+        options, site_config, build_config, self._manager)
 
     if build_id is not None:
       self._run.attrs.metadata.UpdateWithDict({'build_id': build_id})
+
+    if master_build_id is not None:
+      self._run.options.master_build_id = master_build_id
+
+    self._run.attrs.metadata.UpdateWithDict({'buildbot-master-name': waterfall})
 
     if self.RELEASE_TAG is not None:
       self._run.attrs.release_tag = self.RELEASE_TAG
@@ -172,8 +189,40 @@ class StageTest(cros_test_lib.MockOutputTestCase,
 
     return hw_tests[0]
 
+  def assertRaisesStringifyable(self, exception, functor, *args, **kwargs):
+    """assertRaises replacement that also verifies exception is Stringifyable.
 
-class AbstractStageTest(StageTest):
+    This helper is intended to be used anywhere assertRaises can be used, but
+    will also verify the exception raised can pass through
+    BuilderStage._StringifyException.
+
+    Args:
+      exception: See unittest.TestCase.assertRaises.
+      functor: See unittest.TestCase.assertRaises.
+      args: See unittest.TestCase.assertRaises.
+      kwargs: See unittest.TestCase.assertRaises.
+
+    Raises:
+      Unittest failures if the expected exception is not raised, or
+      _StringifyException exceptions if that process fails.
+    """
+    try:
+      functor(*args, **kwargs)
+
+      # We didn't get the exception, fail the test.
+      self.fail('%s was not raised.' % exception)
+
+    except exception:
+      # Ensure that this exception can be converted properly.
+      # Verifies fix for crbug.com/418358 and related.
+      generic_stages.BuilderStage._StringifyException(sys.exc_info())
+
+    except Exception as e:
+      # We didn't get the exception, fail the test.
+      self.fail('%s raised instead of %s' % (e, exception))
+
+
+class AbstractStageTestCase(StageTestCase):
   """Base class for tests that test a particular build stage.
 
   Abstract base class that sets up the build config and options with some
@@ -182,13 +231,15 @@ class AbstractStageTest(StageTest):
 
   def ConstructStage(self):
     """Returns an instance of the stage to be tested.
-    Implement in subclasses.
+
+    Note: Must be implemented in subclasses.
     """
     raise NotImplementedError(self, "ConstructStage: Implement in your test")
 
   def RunStage(self):
     """Creates and runs an instance of the stage to be tested.
-    Requires ConstructStage() to be implemented.
+
+    Note: Requires ConstructStage() to be implemented.
 
     Raises:
       NotImplementedError: ConstructStage() was not implemented.
@@ -216,35 +267,55 @@ def patches(*args):
   """Context manager for a list of patch objects."""
   with cros_build_lib.ContextManagerStack() as stack:
     for arg in args:
-      stack.Add(lambda: arg)
+      stack.Add(lambda ret=arg: ret)
     yield
 
 
-class BuilderStageTest(AbstractStageTest):
+class BuilderStageTest(AbstractStageTestCase):
   """Tests for BuilderStage class."""
 
   def setUp(self):
-    self._Prepare()
+    self._Prepare(waterfall=constants.WATERFALL_EXTERNAL)
+    self.mock_cidb = mock.MagicMock()
+    cidb.CIDBConnectionFactory.SetupMockCidb(self.mock_cidb)
+
+  def tearDown(self):
+    cidb.CIDBConnectionFactory.ClearMock()
+
+  def _ConstructStageWithExpectations(self, stage_class):
+    """Construct an instance of the stage, verifying expectations from init.
+
+    Args:
+      stage_class: The class to instantitate.
+
+    Returns:
+      The instantiated class instance.
+    """
+    if stage_class is None:
+      stage_class = generic_stages.BuilderStage
+
+    self.PatchObject(self.mock_cidb, 'InsertBuildStage',
+                     return_value=DEFAULT_BUILD_STAGE_ID)
+    stage = stage_class(self._run)
+    self.mock_cidb.InsertBuildStage.assert_called_once_with(
+        build_id=DEFAULT_BUILD_ID,
+        name=mock.ANY)
+    return stage
 
   def ConstructStage(self):
-    return generic_stages.BuilderStage(self._run)
+    return self._ConstructStageWithExpectations(generic_stages.BuilderStage)
 
   def testGetPortageEnvVar(self):
     """Basic test case for _GetPortageEnvVar function."""
-    self.mox.StubOutWithMock(cros_build_lib, 'RunCommand')
-    envvar = 'EXAMPLE'
-    obj = cros_test_lib.EasyAttr(output='RESULT\n')
-    cros_build_lib.RunCommand(mox.And(mox.IsA(list), mox.In(envvar)),
-                              cwd='%s/src/scripts' % self.build_root,
-                              redirect_stdout=True, enter_chroot=True,
-                              error_code_ok=True).AndReturn(obj)
-    self.mox.ReplayAll()
-
     stage = self.ConstructStage()
     board = self._current_board
-    result = stage._GetPortageEnvVar(envvar, board)
-    self.mox.VerifyAll()
 
+    envvar = 'EXAMPLE'
+    rc_mock = self.StartPatcher(cros_build_lib_unittest.RunCommandMock())
+    rc_mock.AddCmdResult(['portageq-%s' % board, 'envvar', envvar],
+                         output='RESULT\n')
+
+    result = stage._GetPortageEnvVar(envvar, board)
     self.assertEqual(result, 'RESULT')
 
   def testStageNamePrefixSmoke(self):
@@ -319,6 +390,11 @@ class BuilderStageTest(AbstractStageTest):
     results = results_lib.Results.Get()[0]
     self.assertTrue(isinstance(results.result, TestError))
     self.assertEqual(str(results.result), 'fail!')
+    self.mock_cidb.StartBuildStage.assert_called_once_with(
+        DEFAULT_BUILD_STAGE_ID)
+    self.mock_cidb.FinishBuildStage.assert_called_once_with(
+        DEFAULT_BUILD_STAGE_ID,
+        constants.BUILDER_STATUS_FAILED)
 
   def testHandleExceptionException(self):
     """Verify exceptions in HandleException handlers are themselves handled."""
@@ -337,7 +413,7 @@ class BuilderStageTest(AbstractStageTest):
         self.handled_exceptions.append(str(exc_info[1]))
         raise TestError('nested')
 
-    stage = BadStage(self._run)
+    stage = self._ConstructStageWithExpectations(BadStage)
     results_lib.Results.Clear()
     self.assertRaises(failures_lib.StepFailure, self._RunCapture, stage)
 
@@ -348,9 +424,30 @@ class BuilderStageTest(AbstractStageTest):
 
     self.assertEqual(stage.handled_exceptions, ['first fail'])
 
+    # Verify the stage is still marked as failed in cidb.
+    self.mock_cidb.StartBuildStage.assert_called_once_with(
+        DEFAULT_BUILD_STAGE_ID)
+    self.mock_cidb.FinishBuildStage.assert_called_once_with(
+        DEFAULT_BUILD_STAGE_ID,
+        constants.BUILDER_STATUS_FAILED)
 
-class BoardSpecificBuilderStageTest(cros_test_lib.TestCase):
+
+class BoardSpecificBuilderStageTest(AbstractStageTestCase):
   """Tests option/config settings on board-specific stages."""
+
+  DEFAULT_BOARD_NAME = 'my_shiny_test_board'
+
+  def setUp(self):
+    self._Prepare()
+
+  def ConstructStage(self):
+    return generic_stages.BoardSpecificBuilderStage(self._run,
+                                                    self.DEFAULT_BOARD_NAME)
+
+  def testBuilderNameContainsBoardName(self):
+    self._run.config.grouped = True
+    stage = self.ConstructStage()
+    self.assertTrue(self.DEFAULT_BOARD_NAME in stage.name)
 
   # TODO (yjhong): Fix this test.
   # def testCheckOptions(self):
@@ -371,16 +468,18 @@ class BoardSpecificBuilderStageTest(cros_test_lib.TestCase):
   #         self.fail(('cbuildbot_stages.%s.config_name "%s" is missing from '
   #                    'cbuildbot_config._settings') % (attr, obj.config_name))
 
-# pylint: disable=W0223
-class RunCommandAbstractStageTest(AbstractStageTest,
-                                  cros_build_lib_unittest.RunCommandTestCase):
+
+class RunCommandAbstractStageTestCase(
+    AbstractStageTestCase, cros_build_lib_unittest.RunCommandTestCase):
   """Base test class for testing a stage and mocking RunCommand."""
+
+  # pylint: disable=abstract-method
 
   FULL_BOT_ID = 'x86-generic-full'
   BIN_BOT_ID = 'x86-generic-paladin'
 
   def _Prepare(self, bot_id, **kwargs):
-    super(RunCommandAbstractStageTest, self)._Prepare(bot_id, **kwargs)
+    super(RunCommandAbstractStageTestCase, self)._Prepare(bot_id, **kwargs)
 
   def _PrepareFull(self, **kwargs):
     self._Prepare(self.FULL_BOT_ID, **kwargs)
@@ -404,8 +503,3 @@ class ArchivingStageMixinMock(partial_mock.PartialMock):
     with patch(commands, 'ArchiveFile', return_value='foo.txt'):
       with patch(commands, 'UploadArchivedFile'):
         self.backup['UploadArtifact'](*args, **kwargs)
-
-
-
-if __name__ == '__main__':
-  cros_test_lib.main()

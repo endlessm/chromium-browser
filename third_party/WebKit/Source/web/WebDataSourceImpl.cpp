@@ -44,9 +44,9 @@ static OwnPtr<WebPluginLoadObserver>& nextPluginLoadObserver()
     return nextPluginLoadObserver;
 }
 
-PassRefPtr<WebDataSourceImpl> WebDataSourceImpl::create(LocalFrame* frame, const ResourceRequest& request, const SubstituteData& data)
+PassRefPtrWillBeRawPtr<WebDataSourceImpl> WebDataSourceImpl::create(LocalFrame* frame, const ResourceRequest& request, const SubstituteData& data)
 {
-    return adoptRef(new WebDataSourceImpl(frame, request, data));
+    return adoptRefWillBeNoop(new WebDataSourceImpl(frame, request, data));
 }
 
 const WebURLRequest& WebDataSourceImpl::originalRequest() const
@@ -99,13 +99,7 @@ bool WebDataSourceImpl::replacesCurrentHistoryItem() const
 
 WebNavigationType WebDataSourceImpl::navigationType() const
 {
-    return toWebNavigationType(triggeringAction().type());
-}
-
-double WebDataSourceImpl::triggeringEventTime() const
-{
-    // DOMTimeStamp uses units of milliseconds.
-    return convertDOMTimeStampToSeconds(triggeringAction().eventTimeStamp());
+    return toWebNavigationType(DocumentLoader::navigationType());
 }
 
 WebDataSource::ExtraData* WebDataSourceImpl::extraData() const
@@ -121,7 +115,7 @@ void WebDataSourceImpl::setExtraData(ExtraData* extraData)
 
 void WebDataSourceImpl::setNavigationStartTime(double navigationStart)
 {
-    timing()->setNavigationStart(navigationStart);
+    timing().setNavigationStart(navigationStart);
 }
 
 WebNavigationType WebDataSourceImpl::toWebNavigationType(NavigationType type)
@@ -166,6 +160,22 @@ WebDataSourceImpl::WebDataSourceImpl(LocalFrame* frame, const ResourceRequest& r
 
 WebDataSourceImpl::~WebDataSourceImpl()
 {
+    // Verify that detachFromFrame() has been called.
+    ASSERT(!m_extraData);
+}
+
+void WebDataSourceImpl::detachFromFrame()
+{
+    RefPtrWillBeRawPtr<DocumentLoader> protect(this);
+
+    DocumentLoader::detachFromFrame();
+    m_extraData.clear();
+    m_pluginLoadObserver.clear();
+}
+
+DEFINE_TRACE(WebDataSourceImpl)
+{
+    DocumentLoader::trace(visitor);
 }
 
 } // namespace blink

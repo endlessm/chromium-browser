@@ -8,12 +8,14 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/location.h"
 #include "base/memory/weak_ptr.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/test/test_timeouts.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/sync/open_tabs_ui_delegate.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync/sessions/notification_service_sessions_router.h"
@@ -24,6 +26,7 @@
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/common/chrome_switches.h"
+#include "components/sync_driver/open_tabs_ui_delegate.h"
 #include "content/public/test/test_utils.h"
 #include "url/gurl.h"
 
@@ -56,7 +59,7 @@ void ScopedWindowMap::Reset(SessionWindowMap* windows) {
   std::swap(*windows, windows_);
 }
 
-bool GetLocalSession(int index, const browser_sync::SyncedSession** session) {
+bool GetLocalSession(int index, const sync_driver::SyncedSession** session) {
   return ProfileSyncServiceFactory::GetInstance()->GetForProfile(
       test()->GetProfile(index))->GetOpenTabsUIDelegate()->
           GetLocalSession(session);
@@ -64,7 +67,7 @@ bool GetLocalSession(int index, const browser_sync::SyncedSession** session) {
 
 bool ModelAssociatorHasTabWithUrl(int index, const GURL& url) {
   content::RunAllPendingInMessageLoop();
-  const browser_sync::SyncedSession* local_session;
+  const sync_driver::SyncedSession* local_session;
   if (!GetLocalSession(index, &local_session)) {
     return false;
   }
@@ -83,7 +86,7 @@ bool ModelAssociatorHasTabWithUrl(int index, const GURL& url) {
       DVLOG(1) << "Empty tabs vector";
       continue;
     }
-    for (std::vector<SessionTab*>::const_iterator tab_it =
+    for (std::vector<sessions::SessionTab*>::const_iterator tab_it =
              it->second->tabs.begin();
          tab_it != it->second->tabs.end(); ++tab_it) {
       if ((*tab_it)->navigations.size() == 0) {
@@ -130,7 +133,7 @@ namespace {
 class TabEventHandler : public browser_sync::LocalSessionEventHandler {
  public:
   TabEventHandler() : weak_factory_(this) {
-    base::MessageLoop::current()->PostDelayedTask(
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE,
         base::Bind(&TabEventHandler::QuitLoop, weak_factory_.GetWeakPtr()),
         TestTimeouts::action_max_timeout());
@@ -139,15 +142,15 @@ class TabEventHandler : public browser_sync::LocalSessionEventHandler {
   void OnLocalTabModified(
       browser_sync::SyncedTabDelegate* modified_tab) override {
     // Unwind to ensure SessionsSyncManager has processed the event.
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(&TabEventHandler::QuitLoop, weak_factory_.GetWeakPtr()));
   }
 
-  void OnFaviconPageUrlsUpdated(
-      const std::set<GURL>& updated_page_urls) override {
+  void OnFaviconsChanged(const std::set<GURL>& /* page_urls */,
+                         const GURL& /* icon_url */) override {
     // Unwind to ensure SessionsSyncManager has processed the event.
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(&TabEventHandler::QuitLoop, weak_factory_.GetWeakPtr()));
   }
@@ -194,18 +197,18 @@ bool WaitForTabsToLoad(int index, const std::vector<GURL>& urls) {
 bool GetLocalWindows(int index, SessionWindowMap* local_windows) {
   // The local session provided by GetLocalSession is owned, and has lifetime
   // controlled, by the model associator, so we must make our own copy.
-  const browser_sync::SyncedSession* local_session;
+  const sync_driver::SyncedSession* local_session;
   if (!GetLocalSession(index, &local_session)) {
     return false;
   }
   for (SessionWindowMap::const_iterator w = local_session->windows.begin();
        w != local_session->windows.end(); ++w) {
-    const SessionWindow& window = *(w->second);
-    SessionWindow* new_window = new SessionWindow();
+    const sessions::SessionWindow& window = *(w->second);
+    sessions::SessionWindow* new_window = new sessions::SessionWindow();
     new_window->window_id.set_id(window.window_id.id());
     for (size_t t = 0; t < window.tabs.size(); ++t) {
-      const SessionTab& tab = *window.tabs.at(t);
-      SessionTab* new_tab = new SessionTab();
+      const sessions::SessionTab& tab = *window.tabs.at(t);
+      sessions::SessionTab* new_tab = new sessions::SessionTab();
       new_tab->navigations.resize(tab.navigations.size());
       std::copy(tab.navigations.begin(), tab.navigations.end(),
                 new_tab->navigations.begin());
@@ -235,7 +238,7 @@ bool CheckInitialState(int index) {
 }
 
 int GetNumWindows(int index) {
-  const browser_sync::SyncedSession* local_session;
+  const sync_driver::SyncedSession* local_session;
   if (!GetLocalSession(index, &local_session)) {
     return 0;
   }
@@ -264,8 +267,8 @@ bool GetSessionData(int index, SyncedSessionVector* sessions) {
   return true;
 }
 
-bool CompareSyncedSessions(const browser_sync::SyncedSession* lhs,
-                           const browser_sync::SyncedSession* rhs) {
+bool CompareSyncedSessions(const sync_driver::SyncedSession* lhs,
+                           const sync_driver::SyncedSession* rhs) {
   if (!lhs ||
       !rhs ||
       lhs->windows.size() < 1 ||
@@ -313,17 +316,29 @@ bool NavigationEquals(const sessions::SerializedNavigationEntry& expected,
 
 bool WindowsMatch(const SessionWindowMap& win1,
                   const SessionWindowMap& win2) {
-  SessionTab* client0_tab;
-  SessionTab* client1_tab;
-  if (win1.size() != win2.size())
+  sessions::SessionTab* client0_tab;
+  sessions::SessionTab* client1_tab;
+  if (win1.size() != win2.size()) {
+    LOG(ERROR) << "Win size doesn't match, win1 size: "
+        << win1.size()
+        << ", win2 size: "
+        << win2.size();
     return false;
+  }
   for (SessionWindowMap::const_iterator i = win1.begin();
        i != win1.end(); ++i) {
     SessionWindowMap::const_iterator j = win2.find(i->first);
-    if (j == win2.end())
+    if (j == win2.end()) {
+      LOG(ERROR) << "Session doesn't match";
       return false;
-    if (i->second->tabs.size() != j->second->tabs.size())
+    }
+    if (i->second->tabs.size() != j->second->tabs.size()) {
+      LOG(ERROR) << "Tab size doesn't match, tab1 size: "
+          << i->second->tabs.size()
+          << ", tab2 size: "
+          << j->second->tabs.size();
       return false;
+    }
     for (size_t t = 0; t < i->second->tabs.size(); ++t) {
       client0_tab = i->second->tabs[t];
       client1_tab = j->second->tabs[t];
@@ -343,18 +358,28 @@ bool CheckForeignSessionsAgainst(
     int index,
     const std::vector<ScopedWindowMap>& windows) {
   SyncedSessionVector sessions;
-  if (!GetSessionData(index, &sessions))
-    return false;
-  if ((size_t)(test()->num_clients()-1) != sessions.size())
-    return false;
 
-  int window_index = 0;
-  for (size_t j = 0; j < sessions.size(); ++j, ++window_index) {
-    if (window_index == index)
-      window_index++;  // Skip self.
-    if (!WindowsMatch(sessions[j]->windows,
-                      *(windows[window_index].Get())))
+  if (!GetSessionData(index, &sessions)) {
+    LOG(ERROR) << "Cannot get session data";
+    return false;
+  }
+
+  for (size_t w_index = 0; w_index < windows.size(); ++w_index) {
+    // Skip the client's local window
+    if (static_cast<int>(w_index) == index)
+      continue;
+
+    size_t s_index = 0;
+
+    for (; s_index < sessions.size(); ++s_index) {
+      if (WindowsMatch(sessions[s_index]->windows, *(windows[w_index].Get())))
+        break;
+    }
+
+    if (s_index == sessions.size()) {
+      LOG(ERROR) << "Cannot find window #" << w_index;
       return false;
+    }
   }
 
   return true;

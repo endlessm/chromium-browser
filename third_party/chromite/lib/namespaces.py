@@ -8,7 +8,19 @@ from __future__ import print_function
 
 import ctypes
 import ctypes.util
+import errno
 import os
+import signal
+# Note: We avoid cros_build_lib here as that's a "large" module and we want
+# to keep this "light" and standalone.  The subprocess usage in here is also
+# simple by design -- if it gets more complicated, we should look at using
+# the RunCommand helper.
+import subprocess
+import sys
+
+from chromite.lib import osutils
+from chromite.lib import process_util
+from chromite.lib import proctitle
 
 
 CLONE_FS = 0x00000200
@@ -59,3 +71,197 @@ def Unshare(flags):
   if libc.unshare(ctypes.c_int(flags)) != 0:
     e = ctypes.get_errno()
     raise OSError(e, os.strerror(e))
+
+
+def _ReapChildren(pid):
+  """Reap all children that get reparented to us until we see |pid| exit.
+
+  Args:
+    pid: The main child to watch for.
+
+  Returns:
+    The wait status of the |pid| child.
+  """
+  pid_status = 0
+
+  while True:
+    try:
+      (wpid, status) = os.wait()
+      if pid == wpid:
+        # Save the status of our main child so we can exit with it below.
+        pid_status = status
+    except OSError as e:
+      if e.errno == errno.ECHILD:
+        break
+      elif e.errno != errno.EINTR:
+        raise
+
+  return pid_status
+
+
+def _SafeTcSetPgrp(fd, pgrp):
+  """Set |pgrp| as the controller of the tty |fd|."""
+  try:
+    curr_pgrp = os.tcgetpgrp(fd)
+  except OSError as e:
+    # This can come up when the fd is not connected to a terminal.
+    if e.errno == errno.ENOTTY:
+      return
+    raise
+
+  # We can change the owner only if currently own it.  Otherwise we'll get
+  # stopped by the kernel with SIGTTOU and that'll hit the whole group.
+  if curr_pgrp == os.getpgrp():
+    os.tcsetpgrp(fd, pgrp)
+
+
+def CreatePidNs():
+  """Start a new pid namespace
+
+  This will launch all the right manager processes.  The child that returns
+  will be isolated in a new pid namespace.
+
+  If functionality is not available, then it will return w/out doing anything.
+
+  Returns:
+    The last pid outside of the namespace.
+  """
+  first_pid = os.getpid()
+
+  try:
+    # First create the namespace.
+    Unshare(CLONE_NEWPID)
+  except OSError as e:
+    if e.errno == errno.EINVAL:
+      # For older kernels, or the functionality is disabled in the config,
+      # return silently.  We don't want to hard require this stuff.
+      return first_pid
+    else:
+      # For all other errors, abort.  They shouldn't happen.
+      raise
+
+  # Now that we're in the new pid namespace, fork.  The parent is the master
+  # of it in the original namespace, so it only monitors the child inside it.
+  # It is only allowed to fork once too.
+  pid = os.fork()
+  if pid:
+    proctitle.settitle('pid ns', 'external init')
+
+    # Mask SIGINT with the assumption that the child will catch & process it.
+    # We'll pass that back up below.
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+    # Forward the control of the terminal to the child so it can manage input.
+    _SafeTcSetPgrp(sys.stdin.fileno(), pid)
+
+    # Reap the children as the parent of the new namespace.
+    process_util.ExitAsStatus(_ReapChildren(pid))
+  else:
+    # Make sure to unshare the existing mount point if needed.  Some distros
+    # create shared mount points everywhere by default.
+    try:
+      osutils.Mount('none', '/proc', 0, osutils.MS_PRIVATE | osutils.MS_REC)
+    except OSError as e:
+      if e.errno != errno.EINVAL:
+        raise
+
+    # The child needs its own proc mount as it'll be different.
+    osutils.Mount('proc', '/proc', 'proc',
+                  osutils.MS_NOSUID | osutils.MS_NODEV | osutils.MS_NOEXEC |
+                  osutils.MS_RELATIME)
+
+    pid = os.fork()
+    if pid:
+      proctitle.settitle('pid ns', 'init')
+
+      # Mask SIGINT with the assumption that the child will catch & process it.
+      # We'll pass that back up below.
+      signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+      # Now that we're in a new pid namespace, start a new process group so that
+      # children have something valid to use.  Otherwise getpgrp/etc... will get
+      # back 0 which tends to confuse -- you can't setpgrp(0) for example.
+      os.setpgrp()
+
+      # Forward the control of the terminal to the child so it can manage input.
+      _SafeTcSetPgrp(sys.stdin.fileno(), pid)
+
+      # Watch all of the children.  We need to act as the master inside the
+      # namespace and reap old processes.
+      process_util.ExitAsStatus(_ReapChildren(pid))
+
+  # Create a process group for the grandchild so it can manage things
+  # independent of the init process.
+  os.setpgrp()
+
+  # The grandchild will return and take over the rest of the sdk steps.
+  return first_pid
+
+
+def CreateNetNs():
+  """Start a new net namespace
+
+  We will bring up the loopback interface, but that is all.
+
+  If functionality is not available, then it will return w/out doing anything.
+  """
+  # The net namespace was added in 2.6.24 and may be disabled in the kernel.
+  try:
+    Unshare(CLONE_NEWNET)
+  except OSError as e:
+    if e.errno == errno.EINVAL:
+      return
+    else:
+      # For all other errors, abort.  They shouldn't happen.
+      raise
+
+  # Since we've unshared the net namespace, we need to bring up loopback.
+  # The kernel automatically adds the various ip addresses, so skip that.
+  try:
+    subprocess.call(['ip', 'link', 'set', 'up', 'lo'])
+  except OSError as e:
+    if e.errno == errno.ENOENT:
+      print('warning: could not bring up loopback for network; '
+            'install the iproute2 package', file=sys.stderr)
+    else:
+      raise
+
+
+def SimpleUnshare(mount=True, uts=True, ipc=True, net=False, pid=False):
+  """Simpler helper for setting up namespaces quickly.
+
+  If support for any namespace type is not available, we'll silently skip it.
+
+  Args:
+    mount: Create a mount namespace.
+    uts: Create a UTS namespace.
+    ipc: Create an IPC namespace.
+    net: Create a net namespace.
+    pid: Create a pid namespace.
+  """
+  # The mount namespace is the only one really guaranteed to exist --
+  # it's been supported forever and it cannot be turned off.
+  if mount:
+    Unshare(CLONE_NEWNS)
+
+  # The UTS namespace was added 2.6.19 and may be disabled in the kernel.
+  if uts:
+    try:
+      Unshare(CLONE_NEWUTS)
+    except OSError as e:
+      if e.errno != errno.EINVAL:
+        pass
+
+  # The IPC namespace was added 2.6.19 and may be disabled in the kernel.
+  if ipc:
+    try:
+      Unshare(CLONE_NEWIPC)
+    except OSError as e:
+      if e.errno != errno.EINVAL:
+        pass
+
+  if net:
+    CreateNetNs()
+
+  if pid:
+    CreatePidNs()

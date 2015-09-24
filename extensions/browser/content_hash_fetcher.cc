@@ -237,8 +237,8 @@ void ContentHashFetcherJob::DoneCheckingForVerifiedContents(bool found) {
   } else {
     VLOG(1) << "Missing verified contents for " << extension_id_
             << ", fetching...";
-    url_fetcher_.reset(
-        net::URLFetcher::Create(fetch_url_, net::URLFetcher::GET, this));
+    url_fetcher_ =
+        net::URLFetcher::Create(fetch_url_, net::URLFetcher::GET, this);
     url_fetcher_->SetRequestContext(request_context_);
     url_fetcher_->SetLoadFlags(net::LOAD_DO_NOT_SEND_COOKIES |
                                net::LOAD_DO_NOT_SAVE_COOKIES |
@@ -458,15 +458,11 @@ void ContentHashFetcher::DoFetch(const Extension* extension, bool force) {
   DCHECK(extension->version());
   GURL url =
       delegate_->GetSignatureFetchUrl(extension->id(), *extension->version());
-  ContentHashFetcherJob* job =
-      new ContentHashFetcherJob(context_->GetRequestContext(),
-                                delegate_->PublicKey(),
-                                extension->id(),
-                                extension->path(),
-                                url,
-                                force,
-                                base::Bind(&ContentHashFetcher::JobFinished,
-                                           weak_ptr_factory_.GetWeakPtr()));
+  ContentHashFetcherJob* job = new ContentHashFetcherJob(
+      context_->GetRequestContext(), delegate_->GetPublicKey(), extension->id(),
+      extension->path(), url, force,
+      base::Bind(&ContentHashFetcher::JobFinished,
+                 weak_ptr_factory_.GetWeakPtr()));
   jobs_.insert(std::make_pair(key, job));
   job->Start();
 }

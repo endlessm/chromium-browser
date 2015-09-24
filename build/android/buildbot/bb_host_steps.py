@@ -4,6 +4,7 @@
 # found in the LICENSE file.
 
 import os
+import json
 import sys
 
 import bb_utils
@@ -14,7 +15,7 @@ from pylib import constants
 
 
 SLAVE_SCRIPTS_DIR = os.path.join(bb_utils.BB_BUILD_DIR, 'scripts', 'slave')
-VALID_HOST_TESTS = set(['check_webview_licenses', 'findbugs'])
+VALID_HOST_TESTS = set(['check_webview_licenses'])
 
 DIR_BUILD_ROOT = os.path.dirname(constants.DIR_SOURCE_ROOT)
 
@@ -78,17 +79,6 @@ def ExtractBuild(options):
          + bb_utils.EncodeProperties(options), cwd=DIR_BUILD_ROOT)
 
 
-def FindBugs(options):
-  bb_annotations.PrintNamedStep('findbugs')
-  build_type = []
-  if options.target == 'Release':
-    build_type = ['--release-build']
-  RunCmd([SrcPath('build', 'android', 'findbugs_diff.py')] + build_type)
-  RunCmd([SrcPath(
-      'tools', 'android', 'findbugs_plugin', 'test',
-      'run_findbugs_plugin_tests.py')] + build_type)
-
-
 def BisectPerfRegression(options):
   args = []
   if options.extra_src:
@@ -96,7 +86,9 @@ def BisectPerfRegression(options):
   RunCmd([SrcPath('tools', 'prepare-bisect-perf-regression.py'),
           '-w', os.path.join(constants.DIR_SOURCE_ROOT, os.pardir)])
   RunCmd([SrcPath('tools', 'run-bisect-perf-regression.py'),
-          '-w', os.path.join(constants.DIR_SOURCE_ROOT, os.pardir)] + args)
+          '-w', os.path.join(constants.DIR_SOURCE_ROOT, os.pardir),
+          '--build-properties=%s' % json.dumps(options.build_properties)] +
+          args)
 
 
 def GetHostStepCmds():
@@ -105,7 +97,6 @@ def GetHostStepCmds():
       ('extract_build', ExtractBuild),
       ('check_webview_licenses', CheckWebViewLicenses),
       ('bisect_perf_regression', BisectPerfRegression),
-      ('findbugs', FindBugs),
       ('zip_build', ZipBuild)
   ]
 

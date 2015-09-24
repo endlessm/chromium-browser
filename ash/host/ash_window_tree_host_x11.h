@@ -32,7 +32,6 @@ class ASH_EXPORT AshWindowTreeHostX11 : public AshWindowTreeHost,
       scoped_ptr<RootWindowTransformer> transformer) override;
   gfx::Insets GetHostInsets() const override;
   aura::WindowTreeHost* AsWindowTreeHost() override;
-  void UpdateDisplayID(int64 id1, int64 id2) override;
   void PrepareForShutdown() override;
 
   // aura::WindowTreehost:
@@ -52,6 +51,12 @@ class ASH_EXPORT AshWindowTreeHostX11 : public AshWindowTreeHost,
   void OnWindowInitialized(aura::Window* window) override;
   void OnHostInitialized(aura::WindowTreeHost* host) override;
 
+  // ui::internal::InputMethodDelegate:
+  bool DispatchKeyEventPostIME(const ui::KeyEvent& event) override;
+
+  // ui::EventSource:
+  ui::EventDispatchDetails DeliverEventToProcessor(ui::Event* event) override;
+
 #if defined(OS_CHROMEOS)
   // Set the CrOS touchpad "tap paused" property. It is used to temporarily
   // turn off the Tap-to-click feature when the mouse pointer is invisible.
@@ -61,13 +66,6 @@ class ASH_EXPORT AshWindowTreeHostX11 : public AshWindowTreeHost,
   scoped_ptr<XID[]> pointer_barriers_;
 
   TransformerHelper transformer_helper_;
-
-  // The display IDs associated with this root window.
-  // In single monitor or extended mode dual monitor case, the root window
-  // is associated with one display.
-  // In mirror mode dual monitors case, the root window is associated with
-  // both displays.
-  std::pair<int64, int64> display_ids_;
 
   DISALLOW_COPY_AND_ASSIGN(AshWindowTreeHostX11);
 };

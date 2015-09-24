@@ -17,7 +17,6 @@ namespace base {
 class CommandLine;
 class File;
 class FilePath;
-class MessageLoopProxy;
 class ScopedTempDir;
 }  // namespace base
 
@@ -84,8 +83,8 @@ class ServiceUtilityProcessHost : public content::ChildProcessHostDelegate {
   };
 
   ServiceUtilityProcessHost(Client* client,
-                            base::MessageLoopProxy* client_message_loop_proxy);
-  virtual ~ServiceUtilityProcessHost();
+                            base::SingleThreadTaskRunner* client_task_runner);
+  ~ServiceUtilityProcessHost() override;
 
   // Starts a process to render the specified pages in the given PDF file into
   // a metafile. Currently only implemented for Windows. If the PDF has fewer
@@ -113,9 +112,9 @@ class ServiceUtilityProcessHost : public content::ChildProcessHostDelegate {
   virtual base::FilePath GetUtilityProcessCmd();
 
   // ChildProcessHostDelegate implementation:
-  virtual void OnChildDisconnected() override;
-  virtual bool OnMessageReceived(const IPC::Message& message) override;
-  virtual base::ProcessHandle GetHandle() const override;
+  void OnChildDisconnected() override;
+  bool OnMessageReceived(const IPC::Message& message) override;
+  const base::Process& GetProcess() const override;
 
  private:
   // Starts a process.  Returns true iff it succeeded.
@@ -124,7 +123,7 @@ class ServiceUtilityProcessHost : public content::ChildProcessHostDelegate {
   // Launch the child process synchronously.
   bool Launch(base::CommandLine* cmd_line, bool no_sandbox);
 
-  base::ProcessHandle handle() const { return handle_; }
+  base::ProcessHandle handle() const { return process_.Handle(); }
 
   void OnMetafileSpooled(bool success);
   void OnPDFToEmfFinished(bool success);
@@ -143,10 +142,10 @@ class ServiceUtilityProcessHost : public content::ChildProcessHostDelegate {
       const std::string& printer_name);
 
   scoped_ptr<content::ChildProcessHost> child_process_host_;
-  base::ProcessHandle handle_;
+  base::Process process_;
   // A pointer to our client interface, who will be informed of progress.
   scoped_refptr<Client> client_;
-  scoped_refptr<base::MessageLoopProxy> client_message_loop_proxy_;
+  scoped_refptr<base::SingleThreadTaskRunner> client_task_runner_;
   bool waiting_for_reply_;
 
   // Start time of operation.

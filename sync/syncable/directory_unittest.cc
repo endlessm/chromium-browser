@@ -12,6 +12,7 @@
 #include "sync/syncable/syncable_write_transaction.h"
 #include "sync/test/engine/test_syncable_utils.h"
 #include "sync/test/test_directory_backing_store.h"
+#include "sync/util/mock_unrecoverable_error_handler.h"
 
 using base::ExpectDictBooleanValue;
 using base::ExpectDictStringValue;
@@ -74,10 +75,7 @@ DirOpenResult SyncableDirectoryTest::ReopenDirectory() {
   // performance benefits of not writing to disk.
   dir_.reset(
       new Directory(new TestDirectoryBackingStore(kDirectoryName, &connection_),
-                    &handler_,
-                    NULL,
-                    NULL,
-                    NULL));
+                    &handler_, base::Closure(), NULL, NULL));
 
   DirOpenResult open_result =
       dir_->Open(kDirectoryName, &delegate_, NullTransactionObserver());
@@ -155,7 +153,7 @@ void SyncableDirectoryTest::CheckPurgeEntriesWithTypeInSucceeded(
     dir_->GetAllMetaHandles(&trans, &all_set);
     EXPECT_EQ(4U, all_set.size());
     if (before_reload)
-      EXPECT_EQ(6U, dir_->kernel_->metahandles_to_purge.size());
+      EXPECT_EQ(6U, dir_->kernel()->metahandles_to_purge.size());
     for (MetahandleSet::iterator iter = all_set.begin(); iter != all_set.end();
          ++iter) {
       Entry e(&trans, GET_BY_HANDLE, *iter);
@@ -187,11 +185,11 @@ void SyncableDirectoryTest::CheckPurgeEntriesWithTypeInSucceeded(
 }
 
 bool SyncableDirectoryTest::IsInDirtyMetahandles(int64 metahandle) {
-  return 1 == dir_->kernel_->dirty_metahandles.count(metahandle);
+  return 1 == dir_->kernel()->dirty_metahandles.count(metahandle);
 }
 
 bool SyncableDirectoryTest::IsInMetahandlesToPurge(int64 metahandle) {
-  return 1 == dir_->kernel_->metahandles_to_purge.count(metahandle);
+  return 1 == dir_->kernel()->metahandles_to_purge.count(metahandle);
 }
 
 scoped_ptr<Directory>& SyncableDirectoryTest::dir() {
@@ -256,7 +254,7 @@ TEST_F(SyncableDirectoryTest, TakeSnapshotGetsMetahandlesToPurge) {
   dir()->PurgeEntriesWithTypeIn(to_purge, ModelTypeSet(), ModelTypeSet());
 
   Directory::SaveChangesSnapshot snapshot1;
-  base::AutoLock scoped_lock(dir()->kernel_->save_changes_mutex);
+  base::AutoLock scoped_lock(dir()->kernel()->save_changes_mutex);
   dir()->TakeSnapshotForSaveChanges(&snapshot1);
   EXPECT_TRUE(expected_purges == snapshot1.metahandles_to_purge);
 
@@ -285,7 +283,7 @@ TEST_F(SyncableDirectoryTest, TakeSnapshotGetsAllDirtyHandlesTest) {
   // Fake SaveChanges() and make sure we got what we expected.
   {
     Directory::SaveChangesSnapshot snapshot;
-    base::AutoLock scoped_lock(dir()->kernel_->save_changes_mutex);
+    base::AutoLock scoped_lock(dir()->kernel()->save_changes_mutex);
     dir()->TakeSnapshotForSaveChanges(&snapshot);
     // Make sure there's an entry for each new metahandle.  Make sure all
     // entries are marked dirty.
@@ -321,7 +319,7 @@ TEST_F(SyncableDirectoryTest, TakeSnapshotGetsAllDirtyHandlesTest) {
   // Fake SaveChanges() and make sure we got what we expected.
   {
     Directory::SaveChangesSnapshot snapshot;
-    base::AutoLock scoped_lock(dir()->kernel_->save_changes_mutex);
+    base::AutoLock scoped_lock(dir()->kernel()->save_changes_mutex);
     dir()->TakeSnapshotForSaveChanges(&snapshot);
     // Make sure there's an entry for each new metahandle.  Make sure all
     // entries are marked dirty.
@@ -388,7 +386,7 @@ TEST_F(SyncableDirectoryTest, TakeSnapshotGetsOnlyDirtyHandlesTest) {
   // Fake SaveChanges() and make sure we got what we expected.
   {
     Directory::SaveChangesSnapshot snapshot;
-    base::AutoLock scoped_lock(dir()->kernel_->save_changes_mutex);
+    base::AutoLock scoped_lock(dir()->kernel()->save_changes_mutex);
     dir()->TakeSnapshotForSaveChanges(&snapshot);
     // Make sure there are no dirty_metahandles.
     EXPECT_EQ(0u, snapshot.dirty_metas.size());
@@ -415,7 +413,7 @@ TEST_F(SyncableDirectoryTest, TakeSnapshotGetsOnlyDirtyHandlesTest) {
   // Fake SaveChanges() and make sure we got what we expected.
   {
     Directory::SaveChangesSnapshot snapshot;
-    base::AutoLock scoped_lock(dir()->kernel_->save_changes_mutex);
+    base::AutoLock scoped_lock(dir()->kernel()->save_changes_mutex);
     dir()->TakeSnapshotForSaveChanges(&snapshot);
     // Make sure there's an entry for each changed metahandle.  Make sure all
     // entries are marked dirty.
@@ -435,26 +433,41 @@ TEST_F(SyncableDirectoryTest, ManageDeleteJournals) {
   AddDefaultFieldValue(BOOKMARKS, &bookmark_specifics);
   bookmark_specifics.mutable_bookmark()->set_url("url");
 
-  Id id1 = TestIdFactory::FromNumber(-1);
-  Id id2 = TestIdFactory::FromNumber(-2);
+  // The first two IDs are server IDs.
+  Id id1 = TestIdFactory::FromNumber(1);
+  Id id2 = TestIdFactory::FromNumber(2);
+  // The third one is a client ID.
+  Id id3 = TestIdFactory::FromNumber(-3);
   int64 handle1 = 0;
   int64 handle2 = 0;
+  int64 handle3 = 0;
   {
-    // Create two bookmark entries and save in database.
-    CreateEntry(BOOKMARKS, "item1", id1);
-    CreateEntry(BOOKMARKS, "item2", id2);
+    // Create 3 bookmark entries and save in database.
     {
       WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
-      MutableEntry item1(&trans, GET_BY_ID, id1);
-      ASSERT_TRUE(item1.good());
-      handle1 = item1.GetMetahandle();
+
+      MutableEntry item1(&trans, CREATE, BOOKMARKS, trans.root_id(), "item1");
+      item1.PutId(id1);
       item1.PutSpecifics(bookmark_specifics);
       item1.PutServerSpecifics(bookmark_specifics);
-      MutableEntry item2(&trans, GET_BY_ID, id2);
-      ASSERT_TRUE(item2.good());
-      handle2 = item2.GetMetahandle();
+      item1.PutIsUnappliedUpdate(true);
+      item1.PutBaseVersion(10);
+      handle1 = item1.GetMetahandle();
+
+      MutableEntry item2(&trans, CREATE, BOOKMARKS, trans.root_id(), "item2");
+      item2.PutId(id2);
       item2.PutSpecifics(bookmark_specifics);
       item2.PutServerSpecifics(bookmark_specifics);
+      item2.PutIsUnappliedUpdate(true);
+      item2.PutBaseVersion(10);
+      handle2 = item2.GetMetahandle();
+
+      MutableEntry item3(&trans, CREATE, BOOKMARKS, trans.root_id(), "item3");
+      item3.PutId(id3);
+      item3.PutSpecifics(bookmark_specifics);
+      item3.PutServerSpecifics(bookmark_specifics);
+      item3.PutIsUnsynced(true);
+      handle3 = item3.GetMetahandle();
     }
     ASSERT_EQ(OPENED, SimulateSaveAndReloadDir());
   }
@@ -468,18 +481,25 @@ TEST_F(SyncableDirectoryTest, ManageDeleteJournals) {
       ASSERT_EQ(0u, journal_entries.size());
 
       // Set SERVER_IS_DEL of the entries to true and they should be added to
-      // delete journals.
+      // delete journals, but only if the deletion is initiated in update e.g.
+      // IS_UNAPPLIED_UPDATE is also true.
       MutableEntry item1(&trans, GET_BY_ID, id1);
       ASSERT_TRUE(item1.good());
       item1.PutServerIsDel(true);
       MutableEntry item2(&trans, GET_BY_ID, id2);
       ASSERT_TRUE(item2.good());
       item2.PutServerIsDel(true);
+      MutableEntry item3(&trans, GET_BY_ID, id3);
+      ASSERT_TRUE(item3.good());
+      item3.PutServerIsDel(true);
+      // Expect only the first two items to be in the delete journal.
       EntryKernel tmp;
       tmp.put(ID, id1);
       EXPECT_TRUE(delete_journal->delete_journals_.count(&tmp));
       tmp.put(ID, id2);
       EXPECT_TRUE(delete_journal->delete_journals_.count(&tmp));
+      tmp.put(ID, id3);
+      EXPECT_FALSE(delete_journal->delete_journals_.count(&tmp));
     }
 
     // Save delete journals in database and verify memory clearing.
@@ -504,6 +524,8 @@ TEST_F(SyncableDirectoryTest, ManageDeleteJournals) {
       EXPECT_TRUE(journal_entries.count(&tmp));
       tmp.put(META_HANDLE, handle2);
       EXPECT_TRUE(journal_entries.count(&tmp));
+      tmp.put(META_HANDLE, handle3);
+      EXPECT_FALSE(journal_entries.count(&tmp));
 
       // Purge item2.
       MetahandleSet to_purge;
@@ -533,9 +555,10 @@ TEST_F(SyncableDirectoryTest, ManageDeleteJournals) {
       tmp.put(META_HANDLE, handle1);
       EXPECT_TRUE(journal_entries.count(&tmp));
 
-      // Undelete item1.
+      // Undelete item1 (IS_UNAPPLIED_UPDATE shouldn't matter in this case).
       MutableEntry item1(&trans, GET_BY_ID, id1);
       ASSERT_TRUE(item1.good());
+      item1.PutIsUnappliedUpdate(false);
       item1.PutServerIsDel(false);
       EXPECT_TRUE(delete_journal->delete_journals_.empty());
       EXPECT_EQ(1u, delete_journal->delete_journals_to_purge_.size());
@@ -550,6 +573,87 @@ TEST_F(SyncableDirectoryTest, ManageDeleteJournals) {
     DeleteJournal* delete_journal = dir()->delete_journal();
     ASSERT_EQ(0u, delete_journal->GetDeleteJournalSize(&trans));
   }
+}
+
+TEST_F(SyncableDirectoryTest, TestPurgeDeletedEntriesOnReload) {
+  sync_pb::EntitySpecifics specifics;
+  AddDefaultFieldValue(PREFERENCES, &specifics);
+
+  const int kClientCount = 2;
+  const int kServerCount = 5;
+  const int kTestCount = kClientCount + kServerCount;
+  int64 handles[kTestCount];
+
+  // The idea is to recreate various combinations of IDs, IS_DEL,
+  // IS_UNSYNCED, and IS_UNAPPLIED_UPDATE flags to test all combinations
+  // for DirectoryBackingStore::SafeToPurgeOnLoading.
+  // 0: client ID, IS_DEL, IS_UNSYNCED
+  // 1: client ID, IS_UNSYNCED
+  // 2: server ID, IS_DEL, IS_UNSYNCED, IS_UNAPPLIED_UPDATE
+  // 3: server ID, IS_DEL, IS_UNSYNCED
+  // 4: server ID, IS_DEL, IS_UNAPPLIED_UPDATE
+  // 5: server ID, IS_DEL
+  // 6: server ID
+  {
+    WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
+
+    for (int i = 0; i < kTestCount; i++) {
+      std::string name = base::StringPrintf("item%d", i);
+      MutableEntry item(&trans, CREATE, PREFERENCES, trans.root_id(), name);
+      ASSERT_TRUE(item.good());
+
+      handles[i] = item.GetMetahandle();
+
+      if (i < kClientCount) {
+        item.PutId(TestIdFactory::FromNumber(i - kClientCount));
+      } else {
+        item.PutId(TestIdFactory::FromNumber(i));
+      }
+
+      item.PutUniqueClientTag(name);
+      item.PutIsUnsynced(true);
+      item.PutSpecifics(specifics);
+      item.PutServerSpecifics(specifics);
+
+      if (i >= kClientCount) {
+        item.PutBaseVersion(10);
+        item.PutServerVersion(10);
+      }
+
+      // Set flags
+      if (i != 1 && i != 6)
+        item.PutIsDel(true);
+
+      if (i >= 4)
+        item.PutIsUnsynced(false);
+
+      if (i == 2 || i == 4)
+        item.PutIsUnappliedUpdate(true);
+    }
+  }
+  ASSERT_EQ(OPENED, SimulateSaveAndReloadDir());
+
+  // Expect items 0 and 5 to be purged according to
+  // DirectoryBackingStore::SafeToPurgeOnLoading:
+  // - Item 0 is an item with IS_DEL flag and client ID.
+  // - Item 5 is an item with IS_DEL flag which has both
+  //   IS_UNSYNCED and IS_UNAPPLIED_UPDATE unset.
+  std::vector<int64> expected_purged;
+  expected_purged.push_back(0);
+  expected_purged.push_back(5);
+
+  std::vector<int64> actually_purged;
+  {
+    ReadTransaction trans(FROM_HERE, dir().get());
+    for (int i = 0; i < kTestCount; i++) {
+      Entry item(&trans, GET_BY_HANDLE, handles[i]);
+      if (!item.good()) {
+        actually_purged.push_back(i);
+      }
+    }
+  }
+
+  EXPECT_EQ(expected_purged, actually_purged);
 }
 
 TEST_F(SyncableDirectoryTest, TestBasicLookupNonExistantID) {
@@ -1044,6 +1148,56 @@ TEST_F(SyncableDirectoryTest, ChangeEntryIDAndUpdateChildren_ParentAndChild) {
   EXPECT_EQ(OPENED, SimulateSaveAndReloadDir());
 }
 
+// A test that roughly mimics the directory interaction that occurs when a
+// type root folder is created locally and then re-created (updated) from the
+// server.
+TEST_F(SyncableDirectoryTest, ChangeEntryIDAndUpdateChildren_ImplicitParent) {
+  TestIdFactory id_factory;
+  Id orig_parent_id;
+  Id child_id;
+
+  {
+    // Create two client-side items, a parent and child.
+    WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
+
+    MutableEntry parent(&trans, CREATE, PREFERENCES, id_factory.root(),
+                        "parent");
+    parent.PutIsDir(true);
+    parent.PutIsUnsynced(true);
+
+    // The child has unset parent ID. The parent is inferred from the type.
+    MutableEntry child(&trans, CREATE, PREFERENCES, "child");
+    child.PutIsUnsynced(true);
+
+    orig_parent_id = parent.GetId();
+    child_id = child.GetId();
+  }
+
+  {
+    // Simulate what happens after committing two items.  Their IDs will be
+    // replaced with server IDs.  The child is renamed first, then the parent.
+    WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
+
+    MutableEntry parent(&trans, GET_BY_ID, orig_parent_id);
+
+    ChangeEntryIDAndUpdateChildren(&trans, &parent, id_factory.NewServerId());
+    parent.PutIsUnsynced(false);
+    parent.PutBaseVersion(1);
+    parent.PutServerVersion(1);
+  }
+
+  // Final check for validity.
+  EXPECT_EQ(OPENED, SimulateSaveAndReloadDir());
+
+  // Verify that child's PARENT_ID hasn't been updated.
+  {
+    ReadTransaction trans(FROM_HERE, dir().get());
+    Entry child(&trans, GET_BY_ID, child_id);
+    EXPECT_TRUE(child.good());
+    EXPECT_TRUE(child.GetParentId().IsNull());
+  }
+}
+
 // A test based on the scenario where we create a bookmark folder and entry
 // locally, but with a twist.  In this case, the bookmark is deleted before we
 // are able to sync either it or its parent folder.  This scenario used to cause
@@ -1349,7 +1503,7 @@ TEST_F(SyncableDirectoryTest, ChildrenOps) {
     Entry root(&rtrans, GET_BY_ID, rtrans.root_id());
     ASSERT_TRUE(root.good());
     EXPECT_FALSE(dir()->HasChildren(&rtrans, rtrans.root_id()));
-    EXPECT_TRUE(root.GetFirstChildId().IsRoot());
+    EXPECT_TRUE(root.GetFirstChildId().IsNull());
   }
 
   {
@@ -1392,7 +1546,7 @@ TEST_F(SyncableDirectoryTest, ChildrenOps) {
     Entry root(&rtrans, GET_BY_ID, rtrans.root_id());
     ASSERT_TRUE(root.good());
     EXPECT_FALSE(dir()->HasChildren(&rtrans, rtrans.root_id()));
-    EXPECT_TRUE(root.GetFirstChildId().IsRoot());
+    EXPECT_TRUE(root.GetFirstChildId().IsNull());
   }
 
   dir()->SaveChanges();
@@ -1493,36 +1647,6 @@ TEST_F(SyncableDirectoryTest, ToValue) {
   dir()->SaveChanges();
 }
 
-// Test that the bookmark tag generation algorithm remains unchanged.
-TEST_F(SyncableDirectoryTest, BookmarkTagTest) {
-  // This test needs its own InMemoryDirectoryBackingStore because it needs to
-  // call request_consistent_cache_guid().
-  InMemoryDirectoryBackingStore* store = new InMemoryDirectoryBackingStore("x");
-
-  // The two inputs that form the bookmark tag are the directory's cache_guid
-  // and its next_id value.  We don't need to take any action to ensure
-  // consistent next_id values, but we do need to explicitly request that our
-  // InMemoryDirectoryBackingStore always return the same cache_guid.
-  store->request_consistent_cache_guid();
-
-  Directory dir(store, unrecoverable_error_handler(), NULL, NULL, NULL);
-  ASSERT_EQ(
-      OPENED,
-      dir.Open("x", directory_change_delegate(), NullTransactionObserver()));
-
-  {
-    WriteTransaction wtrans(FROM_HERE, UNITTEST, &dir);
-    MutableEntry bm(&wtrans, CREATE, BOOKMARKS, wtrans.root_id(), "bm");
-    bm.PutIsUnsynced(true);
-
-    // If this assertion fails, that might indicate that the algorithm used to
-    // generate bookmark tags has been modified.  This could have implications
-    // for bookmark ordering.  Please make sure you know what you're doing if
-    // you intend to make such a change.
-    ASSERT_EQ("6wHRAb3kbnXV5GHrejp4/c1y5tw=", bm.GetUniqueBookmarkTag());
-  }
-}
-
 // A thread that creates a bunch of directory entries.
 class StressTransactionsDelegate : public base::PlatformThread::Delegate {
  public:
@@ -1589,7 +1713,7 @@ TEST_F(SyncableDirectoryTest, MutableEntry_PutAttachmentMetadata) {
   sync_pb::AttachmentMetadata attachment_metadata;
   sync_pb::AttachmentMetadataRecord* record = attachment_metadata.add_record();
   sync_pb::AttachmentIdProto attachment_id_proto =
-      syncer::CreateAttachmentIdProto();
+      syncer::CreateAttachmentIdProto(0, 0);
   *record->mutable_id() = attachment_id_proto;
   ASSERT_FALSE(dir()->IsAttachmentLinked(attachment_id_proto));
   {
@@ -1633,8 +1757,8 @@ TEST_F(SyncableDirectoryTest, MutableEntry_UpdateAttachmentId) {
   sync_pb::AttachmentMetadata attachment_metadata;
   sync_pb::AttachmentMetadataRecord* r1 = attachment_metadata.add_record();
   sync_pb::AttachmentMetadataRecord* r2 = attachment_metadata.add_record();
-  *r1->mutable_id() = syncer::CreateAttachmentIdProto();
-  *r2->mutable_id() = syncer::CreateAttachmentIdProto();
+  *r1->mutable_id() = syncer::CreateAttachmentIdProto(0, 0);
+  *r2->mutable_id() = syncer::CreateAttachmentIdProto(0, 0);
   sync_pb::AttachmentIdProto attachment_id_proto = r1->id();
 
   WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
@@ -1644,18 +1768,27 @@ TEST_F(SyncableDirectoryTest, MutableEntry_UpdateAttachmentId) {
   entry.PutId(TestIdFactory::FromNumber(-1));
   entry.PutAttachmentMetadata(attachment_metadata);
 
-  const sync_pb::AttachmentMetadata& entry_metadata =
-      entry.GetAttachmentMetadata();
-  ASSERT_EQ(2, entry_metadata.record_size());
-  ASSERT_FALSE(entry_metadata.record(0).is_on_server());
-  ASSERT_FALSE(entry_metadata.record(1).is_on_server());
-  ASSERT_FALSE(entry.GetIsUnsynced());
+  {
+    const sync_pb::AttachmentMetadata& entry_metadata =
+        entry.GetAttachmentMetadata();
+    ASSERT_EQ(2, entry_metadata.record_size());
+    ASSERT_FALSE(entry_metadata.record(0).is_on_server());
+    ASSERT_FALSE(entry_metadata.record(1).is_on_server());
+    ASSERT_FALSE(entry.GetIsUnsynced());
+  }
 
   entry.MarkAttachmentAsOnServer(attachment_id_proto);
 
-  ASSERT_TRUE(entry_metadata.record(0).is_on_server());
-  ASSERT_FALSE(entry_metadata.record(1).is_on_server());
-  ASSERT_TRUE(entry.GetIsUnsynced());
+  {
+    // Re-get entry_metadata because it is immutable in the directory and
+    // entry_metadata reference has been made invalid by
+    // MarkAttachmentAsOnServer call above.
+    const sync_pb::AttachmentMetadata& entry_metadata =
+        entry.GetAttachmentMetadata();
+    ASSERT_TRUE(entry_metadata.record(0).is_on_server());
+    ASSERT_FALSE(entry_metadata.record(1).is_on_server());
+    ASSERT_TRUE(entry.GetIsUnsynced());
+  }
 }
 
 // Verify that deleted entries with attachments will retain the attachments.
@@ -1663,7 +1796,7 @@ TEST_F(SyncableDirectoryTest, Directory_DeleteDoesNotUnlinkAttachments) {
   sync_pb::AttachmentMetadata attachment_metadata;
   sync_pb::AttachmentMetadataRecord* record = attachment_metadata.add_record();
   sync_pb::AttachmentIdProto attachment_id_proto =
-      syncer::CreateAttachmentIdProto();
+      syncer::CreateAttachmentIdProto(0, 0);
   *record->mutable_id() = attachment_id_proto;
   ASSERT_FALSE(dir()->IsAttachmentLinked(attachment_id_proto));
   const Id id = TestIdFactory::FromNumber(-1);
@@ -1692,7 +1825,7 @@ TEST_F(SyncableDirectoryTest, Directory_LastReferenceUnlinksAttachments) {
   sync_pb::AttachmentMetadata attachment_metadata;
   sync_pb::AttachmentMetadataRecord* record = attachment_metadata.add_record();
   sync_pb::AttachmentIdProto attachment_id_proto =
-      syncer::CreateAttachmentIdProto();
+      syncer::CreateAttachmentIdProto(0, 0);
   *record->mutable_id() = attachment_id_proto;
 
   // Create two entries, each referencing the attachment.
@@ -1721,7 +1854,7 @@ TEST_F(SyncableDirectoryTest, Directory_LastReferenceUnlinksAttachments) {
 
 TEST_F(SyncableDirectoryTest, Directory_GetAttachmentIdsToUpload) {
   // Create one attachment, referenced by two entries.
-  AttachmentId attachment_id = AttachmentId::Create();
+  AttachmentId attachment_id = AttachmentId::Create(0, 0);
   sync_pb::AttachmentIdProto attachment_id_proto = attachment_id.GetProto();
   sync_pb::AttachmentMetadata attachment_metadata;
   sync_pb::AttachmentMetadataRecord* record = attachment_metadata.add_record();
@@ -1734,21 +1867,21 @@ TEST_F(SyncableDirectoryTest, Directory_GetAttachmentIdsToUpload) {
       PREFERENCES, "some other entry", id2, attachment_metadata);
 
   // See that Directory reports that this attachment is not on the server.
-  AttachmentIdSet id_set;
+  AttachmentIdList ids;
   {
     ReadTransaction trans(FROM_HERE, dir().get());
-    dir()->GetAttachmentIdsToUpload(&trans, PREFERENCES, &id_set);
+    dir()->GetAttachmentIdsToUpload(&trans, PREFERENCES, &ids);
   }
-  ASSERT_EQ(1U, id_set.size());
-  ASSERT_EQ(attachment_id, *id_set.begin());
+  ASSERT_EQ(1U, ids.size());
+  ASSERT_EQ(attachment_id, *ids.begin());
 
   // Call again, but this time with a ModelType for which there are no entries.
   // See that Directory correctly reports that there are none.
   {
     ReadTransaction trans(FROM_HERE, dir().get());
-    dir()->GetAttachmentIdsToUpload(&trans, PASSWORDS, &id_set);
+    dir()->GetAttachmentIdsToUpload(&trans, PASSWORDS, &ids);
   }
-  ASSERT_TRUE(id_set.empty());
+  ASSERT_TRUE(ids.empty());
 
   // Now, mark the attachment as "on the server" via entry_1.
   {
@@ -1761,9 +1894,216 @@ TEST_F(SyncableDirectoryTest, Directory_GetAttachmentIdsToUpload) {
   // server.
   {
     ReadTransaction trans(FROM_HERE, dir().get());
-    dir()->GetAttachmentIdsToUpload(&trans, PREFERENCES, &id_set);
+    dir()->GetAttachmentIdsToUpload(&trans, PREFERENCES, &ids);
   }
-  ASSERT_TRUE(id_set.empty());
+  ASSERT_TRUE(ids.empty());
+}
+
+// Verify that the directory accepts entries with unset parent ID.
+TEST_F(SyncableDirectoryTest, MutableEntry_ImplicitParentId) {
+  TestIdFactory id_factory;
+  const Id root_id = TestIdFactory::root();
+  const Id p_root_id = id_factory.NewServerId();
+  const Id a_root_id = id_factory.NewServerId();
+  const Id item1_id = id_factory.NewServerId();
+  const Id item2_id = id_factory.NewServerId();
+  const Id item3_id = id_factory.NewServerId();
+  // Create two type root folders that are necessary (for now)
+  // for creating items without explicitly set Parent ID
+  {
+    WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
+    MutableEntry p_root(&trans, CREATE, PREFERENCES, root_id, "P");
+    ASSERT_TRUE(p_root.good());
+    p_root.PutIsDir(true);
+    p_root.PutId(p_root_id);
+    p_root.PutBaseVersion(1);
+
+    MutableEntry a_root(&trans, CREATE, AUTOFILL, root_id, "A");
+    ASSERT_TRUE(a_root.good());
+    a_root.PutIsDir(true);
+    a_root.PutId(a_root_id);
+    a_root.PutBaseVersion(1);
+  }
+
+  // Create two entries with implicit parent nodes and one entry with explicit
+  // parent node.
+  {
+    WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
+    MutableEntry item1(&trans, CREATE, PREFERENCES, "P1");
+    item1.PutBaseVersion(1);
+    item1.PutId(item1_id);
+    MutableEntry item2(&trans, CREATE, AUTOFILL, "A1");
+    item2.PutBaseVersion(1);
+    item2.PutId(item2_id);
+    // Placing an AUTOFILL item under the root isn't expected,
+    // but let's test it to verify that explicit root overrides the implicit
+    // one and this entry doesn't end up under the "A" root.
+    MutableEntry item3(&trans, CREATE, AUTOFILL, root_id, "A2");
+    item3.PutBaseVersion(1);
+    item3.PutId(item3_id);
+  }
+
+  {
+    ReadTransaction trans(FROM_HERE, dir().get());
+    // Verify that item1 and item2 are good and have no ParentId.
+    Entry item1(&trans, GET_BY_ID, item1_id);
+    ASSERT_TRUE(item1.good());
+    ASSERT_TRUE(item1.GetParentId().IsNull());
+    Entry item2(&trans, GET_BY_ID, item2_id);
+    ASSERT_TRUE(item2.good());
+    ASSERT_TRUE(item2.GetParentId().IsNull());
+    // Verify that p_root and a_root have exactly one child each
+    // (subtract one to exclude roots themselves).
+    Entry p_root(&trans, GET_BY_ID, p_root_id);
+    ASSERT_EQ(item1_id, p_root.GetFirstChildId());
+    ASSERT_EQ(1, p_root.GetTotalNodeCount() - 1);
+    Entry a_root(&trans, GET_BY_ID, a_root_id);
+    ASSERT_EQ(item2_id, a_root.GetFirstChildId());
+    ASSERT_EQ(1, a_root.GetTotalNodeCount() - 1);
+  }
+}
+
+// Verify that the successor / predecessor navigation still works for
+// directory entries with unset Parent IDs.
+TEST_F(SyncableDirectoryTest, MutableEntry_ImplicitParentId_Siblings) {
+  TestIdFactory id_factory;
+  const Id root_id = TestIdFactory::root();
+  const Id p_root_id = id_factory.NewServerId();
+  const Id item1_id = id_factory.FromNumber(1);
+  const Id item2_id = id_factory.FromNumber(2);
+
+  // Create type root folder for PREFERENCES.
+  {
+    WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
+    MutableEntry p_root(&trans, CREATE, PREFERENCES, root_id, "P");
+    ASSERT_TRUE(p_root.good());
+    p_root.PutIsDir(true);
+    p_root.PutId(p_root_id);
+    p_root.PutBaseVersion(1);
+  }
+
+  // Create two PREFERENCES entries with implicit parent nodes.
+  {
+    WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
+    MutableEntry item1(&trans, CREATE, PREFERENCES, "P1");
+    item1.PutBaseVersion(1);
+    item1.PutId(item1_id);
+    MutableEntry item2(&trans, CREATE, PREFERENCES, "P2");
+    item2.PutBaseVersion(1);
+    item2.PutId(item2_id);
+  }
+
+  // Verify GetSuccessorId and GetPredecessorId calls for these items.
+  // Please note that items are sorted according to their ID, e.g.
+  // item1 first, then item2.
+  {
+    ReadTransaction trans(FROM_HERE, dir().get());
+    Entry item1(&trans, GET_BY_ID, item1_id);
+    EXPECT_EQ(Id(), item1.GetPredecessorId());
+    EXPECT_EQ(item2_id, item1.GetSuccessorId());
+
+    Entry item2(&trans, GET_BY_ID, item2_id);
+    EXPECT_EQ(item1_id, item2.GetPredecessorId());
+    EXPECT_EQ(Id(), item2.GetSuccessorId());
+  }
+}
+
+TEST_F(SyncableDirectoryTest, SaveChangesSnapshot_HasUnsavedMetahandleChanges) {
+  EntryKernel kernel;
+  Directory::SaveChangesSnapshot snapshot;
+  EXPECT_FALSE(snapshot.HasUnsavedMetahandleChanges());
+  snapshot.dirty_metas.insert(&kernel);
+  EXPECT_TRUE(snapshot.HasUnsavedMetahandleChanges());
+  snapshot.dirty_metas.clear();
+
+  EXPECT_FALSE(snapshot.HasUnsavedMetahandleChanges());
+  snapshot.metahandles_to_purge.insert(1);
+  EXPECT_TRUE(snapshot.HasUnsavedMetahandleChanges());
+  snapshot.metahandles_to_purge.clear();
+
+  EXPECT_FALSE(snapshot.HasUnsavedMetahandleChanges());
+  snapshot.delete_journals.insert(&kernel);
+  EXPECT_TRUE(snapshot.HasUnsavedMetahandleChanges());
+  snapshot.delete_journals.clear();
+
+  EXPECT_FALSE(snapshot.HasUnsavedMetahandleChanges());
+  snapshot.delete_journals_to_purge.insert(1);
+  EXPECT_TRUE(snapshot.HasUnsavedMetahandleChanges());
+  snapshot.delete_journals_to_purge.clear();
+}
+
+// Verify that Directory triggers an unrecoverable error when a catastrophic
+// DirectoryBackingStore error is detected.
+TEST_F(SyncableDirectoryTest, CatastrophicError) {
+  MockUnrecoverableErrorHandler unrecoverable_error_handler;
+  Directory dir(new InMemoryDirectoryBackingStore("catastrophic_error"),
+                &unrecoverable_error_handler, base::Closure(), nullptr,
+                nullptr);
+  ASSERT_EQ(OPENED, dir.Open(kDirectoryName, directory_change_delegate(),
+                             NullTransactionObserver()));
+  ASSERT_EQ(0, unrecoverable_error_handler.invocation_count());
+
+  // Fire off two catastrophic errors. Call it twice to ensure Directory is
+  // tolerant of multiple invocations since that may happen in the real world.
+  dir.OnCatastrophicError();
+  dir.OnCatastrophicError();
+
+  // See that the unrecoverable error handler has been invoked twice.
+  ASSERT_EQ(2, unrecoverable_error_handler.invocation_count());
+}
+
+bool EntitySpecificsValuesAreSame(const sync_pb::EntitySpecifics& v1,
+                                  const sync_pb::EntitySpecifics& v2) {
+  return &v1 == &v2;
+}
+
+// Verifies that server and client specifics are shared when their values
+// are equal.
+TEST_F(SyncableDirectoryTest, SharingOfClientAndServerSpecifics) {
+  sync_pb::EntitySpecifics specifics1;
+  sync_pb::EntitySpecifics specifics2;
+  sync_pb::EntitySpecifics specifics3;
+  AddDefaultFieldValue(BOOKMARKS, &specifics1);
+  AddDefaultFieldValue(BOOKMARKS, &specifics2);
+  AddDefaultFieldValue(BOOKMARKS, &specifics3);
+  specifics1.mutable_bookmark()->set_url("foo");
+  specifics2.mutable_bookmark()->set_url("bar");
+  // specifics3 has the same URL as specifics1
+  specifics3.mutable_bookmark()->set_url("foo");
+
+  WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
+  MutableEntry item(&trans, CREATE, BOOKMARKS, trans.root_id(), "item");
+  item.PutId(TestIdFactory::FromNumber(1));
+  item.PutBaseVersion(10);
+
+  // Verify sharing.
+  item.PutSpecifics(specifics1);
+  item.PutServerSpecifics(specifics1);
+  EXPECT_TRUE(EntitySpecificsValuesAreSame(item.GetSpecifics(),
+                                           item.GetServerSpecifics()));
+
+  // Verify that specifics are no longer shared.
+  item.PutServerSpecifics(specifics2);
+  EXPECT_FALSE(EntitySpecificsValuesAreSame(item.GetSpecifics(),
+                                            item.GetServerSpecifics()));
+
+  // Verify that specifics are shared again because specifics3 matches
+  // specifics1.
+  item.PutServerSpecifics(specifics3);
+  EXPECT_TRUE(EntitySpecificsValuesAreSame(item.GetSpecifics(),
+                                           item.GetServerSpecifics()));
+
+  // Verify that copying the same value back to SPECIFICS is still OK.
+  item.PutSpecifics(specifics3);
+  EXPECT_TRUE(EntitySpecificsValuesAreSame(item.GetSpecifics(),
+                                           item.GetServerSpecifics()));
+
+  // Verify sharing with BASE_SERVER_SPECIFICS.
+  EXPECT_FALSE(EntitySpecificsValuesAreSame(item.GetServerSpecifics(),
+                                            item.GetBaseServerSpecifics()));
+  item.PutBaseServerSpecifics(specifics3);
+  EXPECT_TRUE(EntitySpecificsValuesAreSame(item.GetServerSpecifics(),
+                                           item.GetBaseServerSpecifics()));
 }
 
 }  // namespace syncable

@@ -27,12 +27,25 @@ public class EmptyChromeContextMenuItemDelegate implements ChromeContextMenuItem
     }
 
     @Override
+    public boolean isDataReductionProxyEnabledForURL(String url) {
+        return false;
+    }
+
+    @Override
     public boolean startDownload(String url, boolean isLink) {
         return false;
     }
 
     @Override
     public void onOpenInNewTab(String url, Referrer referrer) {
+    }
+
+    @Override
+    public void onReloadIgnoringCache() {
+    }
+
+    @Override
+    public void onLoadOriginalImage() {
     }
 
     @Override
@@ -48,7 +61,7 @@ public class EmptyChromeContextMenuItemDelegate implements ChromeContextMenuItem
     }
 
     @Override
-    public void onSaveToClipboard(String text, boolean isUrl) {
+    public void onSaveToClipboard(String text, int clipboardType) {
     }
 
     @Override

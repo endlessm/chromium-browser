@@ -6,6 +6,7 @@
 
 #include "native_client/src/trusted/cpu_features/arch/x86/cpu_x86.h"
 
+#include "native_client/src/include/build_config.h"
 /*
  * cpu_x86.c
  * Retrieve and decode CPU model specific feature mask.
@@ -284,7 +285,7 @@ static void asm_CPUID(uint32_t op, volatile uint32_t reg[4]) {
                    : "a"(op)
                    : "cc");
 #elif NACL_WINDOWS
-  __cpuid((uint32_t*)reg, op);
+  __cpuid((int*)reg, op);
 #else
 # error Unsupported platform
 #endif
@@ -334,7 +335,7 @@ static void asm_CPUIDx(uint32_t op, volatile uint32_t reg[4], uint32_t ecx) {
   reg[2] = 0;
   reg[3] = 0;
 #else
-  __cpuidex((uint32_t*)reg, op, ecx);
+  __cpuidex((int*)reg, op, ecx);
 #endif
 #else /* NACL_WINDOWS, but _MSC_VER is not defined */
 /* This is Windows but not MSVC: who knows if __cpuidex is available?  */
@@ -495,8 +496,9 @@ static void GetCPUFeatures(NaClCPUData* data, NaClCPUFeaturesX86 *cpuf) {
    * pretend we don't have the instructions available at all.
    */
   if (!(NaClGetCPUFeatureX86(cpuf, NaClCPUFeatureX86_OSXSAVE)
-        && (data->_xcrv[0] & 6) == 6)) {
+        && ((data->_xcrv[0] & 6) == 6))) {
     NaClSetCPUFeatureX86(cpuf, NaClCPUFeatureX86_AVX, 0);
+    NaClSetCPUFeatureX86(cpuf, NaClCPUFeatureX86_AVX2, 0);
     NaClSetCPUFeatureX86(cpuf, NaClCPUFeatureX86_F16C, 0);
     NaClSetCPUFeatureX86(cpuf, NaClCPUFeatureX86_FMA, 0);
     NaClSetCPUFeatureX86(cpuf, NaClCPUFeatureX86_FMA4, 0);

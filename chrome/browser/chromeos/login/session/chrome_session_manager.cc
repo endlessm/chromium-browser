@@ -47,6 +47,8 @@ ChromeSessionManager::CreateSessionManager(
   std::string login_user_id =
       parsed_command_line.GetSwitchValueASCII(switches::kLoginUser);
 
+  KioskAppManager::RemoveObsoleteCryptohomes();
+
   if (ShouldAutoLaunchKioskApp(parsed_command_line)) {
     VLOG(1) << "Starting Chrome with KioskAutoLauncherSessionManagerDelegate";
     return scoped_ptr<session_manager::SessionManager>(new ChromeSessionManager(
@@ -65,8 +67,9 @@ ChromeSessionManager::CreateSessionManager(
     VLOG(1) << "Starting Chrome with  RestoreAfterCrashSessionManagerDelegate";
     // Restarting Chrome inside existing user session. Possible cases:
     // 1. Chrome is restarted after crash.
-    // 2. Chrome is started in browser_tests skipping the login flow.
-    // 3. Chrome is started on dev machine i.e. not on Chrome OS device w/o
+    // 2. Chrome is restarted for Guest session.
+    // 3. Chrome is started in browser_tests skipping the login flow.
+    // 4. Chrome is started on dev machine i.e. not on Chrome OS device w/o
     //    login flow. In that case --login-user=[chromeos::login::kStubUser] is
     //    added. See PreEarlyInitialization().
     return scoped_ptr<session_manager::SessionManager>(new ChromeSessionManager(

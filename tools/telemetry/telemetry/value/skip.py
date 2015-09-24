@@ -14,11 +14,11 @@ class SkipValue(value_module.Value):
       page: The skipped page object.
       reason: The string reason the page was skipped.
     """
-    super(SkipValue, self).__init__(page, 'skip', '', True, description)
+    super(SkipValue, self).__init__(page, 'skip', '', True, description, None)
     self._reason = reason
 
   def __repr__(self):
-    page_name = self.page.url
+    page_name = self.page.display_name
     return 'SkipValue(%s, %s)' % (page_name, self._reason)
 
   @property
@@ -54,10 +54,11 @@ class SkipValue(value_module.Value):
     kwargs = value_module.Value.GetConstructorKwArgs(value_dict, page_dict)
     del kwargs['name']
     del kwargs['units']
-    important = kwargs.get('important', None)
-    if important != None:
+    if 'important' in kwargs:
       del kwargs['important']
     kwargs['reason'] = value_dict['reason']
+    if 'tir_label' in kwargs:
+      del kwargs['tir_label']
 
     return SkipValue(**kwargs)
 
@@ -66,6 +67,5 @@ class SkipValue(value_module.Value):
     assert False, 'Should not be called.'
 
   @classmethod
-  def MergeLikeValuesFromDifferentPages(cls, values,
-                                        group_by_name_suffix=False):
+  def MergeLikeValuesFromDifferentPages(cls, values):
     assert False, 'Should not be called.'

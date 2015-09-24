@@ -7,8 +7,7 @@
 #ifndef GPU_COMMAND_BUFFER_CLIENT_CLIENT_CONTEXT_STATE_H_
 #define GPU_COMMAND_BUFFER_CLIENT_CLIENT_CONTEXT_STATE_H_
 
-#include <GLES2/gl2.h>
-#include <vector>
+#include <GLES3/gl3.h>
 #include "gles2_impl_export.h"
 
 namespace gpu {
@@ -36,4 +35,3 @@ struct GLES2_IMPL_EXPORT ClientContextState {
 }  // namespace gpu
 
 #endif  // GPU_COMMAND_BUFFER_CLIENT_CLIENT_CONTEXT_STATE_H_
-

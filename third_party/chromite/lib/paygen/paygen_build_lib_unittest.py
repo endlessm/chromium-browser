@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2013 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -14,15 +13,14 @@ import shutil
 import tempfile
 import unittest
 
-import fixup_path
-fixup_path.FixupPath()
-
-from chromite.cbuildbot import cbuildbot_config
 from chromite.cbuildbot import commands
+from chromite.cbuildbot import config_lib
+from chromite.cbuildbot import config_lib_unittest
+from chromite.cbuildbot import constants
+from chromite.cbuildbot import failures_lib
 
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_test_lib
-from chromite.lib import osutils
 from chromite.lib import parallel
 
 from chromite.lib.paygen import download_cache
@@ -35,22 +33,15 @@ from chromite.lib.paygen import paygen_payload_lib
 from chromite.lib.paygen import utils
 
 
-# pylint: disable-msg=F0401
-from site_utils.autoupdate.lib import test_control
-# pylint: enable-msg=F0401
-
-
 # We access a lot of protected members during testing.
-# pylint: disable-msg=W0212
+# pylint: disable=protected-access
 
 
-class PaygenBuildLibTest(mox.MoxTestBase):
+class PaygenBuildLibTest(cros_test_lib.MoxTempDirTestCase):
   """Test PaygenBuildLib class."""
 
-  def __init__(self, test_case_names):
-    mox.MoxTestBase.__init__(self, test_case_names)
+  def setUp(self):
     self.work_dir = '/work/foo'
-    self.tempdir = None
 
     self.prev_image = gspaths.Image(channel='foo-channel',
                                     board='foo-board',
@@ -87,6 +78,7 @@ class PaygenBuildLibTest(mox.MoxTestBase):
     control_dir = None if disable_tests else '/tmp/foo'
 
     return paygen_build_lib._PaygenBuild(self.foo_build, self.work_dir,
+                                         config_lib_unittest.MockSiteConfig(),
                                          control_dir=control_dir,
                                          skip_test_payloads=skip_test_payloads)
 
@@ -174,7 +166,7 @@ class PaygenBuildLibTest(mox.MoxTestBase):
 
     # Test with basic mp and mp npo images.
     paygen._ValidateExpectedBuildImages(self.foo_build, (self.basic_image,
-                                                         self.npo_image,))
+                                                         self.npo_image))
     # Test with basic mp and premp images.
     paygen._ValidateExpectedBuildImages(self.foo_build, (self.basic_image,
                                                          self.premp_image))
@@ -208,7 +200,7 @@ class PaygenBuildLibTest(mox.MoxTestBase):
     # More than one of the same type of image should trigger BuildCorrupt
     with self.assertRaises(paygen_build_lib.BuildCorrupt):
       paygen._ValidateExpectedBuildImages(self.foo_build, (self.basic_image,
-                                                           self.basic_image,))
+                                                           self.basic_image))
 
     # Unexpected images should trigger BuildCorrupt
     with self.assertRaises(paygen_build_lib.BuildCorrupt):
@@ -325,8 +317,8 @@ class PaygenBuildLibTest(mox.MoxTestBase):
         paygen_build_lib.ImageMissing)
 
   @unittest.skipIf(not paygen_build_lib.config, 'Internal crostools required.')
-  def testDiscoverFsiBuilds(self):
-    """Using test release.conf values, test _DiscoverFsiBuilds."""
+  def testDiscoverActiveFsiBuilds(self):
+    """Using test release.conf values, test _DiscoverActiveFsiBuilds."""
 
     test_config = """
 [valid-board]
@@ -340,10 +332,11 @@ fsi_images: 2913.331.0,2465.105.0
     paygen = paygen_build_lib._PaygenBuild(
         gspaths.Build(channel='stable-channel', board='valid-board',
                       version='1.2.3'),
-        self.work_dir)
+        self.work_dir,
+        config_lib_unittest.MockSiteConfig())
 
     self.assertEqual(
-        sorted(paygen._DiscoverFsiBuilds()),
+        sorted(paygen._DiscoverActiveFsiBuilds()),
         [gspaths.Build(board='valid-board',
                        channel='stable-channel',
                        version='2465.105.0'),
@@ -355,19 +348,35 @@ fsi_images: 2913.331.0,2465.105.0
     paygen = paygen_build_lib._PaygenBuild(
         gspaths.Build(channel='stable-channel', board='no-fsi-board',
                       version='1.2.3'),
-        self.work_dir)
+        self.work_dir,
+        config_lib_unittest.MockSiteConfig())
 
-    self.assertEqual(paygen._DiscoverFsiBuilds(), [])
+    self.assertEqual(paygen._DiscoverActiveFsiBuilds(), [])
 
     # Test a board with FSI values on non-stable-channel.
     paygen = paygen_build_lib._PaygenBuild(
         gspaths.Build(channel='beta-channel', board='valid-board',
                       version='1.2.3'),
-        self.work_dir)
+        self.work_dir,
+        config_lib_unittest.MockSiteConfig())
 
-    self.assertEqual(paygen._DiscoverFsiBuilds(), [])
+    self.assertEqual(paygen._DiscoverActiveFsiBuilds(), [])
 
     paygen_build_lib.config.LoadGlobalConfig()
+
+  @cros_test_lib.NetworkTest()
+  @unittest.skipIf(not paygen_build_lib.config, 'Internal crostools required.')
+  def testDiscoverAllFsiBuilds(self):
+    """Using test release.conf values, test _DiscoverActiveFsiBuilds."""
+    paygen = paygen_build_lib._PaygenBuild(
+        gspaths.Build(channel='stable-channel', board='x86-alex-he',
+                      version='1.2.3'),
+        self.work_dir,
+        config_lib_unittest.MockSiteConfig())
+
+    # Search for real FSIs for an older/live board.
+    self.assertEqual(paygen._DiscoverAllFsiBuilds(),
+                     ['0.12.433.257', '0.14.811.132', '1412.205.0'])
 
   @unittest.skipIf(not paygen_build_lib.query, 'Internal crostools required.')
   def testDiscoverNmoBuild(self):
@@ -487,7 +496,7 @@ fsi_images: 2913.331.0,2465.105.0
 
     self.mox.StubOutWithMock(paygen, '_DiscoverImages')
     self.mox.StubOutWithMock(paygen, '_DiscoverNmoBuild')
-    self.mox.StubOutWithMock(paygen, '_DiscoverFsiBuilds')
+    self.mox.StubOutWithMock(paygen, '_DiscoverActiveFsiBuilds')
 
     paygen.BUILD_DISCOVER_RETRY_SLEEP = 0
 
@@ -517,7 +526,7 @@ fsi_images: 2913.331.0,2465.105.0
     self.mox.StubOutWithMock(paygen, '_DiscoverImages')
     self.mox.StubOutWithMock(paygen, '_DiscoverTestImageArchives')
     self.mox.StubOutWithMock(paygen, '_DiscoverNmoBuild')
-    self.mox.StubOutWithMock(paygen, '_DiscoverFsiBuilds')
+    self.mox.StubOutWithMock(paygen, '_DiscoverActiveFsiBuilds')
     self.mox.StubOutWithMock(paygen_payload_lib, 'DefaultPayloadUri')
 
     nmo_build = gspaths.Build(bucket='crt',
@@ -544,7 +553,7 @@ fsi_images: 2913.331.0,2465.105.0
     paygen._DiscoverTestImageArchives(paygen._build).AndReturn(
         [self.test_image])
     paygen._DiscoverNmoBuild().AndReturn([nmo_build])
-    paygen._DiscoverFsiBuilds().AndReturn([fsi1_build, fsi2_build])
+    paygen._DiscoverActiveFsiBuilds().AndReturn([fsi1_build, fsi2_build])
     paygen._DiscoverImages(nmo_build).AndReturn(nmo_images)
     paygen._DiscoverTestImageArchives(nmo_build).AndReturn([nmo_test_image])
     paygen._DiscoverImages(fsi1_build).AndReturn(fsi1_images)
@@ -613,8 +622,7 @@ fsi_images: 2913.331.0,2465.105.0
                                 uri=output_uri),
                 gspaths.Payload(tgt_image=self.test_image,
                                 src_image=fsi2_test_image,
-                                uri=output_uri),
-               ]
+                                uri=output_uri)]
     expected = zip(expected, itertools.repeat(False))
 
     self.assertItemsEqual(sorted(results), sorted(expected))
@@ -633,7 +641,7 @@ fsi_images: 2913.331.0,2465.105.0
     self.mox.StubOutWithMock(paygen, '_DiscoverImages')
     self.mox.StubOutWithMock(paygen, '_DiscoverTestImageArchives')
     self.mox.StubOutWithMock(paygen, '_DiscoverNmoBuild')
-    self.mox.StubOutWithMock(paygen, '_DiscoverFsiBuilds')
+    self.mox.StubOutWithMock(paygen, '_DiscoverActiveFsiBuilds')
     self.mox.StubOutWithMock(paygen_payload_lib, 'DefaultPayloadUri')
 
     nmo_build = gspaths.Build(bucket='crt',
@@ -658,7 +666,7 @@ fsi_images: 2913.331.0,2465.105.0
     paygen._DiscoverTestImageArchives(paygen._build).AndReturn(
         [self.test_image])
     paygen._DiscoverNmoBuild().AndReturn([nmo_build])
-    paygen._DiscoverFsiBuilds().AndReturn([fsi1_build, fsi2_build])
+    paygen._DiscoverActiveFsiBuilds().AndReturn([fsi1_build, fsi2_build])
     paygen._DiscoverImages(nmo_build).AndRaise(
         paygen_build_lib.ImageMissing('nmo build is missing some image'))
     # _DiscoverTestImageArchives(nmo_build) should NOT be called.
@@ -718,8 +726,7 @@ fsi_images: 2913.331.0,2465.105.0
                                 uri=output_uri),
                 gspaths.Payload(tgt_image=self.test_image,
                                 src_image=fsi2_test_image,
-                                uri=output_uri),
-               ]
+                                uri=output_uri)]
     expected = zip(expected, itertools.repeat(False))
 
     self.assertItemsEqual(sorted(results), sorted(expected))
@@ -734,7 +741,7 @@ fsi_images: 2913.331.0,2465.105.0
     self.mox.StubOutWithMock(paygen, '_DiscoverImages')
     self.mox.StubOutWithMock(paygen, '_DiscoverTestImageArchives')
     self.mox.StubOutWithMock(paygen, '_DiscoverNmoBuild')
-    self.mox.StubOutWithMock(paygen, '_DiscoverFsiBuilds')
+    self.mox.StubOutWithMock(paygen, '_DiscoverActiveFsiBuilds')
     self.mox.StubOutWithMock(paygen_payload_lib, 'DefaultPayloadUri')
 
     nmo_build = gspaths.Build(bucket='crt',
@@ -750,20 +757,20 @@ fsi_images: 2913.331.0,2465.105.0
                                board='foo-board',
                                version='1.2.2')
 
-    nmo_images = self._GetBuildImages(nmo_build)
-    nmo_test_image = self._GetBuildTestImage(nmo_build)
     fsi1_images = self._GetBuildImages(fsi1_build)
     fsi1_test_image = self._GetBuildTestImage(fsi1_build)
+    fsi2_images = self._GetBuildImages(fsi2_build)
+    fsi2_test_image = self._GetBuildTestImage(fsi2_build)
 
     paygen._DiscoverImages(paygen._build).AndReturn(self.images)
     paygen._DiscoverTestImageArchives(paygen._build).AndReturn(
         [self.test_image])
+    paygen._DiscoverActiveFsiBuilds().AndReturn([fsi1_build, fsi2_build])
     paygen._DiscoverNmoBuild().AndReturn([nmo_build])
-    paygen._DiscoverFsiBuilds().AndReturn([fsi1_build, fsi2_build])
-    paygen._DiscoverImages(nmo_build).AndReturn(nmo_images)
-    paygen._DiscoverTestImageArchives(nmo_build).AndReturn([nmo_test_image])
     paygen._DiscoverImages(fsi1_build).AndReturn(fsi1_images)
+    paygen._DiscoverImages(fsi2_build).AndReturn(fsi2_images)
     paygen._DiscoverTestImageArchives(fsi1_build).AndReturn([fsi1_test_image])
+    paygen._DiscoverTestImageArchives(fsi2_build).AndReturn([fsi2_test_image])
 
     # Simplify the output URIs, so it's easy to check them below.
     paygen_payload_lib.DefaultPayloadUri(
@@ -785,19 +792,18 @@ fsi_images: 2913.331.0,2465.105.0
                 gspaths.Payload(tgt_image=self.premp_npo_image,
                                 src_image=self.premp_image,
                                 uri=output_uri),
-                # NMO Delta
-                gspaths.Payload(tgt_image=self.basic_image,
-                                src_image=nmo_images[0],
-                                uri=output_uri),
-                gspaths.Payload(tgt_image=self.premp_image,
-                                src_image=nmo_images[1],
-                                uri=output_uri),
                 # FSI Deltas
                 gspaths.Payload(tgt_image=self.basic_image,
                                 src_image=fsi1_images[0],
                                 uri=output_uri),
                 gspaths.Payload(tgt_image=self.premp_image,
                                 src_image=fsi1_images[1],
+                                uri=output_uri),
+                gspaths.Payload(tgt_image=self.basic_image,
+                                src_image=fsi2_images[0],
+                                uri=output_uri),
+                gspaths.Payload(tgt_image=self.premp_image,
+                                src_image=fsi2_images[1],
                                 uri=output_uri),
 
                 # Test full payload.
@@ -809,16 +815,14 @@ fsi_images: 2913.331.0,2465.105.0
                                 src_image=self.test_image,
                                 uri=output_uri),
 
-                # Test NMO delta.
-                gspaths.Payload(tgt_image=self.test_image,
-                                src_image=nmo_test_image,
-                                uri=output_uri),
-
                 # Test FSI deltas.
                 gspaths.Payload(tgt_image=self.test_image,
                                 src_image=fsi1_test_image,
                                 uri=output_uri),
-               ]
+                gspaths.Payload(tgt_image=self.test_image,
+                                src_image=fsi2_test_image,
+                                uri=output_uri)]
+
     expected = zip(expected, itertools.repeat(False))
 
     self.assertItemsEqual(sorted(results), sorted(expected))
@@ -829,27 +833,41 @@ fsi_images: 2913.331.0,2465.105.0
     self.mox.StubOutWithMock(urilib, 'ListFiles')
 
     urilib.ListFiles(
-        'gs://crt/foo-channel/foo-board/find_full_version/payloads/'
-        'chromeos_find_full_version_foo-board_foo-channel_full_test.bin-*'
+        'gs://crt/find_channel/foo-board/find_full_version/payloads/'
+        'chromeos_find_full_version_foo-board_find_channel_full_test.bin-*'
     ).AndReturn(['foo', 'foo.json', 'foo.log', 'bar'])
+
+    urilib.ListFiles(
+        'gs://crt/diff_channel/foo-board/find_full_version/payloads/'
+        'chromeos_find_full_version_foo-board_diff_channel_full_test.bin-*'
+    ).AndReturn(['foo'])
 
     # Run the test verification.
     self.mox.ReplayAll()
 
     # Call once and use mocked look up. Make sure we filter properly.
-    self.assertEqual(paygen._FindFullTestPayloads('find_full_version'),
-                     ['foo', 'bar'])
+    self.assertEqual(
+        paygen._FindFullTestPayloads('find_channel', 'find_full_version'),
+        ['foo', 'bar'])
+
+    # Call with different channel, which does a different lookup.
+    self.assertEqual(
+        paygen._FindFullTestPayloads('diff_channel', 'find_full_version'),
+        ['foo'])
+
 
     # Call a second time to verify we get cached results (no lookup).
-    self.assertEqual(paygen._FindFullTestPayloads('find_full_version'),
-                     ['foo', 'bar'])
+    self.assertEqual(
+        paygen._FindFullTestPayloads('find_channel', 'find_full_version'),
+        ['foo', 'bar'])
 
-  @osutils.TempDirDecorator
   def DoGeneratePayloadsTest(self, run_parallel, test_dry_run):
     """Test paygen_build_lib._GeneratePayloads."""
-    paygen = paygen_build_lib._PaygenBuild(self.foo_build, self.tempdir,
-                                           dry_run=test_dry_run,
-                                           run_parallel=run_parallel)
+    paygen = paygen_build_lib._PaygenBuild(
+        self.foo_build, self.tempdir,
+        config_lib_unittest.MockSiteConfig(),
+        dry_run=test_dry_run,
+        run_parallel=run_parallel)
 
     basic_payload = gspaths.Payload(tgt_image=self.npo_image,
                                     src_image=self.basic_image)
@@ -860,19 +878,19 @@ fsi_images: 2913.331.0,2465.105.0
     self.mox.StubOutWithMock(paygen_build_lib, '_GenerateSinglePayload')
 
     expected_payload_args = [
-        (basic_payload, mox.IsA(str), True, test_dry_run),
-        (premp_payload, mox.IsA(str), True, test_dry_run)
-        ]
+        (basic_payload, mox.IsA(str), True, None, test_dry_run),
+        (premp_payload, mox.IsA(str), True, None, test_dry_run)
+    ]
 
     if run_parallel:
       parallel.RunTasksInProcessPool(paygen_build_lib._GenerateSinglePayload,
                                      expected_payload_args)
     else:
       paygen_build_lib._GenerateSinglePayload(basic_payload, mox.IsA(str),
-                                              True, test_dry_run)
+                                              True, None, test_dry_run)
 
       paygen_build_lib._GenerateSinglePayload(premp_payload, mox.IsA(str),
-                                              True, test_dry_run)
+                                              True, None, test_dry_run)
 
     # Run the test verification.
     self.mox.ReplayAll()
@@ -889,7 +907,6 @@ fsi_images: 2913.331.0,2465.105.0
       for test_dry_run in (True, False):
         self.DoGeneratePayloadsTest(run_parallel, test_dry_run)
 
-  @osutils.TempDirDecorator
   def testGeneratePayloadInProcess(self):
     """Make sure the _GenerateSinglePayload calls into paygen_payload_lib."""
 
@@ -904,13 +921,14 @@ fsi_images: 2913.331.0,2465.105.0
         mox.IsA(download_cache.DownloadCache),
         work_dir=self.tempdir,
         sign=False,
-        dry_run=True)
+        dry_run=True,
+        au_generator_uri='foo.zip')
 
     # Run the test verification.
     self.mox.ReplayAll()
 
     paygen_build_lib._GenerateSinglePayload(basic_payload, self.tempdir,
-                                            sign=False, dry_run=True)
+                                            False, 'foo.zip', True)
 
   def testCleanupBuild(self):
     """Test _PaygenBuild._CleanupBuild."""
@@ -946,8 +964,6 @@ fsi_images: 2913.331.0,2465.105.0
     paygen = self._CreatePayloadsSetup()
     lock_uri = paygen._GetFlagURI(gspaths.ChromeosReleases.LOCK)
 
-    # Pylint is confused because of helper stubbing things out.
-    # pylint: disable-msg=E1101
     gslock.Lock(lock_uri, dry_run=False).AndRaise(gslock.LockNotAcquired())
 
     # Run the test verification.
@@ -1013,8 +1029,6 @@ fsi_images: 2913.331.0,2465.105.0
     lock.__enter__().AndReturn(lock)
     gslib.Exists(skip_uri).AndReturn(False)
     gslib.Exists(finished_uri).AndReturn(False)
-    # This method is being mocked out.
-    # pylint: disable=E1101
     paygen._DiscoverRequiredPayloads(
         ).AndRaise(paygen_build_lib.BuildNotReady())
     lock.__exit__(
@@ -1168,13 +1182,13 @@ fsi_images: 2913.331.0,2465.105.0
 
     paygen.CreatePayloads()
 
-  @osutils.TempDirDecorator
   def testFindControlFileDir(self):
     """Test that we find control files in the proper directory."""
     # Test default dir in /tmp.
     result = paygen_build_lib._FindControlFileDir(None)
     self.assertTrue(os.path.isdir(result))
-    self.assertTrue(result.startswith('/tmp/paygen_build-control_files'))
+    tempdir = tempfile.tempdir or '/tmp'
+    self.assertTrue(result.startswith(tempdir + '/'))
     shutil.rmtree(result)
 
     # Test in specified dir.
@@ -1185,15 +1199,22 @@ fsi_images: 2913.331.0,2465.105.0
 
   @unittest.skipIf(not paygen_build_lib.config,
                    'Internal crostools repository needed.')
+  @unittest.skipIf(not paygen_build_lib.test_control,
+                   'Autotest repository needed.')
   def testEmitControlFile(self):
     """Test that we emit control files correctly."""
     payload = gspaths.Payload(tgt_image=self.npo_image,
                               src_image=self.basic_image)
 
+    site_config = config_lib_unittest.MockSiteConfig()
+    site_config.Add('build_to_introduce_boards',
+                    boards=['foo_board'])
+
     suite_name = 'paygen_foo'
     control_dir = tempfile.mkdtemp(prefix='control_dir-')
     paygen = paygen_build_lib._PaygenBuild(
-        self.foo_build, self.tempdir, control_dir=control_dir)
+        self.foo_build, self.tempdir, site_config,
+        control_dir=control_dir)
     with tempfile.NamedTemporaryFile(prefix='control_file-', delete=False) as f:
       control_file_name = f.name
       f.write("""
@@ -1207,10 +1228,6 @@ DOC = "Faux doc"
 
 """)
 
-    self.mox.StubOutWithMock(cbuildbot_config, 'FindFullConfigsForBoard')
-    cbuildbot_config.FindFullConfigsForBoard().AndReturn(
-        ([{'boards': ['foo_board']}], []))
-
     self.mox.StubOutWithMock(urilib, 'ListFiles')
     urilib.ListFiles(
         gspaths.ChromeosReleases.PayloadUri(
@@ -1223,8 +1240,10 @@ DOC = "Faux doc"
             'foo_board', '*', self.basic_image.version)).AndReturn(
                 ['gs://foo-archive/src-build'])
 
-    self.mox.StubOutWithMock(test_control, 'get_control_file_name')
-    test_control.get_control_file_name().AndReturn(control_file_name)
+    self.mox.StubOutWithMock(
+        paygen_build_lib.test_control, 'get_control_file_name')
+    paygen_build_lib.test_control.get_control_file_name().AndReturn(
+        control_file_name)
 
     self.mox.ReplayAll()
 
@@ -1238,7 +1257,8 @@ DOC = "Faux doc"
     """Test the process of scheduling HWLab tests."""
     control_dir = '/tmp/control_dir'
     paygen = paygen_build_lib._PaygenBuild(
-        self.foo_build, self.tempdir, control_dir=control_dir)
+        self.foo_build, self.tempdir, config_lib_unittest.MockSiteConfig(),
+        control_dir=control_dir)
     control_dump_dir = os.path.join(control_dir, paygen.CONTROL_FILE_SUBDIR)
     payloads = ['foo', 'bar']
     test_channel = self.foo_build.channel.rpartition('-')[0]
@@ -1273,10 +1293,14 @@ DOC = "Faux doc"
     self.mox.StubOutWithMock(gslib, 'Copy')
     gslib.Copy(tarball_path, test_upload_path, acl='public-read')
 
+    # Both utils and cros_build_lib versions of RunCommand exist. For now, stub
+    # them both out just to be safe (don't want unit tests running actual
+    # commands).
     # TODO(garnold) remove the dryrun argument.
     self.mox.StubOutWithMock(utils, 'RunCommand')
+    self.mox.StubOutWithMock(cros_build_lib, 'RunCommand')
 
-    timeout_mins = cbuildbot_config.HWTestConfig.DEFAULT_HW_TEST_TIMEOUT / 60
+    timeout_mins = config_lib.HWTestConfig.DEFAULT_HW_TEST_TIMEOUT / 60
     expected_command = [
         mox.StrContains('site_utils/run_suite.py'),
         '--board', 'foo-board',
@@ -1286,11 +1310,27 @@ DOC = "Faux doc"
         '--pool', 'bvt',
         '--retry', 'True',
         '--timeout_mins', str(timeout_mins),
-        '--no_wait', 'False']
+        '--no_wait', 'False',
+        '--suite_min_duts', '2']
 
-    utils.RunCommand(expected_command, error_ok=True, redirect_stdout=True,
-                     redirect_stderr=True, return_result=True).AndReturn(
-                         utils.CommandResult(returncode=0))
+    job_id_output = '''
+Autotest instance: cautotest
+02-23-2015 [06:26:51] Submitted create_suite_job rpc
+02-23-2015 [06:26:53] Created suite job: http://cautotest.corp.google.com/afe/#tab_id=view_job&object_id=26960110
+@@@STEP_LINK@Suite created@http://cautotest.corp.google.com/afe/#tab_id=view_job&object_id=26960110@@@
+The suite job has another 3:09:50.012887 till timeout.
+The suite job has another 2:39:39.789250 till timeout.
+    '''
+
+    cros_build_lib.RunCommand(
+        expected_command + ['-c'], capture_output=True,
+        combine_stdout_stderr=True).AndReturn(
+            utils.CommandResult(returncode=0, output=job_id_output))
+    cros_build_lib.RunCommand(
+        expected_command + ['-m', '26960110']).AndReturn(utils.CommandResult(
+            returncode=0,
+            output=job_id_output))
+
 
     self.mox.ReplayAll()
 
@@ -1299,14 +1339,14 @@ DOC = "Faux doc"
   def testScheduleAutotestTestsNormal(self):
     """Test scheduling autotest tests with run_suite.py."""
     paygen = paygen_build_lib._PaygenBuild(
-        self.foo_build, self.tempdir)
+        self.foo_build, self.tempdir,
+        config_lib_unittest.MockSiteConfig())
 
-    self.mox.StubOutWithMock(paygen_build_lib.commands,
-                             'RunHWTestSuite')
-    self.mox.StubOutWithMock(paygen_build_lib.utils,
-                             'RunCommand')
+    self.mox.StubOutWithMock(commands, 'RunHWTestSuite')
+    self.mox.StubOutWithMock(utils, 'RunCommand')
+    self.mox.StubOutWithMock(cros_build_lib, 'RunCommand')
 
-    timeout_mins = cbuildbot_config.HWTestConfig.DEFAULT_HW_TEST_TIMEOUT / 60
+    timeout_mins = config_lib.HWTestConfig.DEFAULT_HW_TEST_TIMEOUT / 60
     expected_command = [
         mox.StrContains('site_utils/run_suite.py'),
         '--board', 'foo-board',
@@ -1316,10 +1356,12 @@ DOC = "Faux doc"
         '--pool', 'bvt',
         '--retry', 'True',
         '--timeout_mins', str(timeout_mins),
-        '--no_wait', 'False']
-    utils.RunCommand(expected_command, error_ok=True, redirect_stdout=True,
-                     redirect_stderr=True, return_result=True).AndReturn(
-                         utils.CommandResult(returncode=0))
+        '--no_wait', 'False',
+        '--suite_min_duts', '2']
+    cros_build_lib.RunCommand(
+        expected_command + ['-c'], capture_output=True,
+        combine_stdout_stderr=True).AndReturn(
+            utils.CommandResult(returncode=0, output=''))
 
     self.mox.ReplayAll()
 
@@ -1332,18 +1374,19 @@ DOC = "Faux doc"
   def testScheduleAutotestTestsBuilderEnvironment(self):
     """Test scheduling autotest tests with build autotest proxy."""
     paygen = paygen_build_lib._PaygenBuild(
-        self.foo_build, self.tempdir, run_on_builder=True)
+        self.foo_build, self.tempdir,
+        config_lib_unittest.MockSiteConfig(), run_on_builder=True)
 
-    self.mox.StubOutWithMock(paygen_build_lib.commands,
-                             'RunHWTestSuite')
-    self.mox.StubOutWithMock(paygen_build_lib.utils,
-                             'RunCommand')
+    self.mox.StubOutWithMock(commands, 'RunHWTestSuite')
+    self.mox.StubOutWithMock(utils, 'RunCommand')
+    self.mox.StubOutWithMock(cros_build_lib, 'RunCommand')
 
-    timeout_mins = cbuildbot_config.HWTestConfig.DEFAULT_HW_TEST_TIMEOUT / 60
+    timeout_mins = config_lib.HWTestConfig.DEFAULT_HW_TEST_TIMEOUT / 60
     paygen_build_lib.commands.RunHWTestSuite(
         board='foo-board', build='foo-board-release/R99-1.2.3', file_bugs=True,
-        pool='bvt', suite='paygen_au_foo', timeout_mins=timeout_mins,
-        retry=True, wait_for_results=True, debug=False)
+        pool='bvt', priority=constants.HWTEST_BUILD_PRIORITY,
+        suite='paygen_au_foo', timeout_mins=timeout_mins,
+        retry=True, wait_for_results=True, suite_min_duts=2, debug=False)
 
     self.mox.ReplayAll()
 
@@ -1356,19 +1399,21 @@ DOC = "Faux doc"
   def testScheduleAutotestTestsBuilderEnvironmentWarn(self):
     """Test scheduling autotest tests with build autotest proxy."""
     paygen = paygen_build_lib._PaygenBuild(
-        self.foo_build, self.tempdir, run_on_builder=True)
+        self.foo_build, self.tempdir,
+        config_lib_unittest.MockSiteConfig(), run_on_builder=True)
 
-    self.mox.StubOutWithMock(paygen_build_lib.commands,
-                             'RunHWTestSuite')
-    self.mox.StubOutWithMock(paygen_build_lib.utils,
-                             'RunCommand')
+    self.mox.StubOutWithMock(commands, 'RunHWTestSuite')
+    self.mox.StubOutWithMock(utils, 'RunCommand')
+    self.mox.StubOutWithMock(cros_build_lib, 'RunCommand')
 
-    timeout_mins = cbuildbot_config.HWTestConfig.DEFAULT_HW_TEST_TIMEOUT / 60
+    timeout_mins = config_lib.HWTestConfig.DEFAULT_HW_TEST_TIMEOUT / 60
     paygen_build_lib.commands.RunHWTestSuite(
         board='foo-board', build='foo-board-release/R99-1.2.3', file_bugs=True,
-        pool='bvt', suite='paygen_au_foo', timeout_mins=timeout_mins,
-        retry=True, wait_for_results=True, debug=False).AndRaise(
-          commands.TestWarning('** Suite passed with a warning code **'))
+        pool='bvt', priority=constants.HWTEST_BUILD_PRIORITY,
+        suite='paygen_au_foo', timeout_mins=timeout_mins,
+        retry=True, wait_for_results=True, suite_min_duts=2,
+        debug=False).AndRaise(
+            failures_lib.TestWarning('** Suite passed with a warning code **'))
 
     self.mox.ReplayAll()
 
@@ -1380,10 +1425,6 @@ DOC = "Faux doc"
 
   def testMapToArchive(self):
     """Test that mapping to images archive names/locations works."""
-    self.mox.StubOutWithMock(cbuildbot_config, 'FindFullConfigsForBoard')
-    cbuildbot_config.FindFullConfigsForBoard().MultipleTimes().AndReturn(
-        ([{'boards': ['foo_board', 'bar_board', 'bar-board']}], []))
-
     self.mox.StubOutWithMock(urilib, 'ListFiles')
     urilib.ListFiles(
         gspaths.ChromeosImageArchive.BuildUri(
@@ -1392,19 +1433,26 @@ DOC = "Faux doc"
 
     self.mox.ReplayAll()
 
+    site_config = config_lib_unittest.MockSiteConfig()
+    site_config.Add('build_to_introduce_boards',
+                    boards=['foo_board', 'bar_board', 'bar-board'])
+
+    paygen = paygen_build_lib._PaygenBuild(
+        self.foo_build, self.tempdir, site_config)
+
     # Case 1: mapping successful.
     self.assertEqual(
-        paygen_build_lib._PaygenBuild._MapToArchive('foo-board', '1.2.3'),
+        paygen._MapToArchive('foo-board', '1.2.3'),
         ('foo_board', 'foo_board/R11-1.2.3',
          'gs://foo-archive/foo_board/R11-1.2.3'))
 
     # Case 2: failure, too many build board names found.
     with self.assertRaises(paygen_build_lib.ArchiveError):
-      paygen_build_lib._PaygenBuild._MapToArchive('bar-board', '1.2.3')
+      paygen._MapToArchive('bar-board', '1.2.3')
 
     # Case 3: failure, build board name not found.
     with self.assertRaises(paygen_build_lib.ArchiveError):
-      paygen_build_lib._PaygenBuild._MapToArchive('baz-board', '1.2.3')
+      paygen._MapToArchive('baz-board', '1.2.3')
 
   def testValidateBoardConfig(self):
     """Test ValidateBoardConfig."""
@@ -1420,7 +1468,3 @@ DOC = "Faux doc"
     # Test an unknown board doesn't.
     self.assertRaises(paygen_build_lib.BoardNotConfigured,
                       paygen_build_lib.ValidateBoardConfig, 'goofy-board')
-
-
-if __name__ == '__main__':
-  cros_test_lib.main()

@@ -5,9 +5,12 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/location.h"
 #include "base/message_loop/message_loop.h"
 #include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/download/chrome_download_manager_delegate.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/download/download_target_info.h"
@@ -24,6 +27,10 @@
 #include "content/public/test/web_contents_tester.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+#if defined(OS_ANDROID)
+#include "chrome/browser/android/download/mock_download_controller_android.h"
+#endif
 
 using ::testing::AtMost;
 using ::testing::Invoke;
@@ -74,22 +81,21 @@ class TestChromeDownloadManagerDelegate : public ChromeDownloadManagerDelegate {
       : ChromeDownloadManagerDelegate(profile) {
   }
 
-  virtual ~TestChromeDownloadManagerDelegate() {}
+  ~TestChromeDownloadManagerDelegate() override {}
 
-  virtual safe_browsing::DownloadProtectionService*
+  safe_browsing::DownloadProtectionService*
       GetDownloadProtectionService() override {
     return NULL;
   }
 
-  virtual void NotifyExtensions(
-      content::DownloadItem* download,
-      const base::FilePath& suggested_virtual_path,
-      const NotifyExtensionsCallback& callback) override {
+  void NotifyExtensions(content::DownloadItem* download,
+                        const base::FilePath& suggested_virtual_path,
+                        const NotifyExtensionsCallback& callback) override {
     callback.Run(base::FilePath(),
                  DownloadPathReservationTracker::UNIQUIFY);
   }
 
-  virtual void ReserveVirtualPath(
+  void ReserveVirtualPath(
       content::DownloadItem* download,
       const base::FilePath& virtual_path,
       bool create_directory,
@@ -98,11 +104,11 @@ class TestChromeDownloadManagerDelegate : public ChromeDownloadManagerDelegate {
       override {
     // Pretend the path reservation succeeded without any change to
     // |target_path|.
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(callback, virtual_path, true));
   }
 
-  virtual void PromptUserForDownloadPath(
+  void PromptUserForDownloadPath(
       DownloadItem* download,
       const base::FilePath& suggested_path,
       const DownloadTargetDeterminerDelegate::FileSelectedCallback& callback)
@@ -164,6 +170,10 @@ class ChromeDownloadManagerDelegateTest
   scoped_ptr<content::MockDownloadManager> download_manager_;
   scoped_ptr<TestChromeDownloadManagerDelegate> delegate_;
   MockWebContentsDelegate web_contents_delegate_;
+#if defined(OS_ANDROID)
+  chrome::android::MockDownloadControllerAndroid download_controller_;
+#endif
+
 };
 
 ChromeDownloadManagerDelegateTest::ChromeDownloadManagerDelegateTest()
@@ -181,11 +191,18 @@ void ChromeDownloadManagerDelegateTest::SetUp() {
 
   ASSERT_TRUE(test_download_dir_.CreateUniqueTempDir());
   SetDefaultDownloadPath(test_download_dir_.path());
+#if defined(OS_ANDROID)
+  content::DownloadControllerAndroid::SetDownloadControllerAndroid(
+     &download_controller_);
+#endif
 }
 
 void ChromeDownloadManagerDelegateTest::TearDown() {
   base::RunLoop().RunUntilIdle();
   delegate_->Shutdown();
+#if defined(OS_ANDROID)
+  content::DownloadControllerAndroid::SetDownloadControllerAndroid(nullptr);
+#endif
   ChromeRenderViewHostTestHarness::TearDown();
 }
 

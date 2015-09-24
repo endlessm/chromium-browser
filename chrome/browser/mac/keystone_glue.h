@@ -87,6 +87,8 @@ enum BrandFileType {
   // And the Keystone registration itself, with the active timer
   KSRegistration* registration_;  // strong
   NSTimer* timer_;  // strong
+  BOOL registrationActive_;
+  Class ksUnsignedReportingAttributeClass_;
 
   // The most recent kAutoupdateStatusNotification notification posted.
   base::scoped_nsobject<NSNotification> recentNotification_;
@@ -101,6 +103,10 @@ enum BrandFileType {
 
   // YES if an update was ever successfully installed by -installUpdate.
   BOOL updateSuccessfullyInstalled_;
+
+  // Profile count information.
+  uint32_t numProfiles_;
+  uint32_t numSignedInProfiles_;
 }
 
 // Return the default Keystone Glue object.
@@ -109,6 +115,7 @@ enum BrandFileType {
 // Load KeystoneRegistration.framework if present, call into it to register
 // with Keystone, and set up periodic activity pings.
 - (void)registerWithKeystone;
+- (BOOL)isRegisteredAndActive;
 
 // -checkForUpdate launches a check for updates, and -installUpdate begins
 // installing an available update.  For each, status will be communicated via
@@ -171,6 +178,10 @@ enum BrandFileType {
 // Sets a new value for appPath.  Used during installation to point a ticket
 // at the installed copy.
 - (void)setAppPath:(NSString*)appPath;
+
+// Sets the total number of profiles and the number of signed in profiles.
+- (void)updateProfileCountsWithNumProfiles:(uint32_t)profiles
+                       numSignedInProfiles:(uint32_t)signedInProfiles;
 
 @end  // @interface KeystoneGlue
 

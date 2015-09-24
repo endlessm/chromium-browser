@@ -7,9 +7,7 @@
 
 #include <gtest/gtest.h>
 
-using namespace blink;
-
-namespace {
+namespace blink {
 
 // Once we setWholeSubtreeInvalid, we should not keep the HashSets.
 TEST(DescendantInvalidationSetTest, SubtreeInvalid_AddBefore)
@@ -61,6 +59,16 @@ TEST(DescendantInvalidationSetTest, SubtreeInvalid_Combine_2)
     ASSERT_TRUE(set1->isEmpty());
 }
 
+TEST(DescendantInvalidationSetTest, SubtreeInvalid_AddCustomPseudoBefore)
+{
+    RefPtrWillBeRawPtr<DescendantInvalidationSet> set = DescendantInvalidationSet::create();
+    set->setCustomPseudoInvalid();
+    ASSERT_FALSE(set->isEmpty());
+
+    set->setWholeSubtreeInvalid();
+    ASSERT_TRUE(set->isEmpty());
+}
+
 #ifndef NDEBUG
 TEST(DescendantInvalidationSetTest, ShowDebug)
 {
@@ -69,4 +77,4 @@ TEST(DescendantInvalidationSetTest, ShowDebug)
 }
 #endif // NDEBUG
 
-} // namespace
+} // namespace blink

@@ -52,6 +52,12 @@
 template("proto_library") {
   assert(defined(invoker.sources), "Need sources for proto_library")
 
+  # Don't apply OS-specific sources filtering to the assignments later on.
+  # Platform files should have gotten filtered out in the sources assignment
+  # when this template was invoked. If they weren't, it was on purpose and
+  # this template shouldn't re-apply the filter.
+  set_sources_assignment_filter([])
+
   action_name = "${target_name}_gen"
   source_set_name = target_name
   action_foreach(action_name) {
@@ -84,25 +90,34 @@ template("proto_library") {
 
     args = []
     if (defined(invoker.cc_include)) {
-      args += [ "--include", invoker.cc_include ]
+      args += [
+        "--include",
+        invoker.cc_include,
+      ]
     }
 
     args += [
-      "--protobuf", "$rel_out_dir/{{source_name_part}}.pb.h",
-      "--proto-in-dir", "{{source_dir}}",
-      "--proto-in-file", "{{source_file_part}}",
+      "--protobuf",
+      "$rel_out_dir/{{source_name_part}}.pb.h",
+      "--proto-in-dir",
+      "{{source_dir}}",
+      "--proto-in-file",
+      "{{source_file_part}}",
+
       # TODO(brettw) support system protobuf compiler.
       "--use-system-protobuf=0",
     ]
 
     protoc_label = "//third_party/protobuf:protoc($host_toolchain)"
     args += [
-      "--", 
+      "--",
+
       # Prepend with "./" so this will never pick up the system one (normally
       # when not cross-compiling, protoc's output directory will be the same
       # as the build dir, so the relative location will be empty).
-      "./" + rebase_path(get_label_info(protoc_label, "root_out_dir") +
-             "/protoc", root_build_dir),
+      "./" +
+          rebase_path(get_label_info(protoc_label, "root_out_dir") + "/protoc",
+                      root_build_dir),
     ]
 
     # If passed cc_generator_options should end in a colon, which will separate
@@ -115,11 +130,15 @@ template("proto_library") {
     }
     args += [
       # cc_generator_options is supposed to end in a colon if it's nonempty.
-      "--cpp_out", "$cc_generator_options$rel_out_dir",
-      "--python_out", rel_out_dir,
+      "--cpp_out",
+      "$cc_generator_options$rel_out_dir",
+      "--python_out",
+      rel_out_dir,
     ]
 
-    deps = [ protoc_label ]
+    deps = [
+      protoc_label,
+    ]
 
     if (defined(invoker.deps)) {
       deps += invoker.deps

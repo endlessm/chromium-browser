@@ -11,11 +11,11 @@
 
 namespace syncer {
 
-#define ASSERT_ENUM_BOUNDS(enum_parent, enum_type, enum_min, enum_max)  \
-  COMPILE_ASSERT(enum_parent::enum_type##_MIN == enum_parent::enum_min, \
-                 enum_type##_MIN_not_##enum_min);                       \
-  COMPILE_ASSERT(enum_parent::enum_type##_MAX == enum_parent::enum_max, \
-                 enum_type##_MAX_not_##enum_max);
+#define ASSERT_ENUM_BOUNDS(enum_parent, enum_type, enum_min, enum_max) \
+  static_assert(enum_parent::enum_type##_MIN == enum_parent::enum_min, \
+                #enum_type "_MIN should be " #enum_min);               \
+  static_assert(enum_parent::enum_type##_MAX == enum_parent::enum_max, \
+                #enum_type "_MAX should be " #enum_max);
 
 #define ENUM_CASE(enum_parent, enum_value)              \
   case enum_parent::enum_value: return #enum_value
@@ -166,6 +166,7 @@ const char* GetErrorTypeString(sync_pb::SyncEnums::ErrorType error_type) {
     ENUM_CASE(sync_pb::SyncEnums, MIGRATION_DONE);
     ENUM_CASE(sync_pb::SyncEnums, DISABLED_BY_ADMIN);
     ENUM_CASE(sync_pb::SyncEnums, USER_ROLLBACK);
+    ENUM_CASE(sync_pb::SyncEnums, PARTIAL_FAILURE);
     ENUM_CASE(sync_pb::SyncEnums, UNKNOWN);
   }
   NOTREACHED();
@@ -195,6 +196,58 @@ const char* GetLaunchTypeString(sync_pb::AppSpecifics::LaunchType launch_type) {
     ENUM_CASE(sync_pb::AppSpecifics, REGULAR);
     ENUM_CASE(sync_pb::AppSpecifics, FULLSCREEN);
     ENUM_CASE(sync_pb::AppSpecifics, WINDOW);
+  }
+  NOTREACHED();
+  return "";
+}
+
+const char* GetWalletInfoTypeString(
+    sync_pb::AutofillWalletSpecifics::WalletInfoType wallet_info_type) {
+  ASSERT_ENUM_BOUNDS(sync_pb::AutofillWalletSpecifics, WalletInfoType,
+                     UNKNOWN, POSTAL_ADDRESS);
+  switch (wallet_info_type) {
+    ENUM_CASE(sync_pb::AutofillWalletSpecifics, UNKNOWN);
+    ENUM_CASE(sync_pb::AutofillWalletSpecifics, MASKED_CREDIT_CARD);
+    ENUM_CASE(sync_pb::AutofillWalletSpecifics, POSTAL_ADDRESS);
+  }
+  NOTREACHED();
+  return "";
+}
+
+const char* GetWalletMetadataTypeString(
+    sync_pb::WalletMetadataSpecifics::Type wallet_metadata_type) {
+  ASSERT_ENUM_BOUNDS(sync_pb::WalletMetadataSpecifics, Type, UNKNOWN, ADDRESS);
+  switch (wallet_metadata_type) {
+    ENUM_CASE(sync_pb::WalletMetadataSpecifics, UNKNOWN);
+    ENUM_CASE(sync_pb::WalletMetadataSpecifics, CARD);
+    ENUM_CASE(sync_pb::WalletMetadataSpecifics, ADDRESS);
+  }
+  NOTREACHED();
+  return "";
+}
+
+const char* GetWalletCardStatusString(
+    sync_pb::WalletMaskedCreditCard::WalletCardStatus wallet_card_status) {
+  switch (wallet_card_status) {
+    ENUM_CASE(sync_pb::WalletMaskedCreditCard, VALID);
+    ENUM_CASE(sync_pb::WalletMaskedCreditCard, EXPIRED);
+  }
+  NOTREACHED();
+  return "";
+}
+
+const char* GetWalletCardTypeString(
+    sync_pb::WalletMaskedCreditCard::WalletCardType wallet_card_type) {
+  switch (wallet_card_type) {
+    ENUM_CASE(sync_pb::WalletMaskedCreditCard, UNKNOWN);
+    ENUM_CASE(sync_pb::WalletMaskedCreditCard, AMEX);
+    ENUM_CASE(sync_pb::WalletMaskedCreditCard, DISCOVER);
+    ENUM_CASE(sync_pb::WalletMaskedCreditCard, JCB);
+    ENUM_CASE(sync_pb::WalletMaskedCreditCard, MAESTRO);
+    ENUM_CASE(sync_pb::WalletMaskedCreditCard, MASTER_CARD);
+    ENUM_CASE(sync_pb::WalletMaskedCreditCard, SOLO);
+    ENUM_CASE(sync_pb::WalletMaskedCreditCard, SWITCH);
+    ENUM_CASE(sync_pb::WalletMaskedCreditCard, VISA);
   }
   NOTREACHED();
   return "";

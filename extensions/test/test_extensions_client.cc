@@ -4,11 +4,13 @@
 
 #include "extensions/test/test_extensions_client.h"
 
+#include "base/stl_util.h"
 #include "extensions/common/api/generated_schemas.h"
 #include "extensions/common/common_manifest_handlers.h"
 #include "extensions/common/extension_urls.h"
 #include "extensions/common/features/api_feature.h"
 #include "extensions/common/features/base_feature_provider.h"
+#include "extensions/common/features/behavior_feature.h"
 #include "extensions/common/features/feature_provider.h"
 #include "extensions/common/features/json_feature_provider_source.h"
 #include "extensions/common/features/manifest_feature.h"
@@ -35,6 +37,16 @@ TestExtensionsClient::TestExtensionsClient() {
 }
 
 TestExtensionsClient::~TestExtensionsClient() {
+}
+
+void TestExtensionsClient::AddBrowserImagePathsFilter(
+    BrowserImagePathsFilter* filter) {
+  browser_image_filters_.insert(filter);
+}
+
+void TestExtensionsClient::RemoveBrowserImagePathsFilter(
+    BrowserImagePathsFilter* filter) {
+  browser_image_filters_.erase(filter);
 }
 
 void TestExtensionsClient::Initialize() {
@@ -74,6 +86,9 @@ scoped_ptr<FeatureProvider> TestExtensionsClient::CreateFeatureProvider(
   } else if (name == "permission") {
     provider.reset(new BaseFeatureProvider(source->dictionary(),
                                            CreateFeature<PermissionFeature>));
+  } else if (name == "behavior") {
+    provider.reset(new BaseFeatureProvider(source->dictionary(),
+                                           CreateFeature<BehaviorFeature>));
   } else {
     NOTREACHED();
   }
@@ -91,6 +106,8 @@ TestExtensionsClient::CreateFeatureProviderSource(
     source->LoadJSON(IDR_EXTENSION_MANIFEST_FEATURES);
   } else if (name == "permission") {
     source->LoadJSON(IDR_EXTENSION_PERMISSION_FEATURES);
+  } else if (name == "behavior") {
+    source->LoadJSON(IDR_EXTENSION_BEHAVIOR_FEATURES);
   } else {
     NOTREACHED();
     source.reset();
@@ -102,6 +119,12 @@ void TestExtensionsClient::FilterHostPermissions(
     const URLPatternSet& hosts,
     URLPatternSet* new_hosts,
     std::set<PermissionMessage>* messages) const {
+}
+
+void TestExtensionsClient::FilterHostPermissions(
+    const URLPatternSet& hosts,
+    URLPatternSet* new_hosts,
+    PermissionIDSet* permissions) const {
 }
 
 void TestExtensionsClient::SetScriptingWhitelist(
@@ -143,6 +166,9 @@ bool TestExtensionsClient::ShouldSuppressFatalErrors() const {
   return true;
 }
 
+void TestExtensionsClient::RecordDidSuppressFatalError() {
+}
+
 std::string TestExtensionsClient::GetWebstoreBaseURL() const {
   return extension_urls::kChromeWebstoreBaseURL;
 }
@@ -153,6 +179,15 @@ std::string TestExtensionsClient::GetWebstoreUpdateURL() const {
 
 bool TestExtensionsClient::IsBlacklistUpdateURL(const GURL& url) const {
   return true;
+}
+
+std::set<base::FilePath> TestExtensionsClient::GetBrowserImagePaths(
+    const Extension* extension) {
+  std::set<base::FilePath> result =
+      ExtensionsClient::GetBrowserImagePaths(extension);
+  for (auto filter : browser_image_filters_)
+    filter->Filter(extension, &result);
+  return result;
 }
 
 }  // namespace extensions

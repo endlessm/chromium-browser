@@ -2,40 +2,23 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import sys
 import time
 
-from telemetry.core.util import TimeoutException
+from telemetry.core import exceptions
 from telemetry.page import page_test
 from telemetry.value import scalar
 
 
 class RasterizeAndRecordMicro(page_test.PageTest):
-  def __init__(self):
-    super(RasterizeAndRecordMicro, self).__init__('')
+  def __init__(self, start_wait_time=2, rasterize_repeat=100, record_repeat=100,
+               timeout=120, report_detailed_results=False):
+    super(RasterizeAndRecordMicro, self).__init__()
     self._chrome_branch_number = None
-
-  @classmethod
-  def AddCommandLineArgs(cls, parser):
-    parser.add_option('--start-wait-time', type='float',
-                      default=2,
-                      help='Wait time before the benchmark is started '
-                      '(must be long enought to load all content)')
-    parser.add_option('--rasterize-repeat', type='int',
-                      default=100,
-                      help='Repeat each raster this many times. Increase '
-                      'this value to reduce variance.')
-    parser.add_option('--record-repeat', type='int',
-                      default=100,
-                      help='Repeat each record this many times. Increase '
-                      'this value to reduce variance.')
-    parser.add_option('--timeout', type='int',
-                      default=120,
-                      help='The length of time to wait for the micro '
-                      'benchmark to finish, expressed in seconds.')
-    parser.add_option('--report-detailed-results',
-                      action='store_true',
-                      help='Whether to report additional detailed results.')
+    self._start_wait_time = start_wait_time
+    self._rasterize_repeat = rasterize_repeat
+    self._record_repeat = record_repeat
+    self._timeout = timeout
+    self._report_detailed_results = report_detailed_results
 
   def CustomizeBrowserOptions(self, options):
     options.AppendExtraBrowserArgs([
@@ -44,26 +27,13 @@ class RasterizeAndRecordMicro(page_test.PageTest):
         '--enable-gpu-benchmarking'
     ])
 
-  def DidStartBrowser(self, browser):
-    # TODO(vmpstr): Remove this temporary workaround when reference build has
-    # been updated to branch 1713 or later.
-    backend = browser._browser_backend # pylint: disable=W0212
-    self._chrome_branch_number = getattr(backend, 'chrome_branch_number', None)
-    if (not self._chrome_branch_number or
-        (sys.platform != 'android' and self._chrome_branch_number < 1713)):
-      raise page_test.TestNotSupportedOnPlatformFailure(
-          'rasterize_and_record_micro requires Chrome branch 1713 '
-          'or later. Skipping measurement.')
-
   def ValidateAndMeasurePage(self, page, tab, results):
     try:
       tab.WaitForDocumentReadyStateToBeComplete()
-    except TimeoutException:
+    except exceptions.TimeoutException:
       pass
-    time.sleep(self.options.start_wait_time)
+    time.sleep(self._start_wait_time)
 
-    record_repeat = self.options.record_repeat
-    rasterize_repeat = self.options.rasterize_repeat
     # Enqueue benchmark
     tab.ExecuteJavaScript("""
         window.benchmark_results = {};
@@ -75,18 +45,18 @@ class RasterizeAndRecordMicro(page_test.PageTest):
                   window.benchmark_results.done = true;
                   window.benchmark_results.results = value;
                 }, {
-                  "record_repeat_count": """ + str(record_repeat) + """,
-                  "rasterize_repeat_count": """ + str(rasterize_repeat) + """
+                  "record_repeat_count": %i,
+                  "rasterize_repeat_count": %i
                 });
-    """)
+    """ % (self._record_repeat, self._rasterize_repeat))
 
     benchmark_id = tab.EvaluateJavaScript('window.benchmark_results.id')
-    if (not benchmark_id):
+    if not benchmark_id:
       raise page_test.MeasurementFailure(
           'Failed to schedule rasterize_and_record_micro')
 
     tab.WaitForJavaScriptExpression(
-        'window.benchmark_results.done', self.options.timeout)
+        'window.benchmark_results.done', self._timeout)
 
     data = tab.EvaluateJavaScript('window.benchmark_results.results')
 
@@ -94,30 +64,49 @@ class RasterizeAndRecordMicro(page_test.PageTest):
     record_time = data['record_time_ms']
     pixels_rasterized = data['pixels_rasterized']
     rasterize_time = data['rasterize_time_ms']
+    # TODO(schenney): Remove this workaround when reference builds get past
+    # the change that adds this comment.
+    if 'picture_memory_usage' in data:
+      picture_memory_usage = data['picture_memory_usage']
+    else:
+      picture_memory_usage = 0
 
     results.AddValue(scalar.ScalarValue(
         results.current_page, 'pixels_recorded', 'pixels', pixels_recorded))
     results.AddValue(scalar.ScalarValue(
-        results.current_page, 'record_time', 'ms', record_time))
-    results.AddValue(scalar.ScalarValue(
         results.current_page, 'pixels_rasterized', 'pixels', pixels_rasterized))
     results.AddValue(scalar.ScalarValue(
         results.current_page, 'rasterize_time', 'ms', rasterize_time))
+    results.AddValue(scalar.ScalarValue(
+        results.current_page, 'viewport_picture_size', 'bytes',
+        picture_memory_usage))
+    results.AddValue(scalar.ScalarValue(
+        results.current_page, 'record_time', 'ms', record_time))
 
-    # TODO(skyostil): Remove this temporary workaround when reference build has
-    # been updated to branch 1931 or later.
-    if ((self._chrome_branch_number and self._chrome_branch_number >= 1931) or
-        sys.platform == 'android'):
-      record_time_sk_null_canvas = data['record_time_sk_null_canvas_ms']
-      record_time_painting_disabled = data['record_time_painting_disabled_ms']
-      results.AddValue(scalar.ScalarValue(
-          results.current_page, 'record_time_sk_null_canvas', 'ms',
-          record_time_sk_null_canvas))
-      results.AddValue(scalar.ScalarValue(
-          results.current_page, 'record_time_painting_disabled', 'ms',
-          record_time_painting_disabled))
+    record_time_sk_null_canvas = data['record_time_sk_null_canvas_ms']
+    record_time_painting_disabled = data['record_time_painting_disabled_ms']
+    # TODO(schenney): Remove this workaround when reference builds get past
+    # the change that adds this comment.
+    record_time_caching_disabled = \
+        data.get('record_time_caching_disabled_ms', 0)
+    # TODO(schenney): Remove this workaround when reference builds get past
+    # the change that adds this comment.
+    record_time_construction_disabled = \
+        data.get('record_time_construction_disabled_ms', 0)
+    results.AddValue(scalar.ScalarValue(
+        results.current_page, 'record_time_sk_null_canvas', 'ms',
+        record_time_sk_null_canvas))
+    results.AddValue(scalar.ScalarValue(
+        results.current_page, 'record_time_painting_disabled', 'ms',
+        record_time_painting_disabled))
+    results.AddValue(scalar.ScalarValue(
+        results.current_page, 'record_time_caching_disabled', 'ms',
+        record_time_caching_disabled))
+    results.AddValue(scalar.ScalarValue(
+        results.current_page, 'record_time_construction_disabled', 'ms',
+        record_time_construction_disabled))
 
-    if self.options.report_detailed_results:
+    if self._report_detailed_results:
       pixels_rasterized_with_non_solid_color = \
           data['pixels_rasterized_with_non_solid_color']
       pixels_rasterized_as_opaque = \
@@ -128,7 +117,16 @@ class RasterizeAndRecordMicro(page_test.PageTest):
           data['total_picture_layers_with_no_content']
       total_picture_layers_off_screen = \
           data['total_picture_layers_off_screen']
+      # TODO(schenney): Remove this workaround when reference builds get past
+      # the change that adds this comment.
+      if 'total_pictures_in_pile_size' in data:
+        total_pictures_in_pile_size = data['total_pictures_in_pile_size']
+      else:
+        total_pictures_in_pile_size = 0
 
+      results.AddValue(scalar.ScalarValue(
+          results.current_page, 'total_size_of_pictures_in_piles', 'bytes',
+          total_pictures_in_pile_size))
       results.AddValue(scalar.ScalarValue(
           results.current_page, 'pixels_rasterized_with_non_solid_color',
           'pixels', pixels_rasterized_with_non_solid_color))

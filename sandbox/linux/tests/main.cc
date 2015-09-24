@@ -3,34 +3,61 @@
 // found in the LICENSE file.
 
 #include "base/at_exit.h"
+#include "base/base_switches.h"
+#include "base/command_line.h"
+#include "base/files/file_path.h"
+#include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/test/test_suite.h"
+#include "build/build_config.h"
 #include "sandbox/linux/tests/test_utils.h"
 #include "sandbox/linux/tests/unit_tests.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "testing/multiprocess_func_list.h"
 
 namespace sandbox {
 namespace {
 
 // Check for leaks in our tests.
-void RunPostTestsChecks() {
+void RunPostTestsChecks(const base::FilePath& orig_cwd) {
   if (TestUtils::CurrentProcessHasChildren()) {
-    LOG(ERROR) << "One of the tests created a child that was not waited for. "
-               << "Please, clean-up after your tests!";
+    LOG(FATAL) << "One of the tests created a child that was not waited for. "
+               << "Please, clean up after your tests!";
+  }
+
+  base::FilePath cwd;
+  CHECK(GetCurrentDirectory(&cwd));
+  if (orig_cwd != cwd) {
+    LOG(FATAL) << "One of the tests changed the current working directory. "
+               << "Please, clean up after your tests!";
   }
 }
 
 }  // namespace
 }  // namespace sandbox
 
-#if defined(OS_ANDROID)
+#if !defined(SANDBOX_USES_BASE_TEST_SUITE)
 void UnitTestAssertHandler(const std::string& str) {
   _exit(1);
 }
 #endif
 
 int main(int argc, char* argv[]) {
-#if defined(OS_ANDROID)
+  base::CommandLine::Init(argc, argv);
+  std::string client_func;
+#if defined(SANDBOX_USES_BASE_TEST_SUITE)
+  client_func = base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+      switches::kTestChildProcess);
+#endif
+  if (!client_func.empty()) {
+    base::AtExitManager exit_manager;
+    return multi_process_function_list::InvokeChildProcessTest(client_func);
+  }
+
+  base::FilePath orig_cwd;
+  CHECK(GetCurrentDirectory(&orig_cwd));
+
+#if !defined(SANDBOX_USES_BASE_TEST_SUITE)
   // The use of Callbacks requires an AtExitManager.
   base::AtExitManager exit_manager;
   testing::InitGoogleTest(&argc, argv);
@@ -44,12 +71,12 @@ int main(int argc, char* argv[]) {
   // additional side effect of getting rid of gtest warnings about fork()
   // safety.
   ::testing::FLAGS_gtest_death_test_style = "threadsafe";
-#if defined(OS_ANDROID)
+#if !defined(SANDBOX_USES_BASE_TEST_SUITE)
   int tests_result = RUN_ALL_TESTS();
 #else
   int tests_result = base::RunUnitTestsUsingBaseTestSuite(argc, argv);
 #endif
 
-  sandbox::RunPostTestsChecks();
+  sandbox::RunPostTestsChecks(orig_cwd);
   return tests_result;
 }

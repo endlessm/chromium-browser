@@ -15,12 +15,14 @@ ProcessInfoNativeHandler::ProcessInfoNativeHandler(
     const std::string& extension_id,
     const std::string& context_type,
     bool is_incognito_context,
+    bool is_component_extension,
     int manifest_version,
     bool send_request_disabled)
     : ObjectBackedNativeHandler(context),
       extension_id_(extension_id),
       context_type_(context_type),
       is_incognito_context_(is_incognito_context),
+      is_component_extension_(is_component_extension),
       manifest_version_(manifest_version),
       send_request_disabled_(send_request_disabled) {
   RouteFunction("GetExtensionId",
@@ -31,6 +33,9 @@ ProcessInfoNativeHandler::ProcessInfoNativeHandler(
                            base::Unretained(this)));
   RouteFunction("InIncognitoContext",
                 base::Bind(&ProcessInfoNativeHandler::InIncognitoContext,
+                           base::Unretained(this)));
+  RouteFunction("IsComponentExtension",
+                base::Bind(&ProcessInfoNativeHandler::IsComponentExtension,
                            base::Unretained(this)));
   RouteFunction("GetManifestVersion",
                 base::Bind(&ProcessInfoNativeHandler::GetManifestVersion,
@@ -60,6 +65,11 @@ void ProcessInfoNativeHandler::InIncognitoContext(
   args.GetReturnValue().Set(is_incognito_context_);
 }
 
+void ProcessInfoNativeHandler::IsComponentExtension(
+    const v8::FunctionCallbackInfo<v8::Value>& args) {
+  args.GetReturnValue().Set(is_component_extension_);
+}
+
 void ProcessInfoNativeHandler::GetManifestVersion(
     const v8::FunctionCallbackInfo<v8::Value>& args) {
   args.GetReturnValue().Set(static_cast<int32_t>(manifest_version_));
@@ -78,7 +88,7 @@ void ProcessInfoNativeHandler::IsSendRequestDisabled(
 void ProcessInfoNativeHandler::HasSwitch(
     const v8::FunctionCallbackInfo<v8::Value>& args) {
   CHECK(args.Length() == 1 && args[0]->IsString());
-  bool has_switch = CommandLine::ForCurrentProcess()->HasSwitch(
+  bool has_switch = base::CommandLine::ForCurrentProcess()->HasSwitch(
       *v8::String::Utf8Value(args[0]));
   args.GetReturnValue().Set(v8::Boolean::New(args.GetIsolate(), has_switch));
 }

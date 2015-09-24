@@ -246,6 +246,17 @@ void BuildLumaHistogram(const SkBitmap& bitmap, int histogram[256]) {
   }
 }
 
+double CalculateBoringScore(const SkBitmap& bitmap) {
+  if (bitmap.isNull() || bitmap.empty())
+    return 1.0;
+  int histogram[256] = {0};
+  BuildLumaHistogram(bitmap, histogram);
+
+  int color_count = *std::max_element(histogram, histogram + 256);
+  int pixel_count = bitmap.width() * bitmap.height();
+  return static_cast<double>(color_count) / pixel_count;
+}
+
 SkColor AlphaBlend(SkColor foreground, SkColor background, SkAlpha alpha) {
   if (alpha == 0)
     return background;
@@ -307,5 +318,12 @@ SkColor GetSysSkColor(int which) {
   return SK_ColorLTGRAY;
 #endif
 }
+
+// OS_WIN implementation lives in sys_color_change_listener.cc
+#if !defined(OS_WIN)
+bool IsInvertedColorScheme() {
+  return false;
+}
+#endif  // !defined(OS_WIN)
 
 }  // namespace color_utils

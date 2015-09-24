@@ -4,9 +4,12 @@
 
 package org.chromium.chrome.browser.autofill;
 
+import android.content.Context;
+
 import org.chromium.base.CalledByNative;
 import org.chromium.base.JNINamespace;
 import org.chromium.base.ThreadUtils;
+import org.chromium.chrome.R;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -39,6 +42,7 @@ public class PersonalDataManager {
     public static class AutofillProfile {
         private String mGUID;
         private String mOrigin;
+        private boolean mIsLocal;
         private String mFullName;
         private String mCompanyName;
         private String mStreetAddress;
@@ -54,25 +58,44 @@ public class PersonalDataManager {
         private String mLanguageCode;
 
         @CalledByNative("AutofillProfile")
-        public static AutofillProfile create(String guid, String origin,
-                String fullName, String companyName,
-                String streetAddress, String region, String locality, String dependentLocality,
-                String postalCode, String sortingCode,
+        public static AutofillProfile create(String guid, String origin, boolean isLocal,
+                String fullName, String companyName, String streetAddress, String region,
+                String locality, String dependentLocality, String postalCode, String sortingCode,
                 String country, String phoneNumber, String emailAddress, String languageCode) {
-            return new AutofillProfile(guid, origin, fullName, companyName,
-                    streetAddress,
-                    region, locality, dependentLocality,
-                    postalCode, sortingCode, country, phoneNumber, emailAddress, languageCode);
+            return new AutofillProfile(guid, origin, isLocal, fullName, companyName, streetAddress,
+                    region, locality, dependentLocality, postalCode, sortingCode, country,
+                    phoneNumber, emailAddress, languageCode);
         }
 
-        public AutofillProfile(String guid, String origin, String fullName, String companyName,
-                String streetAddress,
-                String region,
-                String locality, String dependentLocality,
-                String postalCode, String sortingCode,
-                String countryCode, String phoneNumber, String emailAddress, String languageCode) {
+        public AutofillProfile(String guid, String origin, boolean isLocal, String fullName,
+                String companyName, String streetAddress, String region, String locality,
+                String dependentLocality, String postalCode, String sortingCode, String countryCode,
+                String phoneNumber, String emailAddress, String languageCode) {
             mGUID = guid;
             mOrigin = origin;
+            mIsLocal = isLocal;
+            mFullName = fullName;
+            mCompanyName = companyName;
+            mStreetAddress = streetAddress;
+            mRegion = region;
+            mLocality = locality;
+            mDependentLocality = dependentLocality;
+            mPostalCode = postalCode;
+            mSortingCode = sortingCode;
+            mCountryCode = countryCode;
+            mPhoneNumber = phoneNumber;
+            mEmailAddress = emailAddress;
+            mLanguageCode = languageCode;
+        }
+
+        /** TODO(estade): remove this constructor. */
+        public AutofillProfile(String guid, String origin, String fullName, String companyName,
+                String streetAddress, String region, String locality, String dependentLocality,
+                String postalCode, String sortingCode, String countryCode, String phoneNumber,
+                String emailAddress, String languageCode) {
+            mGUID = guid;
+            mOrigin = origin;
+            mIsLocal = true;
             mFullName = fullName;
             mCompanyName = companyName;
             mStreetAddress = streetAddress;
@@ -161,6 +184,10 @@ public class PersonalDataManager {
             return mLanguageCode;
         }
 
+        public boolean getIsLocal() {
+            return mIsLocal;
+        }
+
         public void setGUID(String guid) {
             mGUID = guid;
         }
@@ -230,6 +257,8 @@ public class PersonalDataManager {
         // marshaled and compared as strings. To save conversions, we use strings everywhere.
         private String mGUID;
         private String mOrigin;
+        private boolean mIsLocal;
+        private boolean mIsCached;
         private String mName;
         private String mNumber;
         private String mObfuscatedNumber;
@@ -237,15 +266,33 @@ public class PersonalDataManager {
         private String mYear;
 
         @CalledByNative("CreditCard")
-        public static CreditCard create(String guid, String origin, String name, String number,
-                String obfuscatedNumber, String month, String year) {
-            return new CreditCard(guid, origin, name, number, obfuscatedNumber, month, year);
+        public static CreditCard create(String guid, String origin, boolean isLocal,
+                boolean isCached, String name, String number, String obfuscatedNumber, String month,
+                String year) {
+            return new CreditCard(
+                    guid, origin, isLocal, isCached, name, number, obfuscatedNumber, month, year);
         }
 
+        public CreditCard(String guid, String origin, boolean isLocal, boolean isCached,
+                String name, String number, String obfuscatedNumber, String month, String year) {
+            mGUID = guid;
+            mOrigin = origin;
+            mIsLocal = isLocal;
+            mIsCached = isCached;
+            mName = name;
+            mNumber = number;
+            mObfuscatedNumber = obfuscatedNumber;
+            mMonth = month;
+            mYear = year;
+        }
+
+        /** TODO(estade): remove this constructor. */
         public CreditCard(String guid, String origin, String name, String number,
                 String obfuscatedNumber, String month, String year) {
             mGUID = guid;
             mOrigin = origin;
+            mIsLocal = true;
+            mIsCached = false;
             mName = name;
             mNumber = number;
             mObfuscatedNumber = obfuscatedNumber;
@@ -285,6 +332,20 @@ public class PersonalDataManager {
         @CalledByNative("CreditCard")
         public String getYear() {
             return mYear;
+        }
+
+        public String getFormattedExpirationDate(Context context) {
+            return getMonth()
+                    + context.getResources().getString(
+                              R.string.autofill_card_unmask_expiration_date_separator) + getYear();
+        }
+
+        public boolean getIsLocal() {
+            return mIsLocal;
+        }
+
+        public boolean getIsCached() {
+            return mIsCached;
         }
 
         public void setGUID(String guid) {
@@ -422,6 +483,10 @@ public class PersonalDataManager {
         nativeRemoveByGUID(mPersonalDataManagerAndroid, guid);
     }
 
+    public void clearUnmaskedCache(String guid) {
+        nativeClearUnmaskedCache(mPersonalDataManagerAndroid, guid);
+    }
+
     /**
      * @return Whether the Autofill feature is enabled.
      */
@@ -444,6 +509,28 @@ public class PersonalDataManager {
         return nativeIsAutofillManaged();
     }
 
+    /**
+     * @return Whether to offer the Wallet import feature.
+     */
+    public static boolean isWalletImportFeatureAvailable() {
+        return nativeIsWalletImportFeatureAvailable();
+    }
+
+    /**
+     * @return Whether the Wallet import feature is enabled.
+     */
+    public static boolean isWalletImportEnabled() {
+        return nativeIsWalletImportEnabled();
+    }
+
+    /**
+     * Enables or disables the Autofill Wallet integration.
+     * @param enable True to enable Wallet data import.
+     */
+    public static void setWalletImportEnabled(boolean enable) {
+        nativeSetWalletImportEnabled(enable);
+    }
+
     private native long nativeInit();
     private native int nativeGetProfileCount(long nativePersonalDataManagerAndroid);
     private native String[] nativeGetProfileLabels(long nativePersonalDataManagerAndroid);
@@ -461,8 +548,13 @@ public class PersonalDataManager {
     private native String nativeSetCreditCard(long nativePersonalDataManagerAndroid,
             CreditCard card);
     private native void nativeRemoveByGUID(long nativePersonalDataManagerAndroid, String guid);
+    private native void nativeClearUnmaskedCache(
+            long nativePersonalDataManagerAndroid, String guid);
     private static native boolean nativeIsAutofillEnabled();
     private static native void nativeSetAutofillEnabled(boolean enable);
     private static native boolean nativeIsAutofillManaged();
+    private static native boolean nativeIsWalletImportFeatureAvailable();
+    private static native boolean nativeIsWalletImportEnabled();
+    private static native void nativeSetWalletImportEnabled(boolean enable);
     private static native String nativeToCountryCode(String countryName);
 }

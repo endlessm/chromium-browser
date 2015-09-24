@@ -1,34 +1,20 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright (c) 2015 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/frame/browser_view.h"
 
-#include "chrome/app/chrome_command_ids.h"
-#include "chrome/browser/autocomplete/autocomplete_controller.h"
-#include "chrome/browser/search/search.h"
 #include "chrome/browser/ui/browser_commands.h"
-#include "chrome/browser/ui/omnibox/omnibox_view.h"
-#include "chrome/browser/ui/search/instant_test_utils.h"
-#include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/ui/views/bookmarks/bookmark_bar_view.h"
-#include "chrome/browser/ui/views/frame/immersive_mode_controller.h"
-#include "chrome/browser/ui/views/frame/top_container_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
-#include "chrome/browser/ui/views/tabs/tab.h"
-#include "chrome/browser/ui/views/toolbar/toolbar_view.h"
-#include "chrome/common/instant_types.h"
-#include "chrome/common/url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "ui/views/controls/webview/webview.h"
 #include "ui/views/focus/focus_manager.h"
-#include "ui/views/window/non_client_view.h"
 
-#if defined(OS_CHROMEOS)
-#include "chrome/browser/chrome_notification_types.h"
-#include "content/public/browser/notification_service.h"
-#include "ui/compositor/layer.h"
-#include "ui/compositor/scoped_animation_duration_scale_mode.h"
+#if defined(USE_AURA)
+#include "chrome/browser/ui/browser_window_state.h"
+#include "ui/aura/client/aura_constants.h"
+#include "ui/aura/window.h"
+#include "ui/aura/window_delegate.h"
+#include "ui/gfx/screen.h"
 #endif
 
 using views::FocusManager;
@@ -36,8 +22,7 @@ using views::FocusManager;
 typedef InProcessBrowserTest BrowserViewTest;
 
 // Active window and focus testing is not reliable on Windows crbug.com/79493
-// TODO(linux_aura) http://crbug.com/163931
-#if defined(OS_WIN) || (defined(OS_LINUX) && !defined(OS_CHROMEOS) && defined(USE_AURA))
+#if defined(OS_WIN)
 #define MAYBE_FullscreenClearsFocus DISABLED_FullscreenClearsFocus
 #else
 #define MAYBE_FullscreenClearsFocus FullscreenClearsFocus
@@ -56,3 +41,116 @@ IN_PROC_BROWSER_TEST_F(BrowserViewTest, MAYBE_FullscreenClearsFocus) {
   // Focus is released from the location bar.
   EXPECT_FALSE(location_bar_view->Contains(focus_manager->GetFocusedView()));
 }
+
+#if defined(USE_AURA)
+namespace {
+
+class BrowserViewTestParam : public BrowserViewTest,
+                             public testing::WithParamInterface<bool> {
+ public:
+  bool TestApp() { return GetParam(); }
+};
+
+}  // namespace
+
+// Test that docked state is remembered for app browser windows and not
+// remembered for tabbed browser windows.
+IN_PROC_BROWSER_TEST_P(BrowserViewTestParam, BrowserRemembersDockedState) {
+  // Open a new browser window (app or tabbed depending on a parameter).
+  bool test_app = TestApp();
+  Browser::CreateParams params =
+      test_app ? Browser::CreateParams::CreateForApp(
+                     "test_browser_app", true /* trusted_source */, gfx::Rect(),
+                     browser()->profile(), browser()->host_desktop_type())
+               : Browser::CreateParams(browser()->profile(),
+                                       browser()->host_desktop_type());
+  params.initial_show_state = ui::SHOW_STATE_DEFAULT;
+  bool is_ash = browser()->host_desktop_type() == chrome::HOST_DESKTOP_TYPE_ASH;
+  // Default |browser()| is not used by this test.
+  browser()->window()->Close();
+
+  // Create a new app browser
+  Browser* browser = new Browser(params);
+  ASSERT_TRUE(browser);
+  gfx::NativeWindow window = browser->window()->GetNativeWindow();
+  gfx::Rect original_bounds(gfx::Rect(150, 250, 350, 100));
+  window->SetBounds(original_bounds);
+  window->Show();
+  // Dock the browser window using |kShowStateKey| property.
+  gfx::Rect work_area = gfx::Screen::GetScreenFor(window)
+                            ->GetDisplayNearestPoint(window->bounds().origin())
+                            .work_area();
+  window->SetProperty(aura::client::kShowStateKey, ui::SHOW_STATE_DOCKED);
+
+  // Saved placement should reflect docked state (for app windows only in Ash).
+  gfx::Rect bounds;
+  ui::WindowShowState show_state = ui::SHOW_STATE_DEFAULT;
+  const views::Widget* widget = views::Widget::GetWidgetForNativeWindow(window);
+  widget->widget_delegate()->GetSavedWindowPlacement(widget, &bounds,
+                                                     &show_state);
+  EXPECT_EQ(is_ash && test_app ? ui::SHOW_STATE_DOCKED : ui::SHOW_STATE_DEFAULT,
+            show_state);
+  // Docking is only relevant on Ash desktop.
+  if (!is_ash)
+    return;
+
+  // Saved placement should reflect restore bounds.
+  ASSERT_NE(nullptr, window->GetProperty(aura::client::kRestoreBoundsKey));
+  original_bounds = *window->GetProperty(aura::client::kRestoreBoundsKey);
+  gfx::Rect expected_bounds = work_area;
+  expected_bounds.ClampToCenteredSize(original_bounds.size());
+  expected_bounds.set_y(original_bounds.y());
+  EXPECT_EQ(expected_bounds.ToString(), bounds.ToString());
+  EXPECT_EQ(expected_bounds.ToString(), original_bounds.ToString());
+
+  // Browser window should be docked.
+  int width = 250;  // same as DockedWindowLayoutManager::kIdealWidth.
+  if (window->delegate() && window->delegate()->GetMinimumSize().width() != 0)
+    width = std::max(width, window->delegate()->GetMinimumSize().width());
+  expected_bounds = work_area;
+  expected_bounds.set_width(width);
+  expected_bounds.set_x(work_area.right() - expected_bounds.width());
+  EXPECT_EQ(expected_bounds.ToString(), window->GetTargetBounds().ToString());
+  EXPECT_EQ(ui::SHOW_STATE_DOCKED,
+            window->GetProperty(aura::client::kShowStateKey));
+  browser->window()->Close();
+
+  // Newly created browser with the same app name should retain docked state
+  // for app browser window but leave it as normal for a tabbed browser.
+  browser = new Browser(params);
+  ASSERT_TRUE(browser);
+  browser->window()->Show();
+  window = browser->window()->GetNativeWindow();
+  EXPECT_EQ(test_app ? expected_bounds.ToString() : original_bounds.ToString(),
+            window->GetTargetBounds().ToString());
+  EXPECT_EQ(test_app ? ui::SHOW_STATE_DOCKED : ui::SHOW_STATE_NORMAL,
+            window->GetProperty(aura::client::kShowStateKey));
+
+  // Undocking the browser window should restore original size and vertical
+  // offset while centering the window horizontally.
+  // Tabbed window is already not docked.
+  expected_bounds = work_area;
+  expected_bounds.ClampToCenteredSize(original_bounds.size());
+  expected_bounds.set_y(original_bounds.y());
+  window->SetProperty(aura::client::kShowStateKey, ui::SHOW_STATE_NORMAL);
+  EXPECT_EQ(expected_bounds.ToString(), window->GetTargetBounds().ToString());
+  EXPECT_EQ(ui::SHOW_STATE_NORMAL,
+            window->GetProperty(aura::client::kShowStateKey));
+  browser->window()->Close();
+
+  // Re-create the browser window with the same app name.
+  browser = new Browser(params);
+  ASSERT_TRUE(browser);
+  browser->window()->Show();
+
+  // Newly created browser should retain undocked state and bounds.
+  window = browser->window()->GetNativeWindow();
+  EXPECT_EQ(expected_bounds.ToString(), window->GetTargetBounds().ToString());
+  EXPECT_EQ(ui::SHOW_STATE_NORMAL,
+            window->GetProperty(aura::client::kShowStateKey));
+}
+
+INSTANTIATE_TEST_CASE_P(BrowserViewTestTabbedOrApp,
+                        BrowserViewTestParam,
+                        testing::Bool());
+#endif

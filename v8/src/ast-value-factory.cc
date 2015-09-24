@@ -56,22 +56,20 @@ class AstRawStringInternalizationKey : public HashTableKey {
   explicit AstRawStringInternalizationKey(const AstRawString* string)
       : string_(string) {}
 
-  virtual bool IsMatch(Object* other) OVERRIDE {
+  bool IsMatch(Object* other) override {
     if (string_->is_one_byte_)
       return String::cast(other)->IsOneByteEqualTo(string_->literal_bytes_);
     return String::cast(other)->IsTwoByteEqualTo(
         Vector<const uint16_t>::cast(string_->literal_bytes_));
   }
 
-  virtual uint32_t Hash() OVERRIDE {
-    return string_->hash() >> Name::kHashShift;
-  }
+  uint32_t Hash() override { return string_->hash() >> Name::kHashShift; }
 
-  virtual uint32_t HashForObject(Object* key) OVERRIDE {
+  uint32_t HashForObject(Object* key) override {
     return String::cast(key)->Hash();
   }
 
-  virtual Handle<Object> AsHandle(Isolate* isolate) OVERRIDE {
+  Handle<Object> AsHandle(Isolate* isolate) override {
     if (string_->is_one_byte_)
       return isolate->factory()->NewOneByteInternalizedString(
           string_->literal_bytes_, string_->hash());
@@ -116,19 +114,6 @@ bool AstRawString::IsOneByteEqualTo(const char* data) const {
 }
 
 
-bool AstRawString::Compare(void* a, void* b) {
-  return *static_cast<AstRawString*>(a) == *static_cast<AstRawString*>(b);
-}
-
-bool AstRawString::operator==(const AstRawString& rhs) const {
-  if (is_one_byte_ != rhs.is_one_byte_) return false;
-  if (hash_ != rhs.hash_) return false;
-  int len = literal_bytes_.length();
-  if (rhs.literal_bytes_.length() != len) return false;
-  return memcmp(literal_bytes_.start(), rhs.literal_bytes_.start(), len) == 0;
-}
-
-
 void AstConsString::Internalize(Isolate* isolate) {
   // AstRawStrings are internalized before AstConsStrings so left and right are
   // already internalized.
@@ -155,6 +140,7 @@ bool AstValue::BooleanValue() const {
     case SYMBOL:
       UNREACHABLE();
       break;
+    case NUMBER_WITH_DOT:
     case NUMBER:
       return DoubleToBoolean(number_);
     case SMI:
@@ -182,10 +168,15 @@ void AstValue::Internalize(Isolate* isolate) {
       DCHECK(!string_->string().is_null());
       break;
     case SYMBOL:
-      value_ = Object::GetProperty(
-                   isolate, handle(isolate->native_context()->builtins()),
-                   symbol_name_).ToHandleChecked();
+      if (symbol_name_[0] == 'i') {
+        DCHECK_EQ(0, strcmp(symbol_name_, "iterator_symbol"));
+        value_ = isolate->factory()->iterator_symbol();
+      } else {
+        DCHECK_EQ(0, strcmp(symbol_name_, "home_object_symbol"));
+        value_ = isolate->factory()->home_object_symbol();
+      }
       break;
+    case NUMBER_WITH_DOT:
     case NUMBER:
       value_ = isolate->factory()->NewNumber(number_, TENURED);
       break;
@@ -212,7 +203,7 @@ void AstValue::Internalize(Isolate* isolate) {
 }
 
 
-const AstRawString* AstValueFactory::GetOneByteString(
+AstRawString* AstValueFactory::GetOneByteStringInternal(
     Vector<const uint8_t> literal) {
   uint32_t hash = StringHasher::HashSequentialString<uint8_t>(
       literal.start(), literal.length(), hash_seed_);
@@ -220,7 +211,7 @@ const AstRawString* AstValueFactory::GetOneByteString(
 }
 
 
-const AstRawString* AstValueFactory::GetTwoByteString(
+AstRawString* AstValueFactory::GetTwoByteStringInternal(
     Vector<const uint16_t> literal) {
   uint32_t hash = StringHasher::HashSequentialString<uint16_t>(
       literal.start(), literal.length(), hash_seed_);
@@ -229,13 +220,24 @@ const AstRawString* AstValueFactory::GetTwoByteString(
 
 
 const AstRawString* AstValueFactory::GetString(Handle<String> literal) {
-  DisallowHeapAllocation no_gc;
-  String::FlatContent content = literal->GetFlatContent();
-  if (content.IsOneByte()) {
-    return GetOneByteString(content.ToOneByteVector());
+  // For the FlatContent to stay valid, we shouldn't do any heap
+  // allocation. Make sure we won't try to internalize the string in GetString.
+  AstRawString* result = NULL;
+  Isolate* saved_isolate = isolate_;
+  isolate_ = NULL;
+  {
+    DisallowHeapAllocation no_gc;
+    String::FlatContent content = literal->GetFlatContent();
+    if (content.IsOneByte()) {
+      result = GetOneByteStringInternal(content.ToOneByteVector());
+    } else {
+      DCHECK(content.IsTwoByte());
+      result = GetTwoByteStringInternal(content.ToUC16Vector());
+    }
   }
-  DCHECK(content.IsTwoByte());
-  return GetTwoByteString(content.ToUC16Vector());
+  isolate_ = saved_isolate;
+  if (isolate_) result->Internalize(isolate_);
+  return result;
 }
 
 
@@ -290,8 +292,8 @@ const AstValue* AstValueFactory::NewSymbol(const char* name) {
 }
 
 
-const AstValue* AstValueFactory::NewNumber(double number) {
-  AstValue* value = new (zone_) AstValue(number);
+const AstValue* AstValueFactory::NewNumber(double number, bool with_dot) {
+  AstValue* value = new (zone_) AstValue(number, with_dot);
   if (isolate_) {
     value->Internalize(isolate_);
   }
@@ -348,14 +350,14 @@ const AstValue* AstValueFactory::NewTheHole() {
 
 #undef GENERATE_VALUE_GETTER
 
-const AstRawString* AstValueFactory::GetString(
-    uint32_t hash, bool is_one_byte, Vector<const byte> literal_bytes) {
+AstRawString* AstValueFactory::GetString(uint32_t hash, bool is_one_byte,
+                                         Vector<const byte> literal_bytes) {
   // literal_bytes here points to whatever the user passed, and this is OK
   // because we use vector_compare (which checks the contents) to compare
   // against the AstRawStrings which are in the string_table_. We should not
   // return this AstRawString.
   AstRawString key(is_one_byte, literal_bytes, hash);
-  HashMap::Entry* entry = string_table_.Lookup(&key, hash, true);
+  HashMap::Entry* entry = string_table_.LookupOrInsert(&key, hash);
   if (entry->value == NULL) {
     // Copy literal contents for later comparison.
     int length = literal_bytes.length();
@@ -374,4 +376,14 @@ const AstRawString* AstValueFactory::GetString(
 }
 
 
-} }  // namespace v8::internal
+bool AstValueFactory::AstRawStringCompare(void* a, void* b) {
+  const AstRawString* lhs = static_cast<AstRawString*>(a);
+  const AstRawString* rhs = static_cast<AstRawString*>(b);
+  if (lhs->is_one_byte() != rhs->is_one_byte()) return false;
+  if (lhs->hash() != rhs->hash()) return false;
+  int len = lhs->byte_length();
+  if (rhs->byte_length() != len) return false;
+  return memcmp(lhs->raw_data(), rhs->raw_data(), len) == 0;
+}
+}  // namespace internal
+}  // namespace v8

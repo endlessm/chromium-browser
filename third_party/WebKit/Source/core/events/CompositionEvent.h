@@ -27,16 +27,10 @@
 #ifndef CompositionEvent_h
 #define CompositionEvent_h
 
-#include "core/editing/CompositionUnderline.h"
+#include "core/events/CompositionEventInit.h"
 #include "core/events/UIEvent.h"
 
 namespace blink {
-
-struct CompositionEventInit : UIEventInit {
-    CompositionEventInit();
-
-    String data;
-};
 
 class CompositionEvent final : public UIEvent {
     DEFINE_WRAPPERTYPEINFO();
@@ -46,9 +40,9 @@ public:
         return adoptRefWillBeNoop(new CompositionEvent);
     }
 
-    static PassRefPtrWillBeRawPtr<CompositionEvent> create(const AtomicString& type, PassRefPtrWillBeRawPtr<AbstractView> view, const String& data, const Vector<CompositionUnderline>& underlines)
+    static PassRefPtrWillBeRawPtr<CompositionEvent> create(const AtomicString& type, PassRefPtrWillBeRawPtr<AbstractView> view, const String& data)
     {
-        return adoptRefWillBeNoop(new CompositionEvent(type, view, data, underlines));
+        return adoptRefWillBeNoop(new CompositionEvent(type, view, data));
     }
 
     static PassRefPtrWillBeRawPtr<CompositionEvent> create(const AtomicString& type, const CompositionEventInit& initializer)
@@ -61,24 +55,17 @@ public:
     void initCompositionEvent(const AtomicString& type, bool canBubble, bool cancelable, PassRefPtrWillBeRawPtr<AbstractView>, const String& data);
 
     String data() const { return m_data; }
-    int activeSegmentStart() const { return m_activeSegmentStart; }
-    int activeSegmentEnd() const { return m_activeSegmentEnd; }
-    const Vector<unsigned>& getSegments() const { return m_segments; }
 
     virtual const AtomicString& interfaceName() const override;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     CompositionEvent();
-    CompositionEvent(const AtomicString& type, PassRefPtrWillBeRawPtr<AbstractView>, const String&, const Vector<CompositionUnderline>& underlines);
+    CompositionEvent(const AtomicString& type, PassRefPtrWillBeRawPtr<AbstractView>, const String&);
     CompositionEvent(const AtomicString& type, const CompositionEventInit&);
-    void initializeSegments(const Vector<CompositionUnderline>* = 0);
 
     String m_data;
-    int m_activeSegmentStart;
-    int m_activeSegmentEnd;
-    Vector<unsigned> m_segments;
 };
 
 } // namespace blink

@@ -7,6 +7,7 @@
 #include "base/location.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "components/sync_driver/sync_api_component_factory.h"
 #include "sync/api/sync_change.h"
 #include "sync/api/sync_error.h"
@@ -94,7 +95,7 @@ GenericChangeProcessor::GenericChangeProcessor(
     const base::WeakPtr<syncer::SyncMergeResult>& merge_result,
     syncer::UserShare* user_share,
     SyncApiComponentFactory* sync_factory,
-    const scoped_refptr<syncer::AttachmentStore>& attachment_store)
+    scoped_ptr<syncer::AttachmentStoreForSync> attachment_store)
     : ChangeProcessor(error_handler),
       type_(type),
       local_service_(local_service),
@@ -103,20 +104,25 @@ GenericChangeProcessor::GenericChangeProcessor(
       weak_ptr_factory_(this) {
   DCHECK(CalledOnValidThread());
   DCHECK_NE(type_, syncer::UNSPECIFIED);
-  if (attachment_store.get()) {
+  if (attachment_store) {
+    std::string store_birthday;
+    {
+      syncer::ReadTransaction trans(FROM_HERE, share_handle());
+      store_birthday = trans.GetStoreBirthday();
+    }
     attachment_service_ = sync_factory->CreateAttachmentService(
-        attachment_store, *user_share, this);
+        attachment_store.Pass(), *user_share, store_birthday, type, this);
     attachment_service_weak_ptr_factory_.reset(
         new base::WeakPtrFactory<syncer::AttachmentService>(
             attachment_service_.get()));
-    attachment_service_proxy_.reset(new syncer::AttachmentServiceProxy(
-        base::MessageLoopProxy::current(),
-        attachment_service_weak_ptr_factory_->GetWeakPtr()));
+    attachment_service_proxy_ = syncer::AttachmentServiceProxy(
+        base::ThreadTaskRunnerHandle::Get(),
+        attachment_service_weak_ptr_factory_->GetWeakPtr());
     UploadAllAttachmentsNotOnServer();
   } else {
-    attachment_service_proxy_.reset(new syncer::AttachmentServiceProxy(
-        base::MessageLoopProxy::current(),
-        base::WeakPtr<syncer::AttachmentService>()));
+    attachment_service_proxy_ = syncer::AttachmentServiceProxy(
+        base::ThreadTaskRunnerHandle::Get(),
+        base::WeakPtr<syncer::AttachmentService>());
   }
 }
 
@@ -141,15 +147,11 @@ void GenericChangeProcessor::ApplyChangesFromSyncModel(
             CopyFrom(it->extra->unencrypted());
       }
       const syncer::AttachmentIdList empty_list_of_attachment_ids;
-      syncer_changes_.push_back(
-          syncer::SyncChange(FROM_HERE,
-                             syncer::SyncChange::ACTION_DELETE,
-                             syncer::SyncData::CreateRemoteData(
-                                 it->id,
-                                 specifics ? *specifics : it->specifics,
-                                 base::Time(),
-                                 empty_list_of_attachment_ids,
-                                 *attachment_service_proxy_)));
+      syncer_changes_.push_back(syncer::SyncChange(
+          FROM_HERE, syncer::SyncChange::ACTION_DELETE,
+          syncer::SyncData::CreateRemoteData(
+              it->id, specifics ? *specifics : it->specifics, base::Time(),
+              empty_list_of_attachment_ids, attachment_service_proxy_)));
     } else {
       syncer::SyncChange::SyncChangeType action =
           (it->action == syncer::ChangeRecord::ACTION_ADD) ?
@@ -167,9 +169,8 @@ void GenericChangeProcessor::ApplyChangesFromSyncModel(
         return;
       }
       syncer_changes_.push_back(syncer::SyncChange(
-          FROM_HERE,
-          action,
-          BuildRemoteSyncData(it->id, read_node, *attachment_service_proxy_)));
+          FROM_HERE, action,
+          BuildRemoteSyncData(it->id, read_node, attachment_service_proxy_)));
     }
   }
 }
@@ -267,7 +268,7 @@ syncer::SyncError GenericChangeProcessor::GetAllSyncDataReturnError(
       return error;
     }
     current_sync_data->push_back(BuildRemoteSyncData(
-        sync_child_node.GetId(), sync_child_node, *attachment_service_proxy_));
+        sync_child_node.GetId(), sync_child_node, attachment_service_proxy_));
   }
   return syncer::SyncError();
 }
@@ -471,7 +472,11 @@ syncer::SyncError GenericChangeProcessor::ProcessSyncChanges(
       NOTREACHED();
       return error;
     }
-    attachment_service_->UploadAttachments(new_attachments);
+    syncer::AttachmentIdList ids_to_upload;
+    ids_to_upload.reserve(new_attachments.size());
+    std::copy(new_attachments.begin(), new_attachments.end(),
+              std::back_inserter(ids_to_upload));
+    attachment_service_->UploadAttachments(ids_to_upload);
   }
 
   return syncer::SyncError();
@@ -514,13 +519,6 @@ syncer::SyncError GenericChangeProcessor::HandleActionAdd(
         error.Reset(FROM_HERE, error_prefix + "empty tag", type_);
         error_handler()->OnSingleDataTypeUnrecoverableError(error);
         LOG(ERROR) << "Create: Empty tag.";
-        return error;
-      }
-      case syncer::WriteNode::INIT_FAILED_ENTRY_ALREADY_EXISTS: {
-        syncer::SyncError error;
-        error.Reset(FROM_HERE, error_prefix + "entry already exists", type_);
-        error_handler()->OnSingleDataTypeUnrecoverableError(error);
-        LOG(ERROR) << "Create: Entry exists.";
         return error;
       }
       case syncer::WriteNode::INIT_FAILED_COULD_NOT_CREATE_ENTRY: {
@@ -570,8 +568,6 @@ syncer::SyncError GenericChangeProcessor::HandleActionUpdate(
     const syncer::WriteTransaction& trans,
     syncer::WriteNode* sync_node,
     syncer::AttachmentIdSet* new_attachments) {
-  // TODO(zea): consider having this logic for all possible changes?
-
   const syncer::SyncDataLocal sync_data_local(change.sync_data());
   syncer::BaseNode::InitByLookupResult result =
       sync_node->InitByClientTagLookup(sync_data_local.GetDataType(),
@@ -705,14 +701,20 @@ syncer::UserShare* GenericChangeProcessor::share_handle() const {
 void GenericChangeProcessor::UploadAllAttachmentsNotOnServer() {
   DCHECK(CalledOnValidThread());
   DCHECK(attachment_service_.get());
-  syncer::AttachmentIdSet id_set;
+  syncer::AttachmentIdList ids;
   {
     syncer::ReadTransaction trans(FROM_HERE, share_handle());
-    trans.GetAttachmentIdsToUpload(type_, &id_set);
+    trans.GetAttachmentIdsToUpload(type_, &ids);
   }
-  if (!id_set.empty()) {
-    attachment_service_->UploadAttachments(id_set);
+  if (!ids.empty()) {
+    attachment_service_->UploadAttachments(ids);
   }
+}
+
+scoped_ptr<syncer::AttachmentService>
+GenericChangeProcessor::GetAttachmentService() const {
+  return scoped_ptr<syncer::AttachmentService>(
+      new syncer::AttachmentServiceProxy(attachment_service_proxy_));
 }
 
 }  // namespace sync_driver

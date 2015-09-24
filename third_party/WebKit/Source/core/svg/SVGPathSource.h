@@ -24,28 +24,16 @@
 
 namespace blink {
 
-class FloatPoint;
-
 class SVGPathSource {
-    WTF_MAKE_NONCOPYABLE(SVGPathSource); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_NONCOPYABLE(SVGPathSource);
+    STACK_ALLOCATED();
 public:
     SVGPathSource() { }
     virtual ~SVGPathSource() { }
 
     virtual bool hasMoreData() const = 0;
-    virtual bool moveToNextToken() = 0;
-    virtual bool parseSVGSegmentType(SVGPathSegType&) = 0;
-    virtual SVGPathSegType nextCommand(SVGPathSegType previousCommand) = 0;
-
-    virtual bool parseMoveToSegment(FloatPoint&) = 0;
-    virtual bool parseLineToSegment(FloatPoint&) = 0;
-    virtual bool parseLineToHorizontalSegment(float&) = 0;
-    virtual bool parseLineToVerticalSegment(float&) = 0;
-    virtual bool parseCurveToCubicSegment(FloatPoint&, FloatPoint&, FloatPoint&) = 0;
-    virtual bool parseCurveToCubicSmoothSegment(FloatPoint&, FloatPoint&) = 0;
-    virtual bool parseCurveToQuadraticSegment(FloatPoint&, FloatPoint&) = 0;
-    virtual bool parseCurveToQuadraticSmoothSegment(FloatPoint&) = 0;
-    virtual bool parseArcToSegment(float&, float&, float&, bool&, bool&, FloatPoint&) = 0;
+    virtual SVGPathSegType peekSegmentType() = 0;
+    virtual PathSegmentData parseSegment() = 0;
 };
 
 } // namespace blink

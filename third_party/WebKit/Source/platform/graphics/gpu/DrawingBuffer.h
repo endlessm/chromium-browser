@@ -46,6 +46,12 @@
 #include "wtf/OwnPtr.h"
 #include "wtf/PassOwnPtr.h"
 
+namespace WTF {
+
+class ArrayBufferContents;
+
+} // namespace WTF
+
 namespace blink {
 
 class Extensions3DUtil;
@@ -54,15 +60,6 @@ class WebExternalBitmap;
 class WebExternalTextureLayer;
 class WebGraphicsContext3D;
 class WebLayer;
-
-// Abstract interface to allow basic context eviction management
-class PLATFORM_EXPORT ContextEvictionManager : public RefCounted<ContextEvictionManager> {
-public:
-    virtual ~ContextEvictionManager() {};
-
-    virtual void forciblyLoseOldestContext(const String& reason) = 0;
-    virtual IntSize oldestContextSize() = 0;
-};
 
 // Manages a rendering target (framebuffer + attachment) for a canvas.  Can publish its rendering
 // results to a WebLayer for compositing.
@@ -95,9 +92,10 @@ public:
         Discard
     };
 
-    static PassRefPtr<DrawingBuffer> create(PassOwnPtr<WebGraphicsContext3D>, const IntSize&, PreserveDrawingBuffer, WebGraphicsContext3D::Attributes requestedAttributes, PassRefPtr<ContextEvictionManager>);
+    static PassRefPtr<DrawingBuffer> create(PassOwnPtr<WebGraphicsContext3D>, const IntSize&, PreserveDrawingBuffer, WebGraphicsContext3D::Attributes requestedAttributes);
+    static void forceNextDrawingBufferCreationToFail();
 
-    virtual ~DrawingBuffer();
+    ~DrawingBuffer() override;
 
     // Destruction will be completed after all mailboxes are released.
     void beginDestruction();
@@ -109,11 +107,11 @@ public:
     // Given the desired buffer size, provides the largest dimensions that will fit in the pixel budget.
     static IntSize adjustSize(const IntSize& desiredSize, const IntSize& curSize, int maxTextureSize);
     bool reset(const IntSize&);
-    void bind();
+    void bind(GLenum target);
     IntSize size() const { return m_size; }
 
     // Copies the multisample color buffer to the normal color buffer and leaves m_fbo bound.
-    void commit(long x = 0, long y = 0, long width = -1, long height = -1);
+    void commit();
 
     // commit should copy the full multisample buffer, and not respect the
     // current scissor bounds. Track the state of the scissor test so that it
@@ -126,7 +124,23 @@ public:
 
     // The DrawingBuffer needs to track the currently bound framebuffer so it
     // restore the binding when needed.
-    void setFramebufferBinding(Platform3DObject fbo) { m_framebufferBinding = fbo; }
+    void setFramebufferBinding(GLenum target, Platform3DObject fbo)
+    {
+        switch (target) {
+        case GL_FRAMEBUFFER:
+            m_drawFramebufferBinding = fbo;
+            m_readFramebufferBinding = fbo;
+            break;
+        case GL_DRAW_FRAMEBUFFER:
+            m_drawFramebufferBinding = fbo;
+            break;
+        case GL_READ_FRAMEBUFFER:
+            m_readFramebufferBinding = fbo;
+            break;
+        default:
+            ASSERT(0);
+        }
+    }
 
     // Track the currently active texture unit. Texture unit 0 is used as host for a scratch
     // texture.
@@ -139,9 +153,10 @@ public:
     bool discardFramebufferSupported() const { return m_discardFramebufferSupported; }
 
     void markContentsChanged();
-    void markLayerComposited();
-    bool layerComposited() const;
+    void setBufferClearNeeded(bool);
+    bool bufferClearNeeded() const;
     void setIsHidden(bool);
+    void setFilterQuality(SkFilterQuality);
 
     WebLayer* platformLayer();
 
@@ -152,18 +167,24 @@ public:
     WebGraphicsContext3D::Attributes getActualAttributes() const { return m_actualAttributes; }
 
     // WebExternalTextureLayerClient implementation.
-    virtual bool prepareMailbox(WebExternalTextureMailbox*, WebExternalBitmap*) override;
-    virtual void mailboxReleased(const WebExternalTextureMailbox&, bool lostResource = false) override;
+    bool prepareMailbox(WebExternalTextureMailbox*, WebExternalBitmap*) override;
+    void mailboxReleased(const WebExternalTextureMailbox&, bool lostResource = false) override;
 
-    enum SourceBuffer { Front, Back };
     // Destroys the TEXTURE_2D binding for the owned context
     bool copyToPlatformTexture(WebGraphicsContext3D*, Platform3DObject texture, GLenum internalFormat,
-        GLenum destType, GLint level, bool premultiplyAlpha, bool flipY, SourceBuffer);
+        GLenum destType, GLint level, bool premultiplyAlpha, bool flipY, SourceDrawingBuffer);
 
     void setPackAlignment(GLint param);
 
     void paintRenderingResultsToCanvas(ImageBuffer*);
-    PassRefPtr<Uint8ClampedArray> paintRenderingResultsToImageData(int&, int&);
+    bool paintRenderingResultsToImageData(int&, int&, SourceDrawingBuffer, WTF::ArrayBufferContents&);
+
+    int sampleCount() const { return m_sampleCount; }
+    bool explicitResolveOfMultisampleData() const { return m_multisampleMode == ExplicitResolve; }
+
+    // Bind to m_drawFramebufferBinding or m_readFramebufferBinding if it's not 0.
+    // Otherwise, bind to the default FBO.
+    void restoreFramebufferBindings();
 
 protected: // For unittests
     DrawingBuffer(
@@ -173,8 +194,7 @@ protected: // For unittests
         bool packedDepthStencilExtensionSupported,
         bool discardFramebufferSupported,
         PreserveDrawingBuffer,
-        WebGraphicsContext3D::Attributes requestedAttributes,
-        PassRefPtr<ContextEvictionManager>);
+        WebGraphicsContext3D::Attributes requestedAttributes);
 
     bool initialize(const IntSize&);
 
@@ -188,9 +208,6 @@ private:
     bool resizeMultisampleFramebuffer(const IntSize&);
     void resizeDepthStencil(const IntSize&);
 
-    // Bind to the m_framebufferBinding if it's not 0.
-    void restoreFramebufferBinding();
-
     void clearPlatformLayer();
 
     PassRefPtr<MailboxInfo> recycledMailbox();
@@ -200,13 +217,6 @@ private:
 
     // Updates the current size of the buffer, ensuring that s_currentResourceUsePixels is updated.
     void setSize(const IntSize& size);
-
-    // Calculates the difference in pixels between the current buffer size and the proposed size.
-    static int pixelDelta(const IntSize& newSize, const IntSize& curSize);
-
-    // Given the desired buffer size, provides the largest dimensions that will fit in the pixel budget
-    // Returns true if the buffer will only fit if the oldest WebGL context is forcibly lost
-    IntSize adjustSizeWithContextEviction(const IntSize&, bool& evictContext);
 
     void paintFramebufferToCanvas(int framebuffer, int width, int height, bool premultiplyAlpha, ImageBuffer*);
 
@@ -233,7 +243,8 @@ private:
     PreserveDrawingBuffer m_preserveDrawingBuffer;
     bool m_scissorEnabled;
     Platform3DObject m_texture2DBinding;
-    Platform3DObject m_framebufferBinding;
+    Platform3DObject m_drawFramebufferBinding;
+    Platform3DObject m_readFramebufferBinding;
     GLenum m_activeTextureUnit;
 
     OwnPtr<WebGraphicsContext3D> m_context;
@@ -268,7 +279,7 @@ private:
 
     // True if commit() has been called since the last time markContentsChanged() had been called.
     bool m_contentsChangeCommitted;
-    bool m_layerComposited;
+    bool m_bufferClearNeeded;
 
     enum MultisampleMode {
         None,
@@ -287,15 +298,14 @@ private:
     int m_packAlignment;
     bool m_destructionInProgress;
     bool m_isHidden;
+    SkFilterQuality m_filterQuality;
 
     OwnPtr<WebExternalTextureLayer> m_layer;
 
     // All of the mailboxes that this DrawingBuffer has ever created.
-    Vector<RefPtr<MailboxInfo> > m_textureMailboxes;
+    Vector<RefPtr<MailboxInfo>> m_textureMailboxes;
     // Mailboxes that were released by the compositor can be used again by this DrawingBuffer.
     Deque<WebExternalTextureMailbox> m_recycledMailboxQueue;
-
-    RefPtr<ContextEvictionManager> m_contextEvictionManager;
 
     // If the width and height of the Canvas's backing store don't
     // match those that we were given in the most recent call to

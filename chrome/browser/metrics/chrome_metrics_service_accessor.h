@@ -11,7 +11,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "chrome/browser/metrics/metrics_reporting_state.h"
-#include "chrome/browser/metrics/metrics_service_accessor.h"
+#include "components/metrics/metrics_service_accessor.h"
 
 class ChromeExtensionDownloaderFactory;
 class PrefService;
@@ -24,12 +24,12 @@ class FlashDOMHandler;
 
 namespace component_updater {
 class ComponentUpdateService;
-void RegisterSwReporterComponent(ComponentUpdateService* cus,
-                                 PrefService* prefs);
+void RegisterSwReporterComponent(ComponentUpdateService* cus);
 }
 
 namespace extensions {
 class MetricsPrivateGetIsCrashReportingEnabledFunction;
+class FileManagerPrivateIsUMAEnabledFunction;
 }
 
 namespace prerender {
@@ -47,23 +47,24 @@ class BrowserOptionsHandler;
 // This class limits and documents access to metrics service helper methods.
 // Since these methods are private, each user has to be explicitly declared
 // as a 'friend' below.
-class ChromeMetricsServiceAccessor : public MetricsServiceAccessor {
+class ChromeMetricsServiceAccessor : public metrics::MetricsServiceAccessor {
  private:
   friend void component_updater::RegisterSwReporterComponent(
-      component_updater::ComponentUpdateService* cus,
-      PrefService* prefs);
+      component_updater::ComponentUpdateService* cus);
   friend bool prerender::IsOmniboxEnabled(Profile* profile);
   friend class ChromeExtensionDownloaderFactory;
   friend class ChromeRenderMessageFilter;
   friend class ::CrashesDOMHandler;
   friend class DataReductionProxyChromeSettings;
   friend class extensions::MetricsPrivateGetIsCrashReportingEnabledFunction;
+  friend class extensions::FileManagerPrivateIsUMAEnabledFunction;
   friend class ::FlashDOMHandler;
   friend class system_logs::ChromeInternalLogSource;
   friend class UmaSessionStats;
   friend class options::BrowserOptionsHandler;
   friend void InitiateMetricsReportingChange(
       bool, const OnMetricsReportingCallbackType&);
+  friend class MetricsServicesManager;
 
   FRIEND_TEST_ALL_PREFIXES(ChromeMetricsServiceAccessorTest,
                            MetricsReportingEnabled);

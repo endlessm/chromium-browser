@@ -13,11 +13,12 @@
 //
 goog.provide('i18n.input.chrome.inputview.elements.content.CompactKey');
 
+goog.require('goog.a11y.aria');
+goog.require('goog.a11y.aria.State');
 goog.require('goog.array');
 goog.require('goog.dom');
 goog.require('goog.dom.TagName');
 goog.require('goog.dom.classlist');
-goog.require('goog.math.Coordinate');
 goog.require('goog.style');
 goog.require('i18n.input.chrome.inputview.Css');
 goog.require('i18n.input.chrome.inputview.MoreKeysShiftOperation');
@@ -27,7 +28,6 @@ goog.require('i18n.input.chrome.inputview.SwipeDirection');
 goog.require('i18n.input.chrome.inputview.elements.ElementType');
 goog.require('i18n.input.chrome.inputview.elements.content.CompactKeyModel');
 goog.require('i18n.input.chrome.inputview.elements.content.FunctionalKey');
-goog.require('i18n.input.chrome.inputview.elements.content.GaussianEstimator');
 goog.require('i18n.input.chrome.message.ContextType');
 
 
@@ -125,6 +125,9 @@ CompactKey.prototype.createDom = function() {
     dom.appendChild(this.inlineWrap, this.hintTextElem);
     dom.appendChild(this.inlineWrap, this.textElem);
   }
+
+  goog.a11y.aria.setState(/** @type {!Element} */ (this.textElem),
+      goog.a11y.aria.State.LABEL, this.text);
 };
 
 
@@ -147,15 +150,6 @@ CompactKey.prototype.resize = function(width, height) {
   }
 
   goog.base(this, 'resize', width, height);
-
-  this.topLeftCoordinate = goog.style.getClientPosition(elem);
-  this.centerCoordinate = new goog.math.Coordinate(
-      this.topLeftCoordinate.x + this.availableWidth / 2,
-      this.topLeftCoordinate.y + this.availableHeight / 2);
-  this.estimator = new i18n.input.chrome.inputview.elements.content.
-      GaussianEstimator(this.centerCoordinate,
-          this.stateManager_.covariance.getValue(this.type),
-          this.availableHeight / this.availableWidth);
 };
 
 
@@ -197,6 +191,8 @@ CompactKey.prototype.getContextOptimizedText_ = function() {
  * Get the active character. It may be upper case |text| when shift is pressed
  * or flickerred character when swipe. Note this should replace Compactkey.text
  * for compact keys.
+ *
+ * @return {string}
  */
 CompactKey.prototype.getActiveCharacter = function() {
   if (this.flickerredCharacter) {
@@ -227,6 +223,9 @@ CompactKey.prototype.update = function() {
   text = this.compactKeyModel_.title ?
     chrome.i18n.getMessage(this.compactKeyModel_.title) : text;
   goog.dom.setTextContent(this.textElem, text);
+
+  goog.a11y.aria.setState(/** @type {!Element} */ (this.textElem),
+      goog.a11y.aria.State.LABEL, text);
 };
 
 
@@ -236,30 +235,50 @@ CompactKey.prototype.update = function() {
  * @return {!Array.<string>} The characters.
  */
 CompactKey.prototype.getMoreCharacters = function() {
-  var moreCharacters = goog.array.clone(this.compactKeyModel_.moreKeys);
-  switch (this.compactKeyModel_.moreKeysShiftOperation) {
-    case MoreKeysShiftOperation.TO_UPPER_CASE:
-      if (this.getActiveCharacter().toLowerCase() !=
-          this.getActiveCharacter()) {
-        for (var i = 0; i < this.compactKeyModel_.moreKeys.length; i++) {
-          moreCharacters[i] = this.compactKeyModel_.moreKeys[i].toUpperCase();
+  var context = this.stateManager_.contextType;
+  var contextMap = context && this.compactKeyModel_.textOnContext[context];
+  if (contextMap &&
+      contextMap[SpecNodeName.MORE_KEYS] &&
+      contextMap[SpecNodeName.MORE_KEYS][SpecNodeName.CHARACTERS]) {
+    return goog.array.clone(
+        contextMap[SpecNodeName.MORE_KEYS][SpecNodeName.CHARACTERS]);
+  } else {
+    var moreCharacters = goog.array.clone(this.compactKeyModel_.moreKeys);
+    switch (this.compactKeyModel_.moreKeysShiftOperation) {
+      case MoreKeysShiftOperation.TO_UPPER_CASE:
+        if (this.getActiveCharacter().toLowerCase() !=
+            this.getActiveCharacter()) {
+          for (var i = 0; i < this.compactKeyModel_.moreKeys.length; i++) {
+            moreCharacters[i] = this.compactKeyModel_.moreKeys[i].toUpperCase();
+          }
+          goog.array.removeDuplicates(moreCharacters);
         }
-        goog.array.removeDuplicates(moreCharacters);
-      }
-      return moreCharacters;
-    case MoreKeysShiftOperation.TO_LOWER_CASE:
-      if (this.hasShift_ && this.stateManager_.hasState(
-          i18n.input.chrome.inputview.StateType.SHIFT)) {
-        for (var i = 0; i < this.compactKeyModel_.moreKeys.length; i++) {
-          moreCharacters[i] = this.compactKeyModel_.moreKeys[i].toLowerCase();
+        return moreCharacters;
+      case MoreKeysShiftOperation.TO_LOWER_CASE:
+        if (this.hasShift_ && this.stateManager_.hasState(
+            i18n.input.chrome.inputview.StateType.SHIFT)) {
+          for (var i = 0; i < this.compactKeyModel_.moreKeys.length; i++) {
+            moreCharacters[i] = this.compactKeyModel_.moreKeys[i].toLowerCase();
+          }
+          goog.array.removeDuplicates(moreCharacters);
         }
-        goog.array.removeDuplicates(moreCharacters);
-      }
-      return moreCharacters;
-    case MoreKeysShiftOperation.STABLE:
-      break;
+        return moreCharacters;
+      case MoreKeysShiftOperation.STABLE:
+        break;
+    }
+    return moreCharacters;
   }
-  return moreCharacters;
 };
+
+
+/**
+ * Gets the fixed number of columns to display accent characters for this key.
+ *
+ * @return {number} The fixed number of columns.
+ */
+CompactKey.prototype.getFixedColumns = function() {
+  return this.compactKeyModel_.fixedColumns;
+};
+
 });  // goog.scope
 

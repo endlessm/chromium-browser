@@ -4,42 +4,81 @@
 
 #include "chrome/browser/safe_browsing/srt_global_error_win.h"
 
+#include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/callback.h"
-#include "base/metrics/histogram.h"
+#include "base/command_line.h"
+#include "base/files/file_util.h"
+#include "base/process/launch.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/app/chrome_command_ids.h"
+#include "chrome/browser/safe_browsing/srt_field_trial_win.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/global_error/global_error_service.h"
+#include "content/public/browser/browser_thread.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
-#include "grit/google_chrome_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 
+using base::SingleThreadTaskRunner;
+using base::ThreadTaskRunnerHandle;
+using content::BrowserThread;
+
 namespace {
-// The download link of the Software Removal Tool.
-// TODO(mad): Should we only have the bubble show up on official Chrome build?
-const char kSRTDownloadURL[] = "https://www.google.com/chrome/srt/";
 
-// Enum values for the SRTPrompt histogram. Don't change order, always add
-// to the end, before SRT_PROMPT_MAX, of course.
-enum SRTPromptHistogramValue {
-  SRT_PROMPT_SHOWN = 0,
-  SRT_PROMPT_ACCEPTED = 1,
-  SRT_PROMPT_DENIED = 2,
+// Used as a backup plan in case the SRT executable was not successfully
+// downloaded or run.
+const char kSRTDownloadURL[] =
+    "https://www.google.com/chrome/srt/?chrome-prompt=1";
 
-  SRT_PROMPT_MAX,
-};
+// The extension to use to replace the temporary one created when the SRT was
+// downloaded.
+const base::FilePath::CharType kExecutableExtension[] = L"exe";
 
-void RecordSRTPromptHistogram(SRTPromptHistogramValue value) {
-  UMA_HISTOGRAM_ENUMERATION(
-      "SoftwareReporter.PromptUsage", value, SRT_PROMPT_MAX);
+// A switch to add to the command line when executing the SRT.
+const char kChromePromptSwitch[] = "chrome-prompt";
+
+void MaybeExecuteSRTFromBlockingPool(
+    const base::FilePath& downloaded_path,
+    const scoped_refptr<SingleThreadTaskRunner>& task_runner,
+    const base::Closure& success_callback,
+    const base::Closure& failure_callback) {
+  DCHECK(!downloaded_path.empty());
+
+  if (base::PathExists(downloaded_path)) {
+    base::FilePath executable_path(
+        downloaded_path.ReplaceExtension(kExecutableExtension));
+    if (base::ReplaceFile(downloaded_path, executable_path, NULL)) {
+      base::CommandLine srt_command_line(executable_path);
+      srt_command_line.AppendSwitch(kChromePromptSwitch);
+      base::Process srt_process(
+          base::LaunchProcess(srt_command_line, base::LaunchOptions()));
+      if (srt_process.IsValid()) {
+        task_runner->PostTask(FROM_HERE, success_callback);
+        return;
+      }
+    }
+  }
+
+  task_runner->PostTask(FROM_HERE, failure_callback);
+}
+
+void DeleteFilesFromBlockingPool(const base::FilePath& downloaded_path) {
+  base::DeleteFile(downloaded_path, false);
+  base::DeleteFile(downloaded_path.ReplaceExtension(kExecutableExtension),
+                   false);
 }
 
 }  // namespace
 
 // SRTGlobalError ------------------------------------------------------------
 
-SRTGlobalError::SRTGlobalError(GlobalErrorService* global_error_service)
-    : global_error_service_(global_error_service) {
+SRTGlobalError::SRTGlobalError(GlobalErrorService* global_error_service,
+                               const base::FilePath& downloaded_path)
+    : global_error_service_(global_error_service),
+      downloaded_path_(downloaded_path) {
   DCHECK(global_error_service_);
 }
 
@@ -59,15 +98,11 @@ base::string16 SRTGlobalError::MenuItemLabel() {
 }
 
 void SRTGlobalError::ExecuteMenuItem(Browser* browser) {
-  // The menu item should never get executed while the bubble is shown, unless
-  // we eventually change it to NOT close on deactivate.
-  DCHECK(ShouldCloseOnDeactivate());
-  DCHECK(GetBubbleView() == NULL);
   ShowBubbleView(browser);
 }
 
 void SRTGlobalError::ShowBubbleView(Browser* browser) {
-  RecordSRTPromptHistogram(SRT_PROMPT_SHOWN);
+  safe_browsing::RecordSRTPromptHistogram(safe_browsing::SRT_PROMPT_SHOWN);
   GlobalErrorWithStandardBubble::ShowBubbleView(browser);
 }
 
@@ -82,36 +117,75 @@ std::vector<base::string16> SRTGlobalError::GetBubbleViewMessages() {
 }
 
 base::string16 SRTGlobalError::GetBubbleViewAcceptButtonLabel() {
-  return l10n_util::GetStringUTF16(IDS_SRT_BUBBLE_DOWNLOAD_BUTTON_TEXT);
+  return downloaded_path_.empty()
+             ? l10n_util::GetStringUTF16(IDS_SRT_BUBBLE_DOWNLOAD_BUTTON_TEXT)
+             : l10n_util::GetStringUTF16(IDS_SRT_BUBBLE_RUN_BUTTON_TEXT);
+}
+
+bool SRTGlobalError::ShouldAddElevationIconToAcceptButton() {
+  return !downloaded_path_.empty() &&
+         safe_browsing::SRTPromptNeedsElevationIcon();
 }
 
 base::string16 SRTGlobalError::GetBubbleViewCancelButtonLabel() {
-  return l10n_util::GetStringUTF16(IDS_NO_THANKS);
+  return l10n_util::GetStringUTF16(IDS_SRT_BUBBLE_DISMISS);
 }
 
 void SRTGlobalError::OnBubbleViewDidClose(Browser* browser) {
 }
 
 void SRTGlobalError::BubbleViewAcceptButtonPressed(Browser* browser) {
-  RecordSRTPromptHistogram(SRT_PROMPT_ACCEPTED);
-  browser->OpenURL(content::OpenURLParams(GURL(kSRTDownloadURL),
-                                          content::Referrer(),
-                                          NEW_FOREGROUND_TAB,
-                                          ui::PAGE_TRANSITION_LINK,
-                                          false));
-  DismissGlobalError();
+  safe_browsing::RecordSRTPromptHistogram(safe_browsing::SRT_PROMPT_ACCEPTED);
+  global_error_service_->RemoveGlobalError(this);
+  MaybeExecuteSRT();
 }
 
 void SRTGlobalError::BubbleViewCancelButtonPressed(Browser* browser) {
-  RecordSRTPromptHistogram(SRT_PROMPT_DENIED);
-  DismissGlobalError();
+  safe_browsing::RecordSRTPromptHistogram(safe_browsing::SRT_PROMPT_DENIED);
+  global_error_service_->RemoveGlobalError(this);
+
+  BrowserThread::PostBlockingPoolTask(
+      FROM_HERE, base::Bind(&DeleteFilesFromBlockingPool, downloaded_path_));
+  DestroySelf();
 }
 
 bool SRTGlobalError::ShouldCloseOnDeactivate() const {
   return false;
 }
 
-void SRTGlobalError::DismissGlobalError() {
-  global_error_service_->RemoveGlobalError(this);
+void SRTGlobalError::MaybeExecuteSRT() {
+  if (downloaded_path_.empty()) {
+    FallbackToDownloadPage();
+    return;
+  }
+  // At this point, this object owns itself, since ownership has been taken back
+  // from the global_error_service_ in the call to RemoveGlobalError. This means
+  // that it is safe to use base::Unretained here.
+  BrowserThread::PostBlockingPoolTask(
+      FROM_HERE, base::Bind(&MaybeExecuteSRTFromBlockingPool, downloaded_path_,
+                            base::ThreadTaskRunnerHandle::Get(),
+                            base::Bind(&SRTGlobalError::DestroySelf,
+                                       base::Unretained(this)),
+                            base::Bind(&SRTGlobalError::FallbackToDownloadPage,
+                                       base::Unretained(this))));
+}
+
+void SRTGlobalError::FallbackToDownloadPage() {
+  safe_browsing::RecordSRTPromptHistogram(safe_browsing::SRT_PROMPT_FALLBACK);
+
+  chrome::HostDesktopType desktop_type = chrome::GetActiveDesktop();
+  Browser* browser = chrome::FindLastActiveWithHostDesktopType(desktop_type);
+  if (browser) {
+    browser->OpenURL(content::OpenURLParams(
+        GURL(kSRTDownloadURL), content::Referrer(), NEW_FOREGROUND_TAB,
+        ui::PAGE_TRANSITION_LINK, false));
+  }
+
+  BrowserThread::PostBlockingPoolTask(
+      FROM_HERE, base::Bind(&DeleteFilesFromBlockingPool, downloaded_path_));
+  DestroySelf();
+}
+
+void SRTGlobalError::DestroySelf() {
   delete this;
 }

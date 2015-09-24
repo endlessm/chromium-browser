@@ -12,10 +12,13 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "extensions/browser/extension_registry.h"
+#include "extensions/common/constants.h"
 #include "ui/accessibility/ax_view_state.h"
+#include "ui/compositor/paint_recorder.h"
 #include "ui/events/event.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/image/image.h"
+#include "ui/views/controls/menu/menu_runner.h"
 
 // static
 const char PageActionImageView::kViewClassName[] = "PageActionImageView";
@@ -27,7 +30,8 @@ PageActionImageView::PageActionImageView(LocationBarView* owner,
           extensions::ExtensionRegistry::Get(browser->profile())->
               enabled_extensions().GetByID(page_action->extension_id()),
           browser,
-          page_action)),
+          page_action,
+          nullptr)),
       owner_(owner),
       preview_enabled_(false) {
   // There should be an associated focus manager so that we can safely register
@@ -36,6 +40,7 @@ PageActionImageView::PageActionImageView(LocationBarView* owner,
   SetAccessibilityFocusable(true);
   view_controller_->SetDelegate(this);
   view_controller_->RegisterCommand();
+  set_context_menu_controller(this);
 }
 
 PageActionImageView::~PageActionImageView() {
@@ -100,21 +105,13 @@ void PageActionImageView::UpdateVisibility(content::WebContents* contents) {
   SetTooltipText(base::UTF8ToUTF16(tooltip_));
 
   // Set the image.
-  gfx::Image icon = view_controller_->GetIcon(contents);
+  gfx::Size size(extension_misc::EXTENSION_ICON_ACTION,
+                 extension_misc::EXTENSION_ICON_ACTION);
+  gfx::Image icon = view_controller_->GetIcon(contents, size);
   if (!icon.IsEmpty())
     SetImage(*icon.ToImageSkia());
 
   SetVisible(true);
-}
-
-void PageActionImageView::PaintChildren(gfx::Canvas* canvas,
-                                        const views::CullSet& cull_set) {
-  View::PaintChildren(canvas, cull_set);
-  int tab_id = SessionTabHelper::IdForTab(GetCurrentWebContents());
-  if (tab_id >= 0) {
-    view_controller_->extension_action()->PaintBadge(
-        canvas, GetLocalBounds(), tab_id);
-  }
 }
 
 void PageActionImageView::UpdateState() {
@@ -125,36 +122,45 @@ views::View* PageActionImageView::GetAsView() {
   return this;
 }
 
-bool PageActionImageView::IsShownInMenu() {
-  return false;
+bool PageActionImageView::IsMenuRunning() const {
+  return menu_runner_.get() != nullptr;
 }
 
 views::FocusManager* PageActionImageView::GetFocusManagerForAccelerator() {
   return owner_->GetFocusManager();
 }
 
-views::Widget* PageActionImageView::GetParentForContextMenu() {
-  return GetWidget();
-}
-
-ToolbarActionViewController*
-PageActionImageView::GetPreferredPopupViewController() {
-  return view_controller_.get();
-}
-
 views::View* PageActionImageView::GetReferenceViewForPopup() {
   return this;
-}
-
-views::MenuButton* PageActionImageView::GetContextMenuButton() {
-  return NULL;  // No menu button for page action views.
 }
 
 content::WebContents* PageActionImageView::GetCurrentWebContents() const {
   return owner_->GetWebContents();
 }
 
-void PageActionImageView::HideActivePopup() {
-  // The only popup that will be active is this popup.
-  view_controller_->HidePopup();
+void PageActionImageView::ShowContextMenuForView(
+    views::View* source,
+    const gfx::Point& point,
+    ui::MenuSourceType source_type) {
+  ui::MenuModel* context_menu_model = view_controller_->GetContextMenu();
+  // It's possible the action doesn't have a context menu.
+  if (!context_menu_model)
+    return;
+
+  gfx::Point screen_loc;
+  ConvertPointToScreen(this, &screen_loc);
+  int run_types =
+      views::MenuRunner::HAS_MNEMONICS | views::MenuRunner::CONTEXT_MENU;
+  menu_runner_.reset(new views::MenuRunner(context_menu_model, run_types));
+
+  if (menu_runner_->RunMenuAt(GetWidget(),
+                              nullptr,  // No menu button for page action views.
+                              gfx::Rect(screen_loc, size()),
+                              views::MENU_ANCHOR_TOPLEFT,
+                              source_type) == views::MenuRunner::MENU_DELETED) {
+    return;
+  }
+
+  menu_runner_.reset();
+  view_controller_->OnContextMenuClosed();
 }

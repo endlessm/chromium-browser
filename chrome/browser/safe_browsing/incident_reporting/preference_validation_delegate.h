@@ -7,18 +7,23 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/prefs/tracked/tracked_preference_validation_delegate.h"
-#include "chrome/browser/safe_browsing/incident_reporting/add_incident_callback.h"
+
+class Profile;
 
 namespace safe_browsing {
 
+class IncidentReceiver;
+
 // A preference validation delegate that adds incidents to a given receiver
-// for preference validation failures.
+// for preference validation failures. The profile for which the delegate
+// operates must outlive the delegate itself.
 class PreferenceValidationDelegate
     : public TrackedPreferenceValidationDelegate {
  public:
-  explicit PreferenceValidationDelegate(
-      const AddIncidentCallback& add_incident);
+  PreferenceValidationDelegate(Profile* profile,
+                               scoped_ptr<IncidentReceiver> incident_receiver);
   ~PreferenceValidationDelegate() override;
 
  private:
@@ -27,15 +32,16 @@ class PreferenceValidationDelegate
       const std::string& pref_path,
       const base::Value* value,
       PrefHashStoreTransaction::ValueState value_state,
-      TrackedPreferenceHelper::ResetAction reset_action) override;
+      bool is_personal) override;
   void OnSplitPreferenceValidation(
       const std::string& pref_path,
       const base::DictionaryValue* dict_value,
       const std::vector<std::string>& invalid_keys,
       PrefHashStoreTransaction::ValueState value_state,
-      TrackedPreferenceHelper::ResetAction reset_action) override;
+      bool is_personal) override;
 
-  AddIncidentCallback add_incident_;
+  Profile* profile_;
+  scoped_ptr<IncidentReceiver> incident_receiver_;
 
   DISALLOW_COPY_AND_ASSIGN(PreferenceValidationDelegate);
 };

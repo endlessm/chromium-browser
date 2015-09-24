@@ -7,6 +7,7 @@
 
 #include "base/basictypes.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/memory/shared_memory.h"
 #include "content/common/content_export.h"
 #include "ppapi/c/ppb_image_data.h"
 #include "ppapi/shared_impl/ppb_image_data_shared.h"
@@ -45,7 +46,8 @@ class CONTENT_EXPORT PPB_ImageData_Impl
     virtual TransportDIB* GetTransportDIB() const = 0;
     virtual void* Map() = 0;
     virtual void Unmap() = 0;
-    virtual int32_t GetSharedMemory(int* handle, uint32_t* byte_count) = 0;
+    virtual int32_t GetSharedMemory(base::SharedMemory** shm,
+                                    uint32_t* byte_count) = 0;
     virtual SkCanvas* GetPlatformCanvas() = 0;
     virtual SkCanvas* GetCanvas() = 0;
     virtual const SkBitmap* GetMappedBitmap() const = 0;
@@ -90,7 +92,8 @@ class CONTENT_EXPORT PPB_ImageData_Impl
   PP_Bool Describe(PP_ImageDataDesc* desc) override;
   void* Map() override;
   void Unmap() override;
-  int32_t GetSharedMemory(int* handle, uint32_t* byte_count) override;
+  int32_t GetSharedMemory(base::SharedMemory** shm,
+                          uint32_t* byte_count) override;
   SkCanvas* GetPlatformCanvas() override;
   SkCanvas* GetCanvas() override;
   void SetIsCandidateForReuse() override;
@@ -112,7 +115,7 @@ class ImageDataPlatformBackend : public PPB_ImageData_Impl::Backend {
  public:
   // |is_browser_allocated| indicates whether the backing shared memory should
   // be allocated by the browser process.
-  ImageDataPlatformBackend(bool is_browser_allocated);
+  ImageDataPlatformBackend();
   ~ImageDataPlatformBackend() override;
 
   // PPB_ImageData_Impl::Backend implementation.
@@ -125,7 +128,8 @@ class ImageDataPlatformBackend : public PPB_ImageData_Impl::Backend {
   TransportDIB* GetTransportDIB() const override;
   void* Map() override;
   void Unmap() override;
-  int32_t GetSharedMemory(int* handle, uint32_t* byte_count) override;
+  int32_t GetSharedMemory(base::SharedMemory** shm,
+                          uint32_t* byte_count) override;
   SkCanvas* GetPlatformCanvas() override;
   SkCanvas* GetCanvas() override;
   const SkBitmap* GetMappedBitmap() const override;
@@ -136,8 +140,6 @@ class ImageDataPlatformBackend : public PPB_ImageData_Impl::Backend {
   int width_;
   int height_;
   scoped_ptr<TransportDIB> dib_;
-
-  bool is_browser_allocated_;
 
   // When the device is mapped, this is the image. Null when umapped.
   scoped_ptr<SkCanvas> mapped_canvas_;
@@ -160,7 +162,8 @@ class ImageDataSimpleBackend : public PPB_ImageData_Impl::Backend {
   TransportDIB* GetTransportDIB() const override;
   void* Map() override;
   void Unmap() override;
-  int32_t GetSharedMemory(int* handle, uint32_t* byte_count) override;
+  int32_t GetSharedMemory(base::SharedMemory** shm,
+                          uint32_t* byte_count) override;
   SkCanvas* GetPlatformCanvas() override;
   SkCanvas* GetCanvas() override;
   const SkBitmap* GetMappedBitmap() const override;

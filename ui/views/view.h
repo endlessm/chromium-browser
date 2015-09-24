@@ -24,14 +24,13 @@
 #include "ui/base/ui_base_types.h"
 #include "ui/compositor/layer_delegate.h"
 #include "ui/compositor/layer_owner.h"
+#include "ui/compositor/paint_cache.h"
 #include "ui/events/event.h"
 #include "ui/events/event_target.h"
-#include "ui/gfx/geometry/r_tree.h"
-#include "ui/gfx/insets.h"
+#include "ui/gfx/geometry/insets.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/native_widget_types.h"
-#include "ui/gfx/rect.h"
-#include "ui/gfx/vector2d.h"
-#include "ui/views/cull_set.h"
 #include "ui/views/view_targeter.h"
 #include "ui/views/views_export.h"
 
@@ -51,8 +50,10 @@ class Transform;
 namespace ui {
 struct AXViewState;
 class Compositor;
+class InputMethod;
 class Layer;
 class NativeTheme;
+class PaintContext;
 class TextInputClient;
 class Texture;
 class ThemeProvider;
@@ -66,7 +67,6 @@ class ContextMenuController;
 class DragController;
 class FocusManager;
 class FocusTraversable;
-class InputMethod;
 class LayoutManager;
 class NativeViewAccessibility;
 class ScrollView;
@@ -497,7 +497,7 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // for View coordinates and language direction as required, allows the View
   // to paint itself via the various OnPaint*() event handlers and then paints
   // the hierarchy beneath it.
-  virtual void Paint(gfx::Canvas* canvas, const CullSet& cull_set);
+  void Paint(const ui::PaintContext& parent_context);
 
   // The background object is owned by this object and may be NULL.
   void set_background(Background* b);
@@ -692,15 +692,13 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
     return notify_enter_exit_on_child_;
   }
 
-  // Returns the View's TextInputClient instance or NULL if the View doesn't
-  // support text input.
-  virtual ui::TextInputClient* GetTextInputClient();
-
   // Convenience method to retrieve the InputMethod associated with the
-  // Widget that contains this view. Returns NULL if this view is not part of a
-  // view hierarchy with a Widget.
-  virtual InputMethod* GetInputMethod();
-  virtual const InputMethod* GetInputMethod() const;
+  // Widget that contains this view.
+  ui::InputMethod* GetInputMethod() {
+    return const_cast<ui::InputMethod*>(
+        const_cast<const View*>(this)->GetInputMethod());
+  }
+  const ui::InputMethod* GetInputMethod() const;
 
   // Sets a new ViewTargeter for the view, and returns the previous
   // ViewTargeter.
@@ -865,6 +863,14 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // On some platforms, we show context menu on mouse press instead of release.
   // This method returns true for those platforms.
   static bool ShouldShowContextMenuOnMousePress();
+
+  // Returns the location, in screen coordinates, to show the context menu at
+  // when the context menu is shown from the keyboard. This implementation
+  // returns the middle of the visible region of this view.
+  //
+  // This method is invoked when the context menu is shown by way of the
+  // keyboard.
+  virtual gfx::Point GetKeyboardContextMenuLocation();
 
   // Drag and drop -------------------------------------------------------------
 
@@ -1073,7 +1079,7 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
 
   // Responsible for calling Paint() on child Views. Override to control the
   // order child Views are painted.
-  virtual void PaintChildren(gfx::Canvas* canvas, const CullSet& cull_set);
+  virtual void PaintChildren(const ui::PaintContext& context);
 
   // Override to provide rendering in any part of the View's bounds. Typically
   // this is the "contents" of the view. If you override this method you will
@@ -1087,11 +1093,6 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
 
   // Override to paint a border not specified by SetBorder().
   virtual void OnPaintBorder(gfx::Canvas* canvas);
-
-  // Returns true if this View is the root for paint events, and should
-  // therefore maintain a |bounds_tree_| member and use it for paint damage rect
-  // calculations.
-  virtual bool IsPaintRoot();
 
   // Accelerated painting ------------------------------------------------------
 
@@ -1117,7 +1118,7 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   void UpdateChildLayerBounds(const gfx::Vector2d& offset);
 
   // Overridden from ui::LayerDelegate:
-  void OnPaintLayer(gfx::Canvas* canvas) override;
+  void OnPaintLayer(const ui::PaintContext& context) override;
   void OnDelegatedFrameDamage(const gfx::Rect& damage_rect_in_dip) override;
   void OnDeviceScaleFactorChanged(float device_scale_factor) override;
   base::Closure PrepareForLayerBoundsChange() override;
@@ -1171,16 +1172,6 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // Views must invoke this when the tooltip text they are to display changes.
   void TooltipTextChanged();
 
-  // Context menus -------------------------------------------------------------
-
-  // Returns the location, in screen coordinates, to show the context menu at
-  // when the context menu is shown from the keyboard. This implementation
-  // returns the middle of the visible region of this view.
-  //
-  // This method is invoked when the context menu is shown by way of the
-  // keyboard.
-  virtual gfx::Point GetKeyboardContextMenuLocation();
-
   // Drag and drop -------------------------------------------------------------
 
   // These are cover methods that invoke the method of the same name on
@@ -1228,8 +1219,6 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   friend class FocusManager;
   friend class Widget;
 
-  typedef gfx::RTree<intptr_t> BoundsTree;
-
   // Painting  -----------------------------------------------------------------
 
   enum SchedulePaintType {
@@ -1243,10 +1232,6 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // Invoked before and after the bounds change to schedule painting the old and
   // new bounds.
   void SchedulePaintBoundsChanged(SchedulePaintType type);
-
-  // Common Paint() code shared by accelerated and non-accelerated code paths to
-  // invoke OnPaint() on the View.
-  void PaintCommon(gfx::Canvas* canvas, const CullSet& cull_set);
 
   // Tree operations -----------------------------------------------------------
 
@@ -1314,25 +1299,6 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
 
   // Sets the layer's bounds given in DIP coordinates.
   void SetLayerBounds(const gfx::Rect& bounds_in_dip);
-
-  // Sets the bit indicating that the cached bounds for this object within the
-  // root view bounds tree are no longer valid. If |origin_changed| is true sets
-  // the same bit for all of our children as well.
-  void SetRootBoundsDirty(bool origin_changed);
-
-  // If needed, updates the bounds rectangle in paint root coordinate space
-  // in the supplied RTree. Recurses to children for recomputation as well.
-  void UpdateRootBounds(BoundsTree* bounds_tree, const gfx::Vector2d& offset);
-
-  // Remove self and all children from the supplied bounds tree. This is used,
-  // for example, when a view gets a layer and therefore becomes paint root. It
-  // needs to remove all references to itself and its children from any previous
-  // paint root that may have been tracking it.
-  void RemoveRootBounds(BoundsTree* bounds_tree);
-
-  // Traverse up the View hierarchy to the first ancestor that is a paint root
-  // and return a pointer to its |bounds_tree_| or NULL if no tree is found.
-  BoundsTree* GetBoundsTreeFromPaintRoot();
 
   // Transformations -----------------------------------------------------------
 
@@ -1425,11 +1391,15 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
 
   // Used to propagate theme changed notifications from the root view to all
   // views in the hierarchy.
-  virtual void PropagateThemeChanged();
+  void PropagateThemeChanged();
 
   // Used to propagate locale changed notifications from the root view to all
   // views in the hierarchy.
-  virtual void PropagateLocaleChanged();
+  void PropagateLocaleChanged();
+
+  // Used to propagate device scale factor changed notifications from the root
+  // view to all views in the hierarchy.
+  void PropagateDeviceScaleFactorChanged(float device_scale_factor);
 
   // Tooltips ------------------------------------------------------------------
 
@@ -1510,15 +1480,6 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // List of descendants wanting notification when their visible bounds change.
   scoped_ptr<Views> descendants_to_notify_;
 
-  // True if the bounds on this object have changed since the last time the
-  // paint root view constructed the spatial database.
-  bool root_bounds_dirty_;
-
-  // If this View IsPaintRoot() then this will be a pointer to a spatial data
-  // structure where we will keep the bounding boxes of all our children, for
-  // efficient paint damage rectangle intersection.
-  scoped_ptr<BoundsTree> bounds_tree_;
-
   // Transformations -----------------------------------------------------------
 
   // Clipping parameters. skia transformation matrix does not give us clipping.
@@ -1544,6 +1505,9 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
 
   // Border.
   scoped_ptr<Border> border_;
+
+  // Cached output of painting to be reused in future frames until invalidated.
+  ui::PaintCache paint_cache_;
 
   // RTL painting --------------------------------------------------------------
 

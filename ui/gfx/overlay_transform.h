@@ -8,7 +8,7 @@
 namespace gfx {
 
 // Describes transformation to be applied to the buffer before presenting
-// to screen.
+// to screen.  Rotations are expressed anticlockwise.
 enum OverlayTransform {
   OVERLAY_TRANSFORM_INVALID,
   OVERLAY_TRANSFORM_NONE,
@@ -17,6 +17,7 @@ enum OverlayTransform {
   OVERLAY_TRANSFORM_ROTATE_90,
   OVERLAY_TRANSFORM_ROTATE_180,
   OVERLAY_TRANSFORM_ROTATE_270,
+  OVERLAY_TRANSFORM_LAST = OVERLAY_TRANSFORM_ROTATE_270
 };
 
 }  // namespace gfx

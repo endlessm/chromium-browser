@@ -34,6 +34,8 @@ namespace hid {
     long maxOutputReportSize;
     // Top-level collection's maximum feature report size.
     long maxFeatureReportSize;
+    // Raw device report descriptor (not available on Windows).
+    ArrayBuffer reportDescriptor;
   };
 
   dictionary HidConnectInfo {
@@ -62,6 +64,14 @@ namespace hid {
     DeviceFilter[]? filters;
   };
 
+  dictionary DevicePromptOptions {
+    // Allow the user to select multiple devices.
+    boolean? multiple;
+    // Filter the list of devices presented to the user. If multiple filters
+    // are provided devices matching any filter will be displayed.
+    DeviceFilter[]? filters;
+  };
+
   callback GetDevicesCallback = void (HidDeviceInfo[] devices);
   callback ConnectCallback = void (HidConnectInfo connection);
   callback DisconnectCallback = void ();
@@ -81,6 +91,17 @@ namespace hid {
     // |options|: The properties to search for on target devices.
     static void getDevices(GetDevicesOptions options,
                            GetDevicesCallback callback);
+
+    // Presents a device picker to the user and returns $(ref:HidDeviceInfo)
+    // objects for the devices selected.
+    // If the user cancels the picker devices will be empty. A user gesture
+    // is required for the dialog to display. Without a user gesture, the
+    // callback will run as though the user cancelled. If multiple filters are
+    // provided devices matching any filter will be displayed.
+    // |options|: Configuration of the device picker dialog box.
+    // |callback|: Invoked with a list of chosen $(ref:Device)s.
+    static void getUserSelectedDevices(optional DevicePromptOptions options,
+                                       GetDevicesCallback callback);
 
     // Open a connection to an HID device for communication.
     // |deviceId|: The $(ref:HidDeviceInfo.deviceId) of the device to open.
@@ -128,5 +149,19 @@ namespace hid {
                                   long reportId,
                                   ArrayBuffer data,
                                   SendCallback callback);
+  };
+
+  interface Events {
+    // Event generated when a device is added to the system. Events are only
+    // broadcast to apps and extensions that have permission to access the
+    // device. Permission may have been granted at install time or when the user
+    // accepted an optional permission (see $(ref:permissions.request)).
+    static void onDeviceAdded(HidDeviceInfo device);
+
+    // Event generated when a device is removed from the system. See
+    // $(ref:onDeviceAdded) for which events are delivered.
+    // |deviceId|: The <code>deviceId</code> property of the device passed to
+    // $(ref:onDeviceAdded).
+    static void onDeviceRemoved(long deviceId);
   };
 };

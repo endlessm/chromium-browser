@@ -29,9 +29,9 @@ namespace blink {
 
 class PLATFORM_EXPORT FESpecularLighting : public FELighting {
 public:
-    static PassRefPtr<FESpecularLighting> create(Filter*, const Color&, float, float,
+    static PassRefPtrWillBeRawPtr<FESpecularLighting> create(Filter*, const Color&, float, float,
         float, float, float, PassRefPtr<LightSource>);
-    virtual ~FESpecularLighting();
+    ~FESpecularLighting() override;
 
     Color lightingColor() const;
     bool setLightingColor(const Color&);
@@ -54,7 +54,7 @@ public:
     const LightSource* lightSource() const;
     void setLightSource(PassRefPtr<LightSource>);
 
-    virtual TextStream& externalRepresentation(TextStream&, int indention) const override;
+    TextStream& externalRepresentation(TextStream&, int indention) const override;
 
 private:
     FESpecularLighting(Filter*, const Color&, float, float, float, float, float, PassRefPtr<LightSource>);

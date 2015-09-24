@@ -16,6 +16,7 @@ function ShareDialog(parentNode) {
   this.webView_ = null;
   this.failureTimeout_ = null;
   this.callback_ = null;
+  this.overrideURLForTesting_ = null;
 
   FileManagerDialogBase.call(this, parentNode);
 }
@@ -45,7 +46,7 @@ Object.freeze(ShareDialog.Result);
 /**
  * Wraps a Web View element and adds authorization headers to it.
  * @param {string} urlPattern Pattern of urls to be authorized.
- * @param {Element} webView Web View element to be wrapped.
+ * @param {WebView} webView Web View element to be wrapped.
  * @constructor
  */
 ShareDialog.WebViewAuthorizer = function(urlPattern, webView) {
@@ -70,7 +71,7 @@ ShareDialog.WebViewAuthorizer.prototype.initialize = function(callback) {
     this.webView_.removeEventListener('loadstop', registerInjectionHooks);
     this.webView_.request.onBeforeSendHeaders.addListener(
         this.authorizeRequest_.bind(this),
-        {urls: [this.urlPattern_]},
+        /** @type {!RequestFilter} */ ({urls: [this.urlPattern_]}),
         ['blocking', 'requestHeaders']);
     this.initialized_ = true;
     callback();
@@ -96,7 +97,7 @@ ShareDialog.WebViewAuthorizer.prototype.authorize = function(callback) {
 /**
  * Injects headers into the passed request.
  * @param {!Object} e Request event.
- * @return {!{requestHeaders: Array.<!HttpHeader>}} Modified headers.
+ * @return {!BlockingResponse} Modified headers.
  * @private
  */
 ShareDialog.WebViewAuthorizer.prototype.authorizeRequest_ = function(e) {
@@ -104,11 +105,23 @@ ShareDialog.WebViewAuthorizer.prototype.authorizeRequest_ = function(e) {
     name: 'Authorization',
     value: 'Bearer ' + this.accessToken_
   });
-  return {requestHeaders: e.requestHeaders};
+  return /** @type {!BlockingResponse} */ ({requestHeaders: e.requestHeaders});
 };
 
 ShareDialog.prototype = {
   __proto__: FileManagerDialogBase.prototype
+};
+
+/**
+ * Sets an override URLs for testing. It will be used instead of the sharing URL
+ * fetched from Drive. Note, that the domain still has to match
+ * ShareClient.SHARE_TARGET, as well as the hostname access enabled in the
+ * manifest (if different).
+ *
+ * @param {?string} url
+ */
+ShareDialog.prototype.setOverrideURLForTesting = function(url) {
+  this.overrideURLForTesting_ = url;
 };
 
 /**
@@ -123,6 +136,7 @@ ShareDialog.prototype.initDom_ = function() {
   this.webViewWrapper_.className = 'share-dialog-webview-wrapper';
   this.cancelButton_.hidden = true;
   this.okButton_.hidden = true;
+  this.closeButton_.hidden = true;
   this.frame_.insertBefore(this.webViewWrapper_,
                            this.frame_.querySelector('.cr-dialog-buttons'));
 };
@@ -131,13 +145,31 @@ ShareDialog.prototype.initDom_ = function() {
  * @override
  */
 ShareDialog.prototype.onResized = function(width, height, callback) {
-  if (width && height) {
-    this.webViewWrapper_.style.width = width + 'px';
-    this.webViewWrapper_.style.height = height + 'px';
-    this.webView_.style.width = width + 'px';
-    this.webView_.style.height = height + 'px';
-  }
-  setTimeout(callback, 0);
+  if (!width || !height)
+    return;
+
+  this.webViewWrapper_.style.width = width + 'px';
+  this.webViewWrapper_.style.height = height + 'px';
+  this.webView_.style.width = width + 'px';
+  this.webView_.style.height = height + 'px';
+
+  // Wait sending 'resizeComplete' event until the latest size can be obtained
+  // in the WebView.
+  var checkSize = function() {
+    this.webView_.executeScript({
+      code: "[document.documentElement.clientWidth," +
+            " document.documentElement.clientHeight];"
+    }, function(results) {
+      if (results[0][0] === parseInt(this.webView_.style.width, 10) &&
+          results[0][1] === parseInt(this.webView_.style.height, 10)) {
+        callback();
+      } else {
+        setTimeout(checkSize, 50);
+      }
+    }.bind(this));
+  }.bind(this);
+
+  setTimeout(checkSize, 0);
 };
 
 /**
@@ -211,12 +243,12 @@ ShareDialog.prototype.hideWithResult = function(result, opt_onHide) {
 
 /**
  * Shows the dialog.
- * @param {FileEntry} entry Entry to share.
+ * @param {!Entry} entry Entry to share.
  * @param {function(ShareDialog.Result)} callback Callback to be called when the
  *     showing task is completed. The argument is whether to succeed or not.
  *     Note that cancel is regarded as success.
  */
-ShareDialog.prototype.show = function(entry, callback) {
+ShareDialog.prototype.showEntry = function(entry, callback) {
   // If the dialog is already showing, return the error.
   if (this.isShowing()) {
     callback(ShareDialog.Result.ALREADY_SHOWING);
@@ -240,17 +272,16 @@ ShareDialog.prototype.show = function(entry, callback) {
 
   // TODO(mtomasz): Move to initDom_() once and reuse <webview> once it gets
   // fixed. See: crbug.com/260622.
-  this.webView_ = util.createChild(
-      this.webViewWrapper_, 'share-dialog-webview', 'webview');
-  this.webView_.setAttribute('tabIndex', '-1');
+  this.webView_ = /** @type {WebView} */ (util.createChild(
+      this.webViewWrapper_, 'share-dialog-webview', 'webview'));
   this.webViewAuthorizer_ = new ShareDialog.WebViewAuthorizer(
       !window.IN_TEST ? (ShareClient.SHARE_TARGET + '/*') : '<all_urls>',
       this.webView_);
   this.webView_.addEventListener('newwindow', function(e) {
+    e = /** @type {NewWindowEvent} */ (e);
     // Discard the window object and reopen in an external window.
     e.window.discard();
     util.visitURL(e.targetUrl);
-    e.preventDefault();
   });
   var show = FileManagerDialogBase.prototype.showBlankDialog.call(this);
   if (!show) {
@@ -262,19 +293,26 @@ ShareDialog.prototype.show = function(entry, callback) {
   // Initialize and authorize the Web View tag asynchronously.
   var group = new AsyncUtil.Group();
 
-  // Fetches an url to the sharing dialog.
   var shareUrl;
-  group.add(function(inCallback) {
-    chrome.fileManagerPrivate.getShareUrl(
-        entry.toURL(),
-        function(inShareUrl) {
-          if (!chrome.runtime.lastError)
-            shareUrl = inShareUrl;
-          else
-            console.error(chrome.runtime.lastError.message);
-          inCallback();
-        });
-  });
+  if (this.overrideURLForTesting_) {
+    console.debug('Using an override URL for testing: ' +
+        this.overrideURLForTesting_);
+    shareUrl = this.overrideURLForTesting_;
+  } else {
+    // Fetches an url to the sharing dialog.
+    group.add(function(inCallback) {
+      chrome.fileManagerPrivate.getShareUrl(
+          entry.toURL(),
+          function(inShareUrl) {
+            if (!chrome.runtime.lastError)
+              shareUrl = inShareUrl;
+            else
+              console.error(chrome.runtime.lastError.message);
+            inCallback();
+          });
+    });
+  }
+
   group.add(this.webViewAuthorizer_.initialize.bind(this.webViewAuthorizer_));
   group.add(this.webViewAuthorizer_.authorize.bind(this.webViewAuthorizer_));
 

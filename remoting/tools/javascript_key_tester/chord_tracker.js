@@ -8,32 +8,49 @@
  * @param {HTMLElement} parentDiv
  */
 var ChordTracker = function(parentDiv) {
+  /** @type {HTMLElement} */
   this.parentDiv_ = parentDiv;
+  /** @type {HTMLElement} */
   this.currentDiv_ = null;
+  /** @type {Object<HTMLElement>} */
   this.pressedKeys_ = {};
 };
 
 /**
- * @param {Event} event The keyup or keydown event.
+ * @param {string} code The PNaCl "code" string.
+ * @param {string} title
+ * @return {void}
  */
-ChordTracker.prototype.addKeyEvent = function(event) {
-  this.begin_();
-  var span = document.createElement('span');
-  span.title = this.makeTitle_(event);
-  if (event.type == 'keydown') {
-    span.classList.add('key-down');
-    this.pressedKeys_[event.keyCode] = span;
-  } else {
-    span.classList.add('key-up');
-    delete this.pressedKeys_[event.keyCode];
-  }
-  span.innerText = this.keyName_(event.keyCode);
-  this.currentDiv_.appendChild(span);
+ChordTracker.prototype.addKeyUpEvent = function(code, title) {
+  var span = this.addSpanElement_('key-up', code, title);
+  delete this.pressedKeys_[code];
   if (!this.keysPressed_()) {
     this.end_();
   }
 };
 
+/**
+ * @param {string} code The PNaCl "code" string.
+ * @param {string} title
+ * @return {void}
+ */
+ChordTracker.prototype.addKeyDownEvent = function(code, title) {
+  var span = this.addSpanElement_('key-down', code, title);
+  this.pressedKeys_[code] = span;
+};
+
+/**
+ * @param {string} characterText
+ * @param {string} title
+ * @return {void}
+ */
+ChordTracker.prototype.addCharEvent = function(characterText, title) {
+  this.addSpanElement_('char-event', characterText, title);
+};
+
+/**
+ * @return {void}
+ */
 ChordTracker.prototype.releaseAllKeys = function() {
   this.end_();
   for (var i in this.pressedKeys_) {
@@ -44,12 +61,30 @@ ChordTracker.prototype.releaseAllKeys = function() {
 
 /**
  * @private
+ * @param {string} className
+ * @param {string} text
+ * @param {string} title
+ * @return {HTMLElement}
+ */
+ChordTracker.prototype.addSpanElement_ = function(className, text, title) {
+  this.begin_();
+  var span = /** @type {HTMLElement} */ (document.createElement('span'));
+  span.classList.add(className);
+  span.classList.add('key-div');
+  span.innerText = text;
+  span.title = title;
+  this.currentDiv_.appendChild(span);
+  return span;
+}
+
+/**
+ * @private
  */
 ChordTracker.prototype.begin_ = function() {
   if (this.currentDiv_) {
     return;
   }
-  this.currentDiv_ = document.createElement('div');
+  this.currentDiv_ = /** @type {HTMLElement} */ (document.createElement('div'));
   this.currentDiv_.classList.add('chord-div');
   this.parentDiv_.appendChild(this.currentDiv_);
 };
@@ -78,33 +113,4 @@ ChordTracker.prototype.keysPressed_ = function() {
     return true;
   }
   return false;
-};
-
-/**
- * @param {number} keyCode The keyCode field of the keyup or keydown event.
- * @return {string} A human-readable representation of the key.
- * @private
- */
-ChordTracker.prototype.keyName_ = function(keyCode) {
-  var result = keyboardMap[keyCode];
-  if (!result) {
-    result = '<' + keyCode + '>';
-  }
-  return result;
-};
-
-/**
- * @param {Event} event The keyup or keydown event.
- * @private
- */
-ChordTracker.prototype.makeTitle_ = function(event) {
-  return 'type: ' + event.type + '\n' +
-         'alt: ' + event.altKey + '\n' +
-         'shift: ' + event.shiftKey + '\n' +
-         'control: ' + event.controlKey + '\n' +
-         'meta: ' + event.metaKey + '\n' +
-         'charCode: ' + event.charCode + '\n' +
-         'keyCode: ' + event.keyCode + '\n' +
-         'keyIdentifier: ' + event.keyIdentifier + '\n' +
-         'repeat: ' + event.repeat + '\n';
 };

@@ -6,13 +6,10 @@
 #define COMPONENTS_DATA_REDUCTION_PROXY_CORE_BROWSER_DATA_REDUCTION_PROXY_PARAMS_H_
 
 #include <string>
-#include <utility>
 #include <vector>
 
-#include "base/memory/scoped_ptr.h"
-#include "net/base/host_port_pair.h"
-#include "net/proxy/proxy_config.h"
-#include "net/proxy/proxy_retry_info.h"
+#include "components/data_reduction_proxy/core/common/data_reduction_proxy_config_values.h"
+#include "net/proxy/proxy_server.h"
 #include "url/gurl.h"
 
 namespace base {
@@ -20,252 +17,170 @@ class TimeDelta;
 }
 
 namespace net {
+class HostPortPair;
 class ProxyServer;
-class URLRequest;
 }
 
 namespace data_reduction_proxy {
 
-// Contains information about a given proxy server. |proxy_servers| contains
-// the configured data reduction proxy servers. |is_fallback|, |is_alternative|
-// and |is_ssl| note whether the given proxy is a fallback, an alternative,
-// or a proxy for ssl; these are not mutually exclusive.
+// The data_reduction_proxy::params namespace is a collection of methods to
+// determine the operating parameters of the Data Reduction Proxy as specified
+// by field trials and command line switches.
+namespace params {
+
+// Returns true if this client is part of the field trial that should display
+// a promotion for the data reduction proxy.
+bool IsIncludedInPromoFieldTrial();
+
+// Returns true if this client is part of a field trial that runs a holdback
+// experiment. A holdback experiment is one in which a fraction of browser
+// instances will not be configured to use the data reduction proxy even if
+// users have enabled it to be used. The UI will not indicate that a holdback
+// is in effect.
+bool IsIncludedInHoldbackFieldTrial();
+
+// Returns true if this client is part of the field trial that should display
+// a promotion for the data reduction proxy on Android One devices.
+bool IsIncludedInAndroidOnePromoFieldTrial(const char* build_fingerprint);
+
+// Returns true if this client has the command line switch to enable Lo-Fi
+// mode always on.
+bool IsLoFiAlwaysOnViaFlags();
+
+// Returns true if this client has the command line switch to enable Lo-Fi
+// mode only on cellular connections.
+bool IsLoFiCellularOnlyViaFlags();
+
+// Returns true if this client has the command line switch to disable Lo-Fi
+// mode.
+bool IsLoFiDisabledViaFlags();
+
+// Returns true if this client has the command line switch to show
+// interstitials for data reduction proxy bypasses.
+bool WarnIfNoDataReductionProxy();
+
+// Returns true if this client is part of a field trial that sets the origin
+// proxy server as quic://proxy.googlezip.net.
+bool IsIncludedInQuicFieldTrial();
+
+// Returns the name of the Lo-Fi field trial.
+std::string GetLoFiFieldTrialName();
+
+std::string GetQuicFieldTrialName();
+
+// Returns true if this client is part of a field trial that allows Data Saver
+// to be used on VPN.
+bool IsIncludedInUseDataSaverOnVPNFieldTrial();
+
+// Returns true if the Data Reduction Proxy config client should be used.
+bool IsConfigClientEnabled();
+
+// If the Data Reduction Proxy config client is being used, the URL for the
+// Data Reduction Proxy config service.
+GURL GetConfigServiceURL();
+
+// Returns true if the Data Reduction Proxy is forced to be enabled from the
+// command line.
+bool ShouldForceEnableDataReductionProxy();
+
+// Returns true if the secure Data Reduction Proxy should be used until the
+// secure proxy check fails.
+bool ShouldUseSecureProxyByDefault();
+
+// Retrieves the int stored in |param_name| from the field trial group
+// |group|. If the value is not present, cannot be parsed, or is less than
+// |min_value|, returns |default_value|.
+int GetFieldTrialParameterAsInteger(const std::string& group,
+                                    const std::string& param_name,
+                                    int default_value,
+                                    int min_value);
+
+}  // namespace params
+
+class ClientConfig;
+
+// Contains information about a given proxy server. |proxies_for_http| and
+// |proxies_for_https| contain the configured data reduction proxy servers.
+// |is_fallback| and |is_ssl| note whether the given proxy is a fallback or a
+// proxy for ssl; these are not mutually exclusive.
 struct DataReductionProxyTypeInfo {
   DataReductionProxyTypeInfo();
   ~DataReductionProxyTypeInfo();
-  std::pair<GURL, GURL> proxy_servers;
+  std::vector<net::ProxyServer> proxy_servers;
   bool is_fallback;
-  bool is_alternative;
   bool is_ssl;
 };
 
-// Provides initialization parameters. Proxy origins, and the probe url are
-// are taken from flags if available and from preprocessor constants otherwise.
-// The DataReductionProxySettings class and others use this class to determine
-// the necessary DNS names to configure use of the data reduction proxy.
-class DataReductionProxyParams {
+// Provides initialization parameters. Proxy origins, and the secure proxy
+// check url are are taken from flags if available and from preprocessor
+// constants otherwise. The DataReductionProxySettings class and others use this
+// class to determine the necessary DNS names to configure use of the Data
+// Reduction Proxy.
+class DataReductionProxyParams : public DataReductionProxyConfigValues {
  public:
   // Flags used during construction that specify if the data reduction proxy
-  // is allowed to be used, if the fallback proxy is allowed to be used, if
-  // an alternative set of proxies is allowed to be used, if the promotion is
-  // allowed to be shown, and if this instance is part of a holdback experiment.
+  // is allowed to be used, if the fallback proxy is allowed to be used, if the
+  // promotion is allowed to be shown, and if this instance is part of a
+  // holdback experiment.
   static const unsigned int kAllowed = (1 << 0);
   static const unsigned int kFallbackAllowed = (1 << 1);
+  // DEPRECATED. TODO(jeremyim): Remove once changes merged downstream.
   static const unsigned int kAlternativeAllowed = (1 << 2);
+  // DEPRECATED. TODO(jeremyim): Remove once changes merged downstream.
   static const unsigned int kAlternativeFallbackAllowed = (1 << 3);
-  static const unsigned int kAllowAllProxyConfigurations = kAllowed |
-      kFallbackAllowed | kAlternativeAllowed | kAlternativeFallbackAllowed;
+  static const unsigned int kAllowAllProxyConfigurations =
+      kAllowed | kFallbackAllowed;
   static const unsigned int kPromoAllowed = (1 << 4);
   static const unsigned int kHoldback = (1 << 5);
-
-  typedef std::vector<GURL> DataReductionProxyList;
-
-  // Returns true if this client is part of field trial to use an alternative
-  // configuration for the data reduction proxy.
-  static bool IsIncludedInAlternativeFieldTrial();
-
-  // Returns true if this client is part of the field trial that should display
-  // a promotion for the data reduction proxy.
-  static bool IsIncludedInPromoFieldTrial();
-
-  // Returns true if this client is part of a field trial that uses preconnect
-  // hinting.
-  static bool IsIncludedInPreconnectHintingFieldTrial();
-
-  // Returns true if this client is part of a field trial that bypasses the
-  // proxy if the request resource type is on the critical path (e.g. HTML).
-  static bool IsIncludedInCriticalPathBypassFieldTrial();
-
-  // Returns true if this client is part of a field trial that runs a holdback
-  // experiment. A holdback experiment is one in which a fraction of browser
-  // instances will not be configured to use the data reduction proxy even if
-  // users have enabled it to be used. The UI will not indicate that a holdback
-  // is in effect.
-  static bool IsIncludedInHoldbackFieldTrial();
-
-  // Returns true if this client is part of a field trial that removes the
-  // |MISSING_VIA_HEADER_OTHER| proxy bypass case. This experiment changes proxy
-  // bypass logic to not trigger a proxy bypass when a response with a non-4xx
-  // response code is expected to have a data reduction proxy via header, but
-  // the data reduction proxy via header is missing.
-  static bool IsIncludedInRemoveMissingViaHeaderOtherBypassFieldTrial();
 
   // Constructs configuration parameters. If |kAllowed|, then the standard
   // data reduction proxy configuration is allowed to be used. If
   // |kfallbackAllowed| a fallback proxy can be used if the primary proxy is
-  // bypassed or disabled. If |kAlternativeAllowed| then an alternative proxy
-  // configuration is allowed to be used. This alternative configuration would
-  // replace the primary and fallback proxy configurations if enabled. Finally
-  // if |kPromoAllowed|, the client may show a promotion for the data reduction
-  // proxy.
+  // bypassed or disabled. Finally if |kPromoAllowed|, the client may show a
+  // promotion for the data reduction proxy.
   //
   // A standard configuration has a primary proxy, and a fallback proxy for
-  // HTTP traffic. The alternative configuration has a different primary and
-  // fallback proxy for HTTP traffic, and an SSL proxy.
+  // HTTP traffic.
   explicit DataReductionProxyParams(int flags);
 
-  // Creates a copy of the configuration parameters.
-  scoped_ptr<DataReductionProxyParams> Clone();
+  ~DataReductionProxyParams() override;
 
-  virtual ~DataReductionProxyParams();
+  // If true, uses QUIC instead of SPDY to connect to proxies that use TLS.
+  void EnableQuic(bool enable);
 
-  // Returns true if a data reduction proxy was used for the given |request|.
-  // If true, |proxy_info.proxy_servers.first| will contain the name of the
-  // proxy that was used. |proxy_info.proxy_servers.second| will contain the
-  // name of the data reduction proxy server that would be used if
-  // |proxy_info.proxy_server.first| is bypassed, if one exists. In addition,
-  // |proxy_info| will note if the proxy used was a fallback, an alternative,
-  // or a proxy for ssl; these are not mutually exclusive. |proxy_info| can be
-  // NULL if the caller isn't interested in its values.
-  virtual bool WasDataReductionProxyUsed(
-      const net::URLRequest* request,
-      DataReductionProxyTypeInfo* proxy_info) const;
+  // Populates |response| with the Data Reduction Proxy server configuration.
+  // Virtual for mocking.
+  virtual void PopulateConfigResponse(ClientConfig* config) const;
 
-  // Returns true if the specified |host_port_pair| matches a data reduction
-  // proxy. If true, |proxy_info.proxy_servers.first| will contain the name of
-  // the proxy that matches. |proxy_info.proxy_servers.second| will contain the
-  // name of the data reduction proxy server that would be used if
-  // |proxy_info.proxy_server.first| is bypassed, if one exists. In addition,
-  // |proxy_info| will note if the proxy was a fallback, an alternative, or a
-  // proxy for ssl; these are not mutually exclusive. |proxy_info| can be NULL
-  // if the caller isn't interested in its values. Virtual for testing.
-  virtual bool IsDataReductionProxy(
-      const net::HostPortPair& host_port_pair,
-      DataReductionProxyTypeInfo* proxy_info) const;
+  // Overrides of |DataReductionProxyConfigValues|
+  bool UsingHTTPTunnel(const net::HostPortPair& proxy_server) const override;
 
-  // Returns true if this request would be bypassed by the data request proxy
-  // based on applying the |data_reduction_proxy_config| param rules to the
-  // request URL.
-  bool IsBypassedByDataReductionProxyLocalRules(
-      const net::URLRequest& request,
-      const net::ProxyConfig& data_reduction_proxy_config) const;
+  const std::vector<net::ProxyServer>& proxies_for_http() const override;
 
-  // Checks if all configured data reduction proxies are in the retry map.
-  // Returns true if the request is bypassed by all configured data reduction
-  // proxies that apply to the request scheme. If all possible data reduction
-  // proxies are bypassed, returns the minimum retry delay of the bypassed data
-  // reduction proxies in min_retry_delay (if not NULL). If there are no
-  // bypassed data reduction proxies for the request scheme, returns false and
-  // does not assign min_retry_delay.
-  bool AreDataReductionProxiesBypassed(const net::URLRequest& request,
-                                       base::TimeDelta* min_retry_delay) const;
+  const std::vector<net::ProxyServer>& proxies_for_https() const override;
 
-  // Checks if all configured data reduction proxies are in the retry map.
-  // Returns true if the request is bypassed by all configured data reduction
-  // proxies that apply to the request scheme. If all possible data reduction
-  // proxies are bypassed, returns the minimum retry delay of the bypassed data
-  // reduction proxies in min_retry_delay (if not NULL). If there are no
-  // bypassed data reduction proxies for the request scheme, returns false and
-  // does not assign min_retry_delay.
-  bool AreProxiesBypassed(const net::ProxyRetryInfoMap& retry_map,
-                          const net::ProxyConfig::ProxyRules& proxy_rules,
-                          bool is_https,
-                          base::TimeDelta* min_retry_delay) const;
+  const GURL& secure_proxy_check_url() const override;
 
-  // Returns true if the proxy is on the retry map and the retry delay is not
-  // expired. If proxy is bypassed, retry_delay (if not NULL) returns the delay
-  // of proxy_server. If proxy is not bypassed, retry_delay is not assigned.
-  bool IsProxyBypassed(const net::ProxyRetryInfoMap& retry_map,
-                       const net::ProxyServer& proxy_server,
-                       base::TimeDelta* retry_delay) const;
+  bool allowed() const override;
 
-  // Returns the data reduction proxy primary origin.
-  const GURL& origin() const {
-    return origin_;
-  }
+  bool fallback_allowed() const override;
 
-  // Returns the data reduction proxy fallback origin.
-  const GURL& fallback_origin() const {
-    return fallback_origin_;
-  }
+  bool promo_allowed() const override;
 
-  // Returns the data reduction proxy ssl origin that is used with the
-  // alternative proxy configuration.
-  const GURL& ssl_origin() const {
-    return ssl_origin_;
-  }
-
-  // Returns the alternative data reduction proxy primary origin.
-  const GURL& alt_origin() const {
-    return alt_origin_;
-  }
-
-  // Returns the alternative data reduction proxy fallback origin.
-  const GURL& alt_fallback_origin() const {
-    return alt_fallback_origin_;
-  }
-
-  // Returns the URL to probe to decide if the primary origin should be used.
-  const GURL& probe_url() const {
-    return probe_url_;
-  }
-
-  // Returns the URL to fetch to warm the data reduction proxy connection.
-  const GURL& warmup_url() const {
-    return warmup_url_;
-  }
-
-  // Returns true if the data reduction proxy configuration may be used.
-  bool allowed() const {
-    return allowed_;
-  }
-
-  // Returns true if the fallback proxy may be used.
-  bool fallback_allowed() const {
-    return fallback_allowed_;
-  }
-
-  // Returns true if the alternative data reduction proxy configuration may be
-  // used.
-  bool alternative_allowed() const {
-    return alt_allowed_;
-  }
-
-  // Returns true if the alternative fallback data reduction proxy
-  // configuration may be used.
-  bool alternative_fallback_allowed() const {
-    return alt_fallback_allowed_;
-  }
-
-  // Returns true if the data reduction proxy promo may be shown.
-  // This is idependent of whether the data reduction proxy is allowed.
-  // TODO(bengr): maybe tie to whether proxy is allowed.
-  bool promo_allowed() const {
-    return promo_allowed_;
-  }
-
-  // Returns true if the data reduction proxy should not actually use the
-  // proxy if enabled.
-  bool holdback() const {
-    return holdback_;
-  }
-
-  // Given |allowed_|, |fallback_allowed_|, and |alt_allowed_|, returns the
-  // list of data reduction proxies that may be used.
-  DataReductionProxyList GetAllowedProxies() const;
-
-  // Returns true if any proxy origins are set on the command line.
-  bool is_configured_on_command_line() const {
-    return configured_on_command_line_;
-  }
+  bool holdback() const override;
 
  protected:
   // Test constructor that optionally won't call Init();
   DataReductionProxyParams(int flags,
                            bool should_call_init);
 
-  DataReductionProxyParams(const DataReductionProxyParams& params);
-
-  // Initialize the values of the proxies, and probe URL, from command
-  // line flags and preprocessor constants, and check that there are
+  // Initialize the values of the proxies, and secure proxy check URL, from
+  // command line flags and preprocessor constants, and check that there are
   // corresponding definitions for the allowed configurations.
-  bool Init(bool allowed,
-            bool fallback_allowed,
-            bool alt_allowed,
-            bool alt_fallback_allowed);
+  bool Init(bool allowed, bool fallback_allowed);
 
-  // Initialize the values of the proxies, and probe URL from command
-  // line flags and preprocessor constants.
+  // Initialize the values of the proxies, and secure proxy check URL from
+  // command line flags and preprocessor constants.
   void InitWithoutChecks();
 
   // Returns the corresponding string from preprocessor constants if defined,
@@ -275,40 +190,30 @@ class DataReductionProxyParams {
   virtual std::string GetDefaultOrigin() const;
   virtual std::string GetDefaultFallbackOrigin() const;
   virtual std::string GetDefaultSSLOrigin() const;
-  virtual std::string GetDefaultAltOrigin() const;
-  virtual std::string GetDefaultAltFallbackOrigin() const;
-  virtual std::string GetDefaultProbeURL() const;
+  virtual std::string GetDefaultSecureProxyCheckURL() const;
   virtual std::string GetDefaultWarmupURL() const;
 
+  std::vector<net::ProxyServer> proxies_for_http_;
+  std::vector<net::ProxyServer> proxies_for_https_;
+
  private:
-  // Checks if the primary and fallback data reduction proxies are in the retry
-  // map. Returns true if the request is bypassed by both data reduction
-  // proxies and returns the shortest bypass delay in delay_seconds (if not
-  // NULL). If the fallback proxy is not valid, returns true if primary proxy
-  // was bypassed and returns its bypass delay.
-  bool ArePrimaryAndFallbackBypassed(const net::ProxyRetryInfoMap& retry_map,
-                                     const GURL& primary,
-                                     const GURL& fallback,
-                                     base::TimeDelta* min_retry_delay) const;
+  net::ProxyServer origin_;
+  net::ProxyServer fallback_origin_;
+  net::ProxyServer ssl_origin_;
 
-  DataReductionProxyParams& operator=(const DataReductionProxyParams& params);
-
-  GURL origin_;
-  GURL fallback_origin_;
-  GURL ssl_origin_;
-  GURL alt_origin_;
-  GURL alt_fallback_origin_;
-  GURL probe_url_;
+  GURL secure_proxy_check_url_;
   GURL warmup_url_;
 
   bool allowed_;
   bool fallback_allowed_;
-  bool alt_allowed_;
-  bool alt_fallback_allowed_;
   bool promo_allowed_;
   bool holdback_;
+  bool quic_enabled_;
+  std::string override_quic_origin_;
 
   bool configured_on_command_line_;
+
+  DISALLOW_COPY_AND_ASSIGN(DataReductionProxyParams);
 };
 
 }  // namespace data_reduction_proxy

@@ -2,9 +2,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from telemetry.value import scalar
+
 from metrics import memory
 from metrics import Metric
-from telemetry.value import scalar
 
 
 class SystemMemoryMetric(Metric):
@@ -116,7 +117,7 @@ def _SubtractMemoryStats(end_memory_stats, start_memory_stats):
     else:
       for metric in end_process_memory:
         end_value = end_process_memory[metric]
-        start_value = start_memory_stats[process_type][metric] or 0
+        start_value = start_memory_stats[process_type].get(metric, 0)
         if 'Peak' in metric:
           memory_stats[process_type][metric] = end_value
         else:

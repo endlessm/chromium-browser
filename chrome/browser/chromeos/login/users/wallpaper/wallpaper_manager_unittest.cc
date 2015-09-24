@@ -19,7 +19,7 @@
 #include "base/prefs/pref_service.h"
 #include "base/prefs/testing_pref_service.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
-#include "chrome/browser/chromeos/login/users/fake_user_manager.h"
+#include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
@@ -39,17 +39,22 @@ namespace chromeos {
 class WallpaperManagerCacheTest : public test::AshTestBase {
  public:
   WallpaperManagerCacheTest()
-      : fake_user_manager_(new FakeUserManager()),
-        scoped_user_manager_(fake_user_manager_) {
-  }
+      : fake_user_manager_(new FakeChromeUserManager()),
+        scoped_user_manager_(fake_user_manager_) {}
 
  protected:
-  virtual ~WallpaperManagerCacheTest() {}
+  ~WallpaperManagerCacheTest() override {}
 
-  FakeUserManager* fake_user_manager() { return fake_user_manager_; }
+  FakeChromeUserManager* fake_user_manager() { return fake_user_manager_; }
 
-  virtual void SetUp() override {
+  void SetUp() override {
     test::AshTestBase::SetUp();
+    WallpaperManager::Initialize();
+  }
+
+  void TearDown() override {
+    WallpaperManager::Shutdown();
+    test::AshTestBase::TearDown();
   }
 
   // Creates a test image of size 1x1.
@@ -61,7 +66,7 @@ class WallpaperManagerCacheTest : public test::AshTestBase {
   }
 
  private:
-  FakeUserManager* fake_user_manager_;
+  FakeChromeUserManager* fake_user_manager_;
   ScopedUserManagerEnabler scoped_user_manager_;
 };
 
@@ -70,6 +75,9 @@ TEST_F(WallpaperManagerCacheTest, VerifyWallpaperCache) {
   std::string test_user_1 = "test1@example.com";
   std::string test_user_2 = "test2@example.com";
   std::string test_user_3 = "test3@example.com";
+  base::FilePath path1("path1");
+  base::FilePath path2("path2");
+  base::FilePath path3("path3");
   fake_user_manager()->AddUser(test_user_1);
   fake_user_manager()->AddUser(test_user_2);
   fake_user_manager()->AddUser(test_user_3);
@@ -84,21 +92,27 @@ TEST_F(WallpaperManagerCacheTest, VerifyWallpaperCache) {
   gfx::ImageSkia test_user_1_wallpaper = CreateTestImage(SK_ColorRED);
   gfx::ImageSkia test_user_2_wallpaper = CreateTestImage(SK_ColorGREEN);
   gfx::ImageSkia test_user_3_wallpaper = CreateTestImage(SK_ColorWHITE);
-  test_api->SetWallpaperCache(test_user_1, test_user_1_wallpaper);
-  test_api->SetWallpaperCache(test_user_2, test_user_2_wallpaper);
-  test_api->SetWallpaperCache(test_user_3, test_user_3_wallpaper);
+  test_api->SetWallpaperCache(test_user_1, path1, test_user_1_wallpaper);
+  test_api->SetWallpaperCache(test_user_2, path2, test_user_2_wallpaper);
+  test_api->SetWallpaperCache(test_user_3, path3, test_user_3_wallpaper);
 
   test_api->ClearDisposableWallpaperCache();
 
   gfx::ImageSkia cached_wallpaper;
   EXPECT_TRUE(test_api->GetWallpaperFromCache(test_user_1, &cached_wallpaper));
+  base::FilePath path;
+  EXPECT_TRUE(test_api->GetPathFromCache(test_user_1, &path));
   // Logged in users' wallpaper cache should be kept.
   EXPECT_TRUE(cached_wallpaper.BackedBySameObjectAs(test_user_1_wallpaper));
+  EXPECT_EQ(path, path1);
   EXPECT_TRUE(test_api->GetWallpaperFromCache(test_user_2, &cached_wallpaper));
+  EXPECT_TRUE(test_api->GetPathFromCache(test_user_2, &path));
   EXPECT_TRUE(cached_wallpaper.BackedBySameObjectAs(test_user_2_wallpaper));
+  EXPECT_EQ(path, path2);
 
   // Not logged in user's wallpaper cache should be cleared.
   EXPECT_FALSE(test_api->GetWallpaperFromCache(test_user_3, &cached_wallpaper));
+  EXPECT_FALSE(test_api->GetPathFromCache(test_user_3, &path));
 }
 
 }  // namespace chromeos

@@ -42,7 +42,7 @@ public:
     static PassRefPtrWillBeRawPtr<DocumentMarkerDescription> create(const String&);
 
     const String& description() const { return m_description; }
-    virtual bool isDescription() const override { return true; }
+    bool isDescription() const override { return true; }
 
 private:
     explicit DocumentMarkerDescription(const String& description)
@@ -71,7 +71,7 @@ public:
     static PassRefPtrWillBeRawPtr<DocumentMarkerTextMatch> instanceFor(bool);
 
     bool activeMatch() const { return m_match; }
-    virtual bool isTextMatch() const override { return true; }
+    bool isTextMatch() const override { return true; }
 
 private:
     explicit DocumentMarkerTextMatch(bool match)
@@ -96,15 +96,6 @@ inline DocumentMarkerTextMatch* toDocumentMarkerTextMatch(DocumentMarkerDetails*
     return 0;
 }
 
-
-DocumentMarker::DocumentMarker()
-    : m_type(Spelling)
-    , m_startOffset(0)
-    , m_endOffset(0)
-    , m_hash(0)
-{
-}
-
 DocumentMarker::DocumentMarker(MarkerType type, unsigned startOffset, unsigned endOffset, const String& description, uint32_t hash)
     : m_type(type)
     , m_startOffset(startOffset)
@@ -119,15 +110,6 @@ DocumentMarker::DocumentMarker(unsigned startOffset, unsigned endOffset, bool ac
     , m_startOffset(startOffset)
     , m_endOffset(endOffset)
     , m_details(DocumentMarkerTextMatch::instanceFor(activeMatch))
-    , m_hash(0)
-{
-}
-
-DocumentMarker::DocumentMarker(MarkerType type, unsigned startOffset, unsigned endOffset, PassRefPtrWillBeRawPtr<DocumentMarkerDetails> details)
-    : m_type(type)
-    , m_startOffset(startOffset)
-    , m_endOffset(endOffset)
-    , m_details(details)
     , m_hash(0)
 {
 }
@@ -166,7 +148,7 @@ bool DocumentMarker::activeMatch() const
     return false;
 }
 
-void DocumentMarker::trace(Visitor* visitor)
+DEFINE_TRACE(DocumentMarker)
 {
     visitor->trace(m_details);
 }

@@ -1195,7 +1195,7 @@ static int darwin_claim_interface(struct libusb_device_handle *dev_handle, int i
   kresult = (*plugInInterface)->QueryInterface(plugInInterface,
                                                CFUUIDGetUUIDBytes(kIOUSBInterfaceInterfaceID),
                                                (LPVOID)&cInterface->interface);
-  /* We no longer need the intermediate plug-in */
+  /* We no longer need the intermediate plugin */
   /* Use release instead of IODestroyPlugInInterface to avoid stopping IOServices associated with this device */
   (*plugInInterface)->Release (plugInInterface);
   if (kresult || !cInterface->interface) {
@@ -1877,6 +1877,7 @@ const struct usbi_os_backend darwin_backend = {
         .get_config_descriptor = darwin_get_config_descriptor,
 
         .open = darwin_open,
+        .open_fd = NULL, /* not implemented */
         .close = darwin_close,
         .get_configuration = darwin_get_configuration,
         .set_configuration = darwin_set_configuration,

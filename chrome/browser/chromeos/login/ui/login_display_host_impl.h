@@ -8,12 +8,14 @@
 #include <string>
 #include <vector>
 
+#include "ash/shell_delegate.h"
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/chromeos/login/app_launch_controller.h"
 #include "chrome/browser/chromeos/login/auth/auth_prewarmer.h"
 #include "chrome/browser/chromeos/login/existing_user_controller.h"
+#include "chrome/browser/chromeos/login/signin_screen_controller.h"
 #include "chrome/browser/chromeos/login/ui/login_display.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
@@ -24,13 +26,10 @@
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "ui/gfx/display_observer.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/keyboard/keyboard_controller_observer.h"
 #include "ui/views/widget/widget_removals_observer.h"
-
-#if !defined(USE_ATHENA)
-#include "ash/shell_delegate.h"
-#endif
+#include "ui/wm/public/scoped_drag_drop_disabler.h"
 
 class PrefService;
 
@@ -43,13 +42,10 @@ namespace chromeos {
 
 class DemoAppLauncher;
 class FocusRingController;
+class KeyboardDrivenOobeKeyHandler;
 class OobeUI;
 class WebUILoginDisplay;
 class WebUILoginView;
-
-#if !defined(USE_ATHENA)
-class KeyboardDrivenOobeKeyHandler;
-#endif
 
 // An implementation class for OOBE/login WebUI screen host.
 // It encapsulates controllers, background integration and flow.
@@ -58,15 +54,13 @@ class LoginDisplayHostImpl : public LoginDisplayHost,
                              public content::WebContentsObserver,
                              public chromeos::SessionManagerClient::Observer,
                              public chromeos::CrasAudioHandler::AudioObserver,
-#if !defined(USE_ATHENA)
                              public ash::VirtualKeyboardStateObserver,
-#endif
                              public keyboard::KeyboardControllerObserver,
                              public gfx::DisplayObserver,
                              public views::WidgetRemovalsObserver {
  public:
   explicit LoginDisplayHostImpl(const gfx::Rect& background_bounds);
-  virtual ~LoginDisplayHostImpl();
+  ~LoginDisplayHostImpl() override;
 
   // Returns the default LoginDisplayHost instance if it has been created.
   static LoginDisplayHost* default_host() {
@@ -74,30 +68,27 @@ class LoginDisplayHostImpl : public LoginDisplayHost,
   }
 
   // LoginDisplayHost implementation:
-  virtual LoginDisplay* CreateLoginDisplay(
-      LoginDisplay::Delegate* delegate) override;
-  virtual gfx::NativeWindow GetNativeWindow() const override;
-  virtual WebUILoginView* GetWebUILoginView() const override;
-  virtual void BeforeSessionStart() override;
-  virtual void Finalize() override;
-  virtual void OnCompleteLogin() override;
-  virtual void OpenProxySettings() override;
-  virtual void SetStatusAreaVisible(bool visible) override;
-  virtual AutoEnrollmentController* GetAutoEnrollmentController() override;
-  virtual void StartWizard(
-      const std::string& first_screen_name,
-      scoped_ptr<base::DictionaryValue> screen_parameters) override;
-  virtual WizardController* GetWizardController() override;
-  virtual AppLaunchController* GetAppLaunchController() override;
-  virtual void StartUserAdding(
-      const base::Closure& completion_callback) override;
-  virtual void StartSignInScreen(const LoginScreenContext& context) override;
-  virtual void ResumeSignInScreen() override;
-  virtual void OnPreferencesChanged() override;
-  virtual void PrewarmAuthentication() override;
-  virtual void StartAppLaunch(const std::string& app_id,
-                              bool diagnostic_mode) override;
-  virtual void StartDemoAppLaunch() override;
+  LoginDisplay* CreateLoginDisplay(LoginDisplay::Delegate* delegate) override;
+  gfx::NativeWindow GetNativeWindow() const override;
+  WebUILoginView* GetWebUILoginView() const override;
+  void BeforeSessionStart() override;
+  void Finalize() override;
+  void OnCompleteLogin() override;
+  void OpenProxySettings() override;
+  void SetStatusAreaVisible(bool visible) override;
+  AutoEnrollmentController* GetAutoEnrollmentController() override;
+  void StartWizard(const std::string& first_screen_name) override;
+  WizardController* GetWizardController() override;
+  AppLaunchController* GetAppLaunchController() override;
+  void StartUserAdding(const base::Closure& completion_callback) override;
+  void StartSignInScreen(const LoginScreenContext& context) override;
+  void OnPreferencesChanged() override;
+  void PrewarmAuthentication() override;
+  void StartAppLaunch(
+      const std::string& app_id,
+      bool diagnostic_mode,
+      bool auto_launch) override;
+  void StartDemoAppLaunch() override;
 
   // Creates WizardController instance.
   WizardController* CreateWizardController();
@@ -116,38 +107,37 @@ class LoginDisplayHostImpl : public LoginDisplayHost,
 
   views::Widget* login_window_for_test() { return login_window_; }
 
+  void StartTimeZoneResolve();
+
  protected:
   // content::NotificationObserver implementation:
-  virtual void Observe(int type,
-                       const content::NotificationSource& source,
-                       const content::NotificationDetails& details) override;
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override;
 
   // Overridden from content::WebContentsObserver:
-  virtual void RenderProcessGone(base::TerminationStatus status) override;
+  void RenderProcessGone(base::TerminationStatus status) override;
 
   // Overridden from chromeos::SessionManagerClient::Observer:
-  virtual void EmitLoginPromptVisibleCalled() override;
+  void EmitLoginPromptVisibleCalled() override;
 
   // Overridden from chromeos::CrasAudioHandler::AudioObserver:
-  virtual void OnActiveOutputNodeChanged() override;
+  void OnActiveOutputNodeChanged() override;
 
-#if !defined(USE_ATHENA)
   // Overridden from ash::KeyboardStateObserver:
-  virtual void OnVirtualKeyboardStateChanged(bool activated) override;
-#endif
+  void OnVirtualKeyboardStateChanged(bool activated) override;
 
   // Overridden from keyboard::KeyboardControllerObserver:
-  virtual void OnKeyboardBoundsChanging(const gfx::Rect& new_bounds) override;
+  void OnKeyboardBoundsChanging(const gfx::Rect& new_bounds) override;
 
   // Overridden from gfx::DisplayObserver:
-  virtual void OnDisplayAdded(const gfx::Display& new_display) override;
-  virtual void OnDisplayRemoved(const gfx::Display& old_display) override;
-  virtual void OnDisplayMetricsChanged(const gfx::Display& display,
-                                       uint32_t changed_metrics) override;
+  void OnDisplayAdded(const gfx::Display& new_display) override;
+  void OnDisplayRemoved(const gfx::Display& old_display) override;
+  void OnDisplayMetricsChanged(const gfx::Display& display,
+                               uint32_t changed_metrics) override;
 
   // Overriden from views::WidgetRemovalsObserver:
-  virtual void OnWillRemoveView(views::Widget* widget,
-                                views::View* view) override;
+  void OnWillRemoveView(views::Widget* widget, views::View* view) override;
 
  private:
   // Way to restore if renderer have crashed.
@@ -175,9 +165,6 @@ class LoginDisplayHostImpl : public LoginDisplayHost,
 
   // Schedules fade out animation.
   void ScheduleFadeOutAnimation();
-
-  // Progress callback registered with |auto_enrollment_controller_|.
-  void OnAutoEnrollmentProgress(policy::AutoEnrollmentState state);
 
   // Loads given URL. Creates WebUILoginView if needed.
   void LoadURL(const GURL& url);
@@ -214,23 +201,19 @@ class LoginDisplayHostImpl : public LoginDisplayHost,
 
   content::NotificationRegistrar registrar_;
 
-  base::WeakPtrFactory<LoginDisplayHostImpl> pointer_factory_;
-
   // Default LoginDisplayHost.
   static LoginDisplayHost* default_host_;
 
   // The controller driving the auto-enrollment check.
   scoped_ptr<AutoEnrollmentController> auto_enrollment_controller_;
 
-  // Subscription for progress callbacks from |auto_enrollement_controller_|.
-  scoped_ptr<AutoEnrollmentController::ProgressCallbackList::Subscription>
-      auto_enrollment_progress_subscription_;
-
   // Sign in screen controller.
-  scoped_ptr<ExistingUserController> sign_in_controller_;
+  scoped_ptr<ExistingUserController> existing_user_controller_;
 
   // OOBE and some screens (camera, recovery) controller.
   scoped_ptr<WizardController> wizard_controller_;
+
+  scoped_ptr<SignInScreenController> signin_screen_controller_;
 
   // App launch controller.
   scoped_ptr<AppLaunchController> app_launch_controller_;
@@ -291,7 +274,6 @@ class LoginDisplayHostImpl : public LoginDisplayHost,
 
   // Stored parameters for StartWizard, required to restore in case of crash.
   std::string first_screen_name_;
-  scoped_ptr<base::DictionaryValue> screen_parameters_;
 
   // Called before host deletion.
   base::Closure completion_callback_;
@@ -303,10 +285,8 @@ class LoginDisplayHostImpl : public LoginDisplayHost,
   // driven oobe.
   scoped_ptr<FocusRingController> focus_ring_controller_;
 
-#if !defined(USE_ATHENA)
   // Handles special keys for keyboard driven oobe.
   scoped_ptr<KeyboardDrivenOobeKeyHandler> keyboard_driven_oobe_key_handler_;
-#endif
 
   FinalizeAnimationType finalize_animation_type_;
 
@@ -326,13 +306,11 @@ class LoginDisplayHostImpl : public LoginDisplayHost,
   // True is subscribed as keyboard controller observer.
   bool is_observing_keyboard_;
 
-  // The bounds of the virtual keyboard.
-  gfx::Rect keyboard_bounds_;
+  // Keeps a copy of the old Drag'n'Drop client, so that it would be disabled
+  // during a login session and restored afterwards.
+  scoped_ptr<aura::client::ScopedDragDropDisabler> scoped_drag_drop_disabler_;
 
-#if defined(USE_ATHENA)
-  scoped_ptr<aura::Window> login_screen_container_;
-#endif
-
+  base::WeakPtrFactory<LoginDisplayHostImpl> pointer_factory_;
   base::WeakPtrFactory<LoginDisplayHostImpl> animation_weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(LoginDisplayHostImpl);

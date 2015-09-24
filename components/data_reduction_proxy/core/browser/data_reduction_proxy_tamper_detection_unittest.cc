@@ -14,6 +14,7 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
+#include "base/test/histogram_tester.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_headers.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_headers_test_utils.h"
 #include "net/http/http_response_headers.h"
@@ -97,8 +98,8 @@ class DataReductionProxyTamperDetectionTest : public testing::Test {
 
 // Tests function ValidateChromeProxyHeader.
 TEST_F(DataReductionProxyTamperDetectionTest, ChromeProxy) {
-  // |received_fingerprint| is not the actual fingerprint from data reduction
-  // proxy, instead, the base64 encoded field is in plain text (within "[]")
+  // |received_fingerprint| is not the actual fingerprint from Data Reduction
+  // Proxy, instead, the base64 encoded field is in plain text (within "[]")
   // and needs to be encoded first.
   struct {
     std::string label;
@@ -288,7 +289,7 @@ TEST_F(DataReductionProxyTamperDetectionTest, Via) {
       false,
     },
     {
-      "Checks the case that only the data reduction proxy's Via header occurs.",
+      "Checks the case that only the Data Reduction Proxy's Via header occurs.",
       "HTTP/1.1 200 OK\n"
       "Via:  1.1 Chrome-Compression-Proxy    \n",
       "",
@@ -296,60 +297,10 @@ TEST_F(DataReductionProxyTamperDetectionTest, Via) {
       true,
     },
     {
-      "Checks the case that there are ' ', i.e., empty value after the data"
-      " reduction proxy's Via header.",
+      "Checks the case that there are ' ', i.e., empty value after the Data"
+      " Reduction Proxy's Via header.",
       "HTTP/1.1 200 OK\n"
       "Via:  1.1 Chrome-Compression-Proxy  ,  , \n",
-      "",
-      false,
-      true,
-    },
-    {
-      "Checks the case when there is no Via header",
-      "HTTP/1.1 200 OK\n",
-      "",
-      true,
-      false,
-    },
-    // Same to above test cases, but with deprecated data reduciton proxy Via
-    // header.
-    {
-      "Checks the case that Chrome Compression Proxy occurs at the last.",
-      "HTTP/1.1 200 OK\n"
-      "Via: a, b, c, 1.1 Chrome Compression Proxy\n",
-      "",
-      false,
-      true,
-    },
-    {
-      "Checks when there is intermediary.",
-      "HTTP/1.1 200 OK\n"
-      "Via: a, b,  c,   1.1 Chrome Compression Proxy,    xyz\n",
-      "",
-      true,
-      true,
-    },
-    {
-      "Checks the case of empty Via header.",
-      "HTTP/1.1 200 OK\n"
-      "Via:  \n",
-      "",
-      true,
-      false,
-    },
-    {
-      "Checks the case that only the data reduction proxy's Via header occurs.",
-      "HTTP/1.1 200 OK\n"
-      "Via:  1.1 Chrome Compression Proxy    \n",
-      "",
-      false,
-      true,
-    },
-    {
-      "Checks the case that there are ' ', i.e., empty value after the data"
-      "reduction proxy's Via header.",
-      "HTTP/1.1 200 OK\n"
-      "Via:  1.1 Chrome Compression Proxy  ,  , \n",
       "",
       false,
       true,
@@ -384,7 +335,7 @@ TEST_F(DataReductionProxyTamperDetectionTest, Via) {
 // Tests function ValidateOtherHeaders.
 TEST_F(DataReductionProxyTamperDetectionTest, OtherHeaders) {
   // For following testcases, |received_fingerprint| is not the actual
-  // fingerprint from data reduction proxy, instead, the base64 encoded field
+  // fingerprint from Data Reduction Proxy, instead, the base64 encoded field
   // is in plain text (within "[]") and needs to be encoded first. For example,
   // "[12345;]|content-length" needs to be encoded to
   // "Base64Encoded(MD5(12345;))|content-length" before calling the checking
@@ -511,79 +462,48 @@ TEST_F(DataReductionProxyTamperDetectionTest, OtherHeaders) {
   }
 }
 
-// Tests function ValidateContentLengthHeader.
+// Tests function ValidateContentLength.
 TEST_F(DataReductionProxyTamperDetectionTest, ContentLength) {
   struct {
     std::string label;
-    std::string raw_header;
     std::string received_fingerprint;
+    int64 actual_content_length;
+    int64 expected_original_content_length;
     bool expected_tampered_with;
   } test[] = {
     {
-      "Checks the case fingerprint matches received response.",
-      "HTTP/1.1 200 OK\n"
-      "Content-Length: 12345\n",
+      "Checks the case fingerprint matches actual content length.",
       "12345",
+      12345,
+      12345,
       false,
     },
     {
       "Checks case that response got modified.",
-      "HTTP/1.1 200 OK\n"
-      "Content-Length: 12345\n",
-      "125",
+      "12345",
+      12346,
+      12345,
       true,
-    },
-    {
-      "Checks the case that the data reduction proxy has not sent"
-      "Content-Length header.",
-      "HTTP/1.1 200 OK\n"
-      "Content-Length: 12345\n",
-      "",
-      false,
-    },
-    {
-      "Checks the case that the data reduction proxy sends invalid"
-      "Content-Length header.",
-      "HTTP/1.1 200 OK\n"
-      "Content-Length: 12345\n",
-      "aaa",
-      false,
-    },
-    {
-      "Checks the case that the data reduction proxy sends invalid"
-      "Content-Length header.",
-      "HTTP/1.1 200 OK\n"
-      "Content-Length: aaa\n",
-      "aaa",
-      false,
-    },
-    {
-      "Checks the case that Content-Length header is missing at the Chromium"
-      "client side.",
-      "HTTP/1.1 200 OK\n",
-      "123",
-      false,
-    },
-    {
-      "Checks the case that Content-Length header are missing at both end.",
-      "HTTP/1.1 200 OK\n",
-      "",
-      false,
     },
   };
 
   for (size_t i = 0; i < arraysize(test); ++i) {
-    std::string raw_headers(test[i].raw_header);
+    std::string raw_headers("HTTP/1.1 200 OK\n");
     HeadersToRaw(&raw_headers);
     scoped_refptr<net::HttpResponseHeaders> headers(
         new net::HttpResponseHeaders(raw_headers));
 
     DataReductionProxyTamperDetection tamper_detection(headers.get(), true, 0);
 
-    bool tampered = tamper_detection.ValidateContentLengthHeader(
-        test[i].received_fingerprint);
+    int64 original_content_length;
+    bool tampered = tamper_detection.ValidateContentLength(
+        test[i].received_fingerprint,
+        test[i].actual_content_length,
+        &original_content_length);
 
     EXPECT_EQ(test[i].expected_tampered_with, tampered) << test[i].label;
+    EXPECT_EQ(test[i].expected_original_content_length,
+              original_content_length) << test[i].label;
   }
 }
 
@@ -675,11 +595,113 @@ TEST_F(DataReductionProxyTamperDetectionTest, GetHeaderValues) {
   }
 }
 
+// Tests UMA histogram count.
+TEST_F(DataReductionProxyTamperDetectionTest, HistogramCount) {
+  struct {
+    std::string raw_header;
+    std::string histogram_name_suffix;
+    int original_content_length;
+    std::string image_histogram_name_suffix;
+  } tests[] = {
+      // Checks the correctness of histogram for Javascript
+      {"HTTP/1.1 200 OK\n"
+       "Content-Type: text/javascript\n",
+       "_JS",
+       -1,
+       ""},
+      // Checks the correctness of histogram for CSS
+      {"HTTP/1.1 200 OK\n"
+       "Content-Type: text/css\n",
+       "_CSS",
+       -1,
+       ""},
+      // Checks the correctness of histogram for image
+      {"HTTP/1.1 200 OK\n"
+       "Content-Type: image/test\n",
+       "_Image",
+       1,
+       "_Image_0_10KB"},
+      // Checks the correctness of histogram for GIF
+      {"HTTP/1.1 200 OK\n"
+       "Content-Type: image/gif\n",
+       "_Image_GIF",
+       20 * 1024,
+       "_Image_10_100KB"},
+      // Checks the correctness of histogram for JPG
+      {"HTTP/1.1 200 OK\n"
+       "Content-Type: image/jpeg\n",
+       "_Image_JPG",
+       200 * 1024,
+       "_Image_100_500KB"},
+      // Checks the correctness of histogram for PNG
+      {"HTTP/1.1 200 OK\n"
+       "Content-Type: image/png\n",
+       "_Image_PNG",
+       600 * 1024,
+       "_Image_500KB"},
+      // Checks the correctness of histogram for WebP
+      {"HTTP/1.1 200 OK\n"
+       "Content-Type: image/webp\n",
+       "_Image_WEBP",
+       -1,
+       ""},
+  };
+
+  const int carrier_id = 100;
+
+  for (auto& test : tests) {
+    std::string raw_headers(test.raw_header);
+    HeadersToRaw(&raw_headers);
+    scoped_refptr<net::HttpResponseHeaders> headers(
+        new net::HttpResponseHeaders(raw_headers));
+
+    // Test HTTPS and HTTP separately.
+    int https_values[] = {true, false};
+    for (auto https : https_values) {
+      base::HistogramTester histogram_tester;
+
+      DataReductionProxyTamperDetection tamper_detection(headers.get(), https,
+                                                         carrier_id);
+      tamper_detection.ReportUMAForTamperDetectionCount(
+          test.original_content_length);
+      histogram_tester.ExpectTotalCount(
+          std::string("DataReductionProxy.HeaderTamperDetectionHTTP") +
+              (https ? "S" : "") + test.histogram_name_suffix + "_Total",
+          1);
+      histogram_tester.ExpectUniqueSample(
+          std::string("DataReductionProxy.HeaderTamperDetectionHTTP") +
+              (https ? "S" : "") + test.histogram_name_suffix,
+          carrier_id, 1);
+      histogram_tester.ExpectTotalCount(
+          std::string("DataReductionProxy.HeaderTamperDetectionHTTP") +
+              (https ? "S" : "") + "_Total",
+          1);
+      histogram_tester.ExpectUniqueSample(
+          std::string("DataReductionProxy.HeaderTamperDetectionHTTP") +
+              (https ? "S" : ""),
+          carrier_id, 1);
+
+      if (test.original_content_length != -1) {
+        histogram_tester.ExpectTotalCount(
+            std::string("DataReductionProxy.HeaderTamperDetectionHTTP") +
+                (https ? "S" : "") + test.image_histogram_name_suffix +
+                "_Total",
+            1);
+        histogram_tester.ExpectUniqueSample(
+            std::string("DataReductionProxy.HeaderTamperDetectionHTTP") +
+                (https ? "S" : "") + test.image_histogram_name_suffix,
+            carrier_id, 1);
+      }
+    }
+  }
+}
+
 // Tests main function DetectAndReport.
 TEST_F(DataReductionProxyTamperDetectionTest, DetectAndReport) {
   struct {
     std::string label;
     std::string raw_header;
+    int64 content_length;
     bool expected_tampered_with;
   } test[] = {
     {
@@ -688,6 +710,7 @@ TEST_F(DataReductionProxyTamperDetectionTest, DetectAndReport) {
       "Via: a1, b2, 1.1 Chrome-Compression-Proxy\n"
       "Content-Length: 12345\n"
       "Chrome-Proxy: bypass=0\n",
+      12345,
       false,
     },
     {
@@ -701,6 +724,7 @@ TEST_F(DataReductionProxyTamperDetectionTest, DetectAndReport) {
       "Chrome-Proxy: fcl=12345, "
       "foh=[header_1,;header_2,;header_3,;]|header1|header2|header3,fvia=0,"
       "fcp=abc\n",
+      12345,
       true,
     },
     {
@@ -715,10 +739,11 @@ TEST_F(DataReductionProxyTamperDetectionTest, DetectAndReport) {
       "foh=[header_1,;header_2,;header_3,;]|header1|header2|header3,"
       "fvia=0, fcp=[fcl=12345,foh=[header_1,;header_2,;header_3,;]"
       "|header1|header2|header3,fvia=0,]\n",
+      12345,
       false,
     },
     {
-      "Check the case that Content-Length doesn't match.",
+      "Check the case that actual content length doesn't match.",
       "HTTP/1.1 200 OK\n"
       "Via: a1, b2, 1.1 Chrome-Compression-Proxy\n"
       "Content-Length: 0\n"
@@ -729,6 +754,7 @@ TEST_F(DataReductionProxyTamperDetectionTest, DetectAndReport) {
       "foh=[header_1,;header_2,;header_3,;]|header1|header2|header3, fvia=0, "
       "fcp=[fcl=12345,foh=[header_1,;header_2,;header_3,;]|"
       "header1|header2|header3,fvia=0,]\n",
+      123,
       true,
     },
   };
@@ -744,8 +770,8 @@ TEST_F(DataReductionProxyTamperDetectionTest, DetectAndReport) {
 
     EXPECT_EQ(
         test[i].expected_tampered_with,
-        DataReductionProxyTamperDetection::DetectAndReport(headers.get(), true))
-        << test[i].label;
+        DataReductionProxyTamperDetection::DetectAndReport(
+        headers.get(), true, test[i].content_length)) << test[i].label;
   }
 }
 

@@ -10,6 +10,7 @@
 
 #include "base/basictypes.h"
 #include "base/logging.h"
+#include "base/numerics/safe_conversions.h"
 
 #include "courgette/assembly_program.h"
 #include "courgette/courgette.h"
@@ -263,6 +264,8 @@ bool DisassemblerWin32X64::ParseRelocs(std::vector<RVA> *relocs) {
       int offset = entry & 0xFFF;
 
       RVA rva = page_rva + offset;
+      // TODO(sebmarchand): Skip the relocs that live outside of the image. See
+      //   the version of this function in disassembler_win32_x86.cc.
       if (type == 10) {         // IMAGE_REL_BASED_DIR64
         relocs->push_back(rva);
       } else if (type == 0) {  // IMAGE_REL_BASED_ABSOLUTE
@@ -461,18 +464,36 @@ void DisassemblerWin32X64::ParseRel32RelocsFromSection(const Section* section) {
     // next few bytes the start of an instruction containing a rel32
     // addressing mode?
     const uint8* rel32 = NULL;
+    bool is_rip_relative = false;
 
     if (p + 5 <= end_pointer) {
-      if (*p == 0xE8 || *p == 0xE9) {  // jmp rel32 and call rel32
+      if (*p == 0xE8 || *p == 0xE9)  // jmp rel32 and call rel32
         rel32 = p + 1;
-      }
     }
     if (p + 6 <= end_pointer) {
-      if (*p == 0x0F  &&  (*(p+1) & 0xF0) == 0x80) {  // Jcc long form
+      if (*p == 0x0F && (*(p + 1) & 0xF0) == 0x80) {  // Jcc long form
         if (p[1] != 0x8A && p[1] != 0x8B)  // JPE/JPO unlikely
           rel32 = p + 2;
+      } else if (*p == 0xFF && (*(p + 1) == 0x15 || *(p + 1) == 0x25)) {
+        // rip relative call/jmp
+        rel32 = p + 2;
+        is_rip_relative = true;
       }
     }
+    if (p + 7 <= end_pointer) {
+      if ((*p & 0xFB) == 0x48 && *(p + 1) == 0x8D &&
+          (*(p + 2) & 0xC7) == 0x05) {
+        // rip relative lea
+        rel32 = p + 3;
+        is_rip_relative = true;
+      } else if ((*p & 0xFB) == 0x48 && *(p + 1) == 0x8B &&
+                 (*(p + 2) & 0xC7) == 0x05) {
+        // rip relative mov
+        rel32 = p + 3;
+        is_rip_relative = true;
+      }
+    }
+
     if (rel32) {
       RVA rel32_rva = static_cast<RVA>(rel32 - adjust_pointer_to_rva);
 
@@ -494,7 +515,8 @@ void DisassemblerWin32X64::ParseRel32RelocsFromSection(const Section* section) {
       // To be valid, rel32 target must be within image, and within this
       // section.
       if (IsValidRVA(target_rva) &&
-          start_rva <= target_rva && target_rva < end_rva) {
+          (is_rip_relative ||
+           (start_rva <= target_rva && target_rva < end_rva))) {
         rel32_locations_.push_back(rel32_rva);
 #if COURGETTE_HISTOGRAM_TARGETS
         ++rel32_target_rvas_[target_rva];
@@ -514,15 +536,11 @@ CheckBool DisassemblerWin32X64::ParseNonSectionFileRegion(
   if (incomplete_disassembly_)
     return true;
 
-  const uint8* start = OffsetToPointer(start_file_offset);
-  const uint8* end = OffsetToPointer(end_file_offset);
-
-  const uint8* p = start;
-
-  while (p < end) {
-    if (!program->EmitByteInstruction(*p))
+  if (end_file_offset > start_file_offset) {
+    if (!program->EmitBytesInstruction(OffsetToPointer(start_file_offset),
+                                       end_file_offset - start_file_offset)) {
       return false;
-    ++p;
+    }
   }
 
   return true;
@@ -572,15 +590,13 @@ CheckBool DisassemblerWin32X64::ParseFileRegion(
       ++abs32_pos;
 
     if (abs32_pos != abs32_locations_.end() && *abs32_pos == current_rva) {
-      uint32 target_address = Read32LittleEndian(p);
-      // TODO(wfh): image_base() can be larger than 32 bits, so this math can
-      // underflow.  Figure out the right solution here.
-      RVA target_rva = target_address - static_cast<uint32>(image_base());
+      uint64 target_address = Read64LittleEndian(p);
+      RVA target_rva = base::checked_cast<RVA>(target_address - image_base());
       // TODO(sra): target could be Label+offset.  It is not clear how to guess
       // which it might be.  We assume offset==0.
-      if (!program->EmitAbs32(program->FindOrMakeAbs32Label(target_rva)))
+      if (!program->EmitAbs64(program->FindOrMakeAbs32Label(target_rva)))
         return false;
-      p += 4;
+      p += 8;
       continue;
     }
 

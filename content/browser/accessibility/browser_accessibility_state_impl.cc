@@ -11,7 +11,7 @@
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_switches.h"
-#include "ui/gfx/sys_color_change_listener.h"
+#include "ui/gfx/color_utils.h"
 
 namespace content {
 
@@ -31,7 +31,8 @@ BrowserAccessibilityStateImpl* BrowserAccessibilityStateImpl::GetInstance() {
 
 BrowserAccessibilityStateImpl::BrowserAccessibilityStateImpl()
     : BrowserAccessibilityState(),
-      accessibility_mode_(AccessibilityModeOff) {
+      accessibility_mode_(AccessibilityModeOff),
+      disable_hot_tracking_(false) {
   ResetAccessibilityModeValue();
 #if defined(OS_WIN)
   // On Windows, UpdateHistograms calls some system functions with unknown
@@ -111,7 +112,7 @@ void BrowserAccessibilityStateImpl::UpdateHistograms() {
 
   UMA_HISTOGRAM_BOOLEAN("Accessibility.State", IsAccessibleBrowser());
   UMA_HISTOGRAM_BOOLEAN("Accessibility.InvertedColors",
-                        gfx::IsInvertedColorScheme());
+                        color_utils::IsInvertedColorScheme());
   UMA_HISTOGRAM_BOOLEAN("Accessibility.ManuallyEnabled",
                         base::CommandLine::ForCurrentProcess()->HasSwitch(
                             switches::kForceRendererAccessibility));

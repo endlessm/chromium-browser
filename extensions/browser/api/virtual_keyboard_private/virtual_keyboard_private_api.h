@@ -27,18 +27,6 @@ class VirtualKeyboardPrivateInsertTextFunction : public SyncExtensionFunction {
   bool RunSync() override;
 };
 
-class VirtualKeyboardPrivateMoveCursorFunction : public SyncExtensionFunction {
- public:
-  DECLARE_EXTENSION_FUNCTION("virtualKeyboardPrivate.moveCursor",
-                             VIRTUALKEYBOARDPRIVATE_MOVECURSOR);
-
- protected:
-  ~VirtualKeyboardPrivateMoveCursorFunction() override {}
-
-  // ExtensionFunction.
-  bool RunSync() override;
-};
-
 class VirtualKeyboardPrivateSendKeyEventFunction
     : public SyncExtensionFunction {
  public:
@@ -112,6 +100,18 @@ class VirtualKeyboardPrivateOpenSettingsFunction
 
  protected:
   ~VirtualKeyboardPrivateOpenSettingsFunction() override {}
+
+  // ExtensionFunction:
+  bool RunSync() override;
+};
+
+class VirtualKeyboardPrivateSetModeFunction : public SyncExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("virtualKeyboardPrivate.setMode",
+                             VIRTUALKEYBOARDPRIVATE_SETMODE);
+
+ protected:
+  ~VirtualKeyboardPrivateSetModeFunction() override {}
 
   // ExtensionFunction:
   bool RunSync() override;

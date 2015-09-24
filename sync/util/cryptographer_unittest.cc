@@ -138,13 +138,7 @@ TEST_F(CryptographerTest, AddKeySetsDefault) {
   EXPECT_EQ(encrypted3.key_name(), encrypted4.key_name());
 }
 
-// Crashes, Bug 55178.
-#if defined(OS_WIN)
-#define MAYBE_EncryptExportDecrypt DISABLED_EncryptExportDecrypt
-#else
-#define MAYBE_EncryptExportDecrypt EncryptExportDecrypt
-#endif
-TEST_F(CryptographerTest, MAYBE_EncryptExportDecrypt) {
+TEST_F(CryptographerTest, EncryptExportDecrypt) {
   sync_pb::EncryptedData nigori;
   sync_pb::EncryptedData encrypted;
 
@@ -262,6 +256,52 @@ TEST_F(CryptographerTest, CopyConstructor) {
 
   // The cloned cryptographer should be using the latest key.
   EXPECT_EQ(encrypted_c.key_name(), encrypted_k2.key_name());
+}
+
+// Test verifies that GetBootstrapToken/Bootstrap only transfers default
+// key. Additional call to GetKeys/InstallKeys is needed to transfer keybag
+// to decrypt messages encrypted with old keys.
+TEST_F(CryptographerTest, GetKeysThenInstall) {
+  sync_pb::PasswordSpecificsData original;
+  original.set_origin("http://example.com");
+  original.set_username_value("luser");
+  original.set_password_value("p4ssw0rd");
+
+  // First, encrypt the same value using two different keys.
+  KeyParams params1 = {"localhost", "dummy", "dummy"};
+  EXPECT_TRUE(cryptographer_.AddKey(params1));
+  EXPECT_TRUE(cryptographer_.is_ready());
+
+  sync_pb::EncryptedData encrypted_k1;
+  EXPECT_TRUE(cryptographer_.Encrypt(original, &encrypted_k1));
+
+  KeyParams params2 = {"localhost", "dummy2", "dummy2"};
+  EXPECT_TRUE(cryptographer_.AddKey(params2));
+  EXPECT_TRUE(cryptographer_.is_ready());
+
+  sync_pb::EncryptedData encrypted_k2;
+  EXPECT_TRUE(cryptographer_.Encrypt(original, &encrypted_k2));
+
+  // Then construct second cryptographer and bootstrap it from the first one.
+  Cryptographer another_cryptographer(cryptographer_.encryptor());
+  std::string bootstrap_token;
+  EXPECT_TRUE(cryptographer_.GetBootstrapToken(&bootstrap_token));
+  another_cryptographer.Bootstrap(bootstrap_token);
+
+  // Before key installation, the second cryptographer should only be able
+  // to decrypt using the last key.
+  EXPECT_FALSE(another_cryptographer.CanDecrypt(encrypted_k1));
+  EXPECT_TRUE(another_cryptographer.CanDecrypt(encrypted_k2));
+
+  sync_pb::EncryptedData keys;
+  EXPECT_TRUE(cryptographer_.GetKeys(&keys));
+  ASSERT_TRUE(another_cryptographer.CanDecrypt(keys));
+  another_cryptographer.InstallKeys(keys);
+
+  // Verify that bootstrapped cryptographer decrypts succesfully using
+  // all the keys after key installation.
+  EXPECT_TRUE(another_cryptographer.CanDecrypt(encrypted_k1));
+  EXPECT_TRUE(another_cryptographer.CanDecrypt(encrypted_k2));
 }
 
 }  // namespace syncer

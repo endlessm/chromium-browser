@@ -21,6 +21,7 @@ class IOBufferWithSize;
 namespace storage {
 class FileStreamReader;
 class ShareableFileReference;
+enum class FlushPolicy;
 }
 
 namespace storage {
@@ -35,6 +36,7 @@ class CopyOrMoveOperationDelegate
   class CopyOrMoveImpl;
   typedef FileSystemOperation::CopyProgressCallback CopyProgressCallback;
   typedef FileSystemOperation::CopyOrMoveOption CopyOrMoveOption;
+  typedef FileSystemOperation::ErrorBehavior ErrorBehavior;
 
   enum OperationType {
     OPERATION_COPY,
@@ -48,7 +50,7 @@ class CopyOrMoveOperationDelegate
     StreamCopyHelper(
         scoped_ptr<storage::FileStreamReader> reader,
         scoped_ptr<FileStreamWriter> writer,
-        bool need_flush,
+        FlushPolicy flush_policy,
         int buffer_size,
         const FileSystemOperation::CopyFileProgressCallback&
             file_progress_callback,
@@ -78,7 +80,7 @@ class CopyOrMoveOperationDelegate
 
     scoped_ptr<storage::FileStreamReader> reader_;
     scoped_ptr<FileStreamWriter> writer_;
-    const bool need_flush_;
+    const FlushPolicy flush_policy_;
     FileSystemOperation::CopyFileProgressCallback file_progress_callback_;
     scoped_refptr<net::IOBufferWithSize> io_buffer_;
     int64 num_copied_bytes_;
@@ -90,14 +92,14 @@ class CopyOrMoveOperationDelegate
     DISALLOW_COPY_AND_ASSIGN(StreamCopyHelper);
   };
 
-  CopyOrMoveOperationDelegate(
-      FileSystemContext* file_system_context,
-      const FileSystemURL& src_root,
-      const FileSystemURL& dest_root,
-      OperationType operation_type,
-      CopyOrMoveOption option,
-      const CopyProgressCallback& progress_callback,
-      const StatusCallback& callback);
+  CopyOrMoveOperationDelegate(FileSystemContext* file_system_context,
+                              const FileSystemURL& src_root,
+                              const FileSystemURL& dest_root,
+                              OperationType operation_type,
+                              CopyOrMoveOption option,
+                              ErrorBehavior error_behavior,
+                              const CopyProgressCallback& progress_callback,
+                              const StatusCallback& callback);
   ~CopyOrMoveOperationDelegate() override;
 
   // RecursiveOperationDelegate overrides:
@@ -147,6 +149,7 @@ class CopyOrMoveOperationDelegate
   bool same_file_system_;
   OperationType operation_type_;
   CopyOrMoveOption option_;
+  ErrorBehavior error_behavior_;
   CopyProgressCallback progress_callback_;
   StatusCallback callback_;
 

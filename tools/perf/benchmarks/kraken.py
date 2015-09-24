@@ -6,12 +6,16 @@
 
 import os
 
-from metrics import power
-from telemetry import benchmark
-from telemetry.page import page_set
+from core import perf_benchmark
+
+from telemetry import page as page_module
 from telemetry.page import page_test
+from telemetry import story
 from telemetry.value import list_of_scalar_values
 from telemetry.value import scalar
+
+from metrics import power
+
 
 DESCRIPTIONS = {
     'ai-astar':
@@ -110,14 +114,23 @@ class _KrakenMeasurement(page_test.PageTest):
                     '(http://krakenbenchmark.mozilla.org/)'))
 
 
-class Kraken(benchmark.Benchmark):
-  """Mozilla's Kraken JavaScript benchmark."""
+class Kraken(perf_benchmark.PerfBenchmark):
+  """Mozilla's Kraken JavaScript benchmark.
+
+  http://krakenbenchmark.mozilla.org/
+  """
   test = _KrakenMeasurement
 
-  def CreatePageSet(self, options):
-    ps = page_set.PageSet(
+  @classmethod
+  def Name(cls):
+    return 'kraken'
+
+  def CreateStorySet(self, options):
+    ps = story.StorySet(
       archive_data_file='../page_sets/data/kraken.json',
-      file_path=os.path.abspath(__file__))
-    ps.AddPageWithDefaultRunNavigate(
-      'http://krakenbenchmark.mozilla.org/kraken-1.1/driver.html')
+      base_dir=os.path.dirname(os.path.abspath(__file__)),
+      cloud_storage_bucket=story.PARTNER_BUCKET)
+    ps.AddStory(page_module.Page(
+        'http://krakenbenchmark.mozilla.org/kraken-1.1/driver.html',
+        ps, ps.base_dir))
     return ps

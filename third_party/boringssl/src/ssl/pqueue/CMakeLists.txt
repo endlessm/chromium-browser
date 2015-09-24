@@ -1,17 +1,19 @@
 include_directories(../../include)
 
 add_library(
-	pqueue
+  pqueue
 
-	OBJECT
+  OBJECT
 
-	pqueue.c
+  pqueue.c
 )
 
 add_executable(
-	pqueue_test
+  pqueue_test
 
-	pqueue_test.c
+  pqueue_test.c
+
+  $<TARGET_OBJECTS:test_support>
 )
 
 target_link_libraries(pqueue_test ssl crypto)

@@ -1,13 +1,11 @@
 dalecurtis@chromium.org
 ddorwin@chromium.org
-scherkus@chromium.org
+jrummell@chromium.org
+sandersd@chromium.org
 sergeyu@chromium.org
 tommi@chromium.org
-vrk@chromium.org
 xhwang@chromium.org
-xians@chromium.org
 
-per-file cast_*=hclam@chromium.org
+# For Cast streaming changes.
 per-file cast_*=hubbe@chromium.org
-per-file cast_*=mikhal@chromium.org
-per-file cast_*=pwestin@google.com
+per-file cast_*=miu@chromium.org

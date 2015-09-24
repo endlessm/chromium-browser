@@ -7,15 +7,12 @@
 from __future__ import print_function
 
 import json
-import logging
 import re
 import time
 import urllib
 
 from chromite.cbuildbot import constants
-
-
-logger = logging.getLogger('chromite')
+from chromite.lib import cros_logging as logging
 
 
 class LabIsDownException(Exception):
@@ -45,8 +42,7 @@ def GetLabStatus(max_attempts=5):
     try:
       response = urllib.urlopen(status_url)
     except IOError as e:
-      logger.log(logging.WARNING,
-               'Error occurred when grabbing the lab status: %s.', e)
+      logging.warning('Error occurred when grabbing the lab status: %s.', e)
       time.sleep(retry_waittime)
       continue
     # Check for successful response code.
@@ -57,12 +53,11 @@ def GetLabStatus(max_attempts=5):
       result['message'] = data['message']
       return result
     else:
-      logger.log(logging.WARNING,
-                 'Get HTTP code %d when grabbing the lab status from %s',
-                 code, status_url)
+      logging.warning('Get HTTP code %d when grabbing the lab status from %s',
+                      code, status_url)
       time.sleep(retry_waittime)
   # We go ahead and say the lab is open if we can't get the status.
-  logger.log(logging.WARNING, 'Could not get a status from %s', status_url)
+  logging.warning('Could not get a status from %s', status_url)
   return result
 
 
@@ -84,17 +79,16 @@ def CheckLabStatus(board=None):
   lab_status = GetLabStatus()
   if not lab_status['lab_is_up']:
     raise LabIsDownException('Chromium OS Lab is currently not up: '
-                                   '%s.' % lab_status['message'])
+                             '%s.' % lab_status['message'])
 
   # Check if the board we wish to use is disabled.
   # Lab messages should be in the format of:
   # Lab is 'status' [boards not to be ran] (comment). Example:
   # Lab is Open [stumpy, kiev, x86-alex] (power_resume rtc causing duts to go
   # down)
-  boards_are_disabled = re.search('\[(.*)\]', lab_status['message'])
+  boards_are_disabled = re.search(r'\[(.*)\]', lab_status['message'])
   if board and boards_are_disabled:
     if board in boards_are_disabled.group(1):
-      raise BoardIsDisabledException('Chromium OS Lab is '
-          'currently not allowing suites to be scheduled on board '
-          '%s: %s' % (board, lab_status['message']))
-  return
+      raise BoardIsDisabledException(
+          'Chromium OS Lab is currently not allowing suites to be scheduled '
+          'on board %s: %s' % (board, lab_status['message']))

@@ -79,17 +79,17 @@ class CertLibrary : public CertLoader::Observer {
   int GetUserCertIndexByPkcs11Id(const std::string& pkcs11_id) const;
 
   // CertLoader::Observer
-  virtual void OnCertificatesLoaded(const net::CertificateList&,
-                                    bool initial_load) override;
+  void OnCertificatesLoaded(const net::CertificateList&,
+                            bool initial_load) override;
 
  private:
   CertLibrary();
-  virtual ~CertLibrary();
+  ~CertLibrary() override;
 
   net::X509Certificate* GetCertificateAt(CertType type, int index) const;
   const net::CertificateList& GetCertificateListForType(CertType type) const;
 
-  ObserverList<CertLibrary::Observer> observer_list_;
+  base::ObserverList<CertLibrary::Observer> observer_list_;
 
   // Sorted certificate lists
   net::CertificateList certs_;

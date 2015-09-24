@@ -7,6 +7,9 @@
 #ifndef CHROME_BROWSER_CHROMEOS_EXTENSIONS_FILE_MANAGER_PRIVATE_API_DRIVE_H_
 #define CHROME_BROWSER_CHROMEOS_EXTENSIONS_FILE_MANAGER_PRIVATE_API_DRIVE_H_
 
+#include <string>
+#include <vector>
+
 #include "base/files/file.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/chromeos/drive/file_errors.h"
@@ -35,19 +38,19 @@ struct EntryProperties;
 // Retrieves property information for an entry and returns it as a dictionary.
 // On error, returns a dictionary with the key "error" set to the error number
 // (base::File::Error).
-class FileManagerPrivateGetEntryPropertiesFunction
+class FileManagerPrivateInternalGetEntryPropertiesFunction
     : public LoggedAsyncExtensionFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION("fileManagerPrivate.getEntryProperties",
-                             FILEMANAGERPRIVATE_GETENTRYPROPERTIES)
+  DECLARE_EXTENSION_FUNCTION("fileManagerPrivateInternal.getEntryProperties",
+                             FILEMANAGERPRIVATEINTERNAL_GETENTRYPROPERTIES)
 
-  FileManagerPrivateGetEntryPropertiesFunction();
+  FileManagerPrivateInternalGetEntryPropertiesFunction();
 
  protected:
-  virtual ~FileManagerPrivateGetEntryPropertiesFunction();
+  ~FileManagerPrivateInternalGetEntryPropertiesFunction() override;
 
   // AsyncExtensionFunction overrides.
-  virtual bool RunAsync() override;
+  bool RunAsync() override;
 
  private:
   void CompleteGetEntryProperties(
@@ -69,10 +72,10 @@ class FileManagerPrivatePinDriveFileFunction
                              FILEMANAGERPRIVATE_PINDRIVEFILE)
 
  protected:
-  virtual ~FileManagerPrivatePinDriveFileFunction() {}
+  ~FileManagerPrivatePinDriveFileFunction() override {}
 
   // AsyncExtensionFunction overrides.
-  virtual bool RunAsync() override;
+  bool RunAsync() override;
 
  private:
   // Callback for RunAsync().
@@ -87,10 +90,10 @@ class FileManagerPrivateCancelFileTransfersFunction
                              FILEMANAGERPRIVATE_CANCELFILETRANSFERS)
 
  protected:
-  virtual ~FileManagerPrivateCancelFileTransfersFunction() {}
+  ~FileManagerPrivateCancelFileTransfersFunction() override {}
 
   // AsyncExtensionFunction overrides.
-  virtual bool RunAsync() override;
+  bool RunAsync() override;
 };
 
 class FileManagerPrivateSearchDriveFunction
@@ -102,9 +105,9 @@ class FileManagerPrivateSearchDriveFunction
                              FILEMANAGERPRIVATE_SEARCHDRIVE)
 
  protected:
-  virtual ~FileManagerPrivateSearchDriveFunction() {}
+  ~FileManagerPrivateSearchDriveFunction() override {}
 
-  virtual bool RunAsync() override;
+  bool RunAsync() override;
 
  private:
   // Callback for Search().
@@ -130,9 +133,9 @@ class FileManagerPrivateSearchDriveMetadataFunction
                              FILEMANAGERPRIVATE_SEARCHDRIVEMETADATA)
 
  protected:
-  virtual ~FileManagerPrivateSearchDriveMetadataFunction() {}
+  ~FileManagerPrivateSearchDriveMetadataFunction() override {}
 
-  virtual bool RunAsync() override;
+  bool RunAsync() override;
 
  private:
   // Callback for SearchMetadata();
@@ -156,9 +159,9 @@ class FileManagerPrivateGetDriveConnectionStateFunction
       FILEMANAGERPRIVATE_GETDRIVECONNECTIONSTATE);
 
  protected:
-  virtual ~FileManagerPrivateGetDriveConnectionStateFunction() {}
+  ~FileManagerPrivateGetDriveConnectionStateFunction() override {}
 
-  virtual bool RunSync() override;
+  bool RunSync() override;
 };
 
 // Implements the chrome.fileManagerPrivate.requestAccessToken method.
@@ -169,13 +172,13 @@ class FileManagerPrivateRequestAccessTokenFunction
                              FILEMANAGERPRIVATE_REQUESTACCESSTOKEN)
 
  protected:
-  virtual ~FileManagerPrivateRequestAccessTokenFunction() {}
+  ~FileManagerPrivateRequestAccessTokenFunction() override {}
 
   // AsyncExtensionFunction overrides.
-  virtual bool RunAsync() override;
+  bool RunAsync() override;
 
   // Callback with a cached auth token (if available) or a fetched one.
-  void OnAccessTokenFetched(google_apis::GDataErrorCode code,
+  void OnAccessTokenFetched(google_apis::DriveApiErrorCode code,
                             const std::string& access_token);
 };
 
@@ -187,10 +190,10 @@ class FileManagerPrivateGetShareUrlFunction
                              FILEMANAGERPRIVATE_GETSHAREURL)
 
  protected:
-  virtual ~FileManagerPrivateGetShareUrlFunction() {}
+  ~FileManagerPrivateGetShareUrlFunction() override {}
 
   // AsyncExtensionFunction overrides.
-  virtual bool RunAsync() override;
+  bool RunAsync() override;
 
   // Callback with an url to the sharing dialog as |share_url|, called by
   // FileSystem::GetShareUrl.
@@ -205,8 +208,8 @@ class FileManagerPrivateRequestDriveShareFunction
                              FILEMANAGERPRIVATE_REQUESTDRIVESHARE);
 
  protected:
-  virtual ~FileManagerPrivateRequestDriveShareFunction() {}
-  virtual bool RunAsync() override;
+  ~FileManagerPrivateRequestDriveShareFunction() override {}
+  bool RunAsync() override;
 
  private:
   // Called back after the drive file system operation is finished.
@@ -223,21 +226,21 @@ class FileManagerPrivateGetDownloadUrlFunction
                              FILEMANAGERPRIVATE_GETDOWNLOADURL)
 
  protected:
-  virtual ~FileManagerPrivateGetDownloadUrlFunction();
+  ~FileManagerPrivateGetDownloadUrlFunction() override;
 
   // AsyncExtensionFunction overrides.
-  virtual bool RunAsync() override;
+  bool RunAsync() override;
 
   void OnGetResourceEntry(drive::FileError error,
                           scoped_ptr<drive::ResourceEntry> entry);
 
   // Callback with an |access_token|, called by
   // drive::DriveReadonlyTokenFetcher.
-  void OnTokenFetched(google_apis::GDataErrorCode code,
+  void OnTokenFetched(google_apis::DriveApiErrorCode code,
                       const std::string& access_token);
 
  private:
-  std::string download_url_;
+  GURL download_url_;
   scoped_ptr<google_apis::AuthService> auth_service_;
 };
 

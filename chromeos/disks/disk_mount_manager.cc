@@ -4,7 +4,6 @@
 
 #include "chromeos/disks/disk_mount_manager.h"
 
-#include <map>
 #include <set>
 
 #include "base/bind.h"
@@ -13,6 +12,7 @@
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/disks/suspend_unmount_manager.h"
 
 namespace chromeos {
 namespace disks {
@@ -30,9 +30,11 @@ class DiskMountManagerImpl : public DiskMountManager {
     already_refreshed_(false),
     weak_ptr_factory_(this) {
     DBusThreadManager* dbus_thread_manager = DBusThreadManager::Get();
-    DCHECK(dbus_thread_manager);
     cros_disks_client_ = dbus_thread_manager->GetCrosDisksClient();
-    DCHECK(cros_disks_client_);
+    PowerManagerClient* power_manager_client =
+        dbus_thread_manager->GetPowerManagerClient();
+    suspend_unmount_manager_.reset(
+        new SuspendUnmountManager(this, power_manager_client));
     cros_disks_client_->SetMountEventHandler(
         base::Bind(&DiskMountManagerImpl::OnMountEvent,
                    weak_ptr_factory_.GetWeakPtr()));
@@ -44,25 +46,25 @@ class DiskMountManagerImpl : public DiskMountManager {
                    weak_ptr_factory_.GetWeakPtr()));
   }
 
-  virtual ~DiskMountManagerImpl() {
+  ~DiskMountManagerImpl() override {
     STLDeleteContainerPairSecondPointers(disks_.begin(), disks_.end());
   }
 
   // DiskMountManager override.
-  virtual void AddObserver(Observer* observer) override {
+  void AddObserver(Observer* observer) override {
     observers_.AddObserver(observer);
   }
 
   // DiskMountManager override.
-  virtual void RemoveObserver(Observer* observer) override {
+  void RemoveObserver(Observer* observer) override {
     observers_.RemoveObserver(observer);
   }
 
   // DiskMountManager override.
-  virtual void MountPath(const std::string& source_path,
-                         const std::string& source_format,
-                         const std::string& mount_label,
-                         MountType type) override {
+  void MountPath(const std::string& source_path,
+                 const std::string& source_format,
+                 const std::string& mount_label,
+                 MountType type) override {
     // Hidden and non-existent devices should not be mounted.
     if (type == MOUNT_TYPE_DEVICE) {
       DiskMap::const_iterator it = disks_.find(source_path);
@@ -85,9 +87,9 @@ class DiskMountManagerImpl : public DiskMountManager {
   }
 
   // DiskMountManager override.
-  virtual void UnmountPath(const std::string& mount_path,
-                           UnmountOptions options,
-                           const UnmountPathCallback& callback) override {
+  void UnmountPath(const std::string& mount_path,
+                   UnmountOptions options,
+                   const UnmountPathCallback& callback) override {
     UnmountChildMounts(mount_path);
     cros_disks_client_->Unmount(mount_path, options,
                                 base::Bind(&DiskMountManagerImpl::OnUnmountPath,
@@ -103,7 +105,7 @@ class DiskMountManagerImpl : public DiskMountManager {
   }
 
   // DiskMountManager override.
-  virtual void FormatMountedDevice(const std::string& mount_path) override {
+  void FormatMountedDevice(const std::string& mount_path) override {
     MountPointMap::const_iterator mount_point = mount_points_.find(mount_path);
     if (mount_point == mount_points_.end()) {
       LOG(ERROR) << "Mount point with path \"" << mount_path << "\" not found.";
@@ -127,7 +129,7 @@ class DiskMountManagerImpl : public DiskMountManager {
   }
 
   // DiskMountManager override.
-  virtual void UnmountDeviceRecursively(
+  void UnmountDeviceRecursively(
       const std::string& device_path,
       const UnmountDeviceRecursivelyCallbackType& callback) override {
     std::vector<std::string> devices_to_unmount;
@@ -191,9 +193,10 @@ class DiskMountManagerImpl : public DiskMountManager {
   }
 
   // DiskMountManager override.
-  virtual void EnsureMountInfoRefreshed(
-      const EnsureMountInfoRefreshedCallback& callback) override {
-    if (already_refreshed_) {
+  void EnsureMountInfoRefreshed(
+      const EnsureMountInfoRefreshedCallback& callback,
+      bool force) override {
+    if (!force && already_refreshed_) {
       callback.Run(true);
       return;
     }
@@ -210,22 +213,20 @@ class DiskMountManagerImpl : public DiskMountManager {
   }
 
   // DiskMountManager override.
-  virtual const DiskMap& disks() const override { return disks_; }
+  const DiskMap& disks() const override { return disks_; }
 
   // DiskMountManager override.
-  virtual const Disk* FindDiskBySourcePath(const std::string& source_path)
-      const override {
+  const Disk* FindDiskBySourcePath(
+      const std::string& source_path) const override {
     DiskMap::const_iterator disk_it = disks_.find(source_path);
     return disk_it == disks_.end() ? NULL : disk_it->second;
   }
 
   // DiskMountManager override.
-  virtual const MountPointMap& mount_points() const override {
-    return mount_points_;
-  }
+  const MountPointMap& mount_points() const override { return mount_points_; }
 
   // DiskMountManager override.
-  virtual bool AddDiskForTest(Disk* disk) override {
+  bool AddDiskForTest(Disk* disk) override {
     if (disks_.find(disk->device_path()) != disks_.end()) {
       LOG(ERROR) << "Attempt to add a duplicate disk";
       return false;
@@ -237,8 +238,7 @@ class DiskMountManagerImpl : public DiskMountManager {
 
   // DiskMountManager override.
   // Corresponding disk should be added to the manager before this is called.
-  virtual bool AddMountPointForTest(
-      const MountPointInfo& mount_point) override {
+  bool AddMountPointForTest(const MountPointInfo& mount_point) override {
     if (mount_points_.find(mount_point.mount_path) != mount_points_.end()) {
       LOG(ERROR) << "Attempt to add a duplicate mount point";
       return false;
@@ -277,8 +277,8 @@ class DiskMountManagerImpl : public DiskMountManager {
     for (MountPointMap::iterator it = mount_points_.begin();
          it != mount_points_.end();
          ++it) {
-      if (StartsWithASCII(it->second.source_path, mount_path,
-                          true /*case sensitive*/)) {
+      if (base::StartsWithASCII(it->second.source_path, mount_path,
+                                true /*case sensitive*/)) {
         // TODO(tbarzic): Handle the case where this fails.
         UnmountPath(it->second.mount_path,
                     UNMOUNT_OPTIONS_NONE,
@@ -607,14 +607,14 @@ class DiskMountManagerImpl : public DiskMountManager {
          it != system_path_prefixes_.end();
          ++it) {
       const std::string& prefix = *it;
-      if (StartsWithASCII(system_path, prefix, true))
+      if (base::StartsWithASCII(system_path, prefix, true))
         return prefix;
     }
     return base::EmptyString();
   }
 
   // Mount event change observers.
-  ObserverList<Observer> observers_;
+  base::ObserverList<Observer> observers_;
 
   CrosDisksClient* cros_disks_client_;
 
@@ -628,6 +628,8 @@ class DiskMountManagerImpl : public DiskMountManager {
 
   bool already_refreshed_;
   std::vector<EnsureMountInfoRefreshedCallback> refresh_callbacks_;
+
+  scoped_ptr<SuspendUnmountManager> suspend_unmount_manager_;
 
   base::WeakPtrFactory<DiskMountManagerImpl> weak_ptr_factory_;
 

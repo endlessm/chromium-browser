@@ -22,7 +22,6 @@ namespace {
 // Google Update related constants.
 const wchar_t kClientsKey[] = L"SOFTWARE\\Google\\Update\\Clients\\";
 const wchar_t kClientStateKey[] = L"SOFTWARE\\Google\\Update\\ClientState\\";
-const wchar_t* kUsageKey = L"dr";
 const wchar_t kVersionKey[] = L"pv";
 const wchar_t kNameKey[] = L"name";
 
@@ -144,7 +143,7 @@ void CreateUninstallKey(const base::string16& uninstall_id,
   base::FilePath unstall_binary;
   CHECK(PathService::Get(base::FILE_EXE, &unstall_binary));
 
-  CommandLine uninstall_command(unstall_binary);
+  base::CommandLine uninstall_command(unstall_binary);
   uninstall_command.AppendSwitch(uninstall_switch);
   key.WriteValue(kUninstallString,
                  uninstall_command.GetCommandLineString().c_str());
@@ -200,11 +199,10 @@ void DeleteProgramDir(const std::string& delete_switch) {
     return;
   base::CopyFile(installer_source, temp_path);
   base::DeleteFileAfterReboot(temp_path);
-  CommandLine command_line(temp_path);
+  base::CommandLine command_line(temp_path);
   command_line.AppendSwitchPath(delete_switch, installer_source.DirName());
   base::LaunchOptions options;
-  base::ProcessHandle process_handle;
-  if (!base::LaunchProcess(command_line, options, &process_handle)) {
+  if (!base::LaunchProcess(command_line, options).IsValid()) {
     LOG(ERROR) << "Unable to launch child uninstall.";
   }
 }

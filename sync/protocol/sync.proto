@@ -38,6 +38,7 @@ import "nigori_specifics.proto";
 import "managed_user_setting_specifics.proto";
 import "managed_user_shared_setting_specifics.proto";
 import "managed_user_specifics.proto";
+import "managed_user_whitelist_specifics.proto";
 import "password_specifics.proto";
 import "preference_specifics.proto";
 import "priority_preference_specifics.proto";
@@ -72,7 +73,7 @@ message EntitySpecifics {
 
   // To add new datatype-specific fields to the protocol, extend
   // EntitySpecifics.  First, pick a non-colliding tag number by
-  // picking a revision number of one of your past commits
+  // picking a Cr-Commit-Position of one of your past commits
   // to src.chromium.org.  Then, in a different protocol buffer
   // definition, define your message type, and add an optional field
   // to the list below using the unique tag value you selected.
@@ -116,8 +117,7 @@ message EntitySpecifics {
   optional AppSettingSpecifics app_setting = 103656;
   optional HistoryDeleteDirectiveSpecifics history_delete_directive = 150251;
   optional SyncedNotificationSpecifics synced_notification = 153108;
-  optional SyncedNotificationAppInfoSpecifics synced_notification_app_info =
-      235816;
+  optional SyncedNotificationAppInfoSpecifics synced_notification_app_info = 235816;
   optional DeviceInfoSpecifics device_info = 154522;
   optional ExperimentsSpecifics experiments = 161496;
   optional PriorityPreferenceSpecifics priority_preference = 163425;
@@ -128,9 +128,12 @@ message EntitySpecifics {
   optional ManagedUserSpecifics managed_user = 194582;
   optional ManagedUserSharedSettingSpecifics managed_user_shared_setting =
       202026;
+  optional ManagedUserWhitelistSpecifics managed_user_whitelist = 306060;
   optional ArticleSpecifics article = 223759;
   optional AppListSpecifics app_list = 229170;
   optional WifiCredentialSpecifics wifi_credential = 218175;
+  optional AutofillWalletSpecifics autofill_wallet = 306270;
+  optional WalletMetadataSpecifics wallet_metadata = 330441;
 }
 
 message SyncEntity {
@@ -490,6 +493,13 @@ message GetUpdateTriggers {
   //
   // Introduced in M38.
   optional bool initial_sync_in_progress = 7;
+
+  // This flag is set if this GetUpdate request is due to client receiving
+  // conflict response from server, so client needs to sync and then resolve
+  // conflict locally, and then commit again.
+  //
+  // Introduced in M42.
+  optional bool sync_for_resolve_conflict_in_progress = 8;
 }
 
 message GarbageCollectionDirective {
@@ -655,10 +665,26 @@ message AuthenticateMessage {
   required string auth_token = 1;
 };
 
-message ClearUserDataMessage {
+// Message from a client asking the server to clear its data.
+//
+// A client makes a ClearServerData request when it transitions to passphrase
+// encryption to ensure the server deletes any plaintext data that may have been
+// synced previously.
+message ClearServerDataMessage {
+  // No arguments needed as the store birthday and user identifier are part of
+  // an enclosing message.
 };
 
-message ClearUserDataResponse {
+// Response to a ClearServerData request.
+message ClearServerDataResponse {
+  // No result fields necessary. Success/failure is indicated in
+  // ClientToServerResponse.
+};
+
+message DeprecatedMessage1 {
+};
+
+message DeprecatedMessage2 {
 };
 
 // The client must preserve, store, and resend the chip bag with
@@ -705,21 +731,25 @@ message DataTypeContext {
 
 message ClientToServerMessage {
   required string share = 1;
-  optional int32 protocol_version = 2 [default = 34];
+  optional int32 protocol_version = 2 [default = 45];
   enum Contents {
     COMMIT = 1;
     GET_UPDATES = 2;
     AUTHENTICATE = 3;
-    CLEAR_DATA = 4;
+    DEPRECATED_4 = 4;
+    CLEAR_SERVER_DATA = 5;
   }
 
+  // Each ClientToServerMessage contains one request defined by the
+  // message_contents. Each type has a corresponding message field that will be
+  // present iff the message is of that type. E.g. a commit message will have a
+  // message_contents of COMMIT and its commit field will be present.
   required Contents message_contents = 3;
   optional CommitMessage commit = 4;
   optional GetUpdatesMessage get_updates = 5;
   optional AuthenticateMessage authenticate = 6;
 
-  // Request to clear all Chromium data from the server.
-  optional ClearUserDataMessage clear_user_data = 9;
+  optional DeprecatedMessage1 deprecated_field_9 = 9 [deprecated = true];
 
   optional string store_birthday = 7; // Opaque store ID; if it changes, duck!
   // The client sets this if it detects a sync issue. The server will tell it
@@ -747,6 +777,10 @@ message ClientToServerMessage {
   // Sending the ID here allows the server to not send notifications of our own
   // changes to our invalidator.
   optional string invalidator_client_id = 14;
+
+  // Identifies this ClientToServerMessage as a clear server data request. This
+  // field is present when message_contents is CLEAR_SERVER_DATA.
+  optional ClearServerDataMessage clear_server_data = 15;
 };
 
 // This request allows the client to convert a specific crash identifier
@@ -941,7 +975,7 @@ message ClientToServerResponse {
 
   optional ClientCommand client_command = 7;
   optional ProfilingData profiling_data = 8;
-  optional ClearUserDataResponse clear_user_data = 9;
+  optional DeprecatedMessage2 deprecated_field_9 = 9 [deprecated = true];
   optional GetUpdatesMetadataResponse stream_metadata = 10;
   // If GetUpdatesStreamingResponse is contained in the ClientToServerResponse,
   // none of the other fields (error_code and etc) will be set.
@@ -957,8 +991,11 @@ message ClientToServerResponse {
     optional string url                     = 3;
     optional SyncEnums.Action action        = 4 [default = UNKNOWN_ACTION];
 
-    // Currently only meaningful if |error_type| is throttled. If this field
-    // is absent then the whole client (all datatypes) is throttled.
+    // Currently meaningful if |error_type| is throttled or partial_failure.
+    // In the throttled case, if this field is absent then the whole client
+    // (all datatypes) is throttled.
+    // In the partial_failure case, this field denotes partial failures. The
+    // client should retry those datatypes with exponential backoff.
     repeated int32 error_data_type_ids = 5;
   }
   optional Error error = 13;
@@ -966,4 +1003,26 @@ message ClientToServerResponse {
   // The new per-client state for this client. If set, should be persisted and
   // sent with any subsequent ClientToServerMessages.
   optional ChipBag new_bag_of_chips = 14;
+
+  // Present if this ClientToServerResponse is in response to a ClearServerData
+  // request.
+  optional ClearServerDataResponse clear_server_data = 15;
+};
+
+// A message to notify the server of certain sync events. Idempotent. Send these
+// to the /event endpoint.
+message EventRequest {
+  optional SyncDisabledEvent sync_disabled = 1;
+};
+
+message EventResponse {
+};
+
+// A message indicating that the sync engine has been disabled on a client.
+message SyncDisabledEvent {
+  // The GUID that identifies the sync client.
+  optional string cache_guid = 1;
+
+  // The store birthday that the client was using before disabling sync.
+  optional string store_birthday = 2;
 };

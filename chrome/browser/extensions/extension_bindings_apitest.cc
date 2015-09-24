@@ -80,9 +80,21 @@ IN_PROC_BROWSER_TEST_F(ExtensionBindingsApiTest,
 
 // Tests that we don't override events when bindings are re-injected.
 // Regression test for http://crbug.com/269149.
+// Regression test for http://crbug.com/436593.
 IN_PROC_BROWSER_TEST_F(ExtensionBindingsApiTest, EventOverriding) {
   ASSERT_TRUE(RunExtensionTest("bindings/event_overriding")) << message_;
 }
+
+// Tests the effectiveness of the 'nocompile' feature file property.
+// Regression test for http://crbug.com/356133.
+IN_PROC_BROWSER_TEST_F(ExtensionBindingsApiTest, Nocompile) {
+  ASSERT_TRUE(RunExtensionSubtest("bindings/nocompile", "page.html"))
+      << message_;
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionBindingsApiTest, ApiEnums) {
+  ASSERT_TRUE(RunExtensionTest("bindings/api_enums")) << message_;
+};
 
 }  // namespace
 }  // namespace extensions

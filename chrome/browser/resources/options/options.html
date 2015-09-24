@@ -1,11 +1,12 @@
-<!DOCTYPE HTML>
-<html id="t" i18n-values="dir:textdirection">
+<!doctype html>
+<html id="t" i18n-values="dir:textdirection;lang:language">
 <head>
 <meta charset="utf-8">
 <title i18n-content="optionsPageTitle"></title>
 <link rel="stylesheet" href="chrome://resources/css/bubble.css">
 <link rel="stylesheet" href="chrome://resources/css/bubble_button.css">
 <link rel="stylesheet" href="chrome://resources/css/chrome_shared.css">
+<link rel="stylesheet" href="chrome://resources/css/controlled_indicator.css">
 <link rel="stylesheet" href="chrome://resources/css/list.css">
 <link rel="stylesheet" href="chrome://resources/css/overlay.css">
 <link rel="stylesheet" href="chrome://resources/css/spinner.css">
@@ -22,7 +23,6 @@
 </if>
 <link rel="stylesheet" href="clear_browser_data_overlay.css">
 <link rel="stylesheet" href="content_settings.css">
-<link rel="stylesheet" href="controlled_setting.css">
 <link rel="stylesheet" href="cookies_view.css">
 <link rel="stylesheet" href="do_not_track_confirm_overlay.css">
 <link rel="stylesheet" href="easy_unlock_turn_off_overlay.css">
@@ -48,7 +48,6 @@
 <link rel="stylesheet" href="supervised_user_create_confirm.css">
 <link rel="stylesheet" href="supervised_user_import.css">
 <link rel="stylesheet" href="supervised_user_learn_more.css">
-<link rel="stylesheet" href="website_settings.css">
 <link rel="stylesheet" href="../help/help_content.css">
 <link rel="stylesheet" href="sync_setup_overlay.css">
 <if expr="chromeos">
@@ -65,7 +64,7 @@
 <link rel="stylesheet" href="factory_reset_overlay.css">
 <link rel="stylesheet" href="../help/channel_change_page.css">
 </if>
-<if expr="use_nss">
+<if expr="use_nss_certs">
 <link rel="stylesheet" href="certificate_manager.css">
 <link rel="stylesheet" href="certificate_tree.css">
 </if>
@@ -82,6 +81,7 @@
 <script src="chrome://resources/js/cr/ui/array_data_model.js"></script>
 <script src="chrome://resources/js/cr/ui/bubble.js"></script>
 <script src="chrome://resources/js/cr/ui/bubble_button.js"></script>
+<script src="chrome://resources/js/cr/ui/controlled_indicator.js"></script>
 <script src="chrome://resources/js/cr/ui/focus_manager.js"></script>
 <script src="chrome://resources/js/cr/ui/focus_outline_manager.js"></script>
 <script src="chrome://resources/js/cr/ui/list_selection_model.js"></script>
@@ -108,7 +108,7 @@
 <script src="chrome://settings-frame/options_bundle.js"></script>
 </head>
 
-<body i18n-values=".style.fontFamily:fontfamily;.style.fontSize:fontsize">
+<body>
 <div id="overlay-container-1" class="overlay transparent" hidden>
   <include src="autofill_options.html">
   <include src="clear_browser_data_overlay.html">
@@ -141,7 +141,7 @@
   <include src="chromeos/power_overlay.html">
   <include src="factory_reset_overlay.html">
 </if>
-<if expr="use_nss">
+<if expr="use_nss_certs">
   <include src="certificate_manager.html">
 </if>
 </div>
@@ -155,7 +155,6 @@
   <include src="language_add_language_overlay.html">
   <include src="supervised_user_import.html">
   <include src="supervised_user_learn_more.html">
-  <include src="website_settings.html">
 <if expr="not is_macosx">
   <include src="language_dictionary_overlay.html">
 </if>
@@ -172,9 +171,6 @@
   <include src="certificate_edit_ca_trust_overlay.html">
   <include src="certificate_import_error_overlay.html">
 </if>
-<div id="overlay-container-3" class="overlay transparent" hidden>
-  <include src="website_settings_edit_site.html">
-</div>
 </div>
 <div id="extension-controlled-settings-bubble-template" hidden>
   <div class="controlled-setting-bubble-content-row">
@@ -209,6 +205,6 @@
   </div>
 </div>
 
-<script src="chrome://resources/js/i18n_template2.js"></script>
+<script src="chrome://resources/js/i18n_template.js"></script>
 </body>
 </html>

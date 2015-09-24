@@ -40,7 +40,10 @@ class PropertyAccessCompiler BASE_EMBEDDED {
         kind_(kind),
         cache_holder_(cache_holder),
         isolate_(isolate),
-        masm_(isolate, NULL, 256) {}
+        masm_(isolate, NULL, 256) {
+    // TODO(yangguo): remove this once we can serialize IC stubs.
+    masm_.enable_serializer();
+  }
 
   Code::Kind kind() const { return kind_; }
   CacheHolderFlag cache_holder() const { return cache_holder_; }
@@ -51,6 +54,8 @@ class PropertyAccessCompiler BASE_EMBEDDED {
 
   Register receiver() const { return registers_[0]; }
   Register name() const { return registers_[1]; }
+  Register slot() const { return LoadDescriptor::SlotRegister(); }
+  Register vector() const { return LoadWithVectorDescriptor::VectorRegister(); }
   Register scratch1() const { return registers_[2]; }
   Register scratch2() const { return registers_[3]; }
   Register scratch3() const { return registers_[4]; }

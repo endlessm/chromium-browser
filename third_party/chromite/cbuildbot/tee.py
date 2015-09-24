@@ -15,19 +15,21 @@ import signal
 import subprocess
 import sys
 import traceback
+
 from chromite.lib import cros_build_lib
 
 
 # Max amount of data we're hold in the buffer at a given time.
 _BUFSIZE = 1024
 
-# Custom signal handlers so we can catch the exception and handle
-# it.
+
+# Custom signal handlers so we can catch the exception and handle it.
 class ToldToDie(Exception):
   """Exception thrown via signal handlers."""
 
   def __init__(self, signum):
     Exception.__init__(self, "We received signal %i" % (signum,))
+
 
 # pylint: disable=W0613
 def _TeeProcessSignalHandler(signum, frame):
@@ -36,6 +38,7 @@ def _TeeProcessSignalHandler(signum, frame):
   This is used to decide whether or not to kill our parent.
   """
   raise ToldToDie(signum)
+
 
 def _output(line, output_files, complain):
   """Print line to output_files.
@@ -65,15 +68,21 @@ def _output(line, output_files, complain):
                                                              f.fileno())
           _output(warning, output_files, False)
 
-        warning = '\nWarning: Short write for %s/%d.\n' % (f.name,
-                                                           f.fileno())
+        warning = '\nWarning: Short write for %s/%d.\n' % (f.name, f.fileno())
         _output(warning, output_files, False)
 
 
-def _tee(input_file, output_files, complain):
-  """Read lines from input_file and write to output_files."""
-  for line in iter(lambda: input_file.readline(_BUFSIZE), ''):
-    _output(line, output_files, complain)
+def _tee(input_fd, output_files, complain):
+  """Read data from |input_fd| and write to |output_files|."""
+  while True:
+    # We need to use os.read() directly because it will return to us when the
+    # other side has flushed its output (and is shorter than _BUFSIZE).  If we
+    # use python's file object helpers (like read() and readline()), it will
+    # not return until either the full buffer is filled or a newline is hit.
+    data = os.read(input_fd, _BUFSIZE)
+    if not data:
+      return
+    _output(data, output_files, complain)
 
 
 class _TeeProcess(multiprocessing.Process):
@@ -114,7 +123,6 @@ class _TeeProcess(multiprocessing.Process):
 
   def run(self):
     """Main function for tee subprocess."""
-
     failed = True
     try:
       signal.signal(signal.SIGINT, _TeeProcessSignalHandler)
@@ -124,15 +132,15 @@ class _TeeProcess(multiprocessing.Process):
       self._CloseUnnecessaryFds()
 
       # Read from the pipe.
-      input_file = os.fdopen(self._reader_pipe, 'r', 0)
+      input_fd = self._reader_pipe
 
       # Create list of files to write to.
       output_files = [os.fdopen(sys.stdout.fileno(), 'w', 0)]
       for filename in self._output_filenames:
         output_files.append(open(filename, 'w', 0))
 
-      # Read all lines from input_file and write to output_files.
-      _tee(input_file, output_files, self._complain)
+      # Send all data from the one input to all the outputs.
+      _tee(input_fd, output_files, self._complain)
       failed = False
     except ToldToDie:
       failed = False
@@ -145,8 +153,8 @@ class _TeeProcess(multiprocessing.Process):
       # imminent demise.
 
     finally:
-      # Close input file.
-      input_file.close()
+      # Close input.
+      os.close(input_fd)
 
       if failed:
         try:
@@ -164,6 +172,7 @@ class _TeeProcess(multiprocessing.Process):
 
 class Tee(cros_build_lib.MasterPidContextManager):
   """Class that handles tee-ing output to a file."""
+
   def __init__(self, output_file):
     """Initializes object with path to log file."""
     cros_build_lib.MasterPidContextManager.__init__(self)

@@ -16,7 +16,7 @@
 #include "Sk1DPathEffect.h"
 #include "Sk2DPathEffect.h"
 #include "SkArithmeticMode.h"
-#include "SkAvoidXfermode.h"
+#include "SkArcToPathEffect.h"
 #include "SkBitmapSource.h"
 #include "SkBlurDrawLooper.h"
 #include "SkBlurImageFilter.h"
@@ -46,6 +46,7 @@
 #include "SkMagnifierImageFilter.h"
 #include "SkMatrixConvolutionImageFilter.h"
 #include "SkMergeImageFilter.h"
+#include "SkModeColorFilter.h"
 #include "SkMorphologyImageFilter.h"
 #include "SkOffsetImageFilter.h"
 #include "SkOnce.h"
@@ -60,10 +61,27 @@
 #include "SkMatrixImageFilter.h"
 #include "SkXfermodeImageFilter.h"
 
+//  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+//
+//  Adding new classes to Init() below has security consequences in Chrome.
+//
+//  In particular, it is important that we don't create code paths that
+//  deserialize untrusted data as SkImageFilters; SkImageFilters are sent from
+//  Chrome renderers (untrusted) to the main (trusted) process.
+//
+//  If you add a new SkImageFilter here _or_ other effect that can be part of
+//  an SkImageFilter, it's a good idea to have chrome-security@google.com sign
+//  off on the CL, and at minimum extend SampleFilterFuzz.cpp to fuzz it.
+//
+//  SkPictures are untrusted data.  Please be extremely careful not to allow
+//  SkPictures created in a Chrome renderer to be deserialized in the main process.
+//
+//  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 class SkPrivateEffectInitializer {
 public:
     static void Init() {
-        SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkAvoidXfermode)
+        SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkArcToPathEffect)
         SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkBitmapProcShader)
         SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkBitmapSource)
         SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkBlurDrawLooper)
@@ -89,6 +107,7 @@ public:
         SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkLumaColorFilter)
         SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkPath1DPathEffect)
         SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkLine2DPathEffect)
+        SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkModeColorFilter)
         SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkPath2DPathEffect)
         SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkPerlinNoiseShader)
         SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkPictureImageFilter)
@@ -118,7 +137,7 @@ public:
     }
 };
 
+SK_DECLARE_STATIC_ONCE(once);
 void SkFlattenable::InitializeFlattenablesIfNeeded() {
-    SK_DECLARE_STATIC_ONCE(once);
     SkOnce(&once, SkPrivateEffectInitializer::Init);
 }

@@ -22,6 +22,7 @@ class ListValue;
 
 namespace content {
 class BrowserContext;
+class RenderFrameHost;
 class WebContents;
 }
 
@@ -39,10 +40,12 @@ class AppSorting;
 class ComponentExtensionResourceManager;
 class Extension;
 class ExtensionCache;
+class ExtensionError;
 class ExtensionHostDelegate;
 class ExtensionPrefsObserver;
 class ExtensionSystem;
 class ExtensionSystemProvider;
+class ExtensionWebContentsObserver;
 class InfoMap;
 class ProcessManagerDelegate;
 class RuntimeAPIDelegate;
@@ -87,6 +90,13 @@ class ExtensionsBrowserClient {
   // |context| is not incognito.
   virtual content::BrowserContext* GetOriginalContext(
       content::BrowserContext* context) = 0;
+
+#if defined(OS_CHROMEOS)
+  // Returns a user id hash from |context| or an empty string if no hash could
+  // be extracted.
+  virtual std::string GetUserIdHashFromContext(
+      content::BrowserContext* context) = 0;
+#endif
 
   // Returns true if |context| corresponds to a guest session.
   virtual bool IsGuestSession(content::BrowserContext* context) const = 0;
@@ -169,6 +179,10 @@ class ExtensionsBrowserClient {
   virtual void RegisterExtensionFunctions(
       ExtensionFunctionRegistry* registry) const = 0;
 
+  // Registers Mojo services for a RenderFrame.
+  virtual void RegisterMojoServices(content::RenderFrameHost* render_frame_host,
+                                    const Extension* extension) const = 0;
+
   // Creates a RuntimeAPIDelegate responsible for handling extensions
   // management-related events such as update and installation on behalf of the
   // core runtime API implementation.
@@ -177,7 +191,7 @@ class ExtensionsBrowserClient {
 
   // Returns the manager of resource bundles used in extensions. Returns NULL if
   // the manager doesn't exist.
-  virtual ComponentExtensionResourceManager*
+  virtual const ComponentExtensionResourceManager*
   GetComponentExtensionResourceManager() = 0;
 
   // Propagate a event to all the renderers in every browser context. The
@@ -199,6 +213,18 @@ class ExtensionsBrowserClient {
   // embedders share the same versioning model, so interpretation of the string
   // is left up to the embedder.
   virtual bool IsMinBrowserVersionSupported(const std::string& min_version) = 0;
+
+  // Embedders can override this function to handle extension errors.
+  virtual void ReportError(content::BrowserContext* context,
+                           scoped_ptr<ExtensionError> error);
+
+  // Returns the ExtensionWebContentsObserver for the given |web_contents|.
+  virtual ExtensionWebContentsObserver* GetExtensionWebContentsObserver(
+      content::WebContents* web_contents) = 0;
+
+  // Cleans up browser-side state associated with a WebView that is being
+  // destroyed.
+  virtual void CleanUpWebView(int embedder_process_id, int view_instance_id) {}
 
   // Returns the single instance of |this|.
   static ExtensionsBrowserClient* Get();

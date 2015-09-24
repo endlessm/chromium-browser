@@ -22,6 +22,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_local.h"
 #include "chrome/test/chromedriver/logging.h"
@@ -52,7 +53,7 @@ class HttpServer : public net::HttpServer::Delegate {
 
   virtual ~HttpServer() {}
 
-  bool Start(int port, bool allow_remote) {
+  bool Start(uint16 port, bool allow_remote) {
     std::string binding_ip = kLocalHostAddress;
     if (allow_remote)
       binding_ip = "0.0.0.0";
@@ -136,12 +137,10 @@ void HandleRequestOnIOThread(
     const net::HttpServerRequestInfo& request,
     const HttpResponseSenderFunc& send_response_func) {
   cmd_task_runner->PostTask(
-      FROM_HERE,
-      base::Bind(handle_request_on_cmd_func,
-                 request,
-                 base::Bind(&SendResponseOnCmdThread,
-                            base::MessageLoopProxy::current(),
-                            send_response_func)));
+      FROM_HERE, base::Bind(handle_request_on_cmd_func, request,
+                            base::Bind(&SendResponseOnCmdThread,
+                                       base::ThreadTaskRunnerHandle::Get(),
+                                       send_response_func)));
 }
 
 base::LazyInstance<base::ThreadLocalPointer<HttpServer> >
@@ -154,7 +153,7 @@ void StopServerOnIOThread() {
   delete server;
 }
 
-void StartServerOnIOThread(int port,
+void StartServerOnIOThread(uint16 port,
                            bool allow_remote,
                            const HttpRequestHandlerFunc& handle_request_func) {
   scoped_ptr<HttpServer> temp_server(new HttpServer(handle_request_func));
@@ -165,7 +164,7 @@ void StartServerOnIOThread(int port,
   lazy_tls_server.Pointer()->Set(temp_server.release());
 }
 
-void RunServer(int port,
+void RunServer(uint16 port,
                bool allow_remote,
                const std::vector<std::string>& whitelisted_ips,
                const std::string& url_base,
@@ -177,22 +176,16 @@ void RunServer(int port,
 
   base::MessageLoop cmd_loop;
   base::RunLoop cmd_run_loop;
-  HttpHandler handler(cmd_run_loop.QuitClosure(),
-                      io_thread.message_loop_proxy(),
-                      url_base,
-                      adb_port,
-                      port_server.Pass());
+  HttpHandler handler(cmd_run_loop.QuitClosure(), io_thread.task_runner(),
+                      url_base, adb_port, port_server.Pass());
   HttpRequestHandlerFunc handle_request_func =
       base::Bind(&HandleRequestOnCmdThread, &handler, whitelisted_ips);
 
-  io_thread.message_loop()
-      ->PostTask(FROM_HERE,
-                 base::Bind(&StartServerOnIOThread,
-                            port,
-                            allow_remote,
-                            base::Bind(&HandleRequestOnIOThread,
-                                       cmd_loop.message_loop_proxy(),
-                                       handle_request_func)));
+  io_thread.message_loop()->PostTask(
+      FROM_HERE,
+      base::Bind(&StartServerOnIOThread, port, allow_remote,
+                 base::Bind(&HandleRequestOnIOThread, cmd_loop.task_runner(),
+                            handle_request_func)));
   // Run the command loop. This loop is quit after the response for a shutdown
   // request is posted to the IO loop. After the command loop quits, a task
   // is posted to the IO loop to stop the server. Lastly, the IO thread is
@@ -206,10 +199,10 @@ void RunServer(int port,
 }  // namespace
 
 int main(int argc, char *argv[]) {
-  CommandLine::Init(argc, argv);
+  base::CommandLine::Init(argc, argv);
 
   base::AtExitManager at_exit;
-  CommandLine* cmd_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
 
 #if defined(OS_LINUX)
   // Select the locale from the environment by passing an empty string instead
@@ -219,7 +212,7 @@ int main(int argc, char *argv[]) {
 #endif
 
   // Parse command line flags.
-  int port = 9515;
+  uint16 port = 9515;
   int adb_port = 5037;
   bool allow_remote = false;
   std::vector<std::string> whitelisted_ips;
@@ -253,10 +246,14 @@ int main(int argc, char *argv[]) {
     return 0;
   }
   if (cmd_line->HasSwitch("port")) {
-    if (!base::StringToInt(cmd_line->GetSwitchValueASCII("port"), &port)) {
+    int cmd_line_port;
+    if (!base::StringToInt(cmd_line->GetSwitchValueASCII("port"),
+                           &cmd_line_port) ||
+        cmd_line_port < 0 || cmd_line_port > 65535) {
       printf("Invalid port. Exiting...\n");
       return 1;
     }
+    port = static_cast<uint16>(cmd_line_port);
   }
   if (cmd_line->HasSwitch("adb-port")) {
     if (!base::StringToInt(cmd_line->GetSwitchValueASCII("adb-port"),
@@ -293,7 +290,7 @@ int main(int argc, char *argv[]) {
     base::SplitString(whitelist, ',', &whitelisted_ips);
   }
   if (!cmd_line->HasSwitch("silent")) {
-    printf("Starting ChromeDriver %s on port %d\n", kChromeDriverVersion, port);
+    printf("Starting ChromeDriver %s on port %u\n", kChromeDriverVersion, port);
     if (!allow_remote) {
       printf("Only local connections are allowed.\n");
     } else if (!whitelisted_ips.empty()) {

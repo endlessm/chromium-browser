@@ -13,7 +13,6 @@
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/policy/device_local_account.h"
-#include "chrome/browser/chromeos/policy/enterprise_install_attributes.h"
 #include "chrome/browser/chromeos/policy/proto/chrome_device_policy.pb.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/update_engine_client.h"
@@ -56,8 +55,8 @@ scoped_ptr<base::Value> DecodeJsonStringAndDropUnknownBySchema(
     const std::string& json_string,
     const std::string& policy_name) {
   std::string error;
-  base::Value* root(base::JSONReader::ReadAndReturnError(
-      json_string, base::JSON_ALLOW_TRAILING_COMMAS, NULL, &error));
+  scoped_ptr<base::Value> root = base::JSONReader::ReadAndReturnError(
+      json_string, base::JSON_ALLOW_TRAILING_COMMAS, NULL, &error);
 
   if (!root) {
     LOG(WARNING) << "Invalid JSON string: " << error << ", ignoring.";
@@ -73,8 +72,8 @@ scoped_ptr<base::Value> DecodeJsonStringAndDropUnknownBySchema(
     std::string error_path;
     bool changed = false;
 
-    if (!schema.Normalize(
-            root, SCHEMA_ALLOW_UNKNOWN, &error_path, &error, &changed)) {
+    if (!schema.Normalize(root.get(), SCHEMA_ALLOW_UNKNOWN, &error_path, &error,
+                          &changed)) {
       LOG(WARNING) << "Invalid policy value for " << policy_name << ": "
                    << error << " at " << error_path << ".";
       return scoped_ptr<base::Value>();
@@ -90,7 +89,7 @@ scoped_ptr<base::Value> DecodeJsonStringAndDropUnknownBySchema(
     return scoped_ptr<base::Value>();
   }
 
-  return scoped_ptr<base::Value>(root);
+  return root;
 }
 
 base::Value* DecodeConnectionType(int value) {
@@ -118,6 +117,16 @@ void DecodeLoginPolicies(const em::ChromeDeviceSettingsProto& policy,
                     POLICY_SCOPE_MACHINE,
                     new base::FundamentalValue(
                         container.guest_mode_enabled()),
+                    NULL);
+    }
+  }
+
+  if (policy.has_reboot_on_shutdown()) {
+    const em::RebootOnShutdownProto& container(policy.reboot_on_shutdown());
+    if (container.has_reboot_on_shutdown()) {
+      policies->Set(key::kDeviceRebootOnShutdown, POLICY_LEVEL_MANDATORY,
+                    POLICY_SCOPE_MACHINE,
+                    new base::FundamentalValue(container.reboot_on_shutdown()),
                     NULL);
     }
   }
@@ -278,93 +287,11 @@ void DecodeLoginPolicies(const em::ChromeDeviceSettingsProto& policy,
   }
 }
 
-void DecodeKioskPolicies(const em::ChromeDeviceSettingsProto& policy,
-                         PolicyMap* policies,
-                         EnterpriseInstallAttributes* install_attributes) {
-  // No policies if this is not KIOSK.
-  if (install_attributes->GetMode() != DEVICE_MODE_RETAIL_KIOSK)
-    return;
-
-  if (policy.has_forced_logout_timeouts()) {
-    const em::ForcedLogoutTimeoutsProto& container(
-        policy.forced_logout_timeouts());
-    if (container.has_idle_logout_timeout()) {
-      policies->Set(
-          key::kDeviceIdleLogoutTimeout,
-          POLICY_LEVEL_MANDATORY,
-          POLICY_SCOPE_MACHINE,
-          DecodeIntegerValue(container.idle_logout_timeout()).release(),
-          NULL);
-    }
-    if (container.has_idle_logout_warning_duration()) {
-      policies->Set(key::kDeviceIdleLogoutWarningDuration,
-                    POLICY_LEVEL_MANDATORY,
-                    POLICY_SCOPE_MACHINE,
-                    DecodeIntegerValue(container.idle_logout_warning_duration())
-                        .release(),
-                    NULL);
-    }
-  }
-
-  if (policy.has_login_screen_saver()) {
-    const em::ScreenSaverProto& container(
-        policy.login_screen_saver());
-    if (container.has_screen_saver_extension_id()) {
-      policies->Set(key::kDeviceLoginScreenSaverId,
-                    POLICY_LEVEL_MANDATORY,
-                    POLICY_SCOPE_MACHINE,
-                    new base::StringValue(
-                        container.screen_saver_extension_id()),
-                    NULL);
-    }
-    if (container.has_screen_saver_timeout()) {
-      policies->Set(
-          key::kDeviceLoginScreenSaverTimeout,
-          POLICY_LEVEL_MANDATORY,
-          POLICY_SCOPE_MACHINE,
-          DecodeIntegerValue(container.screen_saver_timeout()).release(),
-          NULL);
-    }
-  }
-
-  if (policy.has_app_pack()) {
-    const em::AppPackProto& container(policy.app_pack());
-    base::ListValue* app_pack_list = new base::ListValue();
-    for (int i = 0; i < container.app_pack_size(); ++i) {
-      const em::AppPackEntryProto& entry(container.app_pack(i));
-      if (entry.has_extension_id() && entry.has_update_url()) {
-        base::DictionaryValue* dict = new base::DictionaryValue();
-        dict->SetString(chromeos::kAppPackKeyExtensionId, entry.extension_id());
-        dict->SetString(chromeos::kAppPackKeyUpdateUrl, entry.update_url());
-        app_pack_list->Append(dict);
-      }
-    }
-    policies->Set(key::kDeviceAppPack,
-                  POLICY_LEVEL_MANDATORY,
-                  POLICY_SCOPE_MACHINE,
-                  app_pack_list,
-                  NULL);
-  }
-
-  if (policy.has_pinned_apps()) {
-    const em::PinnedAppsProto& container(policy.pinned_apps());
-    base::ListValue* pinned_apps_list = new base::ListValue();
-    for (int i = 0; i < container.app_id_size(); ++i) {
-      pinned_apps_list->Append(
-          new base::StringValue(container.app_id(i)));
-    }
-
-    policies->Set(key::kPinnedLauncherApps,
-                  POLICY_LEVEL_RECOMMENDED,
-                  POLICY_SCOPE_MACHINE,
-                  pinned_apps_list,
-                  NULL);
-  }
-}
-
 void DecodeNetworkPolicies(const em::ChromeDeviceSettingsProto& policy,
-                           PolicyMap* policies,
-                           EnterpriseInstallAttributes* install_attributes) {
+                           PolicyMap* policies) {
+  // TODO(bartfab): Once the retail mode removal CL lands, remove this policy
+  // completely since it was only used from retail mode.
+  // http://crbug.com/442466
   if (policy.has_device_proxy_settings()) {
     const em::DeviceProxySettingsProto& container(
         policy.device_proxy_settings());
@@ -380,17 +307,9 @@ void DecodeNetworkPolicies(const em::ChromeDeviceSettingsProto& policy,
                                 container.proxy_bypass_list());
     }
 
-    // Figure out the level. Proxy policy is mandatory in kiosk mode.
-    PolicyLevel level = POLICY_LEVEL_RECOMMENDED;
-    if (install_attributes->GetMode() == DEVICE_MODE_RETAIL_KIOSK)
-      level = POLICY_LEVEL_MANDATORY;
-
     if (!proxy_settings->empty()) {
-      policies->Set(key::kProxySettings,
-                    level,
-                    POLICY_SCOPE_MACHINE,
-                    proxy_settings.release(),
-                    NULL);
+      policies->Set(key::kProxySettings, POLICY_LEVEL_RECOMMENDED,
+                    POLICY_SCOPE_MACHINE, proxy_settings.release(), nullptr);
     }
   }
 
@@ -467,6 +386,51 @@ void DecodeReportingPolicies(const em::ChromeDeviceSettingsProto& policy,
                     POLICY_LEVEL_MANDATORY,
                     POLICY_SCOPE_MACHINE,
                     new base::FundamentalValue(container.report_users()),
+                    NULL);
+    }
+    if (container.has_report_hardware_status()) {
+      policies->Set(key::kReportDeviceHardwareStatus,
+                    POLICY_LEVEL_MANDATORY,
+                    POLICY_SCOPE_MACHINE,
+                    new base::FundamentalValue(
+                        container.report_hardware_status()),
+                    NULL);
+    }
+    if (container.has_report_session_status()) {
+      policies->Set(key::kReportDeviceSessionStatus,
+                    POLICY_LEVEL_MANDATORY,
+                    POLICY_SCOPE_MACHINE,
+                    new base::FundamentalValue(
+                        container.report_session_status()),
+                    NULL);
+    }
+    if (container.has_device_status_frequency()) {
+      policies->Set(key::kReportUploadFrequency,
+                    POLICY_LEVEL_MANDATORY,
+                    POLICY_SCOPE_MACHINE,
+                    DecodeIntegerValue(
+                        container.device_status_frequency()).release(),
+                    NULL);
+    }
+  }
+
+  if (policy.has_device_heartbeat_settings()) {
+    const em::DeviceHeartbeatSettingsProto& container(
+        policy.device_heartbeat_settings());
+    if (container.has_heartbeat_enabled()) {
+      policies->Set(key::kHeartbeatEnabled,
+                    POLICY_LEVEL_MANDATORY,
+                    POLICY_SCOPE_MACHINE,
+                    new base::FundamentalValue(
+                        container.heartbeat_enabled()),
+                    NULL);
+    }
+    if (container.has_heartbeat_frequency()) {
+      policies->Set(key::kHeartbeatFrequency,
+                    POLICY_LEVEL_MANDATORY,
+                    POLICY_SCOPE_MACHINE,
+                    DecodeIntegerValue(
+                        container.heartbeat_frequency()).release(),
                     NULL);
     }
   }
@@ -621,6 +585,7 @@ void DecodeAccessibilityPolicies(const em::ChromeDeviceSettingsProto& policy,
               container.login_screen_default_screen_magnifier_type()).release(),
           NULL);
     }
+
     if (container.has_login_screen_default_virtual_keyboard_enabled()) {
       policies->Set(
           key::kDeviceLoginScreenDefaultVirtualKeyboardEnabled,
@@ -658,22 +623,6 @@ void DecodeGenericPolicies(const em::ChromeDeviceSettingsProto& policy,
                         container.metrics_enabled()),
                     NULL);
     }
-  }
-
-  if (policy.has_start_up_urls()) {
-    const em::StartUpUrlsProto& container(policy.start_up_urls());
-    base::ListValue* urls = new base::ListValue();
-    RepeatedPtrField<std::string>::const_iterator entry;
-    for (entry = container.start_up_urls().begin();
-         entry != container.start_up_urls().end();
-         ++entry) {
-      urls->Append(new base::StringValue(*entry));
-    }
-    policies->Set(key::kDeviceStartUpUrls,
-                  POLICY_LEVEL_MANDATORY,
-                  POLICY_SCOPE_MACHINE,
-                  urls,
-                  NULL);
   }
 
   if (policy.has_system_timezone()) {
@@ -798,20 +747,36 @@ void DecodeGenericPolicies(const em::ChromeDeviceSettingsProto& policy,
           NULL);
     }
   }
+
+  if (policy.has_extension_cache_size()) {
+    const em::ExtensionCacheSizeProto& container(policy.extension_cache_size());
+    if (container.has_extension_cache_size()) {
+      policies->Set(
+          key::kExtensionCacheSize, POLICY_LEVEL_MANDATORY,
+          POLICY_SCOPE_MACHINE,
+          DecodeIntegerValue(container.extension_cache_size()).release(),
+          nullptr);
+    }
+  }
+
+  if (policy.has_login_screen_domain_auto_complete()) {
+    const em::LoginScreenDomainAutoCompleteProto& container(
+        policy.login_screen_domain_auto_complete());
+    policies->Set(
+        key::kDeviceLoginScreenDomainAutoComplete, POLICY_LEVEL_MANDATORY,
+        POLICY_SCOPE_MACHINE,
+        new base::StringValue(container.login_screen_domain_auto_complete()),
+        nullptr);
+  }
 }
 
 }  // namespace
 
 void DecodeDevicePolicy(const em::ChromeDeviceSettingsProto& policy,
-                        PolicyMap* policies,
-                        EnterpriseInstallAttributes* install_attributes) {
-  // TODO(achuith): Remove this once crbug.com/263527 is resolved.
-  VLOG(2) << "DecodeDevicePolicy " << policy.SerializeAsString();
-
+                        PolicyMap* policies) {
   // Decode the various groups of policies.
   DecodeLoginPolicies(policy, policies);
-  DecodeKioskPolicies(policy, policies, install_attributes);
-  DecodeNetworkPolicies(policy, policies, install_attributes);
+  DecodeNetworkPolicies(policy, policies);
   DecodeReportingPolicies(policy, policies);
   DecodeAutoUpdatePolicies(policy, policies);
   DecodeAccessibilityPolicies(policy, policies);

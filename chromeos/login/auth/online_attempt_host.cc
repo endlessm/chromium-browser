@@ -6,16 +6,15 @@
 
 #include "base/bind.h"
 #include "base/location.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/thread_task_runner_handle.h"
 #include "chromeos/login/auth/auth_attempt_state.h"
 #include "chromeos/login/auth/online_attempt.h"
-#include "chromeos/login/auth/user_context.h"
 #include "components/user_manager/user_type.h"
 
 namespace chromeos {
 
 OnlineAttemptHost::OnlineAttemptHost(Delegate* delegate)
-    : message_loop_(base::MessageLoopProxy::current()),
+    : task_runner_(base::ThreadTaskRunnerHandle::Get()),
       delegate_(delegate),
       weak_ptr_factory_(this) {
 }
@@ -31,7 +30,6 @@ void OnlineAttemptHost::Check(net::URLRequestContextGetter* request_context,
     current_attempt_user_context_ = user_context;
 
     state_.reset(new AuthAttemptState(user_context,
-                                      user_manager::USER_TYPE_REGULAR,
                                       false,    // unlock
                                       false,    // online_complete
                                       false));  // user_is_new
@@ -48,10 +46,9 @@ void OnlineAttemptHost::Reset() {
 void OnlineAttemptHost::Resolve() {
   if (state_->online_complete()) {
     bool success = state_->online_outcome().reason() == AuthFailure::NONE;
-    message_loop_->PostTask(FROM_HERE,
-                            base::Bind(&OnlineAttemptHost::ResolveOnUIThread,
-                                       weak_ptr_factory_.GetWeakPtr(),
-                                       success));
+    task_runner_->PostTask(FROM_HERE,
+                           base::Bind(&OnlineAttemptHost::ResolveOnUIThread,
+                                      weak_ptr_factory_.GetWeakPtr(), success));
   }
 }
 

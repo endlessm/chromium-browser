@@ -41,11 +41,8 @@ message DeviceRegisterRequest {
   // "Android", or "Chrome OS".
   optional string machine_model = 4;
 
-  // When true, indicates that the |machine_id| has been identified as auto-
-  // enrollment candidate on the client and the server can use it to verify
-  // that the client is to be enrolled in the correct mode.
-  // Defaults to false when not present.
-  optional bool auto_enrolled = 5;
+  // OBSOLETE: Legacy auto-enrollment is not longer supported.
+  optional bool OBSOLETE_auto_enrolled = 5 [deprecated = true];
 
   // Indicates a requisition of the registering entity that the server can act
   // upon. This allows clients to pass hints e.g. at device enrollment time
@@ -56,6 +53,37 @@ message DeviceRegisterRequest {
   // be used by the server to link the registration request to an existing
   // device record for re-enrollment.
   optional bytes server_backed_state_key = 7;
+
+  // Enumerates different flavors of registration.
+  enum Flavor {
+    // User manually enrolls a device for device management.
+    FLAVOR_ENROLLMENT_MANUAL = 0;
+    // User re-starts enrollment manually to recover from loss of policy.
+    FLAVOR_ENROLLMENT_MANUAL_RENEW = 1;
+    // Device enrollment forced by local device configuration, such as OEM
+    // partition flags to force enrollment.
+    FLAVOR_ENROLLMENT_LOCAL_FORCED = 2;
+    // Enrollment advertised by local device configuration, such as OEM
+    // partition flags indicating to prompt for enrollment, but allowing the
+    // user to skip.
+    FLAVOR_ENROLLMENT_LOCAL_ADVERTISED = 3;
+    // Device state downloaded from the server during OOBE indicates that
+    // (re-)enrollment is mandatory.
+    FLAVOR_ENROLLMENT_SERVER_FORCED = 4;
+    // Device state downloaded from the server during OOBE indicates that the
+    // device should prompt for (re-)enrollment, but the user is allowed to
+    // skip.
+    FLAVOR_ENROLLMENT_SERVER_ADVERTISED = 5;
+    // Device detected in steady state that it is supposed to be enrolled, but
+    // the policy is missing.
+    FLAVOR_ENROLLMENT_RECOVERY = 6;
+    // User policy registration for a logged-in user.
+    FLAVOR_USER_REGISTRATION = 7;
+  };
+
+  // Indicates the registration flavor. This is passed to the server FYI when
+  // registering for policy so the server can distinguish registration triggers.
+  optional Flavor flavor = 8;
 }
 
 // Response from server to device register request.
@@ -118,6 +146,10 @@ message DeviceServiceApiAccessRequest {
 message DeviceServiceApiAccessResponse {
   // The OAuth2 authorization code for the requested scope(s).
   // This can be exchanged for a refresh token.
+  //
+  // The server may send a successful response but not set this field or set an
+  // empty string to reject the auth code request and instruct the client to
+  // skip robot account auth setup.
   optional string auth_code = 1;
 }
 
@@ -303,22 +335,48 @@ message PolicyData {
   optional string policy_token = 15;
 
   // Indicates the management mode of the device. Note that old policies do not
-  // have this field.
+  // have this field. If this field is not set but request_token is set, assume
+  // the management mode is ENTERPRISE_MANAGED. If both this field and
+  // request_token are not set, assume the management mode is LOCAL_OWNER.
   enum ManagementMode {
-    // The device is not managed. The policies are set locally by the owner of
+    // The device is owned locally. The policies are set by the local owner of
     // the device.
-    NOT_MANAGED = 0;
+    LOCAL_OWNER = 0;
     // The device is enterprise-managed. The policies come from the enterprise
-    // server.
+    // server. See the comment above for backward compatibility.
     ENTERPRISE_MANAGED = 1;
     // The device is consumer-managed. The policies currently can only be set
-    // locally by the owner of the device.
+    // by the local owner of the device.
     CONSUMER_MANAGED = 2;
   }
   optional ManagementMode management_mode = 16;
 
   // Indicates the state that the device should be in.
   optional DeviceState device_state = 17;
+
+  // The object source which hosts command queue objects within the
+  // invalidation service. This value is combined with
+  // command_invalidation_name to form the object ID used to
+  // register for invalidations to the command queue.
+  optional int32 command_invalidation_source = 18;
+
+  // The name which uniquely identifies this device’s queue within
+  // the invalidation service object source. This value is combined
+  // with command_invalidation_source to form the object ID used to
+  // register for invalidations to the command queue.
+  optional bytes command_invalidation_name = 19;
+
+  // The free-text location info the admin enters to associate the device
+  // with a location.
+  optional string annotated_location = 20;
+
+  // The free-text asset identifier the admin enters to associate the device
+  // with a user-generated identifier.
+  optional string annotated_asset_id = 21;
+
+  // The unique directory api ID of the device which was generated on the
+  // server-side.
+  optional string directory_api_id = 22;
 }
 
 message PolicyFetchResponse {
@@ -372,6 +430,74 @@ message PolicyPublicKeyAndDomain {
   // The domain associated with this key (should match the domain portion of
   // the username field of the policy).
   optional string domain = 2;
+}
+
+// This protobuf defines a single remote command from server to client for
+// execution.
+message RemoteCommand {
+  enum Type {
+    // Simple echo command for testing, will be ignored in production code.
+    COMMAND_ECHO_TEST = -1;
+
+    // Reboot the device.
+    DEVICE_REBOOT = 0;
+
+    // Take a screenshot.
+    DEVICE_SCREENSHOT = 1;
+  }
+
+  // The command type.
+  optional Type type = 1;
+
+  // An opaque unique identifier for the command.
+  optional int64 unique_id = 2;
+
+  // The age of the command (in milliseconds) when it is sent from server to
+  // client, defined as current_server_time - command_generated_time.
+  optional int64 age_of_command = 3;
+
+  // Extra parameters for this command, expected to be a JSON string.
+  optional string payload = 4;
+}
+
+// This protobuf defines the execution result of a single remote command
+// which will be sent back to the server.
+message RemoteCommandResult {
+  enum ResultType {
+    RESULT_IGNORED = 0;  // The command was ignored as obsolete.
+    RESULT_FAILURE = 1;  // The command could not be executed.
+    RESULT_SUCCESS = 2;  // The command was successfully executed.
+  }
+
+  // The result of the command.
+  optional ResultType result = 1;
+
+  // The opaque unique identifier of the command. This value is copied from the
+  // RemoteCommand protobuf that contained the command.
+  optional int64 unique_id = 2;
+
+  // The time at which the command was executed, if the the result is
+  // RESULT_SUCCESS.
+  optional int64 timestamp = 3;
+
+  // Extra information sent to server as result of execution, expected to be a
+  // JSON string.
+  optional string payload = 4;
+}
+
+message DeviceRemoteCommandRequest {
+  // The command ID of the last command received from the server until
+  // now.  Omitted if no commands have been received yet.
+  optional int64 last_command_unique_id = 1;
+
+  // The execution results of previously fetched commands.
+  // The client should send back a command result whenever possible.
+  repeated RemoteCommandResult command_results = 2;
+}
+
+message DeviceRemoteCommandResponse {
+  // The queue of pending commands.
+  repeated RemoteCommand commands = 1;
 }
 
 // Request from device to server for reading policies.
@@ -481,6 +607,46 @@ message NetworkInterface {
   // IMEI (if applicable) of the corresponding network device. 15-16 decimal
   // digits encoded as ASCII string. Example: 355402040158759.
   optional string imei = 4;
+
+  // The device path associated with this network interface.
+  optional string device_path = 5;
+}
+
+
+// Information about configured/visible networks - this is separate from
+// NetworkInterface because a configured network may not be associated with
+// any specific interface, or may be visible across multiple interfaces.
+message NetworkState {
+  // The current state of this network.
+  enum ConnectionState {
+    IDLE = 0;
+    CARRIER = 1;
+    ASSOCIATION = 2;
+    CONFIGURATION = 3;
+    READY = 4;
+    PORTAL = 5;
+    OFFLINE = 6;
+    ONLINE = 7;
+    DISCONNECT = 8;
+    FAILURE = 9;
+    ACTIVATION_FAILURE = 10;
+    UNKNOWN = 11;
+  }
+
+  // For networks associated with a device, the path of the device.
+  optional string device_path = 1;
+
+  // Current state of this connection as reported by shill.
+  optional ConnectionState connection_state = 2;
+
+  // For wireless networks, the signal_strength in dBm.
+  optional int32 signal_strength = 3;
+
+  // The IP address this interface is bound to, if any.
+  optional string ip_address = 4;
+
+  // The gateway IP for this interface, if any.
+  optional string gateway = 5;
 }
 
 // Details about a device user.
@@ -499,6 +665,13 @@ message DeviceUser {
 
   // Email address of the user. Present only if the user type is managed.
   optional string email = 2;
+}
+
+// Information about a single disk volume.
+message VolumeInfo {
+  optional string volume_id = 1;
+  optional int64 storage_total = 2;
+  optional int64 storage_free = 3;
 }
 
 // Report device level status.
@@ -531,18 +704,62 @@ message DeviceStatusReportRequest {
 
   // List of recent device users, in descending order by last login time.
   repeated DeviceUser user = 9;
+
+  // Disk space + other info about mounted/connected volumes.
+  repeated VolumeInfo volume_info = 10;
+
+  // List of visible/configured networks
+  repeated NetworkState network_state = 11;
+
+  // Samples of CPU utilization (0-100), sampled once every 120 seconds.
+  repeated int32 cpu_utilization_pct = 12;
+
+  // Free RAM (unreliable due to GC).
+  optional int64 deprecated_system_ram_free = 13 [deprecated = true];
+
+  // Total RAM on the device.
+  optional int64 system_ram_total = 14;
+
+  // Samples of free RAM [in bytes] (unreliable due to GC).
+  repeated int64 system_ram_free = 15;
+}
+
+// Provides status information for an installed app/extension.
+message AppStatus {
+  // ID of the installed app/extension
+  optional string app_id = 1;
+
+  // Currently installed version of the app.
+  optional string extension_version = 2;
+
+  // Self-reported status summary (via chrome.reporting APIs)
+  optional string status = 3;
+
+  // If true, the application is currently in a self-reported error state.
+  optional bool error = 4;
 }
 
 // Report session (a user on one device) level status.
 message SessionStatusReportRequest {
   // Installed apps for this user on this device.
-  repeated string installed_app_id = 1;
+  // No longer used -- use installed_apps instead.
+  repeated string installed_app_id = 1 [deprecated = true];
 
   // Installed extensions for this user on this device.
-  repeated string installed_extension_id = 2;
+  // No longer used -- use installed_extensions instead.
+  repeated string installed_extension_id = 2 [deprecated = true];
 
   // One stat per app for top 30 apps.
   repeated InstallableLaunch app_launch_stat = 3;
+
+  // If this is a kiosk session, this is the device local account ID.
+  optional string device_local_account_id = 4;
+
+  // Information about installed apps for this user on this device.
+  repeated AppStatus installed_apps = 5;
+
+  // Information about installed extensions for this user on this device.
+  repeated AppStatus installed_extensions = 6;
 }
 
 // Response from DMServer to update devices' status.
@@ -744,6 +961,43 @@ message CheckDevicePairingResponse {
   optional StatusCode status_code = 1 [default = NOT_PAIRED];
 }
 
+// Sent by the client to the server to check if the current user is allowed
+// to update attributes (asset id and location).  The HTTP request contains an
+// end-user OAuth token.
+message DeviceAttributeUpdatePermissionRequest {
+}
+
+// Response from the server specifying whether the current user is allowed to
+// update attributes (asset id and location).
+message DeviceAttributeUpdatePermissionResponse {
+  enum ResultType {
+    ATTRIBUTE_UPDATE_DISALLOWED = 0;
+    ATTRIBUTE_UPDATE_ALLOWED = 1;
+  }
+
+  optional ResultType result = 1;
+}
+
+// Sent by the client to the server to update device attributes (asset id and
+// location).  The HTTP request contains an end-user OAuth token.
+message DeviceAttributeUpdateRequest {
+  // The user-generated asset identifier.
+  optional string asset_id = 1;
+
+  // The user input device location.
+  optional string location = 2;
+}
+
+// Response from the server to update device attributes (asset id and location).
+message DeviceAttributeUpdateResponse {
+  enum ResultType {
+    ATTRIBUTE_UPDATE_ERROR = 0;
+    ATTRIBUTE_UPDATE_SUCCESS = 1;
+  }
+
+  optional ResultType result = 1;
+}
+
 // Request from the DMAgent on the device to the DMServer.  This is
 // container for all requests from device to server.  The overall HTTP
 // request MUST be in the following format:
@@ -763,6 +1017,9 @@ message CheckDevicePairingResponse {
 //     * register
 //     * status
 //     * unregister
+//     * remote_commands
+//     * attribute_update_permission
+//     * attribute_update
 //
 //   * devicetype: MUST BE "1" for Android or "2" for Chrome OS.
 //   * apptype: MUST BE Android or Chrome.
@@ -772,7 +1029,7 @@ message CheckDevicePairingResponse {
 //   * For register and ping requests
 //     Authorization: GoogleLogin auth=<auth cookie for Mobile Sync>
 //
-//   * For unregister, policy, status, and cert_upload requests
+//   * For unregister, policy, status, cert_upload and remote commands requests
 //      Authorization: GoogleDMToken token=<dm token from register>
 //
 //   * The Authorization header isn't used for enterprise_check
@@ -792,7 +1049,9 @@ message CheckDevicePairingResponse {
 //   register: register_request
 //   status: device_status_report_request or session_status_report_request
 //   unregister: unregister_request
-//
+//   remote_commands: remote_command_request
+//   attribute_update_permission: device_attribute_update_permission_request
+//   attribute_update: device_attribute_update_request
 //
 message DeviceManagementRequest {
   // Register request.
@@ -828,6 +1087,17 @@ message DeviceManagementRequest {
 
   // Check if two devices are paired.
   optional CheckDevicePairingRequest check_device_pairing_request = 12;
+
+  // Remote command fetching.
+  optional DeviceRemoteCommandRequest remote_command_request = 13;
+
+  // Check permission for updating device attribute.
+  optional DeviceAttributeUpdatePermissionRequest
+      device_attribute_update_permission_request = 14;
+
+  // Update device attribute.
+  optional DeviceAttributeUpdateRequest device_attribute_update_request
+      = 15;
 }
 
 // Response from server to device.
@@ -882,4 +1152,14 @@ message DeviceManagementResponse {
 
   // Response to check device pairing request.
   optional CheckDevicePairingResponse check_device_pairing_response = 13;
+
+  // Response to remote command request.
+  optional DeviceRemoteCommandResponse remote_command_response = 14;
+
+  // Response to check device attribute update permission.
+  optional DeviceAttributeUpdatePermissionResponse
+      device_attribute_update_permission_response = 15;
+
+  // Response to update device attribute.
+  optional DeviceAttributeUpdateResponse device_attribute_update_response = 16;
 }

@@ -7,6 +7,7 @@
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/task_runner_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "chrome/browser/chromeos/drive/drive.pb.h"
 #include "chrome/browser/chromeos/drive/file_errors.h"
@@ -140,7 +141,7 @@ void RunCreateWritableSnapshotFileCallback(
     FileError error,
     const base::FilePath& local_path,
     const base::Closure& close_callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   callback.Run(FileErrorToBaseFileError(error), local_path, close_callback);
 }
 
@@ -161,7 +162,7 @@ void OpenFileAfterFileSystemOpenFile(int file_flags,
                                      FileError error,
                                      const base::FilePath& local_path,
                                      const base::Closure& close_callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (error != FILE_ERROR_OK) {
     callback.Run(base::File(FileErrorToBaseFileError(error)), base::Closure());
@@ -194,7 +195,7 @@ void OpenFileAfterFileSystemOpenFile(int file_flags,
 }  // namespace
 
 FileSystemInterface* GetFileSystemFromUrl(const storage::FileSystemURL& url) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   Profile* profile = util::ExtractProfileFromPath(url.path());
   return profile ? util::GetFileSystemByProfile(profile) : NULL;
@@ -204,7 +205,7 @@ void RunFileSystemCallback(
     const FileSystemGetter& file_system_getter,
     const base::Callback<void(FileSystemInterface*)>& callback,
     const base::Closure& on_error_callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   FileSystemInterface* file_system = file_system_getter.Run();
 
   if (!file_system) {
@@ -219,7 +220,7 @@ void RunFileSystemCallback(
 void GetFileInfo(const base::FilePath& file_path,
                  const GetFileInfoCallback& callback,
                  FileSystemInterface* file_system) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   file_system->GetResourceEntry(
       file_path,
       base::Bind(&RunGetFileInfoCallback, callback));
@@ -230,7 +231,7 @@ void Copy(const base::FilePath& src_file_path,
           bool preserve_last_modified,
           const StatusCallback& callback,
           FileSystemInterface* file_system) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   file_system->Copy(src_file_path, dest_file_path, preserve_last_modified,
                     base::Bind(&RunStatusCallbackByFileError, callback));
 }
@@ -239,7 +240,7 @@ void Move(const base::FilePath& src_file_path,
           const base::FilePath& dest_file_path,
           const StatusCallback& callback,
           FileSystemInterface* file_system) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   file_system->Move(src_file_path, dest_file_path,
                     base::Bind(&RunStatusCallbackByFileError, callback));
 }
@@ -248,7 +249,7 @@ void CopyInForeignFile(const base::FilePath& src_foreign_file_path,
                        const base::FilePath& dest_file_path,
                        const StatusCallback& callback,
                        FileSystemInterface* file_system) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   file_system->TransferFileFromLocalToRemote(
       src_foreign_file_path, dest_file_path,
       base::Bind(&RunStatusCallbackByFileError, callback));
@@ -257,7 +258,7 @@ void CopyInForeignFile(const base::FilePath& src_foreign_file_path,
 void ReadDirectory(const base::FilePath& file_path,
                    const ReadDirectoryCallback& callback,
                    FileSystemInterface* file_system) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   file_system->ReadDirectory(
       file_path,
       base::Bind(&RunReadDirectoryCallbackWithEntries, callback),
@@ -268,7 +269,7 @@ void Remove(const base::FilePath& file_path,
             bool is_recursive,
             const StatusCallback& callback,
             FileSystemInterface* file_system) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   file_system->Remove(file_path, is_recursive,
                       base::Bind(&RunStatusCallbackByFileError, callback));
 }
@@ -278,7 +279,7 @@ void CreateDirectory(const base::FilePath& file_path,
                      bool is_recursive,
                      const StatusCallback& callback,
                      FileSystemInterface* file_system) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   file_system->CreateDirectory(
       file_path, is_exclusive, is_recursive,
       base::Bind(&RunStatusCallbackByFileError, callback));
@@ -288,7 +289,7 @@ void CreateFile(const base::FilePath& file_path,
                 bool is_exclusive,
                 const StatusCallback& callback,
                 FileSystemInterface* file_system) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   file_system->CreateFile(file_path, is_exclusive,
                           std::string(),  // no mime type; guess from file_path
                           base::Bind(&RunStatusCallbackByFileError, callback));
@@ -298,7 +299,7 @@ void Truncate(const base::FilePath& file_path,
               int64 length,
               const StatusCallback& callback,
               FileSystemInterface* file_system) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   file_system->TruncateFile(
       file_path, length,
       base::Bind(&RunStatusCallbackByFileError, callback));
@@ -307,7 +308,7 @@ void Truncate(const base::FilePath& file_path,
 void CreateSnapshotFile(const base::FilePath& file_path,
                         const CreateSnapshotFileCallback& callback,
                         FileSystemInterface* file_system) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   file_system->GetFile(file_path,
                        base::Bind(&RunCreateSnapshotFileCallback, callback));
 }
@@ -316,7 +317,7 @@ void CreateWritableSnapshotFile(
     const base::FilePath& file_path,
     const CreateWritableSnapshotFileCallback& callback,
     FileSystemInterface* file_system) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   file_system->OpenFile(
       file_path,
       OPEN_FILE,
@@ -328,7 +329,7 @@ void OpenFile(const base::FilePath& file_path,
               int file_flags,
               const OpenFileCallback& callback,
               FileSystemInterface* file_system) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   // Returns an error if any unsupported flag is found.
   if (file_flags & ~(base::File::FLAG_OPEN |
@@ -340,7 +341,7 @@ void OpenFile(const base::FilePath& file_path,
                      base::File::FLAG_WRITE |
                      base::File::FLAG_WRITE_ATTRIBUTES |
                      base::File::FLAG_APPEND)) {
-    base::MessageLoopProxy::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(callback,
                    Passed(base::File(base::File::FILE_ERROR_FAILED)),
@@ -359,7 +360,7 @@ void TouchFile(const base::FilePath& file_path,
                const base::Time& last_modified_time,
                const StatusCallback& callback,
                FileSystemInterface* file_system) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   file_system->TouchFile(file_path, last_access_time, last_modified_time,
                          base::Bind(&RunStatusCallbackByFileError, callback));
 

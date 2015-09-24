@@ -20,20 +20,20 @@ namespace test {
 
 namespace {
 
-//const char* kContentEncoding = "content-encoding";
-const char* kContentLength = "content-length";
-const char* kTransferCoding = "transfer-encoding";
+//const char kContentEncoding[] = "content-encoding";
+const char kContentLength[] = "content-length";
+const char kTransferCoding[] = "transfer-encoding";
 
 // Both kHTTPVersionString and kMethodString arrays are constructed to match
 // the enum values defined in Version and Method of HTTPMessage.
-const char* kHTTPVersionString[] = {
+const char* const kHTTPVersionString[] = {
   "",
   "HTTP/0.9",
   "HTTP/1.0",
   "HTTP/1.1"
 };
 
-const char* kMethodString[] = {
+const char* const kMethodString[] = {
   "",
   "OPTIONS",
   "GET",
@@ -141,7 +141,7 @@ void HTTPMessage::AddBody(const string& body, bool add_content_length) {
   // Remove any transfer-encoding that was left by a previous body.
   RemoveHeader(kTransferCoding);
   if (add_content_length) {
-    ReplaceHeader(kContentLength, base::IntToString(body.size()));
+    ReplaceHeader(kContentLength, base::SizeTToString(body.size()));
   } else {
     RemoveHeader(kContentLength);
   }

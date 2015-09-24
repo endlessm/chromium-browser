@@ -1,40 +1,11 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-//#include "../include/FormFiller.h"
-//#include "../include/FFL_FormFiller.h"
 #include "../../include/formfiller/FFL_TextField.h"
 #include "../../include/formfiller/FFL_CBA_Fontmap.h"
-//#include "../include/FFL_Notify.h"
-
-CFFL_EditUndoItem::CFFL_EditUndoItem(CPWL_Edit* pEdit)
-{
-}
-
-CFFL_EditUndoItem::~CFFL_EditUndoItem()
-{
-}
-
-void CFFL_EditUndoItem::Undo()
-{
-}
-
-void CFFL_EditUndoItem::Redo()
-{
-}
-
-CFX_WideString CFFL_EditUndoItem::GetDescr()
-{
-	return L"Input";
-}
-
-void CFFL_EditUndoItem::Release()
-{
-	delete this;
-}
 
 /* ------------------------------- CFFL_TextField ------------------------------- */
 
@@ -65,16 +36,16 @@ PWL_CREATEPARAM CFFL_TextField::GetCreateParam()
 
 
 	if (nFlags & FIELDFLAG_PASSWORD)
-	{		
+	{
 		cp.dwFlags |= PES_PASSWORD;
 	}
 
 	if (!(nFlags & FIELDFLAG_DONOTSPELLCHECK))
-	{		
+	{
 	}
 
 	if (nFlags & FIELDFLAG_MULTILINE)
-	{		
+	{
 		cp.dwFlags |= PES_MULTILINE | PES_AUTORETURN | PES_TOP;
 
 		if (!(nFlags & FIELDFLAG_DONOTSCROLL))
@@ -93,17 +64,17 @@ PWL_CREATEPARAM CFFL_TextField::GetCreateParam()
 	}
 
 	if (nFlags & FIELDFLAG_COMB)
-	{		
+	{
 		cp.dwFlags |= PES_CHARARRAY;
 	}
 
 	if (nFlags & FIELDFLAG_RICHTEXT)
-	{		
+	{
 		cp.dwFlags |= PES_RICH;
 	}
 
 	cp.dwFlags |= PES_UNDO;
-	
+
  	switch (m_pWidget->GetAlignment())
  	{
  	default:
@@ -120,8 +91,7 @@ PWL_CREATEPARAM CFFL_TextField::GetCreateParam()
 
 	if (!m_pFontMap)
 	{
-		ASSERT(this->m_pApp != NULL);
-		m_pFontMap = new CBA_FontMap(m_pWidget, /*ISystemHandle::GetSystemHandler(m_pApp)*/m_pApp->GetSysHandler());
+		m_pFontMap = new CBA_FontMap(m_pWidget, m_pApp->GetSysHandler());
 		m_pFontMap->Initial();
 	}
 	cp.pFontMap = m_pFontMap;
@@ -143,9 +113,9 @@ CPWL_Wnd* CFFL_TextField::NewPDFWindow(const PWL_CREATEPARAM& cp, CPDFSDK_PageVi
 	pWnd->SetFillerNotify(pIFormFiller);
 
 	ASSERT(m_pWidget != NULL);
-	FX_INT32 nMaxLen = m_pWidget->GetMaxLen();
+	int32_t nMaxLen = m_pWidget->GetMaxLen();
 	CFX_WideString swValue = m_pWidget->GetValue();
-	
+
 	if (nMaxLen > 0)
 	{
 		if (pWnd->HasFlag(PES_CHARARRAY))
@@ -158,9 +128,8 @@ CPWL_Wnd* CFFL_TextField::NewPDFWindow(const PWL_CREATEPARAM& cp, CPDFSDK_PageVi
 			pWnd->SetLimitChar(nMaxLen);
 		}
 	}
-	
-	pWnd->SetText(swValue);
-	
+
+	pWnd->SetText(swValue.c_str());
 	return pWnd;
 }
 
@@ -172,12 +141,12 @@ FX_BOOL	CFFL_TextField::OnChar(CPDFSDK_Annot* pAnnot, FX_UINT nChar, FX_UINT nFl
 	case FWL_VKEY_Return:
  		if (!(m_pWidget->GetFieldFlags() & FIELDFLAG_MULTILINE))
  		{
- 			CPDFSDK_PageView* pPageView = this->GetCurPageView();
+ 			CPDFSDK_PageView* pPageView = GetCurPageView();
  			ASSERT(pPageView != NULL);
  			m_bValid = !m_bValid;
 			CPDF_Rect rcAnnot = pAnnot->GetRect();
 			m_pApp->FFI_Invalidate(pAnnot->GetPDFPage(), rcAnnot.left, rcAnnot.top, rcAnnot.right, rcAnnot.bottom);
- 
+
  			if (m_bValid)
  			{
  				if (CPWL_Wnd* pWnd = GetPDFWindow(pPageView, TRUE))
@@ -199,7 +168,7 @@ FX_BOOL	CFFL_TextField::OnChar(CPDFSDK_Annot* pAnnot, FX_UINT nChar, FX_UINT nFl
 		break;
 	case FWL_VKEY_Escape:
 		{
-			CPDFSDK_PageView* pPageView = this->GetCurPageView();
+			CPDFSDK_PageView* pPageView = GetCurPageView();
 			ASSERT(pPageView != NULL);
 			EscapeFiller(pPageView,TRUE);
 			return TRUE;
@@ -228,7 +197,7 @@ void CFFL_TextField::SaveData(CPDFSDK_PageView* pPageView)
 		CFX_WideString sOldValue = m_pWidget->GetValue();
 		CFX_WideString sNewValue = pWnd->GetText();
 
-		m_pWidget->SetValue(sNewValue, FALSE);	
+		m_pWidget->SetValue(sNewValue, FALSE);
 		m_pWidget->ResetFieldAppearance(TRUE);
 		m_pWidget->UpdateField();
 		SetChangeMark();
@@ -243,10 +212,10 @@ void CFFL_TextField::GetActionData(CPDFSDK_PageView* pPageView, CPDF_AAction::AA
 	case CPDF_AAction::KeyStroke:
 		if (CPWL_Edit* pWnd = (CPWL_Edit*)GetPDFWindow(pPageView, FALSE))
 		{
-			fa.bFieldFull = pWnd->IsTextFull();	
+			fa.bFieldFull = pWnd->IsTextFull();
 
 			fa.sValue = pWnd->GetText();
-			
+
 			if (fa.bFieldFull)
 			{
 				fa.sChange = L"";
@@ -270,7 +239,7 @@ void CFFL_TextField::GetActionData(CPDFSDK_PageView* pPageView, CPDF_AAction::AA
 	}
 }
 
-void CFFL_TextField::SetActionData(CPDFSDK_PageView* pPageView, CPDF_AAction::AActionType type, 
+void CFFL_TextField::SetActionData(CPDFSDK_PageView* pPageView, CPDF_AAction::AActionType type,
  									const PDFSDK_FieldAction& fa)
 {
 	switch (type)
@@ -280,7 +249,7 @@ void CFFL_TextField::SetActionData(CPDFSDK_PageView* pPageView, CPDF_AAction::AA
 		{
 			pEdit->SetFocus();
 			pEdit->SetSel(fa.nSelStart, fa.nSelEnd);
-			pEdit->ReplaceSel(fa.sChange);
+			pEdit->ReplaceSel(fa.sChange.c_str());
 		}
 		break;
 	default:
@@ -289,7 +258,7 @@ void CFFL_TextField::SetActionData(CPDFSDK_PageView* pPageView, CPDF_AAction::AA
 }
 
 
-FX_BOOL	CFFL_TextField::IsActionDataChanged(CPDF_AAction::AActionType type, const PDFSDK_FieldAction& faOld, 
+FX_BOOL	CFFL_TextField::IsActionDataChanged(CPDF_AAction::AActionType type, const PDFSDK_FieldAction& faOld,
 									const PDFSDK_FieldAction& faNew)
 {
 	switch (type)
@@ -321,7 +290,7 @@ void CFFL_TextField::RestoreState(CPDFSDK_PageView* pPageView)
 
 	if (CPWL_Edit* pWnd = (CPWL_Edit*)GetPDFWindow(pPageView, TRUE))
 	{
-		pWnd->SetText(m_State.sValue);
+		pWnd->SetText(m_State.sValue.c_str());
 		pWnd->SetSel(m_State.nStart, m_State.nEnd);
 	}
 }
@@ -338,35 +307,35 @@ CPWL_Wnd* CFFL_TextField::ResetPDFWindow(CPDFSDK_PageView* pPageView, FX_BOOL bR
 	if (bRestoreValue)
 	{
 		RestoreState(pPageView);
-		pRet = this->GetPDFWindow(pPageView, FALSE);
+		pRet = GetPDFWindow(pPageView, FALSE);
 	}
 	else
-		pRet = this->GetPDFWindow(pPageView, TRUE);
+		pRet = GetPDFWindow(pPageView, TRUE);
 
 	m_pWidget->UpdateField();
-	
+
 	return pRet;
 }
 
 void CFFL_TextField::OnSetFocus(CPWL_Wnd* pWnd)
 {
 	ASSERT(m_pApp != NULL);
-	
+
  	ASSERT(pWnd != NULL);
- 
+
  	if (pWnd->GetClassName() == PWL_CLASSNAME_EDIT)
  	{
  		CPWL_Edit* pEdit = (CPWL_Edit*)pWnd;
 		pEdit->SetCharSet(134);
 		pEdit->SetCodePage(936);
- 
+
 		pEdit->SetReadyToInput();
 		CFX_WideString wsText = pEdit->GetText();
 		int nCharacters = wsText.GetLength();
 		CFX_ByteString bsUTFText = wsText.UTF16LE_Encode();
-		unsigned short* pBuffer = (unsigned short*)(FX_LPCSTR)bsUTFText;
+		unsigned short* pBuffer = (unsigned short*)bsUTFText.c_str();
 		m_pApp->FFI_OnSetFieldInputFocus(m_pWidget->GetFormField(), pBuffer, nCharacters, TRUE);
- 
+
  		pEdit->SetEditNotify(this);
  		//pUndo->BeginEdit(pDocument);
  	}
@@ -390,20 +359,6 @@ FX_BOOL CFFL_TextField::CanCut(CPDFSDK_Document* pDocument)
 FX_BOOL	CFFL_TextField::CanPaste(CPDFSDK_Document* pDocument)
 {
 	return FALSE;
-}
-
-void CFFL_TextField::DoCopy(CPDFSDK_Document* pDocument)
-{
-
-}
-
-void CFFL_TextField::DoCut(CPDFSDK_Document* pDocument)
-{
-}
-
-void CFFL_TextField::DoPaste(CPDFSDK_Document* pDocument)
-{
-
 }
 
 void CFFL_TextField::OnAddUndo(CPWL_Edit* pEdit)

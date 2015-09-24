@@ -9,6 +9,7 @@
 #include <string>
 
 #include "chrome/browser/chromeos/login/screens/app_launch_splash_screen_actor.h"
+#include "chrome/browser/chromeos/login/screens/network_error_model.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/network_state_informer.h"
 
@@ -24,30 +25,30 @@ class AppLaunchSplashScreenHandler
  public:
   AppLaunchSplashScreenHandler(
       const scoped_refptr<NetworkStateInformer>& network_state_informer,
-      ErrorScreenActor* error_screen_actor);
-  virtual ~AppLaunchSplashScreenHandler();
+      NetworkErrorModel* network_error_model);
+  ~AppLaunchSplashScreenHandler() override;
 
   // BaseScreenHandler implementation:
-  virtual void DeclareLocalizedValues(LocalizedValuesBuilder* builder) override;
-  virtual void Initialize() override;
+  void DeclareLocalizedValues(
+      ::login::LocalizedValuesBuilder* builder) override;
+  void Initialize() override;
 
   // WebUIMessageHandler implementation:
-  virtual void RegisterMessages() override;
+  void RegisterMessages() override;
 
   // AppLaunchSplashScreenActor implementation:
-  virtual void Show(const std::string& app_id) override;
-  virtual void PrepareToShow() override;
-  virtual void Hide() override;
-  virtual void ToggleNetworkConfig(bool visible) override;
-  virtual void UpdateAppLaunchState(AppLaunchState state) override;
-  virtual void SetDelegate(
-      AppLaunchSplashScreenHandler::Delegate* delegate) override;
-  virtual void ShowNetworkConfigureUI() override;
-  virtual bool IsNetworkReady() override;
+  void Show(const std::string& app_id) override;
+  void PrepareToShow() override;
+  void Hide() override;
+  void ToggleNetworkConfig(bool visible) override;
+  void UpdateAppLaunchState(AppLaunchState state) override;
+  void SetDelegate(AppLaunchSplashScreenHandler::Delegate* delegate) override;
+  void ShowNetworkConfigureUI() override;
+  bool IsNetworkReady() override;
 
   // NetworkStateInformer::NetworkStateInformerObserver implementation:
-  virtual void OnNetworkReady() override;
-  virtual void UpdateState(ErrorScreenActor::ErrorReason reason) override;
+  void OnNetworkReady() override;
+  void UpdateState(NetworkError::ErrorReason reason) override;
 
  private:
   void PopulateAppInfo(base::DictionaryValue* out_info);
@@ -64,11 +65,14 @@ class AppLaunchSplashScreenHandler
   AppLaunchState state_;
 
   scoped_refptr<NetworkStateInformer> network_state_informer_;
-  ErrorScreenActor* error_screen_actor_;
+  NetworkErrorModel* network_error_model_;
+
   // True if we are online.
   bool online_state_;
+
   // True if we have network config screen was already shown before.
   bool network_config_done_;
+
   // True if we have manually requested network config screen.
   bool network_config_requested_;
 

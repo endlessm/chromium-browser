@@ -48,14 +48,14 @@ public:
     {
         return new DirectoryEntrySync(fileSystem, fullPath);
     }
-    virtual bool isDirectory() const override { return true; }
+    bool isDirectory() const override { return true; }
 
     DirectoryReaderSync* createReader();
     FileEntrySync* getFile(const String& path, const FileSystemFlags&, ExceptionState&);
     DirectoryEntrySync* getDirectory(const String& path, const FileSystemFlags&, ExceptionState&);
     void removeRecursively(ExceptionState&);
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     DirectoryEntrySync(DOMFileSystemBase*, const String& fullPath);

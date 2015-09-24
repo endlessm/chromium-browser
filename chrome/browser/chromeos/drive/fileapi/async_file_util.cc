@@ -7,15 +7,17 @@
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "chrome/browser/chromeos/drive/drive_integration_service.h"
 #include "chrome/browser/chromeos/drive/file_system_util.h"
 #include "chrome/browser/chromeos/drive/fileapi/fileapi_worker.h"
 #include "content/public/browser/browser_thread.h"
 #include "google_apis/drive/task_util.h"
+#include "storage/browser/blob/shareable_file_reference.h"
 #include "storage/browser/fileapi/file_system_operation_context.h"
 #include "storage/browser/fileapi/file_system_url.h"
-#include "storage/common/blob/shareable_file_reference.h"
 
 using content::BrowserThread;
 
@@ -48,7 +50,7 @@ void PostFileSystemCallback(
     const fileapi_internal::FileSystemGetter& file_system_getter,
     const base::Callback<void(FileSystemInterface*)>& function,
     const base::Closure& on_error_callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   BrowserThread::PostTask(
       BrowserThread::UI,
@@ -58,7 +60,7 @@ void PostFileSystemCallback(
                  on_error_callback.is_null() ?
                  base::Closure() :
                  base::Bind(&google_apis::RunTaskWithTaskRunner,
-                            base::MessageLoopProxy::current(),
+                            base::ThreadTaskRunnerHandle::Get(),
                             on_error_callback)));
 }
 
@@ -67,7 +69,7 @@ void RunCreateOrOpenFileCallback(
     const AsyncFileUtil::CreateOrOpenCallback& callback,
     base::File file,
     const base::Closure& close_callback_on_ui_thread) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   // It is necessary to make a closure, which runs on file closing here.
   // It will be provided as a FileSystem::OpenFileCallback's argument later.
@@ -90,7 +92,7 @@ void RunCreateOrOpenFileCallbackOnError(
 void RunEnsureFileExistsCallback(
     const AsyncFileUtil::EnsureFileExistsCallback& callback,
     base::File::Error error) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   // Remember if the file is actually created or not.
   bool created = (error == base::File::FILE_OK);
@@ -112,7 +114,7 @@ void RunCreateSnapshotFileCallback(
   // ShareableFileReference is thread *unsafe* class. So it is necessary to
   // create the instance (by invoking GetOrCreate) on IO thread, though
   // most drive file system related operations run on UI thread.
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   scoped_refptr<storage::ShareableFileReference> file_reference =
       storage::ShareableFileReference::GetOrCreate(storage::ScopedFile(
@@ -133,7 +135,7 @@ void AsyncFileUtil::CreateOrOpen(
     const storage::FileSystemURL& url,
     int file_flags,
     const CreateOrOpenCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   base::FilePath file_path = util::ExtractDrivePathFromFileSystemUrl(url);
   if (file_path.empty()) {
@@ -157,7 +159,7 @@ void AsyncFileUtil::EnsureFileExists(
     scoped_ptr<storage::FileSystemOperationContext> context,
     const storage::FileSystemURL& url,
     const EnsureFileExistsCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   base::FilePath file_path = util::ExtractDrivePathFromFileSystemUrl(url);
   if (file_path.empty()) {
@@ -180,7 +182,7 @@ void AsyncFileUtil::CreateDirectory(
     bool exclusive,
     bool recursive,
     const StatusCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   base::FilePath file_path = util::ExtractDrivePathFromFileSystemUrl(url);
   if (file_path.empty()) {
@@ -200,7 +202,7 @@ void AsyncFileUtil::GetFileInfo(
     scoped_ptr<storage::FileSystemOperationContext> context,
     const storage::FileSystemURL& url,
     const GetFileInfoCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   base::FilePath file_path = util::ExtractDrivePathFromFileSystemUrl(url);
   if (file_path.empty()) {
@@ -220,7 +222,7 @@ void AsyncFileUtil::ReadDirectory(
     scoped_ptr<storage::FileSystemOperationContext> context,
     const storage::FileSystemURL& url,
     const ReadDirectoryCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   base::FilePath file_path = util::ExtractDrivePathFromFileSystemUrl(url);
   if (file_path.empty()) {
@@ -242,7 +244,7 @@ void AsyncFileUtil::Touch(
     const base::Time& last_access_time,
     const base::Time& last_modified_time,
     const StatusCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   base::FilePath file_path = util::ExtractDrivePathFromFileSystemUrl(url);
   if (file_path.empty()) {
@@ -263,7 +265,7 @@ void AsyncFileUtil::Truncate(
     const storage::FileSystemURL& url,
     int64 length,
     const StatusCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   base::FilePath file_path = util::ExtractDrivePathFromFileSystemUrl(url);
   if (file_path.empty()) {
@@ -285,7 +287,7 @@ void AsyncFileUtil::CopyFileLocal(
     CopyOrMoveOption option,
     const CopyFileProgressCallback& progress_callback,
     const StatusCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   base::FilePath src_path = util::ExtractDrivePathFromFileSystemUrl(src_url);
   base::FilePath dest_path = util::ExtractDrivePathFromFileSystemUrl(dest_url);
@@ -317,7 +319,7 @@ void AsyncFileUtil::MoveFileLocal(
     const storage::FileSystemURL& dest_url,
     CopyOrMoveOption option,
     const StatusCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   base::FilePath src_path = util::ExtractDrivePathFromFileSystemUrl(src_url);
   base::FilePath dest_path = util::ExtractDrivePathFromFileSystemUrl(dest_url);
@@ -342,7 +344,7 @@ void AsyncFileUtil::CopyInForeignFile(
     const base::FilePath& src_file_path,
     const storage::FileSystemURL& dest_url,
     const StatusCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   base::FilePath dest_path = util::ExtractDrivePathFromFileSystemUrl(dest_url);
   if (dest_path.empty()) {
@@ -362,7 +364,7 @@ void AsyncFileUtil::DeleteFile(
     scoped_ptr<storage::FileSystemOperationContext> context,
     const storage::FileSystemURL& url,
     const StatusCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   base::FilePath file_path = util::ExtractDrivePathFromFileSystemUrl(url);
   if (file_path.empty()) {
@@ -382,7 +384,7 @@ void AsyncFileUtil::DeleteDirectory(
     scoped_ptr<storage::FileSystemOperationContext> context,
     const storage::FileSystemURL& url,
     const StatusCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   base::FilePath file_path = util::ExtractDrivePathFromFileSystemUrl(url);
   if (file_path.empty()) {
@@ -402,7 +404,7 @@ void AsyncFileUtil::DeleteRecursively(
     scoped_ptr<storage::FileSystemOperationContext> context,
     const storage::FileSystemURL& url,
     const StatusCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   base::FilePath file_path = util::ExtractDrivePathFromFileSystemUrl(url);
   if (file_path.empty()) {
@@ -422,7 +424,7 @@ void AsyncFileUtil::CreateSnapshotFile(
     scoped_ptr<storage::FileSystemOperationContext> context,
     const storage::FileSystemURL& url,
     const CreateSnapshotFileCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   base::FilePath file_path = util::ExtractDrivePathFromFileSystemUrl(url);
   if (file_path.empty()) {

@@ -17,11 +17,8 @@
 #include "gin/test/gc.h"
 #include "gin/test/gtest.h"
 #include "gin/try_catch.h"
+#include "gin/v8_initializer.h"
 #include "testing/gtest/include/gtest/gtest.h"
-
-#ifdef V8_USE_EXTERNAL_STARTUP_DATA
-#include "gin/public/isolate_holder.h"
-#endif
 
 namespace gin {
 
@@ -63,11 +60,13 @@ void RunTestFromFile(const base::FilePath& path, FileRunnerDelegate* delegate,
   base::MessageLoop message_loop;
 
 #ifdef V8_USE_EXTERNAL_STARTUP_DATA
-  gin::IsolateHolder::LoadV8Snapshot();
+  gin::V8Initializer::LoadV8Snapshot();
+  gin::V8Initializer::LoadV8Natives();
 #endif
 
   gin::IsolateHolder::Initialize(gin::IsolateHolder::kStrictMode,
                                  gin::ArrayBufferAllocator::SharedInstance());
+
   gin::IsolateHolder instance;
   gin::ShellRunner runner(delegate, instance.isolate());
   {
@@ -81,7 +80,7 @@ void RunTestFromFile(const base::FilePath& path, FileRunnerDelegate* delegate,
       message_loop.Run();
     }
 
-    v8::Handle<v8::Value> result = runner.global()->Get(
+    v8::Local<v8::Value> result = runner.global()->Get(
         StringToSymbol(runner.GetContextHolder()->isolate(), "result"));
     EXPECT_EQ("PASS", V8ToString(result));
   }

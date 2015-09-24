@@ -1,9 +1,10 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
+#include "../../../core/include/fdrm/fx_crypt.h"
 #include "../../include/javascript/JavaScript.h"
 #include "../../include/javascript/IJavaScript.h"
 #include "../../include/javascript/JS_GlobalData.h"
@@ -105,7 +106,7 @@ void CJS_GlobalVariableArray::Empty()
 #define PHANTOM_JS_GLOBALDATA_FILENAME				L"Phantom_JsGlobal.Data"
 #define SDK_JS_GLOBALDATA_FILENAME					L"SDK_JsGlobal.Data"
 
-static const FX_BYTE JS_RC4KEY[] = {0x19,0xa8,0xe8,0x01,0xf6,0xa8,0xb6,0x4d,0x82,0x04,
+static const uint8_t JS_RC4KEY[] = {0x19,0xa8,0xe8,0x01,0xf6,0xa8,0xb6,0x4d,0x82,0x04,
 							0x45,0x6d,0xb4,0xcf,0xd7,0x77,0x67,0xf9,0x75,0x9f,
 							0xf0,0xe0,0x1e,0x51,0xee,0x46,0xfd,0x0b,0xc9,0x93,
 							0x25,0x55,0x4a,0xee,0xe0,0x16,0xd0,0xdf,0x8c,0xfa,
@@ -121,7 +122,7 @@ CJS_GlobalData::CJS_GlobalData(CPDFDoc_Environment* pApp)
 {
 // 	IBaseAnnot* pBaseAnnot = IBaseAnnot::GetBaseAnnot(m_pApp);
 // 	ASSERT(pBaseAnnot != NULL);
-// 
+//
 // 	m_sFilePath = pBaseAnnot->GetUserPath();
 	m_sFilePath += SDK_JS_GLOBALDATA_FILENAME;
 
@@ -138,7 +139,7 @@ CJS_GlobalData::~CJS_GlobalData()
 	m_arrayGlobalData.RemoveAll();
 }
 
-int	CJS_GlobalData::FindGlobalVariable(FX_LPCSTR propname)
+int	CJS_GlobalData::FindGlobalVariable(const FX_CHAR* propname)
 {
 	ASSERT(propname != NULL);
 
@@ -157,7 +158,7 @@ int	CJS_GlobalData::FindGlobalVariable(FX_LPCSTR propname)
 	return nRet;
 }
 
-CJS_GlobalData_Element* CJS_GlobalData::GetGlobalVariable(FX_LPCSTR propname)
+CJS_GlobalData_Element* CJS_GlobalData::GetGlobalVariable(const FX_CHAR* propname)
 {
 	ASSERT(propname != NULL);
 
@@ -169,7 +170,7 @@ CJS_GlobalData_Element* CJS_GlobalData::GetGlobalVariable(FX_LPCSTR propname)
 		return NULL;
 }
 
-void CJS_GlobalData::SetGlobalVariableNumber(FX_LPCSTR propname, double dData)
+void CJS_GlobalData::SetGlobalVariableNumber(const FX_CHAR* propname, double dData)
 {
 	ASSERT(propname != NULL);
 	CFX_ByteString sPropName = propname;
@@ -195,7 +196,7 @@ void CJS_GlobalData::SetGlobalVariableNumber(FX_LPCSTR propname, double dData)
 	}
 }
 
-void CJS_GlobalData::SetGlobalVariableBoolean(FX_LPCSTR propname, bool bData)
+void CJS_GlobalData::SetGlobalVariableBoolean(const FX_CHAR* propname, bool bData)
 {
 	ASSERT(propname != NULL);
 	CFX_ByteString sPropName = propname;
@@ -221,7 +222,7 @@ void CJS_GlobalData::SetGlobalVariableBoolean(FX_LPCSTR propname, bool bData)
 	}
 }
 
-void CJS_GlobalData::SetGlobalVariableString(FX_LPCSTR propname, const CFX_ByteString& sData)
+void CJS_GlobalData::SetGlobalVariableString(const FX_CHAR* propname, const CFX_ByteString& sData)
 {
 	ASSERT(propname != NULL);
 	CFX_ByteString sPropName = propname;
@@ -247,7 +248,7 @@ void CJS_GlobalData::SetGlobalVariableString(FX_LPCSTR propname, const CFX_ByteS
 	}
 }
 
-void CJS_GlobalData::SetGlobalVariableObject(FX_LPCSTR propname, const CJS_GlobalVariableArray& array)
+void CJS_GlobalData::SetGlobalVariableObject(const FX_CHAR* propname, const CJS_GlobalVariableArray& array)
 {
 	ASSERT(propname != NULL);
 	CFX_ByteString sPropName = propname;
@@ -268,21 +269,21 @@ void CJS_GlobalData::SetGlobalVariableObject(FX_LPCSTR propname, const CJS_Globa
 		pNewData->data.sKey = sPropName;
 		pNewData->data.nType = JS_GLOBALDATA_TYPE_OBJECT;
 		pNewData->data.objData.Copy(array);
-		
+
 		m_arrayGlobalData.Add(pNewData);
 	}
 }
 
-void CJS_GlobalData::SetGlobalVariableNull(FX_LPCSTR propname)
+void CJS_GlobalData::SetGlobalVariableNull(const FX_CHAR* propname)
 {
 	ASSERT(propname != NULL);
 	CFX_ByteString sPropName = propname;
-	
+
 	sPropName.TrimLeft();
 	sPropName.TrimRight();
-	
+
 	if (sPropName.GetLength() == 0) return;
-	
+
 	if (CJS_GlobalData_Element* pData = GetGlobalVariable(sPropName))
 	{
 		pData->data.nType = JS_GLOBALDATA_TYPE_NULL;
@@ -292,12 +293,12 @@ void CJS_GlobalData::SetGlobalVariableNull(FX_LPCSTR propname)
 		CJS_GlobalData_Element* pNewData = new CJS_GlobalData_Element;
 		pNewData->data.sKey = sPropName;
 		pNewData->data.nType = JS_GLOBALDATA_TYPE_NULL;
-		
+
 		m_arrayGlobalData.Add(pNewData);
 	}
 }
 
-FX_BOOL CJS_GlobalData::SetGlobalVariablePersistent(FX_LPCSTR propname, FX_BOOL bPersistent)
+FX_BOOL CJS_GlobalData::SetGlobalVariablePersistent(const FX_CHAR* propname, FX_BOOL bPersistent)
 {
 	ASSERT(propname != NULL);
 	CFX_ByteString sPropName = propname;
@@ -316,7 +317,7 @@ FX_BOOL CJS_GlobalData::SetGlobalVariablePersistent(FX_LPCSTR propname, FX_BOOL 
 	return FALSE;
 }
 
-FX_BOOL CJS_GlobalData::DeleteGlobalVariable(FX_LPCSTR propname)
+FX_BOOL CJS_GlobalData::DeleteGlobalVariable(const FX_CHAR* propname)
 {
 	ASSERT(propname != NULL);
 	CFX_ByteString sPropName = propname;
@@ -338,7 +339,7 @@ FX_BOOL CJS_GlobalData::DeleteGlobalVariable(FX_LPCSTR propname)
 	return FALSE;
 }
 
-FX_INT32 CJS_GlobalData::GetSize() const
+int32_t CJS_GlobalData::GetSize() const
 {
 	return m_arrayGlobalData.GetSize();
 }
@@ -350,16 +351,15 @@ CJS_GlobalData_Element* CJS_GlobalData::GetAt(int index) const
 
 void CJS_GlobalData::LoadGlobalPersistentVariables()
 {
-	FX_LPBYTE pBuffer = NULL;
-	FX_INT32 nLength = 0;
+	uint8_t* pBuffer = NULL;
+	int32_t nLength = 0;
 
-	LoadFileBuffer(m_sFilePath, pBuffer, nLength);
-
+	LoadFileBuffer(m_sFilePath.c_str(), pBuffer, nLength);
 	CRYPT_ArcFourCryptBlock(pBuffer, nLength, JS_RC4KEY, sizeof(JS_RC4KEY));
 
 	if (pBuffer)
 	{
-		FX_LPBYTE p = pBuffer;
+		uint8_t* p = pBuffer;
 		FX_WORD wType = *((FX_WORD*)p);
 		p += sizeof(FX_WORD);
 
@@ -380,7 +380,7 @@ void CJS_GlobalData::LoadGlobalPersistentVariables()
 
 			if (dwSize == nLength - sizeof(FX_WORD) * 2 - sizeof(FX_DWORD)* 2)
 			{
-				for (FX_INT32 i=0,sz=dwCount; i<sz; i++)
+				for (int32_t i=0,sz=dwCount; i<sz; i++)
 				{
 					if (p > pBuffer + nLength)
 						break;
@@ -509,15 +509,15 @@ void CJS_GlobalData::SaveGlobalPersisitentVariables()
 	sFile.AppendBlock(sData.GetBuffer(), sData.GetSize());
 
 	CRYPT_ArcFourCryptBlock(sFile.GetBuffer(), sFile.GetSize(), JS_RC4KEY, sizeof(JS_RC4KEY));
-	WriteFileBuffer(m_sFilePath, (FX_LPCSTR)sFile.GetBuffer(), sFile.GetSize());
+	WriteFileBuffer(m_sFilePath.c_str(), (const FX_CHAR*)sFile.GetBuffer(), sFile.GetSize());
 }
 
-void CJS_GlobalData::LoadFileBuffer(FX_LPCWSTR sFilePath, FX_LPBYTE& pBuffer, FX_INT32& nLength)
+void CJS_GlobalData::LoadFileBuffer(const FX_WCHAR* sFilePath, uint8_t*& pBuffer, int32_t& nLength)
 {
 //UnSupport.
 }
 
-void CJS_GlobalData::WriteFileBuffer(FX_LPCWSTR sFilePath, FX_LPCSTR pBuffer, FX_INT32 nLength)
+void CJS_GlobalData::WriteFileBuffer(const FX_WCHAR* sFilePath, const FX_CHAR* pBuffer, int32_t nLength)
 {
 //UnSupport.
 }

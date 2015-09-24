@@ -8,6 +8,7 @@
 #include "base/debug/profiler.h"
 #include "base/files/file_path.h"
 #include "base/path_service.h"
+#include "base/profiler/scoped_tracker.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/installer/util/google_update_settings.h"
@@ -17,13 +18,17 @@ namespace chrome {
 
 // static
 std::string VersionInfo::GetVersionStringModifier() {
+  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/422460 is
+  // fixed.
+  tracked_objects::ScopedTracker tracking_profile(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "422460 VersionInfo::GetVersionStringModifier"));
+
 #if defined(GOOGLE_CHROME_BUILD)
   base::FilePath module;
   base::string16 channel;
   if (PathService::Get(base::FILE_MODULE, &module)) {
-    bool is_system_install =
-        !InstallUtil::IsPerUserInstall(module.value().c_str());
-
+    bool is_system_install = !InstallUtil::IsPerUserInstall(module);
     GoogleUpdateSettings::GetChromeChannelAndModifiers(is_system_install,
                                                        &channel);
   }
@@ -44,8 +49,7 @@ VersionInfo::Channel VersionInfo::GetChannel() {
 
   base::FilePath module;
   if (PathService::Get(base::FILE_MODULE, &module)) {
-    bool is_system_install =
-        !InstallUtil::IsPerUserInstall(module.value().c_str());
+    bool is_system_install = !InstallUtil::IsPerUserInstall(module);
     channel = GoogleUpdateSettings::GetChromeChannel(is_system_install);
   }
 

@@ -23,7 +23,7 @@ void ObsoleteSystemInfoBarDelegate::Create(InfoBarService* infobar_service) {
       !ObsoleteSystemMac::Has32BitOnlyCPU()) {
     return;
   }
-  infobar_service->AddInfoBar(ConfirmInfoBarDelegate::CreateInfoBar(
+  infobar_service->AddInfoBar(infobar_service->CreateConfirmInfoBar(
       scoped_ptr<ConfirmInfoBarDelegate>(new ObsoleteSystemInfoBarDelegate())));
 #else
   // No other platforms currently show this infobar.
@@ -61,8 +61,7 @@ bool ObsoleteSystemInfoBarDelegate::LinkClicked(
 #if defined(OS_MACOSX)
           GURL(chrome::kMac32BitDeprecationURL),
 #else
-          GURL("http://www.google.com/support/chrome/bin/"
-               "answer.py?answer=95411"),
+          GURL("https://support.google.com/chrome/answer/95411"),
 #endif
           content::Referrer(),
           (disposition == CURRENT_TAB) ? NEW_FOREGROUND_TAB : disposition,

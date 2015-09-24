@@ -25,13 +25,13 @@
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/stub_cros_settings_provider.h"
 #include "chrome/browser/profiles/profile_impl.h"
+#include "chrome/browser/supervised_user/legacy/supervised_user_registration_utility.h"
+#include "chrome/browser/supervised_user/legacy/supervised_user_registration_utility_stub.h"
+#include "chrome/browser/supervised_user/legacy/supervised_user_shared_settings_service.h"
+#include "chrome/browser/supervised_user/legacy/supervised_user_shared_settings_service_factory.h"
+#include "chrome/browser/supervised_user/legacy/supervised_user_sync_service.h"
+#include "chrome/browser/supervised_user/legacy/supervised_user_sync_service_factory.h"
 #include "chrome/browser/supervised_user/supervised_user_constants.h"
-#include "chrome/browser/supervised_user/supervised_user_registration_utility.h"
-#include "chrome/browser/supervised_user/supervised_user_registration_utility_stub.h"
-#include "chrome/browser/supervised_user/supervised_user_shared_settings_service.h"
-#include "chrome/browser/supervised_user/supervised_user_shared_settings_service_factory.h"
-#include "chrome/browser/supervised_user/supervised_user_sync_service.h"
-#include "chrome/browser/supervised_user/supervised_user_sync_service_factory.h"
 #include "chromeos/cryptohome/mock_async_method_caller.h"
 #include "chromeos/cryptohome/mock_homedir_methods.h"
 #include "chromeos/login/auth/key.h"
@@ -295,6 +295,7 @@ void SupervisedUserTestBase::StartFlowLoginAsManager() {
   // Next button is now enabled.
   JSExpect("!$('supervised-user-creation-next-button').disabled");
   UserContext user_context(kTestManager);
+  user_context.SetGaiaID(GetGaiaIDForUserID(kTestManager));
   user_context.SetKey(Key(kTestManagerPassword));
   SetExpectedCredentials(user_context);
   content::WindowedNotificationObserver login_observer(
@@ -368,7 +369,6 @@ void SupervisedUserTestBase::SigninAsSupervisedUser(
       user_manager::UserManager::Get()->GetUsers().at(user_index);
   ASSERT_EQ(base::UTF8ToUTF16(expected_display_name), user->display_name());
 
-  // Currently FakeLoginUtils do not support first-run use cases.
   // Clean first run flag before logging in.
   static_cast<SupervisedUserManagerImpl*>(
       ChromeUserManager::Get()->GetSupervisedUserManager())

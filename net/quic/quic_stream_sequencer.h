@@ -6,13 +6,11 @@
 #define NET_QUIC_QUIC_STREAM_SEQUENCER_H_
 
 #include <map>
+#include <string>
 
 #include "base/basictypes.h"
 #include "net/base/iovec.h"
 #include "net/quic/quic_protocol.h"
-
-using std::map;
-using std::string;
 
 namespace net {
 
@@ -25,7 +23,6 @@ class ReliableQuicStream;
 
 // Buffers frames until we have something which can be passed
 // up to the next layer.
-// TOOD(alyssar) add some checks for overflow attempts [1, 256,] [2, 256]
 class NET_EXPORT_PRIVATE QuicStreamSequencer {
  public:
   explicit QuicStreamSequencer(ReliableQuicStream* quic_stream);
@@ -43,24 +40,21 @@ class NET_EXPORT_PRIVATE QuicStreamSequencer {
 
   // Fills in up to iov_len iovecs with the next readable regions.  Returns the
   // number of iovs used.  Non-destructive of the underlying data.
-  int GetReadableRegions(iovec* iov, size_t iov_len);
+  int GetReadableRegions(iovec* iov, size_t iov_len) const;
 
   // Copies the data into the iov_len buffers provided.  Returns the number of
   // bytes read.  Any buffered data no longer in use will be released.
   int Readv(const struct iovec* iov, size_t iov_len);
+
+  // Consumes |num_bytes| data.  Used in conjunction with |GetReadableRegions|
+  // to do zero-copy reads.
+  void MarkConsumed(size_t num_bytes);
 
   // Returns true if the sequncer has bytes available for reading.
   bool HasBytesToRead() const;
 
   // Returns true if the sequencer has delivered the fin.
   bool IsClosed() const;
-
-  // Returns true if the sequencer has received this frame before.
-  bool IsDuplicate(const QuicStreamFrame& frame) const;
-
-  // Returns true if |frame| contains data which overlaps buffered data
-  // (indicating an invalid stream frame has been received).
-  bool FrameOverlapsBufferedData(const QuicStreamFrame& frame) const;
 
   // Calls |ProcessRawData| on |stream_| for each buffered frame that may
   // be processed.
@@ -78,8 +72,17 @@ class NET_EXPORT_PRIVATE QuicStreamSequencer {
     return num_duplicate_frames_received_;
   }
 
+  int num_early_frames_received() const { return num_early_frames_received_; }
+
  private:
   friend class test::QuicStreamSequencerPeer;
+
+  // Returns true if |frame| contains data which overlaps buffered data
+  // (indicating an invalid stream frame has been received).
+  bool FrameOverlapsBufferedData(const QuicStreamFrame& frame) const;
+
+  // Returns true if the sequencer has received this frame before.
+  bool IsDuplicate(const QuicStreamFrame& frame) const;
 
   // Wait until we've seen 'offset' bytes, and then terminate the stream.
   void CloseStreamAtOffset(QuicStreamOffset offset);
@@ -103,9 +106,9 @@ class NET_EXPORT_PRIVATE QuicStreamSequencer {
   // frames, in which case we will have to allow receipt of overlapping frames.
   // Maybe write new frames into a ring buffer, and keep track of consumed
   // bytes, and gaps.
-  typedef map<QuicStreamOffset, string> FrameMap;
+  typedef std::map<QuicStreamOffset, std::string> FrameMap;
 
-  // Stores buffered frames (maps from sequence number -> frame data as string).
+  // Stores buffered frames (maps from byte offset -> frame data as string).
   FrameMap buffered_frames_;
 
   // The offset, if any, we got a stream termination for.  When this many bytes
@@ -124,6 +127,10 @@ class NET_EXPORT_PRIVATE QuicStreamSequencer {
 
   // Count of the number of duplicate frames received.
   int num_duplicate_frames_received_;
+
+  // Count of the number of frames received before all previous frames were
+  // received.
+  int num_early_frames_received_;
 
   DISALLOW_COPY_AND_ASSIGN(QuicStreamSequencer);
 };

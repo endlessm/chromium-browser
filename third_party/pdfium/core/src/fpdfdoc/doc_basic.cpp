@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/fpdfdoc/fpdf_doc.h"
@@ -72,7 +72,7 @@ CFX_ByteString CPDF_Dest::GetRemoteName()
     }
     return m_pObj->GetString();
 }
-CPDF_NameTree::CPDF_NameTree(CPDF_Document* pDoc, FX_BSTR category)
+CPDF_NameTree::CPDF_NameTree(CPDF_Document* pDoc, const CFX_ByteStringC& category)
 {
     if (pDoc->GetRoot() && pDoc->GetRoot()->GetDict(FX_BSTRC("Names")))
         m_pRoot = pDoc->GetRoot()->GetDict(FX_BSTRC("Names"))->GetDict(category);
@@ -103,7 +103,7 @@ static CPDF_Object* SearchNameNode(CPDF_Dictionary* pNode, const CFX_ByteString&
         FX_DWORD dwCount = pNames->GetCount() / 2;
         for (FX_DWORD i = 0; i < dwCount; i ++) {
             CFX_ByteString csValue = pNames->GetString(i * 2);
-            FX_INT32 iCompare = csValue.Compare(csName);
+            int32_t iCompare = csValue.Compare(csName);
             if (iCompare <= 0) {
                 if (ppFind != NULL) {
                     *ppFind = pNames;
@@ -229,7 +229,7 @@ CPDF_Object* CPDF_NameTree::LookupValue(const CFX_ByteString& csName) const
     int nIndex = 0;
     return SearchNameNode(m_pRoot, csName, nIndex, NULL);
 }
-CPDF_Array*	CPDF_NameTree::LookupNamedDest(CPDF_Document* pDoc, FX_BSTR sName)
+CPDF_Array*	CPDF_NameTree::LookupNamedDest(CPDF_Document* pDoc, const CFX_ByteStringC& sName)
 {
     CPDF_Object* pValue = LookupValue(sName);
     if (pValue == NULL) {
@@ -250,17 +250,16 @@ CPDF_Array*	CPDF_NameTree::LookupNamedDest(CPDF_Document* pDoc, FX_BSTR sName)
     }
     return NULL;
 }
-static CFX_WideString ChangeSlashToPlatform(FX_LPCWSTR str)
+#if _FXM_PLATFORM_  == _FXM_PLATFORM_APPLE_ || _FXM_PLATFORM_  == _FXM_PLATFORM_WINDOWS_
+static CFX_WideString ChangeSlashToPlatform(const FX_WCHAR* str)
 {
     CFX_WideString result;
     while (*str) {
         if (*str == '/') {
 #if _FXM_PLATFORM_  == _FXM_PLATFORM_APPLE_
             result += ':';
-#elif _FXM_PLATFORM_  == _FXM_PLATFORM_WINDOWS_
-            result += '\\';
 #else
-            result += *str;
+            result += '\\';
 #endif
         } else {
             result += *str;
@@ -269,7 +268,21 @@ static CFX_WideString ChangeSlashToPlatform(FX_LPCWSTR str)
     }
     return result;
 }
-static CFX_WideString FILESPEC_DecodeFileName(FX_WSTR filepath)
+static CFX_WideString ChangeSlashToPDF(const FX_WCHAR* str)
+{
+    CFX_WideString result;
+    while (*str) {
+        if (*str == '\\' || *str == ':') {
+            result += '/';
+        } else {
+            result += *str;
+        }
+        str++;
+    }
+    return result;
+}
+#endif
+static CFX_WideString FILESPEC_DecodeFileName(const CFX_WideStringC& filepath)
 {
     if (filepath.GetLength() <= 1) {
         return CFX_WideString();
@@ -349,20 +362,7 @@ FX_BOOL CPDF_FileSpec::IsURL() const
     }
     return ((CPDF_Dictionary*)m_pObj)->GetString(FX_BSTRC("FS")) == FX_BSTRC("URL");
 }
-static CFX_WideString ChangeSlashToPDF(FX_LPCWSTR str)
-{
-    CFX_WideString result;
-    while (*str) {
-        if (*str == '\\' || *str == ':') {
-            result += '/';
-        } else {
-            result += *str;
-        }
-        str++;
-    }
-    return result;
-}
-CFX_WideString FILESPEC_EncodeFileName(FX_WSTR filepath)
+CFX_WideString FILESPEC_EncodeFileName(const CFX_WideStringC& filepath)
 {
     if (filepath.GetLength() <= 1) {
         return CFX_WideString();
@@ -405,7 +405,7 @@ CPDF_Stream* CPDF_FileSpec::GetFileStream() const
     if (m_pObj == NULL) {
         return NULL;
     }
-    FX_INT32 iType = m_pObj->GetType();
+    int32_t iType = m_pObj->GetType();
     if (iType == PDFOBJ_STREAM) {
         return (CPDF_Stream*)m_pObj;
     } else if (iType == PDFOBJ_DICTIONARY) {
@@ -417,7 +417,7 @@ CPDF_Stream* CPDF_FileSpec::GetFileStream() const
     }
     return NULL;
 }
-static void FPDFDOC_FILESPEC_SetFileName(CPDF_Object *pObj, FX_WSTR wsFileName, FX_BOOL bURL)
+static void FPDFDOC_FILESPEC_SetFileName(CPDF_Object *pObj, const CFX_WideStringC& wsFileName, FX_BOOL bURL)
 {
     ASSERT(pObj != NULL);
     CFX_WideString wsStr;
@@ -426,7 +426,7 @@ static void FPDFDOC_FILESPEC_SetFileName(CPDF_Object *pObj, FX_WSTR wsFileName, 
     } else {
         wsStr = FILESPEC_EncodeFileName(wsFileName);
     }
-    FX_INT32 iType = pObj->GetType();
+    int32_t iType = pObj->GetType();
     if (iType == PDFOBJ_STRING) {
         pObj->SetString(CFX_ByteString::FromUnicode(wsStr));
     } else if (iType == PDFOBJ_DICTIONARY) {
@@ -435,7 +435,7 @@ static void FPDFDOC_FILESPEC_SetFileName(CPDF_Object *pObj, FX_WSTR wsFileName, 
         pDict->SetAtString(FX_BSTRC("UF"), PDF_EncodeText(wsStr));
     }
 }
-void CPDF_FileSpec::SetFileName(FX_WSTR wsFileName, FX_BOOL bURL)
+void CPDF_FileSpec::SetFileName(const CFX_WideStringC& wsFileName, FX_BOOL bURL)
 {
     ASSERT(m_pObj != NULL);
     if (m_pObj->GetType() == PDFOBJ_DICTIONARY && bURL) {
@@ -488,7 +488,7 @@ static CFX_WideString _GetLabelNumPortion(int num, const CFX_ByteString& bsStyle
         return wsNumPortion;
     }
     if (bsStyle == "D") {
-        wsNumPortion.Format((FX_LPCWSTR)L"%d", num);
+        wsNumPortion.Format(L"%d", num);
     } else if (bsStyle == "R") {
         wsNumPortion = _MakeRoman(num);
         wsNumPortion.MakeUpper();
@@ -537,10 +537,10 @@ CFX_WideString CPDF_PageLabel::GetLabel(int nPage) const
             return wsLabel;
         }
     }
-    wsLabel.Format((FX_LPCWSTR)L"%d", nPage + 1);
+    wsLabel.Format(L"%d", nPage + 1);
     return wsLabel;
 }
-FX_INT32 CPDF_PageLabel::GetPageByLabel(FX_BSTR bsLabel) const
+int32_t CPDF_PageLabel::GetPageByLabel(const CFX_ByteStringC& bsLabel) const
 {
     if (m_pDocument == NULL) {
         return -1;
@@ -565,8 +565,8 @@ FX_INT32 CPDF_PageLabel::GetPageByLabel(FX_BSTR bsLabel) const
     }
     return -1;
 }
-FX_INT32 CPDF_PageLabel::GetPageByLabel(FX_WSTR wsLabel) const
+int32_t CPDF_PageLabel::GetPageByLabel(const CFX_WideStringC& wsLabel) const
 {
-    CFX_ByteString bsLabel = PDF_EncodeText((CFX_WideString)wsLabel);
+    CFX_ByteString bsLabel = PDF_EncodeText(wsLabel.GetPtr());
     return GetPageByLabel(bsLabel);
 }

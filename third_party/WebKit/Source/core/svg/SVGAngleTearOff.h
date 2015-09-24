@@ -40,9 +40,9 @@ namespace blink {
 class SVGAngleTearOff final : public SVGPropertyTearOff<SVGAngle>, public ScriptWrappable {
     DEFINE_WRAPPERTYPEINFO();
 public:
-    static PassRefPtr<SVGAngleTearOff> create(PassRefPtr<SVGAngle> target, SVGElement* contextElement, PropertyIsAnimValType propertyIsAnimVal, const QualifiedName& attributeName = QualifiedName::null())
+    static PassRefPtrWillBeRawPtr<SVGAngleTearOff> create(PassRefPtrWillBeRawPtr<SVGAngle> target, SVGElement* contextElement, PropertyIsAnimValType propertyIsAnimVal, const QualifiedName& attributeName = QualifiedName::null())
     {
-        return adoptRef(new SVGAngleTearOff(target, contextElement, propertyIsAnimVal, attributeName));
+        return adoptRefWillBeNoop(new SVGAngleTearOff(target, contextElement, propertyIsAnimVal, attributeName));
     }
 
     enum {
@@ -53,7 +53,7 @@ public:
         SVG_ANGLETYPE_GRAD = SVGAngle::SVG_ANGLETYPE_GRAD
     };
 
-    virtual ~SVGAngleTearOff();
+    ~SVGAngleTearOff() override;
 
     unsigned short unitType() { return hasExposedAngleUnit() ? target()->unitType() : SVGAngle::SVG_ANGLETYPE_UNKNOWN; }
 
@@ -70,7 +70,7 @@ public:
     void setValueAsString(const String&, ExceptionState&);
 
 private:
-    SVGAngleTearOff(PassRefPtr<SVGAngle>, SVGElement*, PropertyIsAnimValType, const QualifiedName&);
+    SVGAngleTearOff(PassRefPtrWillBeRawPtr<SVGAngle>, SVGElement*, PropertyIsAnimValType, const QualifiedName&);
 
     bool hasExposedAngleUnit() { return target()->unitType() <= SVGAngle::SVG_ANGLETYPE_GRAD; }
 };

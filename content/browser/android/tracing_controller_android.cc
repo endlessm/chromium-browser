@@ -6,9 +6,9 @@
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
-#include "base/debug/trace_event.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
+#include "base/trace_event/trace_event.h"
 #include "content/public/browser/tracing_controller.h"
 #include "jni/TracingControllerAndroid_jni.h"
 
@@ -35,16 +35,14 @@ bool TracingControllerAndroid::StartTracing(JNIEnv* env,
                                             jstring jtraceoptions) {
   std::string categories =
       base::android::ConvertJavaStringToUTF8(env, jcategories);
-  base::debug::TraceOptions trace_options;
-  trace_options.SetFromString(
-      base::android::ConvertJavaStringToUTF8(env, jtraceoptions));
+  std::string options =
+      base::android::ConvertJavaStringToUTF8(env, jtraceoptions);
 
   // This log is required by adb_profile_chrome.py.
   LOG(WARNING) << "Logging performance trace to file";
 
   return TracingController::GetInstance()->EnableRecording(
-      base::debug::CategoryFilter(categories),
-      trace_options,
+      base::trace_event::TraceConfig(categories, options),
       TracingController::EnableRecordingDoneCallback());
 }
 
@@ -91,22 +89,25 @@ bool TracingControllerAndroid::GetKnownCategoryGroupsAsync(JNIEnv* env,
 
 void TracingControllerAndroid::OnKnownCategoriesReceived(
     const std::set<std::string>& categories_received) {
-  scoped_ptr<base::ListValue> category_list(new base::ListValue());
+  base::ListValue category_list;
   for (std::set<std::string>::const_iterator it = categories_received.begin();
        it != categories_received.end();
        ++it) {
-    category_list->AppendString(*it);
+    category_list.AppendString(*it);
   }
   std::string received_category_list;
-  base::JSONWriter::Write(category_list.get(), &received_category_list);
+  base::JSONWriter::Write(category_list, &received_category_list);
 
   // This log is required by adb_profile_chrome.py.
   LOG(WARNING) << "{\"traceCategoriesList\": " << received_category_list << "}";
 }
 
 static jstring GetDefaultCategories(JNIEnv* env, jobject obj) {
-  return base::android::ConvertUTF8ToJavaString(env,
-      base::debug::CategoryFilter::kDefaultCategoryFilterString).Release();
+  base::trace_event::TraceConfig trace_config;
+  return base::android::ConvertUTF8ToJavaString(
+             env,
+             trace_config.ToCategoryFilterString())
+      .Release();
 }
 
 bool RegisterTracingControllerAndroid(JNIEnv* env) {

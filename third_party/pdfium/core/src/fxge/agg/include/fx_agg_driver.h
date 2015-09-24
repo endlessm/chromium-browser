@@ -4,11 +4,14 @@
  
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _FX_AGG_DEVICE_DRIVER_
-#define _FX_AGG_DEVICE_DRIVER_
-#include "fxfx_agg_path_storage.h"
-#include "fxfx_agg_rasterizer_scanline_aa.h"
-class CAgg_PathData : public CFX_Object
+#ifndef FX_AGG_DRIVER_H_
+#define FX_AGG_DRIVER_H_
+
+#include "../../../../../third_party/agg23/agg_clip_liang_barsky.h"
+#include "../../../../../third_party/agg23/agg_path_storage.h"
+#include "../../../../../third_party/agg23/agg_rasterizer_scanline_aa.h"
+
+class CAgg_PathData 
 {
 public:
     CAgg_PathData() {}
@@ -84,10 +87,10 @@ public:
                                       int alpha_flag, void* pIccTransform, int blend_type);
 
     virtual FX_BOOL		StartDIBits(const CFX_DIBSource* pBitmap, int bitmap_alpha, FX_DWORD color,
-                                    const CFX_AffineMatrix* pMatrix, FX_DWORD flags, FX_LPVOID& handle,
+                                    const CFX_AffineMatrix* pMatrix, FX_DWORD flags, void*& handle,
                                     int alpha_flag, void* pIccTransform, int blend_type);
-    virtual FX_BOOL		ContinueDIBits(FX_LPVOID handle, IFX_Pause* pPause);
-    virtual void		CancelDIBits(FX_LPVOID handle);
+    virtual FX_BOOL		ContinueDIBits(void* handle, IFX_Pause* pPause);
+    virtual void		CancelDIBits(void* handle);
 
     virtual FX_BOOL     DrawDeviceText(int nChars, const FXTEXT_CHARPOS* pCharPos, CFX_Font* pFont,
                                        CFX_FontCache* pCache, const CFX_AffineMatrix* pObject2Device, FX_FLOAT font_size, FX_DWORD color,
@@ -97,7 +100,7 @@ public:
 
     void				SetClipMask(FX_NAMESPACE_DECLARE(agg, rasterizer_scanline_aa)& rasterizer);
 
-    virtual	FX_LPBYTE	GetBuffer() const
+    virtual	uint8_t*	GetBuffer() const
     {
         return m_pBitmap->GetBuffer();
     }
@@ -118,4 +121,5 @@ public:
     CFX_DIBitmap*       m_pOriDevice;
     FX_BOOL             m_bGroupKnockout;
 };
-#endif
+
+#endif  // FX_AGG_DRIVER_H_

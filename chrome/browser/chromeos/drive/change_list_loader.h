@@ -13,13 +13,15 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/observer_list.h"
+#include "base/threading/thread_checker.h"
 #include "chrome/browser/chromeos/drive/file_errors.h"
+#include "google_apis/drive/drive_api_error_codes.h"
 #include "google_apis/drive/drive_common_callbacks.h"
-#include "google_apis/drive/gdata_errorcode.h"
 
 class GURL;
 
 namespace base {
+class CancellationFlag;
 class ScopedClosureRunner;
 class SequencedTaskRunner;
 class Time;
@@ -27,7 +29,6 @@ class Time;
 
 namespace google_apis {
 class AboutResource;
-class ResourceList;
 }  // namespace google_apis
 
 namespace drive {
@@ -69,6 +70,8 @@ class LoaderController {
   int lock_count_;
   std::vector<base::Closure> pending_tasks_;
 
+  base::ThreadChecker thread_checker_;
+
   base::WeakPtrFactory<LoaderController> weak_ptr_factory_;
   DISALLOW_COPY_AND_ASSIGN(LoaderController);
 };
@@ -104,7 +107,7 @@ class AboutResourceLoader {
   // cached and the other is passed to callbacks associated with |task_id|.
   void UpdateAboutResourceAfterGetAbout(
       int task_id,
-      google_apis::GDataErrorCode status,
+      google_apis::DriveApiErrorCode status,
       scoped_ptr<google_apis::AboutResource> about_resource);
 
   JobScheduler* scheduler_;
@@ -117,6 +120,8 @@ class AboutResourceLoader {
   // when GetAboutResource is called before the task completes.
   std::map<int, std::vector<google_apis::AboutResourceCallback> >
       pending_callbacks_;
+
+  base::ThreadChecker thread_checker_;
 
   base::WeakPtrFactory<AboutResourceLoader> weak_ptr_factory_;
   DISALLOW_COPY_AND_ASSIGN(AboutResourceLoader);
@@ -176,7 +181,7 @@ class ChangeListLoader {
                                       FileError error);
   void LoadAfterGetAboutResource(
       int64 local_changestamp,
-      google_apis::GDataErrorCode status,
+      google_apis::DriveApiErrorCode status,
       scoped_ptr<google_apis::AboutResource> about_resource);
 
   // Part of Load().
@@ -186,7 +191,7 @@ class ChangeListLoader {
 
   // Called when the loading about_resource_loader_->UpdateAboutResource is
   // completed.
-  void OnAboutResourceUpdated(google_apis::GDataErrorCode error,
+  void OnAboutResourceUpdated(google_apis::DriveApiErrorCode error,
                               scoped_ptr<google_apis::AboutResource> resource);
 
   // ================= Implementation for change list loading =================
@@ -214,11 +219,12 @@ class ChangeListLoader {
 
   EventLogger* logger_;  // Not owned.
   scoped_refptr<base::SequencedTaskRunner> blocking_task_runner_;
+  scoped_ptr<base::CancellationFlag> in_shutdown_;
   ResourceMetadata* resource_metadata_;  // Not owned.
   JobScheduler* scheduler_;  // Not owned.
   AboutResourceLoader* about_resource_loader_;  // Not owned.
   LoaderController* loader_controller_;  // Not owned.
-  ObserverList<ChangeListLoaderObserver> observers_;
+  base::ObserverList<ChangeListLoaderObserver> observers_;
   std::vector<FileOperationCallback> pending_load_callback_;
   FileOperationCallback pending_update_check_callback_;
 
@@ -228,6 +234,8 @@ class ChangeListLoader {
   // True if the full resource list is loaded (i.e. the resource metadata is
   // stored locally).
   bool loaded_;
+
+  base::ThreadChecker thread_checker_;
 
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate its weak pointers before any other members are destroyed.

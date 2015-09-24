@@ -22,24 +22,29 @@
 #ifndef SVGPathSegCurvetoQuadraticSmoothAbs_h
 #define SVGPathSegCurvetoQuadraticSmoothAbs_h
 
-#include "core/svg/SVGPathSegWithContext.h"
+#include "core/svg/SVGPathSeg.h"
 
 namespace blink {
 
 class SVGPathSegCurvetoQuadraticSmoothAbs final : public SVGPathSegSingleCoordinate {
     DEFINE_WRAPPERTYPEINFO();
 public:
-    static PassRefPtr<SVGPathSegCurvetoQuadraticSmoothAbs> create(SVGPathElement* element, float x, float y)
+    static PassRefPtrWillBeRawPtr<SVGPathSegCurvetoQuadraticSmoothAbs> create(SVGPathElement* element, float x, float y)
     {
-        return adoptRef(new SVGPathSegCurvetoQuadraticSmoothAbs(element, x, y));
+        return adoptRefWillBeNoop(new SVGPathSegCurvetoQuadraticSmoothAbs(element, x, y));
+    }
+
+    PassRefPtrWillBeRawPtr<SVGPathSeg> clone() override
+    {
+        return adoptRefWillBeNoop(new SVGPathSegCurvetoQuadraticSmoothAbs(nullptr, x(), y()));
     }
 
 private:
     SVGPathSegCurvetoQuadraticSmoothAbs(SVGPathElement* element, float x, float y)
         : SVGPathSegSingleCoordinate(element, x, y) { }
 
-    virtual unsigned short pathSegType() const override { return PATHSEG_CURVETO_QUADRATIC_SMOOTH_ABS; }
-    virtual String pathSegTypeAsLetter() const override { return "T"; }
+    unsigned short pathSegType() const override { return PATHSEG_CURVETO_QUADRATIC_SMOOTH_ABS; }
+    String pathSegTypeAsLetter() const override { return "T"; }
 };
 
 } // namespace blink

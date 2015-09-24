@@ -31,20 +31,30 @@ using std::string;
 using std::vector;
 
 using syncer::GetModelType;
+using syncer::GetModelTypeFromSpecifics;
 using syncer::ModelType;
 using syncer::ModelTypeSet;
-
-// The default store birthday value.
-static const char kDefaultStoreBirthday[] = "1234567890";
-
-// The default keystore key.
-static const char kDefaultKeystoreKey[] = "1111111111111111";
 
 namespace fake_server {
 
 class FakeServerEntity;
 
 namespace {
+
+// The default keystore key.
+static const char kDefaultKeystoreKey[] = "1111111111111111";
+
+// Properties of the bookmark bar permanent folder.
+static const char kBookmarkBarFolderServerTag[] = "bookmark_bar";
+static const char kBookmarkBarFolderName[] = "Bookmark Bar";
+
+// Properties of the other bookmarks permanent folder.
+static const char kOtherBookmarksFolderServerTag[] =  "other_bookmarks";
+static const char kOtherBookmarksFolderName[] = "Other Bookmarks";
+
+// Properties of the synced bookmarks permanent folder.
+static const char kSyncedBookmarksFolderServerTag[] = "synced_bookmarks";
+static const char kSyncedBookmarksFolderName[] = "Synced Bookmarks";
 
 // A filter used during GetUpdates calls to determine what information to
 // send back to the client. There is a 1:1 correspondence between any given
@@ -78,16 +88,16 @@ class UpdateSieve {
 
   // Determines whether the server should send an |entity| to the client as
   // part of a GetUpdatesResponse.
-  bool ClientWantsItem(FakeServerEntity* entity) const {
-    int64 version = entity->GetVersion();
+  bool ClientWantsItem(const FakeServerEntity& entity) const {
+    int64 version = entity.GetVersion();
     if (version <= min_version_) {
       return false;
-    } else if (entity->IsDeleted()) {
+    } else if (entity.IsDeleted()) {
       return true;
     }
 
     ModelTypeToVersionMap::const_iterator it =
-        request_from_version_.find(entity->GetModelType());
+        request_from_version_.find(entity.GetModelType());
 
     return it == request_from_version_.end() ? false : it->second < version;
   }
@@ -144,91 +154,96 @@ scoped_ptr<UpdateSieve> UpdateSieve::Create(
       new UpdateSieve(request_from_version, min_version));
 }
 
+// Returns whether |entity| is deleted or permanent.
+bool IsDeletedOrPermanent(const FakeServerEntity& entity) {
+  return entity.IsDeleted() || entity.IsPermanent();
+}
+
 }  // namespace
 
 FakeServer::FakeServer() : version_(0),
-                           store_birthday_(kDefaultStoreBirthday),
+                           store_birthday_(0),
                            authenticated_(true),
                            error_type_(sync_pb::SyncEnums::SUCCESS),
                            alternate_triggered_errors_(false),
                            request_counter_(0),
-                           network_enabled_(true) {
+                           network_enabled_(true),
+                           weak_ptr_factory_(this) {
   keystore_keys_.push_back(kDefaultKeystoreKey);
-  CHECK(CreateDefaultPermanentItems());
+
+  const bool create_result = CreateDefaultPermanentItems();
+  DCHECK(create_result) << "Permanent items were not created successfully.";
 }
 
-FakeServer::~FakeServer() {
-  STLDeleteContainerPairSecondPointers(entities_.begin(), entities_.end());
+FakeServer::~FakeServer() {}
+
+bool FakeServer::CreatePermanentBookmarkFolder(const std::string& server_tag,
+                                               const std::string& name) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  scoped_ptr<FakeServerEntity> entity =
+      PermanentEntity::Create(syncer::BOOKMARKS, server_tag, name,
+                              ModelTypeToRootTag(syncer::BOOKMARKS));
+  if (!entity)
+    return false;
+
+  SaveEntity(entity.Pass());
+  return true;
 }
 
 bool FakeServer::CreateDefaultPermanentItems() {
   ModelTypeSet all_types = syncer::ProtocolTypes();
   for (ModelTypeSet::Iterator it = all_types.First(); it.Good(); it.Inc()) {
     ModelType model_type = it.Get();
-    FakeServerEntity* top_level_entity =
+    scoped_ptr<FakeServerEntity> top_level_entity =
         PermanentEntity::CreateTopLevel(model_type);
-    if (top_level_entity == NULL) {
+    if (!top_level_entity) {
       return false;
     }
-    SaveEntity(top_level_entity);
+    SaveEntity(top_level_entity.Pass());
 
     if (model_type == syncer::BOOKMARKS) {
-      FakeServerEntity* bookmark_bar_entity =
-          PermanentEntity::Create(syncer::BOOKMARKS,
-                                  "bookmark_bar",
-                                  "Bookmark Bar",
-                                  ModelTypeToRootTag(syncer::BOOKMARKS));
-      if (bookmark_bar_entity == NULL) {
+      if (!CreatePermanentBookmarkFolder(kBookmarkBarFolderServerTag,
+                                         kBookmarkBarFolderName))
         return false;
-      }
-      SaveEntity(bookmark_bar_entity);
-
-      FakeServerEntity* other_bookmarks_entity =
-          PermanentEntity::Create(syncer::BOOKMARKS,
-                                  "other_bookmarks",
-                                  "Other Bookmarks",
-                                  ModelTypeToRootTag(syncer::BOOKMARKS));
-      if (other_bookmarks_entity == NULL) {
+      if (!CreatePermanentBookmarkFolder(kOtherBookmarksFolderServerTag,
+                                         kOtherBookmarksFolderName))
         return false;
-      }
-      SaveEntity(other_bookmarks_entity);
     }
   }
 
   return true;
 }
 
-bool FakeServer::CreateMobileBookmarksPermanentItem() {
-  // This folder is called "Synced Bookmarks" by sync and is renamed
-  // "Mobile Bookmarks" by the mobile client UIs.
-  FakeServerEntity* mobile_bookmarks_entity =
-      PermanentEntity::Create(syncer::BOOKMARKS,
-                              "synced_bookmarks",
-                              "Synced Bookmarks",
-                              ModelTypeToRootTag(syncer::BOOKMARKS));
-  if (mobile_bookmarks_entity == NULL) {
-    return false;
-  }
-  SaveEntity(mobile_bookmarks_entity);
-  return true;
+void FakeServer::UpdateEntityVersion(FakeServerEntity* entity) {
+  entity->SetVersion(++version_);
 }
 
-void FakeServer::SaveEntity(FakeServerEntity* entity) {
-  delete entities_[entity->GetId()];
-  entity->SetVersion(++version_);
-  entities_[entity->GetId()] = entity;
+void FakeServer::SaveEntity(scoped_ptr<FakeServerEntity> entity) {
+  UpdateEntityVersion(entity.get());
+  const string id = entity->GetId();
+  entities_.set(id, entity.Pass());
 }
 
 void FakeServer::HandleCommand(const string& request,
-                               const HandleCommandCallback& callback) {
+                               const base::Closure& completion_closure,
+                               int* error_code,
+                               int* response_code,
+                               std::string* response) {
+  DCHECK(thread_checker_.CalledOnValidThread());
   if (!network_enabled_) {
-    callback.Run(net::ERR_FAILED, net::ERR_FAILED, string());
+    *error_code = net::ERR_FAILED;
+    *response_code = net::ERR_FAILED;
+    *response = string();
+    completion_closure.Run();
     return;
   }
   request_counter_++;
 
   if (!authenticated_) {
-    callback.Run(0, net::HTTP_UNAUTHORIZED, string());
+    *error_code = 0;
+    *response_code = net::HTTP_UNAUTHORIZED;
+    *response = string();
+    completion_closure.Run();
     return;
   }
 
@@ -239,7 +254,7 @@ void FakeServer::HandleCommand(const string& request,
   sync_pb::ClientToServerResponse response_proto;
 
   if (message.has_store_birthday() &&
-      message.store_birthday() != store_birthday_) {
+      message.store_birthday() != GetStoreBirthday()) {
     response_proto.set_error_code(sync_pb::SyncEnums::NOT_MY_BIRTHDAY);
   } else if (error_type_ != sync_pb::SyncEnums::SUCCESS &&
              ShouldSendTriggeredError()) {
@@ -260,23 +275,38 @@ void FakeServer::HandleCommand(const string& request,
                                       message.invalidator_client_id(),
                                       response_proto.mutable_commit());
         break;
+      case sync_pb::ClientToServerMessage::CLEAR_SERVER_DATA:
+        ClearServerData();
+        response_proto.mutable_clear_server_data();
+        success = true;
+        break;
       default:
-        callback.Run(net::ERR_NOT_IMPLEMENTED, 0, string());;
+        *error_code = net::ERR_NOT_IMPLEMENTED;
+        *response_code = 0;
+        *response = string();
+        completion_closure.Run();
         return;
     }
 
     if (!success) {
       // TODO(pvalenzuela): Add logging here so that tests have more info about
       // the failure.
-      callback.Run(net::ERR_FAILED, 0, string());
+      *error_code = net::ERR_FAILED;
+      *response_code = 0;
+      *response = string();
+      completion_closure.Run();
       return;
     }
 
     response_proto.set_error_code(sync_pb::SyncEnums::SUCCESS);
   }
 
-  response_proto.set_store_birthday(store_birthday_);
-  callback.Run(0, net::HTTP_OK, response_proto.SerializeAsString());
+  response_proto.set_store_birthday(GetStoreBirthday());
+
+  *error_code = 0;
+  *response_code = net::HTTP_OK;
+  *response = response_proto.SerializeAsString();
+  completion_closure.Run();
 }
 
 bool FakeServer::HandleGetUpdatesRequest(
@@ -288,23 +318,26 @@ bool FakeServer::HandleGetUpdatesRequest(
 
   scoped_ptr<UpdateSieve> sieve = UpdateSieve::Create(get_updates);
 
+  // This folder is called "Synced Bookmarks" by sync and is renamed
+  // "Mobile Bookmarks" by the mobile client UIs.
   if (get_updates.create_mobile_bookmarks_folder() &&
-      !CreateMobileBookmarksPermanentItem()) {
+      !CreatePermanentBookmarkFolder(kSyncedBookmarksFolderServerTag,
+                                     kSyncedBookmarksFolderName)) {
     return false;
   }
 
   bool send_encryption_keys_based_on_nigori = false;
   int64 max_response_version = 0;
-  for (EntityMap::iterator it = entities_.begin(); it != entities_.end();
+  for (EntityMap::const_iterator it = entities_.begin(); it != entities_.end();
        ++it) {
-    FakeServerEntity* entity = it->second;
+    const FakeServerEntity& entity = *it->second;
     if (sieve->ClientWantsItem(entity)) {
       sync_pb::SyncEntity* response_entity = response->add_entries();
-      entity->SerializeAsProto(response_entity);
+      entity.SerializeAsProto(response_entity);
       max_response_version = std::max(max_response_version,
                                       response_entity->version());
 
-      if (entity->GetModelType() == syncer::NIGORI) {
+      if (entity.GetModelType() == syncer::NIGORI) {
         send_encryption_keys_based_on_nigori =
             response_entity->specifics().nigori().passphrase_type() ==
                 sync_pb::NigoriSpecifics::KEYSTORE_PASSPHRASE;
@@ -327,104 +360,98 @@ bool FakeServer::HandleGetUpdatesRequest(
 string FakeServer::CommitEntity(
     const sync_pb::SyncEntity& client_entity,
     sync_pb::CommitResponse_EntryResponse* entry_response,
-    string client_guid,
-    string parent_id) {
+    const string& client_guid,
+    const string& parent_id) {
   if (client_entity.version() == 0 && client_entity.deleted()) {
     return string();
   }
 
-  FakeServerEntity* entity;
+  scoped_ptr<FakeServerEntity> entity;
   if (client_entity.deleted()) {
     entity = TombstoneEntity::Create(client_entity.id_string());
-    // TODO(pvalenzuela): Change the behavior of DeleteChilden so that it does
-    // not modify server data if it fails.
-    if (!DeleteChildren(client_entity.id_string())) {
-      return string();
-    }
+    DeleteChildren(client_entity.id_string());
   } else if (GetModelType(client_entity) == syncer::NIGORI) {
     // NIGORI is the only permanent item type that should be updated by the
     // client.
-    entity = PermanentEntity::CreateUpdatedNigoriEntity(
-        client_entity,
-        entities_[client_entity.id_string()]);
+    EntityMap::const_iterator iter = entities_.find(client_entity.id_string());
+    CHECK(iter != entities_.end());
+    entity = PermanentEntity::CreateUpdatedNigoriEntity(client_entity,
+                                                        *iter->second);
   } else if (client_entity.has_client_defined_unique_tag()) {
     entity = UniqueClientEntity::Create(client_entity);
   } else {
     // TODO(pvalenzuela): Validate entity's parent ID.
-    if (entities_.find(client_entity.id_string()) != entities_.end()) {
-      entity = BookmarkEntity::CreateUpdatedVersion(
-        client_entity,
-        entities_[client_entity.id_string()],
-        parent_id);
+    EntityMap::const_iterator iter = entities_.find(client_entity.id_string());
+    if (iter != entities_.end()) {
+      entity = BookmarkEntity::CreateUpdatedVersion(client_entity,
+                                                    *iter->second, parent_id);
     } else {
       entity = BookmarkEntity::CreateNew(client_entity, parent_id, client_guid);
     }
   }
 
-  if (entity == NULL) {
+  if (!entity) {
     // TODO(pvalenzuela): Add logging so that it is easier to determine why
     // creation failed.
     return string();
   }
 
-  SaveEntity(entity);
-  BuildEntryResponseForSuccessfulCommit(entry_response, entity);
-  return entity->GetId();
+  const std::string id = entity->GetId();
+  SaveEntity(entity.Pass());
+  BuildEntryResponseForSuccessfulCommit(id, entry_response);
+  return id;
 }
 
 void FakeServer::BuildEntryResponseForSuccessfulCommit(
-  sync_pb::CommitResponse_EntryResponse* entry_response,
-  FakeServerEntity* entity) {
-    entry_response->set_response_type(sync_pb::CommitResponse::SUCCESS);
-    entry_response->set_id_string(entity->GetId());
+    const std::string& entity_id,
+    sync_pb::CommitResponse_EntryResponse* entry_response) {
+  EntityMap::const_iterator iter = entities_.find(entity_id);
+  CHECK(iter != entities_.end());
+  const FakeServerEntity& entity = *iter->second;
+  entry_response->set_response_type(sync_pb::CommitResponse::SUCCESS);
+  entry_response->set_id_string(entity.GetId());
 
-    if (entity->IsDeleted()) {
-      entry_response->set_version(entity->GetVersion() + 1);
-    } else {
-      entry_response->set_version(entity->GetVersion());
-      entry_response->set_name(entity->GetName());
-    }
+  if (entity.IsDeleted()) {
+    entry_response->set_version(entity.GetVersion() + 1);
+  } else {
+    entry_response->set_version(entity.GetVersion());
+    entry_response->set_name(entity.GetName());
+  }
 }
 
 bool FakeServer::IsChild(const string& id, const string& potential_parent_id) {
-  if (entities_.find(id) == entities_.end()) {
+  EntityMap::const_iterator iter = entities_.find(id);
+  if (iter == entities_.end()) {
     // We've hit an ID (probably the imaginary root entity) that isn't stored
     // by the server, so it can't be a child.
     return false;
-  } else if (entities_[id]->GetParentId() == potential_parent_id) {
+  }
+
+  const FakeServerEntity& entity = *iter->second;
+  if (entity.GetParentId() == potential_parent_id)
     return true;
-  } else {
-    // Recursively look up the tree.
-    return IsChild(entities_[id]->GetParentId(), potential_parent_id);
-  }
+
+  // Recursively look up the tree.
+  return IsChild(entity.GetParentId(), potential_parent_id);
 }
 
-bool FakeServer::DeleteChildren(const string& id) {
-  vector<string> child_ids;
-  for (EntityMap::iterator it = entities_.begin(); it != entities_.end();
-       ++it) {
-    if (IsChild(it->first, id)) {
-      child_ids.push_back(it->first);
+void FakeServer::DeleteChildren(const string& id) {
+  std::set<string> tombstones_ids;
+  // Find all the children of id.
+  for (auto& entity : entities_) {
+    if (IsChild(entity.first, id)) {
+      tombstones_ids.insert(entity.first);
     }
   }
 
-  for (vector<string>::iterator it = child_ids.begin(); it != child_ids.end();
-       ++it) {
-    FakeServerEntity* tombstone = TombstoneEntity::Create(*it);
-    if (tombstone == NULL) {
-      LOG(WARNING) << "Tombstone creation failed for entity with ID " << *it;
-      return false;
-    }
-    SaveEntity(tombstone);
+  for (auto& tombstone_id : tombstones_ids) {
+    SaveEntity(TombstoneEntity::Create(tombstone_id));
   }
-
-  return true;
 }
 
-bool FakeServer::HandleCommitRequest(
-    const sync_pb::CommitMessage& commit,
-    const std::string& invalidator_client_id,
-    sync_pb::CommitResponse* response) {
+bool FakeServer::HandleCommitRequest(const sync_pb::CommitMessage& commit,
+                                     const std::string& invalidator_client_id,
+                                     sync_pb::CommitResponse* response) {
   std::map<string, string> client_to_server_ids;
   string guid = commit.cache_guid();
   ModelTypeSet committed_model_types;
@@ -442,10 +469,8 @@ bool FakeServer::HandleCommitRequest(
       parent_id = client_to_server_ids[parent_id];
     }
 
-    string entity_id = CommitEntity(client_entity,
-                                    entry_response,
-                                    guid,
-                                    parent_id);
+    const string entity_id =
+        CommitEntity(client_entity, entry_response, guid, parent_id);
     if (entity_id.empty()) {
       return false;
     }
@@ -454,8 +479,10 @@ bool FakeServer::HandleCommitRequest(
     if (entity_id != client_entity.id_string()) {
       client_to_server_ids[client_entity.id_string()] = entity_id;
     }
-    FakeServerEntity* entity = entities_[entity_id];
-    committed_model_types.Put(entity->GetModelType());
+
+    EntityMap::const_iterator iter = entities_.find(entity_id);
+    CHECK(iter != entities_.end());
+    committed_model_types.Put(iter->second->GetModelType());
   }
 
   FOR_EACH_OBSERVER(Observer, observers_,
@@ -464,6 +491,7 @@ bool FakeServer::HandleCommitRequest(
 }
 
 scoped_ptr<base::DictionaryValue> FakeServer::GetEntitiesAsDictionaryValue() {
+  DCHECK(thread_checker_.CalledOnValidThread());
   scoped_ptr<base::DictionaryValue> dictionary(new base::DictionaryValue());
 
   // Initialize an empty ListValue for all ModelTypes.
@@ -474,48 +502,87 @@ scoped_ptr<base::DictionaryValue> FakeServer::GetEntitiesAsDictionaryValue() {
 
   for (EntityMap::const_iterator it = entities_.begin(); it != entities_.end();
        ++it) {
-    FakeServerEntity* entity = it->second;
-    if (entity->IsDeleted() || entity->IsFolder()) {
+    const FakeServerEntity& entity = *it->second;
+    if (IsDeletedOrPermanent(entity)) {
       // Tombstones are ignored as they don't represent current data. Folders
       // are also ignored as current verification infrastructure does not
       // consider them.
       continue;
     }
     base::ListValue* list_value;
-    if (!dictionary->GetList(ModelTypeToString(entity->GetModelType()),
-                                               &list_value)) {
+    if (!dictionary->GetList(ModelTypeToString(entity.GetModelType()),
+                             &list_value)) {
       return scoped_ptr<base::DictionaryValue>();
     }
     // TODO(pvalenzuela): Store more data for each entity so additional
     // verification can be performed. One example of additional verification
     // is checking the correctness of the bookmark hierarchy.
-    list_value->Append(new base::StringValue(entity->GetName()));
+    list_value->Append(new base::StringValue(entity.GetName()));
   }
 
   return dictionary.Pass();
 }
 
-void FakeServer::InjectEntity(scoped_ptr<FakeServerEntity> entity) {
-  SaveEntity(entity.release());
+std::vector<sync_pb::SyncEntity> FakeServer::GetSyncEntitiesByModelType(
+    ModelType model_type) {
+  std::vector<sync_pb::SyncEntity> sync_entities;
+  DCHECK(thread_checker_.CalledOnValidThread());
+  for (EntityMap::const_iterator it = entities_.begin(); it != entities_.end();
+       ++it) {
+    const FakeServerEntity& entity = *it->second;
+    if (!IsDeletedOrPermanent(entity) && entity.GetModelType() == model_type) {
+      sync_pb::SyncEntity sync_entity;
+      entity.SerializeAsProto(&sync_entity);
+      sync_entities.push_back(sync_entity);
+    }
+  }
+  return sync_entities;
 }
 
-bool FakeServer::SetNewStoreBirthday(const string& store_birthday) {
-  if (store_birthday_ == store_birthday)
-    return false;
+void FakeServer::InjectEntity(scoped_ptr<FakeServerEntity> entity) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  SaveEntity(entity.Pass());
+}
 
-  store_birthday_ = store_birthday;
+bool FakeServer::ModifyEntitySpecifics(
+    const std::string& id,
+    const sync_pb::EntitySpecifics& updated_specifics) {
+  EntityMap::const_iterator iter = entities_.find(id);
+  if (iter == entities_.end() ||
+      iter->second->GetModelType() !=
+          GetModelTypeFromSpecifics(updated_specifics)) {
+    return false;
+  }
+
+  scoped_ptr<FakeServerEntity> entity = entities_.take_and_erase(iter);
+  entity->SetSpecifics(updated_specifics);
+  if (updated_specifics.has_bookmark()) {
+    entity->SetName(updated_specifics.bookmark().title());
+  }
+  UpdateEntityVersion(entity.get());
+  entities_.insert(id, entity.Pass());
   return true;
 }
 
+void FakeServer::ClearServerData() {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  entities_.clear();
+  keystore_keys_.clear();
+  ++store_birthday_;
+}
+
 void FakeServer::SetAuthenticated() {
+  DCHECK(thread_checker_.CalledOnValidThread());
   authenticated_ = true;
 }
 
 void FakeServer::SetUnauthenticated() {
+  DCHECK(thread_checker_.CalledOnValidThread());
   authenticated_ = false;
 }
 
 bool FakeServer::TriggerError(const sync_pb::SyncEnums::ErrorType& error_type) {
+  DCHECK(thread_checker_.CalledOnValidThread());
   if (triggered_actionable_error_.get()) {
     DVLOG(1) << "Only one type of error can be triggered at any given time.";
     return false;
@@ -530,6 +597,7 @@ bool FakeServer::TriggerActionableError(
     const string& description,
     const string& url,
     const sync_pb::SyncEnums::Action& action) {
+  DCHECK(thread_checker_.CalledOnValidThread());
   if (error_type_ != sync_pb::SyncEnums::SUCCESS) {
     DVLOG(1) << "Only one type of error can be triggered at any given time.";
     return false;
@@ -546,6 +614,7 @@ bool FakeServer::TriggerActionableError(
 }
 
 bool FakeServer::EnableAlternatingTriggeredErrors() {
+  DCHECK(thread_checker_.CalledOnValidThread());
   if (error_type_ == sync_pb::SyncEnums::SUCCESS &&
       !triggered_actionable_error_.get()) {
     DVLOG(1) << "No triggered error set. Alternating can't be enabled.";
@@ -568,19 +637,48 @@ bool FakeServer::ShouldSendTriggeredError() const {
 }
 
 void FakeServer::AddObserver(Observer* observer) {
+  DCHECK(thread_checker_.CalledOnValidThread());
   observers_.AddObserver(observer);
 }
 
 void FakeServer::RemoveObserver(Observer* observer) {
+  DCHECK(thread_checker_.CalledOnValidThread());
   observers_.RemoveObserver(observer);
 }
 
 void FakeServer::EnableNetwork() {
+  DCHECK(thread_checker_.CalledOnValidThread());
   network_enabled_ = true;
 }
 
 void FakeServer::DisableNetwork() {
+  DCHECK(thread_checker_.CalledOnValidThread());
   network_enabled_ = false;
+}
+
+std::string FakeServer::GetBookmarkBarFolderId() const {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  for (EntityMap::const_iterator it = entities_.begin(); it != entities_.end();
+       ++it) {
+    FakeServerEntity* entity = it->second;
+    if (entity->GetName() == kBookmarkBarFolderName &&
+        entity->IsFolder() &&
+        entity->GetModelType() == syncer::BOOKMARKS) {
+      return entity->GetId();
+    }
+  }
+  NOTREACHED() << "Bookmark Bar entity not found.";
+  return "";
+}
+
+base::WeakPtr<FakeServer> FakeServer::AsWeakPtr() {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  return weak_ptr_factory_.GetWeakPtr();
+}
+
+std::string FakeServer::GetStoreBirthday() const {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  return base::Int64ToString(store_birthday_);
 }
 
 }  // namespace fake_server

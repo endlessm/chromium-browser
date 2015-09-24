@@ -26,57 +26,43 @@
 #ifndef XMLHttpRequestUpload_h
 #define XMLHttpRequestUpload_h
 
-#include "core/events/EventListener.h"
+#include "bindings/core/v8/ScriptWrappable.h"
 #include "core/xmlhttprequest/XMLHttpRequest.h"
 #include "core/xmlhttprequest/XMLHttpRequestEventTarget.h"
+#include "platform/heap/Handle.h"
 #include "wtf/Forward.h"
-#include "wtf/HashMap.h"
 #include "wtf/PassOwnPtr.h"
-#include "wtf/RefCounted.h"
+#include "wtf/PassRefPtr.h"
 #include "wtf/RefPtr.h"
-#include "wtf/text/AtomicStringHash.h"
 
 namespace blink {
 
 class ExecutionContext;
-class XMLHttpRequest;
 
-class XMLHttpRequestUpload final : public NoBaseWillBeGarbageCollectedFinalized<XMLHttpRequestUpload>, public XMLHttpRequestEventTarget {
+class XMLHttpRequestUpload final : public XMLHttpRequestEventTarget {
     DEFINE_WRAPPERTYPEINFO();
-    WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(XMLHttpRequestUpload);
 public:
-    static PassOwnPtrWillBeRawPtr<XMLHttpRequestUpload> create(XMLHttpRequest* xmlHttpRequest)
+    static XMLHttpRequestUpload* create(XMLHttpRequest* xmlHttpRequest)
     {
-        return adoptPtrWillBeNoop(new XMLHttpRequestUpload(xmlHttpRequest));
+        return new XMLHttpRequestUpload(xmlHttpRequest);
     }
-
-#if !ENABLE(OILPAN)
-    void ref() { m_xmlHttpRequest->ref(); }
-    void deref() { m_xmlHttpRequest->deref(); }
-#endif
 
     XMLHttpRequest* xmlHttpRequest() const { return m_xmlHttpRequest; }
 
-    virtual const AtomicString& interfaceName() const override;
-    virtual ExecutionContext* executionContext() const override;
+    const AtomicString& interfaceName() const override;
+    ExecutionContext* executionContext() const override;
 
     void dispatchEventAndLoadEnd(const AtomicString&, bool, unsigned long long, unsigned long long);
     void dispatchProgressEvent(unsigned long long, unsigned long long);
 
     void handleRequestError(const AtomicString&);
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     explicit XMLHttpRequestUpload(XMLHttpRequest*);
 
-#if !ENABLE(OILPAN)
-    virtual void refEventTarget() override { ref(); }
-    virtual void derefEventTarget() override { deref(); }
-#endif
-
-    RawPtrWillBeMember<XMLHttpRequest> m_xmlHttpRequest;
-    EventTargetData m_eventTargetData;
+    Member<XMLHttpRequest> m_xmlHttpRequest;
 
     // Last progress event values; used when issuing the
     // required 'progress' event on a request error or abort.

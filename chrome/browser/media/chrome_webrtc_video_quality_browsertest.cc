@@ -107,7 +107,7 @@ class WebRtcVideoQualityBrowserTest : public WebRtcTestBase,
     ASSERT_TRUE(temp_working_dir_.CreateUniqueTempDir());
   }
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     // Set up the command line option with the expected file name. We will check
     // its existence in HasAllRequiredResources().
     webrtc_reference_video_y4m_ = test::GetReferenceFilesDir()
@@ -157,23 +157,22 @@ class WebRtcVideoQualityBrowserTest : public WebRtcTestBase,
   bool RunARGBtoI420Converter(int width,
                               int height,
                               const base::FilePath& captured_video_filename) {
-    base::FilePath path_to_converter = base::MakeAbsoluteFilePath(
-        GetBrowserDir().Append(kArgbToI420ConverterExecutable));
+    base::FilePath path_to_converter =
+        GetBrowserDir().Append(kArgbToI420ConverterExecutable);
 
     if (!base::PathExists(path_to_converter)) {
       LOG(ERROR) << "Missing ARGB->I420 converter: should be in "
-          << path_to_converter.value();
+          << path_to_converter.value()
+          << ". Try building the chromium_builder_webrtc target.";
       return false;
     }
 
-    CommandLine converter_command(path_to_converter);
+    base::CommandLine converter_command(path_to_converter);
     converter_command.AppendSwitchPath("--frames_dir", GetWorkingDir());
     converter_command.AppendSwitchPath("--output_file",
                                        captured_video_filename);
-    converter_command.AppendSwitchASCII("--width",
-                                        base::StringPrintf("%d", width));
-    converter_command.AppendSwitchASCII("--height",
-                                        base::StringPrintf("%d", height));
+    converter_command.AppendSwitchASCII("--width", base::IntToString(width));
+    converter_command.AppendSwitchASCII("--height", base::IntToString(height));
     converter_command.AppendSwitchASCII("--delete_frames", "true");
 
     // We produce an output file that will later be used as an input to the
@@ -208,7 +207,8 @@ class WebRtcVideoQualityBrowserTest : public WebRtcTestBase,
 
     if (!base::PathExists(path_to_analyzer)) {
       LOG(ERROR) << "Missing frame analyzer: should be in "
-          << path_to_analyzer.value();
+          << path_to_analyzer.value()
+          << ". Try building the chromium_builder_webrtc target.";
       return false;
     }
     if (!base::PathExists(path_to_compare_script)) {
@@ -217,9 +217,20 @@ class WebRtcVideoQualityBrowserTest : public WebRtcTestBase,
       return false;
     }
 
+    base::FilePath path_to_zxing = test::GetToolForPlatform("zxing");
+    if (!base::PathExists(path_to_zxing)) {
+      LOG(ERROR) << "Missing zxing: should be in " << path_to_zxing.value();
+      return false;
+    }
+    base::FilePath path_to_ffmpeg = test::GetToolForPlatform("ffmpeg");
+    if (!base::PathExists(path_to_ffmpeg)) {
+      LOG(ERROR) << "Missing ffmpeg: should be in " << path_to_ffmpeg.value();
+      return false;
+    }
+
     // Note: don't append switches to this command since it will mess up the
     // -u in the python invocation!
-    CommandLine compare_command(CommandLine::NO_PROGRAM);
+    base::CommandLine compare_command(base::CommandLine::NO_PROGRAM);
     EXPECT_TRUE(GetPythonCommand(&compare_command));
 
     compare_command.AppendArgPath(path_to_compare_script);
@@ -231,19 +242,30 @@ class WebRtcVideoQualityBrowserTest : public WebRtcTestBase,
     compare_command.AppendArg("--frame_analyzer");
     compare_command.AppendArgPath(path_to_analyzer);
     compare_command.AppendArg("--yuv_frame_width");
-    compare_command.AppendArg(base::StringPrintf("%d", width));
+    compare_command.AppendArg(base::IntToString(width));
     compare_command.AppendArg("--yuv_frame_height");
-    compare_command.AppendArg(base::StringPrintf("%d", height));
+    compare_command.AppendArg(base::IntToString(height));
+    compare_command.AppendArg("--zxing_path");
+    compare_command.AppendArgPath(path_to_zxing);
+    compare_command.AppendArg("--ffmpeg_path");
+    compare_command.AppendArgPath(path_to_ffmpeg);
     compare_command.AppendArg("--stats_file");
     compare_command.AppendArgPath(stats_file);
 
     DVLOG(0) << "Running " << compare_command.GetCommandLineString();
     std::string output;
     bool ok = base::GetAppOutput(compare_command, &output);
+
     // Print to stdout to ensure the perf numbers are parsed properly by the
-    // buildbot step.
+    // buildbot step. The tool should print a handful RESULT lines.
     printf("Output was:\n\n%s\n", output.c_str());
-    return ok;
+    bool has_result_lines = output.find("RESULT") != std::string::npos;
+    if (!ok || !has_result_lines) {
+      LOG(ERROR) << "Failed to compare videos; see output above to see what "
+                 << "the error was.";
+      return false;
+    }
+    return true;
   }
 
  protected:

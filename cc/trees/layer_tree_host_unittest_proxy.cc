@@ -7,16 +7,8 @@
 #include "cc/test/layer_tree_test.h"
 #include "cc/trees/thread_proxy.h"
 
-#define THREAD_PROXY_NO_IMPL_TEST_F(TEST_FIXTURE_NAME) \
-  TEST_F(TEST_FIXTURE_NAME, Run_MainThreadPaint) {     \
-    Run(true, false);                                  \
-  }
-
-#define THREAD_PROXY_TEST_F(TEST_FIXTURE_NAME)    \
-  THREAD_PROXY_NO_IMPL_TEST_F(TEST_FIXTURE_NAME); \
-  TEST_F(TEST_FIXTURE_NAME, Run_ImplSidePaint) {  \
-    Run(true, true);                              \
-  }
+#define THREAD_PROXY_TEST_F(TEST_FIXTURE_NAME) \
+  TEST_F(TEST_FIXTURE_NAME, MultiThread) { Run(true); }
 
 // Do common tests for single thread proxy and thread proxy.
 // TODO(simonhong): Add SINGLE_THREAD_PROXY_TEST_F
@@ -28,13 +20,13 @@ namespace cc {
 class ProxyTest : public LayerTreeTest {
  protected:
   ProxyTest() {}
-  virtual ~ProxyTest() {}
+  ~ProxyTest() override {}
 
-  void Run(bool threaded, bool impl_side_painting) {
+  void Run(bool threaded) {
     // We don't need to care about delegating mode.
     bool delegating_renderer = true;
 
-    RunTest(threaded, delegating_renderer, impl_side_painting);
+    RunTest(threaded, delegating_renderer);
   }
 
   void BeginTest() override {}
@@ -67,7 +59,7 @@ class ProxyTestScheduledActionsBasic : public ProxyTest {
 
   ProxyTestScheduledActionsBasic() : action_phase_(0) {
   }
-  virtual ~ProxyTestScheduledActionsBasic() {}
+  ~ProxyTestScheduledActionsBasic() override {}
 
  private:
   int action_phase_;
@@ -80,7 +72,7 @@ PROXY_TEST_SCHEDULED_ACTION(ProxyTestScheduledActionsBasic);
 class ThreadProxyTest : public ProxyTest {
  protected:
   ThreadProxyTest() {}
-  virtual ~ThreadProxyTest() {}
+  ~ThreadProxyTest() override {}
 
   const ThreadProxy::MainThreadOnly& ThreadProxyMainOnly() const {
     DCHECK(proxy());
@@ -101,7 +93,7 @@ class ThreadProxyTest : public ProxyTest {
 class ThreadProxyTestSetNeedsCommit : public ThreadProxyTest {
  protected:
   ThreadProxyTestSetNeedsCommit() {}
-  virtual ~ThreadProxyTestSetNeedsCommit() {}
+  ~ThreadProxyTestSetNeedsCommit() override {}
 
   void BeginTest() override {
     EXPECT_FALSE(ThreadProxyMainOnly().commit_requested);

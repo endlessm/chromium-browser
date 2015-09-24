@@ -13,37 +13,88 @@
 'use strict';
 
 /** @constructor */
-browserTest.FakeClientSession = function() {
-  this.pluginPosition = {
+browserTest.FakeDesktopViewport = function() {
+  /** @private */
+  this.pluginPosition_ = {
     top: 0,
     left: 0
   };
-  this.defineEvents(Object.keys(remoting.ClientSession.Events));
+  /** @private */
+  this.bumpScroller_ = new base.EventSourceImpl();
+  this.bumpScroller_.defineEvents(Object.keys(remoting.BumpScroller.Events));
 };
 
-base.extend(browserTest.FakeClientSession, base.EventSource);
+/**
+ * @param {number} top
+ * @param {number} left
+ * @return {void} nothing.
+ */
+browserTest.FakeDesktopViewport.prototype.setPluginPositionForTesting =
+    function(top, left) {
+  this.pluginPosition_ = {
+    top: top,
+    left: left
+  };
+};
 
-browserTest.FakeClientSession.prototype.getPluginPositionForTesting =
+/**
+ * @return {{top: number, left:number}} The top-left corner of the plugin.
+ */
+browserTest.FakeDesktopViewport.prototype.getPluginPositionForTesting =
     function() {
-  return this.pluginPosition;
+  return this.pluginPosition_;
 };
 
+/** @return {base.EventSource} */
+browserTest.FakeDesktopViewport.prototype.getBumpScrollerForTesting =
+    function() {
+  return this.bumpScroller_;
+};
+
+/** @suppress {reportUnknownTypes} */
+browserTest.FakeDesktopViewport.prototype.raiseEvent =
+    function() {
+  return this.bumpScroller_.raiseEvent.apply(this.bumpScroller_, arguments);
+};
+
+/** @return {remoting.DesktopViewport} */
+function getViewportForTesting() {
+  var desktopApp = /** @type {remoting.DesktopRemoting} */ (remoting.app);
+  var view = desktopApp.getConnectedViewForTesting();
+  if (view) {
+    return view.getViewportForTesting();
+  }
+  return null;
+}
 
 /** @constructor */
 browserTest.Bump_Scroll = function() {
-  // To aviod dependencies on the actual host desktop size, we simulate a
+  // To avoid dependencies on the actual host desktop size, we simulate a
   // desktop larger or smaller than the client window. The exact value is
   // arbitrary, but must be positive.
+  /** @type {number} */
   this.kHostDesktopSizeDelta = 10;
 };
 
+/**
+ * @param {{pin:string}} data
+ */
 browserTest.Bump_Scroll.prototype.run = function(data) {
   browserTest.expect(typeof data.pin == 'string');
 
   if (!base.isAppsV2()) {
     browserTest.fail(
         'Bump-scroll requires full-screen, which can only be activated ' +
-        'programmatically in apps v2.')
+        'programmatically in apps v2.');
+  }
+
+  var mockConnection = new remoting.MockConnection();
+  mockConnection.plugin().mock$useDefaultBehavior(
+      remoting.MockClientPlugin.AuthMethod.PIN);
+
+  function cleanup() {
+    mockConnection.restore();
+    browserTest.disconnect();
   }
 
   this.testVerifyScroll().then(function() {
@@ -68,45 +119,58 @@ browserTest.Bump_Scroll.prototype.run = function(data) {
     this.scrollDirection.bind(this, 0.5, 0.0)  // Top edge
   ).then(
     function(value) {
-      browserTest.disconnect();
-      return browserTest.pass(value);
+      cleanup();
+      return browserTest.pass();
     },
     function(error) {
-      browserTest.disconnect();
+      cleanup();
       return browserTest.fail(error);
     }
   );
 };
 
+/**
+ * @return {Promise}
+ */
 browserTest.Bump_Scroll.prototype.noScrollWindowed = function() {
-  remoting.clientSession.pluginWidthForBumpScrollTesting =
-      window.innerWidth + this.kHostDesktopSizeDelta;
-  remoting.clientSession.pluginHeightForBumpScrollTesting =
-      window.innerHeight + this.kHostDesktopSizeDelta;
+  var viewport = getViewportForTesting();
+  viewport.setPluginSizeForBumpScrollTesting(
+      window.innerWidth + this.kHostDesktopSizeDelta,
+      window.innerHeight + this.kHostDesktopSizeDelta);
   this.moveMouseTo(0, 0);
-  return this.verifyScroll(undefined, undefined);
+  return this.verifyNoScroll();
 };
 
+/**
+ * @return {Promise}
+ */
 browserTest.Bump_Scroll.prototype.noScrollSmaller = function() {
-  remoting.clientSession.pluginWidthForBumpScrollTesting =
-      window.innerWidth - this.kHostDesktopSizeDelta;
-  remoting.clientSession.pluginHeightForBumpScrollTesting =
-      window.innerHeight - this.kHostDesktopSizeDelta;
+  var viewport = getViewportForTesting();
+  viewport.setPluginSizeForBumpScrollTesting(
+      window.innerWidth - this.kHostDesktopSizeDelta,
+      window.innerHeight - this.kHostDesktopSizeDelta);
   this.moveMouseTo(0, 0);
-  return this.verifyScroll(undefined, undefined);
+  return this.verifyNoScroll();
 };
 
+/**
+ * @param {number} widthFraction
+ * @param {number} heightFraction
+ * @return {Promise}
+ */
 browserTest.Bump_Scroll.prototype.scrollDirection =
     function(widthFraction, heightFraction) {
-  remoting.clientSession.pluginWidthForBumpScrollTesting =
-      screen.width + this.kHostDesktopSizeDelta;
-  remoting.clientSession.pluginHeightForBumpScrollTesting =
-      screen.height + this.kHostDesktopSizeDelta;
-  var expectedTop = heightFraction == 0.0 ? 0 :
+  var viewport = getViewportForTesting();
+  viewport.setPluginSizeForBumpScrollTesting(
+      screen.width + this.kHostDesktopSizeDelta,
+      screen.height + this.kHostDesktopSizeDelta);
+  /** @type {number} */
+  var expectedTop = heightFraction === 0.0 ? 0 :
                     heightFraction == 1.0 ? -this.kHostDesktopSizeDelta :
                     undefined;
-  var expectedLeft = widthFraction == 0.0 ? 0 :
-                     widthFraction == 1.0 ? -this.kHostDesktopSizeDelta :
+  /** @type {number} */
+  var expectedLeft = widthFraction === 0.0 ? 0 :
+                     widthFraction === 1.0 ? -this.kHostDesktopSizeDelta :
                      undefined;
   var result = this.verifyScroll(expectedTop, expectedLeft);
   this.moveMouseTo(widthFraction * screen.width,
@@ -114,6 +178,9 @@ browserTest.Bump_Scroll.prototype.scrollDirection =
   return result;
 };
 
+/**
+ * @return {Promise}
+ */
 browserTest.Bump_Scroll.prototype.activateFullscreen = function() {
   return new Promise(function(fulfill, reject) {
     remoting.fullscreen.activate(true, function() {
@@ -128,6 +195,10 @@ browserTest.Bump_Scroll.prototype.activateFullscreen = function() {
   });
 };
 
+/**
+ * @param {number} x
+ * @param {number} y
+ */
 browserTest.Bump_Scroll.prototype.moveMouseTo = function(x, y) {
   var e = {
     bubbles: true,
@@ -154,54 +225,54 @@ browserTest.Bump_Scroll.prototype.moveMouseTo = function(x, y) {
   document.documentElement.dispatchEvent(event);
 };
 
-// verifyScroll is complicated enough to warrant a test
+/**
+ * verifyScroll() is complicated enough to warrant a test.
+ * @return {Promise}
+ */
 browserTest.Bump_Scroll.prototype.testVerifyScroll = function() {
-  var STARTED = remoting.ClientSession.Events.bumpScrollStarted;
-  var STOPPED = remoting.ClientSession.Events.bumpScrollStopped;
-  var fakeSession = new browserTest.FakeClientSession;
+  var STARTED = remoting.BumpScroller.Events.bumpScrollStarted;
+  var STOPPED = remoting.BumpScroller.Events.bumpScrollStopped;
+  var fakeViewport = new browserTest.FakeDesktopViewport;
   var that = this;
 
   // No events raised (e.g. windowed mode).
-  var result = this.verifyScroll(undefined, undefined, fakeSession)
+  var result = this.verifyNoScroll(fakeViewport)
 
   .then(function() {
     // Start and end events raised, but no scrolling (e.g. full-screen mode
     // with host desktop <= window size).
-    fakeSession = new browserTest.FakeClientSession;
-    var result = that.verifyScroll(undefined, undefined, fakeSession);
-    fakeSession.raiseEvent(STARTED, {});
-    fakeSession.raiseEvent(STOPPED, {});
+    fakeViewport = new browserTest.FakeDesktopViewport;
+    var result = that.verifyNoScroll(fakeViewport);
+    fakeViewport.raiseEvent(STARTED, {});
+    fakeViewport.raiseEvent(STOPPED, {});
     return result;
 
   }).then(function() {
     // Start and end events raised, with incorrect scrolling.
-    fakeSession = new browserTest.FakeClientSession;
+    fakeViewport = new browserTest.FakeDesktopViewport;
     var result = base.Promise.negate(
-        that.verifyScroll(2, 2, fakeSession));
-    fakeSession.raiseEvent(STARTED, {});
-    fakeSession.pluginPosition.top = 1;
-    fakeSession.pluginPosition.left = 1;
-    fakeSession.raiseEvent(STOPPED, {});
+        that.verifyScroll(2, 2, fakeViewport));
+    fakeViewport.raiseEvent(STARTED, {});
+    fakeViewport.setPluginPositionForTesting(1, 1);
+    fakeViewport.raiseEvent(STOPPED, {});
     return result;
 
   }).then(function() {
     // Start event raised, but not end event.
-    fakeSession = new browserTest.FakeClientSession;
+    fakeViewport = new browserTest.FakeDesktopViewport;
     var result = base.Promise.negate(
-        that.verifyScroll(2, 2, fakeSession));
-    fakeSession.raiseEvent(STARTED, {});
-    fakeSession.pluginPosition.top = 2;
-    fakeSession.pluginPosition.left = 2;
+        that.verifyScroll(2, 2, fakeViewport));
+    fakeViewport.raiseEvent(STARTED, {});
+    fakeViewport.setPluginPositionForTesting(2, 2);
     return result;
 
   }).then(function() {
     // Start and end events raised, with correct scrolling.
-    fakeSession = new browserTest.FakeClientSession;
-    var result = that.verifyScroll(2, 2, fakeSession);
-    fakeSession.raiseEvent(STARTED, {});
-    fakeSession.pluginPosition.top = 2;
-    fakeSession.pluginPosition.left = 2;
-    fakeSession.raiseEvent(STOPPED, {});
+    fakeViewport = new browserTest.FakeDesktopViewport;
+    var result = that.verifyScroll(2, 2, fakeViewport);
+    fakeViewport.raiseEvent(STARTED, {});
+    fakeViewport.setPluginPositionForTesting(2, 2);
+    fakeViewport.raiseEvent(STOPPED, {});
     return result;
   });
 
@@ -215,22 +286,24 @@ browserTest.Bump_Scroll.prototype.testVerifyScroll = function() {
  *    plugin, or undefined if it is not expected to change.
  * @param {number|undefined} expectedLeft The expected horizontal position of
  *    the plugin, or undefined if it is not expected to change.
- * @param {browserTest.FakeClientSession=} opt_clientSession ClientSession-like
- *     fake, for testing.
+ * @param {browserTest.FakeDesktopViewport=} opt_desktopViewport
+ *     DesktopViewport fake, for testing.
+ * @return {Promise}
  */
 browserTest.Bump_Scroll.prototype.verifyScroll =
-    function (expectedTop, expectedLeft, opt_clientSession) {
-  var clientSession = opt_clientSession || remoting.clientSession;
-  base.debug.assert(clientSession != null);
-  var STARTED = remoting.ClientSession.Events.bumpScrollStarted;
-  var STOPPED = remoting.ClientSession.Events.bumpScrollStopped;
+    function (expectedTop, expectedLeft, opt_desktopViewport) {
+  var desktopViewport = opt_desktopViewport || getViewportForTesting();
+  console.assert(desktopViewport != null, '|desktopViewport| is null.');
+  var STARTED = remoting.BumpScroller.Events.bumpScrollStarted;
+  var STOPPED = remoting.BumpScroller.Events.bumpScrollStopped;
 
-  var initialPosition = clientSession.getPluginPositionForTesting();
+  var initialPosition = desktopViewport.getPluginPositionForTesting();
   var initialTop = initialPosition.top;
   var initialLeft = initialPosition.left;
 
+  /** @return {Promise} */
   var verifyPluginPosition = function() {
-    var position = clientSession.getPluginPositionForTesting();
+    var position = desktopViewport.getPluginPositionForTesting();
     if (expectedLeft === undefined) {
       expectedLeft = initialLeft;
     }
@@ -247,20 +320,38 @@ browserTest.Bump_Scroll.prototype.verifyScroll =
     }
   };
 
-  var started = browserTest.expectEvent(clientSession, STARTED, 1000);
-  var stopped = browserTest.expectEvent(clientSession, STOPPED, 5000);
+  var bumpScroller = desktopViewport.getBumpScrollerForTesting();
+  var started = browserTest.expectEvent(bumpScroller, STARTED, 1000);
+  var stopped = browserTest.expectEvent(bumpScroller, STOPPED, 5000);
   return started.then(function() {
-    return stopped.then(function() {
-      return verifyPluginPosition();
-    });
+    return stopped;
   }, function() {
     // If no started event is raised, the test might still pass if it asserted
     // no scrolling.
-    if (expectedTop == undefined && expectedLeft == undefined) {
+    if (expectedTop === undefined && expectedLeft === undefined) {
       return Promise.resolve();
     } else {
       return Promise.reject(
           new Error('Scroll expected but no start event fired.'));
     }
+  }).then(function() {
+    return verifyPluginPosition();
   });
+};
+
+/**
+ * @param {browserTest.FakeDesktopViewport=} opt_desktopViewport
+ *     DesktopViewport fake, for testing.
+ *
+ * @return {Promise<boolean>} A promise that resolves to true if no scrolling
+ *   occurs within a timeout.
+ */
+browserTest.Bump_Scroll.prototype.verifyNoScroll =
+    function(opt_desktopViewport) {
+  var desktopViewport = opt_desktopViewport || getViewportForTesting();
+  var bumpScroller = desktopViewport.getBumpScrollerForTesting();
+  if (!bumpScroller) {
+    Promise.resolve(true);
+  }
+  return this.verifyScroll(undefined, undefined, desktopViewport);
 };

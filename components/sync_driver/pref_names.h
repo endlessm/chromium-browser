@@ -10,10 +10,8 @@ namespace sync_driver {
 
 namespace prefs {
 
-extern const char kEnhancedBookmarksExperimentEnabled[];
-extern const char kEnhancedBookmarksExtensionId[];
-
 extern const char kSyncLastSyncedTime[];
+extern const char kSyncLastPollTime[];
 extern const char kSyncHasAuthError[];
 extern const char kSyncHasSetupCompleted[];
 extern const char kSyncKeepEverythingSynced[];
@@ -24,6 +22,8 @@ extern const char kSyncAppSettings[];
 extern const char kSyncApps[];
 extern const char kSyncArticles[];
 extern const char kSyncAutofillProfile[];
+extern const char kSyncAutofillWallet[];
+extern const char kSyncAutofillWalletMetadata[];
 extern const char kSyncAutofill[];
 extern const char kSyncBookmarks[];
 extern const char kSyncDeviceInfo[];
@@ -40,6 +40,7 @@ extern const char kSyncSearchEngines[];
 extern const char kSyncSessions[];
 extern const char kSyncSupervisedUserSettings[];
 extern const char kSyncSupervisedUserSharedSettings[];
+extern const char kSyncSupervisedUserWhitelists[];
 extern const char kSyncSupervisedUsers[];
 extern const char kSyncSyncedNotificationAppInfo[];
 extern const char kSyncSyncedNotifications[];
@@ -51,11 +52,8 @@ extern const char kSyncWifiCredentials[];
 extern const char kSyncManaged[];
 extern const char kSyncSuppressStart[];
 
-extern const char kSyncUsingSecondaryPassphrase[];
 extern const char kSyncEncryptionBootstrapToken[];
 extern const char kSyncKeystoreEncryptionBootstrapToken[];
-
-extern const char kSyncAcknowledgedSyncTypes[];
 
 extern const char kSyncSessionsGUID[];
 
@@ -65,6 +63,11 @@ extern const char kSyncSpareBootstrapToken[];
 
 extern const char kSyncRemainingRollbackTries[];
 extern const char kSyncFirstSyncTime[];
+
+extern const char kSyncPassphrasePrompted[];
+
+extern const char kSyncMemoryPressureWarningCount[];
+extern const char kSyncShutdownCleanly[];
 
 }  // namespace prefs
 

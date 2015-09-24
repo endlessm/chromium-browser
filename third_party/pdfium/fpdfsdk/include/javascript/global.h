@@ -1,13 +1,17 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _GLOBAL_H_
-#define _GLOBAL_H_
+#ifndef FPDFSDK_INCLUDE_JAVASCRIPT_GLOBAL_H_
+#define FPDFSDK_INCLUDE_JAVASCRIPT_GLOBAL_H_
+
+#include "JS_Define.h"
 
 class CJS_GlobalData;
+class CJS_GlobalVariableArray;
+class CJS_KeyValue;
 
 struct js_global_data
 {
@@ -29,7 +33,7 @@ struct js_global_data
 	double				dData;
 	bool				bData;
 	CFX_ByteString		sData;
-	v8::Persistent<v8::Object>  pData;
+	v8::Global<v8::Object>  pData;
 	bool				bPersistent;
 	bool				bDeleted;
 };
@@ -41,12 +45,12 @@ public:
 	virtual ~global_alternate();
 
 public:
-	FX_BOOL						setPersistent(OBJ_METHOD_PARAMS);
+	FX_BOOL						setPersistent(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
 
 public:
-	FX_BOOL						QueryProperty(FX_LPCWSTR propname);
-	FX_BOOL						DoProperty(IFXJS_Context* cc, FX_LPCWSTR propname, CJS_PropValue & vp, JS_ErrorString & sError);
-	FX_BOOL						DelProperty(IFXJS_Context* cc, FX_LPCWSTR propname, JS_ErrorString & sError);
+	FX_BOOL						QueryProperty(const FX_WCHAR* propname);
+	FX_BOOL						DoProperty(IFXJS_Context* cc, const FX_WCHAR* propname, CJS_PropValue & vp, CFX_WideString & sError);
+	FX_BOOL						DelProperty(IFXJS_Context* cc, const FX_WCHAR* propname, CFX_WideString & sError);
 
 	void						Initial(CPDFDoc_Environment* pApp);
 
@@ -54,11 +58,11 @@ private:
 	void						UpdateGlobalPersistentVariables();
 	void						CommitGlobalPersisitentVariables();
 	void						DestroyGlobalPersisitentVariables();
-	FX_BOOL						SetGlobalVariables(FX_LPCSTR propname, int nType, 
+	FX_BOOL						SetGlobalVariables(const FX_CHAR* propname, int nType,
 									double dData, bool bData, const CFX_ByteString& sData, JSObject pData, bool bDefaultPersistent);
 
-	void						ObjectToArray(v8::Handle<v8::Object> pObj, CJS_GlobalVariableArray& array);
-	void						PutObjectProperty(v8::Handle<v8::Object> obj, CJS_KeyValue* pData);
+	void						ObjectToArray(v8::Local<v8::Object> pObj, CJS_GlobalVariableArray& array);
+	void						PutObjectProperty(v8::Local<v8::Object> obj, CJS_KeyValue* pData);
 
 private:
 	CFX_MapByteStringToPtr		m_mapGlobal;
@@ -74,7 +78,7 @@ public:
 	CJS_Global(JSFXObject pObject) : CJS_Object(pObject) {};
 	virtual ~CJS_Global(void){};
 
-	virtual FX_BOOL	InitInstance(IFXJS_Context* cc);	
+	virtual FX_BOOL	InitInstance(IFXJS_Context* cc);
 
 	DECLARE_SPECIAL_JS_CLASS(CJS_Global);
 
@@ -82,4 +86,4 @@ public:
 
 };
 
-#endif //_GLOBAL_H_
+#endif  // FPDFSDK_INCLUDE_JAVASCRIPT_GLOBAL_H_

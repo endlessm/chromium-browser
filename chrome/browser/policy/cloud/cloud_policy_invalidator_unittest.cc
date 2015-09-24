@@ -8,7 +8,6 @@
 #include "base/bind.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/histogram_samples.h"
 #include "base/metrics/sample_map.h"
@@ -21,7 +20,7 @@
 #include "chrome/browser/invalidation/fake_invalidation_service.h"
 #include "chrome/browser/policy/cloud/cloud_policy_invalidator.h"
 #include "chrome/browser/policy/cloud/user_cloud_policy_invalidator.h"
-#include "components/invalidation/invalidation_util.h"
+#include "components/invalidation/public/invalidation_util.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/cloud_policy_core.h"
 #include "components/policy/core/common/cloud/cloud_policy_refresh_scheduler.h"
@@ -211,11 +210,11 @@ class CloudPolicyInvalidatorTest : public testing::Test {
 };
 
 CloudPolicyInvalidatorTest::CloudPolicyInvalidatorTest()
-    : core_(PolicyNamespaceKey(dm_protocol::kChromeUserPolicyType,
-                               std::string()),
+    : core_(dm_protocol::kChromeUserPolicyType,
+            std::string(),
             &store_,
-            loop_.message_loop_proxy()),
-      client_(NULL),
+            loop_.task_runner()),
+      client_(nullptr),
       task_runner_(new base::TestSimpleTaskRunner()),
       clock_(new base::SimpleTestClock()),
       object_id_a_(135, "asdf"),
@@ -274,7 +273,7 @@ void CloudPolicyInvalidatorTest::StartRefreshScheduler() {
 }
 
 void CloudPolicyInvalidatorTest::DisconnectCore() {
-  client_ = NULL;
+  client_ = nullptr;
   core_.Disconnect();
 }
 

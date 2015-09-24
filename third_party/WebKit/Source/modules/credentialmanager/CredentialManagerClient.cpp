@@ -21,6 +21,11 @@ CredentialManagerClient::~CredentialManagerClient()
 {
 }
 
+DEFINE_TRACE(CredentialManagerClient)
+{
+    WillBeHeapSupplement<Page>::trace(visitor);
+}
+
 // static
 const char* CredentialManagerClient::supplementName()
 {
@@ -60,11 +65,11 @@ void CredentialManagerClient::dispatchSignedIn(const WebCredential& credential, 
     m_client->dispatchSignedIn(credential, callbacks);
 }
 
-void CredentialManagerClient::dispatchSignedOut(WebCredentialManagerClient::NotificationCallbacks* callbacks)
+void CredentialManagerClient::dispatchRequireUserMediation(WebCredentialManagerClient::NotificationCallbacks* callbacks)
 {
     if (!m_client)
         return;
-    m_client->dispatchSignedOut(callbacks);
+    m_client->dispatchRequireUserMediation(callbacks);
 }
 
 void CredentialManagerClient::dispatchRequest(bool zeroClickOnly, const WebVector<WebURL>& federations, WebCredentialManagerClient::RequestCallbacks* callbacks)

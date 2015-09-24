@@ -53,17 +53,17 @@ class ProfilerWebUIDataSource : public content::URLDataSource {
 
  protected:
   // content::URLDataSource implementation.
-  virtual std::string GetSource() override {
+  std::string GetSource() override {
     return chrome::kChromeUIProfilerHost;
   }
 
-  virtual std::string GetMimeType(const std::string& path) const override {
-    if (EndsWith(path, ".js", false))
+  std::string GetMimeType(const std::string& path) const override {
+    if (base::EndsWith(path, ".js", false))
       return "application/javascript";
     return "text/html";
   }
 
-  virtual void StartDataRequest(
+  void StartDataRequest(
       const std::string& path,
       bool is_incognito,
       const content::URLDataSource::GotDataCallback& callback) override {
@@ -121,7 +121,6 @@ class ProfilerMessageHandler : public WebUIMessageHandler {
 
   // Messages.
   void OnGetData(const base::ListValue* list);
-  void OnResetData(const base::ListValue* list);
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ProfilerMessageHandler);
@@ -132,18 +131,11 @@ void ProfilerMessageHandler::RegisterMessages() {
 
   web_ui()->RegisterMessageCallback("getData",
       base::Bind(&ProfilerMessageHandler::OnGetData, base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("resetData",
-      base::Bind(&ProfilerMessageHandler::OnResetData,
-                 base::Unretained(this)));
 }
 
 void ProfilerMessageHandler::OnGetData(const base::ListValue* list) {
   ProfilerUI* profiler_ui = static_cast<ProfilerUI*>(web_ui()->GetController());
   profiler_ui->GetData();
-}
-
-void ProfilerMessageHandler::OnResetData(const base::ListValue* list) {
-  tracked_objects::ThreadData::ResetAllThreadData();
 }
 
 }  // namespace
@@ -171,13 +163,14 @@ void ProfilerUI::GetData() {
 }
 
 void ProfilerUI::ReceivedProfilerData(
-    const tracked_objects::ProcessDataSnapshot& profiler_data,
-    int process_type) {
+    const metrics::ProfilerDataAttributes& attributes,
+    const tracked_objects::ProcessDataPhaseSnapshot& process_data_phase,
+    const metrics::ProfilerEvents& past_events) {
   // Serialize the data to JSON.
   base::DictionaryValue json_data;
-  task_profiler::TaskProfilerDataSerializer::ToValue(profiler_data,
-                                                     process_type,
-                                                     &json_data);
+  task_profiler::TaskProfilerDataSerializer::ToValue(
+      process_data_phase, attributes.process_id, attributes.process_type,
+      &json_data);
 
   // Send the data to the renderer.
   web_ui()->CallJavascriptFunction("g_browserBridge.receivedData", json_data);

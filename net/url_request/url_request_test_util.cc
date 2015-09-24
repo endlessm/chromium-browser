@@ -5,8 +5,11 @@
 #include "net/url_request/url_request_test_util.h"
 
 #include "base/compiler_specific.h"
+#include "base/location.h"
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/thread.h"
 #include "base/threading/worker_pool.h"
 #include "net/base/host_port_pair.h"
@@ -117,10 +120,9 @@ void TestURLRequestContext::Init() {
     context_storage_.set_cookie_store(new CookieMonster(NULL, NULL));
   // In-memory Channel ID service.
   if (!channel_id_service()) {
-    context_storage_.set_channel_id_service(
-        new ChannelIDService(
-            new DefaultChannelIDStore(NULL),
-            base::WorkerPool::GetTaskRunner(true)));
+    context_storage_.set_channel_id_service(make_scoped_ptr(
+        new ChannelIDService(new DefaultChannelIDStore(NULL),
+                             base::WorkerPool::GetTaskRunner(true))));
   }
   if (!http_user_agent_settings()) {
     context_storage_.set_http_user_agent_settings(
@@ -163,6 +165,7 @@ TestDelegate::TestDelegate()
       cancel_in_rd_pending_(false),
       quit_on_complete_(true),
       quit_on_redirect_(false),
+      quit_on_auth_required_(false),
       quit_on_before_network_start_(false),
       allow_certificate_errors_(false),
       response_started_count_(0),
@@ -196,8 +199,8 @@ void TestDelegate::OnReceivedRedirect(URLRequest* request,
   received_redirect_count_++;
   if (quit_on_redirect_) {
     *defer_redirect = true;
-    base::MessageLoop::current()->PostTask(FROM_HERE,
-                                           base::MessageLoop::QuitClosure());
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::MessageLoop::QuitClosure());
   } else if (cancel_in_rr_) {
     request->Cancel();
   }
@@ -207,14 +210,19 @@ void TestDelegate::OnBeforeNetworkStart(URLRequest* request, bool* defer) {
   received_before_network_start_count_++;
   if (quit_on_before_network_start_) {
     *defer = true;
-    base::MessageLoop::current()->PostTask(FROM_HERE,
-                                           base::MessageLoop::QuitClosure());
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::MessageLoop::QuitClosure());
   }
 }
 
 void TestDelegate::OnAuthRequired(URLRequest* request,
                                   AuthChallengeInfo* auth_info) {
   auth_required_ = true;
+  if (quit_on_auth_required_) {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::MessageLoop::QuitClosure());
+    return;
+  }
   if (!credentials_.Empty()) {
     request->SetAuth(credentials_);
   } else {
@@ -301,8 +309,8 @@ void TestDelegate::OnReadCompleted(URLRequest* request, int bytes_read) {
 
 void TestDelegate::OnResponseCompleted(URLRequest* request) {
   if (quit_on_complete_)
-    base::MessageLoop::current()->PostTask(FROM_HERE,
-                                           base::MessageLoop::QuitClosure());
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::MessageLoop::QuitClosure());
 }
 
 TestNetworkDelegate::TestNetworkDelegate()
@@ -322,7 +330,7 @@ TestNetworkDelegate::TestNetworkDelegate()
       has_load_timing_info_before_redirect_(false),
       has_load_timing_info_before_auth_(false),
       can_access_files_(true),
-      can_throttle_requests_(true),
+      first_party_only_cookies_enabled_(false),
       cancel_request_with_policy_violating_referrer_(false),
       will_be_intercepted_on_next_error_(false) {
 }
@@ -394,9 +402,9 @@ int TestNetworkDelegate::OnBeforeSendHeaders(
 }
 
 void TestNetworkDelegate::OnBeforeSendProxyHeaders(
-    net::URLRequest* request,
-    const net::ProxyInfo& proxy_info,
-    net::HttpRequestHeaders* headers) {
+    URLRequest* request,
+    const ProxyInfo& proxy_info,
+    HttpRequestHeaders* headers) {
   ++observed_before_proxy_headers_sent_callbacks_;
   last_observed_proxy_ = proxy_info.proxy_server().host_port_pair();
 }
@@ -439,7 +447,7 @@ int TestNetworkDelegate::OnHeadersReceived(
 
   if (!redirect_on_headers_received_url_.is_empty()) {
     *override_response_headers =
-        new net::HttpResponseHeaders(original_response_headers->raw_headers());
+        new HttpResponseHeaders(original_response_headers->raw_headers());
     (*override_response_headers)->ReplaceStatusLine("HTTP/1.1 302 Found");
     (*override_response_headers)->RemoveHeader("Location");
     (*override_response_headers)->AddHeader(
@@ -599,15 +607,8 @@ bool TestNetworkDelegate::OnCanAccessFile(const URLRequest& request,
   return can_access_files_;
 }
 
-bool TestNetworkDelegate::OnCanThrottleRequest(
-    const URLRequest& request) const {
-  return can_throttle_requests_;
-}
-
-int TestNetworkDelegate::OnBeforeSocketStreamConnect(
-    SocketStream* socket,
-    const CompletionCallback& callback) {
-  return OK;
+bool TestNetworkDelegate::OnFirstPartyOnlyCookieExperimentEnabled() const {
+  return first_party_only_cookies_enabled_;
 }
 
 bool TestNetworkDelegate::OnCancelURLRequestWithPolicyViolatingReferrerHeader(
@@ -615,26 +616,6 @@ bool TestNetworkDelegate::OnCancelURLRequestWithPolicyViolatingReferrerHeader(
     const GURL& target_url,
     const GURL& referrer_url) const {
   return cancel_request_with_policy_violating_referrer_;
-}
-
-// static
-std::string ScopedCustomUrlRequestTestHttpHost::value_("127.0.0.1");
-
-ScopedCustomUrlRequestTestHttpHost::ScopedCustomUrlRequestTestHttpHost(
-  const std::string& new_value)
-    : old_value_(value_),
-      new_value_(new_value) {
-  value_ = new_value_;
-}
-
-ScopedCustomUrlRequestTestHttpHost::~ScopedCustomUrlRequestTestHttpHost() {
-  DCHECK_EQ(value_, new_value_);
-  value_ = old_value_;
-}
-
-// static
-const std::string& ScopedCustomUrlRequestTestHttpHost::value() {
-  return value_;
 }
 
 TestJobInterceptor::TestJobInterceptor() : main_intercept_job_(NULL) {

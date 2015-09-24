@@ -5,6 +5,7 @@
 #include "ash/system/chromeos/rotation/tray_rotation_lock.h"
 
 #include "ash/ash_switches.h"
+#include "ash/content/display/screen_orientation_controller_chromeos.h"
 #include "ash/display/display_manager.h"
 #include "ash/root_window_controller.h"
 #include "ash/shelf/shelf_widget.h"
@@ -27,7 +28,7 @@ namespace ash {
 class TrayRotationLockTest : public test::AshTestBase {
  public:
   TrayRotationLockTest() {}
-  virtual ~TrayRotationLockTest() {}
+  ~TrayRotationLockTest() override {}
 
   TrayRotationLock* tray() {
     return tray_.get();
@@ -41,6 +42,9 @@ class TrayRotationLockTest : public test::AshTestBase {
     return default_view_.get();
   }
 
+  // Creates the tray view associated to |tray_rotation_lock|.
+  views::View* CreateTrayView(TrayRotationLock* tray_rotation_lock);
+
   // Sets up a TrayRotationLock, its tray view, and its default view, for the
   // given SystemTray and its display. On a primary display all will be
   // created. On a secondary display both the tray view and default view will
@@ -53,8 +57,8 @@ class TrayRotationLockTest : public test::AshTestBase {
   void TearDownViews();
 
   // test::AshTestBase:
-  virtual void SetUp() override;
-  virtual void TearDown() override;
+  void SetUp() override;
+  void TearDown() override;
 
  private:
   scoped_ptr<TrayRotationLock> tray_;
@@ -63,6 +67,12 @@ class TrayRotationLockTest : public test::AshTestBase {
 
   DISALLOW_COPY_AND_ASSIGN(TrayRotationLockTest);
 };
+
+views::View* TrayRotationLockTest::CreateTrayView(
+    TrayRotationLock* tray_rotation_lock) {
+  return tray_rotation_lock->CreateTrayView(
+      StatusAreaWidgetTestHelper::GetUserLoginStatus());
+}
 
 void TrayRotationLockTest::SetUpForStatusAreaWidget(
     StatusAreaWidget* status_area_widget) {
@@ -118,7 +128,8 @@ TEST_F(TrayRotationLockTest, CreateTrayViewDuringMaximizeModeAndRotationLock) {
   TearDownViews();
   Shell::GetInstance()->maximize_mode_controller()->
       EnableMaximizeModeWindowManager(true);
-  Shell::GetInstance()-> maximize_mode_controller()->SetRotationLocked(true);
+  Shell::GetInstance()->screen_orientation_controller()->SetRotationLocked(
+      true);
   SetUpForStatusAreaWidget(StatusAreaWidgetTestHelper::GetStatusAreaWidget());
   EXPECT_TRUE(tray_view()->visible());
   Shell::GetInstance()->maximize_mode_controller()->
@@ -132,7 +143,8 @@ TEST_F(TrayRotationLockTest, TrayViewVisibilityChangesDuringMaximizeMode) {
   ASSERT_FALSE(tray_view()->visible());
   Shell::GetInstance()->maximize_mode_controller()->
       EnableMaximizeModeWindowManager(true);
-  Shell::GetInstance()->maximize_mode_controller()->SetRotationLocked(true);
+  Shell::GetInstance()->screen_orientation_controller()->SetRotationLocked(
+      true);
   EXPECT_TRUE(tray_view()->visible());
   Shell::GetInstance()->maximize_mode_controller()->
       EnableMaximizeModeWindowManager(false);
@@ -204,19 +216,40 @@ TEST_F(TrayRotationLockTest, CreateSecondaryDefaultView) {
 TEST_F(TrayRotationLockTest, PerformActionOnDefaultView) {
   MaximizeModeController* maximize_mode_controller = Shell::GetInstance()->
       maximize_mode_controller();
-  ASSERT_FALSE(maximize_mode_controller->rotation_locked());
-  Shell::GetInstance()->maximize_mode_controller()->
-      EnableMaximizeModeWindowManager(true);
+  ScreenOrientationController* screen_orientation_controller =
+      Shell::GetInstance()->screen_orientation_controller();
+  ASSERT_FALSE(screen_orientation_controller->rotation_locked());
+  maximize_mode_controller->EnableMaximizeModeWindowManager(true);
   ASSERT_FALSE(tray_view()->visible());
 
   ui::GestureEvent tap(
       0, 0, 0, base::TimeDelta(), ui::GestureEventDetails(ui::ET_GESTURE_TAP));
   default_view()->OnGestureEvent(&tap);
-  EXPECT_TRUE(maximize_mode_controller->rotation_locked());
+  EXPECT_TRUE(screen_orientation_controller->rotation_locked());
   EXPECT_TRUE(tray_view()->visible());
 
-  Shell::GetInstance()->maximize_mode_controller()->
-      EnableMaximizeModeWindowManager(false);
+  maximize_mode_controller->EnableMaximizeModeWindowManager(false);
+}
+
+// Tests that when the tray is created without the internal display being known,
+// that it will still display correctly once the internal display is known.
+TEST_F(TrayRotationLockTest, InternalDisplayNotAvailableAtCreation) {
+  int64 internal_display_id = gfx::Display::InternalDisplayId();
+  TearDownViews();
+  gfx::Display::SetInternalDisplayId(gfx::Display::kInvalidDisplayID);
+
+  scoped_ptr<TrayRotationLock> tray(new TrayRotationLock(
+      StatusAreaWidgetTestHelper::GetStatusAreaWidget()->system_tray()));
+
+  gfx::Display::SetInternalDisplayId(internal_display_id);
+  scoped_ptr<views::View> tray_view(CreateTrayView(tray.get()));
+  scoped_ptr<views::View> default_view(tray->CreateDefaultView(
+      StatusAreaWidgetTestHelper::GetUserLoginStatus()));
+  EXPECT_TRUE(default_view);
+  Shell::GetInstance()
+      ->maximize_mode_controller()
+      ->EnableMaximizeModeWindowManager(true);
+  EXPECT_TRUE(default_view->visible());
 }
 
 }  // namespace ash

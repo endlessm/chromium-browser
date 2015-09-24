@@ -11,6 +11,7 @@
 #include "base/basictypes.h"
 #include "base/files/file_path.h"
 #include "content/public/browser/browser_message_filter.h"
+#include "content/public/common/permission_status.mojom.h"
 
 class GURL;
 
@@ -50,13 +51,20 @@ class LayoutTestMessageFilter : public BrowserMessageFilter {
       std::string* filesystem_id);
   void OnClearAllDatabases();
   void OnSetDatabaseQuota(int quota);
-  void OnCheckWebNotificationPermission(const GURL& origin, int* result);
   void OnGrantWebNotificationPermission(const GURL& origin,
                                         bool permission_granted);
   void OnClearWebNotificationPermissions();
   void OnSimulateWebNotificationClick(const std::string& title);
+  void OnSetPushMessagingPermission(const GURL& origin, bool allowed);
+  void OnClearPushMessagingPermissions();
   void OnAcceptAllCookies(bool accept);
   void OnDeleteAllCookies();
+  void OnSetPermission(const std::string& name,
+                       PermissionStatus status,
+                       const GURL& origin,
+                       const GURL& embedding_origin);
+  void OnResetPermissions();
+  void OnSetBluetoothAdapter(const std::string& name);
 
   int render_process_id_;
 
@@ -69,4 +77,4 @@ class LayoutTestMessageFilter : public BrowserMessageFilter {
 
 }  // namespace content
 
-#endif // CONTENT_SHELL_BROWSER_LAYOUT_TEST_LAYOUT_TEST_MESSAGE_FILTER_H_
+#endif  // CONTENT_SHELL_BROWSER_LAYOUT_TEST_LAYOUT_TEST_MESSAGE_FILTER_H_

@@ -32,6 +32,7 @@
 #define ExceptionStatePlaceholder_h
 
 #include "bindings/core/v8/ExceptionState.h"
+#include "core/CoreExport.h"
 #include "wtf/Assertions.h"
 #include "wtf/text/WTFString.h"
 #include <v8.h>
@@ -44,24 +45,24 @@ typedef int ExceptionCode;
 
 class IgnorableExceptionState final : public ExceptionState {
 public:
-    IgnorableExceptionState(): ExceptionState(ExceptionState::UnknownContext, 0, 0, v8::Handle<v8::Object>(), 0) { }
+    IgnorableExceptionState(): ExceptionState(ExceptionState::UnknownContext, 0, 0, v8::Local<v8::Object>(), 0) { }
     ExceptionState& returnThis() { return *this; }
-    virtual void throwDOMException(const ExceptionCode&, const String& message = String()) override { }
-    virtual void throwTypeError(const String& message = String()) override { }
-    virtual void throwSecurityError(const String& sanitizedMessage, const String& unsanitizedMessage = String()) override { }
+    void throwDOMException(const ExceptionCode&, const String& message = String()) override { }
+    void throwTypeError(const String& message = String()) override { }
+    void throwSecurityError(const String& sanitizedMessage, const String& unsanitizedMessage = String()) override { }
 };
 
 #define IGNORE_EXCEPTION (::blink::IgnorableExceptionState().returnThis())
 
 #if ENABLE(ASSERT)
 
-class NoExceptionStateAssertionChecker final : public ExceptionState {
+class CORE_EXPORT NoExceptionStateAssertionChecker final : public ExceptionState {
 public:
     NoExceptionStateAssertionChecker(const char* file, int line);
     ExceptionState& returnThis() { return *this; }
-    virtual void throwDOMException(const ExceptionCode&, const String& message = String()) override;
-    virtual void throwTypeError(const String& message = String()) override;
-    virtual void throwSecurityError(const String& sanitizedMessage, const String& unsanitizedMessage = String()) override;
+    void throwDOMException(const ExceptionCode&, const String& message = String()) override;
+    void throwTypeError(const String& message = String()) override;
+    void throwSecurityError(const String& sanitizedMessage, const String& unsanitizedMessage = String()) override;
 
 private:
     const char* m_file;

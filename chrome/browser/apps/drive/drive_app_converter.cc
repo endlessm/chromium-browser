@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <set>
 
+#include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/utf_string_conversions.h"
@@ -32,7 +33,7 @@ using content::BrowserThread;
 //   https://developers.google.com/drive/v2/reference/apps#resource
 // Each icon url represents a single image associated with a certain size.
 class DriveAppConverter::IconFetcher : public net::URLFetcherDelegate,
-                                       public ImageDecoder::Delegate {
+                                       public ImageDecoder::ImageRequest {
  public:
   IconFetcher(DriveAppConverter* converter,
               const GURL& icon_url,
@@ -40,14 +41,10 @@ class DriveAppConverter::IconFetcher : public net::URLFetcherDelegate,
       : converter_(converter),
         icon_url_(icon_url),
         expected_size_(expected_size) {}
-  ~IconFetcher() override {
-    if (image_decoder_.get())
-      image_decoder_->set_delegate(NULL);
-  }
+  ~IconFetcher() override {}
 
   void Start() {
-    fetcher_.reset(
-        net::URLFetcher::Create(icon_url_, net::URLFetcher::GET, this));
+    fetcher_ = net::URLFetcher::Create(icon_url_, net::URLFetcher::GET, this);
     fetcher_->SetRequestContext(converter_->profile_->GetRequestContext());
     fetcher_->SetLoadFlags(net::LOAD_DO_NOT_SAVE_COOKIES);
     fetcher_->Start();
@@ -71,30 +68,23 @@ class DriveAppConverter::IconFetcher : public net::URLFetcherDelegate,
     std::string unsafe_icon_data;
     fetcher->GetResponseAsString(&unsafe_icon_data);
 
-    image_decoder_ =
-        new ImageDecoder(this, unsafe_icon_data, ImageDecoder::DEFAULT_CODEC);
-    image_decoder_->Start(
-        BrowserThread::GetMessageLoopProxyForThread(BrowserThread::UI));
+    ImageDecoder::Start(this, unsafe_icon_data);
   }
 
-  // ImageDecoder::Delegate overrides:
-  void OnImageDecoded(const ImageDecoder* decoder,
-                      const SkBitmap& decoded_image) override {
+  // ImageDecoder::ImageRequest overrides:
+  void OnImageDecoded(const SkBitmap& decoded_image) override {
     if (decoded_image.width() == expected_size_)
       icon_ = decoded_image;
     converter_->OnIconFetchComplete(this);
   }
 
-  void OnDecodeImageFailed(const ImageDecoder* decoder) override {
-    converter_->OnIconFetchComplete(this);
-  }
+  void OnDecodeImageFailed() override { converter_->OnIconFetchComplete(this); }
 
   DriveAppConverter* converter_;
   const GURL icon_url_;
   const int expected_size_;
 
   scoped_ptr<net::URLFetcher> fetcher_;
-  scoped_refptr<ImageDecoder> image_decoder_;
   SkBitmap icon_;
 
   DISALLOW_COPY_AND_ASSIGN(IconFetcher);
@@ -120,7 +110,7 @@ void DriveAppConverter::Start() {
 
   if (drive_app_info_.app_name.empty() ||
       !drive_app_info_.create_url.is_valid()) {
-    finished_callback_.Run(this, false);
+    base::ResetAndReturn(&finished_callback_).Run(this, false);
     return;
   }
 
@@ -208,6 +198,6 @@ void DriveAppConverter::OnFinishCrxInstall(const std::string& extension_id,
   is_new_install_ = success && crx_installer_->current_version().empty();
   PostInstallCleanUp();
 
-  finished_callback_.Run(this, success);
+  base::ResetAndReturn(&finished_callback_).Run(this, success);
   // |finished_callback_| could delete this.
 }

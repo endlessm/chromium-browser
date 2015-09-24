@@ -38,6 +38,7 @@ class EnterpriseInstallAttributes {
     LOCK_FINALIZE_ERROR = 6,   // Backend failed to lock.
     LOCK_READBACK_ERROR = 7,   // Inconsistency reading back registration data.
     LOCK_WRONG_DOMAIN = 8,     // Device already registered to another domain.
+    LOCK_WRONG_MODE = 9,       // Device already locked to a different mode.
   };
 
   // A callback to handle responses of methods returning a LockResult value.
@@ -51,11 +52,11 @@ class EnterpriseInstallAttributes {
       chromeos::CryptohomeClient* cryptohome_client);
   ~EnterpriseInstallAttributes();
 
-  // Reads data from the cache file which is created early during the boot
-  // process.  The cache file is used to work around slow cryptohome startup,
-  // which takes a while to register its DBus interface.  See
-  // http://crosbug.com/37367 for background on this.
-  void ReadCacheFile(const base::FilePath& cache_file);
+  // Tries to read install attributes from the cache file which is created early
+  // during the boot process.  The cache file is used to work around slow
+  // cryptohome startup, which takes a while to register its DBus interface.
+  // (See http://crosbug.com/37367 for background on this.)
+  void Init(const base::FilePath& cache_file);
 
   // Makes sure the local caches for enterprise-related install attributes are
   // up-to-date with what cryptohome has. This method checks the readiness of
@@ -66,7 +67,8 @@ class EnterpriseInstallAttributes {
   // Locks the device to be an enterprise device registered by the given user.
   // This can also be called after the lock has already been taken, in which
   // case it checks that the passed user agrees with the locked attribute.
-  // |callback| must not be null and is called with the result.
+  // |callback| must not be null and is called with the result.  Must not be
+  // called while a previous LockDevice() invocation is still pending.
   void LockDevice(const std::string& user,
                   DeviceMode device_mode,
                   const std::string& device_id,
@@ -96,7 +98,19 @@ class EnterpriseInstallAttributes {
   DeviceMode GetMode();
 
  protected:
+  // True if install attributes have been read successfully.  False if read
+  // failed or no read attempt was made.
   bool device_locked_;
+
+  // Whether the TPM / install attributes consistency check is running.
+  bool consistency_check_running_;
+
+  // To be run after the consistency check has finished.
+  base::Closure post_check_action_;
+
+  // Wether the LockDevice() initiated TPM calls are running.
+  bool device_lock_running_;
+
   std::string registration_user_;
   std::string registration_domain_;
   std::string registration_device_id_;
@@ -105,17 +119,16 @@ class EnterpriseInstallAttributes {
  private:
   FRIEND_TEST_ALL_PREFIXES(EnterpriseInstallAttributesTest,
                            DeviceLockedFromOlderVersion);
+  FRIEND_TEST_ALL_PREFIXES(EnterpriseInstallAttributesTest, Init);
   FRIEND_TEST_ALL_PREFIXES(EnterpriseInstallAttributesTest,
-                           ReadCacheFile);
-  FRIEND_TEST_ALL_PREFIXES(EnterpriseInstallAttributesTest,
-                           ReadCacheFileForConsumerKiosk);
+                           InitForConsumerKiosk);
   FRIEND_TEST_ALL_PREFIXES(EnterpriseInstallAttributesTest,
                            VerifyFakeInstallAttributesCache);
 
   // Constants for the possible device modes that can be stored in the lockbox.
   static const char kConsumerDeviceMode[];
   static const char kEnterpriseDeviceMode[];
-  static const char kRetailKioskDeviceMode[];
+  static const char kLegacyRetailDeviceMode[];
   static const char kConsumerKioskDeviceMode[];
   static const char kUnknownDeviceMode[];
 
@@ -156,6 +169,17 @@ class EnterpriseInstallAttributes {
   // Confirms the registered user and invoke the callback.
   void OnReadImmutableAttributes(const std::string& user,
                                  const LockResultCallback& callback);
+
+  // Check state of install attributes against TPM lock state and generate UMA
+  // for the result.  Asynchronously retry |dbus_retries| times in case of DBUS
+  // errors (cryptohomed startup is slow).
+  void TriggerConsistencyCheck(int dbus_retries);
+
+  // Callback for TpmIsOwned() DBUS call.  Generates UMA or schedules retry in
+  // case of DBUS error.
+  void OnTpmOwnerCheckCompleted(int dbus_retries_remaining,
+                                chromeos::DBusMethodCallStatus call_status,
+                                bool result);
 
   chromeos::CryptohomeClient* cryptohome_client_;
 

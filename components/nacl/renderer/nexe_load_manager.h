@@ -14,7 +14,7 @@
 #include "base/memory/shared_memory.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
-#include "ppapi/c/private/ppb_nacl_private.h"
+#include "components/nacl/renderer/ppb_nacl_private.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -30,12 +30,8 @@ class TrustedPluginChannel;
 // nexe.
 class NexeLoadManager {
  public:
+  explicit NexeLoadManager(PP_Instance instance);
   ~NexeLoadManager();
-
-  static void Create(PP_Instance instance);
-  // Non-owning pointer.
-  static NexeLoadManager* Get(PP_Instance instance);
-  static void Delete(PP_Instance instance);
 
   void NexeFileDidOpen(int32_t pp_error,
                        const base::File& file,
@@ -121,10 +117,11 @@ class NexeLoadManager {
     crash_info_shmem_handle_ = h;
   }
 
+  bool nonsfi() const { return nonsfi_; }
+  void set_nonsfi(bool nonsfi) { nonsfi_ = nonsfi; }
+
  private:
   DISALLOW_COPY_AND_ASSIGN(NexeLoadManager);
-
-  explicit NexeLoadManager(PP_Instance instance);
 
   void ReportDeadNexe();
 
@@ -181,6 +178,9 @@ class NexeLoadManager {
   std::string mime_type_;
 
   base::Time pnacl_start_time_;
+
+  // A flag that indicates if the plugin is using Non-SFI mode.
+  bool nonsfi_;
 
   base::SharedMemoryHandle crash_info_shmem_handle_;
 

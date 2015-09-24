@@ -8,8 +8,8 @@
 #include "core/frame/FrameView.h"
 #include "core/html/HTMLDocument.h"
 #include "core/html/HTMLInputElement.h"
+#include "core/layout/LayoutObject.h"
 #include "core/loader/EmptyClients.h"
-#include "core/rendering/RenderObject.h"
 #include "core/testing/DummyPageHolder.h"
 #include <gtest/gtest.h>
 
@@ -17,7 +17,7 @@ namespace blink {
 
 class HTMLFormControlElementTest : public ::testing::Test {
 protected:
-    virtual void SetUp() override;
+    void SetUp() override;
 
     DummyPageHolder& page() const { return *m_dummyPageHolder; }
     HTMLDocument& document() const { return *m_document; }
@@ -35,13 +35,12 @@ void HTMLFormControlElementTest::SetUp()
 
     m_document = toHTMLDocument(&m_dummyPageHolder->document());
     m_document->setMimeType("text/html");
-    m_document->setCharset("utf-8");
 }
 
 TEST_F(HTMLFormControlElementTest, customValidationMessageTextDirection)
 {
     document().documentElement()->setInnerHTML("<body><input required id=input></body>", ASSERT_NO_EXCEPTION);
-    document().view()->updateLayoutAndStyleIfNeededRecursive();
+    document().view()->updateAllLifecyclePhases();
 
     HTMLInputElement* input = toHTMLInputElement(document().getElementById("input"));
     input->setCustomValidity(String::fromUTF8("\xD8\xB9\xD8\xB1\xD8\xA8\xD9\x89"));
@@ -56,7 +55,7 @@ TEST_F(HTMLFormControlElementTest, customValidationMessageTextDirection)
     EXPECT_EQ(RTL, messageDir);
     EXPECT_EQ(LTR, subMessageDir);
 
-    input->renderer()->style()->setDirection(RTL);
+    input->layoutObject()->mutableStyleRef().setDirection(RTL);
     input->findCustomValidationMessageTextDirection(message, messageDir, subMessage, subMessageDir);
     EXPECT_EQ(RTL, messageDir);
     EXPECT_EQ(RTL, subMessageDir);
@@ -68,4 +67,4 @@ TEST_F(HTMLFormControlElementTest, customValidationMessageTextDirection)
     EXPECT_EQ(RTL, subMessageDir);
 }
 
-}
+} // namespace blink

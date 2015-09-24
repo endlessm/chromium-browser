@@ -37,14 +37,25 @@ using namespace blink;
 
 namespace WebCoreTestSupport {
 
+v8::Local<v8::Value> createInternalsObject(v8::Local<v8::Context> context)
+{
+    ScriptState* scriptState = ScriptState::from(context);
+    v8::Local<v8::Object> global = scriptState->context()->Global();
+    ExecutionContext* executionContext = scriptState->executionContext();
+    if (executionContext->isDocument())
+        return toV8(Internals::create(scriptState), global, scriptState->isolate());
+    return v8::Local<v8::Value>();
+}
+
 void injectInternalsObject(v8::Local<v8::Context> context)
 {
     ScriptState* scriptState = ScriptState::from(context);
     ScriptState::Scope scope(scriptState);
-    v8::Handle<v8::Object> global = scriptState->context()->Global();
-    ExecutionContext* executionContext = scriptState->executionContext();
-    if (executionContext->isDocument())
-        global->Set(v8::String::NewFromUtf8(scriptState->isolate(), Internals::internalsId), toV8(Internals::create(toDocument(executionContext)), global, scriptState->isolate()));
+    v8::Local<v8::Object> global = scriptState->context()->Global();
+    v8::Local<v8::Value> internals = createInternalsObject(context);
+    if (internals.IsEmpty())
+        return;
+    v8CallOrCrash(global->Set(scriptState->context(), v8AtomicString(scriptState->isolate(), Internals::internalsId), internals));
 }
 
 void resetInternalsObject(v8::Local<v8::Context> context)

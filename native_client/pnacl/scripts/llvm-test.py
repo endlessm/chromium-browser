@@ -56,7 +56,7 @@ Specify the tests or test subsets in the options; common tests are
 --llvm-regression and --testsuite-all.
 
 The --opt arguments control the frontend/backend optimization flags.
-The default set is {O3f,O2b}, other options are {O0f,O0b}.
+The default set is {O3f,O2b}, other options are {O0f,O0b,O2b_sz,O0b_sz}.
 """
   parser = optparse.OptionParser(usage=usage)
   parser.add_option('--arch', dest='arch',
@@ -150,7 +150,12 @@ def ParseConfig(options):
                  O3f={'frontend_opt': '-O3', 'frontend_attr': 'O3f'},
                  O0b={'backend_opt': '-translate-fast',
                       'backend_attr': 'O0b'},
-                 O2b={'backend_opt': '-O2', 'backend_attr': 'O2b'})
+                 O2b={'backend_opt': '-O2', 'backend_attr': 'O2b'},
+                 O0b_sz={'backend_opt': '-translate-fast --use-sz',
+                         'backend_attr': 'O0b_sz'},
+                 O2b_sz={'backend_opt': '-O2 --use-sz',
+                         'backend_attr': 'O2b_sz'},
+                 )
   result = {}
   # Default is pnacl-clang -O3, pnacl-translate -O2
   for attr in ['O3f', 'O2b'] + options.opt_attributes:
@@ -238,7 +243,7 @@ def SetupEnvironment(options):
 
   # The toolchain used may not be the one downloaded, but one that is freshly
   # built into a different directory,
-  # Overriding the default here will Not affect the sel_ldr
+  # Overriding the default here will not affect the sel_ldr
   # and IRT used to run the tests (they are controlled by run.py)
   env['PNACL_TOOLCHAIN_DIR'] = (
     os.environ.get('PNACL_TOOLCHAIN_DIR',
@@ -335,11 +340,12 @@ def EnsureSdkExists(env):
   Args:
     env: The result of SetupEnvironment().
   """
-  if not os.path.isfile(os.path.join(env['PNACL_SDK_DIR'], 'libnacl.a')):
+  libnacl_path = os.path.join(env['PNACL_SDK_DIR'], 'libnacl.a')
+  if not os.path.isfile(libnacl_path):
     Fatal("""
-ERROR: libnacl does not seem to exist
+ERROR: libnacl does not seem to exist in %s
 ERROR: have you run 'pnacl/build.sh sdk' ?
-""")
+    """ % libnacl_path)
 
 
 def TestsuitePrereq(env, options):
@@ -357,6 +363,7 @@ def TestsuitePrereq(env, options):
                           'platform=' + arch,
                           'irt_core',
                           'sel_ldr',
+                          'elf_loader',
                           '-j{PNACL_CONCURRENCY}'.format(**env)])
 
 

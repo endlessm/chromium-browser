@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CONTENT_PULIC_COMMON_CHILD_PROCESS_HOST_H_
-#define CONTENT_PULIC_COMMON_CHILD_PROCESS_HOST_H_
+#ifndef CONTENT_PUBLIC_COMMON_CHILD_PROCESS_HOST_H_
+#define CONTENT_PUBLIC_COMMON_CHILD_PROCESS_HOST_H_
 
 #include "base/files/scoped_file.h"
 #include "build/build_config.h"
@@ -15,6 +15,7 @@ class FilePath;
 }
 
 namespace IPC {
+class AttachmentBroker;
 class MessageFilter;
 }
 
@@ -64,7 +65,7 @@ class CONTENT_EXPORT ChildProcessHost : public IPC::Sender {
     // Requests that the child run in a process that does not protect the
     // heap against execution. Normally, heap pages may be made executable
     // with mprotect, so this mode should be used sparingly. It is intended
-    // for processes that may host plug-ins that expect an executable heap
+    // for processes that may host plugins that expect an executable heap
     // without having to call mprotect. This option is currently incompatible
     // with CHILD_NO_PIE.
     CHILD_ALLOW_HEAP_EXECUTION = 1 << 2,
@@ -82,6 +83,10 @@ class CONTENT_EXPORT ChildProcessHost : public IPC::Sender {
   //
   // On failure, returns an empty FilePath.
   static base::FilePath GetChildPath(int flags);
+
+  // Returns an AttachmentBroker used to broker attachments of IPC messages to
+  // child processes.
+  static IPC::AttachmentBroker* GetAttachmentBroker();
 
   // Send the shutdown message to the child process.
   // Does not check with the delegate's CanShutdown.
@@ -105,4 +110,4 @@ class CONTENT_EXPORT ChildProcessHost : public IPC::Sender {
 
 };  // namespace content
 
-#endif  // CONTENT_PULIC_COMMON_CHILD_PROCESS_HOST_H_
+#endif  // CONTENT_PUBLIC_COMMON_CHILD_PROCESS_HOST_H_

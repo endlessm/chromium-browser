@@ -7,7 +7,6 @@
 
 #include "ash/system/tray/tray_details_view.h"
 #include "ash/system/tray/view_click_listener.h"
-#include "ash/system/user/login_status.h"
 #include "chromeos/audio/audio_device.h"
 
 #include "ui/gfx/font.h"
@@ -24,9 +23,9 @@ namespace tray {
 class AudioDetailedView : public TrayDetailsView,
                           public ViewClickListener {
  public:
-  AudioDetailedView(SystemTrayItem* owner, user::LoginStatus login);
+  explicit AudioDetailedView(SystemTrayItem* owner);
 
-  virtual ~AudioDetailedView();
+  ~AudioDetailedView() override;
 
   void Update();
 
@@ -34,7 +33,7 @@ class AudioDetailedView : public TrayDetailsView,
   void AddScrollListInfoItem(const base::string16& text);
 
   HoverHighlightView* AddScrollListItem(const base::string16& text,
-                                        gfx::Font::FontStyle style,
+                                        bool highlight,
                                         bool checked);
 
   void CreateHeaderEntry();
@@ -44,9 +43,7 @@ class AudioDetailedView : public TrayDetailsView,
   void UpdateAudioDevices();
 
   // Overridden from ViewClickListener.
-  virtual void OnViewClicked(views::View* sender) override;
-
-  user::LoginStatus login_;
+  void OnViewClicked(views::View* sender) override;
 
   typedef std::map<views::View*, chromeos::AudioDevice> AudioDeviceMap;
 

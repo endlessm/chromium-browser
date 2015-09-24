@@ -20,7 +20,7 @@
 #include "base/sys_info.h"
 #include "base/task_runner.h"
 #include "base/threading/worker_pool.h"
-#include "third_party/icu/source/i18n/unicode/timezone.h"
+#include "chromeos/settings/timezone_settings_helper.h"
 
 namespace {
 
@@ -167,6 +167,7 @@ static const char* kTimeZones[] = {
     "Asia/Singapore",
     "Asia/Manila",
     "Asia/Taipei",
+    "Asia/Ulaanbaatar",
     "Asia/Makassar",
     "Asia/Irkutsk",
     "Asia/Yakutsk",
@@ -259,15 +260,15 @@ void SetTimezoneIDFromString(const std::string& id) {
 // Common code of the TimezoneSettings implementations.
 class TimezoneSettingsBaseImpl : public chromeos::system::TimezoneSettings {
  public:
-  virtual ~TimezoneSettingsBaseImpl();
+  ~TimezoneSettingsBaseImpl() override;
 
   // TimezoneSettings implementation:
-  virtual const icu::TimeZone& GetTimezone() override;
-  virtual base::string16 GetCurrentTimezoneID() override;
-  virtual void SetTimezoneFromID(const base::string16& timezone_id) override;
-  virtual void AddObserver(Observer* observer) override;
-  virtual void RemoveObserver(Observer* observer) override;
-  virtual const std::vector<icu::TimeZone*>& GetTimezoneList() const override;
+  const icu::TimeZone& GetTimezone() override;
+  base::string16 GetCurrentTimezoneID() override;
+  void SetTimezoneFromID(const base::string16& timezone_id) override;
+  void AddObserver(Observer* observer) override;
+  void RemoveObserver(Observer* observer) override;
+  const std::vector<icu::TimeZone*>& GetTimezoneList() const override;
 
  protected:
   TimezoneSettingsBaseImpl();
@@ -276,13 +277,13 @@ class TimezoneSettingsBaseImpl : public chromeos::system::TimezoneSettings {
   // Otherwise, returns a timezone from |timezones_|, if such exists, that has
   // the same rule as the given |timezone|.
   // Otherwise, returns NULL.
-  // Note multiple timezones with the same time zone offset may exist
+  // Note multiple timezones with the same time zone rules may exist
   // e.g.
   //   US/Pacific == America/Los_Angeles
   const icu::TimeZone* GetKnownTimezoneOrNull(
       const icu::TimeZone& timezone) const;
 
-  ObserverList<Observer> observers_;
+  base::ObserverList<Observer> observers_;
   std::vector<icu::TimeZone*> timezones_;
   scoped_ptr<icu::TimeZone> timezone_;
 
@@ -294,7 +295,7 @@ class TimezoneSettingsBaseImpl : public chromeos::system::TimezoneSettings {
 class TimezoneSettingsImpl : public TimezoneSettingsBaseImpl {
  public:
   // TimezoneSettings implementation:
-  virtual void SetTimezone(const icu::TimeZone& timezone) override;
+  void SetTimezone(const icu::TimeZone& timezone) override;
 
   static TimezoneSettingsImpl* GetInstance();
 
@@ -310,7 +311,7 @@ class TimezoneSettingsImpl : public TimezoneSettingsBaseImpl {
 class TimezoneSettingsStubImpl : public TimezoneSettingsBaseImpl {
  public:
   // TimezoneSettings implementation:
-  virtual void SetTimezone(const icu::TimeZone& timezone) override;
+  void SetTimezone(const icu::TimeZone& timezone) override;
 
   static TimezoneSettingsStubImpl* GetInstance();
 
@@ -363,18 +364,7 @@ TimezoneSettingsBaseImpl::TimezoneSettingsBaseImpl() {
 
 const icu::TimeZone* TimezoneSettingsBaseImpl::GetKnownTimezoneOrNull(
     const icu::TimeZone& timezone) const {
-  const icu::TimeZone* known_timezone = NULL;
-  for (std::vector<icu::TimeZone*>::const_iterator iter = timezones_.begin();
-       iter != timezones_.end(); ++iter) {
-    const icu::TimeZone* entry = *iter;
-    if (*entry == timezone)
-      return entry;
-    if (entry->hasSameRules(timezone))
-      known_timezone = entry;
-  }
-
-  // May return NULL if we did not find a matching timezone in our list.
-  return known_timezone;
+  return chromeos::system::GetKnownTimezoneOrNull(timezone, timezones_);
 }
 
 void TimezoneSettingsImpl::SetTimezone(const icu::TimeZone& timezone) {
@@ -420,6 +410,11 @@ TimezoneSettingsImpl::TimezoneSettingsImpl() {
 
   icu::TimeZone::setDefault(*timezone_);
   VLOG(1) << "Timezone initially set to " << id;
+  icu::UnicodeString resolvedId;
+  std::string resolvedIdStr;
+  timezone_->getID(resolvedId);
+  VLOG(1) << "Timezone initially resolved to "
+          << resolvedId.toUTF8String(resolvedIdStr);
 }
 
 void TimezoneSettingsStubImpl::SetTimezone(const icu::TimeZone& timezone) {
@@ -429,6 +424,8 @@ void TimezoneSettingsStubImpl::SetTimezone(const icu::TimeZone& timezone) {
   if (!known_timezone)
     known_timezone = &timezone;
 
+  std::string id = base::UTF16ToUTF8(GetTimezoneID(*known_timezone));
+  VLOG(1) << "Setting timezone to " << id;
   timezone_.reset(known_timezone->clone());
   icu::TimeZone::setDefault(*known_timezone);
   FOR_EACH_OBSERVER(Observer, observers_, TimezoneChanged(*known_timezone));

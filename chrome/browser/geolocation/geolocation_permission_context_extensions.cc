@@ -7,8 +7,8 @@
 #include "base/callback.h"
 
 #if defined(ENABLE_EXTENSIONS)
+#include "chrome/browser/permissions/permission_request_id.h"
 #include "chrome/browser/profiles/profile.h"
-#include "components/content_settings/core/common/permission_request_id.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/guest_view/web_view/web_view_permission_helper.h"
 #include "extensions/browser/process_map.h"
@@ -19,6 +19,18 @@
 using extensions::APIPermission;
 using extensions::ExtensionRegistry;
 #endif
+
+namespace {
+
+#if ENABLE_EXTENSIONS
+void CallbackContentSettingWrapper(
+    const base::Callback<void(ContentSetting)>& callback,
+    bool allowed) {
+  callback.Run(allowed ? CONTENT_SETTING_ALLOW : CONTENT_SETTING_BLOCK);
+}
+#endif // ENABLE_EXTENSIONS
+
+}  // anonymous namespace
 
 GeolocationPermissionContextExtensions::
 GeolocationPermissionContextExtensions(Profile* profile)
@@ -35,7 +47,7 @@ bool GeolocationPermissionContextExtensions::RequestPermission(
     int bridge_id,
     const GURL& requesting_frame,
     bool user_gesture,
-    base::Callback<void(bool)> callback,
+    const base::Callback<void(ContentSetting)>& callback,
     bool* permission_set,
     bool* new_permission) {
 #if defined(ENABLE_EXTENSIONS)
@@ -45,7 +57,8 @@ bool GeolocationPermissionContextExtensions::RequestPermission(
       extensions::WebViewPermissionHelper::FromWebContents(web_contents);
   if (web_view_permission_helper) {
     web_view_permission_helper->RequestGeolocationPermission(
-        bridge_id, requesting_frame, user_gesture, callback);
+        bridge_id, requesting_frame, user_gesture,
+        base::Bind(&CallbackContentSettingWrapper, callback));
     *permission_set = false;
     *new_permission = false;
     return true;
@@ -58,7 +71,7 @@ bool GeolocationPermissionContextExtensions::RequestPermission(
             requesting_frame_origin);
     if (IsExtensionWithPermissionOrSuggestInConsole(
             APIPermission::kGeolocation, extension,
-            web_contents->GetRenderViewHost())) {
+            web_contents->GetMainFrame())) {
       // Make sure the extension is in the calling process.
       if (extensions::ProcessMap::Get(profile_)->Contains(
               extension->id(), request_id.render_process_id())) {

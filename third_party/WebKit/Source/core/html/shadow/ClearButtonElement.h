@@ -44,14 +44,14 @@ public:
     static PassRefPtrWillBeRawPtr<ClearButtonElement> create(Document&, ClearButtonOwner&);
     void removeClearButtonOwner() { m_clearButtonOwner = nullptr; }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     ClearButtonElement(Document&, ClearButtonOwner&);
-    virtual void detach(const AttachContext& = AttachContext()) override;
-    virtual bool isMouseFocusable() const override { return false; }
-    virtual void defaultEventHandler(Event*) override;
-    virtual bool isClearButtonElement() const override;
+    void detach(const AttachContext& = AttachContext()) override;
+    bool isMouseFocusable() const override { return false; }
+    void defaultEventHandler(Event*) override;
+    bool isClearButtonElement() const override;
 
     RawPtrWillBeMember<ClearButtonOwner> m_clearButtonOwner;
 };

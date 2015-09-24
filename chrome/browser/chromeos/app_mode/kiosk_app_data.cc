@@ -26,6 +26,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/image_loader.h"
+#include "extensions/browser/sandboxed_unpacker.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension_urls.h"
 #include "extensions/common/manifest.h"
@@ -75,7 +76,7 @@ bool IsValidKioskAppManifest(const extensions::Manifest& manifest) {
   return false;
 }
 
-std::string ValueToString(const base::Value* value) {
+std::string ValueToString(const base::Value& value) {
   std::string json;
   base::JSONWriter::Write(value, &json);
   return json;
@@ -84,10 +85,113 @@ std::string ValueToString(const base::Value* value) {
 }  // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
+// KioskAppData::CrxLoader
+// Loads meta data from crx file.
+
+class KioskAppData::CrxLoader : public extensions::SandboxedUnpackerClient {
+ public:
+  CrxLoader(const base::WeakPtr<KioskAppData>& client,
+            const base::FilePath& crx_file)
+      : client_(client),
+        crx_file_(crx_file),
+        success_(false) {
+  }
+
+  void Start() {
+    base::SequencedWorkerPool* pool = BrowserThread::GetBlockingPool();
+    base::SequencedWorkerPool::SequenceToken token =
+        pool->GetNamedSequenceToken("KioskAppData.CrxLoaderWorker");
+    task_runner_ = pool->GetSequencedTaskRunnerWithShutdownBehavior(
+        token,
+        base::SequencedWorkerPool::SKIP_ON_SHUTDOWN);
+    task_runner_->PostTask(FROM_HERE,
+                           base::Bind(&CrxLoader::StartOnBlockingPool, this));
+  }
+
+  bool success() const { return success_; }
+  const base::FilePath& crx_file() const { return crx_file_; }
+  const std::string& name() const { return name_; }
+  const SkBitmap& icon() const { return icon_; }
+
+ private:
+  ~CrxLoader() override {};
+
+  // extensions::SandboxedUnpackerClient
+  void OnUnpackSuccess(const base::FilePath& temp_dir,
+                       const base::FilePath& extension_root,
+                       const base::DictionaryValue* original_manifest,
+                       const extensions::Extension* extension,
+                       const SkBitmap& install_icon) override {
+    DCHECK(task_runner_->RunsTasksOnCurrentThread());
+
+    success_ = true;
+    name_ = extension->name();
+    icon_ = install_icon;
+    NotifyFinishedOnBlockingPool();
+  }
+  void OnUnpackFailure(const extensions::CrxInstallError& error) override {
+    DCHECK(task_runner_->RunsTasksOnCurrentThread());
+
+    success_ = false;
+    NotifyFinishedOnBlockingPool();
+  }
+
+  void StartOnBlockingPool() {
+    DCHECK(task_runner_->RunsTasksOnCurrentThread());
+
+    if (!temp_dir_.CreateUniqueTempDir()) {
+      success_ = false;
+      NotifyFinishedOnBlockingPool();
+      return;
+    }
+
+    scoped_refptr<extensions::SandboxedUnpacker> unpacker(
+        new extensions::SandboxedUnpacker(
+            extensions::CRXFileInfo(crx_file_), extensions::Manifest::INTERNAL,
+            extensions::Extension::NO_FLAGS, temp_dir_.path(),
+            task_runner_.get(), this));
+    unpacker->Start();
+  }
+
+  void NotifyFinishedOnBlockingPool() {
+    DCHECK(task_runner_->RunsTasksOnCurrentThread());
+
+    if (!temp_dir_.Delete()) {
+      LOG(WARNING) << "Can not delete temp directory at "
+                   << temp_dir_.path().value();
+    }
+
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
+        base::Bind(&CrxLoader::NotifyFinishedOnUIThread, this));
+  }
+
+  void NotifyFinishedOnUIThread() {
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+    if (client_)
+      client_->OnCrxLoadFinished(this);
+  }
+
+  base::WeakPtr<KioskAppData> client_;
+  base::FilePath crx_file_;
+  bool success_;
+
+  scoped_refptr<base::SequencedTaskRunner> task_runner_;
+  base::ScopedTempDir temp_dir_;
+
+  // Extracted meta data.
+  std::string name_;
+  SkBitmap icon_;
+
+  DISALLOW_COPY_AND_ASSIGN(CrxLoader);
+};
+
+////////////////////////////////////////////////////////////////////////////////
 // KioskAppData::IconLoader
 // Loads locally stored icon data and decode it.
 
-class KioskAppData::IconLoader : public ImageDecoder::Delegate {
+class KioskAppData::IconLoader {
  public:
   enum LoadResult {
     SUCCESS,
@@ -106,7 +210,7 @@ class KioskAppData::IconLoader : public ImageDecoder::Delegate {
     base::SequencedWorkerPool::SequenceToken token = pool->GetSequenceToken();
     task_runner_ = pool->GetSequencedTaskRunnerWithShutdownBehavior(
         token,
-        base::SequencedWorkerPool::CONTINUE_ON_SHUTDOWN);
+        base::SequencedWorkerPool::SKIP_ON_SHUTDOWN);
     task_runner_->PostTask(FROM_HERE,
                            base::Bind(&IconLoader::LoadOnBlockingPool,
                                       base::Unretained(this)));
@@ -115,7 +219,31 @@ class KioskAppData::IconLoader : public ImageDecoder::Delegate {
  private:
   friend class base::RefCountedThreadSafe<IconLoader>;
 
-  virtual ~IconLoader() {}
+  ~IconLoader() {}
+
+  class IconImageRequest : public ImageDecoder::ImageRequest {
+   public:
+    IconImageRequest(
+        const scoped_refptr<base::SequencedTaskRunner>& task_runner,
+        IconLoader* icon_loader)
+        : ImageRequest(task_runner), icon_loader_(icon_loader) {}
+
+    void OnImageDecoded(const SkBitmap& decoded_image) override {
+      icon_loader_->icon_ = gfx::ImageSkia::CreateFrom1xBitmap(decoded_image);
+      icon_loader_->icon_.MakeThreadSafe();
+      icon_loader_->ReportResultOnBlockingPool(SUCCESS);
+      delete this;
+    }
+
+    void OnDecodeImageFailed() override {
+      icon_loader_->ReportResultOnBlockingPool(FAILED_TO_DECODE);
+      delete this;
+    }
+
+   private:
+    ~IconImageRequest() override {}
+    IconLoader* icon_loader_;
+  };
 
   // Loads the icon from locally stored |icon_path_| on the blocking pool
   void LoadOnBlockingPool() {
@@ -128,9 +256,8 @@ class KioskAppData::IconLoader : public ImageDecoder::Delegate {
     }
     raw_icon_ = base::RefCountedString::TakeString(&data);
 
-    scoped_refptr<ImageDecoder> image_decoder = new ImageDecoder(
-        this, raw_icon_->data(), ImageDecoder::DEFAULT_CODEC);
-    image_decoder->Start(task_runner_);
+    IconImageRequest* image_request = new IconImageRequest(task_runner_, this);
+    ImageDecoder::Start(image_request, raw_icon_->data());
   }
 
   void ReportResultOnBlockingPool(LoadResult result) {
@@ -149,28 +276,16 @@ class KioskAppData::IconLoader : public ImageDecoder::Delegate {
       return;
 
     if (load_result_ == SUCCESS)
-      client_->OnIconLoadSuccess(raw_icon_, icon_);
+      client_->OnIconLoadSuccess(icon_);
     else
       client_->OnIconLoadFailure();
   }
 
   void ReportResultOnUIThread() {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
     NotifyClient();
     delete this;
-  }
-
-  // ImageDecoder::Delegate overrides:
-  virtual void OnImageDecoded(const ImageDecoder* decoder,
-                              const SkBitmap& decoded_image) override {
-    icon_ = gfx::ImageSkia::CreateFrom1xBitmap(decoded_image);
-    icon_.MakeThreadSafe();
-    ReportResultOnBlockingPool(SUCCESS);
-  }
-
-  virtual void OnDecodeImageFailed(const ImageDecoder* decoder) override {
-    ReportResultOnBlockingPool(FAILED_TO_DECODE);
   }
 
   base::WeakPtr<KioskAppData> client_;
@@ -203,7 +318,6 @@ class KioskAppData::WebstoreDataParser
         new extensions::WebstoreInstallHelper(this,
                                               app_id,
                                               manifest,
-                                              "",  // No icon data.
                                               icon_url,
                                               context_getter);
     webstore_helper->Start();
@@ -212,7 +326,7 @@ class KioskAppData::WebstoreDataParser
  private:
   friend class base::RefCounted<WebstoreDataParser>;
 
-  virtual ~WebstoreDataParser() {}
+  ~WebstoreDataParser() override {}
 
   void ReportFailure() {
     if (client_)
@@ -222,10 +336,9 @@ class KioskAppData::WebstoreDataParser
   }
 
   // WebstoreInstallHelper::Delegate overrides:
-  virtual void OnWebstoreParseSuccess(
-      const std::string& id,
-      const SkBitmap& icon,
-      base::DictionaryValue* parsed_manifest) override {
+  void OnWebstoreParseSuccess(const std::string& id,
+                              const SkBitmap& icon,
+                              base::DictionaryValue* parsed_manifest) override {
     // Takes ownership of |parsed_manifest|.
     extensions::Manifest manifest(
         extensions::Manifest::INVALID_LOCATION,
@@ -240,10 +353,9 @@ class KioskAppData::WebstoreDataParser
       client_->OnWebstoreParseSuccess(icon);
     delete this;
   }
-  virtual void OnWebstoreParseFailure(
-      const std::string& id,
-      InstallHelperResultCode result_code,
-      const std::string& error_message) override {
+  void OnWebstoreParseFailure(const std::string& id,
+                              InstallHelperResultCode result_code,
+                              const std::string& error_message) override {
     ReportFailure();
   }
 
@@ -315,8 +427,21 @@ void KioskAppData::LoadFromInstalledApp(Profile* profile,
       base::Bind(&KioskAppData::OnExtensionIconLoaded, AsWeakPtr()));
 }
 
+void KioskAppData::SetCachedCrx(const base::FilePath& crx_file) {
+  if (crx_file_ == crx_file)
+    return;
+
+  crx_file_ = crx_file;
+  MaybeLoadFromCrx();
+}
+
 bool KioskAppData::IsLoading() const {
   return status_ == STATUS_LOADING;
+}
+
+bool KioskAppData::IsFromWebStore() const {
+  return update_url_.is_empty() ||
+         extension_urls::IsWebstoreUpdateUrl(update_url_);
 }
 
 void KioskAppData::SetStatus(Status status) {
@@ -382,13 +507,15 @@ void KioskAppData::SetCache(const std::string& name,
 }
 
 void KioskAppData::SetCache(const std::string& name, const SkBitmap& icon) {
+  name_ = name;
+
   icon_ = gfx::ImageSkia::CreateFrom1xBitmap(icon);
   icon_.MakeThreadSafe();
 
   std::vector<unsigned char> image_data;
   CHECK(gfx::PNGCodec::EncodeBGRASkBitmap(icon, false, &image_data));
-  raw_icon_ = new base::RefCountedString;
-  raw_icon_->data().assign(image_data.begin(), image_data.end());
+  scoped_refptr<base::RefCountedString> raw_icon(new base::RefCountedString);
+  raw_icon->data().assign(image_data.begin(), image_data.end());
 
   base::FilePath cache_dir;
   if (delegate_)
@@ -398,7 +525,7 @@ void KioskAppData::SetCache(const std::string& name, const SkBitmap& icon) {
       cache_dir.AppendASCII(app_id_).AddExtension(kIconFileExtension);
   BrowserThread::GetBlockingPool()->PostTask(
       FROM_HERE,
-      base::Bind(&SaveIconToLocalOnBlockingPool, icon_path, raw_icon_));
+      base::Bind(&SaveIconToLocalOnBlockingPool, icon_path, raw_icon));
 
   SetCache(name, icon_path);
 }
@@ -415,11 +542,8 @@ void KioskAppData::OnExtensionIconLoaded(const gfx::Image& icon) {
   SetStatus(STATUS_LOADED);
 }
 
-void KioskAppData::OnIconLoadSuccess(
-    const scoped_refptr<base::RefCountedString>& raw_icon,
-    const gfx::ImageSkia& icon) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  raw_icon_ = raw_icon;
+void KioskAppData::OnIconLoadSuccess(const gfx::ImageSkia& icon) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   icon_ = icon;
   SetStatus(STATUS_LOADED);
 }
@@ -439,6 +563,11 @@ void KioskAppData::OnWebstoreParseFailure() {
 }
 
 void KioskAppData::StartFetch() {
+  if (!IsFromWebStore()) {
+    MaybeLoadFromCrx();
+    return;
+  }
+
   webstore_fetcher_.reset(new extensions::WebstoreDataFetcher(
       this,
       GetRequestContextGetter(),
@@ -473,7 +602,7 @@ void KioskAppData::OnWebstoreResponseParseSuccess(
       icon_url_string);
   if (!icon_url.is_valid()) {
     LOG(ERROR) << "Webstore response error (icon url): "
-               << ValueToString(webstore_data.get());
+               << ValueToString(*webstore_data);
     OnWebstoreResponseParseFailure(kInvalidWebstoreResponseError);
     return;
   }
@@ -497,11 +626,38 @@ bool KioskAppData::CheckResponseKeyValue(const base::DictionaryValue* response,
                                          std::string* value) {
   if (!response->GetString(key, value)) {
     LOG(ERROR) << "Webstore response error (" << key
-               << "): " << ValueToString(response);
+               << "): " << ValueToString(*response);
     OnWebstoreResponseParseFailure(kInvalidWebstoreResponseError);
     return false;
   }
   return true;
+}
+
+void KioskAppData::MaybeLoadFromCrx() {
+  if (status_ == STATUS_LOADED || crx_file_.empty())
+    return;
+
+  scoped_refptr<CrxLoader> crx_loader(new CrxLoader(AsWeakPtr(), crx_file_));
+  crx_loader->Start();
+}
+
+void KioskAppData::OnCrxLoadFinished(const CrxLoader* crx_loader) {
+  DCHECK(crx_loader);
+
+  if (crx_loader->crx_file() != crx_file_)
+    return;
+
+  if (!crx_loader->success()) {
+    SetStatus(STATUS_ERROR);
+    return;
+  }
+
+  SkBitmap icon = crx_loader->icon();
+  if (icon.empty())
+    icon = *extensions::util::GetDefaultAppIcon().bitmap();
+  SetCache(crx_loader->name(), icon);
+
+  SetStatus(STATUS_LOADED);
 }
 
 }  // namespace chromeos

@@ -5,13 +5,15 @@
 #include "chrome/browser/sync/glue/sync_backend_host_core.h"
 
 #include "base/files/file_util.h"
+#include "base/location.h"
 #include "base/metrics/histogram.h"
+#include "base/single_thread_task_runner.h"
 #include "chrome/browser/sync/glue/invalidation_adapter.h"
 #include "chrome/browser/sync/glue/local_device_info_provider_impl.h"
 #include "chrome/browser/sync/glue/sync_backend_registrar.h"
 #include "chrome/common/chrome_version_info.h"
-#include "components/invalidation/invalidation_util.h"
-#include "components/invalidation/object_id_invalidation_map.h"
+#include "components/invalidation/public/invalidation_util.h"
+#include "components/invalidation/public/object_id_invalidation_map.h"
 #include "sync/internal_api/public/events/protocol_event.h"
 #include "sync/internal_api/public/http_post_provider_factory.h"
 #include "sync/internal_api/public/internal_components_factory.h"
@@ -56,7 +58,7 @@ DoInitializeOptions::DoInitializeOptions(
     base::MessageLoop* sync_loop,
     SyncBackendRegistrar* registrar,
     const syncer::ModelSafeRoutingInfo& routing_info,
-    const std::vector<scoped_refptr<syncer::ModelSafeWorker> >& workers,
+    const std::vector<scoped_refptr<syncer::ModelSafeWorker>>& workers,
     const scoped_refptr<syncer::ExtensionsActivity>& extensions_activity,
     const syncer::WeakHandle<syncer::JsEventHandler>& event_handler,
     const GURL& service_url,
@@ -69,8 +71,9 @@ DoInitializeOptions::DoInitializeOptions(
     const std::string& restored_keystore_key_for_bootstrapping,
     scoped_ptr<syncer::InternalComponentsFactory> internal_components_factory,
     scoped_ptr<syncer::UnrecoverableErrorHandler> unrecoverable_error_handler,
-    syncer::ReportUnrecoverableErrorFunction
-        report_unrecoverable_error_function)
+    const base::Closure& report_unrecoverable_error_function,
+    scoped_ptr<syncer::SyncEncryptionHandler::NigoriState> saved_nigori_state,
+    syncer::PassphraseTransitionClearDataOption clear_data_option)
     : sync_loop(sync_loop),
       registrar(registrar),
       routing_info(routing_info),
@@ -88,8 +91,9 @@ DoInitializeOptions::DoInitializeOptions(
           restored_keystore_key_for_bootstrapping),
       internal_components_factory(internal_components_factory.Pass()),
       unrecoverable_error_handler(unrecoverable_error_handler.Pass()),
-      report_unrecoverable_error_function(report_unrecoverable_error_function) {
-}
+      report_unrecoverable_error_function(report_unrecoverable_error_function),
+      saved_nigori_state(saved_nigori_state.Pass()),
+      clear_data_option(clear_data_option) {}
 
 DoInitializeOptions::~DoInitializeOptions() {}
 
@@ -158,9 +162,9 @@ void SyncBackendHostCore::OnInitializationComplete(
 
   // Sync manager initialization is complete, so we can schedule recurring
   // SaveChanges.
-  sync_loop_->PostTask(FROM_HERE,
-                       base::Bind(&SyncBackendHostCore::StartSavingChanges,
-                                  weak_ptr_factory_.GetWeakPtr()));
+  sync_loop_->task_runner()->PostTask(
+      FROM_HERE, base::Bind(&SyncBackendHostCore::StartSavingChanges,
+                            weak_ptr_factory_.GetWeakPtr()));
 
   // Hang on to these for a while longer.  We're not ready to hand them back to
   // the UI thread yet.
@@ -296,6 +300,14 @@ void SyncBackendHostCore::OnPassphraseTypeChanged(
       FROM_HERE,
       &SyncBackendHostImpl::HandlePassphraseTypeChangedOnFrontendLoop,
       type, passphrase_time);
+}
+
+void SyncBackendHostCore::OnLocalSetPassphraseEncryption(
+    const syncer::SyncEncryptionHandler::NigoriState& nigori_state) {
+  host_.Call(
+      FROM_HERE,
+      &SyncBackendHostImpl::HandleLocalSetPassphraseEncryptionOnFrontendLoop,
+      nigori_state);
 }
 
 void SyncBackendHostCore::OnCommitCountersUpdated(
@@ -441,6 +453,8 @@ void SyncBackendHostCore::DoInitialize(
   args.report_unrecoverable_error_function =
       options->report_unrecoverable_error_function;
   args.cancelation_signal = &stop_syncing_signal_;
+  args.saved_nigori_state = options->saved_nigori_state.Pass();
+  args.clear_data_option = options->clear_data_option;
   sync_manager_->Init(&args);
 }
 
@@ -457,9 +471,10 @@ void SyncBackendHostCore::DoUpdateCredentials(
 }
 
 void SyncBackendHostCore::DoStartSyncing(
-    const syncer::ModelSafeRoutingInfo& routing_info) {
+    const syncer::ModelSafeRoutingInfo& routing_info,
+    base::Time last_poll_time) {
   DCHECK_EQ(base::MessageLoop::current(), sync_loop_);
-  sync_manager_->StartSyncingNormally(routing_info);
+  sync_manager_->StartSyncingNormally(routing_info, last_poll_time);
 }
 
 void SyncBackendHostCore::DoSetEncryptionPassphrase(

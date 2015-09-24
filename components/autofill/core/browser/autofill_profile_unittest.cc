@@ -66,20 +66,6 @@ struct TestCase {
   std::vector<NameParts> expected_result;
 };
 
-// Populates |first_names|, |middle_names| and |last_names| from the list of
-// NameParts from |starting_names|, |additional_names| or |expected_result|
-// from the testcase to create and verify the autofill profile.
-void GetNamePartsList(const std::vector<NameParts>& names,
-                      std::vector<base::string16>* first_names,
-                      std::vector<base::string16>* middle_names,
-                      std::vector<base::string16>* last_names) {
-  for (size_t i = 0; i < names.size(); ++i) {
-    first_names->push_back(ASCIIToUTF16(names[i].first));
-    middle_names->push_back(ASCIIToUTF16(names[i].middle));
-    last_names->push_back(ASCIIToUTF16(names[i].last));
-  }
-}
-
 }  // namespace
 
 // Tests different possibilities for summary string generation.
@@ -624,8 +610,8 @@ TEST(AutofillProfileTest, CreateInferredLabels) {
   // Two fields at least, from suggested fields - no filter.
   AutofillProfile::CreateInferredLabels(profiles.get(), &suggested_fields,
                                         UNKNOWN_TYPE, 2, "en-US", &labels);
-  EXPECT_EQ(ASCIIToUTF16("Elysium, CA"), labels[0]);
-  EXPECT_EQ(ASCIIToUTF16("Dis, CA"), labels[1]);
+  EXPECT_EQ(ASCIIToUTF16("Elysium 91111"), labels[0]);
+  EXPECT_EQ(ASCIIToUTF16("Dis 91222"), labels[1]);
 
   // Three fields at least, from suggested fields - no filter.
   AutofillProfile::CreateInferredLabels(profiles.get(), &suggested_fields,
@@ -636,10 +622,9 @@ TEST(AutofillProfileTest, CreateInferredLabels) {
   // Three fields at least, from suggested fields - but filter reduces available
   // fields to two.
   AutofillProfile::CreateInferredLabels(profiles.get(), &suggested_fields,
-                                        ADDRESS_HOME_STATE, 3, "en-US",
-                                        &labels);
-  EXPECT_EQ(ASCIIToUTF16("Elysium 91111"), labels[0]);
-  EXPECT_EQ(ASCIIToUTF16("Dis 91222"), labels[1]);
+                                        ADDRESS_HOME_ZIP, 3, "en-US", &labels);
+  EXPECT_EQ(ASCIIToUTF16("Elysium, CA"), labels[0]);
+  EXPECT_EQ(ASCIIToUTF16("Dis, CA"), labels[1]);
 
   suggested_fields.clear();
   // In our implementation we always display NAME_FULL for all NAME* fields...
@@ -845,27 +830,18 @@ TEST(AutofillProfileTest, IsSubsetOf) {
   EXPECT_FALSE(a->IsSubsetOf(*b, "en-US"));
 }
 
-TEST(AutofillProfileTest, OverwriteWithOrAddTo) {
+TEST(AutofillProfileTest, OverwriteWith) {
   AutofillProfile a(base::GenerateGUID(), "https://www.example.com");
   test::SetProfileInfo(&a, "Marion", "Mitchell", "Morrison",
                        "marion@me.xyz", "Fox", "123 Zoo St.", "unit 5",
                        "Hollywood", "CA", "91601", "US",
                        "12345678910");
-  std::vector<base::string16> first_names;
-  a.GetRawMultiInfo(NAME_FIRST, &first_names);
-  first_names.push_back(ASCIIToUTF16("Marion"));
-  a.SetRawMultiInfo(NAME_FIRST, first_names);
-
-  std::vector<base::string16> last_names;
-  a.GetRawMultiInfo(NAME_LAST, &last_names);
-  last_names[last_names.size() - 1] = ASCIIToUTF16("Morrison");
-  a.SetRawMultiInfo(NAME_LAST, last_names);
 
   // Create an identical profile except that the new profile:
   //   (1) Has a different origin,
   //   (2) Has a different address line 2,
   //   (3) Lacks a company name,
-  //   (4) Has a different full name variant, and
+  //   (4) Has a different full name, and
   //   (5) Has a language code.
   AutofillProfile b = a;
   b.set_guid(base::GenerateGUID());
@@ -873,21 +849,15 @@ TEST(AutofillProfileTest, OverwriteWithOrAddTo) {
   b.SetRawInfo(ADDRESS_HOME_LINE2, ASCIIToUTF16("area 51"));
   b.SetRawInfo(COMPANY_NAME, base::string16());
 
-  std::vector<base::string16> names;
-  b.GetMultiInfo(AutofillType(NAME_FULL), "en-US", &names);
-  names.push_back(ASCIIToUTF16("Marion M. Morrison"));
-  b.SetRawMultiInfo(NAME_FULL, names);
+  b.SetRawInfo(NAME_FULL, ASCIIToUTF16("Marion M. Morrison"));
   b.set_language_code("en");
 
-  a.OverwriteWithOrAddTo(b, "en-US");
+  a.OverwriteWith(b, "en-US");
   EXPECT_EQ("Chrome settings", a.origin());
   EXPECT_EQ(ASCIIToUTF16("area 51"), a.GetRawInfo(ADDRESS_HOME_LINE2));
   EXPECT_EQ(ASCIIToUTF16("Fox"), a.GetRawInfo(COMPANY_NAME));
-  a.GetMultiInfo(AutofillType(NAME_FULL), "en-US", &names);
-  ASSERT_EQ(3U, names.size());
-  EXPECT_EQ(ASCIIToUTF16("Marion Mitchell Morrison"), names[0]);
-  EXPECT_EQ(ASCIIToUTF16("Marion Morrison"), names[1]);
-  EXPECT_EQ(ASCIIToUTF16("Marion M. Morrison"), names[2]);
+  base::string16 name = a.GetInfo(AutofillType(NAME_FULL), "en-US");
+  EXPECT_EQ(ASCIIToUTF16("Marion M. Morrison"), name);
   EXPECT_EQ("en", a.language_code());
 }
 
@@ -906,26 +876,6 @@ TEST(AutofillProfileTest, AssignmentOperator) {
   // Assignment to self should not change the profile value.
   a = a;
   EXPECT_TRUE(a == b);
-}
-
-TEST(AutofillProfileTest, SetMultiInfo) {
-  std::vector<base::string16> full_names;
-  full_names.push_back(ASCIIToUTF16("John Davis"));
-  full_names.push_back(ASCIIToUTF16("Elouise Davis"));
-  AutofillProfile p;
-  p.SetMultiInfo(AutofillType(NAME_FULL), full_names, "en-US");
-
-  std::vector<base::string16> first_names;
-  p.GetMultiInfo(AutofillType(NAME_FIRST), "en-US", &first_names);
-  ASSERT_EQ(2U, first_names.size());
-  EXPECT_EQ(ASCIIToUTF16("John"), first_names[0]);
-  EXPECT_EQ(ASCIIToUTF16("Elouise"), first_names[1]);
-
-  std::vector<base::string16> last_names;
-  p.GetMultiInfo(AutofillType(NAME_LAST), "en-US", &last_names);
-  ASSERT_EQ(2U, last_names.size());
-  EXPECT_EQ(ASCIIToUTF16("Davis"), last_names[0]);
-  EXPECT_EQ(ASCIIToUTF16("Davis"), last_names[1]);
 }
 
 TEST(AutofillProfileTest, Copy) {
@@ -985,132 +935,6 @@ TEST(AutofillProfileTest, Compare) {
                ASCIIToUTF16("line one\nline two\nline three"));
   EXPECT_GT(0, a.Compare(b));
   EXPECT_LT(0, b.Compare(a));
-}
-
-TEST(AutofillProfileTest, MultiValueNames) {
-  AutofillProfile p(base::GenerateGUID(), "https://www.example.com/");
-  const base::string16 kJohnDoe(ASCIIToUTF16("John Doe"));
-  const base::string16 kJohnPDoe(ASCIIToUTF16("John P. Doe"));
-  std::vector<base::string16> set_values;
-  set_values.push_back(kJohnDoe);
-  set_values.push_back(kJohnPDoe);
-  p.SetRawMultiInfo(NAME_FULL, set_values);
-
-  // Expect regular |GetInfo| returns the first element.
-  EXPECT_EQ(kJohnDoe, p.GetRawInfo(NAME_FULL));
-
-  // Ensure that we get out what we put in.
-  std::vector<base::string16> get_values;
-  p.GetRawMultiInfo(NAME_FULL, &get_values);
-  ASSERT_EQ(2UL, get_values.size());
-  EXPECT_EQ(kJohnDoe, get_values[0]);
-  EXPECT_EQ(kJohnPDoe, get_values[1]);
-
-  // Update the values.
-  AutofillProfile p2 = p;
-  EXPECT_EQ(0, p.Compare(p2));
-  const base::string16 kNoOne(ASCIIToUTF16("No One"));
-  set_values[1] = kNoOne;
-  p.SetRawMultiInfo(NAME_FULL, set_values);
-  p.GetRawMultiInfo(NAME_FULL, &get_values);
-  ASSERT_EQ(2UL, get_values.size());
-  EXPECT_EQ(kJohnDoe, get_values[0]);
-  EXPECT_EQ(kNoOne, get_values[1]);
-  EXPECT_NE(0, p.Compare(p2));
-
-  // Delete values.
-  set_values.clear();
-  p.SetRawMultiInfo(NAME_FULL, set_values);
-  p.GetRawMultiInfo(NAME_FULL, &get_values);
-  ASSERT_EQ(1UL, get_values.size());
-  EXPECT_EQ(base::string16(), get_values[0]);
-
-  // Expect regular |GetInfo| returns empty value.
-  EXPECT_EQ(base::string16(), p.GetRawInfo(NAME_FULL));
-}
-
-TEST(AutofillProfileTest, MultiValueEmails) {
-  AutofillProfile p(base::GenerateGUID(), "https://www.example.com/");
-  const base::string16 kJohnDoe(ASCIIToUTF16("john@doe.com"));
-  const base::string16 kJohnPDoe(ASCIIToUTF16("john_p@doe.com"));
-  std::vector<base::string16> set_values;
-  set_values.push_back(kJohnDoe);
-  set_values.push_back(kJohnPDoe);
-  p.SetRawMultiInfo(EMAIL_ADDRESS, set_values);
-
-  // Expect regular |GetInfo| returns the first element.
-  EXPECT_EQ(kJohnDoe, p.GetRawInfo(EMAIL_ADDRESS));
-
-  // Ensure that we get out what we put in.
-  std::vector<base::string16> get_values;
-  p.GetRawMultiInfo(EMAIL_ADDRESS, &get_values);
-  ASSERT_EQ(2UL, get_values.size());
-  EXPECT_EQ(kJohnDoe, get_values[0]);
-  EXPECT_EQ(kJohnPDoe, get_values[1]);
-
-  // Update the values.
-  AutofillProfile p2 = p;
-  EXPECT_EQ(0, p.Compare(p2));
-  const base::string16 kNoOne(ASCIIToUTF16("no@one.com"));
-  set_values[1] = kNoOne;
-  p.SetRawMultiInfo(EMAIL_ADDRESS, set_values);
-  p.GetRawMultiInfo(EMAIL_ADDRESS, &get_values);
-  ASSERT_EQ(2UL, get_values.size());
-  EXPECT_EQ(kJohnDoe, get_values[0]);
-  EXPECT_EQ(kNoOne, get_values[1]);
-  EXPECT_NE(0, p.Compare(p2));
-
-  // Delete values.
-  set_values.clear();
-  p.SetRawMultiInfo(EMAIL_ADDRESS, set_values);
-  p.GetRawMultiInfo(EMAIL_ADDRESS, &get_values);
-  ASSERT_EQ(1UL, get_values.size());
-  EXPECT_EQ(base::string16(), get_values[0]);
-
-  // Expect regular |GetInfo| returns empty value.
-  EXPECT_EQ(base::string16(), p.GetRawInfo(EMAIL_ADDRESS));
-}
-
-TEST(AutofillProfileTest, MultiValuePhone) {
-  AutofillProfile p(base::GenerateGUID(), "https://www.example.com/");
-  const base::string16 kJohnDoe(ASCIIToUTF16("4151112222"));
-  const base::string16 kJohnPDoe(ASCIIToUTF16("4151113333"));
-  std::vector<base::string16> set_values;
-  set_values.push_back(kJohnDoe);
-  set_values.push_back(kJohnPDoe);
-  p.SetRawMultiInfo(PHONE_HOME_WHOLE_NUMBER, set_values);
-
-  // Expect regular |GetInfo| returns the first element.
-  EXPECT_EQ(kJohnDoe, p.GetRawInfo(PHONE_HOME_WHOLE_NUMBER));
-
-  // Ensure that we get out what we put in.
-  std::vector<base::string16> get_values;
-  p.GetRawMultiInfo(PHONE_HOME_WHOLE_NUMBER, &get_values);
-  ASSERT_EQ(2UL, get_values.size());
-  EXPECT_EQ(kJohnDoe, get_values[0]);
-  EXPECT_EQ(kJohnPDoe, get_values[1]);
-
-  // Update the values.
-  AutofillProfile p2 = p;
-  EXPECT_EQ(0, p.Compare(p2));
-  const base::string16 kNoOne(ASCIIToUTF16("4152110000"));
-  set_values[1] = kNoOne;
-  p.SetRawMultiInfo(PHONE_HOME_WHOLE_NUMBER, set_values);
-  p.GetRawMultiInfo(PHONE_HOME_WHOLE_NUMBER, &get_values);
-  ASSERT_EQ(2UL, get_values.size());
-  EXPECT_EQ(kJohnDoe, get_values[0]);
-  EXPECT_EQ(kNoOne, get_values[1]);
-  EXPECT_NE(0, p.Compare(p2));
-
-  // Delete values.
-  set_values.clear();
-  p.SetRawMultiInfo(PHONE_HOME_WHOLE_NUMBER, set_values);
-  p.GetRawMultiInfo(PHONE_HOME_WHOLE_NUMBER, &get_values);
-  ASSERT_EQ(1UL, get_values.size());
-  EXPECT_EQ(base::string16(), get_values[0]);
-
-  // Expect regular |GetInfo| returns empty value.
-  EXPECT_EQ(base::string16(), p.GetRawInfo(PHONE_HOME_WHOLE_NUMBER));
 }
 
 TEST(AutofillProfileTest, IsPresentButInvalid) {
@@ -1231,153 +1055,20 @@ TEST(AutofillProfileTest, FullAddress) {
   EXPECT_TRUE(profile.GetInfo(full_address, "en-US").empty());
 }
 
-TEST(AutofillProfileTest, OverwriteOrAppendNames) {
-  std::vector<TestCase> test_cases;
+TEST(AutofillProfileTest, CanonicalizeProfileString) {
+  // NOP.
+  EXPECT_EQ(base::string16(),
+            AutofillProfile::CanonicalizeProfileString(base::string16()));
 
-  // Identical name.
-  test_cases.push_back(TestCase(NameParts("Marion", "Mitchell", "Morrison"),
-                                NameParts("Marion", "Mitchell", "Morrison"),
-                                NameParts("Marion", "Mitchell", "Morrison")));
-  test_cases.push_back(TestCase(NameParts("Marion", "Mitchell", "Morrison"),
-                                NameParts("MARION", "MITCHELL", "MORRISON"),
-                                NameParts("Marion", "Mitchell", "Morrison")));
+  // Simple punctuation removed.
+  EXPECT_EQ(ASCIIToUTF16("1600 amphitheatre pkwy"),
+            AutofillProfile::CanonicalizeProfileString(ASCIIToUTF16(
+                "1600 Amphitheatre, Pkwy.")));
 
-  // A parse that has a two-word last name should take precedence over a
-  // parse that assumes the two names are a middle and a last name.
-  test_cases.push_back(TestCase(NameParts("Marion", "Mitchell", "Morrison"),
-                                NameParts("Marion", "", "Mitchell Morrison"),
-                                NameParts("Marion", "", "Mitchell Morrison")));
-  test_cases.push_back(TestCase(NameParts("Marion", "", "Mitchell Morrison"),
-                                NameParts("Marion", "Mitchell", "Morrison"),
-                                NameParts("Marion", "", "Mitchell Morrison")));
-
-  // A parse that has a two-word first name should take precedence over a
-  // parse that assumes the two names are a first and a middle name.
-  test_cases.push_back(TestCase(NameParts("Marion", "Mitchell", "Morrison"),
-                                NameParts("Marion Mitchell", "", "Morrison"),
-                                NameParts("Marion Mitchell", "", "Morrison")));
-  test_cases.push_back(TestCase(NameParts("Marion Mitchell", "", "Morrison"),
-                                NameParts("Marion", "Mitchell", "Morrison"),
-                                NameParts("Marion Mitchell", "", "Morrison")));
-
-  // Two names that are identical in full, but not in parts: the parse that
-  // does *not* match the heuristic parse should be preferred.
-  test_cases.push_back(
-      TestCase(NameParts("Arthur", "Ignatius Conan", "Doyle"),
-               // Heurstic parse.
-               NameParts("Arthur Ignatius", "Conan", "Doyle"),
-               NameParts("Arthur", "Ignatius Conan", "Doyle")));
-  test_cases.push_back(
-               // Heuristic parse.
-      TestCase(NameParts("Arthur Ignatius", "Conan", "Doyle"),
-               NameParts("Arthur", "Ignatius Conan", "Doyle"),
-               NameParts("Arthur", "Ignatius Conan", "Doyle")));
-
-  // A parse that has a many-word first name and/or last name should take
-  // precedence over a heuristically parsed name.
-  test_cases.push_back(
-               // Heuristic parse.
-      TestCase(NameParts("Roberto Carlos da", "Silva", "Rocha"),
-               NameParts("Roberto Carlos da Silva", "", "Rocha"),
-               NameParts("Roberto Carlos da Silva", "", "Rocha")));
-
-  // Cases where merging 2 profiles with same full names but
-  // different canonical forms appends instead of overwrites,
-  // provided they dont form heuristically parsed names.
-  {
-    NameParts name1("Marion Mitchell", "", "Morrison");
-    NameParts name2("Marion", "", "Mitchell Morrison");
-    std::vector<NameParts> starting_names(1, name1);
-    std::vector<NameParts> additional_names(1, name2);
-    std::vector<NameParts> expected_result;
-    expected_result.push_back(name1);
-    expected_result.push_back(name2);
-    test_cases.push_back(
-        TestCase(starting_names, additional_names, expected_result));
-  }
-
-  // Cases where the names do not have the same full name strings,
-  // i.e. the list of merged names is longer than either of the incoming
-  // lists.
-  {
-    NameParts name1("Antonio", "Augusto Ribeiro", "Reis Jr.");
-    NameParts name2("Juninho", "", "Pernambucano");
-    NameParts name3("Marion", "Mitchell", "Morrison");
-    NameParts name4("Marion", "M.", "Morrison");
-    std::vector<NameParts> starting_names;
-    std::vector<NameParts> additional_names;
-    std::vector<NameParts> expected_result;
-    starting_names.push_back(name1);
-    starting_names.push_back(name2);
-    additional_names.push_back(name3);
-    additional_names.push_back(name4);
-    expected_result.push_back(name1);
-    expected_result.push_back(name2);
-    expected_result.push_back(name3);
-    expected_result.push_back(name4);
-    test_cases.push_back(
-        TestCase(starting_names, additional_names, expected_result));
-  }
-
-  for (std::vector<TestCase>::iterator it = test_cases.begin();
-       it != test_cases.end();
-       ++it) {
-    TestCase current_case = *it;
-    SCOPED_TRACE(current_case.starting_names[0].first + " + " +
-                 current_case.additional_names[0].first + " = " +
-                 current_case.expected_result[0].first);
-
-    std::vector<base::string16> first_names, middle_names, last_names;
-    GetNamePartsList(
-        current_case.starting_names, &first_names, &middle_names, &last_names);
-
-    // Construct the starting_profile.
-    AutofillProfile starting_profile(base::GenerateGUID(),
-                                     "https://www.example.com/");
-
-    starting_profile.SetRawMultiInfo(NAME_FIRST, first_names);
-    starting_profile.SetRawMultiInfo(NAME_MIDDLE, middle_names);
-    starting_profile.SetRawMultiInfo(NAME_LAST, last_names);
-
-    first_names.clear();
-    middle_names.clear();
-    last_names.clear();
-    GetNamePartsList(
-        current_case.additional_names, &first_names, &middle_names,
-        &last_names);
-
-    // Construct the additional_profile.
-    AutofillProfile additional_profile(base::GenerateGUID(),
-                                       "https://www.example.com/");
-    additional_profile.SetRawMultiInfo(NAME_FIRST, first_names);
-    additional_profile.SetRawMultiInfo(NAME_MIDDLE, middle_names);
-    additional_profile.SetRawMultiInfo(NAME_LAST, last_names);
-
-    // Merge the names from the |additional_profile| into the |starting_profile|
-    starting_profile.OverwriteWithOrAddTo(additional_profile, "en-US");
-
-    // Verify the test expectations.
-    first_names.clear();
-    middle_names.clear();
-    last_names.clear();
-    GetNamePartsList(
-        current_case.expected_result, &first_names, &middle_names, &last_names);
-
-    std::vector<base::string16> merged_first_names, merged_middle_names,
-        merged_last_names;
-    starting_profile.GetRawMultiInfo(NAME_FIRST, &merged_first_names);
-    starting_profile.GetRawMultiInfo(NAME_MIDDLE, &merged_middle_names);
-    starting_profile.GetRawMultiInfo(NAME_LAST, &merged_last_names);
-    ASSERT_EQ(current_case.expected_result.size(), merged_first_names.size());
-    ASSERT_EQ(current_case.expected_result.size(), merged_middle_names.size());
-    ASSERT_EQ(current_case.expected_result.size(), merged_last_names.size());
-
-    for (size_t i = 0; i < current_case.expected_result.size(); ++i) {
-      EXPECT_EQ(first_names[i], merged_first_names[i]);
-      EXPECT_EQ(middle_names[i], merged_middle_names[i]);
-      EXPECT_EQ(last_names[i], merged_last_names[i]);
-    }
-  }
+  // Unicode punctuation (hyphen and space), multiple spaces collapsed.
+  EXPECT_EQ(ASCIIToUTF16("mid island plaza"),
+            AutofillProfile::CanonicalizeProfileString(base::WideToUTF16(
+                L"Mid\x2013Island\x2003 Plaza")));
 }
 
 }  // namespace autofill

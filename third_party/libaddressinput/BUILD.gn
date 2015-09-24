@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//testing/test.gni")
 import("//tools/grit/grit_rule.gni")
 
 libaddressinput_util_files = [
@@ -22,6 +23,12 @@ libaddressinput_util_files = [
   "src/cpp/src/util/string_split.cc",
   "src/cpp/src/util/string_util.cc",
 ]
+
+config("no-newline-eof-warning") {
+  if (is_clang) {
+    cflags = [ "-Wno-newline-eof" ]
+  }
+}
 
 # GYP version: third_party/libaddressinput/libaddressinput.gyp:libaddressinput_strings
 grit("strings") {
@@ -84,6 +91,8 @@ grit("strings") {
     "address_input_strings_zh-CN.pak",
     "address_input_strings_zh-TW.pak",
   ]
+
+  configs = [ ":no-newline-eof-warning" ]
 }
 
 config("libaddressinput_config") {
@@ -105,12 +114,13 @@ static_library("util") {
     "chromium/addressinput_util.cc",
     "chromium/json.cc",
   ]
-  sources -= [
-    "src/cpp/src/util/json.cc",
-  ]
+  sources -= [ "src/cpp/src/util/json.cc" ]
 
   configs -= [ "//build/config/compiler:chromium_code" ]
-  configs += [ "//build/config/compiler:no_chromium_code" ]
+  configs += [
+    ":no-newline-eof-warning",
+    "//build/config/compiler:no_chromium_code",
+  ]
 
   public_configs = [ ":libaddressinput_config" ]
 
@@ -125,82 +135,12 @@ static_library("util") {
   ]
 }
 
-if (is_android) {
-  import("//build/config/android/rules.gni")
-
-  # GYP: //third_party/libaddressinput/libaddressinput.gyp:libaddressinput_android_strings_grd
-  java_strings_grd("libaddressinput_android_strings_grd") {
-    grd_file = "//chrome/app/address_input_strings_android.grd"
-    outputs = [
-      "values-am/address_input_strings.xml",
-      "values-ar/address_input_strings.xml",
-      "values-bg/address_input_strings.xml",
-      "values-ca/address_input_strings.xml",
-      "values-cs/address_input_strings.xml",
-      "values-da/address_input_strings.xml",
-      "values-de/address_input_strings.xml",
-      "values-el/address_input_strings.xml",
-      "values-en-rGB/address_input_strings.xml",
-      "values-es-rUS/address_input_strings.xml",
-      "values-es/address_input_strings.xml",
-      "values-fa/address_input_strings.xml",
-      "values-fi/address_input_strings.xml",
-      "values-fr/address_input_strings.xml",
-      "values-hi/address_input_strings.xml",
-      "values-hr/address_input_strings.xml",
-      "values-hu/address_input_strings.xml",
-      "values-in/address_input_strings.xml",
-      "values-it/address_input_strings.xml",
-      "values-iw/address_input_strings.xml",
-      "values-ja/address_input_strings.xml",
-      "values-ko/address_input_strings.xml",
-      "values-lt/address_input_strings.xml",
-      "values-lv/address_input_strings.xml",
-      "values-nb/address_input_strings.xml",
-      "values-nl/address_input_strings.xml",
-      "values-pl/address_input_strings.xml",
-      "values-pt-rBR/address_input_strings.xml",
-      "values-pt-rPT/address_input_strings.xml",
-      "values-ro/address_input_strings.xml",
-      "values-ru/address_input_strings.xml",
-      "values-sk/address_input_strings.xml",
-      "values-sl/address_input_strings.xml",
-      "values-sr/address_input_strings.xml",
-      "values-sv/address_input_strings.xml",
-      "values-sw/address_input_strings.xml",
-      "values-th/address_input_strings.xml",
-      "values-tl/address_input_strings.xml",
-      "values-tr/address_input_strings.xml",
-      "values-uk/address_input_strings.xml",
-      "values-vi/address_input_strings.xml",
-      "values-zh-rCN/address_input_strings.xml",
-      "values-zh-rTW/address_input_strings.xml",
-      "values/address_input_strings.xml",
-    ]
-  }
-
-  android_resources("android_addressinput_widget_resources") {
-    custom_package = "com.android.i18n.addressinput"
-    resource_dirs = [ "src/java/res" ]
-    v14_verify_only = true
-  }
-
-  # GYP: //third_party/libaddressinput/libaddressinput.gyp:android_addressinput_widget
-  android_library("android_addressinput_widget_java") {
-    DEPRECATED_java_in_dir = "src/java/src"
-    deps = [
-      ":android_addressinput_widget_resources",
-      ":libaddressinput_android_strings_grd",
-    ]
-  }
-} else {
+if (!is_android) {
   # The list of files in libaddressinput.gypi.
-  gypi_values = exec_script(
-      "//build/gypi_to_gn.py",
-      [ rebase_path("src/cpp/libaddressinput.gypi") ],
-      "scope",
-      [ "src/cpp/libaddressinput.gypi" ])
-
+  gypi_values = exec_script("//build/gypi_to_gn.py",
+                            [ rebase_path("src/cpp/libaddressinput.gypi") ],
+                            "scope",
+                            [ "src/cpp/libaddressinput.gypi" ])
 
   # This target provides more complicated functionality like pinging servers
   # for validation rules.
@@ -217,9 +157,7 @@ if (is_android) {
       "chromium/trie.cc",
     ]
     sources -= libaddressinput_util_files
-    sources -= [
-      "src/cpp/src/util/string_compare.cc",
-    ]
+    sources -= [ "src/cpp/src/util/string_compare.cc" ]
 
     configs -= [ "//build/config/compiler:chromium_code" ]
     configs += [ "//build/config/compiler:no_chromium_code" ]
@@ -237,8 +175,8 @@ if (is_android) {
   }
 
   test("libaddressinput_unittests") {
-    sources = rebase_path(
-        gypi_values.libaddressinput_test_files, ".", "src/cpp")
+    sources =
+        rebase_path(gypi_values.libaddressinput_test_files, ".", "src/cpp")
     sources += [
       "chromium/addressinput_util_unittest.cc",
       "chromium/chrome_address_validator_unittest.cc",
@@ -253,13 +191,9 @@ if (is_android) {
     configs -= [ "//build/config/compiler:chromium_code" ]
     configs += [ "//build/config/compiler:no_chromium_code" ]
 
-    defines = [
-      "TEST_DATA_DIR=\"third_party/libaddressinput/src/testdata\"",
-    ]
+    defines = [ "TEST_DATA_DIR=\"third_party/libaddressinput/src/testdata\"" ]
 
-    include_dirs = [
-      "src/cpp/src",
-    ]
+    include_dirs = [ "src/cpp/src" ]
 
     deps = [
       ":libaddressinput",

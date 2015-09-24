@@ -25,7 +25,6 @@
 #include "extensions/common/manifest.h"
 #include "extensions/common/url_pattern_set.h"
 #include "ui/base/accelerators/accelerator.h"
-#include "ui/gfx/size.h"
 #include "url/gurl.h"
 
 #if !defined(ENABLE_EXTENSIONS)
@@ -69,6 +68,7 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
     // DEPRECATED: Special state for component extensions.
     // Maintained as a placeholder since states may be stored to disk.
     ENABLED_COMPONENT_DEPRECATED,
+    // Add new states here as this enum is stored in prefs.
     NUM_STATES
   };
 
@@ -102,7 +102,11 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
     DISABLE_REMOTE_INSTALL = 1 << 11,
     DISABLE_INACTIVE_EPHEMERAL_APP = 1 << 12,  // Cached ephemeral apps are
                                                // disabled to prevent activity.
-    DISABLE_REASON_LAST = 1 << 13,  // This should always be the last value
+    DISABLE_EXTERNAL_EXTENSION = 1 << 13,  // External extensions might be
+                                           // disabled for user prompting.
+    DISABLE_UPDATE_REQUIRED_BY_POLICY = 1 << 14,  // Doesn't meet minimum
+                                                  // version requirement.
+    DISABLE_REASON_LAST = 1 << 15,  // This should always be the last value
   };
 
   // A base class for parsed manifest data that APIs want to store on
@@ -291,6 +295,7 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   const ExtensionId& id() const;
   const base::Version* version() const { return version_.get(); }
   const std::string VersionString() const;
+  const std::string GetVersionForDisplay() const;
   const std::string& name() const { return name_; }
   const std::string& short_name() const { return short_name_; }
   const std::string& non_localized_name() const { return non_localized_name_; }
@@ -446,6 +451,9 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // The extension's version.
   scoped_ptr<base::Version> version_;
 
+  // The extension's user visible version name.
+  std::string version_name_;
+
   // An optional longer description of the extension.
   std::string description_;
 
@@ -539,6 +547,7 @@ struct UnloadedExtensionInfo {
     REASON_TERMINATE,         // Extension has terminated.
     REASON_BLACKLIST,         // Extension has been blacklisted.
     REASON_PROFILE_SHUTDOWN,  // Profile is being shut down.
+    REASON_LOCK_ALL,          // All extensions for the profile are blocked.
   };
 
   Reason reason;

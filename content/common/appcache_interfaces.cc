@@ -6,15 +6,15 @@
 
 #include <set>
 
+#include "base/strings/pattern.h"
 #include "base/strings/string_util.h"
+#include "content/public/common/url_constants.h"
 #include "net/url_request/url_request.h"
 #include "url/gurl.h"
+#include "url/url_constants.h"
 
 namespace content {
 
-const char kHttpScheme[] = "http";
-const char kHttpsScheme[] = "https";
-const char kDevToolsScheme[] = "chrome-devtools";
 const char kHttpGETMethod[] = "GET";
 const char kHttpHEADMethod[] = "HEAD";
 
@@ -105,15 +105,16 @@ bool AppCacheNamespace::IsMatch(const GURL& url) const {
     // as wildcards which we don't want here, we only do '*'s.
     std::string pattern = namespace_url.spec();
     if (namespace_url.has_query())
-      ReplaceSubstringsAfterOffset(&pattern, 0, "?", "\\?");
-    return MatchPattern(url.spec(), pattern);
+      base::ReplaceSubstringsAfterOffset(&pattern, 0, "?", "\\?");
+    return base::MatchPattern(url.spec(), pattern);
   }
-  return StartsWithASCII(url.spec(), namespace_url.spec(), true);
+  return base::StartsWithASCII(url.spec(), namespace_url.spec(), true);
 }
 
 bool IsSchemeSupportedForAppCache(const GURL& url) {
-  bool supported = url.SchemeIs(kHttpScheme) || url.SchemeIs(kHttpsScheme) ||
-      url.SchemeIs(kDevToolsScheme);
+  bool supported = url.SchemeIs(url::kHttpScheme) ||
+                   url.SchemeIs(url::kHttpsScheme) ||
+                   url.SchemeIs(kChromeDevToolsScheme);
 
 #ifndef NDEBUG
   // TODO(michaeln): It would be really nice if this could optionally work for

@@ -14,7 +14,7 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
-#include "google_apis/drive/gdata_errorcode.h"
+#include "google_apis/drive/drive_api_error_codes.h"
 
 namespace base {
 class SequencedTaskRunner;
@@ -69,7 +69,8 @@ class RequestSender {
   //
   // Returns a closure to cancel the request. The closure cancels the request
   // if it is in-flight, and does nothing if it is already terminated.
-  base::Closure StartRequestWithRetry(AuthenticatedRequestInterface* request);
+  base::Closure StartRequestWithAuthRetry(
+      AuthenticatedRequestInterface* request);
 
   // Notifies to this RequestSender that |request| has finished.
   // TODO(kinaba): refactor the life time management and make this at private.
@@ -79,7 +80,7 @@ class RequestSender {
   // Called when the access token is fetched.
   void OnAccessTokenFetched(
       const base::WeakPtr<AuthenticatedRequestInterface>& request,
-      GDataErrorCode error,
+      DriveApiErrorCode error,
       const std::string& access_token);
 
   // Clears any authentication token and retries the request, which forces
@@ -87,7 +88,7 @@ class RequestSender {
   void RetryRequest(AuthenticatedRequestInterface* request);
 
   // Cancels the request. Used for implementing the returned closure of
-  // StartRequestWithRetry.
+  // StartRequestWithAuthRetry.
   void CancelRequest(
       const base::WeakPtr<AuthenticatedRequestInterface>& request);
 

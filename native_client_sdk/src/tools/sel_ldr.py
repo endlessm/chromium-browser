@@ -6,7 +6,7 @@
 """Wrapper script for launching application within the sel_ldr.
 """
 
-import optparse
+import argparse
 import os
 import subprocess
 import sys
@@ -17,8 +17,8 @@ import getos
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 NACL_SDK_ROOT = os.path.dirname(SCRIPT_DIR)
 
-if sys.version_info < (2, 6, 0):
-  sys.stderr.write("python 2.6 or later is required run this script\n")
+if sys.version_info < (2, 7, 0):
+  sys.stderr.write("python 2.7 or later is required run this script\n")
   sys.exit(1)
 
 
@@ -49,16 +49,23 @@ def FindQemu():
 
 
 def main(argv):
-  usage = 'Usage: %prog [options] <.nexe>'
   epilog = 'Example: sel_ldr.py my_nexe.nexe'
-  parser = optparse.OptionParser(usage, description=__doc__, epilog=epilog)
-  parser.add_option('-v', '--verbose', action='store_true',
-                    help='Verbose output')
-  parser.add_option('-d', '--debug', action='store_true',
-                    help='Enable debug stub')
-  parser.add_option('--debug-libs', action='store_true',
-                    help='For dynamic executables, reference debug '
-                         'libraries rather then release')
+  parser = argparse.ArgumentParser(description=__doc__, epilog=epilog)
+  parser.add_argument('-v', '--verbose', action='store_true',
+                      help='Verbose output')
+  parser.add_argument('-d', '--debug', action='store_true',
+                      help='Enable debug stub')
+  parser.add_argument('-e', '--exceptions', action='store_true',
+                      help='Enable exception handling interface')
+  parser.add_argument('-p', '--passthrough-environment', action='store_true',
+                      help='Pass environment of host through to nexe')
+  parser.add_argument('--debug-libs', action='store_true',
+                      help='For dynamic executables, reference debug '
+                           'libraries rather then release')
+  parser.add_argument('executable', help='executable (.nexe) to run')
+  parser.add_argument('args', nargs='*', help='argument to pass to exectuable')
+  parser.add_argument('--library-path',
+                      help='Pass extra library paths')
 
   # To enable bash completion for this command first install optcomplete
   # and then add this line to your .bashrc:
@@ -69,21 +76,18 @@ def main(argv):
   except ImportError:
     pass
 
-  options, args = parser.parse_args(argv)
-  if not args:
-    parser.error('No executable file specified')
+  options = parser.parse_args(argv)
 
-  nexe = args[0]
   if options.verbose:
     Log.verbose = True
 
   osname = getos.GetPlatform()
-  if not os.path.exists(nexe):
-    raise Error('executable not found: %s' % nexe)
-  if not os.path.isfile(nexe):
-    raise Error('not a file: %s' % nexe)
+  if not os.path.exists(options.executable):
+    raise Error('executable not found: %s' % options.executable)
+  if not os.path.isfile(options.executable):
+    raise Error('not a file: %s' % options.executable)
 
-  arch, dynamic = create_nmf.ParseElfHeader(nexe)
+  arch, dynamic = create_nmf.ParseElfHeader(options.executable)
 
   if arch == 'arm' and osname != 'linux':
     raise Error('Cannot run ARM executables under sel_ldr on ' + osname)
@@ -112,51 +116,62 @@ def main(argv):
   if options.debug:
     cmd.append('-g')
 
+  if options.exceptions:
+    cmd.append('-e')
+
+  if options.passthrough_environment:
+    cmd.append('-p')
+
   if not options.verbose:
     cmd += ['-l', os.devnull]
 
   if arch == 'arm':
     # Use the QEMU arm emulator if available.
     qemu_bin = FindQemu()
-    if qemu_bin:
-      qemu = [qemu_bin, '-cpu', 'cortex-a8', '-L',
-              os.path.abspath(os.path.join(NACL_SDK_ROOT, 'toolchain',
-                                           'linux_arm_trusted'))]
-      # '-Q' disables platform qualification, allowing arm binaries to run.
-      cmd = qemu + cmd + ['-Q']
-    else:
+    if not qemu_bin:
       raise Error('Cannot run ARM executables under sel_ldr without an emulator'
-                  '. Try installing QEMU (http://wiki.qemu.org/).')
+          '. Try installing QEMU (http://wiki.qemu.org/).')
+
+    arm_libpath = os.path.join(NACL_SDK_ROOT, 'tools', 'lib', 'arm_trusted')
+    if not os.path.isdir(arm_libpath):
+      raise Error('Could not find ARM library path: %s' % arm_libpath)
+    qemu = [qemu_bin, '-cpu', 'cortex-a8', '-L', arm_libpath]
+    # '-Q' disables platform qualification, allowing arm binaries to run.
+    cmd = qemu + cmd + ['-Q']
 
   if dynamic:
     if options.debug_libs:
-      libpath = os.path.join(NACL_SDK_ROOT, 'lib',
-                            'glibc_%s' % arch_suffix, 'Debug')
+      sdk_lib_dir = os.path.join(NACL_SDK_ROOT, 'lib',
+                                 'glibc_%s' % arch_suffix, 'Debug')
     else:
-      libpath = os.path.join(NACL_SDK_ROOT, 'lib',
-                            'glibc_%s' % arch_suffix, 'Release')
+      sdk_lib_dir = os.path.join(NACL_SDK_ROOT, 'lib',
+                                 'glibc_%s' % arch_suffix, 'Release')
     toolchain = '%s_x86_glibc' % osname
-    sdk_lib_dir = os.path.join(NACL_SDK_ROOT, 'toolchain',
-                               toolchain, 'x86_64-nacl')
+    toolchain_dir = os.path.join(NACL_SDK_ROOT, 'toolchain', toolchain)
+    lib_dir = os.path.join(toolchain_dir, 'x86_64-nacl')
     if arch == 'x86-64':
-      sdk_lib_dir = os.path.join(sdk_lib_dir, 'lib')
+      lib_dir = os.path.join(lib_dir, 'lib')
+      usr_lib_dir = os.path.join(toolchain_dir, 'x86_64-nacl', 'usr', 'lib')
     else:
-      sdk_lib_dir = os.path.join(sdk_lib_dir, 'lib32')
-    ldso = os.path.join(sdk_lib_dir, 'runnable-ld.so')
+      lib_dir = os.path.join(lib_dir, 'lib32')
+      usr_lib_dir = os.path.join(toolchain_dir, 'i686-nacl', 'usr', 'lib')
+    ldso = os.path.join(lib_dir, 'runnable-ld.so')
     cmd.append(ldso)
     Log('LD.SO = %s' % ldso)
-    libpath += ':' + sdk_lib_dir
+    libpath = [usr_lib_dir, sdk_lib_dir, lib_dir]
+    if options.library_path:
+      libpath.extend([os.path.abspath(p) for p
+                      in options.library_path.split(':')])
     cmd.append('--library-path')
-    cmd.append(libpath)
+    cmd.append(':'.join(libpath))
 
 
-  if args:
-    # Append arguments for the executable itself.
-    cmd += args
+  # Append arguments for the executable itself.
+  cmd.append(options.executable)
+  cmd += options.args
 
   Log(cmd)
-  rtn = subprocess.call(cmd)
-  return rtn
+  return subprocess.call(cmd)
 
 
 if __name__ == '__main__':

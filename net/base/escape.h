@@ -30,6 +30,12 @@ NET_EXPORT std::string EscapeQueryParamValue(const std::string& text,
 // encoding the string.  If this conversion fails, we return false.
 NET_EXPORT std::string EscapePath(const std::string& path);
 
+#if defined(OS_MACOSX)
+// Escapes characters as per expectations of NSURL. This includes:
+// non-printable, non-7bit, and (including space)  "#%<>[\]^`{|}
+NET_EXPORT std::string EscapeNSURLPrecursor(const std::string& precursor);
+#endif  // defined(OS_MACOSX)
+
 // Escapes application/x-www-form-urlencoded content.  This includes:
 // non-printable, non-7bit, and (including space)  ?>=<;+'&%$#"![\]^`{|}
 // Space is escaped as + (if use_plus is true) and other special characters
@@ -60,7 +66,7 @@ class UnescapeRule {
  public:
   // A combination of the following flags that is passed to the unescaping
   // functions.
-  typedef uint32 Type;
+  typedef uint32_t Type;
 
   enum {
     // Don't unescape anything at all.
@@ -86,13 +92,14 @@ class UnescapeRule {
     // interpreting as a URL and want to do as much unescaping as possible.
     URL_SPECIAL_CHARS = 4,
 
-    // Unescapes control characters such as %01. This INCLUDES NULLs. This is
-    // used for rare cases such as data: URL decoding where the result is binary
-    // data. This flag also unescapes BiDi control characters.
+    // Unescapes characters that can be used in spoofing attempts (such as LOCK)
+    // and control characters (such as BiDi control characters and %01).  This
+    // INCLUDES NULLs.  This is used for rare cases such as data: URL decoding
+    // where the result is binary data.
     //
-    // DO NOT use CONTROL_CHARS if the URL is going to be displayed in the UI
-    // for security reasons.
-    CONTROL_CHARS = 8,
+    // DO NOT use SPOOFING_AND_CONTROL_CHARS if the URL is going to be displayed
+    // in the UI for security reasons.
+    SPOOFING_AND_CONTROL_CHARS = 8,
 
     // URL queries use "+" for space. This flag controls that replacement.
     REPLACE_PLUS_WITH_SPACE = 16,

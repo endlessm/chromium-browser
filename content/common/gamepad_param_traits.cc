@@ -36,13 +36,12 @@ void ParamTraits<WebGamepad>::Write(
   m->WriteData(reinterpret_cast<const char*>(&p), sizeof(WebGamepad));
 }
 
-bool ParamTraits<WebGamepad>::Read(
-    const Message* m,
-    PickleIterator* iter,
-    WebGamepad* p) {
+bool ParamTraits<WebGamepad>::Read(const Message* m,
+                                   base::PickleIterator* iter,
+                                   WebGamepad* p) {
   int length;
   const char* data;
-  if (!m->ReadData(iter, &data, &length) || length != sizeof(WebGamepad))
+  if (!iter->ReadData(&data, &length) || length != sizeof(WebGamepad))
     return false;
   memcpy(p, data, sizeof(WebGamepad));
 

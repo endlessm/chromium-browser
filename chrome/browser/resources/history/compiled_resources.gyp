@@ -15,6 +15,7 @@
           '../../../../ui/webui/resources/js/cr/ui/command.js',
           '../../../../ui/webui/resources/js/cr/ui/focus_grid.js',
           '../../../../ui/webui/resources/js/cr/ui/focus_manager.js',
+          '../../../../ui/webui/resources/js/cr/ui/focus_outline_manager.js',
           '../../../../ui/webui/resources/js/cr/ui/focus_row.js',
           '../../../../ui/webui/resources/js/cr/ui/menu.js',
           '../../../../ui/webui/resources/js/cr/ui/menu_button.js',
@@ -26,7 +27,7 @@
           '../../../../ui/webui/resources/js/util.js',
           'history_focus_manager.js',
         ],
-        'externs': ['<(CLOSURE_DIR)/externs/chrome_send_externs.js'],
+        'externs': ['<(EXTERNS_DIR)/chrome_send.js'],
       },
       'includes': ['../../../../third_party/closure_compiler/compile_js.gypi'],
     }

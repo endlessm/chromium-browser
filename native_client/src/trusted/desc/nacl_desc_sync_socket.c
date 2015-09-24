@@ -12,6 +12,7 @@
 #include <string.h>
 #include <errno.h>
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/portability.h"
 
 #include "native_client/src/trusted/desc/nacl_desc_base.h"
@@ -175,12 +176,10 @@ static struct NaClDescVtbl const kNaClDescSyncSocketVtbl = {
 
 int NaClDescSyncSocketInternalize(
     struct NaClDesc               **out_desc,
-    struct NaClDescXferState      *xfer,
-    struct NaClDescQuotaInterface *quota_interface) {
+    struct NaClDescXferState      *xfer) {
   int                       rv;
   struct NaClDescSyncSocket *ndssp;
 
-  UNREFERENCED_PARAMETER(quota_interface);
   NaClLog(4, "Entered NaClDescSyncSocketInternalize\n");
   rv = -NACL_ABI_EIO;
 

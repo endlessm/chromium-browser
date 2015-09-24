@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -8,12 +7,7 @@
 from __future__ import print_function
 
 import os
-import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))))
-
-from chromite.cbuildbot import cbuildbot_config
 from chromite.cbuildbot import constants
 from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import tree_status
@@ -22,7 +16,6 @@ from chromite.lib import cros_test_lib
 from chromite.lib import gs_unittest
 from chromite.lib import osutils
 from chromite.lib import partial_mock
-
 from chromite.scripts import cros_best_revision
 
 
@@ -34,9 +27,9 @@ class BaseChromeCommitterTest(cros_test_lib.MockTempDirTestCase):
     self.committer = cros_best_revision.ChromeCommitter(self.tempdir, False)
     self.lkgm_file = os.path.join(self.tempdir, constants.PATH_TO_CHROME_LKGM)
     self.pass_status = manifest_version.BuilderStatus(
-        manifest_version.BuilderStatus.STATUS_PASSED, None)
+        constants.BUILDER_STATUS_PASSED, None)
     self.fail_status = manifest_version.BuilderStatus(
-        manifest_version.BuilderStatus.STATUS_FAILED, None)
+        constants.BUILDER_STATUS_FAILED, None)
 
 
 # pylint: disable=W0212
@@ -84,7 +77,7 @@ class ChromeCommitterTester(cros_build_lib_unittest.RunCommandTestCase,
       return expected[(canary, version)]
     self.PatchObject(self.committer, '_GetLatestCanaryVersions',
                      return_value=self.versions)
-    self.PatchObject(cbuildbot_config, 'GetCanariesForChromeLKGM',
+    self.PatchObject(self.committer, 'GetCanariesForChromeLKGM',
                      return_value=self.canaries)
     self.PatchObject(manifest_version.BuildSpecsManager, 'GetBuildStatus',
                      side_effect=_GetBuildStatus)
@@ -123,7 +116,3 @@ class ChromeCommitterTester(cros_build_lib_unittest.RunCommandTestCase,
     # Check the file was actually written out correctly.
     self.assertEqual(osutils.ReadFile(self.lkgm_file), self.committer._lkgm)
     self.assertCommandContains(['git', 'cl', 'land'])
-
-
-if __name__ == '__main__':
-  cros_test_lib.main()

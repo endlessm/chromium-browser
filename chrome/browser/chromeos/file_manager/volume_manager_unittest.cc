@@ -8,8 +8,10 @@
 #include <vector>
 
 #include "base/basictypes.h"
+#include "base/memory/weak_ptr.h"
 #include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/chromeos/drive/file_system_util.h"
 #include "chrome/browser/chromeos/file_manager/fake_disk_mount_manager.h"
 #include "chrome/browser/chromeos/file_manager/volume_manager_observer.h"
 #include "chrome/browser/chromeos/file_system_provider/fake_provided_file_system.h"
@@ -20,6 +22,7 @@
 #include "chromeos/disks/disk_mount_manager.h"
 #include "components/storage_monitor/storage_info.h"
 #include "content/public/test/test_browser_thread_bundle.h"
+#include "device/media_transfer_protocol/mtp_storage_info.pb.h"
 #include "extensions/browser/extension_registry.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -55,13 +58,13 @@ class LoggingObserver : public VolumeManagerObserver {
   };
 
   LoggingObserver() {}
-  virtual ~LoggingObserver() {}
+  ~LoggingObserver() override {}
 
   const std::vector<Event>& events() const { return events_; }
 
   // VolumeManagerObserver overrides.
-  virtual void OnDiskAdded(const chromeos::disks::DiskMountManager::Disk& disk,
-                           bool mounting) override {
+  void OnDiskAdded(const chromeos::disks::DiskMountManager::Disk& disk,
+                   bool mounting) override {
     Event event;
     event.type = Event::DISK_ADDED;
     event.device_path = disk.device_path();  // Keep only device_path.
@@ -69,7 +72,7 @@ class LoggingObserver : public VolumeManagerObserver {
     events_.push_back(event);
   }
 
-  virtual void OnDiskRemoved(
+  void OnDiskRemoved(
       const chromeos::disks::DiskMountManager::Disk& disk) override {
     Event event;
     event.type = Event::DISK_REMOVED;
@@ -77,40 +80,39 @@ class LoggingObserver : public VolumeManagerObserver {
     events_.push_back(event);
   }
 
-  virtual void OnDeviceAdded(const std::string& device_path) override {
+  void OnDeviceAdded(const std::string& device_path) override {
     Event event;
     event.type = Event::DEVICE_ADDED;
     event.device_path = device_path;
     events_.push_back(event);
   }
 
-  virtual void OnDeviceRemoved(const std::string& device_path) override {
+  void OnDeviceRemoved(const std::string& device_path) override {
     Event event;
     event.type = Event::DEVICE_REMOVED;
     event.device_path = device_path;
     events_.push_back(event);
   }
 
-  virtual void OnVolumeMounted(chromeos::MountError error_code,
-                               const VolumeInfo& volume_info) override {
+  void OnVolumeMounted(chromeos::MountError error_code,
+                       const Volume& volume) override {
     Event event;
     event.type = Event::VOLUME_MOUNTED;
-    event.device_path = volume_info.source_path.AsUTF8Unsafe();
+    event.device_path = volume.source_path().AsUTF8Unsafe();
     event.mount_error = error_code;
     events_.push_back(event);
   }
 
-  virtual void OnVolumeUnmounted(chromeos::MountError error_code,
-                                 const VolumeInfo& volume_info) override {
+  void OnVolumeUnmounted(chromeos::MountError error_code,
+                         const Volume& volume) override {
     Event event;
     event.type = Event::VOLUME_UNMOUNTED;
-    event.device_path = volume_info.source_path.AsUTF8Unsafe();
+    event.device_path = volume.source_path().AsUTF8Unsafe();
     event.mount_error = error_code;
     events_.push_back(event);
   }
 
-  virtual void OnFormatStarted(
-      const std::string& device_path, bool success) override {
+  void OnFormatStarted(const std::string& device_path, bool success) override {
     Event event;
     event.type = Event::FORMAT_STARTED;
     event.device_path = device_path;
@@ -118,8 +120,8 @@ class LoggingObserver : public VolumeManagerObserver {
     events_.push_back(event);
   }
 
-  virtual void OnFormatCompleted(
-      const std::string& device_path, bool success) override {
+  void OnFormatCompleted(const std::string& device_path,
+                         bool success) override {
     Event event;
     event.type = Event::FORMAT_COMPLETED;
     event.device_path = device_path;
@@ -149,12 +151,14 @@ class VolumeManagerTest : public testing::Test {
               new chromeos::file_system_provider::Service(
                   profile_.get(),
                   extension_registry_.get())),
-          volume_manager_(
-              new VolumeManager(profile_.get(),
-                                NULL,  // DriveIntegrationService
-                                power_manager_client,
-                                disk_manager,
-                                file_system_provider_service_.get())) {
+          volume_manager_(new VolumeManager(
+              profile_.get(),
+              NULL,  // DriveIntegrationService
+              power_manager_client,
+              disk_manager,
+              file_system_provider_service_.get(),
+              base::Bind(&ProfileEnvironment::GetFakeMtpStorageInfo,
+                         base::Unretained(this)))) {
       file_system_provider_service_->SetFileSystemFactoryForTesting(base::Bind(
           &chromeos::file_system_provider::FakeProvidedFileSystem::Create));
     }
@@ -163,14 +167,20 @@ class VolumeManagerTest : public testing::Test {
     VolumeManager* volume_manager() const { return volume_manager_.get(); }
 
    private:
+    const MtpStorageInfo* GetFakeMtpStorageInfo(
+        const std::string& /*storage_name*/) {
+      return &fake_mtp_storage_info_;
+    }
+
     scoped_ptr<TestingProfile> profile_;
     scoped_ptr<extensions::ExtensionRegistry> extension_registry_;
     scoped_ptr<chromeos::file_system_provider::Service>
         file_system_provider_service_;
     scoped_ptr<VolumeManager> volume_manager_;
+    const MtpStorageInfo fake_mtp_storage_info_;
   };
 
-  virtual void SetUp() override {
+  void SetUp() override {
     power_manager_client_.reset(new chromeos::FakePowerManagerClient);
     disk_mount_manager_.reset(new FakeDiskMountManager);
     main_profile_.reset(new ProfileEnvironment(power_manager_client_.get(),
@@ -744,23 +754,25 @@ TEST_F(VolumeManagerTest, ExternalStorageDisabledPolicyMultiProfile) {
   secondary.volume_manager()->RemoveObserver(&secondary_observer);
 }
 
-TEST_F(VolumeManagerTest, GetVolumeInfoList) {
+TEST_F(VolumeManagerTest, GetVolumeList) {
   volume_manager()->Initialize();  // Adds "Downloads"
-  std::vector<VolumeInfo> info_list = volume_manager()->GetVolumeInfoList();
-  ASSERT_EQ(1u, info_list.size());
-  EXPECT_EQ("downloads:Downloads", info_list[0].volume_id);
-  EXPECT_EQ(VOLUME_TYPE_DOWNLOADS_DIRECTORY, info_list[0].type);
+  std::vector<base::WeakPtr<Volume>> volume_list =
+      volume_manager()->GetVolumeList();
+  ASSERT_EQ(1u, volume_list.size());
+  EXPECT_EQ("downloads:Downloads", volume_list[0]->volume_id());
+  EXPECT_EQ(VOLUME_TYPE_DOWNLOADS_DIRECTORY, volume_list[0]->type());
 }
 
-TEST_F(VolumeManagerTest, FindVolumeInfoById) {
+TEST_F(VolumeManagerTest, FindVolumeById) {
   volume_manager()->Initialize();  // Adds "Downloads"
-  VolumeInfo volume_info;
-  ASSERT_FALSE(volume_manager()->FindVolumeInfoById(
-      "nonexistent", &volume_info));
-  ASSERT_TRUE(volume_manager()->FindVolumeInfoById(
-      "downloads:Downloads", &volume_info));
-  EXPECT_EQ("downloads:Downloads", volume_info.volume_id);
-  EXPECT_EQ(VOLUME_TYPE_DOWNLOADS_DIRECTORY, volume_info.type);
+  base::WeakPtr<Volume> bad_volume =
+      volume_manager()->FindVolumeById("nonexistent");
+  ASSERT_FALSE(bad_volume.get());
+  base::WeakPtr<Volume> good_volume =
+      volume_manager()->FindVolumeById("downloads:Downloads");
+  ASSERT_TRUE(good_volume.get());
+  EXPECT_EQ("downloads:Downloads", good_volume->volume_id());
+  EXPECT_EQ(VOLUME_TYPE_DOWNLOADS_DIRECTORY, good_volume->type());
 }
 
 TEST_F(VolumeManagerTest, ArchiveSourceFiltering) {
@@ -786,9 +798,9 @@ TEST_F(VolumeManagerTest, ArchiveSourceFiltering) {
           "/archive/1",
           chromeos::MOUNT_TYPE_ARCHIVE,
           chromeos::disks::MOUNT_CONDITION_NONE));
-  VolumeInfo volume_info;
-  ASSERT_TRUE(volume_manager()->FindVolumeInfoById("archive:1", &volume_info));
-  EXPECT_EQ("/archive/1", volume_info.mount_path.AsUTF8Unsafe());
+  base::WeakPtr<Volume> volume = volume_manager()->FindVolumeById("archive:1");
+  ASSERT_TRUE(volume.get());
+  EXPECT_EQ("/archive/1", volume->mount_path().AsUTF8Unsafe());
   EXPECT_EQ(2u, observer.events().size());
 
   // Mount a zip archive in the previous zip archive.
@@ -800,8 +812,10 @@ TEST_F(VolumeManagerTest, ArchiveSourceFiltering) {
           "/archive/2",
           chromeos::MOUNT_TYPE_ARCHIVE,
           chromeos::disks::MOUNT_CONDITION_NONE));
-  ASSERT_TRUE(volume_manager()->FindVolumeInfoById("archive:2", &volume_info));
-  EXPECT_EQ("/archive/2", volume_info.mount_path.AsUTF8Unsafe());
+  base::WeakPtr<Volume> second_volume =
+      volume_manager()->FindVolumeById("archive:2");
+  ASSERT_TRUE(second_volume.get());
+  EXPECT_EQ("/archive/2", second_volume->mount_path().AsUTF8Unsafe());
   EXPECT_EQ(3u, observer.events().size());
 
   // A zip file is mounted from other profile. It must be ignored in the current
@@ -814,7 +828,9 @@ TEST_F(VolumeManagerTest, ArchiveSourceFiltering) {
           "/archive/3",
           chromeos::MOUNT_TYPE_ARCHIVE,
           chromeos::disks::MOUNT_CONDITION_NONE));
-  EXPECT_FALSE(volume_manager()->FindVolumeInfoById("archive:3", &volume_info));
+  base::WeakPtr<Volume> third_volume =
+      volume_manager()->FindVolumeById("archive:3");
+  ASSERT_FALSE(third_volume.get());
   EXPECT_EQ(3u, observer.events().size());
 }
 
@@ -845,9 +861,8 @@ TEST_F(VolumeManagerTest, MTPPlugAndUnplug) {
   ASSERT_EQ(1u, observer.events().size());
   EXPECT_EQ(LoggingObserver::Event::VOLUME_MOUNTED, observer.events()[0].type);
 
-  VolumeInfo volume_info;
-  ASSERT_TRUE(volume_manager()->FindVolumeInfoById("mtp:model", &volume_info));
-  EXPECT_EQ(VOLUME_TYPE_MTP, volume_info.type);
+  base::WeakPtr<Volume> volume = volume_manager()->FindVolumeById("mtp:model");
+  EXPECT_EQ(VOLUME_TYPE_MTP, volume->type());
 
   // Non MTP events from storage monitor are ignored.
   volume_manager()->OnRemovableStorageAttached(non_mtp_info);
@@ -859,7 +874,7 @@ TEST_F(VolumeManagerTest, MTPPlugAndUnplug) {
   EXPECT_EQ(LoggingObserver::Event::VOLUME_UNMOUNTED,
             observer.events()[1].type);
 
-  EXPECT_FALSE(volume_manager()->FindVolumeInfoById("mtp:model", &volume_info));
+  EXPECT_FALSE(volume.get());
 }
 
 }  // namespace file_manager

@@ -10,18 +10,15 @@
 #include "base/bind.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/drive/drive_api_util.h"
-#include "content/public/browser/browser_thread.h"
 #include "google_apis/drive/auth_service.h"
+#include "google_apis/drive/base_requests.h"
 #include "google_apis/drive/drive_api_parser.h"
 #include "google_apis/drive/drive_api_requests.h"
-#include "google_apis/drive/gdata_errorcode.h"
-#include "google_apis/drive/gdata_wapi_parser.h"
-#include "google_apis/drive/gdata_wapi_requests.h"
+#include "google_apis/drive/files_list_request_runner.h"
 #include "google_apis/drive/request_sender.h"
 #include "google_apis/google_api_keys.h"
 #include "net/url_request/url_request_context_getter.h"
 
-using content::BrowserThread;
 using google_apis::AboutResourceCallback;
 using google_apis::AppList;
 using google_apis::AppListCallback;
@@ -36,18 +33,17 @@ using google_apis::FileList;
 using google_apis::FileListCallback;
 using google_apis::FileResource;
 using google_apis::FileResourceCallback;
-using google_apis::GDATA_OTHER_ERROR;
-using google_apis::GDATA_PARSE_ERROR;
-using google_apis::GDataErrorCode;
+using google_apis::DRIVE_OTHER_ERROR;
+using google_apis::DRIVE_PARSE_ERROR;
+using google_apis::DriveApiErrorCode;
 using google_apis::GetContentCallback;
-using google_apis::GetResourceEntryRequest;
 using google_apis::GetShareUrlCallback;
 using google_apis::HTTP_NOT_IMPLEMENTED;
 using google_apis::HTTP_SUCCESS;
 using google_apis::InitiateUploadCallback;
-using google_apis::Link;
 using google_apis::ProgressCallback;
 using google_apis::RequestSender;
+using google_apis::FilesListRequestRunner;
 using google_apis::UploadRangeResponse;
 using google_apis::drive::AboutGetRequest;
 using google_apis::drive::AppsListRequest;
@@ -98,7 +94,7 @@ const int kMaxNumFilesResourcePerRequestForSearch = 100;
 
 // For performance, we declare all fields we use.
 const char kAboutResourceFields[] =
-    "kind,quotaBytesTotal,quotaBytesUsed,largestChangeId,rootFolderId";
+    "kind,quotaBytesTotal,quotaBytesUsedAggregate,largestChangeId,rootFolderId";
 const char kFileResourceFields[] =
     "kind,id,title,createdDate,sharedWithMeDate,mimeType,"
     "md5Checksum,fileSize,labels/trashed,imageMediaMetadata/width,"
@@ -107,6 +103,8 @@ const char kFileResourceFields[] =
     "modifiedDate,lastViewedByMeDate,shared";
 const char kFileResourceOpenWithLinksFields[] =
     "kind,id,openWithLinks/*";
+const char kFileResourceShareLinkFields[] =
+    "kind,id,shareLink";
 const char kFileListFields[] =
     "kind,items(kind,id,title,createdDate,sharedWithMeDate,"
     "mimeType,md5Checksum,fileSize,labels/trashed,imageMediaMetadata/width,"
@@ -123,9 +121,8 @@ const char kChangeListFields[] =
 
 void ExtractOpenUrlAndRun(const std::string& app_id,
                           const AuthorizeAppCallback& callback,
-                          GDataErrorCode error,
+                          DriveApiErrorCode error,
                           scoped_ptr<FileResource> value) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(!callback.is_null());
 
   if (!value) {
@@ -143,23 +140,19 @@ void ExtractOpenUrlAndRun(const std::string& app_id,
   }
 
   // Not found.
-  callback.Run(GDATA_OTHER_ERROR, GURL());
+  callback.Run(DRIVE_OTHER_ERROR, GURL());
 }
 
-void ExtractShareUrlAndRun(const google_apis::GetShareUrlCallback& callback,
-                           google_apis::GDataErrorCode error,
-                           scoped_ptr<google_apis::ResourceEntry> entry) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-
-  const google_apis::Link* share_link =
-      entry ? entry->GetLinkByType(google_apis::Link::LINK_SHARE) : NULL;
-  callback.Run(error, share_link ? share_link->href() : GURL());
+void ExtractShareUrlAndRun(const GetShareUrlCallback& callback,
+                           DriveApiErrorCode error,
+                           scoped_ptr<FileResource> value) {
+  callback.Run(error, value ? value->share_link() : GURL());
 }
 
 // Ignores the |entry|, and runs the |callback|.
 void EntryActionCallbackAdapter(
     const EntryActionCallback& callback,
-    GDataErrorCode error, scoped_ptr<FileResource> entry) {
+    DriveApiErrorCode error, scoped_ptr<FileResource> entry) {
   callback.Run(error);
 }
 
@@ -169,31 +162,108 @@ const char kDriveApiRootDirectoryResourceId[] = "root";
 
 }  // namespace
 
+BatchRequestConfigurator::BatchRequestConfigurator(
+    const base::WeakPtr<google_apis::drive::BatchUploadRequest>& batch_request,
+    base::SequencedTaskRunner* task_runner,
+    const google_apis::DriveApiUrlGenerator& url_generator,
+    const google_apis::CancelCallback& cancel_callback)
+    : batch_request_(batch_request),
+      task_runner_(task_runner),
+      url_generator_(url_generator),
+      cancel_callback_(cancel_callback) {
+}
+
+BatchRequestConfigurator::~BatchRequestConfigurator() {
+  // The batch requst has not been committed.
+  if (batch_request_)
+    cancel_callback_.Run();
+}
+
+google_apis::CancelCallback BatchRequestConfigurator::MultipartUploadNewFile(
+    const std::string& content_type,
+    int64 content_length,
+    const std::string& parent_resource_id,
+    const std::string& title,
+    const base::FilePath& local_file_path,
+    const UploadNewFileOptions& options,
+    const google_apis::FileResourceCallback& callback,
+    const google_apis::ProgressCallback& progress_callback) {
+  DCHECK(CalledOnValidThread());
+  DCHECK(!callback.is_null());
+
+  scoped_ptr<google_apis::BatchableDelegate> delegate(
+      new google_apis::drive::MultipartUploadNewFileDelegate(
+          task_runner_.get(), title, parent_resource_id, content_type,
+          content_length, options.modified_date, options.last_viewed_by_me_date,
+          local_file_path, options.properties, url_generator_, callback,
+          progress_callback));
+  // Batch request can be null when pre-authorization for the requst is failed
+  // in request sender.
+  if (batch_request_)
+    batch_request_->AddRequest(delegate.release());
+  else
+    delegate->NotifyError(DRIVE_OTHER_ERROR);
+  return cancel_callback_;
+}
+
+google_apis::CancelCallback
+BatchRequestConfigurator::MultipartUploadExistingFile(
+    const std::string& content_type,
+    int64 content_length,
+    const std::string& resource_id,
+    const base::FilePath& local_file_path,
+    const UploadExistingFileOptions& options,
+    const google_apis::FileResourceCallback& callback,
+    const google_apis::ProgressCallback& progress_callback) {
+  DCHECK(CalledOnValidThread());
+  DCHECK(!callback.is_null());
+
+  scoped_ptr<google_apis::BatchableDelegate> delegate(
+      new google_apis::drive::MultipartUploadExistingFileDelegate(
+          task_runner_.get(), options.title, resource_id,
+          options.parent_resource_id, content_type, content_length,
+          options.modified_date, options.last_viewed_by_me_date,
+          local_file_path, options.etag, options.properties, url_generator_,
+          callback, progress_callback));
+  // Batch request can be null when pre-authorization for the requst is failed
+  // in request sender.
+  if (batch_request_)
+    batch_request_->AddRequest(delegate.release());
+  else
+    delegate->NotifyError(DRIVE_OTHER_ERROR);
+  return cancel_callback_;
+}
+
+void BatchRequestConfigurator::Commit() {
+  DCHECK(CalledOnValidThread());
+  if (!batch_request_)
+    return;
+  batch_request_->Commit();
+  batch_request_.reset();
+}
+
 DriveAPIService::DriveAPIService(
     OAuth2TokenService* oauth2_token_service,
     net::URLRequestContextGetter* url_request_context_getter,
     base::SequencedTaskRunner* blocking_task_runner,
     const GURL& base_url,
     const GURL& base_download_url,
-    const GURL& wapi_base_url,
     const std::string& custom_user_agent)
     : oauth2_token_service_(oauth2_token_service),
       url_request_context_getter_(url_request_context_getter),
       blocking_task_runner_(blocking_task_runner),
       url_generator_(base_url, base_download_url),
-      wapi_url_generator_(wapi_base_url),
       custom_user_agent_(custom_user_agent) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 }
 
 DriveAPIService::~DriveAPIService() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   if (sender_.get())
     sender_->auth_service()->RemoveObserver(this);
 }
 
 void DriveAPIService::Initialize(const std::string& account_id) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
 
   std::vector<std::string> scopes;
   scopes.push_back(kDriveScope);
@@ -214,6 +284,9 @@ void DriveAPIService::Initialize(const std::string& account_id) {
       blocking_task_runner_.get(),
       custom_user_agent_));
   sender_->auth_service()->AddObserver(this);
+
+  files_list_request_runner_.reset(
+      new FilesListRequestRunner(sender_.get(), url_generator_));
 }
 
 void DriveAPIService::AddObserver(DriveServiceObserver* observer) {
@@ -225,7 +298,7 @@ void DriveAPIService::RemoveObserver(DriveServiceObserver* observer) {
 }
 
 bool DriveAPIService::CanSendRequest() const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
 
   return HasRefreshToken();
 }
@@ -236,7 +309,7 @@ std::string DriveAPIService::GetRootResourceId() const {
 
 CancelCallback DriveAPIService::GetAllFileList(
     const FileListCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   FilesListRequest* request = new FilesListRequest(
@@ -244,13 +317,13 @@ CancelCallback DriveAPIService::GetAllFileList(
   request->set_max_results(kMaxNumFilesResourcePerRequest);
   request->set_q("trashed = false");  // Exclude trashed files.
   request->set_fields(kFileListFields);
-  return sender_->StartRequestWithRetry(request);
+  return sender_->StartRequestWithAuthRetry(request);
 }
 
 CancelCallback DriveAPIService::GetFileListInDirectory(
     const std::string& directory_resource_id,
     const FileListCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!directory_resource_id.empty());
   DCHECK(!callback.is_null());
 
@@ -261,36 +334,31 @@ CancelCallback DriveAPIService::GetFileListInDirectory(
   // code up by moving the responsibility to include "parents" in the query
   // to client side.
   // We aren't interested in files in trash in this context, neither.
-  FilesListRequest* request = new FilesListRequest(
-      sender_.get(), url_generator_, callback);
-  request->set_max_results(kMaxNumFilesResourcePerRequest);
-  request->set_q(base::StringPrintf(
-      "'%s' in parents and trashed = false",
-      util::EscapeQueryStringValue(directory_resource_id).c_str()));
-  request->set_fields(kFileListFields);
-  return sender_->StartRequestWithRetry(request);
+  return files_list_request_runner_->CreateAndStartWithSizeBackoff(
+      kMaxNumFilesResourcePerRequest,
+      base::StringPrintf(
+          "'%s' in parents and trashed = false",
+          util::EscapeQueryStringValue(directory_resource_id).c_str()),
+      kFileListFields, callback);
 }
 
 CancelCallback DriveAPIService::Search(
     const std::string& search_query,
     const FileListCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!search_query.empty());
   DCHECK(!callback.is_null());
 
-  FilesListRequest* request = new FilesListRequest(
-      sender_.get(), url_generator_, callback);
-  request->set_max_results(kMaxNumFilesResourcePerRequestForSearch);
-  request->set_q(util::TranslateQuery(search_query));
-  request->set_fields(kFileListFields);
-  return sender_->StartRequestWithRetry(request);
+  return files_list_request_runner_->CreateAndStartWithSizeBackoff(
+      kMaxNumFilesResourcePerRequestForSearch,
+      util::TranslateQuery(search_query), kFileListFields, callback);
 }
 
 CancelCallback DriveAPIService::SearchByTitle(
     const std::string& title,
     const std::string& directory_resource_id,
     const FileListCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!title.empty());
   DCHECK(!callback.is_null());
 
@@ -309,13 +377,13 @@ CancelCallback DriveAPIService::SearchByTitle(
   request->set_max_results(kMaxNumFilesResourcePerRequest);
   request->set_q(query);
   request->set_fields(kFileListFields);
-  return sender_->StartRequestWithRetry(request);
+  return sender_->StartRequestWithAuthRetry(request);
 }
 
 CancelCallback DriveAPIService::GetChangeList(
     int64 start_changestamp,
     const ChangeListCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   ChangesListRequest* request = new ChangesListRequest(
@@ -323,13 +391,13 @@ CancelCallback DriveAPIService::GetChangeList(
   request->set_max_results(kMaxNumFilesResourcePerRequest);
   request->set_start_change_id(start_changestamp);
   request->set_fields(kChangeListFields);
-  return sender_->StartRequestWithRetry(request);
+  return sender_->StartRequestWithAuthRetry(request);
 }
 
 CancelCallback DriveAPIService::GetRemainingChangeList(
     const GURL& next_link,
     const ChangeListCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!next_link.is_empty());
   DCHECK(!callback.is_null());
 
@@ -337,13 +405,13 @@ CancelCallback DriveAPIService::GetRemainingChangeList(
       sender_.get(), callback);
   request->set_next_link(next_link);
   request->set_fields(kChangeListFields);
-  return sender_->StartRequestWithRetry(request);
+  return sender_->StartRequestWithAuthRetry(request);
 }
 
 CancelCallback DriveAPIService::GetRemainingFileList(
     const GURL& next_link,
     const FileListCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!next_link.is_empty());
   DCHECK(!callback.is_null());
 
@@ -351,61 +419,62 @@ CancelCallback DriveAPIService::GetRemainingFileList(
       sender_.get(), callback);
   request->set_next_link(next_link);
   request->set_fields(kFileListFields);
-  return sender_->StartRequestWithRetry(request);
+  return sender_->StartRequestWithAuthRetry(request);
 }
 
 CancelCallback DriveAPIService::GetFileResource(
     const std::string& resource_id,
     const FileResourceCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   FilesGetRequest* request = new FilesGetRequest(
-      sender_.get(), url_generator_, callback);
+      sender_.get(), url_generator_, google_apis::IsGoogleChromeAPIKeyUsed(),
+      callback);
   request->set_file_id(resource_id);
   request->set_fields(kFileResourceFields);
-  return sender_->StartRequestWithRetry(request);
+  return sender_->StartRequestWithAuthRetry(request);
 }
 
 CancelCallback DriveAPIService::GetShareUrl(
     const std::string& resource_id,
     const GURL& embed_origin,
     const GetShareUrlCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
-  // Unfortunately "share url" is not yet supported on Drive API v2.
-  // So, as a fallback, we use GData WAPI protocol for this method.
-  // TODO(hidehiko): Get rid of this implementation when share url is
-  // supported on Drive API v2.
-  return sender_->StartRequestWithRetry(
-      new GetResourceEntryRequest(sender_.get(),
-                                  wapi_url_generator_,
-                                  resource_id,
-                                  embed_origin,
-                                  base::Bind(&ExtractShareUrlAndRun,
-                                             callback)));
+  if (!google_apis::IsGoogleChromeAPIKeyUsed()) {
+    LOG(ERROR) << "Only the official build of Chrome OS can open share dialogs "
+               << "from the file manager.";
+  }
+
+  FilesGetRequest* request = new FilesGetRequest(
+      sender_.get(), url_generator_, google_apis::IsGoogleChromeAPIKeyUsed(),
+      base::Bind(&ExtractShareUrlAndRun, callback));
+  request->set_file_id(resource_id);
+  request->set_fields(kFileResourceShareLinkFields);
+  request->set_embed_origin(embed_origin);
+  return sender_->StartRequestWithAuthRetry(request);
 }
 
 CancelCallback DriveAPIService::GetAboutResource(
     const AboutResourceCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   AboutGetRequest* request =
       new AboutGetRequest(sender_.get(), url_generator_, callback);
   request->set_fields(kAboutResourceFields);
-  return sender_->StartRequestWithRetry(request);
+  return sender_->StartRequestWithAuthRetry(request);
 }
 
 CancelCallback DriveAPIService::GetAppList(const AppListCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
-  return sender_->StartRequestWithRetry(
+  return sender_->StartRequestWithAuthRetry(
       new AppsListRequest(sender_.get(), url_generator_,
-                          google_apis::IsGoogleChromeAPIKeyUsed(),
-                          callback));
+                          google_apis::IsGoogleChromeAPIKeyUsed(), callback));
 }
 
 CancelCallback DriveAPIService::DownloadFile(
@@ -414,38 +483,33 @@ CancelCallback DriveAPIService::DownloadFile(
     const DownloadActionCallback& download_action_callback,
     const GetContentCallback& get_content_callback,
     const ProgressCallback& progress_callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!download_action_callback.is_null());
   // get_content_callback may be null.
 
-  return sender_->StartRequestWithRetry(
-      new DownloadFileRequest(sender_.get(),
-                              url_generator_,
-                              resource_id,
-                              local_cache_path,
-                              download_action_callback,
-                              get_content_callback,
-                              progress_callback));
+  return sender_->StartRequestWithAuthRetry(new DownloadFileRequest(
+      sender_.get(), url_generator_, resource_id, local_cache_path,
+      download_action_callback, get_content_callback, progress_callback));
 }
 
 CancelCallback DriveAPIService::DeleteResource(
     const std::string& resource_id,
     const std::string& etag,
     const EntryActionCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   FilesDeleteRequest* request = new FilesDeleteRequest(
       sender_.get(), url_generator_, callback);
   request->set_file_id(resource_id);
   request->set_etag(etag);
-  return sender_->StartRequestWithRetry(request);
+  return sender_->StartRequestWithAuthRetry(request);
 }
 
 CancelCallback DriveAPIService::TrashResource(
     const std::string& resource_id,
     const EntryActionCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   FilesTrashRequest* request = new FilesTrashRequest(
@@ -453,7 +517,7 @@ CancelCallback DriveAPIService::TrashResource(
       base::Bind(&EntryActionCallbackAdapter, callback));
   request->set_file_id(resource_id);
   request->set_fields(kFileResourceFields);
-  return sender_->StartRequestWithRetry(request);
+  return sender_->StartRequestWithAuthRetry(request);
 }
 
 CancelCallback DriveAPIService::AddNewDirectory(
@@ -461,7 +525,7 @@ CancelCallback DriveAPIService::AddNewDirectory(
     const std::string& directory_title,
     const AddNewDirectoryOptions& options,
     const FileResourceCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   FilesInsertRequest* request = new FilesInsertRequest(
@@ -471,8 +535,9 @@ CancelCallback DriveAPIService::AddNewDirectory(
   request->set_modified_date(options.modified_date);
   request->add_parent(parent_resource_id);
   request->set_title(directory_title);
+  request->set_properties(options.properties);
   request->set_fields(kFileResourceFields);
-  return sender_->StartRequestWithRetry(request);
+  return sender_->StartRequestWithAuthRetry(request);
 }
 
 CancelCallback DriveAPIService::CopyResource(
@@ -481,7 +546,7 @@ CancelCallback DriveAPIService::CopyResource(
     const std::string& new_title,
     const base::Time& last_modified,
     const FileResourceCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   FilesCopyRequest* request = new FilesCopyRequest(
@@ -491,7 +556,7 @@ CancelCallback DriveAPIService::CopyResource(
   request->set_title(new_title);
   request->set_modified_date(last_modified);
   request->set_fields(kFileResourceFields);
-  return sender_->StartRequestWithRetry(request);
+  return sender_->StartRequestWithAuthRetry(request);
 }
 
 CancelCallback DriveAPIService::UpdateResource(
@@ -500,8 +565,9 @@ CancelCallback DriveAPIService::UpdateResource(
     const std::string& new_title,
     const base::Time& last_modified,
     const base::Time& last_viewed_by_me,
+    const google_apis::drive::Properties& properties,
     const FileResourceCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   FilesPatchRequest* request = new FilesPatchRequest(
@@ -522,35 +588,36 @@ CancelCallback DriveAPIService::UpdateResource(
     request->set_last_viewed_by_me_date(last_viewed_by_me);
   }
   request->set_fields(kFileResourceFields);
-  return sender_->StartRequestWithRetry(request);
+  request->set_properties(properties);
+  return sender_->StartRequestWithAuthRetry(request);
 }
 
 CancelCallback DriveAPIService::AddResourceToDirectory(
     const std::string& parent_resource_id,
     const std::string& resource_id,
     const EntryActionCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   ChildrenInsertRequest* request =
       new ChildrenInsertRequest(sender_.get(), url_generator_, callback);
   request->set_folder_id(parent_resource_id);
   request->set_id(resource_id);
-  return sender_->StartRequestWithRetry(request);
+  return sender_->StartRequestWithAuthRetry(request);
 }
 
 CancelCallback DriveAPIService::RemoveResourceFromDirectory(
     const std::string& parent_resource_id,
     const std::string& resource_id,
     const EntryActionCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   ChildrenDeleteRequest* request =
       new ChildrenDeleteRequest(sender_.get(), url_generator_, callback);
   request->set_child_id(resource_id);
   request->set_folder_id(parent_resource_id);
-  return sender_->StartRequestWithRetry(request);
+  return sender_->StartRequestWithAuthRetry(request);
 }
 
 CancelCallback DriveAPIService::InitiateUploadNewFile(
@@ -558,9 +625,9 @@ CancelCallback DriveAPIService::InitiateUploadNewFile(
     int64 content_length,
     const std::string& parent_resource_id,
     const std::string& title,
-    const InitiateUploadNewFileOptions& options,
+    const UploadNewFileOptions& options,
     const InitiateUploadCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   InitiateUploadNewFileRequest* request =
@@ -573,16 +640,17 @@ CancelCallback DriveAPIService::InitiateUploadNewFile(
                                        callback);
   request->set_modified_date(options.modified_date);
   request->set_last_viewed_by_me_date(options.last_viewed_by_me_date);
-  return sender_->StartRequestWithRetry(request);
+  request->set_properties(options.properties);
+  return sender_->StartRequestWithAuthRetry(request);
 }
 
 CancelCallback DriveAPIService::InitiateUploadExistingFile(
     const std::string& content_type,
     int64 content_length,
     const std::string& resource_id,
-    const InitiateUploadExistingFileOptions& options,
+    const UploadExistingFileOptions& options,
     const InitiateUploadCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   InitiateUploadExistingFileRequest* request =
@@ -597,7 +665,8 @@ CancelCallback DriveAPIService::InitiateUploadExistingFile(
   request->set_title(options.title);
   request->set_modified_date(options.modified_date);
   request->set_last_viewed_by_me_date(options.last_viewed_by_me_date);
-  return sender_->StartRequestWithRetry(request);
+  request->set_properties(options.properties);
+  return sender_->StartRequestWithAuthRetry(request);
 }
 
 CancelCallback DriveAPIService::ResumeUpload(
@@ -609,41 +678,75 @@ CancelCallback DriveAPIService::ResumeUpload(
     const base::FilePath& local_file_path,
     const UploadRangeCallback& callback,
     const ProgressCallback& progress_callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
-  return sender_->StartRequestWithRetry(
-      new ResumeUploadRequest(
-          sender_.get(),
-          upload_url,
-          start_position,
-          end_position,
-          content_length,
-          content_type,
-          local_file_path,
-          callback,
-          progress_callback));
+  return sender_->StartRequestWithAuthRetry(new ResumeUploadRequest(
+      sender_.get(), upload_url, start_position, end_position, content_length,
+      content_type, local_file_path, callback, progress_callback));
 }
 
 CancelCallback DriveAPIService::GetUploadStatus(
     const GURL& upload_url,
     int64 content_length,
     const UploadRangeCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
-  return sender_->StartRequestWithRetry(new GetUploadStatusRequest(
-      sender_.get(),
-      upload_url,
-      content_length,
-      callback));
+  return sender_->StartRequestWithAuthRetry(new GetUploadStatusRequest(
+      sender_.get(), upload_url, content_length, callback));
+}
+
+CancelCallback DriveAPIService::MultipartUploadNewFile(
+    const std::string& content_type,
+    int64 content_length,
+    const std::string& parent_resource_id,
+    const std::string& title,
+    const base::FilePath& local_file_path,
+    const drive::UploadNewFileOptions& options,
+    const FileResourceCallback& callback,
+    const google_apis::ProgressCallback& progress_callback) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK(!callback.is_null());
+
+  return sender_->StartRequestWithAuthRetry(
+      new google_apis::drive::SingleBatchableDelegateRequest(
+          sender_.get(),
+          new google_apis::drive::MultipartUploadNewFileDelegate(
+              sender_->blocking_task_runner(), title, parent_resource_id,
+              content_type, content_length, options.modified_date,
+              options.last_viewed_by_me_date, local_file_path,
+              options.properties, url_generator_, callback,
+              progress_callback)));
+}
+
+CancelCallback DriveAPIService::MultipartUploadExistingFile(
+    const std::string& content_type,
+    int64 content_length,
+    const std::string& resource_id,
+    const base::FilePath& local_file_path,
+    const drive::UploadExistingFileOptions& options,
+    const FileResourceCallback& callback,
+    const google_apis::ProgressCallback& progress_callback) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK(!callback.is_null());
+
+  return sender_->StartRequestWithAuthRetry(
+      new google_apis::drive::SingleBatchableDelegateRequest(
+          sender_.get(),
+          new google_apis::drive::MultipartUploadExistingFileDelegate(
+              sender_->blocking_task_runner(), options.title, resource_id,
+              options.parent_resource_id, content_type, content_length,
+              options.modified_date, options.last_viewed_by_me_date,
+              local_file_path, options.etag, options.properties, url_generator_,
+              callback, progress_callback)));
 }
 
 CancelCallback DriveAPIService::AuthorizeApp(
     const std::string& resource_id,
     const std::string& app_id,
     const AuthorizeAppCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   // Files.Authorize is only available for whitelisted clients like official
@@ -659,28 +762,28 @@ CancelCallback DriveAPIService::AuthorizeApp(
     request->set_app_id(app_id);
     request->set_file_id(resource_id);
     request->set_fields(kFileResourceOpenWithLinksFields);
-    return sender_->StartRequestWithRetry(request);
+    return sender_->StartRequestWithAuthRetry(request);
   } else {
     FilesGetRequest* request = new FilesGetRequest(
-        sender_.get(), url_generator_,
+        sender_.get(), url_generator_, google_apis::IsGoogleChromeAPIKeyUsed(),
         base::Bind(&ExtractOpenUrlAndRun, app_id, callback));
     request->set_file_id(resource_id);
     request->set_fields(kFileResourceOpenWithLinksFields);
-    return sender_->StartRequestWithRetry(request);
+    return sender_->StartRequestWithAuthRetry(request);
   }
 }
 
 CancelCallback DriveAPIService::UninstallApp(
     const std::string& app_id,
     const google_apis::EntryActionCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   google_apis::drive::AppsDeleteRequest* request =
       new google_apis::drive::AppsDeleteRequest(sender_.get(), url_generator_,
                                                 callback);
   request->set_app_id(app_id);
-  return sender_->StartRequestWithRetry(request);
+  return sender_->StartRequestWithAuthRetry(request);
 }
 
 google_apis::CancelCallback DriveAPIService::AddPermission(
@@ -688,7 +791,7 @@ google_apis::CancelCallback DriveAPIService::AddPermission(
     const std::string& email,
     google_apis::drive::PermissionRole role,
     const google_apis::EntryActionCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   google_apis::drive::PermissionsInsertRequest* request =
@@ -699,16 +802,16 @@ google_apis::CancelCallback DriveAPIService::AddPermission(
   request->set_role(role);
   request->set_type(google_apis::drive::PERMISSION_TYPE_USER);
   request->set_value(email);
-  return sender_->StartRequestWithRetry(request);
+  return sender_->StartRequestWithAuthRetry(request);
 }
 
 bool DriveAPIService::HasAccessToken() const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   return sender_->auth_service()->HasAccessToken();
 }
 
 void DriveAPIService::RequestAccessToken(const AuthStatusCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   const std::string access_token = sender_->auth_service()->access_token();
@@ -722,22 +825,22 @@ void DriveAPIService::RequestAccessToken(const AuthStatusCallback& callback) {
 }
 
 bool DriveAPIService::HasRefreshToken() const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   return sender_->auth_service()->HasRefreshToken();
 }
 
 void DriveAPIService::ClearAccessToken() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   sender_->auth_service()->ClearAccessToken();
 }
 
 void DriveAPIService::ClearRefreshToken() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   sender_->auth_service()->ClearRefreshToken();
 }
 
 void DriveAPIService::OnOAuth2RefreshTokenChanged() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   if (CanSendRequest()) {
     FOR_EACH_OBSERVER(
         DriveServiceObserver, observers_, OnReadyToSendRequests());
@@ -745,6 +848,25 @@ void DriveAPIService::OnOAuth2RefreshTokenChanged() {
     FOR_EACH_OBSERVER(
         DriveServiceObserver, observers_, OnRefreshTokenInvalid());
   }
+}
+
+scoped_ptr<BatchRequestConfiguratorInterface>
+DriveAPIService::StartBatchRequest() {
+  scoped_ptr<google_apis::drive::BatchUploadRequest> request(
+      new google_apis::drive::BatchUploadRequest(sender_.get(),
+                                                 url_generator_));
+  const base::WeakPtr<google_apis::drive::BatchUploadRequest> weak_ref =
+      request->GetWeakPtrAsBatchUploadRequest();
+  // Have sender_ manage the lifetime of the request.
+  // TODO(hirono): Currently we need to pass the ownership of the request to
+  // RequestSender before the request is committed because the request has a
+  // reference to RequestSender and we should ensure to delete the request when
+  // the sender is deleted. Resolve the circulating dependency and fix it.
+  const google_apis::CancelCallback callback =
+      sender_->StartRequestWithAuthRetry(request.release());
+  return make_scoped_ptr<BatchRequestConfiguratorInterface>(
+      new BatchRequestConfigurator(weak_ref, sender_->blocking_task_runner(),
+                                   url_generator_, callback));
 }
 
 }  // namespace drive

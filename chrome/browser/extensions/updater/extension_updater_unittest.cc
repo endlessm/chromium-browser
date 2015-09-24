@@ -21,6 +21,7 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/thread.h"
 #include "base/version.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -34,9 +35,11 @@
 #include "chrome/browser/extensions/updater/extension_updater.h"
 #include "chrome/browser/google/google_brand.h"
 #include "chrome/browser/prefs/pref_service_syncable.h"
+#include "chrome/test/base/scoped_testing_local_state.h"
+#include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/crx_file/id_util.h"
-#include "components/omaha_query_params/omaha_query_params.h"
+#include "components/update_client/update_query_params.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -76,7 +79,7 @@
 using base::Time;
 using base::TimeDelta;
 using content::BrowserThread;
-using omaha_query_params::OmahaQueryParams;
+using update_client::UpdateQueryParams;
 using testing::DoAll;
 using testing::Invoke;
 using testing::InvokeWithoutArgs;
@@ -145,13 +148,14 @@ class MockExtensionDownloaderDelegate : public ExtensionDownloaderDelegate {
                                                Error,
                                                const PingResult&,
                                                const std::set<int>&));
-  MOCK_METHOD7(OnExtensionDownloadFinished, void(const std::string&,
-                                                 const base::FilePath&,
-                                                 bool,
-                                                 const GURL&,
-                                                 const std::string&,
-                                                 const PingResult&,
-                                                 const std::set<int>&));
+  MOCK_METHOD7(OnExtensionDownloadFinished,
+               void(const extensions::CRXFileInfo&,
+                    bool,
+                    const GURL&,
+                    const std::string&,
+                    const PingResult&,
+                    const std::set<int>&,
+                    const InstallCallback&));
   MOCK_METHOD2(GetPingDataForExtension,
                bool(const std::string&, ManifestFetchData::PingData*));
   MOCK_METHOD1(GetUpdateUrlData, std::string(const std::string&));
@@ -176,8 +180,9 @@ class MockExtensionDownloaderDelegate : public ExtensionDownloaderDelegate {
         .WillByDefault(Invoke(delegate,
             &ExtensionDownloaderDelegate::OnExtensionDownloadFailed));
     ON_CALL(*this, OnExtensionDownloadFinished(_, _, _, _, _, _, _))
-        .WillByDefault(Invoke(delegate,
-            &ExtensionDownloaderDelegate::OnExtensionDownloadFinished));
+        .WillByDefault(
+            Invoke(delegate,
+                   &ExtensionDownloaderDelegate::OnExtensionDownloadFinished));
     ON_CALL(*this, GetPingDataForExtension(_, _))
         .WillByDefault(Invoke(delegate,
             &ExtensionDownloaderDelegate::GetPingDataForExtension));
@@ -457,10 +462,6 @@ class ServiceForManifestTests : public MockService {
     return registry_->disabled_extensions().GetByID(id);
   }
 
-  const ExtensionSet* extensions() const override {
-    return &registry_->enabled_extensions();
-  }
-
   PendingExtensionManager* pending_extension_manager() override {
     return &pending_extension_manager_;
   }
@@ -503,15 +504,14 @@ class ServiceForDownloadTests : public MockService {
     fake_crx_installers_[id] = crx_installer;
   }
 
-  bool UpdateExtension(const std::string& id,
-                       const base::FilePath& extension_path,
+  bool UpdateExtension(const CRXFileInfo& file,
                        bool file_ownership_passed,
                        CrxInstaller** out_crx_installer) override {
-    extension_id_ = id;
-    install_path_ = extension_path;
+    extension_id_ = file.extension_id;
+    install_path_ = file.path;
 
-    if (ContainsKey(fake_crx_installers_, id)) {
-      *out_crx_installer = fake_crx_installers_[id];
+    if (ContainsKey(fake_crx_installers_, extension_id_)) {
+      *out_crx_installer = fake_crx_installers_[extension_id_];
       return true;
     }
 
@@ -622,7 +622,7 @@ static void VerifyQueryAndExtractParameters(
   std::map<std::string, std::string> params;
   ExtractParameters(query, &params);
 
-  std::string omaha_params = OmahaQueryParams::Get(OmahaQueryParams::CRX);
+  std::string omaha_params = UpdateQueryParams::Get(UpdateQueryParams::CRX);
   std::map<std::string, std::string> expected;
   ExtractParameters(omaha_params, &expected);
 
@@ -643,11 +643,12 @@ class ExtensionUpdaterTest : public testing::Test {
  public:
   ExtensionUpdaterTest()
       : thread_bundle_(
-            content::TestBrowserThreadBundle::IO_MAINLOOP) {
+            content::TestBrowserThreadBundle::IO_MAINLOOP),
+        testing_local_state_(TestingBrowserProcess::GetGlobal()) {
   }
 
   void SetUp() override {
-    prefs_.reset(new TestExtensionPrefs(base::MessageLoopProxy::current()));
+    prefs_.reset(new TestExtensionPrefs(base::ThreadTaskRunnerHandle::Get()));
   }
 
   void TearDown() override {
@@ -1225,7 +1226,8 @@ class ExtensionUpdaterTest : public testing::Test {
       fetcher->set_response_code(200);
       fetcher->SetResponseFilePath(extension_file_path);
       EXPECT_CALL(delegate, OnExtensionDownloadFinished(
-          id, _, _, _, version.GetString(), _, requests));
+                                CRXFileInfo(id, extension_file_path, hash), _,
+                                _, version.GetString(), _, requests, _));
     }
     fetcher->delegate()->OnURLFetchComplete(fetcher);
 
@@ -1310,7 +1312,7 @@ class ExtensionUpdaterTest : public testing::Test {
     net::HttpRequestHeaders fetch_headers;
     fetcher->GetExtraRequestHeaders(&fetch_headers);
     // If the download URL is not https, no credentials should be provided.
-    if (!test_url.SchemeIsSecure()) {
+    if (!test_url.SchemeIsCryptographic()) {
       // No cookies.
       EXPECT_EQ(kExpectedLoadFlags, fetcher->GetLoadFlags());
       // No Authorization header.
@@ -1493,12 +1495,9 @@ class ExtensionUpdaterTest : public testing::Test {
     // service, not on our mock |service|.  This allows us to fake
     // the CrxInstaller actions we want.
     TestingProfile profile;
-    static_cast<TestExtensionSystem*>(
-        ExtensionSystem::Get(&profile))->
-        CreateExtensionService(
-            CommandLine::ForCurrentProcess(),
-            base::FilePath(),
-            false);
+    static_cast<TestExtensionSystem*>(ExtensionSystem::Get(&profile))
+        ->CreateExtensionService(base::CommandLine::ForCurrentProcess(),
+                                 base::FilePath(), false);
     ExtensionService* extension_service =
         ExtensionSystem::Get(&profile)->extension_service();
     extension_service->set_extensions_enabled(true);
@@ -1620,7 +1619,7 @@ class ExtensionUpdaterTest : public testing::Test {
 
     // Set up 2 mock extensions, one with a google.com update url and one
     // without.
-    prefs_.reset(new TestExtensionPrefs(base::MessageLoopProxy::current()));
+    prefs_.reset(new TestExtensionPrefs(base::ThreadTaskRunnerHandle::Get()));
     ServiceForManifestTests service(prefs_.get());
     ExtensionList tmp;
     GURL url1("http://clients2.google.com/service/update2/crx");
@@ -1786,7 +1785,7 @@ class ExtensionUpdaterTest : public testing::Test {
     UpdateManifest::Results results;
     results.daystart_elapsed_seconds = 750;
 
-    updater.downloader_->HandleManifestResults(*fetch_data, &results);
+    updater.downloader_->HandleManifestResults(fetch_data.get(), &results);
     Time last_ping_day =
         service.extension_prefs()->LastPingDay(extension->id());
     EXPECT_FALSE(last_ping_day.is_null());
@@ -1903,16 +1902,15 @@ class ExtensionUpdaterTest : public testing::Test {
   scoped_ptr<TestExtensionPrefs> prefs_;
 
   ManifestFetchData* CreateManifestFetchData(const GURL& update_url) {
-    return new ManifestFetchData(update_url,
-                                 0,
-                                 "",
-                                 OmahaQueryParams::Get(OmahaQueryParams::CRX),
+    return new ManifestFetchData(update_url, 0, "",
+                                 UpdateQueryParams::Get(UpdateQueryParams::CRX),
                                  ManifestFetchData::PING);
   }
 
  private:
   content::TestBrowserThreadBundle thread_bundle_;
   content::InProcessUtilityThreadHelper in_process_utility_thread_helper_;
+  ScopedTestingLocalState testing_local_state_;
 
 #if defined OS_CHROMEOS
   chromeos::ScopedTestDeviceSettingsService test_device_settings_service_;
@@ -2194,9 +2192,11 @@ TEST_F(ExtensionUpdaterTest, TestStartUpdateCheckMemory) {
   MockExtensionDownloaderDelegate delegate;
   ExtensionDownloader downloader(&delegate, service.request_context());
 
-  StartUpdateCheck(&downloader, CreateManifestFetchData(GURL()));
+  StartUpdateCheck(&downloader,
+                   CreateManifestFetchData(GURL("http://localhost/foo")));
   // This should delete the newly-created ManifestFetchData.
-  StartUpdateCheck(&downloader, CreateManifestFetchData(GURL()));
+  StartUpdateCheck(&downloader,
+                   CreateManifestFetchData(GURL("http://localhost/foo")));
   // This should add into |manifests_pending_|.
   StartUpdateCheck(&downloader,
                    CreateManifestFetchData(GURL("http://www.google.com")));

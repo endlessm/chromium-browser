@@ -6,6 +6,7 @@
 
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/content_settings/core/browser/plugins_field_trial.h"
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -15,57 +16,58 @@ namespace {
 
 const int kInvalidResourceID = -1;
 
-// The resource id's for the strings that are displayed on the permissions
+// The resource IDs for the strings that are displayed on the permissions
 // button if the permission setting is managed by policy.
 const int kPermissionButtonTextIDPolicyManaged[] = {
-  kInvalidResourceID,
-  IDS_WEBSITE_SETTINGS_BUTTON_TEXT_ALLOWED_BY_POLICY,
-  IDS_WEBSITE_SETTINGS_BUTTON_TEXT_BLOCKED_BY_POLICY,
-  kInvalidResourceID,
-  kInvalidResourceID
-};
-COMPILE_ASSERT(arraysize(kPermissionButtonTextIDPolicyManaged) ==
-               CONTENT_SETTING_NUM_SETTINGS,
-               button_text_id_array_size_incorrect);
+    kInvalidResourceID,
+    IDS_WEBSITE_SETTINGS_BUTTON_TEXT_ALLOWED_BY_POLICY,
+    IDS_WEBSITE_SETTINGS_BUTTON_TEXT_BLOCKED_BY_POLICY,
+    IDS_WEBSITE_SETTINGS_BUTTON_TEXT_ASK_BY_POLICY,
+    kInvalidResourceID,
+    kInvalidResourceID};
+static_assert(arraysize(kPermissionButtonTextIDPolicyManaged) ==
+              CONTENT_SETTING_NUM_SETTINGS,
+              "kPermissionButtonTextIDPolicyManaged array size is incorrect");
 
-// The resource id's for the strings that are displayed on the permissions
+// The resource IDs for the strings that are displayed on the permissions
 // button if the permission setting is managed by an extension.
 const int kPermissionButtonTextIDExtensionManaged[] = {
-  kInvalidResourceID,
-  IDS_WEBSITE_SETTINGS_BUTTON_TEXT_ALLOWED_BY_EXTENSION,
-  IDS_WEBSITE_SETTINGS_BUTTON_TEXT_BLOCKED_BY_EXTENSION,
-  kInvalidResourceID,
-  kInvalidResourceID
-};
-COMPILE_ASSERT(arraysize(kPermissionButtonTextIDExtensionManaged) ==
-               CONTENT_SETTING_NUM_SETTINGS,
-               button_text_id_array_size_incorrect);
+    kInvalidResourceID,
+    IDS_WEBSITE_SETTINGS_BUTTON_TEXT_ALLOWED_BY_EXTENSION,
+    IDS_WEBSITE_SETTINGS_BUTTON_TEXT_BLOCKED_BY_EXTENSION,
+    kInvalidResourceID,
+    kInvalidResourceID,
+    kInvalidResourceID};
+static_assert(arraysize(kPermissionButtonTextIDExtensionManaged) ==
+              CONTENT_SETTING_NUM_SETTINGS,
+              "kPermissionButtonTextIDExtensionManaged array size is "
+              "incorrect");
 
-// The resource id's for the strings that are displayed on the permissions
+// The resource IDs for the strings that are displayed on the permissions
 // button if the permission setting is managed by the user.
 const int kPermissionButtonTextIDUserManaged[] = {
-  kInvalidResourceID,
-  IDS_WEBSITE_SETTINGS_BUTTON_TEXT_ALLOWED_BY_USER,
-  IDS_WEBSITE_SETTINGS_BUTTON_TEXT_BLOCKED_BY_USER,
-  kInvalidResourceID,
-  kInvalidResourceID
-};
-COMPILE_ASSERT(arraysize(kPermissionButtonTextIDUserManaged) ==
-               CONTENT_SETTING_NUM_SETTINGS,
-               button_text_id_array_size_incorrect);
+    kInvalidResourceID,
+    IDS_WEBSITE_SETTINGS_BUTTON_TEXT_ALLOWED_BY_USER,
+    IDS_WEBSITE_SETTINGS_BUTTON_TEXT_BLOCKED_BY_USER,
+    IDS_WEBSITE_SETTINGS_BUTTON_TEXT_ASK_BY_USER,
+    kInvalidResourceID,
+    IDS_WEBSITE_SETTINGS_BUTTON_TEXT_DETECT_IMPORTANT_CONTENT_BY_USER};
+static_assert(arraysize(kPermissionButtonTextIDUserManaged) ==
+              CONTENT_SETTING_NUM_SETTINGS,
+              "kPermissionButtonTextIDUserManaged array size is incorrect");
 
-// The resource id's for the strings that are displayed on the permissions
+// The resource IDs for the strings that are displayed on the permissions
 // button if the permission setting is the global default setting.
 const int kPermissionButtonTextIDDefaultSetting[] = {
-  kInvalidResourceID,
-  IDS_WEBSITE_SETTINGS_BUTTON_TEXT_ALLOWED_BY_DEFAULT,
-  IDS_WEBSITE_SETTINGS_BUTTON_TEXT_BLOCKED_BY_DEFAULT,
-  IDS_WEBSITE_SETTINGS_BUTTON_TEXT_ASK_BY_DEFAULT,
-  kInvalidResourceID
-};
-COMPILE_ASSERT(arraysize(kPermissionButtonTextIDDefaultSetting) ==
-               CONTENT_SETTING_NUM_SETTINGS,
-               button_text_id_array_size_incorrect);
+    kInvalidResourceID,
+    IDS_WEBSITE_SETTINGS_BUTTON_TEXT_ALLOWED_BY_DEFAULT,
+    IDS_WEBSITE_SETTINGS_BUTTON_TEXT_BLOCKED_BY_DEFAULT,
+    IDS_WEBSITE_SETTINGS_BUTTON_TEXT_ASK_BY_DEFAULT,
+    kInvalidResourceID,
+    IDS_WEBSITE_SETTINGS_BUTTON_TEXT_DETECT_IMPORTANT_CONTENT_BY_DEFAULT};
+static_assert(arraysize(kPermissionButtonTextIDDefaultSetting) ==
+              CONTENT_SETTING_NUM_SETTINGS,
+              "kPermissionButtonTextIDDefaultSetting array size is incorrect");
 
 }  // namespace
 
@@ -90,15 +92,25 @@ WebsiteSettingsUI::IdentityInfo::IdentityInfo()
 WebsiteSettingsUI::IdentityInfo::~IdentityInfo() {}
 
 base::string16 WebsiteSettingsUI::IdentityInfo::GetIdentityStatusText() const {
-  if (identity_status == WebsiteSettings::SITE_IDENTITY_STATUS_CERT ||
-      identity_status ==  WebsiteSettings::SITE_IDENTITY_STATUS_EV_CERT) {
-    return l10n_util::GetStringUTF16(IDS_WEBSITE_SETTINGS_IDENTITY_VERIFIED);
+  switch (identity_status) {
+    case WebsiteSettings::SITE_IDENTITY_STATUS_CERT:
+    case WebsiteSettings::SITE_IDENTITY_STATUS_EV_CERT:
+    case WebsiteSettings::SITE_IDENTITY_STATUS_CERT_REVOCATION_UNKNOWN:
+      return l10n_util::GetStringUTF16(IDS_WEBSITE_SETTINGS_SECURE_TRANSPORT);
+    case WebsiteSettings::SITE_IDENTITY_STATUS_DEPRECATED_SIGNATURE_ALGORITHM:
+      return l10n_util::GetStringUTF16(
+          IDS_WEBSITE_DEPRECATED_SIGNATURE_ALGORITHM);
+    case WebsiteSettings::SITE_IDENTITY_STATUS_ADMIN_PROVIDED_CERT:
+      return l10n_util::GetStringUTF16(IDS_CERT_POLICY_PROVIDED_CERT_HEADER);
+    case WebsiteSettings::SITE_IDENTITY_STATUS_UNKNOWN:
+      return l10n_util::GetStringUTF16(IDS_WEBSITE_SETTINGS_UNKNOWN_TRANSPORT);
+    case WebsiteSettings::SITE_IDENTITY_STATUS_INTERNAL_PAGE:
+      return l10n_util::GetStringUTF16(IDS_WEBSITE_SETTINGS_INTERNAL_PAGE);
+    case WebsiteSettings::SITE_IDENTITY_STATUS_NO_CERT:
+    default:
+      return l10n_util::GetStringUTF16(
+          IDS_WEBSITE_SETTINGS_NON_SECURE_TRANSPORT);
   }
-  if (identity_status ==
-          WebsiteSettings::SITE_IDENTITY_STATUS_ADMIN_PROVIDED_CERT) {
-    return l10n_util::GetStringUTF16(IDS_CERT_POLICY_PROVIDED_CERT_HEADER);
-  }
-  return l10n_util::GetStringUTF16(IDS_WEBSITE_SETTINGS_IDENTITY_NOT_VERIFIED);
 }
 
 WebsiteSettingsUI::~WebsiteSettingsUI() {
@@ -128,6 +140,10 @@ base::string16 WebsiteSettingsUI::PermissionTypeToUIString(
       return l10n_util::GetStringUTF16(IDS_WEBSITE_SETTINGS_TYPE_MOUSELOCK);
     case CONTENT_SETTINGS_TYPE_MEDIASTREAM:
       return l10n_util::GetStringUTF16(IDS_WEBSITE_SETTINGS_TYPE_MEDIASTREAM);
+    case CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC:
+      return l10n_util::GetStringUTF16(IDS_WEBSITE_SETTINGS_TYPE_MIC);
+    case CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA:
+      return l10n_util::GetStringUTF16(IDS_WEBSITE_SETTINGS_TYPE_CAMERA);
     case CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS:
       return l10n_util::GetStringUTF16(IDS_AUTOMATIC_DOWNLOADS_TAB_LABEL);
     case CONTENT_SETTINGS_TYPE_MIDI_SYSEX:
@@ -156,12 +172,19 @@ base::string16 WebsiteSettingsUI::PermissionValueToUIString(
 
 // static
 base::string16 WebsiteSettingsUI::PermissionActionToUIString(
-      ContentSetting setting,
-      ContentSetting default_setting,
-      content_settings::SettingSource source) {
+    ContentSettingsType type,
+    ContentSetting setting,
+    ContentSetting default_setting,
+    content_settings::SettingSource source) {
   ContentSetting effective_setting = setting;
   if (effective_setting == CONTENT_SETTING_DEFAULT)
     effective_setting = default_setting;
+
+#if defined(ENABLE_PLUGINS)
+  effective_setting =
+      content_settings::PluginsFieldTrial::EffectiveContentSetting(
+          type, effective_setting);
+#endif
 
   const int* button_text_ids = NULL;
   switch (source) {
@@ -224,8 +247,11 @@ int WebsiteSettingsUI::GetPermissionIconID(ContentSettingsType type,
       resource_id =
           use_blocked ? IDR_BLOCKED_MOUSE_CURSOR : IDR_ALLOWED_MOUSE_CURSOR;
       break;
-    case CONTENT_SETTINGS_TYPE_MEDIASTREAM:
-      resource_id = use_blocked ? IDR_BLOCKED_MEDIA : IDR_ASK_MEDIA;
+    case CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC:
+      resource_id = use_blocked ? IDR_BLOCKED_MIC : IDR_ALLOWED_MIC;
+      break;
+    case CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA:
+      resource_id = use_blocked ? IDR_BLOCKED_CAMERA : IDR_ALLOWED_CAMERA;
       break;
     case CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS:
       resource_id = use_blocked ? IDR_BLOCKED_DOWNLOADS
@@ -325,18 +351,4 @@ const gfx::Image& WebsiteSettingsUI::GetConnectionIcon(
     WebsiteSettings::SiteConnectionStatus status) {
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
   return rb.GetNativeImageNamed(GetConnectionIconID(status));
-}
-
-// static
-int WebsiteSettingsUI::GetFirstVisitIconID(const base::string16& first_visit) {
-  // FIXME(markusheintz): Display a minor warning icon if the page is visited
-  // the first time.
-  return IDR_PAGEINFO_INFO;
-}
-
-// static
-const gfx::Image& WebsiteSettingsUI::GetFirstVisitIcon(
-    const base::string16& first_visit) {
-  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-  return rb.GetNativeImageNamed(GetFirstVisitIconID(first_visit));
 }

@@ -87,8 +87,9 @@
  *   apply a number of optimizations to mitigate potential performance
  *   penalties caused by previous design decision; */
 
-#if !defined(OPENSSL_NO_ASM) && \
-    (defined(OPENSSL_X86) || defined(OPENSSL_X86_64) || defined(OPENSSL_ARM))
+#if !defined(OPENSSL_NO_ASM) &&                         \
+    (defined(OPENSSL_X86) || defined(OPENSSL_X86_64) || \
+     defined(OPENSSL_ARM) || defined(OPENSSL_AARCH64))
 #define SHA512_BLOCK_CAN_MANAGE_UNALIGNED_DATA
 #define SHA512_ASM
 #endif
@@ -165,7 +166,7 @@ static
 void sha512_block_data_order(SHA512_CTX *ctx, const void *in, size_t num);
 
 
-int SHA384_Final(unsigned char *md, SHA512_CTX *sha) {
+int SHA384_Final(uint8_t *md, SHA512_CTX *sha) {
   return SHA512_Final(md, sha);
 }
 
@@ -173,7 +174,7 @@ int SHA384_Update(SHA512_CTX *sha, const void *data, size_t len) {
   return SHA512_Update(sha, data, len);
 }
 
-void SHA512_Transform(SHA512_CTX *c, const unsigned char *data) {
+void SHA512_Transform(SHA512_CTX *c, const uint8_t *data) {
 #ifndef SHA512_BLOCK_CAN_MANAGE_UNALIGNED_DATA
   if ((size_t)data % sizeof(c->u.d[0]) != 0) {
     memcpy(c->u.p, data, sizeof(c->u.p));
@@ -188,8 +189,9 @@ int SHA512_Update(SHA512_CTX *c, const void *in_data, size_t len) {
   uint8_t *p = c->u.p;
   const uint8_t *data = (const uint8_t *)in_data;
 
-  if (len == 0)
+  if (len == 0) {
     return 1;
+  }
 
   l = (c->Nl + (((uint64_t)len) << 3)) & OPENSSL_U64(0xffffffffffffffff);
   if (l < c->Nl) {
@@ -217,14 +219,21 @@ int SHA512_Update(SHA512_CTX *c, const void *in_data, size_t len) {
 
   if (len >= sizeof(c->u)) {
 #ifndef SHA512_BLOCK_CAN_MANAGE_UNALIGNED_DATA
-    if ((size_t)data % sizeof(c->u.d[0]) != 0)
-      while (len >= sizeof(c->u))
-        memcpy(p, data, sizeof(c->u)), sha512_block_data_order(c, p, 1),
-            len -= sizeof(c->u), data += sizeof(c->u);
-    else
+    if ((size_t)data % sizeof(c->u.d[0]) != 0) {
+      while (len >= sizeof(c->u)) {
+        memcpy(p, data, sizeof(c->u));
+        sha512_block_data_order(c, p, 1);
+        len -= sizeof(c->u);
+        data += sizeof(c->u);
+      }
+    } else
 #endif
-      sha512_block_data_order(c, data, len / sizeof(c->u)), data += len,
-          len %= sizeof(c->u), data -= len;
+    {
+      sha512_block_data_order(c, data, len / sizeof(c->u));
+      data += len;
+      len %= sizeof(c->u);
+      data -= len;
+    }
   }
 
   if (len != 0) {
@@ -235,7 +244,7 @@ int SHA512_Update(SHA512_CTX *c, const void *in_data, size_t len) {
   return 1;
 }
 
-int SHA512_Final(unsigned char *md, SHA512_CTX *sha) {
+int SHA512_Final(uint8_t *md, SHA512_CTX *sha) {
   uint8_t *p = (uint8_t *)sha->u.p;
   size_t n = sha->num;
 
@@ -267,7 +276,9 @@ int SHA512_Final(unsigned char *md, SHA512_CTX *sha) {
 
   sha512_block_data_order(sha, p, 1);
 
-  if (md == 0) {
+  if (md == NULL) {
+    /* TODO(davidben): This NULL check is absent in other low-level hash 'final'
+     * functions and is one of the few places one can fail. */
     return 0;
   }
 
@@ -303,6 +314,8 @@ int SHA512_Final(unsigned char *md, SHA512_CTX *sha) {
       break;
     /* ... as well as make sure md_len is not abused. */
     default:
+      /* TODO(davidben): This bad |md_len| case is one of the few places a
+       * low-level hash 'final' function can fail. This should never happen. */
       return 0;
   }
 
@@ -406,7 +419,7 @@ static uint64_t __fastcall __pull64be(const void *x) {
 
 #ifndef PULL64
 #define B(x, j) \
-  (((uint64_t)(*(((const unsigned char *)(&x)) + j))) << ((7 - j) * 8))
+  (((uint64_t)(*(((const uint8_t *)(&x)) + j))) << ((7 - j) * 8))
 #define PULL64(x)                                                        \
   (B(x, 0) | B(x, 1) | B(x, 2) | B(x, 3) | B(x, 4) | B(x, 5) | B(x, 6) | \
    B(x, 7))

@@ -4,6 +4,7 @@
 
 #include "content/browser/android/java/gin_java_script_to_java_types_coercion.h"
 
+#include <stdint.h>
 #include <unistd.h>
 
 #include "base/android/jni_android.h"
@@ -37,7 +38,7 @@ jlong RoundDoubleToLong(const double& x) {
   // compare to custom constants. kint64max is 2^63 - 1, but the spacing
   // between double values in the the range 2^62 to 2^63 is 2^10. The cast is
   // required to silence a spurious gcc warning for integer overflow.
-  const int64 kLimit = (GG_INT64_C(1) << 63) - static_cast<uint64>(1 << 10);
+  const int64 kLimit = (INT64_C(1) << 63) - static_cast<uint64>(1 << 10);
   DCHECK(kLimit > 0);
   const double kLargestDoubleLessThanInt64Max = kLimit;
   const double kSmallestDoubleGreaterThanInt64Min = -kLimit;
@@ -460,7 +461,7 @@ jobject CoerceJavaScriptListToArray(JNIEnv* env,
   if (!result) {
     return NULL;
   }
-  scoped_ptr<base::Value> null_value(base::Value::CreateNullValue());
+  scoped_ptr<base::Value> null_value = base::Value::CreateNullValue();
   for (jsize i = 0; i < length; ++i) {
     const base::Value* value_element = null_value.get();
     list_value->Get(i, &value_element);
@@ -531,7 +532,7 @@ jobject CoerceJavaScriptDictionaryToArray(JNIEnv* env,
   if (!result) {
     return NULL;
   }
-  scoped_ptr<base::Value> null_value(base::Value::CreateNullValue());
+  scoped_ptr<base::Value> null_value = base::Value::CreateNullValue();
   for (jsize i = 0; i < length; ++i) {
     const std::string key(base::IntToString(i));
     const base::Value* value_element = null_value.get();
@@ -551,23 +552,6 @@ jobject CoerceJavaScriptDictionaryToArray(JNIEnv* env,
   }
 
   return result;
-}
-
-// Returns 'true' if it is possible to cast an object of class |src| to
-// an object of class |dst|.
-bool CanAssignClassVariables(JNIEnv* env,
-                             const ScopedJavaLocalRef<jclass>& dst,
-                             const ScopedJavaLocalRef<jclass>& src) {
-  if (dst.is_null() || src.is_null())
-    return false;
-  return env->IsAssignableFrom(src.obj(), dst.obj()) == JNI_TRUE;
-}
-
-ScopedJavaLocalRef<jclass> GetObjectClass(
-    JNIEnv* env,
-    const ScopedJavaLocalRef<jobject>& obj) {
-  jclass clazz = env->GetObjectClass(obj.obj());
-  return ScopedJavaLocalRef<jclass>(env, clazz);
 }
 
 jvalue CoerceJavaScriptObjectToJavaValue(JNIEnv* env,
@@ -596,12 +580,10 @@ jvalue CoerceJavaScriptObjectToJavaValue(JNIEnv* env,
             obj.Reset(iter->second.get(env));
           }
         }
-        DCHECK(!target_type.class_jni_name.empty());
+        DCHECK(!target_type.class_ref.is_null());
         DCHECK(!obj.is_null());
-        if (CanAssignClassVariables(
-                env,
-                base::android::GetClass(env, target_type.JNIName().c_str()),
-                GetObjectClass(env, obj))) {
+        if (env->IsInstanceOf(obj.obj(), target_type.class_ref.obj()) ==
+            JNI_TRUE) {
           result.l = obj.Release();
         } else {
           result.l = NULL;

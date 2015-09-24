@@ -5,92 +5,96 @@
 #include "config.h"
 #include "core/paint/ObjectPainter.h"
 
-#include "core/paint/DrawingRecorder.h"
-#include "core/rendering/PaintInfo.h"
-#include "core/rendering/RenderObject.h"
-#include "core/rendering/RenderTheme.h"
-#include "core/rendering/style/RenderStyle.h"
+#include "core/layout/LayoutObject.h"
+#include "core/layout/LayoutTheme.h"
+#include "core/paint/BoxBorderPainter.h"
+#include "core/paint/LayoutObjectDrawingRecorder.h"
+#include "core/paint/PaintInfo.h"
+#include "core/style/BorderEdge.h"
+#include "core/style/ComputedStyle.h"
 #include "platform/geometry/LayoutPoint.h"
-#include "platform/graphics/GraphicsContextStateSaver.h"
 
 namespace blink {
 
-void ObjectPainter::paintFocusRing(PaintInfo& paintInfo, const LayoutPoint& paintOffset, RenderStyle* style)
+LayoutRect ObjectPainter::outlineBounds(const LayoutRect& objectBounds, const ComputedStyle& style)
 {
-    Vector<LayoutRect> focusRingRects;
-    m_renderObject.addFocusRingRects(focusRingRects, paintOffset, paintInfo.paintContainer());
-    ASSERT(style->outlineStyleIsAuto());
+    LayoutRect outlineBounds(objectBounds);
+    outlineBounds.inflate(style.outlineOutset());
+    return outlineBounds;
+}
+
+void ObjectPainter::paintFocusRing(const PaintInfo& paintInfo, const ComputedStyle& style, const Vector<LayoutRect>& focusRingRects)
+{
+    ASSERT(style.outlineStyleIsAuto());
     Vector<IntRect> focusRingIntRects;
     for (size_t i = 0; i < focusRingRects.size(); ++i)
         focusRingIntRects.append(pixelSnappedIntRect(focusRingRects[i]));
-    paintInfo.context->drawFocusRing(focusRingIntRects, style->outlineWidth(), style->outlineOffset(), m_renderObject.resolveColor(style, CSSPropertyOutlineColor));
+    paintInfo.context->drawFocusRing(focusRingIntRects, style.outlineWidth(), style.outlineOffset(), m_layoutObject.resolveColor(style, CSSPropertyOutlineColor));
 }
 
-void ObjectPainter::paintOutline(PaintInfo& paintInfo, const LayoutRect& paintRect)
+void ObjectPainter::paintOutline(const PaintInfo& paintInfo, const LayoutRect& objectBounds, const LayoutRect& visualOverflowBounds)
 {
-    RenderStyle* styleToUse = m_renderObject.style();
-    if (!styleToUse->hasOutline())
+    const ComputedStyle& styleToUse = m_layoutObject.styleRef();
+    if (!styleToUse.hasOutline())
         return;
 
-    DrawingRecorder recorder(paintInfo.context, &m_renderObject, paintInfo.phase, paintRect);
+    if (LayoutObjectDrawingRecorder::useCachedDrawingIfPossible(*paintInfo.context, m_layoutObject, paintInfo.phase))
+        return;
 
-    if (styleToUse->outlineStyleIsAuto()) {
-        if (RenderTheme::theme().shouldDrawDefaultFocusRing(&m_renderObject)) {
+    LayoutObjectDrawingRecorder recorder(*paintInfo.context, m_layoutObject, paintInfo.phase, visualOverflowBounds);
+
+    if (styleToUse.outlineStyleIsAuto()) {
+        if (LayoutTheme::theme().shouldDrawDefaultFocusRing(&m_layoutObject)) {
             // Only paint the focus ring by hand if the theme isn't able to draw the focus ring.
-            paintFocusRing(paintInfo, paintRect.location(), styleToUse);
+            Vector<LayoutRect> focusRingRects;
+            m_layoutObject.addFocusRingRects(focusRingRects, objectBounds.location());
+            paintFocusRing(paintInfo, styleToUse, focusRingRects);
         }
         return;
     }
 
-    if (styleToUse->outlineStyle() == BNONE)
+    if (styleToUse.outlineStyle() == BNONE)
         return;
 
-    IntRect inner = pixelSnappedIntRect(paintRect);
-    inner.inflate(styleToUse->outlineOffset());
+    LayoutRect inner(pixelSnappedIntRect(objectBounds));
+    inner.inflate(styleToUse.outlineOffset());
 
-    IntRect outer = pixelSnappedIntRect(inner);
-    LayoutUnit outlineWidth = styleToUse->outlineWidth();
+    LayoutRect outer(inner);
+    int outlineWidth = styleToUse.outlineWidth();
     outer.inflate(outlineWidth);
 
-    // FIXME: This prevents outlines from painting inside the object. See bug 12042
-    if (outer.isEmpty())
+    const BorderEdge commonEdgeInfo(outlineWidth,
+        m_layoutObject.resolveColor(styleToUse, CSSPropertyOutlineColor), styleToUse.outlineStyle());
+    BoxBorderPainter(styleToUse, outer, inner, commonEdgeInfo).paintBorder(paintInfo, outer);
+}
+
+void ObjectPainter::addPDFURLRectIfNeeded(const PaintInfo& paintInfo, const LayoutPoint& paintOffset)
+{
+    ASSERT(paintInfo.context->printing());
+    if (m_layoutObject.isElementContinuation() || !m_layoutObject.node() || !m_layoutObject.node()->isLink() || m_layoutObject.styleRef().visibility() != VISIBLE)
         return;
 
-    EBorderStyle outlineStyle = styleToUse->outlineStyle();
-    Color outlineColor = m_renderObject.resolveColor(styleToUse, CSSPropertyOutlineColor);
+    KURL url = toElement(m_layoutObject.node())->hrefURL();
+    if (!url.isValid())
+        return;
 
-    GraphicsContext* graphicsContext = paintInfo.context;
-    bool useTransparencyLayer = outlineColor.hasAlpha();
-    if (useTransparencyLayer) {
-        if (outlineStyle == SOLID) {
-            Path path;
-            path.addRect(outer);
-            path.addRect(inner);
-            graphicsContext->setFillRule(RULE_EVENODD);
-            graphicsContext->setFillColor(outlineColor);
-            graphicsContext->fillPath(path);
-            return;
-        }
-        graphicsContext->beginTransparencyLayer(static_cast<float>(outlineColor.alpha()) / 255);
-        outlineColor = Color(outlineColor.red(), outlineColor.green(), outlineColor.blue());
+    Vector<LayoutRect> focusRingRects;
+    m_layoutObject.addFocusRingRects(focusRingRects, paintOffset);
+    IntRect rect = pixelSnappedIntRect(unionRect(focusRingRects));
+    if (rect.isEmpty())
+        return;
+
+    if (LayoutObjectDrawingRecorder::useCachedDrawingIfPossible(*paintInfo.context, m_layoutObject, DisplayItem::PrintedContentPDFURLRect))
+        return;
+
+    LayoutObjectDrawingRecorder recorder(*paintInfo.context, m_layoutObject, DisplayItem::PrintedContentPDFURLRect, rect);
+    if (url.hasFragmentIdentifier() && equalIgnoringFragmentIdentifier(url, m_layoutObject.document().baseURL())) {
+        String fragmentName = url.fragmentIdentifier();
+        if (m_layoutObject.document().findAnchor(fragmentName))
+            paintInfo.context->setURLFragmentForRect(fragmentName, rect);
+        return;
     }
-
-    int leftOuter = outer.x();
-    int leftInner = inner.x();
-    int rightOuter = outer.maxX();
-    int rightInner = inner.maxX();
-    int topOuter = outer.y();
-    int topInner = inner.y();
-    int bottomOuter = outer.maxY();
-    int bottomInner = inner.maxY();
-
-    drawLineForBoxSide(graphicsContext, leftOuter, topOuter, leftInner, bottomOuter, BSLeft, outlineColor, outlineStyle, outlineWidth, outlineWidth);
-    drawLineForBoxSide(graphicsContext, leftOuter, topOuter, rightOuter, topInner, BSTop, outlineColor, outlineStyle, outlineWidth, outlineWidth);
-    drawLineForBoxSide(graphicsContext, rightInner, topOuter, rightOuter, bottomOuter, BSRight, outlineColor, outlineStyle, outlineWidth, outlineWidth);
-    drawLineForBoxSide(graphicsContext, leftOuter, bottomInner, rightOuter, bottomOuter, BSBottom, outlineColor, outlineStyle, outlineWidth, outlineWidth);
-
-    if (useTransparencyLayer)
-        graphicsContext->endLayer();
+    paintInfo.context->setURLForRect(url, rect);
 }
 
 void ObjectPainter::drawLineForBoxSide(GraphicsContext* graphicsContext, int x1, int y1, int x2, int y2,
@@ -198,11 +202,8 @@ void ObjectPainter::drawDoubleBoxSide(GraphicsContext* graphicsContext, int x1, 
             break;
         case BSLeft:
         case BSRight:
-            // FIXME: Why do we offset the border by 1 in this case but not the other one?
-            if (length > 1) {
-                graphicsContext->drawRect(IntRect(x1, y1 + 1, thirdOfThickness, length - 1));
-                graphicsContext->drawRect(IntRect(x2 - thirdOfThickness, y1 + 1, thirdOfThickness, length - 1));
-            }
+            graphicsContext->drawRect(IntRect(x1, y1, thirdOfThickness, length));
+            graphicsContext->drawRect(IntRect(x2 - thirdOfThickness, y1, thirdOfThickness, length));
             break;
         }
 

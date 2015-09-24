@@ -22,40 +22,49 @@ var remoting = remoting || {};
 
 /**
  * @constructor
- * @param {!remoting.ClientSession} clientSession The client session to send
- * cast extension messages to.
+ * @implements {remoting.ProtocolExtension}
  */
-remoting.CastExtensionHandler = function(clientSession) {
-  /** @private */
-  this.clientSession_ = clientSession;
-
-  /** @type {chrome.cast.Session} @private */
+remoting.CastExtensionHandler = function() {
+  /** @private {chrome.cast.Session} */
   this.session_ = null;
 
-  /** @type {string} @private */
+  /** @private {string} */
   this.kCastNamespace_ = 'urn:x-cast:com.chromoting.cast.all';
 
-  /** @type {string} @private */
+  /** @private {string} */
   this.kApplicationId_ = "8A1211E3";
 
-  /** @type {Array.<Object>} @private */
+  /** @private {Array<Object>} */
   this.messageQueue_ = [];
 
-  this.start_();
+  /** @private {?function(string,string)} */
+  this.sendMessageToHostCallback_ = null;
+};
+
+/** @private {string} */
+remoting.CastExtensionHandler.EXTENSION_TYPE = 'cast_message';
+
+/** @return {Array<string>} */
+remoting.CastExtensionHandler.prototype.getExtensionTypes = function() {
+  return [remoting.CastExtensionHandler.EXTENSION_TYPE];
 };
 
 /**
  * The id of the script node.
- * @type {string}
- * @private
+ * @private {string}
  */
 remoting.CastExtensionHandler.prototype.SCRIPT_NODE_ID_ = 'cast-script-node';
 
 /**
  * Attempts to load the Google Cast Chrome Sender API libary.
- * @private
+ *
+ * @param {function(string,string)} sendMessageToHost Callback to send a message
+ *     to the host.
  */
-remoting.CastExtensionHandler.prototype.start_ = function() {
+remoting.CastExtensionHandler.prototype.startExtension =
+    function(sendMessageToHost) {
+  this.sendMessageToHostCallback_ = sendMessageToHost;
+
   var node = document.getElementById(this.SCRIPT_NODE_ID_);
   if (node) {
     console.error(
@@ -81,16 +90,17 @@ remoting.CastExtensionHandler.prototype.start_ = function() {
   }
   node.addEventListener('load', onLoad, false);
   node.addEventListener('error', onLoadError, false);
-
 };
 
 /**
  * Process Cast Extension Messages from the Chromoting host.
- * @param {string} msgString The extension message's data.
+ *
+ * @param {string} type The message type.
+ * @param {Object} message The parsed extension message data.
+ * @return {boolean} True if the extension message was handled.
  */
-remoting.CastExtensionHandler.prototype.onMessage = function(msgString) {
-  var message = getJsonObjectFromString(msgString);
-
+remoting.CastExtensionHandler.prototype.onExtensionMessage =
+    function(type, message) {
   // Save messages to send after a session is established.
   this.messageQueue_.push(message);
   // Trigger the sending of pending messages, followed by the one just
@@ -98,17 +108,18 @@ remoting.CastExtensionHandler.prototype.onMessage = function(msgString) {
   if (this.session_) {
     this.sendPendingMessages_();
   }
+  return true;
 };
 
 /**
- * Send cast-extension messages through the client session.
- * @param {Object} response The JSON response to be sent to the host. The
- * response object must contain the appropriate keys.
+ * Send cast-extension messages through the host via the plugin.
+ * @param {Object} data The JSON response to be sent to the host. The
+ *     response object must contain the appropriate keys.
  * @private
  */
-remoting.CastExtensionHandler.prototype.sendMessageToHost_ =
-    function(response) {
-  this.clientSession_.sendCastExtensionMessage(response);
+remoting.CastExtensionHandler.prototype.sendMessageToHost_ = function(data) {
+  this.sendMessageToHostCallback_(remoting.CastExtensionHandler.EXTENSION_TYPE,
+                                  JSON.stringify(data));
 };
 
 /**
@@ -240,7 +251,7 @@ remoting.CastExtensionHandler.prototype.chromotingMessageListener =
     function(ns, message) {
   if (ns === this.kCastNamespace_) {
     try {
-        var messageObj = getJsonObjectFromString(message);
+        var messageObj = base.getJsonObjectFromString(message);
         this.sendMessageToHost_(messageObj);
     } catch (err) {
       console.error('Failed to process message from Cast device.');

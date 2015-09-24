@@ -12,6 +12,7 @@
 #include "base/files/file_path.h"
 #include "base/memory/ref_counted.h"
 #include "extensions/common/manifest.h"
+#include "extensions/common/message_bundle.h"
 
 class ExtensionIconSet;
 class GURL;
@@ -22,8 +23,8 @@ class FilePath;
 
 namespace extensions {
 class Extension;
+class ExtensionSet;
 struct InstallWarning;
-class MessageBundle;
 
 // Utilities for manipulating the on-disk storage of extensions.
 namespace file_util {
@@ -88,6 +89,13 @@ std::vector<base::FilePath> FindPrivateKeyFiles(
 bool CheckForIllegalFilenames(const base::FilePath& extension_path,
                               std::string* error);
 
+// We need to reserve the names of special Windows filenames, such as
+// "com2.zip."
+// If any files or directories are found to be using a reserved Windows
+// filename, we return false, and set error message.
+bool CheckForWindowsReservedFilenames(const base::FilePath& extension_dir,
+                                      std::string* error);
+
 // Returns a path to a temporary directory for unpacking an extension that will
 // be installed into |extensions_dir|. Creates the directory if necessary.
 // The directory will be on the same file system as |extensions_dir| so
@@ -123,10 +131,17 @@ MessageBundle* LoadMessageBundle(const base::FilePath& extension_path,
 
 // Loads the extension message bundle substitution map. Contains at least
 // the extension_id item.
-std::map<std::string, std::string>* LoadMessageBundleSubstitutionMap(
+MessageBundle::SubstitutionMap* LoadMessageBundleSubstitutionMap(
     const base::FilePath& extension_path,
     const std::string& extension_id,
     const std::string& default_locale);
+
+// Loads the extension message bundle substitution map, including messages from
+// Shared Modules that the given extension imports. Contains at least the
+// extension_id item.
+MessageBundle::SubstitutionMap* LoadMessageBundleSubstitutionMapWithImports(
+    const std::string& extension_id,
+    const ExtensionSet& extension_set);
 
 // Helper functions for getting paths for files used in content verification.
 base::FilePath GetVerifiedContentsPath(const base::FilePath& extension_path);

@@ -83,6 +83,12 @@ class AutocompleteTextFieldObserver {
   virtual void OnDidChange() = 0;
   virtual void OnDidEndEditing() = 0;
 
+  // Called when -insertText: is invoked on the editor.
+  virtual void OnInsertText() = 0;
+
+  // Called after the completion of a -drawRect: operation.
+  virtual void OnDidDrawRect() = 0;
+
   // NSResponder translates certain keyboard actions into selectors
   // passed to -doCommandBySelector:.  The selector is forwarded here,
   // return true if |cmd| is handled, false if the caller should
@@ -125,6 +131,9 @@ class AutocompleteTextFieldObserver {
   // Holds current tooltip strings, to keep them from being dealloced.
   base::scoped_nsobject<NSMutableArray> currentToolTips_;
 
+  // Animation object used for resizing the autocomplete field.
+  base::scoped_nsobject<NSViewAnimation> resizeAnimation_;
+
   base::scoped_nsobject<NSString> suggestText_;
   base::scoped_nsobject<NSColor> suggestColor_;
 }
@@ -141,6 +150,13 @@ class AutocompleteTextFieldObserver {
 
 // Clears the undo chain for this text field.
 - (void)clearUndoChain;
+
+// Animates the text field to the given |frame|.
+- (void)animateToFrame:(NSRect)frame;
+
+// Stops the current animation, if any. The frame will be set to the current
+// (mid-animation) frame.
+- (void)stopAnimation;
 
 // Updates cursor and tooltip rects depending on the contents of the text field
 // e.g. the security icon should have a default pointer shown on hover instead

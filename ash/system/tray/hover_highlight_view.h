@@ -26,24 +26,31 @@ class HoverHighlightView : public ActionableView {
   explicit HoverHighlightView(ViewClickListener* listener);
   ~HoverHighlightView() override;
 
-  // Convenience function for adding an icon and a label.  This also sets the
+  // Convenience function for adding an icon and a label. This also sets the
   // accessible name.
   void AddIconAndLabel(const gfx::ImageSkia& image,
                        const base::string16& text,
-                       gfx::Font::FontStyle style);
+                       bool highlight);
+
+  // Convenience function for adding an icon and a label. This also sets the
+  // accessible name. The icon has an indent equal to
+  // kTrayPopupPaddingHorizontal.
+  void AddIndentedIconAndLabel(const gfx::ImageSkia& image,
+                               const base::string16& text,
+                               bool highlight);
 
   // Convenience function for adding a label with padding on the left for a
-  // blank icon.  This also sets the accessible name.
-  // Returns label after parenting it.
+  // blank icon.  This also sets the accessible name. Returns label after
+  // parenting it.
   views::Label* AddLabel(const base::string16& text,
                          gfx::HorizontalAlignment alignment,
-                         gfx::Font::FontStyle style);
+                         bool highlight);
 
-  // Convenience function for adding an optional check and a label.  In the
+  // Convenience function for adding an optional check and a label. In the
   // absence of a check, padding is added to align with checked items.
   // Returns label after parenting it.
   views::Label* AddCheckableLabel(const base::string16& text,
-                                  gfx::Font::FontStyle style,
+                                  bool highlight,
                                   bool checked);
 
   // Allows view to expand its height.
@@ -63,9 +70,14 @@ class HoverHighlightView : public ActionableView {
   // Overridden from views::View.
   void GetAccessibleState(ui::AXViewState* state) override;
 
- private:
   // Sets the highlighted color on a text label if |hover| is set.
   void SetHoverHighlight(bool hover);
+
+ private:
+  // Actually adds the icon and label but does not set the layout manager
+  void DoAddIconAndLabel(const gfx::ImageSkia& image,
+                         const base::string16& text,
+                         bool highlight);
 
   // Overridden from ActionableView:
   bool PerformAction(const ui::Event& event) override;
@@ -76,6 +88,7 @@ class HoverHighlightView : public ActionableView {
   void OnMouseEntered(const ui::MouseEvent& event) override;
   void OnMouseExited(const ui::MouseEvent& event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
+  void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
   void OnEnabledChanged() override;
   void OnPaintBackground(gfx::Canvas* canvas) override;
   void OnFocus() override;

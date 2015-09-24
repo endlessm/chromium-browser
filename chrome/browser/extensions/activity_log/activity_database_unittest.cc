@@ -112,8 +112,8 @@ class ActivityDatabaseTest : public ChromeRenderViewHostTestHarness {
 #if defined OS_CHROMEOS
     test_user_manager_.reset(new chromeos::ScopedTestUserManager());
 #endif
-    CommandLine command_line(CommandLine::NO_PROGRAM);
-    CommandLine::ForCurrentProcess()->AppendSwitch(
+    base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
         switches::kEnableExtensionActivityLogTesting);
   }
 
@@ -174,7 +174,7 @@ TEST_F(ActivityDatabaseTest, Init) {
   base::FilePath db_file;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
   db_file = temp_dir.path().AppendASCII("ActivityInit.db");
-  base::DeleteFile(db_file, false);
+  sql::Connection::Delete(db_file);
 
   ActivityDatabase* activity_db = OpenDatabase(db_file);
   activity_db->Close();
@@ -191,7 +191,7 @@ TEST_F(ActivityDatabaseTest, RecordAction) {
   base::FilePath db_file;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
   db_file = temp_dir.path().AppendASCII("ActivityRecord.db");
-  base::DeleteFile(db_file, false);
+  sql::Connection::Delete(db_file);
 
   ActivityDatabase* activity_db = OpenDatabase(db_file);
   activity_db->SetBatchModeForTesting(false);
@@ -210,7 +210,7 @@ TEST_F(ActivityDatabaseTest, BatchModeOff) {
   base::FilePath db_file;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
   db_file = temp_dir.path().AppendASCII("ActivityRecord.db");
-  base::DeleteFile(db_file, false);
+  sql::Connection::Delete(db_file);
 
   // Record some actions
   ActivityDatabase* activity_db = OpenDatabase(db_file);
@@ -228,7 +228,7 @@ TEST_F(ActivityDatabaseTest, BatchModeOn) {
   base::FilePath db_file;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
   db_file = temp_dir.path().AppendASCII("ActivityRecord.db");
-  base::DeleteFile(db_file, false);
+  sql::Connection::Delete(db_file);
 
   // Record some actions
   ActivityDatabase* activity_db = OpenDatabase(db_file);
@@ -250,7 +250,7 @@ TEST_F(ActivityDatabaseTest, BatchModeFlush) {
   base::FilePath db_file;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
   db_file = temp_dir.path().AppendASCII("ActivityFlush.db");
-  base::DeleteFile(db_file, false);
+  sql::Connection::Delete(db_file);
 
   // Record some actions
   ActivityDatabase* activity_db = OpenDatabase(db_file);
@@ -272,7 +272,7 @@ TEST_F(ActivityDatabaseTest, InitFailure) {
   base::FilePath db_file;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
   db_file = temp_dir.path().AppendASCII("ActivityRecord.db");
-  base::DeleteFile(db_file, false);
+  sql::Connection::Delete(db_file);
 
   ActivityDatabaseTestPolicy* delegate = new ActivityDatabaseTestPolicy();
   ActivityDatabase* activity_db = new ActivityDatabase(delegate);

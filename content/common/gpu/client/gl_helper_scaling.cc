@@ -9,16 +9,16 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/debug/trace_event.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/message_loop/message_loop.h"
 #include "base/time/time.h"
+#include "base/trace_event/trace_event.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "third_party/skia/include/core/SkRegion.h"
-#include "ui/gfx/rect.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
 
 using gpu::gles2::GLES2Interface;
 
@@ -191,7 +191,6 @@ class ScalerImpl : public GLHelper::ScalerInterface,
 
     ScopedBufferBinder<GL_ARRAY_BUFFER> buffer_binder(
         gl_, scaler_helper_->vertex_attributes_buffer_);
-    DCHECK(shader_program_->Initialized());
     shader_program_->UseProgram(spec_.src_size,
                                 spec_.src_subrect,
                                 spec_.dst_size,
@@ -868,7 +867,11 @@ void ShaderProgram::Setup(const GLchar* vertex_shader_text,
   scaling_vector_location_ =
       gl_->GetUniformLocation(program_, "scaling_vector");
   color_weights_location_ = gl_->GetUniformLocation(program_, "color_weights");
-  return;
+  // The only reason fetching these attribute locations should fail is
+  // if the context was spontaneously lost (i.e., because the GPU
+  // process crashed, perhaps deliberately for testing).
+  DCHECK_IMPLIES(!Initialized(),
+                 gl_->GetGraphicsResetStatusKHR() != GL_NO_ERROR);
 }
 
 void ShaderProgram::UseProgram(const gfx::Size& src_size,

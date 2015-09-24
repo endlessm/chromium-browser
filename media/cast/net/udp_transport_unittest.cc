@@ -25,14 +25,15 @@ class MockPacketReceiver {
   MockPacketReceiver(const base::Closure& callback)
       : packet_callback_(callback) {}
 
-  void ReceivedPacket(scoped_ptr<Packet> packet) {
+  bool ReceivedPacket(scoped_ptr<Packet> packet) {
     packet_ = std::string(packet->size(), '\0');
     std::copy(packet->begin(), packet->end(), packet_.begin());
     packet_callback_.Run();
+    return true;
   }
 
   std::string packet() const { return packet_; }
-  PacketReceiverCallback packet_receiver() {
+  PacketReceiverCallbackWithStatus packet_receiver() {
     return base::Bind(&MockPacketReceiver::ReceivedPacket,
                       base::Unretained(this));
   }
@@ -62,13 +63,13 @@ TEST(UdpTransport, SendAndReceive) {
   net::ParseIPLiteralToNumber("0.0.0.0", &empty_addr_number);
 
   UdpTransport send_transport(NULL,
-                              message_loop.message_loop_proxy(),
+                              message_loop.task_runner(),
                               free_local_port1,
                               free_local_port2,
                               65536,
                               base::Bind(&UpdateCastTransportStatus));
   UdpTransport recv_transport(NULL,
-                              message_loop.message_loop_proxy(),
+                              message_loop.task_runner(),
                               free_local_port2,
                               net::IPEndPoint(empty_addr_number, 0),
                               65536,

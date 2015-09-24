@@ -39,10 +39,16 @@
     ['OS=="win"', {
       'targets': [
         {
+          # GN version: //breakpad:breakpad_handler
           'target_name': 'breakpad_handler',
           'type': 'static_library',
           'variables': {
             'breakpad_handler_target': 1,
+            'clang_warning_flags': [
+              # See
+              # https://code.google.com/p/google-breakpad/issues/detail?id=658.
+              '-Wno-reorder',
+            ],
           },
           # TODO(gregoryd): direct_dependent_settings should be shared with the
           # 64-bit target, but it doesn't work due to a bug in gyp

@@ -10,7 +10,6 @@
 #include "base/prefs/pref_registry_simple.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/net/onc_utils.h"
-#include "chrome/browser/prefs/proxy_config_dictionary.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/shill_service_client.h"
@@ -19,7 +18,9 @@
 #include "chromeos/network/network_profile_handler.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
+#include "chromeos/network/onc/onc_utils.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/proxy_config/proxy_config_dictionary.h"
 #include "dbus/object_path.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
@@ -112,7 +113,7 @@ void SetProxyConfigForNetwork(const ProxyConfigDictionary& proxy_config,
                    network_handler::ErrorCallback()));
   } else {
     std::string proxy_config_str;
-    base::JSONWriter::Write(&proxy_config.GetDictionary(), &proxy_config_str);
+    base::JSONWriter::Write(proxy_config.GetDictionary(), &proxy_config_str);
     shill_service_client->SetProperty(
         dbus::ObjectPath(network.path()),
         shill::kProxyConfigProperty,
@@ -130,13 +131,9 @@ void RegisterPrefs(PrefRegistrySimple* registry) {
 }
 
 void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterBooleanPref(
-      prefs::kUseSharedProxies,
-      false,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterBooleanPref(prefs::kUseSharedProxies, false);
 
-  registry->RegisterListPref(prefs::kOpenNetworkConfiguration,
-                             user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterListPref(prefs::kOpenNetworkConfiguration);
 }
 
 }  // namespace proxy_config

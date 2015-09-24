@@ -13,11 +13,14 @@ import android.util.Log;
 import org.chromium.base.BaseSwitches;
 import org.chromium.base.CommandLine;
 import org.chromium.base.library_loader.LibraryLoader;
+import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.library_loader.ProcessInitException;
+import org.chromium.chromecast.base.ChromecastConfigAndroid;
 import org.chromium.content.app.ContentApplication;
 import org.chromium.content.browser.BrowserStartupController;
 import org.chromium.content.browser.DeviceUtils;
 import org.chromium.content.common.ContentSwitches;
+import org.chromium.net.NetworkChangeNotifier;
 
 /**
  * Static, one-time initialization for the browser process.
@@ -41,6 +44,8 @@ public class CastBrowserHelper {
 
         Log.d(TAG, "Performing one-time browser initialization");
 
+        ChromecastConfigAndroid.initializeForBrowser(context);
+
         // Initializing the command line must occur before loading the library.
         if (!CommandLine.isInitialized()) {
             ContentApplication.initCommandLine(context);
@@ -62,11 +67,14 @@ public class CastBrowserHelper {
         DeviceUtils.addDeviceSpecificUserAgentSwitch(context);
 
         try {
-            LibraryLoader.ensureInitialized();
+            LibraryLoader.get(LibraryProcessType.PROCESS_BROWSER).ensureInitialized(context);
 
             Log.d(TAG, "Loading BrowserStartupController...");
-            BrowserStartupController.get(context).startBrowserProcessesSync(false);
-
+            BrowserStartupController.get(context, LibraryProcessType.PROCESS_BROWSER)
+                    .startBrowserProcessesSync(false);
+            NetworkChangeNotifier.init(context);
+            // Cast shell always expects to receive notifications to track network state.
+            NetworkChangeNotifier.registerToReceiveNotificationsAlways();
             sIsBrowserInitialized = true;
             return true;
         } catch (ProcessInitException e) {

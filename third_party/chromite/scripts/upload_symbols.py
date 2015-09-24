@@ -30,6 +30,7 @@ except ImportError:
 import random
 import signal
 import socket
+import sys
 import textwrap
 import tempfile
 import time
@@ -40,23 +41,21 @@ from chromite.cbuildbot import constants
 from chromite.lib import cache
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import gs
 from chromite.lib import osutils
 from chromite.lib import parallel
+from chromite.lib import path_util
 from chromite.lib import retry_util
 from chromite.lib import signals
 from chromite.lib import timeout_util
 from chromite.scripts import cros_generate_breakpad_symbols
 
 # Needs to be after chromite imports.
-# TODO(build): When doing the initial buildbot bootstrap, we won't have any
-# other repos available.  So ignore isolateserver imports.  But buildbot will
-# re-exec itself once it has done a full repo sync and then the module will
-# be available -- it isn't needed that early.  http://crbug.com/341152
-try:
-  import isolateserver
-except ImportError:
-  isolateserver = None
+# We don't want to import the general keyring module as that will implicitly
+# try to import & connect to a dbus server.  That's a waste of time.
+sys.modules['keyring'] = None
+import isolateserver
 
 
 # URLs used for uploading symbols.
@@ -213,8 +212,8 @@ def TestingSymUpload(upload_url, sym_item):
   cmd = ['sym_upload', sym_item.sym_file, upload_url]
   # Randomly fail 80% of the time (the retry logic makes this 80%/3 per file).
   returncode = random.randint(1, 100) <= 80
-  cros_build_lib.Debug('would run (and return %i): %s', returncode,
-                       cros_build_lib.CmdToStr(cmd))
+  logging.debug('would run (and return %i): %s', returncode,
+                cros_build_lib.CmdToStr(cmd))
   if returncode:
     output = 'Failed to send the symbol file.'
   else:
@@ -304,7 +303,7 @@ def UploadSymbol(upload_url, sym_item, file_limit=DEFAULT_FILE_LIMIT,
     # Keeps us from DoS-ing the symbol server.
     time.sleep(sleep)
 
-  cros_build_lib.Debug('uploading %s' % sym_file)
+  logging.debug('uploading %s' % sym_file)
 
   # Ideally there'd be a tempfile.SpooledNamedTemporaryFile that we could use.
   with tempfile.NamedTemporaryFile(prefix='upload_symbols',
@@ -316,22 +315,22 @@ def UploadSymbol(upload_url, sym_item, file_limit=DEFAULT_FILE_LIMIT,
       # uploaded.
       file_size = os.path.getsize(sym_file)
       if file_size > file_limit:
-        cros_build_lib.Warning('stripping CFI from %s due to size %s > %s',
-                               sym_file, file_size, file_limit)
+        logging.warning('stripping CFI from %s due to size %s > %s', sym_file,
+                        file_size, file_limit)
         temp_sym_file.writelines([x for x in open(sym_file, 'rb').readlines()
                                   if not x.startswith('STACK CFI')])
 
         upload_item = FakeItem(sym_file=temp_sym_file.name,
-                                 sym_header=sym_item.sym_header)
+                               sym_header=sym_item.sym_header)
 
     # Hopefully the crash server will let it through.  But it probably won't.
     # Not sure what the best answer is in this case.
     file_size = os.path.getsize(upload_item.sym_file)
     if file_size > CRASH_SERVER_FILE_LIMIT:
       cros_build_lib.PrintBuildbotStepWarnings()
-      cros_build_lib.Warning('upload file %s is awfully large, risking '
-                             'rejection by the symbol server (%s > %s)',
-                             sym_file, file_size, CRASH_SERVER_FILE_LIMIT)
+      logging.warning('upload file %s is awfully large, risking rejection by '
+                      'the symbol server (%s > %s)', sym_file, file_size,
+                      CRASH_SERVER_FILE_LIMIT)
 
     # Upload the symbol file.
     success = False
@@ -340,18 +339,17 @@ def UploadSymbol(upload_url, sym_item, file_limit=DEFAULT_FILE_LIMIT,
           retry_util.RetryException,
           (urllib2.HTTPError, urllib2.URLError), MAX_RETRIES, SymUpload,
           upload_url, upload_item, sleep=INITIAL_RETRY_DELAY,
-          timed_log_msg='upload of %10i bytes took %%s: %s' %
-                        (file_size, os.path.basename(sym_file)))
+          timed_log_msg=('upload of %10i bytes took %%(delta)s: %s' %
+                         (file_size, os.path.basename(sym_file))))
       success = True
 
       if passed_queue:
         passed_queue.put(sym_item)
     except urllib2.HTTPError as e:
-      cros_build_lib.Warning('could not upload: %s: HTTP %s: %s',
-                             os.path.basename(sym_file), e.code, e.reason)
+      logging.warning('could not upload: %s: HTTP %s: %s',
+                      os.path.basename(sym_file), e.code, e.reason)
     except (urllib2.URLError, httplib.HTTPException, socket.error) as e:
-      cros_build_lib.Warning('could not upload: %s: %s',
-                             os.path.basename(sym_file), e)
+      logging.warning('could not upload: %s: %s', os.path.basename(sym_file), e)
     finally:
       if success:
         _UpdateCounter(watermark_errors, ERROR_ADJUST_PASS)
@@ -369,18 +367,16 @@ FakeItem = cros_build_lib.Collection(
     'FakeItem', sym_file=None, sym_header=None, content=lambda x: '')
 
 
-# TODO(build): Delete this if check. http://crbug.com/341152
-if isolateserver:
-  class SymbolItem(isolateserver.BufferItem):
-    """Turn a sym_file into an isolateserver.Item"""
+class SymbolItem(isolateserver.BufferItem):
+  """Turn a sym_file into an isolateserver.Item"""
 
-    ALGO = hashlib.sha1
+  ALGO = hashlib.sha1
 
-    def __init__(self, sym_file):
-      sym_header = cros_generate_breakpad_symbols.ReadSymsHeader(sym_file)
-      super(SymbolItem, self).__init__(str(sym_header), self.ALGO)
-      self.sym_header = sym_header
-      self.sym_file = sym_file
+  def __init__(self, sym_file):
+    sym_header = cros_generate_breakpad_symbols.ReadSymsHeader(sym_file)
+    super(SymbolItem, self).__init__(str(sym_header), self.ALGO)
+    self.sym_header = sym_header
+    self.sym_file = sym_file
 
 
 def SymbolDeduplicatorNotify(dedupe_namespace, dedupe_queue):
@@ -408,14 +404,14 @@ def SymbolDeduplicatorNotify(dedupe_namespace, dedupe_queue):
                                               dedupe_namespace)
     for item in iter(dedupe_queue.get, None):
       with timeout_util.Timeout(DEDUPE_TIMEOUT):
-        cros_build_lib.Debug('sending %s to dedupe server', item.sym_file)
+        logging.debug('sending %s to dedupe server', item.sym_file)
         storage.push(item, item.content(0))
-        cros_build_lib.Debug('sent %s', item.sym_file)
-    cros_build_lib.Info('dedupe notification finished; exiting')
+        logging.debug('sent %s', item.sym_file)
+    logging.info('dedupe notification finished; exiting')
   except Exception:
     sym_file = item.sym_file if (item and item.sym_file) else ''
-    cros_build_lib.Warning('posting %s to dedupe server failed',
-                           os.path.basename(sym_file), exc_info=True)
+    logging.warning('posting %s to dedupe server failed',
+                    os.path.basename(sym_file), exc_info=True)
 
     # Keep draining the queue though so it doesn't fill up.
     while dedupe_queue.get() is not None:
@@ -449,7 +445,7 @@ def SymbolDeduplicator(storage, sym_paths):
       with timeout_util.Timeout(DEDUPE_TIMEOUT):
         items = storage.contains(items)
     except Exception:
-      cros_build_lib.Warning('talking to dedupe server failed', exc_info=True)
+      logging.warning('talking to dedupe server failed', exc_info=True)
 
   return items
 
@@ -481,6 +477,10 @@ def SymbolFinder(tempdir, paths):
   Returns:
     Yield every viable sym file.
   """
+  cache_dir = path_util.GetCacheDir()
+  common_path = os.path.join(cache_dir, constants.COMMON_CACHE)
+  tar_cache = cache.TarballCache(common_path)
+
   for p in paths:
     # Pylint is confused about members of ParseResult.
 
@@ -489,11 +489,8 @@ def SymbolFinder(tempdir, paths):
       # Support globs of filenames.
       ctx = gs.GSContext()
       for p in ctx.LS(p):
-        cros_build_lib.Info('processing files inside %s', p)
+        logging.info('processing files inside %s', p)
         o = urlparse.urlparse(p)
-        cache_dir = commandline.GetCacheDir()
-        common_path = os.path.join(cache_dir, constants.COMMON_CACHE)
-        tar_cache = cache.TarballCache(common_path)
         key = ('%s%s' % (o.netloc, o.path)).split('/')  # pylint: disable=E1101
         # The common cache will not be LRU, removing the need to hold a read
         # lock on the cached gsutil.
@@ -501,7 +498,7 @@ def SymbolFinder(tempdir, paths):
         try:
           ref.SetDefault(p)
         except cros_build_lib.RunCommandError as e:
-          cros_build_lib.Warning('ignoring %s\n%s', p, e)
+          logging.warning('ignoring %s\n%s', p, e)
           continue
         for p in SymbolFinder(tempdir, [ref.path]):
           yield p
@@ -513,7 +510,7 @@ def SymbolFinder(tempdir, paths):
             yield os.path.join(root, f)
 
     elif IsTarball(p):
-      cros_build_lib.Info('processing files inside %s', p)
+      logging.info('processing files inside %s', p)
       tardir = tempfile.mkdtemp(dir=tempdir)
       cache.Untar(os.path.realpath(p), tardir)
       for p in SymbolFinder(tardir, [tardir]):
@@ -581,27 +578,26 @@ def UploadSymbols(board=None, official=False, server=None, breakpad_dir=None,
   Returns:
     The number of errors that were encountered.
   """
-  # TODO(build): Delete this assert.
-  assert isolateserver, 'Missing isolateserver import http://crbug.com/341152'
-
   if server is None:
     if official:
       upload_url = OFFICIAL_UPLOAD_URL
     else:
-      cros_build_lib.Warning('unofficial builds upload to the staging server')
+      logging.warning('unofficial builds upload to the staging server')
       upload_url = STAGING_UPLOAD_URL
   else:
     upload_url = server
 
   if sym_paths:
-    cros_build_lib.Info('uploading specified symbols to %s', upload_url)
+    logging.info('uploading specified symbols to %s', upload_url)
   else:
     if breakpad_dir is None:
+      if root is None:
+        raise ValueError('breakpad_dir requires root to be set')
       breakpad_dir = os.path.join(
           root,
           cros_generate_breakpad_symbols.FindBreakpadDir(board).lstrip('/'))
-    cros_build_lib.Info('uploading all symbols to %s from %s', upload_url,
-                        breakpad_dir)
+    logging.info('uploading all symbols to %s from %s', upload_url,
+                 breakpad_dir)
     sym_paths = [breakpad_dir]
 
   # We use storage_query to ask the server about existing symbols.  The
@@ -618,8 +614,8 @@ def UploadSymbols(board=None, official=False, server=None, breakpad_dir=None,
         storage_query = isolateserver.get_storage_api(constants.ISOLATESERVER,
                                                       dedupe_namespace)
     except Exception:
-      cros_build_lib.Warning('initializing dedupe server connection failed',
-                             exc_info=True)
+      logging.warning('initializing dedupe server connection failed',
+                      exc_info=True)
   else:
     dedupe_limit = 1
     dedupe_queue = None
@@ -703,7 +699,7 @@ def UploadSymbols(board=None, official=False, server=None, breakpad_dir=None,
           sym_paths.append(sym_path)
 
         if sym_paths:
-          cros_build_lib.Warning('retrying %i symbols', len(sym_paths))
+          logging.warning('retrying %i symbols', len(sym_paths))
           if counters.upload_limit is not None:
             counters.upload_limit += len(sym_paths)
           # Decrement the error count in case we recover in the second pass.
@@ -720,7 +716,7 @@ def UploadSymbols(board=None, official=False, server=None, breakpad_dir=None,
     WriteQueueToFile(failed_list, failed_queue, breakpad_dir)
 
   finally:
-    cros_build_lib.Info('finished uploading; joining background process')
+    logging.info('finished uploading; joining background process')
     if dedupe_queue:
       dedupe_queue.put(None)
 
@@ -733,20 +729,20 @@ def UploadSymbols(board=None, official=False, server=None, breakpad_dir=None,
         qsize = str(dedupe_queue.qsize())
       else:
         qsize = '[None]'
-      cros_build_lib.Info('waiting up to %i minutes for ~%s notifications',
-                          wait_minutes, qsize)
+      logging.info('waiting up to %i minutes for ~%s notifications',
+                   wait_minutes, qsize)
       storage_notify_proc.join(60)
       wait_minutes -= 1
 
     # The process is taking too long, so kill it and complain.
     if storage_notify_proc.is_alive():
-      cros_build_lib.Warning('notification process took too long')
+      logging.warning('notification process took too long')
       cros_build_lib.PrintBuildbotStepWarnings()
 
       # Kill it gracefully first (traceback) before tacking it down harder.
       pid = storage_notify_proc.pid
       for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGKILL):
-        cros_build_lib.Warning('sending %s to %i', signals.StrSignal(sig), pid)
+        logging.warning('sending %s to %i', signals.StrSignal(sig), pid)
         # The process might have exited between the last check and the
         # actual kill below, so ignore ESRCH errors.
         try:
@@ -762,7 +758,7 @@ def UploadSymbols(board=None, official=False, server=None, breakpad_dir=None,
 
       # Drain the queue so we don't hang when we finish.
       try:
-        cros_build_lib.Warning('draining the notify queue manually')
+        logging.warning('draining the notify queue manually')
         with timeout_util.Timeout(60):
           try:
             while dedupe_queue.get_nowait():
@@ -770,20 +766,17 @@ def UploadSymbols(board=None, official=False, server=None, breakpad_dir=None,
           except Queue.Empty:
             pass
       except timeout_util.TimeoutError:
-        cros_build_lib.Warning('draining the notify queue failed; trashing it')
+        logging.warning('draining the notify queue failed; trashing it')
         dedupe_queue.cancel_join_thread()
 
-  cros_build_lib.Info('uploaded %i symbols (%i were deduped) which took: %s',
-                      counters.uploaded_count, counters.deduped_count,
-                      datetime.datetime.now() - start_time)
+  logging.info('uploaded %i symbols (%i were deduped) which took: %s',
+               counters.uploaded_count, counters.deduped_count,
+               datetime.datetime.now() - start_time)
 
   return bg_errors.value
 
 
 def main(argv):
-  # TODO(build): Delete this assert.
-  assert isolateserver, 'Missing isolateserver import http://crbug.com/341152'
-
   parser = commandline.ArgumentParser(description=__doc__)
 
   parser.add_argument('sym_paths', type='path_or_uri', nargs='*', default=None,
@@ -791,7 +784,9 @@ def main(argv):
   parser.add_argument('--board', default=None,
                       help='board to build packages for')
   parser.add_argument('--breakpad_root', type='path', default=None,
-                      help='root directory for breakpad symbols')
+                      help='full path to the breakpad symbol directory')
+  parser.add_argument('--root', type='path', default=None,
+                      help='full path to the chroot dir')
   parser.add_argument('--official_build', action='store_true', default=False,
                       help='point to official symbol server')
   parser.add_argument('--server', type=str, default=None,
@@ -827,7 +822,7 @@ def main(argv):
 
   if opts.testing:
     # TODO(build): Kill off --testing mode once unittests are up-to-snuff.
-    cros_build_lib.Info('running in testing mode')
+    logging.info('running in testing mode')
     # pylint: disable=W0601,W0603
     global INITIAL_RETRY_DELAY, SymUpload, DEFAULT_SLEEP_DELAY
     INITIAL_RETRY_DELAY = DEFAULT_SLEEP_DELAY = 0
@@ -862,10 +857,10 @@ def main(argv):
                        server=opts.server, breakpad_dir=opts.breakpad_root,
                        file_limit=opts.strip_cfi, sleep=DEFAULT_SLEEP_DELAY,
                        upload_limit=opts.upload_limit, sym_paths=opts.sym_paths,
-                       failed_list=opts.failed_list,
+                       failed_list=opts.failed_list, root=opts.root,
                        dedupe_namespace=dedupe_namespace)
   if ret:
-    cros_build_lib.Error('encountered %i problem(s)', ret)
+    logging.error('encountered %i problem(s)', ret)
     # Since exit(status) gets masked, clamp it to 1 so we don't inadvertently
     # return 0 in case we are a multiple of the mask.
     ret = 1

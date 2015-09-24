@@ -6,7 +6,7 @@
 
 #include "base/bind.h"
 #include "base/values.h"
-#include "chrome/browser/safe_json_parser.h"
+#include "components/safe_json/safe_json_parser.h"
 #include "net/base/load_flags.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_request_status.h"
@@ -30,10 +30,7 @@ JSONResponseFetcher::~JSONResponseFetcher() {}
 void JSONResponseFetcher::Start(const GURL& query_url) {
   Stop();
 
-  fetcher_.reset(net::URLFetcher::Create(
-      query_url,
-      net::URLFetcher::GET,
-      this));
+  fetcher_ = net::URLFetcher::Create(query_url, net::URLFetcher::GET, this);
   fetcher_->SetRequestContext(context_getter_);
   fetcher_->SetLoadFlags(net::LOAD_DO_NOT_SAVE_COOKIES |
                          net::LOAD_DISABLE_CACHE);
@@ -75,16 +72,12 @@ void JSONResponseFetcher::OnURLFetchComplete(
   std::string json_data;
   fetcher->GetResponseAsString(&json_data);
 
-  scoped_refptr<SafeJsonParser> parser =
-      new SafeJsonParser(json_data,
-                         base::Bind(
-                             &JSONResponseFetcher::OnJsonParseSuccess,
-                             weak_factory_.GetWeakPtr()),
-                         base::Bind(
-                             &JSONResponseFetcher::OnJsonParseError,
-                             weak_factory_.GetWeakPtr()));
   // The parser will call us back via one of the callbacks.
-  parser->Start();
+  safe_json::SafeJsonParser::Parse(
+      json_data, base::Bind(&JSONResponseFetcher::OnJsonParseSuccess,
+                            weak_factory_.GetWeakPtr()),
+      base::Bind(&JSONResponseFetcher::OnJsonParseError,
+                 weak_factory_.GetWeakPtr()));
 }
 
 }  // namespace app_list

@@ -6,6 +6,7 @@
 #define EXTENSIONS_BROWSER_GUEST_VIEW_WEB_VIEW_WEB_VIEW_RENDERER_STATE_H_
 
 #include <map>
+#include <set>
 #include <string>
 #include <utility>
 
@@ -22,8 +23,13 @@ class WebViewRendererState {
   struct WebViewInfo {
     int embedder_process_id;
     int instance_id;
+    int rules_registry_id;
     std::string partition_id;
-    std::string embedder_extension_id;
+    std::string owner_host;
+    std::set<int> content_script_ids;
+
+    WebViewInfo();
+    ~WebViewInfo();
   };
 
   static WebViewRendererState* GetInstance();
@@ -31,7 +37,13 @@ class WebViewRendererState {
   // Looks up the information for the embedder <webview> for a given render
   // view, if one exists. Called on the IO thread.
   bool GetInfo(int guest_process_id, int guest_routing_id,
-               WebViewInfo* webview_info);
+               WebViewInfo* web_view_info);
+
+  // Looks up the information for the owner for a given guest process in a
+  // <webview>. Called on the IO thread.
+  bool GetOwnerInfo(int guest_process_id,
+                    int* owner_process_id,
+                    std::string* owner_host) const;
 
   // Looks up the partition info for the embedder <webview> for a given guest
   // process. Called on the IO thread.
@@ -40,12 +52,19 @@ class WebViewRendererState {
   // Returns true if the given renderer is used by webviews.
   bool IsGuest(int render_process_id);
 
+  void AddContentScriptIDs(int embedder_process_id,
+                           int view_instance_id,
+                           const std::set<int>& script_ids);
+  void RemoveContentScriptIDs(int embedder_process_id,
+                              int view_instance_id,
+                              const std::set<int>& script_ids);
+
  private:
   friend class WebViewGuest;
   friend struct DefaultSingletonTraits<WebViewRendererState>;
 
-  typedef std::pair<int, int> RenderId;
-  typedef std::map<RenderId, WebViewInfo> WebViewInfoMap;
+  using RenderId = std::pair<int, int>;
+  using WebViewInfoMap = std::map<RenderId, WebViewInfo>;
 
   struct WebViewPartitionInfo {
     int web_view_count;
@@ -56,18 +75,18 @@ class WebViewRendererState {
       partition_id(partition) {}
   };
 
-  typedef std::map<int, WebViewPartitionInfo> WebViewPartitionIDMap;
+  using WebViewPartitionIDMap = std::map<int, WebViewPartitionInfo>;
 
   WebViewRendererState();
   ~WebViewRendererState();
 
   // Adds or removes a <webview> guest render process from the set.
   void AddGuest(int render_process_host_id, int routing_id,
-                const WebViewInfo& webview_info);
+                const WebViewInfo& web_view_info);
   void RemoveGuest(int render_process_host_id, int routing_id);
 
-  WebViewInfoMap webview_info_map_;
-  WebViewPartitionIDMap webview_partition_id_map_;
+  WebViewInfoMap web_view_info_map_;
+  WebViewPartitionIDMap web_view_partition_id_map_;
 
   DISALLOW_COPY_AND_ASSIGN(WebViewRendererState);
 };

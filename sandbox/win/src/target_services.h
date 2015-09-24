@@ -13,23 +13,19 @@ namespace sandbox {
 
 class ProcessState {
  public:
-  ProcessState() : process_state_(0) {}
-
+  ProcessState();
   // Returns true if kernel32.dll has been loaded.
-  bool IsKernel32Loaded();
-
+  bool IsKernel32Loaded() const;
   // Returns true if main has been called.
-  bool InitCalled();
-
+  bool InitCalled() const;
   // Returns true if LowerToken has been called.
-  bool RevertedToSelf();
-
+  bool RevertedToSelf() const;
   // Set the current state.
   void SetKernel32Loaded();
   void SetInitCalled();
   void SetRevertedToSelf();
 
- public:
+ private:
   int process_state_;
   DISALLOW_COPY_AND_ASSIGN(ProcessState);
 };
@@ -43,14 +39,14 @@ class TargetServicesBase : public TargetServices {
   TargetServicesBase();
 
   // Public interface of TargetServices.
-  virtual ResultCode Init();
-  virtual void LowerToken();
-  virtual ProcessState* GetState();
-  virtual ResultCode DuplicateHandle(HANDLE source_handle,
-                                     DWORD target_process_id,
-                                     HANDLE* target_handle,
-                                     DWORD desired_access,
-                                     DWORD options);
+  ResultCode Init() override;
+  void LowerToken() override;
+  ProcessState* GetState() override;
+  ResultCode DuplicateHandle(HANDLE source_handle,
+                             DWORD target_process_id,
+                             HANDLE* target_handle,
+                             DWORD desired_access,
+                             DWORD options) override;
 
   // Factory method.
   static TargetServicesBase* GetInstance();

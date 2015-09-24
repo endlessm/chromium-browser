@@ -4,7 +4,6 @@
 
 #include "content/child/child_gpu_memory_buffer_manager.h"
 
-#include "content/child/child_thread.h"
 #include "content/common/child_process_messages.h"
 #include "content/common/gpu/client/gpu_memory_buffer_impl.h"
 
@@ -45,17 +44,15 @@ ChildGpuMemoryBufferManager::AllocateGpuMemoryBuffer(
   IPC::Message* message = new ChildProcessHostMsg_SyncAllocateGpuMemoryBuffer(
       size.width(), size.height(), format, usage, &handle);
   bool success = sender_->Send(message);
-  if (!success)
-    return scoped_ptr<gfx::GpuMemoryBuffer>();
+  if (!success || handle.is_null())
+    return nullptr;
 
   scoped_ptr<GpuMemoryBufferImpl> buffer(GpuMemoryBufferImpl::CreateFromHandle(
-      handle,
-      size,
-      format,
+      handle, size, format, usage,
       base::Bind(&DeletedGpuMemoryBuffer, sender_, handle.id)));
   if (!buffer) {
     sender_->Send(new ChildProcessHostMsg_DeletedGpuMemoryBuffer(handle.id, 0));
-    return scoped_ptr<gfx::GpuMemoryBuffer>();
+    return nullptr;
   }
 
   return buffer.Pass();

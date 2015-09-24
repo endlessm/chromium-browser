@@ -10,7 +10,9 @@
 #include "base/location.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/mock_shill_manager_client.h"
@@ -21,6 +23,7 @@
 #include "chromeos/network/network_configuration_handler.h"
 #include "chromeos/network/network_policy_observer.h"
 #include "chromeos/network/network_profile_handler.h"
+#include "chromeos/network/network_state_handler.h"
 #include "chromeos/network/onc/onc_test_utils.h"
 #include "chromeos/network/onc/onc_utils.h"
 #include "dbus/object_path.h"
@@ -63,8 +66,24 @@ const char kUser1ProfilePath[] = "/profile/user1/shill";
 MATCHER_P(IsEqualTo,
           value,
           std::string(negation ? "isn't" : "is") + " equal to " +
-          ValueToString(value)) {
+              ValueToString(value)) {
   return value->Equals(&arg);
+}
+
+// Match properties in |value| to |arg|. |arg| may contain extra properties).
+MATCHER_P(MatchesProperties,
+          value,
+          std::string(negation ? "does't match " : "matches ") +
+              ValueToString(value)) {
+  for (base::DictionaryValue::Iterator iter(*value); !iter.IsAtEnd();
+       iter.Advance()) {
+    const base::Value* property;
+    if (!arg.GetWithoutPathExpansion(iter.key(), &property) ||
+        !iter.value().Equals(property)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 class ShillProfileTestClient {
@@ -116,10 +135,9 @@ class ShillProfileTestClient {
     const std::string& userhash = profile_to_user_[profile_path.value()];
     result->SetStringWithoutPathExpansion(shill::kUserHashProperty, userhash);
 
-    base::MessageLoop::current()->PostTask(
-        FROM_HERE,
-        base::Bind(base::Bind(&DereferenceAndCall, callback),
-                   base::Owned(result.release())));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(base::Bind(&DereferenceAndCall, callback),
+                              base::Owned(result.release())));
   }
 
   void GetEntry(const dbus::ObjectPath& profile_path,
@@ -134,10 +152,9 @@ class ShillProfileTestClient {
     base::DictionaryValue* entry = NULL;
     entries->GetDictionaryWithoutPathExpansion(entry_path, &entry);
     ASSERT_TRUE(entry);
-    base::MessageLoop::current()->PostTask(
-        FROM_HERE,
-        base::Bind(base::Bind(&DereferenceAndCall, callback),
-                   base::Owned(entry->DeepCopy())));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(base::Bind(&DereferenceAndCall, callback),
+                              base::Owned(entry->DeepCopy())));
   }
 
  protected:
@@ -155,11 +172,9 @@ class ShillServiceTestClient {
 
   void GetProperties(const dbus::ObjectPath& service_path,
                      const DictionaryValueCallback& callback) {
-    base::MessageLoop::current()->PostTask(
-        FROM_HERE,
-        base::Bind(callback,
-                   DBUS_METHOD_CALL_SUCCESS,
-                   base::ConstRef(service_properties_)));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(callback, DBUS_METHOD_CALL_SUCCESS,
+                              base::ConstRef(service_properties_)));
   }
 
  protected:
@@ -171,7 +186,7 @@ class TestNetworkProfileHandler : public NetworkProfileHandler {
   TestNetworkProfileHandler() {
     Init();
   }
-  virtual ~TestNetworkProfileHandler() {}
+  ~TestNetworkProfileHandler() override {}
 
   void AddProfileForTest(const NetworkProfile& profile) {
     AddProfile(profile);
@@ -211,8 +226,7 @@ class ManagedNetworkConfigurationHandlerTest : public testing::Test {
         mock_service_client_(NULL) {
   }
 
-  virtual ~ManagedNetworkConfigurationHandlerTest() {
-  }
+  ~ManagedNetworkConfigurationHandlerTest() override {}
 
   void SetUp() override {
     scoped_ptr<DBusThreadManagerSetter> dbus_setter =
@@ -241,14 +255,16 @@ class ManagedNetworkConfigurationHandlerTest : public testing::Test {
         .WillByDefault(Invoke(&services_stub_,
                               &ShillServiceTestClient::GetProperties));
 
+    network_state_handler_.reset(NetworkStateHandler::InitializeForTest());
     network_profile_handler_.reset(new TestNetworkProfileHandler());
     network_configuration_handler_.reset(
         NetworkConfigurationHandler::InitializeForTest(
-            NULL /* no NetworkStateHandler */));
+            network_state_handler_.get(),
+            NULL /* no NetworkDeviceHandler */));
     managed_network_configuration_handler_.reset(
         new ManagedNetworkConfigurationHandlerImpl());
     managed_network_configuration_handler_->Init(
-        NULL /* no NetworkStateHandler */,
+        network_state_handler_.get(),
         network_profile_handler_.get(),
         network_configuration_handler_.get(),
         NULL /* no DeviceHandler */);
@@ -260,6 +276,7 @@ class ManagedNetworkConfigurationHandlerTest : public testing::Test {
   void TearDown() override {
     if (managed_network_configuration_handler_)
       managed_network_configuration_handler_->RemoveObserver(&policy_observer_);
+    network_state_handler_.reset();
     managed_network_configuration_handler_.reset();
     network_configuration_handler_.reset();
     network_profile_handler_.reset();
@@ -359,6 +376,7 @@ class ManagedNetworkConfigurationHandlerTest : public testing::Test {
   ShillProfileTestClient profiles_stub_;
   ShillServiceTestClient services_stub_;
   TestNetworkPolicyObserver policy_observer_;
+  scoped_ptr<NetworkStateHandler> network_state_handler_;
   scoped_ptr<TestNetworkProfileHandler> network_profile_handler_;
   scoped_ptr<NetworkConfigurationHandler> network_configuration_handler_;
   scoped_ptr<ManagedNetworkConfigurationHandlerImpl>
@@ -724,42 +742,6 @@ TEST_F(ManagedNetworkConfigurationHandlerTest, SetPolicyUpdateManagedVPN) {
   VerifyAndClearExpectations();
 }
 
-TEST_F(ManagedNetworkConfigurationHandlerTest,
-       SetPolicyUpdateManagedEquivalentSecurity) {
-  InitializeStandardProfiles();
-  SetUpEntry("policy/shill_managed_wifi1_rsn.json",
-             kUser1ProfilePath,
-             "old_entry_path");
-
-  scoped_ptr<base::DictionaryValue> expected_shill_properties =
-      test_utils::ReadTestDictionary(
-          "policy/shill_policy_on_unmanaged_wifi1.json");
-
-  // The passphrase isn't sent again, because it's configured by the user and
-  // Shill doesn't send it on GetProperties calls.
-  expected_shill_properties->RemoveWithoutPathExpansion(
-      shill::kPassphraseProperty, NULL);
-
-  EXPECT_CALL(*mock_profile_client_,
-              GetProperties(dbus::ObjectPath(kUser1ProfilePath), _, _));
-
-  EXPECT_CALL(
-      *mock_profile_client_,
-      GetEntry(dbus::ObjectPath(kUser1ProfilePath), "old_entry_path", _, _));
-
-  // The existing entry must not be deleted because the Security type 'rsa' is
-  // equivalent to 'psk' when identifying networks.
-
-  EXPECT_CALL(
-      *mock_manager_client_,
-      ConfigureServiceForProfile(dbus::ObjectPath(kUser1ProfilePath),
-                                 IsEqualTo(expected_shill_properties.get()),
-                                 _, _));
-
-  SetPolicy(::onc::ONC_SOURCE_USER_POLICY, kUser1, "policy/policy_wifi1.onc");
-  message_loop_.RunUntilIdle();
-}
-
 TEST_F(ManagedNetworkConfigurationHandlerTest, SetPolicyReapplyToManaged) {
   InitializeStandardProfiles();
   SetUpEntry("policy/shill_policy_on_unmanaged_wifi1.json",
@@ -897,8 +879,7 @@ TEST_F(ManagedNetworkConfigurationHandlerTest, AutoConnectDisallowed) {
   EXPECT_CALL(*mock_manager_client_,
               ConfigureServiceForProfile(
                   dbus::ObjectPath(kUser1ProfilePath),
-                  IsEqualTo(expected_shill_properties.get()),
-                  _, _));
+                  MatchesProperties(expected_shill_properties.get()), _, _));
 
   SetPolicy(::onc::ONC_SOURCE_USER_POLICY,
             kUser1,
@@ -974,11 +955,10 @@ class ManagedNetworkConfigurationHandlerShutdownTest
       const dbus::ObjectPath& profile_path,
       const ShillClientHelper::DictionaryValueCallbackWithoutStatus& callback,
       const ShillClientHelper::ErrorCallback& error_callback) {
-    base::MessageLoop::current()->PostTask(
-        FROM_HERE,
-        base::Bind(ManagedNetworkConfigurationHandlerShutdownTest::
-                       CallbackWithEmptyDictionary,
-                   callback));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(ManagedNetworkConfigurationHandlerShutdownTest::
+                                  CallbackWithEmptyDictionary,
+                              callback));
   }
 
   static void CallbackWithEmptyDictionary(

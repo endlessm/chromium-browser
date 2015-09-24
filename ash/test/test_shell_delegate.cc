@@ -46,6 +46,7 @@ class NewWindowDelegateImpl : public NewWindowDelegate {
   void NewWindow(bool incognito) override {}
   void OpenFileManager() override {}
   void OpenCrosh() override {}
+  void OpenGetHelp() override {}
   void RestoreTab() override {}
   void ShowKeyboardOverlay() override {}
   void ShowTaskManager() override {}
@@ -81,6 +82,7 @@ class MediaDelegateImpl : public MediaDelegate {
 TestShellDelegate::TestShellDelegate()
     : num_exit_requests_(0),
       multi_profiles_enabled_(false),
+      force_maximize_on_first_run_(false),
       test_session_state_delegate_(NULL) {
 }
 
@@ -105,6 +107,10 @@ bool TestShellDelegate::IsRunningInForcedAppMode() const {
 
 bool TestShellDelegate::IsMultiAccountEnabled() const {
   return false;
+}
+
+bool TestShellDelegate::IsForceMaximizeOnFirstRun() const {
+  return force_maximize_on_first_run_;
 }
 
 void TestShellDelegate::PreInit() {
@@ -161,10 +167,8 @@ UserWallpaperDelegate* TestShellDelegate::CreateUserWallpaperDelegate() {
   return new TestUserWallpaperDelegate();
 }
 
-SessionStateDelegate* TestShellDelegate::CreateSessionStateDelegate() {
-  DCHECK(!test_session_state_delegate_);
-  test_session_state_delegate_ = new TestSessionStateDelegate();
-  return test_session_state_delegate_;
+TestSessionStateDelegate* TestShellDelegate::CreateSessionStateDelegate() {
+  return new TestSessionStateDelegate();
 }
 
 AccessibilityDelegate* TestShellDelegate::CreateAccessibilityDelegate() {

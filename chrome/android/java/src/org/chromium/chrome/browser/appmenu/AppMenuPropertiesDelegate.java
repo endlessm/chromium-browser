@@ -17,19 +17,13 @@ public interface AppMenuPropertiesDelegate {
     boolean shouldShowAppMenu();
 
     /**
+     * @return Resource layout id for the footer if there should be one. O otherwise.
+     */
+    int getFooterResourceId();
+
+    /**
      * Allows the delegate to show and hide items before the App Menu is shown.
      * @param mMenu Menu that will be used as the source for the App Menu pop up.
      */
     void prepareMenu(Menu mMenu);
-
-    /**
-     * @return The theme resource to use for displaying the App Menu.
-     */
-    int getMenuThemeResourceId();
-
-    /**
-     * @return The dimension resource to be used to determine the start padding of the menu
-     *         button (within the menu itself).  If 0 is passed, no padding will be applied.
-     */
-    int getMenuButtonStartPaddingDimenId();
 }

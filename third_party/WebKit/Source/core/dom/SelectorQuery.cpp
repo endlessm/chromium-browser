@@ -29,10 +29,10 @@
 
 #include "bindings/core/v8/ExceptionState.h"
 #include "core/css/SelectorChecker.h"
-#include "core/css/SiblingTraversalStrategies.h"
 #include "core/css/parser/CSSParser.h"
 #include "core/dom/Document.h"
 #include "core/dom/ElementTraversal.h"
+#include "core/dom/ExceptionCode.h"
 #include "core/dom/Node.h"
 #include "core/dom/StaticNodeList.h"
 #include "core/dom/shadow/ElementShadow.h"
@@ -51,7 +51,7 @@ struct SingleElementSelectorQueryTrait {
 };
 
 struct AllElementsSelectorQueryTrait {
-    typedef WillBeHeapVector<RefPtrWillBeMember<Element> > OutputType;
+    typedef WillBeHeapVector<RefPtrWillBeMember<Element>> OutputType;
     static const bool shouldOnlyMatchFirstElement = false;
     ALWAYS_INLINE static void appendElement(OutputType& output, Element& element)
     {
@@ -107,26 +107,32 @@ void SelectorDataList::initialize(const CSSSelectorList& selectorList)
         selectorCount++;
 
     m_crossesTreeBoundary = false;
+    m_needsUpdatedDistribution = false;
     m_selectors.reserveInitialCapacity(selectorCount);
     unsigned index = 0;
     for (const CSSSelector* selector = selectorList.first(); selector; selector = CSSSelectorList::next(*selector), ++index) {
         m_selectors.uncheckedAppend(selector);
         m_crossesTreeBoundary |= selectorList.selectorCrossesTreeScopes(index);
+        m_needsUpdatedDistribution |= selectorList.selectorNeedsUpdatedDistribution(index);
     }
 }
 
 inline bool SelectorDataList::selectorMatches(const CSSSelector& selector, Element& element, const ContainerNode& rootNode) const
 {
-    SelectorChecker selectorChecker(element.document(), SelectorChecker::QueryingRules);
-    SelectorChecker::SelectorCheckingContext selectorCheckingContext(selector, &element, SelectorChecker::VisitedMatchDisabled);
+    SelectorChecker selectorChecker(SelectorChecker::QueryingRules);
+    SelectorChecker::SelectorCheckingContext selectorCheckingContext(&element, SelectorChecker::VisitedMatchDisabled);
+    selectorCheckingContext.selector = &selector;
     selectorCheckingContext.scope = !rootNode.isDocumentNode() ? &rootNode : 0;
     if (selectorCheckingContext.scope)
         selectorCheckingContext.scopeContainsLastMatchedElement = true;
-    return selectorChecker.match(selectorCheckingContext, DOMSiblingTraversalStrategy()) == SelectorChecker::SelectorMatches;
+    return selectorChecker.match(selectorCheckingContext);
 }
 
 bool SelectorDataList::matches(Element& targetElement) const
 {
+    if (m_needsUpdatedDistribution)
+        targetElement.updateDistribution();
+
     unsigned selectorCount = m_selectors.size();
     for (unsigned i = 0; i < selectorCount; ++i) {
         if (selectorMatches(*m_selectors[i], targetElement, targetElement))
@@ -136,9 +142,24 @@ bool SelectorDataList::matches(Element& targetElement) const
     return false;
 }
 
+Element* SelectorDataList::closest(Element& targetElement) const
+{
+    if (m_needsUpdatedDistribution)
+        targetElement.updateDistribution();
+
+    unsigned selectorCount = m_selectors.size();
+    for (Element* currentElement = &targetElement; currentElement; currentElement = currentElement->parentElement()) {
+        for (unsigned i = 0; i < selectorCount; ++i) {
+            if (selectorMatches(*m_selectors[i], *currentElement, targetElement))
+                return currentElement;
+        }
+    }
+    return nullptr;
+}
+
 PassRefPtrWillBeRawPtr<StaticElementList> SelectorDataList::queryAll(ContainerNode& rootNode) const
 {
-    WillBeHeapVector<RefPtrWillBeMember<Element> > result;
+    WillBeHeapVector<RefPtrWillBeMember<Element>> result;
     execute<AllElementsSelectorQueryTrait>(rootNode, result);
     return StaticElementList::adopt(result);
 }
@@ -162,11 +183,29 @@ void SelectorDataList::collectElementsByClassName(ContainerNode& rootNode, const
     }
 }
 
+inline bool matchesTagName(const QualifiedName& tagName, const Element& element)
+{
+    if (tagName == anyQName())
+        return true;
+    if (element.hasLocalName(tagName.localName()))
+        return true;
+    // Non-html elements in html documents are normalized to their camel-cased
+    // version during parsing if applicable. Yet, type selectors are lower-cased
+    // for selectors in html documents. Compare the upper case converted names
+    // instead to allow matching SVG elements like foreignObject.
+    if (!element.isHTMLElement() && element.document().isHTMLDocument())
+        return element.tagQName().localNameUpper() == tagName.localNameUpper();
+    return false;
+}
+
 template <typename SelectorQueryTrait>
 void SelectorDataList::collectElementsByTagName(ContainerNode& rootNode, const QualifiedName& tagName,  typename SelectorQueryTrait::OutputType& output) const
 {
     for (Element& element : ElementTraversal::descendantsOf(rootNode)) {
-        if (SelectorChecker::tagMatches(element, tagName)) {
+        // querySelector*() doesn't allow namespaces and throws before it gets
+        // here so we can ignore them.
+        ASSERT(tagName.namespaceURI() == starAtom);
+        if (matchesTagName(tagName, element)) {
             SelectorQueryTrait::appendElement(output, element);
             if (SelectorQueryTrait::shouldOnlyMatchFirstElement)
                 return;
@@ -176,7 +215,15 @@ void SelectorDataList::collectElementsByTagName(ContainerNode& rootNode, const Q
 
 inline bool SelectorDataList::canUseFastQuery(const ContainerNode& rootNode) const
 {
-    return m_selectors.size() == 1 && !m_crossesTreeBoundary && rootNode.inDocument() && !rootNode.document().inQuirksMode();
+    if (m_crossesTreeBoundary)
+        return false;
+    if (m_needsUpdatedDistribution)
+        return false;
+    if (rootNode.document().inQuirksMode())
+        return false;
+    if (!rootNode.inDocument())
+        return false;
+    return m_selectors.size() == 1;
 }
 
 inline bool ancestorHasClassName(ContainerNode& rootNode, const AtomicString& className)
@@ -341,7 +388,7 @@ static ShadowRoot* authorShadowRootOf(const ContainerNode& node)
     ElementShadow* shadow = toElement(node).shadow();
     ASSERT(shadow);
     for (ShadowRoot* shadowRoot = shadow->oldestShadowRoot(); shadowRoot; shadowRoot = shadowRoot->youngerShadowRoot()) {
-        if (shadowRoot->type() == ShadowRoot::AuthorShadowRoot)
+        if (shadowRoot->type() == ShadowRootType::Open)
             return shadowRoot;
     }
     return 0;
@@ -372,7 +419,7 @@ static ContainerNode* nextTraversingShadowTree(const ContainerNode& node, const 
             return 0;
         if (ShadowRoot* youngerShadowRoot = shadowRoot->youngerShadowRoot()) {
             // Should not obtain any elements in user-agent shadow root.
-            ASSERT(youngerShadowRoot->type() == ShadowRoot::AuthorShadowRoot);
+            ASSERT(youngerShadowRoot->type() == ShadowRootType::Open);
             return youngerShadowRoot;
         }
 
@@ -408,8 +455,9 @@ template <typename SelectorQueryTrait>
 void SelectorDataList::execute(ContainerNode& rootNode, typename SelectorQueryTrait::OutputType& output) const
 {
     if (!canUseFastQuery(rootNode)) {
+        if (m_needsUpdatedDistribution)
+            rootNode.updateDistribution();
         if (m_crossesTreeBoundary) {
-            rootNode.document().updateDistributionForNodeIfNeeded(&rootNode);
             executeSlowTraversingShadowTree<SelectorQueryTrait>(rootNode, output);
         } else {
             executeSlow<SelectorQueryTrait>(rootNode, output);
@@ -426,7 +474,7 @@ void SelectorDataList::execute(ContainerNode& rootNode, typename SelectorQueryTr
     if (const CSSSelector* idSelector = selectorForIdLookup(firstSelector)) {
         const AtomicString& idToMatch = idSelector->value();
         if (rootNode.treeScope().containsMultipleElementsWithId(idToMatch)) {
-            const WillBeHeapVector<RawPtrWillBeMember<Element> >& elements = rootNode.treeScope().getAllElementsById(idToMatch);
+            const WillBeHeapVector<RawPtrWillBeMember<Element>>& elements = rootNode.treeScope().getAllElementsById(idToMatch);
             size_t count = elements.size();
             for (size_t i = 0; i < count; ++i) {
                 Element& element = *elements[i];
@@ -481,6 +529,11 @@ bool SelectorQuery::matches(Element& element) const
     return m_selectors.matches(element);
 }
 
+Element* SelectorQuery::closest(Element& element) const
+{
+    return m_selectors.closest(element);
+}
+
 PassRefPtrWillBeRawPtr<StaticElementList> SelectorQuery::queryAll(ContainerNode& rootNode) const
 {
     return m_selectors.queryAll(rootNode);
@@ -493,13 +546,12 @@ PassRefPtrWillBeRawPtr<Element> SelectorQuery::queryFirst(ContainerNode& rootNod
 
 SelectorQuery* SelectorQueryCache::add(const AtomicString& selectors, const Document& document, ExceptionState& exceptionState)
 {
-    HashMap<AtomicString, OwnPtr<SelectorQuery> >::iterator it = m_entries.find(selectors);
+    HashMap<AtomicString, OwnPtr<SelectorQuery>>::iterator it = m_entries.find(selectors);
     if (it != m_entries.end())
         return it->value.get();
 
-    CSSParser parser(CSSParserContext(document, 0));
     CSSSelectorList selectorList;
-    parser.parseSelector(selectors, selectorList);
+    CSSParser::parseSelector(CSSParserContext(document, 0), selectors, selectorList);
 
     if (!selectorList.first()) {
         exceptionState.throwDOMException(SyntaxError, "'" + selectors + "' is not a valid selector.");

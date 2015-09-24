@@ -10,31 +10,24 @@
 
 #include "base/compiler_specific.h"
 #include "base/logging.h"
-#include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "extensions/common/stack_frame.h"
 #include "url/gurl.h"
-
-namespace base {
-class DictionaryValue;
-}
 
 namespace extensions {
 
 class ExtensionError {
  public:
   enum Type {
-    MANIFEST_ERROR,
+    MANIFEST_ERROR = 0,
     RUNTIME_ERROR,
-    NUM_ERROR_TYPES  // Put new values above this.
+    INTERNAL_ERROR,
+    NUM_ERROR_TYPES,  // Put new values above this.
   };
 
   virtual ~ExtensionError();
 
-  // Serializes the ExtensionError into JSON format.
-  virtual scoped_ptr<base::DictionaryValue> ToValue() const;
-
-  virtual std::string PrintForTest() const;
+  virtual std::string GetDebugString() const;
 
   // Return true if this error and |rhs| are considered equal, and should be
   // grouped together.
@@ -42,20 +35,14 @@ class ExtensionError {
 
   Type type() const { return type_; }
   const std::string& extension_id() const { return extension_id_; }
+  int id() const { return id_; }
+  void set_id(int id) { id_ = id; }
   bool from_incognito() const { return from_incognito_; }
   logging::LogSeverity level() const { return level_; }
   const base::string16& source() const { return source_; }
   const base::string16& message() const { return message_; }
   size_t occurrences() const { return occurrences_; }
   void set_occurrences(size_t occurrences) { occurrences_ = occurrences; }
-
-  // Keys used for retrieving JSON values.
-  static const char kExtensionIdKey[];
-  static const char kFromIncognitoKey[];
-  static const char kLevelKey[];
-  static const char kMessageKey[];
-  static const char kSourceKey[];
-  static const char kTypeKey[];
 
  protected:
   ExtensionError(Type type,
@@ -71,6 +58,8 @@ class ExtensionError {
   Type type_;
   // The ID of the extension which caused the error.
   std::string extension_id_;
+  // The id of this particular error. This can be zero if the id is never set.
+  int id_;
   // Whether or not the error was caused while incognito.
   bool from_incognito_;
   // The severity level of the error.
@@ -96,16 +85,10 @@ class ManifestError : public ExtensionError {
                 const base::string16& manifest_specific);
   ~ManifestError() override;
 
-  scoped_ptr<base::DictionaryValue> ToValue() const override;
-
-  std::string PrintForTest() const override;
+  std::string GetDebugString() const override;
 
   const base::string16& manifest_key() const { return manifest_key_; }
   const base::string16& manifest_specific() const { return manifest_specific_; }
-
-  // Keys used for retrieving JSON values.
-  static const char kManifestKeyKey[];
-  static const char kManifestSpecificKey[];
 
  private:
   bool IsEqualImpl(const ExtensionError* rhs) const override;
@@ -133,24 +116,12 @@ class RuntimeError : public ExtensionError {
                int render_process_id);
   ~RuntimeError() override;
 
-  scoped_ptr<base::DictionaryValue> ToValue() const override;
-
-  std::string PrintForTest() const override;
+  std::string GetDebugString() const override;
 
   const GURL& context_url() const { return context_url_; }
   const StackTrace& stack_trace() const { return stack_trace_; }
-  int render_view_id() const { return render_view_id_; }
+  int render_frame_id() const { return render_frame_id_; }
   int render_process_id() const { return render_process_id_; }
-
-  // Keys used for retrieving JSON values.
-  static const char kColumnNumberKey[];
-  static const char kContextUrlKey[];
-  static const char kFunctionNameKey[];
-  static const char kLineNumberKey[];
-  static const char kStackTraceKey[];
-  static const char kUrlKey[];
-  static const char kRenderProcessIdKey[];
-  static const char kRenderViewIdKey[];
 
  private:
   bool IsEqualImpl(const ExtensionError* rhs) const override;
@@ -164,11 +135,26 @@ class RuntimeError : public ExtensionError {
   StackTrace stack_trace_;
 
   // Keep track of the render process which caused the error in order to
-  // inspect the view later, if possible.
-  int render_view_id_;
+  // inspect the frame later, if possible.
+  int render_frame_id_;
   int render_process_id_;
 
   DISALLOW_COPY_AND_ASSIGN(RuntimeError);
+};
+
+class InternalError : public ExtensionError {
+ public:
+  InternalError(const std::string& extension_id,
+                const base::string16& message,
+                logging::LogSeverity level);
+  ~InternalError() override;
+
+  std::string GetDebugString() const override;
+
+ private:
+  bool IsEqualImpl(const ExtensionError* rhs) const override;
+
+  DISALLOW_COPY_AND_ASSIGN(InternalError);
 };
 
 }  // namespace extensions

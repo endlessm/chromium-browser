@@ -3,29 +3,15 @@
 # found in the LICENSE file.
 
 {
-  'conditions': [
-    [ 'os_posix == 1 and OS != "mac" and OS != "ios"', {
-      'conditions': [
-        ['sysroot!=""', {
-          'variables': {
-            'pkg-config': '../../../build/linux/pkg-config-wrapper "<(sysroot)" "<(target_arch)" "<(system_libdir)"',
-          },
-        }, {
-          'variables': {
-            'pkg-config': 'pkg-config'
-          },
-        }],
-      ],
-    }],
-  ],
-
   'targets': [
     {
       'target_name': 'libssl',
       'type': '<(component)',
       'product_name': 'crssl',  # Don't conflict with OpenSSL's libssl
       'sources': [
+        'ssl/SSLerrs.h',
         'ssl/authcert.c',
+        'ssl/bodge/secitem_array.c',
         'ssl/cmpcert.c',
         'ssl/derive.c',
         'ssl/dtlscon.c',
@@ -45,7 +31,6 @@
         'ssl/sslenum.c',
         'ssl/sslerr.c',
         'ssl/sslerr.h',
-        'ssl/SSLerrs.h',
         'ssl/sslerrstrs.c',
         'ssl/sslgathr.c',
         'ssl/sslimpl.h',
@@ -67,7 +52,6 @@
         'ssl/unix_err.h',
         'ssl/win32err.c',
         'ssl/win32err.h',
-        'ssl/bodge/secitem_array.c',
       ],
       'sources!': [
         'ssl/os2_err.c',
@@ -79,6 +63,12 @@
         'USE_UTIL_DIRECTLY',
       ],
       'msvs_disabled_warnings': [4018, 4244, 4267],
+      'variables': {
+        'clang_warning_flags_unset': [
+          # ssl uses PR_ASSERT(!"foo") instead of PR_ASSERT(false && "foo")
+          '-Wstring-conversion',
+        ],
+      },
       'conditions': [
         ['component == "shared_library"', {
           'conditions': [

@@ -3,58 +3,136 @@
 # found in the LICENSE file.
 
 {
-    'conditions':
+    'variables':
+    {
+        'util_sources':
+        [
+            'com_utils.h',
+            'keyboard.h',
+            'mouse.h',
+            'random_utils.cpp',
+            'random_utils.h',
+            'shader_utils.cpp',
+            'shader_utils.h',
+            'system_utils.h',
+            'Event.h',
+            'EGLWindow.cpp',
+            'EGLWindow.h',
+            'OSPixmap.h',
+            'OSWindow.cpp',
+            'OSWindow.h',
+            'Timer.h',
+        ],
+        'util_win32_sources':
+        [
+            'win32/Win32_system_utils.cpp',
+            'win32/Win32Pixmap.cpp',
+            'win32/Win32Pixmap.h',
+            'win32/Win32Timer.cpp',
+            'win32/Win32Timer.h',
+            'win32/Win32Window.cpp',
+            'win32/Win32Window.h',
+        ],
+        'util_linux_sources':
+        [
+            'linux/Linux_system_utils.cpp',
+            'linux/LinuxTimer.cpp',
+            'linux/LinuxTimer.h',
+            'posix/Posix_system_utils.cpp',
+        ],
+        'util_x11_sources':
+        [
+            'x11/X11Pixmap.cpp',
+            'x11/X11Pixmap.h',
+            'x11/X11Window.cpp',
+            'x11/X11Window.h',
+        ],
+        'util_osx_sources':
+        [
+            'osx/OSX_system_utils.cpp',
+            'osx/OSXTimer.cpp',
+            'osx/OSXTimer.h',
+            'osx/OSXWindow.cpp',
+            'osx/OSXWindow.h',
+            'posix/Posix_system_utils.cpp',
+        ],
+    },
+    'targets':
     [
-        ['OS=="win"',
         {
-            'targets':
+            'target_name': 'angle_util',
+            'type': 'static_library',
+            'includes': [ '../build/common_defines.gypi', ],
+            'dependencies':
             [
+                '<(angle_path)/src/angle.gyp:angle_common',
+                '<(angle_path)/src/angle.gyp:libEGL',
+                '<(angle_path)/src/angle.gyp:libGLESv2',
+            ],
+            'export_dependent_settings':
+            [
+                '<(angle_path)/src/angle.gyp:angle_common',
+            ],
+            'include_dirs':
+            [
+                '<(angle_path)/include',
+                '<(angle_path)/util',
+            ],
+            'sources':
+            [
+                '<@(util_sources)',
+            ],
+            'direct_dependent_settings':
+            {
+                'include_dirs':
+                [
+                    '<(angle_path)/include',
+                    '<(angle_path)/util',
+                ],
+            },
+            'conditions':
+            [
+                ['OS=="win"',
                 {
-                    'target_name': 'angle_util',
-                    'type': 'static_library',
-                    'includes': [ '../build/common_defines.gypi', ],
-                    'dependencies':
-                    [
-                        '../src/angle.gyp:libEGL',
-                        '../src/angle.gyp:libGLESv2',
-                    ],
-                    'include_dirs':
-                    [
-                        '../include',
-                        '.',
-                    ],
+                    'msvs_disabled_warnings': [ 4201 ],
                     'sources':
                     [
-                        'keyboard.h',
-                        'mouse.h',
-                        'path_utils.h',
-                        'random_utils.cpp',
-                        'random_utils.h',
-                        'shader_utils.cpp',
-                        'shader_utils.h',
-                        'shared_utils.h',
-                        'EGLWindow.cpp',
-                        'EGLWindow.h',
-                        'Event.h',
-                        'OSWindow.cpp',
-                        'OSWindow.h',
-                        'Timer.h',
-                        'win32/Win32_path_utils.cpp',
-                        'win32/Win32Timer.cpp',
-                        'win32/Win32Timer.h',
-                        'win32/Win32Window.cpp',
-                        'win32/Win32Window.h',
+                        '<@(util_win32_sources)',
                     ],
-                    'msvs_disabled_warnings': [ 4201 ],
-                    'direct_dependent_settings':
+                }],
+                ['OS=="linux"',
+                {
+                    'sources':
+                    [
+                        '<@(util_linux_sources)',
+                    ],
+                }],
+                ['use_x11==1',
+                {
+                    'sources':
+                    [
+                        '<@(util_x11_sources)',
+                    ],
+                    'link_settings':
                     {
-                        'include_dirs':
+                        'ldflags':
                         [
-                            '.',
+                            '<!@(pkg-config --libs-only-L --libs-only-other x11 xi)',
+                        ],
+                        'libraries':
+                        [
+                            '<!@(pkg-config --libs-only-l x11 xi) -lrt',
                         ],
                     },
-                },
+                }],
+                ['OS=="mac"',
+                {
+                    'sources':
+                    [
+                        '<@(util_osx_sources)',
+                    ],
+                }],
             ],
-        }],
+        },
     ],
 }

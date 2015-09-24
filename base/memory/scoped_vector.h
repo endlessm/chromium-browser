@@ -9,6 +9,7 @@
 
 #include "base/basictypes.h"
 #include "base/logging.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/move.h"
 #include "base/stl_util.h"
 
@@ -64,6 +65,7 @@ class ScopedVector {
   reference back() { return v_.back(); }
 
   void push_back(T* elem) { v_.push_back(elem); }
+  void push_back(scoped_ptr<T> elem) { v_.push_back(elem.release()); }
 
   void pop_back() {
     DCHECK(!empty());
@@ -102,6 +104,10 @@ class ScopedVector {
   // Lets the ScopedVector take ownership of |x|.
   iterator insert(iterator position, T* x) {
     return v_.insert(position, x);
+  }
+
+  iterator insert(iterator position, scoped_ptr<T> x) {
+    return v_.insert(position, x.release());
   }
 
   // Lets the ScopedVector take ownership of elements in [first,last).

@@ -20,13 +20,13 @@ from __future__ import print_function
 
 import collections
 import ctypes
-import logging
 import multiprocessing
 import os
 import tempfile
 
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import osutils
 from chromite.lib import parallel
 from chromite.lib import signals
@@ -100,8 +100,8 @@ def GenerateBreakpadSymbol(elf_file, debug_file=None, breakpad_dir=None,
   def _CrashCheck(ret, msg):
     if ret < 0:
       cros_build_lib.PrintBuildbotStepWarnings()
-      cros_build_lib.Warning('dump_syms crashed with %s; %s',
-                             signals.StrSignal(-ret), msg)
+      logging.warning('dump_syms crashed with %s; %s',
+                      signals.StrSignal(-ret), msg)
 
   osutils.SafeMakedirs(breakpad_dir)
   with tempfile.NamedTemporaryFile(dir=breakpad_dir, bufsize=0) as temp:
@@ -133,18 +133,17 @@ def GenerateBreakpadSymbol(elf_file, debug_file=None, breakpad_dir=None,
         cros_build_lib.PrintBuildbotStepWarnings()
         _CrashCheck(result.returncode, 'giving up entirely')
         if 'file contains no debugging information' in result.error:
-          cros_build_lib.Warning('no symbols found for %s', elf_file)
+          logging.warning('no symbols found for %s', elf_file)
         else:
           num_errors.value += 1
-          cros_build_lib.Error('dumping symbols for %s failed:\n%s',
-                               elf_file, result.error)
+          logging.error('dumping symbols for %s failed:\n%s', elf_file,
+                        result.error)
         return num_errors.value
 
     # Move the dumped symbol file to the right place:
     # /build/$BOARD/usr/lib/debug/breakpad/<module-name>/<id>/<module-name>.sym
     header = ReadSymsHeader(temp)
-    cros_build_lib.Info('Dumped %s as %s : %s', elf_file, header.name,
-                        header.id)
+    logging.info('Dumped %s as %s : %s', elf_file, header.name, header.id)
     sym_file = os.path.join(breakpad_dir, header.name, header.id,
                             header.name + '.sym')
     osutils.SafeMakedirs(os.path.dirname(sym_file))
@@ -190,7 +189,7 @@ def GenerateBreakpadSymbols(board, breakpad_dir=None, strip_cfi=False,
   if sysroot is None:
     sysroot = cros_build_lib.GetSysroot(board=board)
   if clean_breakpad:
-    cros_build_lib.Info('cleaning out %s first', breakpad_dir)
+    logging.info('cleaning out %s first', breakpad_dir)
     osutils.RmDir(breakpad_dir, ignore_missing=True, sudo=True)
   # Make sure non-root can write out symbols as needed.
   osutils.SafeMakedirs(breakpad_dir, sudo=True)
@@ -203,7 +202,7 @@ def GenerateBreakpadSymbols(board, breakpad_dir=None, strip_cfi=False,
     file_list = []
   file_filter = dict.fromkeys([os.path.normpath(x) for x in file_list], False)
 
-  cros_build_lib.Info('generating breakpad symbols using %s', debug_dir)
+  logging.info('generating breakpad symbols using %s', debug_dir)
 
   # Let's locate all the debug_files and elfs first along with the debug file
   # sizes.  This way we can start processing the largest files first in parallel
@@ -212,7 +211,7 @@ def GenerateBreakpadSymbols(board, breakpad_dir=None, strip_cfi=False,
   targets = []
   for root, dirs, files in os.walk(debug_dir):
     if root in exclude_paths:
-      cros_build_lib.Info('Skipping excluded dir %s', root)
+      logging.info('Skipping excluded dir %s', root)
       del dirs[:]
       continue
 
@@ -235,15 +234,15 @@ def GenerateBreakpadSymbols(board, breakpad_dir=None, strip_cfi=False,
         continue
 
       elif debug_file.endswith('.ko.debug'):
-        cros_build_lib.Debug('Skipping kernel module %s', debug_file)
+        logging.debug('Skipping kernel module %s', debug_file)
         continue
 
       elif os.path.islink(debug_file):
         # The build-id stuff is common enough to filter out by default.
         if '/.build-id/' in debug_file:
-          msg = cros_build_lib.Debug
+          msg = logging.debug
         else:
-          msg = cros_build_lib.Warning
+          msg = logging.warning
         msg('Skipping symbolic link %s', debug_file)
         continue
 
@@ -251,7 +250,7 @@ def GenerateBreakpadSymbols(board, breakpad_dir=None, strip_cfi=False,
       if not os.path.exists(elf_file):
         # Sometimes we filter out programs from /usr/bin but leave behind
         # the .debug file.
-        cros_build_lib.Warning('Skipping missing %s', elf_file)
+        logging.warning('Skipping missing %s', elf_file)
         continue
 
       targets.append((os.path.getsize(debug_file), elf_file, debug_file))
@@ -261,8 +260,7 @@ def GenerateBreakpadSymbols(board, breakpad_dir=None, strip_cfi=False,
     files_not_found = [x for x, found in file_filter.iteritems() if not found]
     bg_errors.value += len(files_not_found)
     if files_not_found:
-      cros_build_lib.Error('Failed to find requested files: %s',
-                           files_not_found)
+      logging.error('Failed to find requested files: %s', files_not_found)
 
   # Now start generating symbols for the discovered elfs.
   with parallel.BackgroundTaskRunner(GenerateBreakpadSymbol,
@@ -331,7 +329,7 @@ def main(argv):
                                 exclude_dirs=opts.exclude_dir,
                                 file_list=opts.file_list)
   if ret:
-    cros_build_lib.Error('encountered %i problem(s)', ret)
+    logging.error('encountered %i problem(s)', ret)
     # Since exit(status) gets masked, clamp it to 1 so we don't inadvertently
     # return 0 in case we are a multiple of the mask.
     ret = 1

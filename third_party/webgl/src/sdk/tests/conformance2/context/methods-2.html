@@ -31,7 +31,7 @@
 <title>WebGL2 Methods Test</title>
 <link rel="stylesheet" href="../../resources/js-test-style.css"/>
 <script src="../../resources/js-test-pre.js"></script>
-<script src="../../conformance/resources/webgl-test-utils.js"></script>
+<script src="../../resources/webgl-test-utils.js"></script>
 </head>
 <body>
 <div id="description"></div>
@@ -180,6 +180,7 @@ var methods = [
 "viewport",
 
 // WebGL2 methods
+"getBufferSubData",
 "copyBufferSubData",
 "blitFramebuffer",
 "framebufferTextureLayer",
@@ -188,12 +189,9 @@ var methods = [
 "invalidateSubFramebuffer",
 "readBuffer",
 "renderbufferStorageMultisample",
+"texImage3D",
 "texStorage2D",
 "texStorage3D",
-"texSubImage3D",
-"texSubImage3D",
-"texSubImage3D",
-"texSubImage3D",
 "texSubImage3D",
 "copyTexSubImage3D",
 "compressedTexImage3D",
@@ -208,16 +206,10 @@ var methods = [
 "uniform3uiv",
 "uniform4uiv",
 "uniformMatrix2x3fv",
-"uniformMatrix2x3fv",
-"uniformMatrix3x2fv",
 "uniformMatrix3x2fv",
 "uniformMatrix2x4fv",
-"uniformMatrix2x4fv",
-"uniformMatrix4x2fv",
 "uniformMatrix4x2fv",
 "uniformMatrix3x4fv",
-"uniformMatrix3x4fv",
-"uniformMatrix4x3fv",
 "uniformMatrix4x3fv",
 "vertexAttribI4i",
 "vertexAttribI4iv",
@@ -227,12 +219,10 @@ var methods = [
 "vertexAttribDivisor",
 "drawArraysInstanced",
 "drawElementsInstanced",
+"drawRangeElements",
 "drawBuffers",
 "clearBufferiv",
-"clearBufferiv",
 "clearBufferuiv",
-"clearBufferuiv",
-"clearBufferfv",
 "clearBufferfv",
 "clearBufferfi",
 "createQuery",
@@ -247,11 +237,7 @@ var methods = [
 "isSampler",
 "bindSampler",
 "samplerParameteri",
-"samplerParameteriv",
-"samplerParameteriv",
 "samplerParameterf",
-"samplerParameterfv",
-"samplerParameterfv",
 "getSamplerParameter",
 "fenceSync",
 "isSync",

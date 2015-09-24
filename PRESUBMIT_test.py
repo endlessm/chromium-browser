@@ -12,86 +12,10 @@ import sys
 import unittest
 
 import PRESUBMIT
-
+from PRESUBMIT_test_mocks import MockChange, MockFile, MockAffectedFile
+from PRESUBMIT_test_mocks import MockInputApi, MockOutputApi
 
 _TEST_DATA_DIR = 'base/test/data/presubmit'
-
-
-class MockInputApi(object):
-  def __init__(self):
-    self.json = json
-    self.re = re
-    self.os_path = os.path
-    self.python_executable = sys.executable
-    self.subprocess = subprocess
-    self.files = []
-    self.is_committing = False
-
-  def AffectedFiles(self, file_filter=None):
-    return self.files
-
-  def PresubmitLocalPath(self):
-    return os.path.dirname(__file__)
-
-  def ReadFile(self, filename, mode='rU'):
-    for file_ in self.files:
-      if file_.LocalPath() == filename:
-        return '\n'.join(file_.NewContents())
-    # Otherwise, file is not in our mock API.
-    raise IOError, "No such file or directory: '%s'" % filename
-
-
-class MockOutputApi(object):
-  class PresubmitResult(object):
-    def __init__(self, message, items=None, long_text=''):
-      self.message = message
-      self.items = items
-      self.long_text = long_text
-
-  class PresubmitError(PresubmitResult):
-    def __init__(self, message, items, long_text=''):
-      MockOutputApi.PresubmitResult.__init__(self, message, items, long_text)
-      self.type = 'error'
-
-  class PresubmitPromptWarning(PresubmitResult):
-    def __init__(self, message, items, long_text=''):
-      MockOutputApi.PresubmitResult.__init__(self, message, items, long_text)
-      self.type = 'warning'
-
-  class PresubmitNotifyResult(PresubmitResult):
-    def __init__(self, message, items, long_text=''):
-      MockOutputApi.PresubmitResult.__init__(self, message, items, long_text)
-      self.type = 'notify'
-
-  class PresubmitPromptOrNotify(PresubmitResult):
-    def __init__(self, message, items, long_text=''):
-      MockOutputApi.PresubmitResult.__init__(self, message, items, long_text)
-      self.type = 'promptOrNotify'
-
-
-class MockFile(object):
-  def __init__(self, local_path, new_contents):
-    self._local_path = local_path
-    self._new_contents = new_contents
-    self._changed_contents = [(i + 1, l) for i, l in enumerate(new_contents)]
-
-  def ChangedContents(self):
-    return self._changed_contents
-
-  def NewContents(self):
-    return self._new_contents
-
-  def LocalPath(self):
-    return self._local_path
-
-
-class MockChange(object):
-  def __init__(self, changed_files):
-    self._changed_files = changed_files
-
-  def LocalPaths(self):
-    return self._changed_files
-
 
 class IncludeOrderTest(unittest.TestCase):
   def testSystemHeaderOrder(self):
@@ -346,6 +270,83 @@ class VersionControlConflictsTest(unittest.TestCase):
     self.assertTrue('3' in errors[1])
     self.assertTrue('5' in errors[2])
 
+  def testIgnoresReadmes(self):
+    lines = ['A First Level Header',
+             '====================',
+             '',
+             'A Second Level Header',
+             '---------------------']
+    errors = PRESUBMIT._CheckForVersionControlConflictsInFile(
+        MockInputApi(), MockFile('some/polymer/README.md', lines))
+    self.assertEqual(0, len(errors))
+
+class UmaHistogramChangeMatchedOrNotTest(unittest.TestCase):
+  def testTypicalCorrectlyMatchedChange(self):
+    diff_cc = ['UMA_HISTOGRAM_BOOL("Bla.Foo.Dummy", true)']
+    diff_xml = ['<histogram name="Bla.Foo.Dummy"> </histogram>']
+    mock_input_api = MockInputApi()
+    mock_input_api.files = [
+      MockFile('some/path/foo.cc', diff_cc),
+      MockFile('tools/metrics/histograms/histograms.xml', diff_xml),
+    ]
+    warnings = PRESUBMIT._CheckUmaHistogramChanges(mock_input_api,
+                                                   MockOutputApi())
+    self.assertEqual(0, len(warnings))
+
+  def testTypicalNotMatchedChange(self):
+    diff_cc = ['UMA_HISTOGRAM_BOOL("Bla.Foo.Dummy", true)']
+    mock_input_api = MockInputApi()
+    mock_input_api.files = [MockFile('some/path/foo.cc', diff_cc)]
+    warnings = PRESUBMIT._CheckUmaHistogramChanges(mock_input_api,
+                                                   MockOutputApi())
+    self.assertEqual(1, len(warnings))
+    self.assertEqual('warning', warnings[0].type)
+
+  def testTypicalNotMatchedChangeViaSuffixes(self):
+    diff_cc = ['UMA_HISTOGRAM_BOOL("Bla.Foo.Dummy", true)']
+    diff_xml = ['<histogram_suffixes name="SuperHistogram">',
+                '  <suffix name="Dummy"/>',
+                '  <affected-histogram name="Snafu.Dummy"/>',
+                '</histogram>']
+    mock_input_api = MockInputApi()
+    mock_input_api.files = [
+      MockFile('some/path/foo.cc', diff_cc),
+      MockFile('tools/metrics/histograms/histograms.xml', diff_xml),
+    ]
+    warnings = PRESUBMIT._CheckUmaHistogramChanges(mock_input_api,
+                                                   MockOutputApi())
+    self.assertEqual(1, len(warnings))
+    self.assertEqual('warning', warnings[0].type)
+
+  def testTypicalCorrectlyMatchedChangeViaSuffixes(self):
+    diff_cc = ['UMA_HISTOGRAM_BOOL("Bla.Foo.Dummy", true)']
+    diff_xml = ['<histogram_suffixes name="SuperHistogram">',
+                '  <suffix name="Dummy"/>',
+                '  <affected-histogram name="Bla.Foo"/>',
+                '</histogram>']
+    mock_input_api = MockInputApi()
+    mock_input_api.files = [
+      MockFile('some/path/foo.cc', diff_cc),
+      MockFile('tools/metrics/histograms/histograms.xml', diff_xml),
+    ]
+    warnings = PRESUBMIT._CheckUmaHistogramChanges(mock_input_api,
+                                                   MockOutputApi())
+    self.assertEqual(0, len(warnings))
+
+  def testTypicalCorrectlyMatchedChangeViaSuffixesWithSeparator(self):
+    diff_cc = ['UMA_HISTOGRAM_BOOL("Snafu_Dummy", true)']
+    diff_xml = ['<histogram_suffixes name="SuperHistogram" separator="_">',
+                '  <suffix name="Dummy"/>',
+                '  <affected-histogram name="Snafu"/>',
+                '</histogram>']
+    mock_input_api = MockInputApi()
+    mock_input_api.files = [
+      MockFile('some/path/foo.cc', diff_cc),
+      MockFile('tools/metrics/histograms/histograms.xml', diff_xml),
+    ]
+    warnings = PRESUBMIT._CheckUmaHistogramChanges(mock_input_api,
+                                                   MockOutputApi())
+    self.assertEqual(0, len(warnings))
 
 class BadExtensionsTest(unittest.TestCase):
   def testBadRejFile(self):
@@ -384,13 +385,32 @@ class BadExtensionsTest(unittest.TestCase):
     results = PRESUBMIT._CheckPatchFiles(mock_input_api, MockOutputApi())
     self.assertEqual(0, len(results))
 
-  def testOnlyOwnersFiles(self):
-    mock_change = MockChange([
-      'some/path/OWNERS',
-      'A\Windows\Path\OWNERS',
-    ])
-    results = PRESUBMIT.GetPreferredTryMasters(None, mock_change)
-    self.assertEqual({}, results)
+
+class CheckSingletonInHeadersTest(unittest.TestCase):
+  def testSingletonInArbitraryHeader(self):
+    diff_singleton_h = ['base::subtle::AtomicWord '
+                        'Singleton<Type, Traits, DifferentiatingType>::']
+    diff_foo_h = ['// Singleton<Foo> in comment.',
+                  'friend class Singleton<Foo>']
+    diff_bad_h = ['Foo* foo = Singleton<Foo>::get();']
+    mock_input_api = MockInputApi()
+    mock_input_api.files = [MockAffectedFile('base/memory/singleton.h',
+                                     diff_singleton_h),
+                            MockAffectedFile('foo.h', diff_foo_h),
+                            MockAffectedFile('bad.h', diff_bad_h)]
+    warnings = PRESUBMIT._CheckSingletonInHeaders(mock_input_api,
+                                                  MockOutputApi())
+    self.assertEqual(1, len(warnings))
+    self.assertEqual('error', warnings[0].type)
+    self.assertTrue('Found Singleton<T>' in warnings[0].message)
+
+  def testSingletonInCC(self):
+    diff_cc = ['Foo* foo = Singleton<Foo>::get();']
+    mock_input_api = MockInputApi()
+    mock_input_api.files = [MockAffectedFile('some/path/foo.cc', diff_cc)]
+    warnings = PRESUBMIT._CheckSingletonInHeaders(mock_input_api,
+                                                  MockOutputApi())
+    self.assertEqual(0, len(warnings))
 
 
 class InvalidOSMacroNamesTest(unittest.TestCase):
@@ -673,14 +693,6 @@ class IDLParsingTest(unittest.TestCase):
 class TryServerMasterTest(unittest.TestCase):
   def testTryServerMasters(self):
     bots = {
-        'tryserver.chromium.gpu': [
-            'mac_gpu',
-            'mac_gpu_triggered_tests',
-            'linux_gpu',
-            'linux_gpu_triggered_tests',
-            'win_gpu',
-            'win_gpu_triggered_tests',
-        ],
         'tryserver.chromium.mac': [
             'ios_dbg_simulator',
             'ios_rel_device',
@@ -771,6 +783,145 @@ class TryServerMasterTest(unittest.TestCase):
         self.assertEqual(master, PRESUBMIT.GetTryServerMasterForBot(bot),
                          'bot=%s: expected %s, computed %s' % (
             bot, master, PRESUBMIT.GetTryServerMasterForBot(bot)))
+
+
+class UserMetricsActionTest(unittest.TestCase):
+  def testUserMetricsActionInActions(self):
+    input_api = MockInputApi()
+    file_with_user_action = 'file_with_user_action.cc'
+    contents_with_user_action = [
+      'base::UserMetricsAction("AboutChrome")'
+    ]
+
+    input_api.files = [MockFile(file_with_user_action,
+                                contents_with_user_action)]
+
+    self.assertEqual(
+      [], PRESUBMIT._CheckUserActionUpdate(input_api, MockOutputApi()))
+
+
+  def testUserMetricsActionNotAddedToActions(self):
+    input_api = MockInputApi()
+    file_with_user_action = 'file_with_user_action.cc'
+    contents_with_user_action = [
+      'base::UserMetricsAction("NotInActionsXml")'
+    ]
+
+    input_api.files = [MockFile(file_with_user_action,
+                                contents_with_user_action)]
+
+    output = PRESUBMIT._CheckUserActionUpdate(input_api, MockOutputApi())
+    self.assertEqual(
+      ('File %s line %d: %s is missing in '
+       'tools/metrics/actions/actions.xml. Please run '
+       'tools/metrics/actions/extract_actions.py to update.'
+       % (file_with_user_action, 1, 'NotInActionsXml')),
+      output[0].message)
+
+
+class LogUsageTest(unittest.TestCase):
+
+  def testCheckAndroidCrLogUsage(self):
+    mock_input_api = MockInputApi()
+    mock_output_api = MockOutputApi()
+
+    mock_input_api.files = [
+      MockAffectedFile('RandomStuff.java', [
+        'random stuff'
+      ]),
+      MockAffectedFile('HasAndroidLog.java', [
+        'import android.util.Log;',
+        'some random stuff',
+        'Log.d("TAG", "foo");',
+      ]),
+      MockAffectedFile('HasExplicitUtilLog.java', [
+        'some random stuff',
+        'android.util.Log.d("TAG", "foo");',
+      ]),
+      MockAffectedFile('IsInBasePackage.java', [
+        'package org.chromium.base;',
+        'private static final String TAG = "cr.Foo";',
+        'Log.d(TAG, "foo");',
+      ]),
+      MockAffectedFile('IsInBasePackageButImportsLog.java', [
+        'package org.chromium.base;',
+        'import android.util.Log;',
+        'private static final String TAG = "cr.Foo";',
+        'Log.d(TAG, "foo");',
+      ]),
+      MockAffectedFile('HasBothLog.java', [
+        'import org.chromium.base.Log;',
+        'some random stuff',
+        'private static final String TAG = "cr.Foo";',
+        'Log.d(TAG, "foo");',
+        'android.util.Log.d("TAG", "foo");',
+      ]),
+      MockAffectedFile('HasCorrectTag.java', [
+        'import org.chromium.base.Log;',
+        'some random stuff',
+        'private static final String TAG = "cr.Foo";',
+        'Log.d(TAG, "foo");',
+      ]),
+      MockAffectedFile('HasShortCorrectTag.java', [
+        'import org.chromium.base.Log;',
+        'some random stuff',
+        'private static final String TAG = "cr";',
+        'Log.d(TAG, "foo");',
+      ]),
+      MockAffectedFile('HasNoTagDecl.java', [
+        'import org.chromium.base.Log;',
+        'some random stuff',
+        'Log.d(TAG, "foo");',
+      ]),
+      MockAffectedFile('HasIncorrectTagDecl.java', [
+        'import org.chromium.base.Log;',
+        'private static final String TAHG = "cr.Foo";',
+        'some random stuff',
+        'Log.d(TAG, "foo");',
+      ]),
+      MockAffectedFile('HasInlineTag.java', [
+        'import org.chromium.base.Log;',
+        'some random stuff',
+        'private static final String TAG = "cr.Foo";',
+        'Log.d("TAG", "foo");',
+      ]),
+      MockAffectedFile('HasIncorrectTag.java', [
+        'import org.chromium.base.Log;',
+        'some random stuff',
+        'private static final String TAG = "rubbish";',
+        'Log.d(TAG, "foo");',
+      ]),
+      MockAffectedFile('HasTooLongTag.java', [
+        'import org.chromium.base.Log;',
+        'some random stuff',
+        'private static final String TAG = "cr.24_charachers_long___";',
+        'Log.d(TAG, "foo");',
+      ]),
+    ]
+
+    msgs = PRESUBMIT._CheckAndroidCrLogUsage(
+        mock_input_api, mock_output_api)
+
+    self.assertEqual(4, len(msgs))
+
+    # Declaration format
+    self.assertEqual(3, len(msgs[0].items))
+    self.assertTrue('HasNoTagDecl.java' in msgs[0].items)
+    self.assertTrue('HasIncorrectTagDecl.java' in msgs[0].items)
+    self.assertTrue('HasIncorrectTag.java' in msgs[0].items)
+
+    # Tag length
+    self.assertEqual(1, len(msgs[1].items))
+    self.assertTrue('HasTooLongTag.java' in msgs[1].items)
+
+    # Tag must be a variable named TAG
+    self.assertEqual(1, len(msgs[2].items))
+    self.assertTrue('HasInlineTag.java:4' in msgs[2].items)
+
+    # Util Log usage
+    self.assertEqual(2, len(msgs[3].items))
+    self.assertTrue('HasAndroidLog.java:3' in msgs[3].items)
+    self.assertTrue('IsInBasePackageButImportsLog.java:4' in msgs[3].items)
 
 
 if __name__ == '__main__':

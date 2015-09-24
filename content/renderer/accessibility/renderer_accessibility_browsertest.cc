@@ -6,6 +6,7 @@
 #include "base/time/time.h"
 #include "content/common/frame_messages.h"
 #include "content/common/view_message_enums.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/test/render_view_test.h"
 #include "content/renderer/accessibility/renderer_accessibility.h"
 #include "content/renderer/render_frame_impl.h"
@@ -50,6 +51,15 @@ class RendererAccessibilityTest : public RenderViewTest {
     sink_ = &render_thread_->sink();
   }
 
+  void TearDown() override {
+#if defined(LEAK_SANITIZER)
+     // Do this before shutting down V8 in RenderViewTest::TearDown().
+     // http://crbug.com/328552
+     __lsan_do_leak_check();
+#endif
+     RenderViewTest::TearDown();
+  }
+
   void SetMode(AccessibilityMode mode) {
     frame()->OnSetAccessibilityMode(mode);
   }
@@ -59,10 +69,10 @@ class RendererAccessibilityTest : public RenderViewTest {
     const IPC::Message* message =
         sink_->GetUniqueMessageMatching(AccessibilityHostMsg_Events::ID);
     ASSERT_TRUE(message);
-    Tuple2<std::vector<AccessibilityHostMsg_EventParams>, int> param;
+    base::Tuple<std::vector<AccessibilityHostMsg_EventParams>, int> param;
     AccessibilityHostMsg_Events::Read(message, &param);
-    ASSERT_GE(param.a.size(), 1U);
-    *params = param.a[0];
+    ASSERT_GE(base::get<0>(param).size(), 1U);
+    *params = base::get<0>(param)[0];
   }
 
   int CountAccessibilityNodesSentToBrowser() {
@@ -156,6 +166,13 @@ TEST_F(RendererAccessibilityTest, SendFullAccessibilityTreeOnReload) {
 
 TEST_F(RendererAccessibilityTest,
        MAYBE_AccessibilityMessagesQueueWhileSwappedOut) {
+  // This test breaks down in --site-per-process, as swapping out destroys
+  // the main frame and it cannot be further navigated.
+  // TODO(nasko): Figure out what this behavior looks like when swapped out
+  // no longer exists.
+  if (RenderFrameProxy::IsSwappedOutStateForbidden()) {
+    return;
+  }
   std::string html =
       "<body>"
       "  <p>Hello, world.</p>"
@@ -178,7 +195,8 @@ TEST_F(RendererAccessibilityTest,
   accessibility->HandleAXEvent(
       root_obj,
       ui::AX_EVENT_VALUE_CHANGED);
-  view()->GetMainRenderFrame()->OnSwapOut(kProxyRoutingId);
+  view()->GetMainRenderFrame()->OnSwapOut(kProxyRoutingId, true,
+                                          content::FrameReplicationState());
   accessibility->SendPendingAccessibilityEvents();
   EXPECT_FALSE(sink_->GetUniqueMessageMatching(
       AccessibilityHostMsg_Events::ID));
@@ -188,17 +206,16 @@ TEST_F(RendererAccessibilityTest,
   // message that was queued up before will be quickly discarded
   // because the element it was referring to no longer exists,
   // so the event here is from loading this new page.
-  FrameMsg_Navigate_Params nav_params;
-  nav_params.common_params.url = GURL("data:text/html,<p>Hello, again.</p>");
-  nav_params.common_params.navigation_type = FrameMsg_Navigate_Type::NORMAL;
-  nav_params.common_params.transition = ui::PAGE_TRANSITION_TYPED;
-  nav_params.current_history_list_length = 1;
-  nav_params.current_history_list_offset = 0;
-  nav_params.pending_history_list_offset = 1;
-  nav_params.page_id = -1;
-  nav_params.commit_params.browser_navigation_start =
-      base::TimeTicks::FromInternalValue(1);
-  frame()->OnNavigate(nav_params);
+  CommonNavigationParams common_params;
+  RequestNavigationParams request_params;
+  common_params.url = GURL("data:text/html,<p>Hello, again.</p>");
+  common_params.navigation_type = FrameMsg_Navigate_Type::NORMAL;
+  common_params.transition = ui::PAGE_TRANSITION_TYPED;
+  request_params.current_history_list_length = 1;
+  request_params.current_history_list_offset = 0;
+  request_params.pending_history_list_offset = 1;
+  request_params.page_id = -1;
+  frame()->OnNavigate(common_params, StartNavigationParams(), request_params);
   accessibility->SendPendingAccessibilityEvents();
   EXPECT_TRUE(sink_->GetUniqueMessageMatching(
       AccessibilityHostMsg_Events::ID));
@@ -404,9 +421,9 @@ TEST_F(RendererAccessibilityTest, EventOnObjectNotInTree) {
   const IPC::Message* message =
       sink_->GetUniqueMessageMatching(AccessibilityHostMsg_Events::ID);
   ASSERT_TRUE(message);
-  Tuple2<std::vector<AccessibilityHostMsg_EventParams>, int> param;
+  base::Tuple<std::vector<AccessibilityHostMsg_EventParams>, int> param;
   AccessibilityHostMsg_Events::Read(message, &param);
-  ASSERT_EQ(0U, param.a.size());
+  ASSERT_EQ(0U, base::get<0>(param).size());
 }
 
 }  // namespace content

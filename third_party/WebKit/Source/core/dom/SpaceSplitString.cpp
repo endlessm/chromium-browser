@@ -151,18 +151,20 @@ SpaceSplitString::DataMap& SpaceSplitString::sharedDataMap()
     return map;
 }
 
-void SpaceSplitString::set(const AtomicString& inputString, bool shouldFoldCase)
+void SpaceSplitString::set(const AtomicString& inputString, CaseFolding caseFolding)
 {
     if (inputString.isNull()) {
         clear();
         return;
     }
 
-    String string(inputString.string());
-    if (shouldFoldCase && hasNonASCIIOrUpper(string))
+    if (caseFolding == ShouldFoldCase && hasNonASCIIOrUpper(inputString.string())) {
+        String string(inputString.string());
         string = string.foldCase();
-
-    m_data = Data::create(AtomicString(string));
+        m_data = Data::create(AtomicString(string));
+    } else {
+        m_data = Data::create(inputString);
+    }
 }
 
 SpaceSplitString::Data::~Data()

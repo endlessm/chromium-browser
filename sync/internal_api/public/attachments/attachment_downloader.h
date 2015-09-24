@@ -10,6 +10,7 @@
 #include "google_apis/gaia/oauth2_token_service_request.h"
 #include "sync/api/attachments/attachment.h"
 #include "sync/base/sync_export.h"
+#include "sync/internal_api/public/base/model_type.h"
 
 namespace net {
 class URLRequestContextGetter;
@@ -51,6 +52,10 @@ class SYNC_EXPORT AttachmentDownloader {
   // |scopes| is the set of scopes to use for downloads.
   //
   // |token_service_provider| provides an OAuth2 token service.
+  //
+  // |store_birthday| is the raw, sync store birthday.
+  //
+  // |model_type| is the model type this downloader is used with.
   static scoped_ptr<AttachmentDownloader> Create(
       const GURL& sync_service_url,
       const scoped_refptr<net::URLRequestContextGetter>&
@@ -58,7 +63,9 @@ class SYNC_EXPORT AttachmentDownloader {
       const std::string& account_id,
       const OAuth2TokenService::ScopeSet scopes,
       const scoped_refptr<OAuth2TokenServiceRequest::TokenServiceProvider>&
-          token_service_provider);
+          token_service_provider,
+      const std::string& store_birthday,
+      ModelType model_type);
 };
 
 }  // namespace syncer

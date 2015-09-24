@@ -17,6 +17,7 @@
 #include "base/files/file_util.h"
 #import "base/logging.h"
 #include "base/mac/bundle_locations.h"
+#include "base/mac/foundation_util.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
 #import "base/mac/scoped_nsautorelease_pool.h"
@@ -167,7 +168,7 @@ void InitCrashReporter(const std::string& process_type) {
   NSBundle* main_bundle = base::mac::FrameworkBundle();
   bool is_browser = !base::mac::IsBackgroundOnlyProcess();
   bool enable_breakpad = false;
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
 
   if (is_browser) {
     // Since the configuration management infrastructure is possibly not
@@ -236,7 +237,7 @@ void InitCrashReporter(const std::string& process_type) {
   // Initialize Breakpad.
   gBreakpadRef = BreakpadCreate(breakpad_config);
   if (!gBreakpadRef) {
-    LOG_IF(ERROR, base::mac::AmIBundled()) << "Breakpad initializaiton failed";
+    LOG_IF(ERROR, base::mac::AmIBundled()) << "Breakpad initialization failed";
     return;
   }
 
@@ -250,13 +251,6 @@ void InitCrashReporter(const std::string& process_type) {
   SetCrashKeyValue(@"ver", [info_dictionary objectForKey:@BREAKPAD_VERSION]);
   SetCrashKeyValue(@"prod", [info_dictionary objectForKey:@BREAKPAD_PRODUCT]);
   SetCrashKeyValue(@"plat", @"OS X");
-
-  if (!is_browser) {
-    // Get the guid from the command line switch.
-    std::string client_guid =
-        command_line->GetSwitchValueASCII(switches::kEnableCrashReporter);
-    GetCrashReporterClient()->SetCrashReporterClientIdFromGUID(client_guid);
-  }
 
   logging::SetLogMessageHandler(&FatalMessageHandler);
   base::debug::SetDumpWithoutCrashingFunction(&DumpHelper::DumpWithoutCrashing);
@@ -280,8 +274,6 @@ void InitCrashProcessInfo(const std::string& process_type_switch) {
   if (!process_type_switch.empty()) {
     process_type = base::SysUTF8ToNSString(process_type_switch);
   }
-
-  GetCrashReporterClient()->InstallAdditionalFilters(gBreakpadRef);
 
   // Store process type in crash dump.
   SetCrashKeyValue(@"ptype", process_type);

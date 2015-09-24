@@ -7,7 +7,6 @@
 #include <string>
 #include <vector>
 
-#include "base/float_util.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/speech/tts_platform.h"
@@ -136,9 +135,9 @@ void TtsControllerImpl::SpeakOrEnqueue(Utterance* utterance) {
   // If we're paused and we get an utterance that can't be queued,
   // flush the queue but stay in the paused state.
   if (paused_ && !utterance->can_enqueue()) {
+    utterance_queue_.push(utterance);
     Stop();
     paused_ = true;
-    delete utterance;
     return;
   }
 

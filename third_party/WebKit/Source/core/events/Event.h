@@ -25,7 +25,9 @@
 #define Event_h
 
 #include "bindings/core/v8/ScriptWrappable.h"
+#include "core/CoreExport.h"
 #include "core/dom/DOMTimeStamp.h"
+#include "core/events/EventInit.h"
 #include "core/events/EventPath.h"
 #include "platform/heap/Handle.h"
 #include "wtf/RefCounted.h"
@@ -33,19 +35,11 @@
 
 namespace blink {
 
+class DOMWrapperWorld;
 class EventTarget;
 class ExecutionContext;
 
-struct EventInit {
-    STACK_ALLOCATED();
-public:
-    EventInit();
-
-    bool bubbles;
-    bool cancelable;
-};
-
-class Event : public RefCountedWillBeGarbageCollectedFinalized<Event>,  public ScriptWrappable {
+class CORE_EXPORT Event : public RefCountedWillBeGarbageCollectedFinalized<Event>,  public ScriptWrappable {
     DEFINE_WRAPPERTYPEINFO();
 public:
     enum PhaseType {
@@ -72,6 +66,12 @@ public:
         BLUR                = 8192,
         SELECT              = 16384,
         CHANGE              = 32768
+    };
+
+    enum RailsMode {
+        RailsModeFree       = 0,
+        RailsModeHorizontal = 1,
+        RailsModeVertical   = 2
     };
 
     static PassRefPtrWillBeRawPtr<Event> create()
@@ -145,6 +145,7 @@ public:
     virtual bool isGestureEvent() const;
     virtual bool isWheelEvent() const;
     virtual bool isRelatedEvent() const;
+    virtual bool isPointerEvent() const;
 
     // Drag events are a subset of mouse events.
     virtual bool isDragEvent() const;
@@ -176,13 +177,20 @@ public:
     void setUnderlyingEvent(PassRefPtrWillBeRawPtr<Event>);
 
     EventPath& eventPath() { ASSERT(m_eventPath); return *m_eventPath; }
-    EventPath& ensureEventPath();
+    void initEventPath(Node&);
 
-    PassRefPtrWillBeRawPtr<StaticNodeList> path() const;
+    WillBeHeapVector<RefPtrWillBeMember<EventTarget>> path(ScriptState*) const;
 
     bool isBeingDispatched() const { return eventPhase(); }
 
-    virtual void trace(Visitor*);
+    double uiCreateTime() const { return m_uiCreateTime; }
+    void setUICreateTime(double uiCreateTime) { m_uiCreateTime = uiCreateTime; }
+
+    // Events that must not leak across isolated world, similar to how
+    // ErrorEvent behaves, can override this method.
+    virtual bool canBeDispatchedInWorld(const DOMWrapperWorld&) const { return true; }
+
+    DECLARE_VIRTUAL_TRACE();
 
 protected:
     Event();
@@ -192,16 +200,18 @@ protected:
     virtual void receivedTarget();
     bool dispatched() const { return m_target; }
 
+    void setCanBubble(bool bubble) { m_canBubble = bubble; }
+
 private:
     AtomicString m_type;
-    bool m_canBubble;
-    bool m_cancelable;
+    unsigned m_canBubble:1;
+    unsigned m_cancelable:1;
 
-    bool m_propagationStopped;
-    bool m_immediatePropagationStopped;
-    bool m_defaultPrevented;
-    bool m_defaultHandled;
-    bool m_cancelBubble;
+    unsigned m_propagationStopped:1;
+    unsigned m_immediatePropagationStopped:1;
+    unsigned m_defaultPrevented:1;
+    unsigned m_defaultHandled:1;
+    unsigned m_cancelBubble:1;
 
     unsigned short m_eventPhase;
     RefPtrWillBeMember<EventTarget> m_currentTarget;
@@ -209,6 +219,7 @@ private:
     DOMTimeStamp m_createTime;
     RefPtrWillBeMember<Event> m_underlyingEvent;
     OwnPtrWillBeMember<EventPath> m_eventPath;
+    double m_uiCreateTime; // For input events, the time the event was recorded by the UI.
 };
 
 #define DEFINE_EVENT_TYPE_CASTS(typeName) \

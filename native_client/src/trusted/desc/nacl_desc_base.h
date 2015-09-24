@@ -15,10 +15,11 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/nacl_base.h"
 #include "native_client/src/include/portability.h"
 
-#include "native_client/src/public/desc_metadata_types.h"
+#include "native_client/src/public/nacl_desc.h"
 
 /* For NaClHandle */
 #include "native_client/src/shared/imc/nacl_imc_c.h"
@@ -27,6 +28,7 @@
 #include "native_client/src/shared/platform/nacl_host_desc.h"
 #include "native_client/src/shared/platform/nacl_sync.h"
 
+#include "native_client/src/trusted/desc/desc_metadata_types.h"
 #include "native_client/src/trusted/nacl_base/nacl_refcount.h"
 
 EXTERN_C_BEGIN
@@ -35,7 +37,6 @@ struct NaClDesc;
 struct nacl_abi_stat;
 struct nacl_abi_timespec;
 struct NaClDescEffector;
-struct NaClDescQuotaInterface;
 struct NaClImcTypedMsgHdr;
 struct NaClMessageHeader;
 
@@ -90,7 +91,6 @@ enum NaClDescTypeTag {
   NACL_DESC_TRANSFERABLE_DATA_SOCKET,
   NACL_DESC_IMC_SOCKET,
   NACL_DESC_QUOTA,
-  NACL_DESC_DEVICE_POSTMESSAGE,
   NACL_DESC_CUSTOM,
   NACL_DESC_NULL
   /*
@@ -148,8 +148,7 @@ struct NaClInternalHeader {
  */
 extern int
 (*NaClDescInternalize[NACL_DESC_TYPE_MAX])(struct NaClDesc **,
-                                           struct NaClDescXferState *,
-                                           struct NaClDescQuotaInterface *);
+                                           struct NaClDescXferState *);
 
 extern char const *NaClDescTypeString(enum NaClDescTypeTag type_tag);
 
@@ -283,8 +282,7 @@ struct NaClDescVtbl {
 
   ssize_t (*RecvMsg)(struct NaClDesc               *vself,
                      struct NaClImcTypedMsgHdr     *nitmhp,
-                     int                           flags,
-                     struct NaClDescQuotaInterface *quota_interface) NACL_WUR;
+                     int                           flags) NACL_WUR;
 
   ssize_t (*LowLevelSendMsg)(struct NaClDesc                *vself,
                              struct NaClMessageHeader const *dgram,
@@ -445,11 +443,6 @@ struct NaClDesc {
 int NaClDescCtor(struct NaClDesc *ndp) NACL_WUR;
 
 extern struct NaClDescVtbl const kNaClDescVtbl;
-
-struct NaClDesc *NaClDescRef(struct NaClDesc *ndp);
-
-/* when ref_count reaches zero, will call dtor and free */
-void NaClDescUnref(struct NaClDesc *ndp);
 
 /*
  * NaClDescSafeUnref is just like NaCDescUnref, except that ndp may be
@@ -629,8 +622,7 @@ ssize_t NaClDescSendMsgNotImplemented(
 ssize_t NaClDescRecvMsgNotImplemented(
     struct NaClDesc               *vself,
     struct NaClImcTypedMsgHdr     *nitmhp,
-    int                           flags,
-    struct NaClDescQuotaInterface *quota_interface);
+    int                           flags);
 
 ssize_t NaClDescLowLevelSendMsgNotImplemented(
     struct NaClDesc                *vself,
@@ -656,8 +648,7 @@ int NaClDescGetValueNotImplemented(struct NaClDesc  *vself);
 
 int NaClDescInternalizeNotImplemented(
     struct NaClDesc                **out_desc,
-    struct NaClDescXferState       *xfer,
-    struct NaClDescQuotaInterface  *quota_interface);
+    struct NaClDescXferState       *xfer);
 
 
 int NaClSafeCloseNaClHandle(NaClHandle h);

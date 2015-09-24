@@ -19,6 +19,7 @@ namespace media {
 
 class DecoderBuffer;
 class Decryptor;
+class MediaLog;
 
 // Decryptor-based VideoDecoder implementation that can decrypt and decode
 // encrypted video buffers and return decrypted and decompressed video frames.
@@ -28,18 +29,22 @@ class MEDIA_EXPORT DecryptingVideoDecoder : public VideoDecoder {
  public:
   DecryptingVideoDecoder(
       const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
-      const SetDecryptorReadyCB& set_decryptor_ready_cb);
+      const scoped_refptr<MediaLog>& media_log,
+      const SetDecryptorReadyCB& set_decryptor_ready_cb,
+      const base::Closure& waiting_for_decryption_key_cb);
   ~DecryptingVideoDecoder() override;
 
   // VideoDecoder implementation.
   std::string GetDisplayName() const override;
   void Initialize(const VideoDecoderConfig& config,
                   bool low_delay,
-                  const PipelineStatusCB& status_cb,
+                  const InitCB& init_cb,
                   const OutputCB& output_cb) override;
   void Decode(const scoped_refptr<DecoderBuffer>& buffer,
               const DecodeCB& decode_cb) override;
   void Reset(const base::Closure& closure) override;
+
+  static const char kDecoderName[];
 
  private:
   // For a detailed state diagram please see this link: http://goo.gl/8jAok
@@ -80,12 +85,15 @@ class MEDIA_EXPORT DecryptingVideoDecoder : public VideoDecoder {
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
+  scoped_refptr<MediaLog> media_log_;
+
   State state_;
 
-  PipelineStatusCB init_cb_;
+  InitCB init_cb_;
   OutputCB output_cb_;
   DecodeCB decode_cb_;
   base::Closure reset_cb_;
+  base::Closure waiting_for_decryption_key_cb_;
 
   VideoDecoderConfig config_;
 
@@ -108,9 +116,8 @@ class MEDIA_EXPORT DecryptingVideoDecoder : public VideoDecoder {
   // matching DecryptCB call (in DoDeliverFrame()).
   uint32 trace_id_;
 
-  // NOTE: Weak pointers must be invalidated before all other member variables.
-  base::WeakPtrFactory<DecryptingVideoDecoder> weak_factory_;
   base::WeakPtr<DecryptingVideoDecoder> weak_this_;
+  base::WeakPtrFactory<DecryptingVideoDecoder> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(DecryptingVideoDecoder);
 };

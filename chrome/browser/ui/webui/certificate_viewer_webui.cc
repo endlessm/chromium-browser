@@ -21,11 +21,10 @@
 #include "chrome/grit/generated_resources.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 
 using content::WebContents;
 using content::WebUIMessageHandler;
-using web_modal::NativeWebContentsModalDialog;
 
 // Shows a certificate using the WebUI certificate viewer.
 void ShowCertificateViewer(WebContents* web_contents,
@@ -58,7 +57,7 @@ void CertificateViewerModalDialog::Show(content::WebContents* web_contents,
                                   this);
 }
 
-NativeWebContentsModalDialog
+gfx::NativeWindow
 CertificateViewerModalDialog::GetNativeWebContentsModalDialog() {
 #if defined(USE_AURA)
   return window_;
@@ -153,9 +152,9 @@ std::string CertificateViewerModalDialog::GetDialogArgs() const {
   std::string issued_str, expires_str;
   if (x509_certificate_model::GetTimes(cert_hnd, &issued, &expires)) {
     issued_str = base::UTF16ToUTF8(
-        base::TimeFormatShortDateNumeric(issued));
+        base::TimeFormatFriendlyDateAndTime(issued));
     expires_str = base::UTF16ToUTF8(
-        base::TimeFormatShortDateNumeric(expires));
+        base::TimeFormatFriendlyDateAndTime(expires));
   } else {
     issued_str = alternative_text;
     expires_str = alternative_text;
@@ -188,7 +187,7 @@ std::string CertificateViewerModalDialog::GetDialogArgs() const {
   // Set the last node as the top of the certificate hierarchy.
   cert_info.Set("hierarchy", children);
 
-  base::JSONWriter::Write(&cert_info, &data);
+  base::JSONWriter::Write(cert_info, &data);
 
   return data;
 }
@@ -205,8 +204,7 @@ void CertificateViewerModalDialog::OnDialogClosed(
 
 void CertificateViewerModalDialog::OnCloseContents(WebContents* source,
                                               bool* out_close_dialog) {
-  if (out_close_dialog)
-    *out_close_dialog = true;
+  *out_close_dialog = true;
 }
 
 bool CertificateViewerModalDialog::ShouldShowDialogTitle() const {
@@ -228,12 +226,11 @@ void CertificateViewerDialog::Show(WebContents* web_contents,
                                    gfx::NativeWindow parent) {
   // TODO(bshe): UI tweaks needed for Aura HTML Dialog, such as adding padding
   // on the title for Aura ConstrainedWebDialogUI.
-  dialog_ = CreateConstrainedWebDialog(web_contents->GetBrowserContext(), this,
-                                       web_contents);
+  dialog_ = ShowConstrainedWebDialog(web_contents->GetBrowserContext(), this,
+                                     web_contents);
 }
 
-NativeWebContentsModalDialog
-CertificateViewerDialog::GetNativeWebContentsModalDialog() {
+gfx::NativeWindow CertificateViewerDialog::GetNativeWebContentsModalDialog() {
   return dialog_->GetNativeDialog();
 }
 
@@ -276,7 +273,7 @@ void CertificateViewerDialogHandler::ExportCertificate(
   if (cert_index < 0)
     return;
 
-  NativeWebContentsModalDialog window =
+  gfx::NativeWindow window =
       platform_util::GetTopLevel(dialog_->GetNativeWebContentsModalDialog());
   ShowCertExportDialog(web_ui()->GetWebContents(),
                        window,
@@ -350,16 +347,14 @@ void CertificateViewerDialogHandler::RequestCertificateFields(
       l10n_util::GetStringUTF8(IDS_CERT_DETAILS_NOT_AFTER));
   base::Time issued, expires;
   if (x509_certificate_model::GetTimes(cert, &issued, &expires)) {
-    // The object Time internally saves the time in UTC timezone. This is why we
-    // do a simple UTC string concatenation.
     node_details->SetString(
         "payload.val",
-        base::UTF16ToUTF8(base::TimeFormatShortDateAndTime(issued)) + " " +
-            l10n_util::GetStringUTF8(IDS_CERT_DETAILS_UTC_TIMEZONE));
+        base::UTF16ToUTF8(
+            base::TimeFormatShortDateAndTimeWithTimeZone(issued)));
     alt_node_details->SetString(
         "payload.val",
-        base::UTF16ToUTF8(base::TimeFormatShortDateAndTime(expires)) + " " +
-            l10n_util::GetStringUTF8(IDS_CERT_DETAILS_UTC_TIMEZONE));
+        base::UTF16ToUTF8(
+            base::TimeFormatShortDateAndTimeWithTimeZone(expires)));
   }
 
   cert_fields->Append(node_details = new base::DictionaryValue());

@@ -42,41 +42,39 @@ public:
     PassRefPtr<ResourceLoadTiming> deepCopy()
     {
         RefPtr<ResourceLoadTiming> timing = create();
-        timing->requestTime = requestTime;
-        timing->proxyStart = proxyStart;
-        timing->proxyEnd = proxyEnd;
-        timing->dnsStart = dnsStart;
-        timing->dnsEnd = dnsEnd;
-        timing->connectStart = connectStart;
-        timing->connectEnd = connectEnd;
-        timing->serviceWorkerFetchStart = serviceWorkerFetchStart;
-        timing->serviceWorkerFetchReady = serviceWorkerFetchReady;
-        timing->serviceWorkerFetchEnd = serviceWorkerFetchEnd;
-        timing->sendStart = sendStart;
-        timing->sendEnd = sendEnd;
-        timing->receiveHeadersEnd = receiveHeadersEnd;
-        timing->sslStart = sslStart;
-        timing->sslEnd = sslEnd;
+        timing->m_requestTime = m_requestTime;
+        timing->m_proxyStart = m_proxyStart;
+        timing->m_proxyEnd = m_proxyEnd;
+        timing->m_dnsStart = m_dnsStart;
+        timing->m_dnsEnd = m_dnsEnd;
+        timing->m_connectStart = m_connectStart;
+        timing->m_connectEnd = m_connectEnd;
+        timing->m_workerStart = m_workerStart;
+        timing->m_workerReady = m_workerReady;
+        timing->m_sendStart = m_sendStart;
+        timing->m_sendEnd = m_sendEnd;
+        timing->m_receiveHeadersEnd = m_receiveHeadersEnd;
+        timing->m_sslStart = m_sslStart;
+        timing->m_sslEnd = m_sslEnd;
         return timing.release();
     }
 
     bool operator==(const ResourceLoadTiming& other) const
     {
-        return requestTime == other.requestTime
-            && proxyStart == other.proxyStart
-            && proxyEnd == other.proxyEnd
-            && dnsStart == other.dnsStart
-            && dnsEnd == other.dnsEnd
-            && connectStart == other.connectStart
-            && connectEnd == other.connectEnd
-            && serviceWorkerFetchStart == other.serviceWorkerFetchStart
-            && serviceWorkerFetchReady == other.serviceWorkerFetchReady
-            && serviceWorkerFetchEnd == other.serviceWorkerFetchEnd
-            && sendStart == other.sendStart
-            && sendEnd == other.sendEnd
-            && receiveHeadersEnd == other.receiveHeadersEnd
-            && sslStart == other.sslStart
-            && sslEnd == other.sslEnd;
+        return m_requestTime == other.m_requestTime
+            && m_proxyStart == other.m_proxyStart
+            && m_proxyEnd == other.m_proxyEnd
+            && m_dnsStart == other.m_dnsStart
+            && m_dnsEnd == other.m_dnsEnd
+            && m_connectStart == other.m_connectStart
+            && m_connectEnd == other.m_connectEnd
+            && m_workerStart == other.m_workerStart
+            && m_workerReady == other.m_workerReady
+            && m_sendStart == other.m_sendStart
+            && m_sendEnd == other.m_sendEnd
+            && m_receiveHeadersEnd == other.m_receiveHeadersEnd
+            && m_sslStart == other.m_sslStart
+            && m_sslEnd == other.m_sslEnd;
     }
 
     bool operator!=(const ResourceLoadTiming& other) const
@@ -84,48 +82,78 @@ public:
         return !(*this == other);
     }
 
-    // We want to present a unified timeline to Javascript. Using walltime is problematic, because the clock may skew while resources
-    // load. To prevent that skew, we record a single reference walltime when root document navigation begins. All other times are
-    // recorded using monotonicallyIncreasingTime(). When a time needs to be presented to Javascript, we build a pseudo-walltime
-    // using the following equation (requestTime as example):
-    //   pseudo time = document wall reference + (requestTime - document monotonic reference).
-    double requestTime; // All monotonicallyIncreasingTime() in seconds
-    double proxyStart;
-    double proxyEnd;
-    double dnsStart;
-    double dnsEnd;
-    double connectStart;
-    double connectEnd;
-    double serviceWorkerFetchStart;
-    double serviceWorkerFetchReady;
-    double serviceWorkerFetchEnd;
-    double sendStart;
-    double sendEnd;
-    double receiveHeadersEnd;
-    double sslStart;
-    double sslEnd;
+    void setDnsStart(double dnsStart) { m_dnsStart = dnsStart; }
+    void setRequestTime(double requestTime) { m_requestTime = requestTime; }
+    void setProxyStart(double proxyStart) { m_proxyStart = proxyStart; }
+    void setProxyEnd(double proxyEnd) { m_proxyEnd = proxyEnd; }
+    void setDnsEnd(double dnsEnd) { m_dnsEnd = dnsEnd; }
+    void setConnectStart(double connectStart) { m_connectStart = connectStart; }
+    void setConnectEnd(double connectEnd) { m_connectEnd = connectEnd; }
+    void setWorkerStart(double workerStart) { m_workerStart = workerStart; }
+    void setWorkerReady(double workerReady) { m_workerReady = workerReady; }
+    void setSendStart(double sendStart) { m_sendStart = sendStart; }
+    void setSendEnd(double sendEnd) { m_sendEnd = sendEnd; }
+    void setReceiveHeadersEnd(double receiveHeadersEnd) { m_receiveHeadersEnd = receiveHeadersEnd; }
+    void setSslStart(double sslStart) { m_sslStart = sslStart; }
+    void setSslEnd(double sslEnd) { m_sslEnd = sslEnd; }
 
-    double calculateMillisecondDelta(double time) const { return time ? (time - requestTime) * 1000 : -1; }
+    double dnsStart() const { return m_dnsStart; }
+    double requestTime() const { return m_requestTime; }
+    double proxyStart() const { return m_proxyStart; }
+    double proxyEnd() const { return m_proxyEnd; }
+    double dnsEnd() const { return m_dnsEnd; }
+    double connectStart() const { return m_connectStart; }
+    double connectEnd() const { return m_connectEnd; }
+    double workerStart() const { return m_workerStart; }
+    double workerReady() const { return m_workerReady; }
+    double sendStart() const { return m_sendStart; }
+    double sendEnd() const { return m_sendEnd; }
+    double receiveHeadersEnd() const { return m_receiveHeadersEnd; }
+    double sslStart() const { return m_sslStart; }
+    double sslEnd() const { return m_sslEnd; }
+
+    double calculateMillisecondDelta(double time) const { return time ? (time - m_requestTime) * 1000 : -1; }
 
 private:
     ResourceLoadTiming()
-        : requestTime(0)
-        , proxyStart(0)
-        , proxyEnd(0)
-        , dnsStart(0)
-        , dnsEnd(0)
-        , connectStart(0)
-        , connectEnd(0)
-        , serviceWorkerFetchStart(0)
-        , serviceWorkerFetchReady(0)
-        , serviceWorkerFetchEnd(0)
-        , sendStart(0)
-        , sendEnd(0)
-        , receiveHeadersEnd(0)
-        , sslStart(0)
-        , sslEnd(0)
+        : m_requestTime(0)
+        , m_proxyStart(0)
+        , m_proxyEnd(0)
+        , m_dnsStart(0)
+        , m_dnsEnd(0)
+        , m_connectStart(0)
+        , m_connectEnd(0)
+        , m_workerStart(0)
+        , m_workerReady(0)
+        , m_sendStart(0)
+        , m_sendEnd(0)
+        , m_receiveHeadersEnd(0)
+        , m_sslStart(0)
+        , m_sslEnd(0)
     {
     }
+
+    // We want to present a unified timeline to Javascript. Using walltime is problematic, because the clock may skew while resources
+    // load. To prevent that skew, we record a single reference walltime when root document navigation begins. All other times are
+    // recorded using monotonicallyIncreasingTime(). When a time needs to be presented to Javascript, we build a pseudo-walltime
+    // using the following equation (m_requestTime as example):
+    //   pseudo time = document wall reference + (m_requestTime - document monotonic reference).
+
+    // All monotonicallyIncreasingTime() in seconds
+    double m_requestTime;
+    double m_proxyStart;
+    double m_proxyEnd;
+    double m_dnsStart;
+    double m_dnsEnd;
+    double m_connectStart;
+    double m_connectEnd;
+    double m_workerStart;
+    double m_workerReady;
+    double m_sendStart;
+    double m_sendEnd;
+    double m_receiveHeadersEnd;
+    double m_sslStart;
+    double m_sslEnd;
 };
 
 }

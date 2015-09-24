@@ -15,8 +15,8 @@
 
 // static
 void CollectedCookiesInfoBarDelegate::Create(InfoBarService* infobar_service) {
-  infobar_service->AddInfoBar(ConfirmInfoBarDelegate::CreateInfoBar(
-      scoped_ptr<ConfirmInfoBarDelegate>(
+  infobar_service->AddInfoBar(
+      infobar_service->CreateConfirmInfoBar(scoped_ptr<ConfirmInfoBarDelegate>(
           new CollectedCookiesInfoBarDelegate())));
 }
 
@@ -27,13 +27,13 @@ CollectedCookiesInfoBarDelegate::CollectedCookiesInfoBarDelegate()
 CollectedCookiesInfoBarDelegate::~CollectedCookiesInfoBarDelegate() {
 }
 
-int CollectedCookiesInfoBarDelegate::GetIconID() const {
-  return IDR_INFOBAR_COOKIE;
-}
-
 infobars::InfoBarDelegate::Type
 CollectedCookiesInfoBarDelegate::GetInfoBarType() const {
   return PAGE_ACTION_TYPE;
+}
+
+int CollectedCookiesInfoBarDelegate::GetIconID() const {
+  return IDR_INFOBAR_COOKIE;
 }
 
 base::string16 CollectedCookiesInfoBarDelegate::GetMessageText() const {

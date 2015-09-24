@@ -29,17 +29,22 @@ namespace blink {
 class SVGPathSegLinetoVerticalRel final : public SVGPathSegLinetoVertical {
     DEFINE_WRAPPERTYPEINFO();
 public:
-    static PassRefPtr<SVGPathSegLinetoVerticalRel> create(SVGPathElement* element, float y)
+    static PassRefPtrWillBeRawPtr<SVGPathSegLinetoVerticalRel> create(SVGPathElement* element, float y)
     {
-        return adoptRef(new SVGPathSegLinetoVerticalRel(element, y));
+        return adoptRefWillBeNoop(new SVGPathSegLinetoVerticalRel(element, y));
+    }
+
+    PassRefPtrWillBeRawPtr<SVGPathSeg> clone() override
+    {
+        return adoptRefWillBeNoop(new SVGPathSegLinetoVerticalRel(nullptr, y()));
     }
 
 private:
     SVGPathSegLinetoVerticalRel(SVGPathElement* element, float y)
         : SVGPathSegLinetoVertical(element, y) { }
 
-    virtual unsigned short pathSegType() const override { return PATHSEG_LINETO_VERTICAL_REL; }
-    virtual String pathSegTypeAsLetter() const override { return "v"; }
+    unsigned short pathSegType() const override { return PATHSEG_LINETO_VERTICAL_REL; }
+    String pathSegTypeAsLetter() const override { return "v"; }
 };
 
 } // namespace blink

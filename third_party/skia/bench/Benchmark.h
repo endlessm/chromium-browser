@@ -13,11 +13,10 @@
 #include "SkString.h"
 #include "SkTRegistry.h"
 
-#define DEF_BENCH(code)                                                 \
-namespace {                                                             \
-static Benchmark* SK_MACRO_APPEND_LINE(factory)(void*) { code; }      \
-BenchRegistry SK_MACRO_APPEND_LINE(g_R_)(SK_MACRO_APPEND_LINE(factory)); \
-}
+#define DEF_BENCH3(code, N) \
+    static BenchRegistry gBench##N([](void*) -> Benchmark* { code; });
+#define DEF_BENCH2(code, N) DEF_BENCH3(code, N)
+#define DEF_BENCH(code) DEF_BENCH2(code, __COUNTER__)
 
 /*
  *  With the above macros, you can register benches as follows (at the bottom
@@ -44,8 +43,6 @@ public:
 
 class Benchmark : public SkRefCnt {
 public:
-    SK_DECLARE_INST_COUNT(Benchmark)
-
     Benchmark();
 
     const char* getName();
@@ -57,6 +54,7 @@ public:
         kRaster_Backend,
         kGPU_Backend,
         kPDF_Backend,
+        kHWUI_Backend,
     };
 
     // Call to determine whether the benchmark is intended for
@@ -65,10 +63,19 @@ public:
         return backend != kNonRendering_Backend;
     }
 
+    virtual int calculateLoops(int defaultLoops) const {
+        return defaultLoops;
+    }
+
     // Call before draw, allows the benchmark to do setup work outside of the
     // timer. When a benchmark is repeatedly drawn, this should be called once
     // before the initial draw.
     void preDraw();
+
+    // Called once before and after a series of draw calls to a single canvas.
+    // The setup/break down in these calls is not timed.
+    void perCanvasPreDraw(SkCanvas*);
+    void perCanvasPostDraw(SkCanvas*);
 
     // Bench framework can tune loops to be large enough for stable timing.
     void draw(const int loops, SkCanvas*);
@@ -95,12 +102,19 @@ public:
         fClearMask = clearMask;
     }
 
+    /*
+     * Benches which support running in a visual mode can advertise this functionality
+     */
+    virtual bool isVisual() { return false; }
+
 protected:
     virtual void setupPaint(SkPaint* paint);
 
     virtual const char* onGetName() = 0;
     virtual const char* onGetUniqueName() { return this->onGetName(); }
     virtual void onPreDraw() {}
+    virtual void onPerCanvasPreDraw(SkCanvas*) {}
+    virtual void onPerCanvasPostDraw(SkCanvas*) {}
     // Each bench should do its main work in a loop like this:
     //   for (int i = 0; i < loops; i++) { <work here> }
     virtual void onDraw(const int loops, SkCanvas*) = 0;

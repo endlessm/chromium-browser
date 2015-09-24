@@ -24,12 +24,14 @@ namespace ui {
 ui::ContextFactory* InitializeContextFactoryForTests(bool enable_pixel_output) {
   DCHECK(!g_implicit_factory) <<
       "ContextFactory for tests already initialized.";
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kEnablePixelOutputInTests))
     enable_pixel_output = true;
   if (enable_pixel_output)
     g_disable_null_draw = new gfx::DisableNullDrawGLBindings;
-  g_implicit_factory = new InProcessContextFactory();
+  bool context_factory_for_test = true;
+  g_implicit_factory =
+      new InProcessContextFactory(context_factory_for_test, nullptr);
   return g_implicit_factory;
 }
 

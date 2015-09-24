@@ -10,15 +10,12 @@ import constants
 import getpass
 import json
 import os
-import sys
 import time
-
-if __name__ == '__main__':
-  sys.path.insert(0, constants.SOURCE_ROOT)
 
 from chromite.cbuildbot import repository
 from chromite.cbuildbot import manifest_version
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import cache
 from chromite.lib import git
 
@@ -47,7 +44,7 @@ class ValidationError(Exception):
 class RemoteTryJob(object):
   """Remote Tryjob that is submitted through a Git repo."""
   EXTERNAL_URL = os.path.join(constants.EXTERNAL_GOB_URL,
-                            'chromiumos/tryjobs')
+                              'chromiumos/tryjobs')
   INTERNAL_URL = os.path.join(constants.INTERNAL_GOB_URL,
                               'chromeos/tryjobs')
 
@@ -88,7 +85,7 @@ class RemoteTryJob(object):
     self.repo_cache = cache.DiskCache(self.options.cache_dir)
     cwd = os.path.dirname(os.path.realpath(__file__))
     self.user_email = git.GetProjectUserEmail(cwd)
-    cros_build_lib.Info('Using email:%s', self.user_email)
+    logging.info('Using email:%s', self.user_email)
     # Name of the job that appears on the waterfall.
     patch_list = options.gerrit_patches + options.local_patches
     self.name = options.remote_description
@@ -141,8 +138,7 @@ class RemoteTryJob(object):
     # character limit. Validate that our description is well under the limit.
     if (len(self.user) + len(self.name) + self.PADDING >
         self.MAX_DESCRIPTION_LENGTH):
-      cros_build_lib.Warning(
-          'remote tryjob description is too long, truncating it')
+      logging.warning('remote tryjob description is too long, truncating it')
       self.name = self.name[:self.MAX_DESCRIPTION_LENGTH - self.PADDING] + '...'
 
     # Buildbot will set extra_args as a buildset 'property'.  It will store
@@ -193,7 +189,9 @@ class RemoteTryJob(object):
         raise ChromiteUpgradeNeeded(val)
     push_branch = manifest_version.PUSH_BRANCH
 
-    remote_branch = ('origin', 'refs/remotes/origin/test') if testjob else None
+    remote_branch = None
+    if testjob:
+      remote_branch = git.RemoteRef('origin', 'refs/remotes/origin/test')
     git.CreatePushBranch(push_branch, workdir, sync=False,
                          remote_push_branch=remote_branch)
 
@@ -209,11 +207,11 @@ class RemoteTryJob(object):
 
     git.RunGit(workdir, ['add', fullpath])
     extra_env = {
-      # The committer field makes sure the creds match what the remote
-      # gerrit instance expects while the author field allows lookup
-      # on the console to work.  http://crosbug.com/27939
-      'GIT_COMMITTER_EMAIL' : self.user_email,
-      'GIT_AUTHOR_EMAIL'    : self.user_email,
+        # The committer field makes sure the creds match what the remote
+        # gerrit instance expects while the author field allows lookup
+        # on the console to work.  http://crosbug.com/27939
+        'GIT_COMMITTER_EMAIL' : self.user_email,
+        'GIT_AUTHOR_EMAIL'    : self.user_email,
     }
     git.RunGit(workdir, ['commit', '-m', self.description],
                extra_env=extra_env)
@@ -221,7 +219,7 @@ class RemoteTryJob(object):
     try:
       git.PushWithRetry(push_branch, workdir, retries=3, dryrun=dryrun)
     except cros_build_lib.RunCommandError:
-      cros_build_lib.Error(
+      logging.error(
           'Failed to submit tryjob.  This could be due to too many '
           'submission requests by users.  Please try again.')
       raise
@@ -242,11 +240,6 @@ class RemoteTryJob(object):
         self._Submit(ref.path, testjob, dryrun)
     else:
       self._Submit(workdir, testjob, dryrun)
-
-  def GetTrybotConsoleLink(self):
-    """Get link to the console for the user."""
-    return ('%s/console?name=%s' % (constants.TRYBOT_DASHBOARD,
-                                    self.user_email))
 
   def GetTrybotWaterfallLink(self):
     """Get link to the waterfall for the user."""

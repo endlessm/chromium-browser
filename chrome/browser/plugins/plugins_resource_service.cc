@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,15 +19,9 @@ const int kStartResourceFetchDelayMs = 60 * 1000;
 
 // Delay between calls to update the cache 1 day and 2 minutes in testing mode.
 const int kCacheUpdateDelayMs = 24 * 60 * 60 * 1000;
-const int kTestCacheUpdateDelayMs = 2 * 60 * 1000;
 
 const char kPluginsServerUrl[] =
     "https://www.gstatic.com/chrome/config/plugins_2/";
-
-bool IsTest() {
-  return CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kPluginsMetadataServerURL);
-}
 
 GURL GetPluginsServerURL() {
   std::string filename;
@@ -41,25 +35,18 @@ GURL GetPluginsServerURL() {
 #error Unknown platform
 #endif
 
-  std::string test_url =
-      CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-          switches::kPluginsMetadataServerURL);
-  return GURL(IsTest() ? test_url : kPluginsServerUrl + filename);
-}
-
-int GetCacheUpdateDelay() {
-  return IsTest() ? kTestCacheUpdateDelayMs : kCacheUpdateDelayMs;
+  return GURL(kPluginsServerUrl + filename);
 }
 
 }  // namespace
 
 PluginsResourceService::PluginsResourceService(PrefService* local_state)
-    : WebResourceService(local_state,
-                         GetPluginsServerURL(),
-                         false,
-                         prefs::kPluginsResourceCacheUpdate,
-                         kStartResourceFetchDelayMs,
-                         GetCacheUpdateDelay()) {
+    : ChromeWebResourceService(local_state,
+                               GetPluginsServerURL(),
+                               false,
+                               prefs::kPluginsResourceCacheUpdate,
+                               kStartResourceFetchDelayMs,
+                               kCacheUpdateDelayMs) {
 }
 
 void PluginsResourceService::Init() {

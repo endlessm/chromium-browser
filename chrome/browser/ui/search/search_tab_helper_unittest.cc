@@ -8,6 +8,7 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/field_trial.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/time/time.h"
 #include "chrome/browser/prerender/prerender_manager.h"
 #include "chrome/browser/prerender/prerender_manager_factory.h"
 #include "chrome/browser/search/instant_unittest_base.h"
@@ -22,7 +23,6 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/ntp_logging_events.h"
-#include "chrome/common/omnibox_focus_state.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
@@ -30,6 +30,7 @@
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/omnibox/common/omnibox_focus_state.h"
 #include "components/search_engines/template_url_service.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
@@ -60,13 +61,15 @@ class MockSearchIPCRouterDelegate : public SearchIPCRouter::Delegate {
   MOCK_METHOD1(OnDeleteMostVisitedItem, void(const GURL& url));
   MOCK_METHOD1(OnUndoMostVisitedDeletion, void(const GURL& url));
   MOCK_METHOD0(OnUndoAllMostVisitedDeletions, void());
-  MOCK_METHOD1(OnLogEvent, void(NTPLoggingEventType event));
+  MOCK_METHOD2(OnLogEvent, void(NTPLoggingEventType event,
+                                base::TimeDelta time));
   MOCK_METHOD2(OnLogMostVisitedImpression,
                void(int position, const base::string16& provider));
   MOCK_METHOD2(OnLogMostVisitedNavigation,
                void(int position, const base::string16& provider));
   MOCK_METHOD1(PasteIntoOmnibox, void(const base::string16&));
   MOCK_METHOD1(OnChromeIdentityCheck, void(const base::string16& identity));
+  MOCK_METHOD0(OnHistorySyncCheck, void());
 };
 
 }  // namespace
@@ -90,25 +93,26 @@ class SearchTabHelperTest : public ChromeRenderViewHostTestHarness {
 
   // Creates a sign-in manager for tests.  If |username| is not empty, the
   // testing profile of the WebContents will be connected to the given account.
-  // The account can be configured to |sync_history| or not.
-  void CreateSigninManager(const std::string& username, bool sync_history) {
+  void CreateSigninManager(const std::string& username) {
     SigninManagerBase* signin_manager = static_cast<SigninManagerBase*>(
         SigninManagerFactory::GetForProfile(profile()));
 
     if (!username.empty()) {
       ASSERT_TRUE(signin_manager);
-      signin_manager->SetAuthenticatedUsername(username);
+      signin_manager->SetAuthenticatedAccountInfo(username, username);
     }
+  }
 
+  // Configure the account to |sync_history| or not.
+  void SetHistorySync(bool sync_history) {
     ProfileSyncServiceMock* sync_service = static_cast<ProfileSyncServiceMock*>(
         ProfileSyncServiceFactory::GetInstance()->GetForProfile(profile()));
 
-    EXPECT_CALL(*sync_service, SyncActive()).WillRepeatedly(Return(true));
     syncer::ModelTypeSet result;
     if (sync_history) {
       result.Put(syncer::HISTORY_DELETE_DIRECTIVES);
     }
-    EXPECT_CALL(*sync_service, GetActiveDataTypes())
+    EXPECT_CALL(*sync_service, GetPreferredDataTypes())
         .WillRepeatedly(Return(result));
   }
 
@@ -172,7 +176,7 @@ TEST_F(SearchTabHelperTest, PageURLDoesntBelongToInstantRenderer) {
 
 TEST_F(SearchTabHelperTest, OnChromeIdentityCheckMatch) {
   NavigateAndCommit(GURL(chrome::kChromeSearchLocalNtpUrl));
-  CreateSigninManager(std::string("foo@bar.com"), true);
+  CreateSigninManager(std::string("foo@bar.com"));
   SearchTabHelper* search_tab_helper =
       SearchTabHelper::FromWebContents(web_contents());
   ASSERT_NE(static_cast<SearchTabHelper*>(NULL), search_tab_helper);
@@ -186,13 +190,60 @@ TEST_F(SearchTabHelperTest, OnChromeIdentityCheckMatch) {
 
   ChromeViewMsg_ChromeIdentityCheckResult::Param params;
   ChromeViewMsg_ChromeIdentityCheckResult::Read(message, &params);
-  EXPECT_EQ(test_identity, params.a);
-  ASSERT_TRUE(params.b);
+  EXPECT_EQ(test_identity, base::get<0>(params));
+  ASSERT_TRUE(base::get<1>(params));
+}
+
+TEST_F(SearchTabHelperTest, OnChromeIdentityCheckMatchSlightlyDifferentGmail) {
+  NavigateAndCommit(GURL(chrome::kChromeSearchLocalNtpUrl));
+  CreateSigninManager(std::string("foobar123@gmail.com"));
+  SearchTabHelper* search_tab_helper =
+      SearchTabHelper::FromWebContents(web_contents());
+  ASSERT_NE(static_cast<SearchTabHelper*>(NULL), search_tab_helper);
+
+  // For gmail, canonicalization is done so that email addresses have a
+  // standard form.
+  const base::string16 test_identity =
+      base::ASCIIToUTF16("Foo.Bar.123@gmail.com");
+  search_tab_helper->OnChromeIdentityCheck(test_identity);
+
+  const IPC::Message* message = process()->sink().GetUniqueMessageMatching(
+      ChromeViewMsg_ChromeIdentityCheckResult::ID);
+  ASSERT_TRUE(message != NULL);
+
+  ChromeViewMsg_ChromeIdentityCheckResult::Param params;
+  ChromeViewMsg_ChromeIdentityCheckResult::Read(message, &params);
+  EXPECT_EQ(test_identity, base::get<0>(params));
+  ASSERT_TRUE(base::get<1>(params));
+}
+
+TEST_F(SearchTabHelperTest, OnChromeIdentityCheckMatchSlightlyDifferentGmail2) {
+  NavigateAndCommit(GURL(chrome::kChromeSearchLocalNtpUrl));
+  //
+  CreateSigninManager(std::string("chrome.guy.7FOREVER"));
+  SearchTabHelper* search_tab_helper =
+      SearchTabHelper::FromWebContents(web_contents());
+  ASSERT_NE(static_cast<SearchTabHelper*>(NULL), search_tab_helper);
+
+  // For gmail/googlemail, canonicalization is done so that email addresses have
+  // a standard form.
+  const base::string16 test_identity =
+      base::ASCIIToUTF16("chromeguy7forever@googlemail.com");
+  search_tab_helper->OnChromeIdentityCheck(test_identity);
+
+  const IPC::Message* message = process()->sink().GetUniqueMessageMatching(
+      ChromeViewMsg_ChromeIdentityCheckResult::ID);
+  ASSERT_TRUE(message != NULL);
+
+  ChromeViewMsg_ChromeIdentityCheckResult::Param params;
+  ChromeViewMsg_ChromeIdentityCheckResult::Read(message, &params);
+  EXPECT_EQ(test_identity, base::get<0>(params));
+  ASSERT_TRUE(base::get<1>(params));
 }
 
 TEST_F(SearchTabHelperTest, OnChromeIdentityCheckMismatch) {
   NavigateAndCommit(GURL(chrome::kChromeSearchLocalNtpUrl));
-  CreateSigninManager(std::string("foo@bar.com"), true);
+  CreateSigninManager(std::string("foo@bar.com"));
   SearchTabHelper* search_tab_helper =
       SearchTabHelper::FromWebContents(web_contents());
   ASSERT_NE(static_cast<SearchTabHelper*>(NULL), search_tab_helper);
@@ -206,39 +257,13 @@ TEST_F(SearchTabHelperTest, OnChromeIdentityCheckMismatch) {
 
   ChromeViewMsg_ChromeIdentityCheckResult::Param params;
   ChromeViewMsg_ChromeIdentityCheckResult::Read(message, &params);
-  EXPECT_EQ(test_identity, params.a);
-  ASSERT_FALSE(params.b);
-}
-
-TEST_F(SearchTabHelperTest, OnChromeIdentityCheckSignedOutMatch) {
-  NavigateAndCommit(GURL(chrome::kChromeSearchLocalNtpUrl));
-  // This test does not sign in.
-  ProfileSyncServiceMock* sync_service = static_cast<ProfileSyncServiceMock*>(
-      ProfileSyncServiceFactory::GetInstance()->GetForProfile(profile()));
-  EXPECT_CALL(*sync_service, SyncActive()).WillRepeatedly(Return(false));
-  SearchTabHelper* search_tab_helper =
-      SearchTabHelper::FromWebContents(web_contents());
-  ASSERT_NE(static_cast<SearchTabHelper*>(NULL), search_tab_helper);
-
-  const base::string16 test_identity;
-  search_tab_helper->OnChromeIdentityCheck(test_identity);
-
-  const IPC::Message* message = process()->sink().GetUniqueMessageMatching(
-      ChromeViewMsg_ChromeIdentityCheckResult::ID);
-  ASSERT_TRUE(message != NULL);
-
-  ChromeViewMsg_ChromeIdentityCheckResult::Param params;
-  ChromeViewMsg_ChromeIdentityCheckResult::Read(message, &params);
-  EXPECT_EQ(test_identity, params.a);
-  ASSERT_FALSE(params.b);
+  EXPECT_EQ(test_identity, base::get<0>(params));
+  ASSERT_FALSE(base::get<1>(params));
 }
 
 TEST_F(SearchTabHelperTest, OnChromeIdentityCheckSignedOutMismatch) {
   NavigateAndCommit(GURL(chrome::kChromeSearchLocalNtpUrl));
   // This test does not sign in.
-  ProfileSyncServiceMock* sync_service = static_cast<ProfileSyncServiceMock*>(
-      ProfileSyncServiceFactory::GetInstance()->GetForProfile(profile()));
-  EXPECT_CALL(*sync_service, SyncActive()).WillRepeatedly(Return(false));
   SearchTabHelper* search_tab_helper =
       SearchTabHelper::FromWebContents(web_contents());
   ASSERT_NE(static_cast<SearchTabHelper*>(NULL), search_tab_helper);
@@ -252,28 +277,44 @@ TEST_F(SearchTabHelperTest, OnChromeIdentityCheckSignedOutMismatch) {
 
   ChromeViewMsg_ChromeIdentityCheckResult::Param params;
   ChromeViewMsg_ChromeIdentityCheckResult::Read(message, &params);
-  EXPECT_EQ(test_identity, params.a);
-  ASSERT_FALSE(params.b);
+  EXPECT_EQ(test_identity, base::get<0>(params));
+  ASSERT_FALSE(base::get<1>(params));
 }
 
-TEST_F(SearchTabHelperTest, OnChromeIdentityCheckMatchNotSyncing) {
+TEST_F(SearchTabHelperTest, OnHistorySyncCheckSyncing) {
   NavigateAndCommit(GURL(chrome::kChromeSearchLocalNtpUrl));
-  CreateSigninManager(std::string("foo@bar.com"), false);
+  SetHistorySync(true);
   SearchTabHelper* search_tab_helper =
       SearchTabHelper::FromWebContents(web_contents());
   ASSERT_NE(static_cast<SearchTabHelper*>(NULL), search_tab_helper);
 
-  const base::string16 test_identity = base::ASCIIToUTF16("foo@bar.com");
-  search_tab_helper->OnChromeIdentityCheck(test_identity);
+  search_tab_helper->OnHistorySyncCheck();
 
   const IPC::Message* message = process()->sink().GetUniqueMessageMatching(
-      ChromeViewMsg_ChromeIdentityCheckResult::ID);
+      ChromeViewMsg_HistorySyncCheckResult::ID);
   ASSERT_TRUE(message != NULL);
 
-  ChromeViewMsg_ChromeIdentityCheckResult::Param params;
-  ChromeViewMsg_ChromeIdentityCheckResult::Read(message, &params);
-  EXPECT_EQ(test_identity, params.a);
-  ASSERT_FALSE(params.b);
+  ChromeViewMsg_HistorySyncCheckResult::Param params;
+  ChromeViewMsg_HistorySyncCheckResult::Read(message, &params);
+  ASSERT_TRUE(base::get<0>(params));
+}
+
+TEST_F(SearchTabHelperTest, OnHistorySyncCheckNotSyncing) {
+  NavigateAndCommit(GURL(chrome::kChromeSearchLocalNtpUrl));
+  SetHistorySync(false);
+  SearchTabHelper* search_tab_helper =
+      SearchTabHelper::FromWebContents(web_contents());
+  ASSERT_NE(static_cast<SearchTabHelper*>(NULL), search_tab_helper);
+
+  search_tab_helper->OnHistorySyncCheck();
+
+  const IPC::Message* message = process()->sink().GetUniqueMessageMatching(
+      ChromeViewMsg_HistorySyncCheckResult::ID);
+  ASSERT_TRUE(message != NULL);
+
+  ChromeViewMsg_HistorySyncCheckResult::Param params;
+  ChromeViewMsg_HistorySyncCheckResult::Read(message, &params);
+  ASSERT_FALSE(base::get<0>(params));
 }
 
 class TabTitleObserver : public content::WebContentsObserver {
@@ -337,68 +378,6 @@ class SearchTabHelperWindowTest : public BrowserWithTestWindowTest {
   }
 };
 
-TEST_F(SearchTabHelperWindowTest, OnProvisionalLoadFailRedirectNTPToLocal) {
-  AddTab(browser(), GURL(chrome::kChromeUINewTabURL));
-  content::WebContents* contents =
-        browser()->tab_strip_model()->GetWebContentsAt(0);
-  content::NavigationController* controller = &contents->GetController();
-
-  SearchTabHelper* search_tab_helper =
-      SearchTabHelper::FromWebContents(contents);
-  ASSERT_NE(static_cast<SearchTabHelper*>(NULL), search_tab_helper);
-
-  // A failed provisional load of a cacheable NTP should be redirected to local
-  // NTP.
-  const GURL cacheableNTPURL = chrome::GetNewTabPageURL(profile());
-  search_tab_helper->DidFailProvisionalLoad(
-      contents->GetMainFrame(), cacheableNTPURL, 1, base::string16());
-  CommitPendingLoad(controller);
-  EXPECT_EQ(GURL(chrome::kChromeSearchLocalNtpUrl),
-                 controller->GetLastCommittedEntry()->GetURL());
-}
-
-TEST_F(SearchTabHelperWindowTest, OnProvisionalLoadFailDontRedirectIfAborted) {
-  AddTab(browser(), GURL("chrome://blank"));
-  content::WebContents* contents =
-        browser()->tab_strip_model()->GetWebContentsAt(0);
-  content::NavigationController* controller = &contents->GetController();
-
-  SearchTabHelper* search_tab_helper =
-      SearchTabHelper::FromWebContents(contents);
-  ASSERT_NE(static_cast<SearchTabHelper*>(NULL), search_tab_helper);
-
-  // A failed provisional load of a cacheable NTP should be redirected to local
-  // NTP.
-  const GURL cacheableNTPURL = chrome::GetNewTabPageURL(profile());
-  search_tab_helper->DidFailProvisionalLoad(contents->GetMainFrame(),
-                                            cacheableNTPURL,
-                                            net::ERR_ABORTED,
-                                            base::string16());
-  CommitPendingLoad(controller);
-  EXPECT_EQ(GURL("chrome://blank"),
-                 controller->GetLastCommittedEntry()->GetURL());
-}
-
-TEST_F(SearchTabHelperWindowTest, OnProvisionalLoadFailDontRedirectNonNTP) {
-  AddTab(browser(), GURL(chrome::kChromeUINewTabURL));
-  content::WebContents* contents =
-        browser()->tab_strip_model()->GetWebContentsAt(0);
-  content::NavigationController* controller = &contents->GetController();
-
-  SearchTabHelper* search_tab_helper =
-      SearchTabHelper::FromWebContents(contents);
-  ASSERT_NE(static_cast<SearchTabHelper*>(NULL), search_tab_helper);
-
-  // Any other web page shouldn't be redirected when provisional load fails.
-  search_tab_helper->DidFailProvisionalLoad(contents->GetMainFrame(),
-                                            GURL("http://www.example.com"),
-                                            1,
-                                            base::string16());
-  CommitPendingLoad(controller);
-  EXPECT_NE(GURL(chrome::kChromeSearchLocalNtpUrl),
-                 controller->GetLastCommittedEntry()->GetURL());
-}
-
 class SearchTabHelperPrerenderTest : public InstantUnitTestBase {
  public:
   ~SearchTabHelperPrerenderTest() override {}
@@ -412,8 +391,6 @@ class SearchTabHelperPrerenderTest : public InstantUnitTestBase {
     InstantUnitTestBase::SetUp();
 
     AddTab(browser(), GURL(chrome::kChromeUINewTabURL));
-    prerender::PrerenderManagerFactory::GetForProfile(browser()->profile())->
-        OnCookieStoreLoaded();
     SearchTabHelper::FromWebContents(web_contents())->set_omnibox_has_focus_fn(
         omnibox_has_focus);
     SearchTabHelperPrerenderTest::omnibox_has_focus_ = true;

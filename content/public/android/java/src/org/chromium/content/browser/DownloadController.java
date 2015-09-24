@@ -8,6 +8,7 @@ import android.content.Context;
 
 import org.chromium.base.CalledByNative;
 import org.chromium.base.JNINamespace;
+import org.chromium.ui.base.WindowAndroid.FileAccessCallback;
 
 /**
  * Java counterpart of android DownloadController.
@@ -107,7 +108,8 @@ public class DownloadController {
      */
     @CalledByNative
     public void onDownloadCompleted(Context context, String url, String mimeType,
-            String filename, String path, long contentLength, boolean successful, int downloadId) {
+            String filename, String path, long contentLength, boolean successful, int downloadId,
+            boolean hasUserGesture) {
         if (sDownloadNotificationService != null) {
             DownloadInfo downloadInfo = new DownloadInfo.Builder()
                     .setUrl(url)
@@ -119,6 +121,7 @@ public class DownloadController {
                     .setDescription(filename)
                     .setDownloadId(downloadId)
                     .setHasDownloadId(true)
+                    .setHasUserGesture(hasUserGesture)
                     .build();
             sDownloadNotificationService.onDownloadCompleted(downloadInfo);
         }
@@ -131,7 +134,7 @@ public class DownloadController {
     @CalledByNative
     public void onDownloadUpdated(Context context, String url, String mimeType,
             String filename, String path, long contentLength, boolean successful, int downloadId,
-            int percentCompleted, long timeRemainingInMs) {
+            int percentCompleted, long timeRemainingInMs, boolean hasUserGesture) {
         if (sDownloadNotificationService != null) {
             DownloadInfo downloadInfo = new DownloadInfo.Builder()
                     .setUrl(url)
@@ -145,6 +148,7 @@ public class DownloadController {
                     .setHasDownloadId(true)
                     .setPercentCompleted(percentCompleted)
                     .setTimeRemainingInMillis(timeRemainingInMs)
+                    .setHasUserGesture(hasUserGesture)
                     .build();
             sDownloadNotificationService.onDownloadUpdated(downloadInfo);
         }
@@ -162,6 +166,35 @@ public class DownloadController {
         }
     }
 
+    /**
+     * Returns whether file access is allowed.
+     *
+     * @param view The ContentViewCore to access file system.
+     * @return true if allowed, or false otherwise.
+     */
+    @CalledByNative
+    private boolean hasFileAccess(ContentViewCore view) {
+        return view.getWindowAndroid().hasFileAccess();
+    }
+
+    /**
+     * Called to prompt user with the file access permission.
+     *
+     * @param view The ContentViewCore to access file system.
+     * @param callbackId The native callback function pointer.
+     */
+    @CalledByNative
+    private void requestFileAccess(ContentViewCore view, final long callbackId) {
+        FileAccessCallback callback = new FileAccessCallback() {
+            @Override
+            public void onFileAccessResult(boolean granted) {
+                nativeOnRequestFileAccessResult(callbackId, granted);
+            }
+        };
+        view.getWindowAndroid().requestFileAccess(callback);
+    }
+
     // native methods
     private native void nativeInit();
+    private native void nativeOnRequestFileAccessResult(long callbackId, boolean granted);
 }

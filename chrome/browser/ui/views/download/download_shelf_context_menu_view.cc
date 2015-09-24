@@ -9,13 +9,12 @@
 #include "chrome/browser/download/download_item_model.h"
 #include "content/public/browser/download_item.h"
 #include "content/public/browser/page_navigator.h"
-#include "ui/gfx/point.h"
+#include "ui/gfx/geometry/point.h"
 #include "ui/views/controls/menu/menu_runner.h"
 
 DownloadShelfContextMenuView::DownloadShelfContextMenuView(
-    content::DownloadItem* download_item,
-    content::PageNavigator* navigator)
-    : DownloadShelfContextMenu(download_item, navigator) {
+    content::DownloadItem* download_item)
+    : DownloadShelfContextMenu(download_item) {
 }
 
 DownloadShelfContextMenuView::~DownloadShelfContextMenuView() {}

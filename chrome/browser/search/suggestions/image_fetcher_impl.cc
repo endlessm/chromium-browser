@@ -42,10 +42,11 @@ void ImageFetcherImpl::StartOrQueueNetworkRequest(
     ImageRequest request(new chrome::BitmapFetcher(image_url, this));
     request.url = url;
     request.callbacks.push_back(callback);
-    request.fetcher->Start(
+    request.fetcher->Init(
         url_request_context_, std::string(),
         net::URLRequest::CLEAR_REFERRER_ON_TRANSITION_FROM_SECURE_TO_INSECURE,
         net::LOAD_NORMAL);
+    request.fetcher->Start();
     pending_net_requests_[image_url].swap(&request);
   } else {
     // Request in progress. Register as an interested callback.
@@ -53,9 +54,9 @@ void ImageFetcherImpl::StartOrQueueNetworkRequest(
   }
 }
 
-void ImageFetcherImpl::OnFetchComplete(const GURL image_url,
+void ImageFetcherImpl::OnFetchComplete(const GURL& image_url,
                                        const SkBitmap* bitmap) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   ImageRequestMap::iterator image_iter = pending_net_requests_.find(image_url);
   DCHECK(image_iter != pending_net_requests_.end());

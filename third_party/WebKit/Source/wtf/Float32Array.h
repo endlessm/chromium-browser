@@ -38,9 +38,7 @@ public:
     static inline PassRefPtr<Float32Array> create(const float* array, unsigned length);
     static inline PassRefPtr<Float32Array> create(PassRefPtr<ArrayBuffer>, unsigned byteOffset, unsigned length);
 
-    // Should only be used when it is known the entire array will be filled. Do
-    // not return these results directly to JavaScript without filling first.
-    static inline PassRefPtr<Float32Array> createUninitialized(unsigned length);
+    static inline PassRefPtr<Float32Array> createOrNull(unsigned length);
 
     using TypedArrayBase<float>::set;
 
@@ -51,10 +49,7 @@ public:
         TypedArrayBase<float>::data()[index] = static_cast<float>(value);
     }
 
-    inline PassRefPtr<Float32Array> subarray(int start) const;
-    inline PassRefPtr<Float32Array> subarray(int start, int end) const;
-
-    virtual ViewType type() const override
+    ViewType type() const override
     {
         return TypeFloat32;
     }
@@ -82,24 +77,14 @@ PassRefPtr<Float32Array> Float32Array::create(PassRefPtr<ArrayBuffer> buffer, un
     return TypedArrayBase<float>::create<Float32Array>(buffer, byteOffset, length);
 }
 
-PassRefPtr<Float32Array> Float32Array::createUninitialized(unsigned length)
+PassRefPtr<Float32Array> Float32Array::createOrNull(unsigned length)
 {
-    return TypedArrayBase<float>::createUninitialized<Float32Array>(length);
+    return TypedArrayBase<float>::createOrNull<Float32Array>(length);
 }
 
 Float32Array::Float32Array(PassRefPtr<ArrayBuffer> buffer, unsigned byteOffset, unsigned length)
     : TypedArrayBase<float>(buffer, byteOffset, length)
 {
-}
-
-PassRefPtr<Float32Array> Float32Array::subarray(int start) const
-{
-    return subarray(start, length());
-}
-
-PassRefPtr<Float32Array> Float32Array::subarray(int start, int end) const
-{
-    return subarrayImpl<Float32Array>(start, end);
 }
 
 } // namespace WTF

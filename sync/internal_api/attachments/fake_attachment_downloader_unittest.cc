@@ -16,9 +16,9 @@ class FakeAttachmentDownloaderTest : public testing::Test {
  protected:
   FakeAttachmentDownloaderTest() {}
 
-  virtual void SetUp() override {}
+  void SetUp() override {}
 
-  virtual void TearDown() override {}
+  void TearDown() override {}
 
   AttachmentDownloader* downloader() {
     return &attachment_downloader_;
@@ -50,7 +50,7 @@ class FakeAttachmentDownloaderTest : public testing::Test {
 };
 
 TEST_F(FakeAttachmentDownloaderTest, DownloadAttachment) {
-  AttachmentId attachment_id = AttachmentId::Create();
+  AttachmentId attachment_id = AttachmentId::Create(0, 0);
   downloader()->DownloadAttachment(attachment_id, download_callback());
   RunMessageLoop();
   EXPECT_EQ(1U, download_results().size());

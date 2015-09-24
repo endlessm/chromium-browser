@@ -21,6 +21,7 @@
 #include <OpenGL/OpenGL.h>
 
 #include "webrtc/base/macutils.h"
+#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/modules/desktop_capture/desktop_capture_options.h"
 #include "webrtc/modules/desktop_capture/desktop_frame.h"
 #include "webrtc/modules/desktop_capture/desktop_geometry.h"
@@ -31,7 +32,6 @@
 #include "webrtc/modules/desktop_capture/screen_capture_frame_queue.h"
 #include "webrtc/modules/desktop_capture/screen_capturer_helper.h"
 #include "webrtc/system_wrappers/interface/logging.h"
-#include "webrtc/system_wrappers/interface/scoped_ptr.h"
 #include "webrtc/system_wrappers/interface/tick_util.h"
 
 namespace webrtc {
@@ -190,17 +190,17 @@ CGImageRef CreateExcludedWindowRegionImage(const DesktopRect& pixel_bounds,
 class ScreenCapturerMac : public ScreenCapturer {
  public:
   explicit ScreenCapturerMac(
-      scoped_refptr<DesktopConfigurationMonitor> desktop_config_monitor);
+      rtc::scoped_refptr<DesktopConfigurationMonitor> desktop_config_monitor);
   virtual ~ScreenCapturerMac();
 
   bool Init();
 
   // Overridden from ScreenCapturer:
-  virtual void Start(Callback* callback) OVERRIDE;
-  virtual void Capture(const DesktopRegion& region) OVERRIDE;
-  virtual void SetExcludedWindow(WindowId window) OVERRIDE;
-  virtual bool GetScreenList(ScreenList* screens) OVERRIDE;
-  virtual bool SelectScreen(ScreenId id) OVERRIDE;
+  void Start(Callback* callback) override;
+  void Capture(const DesktopRegion& region) override;
+  void SetExcludedWindow(WindowId window) override;
+  bool GetScreenList(ScreenList* screens) override;
+  bool SelectScreen(ScreenId id) override;
 
  private:
   void GlBlitFast(const DesktopFrame& frame,
@@ -262,7 +262,7 @@ class ScreenCapturerMac : public ScreenCapturer {
   DesktopRegion last_invalid_region_;
 
   // Monitoring display reconfiguration.
-  scoped_refptr<DesktopConfigurationMonitor> desktop_config_monitor_;
+  rtc::scoped_refptr<DesktopConfigurationMonitor> desktop_config_monitor_;
 
   // Power management assertion to prevent the screen from sleeping.
   IOPMAssertionID power_assertion_id_display_;
@@ -301,13 +301,13 @@ class InvertedDesktopFrame : public DesktopFrame {
   virtual ~InvertedDesktopFrame() {}
 
  private:
-  scoped_ptr<DesktopFrame> original_frame_;
+  rtc::scoped_ptr<DesktopFrame> original_frame_;
 
   DISALLOW_COPY_AND_ASSIGN(InvertedDesktopFrame);
 };
 
 ScreenCapturerMac::ScreenCapturerMac(
-    scoped_refptr<DesktopConfigurationMonitor> desktop_config_monitor)
+    rtc::scoped_refptr<DesktopConfigurationMonitor> desktop_config_monitor)
     : callback_(NULL),
       cgl_context_(NULL),
       current_display_(0),
@@ -957,7 +957,7 @@ void ScreenCapturerMac::ScreenUpdateMoveCallback(
 }
 
 DesktopFrame* ScreenCapturerMac::CreateFrame() {
-  scoped_ptr<DesktopFrame> frame(
+  rtc::scoped_ptr<DesktopFrame> frame(
       new BasicDesktopFrame(screen_pixel_bounds_.size()));
 
   frame->set_dpi(DesktopVector(kStandardDPI * dip_to_pixel_scale_,
@@ -972,7 +972,7 @@ ScreenCapturer* ScreenCapturer::Create(const DesktopCaptureOptions& options) {
   if (!options.configuration_monitor())
     return NULL;
 
-  scoped_ptr<ScreenCapturerMac> capturer(
+  rtc::scoped_ptr<ScreenCapturerMac> capturer(
       new ScreenCapturerMac(options.configuration_monitor()));
   if (!capturer->Init())
     capturer.reset();

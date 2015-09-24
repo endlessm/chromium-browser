@@ -5,30 +5,46 @@
 #include "chrome/browser/chromeos/power/session_state_controller_delegate_chromeos.h"
 
 #include "base/logging.h"
-#include "chrome/browser/chromeos/kiosk_mode/kiosk_mode_settings.h"
-#include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/power_manager_client.h"
 #include "chromeos/dbus/session_manager_client.h"
+#include "chromeos/settings/cros_settings_names.h"
+#include "chromeos/settings/cros_settings_provider.h"
 
 namespace chromeos {
 
+SessionStateControllerDelegateChromeos::SessionStateControllerDelegateChromeos()
+    : weak_factory_(this) {
+}
+
+SessionStateControllerDelegateChromeos::
+    ~SessionStateControllerDelegateChromeos() {
+}
+
 void SessionStateControllerDelegateChromeos::RequestLockScreen() {
-  // If KioskMode is enabled, if the user attempts to lock the screen via
-  // the power button, we instead want to log the user out. This seemed to
-  // be the most acceptable replacement for the lock action of the power
-  // button for Kiosk mode users.
-  if (KioskModeSettings::Get()->IsKioskModeEnabled()) {
-    chrome::AttemptUserExit();
-    return;
-  }
   // TODO(antrim) : additional logging for crbug/173178
   LOG(WARNING) << "Requesting screen lock from SessionStateControllerDelegate";
   DBusThreadManager::Get()->GetSessionManagerClient()->RequestLockScreen();
 }
 
 void SessionStateControllerDelegateChromeos::RequestShutdown() {
-  DBusThreadManager::Get()->GetPowerManagerClient()->RequestShutdown();
+  CrosSettings* cros_settings = CrosSettings::Get();
+  CrosSettingsProvider::TrustedStatus status =
+      cros_settings->PrepareTrustedValues(base::Bind(
+          &SessionStateControllerDelegateChromeos::RequestShutdown,
+          weak_factory_.GetWeakPtr()));
+  if (status != CrosSettingsProvider::TRUSTED)
+    return;
+
+  // Get the updated policy.
+  bool reboot_on_shutdown = false;
+  cros_settings->GetBoolean(kRebootOnShutdown, &reboot_on_shutdown);
+
+  if (reboot_on_shutdown)
+    DBusThreadManager::Get()->GetPowerManagerClient()->RequestRestart();
+  else
+    DBusThreadManager::Get()->GetPowerManagerClient()->RequestShutdown();
 }
 
 }  // namespace chromeos

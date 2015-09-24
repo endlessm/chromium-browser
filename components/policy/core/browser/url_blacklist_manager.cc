@@ -7,21 +7,20 @@
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/location.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/prefs/pref_service.h"
 #include "base/sequenced_task_runner.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task_runner_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "components/policy/core/common/policy_pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "net/base/filename_util.h"
-#include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
-#include "net/url_request/url_request.h"
+#include "url/third_party/mozilla/url_parse.h"
 #include "url/url_constants.h"
-#include "url/url_parse.h"
 
 using url_matcher::URLMatcher;
 using url_matcher::URLMatcherCondition;
@@ -406,7 +405,7 @@ URLBlacklistManager::URLBlacklistManager(
       io_task_runner_(io_task_runner),
       segment_url_(segment_url),
       override_blacklist_(override_blacklist),
-      ui_task_runner_(base::MessageLoopProxy::current()),
+      ui_task_runner_(base::ThreadTaskRunnerHandle::Get()),
       blacklist_(new URLBlacklist(segment_url)),
       ui_weak_ptr_factory_(this),
       io_weak_ptr_factory_(this) {
@@ -489,31 +488,23 @@ bool URLBlacklistManager::IsURLBlocked(const GURL& url) const {
   return blacklist_->IsURLBlocked(url);
 }
 
-bool URLBlacklistManager::IsRequestBlocked(
-    const net::URLRequest& request, int* reason) const {
+bool URLBlacklistManager::ShouldBlockRequestForFrame(const GURL& url,
+                                                     int* reason) const {
   DCHECK(io_task_runner_->RunsTasksOnCurrentThread());
-#if !defined(OS_IOS)
-  // TODO(joaodasilva): iOS doesn't set these flags. http://crbug.com/338283
-  int filter_flags = net::LOAD_MAIN_FRAME | net::LOAD_SUB_FRAME;
-  if ((request.load_flags() & filter_flags) == 0)
-    return false;
-#endif
 
   bool block = false;
-  if (override_blacklist_.Run(request.url(), &block, reason))
+  if (override_blacklist_.Run(url, &block, reason))
     return block;
 
   *reason = net::ERR_BLOCKED_BY_ADMINISTRATOR;
-  return IsURLBlocked(request.url());
+  return IsURLBlocked(url);
 }
 
 // static
 void URLBlacklistManager::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterListPref(policy_prefs::kUrlBlacklist,
-                             user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterListPref(policy_prefs::kUrlWhitelist,
-                             user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterListPref(policy_prefs::kUrlBlacklist);
+  registry->RegisterListPref(policy_prefs::kUrlWhitelist);
 }
 
 }  // namespace policy

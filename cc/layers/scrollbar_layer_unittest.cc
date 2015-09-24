@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/containers/hash_tables.h"
+#include "base/thread_task_runner_handle.h"
 #include "cc/animation/scrollbar_animation_controller.h"
 #include "cc/layers/append_quads_data.h"
 #include "cc/layers/painted_scrollbar_layer.h"
@@ -11,7 +12,6 @@
 #include "cc/layers/solid_color_scrollbar_layer.h"
 #include "cc/layers/solid_color_scrollbar_layer_impl.h"
 #include "cc/quads/solid_color_draw_quad.h"
-#include "cc/resources/resource_update_queue.h"
 #include "cc/test/fake_impl_proxy.h"
 #include "cc/test/fake_layer_tree_host.h"
 #include "cc/test/fake_layer_tree_host_client.h"
@@ -21,6 +21,7 @@
 #include "cc/test/geometry_test_utils.h"
 #include "cc/test/layer_tree_test.h"
 #include "cc/test/mock_occlusion_tracker.h"
+#include "cc/test/test_task_graph_runner.h"
 #include "cc/test/test_web_graphics_context_3d.h"
 #include "cc/trees/layer_tree_host.h"
 #include "cc/trees/layer_tree_impl.h"
@@ -33,24 +34,24 @@
 namespace cc {
 namespace {
 
-LayerImpl* LayerImplForScrollAreaAndScrollbar(FakeLayerTreeHost* host,
+LayerImpl* LayerImplForScrollAreaAndScrollbar(const LayerSettings& settings,
+                                              FakeLayerTreeHost* host,
                                               scoped_ptr<Scrollbar> scrollbar,
                                               bool reverse_order,
                                               bool use_solid_color_scrollbar,
                                               int thumb_thickness,
                                               int track_start) {
-  scoped_refptr<Layer> layer_tree_root = Layer::Create();
-  scoped_refptr<Layer> child1 = Layer::Create();
+  scoped_refptr<Layer> layer_tree_root = Layer::Create(settings);
+  scoped_refptr<Layer> child1 = Layer::Create(settings);
   scoped_refptr<Layer> child2;
   if (use_solid_color_scrollbar) {
     const bool kIsLeftSideVerticalScrollbar = false;
-    child2 = SolidColorScrollbarLayer::Create(scrollbar->Orientation(),
-                                              thumb_thickness,
-                                              track_start,
-                                              kIsLeftSideVerticalScrollbar,
-                                              child1->id());
+    child2 = SolidColorScrollbarLayer::Create(
+        settings, scrollbar->Orientation(), thumb_thickness, track_start,
+        kIsLeftSideVerticalScrollbar, child1->id());
   } else {
-    child2 = PaintedScrollbarLayer::Create(scrollbar.Pass(), child1->id());
+    child2 =
+        PaintedScrollbarLayer::Create(settings, scrollbar.Pass(), child1->id());
   }
   child2->ToScrollbarLayer()->SetClipLayer(layer_tree_root->id());
   layer_tree_root->AddChild(child1);
@@ -59,12 +60,97 @@ LayerImpl* LayerImplForScrollAreaAndScrollbar(FakeLayerTreeHost* host,
   return host->CommitAndCreateLayerImplTree();
 }
 
-TEST(ScrollbarLayerTest, ResolveScrollLayerPointer) {
-  FakeLayerTreeHostClient client(FakeLayerTreeHostClient::DIRECT_3D);
-  scoped_ptr<FakeLayerTreeHost> host = FakeLayerTreeHost::Create(&client);
+class FakeResourceTrackingLayerTreeHost : public FakeLayerTreeHost {
+ public:
+  FakeResourceTrackingLayerTreeHost(FakeLayerTreeHostClient* client,
+                                    LayerTreeHost::InitParams* params)
+      : FakeLayerTreeHost(client, params),
+        next_id_(1),
+        total_ui_resource_created_(0),
+        total_ui_resource_deleted_(0) {
+    InitializeSingleThreaded(client, base::ThreadTaskRunnerHandle::Get(),
+                             nullptr);
+  }
+
+  UIResourceId CreateUIResource(UIResourceClient* content) override {
+    total_ui_resource_created_++;
+    UIResourceId nid = next_id_++;
+    ui_resource_bitmap_map_.insert(
+        std::make_pair(nid, content->GetBitmap(nid, false)));
+    return nid;
+  }
+
+  // Deletes a UI resource.  May safely be called more than once.
+  void DeleteUIResource(UIResourceId id) override {
+    UIResourceBitmapMap::iterator iter = ui_resource_bitmap_map_.find(id);
+    if (iter != ui_resource_bitmap_map_.end()) {
+      ui_resource_bitmap_map_.erase(iter);
+      total_ui_resource_deleted_++;
+    }
+  }
+
+  size_t UIResourceCount() { return ui_resource_bitmap_map_.size(); }
+  int TotalUIResourceDeleted() { return total_ui_resource_deleted_; }
+  int TotalUIResourceCreated() { return total_ui_resource_created_; }
+
+  gfx::Size ui_resource_size(UIResourceId id) {
+    UIResourceBitmapMap::iterator iter = ui_resource_bitmap_map_.find(id);
+    if (iter != ui_resource_bitmap_map_.end())
+      return iter->second.GetSize();
+    return gfx::Size();
+  }
+
+  UIResourceBitmap* ui_resource_bitmap(UIResourceId id) {
+    UIResourceBitmapMap::iterator iter = ui_resource_bitmap_map_.find(id);
+    if (iter != ui_resource_bitmap_map_.end())
+      return &iter->second;
+    return nullptr;
+  }
+
+ private:
+  using UIResourceBitmapMap = base::hash_map<UIResourceId, UIResourceBitmap>;
+  UIResourceBitmapMap ui_resource_bitmap_map_;
+
+  int next_id_;
+  int total_ui_resource_created_;
+  int total_ui_resource_deleted_;
+};
+
+class ScrollbarLayerTest : public testing::Test {
+ public:
+  ScrollbarLayerTest() : fake_client_(FakeLayerTreeHostClient::DIRECT_3D) {
+    layer_tree_settings_.single_thread_proxy_scheduler = false;
+    layer_tree_settings_.use_zero_copy = true;
+    layer_tree_settings_.use_one_copy = false;
+
+    LayerTreeHost::InitParams params;
+    params.client = &fake_client_;
+    params.settings = &layer_tree_settings_;
+    params.task_graph_runner = &task_graph_runner_;
+
+    layer_tree_host_.reset(
+        new FakeResourceTrackingLayerTreeHost(&fake_client_, &params));
+    fake_client_.SetLayerTreeHost(layer_tree_host_.get());
+    // Force output surface creation for renderer capabilities.
+    layer_tree_host_->Composite(base::TimeTicks());
+    EXPECT_FALSE(layer_tree_host_->output_surface_lost());
+  }
+
+  const LayerSettings& layer_settings() { return layer_settings_; }
+
+ protected:
+  FakeLayerTreeHostClient fake_client_;
+  TestTaskGraphRunner task_graph_runner_;
+  LayerTreeSettings layer_tree_settings_;
+  LayerSettings layer_settings_;
+  scoped_ptr<FakeResourceTrackingLayerTreeHost> layer_tree_host_;
+};
+
+TEST_F(ScrollbarLayerTest, ResolveScrollLayerPointer) {
   scoped_ptr<Scrollbar> scrollbar(new FakeScrollbar);
   LayerImpl* layer_impl_tree_root = LayerImplForScrollAreaAndScrollbar(
-      host.get(), scrollbar.Pass(), false, false, 0, 0);
+      layer_settings(), layer_tree_host_.get(), scrollbar.Pass(), false, false,
+      0, 0);
 
   LayerImpl* cc_child1 = layer_impl_tree_root->children()[0];
   PaintedScrollbarLayerImpl* cc_child2 =
@@ -75,12 +161,11 @@ TEST(ScrollbarLayerTest, ResolveScrollLayerPointer) {
   EXPECT_EQ(*(cc_child1->scrollbars()->begin()), cc_child2);
 }
 
-TEST(ScrollbarLayerTest, ResolveScrollLayerPointer_ReverseOrder) {
-  FakeLayerTreeHostClient client(FakeLayerTreeHostClient::DIRECT_3D);
-  scoped_ptr<FakeLayerTreeHost> host = FakeLayerTreeHost::Create(&client);
+TEST_F(ScrollbarLayerTest, ResolveScrollLayerPointer_ReverseOrder) {
   scoped_ptr<Scrollbar> scrollbar(new FakeScrollbar);
   LayerImpl* layer_impl_tree_root = LayerImplForScrollAreaAndScrollbar(
-      host.get(), scrollbar.Pass(), true, false, 0, 0);
+      layer_settings(), layer_tree_host_.get(), scrollbar.Pass(), true, false,
+      0, 0);
 
   PaintedScrollbarLayerImpl* cc_child1 =
       static_cast<PaintedScrollbarLayerImpl*>(
@@ -91,14 +176,12 @@ TEST(ScrollbarLayerTest, ResolveScrollLayerPointer_ReverseOrder) {
   EXPECT_EQ(*(cc_child2->scrollbars()->begin()), cc_child1);
 }
 
-TEST(ScrollbarLayerTest, ShouldScrollNonOverlayOnMainThread) {
-  FakeLayerTreeHostClient client(FakeLayerTreeHostClient::DIRECT_3D);
-  scoped_ptr<FakeLayerTreeHost> host = FakeLayerTreeHost::Create(&client);
-
+TEST_F(ScrollbarLayerTest, ShouldScrollNonOverlayOnMainThread) {
   // Create and attach a non-overlay scrollbar.
   scoped_ptr<Scrollbar> scrollbar(new FakeScrollbar);
   LayerImpl* layer_impl_tree_root = LayerImplForScrollAreaAndScrollbar(
-      host.get(), scrollbar.Pass(), false, false, 0, 0);
+      layer_settings(), layer_tree_host_.get(), scrollbar.Pass(), false, false,
+      0, 0);
   PaintedScrollbarLayerImpl* scrollbar_layer_impl =
       static_cast<PaintedScrollbarLayerImpl*>(
           layer_impl_tree_root->children()[1]);
@@ -106,35 +189,35 @@ TEST(ScrollbarLayerTest, ShouldScrollNonOverlayOnMainThread) {
   // When the scrollbar is not an overlay scrollbar, the scroll should be
   // responded to on the main thread as the compositor does not yet implement
   // scrollbar scrolling.
-  EXPECT_EQ(InputHandler::ScrollOnMainThread,
-            scrollbar_layer_impl->TryScroll(gfx::Point(0, 0),
-                                            InputHandler::Gesture));
+  EXPECT_EQ(
+      InputHandler::SCROLL_ON_MAIN_THREAD,
+      scrollbar_layer_impl->TryScroll(gfx::Point(0, 0), InputHandler::GESTURE,
+                                      SCROLL_BLOCKS_ON_NONE));
 
   // Create and attach an overlay scrollbar.
   scrollbar.reset(new FakeScrollbar(false, false, true));
 
   layer_impl_tree_root = LayerImplForScrollAreaAndScrollbar(
-      host.get(), scrollbar.Pass(), false, false, 0, 0);
+      layer_settings(), layer_tree_host_.get(), scrollbar.Pass(), false, false,
+      0, 0);
   scrollbar_layer_impl = static_cast<PaintedScrollbarLayerImpl*>(
       layer_impl_tree_root->children()[1]);
 
   // The user shouldn't be able to drag an overlay scrollbar and the scroll
   // may be handled in the compositor.
-  EXPECT_EQ(InputHandler::ScrollIgnored,
-            scrollbar_layer_impl->TryScroll(gfx::Point(0, 0),
-                                            InputHandler::Gesture));
+  EXPECT_EQ(
+      InputHandler::SCROLL_IGNORED,
+      scrollbar_layer_impl->TryScroll(gfx::Point(0, 0), InputHandler::GESTURE,
+                                      SCROLL_BLOCKS_ON_NONE));
 }
 
-TEST(PaintedScrollbarLayerTest, ScrollOffsetSynchronization) {
-  FakeLayerTreeHostClient client(FakeLayerTreeHostClient::DIRECT_3D);
-  scoped_ptr<FakeLayerTreeHost> host = FakeLayerTreeHost::Create(&client);
-
+TEST_F(ScrollbarLayerTest, ScrollOffsetSynchronization) {
   scoped_ptr<Scrollbar> scrollbar(new FakeScrollbar);
-  scoped_refptr<Layer> layer_tree_root = Layer::Create();
-  scoped_refptr<Layer> scroll_layer = Layer::Create();
-  scoped_refptr<Layer> content_layer = Layer::Create();
-  scoped_refptr<Layer> scrollbar_layer =
-      PaintedScrollbarLayer::Create(scrollbar.Pass(), layer_tree_root->id());
+  scoped_refptr<Layer> layer_tree_root = Layer::Create(layer_settings());
+  scoped_refptr<Layer> scroll_layer = Layer::Create(layer_settings());
+  scoped_refptr<Layer> content_layer = Layer::Create(layer_settings());
+  scoped_refptr<Layer> scrollbar_layer = PaintedScrollbarLayer::Create(
+      layer_settings(), scrollbar.Pass(), layer_tree_root->id());
 
   // Choose bounds to give max_scroll_offset = (30, 50).
   layer_tree_root->SetBounds(gfx::Size(70, 150));
@@ -143,7 +226,7 @@ TEST(PaintedScrollbarLayerTest, ScrollOffsetSynchronization) {
   scroll_layer->SetBounds(gfx::Size(100, 200));
   content_layer->SetBounds(gfx::Size(100, 200));
 
-  host->SetRootLayer(layer_tree_root);
+  layer_tree_host_->SetRootLayer(layer_tree_root);
   layer_tree_root->AddChild(scroll_layer);
   scroll_layer->AddChild(content_layer);
   layer_tree_root->AddChild(scrollbar_layer);
@@ -153,7 +236,8 @@ TEST(PaintedScrollbarLayerTest, ScrollOffsetSynchronization) {
   layer_tree_root->SavePaintProperties();
   content_layer->SavePaintProperties();
 
-  LayerImpl* layer_impl_tree_root = host->CommitAndCreateLayerImplTree();
+  LayerImpl* layer_impl_tree_root =
+      layer_tree_host_->CommitAndCreateLayerImplTree();
 
   ScrollbarLayerImplBase* cc_scrollbar_layer =
       static_cast<PaintedScrollbarLayerImpl*>(
@@ -172,7 +256,7 @@ TEST(PaintedScrollbarLayerTest, ScrollOffsetSynchronization) {
 
   ScrollbarAnimationController* scrollbar_controller =
       layer_impl_tree_root->scrollbar_animation_controller();
-  layer_impl_tree_root = host->CommitAndCreateLayerImplTree();
+  layer_impl_tree_root = layer_tree_host_->CommitAndCreateLayerImplTree();
   EXPECT_EQ(scrollbar_controller,
             layer_impl_tree_root->scrollbar_animation_controller());
 
@@ -186,24 +270,24 @@ TEST(PaintedScrollbarLayerTest, ScrollOffsetSynchronization) {
   EXPECT_EQ(300, cc_scrollbar_layer->maximum());
 }
 
-#define UPDATE_AND_EXTRACT_LAYER_POINTERS()                         \
-  do {                                                              \
-    scrollbar_layer->UpdateThumbAndTrackGeometry();                 \
-    root_clip_layer_impl = host->CommitAndCreateLayerImplTree();    \
-    root_layer_impl = root_clip_layer_impl->children()[0];          \
-    scrollbar_layer_impl = static_cast<PaintedScrollbarLayerImpl*>( \
-        root_layer_impl->children()[1]);                            \
-    scrollbar_layer_impl->ScrollbarParametersDidChange(false);      \
+#define UPDATE_AND_EXTRACT_LAYER_POINTERS()                                  \
+  do {                                                                       \
+    scrollbar_layer->UpdateInternalContentScale();                           \
+    scrollbar_layer->UpdateThumbAndTrackGeometry();                          \
+    root_clip_layer_impl = layer_tree_host_->CommitAndCreateLayerImplTree(); \
+    root_layer_impl = root_clip_layer_impl->children()[0];                   \
+    scrollbar_layer_impl = static_cast<PaintedScrollbarLayerImpl*>(          \
+        root_layer_impl->children()[1]);                                     \
+    scrollbar_layer_impl->ScrollbarParametersDidChange(false);               \
   } while (false)
 
-TEST(ScrollbarLayerTest, UpdatePropertiesOfScrollBarWhenThumbRemoved) {
-  FakeLayerTreeHostClient client(FakeLayerTreeHostClient::DIRECT_3D);
-  scoped_ptr<FakeLayerTreeHost> host = FakeLayerTreeHost::Create(&client);
-  scoped_refptr<Layer> root_clip_layer = Layer::Create();
-  scoped_refptr<Layer> root_layer = Layer::Create();
-  scoped_refptr<Layer> content_layer = Layer::Create();
+TEST_F(ScrollbarLayerTest, UpdatePropertiesOfScrollBarWhenThumbRemoved) {
+  scoped_refptr<Layer> root_clip_layer = Layer::Create(layer_settings());
+  scoped_refptr<Layer> root_layer = Layer::Create(layer_settings());
+  scoped_refptr<Layer> content_layer = Layer::Create(layer_settings());
   scoped_refptr<FakePaintedScrollbarLayer> scrollbar_layer =
-      FakePaintedScrollbarLayer::Create(false, true, root_layer->id());
+      FakePaintedScrollbarLayer::Create(layer_settings(), false, true,
+                                        root_layer->id());
 
   root_layer->SetScrollClipLayerId(root_clip_layer->id());
   // Give the root-clip a size that will result in MaxScrollOffset = (80, 0).
@@ -211,7 +295,7 @@ TEST(ScrollbarLayerTest, UpdatePropertiesOfScrollBarWhenThumbRemoved) {
   root_layer->SetBounds(gfx::Size(100, 50));
   content_layer->SetBounds(gfx::Size(100, 50));
 
-  host->SetRootLayer(root_clip_layer);
+  layer_tree_host_->SetRootLayer(root_clip_layer);
   root_clip_layer->AddChild(root_layer);
   root_layer->AddChild(content_layer);
   root_layer->AddChild(scrollbar_layer);
@@ -224,8 +308,6 @@ TEST(ScrollbarLayerTest, UpdatePropertiesOfScrollBarWhenThumbRemoved) {
   scrollbar_layer->fake_scrollbar()->set_track_rect(gfx::Rect(30, 10, 50, 10));
   scrollbar_layer->fake_scrollbar()->set_thumb_thickness(10);
   scrollbar_layer->fake_scrollbar()->set_thumb_length(4);
-
-  scrollbar_layer->UpdateThumbAndTrackGeometry();
   LayerImpl* root_clip_layer_impl = nullptr;
   LayerImpl* root_layer_impl = nullptr;
   PaintedScrollbarLayerImpl* scrollbar_layer_impl = nullptr;
@@ -241,14 +323,13 @@ TEST(ScrollbarLayerTest, UpdatePropertiesOfScrollBarWhenThumbRemoved) {
             scrollbar_layer_impl->ComputeThumbQuadRect().ToString());
 }
 
-TEST(ScrollbarLayerTest, ThumbRect) {
-  FakeLayerTreeHostClient client(FakeLayerTreeHostClient::DIRECT_3D);
-  scoped_ptr<FakeLayerTreeHost> host = FakeLayerTreeHost::Create(&client);
-  scoped_refptr<Layer> root_clip_layer = Layer::Create();
-  scoped_refptr<Layer> root_layer = Layer::Create();
-  scoped_refptr<Layer> content_layer = Layer::Create();
+TEST_F(ScrollbarLayerTest, ThumbRect) {
+  scoped_refptr<Layer> root_clip_layer = Layer::Create(layer_settings());
+  scoped_refptr<Layer> root_layer = Layer::Create(layer_settings());
+  scoped_refptr<Layer> content_layer = Layer::Create(layer_settings());
   scoped_refptr<FakePaintedScrollbarLayer> scrollbar_layer =
-      FakePaintedScrollbarLayer::Create(false, true, root_layer->id());
+      FakePaintedScrollbarLayer::Create(layer_settings(), false, true,
+                                        root_layer->id());
 
   root_layer->SetScrollClipLayerId(root_clip_layer->id());
   // Give the root-clip a size that will result in MaxScrollOffset = (80, 0).
@@ -256,7 +337,7 @@ TEST(ScrollbarLayerTest, ThumbRect) {
   root_layer->SetBounds(gfx::Size(100, 50));
   content_layer->SetBounds(gfx::Size(100, 50));
 
-  host->SetRootLayer(root_clip_layer);
+  layer_tree_host_->SetRootLayer(root_clip_layer);
   root_clip_layer->AddChild(root_layer);
   root_layer->AddChild(content_layer);
   root_layer->AddChild(scrollbar_layer);
@@ -269,7 +350,6 @@ TEST(ScrollbarLayerTest, ThumbRect) {
   scrollbar_layer->fake_scrollbar()->set_track_rect(gfx::Rect(30, 10, 50, 10));
   scrollbar_layer->fake_scrollbar()->set_thumb_thickness(10);
   scrollbar_layer->fake_scrollbar()->set_thumb_length(4);
-  scrollbar_layer->UpdateThumbAndTrackGeometry();
   LayerImpl* root_clip_layer_impl = nullptr;
   LayerImpl* root_layer_impl = nullptr;
   PaintedScrollbarLayerImpl* scrollbar_layer_impl = nullptr;
@@ -322,19 +402,15 @@ TEST(ScrollbarLayerTest, ThumbRect) {
             scrollbar_layer_impl->ComputeThumbQuadRect().ToString());
 }
 
-TEST(ScrollbarLayerTest, SolidColorDrawQuads) {
+TEST_F(ScrollbarLayerTest, SolidColorDrawQuads) {
   const int kThumbThickness = 3;
   const int kTrackStart = 1;
   const int kTrackLength = 100;
 
-  FakeLayerTreeHostClient client(FakeLayerTreeHostClient::DIRECT_3D);
-  LayerTreeSettings layer_tree_settings;
-  scoped_ptr<FakeLayerTreeHost> host =
-      FakeLayerTreeHost::Create(&client, layer_tree_settings);
-
   scoped_ptr<Scrollbar> scrollbar(new FakeScrollbar(false, true, true));
   LayerImpl* layer_impl_tree_root = LayerImplForScrollAreaAndScrollbar(
-      host.get(), scrollbar.Pass(), false, true, kThumbThickness, kTrackStart);
+      layer_settings(), layer_tree_host_.get(), scrollbar.Pass(), false, true,
+      kThumbThickness, kTrackStart);
   ScrollbarLayerImplBase* scrollbar_layer_impl =
       static_cast<SolidColorScrollbarLayerImpl*>(
           layer_impl_tree_root->children()[1]);
@@ -347,29 +423,13 @@ TEST(ScrollbarLayerTest, SolidColorDrawQuads) {
   {
     scoped_ptr<RenderPass> render_pass = RenderPass::Create();
     AppendQuadsData data;
-    scrollbar_layer_impl->AppendQuads(render_pass.get(), Occlusion(), &data);
+    scrollbar_layer_impl->AppendQuads(render_pass.get(), &data);
 
     const QuadList& quads = render_pass->quad_list;
     ASSERT_EQ(1u, quads.size());
     EXPECT_EQ(DrawQuad::SOLID_COLOR, quads.front()->material);
-    EXPECT_RECT_EQ(gfx::Rect(6, 0, 39, 3), quads.front()->rect);
+    EXPECT_EQ(gfx::Rect(6, 0, 39, 3), quads.front()->rect);
   }
-
-  // Contents scale should scale the draw quad.
-  scrollbar_layer_impl->draw_properties().contents_scale_x = 2.f;
-  scrollbar_layer_impl->draw_properties().contents_scale_y = 2.f;
-  {
-    scoped_ptr<RenderPass> render_pass = RenderPass::Create();
-    AppendQuadsData data;
-    scrollbar_layer_impl->AppendQuads(render_pass.get(), Occlusion(), &data);
-
-    const QuadList& quads = render_pass->quad_list;
-    ASSERT_EQ(1u, quads.size());
-    EXPECT_EQ(DrawQuad::SOLID_COLOR, quads.front()->material);
-    EXPECT_RECT_EQ(gfx::Rect(12, 0, 78, 6), quads.front()->rect);
-  }
-  scrollbar_layer_impl->draw_properties().contents_scale_x = 1.f;
-  scrollbar_layer_impl->draw_properties().contents_scale_y = 1.f;
 
   // For solid color scrollbars, position and size should reflect the
   // current viewport state.
@@ -377,12 +437,12 @@ TEST(ScrollbarLayerTest, SolidColorDrawQuads) {
   {
     scoped_ptr<RenderPass> render_pass = RenderPass::Create();
     AppendQuadsData data;
-    scrollbar_layer_impl->AppendQuads(render_pass.get(), Occlusion(), &data);
+    scrollbar_layer_impl->AppendQuads(render_pass.get(), &data);
 
     const QuadList& quads = render_pass->quad_list;
     ASSERT_EQ(1u, quads.size());
     EXPECT_EQ(DrawQuad::SOLID_COLOR, quads.front()->material);
-    EXPECT_RECT_EQ(gfx::Rect(8, 0, 19, 3), quads.front()->rect);
+    EXPECT_EQ(gfx::Rect(8, 0, 19, 3), quads.front()->rect);
   }
 
   // We shouldn't attempt div-by-zero when the maximum is zero.
@@ -391,47 +451,41 @@ TEST(ScrollbarLayerTest, SolidColorDrawQuads) {
   {
     scoped_ptr<RenderPass> render_pass = RenderPass::Create();
     AppendQuadsData data;
-    scrollbar_layer_impl->AppendQuads(render_pass.get(), Occlusion(), &data);
+    scrollbar_layer_impl->AppendQuads(render_pass.get(), &data);
 
     const QuadList& quads = render_pass->quad_list;
     ASSERT_EQ(1u, quads.size());
     EXPECT_EQ(DrawQuad::SOLID_COLOR, quads.front()->material);
-    EXPECT_RECT_EQ(gfx::Rect(1, 0, 19, 3), quads.front()->rect);
+    EXPECT_EQ(gfx::Rect(1, 0, 19, 3), quads.front()->rect);
   }
 }
 
-TEST(ScrollbarLayerTest, LayerDrivenSolidColorDrawQuads) {
+TEST_F(ScrollbarLayerTest, LayerDrivenSolidColorDrawQuads) {
   const int kThumbThickness = 3;
   const int kTrackStart = 0;
   const int kTrackLength = 10;
 
-  FakeLayerTreeHostClient client(FakeLayerTreeHostClient::DIRECT_3D);
-  LayerTreeSettings layer_tree_settings;
-  scoped_ptr<FakeLayerTreeHost> host =
-      FakeLayerTreeHost::Create(&client, layer_tree_settings);
-
   scoped_ptr<Scrollbar> scrollbar(new FakeScrollbar(false, true, true));
 
   {
-    scoped_refptr<Layer> layer_tree_root = Layer::Create();
-    scoped_refptr<Layer> scroll_layer = Layer::Create();
+    scoped_refptr<Layer> layer_tree_root = Layer::Create(layer_settings());
+    scoped_refptr<Layer> scroll_layer = Layer::Create(layer_settings());
     scroll_layer->SetScrollClipLayerId(layer_tree_root->id());
-    scoped_refptr<Layer> child1 = Layer::Create();
+    scoped_refptr<Layer> child1 = Layer::Create(layer_settings());
     scoped_refptr<Layer> child2;
     const bool kIsLeftSideVerticalScrollbar = false;
-    child2 = SolidColorScrollbarLayer::Create(scrollbar->Orientation(),
-                                              kThumbThickness,
-                                              kTrackStart,
-                                              kIsLeftSideVerticalScrollbar,
-                                              child1->id());
+    child2 = SolidColorScrollbarLayer::Create(
+        layer_settings(), scrollbar->Orientation(), kThumbThickness,
+        kTrackStart, kIsLeftSideVerticalScrollbar, child1->id());
     child2->ToScrollbarLayer()->SetScrollLayer(scroll_layer->id());
     child2->ToScrollbarLayer()->SetClipLayer(layer_tree_root->id());
     scroll_layer->AddChild(child1);
     scroll_layer->InsertChild(child2, 1);
     layer_tree_root->AddChild(scroll_layer);
-    host->SetRootLayer(layer_tree_root);
+    layer_tree_host_->SetRootLayer(layer_tree_root);
   }
-  LayerImpl* layer_impl_tree_root = host->CommitAndCreateLayerImplTree();
+  LayerImpl* layer_impl_tree_root =
+      layer_tree_host_->CommitAndCreateLayerImplTree();
   LayerImpl* scroll_layer_impl = layer_impl_tree_root->children()[0];
 
   ScrollbarLayerImplBase* scrollbar_layer_impl =
@@ -450,12 +504,12 @@ TEST(ScrollbarLayerTest, LayerDrivenSolidColorDrawQuads) {
     scoped_ptr<RenderPass> render_pass = RenderPass::Create();
 
     AppendQuadsData data;
-    scrollbar_layer_impl->AppendQuads(render_pass.get(), Occlusion(), &data);
+    scrollbar_layer_impl->AppendQuads(render_pass.get(), &data);
 
     const QuadList& quads = render_pass->quad_list;
     ASSERT_EQ(1u, quads.size());
     EXPECT_EQ(DrawQuad::SOLID_COLOR, quads.front()->material);
-    EXPECT_RECT_EQ(gfx::Rect(3, 0, 3, 3), quads.front()->rect);
+    EXPECT_EQ(gfx::Rect(3, 0, 3, 3), quads.front()->rect);
   }
 }
 
@@ -463,8 +517,9 @@ class ScrollbarLayerSolidColorThumbTest : public testing::Test {
  public:
   ScrollbarLayerSolidColorThumbTest() {
     LayerTreeSettings layer_tree_settings;
-    host_impl_.reset(new FakeLayerTreeHostImpl(
-        layer_tree_settings, &proxy_, &shared_bitmap_manager_));
+    host_impl_.reset(new FakeLayerTreeHostImpl(layer_tree_settings, &proxy_,
+                                               &shared_bitmap_manager_,
+                                               &task_graph_runner_));
 
     const int kThumbThickness = 3;
     const int kTrackStart = 0;
@@ -492,6 +547,7 @@ class ScrollbarLayerSolidColorThumbTest : public testing::Test {
  protected:
   FakeImplProxy proxy_;
   TestSharedBitmapManager shared_bitmap_manager_;
+  TestTaskGraphRunner task_graph_runner_;
   scoped_ptr<FakeLayerTreeHostImpl> host_impl_;
   scoped_ptr<SolidColorScrollbarLayerImpl> horizontal_scrollbar_layer_;
   scoped_ptr<SolidColorScrollbarLayerImpl> vertical_scrollbar_layer_;
@@ -544,10 +600,10 @@ TEST_F(ScrollbarLayerSolidColorThumbTest, SolidColorThumbVerticalAdjust) {
   layers[0]->SetBounds(gfx::Size(100, 3));
   layers[1]->SetBounds(gfx::Size(3, 100));
 
-  EXPECT_RECT_EQ(gfx::RectF(20.f, 0.f, 20.f, 3.f),
-                 horizontal_scrollbar_layer_->ComputeThumbQuadRect());
-  EXPECT_RECT_EQ(gfx::RectF(0.f, 20.f, 3.f, 20.f),
-                 vertical_scrollbar_layer_->ComputeThumbQuadRect());
+  EXPECT_EQ(gfx::RectF(20.f, 0.f, 20.f, 3.f),
+            horizontal_scrollbar_layer_->ComputeThumbQuadRect());
+  EXPECT_EQ(gfx::RectF(0.f, 20.f, 3.f, 20.f),
+            vertical_scrollbar_layer_->ComputeThumbQuadRect());
 
   horizontal_scrollbar_layer_->SetVerticalAdjust(10.f);
   vertical_scrollbar_layer_->SetVerticalAdjust(10.f);
@@ -556,10 +612,10 @@ TEST_F(ScrollbarLayerSolidColorThumbTest, SolidColorThumbVerticalAdjust) {
   // 1.) Moves the horizontal scrollbar down
   // 2.) Increases the vertical scrollbar's effective track length which both
   // increases the thumb's length and its position within the track.
-  EXPECT_RECT_EQ(gfx::Rect(20.f, 10.f, 20.f, 3.f),
-                 horizontal_scrollbar_layer_->ComputeThumbQuadRect());
-  EXPECT_RECT_EQ(gfx::Rect(0.f, 22, 3.f, 22.f),
-                 vertical_scrollbar_layer_->ComputeThumbQuadRect());
+  EXPECT_EQ(gfx::Rect(20.f, 10.f, 20.f, 3.f),
+            horizontal_scrollbar_layer_->ComputeThumbQuadRect());
+  EXPECT_EQ(gfx::Rect(0.f, 22, 3.f, 22.f),
+            vertical_scrollbar_layer_->ComputeThumbQuadRect());
 }
 
 class ScrollbarLayerTestMaxTextureSize : public LayerTreeTest {
@@ -569,15 +625,16 @@ class ScrollbarLayerTestMaxTextureSize : public LayerTreeTest {
   void SetScrollbarBounds(const gfx::Size& bounds) { bounds_ = bounds; }
 
   void BeginTest() override {
-    scroll_layer_ = Layer::Create();
+    scroll_layer_ = Layer::Create(layer_settings());
     layer_tree_host()->root_layer()->AddChild(scroll_layer_);
 
     scoped_ptr<Scrollbar> scrollbar(new FakeScrollbar);
-    scrollbar_layer_ =
-        PaintedScrollbarLayer::Create(scrollbar.Pass(), scroll_layer_->id());
+    scrollbar_layer_ = PaintedScrollbarLayer::Create(
+        layer_settings(), scrollbar.Pass(), scroll_layer_->id());
     scrollbar_layer_->SetScrollLayer(scroll_layer_->id());
     scrollbar_layer_->SetLayerTreeHost(layer_tree_host());
     scrollbar_layer_->SetBounds(bounds_);
+    scrollbar_layer_->SetIsDrawable(true);
     layer_tree_host()->root_layer()->AddChild(scrollbar_layer_);
 
     PostSetNeedsCommitToMainThread();
@@ -590,9 +647,9 @@ class ScrollbarLayerTestMaxTextureSize : public LayerTreeTest {
     // Check first that we're actually testing something.
     EXPECT_GT(scrollbar_layer_->bounds().width(), kMaxTextureSize);
 
-    EXPECT_EQ(scrollbar_layer_->content_bounds().width(),
+    EXPECT_EQ(scrollbar_layer_->internal_content_bounds().width(),
               kMaxTextureSize - 1);
-    EXPECT_EQ(scrollbar_layer_->content_bounds().height(),
+    EXPECT_EQ(scrollbar_layer_->internal_content_bounds().height(),
               kMaxTextureSize - 1);
 
     EndTest();
@@ -612,7 +669,7 @@ TEST_F(ScrollbarLayerTestMaxTextureSize, DirectRenderer) {
   int max_size = 0;
   context->getIntegerv(GL_MAX_TEXTURE_SIZE, &max_size);
   SetScrollbarBounds(gfx::Size(max_size + 100, max_size + 100));
-  RunTest(true, false, true);
+  RunTest(true, false);
 }
 
 TEST_F(ScrollbarLayerTestMaxTextureSize, DelegatingRenderer) {
@@ -621,95 +678,30 @@ TEST_F(ScrollbarLayerTestMaxTextureSize, DelegatingRenderer) {
   int max_size = 0;
   context->getIntegerv(GL_MAX_TEXTURE_SIZE, &max_size);
   SetScrollbarBounds(gfx::Size(max_size + 100, max_size + 100));
-  RunTest(true, true, true);
+  RunTest(true, true);
 }
 
-class FakeLayerTreeHost : public LayerTreeHost {
+class ScrollbarLayerTestResourceCreationAndRelease : public ScrollbarLayerTest {
  public:
-  FakeLayerTreeHost(FakeLayerTreeHostClient* client,
-                    const LayerTreeSettings& settings)
-      : LayerTreeHost(client, nullptr, nullptr, settings),
-        next_id_(1),
-        total_ui_resource_created_(0),
-        total_ui_resource_deleted_(0) {
-    InitializeSingleThreaded(client, base::MessageLoopProxy::current());
-  }
-
-  UIResourceId CreateUIResource(UIResourceClient* content) override {
-    total_ui_resource_created_++;
-    UIResourceId nid = next_id_++;
-    ui_resource_bitmap_map_.insert(
-        std::make_pair(nid, content->GetBitmap(nid, false)));
-    return nid;
-  }
-
-  // Deletes a UI resource.  May safely be called more than once.
-  void DeleteUIResource(UIResourceId id) override {
-    UIResourceBitmapMap::iterator iter = ui_resource_bitmap_map_.find(id);
-    if (iter != ui_resource_bitmap_map_.end()) {
-      ui_resource_bitmap_map_.erase(iter);
-      total_ui_resource_deleted_++;
-    }
-  }
-
-  size_t UIResourceCount() { return ui_resource_bitmap_map_.size(); }
-  int TotalUIResourceDeleted() { return total_ui_resource_deleted_; }
-  int TotalUIResourceCreated() { return total_ui_resource_created_; }
-
-  gfx::Size ui_resource_size(UIResourceId id) {
-    UIResourceBitmapMap::iterator iter = ui_resource_bitmap_map_.find(id);
-    if (iter != ui_resource_bitmap_map_.end())
-      return iter->second.GetSize();
-    return gfx::Size();
-  }
-
-  UIResourceBitmap* ui_resource_bitmap(UIResourceId id) {
-    UIResourceBitmapMap::iterator iter = ui_resource_bitmap_map_.find(id);
-    if (iter != ui_resource_bitmap_map_.end())
-      return &iter->second;
-    return nullptr;
-  }
-
- private:
-  typedef base::hash_map<UIResourceId, UIResourceBitmap>
-      UIResourceBitmapMap;
-  UIResourceBitmapMap ui_resource_bitmap_map_;
-
-  int next_id_;
-  int total_ui_resource_created_;
-  int total_ui_resource_deleted_;
-};
-
-class ScrollbarLayerTestResourceCreationAndRelease : public testing::Test {
- public:
-  ScrollbarLayerTestResourceCreationAndRelease()
-      : fake_client_(FakeLayerTreeHostClient::DIRECT_3D) {}
-
   void TestResourceUpload(int num_updates,
                           size_t expected_resources,
                           int expected_created,
                           int expected_deleted,
                           bool use_solid_color_scrollbar) {
-    layer_tree_host_.reset(
-        new FakeLayerTreeHost(&fake_client_, layer_tree_settings_));
-
     scoped_ptr<Scrollbar> scrollbar(new FakeScrollbar(false, true, false));
-    scoped_refptr<Layer> layer_tree_root = Layer::Create();
-    scoped_refptr<Layer> content_layer = Layer::Create();
+    scoped_refptr<Layer> layer_tree_root = Layer::Create(layer_settings());
+    scoped_refptr<Layer> content_layer = Layer::Create(layer_settings());
     scoped_refptr<Layer> scrollbar_layer;
     if (use_solid_color_scrollbar) {
       const int kThumbThickness = 3;
       const int kTrackStart = 0;
       const bool kIsLeftSideVerticalScrollbar = false;
-      scrollbar_layer =
-          SolidColorScrollbarLayer::Create(scrollbar->Orientation(),
-                                           kThumbThickness,
-                                           kTrackStart,
-                                           kIsLeftSideVerticalScrollbar,
-                                           layer_tree_root->id());
+      scrollbar_layer = SolidColorScrollbarLayer::Create(
+          layer_settings(), scrollbar->Orientation(), kThumbThickness,
+          kTrackStart, kIsLeftSideVerticalScrollbar, layer_tree_root->id());
     } else {
-      scrollbar_layer = PaintedScrollbarLayer::Create(scrollbar.Pass(),
-                                                      layer_tree_root->id());
+      scrollbar_layer = PaintedScrollbarLayer::Create(
+          layer_settings(), scrollbar.Pass(), layer_tree_root->id());
     }
     layer_tree_root->AddChild(content_layer);
     layer_tree_root->AddChild(scrollbar_layer);
@@ -721,8 +713,7 @@ class ScrollbarLayerTestResourceCreationAndRelease : public testing::Test {
     layer_tree_root->SetScrollOffset(gfx::ScrollOffset(10, 20));
     layer_tree_root->SetBounds(gfx::Size(100, 200));
     content_layer->SetBounds(gfx::Size(100, 200));
-    scrollbar_layer->draw_properties().content_bounds = gfx::Size(100, 200);
-    scrollbar_layer->draw_properties().visible_content_rect =
+    scrollbar_layer->draw_properties().visible_layer_rect =
         gfx::Rect(0, 0, 100, 200);
     scrollbar_layer->CreateRenderSurface();
     scrollbar_layer->draw_properties().render_target = scrollbar_layer.get();
@@ -730,13 +721,9 @@ class ScrollbarLayerTestResourceCreationAndRelease : public testing::Test {
     testing::Mock::VerifyAndClearExpectations(layer_tree_host_.get());
     EXPECT_EQ(scrollbar_layer->layer_tree_host(), layer_tree_host_.get());
 
-    ResourceUpdateQueue queue;
-    gfx::Rect screen_space_clip_rect;
-    OcclusionTracker<Layer> occlusion_tracker(screen_space_clip_rect);
-
     scrollbar_layer->SavePaintProperties();
     for (int update_counter = 0; update_counter < num_updates; update_counter++)
-      scrollbar_layer->Update(&queue, &occlusion_tracker);
+      scrollbar_layer->Update();
 
     // A non-solid-color scrollbar should have requested two textures.
     EXPECT_EQ(expected_resources, layer_tree_host_->UIResourceCount());
@@ -747,22 +734,18 @@ class ScrollbarLayerTestResourceCreationAndRelease : public testing::Test {
 
     scrollbar_layer->ClearRenderSurface();
   }
-
- protected:
-  FakeLayerTreeHostClient fake_client_;
-  LayerTreeSettings layer_tree_settings_;
-  scoped_ptr<FakeLayerTreeHost> layer_tree_host_;
 };
 
 TEST_F(ScrollbarLayerTestResourceCreationAndRelease, ResourceUpload) {
   bool use_solid_color_scrollbars = false;
   TestResourceUpload(0, 0, 0, 0, use_solid_color_scrollbars);
   int num_updates[3] = {1, 5, 10};
+  int created = 0;
+  int deleted = 0;
   for (int j = 0; j < 3; j++) {
-    TestResourceUpload(num_updates[j],
-                       2,
-                       num_updates[j] * 2,
-                       (num_updates[j] - 1) * 2,
+    created += num_updates[j] * 2;
+    deleted = created - 2;
+    TestResourceUpload(num_updates[j], 2, created, deleted,
                        use_solid_color_scrollbars);
   }
 }
@@ -775,18 +758,12 @@ TEST_F(ScrollbarLayerTestResourceCreationAndRelease,
 }
 
 TEST_F(ScrollbarLayerTestResourceCreationAndRelease, TestResourceUpdate) {
-  FakeLayerTreeHostClient fake_client_(FakeLayerTreeHostClient::DIRECT_3D);
-  LayerTreeSettings layer_tree_settings_;
-  scoped_ptr<FakeLayerTreeHost> layer_tree_host_;
-
-  layer_tree_host_.reset(
-      new FakeLayerTreeHost(&fake_client_, layer_tree_settings_));
-
   gfx::Point scrollbar_location(0, 185);
-  scoped_refptr<Layer> layer_tree_root = Layer::Create();
-  scoped_refptr<Layer> content_layer = Layer::Create();
+  scoped_refptr<Layer> layer_tree_root = Layer::Create(layer_settings());
+  scoped_refptr<Layer> content_layer = Layer::Create(layer_settings());
   scoped_refptr<FakePaintedScrollbarLayer> scrollbar_layer =
-      FakePaintedScrollbarLayer::Create(false, true, layer_tree_root->id());
+      FakePaintedScrollbarLayer::Create(layer_settings(), false, true,
+                                        layer_tree_root->id());
 
   layer_tree_root->AddChild(content_layer);
   layer_tree_root->AddChild(scrollbar_layer);
@@ -799,8 +776,7 @@ TEST_F(ScrollbarLayerTestResourceCreationAndRelease, TestResourceUpdate) {
   layer_tree_root->SetBounds(gfx::Size(100, 200));
   content_layer->SetBounds(gfx::Size(100, 200));
 
-  scrollbar_layer->draw_properties().content_bounds = gfx::Size(100, 200);
-  scrollbar_layer->draw_properties().visible_content_rect =
+  scrollbar_layer->draw_properties().visible_layer_rect =
       gfx::Rect(0, 0, 100, 200);
 
   scrollbar_layer->CreateRenderSurface();
@@ -809,17 +785,14 @@ TEST_F(ScrollbarLayerTestResourceCreationAndRelease, TestResourceUpdate) {
   testing::Mock::VerifyAndClearExpectations(layer_tree_host_.get());
   EXPECT_EQ(scrollbar_layer->layer_tree_host(), layer_tree_host_.get());
 
-  ResourceUpdateQueue queue;
-  gfx::Rect screen_space_clip_rect;
   size_t resource_count;
   int expected_created, expected_deleted;
-  OcclusionTracker<Layer> occlusion_tracker(screen_space_clip_rect);
   scrollbar_layer->SavePaintProperties();
 
   resource_count = 2;
   expected_created = 2;
   expected_deleted = 0;
-  EXPECT_TRUE(scrollbar_layer->Update(&queue, &occlusion_tracker));
+  EXPECT_TRUE(scrollbar_layer->Update());
   EXPECT_NE(0, scrollbar_layer->track_resource_id());
   EXPECT_NE(0, scrollbar_layer->thumb_resource_id());
   EXPECT_EQ(resource_count, layer_tree_host_->UIResourceCount());
@@ -830,7 +803,7 @@ TEST_F(ScrollbarLayerTestResourceCreationAndRelease, TestResourceUpdate) {
   expected_created = 2;
   expected_deleted = 2;
   scrollbar_layer->fake_scrollbar()->set_track_rect(gfx::Rect(0, 0, 0, 0));
-  EXPECT_TRUE(scrollbar_layer->Update(&queue, &occlusion_tracker));
+  EXPECT_TRUE(scrollbar_layer->Update());
   EXPECT_EQ(0, scrollbar_layer->track_resource_id());
   EXPECT_EQ(0, scrollbar_layer->thumb_resource_id());
   EXPECT_EQ(resource_count, layer_tree_host_->UIResourceCount());
@@ -841,7 +814,7 @@ TEST_F(ScrollbarLayerTestResourceCreationAndRelease, TestResourceUpdate) {
   expected_created = 2;
   expected_deleted = 2;
   scrollbar_layer->fake_scrollbar()->set_track_rect(gfx::Rect(0, 0, 0, 0));
-  EXPECT_FALSE(scrollbar_layer->Update(&queue, &occlusion_tracker));
+  EXPECT_FALSE(scrollbar_layer->Update());
   EXPECT_EQ(0, scrollbar_layer->track_resource_id());
   EXPECT_EQ(0, scrollbar_layer->thumb_resource_id());
   EXPECT_EQ(resource_count, layer_tree_host_->UIResourceCount());
@@ -852,7 +825,7 @@ TEST_F(ScrollbarLayerTestResourceCreationAndRelease, TestResourceUpdate) {
   expected_created = 4;
   expected_deleted = 2;
   scrollbar_layer->fake_scrollbar()->set_track_rect(gfx::Rect(30, 10, 50, 10));
-  EXPECT_TRUE(scrollbar_layer->Update(&queue, &occlusion_tracker));
+  EXPECT_TRUE(scrollbar_layer->Update());
   EXPECT_NE(0, scrollbar_layer->track_resource_id());
   EXPECT_NE(0, scrollbar_layer->thumb_resource_id());
   EXPECT_EQ(resource_count, layer_tree_host_->UIResourceCount());
@@ -863,7 +836,7 @@ TEST_F(ScrollbarLayerTestResourceCreationAndRelease, TestResourceUpdate) {
   expected_created = 5;
   expected_deleted = 4;
   scrollbar_layer->fake_scrollbar()->set_has_thumb(false);
-  EXPECT_TRUE(scrollbar_layer->Update(&queue, &occlusion_tracker));
+  EXPECT_TRUE(scrollbar_layer->Update());
   EXPECT_NE(0, scrollbar_layer->track_resource_id());
   EXPECT_EQ(0, scrollbar_layer->thumb_resource_id());
   EXPECT_EQ(resource_count, layer_tree_host_->UIResourceCount());
@@ -874,7 +847,7 @@ TEST_F(ScrollbarLayerTestResourceCreationAndRelease, TestResourceUpdate) {
   expected_created = 5;
   expected_deleted = 5;
   scrollbar_layer->fake_scrollbar()->set_track_rect(gfx::Rect(0, 0, 0, 0));
-  EXPECT_TRUE(scrollbar_layer->Update(&queue, &occlusion_tracker));
+  EXPECT_TRUE(scrollbar_layer->Update());
   EXPECT_EQ(0, scrollbar_layer->track_resource_id());
   EXPECT_EQ(0, scrollbar_layer->thumb_resource_id());
   EXPECT_EQ(resource_count, layer_tree_host_->UIResourceCount());
@@ -886,7 +859,7 @@ TEST_F(ScrollbarLayerTestResourceCreationAndRelease, TestResourceUpdate) {
   expected_deleted = 5;
   scrollbar_layer->fake_scrollbar()->set_track_rect(gfx::Rect(30, 10, 50, 10));
   scrollbar_layer->fake_scrollbar()->set_has_thumb(true);
-  EXPECT_TRUE(scrollbar_layer->Update(&queue, &occlusion_tracker));
+  EXPECT_TRUE(scrollbar_layer->Update());
   EXPECT_NE(0, scrollbar_layer->track_resource_id());
   EXPECT_NE(0, scrollbar_layer->thumb_resource_id());
 
@@ -896,7 +869,7 @@ TEST_F(ScrollbarLayerTestResourceCreationAndRelease, TestResourceUpdate) {
   scrollbar_layer->fake_scrollbar()->set_track_rect(gfx::Rect(30, 10, 50, 10));
   scrollbar_layer->fake_scrollbar()->set_has_thumb(false);
   scrollbar_layer->SetBounds(gfx::Size(90, 15));
-  EXPECT_TRUE(scrollbar_layer->Update(&queue, &occlusion_tracker));
+  EXPECT_TRUE(scrollbar_layer->Update());
   EXPECT_EQ(resource_count, layer_tree_host_->UIResourceCount());
   EXPECT_EQ(expected_created, layer_tree_host_->TotalUIResourceCreated());
   EXPECT_EQ(expected_deleted, layer_tree_host_->TotalUIResourceDeleted());
@@ -905,7 +878,7 @@ TEST_F(ScrollbarLayerTestResourceCreationAndRelease, TestResourceUpdate) {
       layer_tree_host_->ui_resource_size(scrollbar_layer->track_resource_id()));
 
   scrollbar_layer->ResetNeedsDisplayForTesting();
-  EXPECT_FALSE(scrollbar_layer->Update(&queue, &occlusion_tracker));
+  EXPECT_FALSE(scrollbar_layer->Update());
   EXPECT_NE(0, scrollbar_layer->track_resource_id());
   EXPECT_EQ(0, scrollbar_layer->thumb_resource_id());
   EXPECT_EQ(resource_count, layer_tree_host_->UIResourceCount());
@@ -916,20 +889,15 @@ TEST_F(ScrollbarLayerTestResourceCreationAndRelease, TestResourceUpdate) {
   scrollbar_layer->ClearRenderSurface();
 }
 
-class ScaledScrollbarLayerTestResourceCreation : public testing::Test {
+class ScaledScrollbarLayerTestResourceCreation : public ScrollbarLayerTest {
  public:
-  ScaledScrollbarLayerTestResourceCreation()
-      : fake_client_(FakeLayerTreeHostClient::DIRECT_3D) {}
-
   void TestResourceUpload(const float test_scale) {
-    layer_tree_host_.reset(
-        new FakeLayerTreeHost(&fake_client_, layer_tree_settings_));
-
     gfx::Point scrollbar_location(0, 185);
-    scoped_refptr<Layer> layer_tree_root = Layer::Create();
-    scoped_refptr<Layer> content_layer = Layer::Create();
+    scoped_refptr<Layer> layer_tree_root = Layer::Create(layer_settings());
+    scoped_refptr<Layer> content_layer = Layer::Create(layer_settings());
     scoped_refptr<FakePaintedScrollbarLayer> scrollbar_layer =
-        FakePaintedScrollbarLayer::Create(false, true, layer_tree_root->id());
+        FakePaintedScrollbarLayer::Create(layer_settings(), false, true,
+                                          layer_tree_root->id());
 
     layer_tree_root->AddChild(content_layer);
     layer_tree_root->AddChild(scrollbar_layer);
@@ -941,30 +909,18 @@ class ScaledScrollbarLayerTestResourceCreation : public testing::Test {
     scrollbar_layer->SetPosition(scrollbar_location);
     layer_tree_root->SetBounds(gfx::Size(100, 200));
     content_layer->SetBounds(gfx::Size(100, 200));
-    gfx::SizeF scaled_size =
-        gfx::ScaleSize(scrollbar_layer->bounds(), test_scale, test_scale);
-    gfx::PointF scaled_location =
-        gfx::ScalePoint(scrollbar_layer->position(), test_scale, test_scale);
-    scrollbar_layer->draw_properties().content_bounds =
-        gfx::Size(scaled_size.width(), scaled_size.height());
-    scrollbar_layer->draw_properties().contents_scale_x = test_scale;
-    scrollbar_layer->draw_properties().contents_scale_y = test_scale;
-    scrollbar_layer->draw_properties().visible_content_rect =
-        gfx::Rect(scaled_location.x(),
-                  scaled_location.y(),
-                  scaled_size.width(),
-                  scaled_size.height());
+    scrollbar_layer->draw_properties().visible_layer_rect =
+        gfx::Rect(scrollbar_location, scrollbar_layer->bounds());
     scrollbar_layer->CreateRenderSurface();
     scrollbar_layer->draw_properties().render_target = scrollbar_layer.get();
 
     testing::Mock::VerifyAndClearExpectations(layer_tree_host_.get());
     EXPECT_EQ(scrollbar_layer->layer_tree_host(), layer_tree_host_.get());
 
-    ResourceUpdateQueue queue;
-    gfx::Rect screen_space_clip_rect;
-    OcclusionTracker<Layer> occlusion_tracker(screen_space_clip_rect);
+    layer_tree_host_->SetDeviceScaleFactor(test_scale);
+
     scrollbar_layer->SavePaintProperties();
-    scrollbar_layer->Update(&queue, &occlusion_tracker);
+    scrollbar_layer->Update();
 
     // Verify that we have not generated any content uploads that are larger
     // than their destination textures.
@@ -974,20 +930,19 @@ class ScaledScrollbarLayerTestResourceCreation : public testing::Test {
     gfx::Size thumb_size = layer_tree_host_->ui_resource_size(
         scrollbar_layer->thumb_resource_id());
 
-    EXPECT_LE(track_size.width(), scrollbar_layer->content_bounds().width());
-    EXPECT_LE(track_size.height(), scrollbar_layer->content_bounds().height());
-    EXPECT_LE(thumb_size.width(), scrollbar_layer->content_bounds().width());
-    EXPECT_LE(thumb_size.height(), scrollbar_layer->content_bounds().height());
+    EXPECT_LE(track_size.width(),
+              scrollbar_layer->internal_content_bounds().width());
+    EXPECT_LE(track_size.height(),
+              scrollbar_layer->internal_content_bounds().height());
+    EXPECT_LE(thumb_size.width(),
+              scrollbar_layer->internal_content_bounds().width());
+    EXPECT_LE(thumb_size.height(),
+              scrollbar_layer->internal_content_bounds().height());
 
     testing::Mock::VerifyAndClearExpectations(layer_tree_host_.get());
 
     scrollbar_layer->ClearRenderSurface();
   }
-
- protected:
-  FakeLayerTreeHostClient fake_client_;
-  LayerTreeSettings layer_tree_settings_;
-  scoped_ptr<FakeLayerTreeHost> layer_tree_host_;
 };
 
 TEST_F(ScaledScrollbarLayerTestResourceCreation, ScaledResourceUpload) {
@@ -998,22 +953,15 @@ TEST_F(ScaledScrollbarLayerTestResourceCreation, ScaledResourceUpload) {
   TestResourceUpload(4.1f);
 }
 
-class ScaledScrollbarLayerTestScaledRasterization : public testing::Test {
+class ScaledScrollbarLayerTestScaledRasterization : public ScrollbarLayerTest {
  public:
-  ScaledScrollbarLayerTestScaledRasterization()
-      : fake_client_(FakeLayerTreeHostClient::DIRECT_3D) {}
-
   void TestScale(const gfx::Rect scrollbar_rect, const float test_scale) {
-    layer_tree_host_.reset(
-        new FakeLayerTreeHost(&fake_client_, layer_tree_settings_));
-
     bool paint_during_update = true;
     bool has_thumb = false;
-    scoped_refptr<Layer> layer_tree_root = Layer::Create();
+    scoped_refptr<Layer> layer_tree_root = Layer::Create(layer_settings());
     scoped_refptr<FakePaintedScrollbarLayer> scrollbar_layer =
-        FakePaintedScrollbarLayer::Create(paint_during_update,
-                                          has_thumb,
-                                          layer_tree_root->id());
+        FakePaintedScrollbarLayer::Create(layer_settings(), paint_during_update,
+                                          has_thumb, layer_tree_root->id());
 
     layer_tree_root->AddChild(scrollbar_layer);
 
@@ -1023,26 +971,14 @@ class ScaledScrollbarLayerTestScaledRasterization : public testing::Test {
     scrollbar_layer->SetPosition(scrollbar_rect.origin());
     scrollbar_layer->fake_scrollbar()->set_location(scrollbar_rect.origin());
     scrollbar_layer->fake_scrollbar()->set_track_rect(scrollbar_rect);
-    gfx::SizeF scaled_size =
-        gfx::ScaleSize(scrollbar_layer->bounds(), test_scale, test_scale);
-    gfx::PointF scaled_location =
-        gfx::ScalePoint(scrollbar_layer->position(), test_scale, test_scale);
-    scrollbar_layer->draw_properties().content_bounds =
-        gfx::Size(scaled_size.width(), scaled_size.height());
-    scrollbar_layer->draw_properties().contents_scale_x = test_scale;
-    scrollbar_layer->draw_properties().contents_scale_y = test_scale;
-    scrollbar_layer->draw_properties().visible_content_rect =
-        gfx::Rect(scaled_location.x(),
-                  scaled_location.y(),
-                  scaled_size.width(),
-                  scaled_size.height());
+    scrollbar_layer->draw_properties().visible_layer_rect = scrollbar_rect;
 
-    ResourceUpdateQueue queue;
+    layer_tree_host_->SetDeviceScaleFactor(test_scale);
+
     gfx::Rect screen_space_clip_rect;
-    OcclusionTracker<Layer> occlusion_tracker(screen_space_clip_rect);
     scrollbar_layer->SavePaintProperties();
 
-    scrollbar_layer->Update(&queue, &occlusion_tracker);
+    scrollbar_layer->Update();
 
     UIResourceBitmap* bitmap = layer_tree_host_->ui_resource_bitmap(
         scrollbar_layer->track_resource_id());
@@ -1080,10 +1016,6 @@ class ScaledScrollbarLayerTestScaledRasterization : public testing::Test {
              (SkColorGetG(c) << SK_G32_SHIFT) |
              (SkColorGetB(c) << SK_B32_SHIFT);
   }
-
-  FakeLayerTreeHostClient fake_client_;
-  LayerTreeSettings layer_tree_settings_;
-  scoped_ptr<FakeLayerTreeHost> layer_tree_host_;
 };
 
 TEST_F(ScaledScrollbarLayerTestScaledRasterization, TestLostPrecisionInClip) {

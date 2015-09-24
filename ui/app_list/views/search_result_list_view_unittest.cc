@@ -6,6 +6,7 @@
 
 #include <map>
 
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/app_list/app_list_model.h"
 #include "ui/app_list/test/app_list_test_view_delegate.h"
@@ -33,11 +34,14 @@ class SearchResultListViewTest : public views::ViewsTestBase,
     views::ViewsTestBase::SetUp();
     view_.reset(new SearchResultListView(this, &view_delegate_));
     view_->SetResults(view_delegate_.GetModel()->results());
-    view_->SetSelectedIndex(0);
   }
 
  protected:
   SearchResultListView* view() { return view_.get(); }
+
+  SearchResultView* GetResultViewAt(int index) {
+    return view_->GetResultViewAt(index);
+  }
 
   AppListModel::SearchResults* GetResults() {
     return view_delegate_.GetModel()->results();
@@ -54,11 +58,18 @@ class SearchResultListViewTest : public views::ViewsTestBase,
 
   void SetUpSearchResults() {
     AppListModel::SearchResults* results = GetResults();
-    for (int i = 0; i < kDefaultSearchItems; ++i)
-      results->Add(new TestSearchResult());
+    for (int i = 0; i < kDefaultSearchItems; ++i) {
+      TestSearchResult* result = new TestSearchResult();
+      result->set_display_type(SearchResult::DISPLAY_LIST);
+      result->set_title(base::UTF8ToUTF16(base::StringPrintf("Result %d", i)));
+      if (i < 2)
+        result->set_details(base::ASCIIToUTF16("Detail"));
+      results->Add(result);
+    }
 
     // Adding results will schedule Update().
     RunPendingMessages();
+    view_->OnContainerSelected(false, false);
   }
 
   int GetOpenResultCountAndReset(int ranking) {
@@ -67,11 +78,9 @@ class SearchResultListViewTest : public views::ViewsTestBase,
     return result;
   }
 
-  int GetResultCount() { return view_->last_visible_index_ + 1; }
+  int GetResultCount() { return view_->num_results(); }
 
-  int GetSelectedIndex() {
-    return view_->selected_index_;
-  }
+  int GetSelectedIndex() { return view_->selected_index(); }
 
   void ResetSelectedIndex() {
     view_->SetSelectedIndex(0);
@@ -102,17 +111,16 @@ class SearchResultListViewTest : public views::ViewsTestBase,
 
     AppListModel::SearchResults* results = GetResults();
     for (size_t i = 0; i < results->item_count(); ++i) {
-      EXPECT_EQ(results->GetItemAt(i), view_->GetResultViewAt(i)->result());
+      EXPECT_EQ(results->GetItemAt(i), GetResultViewAt(i)->result());
     }
   }
 
   ProgressBarView* GetProgressBarAt(size_t index) {
-    return view()->GetResultViewAt(index)->progress_bar_;
+    return GetResultViewAt(index)->progress_bar_;
   }
 
  private:
   void OnResultInstalled(SearchResult* result) override {}
-  void OnResultUninstalled(SearchResult* result) override {}
 
   AppListTestViewDelegate view_delegate_;
   scoped_ptr<SearchResultListView> view_;
@@ -135,16 +143,17 @@ TEST_F(SearchResultListViewTest, Basic) {
     EXPECT_TRUE(KeyPress(ui::VKEY_DOWN));
     EXPECT_EQ(i, GetSelectedIndex());
   }
-  // Doesn't rotate.
-  EXPECT_TRUE(KeyPress(ui::VKEY_DOWN));
+  // When navigating off the end of the list, pass the event to the parent to
+  // handle.
+  EXPECT_FALSE(KeyPress(ui::VKEY_DOWN));
   EXPECT_EQ(results - 1, GetSelectedIndex());
 
   for (int i = 1; i < results; ++i) {
     EXPECT_TRUE(KeyPress(ui::VKEY_UP));
     EXPECT_EQ(results - i - 1, GetSelectedIndex());
   }
-  // Doesn't rotate.
-  EXPECT_TRUE(KeyPress(ui::VKEY_UP));
+  // Navigate off top of list.
+  EXPECT_FALSE(KeyPress(ui::VKEY_UP));
   EXPECT_EQ(0, GetSelectedIndex());
   ResetSelectedIndex();
 
@@ -152,8 +161,8 @@ TEST_F(SearchResultListViewTest, Basic) {
     EXPECT_TRUE(KeyPress(ui::VKEY_TAB));
     EXPECT_EQ(i, GetSelectedIndex());
   }
-  // Doesn't rotate.
-  EXPECT_TRUE(KeyPress(ui::VKEY_TAB));
+  // Navigate off bottom of list.
+  EXPECT_FALSE(KeyPress(ui::VKEY_TAB));
   EXPECT_EQ(results - 1, GetSelectedIndex());
 }
 
@@ -191,6 +200,19 @@ TEST_F(SearchResultListViewTest, CancelAutoLaunch) {
   SetLongAutoLaunchTimeout();
   view()->SetVisible(true);
   EXPECT_TRUE(IsAutoLaunching());
+}
+
+TEST_F(SearchResultListViewTest, SpokenFeedback) {
+  SetUpSearchResults();
+
+  // Result 0 has a detail text. Expect that the detail is appended to the
+  // accessibility name.
+  EXPECT_EQ(base::ASCIIToUTF16("Result 0, Detail"),
+            GetResultViewAt(0)->ComputeAccessibleName());
+
+  // Result 2 has no detail text.
+  EXPECT_EQ(base::ASCIIToUTF16("Result 2"),
+            GetResultViewAt(2)->ComputeAccessibleName());
 }
 
 TEST_F(SearchResultListViewTest, ModelObservers) {

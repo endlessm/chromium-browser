@@ -24,11 +24,11 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/session_storage_namespace.h"
 #include "content/public/common/referrer.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "url/gurl.h"
 
 #if defined(ENABLE_EXTENSIONS)
-#include "extensions/browser/guest_view/guest_view_base.h"
+#include "components/guest_view/browser/guest_view_base.h"
 #endif
 
 using base::TimeDelta;
@@ -60,10 +60,10 @@ bool ShouldStartPrerender(const uint32 rel_types) {
   return false;
 }
 
-COMPILE_ASSERT(PrerenderRelTypePrerender == 0x1,
-               RelTypeHistogramEnum_must_match_PrerenderRelType);
-COMPILE_ASSERT(PrerenderRelTypeNext == 0x2,
-               RelTypeHistogramEnum_must_match_PrerenderRelType);
+static_assert(PrerenderRelTypePrerender == 0x1,
+              "RelTypeHistogrameEnum must match PrerenderRelType");
+static_assert(PrerenderRelTypeNext == 0x2,
+              "RelTypeHistogramEnum must match PrerenderRelType");
 enum RelTypeHistogramEnum {
   RelTypeHistogramEnumNone = 0,
   RelTypeHistogramEnumPrerender = PrerenderRelTypePrerender,
@@ -177,7 +177,7 @@ void PrerenderLinkManager::OnAddPrerender(int launcher_child_id,
       rvh ? content::WebContents::FromRenderViewHost(rvh) : NULL;
   // Guests inside <webview> do not support cross-process navigation and so we
   // do not allow guests to prerender content.
-  if (extensions::GuestViewBase::IsGuest(web_contents))
+  if (guest_view::GuestViewBase::IsGuest(web_contents))
     return;
 #endif
 

@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "base/compiler_specific.h"
+#include "base/memory/scoped_ptr.h"
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/form_field.h"
 #include "components/autofill/core/browser/phone_number.h"
@@ -25,7 +26,7 @@ class PhoneField : public FormField {
  public:
   ~PhoneField() override;
 
-  static FormField* Parse(AutofillScanner* scanner);
+  static scoped_ptr<FormField> Parse(AutofillScanner* scanner);
 
  protected:
   // FormField:
@@ -78,8 +79,13 @@ class PhoneField : public FormField {
 
   PhoneField();
 
-  // Returns the regular expression string correspoding to |regex_id|
-  static base::string16 GetRegExp(RegexType regex_id);
+  // Returns the regular expression string corresponding to |regex_id|
+  static std::string GetRegExp(RegexType regex_id);
+
+  // Convenient wrapper for ParseFieldSpecifics().
+  static bool ParsePhoneField(AutofillScanner* scanner,
+                              const std::string& regex,
+                              AutofillField** field);
 
   // FIELD_PHONE is always present; holds suffix if prefix is present.
   // The rest could be NULL.

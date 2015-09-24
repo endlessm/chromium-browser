@@ -12,8 +12,8 @@
 #include "testing/gmock/include/gmock/gmock.h"
 
 using extensions::DnsSdRegistry;
-using ::testing::A;
 using ::testing::_;
+using ::testing::A;
 
 namespace api = extensions::api;
 
@@ -26,8 +26,9 @@ class MockDnsSdRegistry : public DnsSdRegistry {
 
   MOCK_METHOD1(AddObserver, void(DnsSdObserver* observer));
   MOCK_METHOD1(RemoveObserver, void(DnsSdObserver* observer));
-  MOCK_METHOD1(RegisterDnsSdListener, void(std::string service_type));
-  MOCK_METHOD1(UnregisterDnsSdListener, void(std::string service_type));
+  MOCK_METHOD1(RegisterDnsSdListener, void(const std::string& service_type));
+  MOCK_METHOD1(UnregisterDnsSdListener, void(const std::string& service_type));
+  MOCK_METHOD0(ForceDiscovery, void(void));
 
   void DispatchMDnsEvent(const std::string& service_type,
                          const DnsSdServiceList& services) {
@@ -42,7 +43,7 @@ class MDnsAPITest : public ExtensionApiTest {
  public:
   MDnsAPITest() {}
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionApiTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII(
         extensions::switches::kWhitelistedExtensionID,
@@ -52,6 +53,8 @@ class MDnsAPITest : public ExtensionApiTest {
   void SetUpTestDnsSdRegistry() {
     extensions::MDnsAPI* api = extensions::MDnsAPI::Get(profile());
     dns_sd_registry_ = new MockDnsSdRegistry(api);
+    EXPECT_CALL(*dns_sd_registry_, AddObserver(api))
+        .Times(1);
     // Transfers ownership of the registry instance.
     api->SetDnsSdRegistryForTesting(
         make_scoped_ptr<DnsSdRegistry>(dns_sd_registry_).Pass());
@@ -103,6 +106,40 @@ IN_PROC_BROWSER_TEST_F(MDnsAPITest, MAYBE_RegisterListener) {
 // TODO(justinlin): Win Dbg has a workaround that makes RunExtensionSubtest
 // always return true without actually running the test. Remove when fixed.
 #if defined(OS_WIN) && !defined(NDEBUG)
+#define MAYBE_ForceDiscovery DISABLED_ForceDiscovery
+#else
+#define MAYBE_ForceDiscovery ForceDiscovery
+#endif
+// Test loading extension, registering an MDNS listener and dispatching events.
+IN_PROC_BROWSER_TEST_F(MDnsAPITest, MAYBE_ForceDiscovery) {
+  const std::string& service_type = "_googlecast._tcp.local";
+  SetUpTestDnsSdRegistry();
+
+  EXPECT_CALL(*dns_sd_registry_, RegisterDnsSdListener(service_type)).Times(1);
+  EXPECT_CALL(*dns_sd_registry_, UnregisterDnsSdListener(service_type))
+      .Times(1);
+  EXPECT_CALL(*dns_sd_registry_, ForceDiscovery()).Times(1);
+  EXPECT_CALL(*dns_sd_registry_,
+              RemoveObserver(A<extensions::DnsSdRegistry::DnsSdObserver*>()))
+      .Times(1);
+
+  EXPECT_TRUE(RunExtensionSubtest("mdns/api", "force_discovery.html"))
+      << message_;
+
+  extensions::ResultCatcher catcher;
+  DnsSdRegistry::DnsSdServiceList services;
+
+  extensions::DnsSdService service;
+  service.service_name = service_type;
+  services.push_back(service);
+
+  dns_sd_registry_->DispatchMDnsEvent(service_type, services);
+  EXPECT_TRUE(catcher.GetNextResult()) << catcher.message();
+}
+
+// TODO(justinlin): Win Dbg has a workaround that makes RunExtensionSubtest
+// always return true without actually running the test. Remove when fixed.
+#if defined(OS_WIN) && !defined(NDEBUG)
 #define MAYBE_RegisterMultipleListeners DISABLED_RegisterMultipleListeners
 #else
 #define MAYBE_RegisterMultipleListeners RegisterMultipleListeners
@@ -139,4 +176,39 @@ IN_PROC_BROWSER_TEST_F(MDnsAPITest, MAYBE_RegisterMultipleListeners) {
   dns_sd_registry_->DispatchMDnsEvent(service_type, services);
   dns_sd_registry_->DispatchMDnsEvent(test_service_type, services);
   EXPECT_TRUE(catcher.GetNextResult()) << catcher.message();
+}
+
+// TODO(justinlin): Win Dbg has a workaround that makes RunExtensionSubtest
+// always return true without actually running the test. Remove when fixed.
+#if defined(OS_WIN) && !defined(NDEBUG)
+#define MAYBE_RegisterTooManyListeners DISABLED_RegisterTooManyListeners
+#else
+#define MAYBE_RegisterTooManyListeners RegisterTooManyListeners
+#endif
+// Test loading extension and registering multiple listeners.
+IN_PROC_BROWSER_TEST_F(MDnsAPITest, MAYBE_RegisterTooManyListeners) {
+  SetUpTestDnsSdRegistry();
+
+  EXPECT_CALL(*dns_sd_registry_, RegisterDnsSdListener(_)).Times(10);
+  EXPECT_CALL(*dns_sd_registry_, UnregisterDnsSdListener(_)).Times(10);
+  EXPECT_CALL(*dns_sd_registry_,
+              RemoveObserver(A<extensions::DnsSdRegistry::DnsSdObserver*>()))
+      .Times(1);
+
+  EXPECT_TRUE(RunPlatformAppTest("mdns/api-packaged-apps"))
+      << message_;
+}
+
+// TODO(justinlin): Win Dbg has a workaround that makes RunExtensionSubtest
+// always return true without actually running the test. Remove when fixed.
+#if defined(OS_WIN) && !defined(NDEBUG)
+#define MAYBE_MaxServiceInstancesPerEventConst \
+  DISABLED_MaxServiceInstancesPerEventConst
+#else
+#define MAYBE_MaxServiceInstancesPerEventConst MaxServiceInstancesPerEventConst
+#endif
+// Test loading extension and registering multiple listeners.
+IN_PROC_BROWSER_TEST_F(MDnsAPITest, MAYBE_MaxServiceInstancesPerEventConst) {
+  EXPECT_TRUE(RunExtensionSubtest("mdns/api",
+                                  "get_max_service_instances.html"));
 }

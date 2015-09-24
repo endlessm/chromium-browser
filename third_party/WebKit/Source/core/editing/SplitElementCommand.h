@@ -37,14 +37,14 @@ public:
         return adoptRefWillBeNoop(new SplitElementCommand(element, splitPointChild));
     }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     SplitElementCommand(PassRefPtrWillBeRawPtr<Element>, PassRefPtrWillBeRawPtr<Node> splitPointChild);
 
-    virtual void doApply() override;
-    virtual void doUnapply() override;
-    virtual void doReapply() override;
+    void doApply() override;
+    void doUnapply() override;
+    void doReapply() override;
     void executeApply();
 
     RefPtrWillBeMember<Element> m_element1;

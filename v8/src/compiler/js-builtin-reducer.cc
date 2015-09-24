@@ -3,26 +3,15 @@
 // found in the LICENSE file.
 
 #include "src/compiler/diamond.h"
-#include "src/compiler/graph-inl.h"
 #include "src/compiler/js-builtin-reducer.h"
+#include "src/compiler/js-graph.h"
 #include "src/compiler/node-matchers.h"
-#include "src/compiler/node-properties-inl.h"
+#include "src/compiler/node-properties.h"
 #include "src/types.h"
 
 namespace v8 {
 namespace internal {
 namespace compiler {
-
-
-// Helper method that assumes replacement nodes are pure values that don't
-// produce an effect. Replaces {node} with {reduction} and relaxes effects.
-static Reduction ReplaceWithPureReduction(Node* node, Reduction reduction) {
-  if (reduction.Changed()) {
-    NodeProperties::ReplaceWithValue(node, reduction.replacement());
-    return reduction;
-  }
-  return Reducer::NoChange();
-}
 
 
 // Helper class to access JSCallFunction nodes that are potential candidates
@@ -35,7 +24,7 @@ class JSCallReduction {
   // constant callee being a well-known builtin with a BuiltinFunctionId.
   bool HasBuiltinFunctionId() {
     if (node_->opcode() != IrOpcode::kJSCallFunction) return false;
-    HeapObjectMatcher<Object> m(NodeProperties::GetValueInput(node_, 0));
+    HeapObjectMatcher m(NodeProperties::GetValueInput(node_, 0));
     if (!m.HasValue() || !m.Value().handle()->IsJSFunction()) return false;
     Handle<JSFunction> function = Handle<JSFunction>::cast(m.Value().handle());
     return function->shared()->HasBuiltinFunctionId();
@@ -44,7 +33,7 @@ class JSCallReduction {
   // Retrieves the BuiltinFunctionId as described above.
   BuiltinFunctionId GetBuiltinFunctionId() {
     DCHECK_EQ(IrOpcode::kJSCallFunction, node_->opcode());
-    HeapObjectMatcher<Object> m(NodeProperties::GetValueInput(node_, 0));
+    HeapObjectMatcher m(NodeProperties::GetValueInput(node_, 0));
     Handle<JSFunction> function = Handle<JSFunction>::cast(m.Value().handle());
     return function->shared()->builtin_function_id();
   }
@@ -96,36 +85,10 @@ class JSCallReduction {
 };
 
 
-// ECMA-262, section 15.8.2.1.
-Reduction JSBuiltinReducer::ReduceMathAbs(Node* node) {
-  JSCallReduction r(node);
-  if (r.InputsMatchOne(Type::Unsigned32())) {
-    // Math.abs(a:uint32) -> a
-    return Replace(r.left());
-  }
-  if (r.InputsMatchOne(Type::Number())) {
-    // Math.abs(a:number) -> (a > 0 ? a : 0 - a)
-    Node* value = r.left();
-    Node* zero = jsgraph()->ZeroConstant();
-    Node* cmp = graph()->NewNode(simplified()->NumberLessThan(), zero, value);
-    Diamond d(graph(), common(), cmp);
-    Node* neg = graph()->NewNode(simplified()->NumberSubtract(), zero, value);
-    return Replace(d.Phi(kMachNone, value, neg));
-  }
-  return NoChange();
-}
-
-
-// ECMA-262, section 15.8.2.17.
-Reduction JSBuiltinReducer::ReduceMathSqrt(Node* node) {
-  JSCallReduction r(node);
-  if (r.InputsMatchOne(Type::Number())) {
-    // Math.sqrt(a:number) -> Float64Sqrt(a)
-    Node* value = graph()->NewNode(machine()->Float64Sqrt(), r.left());
-    return Replace(value);
-  }
-  return NoChange();
-}
+JSBuiltinReducer::JSBuiltinReducer(Editor* editor, JSGraph* jsgraph)
+    : AdvancedReducer(editor),
+      jsgraph_(jsgraph),
+      simplified_(jsgraph->zone()) {}
 
 
 // ECMA-262, section 15.8.2.11.
@@ -143,10 +106,11 @@ Reduction JSBuiltinReducer::ReduceMathMax(Node* node) {
     // Math.max(a:int32, b:int32, ...)
     Node* value = r.GetJSCallInput(0);
     for (int i = 1; i < r.GetJSCallArity(); i++) {
-      Node* p = r.GetJSCallInput(i);
-      Node* cmp = graph()->NewNode(simplified()->NumberLessThan(), value, p);
-      Diamond d(graph(), common(), cmp);
-      value = d.Phi(kMachNone, p, value);
+      Node* const input = r.GetJSCallInput(i);
+      value = graph()->NewNode(
+          common()->Select(kMachNone),
+          graph()->NewNode(simplified()->NumberLessThan(), input, value), value,
+          input);
     }
     return Replace(value);
   }
@@ -179,56 +143,44 @@ Reduction JSBuiltinReducer::ReduceMathFround(Node* node) {
 }
 
 
-// ES6 draft 10-14-14, section 20.2.2.16.
-Reduction JSBuiltinReducer::ReduceMathFloor(Node* node) {
-  if (!machine()->HasFloat64Floor()) return NoChange();
-  JSCallReduction r(node);
-  if (r.InputsMatchOne(Type::Number())) {
-    // Math.floor(a:number) -> Float64Floor(a)
-    Node* value = graph()->NewNode(machine()->Float64Floor(), r.left());
-    return Replace(value);
-  }
-  return NoChange();
-}
-
-
-// ES6 draft 10-14-14, section 20.2.2.10.
-Reduction JSBuiltinReducer::ReduceMathCeil(Node* node) {
-  if (!machine()->HasFloat64Ceil()) return NoChange();
-  JSCallReduction r(node);
-  if (r.InputsMatchOne(Type::Number())) {
-    // Math.ceil(a:number) -> Float64Ceil(a)
-    Node* value = graph()->NewNode(machine()->Float64Ceil(), r.left());
-    return Replace(value);
-  }
-  return NoChange();
-}
-
-
 Reduction JSBuiltinReducer::Reduce(Node* node) {
+  Reduction reduction = NoChange();
   JSCallReduction r(node);
 
   // Dispatch according to the BuiltinFunctionId if present.
   if (!r.HasBuiltinFunctionId()) return NoChange();
   switch (r.GetBuiltinFunctionId()) {
-    case kMathAbs:
-      return ReplaceWithPureReduction(node, ReduceMathAbs(node));
-    case kMathSqrt:
-      return ReplaceWithPureReduction(node, ReduceMathSqrt(node));
     case kMathMax:
-      return ReplaceWithPureReduction(node, ReduceMathMax(node));
+      reduction = ReduceMathMax(node);
+      break;
     case kMathImul:
-      return ReplaceWithPureReduction(node, ReduceMathImul(node));
+      reduction = ReduceMathImul(node);
+      break;
     case kMathFround:
-      return ReplaceWithPureReduction(node, ReduceMathFround(node));
-    case kMathFloor:
-      return ReplaceWithPureReduction(node, ReduceMathFloor(node));
-    case kMathCeil:
-      return ReplaceWithPureReduction(node, ReduceMathCeil(node));
+      reduction = ReduceMathFround(node);
+      break;
     default:
       break;
   }
-  return NoChange();
+
+  // Replace builtin call assuming replacement nodes are pure values that don't
+  // produce an effect. Replaces {node} with {reduction} and relaxes effects.
+  if (reduction.Changed()) ReplaceWithValue(node, reduction.replacement());
+
+  return reduction;
+}
+
+
+Graph* JSBuiltinReducer::graph() const { return jsgraph()->graph(); }
+
+
+CommonOperatorBuilder* JSBuiltinReducer::common() const {
+  return jsgraph()->common();
+}
+
+
+MachineOperatorBuilder* JSBuiltinReducer::machine() const {
+  return jsgraph()->machine();
 }
 
 }  // namespace compiler

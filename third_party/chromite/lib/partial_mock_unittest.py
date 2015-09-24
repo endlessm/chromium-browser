@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,17 +6,14 @@
 
 from __future__ import print_function
 
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                '..', '..'))
 from chromite.lib import cros_test_lib
 from chromite.lib import partial_mock
 
+
 # pylint: disable=W0212
 
-class ComparatorTest(cros_test_lib.MoxTestCase):
+
+class ComparatorTest(cros_test_lib.TestCase):
   """Test Comparitor functionality."""
   TEST_KEY1 = 'monkey'
   TEST_KEY2 = 'foon'
@@ -49,7 +45,7 @@ class ComparatorTest(cros_test_lib.MoxTestCase):
     self.assertFalse(obj.Match(1))
 
 
-class RecursiveCompareTest(cros_test_lib.MoxTestCase):
+class RecursiveCompareTest(cros_test_lib.TestCase):
   """Test recursive compare functionality."""
 
   LHS_DICT = {3: 1, 1: 2}
@@ -77,7 +73,7 @@ class RecursiveCompareTest(cros_test_lib.MoxTestCase):
     self.assertTrue(partial_mock._RecursiveCompare(['foo'], [u'foo']))
 
 
-class ListContainsTest(cros_test_lib.MoxTestCase):
+class ListContainsTest(cros_test_lib.TestCase):
   """Unittests for ListContains method."""
 
   L = range(10) + range(10) + [9]
@@ -105,7 +101,7 @@ class ListContainsTest(cros_test_lib.MoxTestCase):
     self.assertTrue(partial_mock.ListContains(['foo'], [u'foo']))
 
 
-class MockedCallResultsTest(cros_test_lib.MoxTestCase):
+class MockedCallResultsTest(cros_test_lib.TestCase):
   """Test MockedCallResults functionality."""
 
   ARGS = ('abc',)
@@ -211,7 +207,3 @@ class MockedCallResultsTest(cros_test_lib.MoxTestCase):
         2, self.mr.LookupResult(self.ARGS, hook_args=self.LIST_ARGS,
                                 hook_kwargs=self.KWARGS))
     self.assertEquals(3, self.mr.LookupResult(('test',)))
-
-
-if __name__ == '__main__':
-  cros_test_lib.main()

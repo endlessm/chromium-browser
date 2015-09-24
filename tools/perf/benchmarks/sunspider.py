@@ -5,11 +5,14 @@ import collections
 import json
 import os
 
-from metrics import power
-from telemetry import benchmark
-from telemetry.page import page_set
+from core import perf_benchmark
+
+from telemetry import page as page_module
 from telemetry.page import page_test
+from telemetry import story
 from telemetry.value import list_of_scalar_values
+
+from metrics import power
 
 
 _URL = 'http://www.webkit.org/perf/sunspider-1.0.2/sunspider-1.0.2/driver.html'
@@ -123,14 +126,22 @@ class _SunspiderMeasurement(page_test.PageTest):
                     'in sunspider'))
 
 
-class Sunspider(benchmark.Benchmark):
-  """Apple's SunSpider JavaScript benchmark."""
+class Sunspider(perf_benchmark.PerfBenchmark):
+  """Apple's SunSpider JavaScript benchmark.
+
+  http://www.webkit.org/perf/sunspider/sunspider.html
+  """
   test = _SunspiderMeasurement
 
-  def CreatePageSet(self, options):
-    ps = page_set.PageSet(
-      archive_data_file='../page_sets/data/sunspider.json',
-      make_javascript_deterministic=False,
-      file_path=os.path.abspath(__file__))
-    ps.AddPageWithDefaultRunNavigate(_URL)
+  @classmethod
+  def Name(cls):
+    return 'sunspider'
+
+  def CreateStorySet(self, options):
+    ps = story.StorySet(
+        archive_data_file='../page_sets/data/sunspider.json',
+        base_dir=os.path.dirname(os.path.abspath(__file__)),
+        cloud_storage_bucket=story.PARTNER_BUCKET)
+    ps.AddStory(page_module.Page(
+        _URL, ps, ps.base_dir, make_javascript_deterministic=False))
     return ps

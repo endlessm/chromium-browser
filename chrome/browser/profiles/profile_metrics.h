@@ -9,6 +9,7 @@
 #include <string>
 
 #include "base/basictypes.h"
+#include "base/time/time.h"
 #include "chrome/browser/signin/signin_header_helper.h"
 
 class Profile;
@@ -26,9 +27,15 @@ class ProfileMetrics {
     size_t supervised;
     size_t unused;
     size_t gaia_icon;
+    size_t auth_errors;
 
     ProfileCounts()
-        : total(0), signedin(0), supervised(0), unused(0), gaia_icon(0) {}
+        : total(0),
+          signedin(0),
+          supervised(0),
+          unused(0),
+          gaia_icon(0),
+          auth_errors(0) {}
   };
 
   // Enum for counting the ways users were added.
@@ -42,8 +49,14 @@ class ProfileMetrics {
   };
 
   enum ProfileDelete {
-    DELETE_PROFILE_SETTINGS = 0,  // Delete profile from settings page.
-    DELETE_PROFILE_USER_MANAGER,  // Delete profile from User Manager.
+    // Delete profile from settings page.
+    DELETE_PROFILE_SETTINGS = 0,
+    // Delete profile from User Manager.
+    DELETE_PROFILE_USER_MANAGER,
+    // Show the delete profile warning in the User Manager.
+    DELETE_PROFILE_USER_MANAGER_SHOW_WARNING,
+    // Show the delete profile warning in the Settings page.
+    DELETE_PROFILE_SETTINGS_SHOW_WARNING,
     NUM_DELETE_PROFILE_METRICS
   };
 
@@ -201,13 +214,21 @@ class ProfileMetrics {
   static bool CountProfileInformation(ProfileManager* manager,
                                       ProfileCounts* counts);
 
+  static void LogNumberOfProfileSwitches();
+#if defined(OS_WIN) || defined(OS_MACOSX)
+  // Update OS level tracking of profile counts.
+  static void UpdateReportedOSProfileStatistics(size_t active, size_t signedin);
+#endif
+
   static void LogNumberOfProfiles(ProfileManager* manager);
   static void LogProfileAddNewUser(ProfileAdd metric);
   static void LogProfileAvatarSelection(size_t icon_index);
   static void LogProfileDeleteUser(ProfileDelete metric);
   static void LogProfileOpenMethod(ProfileOpen metric);
+  static void LogProfileSwitch(ProfileOpen metric,
+                               ProfileManager* manager,
+                               const base::FilePath& profile_path);
   static void LogProfileSwitchGaia(ProfileGaia metric);
-  static void LogProfileSwitchUser(ProfileOpen metric);
   static void LogProfileSyncInfo(ProfileSync metric);
   static void LogProfileAuthResult(ProfileAuth metric);
   static void LogProfileDesktopMenu(ProfileDesktopMenu metric,
@@ -217,6 +238,7 @@ class ProfileMetrics {
   static void LogProfileNewAvatarMenuSignin(ProfileNewAvatarMenuSignin metric);
   static void LogProfileNewAvatarMenuUpgrade(
       ProfileNewAvatarMenuUpgrade metric);
+  static void LogTimeToOpenUserManager(const base::TimeDelta& time_to_open);
 
 #if defined(OS_ANDROID)
   static void LogProfileAndroidAccountManagementMenu(

@@ -34,8 +34,8 @@
 #include "core/css/CSSPrimitiveValue.h"
 #include "core/css/CSSToLengthConversionData.h"
 #include "core/css/StylePropertySet.h"
-#include "core/rendering/style/RenderStyle.h"
-#include "core/rendering/style/StyleInheritedData.h"
+#include "core/style/ComputedStyle.h"
+#include "core/style/StyleInheritedData.h"
 
 #include <gtest/gtest.h>
 
@@ -47,10 +47,6 @@ void PrintTo(const CSSLengthArray& lengthArray, ::std::ostream* os)
     for (size_t i = 0; i < CSSPrimitiveValue::LengthUnitTypeCount; ++i)
         *os << lengthArray.at(i) << ' ';
 }
-
-}
-
-using namespace blink;
 
 namespace {
 
@@ -89,9 +85,9 @@ bool lengthArraysEqual(CSSLengthArray& a, CSSLengthArray& b)
 
 TEST(CSSCalculationValue, AccumulatePixelsAndPercent)
 {
-    RefPtr<RenderStyle> style = RenderStyle::createDefaultStyle();
+    RefPtr<ComputedStyle> style = ComputedStyle::create();
     style->setEffectiveZoom(5);
-    CSSToLengthConversionData conversionData(style.get(), style.get(), 0);
+    CSSToLengthConversionData conversionData(style.get(), style.get(), nullptr, style->effectiveZoom());
 
     testAccumulatePixelsAndPercent(conversionData,
         CSSCalcValue::createExpressionNode(CSSPrimitiveValue::create(10, CSSPrimitiveValue::CSS_PX), true),
@@ -195,4 +191,6 @@ TEST(CSSCalculationValue, AddToLengthUnitValues)
     EXPECT_TRUE(lengthArraysEqual(expectation, setLengthArray(actual, "calc((1 * 2) * (5px + 20em / 2) - 80% / (3 - 1) + 5px)")));
 }
 
-}
+} // anonymous namespace
+
+} // namespace blink

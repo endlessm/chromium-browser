@@ -25,6 +25,7 @@
 #ifndef PluginDocument_h
 #define PluginDocument_h
 
+#include "core/CoreExport.h"
 #include "core/html/HTMLDocument.h"
 
 namespace blink {
@@ -32,7 +33,7 @@ namespace blink {
 class Node;
 class Widget;
 
-class PluginDocument final : public HTMLDocument {
+class CORE_EXPORT PluginDocument final : public HTMLDocument {
 public:
     static PassRefPtrWillBeRawPtr<PluginDocument> create(const DocumentInit& initializer = DocumentInit())
     {
@@ -44,14 +45,14 @@ public:
     Widget* pluginWidget();
     Node* pluginNode();
 
-    virtual void detach(const AttachContext& = AttachContext()) override;
+    void detach(const AttachContext& = AttachContext()) override;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     explicit PluginDocument(const DocumentInit&);
 
-    virtual PassRefPtrWillBeRawPtr<DocumentParser> createParser() override;
+    PassRefPtrWillBeRawPtr<DocumentParser> createParser() override;
 
     RefPtrWillBeMember<Node> m_pluginNode;
 };

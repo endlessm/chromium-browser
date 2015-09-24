@@ -13,15 +13,13 @@
 #include <stddef.h>  // For size_t.
 #include <string.h>  // For memcpy.
 
-#include "base/compiler_specific.h"  // For ALLOW_UNUSED.
-
-// Put this in the private: declarations for a class to be uncopyable.
+// Put this in the declarations for a class to be uncopyable.
 #define DISALLOW_COPY(TypeName) \
-  TypeName(const TypeName&)
+  TypeName(const TypeName&) = delete
 
-// Put this in the private: declarations for a class to be unassignable.
+// Put this in the declarations for a class to be unassignable.
 #define DISALLOW_ASSIGN(TypeName) \
-  void operator=(const TypeName&)
+  void operator=(const TypeName&) = delete
 
 // A macro to disallow the copy constructor and operator= functions
 // This should be used in the private: declarations for a class
@@ -43,7 +41,7 @@
 // that wants to prevent anyone from instantiating it. This is
 // especially useful for classes containing only static methods.
 #define DISALLOW_IMPLICIT_CONSTRUCTORS(TypeName) \
-  TypeName();                                    \
+  TypeName() = delete;                           \
   DISALLOW_COPY_AND_ASSIGN(TypeName)
 
 // The arraysize(arr) macro returns the # of elements in an array arr.
@@ -54,17 +52,7 @@
 // This template function declaration is used in defining arraysize.
 // Note that the function doesn't need an implementation, as we only
 // use its type.
-template <typename T, size_t N>
-char (&ArraySizeHelper(T (&array)[N]))[N];
-
-// That gcc wants both of these prototypes seems mysterious. VC, for
-// its part, can't decide which to use (another mystery). Matching of
-// template overloads: the final frontier.
-#ifndef _MSC_VER
-template <typename T, size_t N>
-char (&ArraySizeHelper(const T (&array)[N]))[N];
-#endif
-
+template <typename T, size_t N> char (&ArraySizeHelper(T (&array)[N]))[N];
 #define arraysize(array) (sizeof(ArraySizeHelper(array)))
 
 

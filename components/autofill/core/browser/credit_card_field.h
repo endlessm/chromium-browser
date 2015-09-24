@@ -10,6 +10,7 @@
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/scoped_ptr.h"
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/form_field.h"
 
@@ -21,7 +22,7 @@ class AutofillScanner;
 class CreditCardField : public FormField {
  public:
   ~CreditCardField() override;
-  static FormField* Parse(AutofillScanner* scanner);
+  static scoped_ptr<FormField> Parse(AutofillScanner* scanner);
 
  protected:
   // FormField:
@@ -30,7 +31,30 @@ class CreditCardField : public FormField {
  private:
   friend class CreditCardFieldTest;
 
+  // Returns true if |scanner| points to a field that looks like a month
+  // <select>.
+  static bool LikelyCardMonthSelectField(AutofillScanner* scanner);
+
+  // Returns true if |scanner| points to a field that looks like a year
+  // <select> for a credit card. i.e. it contains the current year and
+  // the next few years.
+  static bool LikelyCardYearSelectField(AutofillScanner* scanner);
+
+  // Returns true if |scanner| points to a <select> field that contains credit
+  // card type options.
+  static bool LikelyCardTypeSelectField(AutofillScanner* scanner);
+
+  // Returns true if |scanner| points to a field that is for a gift card number.
+  // |scanner| advances if this returns true.
+  // Prepaid debit cards do not count as gift cards, since they can be used like
+  // a credit card.
+  static bool IsGiftCardField(AutofillScanner* scanner);
+
   CreditCardField();
+
+  // Parses the expiration month/year/date fields. Returns true if it finds
+  // something new.
+  bool ParseExpirationDate(AutofillScanner* scanner);
 
   // For the combined expiration field we return |exp_year_type_|; otherwise if
   // |expiration_year_| is having year with |max_length| of 2-digits we return

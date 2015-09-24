@@ -6,9 +6,11 @@
 
 #include "base/bind.h"
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
+#include "chrome/browser/permissions/permission_request_id.h"
 #include "chrome/browser/profiles/profile.h"
-#include "components/content_settings/core/common/permission_request_id.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/geolocation_provider.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 
 
@@ -28,26 +30,22 @@ void GeolocationPermissionContext::RequestPermission(
     bool user_gesture,
     const BrowserPermissionCallback& callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  GURL embedder_origin = web_contents->GetLastCommittedURL().GetOrigin();
 
   bool permission_set;
   bool new_permission;
   if (extensions_context_.RequestPermission(
-      web_contents, id, id.bridge_id(), requesting_frame_origin, user_gesture,
+      web_contents, id, id.request_id(), requesting_frame_origin, user_gesture,
       callback, &permission_set, &new_permission)) {
     if (permission_set) {
-      NotifyPermissionSet(id, requesting_frame_origin, embedder_origin,
-                          callback, true, new_permission);
+      ContentSetting content_setting =
+          new_permission ? CONTENT_SETTING_ALLOW : CONTENT_SETTING_BLOCK;
+      NotifyPermissionSet(id,
+                          requesting_frame_origin,
+                          web_contents->GetLastCommittedURL().GetOrigin(),
+                          callback,
+                          false /* persist */,
+                          content_setting);
     }
-    return;
-  }
-
-  if (!requesting_frame_origin.is_valid() || !embedder_origin.is_valid()) {
-    LOG(WARNING) << "Attempt to use geolocation from an invalid URL: "
-        << requesting_frame_origin << "," << embedder_origin
-        << " (geolocation is not supported in popups)";
-    NotifyPermissionSet(id, requesting_frame_origin, embedder_origin,
-                        callback, false /* persist */, false /* allowed */);
     return;
   }
 
@@ -62,7 +60,7 @@ void GeolocationPermissionContext::CancelPermissionRequest(
     const PermissionRequestID& id) {
 
     if (extensions_context_.CancelPermissionRequest(
-        web_contents, id.bridge_id()))
+        web_contents, id.request_id()))
       return;
     PermissionContextBase::CancelPermissionRequest(web_contents, id);
 }
@@ -71,11 +69,22 @@ void GeolocationPermissionContext::UpdateTabContext(
     const PermissionRequestID& id,
     const GURL& requesting_frame,
     bool allowed) {
-  // WebContents may have gone away (or not exists for extension).
   TabSpecificContentSettings* content_settings =
-      TabSpecificContentSettings::Get(id.render_process_id(),
-                                      id.render_view_id());
+      TabSpecificContentSettings::GetForFrame(id.render_process_id(),
+                                              id.render_frame_id());
+
+  // WebContents might not exist (extensions) or no longer exist. In which case,
+  // TabSpecificContentSettings will be null.
   if (content_settings)
     content_settings->OnGeolocationPermissionSet(
         requesting_frame.GetOrigin(), allowed);
+
+  if (allowed) {
+    content::GeolocationProvider::GetInstance()
+        ->UserDidOptIntoLocationServices();
+  }
+}
+
+bool GeolocationPermissionContext::IsRestrictedToSecureOrigins() const {
+  return false;
 }

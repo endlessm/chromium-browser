@@ -7,7 +7,7 @@
 #include <GL/osmesa.h>
 
 #include "base/logging.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_surface.h"
 
@@ -15,7 +15,8 @@ namespace gfx {
 
 GLContextOSMesa::GLContextOSMesa(GLShareGroup* share_group)
     : GLContextReal(share_group),
-      context_(NULL) {
+      context_(nullptr),
+      is_released_(false) {
 }
 
 bool GLContextOSMesa::Initialize(GLSurface* compatible_surface,
@@ -23,7 +24,7 @@ bool GLContextOSMesa::Initialize(GLSurface* compatible_surface,
   DCHECK(!context_);
 
   OSMesaContext share_handle = static_cast<OSMesaContext>(
-      share_group() ? share_group()->GetHandle() : NULL);
+      share_group() ? share_group()->GetHandle() : nullptr);
 
   GLuint format = compatible_surface->GetFormat();
   DCHECK_NE(format, (unsigned)0);
@@ -43,7 +44,7 @@ bool GLContextOSMesa::Initialize(GLSurface* compatible_surface,
 void GLContextOSMesa::Destroy() {
   if (context_) {
     OSMesaDestroyContext(static_cast<OSMesaContext>(context_));
-    context_ = NULL;
+    context_ = nullptr;
   }
 }
 
@@ -62,6 +63,8 @@ bool GLContextOSMesa::MakeCurrent(GLSurface* surface) {
     Destroy();
     return false;
   }
+  // Track that we're no longer in a released state to workaround a mesa issue.
+  is_released_ = false;
 
   // Set this as soon as the context is current, since we might call into GL.
   SetRealGLApi();
@@ -87,15 +90,21 @@ void GLContextOSMesa::ReleaseCurrent(GLSurface* surface) {
   if (!IsCurrent(surface))
     return;
 
-  SetCurrent(NULL);
-  // TODO: Calling with NULL here does not work to release the context.
-  OSMesaMakeCurrent(NULL, NULL, GL_UNSIGNED_BYTE, 0, 0);
+  SetCurrent(nullptr);
+
+  // Calling |OSMesaMakeCurrent| with nullptr here does not work to release the
+  // context. As a workaround, keep track of the release state, so that we can
+  // correctly determine the state of |IsCurrent|.
+  is_released_ = true;
+  OSMesaMakeCurrent(nullptr, nullptr, GL_UNSIGNED_BYTE, 0, 0);
 }
 
 bool GLContextOSMesa::IsCurrent(GLSurface* surface) {
   DCHECK(context_);
 
-  bool native_context_is_current =
+  // |OSMesaGetCurrentContext| doesn't correctly return nullptr when we release,
+  // check the tracked |is_released_|. See |ReleaseCurrent|.
+  bool native_context_is_current = !is_released_ &&
       context_ == OSMesaGetCurrentContext();
 
   // If our context is current then our notion of which GLContext is
@@ -110,7 +119,7 @@ bool GLContextOSMesa::IsCurrent(GLSurface* surface) {
     GLint width;
     GLint height;
     GLint format;
-    void* buffer = NULL;
+    void* buffer = nullptr;
     OSMesaGetColorBuffer(context_, &width, &height, &format, &buffer);
     if (buffer != surface->GetHandle())
       return false;
@@ -123,8 +132,8 @@ void* GLContextOSMesa::GetHandle() {
   return context_;
 }
 
-void GLContextOSMesa::SetSwapInterval(int interval) {
-  DCHECK(IsCurrent(NULL));
+void GLContextOSMesa::OnSetSwapInterval(int interval) {
+  DCHECK(IsCurrent(nullptr));
 }
 
 GLContextOSMesa::~GLContextOSMesa() {

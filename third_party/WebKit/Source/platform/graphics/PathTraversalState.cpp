@@ -166,7 +166,6 @@ PathTraversalState::PathTraversalState(PathTraversalAction action)
     : m_action(action)
     , m_success(false)
     , m_totalLength(0)
-    , m_segmentIndex(0)
     , m_desiredLength(0)
     , m_normalAngle(0)
 {
@@ -189,16 +188,6 @@ float PathTraversalState::lineTo(const FloatPoint& point)
 {
     float distance = distanceLine(m_current, point);
     m_current = point;
-    return distance;
-}
-
-float PathTraversalState::quadraticBezierTo(const FloatPoint& newControl, const FloatPoint& newEnd)
-{
-    float distance = curveLength<QuadraticBezier>(*this, QuadraticBezier(m_current, newControl, newEnd));
-
-    if (m_action != TraversalPointAtLength && m_action != TraversalNormalAngleAtLength)
-        m_current = newEnd;
-
     return distance;
 }
 

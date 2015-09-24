@@ -4,10 +4,6 @@
 #ifndef COMPONENTS_AUTOFILL_CORE_BROWSER_WEBDATA_AUTOFILL_PROFILE_SYNCABLE_SERVICE_H_
 #define COMPONENTS_AUTOFILL_CORE_BROWSER_WEBDATA_AUTOFILL_PROFILE_SYNCABLE_SERVICE_H_
 
-#if !defined(AUTOFILL_ENABLE_SYNC)
-#error "This file should be built only when sync is enabled in Autofill"
-#endif
-
 #include <map>
 #include <string>
 #include <vector>
@@ -40,7 +36,10 @@ class AutofillWebDataService;
 
 extern const char kAutofillProfileTag[];
 
-// The sync implementation for AutofillProfiles.
+// The sync implementation for local AutofillProfiles, which can be managed in
+// settings and can be written to the sync server. (Server profiles cannot be
+// managed in settings and can only be read from the sync server.)
+//
 // MergeDataAndStartSyncing() called first, it does cloud->local and
 // local->cloud syncs. Then for each cloud change we receive
 // ProcessSyncChanges() and for each local change Observe() is called.
@@ -171,8 +170,8 @@ class AutofillProfileSyncableService
       AutofillProfile* autofill_profile);
 
   // Calls merge_into->OverwriteWithOrAddTo() and then checks if the
-  // |merge_into| has extra data. Returns |true| if |merge_into| posseses some
-  // multi-valued field values that are not in |merge_from|.
+  // |merge_into| has extra data. Returns true if |merge_from| needs updating to
+  // be in sync with |merge_into|.
   // TODO(isherman): Seems like this should return |true| if |merge_into| was
   // modified at all: http://crbug.com/248440
   static bool MergeProfile(const AutofillProfile& merge_from,

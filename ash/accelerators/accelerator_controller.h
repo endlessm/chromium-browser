@@ -8,6 +8,7 @@
 #include <map>
 #include <set>
 
+#include "ash/accelerators/accelerator_table.h"
 #include "ash/accelerators/exit_warning_handler.h"
 #include "ash/ash_export.h"
 #include "base/basictypes.h"
@@ -15,6 +16,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/memory/scoped_ptr.h"
 #include "ui/base/accelerators/accelerator.h"
+#include "ui/base/accelerators/accelerator_history.h"
 
 namespace ui {
 class AcceleratorManager;
@@ -86,18 +88,12 @@ class ASH_EXPORT AcceleratorController : public ui::AcceleratorTarget {
   // is always handled and will never be passed to an window/web contents.
   bool IsReserved(const ui::Accelerator& accelerator) const;
 
-  // Performs the specified action. The |accelerator| may provide additional
-  // data the action needs. Returns whether an action was performed
-  // successfully.
-  bool PerformAction(int action,
-                     const ui::Accelerator& accelerator);
+  // Performs the specified action if it is enabled. Returns whether the action
+  // was performed successfully.
+  bool PerformActionIfEnabled(AcceleratorAction action);
 
   // Returns the restriction for the current context.
   AcceleratorProcessingRestriction GetCurrentAcceleratorRestriction();
-
-  // Overridden from ui::AcceleratorTarget:
-  bool AcceleratorPressed(const ui::Accelerator& accelerator) override;
-  bool CanHandleAccelerators() const override;
 
   void SetBrightnessControlDelegate(
       scoped_ptr<BrightnessControlDelegate> brightness_control_delegate);
@@ -117,9 +113,13 @@ class ASH_EXPORT AcceleratorController : public ui::AcceleratorTarget {
     return &exit_warning_handler_;
   }
 
-  const ui::Accelerator& previous_accelerator_for_test() const {
-    return previous_accelerator_;
+  ui::AcceleratorHistory* accelerator_history() {
+    return accelerator_history_.get();
   }
+
+  // Overridden from ui::AcceleratorTarget:
+  bool AcceleratorPressed(const ui::Accelerator& accelerator) override;
+  bool CanHandleAccelerators() const override;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(AcceleratorControllerTest, GlobalAccelerators);
@@ -133,6 +133,19 @@ class ASH_EXPORT AcceleratorController : public ui::AcceleratorTarget {
   void RegisterAccelerators(const AcceleratorData accelerators[],
                             size_t accelerators_length);
 
+  // Returns whether |action| can be performed. The |accelerator| may provide
+  // additional data the action needs.
+  bool CanPerformAction(AcceleratorAction action,
+                        const ui::Accelerator& accelerator);
+
+  // Performs the specified action. The |accelerator| may provide additional
+  // data the action needs.
+  void PerformAction(AcceleratorAction action,
+                     const ui::Accelerator& accelerator);
+
+  // Returns whether performing |action| should consume the key event.
+  bool ShouldActionConsumeKeyEvent(AcceleratorAction action);
+
   // Get the accelerator restriction for the given action. Supply an |action|
   // of -1 to get restrictions that apply for the current context.
   AcceleratorProcessingRestriction GetAcceleratorProcessingRestriction(
@@ -144,6 +157,9 @@ class ASH_EXPORT AcceleratorController : public ui::AcceleratorTarget {
 
   scoped_ptr<ui::AcceleratorManager> accelerator_manager_;
 
+  // A tracker for the current and previous accelerators.
+  scoped_ptr<ui::AcceleratorHistory> accelerator_history_;
+
   // TODO(derat): BrightnessControlDelegate is also used by the system tray;
   // move it outside of this class.
   scoped_ptr<BrightnessControlDelegate> brightness_control_delegate_;
@@ -152,17 +168,13 @@ class ASH_EXPORT AcceleratorController : public ui::AcceleratorTarget {
       keyboard_brightness_control_delegate_;
   scoped_ptr<ScreenshotDelegate> screenshot_delegate_;
 
-  // Remember previous accelerator as some accelerator needs to be fired
-  // with a specific sequence.
-  ui::Accelerator previous_accelerator_;
-
   // Handles the exit accelerator which requires a double press to exit and
   // shows a popup with an explanation.
   ExitWarningHandler exit_warning_handler_;
 
   // A map from accelerators to the AcceleratorAction values, which are used in
   // the implementation.
-  std::map<ui::Accelerator, int> accelerators_;
+  std::map<ui::Accelerator, AcceleratorAction> accelerators_;
 
   // Actions allowed when the user is not signed in.
   std::set<int> actions_allowed_at_login_screen_;

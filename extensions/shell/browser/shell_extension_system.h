@@ -23,10 +23,7 @@ class BrowserContext;
 
 namespace extensions {
 
-class DeclarativeUserScriptMaster;
-class EventRouter;
 class InfoMap;
-class LazyBackgroundTaskQueue;
 class ProcessManager;
 class RendererStartupHelper;
 class SharedUserScriptMaster;
@@ -60,10 +57,6 @@ class ShellExtensionSystem : public ExtensionSystem {
   StateStore* state_store() override;
   StateStore* rules_store() override;
   InfoMap* info_map() override;
-  LazyBackgroundTaskQueue* lazy_background_task_queue() override;
-  EventRouter* event_router() override;
-  ErrorConsole* error_console() override;
-  InstallVerifier* install_verifier() override;
   QuotaService* quota_service() override;
   void RegisterExtensionWithRequestContexts(
       const Extension* extension) override;
@@ -74,8 +67,6 @@ class ShellExtensionSystem : public ExtensionSystem {
   ContentVerifier* content_verifier() override;
   scoped_ptr<ExtensionSet> GetDependentExtensions(
       const Extension* extension) override;
-  DeclarativeUserScriptMaster* GetDeclarativeUserScriptMasterByExtension(
-      const ExtensionId& extension_id) override;
 
  private:
   content::BrowserContext* browser_context_;  // Not owned.
@@ -84,8 +75,6 @@ class ShellExtensionSystem : public ExtensionSystem {
   scoped_refptr<InfoMap> info_map_;
 
   scoped_ptr<RuntimeData> runtime_data_;
-  scoped_ptr<LazyBackgroundTaskQueue> lazy_background_task_queue_;
-  scoped_ptr<EventRouter> event_router_;
   scoped_ptr<QuotaService> quota_service_;
 
   // Signaled when the extension system has completed its startup tasks.

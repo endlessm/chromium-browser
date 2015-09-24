@@ -6,7 +6,6 @@
 #define CHROME_BROWSER_UI_ASH_VOLUME_CONTROLLER_CHROMEOS_H_
 
 #include "ash/volume_control_delegate.h"
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "chromeos/audio/cras_audio_handler.h"
 
@@ -16,16 +15,16 @@ class VolumeController : public ash::VolumeControlDelegate,
                          public chromeos::CrasAudioHandler::AudioObserver {
  public:
   VolumeController();
-  virtual ~VolumeController();
+  ~VolumeController() override;
 
   // Overridden from ash::VolumeControlDelegate:
-  virtual bool HandleVolumeMute(const ui::Accelerator& accelerator) override;
-  virtual bool HandleVolumeDown(const ui::Accelerator& accelerator) override;
-  virtual bool HandleVolumeUp(const ui::Accelerator& accelerator) override;
+  void HandleVolumeMute(const ui::Accelerator& accelerator) override;
+  void HandleVolumeDown(const ui::Accelerator& accelerator) override;
+  void HandleVolumeUp(const ui::Accelerator& accelerator) override;
 
   // Overridden from chromeos::CrasAudioHandler::AudioObserver.
-  virtual void OnOutputVolumeChanged() override;
-  virtual void OnOutputMuteChanged() override;
+  void OnOutputNodeVolumeChanged(uint64_t node_id, int volume) override;
+  void OnOutputMuteChanged(bool mute_on, bool system_adjust) override;
 
  private:
 

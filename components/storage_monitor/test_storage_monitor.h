@@ -38,7 +38,7 @@ class TestStorageMonitor : public StorageMonitor {
                              StorageInfo* device_info) const override;
 
 #if defined(OS_WIN)
-  virtual bool GetMTPStorageInfoFromDeviceId(
+  bool GetMTPStorageInfoFromDeviceId(
       const std::string& storage_device_id,
       base::string16* device_location,
       base::string16* storage_object_id) const override;
@@ -57,6 +57,8 @@ class TestStorageMonitor : public StorageMonitor {
 
   const std::string& ejected_device() const { return ejected_device_; }
 
+  void AddRemovablePath(const base::FilePath& path);
+
   bool init_called() const { return init_called_; }
 
  private:
@@ -65,6 +67,9 @@ class TestStorageMonitor : public StorageMonitor {
 
   // The last device to be ejected.
   std::string ejected_device_;
+
+  // Paths considered for testing purposes to be on removable storage.
+  std::vector<base::FilePath> removable_paths_;
 
 #if defined(OS_LINUX)
   scoped_ptr<device::MediaTransferProtocolManager>

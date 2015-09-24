@@ -15,9 +15,9 @@
 #include "skia/ext/skia_utils_mac.h"
 #include "third_party/WebKit/public/platform/WebCursorInfo.h"
 #include "third_party/WebKit/public/platform/WebSize.h"
+#include "ui/gfx/geometry/point_conversions.h"
+#include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/image/image.h"
-#include "ui/gfx/point_conversions.h"
-#include "ui/gfx/size_conversions.h"
 
 using blink::WebCursorInfo;
 using blink::WebSize;
@@ -365,11 +365,11 @@ void WebCursor::InitPlatformData() {
   return;
 }
 
-bool WebCursor::SerializePlatformData(Pickle* pickle) const {
+bool WebCursor::SerializePlatformData(base::Pickle* pickle) const {
   return true;
 }
 
-bool WebCursor::DeserializePlatformData(PickleIterator* iter) {
+bool WebCursor::DeserializePlatformData(base::PickleIterator* iter) {
   return true;
 }
 

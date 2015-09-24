@@ -7,7 +7,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "components/invalidation/ticl_settings_provider.h"
+#include "components/invalidation/impl/ticl_settings_provider.h"
 
 namespace policy {
 
@@ -16,10 +16,10 @@ namespace policy {
 class TiclDeviceSettingsProvider : public invalidation::TiclSettingsProvider {
  public:
   TiclDeviceSettingsProvider();
-  virtual ~TiclDeviceSettingsProvider();
+  ~TiclDeviceSettingsProvider() override;
 
   // TiclInvalidationServiceSettingsProvider:
-  virtual bool UseGCMChannel() const override;
+  bool UseGCMChannel() const override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TiclDeviceSettingsProvider);

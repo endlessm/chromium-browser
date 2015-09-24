@@ -5,6 +5,7 @@
 #include "content/test/test_render_view_host.h"
 
 #include "base/memory/scoped_ptr.h"
+#include "base/strings/utf_string_conversions.h"
 #include "content/browser/dom_storage/dom_storage_context_wrapper.h"
 #include "content/browser/dom_storage/session_storage_namespace_impl.h"
 #include "content/browser/loader/resource_dispatcher_host_impl.h"
@@ -22,15 +23,18 @@
 #include "content/test/test_render_frame_host.h"
 #include "content/test/test_web_contents.h"
 #include "media/base/video_frame.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace content {
 
 void InitNavigateParams(FrameHostMsg_DidCommitProvisionalLoad_Params* params,
                         int page_id,
+                        int nav_entry_id,
+                        bool did_create_new_entry,
                         const GURL& url,
                         ui::PageTransition transition) {
   params->page_id = page_id;
+  params->nav_entry_id = nav_entry_id;
   params->url = url;
   params->referrer = Referrer();
   params->transition = transition;
@@ -38,6 +42,7 @@ void InitNavigateParams(FrameHostMsg_DidCommitProvisionalLoad_Params* params,
   params->should_update_history = false;
   params->searchable_form_url = GURL();
   params->searchable_form_encoding = std::string();
+  params->did_create_new_entry = did_create_new_entry;
   params->security_info = std::string();
   params->gesture = NavigationGestureUser;
   params->was_within_same_page = false;
@@ -48,6 +53,7 @@ void InitNavigateParams(FrameHostMsg_DidCommitProvisionalLoad_Params* params,
 TestRenderWidgetHostView::TestRenderWidgetHostView(RenderWidgetHost* rwh)
     : rwh_(RenderWidgetHostImpl::From(rwh)),
       is_showing_(false),
+      is_occluded_(false),
       did_swap_compositor_frame_(false) {
   rwh_->SetView(this);
 }
@@ -56,7 +62,7 @@ TestRenderWidgetHostView::~TestRenderWidgetHostView() {
 }
 
 RenderWidgetHost* TestRenderWidgetHostView::GetRenderWidgetHost() const {
-  return NULL;
+  return rwh_;
 }
 
 gfx::Vector2dF TestRenderWidgetHostView::GetLastScrollOffset() const {
@@ -89,6 +95,7 @@ bool TestRenderWidgetHostView::IsSurfaceAvailableForCopy() const {
 
 void TestRenderWidgetHostView::Show() {
   is_showing_ = true;
+  is_occluded_ = false;
 }
 
 void TestRenderWidgetHostView::Hide() {
@@ -97,6 +104,14 @@ void TestRenderWidgetHostView::Hide() {
 
 bool TestRenderWidgetHostView::IsShowing() {
   return is_showing_;
+}
+
+void TestRenderWidgetHostView::WasUnOccluded() {
+  is_occluded_ = false;
+}
+
+void TestRenderWidgetHostView::WasOccluded() {
+  is_occluded_ = true;
 }
 
 void TestRenderWidgetHostView::RenderProcessGone(base::TerminationStatus status,
@@ -113,9 +128,9 @@ gfx::Rect TestRenderWidgetHostView::GetViewBounds() const {
 void TestRenderWidgetHostView::CopyFromCompositingSurface(
     const gfx::Rect& src_subrect,
     const gfx::Size& dst_size,
-    CopyFromCompositingSurfaceCallback& callback,
-    const SkColorType color_type) {
-  callback.Run(false, SkBitmap());
+    ReadbackRequestCallback& callback,
+    const SkColorType preferred_color_type) {
+  callback.Run(SkBitmap(), content::READBACK_FAILED);
 }
 
 void TestRenderWidgetHostView::CopyFromCompositingSurfaceToVideoFrame(
@@ -209,9 +224,8 @@ TestRenderViewHost::TestRenderViewHost(
                          swapped_out,
                          false /* hidden */,
                          false /* has_initialized_audio_host */),
-      render_view_created_(false),
       delete_counter_(NULL),
-      opener_route_id_(MSG_ROUTING_NONE) {
+      opener_frame_route_id_(MSG_ROUTING_NONE) {
   // TestRenderWidgetHostView installs itself into this->view_ in its
   // constructor, and deletes itself when TestRenderWidgetHostView::Destroy() is
   // called.
@@ -223,24 +237,41 @@ TestRenderViewHost::~TestRenderViewHost() {
     ++*delete_counter_;
 }
 
-bool TestRenderViewHost::CreateRenderView(
+bool TestRenderViewHost::CreateTestRenderView(
     const base::string16& frame_name,
-    int opener_route_id,
+    int opener_frame_route_id,
     int proxy_route_id,
     int32 max_page_id,
     bool window_was_created_with_opener) {
-  DCHECK(!render_view_created_);
-  render_view_created_ = true;
-  opener_route_id_ = opener_route_id;
+  FrameReplicationState replicated_state;
+  replicated_state.name = base::UTF16ToUTF8(frame_name);
+  return CreateRenderView(opener_frame_route_id, proxy_route_id, max_page_id,
+                          replicated_state, window_was_created_with_opener);
+}
+
+bool TestRenderViewHost::CreateRenderView(
+    int opener_frame_route_id,
+    int proxy_route_id,
+    int32 max_page_id,
+    const FrameReplicationState& replicated_frame_state,
+    bool window_was_created_with_opener) {
+  DCHECK(!IsRenderViewLive());
+  set_renderer_initialized(true);
+  DCHECK(IsRenderViewLive());
+  opener_frame_route_id_ = opener_frame_route_id;
+  RenderFrameHost* main_frame = GetMainFrame();
+  if (main_frame)
+    static_cast<RenderFrameHostImpl*>(main_frame)->SetRenderFrameCreated(true);
+
   return true;
 }
 
-bool TestRenderViewHost::IsRenderViewLive() const {
-  return render_view_created_;
+bool TestRenderViewHost::IsFullscreenGranted() const {
+  return RenderViewHostImpl::IsFullscreenGranted();
 }
 
-bool TestRenderViewHost::IsFullscreen() const {
-  return RenderViewHostImpl::IsFullscreen();
+MockRenderProcessHost* TestRenderViewHost::GetProcess() const {
+  return static_cast<MockRenderProcessHost*>(RenderViewHostImpl::GetProcess());
 }
 
 void TestRenderViewHost::SimulateWasHidden() {
@@ -249,6 +280,10 @@ void TestRenderViewHost::SimulateWasHidden() {
 
 void TestRenderViewHost::SimulateWasShown() {
   WasShown(ui::LatencyInfo());
+}
+
+WebPreferences TestRenderViewHost::TestComputeWebkitPrefs() {
+  return ComputeWebkitPrefs();
 }
 
 void TestRenderViewHost::TestOnStartDragging(

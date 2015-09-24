@@ -11,9 +11,9 @@
 
 namespace syncer {
 
-base::DictionaryValue* ModelSafeRoutingInfoToValue(
+scoped_ptr<base::DictionaryValue> ModelSafeRoutingInfoToValue(
     const ModelSafeRoutingInfo& routing_info) {
-  base::DictionaryValue* dict = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   for (ModelSafeRoutingInfo::const_iterator it = routing_info.begin();
        it != routing_info.end(); ++it) {
     dict->SetString(ModelTypeToString(it->first),
@@ -24,10 +24,8 @@ base::DictionaryValue* ModelSafeRoutingInfoToValue(
 
 std::string ModelSafeRoutingInfoToString(
     const ModelSafeRoutingInfo& routing_info) {
-  scoped_ptr<base::DictionaryValue> dict(
-      ModelSafeRoutingInfoToValue(routing_info));
   std::string json;
-  base::JSONWriter::Write(dict.get(), &json);
+  base::JSONWriter::Write(*ModelSafeRoutingInfoToValue(routing_info), &json);
   return json;
 }
 
@@ -85,7 +83,7 @@ void ModelSafeWorker::RequestStop() {
 
   // Set stop flag but don't signal work_done_or_stopped_ to unblock sync loop
   // because the worker may be working and depending on sync command object
-  // living on sync thread. his prevents any *further* tasks from being posted
+  // living on sync thread. This prevents any *further* tasks from being posted
   // to worker threads (see DoWorkAndWaitUntilDone below), but note that one
   // may already be posted.
   stopped_ = true;

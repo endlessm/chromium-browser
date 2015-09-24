@@ -4,7 +4,6 @@
 
 #include "tools/gn/ninja_target_writer.h"
 
-#include <fstream>
 #include <sstream>
 
 #include "base/files/file_util.h"
@@ -28,7 +27,9 @@ NinjaTargetWriter::NinjaTargetWriter(const Target* target,
     : settings_(target->settings()),
       target_(target),
       out_(out),
-      path_output_(settings_->build_settings()->build_dir(), ESCAPE_NINJA) {
+      path_output_(settings_->build_settings()->build_dir(),
+                   settings_->build_settings()->root_path_utf8(),
+                   ESCAPE_NINJA) {
 }
 
 NinjaTargetWriter::~NinjaTargetWriter() {
@@ -174,8 +175,9 @@ OutputFile NinjaTargetWriter::WriteInputDepsStampAndGetDep(
   // optimal thing in all cases.
 
   OutputFile input_stamp_file(
-      RebaseSourceAbsolutePath(GetTargetOutputDir(target_).value(),
-                               settings_->build_settings()->build_dir()));
+      RebasePath(GetTargetOutputDir(target_).value(),
+                 settings_->build_settings()->build_dir(),
+                 settings_->build_settings()->root_path_utf8()));
   input_stamp_file.value().append(target_->label().name());
   input_stamp_file.value().append(".inputdeps.stamp");
 
@@ -192,16 +194,14 @@ OutputFile NinjaTargetWriter::WriteInputDepsStampAndGetDep(
   }
 
   // Input files are order-only deps.
-  const Target::FileList& prereqs = target_->inputs();
-  for (size_t i = 0; i < prereqs.size(); i++) {
+  for (const auto& input : target_->inputs()) {
     out_ << " ";
-    path_output_.WriteFile(out_, prereqs[i]);
+    path_output_.WriteFile(out_, input);
   }
   if (list_sources_as_input_deps) {
-    const Target::FileList& sources = target_->sources();
-    for (size_t i = 0; i < sources.size(); i++) {
+    for (const auto& source : target_->sources()) {
       out_ << " ";
-      path_output_.WriteFile(out_, sources[i]);
+      path_output_.WriteFile(out_, source);
     }
   }
 
@@ -211,10 +211,8 @@ OutputFile NinjaTargetWriter::WriteInputDepsStampAndGetDep(
 
   // Hard dependencies that are direct or indirect dependencies.
   const std::set<const Target*>& hard_deps = target_->recursive_hard_deps();
-  for (std::set<const Target*>::const_iterator i = hard_deps.begin();
-       i != hard_deps.end(); ++i) {
-    unique_deps.insert(*i);
-  }
+  for (const auto& dep : hard_deps)
+    unique_deps.insert(dep);
 
   // Extra hard dependencies passed in.
   unique_deps.insert(extra_hard_deps.begin(), extra_hard_deps.end());
@@ -224,14 +222,13 @@ OutputFile NinjaTargetWriter::WriteInputDepsStampAndGetDep(
   // toolchains often have more than one dependency, we could consider writing
   // a toolchain-specific stamp file and only include the stamp here.
   const LabelTargetVector& toolchain_deps = target_->toolchain()->deps();
-  for (size_t i = 0; i < toolchain_deps.size(); i++)
-    unique_deps.insert(toolchain_deps[i].ptr);
+  for (const auto& toolchain_dep : toolchain_deps)
+    unique_deps.insert(toolchain_dep.ptr);
 
-  for (std::set<const Target*>::const_iterator i = unique_deps.begin();
-       i != unique_deps.end(); ++i) {
-    DCHECK(!(*i)->dependency_output_file().value().empty());
+  for (const auto& dep : unique_deps) {
+    DCHECK(!dep->dependency_output_file().value().empty());
     out_ << " ";
-    path_output_.WriteFile(out_, (*i)->dependency_output_file());
+    path_output_.WriteFile(out_, dep->dependency_output_file());
   }
 
   out_ << "\n";
@@ -245,7 +242,7 @@ void NinjaTargetWriter::WriteStampForTarget(
 
   // First validate that the target's dependency is a stamp file. Otherwise,
   // we shouldn't have gotten here!
-  CHECK(EndsWith(stamp_file.value(), ".stamp", false))
+  CHECK(base::EndsWith(stamp_file.value(), ".stamp", false))
       << "Output should end in \".stamp\" for stamp file output. Instead got: "
       << "\"" << stamp_file.value() << "\"";
 

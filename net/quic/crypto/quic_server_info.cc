@@ -63,11 +63,11 @@ bool QuicServerInfo::ParseInner(const string& data) {
     return false;
   }
 
-  Pickle p(data.data(), data.size());
-  PickleIterator iter(p);
+  base::Pickle p(data.data(), data.size());
+  base::PickleIterator iter(p);
 
   int version = -1;
-  if (!p.ReadInt(&iter, &version)) {
+  if (!iter.ReadInt(&version)) {
     DVLOG(1) << "Missing version";
     return false;
   }
@@ -77,29 +77,29 @@ bool QuicServerInfo::ParseInner(const string& data) {
     return false;
   }
 
-  if (!p.ReadString(&iter, &state->server_config)) {
+  if (!iter.ReadString(&state->server_config)) {
     DVLOG(1) << "Malformed server_config";
     return false;
   }
-  if (!p.ReadString(&iter, &state->source_address_token)) {
+  if (!iter.ReadString(&state->source_address_token)) {
     DVLOG(1) << "Malformed source_address_token";
     return false;
   }
-  if (!p.ReadString(&iter, &state->server_config_sig)) {
+  if (!iter.ReadString(&state->server_config_sig)) {
     DVLOG(1) << "Malformed server_config_sig";
     return false;
   }
 
   // Read certs.
   uint32 num_certs;
-  if (!p.ReadUInt32(&iter, &num_certs)) {
+  if (!iter.ReadUInt32(&num_certs)) {
     DVLOG(1) << "Malformed num_certs";
     return false;
   }
 
   for (uint32 i = 0; i < num_certs; i++) {
     string cert;
-    if (!p.ReadString(&iter, &cert)) {
+    if (!iter.ReadString(&cert)) {
       DVLOG(1) << "Malformed cert";
       return false;
     }
@@ -116,7 +116,7 @@ string QuicServerInfo::Serialize() {
 }
 
 string QuicServerInfo::SerializeInner() const {
-  Pickle p(sizeof(Pickle::Header));
+  base::Pickle p(sizeof(base::Pickle::Header));
 
   if (!p.WriteInt(kQuicCryptoConfigVersion) ||
       !p.WriteString(state_.server_config) ||

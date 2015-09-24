@@ -38,9 +38,6 @@ class StartupUtils {
   // Marks device registered. i.e. second part of OOBE is completed.
   static void MarkDeviceRegistered(const base::Closure& done_callback);
 
-  // Returns whether enrollment recovery is required.
-  static bool IsEnrollmentRecoveryRequired();
-
   // Mark a device as requiring enrollment recovery.
   static void MarkEnrollmentRecoveryRequired();
 
@@ -49,6 +46,13 @@ class StartupUtils {
 
   // Sets initial locale in local settings.
   static void SetInitialLocale(const std::string& locale);
+
+  // Returns true if webview based signin flow has been activated.
+  static bool IsWebviewSigninEnabled();
+
+  // Set enabled state for webview based signin flow if allowed. Returns true if
+  // it is allowed to activate webview based signin flow.
+  static bool EnableWebviewSignin(bool is_enabled);
 
   // Registers OOBE preferences.
   static void RegisterPrefs(PrefRegistrySimple* registry);

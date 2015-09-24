@@ -57,17 +57,16 @@ class TestObserver : public chromeos::NetworkStateHandlerObserver {
         default_network_change_count_(0) {
   }
 
-  virtual ~TestObserver() {
-  }
+  ~TestObserver() override {}
 
-  virtual void DeviceListChanged() override {
+  void DeviceListChanged() override {
     NetworkStateHandler::DeviceStateList devices;
     handler_->GetDeviceList(&devices);
     device_count_ = devices.size();
     ++device_list_changed_count_;
   }
 
-  virtual void NetworkListChanged() override {
+  void NetworkListChanged() override {
     NetworkStateHandler::NetworkStateList networks;
     handler_->GetNetworkListByType(chromeos::NetworkTypePattern::Default(),
                                    false /* configured_only */,
@@ -82,7 +81,8 @@ class TestObserver : public chromeos::NetworkStateHandlerObserver {
     ++network_list_changed_count_;
   }
 
-  virtual void DefaultNetworkChanged(const NetworkState* network) override {
+  void DefaultNetworkChanged(const NetworkState* network) override {
+    EXPECT_TRUE(!network || network->IsConnectedState());
     ++default_network_change_count_;
     default_network_ = network ? network->path() : "";
     default_network_connection_state_ =
@@ -91,18 +91,17 @@ class TestObserver : public chromeos::NetworkStateHandlerObserver {
              << " State: " << default_network_connection_state_;
   }
 
-  virtual void NetworkConnectionStateChanged(
-      const NetworkState* network) override {
+  void NetworkConnectionStateChanged(const NetworkState* network) override {
     network_connection_state_[network->path()] = network->connection_state();
     connection_state_changes_[network->path()]++;
   }
 
-  virtual void NetworkPropertiesUpdated(const NetworkState* network) override {
+  void NetworkPropertiesUpdated(const NetworkState* network) override {
     DCHECK(network);
     property_updates_[network->path()]++;
   }
 
-  virtual void DevicePropertiesUpdated(const DeviceState* device) override {
+  void DevicePropertiesUpdated(const DeviceState* device) override {
     DCHECK(device);
     device_property_updates_[device->path()]++;
   }
@@ -171,13 +170,13 @@ namespace chromeos {
 class NetworkStateHandlerTest : public testing::Test {
  public:
   NetworkStateHandlerTest()
-      : device_test_(NULL),
-        manager_test_(NULL),
-        profile_test_(NULL),
-        service_test_(NULL) {}
-  virtual ~NetworkStateHandlerTest() {}
+      : device_test_(nullptr),
+        manager_test_(nullptr),
+        profile_test_(nullptr),
+        service_test_(nullptr) {}
+  ~NetworkStateHandlerTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     // Initialize DBusThreadManager with a stub implementation.
     DBusThreadManager::Initialize();
     SetupDefaultShillState();
@@ -189,7 +188,7 @@ class NetworkStateHandlerTest : public testing::Test {
     test_observer_->reset_change_counts();
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     network_state_handler_->RemoveObserver(test_observer_.get(), FROM_HERE);
     test_observer_.reset();
     network_state_handler_.reset();
@@ -254,6 +253,14 @@ class NetworkStateHandlerTest : public testing::Test {
 
   void UpdateManagerProperties() {
     message_loop_.RunUntilIdle();
+  }
+
+  void SetServiceProperty(const std::string& service_path,
+                          const std::string& key,
+                          const base::Value& value) {
+    DBusThreadManager::Get()->GetShillServiceClient()->SetProperty(
+        dbus::ObjectPath(service_path), key, value,
+        base::Bind(&base::DoNothing), base::Bind(&ErrorCallbackFunction));
   }
 
   base::MessageLoopForUI message_loop_;
@@ -407,10 +414,8 @@ TEST_F(NetworkStateHandlerTest, GetVisibleNetworks) {
   EXPECT_EQ(kNumShillManagerClientStubImplServices, networks.size());
 
   // Change the visible state of a network.
-  DBusThreadManager::Get()->GetShillServiceClient()->SetProperty(
-      dbus::ObjectPath(kShillManagerClientStubWifi2),
-      shill::kVisibleProperty, base::FundamentalValue(false),
-      base::Bind(&base::DoNothing), base::Bind(&ErrorCallbackFunction));
+  SetServiceProperty(kShillManagerClientStubWifi2, shill::kVisibleProperty,
+                     base::FundamentalValue(false));
   message_loop_.RunUntilIdle();
   network_state_handler_->GetVisibleNetworkList(&networks);
   EXPECT_EQ(kNumShillManagerClientStubImplServices - 1, networks.size());
@@ -493,23 +498,17 @@ TEST_F(NetworkStateHandlerTest, ServicePropertyChanged) {
   const std::string eth1 = kShillManagerClientStubDefaultService;
   const NetworkState* ethernet = network_state_handler_->GetNetworkState(eth1);
   ASSERT_TRUE(ethernet);
-  EXPECT_EQ("", ethernet->security());
+  EXPECT_EQ("", ethernet->security_class());
   EXPECT_EQ(1, test_observer_->PropertyUpdatesForService(eth1));
-  base::StringValue security_value("TestSecurity");
-  DBusThreadManager::Get()->GetShillServiceClient()->SetProperty(
-      dbus::ObjectPath(eth1),
-      shill::kSecurityProperty, security_value,
-      base::Bind(&base::DoNothing), base::Bind(&ErrorCallbackFunction));
+  base::StringValue security_class_value("TestSecurityClass");
+  SetServiceProperty(eth1, shill::kSecurityClassProperty, security_class_value);
   message_loop_.RunUntilIdle();
   ethernet = network_state_handler_->GetNetworkState(eth1);
-  EXPECT_EQ("TestSecurity", ethernet->security());
+  EXPECT_EQ("TestSecurityClass", ethernet->security_class());
   EXPECT_EQ(2, test_observer_->PropertyUpdatesForService(eth1));
 
   // Changing a service to the existing value should not trigger an update.
-  DBusThreadManager::Get()->GetShillServiceClient()->SetProperty(
-      dbus::ObjectPath(eth1),
-      shill::kSecurityProperty, security_value,
-      base::Bind(&base::DoNothing), base::Bind(&ErrorCallbackFunction));
+  SetServiceProperty(eth1, shill::kSecurityClassProperty, security_class_value);
   message_loop_.RunUntilIdle();
   EXPECT_EQ(2, test_observer_->PropertyUpdatesForService(eth1));
 }
@@ -616,42 +615,63 @@ TEST_F(NetworkStateHandlerTest, DefaultServiceChanged) {
   EXPECT_EQ(eth1, test_observer_->default_network());
 
   // Change the default network by changing Manager.DefaultService.
+  // This should only generate one default network notification when the
+  // DefaultService property changes.
   const std::string wifi1 = kShillManagerClientStubDefaultWifi;
-  base::StringValue wifi1_value(wifi1);
-  manager_test_->SetManagerProperty(
-      shill::kDefaultServiceProperty, wifi1_value);
+  SetServiceProperty(eth1, shill::kStateProperty,
+                     base::StringValue(shill::kStateIdle));
+  manager_test_->SetManagerProperty(shill::kDefaultServiceProperty,
+                                    base::StringValue(wifi1));
   message_loop_.RunUntilIdle();
   EXPECT_EQ(wifi1, test_observer_->default_network());
   EXPECT_EQ(1u, test_observer_->default_network_change_count());
 
-  // Change the state of the default network.
+  // Change the state of the default network. This should generate a
+  // default network notification.
   test_observer_->reset_change_counts();
-  base::StringValue connection_state_ready_value(shill::kStateReady);
   service_test_->SetServiceProperty(wifi1, shill::kStateProperty,
-                                   connection_state_ready_value);
+                                    base::StringValue(shill::kStateReady));
   message_loop_.RunUntilIdle();
   EXPECT_EQ(shill::kStateReady,
             test_observer_->default_network_connection_state());
   EXPECT_EQ(1u, test_observer_->default_network_change_count());
 
-  // Updating a property on the default network should trigger
+  // Updating a property on the default network should also trigger
   // a default network change.
   test_observer_->reset_change_counts();
-  DBusThreadManager::Get()->GetShillServiceClient()->SetProperty(
-      dbus::ObjectPath(wifi1),
-      shill::kSecurityProperty, base::StringValue("TestSecurity"),
-      base::Bind(&base::DoNothing), base::Bind(&ErrorCallbackFunction));
+  SetServiceProperty(wifi1, shill::kSecurityClassProperty,
+                     base::StringValue("TestSecurityClass"));
   message_loop_.RunUntilIdle();
   EXPECT_EQ(1u, test_observer_->default_network_change_count());
 
   // No default network updates for signal strength changes.
   test_observer_->reset_change_counts();
-  DBusThreadManager::Get()->GetShillServiceClient()->SetProperty(
-      dbus::ObjectPath(wifi1),
-      shill::kSignalStrengthProperty, base::FundamentalValue(32),
-      base::Bind(&base::DoNothing), base::Bind(&ErrorCallbackFunction));
+  SetServiceProperty(wifi1, shill::kSignalStrengthProperty,
+                     base::FundamentalValue(32));
   message_loop_.RunUntilIdle();
   EXPECT_EQ(0u, test_observer_->default_network_change_count());
+
+  // Change the default network to a Connecting network, then set the
+  // state to Connected. The DefaultNetworkChange notification should only
+  // fire once when the network is connected.
+  test_observer_->reset_change_counts();
+  SetServiceProperty(wifi1, shill::kStateProperty,
+                     base::StringValue(shill::kStateIdle));
+  message_loop_.RunUntilIdle();
+  EXPECT_EQ(1u, test_observer_->default_network_change_count());
+  EXPECT_EQ(std::string(), test_observer_->default_network());
+
+  const std::string wifi2 = kShillManagerClientStubWifi2;
+  manager_test_->SetManagerProperty(shill::kDefaultServiceProperty,
+                                    base::StringValue(wifi2));
+  message_loop_.RunUntilIdle();
+  EXPECT_EQ(1u, test_observer_->default_network_change_count());
+  // Change the connection state of the default network, observer should fire.
+  SetServiceProperty(wifi2, shill::kStateProperty,
+                     base::StringValue(shill::kStateReady));
+  message_loop_.RunUntilIdle();
+  EXPECT_EQ(wifi2, test_observer_->default_network());
+  EXPECT_EQ(2u, test_observer_->default_network_change_count());
 }
 
 TEST_F(NetworkStateHandlerTest, RequestUpdate) {

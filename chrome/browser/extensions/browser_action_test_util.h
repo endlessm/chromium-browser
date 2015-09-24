@@ -7,11 +7,12 @@
 
 #include <string>
 
-#include "build/build_config.h"
+#include "base/memory/scoped_ptr.h"
 #include "ui/gfx/native_widget_types.h"
 
 class Browser;
-class ExtensionAction;
+class ToolbarActionsBar;
+class ToolbarActionsBarDelegate;
 
 namespace gfx {
 class Image;
@@ -19,15 +20,36 @@ class Rect;
 class Size;
 }  // namespace gfx
 
+// A class that creates and owns the platform-specific views for the browser
+// actions container. Specific implementations are in the .cc/.mm files.
+class TestToolbarActionsBarHelper {
+ public:
+  virtual ~TestToolbarActionsBarHelper() {}
+};
+
 class BrowserActionTestUtil {
  public:
-  explicit BrowserActionTestUtil(Browser* browser) : browser_(browser) {}
+  // Constructs a BrowserActionTestUtil that uses the |browser|'s default
+  // browser action container.
+  explicit BrowserActionTestUtil(Browser* browser);
+
+  // Constructs a BrowserActionTestUtil which, if |is_real_window| is false,
+  // will create its own browser actions container. This is useful in unit
+  // tests, when the |browser|'s window doesn't create platform-specific views.
+  BrowserActionTestUtil(Browser* browser, bool is_real_window);
+
+  ~BrowserActionTestUtil();
 
   // Returns the number of browser action buttons in the window toolbar.
   int NumberOfBrowserActions();
 
   // Returns the number of browser action currently visible.
   int VisibleBrowserActions();
+
+  // Returns true if the overflow chevron is completely shown in the browser
+  // actions container (i.e., is visible and is within the bounds of the
+  // container).
+  bool IsChevronShowing();
 
   // Inspects the extension popup for the action at the given index.
   void InspectPopup(int index);
@@ -60,14 +82,20 @@ class BrowserActionTestUtil {
   // Hides the given popup and returns whether the hide was successful.
   bool HidePopup();
 
-  // Set how many icons should be visible.
-  void SetIconVisibilityCount(size_t icons);
+  // Tests that the button at the given |index| is displaying that it wants
+  // to run.
+  bool ActionButtonWantsToRun(size_t index);
 
-  // Disables animation.
-  static void DisableAnimations();
+  // Tests that the overflow button is displaying an overflowed action wants
+  // to run.
+  bool OverflowedActionButtonWantsToRun();
 
-  // Enables animation.
-  static void EnableAnimations();
+  // Returns the ToolbarActionsBar.
+  ToolbarActionsBar* GetToolbarActionsBar();
+
+  // Creates and returns a BrowserActionTestUtil with an "overflow" container,
+  // with this object's container as the main bar.
+  scoped_ptr<BrowserActionTestUtil> CreateOverflowBar();
 
   // Returns the minimum allowed size of an extension popup.
   static gfx::Size GetMinPopupSize();
@@ -76,7 +104,16 @@ class BrowserActionTestUtil {
   static gfx::Size GetMaxPopupSize();
 
  private:
+  // A private constructor to create an overflow version.
+  BrowserActionTestUtil(Browser* browser, BrowserActionTestUtil* main_bar);
+
   Browser* browser_;  // weak
+
+  // Our test helper, which constructs and owns the views if we don't have a
+  // real browser window, or if this is an overflow version.
+  scoped_ptr<TestToolbarActionsBarHelper> test_helper_;
+
+  DISALLOW_COPY_AND_ASSIGN(BrowserActionTestUtil);
 };
 
 #endif  // CHROME_BROWSER_EXTENSIONS_BROWSER_ACTION_TEST_UTIL_H_

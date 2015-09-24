@@ -7,11 +7,9 @@
 #include "chrome/browser/chromeos/drive/drive.pb.h"
 #include "chrome/browser/chromeos/drive/file_change.h"
 #include "chrome/browser/chromeos/drive/file_system/operation_delegate.h"
-#include "chrome/browser/chromeos/drive/file_system_util.h"
+#include "chrome/browser/chromeos/drive/file_system_core_util.h"
+#include "chrome/browser/chromeos/drive/job_scheduler.h"
 #include "chrome/browser/chromeos/drive/resource_metadata.h"
-#include "content/public/browser/browser_thread.h"
-
-using content::BrowserThread;
 
 namespace drive {
 namespace file_system {
@@ -53,8 +51,8 @@ FileError CreateDirectoryRecursively(internal::ResourceMetadata* metadata,
 
   updated_local_ids->insert(local_id);
   DCHECK(changed_files);
-  changed_files->Update(
-      path, FileChange::FILE_TYPE_DIRECTORY, FileChange::ADD_OR_UPDATE);
+  changed_files->Update(path, FileChange::FILE_TYPE_DIRECTORY,
+                        FileChange::CHANGE_TYPE_ADD_OR_UPDATE);
 
   if (remaining_path.empty())  // All directories are created successfully.
     return FILE_ERROR_OK;
@@ -74,15 +72,17 @@ FileError UpdateLocalState(internal::ResourceMetadata* metadata,
   std::vector<base::FilePath::StringType> components;
   directory_path.GetComponents(&components);
 
-  if (components.empty() || components[0] != util::kDriveGrandRootDirName)
+  if (components.empty() ||
+      components[0] != util::GetDriveGrandRootPath().value())
     return FILE_ERROR_NOT_FOUND;
 
   base::FilePath existing_deepest_path(components[0]);
   std::string local_id = util::kDriveGrandRootLocalId;
   for (size_t i = 1; i < components.size(); ++i) {
+    const std::string component = base::FilePath(components[i]).AsUTF8Unsafe();
     std::string child_local_id;
     FileError error =
-        metadata->GetChildId(local_id, components[i], &child_local_id);
+        metadata->GetChildId(local_id, component, &child_local_id);
     if (error == FILE_ERROR_NOT_FOUND)
       break;
     if (error != FILE_ERROR_OK)
@@ -127,11 +127,10 @@ CreateDirectoryOperation::CreateDirectoryOperation(
       delegate_(delegate),
       metadata_(metadata),
       weak_ptr_factory_(this) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 }
 
 CreateDirectoryOperation::~CreateDirectoryOperation() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
 }
 
 void CreateDirectoryOperation::CreateDirectory(
@@ -139,7 +138,7 @@ void CreateDirectoryOperation::CreateDirectory(
     bool is_exclusive,
     bool is_recursive,
     const FileOperationCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   std::set<std::string>* updated_local_ids = new std::set<std::string>;
@@ -167,12 +166,12 @@ void CreateDirectoryOperation::CreateDirectoryAfterUpdateLocalState(
     const std::set<std::string>* updated_local_ids,
     const FileChange* changed_files,
     FileError error) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
-  for (std::set<std::string>::const_iterator it = updated_local_ids->begin();
-       it != updated_local_ids->end(); ++it)
-    delegate_->OnEntryUpdatedByOperation(*it);
+  for (const auto& id : *updated_local_ids) {
+    delegate_->OnEntryUpdatedByOperation(ClientContext(USER_INITIATED), id);
+  }
 
   delegate_->OnFileChangedByOperation(*changed_files);
 

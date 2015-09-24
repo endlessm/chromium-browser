@@ -28,13 +28,12 @@
 #include "chrome/installer/util/helper.h"
 #include "chrome/installer/util/installation_state.h"
 #include "chrome/installer/util/installer_state.h"
+#include "chrome/installer/util/installer_util_strings.h"
 #include "chrome/installer/util/master_preferences.h"
 #include "chrome/installer/util/product_unittest.h"
 #include "chrome/installer/util/util_constants.h"
 #include "chrome/installer/util/work_item.h"
 #include "testing/gtest/include/gtest/gtest.h"
-
-#include "installer_util_strings.h"  // NOLINT
 
 using base::win::RegKey;
 using installer::InstallationState;
@@ -76,7 +75,7 @@ void CreateTextFile(const std::wstring& filename,
 
 void BuildSingleChromeState(const base::FilePath& target_dir,
                             MockInstallerState* installer_state) {
-  CommandLine cmd_line = CommandLine::FromString(L"setup.exe");
+  base::CommandLine cmd_line = base::CommandLine::FromString(L"setup.exe");
   MasterPreferences prefs(cmd_line);
   InstallationState machine_state;
   machine_state.Initialize();
@@ -249,7 +248,7 @@ TEST_F(InstallerStateTest, DeleteInUsed) {
 TEST_F(InstallerStateTest, Basic) {
   const bool multi_install = false;
   const bool system_level = true;
-  CommandLine cmd_line = CommandLine::FromString(
+  base::CommandLine cmd_line = base::CommandLine::FromString(
       std::wstring(L"setup.exe") +
       (multi_install ? L" --multi-install --chrome" : L"") +
       (system_level ? L" --system-level" : L""));
@@ -332,7 +331,7 @@ TEST_F(InstallerStateTest, Basic) {
 TEST_F(InstallerStateTest, WithProduct) {
   const bool multi_install = false;
   const bool system_level = true;
-  CommandLine cmd_line = CommandLine::FromString(
+  base::CommandLine cmd_line = base::CommandLine::FromString(
       std::wstring(L"setup.exe") +
       (multi_install ? L" --multi-install --chrome" : L"") +
       (system_level ? L" --system-level" : L""));
@@ -374,7 +373,6 @@ TEST_F(InstallerStateTest, WithProduct) {
 
 TEST_F(InstallerStateTest, InstallerResult) {
   const bool system_level = true;
-  bool multi_install = false;
   HKEY root = system_level ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER;
 
   RegKey key;
@@ -386,7 +384,8 @@ TEST_F(InstallerStateTest, InstallerResult) {
   {
     RegistryOverrideManager override_manager;
     override_manager.OverrideRegistry(root);
-    CommandLine cmd_line = CommandLine::FromString(L"setup.exe --system-level");
+    base::CommandLine cmd_line =
+        base::CommandLine::FromString(L"setup.exe --system-level");
     const MasterPreferences prefs(cmd_line);
     InstallationState machine_state;
     machine_state.Initialize();
@@ -417,7 +416,7 @@ TEST_F(InstallerStateTest, InstallerResult) {
   {
     RegistryOverrideManager override_manager;
     override_manager.OverrideRegistry(root);
-    CommandLine cmd_line = CommandLine::FromString(
+    base::CommandLine cmd_line = base::CommandLine::FromString(
         L"setup.exe --system-level --multi-install --chrome");
     const MasterPreferences prefs(cmd_line);
     InstallationState machine_state;
@@ -458,8 +457,8 @@ TEST_F(InstallerStateTest, GetCurrentVersionMigrateChrome) {
                           new Version(chrome::kChromeVersion));
 
   // Now we're invoked to install multi Chrome.
-  CommandLine cmd_line(
-      CommandLine::FromString(L"setup.exe --multi-install --chrome"));
+  base::CommandLine cmd_line(
+      base::CommandLine::FromString(L"setup.exe --multi-install --chrome"));
   MasterPreferences prefs(cmd_line);
   InstallerState installer_state;
   installer_state.Initialize(cmd_line, prefs, machine_state);
@@ -524,12 +523,11 @@ TEST_F(InstallerStateTest, RemoveOldVersionDirs) {
     installer_state.target_path().Append(L"1.2.3.4"),
     installer_state.target_path().Append(L"1.2.3.5"),
     installer_state.target_path().Append(L"1.2.3.6"),
-    installer_state.target_path().Append(base::ASCIIToWide(kOldVersion)),
-    installer_state.target_path().Append(
-        base::ASCIIToWide(kOldChromeExeVersion)),
+    installer_state.target_path().AppendASCII(kOldVersion),
+    installer_state.target_path().AppendASCII(kOldChromeExeVersion),
     installer_state.target_path().Append(L"2.1.1.0"),
-    installer_state.target_path().Append(base::ASCIIToWide(kChromeExeVersion)),
-    installer_state.target_path().Append(base::ASCIIToWide(kNewVersion)),
+    installer_state.target_path().AppendASCII(kChromeExeVersion),
+    installer_state.target_path().AppendASCII(kNewVersion),
     installer_state.target_path().Append(L"3.9.1.1"),
   };
 
@@ -627,8 +625,8 @@ TEST_F(InstallerStateTest, InitializeTwice) {
 
   // Initialize the instance to install multi Chrome.
   {
-    CommandLine cmd_line(
-        CommandLine::FromString(L"setup.exe --multi-install --chrome"));
+    base::CommandLine cmd_line(
+        base::CommandLine::FromString(L"setup.exe --multi-install --chrome"));
     MasterPreferences prefs(cmd_line);
     installer_state.Initialize(cmd_line, prefs, machine_state);
   }
@@ -650,8 +648,8 @@ TEST_F(InstallerStateTest, InitializeTwice) {
 
   // Now initialize it to install system-level single Chrome.
   {
-    CommandLine cmd_line(
-        CommandLine::FromString(L"setup.exe --system-level --verbose-logging"));
+    base::CommandLine cmd_line(base::CommandLine::FromString(
+        L"setup.exe --system-level --verbose-logging"));
     MasterPreferences prefs(cmd_line);
     installer_state.Initialize(cmd_line, prefs, machine_state);
   }
@@ -677,7 +675,8 @@ TEST_F(InstallerStateTest, InitializeTwice) {
 // tests must invoke Initialize() with a critical version.
 class InstallerStateCriticalVersionTest : public ::testing::Test {
  protected:
-  InstallerStateCriticalVersionTest() : cmd_line_(CommandLine::NO_PROGRAM) {}
+  InstallerStateCriticalVersionTest()
+      : cmd_line_(base::CommandLine::NO_PROGRAM) {}
 
   // Creates a set of versions for use by all test runs.
   static void SetUpTestCase() {
@@ -701,11 +700,10 @@ class InstallerStateCriticalVersionTest : public ::testing::Test {
   // instance's critical update version is set to |version|.  |version| may be
   // NULL, in which case the critical update version is unset.
   MockInstallerState& Initialize(const Version* version) {
-    cmd_line_ = version == NULL ?
-        CommandLine::FromString(L"setup.exe") :
-        CommandLine::FromString(
-            L"setup.exe --critical-update-version=" +
-            base::ASCIIToWide(version->GetString()));
+    cmd_line_ = version == NULL ? base::CommandLine::FromString(L"setup.exe")
+                                : base::CommandLine::FromString(
+                                      L"setup.exe --critical-update-version=" +
+                                      base::ASCIIToUTF16(version->GetString()));
     prefs_.reset(new MasterPreferences(cmd_line_));
     machine_state_.Initialize();
     installer_state_.Initialize(cmd_line_, *prefs_, machine_state_);
@@ -718,7 +716,7 @@ class InstallerStateCriticalVersionTest : public ::testing::Test {
   static Version* pv_version_;
   static Version* high_version_;
 
-  CommandLine cmd_line_;
+  base::CommandLine cmd_line_;
   scoped_ptr<MasterPreferences> prefs_;
   InstallationState machine_state_;
   MockInstallerState installer_state_;

@@ -20,10 +20,10 @@
 #import "ui/base/cocoa/controls/hyperlink_text_view.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/font_list.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/image/image.h"
-#include "ui/gfx/point.h"
 #include "ui/gfx/range/range.h"
-#include "ui/gfx/rect.h"
 #include "ui/gfx/text_constants.h"
 
 using autofill::AutofillPopupView;
@@ -124,6 +124,26 @@ NSColor* HelpLinkColor() {
 }
 
   return self;
+}
+
+- (void)updateTrackingAreas {
+  [super updateTrackingAreas];
+  if (helpTextTrackingArea_.get())
+    [self removeTrackingArea:helpTextTrackingArea_.get()];
+
+  // Set up tracking for the help text so the cursor, etc. is properly handled.
+  // Must set tracking to "always" because the autofill window is never key.
+  NSTrackingAreaOptions options = NSTrackingActiveAlways |
+                                  NSTrackingMouseEnteredAndExited |
+                                  NSTrackingMouseMoved |
+                                  NSTrackingCursorUpdate;
+  helpTextTrackingArea_.reset(
+      [[CrTrackingArea alloc] initWithRect:[self bounds]
+                                   options:options
+                                     owner:helpTextView_.get()
+                                  userInfo:nil]);
+
+  [self addTrackingArea:helpTextTrackingArea_.get()];
 }
 
 #pragma mark NSView implementation:

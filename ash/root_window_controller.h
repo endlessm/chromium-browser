@@ -86,10 +86,6 @@ class ASH_EXPORT RootWindowController : public ShellObserver {
   // Creates and Initialize the RootWindowController for secondary displays.
   static void CreateForSecondaryDisplay(AshWindowTreeHost* host);
 
-  // Creates and Initialize the RootWindowController for virtual
-  // keyboard displays.
-  static void CreateForVirtualKeyboardDisplay(AshWindowTreeHost* host);
-
   // Returns a RootWindowController that has a shelf for given
   // |window|. This returns the RootWindowController for the |window|'s
   // root window when multiple shelf mode is enabled, or the primary
@@ -227,7 +223,7 @@ class ASH_EXPORT RootWindowController : public ShellObserver {
 
   // Returns the topmost window or one of its transient parents, if any of them
   // are in fullscreen mode.
-  const aura::Window* GetWindowForFullscreenMode() const;
+  aura::Window* GetWindowForFullscreenMode();
 
   // Activate virtual keyboard on current root window controller.
   void ActivateKeyboard(keyboard::KeyboardController* keyboard_controller);

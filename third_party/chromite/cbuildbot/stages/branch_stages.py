@@ -6,7 +6,6 @@
 
 from __future__ import print_function
 
-import logging
 import os
 import re
 from xml.etree import ElementTree
@@ -15,6 +14,7 @@ from chromite.cbuildbot import constants
 from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot.stages import generic_stages
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import git
 from chromite.lib import parallel
 
@@ -47,6 +47,7 @@ class BranchUtilStage(generic_stages.BuilderStage):
 
   def __init__(self, builder_run, **kwargs):
     super(BranchUtilStage, self).__init__(builder_run, **kwargs)
+    self.skip_remote_push = self._run.options.skip_remote_push
     self.dryrun = self._run.options.debug_forced
     self.branch_name = self._run.options.branch_name
     self.rename_to = self._run.options.rename_to
@@ -65,7 +66,8 @@ class BranchUtilStage(generic_stages.BuilderStage):
     # If dest_ref is already refs/heads/<branch> it's a noop.
     dest_ref = git.NormalizeRef(git.StripRefs(dest_ref))
     push_to = git.RemoteRef(checkout['push_remote'], dest_ref)
-    git.GitPush(checkout['local_path'], src_ref, push_to, dryrun=self.dryrun,
+    dryrun = self.dryrun or self.skip_remote_push
+    git.GitPush(checkout['local_path'], src_ref, push_to, dryrun=dryrun,
                 force=force)
 
   def _FetchAndCheckoutTo(self, checkout_dir, remote_ref):
@@ -132,8 +134,8 @@ class BranchUtilStage(generic_stages.BuilderStage):
       dst_branch: The remote branch ref to copy to.
       force: If True then execute the copy even if dst_branch exists.
     """
-    cros_build_lib.Info('Creating new branch "%s" for %s.',
-                        dst_branch, src_checkout['name'])
+    logging.info('Creating new branch "%s" for %s.', dst_branch,
+                 src_checkout['name'])
     self._RunPush(src_checkout, src_ref=src_branch, dest_ref=dst_branch,
                   force=force)
 
@@ -144,8 +146,7 @@ class BranchUtilStage(generic_stages.BuilderStage):
       src_checkout: The ProjectCheckout to work in.
       branch: The branch ref to delete.  Must be a remote branch.
     """
-    cros_build_lib.Info('Deleting branch "%s" for %s.',
-                        branch, src_checkout['name'])
+    logging.info('Deleting branch "%s" for %s.', branch, src_checkout['name'])
     self._RunPush(src_checkout, src_ref='', dest_ref=branch)
 
   def _ProcessCheckout(self, src_manifest, src_checkout):
@@ -202,9 +203,9 @@ class BranchUtilStage(generic_stages.BuilderStage):
                           '--force-create to overwrite.'
                           % (checkout_name, dst_branch))
 
-      cros_build_lib.Info('Checkout %s already contains branch %s and it '
-                          'already points to revision %s', checkout_name,
-                          dst_branch, dst_sha1)
+      logging.info('Checkout %s already contains branch %s and it already'
+                   ' points to revision %s', checkout_name, dst_branch,
+                   dst_sha1)
 
     elif self._run.options.delete_branch:
       # Delete the dst_branch, if it exists.
@@ -243,11 +244,16 @@ class BranchUtilStage(generic_stages.BuilderStage):
     new_branch_name = self.rename_to if self.rename_to else self.branch_name
     new_branch_name = git.NormalizeRef(new_branch_name)
 
-    cros_build_lib.Info('Updating manifest for %s', new_branch_name)
+    logging.info('Updating manifest for %s', new_branch_name)
+
+    default_nodes = root.findall('default')
+    for node in default_nodes:
+      node.attrib['revision'] = new_branch_name
 
     for node in root.findall('project'):
       path = node.attrib['path']
       checkout = src_manifest.FindCheckoutFromPath(path)
+
       if checkout.IsBranchableProject():
         # Point at the new branch.
         node.attrib.pop('revision', None)
@@ -255,31 +261,30 @@ class BranchUtilStage(generic_stages.BuilderStage):
         suffix = self._GetBranchSuffix(src_manifest, checkout)
         if suffix:
           node.attrib['revision'] = '%s%s' % (new_branch_name, suffix)
-          cros_build_lib.Info('Pointing project %s at: %s',
-                              node.attrib['name'], node.attrib['revision'])
+          logging.info('Pointing project %s at: %s', node.attrib['name'],
+                       node.attrib['revision'])
+        elif not default_nodes:
+          # If there isn't a default node we have to add the revision directly.
+          node.attrib['revision'] = new_branch_name
       else:
-        # Set this tag to any string to avoid pinning to a SHA1 on branch.
-        if cros_build_lib.BooleanShellValue(node.get('pin'), True):
+        if checkout.IsPinnableProject():
           git_repo = checkout.GetPath(absolute=True)
           repo_head = git.GetGitRepoRevision(git_repo)
           node.attrib['revision'] = repo_head
-          cros_build_lib.Info('Pinning project %s at: %s',
-                              node.attrib['name'], node.attrib['revision'])
+          logging.info('Pinning project %s at: %s', node.attrib['name'],
+                       node.attrib['revision'])
         else:
-          cros_build_lib.Info('Updating project %s', node.attrib['name'])
+          logging.info('Updating project %s', node.attrib['name'])
           # We can't branch this repository. Leave it alone.
           node.attrib['revision'] = checkout['revision']
-          cros_build_lib.Info('Project %s UNPINNED using: %s',
-                              node.attrib['name'], node.attrib['revision'])
+          logging.info('Project %s UNPINNED using: %s', node.attrib['name'],
+                       node.attrib['revision'])
 
         # Can not use the default version of get() here since
         # 'upstream' can be a valid key with a None value.
         upstream = checkout.get('upstream')
         if upstream is not None:
           node.attrib['upstream'] = upstream
-
-    for node in root.findall('default'):
-      node.attrib['revision'] = new_branch_name
 
     doc.write(manifest_path)
     return [node.attrib['name'] for node in root.findall('include')]
@@ -296,7 +301,7 @@ class BranchUtilStage(generic_stages.BuilderStage):
     # Use local branch ref.
     branch_ref = git.NormalizeRef(self.branch_name)
 
-    cros_build_lib.Debug('Fixing manifest projects for new branch.')
+    logging.debug('Fixing manifest projects for new branch.')
     for project in constants.MANIFEST_PROJECTS:
       manifest_checkout = repo_manifest.FindCheckout(project)
       manifest_dir = manifest_checkout['local_path']
@@ -327,10 +332,10 @@ class BranchUtilStage(generic_stages.BuilderStage):
         processed_manifests.append(manifest_path)
 
         if not os.path.exists(manifest_path):
-          cros_build_lib.Info('Manifest not found: %s', manifest_path)
+          logging.info('Manifest not found: %s', manifest_path)
           continue
 
-        cros_build_lib.Debug('Fixing manifest at %s.', manifest_path)
+        logging.debug('Fixing manifest at %s.', manifest_path)
         included_manifests = self._UpdateManifest(manifest_path)
         pending_manifests += included_manifests
 
@@ -338,8 +343,9 @@ class BranchUtilStage(generic_stages.BuilderStage):
       message = 'Fix up manifest after branching %s.' % branch_ref
       git.RunGit(manifest_dir, ['commit', '-m', message], print_cmd=True)
       push_to = git.RemoteRef(push_remote, branch_ref)
+      dryrun = self.dryrun or self.skip_remote_push
       git.GitPush(manifest_dir, manifest_version.PUSH_BRANCH, push_to,
-                  dryrun=self.dryrun, force=self.dryrun)
+                  dryrun=dryrun, force=dryrun)
 
   def _IncrementVersionOnDisk(self, incr_type, push_to, message):
     """Bumps the version found in chromeos_version.sh on a branch.
@@ -452,7 +458,7 @@ class BranchUtilStage(generic_stages.BuilderStage):
         # increment.  We shouldn't quit the script because of this.  Instead, we
         # print a warning.
         self._FetchAndCheckoutTo(overlay_dir, push_to)
-        new_version =  manifest_version.VersionInfo.from_repo(self._build_root)
+        new_version = manifest_version.VersionInfo.from_repo(self._build_root)
         if new_version.VersionString() != tot_version_info.VersionString():
           logging.warning('Version number for branch %s was bumped by another '
                           'bot.', push_to.ref)
@@ -467,8 +473,8 @@ class BranchUtilStage(generic_stages.BuilderStage):
     repo_manifest = git.ManifestCheckout.Cached(self._build_root)
     checkouts = repo_manifest.ListCheckouts()
 
-    cros_build_lib.Debug(
-        'Processing %d checkouts from manifest in parallel.', len(checkouts))
+    logging.debug('Processing %d checkouts from manifest in parallel.',
+                  len(checkouts))
     args = [[repo_manifest, x] for x in checkouts]
     parallel.RunTasksInProcessPool(self._ProcessCheckout, args, processes=16)
 

@@ -13,6 +13,7 @@
 #include "media/audio/agc_audio_stream.h"
 #include "media/audio/audio_io.h"
 #include "media/audio/audio_parameters.h"
+#include "media/base/media_export.h"
 
 namespace media {
 
@@ -21,26 +22,27 @@ class AudioManagerCras;
 // Provides an input stream for audio capture based on CRAS, the ChromeOS Audio
 // Server.  This object is not thread safe and all methods should be invoked in
 // the thread that created the object.
-class CrasInputStream : public AgcAudioStream<AudioInputStream> {
+class MEDIA_EXPORT CrasInputStream : public AgcAudioStream<AudioInputStream> {
  public:
   // The ctor takes all the usual parameters, plus |manager| which is the
   // audio manager who is creating this object.
-  CrasInputStream(const AudioParameters& params, AudioManagerCras* manager,
+  CrasInputStream(const AudioParameters& params,
+                  AudioManagerCras* manager,
                   const std::string& device_id);
 
   // The dtor is typically called by the AudioManager only and it is usually
   // triggered by calling AudioOutputStream::Close().
-  virtual ~CrasInputStream();
+  ~CrasInputStream() override;
 
   // Implementation of AudioInputStream.
-  virtual bool Open() override;
-  virtual void Start(AudioInputCallback* callback) override;
-  virtual void Stop() override;
-  virtual void Close() override;
-  virtual double GetMaxVolume() override;
-  virtual void SetVolume(double volume) override;
-  virtual double GetVolume() override;
-  virtual bool IsMuted() override;
+  bool Open() override;
+  void Start(AudioInputCallback* callback) override;
+  void Stop() override;
+  void Close() override;
+  double GetMaxVolume() override;
+  void SetVolume(double volume) override;
+  double GetVolume() override;
+  bool IsMuted() override;
 
  private:
   // Handles requests to get samples from the provided buffer.  This will be
@@ -98,6 +100,12 @@ class CrasInputStream : public AgcAudioStream<AudioInputStream> {
 
   // Direction of the stream.
   const CRAS_STREAM_DIRECTION stream_direction_;
+
+  // Index of the CRAS device to stream input from.
+  int pin_device_;
+
+  // True if the stream is a system-wide loopback stream.
+  bool is_loopback_;
 
   scoped_ptr<AudioBus> audio_bus_;
 

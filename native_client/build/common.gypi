@@ -41,11 +41,25 @@
         'mac_sdk%': '<!(python <(DEPTH)/native_client/build/mac/find_sdk.py 10.6)',
 
       }],
+      ['OS=="linux" and target_arch!="mipsel" and target_arch!="arm"', {
+        'clang%': 1,
+      }],
+      ['target_arch=="mipsel"', {
+        'mips_arch_variant%': 'r2',
+      }],
       # Set ARM float abi compilation flag.
       ['OS=="android"', {
         'arm_float_abi%': 'softfp',
       }, {
         'arm_float_abi%': 'hard',
+      }],
+      ['nacl_standalone==1 and host_clang==1', {
+        'host_cc': '<(make_clang_dir)/bin/clang',
+        'host_cxx': '<(make_clang_dir)/bin/clang++',
+      }],
+      ['nacl_standalone==1 and host_clang==0', {
+        'host_cc': '<!(which gcc)',
+        'host_cxx': '<!(which g++)',
       }],
     ],
 
@@ -98,9 +112,21 @@
         # non-Official builds).
         'buildtype%': 'Dev',
 
+
+        'make_clang_dir%': 'third_party/llvm-build/Release+Asserts',
+
         'conditions': [
           # Compute the architecture that we're building on.
-          ['OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="android"', {
+          # This logic needs to be kept in sync with Chrome's common.gypi or
+          # subtle build errors will result when integrating into Chrome.
+          # Generally, a desync will result in NaCl libraries will be a
+          # different bittage than Chrome.  The kicker is that builds that
+          # explicitly specify target_arch will not notice this desync, (this
+          # logic is overridden) but builds that do not specify target_arch will
+          # break.  This can cause confusion because only some trybots break.
+          ['OS=="win" or OS=="ios"', {
+            'host_arch%': 'ia32',
+          }, {
             # This handles the Linux platforms we generally deal with. Anything
             # else gets passed through, which probably won't work very well;
             # such hosts should pass an explicit target_arch to gyp.
@@ -113,9 +139,6 @@
             #    succeeds.
             'host_arch%':
                 '<!(echo "<!pymod_do_main(detect_nacl_host_arch)" | sed -e "s/arm.*/ia32/")',
-
-          }, {  # OS!="linux"
-            'host_arch%': 'ia32',
           }],
         ]
       },
@@ -124,18 +147,18 @@
       'host_arch%': '<(host_arch)',
       'branding%': '<(branding)',
       'buildtype%': '<(buildtype)',
-
-      # By default, build for the architecture that we're building on.
-      'target_arch%': '<(host_arch)',
+      'make_clang_dir%': '<(make_clang_dir)',
 
       'conditions': [
-        # The system root for cross-compiles. Default: none.
-        # If we are building in chrome we want to rely on chrome's default, which
-        # means we can't set a default here.
-        ['nacl_standalone!=0', {
+        ['nacl_standalone==1', {
+          # The system root for cross-compiles. Default: none.
+          # If we are building in chrome we want to rely on chrome's default,
+          # which means we can't set a default here.
           'sysroot%': '',
+          # If this is set clang is used as host compiler, but not as target
+          # compiler. Always do this by default.
+          'host_clang%': 1,
         }],
-        #
         # A flag for POSIX platforms
         ['OS=="win"', {
           'os_posix%': 0,
@@ -144,6 +167,9 @@
         }],
         ['OS=="android"', { # Android target_arch defaults to ARM.
           'target_arch%': 'arm',
+        }, {
+          # By default, build for the architecture that we're building on.
+          'target_arch%': '<(host_arch)',
         }],
       ],
 
@@ -159,6 +185,7 @@
     'branding%': '<(branding)',
     'buildtype%': '<(buildtype)',
     'component%': '<(component)',
+    'make_clang_dir%': '<(make_clang_dir)',
 
     'nacl_strict_warnings%': 1,
 
@@ -181,14 +208,6 @@
     'target_conditions': [
       ['win_target=="x64"', {
         'target_arch': 'x64',
-        'defines!': [
-          'NACL_TARGET_SUBARCH=32',
-          'NACL_BUILD_SUBARCH=32',
-        ],
-        'defines': [
-          'NACL_TARGET_SUBARCH=64',
-          'NACL_BUILD_SUBARCH=64',
-        ],
         'configurations': {
           'Common_Base': {
             'msvs_target_platform': 'x64',
@@ -197,39 +216,6 @@
       }],
     ],
     'conditions': [
-      # TODO(gregoryd): split target and build subarchs
-      ['target_arch=="ia32"', {
-        'defines': [
-          'NACL_TARGET_SUBARCH=32',
-          'NACL_TARGET_ARCH=x86',
-          'NACL_BUILD_SUBARCH=32',
-          'NACL_BUILD_ARCH=x86',
-        ],
-      }],
-      ['target_arch=="x64"', {
-        'defines': [
-          'NACL_TARGET_SUBARCH=64',
-          'NACL_TARGET_ARCH=x86',
-          'NACL_BUILD_SUBARCH=64',
-          'NACL_BUILD_ARCH=x86',
-        ],
-      }],
-      ['target_arch=="arm"', {
-        'defines': [
-          'NACL_BUILD_ARCH=arm',
-          'NACL_BUILD_SUBARCH=32',
-          'NACL_TARGET_ARCH=arm',
-          'NACL_TARGET_SUBARCH=32',
-        ],
-      }],
-      ['target_arch=="mipsel"', {
-        'defines': [
-          'NACL_BUILD_ARCH=mips',
-          'NACL_BUILD_SUBARCH=32',
-          'NACL_TARGET_ARCH=mips',
-          'NACL_TARGET_SUBARCH=32',
-        ],
-      }],
       ['linux2==1', {
         'defines': ['LINUX2=1'],
       }],
@@ -309,13 +295,10 @@
           ['OS=="android"', {
             'target_conditions': [
               ['_toolset=="target"', {
-                'defines': ['NACL_ANDROID=1'],
-              }, {
-                'defines': ['NACL_ANDROID=0'],
+                'defines': ['ANDROID'],
               }],
             ],
            }, {
-            'defines': ['NACL_ANDROID=0'],
             'link_settings': {
               'libraries': [
                 '-lrt',
@@ -394,7 +377,7 @@
               ['_toolset=="target"', {
                 # Copied from chromium build/common.gypi
                 'conditions': [
-                  ['mips_arch_variant=="mips32r2"', {
+                  ['mips_arch_variant=="r2"', {
                     'cflags': ['-mips32r2'],
                   }, {
                     'cflags': ['-mips32'],
@@ -453,9 +436,6 @@
           '-Wl,-z,noexecstack',
         ],
         'defines': [
-          'NACL_LINUX=1',
-          'NACL_OSX=0',
-          'NACL_WINDOWS=0',
           '_DEFAULT_SOURCE=1',
           '_BSD_SOURCE=1',
           '_POSIX_C_SOURCE=199506',
@@ -647,12 +627,6 @@
             ],
           }],
         ],
-        'defines': [
-          'NACL_LINUX=0',
-          'NACL_ANDROID=0',
-          'NACL_OSX=1',
-          'NACL_WINDOWS=0',
-        ],
       },
     }],
     ['OS=="win"', {
@@ -693,8 +667,8 @@
           }],
         ],
         'defines': [
-          '_WIN32_WINNT=0x0602',
-          'WINVER=0x0602',
+          '_WIN32_WINNT=0x0603',
+          'WINVER=0x0603',
           # WIN32 is used by ppapi
           'WIN32',
           'NOMINMAX',
@@ -707,11 +681,6 @@
           '_SECURE_ATL',
           '__STDC_LIMIT_MACROS=1',
           '_HAS_EXCEPTIONS=0',
-
-          'NACL_LINUX=0',
-          'NACL_ANDROID=0',
-          'NACL_OSX=0',
-          'NACL_WINDOWS=1'
         ],
         'conditions': [
           ['MSVS_VERSION=="2008"', {
@@ -813,12 +782,26 @@
     }],
     ['clang==1 and nacl_standalone==1', {
       'make_global_settings': [
-        ['CC', 'third_party/llvm-build/Release+Asserts/bin/clang'],
-        ['CXX', 'third_party/llvm-build/Release+Asserts/bin/clang++'],
-        ['LINK', '$(CXX)'],
-        ['CC.host', '$(CC)'],
-        ['CXX.host', '$(CXX)'],
-        ['LINK.host', '$(LINK)'],
+        ['CC', '<(make_clang_dir)/bin/clang'],
+        ['CXX', '<(make_clang_dir)/bin/clang++'],
+      ],
+    }],
+    ['OS=="linux" and target_arch=="mipsel" and clang==0 and nacl_standalone==1', {
+      'make_global_settings': [
+        ['CC', '<!(which mipsel-linux-gnu-gcc)'],
+        ['CXX', '<!(which mipsel-linux-gnu-g++)'],
+        ['CC.host', '<(host_cc)'],
+        ['CXX.host', '<(host_cxx)'],
+      ],
+    }],
+    ['OS=="linux" and target_arch=="arm" and host_arch!="arm" and clang==0 and nacl_standalone==1', {
+      # Set default ARM cross compiling on linux.  These can be overridden
+      # using CC/CXX/etc environment variables.
+      'make_global_settings': [
+        ['CC', '<!(which arm-linux-gnueabihf-gcc)'],
+        ['CXX', '<!(which arm-linux-gnueabihf-g++)'],
+        ['CC.host', '<(host_cc)'],
+        ['CXX.host', '<(host_cxx)'],
       ],
     }],
     ['OS=="android" and nacl_standalone==1', {

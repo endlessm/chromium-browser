@@ -9,19 +9,22 @@
 // Force all multi-include optional files to be included again.
 #undef CHROME_COMMON_COMMON_PARAM_TRAITS_MACROS_H_
 #undef COMPONENTS_AUTOFILL_CONTENT_COMMON_AUTOFILL_PARAM_TRAITS_MACROS_H_
+#undef COMPONENTS_NACL_COMMON_NACL_TYPES_PARAM_TRAITS_H_
 #undef CONTENT_COMMON_CONTENT_PARAM_TRAITS_MACROS_H_
 #undef CONTENT_COMMON_FRAME_PARAM_MACROS_H_
 #undef CONTENT_PUBLIC_COMMON_COMMON_PARAM_TRAITS_MACROS_H_
 
 #include "chrome/common/all_messages.h"
-#include "components/autofill/content/common/autofill_messages.h"
+#include "components/autofill/content/common/autofill_message_generator.h"
+#include "components/content_settings/content/common/content_settings_message_generator.h"
 #include "components/nacl/common/nacl_host_messages.h"
-#include "components/password_manager/content/common/credential_manager_messages.h"
-#include "components/pdf/common/pdf_messages.h"
+#include "components/network_hints/common/network_hints_message_generator.h"
+#include "components/password_manager/content/common/credential_manager_message_generator.h"
+#include "components/pdf/common/pdf_message_generator.h"
 #include "components/tracing/tracing_messages.h"
 #include "components/translate/content/common/translate_messages.h"
-#include "components/visitedlink/common/visitedlink_messages.h"
+#include "components/visitedlink/common/visitedlink_message_generator.h"
 #include "content/child/plugin_message_generator.h"
 #include "content/common/all_messages.h"
-#include "extensions/common/extension_messages.h"
+#include "extensions/common/extension_message_generator.h"
 #include "remoting/host/chromoting_messages.h"

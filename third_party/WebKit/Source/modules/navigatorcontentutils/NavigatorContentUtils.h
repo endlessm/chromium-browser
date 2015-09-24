@@ -27,6 +27,7 @@
 #ifndef NavigatorContentUtils_h
 #define NavigatorContentUtils_h
 
+#include "modules/ModulesExport.h"
 #include "modules/navigatorcontentutils/NavigatorContentUtilsClient.h"
 #include "platform/Supplementable.h"
 #include "platform/heap/Handle.h"
@@ -36,15 +37,15 @@
 namespace blink {
 
 class ExceptionState;
+class LocalFrame;
 class Navigator;
-class Page;
 
-class NavigatorContentUtils final : public NoBaseWillBeGarbageCollectedFinalized<NavigatorContentUtils>, public WillBeHeapSupplement<Page> {
+class MODULES_EXPORT NavigatorContentUtils final : public NoBaseWillBeGarbageCollectedFinalized<NavigatorContentUtils>, public WillBeHeapSupplement<LocalFrame> {
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(NavigatorContentUtils);
 public:
     virtual ~NavigatorContentUtils();
 
-    static NavigatorContentUtils* from(Page&);
+    static NavigatorContentUtils* from(LocalFrame&);
     static const char* supplementName();
 
     static void registerProtocolHandler(Navigator&, const String& scheme, const String& url, const String& title, ExceptionState&);
@@ -53,7 +54,7 @@ public:
 
     static PassOwnPtrWillBeRawPtr<NavigatorContentUtils> create(PassOwnPtr<NavigatorContentUtilsClient>);
 
-    virtual void trace(Visitor* visitor) override { WillBeHeapSupplement<Page>::trace(visitor); }
+    DEFINE_INLINE_VIRTUAL_TRACE() { WillBeHeapSupplement<LocalFrame>::trace(visitor); }
 
     void setClientForTest(PassOwnPtr<NavigatorContentUtilsClient> client) { m_client = client; }
 

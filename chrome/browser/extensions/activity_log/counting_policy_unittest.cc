@@ -4,13 +4,16 @@
 
 #include "base/cancelable_callback.h"
 #include "base/command_line.h"
+#include "base/location.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/test/simple_test_clock.h"
 #include "base/test/test_timeouts.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/extensions/activity_log/activity_log.h"
 #include "chrome/browser/extensions/activity_log/counting_policy.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -38,14 +41,14 @@ class CountingPolicyTest : public testing::Test {
  public:
   CountingPolicyTest()
       : thread_bundle_(content::TestBrowserThreadBundle::IO_MAINLOOP),
-        saved_cmdline_(CommandLine::NO_PROGRAM) {
+        saved_cmdline_(base::CommandLine::NO_PROGRAM) {
 #if defined OS_CHROMEOS
     test_user_manager_.reset(new chromeos::ScopedTestUserManager());
 #endif
-    CommandLine command_line(CommandLine::NO_PROGRAM);
-    saved_cmdline_ = *CommandLine::ForCurrentProcess();
+    base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
+    saved_cmdline_ = *base::CommandLine::ForCurrentProcess();
     profile_.reset(new TestingProfile());
-    CommandLine::ForCurrentProcess()->AppendSwitch(
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
         switches::kEnableExtensionActivityLogging);
     extension_service_ = static_cast<TestExtensionSystem*>(
         ExtensionSystem::Get(profile_.get()))->CreateExtensionService
@@ -60,7 +63,7 @@ class CountingPolicyTest : public testing::Test {
     profile_.reset(NULL);
     base::RunLoop().RunUntilIdle();
     // Restore the original command line and undo the affects of SetUp().
-    *CommandLine::ForCurrentProcess() = saved_cmdline_;
+    *base::CommandLine::ForCurrentProcess() = saved_cmdline_;
   }
 
   // Wait for the task queue for the specified thread to empty.
@@ -113,7 +116,7 @@ class CountingPolicyTest : public testing::Test {
     // when the timeout triggers then assume that the test is broken.
     base::CancelableClosure timeout(
         base::Bind(&CountingPolicyTest::TimeoutCallback));
-    base::MessageLoop::current()->PostDelayedTask(
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE, timeout.callback(), TestTimeouts::action_timeout());
 
     // Wait for results; either the checker or the timeout callbacks should
@@ -526,7 +529,7 @@ class CountingPolicyTest : public testing::Test {
   // The test framework will do this itself as well. However, by then,
   // it is too late to call ActivityLog::RecomputeLoggingIsEnabled() in
   // TearDown().
-  CommandLine saved_cmdline_;
+  base::CommandLine saved_cmdline_;
 
 #if defined OS_CHROMEOS
   chromeos::ScopedTestDeviceSettingsService test_device_settings_service_;

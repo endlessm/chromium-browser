@@ -6,6 +6,7 @@
 
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/prefs/pref_service.h"
 #include "base/strings/string_util.h"
@@ -26,6 +27,7 @@
 #include "components/user_prefs/user_prefs.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_launcher.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -101,7 +103,7 @@ class FirstRunMasterPrefsBrowserTestBase : public InProcessBrowserTest {
     InProcessBrowserTest::TearDown();
   }
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     InProcessBrowserTest::SetUpCommandLine(command_line);
     command_line->AppendSwitch(switches::kForceFirstRun);
     EXPECT_EQ(first_run::AUTO_IMPORT_NONE, first_run::auto_import_state());
@@ -127,7 +129,7 @@ class FirstRunMasterPrefsBrowserTestT
   FirstRunMasterPrefsBrowserTestT() {}
 
  protected:
-  virtual void SetUp() override {
+  void SetUp() override {
     SetMasterPreferencesForTest(Text);
     FirstRunMasterPrefsBrowserTestBase::SetUp();
   }
@@ -167,7 +169,7 @@ extern const char kImportDefault[] =
 typedef FirstRunMasterPrefsBrowserTestT<kImportDefault>
     FirstRunMasterPrefsImportDefault;
 // http://crbug.com/314221
-#if defined(GOOGLE_CHROME_BUILD) && (defined(OS_MACOSX) || defined(OS_LINUX))
+#if defined(OS_MACOSX) || (defined(GOOGLE_CHROME_BUILD) && defined(OS_LINUX))
 #define MAYBE_ImportDefault DISABLED_ImportDefault
 #else
 #define MAYBE_ImportDefault ImportDefault
@@ -190,7 +192,7 @@ extern const char kImportBookmarksFile[] =
 typedef FirstRunMasterPrefsBrowserTestT<kImportBookmarksFile>
     FirstRunMasterPrefsImportBookmarksFile;
 // http://crbug.com/314221
-#if defined(GOOGLE_CHROME_BUILD) && (defined(OS_MACOSX) || defined(OS_LINUX))
+#if (defined(GOOGLE_CHROME_BUILD) && defined(OS_LINUX)) || defined(OS_MACOSX)
 #define MAYBE_ImportBookmarksFile DISABLED_ImportBookmarksFile
 #else
 #define MAYBE_ImportBookmarksFile ImportBookmarksFile
@@ -229,11 +231,9 @@ typedef FirstRunMasterPrefsBrowserTestT<kImportNothing>
 IN_PROC_BROWSER_TEST_F(FirstRunMasterPrefsImportNothing,
                        MAYBE_ImportNothingAndShowNewTabPage) {
   EXPECT_EQ(first_run::AUTO_IMPORT_CALLED, first_run::auto_import_state());
-  ui_test_utils::NavigateToURLWithDisposition(
-      browser(), GURL(chrome::kChromeUINewTabURL), CURRENT_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+  ui_test_utils::NavigateToURL(browser(), GURL(chrome::kChromeUINewTabURL));
   content::WebContents* tab = browser()->tab_strip_model()->GetWebContentsAt(0);
-  EXPECT_EQ(1, tab->GetMaxPageID());
+  EXPECT_TRUE(WaitForLoadStop(tab));
 }
 
 // Test first run with some tracked preferences.
@@ -249,13 +249,27 @@ class FirstRunMasterPrefsWithTrackedPreferences
     : public FirstRunMasterPrefsBrowserTestT<kWithTrackedPrefs>,
       public testing::WithParamInterface<std::string> {
  public:
-  void SetUpCommandLine(CommandLine* command_line) override {
+  FirstRunMasterPrefsWithTrackedPreferences() {}
+
+ protected:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     FirstRunMasterPrefsBrowserTestT::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII(
         switches::kForceFieldTrials,
         std::string(chrome_prefs::internals::kSettingsEnforcementTrialName) +
             "/" + GetParam() + "/");
   }
+
+  void SetUpInProcessBrowserTestFixture() override {
+    FirstRunMasterPrefsBrowserTestT::SetUpInProcessBrowserTestFixture();
+
+    // Bots are on a domain, turn off the domain check for settings hardening in
+    // order to be able to test all SettingsEnforcement groups.
+    chrome_prefs::DisableDomainCheckForTesting();
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(FirstRunMasterPrefsWithTrackedPreferences);
 };
 
 // http://crbug.com/314221

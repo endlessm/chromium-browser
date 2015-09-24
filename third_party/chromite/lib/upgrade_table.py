@@ -50,17 +50,18 @@ class UpgradeTable(table.Table):
     # These constants serve two roles, for csv output:
     # 1) Restrict which column names are valid.
     # 2) Specify the order of those columns.
-    columns = [self.COL_PACKAGE,
-               self.COL_SLOT,
-               self.COL_OVERLAY,
-               self.COL_CURRENT_VER,
-               self.COL_STABLE_UPSTREAM_VER,
-               self.COL_LATEST_UPSTREAM_VER,
-               self.COL_STATE,
-               self.COL_DEPENDS_ON,
-               self.COL_USED_BY,
-               self.COL_TARGET,
-               ]
+    columns = [
+        self.COL_PACKAGE,
+        self.COL_SLOT,
+        self.COL_OVERLAY,
+        self.COL_CURRENT_VER,
+        self.COL_STABLE_UPSTREAM_VER,
+        self.COL_LATEST_UPSTREAM_VER,
+        self.COL_STATE,
+        self.COL_DEPENDS_ON,
+        self.COL_USED_BY,
+        self.COL_TARGET,
+    ]
 
     if upgrade:
       columns.append(self.COL_UPGRADED)

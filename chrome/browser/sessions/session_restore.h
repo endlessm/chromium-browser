@@ -8,9 +8,10 @@
 #include <vector>
 
 #include "base/basictypes.h"
-#include "chrome/browser/history/history_service.h"
-#include "chrome/browser/sessions/session_types.h"
+#include "base/callback_list.h"
 #include "chrome/browser/ui/host_desktop.h"
+#include "components/history/core/browser/history_service.h"
+#include "components/sessions/session_types.h"
 #include "ui/base/window_open_disposition.h"
 
 class Browser;
@@ -38,6 +39,20 @@ class SessionRestore {
     SYNCHRONOUS                  = 1 << 2,
   };
 
+  enum SmartRestoreMode {
+    SMART_RESTORE_MODE_OFF,     // No sorting of tabs.
+    SMART_RESTORE_MODE_SIMPLE,  // Tabs are sorted using predetermined criteria.
+    SMART_RESTORE_MODE_MRU      // Same as above but takes into account MRU.
+  };
+
+  // Notification callback list.
+  using CallbackList = base::CallbackList<void(int)>;
+
+  // Used by objects calling RegisterOnSessionRestoredCallback() to de-register
+  // themselves when they are destroyed.
+  using CallbackSubscription =
+      scoped_ptr<base::CallbackList<void(int)>::Subscription>;
+
   // Restores the last session. |behavior| is a bitmask of Behaviors, see it
   // for details. If |browser| is non-null the tabs for the first window are
   // added to it. Returns the last active browser.
@@ -63,8 +78,8 @@ class SessionRestore {
   static std::vector<Browser*> RestoreForeignSessionWindows(
       Profile* profile,
       chrome::HostDesktopType host_desktop_type,
-      std::vector<const SessionWindow*>::const_iterator begin,
-      std::vector<const SessionWindow*>::const_iterator end);
+      std::vector<const sessions::SessionWindow*>::const_iterator begin,
+      std::vector<const sessions::SessionWindow*>::const_iterator end);
 
   // Specifically used in the restoration of a foreign session.  This method
   // restores the given session tab to the browser of |source_web_contents| if
@@ -73,7 +88,7 @@ class SessionRestore {
   // may be destroyed.
   static content::WebContents* RestoreForeignSessionTab(
       content::WebContents* source_web_contents,
-      const SessionTab& tab,
+      const sessions::SessionTab& tab,
       WindowOpenDisposition disposition);
 
   // Returns true if we're in the process of restoring |profile|.
@@ -82,12 +97,30 @@ class SessionRestore {
   // Returns true if synchronously restoring a session.
   static bool IsRestoringSynchronously();
 
-  // The max number of non-selected tabs SessionRestore loads when restoring
-  // a session. A value of 0 indicates all tabs are loaded at once.
-  static size_t num_tabs_to_load_;
+  // Registers a callback that is notified every time session restore completes.
+  // Note that 'complete' means all the browsers and tabs have been created but
+  // have not necessarily finished loading. The integer supplied to the callback
+  // indicates the number of tabs that were created.
+  static CallbackSubscription RegisterOnSessionRestoredCallback(
+      const base::Callback<void(int)>& callback);
+
+  // Returns true if smart session restore is enabled (ie. background tabs are
+  // sorted before being loaded).
+  static SmartRestoreMode GetSmartRestoreMode();
 
  private:
   SessionRestore();
+
+  // Accessor for |*on_session_restored_callbacks_|. Creates a new object the
+  // first time so that it always returns a valid object.
+  static CallbackList* on_session_restored_callbacks() {
+    if (!on_session_restored_callbacks_)
+      on_session_restored_callbacks_ = new CallbackList();
+    return on_session_restored_callbacks_;
+  }
+
+  // Contains all registered callbacks for session restore notifications.
+  static CallbackList* on_session_restored_callbacks_;
 
   DISALLOW_COPY_AND_ASSIGN(SessionRestore);
 };

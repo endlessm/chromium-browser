@@ -4,6 +4,8 @@
 
 #include "extensions/browser/api/system_network/system_network_api.h"
 
+#include "net/base/ip_address_number.h"
+
 namespace {
 const char kNetworkListError[] = "Network lookup failed or unsupported";
 }  // namespace
@@ -70,7 +72,7 @@ void SystemNetworkGetNetworkInterfacesFunction::SendResponseOnUIThread(
         make_linked_ptr(new core_api::system_network::NetworkInterface);
     info->name = i->name;
     info->address = net::IPAddressToString(i->address);
-    info->prefix_length = i->network_prefix;
+    info->prefix_length = i->prefix_length;
     create_arg.push_back(info);
   }
 

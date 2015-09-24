@@ -11,7 +11,9 @@
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/chromeos/login/enrollment/auto_enrollment_check_screen_actor.h"
 #include "chrome/browser/chromeos/login/enrollment/auto_enrollment_controller.h"
+#include "chrome/browser/chromeos/login/screens/base_screen.h"
 #include "chrome/browser/chromeos/login/screens/error_screen.h"
+#include "chrome/browser/chromeos/login/screens/network_error.h"
 #include "chromeos/network/portal_detector/network_portal_detector.h"
 
 namespace chromeos {
@@ -32,7 +34,7 @@ class AutoEnrollmentCheckScreen
  public:
   AutoEnrollmentCheckScreen(BaseScreenDelegate* base_screen_delegate,
                             AutoEnrollmentCheckScreenActor* actor);
-  virtual ~AutoEnrollmentCheckScreen();
+  ~AutoEnrollmentCheckScreen() override;
 
   static AutoEnrollmentCheckScreen* Get(ScreenManager* manager);
 
@@ -45,16 +47,16 @@ class AutoEnrollmentCheckScreen
   }
 
   // BaseScreen implementation:
-  virtual void PrepareToShow() override;
-  virtual void Show() override;
-  virtual void Hide() override;
-  virtual std::string GetName() const override;
+  void PrepareToShow() override;
+  void Show() override;
+  void Hide() override;
+  std::string GetName() const override;
 
   // AutoEnrollmentCheckScreenActor::Delegate implementation:
-  virtual void OnActorDestroyed(AutoEnrollmentCheckScreenActor* actor) override;
+  void OnActorDestroyed(AutoEnrollmentCheckScreenActor* actor) override;
 
   // NetworkPortalDetector::Observer implementation:
-  virtual void OnPortalDetectionCompleted(
+  void OnPortalDetectionCompleted(
       const NetworkState* network,
       const NetworkPortalDetector::CaptivePortalState& state) override;
 
@@ -76,18 +78,18 @@ class AutoEnrollmentCheckScreen
       policy::AutoEnrollmentState auto_enrollment_state);
 
   // Configures the error screen.
-  void ShowErrorScreen(ErrorScreen::ErrorState error_state);
+  void ShowErrorScreen(NetworkError::ErrorState error_state);
 
   // Asynchronously signals completion. The owner might destroy |this| in
   // response, so no code should be run after the completion of a message loop
   // task, in which this function was called.
   void SignalCompletion();
 
-  // Terminates the screen.
-  void CallOnExit();
-
   // Returns whether enrollment check was completed and decision was made.
   bool IsCompleted() const;
+
+  // The user requested a connection attempt to be performed.
+  void OnConnectRequested();
 
   AutoEnrollmentCheckScreenActor* actor_;
   AutoEnrollmentController* auto_enrollment_controller_;
@@ -99,6 +101,8 @@ class AutoEnrollmentCheckScreen
   policy::AutoEnrollmentState auto_enrollment_state_;
 
   scoped_ptr<ErrorScreensHistogramHelper> histogram_helper_;
+
+  ErrorScreen::ConnectRequestCallbackSubscription connect_request_subscription_;
 
   base::WeakPtrFactory<AutoEnrollmentCheckScreen> weak_ptr_factory_;
 

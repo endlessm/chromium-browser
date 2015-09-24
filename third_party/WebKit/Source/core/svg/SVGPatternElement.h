@@ -22,7 +22,6 @@
 #define SVGPatternElement_h
 
 #include "core/SVGNames.h"
-#include "core/svg/SVGAnimatedBoolean.h"
 #include "core/svg/SVGAnimatedEnumeration.h"
 #include "core/svg/SVGAnimatedLength.h"
 #include "core/svg/SVGAnimatedTransformList.h"
@@ -31,22 +30,24 @@
 #include "core/svg/SVGTests.h"
 #include "core/svg/SVGURIReference.h"
 #include "core/svg/SVGUnitTypes.h"
+#include "platform/heap/Handle.h"
 
 namespace blink {
 
-struct PatternAttributes;
+class PatternAttributes;
 
 class SVGPatternElement final : public SVGElement,
                                 public SVGURIReference,
                                 public SVGTests,
                                 public SVGFitToViewBox {
     DEFINE_WRAPPERTYPEINFO();
+    WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(SVGPatternElement);
 public:
     DECLARE_NODE_FACTORY(SVGPatternElement);
 
     void collectPatternAttributes(PatternAttributes&) const;
 
-    virtual AffineTransform localCoordinateSpaceTransform(SVGElement::CTMScope) const override;
+    AffineTransform localCoordinateSpaceTransform(SVGElement::CTMScope) const override;
 
     SVGAnimatedLength* x() const { return m_x.get(); }
     SVGAnimatedLength* y() const { return m_y.get(); }
@@ -59,28 +60,28 @@ public:
     const SVGAnimatedEnumeration<SVGUnitTypes::SVGUnitType>* patternUnits() const { return m_patternUnits.get(); }
     const SVGAnimatedEnumeration<SVGUnitTypes::SVGUnitType>* patternContentUnits() const { return m_patternContentUnits.get(); }
 
+    DECLARE_VIRTUAL_TRACE();
+
 private:
     explicit SVGPatternElement(Document&);
 
-    virtual bool isValid() const override { return SVGTests::isValid(); }
-    virtual bool needsPendingResourceHandling() const override { return false; }
+    bool isValid() const override { return SVGTests::isValid(document()); }
+    bool needsPendingResourceHandling() const override { return false; }
 
-    bool isSupportedAttribute(const QualifiedName&);
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void svgAttributeChanged(const QualifiedName&) override;
-    virtual void childrenChanged(const ChildrenChange&) override;
+    void svgAttributeChanged(const QualifiedName&) override;
+    void childrenChanged(const ChildrenChange&) override;
 
-    virtual RenderObject* createRenderer(RenderStyle*) override;
+    LayoutObject* createLayoutObject(const ComputedStyle&) override;
 
-    virtual bool selfHasRelativeLengths() const override;
+    bool selfHasRelativeLengths() const override;
 
-    RefPtr<SVGAnimatedLength> m_x;
-    RefPtr<SVGAnimatedLength> m_y;
-    RefPtr<SVGAnimatedLength> m_width;
-    RefPtr<SVGAnimatedLength> m_height;
-    RefPtr<SVGAnimatedTransformList> m_patternTransform;
-    RefPtr<SVGAnimatedEnumeration<SVGUnitTypes::SVGUnitType> > m_patternUnits;
-    RefPtr<SVGAnimatedEnumeration<SVGUnitTypes::SVGUnitType> > m_patternContentUnits;
+    RefPtrWillBeMember<SVGAnimatedLength> m_x;
+    RefPtrWillBeMember<SVGAnimatedLength> m_y;
+    RefPtrWillBeMember<SVGAnimatedLength> m_width;
+    RefPtrWillBeMember<SVGAnimatedLength> m_height;
+    RefPtrWillBeMember<SVGAnimatedTransformList> m_patternTransform;
+    RefPtrWillBeMember<SVGAnimatedEnumeration<SVGUnitTypes::SVGUnitType>> m_patternUnits;
+    RefPtrWillBeMember<SVGAnimatedEnumeration<SVGUnitTypes::SVGUnitType>> m_patternContentUnits;
 };
 
 } // namespace blink

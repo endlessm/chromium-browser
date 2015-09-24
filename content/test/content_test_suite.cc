@@ -20,6 +20,7 @@
 #include "base/mac/scoped_nsautorelease_pool.h"
 #if !defined(OS_IOS)
 #include "base/test/mock_chrome_application_mac.h"
+#include "content/browser/in_process_io_surface_manager_mac.h"
 #endif
 #endif
 
@@ -30,6 +31,11 @@
 #include "ui/gl/gl_surface.h"
 #endif
 
+#if defined(OS_ANDROID)
+#include "content/browser/android/in_process_surface_texture_manager.h"
+#endif
+
+namespace content {
 namespace {
 
 class TestInitializationListener : public testing::EmptyTestEventListener {
@@ -37,12 +43,12 @@ class TestInitializationListener : public testing::EmptyTestEventListener {
   TestInitializationListener() : test_content_client_initializer_(NULL) {
   }
 
-  virtual void OnTestStart(const testing::TestInfo& test_info) override {
+  void OnTestStart(const testing::TestInfo& test_info) override {
     test_content_client_initializer_ =
         new content::TestContentClientInitializer();
   }
 
-  virtual void OnTestEnd(const testing::TestInfo& test_info) override {
+  void OnTestEnd(const testing::TestInfo& test_info) override {
     delete test_content_client_initializer_;
   }
 
@@ -53,8 +59,6 @@ class TestInitializationListener : public testing::EmptyTestEventListener {
 };
 
 }  // namespace
-
-namespace content {
 
 ContentTestSuite::ContentTestSuite(int argc, char** argv)
     : ContentTestSuiteBase(argc, argv) {
@@ -82,18 +86,25 @@ void ContentTestSuite::Initialize() {
   }
   RegisterPathProvider();
 #if !defined(OS_IOS)
-  media::InitializeMediaLibraryForTesting();
+  media::InitializeMediaLibrary();
   // When running in a child process for Mac sandbox tests, the sandbox exists
   // to initialize GL, so don't do it here.
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kTestChildProcess)) {
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kTestChildProcess)) {
     gfx::GLSurface::InitializeOneOffForTests();
-    gpu::ApplyGpuDriverBugWorkarounds(CommandLine::ForCurrentProcess());
+    gpu::ApplyGpuDriverBugWorkarounds(base::CommandLine::ForCurrentProcess());
   }
 #endif
   testing::TestEventListeners& listeners =
       testing::UnitTest::GetInstance()->listeners();
   listeners.Append(new TestInitializationListener);
+#if defined(OS_ANDROID)
+  SurfaceTextureManager::SetInstance(
+      InProcessSurfaceTextureManager::GetInstance());
+#endif
+#if defined(OS_MACOSX) && !defined(OS_IOS)
+  IOSurfaceManager::SetInstance(InProcessIOSurfaceManager::GetInstance());
+#endif
 }
 
 }  // namespace content

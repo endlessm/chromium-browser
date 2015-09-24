@@ -60,7 +60,7 @@ SyncBackendRegistrar::SyncBackendRegistrar(
     scoped_ptr<base::Thread> sync_thread) :
     name_(name),
     profile_(profile) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   CHECK(profile_);
 
   sync_thread_ = sync_thread.Pass();
@@ -87,8 +87,9 @@ SyncBackendRegistrar::SyncBackendRegistrar(
       new syncer::PassiveModelWorker(sync_thread_->message_loop(), this);
   workers_[syncer::GROUP_PASSIVE]->RegisterForLoopDestruction();
 
-  HistoryService* history_service =
-      HistoryServiceFactory::GetForProfile(profile, Profile::IMPLICIT_ACCESS);
+  history::HistoryService* history_service =
+      HistoryServiceFactory::GetForProfile(profile,
+                                           ServiceAccessType::IMPLICIT_ACCESS);
   if (history_service) {
     workers_[syncer::GROUP_HISTORY] =
         new HistoryModelWorker(history_service->AsWeakPtr(), this);
@@ -97,7 +98,8 @@ SyncBackendRegistrar::SyncBackendRegistrar(
   }
 
   scoped_refptr<password_manager::PasswordStore> password_store =
-      PasswordStoreFactory::GetForProfile(profile, Profile::IMPLICIT_ACCESS);
+      PasswordStoreFactory::GetForProfile(profile,
+                                          ServiceAccessType::IMPLICIT_ACCESS);
   if (password_store.get()) {
     workers_[syncer::GROUP_PASSWORD] =
         new PasswordModelWorker(password_store, this);
@@ -136,7 +138,7 @@ void SyncBackendRegistrar::SetInitialTypes(syncer::ModelTypeSet initial_types) {
 }
 
 bool SyncBackendRegistrar::IsNigoriEnabled() const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   base::AutoLock lock(lock_);
   return routing_info_.find(syncer::NIGORI) != routing_info_.end();
 }
@@ -191,7 +193,7 @@ syncer::ModelTypeSet SyncBackendRegistrar::GetLastConfiguredTypes() const {
 }
 
 void SyncBackendRegistrar::RequestWorkerStopOnUIThread() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   base::AutoLock lock(lock_);
   for (WorkerMap::const_iterator it = workers_.begin();
        it != workers_.end(); ++it) {

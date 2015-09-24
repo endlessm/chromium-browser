@@ -15,8 +15,8 @@
 #define WEBRTC_COMMON_AUDIO_RESAMPLER_SINC_RESAMPLER_H_
 
 #include "webrtc/base/constructormagic.h"
+#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/system_wrappers/interface/aligned_malloc.h"
-#include "webrtc/system_wrappers/interface/scoped_ptr.h"
 #include "webrtc/test/testsupport/gtest_prod_util.h"
 #include "webrtc/typedefs.h"
 
@@ -34,22 +34,20 @@ class SincResamplerCallback {
 // SincResampler is a high-quality single-channel sample-rate converter.
 class SincResampler {
  public:
-  enum {
-    // The kernel size can be adjusted for quality (higher is better) at the
-    // expense of performance.  Must be a multiple of 32.
-    // TODO(dalecurtis): Test performance to see if we can jack this up to 64+.
-    kKernelSize = 32,
+  // The kernel size can be adjusted for quality (higher is better) at the
+  // expense of performance.  Must be a multiple of 32.
+  // TODO(dalecurtis): Test performance to see if we can jack this up to 64+.
+  static const int kKernelSize = 32;
 
-    // Default request size.  Affects how often and for how much SincResampler
-    // calls back for input.  Must be greater than kKernelSize.
-    kDefaultRequestSize = 512,
+  // Default request size.  Affects how often and for how much SincResampler
+  // calls back for input.  Must be greater than kKernelSize.
+  static const int kDefaultRequestSize = 512;
 
-    // The kernel offset count is used for interpolation and is the number of
-    // sub-sample kernel shifts.  Can be adjusted for quality (higher is better)
-    // at the expense of allocating more memory.
-    kKernelOffsetCount = 32,
-    kKernelStorageSize = kKernelSize * (kKernelOffsetCount + 1),
-  };
+  // The kernel offset count is used for interpolation and is the number of
+  // sub-sample kernel shifts.  Can be adjusted for quality (higher is better)
+  // at the expense of allocating more memory.
+  static const int kKernelOffsetCount = 32;
+  static const int kKernelStorageSize = kKernelSize * (kKernelOffsetCount + 1);
 
   // Constructs a SincResampler with the specified |read_cb|, which is used to
   // acquire audio data for resampling.  |io_sample_rate_ratio| is the ratio
@@ -107,7 +105,7 @@ class SincResampler {
   static float Convolve_SSE(const float* input_ptr, const float* k1,
                             const float* k2,
                             double kernel_interpolation_factor);
-#elif defined(WEBRTC_ARCH_ARM_V7)
+#elif defined(WEBRTC_DETECT_NEON) || defined(WEBRTC_HAS_NEON)
   static float Convolve_NEON(const float* input_ptr, const float* k1,
                              const float* k2,
                              double kernel_interpolation_factor);
@@ -138,12 +136,12 @@ class SincResampler {
   // Contains kKernelOffsetCount kernels back-to-back, each of size kKernelSize.
   // The kernel offsets are sub-sample shifts of a windowed sinc shifted from
   // 0.0 to 1.0 sample.
-  scoped_ptr<float[], AlignedFreeDeleter> kernel_storage_;
-  scoped_ptr<float[], AlignedFreeDeleter> kernel_pre_sinc_storage_;
-  scoped_ptr<float[], AlignedFreeDeleter> kernel_window_storage_;
+  rtc::scoped_ptr<float[], AlignedFreeDeleter> kernel_storage_;
+  rtc::scoped_ptr<float[], AlignedFreeDeleter> kernel_pre_sinc_storage_;
+  rtc::scoped_ptr<float[], AlignedFreeDeleter> kernel_window_storage_;
 
   // Data from the source is copied into this buffer for each processing pass.
-  scoped_ptr<float[], AlignedFreeDeleter> input_buffer_;
+  rtc::scoped_ptr<float[], AlignedFreeDeleter> input_buffer_;
 
   // Stores the runtime selection of which Convolve function to use.
   // TODO(ajm): Move to using a global static which must only be initialized

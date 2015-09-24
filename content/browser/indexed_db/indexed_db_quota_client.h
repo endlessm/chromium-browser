@@ -10,7 +10,6 @@
 
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "content/common/content_export.h"
 #include "storage/browser/quota/quota_client.h"
 #include "storage/browser/quota/quota_task.h"
@@ -22,8 +21,7 @@ class IndexedDBContextImpl;
 // A QuotaClient implementation to integrate IndexedDB
 // with the quota  management system. This interface is used
 // on the IO thread by the quota manager.
-class IndexedDBQuotaClient : public storage::QuotaClient,
-                             public storage::QuotaTaskObserver {
+class IndexedDBQuotaClient : public storage::QuotaClient {
  public:
   CONTENT_EXPORT explicit IndexedDBQuotaClient(
       IndexedDBContextImpl* indexed_db_context);

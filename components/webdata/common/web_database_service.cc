@@ -6,24 +6,23 @@
 
 #include "base/bind.h"
 #include "base/location.h"
+#include "base/thread_task_runner_handle.h"
 #include "components/webdata/common/web_data_request_manager.h"
 #include "components/webdata/common/web_data_results.h"
-#include "components/webdata/common/web_data_service_backend.h"
 #include "components/webdata/common/web_data_service_consumer.h"
+#include "components/webdata/common/web_database_backend.h"
 
 using base::Bind;
 using base::FilePath;
 
 // Receives messages from the backend on the DB thread, posts them to
 // WebDatabaseService on the UI thread.
-class WebDatabaseService::BackendDelegate :
-    public WebDataServiceBackend::Delegate {
+class WebDatabaseService::BackendDelegate
+    : public WebDatabaseBackend::Delegate {
  public:
-  BackendDelegate(
-      const base::WeakPtr<WebDatabaseService>& web_database_service)
+  BackendDelegate(const base::WeakPtr<WebDatabaseService>& web_database_service)
       : web_database_service_(web_database_service),
-        callback_thread_(base::MessageLoopProxy::current()) {
-  }
+        callback_thread_(base::ThreadTaskRunnerHandle::Get()) {}
 
   void DBLoaded(sql::InitStatus status) override {
     callback_thread_->PostTask(
@@ -34,13 +33,13 @@ class WebDatabaseService::BackendDelegate :
   }
  private:
   const base::WeakPtr<WebDatabaseService> web_database_service_;
-  scoped_refptr<base::MessageLoopProxy> callback_thread_;
+  scoped_refptr<base::SingleThreadTaskRunner> callback_thread_;
 };
 
 WebDatabaseService::WebDatabaseService(
     const base::FilePath& path,
-    const scoped_refptr<base::MessageLoopProxy>& ui_thread,
-    const scoped_refptr<base::MessageLoopProxy>& db_thread)
+    scoped_refptr<base::SingleThreadTaskRunner> ui_thread,
+    scoped_refptr<base::SingleThreadTaskRunner> db_thread)
     : base::RefCountedDeleteOnMessageLoop<WebDatabaseService>(ui_thread),
       path_(path),
       db_loaded_(false),
@@ -56,19 +55,17 @@ WebDatabaseService::~WebDatabaseService() {
 }
 
 void WebDatabaseService::AddTable(scoped_ptr<WebDatabaseTable> table) {
-  if (!wds_backend_.get()) {
-    wds_backend_ = new WebDataServiceBackend(
-        path_, new BackendDelegate(weak_ptr_factory_.GetWeakPtr()),
-        db_thread_);
+  if (!web_db_backend_.get()) {
+    web_db_backend_ = new WebDatabaseBackend(
+        path_, new BackendDelegate(weak_ptr_factory_.GetWeakPtr()), db_thread_);
   }
-  wds_backend_->AddTable(table.Pass());
+  web_db_backend_->AddTable(table.Pass());
 }
 
 void WebDatabaseService::LoadDatabase() {
-  DCHECK(wds_backend_.get());
+  DCHECK(web_db_backend_.get());
   db_thread_->PostTask(
-      FROM_HERE,
-      Bind(&WebDataServiceBackend::InitDatabase, wds_backend_));
+      FROM_HERE, Bind(&WebDatabaseBackend::InitDatabase, web_db_backend_));
 }
 
 void WebDatabaseService::ShutdownDatabase() {
@@ -76,30 +73,30 @@ void WebDatabaseService::ShutdownDatabase() {
   loaded_callbacks_.clear();
   error_callbacks_.clear();
   weak_ptr_factory_.InvalidateWeakPtrs();
-  if (!wds_backend_.get())
+  if (!web_db_backend_.get())
     return;
   db_thread_->PostTask(
-      FROM_HERE, Bind(&WebDataServiceBackend::ShutdownDatabase, wds_backend_));
+      FROM_HERE, Bind(&WebDatabaseBackend::ShutdownDatabase, web_db_backend_));
 }
 
 WebDatabase* WebDatabaseService::GetDatabaseOnDB() const {
   DCHECK(db_thread_->BelongsToCurrentThread());
-  return wds_backend_.get() ? wds_backend_->database() : NULL;
+  return web_db_backend_.get() ? web_db_backend_->database() : NULL;
 }
 
-scoped_refptr<WebDataServiceBackend> WebDatabaseService::GetBackend() const {
-  return wds_backend_;
+scoped_refptr<WebDatabaseBackend> WebDatabaseService::GetBackend() const {
+  return web_db_backend_;
 }
 
 void WebDatabaseService::ScheduleDBTask(
     const tracked_objects::Location& from_here,
     const WriteTask& task) {
-  DCHECK(wds_backend_.get());
+  DCHECK(web_db_backend_.get());
   scoped_ptr<WebDataRequest> request(
-      new WebDataRequest(NULL, wds_backend_->request_manager().get()));
-  db_thread_->PostTask(from_here,
-                       Bind(&WebDataServiceBackend::DBWriteTaskWrapper,
-                            wds_backend_, task, base::Passed(&request)));
+      new WebDataRequest(NULL, web_db_backend_->request_manager().get()));
+  db_thread_->PostTask(
+      from_here, Bind(&WebDatabaseBackend::DBWriteTaskWrapper, web_db_backend_,
+                      task, base::Passed(&request)));
 }
 
 WebDataServiceBase::Handle WebDatabaseService::ScheduleDBTaskWithResult(
@@ -107,20 +104,20 @@ WebDataServiceBase::Handle WebDatabaseService::ScheduleDBTaskWithResult(
     const ReadTask& task,
     WebDataServiceConsumer* consumer) {
   DCHECK(consumer);
-  DCHECK(wds_backend_.get());
+  DCHECK(web_db_backend_.get());
   scoped_ptr<WebDataRequest> request(
-      new WebDataRequest(consumer, wds_backend_->request_manager().get()));
+      new WebDataRequest(consumer, web_db_backend_->request_manager().get()));
   WebDataServiceBase::Handle handle = request->GetHandle();
-  db_thread_->PostTask(from_here,
-                       Bind(&WebDataServiceBackend::DBReadTaskWrapper,
-                            wds_backend_, task, base::Passed(&request)));
+  db_thread_->PostTask(
+      from_here, Bind(&WebDatabaseBackend::DBReadTaskWrapper, web_db_backend_,
+                      task, base::Passed(&request)));
   return handle;
 }
 
 void WebDatabaseService::CancelRequest(WebDataServiceBase::Handle h) {
-  if (!wds_backend_.get())
+  if (!web_db_backend_.get())
     return;
-  wds_backend_->request_manager()->CancelRequest(h);
+  web_db_backend_->request_manager()->CancelRequest(h);
 }
 
 void WebDatabaseService::RegisterDBLoadedCallback(

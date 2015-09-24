@@ -8,13 +8,14 @@
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
 #include "base/pickle.h"
+#include "base/run_loop.h"
 #include "base/test/test_timeouts.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "media/base/audio_buffer.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/decoder_buffer.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
 using ::testing::_;
 using ::testing::StrictMock;
@@ -26,6 +27,7 @@ class MockCallback : public base::RefCountedThreadSafe<MockCallback> {
  public:
   MockCallback();
   MOCK_METHOD0(Run, void());
+  MOCK_METHOD1(RunWithBool, void(bool));
   MOCK_METHOD1(RunWithStatus, void(PipelineStatus));
 
  protected:
@@ -43,6 +45,12 @@ base::Closure NewExpectedClosure() {
   StrictMock<MockCallback>* callback = new StrictMock<MockCallback>();
   EXPECT_CALL(*callback, Run());
   return base::Bind(&MockCallback::Run, callback);
+}
+
+base::Callback<void(bool)> NewExpectedBoolCB(bool success) {
+  StrictMock<MockCallback>* callback = new StrictMock<MockCallback>();
+  EXPECT_CALL(*callback, RunWithBool(success));
+  return base::Bind(&MockCallback::RunWithBool, callback);
 }
 
 PipelineStatusCB NewExpectedStatusCB(PipelineStatus status) {
@@ -84,26 +92,31 @@ void WaitableMessageLoopEvent::RunAndWaitForStatus(PipelineStatus expected) {
     return;
   }
 
+  run_loop_.reset(new base::RunLoop());
   base::Timer timer(false, false);
   timer.Start(FROM_HERE, TestTimeouts::action_timeout(), base::Bind(
       &WaitableMessageLoopEvent::OnTimeout, base::Unretained(this)));
 
-  message_loop_->Run();
+  run_loop_->Run();
   EXPECT_TRUE(signaled_);
   EXPECT_EQ(expected, status_);
+  run_loop_.reset();
 }
 
 void WaitableMessageLoopEvent::OnCallback(PipelineStatus status) {
   DCHECK_EQ(message_loop_, base::MessageLoop::current());
   signaled_ = true;
   status_ = status;
-  message_loop_->QuitWhenIdle();
+
+  // |run_loop_| may be null if the callback fires before RunAndWaitForStatus().
+  if (run_loop_)
+    run_loop_->Quit();
 }
 
 void WaitableMessageLoopEvent::OnTimeout() {
   DCHECK_EQ(message_loop_, base::MessageLoop::current());
   ADD_FAILURE() << "Timed out waiting for message loop to quit";
-  message_loop_->QuitWhenIdle();
+  run_loop_->Quit();
 }
 
 static VideoDecoderConfig GetTestConfig(VideoCodec codec,
@@ -211,7 +224,7 @@ static const char kFakeVideoBufferHeader[] = "FakeVideoBufferForTest";
 scoped_refptr<DecoderBuffer> CreateFakeVideoBufferForTest(
     const VideoDecoderConfig& config,
     base::TimeDelta timestamp, base::TimeDelta duration) {
-  Pickle pickle;
+  base::Pickle pickle;
   pickle.WriteString(kFakeVideoBufferHeader);
   pickle.WriteInt(config.coded_size().width());
   pickle.WriteInt(config.coded_size().height());
@@ -222,6 +235,7 @@ scoped_refptr<DecoderBuffer> CreateFakeVideoBufferForTest(
       static_cast<int>(pickle.size()));
   buffer->set_timestamp(timestamp);
   buffer->set_duration(duration);
+  buffer->set_is_key_frame(true);
 
   return buffer;
 }
@@ -230,8 +244,8 @@ bool VerifyFakeVideoBufferForTest(
     const scoped_refptr<DecoderBuffer>& buffer,
     const VideoDecoderConfig& config) {
   // Check if the input |buffer| matches the |config|.
-  PickleIterator pickle(Pickle(reinterpret_cast<const char*>(buffer->data()),
-                               buffer->data_size()));
+  base::PickleIterator pickle(base::Pickle(
+      reinterpret_cast<const char*>(buffer->data()), buffer->data_size()));
   std::string header;
   int width = 0;
   int height = 0;
@@ -257,6 +271,12 @@ void CallbackPairChecker::RecordACalled() {
 void CallbackPairChecker::RecordBCalled() {
   EXPECT_TRUE(expecting_b_);
   expecting_b_ = false;
+}
+
+void AddLogEntryForTest(MediaLog::MediaLogLevel level,
+                        const std::string& message) {
+  DVLOG(1) << "Media log (" << MediaLog::MediaLogLevelToString(level)
+           << "): " << message;
 }
 
 }  // namespace media

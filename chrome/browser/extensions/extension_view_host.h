@@ -9,6 +9,8 @@
 #include "components/web_modal/popup_manager.h"
 #include "components/web_modal/web_contents_modal_dialog_host.h"
 #include "components/web_modal/web_contents_modal_dialog_manager_delegate.h"
+#include "content/public/browser/notification_observer.h"
+#include "content/public/browser/notification_registrar.h"
 #include "extensions/browser/extension_host.h"
 
 class Browser;
@@ -23,13 +25,14 @@ namespace extensions {
 class ExtensionView;
 
 // The ExtensionHost for an extension that backs a view in the browser UI. For
-// example, this could be an extension popup, infobar or dialog, but not a
-// background page.
+// example, this could be an extension popup or dialog, but not a background
+// page.
 // TODO(gbillock): See if we can remove WebContentsModalDialogManager here.
 class ExtensionViewHost
     : public ExtensionHost,
       public web_modal::WebContentsModalDialogManagerDelegate,
-      public web_modal::WebContentsModalDialogHost {
+      public web_modal::WebContentsModalDialogHost,
+      public content::NotificationObserver {
  public:
   ExtensionViewHost(const Extension* extension,
                     content::SiteInstance* site_instance,
@@ -56,8 +59,7 @@ class ExtensionViewHost
       const content::NativeWebKeyboardEvent& event);
 
   // ExtensionHost
-  void OnDidStopLoading() override;
-  void OnDocumentAvailable() override;
+  void OnDidStopFirstLoad() override;
   void LoadInitialURL() override;
   bool IsBackgroundPage() const override;
 
@@ -112,9 +114,6 @@ class ExtensionViewHost
   static scoped_ptr<ExtensionView> CreateExtensionView(ExtensionViewHost* host,
                                                        Browser* browser);
 
-  // Insert a default style sheet for Extension Infobars.
-  void InsertInfobarCSS();
-
   // Optional view that shows the rendered content in the UI.
   scoped_ptr<ExtensionView> view_;
 
@@ -130,6 +129,8 @@ class ExtensionViewHost
   // window's popup manager. Should only be used when the EVH is created without
   // a parent window.
   scoped_ptr<web_modal::PopupManager> popup_manager_;
+
+  content::NotificationRegistrar registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionViewHost);
 };

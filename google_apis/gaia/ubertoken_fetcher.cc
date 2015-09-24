@@ -7,12 +7,22 @@
 #include <vector>
 
 #include "base/logging.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/rand_util.h"
 #include "base/time/time.h"
 #include "google_apis/gaia/gaia_auth_fetcher.h"
 #include "google_apis/gaia/gaia_constants.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "google_apis/gaia/oauth2_token_service.h"
+
+namespace {
+GaiaAuthFetcher* CreateGaiaAuthFetcher(
+    GaiaAuthConsumer* consumer,
+    const std::string& source,
+    net::URLRequestContextGetter* request_context) {
+  return new GaiaAuthFetcher(consumer, source, request_context);
+}
+}
 
 const int UbertokenFetcher::kMaxRetries = 3;
 
@@ -21,11 +31,25 @@ UbertokenFetcher::UbertokenFetcher(
     UbertokenConsumer* consumer,
     const std::string& source,
     net::URLRequestContextGetter* request_context)
+    : UbertokenFetcher(token_service,
+                       consumer,
+                       source,
+                       request_context,
+                       base::Bind(CreateGaiaAuthFetcher)) {
+}
+
+UbertokenFetcher::UbertokenFetcher(
+    OAuth2TokenService* token_service,
+    UbertokenConsumer* consumer,
+    const std::string& source,
+    net::URLRequestContextGetter* request_context,
+    GaiaAuthFetcherFactory factory)
     : OAuth2TokenService::Consumer("uber_token_fetcher"),
       token_service_(token_service),
       consumer_(consumer),
       source_(source),
       request_context_(request_context),
+      gaia_auth_fetcher_factory_(factory),
       retry_number_(0),
       second_access_token_request_(false) {
   DCHECK(token_service);
@@ -43,6 +67,16 @@ void UbertokenFetcher::StartFetchingToken(const std::string& account_id) {
   RequestAccessToken();
 }
 
+void UbertokenFetcher::StartFetchingTokenWithAccessToken(
+    const std::string& account_id, const std::string& access_token) {
+  DCHECK(!account_id.empty());
+  DCHECK(!access_token.empty());
+
+  account_id_ = account_id;
+  access_token_ = access_token;
+  ExchangeTokens();
+}
+
 void UbertokenFetcher::OnUberAuthTokenSuccess(const std::string& token) {
   consumer_->OnUbertokenSuccess(token);
 }
@@ -58,6 +92,8 @@ void UbertokenFetcher::OnUberAuthTokenFailure(
       // Calculate an exponential backoff with randomness of less than 1 sec.
       double backoff = base::RandDouble() + (1 << retry_number_);
       ++retry_number_;
+      UMA_HISTOGRAM_ENUMERATION("Signin.UberTokenRetry",
+          error.state(), GoogleServiceAuthError::NUM_STATES);
       retry_timer_.Stop();
       retry_timer_.Start(FROM_HERE,
                          base::TimeDelta::FromSecondsD(backoff),
@@ -69,7 +105,7 @@ void UbertokenFetcher::OnUberAuthTokenFailure(
     // The access token is invalid.  Tell the token service.
     OAuth2TokenService::ScopeSet scopes;
     scopes.insert(GaiaConstants::kOAuth1LoginScope);
-    token_service_->InvalidateToken(account_id_, scopes, access_token_);
+    token_service_->InvalidateAccessToken(account_id_, scopes, access_token_);
 
     // In case the access was just stale, try one more time.
     if (!second_access_token_request_) {
@@ -79,6 +115,8 @@ void UbertokenFetcher::OnUberAuthTokenFailure(
     }
   }
 
+  UMA_HISTOGRAM_ENUMERATION("Signin.UberTokenFailure",
+      error.state(), GoogleServiceAuthError::NUM_STATES);
   consumer_->OnUbertokenFailure(error);
 }
 
@@ -111,8 +149,7 @@ void UbertokenFetcher::RequestAccessToken() {
 }
 
 void UbertokenFetcher::ExchangeTokens() {
-  gaia_auth_fetcher_.reset(new GaiaAuthFetcher(this,
-                                               source_,
-                                               request_context_));
+  gaia_auth_fetcher_.reset(
+      gaia_auth_fetcher_factory_.Run(this, source_, request_context_));
   gaia_auth_fetcher_->StartTokenFetchForUberAuthExchange(access_token_);
 }

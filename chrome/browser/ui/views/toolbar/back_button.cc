@@ -4,7 +4,7 @@
 
 #include "chrome/browser/ui/views/toolbar/back_button.h"
 
-#include "ui/gfx/insets.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/views/controls/button/label_button_border.h"
 #include "ui/views/painter.h"
 
@@ -14,12 +14,6 @@ BackButton::BackButton(views::ButtonListener* listener,
       margin_leading_(0) {}
 
 BackButton::~BackButton() {}
-
-gfx::Rect BackButton::GetThemePaintRect() const  {
-  gfx::Rect rect(LabelButton::GetThemePaintRect());
-  rect.Inset(margin_leading_, 0, 0, 0);
-  return rect;
-}
 
 void BackButton::SetLeadingMargin(int margin) {
   margin_leading_ = margin;
@@ -37,6 +31,10 @@ void BackButton::SetLeadingMargin(int margin) {
   InvalidateLayout();
 }
 
+const char* BackButton::GetClassName() const {
+  return "BackButton";
+}
+
 scoped_ptr<views::LabelButtonBorder> BackButton::CreateDefaultBorder() const {
   scoped_ptr<views::LabelButtonBorder> border =
       ToolbarButton::CreateDefaultBorder();
@@ -50,3 +48,10 @@ scoped_ptr<views::LabelButtonBorder> BackButton::CreateDefaultBorder() const {
 
   return border.Pass();
 }
+
+gfx::Rect BackButton::GetThemePaintRect() const  {
+  gfx::Rect rect(LabelButton::GetThemePaintRect());
+  rect.Inset(margin_leading_, 0, 0, 0);
+  return rect;
+}
+

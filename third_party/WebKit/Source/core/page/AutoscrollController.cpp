@@ -31,12 +31,12 @@
 
 #include "core/frame/FrameView.h"
 #include "core/frame/LocalFrame.h"
-#include "core/page/Chrome.h"
-#include "core/page/EventHandler.h"
+#include "core/input/EventHandler.h"
+#include "core/layout/HitTestResult.h"
+#include "core/layout/LayoutBox.h"
+#include "core/layout/LayoutListBox.h"
+#include "core/page/ChromeClient.h"
 #include "core/page/Page.h"
-#include "core/rendering/HitTestResult.h"
-#include "core/rendering/RenderBox.h"
-#include "core/rendering/RenderListBox.h"
 #include "wtf/CurrentTime.h"
 
 namespace blink {
@@ -51,7 +51,7 @@ PassOwnPtr<AutoscrollController> AutoscrollController::create(Page& page)
 
 AutoscrollController::AutoscrollController(Page& page)
     : m_page(page)
-    , m_autoscrollRenderer(nullptr)
+    , m_autoscrollLayoutObject(nullptr)
     , m_autoscrollType(NoAutoscroll)
     , m_dragAndDropAutoscrollStartTime(0)
 {
@@ -62,30 +62,30 @@ bool AutoscrollController::autoscrollInProgress() const
     return m_autoscrollType == AutoscrollForSelection;
 }
 
-bool AutoscrollController::autoscrollInProgress(const RenderBox* renderer) const
+bool AutoscrollController::autoscrollInProgress(const LayoutBox* layoutObject) const
 {
-    return m_autoscrollRenderer == renderer;
+    return m_autoscrollLayoutObject == layoutObject;
 }
 
-void AutoscrollController::startAutoscrollForSelection(RenderObject* renderer)
+void AutoscrollController::startAutoscrollForSelection(LayoutObject* layoutObject)
 {
     // We don't want to trigger the autoscroll or the panScroll if it's already active
     if (m_autoscrollType != NoAutoscroll)
         return;
-    RenderBox* scrollable = RenderBox::findAutoscrollable(renderer);
+    LayoutBox* scrollable = LayoutBox::findAutoscrollable(layoutObject);
     if (!scrollable)
-        scrollable = renderer->isListBox() ? toRenderListBox(renderer) : nullptr;
+        scrollable = layoutObject->isListBox() ? toLayoutListBox(layoutObject) : nullptr;
     if (!scrollable)
         return;
     m_autoscrollType = AutoscrollForSelection;
-    m_autoscrollRenderer = scrollable;
+    m_autoscrollLayoutObject = scrollable;
     startAutoscroll();
 }
 
 void AutoscrollController::stopAutoscroll()
 {
-    RenderBox* scrollable = m_autoscrollRenderer;
-    m_autoscrollRenderer = nullptr;
+    LayoutBox* scrollable = m_autoscrollLayoutObject;
+    m_autoscrollLayoutObject = nullptr;
 
     if (!scrollable)
         return;
@@ -94,7 +94,6 @@ void AutoscrollController::stopAutoscroll()
 #if OS(WIN)
     if (panScrollInProgress()) {
         if (FrameView* view = scrollable->frame()->view()) {
-            view->removePanScrollIcon();
             view->setCursor(pointerCursor());
         }
     }
@@ -103,44 +102,44 @@ void AutoscrollController::stopAutoscroll()
     m_autoscrollType = NoAutoscroll;
 }
 
-void AutoscrollController::stopAutoscrollIfNeeded(RenderObject* renderer)
+void AutoscrollController::stopAutoscrollIfNeeded(LayoutObject* layoutObject)
 {
-    if (m_autoscrollRenderer != renderer)
+    if (m_autoscrollLayoutObject != layoutObject)
         return;
-    m_autoscrollRenderer = nullptr;
+    m_autoscrollLayoutObject = nullptr;
     m_autoscrollType = NoAutoscroll;
 }
 
-void AutoscrollController::updateAutoscrollRenderer()
+void AutoscrollController::updateAutoscrollLayoutObject()
 {
-    if (!m_autoscrollRenderer)
+    if (!m_autoscrollLayoutObject)
         return;
 
-    RenderObject* renderer = m_autoscrollRenderer;
+    LayoutObject* layoutObject = m_autoscrollLayoutObject;
 
 #if OS(WIN)
-    HitTestResult hitTest = renderer->frame()->eventHandler().hitTestResultAtPoint(m_panScrollStartPos, HitTestRequest::ReadOnly | HitTestRequest::Active);
+    HitTestResult hitTest = layoutObject->frame()->eventHandler().hitTestResultAtPoint(m_panScrollStartPos, HitTestRequest::ReadOnly | HitTestRequest::Active);
 
     if (Node* nodeAtPoint = hitTest.innerNode())
-        renderer = nodeAtPoint->renderer();
+        layoutObject = nodeAtPoint->layoutObject();
 #endif
 
-    while (renderer && !(renderer->isBox() && toRenderBox(renderer)->canAutoscroll()))
-        renderer = renderer->parent();
-    m_autoscrollRenderer = renderer && renderer->isBox() ? toRenderBox(renderer) : nullptr;
+    while (layoutObject && !(layoutObject->isBox() && toLayoutBox(layoutObject)->canAutoscroll()))
+        layoutObject = layoutObject->parent();
+    m_autoscrollLayoutObject = layoutObject && layoutObject->isBox() ? toLayoutBox(layoutObject) : nullptr;
 }
 
 void AutoscrollController::updateDragAndDrop(Node* dropTargetNode, const IntPoint& eventPosition, double eventTime)
 {
-    if (!dropTargetNode || !dropTargetNode->renderer()) {
+    if (!dropTargetNode || !dropTargetNode->layoutObject()) {
         stopAutoscroll();
         return;
     }
 
-    if (m_autoscrollRenderer && m_autoscrollRenderer->frame() != dropTargetNode->renderer()->frame())
+    if (m_autoscrollLayoutObject && m_autoscrollLayoutObject->frame() != dropTargetNode->layoutObject()->frame())
         return;
 
-    RenderBox* scrollable = RenderBox::findAutoscrollable(dropTargetNode->renderer());
+    LayoutBox* scrollable = LayoutBox::findAutoscrollable(dropTargetNode->layoutObject());
     if (!scrollable) {
         stopAutoscroll();
         return;
@@ -162,12 +161,12 @@ void AutoscrollController::updateDragAndDrop(Node* dropTargetNode, const IntPoin
 
     if (m_autoscrollType == NoAutoscroll) {
         m_autoscrollType = AutoscrollForDragAndDrop;
-        m_autoscrollRenderer = scrollable;
+        m_autoscrollLayoutObject = scrollable;
         m_dragAndDropAutoscrollStartTime = eventTime;
         startAutoscroll();
-    } else if (m_autoscrollRenderer != scrollable) {
+    } else if (m_autoscrollLayoutObject != scrollable) {
         m_dragAndDropAutoscrollStartTime = eventTime;
-        m_autoscrollRenderer = scrollable;
+        m_autoscrollLayoutObject = scrollable;
     }
 }
 
@@ -192,18 +191,16 @@ bool AutoscrollController::panScrollInProgress() const
     return m_autoscrollType == AutoscrollForPanCanStop || m_autoscrollType == AutoscrollForPan;
 }
 
-void AutoscrollController::startPanScrolling(RenderBox* scrollable, const IntPoint& lastKnownMousePosition)
+void AutoscrollController::startPanScrolling(LayoutBox* scrollable, const IntPoint& lastKnownMousePosition)
 {
     // We don't want to trigger the autoscroll or the panScroll if it's already active
     if (m_autoscrollType != NoAutoscroll)
         return;
 
     m_autoscrollType = AutoscrollForPan;
-    m_autoscrollRenderer = scrollable;
+    m_autoscrollLayoutObject = scrollable;
     m_panScrollStartPos = lastKnownMousePosition;
 
-    if (FrameView* view = scrollable->frame()->view())
-        view->addPanScrollIcon(lastKnownMousePosition);
     startAutoscroll();
 }
 #else
@@ -217,16 +214,16 @@ bool AutoscrollController::panScrollInProgress() const
 // of WTF::currentTime().
 void AutoscrollController::animate(double)
 {
-    if (!m_autoscrollRenderer) {
+    if (!m_autoscrollLayoutObject) {
         stopAutoscroll();
         return;
     }
 
-    EventHandler& eventHandler = m_autoscrollRenderer->frame()->eventHandler();
+    EventHandler& eventHandler = m_autoscrollLayoutObject->frame()->eventHandler();
     switch (m_autoscrollType) {
     case AutoscrollForDragAndDrop:
         if (WTF::currentTime() - m_dragAndDropAutoscrollStartTime > autoscrollDelay)
-            m_autoscrollRenderer->autoscroll(m_dragAndDropAutoscrollReferencePosition);
+            m_autoscrollLayoutObject->autoscroll(m_dragAndDropAutoscrollReferencePosition);
         break;
     case AutoscrollForSelection:
         if (!eventHandler.mousePressed()) {
@@ -234,7 +231,7 @@ void AutoscrollController::animate(double)
             return;
         }
         eventHandler.updateSelectionForMouseDrag();
-        m_autoscrollRenderer->autoscroll(eventHandler.lastKnownMousePosition());
+        m_autoscrollLayoutObject->autoscroll(eventHandler.lastKnownMousePosition());
         break;
     case NoAutoscroll:
         break;
@@ -245,19 +242,19 @@ void AutoscrollController::animate(double)
             stopAutoscroll();
             return;
         }
-        if (FrameView* view = m_autoscrollRenderer->frame()->view())
+        if (FrameView* view = m_autoscrollLayoutObject->frame()->view())
             updatePanScrollState(view, eventHandler.lastKnownMousePosition());
-        m_autoscrollRenderer->panScroll(m_panScrollStartPos);
+        m_autoscrollLayoutObject->panScroll(m_panScrollStartPos);
         break;
 #endif
     }
     if (m_autoscrollType != NoAutoscroll)
-        m_page.chrome().scheduleAnimation();
+        m_page.chromeClient().scheduleAnimation();
 }
 
 void AutoscrollController::startAutoscroll()
 {
-    m_page.chrome().scheduleAnimation();
+    m_page.chromeClient().scheduleAnimation();
 }
 
 #if OS(WIN)
@@ -265,10 +262,10 @@ void AutoscrollController::updatePanScrollState(FrameView* view, const IntPoint&
 {
     // At the original click location we draw a 4 arrowed icon. Over this icon there won't be any scroll
     // So we don't want to change the cursor over this area
-    bool east = m_panScrollStartPos.x() < (lastKnownMousePosition.x() - FrameView::noPanScrollRadius);
-    bool west = m_panScrollStartPos.x() > (lastKnownMousePosition.x() + FrameView::noPanScrollRadius);
-    bool north = m_panScrollStartPos.y() > (lastKnownMousePosition.y() + FrameView::noPanScrollRadius);
-    bool south = m_panScrollStartPos.y() < (lastKnownMousePosition.y() - FrameView::noPanScrollRadius);
+    bool east = m_panScrollStartPos.x() < (lastKnownMousePosition.x() - noPanScrollRadius);
+    bool west = m_panScrollStartPos.x() > (lastKnownMousePosition.x() + noPanScrollRadius);
+    bool north = m_panScrollStartPos.y() > (lastKnownMousePosition.y() + noPanScrollRadius);
+    bool south = m_panScrollStartPos.y() < (lastKnownMousePosition.y() - noPanScrollRadius);
 
     if (m_autoscrollType == AutoscrollForPan && (east || west || north || south))
         m_autoscrollType = AutoscrollForPanCanStop;

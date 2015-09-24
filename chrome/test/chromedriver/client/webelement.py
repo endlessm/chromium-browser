@@ -37,6 +37,12 @@ class WebElement(object):
   def SingleTap(self):
     self._Execute(Command.TOUCH_SINGLE_TAP)
 
+  def DoubleTap(self):
+    self._Execute(Command.TOUCH_DOUBLE_TAP)
+
+  def LongPress(self):
+    self._Execute(Command.TOUCH_LONG_PRESS)
+
   def Clear(self):
     self._Execute(Command.CLEAR_ELEMENT)
 
@@ -51,3 +57,6 @@ class WebElement(object):
 
   def GetLocation(self):
     return self._Execute(Command.GET_ELEMENT_LOCATION)
+
+  def IsDisplayed(self):
+    return self._Execute(Command.IS_ELEMENT_DISPLAYED)

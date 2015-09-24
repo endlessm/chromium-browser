@@ -51,6 +51,8 @@ class NET_EXPORT_PRIVATE BufferedSpdyFramerVisitorInterface {
   virtual void OnHeaders(SpdyStreamId stream_id,
                          bool has_priority,
                          SpdyPriority priority,
+                         SpdyStreamId parent_stream_id,
+                         bool exclusive,
                          bool fin,
                          const SpdyHeaderBlock& headers) = 0;
 
@@ -70,6 +72,11 @@ class NET_EXPORT_PRIVATE BufferedSpdyFramerVisitorInterface {
                                  const char* data,
                                  size_t len,
                                  bool fin) = 0;
+
+  // Called when padding is received (padding length field or padding octets).
+  // |stream_id| The stream receiving data.
+  // |len| The number of padding octets.
+  virtual void OnStreamPadding(SpdyStreamId stream_id, size_t len) = 0;
 
   // Called when a SETTINGS frame is received.
   // |clear_persisted| True if the respective flag is set on the SETTINGS frame.
@@ -98,7 +105,7 @@ class NET_EXPORT_PRIVATE BufferedSpdyFramerVisitorInterface {
 
   // Called when a WINDOW_UPDATE frame has been parsed.
   virtual void OnWindowUpdate(SpdyStreamId stream_id,
-                              uint32 delta_window_size) = 0;
+                              int delta_window_size) = 0;
 
   // Called when a PUSH_PROMISE frame has been parsed.
   virtual void OnPushPromise(SpdyStreamId stream_id,
@@ -147,6 +154,8 @@ class NET_EXPORT_PRIVATE BufferedSpdyFramer
   void OnHeaders(SpdyStreamId stream_id,
                  bool has_priority,
                  SpdyPriority priority,
+                 SpdyStreamId parent_stream_id,
+                 bool exclusive,
                  bool fin,
                  bool end) override;
   bool OnControlFrameHeaderData(SpdyStreamId stream_id,
@@ -156,6 +165,7 @@ class NET_EXPORT_PRIVATE BufferedSpdyFramer
                          const char* data,
                          size_t len,
                          bool fin) override;
+  void OnStreamPadding(SpdyStreamId stream_id, size_t len) override;
   void OnSettings(bool clear_persisted) override;
   void OnSetting(SpdySettingsIds id, uint8 flags, uint32 value) override;
   void OnSettingsAck() override;
@@ -164,8 +174,7 @@ class NET_EXPORT_PRIVATE BufferedSpdyFramer
   void OnRstStream(SpdyStreamId stream_id, SpdyRstStreamStatus status) override;
   void OnGoAway(SpdyStreamId last_accepted_stream_id,
                 SpdyGoAwayStatus status) override;
-  void OnWindowUpdate(SpdyStreamId stream_id,
-                      uint32 delta_window_size) override;
+  void OnWindowUpdate(SpdyStreamId stream_id, int delta_window_size) override;
   void OnPushPromise(SpdyStreamId stream_id,
                      SpdyStreamId promised_stream_id,
                      bool end) override;
@@ -194,7 +203,7 @@ class NET_EXPORT_PRIVATE BufferedSpdyFramer
   SpdyFrame* CreateRstStream(SpdyStreamId stream_id,
                              SpdyRstStreamStatus status) const;
   SpdyFrame* CreateSettings(const SettingsMap& values) const;
-  SpdyFrame* CreatePingFrame(uint32 unique_id, bool is_ack) const;
+  SpdyFrame* CreatePingFrame(SpdyPingId unique_id, bool is_ack) const;
   SpdyFrame* CreateGoAway(
       SpdyStreamId last_accepted_stream_id,
       SpdyGoAwayStatus status) const;
@@ -271,6 +280,8 @@ class NET_EXPORT_PRIVATE BufferedSpdyFramer
     SpdyStreamId promised_stream_id;
     bool has_priority;
     SpdyPriority priority;
+    SpdyStreamId parent_stream_id;
+    bool exclusive;
     uint8 credential_slot;
     bool fin;
     bool unidirectional;

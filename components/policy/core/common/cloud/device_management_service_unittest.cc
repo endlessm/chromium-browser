@@ -6,8 +6,6 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/run_loop.h"
 #include "base/strings/string_split.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
@@ -51,7 +49,7 @@ class DeviceManagementServiceTestBase : public testing::Test {
  protected:
   DeviceManagementServiceTestBase() {
     request_context_ =
-        new net::TestURLRequestContextGetter(loop_.message_loop_proxy());
+        new net::TestURLRequestContextGetter(loop_.task_runner());
     ResetService();
     InitializeService();
   }
@@ -338,7 +336,7 @@ class QueryParams {
           net::UnescapeRule::NORMAL |
           net::UnescapeRule::SPACES |
           net::UnescapeRule::URL_SPECIAL_CHARS |
-          net::UnescapeRule::CONTROL_CHARS |
+          net::UnescapeRule::SPOOFING_AND_CONTROL_CHARS |
           net::UnescapeRule::REPLACE_PLUS_WITH_SPACE));
       if (unescaped_name == name) {
         if (found)
@@ -349,7 +347,7 @@ class QueryParams {
             net::UnescapeRule::NORMAL |
             net::UnescapeRule::SPACES |
             net::UnescapeRule::URL_SPECIAL_CHARS |
-            net::UnescapeRule::CONTROL_CHARS |
+            net::UnescapeRule::SPOOFING_AND_CONTROL_CHARS |
             net::UnescapeRule::REPLACE_PLUS_WITH_SPACE));
         if (unescaped_value != expected_value)
           return false;
@@ -595,7 +593,7 @@ TEST_F(DeviceManagementServiceTest, RetryOnProxyError) {
   scoped_ptr<DeviceManagementRequestJob> request_job(StartRegistrationJob());
   net::TestURLFetcher* fetcher = GetFetcher();
   ASSERT_TRUE(fetcher);
-  EXPECT_TRUE((fetcher->GetLoadFlags() & net::LOAD_BYPASS_PROXY) == 0);
+  EXPECT_EQ(0, fetcher->GetLoadFlags() & net::LOAD_BYPASS_PROXY);
   const GURL original_url(fetcher->GetOriginalURL());
   const std::string upload_data(fetcher->upload_data());
 
@@ -620,7 +618,7 @@ TEST_F(DeviceManagementServiceTest, RetryOnBadResponseFromProxy) {
   scoped_ptr<DeviceManagementRequestJob> request_job(StartRegistrationJob());
   net::TestURLFetcher* fetcher = GetFetcher();
   ASSERT_TRUE(fetcher);
-  EXPECT_TRUE((fetcher->GetLoadFlags() & net::LOAD_BYPASS_PROXY) == 0);
+  EXPECT_EQ(0, fetcher->GetLoadFlags() & net::LOAD_BYPASS_PROXY);
   const GURL original_url(fetcher->GetOriginalURL());
   const std::string upload_data(fetcher->upload_data());
   fetcher->set_was_fetched_via_proxy(true);
@@ -637,7 +635,7 @@ TEST_F(DeviceManagementServiceTest, RetryOnBadResponseFromProxy) {
   // Verify that a new URLFetcher was started that bypasses the proxy.
   fetcher = GetFetcher();
   ASSERT_TRUE(fetcher);
-  EXPECT_TRUE((fetcher->GetLoadFlags() & net::LOAD_BYPASS_PROXY) != 0);
+  EXPECT_NE(0, fetcher->GetLoadFlags() & net::LOAD_BYPASS_PROXY);
   EXPECT_EQ(original_url, fetcher->GetOriginalURL());
   EXPECT_EQ(upload_data, fetcher->upload_data());
 }

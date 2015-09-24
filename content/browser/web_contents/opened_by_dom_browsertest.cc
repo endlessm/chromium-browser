@@ -42,7 +42,7 @@ class CloseTrackingDelegate : public WebContentsDelegate {
 
 class OpenedByDOMTest : public ContentBrowserTest {
  protected:
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     // Use --site-per-process to force process swaps on cross-site navigations.
     command_line->AppendSwitch(switches::kSitePerProcess);
   }
@@ -114,8 +114,7 @@ IN_PROC_BROWSER_TEST_F(OpenedByDOMTest, Popup) {
 
 // Tests that window.close() works in a popup window that has navigated a few
 // times and swapped processes.
-// Crashes on all platforms. http://crbug.com/399709
-IN_PROC_BROWSER_TEST_F(OpenedByDOMTest, DISABLED_CrossProcessPopup) {
+IN_PROC_BROWSER_TEST_F(OpenedByDOMTest, CrossProcessPopup) {
   host_resolver()->AddRule("*", "127.0.0.1");
   ASSERT_TRUE(test_server()->Start());
 
@@ -123,8 +122,7 @@ IN_PROC_BROWSER_TEST_F(OpenedByDOMTest, DISABLED_CrossProcessPopup) {
 
   GURL url2 = test_server()->GetURL("files/site_isolation/blank.html?2");
   GURL::Replacements replace_host;
-  std::string foo_com("foo.com");
-  replace_host.SetHostStr(foo_com);
+  replace_host.SetHostStr("foo.com");
   url2 = url2.ReplaceComponents(replace_host);
 
   GURL url3 = test_server()->GetURL("files/site_isolation/blank.html?3");

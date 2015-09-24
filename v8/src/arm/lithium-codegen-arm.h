@@ -27,7 +27,6 @@ class LCodeGen: public LCodeGenBase {
       : LCodeGenBase(chunk, assembler, info),
         deoptimizations_(4, info->zone()),
         jump_table_(4, info->zone()),
-        deoptimization_literals_(8, info->zone()),
         inlined_function_count_(0),
         scope_(info->scope()),
         translations_(info->zone()),
@@ -112,6 +111,7 @@ class LCodeGen: public LCodeGenBase {
   void DoDeferredTaggedToI(LTaggedToI* instr);
   void DoDeferredMathAbsTaggedHeapNumber(LMathAbs* instr);
   void DoDeferredStackCheck(LStackCheck* instr);
+  void DoDeferredMaybeGrowElements(LMaybeGrowElements* instr);
   void DoDeferredStringCharCodeAt(LStringCharCodeAt* instr);
   void DoDeferredStringCharFromCode(LStringCharFromCode* instr);
   void DoDeferredAllocate(LAllocate* instr);
@@ -144,7 +144,7 @@ class LCodeGen: public LCodeGenBase {
 #undef DECLARE_DO
 
  private:
-  StrictMode strict_mode() const { return info()->strict_mode(); }
+  LanguageMode language_mode() const { return info()->language_mode(); }
 
   Scope* scope() const { return scope_; }
 
@@ -169,7 +169,7 @@ class LCodeGen: public LCodeGenBase {
 
   // Code generation passes.  Returns true if code generation should
   // continue.
-  void GenerateBodyInstructionPre(LInstruction* instr) OVERRIDE;
+  void GenerateBodyInstructionPre(LInstruction* instr) override;
   bool GeneratePrologue();
   bool GenerateDeferredCode();
   bool GenerateJumpTable();
@@ -216,18 +216,11 @@ class LCodeGen: public LCodeGenBase {
                                LInstruction* instr,
                                LOperand* context);
 
-  enum R1State {
-    R1_UNINITIALIZED,
-    R1_CONTAINS_TARGET
-  };
-
   // Generate a direct call to a known function.  Expects the function
   // to be in r1.
   void CallKnownFunction(Handle<JSFunction> function,
-                         int formal_parameter_count,
-                         int arity,
-                         LInstruction* instr,
-                         R1State r1_state);
+                         int formal_parameter_count, int arity,
+                         LInstruction* instr);
 
   void RecordSafepointWithLazyDeopt(LInstruction* instr,
                                     SafepointMode safepoint_mode);
@@ -235,9 +228,10 @@ class LCodeGen: public LCodeGenBase {
   void RegisterEnvironmentForDeoptimization(LEnvironment* environment,
                                             Safepoint::DeoptMode mode);
   void DeoptimizeIf(Condition condition, LInstruction* instr,
-                    const char* detail, Deoptimizer::BailoutType bailout_type);
+                    Deoptimizer::DeoptReason deopt_reason,
+                    Deoptimizer::BailoutType bailout_type);
   void DeoptimizeIf(Condition condition, LInstruction* instr,
-                    const char* detail);
+                    Deoptimizer::DeoptReason deopt_reason);
 
   void AddToTranslation(LEnvironment* environment,
                         Translation* translation,
@@ -247,7 +241,6 @@ class LCodeGen: public LCodeGenBase {
                         int* object_index_pointer,
                         int* dematerialized_index_pointer);
   void PopulateDeoptimizationData(Handle<Code> code);
-  int DefineDeoptimizationLiteral(Handle<Object> literal);
 
   void PopulateDeoptimizationLiteralsWithInlinedFunctions();
 
@@ -271,7 +264,7 @@ class LCodeGen: public LCodeGenBase {
                                     int arguments,
                                     Safepoint::DeoptMode mode);
 
-  void RecordAndWritePosition(int position) OVERRIDE;
+  void RecordAndWritePosition(int position) override;
 
   static Condition TokenToCondition(Token::Value op, bool is_unsigned);
   void EmitGoto(int block);
@@ -320,7 +313,7 @@ class LCodeGen: public LCodeGenBase {
                     int* offset,
                     AllocationSiteMode mode);
 
-  void EnsureSpaceForLazyDeopt(int space_needed) OVERRIDE;
+  void EnsureSpaceForLazyDeopt(int space_needed) override;
   void DoLoadKeyedExternalArray(LLoadKeyed* instr);
   void DoLoadKeyedFixedDoubleArray(LLoadKeyed* instr);
   void DoLoadKeyedFixedArray(LLoadKeyed* instr);
@@ -330,10 +323,11 @@ class LCodeGen: public LCodeGenBase {
 
   template <class T>
   void EmitVectorLoadICRegisters(T* instr);
+  template <class T>
+  void EmitVectorStoreICRegisters(T* instr);
 
   ZoneList<LEnvironment*> deoptimizations_;
   ZoneList<Deoptimizer::JumpTableEntry> jump_table_;
-  ZoneList<Handle<Object> > deoptimization_literals_;
   int inlined_function_count_;
   Scope* const scope_;
   TranslationBuffer translations_;
@@ -350,7 +344,7 @@ class LCodeGen: public LCodeGenBase {
 
   Safepoint::Kind expected_safepoint_kind_;
 
-  class PushSafepointRegistersScope FINAL BASE_EMBEDDED {
+  class PushSafepointRegistersScope final BASE_EMBEDDED {
    public:
     explicit PushSafepointRegistersScope(LCodeGen* codegen)
         : codegen_(codegen) {

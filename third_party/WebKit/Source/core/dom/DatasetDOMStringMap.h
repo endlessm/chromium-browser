@@ -42,19 +42,19 @@ public:
     }
 
 #if !ENABLE(OILPAN)
-    virtual void ref() override;
-    virtual void deref() override;
+    void ref() override;
+    void deref() override;
 #endif
 
-    virtual void getNames(Vector<String>&) override;
-    virtual String item(const String& name) override;
-    virtual bool contains(const String& name) override;
-    virtual void setItem(const String& name, const String& value, ExceptionState&) override;
-    virtual bool deleteItem(const String& name) override;
+    void getNames(Vector<String>&) override;
+    String item(const String& name) override;
+    bool contains(const String& name) override;
+    void setItem(const String& name, const String& value, ExceptionState&) override;
+    bool deleteItem(const String& name) override;
 
-    virtual Element* element() override { return m_element; }
+    Element* element() override { return m_element; }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     explicit DatasetDOMStringMap(Element* element)

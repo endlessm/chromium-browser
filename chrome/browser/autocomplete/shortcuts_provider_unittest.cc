@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/autocomplete/shortcuts_provider.h"
+#include "components/omnibox/browser/shortcuts_provider.h"
 
 #include <math.h>
 
@@ -17,18 +17,19 @@
 #include "base/prefs/pref_service.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/autocomplete/chrome_autocomplete_provider_client.h"
 #include "chrome/browser/autocomplete/chrome_autocomplete_scheme_classifier.h"
-#include "chrome/browser/autocomplete/shortcuts_backend.h"
 #include "chrome/browser/autocomplete/shortcuts_backend_factory.h"
-#include "chrome/browser/history/history_service.h"
-#include "chrome/browser/history/in_memory_url_index.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/url_database.h"
 #include "components/metrics/proto/omnibox_event.pb.h"
-#include "components/omnibox/autocomplete_input.h"
-#include "components/omnibox/autocomplete_match.h"
-#include "components/omnibox/autocomplete_provider.h"
-#include "components/omnibox/autocomplete_result.h"
+#include "components/omnibox/browser/autocomplete_input.h"
+#include "components/omnibox/browser/autocomplete_match.h"
+#include "components/omnibox/browser/autocomplete_provider.h"
+#include "components/omnibox/browser/autocomplete_result.h"
+#include "components/omnibox/browser/in_memory_url_index.h"
+#include "components/omnibox/browser/shortcuts_backend.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/test/test_browser_thread.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -280,7 +281,7 @@ class ShortcutsProviderTest : public testing::Test {
 
   // Passthrough to the private function in provider_.
   int CalculateScore(const std::string& terms,
-                     const history::ShortcutsDatabase::Shortcut& shortcut,
+                     const ShortcutsDatabase::Shortcut& shortcut,
                      int max_relevance);
 
   base::MessageLoopForUI message_loop_;
@@ -288,6 +289,7 @@ class ShortcutsProviderTest : public testing::Test {
   content::TestBrowserThread file_thread_;
 
   TestingProfile profile_;
+  ChromeAutocompleteProviderClient client_;
 
   ACMatches ac_matches_;  // The resulting matches after running RunTest.
 
@@ -297,7 +299,8 @@ class ShortcutsProviderTest : public testing::Test {
 
 ShortcutsProviderTest::ShortcutsProviderTest()
     : ui_thread_(content::BrowserThread::UI, &message_loop_),
-      file_thread_(content::BrowserThread::FILE, &message_loop_) {
+      file_thread_(content::BrowserThread::FILE, &message_loop_),
+      client_(&profile_) {
 }
 
 void ShortcutsProviderTest::SetUp() {
@@ -306,7 +309,7 @@ void ShortcutsProviderTest::SetUp() {
   backend_ = ShortcutsBackendFactory::GetForProfile(&profile_);
   ASSERT_TRUE(backend_.get());
   ASSERT_TRUE(profile_.CreateHistoryService(true, false));
-  provider_ = new ShortcutsProvider(&profile_);
+  provider_ = new ShortcutsProvider(&client_);
   FillData(shortcut_test_db, arraysize(shortcut_test_db));
 }
 
@@ -314,6 +317,7 @@ void ShortcutsProviderTest::TearDown() {
   // Run all pending tasks or else some threads hold on to the message loop
   // and prevent it from being deleted.
   message_loop_.RunUntilIdle();
+  profile_.DestroyHistoryService();
   provider_ = NULL;
 }
 
@@ -322,9 +326,9 @@ void ShortcutsProviderTest::FillData(TestShortcutInfo* db, size_t db_size) {
   size_t expected_size = backend_->shortcuts_map().size() + db_size;
   for (size_t i = 0; i < db_size; ++i) {
     const TestShortcutInfo& cur = db[i];
-    history::ShortcutsDatabase::Shortcut shortcut(
+    ShortcutsDatabase::Shortcut shortcut(
         cur.guid, ASCIIToUTF16(cur.text),
-        history::ShortcutsDatabase::Shortcut::MatchCore(
+        ShortcutsDatabase::Shortcut::MatchCore(
             ASCIIToUTF16(cur.fill_into_edit), GURL(cur.destination_url),
             ASCIIToUTF16(cur.contents), cur.contents_class,
             ASCIIToUTF16(cur.description), cur.description_class,
@@ -358,7 +362,7 @@ void ShortcutsProviderTest::RunTest(
   base::MessageLoop::current()->RunUntilIdle();
   AutocompleteInput input(text, base::string16::npos, std::string(), GURL(),
                           metrics::OmniboxEventProto::INVALID_SPEC,
-                          prevent_inline_autocomplete, false, true, true,
+                          prevent_inline_autocomplete, false, true, true, false,
                           ChromeAutocompleteSchemeClassifier(&profile_));
   provider_->Start(input, false);
   EXPECT_TRUE(provider_->done());
@@ -391,7 +395,7 @@ void ShortcutsProviderTest::RunTest(
 
 int ShortcutsProviderTest::CalculateScore(
     const std::string& terms,
-    const history::ShortcutsDatabase::Shortcut& shortcut,
+    const ShortcutsDatabase::Shortcut& shortcut,
     int max_relevance) {
   return provider_->CalculateScore(ASCIIToUTF16(terms), shortcut,
                                    max_relevance);
@@ -711,9 +715,9 @@ TEST_F(ShortcutsProviderTest, ClassifyAllMatchesInString) {
 }
 
 TEST_F(ShortcutsProviderTest, CalculateScore) {
-  history::ShortcutsDatabase::Shortcut shortcut(
+  ShortcutsDatabase::Shortcut shortcut(
       std::string(), ASCIIToUTF16("test"),
-      history::ShortcutsDatabase::Shortcut::MatchCore(
+      ShortcutsDatabase::Shortcut::MatchCore(
           ASCIIToUTF16("www.test.com"), GURL("http://www.test.com"),
           ASCIIToUTF16("www.test.com"), "0,1,4,3,8,1",
           ASCIIToUTF16("A test"), "0,0,2,2", ui::PAGE_TRANSITION_TYPED,
@@ -819,6 +823,15 @@ TEST_F(ShortcutsProviderTest, DeleteMatch) {
   EXPECT_EQ(original_shortcuts_count + 1, backend_->shortcuts_map().size());
   EXPECT_TRUE(backend_->shortcuts_map().end() ==
               backend_->shortcuts_map().find(ASCIIToUTF16("delete")));
+}
+
+TEST_F(ShortcutsProviderTest, DoesNotProvideOnFocus) {
+  AutocompleteInput input(
+      ASCIIToUTF16("about:o"), base::string16::npos, std::string(), GURL(),
+      metrics::OmniboxEventProto::INVALID_SPEC, false, false, true, true, true,
+      ChromeAutocompleteSchemeClassifier(&profile_));
+  provider_->Start(input, false);
+  EXPECT_TRUE(provider_->matches().empty());
 }
 
 #if defined(ENABLE_EXTENSIONS)

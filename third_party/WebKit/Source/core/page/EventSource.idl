@@ -29,15 +29,16 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://html.spec.whatwg.org/multipage/comms.html#the-eventsource-interface
+
 [
     ActiveDOMObject,
-    Constructor(DOMString url, optional EventSourceInit eventSourceInit),
+    Constructor(DOMString url, optional EventSourceInit eventSourceInitDict),
     ConstructorCallWith=ExecutionContext,
     Exposed=(Window,Worker),
+    GarbageCollected,
     RaisesException=Constructor,
 ] interface EventSource : EventTarget {
-
-    [DeprecateAs=EventSourceURL] readonly attribute DOMString URL; // Lowercased .url is the one in the spec, but leaving .URL for compatibility reasons.
     readonly attribute DOMString url;
     readonly attribute boolean withCredentials;
 

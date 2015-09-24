@@ -41,7 +41,7 @@ public:
     class Listener;
 
     DECLARE_NODE_FACTORY(HTMLSourceElement);
-    virtual ~HTMLSourceElement();
+    ~HTMLSourceElement() override;
 
     const AtomicString& type() const;
     void setSrc(const String&);
@@ -54,17 +54,20 @@ public:
 
     bool mediaQueryMatches() const;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     explicit HTMLSourceElement(Document&);
 
-    virtual InsertionNotificationRequest insertedInto(ContainerNode*) override;
-    virtual void removedFrom(ContainerNode*) override;
-    virtual bool isURLAttribute(const Attribute&) const override;
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void didMoveToNewDocument(Document& oldDocument) override;
+
+    InsertionNotificationRequest insertedInto(ContainerNode*) override;
+    void removedFrom(ContainerNode*) override;
+    bool isURLAttribute(const Attribute&) const override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) override;
 
     void notifyMediaQueryChanged();
+    void createMediaQueryList(const AtomicString& media);
 
     RefPtrWillBeMember<MediaQueryList> m_mediaQueryList;
     RefPtrWillBeMember<Listener> m_listener;

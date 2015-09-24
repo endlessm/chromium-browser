@@ -14,7 +14,7 @@ initial
 // border-bottom-style
 // border-left-style
 // border-right-style
-// The order here must match the order of the EBorderStyle enum in RenderStyleConstants.h.
+// The order here must match the order of the EBorderStyle enum in ComputedStyleConstants.h.
 none
 hidden
 inset
@@ -204,7 +204,6 @@ destination-in
 destination-out
 destination-atop
 xor
-plus-darker
 // highlight
 plus-lighter
 //
@@ -222,7 +221,7 @@ bottom
 -webkit-baseline-middle
 //
 // text-align
-// The order here must match the order of the ETextAlign enum in RenderStyleConstants.h.
+// The order here must match the order of the ETextAlign enum in ComputedStyleConstants.h.
 //
 -webkit-auto
 left
@@ -247,7 +246,7 @@ outside
 inside
 //
 // list-style-type
-// The order here must match the order of the EListStyleType enum in RenderStyleConstants.h.
+// The order here must match the order of the EListStyleType enum in ComputedStyleConstants.h.
 //
 disc
 circle
@@ -255,7 +254,6 @@ square
 decimal
 decimal-leading-zero
 arabic-indic
-binary
 bengali
 cambodian
 khmer
@@ -263,19 +261,16 @@ devanagari
 gujarati
 gurmukhi
 kannada
-lower-hexadecimal
 lao
 malayalam
 mongolian
 myanmar
-octal
 oriya
 persian
 urdu
 telugu
 tibetan
 thai
-upper-hexadecimal
 lower-roman
 upper-roman
 lower-greek
@@ -283,48 +278,27 @@ lower-alpha
 lower-latin
 upper-alpha
 upper-latin
-afar
-ethiopic-halehame-aa-et
-ethiopic-halehame-aa-er
-amharic
-ethiopic-halehame-am-et
-amharic-abegede
-ethiopic-abegede-am-et
 cjk-earthly-branch
 cjk-heavenly-stem
-ethiopic
-ethiopic-halehame-gez
-ethiopic-abegede
-ethiopic-abegede-gez
-hangul-consonant
-hangul
-lower-norwegian
-oromo
-ethiopic-halehame-om-et
-sidama
-ethiopic-halehame-sid-et
-somali
-ethiopic-halehame-so-et
-tigre
-ethiopic-halehame-tig
-tigrinya-er
+ethiopic-halehame
+ethiopic-halehame-am
 ethiopic-halehame-ti-er
-tigrinya-er-abegede
-ethiopic-abegede-ti-er
-tigrinya-et
 ethiopic-halehame-ti-et
-tigrinya-et-abegede
-ethiopic-abegede-ti-et
-upper-greek
-upper-norwegian
-asterisks
-footnotes
+hangul
+hangul-consonant
+korean-hangul-formal
+korean-hanja-formal
+korean-hanja-informal
 hebrew
 armenian
 lower-armenian
 upper-armenian
 georgian
 cjk-ideographic
+simp-chinese-formal
+simp-chinese-informal
+trad-chinese-formal
+trad-chinese-informal
 hiragana
 katakana
 hiragana-iroha
@@ -332,7 +306,7 @@ katakana-iroha
 //none
 //
 // display
-// The order here must match the order of the EDisplay enum in RenderStyleConstants.h.
+// The order here must match the order of the EDisplay enum in ComputedStyleConstants.h.
 //
 inline
 block
@@ -359,7 +333,7 @@ inline-grid
 -webkit-inline-flex
 //
 // cursor
-// The order here must match the order of the ECursor enum in RenderStyleConstants.h.
+// The order here must match the order of the ECursor enum in ComputedStyleConstants.h.
 //
 auto
 crosshair
@@ -542,7 +516,6 @@ wrap-reverse
 
 // grid-auto-flow
 dense
-stack
 
 //
 // -webkit-user-modify
@@ -590,6 +563,7 @@ discard
 // word-break
 //
 break-all
+keep-all
 
 //
 // word-wrap
@@ -870,6 +844,12 @@ at
 
 alphabetic
 
+// (display-mode:) media feature
+fullscreen
+standalone
+minimal-ui
+browser
+
 // (pointer:) media feature
 // none
 coarse
@@ -943,13 +923,19 @@ markers
 // auto
 isolate
 
-// touch-action-delay
+// scroll-blocks-on
 // none
-script
+start-touch
+wheel-event
+scroll-event
 
 // touch-action
 pan-x
 pan-y
+pan-left
+pan-right
+pan-up
+pan-down
 manipulation
 
 // justify-items / justify-self
@@ -971,7 +957,7 @@ safe
 legacy
 
 // scroll-behavior
-instant
+// auto
 smooth
 
 // will-change
@@ -1028,6 +1014,7 @@ brightness
 contrast
 blur
 drop-shadow
+url
 
 // colors
 rgb
@@ -1040,23 +1027,31 @@ matrix
 matrix3d
 perspective
 rotate
-rotatex
-rotatey
-rotatez
+rotateX
+rotateY
+rotateZ
 rotate3d
 scale
-scalex
-scaley
-scalez
+scaleX
+scaleY
+scaleZ
 scale3d
 skew
-skewx
-skewy
+skewX
+skewY
 translate
-translatex
-translatey
-translatez
+translateX
+translateY
+translateZ
 translate3d
+
+// motion path
+path
 
 calc
 -webkit-calc
+
+// scroll-snap-type
+// none
+mandatory
+proximity

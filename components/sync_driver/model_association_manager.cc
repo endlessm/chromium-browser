@@ -7,10 +7,10 @@
 #include <algorithm>
 #include <functional>
 
-#include "base/debug/trace_event.h"
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/trace_event/trace_event.h"
 #include "sync/internal_api/public/base/model_type.h"
 
 using syncer::ModelTypeSet;
@@ -30,6 +30,8 @@ static const syncer::ModelType kStartOrder[] = {
   syncer::PASSWORDS,
   syncer::AUTOFILL,
   syncer::AUTOFILL_PROFILE,
+  syncer::AUTOFILL_WALLET_DATA,
+  syncer::AUTOFILL_WALLET_METADATA,
   syncer::EXTENSION_SETTINGS,
   syncer::APP_SETTINGS,
   syncer::TYPED_URLS,
@@ -56,13 +58,15 @@ static const syncer::ModelType kStartOrder[] = {
   syncer::FAVICON_TRACKING,
   syncer::SUPERVISED_USER_SETTINGS,
   syncer::SUPERVISED_USER_SHARED_SETTINGS,
+  syncer::SUPERVISED_USER_WHITELISTS,
   syncer::ARTICLES,
   syncer::WIFI_CREDENTIALS,
 };
 
-COMPILE_ASSERT(arraysize(kStartOrder) ==
-               syncer::MODEL_TYPE_COUNT - syncer::FIRST_REAL_MODEL_TYPE,
-               kStartOrder_IncorrectSize);
+static_assert(arraysize(kStartOrder) ==
+              syncer::MODEL_TYPE_COUNT - syncer::FIRST_REAL_MODEL_TYPE,
+              "kStartOrder must have MODEL_TYPE_COUNT - "
+              "FIRST_REAL_MODEL_TYPE elements");
 
 // The amount of time we wait for association to finish. If some types haven't
 // finished association by the time, DataTypeManager is notified of the
@@ -128,10 +132,10 @@ ModelAssociationManager::~ModelAssociationManager() {
 }
 
 void ModelAssociationManager::Initialize(syncer::ModelTypeSet desired_types) {
-  // state_ can be INITIALIZED_TO_CONFIGURE if types are reconfigured when
+  // state_ can be INITIALIZED if types are reconfigured when
   // data is being downloaded, so StartAssociationAsync() is never called for
   // the first configuration.
-  DCHECK_NE(CONFIGURING, state_);
+  DCHECK_NE(ASSOCIATING, state_);
 
   // Only keep types that have controllers.
   desired_types_.Clear();
@@ -144,7 +148,7 @@ void ModelAssociationManager::Initialize(syncer::ModelTypeSet desired_types) {
   DVLOG(1) << "ModelAssociationManager: Initializing for "
            << syncer::ModelTypeSetToString(desired_types_);
 
-  state_ = INITIALIZED_TO_CONFIGURE;
+  state_ = INITIALIZED;
 
   StopDisabledTypes();
   LoadEnabledTypes();
@@ -171,7 +175,7 @@ void ModelAssociationManager::StopDisabledTypes() {
     DataTypeController* dtc = (*it).second.get();
     if (dtc->state() != DataTypeController::NOT_RUNNING &&
         !desired_types_.Has(dtc->type())) {
-      DVLOG(1) << "ModelTypeToString: stop " << dtc->name();
+      DVLOG(1) << "ModelAssociationManager: stop " << dtc->name();
       StopDatatype(syncer::SyncError(), dtc);
     }
   }
@@ -197,8 +201,10 @@ void ModelAssociationManager::LoadEnabledTypes() {
 
 void ModelAssociationManager::StartAssociationAsync(
     const syncer::ModelTypeSet& types_to_associate) {
-  DCHECK_NE(CONFIGURING, state_);
-  state_ = CONFIGURING;
+  DCHECK_EQ(INITIALIZED, state_);
+  DVLOG(1) << "Starting association for "
+           << syncer::ModelTypeSetToString(types_to_associate);
+  state_ = ASSOCIATING;
 
   association_start_time_ = base::TimeTicks::Now();
 
@@ -213,14 +219,15 @@ void ModelAssociationManager::StartAssociationAsync(
 
   // Done if no types to associate.
   if (associating_types_.Empty()) {
-    ModelAssociationDone();
+    ModelAssociationDone(INITIALIZED);
     return;
   }
 
   timer_.Start(FROM_HERE,
                base::TimeDelta::FromSeconds(kAssociationTimeOutInSeconds),
-               this,
-               &ModelAssociationManager::ModelAssociationDone);
+               base::Bind(&ModelAssociationManager::ModelAssociationDone,
+                          weak_ptr_factory_.GetWeakPtr(),
+                          INITIALIZED));
 
   // Start association of types that are loaded in specified order.
   for (size_t i = 0; i < arraysize(kStartOrder); i++) {
@@ -245,22 +252,9 @@ void ModelAssociationManager::StartAssociationAsync(
   }
 }
 
-void ModelAssociationManager::ResetForNextAssociation() {
-  DVLOG(1) << "ModelAssociationManager: Reseting for next configuration";
-  // |loaded_types_| and |associated_types_| are not cleared. So
-  // reconfiguration won't restart types that are already started.
-  requested_types_.Clear();
-  associating_types_.Clear();
-}
-
 void ModelAssociationManager::Stop() {
   // Ignore callbacks from controllers.
   weak_ptr_factory_.InvalidateWeakPtrs();
-
-  desired_types_.Clear();
-  loaded_types_.Clear();
-  associated_types_.Clear();
-  associating_types_.Clear();
 
   // Stop started data types.
   for (DataTypeController::TypeMap::const_iterator it = controllers_->begin();
@@ -272,16 +266,20 @@ void ModelAssociationManager::Stop() {
     }
   }
 
-  if (state_ == CONFIGURING) {
+  desired_types_.Clear();
+  loaded_types_.Clear();
+  associated_types_.Clear();
+
+  if (state_ == ASSOCIATING) {
     if (configure_status_ == DataTypeManager::OK)
       configure_status_ = DataTypeManager::ABORTED;
     DVLOG(1) << "ModelAssociationManager: Calling OnModelAssociationDone";
-    ModelAssociationDone();
+    ModelAssociationDone(IDLE);
+  } else {
+    DCHECK(associating_types_.Empty());
+    DCHECK(requested_types_.Empty());
+    state_ = IDLE;
   }
-
-  ResetForNextAssociation();
-
-  state_ = IDLE;
 }
 
 void ModelAssociationManager::ModelLoadCallback(syncer::ModelType type,
@@ -338,8 +336,8 @@ void ModelAssociationManager::TypeStartCallback(
   if (!desired_types_.Has(type)) {
       // It's possible all types failed to associate, in which case association
       // is complete.
-      if (state_ == CONFIGURING && associating_types_.Empty())
-        ModelAssociationDone();
+      if (state_ == ASSOCIATING && associating_types_.Empty())
+        ModelAssociationDone(INITIALIZED);
       return;
   }
 
@@ -347,7 +345,7 @@ void ModelAssociationManager::TypeStartCallback(
   DCHECK(DataTypeController::IsSuccessfulResult(start_result));
   associated_types_.Put(type);
 
-  if (state_ != CONFIGURING)
+  if (state_ != ASSOCIATING)
     return;
 
   TRACE_EVENT_ASYNC_END1("sync", "ModelAssociation",
@@ -373,11 +371,20 @@ void ModelAssociationManager::TypeStartCallback(
   associating_types_.Remove(type);
 
   if (associating_types_.Empty())
-    ModelAssociationDone();
+    ModelAssociationDone(INITIALIZED);
 }
 
-void ModelAssociationManager::ModelAssociationDone() {
-  CHECK_EQ(CONFIGURING, state_);
+void ModelAssociationManager::ModelAssociationDone(State new_state) {
+  DCHECK_NE(IDLE, state_);
+
+  if (state_ == INITIALIZED) {
+    // No associations are currently happening. Just reset the state.
+    state_ = new_state;
+    return;
+  }
+
+  DVLOG(1) << "Model association complete for "
+           << syncer::ModelTypeSetToString(requested_types_);
 
   timer_.Stop();
 
@@ -402,10 +409,11 @@ void ModelAssociationManager::ModelAssociationDone() {
   DataTypeManager::ConfigureResult result(configure_status_,
                                           requested_types_);
 
-  // Reset state before notifying |delegate_| because that might
-  // trigger a new round of configuration.
-  ResetForNextAssociation();
-  state_ = IDLE;
+  // Need to reset state before invoking delegate in order to avoid re-entrancy
+  // issues (delegate may trigger a reconfiguration).
+  associating_types_.Clear();
+  requested_types_.Clear();
+  state_ = new_state;
 
   delegate_->OnModelAssociationDone(result);
 }

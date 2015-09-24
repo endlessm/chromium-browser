@@ -39,7 +39,7 @@ enum TurbulenceType {
 
 class PLATFORM_EXPORT FETurbulence : public FilterEffect {
 public:
-    static PassRefPtr<FETurbulence> create(Filter*, TurbulenceType, float, float, int, float, bool);
+    static PassRefPtrWillBeRawPtr<FETurbulence> create(Filter*, TurbulenceType, float, float, int, float, bool);
 
     TurbulenceType type() const;
     bool setType(TurbulenceType);
@@ -59,14 +59,12 @@ public:
     bool stitchTiles() const;
     bool setStitchTiles(bool);
 
-    static void fillRegionWorker(void*);
-
-    virtual TextStream& externalRepresentation(TextStream&, int indention) const override;
+    TextStream& externalRepresentation(TextStream&, int indention) const override;
 
 private:
     FETurbulence(Filter*, TurbulenceType, float, float, int, float, bool);
 
-    virtual PassRefPtr<SkImageFilter> createImageFilter(SkiaImageFilterBuilder*) override;
+    PassRefPtr<SkImageFilter> createImageFilter(SkiaImageFilterBuilder*) override;
     SkShader* createShader();
 
     TurbulenceType m_type;

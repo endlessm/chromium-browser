@@ -32,9 +32,9 @@
 #include "core/dom/Document.h"
 #include "core/dom/DocumentMarkerController.h"
 #include "core/dom/Range.h"
-#include "core/editing/TextIterator.h"
 #include "core/editing/VisiblePosition.h"
 #include "core/editing/VisibleUnits.h"
+#include "core/editing/iterators/WordAwareIterator.h"
 #include "core/frame/LocalFrame.h"
 #include "core/frame/Settings.h"
 #include "core/page/SpellCheckerClient.h"
@@ -144,7 +144,7 @@ void TextCheckingParagraph::invalidateParagraphRangeValues()
 int TextCheckingParagraph::rangeLength() const
 {
     ASSERT(m_checkingRange);
-    return TextIterator::rangeLength(paragraphRange().get());
+    return TextIterator::rangeLength(paragraphRange()->startPosition(), paragraphRange()->endPosition());
 }
 
 PassRefPtrWillBeRawPtr<Range> TextCheckingParagraph::paragraphRange() const
@@ -158,7 +158,10 @@ PassRefPtrWillBeRawPtr<Range> TextCheckingParagraph::paragraphRange() const
 PassRefPtrWillBeRawPtr<Range> TextCheckingParagraph::subrange(int characterOffset, int characterCount) const
 {
     ASSERT(m_checkingRange);
-    return TextIterator::subrange(paragraphRange().get(), characterOffset, characterCount);
+    EphemeralRange range = TextIterator::subrange(paragraphRange()->startPosition(), paragraphRange()->endPosition(), characterOffset, characterCount);
+    if (range.isNull())
+        return nullptr;
+    return Range::create(range.document(), range.startPosition(), range.endPosition());
 }
 
 int TextCheckingParagraph::offsetTo(const Position& position, ExceptionState& exceptionState) const
@@ -168,7 +171,7 @@ int TextCheckingParagraph::offsetTo(const Position& position, ExceptionState& ex
     range->setEnd(position.containerNode(), position.computeOffsetInContainerNode(), exceptionState);
     if (exceptionState.hadException())
         return 0;
-    return TextIterator::rangeLength(range.get());
+    return TextIterator::rangeLength(range->startPosition(), range->endPosition());
 }
 
 bool TextCheckingParagraph::isEmpty() const
@@ -191,7 +194,7 @@ const String& TextCheckingParagraph::text() const
 {
     ASSERT(m_checkingRange);
     if (m_text.isEmpty())
-        m_text = plainText(paragraphRange().get());
+        m_text = plainText(paragraphRange()->startPosition(), paragraphRange()->endPosition());
     return m_text;
 }
 
@@ -199,7 +202,7 @@ int TextCheckingParagraph::checkingStart() const
 {
     ASSERT(m_checkingRange);
     if (m_checkingStart == -1)
-        m_checkingStart = TextIterator::rangeLength(offsetAsRange().get());
+        m_checkingStart = TextIterator::rangeLength(offsetAsRange()->startPosition(), offsetAsRange()->endPosition());
     return m_checkingStart;
 }
 
@@ -207,7 +210,7 @@ int TextCheckingParagraph::checkingEnd() const
 {
     ASSERT(m_checkingRange);
     if (m_checkingEnd == -1)
-        m_checkingEnd = checkingStart() + TextIterator::rangeLength(checkingRange().get());
+        m_checkingEnd = checkingStart() + TextIterator::rangeLength(checkingRange()->startPosition(), checkingRange()->endPosition());
     return m_checkingEnd;
 }
 
@@ -215,7 +218,7 @@ int TextCheckingParagraph::checkingLength() const
 {
     ASSERT(m_checkingRange);
     if (-1 == m_checkingLength)
-        m_checkingLength = TextIterator::rangeLength(checkingRange().get());
+        m_checkingLength = TextIterator::rangeLength(checkingRange()->startPosition(), checkingRange()->endPosition());
     return m_checkingLength;
 }
 
@@ -261,19 +264,17 @@ String TextCheckingHelper::findFirstMisspelling(int& firstMisspellingOffset, boo
             if (misspellingLocation >= 0 && misspellingLength > 0 && misspellingLocation < length && misspellingLength <= length && misspellingLocation + misspellingLength <= length) {
 
                 // Compute range of misspelled word
-                Position misspellingStart = m_start;
-                Position misspellingEnd = m_end;
-                TextIterator::subrange(misspellingStart, misspellingEnd, currentChunkOffset + misspellingLocation, misspellingLength);
+                const EphemeralRange misspellingRange = TextIterator::subrange(m_start, m_end, currentChunkOffset + misspellingLocation, misspellingLength);
 
                 // Remember first-encountered misspelling and its offset.
                 if (!firstMisspelling) {
                     firstMisspellingOffset = currentChunkOffset + misspellingLocation;
                     firstMisspelling = it.substring(misspellingLocation, misspellingLength);
-                    firstMisspellingRange = Range::create(misspellingStart.containerNode()->document(), m_start, m_end);
+                    firstMisspellingRange = Range::create(misspellingRange.document(), m_start, m_end);
                 }
 
                 // Store marker for misspelled word.
-                misspellingStart.containerNode()->document().markers().addMarker(misspellingStart, misspellingEnd, DocumentMarker::Spelling);
+                misspellingRange.document().markers().addMarker(misspellingRange.startPosition(), misspellingRange.endPosition(), DocumentMarker::Spelling);
 
                 // Bail out if we're marking only the first misspelling, and not all instances.
                 if (!markAll)

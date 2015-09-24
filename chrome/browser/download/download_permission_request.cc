@@ -11,7 +11,11 @@
 
 DownloadPermissionRequest::DownloadPermissionRequest(
     base::WeakPtr<DownloadRequestLimiter::TabDownloadState> host)
-    : host_(host) {}
+    : host_(host) {
+  const content::WebContents* web_contents = host_->web_contents();
+  DCHECK(web_contents);
+  request_url_ = web_contents->GetURL();
+}
 
 DownloadPermissionRequest::~DownloadPermissionRequest() {}
 
@@ -28,17 +32,16 @@ base::string16 DownloadPermissionRequest::GetMessageTextFragment() const {
 }
 
 bool DownloadPermissionRequest::HasUserGesture() const {
-  // TODO(gbillock): user gesture for multiple downloads is difficult to
-  // propagate, and the normal thing is that it is background.
+  // TODO(felt): Right now, the user gesture is not being used so this value
+  // does not matter. The user gesture-related code either needs to be
+  // deprecated, or clients (like DownloadPermissionRequest) with their own
+  // user intent policies need to be able to disable/control the bubble request
+  // visibility & coalescing logic. See crbug.com/446607.
   return false;
 }
 
 GURL DownloadPermissionRequest::GetRequestingHostname() const {
-  const content::WebContents* web_contents = host_->web_contents();
-  if (web_contents) {
-    return web_contents->GetURL();
-  }
-  return GURL();
+  return request_url_;
 }
 
 void DownloadPermissionRequest::PermissionGranted() {
@@ -56,8 +59,10 @@ void DownloadPermissionRequest::PermissionDenied() {
 }
 
 void DownloadPermissionRequest::Cancelled() {
-  // TODO(gbillock): There's currently no suitable method for telling the host
-  // that a request is cancelled.
+  if (host_) {
+    // This may invalidate |host_|.
+    host_->CancelOnce();
+  }
 }
 
 void DownloadPermissionRequest::RequestFinished() {

@@ -35,7 +35,6 @@ class GPU_EXPORT CopyTextureCHROMIUMResourceManager {
                      GLuint source_id,
                      GLenum source_internal_format,
                      GLuint dest_id,
-                     GLint dest_level,
                      GLenum dest_internal_format,
                      GLsizei width,
                      GLsizei height,
@@ -43,13 +42,34 @@ class GPU_EXPORT CopyTextureCHROMIUMResourceManager {
                      bool premultiply_alpha,
                      bool unpremultiply_alpha);
 
-  // This will apply a transform on the source texture before copying to
-  // destination texture.
+  void DoCopySubTexture(const gles2::GLES2Decoder* decoder,
+                        GLenum source_target,
+                        GLuint source_id,
+                        GLenum source_internal_format,
+                        GLuint dest_id,
+                        GLenum dest_internal_format,
+                        GLint xoffset,
+                        GLint yoffset,
+                        GLint x,
+                        GLint y,
+                        GLsizei width,
+                        GLsizei height,
+                        GLsizei dest_width,
+                        GLsizei dest_height,
+                        GLsizei source_width,
+                        GLsizei source_height,
+                        bool flip_y,
+                        bool premultiply_alpha,
+                        bool unpremultiply_alpha);
+
+  // This will apply a transform on the texture coordinates before sampling
+  // the source texture and copying to the destination texture. The transform
+  // matrix should be given in column-major form, so it can be passed
+  // directly to GL.
   void DoCopyTextureWithTransform(const gles2::GLES2Decoder* decoder,
                                   GLenum source_target,
                                   GLuint source_id,
                                   GLuint dest_id,
-                                  GLint dest_level,
                                   GLsizei width,
                                   GLsizei height,
                                   bool flip_y,
@@ -64,15 +84,36 @@ class GPU_EXPORT CopyTextureCHROMIUMResourceManager {
   struct ProgramInfo {
     ProgramInfo()
         : program(0u),
-          matrix_handle(0u),
+          vertex_translate_handle(0u),
+          tex_coord_transform_handle(0u),
           half_size_handle(0u),
           sampler_handle(0u) {}
 
     GLuint program;
-    GLuint matrix_handle;
+    GLuint vertex_translate_handle;
+    GLuint tex_coord_transform_handle;
     GLuint half_size_handle;
     GLuint sampler_handle;
   };
+
+  void DoCopyTextureInternal(const gles2::GLES2Decoder* decoder,
+                             GLenum source_target,
+                             GLuint source_id,
+                             GLuint dest_id,
+                             GLint xoffset,
+                             GLint yoffset,
+                             GLint x,
+                             GLint y,
+                             GLsizei width,
+                             GLsizei height,
+                             GLsizei dest_width,
+                             GLsizei dest_height,
+                             GLsizei source_width,
+                             GLsizei source_height,
+                             bool flip_y,
+                             bool premultiply_alpha,
+                             bool unpremultiply_alpha,
+                             const GLfloat transform_matrix[16]);
 
   bool initialized_;
   typedef std::vector<GLuint> ShaderVector;

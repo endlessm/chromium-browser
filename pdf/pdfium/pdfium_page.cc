@@ -11,6 +11,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "pdf/pdfium/pdfium_api_string_buffer_adapter.h"
 #include "pdf/pdfium/pdfium_engine.h"
 
 // Used when doing hit detection.
@@ -156,7 +157,7 @@ base::Value* PDFiumPage::GetTextBoxAsValue(double page_height,
     FPDFText_GetBoundedText(GetTextPage(), left, top, right, bottom, NULL, 0);
   if (char_count > 0) {
     unsigned short* data = reinterpret_cast<unsigned short*>(
-        WriteInto(&text_utf16, char_count + 1));
+        base::WriteInto(&text_utf16, char_count + 1));
     FPDFText_GetBoundedText(GetTextPage(),
                             left, top, right, bottom,
                             data, char_count);
@@ -197,14 +198,10 @@ base::Value* PDFiumPage::GetTextBoxAsValue(double page_height,
   } else if (area == WEBLINK_AREA && !link) {
     size_t start = 0;
     for (size_t i = 0; i < targets.size(); ++i) {
-      // Remove the extra NULL character at end.
-      // Otherwise, find() will not return any matches.
-      if (targets[i].url.size() > 0 &&
-          targets[i].url[targets[i].url.size() - 1] == '\0') {
-        targets[i].url.resize(targets[i].url.size() - 1);
-      }
-      // There should only ever be one NULL character
-      DCHECK(targets[i].url[targets[i].url.size() - 1] != '\0');
+      // If there is an extra NULL character at end, find() will not return any
+      // matches. There should not be any though.
+      if (!targets[i].url.empty())
+        DCHECK(targets[i].url[targets[i].url.size() - 1] != '\0');
 
       // PDFium may change the case of generated links.
       std::string lowerCaseURL = base::StringToLowerASCII(targets[i].url);
@@ -261,6 +258,7 @@ base::Value* PDFiumPage::CreateURLNode(std::string text, std::string url) {
 PDFiumPage::Area PDFiumPage::GetCharIndex(const pp::Point& point,
                                           int rotation,
                                           int* char_index,
+                                          int* form_type,
                                           LinkTarget* target) {
   if (!available_)
     return NONSELECTABLE_AREA;
@@ -272,6 +270,13 @@ PDFiumPage::Area PDFiumPage::GetCharIndex(const pp::Point& point,
   int rv = FPDFText_GetCharIndexAtPos(
       GetTextPage(), new_x, new_y, kTolerance, kTolerance);
   *char_index = rv;
+
+  int control =
+      FPDPage_HasFormFieldAtPoint(engine_->form(), GetPage(), new_x, new_y);
+  if (control > FPDF_FORMFIELD_UNKNOWN) {
+    *form_type = control;
+    return PDFiumPage::NONSELECTABLE_AREA;
+  }
 
   FPDF_LINK link = FPDFLink_GetLinkAtPoint(GetPage(), new_x, new_y);
   if (link) {
@@ -323,9 +328,13 @@ PDFiumPage::Area PDFiumPage::GetLinkTarget(
           if (target) {
             size_t buffer_size =
                 FPDFAction_GetURIPath(engine_->doc(), action, NULL, 0);
-            if (buffer_size > 1) {
-              void* data = WriteInto(&target->url, buffer_size + 1);
-              FPDFAction_GetURIPath(engine_->doc(), action, data, buffer_size);
+            if (buffer_size > 0) {
+              PDFiumAPIStringBufferAdapter<std::string> api_string_adapter(
+                  &target->url, buffer_size, true);
+              void* data = api_string_adapter.GetData();
+              size_t bytes_written = FPDFAction_GetURIPath(
+                  engine_->doc(), action, data, buffer_size);
+              api_string_adapter.Close(bytes_written);
             }
           }
           return WEBLINK_AREA;
@@ -406,10 +415,13 @@ void PDFiumPage::CalculateLinks() {
   for (int i = 0; i < count; ++i) {
     base::string16 url;
     int url_length = FPDFLink_GetURL(links, i, NULL, 0);
-    if (url_length > 1) {  // WriteInto needs at least 2 characters.
+    if (url_length > 0) {
+      PDFiumAPIStringBufferAdapter<base::string16> api_string_adapter(
+          &url, url_length, true);
       unsigned short* data =
-          reinterpret_cast<unsigned short*>(WriteInto(&url, url_length + 1));
-      FPDFLink_GetURL(links, i, data, url_length);
+          reinterpret_cast<unsigned short*>(api_string_adapter.GetData());
+      int actual_length = FPDFLink_GetURL(links, i, data, url_length);
+      api_string_adapter.Close(actual_length);
     }
     Link link;
     link.url = base::UTF16ToUTF8(url);

@@ -5,7 +5,7 @@
 #include "components/translate/core/browser/translate_ui_delegate.h"
 
 #include "base/i18n/string_compare.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "components/translate/core/browser/language_state.h"
 #include "components/translate/core/browser/translate_client.h"
 #include "components/translate/core/browser/translate_download_manager.h"
@@ -68,8 +68,8 @@ TranslateUIDelegate::TranslateUIDelegate(
     // Insert the language in languages_ in alphabetical order.
     std::vector<LanguageNamePair>::iterator iter2;
     for (iter2 = languages_.begin(); iter2 != languages_.end(); ++iter2) {
-      if (base::i18n::CompareString16WithCollator(
-              collator.get(), language_name, iter2->second) == UCOL_LESS) {
+      if (base::i18n::CompareString16WithCollator(*collator, language_name,
+                                                  iter2->second) == UCOL_LESS) {
         break;
       }
     }
@@ -180,9 +180,10 @@ void TranslateUIDelegate::RevertTranslation() {
 
 void TranslateUIDelegate::TranslationDeclined(bool explicitly_closed) {
   if (!translate_driver_->IsOffTheRecord()) {
-    prefs_->ResetTranslationAcceptedCount(GetOriginalLanguageCode());
-    prefs_->IncrementTranslationDeniedCount(GetOriginalLanguageCode());
-    prefs_->UpdateLastDeniedTime();
+    const std::string& language = GetOriginalLanguageCode();
+    prefs_->ResetTranslationAcceptedCount(language);
+    prefs_->IncrementTranslationDeniedCount(language);
+    prefs_->UpdateLastDeniedTime(language);
   }
 
   // Remember that the user declined the translation so as to prevent showing a
@@ -257,7 +258,7 @@ void TranslateUIDelegate::SetAlwaysTranslate(bool value) {
 std::string TranslateUIDelegate::GetPageHost() {
   if (!translate_driver_->HasCurrentPage())
     return std::string();
-  return translate_driver_->GetActiveURL().HostNoBrackets();
+  return translate_driver_->GetLastCommittedURL().HostNoBrackets();
 }
 
 }  // namespace translate

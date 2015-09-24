@@ -21,7 +21,6 @@
 
 #if !defined(OS_IOS)
 #include "chrome/browser/notifications/notification_ui_manager.h"
-#include "chrome/browser/prerender/prerender_tracker.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #endif
 
@@ -61,9 +60,9 @@ void TestingBrowserProcess::CreateInstance() {
 
 // static
 void TestingBrowserProcess::DeleteInstance() {
-  // g_browser_process must be NULL during its own destruction.
+  // g_browser_process must be null during its own destruction.
   BrowserProcess* browser_process = g_browser_process;
-  g_browser_process = NULL;
+  g_browser_process = nullptr;
   delete browser_process;
 }
 
@@ -71,9 +70,9 @@ TestingBrowserProcess::TestingBrowserProcess()
     : notification_service_(content::NotificationService::Create()),
       module_ref_count_(0),
       app_locale_("en"),
-      local_state_(NULL),
-      io_thread_(NULL),
-      system_request_context_(NULL),
+      local_state_(nullptr),
+      io_thread_(nullptr),
+      system_request_context_(nullptr),
       platform_part_(new TestingBrowserProcessPlatformPart()) {
 #if defined(ENABLE_EXTENSIONS)
   extensions_browser_client_.reset(
@@ -86,15 +85,15 @@ TestingBrowserProcess::TestingBrowserProcess()
 TestingBrowserProcess::~TestingBrowserProcess() {
   EXPECT_FALSE(local_state_);
 #if defined(ENABLE_CONFIGURATION_POLICY)
-  SetBrowserPolicyConnector(NULL);
+  SetBrowserPolicyConnector(nullptr);
 #endif
 #if defined(ENABLE_EXTENSIONS)
-  extensions::ExtensionsBrowserClient::Set(NULL);
+  extensions::ExtensionsBrowserClient::Set(nullptr);
 #endif
 
   // Destructors for some objects owned by TestingBrowserProcess will use
-  // g_browser_process if it is not NULL, so it must be NULL before proceeding.
-  DCHECK_EQ(static_cast<BrowserProcess*>(NULL), g_browser_process);
+  // g_browser_process if it is not null, so it must be null before proceeding.
+  DCHECK_EQ(static_cast<BrowserProcess*>(nullptr), g_browser_process);
 }
 
 void TestingBrowserProcess::ResourceDispatcherHostCreated() {
@@ -104,15 +103,15 @@ void TestingBrowserProcess::EndSession() {
 }
 
 MetricsServicesManager* TestingBrowserProcess::GetMetricsServicesManager() {
-  return NULL;
+  return nullptr;
 }
 
 metrics::MetricsService* TestingBrowserProcess::metrics_service() {
-  return NULL;
+  return nullptr;
 }
 
 rappor::RapporService* TestingBrowserProcess::rappor_service() {
-  return NULL;
+  return nullptr;
 }
 
 IOThread* TestingBrowserProcess::io_thread() {
@@ -120,13 +119,13 @@ IOThread* TestingBrowserProcess::io_thread() {
 }
 
 WatchDogThread* TestingBrowserProcess::watchdog_thread() {
-  return NULL;
+  return nullptr;
 }
 
 ProfileManager* TestingBrowserProcess::profile_manager() {
 #if defined(OS_IOS)
   NOTIMPLEMENTED();
-  return NULL;
+  return nullptr;
 #else
   return profile_manager_.get();
 #endif
@@ -151,7 +150,11 @@ PrefService* TestingBrowserProcess::local_state() {
 
 chrome_variations::VariationsService*
     TestingBrowserProcess::variations_service() {
-  return NULL;
+  return nullptr;
+}
+
+PromoResourceService* TestingBrowserProcess::promo_resource_service() {
+  return nullptr;
 }
 
 policy::BrowserPolicyConnector*
@@ -161,14 +164,14 @@ policy::BrowserPolicyConnector*
     browser_policy_connector_ = platform_part_->CreateBrowserPolicyConnector();
   return browser_policy_connector_.get();
 #else
-  return NULL;
+  return nullptr;
 #endif
 }
 
 policy::PolicyService* TestingBrowserProcess::policy_service() {
 #if defined(OS_IOS)
   NOTIMPLEMENTED();
-  return NULL;
+  return nullptr;
 #elif defined(ENABLE_CONFIGURATION_POLICY)
   return browser_policy_connector()->GetPolicyService();
 #else
@@ -179,19 +182,19 @@ policy::PolicyService* TestingBrowserProcess::policy_service() {
 }
 
 IconManager* TestingBrowserProcess::icon_manager() {
-  return NULL;
+  return nullptr;
 }
 
 GLStringManager* TestingBrowserProcess::gl_string_manager() {
-  return NULL;
+  return nullptr;
 }
 
 GpuModeManager* TestingBrowserProcess::gpu_mode_manager() {
-  return NULL;
+  return nullptr;
 }
 
 BackgroundModeManager* TestingBrowserProcess::background_mode_manager() {
-  return NULL;
+  return nullptr;
 }
 
 void TestingBrowserProcess::set_background_mode_manager_for_test(
@@ -200,13 +203,13 @@ void TestingBrowserProcess::set_background_mode_manager_for_test(
 }
 
 StatusTray* TestingBrowserProcess::status_tray() {
-  return NULL;
+  return nullptr;
 }
 
 SafeBrowsingService* TestingBrowserProcess::safe_browsing_service() {
 #if defined(OS_IOS)
   NOTIMPLEMENTED();
-  return NULL;
+  return nullptr;
 #else
   return sb_service_.get();
 #endif
@@ -214,7 +217,7 @@ SafeBrowsingService* TestingBrowserProcess::safe_browsing_service() {
 
 safe_browsing::ClientSideDetectionService*
 TestingBrowserProcess::safe_browsing_detection_service() {
-  return NULL;
+  return nullptr;
 }
 
 net::URLRequestContextGetter* TestingBrowserProcess::system_request_context() {
@@ -227,7 +230,7 @@ BrowserProcessPlatformPart* TestingBrowserProcess::platform_part() {
 
 extensions::EventRouterForwarder*
 TestingBrowserProcess::extension_event_router_forwarder() {
-  return NULL;
+  return nullptr;
 }
 
 NotificationUIManager* TestingBrowserProcess::notification_ui_manager() {
@@ -238,7 +241,7 @@ NotificationUIManager* TestingBrowserProcess::notification_ui_manager() {
   return notification_ui_manager_.get();
 #else
   NOTIMPLEMENTED();
-  return NULL;
+  return nullptr;
 #endif
 }
 
@@ -247,12 +250,12 @@ message_center::MessageCenter* TestingBrowserProcess::message_center() {
 }
 
 IntranetRedirectDetector* TestingBrowserProcess::intranet_redirect_detector() {
-  return NULL;
+  return nullptr;
 }
 void TestingBrowserProcess::CreateDevToolsHttpProtocolHandler(
     chrome::HostDesktopType host_desktop_type,
     const std::string& ip,
-    int port) {
+    uint16 port) {
 }
 
 unsigned int TestingBrowserProcess::AddRefModule() {
@@ -275,7 +278,7 @@ printing::PrintJobManager* TestingBrowserProcess::print_job_manager() {
   return print_job_manager_.get();
 #else
   NOTIMPLEMENTED();
-  return NULL;
+  return nullptr;
 #endif
 }
 
@@ -288,7 +291,7 @@ TestingBrowserProcess::print_preview_dialog_controller() {
   return print_preview_dialog_controller_.get();
 #else
   NOTIMPLEMENTED();
-  return NULL;
+  return nullptr;
 #endif
 }
 
@@ -302,7 +305,7 @@ TestingBrowserProcess::background_printing_manager() {
   return background_printing_manager_.get();
 #else
   NOTIMPLEMENTED();
-  return NULL;
+  return nullptr;
 #endif
 }
 
@@ -316,46 +319,40 @@ void TestingBrowserProcess::SetApplicationLocale(
 }
 
 DownloadStatusUpdater* TestingBrowserProcess::download_status_updater() {
-  return NULL;
+  return nullptr;
 }
 
 DownloadRequestLimiter* TestingBrowserProcess::download_request_limiter() {
-  return NULL;
+  return nullptr;
 }
 
 ChromeNetLog* TestingBrowserProcess::net_log() {
-  return NULL;
-}
-
-prerender::PrerenderTracker* TestingBrowserProcess::prerender_tracker() {
-#if defined(OS_IOS)
-  NOTIMPLEMENTED();
-  return NULL;
-#else
-  if (!prerender_tracker_.get())
-    prerender_tracker_.reset(new prerender::PrerenderTracker());
-  return prerender_tracker_.get();
-#endif
+  return nullptr;
 }
 
 component_updater::ComponentUpdateService*
 TestingBrowserProcess::component_updater() {
-  return NULL;
+  return nullptr;
 }
 
 CRLSetFetcher* TestingBrowserProcess::crl_set_fetcher() {
-  return NULL;
+  return nullptr;
 }
 
 component_updater::PnaclComponentInstaller*
 TestingBrowserProcess::pnacl_component_installer() {
-  return NULL;
+  return nullptr;
+}
+
+component_updater::SupervisedUserWhitelistInstaller*
+TestingBrowserProcess::supervised_user_whitelist_installer() {
+  return nullptr;
 }
 
 MediaFileSystemRegistry* TestingBrowserProcess::media_file_system_registry() {
 #if defined(OS_IOS) || defined(OS_ANDROID)
   NOTIMPLEMENTED();
-  return NULL;
+  return nullptr;
 #else
   if (!media_file_system_registry_)
     media_file_system_registry_.reset(new MediaFileSystemRegistry());
@@ -364,12 +361,12 @@ MediaFileSystemRegistry* TestingBrowserProcess::media_file_system_registry() {
 }
 
 bool TestingBrowserProcess::created_local_state() const {
-    return (local_state_ != NULL);
+  return (local_state_ != nullptr);
 }
 
 #if defined(ENABLE_WEBRTC)
 WebRtcLogUploader* TestingBrowserProcess::webrtc_log_uploader() {
-  return NULL;
+  return nullptr;
 }
 #endif
 
@@ -385,12 +382,25 @@ TestingBrowserProcess::network_time_tracker() {
 }
 
 gcm::GCMDriver* TestingBrowserProcess::gcm_driver() {
-  return NULL;
+  return nullptr;
 }
 
+memory::OomPriorityManager* TestingBrowserProcess::GetOomPriorityManager() {
+  return nullptr;
+}
+
+ShellIntegration::DefaultWebClientState
+TestingBrowserProcess::CachedDefaultWebClientState() {
+  return ShellIntegration::UNKNOWN_DEFAULT;
+}
 void TestingBrowserProcess::SetSystemRequestContext(
     net::URLRequestContextGetter* context_getter) {
   system_request_context_ = context_getter;
+}
+
+void TestingBrowserProcess::SetNotificationUIManager(
+    scoped_ptr<NotificationUIManager> notification_ui_manager) {
+  notification_ui_manager_.swap(notification_ui_manager);
 }
 
 void TestingBrowserProcess::SetLocalState(PrefService* local_state) {
@@ -409,7 +419,7 @@ void TestingBrowserProcess::SetLocalState(PrefService* local_state) {
     notification_ui_manager_.reset();
 #endif
 #if defined(ENABLE_CONFIGURATION_POLICY)
-    SetBrowserPolicyConnector(NULL);
+    SetBrowserPolicyConnector(nullptr);
 #endif
   }
   local_state_ = local_state;
@@ -433,8 +443,9 @@ void TestingBrowserProcess::SetBrowserPolicyConnector(
 
 void TestingBrowserProcess::SetSafeBrowsingService(
     SafeBrowsingService* sb_service) {
-#if !defined(OS_IOS)
+#if defined(OS_IOS)
   NOTIMPLEMENTED();
+#else
   sb_service_ = sb_service;
 #endif
 }

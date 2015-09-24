@@ -25,14 +25,20 @@
 
 #include "core/MediaTypeNames.h"
 #include "core/css/CSSStyleSheet.h"
+#include "core/events/Event.h"
 #include "wtf/StdLibExtras.h"
 
 namespace blink {
 
+static SVGStyleEventSender& styleErrorEventSender()
+{
+    DEFINE_STATIC_LOCAL(SVGStyleEventSender, sharedErrorEventSender, (EventTypeNames::error));
+    return sharedErrorEventSender;
+}
+
 inline SVGStyleElement::SVGStyleElement(Document& document, bool createdByParser)
     : SVGElement(SVGNames::styleTag, document)
     , StyleElement(&document, createdByParser)
-    , m_svgLoadEventTimer(this, &SVGElement::svgLoadEventTimerFired)
 {
 }
 
@@ -41,6 +47,8 @@ SVGStyleElement::~SVGStyleElement()
 #if !ENABLE(OILPAN)
     StyleElement::clearDocumentData(document(), this);
 #endif
+
+    styleErrorEventSender().cancelEvent(this);
 }
 
 PassRefPtrWillBeRawPtr<SVGStyleElement> SVGStyleElement::create(Document& document, bool createdByParser)
@@ -109,8 +117,10 @@ void SVGStyleElement::parseAttribute(const QualifiedName& name, const AtomicStri
 
 void SVGStyleElement::finishParsingChildren()
 {
-    StyleElement::finishParsingChildren(this);
+    StyleElement::ProcessingResult result = StyleElement::finishParsingChildren(this);
     SVGElement::finishParsingChildren();
+    if (result == StyleElement::ProcessingFatalError)
+        notifyLoadedSheetAndAllCriticalSubresources(ErrorOccurredLoadingSubresource);
 }
 
 Node::InsertionNotificationRequest SVGStyleElement::insertedInto(ContainerNode* insertionPoint)
@@ -122,7 +132,8 @@ Node::InsertionNotificationRequest SVGStyleElement::insertedInto(ContainerNode* 
 
 void SVGStyleElement::didNotifySubtreeInsertionsToDocument()
 {
-    StyleElement::processStyleSheet(document(), this);
+    if (StyleElement::processStyleSheet(document(), this) == StyleElement::ProcessingFatalError)
+        notifyLoadedSheetAndAllCriticalSubresources(ErrorOccurredLoadingSubresource);
 }
 
 void SVGStyleElement::removedFrom(ContainerNode* insertionPoint)
@@ -134,10 +145,23 @@ void SVGStyleElement::removedFrom(ContainerNode* insertionPoint)
 void SVGStyleElement::childrenChanged(const ChildrenChange& change)
 {
     SVGElement::childrenChanged(change);
-    StyleElement::childrenChanged(this);
+    if (StyleElement::childrenChanged(this) == StyleElement::ProcessingFatalError)
+        notifyLoadedSheetAndAllCriticalSubresources(ErrorOccurredLoadingSubresource);
 }
 
-void SVGStyleElement::trace(Visitor* visitor)
+void SVGStyleElement::notifyLoadedSheetAndAllCriticalSubresources(LoadedSheetErrorStatus errorStatus)
+{
+    if (errorStatus != NoErrorLoadingSubresource)
+        styleErrorEventSender().dispatchEventSoon(this);
+}
+
+void SVGStyleElement::dispatchPendingEvent(SVGStyleEventSender* eventSender)
+{
+    ASSERT_UNUSED(eventSender, eventSender == &styleErrorEventSender());
+    dispatchEvent(Event::create(EventTypeNames::error));
+}
+
+DEFINE_TRACE(SVGStyleElement)
 {
     StyleElement::trace(visitor);
     SVGElement::trace(visitor);

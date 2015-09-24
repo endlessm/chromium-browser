@@ -30,16 +30,6 @@ class BrowserContext;
 class KEYED_SERVICE_EXPORT RefcountedBrowserContextKeyedServiceFactory
     : public RefcountedKeyedServiceFactory {
  public:
-  // Registers preferences used in this service on the pref service of
-  // |context|. This is the public interface and is safe to be called multiple
-  // times because testing code can have multiple services of the same type
-  // attached to a single |context|. Only test code is allowed to call this
-  // method.
-  // TODO(gab): This method can be removed entirely when
-  // PrefService::DeprecatedGetPrefRegistry() is phased out.
-  void RegisterUserPrefsOnBrowserContextForTest(
-      content::BrowserContext* context);
-
   // A function that supplies the instance of a KeyedService for a given
   // BrowserContext. This is used primarily for testing, where we want to feed
   // a specific mock into the BCKSF system.
@@ -130,7 +120,7 @@ class KEYED_SERVICE_EXPORT RefcountedBrowserContextKeyedServiceFactory
   friend class BrowserContextDependencyManagerUnittests;
 
   // Registers any user preferences on this service. This is called by
-  // RegisterProfilePrefsIfNecessary() and should be overriden by any service
+  // RegisterPrefsIfNecessaryForContext() and should be overriden by any service
   // that wants to register profile-specific preferences.
   virtual void RegisterProfilePrefs(
       user_prefs::PrefRegistrySyncable* registry) {}
@@ -141,8 +131,6 @@ class KEYED_SERVICE_EXPORT RefcountedBrowserContextKeyedServiceFactory
   bool IsOffTheRecord(base::SupportsUserData* context) const final;
 
   // KeyedServiceBaseFactory:
-  user_prefs::PrefRegistrySyncable* GetAssociatedPrefRegistry(
-      base::SupportsUserData* context) const final;
   base::SupportsUserData* GetContextToUse(
       base::SupportsUserData* context) const final;
   bool ServiceIsCreatedWithContext() const final;

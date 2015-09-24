@@ -17,7 +17,10 @@ namespace views {
 class ViewsTestHelperMac : public ViewsTestHelper {
  public:
   ViewsTestHelperMac();
-  virtual ~ViewsTestHelperMac();
+  ~ViewsTestHelperMac() override;
+
+  // ViewsTestHelper:
+  void TearDown() override;
 
  private:
   // Disable animations during tests.

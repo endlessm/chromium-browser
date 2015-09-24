@@ -3,7 +3,8 @@
 // found in the LICENSE file.
 
 #include "base/memory/scoped_ptr.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "content/child/indexed_db/indexed_db_dispatcher.h"
 #include "content/child/indexed_db/webidbcursor_impl.h"
@@ -15,7 +16,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/WebKit/public/platform/WebBlobInfo.h"
 #include "third_party/WebKit/public/platform/WebData.h"
-#include "third_party/WebKit/public/platform/WebIDBCallbacks.h"
+#include "third_party/WebKit/public/platform/modules/indexeddb/WebIDBCallbacks.h"
 #include "third_party/WebKit/public/web/WebHeap.h"
 
 using blink::WebBlobInfo;
@@ -25,6 +26,7 @@ using blink::WebIDBCursor;
 using blink::WebIDBDatabase;
 using blink::WebIDBDatabaseError;
 using blink::WebIDBKey;
+using blink::WebIDBValue;
 using blink::WebVector;
 
 namespace content {
@@ -63,15 +65,16 @@ class MockDispatcher : public IndexedDBDispatcher {
 class IndexedDBDispatcherTest : public testing::Test {
  public:
   IndexedDBDispatcherTest()
-      : message_loop_proxy_(base::MessageLoopProxy::current()),
+      : task_runner_(base::ThreadTaskRunnerHandle::Get()),
         sync_message_filter_(new IPC::SyncMessageFilter(NULL)),
-        thread_safe_sender_(new ThreadSafeSender(message_loop_proxy_.get(),
+        thread_safe_sender_(new ThreadSafeSender(task_runner_.get(),
                                                  sync_message_filter_.get())) {}
 
   void TearDown() override { blink::WebHeap::collectAllGarbageForTesting(); }
 
  protected:
-  scoped_refptr<base::MessageLoopProxy> message_loop_proxy_;
+  base::MessageLoop message_loop_;
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   scoped_refptr<IPC::SyncMessageFilter> sync_message_filter_;
   scoped_refptr<ThreadSafeSender> thread_safe_sender_;
 
@@ -140,13 +143,12 @@ class CursorCallbacks : public WebIDBCallbacks {
   explicit CursorCallbacks(scoped_ptr<WebIDBCursor>* cursor)
       : cursor_(cursor) {}
 
-  virtual void onSuccess(const WebData&,
-                         const WebVector<WebBlobInfo>&) override {}
-  virtual void onSuccess(WebIDBCursor* cursor,
-                         const WebIDBKey& key,
-                         const WebIDBKey& primaryKey,
-                         const WebData& value,
-                         const WebVector<WebBlobInfo>&) override {
+  void onSuccess(const WebIDBValue&) override {}
+  void onSuccess(WebIDBCursor* cursor,
+                 const WebIDBKey& key,
+                 const WebIDBKey& primaryKey,
+                 const WebData& value,
+                 const WebVector<WebBlobInfo>&) override {
     cursor_->reset(cursor);
   }
 

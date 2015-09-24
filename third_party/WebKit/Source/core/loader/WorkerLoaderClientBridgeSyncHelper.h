@@ -31,9 +31,10 @@
 #ifndef WorkerLoaderClientBridgeSyncHelper_h
 #define WorkerLoaderClientBridgeSyncHelper_h
 
-#include "core/loader/ThreadableLoaderClient.h"
+#include "core/loader/ThreadableLoaderClientWrapper.h"
 #include "wtf/Forward.h"
 #include "wtf/Functional.h"
+#include "wtf/ThreadingPrimitives.h"
 #include "wtf/Vector.h"
 
 namespace blink {
@@ -46,32 +47,35 @@ namespace blink {
 // passed to and used on the main thread. Each did* method records the given
 // data so that they can be run on the worker thread later (by run()).
 class WorkerLoaderClientBridgeSyncHelper : public ThreadableLoaderClient {
+    WTF_MAKE_FAST_ALLOCATED(WorkerLoaderClientBridgeSyncHelper);
 public:
-    static PassOwnPtr<WorkerLoaderClientBridgeSyncHelper> create(ThreadableLoaderClient&, PassOwnPtr<blink::WebWaitableEvent>);
-    virtual ~WorkerLoaderClientBridgeSyncHelper();
+    static PassOwnPtr<WorkerLoaderClientBridgeSyncHelper> create(ThreadableLoaderClientWrapper*, PassOwnPtr<WebWaitableEvent>);
+    ~WorkerLoaderClientBridgeSyncHelper() override;
 
     // Called on the worker context thread.
     void run();
 
     // Called on the main thread.
-    virtual void didSendData(unsigned long long bytesSent, unsigned long long totalBytesToBeSent) override;
-    virtual void didReceiveResponse(unsigned long identifier, const ResourceResponse&, PassOwnPtr<WebDataConsumerHandle>) override;
-    virtual void didReceiveData(const char*, unsigned dataLength) override;
-    virtual void didDownloadData(int dataLength) override;
-    virtual void didReceiveCachedMetadata(const char*, int dataLength) override;
-    virtual void didFinishLoading(unsigned long identifier, double finishTime) override;
-    virtual void didFail(const ResourceError&) override;
-    virtual void didFailAccessControlCheck(const ResourceError&) override;
-    virtual void didFailRedirectCheck() override;
+    void didSendData(unsigned long long bytesSent, unsigned long long totalBytesToBeSent) override;
+    void didReceiveResponse(unsigned long identifier, const ResourceResponse&, PassOwnPtr<WebDataConsumerHandle>) override;
+    void didReceiveData(const char*, unsigned dataLength) override;
+    void didDownloadData(int dataLength) override;
+    void didReceiveCachedMetadata(const char*, int dataLength) override;
+    void didFinishLoading(unsigned long identifier, double finishTime) override;
+    void didFail(const ResourceError&) override;
+    void didFailAccessControlCheck(const ResourceError&) override;
+    void didFailRedirectCheck() override;
+    void didReceiveResourceTiming(const ResourceTimingInfo&) override;
 
 private:
-    WorkerLoaderClientBridgeSyncHelper(ThreadableLoaderClient&, PassOwnPtr<blink::WebWaitableEvent>);
+    WorkerLoaderClientBridgeSyncHelper(ThreadableLoaderClientWrapper*, PassOwnPtr<WebWaitableEvent>);
 
     bool m_done;
-    ThreadableLoaderClient& m_client;
-    OwnPtr<blink::WebWaitableEvent> m_event;
+    RefPtr<ThreadableLoaderClientWrapper> m_client;
+    OwnPtr<WebWaitableEvent> m_event;
     Vector<Vector<char>*> m_receivedData;
-    Vector<Closure> m_clientTasks;
+    Vector<OwnPtr<Closure>> m_clientTasks;
+    Mutex m_lock;
 };
 
 } // namespace blink

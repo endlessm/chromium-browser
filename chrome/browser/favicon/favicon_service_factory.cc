@@ -6,21 +6,35 @@
 
 #include "base/memory/singleton.h"
 #include "base/prefs/pref_service.h"
-#include "chrome/browser/favicon/chrome_favicon_client_factory.h"
-#include "chrome/browser/favicon/favicon_service.h"
-#include "chrome/browser/history/history_service.h"
+#include "chrome/browser/favicon/chrome_favicon_client.h"
 #include "chrome/browser/history/history_service_factory.h"
+#include "chrome/browser/profiles/profile.h"
+#include "components/favicon/core/favicon_service.h"
+#include "components/history/core/browser/history_service.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 
+namespace {
+
+scoped_ptr<KeyedService> BuildFaviconService(content::BrowserContext* context) {
+  Profile* profile = Profile::FromBrowserContext(context);
+  return make_scoped_ptr(new favicon::FaviconService(
+      make_scoped_ptr(new ChromeFaviconClient(profile)),
+      HistoryServiceFactory::GetForProfile(
+          profile, ServiceAccessType::EXPLICIT_ACCESS)));
+}
+
+}  // namespace
+
 // static
-FaviconService* FaviconServiceFactory::GetForProfile(
-    Profile* profile, Profile::ServiceAccessType sat) {
+favicon::FaviconService* FaviconServiceFactory::GetForProfile(
+    Profile* profile,
+    ServiceAccessType sat) {
   if (!profile->IsOffTheRecord()) {
-    return static_cast<FaviconService*>(
+    return static_cast<favicon::FaviconService*>(
         GetInstance()->GetServiceForBrowserContext(profile, true));
-  } else if (sat == Profile::EXPLICIT_ACCESS) {
+  } else if (sat == ServiceAccessType::EXPLICIT_ACCESS) {
     // Profile must be OffTheRecord in this case.
-    return static_cast<FaviconService*>(
+    return static_cast<favicon::FaviconService*>(
         GetInstance()->GetServiceForBrowserContext(
             profile->GetOriginalProfile(), true));
   }
@@ -35,21 +49,25 @@ FaviconServiceFactory* FaviconServiceFactory::GetInstance() {
   return Singleton<FaviconServiceFactory>::get();
 }
 
+// static
+BrowserContextKeyedServiceFactory::TestingFactoryFunction
+FaviconServiceFactory::GetDefaultFactory() {
+  return &BuildFaviconService;
+}
+
 FaviconServiceFactory::FaviconServiceFactory()
     : BrowserContextKeyedServiceFactory(
         "FaviconService",
         BrowserContextDependencyManager::GetInstance()) {
   DependsOn(HistoryServiceFactory::GetInstance());
-  DependsOn(ChromeFaviconClientFactory::GetInstance());
 }
 
-FaviconServiceFactory::~FaviconServiceFactory() {}
+FaviconServiceFactory::~FaviconServiceFactory() {
+}
 
 KeyedService* FaviconServiceFactory::BuildServiceInstanceFor(
-    content::BrowserContext* profile) const {
-  FaviconClient* favicon_client =
-      ChromeFaviconClientFactory::GetForProfile(static_cast<Profile*>(profile));
-  return new FaviconService(static_cast<Profile*>(profile), favicon_client);
+    content::BrowserContext* context) const {
+  return BuildFaviconService(context).release();
 }
 
 bool FaviconServiceFactory::ServiceIsNULLWhileTesting() const {

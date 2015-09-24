@@ -5,8 +5,11 @@
 #ifndef CONTENT_PUBLIC_COMMON_SANDBOX_INIT_H_
 #define CONTENT_PUBLIC_COMMON_SANDBOX_INIT_H_
 
+#include "base/files/scoped_file.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/memory/shared_memory.h"
 #include "base/process/process.h"
+#include "base/process/process_handle.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 
@@ -25,9 +28,20 @@ struct SandboxInterfaceInfo;
 namespace content {
 class SandboxedProcessLauncherDelegate;
 
+#if defined(OS_WIN) || defined(OS_MACOSX)
+// This function allows a sandboxed process to duplicate a SharedMemoryHandle
+// to itself or to another process. The duplicated SharedMemoryHandle has the
+// same access rights as the original. Returns true on success, false
+// otherwise.
+CONTENT_EXPORT bool BrokerDuplicateSharedMemoryHandle(
+    const base::SharedMemoryHandle& source_handle,
+    base::ProcessId target_process_id,
+    base::SharedMemoryHandle* target_handle);
+#endif  // defined(OS_WIN) || defined(OS_MACOSX)
+
 #if defined(OS_WIN)
 
-// Initialize the sandbox for renderer, gpu, utility, worker, nacl, and plug-in
+// Initialize the sandbox for renderer, gpu, utility, worker, nacl, and plugin
 // processes, depending on the command line flags. Although The browser process
 // is not sandboxed, this also needs to be called because it will initialize
 // the broker code.
@@ -58,7 +72,7 @@ CONTENT_EXPORT bool BrokerAddTargetPeer(HANDLE peer_process);
 
 // Launch a sandboxed process. |delegate| may be NULL. If |delegate| is non-NULL
 // then it just has to outlive this method call.
-CONTENT_EXPORT base::ProcessHandle StartSandboxedProcess(
+CONTENT_EXPORT base::Process StartSandboxedProcess(
     SandboxedProcessLauncherDelegate* delegate,
     base::CommandLine* cmd_line);
 
@@ -81,20 +95,23 @@ CONTENT_EXPORT base::ProcessHandle StartSandboxedProcess(
 CONTENT_EXPORT bool InitializeSandbox(int sandbox_type,
                                       const base::FilePath& allowed_path);
 
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) || defined(OS_NACL_NONSFI)
 
 class SandboxInitializerDelegate;
 
 // Initialize a seccomp-bpf sandbox. |policy| may not be NULL.
+// If an existing layer of sandboxing is present that would prevent access to
+// /proc, |proc_fd| must be a valid file descriptor to /proc/.
 // Returns true if the sandbox has been properly engaged.
 CONTENT_EXPORT bool InitializeSandbox(
-    scoped_ptr<sandbox::bpf_dsl::Policy> policy);
+    scoped_ptr<sandbox::bpf_dsl::Policy> policy,
+    base::ScopedFD proc_fd);
 
 // Return a "baseline" policy. This is used by a SandboxInitializerDelegate to
 // implement a policy that is derived from the baseline.
 CONTENT_EXPORT scoped_ptr<sandbox::bpf_dsl::Policy>
 GetBPFSandboxBaselinePolicy();
-#endif  // defined(OS_LINUX)
+#endif  // defined(OS_LINUX) || defined(OS_NACL_NONSFI)
 
 }  // namespace content
 

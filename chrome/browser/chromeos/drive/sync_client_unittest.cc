@@ -10,7 +10,9 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/prefs/testing_pref_service.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/test/test_timeouts.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/chromeos/drive/change_list_loader.h"
 #include "chrome/browser/chromeos/drive/drive.pb.h"
 #include "chrome/browser/chromeos/drive/fake_free_disk_space_getter.h"
@@ -19,7 +21,7 @@
 #include "chrome/browser/chromeos/drive/file_system/move_operation.h"
 #include "chrome/browser/chromeos/drive/file_system/operation_delegate.h"
 #include "chrome/browser/chromeos/drive/file_system/remove_operation.h"
-#include "chrome/browser/chromeos/drive/file_system_util.h"
+#include "chrome/browser/chromeos/drive/file_system_core_util.h"
 #include "chrome/browser/chromeos/drive/job_scheduler.h"
 #include "chrome/browser/chromeos/drive/resource_entry_conversion.h"
 #include "chrome/browser/chromeos/drive/resource_metadata.h"
@@ -42,14 +44,14 @@ const char kLocalContent[] = "Hello!";
 // The content of files stored in the service.
 const char kRemoteContent[] = "World!";
 
-// SyncClientTestDriveService will return GDATA_CANCELLED when a request is
+// SyncClientTestDriveService will return DRIVE_CANCELLED when a request is
 // made with the specified resource ID.
 class SyncClientTestDriveService : public ::drive::FakeDriveService {
  public:
   SyncClientTestDriveService() : download_file_count_(0) {}
 
   // FakeDriveService override:
-  virtual google_apis::CancelCallback DownloadFile(
+  google_apis::CancelCallback DownloadFile(
       const base::FilePath& local_cache_path,
       const std::string& resource_id,
       const google_apis::DownloadActionCallback& download_action_callback,
@@ -57,16 +59,16 @@ class SyncClientTestDriveService : public ::drive::FakeDriveService {
       const google_apis::ProgressCallback& progress_callback) override {
     ++download_file_count_;
     if (resource_id == resource_id_to_be_cancelled_) {
-      base::MessageLoopProxy::current()->PostTask(
+      base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE,
           base::Bind(download_action_callback,
-                     google_apis::GDATA_CANCELLED,
+                     google_apis::DRIVE_CANCELLED,
                      base::FilePath()));
       return google_apis::CancelCallback();
     }
     if (resource_id == resource_id_to_be_paused_) {
       paused_action_ = base::Bind(download_action_callback,
-                                  google_apis::GDATA_OTHER_ERROR,
+                                  google_apis::DRIVE_OTHER_ERROR,
                                   base::FilePath());
       return google_apis::CancelCallback();
     }
@@ -100,7 +102,7 @@ class SyncClientTestDriveService : public ::drive::FakeDriveService {
 
 class SyncClientTest : public testing::Test {
  public:
-  virtual void SetUp() override {
+  void SetUp() override {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
 
     pref_service_.reset(new TestingPrefServiceSimple);
@@ -113,38 +115,39 @@ class SyncClientTest : public testing::Test {
 
     drive_service_.reset(new SyncClientTestDriveService);
 
-    scheduler_.reset(new JobScheduler(pref_service_.get(),
-                                      logger_.get(),
-                                      drive_service_.get(),
-                                      base::MessageLoopProxy::current().get()));
+    scheduler_.reset(new JobScheduler(
+        pref_service_.get(),
+        logger_.get(),
+        drive_service_.get(),
+        base::ThreadTaskRunnerHandle::Get().get()));
 
     metadata_storage_.reset(new ResourceMetadataStorage(
-        temp_dir_.path(), base::MessageLoopProxy::current().get()));
+        temp_dir_.path(), base::ThreadTaskRunnerHandle::Get().get()));
     ASSERT_TRUE(metadata_storage_->Initialize());
 
     cache_.reset(new FileCache(metadata_storage_.get(),
                                temp_dir_.path(),
-                               base::MessageLoopProxy::current().get(),
+                               base::ThreadTaskRunnerHandle::Get().get(),
                                NULL /* free_disk_space_getter */));
     ASSERT_TRUE(cache_->Initialize());
 
     metadata_.reset(new internal::ResourceMetadata(
         metadata_storage_.get(), cache_.get(),
-        base::MessageLoopProxy::current()));
+        base::ThreadTaskRunnerHandle::Get()));
     ASSERT_EQ(FILE_ERROR_OK, metadata_->Initialize());
 
     about_resource_loader_.reset(new AboutResourceLoader(scheduler_.get()));
     loader_controller_.reset(new LoaderController);
     change_list_loader_.reset(new ChangeListLoader(
         logger_.get(),
-        base::MessageLoopProxy::current().get(),
+        base::ThreadTaskRunnerHandle::Get().get(),
         metadata_.get(),
         scheduler_.get(),
         about_resource_loader_.get(),
         loader_controller_.get()));
     ASSERT_NO_FATAL_FAILURE(SetUpTestData());
 
-    sync_client_.reset(new SyncClient(base::MessageLoopProxy::current().get(),
+    sync_client_.reset(new SyncClient(base::ThreadTaskRunnerHandle::Get().get(),
                                       &delegate_,
                                       scheduler_.get(),
                                       metadata_.get(),
@@ -158,7 +161,7 @@ class SyncClientTest : public testing::Test {
 
   // Adds a file to the service root and |resource_ids_|.
   void AddFileEntry(const std::string& title) {
-    google_apis::GDataErrorCode error = google_apis::GDATA_FILE_ERROR;
+    google_apis::DriveApiErrorCode error = google_apis::DRIVE_FILE_ERROR;
     scoped_ptr<google_apis::FileResource> entry;
     drive_service_->AddNewFile(
         "text/plain",
@@ -217,7 +220,7 @@ class SyncClientTest : public testing::Test {
 
     // Prepare a removed file.
     file_system::RemoveOperation remove_operation(
-        base::MessageLoopProxy::current().get(), &delegate_, metadata_.get(),
+        base::ThreadTaskRunnerHandle::Get().get(), &delegate_, metadata_.get(),
         cache_.get());
     remove_operation.Remove(
         util::GetDriveMyDriveRootPath().AppendASCII("removed"),
@@ -228,7 +231,7 @@ class SyncClientTest : public testing::Test {
 
     // Prepare a moved file.
     file_system::MoveOperation move_operation(
-        base::MessageLoopProxy::current().get(), &delegate_, metadata_.get());
+        base::ThreadTaskRunnerHandle::Get().get(), &delegate_, metadata_.get());
     move_operation.Move(
         util::GetDriveMyDriveRootPath().AppendASCII("moved"),
         util::GetDriveMyDriveRootPath().AppendASCII("moved_new_title"),
@@ -291,7 +294,7 @@ TEST_F(SyncClientTest, StartProcessingBacklog) {
   EXPECT_FALSE(entry.file_specific_info().cache_state().is_dirty());
 
   // Removed entry is not found.
-  google_apis::GDataErrorCode status = google_apis::GDATA_OTHER_ERROR;
+  google_apis::DriveApiErrorCode status = google_apis::DRIVE_OTHER_ERROR;
   scoped_ptr<google_apis::FileResource> server_entry;
   drive_service_->GetFileResource(
       resource_ids_["removed"],
@@ -302,7 +305,7 @@ TEST_F(SyncClientTest, StartProcessingBacklog) {
   EXPECT_TRUE(server_entry->labels().is_trashed());
 
   // Moved entry was moved.
-  status = google_apis::GDATA_OTHER_ERROR;
+  status = google_apis::DRIVE_OTHER_ERROR;
   drive_service_->GetFileResource(
       resource_ids_["moved"],
       google_apis::test_util::CreateCopyResultCallback(&status, &server_entry));
@@ -387,7 +390,7 @@ TEST_F(SyncClientTest, RetryOnDisconnection) {
   // FILE_ERROR_NO_CONNECTION is handled by SyncClient correctly.
   // Without this delay, JobScheduler will keep the jobs unrun and SyncClient
   // will receive no error.
-  base::MessageLoopProxy::current()->PostDelayedTask(
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
       base::Bind(&test_util::FakeNetworkChangeNotifier::SetConnectionType,
                  base::Unretained(fake_network_change_notifier_.get()),

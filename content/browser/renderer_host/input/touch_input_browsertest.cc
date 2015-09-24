@@ -4,7 +4,10 @@
 
 #include "base/auto_reset.h"
 #include "base/command_line.h"
+#include "base/location.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/browser/gpu/compositor_util.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
@@ -27,15 +30,18 @@ namespace {
 
 void GiveItSomeTime() {
   base::RunLoop run_loop;
-  base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      run_loop.QuitClosure(),
-      base::TimeDelta::FromMilliseconds(10));
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, run_loop.QuitClosure(), base::TimeDelta::FromMilliseconds(10));
   run_loop.Run();
 }
 
 const char kTouchEventDataURL[] =
     "data:text/html;charset=utf-8,"
+#if defined(OS_ANDROID)
+    "<head>"
+    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+    "</head>"
+#endif
     "<body onload='setup();'>"
     "<div id='first'></div><div id='second'></div><div id='third'></div>"
     "<style>"
@@ -112,8 +118,8 @@ class InputEventMessageFilter : public BrowserMessageFilter {
     if (message.type() == InputHostMsg_HandleInputEvent_ACK::ID) {
       InputHostMsg_HandleInputEvent_ACK::Param params;
       InputHostMsg_HandleInputEvent_ACK::Read(&message, &params);
-      WebInputEvent::Type type = params.a.type;
-      InputEventAckState ack = params.a.state;
+      WebInputEvent::Type type = base::get<0>(params).type;
+      InputEventAckState ack = base::get<0>(params).state;
       BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
           base::Bind(&InputEventMessageFilter::ReceivedEventAck,
                      this, type, ack));
@@ -159,7 +165,7 @@ class TouchInputBrowserTest : public ContentBrowserTest {
     host->GetProcess()->AddFilter(filter_.get());
   }
 
-  void SetUpCommandLine(CommandLine* cmd) override {
+  void SetUpCommandLine(base::CommandLine* cmd) override {
     cmd->AppendSwitchASCII(switches::kTouchEvents,
                            switches::kTouchEventsEnabled);
   }

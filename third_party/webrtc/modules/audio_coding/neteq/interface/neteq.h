@@ -13,11 +13,12 @@
 
 #include <string.h>  // Provide access to size_t.
 
+#include <string>
 #include <vector>
 
 #include "webrtc/base/constructormagic.h"
 #include "webrtc/common_types.h"
-#include "webrtc/modules/audio_coding/neteq/interface/audio_decoder.h"
+#include "webrtc/modules/audio_coding/neteq/audio_decoder_impl.h"
 #include "webrtc/typedefs.h"
 
 namespace webrtc {
@@ -33,11 +34,15 @@ struct NetEqNetworkStatistics {
   uint16_t packet_loss_rate;  // Loss rate (network + late) in Q14.
   uint16_t packet_discard_rate;  // Late loss rate in Q14.
   uint16_t expand_rate;  // Fraction (of original stream) of synthesized
-                         // speech inserted through expansion (in Q14).
+                         // audio inserted through expansion (in Q14).
+  uint16_t speech_expand_rate;  // Fraction (of original stream) of synthesized
+                                // speech inserted through expansion (in Q14).
   uint16_t preemptive_rate;  // Fraction of data inserted through pre-emptive
                              // expansion (in Q14).
   uint16_t accelerate_rate;  // Fraction of data removed through acceleration
                              // (in Q14).
+  uint16_t secondary_decoded_rate;  // Fraction of data coming from secondary
+                                    // decoding (in Q14).
   int32_t clockdrift_ppm;  // Average clock-drift in parts-per-million
                            // (positive or negative).
   int added_zero_samples;  // Number of zero samples added in "off" mode.
@@ -75,14 +80,18 @@ class NetEq {
           // |max_delay_ms| has the same effect as calling SetMaximumDelay().
           max_delay_ms(2000),
           background_noise_mode(kBgnOff),
-          playout_mode(kPlayoutOn) {}
+          playout_mode(kPlayoutOn),
+          enable_fast_accelerate(false) {}
 
-    int sample_rate_hz;  // Initial vale. Will change with input data.
+    std::string ToString() const;
+
+    int sample_rate_hz;  // Initial value. Will change with input data.
     bool enable_audio_classifier;
     int max_packets_in_buffer;
     int max_delay_ms;
     BackgroundNoiseMode background_noise_mode;
     NetEqPlayoutMode playout_mode;
+    bool enable_fast_accelerate;
   };
 
   enum ReturnCodes {
@@ -132,7 +141,7 @@ class NetEq {
   // Returns 0 on success, -1 on failure.
   virtual int InsertPacket(const WebRtcRTPHeader& rtp_header,
                            const uint8_t* payload,
-                           int length_bytes,
+                           size_t length_bytes,
                            uint32_t receive_timestamp) = 0;
 
   // Inserts a sync-packet into packet queue. Sync-packets are decoded to
@@ -166,11 +175,12 @@ class NetEq {
 
   // Provides an externally created decoder object |decoder| to insert in the
   // decoder database. The decoder implements a decoder of type |codec| and
-  // associates it with |rtp_payload_type|. Returns kOK on success,
-  // kFail on failure.
+  // associates it with |rtp_payload_type|. The decoder will produce samples
+  // at the rate |sample_rate_hz|. Returns kOK on success, kFail on failure.
   virtual int RegisterExternalDecoder(AudioDecoder* decoder,
                                       enum NetEqDecoder codec,
-                                      uint8_t rtp_payload_type) = 0;
+                                      uint8_t rtp_payload_type,
+                                      int sample_rate_hz) = 0;
 
   // Removes |rtp_payload_type| from the codec database. Returns 0 on success,
   // -1 on failure.

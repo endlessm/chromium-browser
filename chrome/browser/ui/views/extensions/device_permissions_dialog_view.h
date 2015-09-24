@@ -19,26 +19,18 @@ class DevicePermissionsTableModel;
 class DevicePermissionsDialogView : public views::DialogDelegateView {
  public:
   DevicePermissionsDialogView(
-      extensions::DevicePermissionsPrompt::Delegate* delegate,
       scoped_refptr<extensions::DevicePermissionsPrompt::Prompt> prompt);
   ~DevicePermissionsDialogView() override;
 
-  // Overriding views::DialogDelegate.
-  bool Cancel() override;
-  bool Accept() override;
-
-  // Overriding views::DialogModel.
+  // views::DialogDelegateView:
   base::string16 GetDialogButtonLabel(ui::DialogButton button) const override;
-
-  // Overriding views::WidgetDelegate.
   ui::ModalType GetModalType() const override;
   base::string16 GetWindowTitle() const override;
-
-  // Overriding views::View
+  void DeleteDelegate() override;
+  bool Accept() override;
   gfx::Size GetPreferredSize() const override;
 
  private:
-  extensions::DevicePermissionsPrompt::Delegate* delegate_;
   scoped_refptr<extensions::DevicePermissionsPrompt::Prompt> prompt_;
 
   // Displays the list of devices.

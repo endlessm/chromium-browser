@@ -25,11 +25,12 @@ NavigationResourceHandler::NavigationResourceHandler(
     : ResourceHandler(request),
       core_(core) {
   core_->set_resource_handler(this);
+  writer_.set_immediate_mode(true);
 }
 
 NavigationResourceHandler::~NavigationResourceHandler() {
   if (core_) {
-    core_->NotifyRequestFailed(net::ERR_ABORTED);
+    core_->NotifyRequestFailed(false, net::ERR_ABORTED);
     DetachFromCore();
   }
 }
@@ -72,11 +73,11 @@ bool NavigationResourceHandler::OnResponseStarted(ResourceResponse* response,
 
   ResourceRequestInfoImpl* info = GetRequestInfo();
 
-  // If the BufferedResourceHandler intercepted this request and converted it
+  // If the MimeTypeResourceHandler intercepted this request and converted it
   // into a download, it will still call OnResponseStarted and immediately
   // cancel. Ignore the call; OnReadCompleted will happen shortly.
   //
-  // TODO(davidben): Move the dispatch out of BufferedResourceHandler. Perhaps
+  // TODO(davidben): Move the dispatch out of MimeTypeResourceHandler. Perhaps
   // all the way to the UI thread. Downloads, user certificates, etc., should be
   // dispatched at the navigation layer.
   if (info->IsDownload() || info->is_stream())
@@ -131,7 +132,8 @@ void NavigationResourceHandler::OnResponseCompleted(
 
   if (core_) {
     DCHECK_NE(net::OK, status.error());
-    core_->NotifyRequestFailed(status.error());
+    core_->NotifyRequestFailed(request()->response_info().was_cached,
+                               status.error());
     DetachFromCore();
   }
 }

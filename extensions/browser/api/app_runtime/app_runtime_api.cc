@@ -9,7 +9,6 @@
 #include "base/values.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_prefs.h"
-#include "extensions/browser/extension_system.h"
 #include "extensions/browser/extensions_browser_client.h"
 #include "extensions/browser/granted_file_entry.h"
 #include "extensions/common/api/app_runtime.h"
@@ -31,12 +30,12 @@ void DispatchOnEmbedRequestedEventImpl(
     content::BrowserContext* context) {
   scoped_ptr<base::ListValue> args(new base::ListValue());
   args->Append(app_embedding_request_data.release());
-  ExtensionSystem* system = ExtensionSystem::Get(context);
-  scoped_ptr<Event> event(
-      new Event(app_runtime::OnEmbedRequested::kEventName, args.Pass()));
+  scoped_ptr<Event> event(new Event(events::APP_RUNTIME_ON_EMBED_REQUESTED,
+                                    app_runtime::OnEmbedRequested::kEventName,
+                                    args.Pass()));
   event->restrict_to_browser_context = context;
-  system->event_router()->DispatchEventWithLazyListener(extension_id,
-                                                        event.Pass());
+  EventRouter::Get(context)
+      ->DispatchEventWithLazyListener(extension_id, event.Pass());
 
   ExtensionPrefs::Get(context)
       ->SetLastLaunchTime(extension_id, base::Time::Now());
@@ -55,8 +54,9 @@ void DispatchOnLaunchedEventImpl(const std::string& extension_id,
       ExtensionsBrowserClient::Get()->IsRunningInForcedAppMode());
   scoped_ptr<base::ListValue> args(new base::ListValue());
   args->Append(launch_data.release());
-  scoped_ptr<Event> event(
-      new Event(app_runtime::OnLaunched::kEventName, args.Pass()));
+  scoped_ptr<Event> event(new Event(events::APP_RUNTIME_ON_LAUNCHED,
+                                    app_runtime::OnLaunched::kEventName,
+                                    args.Pass()));
   event->restrict_to_browser_context = context;
   EventRouter::Get(context)
       ->DispatchEventWithLazyListener(extension_id, event.Pass());
@@ -83,13 +83,26 @@ app_runtime::LaunchSource getLaunchSourceEnum(
       return app_runtime::LAUNCH_SOURCE_FILE_HANDLER;
     case extensions::SOURCE_URL_HANDLER:
       return app_runtime::LAUNCH_SOURCE_URL_HANDLER;
-
     case extensions::SOURCE_SYSTEM_TRAY:
       return app_runtime::LAUNCH_SOURCE_SYSTEM_TRAY;
     case extensions::SOURCE_ABOUT_PAGE:
       return app_runtime::LAUNCH_SOURCE_ABOUT_PAGE;
     case extensions::SOURCE_KEYBOARD:
       return app_runtime::LAUNCH_SOURCE_KEYBOARD;
+    case extensions::SOURCE_EXTENSIONS_PAGE:
+      return app_runtime::LAUNCH_SOURCE_EXTENSIONS_PAGE;
+    case extensions::SOURCE_MANAGEMENT_API:
+      return app_runtime::LAUNCH_SOURCE_MANAGEMENT_API;
+    case extensions::SOURCE_EPHEMERAL_APP:
+      return app_runtime::LAUNCH_SOURCE_EPHEMERAL_APP;
+    case extensions::SOURCE_BACKGROUND:
+      return app_runtime::LAUNCH_SOURCE_BACKGROUND;
+    case extensions::SOURCE_KIOSK:
+      return app_runtime::LAUNCH_SOURCE_KIOSK;
+    case extensions::SOURCE_CHROME_INTERNAL:
+      return app_runtime::LAUNCH_SOURCE_CHROME_INTERNAL;
+    case extensions::SOURCE_TEST:
+      return app_runtime::LAUNCH_SOURCE_TEST;
 
     default:
       return app_runtime::LAUNCH_SOURCE_NONE;
@@ -127,8 +140,9 @@ void AppRuntimeEventRouter::DispatchOnRestartedEvent(
     BrowserContext* context,
     const Extension* extension) {
   scoped_ptr<base::ListValue> arguments(new base::ListValue());
-  scoped_ptr<Event> event(
-      new Event(app_runtime::OnRestarted::kEventName, arguments.Pass()));
+  scoped_ptr<Event> event(new Event(events::APP_RUNTIME_ON_RESTARTED,
+                                    app_runtime::OnRestarted::kEventName,
+                                    arguments.Pass()));
   event->restrict_to_browser_context = context;
   EventRouter::Get(context)
       ->DispatchEventToExtension(extension->id(), event.Pass());

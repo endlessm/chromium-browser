@@ -14,9 +14,9 @@
 #include "ui/aura/window_property.h"
 #include "ui/events/event.h"
 #include "ui/events/event_utils.h"
-#include "ui/gfx/point_conversions.h"
+#include "ui/gfx/geometry/point_conversions.h"
 
-#if defined(USE_XI2_MT)
+#if defined(USE_X11)
 #include <X11/extensions/XInput2.h>
 #include <X11/Xlib.h>
 #endif
@@ -45,6 +45,8 @@ DEFINE_OWNED_WINDOW_PROPERTY_KEY(WindowTouchDetails,
                                  kWindowTouchDetails,
                                  NULL);
 }
+
+DECLARE_WINDOW_PROPERTY_TYPE(WindowTouchDetails*);
 
 namespace ash {
 
@@ -103,23 +105,7 @@ void TouchUMA::RecordTouchEvent(aura::Window* target,
 
   // Prefer raw event location (when available) over calibrated location.
   if (event.HasNativeEvent()) {
-#if defined(USE_XI2_MT)
-    XEvent* xevent = event.native_event();
-    CHECK_EQ(GenericEvent, xevent->type);
-    XIEvent* xievent = static_cast<XIEvent*>(xevent->xcookie.data);
-    if (xievent->evtype == XI_TouchBegin ||
-        xievent->evtype == XI_TouchUpdate ||
-        xievent->evtype == XI_TouchEnd) {
-      XIDeviceEvent* device_event =
-          static_cast<XIDeviceEvent*>(xevent->xcookie.data);
-      position.SetPoint(static_cast<int>(device_event->event_x),
-                        static_cast<int>(device_event->event_y));
-    } else {
-      position = ui::EventLocationFromNative(event.native_event());
-    }
-#else
     position = ui::EventLocationFromNative(event.native_event());
-#endif
     position = gfx::ToFlooredPoint(
         gfx::ScalePoint(position, 1. / target->layer()->device_scale_factor()));
   }
@@ -276,6 +262,14 @@ TouchUMA::GestureActionType TouchUMA::FindGestureActionType(
 
   views::Widget* widget = views::Widget::GetWidgetForNativeView(window);
   if (!widget)
+    return GESTURE_UNKNOWN;
+
+  // |widget| may be in the process of destroying if it has ownership
+  // views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET and |event| was
+  // dispatched as part of gesture state cleanup. In this case the RootView
+  // of |widget| may no longer exist, so check before calling into any
+  // RootView methods.
+  if (!widget->GetRootView())
     return GESTURE_UNKNOWN;
 
   views::View* view = widget->GetRootView()->

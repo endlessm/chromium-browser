@@ -10,20 +10,20 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
-#include "chrome/browser/autocomplete/autocomplete_controller_delegate.h"
 #include "chrome/browser/ui/omnibox/omnibox_controller.h"
 #include "chrome/common/instant_types.h"
-#include "chrome/common/omnibox_focus_state.h"
 #include "components/metrics/proto/omnibox_event.pb.h"
-#include "components/omnibox/autocomplete_input.h"
-#include "components/omnibox/autocomplete_match.h"
+#include "components/omnibox/browser/autocomplete_controller_delegate.h"
+#include "components/omnibox/browser/autocomplete_input.h"
+#include "components/omnibox/browser/autocomplete_match.h"
+#include "components/omnibox/common/omnibox_focus_state.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/native_widget_types.h"
 #include "url/gurl.h"
 
 class AutocompleteController;
 class AutocompleteResult;
-class OmniboxCurrentPageDelegate;
+class OmniboxClient;
 class OmniboxEditController;
 class OmniboxPopupModel;
 class OmniboxView;
@@ -174,7 +174,8 @@ class OmniboxEditModel {
 
   // Directs the popup to start autocomplete.
   void StartAutocomplete(bool has_selected_text,
-                         bool prevent_inline_autocomplete);
+                         bool prevent_inline_autocomplete,
+                         bool entering_keyword_mode);
 
   // Closes the popup and cancels any pending asynchronous queries.
   void StopAutocomplete();
@@ -242,9 +243,8 @@ class OmniboxEditModel {
   // Accepts the current temporary text as the user text.
   void AcceptTemporaryTextAsUserText();
 
-  // Clears the current keyword.  |visible_text| is the (non-keyword) text
-  // currently visible in the edit.
-  void ClearKeyword(const base::string16& visible_text);
+  // Clears the current keyword.
+  void ClearKeyword();
 
   // Returns the current autocomplete result.  This logic should in the future
   // live in AutocompleteController but resides here for now.  This method is
@@ -270,10 +270,15 @@ class OmniboxEditModel {
   void SetCaretVisibility(bool visible);
 
   // Sent before |OnKillFocus| and before the popup is closed.
-  void OnWillKillFocus(gfx::NativeView view_gaining_focus);
+  void OnWillKillFocus();
 
   // Called when the view is losing focus.  Resets some state.
   void OnKillFocus();
+
+  // Returns whether the omnibox will handle a press of the escape key.  The
+  // caller can use this to decide whether the browser should process escape as
+  // "stop current page load".
+  bool WillHandleEscapeKey() const;
 
   // Called when the user presses the escape key.  Decides what, if anything, to
   // revert about any current edits.  Returns whether the key was handled.
@@ -440,7 +445,7 @@ class OmniboxEditModel {
 
   OmniboxEditController* controller_;
 
-  scoped_ptr<OmniboxCurrentPageDelegate> delegate_;
+  scoped_ptr<OmniboxClient> client_;
 
   OmniboxFocusState focus_state_;
 

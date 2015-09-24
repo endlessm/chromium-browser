@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@ import android.net.http.SslCertificate;
 import android.text.format.DateFormat;
 import android.util.Log;
 import android.view.View;
+import android.view.Window;
 import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemSelectedListener;
 import android.widget.ArrayAdapter;
@@ -56,7 +57,7 @@ class CertificateViewer implements OnItemSelectedListener {
         mViews = new ArrayList<LinearLayout>();
         mTitles = new ArrayList<String>();
         mPadding = (int) context.getResources().getDimension(
-                R.dimen.certificate_viewer_padding_wide) / 2;
+                R.dimen.connection_info_padding_wide) / 2;
     }
 
     // Show information about an array of DER-encoded data representing a X509 certificate chain.
@@ -70,32 +71,43 @@ class CertificateViewer implements OnItemSelectedListener {
                 mTitles);
         arrayAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
 
+        LinearLayout dialogContainer = new LinearLayout(mContext);
+        dialogContainer.setOrientation(LinearLayout.VERTICAL);
+
+        TextView title = new TextView(mContext);
+        title.setText(R.string.certtitle);
+        title.setTextAppearance(mContext, android.R.style.TextAppearance_Large);
+        title.setTypeface(title.getTypeface(), Typeface.BOLD);
+        title.setPadding(mPadding, mPadding, mPadding, mPadding / 2);
+        dialogContainer.addView(title);
+
         Spinner spinner = new Spinner(mContext);
         spinner.setAdapter(arrayAdapter);
         spinner.setOnItemSelectedListener(this);
+        spinner.setPadding(0, 0, mPadding / 2, mPadding);
+        dialogContainer.addView(spinner);
 
-        LinearLayout container = new LinearLayout(mContext);
-        container.setOrientation(LinearLayout.VERTICAL);
-        container.addView(spinner);
-
+        LinearLayout certContainer = new LinearLayout(mContext);
+        certContainer.setOrientation(LinearLayout.VERTICAL);
         for (int i = 0; i < mViews.size(); ++i) {
             LinearLayout certificateView = mViews.get(i);
             if (i != 0) {
                 certificateView.setVisibility(LinearLayout.GONE);
             }
-            container.addView(certificateView);
+            certContainer.addView(certificateView);
         }
+        ScrollView scrollView = new ScrollView(mContext);
+        scrollView.addView(certContainer);
+        dialogContainer.addView(scrollView);
 
-        showDialogForView(container);
+        showDialogForView(dialogContainer);
     }
 
     // Displays a dialog with scrolling for the given view.
     private void showDialogForView(View view) {
         Dialog dialog = new Dialog(mContext);
-        dialog.setTitle(R.string.certtitle);
-        ScrollView scrollView = new ScrollView(mContext);
-        scrollView.addView(view);
-        dialog.addContentView(scrollView,
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dialog.addContentView(view,
                 new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.MATCH_PARENT));
         dialog.show();
@@ -173,6 +185,7 @@ class CertificateViewer implements OnItemSelectedListener {
         t.setPadding(mPadding, mPadding / 2, mPadding, 0);
         t.setText(label);
         t.setTypeface(Typeface.defaultFromStyle(Typeface.BOLD));
+        t.setTextColor(mContext.getResources().getColor(R.color.connection_info_popup_text));
         certificateView.addView(t);
         return t;
     }
@@ -181,6 +194,7 @@ class CertificateViewer implements OnItemSelectedListener {
         TextView t = new TextView(mContext);
         t.setText(value);
         t.setPadding(mPadding, 0, mPadding, mPadding / 2);
+        t.setTextColor(mContext.getResources().getColor(R.color.connection_info_popup_text));
         certificateView.addView(t);
     }
 

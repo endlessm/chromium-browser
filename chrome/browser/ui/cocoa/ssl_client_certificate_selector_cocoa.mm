@@ -14,7 +14,10 @@
 #include "chrome/browser/ssl/ssl_client_auth_observer.h"
 #import "chrome/browser/ui/cocoa/constrained_window/constrained_window_mac.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/guest_view/browser/guest_view_base.h"
+#include "components/web_modal/popup_manager.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/client_certificate_delegate.h"
 #include "content/public/browser/web_contents.h"
 #include "net/cert/x509_certificate.h"
 #include "net/cert/x509_util_mac.h"
@@ -40,13 +43,14 @@ class SSLClientAuthObserverCocoaBridge : public SSLClientAuthObserver,
                                          public ConstrainedWindowMacDelegate {
  public:
   SSLClientAuthObserverCocoaBridge(
-      const net::HttpNetworkSession* network_session,
+      const content::BrowserContext* browser_context,
       net::SSLCertRequestInfo* cert_request_info,
-      const chrome::SelectCertificateCallback& callback,
+      scoped_ptr<content::ClientCertificateDelegate> delegate,
       SSLClientCertificateSelectorCocoa* controller)
-      : SSLClientAuthObserver(network_session, cert_request_info, callback),
-        controller_(controller) {
-  }
+      : SSLClientAuthObserver(browser_context,
+                              cert_request_info,
+                              delegate.Pass()),
+        controller_(controller) {}
 
   // SSLClientAuthObserver implementation:
   void OnCertSelectedByNotification() override {
@@ -71,16 +75,27 @@ namespace chrome {
 
 void ShowSSLClientCertificateSelector(
     content::WebContents* contents,
-    const net::HttpNetworkSession* network_session,
     net::SSLCertRequestInfo* cert_request_info,
-    const SelectCertificateCallback& callback) {
+    scoped_ptr<content::ClientCertificateDelegate> delegate) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  // Not all WebContentses can show modal dialogs.
+  //
+  // Use the top-level embedder if |contents| is a guest.
+  // GetTopLevelWebContents() will return |contents| otherwise.
+  // TODO(davidben): Move this hook to the WebContentsDelegate and only try to
+  // show a dialog in Browser's implementation. https://crbug.com/456255
+  if (web_modal::PopupManager::FromWebContents(
+          guest_view::GuestViewBase::GetTopLevelWebContents(contents)) ==
+      nullptr)
+    return;
+
   // The dialog manages its own lifetime.
   SSLClientCertificateSelectorCocoa* selector =
       [[SSLClientCertificateSelectorCocoa alloc]
-          initWithNetworkSession:network_session
+          initWithBrowserContext:contents->GetBrowserContext()
                  certRequestInfo:cert_request_info
-                        callback:callback];
+                        delegate:delegate.Pass()];
   [selector displayForWebContents:contents];
 }
 
@@ -88,14 +103,15 @@ void ShowSSLClientCertificateSelector(
 
 @implementation SSLClientCertificateSelectorCocoa
 
-- (id)initWithNetworkSession:(const net::HttpNetworkSession*)networkSession
-    certRequestInfo:(net::SSLCertRequestInfo*)certRequestInfo
-           callback:(const chrome::SelectCertificateCallback&)callback {
-  DCHECK(networkSession);
+- (id)initWithBrowserContext:(const content::BrowserContext*)browserContext
+             certRequestInfo:(net::SSLCertRequestInfo*)certRequestInfo
+                    delegate:(scoped_ptr<content::ClientCertificateDelegate>)
+                                 delegate {
+  DCHECK(browserContext);
   DCHECK(certRequestInfo);
   if ((self = [super init])) {
     observer_.reset(new SSLClientAuthObserverCocoaBridge(
-        networkSession, certRequestInfo, callback, self));
+        browserContext, certRequestInfo, delegate.Pass(), self));
   }
   return self;
 }
@@ -114,12 +130,16 @@ void ShowSSLClientCertificateSelector(
       NOTREACHED();
   }
 
-  // Finally, tell the backend which identity (or none) the user selected.
-  observer_->StopObserving();
-  observer_->CertificateSelected(cert);
+  if (!closePending_) {
+    // If |closePending_| is already set, |closeSheetWithAnimation:| was called
+    // already to cancel the selection rather than continue with no
+    // certificate. Otherwise, tell the backend which identity (or none) the
+    // user selected.
+    userResponded_ = YES;
+    observer_->CertificateSelected(cert);
 
-  if (!closePending_)
     constrainedWindow_->CloseWebContentsModalDialog();
+  }
 }
 
 - (void)displayForWebContents:(content::WebContents*)webContents {
@@ -185,6 +205,14 @@ void ShowSSLClientCertificateSelector(
 }
 
 - (void)closeSheetWithAnimation:(BOOL)withAnimation {
+  if (!userResponded_) {
+    // If the sheet is closed by closing the tab rather than the user explicitly
+    // hitting Cancel, |closeSheetWithAnimation:| gets called before
+    // |sheetDidEnd:|. In this case, the selection should be canceled rather
+    // than continue with no certificate. The |returnCode| parameter to
+    // |sheetDidEnd:| is the same in both cases.
+    observer_->CancelCertificateSelection();
+  }
   closePending_ = YES;
   overlayWindow_.reset();
   // Closing the sheet using -[NSApp endSheet:] doesn't work so use the private
@@ -226,6 +254,10 @@ void ShowSSLClientCertificateSelector(
 
 - (void)updateSheetPosition {
   // NOOP
+}
+
+- (NSWindow*)sheetWindow {
+  return panel_;
 }
 
 - (void)onConstrainedWindowClosed {

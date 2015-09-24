@@ -52,13 +52,6 @@ ExtensionCommandsGlobalRegistry* ExtensionCommandsGlobalRegistry::Get(
       context);
 }
 
-// static
-void ExtensionCommandsGlobalRegistry::SetShortcutHandlingSuspended(
-    bool suspended) {
-  GlobalShortcutListener::GetInstance()->SetShortcutHandlingSuspended(
-      suspended);
-}
-
 bool ExtensionCommandsGlobalRegistry::IsRegistered(
     const ui::Accelerator& accelerator) {
   return (registry_for_active_window() &&
@@ -66,7 +59,7 @@ bool ExtensionCommandsGlobalRegistry::IsRegistered(
          IsAcceleratorRegistered(accelerator);
 }
 
-void ExtensionCommandsGlobalRegistry::AddExtensionKeybinding(
+void ExtensionCommandsGlobalRegistry::AddExtensionKeybindings(
     const extensions::Extension* extension,
     const std::string& command_name) {
   // This object only handles named commands, not browser/page actions.
@@ -79,7 +72,7 @@ void ExtensionCommandsGlobalRegistry::AddExtensionKeybinding(
   extensions::CommandMap commands;
   if (!command_service->GetNamedCommands(
           extension->id(),
-          extensions::CommandService::ACTIVE_ONLY,
+          extensions::CommandService::ACTIVE,
           extensions::CommandService::GLOBAL,
           &commands))
     return;
@@ -111,6 +104,14 @@ void ExtensionCommandsGlobalRegistry::RemoveExtensionKeybindingImpl(
 
   GlobalShortcutListener::GetInstance()->UnregisterAccelerator(
       accelerator, this);
+}
+
+void ExtensionCommandsGlobalRegistry::OnShortcutHandlingSuspended(
+    bool suspended) {
+  GlobalShortcutListener::GetInstance()->SetShortcutHandlingSuspended(
+      suspended);
+  if (registry_for_active_window())
+    registry_for_active_window()->SetShortcutHandlingSuspended(suspended);
 }
 
 void ExtensionCommandsGlobalRegistry::OnKeyPressed(

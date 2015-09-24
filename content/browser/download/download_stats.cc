@@ -31,7 +31,7 @@ enum ContentDispositionCountTypes {
   // number of downloads is measured by UNTHROTTLED_COUNT.
   CONTENT_DISPOSITION_HEADER_PRESENT = 0,
 
-  // At least one of 'name', 'filename' or 'filenae*' attributes were valid and
+  // Either 'filename' or 'filename*' attributes were valid and
   // yielded a non-empty filename.
   CONTENT_DISPOSITION_IS_VALID,
 
@@ -39,15 +39,16 @@ enum ContentDispositionCountTypes {
   // net::HttpContentDisposition::ParseResult.
   CONTENT_DISPOSITION_HAS_DISPOSITION_TYPE,
   CONTENT_DISPOSITION_HAS_UNKNOWN_TYPE,
-  CONTENT_DISPOSITION_HAS_NAME,
+
+  CONTENT_DISPOSITION_HAS_NAME,  // Obsolete; kept for UMA compatiblity.
+
   CONTENT_DISPOSITION_HAS_FILENAME,
   CONTENT_DISPOSITION_HAS_EXT_FILENAME,
   CONTENT_DISPOSITION_HAS_NON_ASCII_STRINGS,
   CONTENT_DISPOSITION_HAS_PERCENT_ENCODED_STRINGS,
   CONTENT_DISPOSITION_HAS_RFC2047_ENCODED_STRINGS,
 
-  // Only have the 'name' attribute is present.
-  CONTENT_DISPOSITION_HAS_NAME_ONLY,
+  CONTENT_DISPOSITION_HAS_NAME_ONLY,  // Obsolete; kept for UMA compatiblity.
 
   CONTENT_DISPOSITION_LAST_ENTRY
 };
@@ -69,6 +70,8 @@ void RecordContentDispositionCountFlag(
 
 // Do not insert, delete, or reorder; this is being histogrammed. Append only.
 // All of the download_extensions.cc file types should be in this list.
+// TODO(asanka): This enum and the UMA metrics for dangerous/malicious downloads
+// should be moved to //chrome/browser/download.
 const base::FilePath::CharType* kDangerousFileTypes[] = {
   FILE_PATH_LITERAL(".ad"),
   FILE_PATH_LITERAL(".ade"),
@@ -193,7 +196,23 @@ const base::FilePath::CharType* kDangerousFileTypes[] = {
   FILE_PATH_LITERAL(".xhtml"),
   FILE_PATH_LITERAL(".xml"),
   FILE_PATH_LITERAL(".xsl"),
-  FILE_PATH_LITERAL(".xslt")
+  FILE_PATH_LITERAL(".xslt"),
+  FILE_PATH_LITERAL(".website"),
+  FILE_PATH_LITERAL(".msh1"),
+  FILE_PATH_LITERAL(".msh2"),
+  FILE_PATH_LITERAL(".msh1xml"),
+  FILE_PATH_LITERAL(".msh2xml"),
+  FILE_PATH_LITERAL(".ps1"),
+  FILE_PATH_LITERAL(".ps1xml"),
+  FILE_PATH_LITERAL(".ps2"),
+  FILE_PATH_LITERAL(".ps2xml"),
+  FILE_PATH_LITERAL(".psc1"),
+  FILE_PATH_LITERAL(".psc2"),
+  FILE_PATH_LITERAL(".xnk"),
+  FILE_PATH_LITERAL(".appref-ms"),
+  FILE_PATH_LITERAL(".gadget"),
+  FILE_PATH_LITERAL(".efi"),
+  FILE_PATH_LITERAL(".fon"),
 };
 
 // Maps extensions to their matching UMA histogram int value.
@@ -343,13 +362,13 @@ void RecordAcceptsRanges(const std::string& accepts_ranges,
   download_len /= 1024;  // In Kilobytes
   static const int kBuckets = 50;
 
-  if (LowerCaseEqualsASCII(accepts_ranges, "none")) {
+  if (base::LowerCaseEqualsASCII(accepts_ranges, "none")) {
     UMA_HISTOGRAM_CUSTOM_COUNTS("Download.AcceptRangesNone.KBytes",
                                 download_len,
                                 1,
                                 max,
                                 kBuckets);
-  } else if (LowerCaseEqualsASCII(accepts_ranges, "bytes")) {
+  } else if (base::LowerCaseEqualsASCII(accepts_ranges, "bytes")) {
     UMA_HISTOGRAM_CUSTOM_COUNTS("Download.AcceptRangesBytes.KBytes",
                                 download_len,
                                 1,
@@ -466,14 +485,14 @@ void RecordDownloadMimeType(const std::string& mime_type_string) {
 
   // Do partial matches.
   if (download_content == DOWNLOAD_CONTENT_UNRECOGNIZED) {
-    if (StartsWithASCII(mime_type_string, "text/", true)) {
+    if (base::StartsWithASCII(mime_type_string, "text/", true)) {
       download_content = DOWNLOAD_CONTENT_TEXT;
-    } else if (StartsWithASCII(mime_type_string, "image/", true)) {
+    } else if (base::StartsWithASCII(mime_type_string, "image/", true)) {
       download_content = DOWNLOAD_CONTENT_IMAGE;
       RecordDownloadImageType(mime_type_string);
-    } else if (StartsWithASCII(mime_type_string, "audio/", true)) {
+    } else if (base::StartsWithASCII(mime_type_string, "audio/", true)) {
       download_content = DOWNLOAD_CONTENT_AUDIO;
-    } else if (StartsWithASCII(mime_type_string, "video/", true)) {
+    } else if (base::StartsWithASCII(mime_type_string, "video/", true)) {
       download_content = DOWNLOAD_CONTENT_VIDEO;
     }
   }
@@ -505,9 +524,6 @@ void RecordDownloadContentDisposition(
       CONTENT_DISPOSITION_HAS_UNKNOWN_TYPE, result,
       net::HttpContentDisposition::HAS_UNKNOWN_DISPOSITION_TYPE);
   RecordContentDispositionCountFlag(
-      CONTENT_DISPOSITION_HAS_NAME, result,
-      net::HttpContentDisposition::HAS_NAME);
-  RecordContentDispositionCountFlag(
       CONTENT_DISPOSITION_HAS_FILENAME, result,
       net::HttpContentDisposition::HAS_FILENAME);
   RecordContentDispositionCountFlag(
@@ -522,13 +538,6 @@ void RecordDownloadContentDisposition(
   RecordContentDispositionCountFlag(
       CONTENT_DISPOSITION_HAS_RFC2047_ENCODED_STRINGS, result,
       net::HttpContentDisposition::HAS_RFC2047_ENCODED_STRINGS);
-
-  RecordContentDispositionCount(
-      CONTENT_DISPOSITION_HAS_NAME_ONLY,
-      (result & (net::HttpContentDisposition::HAS_NAME |
-                 net::HttpContentDisposition::HAS_FILENAME |
-                 net::HttpContentDisposition::HAS_EXT_FILENAME)) ==
-      net::HttpContentDisposition::HAS_NAME);
 }
 
 void RecordFileThreadReceiveBuffers(size_t num_buffers) {

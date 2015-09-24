@@ -22,75 +22,12 @@ InfoBarDelegate::InfoBarAutomationType
   return UNKNOWN_INFOBAR;
 }
 
-bool InfoBarDelegate::EqualsDelegate(InfoBarDelegate* delegate) const {
-  return false;
-}
-
-bool InfoBarDelegate::ShouldExpire(const NavigationDetails& details) const {
-  if (!details.is_navigation_to_different_page)
-    return false;
-
-  return ShouldExpireInternal(details);
-}
-
-void InfoBarDelegate::InfoBarDismissed() {
-}
-
-int InfoBarDelegate::GetIconID() const {
-  return kNoIconID;
-}
-
 InfoBarDelegate::Type InfoBarDelegate::GetInfoBarType() const {
   return WARNING_TYPE;
 }
 
-AutoLoginInfoBarDelegate* InfoBarDelegate::AsAutoLoginInfoBarDelegate() {
-  return NULL;
-}
-
-ConfirmInfoBarDelegate* InfoBarDelegate::AsConfirmInfoBarDelegate() {
-  return NULL;
-}
-
-ExtensionInfoBarDelegate* InfoBarDelegate::AsExtensionInfoBarDelegate() {
-  return NULL;
-}
-
-InsecureContentInfoBarDelegate*
-    InfoBarDelegate::AsInsecureContentInfoBarDelegate() {
-  return NULL;
-}
-
-MediaStreamInfoBarDelegate* InfoBarDelegate::AsMediaStreamInfoBarDelegate() {
-  return NULL;
-}
-
-PopupBlockedInfoBarDelegate* InfoBarDelegate::AsPopupBlockedInfoBarDelegate() {
-  return NULL;
-}
-
-RegisterProtocolHandlerInfoBarDelegate*
-    InfoBarDelegate::AsRegisterProtocolHandlerInfoBarDelegate() {
-  return NULL;
-}
-
-ScreenCaptureInfoBarDelegate*
-    InfoBarDelegate::AsScreenCaptureInfoBarDelegate() {
-  return NULL;
-}
-
-ThemeInstalledInfoBarDelegate*
-    InfoBarDelegate::AsThemePreviewInfobarDelegate() {
-  return NULL;
-}
-
-translate::TranslateInfoBarDelegate*
-InfoBarDelegate::AsTranslateInfoBarDelegate() {
-  return NULL;
-}
-
-void InfoBarDelegate::StoreActiveEntryUniqueID() {
-  contents_unique_id_ = infobar()->owner()->GetActiveEntryID();
+int InfoBarDelegate::GetIconID() const {
+  return kNoIconID;
 }
 
 gfx::Image InfoBarDelegate::GetIcon() const {
@@ -99,14 +36,78 @@ gfx::Image InfoBarDelegate::GetIcon() const {
       ResourceBundle::GetSharedInstance().GetNativeImageNamed(icon_id);
 }
 
-InfoBarDelegate::InfoBarDelegate() : contents_unique_id_(0) {
+bool InfoBarDelegate::EqualsDelegate(InfoBarDelegate* delegate) const {
+  return false;
 }
 
-bool InfoBarDelegate::ShouldExpireInternal(
-    const NavigationDetails& details) const {
-  // NOTE: If you change this, be sure to check and adjust the behavior of
-  // anyone who overrides this as necessary!
-  return (contents_unique_id_ != details.entry_id) || details.is_reload;
+bool InfoBarDelegate::ShouldExpire(const NavigationDetails& details) const {
+  return details.is_navigation_to_different_page &&
+      !details.did_replace_entry &&
+      // This next condition ensures a navigation that passes the above
+      // conditions doesn't dismiss infobars added while that navigation was
+      // already in process.  We carve out an exception for reloads since we
+      // want reloads to dismiss infobars, but they will have unchanged entry
+      // IDs.
+      ((nav_entry_id_ != details.entry_id) || details.is_reload);
+}
+
+void InfoBarDelegate::InfoBarDismissed() {
+}
+
+AutoLoginInfoBarDelegate* InfoBarDelegate::AsAutoLoginInfoBarDelegate() {
+  return nullptr;
+}
+
+ConfirmInfoBarDelegate* InfoBarDelegate::AsConfirmInfoBarDelegate() {
+  return nullptr;
+}
+
+InsecureContentInfoBarDelegate*
+    InfoBarDelegate::AsInsecureContentInfoBarDelegate() {
+  return nullptr;
+}
+
+MediaStreamInfoBarDelegate* InfoBarDelegate::AsMediaStreamInfoBarDelegate() {
+  return nullptr;
+}
+
+NativeAppInfoBarDelegate* InfoBarDelegate::AsNativeAppInfoBarDelegate() {
+  return nullptr;
+}
+
+PermissionInfobarDelegate* InfoBarDelegate::AsPermissionInfobarDelegate() {
+  return nullptr;
+}
+
+PopupBlockedInfoBarDelegate* InfoBarDelegate::AsPopupBlockedInfoBarDelegate() {
+  return nullptr;
+}
+
+RegisterProtocolHandlerInfoBarDelegate*
+    InfoBarDelegate::AsRegisterProtocolHandlerInfoBarDelegate() {
+  return nullptr;
+}
+
+ScreenCaptureInfoBarDelegate*
+    InfoBarDelegate::AsScreenCaptureInfoBarDelegate() {
+  return nullptr;
+}
+
+ThemeInstalledInfoBarDelegate*
+    InfoBarDelegate::AsThemePreviewInfobarDelegate() {
+  return nullptr;
+}
+
+ThreeDAPIInfoBarDelegate* InfoBarDelegate::AsThreeDAPIInfoBarDelegate() {
+  return nullptr;
+}
+
+translate::TranslateInfoBarDelegate*
+InfoBarDelegate::AsTranslateInfoBarDelegate() {
+  return nullptr;
+}
+
+InfoBarDelegate::InfoBarDelegate() : nav_entry_id_(0) {
 }
 
 }  // namespace infobars

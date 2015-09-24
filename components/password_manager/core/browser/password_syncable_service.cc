@@ -7,9 +7,10 @@
 #include "base/auto_reset.h"
 #include "base/location.h"
 #include "base/memory/scoped_vector.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/common/password_form.h"
+#include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/password_manager/core/browser/password_store_sync.h"
 #include "net/base/escape.h"
 #include "sync/api/sync_error_factory.h"
@@ -65,9 +66,12 @@ bool AreLocalAndSyncPasswordsEqual(
 syncer::SyncChange::SyncChangeType GetSyncChangeType(
     PasswordStoreChange::Type type) {
   switch (type) {
-    case PasswordStoreChange::ADD: return syncer::SyncChange::ACTION_ADD;
-    case PasswordStoreChange::UPDATE: return syncer::SyncChange::ACTION_UPDATE;
-    case PasswordStoreChange::REMOVE: return syncer::SyncChange::ACTION_DELETE;
+    case PasswordStoreChange::ADD:
+      return syncer::SyncChange::ACTION_ADD;
+    case PasswordStoreChange::UPDATE:
+      return syncer::SyncChange::ACTION_UPDATE;
+    case PasswordStoreChange::REMOVE:
+      return syncer::SyncChange::ACTION_DELETE;
   }
   NOTREACHED();
   return syncer::SyncChange::ACTION_INVALID;
@@ -84,19 +88,36 @@ void AppendPasswordFromSpecifics(
   entries->back()->date_synced = sync_time;
 }
 
+bool IsEmptyPasswordForm(const autofill::PasswordForm& form) {
+  return (form.username_value.empty() &&
+          form.password_value.empty() &&
+          !form.blacklisted_by_user);
+}
+
+bool IsEmptyPasswordSpecificsData(
+    const sync_pb::PasswordSpecificsData& specifics) {
+  return (specifics.username_value().empty() &&
+          specifics.password_value().empty() &&
+          !specifics.blacklisted());
+}
+
 }  // namespace
 
 struct PasswordSyncableService::SyncEntries {
   ScopedVector<autofill::PasswordForm>* EntriesForChangeType(
       syncer::SyncChange::SyncChangeType type) {
     switch (type) {
-      case syncer::SyncChange::ACTION_ADD: return &new_entries;
-      case syncer::SyncChange::ACTION_UPDATE: return &updated_entries;
-      case syncer::SyncChange::ACTION_DELETE: return &deleted_entries;
-      case syncer::SyncChange::ACTION_INVALID: return NULL;
+      case syncer::SyncChange::ACTION_ADD:
+        return &new_entries;
+      case syncer::SyncChange::ACTION_UPDATE:
+        return &updated_entries;
+      case syncer::SyncChange::ACTION_DELETE:
+        return &deleted_entries;
+      case syncer::SyncChange::ACTION_INVALID:
+        return nullptr;
     }
     NOTREACHED();
-    return NULL;
+    return nullptr;
   }
 
   // List that contains the entries that are known only to sync.
@@ -113,11 +134,11 @@ struct PasswordSyncableService::SyncEntries {
 
 PasswordSyncableService::PasswordSyncableService(
     PasswordStoreSync* password_store)
-    : password_store_(password_store),
-      is_processing_sync_changes_(false) {
+    : password_store_(password_store), is_processing_sync_changes_(false) {
 }
 
-PasswordSyncableService::~PasswordSyncableService() {}
+PasswordSyncableService::~PasswordSyncableService() {
+}
 
 syncer::SyncMergeResult PasswordSyncableService::MergeDataAndStartSyncing(
     syncer::ModelType type,
@@ -136,8 +157,8 @@ syncer::SyncMergeResult PasswordSyncableService::MergeDataAndStartSyncing(
   PasswordEntryMap new_local_entries;
   if (!ReadFromPasswordStore(&password_entries, &new_local_entries)) {
     merge_result.set_error(sync_error_factory->CreateAndUploadError(
-        FROM_HERE,
-        "Failed to get passwords from store."));
+        FROM_HERE, "Failed to get passwords from store."));
+    metrics_util::LogPasswordSyncState(metrics_util::NOT_SYNCING_FAILED_READ);
     return merge_result;
   }
 
@@ -145,14 +166,10 @@ syncer::SyncMergeResult PasswordSyncableService::MergeDataAndStartSyncing(
     merge_result.set_error(sync_error_factory->CreateAndUploadError(
         FROM_HERE,
         "There are passwords with identical sync tags in the database."));
+    metrics_util::LogPasswordSyncState(
+        metrics_util::NOT_SYNCING_DUPLICATE_TAGS);
     return merge_result;
   }
-
-  // Save |sync_processor_| only if reading the PasswordStore succeeded. In case
-  // of failure Sync shouldn't receive any updates from the PasswordStore.
-  sync_error_factory_ = sync_error_factory.Pass();
-  sync_processor_ = sync_processor.Pass();
-
   merge_result.set_num_items_before_association(new_local_entries.size());
 
   SyncEntries sync_entries;
@@ -167,26 +184,44 @@ syncer::SyncMergeResult PasswordSyncableService::MergeDataAndStartSyncing(
                         &updated_db_entries);
   }
 
+  for (PasswordEntryMap::iterator it = new_local_entries.begin();
+       it != new_local_entries.end(); ++it) {
+    if (IsEmptyPasswordForm(*it->second)) {
+      // http://crbug.com/404012. Remove the empty password from the local db.
+      // This code can be removed once all users have their password store
+      // cleaned up. This should happen in M43 and can be verified using crash
+      // reports.
+      sync_entries.deleted_entries.push_back(
+          new autofill::PasswordForm(*it->second));
+    } else {
+      updated_db_entries.push_back(
+          syncer::SyncChange(FROM_HERE,
+                             syncer::SyncChange::ACTION_ADD,
+                             SyncDataFromPassword(*it->second)));
+    }
+  }
+
   WriteToPasswordStore(sync_entries);
+  merge_result.set_error(
+      sync_processor->ProcessSyncChanges(FROM_HERE, updated_db_entries));
+  if (merge_result.error().IsSet()) {
+    metrics_util::LogPasswordSyncState(metrics_util::NOT_SYNCING_SERVER_ERROR);
+    return merge_result;
+  }
 
   merge_result.set_num_items_after_association(
       merge_result.num_items_before_association() +
       sync_entries.new_entries.size());
-
   merge_result.set_num_items_added(sync_entries.new_entries.size());
-
   merge_result.set_num_items_modified(sync_entries.updated_entries.size());
+  merge_result.set_num_items_deleted(sync_entries.deleted_entries.size());
 
-  for (PasswordEntryMap::iterator it = new_local_entries.begin();
-       it != new_local_entries.end(); ++it) {
-    updated_db_entries.push_back(
-        syncer::SyncChange(FROM_HERE,
-                           syncer::SyncChange::ACTION_ADD,
-                           SyncDataFromPassword(*it->second)));
-  }
+  // Save |sync_processor_| only if the whole procedure succeeded. In case of
+  // failure Sync shouldn't receive any updates from the PasswordStore.
+  sync_error_factory_ = sync_error_factory.Pass();
+  sync_processor_ = sync_processor.Pass();
 
-  merge_result.set_error(
-      sync_processor_->ProcessSyncChanges(FROM_HERE, updated_db_entries));
+  metrics_util::LogPasswordSyncState(metrics_util::SYNCING_OK);
   return merge_result;
 }
 
@@ -203,7 +238,7 @@ syncer::SyncDataList PasswordSyncableService::GetAllSyncData(
   DCHECK(CalledOnValidThread());
   DCHECK_EQ(syncer::PASSWORDS, type);
   ScopedVector<autofill::PasswordForm> password_entries;
-  ReadFromPasswordStore(&password_entries, NULL);
+  ReadFromPasswordStore(&password_entries, nullptr);
 
   syncer::SyncDataList sync_data;
   for (PasswordForms::iterator it = password_entries.begin();
@@ -228,12 +263,12 @@ syncer::SyncError PasswordSyncableService::ProcessSyncChanges(
         sync_entries.EntriesForChangeType(it->change_type());
     if (!entries) {
       return sync_error_factory_->CreateAndUploadError(
-          FROM_HERE,
-          "Failed to process sync changes for passwords datatype.");
+          FROM_HERE, "Failed to process sync changes for passwords datatype.");
     }
     AppendPasswordFromSpecifics(
         specifics.password().client_only_encrypted_data(), time_now, entries);
   }
+
   WriteToPasswordStore(sync_entries);
   return syncer::SyncError();
 }
@@ -277,8 +312,9 @@ bool PasswordSyncableService::ReadFromPasswordStore(
     ScopedVector<autofill::PasswordForm>* password_entries,
     PasswordEntryMap* passwords_entry_map) const {
   DCHECK(password_entries);
-  if (!password_store_->FillAutofillableLogins(&password_entries->get()) ||
-      !password_store_->FillBlacklistLogins(&password_entries->get())) {
+  ScopedVector<autofill::PasswordForm> blacklist_entries;
+  if (!password_store_->FillAutofillableLogins(password_entries) ||
+      !password_store_->FillBlacklistLogins(&blacklist_entries)) {
     // Password store often fails to load passwords. Track failures with UMA.
     // (http://crbug.com/249000)
     UMA_HISTOGRAM_ENUMERATION("Sync.LocalDataFailedToLoad",
@@ -286,6 +322,12 @@ bool PasswordSyncableService::ReadFromPasswordStore(
                               syncer::MODEL_TYPE_COUNT);
     return false;
   }
+  // Move |blacklist_entries| to |password_entries|.
+  password_entries->reserve(password_entries->size() +
+                            blacklist_entries.size());
+  password_entries->insert(password_entries->end(), blacklist_entries.begin(),
+                           blacklist_entries.end());
+  blacklist_entries.weak_clear();
 
   if (!passwords_entry_map)
     return true;
@@ -293,8 +335,8 @@ bool PasswordSyncableService::ReadFromPasswordStore(
   PasswordEntryMap& entry_map = *passwords_entry_map;
   for (PasswordForms::iterator it = password_entries->begin();
        it != password_entries->end(); ++it) {
-     autofill::PasswordForm* password_form = *it;
-     entry_map[MakePasswordSyncTag(*password_form)] = password_form;
+    autofill::PasswordForm* password_form = *it;
+    entry_map[MakePasswordSyncTag(*password_form)] = password_form;
   }
 
   return true;
@@ -302,21 +344,19 @@ bool PasswordSyncableService::ReadFromPasswordStore(
 
 void PasswordSyncableService::WriteToPasswordStore(const SyncEntries& entries) {
   PasswordStoreChangeList changes;
-  WriteEntriesToDatabase(&PasswordStoreSync::AddLoginImpl,
-                         entries.new_entries.get(),
-                         &changes);
-  WriteEntriesToDatabase(&PasswordStoreSync::UpdateLoginImpl,
-                         entries.updated_entries.get(),
-                         &changes);
-  WriteEntriesToDatabase(&PasswordStoreSync::RemoveLoginImpl,
-                         entries.deleted_entries.get(),
-                         &changes);
+  WriteEntriesToDatabase(&PasswordStoreSync::AddLoginSync,
+                         entries.new_entries.get(), &changes);
+  WriteEntriesToDatabase(&PasswordStoreSync::UpdateLoginSync,
+                         entries.updated_entries.get(), &changes);
+  WriteEntriesToDatabase(&PasswordStoreSync::RemoveLoginSync,
+                         entries.deleted_entries.get(), &changes);
 
   // We have to notify password store observers of the change by hand since
   // we use internal password store interfaces to make changes synchronously.
   password_store_->NotifyLoginsChanged(changes);
 }
 
+// static
 void PasswordSyncableService::CreateOrUpdateEntry(
     const syncer::SyncData& data,
     PasswordEntryMap* unmatched_data_from_password_db,
@@ -332,10 +372,21 @@ void PasswordSyncableService::CreateOrUpdateEntry(
       unmatched_data_from_password_db->find(tag);
   base::Time time_now = base::Time::Now();
   if (existing_local_entry_iter == unmatched_data_from_password_db->end()) {
-    // The sync data is not in the password store, so we need to create it in
-    // the password store. Add the entry to the new_entries list.
-    AppendPasswordFromSpecifics(password_specifics, time_now,
-                                &sync_entries->new_entries);
+    if (IsEmptyPasswordSpecificsData(password_specifics)) {
+      // http://crbug.com/404012. Remove the empty password from the Sync
+      // server. This code can be removed once all users have their password
+      // store cleaned up. This should happen in M43 and can be verified using
+      // crash reports.
+      updated_db_entries->push_back(
+          syncer::SyncChange(FROM_HERE,
+                             syncer::SyncChange::ACTION_DELETE,
+                             data));
+    } else {
+      // The sync data is not in the password store, so we need to create it in
+      // the password store. Add the entry to the new_entries list.
+      AppendPasswordFromSpecifics(password_specifics, time_now,
+                                  &sync_entries->new_entries);
+    }
   } else {
     // The entry is in password store. If the entries are not identical, then
     // the entries need to be merged.
@@ -344,7 +395,7 @@ void PasswordSyncableService::CreateOrUpdateEntry(
         *existing_local_entry_iter->second;
     if (!AreLocalAndSyncPasswordsEqual(password_specifics, password_form)) {
       if (base::Time::FromInternalValue(password_specifics.date_created()) <
-              password_form.date_created) {
+          password_form.date_created) {
         updated_db_entries->push_back(
             syncer::SyncChange(FROM_HERE,
                                syncer::SyncChange::ACTION_UPDATE,
@@ -353,6 +404,17 @@ void PasswordSyncableService::CreateOrUpdateEntry(
         AppendPasswordFromSpecifics(password_specifics, time_now,
                                     &sync_entries->updated_entries);
       }
+    } else if (IsEmptyPasswordForm(password_form)) {
+      // http://crbug.com/404012. Remove empty passwords from both the Sync
+      // server and the local db. This code can be removed once all users have
+      // their password store cleaned up. This should happen in M43 and can be
+      // verified using crash reports.
+      updated_db_entries->push_back(
+          syncer::SyncChange(FROM_HERE,
+                             syncer::SyncChange::ACTION_DELETE,
+                             SyncDataFromPassword(password_form)));
+      AppendPasswordFromSpecifics(password_specifics, time_now,
+                                  &sync_entries->deleted_entries);
     }
     // Remove the entry from the entry map to indicate a match has been found.
     // Entries that remain in the map at the end of associating all sync entries
@@ -365,8 +427,8 @@ void PasswordSyncableService::WriteEntriesToDatabase(
     DatabaseOperation operation,
     const PasswordForms& entries,
     PasswordStoreChangeList* all_changes) {
-  for (PasswordForms::const_iterator it = entries.begin();
-       it != entries.end(); ++it) {
+  for (PasswordForms::const_iterator it = entries.begin(); it != entries.end();
+       ++it) {
     PasswordStoreChangeList new_changes = (password_store_->*operation)(**it);
     all_changes->insert(all_changes->end(),
                         new_changes.begin(),
@@ -379,9 +441,9 @@ syncer::SyncData SyncDataFromPassword(
   sync_pb::EntitySpecifics password_data;
   sync_pb::PasswordSpecificsData* password_specifics =
       password_data.mutable_password()->mutable_client_only_encrypted_data();
-#define CopyField(field) password_specifics->set_ ## field(password_form.field)
+#define CopyField(field) password_specifics->set_##field(password_form.field)
 #define CopyStringField(field) \
-    password_specifics->set_ ## field(base::UTF16ToUTF8(password_form.field))
+  password_specifics->set_##field(base::UTF16ToUTF8(password_form.field))
   CopyField(scheme);
   CopyField(signon_realm);
   password_specifics->set_origin(password_form.origin.spec());

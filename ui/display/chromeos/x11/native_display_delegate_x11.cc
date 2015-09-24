@@ -79,18 +79,16 @@ class NativeDisplayDelegateX11::HelperDelegateX11
     : public NativeDisplayDelegateX11::HelperDelegate {
  public:
   HelperDelegateX11(NativeDisplayDelegateX11* delegate) : delegate_(delegate) {}
-  virtual ~HelperDelegateX11() {}
+  ~HelperDelegateX11() override {}
 
   // NativeDisplayDelegateX11::HelperDelegate overrides:
-  virtual void UpdateXRandRConfiguration(const base::NativeEvent& event)
-      override {
+  void UpdateXRandRConfiguration(const base::NativeEvent& event) override {
     XRRUpdateConfiguration(event);
   }
-  virtual const std::vector<DisplaySnapshot*>& GetCachedDisplays() const
-      override {
+  const std::vector<DisplaySnapshot*>& GetCachedDisplays() const override {
     return delegate_->cached_outputs_.get();
   }
-  virtual void NotifyDisplayObservers() override {
+  void NotifyDisplayObservers() override {
     FOR_EACH_OBSERVER(
         NativeDisplayObserver, delegate_->observers_, OnConfigurationChanged());
   }
@@ -107,7 +105,6 @@ class NativeDisplayDelegateX11::HelperDelegateX11
 NativeDisplayDelegateX11::NativeDisplayDelegateX11()
     : display_(gfx::GetXDisplay()),
       window_(DefaultRootWindow(display_)),
-      screen_(NULL),
       background_color_argb_(0) {}
 
 NativeDisplayDelegateX11::~NativeDisplayDelegateX11() {
@@ -137,27 +134,26 @@ void NativeDisplayDelegateX11::Initialize() {
 void NativeDisplayDelegateX11::GrabServer() {
   CHECK(!screen_) << "Server already grabbed";
   XGrabServer(display_);
-  screen_ = XRRGetScreenResources(display_, window_);
+  screen_.reset(XRRGetScreenResources(display_, window_));
   CHECK(screen_);
 }
 
 void NativeDisplayDelegateX11::UngrabServer() {
   CHECK(screen_) << "Server not grabbed";
-  XRRFreeScreenResources(screen_);
-  screen_ = NULL;
+  screen_.reset();
   XUngrabServer(display_);
   // crbug.com/366125
   XFlush(display_);
 }
 
-bool NativeDisplayDelegateX11::TakeDisplayControl() {
+void NativeDisplayDelegateX11::TakeDisplayControl(
+    const DisplayControlCallback& callback) {
   NOTIMPLEMENTED();
-  return false;
 }
 
-bool NativeDisplayDelegateX11::RelinquishDisplayControl() {
+void NativeDisplayDelegateX11::RelinquishDisplayControl(
+    const DisplayControlCallback& callback) {
   NOTIMPLEMENTED();
-  return false;
 }
 
 void NativeDisplayDelegateX11::SyncWithServer() { XSync(display_, 0); }
@@ -171,25 +167,27 @@ void NativeDisplayDelegateX11::ForceDPMSOn() {
   CHECK(DPMSForceLevel(display_, DPMSModeOn));
 }
 
-std::vector<DisplaySnapshot*> NativeDisplayDelegateX11::GetDisplays() {
+void NativeDisplayDelegateX11::GetDisplays(
+    const GetDisplaysCallback& callback) {
   CHECK(screen_) << "Server not grabbed";
 
   cached_outputs_.clear();
-  RRCrtc last_used_crtc = None;
+  std::set<RRCrtc> last_used_crtcs;
 
   InitModes();
-  for (int i = 0; i < screen_->noutput && cached_outputs_.size() < 2; ++i) {
+  for (int i = 0; i < screen_->noutput; ++i) {
     RROutput output_id = screen_->outputs[i];
-    XRROutputInfo* output_info = XRRGetOutputInfo(display_, screen_, output_id);
+    XRROutputInfo* output_info =
+        XRRGetOutputInfo(display_, screen_.get(), output_id);
     if (output_info->connection == RR_Connected) {
       DisplaySnapshotX11* output =
-          InitDisplaySnapshot(output_id, output_info, &last_used_crtc, i);
+          InitDisplaySnapshot(output_id, output_info, &last_used_crtcs, i);
       cached_outputs_.push_back(output);
     }
     XRRFreeOutputInfo(output_info);
   }
 
-  return cached_outputs_.get();
+  callback.Run(cached_outputs_.get());
 }
 
 void NativeDisplayDelegateX11::AddMode(const DisplaySnapshot& output,
@@ -206,17 +204,18 @@ void NativeDisplayDelegateX11::AddMode(const DisplaySnapshot& output,
   XRRAddOutputMode(display_, x11_output.output(), mode_id);
 }
 
-bool NativeDisplayDelegateX11::Configure(const DisplaySnapshot& output,
+void NativeDisplayDelegateX11::Configure(const DisplaySnapshot& output,
                                          const DisplayMode* mode,
-                                         const gfx::Point& origin) {
+                                         const gfx::Point& origin,
+                                         const ConfigureCallback& callback) {
   const DisplaySnapshotX11& x11_output =
       static_cast<const DisplaySnapshotX11&>(output);
   RRMode mode_id = None;
   if (mode)
     mode_id = static_cast<const DisplayModeX11*>(mode)->mode_id();
 
-  return ConfigureCrtc(
-      x11_output.crtc(), mode_id, x11_output.output(), origin.x(), origin.y());
+  callback.Run(ConfigureCrtc(x11_output.crtc(), mode_id, x11_output.output(),
+                             origin.x(), origin.y()));
 }
 
 bool NativeDisplayDelegateX11::ConfigureCrtc(RRCrtc crtc,
@@ -230,15 +229,8 @@ bool NativeDisplayDelegateX11::ConfigureCrtc(RRCrtc crtc,
   // Xrandr.h is full of lies. XRRSetCrtcConfig() is defined as returning a
   // Status, which is typically 0 for failure and 1 for success. In
   // actuality it returns a RRCONFIGSTATUS, which uses 0 for success.
-  if (XRRSetCrtcConfig(display_,
-                       screen_,
-                       crtc,
-                       CurrentTime,
-                       x,
-                       y,
-                       mode,
-                       RR_Rotate_0,
-                       (output && mode) ? &output : NULL,
+  if (XRRSetCrtcConfig(display_, screen_.get(), crtc, CurrentTime, x, y, mode,
+                       RR_Rotate_0, (output && mode) ? &output : NULL,
                        (output && mode) ? 1 : 0) != RRSetConfigSuccess) {
     LOG(WARNING) << "Unable to configure CRTC " << crtc << ":"
                  << " mode=" << mode << " output=" << output << " x=" << x
@@ -315,7 +307,7 @@ void NativeDisplayDelegateX11::InitModes() {
 DisplaySnapshotX11* NativeDisplayDelegateX11::InitDisplaySnapshot(
     RROutput output,
     XRROutputInfo* info,
-    RRCrtc* last_used_crtc,
+    std::set<RRCrtc>* last_used_crtcs,
     int index) {
   int64_t display_id = 0;
   if (!GetDisplayId(output, static_cast<uint8_t>(index), &display_id))
@@ -332,7 +324,8 @@ DisplaySnapshotX11* NativeDisplayDelegateX11::InitDisplaySnapshot(
   RRMode current_mode_id = None;
   gfx::Point origin;
   if (info->crtc) {
-    XRRCrtcInfo* crtc_info = XRRGetCrtcInfo(display_, screen_, info->crtc);
+    XRRCrtcInfo* crtc_info =
+        XRRGetCrtcInfo(display_, screen_.get(), info->crtc);
     current_mode_id = crtc_info->mode;
     origin.SetPoint(crtc_info->x, crtc_info->y);
     XRRFreeCrtcInfo(crtc_info);
@@ -341,9 +334,9 @@ DisplaySnapshotX11* NativeDisplayDelegateX11::InitDisplaySnapshot(
   RRCrtc crtc = None;
   // Assign a CRTC that isn't already in use.
   for (int i = 0; i < info->ncrtc; ++i) {
-    if (info->crtcs[i] != *last_used_crtc) {
+    if (last_used_crtcs->find(info->crtcs[i]) == last_used_crtcs->end()) {
       crtc = info->crtcs[i];
-      *last_used_crtc = crtc;
+      last_used_crtcs->insert(crtc);
       break;
     }
   }
@@ -388,6 +381,14 @@ DisplaySnapshotX11* NativeDisplayDelegateX11::InitDisplaySnapshot(
   return display_snapshot;
 }
 
+void NativeDisplayDelegateX11::GetHDCPState(
+    const DisplaySnapshot& output,
+    const GetHDCPStateCallback& callback) {
+  HDCPState state = HDCP_STATE_UNDESIRED;
+  bool success = GetHDCPState(output, &state);
+  callback.Run(success, state);
+}
+
 bool NativeDisplayDelegateX11::GetHDCPState(const DisplaySnapshot& output,
                                             HDCPState* state) {
   unsigned char* values = NULL;
@@ -400,7 +401,6 @@ bool NativeDisplayDelegateX11::GetHDCPState(const DisplaySnapshot& output,
   // TODO(kcwu): Use X11AtomCache to save round trip time of XInternAtom.
   Atom prop = XInternAtom(display_, kContentProtectionAtomName, False);
 
-  bool ok = true;
   // TODO(kcwu): Move this to x11_util (similar method calls in this file and
   // output_util.cc)
   success = XRRGetOutputProperty(display_,
@@ -416,12 +416,15 @@ bool NativeDisplayDelegateX11::GetHDCPState(const DisplaySnapshot& output,
                                  &nitems,
                                  &bytes_after,
                                  &values);
+  gfx::XScopedPtr<unsigned char> scoped_values(values);
   if (actual_type == None) {
     LOG(ERROR) << "Property '" << kContentProtectionAtomName
                << "' does not exist";
-    ok = false;
-  } else if (success == Success && actual_type == XA_ATOM &&
-             actual_format == 32 && nitems == 1) {
+    return false;
+  }
+
+  if (success == Success && actual_type == XA_ATOM && actual_format == 32 &&
+      nitems == 1) {
     Atom value = reinterpret_cast<Atom*>(values)[0];
     if (value == XInternAtom(display_, kProtectionUndesiredAtomName, False)) {
       *state = HDCP_STATE_UNDESIRED;
@@ -434,17 +437,22 @@ bool NativeDisplayDelegateX11::GetHDCPState(const DisplaySnapshot& output,
     } else {
       LOG(ERROR) << "Unknown " << kContentProtectionAtomName
                  << " value: " << value;
-      ok = false;
+      return false;
     }
   } else {
     LOG(ERROR) << "XRRGetOutputProperty failed";
-    ok = false;
+    return false;
   }
-  if (values)
-    XFree(values);
 
-  VLOG(3) << "HDCP state: " << ok << "," << *state;
-  return ok;
+  VLOG(3) << "HDCP state: success," << *state;
+  return true;
+}
+
+void NativeDisplayDelegateX11::SetHDCPState(
+    const DisplaySnapshot& output,
+    HDCPState state,
+    const SetHDCPStateCallback& callback) {
+  callback.Run(SetHDCPState(output, state));
 }
 
 bool NativeDisplayDelegateX11::SetHDCPState(const DisplaySnapshot& output,
@@ -537,16 +545,14 @@ void NativeDisplayDelegateX11::UpdateCrtcsForNewFramebuffer(
 }
 
 bool NativeDisplayDelegateX11::IsOutputAspectPreservingScaling(RROutput id) {
-  bool ret = false;
-
   Atom scaling_prop = XInternAtom(display_, "scaling mode", False);
   Atom full_aspect_atom = XInternAtom(display_, "Full aspect", False);
   if (scaling_prop == None || full_aspect_atom == None)
     return false;
 
   int nprop = 0;
-  Atom* props = XRRListOutputProperties(display_, id, &nprop);
-  for (int j = 0; j < nprop && !ret; j++) {
+  gfx::XScopedPtr<Atom[]> props(XRRListOutputProperties(display_, id, &nprop));
+  for (int j = 0; j < nprop; j++) {
     Atom prop = props[j];
     if (scaling_prop == prop) {
       unsigned char* values = NULL;
@@ -569,20 +575,16 @@ bool NativeDisplayDelegateX11::IsOutputAspectPreservingScaling(RROutput id) {
                                      &nitems,
                                      &bytes_after,
                                      &values);
+      gfx::XScopedPtr<unsigned char> scoped_value(values);
       if (success == Success && actual_type == XA_ATOM && actual_format == 32 &&
           nitems == 1) {
         Atom value = reinterpret_cast<Atom*>(values)[0];
         if (full_aspect_atom == value)
-          ret = true;
+          return true;
       }
-      if (values)
-        XFree(values);
     }
   }
-  if (props)
-    XFree(props);
-
-  return ret;
+  return false;
 }
 
 
@@ -619,6 +621,13 @@ XRRCrtcGamma* NativeDisplayDelegateX11::CreateGammaRampForProfile(
   // TODO(mukai|marcheu): Creates the appropriate gamma ramp data from the
   // profile enum. It would be served by the vendor.
   return NULL;
+}
+
+bool NativeDisplayDelegateX11::SetGammaRamp(
+    const ui::DisplaySnapshot& output,
+    const std::vector<GammaRampRGBEntry>& lut) {
+  NOTIMPLEMENTED();
+  return false;
 }
 
 void NativeDisplayDelegateX11::DrawBackground() {

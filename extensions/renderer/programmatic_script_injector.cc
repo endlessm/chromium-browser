@@ -7,28 +7,52 @@
 #include <vector>
 
 #include "base/values.h"
-#include "content/public/renderer/render_view.h"
+#include "content/public/common/url_constants.h"
+#include "content/public/renderer/render_frame.h"
+#include "content/public/renderer/render_frame_observer.h"
 #include "extensions/common/error_utils.h"
-#include "extensions/common/extension.h"
 #include "extensions/common/extension_messages.h"
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/permissions/permissions_data.h"
+#include "extensions/renderer/injection_host.h"
 #include "extensions/renderer/script_context.h"
 #include "third_party/WebKit/public/platform/WebString.h"
 #include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebFrame.h"
+#include "third_party/WebKit/public/web/WebLocalFrame.h"
 #include "third_party/WebKit/public/web/WebScriptSource.h"
 
 namespace extensions {
 
+// Watches for the deletion of a RenderFrame, after which is_valid will return
+// false.
+class ProgrammaticScriptInjector::FrameWatcher
+    : public content::RenderFrameObserver {
+ public:
+  explicit FrameWatcher(content::RenderFrame* render_frame)
+      : content::RenderFrameObserver(render_frame), is_valid_(true) {}
+  ~FrameWatcher() override {}
+
+  bool is_frame_valid() const { return is_valid_; }
+
+ private:
+  void FrameDetached() override { is_valid_ = false; }
+  void OnDestruct() override { is_valid_ = false; }
+
+  bool is_valid_;
+
+  DISALLOW_COPY_AND_ASSIGN(FrameWatcher);
+};
+
 ProgrammaticScriptInjector::ProgrammaticScriptInjector(
     const ExtensionMsg_ExecuteCode_Params& params,
-    blink::WebFrame* web_frame)
+    content::RenderFrame* render_frame)
     : params_(new ExtensionMsg_ExecuteCode_Params(params)),
-      url_(ScriptContext::GetDataSourceURLForFrame(web_frame)),
-      render_view_(content::RenderView::FromWebView(web_frame->view())),
-      results_(new base::ListValue()),
+      url_(
+          ScriptContext::GetDataSourceURLForFrame(render_frame->GetWebFrame())),
+      frame_watcher_(new FrameWatcher(render_frame)),
       finished_(false) {
+  effective_url_ = ScriptContext::GetEffectiveDocumentURL(
+      render_frame->GetWebFrame(), url_, params.match_about_blank);
 }
 
 ProgrammaticScriptInjector::~ProgrammaticScriptInjector() {
@@ -37,10 +61,6 @@ ProgrammaticScriptInjector::~ProgrammaticScriptInjector() {
 UserScript::InjectionType ProgrammaticScriptInjector::script_type()
     const {
   return UserScript::PROGRAMMATIC_SCRIPT;
-}
-
-bool ProgrammaticScriptInjector::ShouldExecuteInChildFrames() const {
-  return params_->all_frames;
 }
 
 bool ProgrammaticScriptInjector::ShouldExecuteInMainWorld() const {
@@ -66,24 +86,28 @@ bool ProgrammaticScriptInjector::ShouldInjectCss(
 }
 
 PermissionsData::AccessType ProgrammaticScriptInjector::CanExecuteOnFrame(
-    const Extension* extension,
-    blink::WebFrame* frame,
-    int tab_id,
-    const GURL& top_url) const {
+    const InjectionHost* injection_host,
+    blink::WebLocalFrame* frame,
+    int tab_id) const {
   GURL effective_document_url = ScriptContext::GetEffectiveDocumentURL(
       frame, frame->document().url(), params_->match_about_blank);
   if (params_->is_web_view) {
+    if (frame->parent()) {
+      // This is a subframe inside <webview>, so allow it.
+      return PermissionsData::ACCESS_ALLOWED;
+    }
+
     return effective_document_url == params_->webview_src
                ? PermissionsData::ACCESS_ALLOWED
                : PermissionsData::ACCESS_DENIED;
   }
+  DCHECK_EQ(injection_host->id().type(), HostID::EXTENSIONS);
 
-  return extension->permissions_data()->GetPageAccess(extension,
-                                                      effective_document_url,
-                                                      top_url,
-                                                      tab_id,
-                                                      -1,  // no process ID.
-                                                      NULL /* ignore error */);
+  return injection_host->CanExecuteOnFrame(
+      effective_document_url,
+      content::RenderFrame::FromWebFrame(frame),
+      tab_id,
+      true /* is_declarative */);
 }
 
 std::vector<blink::WebScriptSource> ProgrammaticScriptInjector::GetJsSources(
@@ -105,11 +129,17 @@ std::vector<std::string> ProgrammaticScriptInjector::GetCssSources(
   return std::vector<std::string>(1, params_->code);
 }
 
-void ProgrammaticScriptInjector::OnInjectionComplete(
-    scoped_ptr<base::ListValue> execution_results,
+void ProgrammaticScriptInjector::GetRunInfo(
     ScriptsRunInfo* scripts_run_info,
+    UserScript::RunLocation run_location) const {
+}
+
+void ProgrammaticScriptInjector::OnInjectionComplete(
+    scoped_ptr<base::Value> execution_result,
     UserScript::RunLocation run_location) {
-  results_ = execution_results.Pass();
+  DCHECK(results_.empty());
+  if (execution_result)
+    results_.Append(execution_result.Pass());
   Finish(std::string());
 }
 
@@ -117,8 +147,14 @@ void ProgrammaticScriptInjector::OnWillNotInject(InjectFailureReason reason) {
   std::string error;
   switch (reason) {
     case NOT_ALLOWED:
-      error = ErrorUtils::FormatErrorMessage(manifest_errors::kCannotAccessPage,
-                                             url_.spec());
+      if (url_.SchemeIs(url::kAboutScheme)) {
+        error = ErrorUtils::FormatErrorMessage(
+            manifest_errors::kCannotAccessAboutUrl, url_.spec(),
+            effective_url_.GetOrigin().spec());
+      } else {
+        error = ErrorUtils::FormatErrorMessage(
+            manifest_errors::kCannotAccessPage, url_.spec());
+      }
       break;
     case EXTENSION_REMOVED:  // no special error here.
     case WONT_INJECT:
@@ -135,12 +171,15 @@ void ProgrammaticScriptInjector::Finish(const std::string& error) {
   DCHECK(!finished_);
   finished_ = true;
 
-  render_view_->Send(new ExtensionHostMsg_ExecuteCodeFinished(
-      render_view_->GetRoutingID(),
-      params_->request_id,
-      error,
-      url_,
-      *results_));
+  // It's possible that the render frame was destroyed in the course of
+  // injecting scripts. Don't respond if it was (the browser side watches for
+  // frame deletions so nothing is left hanging).
+  if (frame_watcher_->is_frame_valid()) {
+    frame_watcher_->render_frame()->Send(
+        new ExtensionHostMsg_ExecuteCodeFinished(
+            frame_watcher_->render_frame()->GetRoutingID(), params_->request_id,
+            error, url_, results_));
+  }
 }
 
 }  // namespace extensions

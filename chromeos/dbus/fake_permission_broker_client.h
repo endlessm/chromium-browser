@@ -11,19 +11,35 @@
 
 namespace chromeos {
 
-class FakePermissionBrokerClient : public PermissionBrokerClient {
+class CHROMEOS_EXPORT FakePermissionBrokerClient
+    : public PermissionBrokerClient {
  public:
   FakePermissionBrokerClient();
-  virtual ~FakePermissionBrokerClient();
+  ~FakePermissionBrokerClient() override;
 
-  virtual void Init(dbus::Bus* bus) override;
-  virtual void RequestPathAccess(const std::string& path,
-                                 int interface_id,
-                                 const ResultCallback& callback) override;
-  virtual void RequestUsbAccess(const uint16_t vendor_id,
-                                const uint16_t product_id,
-                                int interface_id,
-                                const ResultCallback& callback) override;
+  void Init(dbus::Bus* bus) override;
+  void CheckPathAccess(const std::string& path,
+                       const ResultCallback& callback) override;
+  void RequestPathAccess(const std::string& path,
+                         int interface_id,
+                         const ResultCallback& callback) override;
+  void OpenPath(const std::string& path,
+                const OpenPathCallback& callback) override;
+  void RequestTcpPortAccess(uint16 port,
+                            const std::string& interface,
+                            const dbus::FileDescriptor& lifeline_fd,
+                            const ResultCallback& callback) override;
+  void RequestUdpPortAccess(uint16 port,
+                            const std::string& interface,
+                            const dbus::FileDescriptor& lifeline_fd,
+                            const ResultCallback& callback) override;
+  void ReleaseTcpPort(uint16 port,
+                      const std::string& interface,
+                      const ResultCallback& callback) override;
+  void ReleaseUdpPort(uint16 port,
+                      const std::string& interface,
+                      const ResultCallback& callback) override;
+
  private:
   DISALLOW_COPY_AND_ASSIGN(FakePermissionBrokerClient);
 };

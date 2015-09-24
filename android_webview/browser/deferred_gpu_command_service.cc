@@ -6,9 +6,9 @@
 
 #include "android_webview/browser/gl_view_renderer_manager.h"
 #include "android_webview/browser/shared_renderer_state.h"
-#include "base/debug/trace_event.h"
 #include "base/lazy_instance.h"
 #include "base/synchronization/lock.h"
+#include "base/trace_event/trace_event.h"
 #include "content/public/browser/android/synchronous_compositor.h"
 #include "gpu/command_buffer/service/shader_translator_cache.h"
 
@@ -41,7 +41,7 @@ ScopedAllowGL::~ScopedAllowGL() {
   if (service) {
     service->RunTasks();
     if (service->IdleQueueSize()) {
-      service->RequestProcessGL();
+      service->RequestProcessGL(true);
     }
   }
 }
@@ -69,14 +69,14 @@ DeferredGpuCommandService::~DeferredGpuCommandService() {
 
 // This method can be called on any thread.
 // static
-void DeferredGpuCommandService::RequestProcessGL() {
+void DeferredGpuCommandService::RequestProcessGL(bool for_idle) {
   SharedRendererState* renderer_state =
       GLViewRendererManager::GetInstance()->GetMostRecentlyDrawn();
   if (!renderer_state) {
     LOG(ERROR) << "No hardware renderer. Deadlock likely";
     return;
   }
-  renderer_state->ClientRequestDrawGL();
+  renderer_state->ClientRequestDrawGL(for_idle);
 }
 
 // Called from different threads!
@@ -88,7 +88,7 @@ void DeferredGpuCommandService::ScheduleTask(const base::Closure& task) {
   if (ScopedAllowGL::IsAllowed()) {
     RunTasks();
   } else {
-    RequestProcessGL();
+    RequestProcessGL(false);
   }
 }
 
@@ -103,7 +103,7 @@ void DeferredGpuCommandService::ScheduleIdleWork(
     base::AutoLock lock(tasks_lock_);
     idle_tasks_.push(std::make_pair(base::Time::Now(), callback));
   }
-  RequestProcessGL();
+  RequestProcessGL(true);
 }
 
 void DeferredGpuCommandService::PerformIdleWork(bool is_idle) {
@@ -152,6 +152,7 @@ DeferredGpuCommandService::shader_translator_cache() {
 }
 
 void DeferredGpuCommandService::RunTasks() {
+  TRACE_EVENT0("android_webview", "DeferredGpuCommandService::RunTasks");
   bool has_more_tasks;
   {
     base::AutoLock lock(tasks_lock_);

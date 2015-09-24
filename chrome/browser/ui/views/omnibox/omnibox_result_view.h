@@ -8,12 +8,13 @@
 #include <vector>
 
 #include "base/gtest_prod_util.h"
-#include "components/omnibox/autocomplete_match.h"
+#include "components/omnibox/browser/autocomplete_match.h"
+#include "components/omnibox/browser/suggestion_answer.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/gfx/font_list.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/view.h"
 
@@ -46,6 +47,10 @@ class OmniboxResultView : public views::View,
     NUM_KINDS
   };
 
+  // The minimum distance between the top and bottom of the text and the
+  // top or bottom of the row.
+  static const int kMinimumTextVerticalPadding = 3;
+
   OmniboxResultView(OmniboxPopupContentsView* model,
                     int model_index,
                     LocationBarView* location_bar_view,
@@ -74,6 +79,9 @@ class OmniboxResultView : public views::View,
 
   // Returns the display width required for the match contents.
   int GetMatchContentsWidth() const;
+
+  // Stores the image in a local data member and schedules a repaint.
+  void SetAnswerImage(const gfx::ImageSkia& image);
 
  protected:
   // Paints the given |match| using the RenderText instances |contents| and
@@ -113,11 +121,11 @@ class OmniboxResultView : public views::View,
 
   void set_edge_item_padding(int value) { edge_item_padding_ = value; }
   void set_item_padding(int value) { item_padding_ = value; }
-  void set_minimum_text_vertical_padding(int value) {
-    minimum_text_vertical_padding_ = value;
-  }
 
  private:
+  // views::View:
+  const char* GetClassName() const override;
+
   gfx::ImageSkia GetIcon() const;
   const gfx::ImageSkia* GetKeywordIcon() const;
 
@@ -148,12 +156,34 @@ class OmniboxResultView : public views::View,
                        bool is_ui_rtl,
                        bool is_match_contents_rtl) const;
 
+  int GetAnswerLineHeight() const;
+  int GetContentLineHeight() const;
+
+  // Creates a RenderText with text and styling from the image line.
+  scoped_ptr<gfx::RenderText> CreateAnswerLine(
+      const SuggestionAnswer::ImageLine& line,
+      gfx::FontList font_list);
+
+  // Adds |text| to |destination|.  |text_type| is an index into the
+  // kTextStyles constant defined in the .cc file and is used to style the text,
+  // including setting the font size, color, and baseline style.  See the
+  // TextStyle struct in the .cc file for more.
+  void AppendAnswerText(gfx::RenderText* destination,
+                        const base::string16& text,
+                        int text_type);
+
+  // AppendAnswerText will break up the |text| into bold and non-bold pieces
+  // and pass each to this helper with the correct |is_bold| value.
+  void AppendAnswerTextHelper(gfx::RenderText* destination,
+                              const base::string16& text,
+                              int text_type,
+                              bool is_bold);
+
   static int default_icon_size_;
 
   // Default values cached here, may be overridden using the setters above.
   int edge_item_padding_;
   int item_padding_;
-  int minimum_text_vertical_padding_;
 
   // This row's model and model index.
   OmniboxPopupContentsView* model_;
@@ -177,6 +207,9 @@ class OmniboxResultView : public views::View,
   scoped_ptr<views::ImageView> keyword_icon_;
 
   scoped_ptr<gfx::SlideAnimation> animation_;
+
+  // If the answer has an icon, cache the image.
+  gfx::ImageSkia answer_image_;
 
   // We preserve these RenderTexts so that we won't recreate them on every call
   // to GetMatchContentsWidth() or OnPaint().

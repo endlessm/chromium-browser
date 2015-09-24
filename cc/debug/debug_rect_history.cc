@@ -29,8 +29,6 @@ void DebugRectHistory::SaveDebugRectsForCurrentFrame(
     LayerImpl* root_layer,
     LayerImpl* hud_layer,
     const LayerImplList& render_surface_layer_list,
-    const std::vector<gfx::Rect>& occluding_screen_space_rects,
-    const std::vector<gfx::Rect>& non_occluding_screen_space_rects,
     const LayerTreeDebugState& debug_state) {
   // For now, clear all rects from previous frames. In the future we may want to
   // store all debug rects for a history of many frames.
@@ -60,12 +58,6 @@ void DebugRectHistory::SaveDebugRectsForCurrentFrame(
   if (debug_state.show_screen_space_rects)
     SaveScreenSpaceRects(render_surface_layer_list);
 
-  if (debug_state.show_occluding_rects)
-    SaveOccludingRects(occluding_screen_space_rects);
-
-  if (debug_state.show_non_occluding_rects)
-    SaveNonOccludingRects(non_occluding_screen_space_rects);
-
   if (debug_state.show_layer_animation_bounds_rects)
     SaveLayerAnimationBoundsRects(render_surface_layer_list);
 }
@@ -76,17 +68,13 @@ void DebugRectHistory::SavePaintRects(LayerImpl* layer) {
   // not. Therefore we traverse recursively over all layers, not just the render
   // surface list.
 
-  if (!layer->update_rect().IsEmpty() && layer->DrawsContent()) {
-    float width_scale = layer->content_bounds().width() /
-                        static_cast<float>(layer->bounds().width());
-    float height_scale = layer->content_bounds().height() /
-                         static_cast<float>(layer->bounds().height());
-    gfx::Rect update_content_rect = gfx::ScaleToEnclosingRect(
-        layer->update_rect(), width_scale, height_scale);
-    debug_rects_.push_back(
-        DebugRect(PAINT_RECT_TYPE,
-                  MathUtil::MapEnclosingClippedRect(
-                      layer->screen_space_transform(), update_content_rect)));
+  Region invalidation_region = layer->GetInvalidationRegion();
+  if (!invalidation_region.IsEmpty() && layer->DrawsContent()) {
+    for (Region::Iterator it(invalidation_region); it.has_rect(); it.next()) {
+      debug_rects_.push_back(DebugRect(
+          PAINT_RECT_TYPE, MathUtil::MapEnclosingClippedRect(
+                               layer->screen_space_transform(), it.rect())));
+    }
   }
 
   for (unsigned i = 0; i < layer->children().size(); ++i)
@@ -96,9 +84,8 @@ void DebugRectHistory::SavePaintRects(LayerImpl* layer) {
 void DebugRectHistory::SavePropertyChangedRects(
     const LayerImplList& render_surface_layer_list,
     LayerImpl* hud_layer) {
-  for (int surface_index = render_surface_layer_list.size() - 1;
-       surface_index >= 0;
-       --surface_index) {
+  for (size_t i = 0; i < render_surface_layer_list.size(); ++i) {
+    size_t surface_index = render_surface_layer_list.size() - 1 - i;
     LayerImpl* render_surface_layer = render_surface_layer_list[surface_index];
     RenderSurfaceImpl* render_surface = render_surface_layer->render_surface();
     DCHECK(render_surface);
@@ -119,20 +106,18 @@ void DebugRectHistory::SavePropertyChangedRects(
       if (!layer->LayerPropertyChanged())
         continue;
 
-      debug_rects_.push_back(
-          DebugRect(PROPERTY_CHANGED_RECT_TYPE,
-                    MathUtil::MapEnclosingClippedRect(
-                        layer->screen_space_transform(),
-                        gfx::Rect(layer->content_bounds()))));
+      debug_rects_.push_back(DebugRect(
+          PROPERTY_CHANGED_RECT_TYPE,
+          MathUtil::MapEnclosingClippedRect(layer->screen_space_transform(),
+                                            gfx::Rect(layer->bounds()))));
     }
   }
 }
 
 void DebugRectHistory::SaveSurfaceDamageRects(
     const LayerImplList& render_surface_layer_list) {
-  for (int surface_index = render_surface_layer_list.size() - 1;
-       surface_index >= 0;
-       --surface_index) {
+  for (size_t i = 0; i < render_surface_layer_list.size(); ++i) {
+    size_t surface_index = render_surface_layer_list.size() - 1 - i;
     LayerImpl* render_surface_layer = render_surface_layer_list[surface_index];
     RenderSurfaceImpl* render_surface = render_surface_layer->render_surface();
     DCHECK(render_surface);
@@ -147,9 +132,8 @@ void DebugRectHistory::SaveSurfaceDamageRects(
 
 void DebugRectHistory::SaveScreenSpaceRects(
     const LayerImplList& render_surface_layer_list) {
-  for (int surface_index = render_surface_layer_list.size() - 1;
-       surface_index >= 0;
-       --surface_index) {
+  for (size_t i = 0; i < render_surface_layer_list.size(); ++i) {
+    size_t surface_index = render_surface_layer_list.size() - 1 - i;
     LayerImpl* render_surface_layer = render_surface_layer_list[surface_index];
     RenderSurfaceImpl* render_surface = render_surface_layer->render_surface();
     DCHECK(render_surface);
@@ -170,108 +154,76 @@ void DebugRectHistory::SaveScreenSpaceRects(
   }
 }
 
-void DebugRectHistory::SaveOccludingRects(
-    const std::vector<gfx::Rect>& occluding_rects) {
-  for (size_t i = 0; i < occluding_rects.size(); ++i)
-    debug_rects_.push_back(DebugRect(OCCLUDING_RECT_TYPE, occluding_rects[i]));
-}
-
-void DebugRectHistory::SaveNonOccludingRects(
-    const std::vector<gfx::Rect>& non_occluding_rects) {
-  for (size_t i = 0; i < non_occluding_rects.size(); ++i) {
-    debug_rects_.push_back(
-        DebugRect(NONOCCLUDING_RECT_TYPE, non_occluding_rects[i]));
-  }
-}
-
 void DebugRectHistory::SaveTouchEventHandlerRects(LayerImpl* layer) {
-  LayerTreeHostCommon::CallFunctionForSubtree<LayerImpl>(
-      layer,
-      base::Bind(&DebugRectHistory::SaveTouchEventHandlerRectsCallback,
-                 base::Unretained(this)));
+  LayerTreeHostCommon::CallFunctionForSubtree(layer, [this](LayerImpl* layer) {
+    SaveTouchEventHandlerRectsCallback(layer);
+  });
 }
 
 void DebugRectHistory::SaveTouchEventHandlerRectsCallback(LayerImpl* layer) {
   for (Region::Iterator iter(layer->touch_event_handler_region());
        iter.has_rect();
        iter.next()) {
-    gfx::Rect touch_rect = gfx::ScaleToEnclosingRect(
-        iter.rect(), layer->contents_scale_x(), layer->contents_scale_y());
     debug_rects_.push_back(
         DebugRect(TOUCH_EVENT_HANDLER_RECT_TYPE,
                   MathUtil::MapEnclosingClippedRect(
-                      layer->screen_space_transform(), touch_rect)));
+                      layer->screen_space_transform(), iter.rect())));
   }
 }
 
 void DebugRectHistory::SaveWheelEventHandlerRects(LayerImpl* layer) {
-  LayerTreeHostCommon::CallFunctionForSubtree<LayerImpl>(
-      layer,
-      base::Bind(&DebugRectHistory::SaveWheelEventHandlerRectsCallback,
-                 base::Unretained(this)));
+  LayerTreeHostCommon::CallFunctionForSubtree(layer, [this](LayerImpl* layer) {
+    SaveWheelEventHandlerRectsCallback(layer);
+  });
 }
 
 void DebugRectHistory::SaveWheelEventHandlerRectsCallback(LayerImpl* layer) {
   if (!layer->have_wheel_event_handlers())
     return;
 
-  gfx::Rect wheel_rect =
-      gfx::ScaleToEnclosingRect(gfx::Rect(layer->content_bounds()),
-                                layer->contents_scale_x(),
-                                layer->contents_scale_y());
-  debug_rects_.push_back(
-      DebugRect(WHEEL_EVENT_HANDLER_RECT_TYPE,
-                MathUtil::MapEnclosingClippedRect(
-                    layer->screen_space_transform(), wheel_rect)));
+  debug_rects_.push_back(DebugRect(
+      WHEEL_EVENT_HANDLER_RECT_TYPE,
+      MathUtil::MapEnclosingClippedRect(layer->screen_space_transform(),
+                                        gfx::Rect(layer->bounds()))));
 }
 
 void DebugRectHistory::SaveScrollEventHandlerRects(LayerImpl* layer) {
-  LayerTreeHostCommon::CallFunctionForSubtree<LayerImpl>(
-      layer,
-      base::Bind(&DebugRectHistory::SaveScrollEventHandlerRectsCallback,
-                 base::Unretained(this)));
+  LayerTreeHostCommon::CallFunctionForSubtree(layer, [this](LayerImpl* layer) {
+    SaveScrollEventHandlerRectsCallback(layer);
+  });
 }
 
 void DebugRectHistory::SaveScrollEventHandlerRectsCallback(LayerImpl* layer) {
   if (!layer->have_scroll_event_handlers())
     return;
 
-  gfx::Rect scroll_rect =
-      gfx::ScaleToEnclosingRect(gfx::Rect(layer->content_bounds()),
-                                layer->contents_scale_x(),
-                                layer->contents_scale_y());
-  debug_rects_.push_back(
-      DebugRect(SCROLL_EVENT_HANDLER_RECT_TYPE,
-                MathUtil::MapEnclosingClippedRect(
-                    layer->screen_space_transform(), scroll_rect)));
+  debug_rects_.push_back(DebugRect(
+      SCROLL_EVENT_HANDLER_RECT_TYPE,
+      MathUtil::MapEnclosingClippedRect(layer->screen_space_transform(),
+                                        gfx::Rect(layer->bounds()))));
 }
 
 void DebugRectHistory::SaveNonFastScrollableRects(LayerImpl* layer) {
-  LayerTreeHostCommon::CallFunctionForSubtree<LayerImpl>(
-      layer,
-      base::Bind(&DebugRectHistory::SaveNonFastScrollableRectsCallback,
-                 base::Unretained(this)));
+  LayerTreeHostCommon::CallFunctionForSubtree(layer, [this](LayerImpl* layer) {
+    SaveNonFastScrollableRectsCallback(layer);
+  });
 }
 
 void DebugRectHistory::SaveNonFastScrollableRectsCallback(LayerImpl* layer) {
   for (Region::Iterator iter(layer->non_fast_scrollable_region());
        iter.has_rect();
        iter.next()) {
-    gfx::Rect scroll_rect = gfx::ScaleToEnclosingRect(
-        iter.rect(), layer->contents_scale_x(), layer->contents_scale_y());
     debug_rects_.push_back(
         DebugRect(NON_FAST_SCROLLABLE_RECT_TYPE,
                   MathUtil::MapEnclosingClippedRect(
-                      layer->screen_space_transform(), scroll_rect)));
+                      layer->screen_space_transform(), iter.rect())));
   }
 }
 
 void DebugRectHistory::SaveLayerAnimationBoundsRects(
     const LayerImplList& render_surface_layer_list) {
-  typedef LayerIterator<LayerImpl> LayerIteratorType;
-  LayerIteratorType end = LayerIteratorType::End(&render_surface_layer_list);
-  for (LayerIteratorType it =
-           LayerIteratorType::Begin(&render_surface_layer_list);
+  LayerIterator end = LayerIterator::End(&render_surface_layer_list);
+  for (LayerIterator it = LayerIterator::Begin(&render_surface_layer_list);
        it != end; ++it) {
     if (!it.represents_itself())
       continue;

@@ -34,9 +34,9 @@ void ChromeBrowserOperations::ReadOptions(const MasterPreferences& prefs,
   }
 }
 
-void ChromeBrowserOperations::ReadOptions(const CommandLine& uninstall_command,
-                                          std::set<base::string16>* options)
-    const {
+void ChromeBrowserOperations::ReadOptions(
+    const base::CommandLine& uninstall_command,
+    std::set<base::string16>* options) const {
   DCHECK(options);
 
   if (uninstall_command.HasSwitch(switches::kMultiInstall))
@@ -57,7 +57,7 @@ void ChromeBrowserOperations::AddComDllList(
 
 void ChromeBrowserOperations::AppendProductFlags(
     const std::set<base::string16>& options,
-    CommandLine* cmd_line) const {
+    base::CommandLine* cmd_line) const {
   DCHECK(cmd_line);
 
   if (options.find(kOptionMultiInstall) != options.end()) {
@@ -72,7 +72,7 @@ void ChromeBrowserOperations::AppendProductFlags(
 
 void ChromeBrowserOperations::AppendRenameFlags(
     const std::set<base::string16>& options,
-    CommandLine* cmd_line) const {
+    base::CommandLine* cmd_line) const {
   DCHECK(cmd_line);
 
   // Add --multi-install if it isn't already there.
@@ -88,7 +88,11 @@ bool ChromeBrowserOperations::SetChannelFlags(
     ChannelInfo* channel_info) const {
 #if defined(GOOGLE_CHROME_BUILD)
   DCHECK(channel_info);
-  return channel_info->SetChrome(set);
+  bool chrome_changed = channel_info->SetChrome(set);
+  // Remove App Launcher's channel flags, since App Launcher does not exist as
+  // an independent product, and is a part of Chrome.
+  bool app_launcher_changed = channel_info->SetAppLauncher(false);
+  return chrome_changed || app_launcher_changed;
 #else
   return false;
 #endif
@@ -128,8 +132,7 @@ void ChromeBrowserOperations::AddDefaultShortcutProperties(
   }
 
   if (!properties->has_app_id()) {
-    bool is_per_user_install =
-        InstallUtil::IsPerUserInstall(target_exe.value().c_str());
+    bool is_per_user_install = InstallUtil::IsPerUserInstall(target_exe);
     properties->set_app_id(
         ShellUtil::GetBrowserModelId(dist, is_per_user_install));
   }
@@ -143,7 +146,7 @@ void ChromeBrowserOperations::LaunchUserExperiment(
     const std::set<base::string16>& options,
     InstallStatus status,
     bool system_level) const {
-  CommandLine base_command(setup_path);
+  base::CommandLine base_command(setup_path);
   AppendProductFlags(options, &base_command);
   installer::LaunchBrowserUserExperiment(base_command, status, system_level);
 }

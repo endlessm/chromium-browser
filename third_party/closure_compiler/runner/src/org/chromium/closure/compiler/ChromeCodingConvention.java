@@ -10,9 +10,9 @@ import com.google.common.collect.Sets;
 import com.google.javascript.jscomp.ClosureCodingConvention.AssertInstanceofSpec;
 import com.google.javascript.jscomp.CodingConvention;
 import com.google.javascript.jscomp.CodingConventions;
-import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.jstype.FunctionType;
 import com.google.javascript.rhino.jstype.ObjectType;
+import com.google.javascript.rhino.Node;
 
 import java.util.Collection;
 import java.util.Set;

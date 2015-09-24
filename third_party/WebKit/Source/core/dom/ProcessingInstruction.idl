@@ -18,13 +18,12 @@
  * Boston, MA 02110-1301, USA.
  */
 
+// https://dom.spec.whatwg.org/#interface-processinginstruction
+
 interface ProcessingInstruction : CharacterData {
+    readonly attribute DOMString target;
 
-    // DOM Level 1
-
-    readonly attribute DOMString? target;
-
-    // interface LinkStyle from DOM Level 2 Style Sheets
+    // ProcessingInstruction implements LinkStyle
+    // http://dev.w3.org/csswg/cssom/#requirements-on-user-agents-implementing-the-xml-stylesheet-processing-instruction
     readonly attribute StyleSheet sheet;
 };
-

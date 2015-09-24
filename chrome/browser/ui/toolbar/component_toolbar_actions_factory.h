@@ -26,11 +26,18 @@ class ComponentToolbarActionsFactory {
   virtual ScopedVector<ToolbarActionViewController>
       GetComponentToolbarActions();
 
+  // Returns the number of component actions.
+  int GetNumComponentActions();
+
   // Sets the factory to use for testing purposes.
   // Ownership remains with the caller.
   static void SetTestingFactory(ComponentToolbarActionsFactory* factory);
 
  private:
+  // The number of component actions. Initially set to -1 to denote that the
+  // count has not been checked yet.
+  int num_component_actions_;
+
   DISALLOW_COPY_AND_ASSIGN(ComponentToolbarActionsFactory);
 };
 

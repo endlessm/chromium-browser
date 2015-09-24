@@ -9,6 +9,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
+#include "chrome/browser/chromeos/login/session/user_session_manager_test_api.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/dbus/cryptohome_client.h"
@@ -35,16 +36,16 @@ class CrashRestoreSimpleTest : public InProcessBrowserTest {
  protected:
   CrashRestoreSimpleTest() {}
 
-  virtual ~CrashRestoreSimpleTest() {}
+  ~CrashRestoreSimpleTest() override {}
 
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitchASCII(switches::kLoginUser, kUserId1);
     command_line->AppendSwitchASCII(
         switches::kLoginProfile,
         CryptohomeClient::GetStubSanitizedUsername(kUserId1));
   }
 
-  virtual void SetUpInProcessBrowserTestFixture() override {
+  void SetUpInProcessBrowserTestFixture() override {
     // Redirect session_manager DBus calls to FakeSessionManagerClient.
     session_manager_client_ = new FakeSessionManagerClient;
     chromeos::DBusThreadManager::GetSetterForTesting()->SetSessionManagerClient(
@@ -75,9 +76,9 @@ class UserSessionRestoreObserver : public UserSessionStateObserver {
     if (!user_sessions_restored_)
       UserSessionManager::GetInstance()->AddSessionStateObserver(this);
   }
-  virtual ~UserSessionRestoreObserver() {}
+  ~UserSessionRestoreObserver() override {}
 
-  virtual void PendingUserSessionsRestoreFinished() override {
+  void PendingUserSessionsRestoreFinished() override {
     user_sessions_restored_ = true;
     UserSessionManager::GetInstance()->RemoveSessionStateObserver(this);
     if (!running_loop_)
@@ -110,9 +111,9 @@ class UserSessionRestoreObserver : public UserSessionStateObserver {
 class CrashRestoreComplexTest : public CrashRestoreSimpleTest {
  protected:
   CrashRestoreComplexTest() {}
-  virtual ~CrashRestoreComplexTest() {}
+  ~CrashRestoreComplexTest() override {}
 
-  virtual void SetUpInProcessBrowserTestFixture() override {
+  void SetUpInProcessBrowserTestFixture() override {
     CrashRestoreSimpleTest::SetUpInProcessBrowserTestFixture();
     session_manager_client_->StartSession(kUserId2);
     session_manager_client_->StartSession(kUserId3);
@@ -124,6 +125,10 @@ IN_PROC_BROWSER_TEST_F(CrashRestoreComplexTest, RestoreSessionForThreeUsers) {
     UserSessionRestoreObserver restore_observer;
     restore_observer.Wait();
   }
+
+  chromeos::test::UserSessionManagerTestApi session_manager_test_api(
+      chromeos::UserSessionManager::GetInstance());
+  session_manager_test_api.SetShouldObtainTokenHandleInTests(false);
 
   DCHECK(UserSessionManager::GetInstance()->UserSessionsRestored());
 

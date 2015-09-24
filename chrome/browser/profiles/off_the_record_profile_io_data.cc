@@ -18,7 +18,6 @@
 #include "chrome/browser/net/about_protocol_handler.h"
 #include "chrome/browser/net/chrome_net_log.h"
 #include "chrome/browser/net/chrome_network_delegate.h"
-#include "chrome/browser/net/chrome_sdch_policy.h"
 #include "chrome/browser/net/chrome_url_request_context_getter.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_switches.h"
@@ -33,6 +32,7 @@
 #include "net/http/http_cache.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_server_properties_impl.h"
+#include "net/sdch/sdch_owner.h"
 #include "net/ssl/channel_id_service.h"
 #include "net/ssl/default_channel_id_store.h"
 #include "net/url_request/url_request_job_factory_impl.h"
@@ -48,25 +48,25 @@ OffTheRecordProfileIOData::Handle::Handle(Profile* profile)
     : io_data_(new OffTheRecordProfileIOData(profile->GetProfileType())),
       profile_(profile),
       initialized_(false) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(profile);
 }
 
 OffTheRecordProfileIOData::Handle::~Handle() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   io_data_->ShutdownOnUIThread(GetAllContextGetters().Pass());
 }
 
 content::ResourceContext*
 OffTheRecordProfileIOData::Handle::GetResourceContext() const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   LazyInitialize();
   return GetResourceContextNoInit();
 }
 
 content::ResourceContext*
 OffTheRecordProfileIOData::Handle::GetResourceContextNoInit() const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   // Don't call LazyInitialize here, since the resource context is created at
   // the beginning of initalization and is used by some members while they're
   // being initialized (i.e. AppCacheService).
@@ -80,7 +80,7 @@ OffTheRecordProfileIOData::Handle::CreateMainRequestContextGetter(
   // TODO(oshima): Re-enable when ChromeOS only accesses the profile on the UI
   // thread.
 #if !defined(OS_CHROMEOS)
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 #endif  // defined(OS_CHROMEOS)
   LazyInitialize();
   DCHECK(!main_request_context_getter_.get());
@@ -91,7 +91,7 @@ OffTheRecordProfileIOData::Handle::CreateMainRequestContextGetter(
 
 scoped_refptr<ChromeURLRequestContextGetter>
 OffTheRecordProfileIOData::Handle::GetExtensionsRequestContextGetter() const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   LazyInitialize();
   if (!extensions_request_context_getter_.get()) {
     extensions_request_context_getter_ =
@@ -104,7 +104,7 @@ scoped_refptr<ChromeURLRequestContextGetter>
 OffTheRecordProfileIOData::Handle::GetIsolatedAppRequestContextGetter(
     const base::FilePath& partition_path,
     bool in_memory) const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(!partition_path.empty());
   LazyInitialize();
 
@@ -122,7 +122,7 @@ OffTheRecordProfileIOData::Handle::CreateIsolatedAppRequestContextGetter(
     bool in_memory,
     content::ProtocolHandlerMap* protocol_handlers,
     content::URLRequestInterceptorScopedVector request_interceptors) const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(!partition_path.empty());
   LazyInitialize();
 
@@ -149,7 +149,7 @@ OffTheRecordProfileIOData::Handle::CreateIsolatedAppRequestContextGetter(
 
 DevToolsNetworkController*
 OffTheRecordProfileIOData::Handle::GetDevToolsNetworkController() const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   return io_data_->network_controller();
 }
 
@@ -160,7 +160,7 @@ void OffTheRecordProfileIOData::Handle::LazyInitialize() const {
   // Set initialized_ to true at the beginning in case any of the objects
   // below try to get the ResourceContext pointer.
   initialized_ = true;
-#if defined(FULL_SAFE_BROWSING) || defined(MOBILE_SAFE_BROWSING)
+#if defined(SAFE_BROWSING_SERVICE)
   io_data_->safe_browsing_enabled()->Init(prefs::kSafeBrowsingEnabled,
       profile_->GetPrefs());
   io_data_->safe_browsing_enabled()->MoveToThread(
@@ -196,6 +196,7 @@ OffTheRecordProfileIOData::~OffTheRecordProfileIOData() {
 }
 
 void OffTheRecordProfileIOData::InitializeInternal(
+    scoped_ptr<ChromeNetworkDelegate> chrome_network_delegate,
     ProfileParams* profile_params,
     content::ProtocolHandlerMap* protocol_handlers,
     content::URLRequestInterceptorScopedVector request_interceptors) const {
@@ -210,7 +211,9 @@ void OffTheRecordProfileIOData::InitializeInternal(
 
   main_context->set_net_log(io_thread->net_log());
 
-  main_context->set_network_delegate(network_delegate());
+  main_context->set_network_delegate(chrome_network_delegate.get());
+
+  network_delegate_ = chrome_network_delegate.Pass();
 
   main_context->set_host_resolver(
       io_thread_globals->host_resolver.get());
@@ -219,9 +222,6 @@ void OffTheRecordProfileIOData::InitializeInternal(
   main_context->set_fraudulent_certificate_reporter(
       fraudulent_certificate_reporter());
   main_context->set_proxy_service(proxy_service());
-
-  main_context->set_throttler_manager(
-      io_thread_globals->throttler_manager.get());
 
   main_context->set_cert_transparency_verifier(
       io_thread_globals->cert_transparency_verifier.get());
@@ -266,13 +266,13 @@ void OffTheRecordProfileIOData::InitializeInternal(
       main_job_factory.Pass(),
       request_interceptors.Pass(),
       profile_params->protocol_handler_interceptor.Pass(),
-      network_delegate(),
+      main_context->network_delegate(),
       ftp_factory_.get());
   main_context->set_job_factory(main_job_factory_.get());
 
   // Setup SDCH for this profile.
   sdch_manager_.reset(new net::SdchManager);
-  sdch_policy_.reset(new ChromeSdchPolicy(sdch_manager_.get(), main_context));
+  sdch_policy_.reset(new net::SdchOwner(sdch_manager_.get(), main_context));
   main_context->set_sdch_manager(sdch_manager_.get());
 
 #if defined(ENABLE_EXTENSIONS)
@@ -292,9 +292,6 @@ void OffTheRecordProfileIOData::
   extensions_context->set_transport_security_state(transport_security_state());
 
   extensions_context->set_net_log(io_thread->net_log());
-
-  extensions_context->set_throttler_manager(
-      io_thread_globals->throttler_manager.get());
 
   extensions_context->set_cert_transparency_verifier(
       io_thread_globals->cert_transparency_verifier.get());
@@ -364,7 +361,7 @@ net::URLRequestContext* OffTheRecordProfileIOData::InitializeAppRequestContext(
   top_job_factory = SetUpJobFactoryDefaults(job_factory.Pass(),
                                             request_interceptors.Pass(),
                                             protocol_handler_interceptor.Pass(),
-                                            network_delegate(),
+                                            main_context->network_delegate(),
                                             ftp_factory_.get());
   context->SetJobFactory(top_job_factory.Pass());
   return context;

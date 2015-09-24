@@ -12,14 +12,16 @@
 #include "core/editing/Editor.h"
 #include "core/editing/InputMethodController.h"
 #include "core/frame/LocalFrame.h"
+#include "core/layout/LayoutBlock.h"
+#include "core/layout/LayoutTextCombine.h"
+#include "core/layout/LayoutTheme.h"
+#include "core/layout/line/InlineTextBox.h"
 #include "core/paint/BoxPainter.h"
-#include "core/paint/DrawingRecorder.h"
-#include "core/rendering/InlineTextBox.h"
-#include "core/rendering/PaintInfo.h"
-#include "core/rendering/RenderBlock.h"
-#include "core/rendering/RenderCombineText.h"
-#include "core/rendering/RenderTheme.h"
-#include "core/rendering/TextPainter.h"
+#include "core/paint/PaintInfo.h"
+#include "core/paint/TextPainter.h"
+#include "platform/graphics/GraphicsContextStateSaver.h"
+#include "platform/graphics/paint/DrawingRecorder.h"
+#include "wtf/Optional.h"
 
 namespace blink {
 
@@ -41,9 +43,14 @@ static TextBlobPtr* addToTextBlobCache(InlineTextBox& inlineTextBox)
     return &gTextBlobCache->add(&inlineTextBox, nullptr).storedValue->value;
 }
 
-void InlineTextBoxPainter::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
+static bool paintsMarkerHighlights(const LayoutObject& layoutObject)
 {
-    if (m_inlineTextBox.isLineBreak() || !paintInfo.shouldPaintWithinRoot(&m_inlineTextBox.renderer()) || m_inlineTextBox.renderer().style()->visibility() != VISIBLE
+    return layoutObject.node() && layoutObject.document().markers().hasMarkers(layoutObject.node());
+}
+
+void InlineTextBoxPainter::paint(const PaintInfo& paintInfo, const LayoutPoint& paintOffset)
+{
+    if (m_inlineTextBox.isLineBreak() || !paintInfo.shouldPaintWithinRoot(&m_inlineTextBox.layoutObject()) || m_inlineTextBox.layoutObject().style()->visibility() != VISIBLE
         || m_inlineTextBox.truncation() == cFullTruncation || paintInfo.phase == PaintPhaseOutline || !m_inlineTextBox.len())
         return;
 
@@ -56,30 +63,41 @@ void InlineTextBoxPainter::paint(PaintInfo& paintInfo, const LayoutPoint& paintO
     LayoutUnit paintEnd = m_inlineTextBox.isHorizontal() ? paintInfo.rect.maxX() : paintInfo.rect.maxY();
     LayoutUnit paintStart = m_inlineTextBox.isHorizontal() ? paintInfo.rect.x() : paintInfo.rect.y();
 
-    // When subpixel font scaling is enabled text runs are positioned at
-    // subpixel boundaries on the x-axis and thus there is no reason to
-    // snap the x value. We still round the y-axis to ensure consistent
-    // line heights.
-    LayoutPoint adjustedPaintOffset = RuntimeEnabledFeatures::subpixelFontScalingEnabled()
-        ? LayoutPoint(paintOffset.x(), paintOffset.y().round())
-        : roundedIntPoint(paintOffset);
+    // We round the y-axis to ensure consistent line heights.
+    LayoutPoint adjustedPaintOffset = LayoutPoint(paintOffset.x(), paintOffset.y().round());
 
     if (logicalStart >= paintEnd || logicalStart + logicalExtent <= paintStart)
         return;
 
-    bool isPrinting = m_inlineTextBox.renderer().document().printing();
+    bool isPrinting = m_inlineTextBox.layoutObject().document().printing();
 
     // Determine whether or not we're selected.
-    bool haveSelection = !isPrinting && paintInfo.phase != PaintPhaseTextClip && m_inlineTextBox.selectionState() != RenderObject::SelectionNone;
+    bool haveSelection = !isPrinting && paintInfo.phase != PaintPhaseTextClip && m_inlineTextBox.selectionState() != LayoutObject::SelectionNone;
     if (!haveSelection && paintInfo.phase == PaintPhaseSelection) {
         // When only painting the selection, don't bother to paint if there is none.
         return;
     }
 
-    DrawingRecorder recorder(paintInfo.context, &m_inlineTextBox.renderer(), paintInfo.phase, pixelSnappedIntRect(adjustedPaintOffset, logicalVisualOverflow.size()));
+    // Determine whether or not we have composition underlines to draw.
+    bool containsComposition = m_inlineTextBox.layoutObject().node() && m_inlineTextBox.layoutObject().frame()->inputMethodController().compositionNode() == m_inlineTextBox.layoutObject().node();
+    bool useCustomUnderlines = containsComposition && m_inlineTextBox.layoutObject().frame()->inputMethodController().compositionUsesCustomUnderlines();
+
+    // The text clip phase already has a DrawingRecorder. Text clips are initiated only in BoxPainter::paintLayerExtended, which is already
+    // within a DrawingRecorder.
+    Optional<DrawingRecorder> drawingRecorder;
+    if (RuntimeEnabledFeatures::slimmingPaintEnabled() && paintInfo.phase != PaintPhaseTextClip) {
+        if (DrawingRecorder::useCachedDrawingIfPossible(*paintInfo.context, m_inlineTextBox, DisplayItem::paintPhaseToDrawingType(paintInfo.phase)))
+            return;
+        LayoutRect paintRect(logicalVisualOverflow);
+        m_inlineTextBox.logicalRectToPhysicalRect(paintRect);
+        if (paintInfo.phase != PaintPhaseSelection && (haveSelection || containsComposition || paintsMarkerHighlights(m_inlineTextBox.layoutObject())))
+            paintRect.unite(m_inlineTextBox.localSelectionRect(m_inlineTextBox.start(), m_inlineTextBox.start() + m_inlineTextBox.len()));
+        paintRect.moveBy(adjustedPaintOffset);
+        drawingRecorder.emplace(*paintInfo.context, m_inlineTextBox, DisplayItem::paintPhaseToDrawingType(paintInfo.phase), paintRect);
+    }
 
     if (m_inlineTextBox.truncation() != cNoTruncation) {
-        if (m_inlineTextBox.renderer().containingBlock()->style()->isLeftToRightDirection() != m_inlineTextBox.isLeftToRightDirection()) {
+        if (m_inlineTextBox.layoutObject().containingBlock()->style()->isLeftToRightDirection() != m_inlineTextBox.isLeftToRightDirection()) {
             // Make the visible fragment of text hug the edge closest to the rest of the run by moving the origin
             // at which we start drawing text.
             // e.g. In the case of LTR text truncated in an RTL Context, the correct behavior is:
@@ -88,7 +106,7 @@ void InlineTextBoxPainter::paint(PaintInfo& paintInfo, const LayoutPoint& paintO
             // farther to the right.
             // NOTE: WebKit's behavior differs from that of IE which appears to just overlay the ellipsis on top of the
             // truncated string i.e.  |Hello|CBA| -> |...lo|CBA|
-            LayoutUnit widthOfVisibleText = m_inlineTextBox.renderer().width(m_inlineTextBox.start(), m_inlineTextBox.truncation(), m_inlineTextBox.textPos(), m_inlineTextBox.isLeftToRightDirection() ? LTR : RTL, m_inlineTextBox.isFirstLineStyle());
+            LayoutUnit widthOfVisibleText = m_inlineTextBox.layoutObject().width(m_inlineTextBox.start(), m_inlineTextBox.truncation(), m_inlineTextBox.textPos(), m_inlineTextBox.isLeftToRightDirection() ? LTR : RTL, m_inlineTextBox.isFirstLineStyle());
             LayoutUnit widthOfHiddenText = m_inlineTextBox.logicalWidth() - widthOfVisibleText;
             // FIXME: The hit testing logic also needs to take this translation into account.
             LayoutSize truncationOffset(m_inlineTextBox.isLeftToRightDirection() ? widthOfHiddenText : -widthOfHiddenText, 0);
@@ -97,36 +115,40 @@ void InlineTextBoxPainter::paint(PaintInfo& paintInfo, const LayoutPoint& paintO
     }
 
     GraphicsContext* context = paintInfo.context;
-    RenderStyle* styleToUse = m_inlineTextBox.renderer().style(m_inlineTextBox.isFirstLineStyle());
+    const ComputedStyle& styleToUse = m_inlineTextBox.layoutObject().styleRef(m_inlineTextBox.isFirstLineStyle());
 
-    adjustedPaintOffset.move(0, styleToUse->isHorizontalWritingMode() ? 0 : -m_inlineTextBox.logicalHeight());
+    LayoutPoint boxOrigin(m_inlineTextBox.locationIncludingFlipping());
+    boxOrigin.move(adjustedPaintOffset.x(), adjustedPaintOffset.y());
+    LayoutRect boxRect(boxOrigin, LayoutSize(m_inlineTextBox.logicalWidth(), m_inlineTextBox.logicalHeight()));
 
-    FloatPoint boxOrigin = m_inlineTextBox.locationIncludingFlipping();
-    boxOrigin.move(adjustedPaintOffset.x().toFloat(), adjustedPaintOffset.y().toFloat());
-    FloatRect boxRect(boxOrigin, LayoutSize(m_inlineTextBox.logicalWidth(), m_inlineTextBox.logicalHeight()));
-
-    RenderCombineText* combinedText = styleToUse->hasTextCombine() && m_inlineTextBox.renderer().isCombineText() && toRenderCombineText(m_inlineTextBox.renderer()).isCombined() ? &toRenderCombineText(m_inlineTextBox.renderer()) : 0;
-
-    bool shouldRotate = !m_inlineTextBox.isHorizontal() && !combinedText;
-    if (shouldRotate)
-        context->concatCTM(InlineTextBox::rotation(boxRect, InlineTextBox::Clockwise));
-
-    // Determine whether or not we have composition underlines to draw.
-    bool containsComposition = m_inlineTextBox.renderer().node() && m_inlineTextBox.renderer().frame()->inputMethodController().compositionNode() == m_inlineTextBox.renderer().node();
-    bool useCustomUnderlines = containsComposition && m_inlineTextBox.renderer().frame()->inputMethodController().compositionUsesCustomUnderlines();
+    bool shouldRotate = false;
+    LayoutTextCombine* combinedText = nullptr;
+    if (!m_inlineTextBox.isHorizontal()) {
+        if (styleToUse.hasTextCombine() && m_inlineTextBox.layoutObject().isCombineText()) {
+            combinedText = &toLayoutTextCombine(m_inlineTextBox.layoutObject());
+            if (!combinedText->isCombined())
+                combinedText = nullptr;
+        }
+        if (combinedText) {
+            combinedText->updateFont();
+            boxRect.setWidth(combinedText->inlineWidthForLayout());
+        } else {
+            shouldRotate = true;
+            context->concatCTM(TextPainter::rotation(boxRect, TextPainter::Clockwise));
+        }
+    }
 
     // Determine text colors.
-    TextPainter::Style textStyle = TextPainter::textPaintingStyle(m_inlineTextBox.renderer(), styleToUse, paintInfo.forceBlackText(), isPrinting);
-    TextPainter::Style selectionStyle = TextPainter::selectionPaintingStyle(m_inlineTextBox.renderer(), haveSelection, paintInfo.forceBlackText(), isPrinting, textStyle);
+    bool usesTextAsClip = paintInfo.phase == PaintPhaseTextClip;
+    TextPainter::Style textStyle = TextPainter::textPaintingStyle(m_inlineTextBox.layoutObject(), styleToUse, usesTextAsClip, isPrinting);
+    TextPainter::Style selectionStyle = TextPainter::selectionPaintingStyle(m_inlineTextBox.layoutObject(), haveSelection, usesTextAsClip, isPrinting, textStyle);
     bool paintSelectedTextOnly = (paintInfo.phase == PaintPhaseSelection);
     bool paintSelectedTextSeparately = !paintSelectedTextOnly && textStyle != selectionStyle;
 
     // Set our font.
-    const Font& font = styleToUse->font();
+    const Font& font = styleToUse.font();
 
-    FloatPoint textOrigin = FloatPoint(boxOrigin.x(), boxOrigin.y() + font.fontMetrics().ascent());
-    if (combinedText)
-        combinedText->adjustTextOrigin(textOrigin, boxRect);
+    LayoutPoint textOrigin(boxOrigin.x(), boxOrigin.y() + font.fontMetrics().ascent());
 
     // 1. Paint backgrounds behind text if needed. Examples of such backgrounds include selection
     // and composition highlights.
@@ -137,23 +159,21 @@ void InlineTextBoxPainter::paint(PaintInfo& paintInfo, const LayoutPoint& paintO
 
         paintDocumentMarkers(context, boxOrigin, styleToUse, font, true);
 
-        if (haveSelection && !useCustomUnderlines)
-            paintSelection(context, boxOrigin, styleToUse, font, selectionStyle.fillColor);
+        if (haveSelection && !useCustomUnderlines) {
+            if (combinedText)
+                paintSelection<InlineTextBoxPainter::PaintOptions::CombinedText>(context, boxRect, styleToUse, font, selectionStyle.fillColor, combinedText);
+            else
+                paintSelection<InlineTextBoxPainter::PaintOptions::Normal>(context, boxRect, styleToUse, font, selectionStyle.fillColor);
+        }
     }
 
     // 2. Now paint the foreground, including text and decorations like underline/overline (in quirks mode only).
     int length = m_inlineTextBox.len();
-    int maximumLength;
-    StringView string;
-    if (!combinedText) {
-        string = m_inlineTextBox.renderer().text().createView();
-        if (static_cast<unsigned>(length) != string.length() || m_inlineTextBox.start())
-            string.narrow(m_inlineTextBox.start(), length);
-        maximumLength = m_inlineTextBox.renderer().textLength() - m_inlineTextBox.start();
-    } else {
-        combinedText->getStringToRender(m_inlineTextBox.start(), string, length);
-        maximumLength = length;
-    }
+    StringView string = m_inlineTextBox.layoutObject().text().createView();
+    ASSERT(m_inlineTextBox.start() + length <= string.length());
+    if (static_cast<unsigned>(length) != string.length() || m_inlineTextBox.start())
+        string.narrow(m_inlineTextBox.start(), length);
+    int maximumLength = m_inlineTextBox.layoutObject().textLength() - m_inlineTextBox.start();
 
     StringBuilder charactersWithHyphen;
     TextRun textRun = m_inlineTextBox.constructTextRun(styleToUse, font, string, maximumLength, m_inlineTextBox.hasHyphen() ? &charactersWithHyphen : 0);
@@ -179,7 +199,7 @@ void InlineTextBoxPainter::paint(PaintInfo& paintInfo, const LayoutPoint& paintO
     TextEmphasisPosition emphasisMarkPosition;
     bool hasTextEmphasis = m_inlineTextBox.getEmphasisMarkPosition(styleToUse, emphasisMarkPosition);
     if (hasTextEmphasis)
-        textPainter.setEmphasisMark(styleToUse->textEmphasisMarkString(), emphasisMarkPosition);
+        textPainter.setEmphasisMark(styleToUse.textEmphasisMarkString(), emphasisMarkPosition);
     if (combinedText)
         textPainter.setCombinedText(combinedText);
 
@@ -212,16 +232,15 @@ void InlineTextBoxPainter::paint(PaintInfo& paintInfo, const LayoutPoint& paintO
     }
 
     // Paint decorations
-    TextDecoration textDecorations = styleToUse->textDecorationsInEffect();
+    TextDecoration textDecorations = styleToUse.textDecorationsInEffect();
     if (textDecorations != TextDecorationNone && !paintSelectedTextOnly) {
         GraphicsContextStateSaver stateSaver(*context, false);
         TextPainter::updateGraphicsContext(context, textStyle, m_inlineTextBox.isHorizontal(), stateSaver);
         if (combinedText)
-
-            context->concatCTM(InlineTextBox::rotation(boxRect, InlineTextBox::Clockwise));
+            context->concatCTM(TextPainter::rotation(boxRect, TextPainter::Clockwise));
         paintDecoration(context, boxOrigin, textDecorations);
         if (combinedText)
-            context->concatCTM(InlineTextBox::rotation(boxRect, InlineTextBox::Counterclockwise));
+            context->concatCTM(TextPainter::rotation(boxRect, TextPainter::Counterclockwise));
     }
 
     if (paintInfo.phase == PaintPhaseForeground) {
@@ -229,7 +248,7 @@ void InlineTextBoxPainter::paint(PaintInfo& paintInfo, const LayoutPoint& paintO
 
         // Paint custom underlines for compositions.
         if (useCustomUnderlines) {
-            const Vector<CompositionUnderline>& underlines = m_inlineTextBox.renderer().frame()->inputMethodController().customCompositionUnderlines();
+            const Vector<CompositionUnderline>& underlines = m_inlineTextBox.layoutObject().frame()->inputMethodController().customCompositionUnderlines();
             CompositionUnderlineRangeFilter filter(underlines, m_inlineTextBox.start(), m_inlineTextBox.end());
             for (CompositionUnderlineRangeFilter::ConstIterator it = filter.begin(); it != filter.end(); ++it) {
                 if (it->color == Color::transparent)
@@ -240,7 +259,7 @@ void InlineTextBoxPainter::paint(PaintInfo& paintInfo, const LayoutPoint& paintO
     }
 
     if (shouldRotate)
-        context->concatCTM(InlineTextBox::rotation(boxRect, InlineTextBox::Counterclockwise));
+        context->concatCTM(TextPainter::rotation(boxRect, TextPainter::Counterclockwise));
 }
 
 unsigned InlineTextBoxPainter::underlinePaintStart(const CompositionUnderline& underline)
@@ -256,11 +275,11 @@ unsigned InlineTextBoxPainter::underlinePaintEnd(const CompositionUnderline& und
     return paintEnd;
 }
 
-void InlineTextBoxPainter::paintCompositionBackgrounds(GraphicsContext* pt, const FloatPoint& boxOrigin, RenderStyle* style, const Font& font, bool useCustomUnderlines)
+void InlineTextBoxPainter::paintCompositionBackgrounds(GraphicsContext* pt, const LayoutPoint& boxOrigin, const ComputedStyle& style, const Font& font, bool useCustomUnderlines)
 {
     if (useCustomUnderlines) {
         // Paint custom background highlights for compositions.
-        const Vector<CompositionUnderline>& underlines = m_inlineTextBox.renderer().frame()->inputMethodController().customCompositionUnderlines();
+        const Vector<CompositionUnderline>& underlines = m_inlineTextBox.layoutObject().frame()->inputMethodController().customCompositionUnderlines();
         CompositionUnderlineRangeFilter filter(underlines, m_inlineTextBox.start(), m_inlineTextBox.end());
         for (CompositionUnderlineRangeFilter::ConstIterator it = filter.begin(); it != filter.end(); ++it) {
             if (it->backgroundColor == Color::transparent)
@@ -269,31 +288,31 @@ void InlineTextBoxPainter::paintCompositionBackgrounds(GraphicsContext* pt, cons
         }
 
     } else {
-        paintSingleCompositionBackgroundRun(pt, boxOrigin, style, font, RenderTheme::theme().platformDefaultCompositionBackgroundColor(),
-            m_inlineTextBox.renderer().frame()->inputMethodController().compositionStart(),
-            m_inlineTextBox.renderer().frame()->inputMethodController().compositionEnd());
+        paintSingleCompositionBackgroundRun(pt, boxOrigin, style, font, LayoutTheme::theme().platformDefaultCompositionBackgroundColor(),
+            m_inlineTextBox.layoutObject().frame()->inputMethodController().compositionStart(),
+            m_inlineTextBox.layoutObject().frame()->inputMethodController().compositionEnd());
     }
 }
 
-void InlineTextBoxPainter::paintSingleCompositionBackgroundRun(GraphicsContext* context, const FloatPoint& boxOrigin, RenderStyle* style, const Font& font, Color backgroundColor, int startPos, int endPos)
+void InlineTextBoxPainter::paintSingleCompositionBackgroundRun(GraphicsContext* context, const LayoutPoint& boxOrigin, const ComputedStyle& style, const Font& font, Color backgroundColor, int startPos, int endPos)
 {
     int sPos = std::max(startPos - static_cast<int>(m_inlineTextBox.start()), 0);
     int ePos = std::min(endPos - static_cast<int>(m_inlineTextBox.start()), static_cast<int>(m_inlineTextBox.len()));
     if (sPos >= ePos)
         return;
 
-    int deltaY = m_inlineTextBox.renderer().style()->isFlippedLinesWritingMode() ? m_inlineTextBox.root().selectionBottom() - m_inlineTextBox.logicalBottom() : m_inlineTextBox.logicalTop() - m_inlineTextBox.root().selectionTop();
+    int deltaY = m_inlineTextBox.layoutObject().style()->isFlippedLinesWritingMode() ? m_inlineTextBox.root().selectionBottom() - m_inlineTextBox.logicalBottom() : m_inlineTextBox.logicalTop() - m_inlineTextBox.root().selectionTop();
     int selHeight = m_inlineTextBox.root().selectionHeight();
-    FloatPoint localOrigin(boxOrigin.x(), boxOrigin.y() - deltaY);
+    FloatPoint localOrigin(boxOrigin.x().toFloat(), boxOrigin.y().toFloat() - deltaY);
     context->drawHighlightForText(font, m_inlineTextBox.constructTextRun(style, font), localOrigin, selHeight, backgroundColor, sPos, ePos);
 }
 
-void InlineTextBoxPainter::paintDocumentMarkers(GraphicsContext* pt, const FloatPoint& boxOrigin, RenderStyle* style, const Font& font, bool background)
+void InlineTextBoxPainter::paintDocumentMarkers(GraphicsContext* pt, const LayoutPoint& boxOrigin, const ComputedStyle& style, const Font& font, bool background)
 {
-    if (!m_inlineTextBox.renderer().node())
+    if (!m_inlineTextBox.layoutObject().node())
         return;
 
-    DocumentMarkerVector markers = m_inlineTextBox.renderer().document().markers().markersFor(m_inlineTextBox.renderer().node());
+    DocumentMarkerVector markers = m_inlineTextBox.layoutObject().document().markers().markersFor(m_inlineTextBox.layoutObject().node());
     DocumentMarkerVector::const_iterator markerIt = markers.begin();
 
     // Give any document markers that touch this run a chance to draw before the text has been drawn.
@@ -356,17 +375,17 @@ static GraphicsContext::DocumentMarkerLineStyle lineStyleForMarkerType(DocumentM
     }
 }
 
-void InlineTextBoxPainter::paintDocumentMarker(GraphicsContext* pt, const FloatPoint& boxOrigin, DocumentMarker* marker, RenderStyle* style, const Font& font, bool grammar)
+void InlineTextBoxPainter::paintDocumentMarker(GraphicsContext* pt, const LayoutPoint& boxOrigin, DocumentMarker* marker, const ComputedStyle& style, const Font& font, bool grammar)
 {
     // Never print spelling/grammar markers (5327887)
-    if (m_inlineTextBox.renderer().document().printing())
+    if (m_inlineTextBox.layoutObject().document().printing())
         return;
 
     if (m_inlineTextBox.truncation() == cFullTruncation)
         return;
 
-    float start = 0; // start of line to draw, relative to tx
-    float width = m_inlineTextBox.logicalWidth(); // how much line to draw
+    LayoutUnit start = 0; // start of line to draw, relative to tx
+    LayoutUnit width = m_inlineTextBox.logicalWidth(); // how much line to draw
 
     // Determine whether we need to measure text
     bool markerSpansWholeBox = true;
@@ -385,23 +404,15 @@ void InlineTextBoxPainter::paintDocumentMarker(GraphicsContext* pt, const FloatP
             endPosition = std::min<int>(endPosition, m_inlineTextBox.truncation());
 
         // Calculate start & width
-        int deltaY = m_inlineTextBox.renderer().style()->isFlippedLinesWritingMode() ? m_inlineTextBox.root().selectionBottom() - m_inlineTextBox.logicalBottom() : m_inlineTextBox.logicalTop() - m_inlineTextBox.root().selectionTop();
+        int deltaY = m_inlineTextBox.layoutObject().style()->isFlippedLinesWritingMode() ? m_inlineTextBox.root().selectionBottom() - m_inlineTextBox.logicalBottom() : m_inlineTextBox.logicalTop() - m_inlineTextBox.root().selectionTop();
         int selHeight = m_inlineTextBox.root().selectionHeight();
-        FloatPoint startPoint(boxOrigin.x(), boxOrigin.y() - deltaY);
+        LayoutPoint startPoint(boxOrigin.x(), boxOrigin.y() - deltaY);
         TextRun run = m_inlineTextBox.constructTextRun(style, font);
 
         // FIXME: Convert the document markers to float rects.
-        IntRect markerRect = enclosingIntRect(font.selectionRectForText(run, startPoint, selHeight, startPosition, endPosition));
+        IntRect markerRect = enclosingIntRect(font.selectionRectForText(run, FloatPoint(startPoint), selHeight, startPosition, endPosition));
         start = markerRect.x() - startPoint.x();
         width = markerRect.width();
-
-        // Store rendered rects for bad grammar markers, so we can hit-test against it elsewhere in order to
-        // display a toolTip. We don't do this for misspelling markers.
-        if (grammar) {
-            markerRect.move(-boxOrigin.x(), -boxOrigin.y());
-            markerRect = m_inlineTextBox.renderer().localToAbsoluteQuad(FloatRect(markerRect)).enclosingBoundingBox();
-            toRenderedDocumentMarker(marker)->setRenderedRect(markerRect);
-        }
     }
 
     // IMPORTANT: The misspelling underline is not considered when calculating the text bounds, so we have to
@@ -411,20 +422,21 @@ void InlineTextBoxPainter::paintDocumentMarker(GraphicsContext* pt, const FloatP
     // So, we generally place the underline at the bottom of the text, but in larger fonts that's not so good so
     // we pin to two pixels under the baseline.
     int lineThickness = misspellingLineThickness;
-    int baseline = m_inlineTextBox.renderer().style(m_inlineTextBox.isFirstLineStyle())->fontMetrics().ascent();
+    int baseline = m_inlineTextBox.layoutObject().style(m_inlineTextBox.isFirstLineStyle())->fontMetrics().ascent();
     int descent = m_inlineTextBox.logicalHeight() - baseline;
     int underlineOffset;
-    if (descent <= (2 + lineThickness)) {
+    if (descent <= (lineThickness + 2)) {
         // Place the underline at the very bottom of the text in small/medium fonts.
         underlineOffset = m_inlineTextBox.logicalHeight() - lineThickness;
     } else {
         // In larger fonts, though, place the underline up near the baseline to prevent a big gap.
         underlineOffset = baseline + 2;
     }
-    pt->drawLineForDocumentMarker(FloatPoint(boxOrigin.x() + start, boxOrigin.y() + underlineOffset), width, lineStyleForMarkerType(marker->type()));
+    pt->drawLineForDocumentMarker(FloatPoint((boxOrigin.x() + start).toFloat(), (boxOrigin.y() + underlineOffset).toFloat()), width.toFloat(), lineStyleForMarkerType(marker->type()));
 }
 
-void InlineTextBoxPainter::paintSelection(GraphicsContext* context, const FloatPoint& boxOrigin, RenderStyle* style, const Font& font, Color textColor)
+template <InlineTextBoxPainter::PaintOptions options>
+void InlineTextBoxPainter::paintSelection(GraphicsContext* context, const LayoutRect& boxRect, const ComputedStyle& style, const Font& font, Color textColor, LayoutTextCombine* combinedText)
 {
     // See if we have a selection to paint at all.
     int sPos, ePos;
@@ -432,7 +444,7 @@ void InlineTextBoxPainter::paintSelection(GraphicsContext* context, const FloatP
     if (sPos >= ePos)
         return;
 
-    Color c = m_inlineTextBox.renderer().selectionBackgroundColor();
+    Color c = m_inlineTextBox.layoutObject().selectionBackgroundColor();
     if (!c.alpha())
         return;
 
@@ -444,27 +456,39 @@ void InlineTextBoxPainter::paintSelection(GraphicsContext* context, const FloatP
     // If the text is truncated, let the thing being painted in the truncation
     // draw its own highlight.
     int length = m_inlineTextBox.truncation() != cNoTruncation ? m_inlineTextBox.truncation() : m_inlineTextBox.len();
-    StringView string = m_inlineTextBox.renderer().text().createView();
+    StringView string = m_inlineTextBox.layoutObject().text().createView();
 
     if (string.length() != static_cast<unsigned>(length) || m_inlineTextBox.start())
         string.narrow(m_inlineTextBox.start(), length);
 
     StringBuilder charactersWithHyphen;
     bool respectHyphen = ePos == length && m_inlineTextBox.hasHyphen();
-    TextRun textRun = m_inlineTextBox.constructTextRun(style, font, string, m_inlineTextBox.renderer().textLength() - m_inlineTextBox.start(), respectHyphen ? &charactersWithHyphen : 0);
+    TextRun textRun = m_inlineTextBox.constructTextRun(style, font, string, m_inlineTextBox.layoutObject().textLength() - m_inlineTextBox.start(), respectHyphen ? &charactersWithHyphen : 0);
     if (respectHyphen)
         ePos = textRun.length();
+
+    GraphicsContextStateSaver stateSaver(*context);
+
+    if (options == InlineTextBoxPainter::PaintOptions::CombinedText) {
+        ASSERT(combinedText);
+        // We can't use the height of m_inlineTextBox because LayoutTextCombine's inlineTextBox is horizontal within vertical flow
+        LayoutRect clipRect(boxRect);
+        combinedText->transformLayoutRect(clipRect);
+        context->clip(FloatRect(clipRect));
+        combinedText->transformToInlineCoordinates(*context, boxRect);
+        context->drawHighlightForText(font, textRun, FloatPoint(boxRect.location()), boxRect.height(), c, sPos, ePos);
+        return;
+    }
 
     LayoutUnit selectionBottom = m_inlineTextBox.root().selectionBottom();
     LayoutUnit selectionTop = m_inlineTextBox.root().selectionTopAdjustedForPrecedingBlock();
 
-    int deltaY = roundToInt(m_inlineTextBox.renderer().style()->isFlippedLinesWritingMode() ? selectionBottom - m_inlineTextBox.logicalBottom() : m_inlineTextBox.logicalTop() - selectionTop);
+    int deltaY = roundToInt(m_inlineTextBox.layoutObject().style()->isFlippedLinesWritingMode() ? selectionBottom - m_inlineTextBox.logicalBottom() : m_inlineTextBox.logicalTop() - selectionTop);
     int selHeight = std::max(0, roundToInt(selectionBottom - selectionTop));
 
-    FloatPoint localOrigin(boxOrigin.x(), boxOrigin.y() - deltaY);
-    FloatRect clipRect(localOrigin, FloatSize(m_inlineTextBox.logicalWidth(), selHeight));
+    FloatPoint localOrigin(boxRect.x().toFloat(), (boxRect.y() - deltaY).toFloat());
+    FloatRect clipRect(localOrigin, FloatSize(m_inlineTextBox.logicalWidth().toFloat(), selHeight));
 
-    GraphicsContextStateSaver stateSaver(*context);
     context->clip(clipRect);
     context->drawHighlightForText(font, textRun, localOrigin, selHeight, c, sPos, ePos);
 }
@@ -492,7 +516,7 @@ static int computeUnderlineOffset(const TextUnderlinePosition underlinePosition,
         return fontMetrics.ascent() + gap; // Position underline near the alphabetic baseline.
     case TextUnderlinePositionUnder: {
         // Position underline relative to the under edge of the lowest element's content box.
-        const float offset = inlineTextBox->root().maxLogicalTop() - inlineTextBox->logicalTop();
+        const LayoutUnit offset = inlineTextBox->root().maxLogicalTop() - inlineTextBox->logicalTop();
         if (offset > 0)
             return inlineTextBox->logicalHeight() + gap + offset;
         return inlineTextBox->logicalHeight() + gap;
@@ -660,7 +684,7 @@ static void strokeWavyTextDecoration(GraphicsContext* context, FloatPoint p1, Fl
 }
 
 static void paintAppliedDecoration(GraphicsContext* context, FloatPoint start, float width, float doubleOffset, int wavyOffsetFactor,
-    RenderObject::AppliedTextDecoration decoration, float thickness, bool antialiasDecoration, bool isPrinting)
+    LayoutObject::AppliedTextDecoration decoration, float thickness, bool antialiasDecoration, bool isPrinting)
 {
     context->setStrokeStyle(textDecorationStyleToStrokeStyle(decoration.style));
     context->setStrokeColor(decoration.color);
@@ -674,49 +698,49 @@ static void paintAppliedDecoration(GraphicsContext* context, FloatPoint start, f
         context->setShouldAntialias(antialiasDecoration);
         // Fall through
     default:
-        context->drawLineForText(start, width, isPrinting);
+        context->drawLineForText(FloatPoint(start), width, isPrinting);
 
         if (decoration.style == TextDecorationStyleDouble)
             context->drawLineForText(start + FloatPoint(0, doubleOffset), width, isPrinting);
     }
 }
 
-void InlineTextBoxPainter::paintDecoration(GraphicsContext* context, const FloatPoint& boxOrigin, TextDecoration deco)
+void InlineTextBoxPainter::paintDecoration(GraphicsContext* context, const LayoutPoint& boxOrigin, TextDecoration deco)
 {
     GraphicsContextStateSaver stateSaver(*context);
 
     if (m_inlineTextBox.truncation() == cFullTruncation)
         return;
 
-    FloatPoint localOrigin = boxOrigin;
+    LayoutPoint localOrigin(boxOrigin);
 
-    float width = m_inlineTextBox.logicalWidth();
+    LayoutUnit width = m_inlineTextBox.logicalWidth();
     if (m_inlineTextBox.truncation() != cNoTruncation) {
-        width = m_inlineTextBox.renderer().width(m_inlineTextBox.start(), m_inlineTextBox.truncation(), m_inlineTextBox.textPos(), m_inlineTextBox.isLeftToRightDirection() ? LTR : RTL, m_inlineTextBox.isFirstLineStyle());
+        width = m_inlineTextBox.layoutObject().width(m_inlineTextBox.start(), m_inlineTextBox.truncation(), m_inlineTextBox.textPos(), m_inlineTextBox.isLeftToRightDirection() ? LTR : RTL, m_inlineTextBox.isFirstLineStyle());
         if (!m_inlineTextBox.isLeftToRightDirection())
             localOrigin.move(m_inlineTextBox.logicalWidth() - width, 0);
     }
 
     // Get the text decoration colors.
-    RenderObject::AppliedTextDecoration underline, overline, linethrough;
-    m_inlineTextBox.renderer().getTextDecorations(deco, underline, overline, linethrough, true);
+    LayoutObject::AppliedTextDecoration underline, overline, linethrough;
+    m_inlineTextBox.layoutObject().getTextDecorations(deco, underline, overline, linethrough, true);
     if (m_inlineTextBox.isFirstLineStyle())
-        m_inlineTextBox.renderer().getTextDecorations(deco, underline, overline, linethrough, true, true);
+        m_inlineTextBox.layoutObject().getTextDecorations(deco, underline, overline, linethrough, true, true);
 
     // Use a special function for underlines to get the positioning exactly right.
-    bool isPrinting = m_inlineTextBox.renderer().document().printing();
+    bool isPrinting = m_inlineTextBox.layoutObject().document().printing();
 
-    RenderStyle* styleToUse = m_inlineTextBox.renderer().style(m_inlineTextBox.isFirstLineStyle());
-    int baseline = styleToUse->fontMetrics().ascent();
+    const ComputedStyle& styleToUse = m_inlineTextBox.layoutObject().styleRef(m_inlineTextBox.isFirstLineStyle());
+    float baseline = styleToUse.fontMetrics().ascent();
 
     // Set the thick of the line to be 10% (or something else ?)of the computed font size and not less than 1px.
     // Using computedFontSize should take care of zoom as well.
 
     // Update Underline thickness, in case we have Faulty Font Metrics calculating underline thickness by old method.
-    float textDecorationThickness = styleToUse->fontMetrics().underlineThickness();
-    int fontHeightInt  = (int)(styleToUse->fontMetrics().floatHeight() + 0.5);
+    float textDecorationThickness = styleToUse.fontMetrics().underlineThickness();
+    int fontHeightInt  = (int)(styleToUse.fontMetrics().floatHeight() + 0.5);
     if ((textDecorationThickness == 0.f) || (textDecorationThickness >= (fontHeightInt >> 1)))
-        textDecorationThickness = std::max(1.f, styleToUse->computedFontSize() / 10.f);
+        textDecorationThickness = std::max(1.f, styleToUse.computedFontSize() / 10.f);
 
     context->setStrokeThickness(textDecorationThickness);
 
@@ -727,19 +751,19 @@ void InlineTextBoxPainter::paintDecoration(GraphicsContext* context, const Float
     float doubleOffset = textDecorationThickness + 1.f;
 
     if (deco & TextDecorationUnderline) {
-        const int underlineOffset = computeUnderlineOffset(styleToUse->textUnderlinePosition(), styleToUse->fontMetrics(), &m_inlineTextBox, textDecorationThickness);
-        paintAppliedDecoration(context, localOrigin + FloatPoint(0, underlineOffset), width, doubleOffset, 1, underline, textDecorationThickness, antialiasDecoration, isPrinting);
+        const int underlineOffset = computeUnderlineOffset(styleToUse.textUnderlinePosition(), styleToUse.fontMetrics(), &m_inlineTextBox, textDecorationThickness);
+        paintAppliedDecoration(context, FloatPoint(localOrigin) + FloatPoint(0, underlineOffset), width.toFloat(), doubleOffset, 1, underline, textDecorationThickness, antialiasDecoration, isPrinting);
     }
     if (deco & TextDecorationOverline) {
-        paintAppliedDecoration(context, localOrigin, width, -doubleOffset, 1, overline, textDecorationThickness, antialiasDecoration, isPrinting);
+        paintAppliedDecoration(context, FloatPoint(localOrigin), width.toFloat(), -doubleOffset, 1, overline, textDecorationThickness, antialiasDecoration, isPrinting);
     }
     if (deco & TextDecorationLineThrough) {
         const float lineThroughOffset = 2 * baseline / 3;
-        paintAppliedDecoration(context, localOrigin + FloatPoint(0, lineThroughOffset), width, doubleOffset, 0, linethrough, textDecorationThickness, antialiasDecoration, isPrinting);
+        paintAppliedDecoration(context, FloatPoint(localOrigin) + FloatPoint(0, lineThroughOffset), width.toFloat(), doubleOffset, 0, linethrough, textDecorationThickness, antialiasDecoration, isPrinting);
     }
 }
 
-void InlineTextBoxPainter::paintCompositionUnderline(GraphicsContext* ctx, const FloatPoint& boxOrigin, const CompositionUnderline& underline)
+void InlineTextBoxPainter::paintCompositionUnderline(GraphicsContext* ctx, const LayoutPoint& boxOrigin, const CompositionUnderline& underline)
 {
     if (m_inlineTextBox.truncation() == cFullTruncation)
         return;
@@ -749,16 +773,16 @@ void InlineTextBoxPainter::paintCompositionUnderline(GraphicsContext* ctx, const
 
     // start of line to draw, relative to paintOffset.
     float start = paintStart == static_cast<unsigned>(m_inlineTextBox.start()) ? 0 :
-        m_inlineTextBox.renderer().width(m_inlineTextBox.start(), paintStart - m_inlineTextBox.start(), m_inlineTextBox.textPos(), m_inlineTextBox.isLeftToRightDirection() ? LTR : RTL, m_inlineTextBox.isFirstLineStyle());
+        m_inlineTextBox.layoutObject().width(m_inlineTextBox.start(), paintStart - m_inlineTextBox.start(), m_inlineTextBox.textPos(), m_inlineTextBox.isLeftToRightDirection() ? LTR : RTL, m_inlineTextBox.isFirstLineStyle());
     // how much line to draw
-    float width = (paintStart == static_cast<unsigned>(m_inlineTextBox.start()) && paintEnd == static_cast<unsigned>(m_inlineTextBox.end()) + 1) ? m_inlineTextBox.logicalWidth() :
-        m_inlineTextBox.renderer().width(paintStart, paintEnd - paintStart, m_inlineTextBox.textPos() + start, m_inlineTextBox.isLeftToRightDirection() ? LTR : RTL, m_inlineTextBox.isFirstLineStyle());
+    float width = (paintStart == static_cast<unsigned>(m_inlineTextBox.start()) && paintEnd == static_cast<unsigned>(m_inlineTextBox.end()) + 1) ? m_inlineTextBox.logicalWidth().toFloat() :
+        m_inlineTextBox.layoutObject().width(paintStart, paintEnd - paintStart, m_inlineTextBox.textPos() + start, m_inlineTextBox.isLeftToRightDirection() ? LTR : RTL, m_inlineTextBox.isFirstLineStyle());
 
     // Thick marked text underlines are 2px thick as long as there is room for the 2px line under the baseline.
     // All other marked text underlines are 1px thick.
     // If there's not enough space the underline will touch or overlap characters.
     int lineThickness = 1;
-    int baseline = m_inlineTextBox.renderer().style(m_inlineTextBox.isFirstLineStyle())->fontMetrics().ascent();
+    int baseline = m_inlineTextBox.layoutObject().style(m_inlineTextBox.isFirstLineStyle())->fontMetrics().ascent();
     if (underline.thick && m_inlineTextBox.logicalHeight() - baseline >= 2)
         lineThickness = 2;
 
@@ -769,33 +793,28 @@ void InlineTextBoxPainter::paintCompositionUnderline(GraphicsContext* ctx, const
 
     ctx->setStrokeColor(underline.color);
     ctx->setStrokeThickness(lineThickness);
-    ctx->drawLineForText(FloatPoint(boxOrigin.x() + start, boxOrigin.y() + m_inlineTextBox.logicalHeight() - lineThickness), width, m_inlineTextBox.renderer().document().printing());
+    ctx->drawLineForText(FloatPoint(boxOrigin.x() + start, (boxOrigin.y() + m_inlineTextBox.logicalHeight() - lineThickness).toFloat()), width, m_inlineTextBox.layoutObject().document().printing());
 }
 
-void InlineTextBoxPainter::paintTextMatchMarker(GraphicsContext* pt, const FloatPoint& boxOrigin, DocumentMarker* marker, RenderStyle* style, const Font& font)
+void InlineTextBoxPainter::paintTextMatchMarker(GraphicsContext* pt, const LayoutPoint& boxOrigin, DocumentMarker* marker, const ComputedStyle& style, const Font& font)
 {
     // Use same y positioning and height as for selection, so that when the selection and this highlight are on
     // the same word there are no pieces sticking out.
-    int deltaY = m_inlineTextBox.renderer().style()->isFlippedLinesWritingMode() ? m_inlineTextBox.root().selectionBottom() - m_inlineTextBox.logicalBottom() : m_inlineTextBox.logicalTop() - m_inlineTextBox.root().selectionTop();
+    int deltaY = m_inlineTextBox.layoutObject().style()->isFlippedLinesWritingMode() ? m_inlineTextBox.root().selectionBottom() - m_inlineTextBox.logicalBottom() : m_inlineTextBox.logicalTop() - m_inlineTextBox.root().selectionTop();
     int selHeight = m_inlineTextBox.root().selectionHeight();
 
     int sPos = std::max(marker->startOffset() - m_inlineTextBox.start(), (unsigned)0);
     int ePos = std::min(marker->endOffset() - m_inlineTextBox.start(), m_inlineTextBox.len());
     TextRun run = m_inlineTextBox.constructTextRun(style, font);
 
-    // Always compute and store the rect associated with this marker. The computed rect is in absolute coordinates.
-    IntRect markerRect = enclosingIntRect(font.selectionRectForText(run, IntPoint(m_inlineTextBox.x(), m_inlineTextBox.root().selectionTop()), selHeight, sPos, ePos));
-    markerRect = m_inlineTextBox.renderer().localToAbsoluteQuad(FloatRect(markerRect)).enclosingBoundingBox();
-    toRenderedDocumentMarker(marker)->setRenderedRect(markerRect);
-
     // Optionally highlight the text
-    if (m_inlineTextBox.renderer().frame()->editor().markedTextMatchesAreHighlighted()) {
+    if (m_inlineTextBox.layoutObject().frame()->editor().markedTextMatchesAreHighlighted()) {
         Color color = marker->activeMatch() ?
-            RenderTheme::theme().platformActiveTextSearchHighlightColor() :
-            RenderTheme::theme().platformInactiveTextSearchHighlightColor();
+            LayoutTheme::theme().platformActiveTextSearchHighlightColor() :
+            LayoutTheme::theme().platformInactiveTextSearchHighlightColor();
         GraphicsContextStateSaver stateSaver(*pt);
-        pt->clip(FloatRect(boxOrigin.x(), boxOrigin.y() - deltaY, m_inlineTextBox.logicalWidth(), selHeight));
-        pt->drawHighlightForText(font, run, FloatPoint(boxOrigin.x(), boxOrigin.y() - deltaY), selHeight, color, sPos, ePos);
+        pt->clip(FloatRect(boxOrigin.x().toFloat(), (boxOrigin.y() - deltaY).toFloat(), m_inlineTextBox.logicalWidth().toFloat(), selHeight));
+        pt->drawHighlightForText(font, run, FloatPoint(boxOrigin.x().toFloat(), (boxOrigin.y() - deltaY).toFloat()), selHeight, color, sPos, ePos);
     }
 }
 

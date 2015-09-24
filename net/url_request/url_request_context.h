@@ -18,11 +18,11 @@
 #include "base/memory/weak_ptr.h"
 #include "base/threading/non_thread_safe.h"
 #include "net/base/net_export.h"
-#include "net/base/net_log.h"
 #include "net/base/request_priority.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_server_properties.h"
 #include "net/http/transport_security_state.h"
+#include "net/log/net_log.h"
 #include "net/ssl/ssl_config_service.h"
 #include "net/url_request/url_request.h"
 
@@ -37,6 +37,7 @@ class HttpAuthHandlerFactory;
 class HttpTransactionFactory;
 class HttpUserAgentSettings;
 class NetworkDelegate;
+class NetworkQualityEstimator;
 class SdchManager;
 class ProxyService;
 class URLRequest;
@@ -56,15 +57,13 @@ class NET_EXPORT URLRequestContext
   // Copies the state from |other| into this context.
   void CopyFrom(const URLRequestContext* other);
 
-  // May return NULL if this context doesn't have an associated network session.
+  // May return nullptr if this context doesn't have an associated network
+  // session.
   const HttpNetworkSession::Params* GetNetworkSessionParams() const;
 
-  // Creates a URLRequest. If |cookie_store| is non-NULL, it will be used
-  // instead of the context's cookie store.
   scoped_ptr<URLRequest> CreateRequest(const GURL& url,
                                        RequestPriority priority,
-                                       URLRequest::Delegate* delegate,
-                                       CookieStore* cookie_store) const;
+                                       URLRequest::Delegate* delegate) const;
 
   NetLog* net_log() const {
     return net_log_;
@@ -176,7 +175,7 @@ class NET_EXPORT URLRequestContext
     job_factory_ = job_factory;
   }
 
-  // May be NULL.
+  // May return nullptr.
   URLRequestThrottlerManager* throttler_manager() const {
     return throttler_manager_;
   }
@@ -184,10 +183,8 @@ class NET_EXPORT URLRequestContext
     throttler_manager_ = throttler_manager;
   }
 
-  // May be NULL.
-  SdchManager* sdch_manager() const {
-    return sdch_manager_;
-  }
+  // May return nullptr.
+  SdchManager* sdch_manager() const { return sdch_manager_; }
   void set_sdch_manager(SdchManager* sdch_manager) {
     sdch_manager_ = sdch_manager;
   }
@@ -211,6 +208,16 @@ class NET_EXPORT URLRequestContext
   void set_http_user_agent_settings(
       HttpUserAgentSettings* http_user_agent_settings) {
     http_user_agent_settings_ = http_user_agent_settings;
+  }
+
+  // Gets the NetworkQualityEstimator associated with this context.
+  // May return nullptr.
+  NetworkQualityEstimator* network_quality_estimator() const {
+    return network_quality_estimator_;
+  }
+  void set_network_quality_estimator(
+      NetworkQualityEstimator* network_quality_estimator) {
+    network_quality_estimator_ = network_quality_estimator;
   }
 
  private:
@@ -239,6 +246,7 @@ class NET_EXPORT URLRequestContext
   const URLRequestJobFactory* job_factory_;
   URLRequestThrottlerManager* throttler_manager_;
   SdchManager* sdch_manager_;
+  NetworkQualityEstimator* network_quality_estimator_;
 
   // ---------------------------------------------------------------------------
   // Important: When adding any new members below, consider whether they need to

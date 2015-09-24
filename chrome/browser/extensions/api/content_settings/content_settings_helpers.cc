@@ -25,10 +25,23 @@ const char* const kContentSettingsTypeNames[] = {
   "popups",
   "location",
   "notifications",
+  "auto-select-certificate",
+  "fullscreen",
+  "mouselock",
+  "mixed-script",
+  "media-stream",
+  "media-stream-mic",
+  "media-stream-camera",
+  "register-protocol-handler",
+  "ppapi-broker",
+  "multiple-automatic-downloads"
 };
-COMPILE_ASSERT(arraysize(kContentSettingsTypeNames) <=
-               CONTENT_SETTINGS_NUM_TYPES,
-               content_settings_type_names_size_invalid);
+
+// TODO(msramek): Assert that |kContentSettingsTypeNames| is synced with
+// enum |ContentSettingsType|.
+static_assert(arraysize(kContentSettingsTypeNames) <=
+              CONTENT_SETTINGS_NUM_TYPES,
+              "kContentSettingsTypeNames has an unexpected number of elements");
 
 const char* const kContentSettingNames[] = {
   "default",
@@ -36,10 +49,11 @@ const char* const kContentSettingNames[] = {
   "block",
   "ask",
   "session_only",
+  "detect_important_content"
 };
-COMPILE_ASSERT(arraysize(kContentSettingNames) <=
-               CONTENT_SETTING_NUM_SETTINGS,
-               content_setting_names_size_invalid);
+static_assert(arraysize(kContentSettingNames) <=
+              CONTENT_SETTING_NUM_SETTINGS,
+              "kContentSettingNames has an unexpected number of elements");
 
 // TODO(bauerb): Move this someplace where it can be reused.
 std::string GetDefaultPort(const std::string& scheme) {

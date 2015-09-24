@@ -9,7 +9,7 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/chromeos/login/users/fake_user_manager.h"
+#include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/prefs/pref_service_syncable.h"
@@ -21,6 +21,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile_manager.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::ASCIIToUTF16;
@@ -30,12 +31,9 @@ namespace {
 class MockObserver : public AvatarMenuObserver {
  public:
   MockObserver() : count_(0) {}
-  virtual ~MockObserver() {}
+  ~MockObserver() override {}
 
-  virtual void OnAvatarMenuChanged(
-      AvatarMenu* avatar_menu) override {
-    ++count_;
-  }
+  void OnAvatarMenuChanged(AvatarMenu* avatar_menu) override { ++count_; }
 
   int change_count() const { return count_; }
 
@@ -55,28 +53,30 @@ class ProfileListChromeOSTest : public testing::Test {
       : manager_(TestingBrowserProcess::GetGlobal()) {
   }
 
-  virtual void SetUp() {
+  void SetUp() override {
     ASSERT_TRUE(manager_.SetUp());
 
     // AvatarMenu and multiple profiles works after user logged in.
     manager_.SetLoggedIn(true);
 
-    // Initialize the UserManager singleton to a fresh FakeUserManager instance.
+    // Initialize the UserManager singleton to a fresh FakeChromeUserManager
+    // instance.
     user_manager_enabler_.reset(
-        new ScopedUserManagerEnabler(new FakeUserManager));
+        new ScopedUserManagerEnabler(new FakeChromeUserManager));
   }
 
-  FakeUserManager* GetFakeUserManager() {
-    return static_cast<FakeUserManager*>(user_manager::UserManager::Get());
+  FakeChromeUserManager* GetFakeChromeUserManager() {
+    return static_cast<FakeChromeUserManager*>(
+        user_manager::UserManager::Get());
   }
 
   void AddProfile(base::string16 name, bool log_in) {
     std::string email_string = base::UTF16ToASCII(name) + "@example.com";
 
     // Add a user to the fake user manager.
-    GetFakeUserManager()->AddUser(email_string);
+    GetFakeChromeUserManager()->AddUser(email_string);
     if (log_in)
-      GetFakeUserManager()->LoginUser(email_string);
+      GetFakeChromeUserManager()->LoginUser(email_string);
 
     // Create a profile for the user.
     manager()->CreateTestingProfile(email_string);
@@ -99,7 +99,7 @@ class ProfileListChromeOSTest : public testing::Test {
 
   void ActiveUserChanged(const base::string16& name) {
     std::string email_string = base::UTF16ToASCII(name) + "@example.com";
-    GetFakeUserManager()->SwitchActiveUser(email_string);
+    GetFakeChromeUserManager()->SwitchActiveUser(email_string);
   }
 
   TestingProfileManager* manager() { return &manager_; }
@@ -107,6 +107,7 @@ class ProfileListChromeOSTest : public testing::Test {
   int change_count() const { return mock_observer_->change_count(); }
 
  private:
+  content::TestBrowserThreadBundle thread_bundle_;
   TestingProfileManager manager_;
   scoped_ptr<MockObserver> mock_observer_;
   scoped_ptr<ScopedUserManagerEnabler> user_manager_enabler_;
@@ -163,10 +164,10 @@ TEST_F(ProfileListChromeOSTest, DontShowSupervisedUsers) {
   // Add a managed user profile.
   ProfileInfoCache* cache = manager()->profile_info_cache();
   manager()->profile_info_cache()->AddProfileToCache(
-      cache->GetUserDataDir().AppendASCII("p2"), supervised_name,
+      cache->GetUserDataDir().AppendASCII("p2"), supervised_name, std::string(),
       base::string16(), 0, "TEST_ID");
 
-  GetFakeUserManager()->AddUser(base::UTF16ToASCII(supervised_name));
+  GetFakeChromeUserManager()->AddUser(base::UTF16ToASCII(supervised_name));
 
   AvatarMenu* menu = GetAvatarMenu();
   ASSERT_EQ(1U, menu->GetNumberOfItems());
@@ -228,7 +229,7 @@ TEST_F(ProfileListChromeOSTest, ModifyingNameResortsCorrectly) {
   AddProfile(name2, true);
 
   AvatarMenu* menu = GetAvatarMenu();
-
+  EXPECT_EQ(0, change_count());
   ASSERT_EQ(2U, menu->GetNumberOfItems());
 
   const AvatarMenu::Item& item1 = menu->GetItemAt(0);
@@ -241,12 +242,12 @@ TEST_F(ProfileListChromeOSTest, ModifyingNameResortsCorrectly) {
 
   // Change name of the first profile, to trigger resorting of the profiles:
   // now the first menu item should be named "beta", and the second be "gamma".
-  GetFakeUserManager()->SaveUserDisplayName(
+  GetFakeChromeUserManager()->SaveUserDisplayName(
       base::UTF16ToASCII(name1) + "@example.com", newname1);
   manager()->profile_info_cache()->SetNameOfProfileAtIndex(0, newname1);
+  EXPECT_EQ(1, change_count());
 
   const AvatarMenu::Item& item1next = menu->GetItemAt(0);
-  EXPECT_GT(change_count(), 1);
   EXPECT_EQ(0U, item1next.menu_index);
   EXPECT_EQ(name2, item1next.name);
 
@@ -264,15 +265,15 @@ TEST_F(ProfileListChromeOSTest, ChangeOnNotify) {
 
   AvatarMenu* menu = GetAvatarMenu();
   EXPECT_EQ(2U, menu->GetNumberOfItems());
+  EXPECT_EQ(0, change_count());
 
   base::string16 name3(ASCIIToUTF16("p3.com"));
   AddProfile(name3, true);
 
-  // Four changes happened via the call to CreateTestingProfile: adding the
-  // profile to the cache, setting the user name, rebuilding the list of
-  // profiles after the name change, and changing the avatar.
-  // TODO(michaelpg): Determine why actual change number does not match comment.
-  EXPECT_GE(change_count(), 4);
+  // Three changes happened via the call to CreateTestingProfile: adding the
+  // profile to the cache, setting the user name (which rebuilt the list of
+  // profiles after the name change), and changing the avatar.
+  EXPECT_EQ(change_count(), 3);
   ASSERT_EQ(3U, menu->GetNumberOfItems());
 
   const AvatarMenu::Item& item1 = menu->GetItemAt(0);

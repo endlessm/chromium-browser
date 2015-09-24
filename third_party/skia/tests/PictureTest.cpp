@@ -12,571 +12,39 @@
 #include "SkColorPriv.h"
 #include "SkDashPathEffect.h"
 #include "SkData.h"
-#include "SkDecodingImageGenerator.h"
+#include "SkImageGenerator.h"
 #include "SkError.h"
 #include "SkImageEncoder.h"
 #include "SkImageGenerator.h"
+#include "SkLayerInfo.h"
 #include "SkPaint.h"
 #include "SkPicture.h"
 #include "SkPictureRecorder.h"
 #include "SkPictureUtils.h"
 #include "SkPixelRef.h"
+#include "SkPixelSerializer.h"
+#include "SkMiniRecorder.h"
 #include "SkRRect.h"
 #include "SkRandom.h"
+#include "SkRecord.h"
 #include "SkShader.h"
 #include "SkStream.h"
+#include "sk_tool_utils.h"
 
 #if SK_SUPPORT_GPU
 #include "SkSurface.h"
 #include "GrContextFactory.h"
-#include "GrPictureUtils.h"
 #endif
 #include "Test.h"
 
 #include "SkLumaColorFilter.h"
 #include "SkColorFilterImageFilter.h"
 
-static const int gColorScale = 30;
-static const int gColorOffset = 60;
-
 static void make_bm(SkBitmap* bm, int w, int h, SkColor color, bool immutable) {
     bm->allocN32Pixels(w, h);
     bm->eraseColor(color);
     if (immutable) {
         bm->setImmutable();
-    }
-}
-
-static void make_checkerboard(SkBitmap* bm, int w, int h, bool immutable) {
-    SkASSERT(w % 2 == 0);
-    SkASSERT(h % 2 == 0);
-    bm->allocPixels(SkImageInfo::Make(w, h, kAlpha_8_SkColorType,
-                                      kPremul_SkAlphaType));
-    SkAutoLockPixels lock(*bm);
-    for (int y = 0; y < h; y += 2) {
-        uint8_t* s = bm->getAddr8(0, y);
-        for (int x = 0; x < w; x += 2) {
-            *s++ = 0xFF;
-            *s++ = 0x00;
-        }
-        s = bm->getAddr8(0, y + 1);
-        for (int x = 0; x < w; x += 2) {
-            *s++ = 0x00;
-            *s++ = 0xFF;
-        }
-    }
-    if (immutable) {
-        bm->setImmutable();
-    }
-}
-
-static void init_paint(SkPaint* paint, const SkBitmap &bm) {
-    SkShader* shader = SkShader::CreateBitmapShader(bm,
-                                                    SkShader::kClamp_TileMode,
-                                                    SkShader::kClamp_TileMode);
-    paint->setShader(shader)->unref();
-}
-
-typedef void (*DrawBitmapProc)(SkCanvas*, const SkBitmap&,
-                               const SkBitmap&, const SkPoint&,
-                               SkTDArray<SkPixelRef*>* usedPixRefs);
-
-static void drawpaint_proc(SkCanvas* canvas, const SkBitmap& bm,
-                           const SkBitmap& altBM, const SkPoint& pos,
-                           SkTDArray<SkPixelRef*>* usedPixRefs) {
-    SkPaint paint;
-    init_paint(&paint, bm);
-
-    canvas->drawPaint(paint);
-    *usedPixRefs->append() = bm.pixelRef();
-}
-
-static void drawpoints_proc(SkCanvas* canvas, const SkBitmap& bm,
-                            const SkBitmap& altBM, const SkPoint& pos,
-                            SkTDArray<SkPixelRef*>* usedPixRefs) {
-    SkPaint paint;
-    init_paint(&paint, bm);
-
-    // draw a rect
-    SkPoint points[5] = {
-        { pos.fX, pos.fY },
-        { pos.fX + bm.width() - 1, pos.fY },
-        { pos.fX + bm.width() - 1, pos.fY + bm.height() - 1 },
-        { pos.fX, pos.fY + bm.height() - 1 },
-        { pos.fX, pos.fY },
-    };
-
-    canvas->drawPoints(SkCanvas::kPolygon_PointMode, 5, points, paint);
-    *usedPixRefs->append() = bm.pixelRef();
-}
-
-static void drawrect_proc(SkCanvas* canvas, const SkBitmap& bm,
-                          const SkBitmap& altBM, const SkPoint& pos,
-                          SkTDArray<SkPixelRef*>* usedPixRefs) {
-    SkPaint paint;
-    init_paint(&paint, bm);
-
-    SkRect r = { 0, 0, SkIntToScalar(bm.width()), SkIntToScalar(bm.height()) };
-    r.offset(pos.fX, pos.fY);
-
-    canvas->drawRect(r, paint);
-    *usedPixRefs->append() = bm.pixelRef();
-}
-
-static void drawoval_proc(SkCanvas* canvas, const SkBitmap& bm,
-                          const SkBitmap& altBM, const SkPoint& pos,
-                          SkTDArray<SkPixelRef*>* usedPixRefs) {
-    SkPaint paint;
-    init_paint(&paint, bm);
-
-    SkRect r = { 0, 0, SkIntToScalar(bm.width()), SkIntToScalar(bm.height()) };
-    r.offset(pos.fX, pos.fY);
-
-    canvas->drawOval(r, paint);
-    *usedPixRefs->append() = bm.pixelRef();
-}
-
-static void drawrrect_proc(SkCanvas* canvas, const SkBitmap& bm,
-                           const SkBitmap& altBM, const SkPoint& pos,
-                           SkTDArray<SkPixelRef*>* usedPixRefs) {
-    SkPaint paint;
-    init_paint(&paint, bm);
-
-    SkRect r = { 0, 0, SkIntToScalar(bm.width()), SkIntToScalar(bm.height()) };
-    r.offset(pos.fX, pos.fY);
-
-    SkRRect rr;
-    rr.setRectXY(r, SkIntToScalar(bm.width())/4, SkIntToScalar(bm.height())/4);
-    canvas->drawRRect(rr, paint);
-    *usedPixRefs->append() = bm.pixelRef();
-}
-
-static void drawpath_proc(SkCanvas* canvas, const SkBitmap& bm,
-                          const SkBitmap& altBM, const SkPoint& pos,
-                          SkTDArray<SkPixelRef*>* usedPixRefs) {
-    SkPaint paint;
-    init_paint(&paint, bm);
-
-    SkPath path;
-    path.lineTo(bm.width()/2.0f, SkIntToScalar(bm.height()));
-    path.lineTo(SkIntToScalar(bm.width()), 0);
-    path.close();
-    path.offset(pos.fX, pos.fY);
-
-    canvas->drawPath(path, paint);
-    *usedPixRefs->append() = bm.pixelRef();
-}
-
-static void drawbitmap_proc(SkCanvas* canvas, const SkBitmap& bm,
-                            const SkBitmap& altBM, const SkPoint& pos,
-                            SkTDArray<SkPixelRef*>* usedPixRefs) {
-    canvas->drawBitmap(bm, pos.fX, pos.fY, NULL);
-    *usedPixRefs->append() = bm.pixelRef();
-}
-
-static void drawbitmap_withshader_proc(SkCanvas* canvas, const SkBitmap& bm,
-                                       const SkBitmap& altBM, const SkPoint& pos,
-                                       SkTDArray<SkPixelRef*>* usedPixRefs) {
-    SkPaint paint;
-    init_paint(&paint, bm);
-
-    // The bitmap in the paint is ignored unless we're drawing an A8 bitmap
-    canvas->drawBitmap(altBM, pos.fX, pos.fY, &paint);
-    *usedPixRefs->append() = bm.pixelRef();
-    *usedPixRefs->append() = altBM.pixelRef();
-}
-
-static void drawsprite_proc(SkCanvas* canvas, const SkBitmap& bm,
-                            const SkBitmap& altBM, const SkPoint& pos,
-                            SkTDArray<SkPixelRef*>* usedPixRefs) {
-    const SkMatrix& ctm = canvas->getTotalMatrix();
-
-    SkPoint p(pos);
-    ctm.mapPoints(&p, 1);
-
-    canvas->drawSprite(bm, (int)p.fX, (int)p.fY, NULL);
-    *usedPixRefs->append() = bm.pixelRef();
-}
-
-#if 0
-// Although specifiable, this case doesn't seem to make sense (i.e., the
-// bitmap in the shader is never used).
-static void drawsprite_withshader_proc(SkCanvas* canvas, const SkBitmap& bm,
-                                       const SkBitmap& altBM, const SkPoint& pos,
-                                       SkTDArray<SkPixelRef*>* usedPixRefs) {
-    SkPaint paint;
-    init_paint(&paint, bm);
-
-    const SkMatrix& ctm = canvas->getTotalMatrix();
-
-    SkPoint p(pos);
-    ctm.mapPoints(&p, 1);
-
-    canvas->drawSprite(altBM, (int)p.fX, (int)p.fY, &paint);
-    *usedPixRefs->append() = bm.pixelRef();
-    *usedPixRefs->append() = altBM.pixelRef();
-}
-#endif
-
-static void drawbitmaprect_proc(SkCanvas* canvas, const SkBitmap& bm,
-                                const SkBitmap& altBM, const SkPoint& pos,
-                                SkTDArray<SkPixelRef*>* usedPixRefs) {
-    SkRect r = { 0, 0, SkIntToScalar(bm.width()), SkIntToScalar(bm.height()) };
-
-    r.offset(pos.fX, pos.fY);
-    canvas->drawBitmapRectToRect(bm, NULL, r, NULL);
-    *usedPixRefs->append() = bm.pixelRef();
-}
-
-static void drawbitmaprect_withshader_proc(SkCanvas* canvas,
-                                           const SkBitmap& bm,
-                                           const SkBitmap& altBM,
-                                           const SkPoint& pos,
-                                           SkTDArray<SkPixelRef*>* usedPixRefs) {
-    SkPaint paint;
-    init_paint(&paint, bm);
-
-    SkRect r = { 0, 0, SkIntToScalar(bm.width()), SkIntToScalar(bm.height()) };
-    r.offset(pos.fX, pos.fY);
-
-    // The bitmap in the paint is ignored unless we're drawing an A8 bitmap
-    canvas->drawBitmapRectToRect(altBM, NULL, r, &paint);
-    *usedPixRefs->append() = bm.pixelRef();
-    *usedPixRefs->append() = altBM.pixelRef();
-}
-
-static void drawtext_proc(SkCanvas* canvas, const SkBitmap& bm,
-                          const SkBitmap& altBM, const SkPoint& pos,
-                          SkTDArray<SkPixelRef*>* usedPixRefs) {
-    SkPaint paint;
-    init_paint(&paint, bm);
-    paint.setTextSize(SkIntToScalar(1.5*bm.width()));
-
-    canvas->drawText("0", 1, pos.fX, pos.fY+bm.width(), paint);
-    *usedPixRefs->append() = bm.pixelRef();
-}
-
-static void drawpostext_proc(SkCanvas* canvas, const SkBitmap& bm,
-                             const SkBitmap& altBM, const SkPoint& pos,
-                             SkTDArray<SkPixelRef*>* usedPixRefs) {
-    SkPaint paint;
-    init_paint(&paint, bm);
-    paint.setTextSize(SkIntToScalar(1.5*bm.width()));
-
-    SkPoint point = { pos.fX, pos.fY + bm.height() };
-    canvas->drawPosText("O", 1, &point, paint);
-    *usedPixRefs->append() = bm.pixelRef();
-}
-
-static void drawtextonpath_proc(SkCanvas* canvas, const SkBitmap& bm,
-                                const SkBitmap& altBM, const SkPoint& pos,
-                                SkTDArray<SkPixelRef*>* usedPixRefs) {
-    SkPaint paint;
-
-    init_paint(&paint, bm);
-    paint.setTextSize(SkIntToScalar(1.5*bm.width()));
-
-    SkPath path;
-    path.lineTo(SkIntToScalar(bm.width()), 0);
-    path.offset(pos.fX, pos.fY+bm.height());
-
-    canvas->drawTextOnPath("O", 1, path, NULL, paint);
-    *usedPixRefs->append() = bm.pixelRef();
-}
-
-static void drawverts_proc(SkCanvas* canvas, const SkBitmap& bm,
-                           const SkBitmap& altBM, const SkPoint& pos,
-                           SkTDArray<SkPixelRef*>* usedPixRefs) {
-    SkPaint paint;
-    init_paint(&paint, bm);
-
-    SkPoint verts[4] = {
-        { pos.fX, pos.fY },
-        { pos.fX + bm.width(), pos.fY },
-        { pos.fX + bm.width(), pos.fY + bm.height() },
-        { pos.fX, pos.fY + bm.height() }
-    };
-    SkPoint texs[4] = { { 0, 0 },
-                        { SkIntToScalar(bm.width()), 0 },
-                        { SkIntToScalar(bm.width()), SkIntToScalar(bm.height()) },
-                        { 0, SkIntToScalar(bm.height()) } };
-    uint16_t indices[6] = { 0, 1, 2, 0, 2, 3 };
-
-    canvas->drawVertices(SkCanvas::kTriangles_VertexMode, 4, verts, texs, NULL, NULL,
-                         indices, 6, paint);
-    *usedPixRefs->append() = bm.pixelRef();
-}
-
-// Return a picture with the bitmaps drawn at the specified positions.
-static SkPicture* record_bitmaps(const SkBitmap bm[],
-                                 const SkPoint pos[],
-                                 SkTDArray<SkPixelRef*> analytic[],
-                                 int count,
-                                 DrawBitmapProc proc) {
-    SkPictureRecorder recorder;
-    SkCanvas* canvas = recorder.beginRecording(1000, 1000);
-    for (int i = 0; i < count; ++i) {
-        analytic[i].rewind();
-        canvas->save();
-        SkRect clipRect = SkRect::MakeXYWH(pos[i].fX, pos[i].fY,
-                                           SkIntToScalar(bm[i].width()),
-                                           SkIntToScalar(bm[i].height()));
-        canvas->clipRect(clipRect, SkRegion::kIntersect_Op);
-        proc(canvas, bm[i], bm[count+i], pos[i], &analytic[i]);
-        canvas->restore();
-    }
-    return recorder.endRecording();
-}
-
-static void rand_rect(SkRect* rect, SkRandom& rand, SkScalar W, SkScalar H) {
-    rect->fLeft   = rand.nextRangeScalar(-W, 2*W);
-    rect->fTop    = rand.nextRangeScalar(-H, 2*H);
-    rect->fRight  = rect->fLeft + rand.nextRangeScalar(0, W);
-    rect->fBottom = rect->fTop + rand.nextRangeScalar(0, H);
-
-    // we integralize rect to make our tests more predictable, since Gather is
-    // a little sloppy.
-    SkIRect ir;
-    rect->round(&ir);
-    rect->set(ir);
-}
-
-static void draw(SkPicture* pic, int width, int height, SkBitmap* result) {
-    make_bm(result, width, height, SK_ColorBLACK, false);
-
-    SkCanvas canvas(*result);
-    canvas.drawPicture(pic);
-}
-
-template <typename T> int find_index(const T* array, T elem, int count) {
-    for (int i = 0; i < count; ++i) {
-        if (array[i] == elem) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-// Return true if 'ref' is found in array[]
-static bool find(SkPixelRef const * const * array, SkPixelRef const * ref, int count) {
-    return find_index<const SkPixelRef*>(array, ref, count) >= 0;
-}
-
-// Look at each pixel that is inside 'subset', and if its color appears in
-// colors[], find the corresponding value in refs[] and append that ref into
-// array, skipping duplicates of the same value.
-// Note that gathering pixelRefs from rendered colors suffers from the problem
-// that multiple simultaneous textures (e.g., A8 for alpha and 8888 for color)
-// isn't easy to reconstruct.
-static void gather_from_image(const SkBitmap& bm, SkPixelRef* const refs[],
-                              int count, SkTDArray<SkPixelRef*>* array,
-                              const SkRect& subset) {
-    SkIRect ir;
-    subset.roundOut(&ir);
-
-    if (!ir.intersect(0, 0, bm.width()-1, bm.height()-1)) {
-        return;
-    }
-
-    // Since we only want to return unique values in array, when we scan we just
-    // set a bit for each index'd color found. In practice we only have a few
-    // distinct colors, so we just use an int's bits as our array. Hence the
-    // assert that count <= number-of-bits-in-our-int.
-    SkASSERT((unsigned)count <= 32);
-    uint32_t bitarray = 0;
-
-    SkAutoLockPixels alp(bm);
-
-    for (int y = ir.fTop; y < ir.fBottom; ++y) {
-        for (int x = ir.fLeft; x < ir.fRight; ++x) {
-            SkPMColor pmc = *bm.getAddr32(x, y);
-            // the only good case where the color is not found would be if
-            // the color is transparent, meaning no bitmap was drawn in that
-            // pixel.
-            if (pmc) {
-                uint32_t index = SkGetPackedR32(pmc);
-                SkASSERT(SkGetPackedG32(pmc) == index);
-                SkASSERT(SkGetPackedB32(pmc) == index);
-                if (0 == index) {
-                    continue;           // background color
-                }
-                SkASSERT(0 == (index - gColorOffset) % gColorScale);
-                index = (index - gColorOffset) / gColorScale;
-                SkASSERT(static_cast<int>(index) < count);
-                bitarray |= 1 << index;
-            }
-        }
-    }
-
-    for (int i = 0; i < count; ++i) {
-        if (bitarray & (1 << i)) {
-            *array->append() = refs[i];
-        }
-    }
-}
-
-static void gather_from_analytic(const SkPoint pos[], SkScalar w, SkScalar h,
-                                 const SkTDArray<SkPixelRef*> analytic[],
-                                 int count,
-                                 SkTDArray<SkPixelRef*>* result,
-                                 const SkRect& subset) {
-    for (int i = 0; i < count; ++i) {
-        SkRect rect = SkRect::MakeXYWH(pos[i].fX, pos[i].fY, w, h);
-
-        if (SkRect::Intersects(subset, rect)) {
-            result->append(analytic[i].count(), analytic[i].begin());
-        }
-    }
-}
-
-
-static const struct {
-    const DrawBitmapProc proc;
-    const char* const desc;
-} gProcs[] = {
-    {drawpaint_proc, "drawpaint"},
-    {drawpoints_proc, "drawpoints"},
-    {drawrect_proc, "drawrect"},
-    {drawoval_proc, "drawoval"},
-    {drawrrect_proc, "drawrrect"},
-    {drawpath_proc, "drawpath"},
-    {drawbitmap_proc, "drawbitmap"},
-    {drawbitmap_withshader_proc, "drawbitmap_withshader"},
-    {drawsprite_proc, "drawsprite"},
-#if 0
-    {drawsprite_withshader_proc, "drawsprite_withshader"},
-#endif
-    {drawbitmaprect_proc, "drawbitmaprect"},
-    {drawbitmaprect_withshader_proc, "drawbitmaprect_withshader"},
-    {drawtext_proc, "drawtext"},
-    {drawpostext_proc, "drawpostext"},
-    {drawtextonpath_proc, "drawtextonpath"},
-    {drawverts_proc, "drawverts"},
-};
-
-static void create_textures(SkBitmap* bm, SkPixelRef** refs, int num, int w, int h) {
-    // Our convention is that the color components contain an encoding of
-    // the index of their corresponding bitmap/pixelref. (0,0,0,0) is
-    // reserved for the background
-    for (int i = 0; i < num; ++i) {
-        make_bm(&bm[i], w, h,
-                SkColorSetARGB(0xFF,
-                               gColorScale*i+gColorOffset,
-                               gColorScale*i+gColorOffset,
-                               gColorScale*i+gColorOffset),
-                true);
-        refs[i] = bm[i].pixelRef();
-    }
-
-    // The A8 alternate bitmaps are all BW checkerboards
-    for (int i = 0; i < num; ++i) {
-        make_checkerboard(&bm[num+i], w, h, true);
-        refs[num+i] = bm[num+i].pixelRef();
-    }
-}
-
-static void test_gatherpixelrefs(skiatest::Reporter* reporter) {
-    const int IW = 32;
-    const int IH = IW;
-    const SkScalar W = SkIntToScalar(IW);
-    const SkScalar H = W;
-
-    static const int N = 4;
-    SkBitmap bm[2*N];
-    SkPixelRef* refs[2*N];
-    SkTDArray<SkPixelRef*> analytic[N];
-
-    const SkPoint pos[N] = {
-        { 0, 0 }, { W, 0 }, { 0, H }, { W, H }
-    };
-
-    create_textures(bm, refs, N, IW, IH);
-
-    SkRandom rand;
-    for (size_t k = 0; k < SK_ARRAY_COUNT(gProcs); ++k) {
-        SkAutoTUnref<SkPicture> pic(
-            record_bitmaps(bm, pos, analytic, N, gProcs[k].proc));
-
-        REPORTER_ASSERT(reporter, pic->willPlayBackBitmaps() || N == 0);
-        // quick check for a small piece of each quadrant, which should just
-        // contain 1 or 2 bitmaps.
-        for (size_t  i = 0; i < SK_ARRAY_COUNT(pos); ++i) {
-            SkRect r;
-            r.set(2, 2, W - 2, H - 2);
-            r.offset(pos[i].fX, pos[i].fY);
-            SkAutoDataUnref data(SkPictureUtils::GatherPixelRefs(pic, r));
-            if (!data) {
-                ERRORF(reporter, "SkPictureUtils::GatherPixelRefs returned "
-                       "NULL for %s.", gProcs[k].desc);
-                continue;
-            }
-            SkPixelRef** gatheredRefs = (SkPixelRef**)data->data();
-            int count = static_cast<int>(data->size() / sizeof(SkPixelRef*));
-            REPORTER_ASSERT(reporter, 1 == count || 2 == count);
-            if (1 == count) {
-                REPORTER_ASSERT(reporter, gatheredRefs[0] == refs[i]);
-            } else if (2 == count) {
-                REPORTER_ASSERT(reporter,
-                    (gatheredRefs[0] == refs[i] && gatheredRefs[1] == refs[i+N]) ||
-                    (gatheredRefs[1] == refs[i] && gatheredRefs[0] == refs[i+N]));
-            }
-        }
-
-        SkBitmap image;
-        draw(pic, 2*IW, 2*IH, &image);
-
-        // Test a bunch of random (mostly) rects, and compare the gather results
-        // with a deduced list of refs by looking at the colors drawn.
-        for (int j = 0; j < 100; ++j) {
-            SkRect r;
-            rand_rect(&r, rand, 2*W, 2*H);
-
-            SkTDArray<SkPixelRef*> fromImage;
-            gather_from_image(image, refs, N, &fromImage, r);
-
-            SkTDArray<SkPixelRef*> fromAnalytic;
-            gather_from_analytic(pos, W, H, analytic, N, &fromAnalytic, r);
-
-            SkData* data = SkPictureUtils::GatherPixelRefs(pic, r);
-            size_t dataSize = data ? data->size() : 0;
-            int gatherCount = static_cast<int>(dataSize / sizeof(SkPixelRef*));
-            SkASSERT(gatherCount * sizeof(SkPixelRef*) == dataSize);
-            SkPixelRef** gatherRefs = data ? (SkPixelRef**)(data->data()) : NULL;
-            SkAutoDataUnref adu(data);
-
-            // Everything that we saw drawn should appear in the analytic list
-            // but the analytic list may contain some pixelRefs that were not
-            // seen in the image (e.g., A8 textures used as masks)
-            for (int i = 0; i < fromImage.count(); ++i) {
-                if (-1 == fromAnalytic.find(fromImage[i])) {
-                    ERRORF(reporter, "PixelRef missing %d %s",
-                           i, gProcs[k].desc);
-                }
-            }
-
-            /*
-             *  GatherPixelRefs is conservative, so it can return more bitmaps
-             *  than are strictly required. Thus our check here is only that
-             *  Gather didn't miss any that we actually needed. Even that isn't
-             *  a strict requirement on Gather, which is meant to be quick and
-             *  only mostly-correct, but at the moment this test should work.
-             */
-            for (int i = 0; i < fromAnalytic.count(); ++i) {
-                bool found = find(gatherRefs, fromAnalytic[i], gatherCount);
-                if (!found) {
-                    ERRORF(reporter, "PixelRef missing %d %s",
-                           i, gProcs[k].desc);
-                }
-#if 0
-                // enable this block of code to debug failures, as it will rerun
-                // the case that failed.
-                if (!found) {
-                    SkData* data = SkPictureUtils::GatherPixelRefs(pic, r);
-                    size_t dataSize = data ? data->size() : 0;
-                }
-#endif
-            }
-        }
     }
 }
 
@@ -612,90 +80,6 @@ static void test_analysis(skiatest::Reporter* reporter) {
     REPORTER_ASSERT(reporter, picture->willPlayBackBitmaps());
 }
 
-
-static void test_gatherpixelrefsandrects(skiatest::Reporter* reporter) {
-    const int IW = 32;
-    const int IH = IW;
-    const SkScalar W = SkIntToScalar(IW);
-    const SkScalar H = W;
-
-    static const int N = 4;
-    SkBitmap bm[2*N];
-    SkPixelRef* refs[2*N];
-    SkTDArray<SkPixelRef*> analytic[N];
-
-    const SkPoint pos[N] = {
-        { 0, 0 }, { W, 0 }, { 0, H }, { W, H }
-    };
-
-    create_textures(bm, refs, N, IW, IH);
-
-    SkRandom rand;
-    for (size_t k = 0; k < SK_ARRAY_COUNT(gProcs); ++k) {
-        SkAutoTUnref<SkPicture> pic(
-            record_bitmaps(bm, pos, analytic, N, gProcs[k].proc));
-
-        REPORTER_ASSERT(reporter, pic->willPlayBackBitmaps() || N == 0);
-
-        SkAutoTUnref<SkPictureUtils::SkPixelRefContainer> prCont(
-                                new SkPictureUtils::SkPixelRefsAndRectsList);
-
-        SkPictureUtils::GatherPixelRefsAndRects(pic, prCont);
-
-        // quick check for a small piece of each quadrant, which should just
-        // contain 1 or 2 bitmaps.
-        for (size_t  i = 0; i < SK_ARRAY_COUNT(pos); ++i) {
-            SkRect r;
-            r.set(2, 2, W - 2, H - 2);
-            r.offset(pos[i].fX, pos[i].fY);
-
-            SkTDArray<SkPixelRef*> gatheredRefs;
-            prCont->query(r, &gatheredRefs);
-
-            int count = gatheredRefs.count();
-            REPORTER_ASSERT(reporter, 1 == count || 2 == count);
-            if (1 == count) {
-                REPORTER_ASSERT(reporter, gatheredRefs[0] == refs[i]);
-            } else if (2 == count) {
-                REPORTER_ASSERT(reporter,
-                    (gatheredRefs[0] == refs[i] && gatheredRefs[1] == refs[i+N]) ||
-                    (gatheredRefs[1] == refs[i] && gatheredRefs[0] == refs[i+N]));
-            }
-        }
-
-        SkBitmap image;
-        draw(pic, 2*IW, 2*IH, &image);
-
-        // Test a bunch of random (mostly) rects, and compare the gather results
-        // with the analytic results and the pixel refs seen in a rendering.
-        for (int j = 0; j < 100; ++j) {
-            SkRect r;
-            rand_rect(&r, rand, 2*W, 2*H);
-
-            SkTDArray<SkPixelRef*> fromImage;
-            gather_from_image(image, refs, N, &fromImage, r);
-
-            SkTDArray<SkPixelRef*> fromAnalytic;
-            gather_from_analytic(pos, W, H, analytic, N, &fromAnalytic, r);
-
-            SkTDArray<SkPixelRef*> gatheredRefs;
-            prCont->query(r, &gatheredRefs);
-
-            // Everything that we saw drawn should appear in the analytic list
-            // but the analytic list may contain some pixelRefs that were not
-            // seen in the image (e.g., A8 textures used as masks)
-            for (int i = 0; i < fromImage.count(); ++i) {
-                REPORTER_ASSERT(reporter, -1 != fromAnalytic.find(fromImage[i]));
-            }
-
-            // Everything in the analytic list should appear in the gathered
-            // list.
-            for (int i = 0; i < fromAnalytic.count(); ++i) {
-                REPORTER_ASSERT(reporter, -1 != gatheredRefs.find(fromAnalytic[i]));
-            }
-        }
-    }
-}
 
 #ifdef SK_DEBUG
 // Ensure that deleting an empty SkPicture does not assert. Asserts only fire
@@ -758,7 +142,9 @@ static void test_gpu_veto(skiatest::Reporter* reporter) {
         paint.setStyle(SkPaint::kStroke_Style);
         paint.setPathEffect(dash);
 
-        canvas->drawPath(path, paint);
+        for (int i = 0; i < 50; ++i) {
+            canvas->drawPath(path, paint);
+        }
     }
     SkAutoTUnref<SkPicture> picture(recorder.endRecording());
     // path effects currently render an SkPicture undesireable for GPU rendering
@@ -843,7 +229,10 @@ static void test_gpu_veto(skiatest::Reporter* reporter) {
         paint.setPathEffect(pe)->unref();
 
         SkPoint points [2] = { { 0, 0 }, { 100, 0 } };
-        canvas->drawPoints(SkCanvas::kLines_PointMode, 2, points, paint);
+
+        for (int i = 0; i < 50; ++i) {
+            canvas->drawPoints(SkCanvas::kLines_PointMode, 2, points, paint);
+        }
     }
     picture.reset(recorder.endRecording());
     // fast-path dashed effects are fine for GPU rendering ...
@@ -856,7 +245,9 @@ static void test_gpu_veto(skiatest::Reporter* reporter) {
         SkPathEffect* pe = SkDashPathEffect::Create(intervals, 2, 25);
         paint.setPathEffect(pe)->unref();
 
-        canvas->drawRect(SkRect::MakeWH(10, 10), paint);
+        for (int i = 0; i < 50; ++i) {
+            canvas->drawRect(SkRect::MakeWH(10, 10), paint);
+        }
     }
     picture.reset(recorder.endRecording());
     // ... but only when applied to drawPoint() calls
@@ -871,226 +262,210 @@ static void test_gpu_veto(skiatest::Reporter* reporter) {
     REPORTER_ASSERT(reporter, !picture->suitableForGpuRasterization(NULL));
 }
 
-static void test_gpu_picture_optimization(skiatest::Reporter* reporter,
-                                          GrContextFactory* factory) {
-    for (int i= 0; i < GrContextFactory::kGLContextTypeCnt; ++i) {
-        GrContextFactory::GLContextType glCtxType = (GrContextFactory::GLContextType) i;
+#endif
 
-        if (!GrContextFactory::IsRenderingGLContext(glCtxType)) {
-            continue;
-        }
+static void test_savelayer_extraction(skiatest::Reporter* reporter) {
+    static const int kWidth = 100;
+    static const int kHeight = 100;
 
-        GrContext* context = factory->get(glCtxType);
+    // Create complex paint that the bounding box computation code can't
+    // optimize away
+    SkScalar blueToRedMatrix[20] = { 0 };
+    blueToRedMatrix[2] = blueToRedMatrix[18] = SK_Scalar1;
+    SkAutoTUnref<SkColorFilter> blueToRed(SkColorMatrixFilter::Create(blueToRedMatrix));
+    SkAutoTUnref<SkImageFilter> filter(SkColorFilterImageFilter::Create(blueToRed.get()));
 
-        if (NULL == context) {
-            continue;
-        }
+    SkPaint complexPaint;
+    complexPaint.setImageFilter(filter);
 
-        static const int kWidth = 100;
-        static const int kHeight = 100;
+    SkAutoTUnref<SkPicture> pict, child;
+    SkRTreeFactory bbhFactory;
 
-        // Create complex paint that the bounding box computation code can't
-        // optimize away
-        SkScalar blueToRedMatrix[20] = { 0 };
-        blueToRedMatrix[2] = blueToRedMatrix[18] = SK_Scalar1;
-        SkAutoTUnref<SkColorFilter> blueToRed(SkColorMatrixFilter::Create(blueToRedMatrix));
-        SkAutoTUnref<SkImageFilter> filter(SkColorFilterImageFilter::Create(blueToRed.get()));
+    {
+        SkPictureRecorder recorder;
 
-        SkPaint complexPaint;
-        complexPaint.setImageFilter(filter);
+        SkCanvas* c = recorder.beginRecording(SkIntToScalar(kWidth), SkIntToScalar(kHeight),
+                                              &bbhFactory,
+                                              SkPictureRecorder::kComputeSaveLayerInfo_RecordFlag);
 
-        SkAutoTUnref<SkPicture> pict, child;
+        c->saveLayer(NULL, &complexPaint);
+        c->restore();
 
-        {
-            SkPictureRecorder recorder;
+        child.reset(recorder.endRecording());
+    }
 
-            SkCanvas* c = recorder.beginRecording(SkIntToScalar(kWidth), SkIntToScalar(kHeight));
+    // create a picture with the structure:
+    // 1)
+    //      SaveLayer
+    //      Restore
+    // 2)
+    //      SaveLayer
+    //          Translate
+    //          SaveLayer w/ bound
+    //          Restore
+    //      Restore
+    // 3)
+    //      SaveLayer w/ copyable paint
+    //      Restore
+    // 4)
+    //      SaveLayer
+    //          DrawPicture (which has a SaveLayer/Restore pair)
+    //      Restore
+    // 5)
+    //      SaveLayer
+    //          DrawPicture with Matrix & Paint (with SaveLayer/Restore pair)
+    //      Restore
+    {
+        SkPictureRecorder recorder;
 
-            c->saveLayer(NULL, &complexPaint);
-            c->restore();
-
-            child.reset(recorder.endRecording());
-        }
-
-        // create a picture with the structure:
+        SkCanvas* c = recorder.beginRecording(SkIntToScalar(kWidth),
+                                              SkIntToScalar(kHeight),
+                                              &bbhFactory,
+                                              SkPictureRecorder::kComputeSaveLayerInfo_RecordFlag);
         // 1)
-        //      SaveLayer
-        //      Restore
+        c->saveLayer(NULL, &complexPaint); // layer #0
+        c->restore();
+
         // 2)
-        //      SaveLayer
-        //          Translate
-        //          SaveLayer w/ bound
-        //          Restore
-        //      Restore
+        c->saveLayer(NULL, NULL); // layer #1
+            c->translate(kWidth / 2.0f, kHeight / 2.0f);
+            SkRect r = SkRect::MakeXYWH(0, 0, kWidth/2, kHeight/2);
+            c->saveLayer(&r, &complexPaint); // layer #2
+            c->restore();
+        c->restore();
+
         // 3)
-        //      SaveLayer w/ copyable paint
-        //      Restore
+        {
+            c->saveLayer(NULL, &complexPaint); // layer #3
+            c->restore();
+        }
+
+        SkPaint layerPaint;
+        layerPaint.setColor(SK_ColorRED);  // Non-alpha only to avoid SaveLayerDrawRestoreNooper
         // 4)
-        //      SaveLayer
-        //          DrawPicture (which has a SaveLayer/Restore pair)
-        //      Restore
-        // 5)
-        //      SaveLayer
-        //          DrawPicture with Matrix & Paint (with SaveLayer/Restore pair)
-        //      Restore
         {
-            SkPictureRecorder recorder;
-
-            SkCanvas* c = recorder.beginRecording(SkIntToScalar(kWidth),
-                                                  SkIntToScalar(kHeight));
-            // 1)
-            c->saveLayer(NULL, &complexPaint); // layer #0
+            c->saveLayer(NULL, &layerPaint);  // layer #4
+                c->drawPicture(child);  // layer #5 inside picture
             c->restore();
+        }
+        // 5
+        {
+            SkPaint picturePaint;
+            SkMatrix trans;
+            trans.setTranslate(10, 10);
 
-            // 2)
-            c->saveLayer(NULL, NULL); // layer #1
-                c->translate(kWidth/2.0f, kHeight/2.0f);
-                SkRect r = SkRect::MakeXYWH(0, 0, kWidth/2, kHeight/2);
-                c->saveLayer(&r, &complexPaint); // layer #2
-                c->restore();
+            c->saveLayer(NULL, &layerPaint);  // layer #6
+                c->drawPicture(child, &trans, &picturePaint); // layer #7 inside picture
             c->restore();
-
-            // 3)
-            {
-                c->saveLayer(NULL, &complexPaint); // layer #3
-                c->restore();
-            }
-
-            SkPaint layerPaint;
-            layerPaint.setColor(SK_ColorRED);  // Non-alpha only to avoid SaveLayerDrawRestoreNooper
-            // 4)
-            {
-                c->saveLayer(NULL, &layerPaint);  // layer #4
-                    c->drawPicture(child);  // layer #5 inside picture
-                c->restore();
-            }
-            // 5
-            {
-                SkPaint picturePaint;
-                SkMatrix trans;
-                trans.setTranslate(10, 10);
-
-                c->saveLayer(NULL, &layerPaint);  // layer #6
-                    c->drawPicture(child, &trans, &picturePaint); // layer #7 inside picture
-                c->restore();
-            }
-
-            pict.reset(recorder.endRecording());
         }
 
-        // Now test out the SaveLayer extraction
-        {
-            SkImageInfo info = SkImageInfo::MakeN32Premul(kWidth, kHeight);
+        pict.reset(recorder.endRecording());
+    }
 
-            SkAutoTUnref<SkSurface> surface(SkSurface::NewScratchRenderTarget(context, info));
+    // Now test out the SaveLayer extraction
+    if (!SkCanvas::Internal_Private_GetIgnoreSaveLayerBounds()) {
+        const SkBigPicture* bp = pict->asSkBigPicture();
+        REPORTER_ASSERT(reporter, bp);
 
-            SkCanvas* canvas = surface->getCanvas();
+        const SkBigPicture::AccelData* data = bp->accelData();
+        REPORTER_ASSERT(reporter, data);
 
-            canvas->EXPERIMENTAL_optimize(pict);
+        const SkLayerInfo *gpuData = static_cast<const SkLayerInfo*>(data);
+        REPORTER_ASSERT(reporter, 8 == gpuData->numBlocks());
 
-            SkPicture::AccelData::Key key = GrAccelData::ComputeAccelDataKey();
+        const SkLayerInfo::BlockInfo& info0 = gpuData->block(0);
+        // The parent/child layers appear in reverse order
+        const SkLayerInfo::BlockInfo& info1 = gpuData->block(2);
+        const SkLayerInfo::BlockInfo& info2 = gpuData->block(1);
 
-            const SkPicture::AccelData* data = pict->EXPERIMENTAL_getAccelData(key);
-            REPORTER_ASSERT(reporter, data);
+        const SkLayerInfo::BlockInfo& info3 = gpuData->block(3);
 
-            const GrAccelData *gpuData = static_cast<const GrAccelData*>(data);
-            REPORTER_ASSERT(reporter, 8 == gpuData->numSaveLayers());
+        // The parent/child layers appear in reverse order
+        const SkLayerInfo::BlockInfo& info4 = gpuData->block(5);
+        const SkLayerInfo::BlockInfo& info5 = gpuData->block(4);
 
-            const GrAccelData::SaveLayerInfo& info0 = gpuData->saveLayerInfo(0);
-            // The parent/child layers appear in reverse order
-            const GrAccelData::SaveLayerInfo& info1 = gpuData->saveLayerInfo(2);
-            const GrAccelData::SaveLayerInfo& info2 = gpuData->saveLayerInfo(1);
+        // The parent/child layers appear in reverse order
+        const SkLayerInfo::BlockInfo& info6 = gpuData->block(7);
+        const SkLayerInfo::BlockInfo& info7 = gpuData->block(6);
 
-            const GrAccelData::SaveLayerInfo& info3 = gpuData->saveLayerInfo(3);
+        REPORTER_ASSERT(reporter, NULL == info0.fPicture);
+        REPORTER_ASSERT(reporter, kWidth == info0.fBounds.width() &&
+                                  kHeight == info0.fBounds.height());
+        REPORTER_ASSERT(reporter, info0.fLocalMat.isIdentity());
+        REPORTER_ASSERT(reporter, info0.fPreMat.isIdentity());
+        REPORTER_ASSERT(reporter, 0 == info0.fBounds.fLeft && 0 == info0.fBounds.fTop);
+        REPORTER_ASSERT(reporter, NULL != info0.fPaint);
+        REPORTER_ASSERT(reporter, !info0.fIsNested && !info0.fHasNestedLayers);
 
-            // The parent/child layers appear in reverse order
-            const GrAccelData::SaveLayerInfo& info4 = gpuData->saveLayerInfo(5);
-            const GrAccelData::SaveLayerInfo& info5 = gpuData->saveLayerInfo(4);
+        REPORTER_ASSERT(reporter, NULL == info1.fPicture);
+        REPORTER_ASSERT(reporter, kWidth/2.0 == info1.fBounds.width() &&
+                                  kHeight/2.0 == info1.fBounds.height());
+        REPORTER_ASSERT(reporter, info1.fLocalMat.isIdentity());
+        REPORTER_ASSERT(reporter, info1.fPreMat.isIdentity());
+        REPORTER_ASSERT(reporter, kWidth/2.0 == info1.fBounds.fLeft &&
+                                  kHeight/2.0 == info1.fBounds.fTop);
+        REPORTER_ASSERT(reporter, NULL == info1.fPaint);
+        REPORTER_ASSERT(reporter, !info1.fIsNested &&
+                                  info1.fHasNestedLayers); // has a nested SL
 
-            // The parent/child layers appear in reverse order
-            const GrAccelData::SaveLayerInfo& info6 = gpuData->saveLayerInfo(7);
-            const GrAccelData::SaveLayerInfo& info7 = gpuData->saveLayerInfo(6);
+        REPORTER_ASSERT(reporter, NULL == info2.fPicture);
+        REPORTER_ASSERT(reporter, kWidth / 2 == info2.fBounds.width() &&
+                                  kHeight / 2 == info2.fBounds.height()); // bound reduces size
+        REPORTER_ASSERT(reporter, !info2.fLocalMat.isIdentity());
+        REPORTER_ASSERT(reporter, info2.fPreMat.isIdentity());
+        REPORTER_ASSERT(reporter, kWidth / 2 == info2.fBounds.fLeft &&   // translated
+                                  kHeight / 2 == info2.fBounds.fTop);
+        REPORTER_ASSERT(reporter, NULL != info2.fPaint);
+        REPORTER_ASSERT(reporter, info2.fIsNested && !info2.fHasNestedLayers); // is nested
 
-            REPORTER_ASSERT(reporter, NULL == info0.fPicture);
-            REPORTER_ASSERT(reporter, kWidth == info0.fBounds.width() &&
-                                      kHeight == info0.fBounds.height());
-            REPORTER_ASSERT(reporter, info0.fLocalMat.isIdentity());
-            REPORTER_ASSERT(reporter, info0.fPreMat.isIdentity());
-            REPORTER_ASSERT(reporter, 0 == info0.fBounds.fLeft && 0 == info0.fBounds.fTop);
-            REPORTER_ASSERT(reporter, NULL != info0.fPaint);
-            REPORTER_ASSERT(reporter, !info0.fIsNested && !info0.fHasNestedLayers);
+        REPORTER_ASSERT(reporter, NULL == info3.fPicture);
+        REPORTER_ASSERT(reporter, kWidth == info3.fBounds.width() &&
+                                  kHeight == info3.fBounds.height());
+        REPORTER_ASSERT(reporter, info3.fLocalMat.isIdentity());
+        REPORTER_ASSERT(reporter, info3.fPreMat.isIdentity());
+        REPORTER_ASSERT(reporter, 0 == info3.fBounds.fLeft && 0 == info3.fBounds.fTop);
+        REPORTER_ASSERT(reporter, info3.fPaint);
+        REPORTER_ASSERT(reporter, !info3.fIsNested && !info3.fHasNestedLayers);
 
-            REPORTER_ASSERT(reporter, NULL == info1.fPicture);
-            REPORTER_ASSERT(reporter, kWidth == info1.fBounds.width() &&
-                                      kHeight == info1.fBounds.height());
-            REPORTER_ASSERT(reporter, info1.fLocalMat.isIdentity());
-            REPORTER_ASSERT(reporter, info1.fPreMat.isIdentity());
-            REPORTER_ASSERT(reporter, 0 == info1.fBounds.fLeft && 0 == info1.fBounds.fTop);
-            REPORTER_ASSERT(reporter, NULL == info1.fPaint);
-            REPORTER_ASSERT(reporter, !info1.fIsNested &&
-                                      info1.fHasNestedLayers); // has a nested SL
+        REPORTER_ASSERT(reporter, NULL == info4.fPicture);
+        REPORTER_ASSERT(reporter, kWidth == info4.fBounds.width() &&
+                                  kHeight == info4.fBounds.height());
+        REPORTER_ASSERT(reporter, 0 == info4.fBounds.fLeft && 0 == info4.fBounds.fTop);
+        REPORTER_ASSERT(reporter, info4.fLocalMat.isIdentity());
+        REPORTER_ASSERT(reporter, info4.fPreMat.isIdentity());
+        REPORTER_ASSERT(reporter, info4.fPaint);
+        REPORTER_ASSERT(reporter, !info4.fIsNested &&
+                                  info4.fHasNestedLayers); // has a nested SL
 
-            REPORTER_ASSERT(reporter, NULL == info2.fPicture);
-            REPORTER_ASSERT(reporter, kWidth / 2 == info2.fBounds.width() &&
-                                      kHeight / 2 == info2.fBounds.height()); // bound reduces size
-            REPORTER_ASSERT(reporter, !info2.fLocalMat.isIdentity());
-            REPORTER_ASSERT(reporter, info2.fPreMat.isIdentity());
-            REPORTER_ASSERT(reporter, kWidth / 2 == info2.fBounds.fLeft &&   // translated
-                                      kHeight / 2 == info2.fBounds.fTop);
-            REPORTER_ASSERT(reporter, NULL != info2.fPaint);
-            REPORTER_ASSERT(reporter, info2.fIsNested && !info2.fHasNestedLayers); // is nested
+        REPORTER_ASSERT(reporter, child == info5.fPicture); // in a child picture
+        REPORTER_ASSERT(reporter, kWidth == info5.fBounds.width() &&
+                                  kHeight == info5.fBounds.height());
+        REPORTER_ASSERT(reporter, 0 == info5.fBounds.fLeft && 0 == info5.fBounds.fTop);
+        REPORTER_ASSERT(reporter, info5.fLocalMat.isIdentity());
+        REPORTER_ASSERT(reporter, info5.fPreMat.isIdentity());
+        REPORTER_ASSERT(reporter, NULL != info5.fPaint);
+        REPORTER_ASSERT(reporter, info5.fIsNested && !info5.fHasNestedLayers); // is nested
 
-            REPORTER_ASSERT(reporter, NULL == info3.fPicture);
-            REPORTER_ASSERT(reporter, kWidth == info3.fBounds.width() &&
-                                      kHeight == info3.fBounds.height());
-            REPORTER_ASSERT(reporter, info3.fLocalMat.isIdentity());
-            REPORTER_ASSERT(reporter, info3.fPreMat.isIdentity());
-            REPORTER_ASSERT(reporter, 0 == info3.fBounds.fLeft && 0 == info3.fBounds.fTop);
-            REPORTER_ASSERT(reporter, info3.fPaint);
-            REPORTER_ASSERT(reporter, !info3.fIsNested && !info3.fHasNestedLayers);
+        REPORTER_ASSERT(reporter, NULL == info6.fPicture);
+        REPORTER_ASSERT(reporter, kWidth-10 == info6.fBounds.width() &&
+                                  kHeight-10 == info6.fBounds.height());
+        REPORTER_ASSERT(reporter, 10 == info6.fBounds.fLeft && 10 == info6.fBounds.fTop);
+        REPORTER_ASSERT(reporter, info6.fLocalMat.isIdentity());
+        REPORTER_ASSERT(reporter, info6.fPreMat.isIdentity());
+        REPORTER_ASSERT(reporter, info6.fPaint);
+        REPORTER_ASSERT(reporter, !info6.fIsNested &&
+                                  info6.fHasNestedLayers); // has a nested SL
 
-            REPORTER_ASSERT(reporter, NULL == info4.fPicture);
-            REPORTER_ASSERT(reporter, kWidth == info4.fBounds.width() &&
-                                      kHeight == info4.fBounds.height());
-            REPORTER_ASSERT(reporter, 0 == info4.fBounds.fLeft && 0 == info4.fBounds.fTop);
-            REPORTER_ASSERT(reporter, info4.fLocalMat.isIdentity());
-            REPORTER_ASSERT(reporter, info4.fPreMat.isIdentity());
-            REPORTER_ASSERT(reporter, info4.fPaint);
-            REPORTER_ASSERT(reporter, !info4.fIsNested &&
-                                      info4.fHasNestedLayers); // has a nested SL
-
-            REPORTER_ASSERT(reporter, child == info5.fPicture); // in a child picture
-            REPORTER_ASSERT(reporter, kWidth == info5.fBounds.width() &&
-                                      kHeight == info5.fBounds.height());
-            REPORTER_ASSERT(reporter, 0 == info5.fBounds.fLeft && 0 == info5.fBounds.fTop);
-            REPORTER_ASSERT(reporter, info5.fLocalMat.isIdentity());
-            REPORTER_ASSERT(reporter, info5.fPreMat.isIdentity());
-            REPORTER_ASSERT(reporter, NULL != info5.fPaint);
-            REPORTER_ASSERT(reporter, info5.fIsNested && !info5.fHasNestedLayers); // is nested
-
-            REPORTER_ASSERT(reporter, NULL == info6.fPicture);
-            REPORTER_ASSERT(reporter, kWidth-10 == info6.fBounds.width() &&
-                                      kHeight-10 == info6.fBounds.height());
-            REPORTER_ASSERT(reporter, 10 == info6.fBounds.fLeft && 10 == info6.fBounds.fTop);
-            REPORTER_ASSERT(reporter, info6.fLocalMat.isIdentity());
-            REPORTER_ASSERT(reporter, info6.fPreMat.isIdentity());
-            REPORTER_ASSERT(reporter, info6.fPaint);
-            REPORTER_ASSERT(reporter, !info6.fIsNested &&
-                                      info6.fHasNestedLayers); // has a nested SL
-
-            REPORTER_ASSERT(reporter, child == info7.fPicture); // in a child picture
-            REPORTER_ASSERT(reporter, kWidth == info7.fBounds.width() &&
-                                      kHeight == info7.fBounds.height());
-            REPORTER_ASSERT(reporter, 0 == info7.fBounds.fLeft && 0 == info7.fBounds.fTop);
-            REPORTER_ASSERT(reporter, info7.fLocalMat.isIdentity());
-            REPORTER_ASSERT(reporter, info7.fPreMat.isIdentity());
-            REPORTER_ASSERT(reporter, NULL != info7.fPaint);
-            REPORTER_ASSERT(reporter, info7.fIsNested && !info7.fHasNestedLayers); // is nested
-        }
+        REPORTER_ASSERT(reporter, child == info7.fPicture); // in a child picture
+        REPORTER_ASSERT(reporter, kWidth == info7.fBounds.width() &&
+                                  kHeight == info7.fBounds.height());
+        REPORTER_ASSERT(reporter, 0 == info7.fBounds.fLeft && 0 == info7.fBounds.fTop);
+        REPORTER_ASSERT(reporter, info7.fLocalMat.isIdentity());
+        REPORTER_ASSERT(reporter, info7.fPreMat.isIdentity());
+        REPORTER_ASSERT(reporter, NULL != info7.fPaint);
+        REPORTER_ASSERT(reporter, info7.fIsNested && !info7.fHasNestedLayers); // is nested
     }
 }
-
-#endif
 
 static void test_has_text(skiatest::Reporter* reporter) {
     SkPictureRecorder recorder;
@@ -1175,17 +550,17 @@ public:
     }
 
     virtual SaveLayerStrategy willSaveLayer(const SkRect* bounds, const SkPaint* paint,
-                                            SaveFlags flags) SK_OVERRIDE {
+                                            SaveFlags flags) override {
         ++fSaveLayerCount;
         return this->INHERITED::willSaveLayer(bounds, paint, flags);
     }
 
-    virtual void willSave() SK_OVERRIDE {
+    void willSave() override {
         ++fSaveCount;
         this->INHERITED::willSave();
     }
 
-    virtual void willRestore() SK_OVERRIDE {
+    void willRestore() override {
         ++fRestoreCount;
         this->INHERITED::willRestore();
     }
@@ -1458,10 +833,6 @@ static void test_bad_bitmap() {
 }
 #endif
 
-static SkData* encode_bitmap_to_data(size_t*, const SkBitmap& bm) {
-    return SkImageEncoder::EncodeData(bm, SkImageEncoder::kPNG_Type, 100);
-}
-
 static SkData* serialized_picture_from_bitmap(const SkBitmap& bitmap) {
     SkPictureRecorder recorder;
     SkCanvas* canvas = recorder.beginRecording(SkIntToScalar(bitmap.width()),
@@ -1470,7 +841,8 @@ static SkData* serialized_picture_from_bitmap(const SkBitmap& bitmap) {
     SkAutoTUnref<SkPicture> picture(recorder.endRecording());
 
     SkDynamicMemoryWStream wStream;
-    picture->serialize(&wStream, &encode_bitmap_to_data);
+    sk_tool_utils::PngPixelSerializer serializer;
+    picture->serialize(&wStream, &serializer);
     return wStream.copyToData();
 }
 
@@ -1501,8 +873,7 @@ static void test_bitmap_with_encoded_data(skiatest::Reporter* reporter) {
     SkAutoDataUnref data(wStream.copyToData());
 
     SkBitmap bm;
-    bool installSuccess = SkInstallDiscardablePixelRef(
-         SkDecodingImageGenerator::Create(data, SkDecodingImageGenerator::Options()), &bm);
+    bool installSuccess = SkInstallDiscardablePixelRef(data, &bm);
     REPORTER_ASSERT(reporter, installSuccess);
 
     // Write both bitmaps to pictures, and ensure that the resulting data streams are the same.
@@ -1519,7 +890,7 @@ static void test_bitmap_with_encoded_data(skiatest::Reporter* reporter) {
     SkSetErrorCallback(assert_one_parse_error_cb, &context);
     SkMemoryStream pictureStream(picture1);
     SkClearLastError();
-    SkAutoUnref pictureFromStream(SkPicture::CreateFromStream(&pictureStream, NULL));
+    SkAutoTUnref<SkPicture> pictureFromStream(SkPicture::CreateFromStream(&pictureStream, NULL));
     REPORTER_ASSERT(reporter, pictureFromStream.get() != NULL);
     SkClearLastError();
     SkSetErrorCallback(NULL, NULL);
@@ -1613,6 +984,34 @@ static void test_clip_bound_opt(skiatest::Reporter* reporter) {
     }
 }
 
+static void test_cull_rect_reset(skiatest::Reporter* reporter) {
+    SkPictureRecorder recorder;
+    SkRect bounds = SkRect::MakeWH(10, 10);
+    SkRTreeFactory factory;
+    SkCanvas* canvas = recorder.beginRecording(bounds, &factory);
+    bounds = SkRect::MakeWH(100, 100);
+    SkPaint paint;
+    canvas->drawRect(bounds, paint);
+    canvas->drawRect(bounds, paint);
+    SkAutoTUnref<const SkPicture> p(recorder.endRecordingAsPicture(bounds));
+    const SkBigPicture* picture = p->asSkBigPicture();
+    REPORTER_ASSERT(reporter, picture);
+
+    SkRect finalCullRect = picture->cullRect();
+    REPORTER_ASSERT(reporter, 0 == finalCullRect.fLeft);
+    REPORTER_ASSERT(reporter, 0 == finalCullRect.fTop);
+    REPORTER_ASSERT(reporter, 100 == finalCullRect.fBottom);
+    REPORTER_ASSERT(reporter, 100 == finalCullRect.fRight);
+
+    const SkBBoxHierarchy* pictureBBH = picture->bbh();
+    SkRect bbhCullRect = pictureBBH->getRootBound();
+    REPORTER_ASSERT(reporter, 0 == bbhCullRect.fLeft);
+    REPORTER_ASSERT(reporter, 0 == bbhCullRect.fTop);
+    REPORTER_ASSERT(reporter, 100 == bbhCullRect.fBottom);
+    REPORTER_ASSERT(reporter, 100 == bbhCullRect.fRight);
+}
+
+
 /**
  * A canvas that records the number of clip commands.
  */
@@ -1625,26 +1024,26 @@ public:
 
     virtual void onClipRect(const SkRect& r,
                             SkRegion::Op op,
-                            ClipEdgeStyle edgeStyle) SK_OVERRIDE {
+                            ClipEdgeStyle edgeStyle) override {
         fClipCount += 1;
         this->INHERITED::onClipRect(r, op, edgeStyle);
     }
 
     virtual void onClipRRect(const SkRRect& rrect,
                              SkRegion::Op op,
-                             ClipEdgeStyle edgeStyle)SK_OVERRIDE {
+                             ClipEdgeStyle edgeStyle)override {
         fClipCount += 1;
         this->INHERITED::onClipRRect(rrect, op, edgeStyle);
     }
 
     virtual void onClipPath(const SkPath& path,
                             SkRegion::Op op,
-                            ClipEdgeStyle edgeStyle) SK_OVERRIDE {
+                            ClipEdgeStyle edgeStyle) override {
         fClipCount += 1;
         this->INHERITED::onClipPath(path, op, edgeStyle);
     }
 
-    virtual void onClipRegion(const SkRegion& deviceRgn, SkRegion::Op op) SK_OVERRIDE {
+    void onClipRegion(const SkRegion& deviceRgn, SkRegion::Op op) override {
         fClipCount += 1;
         this->INHERITED::onClipRegion(deviceRgn, op);
     }
@@ -1752,20 +1151,14 @@ DEF_TEST(Picture, reporter) {
 #endif
     test_has_text(reporter);
     test_analysis(reporter);
-    test_gatherpixelrefs(reporter);
-    test_gatherpixelrefsandrects(reporter);
     test_bitmap_with_encoded_data(reporter);
     test_clip_bound_opt(reporter);
     test_clip_expansion(reporter);
     test_hierarchical(reporter);
     test_gen_id(reporter);
+    test_savelayer_extraction(reporter);
+    test_cull_rect_reset(reporter);
 }
-
-#if SK_SUPPORT_GPU
-DEF_GPUTEST(GPUPicture, reporter, factory) {
-    test_gpu_picture_optimization(reporter, factory);
-}
-#endif
 
 static void draw_bitmaps(const SkBitmap bitmap, SkCanvas* canvas) {
     const SkPaint paint;
@@ -1775,7 +1168,6 @@ static void draw_bitmaps(const SkBitmap bitmap, SkCanvas* canvas) {
     // Don't care what these record, as long as they're legal.
     canvas->drawBitmap(bitmap, 0.0f, 0.0f, &paint);
     canvas->drawBitmapRectToRect(bitmap, &rect, rect, &paint, SkCanvas::kNone_DrawBitmapRectFlag);
-    canvas->drawBitmapMatrix(bitmap, SkMatrix::I(), &paint);
     canvas->drawBitmapNine(bitmap, irect, rect, &paint);
     canvas->drawSprite(bitmap, 1, 1);
 }
@@ -1851,20 +1243,23 @@ DEF_TEST(DontOptimizeSaveLayerDrawDrawRestore, reporter) {
 
 struct CountingBBH : public SkBBoxHierarchy {
     mutable int searchCalls;
+    SkRect rootBound;
 
-    CountingBBH() : searchCalls(0) {}
+    CountingBBH(const SkRect& bound) : searchCalls(0), rootBound(bound) {}
 
-    virtual void search(const SkRect& query, SkTDArray<unsigned>* results) const SK_OVERRIDE {
+    void search(const SkRect& query, SkTDArray<unsigned>* results) const override {
         this->searchCalls++;
     }
 
-    virtual void insert(SkAutoTMalloc<SkRect>*, int) SK_OVERRIDE {}
+    void insert(const SkRect[], int) override {}
+    virtual size_t bytesUsed() const override { return 0; }
+    SkRect getRootBound() const override { return rootBound; }
 };
 
 class SpoonFedBBHFactory : public SkBBHFactory {
 public:
     explicit SpoonFedBBHFactory(SkBBoxHierarchy* bbh) : fBBH(bbh) {}
-    virtual SkBBoxHierarchy* operator()(int width, int height) const {
+    SkBBoxHierarchy* operator()(const SkRect&) const override {
         return SkRef(fBBH);
     }
 private:
@@ -1873,11 +1268,15 @@ private:
 
 // When the canvas clip covers the full picture, we don't need to call the BBH.
 DEF_TEST(Picture_SkipBBH, r) {
-    CountingBBH bbh;
+    SkRect bound = SkRect::MakeWH(320, 240);
+    CountingBBH bbh(bound);
     SpoonFedBBHFactory factory(&bbh);
 
     SkPictureRecorder recorder;
-    recorder.beginRecording(320, 240, &factory);
+    SkCanvas* c = recorder.beginRecording(bound, &factory);
+    // Record a few ops so we don't hit a small- or empty- picture optimization.
+        c->drawRect(bound, SkPaint());
+        c->drawRect(bound, SkPaint());
     SkAutoTUnref<const SkPicture> picture(recorder.endRecording());
 
     SkCanvas big(640, 480), small(300, 200);
@@ -1901,11 +1300,16 @@ DEF_TEST(Picture_BitmapLeak, r) {
     REPORTER_ASSERT(r, mut.pixelRef()->unique());
     REPORTER_ASSERT(r, immut.pixelRef()->unique());
 
-    SkPictureRecorder rec;
-    SkCanvas* canvas = rec.beginRecording(1920, 1200);
-        canvas->drawBitmap(mut, 0, 0);
-        canvas->drawBitmap(immut, 800, 600);
-    SkAutoTDelete<const SkPicture> pic(rec.endRecording());
+    SkAutoTUnref<const SkPicture> pic;
+    {
+        // we want the recorder to go out of scope before our subsequent checks, so we
+        // place it inside local braces.
+        SkPictureRecorder rec;
+        SkCanvas* canvas = rec.beginRecording(1920, 1200);
+            canvas->drawBitmap(mut, 0, 0);
+            canvas->drawBitmap(immut, 800, 600);
+        pic.reset(rec.endRecording());
+    }
 
     // The picture shares the immutable pixels but copies the mutable ones.
     REPORTER_ASSERT(r, mut.pixelRef()->unique());
@@ -1915,4 +1319,26 @@ DEF_TEST(Picture_BitmapLeak, r) {
     pic.reset(NULL);
     REPORTER_ASSERT(r, mut.pixelRef()->unique());
     REPORTER_ASSERT(r, immut.pixelRef()->unique());
+}
+
+// getRecordingCanvas() should return a SkCanvas when recording, null when not recording.
+DEF_TEST(Picture_getRecordingCanvas, r) {
+    SkPictureRecorder rec;
+    REPORTER_ASSERT(r, !rec.getRecordingCanvas());
+    for (int i = 0; i < 3; i++) {
+        rec.beginRecording(100, 100);
+        REPORTER_ASSERT(r, rec.getRecordingCanvas());
+        rec.endRecording()->unref();
+        REPORTER_ASSERT(r, !rec.getRecordingCanvas());
+    }
+}
+
+DEF_TEST(MiniRecorderLeftHanging, r) {
+    // Any shader or other ref-counted effect will do just fine here.
+    SkPaint paint;
+    paint.setShader(SkShader::CreateColorShader(SK_ColorRED))->unref();
+
+    SkMiniRecorder rec;
+    REPORTER_ASSERT(r, rec.drawRect(SkRect::MakeWH(20,30), paint));
+    // Don't call rec.detachPicture().  Test succeeds by not asserting or leaking the shader.
 }

@@ -10,6 +10,8 @@ import math_utils
 import source_control
 import ttest
 
+from bisect_state import RevisionState
+
 
 class BisectResults(object):
   """Contains results of the completed bisect.
@@ -26,8 +28,6 @@ class BisectResults(object):
   If both of above revisions are not None, the follow properties are present:
     culprit_revisions: A list of revisions, which contain the bad change
         introducing the failure.
-    other_regressions: A list of tuples representing other regressions, which
-        may have occured.
     regression_size: For performance bisects, this is a relative change of
         the mean metric value. For other bisects this field always contains
         'zero-to-nonzero'.
@@ -56,7 +56,6 @@ class BisectResults(object):
       runtime_warnings: A list of warnings from the bisect run.
       error: Error message. When error is not None, other arguments are ignored.
     """
-
     self.error = error
     self.abort_reason = abort_reason
     if error is not None or abort_reason is not None:
@@ -64,8 +63,8 @@ class BisectResults(object):
 
     assert (bisect_state is not None and depot_registry is not None and
             opts is not None and runtime_warnings is not None), (
-            'Incorrect use of the BisectResults constructor. When error is '
-            'None, all other arguments are required')
+                'Incorrect use of the BisectResults constructor. '
+                'When error is None, all other arguments are required.')
 
     self.state = bisect_state
 
@@ -75,6 +74,9 @@ class BisectResults(object):
     self.last_broken_revision = last_broken_rev
 
     self.warnings = runtime_warnings
+
+    self.retest_results_tot = None
+    self.retest_results_reverted = None
 
     if first_working_rev is not None and last_broken_rev is not None:
       statistics = self._ComputeRegressionStatistics(
@@ -87,9 +89,6 @@ class BisectResults(object):
       self.culprit_revisions = self._FindCulpritRevisions(
           rev_states, depot_registry, first_working_rev, last_broken_rev)
 
-      self.other_regressions = self._FindOtherRegressions(
-          rev_states, statistics['bad_greater_than_good'])
-
       self.warnings += self._GetResultBasedWarnings(
           self.culprit_revisions, opts, self.confidence)
     elif first_working_rev is not None:
@@ -99,7 +98,29 @@ class BisectResults(object):
       self.regression_std_err = 0
       self.confidence = 0
       self.culprit_revisions = []
-      self.other_regressions = []
+
+  def AddRetestResults(self, results_tot, results_reverted):
+    if not results_tot or not results_reverted:
+      self.warnings.append(
+          'Failed to re-test reverted culprit CL against ToT.')
+      return
+
+    confidence = BisectResults.ConfidenceScore(
+        results_reverted[0]['values'],
+        results_tot[0]['values'])
+
+    self.retest_results_tot = RevisionState('ToT', 'n/a', 0)
+    self.retest_results_tot.value = results_tot[0]
+
+    self.retest_results_reverted = RevisionState('Reverted', 'n/a', 0)
+    self.retest_results_reverted.value = results_reverted[0]
+
+    if confidence <= bisect_utils.HIGH_CONFIDENCE:
+      self.warnings.append(
+          'Confidence of re-test with reverted CL is not high.'
+          ' Check that the regression hasn\'t already recovered. '
+          ' There\'s still a chance this is a regression, as performance of'
+          ' local builds may not match official builds.')
 
   @staticmethod
   def _GetResultBasedWarnings(culprit_revisions, opts, confidence):
@@ -120,88 +141,55 @@ class BisectResults(object):
     return warnings
 
   @staticmethod
-  def ConfidenceScore(sample1, sample2,
-                      accept_single_bad_or_good=False):
+  def ConfidenceScore(sample1, sample2, accept_single_bad_or_good=False):
     """Calculates a confidence score.
 
-    This score is a percentage which represents our degree of confidence in the
-    proposition that the good results and bad results are distinct groups, and
-    their differences aren't due to chance alone.
+    This score is based on a statistical hypothesis test. The null
+    hypothesis is that the two groups of results have no difference,
+    i.e. there is no performance regression. The alternative hypothesis
+    is that there is some difference between the groups that's unlikely
+    to occur by chance.
 
+    The score returned by this function represents our confidence in the
+    alternative hypothesis.
+
+    Note that if there's only one item in either sample, this means only
+    one revision was classified good or bad, so there's not much evidence
+    to make a decision.
 
     Args:
       sample1: A flat list of "good" result numbers.
       sample2: A flat list of "bad" result numbers.
-      accept_single_bad_or_good: If True, computes confidence even if there is
-          just one bad or good revision, otherwise single good or bad revision
-          always returns 0.0 confidence. This flag will probably get away when
-          we will implement expanding the bisect range by one more revision for
-          such case.
+      accept_single_bad_or_good: If True, compute a value even if
+          there is only one bad or good revision.
 
     Returns:
-      A number in the range [0, 100].
+      A float between 0 and 100; 0 if the samples aren't large enough.
     """
-    # If there's only one item in either list, this means only one revision was
-    # classified good or bad; this isn't good enough evidence to make a
-    # decision. If an empty list was passed, that also implies zero confidence.
-    if not accept_single_bad_or_good:
-      if len(sample1) <= 1 or len(sample2) <= 1:
-        return 0.0
-
-    # If there were only empty lists in either of the lists (this is unexpected
-    # and normally shouldn't happen), then we also want to return 0.
+    if ((len(sample1) <= 1 or len(sample2) <= 1) and
+        not accept_single_bad_or_good):
+      return 0.0
     if not sample1 or not sample2:
       return 0.0
-
-    # The p-value is approximately the probability of obtaining the given set
-    # of good and bad values just by chance.
     _, _, p_value = ttest.WelchsTTest(sample1, sample2)
     return 100.0 * (1.0 - p_value)
 
-  @classmethod
-  def _FindOtherRegressions(cls, revision_states, bad_greater_than_good):
-    """Compiles a list of other possible regressions from the revision data.
-
-    Args:
-      revision_states: Sorted list of RevisionState objects.
-      bad_greater_than_good: Whether the result value at the "bad" revision is
-          numerically greater than the result value at the "good" revision.
-
-    Returns:
-      A list of [current_rev, previous_rev, confidence] for other places where
-      there may have been a regression.
-    """
-    other_regressions = []
-    previous_values = []
-    prev_state = None
-    for revision_state in revision_states:
-      if revision_state.value:
-        current_values = revision_state.value['values']
-        if previous_values:
-          confidence_params = (sum(previous_values, []),
-                               sum([current_values], []))
-          confidence = cls.ConfidenceScore(*confidence_params,
-                                           accept_single_bad_or_good=True)
-          mean_of_prev_runs = math_utils.Mean(sum(previous_values, []))
-          mean_of_current_runs = math_utils.Mean(current_values)
-
-          # Check that the potential regression is in the same direction as
-          # the overall regression. If the mean of the previous runs < the
-          # mean of the current runs, this local regression is in same
-          # direction.
-          prev_greater_than_current = mean_of_prev_runs > mean_of_current_runs
-          is_same_direction = (prev_greater_than_current if
-              bad_greater_than_good else not prev_greater_than_current)
-
-          # Only report potential regressions with high confidence.
-          if is_same_direction and confidence > 50:
-            other_regressions.append([revision_state, prev_state, confidence])
-        previous_values.append(current_values)
-        prev_state = revision_state
-    return other_regressions
-
   @staticmethod
   def FindBreakingRevRange(revision_states):
+    """Finds the last known good and first known bad revisions.
+
+    Note that since revision_states is expected to be in reverse chronological
+    order, the last known good revision is the first revision in the list that
+    has the passed property set to 1, therefore the name
+    `first_working_revision`. The inverse applies to `last_broken_revision`.
+
+    Args:
+      revision_states: A list of RevisionState instances.
+
+    Returns:
+      A tuple containing the two revision states at the border. (Last
+      known good and first known bad.)
+    """
     first_working_revision = None
     last_broken_revision = None
 
@@ -259,11 +247,12 @@ class BisectResults(object):
         [working_mean, broken_mean]) /
         max(0.0001, min(mean_of_good_runs, mean_of_bad_runs))) * 100.0
 
-    # Give a "confidence" in the bisect. At the moment we use how distinct the
-    # values are before and after the last broken revision, and how noisy the
-    # overall graph is.
-    confidence_params = (sum(working_means, []), sum(broken_means, []))
-    confidence = cls.ConfidenceScore(*confidence_params)
+    # Give a "confidence" in the bisect culprit by seeing whether the results
+    # of the culprit revision and the revision before that appear to be
+    # statistically significantly different.
+    confidence = cls.ConfidenceScore(
+        sum([first_working_rev.value['values']], []),
+        sum([last_broken_rev.value['values']], []))
 
     bad_greater_than_good = mean_of_bad_runs > mean_of_good_runs
 

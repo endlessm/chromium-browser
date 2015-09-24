@@ -47,6 +47,7 @@ class SelectorDataList {
 public:
     void initialize(const CSSSelectorList&);
     bool matches(Element&) const;
+    Element* closest(Element&) const;
     PassRefPtrWillBeRawPtr<StaticElementList> queryAll(ContainerNode& rootNode) const;
     PassRefPtrWillBeRawPtr<Element> queryFirst(ContainerNode& rootNode) const;
 
@@ -79,16 +80,18 @@ private:
     const CSSSelector* selectorForIdLookup(const CSSSelector&) const;
 
     Vector<const CSSSelector*> m_selectors;
-    bool m_crossesTreeBoundary;
+    bool m_crossesTreeBoundary : 1;
+    bool m_needsUpdatedDistribution : 1;
 };
 
 class SelectorQuery {
     WTF_MAKE_NONCOPYABLE(SelectorQuery);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED(SelectorQuery);
 public:
     static PassOwnPtr<SelectorQuery> adopt(CSSSelectorList&);
 
     bool matches(Element&) const;
+    Element* closest(Element&) const;
     PassRefPtrWillBeRawPtr<StaticElementList> queryAll(ContainerNode& rootNode) const;
     PassRefPtrWillBeRawPtr<Element> queryFirst(ContainerNode& rootNode) const;
 private:
@@ -99,13 +102,13 @@ private:
 };
 
 class SelectorQueryCache {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED(SelectorQueryCache);
 public:
     SelectorQuery* add(const AtomicString&, const Document&, ExceptionState&);
     void invalidate();
 
 private:
-    HashMap<AtomicString, OwnPtr<SelectorQuery> > m_entries;
+    HashMap<AtomicString, OwnPtr<SelectorQuery>> m_entries;
 };
 
 }

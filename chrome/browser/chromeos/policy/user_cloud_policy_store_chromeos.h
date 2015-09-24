@@ -48,12 +48,11 @@ class UserCloudPolicyStoreChromeOS : public UserCloudPolicyStoreBase {
       const base::FilePath& user_policy_key_dir,
       const base::FilePath& legacy_token_cache_file,
       const base::FilePath& legacy_policy_cache_file);
-  virtual ~UserCloudPolicyStoreChromeOS();
+  ~UserCloudPolicyStoreChromeOS() override;
 
   // CloudPolicyStore:
-  virtual void Store(
-      const enterprise_management::PolicyFetchResponse& policy) override;
-  virtual void Load() override;
+  void Store(const enterprise_management::PolicyFetchResponse& policy) override;
+  void Load() override;
 
   // Loads the policy synchronously on the current thread.
   void LoadImmediately();
@@ -68,7 +67,7 @@ class UserCloudPolicyStoreChromeOS : public UserCloudPolicyStoreBase {
   void OnPolicyToStoreValidated(UserCloudPolicyValidator* validator);
 
   // Called back from SessionManagerClient for policy store operations.
-  void OnPolicyStored(bool);
+  void OnPolicyStored(bool success);
 
   // Called back from SessionManagerClient for policy load operations.
   void OnPolicyRetrieved(const std::string& policy_blob);

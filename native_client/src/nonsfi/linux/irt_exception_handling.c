@@ -14,10 +14,10 @@
 #include "native_client/src/include/elf_constants.h"
 #include "native_client/src/include/nacl/nacl_exception.h"
 #include "native_client/src/include/nacl_macros.h"
-#include "native_client/src/nonsfi/linux/irt_exception_handling.h"
 #include "native_client/src/nonsfi/linux/linux_sys_private.h"
 #include "native_client/src/nonsfi/linux/linux_syscall_defines.h"
 #include "native_client/src/nonsfi/linux/linux_syscall_structs.h"
+#include "native_client/src/public/nonsfi/irt_exception_handling.h"
 #include "native_client/src/untrusted/irt/irt.h"
 
 typedef struct compat_sigaltstack {
@@ -196,7 +196,7 @@ static void signal_catch(int sig, linux_siginfo_t *info, void *uc) {
     exception_frame_from_signal_context(&exception_frame, uc);
     g_signal_handler_function_pointer(&exception_frame.context);
   }
-  _exit(-1);
+  _exit(-sig);
 }
 
 static void nonsfi_initialize_signal_handler_locked() {

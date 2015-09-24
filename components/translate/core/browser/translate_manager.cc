@@ -28,6 +28,7 @@
 #include "components/translate/core/common/translate_constants.h"
 #include "components/translate/core/common/translate_pref_names.h"
 #include "components/translate/core/common/translate_switches.h"
+#include "components/translate/core/common/translate_util.h"
 #include "net/base/url_util.h"
 #include "net/http/http_status_code.h"
 
@@ -106,7 +107,7 @@ void TranslateManager::InitiateTranslation(const std::string& page_lang) {
 
   // Allow disabling of translate from the command line to assist with
   // automated browser testing.
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           translate::switches::kDisableTranslate)) {
     TranslateBrowserMetrics::ReportInitiationStatus(
         TranslateBrowserMetrics::INITIATION_STATUS_DISABLED_BY_SWITCH);
@@ -206,7 +207,7 @@ void TranslateManager::InitiateTranslation(const std::string& page_lang) {
   TranslateBrowserMetrics::ReportInitiationStatus(
       TranslateBrowserMetrics::INITIATION_STATUS_SHOW_INFOBAR);
 
-  // Prompts the user if he/she wants the page translated.
+  // Prompts the user if they want the page translated.
   translate_client_->ShowTranslateUI(translate::TRANSLATE_STEP_BEFORE_TRANSLATE,
                                      language_code,
                                      target_lang,
@@ -264,10 +265,9 @@ void TranslateManager::ReportLanguageDetectionError() {
 
   GURL report_error_url = GURL(kReportLanguageDetectionErrorURL);
 
-  report_error_url =
-      net::AppendQueryParameter(report_error_url,
-                                kUrlQueryName,
-                                translate_driver_->GetActiveURL().spec());
+  report_error_url = net::AppendQueryParameter(
+      report_error_url, kUrlQueryName,
+      translate_driver_->GetLastCommittedURL().spec());
 
   report_error_url =
       net::AppendQueryParameter(report_error_url,
@@ -340,7 +340,7 @@ void TranslateManager::OnTranslateScriptFetchComplete(
     if (!translate_driver_->IsOffTheRecord()) {
       TranslateErrorDetails error_details;
       error_details.time = base::Time::Now();
-      error_details.url = translate_driver_->GetActiveURL();
+      error_details.url = translate_driver_->GetLastCommittedURL();
       error_details.error = TranslateErrors::NETWORK;
       NotifyTranslateError(error_details);
     }
@@ -350,9 +350,9 @@ void TranslateManager::OnTranslateScriptFetchComplete(
 // static
 std::string TranslateManager::GetTargetLanguage(
     const std::vector<std::string>& accept_languages_list) {
-  std::string ui_lang = TranslatePrefs::ConvertLangCodeForTranslation(
-      TranslateDownloadManager::GetLanguageCode(
-          TranslateDownloadManager::GetInstance()->application_locale()));
+  std::string ui_lang = TranslateDownloadManager::GetLanguageCode(
+      TranslateDownloadManager::GetInstance()->application_locale());
+  translate::ToTranslateLanguageSynonym(&ui_lang);
 
   if (TranslateDownloadManager::IsSupportedLanguage(ui_lang))
     return ui_lang;

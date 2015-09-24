@@ -21,30 +21,36 @@ static const char* gFaces[] = {
 
 class TypefaceGM : public skiagm::GM {
 public:
-    TypefaceGM() {
+    TypefaceGM()
+        : fFaces(NULL) {
+    }
+
+    virtual ~TypefaceGM() {
+        if (fFaces) {
+            for (size_t i = 0; i < SK_ARRAY_COUNT(gFaces); i++) {
+                SkSafeUnref(fFaces[i]);
+            }
+            delete [] fFaces;
+        }
+    }
+
+protected:
+    void onOnceBeforeDraw() override {
         fFaces = new SkTypeface*[SK_ARRAY_COUNT(gFaces)];
         for (size_t i = 0; i < SK_ARRAY_COUNT(gFaces); i++) {
             fFaces[i] = sk_tool_utils::create_portable_typeface(gFaces[i], SkTypeface::kNormal);
         }
     }
 
-    virtual ~TypefaceGM() {
-        for (size_t i = 0; i < SK_ARRAY_COUNT(gFaces); i++) {
-            SkSafeUnref(fFaces[i]);
-        }
-        delete [] fFaces;
-    }
-
-protected:
-    virtual SkString onShortName() SK_OVERRIDE {
+    SkString onShortName() override {
         return SkString("typeface");
     }
 
-    virtual SkISize onISize() SK_OVERRIDE {
+    SkISize onISize() override {
         return SkISize::Make(640, 480);
     }
 
-    virtual void onDraw(SkCanvas* canvas) SK_OVERRIDE {
+    void onDraw(SkCanvas* canvas) override {
         SkString text("Typefaces are fun!");
         SkScalar y = 0;
 
@@ -157,11 +163,9 @@ class TypefaceStylesGM : public skiagm::GM {
     bool fApplyKerning;
 
 public:
-    TypefaceStylesGM(bool applyKerning) : fApplyKerning(applyKerning) {
-        for (int i = 0; i < gFaceStylesCount; i++) {
-            fFaces[i] = sk_tool_utils::create_portable_typeface(gFaceStyles[i].fName,
-                                                         gFaceStyles[i].fStyle);
-        }
+    TypefaceStylesGM(bool applyKerning)
+        : fApplyKerning(applyKerning) {
+        memset(fFaces, 0, sizeof(fFaces));
     }
 
     virtual ~TypefaceStylesGM() {
@@ -171,7 +175,14 @@ public:
     }
 
 protected:
-    virtual SkString onShortName() SK_OVERRIDE {
+    void onOnceBeforeDraw() override {
+        for (int i = 0; i < gFaceStylesCount; i++) {
+            fFaces[i] = sk_tool_utils::create_portable_typeface(gFaceStyles[i].fName,
+                                                         gFaceStyles[i].fStyle);
+        }
+    }
+
+    SkString onShortName() override {
         SkString name("typefacestyles");
         if (fApplyKerning) {
             name.append("_kerning");
@@ -179,11 +190,11 @@ protected:
         return name;
     }
 
-    virtual SkISize onISize() SK_OVERRIDE {
+    SkISize onISize() override {
         return SkISize::Make(640, 480);
     }
 
-    virtual void onDraw(SkCanvas* canvas) SK_OVERRIDE {
+    void onDraw(SkCanvas* canvas) override {
         SkPaint paint;
         paint.setAntiAlias(true);
         paint.setTextSize(SkIntToScalar(30));

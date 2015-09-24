@@ -6,31 +6,21 @@
 
 #include "base/command_line.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/metrics/field_trial.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "components/autofill/core/browser/autofill_metrics.h"
 #include "components/autofill/core/common/autofill_switches.h"
 #include "components/autofill/core/common/form_data.h"
 #include "components/autofill/core/common/form_field_data.h"
+#include "components/rappor/test_rappor_service.h"
+#include "components/variations/entropy_provider.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
 using base::ASCIIToUTF16;
+using rappor::TestRapporService;
 
 namespace autofill {
-namespace {
-
-// Unlike the base AutofillMetrics, exposes copy and assignment constructors,
-// which are handy for briefer test code.  The AutofillMetrics class is
-// stateless, so this is safe.
-class TestAutofillMetrics : public AutofillMetrics {
- public:
-  TestAutofillMetrics() {}
-  ~TestAutofillMetrics() override {}
-};
-
-}  // anonymous namespace
-
 
 namespace content {
 
@@ -54,14 +44,38 @@ std::ostream& operator<<(std::ostream& os, const FormData& form) {
 
 }  // namespace content
 
-class FormStructureTest {
+class FormStructureTest : public testing::Test {
  public:
   static std::string Hash64Bit(const std::string& str) {
     return FormStructure::Hash64Bit(str);
   }
+
+  void SetUp() override {
+    // By default this trial is enabled on tests.
+    EnableAutofillMetadataFieldTrial();
+  }
+
+ protected:
+  void DisableAutofillMetadataFieldTrial() {
+    field_trial_list_.reset(NULL);
+  }
+
+ private:
+  void EnableAutofillMetadataFieldTrial() {
+    // Clear the existing |field_trial_list_| to avoid firing a DCHECK.
+    field_trial_list_.reset(NULL);
+    field_trial_list_.reset(
+        new base::FieldTrialList(new metrics::SHA1EntropyProvider("foo")));
+    field_trial_ = base::FieldTrialList::CreateFieldTrial(
+        "AutofillFieldMetadata", "Enabled");
+    field_trial_->group();
+  }
+
+  scoped_ptr<base::FieldTrialList> field_trial_list_;
+  scoped_refptr<base::FieldTrial> field_trial_;
 };
 
-TEST(FormStructureTest, FieldCount) {
+TEST_F(FormStructureTest, FieldCount) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -93,7 +107,7 @@ TEST(FormStructureTest, FieldCount) {
   EXPECT_EQ(4U, form_structure->field_count());
 }
 
-TEST(FormStructureTest, AutofillCount) {
+TEST_F(FormStructureTest, AutofillCount) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -108,6 +122,16 @@ TEST(FormStructureTest, AutofillCount) {
   field.form_control_type = "password";
   form.fields.push_back(field);
 
+  field.label = ASCIIToUTF16("email");
+  field.name = ASCIIToUTF16("email");
+  field.form_control_type = "text";
+  form.fields.push_back(field);
+
+  field.label = ASCIIToUTF16("city");
+  field.name = ASCIIToUTF16("city");
+  field.form_control_type = "text";
+  form.fields.push_back(field);
+
   field.label = ASCIIToUTF16("state");
   field.name = ASCIIToUTF16("state");
   field.form_control_type = "select-one";
@@ -120,8 +144,8 @@ TEST(FormStructureTest, AutofillCount) {
 
   // Only text and select fields that are heuristically matched are counted.
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
-  EXPECT_EQ(1U, form_structure->autofill_count());
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_EQ(3U, form_structure->autofill_count());
 
   // Add a field with should_autocomplete=false. This should not be considered a
   // fillable field.
@@ -132,18 +156,11 @@ TEST(FormStructureTest, AutofillCount) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
-  EXPECT_EQ(1U, form_structure->autofill_count());
-
-  CommandLine::ForCurrentProcess()->AppendSwitch(
-      switches::kIgnoreAutocompleteOffForAutofill);
-
-  form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
-  EXPECT_EQ(2U, form_structure->autofill_count());
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_EQ(4U, form_structure->autofill_count());
 }
 
-TEST(FormStructureTest, SourceURL) {
+TEST_F(FormStructureTest, SourceURL) {
   FormData form;
   form.origin = GURL("http://www.foo.com/");
   FormStructure form_structure(form);
@@ -151,7 +168,7 @@ TEST(FormStructureTest, SourceURL) {
   EXPECT_EQ(form.origin, form_structure.source_url());
 }
 
-TEST(FormStructureTest, IsAutofillable) {
+TEST_F(FormStructureTest, IsAutofillable) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -174,7 +191,7 @@ TEST(FormStructureTest, IsAutofillable) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_FALSE(form_structure->IsAutofillable());
 
   // We now have three text fields, but only two auto-fillable fields.
@@ -189,7 +206,7 @@ TEST(FormStructureTest, IsAutofillable) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_FALSE(form_structure->IsAutofillable());
 
   // We now have three auto-fillable fields.
@@ -199,23 +216,23 @@ TEST(FormStructureTest, IsAutofillable) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure->IsAutofillable());
 
   // The target cannot include http(s)://*/search...
   form.action = GURL("http://google.com/search?q=hello");
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_FALSE(form_structure->IsAutofillable());
 
   // But search can be in the URL.
   form.action = GURL("http://search.com/?q=hello");
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure->IsAutofillable());
 }
 
-TEST(FormStructureTest, ShouldBeParsed) {
+TEST_F(FormStructureTest, ShouldBeParsed) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -296,7 +313,7 @@ TEST(FormStructureTest, ShouldBeParsed) {
   EXPECT_FALSE(form_structure->ShouldBeParsed());
 }
 
-TEST(FormStructureTest, HeuristicsContactInfo) {
+TEST_F(FormStructureTest, HeuristicsContactInfo) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -337,7 +354,7 @@ TEST(FormStructureTest, HeuristicsContactInfo) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure->IsAutofillable());
 
   // Expect the correct number of fields.
@@ -364,7 +381,7 @@ TEST(FormStructureTest, HeuristicsContactInfo) {
 }
 
 // Verify that we can correctly process the |autocomplete| attribute.
-TEST(FormStructureTest, HeuristicsAutocompleteAttribute) {
+TEST_F(FormStructureTest, HeuristicsAutocompleteAttribute) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -387,7 +404,7 @@ TEST(FormStructureTest, HeuristicsAutocompleteAttribute) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure->IsAutofillable());
 
   // Expect the correct number of fields.
@@ -404,7 +421,7 @@ TEST(FormStructureTest, HeuristicsAutocompleteAttribute) {
 
 // Verify that we can correctly process the 'autocomplete' attribute for phone
 // number types (especially phone prefixes and suffixes).
-TEST(FormStructureTest, HeuristicsAutocompleteAttributePhoneTypes) {
+TEST_F(FormStructureTest, HeuristicsAutocompleteAttributePhoneTypes) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -427,7 +444,7 @@ TEST(FormStructureTest, HeuristicsAutocompleteAttributePhoneTypes) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure->IsAutofillable());
 
   // Expect the correct number of fields.
@@ -446,7 +463,7 @@ TEST(FormStructureTest, HeuristicsAutocompleteAttributePhoneTypes) {
 
 // If at least one field includes type hints in the 'autocomplete' attribute, we
 // should not try to apply any other heuristics.
-TEST(FormStructureTest, AutocompleteAttributeOverridesOtherHeuristics) {
+TEST_F(FormStructureTest, AutocompleteAttributeOverridesOtherHeuristics) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -467,7 +484,7 @@ TEST(FormStructureTest, AutocompleteAttributeOverridesOtherHeuristics) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure->IsAutofillable());
   EXPECT_TRUE(form_structure->ShouldBeCrowdsourced());
 
@@ -481,7 +498,7 @@ TEST(FormStructureTest, AutocompleteAttributeOverridesOtherHeuristics) {
   // Now update the first form field to include an 'autocomplete' attribute.
   form.fields.front().autocomplete_attribute = "x-other";
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_FALSE(form_structure->IsAutofillable());
   EXPECT_FALSE(form_structure->ShouldBeCrowdsourced());
 
@@ -497,7 +514,7 @@ TEST(FormStructureTest, AutocompleteAttributeOverridesOtherHeuristics) {
 // return true if the structure contains a password field, since there are
 // no local heuristics to depend upon in this case. Fields will still not be
 // considered autofillable though.
-TEST(FormStructureTest, PasswordFormShouldBeCrowdsourced) {
+TEST_F(FormStructureTest, PasswordFormShouldBeCrowdsourced) {
   FormData form;
 
   // Start with a regular contact form.
@@ -523,13 +540,13 @@ TEST(FormStructureTest, PasswordFormShouldBeCrowdsourced) {
   form.fields.push_back(field);
 
   FormStructure form_structure(form);
-  form_structure.DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure.DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure.ShouldBeCrowdsourced());
 }
 
 // Verify that we can correctly process sections listed in the |autocomplete|
 // attribute.
-TEST(FormStructureTest, HeuristicsAutocompleteAttributeWithSections) {
+TEST_F(FormStructureTest, HeuristicsAutocompleteAttributeWithSections) {
   FormData form;
 
   FormFieldData field;
@@ -574,7 +591,7 @@ TEST(FormStructureTest, HeuristicsAutocompleteAttributeWithSections) {
   form.fields.push_back(field);
 
   FormStructure form_structure(form);
-  form_structure.DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure.DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure.IsAutofillable());
 
   // Expect the correct number of fields.
@@ -592,7 +609,8 @@ TEST(FormStructureTest, HeuristicsAutocompleteAttributeWithSections) {
 
 // Verify that we can correctly process a degenerate section listed in the
 // |autocomplete| attribute.
-TEST(FormStructureTest, HeuristicsAutocompleteAttributeWithSectionsDegenerate) {
+TEST_F(FormStructureTest,
+       HeuristicsAutocompleteAttributeWithSectionsDegenerate) {
   FormData form;
 
   FormFieldData field;
@@ -618,7 +636,7 @@ TEST(FormStructureTest, HeuristicsAutocompleteAttributeWithSectionsDegenerate) {
   form.fields.push_back(field);
 
   FormStructure form_structure(form);
-  form_structure.DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure.DetermineHeuristicTypes();
 
   // Expect the correct number of fields.
   ASSERT_EQ(6U, form_structure.field_count());
@@ -635,7 +653,7 @@ TEST(FormStructureTest, HeuristicsAutocompleteAttributeWithSectionsDegenerate) {
 
 // Verify that we can correctly process repeated sections listed in the
 // |autocomplete| attribute.
-TEST(FormStructureTest, HeuristicsAutocompleteAttributeWithSectionsRepeated) {
+TEST_F(FormStructureTest, HeuristicsAutocompleteAttributeWithSectionsRepeated) {
   FormData form;
 
   FormFieldData field;
@@ -647,7 +665,7 @@ TEST(FormStructureTest, HeuristicsAutocompleteAttributeWithSectionsRepeated) {
   form.fields.push_back(field);
 
   FormStructure form_structure(form);
-  form_structure.DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure.DetermineHeuristicTypes();
 
   // Expect the correct number of fields.
   ASSERT_EQ(2U, form_structure.field_count());
@@ -664,7 +682,7 @@ TEST(FormStructureTest, HeuristicsAutocompleteAttributeWithSectionsRepeated) {
 
 // Verify that we do not override the author-specified sections from a form with
 // local heuristics.
-TEST(FormStructureTest, HeuristicsDontOverrideAutocompleteAttributeSections) {
+TEST_F(FormStructureTest, HeuristicsDontOverrideAutocompleteAttributeSections) {
   FormData form;
 
   FormFieldData field;
@@ -684,7 +702,7 @@ TEST(FormStructureTest, HeuristicsDontOverrideAutocompleteAttributeSections) {
   form.fields.push_back(field);
 
   FormStructure form_structure(form);
-  form_structure.DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure.DetermineHeuristicTypes();
 
   // Expect the correct number of fields.
   ASSERT_EQ(4U, form_structure.field_count());
@@ -699,7 +717,7 @@ TEST(FormStructureTest, HeuristicsDontOverrideAutocompleteAttributeSections) {
             form_structure.field(3)->section());
 }
 
-TEST(FormStructureTest, HeuristicsSample8) {
+TEST_F(FormStructureTest, HeuristicsSample8) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -748,7 +766,7 @@ TEST(FormStructureTest, HeuristicsSample8) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure->IsAutofillable());
   ASSERT_EQ(10U, form_structure->field_count());
   ASSERT_EQ(9U, form_structure->autofill_count());
@@ -776,7 +794,7 @@ TEST(FormStructureTest, HeuristicsSample8) {
   EXPECT_EQ(UNKNOWN_TYPE, form_structure->field(9)->heuristic_type());
 }
 
-TEST(FormStructureTest, HeuristicsSample6) {
+TEST_F(FormStructureTest, HeuristicsSample6) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -814,7 +832,7 @@ TEST(FormStructureTest, HeuristicsSample6) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure->IsAutofillable());
   ASSERT_EQ(7U, form_structure->field_count());
   ASSERT_EQ(6U, form_structure->autofill_count());
@@ -838,7 +856,7 @@ TEST(FormStructureTest, HeuristicsSample6) {
 // Tests a sequence of FormFields where only labels are supplied to heuristics
 // for matching.  This works because FormFieldData labels are matched in the
 // case that input element ids (or |name| fields) are missing.
-TEST(FormStructureTest, HeuristicsLabelsOnly) {
+TEST_F(FormStructureTest, HeuristicsLabelsOnly) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -879,7 +897,7 @@ TEST(FormStructureTest, HeuristicsLabelsOnly) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure->IsAutofillable());
   ASSERT_EQ(8U, form_structure->field_count());
   ASSERT_EQ(7U, form_structure->autofill_count());
@@ -903,7 +921,7 @@ TEST(FormStructureTest, HeuristicsLabelsOnly) {
   EXPECT_EQ(UNKNOWN_TYPE, form_structure->field(7)->heuristic_type());
 }
 
-TEST(FormStructureTest, HeuristicsCreditCardInfo) {
+TEST_F(FormStructureTest, HeuristicsCreditCardInfo) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -936,7 +954,7 @@ TEST(FormStructureTest, HeuristicsCreditCardInfo) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure->IsAutofillable());
   ASSERT_EQ(6U, form_structure->field_count());
   ASSERT_EQ(5U, form_structure->autofill_count());
@@ -957,7 +975,7 @@ TEST(FormStructureTest, HeuristicsCreditCardInfo) {
   EXPECT_EQ(UNKNOWN_TYPE, form_structure->field(5)->heuristic_type());
 }
 
-TEST(FormStructureTest, HeuristicsCreditCardInfoWithUnknownCardField) {
+TEST_F(FormStructureTest, HeuristicsCreditCardInfoWithUnknownCardField) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -996,7 +1014,7 @@ TEST(FormStructureTest, HeuristicsCreditCardInfoWithUnknownCardField) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure->IsAutofillable());
   ASSERT_EQ(7U, form_structure->field_count());
   ASSERT_EQ(5U, form_structure->autofill_count());
@@ -1019,7 +1037,7 @@ TEST(FormStructureTest, HeuristicsCreditCardInfoWithUnknownCardField) {
   EXPECT_EQ(UNKNOWN_TYPE, form_structure->field(6)->heuristic_type());
 }
 
-TEST(FormStructureTest, ThreeAddressLines) {
+TEST_F(FormStructureTest, ThreeAddressLines) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -1043,23 +1061,23 @@ TEST(FormStructureTest, ThreeAddressLines) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure->IsAutofillable());
   ASSERT_EQ(4U, form_structure->field_count());
-  ASSERT_EQ(3U, form_structure->autofill_count());
+  ASSERT_EQ(4U, form_structure->autofill_count());
 
   // Address Line 1.
   EXPECT_EQ(ADDRESS_HOME_LINE1, form_structure->field(0)->heuristic_type());
   // Address Line 2.
   EXPECT_EQ(ADDRESS_HOME_LINE2, form_structure->field(1)->heuristic_type());
   // Address Line 3.
-  EXPECT_EQ(UNKNOWN_TYPE, form_structure->field(2)->heuristic_type());
+  EXPECT_EQ(ADDRESS_HOME_LINE3, form_structure->field(2)->heuristic_type());
   // City.
   EXPECT_EQ(ADDRESS_HOME_CITY, form_structure->field(3)->heuristic_type());
 }
 
 // Numbered address lines after line two are ignored.
-TEST(FormStructureTest, SurplusAddressLinesIgnored) {
+TEST_F(FormStructureTest, SurplusAddressLinesIgnored) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -1083,26 +1101,26 @@ TEST(FormStructureTest, SurplusAddressLinesIgnored) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   ASSERT_EQ(4U, form_structure->field_count());
-  ASSERT_EQ(2U, form_structure->autofill_count());
+  ASSERT_EQ(3U, form_structure->autofill_count());
 
   // Address Line 1.
   EXPECT_EQ(ADDRESS_HOME_LINE1, form_structure->field(0)->heuristic_type());
   // Address Line 2.
   EXPECT_EQ(ADDRESS_HOME_LINE2, form_structure->field(1)->heuristic_type());
-  // Address Line 3 (ignored).
-  EXPECT_EQ(UNKNOWN_TYPE, form_structure->field(2)->heuristic_type());
+  // Address Line 3.
+  EXPECT_EQ(ADDRESS_HOME_LINE3, form_structure->field(2)->heuristic_type());
   // Address Line 4 (ignored).
   EXPECT_EQ(UNKNOWN_TYPE, form_structure->field(3)->heuristic_type());
 }
 
-// This example comes from expedia.com where they use a "Suite" label to
-// indicate a suite or apartment number.  We interpret this as address line 2.
-// And the following "Street address second line" we interpret as address line
-// 3 and discard.
+// This example comes from expedia.com where they used to use a "Suite" label
+// to indicate a suite or apartment number (the form has changed since this
+// test was written). We interpret this as address line 2. And the following
+// "Street address second line" we interpret as address line 3.
 // See http://crbug.com/48197 for details.
-TEST(FormStructureTest, ThreeAddressLinesExpedia) {
+TEST_F(FormStructureTest, ThreeAddressLinesExpedia) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -1126,17 +1144,17 @@ TEST(FormStructureTest, ThreeAddressLinesExpedia) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure->IsAutofillable());
   ASSERT_EQ(4U, form_structure->field_count());
-  EXPECT_EQ(3U, form_structure->autofill_count());
+  EXPECT_EQ(4U, form_structure->autofill_count());
 
   // Address Line 1.
   EXPECT_EQ(ADDRESS_HOME_LINE1, form_structure->field(0)->heuristic_type());
   // Suite / Apt.
   EXPECT_EQ(ADDRESS_HOME_LINE2, form_structure->field(1)->heuristic_type());
   // Address Line 3.
-  EXPECT_EQ(UNKNOWN_TYPE, form_structure->field(2)->heuristic_type());
+  EXPECT_EQ(ADDRESS_HOME_LINE3, form_structure->field(2)->heuristic_type());
   // City.
   EXPECT_EQ(ADDRESS_HOME_CITY, form_structure->field(3)->heuristic_type());
 }
@@ -1144,7 +1162,7 @@ TEST(FormStructureTest, ThreeAddressLinesExpedia) {
 // This example comes from ebay.com where the word "suite" appears in the label
 // and the name "address2" clearly indicates that this is the address line 2.
 // See http://crbug.com/48197 for details.
-TEST(FormStructureTest, TwoAddressLinesEbay) {
+TEST_F(FormStructureTest, TwoAddressLinesEbay) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -1164,7 +1182,7 @@ TEST(FormStructureTest, TwoAddressLinesEbay) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure->IsAutofillable());
   ASSERT_EQ(3U, form_structure->field_count());
   ASSERT_EQ(3U, form_structure->autofill_count());
@@ -1177,7 +1195,7 @@ TEST(FormStructureTest, TwoAddressLinesEbay) {
   EXPECT_EQ(ADDRESS_HOME_CITY, form_structure->field(2)->heuristic_type());
 }
 
-TEST(FormStructureTest, HeuristicsStateWithProvince) {
+TEST_F(FormStructureTest, HeuristicsStateWithProvince) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -1197,7 +1215,7 @@ TEST(FormStructureTest, HeuristicsStateWithProvince) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure->IsAutofillable());
   ASSERT_EQ(3U, form_structure->field_count());
   ASSERT_EQ(3U, form_structure->autofill_count());
@@ -1211,7 +1229,7 @@ TEST(FormStructureTest, HeuristicsStateWithProvince) {
 }
 
 // This example comes from lego.com's checkout page.
-TEST(FormStructureTest, HeuristicsWithBilling) {
+TEST_F(FormStructureTest, HeuristicsWithBilling) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -1263,7 +1281,7 @@ TEST(FormStructureTest, HeuristicsWithBilling) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure->IsAutofillable());
   ASSERT_EQ(11U, form_structure->field_count());
   ASSERT_EQ(11U, form_structure->autofill_count());
@@ -1282,7 +1300,7 @@ TEST(FormStructureTest, HeuristicsWithBilling) {
   EXPECT_EQ(EMAIL_ADDRESS, form_structure->field(10)->heuristic_type());
 }
 
-TEST(FormStructureTest, ThreePartPhoneNumber) {
+TEST_F(FormStructureTest, ThreePartPhoneNumber) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -1312,7 +1330,7 @@ TEST(FormStructureTest, ThreePartPhoneNumber) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure->IsAutofillable());
   ASSERT_EQ(4U, form_structure->field_count());
   ASSERT_EQ(3U, form_structure->autofill_count());
@@ -1329,7 +1347,7 @@ TEST(FormStructureTest, ThreePartPhoneNumber) {
   EXPECT_EQ(UNKNOWN_TYPE, form_structure->field(3)->heuristic_type());
 }
 
-TEST(FormStructureTest, HeuristicsInfernoCC) {
+TEST_F(FormStructureTest, HeuristicsInfernoCC) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -1357,7 +1375,7 @@ TEST(FormStructureTest, HeuristicsInfernoCC) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure->IsAutofillable());
 
   // Expect the correct number of fields.
@@ -1377,7 +1395,7 @@ TEST(FormStructureTest, HeuristicsInfernoCC) {
             form_structure->field(4)->heuristic_type());
 }
 
-TEST(FormStructureTest, CVCCodeClash) {
+TEST_F(FormStructureTest, CVCCodeClash) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -1409,7 +1427,7 @@ TEST(FormStructureTest, CVCCodeClash) {
   form.fields.push_back(field);
 
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
   EXPECT_TRUE(form_structure->IsAutofillable());
 
   // Expect the correct number of fields.
@@ -1432,7 +1450,7 @@ TEST(FormStructureTest, CVCCodeClash) {
             form_structure->field(5)->heuristic_type());
 }
 
-TEST(FormStructureTest, EncodeQueryRequest) {
+TEST_F(FormStructureTest, EncodeQueryRequest) {
   FormData form;
 
   FormFieldData field;
@@ -1470,17 +1488,17 @@ TEST(FormStructureTest, EncodeQueryRequest) {
   std::vector<std::string> encoded_signatures;
   std::string encoded_xml;
   const char kSignature1[] = "11337937696949187602";
-  const char kResponse1[] =
-      "<\?xml version=\"1.0\" encoding=\"UTF-8\"\?>"
+  const char kResponse1[] = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
       "<autofillquery clientversion=\"6.1.1715.1442/en (GGLL)\">"
       "<form signature=\"11337937696949187602\">"
-      "<field signature=\"412125936\"/>"
-      "<field signature=\"1917667676\"/>"
-      "<field signature=\"2226358947\"/>"
-      "<field signature=\"747221617\"/>"
-      "<field signature=\"4108155786\"/>"
-      "</form>"
-      "</autofillquery>";
+      "<field signature=\"412125936\" name=\"name_on_card\" type=\"text\""
+      " label=\"Name on Card\"/><field signature=\"1917667676\""
+      " name=\"billing_address\" type=\"text\" label=\"Address\"/>"
+      "<field signature=\"2226358947\" name=\"card_number\" type=\"text\""
+      " label=\"Card Number\"/><field signature=\"747221617\""
+      " name=\"expiration_month\" type=\"text\" label=\"Expiration Date\"/>"
+      "<field signature=\"4108155786\" name=\"expiration_year\" type=\"text\""
+      " label=\"Expiration Year\"/></form></autofillquery>";
   ASSERT_TRUE(FormStructure::EncodeQueryRequest(forms.get(),
                                                 &encoded_signatures,
                                                 &encoded_xml));
@@ -1512,29 +1530,32 @@ TEST(FormStructureTest, EncodeQueryRequest) {
   EXPECT_EQ(kSignature1, encoded_signatures[0]);
   const char kSignature2[] = "8308881815906226214";
   EXPECT_EQ(kSignature2, encoded_signatures[1]);
-  const char kResponse2[] =
-      "<\?xml version=\"1.0\" encoding=\"UTF-8\"\?>"
-      "<autofillquery clientversion=\"6.1.1715.1442/en (GGLL)\">"
-      "<form signature=\"11337937696949187602\">"
-      "<field signature=\"412125936\"/>"
-      "<field signature=\"1917667676\"/>"
-      "<field signature=\"2226358947\"/>"
-      "<field signature=\"747221617\"/>"
-      "<field signature=\"4108155786\"/>"
-      "</form>"
-      "<form signature=\"8308881815906226214\">"
-      "<field signature=\"412125936\"/>"
-      "<field signature=\"1917667676\"/>"
-      "<field signature=\"2226358947\"/>"
-      "<field signature=\"747221617\"/>"
-      "<field signature=\"4108155786\"/>"
-      "<field signature=\"509334676\"/>"
-      "<field signature=\"509334676\"/>"
-      "<field signature=\"509334676\"/>"
-      "<field signature=\"509334676\"/>"
-      "<field signature=\"509334676\"/>"
-      "</form>"
-      "</autofillquery>";
+  const char kResponse2[] = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+  "<autofillquery clientversion=\"6.1.1715.1442/en (GGLL)\">"
+  "<form signature=\"11337937696949187602\"><field signature=\"412125936\""
+  " name=\"name_on_card\" type=\"text\" label=\"Name on Card\"/>"
+  "<field signature=\"1917667676\" name=\"billing_address\" type=\"text\""
+  " label=\"Address\"/><field signature=\"2226358947\" name=\"card_number\""
+  " type=\"text\" label=\"Card Number\"/>"
+  "<field signature=\"747221617\" name=\"expiration_month\" type=\"text\""
+  " label=\"Expiration Date\"/>"
+  "<field signature=\"4108155786\" name=\"expiration_year\" type=\"text\""
+  " label=\"Expiration Year\"/></form>"
+  "<form signature=\"8308881815906226214\">"
+  "<field signature=\"412125936\" name=\"name_on_card\" type=\"text\""
+  " label=\"Name on Card\"/><field signature=\"1917667676\""
+  " name=\"billing_address\" type=\"text\" label=\"Address\"/>"
+  "<field signature=\"2226358947\" name=\"card_number\" type=\"text\""
+  " label=\"Card Number\"/><field signature=\"747221617\""
+  " name=\"expiration_month\" type=\"text\" label=\"Expiration Date\"/>"
+  "<field signature=\"4108155786\" name=\"expiration_year\" type=\"text\""
+  " label=\"Expiration Year\"/><field signature=\"509334676\" name=\"address\""
+  " type=\"text\" label=\"Address\"/><field signature=\"509334676\""
+  " name=\"address\" type=\"text\" label=\"Address\"/>"
+  "<field signature=\"509334676\" name=\"address\" type=\"text\""
+  " label=\"Address\"/><field signature=\"509334676\" name=\"address\""
+  " type=\"text\" label=\"Address\"/><field signature=\"509334676\""
+  " name=\"address\" type=\"text\" label=\"Address\"/></form></autofillquery>";
   EXPECT_EQ(kResponse2, encoded_xml);
 
   FormData malformed_form(form);
@@ -1565,12 +1586,12 @@ TEST(FormStructureTest, EncodeQueryRequest) {
   EXPECT_EQ("", encoded_xml);
 }
 
-TEST(FormStructureTest, EncodeUploadRequest) {
+TEST_F(FormStructureTest, EncodeUploadRequest) {
   scoped_ptr<FormStructure> form_structure;
   std::vector<ServerFieldTypeSet> possible_field_types;
   FormData form;
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
 
   FormFieldData field;
   field.form_control_type = "text";
@@ -1637,28 +1658,38 @@ TEST(FormStructureTest, EncodeUploadRequest) {
   std::string encoded_xml;
   EXPECT_TRUE(form_structure->EncodeUploadRequest(available_field_types, false,
                                                   &encoded_xml));
-  EXPECT_EQ("<\?xml version=\"1.0\" encoding=\"UTF-8\"\?>"
-            "<autofillupload clientversion=\"6.1.1715.1442/en (GGLL)\" "
-            "formsignature=\"8736493185895608956\" autofillused=\"false\" "
-            "datapresent=\"144200030e\">"
-            "<field signature=\"3763331450\" autofilltype=\"3\"/>"
-            "<field signature=\"3494530716\" autofilltype=\"5\"/>"
-            "<field signature=\"1029417091\" autofilltype=\"9\"/>"
-            "<field signature=\"466116101\" autofilltype=\"14\"/>"
-            "<field signature=\"2799270304\" autofilltype=\"36\"/>"
+  EXPECT_EQ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+            "<autofillupload clientversion=\"6.1.1715.1442/en (GGLL)\""
+            " formsignature=\"8736493185895608956\" autofillused=\"false\""
+            " datapresent=\"144200030e\">"
+            "<field signature=\"3763331450\" name=\"firstname\" type=\"text\""
+            " label=\"First Name\" autofilltype=\"3\"/>"
+            "<field signature=\"3494530716\" name=\"lastname\" type=\"text\""
+            " label=\"Last Name\" autofilltype=\"5\"/>"
+            "<field signature=\"1029417091\" name=\"email\" type=\"email\""
+            " label=\"Email\" autofilltype=\"9\"/>"
+            "<field signature=\"466116101\" name=\"phone\" type=\"number\""
+            " label=\"Phone\" autofilltype=\"14\"/>"
+            "<field signature=\"2799270304\" name=\"country\""
+            " type=\"select-one\" label=\"Country\" autofilltype=\"36\"/>"
             "</autofillupload>",
             encoded_xml);
   EXPECT_TRUE(form_structure->EncodeUploadRequest(available_field_types, true,
                                                   &encoded_xml));
-  EXPECT_EQ("<\?xml version=\"1.0\" encoding=\"UTF-8\"\?>"
-            "<autofillupload clientversion=\"6.1.1715.1442/en (GGLL)\" "
-            "formsignature=\"8736493185895608956\" autofillused=\"true\" "
-            "datapresent=\"144200030e\">"
-            "<field signature=\"3763331450\" autofilltype=\"3\"/>"
-            "<field signature=\"3494530716\" autofilltype=\"5\"/>"
-            "<field signature=\"1029417091\" autofilltype=\"9\"/>"
-            "<field signature=\"466116101\" autofilltype=\"14\"/>"
-            "<field signature=\"2799270304\" autofilltype=\"36\"/>"
+  EXPECT_EQ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+            "<autofillupload clientversion=\"6.1.1715.1442/en (GGLL)\""
+            " formsignature=\"8736493185895608956\" autofillused=\"true\""
+            " datapresent=\"144200030e\">"
+            "<field signature=\"3763331450\" name=\"firstname\" type=\"text\""
+            " label=\"First Name\" autofilltype=\"3\"/>"
+            "<field signature=\"3494530716\" name=\"lastname\" type=\"text\""
+            " label=\"Last Name\" autofilltype=\"5\"/>"
+            "<field signature=\"1029417091\" name=\"email\" type=\"email\""
+            " label=\"Email\" autofilltype=\"9\"/>"
+            "<field signature=\"466116101\" name=\"phone\" type=\"number\""
+            " label=\"Phone\" autofilltype=\"14\"/>"
+            "<field signature=\"2799270304\" name=\"country\""
+            " type=\"select-one\" label=\"Country\" autofilltype=\"36\"/>"
             "</autofillupload>",
             encoded_xml);
 
@@ -1682,24 +1713,36 @@ TEST(FormStructureTest, EncodeUploadRequest) {
 
   EXPECT_TRUE(form_structure->EncodeUploadRequest(available_field_types, false,
                                                   &encoded_xml));
-  EXPECT_EQ("<\?xml version=\"1.0\" encoding=\"UTF-8\"\?>"
-            "<autofillupload clientversion=\"6.1.1715.1442/en (GGLL)\" "
-            "formsignature=\"7816485729218079147\" autofillused=\"false\" "
-            "datapresent=\"144200030e\">"
-            "<field signature=\"3763331450\" autofilltype=\"3\"/>"
-            "<field signature=\"3494530716\" autofilltype=\"5\"/>"
-            "<field signature=\"1029417091\" autofilltype=\"9\"/>"
-            "<field signature=\"466116101\" autofilltype=\"14\"/>"
-            "<field signature=\"2799270304\" autofilltype=\"36\"/>"
-            "<field signature=\"509334676\" autofilltype=\"30\"/>"
-            "<field signature=\"509334676\" autofilltype=\"31\"/>"
-            "<field signature=\"509334676\" autofilltype=\"37\"/>"
-            "<field signature=\"509334676\" autofilltype=\"38\"/>"
-            "<field signature=\"509334676\" autofilltype=\"30\"/>"
-            "<field signature=\"509334676\" autofilltype=\"31\"/>"
-            "<field signature=\"509334676\" autofilltype=\"37\"/>"
-            "<field signature=\"509334676\" autofilltype=\"38\"/>"
-            "</autofillupload>",
+  EXPECT_EQ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+            "<autofillupload clientversion=\"6.1.1715.1442/en (GGLL)\""
+            " formsignature=\"7816485729218079147\" autofillused=\"false\""
+            " datapresent=\"144200030e\">"
+            "<field signature=\"3763331450\" name=\"firstname\" type=\"text\""
+            " label=\"First Name\" autofilltype=\"3\"/>"
+            "<field signature=\"3494530716\" name=\"lastname\" type=\"text\""
+            " label=\"Last Name\" autofilltype=\"5\"/>"
+            "<field signature=\"1029417091\" name=\"email\" type=\"email\""
+            " label=\"Email\" autofilltype=\"9\"/>"
+            "<field signature=\"466116101\" name=\"phone\" type=\"number\""
+            " label=\"Phone\" autofilltype=\"14\"/>"
+            "<field signature=\"2799270304\" name=\"country\""
+            " type=\"select-one\" label=\"Country\" autofilltype=\"36\"/>"
+            "<field signature=\"509334676\" name=\"address\" type=\"text\""
+            " label=\"Address\" autofilltype=\"30\"/>"
+            "<field signature=\"509334676\" name=\"address\" type=\"text\""
+            " label=\"Address\" autofilltype=\"31\"/>"
+            "<field signature=\"509334676\" name=\"address\" type=\"text\""
+            " label=\"Address\" autofilltype=\"37\"/>"
+            "<field signature=\"509334676\" name=\"address\" type=\"text\""
+            " label=\"Address\" autofilltype=\"38\"/>"
+            "<field signature=\"509334676\" name=\"address\" type=\"text\""
+            " label=\"Address\" autofilltype=\"30\"/>"
+            "<field signature=\"509334676\" name=\"address\" type=\"text\""
+            " label=\"Address\" autofilltype=\"31\"/>"
+            "<field signature=\"509334676\" name=\"address\" type=\"text\""
+            " label=\"Address\" autofilltype=\"37\"/>"
+            "<field signature=\"509334676\" name=\"address\" type=\"text\""
+            " label=\"Address\" autofilltype=\"38\"/></autofillupload>",
             encoded_xml);
 
   // Add 50 address fields - now the form is invalid, as it has too many fields.
@@ -1722,12 +1765,242 @@ TEST(FormStructureTest, EncodeUploadRequest) {
                                                    &encoded_xml));
 }
 
-TEST(FormStructureTest, EncodeFieldAssignments) {
+TEST_F(FormStructureTest, EncodeUploadRequest_WithAutocomplete) {
   scoped_ptr<FormStructure> form_structure;
   std::vector<ServerFieldTypeSet> possible_field_types;
   FormData form;
   form_structure.reset(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(TestAutofillMetrics());
+  form_structure->DetermineHeuristicTypes();
+
+  FormFieldData field;
+  field.form_control_type = "text";
+
+  field.label = ASCIIToUTF16("First Name");
+  field.name = ASCIIToUTF16("firstname");
+  field.autocomplete_attribute = "given-name";
+  form.fields.push_back(field);
+  possible_field_types.push_back(ServerFieldTypeSet());
+  possible_field_types.back().insert(NAME_FIRST);
+
+  field.label = ASCIIToUTF16("Last Name");
+  field.name = ASCIIToUTF16("lastname");
+  field.autocomplete_attribute = "family-name";
+  form.fields.push_back(field);
+  possible_field_types.push_back(ServerFieldTypeSet());
+  possible_field_types.back().insert(NAME_LAST);
+
+  field.label = ASCIIToUTF16("Email");
+  field.name = ASCIIToUTF16("email");
+  field.form_control_type = "email";
+  field.autocomplete_attribute = "email";
+  form.fields.push_back(field);
+  possible_field_types.push_back(ServerFieldTypeSet());
+  possible_field_types.back().insert(EMAIL_ADDRESS);
+
+  form_structure.reset(new FormStructure(form));
+
+  ASSERT_EQ(form_structure->field_count(), possible_field_types.size());
+  for (size_t i = 0; i < form_structure->field_count(); ++i)
+    form_structure->field(i)->set_possible_types(possible_field_types[i]);
+
+  ServerFieldTypeSet available_field_types;
+  available_field_types.insert(NAME_FIRST);
+  available_field_types.insert(NAME_LAST);
+  available_field_types.insert(EMAIL_ADDRESS);
+
+  std::string encoded_xml;
+  EXPECT_TRUE(form_structure->EncodeUploadRequest(available_field_types, true,
+                                                  &encoded_xml));
+  EXPECT_EQ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+            "<autofillupload clientversion=\"6.1.1715.1442/en (GGLL)\""
+            " formsignature=\"14746822798145140279\" autofillused=\"true\""
+            " datapresent=\"1440\">"
+            "<field signature=\"3763331450\" name=\"firstname\" type=\"text\""
+            " label=\"First Name\" autocomplete=\"given-name\""
+            " autofilltype=\"3\"/>"
+            "<field signature=\"3494530716\" name=\"lastname\" type=\"text\""
+            " label=\"Last Name\" autocomplete=\"family-name\""
+            " autofilltype=\"5\"/><field signature=\"1029417091\""
+            " name=\"email\" type=\"email\" label=\"Email\""
+            " autocomplete=\"email\" autofilltype=\"9\"/></autofillupload>",
+            encoded_xml);
+}
+
+TEST_F(FormStructureTest, EncodeUploadRequest_WithLabels) {
+  scoped_ptr<FormStructure> form_structure;
+  std::vector<ServerFieldTypeSet> possible_field_types;
+  FormData form;
+  form_structure.reset(new FormStructure(form));
+  form_structure->DetermineHeuristicTypes();
+
+  FormFieldData field;
+  field.form_control_type = "text";
+
+  // No label for the first field.
+  form.fields.push_back(field);
+  possible_field_types.push_back(ServerFieldTypeSet());
+  possible_field_types.back().insert(NAME_FIRST);
+
+  field.label = ASCIIToUTF16("Last Name");
+  form.fields.push_back(field);
+  possible_field_types.push_back(ServerFieldTypeSet());
+  possible_field_types.back().insert(NAME_LAST);
+
+  field.label = ASCIIToUTF16("Email");
+  form.fields.push_back(field);
+  possible_field_types.push_back(ServerFieldTypeSet());
+  possible_field_types.back().insert(EMAIL_ADDRESS);
+
+  form_structure.reset(new FormStructure(form));
+
+  ASSERT_EQ(form_structure->field_count(), possible_field_types.size());
+  for (size_t i = 0; i < form_structure->field_count(); ++i)
+    form_structure->field(i)->set_possible_types(possible_field_types[i]);
+
+  ServerFieldTypeSet available_field_types;
+  available_field_types.insert(NAME_FIRST);
+  available_field_types.insert(NAME_LAST);
+  available_field_types.insert(EMAIL_ADDRESS);
+
+  std::string encoded_xml;
+  EXPECT_TRUE(form_structure->EncodeUploadRequest(available_field_types, true,
+                                                  &encoded_xml));
+  // Expected that the first field does not send the label but others do.
+  EXPECT_EQ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+            "<autofillupload clientversion=\"6.1.1715.1442/en (GGLL)\""
+            " formsignature=\"6949133589768631292\" autofillused=\"true\""
+            " datapresent=\"1440\">"
+            "<field signature=\"1318412689\" type=\"text\" autofilltype=\"3\"/>"
+            "<field signature=\"1318412689\" type=\"text\" label=\"Last Name\""
+            " autofilltype=\"5\"/><field signature=\"1318412689\" type=\"text\""
+            " label=\"Email\" autofilltype=\"9\"/></autofillupload>",
+            encoded_xml);
+}
+
+TEST_F(FormStructureTest, EncodeUploadRequestPartialMetadata) {
+  scoped_ptr<FormStructure> form_structure;
+  std::vector<ServerFieldTypeSet> possible_field_types;
+  FormData form;
+  form_structure.reset(new FormStructure(form));
+  form_structure->DetermineHeuristicTypes();
+
+  FormFieldData field;
+  field.form_control_type = "text";
+
+  // Some fields don't have "name" or "autocomplete" attributes, and some have
+  // neither.
+  // No label.
+  form.fields.push_back(field);
+  possible_field_types.push_back(ServerFieldTypeSet());
+  possible_field_types.back().insert(NAME_FIRST);
+
+  field.label = ASCIIToUTF16("Last Name");
+  field.name = ASCIIToUTF16("lastname");
+  field.autocomplete_attribute = "family-name";
+  form.fields.push_back(field);
+  possible_field_types.push_back(ServerFieldTypeSet());
+  possible_field_types.back().insert(NAME_LAST);
+
+  field.label = ASCIIToUTF16("Email");
+  field.form_control_type = "email";
+  field.autocomplete_attribute = "email";
+  form.fields.push_back(field);
+  possible_field_types.push_back(ServerFieldTypeSet());
+  possible_field_types.back().insert(EMAIL_ADDRESS);
+
+  form_structure.reset(new FormStructure(form));
+
+  ASSERT_EQ(form_structure->field_count(), possible_field_types.size());
+  for (size_t i = 0; i < form_structure->field_count(); ++i)
+    form_structure->field(i)->set_possible_types(possible_field_types[i]);
+
+  ServerFieldTypeSet available_field_types;
+  available_field_types.insert(NAME_FIRST);
+  available_field_types.insert(NAME_LAST);
+  available_field_types.insert(EMAIL_ADDRESS);
+
+  std::string encoded_xml;
+  EXPECT_TRUE(form_structure->EncodeUploadRequest(available_field_types, true,
+                                                  &encoded_xml));
+  EXPECT_EQ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+            "<autofillupload clientversion=\"6.1.1715.1442/en (GGLL)\""
+            " formsignature=\"13043654279838250996\" autofillused=\"true\""
+            " datapresent=\"1440\"><field signature=\"1318412689\""
+            " type=\"text\" autofilltype=\"3\"/>"
+            "<field signature=\"3494530716\" name=\"lastname\" type=\"text\""
+            " label=\"Last Name\" autocomplete=\"family-name\""
+            " autofilltype=\"5\"/>"
+            "<field signature=\"1545468175\" name=\"lastname\" type=\"email\""
+            " label=\"Email\" autocomplete=\"email\" autofilltype=\"9\"/>"
+            "</autofillupload>",
+            encoded_xml);
+}
+
+// Sending field metadata to the server is disabled.
+TEST_F(FormStructureTest, EncodeUploadRequest_DisabledMetadataTrial) {
+  DisableAutofillMetadataFieldTrial();
+
+  scoped_ptr<FormStructure> form_structure;
+  std::vector<ServerFieldTypeSet> possible_field_types;
+  FormData form;
+  form_structure.reset(new FormStructure(form));
+  form_structure->DetermineHeuristicTypes();
+
+  FormFieldData field;
+  field.form_control_type = "text";
+
+  field.label = ASCIIToUTF16("First Name");
+  field.name = ASCIIToUTF16("firstname");
+  field.autocomplete_attribute = "given-name";
+  form.fields.push_back(field);
+  possible_field_types.push_back(ServerFieldTypeSet());
+  possible_field_types.back().insert(NAME_FIRST);
+
+  field.label = ASCIIToUTF16("Last Name");
+  field.name = ASCIIToUTF16("lastname");
+  field.autocomplete_attribute = "family-name";
+  form.fields.push_back(field);
+  possible_field_types.push_back(ServerFieldTypeSet());
+  possible_field_types.back().insert(NAME_LAST);
+
+  field.label = ASCIIToUTF16("Email");
+  field.name = ASCIIToUTF16("email");
+  field.form_control_type = "email";
+  field.autocomplete_attribute = "email";
+  form.fields.push_back(field);
+  possible_field_types.push_back(ServerFieldTypeSet());
+  possible_field_types.back().insert(EMAIL_ADDRESS);
+
+  form_structure.reset(new FormStructure(form));
+
+  ASSERT_EQ(form_structure->field_count(), possible_field_types.size());
+  for (size_t i = 0; i < form_structure->field_count(); ++i)
+    form_structure->field(i)->set_possible_types(possible_field_types[i]);
+
+  ServerFieldTypeSet available_field_types;
+  available_field_types.insert(NAME_FIRST);
+  available_field_types.insert(NAME_LAST);
+  available_field_types.insert(EMAIL_ADDRESS);
+
+  std::string encoded_xml;
+  EXPECT_TRUE(form_structure->EncodeUploadRequest(available_field_types, true,
+                                                  &encoded_xml));
+  EXPECT_EQ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+            "<autofillupload clientversion=\"6.1.1715.1442/en (GGLL)\""
+            " formsignature=\"14746822798145140279\" autofillused=\"true\""
+            " datapresent=\"1440\"><field signature=\"3763331450\""
+            " autofilltype=\"3\"/><field signature=\"3494530716\""
+            " autofilltype=\"5\"/><field signature=\"1029417091\""
+            " autofilltype=\"9\"/></autofillupload>",
+            encoded_xml);
+}
+
+TEST_F(FormStructureTest, EncodeFieldAssignments) {
+  scoped_ptr<FormStructure> form_structure;
+  std::vector<ServerFieldTypeSet> possible_field_types;
+  FormData form;
+  form_structure.reset(new FormStructure(form));
+  form_structure->DetermineHeuristicTypes();
 
   FormFieldData field;
   field.form_control_type = "text";
@@ -1849,7 +2122,7 @@ TEST(FormStructureTest, EncodeFieldAssignments) {
 
 // Check that we compute the "datapresent" string correctly for the given
 // |available_types|.
-TEST(FormStructureTest, CheckDataPresence) {
+TEST_F(FormStructureTest, CheckDataPresence) {
   FormData form;
 
   FormFieldData field;
@@ -1882,14 +2155,16 @@ TEST(FormStructureTest, CheckDataPresence) {
   std::string encoded_xml;
   EXPECT_TRUE(form_structure.EncodeUploadRequest(available_field_types, false,
                                                  &encoded_xml));
-  EXPECT_EQ("<\?xml version=\"1.0\" encoding=\"UTF-8\"\?>"
+  EXPECT_EQ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
             "<autofillupload clientversion=\"6.1.1715.1442/en (GGLL)\""
             " formsignature=\"6402244543831589061\" autofillused=\"false\""
             " datapresent=\"\">"
-            "<field signature=\"1089846351\" autofilltype=\"1\"/>"
-            "<field signature=\"2404144663\" autofilltype=\"1\"/>"
-            "<field signature=\"420638584\" autofilltype=\"1\"/>"
-            "</autofillupload>",
+            "<field signature=\"1089846351\" name=\"first\" type=\"text\""
+            " label=\"First Name\" autofilltype=\"1\"/>"
+            "<field signature=\"2404144663\" name=\"last\" type=\"text\""
+            " label=\"Last Name\" autofilltype=\"1\"/>"
+            "<field signature=\"420638584\" name=\"email\" type=\"text\""
+            " label=\"Email\" autofilltype=\"1\"/></autofillupload>",
             encoded_xml);
 
   // Only a few types available.
@@ -1912,14 +2187,16 @@ TEST(FormStructureTest, CheckDataPresence) {
 
   EXPECT_TRUE(form_structure.EncodeUploadRequest(available_field_types, false,
                                                  &encoded_xml));
-  EXPECT_EQ("<\?xml version=\"1.0\" encoding=\"UTF-8\"\?>"
+  EXPECT_EQ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
             "<autofillupload clientversion=\"6.1.1715.1442/en (GGLL)\""
             " formsignature=\"6402244543831589061\" autofillused=\"false\""
             " datapresent=\"1540000240\">"
-            "<field signature=\"1089846351\" autofilltype=\"1\"/>"
-            "<field signature=\"2404144663\" autofilltype=\"1\"/>"
-            "<field signature=\"420638584\" autofilltype=\"1\"/>"
-            "</autofillupload>",
+            "<field signature=\"1089846351\" name=\"first\" type=\"text\""
+            " label=\"First Name\" autofilltype=\"1\"/>"
+            "<field signature=\"2404144663\" name=\"last\" type=\"text\""
+            " label=\"Last Name\" autofilltype=\"1\"/>"
+            "<field signature=\"420638584\" name=\"email\" type=\"text\""
+            " label=\"Email\" autofilltype=\"1\"/></autofillupload>",
             encoded_xml);
 
   // All supported non-credit card types available.
@@ -1966,14 +2243,16 @@ TEST(FormStructureTest, CheckDataPresence) {
 
   EXPECT_TRUE(form_structure.EncodeUploadRequest(available_field_types, false,
                                                  &encoded_xml));
-  EXPECT_EQ("<\?xml version=\"1.0\" encoding=\"UTF-8\"\?>"
+  EXPECT_EQ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
             "<autofillupload clientversion=\"6.1.1715.1442/en (GGLL)\""
             " formsignature=\"6402244543831589061\" autofillused=\"false\""
             " datapresent=\"1f7e000378000008\">"
-            "<field signature=\"1089846351\" autofilltype=\"1\"/>"
-            "<field signature=\"2404144663\" autofilltype=\"1\"/>"
-            "<field signature=\"420638584\" autofilltype=\"1\"/>"
-            "</autofillupload>",
+            "<field signature=\"1089846351\" name=\"first\" type=\"text\""
+            " label=\"First Name\" autofilltype=\"1\"/>"
+            "<field signature=\"2404144663\" name=\"last\" type=\"text\""
+            " label=\"Last Name\" autofilltype=\"1\"/>"
+            "<field signature=\"420638584\" name=\"email\" type=\"text\""
+            " label=\"Email\" autofilltype=\"1\"/></autofillupload>",
             encoded_xml);
 
   // All supported credit card types available.
@@ -1998,14 +2277,16 @@ TEST(FormStructureTest, CheckDataPresence) {
 
   EXPECT_TRUE(form_structure.EncodeUploadRequest(available_field_types, false,
                                                  &encoded_xml));
-  EXPECT_EQ("<\?xml version=\"1.0\" encoding=\"UTF-8\"\?>"
+  EXPECT_EQ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
             "<autofillupload clientversion=\"6.1.1715.1442/en (GGLL)\""
             " formsignature=\"6402244543831589061\" autofillused=\"false\""
             " datapresent=\"0000000000001fc0\">"
-            "<field signature=\"1089846351\" autofilltype=\"1\"/>"
-            "<field signature=\"2404144663\" autofilltype=\"1\"/>"
-            "<field signature=\"420638584\" autofilltype=\"1\"/>"
-            "</autofillupload>",
+            "<field signature=\"1089846351\" name=\"first\" type=\"text\""
+            " label=\"First Name\" autofilltype=\"1\"/>"
+            "<field signature=\"2404144663\" name=\"last\" type=\"text\""
+            " label=\"Last Name\" autofilltype=\"1\"/>"
+            "<field signature=\"420638584\" name=\"email\" type=\"text\""
+            " label=\"Email\" autofilltype=\"1\"/></autofillupload>",
             encoded_xml);
 
   // All supported types available.
@@ -2066,18 +2347,20 @@ TEST(FormStructureTest, CheckDataPresence) {
 
   EXPECT_TRUE(form_structure.EncodeUploadRequest(available_field_types, false,
                                                  &encoded_xml));
-  EXPECT_EQ("<\?xml version=\"1.0\" encoding=\"UTF-8\"\?>"
+  EXPECT_EQ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
             "<autofillupload clientversion=\"6.1.1715.1442/en (GGLL)\""
             " formsignature=\"6402244543831589061\" autofillused=\"false\""
             " datapresent=\"1f7e000378001fc8\">"
-            "<field signature=\"1089846351\" autofilltype=\"1\"/>"
-            "<field signature=\"2404144663\" autofilltype=\"1\"/>"
-            "<field signature=\"420638584\" autofilltype=\"1\"/>"
-            "</autofillupload>",
+            "<field signature=\"1089846351\" name=\"first\" type=\"text\""
+            " label=\"First Name\" autofilltype=\"1\"/>"
+            "<field signature=\"2404144663\" name=\"last\" type=\"text\""
+            " label=\"Last Name\" autofilltype=\"1\"/>"
+            "<field signature=\"420638584\" name=\"email\" type=\"text\""
+            " label=\"Email\" autofilltype=\"1\"/></autofillupload>",
             encoded_xml);
 }
 
-TEST(FormStructureTest, CheckMultipleTypes) {
+TEST_F(FormStructureTest, CheckMultipleTypes) {
   // Throughout this test, datapresent should be
   // 0x1440000360000008 ==
   //     0b0001010001000000000000000000001101100000000000000000000000001000
@@ -2141,48 +2424,60 @@ TEST(FormStructureTest, CheckMultipleTypes) {
   // Now we matched both fields singularly.
   EXPECT_TRUE(form_structure->EncodeUploadRequest(available_field_types, false,
                                                   &encoded_xml));
-  EXPECT_EQ("<\?xml version=\"1.0\" encoding=\"UTF-8\"\?>"
+  EXPECT_EQ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
             "<autofillupload clientversion=\"6.1.1715.1442/en (GGLL)\""
             " formsignature=\"18062476096658145866\" autofillused=\"false\""
             " datapresent=\"1440000360000008\">"
-            "<field signature=\"420638584\" autofilltype=\"9\"/>"
-            "<field signature=\"1089846351\" autofilltype=\"3\"/>"
-            "<field signature=\"2404144663\" autofilltype=\"5\"/>"
-            "<field signature=\"509334676\" autofilltype=\"30\"/>"
-            "</autofillupload>",
+            "<field signature=\"420638584\" name=\"email\" type=\"text\""
+            " label=\"email\" autofilltype=\"9\"/>"
+            "<field signature=\"1089846351\" name=\"first\" type=\"text\""
+            " label=\"First Name\" autofilltype=\"3\"/>"
+            "<field signature=\"2404144663\" name=\"last\" type=\"text\""
+            " label=\"Last Name\" autofilltype=\"5\"/>"
+            "<field signature=\"509334676\" name=\"address\" type=\"text\""
+            " label=\"Address\" autofilltype=\"30\"/></autofillupload>",
             encoded_xml);
   // Match third field as both first and last.
   possible_field_types[2].insert(NAME_FIRST);
   form_structure->field(2)->set_possible_types(possible_field_types[2]);
   EXPECT_TRUE(form_structure->EncodeUploadRequest(available_field_types, false,
                                                   &encoded_xml));
-  EXPECT_EQ("<\?xml version=\"1.0\" encoding=\"UTF-8\"\?>"
+  EXPECT_EQ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
             "<autofillupload clientversion=\"6.1.1715.1442/en (GGLL)\""
             " formsignature=\"18062476096658145866\" autofillused=\"false\""
             " datapresent=\"1440000360000008\">"
-            "<field signature=\"420638584\" autofilltype=\"9\"/>"
-            "<field signature=\"1089846351\" autofilltype=\"3\"/>"
-            "<field signature=\"2404144663\" autofilltype=\"3\"/>"
-            "<field signature=\"2404144663\" autofilltype=\"5\"/>"
-            "<field signature=\"509334676\" autofilltype=\"30\"/>"
-            "</autofillupload>",
+            "<field signature=\"420638584\" name=\"email\" type=\"text\""
+            " label=\"email\" autofilltype=\"9\"/>"
+            "<field signature=\"1089846351\" name=\"first\" type=\"text\""
+            " label=\"First Name\" autofilltype=\"3\"/>"
+            "<field signature=\"2404144663\" name=\"last\" type=\"text\""
+            " label=\"Last Name\" autofilltype=\"3\"/>"
+            "<field signature=\"2404144663\" name=\"last\" type=\"text\""
+            " label=\"Last Name\" autofilltype=\"5\"/>"
+            "<field signature=\"509334676\" name=\"address\" type=\"text\""
+            " label=\"Address\" autofilltype=\"30\"/></autofillupload>",
             encoded_xml);
   possible_field_types[3].insert(ADDRESS_HOME_LINE2);
   form_structure->field(form_structure->field_count() - 1)->set_possible_types(
       possible_field_types[form_structure->field_count() - 1]);
   EXPECT_TRUE(form_structure->EncodeUploadRequest(available_field_types, false,
                                                   &encoded_xml));
-  EXPECT_EQ("<\?xml version=\"1.0\" encoding=\"UTF-8\"\?>"
+  EXPECT_EQ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
             "<autofillupload clientversion=\"6.1.1715.1442/en (GGLL)\""
             " formsignature=\"18062476096658145866\" autofillused=\"false\""
             " datapresent=\"1440000360000008\">"
-            "<field signature=\"420638584\" autofilltype=\"9\"/>"
-            "<field signature=\"1089846351\" autofilltype=\"3\"/>"
-            "<field signature=\"2404144663\" autofilltype=\"3\"/>"
-            "<field signature=\"2404144663\" autofilltype=\"5\"/>"
-            "<field signature=\"509334676\" autofilltype=\"30\"/>"
-            "<field signature=\"509334676\" autofilltype=\"31\"/>"
-            "</autofillupload>",
+            "<field signature=\"420638584\" name=\"email\" type=\"text\""
+            " label=\"email\" autofilltype=\"9\"/>"
+            "<field signature=\"1089846351\" name=\"first\" type=\"text\""
+            " label=\"First Name\" autofilltype=\"3\"/>"
+            "<field signature=\"2404144663\" name=\"last\" type=\"text\""
+            " label=\"Last Name\" autofilltype=\"3\"/>"
+            "<field signature=\"2404144663\" name=\"last\" type=\"text\""
+            " label=\"Last Name\" autofilltype=\"5\"/>"
+            "<field signature=\"509334676\" name=\"address\" type=\"text\""
+            " label=\"Address\" autofilltype=\"30\"/>"
+            "<field signature=\"509334676\" name=\"address\" type=\"text\""
+            " label=\"Address\" autofilltype=\"31\"/></autofillupload>",
             encoded_xml);
   possible_field_types[3].clear();
   possible_field_types[3].insert(ADDRESS_HOME_LINE1);
@@ -2191,21 +2486,26 @@ TEST(FormStructureTest, CheckMultipleTypes) {
       possible_field_types[form_structure->field_count() - 1]);
   EXPECT_TRUE(form_structure->EncodeUploadRequest(available_field_types, false,
                                                   &encoded_xml));
-  EXPECT_EQ("<\?xml version=\"1.0\" encoding=\"UTF-8\"\?>"
+  EXPECT_EQ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
             "<autofillupload clientversion=\"6.1.1715.1442/en (GGLL)\""
             " formsignature=\"18062476096658145866\" autofillused=\"false\""
             " datapresent=\"1440000360000008\">"
-            "<field signature=\"420638584\" autofilltype=\"9\"/>"
-            "<field signature=\"1089846351\" autofilltype=\"3\"/>"
-            "<field signature=\"2404144663\" autofilltype=\"3\"/>"
-            "<field signature=\"2404144663\" autofilltype=\"5\"/>"
-            "<field signature=\"509334676\" autofilltype=\"30\"/>"
-            "<field signature=\"509334676\" autofilltype=\"60\"/>"
-            "</autofillupload>",
+            "<field signature=\"420638584\" name=\"email\" type=\"text\""
+            " label=\"email\" autofilltype=\"9\"/>"
+            "<field signature=\"1089846351\" name=\"first\" type=\"text\""
+            " label=\"First Name\" autofilltype=\"3\"/>"
+            "<field signature=\"2404144663\" name=\"last\" type=\"text\""
+            " label=\"Last Name\" autofilltype=\"3\"/>"
+            "<field signature=\"2404144663\" name=\"last\" type=\"text\""
+            " label=\"Last Name\" autofilltype=\"5\"/>"
+            "<field signature=\"509334676\" name=\"address\" type=\"text\""
+            " label=\"Address\" autofilltype=\"30\"/>"
+            "<field signature=\"509334676\" name=\"address\" type=\"text\""
+            " label=\"Address\" autofilltype=\"60\"/></autofillupload>",
             encoded_xml);
 }
 
-TEST(FormStructureTest, CheckFormSignature) {
+TEST_F(FormStructureTest, CheckFormSignature) {
   // Check that form signature is created correctly.
   scoped_ptr<FormStructure> form_structure;
   FormData form;
@@ -2271,10 +2571,9 @@ TEST(FormStructureTest, CheckFormSignature) {
       std::string("https://login.facebook.com&login_form&email&first&"
                   "random1234&random&1random&random")),
       form_structure->FormSignature());
-
 }
 
-TEST(FormStructureTest, ToFormData) {
+TEST_F(FormStructureTest, ToFormData) {
   FormData form;
   form.name = ASCIIToUTF16("the-name");
   form.origin = GURL("http://cool.com");
@@ -2296,15 +2595,15 @@ TEST(FormStructureTest, ToFormData) {
   field.form_control_type = "submit";
   form.fields.push_back(field);
 
-  EXPECT_EQ(form, FormStructure(form).ToFormData());
+  EXPECT_TRUE(form.SameFormAs(FormStructure(form).ToFormData()));
 
   // Currently |FormStructure(form_data)ToFormData().user_submitted| is always
   // false. This forces a future author that changes this to update this test.
   form.user_submitted = true;
-  EXPECT_NE(form, FormStructure(form).ToFormData());
+  EXPECT_FALSE(form.SameFormAs(FormStructure(form).ToFormData()));
 }
 
-TEST(FormStructureTest, SkipFieldTest) {
+TEST_F(FormStructureTest, SkipFieldTest) {
   FormData form;
   form.name = ASCIIToUTF16("the-name");
   form.origin = GURL("http://cool.com");
@@ -2334,14 +2633,13 @@ TEST(FormStructureTest, SkipFieldTest) {
   std::string encoded_xml;
 
   const char kSignature[] = "18006745212084723782";
-  const char kResponse[] =
-      "<\?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+  const char kResponse[] = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
       "<autofillquery clientversion=\"6.1.1715.1442/en (GGLL)\">"
       "<form signature=\"18006745212084723782\">"
-      "<field signature=\"239111655\"/>"
-      "<field signature=\"420638584\"/>"
-      "</form>"
-      "</autofillquery>";
+      "<field signature=\"239111655\" name=\"username\" type=\"text\""
+      " label=\"username\"/>"
+      "<field signature=\"420638584\" name=\"email\" type=\"text\"/>"
+      "</form></autofillquery>";
   ASSERT_TRUE(FormStructure::EncodeQueryRequest(forms.get(),
                                                 &encoded_signatures,
                                                 &encoded_xml));
@@ -2350,7 +2648,129 @@ TEST(FormStructureTest, SkipFieldTest) {
   EXPECT_EQ(kResponse, encoded_xml);
 }
 
-TEST(FormStructureTest, PossibleValues) {
+TEST_F(FormStructureTest, EncodeQueryRequest_WithLabels) {
+  FormData form;
+  form.name = ASCIIToUTF16("the-name");
+  form.origin = GURL("http://cool.com");
+  form.action = form.origin.Resolve("/login");
+
+  FormFieldData field;
+  // No label on the first field.
+  field.name = ASCIIToUTF16("username");
+  field.form_control_type = "text";
+  form.fields.push_back(field);
+
+  field.label = ASCIIToUTF16("Enter your Email address");
+  field.name = ASCIIToUTF16("email");
+  field.form_control_type = "text";
+  form.fields.push_back(field);
+
+  field.label = ASCIIToUTF16("Enter your Password");
+  field.name = ASCIIToUTF16("password");
+  field.form_control_type = "password";
+  form.fields.push_back(field);
+
+  ScopedVector<FormStructure> forms;
+  forms.push_back(new FormStructure(form));
+  std::vector<std::string> encoded_signatures;
+  std::string encoded_xml;
+
+  const char kRequest[] = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+      "<autofillquery clientversion=\"6.1.1715.1442/en (GGLL)\">"
+      "<form signature=\"13906559713264665730\">"
+      "<field signature=\"239111655\" name=\"username\" type=\"text\"/>"
+      "<field signature=\"420638584\" name=\"email\" type=\"text\""
+      " label=\"Enter your Email address\"/>"
+      "<field signature=\"2051817934\" name=\"password\" type=\"password\""
+      " label=\"Enter your Password\"/></form></autofillquery>";
+  EXPECT_TRUE(FormStructure::EncodeQueryRequest(forms.get(),
+                                                &encoded_signatures,
+                                                &encoded_xml));
+  EXPECT_EQ(kRequest, encoded_xml);
+}
+
+// One name is missing from one field.
+TEST_F(FormStructureTest, EncodeQueryRequest_MissingNames) {
+  FormData form;
+  // No name set for the form.
+  form.origin = GURL("http://cool.com");
+  form.action = form.origin.Resolve("/login");
+
+  FormFieldData field;
+  field.label = ASCIIToUTF16("username");
+  field.name = ASCIIToUTF16("username");
+  field.form_control_type = "text";
+  form.fields.push_back(field);
+
+  field.label = base::string16();
+  // No name set for this field.
+  field.name = ASCIIToUTF16("");
+  field.form_control_type = "text";
+  field.is_checkable = false;
+  form.fields.push_back(field);
+
+  ScopedVector<FormStructure> forms;
+  forms.push_back(new FormStructure(form));
+  std::vector<std::string> encoded_signatures;
+  std::string encoded_xml;
+
+  const char kSignature[] = "16416961345885087496";
+  const char kResponse[] = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+      "<autofillquery clientversion=\"6.1.1715.1442/en (GGLL)\">"
+      "<form signature=\"16416961345885087496\">"
+      "<field signature=\"239111655\" name=\"username\" type=\"text\""
+      " label=\"username\"/><field signature=\"1318412689\" type=\"text\"/>"
+      "</form></autofillquery>";
+  ASSERT_TRUE(FormStructure::EncodeQueryRequest(forms.get(),
+                                                &encoded_signatures,
+                                                &encoded_xml));
+  ASSERT_EQ(1U, encoded_signatures.size());
+  EXPECT_EQ(kSignature, encoded_signatures[0]);
+  EXPECT_EQ(kResponse, encoded_xml);
+}
+
+// Sending field metadata to the server is disabled.
+TEST_F(FormStructureTest, EncodeQueryRequest_DisabledMetadataTrial) {
+  DisableAutofillMetadataFieldTrial();
+
+  FormData form;
+  // No name set for the form.
+  form.origin = GURL("http://cool.com");
+  form.action = form.origin.Resolve("/login");
+
+  FormFieldData field;
+  field.label = ASCIIToUTF16("username");
+  field.name = ASCIIToUTF16("username");
+  field.form_control_type = "text";
+  form.fields.push_back(field);
+
+  field.label = base::string16();
+  field.name = ASCIIToUTF16("country");
+  field.form_control_type = "text";
+  field.is_checkable = false;
+  form.fields.push_back(field);
+
+  ScopedVector<FormStructure> forms;
+  forms.push_back(new FormStructure(form));
+  std::vector<std::string> encoded_signatures;
+  std::string encoded_xml;
+
+  const char kSignature[] = "7635954436925888745";
+  const char kResponse[] = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+      "<autofillquery clientversion=\"6.1.1715.1442/en (GGLL)\">"
+      "<form signature=\"7635954436925888745\">"
+      "<field signature=\"239111655\"/>"
+      "<field signature=\"3654076265\"/>"
+      "</form></autofillquery>";
+  ASSERT_TRUE(FormStructure::EncodeQueryRequest(forms.get(),
+                                                &encoded_signatures,
+                                                &encoded_xml));
+  ASSERT_EQ(1U, encoded_signatures.size());
+  EXPECT_EQ(kSignature, encoded_signatures[0]);
+  EXPECT_EQ(kResponse, encoded_xml);
+}
+
+TEST_F(FormStructureTest, PossibleValues) {
   FormData form_data;
   FormFieldData field;
   field.autocomplete_attribute = "billing country";
@@ -2390,8 +2810,10 @@ TEST(FormStructureTest, PossibleValues) {
   EXPECT_EQ(0U, form_structure2.PossibleValues(ADDRESS_BILLING_COUNTRY).size());
 }
 
-TEST(FormStructureTest, ParseQueryResponse) {
+TEST_F(FormStructureTest, ParseQueryResponse) {
+  TestRapporService rappor_service;
   FormData form;
+  form.origin = GURL("http://foo.com");
   FormFieldData field;
   field.form_control_type = "text";
 
@@ -2432,19 +2854,25 @@ TEST(FormStructureTest, ParseQueryResponse) {
       "<field autofilltype=\"0\" />"
       "</autofillqueryresponse>";
 
-  FormStructure::ParseQueryResponse(response,
-                                    forms.get(),
-                                    TestAutofillMetrics());
+  FormStructure::ParseQueryResponse(response, forms.get(), &rappor_service);
 
+  ASSERT_GE(forms[0]->field_count(), 2U);
+  ASSERT_GE(forms[1]->field_count(), 2U);
   EXPECT_EQ(7, forms[0]->field(0)->server_type());
   EXPECT_EQ(30, forms[0]->field(1)->server_type());
   EXPECT_EQ(9, forms[1]->field(0)->server_type());
   EXPECT_EQ(0, forms[1]->field(1)->server_type());
+
+  // No RAPPOR metrics are logged in the case there is server data available for
+  // all forms.
+  EXPECT_EQ(0, rappor_service.GetReportsCount());
 }
 
 // If user defined types are present, only parse password fields.
-TEST(FormStructureTest, ParseQueryResponseAuthorDefinedTypes) {
+TEST_F(FormStructureTest, ParseQueryResponseAuthorDefinedTypes) {
+  TestRapporService rappor_service;
   FormData form;
+  form.origin = GURL("http://foo.com");
   FormFieldData field;
 
   field.label = ASCIIToUTF16("email");
@@ -2461,7 +2889,7 @@ TEST(FormStructureTest, ParseQueryResponseAuthorDefinedTypes) {
 
   ScopedVector<FormStructure> forms;
   forms.push_back(new FormStructure(form));
-  forms.front()->DetermineHeuristicTypes(TestAutofillMetrics());
+  forms.front()->DetermineHeuristicTypes();
 
   std::string response =
       "<autofillqueryresponse>"
@@ -2469,12 +2897,162 @@ TEST(FormStructureTest, ParseQueryResponseAuthorDefinedTypes) {
       "<field autofilltype=\"76\" />"
       "</autofillqueryresponse>";
 
-  FormStructure::ParseQueryResponse(response,
-                                    forms.get(),
-                                    TestAutofillMetrics());
+  FormStructure::ParseQueryResponse(response, forms.get(), &rappor_service);
 
+  ASSERT_GE(forms[0]->field_count(), 2U);
   EXPECT_EQ(NO_SERVER_DATA, forms[0]->field(0)->server_type());
   EXPECT_EQ(76, forms[0]->field(1)->server_type());
+}
+
+// If the server returns NO_SERVER_DATA for one of the forms, expect RAPPOR
+// logging.
+TEST_F(FormStructureTest,
+       ParseQueryResponse_RapporLogging_OneFormNoServerData) {
+  TestRapporService rappor_service;
+  FormData form;
+  form.origin = GURL("http://foo.com");
+  FormFieldData field;
+  field.form_control_type = "text";
+
+  field.label = ASCIIToUTF16("fullname");
+  field.name = ASCIIToUTF16("fullname");
+  form.fields.push_back(field);
+
+  field.label = ASCIIToUTF16("address");
+  field.name = ASCIIToUTF16("address");
+  form.fields.push_back(field);
+
+  ScopedVector<FormStructure> forms;
+  forms.push_back(new FormStructure(form));
+
+  field.label = ASCIIToUTF16("email");
+  field.name = ASCIIToUTF16("email");
+  form.fields.push_back(field);
+
+  field.label = ASCIIToUTF16("password");
+  field.name = ASCIIToUTF16("password");
+  field.form_control_type = "password";
+  form.fields.push_back(field);
+
+  forms.push_back(new FormStructure(form));
+
+  std::string response =
+      "<autofillqueryresponse>"
+      "<field autofilltype=\"0\" />"
+      "<field autofilltype=\"0\" />"
+      "<field autofilltype=\"9\" />"
+      "<field autofilltype=\"0\" />"
+      "</autofillqueryresponse>";
+
+  FormStructure::ParseQueryResponse(response, forms.get(), &rappor_service);
+
+  EXPECT_EQ(1, rappor_service.GetReportsCount());
+  std::string sample;
+  rappor::RapporType type;
+  EXPECT_TRUE(rappor_service.GetRecordedSampleForMetric(
+      "Autofill.QueryResponseHasNoServerDataForForm", &sample, &type));
+  EXPECT_EQ("foo.com", sample);
+  EXPECT_EQ(rappor::ETLD_PLUS_ONE_RAPPOR_TYPE, type);
+}
+
+// If the server returns NO_SERVER_DATA for both of the forms, expect RAPPOR
+// logging.
+TEST_F(FormStructureTest,
+       ParseQueryResponse_RapporLogging_AllFormsNoServerData) {
+  TestRapporService rappor_service;
+  FormData form;
+  form.origin = GURL("http://foo.com");
+  FormFieldData field;
+  field.form_control_type = "text";
+
+  field.label = ASCIIToUTF16("fullname");
+  field.name = ASCIIToUTF16("fullname");
+  form.fields.push_back(field);
+
+  field.label = ASCIIToUTF16("address");
+  field.name = ASCIIToUTF16("address");
+  form.fields.push_back(field);
+
+  ScopedVector<FormStructure> forms;
+  forms.push_back(new FormStructure(form));
+
+  field.label = ASCIIToUTF16("email");
+  field.name = ASCIIToUTF16("email");
+  form.fields.push_back(field);
+
+  field.label = ASCIIToUTF16("password");
+  field.name = ASCIIToUTF16("password");
+  field.form_control_type = "password";
+  form.fields.push_back(field);
+
+  forms.push_back(new FormStructure(form));
+
+  std::string response =
+      "<autofillqueryresponse>"
+      "<field autofilltype=\"0\" />"
+      "<field autofilltype=\"0\" />"
+      "<field autofilltype=\"0\" />"
+      "<field autofilltype=\"0\" />"
+      "</autofillqueryresponse>";
+
+  FormStructure::ParseQueryResponse(response, forms.get(), &rappor_service);
+
+  // Even though both forms are logging to RAPPOR, there is only one sample for
+  // a given eTLD+1.
+  EXPECT_EQ(1, rappor_service.GetReportsCount());
+  std::string sample;
+  rappor::RapporType type;
+  EXPECT_TRUE(rappor_service.GetRecordedSampleForMetric(
+      "Autofill.QueryResponseHasNoServerDataForForm", &sample, &type));
+  EXPECT_EQ("foo.com", sample);
+  EXPECT_EQ(rappor::ETLD_PLUS_ONE_RAPPOR_TYPE, type);
+}
+
+// If the server returns NO_SERVER_DATA for only some of the fields, expect no
+// RAPPOR logging.
+TEST_F(FormStructureTest,
+       ParseQueryResponse_RapporLogging_PartialNoServerData) {
+  TestRapporService rappor_service;
+  FormData form;
+  form.origin = GURL("http://foo.com");
+  FormFieldData field;
+  field.form_control_type = "text";
+
+  field.label = ASCIIToUTF16("fullname");
+  field.name = ASCIIToUTF16("fullname");
+  form.fields.push_back(field);
+
+  field.label = ASCIIToUTF16("address");
+  field.name = ASCIIToUTF16("address");
+  form.fields.push_back(field);
+
+  ScopedVector<FormStructure> forms;
+  forms.push_back(new FormStructure(form));
+
+  field.label = ASCIIToUTF16("email");
+  field.name = ASCIIToUTF16("email");
+  form.fields.push_back(field);
+
+  field.label = ASCIIToUTF16("password");
+  field.name = ASCIIToUTF16("password");
+  field.form_control_type = "password";
+  form.fields.push_back(field);
+
+  forms.push_back(new FormStructure(form));
+
+  std::string response =
+      "<autofillqueryresponse>"
+      "<field autofilltype=\"0\" />"
+      "<field autofilltype=\"10\" />"
+      "<field autofilltype=\"0\" />"
+      "<field autofilltype=\"11\" />"
+      "</autofillqueryresponse>";
+
+  FormStructure::ParseQueryResponse(response, forms.get(), &rappor_service);
+
+  // No RAPPOR metrics are logged in the case there is at least some server data
+  // available for all forms.
+  EXPECT_EQ(0, rappor_service.GetReportsCount());
 }
 
 }  // namespace autofill

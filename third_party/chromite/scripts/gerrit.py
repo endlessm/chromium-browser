@@ -12,13 +12,15 @@ with the prefix "UserAct".
 from __future__ import print_function
 
 import inspect
-import os
+import pprint
 import re
 
 from chromite.cbuildbot import constants
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import gerrit
+from chromite.lib import git
 from chromite.lib import gob_util
 from chromite.lib import terminal
 
@@ -30,7 +32,7 @@ GERRIT_APPROVAL_MAP = {
     'COMR': ['CQ', 'Commit Queue   ',],
     'CRVW': ['CR', 'Code Review    ',],
     'SUBM': ['S ', 'Submitted      ',],
-    'TBVF': ['TV', 'Trybot Verified',],
+    'TRY':  ['T ', 'Trybot Ready   ',],
     'VRIF': ['V ', 'Verified       ',],
 }
 
@@ -98,8 +100,7 @@ def GetApprovalSummary(_opts, cls):
     for approver in cls['currentPatchSet']['approvals']:
       cats = GERRIT_APPROVAL_MAP.get(approver['type'])
       if not cats:
-        cros_build_lib.Warning('unknown gerrit approval type: %s',
-                               approver['type'])
+        logging.warning('unknown gerrit approval type: %s', approver['type'])
         continue
       cat = cats[0].strip()
       val = int(approver['value'])
@@ -153,9 +154,13 @@ def PrintCl(opts, cls, lims, show_approvals=True):
 
 
 def _MyUserInfo():
-  username = os.environ['USER']
-  emails = ['%s@%s' % (username, domain)
-            for domain in ('google.com', 'chromium.org')]
+  email = git.GetProjectUserEmail(constants.CHROMITE_DIR)
+  [username, _, domain] = email.partition('@')
+  if domain in ('google.com', 'chromium.org'):
+    emails = ['%s@%s' % (username, domain)
+              for domain in ('google.com', 'chromium.org')]
+  else:
+    emails = [email]
   reviewers = ['reviewer:%s' % x for x in emails]
   owners = ['owner:%s' % x for x in emails]
   return emails, reviewers, owners
@@ -164,6 +169,13 @@ def _MyUserInfo():
 def FilteredQuery(opts, query):
   """Query gerrit and filter/clean up the results"""
   ret = []
+
+  if opts.branch is not None:
+    query += ' branch:%s' % opts.branch
+  if opts.project is not None:
+    query += ' project: %s' % opts.project
+  if opts.topic is not None:
+    query += ' topic: %s' % opts.topic
 
   helper, _ = GetGerrit(opts)
   for cl in helper.Query(query, raw=True, bypass_cache=False):
@@ -211,8 +223,8 @@ def IsApprover(cl, users):
 def UserActTodo(opts):
   """List CLs needing your review"""
   emails, reviewers, owners = _MyUserInfo()
-  cls = FilteredQuery(opts, '( %s ) status:open NOT ( %s )' %
-                            (' OR '.join(reviewers), ' OR '.join(owners)))
+  cls = FilteredQuery(opts, ('( %s ) status:open NOT ( %s )' %
+                             (' OR '.join(reviewers), ' OR '.join(owners))))
   cls = [x for x in cls if not IsApprover(x, emails)]
   lims = limits(cls)
   for cl in cls:
@@ -270,6 +282,15 @@ def UserActReady(opts, *args):
 UserActReady.arg_min = 2
 
 
+def UserActTrybotready(opts, *args):
+  """Mark CL <n> [n ...] with trybot-ready status <0,1>"""
+  num = args[-1]
+  for arg in args[:-1]:
+    helper, cl = GetGerrit(opts, arg)
+    helper.SetReview(cl, labels={'Trybot-Ready': num}, dryrun=opts.dryrun)
+UserActTrybotready.arg_min = 2
+
+
 def UserActSubmit(opts, *args):
   """Submit CL <n> [n ...]"""
   for arg in args:
@@ -322,11 +343,24 @@ def UserActMessage(opts, cl, message):
   helper.SetReview(cl, msg=message, dryrun=opts.dryrun)
 
 
+def UserActTopic(opts, topic, *args):
+  """Set |topic| for CL number <n> [n ...]"""
+  for arg in args:
+    helper, arg = GetGerrit(opts, arg)
+    helper.SetTopic(arg, topic, dryrun=opts.dryrun)
+
+
 def UserActDeletedraft(opts, *args):
   """Delete draft patch set <n> [n ...]"""
   for arg in args:
     helper, cl = GetGerrit(opts, arg)
     helper.DeleteDraft(cl, dryrun=opts.dryrun)
+
+
+def UserActAccount(opts):
+  """Get user account information."""
+  helper, _ = GetGerrit(opts)
+  pprint.PrettyPrinter().pprint(helper.GetAccount())
 
 
 def main(argv):
@@ -360,8 +394,12 @@ ready.
 Actions:"""
   indent = max([len(x) - len(act_pfx) for x in actions])
   for a in sorted(actions):
-    usage += '\n  %-*s: %s' % (indent, a[len(act_pfx):].lower(),
-                               globals()[a].__doc__)
+    cmd = a[len(act_pfx):]
+    # Sanity check for devs adding new commands.  Should be quick.
+    if cmd != cmd.lower().capitalize():
+      raise RuntimeError('callback "%s" is misnamed; should be "%s"' %
+                         (cmd, cmd.lower().capitalize()))
+    usage += '\n  %-*s: %s' % (indent, cmd.lower(), globals()[a].__doc__)
 
   parser = commandline.ArgumentParser(usage=usage)
   parser.add_argument('-i', '--internal', dest='gob', action='store_const',
@@ -370,8 +408,8 @@ Actions:"""
                       help='Query internal Chromium Gerrit instance')
   parser.add_argument('-g', '--gob',
                       default=constants.EXTERNAL_GOB_INSTANCE,
-                      help='Gerrit (on borg) instance to query (default: %s)' %
-                           (constants.EXTERNAL_GOB_INSTANCE))
+                      help=('Gerrit (on borg) instance to query (default: %s)' %
+                            (constants.EXTERNAL_GOB_INSTANCE)))
   parser.add_argument('--sort', default='number',
                       help='Key to sort on (number, project)')
   parser.add_argument('--raw', default=False, action='store_true',
@@ -381,6 +419,12 @@ Actions:"""
                       help='Show what would be done, but do not make changes')
   parser.add_argument('-v', '--verbose', default=False, action='store_true',
                       help='Be more verbose in output')
+  parser.add_argument('-b', '--branch',
+                      help='Limit output to the specific branch')
+  parser.add_argument('-p', '--project',
+                      help='Limit output to the specific project')
+  parser.add_argument('-t', '--topic',
+                      help='Limit output to the specific topic')
   parser.add_argument('args', nargs='+')
   opts = parser.parse_args(argv)
 

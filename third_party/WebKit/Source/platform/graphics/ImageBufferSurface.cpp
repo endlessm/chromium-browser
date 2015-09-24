@@ -32,6 +32,8 @@
 
 #include "platform/graphics/ImageBufferSurface.h"
 
+#include "platform/graphics/BitmapImage.h"
+#include "platform/graphics/GraphicsContext.h"
 #include "platform/graphics/ImageBuffer.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkDevice.h"
@@ -64,7 +66,6 @@ void ImageBufferSurface::clear()
             canvas()->drawARGB(255, 0, 0, 0, SkXfermode::kSrc_Mode);
         else
             canvas()->drawARGB(0, 0, 0, 0, SkXfermode::kClear_Mode);
-        didClearCanvas();
     }
 }
 
@@ -72,18 +73,16 @@ const SkBitmap& ImageBufferSurface::bitmap()
 {
     ASSERT(canvas());
     willAccessPixels();
-    return canvas()->getTopDevice()->accessBitmap(false);
+    return canvas()->getDevice()->accessBitmap(false);
 }
 
-const SkBitmap& ImageBufferSurface::cachedBitmap() const
+void ImageBufferSurface::draw(GraphicsContext* context, const FloatRect& destRect, const FloatRect& srcRect, SkXfermode::Mode op)
 {
-    DEFINE_STATIC_LOCAL(SkBitmap, nullBitmap, ());
-    return nullBitmap;
-}
+    SkBitmap bmp = bitmap();
 
-PassRefPtr<SkImage> ImageBufferSurface::newImageSnapshot() const
-{
-    return nullptr;
+    RefPtr<Image> image = BitmapImage::create(bmp);
+
+    context->drawImage(image.get(), destRect, srcRect, op, DoNotRespectImageOrientation);
 }
 
 } // namespace blink

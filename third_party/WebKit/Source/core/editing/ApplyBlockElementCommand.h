@@ -45,10 +45,10 @@ protected:
     PassRefPtrWillBeRawPtr<HTMLElement> createBlockElement() const;
     const QualifiedName tagName() const { return m_tagName; }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
-    virtual void doApply() override final;
+    void doApply() final;
     virtual void formatRange(const Position& start, const Position& end, const Position& endOfSelection, RefPtrWillBeRawPtr<HTMLElement>&) = 0;
     void rangeForParagraphSplittingTextNodesIfNeeded(const VisiblePosition&, Position&, Position&);
     VisiblePosition endOfNextParagrahSplittingTextNodesIfNeeded(VisiblePosition&, Position&, Position&);

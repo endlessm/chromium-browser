@@ -12,9 +12,10 @@
 #include "chrome/browser/chromeos/file_system_provider/provided_file_system_interface.h"
 #include "chrome/browser/chromeos/file_system_provider/service.h"
 #include "chrome/browser/chromeos/file_system_provider/service_factory.h"
-#include "chrome/browser/chromeos/login/users/fake_user_manager.h"
+#include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/common/extensions/api/file_system_provider_capabilities/file_system_provider_capabilities_handler.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
@@ -55,45 +56,31 @@ storage::FileSystemURL CreateFileSystemURL(
       base::FilePath(mount_path.BaseName().Append(relative_path)));
 }
 
-// Creates a Service instance. Used to be able to destroy the service in
-// TearDown().
-KeyedService* CreateService(content::BrowserContext* context) {
-  return new Service(Profile::FromBrowserContext(context),
-                     extensions::ExtensionRegistry::Get(context));
-}
-
 }  // namespace
 
 class FileSystemProviderMountPathUtilTest : public testing::Test {
  protected:
   FileSystemProviderMountPathUtilTest() {}
-  virtual ~FileSystemProviderMountPathUtilTest() {}
+  ~FileSystemProviderMountPathUtilTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     profile_manager_.reset(
         new TestingProfileManager(TestingBrowserProcess::GetGlobal()));
     ASSERT_TRUE(profile_manager_->SetUp());
     profile_ = profile_manager_->CreateTestingProfile("testing-profile");
-    user_manager_ = new FakeUserManager();
+    user_manager_ = new FakeChromeUserManager();
     user_manager_enabler_.reset(new ScopedUserManagerEnabler(user_manager_));
-    user_manager_->AddUser(profile_->GetProfileName());
-    ServiceFactory::GetInstance()->SetTestingFactory(profile_, &CreateService);
+    user_manager_->AddUser(profile_->GetProfileUserName());
     file_system_provider_service_ = Service::Get(profile_);
     file_system_provider_service_->SetFileSystemFactoryForTesting(
         base::Bind(&FakeProvidedFileSystem::Create));
-  }
-
-  virtual void TearDown() override {
-    // Setting the testing factory to NULL will destroy the created service
-    // associated with the testing profile.
-    ServiceFactory::GetInstance()->SetTestingFactory(profile_, NULL);
   }
 
   content::TestBrowserThreadBundle thread_bundle_;
   scoped_ptr<TestingProfileManager> profile_manager_;
   TestingProfile* profile_;  // Owned by TestingProfileManager.
   scoped_ptr<ScopedUserManagerEnabler> user_manager_enabler_;
-  FakeUserManager* user_manager_;
+  FakeChromeUserManager* user_manager_;
   Service* file_system_provider_service_;  // Owned by its factory.
 };
 
@@ -110,7 +97,7 @@ TEST_F(FileSystemProviderMountPathUtilTest, IsFileSystemProviderLocalPath) {
   const base::FilePath mount_path =
       GetMountPath(profile_, kExtensionId, kFileSystemId);
   const base::FilePath file_path =
-      base::FilePath::FromUTF8Unsafe("/hello/world.txt");
+      base::FilePath(FILE_PATH_LITERAL("/hello/world.txt"));
   const base::FilePath local_file_path =
       mount_path.Append(base::FilePath(file_path.value().substr(1)));
 
@@ -118,25 +105,26 @@ TEST_F(FileSystemProviderMountPathUtilTest, IsFileSystemProviderLocalPath) {
   EXPECT_TRUE(IsFileSystemProviderLocalPath(local_file_path));
 
   EXPECT_FALSE(IsFileSystemProviderLocalPath(
-      base::FilePath::FromUTF8Unsafe("provided/hello-world/test.txt")));
+      base::FilePath(FILE_PATH_LITERAL("provided/hello-world/test.txt"))));
   EXPECT_FALSE(IsFileSystemProviderLocalPath(
-      base::FilePath::FromUTF8Unsafe("/provided")));
+      base::FilePath(FILE_PATH_LITERAL("/provided"))));
   EXPECT_FALSE(
-      IsFileSystemProviderLocalPath(base::FilePath::FromUTF8Unsafe("/")));
+      IsFileSystemProviderLocalPath(base::FilePath(FILE_PATH_LITERAL("/"))));
   EXPECT_FALSE(IsFileSystemProviderLocalPath(base::FilePath()));
 }
 
 TEST_F(FileSystemProviderMountPathUtilTest, Parser) {
-  const bool result = file_system_provider_service_->MountFileSystem(
-      kExtensionId, MountOptions(kFileSystemId, kDisplayName));
-  ASSERT_TRUE(result);
+  const base::File::Error result =
+      file_system_provider_service_->MountFileSystem(
+          kExtensionId, MountOptions(kFileSystemId, kDisplayName));
+  ASSERT_EQ(base::File::FILE_OK, result);
   const ProvidedFileSystemInfo file_system_info =
       file_system_provider_service_->GetProvidedFileSystem(kExtensionId,
                                                            kFileSystemId)
           ->GetFileSystemInfo();
 
   const base::FilePath kFilePath =
-      base::FilePath::FromUTF8Unsafe("/hello/world.txt");
+      base::FilePath(FILE_PATH_LITERAL("/hello/world.txt"));
   const storage::FileSystemURL url =
       CreateFileSystemURL(profile_, file_system_info, kFilePath);
   EXPECT_TRUE(url.is_valid());
@@ -151,15 +139,16 @@ TEST_F(FileSystemProviderMountPathUtilTest, Parser) {
 }
 
 TEST_F(FileSystemProviderMountPathUtilTest, Parser_RootPath) {
-  const bool result = file_system_provider_service_->MountFileSystem(
-      kExtensionId, MountOptions(kFileSystemId, kDisplayName));
-  ASSERT_TRUE(result);
+  const base::File::Error result =
+      file_system_provider_service_->MountFileSystem(
+          kExtensionId, MountOptions(kFileSystemId, kDisplayName));
+  ASSERT_EQ(base::File::FILE_OK, result);
   const ProvidedFileSystemInfo file_system_info =
       file_system_provider_service_->GetProvidedFileSystem(kExtensionId,
                                                            kFileSystemId)
           ->GetFileSystemInfo();
 
-  const base::FilePath kFilePath = base::FilePath::FromUTF8Unsafe("/");
+  const base::FilePath kFilePath = base::FilePath(FILE_PATH_LITERAL("/"));
   const storage::FileSystemURL url =
       CreateFileSystemURL(profile_, file_system_info, kFilePath);
   EXPECT_TRUE(url.is_valid());
@@ -175,11 +164,11 @@ TEST_F(FileSystemProviderMountPathUtilTest, Parser_RootPath) {
 
 TEST_F(FileSystemProviderMountPathUtilTest, Parser_WrongUrl) {
   const ProvidedFileSystemInfo file_system_info(
-      kExtensionId,
-      MountOptions(kFileSystemId, kDisplayName),
-      GetMountPath(profile_, kExtensionId, kFileSystemId));
+      kExtensionId, MountOptions(kFileSystemId, kDisplayName),
+      GetMountPath(profile_, kExtensionId, kFileSystemId),
+      false /* configurable */, true /* watchable */, extensions::SOURCE_FILE);
 
-  const base::FilePath kFilePath = base::FilePath::FromUTF8Unsafe("/hello");
+  const base::FilePath kFilePath = base::FilePath(FILE_PATH_LITERAL("/hello"));
   const storage::FileSystemURL url =
       CreateFileSystemURL(profile_, file_system_info, kFilePath);
   // It is impossible to create a cracked URL for a mount point which doesn't
@@ -191,16 +180,17 @@ TEST_F(FileSystemProviderMountPathUtilTest, Parser_WrongUrl) {
 }
 
 TEST_F(FileSystemProviderMountPathUtilTest, Parser_IsolatedURL) {
-  const bool result = file_system_provider_service_->MountFileSystem(
-      kExtensionId, MountOptions(kFileSystemId, kDisplayName));
-  ASSERT_TRUE(result);
+  const base::File::Error result =
+      file_system_provider_service_->MountFileSystem(
+          kExtensionId, MountOptions(kFileSystemId, kDisplayName));
+  ASSERT_EQ(base::File::FILE_OK, result);
   const ProvidedFileSystemInfo file_system_info =
       file_system_provider_service_->GetProvidedFileSystem(kExtensionId,
                                                            kFileSystemId)
           ->GetFileSystemInfo();
 
   const base::FilePath kFilePath =
-      base::FilePath::FromUTF8Unsafe("/hello/world.txt");
+      base::FilePath(FILE_PATH_LITERAL("/hello/world.txt"));
   const storage::FileSystemURL url =
       CreateFileSystemURL(profile_, file_system_info, kFilePath);
   EXPECT_TRUE(url.is_valid());
@@ -237,16 +227,17 @@ TEST_F(FileSystemProviderMountPathUtilTest, Parser_IsolatedURL) {
 }
 
 TEST_F(FileSystemProviderMountPathUtilTest, LocalPathParser) {
-  const bool result = file_system_provider_service_->MountFileSystem(
-      kExtensionId, MountOptions(kFileSystemId, kDisplayName));
-  ASSERT_TRUE(result);
+  const base::File::Error result =
+      file_system_provider_service_->MountFileSystem(
+          kExtensionId, MountOptions(kFileSystemId, kDisplayName));
+  ASSERT_EQ(base::File::FILE_OK, result);
   const ProvidedFileSystemInfo file_system_info =
       file_system_provider_service_->GetProvidedFileSystem(kExtensionId,
                                                            kFileSystemId)
           ->GetFileSystemInfo();
 
   const base::FilePath kFilePath =
-      base::FilePath::FromUTF8Unsafe("/hello/world.txt");
+      base::FilePath(FILE_PATH_LITERAL("/hello/world.txt"));
   const base::FilePath kLocalFilePath = file_system_info.mount_path().Append(
       base::FilePath(kFilePath.value().substr(1)));
 
@@ -261,15 +252,16 @@ TEST_F(FileSystemProviderMountPathUtilTest, LocalPathParser) {
 }
 
 TEST_F(FileSystemProviderMountPathUtilTest, LocalPathParser_RootPath) {
-  const bool result = file_system_provider_service_->MountFileSystem(
-      kExtensionId, MountOptions(kFileSystemId, kDisplayName));
-  ASSERT_TRUE(result);
+  const base::File::Error result =
+      file_system_provider_service_->MountFileSystem(
+          kExtensionId, MountOptions(kFileSystemId, kDisplayName));
+  ASSERT_EQ(base::File::FILE_OK, result);
   const ProvidedFileSystemInfo file_system_info =
       file_system_provider_service_->GetProvidedFileSystem(kExtensionId,
                                                            kFileSystemId)
           ->GetFileSystemInfo();
 
-  const base::FilePath kFilePath = base::FilePath::FromUTF8Unsafe("/");
+  const base::FilePath kFilePath = base::FilePath(FILE_PATH_LITERAL("/"));
   const base::FilePath kLocalFilePath = file_system_info.mount_path();
 
   LocalPathParser parser(profile_, kLocalFilePath);
@@ -283,21 +275,22 @@ TEST_F(FileSystemProviderMountPathUtilTest, LocalPathParser_RootPath) {
 
 TEST_F(FileSystemProviderMountPathUtilTest, LocalPathParser_WrongPath) {
   {
-    const base::FilePath kFilePath = base::FilePath::FromUTF8Unsafe("/hello");
+    const base::FilePath kFilePath =
+        base::FilePath(FILE_PATH_LITERAL("/hello"));
     LocalPathParser parser(profile_, kFilePath);
     EXPECT_FALSE(parser.Parse());
   }
 
   {
     const base::FilePath kFilePath =
-        base::FilePath::FromUTF8Unsafe("/provided");
+        base::FilePath(FILE_PATH_LITERAL("/provided"));
     LocalPathParser parser(profile_, kFilePath);
     EXPECT_FALSE(parser.Parse());
   }
 
   {
     const base::FilePath kFilePath =
-        base::FilePath::FromUTF8Unsafe("provided/hello/world");
+        base::FilePath(FILE_PATH_LITERAL("provided/hello/world"));
     LocalPathParser parser(profile_, kFilePath);
     EXPECT_FALSE(parser.Parse());
   }

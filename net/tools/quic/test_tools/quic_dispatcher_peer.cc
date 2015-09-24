@@ -38,26 +38,23 @@ void QuicDispatcherPeer::SetPacketWriterFactory(
 }
 
 // static
-QuicEpollConnectionHelper* QuicDispatcherPeer::GetHelper(
+QuicConnectionHelperInterface* QuicDispatcherPeer::GetHelper(
     QuicDispatcher* dispatcher) {
   return dispatcher->helper_.get();
-}
-
-// static
-QuicConnection* QuicDispatcherPeer::CreateQuicConnection(
-    QuicDispatcher* dispatcher,
-    QuicConnectionId connection_id,
-    const IPEndPoint& server,
-    const IPEndPoint& client) {
-  return dispatcher->CreateQuicConnection(connection_id,
-                                          server,
-                                          client);
 }
 
 // static
 QuicDispatcher::WriteBlockedList* QuicDispatcherPeer::GetWriteBlockedList(
     QuicDispatcher* dispatcher) {
   return &dispatcher->write_blocked_list_;
+}
+
+// static
+QuicErrorCode QuicDispatcherPeer::GetAndClearLastError(
+    QuicDispatcher* dispatcher) {
+  QuicErrorCode ret = dispatcher->last_error_;
+  dispatcher->last_error_ = QUIC_NO_ERROR;
+  return ret;
 }
 
 }  // namespace test

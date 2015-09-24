@@ -23,7 +23,7 @@ class ServiceClient::Core
   Core(const std::string& chromoting_hosts_url,
        net::URLRequestContextGetter* request_context_getter)
            : request_context_getter_(request_context_getter),
-             delegate_(NULL),
+             delegate_(nullptr),
              pending_request_type_(PENDING_REQUEST_NONE),
              chromoting_hosts_url_(chromoting_hosts_url) {
   }
@@ -83,7 +83,7 @@ void ServiceClient::Core::RegisterHost(
   if (!host_client_id.empty())
     url_suffix = "?hostClientId=" + host_client_id;
   std::string post_body_str;
-  base::JSONWriter::Write(&post_body, &post_body_str);
+  base::JSONWriter::Write(post_body, &post_body_str);
   MakeChromotingRequest(net::URLFetcher::POST,
                         url_suffix,
                         post_body_str,
@@ -111,8 +111,8 @@ void ServiceClient::Core::MakeChromotingRequest(
     const std::string& oauth_access_token,
     ServiceClient::Delegate* delegate) {
   delegate_ = delegate;
-  request_.reset(net::URLFetcher::Create(
-      0, GURL(chromoting_hosts_url_ + url_suffix), request_type, this));
+  request_ = net::URLFetcher::Create(
+      0, GURL(chromoting_hosts_url_ + url_suffix), request_type, this);
   request_->SetRequestContext(request_context_getter_.get());
   request_->SetUploadData("application/json; charset=UTF-8", request_body);
   request_->AddExtraRequestHeader("Authorization: OAuth " + oauth_access_token);
@@ -145,7 +145,7 @@ void ServiceClient::Core::HandleResponse(const net::URLFetcher* source) {
         {
           std::string data;
           source->GetResponseAsString(&data);
-          scoped_ptr<base::Value> message_value(base::JSONReader::Read(data));
+          scoped_ptr<base::Value> message_value = base::JSONReader::Read(data);
           base::DictionaryValue *dict;
           std::string code;
           if (message_value.get() &&

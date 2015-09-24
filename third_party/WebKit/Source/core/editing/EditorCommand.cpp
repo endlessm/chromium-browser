@@ -56,11 +56,12 @@
 #include "core/html/HTMLFontElement.h"
 #include "core/html/HTMLHRElement.h"
 #include "core/html/HTMLImageElement.h"
-#include "core/page/Chrome.h"
+#include "core/input/EventHandler.h"
+#include "core/layout/LayoutBox.h"
+#include "core/page/ChromeClient.h"
 #include "core/page/EditorClient.h"
-#include "core/page/EventHandler.h"
-#include "core/rendering/RenderBox.h"
 #include "platform/KillRing.h"
+#include "platform/UserGestureIndicator.h"
 #include "platform/scroll/Scrollbar.h"
 #include "public/platform/Platform.h"
 #include "wtf/text/AtomicString.h"
@@ -110,7 +111,6 @@ static bool applyCommandToFrame(LocalFrame& frame, EditorCommandSource source, E
         frame.editor().applyStyleToSelection(style, action);
         return true;
     case CommandFromDOM:
-    case CommandFromDOMWithUserInterface:
         frame.editor().applyStyle(style);
         return true;
     }
@@ -185,7 +185,6 @@ static bool executeApplyParagraphStyle(LocalFrame& frame, EditorCommandSource so
         frame.editor().applyParagraphStyleToSelection(style.get(), action);
         return true;
     case CommandFromDOM:
-    case CommandFromDOMWithUserInterface:
         frame.editor().applyParagraphStyle(style.get());
         return true;
     }
@@ -268,25 +267,24 @@ static unsigned verticalScrollDistance(LocalFrame& frame)
     Element* focusedElement = frame.document()->focusedElement();
     if (!focusedElement)
         return 0;
-    RenderObject* renderer = focusedElement->renderer();
-    if (!renderer || !renderer->isBox())
+    LayoutObject* layoutObject = focusedElement->layoutObject();
+    if (!layoutObject || !layoutObject->isBox())
         return 0;
-    RenderBox& renderBox = toRenderBox(*renderer);
-    RenderStyle* style = renderBox.style();
+    LayoutBox& layoutBox = toLayoutBox(*layoutObject);
+    const ComputedStyle* style = layoutBox.style();
     if (!style)
         return 0;
     if (!(style->overflowY() == OSCROLL || style->overflowY() == OAUTO || focusedElement->hasEditableStyle()))
         return 0;
-    int height = std::min<int>(renderBox.clientHeight(), frame.view()->visibleHeight());
+    int height = std::min<int>(layoutBox.clientHeight(), frame.view()->visibleHeight());
     return static_cast<unsigned>(max(max<int>(height * ScrollableArea::minFractionToStepWhenPaging(), height - ScrollableArea::maxOverlapBetweenPages()), 1));
 }
 
-static PassRefPtrWillBeRawPtr<Range> unionDOMRanges(Range* a, Range* b)
+static EphemeralRange unionEphemeralRanges(const EphemeralRange& range1, const EphemeralRange& range2)
 {
-    Range* start = a->compareBoundaryPoints(Range::START_TO_START, b, ASSERT_NO_EXCEPTION) <= 0 ? a : b;
-    Range* end = a->compareBoundaryPoints(Range::END_TO_END, b, ASSERT_NO_EXCEPTION) <= 0 ? b : a;
-
-    return Range::create(a->ownerDocument(), start->startContainer(), start->startOffset(), end->endContainer(), end->endOffset());
+    const Position startPosition = range1.startPosition().compareTo(range2.startPosition()) <= 0 ? range1.startPosition() : range2.startPosition();
+    const Position endPosition = range1.endPosition().compareTo(range2.endPosition()) <= 0 ? range1.endPosition() : range2.endPosition();
+    return EphemeralRange(startPosition, endPosition);
 }
 
 // Execute command functions
@@ -304,7 +302,6 @@ static bool executeCopy(LocalFrame& frame, Event*, EditorCommandSource, const St
 
 static bool executeCreateLink(LocalFrame& frame, Event*, EditorCommandSource, const String& value)
 {
-    // FIXME: If userInterface is true, we should display a dialog box to let the user enter a URL.
     if (value.isEmpty())
         return false;
     ASSERT(frame.document());
@@ -337,7 +334,6 @@ static bool executeDelete(LocalFrame& frame, Event*, EditorCommandSource source,
         return true;
     }
     case CommandFromDOM:
-    case CommandFromDOMWithUserInterface:
         // If the current selection is a caret, delete the preceding character. IE performs forwardDelete, but we currently side with Firefox.
         // Doesn't scroll to make the selection visible, or modify the kill ring (this time, siding with IE, not Firefox).
         ASSERT(frame.document());
@@ -397,9 +393,11 @@ static bool executeDeleteToEndOfParagraph(LocalFrame& frame, Event*, EditorComma
 
 static bool executeDeleteToMark(LocalFrame& frame, Event*, EditorCommandSource, const String&)
 {
+    // TODO(yosin) We should use |EphemeralRange| version of
+    // |VisibleSelection::toNormalizedRange()|.
     RefPtrWillBeRawPtr<Range> mark = frame.editor().mark().toNormalizedRange();
     if (mark) {
-        bool selected = frame.selection().setSelectedRange(unionDOMRanges(mark.get(), frame.editor().selectedRange().get()).get(), DOWNSTREAM, FrameSelection::NonDirectional, FrameSelection::CloseTyping);
+        bool selected = frame.selection().setSelectedRange(unionEphemeralRanges(EphemeralRange(mark.get()), frame.editor().selectedRange()), DOWNSTREAM, FrameSelection::NonDirectional, FrameSelection::CloseTyping);
         ASSERT(selected);
         if (!selected)
             return false;
@@ -423,7 +421,7 @@ static bool executeDeleteWordForward(LocalFrame& frame, Event*, EditorCommandSou
 
 static bool executeFindString(LocalFrame& frame, Event*, EditorCommandSource, const String& value)
 {
-    return frame.editor().findString(value, true, false, true, false);
+    return frame.editor().findString(value, CaseInsensitive | WrapAround);
 }
 
 static bool executeFontName(LocalFrame& frame, Event*, EditorCommandSource source, const String& value)
@@ -473,7 +471,6 @@ static bool executeForwardDelete(LocalFrame& frame, Event*, EditorCommandSource 
         frame.editor().deleteWithDirection(DirectionForward, CharacterGranularity, false, true);
         return true;
     case CommandFromDOM:
-    case CommandFromDOMWithUserInterface:
         // Doesn't scroll to make the selection visible, or modify the kill ring.
         // ForwardDelete is not implemented in IE or Firefox, so this behavior is only needed for
         // backward compatibility with ourselves, and for consistency with Delete.
@@ -520,10 +517,10 @@ static bool executeInsertHTML(LocalFrame& frame, Event*, EditorCommandSource, co
 
 static bool executeInsertImage(LocalFrame& frame, Event*, EditorCommandSource, const String& value)
 {
-    // FIXME: If userInterface is true, we should display a dialog box and let the user choose a local image.
     ASSERT(frame.document());
     RefPtrWillBeRawPtr<HTMLImageElement> image = HTMLImageElement::create(*frame.document());
-    image->setSrc(value);
+    if (!value.isEmpty())
+        image->setSrc(value);
     return executeInsertElement(frame, image.release());
 }
 
@@ -533,7 +530,6 @@ static bool executeInsertLineBreak(LocalFrame& frame, Event* event, EditorComman
     case CommandFromMenuOrKeyBinding:
         return targetFrame(frame, event)->eventHandler().handleTextInputEvent("\n", event, TextEventInputLineBreak);
     case CommandFromDOM:
-    case CommandFromDOMWithUserInterface:
         // Doesn't scroll to make the selection visible, or modify the kill ring.
         // InsertLineBreak is not implemented in IE or Firefox, so this behavior is only needed for
         // backward compatibility with ourselves, and for consistency with other commands.
@@ -976,7 +972,7 @@ static bool executePrint(LocalFrame& frame, Event*, EditorCommandSource, const S
     FrameHost* host = frame.host();
     if (!host)
         return false;
-    host->chrome().print(&frame);
+    host->chromeClient().print(&frame);
     return true;
 }
 
@@ -1004,12 +1000,12 @@ static bool executeScrollPageForward(LocalFrame& frame, Event*, EditorCommandSou
 
 static bool executeScrollLineUp(LocalFrame& frame, Event*, EditorCommandSource, const String&)
 {
-    return frame.eventHandler().bubblingScroll(ScrollUp, ScrollByLine);
+    return frame.eventHandler().bubblingScroll(ScrollUpIgnoringWritingMode, ScrollByLine);
 }
 
 static bool executeScrollLineDown(LocalFrame& frame, Event*, EditorCommandSource, const String&)
 {
-    return frame.eventHandler().bubblingScroll(ScrollDown, ScrollByLine);
+    return frame.eventHandler().bubblingScroll(ScrollDownIgnoringWritingMode, ScrollByLine);
 }
 
 static bool executeScrollToBeginningOfDocument(LocalFrame& frame, Event*, EditorCommandSource, const String&)
@@ -1045,11 +1041,13 @@ static bool executeSelectSentence(LocalFrame& frame, Event*, EditorCommandSource
 
 static bool executeSelectToMark(LocalFrame& frame, Event*, EditorCommandSource, const String&)
 {
+    // TODO(yosin) We should use |EphemeralRange| version of
+    // |VisibleSelection::toNormalizedRange()|.
     RefPtrWillBeRawPtr<Range> mark = frame.editor().mark().toNormalizedRange();
-    RefPtrWillBeRawPtr<Range> selection = frame.editor().selectedRange();
-    if (!mark || !selection)
+    EphemeralRange selection = frame.editor().selectedRange();
+    if (!mark || selection.isNull())
         return false;
-    frame.selection().setSelectedRange(unionDOMRanges(mark.get(), selection.get()).get(), DOWNSTREAM, FrameSelection::NonDirectional, FrameSelection::CloseTyping);
+    frame.selection().setSelectedRange(unionEphemeralRanges(EphemeralRange(mark.get()), selection), DOWNSTREAM, FrameSelection::NonDirectional, FrameSelection::CloseTyping);
     return true;
 }
 
@@ -1181,7 +1179,7 @@ static bool supportedCopyCut(LocalFrame* frame)
         return false;
 
     Settings* settings = frame->settings();
-    bool defaultValue = settings && settings->javaScriptCanAccessClipboard();
+    bool defaultValue = (settings && settings->javaScriptCanAccessClipboard()) || UserGestureIndicator::processingUserGesture();
     return frame->editor().client().canCopyCut(frame, defaultValue);
 }
 
@@ -1256,7 +1254,6 @@ static bool enabledDelete(LocalFrame& frame, Event* event, EditorCommandSource s
     case CommandFromMenuOrKeyBinding:
         return frame.editor().canDelete();
     case CommandFromDOM:
-    case CommandFromDOMWithUserInterface:
         // "Delete" from DOM is like delete/backspace keypress, affects selected range if non-empty,
         // otherwise removes a character
         return enabledInEditableText(frame, event, source);
@@ -1705,10 +1702,10 @@ bool Editor::executeCommand(const String& commandName, const String& value)
 {
     // moveToBeginningOfDocument and moveToEndfDocument are only handled by WebKit for editable nodes.
     if (!canEdit() && commandName == "moveToBeginningOfDocument")
-        return frame().eventHandler().bubblingScroll(ScrollUp, ScrollByDocument);
+        return frame().eventHandler().bubblingScroll(ScrollUpIgnoringWritingMode, ScrollByDocument);
 
     if (!canEdit() && commandName == "moveToEndOfDocument")
-        return frame().eventHandler().bubblingScroll(ScrollDown, ScrollByDocument);
+        return frame().eventHandler().bubblingScroll(ScrollDownIgnoringWritingMode, ScrollByDocument);
 
     if (commandName == "showGuessPanel") {
         spellChecker().showSpellingGuessPanel();
@@ -1743,7 +1740,7 @@ bool Editor::Command::execute(const String& parameter, Event* triggeringEvent) c
             return false;
     }
     frame().document()->updateLayoutIgnorePendingStylesheets();
-    blink::Platform::current()->histogramSparse("WebCore.Editing.Commands", m_command->idForUserMetrics);
+    Platform::current()->histogramSparse("WebCore.Editing.Commands", m_command->idForUserMetrics);
     return m_command->execute(*m_frame, triggeringEvent, m_source, parameter);
 }
 
@@ -1760,7 +1757,6 @@ bool Editor::Command::isSupported() const
     case CommandFromMenuOrKeyBinding:
         return true;
     case CommandFromDOM:
-    case CommandFromDOMWithUserInterface:
         return m_command->isSupportedFromDOM(m_frame.get());
     }
     ASSERT_NOT_REACHED();

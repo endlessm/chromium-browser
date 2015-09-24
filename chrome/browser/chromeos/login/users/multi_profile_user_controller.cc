@@ -73,10 +73,8 @@ void MultiProfileUserController::RegisterPrefs(
 // static
 void MultiProfileUserController::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterStringPref(
-      prefs::kMultiProfileUserBehavior,
-      kBehaviorUnrestricted,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterStringPref(prefs::kMultiProfileUserBehavior,
+                               kBehaviorUnrestricted);
   registry->RegisterBooleanPref(
       prefs::kMultiProfileNeverShowIntro,
       false,
@@ -160,7 +158,7 @@ bool MultiProfileUserController::IsUserAllowedInSession(
 
 void MultiProfileUserController::StartObserving(Profile* user_profile) {
   // Profile name could be empty during tests.
-  if (user_profile->GetProfileName().empty())
+  if (user_profile->GetProfileUserName().empty())
     return;
 
   scoped_ptr<PrefChangeRegistrar> registrar(new PrefChangeRegistrar);
@@ -218,7 +216,7 @@ void MultiProfileUserController::CheckSessionUsers() {
 
 void MultiProfileUserController::OnUserPrefChanged(
     Profile* user_profile) {
-  std::string user_email = user_profile->GetProfileName();
+  std::string user_email = user_profile->GetProfileUserName();
   CHECK(!user_email.empty());
   user_email = gaia::CanonicalizeEmail(user_email);
 

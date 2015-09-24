@@ -50,9 +50,10 @@ ExtensionAppModelBuilder::~ExtensionAppModelBuilder() {
 }
 
 void ExtensionAppModelBuilder::InitializeWithService(
-    app_list::AppListSyncableService* service) {
+    app_list::AppListSyncableService* service,
+    app_list::AppListModel* model) {
   DCHECK(!service_ && !profile_);
-  model_ = service->model();
+  model_ = model;
   service_ = service;
   profile_ = service->profile();
   InitializePrefChangeRegistrars();
@@ -79,7 +80,7 @@ void ExtensionAppModelBuilder::InitializePrefChangeRegistrars() {
       base::Bind(&ExtensionAppModelBuilder::OnProfilePreferenceChanged,
                  base::Unretained(this)));
 
-  if (!extensions::util::IsStreamlinedHostedAppsEnabled())
+  if (!extensions::util::IsNewBookmarkAppsEnabled())
     return;
 
   // TODO(calamity): analyze the performance impact of doing this every
@@ -205,10 +206,10 @@ void ExtensionAppModelBuilder::OnExtensionUninstalled(
   if (service_) {
     DVLOG(2) << service_ << ": OnExtensionUninstalled: "
              << extension->id().substr(0, 8);
-    service_->RemoveItem(extension->id());
+    service_->RemoveUninstalledItem(extension->id());
     return;
   }
-  model_->DeleteItem(extension->id());
+  model_->DeleteUninstalledItem(extension->id());
 }
 
 void ExtensionAppModelBuilder::OnDisabledExtensionUpdated(

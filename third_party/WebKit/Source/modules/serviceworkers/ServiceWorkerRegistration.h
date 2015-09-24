@@ -8,6 +8,7 @@
 #include "core/dom/ActiveDOMObject.h"
 #include "core/events/EventTarget.h"
 #include "modules/serviceworkers/ServiceWorker.h"
+#include "modules/serviceworkers/ServiceWorkerRegistration.h"
 #include "platform/Supplementable.h"
 #include "public/platform/WebServiceWorkerRegistration.h"
 #include "public/platform/WebServiceWorkerRegistrationProxy.h"
@@ -24,24 +25,23 @@ class ScriptState;
 class WebServiceWorkerProvider;
 
 class ServiceWorkerRegistration final
-    : public RefCountedGarbageCollectedWillBeGarbageCollectedFinalized<ServiceWorkerRegistration>
+    : public RefCountedGarbageCollectedEventTargetWithInlineData<ServiceWorkerRegistration>
     , public ActiveDOMObject
-    , public EventTargetWithInlineData
     , public WebServiceWorkerRegistrationProxy
     , public HeapSupplementable<ServiceWorkerRegistration> {
     DEFINE_WRAPPERTYPEINFO();
-    DEFINE_EVENT_TARGET_REFCOUNTING_WILL_BE_REMOVED(RefCountedGarbageCollected<ServiceWorkerRegistration>);
+    REFCOUNTED_GARBAGE_COLLECTED_EVENT_TARGET(ServiceWorkerRegistration);
     USING_GARBAGE_COLLECTED_MIXIN(ServiceWorkerRegistration);
 public:
     // EventTarget overrides.
-    virtual const AtomicString& interfaceName() const override;
-    virtual ExecutionContext* executionContext() const override { return ActiveDOMObject::executionContext(); }
+    const AtomicString& interfaceName() const override;
+    ExecutionContext* executionContext() const override { return ActiveDOMObject::executionContext(); }
 
     // WebServiceWorkerRegistrationProxy overrides.
-    virtual void dispatchUpdateFoundEvent() override;
-    virtual void setInstalling(WebServiceWorker*) override;
-    virtual void setWaiting(WebServiceWorker*) override;
-    virtual void setActive(WebServiceWorker*) override;
+    void dispatchUpdateFoundEvent() override;
+    void setInstalling(WebServiceWorker*) override;
+    void setWaiting(WebServiceWorker*) override;
+    void setActive(WebServiceWorker*) override;
 
     // For CallbackPromiseAdapter.
     typedef WebServiceWorkerRegistration WebType;
@@ -57,19 +57,24 @@ public:
 
     WebServiceWorkerRegistration* webRegistration() { return m_outerRegistration.get(); }
 
+    void update(ScriptState*, ExceptionState&);
     ScriptPromise unregister(ScriptState*);
 
     DEFINE_ATTRIBUTE_EVENT_LISTENER(updatefound);
 
-    virtual void trace(Visitor*) override;
+    ~ServiceWorkerRegistration() override;
+
+    // Eager finalization needed to promptly release owned WebServiceWorkerRegistration.
+    EAGERLY_FINALIZE();
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     static ServiceWorkerRegistration* getOrCreate(ExecutionContext*, WebServiceWorkerRegistration*);
     ServiceWorkerRegistration(ExecutionContext*, PassOwnPtr<WebServiceWorkerRegistration>);
 
     // ActiveDOMObject overrides.
-    virtual bool hasPendingActivity() const override;
-    virtual void stop() override;
+    bool hasPendingActivity() const override;
+    void stop() override;
 
     OwnPtr<WebServiceWorkerRegistration> m_outerRegistration;
     WebServiceWorkerProvider* m_provider;
@@ -78,6 +83,28 @@ private:
     RefPtrWillBeMember<ServiceWorker> m_active;
 
     bool m_stopped;
+};
+
+class ServiceWorkerRegistrationArray {
+public:
+    typedef WebVector<WebServiceWorkerRegistration*> WebType;
+    static HeapVector<Member<ServiceWorkerRegistration>> take(ScriptPromiseResolver* resolver, PassOwnPtr<WebType> webServiceWorkerRegistrations)
+    {
+        HeapVector<Member<ServiceWorkerRegistration>> registrations;
+        for (WebServiceWorkerRegistration* registration : *webServiceWorkerRegistrations)
+            registrations.append(ServiceWorkerRegistration::take(resolver, registration));
+        return registrations;
+    }
+
+    static void dispose(PassOwnPtr<WebType> webServiceWorkerRegistrations)
+    {
+        for (WebServiceWorkerRegistration* registration : *webServiceWorkerRegistrations)
+            ServiceWorkerRegistration::dispose(registration);
+    }
+
+private:
+    WTF_MAKE_NONCOPYABLE(ServiceWorkerRegistrationArray);
+    ServiceWorkerRegistrationArray() = delete;
 };
 
 } // namespace blink

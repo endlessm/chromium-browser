@@ -15,12 +15,16 @@
 #include "cc/trees/tree_synchronizer.h"
 
 namespace cc {
+class TestTaskGraphRunner;
 
 class FakeLayerTreeHost : public LayerTreeHost {
  public:
-  static scoped_ptr<FakeLayerTreeHost> Create(FakeLayerTreeHostClient* client);
   static scoped_ptr<FakeLayerTreeHost> Create(
       FakeLayerTreeHostClient* client,
+      TestTaskGraphRunner* task_graph_runner);
+  static scoped_ptr<FakeLayerTreeHost> Create(
+      FakeLayerTreeHostClient* client,
+      TestTaskGraphRunner* task_graph_runner,
       const LayerTreeSettings& settings);
 
   ~FakeLayerTreeHost() override;
@@ -41,9 +45,7 @@ class FakeLayerTreeHost : public LayerTreeHost {
   using LayerTreeHost::SetOutputSurfaceLostForTesting;
   using LayerTreeHost::InitializeSingleThreaded;
   using LayerTreeHost::InitializeForTesting;
-  void UpdateLayers(ResourceUpdateQueue* queue) {
-    LayerTreeHost::UpdateLayers(queue);
-  }
+  void UpdateLayers() { LayerTreeHost::UpdateLayers(); }
 
   MicroBenchmarkController* GetMicroBenchmarkController() {
     return &micro_benchmark_controller_;
@@ -51,10 +53,11 @@ class FakeLayerTreeHost : public LayerTreeHost {
 
   bool needs_commit() { return needs_commit_; }
 
- private:
+ protected:
   FakeLayerTreeHost(FakeLayerTreeHostClient* client,
-                    const LayerTreeSettings& settings);
+                    LayerTreeHost::InitParams* params);
 
+ private:
   FakeImplProxy proxy_;
   FakeLayerTreeHostClient* client_;
   TestSharedBitmapManager manager_;

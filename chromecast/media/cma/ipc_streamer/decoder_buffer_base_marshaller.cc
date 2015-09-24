@@ -24,18 +24,23 @@ class DecoderBufferFromMsg : public DecoderBufferBase {
   void Initialize();
 
   // DecoderBufferBase implementation.
-  virtual base::TimeDelta timestamp() const override;
-  virtual const uint8* data() const override;
-  virtual uint8* writable_data() const override;
-  virtual int data_size() const override;
-  virtual const ::media::DecryptConfig* decrypt_config() const override;
-  virtual bool end_of_stream() const override;
+  StreamId stream_id() const override;
+  base::TimeDelta timestamp() const override;
+  void set_timestamp(const base::TimeDelta& timestamp) override;
+  const uint8* data() const override;
+  uint8* writable_data() const override;
+  size_t data_size() const override;
+  const ::media::DecryptConfig* decrypt_config() const override;
+  bool end_of_stream() const override;
 
  private:
-  virtual ~DecoderBufferFromMsg();
+  ~DecoderBufferFromMsg() override;
 
   // Indicates whether this is an end of stream frame.
   bool is_eos_;
+
+  // Stream Id this decoder buffer belongs to.
+  StreamId stream_id_;
 
   // Frame timestamp.
   base::TimeDelta pts_;
@@ -44,7 +49,7 @@ class DecoderBufferFromMsg : public DecoderBufferBase {
   scoped_ptr< ::media::DecryptConfig> decrypt_config_;
 
   // Size of the frame.
-  int data_size_;
+  size_t data_size_;
 
   // Keeps the message since frame data is not copied.
   scoped_ptr<MediaMessage> msg_;
@@ -55,8 +60,9 @@ class DecoderBufferFromMsg : public DecoderBufferBase {
 
 DecoderBufferFromMsg::DecoderBufferFromMsg(
     scoped_ptr<MediaMessage> msg)
-    : msg_(msg.Pass()),
-      is_eos_(true),
+    : is_eos_(true),
+      stream_id_(kPrimary),
+      msg_(msg.Pass()),
       data_(NULL) {
   CHECK(msg_);
 }
@@ -71,6 +77,8 @@ void DecoderBufferFromMsg::Initialize() {
   if (is_eos_)
     return;
 
+  CHECK(msg_->ReadPod(&stream_id_));
+
   int64 pts_internal = 0;
   CHECK(msg_->ReadPod(&pts_internal));
   pts_ = base::TimeDelta::FromInternalValue(pts_internal);
@@ -81,7 +89,7 @@ void DecoderBufferFromMsg::Initialize() {
     decrypt_config_.reset(DecryptConfigMarshaller::Read(msg_.get()).release());
 
   CHECK(msg_->ReadPod(&data_size_));
-  CHECK_GT(data_size_, 0);
+  CHECK_GT(data_size_, 0u);
   CHECK_LT(data_size_, kMaxFrameSize);
 
   // Get a pointer to the frame data inside the message.
@@ -99,8 +107,16 @@ void DecoderBufferFromMsg::Initialize() {
   }
 }
 
+StreamId DecoderBufferFromMsg::stream_id() const {
+  return stream_id_;
+}
+
 base::TimeDelta DecoderBufferFromMsg::timestamp() const {
   return pts_;
+}
+
+void DecoderBufferFromMsg::set_timestamp(const base::TimeDelta& timestamp) {
+  pts_ = timestamp;
 }
 
 const uint8* DecoderBufferFromMsg::data() const {
@@ -113,7 +129,7 @@ uint8* DecoderBufferFromMsg::writable_data() const {
   return data_;
 }
 
-int DecoderBufferFromMsg::data_size() const {
+size_t DecoderBufferFromMsg::data_size() const {
   return data_size_;
 }
 
@@ -135,6 +151,7 @@ void DecoderBufferBaseMarshaller::Write(
   if (buffer->end_of_stream())
     return;
 
+  CHECK(msg->WritePod(buffer->stream_id()));
   CHECK(msg->WritePod(buffer->timestamp().ToInternalValue()));
 
   bool has_decrypt_config =

@@ -75,6 +75,13 @@ class DefaultStateProvider : public WindowSizer::StateProvider {
       wp_pref->GetInteger("work_area_right", &work_area_right);
       if (*show_state == ui::SHOW_STATE_DEFAULT && maximized)
         *show_state = ui::SHOW_STATE_MAXIMIZED;
+      bool docked = false;
+      wp_pref->GetBoolean("docked", &docked);
+      if (*show_state == ui::SHOW_STATE_DEFAULT && docked &&
+          !browser_->is_type_tabbed() &&
+          browser_->host_desktop_type() == chrome::HOST_DESKTOP_TYPE_ASH) {
+        *show_state = ui::SHOW_STATE_DOCKED;
+      }
     }
     work_area->SetRect(work_area_left, work_area_top,
                       std::max(0, work_area_right - work_area_left),
@@ -157,7 +164,8 @@ class DefaultTargetDisplayProvider : public WindowSizer::TargetDisplayProvider {
     // Revisit and address.
 #if defined(OS_WIN)
     force_ash = ash::Shell::HasInstance() &&
-        CommandLine::ForCurrentProcess()->HasSwitch(switches::kViewerConnect);
+                base::CommandLine::ForCurrentProcess()->HasSwitch(
+                    switches::kViewerConnect);
 #endif
     // Use the target display on ash.
     if (chrome::ShouldOpenAshOnStartup() || force_ash) {
@@ -431,7 +439,8 @@ ui::WindowShowState WindowSizer::GetWindowDefaultShowState() const {
   if (show_state)
     return browser_->initial_show_state();
 
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kStartMaximized))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kStartMaximized))
     return ui::SHOW_STATE_MAXIMIZED;
 
   if (browser_->initial_show_state() != ui::SHOW_STATE_DEFAULT)

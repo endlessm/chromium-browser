@@ -5,52 +5,104 @@
 #ifndef CHROME_BROWSER_CHROMEOS_PLATFORM_KEYS_PLATFORM_KEYS_SERVICE_H_
 #define CHROME_BROWSER_CHROMEOS_PLATFORM_KEYS_PLATFORM_KEYS_SERVICE_H_
 
+#include <queue>
 #include <string>
+#include <vector>
 
 #include "base/callback_forward.h"
 #include "base/macros.h"
+#include "base/memory/linked_ptr.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "chrome/browser/chromeos/platform_keys/key_permissions.h"
 #include "chrome/browser/chromeos/platform_keys/platform_keys.h"
 #include "components/keyed_service/core/keyed_service.h"
 
-namespace content {
-class BrowserContext;
-}
+class PrefService;
 
 namespace base {
 class ListValue;
 class Value;
 }
 
+namespace content {
+class BrowserContext;
+class WebContents;
+}
+
 namespace extensions {
 class StateStore;
+}
+
+namespace net {
+class X509Certificate;
+typedef std::vector<scoped_refptr<X509Certificate>> CertificateList;
+}
+
+namespace policy {
+class PolicyService;
 }
 
 namespace chromeos {
 
 class PlatformKeysService : public KeyedService {
  public:
+  // The SelectDelegate is used to select a single certificate from all
+  // certificates matching a request (see SelectClientCertificates). E.g. this
+  // can happen by exposing UI to let the user select.
+  class SelectDelegate {
+   public:
+    using CertificateSelectedCallback = base::Callback<void(
+        const scoped_refptr<net::X509Certificate>& selection)>;
+
+    SelectDelegate();
+    virtual ~SelectDelegate();
+
+    // Called on an interactive SelectClientCertificates call with the list of
+    // matching certificates, |certs|.
+    // The certificate passed to |callback| will be forwarded to the
+    // calling extension and the extension will get unlimited sign permission
+    // for this cert. By passing null to |callback|, no cert will be selected.
+    // Must eventually call |callback| or be destructed. |callback| must not be
+    // called after this delegate is destructed.
+    // |web_contents| and |context| provide the context in which the
+    // certificates were requested and are not null.
+    virtual void Select(const std::string& extension_id,
+                        const net::CertificateList& certs,
+                        const CertificateSelectedCallback& callback,
+                        content::WebContents* web_contents,
+                        content::BrowserContext* context) = 0;
+
+   private:
+    DISALLOW_ASSIGN(SelectDelegate);
+  };
+
   // Stores registration information in |state_store|, i.e. for each extension
-  // the list of public keys that are valid to be used for signing. Each key can
-  // be used for signing at most once.
-  // The format written to |state_store| is:
-  //   kStateStorePlatformKeys maps to a list of strings.
-  //   Each string is the base64 encoding of the DER representation of a public
-  //   key's SPKI.
-  explicit PlatformKeysService(content::BrowserContext* browser_context,
+  // the list of public keys that are valid to be used for signing. See
+  // |KeyPermissions| for details.
+  // |browser_context| and |state_store| must not be null and outlive this
+  // object.
+  explicit PlatformKeysService(bool profile_is_managed,
+                               PrefService* profile_prefs,
+                               policy::PolicyService* profile_policies,
+                               content::BrowserContext* browser_context,
                                extensions::StateStore* state_store);
-  virtual ~PlatformKeysService();
+
+  ~PlatformKeysService() override;
+
+  // Sets the delegate which will be used for interactive
+  // SelectClientCertificates calls.
+  void SetSelectDelegate(scoped_ptr<SelectDelegate> delegate);
 
   // If the generation was successful, |public_key_spki_der| will contain the
   // DER encoding of the SubjectPublicKeyInfo of the generated key and
   // |error_message| will be empty. If it failed, |public_key_spki_der| will be
   // empty and |error_message| contain an error message.
-  typedef base::Callback<void(const std::string& public_key_spki_der,
-                              const std::string& error_message)>
-      GenerateKeyCallback;
+  using GenerateKeyCallback =
+      base::Callback<void(const std::string& public_key_spki_der,
+                          const std::string& error_message)>;
 
-  // Generates a RSA key pair with |modulus_length_bits| and registers the key
+  // Generates an RSA key pair with |modulus_length_bits| and registers the key
   // to allow a single sign operation by the given extension. |token_id| is
   // currently ignored, instead the user token associated with |browser_context|
   // is always used. |callback| will be invoked with the resulting public key or
@@ -64,88 +116,106 @@ class PlatformKeysService : public KeyedService {
   // If signing was successful, |signature| will be contain the signature and
   // |error_message| will be empty. If it failed, |signature| will be empty and
   // |error_message| contain an error message.
-  typedef base::Callback<void(const std::string& signature,
-                              const std::string& error_message)> SignCallback;
+  using SignCallback = base::Callback<void(const std::string& signature,
+                                           const std::string& error_message)>;
 
-  // Digests |data| with |hash_algorithm| and afterwards signs the digest with
-  // the private key matching |public_key_spki_der|, if that key is stored in
-  // the given token and wasn't used for signing before.
-  // Unregisters the key so that every future attempt to sign data with this key
-  // is rejected. |token_id| is currently ignored, instead the user token
-  // associated with |browser_context| is always used. |public_key_spki_der|
-  // must be the DER encoding of a SubjectPublicKeyInfo. |callback| will be
-  // invoked with the signature or an error message. Currently supports RSA keys
-  // only.
+  // Digests |data|, applies PKCS1 padding and afterwards signs the data with
+  // the private key matching |params.public_key|. If a non empty token id is
+  // provided and the key is not found in that token, the operation aborts.
+  // If the extension does not have permissions for signing with this key, the
+  // operation aborts. In case of a one time permission (granted after
+  // generating the key), this function also removes the permission to prevent
+  // future signing attempts.
+  // |callback| will be invoked with the signature or an error message.
   // Will only call back during the lifetime of this object.
-  void Sign(const std::string& token_id,
-            const std::string& public_key_spki_der,
-            platform_keys::HashAlgorithm hash_algorithm,
-            const std::string& data,
-            const std::string& extension_id,
-            const SignCallback& callback);
+  void SignRSAPKCS1Digest(const std::string& token_id,
+                          const std::string& data,
+                          const std::string& public_key,
+                          platform_keys::HashAlgorithm hash_algorithm,
+                          const std::string& extension_id,
+                          const SignCallback& callback);
+
+  // Applies PKCS1 padding and afterwards signs the data with the private key
+  // matching |params.public_key|. |data| is not digested. If a non empty token
+  // id is provided and the key is not found in that token, the operation
+  // aborts.
+  // The size of |data| (number of octets) must be smaller than k - 11, where k
+  // is the key size in octets.
+  // If the extension does not have permissions for signing with this key, the
+  // operation aborts. In case of a one time permission (granted after
+  // generating the key), this function also removes the permission to prevent
+  // future signing attempts.
+  // |callback| will be invoked with the signature or an error message.
+  // Will only call back during the lifetime of this object.
+  void SignRSAPKCS1Raw(const std::string& token_id,
+                       const std::string& data,
+                       const std::string& public_key,
+                       const std::string& extension_id,
+                       const SignCallback& callback);
+
+  // If the certificate request could be processed successfully, |matches| will
+  // contain the list of matching certificates (maybe empty) and |error_message|
+  // will be empty. If an error occurred, |matches| will be null and
+  // |error_message| contain an error message.
+  using SelectCertificatesCallback =
+      base::Callback<void(scoped_ptr<net::CertificateList> matches,
+                          const std::string& error_message)>;
+
+  // Returns a list of certificates matching |request|.
+  // 1) all certificates that match the request (like being rooted in one of the
+  // give CAs) are determined. 2) if |interactive| is true, the currently set
+  // SelectDelegate is used to select a single certificate from these matches
+  // which will the extension will also be granted access to. 3) only
+  // certificates, that the extension has unlimited sign permission for, will be
+  // returned.
+  // |callback| will be invoked with these certificates or an error message.
+  // Will only call back during the lifetime of this object.
+  // |web_contents| must not be null.
+  void SelectClientCertificates(
+      const platform_keys::ClientCertificateRequest& request,
+      bool interactive,
+      const std::string& extension_id,
+      const SelectCertificatesCallback& callback,
+      content::WebContents* web_contents);
 
  private:
-  typedef base::Callback<void(scoped_ptr<base::ListValue> platform_keys)>
-      GetPlatformKeysCallback;
+  class GenerateRSAKeyTask;
+  class SelectTask;
+  class SignTask;
+  class Task;
 
-  // Registers the given public key as newly generated key, which is allowed to
-  // be used for signing for a single time. Afterwards, calls |callback|. If
-  // registration was successful, passes |true| otherwise |false| to the
-  // callback.
-  void RegisterPublicKey(const std::string& extension_id,
-                         const std::string& public_key_spki_der,
-                         const base::Callback<void(bool)>& callback);
+  // Starts |task| eventually. To ensure that at most one |Task| is running at a
+  // time, it queues |task| for later execution if necessary.
+  void StartOrQueueTask(scoped_ptr<Task> task);
 
-  // Gets the current validity of the given public key by reading StateStore.
-  // Invalidates the key if it was found to be valid. Finally, calls |callback|
-  // with the old validity.
-  void ReadValidityAndInvalidateKey(const std::string& extension_id,
-                                    const std::string& public_key_spki_der,
-                                    const base::Callback<void(bool)>& callback);
-
-  // Reads the list of public keys currently registered for |extension_id| from
-  // StateStore. Calls |callback| with the read list, or a new empty list if
-  // none existed. If an error occurred, calls |callback| with NULL.
-  void GetPlatformKeysOfExtension(const std::string& extension_id,
-                                  const GetPlatformKeysCallback& callback);
+  // Must be called after |task| is done. |task| will be invalid after this
+  // call. This must not be called for any but the task that ran last. If any
+  // other tasks are queued (see StartOrQueueTask()), it will start the next
+  // one.
+  void TaskFinished(Task* task);
 
   // Callback used by |GenerateRSAKey|.
   // If the key generation was successful, registers the generated public key
   // for the given extension. If any error occurs during key generation or
   // registration, calls |callback| with an error. Otherwise, on success, calls
   // |callback| with the public key.
-  void GenerateRSAKeyCallback(const std::string& extension_id,
-                              const GenerateKeyCallback& callback,
+  void GeneratedKey(const std::string& extension_id,
+                    const GenerateKeyCallback& callback,
+                    const std::string& public_key_spki_der,
+                    const std::string& error_message);
+
+  // Callback used by |GeneratedKey|.
+  // |public_key_spki_der| will contain the X.509 Subject Public Key Info  of
+  // the generated key in DER encoding. |task| points to the finished |Task|
+  // object.
+  void RegisteredGeneratedKey(const GenerateKeyCallback& callback,
                               const std::string& public_key_spki_der,
-                              const std::string& error_message);
-
-  // Callback used by |RegisterPublicKey|.
-  // Updates the old |platform_keys| read from the StateStore and writes the
-  // updated value back to the StateStore.
-  void RegisterPublicKeyGotPlatformKeys(
-      const std::string& extension_id,
-      const std::string& public_key_spki_der,
-      const base::Callback<void(bool)>& callback,
-      scoped_ptr<base::ListValue> platform_keys);
-
-  // Callback used by |ReadValidityAndInvalidateKey|.
-  // Invalidates the given public key so that future signing is prohibited and
-  // calls |callback| with the old validity.
-  void InvalidateKey(const std::string& extension_id,
-                     const std::string& public_key_spki_der,
-                     const base::Callback<void(bool)>& callback,
-                     scoped_ptr<base::ListValue> platform_keys);
-
-  // Callback used by |GetPlatformKeysOfExtension|.
-  // Is called with |value| set to the PlatformKeys value read from the
-  // StateStore, which it forwards to |callback|. On error, calls |callback|
-  // with NULL; if no value existed, with an empty list.
-  void GotPlatformKeysOfExtension(const std::string& extension_id,
-                                  const GetPlatformKeysCallback& callback,
-                                  scoped_ptr<base::Value> value);
+                              Task* task);
 
   content::BrowserContext* browser_context_;
-  extensions::StateStore* state_store_;
+  KeyPermissions key_permissions_;
+  scoped_ptr<SelectDelegate> select_delegate_;
+  std::queue<linked_ptr<Task>> tasks_;
   base::WeakPtrFactory<PlatformKeysService> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(PlatformKeysService);

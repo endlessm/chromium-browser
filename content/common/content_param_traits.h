@@ -18,10 +18,6 @@
 #include "content/common/cursors/webcursor.h"
 #include "third_party/WebKit/public/web/WebInputEvent.h"
 
-namespace gfx {
-class Range;
-}
-
 namespace net {
 class IPEndPoint;
 }
@@ -29,20 +25,14 @@ class IPEndPoint;
 namespace IPC {
 
 template <>
-struct ParamTraits<gfx::Range> {
-  typedef gfx::Range param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, PickleIterator* iter, param_type* r);
-  static void Log(const param_type& p, std::string* l);
-};
-
-template <>
 struct ParamTraits<content::WebCursor> {
   typedef content::WebCursor param_type;
   static void Write(Message* m, const param_type& p) {
     p.Serialize(m);
   }
-  static bool Read(const Message* m, PickleIterator* iter, param_type* r)  {
+  static bool Read(const Message* m,
+                   base::PickleIterator* iter,
+                   param_type* r)  {
     return r->Deserialize(iter);
   }
   static void Log(const param_type& p, std::string* l) {
@@ -56,7 +46,7 @@ struct ParamTraits<WebInputEventPointer> {
   typedef WebInputEventPointer param_type;
   static void Write(Message* m, const param_type& p);
   // Note: upon read, the event has the lifetime of the message.
-  static bool Read(const Message* m, PickleIterator* iter, param_type* r);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
   static void Log(const param_type& p, std::string* l);
 };
 

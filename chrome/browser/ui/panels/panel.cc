@@ -40,8 +40,8 @@
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest_handlers/icons_handler.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/image/image.h"
-#include "ui/gfx/rect.h"
 
 using base::UserMetricsAction;
 using content::RenderViewHost;
@@ -437,15 +437,17 @@ void Panel::Observe(int type,
                     const content::NotificationSource& source,
                     const content::NotificationDetails& details) {
   switch (type) {
-    case content::NOTIFICATION_RENDER_VIEW_HOST_CHANGED:
-      ConfigureAutoResize(content::Source<content::WebContents>(source).ptr());
-      break;
     case chrome::NOTIFICATION_APP_TERMINATING:
       Close();
       break;
     default:
       NOTREACHED() << "Received unexpected notification " << type;
   }
+}
+
+void Panel::RenderViewHostChanged(content::RenderViewHost* old_host,
+                                  content::RenderViewHost* new_host) {
+  ConfigureAutoResize(web_contents());
 }
 
 void Panel::OnExtensionUnloaded(
@@ -593,8 +595,7 @@ void Panel::SetAutoResizable(bool resizable) {
       EnableWebContentsAutoResize(web_contents);
   } else {
     if (web_contents) {
-      registrar_.Remove(this, content::NOTIFICATION_RENDER_VIEW_HOST_CHANGED,
-                        content::Source<content::WebContents>(web_contents));
+      content::WebContentsObserver::Observe(nullptr);
 
       // NULL might be returned if the tab has not been added.
       RenderViewHost* render_view_host = web_contents->GetRenderViewHost();
@@ -610,14 +611,7 @@ void Panel::EnableWebContentsAutoResize(content::WebContents* web_contents) {
 
   // We also need to know when the render view host changes in order
   // to turn on auto-resize notifications in the new render view host.
-  if (!registrar_.IsRegistered(
-          this, content::NOTIFICATION_RENDER_VIEW_HOST_CHANGED,
-          content::Source<content::WebContents>(web_contents))) {
-    registrar_.Add(
-        this,
-        content::NOTIFICATION_RENDER_VIEW_HOST_CHANGED,
-        content::Source<content::WebContents>(web_contents));
-  }
+  content::WebContentsObserver::Observe(web_contents);
 }
 
 void Panel::OnContentsAutoResized(const gfx::Size& new_content_size) {
@@ -772,7 +766,7 @@ base::string16 Panel::GetWindowTitle() const {
 }
 
 gfx::Image Panel::GetCurrentPageIcon() const {
-  return panel_host_->GetPageIcon();
+  return panel_host_.get() ? panel_host_->GetPageIcon() : gfx::Image();
 }
 
 void Panel::UpdateTitleBar() {
@@ -783,10 +777,6 @@ void Panel::LoadingStateChanged(bool is_loading) {
   command_updater_.UpdateCommandEnabled(IDC_STOP, is_loading);
   native_panel_->UpdatePanelLoadingAnimations(is_loading);
   UpdateTitleBar();
-}
-
-void Panel::WebContentsFocused(content::WebContents* contents) {
-  native_panel_->PanelWebContentsFocused(contents);
 }
 
 void Panel::MoveByInstantly(const gfx::Vector2d& delta_origin) {

@@ -17,21 +17,27 @@
 #include "base/json/json_file_value_serializer.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/metrics/field_trial.h"
+#include "base/metrics/histogram.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
+#include "base/time/time.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_icon_set.h"
 #include "extensions/common/extension_l10n_util.h"
+#include "extensions/common/extension_set.h"
 #include "extensions/common/install_warning.h"
 #include "extensions/common/manifest.h"
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/manifest_handler.h"
+#include "extensions/common/manifest_handlers/default_locale_handler.h"
 #include "extensions/common/manifest_handlers/icons_handler.h"
-#include "extensions/common/message_bundle.h"
+#include "extensions/common/manifest_handlers/shared_module_info.h"
 #include "grit/extensions_strings.h"
 #include "net/base/escape.h"
+#include "net/base/filename_util.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
 
@@ -49,6 +55,42 @@ bool ValidateFilePath(const base::FilePath& path) {
   }
 
   return true;
+}
+
+// Returns true if the extension installation should flush all files and the
+// directory.
+bool UseSafeInstallation() {
+  const char kFieldTrialName[] = "ExtensionUseSafeInstallation";
+  const char kEnable[] = "Enable";
+  return base::FieldTrialList::FindFullName(kFieldTrialName) == kEnable;
+}
+
+enum FlushOneOrAllFiles {
+   ONE_FILE_ONLY,
+   ALL_FILES
+};
+
+// Flush all files in a directory or just one.  When flushing all files, it
+// makes sure every file is on disk.  When flushing one file only, it ensures
+// all parent directories are on disk.
+void FlushFilesInDir(const base::FilePath& path,
+                     FlushOneOrAllFiles one_or_all_files) {
+  if (!UseSafeInstallation()) {
+    return;
+  }
+  base::FileEnumerator temp_traversal(path,
+                                      true,  // recursive
+                                      base::FileEnumerator::FILES);
+  for (base::FilePath current = temp_traversal.Next(); !current.empty();
+      current = temp_traversal.Next()) {
+    base::File currentFile(current,
+                           base::File::FLAG_OPEN | base::File::FLAG_WRITE);
+    currentFile.Flush();
+    currentFile.Close();
+    if (one_or_all_files == ONE_FILE_ONLY) {
+      break;
+    }
+  }
 }
 
 }  // namespace
@@ -102,11 +144,32 @@ base::FilePath InstallExtension(const base::FilePath& unpacked_source_dir,
     return base::FilePath();
   }
 
+  base::TimeTicks start_time = base::TimeTicks::Now();
+
+  // Flush the source dir completely before moving to make sure everything is
+  // on disk. Otherwise a sudden power loss could cause the newly installed
+  // extension to be in a corrupted state. Note that empty sub-directories
+  // may still be lost.
+  FlushFilesInDir(crx_temp_source, ALL_FILES);
+
+  // The target version_dir does not exists yet, so base::Move() is using
+  // rename() on POSIX systems. It is atomic in the sense that it will
+  // either complete successfully or in the event of data loss be reverted.
   if (!base::Move(crx_temp_source, version_dir)) {
     LOG(ERROR) << "Installing extension from : " << crx_temp_source.value()
                << " into : " << version_dir.value() << " failed.";
     return base::FilePath();
   }
+
+  // Flush one file in the new version_dir to make sure the dir move above is
+  // persisted on disk. This is guaranteed on POSIX systems. ExtensionPrefs
+  // is going to be updated with the new version_dir later. In the event of
+  // data loss ExtensionPrefs should be pointing to the previous version which
+  // is still fine.
+  FlushFilesInDir(version_dir, ONE_FILE_ONLY);
+
+  UMA_HISTOGRAM_TIMES("Extensions.FileInstallation",
+                      base::TimeTicks::Now() - start_time);
 
   return version_dir;
 }
@@ -168,8 +231,8 @@ base::DictionaryValue* LoadManifest(
     return NULL;
   }
 
-  JSONFileValueSerializer serializer(manifest_path);
-  scoped_ptr<base::Value> root(serializer.Deserialize(NULL, error));
+  JSONFileValueDeserializer deserializer(manifest_path);
+  scoped_ptr<base::Value> root(deserializer.Deserialize(NULL, error));
   if (!root.get()) {
     if (error->empty()) {
       // If |error| is empty, than the file could not be read.
@@ -205,6 +268,13 @@ bool ValidateExtension(const Extension* extension,
   std::string warning;
   if (!CheckForIllegalFilenames(extension->path(), &warning))
     warnings->push_back(InstallWarning(warning));
+
+  // Check that the extension does not include any Windows reserved filenames.
+  std::string windows_reserved_warning;
+  if (!CheckForWindowsReservedFilenames(extension->path(),
+                                        &windows_reserved_warning)) {
+    warnings->push_back(InstallWarning(windows_reserved_warning));
+  }
 
   // Check that extensions don't include private key files.
   std::vector<base::FilePath> private_keys =
@@ -276,6 +346,7 @@ bool CheckForIllegalFilenames(const base::FilePath& extension_path,
   base::FilePath file;
   while (!(file = all_files.Next()).empty()) {
     base::FilePath::StringType filename = file.BaseName().value();
+
     // Skip all that don't start with "_".
     if (filename.find_first_of(FILE_PATH_LITERAL("_")) != 0)
       continue;
@@ -285,6 +356,28 @@ bool CheckForIllegalFilenames(const base::FilePath& extension_path,
           "Cannot load extension with file or directory name %s. "
           "Filenames starting with \"_\" are reserved for use by the system.",
           file.BaseName().AsUTF8Unsafe().c_str());
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bool CheckForWindowsReservedFilenames(const base::FilePath& extension_dir,
+                                      std::string* error) {
+  const int kFilesAndDirectories =
+      base::FileEnumerator::DIRECTORIES | base::FileEnumerator::FILES;
+  base::FileEnumerator traversal(extension_dir, true, kFilesAndDirectories);
+
+  for (base::FilePath current = traversal.Next(); !current.empty();
+       current = traversal.Next()) {
+    base::FilePath::StringType filename = current.BaseName().value();
+    bool is_reserved_filename = net::IsReservedNameOnWindows(filename);
+    if (is_reserved_filename) {
+      *error = base::StringPrintf(
+          "Cannot load extension with file or directory name %s. "
+          "The filename is illegal.",
+          current.BaseName().AsUTF8Unsafe().c_str());
       return false;
     }
   }
@@ -420,12 +513,12 @@ MessageBundle* LoadMessageBundle(
   return message_bundle;
 }
 
-std::map<std::string, std::string>* LoadMessageBundleSubstitutionMap(
+MessageBundle::SubstitutionMap* LoadMessageBundleSubstitutionMap(
     const base::FilePath& extension_path,
     const std::string& extension_id,
     const std::string& default_locale) {
-  std::map<std::string, std::string>* return_value =
-      new std::map<std::string, std::string>();
+  MessageBundle::SubstitutionMap* return_value =
+      new MessageBundle::SubstitutionMap();
   if (!default_locale.empty()) {
     // Touch disk only if extension is localized.
     std::string error;
@@ -440,6 +533,67 @@ std::map<std::string, std::string>* LoadMessageBundleSubstitutionMap(
   // non-localized extensions too.
   return_value->insert(
       std::make_pair(MessageBundle::kExtensionIdKey, extension_id));
+
+  return return_value;
+}
+
+MessageBundle::SubstitutionMap* LoadMessageBundleSubstitutionMapWithImports(
+    const std::string& extension_id,
+    const ExtensionSet& extension_set) {
+  const Extension* extension = extension_set.GetByID(extension_id);
+  MessageBundle::SubstitutionMap* return_value =
+      new MessageBundle::SubstitutionMap();
+
+  // Add @@extension_id reserved message here, so it's available to
+  // non-localized extensions too.
+  return_value->insert(
+      std::make_pair(MessageBundle::kExtensionIdKey, extension_id));
+
+  base::FilePath extension_path;
+  std::string default_locale;
+  if (!extension) {
+    NOTREACHED() << "Missing extension " << extension_id;
+    return return_value;
+  }
+
+  // Touch disk only if extension is localized.
+  default_locale = LocaleInfo::GetDefaultLocale(extension);
+  if (default_locale.empty()) {
+    return return_value;
+  }
+
+  std::string error;
+  scoped_ptr<MessageBundle> bundle(
+      LoadMessageBundle(extension->path(), default_locale, &error));
+
+  if (bundle.get()) {
+    for (auto iter : *bundle->dictionary()) {
+      return_value->insert(std::make_pair(iter.first, iter.second));
+    }
+  }
+
+  auto imports = extensions::SharedModuleInfo::GetImports(extension);
+  // Iterate through the imports in reverse.  This will allow later imported
+  // modules to override earlier imported modules, as the list order is
+  // maintained from the definition in manifest.json of the imports.
+  for (auto it = imports.rbegin(); it != imports.rend(); ++it) {
+    const extensions::Extension* imported_extension =
+        extension_set.GetByID(it->extension_id);
+    if (!imported_extension) {
+      NOTREACHED() << "Missing shared module " << it->extension_id;
+      continue;
+    }
+    scoped_ptr<MessageBundle> imported_bundle(
+        LoadMessageBundle(imported_extension->path(), default_locale, &error));
+
+    if (imported_bundle.get()) {
+      for (auto iter : *imported_bundle->dictionary()) {
+        // |insert| only adds new entries, and does not replace entries in
+        // the main extension or previously processed imports.
+        return_value->insert(std::make_pair(iter.first, iter.second));
+      }
+    }
+  }
 
   return return_value;
 }

@@ -22,6 +22,7 @@ class TestMetricsServiceClient : public MetricsServiceClient {
 
   // MetricsServiceClient:
   void SetMetricsClientId(const std::string& client_id) override;
+  void OnRecordingDisabled() override;
   bool IsOffTheRecordSessionActive() override;
   int32_t GetProduct() override;
   std::string GetApplicationLocale() override;
@@ -32,9 +33,8 @@ class TestMetricsServiceClient : public MetricsServiceClient {
   void StartGatheringMetrics(const base::Closure& done_callback) override;
   void CollectFinalMetrics(const base::Closure& done_callback) override;
   scoped_ptr<MetricsLogUploader> CreateUploader(
-      const std::string& server_url,
-      const std::string& mime_type,
       const base::Callback<void(int)>& on_upload_complete) override;
+  base::TimeDelta GetStandardUploadInterval() override;
 
   const std::string& get_client_id() const { return client_id_; }
   void set_version_string(const std::string& str) { version_string_ = str; }

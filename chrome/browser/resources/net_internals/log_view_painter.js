@@ -87,7 +87,7 @@ createLogEntryTablePrinter = function(logEntries, privacyStripping,
   }
 
   return tablePrinter;
-}
+};
 
 /**
  * Adds a new row to the given TablePrinter, and adds five cells containing
@@ -116,10 +116,11 @@ function addRowWithTime(tablePrinter, eventTime, startTime) {
  * the hexadecimal characters from |hexString| on the left, in groups of
  * two, and their corresponding ASCII characters on the right.
  *
- * |asciiCharsPerLine| specifies how many ASCII characters will be put on each
- * line of the output string.
+ * 16 bytes will be placed on each line of the output string, split into two
+ * columns of 8.
  */
-function writeHexString(hexString, asciiCharsPerLine, out) {
+function writeHexString(hexString, out) {
+  var asciiCharsPerLine = 16;
   // Number of transferred bytes in a line of output.  Length of a
   // line is roughly 4 times larger.
   var hexCharsPerLine = 2 * asciiCharsPerLine;
@@ -127,6 +128,9 @@ function writeHexString(hexString, asciiCharsPerLine, out) {
     var hexLine = '';
     var asciiLine = '';
     for (var j = i; j < i + hexCharsPerLine && j < hexString.length; j += 2) {
+      // Split into two columns of 8 bytes each.
+      if (j == i + hexCharsPerLine / 2)
+        hexLine += ' ';
       var hex = hexString.substr(j, 2);
       hexLine += hex + ' ';
       var charCode = parseInt(hex, 16);
@@ -144,7 +148,8 @@ function writeHexString(hexString, asciiCharsPerLine, out) {
 
     // Make the ASCII text for the last line of output align with the previous
     // lines.
-    hexLine += makeRepeatedString(' ', 3 * asciiCharsPerLine - hexLine.length);
+    hexLine += makeRepeatedString(' ',
+                                  3 * asciiCharsPerLine + 1 - hexLine.length);
     out.writeLine('   ' + hexLine + '  ' + asciiLine);
   }
 }
@@ -273,6 +278,7 @@ function getParamaterWriterForEventType(eventType) {
   switch (eventType) {
     case EventType.HTTP_TRANSACTION_SEND_REQUEST_HEADERS:
     case EventType.HTTP_TRANSACTION_SEND_TUNNEL_HEADERS:
+    case EventType.TYPE_HTTP_CACHE_CALLER_REQUEST_HEADERS:
       return writeParamsForRequestHeaders;
 
     case EventType.PROXY_CONFIG_CHANGED:
@@ -281,6 +287,8 @@ function getParamaterWriterForEventType(eventType) {
     case EventType.CERT_VERIFIER_JOB:
     case EventType.SSL_CERTIFICATES_RECEIVED:
       return writeParamsForCertificates;
+    case EventType.EV_CERT_CT_COMPLIANCE_CHECKED:
+      return writeParamsForCheckedEVCertificates;
 
     case EventType.SSL_VERSION_FALLBACK:
       return writeParamsForSSLVersionFallback;
@@ -301,7 +309,7 @@ function defaultWriteParameter(key, value, out) {
   // For transferred bytes, display the bytes in hex and ASCII.
   if (key == 'hex_encoded_bytes' && typeof value == 'string') {
     out.writeArrowKey(key);
-    writeHexString(value, 20, out);
+    writeHexString(value, out);
     return;
   }
 
@@ -346,6 +354,12 @@ function defaultWriteParameter(key, value, out) {
 
   if (key == 'load_state' && typeof value == 'number') {
     var valueStr = value + ' (' + getKeyWithValue(LoadState, value) + ')';
+    out.writeArrowKeyValue(key, valueStr);
+    return;
+  }
+
+  if (key == 'sdch_problem_code' && typeof value == 'number') {
+    var valueStr = value + ' (' + sdchProblemCodeToString(value) + ')';
     out.writeArrowKeyValue(key, valueStr);
     return;
   }
@@ -558,7 +572,7 @@ stripCookiesAndLoginInfo = function(entry) {
 
   entry.params.headers = entry.params.headers.map(stripCookieOrLoginInfo);
   return entry;
-}
+};
 
 /**
  * Outputs the request header parameters of |entry| to |out|.
@@ -579,30 +593,28 @@ function writeParamsForRequestHeaders(entry, out, consumedParams) {
   consumedParams.headers = true;
 }
 
+function writeCertificateParam(
+    certs_container, out, consumedParams, paramName) {
+  if (certs_container.certificates instanceof Array) {
+    var certs = certs_container.certificates.reduce(
+        function(previous, current) {
+          return previous.concat(current.split('\n'));
+        }, new Array());
+    out.writeArrowKey(paramName);
+    out.writeSpaceIndentedLines(8, certs);
+    consumedParams[paramName] = true;
+  }
+}
+
 /**
  * Outputs the certificate parameters of |entry| to |out|.
  */
 function writeParamsForCertificates(entry, out, consumedParams) {
-  if (entry.params.certificates instanceof Array) {
-    var certs = entry.params.certificates.reduce(function(previous, current) {
-      return previous.concat(current.split('\n'));
-    }, new Array());
-    out.writeArrowKey('certificates');
-    out.writeSpaceIndentedLines(8, certs);
-    consumedParams.certificates = true;
-  }
+  writeCertificateParam(entry.params, out, consumedParams, 'certificates');
 
-  if (typeof(entry.params.verified_cert) == 'object') {
-    if (entry.params.verified_cert.certificates instanceof Array) {
-      var certs = entry.params.verified_cert.certificates.reduce(
-          function(previous, current) {
-        return previous.concat(current.split('\n'));
-      }, new Array());
-      out.writeArrowKey('verified_cert');
-      out.writeSpaceIndentedLines(8, certs);
-      consumedParams.verified_cert = true;
-    }
-  }
+  if (typeof(entry.params.verified_cert) == 'object')
+    writeCertificateParam(
+        entry.params.verified_cert, out, consumedParams, 'verified_cert');
 
   if (typeof(entry.params.cert_status) == 'number') {
     var valueStr = entry.params.cert_status + ' (' +
@@ -611,6 +623,12 @@ function writeParamsForCertificates(entry, out, consumedParams) {
     consumedParams.cert_status = true;
   }
 
+}
+
+function writeParamsForCheckedEVCertificates(entry, out, consumedParams) {
+  if (typeof(entry.params.certificate) == 'object')
+    writeCertificateParam(
+        entry.params.certificate, out, consumedParams, 'certificate');
 }
 
 /**

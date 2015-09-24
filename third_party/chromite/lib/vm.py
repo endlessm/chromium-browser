@@ -6,14 +6,15 @@
 
 from __future__ import print_function
 
-import logging
 import os
 import shutil
 import time
 
 from chromite.cbuildbot import constants
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import osutils
+from chromite.lib import path_util
 from chromite.lib import remote_access
 
 
@@ -80,10 +81,11 @@ def CreateVMImage(image=None, board=None, updatable=True, dest_dir=None):
   if not exists:
     # No existing VM image that we can reuse. Create a new VM image.
     logging.info('Creating %s', dest_path)
-    cmd = ['./image_to_vm.sh', '--test_image']
+    cmd = [os.path.join(constants.CROSUTILS_DIR, 'image_to_vm.sh'),
+           '--test_image']
 
     if image:
-      cmd.append('--from=%s' % cros_build_lib.ToChrootPath(image_dir))
+      cmd.append('--from=%s' % path_util.ToChrootPath(image_dir))
 
     if updatable:
       cmd.extend(['--disk_layout', '2gb-rootfs-updatable'])
@@ -113,15 +115,15 @@ def CreateVMImage(image=None, board=None, updatable=True, dest_dir=None):
       logging.error('%s: %s', msg, e)
       if tempdir:
         osutils.RmDir(
-            cros_build_lib.FromChrootPath(tempdir), ignore_missing=True)
+            path_util.FromChrootPath(tempdir), ignore_missing=True)
       raise VMCreationError(msg)
 
     if dest_dir:
       # Move VM from tempdir to dest_dir.
       shutil.move(
-          cros_build_lib.FromChrootPath(
-            os.path.join(tempdir, constants.VM_IMAGE_BIN)), dest_path)
-      osutils.RmDir(cros_build_lib.FromChrootPath(tempdir), ignore_missing=True)
+          path_util.FromChrootPath(
+              os.path.join(tempdir, constants.VM_IMAGE_BIN)), dest_path)
+      osutils.RmDir(path_util.FromChrootPath(tempdir), ignore_missing=True)
 
   if not os.path.exists(dest_path):
     raise VMCreationError(msg)
@@ -171,6 +173,7 @@ class VMInstance(object):
     self.agent = remote_access.RemoteAccess(
         remote_access.LOCALHOST, self.tempdir, self.port,
         debug_level=self.debug_level, interactive=False)
+    self.device_addr = 'ssh://%s:%d' % (remote_access.LOCALHOST, self.port)
 
   def _Start(self):
     """Run the command to start VM."""

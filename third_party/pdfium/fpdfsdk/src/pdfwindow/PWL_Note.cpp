@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/pdfwindow/PDFWindow.h"
@@ -51,7 +51,7 @@ void CPWL_Note_Options::SetTextColor(const CPWL_Color & color)
 
 void CPWL_Note_Options::RePosChildWnd()
 {
-	if (this->IsValid())
+	if (IsValid())
 	{
 		ASSERT(m_pText != NULL);
 
@@ -82,7 +82,7 @@ void CPWL_Note_Options::CreateChildWnd(const PWL_CREATEPARAM & cp)
 
 void CPWL_Note_Options::SetText(const CFX_WideString& sText)
 {
-	m_pText->SetText(sText);
+	m_pText->SetText(sText.c_str());
 }
 
 void CPWL_Note_Options::DrawThisAppearance(CFX_RenderDevice* pDevice, CPDF_Matrix* pUser2Device)
@@ -106,8 +106,8 @@ void CPWL_Note_Options::DrawThisAppearance(CFX_RenderDevice* pDevice, CPDF_Matri
 	path.SetPoint(2, pt3.x, pt3.y, FXPT_LINETO);
 	path.SetPoint(3, pt1.x, pt1.y, FXPT_LINETO);
 
-	pDevice->DrawPath(&path, pUser2Device, NULL, 
-		CPWL_Utils::PWLColorToFXColor(GetTextColor(),GetTransparency()), 
+	pDevice->DrawPath(&path, pUser2Device, NULL,
+		CPWL_Utils::PWLColorToFXColor(GetTextColor(),GetTransparency()),
 		0, FXFILL_ALTERNATE);
 }
 
@@ -136,35 +136,35 @@ CPWL_Note_Edit::~CPWL_Note_Edit()
 
 void CPWL_Note_Edit::RePosChildWnd()
 {
-	m_bEnableNotify = FALSE;	
+	m_bEnableNotify = FALSE;
 	CPWL_Edit::RePosChildWnd();
 	m_bEnableNotify = TRUE;
 
-	m_fOldItemHeight = this->GetContentRect().Height();
+	m_fOldItemHeight = GetContentRect().Height();
 }
 
-void CPWL_Note_Edit::SetText(FX_LPCWSTR csText)
+void CPWL_Note_Edit::SetText(const FX_WCHAR* csText)
 {
 	m_bEnableNotify = FALSE;
 	CPWL_Edit::SetText(csText);
-	m_bEnableNotify = TRUE;	
-	m_fOldItemHeight = this->GetContentRect().Height();
+	m_bEnableNotify = TRUE;
+	m_fOldItemHeight = GetContentRect().Height();
 }
 
 void CPWL_Note_Edit::OnSetFocus()
 {
-	m_bEnableNotify = FALSE;	
+	m_bEnableNotify = FALSE;
 	CPWL_Edit::OnSetFocus();
-	m_bEnableNotify = TRUE;	
+	m_bEnableNotify = TRUE;
 
-	this->EnableSpellCheck(TRUE);
+	EnableSpellCheck(TRUE);
 }
 
 void CPWL_Note_Edit::OnKillFocus()
 {
-	this->EnableSpellCheck(FALSE);
+	EnableSpellCheck(FALSE);
 
-	if (CPWL_Wnd* pParent = this->GetParentWindow())
+	if (CPWL_Wnd* pParent = GetParentWindow())
 	{
 		if (CPWL_Wnd* pGrand = pParent->GetParentWindow())
 		{
@@ -179,7 +179,7 @@ void CPWL_Note_Edit::OnKillFocus()
 	CPWL_Edit::OnKillFocus();
 }
 
-void CPWL_Note_Edit::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, FX_INTPTR wParam, FX_INTPTR lParam)
+void CPWL_Note_Edit::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, intptr_t wParam, intptr_t lParam)
 {
 	if (m_bEnableNotify)
 	{
@@ -187,14 +187,14 @@ void CPWL_Note_Edit::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, FX_INTPTR wParam, FX
 		{
 			switch (msg)
 			{
-			case PNM_SETSCROLLINFO:	
+			case PNM_SETSCROLLINFO:
 				if (PWL_SCROLL_INFO* pInfo = (PWL_SCROLL_INFO*)lParam)
-				{	
-					if (!IsFloatEqual(pInfo->fContentMax, m_fOldMax) || 
+				{
+					if (!IsFloatEqual(pInfo->fContentMax, m_fOldMax) ||
 						!IsFloatEqual(pInfo->fContentMin, m_fOldMin))
 					{
-						m_bSizeChanged = TRUE;				
-						if (CPWL_Wnd * pParent = this->GetParentWindow())
+						m_bSizeChanged = TRUE;
+						if (CPWL_Wnd * pParent = GetParentWindow())
 						{
 							pParent->OnNotify(this, PNM_NOTEEDITCHANGED, 0, 0);
 						}
@@ -205,7 +205,7 @@ void CPWL_Note_Edit::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, FX_INTPTR wParam, FX
 					}
 				}
 			}
-		}		
+		}
 	}
 
 	CPWL_Edit::OnNotify(pWnd, msg, wParam, lParam);
@@ -219,12 +219,12 @@ void CPWL_Note_Edit::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, FX_INTPTR wParam, FX
 			{
 				PWL_CARET_INFO newInfo = *pInfo;
 				newInfo.bVisible = TRUE;
-				newInfo.ptHead = this->ChildToParent(pInfo->ptHead);
-				newInfo.ptFoot = this->ChildToParent(pInfo->ptFoot);
+				newInfo.ptHead = ChildToParent(pInfo->ptHead);
+				newInfo.ptFoot = ChildToParent(pInfo->ptFoot);
 
-				if (CPWL_Wnd * pParent = this->GetParentWindow())
+				if (CPWL_Wnd * pParent = GetParentWindow())
 				{
-					pParent->OnNotify(this, PNM_SETCARETINFO, (FX_INTPTR)&newInfo, 0);
+					pParent->OnNotify(this, PNM_SETCARETINFO, (intptr_t)&newInfo, 0);
 				}
 			}
 			break;
@@ -239,22 +239,18 @@ FX_FLOAT CPWL_Note_Edit::GetItemHeight(FX_FLOAT fLimitWidth)
 		if (!m_bSizeChanged)
 			return m_fOldItemHeight;
 
-		m_bSizeChanged = FALSE;	
+		m_bSizeChanged = FALSE;
 
-		this->EnableNotify(FALSE);
-		this->EnableRefresh(FALSE);
+		EnableNotify(FALSE);
+		EnableRefresh(FALSE);
 		m_pEdit->EnableNotify(FALSE);
 
-		//CPDF_Rect rcOld = this->GetWindowRect();
-
-		this->Move(CPDF_Rect(0,0,fLimitWidth,0), TRUE, FALSE);
-		FX_FLOAT fRet = this->GetContentRect().Height();
-
-		//this->Move(rcOld, TRUE, FALSE);
+		Move(CPDF_Rect(0,0,fLimitWidth,0), TRUE, FALSE);
+		FX_FLOAT fRet = GetContentRect().Height();
 
 		m_pEdit->EnableNotify(TRUE);
-		this->EnableNotify(TRUE);
-		this->EnableRefresh(TRUE);
+		EnableNotify(TRUE);
+		EnableRefresh(TRUE);
 
 		return fRet;
 	}
@@ -284,7 +280,7 @@ CPWL_Note_LBBox::~CPWL_Note_LBBox()
 
 void CPWL_Note_LBBox::DrawThisAppearance(CFX_RenderDevice* pDevice, CPDF_Matrix* pUser2Device)
 {
-	CPDF_Rect rcClient = this->GetClientRect();
+	CPDF_Rect rcClient = GetClientRect();
 
 	CFX_GraphStateData gsd;
 	gsd.m_LineWidth = 1.0f;
@@ -296,9 +292,9 @@ void CPWL_Note_LBBox::DrawThisAppearance(CFX_RenderDevice* pDevice, CPDF_Matrix*
 	pathCross.SetPoint(1, rcClient.right, rcClient.bottom, FXPT_LINETO);
 	pathCross.SetPoint(2, rcClient.left, rcClient.bottom + rcClient.Height() * 0.5f, FXPT_MOVETO);
 	pathCross.SetPoint(3, rcClient.left + rcClient.Width() * 0.5f, rcClient.bottom, FXPT_LINETO);
-	
-	pDevice->DrawPath(&pathCross, pUser2Device, &gsd, 
-		0, CPWL_Utils::PWLColorToFXColor(GetTextColor(),this->GetTransparency()), FXFILL_ALTERNATE);
+
+	pDevice->DrawPath(&pathCross, pUser2Device, &gsd,
+		0, CPWL_Utils::PWLColorToFXColor(GetTextColor(), GetTransparency()), FXFILL_ALTERNATE);
 }
 
 /* -------------------------------- CPWL_Note_RBBox --------------------------------*/
@@ -313,7 +309,7 @@ CPWL_Note_RBBox::~CPWL_Note_RBBox()
 
 void CPWL_Note_RBBox::DrawThisAppearance(CFX_RenderDevice* pDevice, CPDF_Matrix* pUser2Device)
 {
-	CPDF_Rect rcClient = this->GetClientRect();
+	CPDF_Rect rcClient = GetClientRect();
 
 	CFX_GraphStateData gsd;
 	gsd.m_LineWidth = 1.0f;
@@ -325,9 +321,9 @@ void CPWL_Note_RBBox::DrawThisAppearance(CFX_RenderDevice* pDevice, CPDF_Matrix*
 	pathCross.SetPoint(1, rcClient.left, rcClient.bottom, FXPT_LINETO);
 	pathCross.SetPoint(2, rcClient.right, rcClient.bottom + rcClient.Height() * 0.5f, FXPT_MOVETO);
 	pathCross.SetPoint(3, rcClient.left + rcClient.Width() * 0.5f, rcClient.bottom, FXPT_LINETO);
-	
-	pDevice->DrawPath(&pathCross, pUser2Device, &gsd, 
-		0, CPWL_Utils::PWLColorToFXColor(GetTextColor(),this->GetTransparency()), FXFILL_ALTERNATE);
+
+	pDevice->DrawPath(&pathCross, pUser2Device, &gsd,
+		0, CPWL_Utils::PWLColorToFXColor(GetTextColor(), GetTransparency()), FXFILL_ALTERNATE);
 }
 
 /* --------------------------------- CPWL_Note_Icon ---------------------------------- */
@@ -340,15 +336,15 @@ CPWL_Note_Icon::~CPWL_Note_Icon()
 {
 }
 
-void CPWL_Note_Icon::SetIconType(FX_INT32 nType)
+void CPWL_Note_Icon::SetIconType(int32_t nType)
 {
 	m_nType = nType;
 }
 
 void CPWL_Note_Icon::DrawThisAppearance(CFX_RenderDevice* pDevice, CPDF_Matrix* pUser2Device)
 {
-	CPWL_Utils::DrawIconAppStream(pDevice, pUser2Device, m_nType, GetClientRect(), 
-		this->GetBackgroundColor(), PWL_DEFAULT_BLACKCOLOR, this->GetTransparency());
+	CPWL_Utils::DrawIconAppStream(pDevice, pUser2Device, m_nType, GetClientRect(),
+		GetBackgroundColor(), PWL_DEFAULT_BLACKCOLOR, GetTransparency());
 }
 
 /* --------------------------------- CPWL_Note_CloseBox ---------------------------------- */
@@ -365,7 +361,7 @@ void CPWL_Note_CloseBox::DrawThisAppearance(CFX_RenderDevice* pDevice, CPDF_Matr
 {
 	CPWL_Button::DrawThisAppearance(pDevice, pUser2Device);
 
-	CPDF_Rect rcClient = this->GetClientRect();
+	CPDF_Rect rcClient = GetClientRect();
 	rcClient = CPWL_Utils::DeflateRect(rcClient, 2.0f);
 
 	CFX_GraphStateData gsd;
@@ -386,9 +382,9 @@ void CPWL_Note_CloseBox::DrawThisAppearance(CFX_RenderDevice* pDevice, CPDF_Matr
 	pathCross.SetPoint(1, rcClient.right, rcClient.top, FXPT_LINETO);
 	pathCross.SetPoint(2, rcClient.left, rcClient.top, FXPT_MOVETO);
 	pathCross.SetPoint(3, rcClient.right, rcClient.bottom, FXPT_LINETO);
-	
-	pDevice->DrawPath(&pathCross, pUser2Device, &gsd, 
-		0, CPWL_Utils::PWLColorToFXColor(GetTextColor(),this->GetTransparency()), FXFILL_ALTERNATE);
+
+	pDevice->DrawPath(&pathCross, pUser2Device, &gsd,
+		0, CPWL_Utils::PWLColorToFXColor(GetTextColor(), GetTransparency()), FXFILL_ALTERNATE);
 }
 
 FX_BOOL CPWL_Note_CloseBox::OnLButtonDown(const CPDF_Point & point, FX_DWORD nFlag)
@@ -443,9 +439,9 @@ void CPWL_Note_Contents::SetText(const CFX_WideString& sText)
 	if (m_pEdit)
 	{
 		m_pEdit->EnableNotify(FALSE);
-		m_pEdit->SetText(sText);
+		m_pEdit->SetText(sText.c_str());
 		m_pEdit->EnableNotify(TRUE);
-		OnNotify(m_pEdit, PNM_NOTEEDITCHANGED, 0, 0);		
+		OnNotify(m_pEdit, PNM_NOTEEDITCHANGED, 0, 0);
 	}
 }
 
@@ -460,35 +456,35 @@ CFX_WideString CPWL_Note_Contents::GetText() const
 CPWL_NoteItem* CPWL_Note_Contents::CreateSubItem()
 {
 	CPWL_NoteItem* pNoteItem = new CPWL_NoteItem;
-	PWL_CREATEPARAM icp = this->GetCreationParam();
+	PWL_CREATEPARAM icp = GetCreationParam();
 	icp.pParentWnd = this;
 	icp.dwFlags =  PWS_CHILD | PWS_VISIBLE | PWS_BACKGROUND;
 	pNoteItem->Create(icp);
 
 	pNoteItem->OnCreateNoteItem();
-	
+
 	pNoteItem->ResetSubjectName(m_aChildren.GetSize() - 1);
 
 	FX_SYSTEMTIME st;
-	if (IFX_SystemHandler* pSH = this->GetSystemHandler())
+	if (IFX_SystemHandler* pSH = GetSystemHandler())
 		st = pSH->GetLocalTime();
 	pNoteItem->SetDateTime(st);
 
 	pNoteItem->SetContents(L"");
 
-	this->OnNotify(pNoteItem, PNM_NOTEEDITCHANGED, 0, 0);	
+	OnNotify(pNoteItem, PNM_NOTEEDITCHANGED, 0, 0);
 
 	return pNoteItem;
 }
 
-FX_INT32 CPWL_Note_Contents::CountSubItems() const
+int32_t CPWL_Note_Contents::CountSubItems() const
 {
 	return m_aChildren.GetSize() - 1;
 }
 
-IPWL_NoteItem* CPWL_Note_Contents::GetSubItems(FX_INT32 index) const
+IPWL_NoteItem* CPWL_Note_Contents::GetSubItems(int32_t index) const
 {
-	FX_INT32 nIndex = index + 1;
+	int32_t nIndex = index + 1;
 
 	if (nIndex > 0 && nIndex < m_aChildren.GetSize())
 		if (CPWL_Wnd* pChild = m_aChildren.GetAt(nIndex))
@@ -502,7 +498,7 @@ IPWL_NoteItem* CPWL_Note_Contents::GetSubItems(FX_INT32 index) const
 
 void CPWL_Note_Contents::DeleteSubItem(IPWL_NoteItem* pNoteItem)
 {
-	FX_INT32 nIndex = this->GetItemIndex((CPWL_NoteItem*)pNoteItem);
+	int32_t nIndex = GetItemIndex((CPWL_NoteItem*)pNoteItem);
 
 	if (nIndex > 0)
 	{
@@ -513,7 +509,7 @@ void CPWL_Note_Contents::DeleteSubItem(IPWL_NoteItem* pNoteItem)
 			delete pPWLNoteItem;
 		}
 
-		for (FX_INT32 i=nIndex,sz=m_aChildren.GetSize(); i<sz; i++)
+		for (int32_t i=nIndex,sz=m_aChildren.GetSize(); i<sz; i++)
 		{
 			if (CPWL_Wnd* pChild = m_aChildren.GetAt(i))
 			{
@@ -523,15 +519,15 @@ void CPWL_Note_Contents::DeleteSubItem(IPWL_NoteItem* pNoteItem)
 			}
 		}
 
-		this->OnNotify(this, PNM_NOTEEDITCHANGED, 0, 0);
+		OnNotify(this, PNM_NOTEEDITCHANGED, 0, 0);
 	}
 }
 
 IPWL_NoteItem* CPWL_Note_Contents::GetHitNoteItem(const CPDF_Point& point)
 {
-	CPDF_Point pt = this->ParentToChild(point);
+	CPDF_Point pt = ParentToChild(point);
 
-	for (FX_INT32 i=0,sz=m_aChildren.GetSize(); i<sz; i++)
+	for (int32_t i=0,sz=m_aChildren.GetSize(); i<sz; i++)
 	{
 		if (CPWL_Wnd* pChild = m_aChildren.GetAt(i))
 		{
@@ -546,64 +542,64 @@ IPWL_NoteItem* CPWL_Note_Contents::GetHitNoteItem(const CPDF_Point& point)
 	return NULL;
 }
 
-void CPWL_Note_Contents::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, FX_INTPTR wParam, FX_INTPTR lParam)
+void CPWL_Note_Contents::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, intptr_t wParam, intptr_t lParam)
 {
 	switch (msg)
 	{
 	case PNM_NOTEEDITCHANGED:
 		{
-			FX_INT32 nIndex = this->GetItemIndex(pWnd);
+			int32_t nIndex = GetItemIndex(pWnd);
 			if (nIndex < 0) nIndex = 0;
 
-			m_pEdit->EnableNotify(FALSE);	
-			this->ResetContent(nIndex);
+			m_pEdit->EnableNotify(FALSE);
+			ResetContent(nIndex);
 			m_pEdit->EnableNotify(TRUE);
 
-			for (FX_INT32 i=nIndex+1, sz=m_aChildren.GetSize(); i<sz; i++)
+			for (int32_t i=nIndex+1, sz=m_aChildren.GetSize(); i<sz; i++)
 			{
 				if (CPWL_Wnd* pChild = m_aChildren.GetAt(i))
 					pChild->OnNotify(this, PNM_NOTERESET, 0, 0);
 			}
 
-			if (CPWL_Wnd * pParent = this->GetParentWindow())
+			if (CPWL_Wnd * pParent = GetParentWindow())
 			{
 				pParent->OnNotify(this, PNM_NOTEEDITCHANGED, 0, 0);
 			}
 		}
 		return;
 	case PNM_SCROLLWINDOW:
-		this->SetScrollPos(CPDF_Point(0.0f, *(FX_FLOAT*)lParam));
-		this->ResetFace();
+		SetScrollPos(CPDF_Point(0.0f, *(FX_FLOAT*)lParam));
+		ResetFace();
 		InvalidateRect(NULL);
-		return;		
+		return;
 	case PNM_SETCARETINFO:
 		if (PWL_CARET_INFO * pInfo = (PWL_CARET_INFO*)wParam)
 		{
 			PWL_CARET_INFO newInfo = *pInfo;
 			newInfo.bVisible = TRUE;
-			newInfo.ptHead = this->ChildToParent(pInfo->ptHead);
-			newInfo.ptFoot = this->ChildToParent(pInfo->ptFoot);
+			newInfo.ptHead = ChildToParent(pInfo->ptHead);
+			newInfo.ptFoot = ChildToParent(pInfo->ptFoot);
 
-			if (CPWL_Wnd * pParent = this->GetParentWindow())
+			if (CPWL_Wnd * pParent = GetParentWindow())
 			{
-				pParent->OnNotify(this, PNM_SETCARETINFO, (FX_INTPTR)&newInfo, 0);
+				pParent->OnNotify(this, PNM_SETCARETINFO, (intptr_t)&newInfo, 0);
 			}
 		}
 		return;
 	case PNM_NOTERESET:
 		{
-			m_pEdit->EnableNotify(FALSE);	
-			this->ResetContent(0);
+			m_pEdit->EnableNotify(FALSE);
+			ResetContent(0);
 			m_pEdit->EnableNotify(TRUE);
 
-			for (FX_INT32 i=1, sz=m_aChildren.GetSize(); i<sz; i++)
+			for (int32_t i=1, sz=m_aChildren.GetSize(); i<sz; i++)
 			{
 				if (CPWL_Wnd* pChild = m_aChildren.GetAt(i))
 					pChild->OnNotify(this, PNM_NOTERESET, 0, 0);
-			}	
+			}
 
-			m_pEdit->EnableNotify(FALSE);	
-			this->ResetContent(0);
+			m_pEdit->EnableNotify(FALSE);
+			ResetContent(0);
 			m_pEdit->EnableNotify(TRUE);
 		}
 		return;
@@ -645,7 +641,7 @@ void CPWL_Note_Contents::EnableModify(FX_BOOL bEnabled)
 	else
 		m_pEdit->RemoveFlag(PWS_READONLY);
 
-	for (FX_INT32 i=0,sz=m_aChildren.GetSize(); i<sz; i++)
+	for (int32_t i=0,sz=m_aChildren.GetSize(); i<sz; i++)
 	{
 		if (CPWL_Wnd* pChild = m_aChildren.GetAt(i))
 		{
@@ -665,7 +661,7 @@ void CPWL_Note_Contents::EnableRead(FX_BOOL bEnabled)
 	else
 		m_pEdit->RemoveFlag(PES_NOREAD);
 
-	for (FX_INT32 i=0,sz=m_aChildren.GetSize(); i<sz; i++)
+	for (int32_t i=0,sz=m_aChildren.GetSize(); i<sz; i++)
 	{
 		if (CPWL_Wnd* pChild = m_aChildren.GetAt(i))
 		{
@@ -705,7 +701,7 @@ void CPWL_NoteItem::CreateChildWnd(const PWL_CREATEPARAM & cp)
 {
 	CPWL_Color sTextColor;
 
-	if (CPWL_Utils::IsBlackOrWhite(this->GetBackgroundColor()))
+	if (CPWL_Utils::IsBlackOrWhite(GetBackgroundColor()))
 		sTextColor = PWL_DEFAULT_WHITECOLOR;
 	else
 		sTextColor = PWL_DEFAULT_BLACKCOLOR;
@@ -738,7 +734,7 @@ void CPWL_NoteItem::CreateChildWnd(const PWL_CREATEPARAM & cp)
 
 void CPWL_NoteItem::RePosChildWnd()
 {
-	if (this->IsValid())
+	if (IsValid())
 	{
 		ASSERT(m_pSubject != NULL);
 		ASSERT(m_pDateTime != NULL);
@@ -784,7 +780,7 @@ void CPWL_NoteItem::SetPrivateData(void* pData)
 void CPWL_NoteItem::SetBkColor(const CPWL_Color& color)
 {
 	CPWL_Color sBK = color;
-	this->SetBackgroundColor(sBK);
+	SetBackgroundColor(sBK);
 
 	CPWL_Color sTextColor;
 
@@ -793,13 +789,13 @@ void CPWL_NoteItem::SetBkColor(const CPWL_Color& color)
 	else
 		sTextColor = PWL_DEFAULT_BLACKCOLOR;
 
-	this->SetTextColor(sTextColor);
+	SetTextColor(sTextColor);
 	if (m_pSubject)
 		m_pSubject->SetTextColor(sTextColor);
 	if (m_pDateTime)
 		m_pDateTime->SetTextColor(sTextColor);
 
-	this->InvalidateRect(NULL);
+	InvalidateRect(nullptr);
 
 	if (IPWL_NoteNotify* pNotify = GetNoteNotify())
 	{
@@ -811,7 +807,7 @@ void CPWL_NoteItem::SetSubjectName(const CFX_WideString& sName)
 {
 	if (m_pSubject)
 	{
-		m_pSubject->SetText(sName);	
+		m_pSubject->SetText(sName.c_str());
 	}
 
 	if (IPWL_NoteNotify* pNotify = GetNoteNotify())
@@ -823,7 +819,7 @@ void CPWL_NoteItem::SetSubjectName(const CFX_WideString& sName)
 void CPWL_NoteItem::SetAuthorName(const CFX_WideString& sName)
 {
 	m_sAuthor = sName;
-	ResetSubjectName(-1);	
+	ResetSubjectName(-1);
 
 	if (IPWL_NoteNotify* pNotify = GetNoteNotify())
 	{
@@ -831,11 +827,11 @@ void CPWL_NoteItem::SetAuthorName(const CFX_WideString& sName)
 	}
 }
 
-void CPWL_NoteItem::ResetSubjectName(FX_INT32 nItemIndex)
+void CPWL_NoteItem::ResetSubjectName(int32_t nItemIndex)
 {
 	if (nItemIndex < 0)
 	{
-		if (CPWL_Wnd* pParent = this->GetParentWindow())
+		if (CPWL_Wnd* pParent = GetParentWindow())
 		{
 			ASSERT(pParent->GetClassName() == "CPWL_Note_Contents");
 
@@ -848,30 +844,29 @@ void CPWL_NoteItem::ResetSubjectName(FX_INT32 nItemIndex)
 	ASSERT(pNote != NULL);
 
 	CFX_WideString sSubject;
-	sSubject.Format(pNote->GetReplyString(), nItemIndex);
+	sSubject.Format(pNote->GetReplyString().c_str(), nItemIndex);
 
 	if (!m_sAuthor.IsEmpty())
 	{
-		
 		sSubject += L" - ";
 		sSubject += m_sAuthor;
 	}
-	this->SetSubjectName(sSubject);
-	this->RePosChildWnd();
+	SetSubjectName(sSubject);
+	RePosChildWnd();
 }
 
 void CPWL_NoteItem::SetDateTime(FX_SYSTEMTIME time)
 {
 	m_dtNote = time;
-	
+
 	CFX_WideString swTime;
-	swTime.Format((FX_LPCWSTR)L"%04d-%02d-%02d %02d:%02d:%02d", time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond);
+	swTime.Format(L"%04d-%02d-%02d %02d:%02d:%02d", time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond);
 	if (m_pDateTime)
 	{
-		m_pDateTime->SetText(swTime);
+		m_pDateTime->SetText(swTime.c_str());
 	}
 
-	this->RePosChildWnd();
+	RePosChildWnd();
 
 	if (IPWL_NoteNotify* pNotify = GetNoteNotify())
 	{
@@ -894,7 +889,7 @@ void CPWL_NoteItem::SetContents(const CFX_WideString& sContents)
 
 CPWL_NoteItem* CPWL_NoteItem::GetParentNoteItem() const
 {
-	if (CPWL_Wnd* pParent = this->GetParentWindow())
+	if (CPWL_Wnd* pParent = GetParentWindow())
 	{
 		if (CPWL_Wnd* pGrand = pParent->GetParentWindow())
 		{
@@ -925,12 +920,12 @@ void* CPWL_NoteItem::GetPrivateData() const
 
 CFX_WideString CPWL_NoteItem::GetAuthorName() const
 {
-	return m_sAuthor; 
+	return m_sAuthor;
 }
 
 CPWL_Color CPWL_NoteItem::GetBkColor() const
 {
-	return this->GetBackgroundColor();
+	return GetBackgroundColor();
 }
 
 CFX_WideString CPWL_NoteItem::GetContents() const
@@ -967,7 +962,7 @@ IPWL_NoteItem* CPWL_NoteItem::CreateSubItem()
 	return CreateNoteItem();
 }
 
-FX_INT32 CPWL_NoteItem::CountSubItems() const
+int32_t CPWL_NoteItem::CountSubItems() const
 {
 	if (m_pContents)
 		return m_pContents->CountSubItems();
@@ -975,7 +970,7 @@ FX_INT32 CPWL_NoteItem::CountSubItems() const
 	return 0;
 }
 
-IPWL_NoteItem* CPWL_NoteItem::GetSubItems(FX_INT32 index) const
+IPWL_NoteItem* CPWL_NoteItem::GetSubItems(int32_t index) const
 {
 	if (m_pContents)
 		return m_pContents->GetSubItems(index);
@@ -985,7 +980,7 @@ IPWL_NoteItem* CPWL_NoteItem::GetSubItems(FX_INT32 index) const
 
 void CPWL_NoteItem::DeleteSubItem(IPWL_NoteItem* pNoteItem)
 {
-	this->KillFocus();
+	KillFocus();
 
 	if (IPWL_NoteNotify* pNotify = GetNoteNotify())
 	{
@@ -998,9 +993,9 @@ void CPWL_NoteItem::DeleteSubItem(IPWL_NoteItem* pNoteItem)
 
 IPWL_NoteItem* CPWL_NoteItem::GetHitNoteItem(const CPDF_Point& point)
 {
-	CPDF_Point pt = this->ParentToChild(point);
+	CPDF_Point pt = ParentToChild(point);
 
-	if (this->WndHitTest(pt))
+	if (WndHitTest(pt))
 	{
 		if (m_pContents)
 		{
@@ -1016,17 +1011,17 @@ IPWL_NoteItem* CPWL_NoteItem::GetHitNoteItem(const CPDF_Point& point)
 
 IPWL_NoteItem* CPWL_NoteItem::GetFocusedNoteItem() const
 {
-	if (const CPWL_Wnd* pWnd = this->GetFocused())
+	if (const CPWL_Wnd* pWnd = GetFocused())
 	{
 		if (pWnd->GetClassName() == "CPWL_Edit")
 		{
 			if (CPWL_Wnd* pParent = pWnd->GetParentWindow())
 			{
 				ASSERT(pParent->GetClassName() == "CPWL_Note_Contents");
-				
+
 				if (CPWL_Wnd* pGrand = pParent->GetParentWindow())
 				{
-					ASSERT(pGrand->GetClassName() == "CPWL_NoteItem");					
+					ASSERT(pGrand->GetClassName() == "CPWL_NoteItem");
 					return (CPWL_NoteItem*)pGrand;
 				}
 			}
@@ -1050,7 +1045,7 @@ FX_FLOAT CPWL_NoteItem::GetItemHeight(FX_FLOAT fLimitWidth)
 		ASSERT(m_pContents != NULL);
 
 		FX_FLOAT fRet = m_pDateTime->GetContentRect().Height();
-		FX_FLOAT fBorderWidth = (FX_FLOAT)this->GetBorderWidth();
+		FX_FLOAT fBorderWidth = (FX_FLOAT)GetBorderWidth();
 		if (fLimitWidth > fBorderWidth * 2)
 			fRet += m_pContents->GetContentsHeight(fLimitWidth - fBorderWidth * 2);
 		fRet += POPUP_ITEM_HEAD_BOTTOM + POPUP_ITEM_BOTTOMWIDTH + fBorderWidth * 2;
@@ -1096,36 +1091,36 @@ FX_BOOL	CPWL_NoteItem::OnRButtonUp(const CPDF_Point & point, FX_DWORD nFlag)
 	return CPWL_Wnd::OnRButtonUp(point,nFlag);
 }
 
-void CPWL_NoteItem::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, FX_INTPTR wParam, FX_INTPTR lParam)
+void CPWL_NoteItem::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, intptr_t wParam, intptr_t lParam)
 {
 	switch (msg)
 	{
-	case PNM_NOTEEDITCHANGED:	
+	case PNM_NOTEEDITCHANGED:
 		m_bSizeChanged = TRUE;
 
-		if (CPWL_Wnd* pParent = this->GetParentWindow())
+		if (CPWL_Wnd* pParent = GetParentWindow())
 		{
 			pParent->OnNotify(this, PNM_NOTEEDITCHANGED, 0, 0);
 		}
-		return;	
+		return;
 	case PNM_SETCARETINFO:
 		if (PWL_CARET_INFO * pInfo = (PWL_CARET_INFO*)wParam)
 		{
 			PWL_CARET_INFO newInfo = *pInfo;
 			newInfo.bVisible = TRUE;
-			newInfo.ptHead = this->ChildToParent(pInfo->ptHead);
-			newInfo.ptFoot = this->ChildToParent(pInfo->ptFoot);
+			newInfo.ptHead = ChildToParent(pInfo->ptHead);
+			newInfo.ptFoot = ChildToParent(pInfo->ptFoot);
 
-			if (CPWL_Wnd * pParent = this->GetParentWindow())
+			if (CPWL_Wnd * pParent = GetParentWindow())
 			{
-				pParent->OnNotify(this, PNM_SETCARETINFO, (FX_INTPTR)&newInfo, 0);
+				pParent->OnNotify(this, PNM_SETCARETINFO, (intptr_t)&newInfo, 0);
 			}
 		}
 		return;
 	case PNM_NOTERESET:
 		m_bSizeChanged = TRUE;
 		m_pContents->OnNotify(this, PNM_NOTERESET, 0, 0);
-		
+
 		return;
 	}
 
@@ -1136,7 +1131,7 @@ void CPWL_NoteItem::PopupNoteItemMenu(const CPDF_Point& point)
 {
 	if (IPWL_NoteNotify* pNotify = GetNoteNotify())
 	{
-		FX_INT32 x,y;
+		int32_t x,y;
 		PWLtoWnd(point, x, y);
 		if (IFX_SystemHandler* pSH = GetSystemHandler())
 			pSH->ClientToScreen(GetAttachedHWnd(), x, y);
@@ -1146,7 +1141,7 @@ void CPWL_NoteItem::PopupNoteItemMenu(const CPDF_Point& point)
 
 const CPWL_Note* CPWL_NoteItem::GetNote() const
 {
-	if (const CPWL_Wnd* pRoot = this->GetRootWnd())
+	if (const CPWL_Wnd* pRoot = GetRootWnd())
 	{
 		ASSERT(pRoot->GetClassName() == "CPWL_NoteItem");
 		CPWL_NoteItem* pNoteItem = (CPWL_NoteItem*)pRoot;
@@ -1201,7 +1196,7 @@ void CPWL_NoteItem::EnableRead(FX_BOOL bEnabled)
 
 /* ---------------------------------- CPWL_Note ---------------------------------- */
 
-CPWL_Note::CPWL_Note(IPopup_Note* pPopupNote, IPWL_NoteNotify* pNoteNotify, IPWL_NoteHandler* pNoteHandler) : 
+CPWL_Note::CPWL_Note(IPopup_Note* pPopupNote, IPWL_NoteNotify* pNoteNotify, IPWL_NoteHandler* pNoteHandler) :
 	m_pAuthor(NULL),
 	m_pIcon(NULL),
 	m_pCloseBox(NULL),
@@ -1237,9 +1232,8 @@ void CPWL_Note::RePosChildWnd()
 	m_pContents->OnNotify(this, PNM_NOTERESET, 0, 0);
 	ResetScrollBar();
 	m_pContents->OnNotify(this, PNM_NOTERESET, 0, 0);
-	this->OnNotify(this, PNM_NOTEEDITCHANGED, 0, 0);
-	//Í¬²½
-	if (const CPWL_Wnd* pWnd = this->GetFocused())
+	OnNotify(this, PNM_NOTEEDITCHANGED, 0, 0);
+	if (const CPWL_Wnd* pWnd = GetFocused())
 	{
 		if (pWnd->GetClassName() == "CPWL_Edit")
 		{
@@ -1247,8 +1241,6 @@ void CPWL_Note::RePosChildWnd()
 			pEdit->SetCaret(pEdit->GetCaret());
 		}
 	}
-	//CPDF_Point ptNew = m_pContents->GetScrollPos();
-	//m_pContentsBar->OnNotify(this, PNM_SETSCROLLPOS, SBT_VSCROLL, (FX_INTPTR)&ptNew.y);
 }
 
 FX_BOOL CPWL_Note::ResetScrollBar()
@@ -1265,7 +1257,7 @@ FX_BOOL CPWL_Note::ResetScrollBar()
 				m_pContentsBar->InvalidateRect(NULL);
 				bScrollChanged = TRUE;
 			}
-		}	
+		}
 	}
 	else
 	{
@@ -1280,7 +1272,7 @@ FX_BOOL CPWL_Note::ResetScrollBar()
 
 	if (bScrollChanged)
 	{
-		CPDF_Rect rcNote = this->GetClientRect();
+		CPDF_Rect rcNote = GetClientRect();
 		CPDF_Rect rcContents = m_pContents->GetWindowRect();
 		rcContents.right = rcNote.right - 3.0f;
 		if (m_pContentsBar->IsVisible())
@@ -1298,7 +1290,7 @@ FX_BOOL CPWL_Note::ScrollBarShouldVisible()
 	CPDF_Rect rcContentsFact = m_pContents->GetScrollArea();
 	CPDF_Rect rcContentsClient = m_pContents->GetClientRect();
 
-	return rcContentsFact.Height() > rcContentsClient.Height();	
+	return rcContentsFact.Height() > rcContentsClient.Height();
 }
 
 void CPWL_Note::SetOptionsText(const CFX_WideString& sText)
@@ -1315,7 +1307,7 @@ void CPWL_Note::RePosNoteChildren()
 
 	m_bResizing = TRUE;
 
-	if (this->IsValid())
+	if (IsValid())
 	{
 		ASSERT(m_pSubject != NULL);
 		ASSERT(m_pDateTime != NULL);
@@ -1362,7 +1354,7 @@ void CPWL_Note::RePosNoteChildren()
 		rcSubject.right = PWL_MIN(rcSubject.left + m_pSubject->GetContentRect().Width() + 1.0f, rcDate.left - 1.0f);
 		rcSubject.bottom = rcSubject.top - m_pSubject->GetContentRect().Height();
 		rcSubject.Normalize();
-		m_pSubject->Move(rcSubject, TRUE, FALSE);	
+		m_pSubject->Move(rcSubject, TRUE, FALSE);
 		m_pSubject->SetVisible(CPWL_Utils::ContainsRect(rcClient, rcSubject));
 
 		CPDF_Rect rcOptions = rcClient;
@@ -1412,7 +1404,7 @@ void CPWL_Note::RePosNoteChildren()
 		rcContentsBar.left = rcContentsBar.right - PWL_SCROLLBAR_WIDTH;
 		rcContentsBar.Normalize();
 		m_pContentsBar->Move(rcContentsBar, TRUE, FALSE);
-		
+
 		m_rcCaption = rcClient;
 		m_rcCaption.bottom = rcContents.top;
 	}
@@ -1420,8 +1412,8 @@ void CPWL_Note::RePosNoteChildren()
 	m_bResizing = FALSE;
 }
 
-//0-normal / 1-caption / 2-leftbottom corner / 3-rightbottom corner / 4-close / 5-options 
-FX_INT32 CPWL_Note::NoteHitTest(const CPDF_Point& point) const
+//0-normal / 1-caption / 2-leftbottom corner / 3-rightbottom corner / 4-close / 5-options
+int32_t CPWL_Note::NoteHitTest(const CPDF_Point& point) const
 {
 	ASSERT(m_pSubject != NULL);
 	ASSERT(m_pDateTime != NULL);
@@ -1459,7 +1451,7 @@ void CPWL_Note::CreateChildWnd(const PWL_CREATEPARAM & cp)
 
 	CPWL_Color sTextColor;
 
-	if (CPWL_Utils::IsBlackOrWhite(this->GetBackgroundColor()))
+	if (CPWL_Utils::IsBlackOrWhite(GetBackgroundColor()))
 		sTextColor = PWL_DEFAULT_WHITECOLOR;
 	else
 		sTextColor = PWL_DEFAULT_BLACKCOLOR;
@@ -1469,7 +1461,7 @@ void CPWL_Note::CreateChildWnd(const PWL_CREATEPARAM & cp)
 	acp.pParentWnd = this;
 	acp.dwFlags = PWS_VISIBLE | PWS_CHILD | PES_LEFT | PES_TOP;
 	acp.sTextColor = sTextColor;
-	m_pAuthor->Create(acp);	 
+	m_pAuthor->Create(acp);
 
 	m_pCloseBox = new CPWL_Note_CloseBox;
 	PWL_CREATEPARAM ccp = cp;
@@ -1528,14 +1520,14 @@ void CPWL_Note::SetAuthorName(const CFX_WideString& sName)
 {
 	if (m_pAuthor)
 	{
-		m_pAuthor->SetText(sName);
+		m_pAuthor->SetText(sName.c_str());
 		RePosChildWnd();
 	}
 
 	if (IPWL_NoteNotify* pNotify = GetNoteNotify())
 	{
 		pNotify->OnSetAuthorName(this);
-	}	
+	}
 }
 
 CFX_WideString CPWL_Note::GetAuthorName() const
@@ -1571,8 +1563,8 @@ FX_BOOL CPWL_Note::OnMouseWheel(short zDelta, const CPDF_Point & point, FX_DWORD
 		if (ptNew.y != ptScroll.y)
 		{
 			m_pContents->OnNotify(this, PNM_NOTERESET, 0, 0);
-			m_pContents->OnNotify(this, PNM_SCROLLWINDOW, SBT_VSCROLL, (FX_INTPTR)&ptNew.y);			
-			m_pContentsBar->OnNotify(this, PNM_SETSCROLLPOS, SBT_VSCROLL, (FX_INTPTR)&ptNew.y);
+			m_pContents->OnNotify(this, PNM_SCROLLWINDOW, SBT_VSCROLL, (intptr_t)&ptNew.y);
+			m_pContentsBar->OnNotify(this, PNM_SETSCROLLPOS, SBT_VSCROLL, (intptr_t)&ptNew.y);
 
 			return TRUE;
 		}
@@ -1581,14 +1573,14 @@ FX_BOOL CPWL_Note::OnMouseWheel(short zDelta, const CPDF_Point & point, FX_DWORD
 	return FALSE;
 }
 
-void CPWL_Note::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, FX_INTPTR wParam, FX_INTPTR lParam)
+void CPWL_Note::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, intptr_t wParam, intptr_t lParam)
 {
 	switch (msg)
 	{
 	case PNM_NOTEEDITCHANGED:
 		{
 			CPDF_Rect rcScroll = m_pContents->GetScrollArea();
-			
+
 
 			PWL_SCROLL_INFO sInfo;
 			sInfo.fContentMin = rcScroll.bottom;
@@ -1608,15 +1600,15 @@ void CPWL_Note::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, FX_INTPTR wParam, FX_INTP
 					{
 						lParam++;
 						m_pContents->OnNotify(this, PNM_NOTERESET, 0, 0);
-						this->OnNotify(this, PNM_NOTEEDITCHANGED, 0, lParam);
+						OnNotify(this, PNM_NOTEEDITCHANGED, 0, lParam);
 					}
 				}
-				
+
 				if (!bScrollChanged)
 				{
 					if (m_pContentsBar->IsVisible())
 					{
-						m_pContentsBar->OnNotify(pWnd, PNM_SETSCROLLINFO, SBT_VSCROLL, (FX_INTPTR)&sInfo);
+						m_pContentsBar->OnNotify(pWnd, PNM_SETSCROLLINFO, SBT_VSCROLL, (intptr_t)&sInfo);
 						m_OldScrollInfo = sInfo;
 
 						CPDF_Point ptScroll = m_pContents->GetScrollPos();
@@ -1631,9 +1623,9 @@ void CPWL_Note::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, FX_INTPTR wParam, FX_INTP
 
 						if (ptOld.y != ptScroll.y)
 						{
-							m_pContentsBar->OnNotify(this, PNM_SETSCROLLPOS, SBT_VSCROLL, (FX_INTPTR)&ptScroll.y);
+							m_pContentsBar->OnNotify(this, PNM_SETSCROLLPOS, SBT_VSCROLL, (intptr_t)&ptScroll.y);
 							m_pContentsBar->InvalidateRect(NULL);
-							m_pContents->OnNotify(this, PNM_SCROLLWINDOW, SBT_VSCROLL, (FX_INTPTR)&ptScroll.y);
+							m_pContents->OnNotify(this, PNM_SCROLLWINDOW, SBT_VSCROLL, (intptr_t)&ptScroll.y);
 						}
 					}
 				}
@@ -1663,22 +1655,22 @@ void CPWL_Note::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, FX_INTPTR wParam, FX_INTP
 				if (pInfo->ptHead.y > rcClient.top)
 				{
 					CPDF_Point pt = m_pContents->OutToIn(pInfo->ptHead);
-					m_pContents->OnNotify(this, PNM_SCROLLWINDOW, SBT_VSCROLL, (FX_INTPTR)&pt.y);
+					m_pContents->OnNotify(this, PNM_SCROLLWINDOW, SBT_VSCROLL, (intptr_t)&pt.y);
 
 					CPDF_Point ptScroll = m_pContents->GetScrollPos();
-					m_pContentsBar->OnNotify(this, PNM_SETSCROLLPOS, SBT_VSCROLL, (FX_INTPTR)&ptScroll.y);
+					m_pContentsBar->OnNotify(this, PNM_SETSCROLLPOS, SBT_VSCROLL, (intptr_t)&ptScroll.y);
 
 					return;
 				}
-				
+
 				if (pInfo->ptFoot.y < rcClient.bottom)
 				{
 					CPDF_Point pt = m_pContents->OutToIn(pInfo->ptFoot);
 					pt.y += rcClient.Height();
-					m_pContents->OnNotify(this, PNM_SCROLLWINDOW, SBT_VSCROLL, (FX_INTPTR)&pt.y);
+					m_pContents->OnNotify(this, PNM_SCROLLWINDOW, SBT_VSCROLL, (intptr_t)&pt.y);
 
 					CPDF_Point ptScroll = m_pContents->GetScrollPos();
-					m_pContentsBar->OnNotify(this, PNM_SETSCROLLPOS, SBT_VSCROLL, (FX_INTPTR)&ptScroll.y);
+					m_pContentsBar->OnNotify(this, PNM_SETSCROLLPOS, SBT_VSCROLL, (intptr_t)&ptScroll.y);
 
 					return;
 				}
@@ -1716,13 +1708,13 @@ FX_BOOL	CPWL_Note::OnLButtonDown(const CPDF_Point& point, FX_DWORD nFlag)
 {
 	if (m_pOptions->WndHitTest(m_pOptions->ParentToChild(point)))
 	{
-		if (IPWL_NoteNotify* pNotify = this->GetNoteNotify())
+		if (IPWL_NoteNotify* pNotify = GetNoteNotify())
 		{
-			FX_INT32 x, y;
+			int32_t x, y;
 			PWLtoWnd(point, x, y);
 			if (IFX_SystemHandler* pSH = GetSystemHandler())
 				pSH->ClientToScreen(GetAttachedHWnd(), x, y);
-			this->KillFocus();
+			KillFocus();
 			pNotify->OnPopupMenu(x, y);
 
 			return TRUE;
@@ -1750,7 +1742,7 @@ IPWL_NoteNotify* CPWL_Note::GetNoteNotify() const
 	return NULL;
 }
 
-void CPWL_Note::SetIconType(FX_INT32 nType)
+void CPWL_Note::SetIconType(int32_t nType)
 {
 	if (m_pIcon)
 		m_pIcon->SetIconType(nType);

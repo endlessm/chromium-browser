@@ -8,6 +8,7 @@
 #include <cmath>
 
 #include "base/i18n/rtl.h"
+#include "base/mac/foundation_util.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -17,6 +18,8 @@
 #include "chrome/browser/ui/cocoa/omnibox/omnibox_view_mac.h"
 #include "chrome/browser/ui/omnibox/omnibox_popup_model.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/omnibox/browser/suggestion_answer.h"
+#include "skia/ext/skia_utils_mac.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/font.h"
 
@@ -24,6 +27,9 @@ namespace {
 
 // How far to offset image column from the left.
 const CGFloat kImageXOffset = 5.0;
+
+// How far to offset image and text.
+const CGFloat kPaddingOffset = 3.0;
 
 // How far to offset the text column from the left.
 const CGFloat kTextStartOffset = 28.0;
@@ -43,15 +49,6 @@ NSRect FlipIfRTL(NSRect rect, NSRect frame) {
   return rect;
 }
 
-// Shifts the left edge of the given |rect| by |dX|
-NSRect ShiftRect(NSRect rect, CGFloat dX) {
-  DCHECK_LE(dX, NSWidth(rect));
-  NSRect result = rect;
-  result.origin.x += dX;
-  result.size.width -= dX;
-  return result;
-}
-
 NSColor* SelectedBackgroundColor() {
   return [NSColor selectedControlColor];
 }
@@ -65,6 +62,12 @@ NSColor* ContentTextColor() {
 NSColor* DimTextColor() {
   return [NSColor darkGrayColor];
 }
+NSColor* PositiveTextColor() {
+  return gfx::SkColorToCalibratedNSColor(SkColorSetRGB(0x0b, 0x80, 0x43));
+}
+NSColor* NegativeTextColor() {
+  return gfx::SkColorToCalibratedNSColor(SkColorSetRGB(0xc5, 0x39, 0x29));
+}
 NSColor* URLTextColor() {
   return [NSColor colorWithCalibratedRed:0.0 green:0.55 blue:0.0 alpha:1.0];
 }
@@ -75,9 +78,189 @@ NSFont* FieldFont() {
 NSFont* BoldFieldFont() {
   return OmniboxViewMac::GetFieldFont(gfx::Font::BOLD);
 }
+NSFont* LargeFont() {
+  return OmniboxViewMac::GetLargeFont(gfx::Font::NORMAL);
+}
+NSFont* LargeSuperscriptFont() {
+  NSFont* font = OmniboxViewMac::GetLargeFont(gfx::Font::NORMAL);
+  // Calculate a slightly smaller font. The ratio here is somewhat arbitrary.
+  // Proportions from 5/9 to 5/7 all look pretty good.
+  CGFloat size = [font pointSize] * 5.0 / 9.0;
+  NSFontDescriptor* descriptor = [font fontDescriptor];
+  return [NSFont fontWithDescriptor:descriptor size:size];
+}
+NSFont* SmallFont() {
+  return OmniboxViewMac::GetSmallFont(gfx::Font::NORMAL);
+}
 
 CGFloat GetContentAreaWidth(NSRect cellFrame) {
   return NSWidth(cellFrame) - kTextStartOffset;
+}
+
+NSAttributedString* CreateAnswerStringHelper(const base::string16& text,
+                                             NSInteger style_type,
+                                             bool is_bold) {
+  NSDictionary* answer_style = nil;
+  switch (style_type) {
+    case SuggestionAnswer::ANSWER:
+      answer_style = @{
+        NSForegroundColorAttributeName : ContentTextColor(),
+        NSFontAttributeName : LargeFont()
+      };
+      break;
+    case SuggestionAnswer::HEADLINE:
+      answer_style = @{
+        NSForegroundColorAttributeName : DimTextColor(),
+        NSFontAttributeName : LargeFont()
+      };
+      break;
+    case SuggestionAnswer::TOP_ALIGNED:
+      answer_style = @{
+        NSForegroundColorAttributeName : DimTextColor(),
+        NSFontAttributeName : LargeSuperscriptFont(),
+        NSSuperscriptAttributeName : @1
+      };
+      break;
+    case SuggestionAnswer::DESCRIPTION:
+      answer_style = @{
+        NSForegroundColorAttributeName : DimTextColor(),
+        NSFontAttributeName : FieldFont()
+      };
+      break;
+    case SuggestionAnswer::DESCRIPTION_NEGATIVE:
+      answer_style = @{
+        NSForegroundColorAttributeName : NegativeTextColor(),
+        NSFontAttributeName : LargeSuperscriptFont()
+      };
+      break;
+    case SuggestionAnswer::DESCRIPTION_POSITIVE:
+      answer_style = @{
+        NSForegroundColorAttributeName : PositiveTextColor(),
+        NSFontAttributeName : LargeSuperscriptFont()
+      };
+      break;
+    case SuggestionAnswer::MORE_INFO:
+      answer_style = @{
+        NSForegroundColorAttributeName : DimTextColor(),
+        NSFontAttributeName : SmallFont()
+      };
+      break;
+    case SuggestionAnswer::SUGGESTION:
+      answer_style = @{
+        NSForegroundColorAttributeName : ContentTextColor(),
+        NSFontAttributeName : FieldFont()
+      };
+      break;
+    case SuggestionAnswer::SUGGESTION_POSITIVE:
+      answer_style = @{
+        NSForegroundColorAttributeName : PositiveTextColor(),
+        NSFontAttributeName : FieldFont()
+      };
+      break;
+    case SuggestionAnswer::SUGGESTION_NEGATIVE:
+      answer_style = @{
+        NSForegroundColorAttributeName : NegativeTextColor(),
+        NSFontAttributeName : FieldFont()
+      };
+      break;
+    case SuggestionAnswer::SUGGESTION_LINK:
+      answer_style = @{
+        NSForegroundColorAttributeName : URLTextColor(),
+        NSFontAttributeName : FieldFont()
+      };
+      break;
+    case SuggestionAnswer::STATUS:
+      answer_style = @{
+        NSForegroundColorAttributeName : DimTextColor(),
+        NSFontAttributeName : LargeSuperscriptFont()
+      };
+      break;
+    case SuggestionAnswer::PERSONALIZED_SUGGESTION:
+      answer_style = @{
+        NSForegroundColorAttributeName : ContentTextColor(),
+        NSFontAttributeName : FieldFont()
+      };
+      break;
+  }
+
+  if (is_bold) {
+    NSMutableDictionary* bold_style = [answer_style mutableCopy];
+    // TODO(dschuyler): Account for bolding fonts other than FieldFont.
+    // Field font is the only one currently necessary to bold.
+    [bold_style setObject:BoldFieldFont() forKey:NSFontAttributeName];
+    answer_style = bold_style;
+  }
+
+  return [[[NSAttributedString alloc]
+      initWithString:base::SysUTF16ToNSString(text)
+          attributes:answer_style] autorelease];
+}
+
+NSAttributedString* CreateAnswerString(const base::string16& text,
+                                       NSInteger style_type) {
+  // TODO(dschuyler): make this better.  Right now this only supports unnested
+  // bold tags.  In the future we'll need to flag unexpected tags while adding
+  // support for b, i, u, sub, and sup.  We'll also need to support HTML
+  // entities (&lt; for '<', etc.).
+  const base::string16 begin_tag = base::ASCIIToUTF16("<b>");
+  const base::string16 end_tag = base::ASCIIToUTF16("</b>");
+  size_t begin = 0;
+  base::scoped_nsobject<NSMutableAttributedString> result(
+      [[NSMutableAttributedString alloc] init]);
+  while (true) {
+    size_t end = text.find(begin_tag, begin);
+    if (end == base::string16::npos) {
+      [result
+          appendAttributedString:CreateAnswerStringHelper(
+                                         text.substr(begin),
+                                         style_type, false)];
+      break;
+    }
+    [result appendAttributedString:CreateAnswerStringHelper(
+                                       text.substr(begin, end - begin),
+                                       style_type, false)];
+    begin = end + begin_tag.length();
+    end = text.find(end_tag, begin);
+    if (end == base::string16::npos)
+      break;
+    [result appendAttributedString:CreateAnswerStringHelper(
+                                       text.substr(begin, end - begin),
+                                       style_type, true)];
+    begin = end + end_tag.length();
+  }
+  return result.autorelease();
+}
+
+NSAttributedString* CreateAnswerLine(const SuggestionAnswer::ImageLine& line) {
+  base::scoped_nsobject<NSMutableAttributedString> answer_string(
+      [[NSMutableAttributedString alloc] init]);
+  DCHECK(!line.text_fields().empty());
+  for (const SuggestionAnswer::TextField& text_field : line.text_fields()) {
+    [answer_string
+        appendAttributedString:CreateAnswerString(text_field.text(),
+                                                  text_field.type())];
+  }
+  const base::string16 space(base::ASCIIToUTF16(" "));
+  const SuggestionAnswer::TextField* text_field = line.additional_text();
+  if (text_field) {
+    [answer_string
+        appendAttributedString:CreateAnswerString(space + text_field->text(),
+                                                  text_field->type())];
+  }
+  text_field = line.status_text();
+  if (text_field) {
+    [answer_string
+        appendAttributedString:CreateAnswerString(space + text_field->text(),
+                                                  text_field->type())];
+  }
+  base::scoped_nsobject<NSMutableParagraphStyle> style(
+      [[NSMutableParagraphStyle alloc] init]);
+  [style setLineBreakMode:NSLineBreakByTruncatingTail];
+  [style setTighteningFactorForTruncation:0.0];
+  [answer_string addAttribute:NSParagraphStyleAttributeName
+                            value:style
+                            range:NSMakeRange(0, [answer_string length])];
+  return answer_string.autorelease();
 }
 
 NSMutableAttributedString* CreateAttributedString(
@@ -90,21 +273,20 @@ NSMutableAttributedString* CreateAttributedString(
       NSFontAttributeName : FieldFont(),
       NSForegroundColorAttributeName : text_color
   };
-  NSMutableAttributedString* as =
-      [[[NSMutableAttributedString alloc] initWithString:s
-                                              attributes:attributes]
-        autorelease];
+  NSMutableAttributedString* attributedString = [[
+      [NSMutableAttributedString alloc] initWithString:s
+                                            attributes:attributes] autorelease];
 
   NSMutableParagraphStyle* style =
       [[[NSMutableParagraphStyle alloc] init] autorelease];
   [style setLineBreakMode:NSLineBreakByTruncatingTail];
   [style setTighteningFactorForTruncation:0.0];
   [style setAlignment:textAlignment];
-  [as addAttribute:NSParagraphStyleAttributeName
-             value:style
-             range:NSMakeRange(0, [as length])];
+  [attributedString addAttribute:NSParagraphStyleAttributeName
+                           value:style
+                           range:NSMakeRange(0, [attributedString length])];
 
-  return as;
+  return attributedString;
 }
 
 NSMutableAttributedString* CreateAttributedString(
@@ -117,8 +299,9 @@ NSAttributedString* CreateClassifiedAttributedString(
     const base::string16& text,
     NSColor* text_color,
     const ACMatchClassifications& classifications) {
-  NSMutableAttributedString* as = CreateAttributedString(text, text_color);
-  NSUInteger match_length = [as length];
+  NSMutableAttributedString* attributedString =
+      CreateAttributedString(text, text_color);
+  NSUInteger match_length = [attributedString length];
 
   // Mark up the runs which differ from the default.
   for (ACMatchClassifications::const_iterator i = classifications.begin();
@@ -135,71 +318,103 @@ NSAttributedString* CreateClassifiedAttributedString(
         NSMakeRange(location, std::min(length, match_length - location));
 
     if (0 != (i->style & ACMatchClassification::MATCH)) {
-      [as addAttribute:NSFontAttributeName value:BoldFieldFont() range:range];
+      [attributedString addAttribute:NSFontAttributeName
+                               value:BoldFieldFont()
+                               range:range];
     }
 
     if (0 != (i->style & ACMatchClassification::URL)) {
-      [as addAttribute:NSForegroundColorAttributeName
-                 value:URLTextColor()
-                 range:range];
+      [attributedString addAttribute:NSForegroundColorAttributeName
+                               value:URLTextColor()
+                               range:range];
     } else if (0 != (i->style & ACMatchClassification::DIM)) {
-      [as addAttribute:NSForegroundColorAttributeName
-                 value:DimTextColor()
-                 range:range];
+      [attributedString addAttribute:NSForegroundColorAttributeName
+                               value:DimTextColor()
+                               range:range];
     }
   }
 
-  return as;
+  return attributedString;
 }
 
 }  // namespace
 
-@implementation OmniboxPopupCell
+@interface OmniboxPopupCell ()
+- (CGFloat)drawMatchPart:(NSAttributedString*)attributedString
+               withFrame:(NSRect)cellFrame
+                  origin:(NSPoint)origin
+            withMaxWidth:(int)maxWidth;
+- (CGFloat)drawMatchPrefixWithFrame:(NSRect)cellFrame
+                          tableView:(OmniboxPopupMatrix*)tableView
+               withContentsMaxWidth:(int*)contentsMaxWidth;
+- (void)drawMatchWithFrame:(NSRect)cellFrame inView:(NSView*)controlView;
+@end
 
-- (id)init {
-  self = [super init];
-  if (self) {
-    [self setImagePosition:NSImageLeft];
-    [self setBordered:NO];
-    [self setButtonType:NSRadioButton];
+@implementation OmniboxPopupCellData
 
-    // Without this highlighting messes up white areas of images.
-    [self setHighlightsBy:NSNoCellMask];
+@synthesize contents = contents_;
+@synthesize description = description_;
+@synthesize prefix = prefix_;
+@synthesize image = image_;
+@synthesize answerImage = answerImage_;
+@synthesize contentsOffset = contentsOffset_;
+@synthesize isContentsRTL = isContentsRTL_;
+@synthesize isAnswer = isAnswer_;
+@synthesize matchType = matchType_;
 
-    const base::string16& raw_separator =
-        l10n_util::GetStringUTF16(IDS_AUTOCOMPLETE_MATCH_DESCRIPTION_SEPARATOR);
-    separator_.reset(
-        [CreateAttributedString(raw_separator, DimTextColor()) retain]);
+- (instancetype)initWithMatch:(const AutocompleteMatch&)match
+               contentsOffset:(CGFloat)contentsOffset
+                        image:(NSImage*)image
+                  answerImage:(NSImage*)answerImage {
+  if ((self = [super init])) {
+    image_ = [image retain];
+    answerImage_ = [answerImage retain];
+    contentsOffset_ = contentsOffset;
+
+    isContentsRTL_ =
+        (base::i18n::RIGHT_TO_LEFT ==
+         base::i18n::GetFirstStrongCharacterDirection(match.contents));
+    matchType_ = match.type;
+
+    // Prefix may not have any characters with strong directionality, and may
+    // take the UI directionality. But prefix needs to appear in continuation
+    // of the contents so we force the directionality.
+    NSTextAlignment textAlignment =
+        isContentsRTL_ ? NSRightTextAlignment : NSLeftTextAlignment;
+    prefix_ =
+        [CreateAttributedString(base::UTF8ToUTF16(match.GetAdditionalInfo(
+                                    kACMatchPropertyContentsPrefix)),
+                                ContentTextColor(), textAlignment) retain];
+
+    isAnswer_ = match.answer;
+    if (isAnswer_) {
+      contents_ = [CreateAnswerLine(match.answer->first_line()) retain];
+      description_ = [CreateAnswerLine(match.answer->second_line()) retain];
+    } else {
+      contents_ = [CreateClassifiedAttributedString(
+          match.contents, ContentTextColor(), match.contents_class) retain];
+      if (!match.description.empty()) {
+        description_ = [CreateClassifiedAttributedString(
+            match.description, DimTextColor(), match.description_class) retain];
+      }
+    }
   }
   return self;
 }
 
-- (void)setMatch:(const AutocompleteMatch&)match {
-  match_ = match;
-  NSAttributedString *contents = CreateClassifiedAttributedString(
-      match_.contents, ContentTextColor(), match_.contents_class);
-  [self setAttributedTitle:contents];
-
-  if (match_.description.empty()) {
-    description_.reset();
-  } else {
-    description_.reset([CreateClassifiedAttributedString(
-        match_.description, DimTextColor(), match_.description_class) retain]);
-  }
+- (instancetype)copyWithZone:(NSZone*)zone {
+  return [self retain];
 }
 
-- (void)setMaxMatchContentsWidth:(CGFloat)maxMatchContentsWidth {
-  maxMatchContentsWidth_ = maxMatchContentsWidth;
+- (CGFloat)getMatchContentsWidth {
+  return [contents_ size].width;
 }
 
-- (void)setContentsOffset:(CGFloat)contentsOffset {
-  contentsOffset_ = contentsOffset;
-}
+@end
 
-// The default NSButtonCell drawing leaves the image flush left and
-// the title next to the image.  This spaces things out to line up
-// with the star button and autocomplete field.
-- (void)drawInteriorWithFrame:(NSRect)cellFrame inView:(NSView *)controlView {
+@implementation OmniboxPopupCell
+
+- (void)drawInteriorWithFrame:(NSRect)cellFrame inView:(NSView*)controlView {
   if ([self state] == NSOnState || [self isHighlighted]) {
     if ([self state] == NSOnState)
       [SelectedBackgroundColor() set];
@@ -212,143 +427,133 @@ NSAttributedString* CreateClassifiedAttributedString(
     [path fill];
   }
 
-  // Put the image centered vertically but in a fixed column.
-  NSImage* image = [self image];
-  if (image) {
-    NSRect imageRect = cellFrame;
-    imageRect.size = [image size];
-    imageRect.origin.y +=
-        std::floor((NSHeight(cellFrame) - NSHeight(imageRect)) / 2.0);
-    imageRect.origin.x += kImageXOffset;
-    [image drawInRect:FlipIfRTL(imageRect, cellFrame)
-             fromRect:NSZeroRect  // Entire image
-            operation:NSCompositeSourceOver
-             fraction:1.0
-       respectFlipped:YES
-                hints:nil];
-  }
-
   [self drawMatchWithFrame:cellFrame inView:controlView];
 }
 
 - (void)drawMatchWithFrame:(NSRect)cellFrame inView:(NSView*)controlView {
-  NSAttributedString* contents = [self attributedTitle];
-
+  OmniboxPopupCellData* cellData =
+      base::mac::ObjCCastStrict<OmniboxPopupCellData>([self objectValue]);
+  OmniboxPopupMatrix* tableView =
+      base::mac::ObjCCastStrict<OmniboxPopupMatrix>(controlView);
   CGFloat remainingWidth = GetContentAreaWidth(cellFrame);
-  CGFloat contentsWidth = [self getMatchContentsWidth];
-  CGFloat separatorWidth = [separator_ size].width;
-  CGFloat descriptionWidth = description_.get() ? [description_ size].width : 0;
+  CGFloat contentsWidth = [cellData getMatchContentsWidth];
+  CGFloat separatorWidth = [[tableView separator] size].width;
+  CGFloat descriptionWidth =
+      [cellData description] ? [[cellData description] size].width : 0;
   int contentsMaxWidth, descriptionMaxWidth;
   OmniboxPopupModel::ComputeMatchMaxWidths(
-      ceilf(contentsWidth),
-      ceilf(separatorWidth),
-      ceilf(descriptionWidth),
+      ceilf(contentsWidth), ceilf(separatorWidth), ceilf(descriptionWidth),
       ceilf(remainingWidth),
-      !AutocompleteMatch::IsSearchType(match_.type),
-      &contentsMaxWidth,
+      !AutocompleteMatch::IsSearchType([cellData matchType]), &contentsMaxWidth,
       &descriptionMaxWidth);
 
-  CGFloat offset = kTextStartOffset;
-  if (match_.type == AutocompleteMatchType::SEARCH_SUGGEST_INFINITE) {
+  NSRect imageRect = cellFrame;
+  imageRect.size = [[cellData image] size];
+  imageRect.origin.x += kImageXOffset;
+  imageRect.origin.y += kPaddingOffset;
+  [[cellData image] drawInRect:FlipIfRTL(imageRect, cellFrame)
+                      fromRect:NSZeroRect
+                     operation:NSCompositeSourceOver
+                      fraction:1.0
+                respectFlipped:YES
+                         hints:nil];
+
+  NSPoint origin = NSMakePoint(kTextStartOffset, kPaddingOffset);
+  if ([cellData matchType] == AutocompleteMatchType::SEARCH_SUGGEST_TAIL) {
     // Infinite suggestions are rendered with a prefix (usually ellipsis), which
     // appear vertically stacked.
-    offset += [self drawMatchPrefixWithFrame:cellFrame
-                                      inView:controlView
-                        withContentsMaxWidth:&contentsMaxWidth];
+    origin.x += [self drawMatchPrefixWithFrame:cellFrame
+                                     tableView:tableView
+                          withContentsMaxWidth:&contentsMaxWidth];
   }
-  offset += [self drawMatchPart:contents
-                      withFrame:cellFrame
-                       atOffset:offset
-                   withMaxWidth:contentsMaxWidth
-                         inView:controlView];
+  origin.x += [self drawMatchPart:[cellData contents]
+                        withFrame:cellFrame
+                           origin:origin
+                     withMaxWidth:contentsMaxWidth];
 
-  if (descriptionMaxWidth != 0) {
-    offset += [self drawMatchPart:separator_
-                        withFrame:cellFrame
-                         atOffset:offset
-                     withMaxWidth:separatorWidth
-                           inView:controlView];
-    offset += [self drawMatchPart:description_
-                        withFrame:cellFrame
-                         atOffset:offset
-                     withMaxWidth:descriptionMaxWidth
-                           inView:controlView];
+  if (descriptionMaxWidth > 0) {
+    if ([cellData isAnswer]) {
+      origin =
+          NSMakePoint(kTextStartOffset, kContentLineHeight - kPaddingOffset);
+      CGFloat imageSize = [tableView answerLineHeight];
+      NSRect imageRect =
+          NSMakeRect(NSMinX(cellFrame) + origin.x, NSMinY(cellFrame) + origin.y,
+                     imageSize, imageSize);
+      [[cellData answerImage] drawInRect:FlipIfRTL(imageRect, cellFrame)
+                                fromRect:NSZeroRect
+                               operation:NSCompositeSourceOver
+                                fraction:1.0
+                          respectFlipped:YES
+                                   hints:nil];
+      if ([cellData answerImage])
+        origin.x += imageSize + kPaddingOffset;
+    } else {
+      origin.x += [self drawMatchPart:[tableView separator]
+                            withFrame:cellFrame
+                               origin:origin
+                         withMaxWidth:separatorWidth];
+    }
+    origin.x += [self drawMatchPart:[cellData description]
+                          withFrame:cellFrame
+                             origin:origin
+                       withMaxWidth:descriptionMaxWidth];
   }
 }
 
 - (CGFloat)drawMatchPrefixWithFrame:(NSRect)cellFrame
-                             inView:(NSView*)controlView
+                          tableView:(OmniboxPopupMatrix*)tableView
                withContentsMaxWidth:(int*)contentsMaxWidth {
+  OmniboxPopupCellData* cellData =
+      base::mac::ObjCCastStrict<OmniboxPopupCellData>([self objectValue]);
   CGFloat offset = 0.0f;
   CGFloat remainingWidth = GetContentAreaWidth(cellFrame);
-  bool isRTL = base::i18n::IsRTL();
-  bool isContentsRTL = (base::i18n::RIGHT_TO_LEFT ==
-      base::i18n::GetFirstStrongCharacterDirection(match_.contents));
-  // Prefix may not have any characters with strong directionality, and may take
-  // the UI directionality. But prefix needs to appear in continuation of the
-  // contents so we force the directionality.
-  NSTextAlignment textAlignment = isContentsRTL ?
-      NSRightTextAlignment : NSLeftTextAlignment;
-  prefix_.reset([CreateAttributedString(base::UTF8ToUTF16(
-      match_.GetAdditionalInfo(kACMatchPropertyContentsPrefix)),
-      ContentTextColor(), textAlignment) retain]);
-  CGFloat prefixWidth = [prefix_ size].width;
+  CGFloat prefixWidth = [[cellData prefix] size].width;
 
   CGFloat prefixOffset = 0.0f;
-  if (isRTL != isContentsRTL) {
+  if (base::i18n::IsRTL() != [cellData isContentsRTL]) {
     // The contents is rendered between the contents offset extending towards
     // the start edge, while prefix is rendered in opposite direction. Ideally
     // the prefix should be rendered at |contentsOffset_|. If that is not
     // sufficient to render the widest suggestion, we increase it to
-    // |maxMatchContentsWidth_|.  If |remainingWidth| is not sufficient to
-    // accomodate that, we reduce the offset so that the prefix gets rendered.
+    // |maxMatchContentsWidth|.  If |remainingWidth| is not sufficient to
+    // accommodate that, we reduce the offset so that the prefix gets rendered.
     prefixOffset = std::min(
-        remainingWidth - prefixWidth, std::max(contentsOffset_,
-                                               maxMatchContentsWidth_));
+        remainingWidth - prefixWidth,
+        std::max([cellData contentsOffset], [tableView maxMatchContentsWidth]));
     offset = std::max<CGFloat>(0.0, prefixOffset - *contentsMaxWidth);
   } else { // The direction of contents is same as UI direction.
     // Ideally the offset should be |contentsOffset_|. If the max total width
-    // (|prefixWidth| + |maxMatchContentsWidth_|) from offset will exceed the
+    // (|prefixWidth| + |maxMatchContentsWidth|) from offset will exceed the
     // |remainingWidth|, then we shift the offset to the left , so that all
     // postfix suggestions are visible.
     // We have to render the prefix, so offset has to be at least |prefixWidth|.
-    offset = std::max(prefixWidth,
-        std::min(remainingWidth - maxMatchContentsWidth_, contentsOffset_));
+    offset =
+        std::max(prefixWidth,
+                 std::min(remainingWidth - [tableView maxMatchContentsWidth],
+                          [cellData contentsOffset]));
     prefixOffset = offset - prefixWidth;
   }
   *contentsMaxWidth = std::min((int)ceilf(remainingWidth - prefixWidth),
                                *contentsMaxWidth);
-  [self drawMatchPart:prefix_
+  [self drawMatchPart:[cellData prefix]
             withFrame:cellFrame
-             atOffset:prefixOffset + kTextStartOffset
-         withMaxWidth:prefixWidth
-               inView:controlView];
+               origin:NSMakePoint(prefixOffset + kTextStartOffset, 0)
+         withMaxWidth:prefixWidth];
   return offset;
 }
 
-- (CGFloat)drawMatchPart:(NSAttributedString*)as
+- (CGFloat)drawMatchPart:(NSAttributedString*)attributedString
                withFrame:(NSRect)cellFrame
-                atOffset:(CGFloat)offset
-            withMaxWidth:(int)maxWidth
-                  inView:(NSView*)controlView {
-  if (offset > NSWidth(cellFrame))
-    return 0.0f;
-  NSRect renderRect = ShiftRect(cellFrame, offset);
+                  origin:(NSPoint)origin
+            withMaxWidth:(int)maxWidth {
+  NSRect renderRect = NSIntersectionRect(
+      cellFrame, NSOffsetRect(cellFrame, origin.x, origin.y));
   renderRect.size.width =
       std::min(NSWidth(renderRect), static_cast<CGFloat>(maxWidth));
-  if (renderRect.size.width != 0) {
-    [self drawTitle:as
-          withFrame:FlipIfRTL(renderRect, cellFrame)
-             inView:controlView];
-  }
+  if (!NSIsEmptyRect(renderRect))
+    [attributedString drawInRect:FlipIfRTL(renderRect, cellFrame)];
   return NSWidth(renderRect);
 }
-
-- (CGFloat)getMatchContentsWidth {
-  NSAttributedString* contents = [self attributedTitle];
-  return contents ? [contents size].width : 0;
-}
-
 
 + (CGFloat)computeContentsOffset:(const AutocompleteMatch&)match {
   const base::string16& inputText = base::UTF8ToUTF16(
@@ -358,19 +563,19 @@ NSAttributedString* CreateClassifiedAttributedString(
       match.GetAdditionalInfo(kACMatchPropertyContentsStartIndex),
       &contentsStartIndex);
   // Ignore invalid state.
-  if (!StartsWith(match.fill_into_edit, inputText, true)
-      || !EndsWith(match.fill_into_edit, match.contents, true)
-      || ((size_t)contentsStartIndex >= inputText.length())) {
+  if (!base::StartsWith(match.fill_into_edit, inputText, true) ||
+      !base::EndsWith(match.fill_into_edit, match.contents, true) ||
+      ((size_t)contentsStartIndex >= inputText.length())) {
     return 0;
   }
-  bool isRTL = base::i18n::IsRTL();
   bool isContentsRTL = (base::i18n::RIGHT_TO_LEFT ==
       base::i18n::GetFirstStrongCharacterDirection(match.contents));
 
   // Color does not matter.
-  NSAttributedString* as = CreateAttributedString(inputText, DimTextColor());
-  base::scoped_nsobject<NSTextStorage> textStorage([[NSTextStorage alloc]
-      initWithAttributedString:as]);
+  NSAttributedString* attributedString =
+      CreateAttributedString(inputText, DimTextColor());
+  base::scoped_nsobject<NSTextStorage> textStorage(
+      [[NSTextStorage alloc] initWithAttributedString:attributedString]);
   base::scoped_nsobject<NSLayoutManager> layoutManager(
       [[NSLayoutManager alloc] init]);
   base::scoped_nsobject<NSTextContainer> textContainer(
@@ -386,7 +591,7 @@ NSAttributedString* CreateClassifiedAttributedString(
   // left edge of the string, irrespective of the directionality of UI or text.
   CGFloat glyphOffset = [layoutManager locationForGlyphAtIndex:glyphIndex].x;
 
-  CGFloat inputWidth = [as size].width;
+  CGFloat inputWidth = [attributedString size].width;
 
   // The offset obtained above may need to be corrected because the left-most
   // glyph may not have 0 offset. So we find the offset of left-most glyph, and
@@ -400,7 +605,7 @@ NSAttributedString* CreateClassifiedAttributedString(
   // we are looking for.
   CGFloat glyphWidth = inputWidth;
 
-  for (NSUInteger i = 0; i < [as length]; i++) {
+  for (NSUInteger i = 0; i < [attributedString length]; i++) {
     if (i == charIndex) continue;
     glyphIndex = [layoutManager glyphIndexForCharacterAtIndex:i];
     CGFloat offset = [layoutManager locationForGlyphAtIndex:glyphIndex].x;
@@ -413,7 +618,13 @@ NSAttributedString* CreateClassifiedAttributedString(
     glyphWidth = inputWidth - glyphOffset;
   if (isContentsRTL)
     glyphOffset += glyphWidth;
-  return isRTL ? (inputWidth - glyphOffset) : glyphOffset;
+  return base::i18n::IsRTL() ? (inputWidth - glyphOffset) : glyphOffset;
+}
+
++ (NSAttributedString*)createSeparatorString {
+  base::string16 raw_separator =
+      l10n_util::GetStringUTF16(IDS_AUTOCOMPLETE_MATCH_DESCRIPTION_SEPARATOR);
+  return CreateAttributedString(raw_separator, DimTextColor());
 }
 
 @end

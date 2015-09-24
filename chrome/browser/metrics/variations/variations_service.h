@@ -16,9 +16,9 @@
 #include "base/time/time.h"
 #include "chrome/browser/metrics/variations/variations_request_scheduler.h"
 #include "chrome/browser/metrics/variations/variations_seed_store.h"
-#include "chrome/browser/web_resource/resource_request_allowed_notifier.h"
 #include "chrome/common/chrome_version_info.h"
 #include "components/variations/variations_seed_simulator.h"
+#include "components/web_resource/resource_request_allowed_notifier.h"
 #include "net/url_request/url_fetcher_delegate.h"
 #include "url/gurl.h"
 
@@ -51,7 +51,7 @@ namespace chrome_variations {
 // new seed data from the variations server.
 class VariationsService
     : public net::URLFetcherDelegate,
-      public ResourceRequestAllowedNotifier::Observer {
+      public web_resource::ResourceRequestAllowedNotifier::Observer {
  public:
   class Observer {
    public:
@@ -102,13 +102,20 @@ class VariationsService
   void StartGoogleUpdateRegistrySync();
 #endif
 
+  // Sets the value of the "restrict" URL param to the variations service that
+  // should be used for variation seed requests. This takes precedence over any
+  // value coming from policy prefs. This should be called prior to any calls
+  // to |StartRepeatedVariationsSeedFetch|.
+  void SetRestrictMode(const std::string& restrict_mode);
+
   // Exposed for testing.
   void SetCreateTrialsFromSeedCalledForTesting(bool called);
 
   // Returns the variations server URL, which can vary if a command-line flag is
   // set and/or the variations restrict pref is set in |local_prefs|. Declared
   // static for test purposes.
-  static GURL GetVariationsServerURL(PrefService* local_prefs);
+  static GURL GetVariationsServerURL(PrefService* local_prefs,
+                                     const std::string& restrict_mode_override);
 
   // Exposed for testing.
   static std::string GetDefaultVariationsServerURLForTesting();
@@ -133,6 +140,11 @@ class VariationsService
     policy_pref_service_ = service;
   }
 
+  // Returns the invalid variations seed signature in base64 format, or an empty
+  // string if the signature was valid, missing, or if signature verification is
+  // disabled.
+  std::string GetInvalidVariationsSeedSignature() const;
+
  protected:
   // Starts the fetching process once, where |OnURLFetchComplete| is called with
   // the response.
@@ -149,7 +161,7 @@ class VariationsService
   // Does not take ownership of |state_manager|. Caller should ensure that
   // |state_manager| is valid for the lifetime of this class. Use the |Create|
   // factory method to create a VariationsService.
-  VariationsService(ResourceRequestAllowedNotifier* notifier,
+  VariationsService(web_resource::ResourceRequestAllowedNotifier* notifier,
                     PrefService* local_state,
                     metrics::MetricsStateManager* state_manager);
 
@@ -158,6 +170,25 @@ class VariationsService
   FRIEND_TEST_ALL_PREFIXES(VariationsServiceTest, SeedStoredWhenOKStatus);
   FRIEND_TEST_ALL_PREFIXES(VariationsServiceTest, SeedNotStoredWhenNonOKStatus);
   FRIEND_TEST_ALL_PREFIXES(VariationsServiceTest, SeedDateUpdatedOn304Status);
+  FRIEND_TEST_ALL_PREFIXES(VariationsServiceTest,
+                           LoadPermanentConsistencyCountry);
+
+  // Set of different possible values to report for the
+  // Variations.LoadPermanentConsistencyCountryResult histogram. This enum must
+  // be kept consistent with its counterpart in histograms.xml.
+  enum LoadPermanentConsistencyCountryResult {
+    LOAD_COUNTRY_NO_PREF_NO_SEED = 0,
+    LOAD_COUNTRY_NO_PREF_HAS_SEED,
+    LOAD_COUNTRY_INVALID_PREF_NO_SEED,
+    LOAD_COUNTRY_INVALID_PREF_HAS_SEED,
+    LOAD_COUNTRY_HAS_PREF_NO_SEED_VERSION_EQ,
+    LOAD_COUNTRY_HAS_PREF_NO_SEED_VERSION_NEQ,
+    LOAD_COUNTRY_HAS_BOTH_VERSION_EQ_COUNTRY_EQ,
+    LOAD_COUNTRY_HAS_BOTH_VERSION_EQ_COUNTRY_NEQ,
+    LOAD_COUNTRY_HAS_BOTH_VERSION_NEQ_COUNTRY_EQ,
+    LOAD_COUNTRY_HAS_BOTH_VERSION_NEQ_COUNTRY_NEQ,
+    LOAD_COUNTRY_MAX,
+  };
 
   // Checks if prerequisites for fetching the Variations seed are met, and if
   // so, performs the actual fetch using |DoActualFetch|.
@@ -181,6 +212,15 @@ class VariationsService
   // Record the time of the most recent successful fetch.
   void RecordLastFetchTime();
 
+  // Loads the country code to use for filtering permanent consistency studies,
+  // updating the stored country code if the stored value was for a different
+  // Chrome version. The country used for permanent consistency studies is kept
+  // consistent between Chrome upgrades in order to avoid annoying the user due
+  // to experiment churn while traveling.
+  std::string LoadPermanentConsistencyCountry(
+      const base::Version& version,
+      const variations::VariationsSeed& seed);
+
   // The pref service used to store persist the variations seed.
   PrefService* local_state_;
 
@@ -203,7 +243,12 @@ class VariationsService
   // is pending, and will be reset by |OnURLFetchComplete|.
   scoped_ptr<net::URLFetcher> pending_seed_request_;
 
-  // The URL to use for querying the Variations server.
+  // The value of the "restrict" URL param to the variations server that has
+  // been specified via |SetRestrictMode|. If empty, the URL param will be set
+  // based on policy prefs.
+  std::string restrict_mode_;
+
+  // The URL to use for querying the variations server.
   GURL variations_server_url_;
 
   // Tracks whether |CreateTrialsFromSeed| has been called, to ensure that
@@ -215,14 +260,18 @@ class VariationsService
 
   // Helper class used to tell this service if it's allowed to make network
   // resource requests.
-  scoped_ptr<ResourceRequestAllowedNotifier> resource_request_allowed_notifier_;
+  scoped_ptr<web_resource::ResourceRequestAllowedNotifier>
+      resource_request_allowed_notifier_;
 
   // The start time of the last seed request. This is used to measure the
   // latency of seed requests. Initially zero.
   base::TimeTicks last_request_started_time_;
 
+  // The number of requests to the variations server that have been performed.
+  int request_count_;
+
   // List of observers of the VariationsService.
-  ObserverList<Observer> observer_list_;
+  base::ObserverList<Observer> observer_list_;
 
 #if defined(OS_WIN)
   // Helper that handles synchronizing Variations with the Registry.

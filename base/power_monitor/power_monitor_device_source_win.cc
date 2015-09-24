@@ -5,6 +5,7 @@
 #include "base/power_monitor/power_monitor.h"
 #include "base/power_monitor/power_monitor_device_source.h"
 #include "base/power_monitor/power_monitor_source.h"
+#include "base/profiler/scoped_tracker.h"
 #include "base/win/wrapped_window_proc.h"
 
 namespace base {

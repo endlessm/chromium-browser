@@ -97,10 +97,9 @@ static testing::AssertionResult CheckFormat(
   // Note: We use multiset because SocketsManifestPermission does not have to
   // store entries in the order found in the json message.
   std::multiset<CheckFormatEntry> parsed_permissions;
-  for (SocketsManifestPermission::SocketPermissionEntrySet::const_iterator it =
+  for (SocketPermissionEntrySet::const_iterator it =
            permission->entries().begin();
-       it != permission->entries().end();
-       ++it) {
+       it != permission->entries().end(); ++it) {
     parsed_permissions.insert(
         CheckFormatEntry(it->pattern().type, it->GetHostPatternAsString()));
   }
@@ -195,7 +194,7 @@ TEST(SocketsManifestPermissionTest, Empty) {
 
   IPC::Message m;
   ipc_perm->Write(&m);
-  PickleIterator iter(m);
+  base::PickleIterator iter(m);
   EXPECT_TRUE(ipc_perm2->Read(&m, &iter));
   AssertEmptyPermission(ipc_perm2.get());
 }
@@ -400,7 +399,7 @@ TEST(SocketsManifestPermissionTest, IPC) {
 
   IPC::Message m;
   ipc_perm->Write(&m);
-  PickleIterator iter(m);
+  base::PickleIterator iter(m);
   EXPECT_TRUE(ipc_perm2->Read(&m, &iter));
   EXPECT_TRUE(permission->Equal(ipc_perm2.get()));
 }

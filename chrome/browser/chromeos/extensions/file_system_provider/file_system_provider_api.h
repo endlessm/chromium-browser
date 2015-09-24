@@ -16,8 +16,8 @@ class FileSystemProviderMountFunction : public ChromeSyncExtensionFunction {
                              FILESYSTEMPROVIDER_MOUNT)
 
  protected:
-  virtual ~FileSystemProviderMountFunction() {}
-  virtual bool RunSync() override;
+  ~FileSystemProviderMountFunction() override {}
+  bool RunSync() override;
 };
 
 class FileSystemProviderUnmountFunction : public ChromeSyncExtensionFunction {
@@ -26,8 +26,8 @@ class FileSystemProviderUnmountFunction : public ChromeSyncExtensionFunction {
                              FILESYSTEMPROVIDER_UNMOUNT)
 
  protected:
-  virtual ~FileSystemProviderUnmountFunction() {}
-  virtual bool RunSync() override;
+  ~FileSystemProviderUnmountFunction() override {}
+  bool RunSync() override;
 };
 
 class FileSystemProviderGetAllFunction : public ChromeSyncExtensionFunction {
@@ -36,18 +36,31 @@ class FileSystemProviderGetAllFunction : public ChromeSyncExtensionFunction {
                              FILESYSTEMPROVIDER_GETALL)
 
  protected:
-  virtual ~FileSystemProviderGetAllFunction() {}
-  virtual bool RunSync() override;
+  ~FileSystemProviderGetAllFunction() override {}
+  bool RunSync() override;
 };
 
-class FileSystemProviderNotifyFunction : public ChromeSyncExtensionFunction {
+class FileSystemProviderGetFunction : public ChromeSyncExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("fileSystemProvider.get", FILESYSTEMPROVIDER_GET)
+
+ protected:
+  ~FileSystemProviderGetFunction() override {}
+  bool RunSync() override;
+};
+
+class FileSystemProviderNotifyFunction : public ChromeAsyncExtensionFunction {
  public:
   DECLARE_EXTENSION_FUNCTION("fileSystemProvider.notify",
                              FILESYSTEMPROVIDER_NOTIFY)
 
  protected:
-  virtual ~FileSystemProviderNotifyFunction() {}
-  virtual bool RunSync() override;
+  ~FileSystemProviderNotifyFunction() override {}
+  bool RunAsync() override;
+
+ private:
+  // Called when notifying is completed.
+  void OnNotifyCompleted(base::File::Error result);
 };
 
 class FileSystemProviderInternalUnmountRequestedSuccessFunction
@@ -55,11 +68,11 @@ class FileSystemProviderInternalUnmountRequestedSuccessFunction
  public:
   DECLARE_EXTENSION_FUNCTION(
       "fileSystemProviderInternal.unmountRequestedSuccess",
-      FILESYSTEMPROVIDERINTERNAL_GETMETADATAREQUESTEDSUCCESS)
+      FILESYSTEMPROVIDERINTERNAL_UNMOUNTREQUESTEDSUCCESS)
 
  protected:
-  virtual ~FileSystemProviderInternalUnmountRequestedSuccessFunction() {}
-  virtual bool RunWhenValid() override;
+  ~FileSystemProviderInternalUnmountRequestedSuccessFunction() override {}
+  bool RunWhenValid() override;
 };
 
 class FileSystemProviderInternalGetMetadataRequestedSuccessFunction
@@ -70,8 +83,20 @@ class FileSystemProviderInternalGetMetadataRequestedSuccessFunction
       FILESYSTEMPROVIDERINTERNAL_GETMETADATAREQUESTEDSUCCESS)
 
  protected:
-  virtual ~FileSystemProviderInternalGetMetadataRequestedSuccessFunction() {}
-  virtual bool RunWhenValid() override;
+  ~FileSystemProviderInternalGetMetadataRequestedSuccessFunction() override {}
+  bool RunWhenValid() override;
+};
+
+class FileSystemProviderInternalGetActionsRequestedSuccessFunction
+    : public FileSystemProviderInternalFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION(
+      "fileSystemProviderInternal.getActionsRequestedSuccess",
+      FILESYSTEMPROVIDERINTERNAL_GETACTIONSREQUESTEDSUCCESS)
+
+ protected:
+  ~FileSystemProviderInternalGetActionsRequestedSuccessFunction() override {}
+  bool RunWhenValid() override;
 };
 
 class FileSystemProviderInternalReadDirectoryRequestedSuccessFunction
@@ -82,8 +107,8 @@ class FileSystemProviderInternalReadDirectoryRequestedSuccessFunction
       FILESYSTEMPROVIDERINTERNAL_READDIRECTORYREQUESTEDSUCCESS)
 
  protected:
-  virtual ~FileSystemProviderInternalReadDirectoryRequestedSuccessFunction() {}
-  virtual bool RunWhenValid() override;
+  ~FileSystemProviderInternalReadDirectoryRequestedSuccessFunction() override {}
+  bool RunWhenValid() override;
 };
 
 class FileSystemProviderInternalReadFileRequestedSuccessFunction
@@ -94,8 +119,8 @@ class FileSystemProviderInternalReadFileRequestedSuccessFunction
       FILESYSTEMPROVIDERINTERNAL_READFILEREQUESTEDSUCCESS)
 
  protected:
-  virtual ~FileSystemProviderInternalReadFileRequestedSuccessFunction() {}
-  virtual bool RunWhenValid() override;
+  ~FileSystemProviderInternalReadFileRequestedSuccessFunction() override {}
+  bool RunWhenValid() override;
 };
 
 class FileSystemProviderInternalOperationRequestedSuccessFunction
@@ -106,8 +131,8 @@ class FileSystemProviderInternalOperationRequestedSuccessFunction
       FILESYSTEMPROVIDERINTERNAL_OPERATIONREQUESTEDSUCCESS)
 
  protected:
-  virtual ~FileSystemProviderInternalOperationRequestedSuccessFunction() {}
-  virtual bool RunWhenValid() override;
+  ~FileSystemProviderInternalOperationRequestedSuccessFunction() override {}
+  bool RunWhenValid() override;
 };
 
 class FileSystemProviderInternalOperationRequestedErrorFunction
@@ -118,8 +143,8 @@ class FileSystemProviderInternalOperationRequestedErrorFunction
       FILESYSTEMPROVIDERINTERNAL_OPERATIONREQUESTEDERROR)
 
  protected:
-  virtual ~FileSystemProviderInternalOperationRequestedErrorFunction() {}
-  virtual bool RunWhenValid() override;
+  ~FileSystemProviderInternalOperationRequestedErrorFunction() override {}
+  bool RunWhenValid() override;
 };
 
 }  // namespace extensions

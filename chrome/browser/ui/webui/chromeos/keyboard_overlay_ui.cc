@@ -19,8 +19,6 @@
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/chromeos_switches.h"
-#include "chromeos/ime/ime_keyboard.h"
-#include "chromeos/ime/input_method_manager.h"
 #include "content/public/browser/page_navigator.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
@@ -28,6 +26,8 @@
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/browser/web_ui_message_handler.h"
 #include "grit/browser_resources.h"
+#include "ui/base/ime/chromeos/ime_keyboard.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
 
 using chromeos::input_method::ModifierKey;
 using content::WebUIMessageHandler;
@@ -40,7 +40,7 @@ const char kLearnMoreURL[] =
     "chrome-extension://honijodknafkokifofgiaalefdiedpko/"
     "main.html?answer=188743";
 #else
-    "http://support.google.com/chromeos/bin/answer.py?answer=183101";
+    "https://support.google.com/chromebook/answer/183101";
 #endif
 
 struct ModifierToLabel {
@@ -61,6 +61,34 @@ struct I18nContentToMessage {
 } kI18nContentToMessage[] = {
   { "keyboardOverlayLearnMore", IDS_KEYBOARD_OVERLAY_LEARN_MORE },
   { "keyboardOverlayTitle", IDS_KEYBOARD_OVERLAY_TITLE },
+  { "keyboardOverlayEscKeyLabel", IDS_KEYBOARD_OVERLAY_ESC_KEY_LABEL },
+  { "keyboardOverlayBackKeyLabel", IDS_KEYBOARD_OVERLAY_BACK_KEY_LABEL },
+  { "keyboardOverlayForwardKeyLabel", IDS_KEYBOARD_OVERLAY_FORWARD_KEY_LABEL },
+  { "keyboardOverlayReloadKeyLabel", IDS_KEYBOARD_OVERLAY_RELOAD_KEY_LABEL },
+  { "keyboardOverlayFullScreenKeyLabel",
+      IDS_KEYBOARD_OVERLAY_FULL_SCREEN_KEY_LABEL },
+  { "keyboardOverlaySwitchWinKeyLabel",
+      IDS_KEYBOARD_OVERLAY_SWITCH_WIN_KEY_LABEL },
+  { "keyboardOverlayBrightDownKeyLabel",
+      IDS_KEYBOARD_OVERLAY_BRIGHT_DOWN_KEY_LABEL },
+  { "keyboardOverlayBrightUpKeyLabel",
+      IDS_KEYBOARD_OVERLAY_BRIGHT_UP_KEY_LABEL },
+  { "keyboardOverlayMuteKeyLabel", IDS_KEYBOARD_OVERLAY_MUTE_KEY_LABEL },
+  { "keyboardOverlayVolDownKeyLabel", IDS_KEYBOARD_OVERLAY_VOL_DOWN_KEY_LABEL },
+  { "keyboardOverlayVolUpKeyLabel", IDS_KEYBOARD_OVERLAY_VOL_UP_KEY_LABEL },
+  { "keyboardOverlayPowerKeyLabel", IDS_KEYBOARD_OVERLAY_POWER_KEY_LABEL },
+  { "keyboardOverlayBackspaceKeyLabel",
+      IDS_KEYBOARD_OVERLAY_BACKSPACE_KEY_LABEL },
+  { "keyboardOverlayTabKeyLabel", IDS_KEYBOARD_OVERLAY_TAB_KEY_LABEL },
+  { "keyboardOverlaySearchKeyLabel", IDS_KEYBOARD_OVERLAY_SEARCH_KEY_LABEL },
+  { "keyboardOverlayEnterKeyLabel", IDS_KEYBOARD_OVERLAY_ENTER_KEY_LABEL },
+  { "keyboardOverlayShiftKeyLabel", IDS_KEYBOARD_OVERLAY_SHIFT_KEY_LABEL },
+  { "keyboardOverlayCtrlKeyLabel", IDS_KEYBOARD_OVERLAY_CTRL_KEY_LABEL },
+  { "keyboardOverlayAltKeyLabel", IDS_KEYBOARD_OVERLAY_ALT_KEY_LABEL },
+  { "keyboardOverlayLeftKeyLabel", IDS_KEYBOARD_OVERLAY_LEFT_KEY_LABEL },
+  { "keyboardOverlayRightKeyLabel", IDS_KEYBOARD_OVERLAY_RIGHT_KEY_LABEL },
+  { "keyboardOverlayUpKeyLabel", IDS_KEYBOARD_OVERLAY_UP_KEY_LABEL },
+  { "keyboardOverlayDownKeyLabel", IDS_KEYBOARD_OVERLAY_DOWN_KEY_LABEL },
   { "keyboardOverlayInstructions", IDS_KEYBOARD_OVERLAY_INSTRUCTIONS },
   { "keyboardOverlayInstructionsHide", IDS_KEYBOARD_OVERLAY_INSTRUCTIONS_HIDE },
   { "keyboardOverlayActivateLastShelfItem",
@@ -220,6 +248,7 @@ struct I18nContentToMessage {
   { "keyboardOverlayToggleBookmarkBar",
     IDS_KEYBOARD_OVERLAY_TOGGLE_BOOKMARK_BAR },
   { "keyboardOverlayToggleCapsLock", IDS_KEYBOARD_OVERLAY_TOGGLE_CAPS_LOCK },
+  { "keyboardOverlayDisableCapsLock", IDS_KEYBOARD_OVERLAY_DISABLE_CAPS_LOCK },
   { "keyboardOverlayToggleChromevoxSpokenFeedback",
     IDS_KEYBOARD_OVERLAY_TOGGLE_CHROMEVOX_SPOKEN_FEEDBACK },
   { "keyboardOverlayToggleProjectionTouchHud",
@@ -258,7 +287,7 @@ content::WebUIDataSource* CreateKeyboardOverlayUIHTMLSource() {
   source->AddString("keyboardOverlayLearnMoreURL",
                     base::UTF8ToUTF16(kLearnMoreURL));
   source->AddBoolean("keyboardOverlayHasChromeOSDiamondKey",
-                     CommandLine::ForCurrentProcess()->HasSwitch(
+                     base::CommandLine::ForCurrentProcess()->HasSwitch(
                          chromeos::switches::kHasChromeOSDiamondKey));
   ash::Shell* shell = ash::Shell::GetInstance();
   ash::DisplayManager* display_manager = shell->display_manager();
@@ -278,10 +307,10 @@ class KeyboardOverlayHandler
       public base::SupportsWeakPtr<KeyboardOverlayHandler> {
  public:
   explicit KeyboardOverlayHandler(Profile* profile);
-  virtual ~KeyboardOverlayHandler();
+  ~KeyboardOverlayHandler() override;
 
   // WebUIMessageHandler implementation.
-  virtual void RegisterMessages() override;
+  void RegisterMessages() override;
 
  private:
   // Called when the page requires the input method ID corresponding to the

@@ -74,8 +74,8 @@ function annotateMetadata(metadata) {
 
 /**
  * Massages arguments of an event raised by the File System Provider API.
- * @param {Array.<*>} args Input arguments.
- * @param {function(Array.<*>)} dispatch Closure to be called with massaged
+ * @param {Array<*>} args Input arguments.
+ * @param {function(Array<*>)} dispatch Closure to be called with massaged
  *     arguments.
  */
 function massageArgumentsDefault(args, dispatch) {
@@ -92,7 +92,6 @@ function massageArgumentsDefault(args, dispatch) {
   }
   dispatch([options, onSuccessCallback, onErrorCallback]);
 }
-
 
 eventBindings.registerArgumentMassager(
     'fileSystemProvider.onUnmountRequested',
@@ -133,6 +132,28 @@ eventBindings.registerArgumentMassager(
             options.fileSystemId,
             options.requestId,
             annotateMetadata(metadata),
+            Date.now() - executionStart);
+      };
+
+      var onErrorCallback = function(error) {
+        fileSystemProviderInternal.operationRequestedError(
+            options.fileSystemId, options.requestId, error,
+            Date.now() - executionStart);
+      }
+
+      dispatch([options, onSuccessCallback, onErrorCallback]);
+    });
+
+eventBindings.registerArgumentMassager(
+    'fileSystemProvider.onGetActionsRequested',
+    function(args, dispatch) {
+      var executionStart = Date.now();
+      var options = args[0];
+      var onSuccessCallback = function(actions) {
+        fileSystemProviderInternal.getActionsRequestedSuccess(
+            options.fileSystemId,
+            options.requestId,
+            actions,
             Date.now() - executionStart);
       };
 
@@ -256,5 +277,25 @@ eventBindings.registerArgumentMassager(
 eventBindings.registerArgumentMassager(
     'fileSystemProvider.onRemoveWatcherRequested',
     massageArgumentsDefault);
+
+eventBindings.registerArgumentMassager(
+    'fileSystemProvider.onConfigureRequested',
+    massageArgumentsDefault);
+
+eventBindings.registerArgumentMassager(
+    'fileSystemProvider.onExecuteActionRequested',
+    massageArgumentsDefault);
+
+eventBindings.registerArgumentMassager(
+    'fileSystemProvider.onMountRequested',
+    function(args, dispatch) {
+      var onSuccessCallback = function() {
+        // TODO(mtomasz): To be implemented.
+      };
+      var onErrorCallback = function(error) {
+        // TODO(mtomasz): To be implemented.
+      }
+      dispatch([onSuccessCallback, onErrorCallback]);
+    });
 
 exports.binding = binding.generate();

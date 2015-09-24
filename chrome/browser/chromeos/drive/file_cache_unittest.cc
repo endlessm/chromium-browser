@@ -13,9 +13,11 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/md5.h"
 #include "base/path_service.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/chromeos/drive/drive.pb.h"
 #include "chrome/browser/chromeos/drive/fake_free_disk_space_getter.h"
-#include "chrome/browser/chromeos/drive/file_system_util.h"
+#include "chrome/browser/chromeos/drive/file_system_core_util.h"
 #include "chrome/browser/chromeos/drive/resource_metadata_storage.h"
 #include "chrome/browser/chromeos/drive/test_util.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -33,7 +35,7 @@ const char kCacheFileDirectory[] = "files";
 // Tests FileCache methods working with the blocking task runner.
 class FileCacheTest : public testing::Test {
  protected:
-  virtual void SetUp() override {
+  void SetUp() override {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
     const base::FilePath metadata_dir = temp_dir_.path().AppendASCII("meta");
     cache_files_dir_ = temp_dir_.path().AppendASCII(kCacheFileDirectory);
@@ -45,13 +47,13 @@ class FileCacheTest : public testing::Test {
 
     metadata_storage_.reset(new ResourceMetadataStorage(
         metadata_dir,
-        base::MessageLoopProxy::current().get()));
+        base::ThreadTaskRunnerHandle::Get().get()));
     ASSERT_TRUE(metadata_storage_->Initialize());
 
     cache_.reset(new FileCache(
         metadata_storage_.get(),
         cache_files_dir_,
-        base::MessageLoopProxy::current().get(),
+        base::ThreadTaskRunnerHandle::Get().get(),
         fake_free_disk_space_getter_.get()));
     ASSERT_TRUE(cache_->Initialize());
   }

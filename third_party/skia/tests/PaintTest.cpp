@@ -21,7 +21,7 @@
 static size_t uni_to_utf8(const SkUnichar src[], void* dst, int count) {
     char* u8 = (char*)dst;
     for (int i = 0; i < count; ++i) {
-        int n = SkUTF8_FromUnichar(src[i], u8);
+        int n = SkToInt(SkUTF8_FromUnichar(src[i], u8));
         u8 += n;
     }
     return u8 - (char*)dst;
@@ -30,7 +30,7 @@ static size_t uni_to_utf8(const SkUnichar src[], void* dst, int count) {
 static size_t uni_to_utf16(const SkUnichar src[], void* dst, int count) {
     uint16_t* u16 = (uint16_t*)dst;
     for (int i = 0; i < count; ++i) {
-        int n = SkUTF16_FromUnichar(src[i], u16);
+        int n = SkToInt(SkUTF16_FromUnichar(src[i], u16));
         u16 += n;
     }
     return (char*)u16 - (char*)dst;
@@ -116,27 +116,25 @@ DEF_TEST(Paint_cmap, reporter) {
 }
 
 // temparary api for bicubic, just be sure we can set/clear it
-DEF_TEST(Paint_filterlevel, reporter) {
+DEF_TEST(Paint_filterQuality, reporter) {
     SkPaint p0, p1;
 
-    REPORTER_ASSERT(reporter,
-                    SkPaint::kNone_FilterLevel == p0.getFilterLevel());
+    REPORTER_ASSERT(reporter, kNone_SkFilterQuality == p0.getFilterQuality());
 
-    static const SkPaint::FilterLevel gLevels[] = {
-        SkPaint::kNone_FilterLevel,
-        SkPaint::kLow_FilterLevel,
-        SkPaint::kMedium_FilterLevel,
-        SkPaint::kHigh_FilterLevel
+    static const SkFilterQuality gQualitys[] = {
+        kNone_SkFilterQuality,
+        kLow_SkFilterQuality,
+        kMedium_SkFilterQuality,
+        kHigh_SkFilterQuality
     };
-    for (size_t i = 0; i < SK_ARRAY_COUNT(gLevels); ++i) {
-        p0.setFilterLevel(gLevels[i]);
-        REPORTER_ASSERT(reporter, gLevels[i] == p0.getFilterLevel());
+    for (size_t i = 0; i < SK_ARRAY_COUNT(gQualitys); ++i) {
+        p0.setFilterQuality(gQualitys[i]);
+        REPORTER_ASSERT(reporter, gQualitys[i] == p0.getFilterQuality());
         p1 = p0;
-        REPORTER_ASSERT(reporter, gLevels[i] == p1.getFilterLevel());
+        REPORTER_ASSERT(reporter, gQualitys[i] == p1.getFilterQuality());
 
         p0.reset();
-        REPORTER_ASSERT(reporter,
-                        SkPaint::kNone_FilterLevel == p0.getFilterLevel());
+        REPORTER_ASSERT(reporter, kNone_SkFilterQuality == p0.getFilterQuality());
     }
 }
 
@@ -205,11 +203,11 @@ DEF_TEST(Paint_regression_cubic, reporter) {
 }
 
 DEF_TEST(Paint_flattening, reporter) {
-    const SkPaint::FilterLevel levels[] = {
-        SkPaint::kNone_FilterLevel,
-        SkPaint::kLow_FilterLevel,
-        SkPaint::kMedium_FilterLevel,
-        SkPaint::kHigh_FilterLevel,
+    const SkFilterQuality levels[] = {
+        kNone_SkFilterQuality,
+        kLow_SkFilterQuality,
+        kMedium_SkFilterQuality,
+        kHigh_SkFilterQuality,
     };
     const SkPaint::Hinting hinting[] = {
         SkPaint::kNo_Hinting,
@@ -251,7 +249,7 @@ DEF_TEST(Paint_flattening, reporter) {
     SkPaint paint;
     paint.setFlags(0x1234);
 
-    FOR_SETUP(i, levels, setFilterLevel)
+    FOR_SETUP(i, levels, setFilterQuality)
     FOR_SETUP(j, hinting, setHinting)
     FOR_SETUP(k, align, setTextAlign)
     FOR_SETUP(l, caps, setStrokeCap)
@@ -344,3 +342,30 @@ DEF_TEST(Paint_getHash, r) {
     paint.setHinting(SkPaint::kNormal_Hinting);
     REPORTER_ASSERT(r, paint.getHash() == defaultHash);
 }
+
+#include "SkColorMatrixFilter.h"
+
+DEF_TEST(Paint_nothingToDraw, r) {
+    SkPaint paint;
+
+    REPORTER_ASSERT(r, !paint.nothingToDraw());
+    paint.setAlpha(0);
+    REPORTER_ASSERT(r, paint.nothingToDraw());
+
+    paint.setAlpha(0xFF);
+    paint.setXfermodeMode(SkXfermode::kDst_Mode);
+    REPORTER_ASSERT(r, paint.nothingToDraw());
+
+    paint.setAlpha(0);
+    paint.setXfermodeMode(SkXfermode::kSrcOver_Mode);
+
+    SkColorMatrix cm;
+    cm.setIdentity();   // does not change alpha
+    paint.setColorFilter(SkColorMatrixFilter::Create(cm))->unref();
+    REPORTER_ASSERT(r, paint.nothingToDraw());
+
+    cm.postTranslate(0, 0, 0, 1);    // wacks alpha
+    paint.setColorFilter(SkColorMatrixFilter::Create(cm))->unref();
+    REPORTER_ASSERT(r, !paint.nothingToDraw());
+}
+

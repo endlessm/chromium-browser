@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2013 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,14 +6,9 @@
 
 from __future__ import print_function
 
-import os
-import sys
+import mock
 import types
-import unittest
-import mox
 
-
-sys.path.insert(0, os.path.abspath('%s/../..' % os.path.dirname(__file__)))
 from chromite.lib import cros_build_lib_unittest
 from chromite.lib import cros_test_lib
 from chromite.scripts import autotest_quickmerge
@@ -68,11 +62,12 @@ TEST_PACKAGE_C = 'a_cute'
 TEST_PACKAGE_PV = 'little_puppy-3.14159'
 TEST_PORTAGE_ROOT = '/bib/bob/'
 TEST_PACKAGE_OLDCONTENTS = {
-  u'/by/the/prickling/of/my/thumbs'   : (u'obj', '1234', '4321'),
-  u'/something/wicked/this/way/comes' : (u'dir',)
+    u'/by/the/prickling/of/my/thumbs': (u'obj', '1234', '4321'),
+    u'/something/wicked/this/way/comes': (u'dir',)
 }
 
-class ItemizeChangesFromRsyncOutput(unittest.TestCase):
+
+class ItemizeChangesFromRsyncOutput(cros_test_lib.TestCase):
   """Test autotest_quickmerge.ItemizeChangesFromRsyncOutput."""
 
   def testItemizeChangesFromRsyncOutput(self):
@@ -100,7 +95,7 @@ class ItemizeChangesFromRsyncOutput(unittest.TestCase):
     self.assertEqual(expected_dir, set(report.new_directories))
 
 
-class PackageNameParsingTest(unittest.TestCase):
+class PackageNameParsingTest(cros_test_lib.TestCase):
   """Test autotest_quickmerge.GetStalePackageNames."""
 
   def testGetStalePackageNames(self):
@@ -140,30 +135,27 @@ class RsyncCommandTest(cros_build_lib_unittest.RunCommandTestCase):
     self.assertCommandContains(expected_command)
 
 
-class PortageManipulationsTest(mox.MoxTestBase):
+class PortageManipulationsTest(cros_test_lib.MockTestCase):
   """Test usage of autotest_quickmerge.portage."""
 
   def testUpdatePackageContents(self):
     """Test that UpdatePackageContents makes the correct calls to portage."""
-    autotest_quickmerge.portage = self.mox.CreateMockAnything('portage')
+    autotest_quickmerge.portage = mock.MagicMock()
     portage = autotest_quickmerge.portage
 
     portage.root = TEST_PORTAGE_ROOT
 
-    mock_vartree = self.mox.CreateMockAnything('vartree')
+    mock_vartree = mock.MagicMock()
     mock_vartree.settings = {'an arbitrary' : 'dictionary'}
     mock_tree = {TEST_PORTAGE_ROOT : {'vartree' : mock_vartree}}
-    portage.create_trees(TEST_PORTAGE_ROOT,
-        TEST_PORTAGE_ROOT).AndReturn(mock_tree)
+    portage.create_trees.return_value = mock_tree
 
-    mock_vartree.dbapi = self.mox.CreateMockAnything('dbapi')
-    mock_vartree.dbapi.cp_list(TEST_PACKAGE_CP).AndReturn([TEST_PACKAGE_CPV])
+    mock_vartree.dbapi = mock.MagicMock()
+    mock_vartree.dbapi.cp_list.return_value = [TEST_PACKAGE_CPV]
 
-    mock_package = self.mox.CreateMockAnything('dblink')
-    portage.dblink(TEST_PACKAGE_C, TEST_PACKAGE_PV, #pylint: disable-msg=E1101
-        settings=mock_vartree.settings,
-        vartree=mock_vartree).AndReturn(mock_package)
-    mock_package.getcontents().AndReturn(TEST_PACKAGE_OLDCONTENTS)
+    mock_package = mock.MagicMock()
+    portage.dblink.return_value = mock_package  # pylint: disable=no-member
+    mock_package.getcontents.return_value = TEST_PACKAGE_OLDCONTENTS
 
     EXPECTED_NEW_ENTRIES = {
         '/foo/bar/new_empty_directory': (u'dir',),
@@ -175,28 +167,25 @@ class PortageManipulationsTest(mox.MoxTestBase):
     RESULT_DICIONARY.update(EXPECTED_NEW_ENTRIES)
 
     mock_vartree.dbapi.writeContentsToContentsFile(mock_package,
-      RESULT_DICIONARY)
-
-    self.mox.ReplayAll()
+                                                   RESULT_DICIONARY)
 
     change_report = autotest_quickmerge.ItemizeChangesFromRsyncOutput(
-      RSYNC_TEST_OUTPUT, RSYNC_TEST_DESTINATION_PATH)
+        RSYNC_TEST_OUTPUT, RSYNC_TEST_DESTINATION_PATH)
     autotest_quickmerge.UpdatePackageContents(change_report, TEST_PACKAGE_CP,
-        TEST_PORTAGE_ROOT)
+                                              TEST_PORTAGE_ROOT)
 
-    self.mox.VerifyAll()
 
-class PortageAPITest(unittest.TestCase):
+class PortageAPITest(cros_test_lib.TestCase):
   """Ensures that required portage API exists."""
+
   def runTest(self):
     try:
-      # pylint: disable=F0401
       import portage
     except ImportError:
       self.skipTest('Portage not available in test environment. Re-run test '
                     'in chroot.')
     try:
-      # pylint: disable-msg=E1101
+      # pylint: disable=no-member
       f = portage.vardbapi.writeContentsToContentsFile
     except AttributeError:
       self.fail('Required writeContentsToContentsFile function does '
@@ -205,6 +194,3 @@ class PortageAPITest(unittest.TestCase):
     self.assertIsInstance(f, types.UnboundMethodType,
                           'Required writeContentsToContentsFile is not '
                           'a function.')
-
-if __name__ == '__main__':
-  cros_test_lib.main()

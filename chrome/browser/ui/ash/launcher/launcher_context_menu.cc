@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "ash/desktop_background/user_wallpaper_delegate.h"
 #include "ash/metrics/user_metrics_recorder.h"
 #include "ash/root_window_controller.h"
+#include "ash/session/session_state_delegate.h"
 #include "ash/shelf/shelf_item_delegate.h"
 #include "ash/shelf/shelf_widget.h"
 #include "ash/shell.h"
@@ -105,13 +106,12 @@ void LauncherContextMenu::Init() {
       if (!controller_->IsPlatformApp(item_.id) &&
           item_.type != ash::TYPE_WINDOWED_APP) {
         AddSeparator(ui::NORMAL_SEPARATOR);
-        if (extensions::util::IsStreamlinedHostedAppsEnabled()) {
-          // Streamlined hosted apps launch in a window by default. This menu
-          // item is re-interpreted as a single, toggle-able option to launch
-          // the hosted app as a tab.
-          AddCheckItemWithStringId(
-              LAUNCH_TYPE_REGULAR_TAB,
-              IDS_APP_CONTEXT_MENU_OPEN_TAB);
+        if (extensions::util::IsNewBookmarkAppsEnabled()) {
+          // With bookmark apps enabled, hosted apps launch in a window by
+          // default. This menu item is re-interpreted as a single, toggle-able
+          // option to launch the hosted app as a tab.
+          AddCheckItemWithStringId(LAUNCH_TYPE_WINDOW,
+                                   IDS_APP_CONTEXT_MENU_OPEN_WINDOW);
         } else {
           AddCheckItemWithStringId(
               LAUNCH_TYPE_REGULAR_TAB,
@@ -176,14 +176,17 @@ void LauncherContextMenu::Init() {
     AddCheckItemWithStringId(MENU_AUTO_HIDE,
                              IDS_ASH_SHELF_CONTEXT_MENU_AUTO_HIDE);
   }
-  if (ash::ShelfWidget::ShelfAlignmentAllowed()) {
+  if (ash::ShelfWidget::ShelfAlignmentAllowed() &&
+      !ash::Shell::GetInstance()->session_state_delegate()->IsScreenLocked()) {
     AddSubMenuWithStringId(MENU_ALIGNMENT_MENU,
                            IDS_ASH_SHELF_CONTEXT_MENU_POSITION,
                            &shelf_alignment_menu_);
   }
 #if defined(OS_CHROMEOS)
-  AddItem(MENU_CHANGE_WALLPAPER,
-       l10n_util::GetStringUTF16(IDS_AURA_SET_DESKTOP_WALLPAPER));
+  if (!controller_->IsLoggedInAsGuest()) {
+    AddItem(MENU_CHANGE_WALLPAPER,
+         l10n_util::GetStringUTF16(IDS_AURA_SET_DESKTOP_WALLPAPER));
+  }
 #endif
 }
 
@@ -306,23 +309,22 @@ void LauncherContextMenu::ExecuteCommand(int command_id, int event_flags) {
     case LAUNCH_TYPE_PINNED_TAB:
       controller_->SetLaunchType(item_.id, extensions::LAUNCH_TYPE_PINNED);
       break;
-    case LAUNCH_TYPE_REGULAR_TAB: {
-      extensions::LaunchType launch_type =
-          extensions::LAUNCH_TYPE_REGULAR;
-      // Streamlined hosted apps can only toggle between LAUNCH_WINDOW and
-      // LAUNCH_REGULAR.
-      if (extensions::util::IsStreamlinedHostedAppsEnabled()) {
+    case LAUNCH_TYPE_REGULAR_TAB:
+      controller_->SetLaunchType(item_.id, extensions::LAUNCH_TYPE_REGULAR);
+      break;
+    case LAUNCH_TYPE_WINDOW: {
+      extensions::LaunchType launch_type = extensions::LAUNCH_TYPE_WINDOW;
+      // With bookmark apps enabled, hosted apps can only toggle between
+      // LAUNCH_WINDOW and LAUNCH_REGULAR.
+      if (extensions::util::IsNewBookmarkAppsEnabled()) {
         launch_type = controller_->GetLaunchType(item_.id) ==
-                    extensions::LAUNCH_TYPE_REGULAR
-                ? extensions::LAUNCH_TYPE_WINDOW
-                : extensions::LAUNCH_TYPE_REGULAR;
+                              extensions::LAUNCH_TYPE_WINDOW
+                          ? extensions::LAUNCH_TYPE_REGULAR
+                          : extensions::LAUNCH_TYPE_WINDOW;
       }
       controller_->SetLaunchType(item_.id, launch_type);
       break;
     }
-    case LAUNCH_TYPE_WINDOW:
-      controller_->SetLaunchType(item_.id, extensions::LAUNCH_TYPE_WINDOW);
-      break;
     case LAUNCH_TYPE_FULLSCREEN:
       controller_->SetLaunchType(item_.id, extensions::LAUNCH_TYPE_FULLSCREEN);
       break;

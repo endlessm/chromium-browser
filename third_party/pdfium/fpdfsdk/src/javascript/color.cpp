@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/javascript/JavaScript.h"
@@ -32,21 +32,21 @@ END_JS_STATIC_CONST()
 BEGIN_JS_STATIC_PROP(CJS_Color)
 	JS_STATIC_PROP_ENTRY(black)
 	JS_STATIC_PROP_ENTRY(blue)
-	JS_STATIC_PROP_ENTRY(cyan)	
+	JS_STATIC_PROP_ENTRY(cyan)
 	JS_STATIC_PROP_ENTRY(dkGray)
 	JS_STATIC_PROP_ENTRY(gray)
 	JS_STATIC_PROP_ENTRY(green)
 	JS_STATIC_PROP_ENTRY(ltGray)
 	JS_STATIC_PROP_ENTRY(magenta)
-	JS_STATIC_PROP_ENTRY(red)	
+	JS_STATIC_PROP_ENTRY(red)
 	JS_STATIC_PROP_ENTRY(transparent)
 	JS_STATIC_PROP_ENTRY(white)
 	JS_STATIC_PROP_ENTRY(yellow)
 END_JS_STATIC_PROP()
 
 BEGIN_JS_STATIC_METHOD(CJS_Color)
-	JS_STATIC_METHOD_ENTRY(convert, 2)
-	JS_STATIC_METHOD_ENTRY(equal, 2)
+	JS_STATIC_METHOD_ENTRY(convert)
+	JS_STATIC_METHOD_ENTRY(equal)
 END_JS_STATIC_METHOD()
 
 IMPLEMENT_JS_CLASS(CJS_Color,color)
@@ -104,9 +104,8 @@ void color::ConvertArrayToPWLColor(CJS_Array& array, CPWL_Color& color)
 	if (nArrayLen < 1) return;
 
 	CJS_Value value(array.GetIsolate());
-	CFX_ByteString sSpace;
 	array.GetElement(0, value);
-	sSpace = value;
+	CFX_ByteString sSpace = value.ToCFXByteString();
 
 	double d1 = 0;
 	double d2 = 0;
@@ -116,25 +115,25 @@ void color::ConvertArrayToPWLColor(CJS_Array& array, CPWL_Color& color)
 	if (nArrayLen > 1)
 	{
 		array.GetElement(1, value);
-		d1 = value;
+		d1 = value.ToDouble();
 	}
 
 	if (nArrayLen > 2)
 	{
 		array.GetElement(2, value);
-		d2 = value;
+		d2 = value.ToDouble();
 	}
 
 	if (nArrayLen > 3)
 	{
 		array.GetElement(3, value);
-		d3 = value;
+		d3 = value.ToDouble();
 	}
 
 	if (nArrayLen > 4)
 	{
 		array.GetElement(4, value);
-		d4 = value;
+		d4 = value.ToDouble();
 	}
 
 	if (sSpace == "T")
@@ -156,7 +155,7 @@ void color::ConvertArrayToPWLColor(CJS_Array& array, CPWL_Color& color)
 }
 
 #define JS_IMPLEMENT_COLORPROP(prop, var)\
-FX_BOOL color::prop(OBJ_PROP_PARAMS)\
+FX_BOOL color::prop(IFXJS_Context* cc, CJS_PropValue& vp, CFX_WideString& sError)\
 {\
 	CJS_Context* pContext = (CJS_Context*)cc;\
 	v8::Isolate* isolate = pContext->GetJSRuntime()->GetIsolate();\
@@ -188,7 +187,7 @@ JS_IMPLEMENT_COLORPROP(dkGray, m_crDKGray)
 JS_IMPLEMENT_COLORPROP(gray, m_crGray)
 JS_IMPLEMENT_COLORPROP(ltGray, m_crLTGray)
 
-FX_BOOL color::convert(OBJ_METHOD_PARAMS)
+FX_BOOL color::convert(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError)
 {
 	v8::Isolate* isolate = GetIsolate(cc);
 	int iSize = params.size();
@@ -199,10 +198,9 @@ FX_BOOL color::convert(OBJ_METHOD_PARAMS)
 	CPWL_Color crSource;
 	ConvertArrayToPWLColor(aSource, crSource);
 
-	CFX_ByteString sDestSpace = params[1];
-
+	CFX_ByteString sDestSpace = params[1].ToCFXByteString();
 	int nColorType = COLORTYPE_TRANSPARENT;
-	
+
 	if (sDestSpace == "T")
 	{
 		nColorType = COLORTYPE_TRANSPARENT;
@@ -229,7 +227,7 @@ FX_BOOL color::convert(OBJ_METHOD_PARAMS)
 	return TRUE;
 }
 
-FX_BOOL color::equal(OBJ_METHOD_PARAMS)
+FX_BOOL color::equal(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError)
 {
 	v8::Isolate* isolate = GetIsolate(cc);
 	if (params.size() < 2) return FALSE;

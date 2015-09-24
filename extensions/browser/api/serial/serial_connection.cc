@@ -5,10 +5,12 @@
 #include "extensions/browser/api/serial/serial_connection.h"
 
 #include <string>
+#include <vector>
 
 #include "base/files/file_path.h"
 #include "base/lazy_instance.h"
 #include "base/message_loop/message_loop.h"
+#include "base/stl_util.h"
 #include "extensions/browser/api/api_resource_manager.h"
 #include "extensions/common/api/serial.h"
 
@@ -137,11 +139,11 @@ device::serial::StopBits ConvertStopBitsToMojo(
 class SendBuffer : public device::ReadOnlyBuffer {
  public:
   SendBuffer(
-      const std::string& data,
+      const std::vector<char>& data,
       const base::Callback<void(int, device::serial::SendError)>& callback)
       : data_(data), callback_(callback) {}
   ~SendBuffer() override {}
-  const char* GetData() override { return data_.c_str(); }
+  const char* GetData() override { return vector_as_array(&data_); }
   uint32_t GetSize() override { return static_cast<uint32_t>(data_.size()); }
   void Done(uint32_t bytes_read) override {
     callback_.Run(bytes_read, device::serial::SEND_ERROR_NONE);
@@ -151,7 +153,7 @@ class SendBuffer : public device::ReadOnlyBuffer {
   }
 
  private:
-  const std::string data_;
+  const std::vector<char> data_;
   const base::Callback<void(int, device::serial::SendError)> callback_;
 };
 
@@ -237,9 +239,21 @@ void SerialConnection::set_paused(bool paused) {
   }
 }
 
-void SerialConnection::Open(const OpenCompleteCallback& callback) {
+void SerialConnection::Open(const core_api::serial::ConnectionOptions& options,
+                            const OpenCompleteCallback& callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  io_handler_->Open(port_, callback);
+  if (options.persistent.get())
+    set_persistent(*options.persistent);
+  if (options.name.get())
+    set_name(*options.name);
+  if (options.buffer_size.get())
+    set_buffer_size(*options.buffer_size);
+  if (options.receive_timeout.get())
+    set_receive_timeout(*options.receive_timeout);
+  if (options.send_timeout.get())
+    set_send_timeout(*options.send_timeout);
+  io_handler_->Open(port_, *device::serial::ConnectionOptions::From(options),
+                    callback);
 }
 
 bool SerialConnection::Receive(const ReceiveCompleteCallback& callback) {
@@ -261,7 +275,7 @@ bool SerialConnection::Receive(const ReceiveCompleteCallback& callback) {
   return true;
 }
 
-bool SerialConnection::Send(const std::string& data,
+bool SerialConnection::Send(const std::vector<char>& data,
                             const SendCompleteCallback& callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (!send_complete_.is_null())
@@ -346,6 +360,14 @@ bool SerialConnection::SetControlSignals(
       *device::serial::HostControlSignals::From(control_signals));
 }
 
+bool SerialConnection::SetBreak() {
+  return io_handler_->SetBreak();
+}
+
+bool SerialConnection::ClearBreak() {
+  return io_handler_->ClearBreak();
+}
+
 void SerialConnection::OnReceiveTimeout() {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   io_handler_->CancelRead(device::serial::RECEIVE_ERROR_TIMEOUT);
@@ -363,7 +385,8 @@ void SerialConnection::OnAsyncReadComplete(int bytes_read,
   ReceiveCompleteCallback callback = receive_complete_;
   receive_complete_.Reset();
   receive_timeout_task_.reset();
-  callback.Run(std::string(receive_buffer_->data(), bytes_read),
+  callback.Run(std::vector<char>(receive_buffer_->data(),
+                                 receive_buffer_->data() + bytes_read),
                ConvertReceiveErrorFromMojo(error));
   receive_buffer_ = NULL;
 }
@@ -380,7 +403,7 @@ void SerialConnection::OnAsyncWriteComplete(int bytes_sent,
 
 SerialConnection::TimeoutTask::TimeoutTask(const base::Closure& closure,
                                            const base::TimeDelta& delay)
-    : weak_factory_(this), closure_(closure), delay_(delay) {
+    : closure_(closure), delay_(delay), weak_factory_(this) {
   base::MessageLoop::current()->PostDelayedTask(
       FROM_HERE,
       base::Bind(&TimeoutTask::Run, weak_factory_.GetWeakPtr()),

@@ -12,8 +12,9 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/events/event.h"
 #include "ui/events/event_constants.h"
+#include "ui/events/event_utils.h"
 #include "ui/gfx/display.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/message_center/fake_message_center.h"
 #include "ui/message_center/views/desktop_popup_alignment_delegate.h"
 #include "ui/message_center/views/toast_contents_view.h"
@@ -167,6 +168,8 @@ TEST_F(MessagePopupCollectionTest, ShutdownDuringShowing) {
   // See crbug.com/236448
   GetWidget(id1)->CloseNow();
   collection()->OnMouseExited(GetToast(id2));
+
+  GetWidget(id2)->CloseNow();
 }
 
 TEST_F(MessagePopupCollectionTest, DefaultPositioning) {
@@ -205,6 +208,7 @@ TEST_F(MessagePopupCollectionTest, DefaultPositioning) {
 
   CloseAllToasts();
   EXPECT_EQ(0u, GetToastCounts());
+  WaitForTransitionsDone();
 }
 
 TEST_F(MessagePopupCollectionTest, DefaultPositioningWithRightTaskbar) {
@@ -235,6 +239,8 @@ TEST_F(MessagePopupCollectionTest, DefaultPositioningWithRightTaskbar) {
   // Restore simulated taskbar position to bottom.
   SetDisplayInfo(gfx::Rect(0, 0, 600, 390),  // Work-area.
                  gfx::Rect(0, 0, 600, 400)); // Display-bounds.
+
+  WaitForTransitionsDone();
 }
 
 TEST_F(MessagePopupCollectionTest, TopDownPositioningWithTopTaskbar) {
@@ -259,6 +265,7 @@ TEST_F(MessagePopupCollectionTest, TopDownPositioningWithTopTaskbar) {
 
   CloseAllToasts();
   EXPECT_EQ(0u, GetToastCounts());
+  WaitForTransitionsDone();
 
   // Restore simulated taskbar position to bottom.
   SetDisplayInfo(gfx::Rect(0, 0, 600, 390),   // Work-area.
@@ -290,6 +297,7 @@ TEST_F(MessagePopupCollectionTest, TopDownPositioningWithLeftAndTopTaskbar) {
 
   CloseAllToasts();
   EXPECT_EQ(0u, GetToastCounts());
+  WaitForTransitionsDone();
 
   // Restore simulated taskbar position to bottom.
   SetDisplayInfo(gfx::Rect(0, 0, 600, 390),   // Work-area.
@@ -321,6 +329,7 @@ TEST_F(MessagePopupCollectionTest, TopDownPositioningWithBottomAndTopTaskbar) {
 
   CloseAllToasts();
   EXPECT_EQ(0u, GetToastCounts());
+  WaitForTransitionsDone();
 
   // Restore simulated taskbar position to bottom.
   SetDisplayInfo(gfx::Rect(0, 0, 600, 390),   // Work-area.
@@ -352,6 +361,7 @@ TEST_F(MessagePopupCollectionTest, LeftPositioningWithLeftTaskbar) {
 
   CloseAllToasts();
   EXPECT_EQ(0u, GetToastCounts());
+  WaitForTransitionsDone();
 
   // Restore simulated taskbar position to bottom.
   SetDisplayInfo(gfx::Rect(0, 0, 600, 390),   // Work-area.
@@ -368,7 +378,8 @@ TEST_F(MessagePopupCollectionTest, DetectMouseHover) {
   views::WidgetDelegateView* toast1 = GetToast(id1);
   EXPECT_TRUE(toast1 != NULL);
 
-  ui::MouseEvent event(ui::ET_MOUSE_MOVED, gfx::Point(), gfx::Point(), 0, 0);
+  ui::MouseEvent event(ui::ET_MOUSE_MOVED, gfx::Point(), gfx::Point(),
+                       ui::EventTimeForNow(), 0, 0);
 
   // Test that mouse detection logic works in presence of out-of-order events.
   toast0->OnMouseEntered(event);
@@ -385,9 +396,9 @@ TEST_F(MessagePopupCollectionTest, DetectMouseHover) {
   EXPECT_TRUE(MouseInCollection());
   toast1->OnMouseEntered(event);
   EXPECT_TRUE(MouseInCollection());
-  toast0->WindowClosing();
+  toast0->GetWidget()->CloseNow();
   EXPECT_TRUE(MouseInCollection());
-  toast1->WindowClosing();
+  toast1->GetWidget()->CloseNow();
   EXPECT_FALSE(MouseInCollection());
 }
 
@@ -403,7 +414,8 @@ TEST_F(MessagePopupCollectionTest, DetectMouseHoverWithUserClose) {
   views::WidgetDelegateView* toast1 = GetToast(id1);
   ASSERT_TRUE(toast1 != NULL);
 
-  ui::MouseEvent event(ui::ET_MOUSE_MOVED, gfx::Point(), gfx::Point(), 0, 0);
+  ui::MouseEvent event(ui::ET_MOUSE_MOVED, gfx::Point(), gfx::Point(),
+                       ui::EventTimeForNow(), 0, 0);
   toast1->OnMouseEntered(event);
   static_cast<MessageCenterObserver*>(collection())->OnNotificationRemoved(
       id1, true);
@@ -414,6 +426,9 @@ TEST_F(MessagePopupCollectionTest, DetectMouseHoverWithUserClose) {
   WaitForTransitionsDone();
   views::WidgetDelegateView* toast2 = GetToast(id2);
   EXPECT_TRUE(toast2 != NULL);
+
+  CloseAllToasts();
+  WaitForTransitionsDone();
 }
 
 

@@ -23,8 +23,8 @@
 #include "components/policy/core/common/policy_namespace.h"
 #include "components/policy/core/common/policy_service.h"
 #include "components/policy/core/common/policy_types.h"
-#include "components/signin/core/common/signin_switches.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/common/content_switches.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "policy/policy_constants.h"
 
@@ -48,15 +48,6 @@ namespace {
 
 #if defined(OS_MACOSX)
 base::FilePath GetManagedPolicyPath() {
-  // This constructs the path to the plist file in which Mac OS X stores the
-  // managed preference for the application. This is undocumented and therefore
-  // fragile, but if it doesn't work out, AsyncPolicyLoader has a task that
-  // polls periodically in order to reload managed preferences later even if we
-  // missed the change.
-  base::FilePath path;
-  if (!PathService::Get(chrome::DIR_MANAGED_PREFS, &path))
-    return base::FilePath();
-
   CFBundleRef bundle(CFBundleGetMainBundle());
   if (!bundle)
     return base::FilePath();
@@ -65,7 +56,7 @@ base::FilePath GetManagedPolicyPath() {
   if (!bundle_id)
     return base::FilePath();
 
-  return path.Append(base::SysCFStringRefToUTF8(bundle_id) + ".plist");
+  return policy::PolicyLoaderMac::GetManagedPolicyPath(bundle_id);
 }
 #endif  // defined(OS_MACOSX)
 
@@ -97,8 +88,6 @@ void ChromeBrowserPolicyConnector::Init(
 
   BrowserPolicyConnector::Init(
       local_state, request_context, device_management_service.Pass());
-
-  AppendExtraFlagPerPolicy();
 }
 
 ConfigurationPolicyProvider*
@@ -130,20 +119,6 @@ ConfigurationPolicyProvider*
 #else
   return NULL;
 #endif
-}
-
-void ChromeBrowserPolicyConnector::AppendExtraFlagPerPolicy() {
-  PolicyService* policy_service = GetPolicyService();
-  PolicyNamespace chrome_ns = PolicyNamespace(POLICY_DOMAIN_CHROME, "");
-  const PolicyMap& chrome_policy = policy_service->GetPolicies(chrome_ns);
-  const base::Value* policy_value =
-      chrome_policy.GetValue(key::kEnableWebBasedSignin);
-  bool enabled = false;
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
-  if (policy_value && policy_value->GetAsBoolean(&enabled) && enabled &&
-      !command_line->HasSwitch(switches::kEnableWebBasedSignin)) {
-    command_line->AppendSwitch(switches::kEnableWebBasedSignin);
-  }
 }
 
 }  // namespace policy

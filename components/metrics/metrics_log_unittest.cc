@@ -8,6 +8,7 @@
 
 #include "base/base64.h"
 #include "base/basictypes.h"
+#include "base/memory/scoped_vector.h"
 #include "base/metrics/bucket_ranges.h"
 #include "base/metrics/sample_vector.h"
 #include "base/prefs/pref_service.h"
@@ -17,6 +18,7 @@
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_state_manager.h"
 #include "components/metrics/proto/chrome_user_metrics_extension.pb.h"
+#include "components/metrics/test_metrics_provider.h"
 #include "components/metrics/test_metrics_service_client.h"
 #include "components/variations/active_field_trials.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -127,6 +129,7 @@ class MetricsLogTest : public testing::Test {
     EXPECT_TRUE(hardware.has_cpu());
     EXPECT_TRUE(hardware.cpu().has_vendor_name());
     EXPECT_TRUE(hardware.cpu().has_signature());
+    EXPECT_TRUE(hardware.cpu().has_num_cores());
 
     // TODO(isherman): Verify other data written into the protobuf as a result
     // of this call.
@@ -249,7 +252,7 @@ TEST_F(MetricsLogTest, RecordEnvironment) {
 
   log.RecordEnvironment(std::vector<MetricsProvider*>(),
                         synthetic_trials,
-                        kInstallDate);
+                        kInstallDate, kEnabledDate);
   // Check that the system profile on the log has the correct values set.
   CheckSystemProfile(log.system_profile());
 
@@ -285,7 +288,7 @@ TEST_F(MetricsLogTest, LoadSavedEnvironmentFromPrefs) {
         kClientId, kSessionId, MetricsLog::ONGOING_LOG, &client, &prefs_);
     log.RecordEnvironment(std::vector<MetricsProvider*>(),
                           std::vector<variations::ActiveGroupId>(),
-                          kInstallDate);
+                          kInstallDate, kEnabledDate);
     EXPECT_FALSE(prefs_.GetString(kSystemProfilePref).empty());
     EXPECT_FALSE(prefs_.GetString(kSystemProfileHashPref).empty());
   }
@@ -309,7 +312,7 @@ TEST_F(MetricsLogTest, LoadSavedEnvironmentFromPrefs) {
     // Call RecordEnvironment() to record the pref again.
     log.RecordEnvironment(std::vector<MetricsProvider*>(),
                           std::vector<variations::ActiveGroupId>(),
-                          kInstallDate);
+                          kInstallDate, kEnabledDate);
   }
 
   {
@@ -331,11 +334,13 @@ TEST_F(MetricsLogTest, InitialLogStabilityMetrics) {
                      MetricsLog::INITIAL_STABILITY_LOG,
                      &client,
                      &prefs_);
-  std::vector<MetricsProvider*> metrics_providers;
-  log.RecordEnvironment(metrics_providers,
-                        std::vector<variations::ActiveGroupId>(),
-                        kInstallDate);
-  log.RecordStabilityMetrics(metrics_providers, base::TimeDelta(),
+  TestMetricsProvider* test_provider = new TestMetricsProvider();
+  ScopedVector<MetricsProvider> metrics_providers;
+  metrics_providers.push_back(test_provider);
+  log.RecordEnvironment(metrics_providers.get(),
+                        std::vector<variations::ActiveGroupId>(), kInstallDate,
+                        kEnabledDate);
+  log.RecordStabilityMetrics(metrics_providers.get(), base::TimeDelta(),
                              base::TimeDelta());
   const SystemProfileProto_Stability& stability =
       log.system_profile().stability();
@@ -348,17 +353,24 @@ TEST_F(MetricsLogTest, InitialLogStabilityMetrics) {
   EXPECT_TRUE(stability.has_breakpad_registration_failure_count());
   EXPECT_TRUE(stability.has_debugger_present_count());
   EXPECT_TRUE(stability.has_debugger_not_present_count());
+
+  // The test provider should have been called upon to provide initial
+  // stability and regular stability metrics.
+  EXPECT_TRUE(test_provider->provide_initial_stability_metrics_called());
+  EXPECT_TRUE(test_provider->provide_stability_metrics_called());
 }
 
 TEST_F(MetricsLogTest, OngoingLogStabilityMetrics) {
   TestMetricsServiceClient client;
   TestMetricsLog log(
       kClientId, kSessionId, MetricsLog::ONGOING_LOG, &client, &prefs_);
-  std::vector<MetricsProvider*> metrics_providers;
-  log.RecordEnvironment(metrics_providers,
-                        std::vector<variations::ActiveGroupId>(),
-                        kInstallDate);
-  log.RecordStabilityMetrics(metrics_providers, base::TimeDelta(),
+  TestMetricsProvider* test_provider = new TestMetricsProvider();
+  ScopedVector<MetricsProvider> metrics_providers;
+  metrics_providers.push_back(test_provider);
+  log.RecordEnvironment(metrics_providers.get(),
+                        std::vector<variations::ActiveGroupId>(), kInstallDate,
+                        kEnabledDate);
+  log.RecordStabilityMetrics(metrics_providers.get(), base::TimeDelta(),
                              base::TimeDelta());
   const SystemProfileProto_Stability& stability =
       log.system_profile().stability();
@@ -371,6 +383,11 @@ TEST_F(MetricsLogTest, OngoingLogStabilityMetrics) {
   EXPECT_FALSE(stability.has_breakpad_registration_failure_count());
   EXPECT_FALSE(stability.has_debugger_present_count());
   EXPECT_FALSE(stability.has_debugger_not_present_count());
+
+  // The test provider should have been called upon to provide regular but not
+  // initial stability metrics.
+  EXPECT_FALSE(test_provider->provide_initial_stability_metrics_called());
+  EXPECT_TRUE(test_provider->provide_stability_metrics_called());
 }
 
 TEST_F(MetricsLogTest, ChromeChannelWrittenToProtobuf) {

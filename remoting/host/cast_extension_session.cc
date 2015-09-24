@@ -96,7 +96,7 @@ class CastCreateSessionDescriptionObserver
         session);
   }
   void OnSuccess(webrtc::SessionDescriptionInterface* desc) override {
-    if (cast_extension_session_ == NULL) {
+    if (cast_extension_session_ == nullptr) {
       LOG(ERROR)
           << "No CastExtensionSession. Creating session description succeeded.";
       return;
@@ -104,7 +104,7 @@ class CastCreateSessionDescriptionObserver
     cast_extension_session_->OnCreateSessionDescription(desc);
   }
   void OnFailure(const std::string& error) override {
-    if (cast_extension_session_ == NULL) {
+    if (cast_extension_session_ == nullptr) {
       LOG(ERROR)
           << "No CastExtensionSession. Creating session description failed.";
       return;
@@ -134,18 +134,15 @@ class CastStatsObserver : public webrtc::StatsObserver {
     return new rtc::RefCountedObject<CastStatsObserver>();
   }
 
-  void OnComplete(const std::vector<webrtc::StatsReport>& reports) override {
-    typedef webrtc::StatsReport::Values::iterator ValuesIterator;
-
+  void OnComplete(const webrtc::StatsReports& reports) override {
     VLOG(1) << "Received " << reports.size() << " new StatsReports.";
 
-    int index;
-    std::vector<webrtc::StatsReport>::const_iterator it;
-    for (it = reports.begin(), index = 0; it != reports.end(); ++it, ++index) {
-      webrtc::StatsReport::Values v = it->values;
-      VLOG(1) << "Report " << index << ":";
-      for (ValuesIterator vIt = v.begin(); vIt != v.end(); ++vIt) {
-        VLOG(1) << "Stat: " << vIt->name << "=" << vIt->value << ".";
+    int index = 0;
+    for (const auto* report : reports) {
+      VLOG(1) << "Report " << index++ << ":";
+      for (const auto& v : report->values()) {
+        VLOG(1) << "Stat: " << v.second->display_name() << "="
+                << v.second->ToString() << ".";
       }
     }
   }
@@ -166,7 +163,7 @@ CastExtensionSession::~CastExtensionSession() {
   // Explicitly clear |create_session_desc_observer_|'s pointer to |this|,
   // since the CastExtensionSession is destructing. Otherwise,
   // |create_session_desc_observer_| would be left with a dangling pointer.
-  create_session_desc_observer_->SetCastExtensionSession(NULL);
+  create_session_desc_observer_->SetCastExtensionSession(nullptr);
 
   CleanupPeerConnection();
 }
@@ -205,15 +202,15 @@ void CastExtensionSession::OnCreateSessionDescription(
   peer_connection_->SetLocalDescription(
       CastSetSessionDescriptionObserver::Create(), desc);
 
-  scoped_ptr<base::DictionaryValue> json(new base::DictionaryValue());
-  json->SetString(kWebRtcSessionDescType, desc->type());
+  base::DictionaryValue json;
+  json.SetString(kWebRtcSessionDescType, desc->type());
   std::string subject =
       (desc->type() == "offer") ? kSubjectOffer : kSubjectAnswer;
   std::string desc_str;
   desc->ToString(&desc_str);
-  json->SetString(kWebRtcSessionDescSDP, desc_str);
+  json.SetString(kWebRtcSessionDescSDP, desc_str);
   std::string json_str;
-  if (!base::JSONWriter::Write(json.get(), &json_str)) {
+  if (!base::JSONWriter::Write(json, &json_str)) {
     LOG(ERROR) << "Failed to serialize sdp message.";
     return;
   }
@@ -243,7 +240,7 @@ void CastExtensionSession::OnCreateVideoCapturer(
   if (received_offer_) {
     has_grabbed_capturer_ = true;
     if (SetupVideoStream(capturer->Pass())) {
-      peer_connection_->CreateAnswer(create_session_desc_observer_, NULL);
+      peer_connection_->CreateAnswer(create_session_desc_observer_, nullptr);
     } else {
       has_grabbed_capturer_ = false;
       // Ignore the received offer, since we failed to setup a video stream.
@@ -269,7 +266,7 @@ bool CastExtensionSession::OnExtensionMessage(
     return false;
   }
 
-  scoped_ptr<base::Value> value(base::JSONReader::Read(message.data()));
+  scoped_ptr<base::Value> value = base::JSONReader::Read(message.data());
   base::DictionaryValue* client_message;
   if (!(value && value->GetAsDictionary(&client_message))) {
     LOG(ERROR) << "Could not read cast extension message.";
@@ -317,8 +314,8 @@ CastExtensionSession::CastExtensionSession(
       stats_observer_(CastStatsObserver::Create()),
       received_offer_(false),
       has_grabbed_capturer_(false),
-      signaling_thread_wrapper_(NULL),
-      worker_thread_wrapper_(NULL),
+      signaling_thread_wrapper_(nullptr),
+      worker_thread_wrapper_(nullptr),
       worker_thread_(kWorkerThreadName) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
   DCHECK(url_request_context_getter_.get());
@@ -335,7 +332,7 @@ CastExtensionSession::CastExtensionSession(
 
 bool CastExtensionSession::ParseAndSetRemoteDescription(
     base::DictionaryValue* message) {
-  DCHECK(peer_connection_.get() != NULL);
+  DCHECK(peer_connection_.get() != nullptr);
 
   base::DictionaryValue* message_data;
   if (!message->GetDictionary(kTopLevelData, &message_data)) {
@@ -373,7 +370,7 @@ bool CastExtensionSession::ParseAndSetRemoteDescription(
 
 bool CastExtensionSession::ParseAndAddICECandidate(
     base::DictionaryValue* message) {
-  DCHECK(peer_connection_.get() != NULL);
+  DCHECK(peer_connection_.get() != nullptr);
 
   base::DictionaryValue* message_data;
   if (!message->GetDictionary(kTopLevelData, &message_data)) {
@@ -392,7 +389,8 @@ bool CastExtensionSession::ParseAndAddICECandidate(
   }
 
   rtc::scoped_ptr<webrtc::IceCandidateInterface> candidate(
-      webrtc::CreateIceCandidate(sdp_mid, sdp_mlineindex, candidate_str));
+      webrtc::CreateIceCandidate(sdp_mid, sdp_mlineindex, candidate_str,
+                                 nullptr));
   if (!candidate.get()) {
     LOG(ERROR)
         << "Invalid Cast Extension Message (could not create candidate).";
@@ -413,7 +411,7 @@ bool CastExtensionSession::SendMessageToClient(const std::string& subject,
                                                const std::string& data) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
-  if (client_stub_ == NULL) {
+  if (client_stub_ == nullptr) {
     LOG(ERROR) << "No Client Stub. Cannot send message to client.";
     return false;
   }
@@ -423,7 +421,7 @@ bool CastExtensionSession::SendMessageToClient(const std::string& subject,
   message_dict.SetString(kTopLevelData, data);
   std::string message_json;
 
-  if (!base::JSONWriter::Write(&message_dict, &message_json)) {
+  if (!base::JSONWriter::Write(message_dict, &message_json)) {
     LOG(ERROR) << "Failed to serialize JSON message.";
     return false;
   }
@@ -441,7 +439,7 @@ void CastExtensionSession::EnsureTaskAndSetSend(rtc::Thread** ptr,
   jingle_glue::JingleThreadWrapper::current()->set_send_allowed(true);
   *ptr = jingle_glue::JingleThreadWrapper::current();
 
-  if (event != NULL) {
+  if (event != nullptr) {
     event->Signal();
   }
 }
@@ -450,7 +448,7 @@ bool CastExtensionSession::WrapTasksAndSave() {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
   EnsureTaskAndSetSend(&signaling_thread_wrapper_);
-  if (signaling_thread_wrapper_ == NULL)
+  if (signaling_thread_wrapper_ == nullptr)
     return false;
 
   base::WaitableEvent wrap_worker_thread_event(true, false);
@@ -462,18 +460,19 @@ bool CastExtensionSession::WrapTasksAndSave() {
                  &wrap_worker_thread_event));
   wrap_worker_thread_event.Wait();
 
-  return (worker_thread_wrapper_ != NULL);
+  return (worker_thread_wrapper_ != nullptr);
 }
 
 bool CastExtensionSession::InitializePeerConnection() {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
   DCHECK(!peer_conn_factory_);
   DCHECK(!peer_connection_);
-  DCHECK(worker_thread_wrapper_ != NULL);
-  DCHECK(signaling_thread_wrapper_ != NULL);
+  DCHECK(worker_thread_wrapper_ != nullptr);
+  DCHECK(signaling_thread_wrapper_ != nullptr);
 
   peer_conn_factory_ = webrtc::CreatePeerConnectionFactory(
-      worker_thread_wrapper_, signaling_thread_wrapper_, NULL, NULL, NULL);
+      worker_thread_wrapper_, signaling_thread_wrapper_, nullptr, nullptr,
+      nullptr);
 
   if (!peer_conn_factory_.get()) {
     CleanupPeerConnection();
@@ -503,7 +502,7 @@ bool CastExtensionSession::InitializePeerConnection() {
           network_settings_, url_request_context_getter_);
 
   peer_connection_ = peer_conn_factory_->CreatePeerConnection(
-      rtc_config, &constraints, port_allocator_factory, NULL, this);
+      rtc_config, &constraints, port_allocator_factory, nullptr, this);
 
   if (!peer_connection_.get()) {
     CleanupPeerConnection();
@@ -576,14 +575,14 @@ void CastExtensionSession::PollPeerConnectionStats() {
 
 void CastExtensionSession::CleanupPeerConnection() {
   peer_connection_->Close();
-  peer_connection_ = NULL;
-  stream_ = NULL;
-  peer_conn_factory_ = NULL;
+  peer_connection_ = nullptr;
+  stream_ = nullptr;
+  peer_conn_factory_ = nullptr;
   worker_thread_.Stop();
 }
 
 bool CastExtensionSession::connection_active() const {
-  return peer_connection_.get() != NULL;
+  return peer_connection_.get() != nullptr;
 }
 
 // webrtc::PeerConnectionObserver implementation -------------------------------
@@ -649,12 +648,12 @@ void CastExtensionSession::OnIceCandidate(
     LOG(ERROR) << "PeerConnectionObserver: failed to serialize candidate.";
     return;
   }
-  scoped_ptr<base::DictionaryValue> json(new base::DictionaryValue());
-  json->SetString(kWebRtcSDPMid, candidate->sdp_mid());
-  json->SetInteger(kWebRtcSDPMLineIndex, candidate->sdp_mline_index());
-  json->SetString(kWebRtcCandidate, candidate_str);
+  base::DictionaryValue json;
+  json.SetString(kWebRtcSDPMid, candidate->sdp_mid());
+  json.SetInteger(kWebRtcSDPMLineIndex, candidate->sdp_mline_index());
+  json.SetString(kWebRtcCandidate, candidate_str);
   std::string json_str;
-  if (!base::JSONWriter::Write(json.get(), &json_str)) {
+  if (!base::JSONWriter::Write(json, &json_str)) {
     LOG(ERROR) << "Failed to serialize candidate message.";
     return;
   }

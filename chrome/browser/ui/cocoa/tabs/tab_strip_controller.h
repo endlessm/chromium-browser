@@ -9,6 +9,7 @@
 
 #include "base/mac/scoped_nsobject.h"
 #include "base/memory/scoped_ptr.h"
+#import "chrome/browser/ui/cocoa/has_weak_browser_pointer.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_controller_target.h"
 #import "chrome/browser/ui/cocoa/url_drop_target.h"
 #include "chrome/browser/ui/tabs/hover_tab_selector.h"
@@ -54,9 +55,9 @@ class WebContents;
 //
 // For a full description of the design, see
 // http://www.chromium.org/developers/design-documents/tab-strip-mac
-@interface TabStripController :
-  NSObject<TabControllerTarget,
-           URLDropTargetController> {
+@interface TabStripController : NSObject<TabControllerTarget,
+                                         URLDropTargetController,
+                                         HasWeakBrowserPointer> {
  @private
   base::scoped_nsobject<TabStripView> tabStripView_;
   NSView* switchView_;  // weak
@@ -122,6 +123,10 @@ class WebContents;
   base::scoped_nsobject<CrTrackingArea> trackingArea_;
   TabView* hoveredTab_;  // weak. Tab that the mouse is hovering over
 
+  // A transparent subview of |tabStripView_| used to show the hovered tab's
+  // tooltip text.
+  base::scoped_nsobject<NSView> toolTipView_;
+
   // Array of subviews which are permanent (and which should never be removed),
   // such as the new-tab button, but *not* the tabs themselves.
   base::scoped_nsobject<NSMutableArray> permanentSubviews_;
@@ -147,6 +152,8 @@ class WebContents;
 
 @property(nonatomic) CGFloat leftIndentForControls;
 @property(nonatomic) CGFloat rightIndentForControls;
+
+@property(assign, nonatomic) TabView* hoveredTab;
 
 // Initialize the controller with a view and browser that contains
 // everything else we'll need. |switchView| is the view whose contents get
@@ -264,12 +271,5 @@ class WebContents;
 - (void)setTabTitle:(TabController*)tab
        withContents:(content::WebContents*)contents;
 @end
-
-// Returns the parent view to use when showing a sheet for a given web contents.
-NSView* GetSheetParentViewForWebContents(content::WebContents* web_contents);
-
-// Returns the bounds to use when showing a sheet for a given parent view. This
-// returns a rect in window coordinates.
-NSRect GetSheetParentBoundsForParentView(NSView* view);
 
 #endif  // CHROME_BROWSER_UI_COCOA_TABS_TAB_STRIP_CONTROLLER_H_

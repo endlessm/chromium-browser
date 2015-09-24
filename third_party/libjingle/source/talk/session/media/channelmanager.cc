@@ -41,7 +41,6 @@
 #ifdef HAVE_SCTP
 #include "talk/media/sctp/sctpdataengine.h"
 #endif
-#include "talk/session/media/soundclip.h"
 #include "talk/session/media/srtpfilter.h"
 #include "webrtc/base/bind.h"
 #include "webrtc/base/common.h"
@@ -75,16 +74,6 @@ static DataEngineInterface* ConstructDataEngine() {
   return new RtpDataEngine();
 #endif
 }
-
-#if !defined(DISABLE_MEDIA_ENGINE_FACTORY)
-ChannelManager::ChannelManager(rtc::Thread* worker_thread) {
-  Construct(MediaEngineFactory::Create(),
-            ConstructDataEngine(),
-            cricket::DeviceManagerFactory::Create(),
-            new CaptureManager(),
-            worker_thread);
-}
-#endif
 
 ChannelManager::ChannelManager(MediaEngineInterface* me,
                                DataEngineInterface* dme,
@@ -131,10 +120,6 @@ void ChannelManager::Construct(MediaEngineInterface* me,
   SignalDevicesChange.repeat(device_manager_->SignalDevicesChange);
   device_manager_->Init();
 
-  // Camera is started asynchronously, request callbacks when startup
-  // completes to be able to forward them to the rendering manager.
-  media_engine_->SignalVideoCaptureStateChange().connect(
-      this, &ChannelManager::OnVideoCaptureStateChange);
   capture_manager_->SignalCapturerStateChange.connect(
       this, &ChannelManager::OnVideoCaptureStateChange);
 }
@@ -149,6 +134,10 @@ ChannelManager::~ChannelManager() {
     // shutdown.
     ShutdownSrtp();
   }
+  // Some deletes need to be on the worker thread for thread safe destruction,
+  // this includes the media engine and capture manager.
+  worker_thread_->Invoke<void>(Bind(
+      &ChannelManager::DestructorDeletes_w, this));
 }
 
 bool ChannelManager::SetVideoRtxEnabled(bool enable) {
@@ -215,77 +204,86 @@ bool ChannelManager::Init() {
   if (initialized_) {
     return false;
   }
-
   ASSERT(worker_thread_ != NULL);
-  if (worker_thread_) {
-    if (worker_thread_ != rtc::Thread::Current()) {
-      // Do not allow invoking calls to other threads on the worker thread.
-      worker_thread_->Invoke<bool>(rtc::Bind(
-          &rtc::Thread::SetAllowBlockingCalls, worker_thread_, false));
-    }
-
-    if (media_engine_->Init(worker_thread_)) {
-      initialized_ = true;
-
-      // Now that we're initialized, apply any stored preferences. A preferred
-      // device might have been unplugged. In this case, we fallback to the
-      // default device but keep the user preferences. The preferences are
-      // changed only when the Javascript FE changes them.
-      const std::string preferred_audio_in_device = audio_in_device_;
-      const std::string preferred_audio_out_device = audio_out_device_;
-      const std::string preferred_camera_device = camera_device_;
-      Device device;
-      if (!device_manager_->GetAudioInputDevice(audio_in_device_, &device)) {
-        LOG(LS_WARNING) << "The preferred microphone '" << audio_in_device_
-                        << "' is unavailable. Fall back to the default.";
-        audio_in_device_ = DeviceManagerInterface::kDefaultDeviceName;
-      }
-      if (!device_manager_->GetAudioOutputDevice(audio_out_device_, &device)) {
-        LOG(LS_WARNING) << "The preferred speaker '" << audio_out_device_
-                        << "' is unavailable. Fall back to the default.";
-        audio_out_device_ = DeviceManagerInterface::kDefaultDeviceName;
-      }
-      if (!device_manager_->GetVideoCaptureDevice(camera_device_, &device)) {
-        if (!camera_device_.empty()) {
-          LOG(LS_WARNING) << "The preferred camera '" << camera_device_
-                          << "' is unavailable. Fall back to the default.";
-        }
-        camera_device_ = DeviceManagerInterface::kDefaultDeviceName;
-      }
-
-      if (!SetAudioOptions(audio_in_device_, audio_out_device_,
-                           audio_options_, audio_delay_offset_)) {
-        LOG(LS_WARNING) << "Failed to SetAudioOptions with"
-                        << " microphone: " << audio_in_device_
-                        << " speaker: " << audio_out_device_
-                        << " options: " << audio_options_.ToString()
-                        << " delay: " << audio_delay_offset_;
-      }
-
-      // If audio_output_volume_ has been set via SetOutputVolume(), set the
-      // audio output volume of the engine.
-      if (kNotSetOutputVolume != audio_output_volume_ &&
-          !SetOutputVolume(audio_output_volume_)) {
-        LOG(LS_WARNING) << "Failed to SetOutputVolume to "
-                        << audio_output_volume_;
-      }
-      if (!SetCaptureDevice(camera_device_) && !camera_device_.empty()) {
-        LOG(LS_WARNING) << "Failed to SetCaptureDevice with camera: "
-                        << camera_device_;
-      }
-
-      // Restore the user preferences.
-      audio_in_device_ = preferred_audio_in_device;
-      audio_out_device_ = preferred_audio_out_device;
-      camera_device_ = preferred_camera_device;
-
-      // Now apply the default video codec that has been set earlier.
-      if (default_video_encoder_config_.max_codec.id != 0) {
-        SetDefaultVideoEncoderConfig(default_video_encoder_config_);
-      }
-    }
+  if (!worker_thread_) {
+    return false;
   }
+  if (worker_thread_ != rtc::Thread::Current()) {
+    // Do not allow invoking calls to other threads on the worker thread.
+    worker_thread_->Invoke<bool>(rtc::Bind(
+        &rtc::Thread::SetAllowBlockingCalls, worker_thread_, false));
+  }
+
+  initialized_ = worker_thread_->Invoke<bool>(Bind(
+      &ChannelManager::InitMediaEngine_w, this));
+  ASSERT(initialized_);
+  if (!initialized_) {
+    return false;
+  }
+
+  // Now that we're initialized, apply any stored preferences. A preferred
+  // device might have been unplugged. In this case, we fallback to the
+  // default device but keep the user preferences. The preferences are
+  // changed only when the Javascript FE changes them.
+  const std::string preferred_audio_in_device = audio_in_device_;
+  const std::string preferred_audio_out_device = audio_out_device_;
+  const std::string preferred_camera_device = camera_device_;
+  Device device;
+  if (!device_manager_->GetAudioInputDevice(audio_in_device_, &device)) {
+    LOG(LS_WARNING) << "The preferred microphone '" << audio_in_device_
+                    << "' is unavailable. Fall back to the default.";
+    audio_in_device_ = DeviceManagerInterface::kDefaultDeviceName;
+  }
+  if (!device_manager_->GetAudioOutputDevice(audio_out_device_, &device)) {
+    LOG(LS_WARNING) << "The preferred speaker '" << audio_out_device_
+                    << "' is unavailable. Fall back to the default.";
+    audio_out_device_ = DeviceManagerInterface::kDefaultDeviceName;
+  }
+  if (!device_manager_->GetVideoCaptureDevice(camera_device_, &device)) {
+    if (!camera_device_.empty()) {
+      LOG(LS_WARNING) << "The preferred camera '" << camera_device_
+                      << "' is unavailable. Fall back to the default.";
+    }
+    camera_device_ = DeviceManagerInterface::kDefaultDeviceName;
+  }
+
+  if (!SetAudioOptions(audio_in_device_, audio_out_device_,
+                       audio_options_, audio_delay_offset_)) {
+    LOG(LS_WARNING) << "Failed to SetAudioOptions with"
+                    << " microphone: " << audio_in_device_
+                    << " speaker: " << audio_out_device_
+                    << " options: " << audio_options_.ToString()
+                    << " delay: " << audio_delay_offset_;
+  }
+
+  // If audio_output_volume_ has been set via SetOutputVolume(), set the
+  // audio output volume of the engine.
+  if (kNotSetOutputVolume != audio_output_volume_ &&
+      !SetOutputVolume(audio_output_volume_)) {
+    LOG(LS_WARNING) << "Failed to SetOutputVolume to "
+                    << audio_output_volume_;
+  }
+  if (!SetCaptureDevice(camera_device_) && !camera_device_.empty()) {
+    LOG(LS_WARNING) << "Failed to SetCaptureDevice with camera: "
+                    << camera_device_;
+  }
+
+  // Restore the user preferences.
+  audio_in_device_ = preferred_audio_in_device;
+  audio_out_device_ = preferred_audio_out_device;
+  camera_device_ = preferred_camera_device;
+
+  // Now apply the default video codec that has been set earlier.
+  if (default_video_encoder_config_.max_codec.id != 0) {
+    SetDefaultVideoEncoderConfig(default_video_encoder_config_);
+  }
+
   return initialized_;
+}
+
+bool ChannelManager::InitMediaEngine_w() {
+  ASSERT(worker_thread_ == rtc::Thread::Current());
+  return (media_engine_->Init(worker_thread_));
 }
 
 void ChannelManager::Terminate() {
@@ -294,8 +292,13 @@ void ChannelManager::Terminate() {
     return;
   }
   worker_thread_->Invoke<void>(Bind(&ChannelManager::Terminate_w, this));
-  media_engine_->Terminate();
   initialized_ = false;
+}
+
+void ChannelManager::DestructorDeletes_w() {
+  ASSERT(worker_thread_ == rtc::Thread::Current());
+  media_engine_.reset(NULL);
+  capture_manager_.reset(NULL);
 }
 
 void ChannelManager::Terminate_w() {
@@ -305,58 +308,69 @@ void ChannelManager::Terminate_w() {
     DestroyVideoChannel_w(video_channels_.back());
   }
   while (!voice_channels_.empty()) {
-    DestroyVoiceChannel_w(voice_channels_.back());
-  }
-  while (!soundclips_.empty()) {
-    DestroySoundclip_w(soundclips_.back());
+    DestroyVoiceChannel_w(voice_channels_.back(), nullptr);
   }
   if (!SetCaptureDevice_w(NULL)) {
     LOG(LS_WARNING) << "failed to delete video capturer";
   }
+  media_engine_->Terminate();
 }
 
 VoiceChannel* ChannelManager::CreateVoiceChannel(
-    BaseSession* session, const std::string& content_name, bool rtcp) {
+    BaseSession* session,
+    const std::string& content_name,
+    bool rtcp,
+    const AudioOptions& options) {
   return worker_thread_->Invoke<VoiceChannel*>(
-      Bind(&ChannelManager::CreateVoiceChannel_w, this,
-           session, content_name, rtcp));
+      Bind(&ChannelManager::CreateVoiceChannel_w, this, session, content_name,
+           rtcp, options));
 }
 
 VoiceChannel* ChannelManager::CreateVoiceChannel_w(
-    BaseSession* session, const std::string& content_name, bool rtcp) {
-  // This is ok to alloc from a thread other than the worker thread
+    BaseSession* session,
+    const std::string& content_name,
+    bool rtcp,
+    const AudioOptions& options) {
   ASSERT(initialized_);
-  VoiceMediaChannel* media_channel = media_engine_->CreateChannel();
-  if (media_channel == NULL)
-    return NULL;
+  ASSERT(worker_thread_ == rtc::Thread::Current());
+  VoiceMediaChannel* media_channel = media_engine_->CreateChannel(options);
+  if (!media_channel)
+    return nullptr;
 
   VoiceChannel* voice_channel = new VoiceChannel(
       worker_thread_, media_engine_.get(), media_channel,
       session, content_name, rtcp);
   if (!voice_channel->Init()) {
     delete voice_channel;
-    return NULL;
+    return nullptr;
   }
   voice_channels_.push_back(voice_channel);
   return voice_channel;
 }
 
-void ChannelManager::DestroyVoiceChannel(VoiceChannel* voice_channel) {
+void ChannelManager::DestroyVoiceChannel(VoiceChannel* voice_channel,
+                                         VideoChannel* video_channel) {
   if (voice_channel) {
     worker_thread_->Invoke<void>(
-        Bind(&ChannelManager::DestroyVoiceChannel_w, this, voice_channel));
+        Bind(&ChannelManager::DestroyVoiceChannel_w, this, voice_channel,
+             video_channel));
   }
 }
 
-void ChannelManager::DestroyVoiceChannel_w(VoiceChannel* voice_channel) {
+void ChannelManager::DestroyVoiceChannel_w(VoiceChannel* voice_channel,
+                                           VideoChannel* video_channel) {
   // Destroy voice channel.
   ASSERT(initialized_);
+  ASSERT(worker_thread_ == rtc::Thread::Current());
   VoiceChannels::iterator it = std::find(voice_channels_.begin(),
       voice_channels_.end(), voice_channel);
   ASSERT(it != voice_channels_.end());
   if (it == voice_channels_.end())
     return;
 
+  if (video_channel) {
+    video_channel->media_channel()->DetachVoiceChannel();
+  }
   voice_channels_.erase(it);
   delete voice_channel;
 }
@@ -398,8 +412,8 @@ VideoChannel* ChannelManager::CreateVideoChannel_w(
     bool rtcp,
     const VideoOptions& options,
     VoiceChannel* voice_channel) {
-  // This is ok to alloc from a thread other than the worker thread
   ASSERT(initialized_);
+  ASSERT(worker_thread_ == rtc::Thread::Current());
   VideoMediaChannel* media_channel =
       // voice_channel can be NULL in case of NullVoiceEngine.
       media_engine_->CreateVideoChannel(
@@ -409,7 +423,7 @@ VideoChannel* ChannelManager::CreateVideoChannel_w(
 
   VideoChannel* video_channel = new VideoChannel(
       worker_thread_, media_engine_.get(), media_channel,
-      session, content_name, rtcp, voice_channel);
+      session, content_name, rtcp);
   if (!video_channel->Init()) {
     delete video_channel;
     return NULL;
@@ -428,6 +442,7 @@ void ChannelManager::DestroyVideoChannel(VideoChannel* video_channel) {
 void ChannelManager::DestroyVideoChannel_w(VideoChannel* video_channel) {
   // Destroy video channel.
   ASSERT(initialized_);
+  ASSERT(worker_thread_ == rtc::Thread::Current());
   VideoChannels::iterator it = std::find(video_channels_.begin(),
       video_channels_.end(), video_channel);
   ASSERT(it != video_channels_.end());
@@ -489,45 +504,6 @@ void ChannelManager::DestroyDataChannel_w(DataChannel* data_channel) {
 
   data_channels_.erase(it);
   delete data_channel;
-}
-
-Soundclip* ChannelManager::CreateSoundclip() {
-  return worker_thread_->Invoke<Soundclip*>(
-      Bind(&ChannelManager::CreateSoundclip_w, this));
-}
-
-Soundclip* ChannelManager::CreateSoundclip_w() {
-  ASSERT(initialized_);
-  ASSERT(worker_thread_ == rtc::Thread::Current());
-
-  SoundclipMedia* soundclip_media = media_engine_->CreateSoundclip();
-  if (!soundclip_media) {
-    return NULL;
-  }
-
-  Soundclip* soundclip = new Soundclip(worker_thread_, soundclip_media);
-  soundclips_.push_back(soundclip);
-  return soundclip;
-}
-
-void ChannelManager::DestroySoundclip(Soundclip* soundclip) {
-  if (soundclip) {
-    worker_thread_->Invoke<void>(
-        Bind(&ChannelManager::DestroySoundclip_w, this, soundclip));
-  }
-}
-
-void ChannelManager::DestroySoundclip_w(Soundclip* soundclip) {
-  // Destroy soundclip.
-  ASSERT(initialized_);
-  Soundclips::iterator it = std::find(soundclips_.begin(),
-      soundclips_.end(), soundclip);
-  ASSERT(it != soundclips_.end());
-  if (it == soundclips_.end())
-    return;
-
-  soundclips_.erase(it);
-  delete soundclip;
 }
 
 bool ChannelManager::GetAudioOptions(std::string* in_name,
@@ -600,29 +576,6 @@ bool ChannelManager::SetAudioOptions_w(
   }
 
   return ret;
-}
-
-// Sets Engine-specific audio options according to enabled experiments.
-bool ChannelManager::SetEngineAudioOptions(const AudioOptions& options) {
-  // If we're initialized, pass the settings to the media engine.
-  bool ret = false;
-  if (initialized_) {
-    ret = worker_thread_->Invoke<bool>(
-        Bind(&ChannelManager::SetEngineAudioOptions_w, this, options));
-  }
-
-  // If all worked well, save the audio options.
-  if (ret) {
-    audio_options_ = options;
-  }
-  return ret;
-}
-
-bool ChannelManager::SetEngineAudioOptions_w(const AudioOptions& options) {
-  ASSERT(worker_thread_ == rtc::Thread::Current());
-  ASSERT(initialized_);
-
-  return media_engine_->SetAudioOptions(options);
 }
 
 bool ChannelManager::GetOutputVolume(int* level) {
@@ -796,6 +749,23 @@ void ChannelManager::SetVideoLogging(int level, const char* filter) {
   } else {
     media_engine_->SetVideoLogging(level, filter);
   }
+}
+
+std::vector<cricket::VideoFormat> ChannelManager::GetSupportedFormats(
+    VideoCapturer* capturer) const {
+  ASSERT(capturer != NULL);
+  std::vector<VideoFormat> formats;
+  worker_thread_->Invoke<void>(rtc::Bind(&ChannelManager::GetSupportedFormats_w,
+                                         this, capturer, &formats));
+  return formats;
+}
+
+void ChannelManager::GetSupportedFormats_w(
+    VideoCapturer* capturer,
+    std::vector<cricket::VideoFormat>* out_formats) const {
+  const std::vector<VideoFormat>* formats = capturer->GetSupportedFormats();
+  if (formats != NULL)
+    *out_formats = *formats;
 }
 
 // TODO(janahan): For now pass this request through the mediaengine to the
@@ -975,11 +945,6 @@ void ChannelManager::SetVideoCaptureDeviceMaxFormat(
     const std::string& usb_id,
     const VideoFormat& max_format) {
   device_manager_->SetVideoCaptureDeviceMaxFormat(usb_id, max_format);
-}
-
-VideoFormat ChannelManager::GetStartCaptureFormat() {
-  return worker_thread_->Invoke<VideoFormat>(
-      Bind(&MediaEngineInterface::GetStartCaptureFormat, media_engine_.get()));
 }
 
 bool ChannelManager::StartAecDump(rtc::PlatformFile file) {

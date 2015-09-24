@@ -10,15 +10,15 @@ import os
 import sys
 
 from pylib import constants
-from pylib import valgrind_tools
 
+from pylib.base import base_setup
 from pylib.base import base_test_result
 from pylib.base import test_dispatcher
 from pylib.device import device_utils
+from pylib.gtest import gtest_test_instance
 from pylib.gtest import test_package_apk
 from pylib.gtest import test_package_exe
 from pylib.gtest import test_runner
-from pylib.utils import isolator
 
 sys.path.insert(0,
                 os.path.join(constants.DIR_SOURCE_ROOT, 'build', 'util', 'lib',
@@ -26,30 +26,13 @@ sys.path.insert(0,
 import unittest_util # pylint: disable=F0401
 
 
-_ISOLATE_FILE_PATHS = {
-    'base_unittests': 'base/base_unittests.isolate',
-    'blink_heap_unittests':
-      'third_party/WebKit/Source/platform/heap/BlinkHeapUnitTests.isolate',
-    'breakpad_unittests': 'breakpad/breakpad_unittests.isolate',
-    'cc_perftests': 'cc/cc_perftests.isolate',
-    'components_unittests': 'components/components_unittests.isolate',
-    'content_browsertests': 'content/content_browsertests.isolate',
-    'content_unittests': 'content/content_unittests.isolate',
-    'media_perftests': 'media/media_perftests.isolate',
-    'media_unittests': 'media/media_unittests.isolate',
-    'net_unittests': 'net/net_unittests.isolate',
-    'sql_unittests': 'sql/sql_unittests.isolate',
-    'ui_base_unittests': 'ui/base/ui_base_tests.isolate',
-    'ui_unittests': 'ui/base/ui_base_tests.isolate',
-    'unit_tests': 'chrome/unit_tests.isolate',
-    'webkit_unit_tests':
-      'third_party/WebKit/Source/web/WebKitUnitTests.isolate',
-}
+ISOLATE_FILE_PATHS = gtest_test_instance._DEFAULT_ISOLATE_FILE_PATHS
+
 
 # Used for filtering large data deps at a finer grain than what's allowed in
 # isolate files since pushing deps to devices is expensive.
 # Wildcards are allowed.
-_DEPS_EXCLUSION_LIST = [
+DEPS_EXCLUSION_LIST = [
     'chrome/test/data/extensions/api_test',
     'chrome/test/data/extensions/secure_shell',
     'chrome/test/data/firefox*',
@@ -67,43 +50,6 @@ _DEPS_EXCLUSION_LIST = [
     'webkit/data/bmp_decoder',
     'webkit/data/ico_decoder',
 ]
-
-
-def _GenerateDepsDirUsingIsolate(suite_name, isolate_file_path=None):
-  """Generate the dependency dir for the test suite using isolate.
-
-  Args:
-    suite_name: Name of the test suite (e.g. base_unittests).
-    isolate_file_path: .isolate file path to use. If there is a default .isolate
-                       file path for the suite_name, this will override it.
-  """
-  if isolate_file_path:
-    if os.path.isabs(isolate_file_path):
-      isolate_abs_path = isolate_file_path
-    else:
-      isolate_abs_path = os.path.join(constants.DIR_SOURCE_ROOT,
-                                      isolate_file_path)
-  else:
-    isolate_rel_path = _ISOLATE_FILE_PATHS.get(suite_name)
-    if not isolate_rel_path:
-      logging.info('Did not find an isolate file for the test suite.')
-      return
-    isolate_abs_path = os.path.join(constants.DIR_SOURCE_ROOT, isolate_rel_path)
-
-  isolated_abs_path = os.path.join(
-      constants.GetOutDirectory(), '%s.isolated' % suite_name)
-  assert os.path.exists(isolate_abs_path), 'Cannot find %s' % isolate_abs_path
-
-  i = isolator.Isolator(constants.ISOLATE_DEPS_DIR)
-  i.Clear()
-  i.Remap(isolate_abs_path, isolated_abs_path)
-  # We're relying on the fact that timestamps are preserved
-  # by the remap command (hardlinked). Otherwise, all the data
-  # will be pushed to the device once we move to using time diff
-  # instead of md5sum. Perform a sanity check here.
-  i.VerifyHardlinks()
-  i.PurgeExcluded(_DEPS_EXCLUSION_LIST)
-  i.MoveOutputDeps()
 
 
 def _GetDisabledTestsFilterFromFile(suite_name):
@@ -219,19 +165,6 @@ def _FilterDisabledTests(tests, suite_name, has_gtest_filter):
   return tests
 
 
-def PushDataDeps(device, test_options, test_package):
-  valgrind_tools.PushFilesForTool(test_options.tool, device)
-  if os.path.exists(constants.ISOLATE_DEPS_DIR):
-    device_dir = (
-        constants.TEST_EXECUTABLE_DIR
-        if test_package.suite_name == 'breakpad_unittests'
-        else device.GetExternalStoragePath())
-    device.PushChangedFiles([
-        (os.path.join(constants.ISOLATE_DEPS_DIR, p),
-         '%s/%s' % (device_dir, p))
-        for p in os.listdir(constants.ISOLATE_DEPS_DIR)])
-
-
 def Setup(test_options, devices):
   """Create the test runner factory and tests.
 
@@ -256,11 +189,18 @@ def Setup(test_options, devices):
     test_package = exe_test_package
   logging.warning('Found target %s', test_package.suite_path)
 
-  _GenerateDepsDirUsingIsolate(test_options.suite_name,
-                               test_options.isolate_file_path)
-
-  device_utils.DeviceUtils.parallel(devices).pMap(
-      PushDataDeps, test_options, test_package)
+  i = base_setup.GenerateDepsDirUsingIsolate(test_options.suite_name,
+                                         test_options.isolate_file_path,
+                                         ISOLATE_FILE_PATHS,
+                                         DEPS_EXCLUSION_LIST)
+  def push_data_deps_to_device_dir(device):
+    device_dir = (constants.TEST_EXECUTABLE_DIR
+        if test_package.suite_name == 'breakpad_unittests'
+        else device.GetExternalStoragePath())
+    base_setup.PushDataDeps(device, device_dir, test_options)
+  device_utils.DeviceUtils.parallel(devices).pMap(push_data_deps_to_device_dir)
+  if i:
+    i.Clear()
 
   tests = _GetTests(test_options, test_package, devices)
 
@@ -282,7 +222,7 @@ def Setup(test_options, devices):
     tests = unittest_util.FilterTestNames(tests, test_options.gtest_filter)
 
   # Coalesce unit tests into a single test per device
-  if test_options.suite_name != 'content_browsertests':
+  if test_options.suite_name not in gtest_test_instance.BROWSER_TEST_SUITES:
     num_devices = len(devices)
     tests = [':'.join(tests[i::num_devices]) for i in xrange(num_devices)]
     tests = [t for t in tests if t]

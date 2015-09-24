@@ -15,6 +15,7 @@
 #include "base/files/file_path.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/timer/timer.h"
 #include "content/browser/appcache/appcache_database.h"
 #include "content/browser/appcache/appcache_disk_cache.h"
 #include "content/browser/appcache/appcache_storage.h"
@@ -59,11 +60,15 @@ class AppCacheStorageImpl : public AppCacheStorage {
   void MakeGroupObsolete(AppCacheGroup* group,
                          Delegate* delegate,
                          int response_code) override;
+  void StoreEvictionTimes(AppCacheGroup* group) override;
   AppCacheResponseReader* CreateResponseReader(const GURL& manifest_url,
                                                int64 group_id,
                                                int64 response_id) override;
   AppCacheResponseWriter* CreateResponseWriter(const GURL& manifest_url,
                                                int64 group_id) override;
+  AppCacheResponseMetadataWriter* CreateResponseMetadataWriter(
+      int64 group_id,
+      int64 response_id) override;
   void DoomResponses(const GURL& manifest_url,
                      const std::vector<int64>& response_ids) override;
   void DeleteResponses(const GURL& manifest_url,
@@ -87,7 +92,9 @@ class AppCacheStorageImpl : public AppCacheStorage {
   class GetDeletableResponseIdsTask;
   class InsertDeletableResponseIdsTask;
   class DeleteDeletableResponseIdsTask;
-  class UpdateGroupLastAccessTimeTask;
+  class LazyUpdateLastAccessTimeTask;
+  class CommitLastAccessTimesTask;
+  class UpdateEvictionTimesTask;
 
   typedef std::deque<DatabaseTask*> DatabaseTaskQueue;
   typedef std::map<int64, CacheLoadTask*> PendingCacheLoads;
@@ -111,12 +118,13 @@ class AppCacheStorageImpl : public AppCacheStorage {
   void StartDeletingResponses(const std::vector<int64>& response_ids);
   void ScheduleDeleteOneResponse();
   void DeleteOneResponse();
-
   void OnDeletedOneResponse(int rv);
   void OnDiskCacheInitialized(int rv);
   void DeleteAndStartOver();
   void DeleteAndStartOverPart2();
   void CallScheduleReinitialize();
+  void LazilyCommitLastAccessTimes();
+  void OnLazyCommitTimer();
 
   // Sometimes we can respond without having to query the database.
   bool FindResponseForMainRequestInGroup(
@@ -168,6 +176,7 @@ class AppCacheStorageImpl : public AppCacheStorage {
   bool is_disabled_;
 
   scoped_ptr<AppCacheDiskCache> disk_cache_;
+  base::OneShotTimer<AppCacheStorageImpl> lazy_commit_timer_;
 
   // Used to short-circuit certain operations without having to schedule
   // any tasks on the background database thread.

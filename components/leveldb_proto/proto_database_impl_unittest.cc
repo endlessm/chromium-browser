@@ -9,12 +9,14 @@
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/location.h"
 #include "base/run_loop.h"
 #include "base/threading/thread.h"
 #include "components/leveldb_proto/leveldb_database.h"
 #include "components/leveldb_proto/testing/proto/test.pb.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/leveldatabase/src/include/leveldb/options.h"
 
 using base::MessageLoop;
 using base::ScopedTempDir;
@@ -85,8 +87,7 @@ class ProtoDatabaseImplTest : public testing::Test {
  public:
   void SetUp() override {
     main_loop_.reset(new MessageLoop());
-    db_.reset(
-        new ProtoDatabaseImpl<TestProto>(main_loop_->message_loop_proxy()));
+    db_.reset(new ProtoDatabaseImpl<TestProto>(main_loop_->task_runner()));
   }
 
   void TearDown() override {
@@ -331,8 +332,8 @@ TEST(ProtoDatabaseImplThreadingTest, TestDBDestruction) {
   base::Thread db_thread("dbthread");
   ASSERT_TRUE(db_thread.Start());
 
-  scoped_ptr<ProtoDatabaseImpl<TestProto> > db(
-      new ProtoDatabaseImpl<TestProto>(db_thread.message_loop_proxy()));
+  scoped_ptr<ProtoDatabaseImpl<TestProto>> db(
+      new ProtoDatabaseImpl<TestProto>(db_thread.task_runner()));
 
   MockDatabaseCaller caller;
   EXPECT_CALL(caller, InitCallback(_));
@@ -342,7 +343,7 @@ TEST(ProtoDatabaseImplThreadingTest, TestDBDestruction) {
   db.reset();
 
   base::RunLoop run_loop;
-  db_thread.message_loop_proxy()->PostTaskAndReply(
+  db_thread.task_runner()->PostTaskAndReply(
       FROM_HERE, base::Bind(base::DoNothing), run_loop.QuitClosure());
   run_loop.Run();
 }
@@ -392,6 +393,23 @@ TEST(ProtoDatabaseImplLevelDBTest, TestDBSaveAndLoad) {
 
 TEST(ProtoDatabaseImplLevelDBTest, TestDBCloseAndReopen) {
   TestLevelDBSaveAndLoad(true);
+}
+
+TEST(ProtoDatabaseImplLevelDBTest, TestDBInitFail) {
+  ScopedTempDir temp_dir;
+  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
+
+  leveldb::Options options;
+  options.create_if_missing = false;
+  scoped_ptr<LevelDB> db(new LevelDB());
+
+  KeyValueVector save_entries;
+  std::vector<std::string> load_entries;
+  KeyVector remove_keys;
+
+  EXPECT_FALSE(db->InitWithOptions(temp_dir.path(), options));
+  EXPECT_FALSE(db->Load(&load_entries));
+  EXPECT_FALSE(db->Save(save_entries, remove_keys));
 }
 
 }  // namespace leveldb_proto

@@ -37,7 +37,7 @@ const char kSwitchShort[] = "short";
 bool DoesLineBeginWithComment(const base::StringPiece& line) {
   // Skip whitespace.
   size_t i = 0;
-  while (i < line.size() && IsAsciiWhitespace(line[i]))
+  while (i < line.size() && base::IsAsciiWhitespace(line[i]))
     i++;
 
   return i < line.size() && line[i] == '#';
@@ -114,7 +114,7 @@ void PrintArgHelp(const base::StringPiece& name, const Value& value) {
 
 int ListArgs(const std::string& build_dir) {
   Setup* setup = new Setup;
-  setup->set_check_for_bad_items(false);
+  setup->build_settings().set_check_for_bad_items(false);
   if (!setup->DoSetup(build_dir, false) || !setup->Run())
     return 1;
 
@@ -211,7 +211,7 @@ bool RunEditor(const base::FilePath& file_to_edit) {
   // but quoting and escaping internal quotes should handle 99.999% of all
   // cases.
   std::string escaped_name = file_to_edit.value();
-  ReplaceSubstringsAfterOffset(&escaped_name, 0, "\"", "\\\"");
+  base::ReplaceSubstringsAfterOffset(&escaped_name, 0, "\"", "\\\"");
   cmd.append(escaped_name);
   cmd.push_back('"');
 
@@ -227,7 +227,7 @@ int EditArgsFile(const std::string& build_dir) {
     // Scope the setup. We only use it for some basic state. We'll do the
     // "real" build below in the gen command.
     Setup setup;
-    setup.set_check_for_bad_items(false);
+    setup.build_settings().set_check_for_bad_items(false);
     // Don't fill build arguments. We're about to edit the file which supplies
     // these in the first place.
     setup.set_fill_arguments(false);
@@ -243,12 +243,15 @@ int EditArgsFile(const std::string& build_dir) {
     if (!base::PathExists(arg_file)) {
       std::string argfile_default_contents =
           "# Build arguments go here. Examples:\n"
-          "#   enable_doom_melon = true\n"
-          "#   crazy_something = \"absolutely\"\n";
+          "#   is_component_build = true\n"
+          "#   is_debug = false\n"
+          "# See \"gn args <out_dir> --list\" for available build "
+          "arguments.\n";
 #if defined(OS_WIN)
       // Use Windows lineendings for this file since it will often open in
       // Notepad which can't handle Unix ones.
-      ReplaceSubstringsAfterOffset(&argfile_default_contents, 0, "\n", "\r\n");
+      base::ReplaceSubstringsAfterOffset(
+          &argfile_default_contents, 0, "\n", "\r\n");
 #endif
       base::CreateDirectory(arg_file.DirName());
       base::WriteFile(arg_file, argfile_default_contents.c_str(),
@@ -273,13 +276,13 @@ extern const char kArgs[] = "args";
 extern const char kArgs_HelpShort[] =
     "args: Display or configure arguments declared by the build.";
 extern const char kArgs_Help[] =
-    "gn args [arg name]\n"
+    "gn args <out_dir> [--list] [--short] [--args]\n"
     "\n"
     "  See also \"gn help buildargs\" for a more high-level overview of how\n"
     "  build arguments work.\n"
     "\n"
     "Usage\n"
-    "  gn args <dir_name>\n"
+    "  gn args <out_dir>\n"
     "      Open the arguments for the given build directory in an editor\n"
     "      (as specified by the EDITOR environment variable). If the given\n"
     "      build directory doesn't exist, it will be created and an empty\n"
@@ -290,9 +293,9 @@ extern const char kArgs_Help[] =
     "\n"
     "      Note: you can edit the build args manually by editing the file\n"
     "      \"args.gn\" in the build directory and then running\n"
-    "      \"gn gen <build_dir>\".\n"
+    "      \"gn gen <out_dir>\".\n"
     "\n"
-    "  gn args <dir_name> --list[=<exact_arg>] [--short]\n"
+    "  gn args <out_dir> --list[=<exact_arg>] [--short]\n"
     "      Lists all build arguments available in the current configuration,\n"
     "      or, if an exact_arg is specified for the list flag, just that one\n"
     "      build argument.\n"
@@ -301,14 +304,14 @@ extern const char kArgs_Help[] =
     "      comment preceeding the declaration. If --short is specified,\n"
     "      only the names and values will be printed.\n"
     "\n"
-    "      If the dir_name is specified, the build configuration will be\n"
+    "      If the out_dir is specified, the build configuration will be\n"
     "      taken from that build directory. The reason this is needed is that\n"
     "      the definition of some arguments is dependent on the build\n"
     "      configuration, so setting some values might add, remove, or change\n"
     "      the default values for other arguments. Specifying your exact\n"
     "      configuration allows the proper arguments to be displayed.\n"
     "\n"
-    "      Instead of specifying the dir_name, you can also use the\n"
+    "      Instead of specifying the out_dir, you can also use the\n"
     "      command-line flag to specify the build configuration:\n"
     "        --args=<exact list of args to use>\n"
     "\n"
@@ -320,8 +323,9 @@ extern const char kArgs_Help[] =
     "    Prints all arguments with their default values for the out/Debug\n"
     "    build.\n"
     "\n"
-    "  gn args out/Debug --list=cpu_arch\n"
-    "    Prints information about the \"cpu_arch\" argument for the out/Debug\n"
+    "  gn args out/Debug --list=target_cpu\n"
+    "    Prints information about the \"target_cpu\" argument for the "
+        "out/Debug\n"
     "    build.\n"
     "\n"
     "  gn args --list --args=\"os=\\\"android\\\" enable_doom_melon=true\"\n"
@@ -332,7 +336,7 @@ extern const char kArgs_Help[] =
 int RunArgs(const std::vector<std::string>& args) {
   if (args.size() != 1) {
     Err(Location(), "Exactly one build dir needed.",
-        "Usage: \"gn args <build_dir>\"\n"
+        "Usage: \"gn args <out_dir>\"\n"
         "Or see \"gn help args\" for more variants.").PrintToStdout();
     return 1;
   }

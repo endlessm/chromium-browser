@@ -10,9 +10,9 @@
 
 #include "webrtc/test/frame_generator_capturer.h"
 
+#include "webrtc/base/criticalsection.h"
 #include "webrtc/test/frame_generator.h"
 #include "webrtc/system_wrappers/interface/clock.h"
-#include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
 #include "webrtc/system_wrappers/interface/event_wrapper.h"
 #include "webrtc/system_wrappers/interface/sleep.h"
 #include "webrtc/system_wrappers/interface/thread_wrapper.h"
@@ -21,14 +21,14 @@
 namespace webrtc {
 namespace test {
 
-FrameGeneratorCapturer* FrameGeneratorCapturer::Create(
-    VideoSendStreamInput* input,
-    size_t width,
-    size_t height,
-    int target_fps,
-    Clock* clock) {
+FrameGeneratorCapturer* FrameGeneratorCapturer::Create(VideoCaptureInput* input,
+                                                       size_t width,
+                                                       size_t height,
+                                                       int target_fps,
+                                                       Clock* clock) {
   FrameGeneratorCapturer* capturer = new FrameGeneratorCapturer(
-      clock, input, FrameGenerator::Create(width, height), target_fps);
+      clock, input, FrameGenerator::CreateChromaGenerator(width, height),
+      target_fps);
   if (!capturer->Init()) {
     delete capturer;
     return NULL;
@@ -38,16 +38,16 @@ FrameGeneratorCapturer* FrameGeneratorCapturer::Create(
 }
 
 FrameGeneratorCapturer* FrameGeneratorCapturer::CreateFromYuvFile(
-    VideoSendStreamInput* input,
-    const char* file_name,
+    VideoCaptureInput* input,
+    const std::string& file_name,
     size_t width,
     size_t height,
     int target_fps,
     Clock* clock) {
   FrameGeneratorCapturer* capturer = new FrameGeneratorCapturer(
-      clock,
-      input,
-      FrameGenerator::CreateFromYuvFile(file_name, width, height),
+      clock, input,
+      FrameGenerator::CreateFromYuvFile(std::vector<std::string>(1, file_name),
+                                        width, height, 1),
       target_fps);
   if (!capturer->Init()) {
     delete capturer;
@@ -58,14 +58,13 @@ FrameGeneratorCapturer* FrameGeneratorCapturer::CreateFromYuvFile(
 }
 
 FrameGeneratorCapturer::FrameGeneratorCapturer(Clock* clock,
-                                               VideoSendStreamInput* input,
+                                               VideoCaptureInput* input,
                                                FrameGenerator* frame_generator,
                                                int target_fps)
     : VideoCapturer(input),
       clock_(clock),
       sending_(false),
-      tick_(EventWrapper::Create()),
-      lock_(CriticalSectionWrapper::CreateCriticalSection()),
+      tick_(EventTimerWrapper::Create()),
       frame_generator_(frame_generator),
       target_fps_(target_fps),
       first_frame_capture_time_(-1) {
@@ -89,17 +88,15 @@ bool FrameGeneratorCapturer::Init() {
 
   if (!tick_->StartTimer(true, 1000 / target_fps_))
     return false;
-  thread_.reset(ThreadWrapper::CreateThread(FrameGeneratorCapturer::Run,
-                                            this,
-                                            webrtc::kHighPriority,
-                                            "FrameGeneratorCapturer"));
+  thread_ = ThreadWrapper::CreateThread(FrameGeneratorCapturer::Run, this,
+                                        "FrameGeneratorCapturer");
   if (thread_.get() == NULL)
     return false;
-  unsigned int thread_id;
-  if (!thread_->Start(thread_id)) {
+  if (!thread_->Start()) {
     thread_.reset();
     return false;
   }
+  thread_->SetPriority(webrtc::kHighPriority);
   return true;
 }
 
@@ -110,26 +107,26 @@ bool FrameGeneratorCapturer::Run(void* obj) {
 
 void FrameGeneratorCapturer::InsertFrame() {
   {
-    CriticalSectionScoped cs(lock_.get());
+    rtc::CritScope cs(&lock_);
     if (sending_) {
-      I420VideoFrame* frame = frame_generator_->NextFrame();
-      frame->set_render_time_ms(clock_->CurrentNtpInMilliseconds());
+      VideoFrame* frame = frame_generator_->NextFrame();
+      frame->set_ntp_time_ms(clock_->CurrentNtpInMilliseconds());
       if (first_frame_capture_time_ == -1) {
-        first_frame_capture_time_ = frame->render_time_ms();
+        first_frame_capture_time_ = frame->ntp_time_ms();
       }
-      input_->SwapFrame(frame);
+      input_->IncomingCapturedFrame(*frame);
     }
   }
   tick_->Wait(WEBRTC_EVENT_INFINITE);
 }
 
 void FrameGeneratorCapturer::Start() {
-  CriticalSectionScoped cs(lock_.get());
+  rtc::CritScope cs(&lock_);
   sending_ = true;
 }
 
 void FrameGeneratorCapturer::Stop() {
-  CriticalSectionScoped cs(lock_.get());
+  rtc::CritScope cs(&lock_);
   sending_ = false;
 }
 }  // test

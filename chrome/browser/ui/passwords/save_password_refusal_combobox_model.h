@@ -17,13 +17,13 @@ class SavePasswordRefusalComboboxModel : public ui::ComboboxModel {
   SavePasswordRefusalComboboxModel();
   ~SavePasswordRefusalComboboxModel() override;
 
- private:
-  // Overridden from ui::ComboboxModel:
+  // ui::ComboboxModel:
   int GetItemCount() const override;
   base::string16 GetItemAt(int index) override;
   bool IsItemSeparatorAt(int index) override;
   int GetDefaultIndex() const override;
 
+ private:
   std::vector<base::string16> items_;
 
   DISALLOW_COPY_AND_ASSIGN(SavePasswordRefusalComboboxModel);

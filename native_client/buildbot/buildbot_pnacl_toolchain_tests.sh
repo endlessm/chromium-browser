@@ -16,6 +16,8 @@ set -o errexit
 
 readonly PNACL_BUILD="pnacl/build.sh"
 readonly TOOLCHAIN_BUILD="toolchain_build/toolchain_build_pnacl.py"
+readonly PACKAGES_SCRIPT="buildbot/packages.py"
+readonly TEMP_PACKAGES="toolchain_build/out/packages.txt"
 readonly UP_DOWN_LOAD="buildbot/file_up_down_load.sh"
 readonly TORTURE_TEST="tools/toolchain_tester/torture_test.py"
 readonly LLVM_TEST="pnacl/scripts/llvm-test.py"
@@ -64,7 +66,7 @@ readonly SCONS_COMMON_SLOW="./scons --verbose bitcode=1 -j2"
 build-run-prerequisites() {
   local platform=$1
   ${SCONS_COMMON} platform=${platform} \
-    sel_ldr sel_universal irt_core
+    sel_ldr sel_universal irt_core elf_loader
 }
 
 
@@ -159,7 +161,11 @@ tc-test-bot() {
   # Build the un-sandboxed toolchain. The build script outputs its own buildbot
   # annotations.
   ${TOOLCHAIN_BUILD} --verbose --sync --clobber --testsuite-sync \
-    --install ${INSTALL_SUBDIR}
+                     --packages-file ${TEMP_PACKAGES}
+
+  # Extract the built packages using the packages script.
+  python ${PACKAGES_SCRIPT} extract --overlay-packages --skip-missing \
+                            --packages ${TEMP_PACKAGES}
 
   # Linking the tests require additional sdk libraries like libnacl.
   # Do this once and for all early instead of attempting to do it within
@@ -174,14 +180,31 @@ tc-test-bot() {
     build-run-prerequisites ${arch}
   done
 
-  # Run the torture tests.
+
+  # Run the torture tests and compiler_rt tests.
   for arch in ${archset}; do
+    echo "@@@BUILD_STEP pnacl bitcode compiler_rt tests@@@"
+    export PNACL_RUN_ARCH=${arch}
+    make -C toolchain_build/src/compiler-rt \
+      -f lib/builtins/Makefile-pnacl-bitcode \
+      TCROOT=${INSTALL_ABSPATH} nacltest-pnacl || handle-error
+
+    # The CC arg is just a dummy to keep the make scripts from complaining
+    # if clang is not found in PATH
+    echo "@@@BUILD_STEP clang compiler_rt tests $arch @@@"
+    make -C toolchain_build/src/compiler-rt TCROOT=${INSTALL_ABSPATH} \
+      CC=gcc nacltest-${arch} || handle-error
+
+    echo "@@@BUILD_STEP torture_tests_clang $arch @@@"
+    ${TORTURE_TEST} clang ${arch} --verbose \
+      --concurrency=${PNACL_CONCURRENCY} || handle-error
+
     if [[ "${arch}" == "x86-32" ]]; then
       # Torture tests on x86-32 are covered by tc-tests-all in
       # buildbot_pnacl.sh.
       continue
     fi
-    echo "@@@BUILD_STEP torture_tests $arch @@@"
+    echo "@@@BUILD_STEP torture_tests_pnacl $arch @@@"
     ${TORTURE_TEST} pnacl ${arch} --verbose \
       --concurrency=${PNACL_CONCURRENCY} || handle-error
   done
@@ -190,13 +213,17 @@ tc-test-bot() {
   local optset
   optset[1]="--opt O3f --opt O2b"
   for arch in ${archset}; do
-    # Run all appropriate frontend/backend optimization combinations.
-    # For now, this means running 2 combinations for x86 since each
-    # takes about 20 minutes on the bots, and making a single run
-    # elsewhere since e.g. arm takes about 75 minutes.  In a perfect
-    # world, all 4 combinations would be run.
+    # Run all appropriate frontend/backend optimization combinations.  For now,
+    # this means running 2 combinations for x86 (plus one more for Subzero on
+    # x86-32) since each takes about 20 minutes on the bots, and making a single
+    # run elsewhere since e.g. arm takes about 75 minutes.  In a perfect world,
+    # all 4 combinations would be run, plus more for Subzero.
     if [[ ${archset} =~ x86 ]]; then
       optset[2]="--opt O3f --opt O0b"
+      if [[ ${archset} == x86-32 ]]; then
+        # Run a Subzero -O2 test set on x86-32.
+        optset[3]="--opt O3f --opt O2b_sz"
+      fi
     fi
     for opt in "${optset[@]}"; do
       echo "@@@BUILD_STEP llvm-test-suite ${arch} ${opt} @@@"

@@ -5,6 +5,7 @@
 package org.chromium.chrome.browser.appmenu;
 
 import android.animation.Animator;
+import android.animation.Animator.AnimatorListener;
 import android.animation.AnimatorSet;
 import android.content.Context;
 import android.content.res.Resources;
@@ -22,10 +23,14 @@ import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemClickListener;
 import android.widget.ImageButton;
 import android.widget.ListPopupWindow;
+import android.widget.ListView;
 import android.widget.PopupWindow;
 import android.widget.PopupWindow.OnDismissListener;
 
+import org.chromium.base.AnimationFrameTimeHistogram;
+import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.SysUtils;
+import org.chromium.base.VisibleForTesting;
 import org.chromium.chrome.R;
 
 import java.util.ArrayList;
@@ -51,6 +56,9 @@ public class AppMenu implements OnItemClickListener, OnKeyListener {
     private AppMenuHandler mHandler;
     private int mCurrentScreenRotation = -1;
     private boolean mIsByHardwareButton;
+    private AnimatorSet mMenuItemEnterAnimator;
+    private AnimatorListener mAnimationHistogramRecorder = AnimationFrameTimeHistogram
+            .getAnimatorRecorder("WrenchMenu.OpeningAnimationFrameTimes");
 
     /**
      * Creates and sets up the App Menu.
@@ -78,6 +86,44 @@ public class AppMenu implements OnItemClickListener, OnKeyListener {
     }
 
     /**
+     * Notifies the menu that the contents of the menu item specified by {@code menuRowId} have
+     * changed.  This should be called if icons, titles, etc. are changing for a particular menu
+     * item while the menu is open.
+     * @param menuRowId The id of the menu item to change.  This must be a row id and not a child
+     *                  id.
+     */
+    public void menuItemContentChanged(int menuRowId) {
+        // Make sure we have all the valid state objects we need.
+        if (mAdapter == null || mMenu == null || mPopup == null || mPopup.getListView() == null) {
+            return;
+        }
+
+        // Calculate the item index.
+        int index = -1;
+        int menuSize = mMenu.size();
+        for (int i = 0; i < menuSize; i++) {
+            if (mMenu.getItem(i).getItemId() == menuRowId) {
+                index = i;
+                break;
+            }
+        }
+        if (index == -1) return;
+
+        // Check if the item is visible.
+        ListView list = mPopup.getListView();
+        int startIndex = list.getFirstVisiblePosition();
+        int endIndex = list.getLastVisiblePosition();
+        if (index < startIndex || index > endIndex) return;
+
+        // Grab the correct View.
+        View view = list.getChildAt(index - startIndex);
+        if (view == null) return;
+
+        // Cause the Adapter to re-populate the View.
+        list.getAdapter().getView(index, view, list);
+    }
+
+    /**
      * Creates and shows the app menu anchored to the specified view.
      *
      * @param context The context of the AppMenu (ensure the proper theme is set on this context).
@@ -87,20 +133,33 @@ public class AppMenu implements OnItemClickListener, OnKeyListener {
      * @param screenRotation Current device screen rotation.
      * @param visibleDisplayFrame The display area rect in which AppMenu is supposed to fit in.
      * @param screenHeight Current device screen height.
-     * @param menuButtonStartPaddingPx The start padding that should be applied to the menu button.
+     * @param footerResourceId The resource id for a view to add to the end of the menu list.
+     *                         Can be 0 if no such view is required.
      */
     void show(Context context, View anchorView, boolean isByHardwareButton, int screenRotation,
-            Rect visibleDisplayFrame, int screenHeight, int menuButtonStartPaddingPx) {
+            Rect visibleDisplayFrame, int screenHeight, int footerResourceId) {
         mPopup = new ListPopupWindow(context, null, android.R.attr.popupMenuStyle);
         mPopup.setModal(true);
         mPopup.setAnchorView(anchorView);
         mPopup.setInputMethodMode(PopupWindow.INPUT_METHOD_NOT_NEEDED);
+
+        int footerHeight = 0;
+        if (footerResourceId != 0) {
+            mPopup.setPromptPosition(ListPopupWindow.POSITION_PROMPT_BELOW);
+            mPopup.setPromptView(LayoutInflater.from(context).inflate(footerResourceId, null));
+            footerHeight = context.getResources().getDimensionPixelSize(
+                    R.dimen.menu_footer_height);
+        }
         mPopup.setOnDismissListener(new OnDismissListener() {
             @Override
             public void onDismiss() {
                 if (mPopup.getAnchorView() instanceof ImageButton) {
                     ((ImageButton) mPopup.getAnchorView()).setSelected(false);
                 }
+
+                if (mMenuItemEnterAnimator != null) mMenuItemEnterAnimator.cancel();
+
+                mHandler.appMenuDismissed();
                 mHandler.onMenuVisibilityChanged(false);
             }
         });
@@ -113,10 +172,11 @@ public class AppMenu implements OnItemClickListener, OnKeyListener {
         // Need to explicitly set the background here.  Relying on it being set in the style caused
         // an incorrectly drawn background.
         if (isByHardwareButton) {
-            mPopup.setBackgroundDrawable(context.getResources().getDrawable(R.drawable.menu_bg));
-        } else {
             mPopup.setBackgroundDrawable(
-                    context.getResources().getDrawable(R.drawable.edge_menu_bg));
+                    ApiCompatibilityUtils.getDrawable(context.getResources(), R.drawable.menu_bg));
+        } else {
+            mPopup.setBackgroundDrawable(ApiCompatibilityUtils.getDrawable(
+                    context.getResources(), R.drawable.edge_menu_bg));
             mPopup.setAnimationStyle(R.style.OverflowMenuAnim);
         }
 
@@ -154,12 +214,11 @@ public class AppMenu implements OnItemClickListener, OnKeyListener {
 
         // A List adapter for visible items in the Menu. The first row is added as a header to the
         // list view.
-        mAdapter = new AppMenuAdapter(
-                this, menuItems, LayoutInflater.from(context),
-                false, menuButtonStartPaddingPx);
+        mAdapter = new AppMenuAdapter(this, menuItems, LayoutInflater.from(context));
         mPopup.setAdapter(mAdapter);
 
-        setMenuHeight(menuItems.size(), visibleDisplayFrame, screenHeight, sizingPadding);
+        setMenuHeight(
+                menuItems.size(), visibleDisplayFrame, screenHeight, sizingPadding, footerHeight);
         setPopupOffset(mPopup, mCurrentScreenRotation, visibleDisplayFrame, sizingPadding);
         mPopup.setOnItemClickListener(this);
         mPopup.show();
@@ -261,7 +320,6 @@ public class AppMenu implements OnItemClickListener, OnKeyListener {
      * Dismisses the app menu and cancels the drag-to-scroll if it is taking place.
      */
     void dismiss() {
-        mHandler.appMenuDismissed();
         if (isShowing()) {
             mPopup.dismiss();
         }
@@ -284,8 +342,16 @@ public class AppMenu implements OnItemClickListener, OnKeyListener {
         return mPopup;
     }
 
-    private void setMenuHeight(
-            int numMenuItems, Rect appDimensions, int screenHeight, Rect padding) {
+    /**
+     * @return The menu instance inside of this class.
+     */
+    @VisibleForTesting
+    public Menu getMenuForTest() {
+        return mMenu;
+    }
+
+    private void setMenuHeight(int numMenuItems, Rect appDimensions,
+            int screenHeight, Rect padding, int footerHeight) {
         assert mPopup.getAnchorView() != null;
         View anchorView = mPopup.getAnchorView();
         int[] anchorViewLocation = new int[2];
@@ -300,7 +366,7 @@ public class AppMenu implements OnItemClickListener, OnKeyListener {
         int availableScreenSpace = Math.max(anchorViewLocation[1],
                 appDimensions.height() - anchorViewLocation[1] - anchorViewImpactHeight);
 
-        availableScreenSpace -= padding.bottom;
+        availableScreenSpace -= padding.bottom + footerHeight;
         if (mIsByHardwareButton) availableScreenSpace -= padding.top;
 
         int numCanFit = availableScreenSpace / (mItemRowHeight + mItemDividerHeight);
@@ -323,7 +389,7 @@ public class AppMenu implements OnItemClickListener, OnKeyListener {
     }
 
     private void runMenuItemEnterAnimations() {
-        AnimatorSet animation = new AnimatorSet();
+        mMenuItemEnterAnimator = new AnimatorSet();
         AnimatorSet.Builder builder = null;
 
         ViewGroup list = mPopup.getListView();
@@ -332,13 +398,14 @@ public class AppMenu implements OnItemClickListener, OnKeyListener {
             Object animatorObject = view.getTag(R.id.menu_item_enter_anim_id);
             if (animatorObject != null) {
                 if (builder == null) {
-                    builder = animation.play((Animator) animatorObject);
+                    builder = mMenuItemEnterAnimator.play((Animator) animatorObject);
                 } else {
                     builder.with((Animator) animatorObject);
                 }
             }
         }
 
-        animation.start();
+        mMenuItemEnterAnimator.addListener(mAnimationHistogramRecorder);
+        mMenuItemEnterAnimator.start();
     }
 }

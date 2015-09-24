@@ -36,11 +36,6 @@
 #include "net/url_request/url_request.h"
 #include "ui/base/l10n/l10n_util.h"
 
-#if defined(OS_ANDROID)
-#include "chrome/browser/ui/android/infobars/auto_login_infobar_delegate_android.h"
-#endif
-
-
 // AutoLoginRedirector --------------------------------------------------------
 
 namespace {
@@ -54,15 +49,15 @@ class AutoLoginRedirector : public UbertokenConsumer,
  public:
   AutoLoginRedirector(content::WebContents* web_contents,
                       const std::string& args);
-  virtual ~AutoLoginRedirector();
+  ~AutoLoginRedirector() override;
 
  private:
   // Overriden from UbertokenConsumer:
-  virtual void OnUbertokenSuccess(const std::string& token) override;
-  virtual void OnUbertokenFailure(const GoogleServiceAuthError& error) override;
+  void OnUbertokenSuccess(const std::string& token) override;
+  void OnUbertokenFailure(const GoogleServiceAuthError& error) override;
 
   // Implementation of content::WebContentsObserver
-  virtual void WebContentsDestroyed() override;
+  void WebContentsDestroyed() override;
 
   // Redirect tab to MergeSession URL, logging the user in and navigating
   // to the desired page.
@@ -140,12 +135,8 @@ bool AutoLoginInfoBarDelegate::Create(content::WebContents* web_contents,
 
   Profile* profile =
       Profile::FromBrowserContext(web_contents->GetBrowserContext());
-#if defined(OS_ANDROID)
-  typedef AutoLoginInfoBarDelegateAndroid Delegate;
-#else
   typedef AutoLoginInfoBarDelegate Delegate;
-#endif
-  return !!infobar_service->AddInfoBar(ConfirmInfoBarDelegate::CreateInfoBar(
+  return !!infobar_service->AddInfoBar(infobar_service->CreateConfirmInfoBar(
       scoped_ptr<ConfirmInfoBarDelegate>(new Delegate(params, profile))));
 }
 
@@ -182,18 +173,18 @@ void AutoLoginInfoBarDelegate::RecordHistogramAction(Actions action) {
                             HISTOGRAM_BOUNDING_VALUE);
 }
 
-void AutoLoginInfoBarDelegate::InfoBarDismissed() {
-  RecordHistogramAction(DISMISSED);
-  button_pressed_ = true;
+infobars::InfoBarDelegate::Type AutoLoginInfoBarDelegate::GetInfoBarType()
+    const {
+  return PAGE_ACTION_TYPE;
 }
 
 int AutoLoginInfoBarDelegate::GetIconID() const {
   return IDR_INFOBAR_AUTOLOGIN;
 }
 
-infobars::InfoBarDelegate::Type AutoLoginInfoBarDelegate::GetInfoBarType()
-    const {
-  return PAGE_ACTION_TYPE;
+void AutoLoginInfoBarDelegate::InfoBarDismissed() {
+  RecordHistogramAction(DISMISSED);
+  button_pressed_ = true;
 }
 
 AutoLoginInfoBarDelegate*

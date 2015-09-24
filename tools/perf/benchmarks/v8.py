@@ -2,19 +2,47 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from core import perf_benchmark
+
+from measurements import v8_detached_context_age_in_gc
+from measurements import v8_gc_times
 import page_sets
-from telemetry.web_perf import timeline_based_measurement
 from telemetry import benchmark
 
 
-@benchmark.Disabled  # crbug.com/416502
-class V8GarbageCollectionCases(benchmark.Benchmark):
-  """Measure V8 metrics on the garbage collection cases."""
-  test = timeline_based_measurement.TimelineBasedMeasurement
-  page_set = page_sets.GarbageCollectionCasesPageSet
+# Disabled on Win due to crbug.com/416502.
+# Disabled on reference due to crbug.com/507836.
+@benchmark.Disabled('win', 'reference')
+class V8Top25(perf_benchmark.PerfBenchmark):
+  """Measures V8 GC metrics on the while scrolling down the top 25 web pages.
 
-  # TODO(ernstm): Remove this argument when benchmark relevant v8 events become
-  # available in the 'benchmark' category.
+  http://www.chromium.org/developers/design-documents/rendering-benchmarks"""
+  test = v8_gc_times.V8GCTimes
+  page_set = page_sets.Top25SmoothPageSet
+
   @classmethod
-  def SetArgumentDefaults(cls, parser):
-    parser.set_defaults(overhead_level='v8-overhead')
+  def Name(cls):
+    return 'v8.top_25_smooth'
+
+@benchmark.Enabled('android')
+class V8KeyMobileSites(perf_benchmark.PerfBenchmark):
+  """Measures V8 GC metrics on the while scrolling down key mobile sites.
+
+  http://www.chromium.org/developers/design-documents/rendering-benchmarks"""
+  test = v8_gc_times.V8GCTimes
+  page_set = page_sets.KeyMobileSitesSmoothPageSet
+
+  @classmethod
+  def Name(cls):
+    return 'v8.key_mobile_sites_smooth'
+
+class V8DetachedContextAgeInGC(perf_benchmark.PerfBenchmark):
+  """Measures the number of GCs needed to collect a detached context.
+
+  http://www.chromium.org/developers/design-documents/rendering-benchmarks"""
+  test = v8_detached_context_age_in_gc.V8DetachedContextAgeInGC
+  page_set = page_sets.PageReloadCasesPageSet
+
+  @classmethod
+  def Name(cls):
+    return 'v8.detached_context_age_in_gc'

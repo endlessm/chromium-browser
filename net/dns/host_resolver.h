@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "base/basictypes.h"
 #include "base/memory/scoped_ptr.h"
 #include "net/base/address_family.h"
 #include "net/base/completion_callback.h"
@@ -67,7 +68,7 @@ class NET_EXPORT HostResolver {
       host_port_pair_ = host_port_pair;
     }
 
-    int port() const { return host_port_pair_.port(); }
+    uint16 port() const { return host_port_pair_.port(); }
     const std::string& hostname() const { return host_port_pair_.host(); }
 
     AddressFamily address_family() const { return address_family_; }
@@ -165,13 +166,6 @@ class NET_EXPORT HostResolver {
   // CancelRequest must NOT be called after the request's completion callback
   // has already run or the request was canceled.
   virtual void CancelRequest(RequestHandle req) = 0;
-
-  // Sets the default AddressFamily to use when requests have left it
-  // unspecified. For example, this could be used to restrict resolution
-  // results to AF_INET by passing in ADDRESS_FAMILY_IPV4, or to
-  // AF_INET6 by passing in ADDRESS_FAMILY_IPV6.
-  virtual void SetDefaultAddressFamily(AddressFamily address_family) {}
-  virtual AddressFamily GetDefaultAddressFamily() const;
 
   // Enable or disable the built-in asynchronous DnsClient.
   virtual void SetDnsClientEnabled(bool enabled);

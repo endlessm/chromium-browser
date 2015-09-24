@@ -17,9 +17,8 @@ DEFINE_RESOURCE_ID(0, 0)
 DEFINE_RESOURCE_ID(IDR_INFOBAR_AUTOFILL_CC, R.drawable.infobar_autofill_cc)
 DEFINE_RESOURCE_ID(IDR_INFOBAR_AUTOLOGIN,\
                    R.drawable.infobar_savepassword_autologin)
-// TODO(peter): Include the proper resources for the Notification infobar.
 DEFINE_RESOURCE_ID(IDR_INFOBAR_DESKTOP_NOTIFICATIONS,\
-                   R.drawable.infobar_geolocation)
+                   R.drawable.infobar_desktop_notifications)
 DEFINE_RESOURCE_ID(IDR_INFOBAR_GEOLOCATION, R.drawable.infobar_geolocation)
 DEFINE_RESOURCE_ID(IDR_INFOBAR_MEDIA_STREAM_CAMERA, R.drawable.infobar_camera)
 DEFINE_RESOURCE_ID(IDR_INFOBAR_MEDIA_STREAM_MIC, R.drawable.infobar_microphone)
@@ -33,25 +32,36 @@ DEFINE_RESOURCE_ID(IDR_INFOBAR_SAVE_PASSWORD,\
 DEFINE_RESOURCE_ID(IDR_INFOBAR_WARNING, R.drawable.infobar_warning)
 DEFINE_RESOURCE_ID(IDR_INFOBAR_TRANSLATE, R.drawable.infobar_translate)
 DEFINE_RESOURCE_ID(IDR_BLOCKED_POPUPS, R.drawable.infobar_blocked_popups)
+DEFINE_RESOURCE_ID(IDR_INFOBAR_FULLSCREEN, R.drawable.infobar_fullscreen)
 
-// WebsiteSettingsUI images.
-DEFINE_RESOURCE_ID(IDR_PAGEINFO_ENTERPRISE_MANAGED,\
-                   R.drawable.pageinfo_enterprise_managed)
-DEFINE_RESOURCE_ID(IDR_PAGEINFO_BAD, R.drawable.pageinfo_bad)
+// WebsiteSettingsUI images, used in ConnectionInfoPopup
+// Good:
 DEFINE_RESOURCE_ID(IDR_PAGEINFO_GOOD, R.drawable.pageinfo_good)
-DEFINE_RESOURCE_ID(IDR_PAGEINFO_INFO, R.drawable.pageinfo_info)
-DEFINE_RESOURCE_ID(IDR_PAGEINFO_WARNING_MAJOR,\
-                   R.drawable.pageinfo_warning_major)
+// Warnings:
 DEFINE_RESOURCE_ID(IDR_PAGEINFO_WARNING_MINOR,\
-                   R.drawable.pageinfo_warning_minor)
+                   R.drawable.pageinfo_warning)
+// Bad:
+DEFINE_RESOURCE_ID(IDR_PAGEINFO_BAD, R.drawable.pageinfo_bad)
+// Should never occur, use warning just in case:
+// Enterprise managed: ChromeOS only.
+DEFINE_RESOURCE_ID(IDR_PAGEINFO_ENTERPRISE_MANAGED,\
+                   R.drawable.pageinfo_warning)
+// Info: Only shown on chrome:// urls, which don't show the connection info
+// popup.
+DEFINE_RESOURCE_ID(IDR_PAGEINFO_INFO, R.drawable.pageinfo_warning)
+// Major warning: Used on insecure pages, which don't show the connection info
+// popup.
+DEFINE_RESOURCE_ID(IDR_PAGEINFO_WARNING_MAJOR,\
+                   R.drawable.pageinfo_warning)
 
 // Autofill popup images.
 DEFINE_RESOURCE_ID(IDR_AUTOFILL_CC_AMEX, R.drawable.amex_card)
-DEFINE_RESOURCE_ID(IDR_AUTOFILL_CC_DINERS, R.drawable.generic_card)
 DEFINE_RESOURCE_ID(IDR_AUTOFILL_CC_DISCOVER, R.drawable.discover_card)
 DEFINE_RESOURCE_ID(IDR_AUTOFILL_CC_GENERIC, R.drawable.generic_card)
-DEFINE_RESOURCE_ID(IDR_AUTOFILL_CC_JCB, R.drawable.generic_card)
 DEFINE_RESOURCE_ID(IDR_AUTOFILL_CC_MASTERCARD, R.drawable.mc_card)
 DEFINE_RESOURCE_ID(IDR_AUTOFILL_CC_VISA, R.drawable.visa_card)
+DEFINE_RESOURCE_ID(IDR_AUTOFILL_CC_SCAN_NEW, android.R.drawable.ic_menu_camera)
+DEFINE_RESOURCE_ID(IDR_CREDIT_CARD_CVC_HINT, R.drawable.cvc_icon)
+DEFINE_RESOURCE_ID(IDR_CREDIT_CARD_CVC_HINT_AMEX, R.drawable.cvc_icon_amex)
 
 #endif  // CHROME_BROWSER_ANDROID_RESOURCE_ID_H_

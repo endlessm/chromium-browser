@@ -2,26 +2,28 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ash/ime/input_method_menu_item.h"
-#include "ash/ime/input_method_menu_manager.h"
 #include "base/bind_helpers.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
-#include "chromeos/ime/component_extension_ime_manager.h"
-#include "chromeos/ime/composition_text.h"
-#include "chromeos/ime/input_method_descriptor.h"
-#include "chromeos/ime/input_method_manager.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/process_manager.h"
 #include "extensions/common/manifest_handlers/background_info.h"
 #include "extensions/test/extension_test_message_listener.h"
+#include "ui/base/ime/chromeos/component_extension_ime_manager.h"
+#include "ui/base/ime/chromeos/composition_text_chromeos.h"
 #include "ui/base/ime/chromeos/ime_bridge.h"
+#include "ui/base/ime/chromeos/input_method_descriptor.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
 #include "ui/base/ime/chromeos/mock_ime_candidate_window_handler.h"
 #include "ui/base/ime/chromeos/mock_ime_input_context_handler.h"
 #include "ui/base/ime/text_input_flags.h"
+#include "ui/chromeos/ime/input_method_menu_item.h"
+#include "ui/chromeos/ime/input_method_menu_manager.h"
 #include "ui/events/event.h"
+#include "ui/events/keycodes/dom/dom_code.h"
+#include "ui/events/keycodes/dom/keycode_converter.h"
 
 namespace chromeos {
 namespace input_method {
@@ -51,13 +53,11 @@ class InputMethodEngineBrowserTest
       : ExtensionBrowserTest() {}
   virtual ~InputMethodEngineBrowserTest() {}
 
-  virtual void SetUpInProcessBrowserTestFixture() override {
+  void SetUpInProcessBrowserTestFixture() override {
     ExtensionBrowserTest::SetUpInProcessBrowserTestFixture();
   }
 
-  virtual void TearDownInProcessBrowserTestFixture() override {
-    extension_ = NULL;
-  }
+  void TearDownInProcessBrowserTestFixture() override { extension_ = NULL; }
 
  protected:
   void LoadTestInputMethod() {
@@ -265,7 +265,7 @@ IN_PROC_BROWSER_TEST_P(InputMethodEngineBrowserTest,
     ExtensionTestMessageListener keyevent_listener(expected_value, false);
 
     ui::KeyEvent key_event(
-        ui::ET_KEY_PRESSED, ui::VKEY_A, "KeyA", ui::EF_NONE);
+        ui::ET_KEY_PRESSED, ui::VKEY_A, ui::DomCode::KEY_A, ui::EF_NONE);
     engine_handler->ProcessKeyEvent(key_event,
                                     base::Bind(&KeyEventDoneCallback::Run,
                                                base::Unretained(&callback)));
@@ -282,7 +282,7 @@ IN_PROC_BROWSER_TEST_P(InputMethodEngineBrowserTest,
 
     ui::KeyEvent key_event(ui::ET_KEY_PRESSED,
                            ui::VKEY_A,
-                           "KeyA",
+                           ui::DomCode::KEY_A,
                            ui::EF_CONTROL_DOWN);
     engine_handler->ProcessKeyEvent(key_event,
                                     base::Bind(&KeyEventDoneCallback::Run,
@@ -300,7 +300,7 @@ IN_PROC_BROWSER_TEST_P(InputMethodEngineBrowserTest,
 
     ui::KeyEvent key_event(ui::ET_KEY_PRESSED,
                            ui::VKEY_A,
-                           "KeyA",
+                           ui::DomCode::KEY_A,
                            ui::EF_ALT_DOWN);
     engine_handler->ProcessKeyEvent(key_event,
                                     base::Bind(&KeyEventDoneCallback::Run,
@@ -318,7 +318,7 @@ IN_PROC_BROWSER_TEST_P(InputMethodEngineBrowserTest,
 
     ui::KeyEvent key_event(ui::ET_KEY_PRESSED,
                            ui::VKEY_A,
-                           "KeyA",
+                           ui::DomCode::KEY_A,
                            ui::EF_SHIFT_DOWN);
     engine_handler->ProcessKeyEvent(key_event,
                                     base::Bind(&KeyEventDoneCallback::Run,
@@ -336,7 +336,7 @@ IN_PROC_BROWSER_TEST_P(InputMethodEngineBrowserTest,
 
     ui::KeyEvent key_event(ui::ET_KEY_PRESSED,
                            ui::VKEY_A,
-                           "KeyA",
+                           ui::DomCode::KEY_A,
                            ui::EF_CAPS_LOCK_DOWN);
     engine_handler->ProcessKeyEvent(key_event,
                                     base::Bind(&KeyEventDoneCallback::Run,
@@ -354,7 +354,7 @@ IN_PROC_BROWSER_TEST_P(InputMethodEngineBrowserTest,
 
     ui::KeyEvent key_event(ui::ET_KEY_PRESSED,
                            ui::VKEY_A,
-                           "KeyA",
+                           ui::DomCode::KEY_A,
                            ui::EF_ALT_DOWN | ui::EF_CONTROL_DOWN);
     engine_handler->ProcessKeyEvent(key_event,
                                     base::Bind(&KeyEventDoneCallback::Run,
@@ -372,7 +372,7 @@ IN_PROC_BROWSER_TEST_P(InputMethodEngineBrowserTest,
 
     ui::KeyEvent key_event(ui::ET_KEY_PRESSED,
                            ui::VKEY_A,
-                           "KeyA",
+                           ui::DomCode::KEY_A,
                            ui::EF_SHIFT_DOWN | ui::EF_CAPS_LOCK_DOWN);
     engine_handler->ProcessKeyEvent(key_event,
                                     base::Bind(&KeyEventDoneCallback::Run,
@@ -417,10 +417,11 @@ IN_PROC_BROWSER_TEST_P(InputMethodEngineBrowserTest,
                            kMediaKeyCases[i].key, kMediaKeyCases[i].code);
     ExtensionTestMessageListener keyevent_listener(expected_value, false);
 
-    ui::KeyEvent key_event(ui::ET_KEY_PRESSED,
-                           kMediaKeyCases[i].keycode,
-                           kMediaKeyCases[i].code,
-                           ui::EF_NONE);
+    ui::KeyEvent key_event(
+        ui::ET_KEY_PRESSED,
+        kMediaKeyCases[i].keycode,
+        ui::KeycodeConverter::CodeStringToDomCode(kMediaKeyCases[i].code),
+        ui::EF_NONE);
     engine_handler->ProcessKeyEvent(key_event,
                                     base::Bind(&KeyEventDoneCallback::Run,
                                                base::Unretained(&callback)));
@@ -881,8 +882,8 @@ IN_PROC_BROWSER_TEST_P(InputMethodEngineBrowserTest,
     ASSERT_TRUE(content::ExecuteScript(
         host->host_contents(), set_menu_item_test_script));
 
-    const ash::ime::InputMethodMenuItemList& props =
-        ash::ime::InputMethodMenuManager::GetInstance()->
+    const ui::ime::InputMethodMenuItemList& props =
+        ui::ime::InputMethodMenuManager::GetInstance()->
         GetCurrentInputMethodMenuItemList();
     ASSERT_EQ(5U, props.size());
 

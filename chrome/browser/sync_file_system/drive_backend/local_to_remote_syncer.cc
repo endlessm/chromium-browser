@@ -476,8 +476,8 @@ void LocalToRemoteSyncer::DeleteRemoteFile(scoped_ptr<SyncTaskToken> token) {
 
 void LocalToRemoteSyncer::DidDeleteRemoteFile(
     scoped_ptr<SyncTaskToken> token,
-    google_apis::GDataErrorCode error) {
-  SyncStatusCode status = GDataErrorCodeToSyncStatusCode(error);
+    google_apis::DriveApiErrorCode error) {
+  SyncStatusCode status = DriveApiErrorCodeToSyncStatusCode(error);
   if (status != SYNC_STATUS_OK &&
       error != google_apis::HTTP_NOT_FOUND &&
       error != google_apis::HTTP_PRECONDITION &&
@@ -506,7 +506,8 @@ void LocalToRemoteSyncer::UploadExistingFile(scoped_ptr<SyncTaskToken> token) {
   DCHECK(remote_file_tracker_->has_synced_details());
   DCHECK(sync_context_->GetWorkerTaskRunner()->RunsTasksOnCurrentThread());
 
-  const std::string local_file_md5 = drive::util::GetMd5Digest(local_path_);
+  const std::string local_file_md5 = drive::util::GetMd5Digest(local_path_,
+                                                               nullptr);
   if (local_file_md5 == remote_file_tracker_->synced_details().md5()) {
     // Local file is not changed.
     SyncCompleted(token.Pass(), SYNC_STATUS_OK);
@@ -516,7 +517,7 @@ void LocalToRemoteSyncer::UploadExistingFile(scoped_ptr<SyncTaskToken> token) {
   file_type_ = SYNC_FILE_TYPE_FILE;
   sync_action_ = SYNC_ACTION_UPDATED;
 
-  drive::DriveUploader::UploadExistingFileOptions options;
+  drive::UploadExistingFileOptions options;
   options.etag = remote_file_tracker_->synced_details().etag();
   drive_uploader()->UploadExistingFile(
       remote_file_tracker_->file_id(),
@@ -530,7 +531,7 @@ void LocalToRemoteSyncer::UploadExistingFile(scoped_ptr<SyncTaskToken> token) {
 
 void LocalToRemoteSyncer::DidUploadExistingFile(
     scoped_ptr<SyncTaskToken> token,
-    google_apis::GDataErrorCode error,
+    google_apis::DriveApiErrorCode error,
     const GURL&,
     scoped_ptr<google_apis::FileResource> entry) {
   if (error == google_apis::HTTP_PRECONDITION ||
@@ -548,7 +549,7 @@ void LocalToRemoteSyncer::DidUploadExistingFile(
     return;
   }
 
-  SyncStatusCode status = GDataErrorCodeToSyncStatusCode(error);
+  SyncStatusCode status = DriveApiErrorCodeToSyncStatusCode(error);
   if (status != SYNC_STATUS_OK) {
     SyncCompleted(token.Pass(), status);
     return;
@@ -606,7 +607,7 @@ void LocalToRemoteSyncer::UpdateRemoteMetadata(
 void LocalToRemoteSyncer::DidGetRemoteMetadata(
     const std::string& file_id,
     scoped_ptr<SyncTaskToken> token,
-    google_apis::GDataErrorCode error,
+    google_apis::DriveApiErrorCode error,
     scoped_ptr<google_apis::FileResource> entry) {
   DCHECK(sync_context_->GetWorkerTaskRunner()->RunsTasksOnCurrentThread());
 
@@ -618,7 +619,7 @@ void LocalToRemoteSyncer::DidGetRemoteMetadata(
     return;
   }
 
-  SyncStatusCode status = GDataErrorCodeToSyncStatusCode(error);
+  SyncStatusCode status = DriveApiErrorCodeToSyncStatusCode(error);
   if (status != SYNC_STATUS_OK) {
     SyncCompleted(token.Pass(), status);
     return;
@@ -642,26 +643,23 @@ void LocalToRemoteSyncer::UploadNewFile(scoped_ptr<SyncTaskToken> token) {
   sync_action_ = SYNC_ACTION_ADDED;
   base::FilePath title = storage::VirtualPath::BaseName(target_path_);
   drive_uploader()->UploadNewFile(
-      remote_parent_folder_tracker_->file_id(),
-      local_path_,
-      title.AsUTF8Unsafe(),
-      GetMimeTypeFromTitle(title),
-      drive::DriveUploader::UploadNewFileOptions(),
+      remote_parent_folder_tracker_->file_id(), local_path_,
+      title.AsUTF8Unsafe(), GetMimeTypeFromTitle(title),
+      drive::UploadNewFileOptions(),
       base::Bind(&LocalToRemoteSyncer::DidUploadNewFile,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 base::Passed(&token)),
+                 weak_ptr_factory_.GetWeakPtr(), base::Passed(&token)),
       google_apis::ProgressCallback());
 }
 
 void LocalToRemoteSyncer::DidUploadNewFile(
     scoped_ptr<SyncTaskToken> token,
-    google_apis::GDataErrorCode error,
+    google_apis::DriveApiErrorCode error,
     const GURL& upload_location,
     scoped_ptr<google_apis::FileResource> entry) {
   if (error == google_apis::HTTP_NOT_FOUND)
     needs_remote_change_listing_ = true;
 
-  SyncStatusCode status = GDataErrorCodeToSyncStatusCode(error);
+  SyncStatusCode status = DriveApiErrorCodeToSyncStatusCode(error);
   if (status != SYNC_STATUS_OK) {
     SyncCompleted(token.Pass(), status);
     return;
@@ -736,8 +734,8 @@ void LocalToRemoteSyncer::DidCreateRemoteFolder(
 
 void LocalToRemoteSyncer::DidDetachResourceForCreationConflict(
     scoped_ptr<SyncTaskToken> token,
-    google_apis::GDataErrorCode error) {
-  SyncStatusCode status = GDataErrorCodeToSyncStatusCode(error);
+    google_apis::DriveApiErrorCode error) {
+  SyncStatusCode status = DriveApiErrorCodeToSyncStatusCode(error);
   if (status != SYNC_STATUS_OK) {
     SyncCompleted(token.Pass(), status);
     return;

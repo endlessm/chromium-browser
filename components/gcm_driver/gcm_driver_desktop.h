@@ -15,6 +15,7 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
+#include "base/tuple.h"
 #include "components/gcm_driver/gcm_channel_status_syncer.h"
 #include "components/gcm_driver/gcm_client.h"
 #include "components/gcm_driver/gcm_connection_observer.h"
@@ -43,7 +44,8 @@ class GCMClientFactory;
 class GCMDelayedTaskController;
 
 // GCMDriver implementation for desktop and Chrome OS, using GCMClient.
-class GCMDriverDesktop : public GCMDriver {
+class GCMDriverDesktop : public GCMDriver,
+                         public InstanceIDHandler {
  public:
   GCMDriverDesktop(
       scoped_ptr<GCMClientFactory> gcm_client_factory,
@@ -62,7 +64,6 @@ class GCMDriverDesktop : public GCMDriver {
   void Shutdown() override;
   void OnSignedIn() override;
   void OnSignedOut() override;
-  void Purge() override;
   void AddAppHandler(const std::string& app_id,
                      GCMAppHandler* handler) override;
   void RemoveAppHandler(const std::string& app_id) override;
@@ -83,6 +84,27 @@ class GCMDriverDesktop : public GCMDriver {
   void RemoveAccountMapping(const std::string& account_id) override;
   base::Time GetLastTokenFetchTime() override;
   void SetLastTokenFetchTime(const base::Time& time) override;
+  void WakeFromSuspendForHeartbeat(bool wake) override;
+  InstanceIDHandler* GetInstanceIDHandler() override;
+  void AddHeartbeatInterval(const std::string& scope, int interval_ms) override;
+  void RemoveHeartbeatInterval(const std::string& scope) override;
+
+  // InstanceIDHandler overrides:
+  void GetToken(const std::string& app_id,
+                const std::string& authorized_entity,
+                const std::string& scope,
+                const std::map<std::string, std::string>& options,
+                const GetTokenCallback& callback) override;
+  void DeleteToken(const std::string& app_id,
+                   const std::string& authorized_entity,
+                   const std::string& scope,
+                   const DeleteTokenCallback& callback) override;
+  void AddInstanceIDData(const std::string& app_id,
+                         const std::string& instance_id,
+                         const std::string& extra_data) override;
+  void RemoveInstanceIDData(const std::string& app_id) override;
+  void GetInstanceIDData(const std::string& app_id,
+                         const GetInstanceIDDataCallback& callback) override;
 
   // Exposed for testing purpose.
   bool gcm_enabled() const { return gcm_enabled_; }
@@ -92,7 +114,7 @@ class GCMDriverDesktop : public GCMDriver {
 
  protected:
   // GCMDriver implementation:
-  GCMClient::Result EnsureStarted() override;
+  GCMClient::Result EnsureStarted(GCMClient::StartMode start_mode) override;
   void RegisterImpl(const std::string& app_id,
                     const std::vector<std::string>& sender_ids) override;
   void UnregisterImpl(const std::string& app_id) override;
@@ -102,6 +124,11 @@ class GCMDriverDesktop : public GCMDriver {
 
  private:
   class IOWorker;
+
+  typedef base::Tuple<std::string, std::string, std::string> TokenTuple;
+  struct TokenTupleComparer {
+    bool operator()(const TokenTuple& a, const TokenTuple& b) const;
+  };
 
   //  Stops the GCM service. It can be restarted by calling EnsureStarted again.
   void Stop();
@@ -115,6 +142,18 @@ class GCMDriverDesktop : public GCMDriver {
   void DoSend(const std::string& app_id,
               const std::string& receiver_id,
               const GCMClient::OutgoingMessage& message);
+  void DoAddInstanceIDData(const std::string& app_id,
+                           const std::string& instance_id,
+                           const std::string& extra_data);
+  void DoRemoveInstanceIDData(const std::string& app_id);
+  void DoGetInstanceIDData(const std::string& app_id);
+  void DoGetToken(const std::string& app_id,
+                  const std::string& authorized_entity,
+                  const std::string& scope,
+                  const std::map<std::string, std::string>& options);
+  void DoDeleteToken(const std::string& app_id,
+                     const std::string& authorized_entity,
+                     const std::string& scope);
 
   // Callbacks posted from IO thread to UI thread.
   void MessageReceived(const std::string& app_id,
@@ -130,18 +169,28 @@ class GCMDriverDesktop : public GCMDriver {
   void OnDisconnected();
 
   void GetGCMStatisticsFinished(const GCMClient::GCMStatistics& stats);
+  void GetInstanceIDDataFinished(const std::string& app_id,
+                                 const std::string& instance_id,
+                                 const std::string& extra_data);
+  void GetTokenFinished(const std::string& app_id,
+                        const std::string& authorized_entity,
+                        const std::string& scope,
+                        const std::string& token,
+                        GCMClient::Result result);
+  void DeleteTokenFinished(const std::string& app_id,
+                           const std::string& authorized_entity,
+                           const std::string& scope,
+                           GCMClient::Result result);
 
   scoped_ptr<GCMChannelStatusSyncer> gcm_channel_status_syncer_;
 
   // Flag to indicate whether the user is signed in to a GAIA account.
-  // TODO(jianli): To be removed when sign-in enforcement is dropped.
   bool signed_in_;
 
   // Flag to indicate if GCM is started.
   bool gcm_started_;
 
   // Flag to indicate if GCM is enabled.
-  // TODO(jianli): Removed when we switch completely to support all users.
   bool gcm_enabled_;
 
   // Flag to indicate the last known state of the GCM client. Because this
@@ -150,8 +199,7 @@ class GCMDriverDesktop : public GCMDriver {
   bool connected_;
 
   // List of observers to notify when connection state changes.
-  // Makes sure list is empty on destruction.
-  ObserverList<GCMConnectionObserver, true> connection_observer_list_;
+  base::ObserverList<GCMConnectionObserver, false> connection_observer_list_;
 
   // Account mapper. Only works when user is signed in.
   scoped_ptr<GCMAccountMapper> account_mapper_;
@@ -164,12 +212,26 @@ class GCMDriverDesktop : public GCMDriver {
 
   scoped_ptr<GCMDelayedTaskController> delayed_task_controller_;
 
+  // Whether the HeartbeatManager should try to wake the system from suspend for
+  // sending heartbeat messages.
+  bool wake_from_suspend_enabled_;
+
   // For all the work occurring on the IO thread. Must be destroyed on the IO
   // thread.
   scoped_ptr<IOWorker> io_worker_;
 
   // Callback for GetGCMStatistics.
   GetGCMStatisticsCallback request_gcm_statistics_callback_;
+
+  // Callbacks for GetInstanceIDData.
+  std::map<std::string, GetInstanceIDDataCallback>
+      get_instance_id_data_callbacks_;
+
+  // Callbacks for GetToken/DeleteToken.
+  std::map<TokenTuple, GetTokenCallback, TokenTupleComparer>
+      get_token_callbacks_;
+  std::map<TokenTuple, DeleteTokenCallback, TokenTupleComparer>
+      delete_token_callbacks_;
 
   // Used to pass a weak pointer to the IO worker.
   base::WeakPtrFactory<GCMDriverDesktop> weak_ptr_factory_;

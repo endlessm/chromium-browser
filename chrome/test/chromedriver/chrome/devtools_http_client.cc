@@ -191,10 +191,7 @@ Status DevToolsHttpClient::CloseFrontends(const std::string& for_client_id) {
       return status;
 
     scoped_ptr<base::Value> result;
-    status = web_view->EvaluateScript(
-        std::string(),
-        "document.querySelector('*[id^=\"close-button-\"]').click();",
-        &result);
+    status = CloseWebView(*it);
     // Ignore disconnected error, because it may be closed already.
     if (status.IsError() && status.code() != kDisconnected)
       return status;
@@ -235,7 +232,7 @@ bool DevToolsHttpClient::FetchUrlAndLog(const std::string& url,
 namespace internal {
 
 Status ParseWebViewsInfo(const std::string& data, WebViewsInfo* views_info) {
-  scoped_ptr<base::Value> value(base::JSONReader::Read(data));
+  scoped_ptr<base::Value> value = base::JSONReader::Read(data);
   if (!value.get())
     return Status(kUnknownError, "DevTools returned invalid JSON");
   base::ListValue* list;

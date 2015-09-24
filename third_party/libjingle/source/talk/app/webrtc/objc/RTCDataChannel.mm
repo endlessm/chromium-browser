@@ -1,6 +1,6 @@
 /*
  * libjingle
- * Copyright 2014, Google Inc.
+ * Copyright 2014 Google Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -39,11 +39,20 @@ class RTCDataChannelObserver : public DataChannelObserver {
  public:
   RTCDataChannelObserver(RTCDataChannel* channel) { _channel = channel; }
 
-  virtual void OnStateChange() OVERRIDE {
+  void OnStateChange() override {
     [_channel.delegate channelDidChangeState:_channel];
   }
 
-  virtual void OnMessage(const DataBuffer& buffer) OVERRIDE {
+  void OnBufferedAmountChange(uint64 previousAmount) override {
+    RTCDataChannel* channel = _channel;
+    id<RTCDataChannelDelegate> delegate = channel.delegate;
+    if ([delegate
+            respondsToSelector:@selector(channel:didChangeBufferedAmount:)]) {
+      [delegate channel:channel didChangeBufferedAmount:previousAmount];
+    }
+  }
+
+  void OnMessage(const DataBuffer& buffer) override {
     if (!_channel.delegate) {
       return;
     }
@@ -57,7 +66,8 @@ class RTCDataChannelObserver : public DataChannelObserver {
 };
 }
 
-// TODO(tkchin): move to shared location
+// TODO(henrika): move to shared location.
+// See https://code.google.com/p/webrtc/issues/detail?id=4773 for details.
 NSString* NSStringFromStdString(const std::string& stdString) {
   // std::string may contain null termination character so we construct
   // using length.
@@ -141,7 +151,8 @@ std::string StdStringFromNSString(NSString* nsString) {
 - (instancetype)initWithData:(NSData*)data isBinary:(BOOL)isBinary {
   NSAssert(data, @"data cannot be nil");
   if (self = [super init]) {
-    rtc::Buffer buffer([data bytes], [data length]);
+    rtc::Buffer buffer(reinterpret_cast<const uint8_t*>([data bytes]),
+                       [data length]);
     _dataBuffer.reset(new webrtc::DataBuffer(buffer, isBinary));
   }
   return self;
@@ -149,7 +160,7 @@ std::string StdStringFromNSString(NSString* nsString) {
 
 - (NSData*)data {
   return [NSData dataWithBytes:_dataBuffer->data.data()
-                        length:_dataBuffer->data.length()];
+                        length:_dataBuffer->data.size()];
 }
 
 - (BOOL)isBinary {
@@ -177,6 +188,12 @@ std::string StdStringFromNSString(NSString* nsString) {
   rtc::scoped_refptr<webrtc::DataChannelInterface> _dataChannel;
   rtc::scoped_ptr<webrtc::RTCDataChannelObserver> _observer;
   BOOL _isObserverRegistered;
+}
+
+- (void)dealloc {
+  // Handles unregistering the observer properly. We need to do this because
+  // there may still be other references to the underlying data channel.
+  self.delegate = nil;
 }
 
 - (NSString*)label {

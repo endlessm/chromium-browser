@@ -67,9 +67,9 @@ void OutdatedUpgradeBubbleView::ShowBubble(views::View* anchor_view,
   upgrade_bubble_ = new OutdatedUpgradeBubbleView(
       anchor_view, navigator, auto_update_enabled);
   views::BubbleDelegateView::CreateBubble(upgrade_bubble_)->Show();
-  content::RecordAction(base::UserMetricsAction(
-      auto_update_enabled ? "OutdatedUpgradeBubble.Show"
-                          : "OutdatedUpgradeBubble.ShowNoAU"));
+  content::RecordAction(auto_update_enabled ?
+      base::UserMetricsAction("OutdatedUpgradeBubble.Show") :
+      base::UserMetricsAction("OutdatedUpgradeBubble.ShowNoAU"));
 }
 
 bool OutdatedUpgradeBubbleView::IsAvailable() {
@@ -110,7 +110,10 @@ void OutdatedUpgradeBubbleView::Init() {
   accept_button_->SetStyle(views::Button::STYLE_BUTTON);
   accept_button_->SetIsDefault(true);
   accept_button_->SetFontList(rb.GetFontList(ui::ResourceBundle::BoldFont));
-  elevation_icon_setter_.reset(new ElevationIconSetter(accept_button_));
+  elevation_icon_setter_.reset(new ElevationIconSetter(
+      accept_button_,
+      base::Bind(&OutdatedUpgradeBubbleView::SizeToContents,
+                 base::Unretained(this))));
 
   later_button_ = new views::LabelButton(
       this, l10n_util::GetStringUTF16(IDS_LATER));

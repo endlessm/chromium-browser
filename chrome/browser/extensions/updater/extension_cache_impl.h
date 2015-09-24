@@ -21,6 +21,7 @@ template <typename T> struct DefaultSingletonTraits;
 
 namespace extensions {
 
+class ExtensionCacheDelegate;
 class LocalExtensionCache;
 
 // Singleton call that caches extensions .crx files to share them between
@@ -28,29 +29,34 @@ class LocalExtensionCache;
 class ExtensionCacheImpl : public ExtensionCache,
                            public content::NotificationObserver {
  public:
-  ExtensionCacheImpl();
-  virtual ~ExtensionCacheImpl();
+  explicit ExtensionCacheImpl(scoped_ptr<ExtensionCacheDelegate> delegate);
+  ~ExtensionCacheImpl() override;
 
   // Implementation of ExtensionCache.
-  virtual void Start(const base::Closure& callback) override;
-  virtual void Shutdown(const base::Closure& callback) override;
-  virtual void AllowCaching(const std::string& id) override;
-  virtual bool GetExtension(const std::string& id,
-                            base::FilePath* file_path,
-                            std::string* version) override;
-  virtual void PutExtension(const std::string& id,
-                            const base::FilePath& file_path,
-                            const std::string& version,
-                            const PutExtensionCallback& callback) override;
+  void Start(const base::Closure& callback) override;
+  void Shutdown(const base::Closure& callback) override;
+  void AllowCaching(const std::string& id) override;
+  bool GetExtension(const std::string& id,
+                    const std::string& expected_hash,
+                    base::FilePath* file_path,
+                    std::string* version) override;
+  void PutExtension(const std::string& id,
+                    const std::string& expected_hash,
+                    const base::FilePath& file_path,
+                    const std::string& version,
+                    const PutExtensionCallback& callback) override;
 
   // Implementation of content::NotificationObserver:
-  virtual void Observe(int type,
-                       const content::NotificationSource& source,
-                       const content::NotificationDetails& details) override;
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override;
 
  private:
   // Callback that is called when local cache is ready.
   void OnCacheInitialized();
+
+  // Check if this extension is allowed to be cached.
+  bool CachingAllowed(const std::string& id);
 
   // Cache implementation that uses local cache dir.
   scoped_ptr<LocalExtensionCache> cache_;

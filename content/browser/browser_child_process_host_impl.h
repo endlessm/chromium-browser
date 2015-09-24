@@ -30,6 +30,7 @@ namespace content {
 class BrowserChildProcessHostIterator;
 class BrowserChildProcessObserver;
 class BrowserMessageFilter;
+class ServiceRegistry;
 
 // Plugins/workers and other child processes that live on the IO thread use this
 // class. RenderProcessHostImpl is the main exception that doesn't use this
@@ -42,9 +43,8 @@ class CONTENT_EXPORT BrowserChildProcessHostImpl
 #endif
       public ChildProcessLauncher::Client {
  public:
-  BrowserChildProcessHostImpl(
-      int process_type,
-      BrowserChildProcessHostDelegate* delegate);
+  BrowserChildProcessHostImpl(content::ProcessType process_type,
+                              BrowserChildProcessHostDelegate* delegate);
   ~BrowserChildProcessHostImpl() override;
 
   // Terminates all child processes and deletes each BrowserChildProcessHost
@@ -54,18 +54,20 @@ class CONTENT_EXPORT BrowserChildProcessHostImpl
   // BrowserChildProcessHost implementation:
   bool Send(IPC::Message* message) override;
   void Launch(SandboxedProcessLauncherDelegate* delegate,
-              base::CommandLine* cmd_line) override;
+              base::CommandLine* cmd_line,
+              bool terminate_on_shutdown) override;
   const ChildProcessData& GetData() const override;
   ChildProcessHost* GetHost() const override;
   base::TerminationStatus GetTerminationStatus(bool known_dead,
                                                int* exit_code) override;
   void SetName(const base::string16& name) override;
   void SetHandle(base::ProcessHandle handle) override;
+  ServiceRegistry* GetServiceRegistry() override;
 
   // ChildProcessHostDelegate implementation:
   bool CanShutdown() override;
   void OnChildDisconnected() override;
-  base::ProcessHandle GetHandle() const override;
+  const base::Process& GetProcess() const override;
   bool OnMessageReceived(const IPC::Message& message) override;
   void OnChannelConnected(int32 peer_pid) override;
   void OnChannelError() override;
@@ -76,10 +78,6 @@ class CONTENT_EXPORT BrowserChildProcessHostImpl
 
   // Callers can reduce the BrowserChildProcess' priority.
   void SetBackgrounded(bool backgrounded);
-
-  // Controls whether the child process should be terminated on browser
-  // shutdown. Default is to always terminate.
-  void SetTerminateChildOnShutdown(bool terminate_on_shutdown);
 
   // Adds an IPC message filter.
   void AddFilter(BrowserMessageFilter* filter);

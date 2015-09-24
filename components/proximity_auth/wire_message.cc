@@ -8,7 +8,7 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/values.h"
-#include "components/proximity_auth/base64url.h"
+#include "components/proximity_auth/cryptauth/base64url.h"
 
 // The wire messages have a simple format:
 // [ message version ] [ body length ] [ JSON body ]
@@ -41,7 +41,7 @@ bool ParseHeader(const std::string& serialized_message,
     return false;
   }
 
-  COMPILE_ASSERT(kHeaderLength > 2, header_length_too_small);
+  static_assert(kHeaderLength > 2, "kHeaderLength too small");
   size_t version = serialized_message[0];
   if (version != kExpectedMessageFormatVersion) {
     VLOG(1) << "Error: Invalid message version. Got " << version
@@ -79,8 +79,8 @@ scoped_ptr<WireMessage> WireMessage::Deserialize(
   if (!ParseHeader(serialized_message, is_incomplete_message))
     return scoped_ptr<WireMessage>();
 
-  scoped_ptr<base::Value> body_value(
-      base::JSONReader::Read(serialized_message.substr(kHeaderLength)));
+  scoped_ptr<base::Value> body_value(base::JSONReader::DeprecatedRead(
+      serialized_message.substr(kHeaderLength)));
   if (!body_value || !body_value->IsType(base::Value::TYPE_DICTIONARY)) {
     VLOG(1) << "Error: Unable to parse message as JSON.";
     return scoped_ptr<WireMessage>();

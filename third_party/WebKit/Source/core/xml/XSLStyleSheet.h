@@ -32,7 +32,6 @@
 
 namespace blink {
 
-class ResourceFetcher;
 class XSLImportRule;
 
 class XSLStyleSheet final : public StyleSheet {
@@ -62,7 +61,7 @@ public:
         return adoptRefWillBeNoop(new XSLStyleSheet(document, stylesheetRootNode, originalURL, finalURL, false));
     }
 
-    virtual ~XSLStyleSheet();
+    ~XSLStyleSheet() override;
 
     bool parseString(const String&);
 
@@ -73,10 +72,8 @@ public:
     void loadChildSheets();
     void loadChildSheet(const String& href);
 
-    ResourceFetcher* fetcher();
-
     Document* ownerDocument();
-    virtual XSLStyleSheet* parentStyleSheet() const override { return m_parentStyleSheet; }
+    XSLStyleSheet* parentStyleSheet() const override { return m_parentStyleSheet; }
     void setParentStyleSheet(XSLStyleSheet*);
 
     xmlDocPtr document();
@@ -88,18 +85,18 @@ public:
     void markAsProcessed();
     bool processed() const { return m_processed; }
 
-    virtual String type() const override { return "text/xml"; }
-    virtual bool disabled() const override { return m_isDisabled; }
-    virtual void setDisabled(bool b) override { m_isDisabled = b; }
-    virtual Node* ownerNode() const override { return m_ownerNode; }
-    virtual String href() const override { return m_originalURL; }
-    virtual String title() const override { return emptyString(); }
+    String type() const override { return "text/xml"; }
+    bool disabled() const override { return m_isDisabled; }
+    void setDisabled(bool b) override { m_isDisabled = b; }
+    Node* ownerNode() const override { return m_ownerNode; }
+    String href() const override { return m_originalURL; }
+    String title() const override { return emptyString(); }
 
-    virtual void clearOwnerNode() override { m_ownerNode = nullptr; }
-    virtual KURL baseURL() const override { return m_finalURL; }
-    virtual bool isLoading() const override;
+    void clearOwnerNode() override { m_ownerNode = nullptr; }
+    KURL baseURL() const override { return m_finalURL; }
+    bool isLoading() const override;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     XSLStyleSheet(Node* parentNode, const String& originalURL, const KURL& finalURL, bool embedded);
@@ -111,7 +108,7 @@ private:
     KURL m_finalURL;
     bool m_isDisabled;
 
-    WillBeHeapVector<OwnPtrWillBeMember<XSLImportRule> > m_children;
+    PersistentHeapVectorWillBeHeapVector<Member<XSLImportRule>> m_children;
 
     bool m_embedded;
     bool m_processed;

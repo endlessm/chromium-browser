@@ -7,7 +7,7 @@
 
 #include "base/basictypes.h"
 #include "base/memory/scoped_ptr.h"
-#include "chrome/browser/autocomplete/autocomplete_controller_delegate.h"
+#include "components/omnibox/browser/autocomplete_controller_delegate.h"
 #include "ui/app_list/search_provider.h"
 
 class AppListControllerDelegate;
@@ -26,7 +26,7 @@ class OmniboxProvider : public SearchProvider,
   ~OmniboxProvider() override;
 
   // SearchProvider overrides:
-  void Start(const base::string16& query) override;
+  void Start(bool is_voice_query, const base::string16& query) override;
   void Stop() override;
 
  private:
@@ -42,6 +42,9 @@ class OmniboxProvider : public SearchProvider,
   // The omnibox AutocompleteController that collects/sorts/dup-
   // eliminates the results as they come in.
   scoped_ptr<AutocompleteController> controller_;
+
+  // Whether the current query is a voice query.
+  bool is_voice_query_;
 
   DISALLOW_COPY_AND_ASSIGN(OmniboxProvider);
 };

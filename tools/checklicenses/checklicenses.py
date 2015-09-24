@@ -112,6 +112,11 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
         'UNKNOWN',
     ],
 
+    'buildtools/third_party/libc++/trunk/test': [
+        # http://llvm.org/bugs/show_bug.cgi?id=18291
+        'UNKNOWN',
+    ],
+
     'chrome/common/extensions/docs/examples': [  # http://crbug.com/98092
         'UNKNOWN',
     ],
@@ -129,8 +134,10 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
     ],
     'native_client/toolchain': [
         'BSD GPL (v2 or later)',
+        'BSD MIT/X11 (BSD like)',
         'BSD (2 clause) GPL (v2 or later)',
         'BSD (3 clause) GPL (v2 or later)',
+        'BSD (4 clause) ISC',
         'BSL (v1.0) GPL',
         'BSL (v1.0) GPL (v3.1)',
         'GPL',
@@ -139,6 +146,7 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
         'GPL (v2 or later)',
         'GPL (v3.1)',
         'GPL (v3 or later)',
+        'MPL (v1.1) LGPL (unversioned/unknown version)',
     ],
     'third_party/WebKit': [
         'UNKNOWN',
@@ -179,6 +187,9 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
     'third_party/devscripts': [
         'GPL (v2 or later)',
     ],
+    'third_party/trace-viewer/tracing/third_party/devscripts': [
+        'GPL (v2 or later)',
+    ],
     'third_party/expat/files/lib': [  # http://crbug.com/98121
         'UNKNOWN',
     ],
@@ -205,23 +216,19 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
     'third_party/icu': [  # http://crbug.com/98301
         'UNKNOWN',
     ],
+    'third_party/jsoncpp/source': [
+        # https://github.com/open-source-parsers/jsoncpp/issues/234
+        'UNKNOWN',
+    ],
+    'third_party/junit/src': [
+        # https://github.com/junit-team/junit/issues/1132
+        'UNKNOWN',
+    ],
     'third_party/lcov': [  # http://crbug.com/98304
         'UNKNOWN',
     ],
     'third_party/lcov/contrib/galaxy/genflat.pl': [
         'GPL (v2 or later)',
-    ],
-    'third_party/libc++/trunk/include/support/solaris': [
-        # http://llvm.org/bugs/show_bug.cgi?id=18291
-        'UNKNOWN',
-    ],
-    'third_party/libc++/trunk/src/support/solaris/xlocale.c': [
-        # http://llvm.org/bugs/show_bug.cgi?id=18291
-        'UNKNOWN',
-    ],
-    'third_party/libc++/trunk/test': [
-        # http://llvm.org/bugs/show_bug.cgi?id=18291
-        'UNKNOWN',
     ],
     'third_party/libevent': [  # http://crbug.com/98309
         'UNKNOWN',
@@ -293,19 +300,19 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
     'third_party/ocmock/OCMock': [  # http://crbug.com/98454
         'UNKNOWN',
     ],
-    'third_party/ply/__init__.py': [
-        'UNKNOWN',
-    ],
     'third_party/protobuf': [  # http://crbug.com/98455
         'UNKNOWN',
     ],
 
-    # http://crbug.com/222831
-    # https://bitbucket.org/eliben/pyelftools/issue/12
-    'third_party/pyelftools': [
+    # https://bitbucket.org/ned/coveragepy/issue/313/add-license-file-containing-2-3-or-4
+    # BSD 2-clause license.
+    'third_party/pycoverage': [
         'UNKNOWN',
     ],
 
+    'third_party/pyelftools': [ # http://crbug.com/222831
+        'UNKNOWN',
+    ],
     'third_party/scons-2.0.1/engine/SCons': [  # http://crbug.com/98462
         'UNKNOWN',
     ],
@@ -340,14 +347,23 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
         'UNKNOWN',
     ],
 
+    # http://crbug.com/471372
+    # BSD
+    'tools/swarming_client/third_party/pyasn1': [
+        'UNKNOWN',
+    ],
+
+    # http://crbug.com/471372
+    # Apache v2.0.
+    'tools/swarming_client/third_party/rsa': [
+        'UNKNOWN',
+    ],
+
     # https://github.com/kennethreitz/requests/issues/1610
     'tools/swarming_client/third_party/requests': [
         'UNKNOWN',
     ],
 
-    'third_party/swig/Lib/linkruntime.c': [  # http://crbug.com/98585
-        'UNKNOWN',
-    ],
     'third_party/talloc': [
         'GPL (v3 or later)',
         'UNKNOWN',  # http://crbug.com/98588

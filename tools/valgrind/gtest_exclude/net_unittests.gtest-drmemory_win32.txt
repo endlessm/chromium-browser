@@ -1,11 +1,8 @@
-# See http://crbug.com/82391
-URLRequestTestHTTP.HTTPSToHTTPRedirectNoRefererTest
-
 # Times out. See http://crbug.com/134313
 URLRequestTestHTTP.GetTest_ManyCookies
 
 # Dr. Memory hits an assertion:
-# http://code.google.com/p/drmemory/issues/detail?id=422
+# https://github.com/DynamoRIO/drmemory/issues/422
 HttpAuthTest.*
 HttpAuthHandlerFactoryTest.*
 X509CertificateTest.*
@@ -15,10 +12,6 @@ ProxyResolverV8Test.*
 
 # Slow
 CookieMonsterTest.GarbageCollectionTriggers
-
-# Hangs only when built in release mode.
-# http://crbug.com/105762
-ClientSocketPoolBaseTest.DisableCleanupTimer
 
 # Flaky, see http://crbug.com/108422
 SSLClientSocketTest.*
@@ -31,3 +24,6 @@ ProxyResolverV8TracingTest.MultipleResolvers
 
 # http://crbug.com/400521
 HttpServerTest.RequestWithTooLargeBody
+
+# http://crbug.com/504198
+DiskCacheEntryTest.ExternalAsyncIONoBuffer

@@ -6,6 +6,7 @@ component("user_manager") {
   sources = [
     "empty_user_info.cc",
     "empty_user_info.h",
+    "user_id.h",
     "user_info.cc",
     "user_info.h",
     "user_info_impl.cc",
@@ -19,19 +20,17 @@ component("user_manager") {
     "//ui/gfx",
   ]
 
-  defines = [
-    "USER_MANAGER_IMPLEMENTATION",
-  ]
+  defines = [ "USER_MANAGER_IMPLEMENTATION" ]
 
   if (is_chromeos) {
     sources += [
       "remove_user_delegate.h",
+      "user.cc",
+      "user.h",
       "user_image/default_user_images.cc",
       "user_image/default_user_images.h",
       "user_image/user_image.cc",
       "user_image/user_image.h",
-      "user.cc",
-      "user.h",
       "user_manager.cc",
       "user_manager.h",
       "user_manager_base.cc",
@@ -39,11 +38,29 @@ component("user_manager") {
       "user_type.h",
     ]
     deps += [
+      "//base:prefs",
+      "//chromeos:chromeos",
       "//components/session_manager/core",
       "//google_apis",
+      "//ui/base",
       "//ui/chromeos/resources",
       "//ui/chromeos/strings",
       "//url",
+    ]
+  }
+}
+
+source_set("test_support") {
+  testonly = true
+  if (is_chromeos) {
+    sources = [
+      "fake_user_manager.cc",
+      "fake_user_manager.h",
+    ]
+    deps = [
+      ":user_manager",
+      "//base",
+      "//skia",
     ]
   }
 }

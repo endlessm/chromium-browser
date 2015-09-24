@@ -5,7 +5,8 @@
 #ifndef InlinePainter_h
 #define InlinePainter_h
 
-#include "core/rendering/style/RenderStyleConstants.h"
+#include "core/style/ComputedStyleConstants.h"
+#include "wtf/Vector.h"
 
 namespace blink {
 
@@ -14,19 +15,20 @@ class GraphicsContext;
 class LayoutPoint;
 class LayoutRect;
 struct PaintInfo;
-class RenderInline;
+class LayoutInline;
 
 class InlinePainter {
 public:
-    InlinePainter(RenderInline& renderInline) : m_renderInline(renderInline) { }
+    InlinePainter(LayoutInline& layoutInline) : m_layoutInline(layoutInline) { }
 
-    void paint(PaintInfo&, const LayoutPoint& paintOffset);
-    void paintOutline(PaintInfo&, const LayoutPoint& paintOffset);
+    void paint(const PaintInfo&, const LayoutPoint& paintOffset);
+    void paintOutline(const PaintInfo&, const LayoutPoint& paintOffset);
 
 private:
+    LayoutRect outlinePaintRect(const Vector<LayoutRect>&, const LayoutPoint& paintOffset) const;
     void paintOutlineForLine(GraphicsContext*, const LayoutPoint&, const LayoutRect& prevLine, const LayoutRect& thisLine,
         const LayoutRect& nextLine, const Color);
-    RenderInline& m_renderInline;
+    LayoutInline& m_layoutInline;
 };
 
 } // namespace blink

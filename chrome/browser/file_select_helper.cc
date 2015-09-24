@@ -27,6 +27,7 @@
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host_view.h"
+#include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/file_chooser_file_info.h"
 #include "content/public/common/file_chooser_params.h"
@@ -191,10 +192,8 @@ void FileSelectHelper::StartNewEnumeration(const base::FilePath& path,
   scoped_ptr<ActiveDirectoryEnumeration> entry(new ActiveDirectoryEnumeration);
   entry->rvh_ = render_view_host;
   entry->delegate_.reset(new DirectoryListerDispatchDelegate(this, request_id));
-  entry->lister_.reset(new net::DirectoryLister(path,
-                                                true,
-                                                net::DirectoryLister::NO_SORT,
-                                                entry->delegate_.get()));
+  entry->lister_.reset(new net::DirectoryLister(
+      path, net::DirectoryLister::NO_SORT_RECURSIVE, entry->delegate_.get()));
   if (!entry->lister_->Start()) {
     if (request_id == kFileSelectEnumerationId)
       FileSelectionCanceled(NULL);
@@ -255,9 +254,12 @@ void FileSelectHelper::NotifyRenderViewHostAndEnd(
     }
     // Converts |files| into FileChooserFileInfo with handling of non-native
     // files.
+    storage::FileSystemContext* file_system_context =
+        content::BrowserContext::GetStoragePartition(
+            profile_, render_view_host_->GetSiteInstance())->
+                GetFileSystemContext();
     file_manager::util::ConvertSelectedFileInfoListToFileChooserFileInfoList(
-        file_manager::util::GetFileSystemContextForRenderViewHost(
-            profile_, render_view_host_),
+        file_system_context,
         web_contents_->GetSiteInstance()->GetSiteURL(),
         files,
         base::Bind(
@@ -292,6 +294,16 @@ void FileSelectHelper::DeleteTemporaryFiles() {
                           FROM_HERE,
                           base::Bind(&DeleteFiles, temporary_files_));
   temporary_files_.clear();
+}
+
+void FileSelectHelper::CleanUpOnRenderViewHostChange() {
+  if (!temporary_files_.empty()) {
+    DeleteTemporaryFiles();
+
+    // Now that the temporary files have been scheduled for deletion, there
+    // is no longer any reason to keep this instance around.
+    Release();
+  }
 }
 
 scoped_ptr<ui::SelectFileDialog::FileTypeInfo>
@@ -392,16 +404,11 @@ void FileSelectHelper::RunFileChooser(RenderViewHost* render_view_host,
   render_view_host_ = render_view_host;
   web_contents_ = web_contents;
   notification_registrar_.RemoveAll();
-  notification_registrar_.Add(this,
-                              content::NOTIFICATION_RENDER_VIEW_HOST_CHANGED,
-                              content::Source<WebContents>(web_contents_));
+  content::WebContentsObserver::Observe(web_contents_);
   notification_registrar_.Add(
       this,
       content::NOTIFICATION_RENDER_WIDGET_HOST_DESTROYED,
       content::Source<RenderWidgetHost>(render_view_host_));
-  notification_registrar_.Add(
-      this, content::NOTIFICATION_WEB_CONTENTS_DESTROYED,
-      content::Source<WebContents>(web_contents_));
 
   BrowserThread::PostTask(
       BrowserThread::FILE, FROM_HERE,
@@ -536,27 +543,19 @@ void FileSelectHelper::Observe(int type,
       render_view_host_ = NULL;
       break;
     }
-
-    case content::NOTIFICATION_WEB_CONTENTS_DESTROYED: {
-      DCHECK(content::Source<WebContents>(source).ptr() == web_contents_);
-      web_contents_ = NULL;
-    }
-
-    // Intentional fall through.
-    case content::NOTIFICATION_RENDER_VIEW_HOST_CHANGED:
-      if (!temporary_files_.empty()) {
-        DeleteTemporaryFiles();
-
-        // Now that the temporary files have been scheduled for deletion, there
-        // is no longer any reason to keep this instance around.
-        Release();
-      }
-
-      break;
-
     default:
       NOTREACHED();
   }
+}
+
+void FileSelectHelper::RenderViewHostChanged(RenderViewHost* old_host,
+                                             RenderViewHost* new_host) {
+  CleanUpOnRenderViewHostChange();
+}
+
+void FileSelectHelper::WebContentsDestroyed() {
+  web_contents_ = nullptr;
+  CleanUpOnRenderViewHostChange();
 }
 
 // static

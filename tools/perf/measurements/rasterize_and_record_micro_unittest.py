@@ -4,12 +4,13 @@
 
 import logging
 
-from measurements import rasterize_and_record_micro
-from telemetry.core import wpr_modes
+from telemetry import decorators
 from telemetry.page import page_test
-from telemetry.unittest import options_for_unittests
-from telemetry.unittest import page_test_test_case
-from telemetry.unittest import test
+from telemetry.testing import options_for_unittests
+from telemetry.testing import page_test_test_case
+from telemetry.util import wpr_modes
+
+from measurements import rasterize_and_record_micro
 
 
 class RasterizeAndRecordMicroUnitTest(page_test_test_case.PageTestTestCase):
@@ -23,18 +24,16 @@ class RasterizeAndRecordMicroUnitTest(page_test_test_case.PageTestTestCase):
   def setUp(self):
     self._options = options_for_unittests.GetCopy()
     self._options.browser_options.wpr_mode = wpr_modes.WPR_OFF
-    self._options.rasterize_repeat = 1
-    self._options.record_repeat = 1
-    self._options.start_wait_time = 0.0
-    self._options.report_detailed_results = True
 
-  @test.Disabled('win', 'chromeos')
+  @decorators.Disabled('win', 'chromeos')
   def testRasterizeAndRecordMicro(self):
-    ps = self.CreatePageSetFromFileInUnittestDataDir('blank.html')
-    measurement = rasterize_and_record_micro.RasterizeAndRecordMicro()
+    ps = self.CreateStorySetFromFileInUnittestDataDir('blank.html')
+    measurement = rasterize_and_record_micro.RasterizeAndRecordMicro(
+        rasterize_repeat=1, record_repeat=1, start_wait_time=0.0,
+        report_detailed_results=True)
     try:
       results = self.RunMeasurement(measurement, ps, options=self._options)
-    except page_test.TestNotSupportedOnPlatformFailure as failure:
+    except page_test.TestNotSupportedOnPlatformError as failure:
       logging.warning(str(failure))
       return
     self.assertEquals(0, len(results.failures))
@@ -92,4 +91,15 @@ class RasterizeAndRecordMicroUnitTest(page_test_test_case.PageTestTestCase):
     self.assertEqual(
         total_picture_layers_off_screen[0].GetRepresentativeNumber(), 0)
 
+    viewport_picture_size = \
+        results.FindAllPageSpecificValuesNamed('viewport_picture_size')
+    self.assertEquals(len(viewport_picture_size), 1)
+    self.assertGreater(
+        viewport_picture_size[0].GetRepresentativeNumber(), 0)
 
+    total_size_of_pictures_in_piles = \
+        results.FindAllPageSpecificValuesNamed(
+            'total_size_of_pictures_in_piles')
+    self.assertEquals(len(total_size_of_pictures_in_piles), 1)
+    self.assertGreater(
+        total_size_of_pictures_in_piles[0].GetRepresentativeNumber(), 0)

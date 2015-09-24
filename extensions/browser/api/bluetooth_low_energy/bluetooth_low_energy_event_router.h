@@ -70,6 +70,7 @@ class BluetoothLowEnergyEventRouter
     kStatusErrorPermissionDenied,
     kStatusErrorTimeout,
     kStatusErrorUnsupportedDevice,
+    kStatusErrorInvalidArguments,
   };
 
   // Error callback is used by asynchronous methods to report failures.
@@ -266,6 +267,8 @@ class BluetoothLowEnergyEventRouter
   void GattDescriptorValueChanged(device::BluetoothAdapter* adapter,
                                   device::BluetoothGattDescriptor* descriptor,
                                   const std::vector<uint8>& value) override;
+
+  device::BluetoothAdapter* adapter() { return adapter_.get(); }
 
  private:
   // Called by BluetoothAdapterFactory.

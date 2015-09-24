@@ -6,7 +6,14 @@
 #include "base/base64.h"
 #include "base/logging.h"
 #include "base/strings/stringprintf.h"
+#include "extensions/common/cast/cast_cert_validator.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+namespace {
+
+namespace cast_crypto = ::extensions::core_api::cast_crypto;
+
+}  // namespace
 
 // Tests of networking_private_crypto support for Networking Private API.
 class NetworkingPrivateCryptoTest : public testing::Test {
@@ -26,6 +33,28 @@ class NetworkingPrivateCryptoTest : public testing::Test {
 
 // Test that networking_private_crypto::VerifyCredentials behaves as expected.
 TEST_F(NetworkingPrivateCryptoTest, VerifyCredentials) {
+  std::string keys =
+      "CrMCCiBSnZzWf+XraY5w3SbX2PEmWfHm5SNIv2pc9xbhP0EOcxKOAjCCAQoCggEBALwigL2A"
+      "9johADuudl41fz3DZFxVlIY0LwWHKM33aYwXs1CnuIL638dDLdZ+q6BvtxNygKRHFcEgmVDN"
+      "7BRiCVukmM3SQbY2Tv/oLjIwSoGoQqNsmzNuyrL1U2bgJ1OGGoUepzk/SneO+1RmZvtYVMBe"
+      "Ocf1UAYL4IrUzuFqVR+LFwDmaaMn5gglaTwSnY0FLNYuojHetFJQ1iBJ3nGg+a0gQBLx3SXr"
+      "1ea4NvTWj3/KQ9zXEFvmP1GKhbPz//YDLcsjT5ytGOeTBYysUpr3TOmZer5ufk0K48YcqZP6"
+      "OqWRXRy9ZuvMYNyGdMrP+JIcmH1X+mFHnquAt+RIgCqSxRsCAwEAAQqzAgogmNZt6BxWR4RN"
+      "lkNNN8SNws5/CHJQGee26JJ/VtaBqhgSjgIwggEKAoIBAQC8IoC9gPY6IQA7rnZeNX89w2Rc"
+      "VZSGNC8FhyjN92mMF7NQp7iC+t/HQy3Wfqugb7cTcoCkRxXBIJlQzewUYglbpJjN0kG2Nk7/"
+      "6C4yMEqBqEKjbJszbsqy9VNm4CdThhqFHqc5P0p3jvtUZmb7WFTAXjnH9VAGC+CK1M7halUf"
+      "ixcA5mmjJ+YIJWk8Ep2NBSzWLqIx3rRSUNYgSd5xoPmtIEAS8d0l69XmuDb01o9/ykPc1xBb"
+      "5j9RioWz8//2Ay3LI0+crRjnkwWMrFKa90zpmXq+bn5NCuPGHKmT+jqlkV0cvWbrzGDchnTK"
+      "z/iSHJh9V/phR56rgLfkSIAqksUbAgMBAAE=";
+  std::string signature =
+      "eHMoa7dP2ByNtDnxM/Q6yV3ZyUyihBFgOthq937yuiu2uwW2X/i8h1YrJFaWrA0iTTfSLAa6"
+      "PBAN1hhnwXlWYy8MvViJ9eJqf5FfCCkOjdRN0QIFPpmIJm/EcIv91bNMWnOGANgSW1Hons+s"
+      "C0/kROPbPABPLLwfgGizBDSZNapxgj8G+iDvi1JRRvvNdmjUs2AUIPNrSp3Knt3FyZ5F2Smk"
+      "Khpo7XVTWgSuWOzUJu6zNHn2krm64Ymd2HxRDyKTm1DBzy1MoXv4/8mbLYdj+KAvhqKJfRcr"
+      "GkUXVK++wCHERwxcvfk7e6lN6adcCVYP9pZPMhE/UyAJY6/uE1X0cw==";
+  EXPECT_TRUE(
+      cast_crypto::SetTrustedCertificateAuthoritiesForTest(keys, signature));
+
   static const char kCertData[] =
       "-----BEGIN CERTIFICATE-----"
       "MIIDhzCCAm8CBFE2SCMwDQYJKoZIhvcNAQEFBQAwfTELMAkGA1UEBhMCVVMxEzARBgNVBAgM"
@@ -45,6 +74,30 @@ TEST_F(NetworkingPrivateCryptoTest, VerifyCredentials) {
       "5uHnltaGNzOI0KPHFGoCDmjAZD+IuoR2LR4FuuTrECK7KLjkdf//z5d5j7nBDPZS7uTCwC/B"
       "wM9asRj3tJA5VRFbLbsit1VI7IaRCk9rsSKkpBUaVeKbPLz+y/Z6JonXXT6AxsfgUSKDd4B7"
       "MYLrTwMQfGuUaaaKko6ldKIrovjrcPloQr1Hxb2bipFcjLmG7nxQLoS6vQ=="
+      "-----END CERTIFICATE-----";
+  static const char kICAData[] =
+      "-----BEGIN CERTIFICATE-----"
+      "MIIDzTCCArWgAwIBAgIBAzANBgkqhkiG9w0BAQUFADB1MQswCQYDVQQGEwJVUzET"
+      "MBEGA1UECAwKQ2FsaWZvcm5pYTEWMBQGA1UEBwwNTW91bnRhaW4gVmlldzETMBEG"
+      "A1UECgwKR29vZ2xlIEluYzENMAsGA1UECwwEQ2FzdDEVMBMGA1UEAwwMQ2FzdCBS"
+      "b290IENBMB4XDTE0MDQwMjIwNTg1NFoXDTE5MDQwMjIwNTg1NFowfTELMAkGA1UE"
+      "BhMCVVMxEzARBgNVBAgMCkNhbGlmb3JuaWExFjAUBgNVBAcMDU1vdW50YWluIFZp"
+      "ZXcxEzARBgNVBAoMCkdvb2dsZSBJbmMxEjAQBgNVBAsMCUdvb2dsZSBUVjEYMBYG"
+      "A1UEAwwPRXVyZWthIEdlbjEgSUNBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIB"
+      "CgKCAQEAvCKAvYD2OiEAO652XjV/PcNkXFWUhjQvBYcozfdpjBezUKe4gvrfx0Mt"
+      "1n6roG+3E3KApEcVwSCZUM3sFGIJW6SYzdJBtjZO/+guMjBKgahCo2ybM27KsvVT"
+      "ZuAnU4YahR6nOT9Kd477VGZm+1hUwF45x/VQBgvgitTO4WpVH4sXAOZpoyfmCCVp"
+      "PBKdjQUs1i6iMd60UlDWIEnecaD5rSBAEvHdJevV5rg29NaPf8pD3NcQW+Y/UYqF"
+      "s/P/9gMtyyNPnK0Y55MFjKxSmvdM6Zl6vm5+TQrjxhypk/o6pZFdHL1m68xg3IZ0"
+      "ys/4khyYfVf6YUeeq4C35EiAKpLFGwIDAQABo2AwXjAPBgNVHRMECDAGAQH/AgEA"
+      "MB0GA1UdDgQWBBQyr35sod0oQuWz4VmnWjnJ/4pinzAfBgNVHSMEGDAWgBR8mh59"
+      "33lUvNfMXsqZhkV5ZXQoGTALBgNVHQ8EBAMCAQYwDQYJKoZIhvcNAQEFBQADggEB"
+      "ABPENY9iGt6qsc5yq4JOO6EEqYbKVtkSf1AqW2yJc4M4EZ65eA6bpj9EVIKvDxYq"
+      "NI7q40f7jCXiS+Y73OXFaC3Xue8+DV7WVjAvf9QYy79ohnbqadA4U/Sb7vw4AzwT"
+      "KCMlH2fUJ5PCNFfTj6lAkeZOhxtegnEMTIB8zvXEb42H0hN4UxRRhCeKS9tIlAmI"
+      "Ql1ib0jTDDN6IgQYslrx0dyZzBAsRocq/d3ycXX71iMykoIHZ7rNJ2bDMddRdFk2"
+      "D0Ljj4fZjrQNyD4mot/9mqSrF1Q2/AdWQO3pJONcXRWRynJ4Ian3sWdq2B5Dq8Iz"
+      "kqrjM7lOq9YEQ+hMRdmOHP4="
       "-----END CERTIFICATE-----";
   static const char kName[] = "eureka8997";
   static const char kSsdpUdn[] = "c5b2a83b-5958-7ce6-b179-e1f44699429b";
@@ -91,26 +144,43 @@ TEST_F(NetworkingPrivateCryptoTest, VerifyCredentials) {
 
   // Checking basic verification operation.
   EXPECT_TRUE(networking_private_crypto::VerifyCredentials(
-      kCertData, signed_data, unsigned_data, kHotspotBssid));
+      kCertData, std::vector<std::string>(), signed_data, unsigned_data,
+      kHotspotBssid));
+
+  // Checking verification operation with an ICA
+  std::vector<std::string> icas;
+  icas.push_back(kICAData);
+  EXPECT_TRUE(networking_private_crypto::VerifyCredentials(
+      kCertData, icas, signed_data, unsigned_data, kHotspotBssid));
 
   // Checking that verification fails when the certificate is signed, but
   // subject is malformed.
   EXPECT_FALSE(networking_private_crypto::VerifyCredentials(
-      kBadSubjectCertData, signed_data, unsigned_data, kHotspotBssid));
+      kBadSubjectCertData, std::vector<std::string>(), signed_data,
+      unsigned_data, kHotspotBssid));
 
   // Checking that verification fails when certificate has invalid format.
   EXPECT_FALSE(networking_private_crypto::VerifyCredentials(
-      kBadCertData, signed_data, unsigned_data, kHotspotBssid));
+      kBadCertData, std::vector<std::string>(), signed_data, unsigned_data,
+      kHotspotBssid));
+
+  // Checking that verification fails if we supply a bad ICA.
+  std::vector<std::string> bad_icas;
+  bad_icas.push_back(kCertData);
+  EXPECT_FALSE(networking_private_crypto::VerifyCredentials(
+      kCertData, bad_icas, signed_data, unsigned_data, kHotspotBssid));
 
   // Checking that verification fails when Hotspot Bssid is invalid.
   EXPECT_FALSE(networking_private_crypto::VerifyCredentials(
-      kCertData, signed_data, unsigned_data, kBadHotspotBssid));
+      kCertData, std::vector<std::string>(), signed_data, unsigned_data,
+      kBadHotspotBssid));
 
   // Checking that verification fails when there is bad nonce in unsigned_data.
   unsigned_data = base::StringPrintf(
       "%s,%s,%s,%s,%s", kName, kSsdpUdn, kHotspotBssid, kPublicKey, kBadNonce);
   EXPECT_FALSE(networking_private_crypto::VerifyCredentials(
-      kCertData, signed_data, unsigned_data, kHotspotBssid));
+      kCertData, std::vector<std::string>(), signed_data, unsigned_data,
+      kHotspotBssid));
 }
 
 // Test that networking_private_crypto::EncryptByteString behaves as expected.

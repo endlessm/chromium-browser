@@ -18,12 +18,11 @@ namespace cc {
 // completely damaged the first time they're drawn from.
 static const int kFrameIndexStart = 2;
 
-Surface::Surface(SurfaceId id, const gfx::Size& size, SurfaceFactory* factory)
+Surface::Surface(SurfaceId id, SurfaceFactory* factory)
     : surface_id_(id),
-      size_(size),
       factory_(factory->AsWeakPtr()),
-      frame_index_(kFrameIndexStart) {
-}
+      frame_index_(kFrameIndexStart),
+      destroyed_(false) {}
 
 Surface::~Surface() {
   ClearCopyRequests();
@@ -34,18 +33,42 @@ Surface::~Surface() {
         &current_resources);
     factory_->UnrefResources(current_resources);
   }
+  if (!draw_callback_.is_null())
+    draw_callback_.Run(SurfaceDrawStatus::DRAW_SKIPPED);
 }
 
 void Surface::QueueFrame(scoped_ptr<CompositorFrame> frame,
-                         const base::Closure& callback) {
+                         const DrawCallback& callback) {
   DCHECK(factory_);
   ClearCopyRequests();
-  TakeLatencyInfo(&frame->metadata.latency_info);
+
+  if (frame) {
+    TakeLatencyInfo(&frame->metadata.latency_info);
+  }
+
   scoped_ptr<CompositorFrame> previous_frame = current_frame_.Pass();
   current_frame_ = frame.Pass();
-  factory_->ReceiveFromChild(
-      current_frame_->delegated_frame_data->resource_list);
-  ++frame_index_;
+
+  if (current_frame_) {
+    factory_->ReceiveFromChild(
+        current_frame_->delegated_frame_data->resource_list);
+  }
+
+  // Empty frames shouldn't be drawn and shouldn't contribute damage, so don't
+  // increment frame index for them.
+  if (current_frame_ &&
+      !current_frame_->delegated_frame_data->render_pass_list.empty())
+    ++frame_index_;
+
+  std::vector<SurfaceId> new_referenced_surfaces;
+  if (current_frame_) {
+    for (auto& render_pass :
+         current_frame_->delegated_frame_data->render_pass_list) {
+      new_referenced_surfaces.insert(new_referenced_surfaces.end(),
+                                     render_pass->referenced_surfaces.begin(),
+                                     render_pass->referenced_surfaces.end());
+    }
+  }
 
   if (previous_frame) {
     ReturnedResourceArray previous_resources;
@@ -55,11 +78,22 @@ void Surface::QueueFrame(scoped_ptr<CompositorFrame> frame,
     factory_->UnrefResources(previous_resources);
   }
   if (!draw_callback_.is_null())
-    draw_callback_.Run();
+    draw_callback_.Run(SurfaceDrawStatus::DRAW_SKIPPED);
   draw_callback_ = callback;
-  factory_->manager()->DidSatisfySequences(
-      SurfaceIdAllocator::NamespaceForId(surface_id_),
-      &current_frame_->metadata.satisfies_sequences);
+
+  bool referenced_surfaces_changed =
+      (referenced_surfaces_ != new_referenced_surfaces);
+  referenced_surfaces_ = new_referenced_surfaces;
+  std::vector<uint32_t> satisfies_sequences;
+  if (current_frame_)
+    current_frame_->metadata.satisfies_sequences.swap(satisfies_sequences);
+  if (referenced_surfaces_changed || !satisfies_sequences.empty()) {
+    // Notify the manager that sequences were satisfied either if some new
+    // sequences were satisfied, or if the set of referenced surfaces changed
+    // to force a GC to happen.
+    factory_->manager()->DidSatisfySequences(
+        SurfaceIdAllocator::NamespaceForId(surface_id_), &satisfies_sequences);
+  }
 }
 
 void Surface::RequestCopyOfOutput(scoped_ptr<CopyOutputRequest> copy_request) {
@@ -105,11 +139,11 @@ void Surface::TakeLatencyInfo(std::vector<ui::LatencyInfo>* latency_info) {
   current_frame_->metadata.latency_info.clear();
 }
 
-void Surface::RunDrawCallbacks() {
+void Surface::RunDrawCallbacks(SurfaceDrawStatus drawn) {
   if (!draw_callback_.is_null()) {
-    base::Closure callback = draw_callback_;
-    draw_callback_ = base::Closure();
-    callback.Run();
+    DrawCallback callback = draw_callback_;
+    draw_callback_ = DrawCallback();
+    callback.Run(drawn);
   }
 }
 
@@ -118,11 +152,15 @@ void Surface::AddDestructionDependency(SurfaceSequence sequence) {
 }
 
 void Surface::SatisfyDestructionDependencies(
-    base::hash_set<SurfaceSequence>* sequences) {
+    base::hash_set<SurfaceSequence>* sequences,
+    base::hash_set<uint32_t>* valid_id_namespaces) {
   destruction_dependencies_.erase(
-      std::remove_if(
-          destruction_dependencies_.begin(), destruction_dependencies_.end(),
-          [sequences](SurfaceSequence seq) { return !!sequences->erase(seq); }),
+      std::remove_if(destruction_dependencies_.begin(),
+                     destruction_dependencies_.end(),
+                     [sequences, valid_id_namespaces](SurfaceSequence seq) {
+                       return (!!sequences->erase(seq) ||
+                               !valid_id_namespaces->count(seq.id_namespace));
+                     }),
       destruction_dependencies_.end());
 }
 

@@ -5,10 +5,17 @@
 import("//build/config/features.gni")
 
 source_set("common") {
+  visibility = [ "//components/policy/*" ]
+
   defines = [ "POLICY_COMPONENT_IMPLEMENTATION" ]
 
   if (enable_configuration_policy) {
     sources = [
+      "../../policy_export.h",
+      "async_policy_loader.cc",
+      "async_policy_loader.h",
+      "async_policy_provider.cc",
+      "async_policy_provider.h",
       "cloud/cloud_external_data_manager.cc",
       "cloud/cloud_external_data_manager.h",
       "cloud/cloud_policy_client.cc",
@@ -59,12 +66,6 @@ source_set("common") {
       "cloud/user_cloud_policy_store_base.h",
       "cloud/user_info_fetcher.cc",
       "cloud/user_info_fetcher.h",
-      "cloud/user_policy_request_context.cc",
-      "cloud/user_policy_request_context.h",
-      "async_policy_loader.cc",
-      "async_policy_loader.h",
-      "async_policy_provider.cc",
-      "async_policy_provider.h",
       "config_dir_policy_loader.cc",
       "config_dir_policy_loader.h",
       "configuration_policy_provider.cc",
@@ -72,21 +73,19 @@ source_set("common") {
       "external_data_fetcher.cc",
       "external_data_fetcher.h",
       "external_data_manager.h",
-      "forwarding_policy_provider.cc",
-      "forwarding_policy_provider.h",
       "mac_util.cc",
       "mac_util.h",
       "policy_bundle.cc",
       "policy_bundle.h",
       "policy_details.h",
-      "policy_loader_ios.h",
-      "policy_loader_ios.mm",
-      "policy_loader_mac.cc",
-      "policy_loader_mac.h",
-      "policy_loader_win.cc",
-      "policy_loader_win.h",
       "policy_load_status.cc",
       "policy_load_status.h",
+      "policy_loader_ios.h",
+      "policy_loader_ios.mm",
+      "policy_loader_mac.h",
+      "policy_loader_mac.mm",
+      "policy_loader_win.cc",
+      "policy_loader_win.h",
       "policy_map.cc",
       "policy_map.h",
       "policy_namespace.cc",
@@ -111,6 +110,14 @@ source_set("common") {
       "preg_parser_win.h",
       "registry_dict_win.cc",
       "registry_dict_win.h",
+      "remote_commands/remote_command_job.cc",
+      "remote_commands/remote_command_job.h",
+      "remote_commands/remote_commands_factory.cc",
+      "remote_commands/remote_commands_factory.h",
+      "remote_commands/remote_commands_queue.cc",
+      "remote_commands/remote_commands_queue.h",
+      "remote_commands/remote_commands_service.cc",
+      "remote_commands/remote_commands_service.h",
       "schema.cc",
       "schema.h",
       "schema_internal.h",
@@ -118,7 +125,8 @@ source_set("common") {
       "schema_map.h",
       "schema_registry.cc",
       "schema_registry.h",
-      "../../policy_export.h",
+      "schema_registry_tracking_policy_provider.cc",
+      "schema_registry_tracking_policy_provider.h",
     ]
 
     deps = [
@@ -133,6 +141,9 @@ source_set("common") {
       "//url",
     ]
 
+    if (is_win) {
+      libs = [ "netapi32.lib" ]
+    }
     if (is_android) {
       sources += [ "cloud/component_cloud_policy_service_stub.cc" ]
       sources -= [
@@ -178,8 +189,8 @@ source_set("common") {
     # can always interface with the PolicyService without having to #ifdef on
     # ENABLE_CONFIGURATION_POLICY.
     sources = [
-      "external_data_fetcher.h",
       "external_data_fetcher.cc",
+      "external_data_fetcher.h",
       "external_data_manager.h",
       "policy_map.cc",
       "policy_map.h",

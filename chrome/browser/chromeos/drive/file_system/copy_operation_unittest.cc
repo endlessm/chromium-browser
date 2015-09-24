@@ -9,7 +9,7 @@
 #include "chrome/browser/chromeos/drive/file_cache.h"
 #include "chrome/browser/chromeos/drive/file_change.h"
 #include "chrome/browser/chromeos/drive/file_system/operation_test_base.h"
-#include "chrome/browser/chromeos/drive/file_system_util.h"
+#include "chrome/browser/chromeos/drive/file_system_core_util.h"
 #include "chrome/browser/chromeos/drive/resource_metadata.h"
 #include "chrome/browser/drive/drive_api_util.h"
 #include "chrome/browser/drive/fake_drive_service.h"
@@ -37,7 +37,7 @@ bool CopyWaitForSyncCompleteArguments(std::string* out_local_id,
 
 class CopyOperationTest : public OperationTestBase {
  protected:
-  virtual void SetUp() override {
+  void SetUp() override {
    OperationTestBase::SetUp();
    operation_.reset(new CopyOperation(
        blocking_task_runner(), delegate(), scheduler(), metadata(), cache()));
@@ -186,7 +186,7 @@ TEST_F(CopyOperationTest, TransferFileFromLocalToRemote_NewHostedDocument) {
       "drive/root/Directory 1/moved.gdoc"));
 
   // Create a hosted document on the server that is not synced to local yet.
-  google_apis::GDataErrorCode gdata_error = google_apis::GDATA_OTHER_ERROR;
+  google_apis::DriveApiErrorCode gdata_error = google_apis::DRIVE_OTHER_ERROR;
   scoped_ptr<google_apis::FileResource> new_gdoc_entry;
   fake_service()->AddNewFile(
       "application/vnd.google-apps.document", "", "", "title", true,
@@ -482,14 +482,13 @@ TEST_F(CopyOperationTest, WaitForSyncComplete) {
   ASSERT_FALSE(pending_callback.is_null());
 
   // Add a new directory to the server and store the resource ID locally.
-  google_apis::GDataErrorCode status = google_apis::GDATA_OTHER_ERROR;
+  google_apis::DriveApiErrorCode status = google_apis::DRIVE_OTHER_ERROR;
   scoped_ptr<google_apis::FileResource> file_resource;
   fake_service()->AddNewDirectory(
-      directory_parent.resource_id(),
-      directory.title(),
-      DriveServiceInterface::AddNewDirectoryOptions(),
-      google_apis::test_util::CreateCopyResultCallback(
-          &status, &file_resource));
+      directory_parent.resource_id(), directory.title(),
+      AddNewDirectoryOptions(),
+      google_apis::test_util::CreateCopyResultCallback(&status,
+                                                       &file_resource));
   content::RunAllBlockingPoolTasksUntilIdle();
   EXPECT_EQ(google_apis::HTTP_CREATED, status);
   ASSERT_TRUE(file_resource);

@@ -18,18 +18,15 @@ import java.util.List;
  */
 public interface TabModelSelector {
     /**
-     * Interface of listener that get notified on changes in the {@link TabModel}s.
+     * A delegate interface to push close all tabs requests.
      */
-    public interface ChangeListener {
+    public interface CloseAllTabsDelegate {
         /**
-         * Called whenever the {@link TabModel} has changed.
+         * Sends a request to close all tabs for a {@link TabModel}.
+         * @param incognito Whether the tabs to be closed are incognito.
+         * @return Whether the request was handled successfully.
          */
-        void onChange();
-
-        /**
-         * Called when a new tab is created.
-         */
-        void onNewTabCreated(Tab tab);
+        boolean closeAllTabsRequest(boolean incognito);
     }
 
     /**
@@ -134,21 +131,36 @@ public interface TabModelSelector {
     Tab getTabById(int id);
 
     /**
-     * Registers a listener that get notified when the {@link TabModel} changes. Multiple listeners
-     * can be registered at the same time.
-     * @param changeListener The {@link TabModelSelector.ChangeListener} to notify.
+     * Add an observer to be notified of changes to the TabModelSelector.
+     * @param observer The {@link TabModelSelectorObserver} to notify.
      */
-    void registerChangeListener(ChangeListener changeListener);
+    void addObserver(TabModelSelectorObserver observer);
 
     /**
-     * Unregisters the listener.
-     * @param changeListener The {@link TabModelSelector.ChangeListener} to remove.
+     * Removes an observer of TabModelSelector changes..
+     * @param observer The {@link TabModelSelectorObserver} to remove.
      */
-    void unregisterChangeListener(ChangeListener changeListener);
+    void removeObserver(TabModelSelectorObserver observer);
 
     /**
      * Calls {@link TabModel#commitAllTabClosures()} on all {@link TabModel}s owned by this
      * selector.
      */
     void commitAllTabClosures();
+
+    /**
+     * Sets the delegate to handle the requests to close tabs in a single model.
+     * @param delegate The delegate to be used.
+     */
+    void setCloseAllTabsDelegate(CloseAllTabsDelegate delegate);
+
+    /**
+     * @return Whether the tab state for this {@link TabModelSelector} has been initialized.
+     */
+    boolean isTabStateInitialized();
+
+    /**
+     * Destroy all owned {@link TabModel}s and {@link Tab}s referenced by this selector.
+     */
+    void destroy();
 }

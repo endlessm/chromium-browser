@@ -10,6 +10,7 @@
 #include "ash/session/session_state_delegate.h"
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/memory/scoped_ptr.h"
 #include "ui/gfx/image/image_skia.h"
 
 namespace ash {
@@ -23,6 +24,9 @@ class TestSessionStateDelegate : public SessionStateDelegate {
   ~TestSessionStateDelegate() override;
 
   void set_logged_in_users(int users) { logged_in_users_ = users; }
+  void set_session_state(SessionState session_state) {
+    session_state_ = session_state;
+  }
   void AddUser(const std::string user_id);
   const user_manager::UserInfo* GetActiveUserInfo() const;
 
@@ -30,6 +34,8 @@ class TestSessionStateDelegate : public SessionStateDelegate {
   content::BrowserContext* GetBrowserContextByIndex(
       MultiProfileIndex index) override;
   content::BrowserContext* GetBrowserContextForWindow(
+      aura::Window* window) override;
+  content::BrowserContext* GetUserPresentingBrowserContextForWindow(
       aura::Window* window) override;
   int GetMaximumNumberOfLoggedInUsers() const override;
   int NumberOfLoggedInUsers() const override;
@@ -82,13 +88,7 @@ class TestSessionStateDelegate : public SessionStateDelegate {
   void SetUserImage(const gfx::ImageSkia& user_image);
 
  private:
-  // Whether a session is in progress and there is an active user.
-  bool has_active_user_;
-
-  // When a user becomes active, the profile and browser UI are not immediately
-  // available. Only once this flag becomes |true| is the browser startup
-  // complete and both profile and UI are fully available.
-  bool active_user_session_started_;
+  class TestUserManager;
 
   // Whether the screen can be locked. Locking will only actually be allowed
   // when this is |true| and there is an active user.
@@ -110,6 +110,13 @@ class TestSessionStateDelegate : public SessionStateDelegate {
   int active_user_index_;
 
   std::vector<MockUserInfo*> user_list_;
+
+  // The user manager to be used instead of the system instance.
+  scoped_ptr<TestUserManager> user_manager_;
+
+  // The current state of the login screen. |session_state_| becomes active
+  // before the profile and browser UI are available.
+  SessionState session_state_;
 
   DISALLOW_COPY_AND_ASSIGN(TestSessionStateDelegate);
 };

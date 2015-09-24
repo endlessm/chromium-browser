@@ -11,8 +11,8 @@
 #include "base/observer_list.h"
 #include "ui/aura/client/cursor_client.h"
 #include "ui/base/cursor/cursor.h"
+#include "ui/gfx/geometry/point.h"
 #include "ui/gfx/native_widget_types.h"
-#include "ui/gfx/point.h"
 #include "ui/wm/core/native_cursor_manager_delegate.h"
 #include "ui/wm/wm_export.h"
 
@@ -80,7 +80,7 @@ class WM_EXPORT CursorManager : public aura::client::CursorClient,
   // The cursor state to restore when the cursor is unlocked.
   scoped_ptr<internal::CursorState> state_on_unlock_;
 
-  ObserverList<aura::client::CursorClientObserver> observers_;
+  base::ObserverList<aura::client::CursorClientObserver> observers_;
 
   DISALLOW_COPY_AND_ASSIGN(CursorManager);
 };

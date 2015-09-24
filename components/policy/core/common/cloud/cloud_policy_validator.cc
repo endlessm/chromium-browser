@@ -5,10 +5,12 @@
 #include "components/policy/core/common/cloud/cloud_policy_validator.h"
 
 #include "base/bind_helpers.h"
-#include "base/message_loop/message_loop.h"
-#include "base/metrics/histogram.h"
+#include "base/location.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "crypto/signature_verifier.h"
 #include "google_apis/gaia/gaia_auth_util.h"
@@ -20,8 +22,8 @@ namespace policy {
 
 namespace {
 
-// Grace interval for policy timestamp checks, in seconds.
-const int kTimestampGraceIntervalSeconds = 60;
+// Grace interval for policy-from-the-future timestamp checks.
+const int kTimestampGraceIntervalHours = 2;
 
 // DER-encoded ASN.1 object identifier for the SHA1-RSA signature algorithm.
 const uint8 kSHA1SignatureAlgorithm[] = {
@@ -36,8 +38,10 @@ const uint8 kSHA256SignatureAlgorithm[] = {
     0xf7, 0x0d, 0x01, 0x01, 0x0b, 0x05, 0x00
 };
 
-COMPILE_ASSERT(sizeof(kSHA256SignatureAlgorithm) ==
-               sizeof(kSHA1SignatureAlgorithm), invalid_algorithm_size);
+static_assert(sizeof(kSHA256SignatureAlgorithm) ==
+              sizeof(kSHA1SignatureAlgorithm),
+              "kSHA256SignatureAlgorithm must be the same size as "
+              "kSHA1SignatureAlgorithm");
 
 const int kSignatureAlgorithmSize = sizeof(kSHA1SignatureAlgorithm);
 
@@ -66,13 +70,11 @@ void CloudPolicyValidatorBase::ValidateTimestamp(
     base::Time not_before,
     base::Time now,
     ValidateTimestampOption timestamp_option) {
-  // Timestamp should be from the past. We allow for a 1-minute grace interval
-  // to cover clock drift.
   validation_flags_ |= VALIDATE_TIMESTAMP;
   timestamp_not_before_ =
       (not_before - base::Time::UnixEpoch()).InMilliseconds();
   timestamp_not_after_ =
-      ((now + base::TimeDelta::FromSeconds(kTimestampGraceIntervalSeconds)) -
+      ((now + base::TimeDelta::FromHours(kTimestampGraceIntervalHours)) -
           base::Time::UnixEpoch()).InMillisecondsRoundedUp();
   timestamp_option_ = timestamp_option;
 }
@@ -184,20 +186,19 @@ void CloudPolicyValidatorBase::PostValidationTask(
       FROM_HERE,
       base::Bind(&CloudPolicyValidatorBase::PerformValidation,
                  base::Passed(scoped_ptr<CloudPolicyValidatorBase>(this)),
-                 base::MessageLoop::current()->message_loop_proxy(),
-                 completion_callback));
+                 base::ThreadTaskRunnerHandle::Get(), completion_callback));
 }
 
 // static
 void CloudPolicyValidatorBase::PerformValidation(
     scoped_ptr<CloudPolicyValidatorBase> self,
-    scoped_refptr<base::MessageLoopProxy> message_loop,
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner,
     const base::Closure& completion_callback) {
   // Run the validation activities on this thread.
   self->RunValidation();
 
-  // Report completion on |message_loop|.
-  message_loop->PostTask(
+  // Report completion on |task_runner|.
+  task_runner->PostTask(
       FROM_HERE,
       base::Bind(&CloudPolicyValidatorBase::ReportCompletion,
                  base::Passed(&self),
@@ -425,22 +426,23 @@ CloudPolicyValidatorBase::Status CloudPolicyValidatorBase::CheckEntityId() {
 }
 
 CloudPolicyValidatorBase::Status CloudPolicyValidatorBase::CheckTimestamp() {
+  if (timestamp_option_ == TIMESTAMP_NOT_REQUIRED)
+    return VALIDATION_OK;
+
   if (!policy_data_->has_timestamp()) {
-    if (timestamp_option_ == TIMESTAMP_NOT_REQUIRED) {
-      return VALIDATION_OK;
-    } else {
-      LOG(ERROR) << "Policy timestamp missing";
-      return VALIDATION_BAD_TIMESTAMP;
-    }
+    LOG(ERROR) << "Policy timestamp missing";
+    return VALIDATION_BAD_TIMESTAMP;
   }
 
-  if (timestamp_option_ != TIMESTAMP_NOT_REQUIRED &&
-      policy_data_->timestamp() < timestamp_not_before_) {
-    // If |timestamp_option_| is TIMESTAMP_REQUIRED or TIMESTAMP_NOT_BEFORE
-    // then this is a failure.
+  if (policy_data_->timestamp() < timestamp_not_before_) {
     LOG(ERROR) << "Policy too old: " << policy_data_->timestamp();
     return VALIDATION_BAD_TIMESTAMP;
   }
+
+  // Limit the damage in case of an unlikely server bug: If the server
+  // accidentally sends a time from the distant future, this time is stored
+  // locally and after the server time is corrected, due to rollback prevention
+  // the client could not receive policy updates until that future date.
   if (timestamp_option_ == TIMESTAMP_REQUIRED &&
       policy_data_->timestamp() > timestamp_not_after_) {
     LOG(ERROR) << "Policy from the future: " << policy_data_->timestamp();

@@ -37,11 +37,13 @@ class CallTest : public ::testing::Test {
   static const uint8_t kSendRtxPayloadType;
   static const uint8_t kFakeSendPayloadType;
   static const uint8_t kRedPayloadType;
+  static const uint8_t kRtxRedPayloadType;
   static const uint8_t kUlpfecPayloadType;
   static const uint32_t kSendRtxSsrcs[kNumSsrcs];
   static const uint32_t kSendSsrcs[kNumSsrcs];
   static const uint32_t kReceiverLocalSsrc;
   static const int kNackRtpHistoryMs;
+  static const int kAbsSendTimeExtensionId;
 
  protected:
   void RunBaseTest(BaseTest* test);
@@ -63,16 +65,16 @@ class CallTest : public ::testing::Test {
 
   Clock* const clock_;
 
-  scoped_ptr<Call> sender_call_;
+  rtc::scoped_ptr<Call> sender_call_;
   VideoSendStream::Config send_config_;
   VideoEncoderConfig encoder_config_;
   VideoSendStream* send_stream_;
 
-  scoped_ptr<Call> receiver_call_;
+  rtc::scoped_ptr<Call> receiver_call_;
   std::vector<VideoReceiveStream::Config> receive_configs_;
   std::vector<VideoReceiveStream*> receive_streams_;
 
-  scoped_ptr<test::FrameGeneratorCapturer> frame_generator_capturer_;
+  rtc::scoped_ptr<test::FrameGeneratorCapturer> frame_generator_capturer_;
   test::FakeEncoder fake_encoder_;
   ScopedVector<VideoDecoder> allocated_decoders_;
 };
@@ -109,7 +111,7 @@ class SendTest : public BaseTest {
   explicit SendTest(unsigned int timeout_ms);
   SendTest(unsigned int timeout_ms, const FakeNetworkPipe::Config& config);
 
-  virtual bool ShouldCreateReceivers() const OVERRIDE;
+  bool ShouldCreateReceivers() const override;
 };
 
 class EndToEndTest : public BaseTest {
@@ -117,7 +119,7 @@ class EndToEndTest : public BaseTest {
   explicit EndToEndTest(unsigned int timeout_ms);
   EndToEndTest(unsigned int timeout_ms, const FakeNetworkPipe::Config& config);
 
-  virtual bool ShouldCreateReceivers() const OVERRIDE;
+  bool ShouldCreateReceivers() const override;
 };
 
 }  // namespace test

@@ -5,6 +5,7 @@
 #import "chrome/browser/ui/cocoa/passwords/manage_passwords_bubble_manage_view_controller.h"
 
 #include "base/mac/foundation_util.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #import "chrome/browser/ui/cocoa/passwords/manage_password_item_view_controller.h"
 #include "chrome/browser/ui/cocoa/passwords/manage_passwords_controller_test.h"
@@ -37,11 +38,10 @@ class ManagePasswordsBubbleManageViewControllerTest
  public:
   ManagePasswordsBubbleManageViewControllerTest() : controller_(nil) {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     ManagePasswordsControllerTest::SetUp();
     delegate_.reset(
         [[ManagePasswordsBubbleManageViewTestDelegate alloc] init]);
-    ui_controller()->SetState(password_manager::ui::MANAGE_STATE);
   }
 
   ManagePasswordsBubbleManageViewTestDelegate* delegate() {
@@ -79,30 +79,30 @@ TEST_F(ManagePasswordsBubbleManageViewControllerTest,
 
 TEST_F(ManagePasswordsBubbleManageViewControllerTest,
        ShouldShowNoPasswordsWhenNoPasswordsExistForSite) {
-  EXPECT_TRUE(model()->best_matches().empty());
+  EXPECT_TRUE(model()->local_credentials().empty());
   EXPECT_EQ([NoPasswordsView class], [controller().contentView class]);
 }
 
 TEST_F(ManagePasswordsBubbleManageViewControllerTest,
        ShouldShowAllPasswordItemsWhenPasswordsExistForSite) {
   // Add a few password entries.
-  autofill::ConstPasswordFormMap map;
-  autofill::PasswordForm form1;
-  form1.username_value = base::ASCIIToUTF16("username1");
-  form1.password_value = base::ASCIIToUTF16("password1");
-  map[base::ASCIIToUTF16("username1")] = &form1;
+  autofill::PasswordFormMap map;
+  scoped_ptr<autofill::PasswordForm> form1(new autofill::PasswordForm);
+  form1->username_value = base::ASCIIToUTF16("username1");
+  form1->password_value = base::ASCIIToUTF16("password1");
+  map.insert(base::ASCIIToUTF16("username1"), form1.Pass());
 
-  autofill::PasswordForm form2;
-  form2.username_value = base::ASCIIToUTF16("username2");
-  form2.password_value = base::ASCIIToUTF16("password2");
-  map[base::ASCIIToUTF16("username2")] = &form2;
+  scoped_ptr<autofill::PasswordForm> form2(new autofill::PasswordForm);
+  form2->username_value = base::ASCIIToUTF16("username2");
+  form2->password_value = base::ASCIIToUTF16("password2");
+  map.insert(base::ASCIIToUTF16("username2"), form2.Pass());
 
   // Add the entries to the model.
-  ui_controller()->SetPasswordFormMap(map);
+  ui_controller()->OnPasswordAutofilled(map);
   model()->set_state(password_manager::ui::MANAGE_STATE);
 
   // Check the view state.
-  EXPECT_FALSE(model()->best_matches().empty());
+  EXPECT_FALSE(model()->local_credentials().empty());
   EXPECT_EQ([PasswordItemListView class], [controller().contentView class]);
   NSArray* items = base::mac::ObjCCastStrict<PasswordItemListView>(
       controller().contentView).itemViews;

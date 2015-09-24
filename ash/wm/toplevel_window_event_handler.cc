@@ -110,6 +110,9 @@ class ToplevelWindowEventHandler::ScopedWindowResizer
   ToplevelWindowEventHandler* handler_;
   scoped_ptr<WindowResizer> resizer_;
 
+  // Whether ScopedWindowResizer grabbed capture.
+  bool grabbed_capture_;
+
   DISALLOW_COPY_AND_ASSIGN(ScopedWindowResizer);
 };
 
@@ -117,14 +120,24 @@ ToplevelWindowEventHandler::ScopedWindowResizer::ScopedWindowResizer(
     ToplevelWindowEventHandler* handler,
     WindowResizer* resizer)
     : handler_(handler),
-      resizer_(resizer) {
-  resizer_->GetTarget()->AddObserver(this);
-  wm::GetWindowState(resizer_->GetTarget())->AddObserver(this);
+      resizer_(resizer),
+      grabbed_capture_(false) {
+  aura::Window* target = resizer_->GetTarget();
+  target->AddObserver(this);
+  wm::GetWindowState(target)->AddObserver(this);
+
+  if (!target->HasCapture()) {
+    grabbed_capture_ = true;
+    target->SetCapture();
+  }
 }
 
 ToplevelWindowEventHandler::ScopedWindowResizer::~ScopedWindowResizer() {
-  resizer_->GetTarget()->RemoveObserver(this);
-  wm::GetWindowState(resizer_->GetTarget())->RemoveObserver(this);
+  aura::Window* target = resizer_->GetTarget();
+  target->RemoveObserver(this);
+  wm::GetWindowState(target)->RemoveObserver(this);
+  if (grabbed_capture_)
+    target->ReleaseCapture();
 }
 
 bool ToplevelWindowEventHandler::ScopedWindowResizer::IsMove() const {
@@ -177,6 +190,13 @@ void ToplevelWindowEventHandler::OnMouseEvent(
       (ui::EF_MIDDLE_MOUSE_BUTTON | ui::EF_RIGHT_MOUSE_BUTTON)) != 0)
     return;
 
+  if (event->type() == ui::ET_MOUSE_CAPTURE_CHANGED) {
+    // Capture is grabbed when both gesture and mouse drags start. Handle
+    // capture loss regardless of which type of drag is in progress.
+    HandleCaptureLost(event);
+    return;
+  }
+
   if (in_gesture_drag_)
     return;
 
@@ -188,7 +208,6 @@ void ToplevelWindowEventHandler::OnMouseEvent(
     case ui::ET_MOUSE_DRAGGED:
       HandleDrag(target, event);
       break;
-    case ui::ET_MOUSE_CAPTURE_CHANGED:
     case ui::ET_MOUSE_RELEASED:
       HandleMouseReleased(target, event);
       break;
@@ -499,11 +518,8 @@ void ToplevelWindowEventHandler::HandleMousePressed(
 void ToplevelWindowEventHandler::HandleMouseReleased(
     aura::Window* target,
     ui::MouseEvent* event) {
-  if (event->phase() != ui::EP_PRETARGET)
-    return;
-
-  CompleteDrag(event->type() == ui::ET_MOUSE_RELEASED ?
-                   DRAG_COMPLETE : DRAG_REVERT);
+  if (event->phase() == ui::EP_PRETARGET)
+    CompleteDrag(DRAG_COMPLETE);
 }
 
 void ToplevelWindowEventHandler::HandleDrag(
@@ -564,6 +580,11 @@ void ToplevelWindowEventHandler::HandleMouseExited(
       Shell::GetInstance()->resize_shadow_controller();
   if (controller)
     controller->HideShadow(target);
+}
+
+void ToplevelWindowEventHandler::HandleCaptureLost(ui::LocatedEvent* event) {
+  if (event->phase() == ui::EP_PRETARGET)
+    CompleteDrag(DRAG_REVERT);
 }
 
 void ToplevelWindowEventHandler::SetWindowStateTypeFromGesture(

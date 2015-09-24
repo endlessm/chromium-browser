@@ -41,12 +41,6 @@ namespace base {
 class SequencedTaskRunner;
 }
 
-namespace data_reduction_proxy {
-class DataReductionProxyParams;
-}
-
-class DataReductionProxyChromeSettings;
-
 namespace domain_reliability {
 class DomainReliabilityMonitor;
 }
@@ -76,6 +70,8 @@ class ProfileImpl : public Profile {
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
 
   // content::BrowserContext implementation:
+  scoped_ptr<content::ZoomLevelDelegate> CreateZoomLevelDelegate(
+      const base::FilePath& partition_path) override;
   base::FilePath GetPath() const override;
   content::DownloadManagerDelegate* GetDownloadManagerDelegate() override;
   net::URLRequestContextGetter* GetRequestContext() override;
@@ -92,12 +88,13 @@ class ProfileImpl : public Profile {
   storage::SpecialStoragePolicy* GetSpecialStoragePolicy() override;
   content::PushMessagingService* GetPushMessagingService() override;
   content::SSLHostStateDelegate* GetSSLHostStateDelegate() override;
+  content::PermissionManager* GetPermissionManager() override;
 
   // Profile implementation:
   scoped_refptr<base::SequencedTaskRunner> GetIOTaskRunner() override;
   // Note that this implementation returns the Google-services username, if any,
   // not the Chrome user's display name.
-  std::string GetProfileName() override;
+  std::string GetProfileUserName() const override;
   ProfileType GetProfileType() const override;
   bool IsOffTheRecord() const override;
   Profile* GetOffTheRecordProfile() override;
@@ -105,10 +102,11 @@ class ProfileImpl : public Profile {
   bool HasOffTheRecordProfile() override;
   Profile* GetOriginalProfile() override;
   bool IsSupervised() override;
-  history::TopSites* GetTopSites() override;
-  history::TopSites* GetTopSitesWithoutCreating() override;
+  bool IsChild() override;
+  bool IsLegacySupervised() override;
   ExtensionSpecialStoragePolicy* GetExtensionSpecialStoragePolicy() override;
   PrefService* GetPrefs() override;
+  const PrefService* GetPrefs() const override;
   chrome::ChromeZoomLevelPrefs* GetZoomLevelPrefs() override;
   PrefService* GetOffTheRecordPrefs() override;
   net::URLRequestContextGetter* GetRequestContextForExtensions() override;
@@ -136,10 +134,9 @@ class ProfileImpl : public Profile {
   ExitType GetLastSessionExitType() override;
 
 #if defined(OS_CHROMEOS)
-  virtual void ChangeAppLocale(const std::string& locale,
-                               AppLocaleChangedVia) override;
-  virtual void OnLogin() override;
-  virtual void InitChromeOSPreferences() override;
+  void ChangeAppLocale(const std::string& locale, AppLocaleChangedVia) override;
+  void OnLogin() override;
+  void InitChromeOSPreferences() override;
 #endif  // defined(OS_CHROMEOS)
 
   PrefProxyConfigTracker* GetProxyConfigTracker() override;
@@ -150,16 +147,11 @@ class ProfileImpl : public Profile {
   friend class chromeos::SupervisedUserTestBase;
 #endif
   friend class Profile;
-  friend class BetterSessionRestoreCrashTest;
   FRIEND_TEST_ALL_PREFIXES(StartupBrowserCreatorTest,
                            ProfilesLaunchedAfterCrash);
   FRIEND_TEST_ALL_PREFIXES(ProfileBrowserTest, DISABLED_ProfileReadmeCreated);
   FRIEND_TEST_ALL_PREFIXES(ProfileBrowserTest,
                            ProfileDeletedBeforeReadmeCreated);
-
-  // Delay, in milliseconds, before README file is created for a new profile.
-  // This is non-const for testing purposes.
-  static int create_readme_delay_ms;
 
   ProfileImpl(const base::FilePath& path,
               Delegate* delegate,
@@ -169,12 +161,11 @@ class ProfileImpl : public Profile {
   // Does final initialization. Should be called after prefs were loaded.
   void DoFinalInit();
 
-  // TODO(wjmaclean): Delete this once the HostZoomMap moves to
-  // StoragePartition.
-  void InitHostZoomMap();
+  // Switch locale (when possible) and proceed to OnLocaleReady().
+  void OnPrefsLoaded(CreateMode create_mode, bool success);
 
   // Does final prefs initialization and calls Init().
-  void OnPrefsLoaded(bool success);
+  void OnLocaleReady();
 
 #if defined(ENABLE_SESSION_SERVICE)
   void StopCreateSessionServiceTimer();
@@ -188,7 +179,6 @@ class ProfileImpl : public Profile {
   }
 
   // Updates the ProfileInfoCache with data from this profile.
-  void UpdateProfileUserNameCache();
   void UpdateProfileSupervisedUserIdCache();
   void UpdateProfileNameCache();
   void UpdateProfileAvatarCache();
@@ -235,10 +225,6 @@ class ProfileImpl : public Profile {
   scoped_refptr<user_prefs::PrefRegistrySyncable> pref_registry_;
   scoped_ptr<PrefServiceSyncable> prefs_;
   scoped_ptr<PrefServiceSyncable> otr_prefs_;
-  // TODO(wjmaclean): This is only here temporarily until HostZoomMap moves
-  // into StoragePartition, after which it will also move to StoragePartition.
-  // Must declare this here so it is destroyed before the profile prefs service.
-  scoped_ptr<chrome::ChromeZoomLevelPrefs> zoom_level_prefs_;
   ProfileImplIOData::Handle io_data_;
 #if defined(ENABLE_EXTENSIONS)
   scoped_refptr<ExtensionSpecialStoragePolicy>
@@ -262,14 +248,10 @@ class ProfileImpl : public Profile {
   // See GetStartTime for details.
   base::Time start_time_;
 
-  scoped_refptr<history::TopSites> top_sites_;  // For history and thumbnails.
-
 #if defined(OS_CHROMEOS)
   scoped_ptr<chromeos::Preferences> chromeos_preferences_;
 
   scoped_ptr<chromeos::LocaleChangeGuard> locale_change_guard_;
-
-  bool is_login_profile_;
 #endif
 
   scoped_ptr<PrefProxyConfigTracker> pref_proxy_config_tracker_;

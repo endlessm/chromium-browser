@@ -23,7 +23,7 @@
 #include "chrome/browser/ui/translate/translate_bubble_factory.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
-#include "components/infobars/core/infobar.h"
+#include "components/translate/content/browser/browser_cld_data_provider_factory.h"
 #include "components/translate/content/common/cld_data_source.h"
 #include "components/translate/content/common/translate_messages.h"
 #include "components/translate/core/browser/language_state.h"
@@ -60,12 +60,13 @@ ChromeTranslateClient::ChromeTranslateClient(content::WebContents* web_contents)
       translate_manager_(
           new translate::TranslateManager(this, prefs::kAcceptLanguages)),
       cld_data_provider_(
-          translate::CreateBrowserCldDataProviderFor(web_contents)) {
+          translate::BrowserCldDataProviderFactory::Get()->
+            CreateBrowserCldDataProvider(web_contents)) {
   translate_driver_.AddObserver(this);
   translate_driver_.set_translate_manager(translate_manager_.get());
   // Customization: for the standalone data source, we configure the path to
   // CLD data immediately on startup.
-  if (translate::CldDataSource::ShouldUseStandaloneDataFile() &&
+  if (translate::CldDataSource::IsUsingStandaloneDataSource() &&
       !g_cld_file_path_initialized_) {
     DVLOG(1) << "Initializing CLD file path for the first time.";
     base::FilePath path;
@@ -76,7 +77,7 @@ ChromeTranslateClient::ChromeTranslateClient(content::WebContents* web_contents)
       g_cld_file_path_initialized_ = true;
       path = path.Append(kCldDataFileName);
       DVLOG(1) << "Setting CLD data file path: " << path.value();
-      translate::SetCldDataFilePath(path);
+      translate::CldDataSource::Get()->SetCldDataFilePath(path);
     }
   }
 }
@@ -182,7 +183,7 @@ void ChromeTranslateClient::ShowTranslateUI(
       if (!triggered_from_menu) {
         if (web_contents()->GetBrowserContext()->IsOffTheRecord())
           return;
-        if (GetTranslatePrefs()->IsTooOftenDenied())
+        if (GetTranslatePrefs()->IsTooOftenDenied(source_language))
           return;
       }
     }
@@ -231,16 +232,6 @@ ChromeTranslateClient::GetTranslateAcceptLanguages() {
 int ChromeTranslateClient::GetInfobarIconID() const {
   return IDR_INFOBAR_TRANSLATE;
 }
-
-// ChromeTranslateClient::CreateInfoBar() is implemented in platform-specific
-// files, except the TOOLKIT_VIEWS implementation, which has been removed. Note
-// for Mac, Cocoa is still providing the infobar in a toolkit-views build.
-#if defined(TOOLKIT_VIEWS) && !defined(OS_MACOSX)
-scoped_ptr<infobars::InfoBar> ChromeTranslateClient::CreateInfoBar(
-    scoped_ptr<translate::TranslateInfoBarDelegate> delegate) const {
-  return scoped_ptr<infobars::InfoBar>();
-}
-#endif
 
 bool ChromeTranslateClient::IsTranslatableURL(const GURL& url) {
   return TranslateService::IsTranslatableURL(url);

@@ -8,41 +8,47 @@
 #include "core/dom/Document.h"
 #include "core/frame/FrameView.h"
 #include "core/html/HTMLVideoElement.h"
+#include "core/layout/LayoutVideo.h"
 #include "core/paint/ImagePainter.h"
-#include "core/rendering/PaintInfo.h"
-#include "core/rendering/RenderVideo.h"
+#include "core/paint/LayoutObjectDrawingRecorder.h"
+#include "core/paint/PaintInfo.h"
 #include "platform/geometry/LayoutPoint.h"
-#include "platform/graphics/GraphicsContextStateSaver.h"
-#include "platform/graphics/media/MediaPlayer.h"
 
 namespace blink {
 
-void VideoPainter::paintReplaced(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
+void VideoPainter::paintReplaced(const PaintInfo& paintInfo, const LayoutPoint& paintOffset)
 {
-    WebMediaPlayer* mediaPlayer = m_renderVideo.mediaElement()->webMediaPlayer();
-    bool displayingPoster = m_renderVideo.videoElement()->shouldDisplayPosterImage();
+    WebMediaPlayer* mediaPlayer = m_layoutVideo.mediaElement()->webMediaPlayer();
+    bool displayingPoster = m_layoutVideo.videoElement()->shouldDisplayPosterImage();
     if (!displayingPoster && !mediaPlayer)
         return;
 
-    LayoutRect rect = m_renderVideo.videoBox();
+    LayoutRect rect(m_layoutVideo.videoBox());
     if (rect.isEmpty())
         return;
     rect.moveBy(paintOffset);
 
-    LayoutRect contentRect = m_renderVideo.contentBoxRect();
-    contentRect.moveBy(paintOffset);
     GraphicsContext* context = paintInfo.context;
+    if (LayoutObjectDrawingRecorder::useCachedDrawingIfPossible(*context, m_layoutVideo, paintInfo.phase))
+        return;
+
+    LayoutRect contentRect = m_layoutVideo.contentBoxRect();
+    contentRect.moveBy(paintOffset);
+    LayoutObjectDrawingRecorder drawingRecorder(*context, m_layoutVideo, paintInfo.phase, contentRect);
+
     bool clip = !contentRect.contains(rect);
     if (clip) {
         context->save();
         context->clip(contentRect);
     }
 
-    if (displayingPoster)
-        ImagePainter(m_renderVideo).paintIntoRect(context, rect);
-    else if ((m_renderVideo.document().view() && m_renderVideo.document().view()->paintBehavior() & PaintBehaviorFlattenCompositingLayers) || !m_renderVideo.acceleratedRenderingInUse())
-        m_renderVideo.videoElement()->paintCurrentFrameInContext(context, pixelSnappedIntRect(rect));
-
+    if (displayingPoster) {
+        ImagePainter(m_layoutVideo).paintIntoRect(context, rect);
+    } else if ((m_layoutVideo.document().view() && m_layoutVideo.document().view()->paintBehavior() & PaintBehaviorFlattenCompositingLayers) || !m_layoutVideo.acceleratedRenderingInUse()) {
+        SkPaint videoPaint = context->fillPaint();
+        videoPaint.setColor(SK_ColorBLACK);
+        m_layoutVideo.videoElement()->paintCurrentFrame(context->canvas(), pixelSnappedIntRect(rect), &videoPaint);
+    }
     if (clip)
         context->restore();
 }

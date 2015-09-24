@@ -6,15 +6,28 @@
 #define CONTENT_BROWSER_FRAME_HOST_RENDER_WIDGET_HOST_VIEW_CHILD_FRAME_H_
 
 #include "base/memory/scoped_ptr.h"
+#include "cc/resources/returned_resource.h"
+#include "cc/surfaces/surface_factory_client.h"
+#include "cc/surfaces/surface_id_allocator.h"
+#include "content/browser/compositor/image_transport_factory.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/common/content_export.h"
+#include "content/public/browser/readback_types.h"
+#include "ui/compositor/compositor.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
-#include "ui/gfx/rect.h"
+
+namespace cc {
+class SurfaceFactory;
+enum class SurfaceDrawStatus;
+}
 
 namespace content {
 class CrossProcessFrameConnector;
 class RenderWidgetHost;
 class RenderWidgetHostImpl;
+class RenderWidgetHostViewChildFrameTest;
+class RenderWidgetHostViewGuestSurfaceTest;
 
 // RenderWidgetHostViewChildFrame implements the view for a RenderWidgetHost
 // associated with content being rendered in a separate process from
@@ -25,7 +38,8 @@ class RenderWidgetHostImpl;
 //
 // See comments in render_widget_host_view.h about this class and its members.
 class CONTENT_EXPORT RenderWidgetHostViewChildFrame
-    : public RenderWidgetHostViewBase {
+    : public RenderWidgetHostViewBase,
+      public cc::SurfaceFactoryClient {
  public:
   explicit RenderWidgetHostViewChildFrame(RenderWidgetHost* widget);
   ~RenderWidgetHostViewChildFrame() override;
@@ -56,12 +70,9 @@ class CONTENT_EXPORT RenderWidgetHostViewChildFrame
 
   // RenderWidgetHostViewBase implementation.
   void InitAsPopup(RenderWidgetHostView* parent_host_view,
-                   const gfx::Rect& pos) override;
+                   const gfx::Rect& bounds) override;
   void InitAsFullscreen(RenderWidgetHostView* reference_host_view) override;
-  void WasShown() override;
-  void WasHidden() override;
   void MovePluginWindows(const std::vector<WebPluginGeometry>& moves) override;
-  void Blur() override;
   void UpdateCursor(const WebCursor& cursor) override;
   void SetIsLoading(bool is_loading) override;
   void TextInputTypeChanged(ui::TextInputType type,
@@ -69,11 +80,9 @@ class CONTENT_EXPORT RenderWidgetHostViewChildFrame
                             bool can_compose_inline,
                             int flags) override;
   void ImeCancelComposition() override;
-#if defined(OS_MACOSX) || defined(USE_AURA) || defined(OS_ANDROID)
   void ImeCompositionRangeChanged(
       const gfx::Range& range,
       const std::vector<gfx::Rect>& character_bounds) override;
-#endif
   void RenderProcessGone(base::TerminationStatus status,
                          int error_code) override;
   void Destroy() override;
@@ -86,8 +95,8 @@ class CONTENT_EXPORT RenderWidgetHostViewChildFrame
   void CopyFromCompositingSurface(
       const gfx::Rect& src_subrect,
       const gfx::Size& dst_size,
-      const base::Callback<void(bool, const SkBitmap&)>& callback,
-      const SkColorType color_type) override;
+      ReadbackRequestCallback& callback,
+      const SkColorType preferred_color_type) override;
   void CopyFromCompositingSurfaceToVideoFrame(
       const gfx::Rect& src_subrect,
       const scoped_refptr<media::VideoFrame>& target,
@@ -105,6 +114,7 @@ class CONTENT_EXPORT RenderWidgetHostViewChildFrame
 #endif  // defined(USE_AURA)
   bool LockMouse() override;
   void UnlockMouse() override;
+  uint32_t GetSurfaceIdNamespace() override;
 
 #if defined(OS_MACOSX)
   // RenderWidgetHostView implementation.
@@ -124,22 +134,32 @@ class CONTENT_EXPORT RenderWidgetHostViewChildFrame
 
   // RenderWidgetHostViewBase implementation.
 #if defined(OS_ANDROID)
-  virtual void LockCompositingSurface() override;
-  virtual void UnlockCompositingSurface() override;
+  void LockCompositingSurface() override;
+  void UnlockCompositingSurface() override;
 #endif  // defined(OS_ANDROID)
 
 #if defined(OS_WIN)
-  virtual void SetParentNativeViewAccessible(
+  void SetParentNativeViewAccessible(
       gfx::NativeViewAccessible accessible_parent) override;
-  virtual gfx::NativeViewId GetParentForWindowlessPlugin() const override;
+  gfx::NativeViewId GetParentForWindowlessPlugin() const override;
 #endif
   BrowserAccessibilityManager* CreateBrowserAccessibilityManager(
       BrowserAccessibilityDelegate* delegate) override;
 
-  SkColorType PreferredReadbackFormat() override;
+  // cc::SurfaceFactoryClient implementation.
+  void ReturnResources(const cc::ReturnedResourceArray& resources) override;
+
+  // Declared 'public' instead of 'protected' here to allow derived classes
+  // to Bind() to it.
+  void SurfaceDrawn(uint32 output_surface_id, cc::SurfaceDrawStatus drawn);
 
  protected:
   friend class RenderWidgetHostView;
+  friend class RenderWidgetHostViewChildFrameTest;
+  friend class RenderWidgetHostViewGuestSurfaceTest;
+
+  // Clears current compositor surface, if one is in use.
+  void ClearCompositorSurfaceIfNecessary();
 
   // The last scroll offset of the view.
   gfx::Vector2dF last_scroll_offset_;
@@ -148,11 +168,30 @@ class CONTENT_EXPORT RenderWidgetHostViewChildFrame
   // The model object.
   RenderWidgetHostImpl* host_;
 
+  // Flag determining whether we render into a compositing Surface.
+  bool use_surfaces_;
+
+  // Surface-related state.
+  scoped_ptr<cc::SurfaceIdAllocator> id_allocator_;
+  scoped_ptr<cc::SurfaceFactory> surface_factory_;
+  cc::SurfaceId surface_id_;
+  uint32 next_surface_sequence_;
+  uint32 last_output_surface_id_;
+  gfx::Size current_surface_size_;
+  float current_surface_scale_factor_;
+  uint32 ack_pending_count_;
+  cc::ReturnedResourceArray surface_returned_resources_;
+
   // frame_connector_ provides a platform abstraction. Messages
   // sent through it are routed to the embedding renderer process.
   CrossProcessFrameConnector* frame_connector_;
 
+  base::WeakPtr<RenderWidgetHostViewChildFrame> AsWeakPtr() {
+    return weak_factory_.GetWeakPtr();
+  }
+
  private:
+  base::WeakPtrFactory<RenderWidgetHostViewChildFrame> weak_factory_;
   DISALLOW_COPY_AND_ASSIGN(RenderWidgetHostViewChildFrame);
 };
 

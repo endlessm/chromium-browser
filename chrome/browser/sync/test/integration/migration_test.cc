@@ -95,9 +95,15 @@ class MigrationTest : public SyncTest  {
         GetSyncService((0))->GetPreferredDataTypes();
     preferred_data_types.RemoveAll(syncer::ProxyTypes());
 
-    // The managed user settings will be "unready" during this test, so we
+    // Supervised user data types will be "unready" during this test, so we
     // should not request that they be migrated.
     preferred_data_types.Remove(syncer::SUPERVISED_USER_SETTINGS);
+    preferred_data_types.Remove(syncer::SUPERVISED_USER_WHITELISTS);
+
+    // Autofill wallet will be unready during this test, so we should not
+    // request that it be migrated.
+    preferred_data_types.Remove(syncer::AUTOFILL_WALLET_DATA);
+    preferred_data_types.Remove(syncer::AUTOFILL_WALLET_METADATA);
 
     // Make sure all clients have the same preferred data types.
     for (int i = 1; i < num_clients(); ++i) {
@@ -282,25 +288,16 @@ IN_PROC_BROWSER_TEST_F(MigrationSingleClientTest, PrefsNigoriBoth) {
 }
 
 // The whole shebang -- all data types.
-#if defined(OS_WIN) || defined(OS_MACOSX)
 // http://crbug.com/403778
-#define MAYBE_AllTypesIndividually DISABLED_AllTypesIndividually
-#else
-#define MAYBE_AllTypesIndividually AllTypesIndividually
-#endif
-IN_PROC_BROWSER_TEST_F(MigrationSingleClientTest, MAYBE_AllTypesIndividually) {
+IN_PROC_BROWSER_TEST_F(MigrationSingleClientTest,
+                       DISABLED_AllTypesIndividually) {
   ASSERT_TRUE(SetupClients());
   RunSingleClientMigrationTest(GetPreferredDataTypesList(), MODIFY_BOOKMARK);
 }
 
-#if defined(OS_WIN) || defined(OS_MACOSX)
 // http://crbug.com/403778
-#define MAYBE_AllTypesIndividuallyTriggerNotification DISABLED_AllTypesIndividuallyTriggerNotification
-#else
-#define MAYBE_AllTypesIndividuallyTriggerNotification AllTypesIndividuallyTriggerNotification
-#endif
 IN_PROC_BROWSER_TEST_F(MigrationSingleClientTest,
-                       MAYBE_AllTypesIndividuallyTriggerNotification) {
+                       DISABLED_AllTypesIndividuallyTriggerNotification) {
   ASSERT_TRUE(SetupClients());
   RunSingleClientMigrationTest(GetPreferredDataTypesList(),
                                TRIGGER_NOTIFICATION);

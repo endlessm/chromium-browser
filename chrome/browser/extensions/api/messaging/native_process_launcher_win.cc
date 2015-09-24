@@ -8,8 +8,8 @@
 
 #include "base/command_line.h"
 #include "base/logging.h"
-#include "base/process/kill.h"
 #include "base/process/launch.h"
+#include "base/process/process.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
@@ -88,8 +88,8 @@ base::FilePath NativeProcessLauncher::FindManifest(
 
 // static
 bool NativeProcessLauncher::LaunchNativeProcess(
-    const CommandLine& command_line,
-    base::ProcessHandle* process_handle,
+    const base::CommandLine& command_line,
+    base::Process* process,
     base::File* read_file,
     base::File* write_file) {
   // Timeout for the IO pipes.
@@ -151,8 +151,8 @@ bool NativeProcessLauncher::LaunchNativeProcess(
 
   base::LaunchOptions options;
   options.start_hidden = true;
-  base::win::ScopedHandle cmd_handle;
-  if (!base::LaunchProcess(command.c_str(), options, &cmd_handle)) {
+  base::Process cmd_process = base::LaunchProcess(command.c_str(), options);
+  if (!cmd_process.IsValid()) {
     LOG(ERROR) << "Error launching process "
                << command_line.GetProgram().MaybeAsASCII();
     return false;
@@ -163,15 +163,15 @@ bool NativeProcessLauncher::LaunchNativeProcess(
   bool stdin_connected = ConnectNamedPipe(stdin_pipe.Get(), NULL) ?
       TRUE : GetLastError() == ERROR_PIPE_CONNECTED;
   if (!stdout_connected || !stdin_connected) {
-    base::KillProcess(cmd_handle.Get(), 0, false);
+    cmd_process.Terminate(0, false);
     LOG(ERROR) << "Failed to connect IO pipes when starting "
                << command_line.GetProgram().MaybeAsASCII();
     return false;
   }
 
-  *process_handle = cmd_handle.Take();
-  *read_file = base::File(stdout_pipe.Take());
-  *write_file = base::File(stdin_pipe.Take());
+  *process = cmd_process.Pass();
+  *read_file = base::File::CreateForAsyncHandle(stdout_pipe.Take());
+  *write_file = base::File::CreateForAsyncHandle(stdin_pipe.Take());
 
   return true;
 }

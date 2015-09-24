@@ -1,4 +1,0 @@
-include_rules = [
-  "+chrome/common/all_messages.h",
-  "+content/common/all_messages.h",
-]

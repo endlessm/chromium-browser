@@ -6,15 +6,19 @@
 
 #include "ash/shell.h"
 #include "ash/shell_delegate.h"
+#include "ash/wm/window_util.h"
 #include "ui/aura/window.h"
+#include "ui/aura/window_tree_host.h"
 #include "ui/base/ime/mock_input_method.h"
-#include "ui/wm/core/input_method_event_filter.h"
 
 using namespace content;
 
 namespace ash {
 
-KeyboardControllerProxyStub::KeyboardControllerProxyStub() {
+KeyboardControllerProxyStub::KeyboardControllerProxyStub()
+    : keyboard::KeyboardControllerProxy(Shell::GetInstance()
+                                            ->delegate()
+                                            ->GetActiveBrowserContext()) {
 }
 
 KeyboardControllerProxyStub::~KeyboardControllerProxyStub() {
@@ -27,18 +31,16 @@ bool KeyboardControllerProxyStub::HasKeyboardWindow() const {
 aura::Window* KeyboardControllerProxyStub::GetKeyboardWindow() {
   if (!keyboard_) {
     keyboard_.reset(new aura::Window(&delegate_));
-    keyboard_->Init(aura::WINDOW_LAYER_NOT_DRAWN);
+    keyboard_->Init(ui::LAYER_NOT_DRAWN);
   }
   return keyboard_.get();
 }
 
-BrowserContext* KeyboardControllerProxyStub::GetBrowserContext() {
-  // TODO(oshima): investigate which profile to use.
-  return Shell::GetInstance()->delegate()->GetActiveBrowserContext();
-}
-
 ui::InputMethod* KeyboardControllerProxyStub::GetInputMethod() {
-  return Shell::GetInstance()->input_method_filter()->input_method();
+  aura::Window* active_window = wm::GetActiveWindow();
+  aura::Window* root_window = active_window ? active_window->GetRootWindow()
+                                            : Shell::GetPrimaryRootWindow();
+  return root_window->GetHost()->GetInputMethod();
 }
 
 void KeyboardControllerProxyStub::RequestAudioInput(

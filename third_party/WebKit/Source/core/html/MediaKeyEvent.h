@@ -26,28 +26,18 @@
 #ifndef MediaKeyEvent_h
 #define MediaKeyEvent_h
 
+#include "core/CoreExport.h"
 #include "core/dom/DOMTypedArray.h"
 #include "core/events/Event.h"
 #include "core/html/MediaKeyError.h"
+#include "core/html/MediaKeyEventInit.h"
 
 namespace blink {
 
-struct MediaKeyEventInit : public EventInit {
-    MediaKeyEventInit();
-
-    String keySystem;
-    String sessionId;
-    RefPtr<DOMUint8Array> initData;
-    RefPtr<DOMUint8Array> message;
-    String defaultURL;
-    RefPtrWillBeMember<MediaKeyError> errorCode;
-    unsigned short systemCode;
-};
-
-class MediaKeyEvent final : public Event {
+class CORE_EXPORT MediaKeyEvent final : public Event {
     DEFINE_WRAPPERTYPEINFO();
 public:
-    virtual ~MediaKeyEvent();
+    ~MediaKeyEvent() override;
 
     static PassRefPtrWillBeRawPtr<MediaKeyEvent> create()
     {
@@ -59,7 +49,7 @@ public:
         return adoptRefWillBeNoop(new MediaKeyEvent(type, initializer));
     }
 
-    virtual const AtomicString& interfaceName() const override;
+    const AtomicString& interfaceName() const override;
 
     String keySystem() const { return m_keySystem; }
     String sessionId() const { return m_sessionId; }
@@ -69,7 +59,7 @@ public:
     MediaKeyError* errorCode() const { return m_errorCode.get(); }
     unsigned short systemCode() const { return m_systemCode; }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     MediaKeyEvent();

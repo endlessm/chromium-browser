@@ -5,7 +5,8 @@
 #include "chrome/browser/ui/omnibox/omnibox_controller.h"
 
 #include "base/metrics/histogram.h"
-#include "chrome/browser/autocomplete/autocomplete_classifier.h"
+#include "chrome/browser/autocomplete/chrome_autocomplete_provider_client.h"
+#include "chrome/browser/bitmap_fetcher/bitmap_fetcher_service_factory.h"
 #include "chrome/browser/net/predictor.h"
 #include "chrome/browser/predictors/autocomplete_action_predictor.h"
 #include "chrome/browser/prerender/prerender_field_trial.h"
@@ -13,17 +14,17 @@
 #include "chrome/browser/prerender/prerender_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search/search.h"
-#include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/ui/omnibox/omnibox_edit_controller.h"
 #include "chrome/browser/ui/omnibox/omnibox_edit_model.h"
 #include "chrome/browser/ui/omnibox/omnibox_popup_model.h"
-#include "chrome/browser/ui/omnibox/omnibox_popup_view.h"
 #include "chrome/common/instant_types.h"
-#include "components/omnibox/autocomplete_match.h"
-#include "components/omnibox/search_provider.h"
+#include "components/omnibox/browser/autocomplete_classifier.h"
+#include "components/omnibox/browser/autocomplete_match.h"
+#include "components/omnibox/browser/omnibox_popup_view.h"
+#include "components/omnibox/browser/search_provider.h"
 #include "components/search/search.h"
 #include "extensions/common/constants.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace {
 
@@ -37,12 +38,10 @@ namespace {
 //
 // If the kAllowPrefetchNonDefaultMatch field trial is enabled we return the
 // prefetch suggestion even if it is not the default match. Otherwise we only
-// care about matches that are the default or the very first entry in the
-// dropdown (which can happen for non-default matches only if we're hiding a top
-// verbatim match) or the second entry in the dropdown (which can happen for
-// non-default matches when a top verbatim match is shown); for other matches,
-// we think the likelihood of the user selecting them is low enough that
-// prefetching isn't worth doing.
+// care about matches that are the default or the second entry in the dropdown
+// (which can happen for non-default matches when a top verbatim match is
+// shown); for other matches, we think the likelihood of the user selecting
+// them is low enough that prefetching isn't worth doing.
 const AutocompleteMatch* GetMatchToPrefetch(const AutocompleteResult& result) {
   if (chrome::ShouldAllowPrefetchNonDefaultMatch()) {
     const AutocompleteResult::const_iterator prefetch_match = std::find_if(
@@ -51,21 +50,46 @@ const AutocompleteMatch* GetMatchToPrefetch(const AutocompleteResult& result) {
   }
 
   // If the default match should be prefetched, do that.
-  const AutocompleteResult::const_iterator default_match(
-      result.default_match());
+  const auto default_match = result.default_match();
   if ((default_match != result.end()) &&
       SearchProvider::ShouldPrefetch(*default_match))
     return &(*default_match);
 
   // Otherwise, if the top match is a verbatim match and the very next match
   // is prefetchable, fetch that.
-  if ((result.ShouldHideTopMatch() ||
-       result.TopMatchIsStandaloneVerbatimMatch()) &&
-      (result.size() > 1) &&
+  if (result.TopMatchIsStandaloneVerbatimMatch() && (result.size() > 1) &&
       SearchProvider::ShouldPrefetch(result.match_at(1)))
     return &result.match_at(1);
 
   return NULL;
+}
+
+// Calls back to the OmniboxController when the requested image is downloaded.
+// This is a separate class instead of being implemented on OmniboxController
+// because BitmapFetcherService currently takes ownership of this object.
+// TODO(dschuyler): Make BitmapFetcherService use the more typical non-owning
+// ObserverList pattern and have OmniboxController implement the Observer call
+// directly.
+class AnswerImageObserver : public BitmapFetcherService::Observer {
+ public:
+  explicit AnswerImageObserver(
+      const base::WeakPtr<OmniboxController>& controller)
+      : controller_(controller) {}
+
+  void OnImageChanged(BitmapFetcherService::RequestId request_id,
+                      const SkBitmap& image) override;
+
+ private:
+  const base::WeakPtr<OmniboxController> controller_;
+  DISALLOW_COPY_AND_ASSIGN(AnswerImageObserver);
+};
+
+void AnswerImageObserver::OnImageChanged(
+    BitmapFetcherService::RequestId request_id,
+    const SkBitmap& image) {
+  DCHECK(!image.empty());
+  DCHECK(controller_);
+  controller_->SetAnswerBitmap(image);
 }
 
 }  // namespace
@@ -75,12 +99,19 @@ OmniboxController::OmniboxController(OmniboxEditModel* omnibox_edit_model,
     : omnibox_edit_model_(omnibox_edit_model),
       profile_(profile),
       popup_(NULL),
-      autocomplete_controller_(new AutocompleteController(profile,
-          TemplateURLServiceFactory::GetForProfile(profile), this,
-          AutocompleteClassifier::kDefaultOmniboxProviders)) {
+      autocomplete_controller_(new AutocompleteController(
+          make_scoped_ptr(new ChromeAutocompleteProviderClient(profile)),
+          this,
+          AutocompleteClassifier::kDefaultOmniboxProviders)),
+      request_id_(BitmapFetcherService::REQUEST_ID_INVALID),
+      weak_ptr_factory_(this) {
 }
 
 OmniboxController::~OmniboxController() {
+  BitmapFetcherService* image_service =
+      BitmapFetcherServiceFactory::GetForBrowserContext(profile_);
+  if (image_service)
+    image_service->CancelRequest(request_id_);
 }
 
 void OmniboxController::StartAutocomplete(
@@ -135,6 +166,22 @@ void OmniboxController::OnResultChanged(bool default_match_changed) {
     // clear the prefetched results.
     omnibox_edit_model_->SetSuggestionToPrefetch(prefetch_suggestion);
   }
+
+  for (AutocompleteResult::const_iterator match(result().begin());
+       match != result().end(); ++match) {
+    if (match->answer) {
+      BitmapFetcherService* image_service =
+          BitmapFetcherServiceFactory::GetForBrowserContext(profile_);
+      if (image_service) {
+        image_service->CancelRequest(request_id_);
+        request_id_ = image_service->RequestImage(
+            match->answer->second_line().image_url(),
+            new AnswerImageObserver(weak_ptr_factory_.GetWeakPtr()));
+      }
+      // We only fetch one answer image.
+      break;
+    }
+  }
 }
 
 void OmniboxController::InvalidateCurrentMatch() {
@@ -161,4 +208,9 @@ void OmniboxController::DoPreconnect(const AutocompleteMatch& match) {
     // can be many of these as a user types an initial series of characters,
     // the OS DNS cache could suffer eviction problems for minimal gain.
   }
+}
+
+void OmniboxController::SetAnswerBitmap(const SkBitmap& bitmap) {
+  request_id_ = BitmapFetcherService::REQUEST_ID_INVALID;
+  popup_->SetAnswerBitmap(bitmap);
 }

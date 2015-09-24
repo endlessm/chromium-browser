@@ -21,13 +21,6 @@ namespace dbus {
 
 namespace {
 
-// Used to test AddFilterFunction().
-DBusHandlerResult DummyHandler(DBusConnection* connection,
-                               DBusMessage* raw_message,
-                               void* user_data) {
-  return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
-}
-
 // Test helper for BusTest.ListenForServiceOwnerChange that wraps a
 // base::RunLoop. At Run() time, the caller pass in the expected number of
 // quit calls, and at QuitIfConditionIsSatisified() time, only quit the RunLoop
@@ -144,7 +137,7 @@ TEST(BusTest, RemoveObjectProxy) {
 
   // Create the bus.
   Bus::Options options;
-  options.dbus_task_runner = dbus_thread.message_loop_proxy();
+  options.dbus_task_runner = dbus_thread.task_runner();
   scoped_refptr<Bus> bus = new Bus(options);
   ASSERT_FALSE(bus->shutdown_completed());
 
@@ -224,7 +217,7 @@ TEST(BusTest, UnregisterExportedObject) {
 
   // Create the bus.
   Bus::Options options;
-  options.dbus_task_runner = dbus_thread.message_loop_proxy();
+  options.dbus_task_runner = dbus_thread.task_runner();
   scoped_refptr<Bus> bus = new Bus(options);
   ASSERT_FALSE(bus->shutdown_completed());
 
@@ -274,7 +267,7 @@ TEST(BusTest, ShutdownAndBlockWithDBusThread) {
 
   // Create the bus.
   Bus::Options options;
-  options.dbus_task_runner = dbus_thread.message_loop_proxy();
+  options.dbus_task_runner = dbus_thread.task_runner();
   scoped_refptr<Bus> bus = new Bus(options);
   ASSERT_FALSE(bus->shutdown_completed());
 
@@ -282,27 +275,6 @@ TEST(BusTest, ShutdownAndBlockWithDBusThread) {
   bus->ShutdownOnDBusThreadAndBlock();
   EXPECT_TRUE(bus->shutdown_completed());
   dbus_thread.Stop();
-}
-
-TEST(BusTest, AddFilterFunction) {
-  Bus::Options options;
-  scoped_refptr<Bus> bus = new Bus(options);
-  // Should connect before calling AddFilterFunction().
-  bus->Connect();
-
-  int data1 = 100;
-  int data2 = 200;
-  ASSERT_TRUE(bus->AddFilterFunction(&DummyHandler, &data1));
-  // Cannot add the same function with the same data.
-  ASSERT_FALSE(bus->AddFilterFunction(&DummyHandler, &data1));
-  // Can add the same function with different data.
-  ASSERT_TRUE(bus->AddFilterFunction(&DummyHandler, &data2));
-
-  ASSERT_TRUE(bus->RemoveFilterFunction(&DummyHandler, &data1));
-  ASSERT_FALSE(bus->RemoveFilterFunction(&DummyHandler, &data1));
-  ASSERT_TRUE(bus->RemoveFilterFunction(&DummyHandler, &data2));
-
-  bus->ShutdownAndBlock();
 }
 
 TEST(BusTest, DoubleAddAndRemoveMatch) {
@@ -416,6 +388,26 @@ TEST(BusTest, ListenForServiceOwnerChange) {
   bus->UnlistenForServiceOwnerChange("org.chromium.TestService", callback1);
   bus->UnlistenForServiceOwnerChange("org.chromium.TestService", callback2);
   base::RunLoop().RunUntilIdle();
+
+  // Shut down synchronously.
+  bus->ShutdownAndBlock();
+  EXPECT_TRUE(bus->shutdown_completed());
+}
+
+TEST(BusTest, GetConnectionName) {
+  Bus::Options options;
+  scoped_refptr<Bus> bus = new Bus(options);
+
+  // Connection name is empty since bus is not connected.
+  EXPECT_FALSE(bus->is_connected());
+  EXPECT_TRUE(bus->GetConnectionName().empty());
+
+  // Connect bus to D-Bus.
+  bus->Connect();
+
+  // Connection name is not empty after connection is established.
+  EXPECT_TRUE(bus->is_connected());
+  EXPECT_FALSE(bus->GetConnectionName().empty());
 
   // Shut down synchronously.
   bus->ShutdownAndBlock();

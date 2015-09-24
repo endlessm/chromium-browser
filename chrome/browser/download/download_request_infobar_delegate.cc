@@ -36,7 +36,7 @@ void DownloadRequestInfoBarDelegate::Create(
     // "downloads" permission) to automatically download >1 files.
     host->Cancel();
   } else {
-    infobar_service->AddInfoBar(ConfirmInfoBarDelegate::CreateInfoBar(
+    infobar_service->AddInfoBar(infobar_service->CreateConfirmInfoBar(
         scoped_ptr<ConfirmInfoBarDelegate>(
             new DownloadRequestInfoBarDelegate(host))));
   }
@@ -66,7 +66,7 @@ base::string16 DownloadRequestInfoBarDelegate::GetMessageText() const {
 base::string16 DownloadRequestInfoBarDelegate::GetButtonLabel(
     InfoBarButton button) const {
   return l10n_util::GetStringUTF16((button == BUTTON_OK) ?
-      IDS_MULTI_DOWNLOAD_WARNING_ALLOW : IDS_MULTI_DOWNLOAD_WARNING_DENY);
+      IDS_MULTI_DOWNLOAD_WARNING_ALLOW : IDS_MULTI_DOWNLOAD_WARNING_BLOCK);
 }
 
 bool DownloadRequestInfoBarDelegate::Accept() {

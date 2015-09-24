@@ -4,6 +4,8 @@
 
 #include "components/infobars/core/confirm_infobar_delegate.h"
 
+#include "base/logging.h"
+#include "components/infobars/core/infobar.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/strings/grit/ui_strings.h"
 
@@ -50,15 +52,6 @@ bool ConfirmInfoBarDelegate::LinkClicked(WindowOpenDisposition disposition) {
 ConfirmInfoBarDelegate::ConfirmInfoBarDelegate()
     : InfoBarDelegate() {
 }
-
-bool ConfirmInfoBarDelegate::ShouldExpireInternal(
-    const NavigationDetails& details) const {
-  return !details.did_replace_entry &&
-      InfoBarDelegate::ShouldExpireInternal(details);
-}
-
-// ConfirmInfoBarDelegate::CreateInfoBar() is implemented in platform-specific
-// files.
 
 bool ConfirmInfoBarDelegate::EqualsDelegate(InfoBarDelegate* delegate) const {
   ConfirmInfoBarDelegate* confirm_delegate =

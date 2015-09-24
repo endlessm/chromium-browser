@@ -20,7 +20,7 @@
 #include "components/keyed_service/core/keyed_service.h"
 #include "extensions/browser/extension_registry_observer.h"
 #include "ui/base/ui_base_types.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace extensions {
 
@@ -149,7 +149,7 @@ class AppWindowGeometryCache : public KeyedService,
   ScopedObserver<ExtensionRegistry, ExtensionRegistryObserver>
       extension_registry_observer_;
 
-  ObserverList<Observer> observers_;
+  base::ObserverList<Observer> observers_;
 };
 
 }  // namespace extensions

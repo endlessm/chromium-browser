@@ -41,7 +41,7 @@ enum EdgeModeType {
 
 class PLATFORM_EXPORT FEConvolveMatrix : public FilterEffect {
 public:
-    static PassRefPtr<FEConvolveMatrix> create(Filter*, const IntSize&,
+    static PassRefPtrWillBeRawPtr<FEConvolveMatrix> create(Filter*, const IntSize&,
             float, float, const IntPoint&, EdgeModeType, const FloatPoint&,
             bool, const Vector<float>&);
 
@@ -69,11 +69,11 @@ public:
     bool preserveAlpha() const;
     bool setPreserveAlpha(bool);
 
-    virtual PassRefPtr<SkImageFilter> createImageFilter(SkiaImageFilterBuilder*) override;
+    PassRefPtr<SkImageFilter> createImageFilter(SkiaImageFilterBuilder*) override;
 
-    virtual FloatRect mapPaintRect(const FloatRect&, bool forward = true) override final;
+    FloatRect mapPaintRect(const FloatRect&, bool forward = true) final;
 
-    virtual TextStream& externalRepresentation(TextStream&, int indention) const override;
+    TextStream& externalRepresentation(TextStream&, int indention) const override;
 
 private:
 

@@ -14,8 +14,8 @@
 #include "base/time/time.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/keycodes/keyboard_codes.h"
+#include "ui/gfx/geometry/point.h"
 #include "ui/gfx/native_widget_types.h"
-#include "ui/gfx/point.h"
 
 namespace base {
 class TickClock;
@@ -128,6 +128,13 @@ class EventGenerator {
 
   void set_async(bool async) { async_ = async; }
   bool async() const { return async_; }
+
+  // Dispatch events through the application instead of directly to the
+  // target window. Currently only supported on Mac.
+  void set_targeting_application(bool targeting_application) {
+    targeting_application_ = targeting_application;
+  }
+  bool targeting_application() const { return targeting_application_; }
 
   // Resets the event flags bitmask.
   void set_flags(int flags) { flags_ = flags; }
@@ -247,6 +254,15 @@ class EventGenerator {
   // without generating any scroll or tap events. This can also generate a few
   // other gesture events (e.g. GESTURE_BEGIN, END).
   void GestureTapDownAndUp(const gfx::Point& point);
+
+  // Calculates a time duration that can be used with the given |start|, |end|,
+  // and |steps| values when calling GestureScrollSequence (or
+  // GestureScrollSequenceWithCallback) to achieve the given |velocity|.
+  base::TimeDelta CalculateScrollDurationForFlingVelocity(
+      const gfx::Point& start,
+      const gfx::Point& end,
+      float velocity,
+      int steps);
 
   // Generates press, move, release touch-events to generate a sequence of
   // scroll events. |duration| and |steps| affect the velocity of the scroll,
@@ -374,6 +390,7 @@ class EventGenerator {
   std::list<Event*> pending_events_;
   // Set to true to cause events to be posted asynchronously.
   bool async_;
+  bool targeting_application_;
   scoped_ptr<base::TickClock> tick_clock_;
 
   DISALLOW_COPY_AND_ASSIGN(EventGenerator);

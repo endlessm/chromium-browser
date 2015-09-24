@@ -25,8 +25,8 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
 import android.text.TextUtils;
-import android.util.Log;
 
+import org.chromium.base.Log;
 import org.chromium.sync.signin.AccountManagerDelegate;
 import org.chromium.sync.signin.AccountManagerHelper;
 
@@ -69,7 +69,7 @@ import javax.annotation.Nullable;
  */
 public class MockAccountManager implements AccountManagerDelegate {
 
-    private static final String TAG = "MockAccountManager";
+    private static final String TAG = "cr.MockAccountManager";
 
     private static final long WAIT_TIME_FOR_GRANT_BROADCAST_MS = scaleTimeout(20000);
 
@@ -111,11 +111,6 @@ public class MockAccountManager implements AccountManagerDelegate {
     }
 
     @Override
-    public Account[] getAccounts() {
-        return getAccountsByType(null);
-    }
-
-    @Override
     public Account[] getAccountsByType(@Nullable String type) {
         if (!AccountManagerHelper.GOOGLE_ACCOUNT_TYPE.equals(type)) {
             throw new IllegalArgumentException("Invalid account type: " + type);
@@ -139,101 +134,44 @@ public class MockAccountManager implements AccountManagerDelegate {
         }
     }
 
-    @Override
-    public boolean addAccountExplicitly(Account account, String password, Bundle userdata) {
-        AccountHolder accountHolder =
-                AccountHolder.create().account(account).password(password).build();
-        return addAccountHolderExplicitly(accountHolder);
+    public boolean addAccountHolderExplicitly(AccountHolder accountHolder) {
+        return addAccountHolderExplicitly(accountHolder, false);
     }
 
-    public boolean addAccountHolderExplicitly(AccountHolder accountHolder) {
+    /**
+     * Add an AccountHolder directly.
+     *
+     * @param accountHolder the account holder to add
+     * @param broadcastEvent whether to broadcast an AccountChangedEvent
+     * @return whether the account holder was added successfully
+     */
+    public boolean addAccountHolderExplicitly(AccountHolder accountHolder,
+            boolean broadcastEvent) {
         boolean result = mAccounts.add(accountHolder);
-        postAsyncAccountChangedEvent();
+        if (broadcastEvent) {
+            postAsyncAccountChangedEvent();
+        }
         return result;
     }
 
     public boolean removeAccountHolderExplicitly(AccountHolder accountHolder) {
+        return removeAccountHolderExplicitly(accountHolder, false);
+    }
+
+    /**
+     * Remove an AccountHolder directly.
+     *
+     * @param accountHolder the account holder to remove
+     * @param broadcastEvent whether to broadcast an AccountChangedEvent
+     * @return whether the account holder was removed successfully
+     */
+    public boolean removeAccountHolderExplicitly(AccountHolder accountHolder,
+            boolean broadcastEvent) {
         boolean result = mAccounts.remove(accountHolder);
-        postAsyncAccountChangedEvent();
+        if (broadcastEvent) {
+            postAsyncAccountChangedEvent();
+        }
         return result;
-    }
-
-    @Override
-    public AccountManagerFuture<Boolean> removeAccount(Account account,
-            AccountManagerCallback<Boolean> callback, Handler handler) {
-        mAccounts.remove(getAccountHolder(account));
-        postAsyncAccountChangedEvent();
-        return runTask(mExecutor,
-                new AccountManagerTask<Boolean>(handler, callback, new Callable<Boolean>() {
-                    @Override
-                    public Boolean call() throws Exception {
-                        // Removal always successful.
-                        return true;
-                    }
-                }));
-    }
-
-    @Override
-    public String getPassword(Account account) {
-        return getAccountHolder(account).getPassword();
-    }
-
-    @Override
-    public void setPassword(Account account, String password) {
-        mAccounts.add(getAccountHolder(account).withPassword(password));
-    }
-
-    @Override
-    public void clearPassword(Account account) {
-        setPassword(account, null);
-    }
-
-    @Override
-    public AccountManagerFuture<Bundle> confirmCredentials(Account account, Bundle bundle,
-            Activity activity, AccountManagerCallback<Bundle> callback, Handler handler) {
-        String password = bundle.getString(AccountManager.KEY_PASSWORD);
-        if (password == null) {
-            throw new IllegalArgumentException("Password is null");
-        }
-        final AccountHolder accountHolder = getAccountHolder(account);
-        final boolean correctPassword = password.equals(accountHolder.getPassword());
-        return runTask(mExecutor, new AccountManagerTask<Bundle>(handler, callback,
-                new Callable<Bundle>() {
-                    @Override
-                    public Bundle call() throws Exception {
-                        Bundle result = new Bundle();
-                        result.putString(AccountManager.KEY_ACCOUNT_NAME,
-                                accountHolder.getAccount().name);
-                        result.putString(
-                                AccountManager.KEY_ACCOUNT_TYPE,
-                                AccountManagerHelper.GOOGLE_ACCOUNT_TYPE);
-                        result.putBoolean(AccountManager.KEY_BOOLEAN_RESULT, correctPassword);
-                        return result;
-                    }
-                }));
-    }
-
-    @Override
-    public String blockingGetAuthToken(Account account, String authTokenType,
-            boolean notifyAuthFailure)
-            throws OperationCanceledException, IOException, AuthenticatorException {
-        AccountHolder accountHolder = getAccountHolder(account);
-        if (accountHolder.hasBeenAccepted(authTokenType)) {
-            // If account has already been accepted we can just return the auth token.
-            return internalGenerateAndStoreAuthToken(accountHolder, authTokenType);
-        }
-        AccountAuthTokenPreparation prepared = getPreparedPermission(account, authTokenType);
-        Intent intent = newGrantCredentialsPermissionIntent(false, account, authTokenType);
-        waitForActivity(mContext, intent);
-        applyPreparedPermission(prepared);
-        return internalGenerateAndStoreAuthToken(accountHolder, authTokenType);
-    }
-
-    @Override
-    public AccountManagerFuture<Bundle> getAuthToken(Account account, String authTokenType,
-            Bundle options, Activity activity, AccountManagerCallback<Bundle> callback,
-            Handler handler) {
-        return getAuthTokenFuture(account, authTokenType, activity, callback, handler);
     }
 
     @Override
@@ -300,11 +238,6 @@ public class MockAccountManager implements AccountManagerDelegate {
     }
 
     @Override
-    public String peekAuthToken(Account account, String authTokenType) {
-        return getAccountHolder(account).getAuthToken(authTokenType);
-    }
-
-    @Override
     public void invalidateAuthToken(String accountType, String authToken) {
         if (!AccountManagerHelper.GOOGLE_ACCOUNT_TYPE.equals(accountType)) {
             throw new IllegalArgumentException("Invalid account type: " + accountType);
@@ -325,6 +258,32 @@ public class MockAccountManager implements AccountManagerDelegate {
                 AccountManagerHelper.GOOGLE_ACCOUNT_TYPE, "p1", 0, 0, 0, 0);
 
         return new AuthenticatorDescription[] { googleAuthenticator };
+    }
+
+    @Override
+    public AccountManagerFuture<Boolean> hasFeatures(Account account, final String[] features,
+            AccountManagerCallback<Boolean> callback, Handler handler) {
+        final AccountHolder accountHolder = getAccountHolder(account);
+        AccountManagerTask<Boolean> accountManagerTask =
+                new AccountManagerTask<Boolean>(handler, callback, new Callable<Boolean>() {
+                    @Override
+                    public Boolean call() throws Exception {
+                        Set<String> accountFeatures = accountHolder.getFeatures();
+                        for (String feature : features) {
+                            if (!accountFeatures.contains(feature)) {
+                                Log.d(TAG, accountFeatures + " does not contain " + feature);
+                                return false;
+                            }
+                        }
+                        return true;
+                    }
+                });
+        accountHolder.addFeaturesCallback(accountManagerTask);
+        return accountManagerTask;
+    }
+
+    public void notifyFeaturesFetched(Account account, Set<String> features) {
+        getAccountHolder(account).didFetchFeatures(features);
     }
 
     public void prepareAllowAppPermission(Account account, String authTokenType) {
@@ -494,7 +453,7 @@ public class MockAccountManager implements AccountManagerDelegate {
             }
         }
 
-        protected Handler getHandler() {
+        private Handler getHandler() {
             return mHandler == null ? mMainHandler : mHandler;
         }
 
@@ -583,6 +542,7 @@ public class MockAccountManager implements AccountManagerDelegate {
      * @param context the context to start the intent in
      * @param intent the intent to use to start MockGrantCredentialsPermissionActivity
      */
+    @SuppressWarnings("WaitNotInLoop")
     private void waitForActivity(Context context, Intent intent) {
         final Object mutex = new Object();
         BroadcastReceiver receiver = new BroadcastReceiver() {

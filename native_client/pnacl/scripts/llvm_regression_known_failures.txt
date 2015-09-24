@@ -2,8 +2,10 @@
 ### Mac-only failures
 ###
 
-# Introduced by the update to clang for the host build, still investigating.
-LLVM::ExecutionEngine/MCJIT/eh-sm-pic.ll
+# Failing only on the mac bot. I suspect it's just because the
+# .macosx_version_min on that output has a 10 in it (i.e. it's not hermetic).
+# TODO(dschuff): prove it.
+LLVM::CodeGen/X86/2008-11-03-F80VAARG.ll mac
 
 ###
 ### Windows-only failures
@@ -44,19 +46,10 @@ LLVM::DebugInfo/debuglineinfo.test win
 # Tries to open LLVMHello.dll, but that apparently does not get built.
 LLVM::Feature/load_module.ll win
 
+###
+### Post LLVM 3.5 merge failures.
+###
 
-###
-### x86-32-host only failures
-###
-LLVM::ExecutionEngine/MCJIT/stubs-sm-pic.ll x86_32
-LLVM::ExecutionEngine/MCJIT/remote/test-ptr-reloc-sm-pic.ll x86_32
-LLVM::ExecutionEngine/MCJIT/test-ptr-reloc-sm-pic.ll x86_32
-LLVM::ExecutionEngine/MCJIT/hello-sm-pic.ll x86_32
-LLVM::ExecutionEngine/MCJIT/multi-module-sm-pic-a.ll x86_32
-LLVM::ExecutionEngine/MCJIT/remote/multi-module-sm-pic-a.ll x86_32
-Clang::Modules/compiler_builtins.m x86_32
-LLVM::ExecutionEngine/MCJIT/cross-module-sm-pic-a.ll x86_32
-LLVM::ExecutionEngine/MCJIT/remote/cross-module-sm-pic-a.ll x86_32
-LLVM::ExecutionEngine/MCJIT/eh-lg-pic.ll x86_32
-LLVM::ExecutionEngine/MCJIT/remote/test-global-init-nonzero-sm-pic.ll x86_32
-LLVM::ExecutionEngine/MCJIT/test-global-init-nonzero-sm-pic.ll x86_32
+# Failure on mac introduced by the update to clang for the host build
+LLVM::ExecutionEngine/MCJIT/eh-sm-pic.ll mac
+LLVM::ExecutionEngine/OrcMCJIT/eh-sm-pic.ll mac

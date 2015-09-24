@@ -44,19 +44,23 @@ class ModuleSystem : public ObjectBackedNativeHandler,
   class SourceMap {
    public:
     virtual ~SourceMap() {}
-    virtual v8::Handle<v8::Value> GetSource(v8::Isolate* isolate,
-                                            const std::string& name) = 0;
+    virtual v8::Local<v8::Value> GetSource(v8::Isolate* isolate,
+                                           const std::string& name) = 0;
     virtual bool Contains(const std::string& name) = 0;
   };
 
   class ExceptionHandler {
    public:
+    explicit ExceptionHandler(ScriptContext* context) : context_(context) {}
     virtual ~ExceptionHandler() {}
     virtual void HandleUncaughtException(const v8::TryCatch& try_catch) = 0;
 
    protected:
     // Formats |try_catch| as a nice string.
     std::string CreateExceptionString(const v8::TryCatch& try_catch);
+    // A script context associated with this handler. Owned by the module
+    // system.
+    ScriptContext* context_;
   };
 
   // Enables native bindings for the duration of its lifetime.
@@ -76,13 +80,13 @@ class ModuleSystem : public ObjectBackedNativeHandler,
 
   // Require the specified module. This is the equivalent of calling
   // require('module_name') from the loaded JS files.
-  v8::Handle<v8::Value> Require(const std::string& module_name);
+  v8::MaybeLocal<v8::Object> Require(const std::string& module_name);
   void Require(const v8::FunctionCallbackInfo<v8::Value>& args);
 
   // Run |code| in the current context with the name |name| used for stack
   // traces.
-  v8::Handle<v8::Value> RunString(v8::Handle<v8::String> code,
-                                  v8::Handle<v8::String> name);
+  v8::Local<v8::Value> RunString(v8::Local<v8::String> code,
+                                 v8::Local<v8::String> name);
 
   // Calls the specified method exported by the specified module. This is
   // equivalent to calling require('module_name').method_name() from JS.
@@ -91,11 +95,11 @@ class ModuleSystem : public ObjectBackedNativeHandler,
   v8::Local<v8::Value> CallModuleMethod(
       const std::string& module_name,
       const std::string& method_name,
-      std::vector<v8::Handle<v8::Value> >* args);
+      std::vector<v8::Local<v8::Value>>* args);
   v8::Local<v8::Value> CallModuleMethod(const std::string& module_name,
                                         const std::string& method_name,
                                         int argc,
-                                        v8::Handle<v8::Value> argv[]);
+                                        v8::Local<v8::Value> argv[]);
 
   // Register |native_handler| as a potential target for requireNative(), so
   // calls to requireNative(|name|) from JS will return a new object created by
@@ -117,21 +121,21 @@ class ModuleSystem : public ObjectBackedNativeHandler,
   // TODO(kalman): All targets for this method are ObjectBackedNativeHandlers,
   //               move this logic into those classes (in fact, the chrome
   //               object is the only client, only that needs to implement it).
-  void SetLazyField(v8::Handle<v8::Object> object,
+  void SetLazyField(v8::Local<v8::Object> object,
                     const std::string& field,
                     const std::string& module_name,
                     const std::string& module_field);
 
-  void SetLazyField(v8::Handle<v8::Object> object,
+  void SetLazyField(v8::Local<v8::Object> object,
                     const std::string& field,
                     const std::string& module_name,
                     const std::string& module_field,
-                    v8::AccessorGetterCallback getter);
+                    v8::AccessorNameGetterCallback getter);
 
   // Make |object|.|field| lazily evaluate to the result of
   // requireNative(|module_name|)[|module_field|].
   // TODO(kalman): Same as above.
-  void SetNativeLazyField(v8::Handle<v8::Object> object,
+  void SetNativeLazyField(v8::Local<v8::Object> object,
                           const std::string& field,
                           const std::string& module_name,
                           const std::string& module_field);
@@ -142,6 +146,7 @@ class ModuleSystem : public ObjectBackedNativeHandler,
   }
 
  protected:
+  friend class ModuleSystemTestEnvironment;
   friend class ScriptContext;
   void Invalidate() override;
 
@@ -149,21 +154,21 @@ class ModuleSystem : public ObjectBackedNativeHandler,
   typedef std::map<std::string, linked_ptr<NativeHandler> > NativeHandlerMap;
 
   // Retrieves the lazily defined field specified by |property|.
-  static void LazyFieldGetter(v8::Local<v8::String> property,
+  static void LazyFieldGetter(v8::Local<v8::Name> property,
                               const v8::PropertyCallbackInfo<v8::Value>& info);
   // Retrieves the lazily defined field specified by |property| on a native
   // object.
   static void NativeLazyFieldGetter(
-      v8::Local<v8::String> property,
+      v8::Local<v8::Name> property,
       const v8::PropertyCallbackInfo<v8::Value>& info);
 
   // Called when an exception is thrown but not caught.
   void HandleException(const v8::TryCatch& try_catch);
 
   void RequireForJs(const v8::FunctionCallbackInfo<v8::Value>& args);
-  v8::Local<v8::Value> RequireForJsInner(v8::Handle<v8::String> module_name);
+  v8::Local<v8::Value> RequireForJsInner(v8::Local<v8::String> module_name);
 
-  typedef v8::Handle<v8::Value>(ModuleSystem::*RequireFunction)(
+  typedef v8::MaybeLocal<v8::Object>(ModuleSystem::*RequireFunction)(
       const std::string&);
   // Base implementation of a LazyFieldGetter which uses |require_fn| to require
   // modules.
@@ -174,12 +179,13 @@ class ModuleSystem : public ObjectBackedNativeHandler,
 
   // Return the named source file stored in the source map.
   // |args[0]| - the name of a source file in source_map_.
-  v8::Handle<v8::Value> GetSource(const std::string& module_name);
+  v8::Local<v8::Value> GetSource(const std::string& module_name);
 
   // Return an object that contains the native methods defined by the named
   // NativeHandler.
   // |args[0]| - the name of a native handler object.
-  v8::Handle<v8::Value> RequireNativeFromString(const std::string& native_name);
+  v8::MaybeLocal<v8::Object> RequireNativeFromString(
+      const std::string& native_name);
   void RequireNative(const v8::FunctionCallbackInfo<v8::Value>& args);
 
   // Return a promise for a requested module.
@@ -187,24 +193,27 @@ class ModuleSystem : public ObjectBackedNativeHandler,
   void RequireAsync(const v8::FunctionCallbackInfo<v8::Value>& args);
 
   // Wraps |source| in a (function(define, require, requireNative, ...) {...}).
-  v8::Handle<v8::String> WrapSource(v8::Handle<v8::String> source);
+  v8::Local<v8::String> WrapSource(v8::Local<v8::String> source);
 
   // NativeHandler implementation which returns the private area of an Object.
   void Private(const v8::FunctionCallbackInfo<v8::Value>& args);
 
   // Loads and runs a Javascript module.
-  v8::Handle<v8::Value> LoadModule(const std::string& module_name);
+  v8::Local<v8::Value> LoadModule(const std::string& module_name);
 
   // Invoked when a module is loaded in response to a requireAsync call.
   // Resolves |resolver| with |value|.
-  void OnModuleLoaded(
-      scoped_ptr<v8::UniquePersistent<v8::Promise::Resolver> > resolver,
-      v8::Handle<v8::Value> value);
+  void OnModuleLoaded(scoped_ptr<v8::Global<v8::Promise::Resolver>> resolver,
+                      v8::Local<v8::Value> value);
 
   // gin::ModuleRegistryObserver overrides.
   void OnDidAddPendingModule(
       const std::string& id,
       const std::vector<std::string>& dependencies) override;
+
+  // Marks any existing NativeHandler named |name| as clobbered.
+  // See |clobbered_native_handlers_|.
+  void ClobberExistingNativeHandler(const std::string& name);
 
   ScriptContext* context_;
 
@@ -223,7 +232,15 @@ class ModuleSystem : public ObjectBackedNativeHandler,
   // tests.
   scoped_ptr<ExceptionHandler> exception_handler_;
 
+  // A set of native handlers that should actually be require()d as non-native
+  // handlers. This is used for tests to mock out native handlers in JS.
   std::set<std::string> overridden_native_handlers_;
+
+  // A list of NativeHandlers that have been clobbered, either due to
+  // registering a NativeHandler when one was already registered with the same
+  // name, or due to OverrideNativeHandlerForTest. This is needed so that they
+  // can be later Invalidated. It should only happen in tests.
+  std::vector<linked_ptr<NativeHandler>> clobbered_native_handlers_;
 
   base::WeakPtrFactory<ModuleSystem> weak_factory_;
 

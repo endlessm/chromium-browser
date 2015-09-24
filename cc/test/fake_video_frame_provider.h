@@ -17,8 +17,11 @@ class FakeVideoFrameProvider : public VideoFrameProvider {
   ~FakeVideoFrameProvider() override;
 
   void SetVideoFrameProviderClient(Client* client) override;
+  bool UpdateCurrentFrame(base::TimeTicks deadline_min,
+                          base::TimeTicks deadline_max) override;
+  bool HasCurrentFrame() override;
   scoped_refptr<media::VideoFrame> GetCurrentFrame() override;
-  void PutCurrentFrame(const scoped_refptr<media::VideoFrame>&) override {}
+  void PutCurrentFrame() override;
 
   Client* client() { return client_; }
 
@@ -26,9 +29,12 @@ class FakeVideoFrameProvider : public VideoFrameProvider {
     frame_ = frame;
   }
 
+  int put_current_frame_count() const { return put_current_frame_count_; }
+
  private:
   scoped_refptr<media::VideoFrame> frame_;
   Client* client_;
+  int put_current_frame_count_;
 };
 
 }  // namespace cc

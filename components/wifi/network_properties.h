@@ -7,6 +7,7 @@
 
 #include <list>
 #include <set>
+#include <string>
 
 #include "base/values.h"
 #include "components/wifi/wifi_export.h"
@@ -46,8 +47,6 @@ struct WIFI_EXPORT NetworkProperties {
   bool auto_connect;
   Frequency frequency;
   FrequencySet frequency_set;
-
-  std::string json_extra;  // Extra JSON properties for unit tests
 
   scoped_ptr<base::DictionaryValue> ToValue(bool network_list) const;
   // Updates only properties set in |value|.

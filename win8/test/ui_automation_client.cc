@@ -118,7 +118,7 @@ class UIAutomationClient::Context::EventHandler
 
   // IUIAutomationEventHandler methods.
   STDMETHOD(HandleAutomationEvent)(IUIAutomationElement* sender,
-                                   EVENTID eventId);
+                                   EVENTID eventId) override;
 
  private:
   // The task runner for the UI automation client context.
@@ -249,11 +249,8 @@ HRESULT UIAutomationClient::Context::InstallWindowObserver() {
       event_handler_obj);
 
   result = automation_->AddAutomationEventHandler(
-      UIA_Window_WindowOpenedEventId,
-      root_element,
-      TreeScope_Descendants,
-      cache_request,
-      event_handler);
+      UIA_Window_WindowOpenedEventId, root_element.get(), TreeScope_Descendants,
+      cache_request.get(), event_handler.get());
 
   if (FAILED(result)) {
     LOG(ERROR) << std::hex << result;
@@ -281,9 +278,7 @@ HRESULT UIAutomationClient::Context::RemoveWindowObserver() {
   }
 
   result = automation_->RemoveAutomationEventHandler(
-      UIA_Window_WindowOpenedEventId,
-      root_element,
-      event_handler_);
+      UIA_Window_WindowOpenedEventId, root_element.get(), event_handler_.get());
   if (FAILED(result)) {
     LOG(ERROR) << std::hex << result;
     return result;
@@ -320,12 +315,13 @@ void UIAutomationClient::Context::HandleWindowOpen(
     return;
   }
 
-  if (V_VT(&var) != VT_BSTR) {
-    LOG(ERROR) << __FUNCTION__ << " class name is not a BSTR: " << V_VT(&var);
+  if (V_VT(var.ptr()) != VT_BSTR) {
+    LOG(ERROR) << __FUNCTION__
+               << " class name is not a BSTR: " << V_VT(var.ptr());
     return;
   }
 
-  base::string16 class_name(V_BSTR(&var));
+  base::string16 class_name(V_BSTR(var.ptr()));
 
   // Window class names are atoms, which are case-insensitive.
   if (class_name.size() == class_name_.size() &&
@@ -382,7 +378,7 @@ HRESULT UIAutomationClient::Context::InvokeDesiredItem(
   var.Reset();
   if (FAILED(result)) {
     LOG(ERROR) << std::hex << result;
-    return false;
+    return result;
   }
 
   var.Set(item_name_.c_str());
@@ -423,9 +419,7 @@ HRESULT UIAutomationClient::Context::InvokeDesiredItem(
 
   result = element->FindFirstBuildCache(
       static_cast<TreeScope>(TreeScope_Children | TreeScope_Descendants),
-      condition,
-      cache_request,
-      target.Receive());
+      condition.get(), cache_request.get(), target.Receive());
   if (FAILED(result)) {
     LOG(ERROR) << std::hex << result;
     return result;
@@ -489,8 +483,9 @@ HRESULT UIAutomationClient::Context::GetInvokableItems(
     return result;
   }
 
-  result = automation_->CreateAndCondition(
-      invokable_condition, control_view_condition, condition.Receive());
+  result = automation_->CreateAndCondition(invokable_condition.get(),
+                                           control_view_condition.get(),
+                                           condition.Receive());
   if (FAILED(result)) {
     LOG(ERROR) << std::hex << result;
     return result;
@@ -506,9 +501,7 @@ HRESULT UIAutomationClient::Context::GetInvokableItems(
 
   result = element->FindAllBuildCache(
       static_cast<TreeScope>(TreeScope_Children | TreeScope_Descendants),
-      condition,
-      cache_request,
-      element_array.Receive());
+      condition.get(), cache_request.get(), element_array.Receive());
   if (FAILED(result)) {
     LOG(ERROR) << std::hex << result;
     return result;
@@ -541,11 +534,11 @@ HRESULT UIAutomationClient::Context::GetInvokableItems(
       LOG(ERROR) << std::hex << result;
       continue;
     }
-    if (V_VT(&var) != VT_BSTR) {
-      LOG(ERROR) << __FUNCTION__ << " name is not a BSTR: " << V_VT(&var);
+    if (V_VT(var.ptr()) != VT_BSTR) {
+      LOG(ERROR) << __FUNCTION__ << " name is not a BSTR: " << V_VT(var.ptr());
       continue;
     }
-    choices->push_back(base::string16(V_BSTR(&var)));
+    choices->push_back(base::string16(V_BSTR(var.ptr())));
     var.Reset();
   }
 
@@ -572,13 +565,13 @@ void UIAutomationClient::Context::CloseWindow(
     return;
   }
 
-  if (V_VT(&var) != VT_I4) {
+  if (V_VT(var.ptr()) != VT_I4) {
     LOG(ERROR) << __FUNCTION__
-               << " window handle is not an int: " << V_VT(&var);
+               << " window handle is not an int: " << V_VT(var.ptr());
     return;
   }
 
-  HWND handle = reinterpret_cast<HWND>(V_I4(&var));
+  HWND handle = reinterpret_cast<HWND>(V_I4(var.ptr()));
 
   uint32 scan_code = MapVirtualKey(VK_ESCAPE, MAPVK_VK_TO_VSC);
   PostMessage(handle, WM_KEYDOWN, VK_ESCAPE,

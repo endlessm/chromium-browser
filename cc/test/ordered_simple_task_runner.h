@@ -11,10 +11,10 @@
 
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
-#include "base/debug/trace_event.h"
 #include "base/logging.h"
+#include "base/test/simple_test_tick_clock.h"
 #include "base/test/test_simple_task_runner.h"
-#include "cc/test/test_now_source.h"
+#include "base/trace_event/trace_event.h"
 
 namespace cc {
 
@@ -34,9 +34,9 @@ class TestOrderablePendingTask : public base::TestPendingTask {
   bool operator==(const TestOrderablePendingTask& other) const;
   bool operator<(const TestOrderablePendingTask& other) const;
 
-  // debug tracing functions
-  scoped_refptr<base::debug::ConvertableToTraceFormat> AsValue() const;
-  void AsValueInto(base::debug::TracedValue* state) const;
+  // base::trace_event tracing functionality
+  scoped_refptr<base::trace_event::ConvertableToTraceFormat> AsValue() const;
+  void AsValueInto(base::trace_event::TracedValue* state) const;
 
  private:
   static size_t task_id_counter;
@@ -48,9 +48,7 @@ class TestOrderablePendingTask : public base::TestPendingTask {
 // which don't have a delay even though it is queued early.
 class OrderedSimpleTaskRunner : public base::SingleThreadTaskRunner {
  public:
-  OrderedSimpleTaskRunner();
-  OrderedSimpleTaskRunner(scoped_refptr<TestNowSource> now_src,
-                          bool advance_now);
+  OrderedSimpleTaskRunner(base::SimpleTestTickClock* now_src, bool advance_now);
 
   // base::TestSimpleTaskRunner implementation:
   bool PostDelayedTask(const tracked_objects::Location& from_here,
@@ -61,6 +59,8 @@ class OrderedSimpleTaskRunner : public base::SingleThreadTaskRunner {
                                   base::TimeDelta delay) override;
 
   bool RunsTasksOnCurrentThread() const override;
+
+  static base::TimeTicks AbsoluteMaxNow();
 
   // Set a maximum number of tasks to run at once. Useful as a timeout to
   // prevent infinite task loops.
@@ -73,6 +73,7 @@ class OrderedSimpleTaskRunner : public base::SingleThreadTaskRunner {
     advance_now_ = advance_now;
   }
 
+  size_t NumPendingTasks() const;
   bool HasPendingTasks() const;
   base::TimeTicks NextTaskTime();
   base::TimeDelta DelayToNextTaskTime();
@@ -102,9 +103,9 @@ class OrderedSimpleTaskRunner : public base::SingleThreadTaskRunner {
   bool RunUntilTime(base::TimeTicks time);
   bool RunForPeriod(base::TimeDelta period);
 
-  // base::debug tracing functionality
-  scoped_refptr<base::debug::ConvertableToTraceFormat> AsValue() const;
-  virtual void AsValueInto(base::debug::TracedValue* state) const;
+  // base::trace_event tracing functionality
+  scoped_refptr<base::trace_event::ConvertableToTraceFormat> AsValue() const;
+  virtual void AsValueInto(base::trace_event::TracedValue* state) const;
 
   // Common conditions to run for, exposed publicly to allow external users to
   // use their own combinations.
@@ -137,7 +138,8 @@ class OrderedSimpleTaskRunner : public base::SingleThreadTaskRunner {
   base::ThreadChecker thread_checker_;
 
   bool advance_now_;
-  scoped_refptr<TestNowSource> now_src_;
+  // Not owned.
+  base::SimpleTestTickClock* now_src_;
 
   size_t max_tasks_;
 

@@ -6,9 +6,9 @@
 
 #include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/win/windows_version.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/app/chrome_dll_resource.h"
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/signin_header_helper.h"
 #include "chrome/browser/themes/theme_properties.h"
@@ -19,8 +19,8 @@
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "components/signin/core/common/profile_management_switches.h"
-#include "content/public/browser/notification_service.h"
 #include "grit/theme_resources.h"
+#include "skia/ext/image_operations.h"
 #include "ui/base/resource/resource_bundle_win.h"
 #include "ui/base/theme_provider.h"
 #include "ui/gfx/canvas.h"
@@ -30,6 +30,7 @@
 #include "ui/resources/grit/ui_resources.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/layout_constants.h"
+#include "ui/views/resources/grit/views_resources.h"
 #include "ui/views/win/hwnd_util.h"
 #include "ui/views/window/client_view.h"
 
@@ -37,8 +38,9 @@ HICON GlassBrowserFrameView::throbber_icons_[
     GlassBrowserFrameView::kThrobberIconCount];
 
 namespace {
-// There are 3 px of client edge drawn inside the outer frame borders.
-const int kNonClientBorderThickness = 3;
+// Size of client edge drawn inside the outer frame borders.
+const int kNonClientBorderThicknessPreWin10 = 3;
+const int kNonClientBorderThicknessWin10 = 1;
 // Besides the frame border, there's another 9 px of empty space atop the
 // window in restored mode, to use to drag the window around.
 const int kNonClientRestoredExtraThickness = 9;
@@ -72,6 +74,17 @@ const int kNewTabCaptionMaximizedSpacing = 16;
 // is no avatar icon.
 const int kTabStripIndent = -6;
 
+// Converts the |image| to a Windows icon and returns the corresponding HICON
+// handle. |image| is resized to desired |width| and |height| if needed.
+HICON CreateHICONFromSkBitmapSizedTo(const gfx::ImageSkia& image,
+                                     int width,
+                                     int height) {
+  if (width == image.width() && height == image.height())
+    return IconUtil::CreateHICONFromSkBitmap(*image.bitmap());
+  return IconUtil::CreateHICONFromSkBitmap(skia::ImageOperations::Resize(
+      *image.bitmap(), skia::ImageOperations::RESIZE_BEST, width, height));
+}
+
 }  // namespace
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -85,15 +98,7 @@ GlassBrowserFrameView::GlassBrowserFrameView(BrowserFrame* frame,
   if (browser_view->ShouldShowWindowIcon())
     InitThrobberIcons();
 
-  if (browser_view->IsRegularOrGuestSession() && switches::IsNewAvatarMenu())
-    UpdateNewStyleAvatarInfo(this, NewAvatarButton::NATIVE_BUTTON);
-  else
-    UpdateAvatarInfo();
-
-  if (!browser_view->IsOffTheRecord()) {
-    registrar_.Add(this, chrome::NOTIFICATION_PROFILE_CACHED_INFO_CHANGED,
-                   content::NotificationService::AllSources());
-  }
+  UpdateAvatar();
 }
 
 GlassBrowserFrameView::~GlassBrowserFrameView() {
@@ -203,7 +208,7 @@ gfx::Rect GlassBrowserFrameView::GetWindowBoundsForClientBounds(
   if (!browser_view()->IsTabStripVisible() && hwnd) {
     // If we don't have a tabstrip, we're either a popup or an app window, in
     // which case we have a standard size non-client area and can just use
-    // AdjustWindowRectEx to obtain it. We check for a non-NULL window handle in
+    // AdjustWindowRectEx to obtain it. We check for a non-null window handle in
     // case this gets called before the window is actually created.
     RECT rect = client_bounds.ToRECT();
     AdjustWindowRectEx(&rect, GetWindowLong(hwnd, GWL_STYLE), FALSE,
@@ -279,14 +284,27 @@ void GlassBrowserFrameView::Layout() {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// GlassBrowserFrameView, views::ButtonListener overrides:
+// GlassBrowserFrameView, protected:
+
+// views::ButtonListener:
 void GlassBrowserFrameView::ButtonPressed(views::Button* sender,
                                           const ui::Event& event) {
   if (sender == new_avatar_button()) {
+    BrowserWindow::AvatarBubbleMode mode =
+        BrowserWindow::AVATAR_BUBBLE_MODE_DEFAULT;
+    if (event.IsMouseEvent() &&
+        static_cast<const ui::MouseEvent&>(event).IsRightMouseButton()) {
+      mode = BrowserWindow::AVATAR_BUBBLE_MODE_FAST_USER_SWITCH;
+    }
     browser_view()->ShowAvatarBubbleFromAvatarButton(
-        BrowserWindow::AVATAR_BUBBLE_MODE_DEFAULT,
+        mode,
         signin::ManageAccountsParams());
   }
+}
+
+// BrowserNonClientFrameView:
+void GlassBrowserFrameView::UpdateNewAvatarButtonImpl() {
+  UpdateNewAvatarButton(this, NewAvatarButton::NATIVE_BUTTON);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -313,7 +331,9 @@ int GlassBrowserFrameView::NonClientBorderThickness() const {
   if (frame()->IsMaximized() || frame()->IsFullscreen())
     return 0;
 
-  return kNonClientBorderThickness;
+  return (base::win::GetVersion() <= base::win::VERSION_WIN8_1)
+             ? kNonClientBorderThicknessPreWin10
+             : kNonClientBorderThicknessWin10;
 }
 
 int GlassBrowserFrameView::NonClientTopBorderHeight() const {
@@ -337,11 +357,8 @@ void GlassBrowserFrameView::PaintToolbarBackground(gfx::Canvas* canvas) {
   toolbar_bounds.set_origin(toolbar_origin);
   int x = toolbar_bounds.x();
   int w = toolbar_bounds.width();
-  int left_x = x - kContentEdgeShadowThickness;
 
   gfx::ImageSkia* theme_toolbar = tp->GetImageSkiaNamed(IDR_THEME_TOOLBAR);
-  gfx::ImageSkia* toolbar_left = tp->GetImageSkiaNamed(
-      IDR_CONTENT_TOP_LEFT_CORNER);
   gfx::ImageSkia* toolbar_center = tp->GetImageSkiaNamed(
       IDR_CONTENT_TOP_CENTER);
 
@@ -357,36 +374,46 @@ void GlassBrowserFrameView::PaintToolbarBackground(gfx::Canvas* canvas) {
                        dest_y, w, theme_toolbar->height());
 
   if (browser_view()->IsTabStripVisible()) {
-    // Draw rounded corners for the tab.
-    gfx::ImageSkia* toolbar_left_mask =
-        tp->GetImageSkiaNamed(IDR_CONTENT_TOP_LEFT_CORNER_MASK);
-    gfx::ImageSkia* toolbar_right_mask =
-        tp->GetImageSkiaNamed(IDR_CONTENT_TOP_RIGHT_CORNER_MASK);
+    // On Windows 10, we don't draw our own window border but rather go right to
+    // the system border, so we don't need to draw the toolbar edges.
+    if (base::win::GetVersion() < base::win::VERSION_WIN10) {
+      int left_x = x - kContentEdgeShadowThickness;
+      // Draw rounded corners for the tab.
+      gfx::ImageSkia* toolbar_left_mask =
+          tp->GetImageSkiaNamed(IDR_CONTENT_TOP_LEFT_CORNER_MASK);
+      gfx::ImageSkia* toolbar_right_mask =
+          tp->GetImageSkiaNamed(IDR_CONTENT_TOP_RIGHT_CORNER_MASK);
 
-    // We mask out the corners by using the DestinationIn transfer mode,
-    // which keeps the RGB pixels from the destination and the alpha from
-    // the source.
-    SkPaint paint;
-    paint.setXfermodeMode(SkXfermode::kDstIn_Mode);
+      // We mask out the corners by using the DestinationIn transfer mode,
+      // which keeps the RGB pixels from the destination and the alpha from
+      // the source.
+      SkPaint paint;
+      paint.setXfermodeMode(SkXfermode::kDstIn_Mode);
 
-    // Mask out the top left corner.
-    canvas->DrawImageInt(*toolbar_left_mask, left_x, y, paint);
+      // Mask out the top left corner.
+      canvas->DrawImageInt(*toolbar_left_mask, left_x, y, paint);
 
-    // Mask out the top right corner.
-    int right_x =
-        x + w + kContentEdgeShadowThickness - toolbar_right_mask->width();
-    canvas->DrawImageInt(*toolbar_right_mask, right_x, y, paint);
+      // Mask out the top right corner.
+      int right_x =
+          x + w + kContentEdgeShadowThickness - toolbar_right_mask->width();
+      canvas->DrawImageInt(*toolbar_right_mask, right_x, y, paint);
 
-    // Draw left edge.
-    canvas->DrawImageInt(*toolbar_left, left_x, y);
+      // Draw left edge.
+      gfx::ImageSkia* toolbar_left =
+          tp->GetImageSkiaNamed(IDR_CONTENT_TOP_LEFT_CORNER);
+      canvas->DrawImageInt(*toolbar_left, left_x, y);
 
-    // Draw center edge.
-    canvas->TileImageInt(*toolbar_center, left_x + toolbar_left->width(), y,
-        right_x - (left_x + toolbar_left->width()), toolbar_center->height());
+      // Draw center edge.
+      canvas->TileImageInt(*toolbar_center, left_x + toolbar_left->width(), y,
+                           right_x - (left_x + toolbar_left->width()),
+                           toolbar_center->height());
 
-    // Right edge.
-    canvas->DrawImageInt(*tp->GetImageSkiaNamed(IDR_CONTENT_TOP_RIGHT_CORNER),
-                         right_x, y);
+      // Right edge.
+      canvas->DrawImageInt(*tp->GetImageSkiaNamed(IDR_CONTENT_TOP_RIGHT_CORNER),
+                           right_x, y);
+    } else {
+      canvas->TileImageInt(*toolbar_center, x, y, w, toolbar_center->height());
+    }
   }
 
   // Draw the content/toolbar separator.
@@ -539,27 +566,48 @@ void GlassBrowserFrameView::StopThrobber() {
   if (throbber_running_) {
     throbber_running_ = false;
 
-    HICON frame_icon = NULL;
+    HICON small_icon = nullptr;
+    HICON big_icon = nullptr;
 
     // Check if hosted BrowserView has a window icon to use.
     if (browser_view()->ShouldShowWindowIcon()) {
       gfx::ImageSkia icon = browser_view()->GetWindowIcon();
-      if (!icon.isNull())
-        frame_icon = IconUtil::CreateHICONFromSkBitmap(*icon.bitmap());
+      if (!icon.isNull()) {
+        small_icon = CreateHICONFromSkBitmapSizedTo(
+            icon, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON));
+        big_icon = CreateHICONFromSkBitmapSizedTo(
+            icon, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON));
+      }
     }
 
     // Fallback to class icon.
-    if (!frame_icon) {
-      frame_icon = reinterpret_cast<HICON>(GetClassLongPtr(
-          views::HWNDForWidget(frame()), GCLP_HICONSM));
+    if (!small_icon) {
+      small_icon = reinterpret_cast<HICON>(
+          GetClassLongPtr(views::HWNDForWidget(frame()), GCLP_HICONSM));
+    }
+    if (!big_icon) {
+      big_icon = reinterpret_cast<HICON>(
+          GetClassLongPtr(views::HWNDForWidget(frame()), GCLP_HICON));
     }
 
-    // This will reset the small icon which we set in the throbber code.
-    // WM_SETICON with NULL icon restores the icon for title bar but not
+    // This will reset the icon which we set in the throbber code.
+    // WM_SETICON with null icon restores the icon for title bar but not
     // for taskbar. See http://crbug.com/29996
-    SendMessage(views::HWNDForWidget(frame()), WM_SETICON,
-                static_cast<WPARAM>(ICON_SMALL),
-                reinterpret_cast<LPARAM>(frame_icon));
+    HICON previous_small_icon = reinterpret_cast<HICON>(
+        SendMessage(views::HWNDForWidget(frame()), WM_SETICON,
+                    static_cast<WPARAM>(ICON_SMALL),
+                    reinterpret_cast<LPARAM>(small_icon)));
+
+    HICON previous_big_icon = reinterpret_cast<HICON>(
+        SendMessage(views::HWNDForWidget(frame()), WM_SETICON,
+                    static_cast<WPARAM>(ICON_BIG),
+                    reinterpret_cast<LPARAM>(big_icon)));
+
+    if (previous_small_icon)
+      ::DestroyIcon(previous_small_icon);
+
+    if (previous_big_icon)
+      ::DestroyIcon(previous_big_icon);
   }
 }
 
@@ -568,25 +616,6 @@ void GlassBrowserFrameView::DisplayNextThrobberFrame() {
   SendMessage(views::HWNDForWidget(frame()), WM_SETICON,
               static_cast<WPARAM>(ICON_SMALL),
               reinterpret_cast<LPARAM>(throbber_icons_[throbber_frame_]));
-}
-
-void GlassBrowserFrameView::Observe(
-    int type,
-    const content::NotificationSource& source,
-    const content::NotificationDetails& details) {
-  switch (type) {
-    case chrome::NOTIFICATION_PROFILE_CACHED_INFO_CHANGED:
-      if (browser_view()->IsRegularOrGuestSession() &&
-          switches::IsNewAvatarMenu()) {
-        UpdateNewStyleAvatarInfo(this, NewAvatarButton::NATIVE_BUTTON);
-      } else {
-        UpdateAvatarInfo();
-      }
-      break;
-    default:
-      NOTREACHED() << "Got a notification we didn't register for!";
-      break;
-  }
 }
 
 // static

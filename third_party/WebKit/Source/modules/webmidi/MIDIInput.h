@@ -32,6 +32,7 @@
 #define MIDIInput_h
 
 #include "modules/EventTargetModules.h"
+#include "modules/webmidi/MIDIAccessor.h"
 #include "modules/webmidi/MIDIPort.h"
 
 namespace blink {
@@ -41,21 +42,22 @@ class MIDIAccess;
 class MIDIInput final : public MIDIPort {
     DEFINE_WRAPPERTYPEINFO();
 public:
-    static MIDIInput* create(MIDIAccess*, const String& id, const String& manufacturer, const String& name, const String& version, bool isActive);
-    virtual ~MIDIInput() { }
+    static MIDIInput* create(MIDIAccess*, const String& id, const String& manufacturer, const String& name, const String& version, MIDIAccessor::MIDIPortState);
+    ~MIDIInput() override { }
 
-    DEFINE_ATTRIBUTE_EVENT_LISTENER(midimessage);
+    EventListener* onmidimessage();
+    void setOnmidimessage(PassRefPtr<EventListener>);
 
     // EventTarget
-    virtual const AtomicString& interfaceName() const override { return EventTargetNames::MIDIInput; }
+    const AtomicString& interfaceName() const override { return EventTargetNames::MIDIInput; }
 
     // |timeStamp| is a DOMHighResTimeStamp in the time coordinate system of performance.now().
     void didReceiveMIDIData(unsigned portIndex, const unsigned char* data, size_t length, double timeStamp);
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
-    MIDIInput(MIDIAccess*, const String& id, const String& manufacturer, const String& name, const String& version, bool isActive);
+    MIDIInput(MIDIAccess*, const String& id, const String& manufacturer, const String& name, const String& version, MIDIAccessor::MIDIPortState);
 };
 
 } // namespace blink

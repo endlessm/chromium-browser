@@ -7,7 +7,7 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "gpu/command_buffer/service/texture_manager.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gl/android/surface_texture.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_image.h"
@@ -23,23 +23,26 @@ class GLImageImpl : public gfx::GLImage {
               const base::Closure& release_callback);
 
   // implement gfx::GLImage
-  virtual void Destroy(bool have_context) override;
-  virtual gfx::Size GetSize() override;
-  virtual bool BindTexImage(unsigned target) override;
-  virtual void ReleaseTexImage(unsigned target) override;
-  virtual bool CopyTexImage(unsigned target) override;
-  virtual void WillUseTexImage() override;
-  virtual void DidUseTexImage() override {}
-  virtual void WillModifyTexImage() override {}
-  virtual void DidModifyTexImage() override {}
-  virtual bool ScheduleOverlayPlane(gfx::AcceleratedWidget widget,
-                                    int z_order,
-                                    gfx::OverlayTransform transform,
-                                    const gfx::Rect& bounds_rect,
-                                    const gfx::RectF& crop_rect) override;
+  void Destroy(bool have_context) override;
+  gfx::Size GetSize() override;
+  unsigned GetInternalFormat() override;
+  bool BindTexImage(unsigned target) override;
+  void ReleaseTexImage(unsigned target) override;
+  bool CopyTexSubImage(unsigned target,
+                       const gfx::Point& offset,
+                       const gfx::Rect& rect) override;
+  void WillUseTexImage() override;
+  void DidUseTexImage() override {}
+  void WillModifyTexImage() override {}
+  void DidModifyTexImage() override {}
+  bool ScheduleOverlayPlane(gfx::AcceleratedWidget widget,
+                            int z_order,
+                            gfx::OverlayTransform transform,
+                            const gfx::Rect& bounds_rect,
+                            const gfx::RectF& crop_rect) override;
 
  private:
-  virtual ~GLImageImpl();
+  ~GLImageImpl() override;
 
   scoped_refptr<gfx::SurfaceTexture> surface_texture_;
   base::Closure release_callback_;
@@ -64,6 +67,10 @@ gfx::Size GLImageImpl::GetSize() {
   return gfx::Size();
 }
 
+unsigned GLImageImpl::GetInternalFormat() {
+  return GL_RGBA;
+}
+
 bool GLImageImpl::BindTexImage(unsigned target) {
   NOTREACHED();
   return false;
@@ -73,7 +80,9 @@ void GLImageImpl::ReleaseTexImage(unsigned target) {
   NOTREACHED();
 }
 
-bool GLImageImpl::CopyTexImage(unsigned target) {
+bool GLImageImpl::CopyTexSubImage(unsigned target,
+                                  const gfx::Point& offset,
+                                  const gfx::Rect& rect) {
   return false;
 }
 
@@ -126,17 +135,9 @@ GLuint StreamTextureManagerInProcess::CreateStreamTexture(
 
   gfx::Size size = gl_image->GetSize();
   texture_manager->SetTarget(texture, GL_TEXTURE_EXTERNAL_OES);
-  texture_manager->SetLevelInfo(texture,
-                                GL_TEXTURE_EXTERNAL_OES,
-                                0,
-                                GL_RGBA,
-                                size.width(),
-                                size.height(),
-                                1,
-                                0,
-                                GL_RGBA,
-                                GL_UNSIGNED_BYTE,
-                                true);
+  texture_manager->SetLevelInfo(texture, GL_TEXTURE_EXTERNAL_OES, 0, GL_RGBA,
+                                size.width(), size.height(), 1, 0, GL_RGBA,
+                                GL_UNSIGNED_BYTE, gfx::Rect(size));
   texture_manager->SetLevelImage(
       texture, GL_TEXTURE_EXTERNAL_OES, 0, gl_image.get());
 

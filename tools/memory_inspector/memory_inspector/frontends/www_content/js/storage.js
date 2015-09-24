@@ -25,6 +25,9 @@ this.onDomReady_ = function() {
       .click(this.dumpMmapForSelectedSnapshot_.bind(this));
   $('#storage-dump-nheap').button({icons:{primary: 'ui-icon-calculator'}})
       .click(this.dumpNheapForSelectedSnapshot_.bind(this));
+  if (window.DISABLE_NATIVE_TRACING) {
+    $('#storage-dump-nheap').hide();
+  }
 
   // Create the table.
   this.table_ = new google.visualization.Table($('#storage-table')[0]);
@@ -36,6 +39,10 @@ this.reload = function() {
 }
 
 this.onListAjaxResponse_ = function(data) {
+  if (window.DISABLE_NATIVE_TRACING) {
+    // Do not show the native heap column if native tracing is disabled.
+    data.cols.pop();
+  }
   this.tableData_ = new google.visualization.DataTable(data);
   this.redraw();
 };
@@ -44,7 +51,7 @@ this.profileMmapForSelectedSnapshots = function(ruleset) {
   // Generates a mmap profile for the selected snapshots.
   var sel = this.table_.getSelection();
   if (!sel.length || !this.tableData_) {
-    alert('No snapshots selected!');
+    rootUi.showDialog('No snapshots selected!');
     return;
   }
   var archiveName = null;
@@ -54,7 +61,8 @@ this.profileMmapForSelectedSnapshots = function(ruleset) {
     var row = sel[i].row;
     var curArchive = this.tableData_.getValue(row, 0);
     if (archiveName && curArchive != archiveName) {
-      alert('All the selected snapshots must belong to the same archive!');
+      rootUi.showDialog(
+          'All the selected snapshots must belong to the same archive!');
       return;
     }
     archiveName = curArchive;
@@ -67,7 +75,7 @@ this.profileMmapForSelectedSnapshots = function(ruleset) {
 this.dumpMmapForSelectedSnapshot_ = function() {
   var sel = this.table_.getSelection();
   if (sel.length != 1) {
-    alert('Please select only one snapshot.')
+    rootUi.showDialog('Please select only one snapshot.')
     return;
   }
 
@@ -80,7 +88,7 @@ this.dumpMmapForSelectedSnapshot_ = function() {
 this.dumpNheapForSelectedSnapshot_ = function() {
   var sel = this.table_.getSelection();
   if (sel.length != 1) {
-    alert('Please select only one snapshot.')
+    rootUi.showDialog('Please select only one snapshot.')
     return;
   }
 
@@ -96,7 +104,7 @@ this.profileNativeForSelectedSnapshots = function(ruleset) {
   // Generates a native heap profile for the selected snapshots.
   var sel = this.table_.getSelection();
   if (!sel.length || !this.tableData_) {
-    alert('No snapshots selected!');
+    rootUi.showDialog('No snapshots selected!');
     return;
   }
   var archiveName = null;
@@ -106,7 +114,8 @@ this.profileNativeForSelectedSnapshots = function(ruleset) {
     var row = sel[i].row;
     var curArchive = this.tableData_.getValue(row, 0);
     if (archiveName && curArchive != archiveName) {
-      alert('All the selected snapshots must belong to the same archive!');
+      rootUi.showDialog(
+          'All the selected snapshots must belong to the same archive!');
       return;
     }
     if (!this.checkHasNativeHapDump_(row))
@@ -120,7 +129,7 @@ this.profileNativeForSelectedSnapshots = function(ruleset) {
 
 this.checkHasNativeHapDump_ = function(row) {
   if (!this.tableData_.getValue(row, 3)) {
-    alert('The selected snapshot doesn\'t have a heap dump!');
+    rootUi.showDialog('The selected snapshot doesn\'t have a heap dump!');
     return false;
   }
   return true;
@@ -137,13 +146,15 @@ this.rebuildMenu_ = function() {
             this.profileMmapForSelectedSnapshots.bind(this, rule)));
   }, this);
 
-  this.profileMenu_.append(
-      $('<li/>').addClass('header').text('Native heap rules'));
-  profiler.rulesets['nheap'].forEach(function(rule) {
+  if (!window.DISABLE_NATIVE_TRACING) {
     this.profileMenu_.append(
-        $('<li/>').text(rule).click(
-            this.profileNativeForSelectedSnapshots.bind(this, rule)));
-  }, this);
+        $('<li/>').addClass('header').text('Native heap rules'));
+    profiler.rulesets['nheap'].forEach(function(rule) {
+      this.profileMenu_.append(
+          $('<li/>').text(rule).click(
+              this.profileNativeForSelectedSnapshots.bind(this, rule)));
+    }, this);
+  }
 
   this.profileMenu_.menu();
 };

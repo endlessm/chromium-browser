@@ -4,6 +4,7 @@
 
 #include "ash/display/display_layout.h"
 
+#include "ash/ash_switches.h"
 #include "ash/display/display_pref_util.h"
 #include "base/json/json_value_converter.h"
 #include "base/logging.h"
@@ -24,6 +25,7 @@ const int kMaxValidOffset = 10000;
 const char kPositionKey[] = "position";
 const char kOffsetKey[] = "offset";
 const char kMirroredKey[] = "mirrored";
+const char kDefaultUnifiedKey[] = "default_unified";
 const char kPrimaryIdKey[] = "primary-id";
 
 typedef std::map<DisplayLayout::Position, std::string> PositionToStringMap;
@@ -69,6 +71,11 @@ DisplayLayout::DisplayLayout()
     : position(RIGHT),
       offset(0),
       mirrored(false),
+#if defined(OS_CHROMEOS)
+      default_unified(switches::UnifiedDesktopEnabled()),
+#else
+      default_unified(false),
+#endif
       primary_id(gfx::Display::kInvalidDisplayID) {
 }
 
@@ -76,6 +83,11 @@ DisplayLayout::DisplayLayout(DisplayLayout::Position position, int offset)
     : position(position),
       offset(offset),
       mirrored(false),
+#if defined(OS_CHROMEOS)
+      default_unified(switches::UnifiedDesktopEnabled()),
+#else
+      default_unified(false),
+#endif
       primary_id(gfx::Display::kInvalidDisplayID) {
   DCHECK_LE(TOP, position);
   DCHECK_GE(LEFT, position);
@@ -127,15 +139,16 @@ bool DisplayLayout::ConvertToValue(const DisplayLayout& layout,
   dict_value->SetString(kPositionKey, position_str);
   dict_value->SetInteger(kOffsetKey, layout.offset);
   dict_value->SetBoolean(kMirroredKey, layout.mirrored);
+  dict_value->SetBoolean(kDefaultUnifiedKey, layout.default_unified);
   dict_value->SetString(kPrimaryIdKey, base::Int64ToString(layout.primary_id));
   return true;
 }
 
 std::string DisplayLayout::ToString() const {
   const std::string position_str = GetStringFromPosition(position);
-  return base::StringPrintf(
-      "%s, %d%s",
-      position_str.c_str(), offset, mirrored ? ", mirrored" : "");
+  return base::StringPrintf("%s, %d%s%s", position_str.c_str(), offset,
+                            mirrored ? ", mirrored" : "",
+                            default_unified ? ", unified" : "");
 }
 
 // static
@@ -145,6 +158,8 @@ void DisplayLayout::RegisterJSONConverter(
       kPositionKey, &DisplayLayout::position, &GetPositionFromString);
   converter->RegisterIntField(kOffsetKey, &DisplayLayout::offset);
   converter->RegisterBoolField(kMirroredKey, &DisplayLayout::mirrored);
+  converter->RegisterBoolField(kDefaultUnifiedKey,
+                               &DisplayLayout::default_unified);
   converter->RegisterCustomField<int64>(
       kPrimaryIdKey, &DisplayLayout::primary_id, &GetDisplayIdFromString);
 }

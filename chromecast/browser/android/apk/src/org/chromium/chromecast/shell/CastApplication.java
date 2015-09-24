@@ -4,12 +4,12 @@
 
 package org.chromium.chromecast.shell;
 
+import android.content.Context;
 import android.os.Build;
 import android.util.Log;
 
 import org.chromium.base.CommandLine;
 import org.chromium.base.PathUtils;
-import org.chromium.base.ResourceExtractor;
 import org.chromium.content.app.ContentApplication;
 
 /**
@@ -23,19 +23,17 @@ import org.chromium.content.app.ContentApplication;
 public class CastApplication extends ContentApplication {
     private static final String TAG = "CastApplication";
 
-    private static final String[] MANDATORY_PAK_FILES = new String[] {"cast_shell.pak"};
     private static final String PRIVATE_DATA_DIRECTORY_SUFFIX = "cast_shell";
     private static final String COMMAND_LINE_FILE = "/data/local/tmp/castshell-command-line";
 
     @Override
     public void onCreate() {
         super.onCreate();
-        initializeApplicationParameters();
+        initializeApplicationParameters(this);
     }
 
-    public static void initializeApplicationParameters() {
-        ResourceExtractor.setMandatoryPaksToExtract(MANDATORY_PAK_FILES);
-        PathUtils.setPrivateDataDirectorySuffix(PRIVATE_DATA_DIRECTORY_SUFFIX);
+    public static void initializeApplicationParameters(Context context) {
+        PathUtils.setPrivateDataDirectorySuffix(PRIVATE_DATA_DIRECTORY_SUFFIX, context);
     }
 
     @Override
@@ -49,6 +47,6 @@ public class CastApplication extends ContentApplication {
     }
 
     private static boolean allowCommandLineImport() {
-      return !Build.TYPE.equals("user");
+        return !Build.TYPE.equals("user");
     }
 }

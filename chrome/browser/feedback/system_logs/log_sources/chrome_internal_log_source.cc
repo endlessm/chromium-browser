@@ -8,7 +8,6 @@
 #include "base/prefs/pref_service.h"
 #include "base/sys_info.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/sync/about_sync_util.h"
@@ -16,10 +15,13 @@
 #include "chrome/common/chrome_version_info.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_pref_names.h"
 #include "content/public/browser/browser_thread.h"
-#include "extensions/browser/extension_system.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_set.h"
 
+#if defined(OS_WIN)
+#include "base/win/win_util.h"
+#endif
 
 namespace {
 
@@ -29,6 +31,9 @@ const char kDataReductionProxyKey[] = "data_reduction_proxy";
 const char kChromeVersionTag[] = "CHROME VERSION";
 #if !defined(OS_CHROMEOS)
 const char kOsVersionTag[] = "OS VERSION";
+#endif
+#if defined(OS_WIN)
+const char kUsbKeyboardDetected[] = "usb_keyboard_detected";
 #endif
 
 }  // namespace
@@ -43,7 +48,7 @@ ChromeInternalLogSource::~ChromeInternalLogSource() {
 }
 
 void ChromeInternalLogSource::Fetch(const SysLogsSourceCallback& callback) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(!callback.is_null());
 
   SystemLogsResponse response;
@@ -61,6 +66,12 @@ void ChromeInternalLogSource::Fetch(const SysLogsSourceCallback& callback) {
   PopulateSyncLogs(&response);
   PopulateExtensionInfoLogs(&response);
   PopulateDataReductionProxyLogs(&response);
+#if defined(OS_WIN)
+  PopulateUsbKeyboardDetected(&response);
+#endif
+
+  if (ProfileManager::GetLastUsedProfile()->IsChild())
+    response["account_type"] = "child";
 
   callback.Run(&response);
 }
@@ -113,17 +124,11 @@ void ChromeInternalLogSource::PopulateExtensionInfoLogs(
   if (!primary_profile)
     return;
 
-  ExtensionService* service =
-      extensions::ExtensionSystem::Get(primary_profile)->extension_service();
-  if (!service)
-    return;
-
+  extensions::ExtensionRegistry* extension_registry =
+      extensions::ExtensionRegistry::Get(primary_profile);
   std::string extensions_list;
-  const extensions::ExtensionSet* extensions = service->extensions();
-  for (extensions::ExtensionSet::const_iterator it = extensions->begin();
-       it != extensions->end();
-       ++it) {
-    const extensions::Extension* extension = it->get();
+  for (const scoped_refptr<const extensions::Extension>& extension :
+       extension_registry->enabled_extensions()) {
     if (extensions_list.empty()) {
       extensions_list = extension->name();
     } else {
@@ -147,5 +152,16 @@ void ChromeInternalLogSource::PopulateDataReductionProxyLogs(
   (*response)[kDataReductionProxyKey] = is_data_reduction_proxy_enabled ?
       "enabled" : "disabled";
 }
+
+#if defined(OS_WIN)
+void ChromeInternalLogSource::PopulateUsbKeyboardDetected(
+    SystemLogsResponse* response) {
+  std::string reason;
+  bool result = base::win::IsKeyboardPresentOnSlate(&reason);
+  (*response)[kUsbKeyboardDetected] = result ? "Keyboard Detected:\n" :
+                                               "No Keyboard:\n";
+  (*response)[kUsbKeyboardDetected] += reason;
+}
+#endif
 
 }  // namespace system_logs

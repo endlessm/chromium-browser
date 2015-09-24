@@ -25,11 +25,13 @@
 #include "core/frame/LocalFrame.h"
 #include "core/loader/FrameLoader.h"
 #include "core/page/Page.h"
+#include "public/platform/Platform.h"
+#include "public/platform/WebScheduler.h"
 #include "wtf/HashSet.h"
 
 namespace blink {
 
-ScopedPageLoadDeferrer::ScopedPageLoadDeferrer(Page* exclusion)
+ScopedPageLoadDeferrer::ScopedPageLoadDeferrer(Page* exclusion) : m_detached(false)
 {
     const HashSet<Page*>& pages = Page::ordinaryPages();
     for (const Page* page : pages) {
@@ -43,13 +45,6 @@ ScopedPageLoadDeferrer::ScopedPageLoadDeferrer(Page* exclusion)
             // showing anything modal, to prevent spoofs while the modal window or sheet is visible.
             page->deprecatedLocalMainFrame()->loader().notifyIfInitialDocumentAccessed();
         }
-
-        // This code is not logically part of load deferring, but we do not want JS code executed
-        // beneath modal windows or sheets, which is exactly when ScopedPageLoadDeferrer is used.
-        for (Frame* frame = page->mainFrame(); frame; frame = frame->tree().traverseNext()) {
-            if (frame->isLocalFrame())
-                toLocalFrame(frame)->document()->suspendScheduledTasks();
-        }
     }
 
     size_t count = m_deferredFrames.size();
@@ -57,20 +52,21 @@ ScopedPageLoadDeferrer::ScopedPageLoadDeferrer(Page* exclusion)
         if (Page* page = m_deferredFrames[i]->page())
             page->setDefersLoading(true);
     }
+    Platform::current()->currentThread()->scheduler()->suspendTimerQueue();
 }
 
 void ScopedPageLoadDeferrer::detach()
 {
-    for (size_t i = 0; i < m_deferredFrames.size(); ++i) {
-        if (Page* page = m_deferredFrames[i]->page()) {
-            page->setDefersLoading(false);
+    if (m_detached)
+        return;
 
-            for (Frame* frame = page->mainFrame(); frame; frame = frame->tree().traverseNext()) {
-                if (frame->isLocalFrame())
-                    toLocalFrame(frame)->document()->resumeScheduledTasks();
-            }
-        }
+    for (size_t i = 0; i < m_deferredFrames.size(); ++i) {
+        if (Page* page = m_deferredFrames[i]->page())
+            page->setDefersLoading(false);
     }
+
+    Platform::current()->currentThread()->scheduler()->resumeTimerQueue();
+    m_detached = true;
 }
 
 #if ENABLE(OILPAN)
@@ -86,7 +82,7 @@ ScopedPageLoadDeferrer::~ScopedPageLoadDeferrer()
     detach();
 }
 
-void ScopedPageLoadDeferrer::trace(Visitor* visitor)
+DEFINE_TRACE(ScopedPageLoadDeferrer)
 {
 #if ENABLE(OILPAN)
     visitor->trace(m_deferredFrames);

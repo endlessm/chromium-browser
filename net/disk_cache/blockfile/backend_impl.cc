@@ -10,15 +10,16 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/hash.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram.h"
-#include "base/metrics/stats_counters.h"
 #include "base/rand_util.h"
 #include "base/single_thread_task_runner.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/sys_info.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
@@ -41,7 +42,7 @@ using base::TimeTicks;
 
 namespace {
 
-const char* kIndexName = "index";
+const char kIndexName[] = "index";
 
 // Seems like ~240 MB correspond to less than 50k entries for 99% of the people.
 // Note that the actual target is to keep the index table load factor under 55%
@@ -354,6 +355,9 @@ int BackendImpl::SyncDoomEntry(const std::string& key) {
 }
 
 int BackendImpl::SyncDoomAllEntries() {
+  if (disabled_)
+    return net::ERR_FAILED;
+
   // This is not really an error, but it is an interesting condition.
   ReportError(ERR_CACHE_DOOMED);
   stats_.OnEvent(Stats::DOOM_CACHE);
@@ -484,8 +488,10 @@ EntryImpl* BackendImpl::OpenEntryImpl(const std::string& key) {
   if (!cache_entry) {
     CACHE_UMA(AGE_MS, "OpenTime.Miss", 0, start);
     CACHE_UMA(COUNTS_10000, "AllOpenBySize.Miss", 0, current_size);
-    CACHE_UMA(HOURS, "AllOpenByTotalHours.Miss", 0, total_hours);
-    CACHE_UMA(HOURS, "AllOpenByUseHours.Miss", 0, use_hours);
+    CACHE_UMA(HOURS, "AllOpenByTotalHours.Miss", 0,
+              static_cast<base::HistogramBase::Sample>(total_hours));
+    CACHE_UMA(HOURS, "AllOpenByUseHours.Miss", 0,
+              static_cast<base::HistogramBase::Sample>(use_hours));
     stats_.OnEvent(Stats::OPEN_MISS);
     return NULL;
   }
@@ -497,11 +503,12 @@ EntryImpl* BackendImpl::OpenEntryImpl(const std::string& key) {
         cache_entry->entry()->address().value());
   CACHE_UMA(AGE_MS, "OpenTime", 0, start);
   CACHE_UMA(COUNTS_10000, "AllOpenBySize.Hit", 0, current_size);
-  CACHE_UMA(HOURS, "AllOpenByTotalHours.Hit", 0, total_hours);
-  CACHE_UMA(HOURS, "AllOpenByUseHours.Hit", 0, use_hours);
+  CACHE_UMA(HOURS, "AllOpenByTotalHours.Hit", 0,
+            static_cast<base::HistogramBase::Sample>(total_hours));
+  CACHE_UMA(HOURS, "AllOpenByUseHours.Hit", 0,
+            static_cast<base::HistogramBase::Sample>(use_hours));
   stats_.OnEvent(Stats::OPEN_HIT);
   web_fonts_histogram::RecordCacheHit(cache_entry);
-  SIMPLE_STATS_COUNTER("disk_cache.hit");
   return cache_entry;
 }
 
@@ -597,7 +604,6 @@ EntryImpl* BackendImpl::CreateEntryImpl(const std::string& key) {
 
   CACHE_UMA(AGE_MS, "CreateTime", 0, start);
   stats_.OnEvent(Stats::CREATE_HIT);
-  SIMPLE_STATS_COUNTER("disk_cache.miss");
   Trace("create entry hit ");
   FlushIndex();
   cache_entry->AddRef();
@@ -673,7 +679,8 @@ EntryImpl* BackendImpl::OpenNextEntryImpl(Rankings::Iterator* iterator) {
 }
 
 bool BackendImpl::SetMaxSize(int max_bytes) {
-  COMPILE_ASSERT(sizeof(max_bytes) == sizeof(max_size_), unsupported_int_model);
+  static_assert(sizeof(max_bytes) == sizeof(max_size_),
+                "unsupported int model");
   if (max_bytes < 0)
     return false;
 
@@ -1027,7 +1034,7 @@ void BackendImpl::CriticalError(int error) {
   disabled_ = true;
 
   if (!num_refs_)
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(&BackendImpl::RestartCache, GetWeakPtr(), true));
 }
 
@@ -1283,19 +1290,19 @@ void BackendImpl::GetStats(StatsItems* stats) {
   std::pair<std::string, std::string> item;
 
   item.first = "Entries";
-  item.second = base::StringPrintf("%d", data_->header.num_entries);
+  item.second = base::IntToString(data_->header.num_entries);
   stats->push_back(item);
 
   item.first = "Pending IO";
-  item.second = base::StringPrintf("%d", num_pending_io_);
+  item.second = base::IntToString(num_pending_io_);
   stats->push_back(item);
 
   item.first = "Max size";
-  item.second = base::StringPrintf("%d", max_size_);
+  item.second = base::IntToString(max_size_);
   stats->push_back(item);
 
   item.first = "Current size";
-  item.second = base::StringPrintf("%d", data_->header.num_bytes);
+  item.second = base::IntToString(data_->header.num_bytes);
   stats->push_back(item);
 
   item.first = "Cache type";
@@ -1804,7 +1811,7 @@ void BackendImpl::DecreaseNumRefs() {
   num_refs_--;
 
   if (!num_refs_ && disabled_)
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(&BackendImpl::RestartCache, GetWeakPtr(), true));
 }
 
@@ -1886,7 +1893,7 @@ void BackendImpl::ReportStats() {
   // time is the ratio of that bin's total count to the count in the same bin in
   // the TotalTime histogram.
   if (base::RandInt(0, 99) < hit_ratio_as_percentage)
-    CACHE_UMA(HOURS, "HitRatioByTotalTime", 0, implicit_cast<int>(total_hours));
+    CACHE_UMA(HOURS, "HitRatioByTotalTime", 0, static_cast<int>(total_hours));
 
   int64 use_hours = stats_.GetCounter(Stats::LAST_REPORT_TIMER) / 120;
   stats_.SetCounter(Stats::LAST_REPORT_TIMER, stats_.GetCounter(Stats::TIMER));
@@ -1904,7 +1911,7 @@ void BackendImpl::ReportStats() {
   // is the ratio of that bin's total count to the count in the same bin in the
   // UseTime histogram.
   if (base::RandInt(0, 99) < hit_ratio_as_percentage)
-    CACHE_UMA(HOURS, "HitRatioByUseTime", 0, implicit_cast<int>(use_hours));
+    CACHE_UMA(HOURS, "HitRatioByUseTime", 0, static_cast<int>(use_hours));
   CACHE_UMA(PERCENTAGE, "HitRatio", 0, hit_ratio_as_percentage);
 
   int64 trim_rate = stats_.GetCounter(Stats::TRIM_ENTRY) / use_hours;

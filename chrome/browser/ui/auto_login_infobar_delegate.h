@@ -50,24 +50,24 @@ class AutoLoginInfoBarDelegate : public ConfirmInfoBarDelegate,
   };
 
   AutoLoginInfoBarDelegate(const Params& params, Profile* profile);
-  virtual ~AutoLoginInfoBarDelegate();
+  ~AutoLoginInfoBarDelegate() override;
 
   void RecordHistogramAction(Actions action);
 
  private:
   // ConfirmInfoBarDelegate:
-  virtual void InfoBarDismissed() override;
-  virtual int GetIconID() const override;
-  virtual Type GetInfoBarType() const override;
-  virtual AutoLoginInfoBarDelegate* AsAutoLoginInfoBarDelegate() override;
-  virtual base::string16 GetMessageText() const override;
-  virtual base::string16 GetButtonLabel(InfoBarButton button) const override;
-  virtual bool Accept() override;
-  virtual bool Cancel() override;
+  Type GetInfoBarType() const override;
+  int GetIconID() const override;
+  void InfoBarDismissed() override;
+  AutoLoginInfoBarDelegate* AsAutoLoginInfoBarDelegate() override;
+  base::string16 GetMessageText() const override;
+  base::string16 GetButtonLabel(InfoBarButton button) const override;
+  bool Accept() override;
+  bool Cancel() override;
 
   // SigninManagerBase::Observer:
-  virtual void GoogleSignedOut(const std::string& account_id,
-                               const std::string& username) override;
+  void GoogleSignedOut(const std::string& account_id,
+                       const std::string& username) override;
 
   const Params params_;
 

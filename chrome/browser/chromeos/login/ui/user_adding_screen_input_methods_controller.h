@@ -7,7 +7,7 @@
 
 #include "base/memory/ref_counted.h"
 #include "chrome/browser/chromeos/login/ui/user_adding_screen.h"
-#include "chromeos/ime/input_method_manager.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
 
 namespace user_manager {
 class User;
@@ -20,11 +20,11 @@ class UserAddingScreenInputMethodsController
     : public UserAddingScreen::Observer {
  public:
   explicit UserAddingScreenInputMethodsController(UserAddingScreen* screen);
-  virtual ~UserAddingScreenInputMethodsController();
+  ~UserAddingScreenInputMethodsController() override;
 
   // UserAddingScreen::Observer implementation:
-  virtual void OnUserAddingStarted() override;
-  virtual void OnUserAddingFinished() override;
+  void OnUserAddingStarted() override;
+  void OnUserAddingFinished() override;
 
  private:
   UserAddingScreen* screen_;

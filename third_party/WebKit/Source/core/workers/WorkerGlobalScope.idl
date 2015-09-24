@@ -24,25 +24,33 @@
  *
  */
 
+// https://html.spec.whatwg.org/#the-workerglobalscope-common-interface
+
 [
-    Custom=ToV8,
     Exposed=Worker,
 ] interface WorkerGlobalScope : EventTarget {
+    readonly attribute WorkerGlobalScope self;
+    readonly attribute WorkerLocation location;
 
-    // WorkerGlobalScope
-    [Replaceable] readonly attribute WorkerGlobalScope self;
-    [Replaceable] readonly attribute WorkerLocation location;
     void close();
+    // TODO(philipj): onerror should be an OnErrorEventHandler.
     attribute EventHandler onerror;
+    // attribute EventHandler onlanguagechange;
+    // attribute EventHandler onoffline;
+    // attribute EventHandler ononline;
+
+    // https://html.spec.whatwg.org/#apis-available-to-workers
+    [RaisesException] void importScripts(DOMString... urls);
+    readonly attribute WorkerNavigator navigator;
+
+    // Console API (non-standard but widely implemented in some form)
+    // https://developer.chrome.com/devtools/docs/console-api
     [Replaceable] readonly attribute WorkerConsole console;
 
-
-    // WorkerUtils
-    [RaisesException] void importScripts(DOMString... urls);
-    [Replaceable] readonly attribute WorkerNavigator navigator;
-
-    // Additional constructors
-    [MeasureAs=PrefixedWorkerURL] attribute URLConstructor webkitURL; // FIXME: deprecate this.
+    // Unhandled Promise Rejection Events
+    // https://github.com/domenic/unhandled-rejections-browser-spec
+    [RuntimeEnabled=PromiseRejectionEvent] attribute EventHandler onrejectionhandled;
+    [RuntimeEnabled=PromiseRejectionEvent] attribute EventHandler onunhandledrejection;
 };
 
 WorkerGlobalScope implements WindowBase64;

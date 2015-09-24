@@ -32,7 +32,7 @@ WorkspaceBackdropDelegate::WorkspaceBackdropDelegate(aura::Window* container)
       views::Widget::InitParams::TYPE_WINDOW_FRAMELESS);
   params.parent = container_;
   params.bounds = container_->GetBoundsInScreen();
-  params.layer_type = aura::WINDOW_LAYER_SOLID_COLOR;
+  params.layer_type = ui::LAYER_SOLID_COLOR;
   // To disallow the MRU list from picking this window up it should not be
   // activateable.
   params.activatable = views::Widget::InitParams::ACTIVATABLE_NO;
@@ -108,6 +108,10 @@ void WorkspaceBackdropDelegate::RestackBackdrop() {
   }
   if (window == background_->GetNativeWindow() &&
       background_->IsVisible()) {
+    return;
+  }
+  if (window->GetRootWindow() !=
+      background_->GetNativeWindow()->GetRootWindow()) {
     return;
   }
   // We are changing the order of windows which will cause recursion.

@@ -16,7 +16,6 @@ namespace extensions {
 
 namespace {
 
-const char kOldUnlimitedStoragePermission[] = "unlimited_storage";
 const char kWindowsPermission[] = "windows";
 
 template <typename T>
@@ -28,21 +27,22 @@ APIPermission* CreateAPIPermission(const APIPermissionInfo* permission) {
 
 std::vector<APIPermissionInfo*> ChromeAPIPermissions::GetAllPermissions()
     const {
+  // WARNING: If you are modifying a permission message in this list, be sure to
+  // add the corresponding permission message rule to
+  // ChromePermissionMessageProvider::GetCoalescedPermissionMessages as well.
+  // TODO(sashab): Remove all permission messages from this list, once
+  // GetCoalescedPermissionMessages() is the only way of generating permission
+  // messages.
   APIPermissionInfo::InitInfo permissions_to_register[] = {
       // Register permissions for all extension types.
       {APIPermission::kBackground, "background"},
-      {APIPermission::kClipboardRead,
-       "clipboardRead",
-       APIPermissionInfo::kFlagNone,
-       IDS_EXTENSION_PROMPT_WARNING_CLIPBOARD,
-       PermissionMessage::kClipboard},
-      {APIPermission::kClipboardWrite, "clipboardWrite"},
       {APIPermission::kDeclarativeContent, "declarativeContent"},
       {APIPermission::kDesktopCapture,
        "desktopCapture",
        APIPermissionInfo::kFlagNone,
        IDS_EXTENSION_PROMPT_WARNING_DESKTOP_CAPTURE,
        PermissionMessage::kDesktopCapture},
+      {APIPermission::kDesktopCapturePrivate, "desktopCapturePrivate"},
       {APIPermission::kDownloads,
        "downloads",
        APIPermissionInfo::kFlagNone,
@@ -73,9 +73,6 @@ std::vector<APIPermissionInfo*> ChromeAPIPermissions::GetAllPermissions()
        IDS_EXTENSION_PROMPT_WARNING_GEOLOCATION,
        PermissionMessage::kGeolocation},
       {APIPermission::kNotifications, "notifications"},
-      {APIPermission::kUnlimitedStorage,
-       "unlimitedStorage",
-       APIPermissionInfo::kFlagCannotBeOptional},
       {APIPermission::kGcdPrivate, "gcdPrivate"},
       {APIPermission::kGcm, "gcm"},
       {APIPermission::kNotificationProvider, "notificationProvider"},
@@ -95,7 +92,7 @@ std::vector<APIPermissionInfo*> ChromeAPIPermissions::GetAllPermissions()
        "accessibilityPrivate",
        APIPermissionInfo::kFlagCannotBeOptional},
       {APIPermission::kActiveTab, "activeTab"},
-      {APIPermission::kAlarms, "alarms"},
+      {APIPermission::kAudioModem, "audioModem"},
       {APIPermission::kBookmark,
        "bookmarks",
        APIPermissionInfo::kFlagNone,
@@ -118,9 +115,11 @@ std::vector<APIPermissionInfo*> ChromeAPIPermissions::GetAllPermissions()
        IDS_EXTENSION_PROMPT_WARNING_COPRESENCE,
        PermissionMessage::kCopresence},
       {APIPermission::kCopresencePrivate, "copresencePrivate"},
-      {APIPermission::kDocumentScan, "documentScan",
-       APIPermissionInfo::kFlagNone, IDS_EXTENSION_PROMPT_WARNING_DOCUMENT_SCAN,
-       PermissionMessage::kDocumentScan},
+      {APIPermission::kCryptotokenPrivate, "cryptotokenPrivate"},
+      {APIPermission::kDataReductionProxy,
+       "dataReductionProxy",
+       APIPermissionInfo::kFlagImpliesFullURLAccess |
+           APIPermissionInfo::kFlagCannotBeOptional},
       {APIPermission::kEnterprisePlatformKeys, "enterprise.platformKeys"},
       {APIPermission::kFileBrowserHandler,
        "fileBrowserHandler",
@@ -134,8 +133,6 @@ std::vector<APIPermissionInfo*> ChromeAPIPermissions::GetAllPermissions()
        IDS_EXTENSION_PROMPT_WARNING_HISTORY_WRITE,
        PermissionMessage::kBrowsingHistory},
       {APIPermission::kIdltest, "idltest"},
-      {APIPermission::kIdle, "idle"},
-      {APIPermission::kInfobars, "infobars"},
       {APIPermission::kInput,
        "input",
        APIPermissionInfo::kFlagNone,
@@ -151,11 +148,21 @@ std::vector<APIPermissionInfo*> ChromeAPIPermissions::GetAllPermissions()
        APIPermissionInfo::kFlagNone,
        IDS_EXTENSION_PROMPT_WARNING_MANAGEMENT,
        PermissionMessage::kManagement},
+      {APIPermission::kMDns,
+       "mdns",
+       APIPermissionInfo::kFlagCannotBeOptional,
+       IDS_EXTENSION_PROMPT_WARNING_MDNS,
+       PermissionMessage::kMDns},
       {APIPermission::kNativeMessaging,
        "nativeMessaging",
        APIPermissionInfo::kFlagNone,
        IDS_EXTENSION_PROMPT_WARNING_NATIVE_MESSAGING,
        PermissionMessage::kNativeMessaging},
+      {APIPermission::kPlatformKeys,
+       "platformKeys",
+       APIPermissionInfo::kFlagNone,
+       IDS_EXTENSION_PROMPT_WARNING_PLATFORMKEYS,
+       PermissionMessage::kPlatformKeys},
       {APIPermission::kPrivacy,
        "privacy",
        APIPermissionInfo::kFlagNone,
@@ -234,9 +241,6 @@ std::vector<APIPermissionInfo*> ChromeAPIPermissions::GetAllPermissions()
       {APIPermission::kDeveloperPrivate,
        "developerPrivate",
        APIPermissionInfo::kFlagCannotBeOptional},
-      {APIPermission::kDiagnostics,
-       "diagnostics",
-       APIPermissionInfo::kFlagCannotBeOptional},
       {APIPermission::kDial, "dial", APIPermissionInfo::kFlagCannotBeOptional},
       {APIPermission::kDownloadsInternal, "downloadsInternal"},
       {APIPermission::kExperienceSamplingPrivate,
@@ -260,18 +264,15 @@ std::vector<APIPermissionInfo*> ChromeAPIPermissions::GetAllPermissions()
        "logPrivate",
        APIPermissionInfo::kFlagCannotBeOptional},
       {APIPermission::kWebcamPrivate, "webcamPrivate"},
-      {APIPermission::kNetworkingPrivate,
-       "networkingPrivate",
-       APIPermissionInfo::kFlagCannotBeOptional,
-       IDS_EXTENSION_PROMPT_WARNING_NETWORKING_PRIVATE,
-       PermissionMessage::kNetworkingPrivate},
       {APIPermission::kMediaPlayerPrivate,
        "mediaPlayerPrivate",
+       APIPermissionInfo::kFlagCannotBeOptional},
+      {APIPermission::kMediaRouterPrivate,
+       "mediaRouterPrivate",
        APIPermissionInfo::kFlagCannotBeOptional},
       {APIPermission::kMetricsPrivate,
        "metricsPrivate",
        APIPermissionInfo::kFlagCannotBeOptional},
-      {APIPermission::kMDns, "mdns", APIPermissionInfo::kFlagCannotBeOptional},
       {APIPermission::kMusicManagerPrivate,
        "musicManagerPrivate",
        APIPermissionInfo::kFlagCannotBeOptional,
@@ -304,8 +305,6 @@ std::vector<APIPermissionInfo*> ChromeAPIPermissions::GetAllPermissions()
       {APIPermission::kRtcPrivate,
        "rtcPrivate",
        APIPermissionInfo::kFlagCannotBeOptional},
-      {APIPermission::kSyncedNotificationsPrivate,
-       "syncedNotificationsPrivate"},
       {APIPermission::kTerminalPrivate,
        "terminalPrivate",
        APIPermissionInfo::kFlagCannotBeOptional},
@@ -318,9 +317,6 @@ std::vector<APIPermissionInfo*> ChromeAPIPermissions::GetAllPermissions()
       {APIPermission::kWebstorePrivate,
        "webstorePrivate",
        APIPermissionInfo::kFlagCannotBeOptional},
-      {APIPermission::kMediaGalleriesPrivate,
-       "mediaGalleriesPrivate",
-       APIPermissionInfo::kFlagCannotBeOptional},
       {APIPermission::kStreamsPrivate,
        "streamsPrivate",
        APIPermissionInfo::kFlagCannotBeOptional},
@@ -329,6 +325,9 @@ std::vector<APIPermissionInfo*> ChromeAPIPermissions::GetAllPermissions()
        APIPermissionInfo::kFlagCannotBeOptional},
       {APIPermission::kWebrtcAudioPrivate,
        "webrtcAudioPrivate",
+       APIPermissionInfo::kFlagCannotBeOptional},
+      {APIPermission::kWebrtcDesktopCapturePrivate,
+       "webrtcDesktopCapturePrivate",
        APIPermissionInfo::kFlagCannotBeOptional},
       {APIPermission::kWebrtcLoggingPrivate,
        "webrtcLoggingPrivate",
@@ -339,6 +338,35 @@ std::vector<APIPermissionInfo*> ChromeAPIPermissions::GetAllPermissions()
       {APIPermission::kFirstRunPrivate,
        "firstRunPrivate",
        APIPermissionInfo::kFlagCannotBeOptional},
+      {APIPermission::kInlineInstallPrivate, "inlineInstallPrivate"},
+      {APIPermission::kSettingsPrivate,
+       "settingsPrivate",
+       APIPermissionInfo::kFlagCannotBeOptional,
+       IDS_EXTENSION_PROMPT_WARNING_SETTINGS_PRIVATE,
+       PermissionMessage::kSettingsPrivate},
+      {APIPermission::kSearchEnginesPrivate,
+       "searchEnginesPrivate",
+       APIPermissionInfo::kFlagCannotBeOptional,
+       IDS_EXTENSION_PROMPT_WARNING_SEARCH_ENGINES_PRIVATE,
+       PermissionMessage::kSearchEnginesPrivate},
+      {APIPermission::kAutofillPrivate,
+       "autofillPrivate",
+       APIPermissionInfo::kFlagCannotBeOptional,
+       IDS_EXTENSION_PROMPT_WARNING_AUTOFILL_PRIVATE,
+       PermissionMessage::kAutofillPrivate},
+      {APIPermission::kWebstoreWidgetPrivate,
+       "webstoreWidgetPrivate",
+       APIPermissionInfo::kFlagCannotBeOptional},
+      {APIPermission::kPasswordsPrivate,
+       "passwordsPrivate",
+       APIPermissionInfo::kFlagCannotBeOptional,
+       IDS_EXTENSION_PROMPT_WARNING_PASSWORDS_PRIVATE,
+       PermissionMessage::kPasswordsPrivate},
+      {APIPermission::kUsersPrivate,
+       "usersPrivate",
+       APIPermissionInfo::kFlagCannotBeOptional,
+       IDS_EXTENSION_PROMPT_WARNING_USERS_PRIVATE,
+       PermissionMessage::kUsersPrivate},
 
       // Full url access permissions.
       {APIPermission::kDebugger,
@@ -388,6 +416,8 @@ std::vector<APIPermissionInfo*> ChromeAPIPermissions::GetAllPermissions()
        IDS_EXTENSION_PROMPT_WARNING_FILE_SYSTEM_DIRECTORY,
        PermissionMessage::kFileSystemDirectory},
       {APIPermission::kFileSystemProvider, "fileSystemProvider"},
+      {APIPermission::kFileSystemRequestFileSystem,
+       "fileSystem.requestFileSystem"},
       {APIPermission::kFileSystemRetainEntries, "fileSystem.retainEntries"},
       {APIPermission::kFileSystemWrite, "fileSystem.write"},
       {APIPermission::kFileSystemWriteDirectory,
@@ -406,14 +436,15 @@ std::vector<APIPermissionInfo*> ChromeAPIPermissions::GetAllPermissions()
        0,
        PermissionMessage::kNone,
        &CreateAPIPermission<MediaGalleriesPermission>},
-      {APIPermission::kPushMessaging,
-       "pushMessaging",
-       APIPermissionInfo::kFlagCannotBeOptional},
       {APIPermission::kPointerLock, "pointerLock"},
-      {APIPermission::kPrinterProvider, "printerProvider"},
-      {APIPermission::kAudio, "audio"},
       {APIPermission::kCastStreaming, "cast.streaming"},
       {APIPermission::kBrowser, "browser"},
+      {APIPermission::kInterceptAllKeys,
+       "app.window.interceptAllKeys",
+       APIPermissionInfo::kFlagNone,
+       IDS_EXTENSION_PROMPT_WARNING_INTERCEPT_ALL_KEYS,
+       PermissionMessage::kInterceptAllKeys},
+      {APIPermission::kLauncherSearchProvider, "launcherSearchProvider"},
 
       // Settings override permissions.
       {APIPermission::kHomepage,
@@ -447,8 +478,6 @@ std::vector<PermissionsProvider::AliasInfo>
 ChromeAPIPermissions::GetAllAliases() const {
   // Register aliases.
   std::vector<PermissionsProvider::AliasInfo> aliases;
-  aliases.push_back(PermissionsProvider::AliasInfo(
-      "unlimitedStorage", kOldUnlimitedStoragePermission));
   aliases.push_back(PermissionsProvider::AliasInfo("tabs", kWindowsPermission));
   return aliases;
 }

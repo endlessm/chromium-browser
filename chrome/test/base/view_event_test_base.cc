@@ -5,7 +5,9 @@
 #include "chrome/test/base/view_event_test_base.h"
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/test/base/chrome_unit_test_suite.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/testing_browser_process.h"
@@ -59,14 +61,7 @@ ViewEventTestBase::ViewEventTestBase()
 }
 
 void ViewEventTestBase::Done() {
-  base::MessageLoop::current()->Quit();
-
-  // If we're in a nested message loop, as is the case with menus, we
-  // need to quit twice. The second quit does that for us. Finish all
-  // pending UI events before posting closure because events it may be
-  // executed before UI events are executed.
-  ui_controls::RunClosureAfterAllPendingUIEvents(
-      base::MessageLoop::QuitClosure());
+  run_loop_.Quit();
 }
 
 void ViewEventTestBase::SetUpTestCase() {
@@ -75,17 +70,19 @@ void ViewEventTestBase::SetUpTestCase() {
 }
 
 void ViewEventTestBase::SetUp() {
-  views::ViewsDelegate::views_delegate = &views_delegate_;
   ui::InitializeInputMethodForTesting();
 
   // The ContextFactory must exist before any Compositors are created.
   bool enable_pixel_output = false;
   ui::ContextFactory* context_factory =
       ui::InitializeContextFactoryForTests(enable_pixel_output);
+  views_delegate_.set_context_factory(context_factory);
+  views_delegate_.set_use_desktop_native_widgets(true);
 
   platform_part_.reset(ViewEventTestPlatformPart::Create(context_factory));
   gfx::NativeWindow context = platform_part_->GetContext();
   window_ = views::Widget::CreateWindowWithContext(this, context);
+  window_->Show();
 }
 
 void ViewEventTestBase::TearDown() {
@@ -101,7 +98,6 @@ void ViewEventTestBase::TearDown() {
   ui::TerminateContextFactoryForTests();
 
   ui::ShutdownInputMethodForTesting();
-  views::ViewsDelegate::views_delegate = NULL;
 }
 
 bool ViewEventTestBase::CanResize() const {
@@ -141,10 +137,10 @@ void ViewEventTestBase::StartMessageLoopAndRunTest() {
 
   // Schedule a task that starts the test. Need to do this as we're going to
   // run the message loop.
-  base::MessageLoop::current()->PostTask(
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::Bind(&ViewEventTestBase::DoTestOnMessageLoop, this));
 
-  content::RunMessageLoop();
+  content::RunThisRunLoop(&run_loop_);
 }
 
 gfx::Size ViewEventTestBase::GetPreferredSize() const {
@@ -156,7 +152,7 @@ void ViewEventTestBase::ScheduleMouseMoveInBackground(int x, int y) {
     dnd_thread_.reset(new base::Thread("mouse-move-thread"));
     dnd_thread_->Start();
   }
-  dnd_thread_->message_loop()->PostDelayedTask(
+  dnd_thread_->task_runner()->PostDelayedTask(
       FROM_HERE,
       base::Bind(base::IgnoreResult(&ui_controls::SendMouseMove), x, y),
       base::TimeDelta::FromMilliseconds(kMouseMoveDelayMS));

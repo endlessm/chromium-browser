@@ -10,6 +10,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/run_loop.h"
+#include "base/strings/string_split.h"
 #include "net/base/auth.h"
 #include "net/base/request_priority.h"
 #include "net/http/http_transaction_factory.h"
@@ -51,8 +52,7 @@ class URLRequestHttpJobTest : public ::testing::Test {
   URLRequestHttpJobTest()
       : req_(context_.CreateRequest(GURL("http://www.example.com"),
                                     DEFAULT_PRIORITY,
-                                    &delegate_,
-                                    nullptr)) {
+                                    &delegate_)) {
     context_.set_http_transaction_factory(&network_layer_);
   }
 
@@ -74,10 +74,10 @@ class URLRequestHttpJobTest : public ::testing::Test {
 
     // This check isn't wrapped with EXPECT* macros because different
     // results from this function may be expected in different tests.
-    std::vector<std::string> tokens;
-    size_t num_tokens = Tokenize(encoding_headers, ", ", &tokens);
-    for (size_t i = 0; i < num_tokens; i++) {
-      if (!base::strncasecmp(tokens[i].data(), "sdch", tokens[i].length()))
+    for (const std::string& token :
+         base::SplitString(encoding_headers, ", ", base::KEEP_WHITESPACE,
+                           base::SPLIT_WANT_NONEMPTY)) {
+      if (!base::strncasecmp(token.data(), "sdch", token.length()))
         return true;
     }
     return false;
@@ -211,8 +211,7 @@ class URLRequestHttpJobWebSocketTest
   URLRequestHttpJobWebSocketTest()
       : req_(context_.CreateRequest(GURL("ws://www.example.com"),
                                     DEFAULT_PRIORITY,
-                                    &delegate_,
-                                    nullptr)) {
+                                    &delegate_)) {
     // The TestNetworkDelegate expects a call to NotifyBeforeURLRequest before
     // anything else happens.
     GURL url("ws://localhost/");
@@ -229,7 +228,7 @@ class MockCreateHelper : public WebSocketHandshakeStreamBase::CreateHelper {
  public:
   // GoogleMock does not appear to play nicely with move-only types like
   // scoped_ptr, so this forwarding method acts as a workaround.
-  virtual WebSocketHandshakeStreamBase* CreateBasicStream(
+  WebSocketHandshakeStreamBase* CreateBasicStream(
       scoped_ptr<ClientSocketHandle> connection,
       bool using_proxy) override {
     // Discard the arguments since we don't need them anyway.

@@ -76,8 +76,8 @@ class ExtensionCrashRecoveryTestBase : public ExtensionBrowserTest {
         GetBackgroundHostForExtension(extension_id);
     ASSERT_TRUE(extension_host);
 
-    base::KillProcess(extension_host->render_process_host()->GetHandle(),
-                      content::RESULT_CODE_KILLED, false);
+    extension_host->render_process_host()->Shutdown(content::RESULT_CODE_KILLED,
+                                                    false);
     ASSERT_TRUE(WaitForExtensionCrash(extension_id));
     ASSERT_FALSE(GetProcessManager()->
                  GetBackgroundHostForExtension(extension_id));
@@ -93,11 +93,11 @@ class ExtensionCrashRecoveryTestBase : public ExtensionBrowserTest {
     extensions::ExtensionHost* extension_host = GetProcessManager()->
         GetBackgroundHostForExtension(extension_id);
     ASSERT_TRUE(extension_host);
-    extensions::ProcessManager::ViewSet all_views =
-        GetProcessManager()->GetAllViews();
-    extensions::ProcessManager::ViewSet::const_iterator it =
-        all_views.find(extension_host->host_contents()->GetRenderViewHost());
-    ASSERT_FALSE(it == all_views.end());
+    extensions::ProcessManager::FrameSet frames =
+        GetProcessManager()->GetAllFrames();
+    ASSERT_NE(frames.end(),
+              frames.find(extension_host->host_contents()->GetMainFrame()));
+    ASSERT_FALSE(GetProcessManager()->GetAllFrames().empty());
     ASSERT_TRUE(extension_host->IsRenderViewLive());
     extensions::ProcessMap* process_map =
         extensions::ProcessMap::Get(browser()->profile());

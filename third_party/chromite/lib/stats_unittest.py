@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2013 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,13 +6,9 @@
 
 from __future__ import print_function
 
-import logging
-import os
-import sys
 import time
 import urllib2
 
-sys.path.insert(0, os.path.abspath('%s/../..' % os.path.dirname(__file__)))
 from chromite.lib import cros_test_lib
 from chromite.lib import parallel
 from chromite.lib import parallel_unittest
@@ -150,7 +145,7 @@ class UploadTest(cros_test_lib.MockLoggingTestCase):
       # Make sure no error messages are output in the normal case.
       self.AssertLogsContain(logs, stats.StatsUploader.ENVIRONMENT_ERROR,
                              inverted=True)
-      timeout_regex = stats.StatsUploader.TIMEOUT_ERROR % '\d+'
+      timeout_regex = stats.StatsUploader.TIMEOUT_ERROR % r'\d+'
       self.AssertLogsMatch(logs, timeout_regex, inverted=True)
 
   def CheckSuppressException(self, e, msg):
@@ -230,5 +225,22 @@ class UploadContextTest(cros_test_lib.MockLoggingTestCase):
       self.assertRaises(e, RaiseContext, e)
 
 
-if __name__ == '__main__':
-  cros_test_lib.main(level=logging.DEBUG)
+class UploadContextParallelTest(cros_test_lib.MockLoggingTestCase):
+  """Test UploadContext using the real parallel library."""
+
+  def testKeyboardInterruptHandling(self):
+    """Test that KeyboardInterrupts during upload aren't logged.
+
+    This must use the parallel library so that exceptions are converted into
+    BackgroundFailures as they are in a real run.
+    """
+    self.PatchObject(stats.StatsUploader, '_Upload',
+                     side_effect=KeyboardInterrupt())
+    with cros_test_lib.LoggingCapturer() as logs:
+      with stats.UploadContext() as queue:
+        queue.put([stats.Stats()])
+      self.AssertLogsContain(logs, stats.UNCAUGHT_UPLOAD_ERROR, inverted=True)
+
+
+def main(_argv):
+  cros_test_lib.main(level='debug', module=__name__)

@@ -1,18 +1,19 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #ifndef _JBIG2_GENERAL_DECODER_H_
 #define _JBIG2_GENERAL_DECODER_H_
+
 #include "../../../include/fxcodec/fx_codec_def.h"
-#include "../../../include/fxcrt/fx_basic.h"
-#include "JBig2_Define.h"
-#include "JBig2_SymbolDict.h"
+#include "../../../include/fxcrt/fx_coordinates.h"
 #include "JBig2_ArithDecoder.h"
 #include "JBig2_ArithIntDecoder.h"
-#include "../../../include/fxcrt/fx_coordinates.h"
+#include "JBig2_Define.h"
+#include "JBig2_SymbolDict.h"
+
 class CJBig2_HuffmanTable;
 class CJBig2_Image;
 class CJBig2_PatternDict;
@@ -68,7 +69,7 @@ private:
     FXCODEC_STATUS decode_Arith_Template3_opt3(CJBig2_Image *pImage, CJBig2_ArithDecoder *pArithDecoder, JBig2ArithCtx *gbContext, IFX_Pause* pPause);
     FXCODEC_STATUS decode_Arith_Template3_unopt(CJBig2_Image * pImage, CJBig2_ArithDecoder *pArithDecoder, JBig2ArithCtx *gbContext, IFX_Pause* pPause);
     FX_DWORD	m_loopIndex;
-    FX_BYTE *	m_pLine;
+    uint8_t *	m_pLine;
     IFX_Pause*	m_pPause;
     FXCODEC_STATUS	m_ProssiveStatus;
     CJBig2_Image** m_pImage;
@@ -114,7 +115,7 @@ public:
     FX_BOOL MMR;
     FX_DWORD GBW;
     FX_DWORD GBH;
-    FX_BYTE GBTEMPLATE;
+    uint8_t GBTEMPLATE;
     FX_BOOL TPGDON;
     FX_BOOL USESKIP;
     CJBig2_Image * SKIP;
@@ -140,8 +141,8 @@ public:
     FX_DWORD GRH;
     FX_BOOL GRTEMPLATE;
     CJBig2_Image *GRREFERENCE;
-    FX_INT32 GRREFERENCEDX;
-    FX_INT32 GRREFERENCEDY;
+    int32_t GRREFERENCEDX;
+    int32_t GRREFERENCEDY;
     FX_BOOL TPGRON;
     signed char	GRAT[4];
 };
@@ -175,7 +176,7 @@ public:
     FX_DWORD SBNUMSYMS;
 
     JBig2HuffmanCode *SBSYMCODES;
-    FX_BYTE SBSYMCODELEN;
+    uint8_t SBSYMCODELEN;
 
     CJBig2_Image **SBSYMS;
     FX_BOOL SBDEFPIXEL;
@@ -214,7 +215,7 @@ public:
                         *SDHUFFDW,
                         *SDHUFFBMSIZE,
                         *SDHUFFAGGINST;
-    FX_BYTE SDTEMPLATE;
+    uint8_t SDTEMPLATE;
     signed char SDAT[8];
     FX_BOOL SDRTEMPLATE;
     signed char SDRAT[4];
@@ -230,7 +231,7 @@ public:
     FX_DWORD HBW,
              HBH;
     FX_BOOL HMMR;
-    FX_BYTE HTEMPLATE;
+    uint8_t HTEMPLATE;
     FX_DWORD HNUMPATS;
     CJBig2_Image **HPATS;
     FX_BOOL HDEFPIXEL;
@@ -238,11 +239,11 @@ public:
     FX_BOOL HENABLESKIP;
     FX_DWORD HGW,
              HGH;
-    FX_INT32 HGX,
+    int32_t HGX,
              HGY;
     FX_WORD HRX,
             HRY;
-    FX_BYTE HPW,
+    uint8_t HPW,
             HPH;
 };
 class CJBig2_PDDProc : public CJBig2_Object
@@ -254,10 +255,10 @@ public:
     CJBig2_PatternDict *decode_MMR(CJBig2_BitStream *pStream, IFX_Pause* pPause);
 public:
     FX_BOOL HDMMR;
-    FX_BYTE HDPW,
+    uint8_t HDPW,
             HDPH;
     FX_DWORD GRAYMAX;
-    FX_BYTE HDTEMPLATE;
+    uint8_t HDTEMPLATE;
 };
 class CJBig2_GSIDProc : public CJBig2_Object
 {
@@ -269,10 +270,10 @@ public:
 public:
     FX_BOOL GSMMR;
     FX_BOOL GSUSESKIP;
-    FX_BYTE GSBPP;
+    uint8_t GSBPP;
     FX_DWORD GSW,
              GSH;
-    FX_BYTE GSTEMPLATE;
+    uint8_t GSTEMPLATE;
     CJBig2_Image *GSKIP;
 };
 #endif

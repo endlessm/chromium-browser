@@ -6,9 +6,10 @@ import sys
 import unittest
 
 from telemetry.core.platform.profiler import vtune_profiler
-from telemetry.unittest import options_for_unittests
-from telemetry.unittest import simple_mock
-from telemetry.unittest import tab_test_case
+from telemetry import decorators
+from telemetry.testing import options_for_unittests
+from telemetry.testing import simple_mock
+from telemetry.testing import tab_test_case
 
 
 class MockPopen(object):
@@ -95,6 +96,10 @@ class TestVTuneProfiler(unittest.TestCase):
 
 class TestVTuneProfilerTabTestCase(tab_test_case.TabTestCase):
 
+  # This test is only meant to be run if VTune is installed locally. Please
+  # run it locally if you are modifying related code, but it's disabled on the
+  # bots because they don't have VTune. See crbug.com/437085
+  @decorators.Disabled
   def testVTuneProfiler(self):
     mock_subprocess = MockSubprocess()
     real_subprocess = vtune_profiler.subprocess

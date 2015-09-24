@@ -8,36 +8,43 @@
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "components/signin/core/browser/signin_client.h"
-#include "content/public/browser/render_process_host_observer.h"
+#include "components/signin/core/browser/signin_error_controller.h"
+#include "google_apis/gaia/gaia_oauth_client.h"
+#include "google_apis/gaia/oauth2_token_service.h"
 
+#if !defined(OS_CHROMEOS)
+#include "net/base/network_change_notifier.h"
+#endif
+
+namespace content_settings {
 class CookieSettings;
+}
+
 class Profile;
 
-class ChromeSigninClient : public SigninClient,
-                           public content::RenderProcessHostObserver {
+class ChromeSigninClient
+    : public SigninClient,
+#if !defined(OS_CHROMEOS)
+      public net::NetworkChangeNotifier::NetworkChangeObserver,
+#endif
+      public SigninErrorController::Observer,
+      public gaia::GaiaOAuthClient::Delegate,
+      public OAuth2TokenService::Consumer {
  public:
-  explicit ChromeSigninClient(Profile* profile);
+  explicit ChromeSigninClient(
+      Profile* profile, SigninErrorController* signin_error_controller);
   ~ChromeSigninClient() override;
+  void Shutdown() override;
+  void DoFinalInit() override;
 
   // Utility methods.
   static bool ProfileAllowsSigninCookies(Profile* profile);
-  static bool SettingsAllowSigninCookies(CookieSettings* cookie_settings);
+  static bool SettingsAllowSigninCookies(
+      content_settings::CookieSettings* cookie_settings);
 
-  // Tracks the privileged signin process identified by |host_id| so that we
-  // can later ask (via IsSigninProcess) if it is safe to sign the user in from
-  // the current context (see OneClickSigninHelper).  All of this tracking
-  // state is reset once the renderer process terminates.
-  //
-  // N.B. This is the id returned by RenderProcessHost::GetID().
-  // TODO(guohui): Eliminate these APIs once the web-based signin flow is
-  // replaced by a native flow. crbug.com/347247
-  void SetSigninProcess(int host_id) override;
-  void ClearSigninProcess() override;
-  bool IsSigninProcess(int host_id) const override;
-  bool HasSigninProcess() const override;
-
-  // content::RenderProcessHostObserver implementation.
-  void RenderProcessHostDestroyed(content::RenderProcessHost* host) override;
+  // If |for_ephemeral| is true, special kind of device ID for ephemeral users
+  // is generated.
+  static std::string GenerateSigninScopedDeviceID(bool for_ephemeral);
 
   // SigninClient implementation.
   PrefService* GetPrefs() override;
@@ -49,6 +56,16 @@ class ChromeSigninClient : public SigninClient,
   bool ShouldMergeSigninCredentialsIntoCookieJar() override;
   bool IsFirstRun() const override;
   base::Time GetInstallDate() override;
+  bool AreSigninCookiesAllowed() override;
+  void AddContentSettingsObserver(
+      content_settings::Observer* observer) override;
+  void RemoveContentSettingsObserver(
+      content_settings::Observer* observer) override;
+  void DelayNetworkCall(const base::Closure& callback) override;
+  GaiaAuthFetcher* CreateGaiaAuthFetcher(
+      GaiaAuthConsumer* consumer,
+      const std::string& source,
+      net::URLRequestContextGetter* getter) override;
 
   // Returns a string describing the chrome version environment. Version format:
   // <Build Info> <OS> <Version number> (<Last change>)<channel or "-devel">
@@ -58,19 +75,50 @@ class ChromeSigninClient : public SigninClient,
       const GURL& url,
       const std::string& name,
       const net::CookieStore::CookieChangedCallback& callback) override;
-  void GoogleSigninSucceeded(const std::string& account_id,
-                             const std::string& username,
-                             const std::string& password) override;
+  void OnSignedIn(const std::string& account_id,
+                  const std::string& gaia_id,
+                  const std::string& username,
+                  const std::string& password) override;
+  void PostSignedIn(const std::string& account_id,
+                    const std::string& username,
+                    const std::string& password) override;
+  bool UpdateAccountInfo(
+      AccountTrackerService::AccountInfo* out_account_info) override;
+
+  // SigninErrorController::Observer implementation.
+  void OnErrorChanged() override;
+
+  // gaia::GaiaOAuthClient::Delegate implementation.
+  void OnGetTokenInfoResponse(
+      scoped_ptr<base::DictionaryValue> token_info) override;
+  void OnOAuthError() override;
+  void OnNetworkError(int response_code) override;
+
+  // OAuth2TokenService::Consumer implementation
+  void OnGetTokenSuccess(const OAuth2TokenService::Request* request,
+                         const std::string& access_token,
+                         const base::Time& expiration_time) override;
+  void OnGetTokenFailure(const OAuth2TokenService::Request* request,
+                         const GoogleServiceAuthError& error) override;
+
+#if !defined(OS_CHROMEOS)
+  // net::NetworkChangeController::NetworkChangeObserver implementation.
+  void OnNetworkChanged(net::NetworkChangeNotifier::ConnectionType type)
+      override;
+#endif
 
  private:
+  void MaybeFetchSigninTokenHandle();
+
   Profile* profile_;
 
-  // See SetSigninProcess. Tracks the currently active signin process
-  // by ID, if there is one.
-  int signin_host_id_;
+  SigninErrorController* signin_error_controller_;
+#if !defined(OS_CHROMEOS)
+  std::list<base::Closure> delayed_callbacks_;
+#endif
 
-  // The RenderProcessHosts being observed.
-  std::set<content::RenderProcessHost*> signin_hosts_observed_;
+  scoped_ptr<gaia::GaiaOAuthClient> oauth_client_;
+  scoped_ptr<OAuth2TokenService::Request> oauth_request_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeSigninClient);
 };

@@ -51,10 +51,13 @@ class POLICY_EXPORT PolicyLoaderWin
   // The PReg file name used by GPO.
   static const base::FilePath::CharType kPRegFileName[];
 
+  // Passing |gpo_provider| equal nullptr forces all reads to go through the
+  // registry.  This is undesirable for Chrome (see crbug.com/259236), but
+  // needed for some other use cases (i.e. Chromoting - see crbug.com/460734).
   PolicyLoaderWin(scoped_refptr<base::SequencedTaskRunner> task_runner,
                   const base::string16& chrome_policy_key,
                   AppliedGPOListProvider* gpo_provider);
-  virtual ~PolicyLoaderWin();
+  ~PolicyLoaderWin() override;
 
   // Creates a policy loader that uses the Win API to access GPO.
   static scoped_ptr<PolicyLoaderWin> Create(
@@ -62,15 +65,15 @@ class POLICY_EXPORT PolicyLoaderWin
       const base::string16& chrome_policy_key);
 
   // AsyncPolicyLoader implementation.
-  virtual void InitOnBackgroundThread() override;
-  virtual scoped_ptr<PolicyBundle> Load() override;
+  void InitOnBackgroundThread() override;
+  scoped_ptr<PolicyBundle> Load() override;
 
  private:
   // Reads Chrome Policy from a PReg file at the given path and stores the
   // result in |policy|.
   bool ReadPRegFile(const base::FilePath& preg_file,
                     RegistryDict* policy,
-                    PolicyLoadStatusSample *status);
+                    PolicyLoadStatusSample* status);
 
   // Loads and parses GPO policy in |policy_object_list| for scope |scope|. If
   // successful, stores the result in |policy| and returns true. Returns false
@@ -79,14 +82,14 @@ class POLICY_EXPORT PolicyLoaderWin
   bool LoadGPOPolicy(PolicyScope scope,
                      PGROUP_POLICY_OBJECT policy_object_list,
                      RegistryDict* policy,
-                     PolicyLoadStatusSample *status);
+                     PolicyLoadStatusSample* status);
 
   // Queries Windows for applied group policy and writes the result to |policy|.
   // This is the preferred way to obtain GPO data, there are reports of abuse
   // of the registry GPO keys by 3rd-party software.
   bool ReadPolicyFromGPO(PolicyScope scope,
                          RegistryDict* policy,
-                         PolicyLoadStatusSample *status);
+                         PolicyLoadStatusSample* status);
 
   // Parses Chrome policy from |gpo_dict| for the given |scope| and |level| and
   // merges it into |chrome_policy_map|.
@@ -104,7 +107,7 @@ class POLICY_EXPORT PolicyLoaderWin
   void SetupWatches();
 
   // ObjectWatcher::Delegate overrides:
-  virtual void OnObjectSignaled(HANDLE object) override;
+  void OnObjectSignaled(HANDLE object) override;
 
   bool is_initialized_;
   const base::string16 chrome_policy_key_;

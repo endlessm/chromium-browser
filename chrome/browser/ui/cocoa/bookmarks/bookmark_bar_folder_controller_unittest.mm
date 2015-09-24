@@ -25,6 +25,8 @@
 #include <cmath>
 
 using base::ASCIIToUTF16;
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
 
 namespace {
 
@@ -35,7 +37,7 @@ void DeleteBookmark(BookmarkButton* button, Profile* profile) {
   const BookmarkNode* node = [button bookmarkNode];
   if (node) {
     BookmarkModel* model = BookmarkModelFactory::GetForProfile(profile);
-    model->Remove(node->parent(), node->parent()->GetIndexOf(node));
+    model->Remove(node);
   }
 }
 
@@ -137,7 +139,7 @@ class BookmarkBarFolderControllerTest : public CocoaProfileTest {
   const BookmarkNode* folderA_;  // Owned by model.
   const BookmarkNode* longTitleNode_;  // Owned by model.
 
-  virtual void SetUp() {
+  void SetUp() override {
     CocoaProfileTest::SetUp();
     ASSERT_TRUE(profile());
 
@@ -190,8 +192,7 @@ class BookmarkBarFolderControllerTest : public CocoaProfileTest {
   // Remove the bookmark with the long title.
   void RemoveLongTitleNode() {
     BookmarkModel* model = BookmarkModelFactory::GetForProfile(profile());
-    model->Remove(longTitleNode_->parent(),
-                  longTitleNode_->parent()->GetIndexOf(longTitleNode_));
+    model->Remove(longTitleNode_);
   }
 
   // Add LOTS of nodes to our model if needed (e.g. scrolling).
@@ -529,7 +530,7 @@ TEST_F(BookmarkBarFolderControllerTest, DISABLED_SimpleScroll) {
 
   for (int i = 0; i < 3; i++) {
     CGFloat height = NSHeight([window frame]);
-    [bbfc performOneScroll:60];
+    [bbfc performOneScroll:60 updateMouseSelection:NO];
     EXPECT_GT(NSHeight([window frame]), height);
     NSView* hit = [scrollView hitTest:hitPoint];
     // We should hit a bookmark button.
@@ -542,7 +543,7 @@ TEST_F(BookmarkBarFolderControllerTest, DISABLED_SimpleScroll) {
   // Also confirm we never scroll the window off the screen.
   bool bothAtOnce = false;
   while ([bbfc canScrollUp]) {
-    [bbfc performOneScroll:60];
+    [bbfc performOneScroll:60 updateMouseSelection:NO];
     EXPECT_TRUE(NSContainsRect([[NSScreen mainScreen] frame], [window frame]));
     // Make sure, sometime during our scroll, we have the ability to
     // scroll in either direction.
@@ -562,7 +563,7 @@ TEST_F(BookmarkBarFolderControllerTest, DISABLED_SimpleScroll) {
   // Also confirm we never scroll the window off the screen the other
   // way.
   for (int i = 0; i < nodecount+50; ++i) {
-    [bbfc performOneScroll:-60];
+    [bbfc performOneScroll:-60 updateMouseSelection:NO];
     // Once we can no longer scroll down the window height changes.
     if (![bbfc canScrollDown])
       break;
@@ -601,7 +602,7 @@ TEST_F(BookmarkBarFolderControllerTest, MenuPlacementWhileScrollingDeleting) {
   NSUInteger buttonCounter = 0;
   NSUInteger extraButtonLimit = 3;
   while (![bbfc canScrollDown] || extraButtonLimit > 0) {
-    [bbfc performOneScroll:scrollOneBookmark];
+    [bbfc performOneScroll:scrollOneBookmark updateMouseSelection:NO];
     ++buttonCounter;
     if ([bbfc canScrollDown])
       --extraButtonLimit;
@@ -618,7 +619,7 @@ TEST_F(BookmarkBarFolderControllerTest, MenuPlacementWhileScrollingDeleting) {
   // the top of the window has not moved, then delete a visible button and
   // make sure the top has not moved.
   while ([bbfc canScrollDown]) {
-    [bbfc performOneScroll:-scrollOneBookmark];
+    [bbfc performOneScroll:-scrollOneBookmark updateMouseSelection:NO];
     --buttonCounter;
   }
   button = [buttons objectAtIndex:buttonCounter + 3];
@@ -688,7 +689,7 @@ class BookmarkBarFolderControllerMenuTest : public CocoaProfileTest {
   base::scoped_nsobject<ViewResizerPong> resizeDelegate_;
   base::scoped_nsobject<BookmarkBarController> bar_;
 
-  virtual void SetUp() {
+  void SetUp() override {
     CocoaProfileTest::SetUp();
     ASSERT_TRUE(browser());
 
@@ -1320,7 +1321,7 @@ TEST_F(BookmarkBarFolderControllerMenuTest, MenuSizingAndScrollArrows) {
   // We'll remove the really long node so we can see if the buttons get resized.
   scrollerWidth = NSWidth([folderView frame]);
   buttonWidth = NSWidth([button frame]);
-  model->Remove(folder, reallyWideButtonNumber);
+  model->Remove(folder->GetChild(reallyWideButtonNumber));
   EXPECT_FALSE([folderController canScrollUp]);
   EXPECT_FALSE([folderController canScrollDown]);
 
@@ -1359,7 +1360,7 @@ TEST_F(BookmarkBarFolderControllerMenuTest, HoverThenDeleteBookmark) {
   EXPECT_EQ(button, buttonThatMouseIsIn);
 
   // Delete the bookmark and verify that it is now not known.
-  model->Remove(folder, 3);
+  model->Remove(folder->GetChild(3));
   buttonThatMouseIsIn = [bbfc buttonThatMouseIsIn];
   EXPECT_FALSE(buttonThatMouseIsIn);
 }
@@ -1597,7 +1598,7 @@ TEST_F(BookmarkBarFolderControllerMenuTest, DropPositionIndicator) {
 class BookmarkBarFolderControllerClosingTest : public
     BookmarkBarFolderControllerMenuTest {
  public:
-  virtual void SetUp() {
+  void SetUp() override {
     BookmarkBarFolderControllerMenuTest::SetUp();
     ASSERT_TRUE(browser());
 

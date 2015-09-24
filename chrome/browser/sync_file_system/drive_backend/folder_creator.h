@@ -11,7 +11,7 @@
 #include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/sync_file_system/sync_callbacks.h"
-#include "google_apis/drive/gdata_errorcode.h"
+#include "google_apis/drive/drive_api_error_codes.h"
 
 namespace drive {
 class DriveServiceInterface;
@@ -20,7 +20,6 @@ class DriveServiceInterface;
 namespace google_apis {
 class FileList;
 class FileResource;
-class ResourceEntry;
 }
 
 namespace sync_file_system {
@@ -44,11 +43,11 @@ class FolderCreator {
 
  private:
   void DidCreateFolder(const FileIDCallback& callback,
-                       google_apis::GDataErrorCode error,
+                       google_apis::DriveApiErrorCode error,
                        scoped_ptr<google_apis::FileResource> entry);
   void DidListFolders(const FileIDCallback& callback,
                       ScopedVector<google_apis::FileResource> candidates,
-                      google_apis::GDataErrorCode error,
+                      google_apis::DriveApiErrorCode error,
                       scoped_ptr<google_apis::FileList> file_list);
 
   drive::DriveServiceInterface* drive_service_;

@@ -41,6 +41,8 @@
 #include "ui/gfx/image/image_skia.h"
 
 using base::ASCIIToUTF16;
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
 
 // Unit tests don't need time-consuming asynchronous animations.
 @interface BookmarkBarControllerTestable : BookmarkBarController {
@@ -92,7 +94,12 @@ using base::ASCIIToUTF16;
  @private
   NSSize cellSize_;
 }
+#if !defined(MAC_OS_X_VERSION_10_10) || \
+    MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_X_VERSION_10_10
+// In the OSX 10.10 SDK, cellSize became an atomic property, so there is no
+// need to redeclare it.
 @property (nonatomic, readonly) NSSize cellSize;
+#endif  // MAC_OS_X_VERSION_10_10
 @end
 
 @implementation CellWithDesiredSize
@@ -284,16 +291,15 @@ class BookmarkBarControllerTestBase : public CocoaProfileTest {
   base::scoped_nsobject<NSView> parent_view_;
   base::scoped_nsobject<ViewResizerPong> resizeDelegate_;
 
-  virtual void SetUp() {
+  void SetUp() override {
     CocoaProfileTest::SetUp();
     ASSERT_TRUE(profile());
 
     base::FilePath extension_dir;
     static_cast<extensions::TestExtensionSystem*>(
-        extensions::ExtensionSystem::Get(profile()))->
-        CreateExtensionService(
-            CommandLine::ForCurrentProcess(),
-            extension_dir, false);
+        extensions::ExtensionSystem::Get(profile()))
+        ->CreateExtensionService(base::CommandLine::ForCurrentProcess(),
+                                 extension_dir, false);
     resizeDelegate_.reset([[ViewResizerPong alloc] init]);
     NSRect parent_frame = NSMakeRect(0, 0, 800, 50);
     parent_view_.reset([[NSView alloc] initWithFrame:parent_frame]);
@@ -326,7 +332,7 @@ class BookmarkBarControllerTest : public BookmarkBarControllerTestBase {
  public:
   base::scoped_nsobject<BookmarkBarControllerNoOpen> bar_;
 
-  virtual void SetUp() override {
+  void SetUp() override {
     BookmarkBarControllerTestBase::SetUp();
     ASSERT_TRUE(browser());
     AddCommandLineSwitches();
@@ -523,7 +529,7 @@ TEST_F(BookmarkBarControllerTest, NoItemContainerGoesAway) {
                                            ASCIIToUTF16("title"),
                                            GURL("http://www.google.com"));
   EXPECT_TRUE([noItemContainer isHidden]);
-  model->Remove(bar, bar->GetIndexOf(node));
+  model->Remove(node);
   EXPECT_FALSE([noItemContainer isHidden]);
 
   // Now try it using a bookmark from the Other Bookmarks.
@@ -576,7 +582,7 @@ TEST_F(BookmarkBarControllerTest, OffTheSideButtonHidden) {
     if ([bar_ offTheSideButtonIsHidden])
       break;
     // Delete the last button.
-    model->Remove(parent, parent->child_count() - 1);
+    model->Remove(parent->GetChild(parent->child_count() - 1));
     // If last one make sure the menu is closed and the button is hidden.
     // Else make sure menu stays open.
     if ([bar_ offTheSideButtonIsHidden]) {
@@ -627,7 +633,7 @@ TEST_F(BookmarkBarControllerTest, DeleteFromOffTheSideWhileItIsOpen) {
         }
         // Then we remove the node.  This triggers the button to get
         // deleted.
-        model->Remove(parent, indices[i]);
+        model->Remove(parent->GetChild(indices[i]));
         // Force visual update which is otherwise delayed.
         [[bbfc window] displayIfNeeded];
       }
@@ -797,7 +803,7 @@ TEST_F(BookmarkBarControllerTest, TestButtonLimits) {
 
   // Add 30 which we expect to be 'too many'.  Make sure we don't see
   // 30 buttons.
-  model->Remove(parent, 0);
+  model->Remove(parent->GetChild(0));
   EXPECT_EQ(0U, [[bar_ buttons] count]);
   for (int i=0; i<30; i++) {
     model->AddURL(parent, parent->child_count(),
@@ -886,8 +892,7 @@ TEST_F(BookmarkBarControllerTest, DeleteBookmark) {
   }
   EXPECT_EQ(3, parent->child_count());
   const BookmarkNode* middle_node = parent->GetChild(1);
-  model->Remove(middle_node->parent(),
-                middle_node->parent()->GetIndexOf(middle_node));
+  model->Remove(middle_node);
 
   EXPECT_EQ(2, parent->child_count());
   EXPECT_EQ(parent->GetChild(0)->url(), GURL(urls[0]));
@@ -1366,7 +1371,7 @@ TEST_F(BookmarkBarControllerTest, OffTheSideFolder) {
   // Delete a bookmark in the off-the-side and verify it's gone.
   BookmarkButton* button = [bbfc buttonWithTitleEqualTo:@"DELETE_ME"];
   EXPECT_TRUE(button);
-  model->Remove(parent, parent->child_count() - 2);
+  model->Remove(parent->GetChild(parent->child_count() - 2));
   button = [bbfc buttonWithTitleEqualTo:@"DELETE_ME"];
   EXPECT_FALSE(button);
 }
@@ -1659,7 +1664,7 @@ TEST_F(BookmarkBarControllerTest, ManagedShowAppsShortcutInBookmarksBar) {
 
 class BookmarkBarControllerOpenAllTest : public BookmarkBarControllerTest {
 public:
-  virtual void SetUp() {
+ void SetUp() override {
     BookmarkBarControllerTest::SetUp();
     ASSERT_TRUE(profile());
 
@@ -1726,7 +1731,7 @@ TEST_F(BookmarkBarControllerOpenAllTest, CommandClickOnFolder) {
 
 class BookmarkBarControllerNotificationTest : public CocoaProfileTest {
  public:
-  virtual void SetUp() {
+  void SetUp() override {
     CocoaProfileTest::SetUp();
     ASSERT_TRUE(browser());
 
@@ -1792,7 +1797,7 @@ class BookmarkBarControllerDragDropTest : public BookmarkBarControllerTestBase {
  public:
   base::scoped_nsobject<BookmarkBarControllerDragData> bar_;
 
-  virtual void SetUp() {
+  void SetUp() override {
     BookmarkBarControllerTestBase::SetUp();
     ASSERT_TRUE(browser());
 

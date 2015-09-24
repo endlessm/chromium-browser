@@ -17,12 +17,9 @@
 #include "webrtc/system_wrappers/interface/logging.h"
 #include "webrtc/system_wrappers/interface/trace_event.h"
 #include "webrtc/video_engine/stream_synchronization.h"
-#include "webrtc/video_engine/vie_channel.h"
 #include "webrtc/voice_engine/include/voe_video_sync.h"
 
 namespace webrtc {
-
-enum { kSyncInterval = 1000};
 
 int UpdateMeasurements(StreamSynchronization::Measurements* stream,
                        const RtpRtcp& rtp_rtcp, const RtpReceiver& receiver) {
@@ -51,11 +48,9 @@ int UpdateMeasurements(StreamSynchronization::Measurements* stream,
   return 0;
 }
 
-ViESyncModule::ViESyncModule(VideoCodingModule* vcm,
-                             ViEChannel* vie_channel)
+ViESyncModule::ViESyncModule(VideoCodingModule* vcm)
     : data_cs_(CriticalSectionWrapper::CreateCriticalSection()),
       vcm_(vcm),
-      vie_channel_(vie_channel),
       video_receiver_(NULL),
       video_rtp_rtcp_(NULL),
       voe_channel_id_(-1),
@@ -76,7 +71,8 @@ int ViESyncModule::ConfigureSync(int voe_channel_id,
   voe_sync_interface_ = voe_sync_interface;
   video_receiver_ = video_receiver;
   video_rtp_rtcp_ = video_rtcp_module;
-  sync_.reset(new StreamSynchronization(voe_channel_id, vie_channel_->Id()));
+  sync_.reset(
+      new StreamSynchronization(video_rtp_rtcp_->SSRC(), voe_channel_id));
 
   if (!voe_sync_interface) {
     voe_channel_id_ = -1;
@@ -93,9 +89,9 @@ int ViESyncModule::VoiceChannel() {
   return voe_channel_id_;
 }
 
-int32_t ViESyncModule::TimeUntilNextProcess() {
-  return static_cast<int32_t>(kSyncInterval -
-      (TickTime::Now() - last_sync_time_).Milliseconds());
+int64_t ViESyncModule::TimeUntilNextProcess() {
+  const int64_t kSyncIntervalMs = 1000;
+  return kSyncIntervalMs - (TickTime::Now() - last_sync_time_).Milliseconds();
 }
 
 int32_t ViESyncModule::Process() {

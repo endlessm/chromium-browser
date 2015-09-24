@@ -3,24 +3,51 @@
 # found in the LICENSE file.
 
 {
+  'variables': {
+    'run_multi_machine_tests%': '0',
+  },
+
   'conditions': [
     ['archive_chromoting_tests==1', {
+      'conditions': [
+        ['OS=="linux"', {
+          'targets': [
+            {
+              'target_name': 'app_remoting_integration_tests_run',
+              'includes': [
+                './dependencies.gypi',
+              ],
+              'sources': [
+                'app_remoting_integration_tests.isolate',
+              ],
+            },  # target_name: 'app_remoting_integration_tests_run'
+          ],
+        }],
+        ['run_multi_machine_tests==1', {
+          'targets': [
+            {
+              'target_name': 'chromoting_multi_machine_example_test',
+              'includes': [
+                './dependencies.gypi',
+              ],
+              'sources': [
+                'multi_machine_example/example_test_controller.isolate',
+                'multi_machine_example/example_task.isolate',
+              ],
+            },  # target_name: 'chromoting_multi_machine_example_test'
+          ],
+        }],
+      ],
       'targets': [
         {
           'target_name': 'chromoting_integration_tests_run',
-          'type': 'none',
-          'dependencies': [
-            '../../chrome/chrome.gyp:browser_tests',
-            '../../remoting/remoting.gyp:remoting_webapp_v1',
-            '../../remoting/remoting.gyp:remoting_webapp_v2',
-          ],
           'includes': [
-            '../../build/isolate.gypi',
+            './dependencies.gypi',
           ],
           'sources': [
             'chromoting_integration_tests.isolate',
           ],
-        },
+        },  # target_name: 'chromoting_integration_tests_run'
       ],
     }],
   ],

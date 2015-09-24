@@ -3,6 +3,8 @@
 // found in the LICENSE file.
 
 #include "base/command_line.h"
+#include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
+#include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/browser/chromeos/net/network_portal_notification_controller.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/network/network_state.h"
@@ -29,20 +31,18 @@ class NotificationObserver : public message_center::MessageCenterObserver {
   NotificationObserver() : add_count_(0), remove_count_(0), update_count_(0) {}
 
   // Overridden from message_center::MessageCenterObserver:
-  virtual void OnNotificationAdded(
-      const std::string& notification_id) override {
+  void OnNotificationAdded(const std::string& notification_id) override {
     if (notification_id == kNotificationId)
       ++add_count_;
   }
 
-  virtual void OnNotificationRemoved(const std::string& notification_id,
-                                     bool /* by_user */) override {
+  void OnNotificationRemoved(const std::string& notification_id,
+                             bool /* by_user */) override {
     if (notification_id == kNotificationId)
       ++remove_count_;
   }
 
-  virtual void OnNotificationUpdated(
-      const std::string& notification_id) override {
+  void OnNotificationUpdated(const std::string& notification_id) override {
     if (notification_id == kNotificationId)
       ++update_count_;
   }
@@ -63,17 +63,18 @@ class NotificationObserver : public message_center::MessageCenterObserver {
 
 class NetworkPortalNotificationControllerTest : public testing::Test {
  public:
-  NetworkPortalNotificationControllerTest() {}
-  virtual ~NetworkPortalNotificationControllerTest() {}
+  NetworkPortalNotificationControllerTest()
+      : user_manager_enabler_(new chromeos::FakeChromeUserManager()) {}
+  ~NetworkPortalNotificationControllerTest() override {}
 
-  virtual void SetUp() override {
-    CommandLine* cl = CommandLine::ForCurrentProcess();
+  void SetUp() override {
+    base::CommandLine* cl = base::CommandLine::ForCurrentProcess();
     cl->AppendSwitch(switches::kEnableNetworkPortalNotification);
     MessageCenter::Initialize();
     MessageCenter::Get()->AddObserver(&observer_);
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     MessageCenter::Get()->RemoveObserver(&observer_);
     MessageCenter::Shutdown();
   }
@@ -88,6 +89,7 @@ class NetworkPortalNotificationControllerTest : public testing::Test {
   NotificationObserver& observer() { return observer_; }
 
  private:
+  ScopedUserManagerEnabler user_manager_enabler_;
   NetworkPortalNotificationController controller_;
   NotificationObserver observer_;
 

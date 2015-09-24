@@ -11,8 +11,6 @@ import org.chromium.content_public.browser.WebContents;
  * data reduction proxy settings menu.
  */
 public class DataReductionProxyInfoBar extends ConfirmInfoBar {
-    private static String sSettingsClassName;
-    private static String sDataReductionProxySettingsClassName;
     private static String sTitle;
     private static String sLinkText;
 
@@ -20,41 +18,21 @@ public class DataReductionProxyInfoBar extends ConfirmInfoBar {
      * Launch a data reduction proxy {@link InfoBar} with the specified title and link
      * text. Clicking the link will open the specified settings page.
      * @param webContents The {@link WebContents} in which to open the {@link InfoBar}.
-     * @param settingsClassName The settings class to open.
-     * @param drpSettingsClassName The {@link PreferenceActivity} fragment to show.
      * @param title The text to display in the {@link InfoBar}.
      * @param linkText The text to display in the link in the {@link InfoBar}.
      * @param linkUrl The URL to be loaded when the link text is clicked.
      */
     public static void launch(WebContents webContents,
-            String settingsClassName,
-            String drpSettingsClassName,
             String title,
             String linkText,
             String linkUrl) {
-        sSettingsClassName = settingsClassName;
-        sDataReductionProxySettingsClassName = drpSettingsClassName;
         sTitle = title;
         sLinkText = linkText;
         DataReductionProxyInfoBarDelegate.launch(webContents, linkUrl);
     }
 
-    /**
-     * Callers should now pass a linkUrl, which is loaded when the user clicks on linkText. See
-     * {@link #launch} above. See http://crbug.com/383988.
-     */
-    @Deprecated
-    public static void launch(WebContents webContents,
-            String settingsClassName,
-            String drpSettingsClassName,
-            String title,
-            String linkText) {
-        launch(webContents, settingsClassName, drpSettingsClassName, title, linkText, "");
-    }
-
-    DataReductionProxyInfoBar(long nativeInfoBar, int iconDrawableId) {
-        super(nativeInfoBar, null, iconDrawableId, sTitle,
-                sLinkText, null, null);
+    DataReductionProxyInfoBar(int iconDrawableId) {
+        super(null, iconDrawableId, null, sTitle, sLinkText, null, null);
     }
 
     @Override

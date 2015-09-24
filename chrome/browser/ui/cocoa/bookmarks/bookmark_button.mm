@@ -19,10 +19,10 @@
 #include "ui/gfx/scoped_ns_graphics_context_save_gstate_mac.h"
 
 using base::UserMetricsAction;
+using bookmarks::BookmarkNode;
 
 // The opacity of the bookmark button drag image.
 static const CGFloat kDragImageOpacity = 0.7;
-
 
 namespace bookmark_button {
 
@@ -414,6 +414,26 @@ BookmarkButton* gDraggedButton = nil; // Weak
   NSView* bookmarkBarToolbarView = [[self superview] superview];
   [self cr_drawUsingAncestor:bookmarkBarToolbarView inRect:(NSRect)rect];
   [super drawRect:rect];
+}
+
+- (void)viewDidMoveToWindow {
+  [super viewDidMoveToWindow];
+  if ([self window]) {
+    // The new window may have different main window status.
+    // This happens when the view is moved into a TabWindowOverlayWindow for
+    // tab dragging.
+    [self windowDidChangeActive];
+  }
+}
+
+// ThemedWindowDrawing implementation.
+
+- (void)windowDidChangeTheme {
+  [self setNeedsDisplay:YES];
+}
+
+- (void)windowDidChangeActive {
+  [self setNeedsDisplay:YES];
 }
 
 @end

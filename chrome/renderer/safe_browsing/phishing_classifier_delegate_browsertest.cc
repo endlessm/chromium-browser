@@ -5,8 +5,10 @@
 #include "chrome/renderer/safe_browsing/phishing_classifier_delegate.h"
 
 #include "base/command_line.h"
+#include "base/location.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/browser.h"
@@ -118,7 +120,7 @@ class InterceptingMessageFilter : public content::BrowserMessageFilter {
         verdict->IsInitialized()) {
       verdict_.swap(verdict);
     }
-    waiting_message_loop_->PostTask(FROM_HERE, quit_closure_);
+    waiting_message_loop_->task_runner()->PostTask(FROM_HERE, quit_closure_);
   }
 
  private:
@@ -141,7 +143,7 @@ class PhishingClassifierDelegateTest : public InProcessBrowserTest {
   }
 
  protected:
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(switches::kSingleProcess);
 #if defined(OS_WIN)
     // Don't want to try to create a GPU process.
@@ -407,7 +409,14 @@ IN_PROC_BROWSER_TEST_F(PhishingClassifierDelegateTest, Navigation) {
   EXPECT_CALL(*classifier_, CancelPendingClassification());
 }
 
-IN_PROC_BROWSER_TEST_F(PhishingClassifierDelegateTest, NoScorer) {
+// Flaky: crbug.com/479757
+#if defined(LEAK_SANITIZER)
+#define MAYBE_NoScorer DISABLED_NoScorer
+#else
+#define MAYBE_NoScorer NoScorer
+#endif
+
+IN_PROC_BROWSER_TEST_F(PhishingClassifierDelegateTest, MAYBE_NoScorer) {
   // For this test, we'll create the delegate with no scorer available yet.
   ASSERT_FALSE(classifier_->is_ready());
 
@@ -440,7 +449,14 @@ IN_PROC_BROWSER_TEST_F(PhishingClassifierDelegateTest, NoScorer) {
   EXPECT_CALL(*classifier_, CancelPendingClassification());
 }
 
-IN_PROC_BROWSER_TEST_F(PhishingClassifierDelegateTest, NoScorer_Ref) {
+// Flaky: crbug.com/435719
+#if defined(LEAK_SANITIZER)
+#define MAYBE_NoScorer_Ref DISABLED_NoScorer_Ref
+#else
+#define MAYBE_NoScorer_Ref NoScorer_Ref
+#endif
+
+IN_PROC_BROWSER_TEST_F(PhishingClassifierDelegateTest, MAYBE_NoScorer_Ref) {
   // Similar to the last test, but navigates within the page before
   // setting the scorer.
   ASSERT_FALSE(classifier_->is_ready());
@@ -539,8 +555,14 @@ IN_PROC_BROWSER_TEST_F(PhishingClassifierDelegateTest,
   EXPECT_CALL(*classifier_, CancelPendingClassification());
 }
 
+// Test flakes with LSAN enabled. See http://crbug.com/373155.
+#if defined(LEAK_SANITIZER)
+#define MAYBE_IgnorePreliminaryCapture DISABLED_IgnorePreliminaryCapture
+#else
+#define MAYBE_IgnorePreliminaryCapture IgnorePreliminaryCapture
+#endif
 IN_PROC_BROWSER_TEST_F(PhishingClassifierDelegateTest,
-                       IgnorePreliminaryCapture) {
+                       MAYBE_IgnorePreliminaryCapture) {
   // Tests that preliminary PageCaptured notifications are ignored.
   MockScorer scorer;
   delegate_->SetPhishingScorer(&scorer);
@@ -602,7 +624,14 @@ IN_PROC_BROWSER_TEST_F(PhishingClassifierDelegateTest,
   EXPECT_CALL(*classifier_, CancelPendingClassification());
 }
 
-IN_PROC_BROWSER_TEST_F(PhishingClassifierDelegateTest, PhishingDetectionDone) {
+// Test flakes with LSAN enabled. See http://crbug.com/373155.
+#if defined(LEAK_SANITIZER)
+#define MAYBE_PhishingDetectionDone DISABLED_PhishingDetectionDone
+#else
+#define MAYBE_PhishingDetectionDone PhishingDetectionDone
+#endif
+IN_PROC_BROWSER_TEST_F(PhishingClassifierDelegateTest,
+                       MAYBE_PhishingDetectionDone) {
   // Tests that a PhishingDetectionDone IPC is sent to the browser
   // whenever we finish classification.
   MockScorer scorer;

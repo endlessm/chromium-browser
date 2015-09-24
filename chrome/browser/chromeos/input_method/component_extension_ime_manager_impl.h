@@ -13,7 +13,7 @@
 #include "base/sequenced_task_runner.h"
 #include "base/threading/thread_checker.h"
 #include "base/values.h"
-#include "chromeos/ime/component_extension_ime_manager.h"
+#include "ui/base/ime/chromeos/component_extension_ime_manager.h"
 
 class Profile;
 
@@ -24,17 +24,19 @@ class ComponentExtensionIMEManagerImpl
     : public ComponentExtensionIMEManagerDelegate {
  public:
   ComponentExtensionIMEManagerImpl();
-  virtual ~ComponentExtensionIMEManagerImpl();
+  ~ComponentExtensionIMEManagerImpl() override;
 
   // ComponentExtensionIMEManagerDelegate overrides:
-  virtual std::vector<ComponentExtensionIME> ListIME() override;
-  virtual void Load(Profile* profile,
-                    const std::string& extension_id,
-                    const std::string& manifest,
-                    const base::FilePath& file_path) override;
-  virtual void Unload(Profile* profile,
-                      const std::string& extension_id,
-                      const base::FilePath& file_path) override;
+  std::vector<ComponentExtensionIME> ListIME() override;
+  void Load(Profile* profile,
+            const std::string& extension_id,
+            const std::string& manifest,
+            const base::FilePath& file_path) override;
+  void Unload(Profile* profile,
+              const std::string& extension_id,
+              const base::FilePath& file_path) override;
+
+  static bool IsIMEExtensionID(const std::string& id);
 
  private:
   // Reads component extensions and extract their localized information: name,

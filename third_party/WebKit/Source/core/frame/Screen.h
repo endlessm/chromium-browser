@@ -34,32 +34,30 @@
 #include "core/frame/DOMWindowProperty.h"
 #include "platform/Supplementable.h"
 #include "platform/heap/Handle.h"
-#include "wtf/PassRefPtr.h"
-#include "wtf/RefCounted.h"
 
 namespace blink {
 
 class LocalFrame;
 
-class Screen final : public RefCountedWillBeGarbageCollected<Screen>, public ScriptWrappable, public DOMWindowProperty, public WillBeHeapSupplementable<Screen> {
+class Screen final : public GarbageCollectedFinalized<Screen>, public ScriptWrappable, public DOMWindowProperty, public HeapSupplementable<Screen> {
     DEFINE_WRAPPERTYPEINFO();
-    WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(Screen);
+    USING_GARBAGE_COLLECTED_MIXIN(Screen);
 public:
-    static PassRefPtrWillBeRawPtr<Screen> create(LocalFrame* frame)
+    static Screen* create(LocalFrame* frame)
     {
-        return adoptRefWillBeNoop(new Screen(frame));
+        return new Screen(frame);
     }
 
-    unsigned height() const;
-    unsigned width() const;
+    int height() const;
+    int width() const;
     unsigned colorDepth() const;
     unsigned pixelDepth() const;
     int availLeft() const;
     int availTop() const;
-    unsigned availHeight() const;
-    unsigned availWidth() const;
+    int availHeight() const;
+    int availWidth() const;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     explicit Screen(LocalFrame*);

@@ -4,8 +4,8 @@
 
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 
-#include "base/debug/trace_event.h"
 #include "base/memory/singleton.h"
+#include "base/trace_event/trace_event.h"
 #include "content/public/browser/browser_context.h"
 
 #ifndef NDEBUG
@@ -19,8 +19,11 @@ const char kDumpBrowserContextDependencyGraphFlag[] =
 #endif  // NDEBUG
 
 void BrowserContextDependencyManager::RegisterProfilePrefsForServices(
-    const content::BrowserContext* context,
+    content::BrowserContext* context,
     user_prefs::PrefRegistrySyncable* pref_registry) {
+  TRACE_EVENT0(
+     "browser",
+     "BrowserContextDependencyManager::RegisterProfilePrefsForServices");
   RegisterPrefsForServices(context, pref_registry);
 }
 
@@ -74,16 +77,18 @@ BrowserContextDependencyManager::GetInstance() {
   return Singleton<BrowserContextDependencyManager>::get();
 }
 
-BrowserContextDependencyManager::BrowserContextDependencyManager() {}
+BrowserContextDependencyManager::BrowserContextDependencyManager() {
+}
 
-BrowserContextDependencyManager::~BrowserContextDependencyManager() {}
+BrowserContextDependencyManager::~BrowserContextDependencyManager() {
+}
 
 #ifndef NDEBUG
 void BrowserContextDependencyManager::DumpContextDependencies(
-    const base::SupportsUserData* context) const {
+    base::SupportsUserData* context) const {
   // Whenever we try to build a destruction ordering, we should also dump a
   // dependency graph to "/path/to/context/context-dependencies.dot".
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           kDumpBrowserContextDependencyGraphFlag)) {
     base::FilePath dot_file =
         static_cast<const content::BrowserContext*>(context)

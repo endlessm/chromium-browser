@@ -1,5 +1,5 @@
-<!DOCTYPE html>
-<html i18n-values="dir:textdirection;">
+<!doctype html>
+<html i18n-values="dir:textdirection;lang:language">
 <head>
   <meta charset="utf-8">
   <title>ServiceWorker</title>
@@ -49,9 +49,6 @@
         <button href="#" class="stop"
             jsvalues=".cmdArgs:{partition_id:$partition_id,version_id:version_id}"
             jsdisplay="$this.running_status == 'RUNNING'">Stop</button>
-        <button href="#" class="sync"
-            jsvalues=".cmdArgs:{partition_id:$partition_id,version_id:version_id}"
-            jsdisplay="$this.running_status == 'RUNNING'">Sync</button>
         <button href="#" class="push"
             jsvalues=".cmdArgs:{partition_id:$partition_id,version_id:version_id}"
             jsdisplay="$this.running_status == 'RUNNING'">Push</button>
@@ -119,15 +116,13 @@
       </div>
     </div>
     <div id="serviceworker-options-template">
-      <div>
+      <div class="checkbox">
         <label>
-          <span>
             <input type="checkbox" class="debug_on_start"
-                jsvalues=".checked:$this.debug_on_start">
-          </span>
-          <span>
-            Opens the DevTools window for ServiceWorker on start for debugging.
-          </span>
+                   jsvalues=".checked:$this.debug_on_start">
+            <span>
+              Open DevTools window and pause JavaScript execution on Service Worker startup for debugging.
+            </span>
         </label>
       </div>
     </div>
@@ -143,6 +138,6 @@
   <script src="chrome://resources/js/load_time_data.js"></script>
   <script src="chrome://resources/js/jstemplate_compiled.js"></script>
   <script src="strings.js"></script>
-  <script src="chrome://resources/js/i18n_template2.js"></script>
+  <script src="chrome://resources/js/i18n_template.js"></script>
 </body>
 </html>

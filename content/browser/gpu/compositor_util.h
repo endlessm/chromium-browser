@@ -13,19 +13,27 @@ namespace content {
 // Note: When adding a function here, please make sure the logic is not
 // duplicated in the renderer.
 
-// Returns true if the virtual viewport model of pinch-to-zoom is on (via
-// flags, or platform default).
-CONTENT_EXPORT bool IsPinchVirtualViewportEnabled();
+// Returns true if property tree verification is enabled (via flags or platform
+// default).
+CONTENT_EXPORT bool IsPropertyTreeVerificationEnabled();
 
 // Returns true if delegated-renderer is on (via flags, or platform default).
 CONTENT_EXPORT bool IsDelegatedRendererEnabled();
 
-// Returns true if impl-side painting is on (via flags, or platform default)
-// for the renderer.
-CONTENT_EXPORT bool IsImplSidePaintingEnabled();
+// Returns true if one-copy uploads is on (via flags, or platform default).
+// Only one of one-copy and zero-copy can be enabled at a time.
+CONTENT_EXPORT bool IsOneCopyUploadEnabled();
+
+// Returns true if zero-copy uploads is on (via flags, or platform default).
+// Only one of one-copy and zero-copy can be enabled at a time.
+CONTENT_EXPORT bool IsZeroCopyUploadEnabled();
 
 // Returns true if gpu rasterization is on (via flags) for the renderer.
 CONTENT_EXPORT bool IsGpuRasterizationEnabled();
+
+// Returns the number of multisample antialiasing samples (via flags) for
+// GPU rasterization.
+CONTENT_EXPORT int GpuRasterizationMSAASampleCount();
 
 // Returns true if force-gpu-rasterization is on (via flags) for the renderer.
 CONTENT_EXPORT bool IsForceGpuRasterizationEnabled();
@@ -33,16 +41,12 @@ CONTENT_EXPORT bool IsForceGpuRasterizationEnabled();
 // Returns the number of raster threads to use for compositing.
 CONTENT_EXPORT int NumberOfRendererRasterThreads();
 
-// Returns the number of raster threads to use for compositing that are forced
-// by the command line.
-CONTENT_EXPORT int ForceNumberOfRendererRasterThreads();
-
 // Returns true if using cc Surfaces is allowed.
 CONTENT_EXPORT bool UseSurfacesEnabled();
 
-CONTENT_EXPORT base::Value* GetFeatureStatus();
+CONTENT_EXPORT base::DictionaryValue* GetFeatureStatus();
 CONTENT_EXPORT base::Value* GetProblems();
-CONTENT_EXPORT base::Value* GetDriverBugWorkarounds();
+CONTENT_EXPORT std::vector<std::string> GetDriverBugWorkarounds();
 
 }  // namespace content
 

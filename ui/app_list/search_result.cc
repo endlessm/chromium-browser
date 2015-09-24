@@ -4,7 +4,11 @@
 
 #include "ui/app_list/search_result.h"
 
+#include <map>
+
 #include "ui/app_list/app_list_constants.h"
+#include "ui/app_list/search/tokenized_string.h"
+#include "ui/app_list/search/tokenized_string_match.h"
 #include "ui/app_list/search_result_observer.h"
 
 namespace app_list {
@@ -28,6 +32,8 @@ SearchResult::Action::~Action() {}
 SearchResult::SearchResult()
     : relevance_(0),
       display_type_(DISPLAY_LIST),
+      distance_from_origin_(-1),
+      voice_result_(false),
       is_installing_(false),
       percent_downloaded_(0) {
 }
@@ -41,6 +47,11 @@ void SearchResult::SetIcon(const gfx::ImageSkia& icon) {
   FOR_EACH_OBSERVER(SearchResultObserver,
                     observers_,
                     OnIconChanged());
+}
+
+void SearchResult::SetBadgeIcon(const gfx::ImageSkia& badge_icon) {
+  badge_icon_ = badge_icon;
+  FOR_EACH_OBSERVER(SearchResultObserver, observers_, OnBadgeIconChanged());
 }
 
 void SearchResult::SetActions(const Actions& sets) {
@@ -72,10 +83,15 @@ void SearchResult::SetPercentDownloaded(int percent_downloaded) {
 
 int SearchResult::GetPreferredIconDimension() const {
   switch (display_type_) {
+    case DISPLAY_RECOMMENDATION:  // Falls through.
     case DISPLAY_TILE:
       return kTileIconSize;
     case DISPLAY_LIST:
       return kListIconSize;
+    case DISPLAY_NONE:
+      return 0;
+    case DISPLAY_TYPE_LAST:
+      break;
   }
   NOTREACHED();
   return 0;
@@ -83,10 +99,6 @@ int SearchResult::GetPreferredIconDimension() const {
 
 void SearchResult::NotifyItemInstalled() {
   FOR_EACH_OBSERVER(SearchResultObserver, observers_, OnItemInstalled());
-}
-
-void SearchResult::NotifyItemUninstalled() {
-  FOR_EACH_OBSERVER(SearchResultObserver, observers_, OnItemUninstalled());
 }
 
 void SearchResult::AddObserver(SearchResultObserver* observer) {
@@ -97,6 +109,20 @@ void SearchResult::RemoveObserver(SearchResultObserver* observer) {
   observers_.RemoveObserver(observer);
 }
 
+void SearchResult::UpdateFromMatch(const TokenizedString& title,
+                                   const TokenizedStringMatch& match) {
+  const TokenizedStringMatch::Hits& hits = match.hits();
+
+  Tags tags;
+  tags.reserve(hits.size());
+  for (size_t i = 0; i < hits.size(); ++i)
+    tags.push_back(Tag(Tag::MATCH, hits[i].start(), hits[i].end()));
+
+  set_title(title.text());
+  set_title_tags(tags);
+  set_relevance(match.relevance());
+}
+
 void SearchResult::Open(int event_flags) {
 }
 
@@ -105,6 +131,35 @@ void SearchResult::InvokeAction(int action_index, int event_flags) {
 
 ui::MenuModel* SearchResult::GetContextMenuModel() {
   return NULL;
+}
+
+// static
+std::string SearchResult::TagsDebugString(const std::string& text,
+                                          const Tags& tags) {
+  std::string result = text;
+
+  // Build a table of delimiters to insert.
+  std::map<size_t, std::string> inserts;
+  for (const auto& tag : tags) {
+    if (tag.styles & Tag::URL)
+      inserts[tag.range.start()].push_back('{');
+    if (tag.styles & Tag::MATCH)
+      inserts[tag.range.start()].push_back('[');
+    if (tag.styles & Tag::DIM) {
+      inserts[tag.range.start()].push_back('<');
+      inserts[tag.range.end()].push_back('>');
+    }
+    if (tag.styles & Tag::MATCH)
+      inserts[tag.range.end()].push_back(']');
+    if (tag.styles & Tag::URL)
+      inserts[tag.range.end()].push_back('}');
+  }
+
+  // Insert the delimiters (in reverse order, to preserve indices).
+  for (auto it = inserts.rbegin(); it != inserts.rend(); ++it)
+    result.insert(it->first, it->second);
+
+  return result;
 }
 
 }  // namespace app_list

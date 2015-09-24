@@ -8,9 +8,9 @@
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "media/base/decoder_buffer.h"
-#include "media/base/video_frame.h"
 #include "media/base/video_util.h"
 
 namespace media {
@@ -18,8 +18,8 @@ namespace media {
 // Why FF_INPUT_BUFFER_PADDING_SIZE? FFmpeg assumes all input buffers are
 // padded. Check here to ensure FFmpeg only receives data padded to its
 // specifications.
-COMPILE_ASSERT(DecoderBuffer::kPaddingSize >= FF_INPUT_BUFFER_PADDING_SIZE,
-               decoder_buffer_padding_size_does_not_fit_ffmpeg_requirement);
+static_assert(DecoderBuffer::kPaddingSize >= FF_INPUT_BUFFER_PADDING_SIZE,
+              "DecoderBuffer padding size does not fit ffmpeg requirement");
 
 // Alignment requirement by FFmpeg for input and output buffers. This need to
 // be updated to match FFmpeg when it changes.
@@ -30,22 +30,22 @@ static const int kFFmpegBufferAddressAlignment = 32;
 #endif
 
 // Check here to ensure FFmpeg only receives data aligned to its specifications.
-COMPILE_ASSERT(
+static_assert(
     DecoderBuffer::kAlignmentSize >= kFFmpegBufferAddressAlignment &&
     DecoderBuffer::kAlignmentSize % kFFmpegBufferAddressAlignment == 0,
-    decoder_buffer_alignment_size_does_not_fit_ffmpeg_requirement);
+    "DecoderBuffer alignment size does not fit ffmpeg requirement");
 
 // Allows faster SIMD YUV convert. Also, FFmpeg overreads/-writes occasionally.
 // See video_get_buffer() in libavcodec/utils.c.
 static const int kFFmpegOutputBufferPaddingSize = 16;
 
-COMPILE_ASSERT(VideoFrame::kFrameSizePadding >= kFFmpegOutputBufferPaddingSize,
-               video_frame_padding_size_does_not_fit_ffmpeg_requirement);
+static_assert(VideoFrame::kFrameSizePadding >= kFFmpegOutputBufferPaddingSize,
+              "VideoFrame padding size does not fit ffmpeg requirement");
 
-COMPILE_ASSERT(
+static_assert(
     VideoFrame::kFrameAddressAlignment >= kFFmpegBufferAddressAlignment &&
     VideoFrame::kFrameAddressAlignment % kFFmpegBufferAddressAlignment == 0,
-    video_frame_address_alignment_does_not_fit_ffmpeg_requirement);
+    "VideoFrame frame address alignment does not fit ffmpeg requirement");
 
 static const AVRational kMicrosBase = { 1, base::Time::kMicrosecondsPerSecond };
 
@@ -92,6 +92,8 @@ static AudioCodec CodecIDToAudioCodec(AVCodecID codec_id) {
       return kCodecPCM_MULAW;
     case AV_CODEC_ID_OPUS:
       return kCodecOpus;
+    case AV_CODEC_ID_ALAC:
+      return kCodecALAC;
     default:
       DVLOG(1) << "Unknown audio CodecID: " << codec_id;
   }
@@ -103,6 +105,8 @@ static AVCodecID AudioCodecToCodecID(AudioCodec audio_codec,
   switch (audio_codec) {
     case kCodecAAC:
       return AV_CODEC_ID_AAC;
+    case kCodecALAC:
+      return AV_CODEC_ID_ALAC;
     case kCodecMP3:
       return AV_CODEC_ID_MP3;
     case kCodecPCM:
@@ -242,6 +246,8 @@ SampleFormat AVSampleFormatToSampleFormat(AVSampleFormat sample_format) {
       return kSampleFormatF32;
     case AV_SAMPLE_FMT_S16P:
       return kSampleFormatPlanarS16;
+    case  AV_SAMPLE_FMT_S32P:
+      return kSampleFormatPlanarS32;
     case AV_SAMPLE_FMT_FLTP:
       return kSampleFormatPlanarF32;
     default:
@@ -428,6 +434,9 @@ void AVStreamToVideoDecoderConfig(
   config->Initialize(codec,
                      profile,
                      format,
+                     (stream->codec->colorspace == AVCOL_SPC_BT709)
+                         ? VideoFrame::COLOR_SPACE_HD_REC709
+                         : VideoFrame::COLOR_SPACE_UNSPECIFIED,
                      coded_size, visible_rect, natural_size,
                      stream->codec->extradata, stream->codec->extradata_size,
                      is_encrypted,
@@ -524,15 +533,18 @@ ChannelLayout ChannelLayoutToChromeChannelLayout(int64_t layout, int channels) {
 }
 
 VideoFrame::Format PixelFormatToVideoFormat(PixelFormat pixel_format) {
+  // The YUVJ alternatives are FFmpeg's (deprecated, but still in use) way to
+  // specify a pixel format and full range color combination
   switch (pixel_format) {
     case PIX_FMT_YUV422P:
+    case PIX_FMT_YUVJ422P:
       return VideoFrame::YV16;
     case PIX_FMT_YUV444P:
+    case PIX_FMT_YUVJ444P:
       return VideoFrame::YV24;
     case PIX_FMT_YUV420P:
-      return VideoFrame::YV12;
     case PIX_FMT_YUVJ420P:
-      return VideoFrame::YV12J;
+      return VideoFrame::YV12;
     case PIX_FMT_YUVA420P:
       return VideoFrame::YV12A;
     default:
@@ -547,8 +559,6 @@ PixelFormat VideoFormatToPixelFormat(VideoFrame::Format video_format) {
       return PIX_FMT_YUV422P;
     case VideoFrame::YV12:
       return PIX_FMT_YUV420P;
-    case VideoFrame::YV12J:
-      return PIX_FMT_YUVJ420P;
     case VideoFrame::YV12A:
       return PIX_FMT_YUVA420P;
     case VideoFrame::YV24:
@@ -559,23 +569,30 @@ PixelFormat VideoFormatToPixelFormat(VideoFrame::Format video_format) {
   return PIX_FMT_NONE;
 }
 
-bool FFmpegUTCDateToTime(const char* date_utc,
-                         base::Time* out) {
+bool FFmpegUTCDateToTime(const char* date_utc, base::Time* out) {
   DCHECK(date_utc);
   DCHECK(out);
 
-  std::vector<std::string> fields;
-  std::vector<std::string> date_fields;
-  std::vector<std::string> time_fields;
-  base::Time::Exploded exploded;
-  exploded.millisecond = 0;
+  std::vector<base::StringPiece> fields = base::SplitStringPiece(
+      date_utc, " ", base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+  if (fields.size() != 2)
+    return false;
+
+  std::vector<base::StringPiece> date_fields = base::SplitStringPiece(
+      fields[0], "-", base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+  if (date_fields.size() != 3)
+    return false;
 
   // TODO(acolwell): Update this parsing code when FFmpeg returns sub-second
   // information.
-  if ((Tokenize(date_utc, " ", &fields) == 2) &&
-      (Tokenize(fields[0], "-", &date_fields) == 3) &&
-      (Tokenize(fields[1], ":", &time_fields) == 3) &&
-      base::StringToInt(date_fields[0], &exploded.year) &&
+  std::vector<base::StringPiece> time_fields = base::SplitStringPiece(
+      fields[1], ":", base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+  if (time_fields.size() != 3)
+    return false;
+
+  base::Time::Exploded exploded;
+  exploded.millisecond = 0;
+  if (base::StringToInt(date_fields[0], &exploded.year) &&
       base::StringToInt(date_fields[1], &exploded.month) &&
       base::StringToInt(date_fields[2], &exploded.day_of_month) &&
       base::StringToInt(time_fields[0], &exploded.hour) &&

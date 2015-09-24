@@ -9,7 +9,7 @@
 chrome.exe: %(ChromeDir)s\
 wow_helper.exe: %(ChromeDir)s\
 #
-# Chrome version dir aseembly manifest.
+# Chrome version dir assembly manifest.
 # The name of this file must match the name of the version dir, so we cannot
 # hard-code it.
 # // TODO(caitkp): Find a way to do this without wildcards.
@@ -22,8 +22,9 @@ chrome.dll: %(VersionDir)s\
 chrome_100_percent.pak: %(VersionDir)s\
 chrome_child.dll: %(VersionDir)s\
 chrome_elf.dll: %(VersionDir)s\
-d3dcompiler_46.dll: %(VersionDir)s\
-ffmpegsumo.dll: %(VersionDir)s\
+chrome_watcher.dll: %(VersionDir)s\
+d3dcompiler_47.dll: %(VersionDir)s\
+kasko.dll: %(VersionDir)s\
 icudt.dll: %(VersionDir)s\
 icudtl.dat: %(VersionDir)s\
 libEGL.dll: %(VersionDir)s\
@@ -32,8 +33,9 @@ libGLESv2.dll: %(VersionDir)s\
 nacl64.exe: %(VersionDir)s\
 nacl_irt_x86_32.nexe: %(VersionDir)s\
 nacl_irt_x86_64.nexe: %(VersionDir)s\
-pdf.dll: %(VersionDir)s\
+natives_blob.bin: %(VersionDir)s\
 resources.pak: %(VersionDir)s\
+snapshot_blob.bin: %(VersionDir)s\
 syzyasan_rtl.dll: %(VersionDir)s\
 xinput1_3.dll: %(VersionDir)s\
 #
@@ -52,7 +54,6 @@ chrome_200_percent.pak: %(VersionDir)s\
 
 [GOOGLE_CHROME]
 delegate_execute.exe: %(VersionDir)s\
-libpeerconnection.dll: %(VersionDir)s\
 metro_driver.dll: %(VersionDir)s\
 SecondaryTile.png: %(VersionDir)s\
 widevinecdmadapter.dll: %(VersionDir)s\

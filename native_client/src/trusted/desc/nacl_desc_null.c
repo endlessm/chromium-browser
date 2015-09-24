@@ -15,6 +15,7 @@
 #include "native_client/src/trusted/desc/nacl_desc_base.h"
 #include "native_client/src/trusted/service_runtime/include/sys/stat.h"
 #include "native_client/src/trusted/service_runtime/include/sys/errno.h"
+#include "native_client/src/trusted/service_runtime/nacl_config.h"
 
 static struct NaClDescVtbl const kNaClDescNullVtbl;  /* fwd */
 
@@ -86,11 +87,7 @@ static int NaClDescNullFstat(struct NaClDesc *vself,
 
   memset(statbuf, 0, sizeof *statbuf);
   statbuf->nacl_abi_st_dev = 0;
-#if defined(NACL_MASK_INODES)
   statbuf->nacl_abi_st_ino = NACL_FAKE_INODE_NUM;
-#else
-  statbuf->nacl_abi_st_ino = 0;
-#endif
   statbuf->nacl_abi_st_mode = NACL_ABI_S_IRUSR | NACL_ABI_S_IFCHR;
   statbuf->nacl_abi_st_nlink = 1;
   statbuf->nacl_abi_st_uid = -1;
@@ -174,13 +171,11 @@ static struct NaClDescVtbl const kNaClDescNullVtbl = {
 };
 
 int NaClDescNullInternalize(struct NaClDesc **out_desc,
-                            struct NaClDescXferState *xfer,
-                            struct NaClDescQuotaInterface *quota_interface) {
+                            struct NaClDescXferState *xfer) {
   int rv;
   struct NaClDescNull *d_null = malloc(sizeof *d_null);
 
   UNREFERENCED_PARAMETER(xfer);
-  UNREFERENCED_PARAMETER(quota_interface);
   if (NULL == d_null) {
     rv = -NACL_ABI_ENOMEM;
     goto cleanup;

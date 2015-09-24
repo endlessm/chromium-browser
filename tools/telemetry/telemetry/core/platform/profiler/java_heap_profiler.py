@@ -2,19 +2,22 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import logging
 import os
 import subprocess
 import threading
 
-from telemetry.core import util
-from telemetry.core.backends.chrome import android_browser_finder
 from telemetry.core.platform import profiler
+from telemetry.core import util
+from telemetry.internal.backends.chrome import android_browser_finder
 
 util.AddDirToPythonPath(util.GetChromiumSrcDir(), 'build', 'android')
 try:
   from pylib import constants  # pylint: disable=F0401
-except Exception:
+  from pylib.device import device_errors  # pylint: disable=F0401
+except ImportError:
   constants = None
+  device_errors = None
 
 
 class JavaHeapProfiler(profiler.Profiler):
@@ -46,9 +49,13 @@ class JavaHeapProfiler(profiler.Profiler):
   def CollectProfile(self):
     self._timer.cancel()
     self._DumpJavaHeap(True)
-    self._browser_backend.adb.device().old_interface.Adb().Pull(
-        self._DEFAULT_DEVICE_DIR, self._output_path)
-    self._browser_backend.adb.RunShellCommand(
+    try:
+      self._browser_backend.device.PullFile(
+          self._DEFAULT_DEVICE_DIR, self._output_path)
+    except:
+      logging.exception('New exception caused by DeviceUtils conversion')
+      raise
+    self._browser_backend.device.RunShellCommand(
         'rm ' + os.path.join(self._DEFAULT_DEVICE_DIR, '*'))
     output_files = []
     for f in os.listdir(self._output_path):
@@ -65,23 +72,25 @@ class JavaHeapProfiler(profiler.Profiler):
     self._DumpJavaHeap(False)
 
   def _DumpJavaHeap(self, wait_for_completion):
-    if not self._browser_backend.adb.device().FileExists(
+    if not self._browser_backend.device.FileExists(
         self._DEFAULT_DEVICE_DIR):
-      self._browser_backend.adb.RunShellCommand(
+      self._browser_backend.device.RunShellCommand(
           'mkdir -p ' + self._DEFAULT_DEVICE_DIR)
-      self._browser_backend.adb.RunShellCommand(
+      self._browser_backend.device.RunShellCommand(
           'chmod 777 ' + self._DEFAULT_DEVICE_DIR)
 
     device_dump_file = None
     for pid in self._GetProcessOutputFileMap().iterkeys():
       device_dump_file = '%s/%s.%s.aprof' % (self._DEFAULT_DEVICE_DIR, pid,
                                              self._run_count)
-      self._browser_backend.adb.RunShellCommand('am dumpheap %s %s' %
-                                                (pid, device_dump_file))
+      self._browser_backend.device.RunShellCommand('am dumpheap %s %s' %
+                                                   (pid, device_dump_file))
     if device_dump_file and wait_for_completion:
       util.WaitFor(lambda: self._FileSize(device_dump_file) > 0, timeout=2)
     self._run_count += 1
 
   def _FileSize(self, file_name):
-    f = self._browser_backend.adb.device().Ls(file_name)
-    return f.get(os.path.basename(file_name), (0, ))[0]
+    try:
+      return self._browser_backend.device.Stat(file_name).st_size
+    except device_errors.CommandFailedError:
+      return 0

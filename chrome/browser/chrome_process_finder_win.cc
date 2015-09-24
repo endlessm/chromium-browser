@@ -11,7 +11,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
-#include "base/process/process_handle.h"
+#include "base/process/process.h"
 #include "base/process/process_info.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
@@ -28,7 +28,7 @@
 
 namespace {
 
-const int kTimeoutInSeconds = 20;
+int timeout_in_milliseconds = 20 * 1000;
 
 // The following is copied from net/base/escape.cc. We don't want to depend on
 // net here because this gets compiled into chrome.exe to facilitate
@@ -105,53 +105,12 @@ HWND FindRunningChromeWindow(const base::FilePath& user_data_dir) {
 NotifyChromeResult AttemptToNotifyRunningChrome(HWND remote_window,
                                                 bool fast_start) {
   DCHECK(remote_window);
-  static const char kSearchUrl[] =
-      "http://www.google.com/search?q=%s&sourceid=chrome&ie=UTF-8";
   DWORD process_id = 0;
   DWORD thread_id = GetWindowThreadProcessId(remote_window, &process_id);
   if (!thread_id || !process_id)
     return NOTIFY_FAILED;
 
-#if !defined(USE_AURA)
-  if (base::win::IsMetroProcess()) {
-    // Interesting corner case. We are launched as a metro process but we
-    // found another chrome running. Since metro enforces single instance then
-    // the other chrome must be desktop chrome and this must be a search charm
-    // activation. This scenario is unique; other cases should be properly
-    // handled by the delegate_execute which will not activate a second chrome.
-    base::string16 terms;
-    base::win::MetroLaunchType launch = base::win::GetMetroLaunchParams(&terms);
-    if (launch != base::win::METRO_SEARCH) {
-      LOG(WARNING) << "In metro mode, but and launch is " << launch;
-    } else {
-      std::string query = EscapeQueryParamValue(base::UTF16ToUTF8(terms), true);
-      std::string url = base::StringPrintf(kSearchUrl, query.c_str());
-      SHELLEXECUTEINFOA sei = { sizeof(sei) };
-      sei.fMask = SEE_MASK_FLAG_LOG_USAGE;
-      sei.nShow = SW_SHOWNORMAL;
-      sei.lpFile = url.c_str();
-      OutputDebugStringA(sei.lpFile);
-      sei.lpDirectory = "";
-      ::ShellExecuteExA(&sei);
-    }
-    return NOTIFY_SUCCESS;
-  }
-
-  base::win::ScopedHandle process_handle;
-  if (base::win::GetVersion() >= base::win::VERSION_WIN8 &&
-      base::OpenProcessHandleWithAccess(
-          process_id, PROCESS_QUERY_INFORMATION,
-          process_handle.Receive())) {
-    // Receive() causes the process handle to be set in the destructor of the
-    // temporary receiver object, which does not happen until after the if
-    // statement is complete.  So IsProcessImmersive() should only be checked
-    // as part of a separate if statement.
-    if (base::win::IsProcessImmersive(process_handle.Get()))
-      chrome::ActivateMetroChrome();
-  }
-#endif
-
-  CommandLine command_line(*CommandLine::ForCurrentProcess());
+  base::CommandLine command_line(*base::CommandLine::ForCurrentProcess());
   command_line.AppendSwitchASCII(
       switches::kOriginalProcessStartTime,
       base::Int64ToString(
@@ -180,13 +139,9 @@ NotifyChromeResult AttemptToNotifyRunningChrome(HWND remote_window,
   cds.cbData = static_cast<DWORD>((to_send.length() + 1) * sizeof(wchar_t));
   cds.lpData = const_cast<wchar_t*>(to_send.c_str());
   DWORD_PTR result = 0;
-  if (::SendMessageTimeout(remote_window,
-                           WM_COPYDATA,
-                           NULL,
-                           reinterpret_cast<LPARAM>(&cds),
-                           SMTO_ABORTIFHUNG,
-                           kTimeoutInSeconds * 1000,
-                           &result)) {
+  if (::SendMessageTimeout(remote_window, WM_COPYDATA, NULL,
+                           reinterpret_cast<LPARAM>(&cds), SMTO_ABORTIFHUNG,
+                           timeout_in_milliseconds, &result)) {
     return result ? NOTIFY_SUCCESS : NOTIFY_FAILED;
   }
 
@@ -196,6 +151,13 @@ NotifyChromeResult AttemptToNotifyRunningChrome(HWND remote_window,
 
   // If the window couldn't be notified but still exists, assume it is hung.
   return NOTIFY_WINDOW_HUNG;
+}
+
+base::TimeDelta SetNotificationTimeoutForTesting(base::TimeDelta new_timeout) {
+  base::TimeDelta old_timeout =
+      base::TimeDelta::FromMilliseconds(timeout_in_milliseconds);
+  timeout_in_milliseconds = new_timeout.InMilliseconds();
+  return old_timeout;
 }
 
 }  // namespace chrome

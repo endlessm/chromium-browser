@@ -24,12 +24,13 @@
 #ifndef DocumentFragment_h
 #define DocumentFragment_h
 
+#include "core/CoreExport.h"
 #include "core/dom/ContainerNode.h"
 #include "core/dom/ParserContentPolicy.h"
 
 namespace blink {
 
-class DocumentFragment : public ContainerNode {
+class CORE_EXPORT DocumentFragment : public ContainerNode {
     DEFINE_WRAPPERTYPEINFO();
 public:
     static PassRefPtrWillBeRawPtr<DocumentFragment> create(Document&);
@@ -37,19 +38,19 @@ public:
     void parseHTML(const String&, Element* contextElement, ParserContentPolicy = AllowScriptingContent);
     bool parseXML(const String&, Element* contextElement, ParserContentPolicy = AllowScriptingContent);
 
-    virtual bool canContainRangeEndPoint() const override final { return true; }
+    bool canContainRangeEndPoint() const final { return true; }
     virtual bool isTemplateContent() const { return false; }
 
 protected:
     DocumentFragment(Document*, ConstructionType = CreateContainer);
-    virtual String nodeName() const override final;
+    String nodeName() const final;
 
 private:
-    virtual NodeType nodeType() const override final;
-    virtual PassRefPtrWillBeRawPtr<Node> cloneNode(bool deep = true) override;
-    virtual bool childTypeAllowed(NodeType) const override;
+    NodeType nodeType() const final;
+    PassRefPtrWillBeRawPtr<Node> cloneNode(bool deep = true) override;
+    bool childTypeAllowed(NodeType) const override;
 
-    bool isDocumentFragment() const WTF_DELETED_FUNCTION; // This will catch anyone doing an unnecessary check.
+    bool isDocumentFragment() const = delete; // This will catch anyone doing an unnecessary check.
 };
 
 DEFINE_NODE_TYPE_CASTS(DocumentFragment, isDocumentFragment());

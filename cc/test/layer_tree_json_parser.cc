@@ -6,12 +6,12 @@
 
 #include "base/test/values_test_util.h"
 #include "base/values.h"
-#include "cc/layers/content_layer.h"
 #include "cc/layers/layer.h"
 #include "cc/layers/nine_patch_layer.h"
 #include "cc/layers/picture_layer.h"
 #include "cc/layers/solid_color_layer.h"
 #include "cc/layers/texture_layer.h"
+#include "cc/trees/layer_tree_settings.h"
 
 namespace cc {
 
@@ -37,11 +37,11 @@ scoped_refptr<Layer> ParseTreeFromValue(base::Value* val,
   bool draws_content;
   success &= dict->GetBoolean("DrawsContent", &draws_content);
 
+  LayerSettings layer_settings;
+
   scoped_refptr<Layer> new_layer;
   if (layer_type == "SolidColorLayer") {
-    new_layer = SolidColorLayer::Create();
-  } else if (layer_type == "ContentLayer") {
-    new_layer = ContentLayer::Create(content_client);
+    new_layer = SolidColorLayer::Create(layer_settings);
   } else if (layer_type == "NinePatchLayer") {
     success &= dict->GetList("ImageAperture", &list);
     int aperture_x, aperture_y, aperture_width, aperture_height;
@@ -66,7 +66,8 @@ scoped_refptr<Layer> ParseTreeFromValue(base::Value* val,
     bool fill_center;
     success &= dict->GetBoolean("FillCenter", &fill_center);
 
-    scoped_refptr<NinePatchLayer> nine_patch_layer = NinePatchLayer::Create();
+    scoped_refptr<NinePatchLayer> nine_patch_layer =
+        NinePatchLayer::Create(layer_settings);
 
     SkBitmap bitmap;
     bitmap.allocN32Pixels(image_width, image_height);
@@ -80,11 +81,11 @@ scoped_refptr<Layer> ParseTreeFromValue(base::Value* val,
 
     new_layer = nine_patch_layer;
   } else if (layer_type == "TextureLayer") {
-    new_layer = TextureLayer::CreateForMailbox(NULL);
+    new_layer = TextureLayer::CreateForMailbox(layer_settings, NULL);
   } else if (layer_type == "PictureLayer") {
-    new_layer = PictureLayer::Create(content_client);
+    new_layer = PictureLayer::Create(layer_settings, content_client);
   } else {  // Type "Layer" or "unknown"
-    new_layer = Layer::Create();
+    new_layer = Layer::Create(layer_settings);
   }
   new_layer->SetPosition(gfx::PointF(position_x, position_y));
   new_layer->SetBounds(gfx::Size(width, height));
@@ -147,6 +148,23 @@ scoped_refptr<Layer> ParseTreeFromValue(base::Value* val,
       touch_region.Union(gfx::Rect(rect_x, rect_y, rect_width, rect_height));
     }
     new_layer->SetTouchEventHandlerRegion(touch_region);
+  }
+
+  if (dict->HasKey("ScrollBlocksOn")) {
+    success &= dict->GetList("ScrollBlocksOn", &list);
+    ScrollBlocksOn blocks;
+    std::string str;
+    for (size_t i = 0; i < list->GetSize(); i++) {
+      success &= list->GetString(i, &str);
+      if (str == "StartTouch")
+        blocks |= SCROLL_BLOCKS_ON_START_TOUCH;
+      else if (str == "WheelEvent")
+        blocks |= SCROLL_BLOCKS_ON_WHEEL_EVENT;
+      else if (str == "ScrollEvent")
+        blocks |= SCROLL_BLOCKS_ON_SCROLL_EVENT;
+      else
+        success = false;
+    }
   }
 
   success &= dict->GetList("DrawTransform", &list);

@@ -1,15 +1,17 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _PWL_SIGNATURE_H_
-#define _PWL_SIGNATURE_H_
+#ifndef FPDFSDK_INCLUDE_PDFWINDOW_PWL_SIGNATURE_H_
+#define FPDFSDK_INCLUDE_PDFWINDOW_PWL_SIGNATURE_H_
 
-class CPWL_Signature;
+#include "PWL_Icon.h"
+#include "PWL_Wnd.h"
+
+class CFX_DIBSource;
 class CPWL_Label;
-class CPWL_Signature_Image;
 
 class CPWL_Signature_Image : public CPWL_Image
 {
@@ -36,10 +38,10 @@ public:
 	CPWL_Signature();
 	virtual ~CPWL_Signature();
 
-	void								SetText(FX_LPCWSTR sText);
-	void								SetDescription(FX_LPCWSTR string);
+	void								SetText(const FX_WCHAR* sText);
+	void								SetDescription(const FX_WCHAR* string);
 	void								SetImage(CFX_DIBSource* pImage);
-	void								SetImageStream(CPDF_Stream * pStream, FX_LPCSTR sImageAlias);
+	void								SetImageStream(CPDF_Stream * pStream, const FX_CHAR* sImageAlias);
 
 	void								SetTextFlag(FX_BOOL bTextExist);
 	void								SetImageFlag(FX_BOOL bImageExist);
@@ -62,6 +64,4 @@ private:
 	FX_BOOL								m_bFlagExist;
 };
 
-#endif // _PWL_SIGNATURE_H_
-
-
+#endif  // FPDFSDK_INCLUDE_PDFWINDOW_PWL_SIGNATURE_H_

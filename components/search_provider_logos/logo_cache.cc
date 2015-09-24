@@ -21,6 +21,7 @@ const char kOnClickURLKey[] = "on_click_url";
 const char kAltTextKey[] = "alt_text";
 const char kMimeTypeKey[] = "mime_type";
 const char kNumBytesKey[] = "num_bytes";
+const char kAnimatedUrlKey[] = "animated_url";
 
 bool GetTimeValue(const base::DictionaryValue& dict,
                   const std::string& key,
@@ -114,7 +115,7 @@ scoped_ptr<EncodedLogo> LogoCache::GetCachedLogo() {
 // static
 scoped_ptr<LogoMetadata> LogoCache::LogoMetadataFromString(
     const std::string& str, int* logo_num_bytes) {
-  scoped_ptr<base::Value> value(base::JSONReader::Read(str));
+  scoped_ptr<base::Value> value = base::JSONReader::Read(str);
   base::DictionaryValue* dict;
   if (!value || !value->GetAsDictionary(&dict))
     return scoped_ptr<LogoMetadata>();
@@ -124,6 +125,7 @@ scoped_ptr<LogoMetadata> LogoCache::LogoMetadataFromString(
       !dict->GetString(kFingerprintKey, &metadata->fingerprint) ||
       !dict->GetString(kOnClickURLKey, &metadata->on_click_url) ||
       !dict->GetString(kAltTextKey, &metadata->alt_text) ||
+      !dict->GetString(kAnimatedUrlKey, &metadata->animated_url) ||
       !dict->GetString(kMimeTypeKey, &metadata->mime_type) ||
       !dict->GetBoolean(kCanShowAfterExpirationKey,
                         &metadata->can_show_after_expiration) ||
@@ -144,12 +146,13 @@ void LogoCache::LogoMetadataToString(const LogoMetadata& metadata,
   dict.SetString(kFingerprintKey, metadata.fingerprint);
   dict.SetString(kOnClickURLKey, metadata.on_click_url);
   dict.SetString(kAltTextKey, metadata.alt_text);
+  dict.SetString(kAnimatedUrlKey, metadata.animated_url);
   dict.SetString(kMimeTypeKey, metadata.mime_type);
   dict.SetBoolean(kCanShowAfterExpirationKey,
                   metadata.can_show_after_expiration);
   dict.SetInteger(kNumBytesKey, num_bytes);
   SetTimeValue(dict, kExpirationTimeKey, metadata.expiration_time);
-  base::JSONWriter::Write(&dict, str);
+  base::JSONWriter::Write(dict, str);
 }
 
 base::FilePath LogoCache::GetLogoPath() {

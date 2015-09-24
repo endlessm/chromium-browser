@@ -26,7 +26,7 @@
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/drive/download_handler.h"
-#include "chrome/browser/chromeos/drive/file_system_util.h"
+#include "chrome/browser/chromeos/drive/file_system_core_util.h"
 #endif
 
 using content::RenderProcessHost;
@@ -115,8 +115,8 @@ void AddCompleteFileTypeInfo(
 
 bool SavePackageFilePicker::ShouldSaveAsMHTML() const {
 #if !defined(OS_CHROMEOS)
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(
-             switches::kSavePageAsMHTML))
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kSavePageAsMHTML))
     return false;
 #endif
   return can_save_as_complete_;

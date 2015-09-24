@@ -9,8 +9,8 @@
 #include <string>
 
 #include "base/callback.h"
-#include "base/debug/trace_event.h"
 #include "base/memory/ref_counted.h"
+#include "base/trace_event/trace_event.h"
 #include "content/common/content_export.h"
 
 namespace content {
@@ -38,6 +38,7 @@ class TracingController {
    public:
     virtual void AddTraceChunk(const std::string& chunk) {}
     virtual void SetSystemTrace(const std::string& data) {}
+    virtual void SetMetadata(const std::string& data) {}
     virtual void Close() {}
 
    protected:
@@ -45,14 +46,43 @@ class TracingController {
     virtual ~TraceDataSink() {}
   };
 
+  // An implementation of this interface is passed when constructing a
+  // TraceDataSink, and receives chunks of the final trace data as it's being
+  // constructed.
+  // Methods may be called from any thread.
+  class CONTENT_EXPORT TraceDataEndpoint
+      : public base::RefCountedThreadSafe<TraceDataEndpoint> {
+   public:
+    virtual void ReceiveTraceChunk(const std::string& chunk) {}
+    virtual void ReceiveTraceFinalContents(const std::string& contents) {}
+
+   protected:
+    friend class base::RefCountedThreadSafe<TraceDataEndpoint>;
+    virtual ~TraceDataEndpoint() {}
+  };
+
   // Create a trace sink that may be supplied to DisableRecording or
   // CaptureMonitoringSnapshot to capture the trace data as a string.
   CONTENT_EXPORT static scoped_refptr<TraceDataSink> CreateStringSink(
       const base::Callback<void(base::RefCountedString*)>& callback);
 
+  CONTENT_EXPORT static scoped_refptr<TraceDataSink> CreateCompressedStringSink(
+      scoped_refptr<TraceDataEndpoint> endpoint);
+
   // Create a trace sink that may be supplied to DisableRecording or
   // CaptureMonitoringSnapshot to dump the trace data to a file.
   CONTENT_EXPORT static scoped_refptr<TraceDataSink> CreateFileSink(
+      const base::FilePath& file_path,
+      const base::Closure& callback);
+
+  // Create an endpoint that may be supplied to any TraceDataSink to
+  // dump the trace data to a callback.
+  CONTENT_EXPORT static scoped_refptr<TraceDataEndpoint> CreateCallbackEndpoint(
+      const base::Callback<void(base::RefCountedString*)>& callback);
+
+  // Create an endpoint that may be supplied to any TraceDataSink to
+  // dump the trace data to a file.
+  CONTENT_EXPORT static scoped_refptr<TraceDataEndpoint> CreateFileEndpoint(
       const base::FilePath& file_path,
       const base::Closure& callback);
 
@@ -87,8 +117,7 @@ class TracingController {
   // |options| controls what kind of tracing is enabled.
   typedef base::Callback<void()> EnableRecordingDoneCallback;
   virtual bool EnableRecording(
-      const base::debug::CategoryFilter& category_filter,
-      const base::debug::TraceOptions& trace_options,
+      const base::trace_event::TraceConfig& trace_config,
       const EnableRecordingDoneCallback& callback) = 0;
 
   // Stop recording on all processes.
@@ -124,8 +153,7 @@ class TracingController {
   // |options| controls what kind of tracing is enabled.
   typedef base::Callback<void()> EnableMonitoringDoneCallback;
   virtual bool EnableMonitoring(
-      const base::debug::CategoryFilter& category_filter,
-      const base::debug::TraceOptions& trace_options,
+      const base::trace_event::TraceConfig& trace_config,
       const EnableMonitoringDoneCallback& callback) = 0;
 
   // Stop monitoring on all processes.
@@ -139,8 +167,7 @@ class TracingController {
   // Get the current monitoring configuration.
   virtual void GetMonitoringStatus(
       bool* out_enabled,
-      base::debug::CategoryFilter* out_category_filter,
-      base::debug::TraceOptions* out_trace_options) = 0;
+      base::trace_event::TraceConfig* out_trace_config) = 0;
 
   // Get the current monitoring traced data.
   //
@@ -161,11 +188,11 @@ class TracingController {
       const scoped_refptr<TraceDataSink>& trace_data_sink) = 0;
 
   // Get the maximum across processes of trace buffer percent full state.
-  // When the TraceBufferPercentFull value is determined, the callback is
+  // When the TraceBufferUsage value is determined, the callback is
   // called.
-  typedef base::Callback<void(float)> GetTraceBufferPercentFullCallback;
-  virtual bool GetTraceBufferPercentFull(
-      const GetTraceBufferPercentFullCallback& callback) = 0;
+  typedef base::Callback<void(float, size_t)> GetTraceBufferUsageCallback;
+  virtual bool GetTraceBufferUsage(
+      const GetTraceBufferUsageCallback& callback) = 0;
 
   // |callback| will will be called every time the given event occurs on any
   // process.
@@ -177,6 +204,9 @@ class TracingController {
   // Cancel the watch event. If tracing is enabled, this may race with the
   // watch event callback.
   virtual bool CancelWatchEvent() = 0;
+
+  // Check if the tracing system is recording
+  virtual bool IsRecording() const = 0;
 
  protected:
   virtual ~TracingController() {}

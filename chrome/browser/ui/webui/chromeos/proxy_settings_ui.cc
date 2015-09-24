@@ -7,6 +7,7 @@
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/values.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/system/input_device_settings.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/options/chromeos/core_chromeos_options_handler.h"
@@ -33,21 +34,19 @@ class ProxySettingsHTMLSource : public content::URLDataSource {
   explicit ProxySettingsHTMLSource(base::DictionaryValue* localized_strings);
 
   // content::URLDataSource implementation.
-  virtual std::string GetSource() const override;
-  virtual void StartDataRequest(
+  std::string GetSource() const override;
+  void StartDataRequest(
       const std::string& path,
       int render_process_id,
       int render_frame_id,
       const content::URLDataSource::GotDataCallback& callback) override;
-  virtual std::string GetMimeType(const std::string&) const override {
+  std::string GetMimeType(const std::string&) const override {
     return "text/html";
   }
-  virtual bool ShouldAddContentSecurityPolicy() const override {
-    return false;
-  }
+  bool ShouldAddContentSecurityPolicy() const override { return false; }
 
  protected:
-  virtual ~ProxySettingsHTMLSource() {}
+  ~ProxySettingsHTMLSource() override {}
 
  private:
   scoped_ptr<base::DictionaryValue> localized_strings_;
@@ -69,7 +68,8 @@ void ProxySettingsHTMLSource::StartDataRequest(
     int render_process_id,
     int render_frame_id,
     const content::URLDataSource::GotDataCallback& callback) {
-  webui::SetFontAndTextDirection(localized_strings_.get());
+  const std::string& app_locale = g_browser_process->GetApplicationLocale();
+  webui::SetLoadTimeDataDefaults(app_locale, localized_strings_.get());
 
   static const base::StringPiece html(
       ResourceBundle::GetSharedInstance().GetRawDataResource(

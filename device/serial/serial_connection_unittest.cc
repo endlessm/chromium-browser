@@ -15,10 +15,9 @@
 #include "device/serial/serial_connection.h"
 #include "device/serial/serial_service_impl.h"
 #include "device/serial/test_serial_io_handler.h"
-#include "mojo/public/cpp/bindings/error_handler.h"
-#include "mojo/public/cpp/bindings/interface_ptr.h"
-#include "mojo/public/cpp/bindings/interface_request.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/mojo/src/mojo/public/cpp/bindings/interface_ptr.h"
+#include "third_party/mojo/src/mojo/public/cpp/bindings/interface_request.h"
 
 namespace device {
 namespace {
@@ -34,7 +33,7 @@ class FakeSerialDeviceEnumerator : public SerialDeviceEnumerator {
 
 }  // namespace
 
-class SerialConnectionTest : public testing::Test, public mojo::ErrorHandler {
+class SerialConnectionTest : public testing::Test {
  public:
   enum Event {
     EVENT_NONE,
@@ -65,27 +64,30 @@ class SerialConnectionTest : public testing::Test, public mojo::ErrorHandler {
   void SetUp() override {
     message_loop_.reset(new base::MessageLoop);
     mojo::InterfacePtr<serial::SerialService> service;
-    mojo::BindToProxy(
-        new SerialServiceImpl(
-            new SerialConnectionFactory(
-                base::Bind(&SerialConnectionTest::CreateIoHandler,
-                           base::Unretained(this)),
-                base::MessageLoopProxy::current()),
-            scoped_ptr<SerialDeviceEnumerator>(new FakeSerialDeviceEnumerator)),
-        &service);
-    service.set_error_handler(this);
-    mojo::InterfacePtr<serial::DataSink> consumer;
-    mojo::InterfacePtr<serial::DataSource> producer;
-    service->Connect("device",
-                     serial::ConnectionOptions::New(),
-                     mojo::GetProxy(&connection_),
-                     mojo::GetProxy(&consumer),
-                     mojo::GetProxy(&producer));
-    sender_.reset(new DataSender(
-        consumer.Pass(), kBufferSize, serial::SEND_ERROR_DISCONNECTED));
-    receiver_ = new DataReceiver(
-        producer.Pass(), kBufferSize, serial::RECEIVE_ERROR_DISCONNECTED);
-    connection_.set_error_handler(this);
+    new SerialServiceImpl(
+        new SerialConnectionFactory(
+            base::Bind(&SerialConnectionTest::CreateIoHandler,
+                       base::Unretained(this)),
+            base::ThreadTaskRunnerHandle::Get()),
+        scoped_ptr<SerialDeviceEnumerator>(new FakeSerialDeviceEnumerator),
+        mojo::GetProxy(&service));
+    service.set_connection_error_handler(base::Bind(
+        &SerialConnectionTest::OnConnectionError, base::Unretained(this)));
+    mojo::InterfacePtr<serial::DataSink> sink;
+    mojo::InterfacePtr<serial::DataSource> source;
+    mojo::InterfacePtr<serial::DataSourceClient> source_client;
+    mojo::InterfaceRequest<serial::DataSourceClient> source_client_request =
+        mojo::GetProxy(&source_client);
+    service->Connect("device", serial::ConnectionOptions::New(),
+                     mojo::GetProxy(&connection_), mojo::GetProxy(&sink),
+                     mojo::GetProxy(&source), source_client.Pass());
+    sender_.reset(new DataSender(sink.Pass(), kBufferSize,
+                                 serial::SEND_ERROR_DISCONNECTED));
+    receiver_ =
+        new DataReceiver(source.Pass(), source_client_request.Pass(),
+                         kBufferSize, serial::RECEIVE_ERROR_DISCONNECTED);
+    connection_.set_connection_error_handler(base::Bind(
+        &SerialConnectionTest::OnConnectionError, base::Unretained(this)));
     connection_->GetInfo(
         base::Bind(&SerialConnectionTest::StoreInfo, base::Unretained(this)));
     WaitForEvent(EVENT_GOT_INFO);
@@ -168,7 +170,7 @@ class SerialConnectionTest : public testing::Test, public mojo::ErrorHandler {
     EventReceived(EVENT_RECEIVE_ERROR);
   }
 
-  void OnConnectionError() override {
+  void OnConnectionError() {
     EventReceived(EVENT_ERROR);
     FAIL() << "Connection error";
   }

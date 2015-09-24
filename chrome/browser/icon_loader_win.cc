@@ -11,9 +11,9 @@
 #include "base/message_loop/message_loop.h"
 #include "base/threading/thread.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/icon_util.h"
 #include "ui/gfx/image/image_skia.h"
-#include "ui/gfx/size.h"
 #include "ui/gfx/win/dpi.h"
 
 // static
@@ -69,6 +69,6 @@ void IconLoader::ReadIcon() {
   }
 
   // Always notify the delegate, regardless of success.
-  target_message_loop_->PostTask(FROM_HERE,
+  target_task_runner_->PostTask(FROM_HERE,
       base::Bind(&IconLoader::NotifyDelegate, this));
 }

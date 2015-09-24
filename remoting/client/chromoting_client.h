@@ -15,6 +15,7 @@
 #include "remoting/protocol/client_stub.h"
 #include "remoting/protocol/clipboard_stub.h"
 #include "remoting/protocol/connection_to_host.h"
+#include "remoting/protocol/connection_to_host_impl.h"
 #include "remoting/protocol/input_stub.h"
 #include "remoting/protocol/video_stub.h"
 
@@ -41,7 +42,9 @@ class SignalStrategy;
 class ChromotingClient : public protocol::ConnectionToHost::HostEventCallback,
                          public protocol::ClientStub {
  public:
-  // |audio_player| may be null, in which case audio will not be requested.
+  // |client_context|, |user_interface| and |video_renderer| must outlive the
+  // client. |audio_player| may be null, in which case audio will not be
+  // requested.
   ChromotingClient(ClientContext* client_context,
                    ClientUserInterface* user_interface,
                    VideoRenderer* video_renderer,
@@ -49,8 +52,11 @@ class ChromotingClient : public protocol::ConnectionToHost::HostEventCallback,
 
   ~ChromotingClient() override;
 
+  // Used to set fake/mock objects for tests which use the ChromotingClient.
   void SetProtocolConfigForTests(
       scoped_ptr<protocol::CandidateSessionConfig> config);
+  void SetConnectionToHostForTests(
+      scoped_ptr<protocol::ConnectionToHost> connection_to_host);
 
   // Start the client. Must be called on the main thread. |signal_strategy|
   // must outlive the client.
@@ -61,14 +67,14 @@ class ChromotingClient : public protocol::ConnectionToHost::HostEventCallback,
              const std::string& capabilities);
 
   protocol::ConnectionToHost::State connection_state() const {
-    return connection_.state();
+    return connection_->state();
   }
 
   protocol::ClipboardStub* clipboard_forwarder() {
-    return connection_.clipboard_forwarder();
+    return connection_->clipboard_forwarder();
   }
-  protocol::HostStub* host_stub() { return connection_.host_stub(); }
-  protocol::InputStub* input_stub() { return connection_.input_stub(); }
+  protocol::HostStub* host_stub() { return connection_->host_stub(); }
+  protocol::InputStub* input_stub() { return connection_->input_stub(); }
 
   // ClientStub implementation.
   void SetCapabilities(const protocol::Capabilities& capabilities) override;
@@ -101,7 +107,7 @@ class ChromotingClient : public protocol::ConnectionToHost::HostEventCallback,
   ClientUserInterface* user_interface_;
   VideoRenderer* video_renderer_;
 
-  protocol::ConnectionToHost connection_;
+  scoped_ptr<protocol::ConnectionToHost> connection_;
 
   scoped_ptr<AudioDecodeScheduler> audio_decode_scheduler_;
 

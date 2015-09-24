@@ -53,7 +53,7 @@ INT_PTR CALLBACK ShellJavaScriptDialog::DialogProc(HWND dialog,
             int length =
                 GetWindowTextLength(GetDlgItem(dialog, IDC_PROMPTEDIT)) + 1;
             GetDlgItemText(dialog, IDC_PROMPTEDIT,
-                           WriteInto(&user_input, length), length);
+                           base::WriteInto(&user_input, length), length);
           }
           break;
         case IDCANCEL:
@@ -84,9 +84,9 @@ ShellJavaScriptDialog::ShellJavaScriptDialog(
     const JavaScriptDialogManager::DialogClosedCallback& callback)
     : manager_(manager),
       callback_(callback),
+      message_type_(message_type),
       message_text_(message_text),
-      default_prompt_text_(default_prompt_text),
-      message_type_(message_type) {
+      default_prompt_text_(default_prompt_text) {
   int dialog_type;
   if (message_type == JAVASCRIPT_MESSAGE_TYPE_ALERT)
     dialog_type = IDD_ALERT;

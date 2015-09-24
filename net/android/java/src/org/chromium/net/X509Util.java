@@ -16,6 +16,7 @@ import android.util.Log;
 import android.util.Pair;
 
 import org.chromium.base.JNINamespace;
+import org.chromium.base.annotations.SuppressFBWarnings;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -183,49 +184,64 @@ public class X509Util {
     private static void ensureInitialized() throws CertificateException,
             KeyStoreException, NoSuchAlgorithmException {
         synchronized (sLock) {
-            if (sCertificateFactory == null) {
-                sCertificateFactory = CertificateFactory.getInstance("X.509");
-            }
-            if (sDefaultTrustManager == null) {
-                sDefaultTrustManager = X509Util.createTrustManager(null);
-            }
-            if (!sLoadedSystemKeyStore) {
+            ensureInitializedLocked();
+        }
+    }
+
+    /**
+     * Ensures that the trust managers and certificate factory are initialized. Must be called with
+     * |sLock| held.
+     */
+    // FindBugs' static field initialization warnings do not handle methods that are expected to be
+    // called locked.
+    @SuppressFBWarnings({"LI_LAZY_INIT_STATIC", "LI_LAZY_INIT_UPDATE_STATIC"})
+    private static void ensureInitializedLocked()
+            throws CertificateException, KeyStoreException, NoSuchAlgorithmException {
+        assert Thread.holdsLock(sLock);
+
+        if (sCertificateFactory == null) {
+            sCertificateFactory = CertificateFactory.getInstance("X.509");
+        }
+        if (sDefaultTrustManager == null) {
+            sDefaultTrustManager = X509Util.createTrustManager(null);
+        }
+        if (!sLoadedSystemKeyStore) {
+            try {
+                sSystemKeyStore = KeyStore.getInstance("AndroidCAStore");
                 try {
-                    sSystemKeyStore = KeyStore.getInstance("AndroidCAStore");
-                    try {
-                        sSystemKeyStore.load(null);
-                    } catch (IOException e) {
-                        // No IO operation is attempted.
-                    }
-                    sSystemCertificateDirectory =
-                            new File(System.getenv("ANDROID_ROOT") + "/etc/security/cacerts");
-                } catch (KeyStoreException e) {
-                    // Could not load AndroidCAStore. Continue anyway; isKnownRoot will always
-                    // return false.
-                }
-                if (!sDisableNativeCodeForTest)
-                    nativeRecordCertVerifyCapabilitiesHistogram(sSystemKeyStore != null);
-                sLoadedSystemKeyStore = true;
-            }
-            if (sSystemTrustAnchorCache == null) {
-                sSystemTrustAnchorCache = new HashSet<Pair<X500Principal, PublicKey>>();
-            }
-            if (sTestKeyStore == null) {
-                sTestKeyStore = KeyStore.getInstance(KeyStore.getDefaultType());
-                try {
-                    sTestKeyStore.load(null);
+                    sSystemKeyStore.load(null);
                 } catch (IOException e) {
                     // No IO operation is attempted.
                 }
+                sSystemCertificateDirectory =
+                        new File(System.getenv("ANDROID_ROOT") + "/etc/security/cacerts");
+            } catch (KeyStoreException e) {
+                // Could not load AndroidCAStore. Continue anyway; isKnownRoot will always
+                // return false.
             }
-            if (sTestTrustManager == null) {
-                sTestTrustManager = X509Util.createTrustManager(sTestKeyStore);
+            if (!sDisableNativeCodeForTest) {
+                nativeRecordCertVerifyCapabilitiesHistogram(sSystemKeyStore != null);
             }
-            if (!sDisableNativeCodeForTest && sTrustStorageListener == null) {
-                sTrustStorageListener = new TrustStorageListener();
-                nativeGetApplicationContext().registerReceiver(sTrustStorageListener,
-                        new IntentFilter(KeyChain.ACTION_STORAGE_CHANGED));
+            sLoadedSystemKeyStore = true;
+        }
+        if (sSystemTrustAnchorCache == null) {
+            sSystemTrustAnchorCache = new HashSet<Pair<X500Principal, PublicKey>>();
+        }
+        if (sTestKeyStore == null) {
+            sTestKeyStore = KeyStore.getInstance(KeyStore.getDefaultType());
+            try {
+                sTestKeyStore.load(null);
+            } catch (IOException e) {
+                // No IO operation is attempted.
             }
+        }
+        if (sTestTrustManager == null) {
+            sTestTrustManager = X509Util.createTrustManager(sTestKeyStore);
+        }
+        if (!sDisableNativeCodeForTest && sTrustStorageListener == null) {
+            sTrustStorageListener = new TrustStorageListener();
+            nativeGetApplicationContext().registerReceiver(
+                    sTrustStorageListener, new IntentFilter(KeyChain.ACTION_STORAGE_CHANGED));
         }
     }
 
@@ -264,6 +280,8 @@ public class X509Util {
      */
     private static void reloadTestTrustManager() throws KeyStoreException,
             NoSuchAlgorithmException {
+        assert Thread.holdsLock(sLock);
+
         sTestTrustManager = X509Util.createTrustManager(sTestKeyStore);
     }
 
@@ -272,10 +290,12 @@ public class X509Util {
      */
     private static void reloadDefaultTrustManager() throws KeyStoreException,
             NoSuchAlgorithmException, CertificateException {
-        sDefaultTrustManager = null;
-        sSystemTrustAnchorCache = null;
+        synchronized (sLock) {
+            sDefaultTrustManager = null;
+            sSystemTrustAnchorCache = null;
+            ensureInitializedLocked();
+        }
         nativeNotifyKeyChainChanged();
-        ensureInitialized();
     }
 
     /**
@@ -331,6 +351,8 @@ public class X509Util {
 
     private static boolean isKnownRoot(X509Certificate root)
             throws NoSuchAlgorithmException, KeyStoreException {
+        assert Thread.holdsLock(sLock);
+
         // Could not find the system key store. Conservatively report false.
         if (sSystemKeyStore == null) return false;
 
@@ -372,8 +394,8 @@ public class X509Util {
 
             // If the subject and public key match, this is a system root.
             X509Certificate anchorX509 = (X509Certificate) anchor;
-            if (root.getSubjectX500Principal().equals(anchorX509.getSubjectX500Principal()) &&
-                    root.getPublicKey().equals(anchorX509.getPublicKey())) {
+            if (root.getSubjectX500Principal().equals(anchorX509.getSubjectX500Principal())
+                    && root.getPublicKey().equals(anchorX509.getPublicKey())) {
                 sSystemTrustAnchorCache.add(key);
                 return true;
             }
@@ -405,10 +427,10 @@ public class X509Util {
         if (ekuOids == null) return true;
 
         for (String ekuOid : ekuOids) {
-            if (ekuOid.equals(OID_TLS_SERVER_AUTH) ||
-                    ekuOid.equals(OID_ANY_EKU) ||
-                    ekuOid.equals(OID_SERVER_GATED_NETSCAPE) ||
-                    ekuOid.equals(OID_SERVER_GATED_MICROSOFT)) {
+            if (ekuOid.equals(OID_TLS_SERVER_AUTH)
+                    || ekuOid.equals(OID_ANY_EKU)
+                    || ekuOid.equals(OID_SERVER_GATED_NETSCAPE)
+                    || ekuOid.equals(OID_SERVER_GATED_MICROSOFT)) {
                 return true;
             }
         }
@@ -421,8 +443,8 @@ public class X509Util {
                                                                    String host)
             throws KeyStoreException, NoSuchAlgorithmException {
         if (certChain == null || certChain.length == 0 || certChain[0] == null) {
-            throw new IllegalArgumentException("Expected non-null and non-empty certificate " +
-                    "chain passed as |certChain|. |certChain|=" + Arrays.deepToString(certChain));
+            throw new IllegalArgumentException("Expected non-null and non-empty certificate "
+                    + "chain passed as |certChain|. |certChain|=" + Arrays.deepToString(certChain));
         }
 
 
@@ -461,8 +483,9 @@ public class X509Util {
 
         synchronized (sLock) {
             // If no trust manager was found, fail without crashing on the null pointer.
-            if (sDefaultTrustManager == null)
+            if (sDefaultTrustManager == null) {
                 return new AndroidCertVerifyResult(CertVerifyStatusAndroid.FAILED);
+            }
 
             List<X509Certificate> verifiedChain;
             try {
@@ -475,8 +498,8 @@ public class X509Util {
                 } catch (CertificateException eTestManager) {
                     // Neither of the trust managers confirms the validity of the certificate chain,
                     // log the error message returned by the system trust manager.
-                    Log.i(TAG, "Failed to validate the certificate chain, error: " +
-                              eDefaultManager.getMessage());
+                    Log.i(TAG, "Failed to validate the certificate chain, error: "
+                            + eDefaultManager.getMessage());
                     return new AndroidCertVerifyResult(
                             CertVerifyStatusAndroid.NO_TRUSTED_ROOT);
                 }

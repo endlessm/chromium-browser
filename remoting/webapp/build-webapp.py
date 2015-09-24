@@ -14,6 +14,7 @@ a zip archive for all of the above is produced.
 # Python 2.5 compatibility
 from __future__ import with_statement
 
+import argparse
 import io
 import os
 import platform
@@ -62,6 +63,36 @@ def replaceString(destination, placeholder, value):
                  "'" + placeholder + "'", "'" + value + "'")
 
 
+def replaceBool(destination, placeholder, value):
+  # Look for a "!!" in the source code so the expession we're
+  # replacing looks like a boolean to the compiler.  A single "!"
+  # would satisfy the compiler but might confused human readers.
+  findAndReplace(os.path.join(destination, 'plugin_settings.js'),
+                 "!!'" + placeholder + "'", 'true' if value else 'false')
+
+
+def parseBool(boolStr):
+  """Tries to parse a string as a boolean value.
+
+  Returns a bool on success; raises ValueError on failure.
+  """
+  lower = boolStr.lower()
+  if lower in ['0', 'false']: return False
+  if lower in ['1', 'true']: return True
+  raise ValueError('not a boolean string {!r}'.format(boolStr))
+
+
+def getenvBool(name, defaultValue):
+  """Gets an environment value as a boolean."""
+  rawValue = os.environ.get(name)
+  if rawValue is None:
+    return defaultValue
+  try:
+    return parseBool(rawValue)
+  except ValueError:
+    raise Exception('Value of ${} must be boolean!'.format(name))
+
+
 def processJinjaTemplate(input_file, include_paths, output_file, context):
   jinja2_path = os.path.normpath(
       os.path.join(os.path.abspath(__file__),
@@ -75,11 +106,11 @@ def processJinjaTemplate(input_file, include_paths, output_file, context):
   rendered = template.render(context)
   io.open(output_file, 'w', encoding='utf-8').write(rendered)
 
-
 def buildWebApp(buildtype, version, destination, zip_path,
-                manifest_template, webapp_type, app_id, app_name,
-                app_description, files, locales, jinja_paths,
-                service_environment):
+                manifest_template, webapp_type, appid, app_client_id, app_name,
+                app_description, app_capabilities, manifest_key, files,
+                files_listfile, locales_listfile, jinja_paths,
+                service_environment, use_gcd):
   """Does the main work of building the webapp directory and zipfile.
 
   Args:
@@ -89,21 +120,49 @@ def buildWebApp(buildtype, version, destination, zip_path,
     zipfile: A string with path to the zipfile to create containing the
              contents of |destination|.
     manifest_template: jinja2 template file for manifest.
-    webapp_type: webapp type ("v1", "v2", "v2_pnacl" or "app_remoting").
-    app_id: A string with the Remoting Application Id (only used for app
-             remoting webapps). If supplied, it defaults to using the
-             test API server.
+    webapp_type: webapp type:
+                 For DesktopRemoting: "v1", "v2" or "v2_pnacl"
+                 For AppRemoting: "app_remoting" or "shared_module"
+    appid: A string with the Remoting Application Id (only used for app
+           remoting webapps). If supplied, it defaults to using the
+           test API server.
+    app_client_id: The OAuth2 client ID for the webapp.
     app_name: A string with the name of the application.
     app_description: A string with the description of the application.
+    app_capabilities: A set of strings naming the capabilities that should be
+                      enabled for this application.
+    manifest_key: The manifest key for the webapp.
     files: An array of strings listing the paths for resources to include
            in this webapp.
-    locales: An array of strings listing locales, which are copied, along
-             with their directory structure from the _locales directory down.
+    files_listfile: The name of a file containing a list of files, one per
+                    line, identifying the resources to include in this webapp.
+                    This is an alternate to specifying the files directly via
+                    the 'files' option. The files listed in this file are
+                    appended to the files passed via the 'files' option, if any.
+    locales_listfile: The name of a file containing a list of locales, one per
+                      line, which are copied, along with their directory
+                      structure, from the _locales directory down.
     jinja_paths: An array of paths to search for {%include} directives in
                  addition to the directory containing the manifest template.
-    service_environment: Used to point the webApp to one of the
-                         dev/test/staging/prod environments
+    service_environment: Used to point the webapp to one of the
+                         dev/test/staging/vendor/prod/prod-testing environments
+    use_gcd: True if GCD support should be enabled.
   """
+
+  # Load the locales files from the locales_listfile.
+  if not locales_listfile:
+    raise Exception('You must specify a locales_listfile')
+  locales = []
+  with open(locales_listfile) as input:
+    for s in input:
+      locales.append(s.rstrip())
+
+  # Load the files from the files_listfile.
+  if files_listfile:
+    with open(files_listfile) as input:
+      for s in input:
+        files.append(s.rstrip())
+
   # Ensure a fresh directory.
   try:
     shutil.rmtree(destination)
@@ -112,34 +171,25 @@ def buildWebApp(buildtype, version, destination, zip_path,
       raise
     else:
       pass
-  os.mkdir(destination, 0775)
+  os.makedirs(destination, 0775)
 
   if buildtype != 'Official' and buildtype != 'Release' and buildtype != 'Dev':
     raise Exception('Unknown buildtype: ' + buildtype)
 
-  # Use symlinks on linux and mac for faster compile/edit cycle.
-  #
-  # On Windows Vista platform.system() can return 'Microsoft' with some
-  # versions of Python, see http://bugs.python.org/issue1082
-  # should_symlink = platform.system() not in ['Windows', 'Microsoft']
-  #
-  # TODO(ajwong): Pending decision on http://crbug.com/27185 we may not be
-  # able to load symlinked resources.
-  should_symlink = False
+  jinja_context = {
+    'webapp_type': webapp_type,
+    'buildtype': buildtype,
+  }
 
   # Copy all the files.
   for current_file in files:
     destination_file = os.path.join(destination, os.path.basename(current_file))
-    destination_dir = os.path.dirname(destination_file)
-    if not os.path.exists(destination_dir):
-      os.makedirs(destination_dir, 0775)
 
-    if should_symlink:
-      # TODO(ajwong): Detect if we're vista or higher.  Then use win32file
-      # to create a symlink in that case.
-      targetname = os.path.relpath(os.path.realpath(current_file),
-                                   os.path.realpath(destination_file))
-      os.symlink(targetname, destination_file)
+    # Process *.jinja2 files as jinja2 templates
+    if current_file.endswith(".jinja2"):
+      destination_file = destination_file[:-len(".jinja2")]
+      processJinjaTemplate(current_file, jinja_paths,
+                           destination_file, jinja_context)
     else:
       shutil.copy2(current_file, destination_file)
 
@@ -164,11 +214,20 @@ def buildWebApp(buildtype, version, destination, zip_path,
     else:
       raise Exception('Unknown extension: ' + current_locale)
 
+  is_app_remoting_webapp = webapp_type == 'app_remoting'
+  is_app_remoting_shared_module = webapp_type == 'shared_module'
+  is_app_remoting = is_app_remoting_webapp or is_app_remoting_shared_module
+  is_prod_service_environment = service_environment == 'vendor' or \
+                                service_environment == 'prod' or \
+                                service_environment == 'prod-testing'
+  is_desktop_remoting = not is_app_remoting
+
   # Set client plugin type.
   # TODO(wez): Use 'native' in app_remoting until b/17441659 is resolved.
-  client_plugin = 'pnacl' if webapp_type == 'v2_pnacl' else 'native'
-  findAndReplace(os.path.join(destination, 'plugin_settings.js'),
-                 "'CLIENT_PLUGIN_TYPE'", "'" + client_plugin + "'")
+  if not is_app_remoting_webapp:
+    client_plugin = 'pnacl' if webapp_type == 'v2_pnacl' else 'native'
+    findAndReplace(os.path.join(destination, 'plugin_settings.js'),
+                   "'CLIENT_PLUGIN_TYPE'", "'" + client_plugin + "'")
 
   # Allow host names for google services/apis to be overriden via env vars.
   oauth2AccountsHost = os.environ.get(
@@ -177,10 +236,14 @@ def buildWebApp(buildtype, version, destination, zip_path,
       'OAUTH2_API_HOST', 'https://www.googleapis.com')
   directoryApiHost = os.environ.get(
       'DIRECTORY_API_HOST', 'https://www.googleapis.com')
+  remotingApiHost = os.environ.get(
+      'REMOTING_API_HOST', 'https://remoting-pa.googleapis.com')
 
-  if webapp_type == 'app_remoting':
+  if is_app_remoting:
     appRemotingApiHost = os.environ.get(
         'APP_REMOTING_API_HOST', None)
+
+  if is_app_remoting_webapp:
     appRemotingApplicationId = os.environ.get(
         'APP_REMOTING_APPLICATION_ID', None)
 
@@ -189,17 +252,15 @@ def buildWebApp(buildtype, version, destination, zip_path,
     # being generated correctly (no overrides) and with the correct buildtype.
     # They also verify that folks are not accidentally building dev/test/staging
     # apps for release (no impersonation) instead of dev.
-    if service_environment == 'prod' and buildtype == 'Dev':
+    if is_prod_service_environment and buildtype == 'Dev':
       raise Exception("Prod environment cannot be built for 'dev' builds")
 
     if buildtype != 'Dev':
-      if service_environment != 'prod':
+      if not is_prod_service_environment:
         raise Exception('Invalid service_environment targeted for '
                         + buildtype + ': ' + service_environment)
-      if 'out/Release' not in destination:
-        raise Exception('Prod builds must be placed in the out/Release folder')
-      if app_id != None:
-        raise Exception('Cannot pass in an app_id for '
+      if appid != None:
+        raise Exception('Cannot pass in an appid for '
                         + buildtype + ' builds: ' + service_environment)
       if appRemotingApiHost != None:
         raise Exception('Cannot set APP_REMOTING_API_HOST env var for '
@@ -210,46 +271,61 @@ def buildWebApp(buildtype, version, destination, zip_path,
 
     # If an Application ID was set (either from service_environment variable or
     # from a command line argument), hardcode it, otherwise get it at runtime.
-    effectiveAppId = appRemotingApplicationId or app_id
+    effectiveAppId = appRemotingApplicationId or appid
     if effectiveAppId:
       appRemotingApplicationId = "'" + effectiveAppId + "'"
     else:
       appRemotingApplicationId = "chrome.i18n.getMessage('@@extension_id')"
-    findAndReplace(os.path.join(destination, 'plugin_settings.js'),
+    findAndReplace(os.path.join(destination, 'arv_main.js'),
                    "'APP_REMOTING_APPLICATION_ID'", appRemotingApplicationId)
 
   oauth2BaseUrl = oauth2AccountsHost + '/o/oauth2'
   oauth2ApiBaseUrl = oauth2ApiHost + '/oauth2'
   directoryApiBaseUrl = directoryApiHost + '/chromoting/v1'
+  telemetryApiBaseUrl = remotingApiHost + '/v1/events'
 
-  if webapp_type == 'app_remoting':
+  if is_app_remoting:
     # Set the apiary endpoint and then set the endpoint version
     if not appRemotingApiHost:
-      if service_environment == 'prod':
+      if is_prod_service_environment:
         appRemotingApiHost = 'https://www.googleapis.com'
       else:
         appRemotingApiHost = 'https://www-googleapis-test.sandbox.google.com'
 
-    if service_environment == 'dev':
+    # TODO(garykac) Currently, the shared module is always set up for the
+    # dev service_environment. Update build so that the dev environment can
+    # be controlled by the app stub rather than hard-coded into the shared
+    # module.
+    if service_environment == 'dev' or is_app_remoting_shared_module:
       appRemotingServicePath = '/appremoting/v1beta1_dev'
     elif service_environment == 'test':
       appRemotingServicePath = '/appremoting/v1beta1'
     elif service_environment == 'staging':
       appRemotingServicePath = '/appremoting/v1beta1_staging'
+    elif service_environment == 'vendor':
+      appRemotingServicePath = '/appremoting/v1beta1_vendor'
     elif service_environment == 'prod':
       appRemotingServicePath = '/appremoting/v1beta1'
+    elif service_environment == 'prod-testing':
+      appRemotingServicePath = '/appremoting/v1beta1_prod_testing'
     else:
       raise Exception('Unknown service environment: ' + service_environment)
     appRemotingApiBaseUrl = appRemotingApiHost + appRemotingServicePath
   else:
     appRemotingApiBaseUrl = ''
 
-  replaceString(destination, 'OAUTH2_BASE_URL', oauth2BaseUrl)
-  replaceString(destination, 'OAUTH2_API_BASE_URL', oauth2ApiBaseUrl)
-  replaceString(destination, 'DIRECTORY_API_BASE_URL', directoryApiBaseUrl)
-  if webapp_type == 'app_remoting':
-    replaceString(destination, 'APP_REMOTING_API_BASE_URL',
-                  appRemotingApiBaseUrl)
+  # TODO(garykac) replaceString (et al.) implictly update plugin_settings.js,
+  # which doesn't exist for the app stub. We need to move app-specific
+  # AppRemoting options into arv_main.js.
+  if not is_app_remoting_webapp:
+    replaceBool(destination, 'USE_GCD', use_gcd)
+    replaceString(destination, 'OAUTH2_BASE_URL', oauth2BaseUrl)
+    replaceString(destination, 'OAUTH2_API_BASE_URL', oauth2ApiBaseUrl)
+    replaceString(destination, 'DIRECTORY_API_BASE_URL', directoryApiBaseUrl)
+    replaceString(destination, 'TELEMETRY_API_BASE_URL', telemetryApiBaseUrl)
+    if is_app_remoting:
+      replaceString(destination, 'APP_REMOTING_API_BASE_URL',
+                    appRemotingApiBaseUrl)
 
   # Substitute hosts in the manifest's CSP list.
   # Ensure we list the API host only once if it's the same for multiple APIs.
@@ -278,7 +354,7 @@ def buildWebApp(buildtype, version, destination, zip_path,
   oauth2RedirectPath = '/talkgadget/oauth/chrome-remote-desktop'
   oauth2RedirectBaseUrlJs = oauth2RedirectHostJs + oauth2RedirectPath
   oauth2RedirectBaseUrlJson = oauth2RedirectHostJson + oauth2RedirectPath
-  if buildtype != 'Dev':
+  if buildtype == 'Official':
     oauth2RedirectUrlJs = ("'" + oauth2RedirectBaseUrlJs +
                            "/rel/' + chrome.i18n.getMessage('@@extension_id')")
     oauth2RedirectUrlJson = oauth2RedirectBaseUrlJson + '/rel/*'
@@ -287,35 +363,63 @@ def buildWebApp(buildtype, version, destination, zip_path,
     oauth2RedirectUrlJson = oauth2RedirectBaseUrlJson + '/dev*'
   thirdPartyAuthUrlJs = oauth2RedirectBaseUrlJs + '/thirdpartyauth'
   thirdPartyAuthUrlJson = oauth2RedirectBaseUrlJson + '/thirdpartyauth*'
-  replaceString(destination, 'TALK_GADGET_URL', talkGadgetBaseUrl)
-  findAndReplace(os.path.join(destination, 'plugin_settings.js'),
-                 "'OAUTH2_REDIRECT_URL'", oauth2RedirectUrlJs)
+  xmppServer = os.environ.get('XMPP_SERVER', 'talk.google.com:443')
 
-  # Configure xmpp server and directory bot settings in the plugin.
-  xmppServerAddress = os.environ.get(
-      'XMPP_SERVER_ADDRESS', 'talk.google.com:5222')
-  xmppServerUseTls = os.environ.get('XMPP_SERVER_USE_TLS', 'true')
-  directoryBotJid = os.environ.get(
-      'DIRECTORY_BOT_JID', 'remoting@bot.talk.google.com')
+  if not is_app_remoting_webapp:
+    replaceString(destination, 'TALK_GADGET_URL', talkGadgetBaseUrl)
+    findAndReplace(os.path.join(destination, 'plugin_settings.js'),
+                   "'OAUTH2_REDIRECT_URL'", oauth2RedirectUrlJs)
 
-  findAndReplace(os.path.join(destination, 'plugin_settings.js'),
-                 "Boolean('XMPP_SERVER_USE_TLS')", xmppServerUseTls)
-  replaceString(destination, 'XMPP_SERVER_ADDRESS', xmppServerAddress)
-  replaceString(destination, 'DIRECTORY_BOT_JID', directoryBotJid)
-  replaceString(destination, 'THIRD_PARTY_AUTH_REDIRECT_URL',
-                thirdPartyAuthUrlJs)
+    # Configure xmpp server and directory bot settings in the plugin.
+    replaceBool(
+        destination, 'XMPP_SERVER_USE_TLS',
+        getenvBool('XMPP_SERVER_USE_TLS', True))
+    replaceString(destination, 'XMPP_SERVER', xmppServer)
+    replaceString(destination, 'DIRECTORY_BOT_JID',
+                  os.environ.get('DIRECTORY_BOT_JID',
+                                 'remoting@bot.talk.google.com'))
+    replaceString(destination, 'THIRD_PARTY_AUTH_REDIRECT_URL',
+                  thirdPartyAuthUrlJs)
 
   # Set the correct API keys.
   # For overriding the client ID/secret via env vars, see google_api_keys.py.
   apiClientId = google_api_keys.GetClientID('REMOTING')
   apiClientSecret = google_api_keys.GetClientSecret('REMOTING')
-  apiClientIdV2 = google_api_keys.GetClientID('REMOTING_IDENTITY_API')
+  apiKey = google_api_keys.GetAPIKeyRemoting()
 
-  replaceString(destination, 'API_CLIENT_ID', apiClientId)
-  replaceString(destination, 'API_CLIENT_SECRET', apiClientSecret)
+  if is_app_remoting_webapp and buildtype != 'Dev':
+    if not app_client_id:
+      raise Exception('Invalid app_client_id passed in: "' +
+          app_client_id + '"')
+    apiClientIdV2 = app_client_id + '.apps.googleusercontent.com'
+  else:
+    apiClientIdV2 = google_api_keys.GetClientID('REMOTING_IDENTITY_API')
+
+  if not is_app_remoting_webapp:
+    replaceString(destination, 'API_CLIENT_ID', apiClientId)
+    replaceString(destination, 'API_CLIENT_SECRET', apiClientSecret)
+    replaceString(destination, 'API_KEY', apiKey)
+
+  # Write the application capabilities.
+  if is_app_remoting_webapp:
+    appCapabilities = ','.join(
+        ['remoting.ClientSession.Capability.' + x for x in app_capabilities])
+    findAndReplace(os.path.join(destination, 'arv_main.js'),
+                   "'APPLICATION_CAPABILITIES'", appCapabilities)
 
   # Use a consistent extension id for dev builds.
-  if buildtype == 'Dev':
+  # AppRemoting builds always use the dev app id - the correct app id gets
+  # written into the manifest later.
+  if is_app_remoting_webapp:
+    if buildtype != 'Dev':
+      if not manifest_key:
+        raise Exception('Invalid manifest_key passed in: "' +
+            manifest_key + '"')
+      manifestKey = '"key": "' + manifest_key + '",'
+    else:
+      manifestKey = '"key": "remotingdevbuild",'
+  elif buildtype != 'Official':
+    # TODO(joedow): Update the chromoting webapp GYP entries to include keys.
     manifestKey = '"key": "remotingdevbuild",'
   else:
     manifestKey = ''
@@ -333,12 +437,19 @@ def buildWebApp(buildtype, version, destination, zip_path,
         'OAUTH2_BASE_URL': oauth2BaseUrl,
         'OAUTH2_API_BASE_URL': oauth2ApiBaseUrl,
         'DIRECTORY_API_BASE_URL': directoryApiBaseUrl,
+        'TELEMETRY_API_BASE_URL':telemetryApiBaseUrl ,
         'APP_REMOTING_API_BASE_URL': appRemotingApiBaseUrl,
         'OAUTH2_ACCOUNTS_HOST': oauth2AccountsHost,
         'GOOGLE_API_HOSTS': googleApiHosts,
         'APP_NAME': app_name,
         'APP_DESCRIPTION': app_description,
+        'OAUTH_GDRIVE_SCOPE': '',
+        'USE_GCD': use_gcd,
+        'XMPP_SERVER': xmppServer,
     }
+    if 'GOOGLE_DRIVE' in app_capabilities:
+      context['OAUTH_GDRIVE_SCOPE'] = ('"https://docs.google.com/feeds/", '
+                                       '"https://www.googleapis.com/auth/drive",')
     processJinjaTemplate(manifest_template,
                          jinja_paths,
                          os.path.join(destination, 'manifest.json'),
@@ -351,58 +462,31 @@ def buildWebApp(buildtype, version, destination, zip_path,
 
 
 def main():
-  if len(sys.argv) < 6:
-    print ('Usage: build-webapp.py '
-           '<build-type> <version> <dst> <zip-path> <manifest_template> '
-           '<webapp_type> <other files...> '
-           '--app_name <name> '
-           '--app_description <description> '
-           '[--appid <appid>] '
-           '[--locales <locales...>] '
-           '[--jinja_paths <paths...>] '
-           '[--service_environment <service_environment>]')
-    return 1
+  parser = argparse.ArgumentParser()
+  parser.add_argument('buildtype')
+  parser.add_argument('version')
+  parser.add_argument('destination')
+  parser.add_argument('zip_path')
+  parser.add_argument('manifest_template')
+  parser.add_argument('webapp_type')
+  parser.add_argument('files', nargs='*', metavar='file', default=[])
+  parser.add_argument('--app_name', metavar='NAME')
+  parser.add_argument('--app_description', metavar='TEXT')
+  parser.add_argument('--app_capabilities',
+                      nargs='*', default=[], metavar='CAPABILITY')
+  parser.add_argument('--appid')
+  parser.add_argument('--app_client_id', default='')
+  parser.add_argument('--manifest_key', default='')
+  parser.add_argument('--files_listfile', default='', metavar='PATH')
+  parser.add_argument('--locales_listfile', default='', metavar='PATH')
+  parser.add_argument('--jinja_paths', nargs='*', default=[], metavar='PATH')
+  parser.add_argument('--service_environment', default='', metavar='ENV')
+  parser.add_argument('--use_gcd', choices=['0', '1'], default='0')
 
-  arg_type = ''
-  files = []
-  locales = []
-  jinja_paths = []
-  app_id = None
-  app_name = None
-  app_description = None
-  service_environment = ''
-
-  for arg in sys.argv[7:]:
-    if arg in ['--locales',
-               '--jinja_paths',
-               '--appid',
-               '--app_name',
-               '--app_description',
-               '--service_environment']:
-      arg_type = arg
-    elif arg_type == '--locales':
-      locales.append(arg)
-    elif arg_type == '--jinja_paths':
-      jinja_paths.append(arg)
-    elif arg_type == '--appid':
-      app_id = arg
-      arg_type = ''
-    elif arg_type == '--app_name':
-      app_name = arg
-      arg_type = ''
-    elif arg_type == '--app_description':
-      app_description = arg
-      arg_type = ''
-    elif arg_type == '--service_environment':
-      service_environment = arg
-      arg_type = ''
-    else:
-      files.append(arg)
-
-  return buildWebApp(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4],
-                     sys.argv[5], sys.argv[6], app_id, app_name,
-                     app_description, files, locales, jinja_paths,
-                     service_environment)
+  args = parser.parse_args()
+  args.use_gcd = (args.use_gcd != '0')
+  args.app_capabilities = set(args.app_capabilities)
+  return buildWebApp(**vars(args))
 
 
 if __name__ == '__main__':

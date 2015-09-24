@@ -6,6 +6,7 @@
 
 #include "chrome/browser/chromeos/file_system_provider/service.h"
 #include "chrome/browser/extensions/extension_system_factory.h"
+#include "chrome/browser/profiles/incognito_helpers.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_registry_factory.h"
@@ -41,12 +42,16 @@ ServiceFactory::~ServiceFactory() {}
 
 KeyedService* ServiceFactory::BuildServiceInstanceFor(
     content::BrowserContext* profile) const {
-  return new Service(
-      Profile::FromBrowserContext(profile),
-      extensions::ExtensionRegistry::Get(Profile::FromBrowserContext(profile)));
+  return new Service(Profile::FromBrowserContext(profile),
+                     extensions::ExtensionRegistry::Get(profile));
 }
 
 bool ServiceFactory::ServiceIsCreatedWithBrowserContext() const { return true; }
+
+content::BrowserContext* ServiceFactory::GetBrowserContextToUse(
+    content::BrowserContext* context) const {
+  return chrome::GetBrowserContextRedirectedInIncognito(context);
+}
 
 }  // namespace file_system_provider
 }  // namespace chromeos

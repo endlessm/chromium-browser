@@ -20,9 +20,9 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/stringprintf.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "sync/engine/backoff_delay_provider.h"
 #include "sync/engine/get_commit_ids.h"
 #include "sync/engine/net/server_connection_manager.h"
 #include "sync/engine/sync_scheduler_impl.h"
@@ -71,7 +71,6 @@ using std::vector;
 namespace syncer {
 
 using syncable::BaseTransaction;
-using syncable::Blob;
 using syncable::CountEntriesWithName;
 using syncable::Directory;
 using syncable::Entry;
@@ -195,7 +194,7 @@ class SyncerTest : public testing::Test,
   }
   void OnTypesThrottled(ModelTypeSet types,
                         const base::TimeDelta& throttle_duration) override {
-    FAIL() << "Should not get silenced.";
+    scheduler_->OnTypesThrottled(types, throttle_duration);
   }
   bool IsCurrentlyThrottled() override { return false; }
   void OnReceivedLongPollIntervalUpdate(
@@ -256,28 +255,25 @@ class SyncerTest : public testing::Test,
     session_.reset(SyncSession::Build(context_.get(), this));
   }
 
-  void SyncShareNudge() {
+  bool SyncShareNudge() {
     ResetSession();
 
     // Pretend we've seen a local change, to make the nudge_tracker look normal.
     nudge_tracker_.RecordLocalChange(ModelTypeSet(BOOKMARKS));
 
-    EXPECT_TRUE(
-        syncer_->NormalSyncShare(
-            context_->GetEnabledTypes(),
-            nudge_tracker_,
-            session_.get()));
+    return syncer_->NormalSyncShare(context_->GetEnabledTypes(),
+                                         &nudge_tracker_, session_.get());
   }
 
-  void SyncShareConfigure() {
+  bool SyncShareConfigure() {
     ResetSession();
-    EXPECT_TRUE(syncer_->ConfigureSyncShare(
+    return syncer_->ConfigureSyncShare(
             context_->GetEnabledTypes(),
             sync_pb::GetUpdatesCallerInfo::RECONFIGURATION,
-            session_.get()));
+            session_.get());
   }
 
-  virtual void SetUp() {
+  void SetUp() override {
     dir_maker_.SetUp();
     mock_server_.reset(new MockConnectionManager(directory(),
                                                  &cancelation_signal_));
@@ -311,6 +307,12 @@ class SyncerTest : public testing::Test,
         "fake_invalidator_client_id"));
     context_->SetRoutingInfo(routing_info);
     syncer_ = new Syncer(&cancelation_signal_);
+    scheduler_.reset(new SyncSchedulerImpl(
+        "TestSyncScheduler",
+        BackoffDelayProvider::FromDefaults(),
+        context_.get(),
+        // scheduler_ owned syncer_ now and will manage the memory of syncer_
+        syncer_));
 
     syncable::ReadTransaction trans(FROM_HERE, directory());
     syncable::Directory::Metahandles children;
@@ -324,12 +326,11 @@ class SyncerTest : public testing::Test,
     mock_server_->SetKeystoreKey("encryption_key");
   }
 
-  virtual void TearDown() {
+  void TearDown() override {
     model_type_registry_->UnregisterDirectoryTypeDebugInfoObserver(
         &debug_info_cache_);
     mock_server_.reset();
-    delete syncer_;
-    syncer_ = NULL;
+    scheduler_.reset();
     dir_maker_.TearDown();
   }
 
@@ -467,7 +468,7 @@ class SyncerTest : public testing::Test,
         test++;
       }
     }
-    SyncShareNudge();
+    EXPECT_TRUE(SyncShareNudge());
     ASSERT_TRUE(expected_positions.size() ==
                 mock_server_->committed_ids().size());
     // If this test starts failing, be aware other sort orders could be valid.
@@ -588,6 +589,7 @@ class SyncerTest : public testing::Test,
   TypeDebugInfoCache debug_info_cache_;
   MockNudgeHandler mock_nudge_handler_;
   scoped_ptr<ModelTypeRegistry> model_type_registry_;
+  scoped_ptr<SyncSchedulerImpl> scheduler_;
   scoped_ptr<SyncSessionContext> context_;
   bool saw_syncer_event_;
   base::TimeDelta last_short_poll_interval_received_;
@@ -625,7 +627,7 @@ TEST_F(SyncerTest, GetCommitIdsFiltersThrottledEntries) {
 
   mock_server_->AddUpdateDirectory(1, 0, "A", 10, 10,
                                    foreign_cache_guid(), "-1");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   {
     WriteTransaction wtrans(FROM_HERE, UNITTEST, directory());
@@ -642,8 +644,7 @@ TEST_F(SyncerTest, GetCommitIdsFiltersThrottledEntries) {
   ResetSession();
   syncer_->NormalSyncShare(
       Difference(context_->GetEnabledTypes(), ModelTypeSet(BOOKMARKS)),
-      nudge_tracker_,
-      session_.get());
+      &nudge_tracker_, session_.get());
 
   {
     // Nothing should have been committed as bookmarks is throttled.
@@ -655,7 +656,7 @@ TEST_F(SyncerTest, GetCommitIdsFiltersThrottledEntries) {
 
   // Sync again with bookmarks enabled.
   mock_server_->ExpectGetUpdatesRequestTypes(context_->GetEnabledTypes());
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     // It should have been committed.
     syncable::ReadTransaction rtrans(FROM_HERE, directory());
@@ -699,7 +700,7 @@ TEST_F(SyncerTest, GetCommitIdsFiltersUnreadyEntries) {
                                    foreign_cache_guid(), "-3");
   mock_server_->AddUpdateDirectory(4, 0, "D", 10, 10,
                                    foreign_cache_guid(), "-4");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   // Server side change will put A in conflict.
   mock_server_->AddUpdateDirectory(1, 0, "A", 20, 20,
                                    foreign_cache_guid(), "-1");
@@ -743,7 +744,7 @@ TEST_F(SyncerTest, GetCommitIdsFiltersUnreadyEntries) {
     D.PutSpecifics(encrypted_bookmark);
     D.PutNonUniqueName("not encrypted");
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     // Nothing should have commited due to bookmarks being encrypted and
     // the cryptographer having pending keys. A would have been resolved
@@ -757,7 +758,7 @@ TEST_F(SyncerTest, GetCommitIdsFiltersUnreadyEntries) {
     // Resolve the pending keys.
     GetCryptographer(&rtrans)->DecryptPendingKeys(other_params);
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     // All properly encrypted and non-conflicting items should commit. "A" was
     // conflicting, but last sync cycle resolved it as simple conflict, so on
@@ -784,7 +785,7 @@ TEST_F(SyncerTest, GetCommitIdsFiltersUnreadyEntries) {
     D.PutSpecifics(encrypted_bookmark);
     D.PutNonUniqueName(kEncryptedString);
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     const StatusController& status_controller = session_->status_controller();
     // Expect success.
@@ -795,6 +796,87 @@ TEST_F(SyncerTest, GetCommitIdsFiltersUnreadyEntries) {
     VERIFY_ENTRY(2, false, false, false, 0, 11, 11, ids_, &rtrans);
     VERIFY_ENTRY(3, false, false, false, 0, 11, 11, ids_, &rtrans);
     VERIFY_ENTRY(4, false, false, false, 0, 11, 11, ids_, &rtrans);
+  }
+}
+
+TEST_F(SyncerTest, GetUpdatesPartialThrottled) {
+  sync_pb::EntitySpecifics bookmark, pref;
+  bookmark.mutable_bookmark()->set_title("title");
+  pref.mutable_preference()->set_name("name");
+  AddDefaultFieldValue(BOOKMARKS, &bookmark);
+  AddDefaultFieldValue(PREFERENCES, &pref);
+
+  // Normal sync, all the data types should get synced.
+  mock_server_->AddUpdateSpecifics(1, 0, "A", 10, 10, true, 0, bookmark,
+                                   foreign_cache_guid(), "-1");
+  mock_server_->AddUpdateSpecifics(2, 1, "B", 10, 10, false, 2, bookmark,
+                                   foreign_cache_guid(), "-2");
+  mock_server_->AddUpdateSpecifics(3, 1, "C", 10, 10, false, 1, bookmark,
+                                   foreign_cache_guid(), "-3");
+  mock_server_->AddUpdateSpecifics(4, 0, "D", 10, 10, false, 0, pref);
+
+  EXPECT_TRUE(SyncShareNudge());
+  {
+    // Initial state. Everything is normal.
+    syncable::ReadTransaction rtrans(FROM_HERE, directory());
+    VERIFY_ENTRY(1, false, false, false, 0, 10, 10, ids_, &rtrans);
+    VERIFY_ENTRY(2, false, false, false, 1, 10, 10, ids_, &rtrans);
+    VERIFY_ENTRY(3, false, false, false, 1, 10, 10, ids_, &rtrans);
+    VERIFY_ENTRY(4, false, false, false, 0, 10, 10, ids_, &rtrans);
+  }
+
+  // Set BOOKMARKS throttled but PREFERENCES not,
+  // then BOOKMARKS should not get synced but PREFERENCES should.
+  ModelTypeSet throttled_types(BOOKMARKS);
+  mock_server_->set_partial_throttling(true);
+  mock_server_->SetThrottledTypes(throttled_types);
+
+  mock_server_->AddUpdateSpecifics(1, 0, "E", 20, 20, true, 0, bookmark,
+                                   foreign_cache_guid(), "-1");
+  mock_server_->AddUpdateSpecifics(2, 1, "F", 20, 20, false, 2, bookmark,
+                                   foreign_cache_guid(), "-2");
+  mock_server_->AddUpdateSpecifics(3, 1, "G", 20, 20, false, 1, bookmark,
+                                   foreign_cache_guid(), "-3");
+  mock_server_->AddUpdateSpecifics(4, 0, "H", 20, 20, false, 0, pref);
+  {
+    WriteTransaction wtrans(FROM_HERE, UNITTEST, directory());
+    MutableEntry A(&wtrans, GET_BY_ID, ids_.FromNumber(1));
+    MutableEntry B(&wtrans, GET_BY_ID, ids_.FromNumber(2));
+    MutableEntry C(&wtrans, GET_BY_ID, ids_.FromNumber(3));
+    MutableEntry D(&wtrans, GET_BY_ID, ids_.FromNumber(4));
+    A.PutIsUnsynced(true);
+    B.PutIsUnsynced(true);
+    C.PutIsUnsynced(true);
+    D.PutIsUnsynced(true);
+  }
+  EXPECT_TRUE(SyncShareNudge());
+  {
+    // BOOKMARKS throttled.
+    syncable::ReadTransaction rtrans(FROM_HERE, directory());
+    VERIFY_ENTRY(1, false, true, false, 0, 10, 10, ids_, &rtrans);
+    VERIFY_ENTRY(2, false, true, false, 1, 10, 10, ids_, &rtrans);
+    VERIFY_ENTRY(3, false, true, false, 1, 10, 10, ids_, &rtrans);
+    VERIFY_ENTRY(4, false, false, false, 0, 21, 21, ids_, &rtrans);
+  }
+
+  // Unthrottled BOOKMARKS, then BOOKMARKS should get synced now.
+  mock_server_->set_partial_throttling(false);
+
+  mock_server_->AddUpdateSpecifics(1, 0, "E", 30, 30, true, 0, bookmark,
+                                   foreign_cache_guid(), "-1");
+  mock_server_->AddUpdateSpecifics(2, 1, "F", 30, 30, false, 2, bookmark,
+                                   foreign_cache_guid(), "-2");
+  mock_server_->AddUpdateSpecifics(3, 1, "G", 30, 30, false, 1, bookmark,
+                                   foreign_cache_guid(), "-3");
+  mock_server_->AddUpdateSpecifics(4, 0, "H", 30, 30, false, 0, pref);
+  EXPECT_TRUE(SyncShareNudge());
+  {
+    // BOOKMARKS unthrottled.
+    syncable::ReadTransaction rtrans(FROM_HERE, directory());
+    VERIFY_ENTRY(1, false, false, false, 0, 31, 31, ids_, &rtrans);
+    VERIFY_ENTRY(2, false, false, false, 1, 31, 31, ids_, &rtrans);
+    VERIFY_ENTRY(3, false, false, false, 1, 31, 31, ids_, &rtrans);
+    VERIFY_ENTRY(4, false, false, false, 0, 30, 30, ids_, &rtrans);
   }
 }
 
@@ -942,7 +1024,7 @@ TEST_F(SyncerTest, EncryptionAwareConflicts) {
   mock_server_->AddUpdateSpecifics(3, 1, "C", 10, 10, false, 1, bookmark,
                                    foreign_cache_guid(), "-3");
   mock_server_->AddUpdateSpecifics(4, 0, "D", 10, 10, false, 0, pref);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     // Initial state. Everything is normal.
     syncable::ReadTransaction rtrans(FROM_HERE, directory());
@@ -975,7 +1057,7 @@ TEST_F(SyncerTest, EncryptionAwareConflicts) {
   mock_server_->AddUpdateSpecifics(4, 0, kEncryptedString, 20, 20, false, 0,
                                    encrypted_pref,
                                    foreign_cache_guid(), "-4");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     // All should be unapplied due to being undecryptable and have a valid
     // BASE_SERVER_SPECIFICS.
@@ -998,7 +1080,7 @@ TEST_F(SyncerTest, EncryptionAwareConflicts) {
   mock_server_->AddUpdateSpecifics(4, 0, kEncryptedString, 30, 30, false, 0,
                                    encrypted_pref,
                                    foreign_cache_guid(), "-4");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     // Items 1, 2, and 4 should have newer server versions, 3 remains the same.
     // All should remain unapplied due to be undecryptable.
@@ -1018,7 +1100,7 @@ TEST_F(SyncerTest, EncryptionAwareConflicts) {
   mock_server_->AddUpdateSpecifics(3, 1, kEncryptedString, 30, 30, false, 3,
                                    encrypted_bookmark,
                                    foreign_cache_guid(), "-3");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     // Items 2 and 4 should be the only ones with BASE_SERVER_SPECIFICS set.
     // Items 1 is now unencrypted, so should have applied normally.
@@ -1053,7 +1135,7 @@ TEST_F(SyncerTest, EncryptionAwareConflicts) {
     D.PutNonUniqueName(kEncryptedString);
     D.PutIsUnsynced(true);
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     // Item 1 remains unsynced due to there being pending keys.
     // Items 2, 3, 4 should remain unsynced since they were not up to date.
@@ -1070,7 +1152,7 @@ TEST_F(SyncerTest, EncryptionAwareConflicts) {
     GetCryptographer(&rtrans)->DecryptPendingKeys(key_params);
   }
   // First cycle resolves conflicts, second cycle commits changes.
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(1, GetUpdateCounters(BOOKMARKS).num_server_overwrites);
   EXPECT_EQ(1, GetUpdateCounters(PREFERENCES).num_server_overwrites);
   EXPECT_EQ(1, GetUpdateCounters(BOOKMARKS).num_local_overwrites);
@@ -1081,7 +1163,7 @@ TEST_F(SyncerTest, EncryptionAwareConflicts) {
   EXPECT_EQ(1, GetCommitCounters(PREFERENCES).num_commits_attempted);
   EXPECT_EQ(1, GetCommitCounters(PREFERENCES).num_commits_success);
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // Everything should be resolved now. The local changes should have
   // overwritten the server changes for 2 and 4, while the server changes
@@ -1120,7 +1202,7 @@ TEST_F(SyncerTest, TestGetUnsyncedAndSimpleCommit) {
     WriteTestDataToEntry(&wtrans, &child);
   }
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   ASSERT_EQ(2u, mock_server_->committed_ids().size());
   // If this test starts failing, be aware other sort orders could be valid.
   EXPECT_TRUE(parent_id_ == mock_server_->committed_ids()[0]);
@@ -1168,7 +1250,7 @@ TEST_F(SyncerTest, TestPurgeWhileUnsynced) {
                                       ModelTypeSet(),
                                       ModelTypeSet());
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   ASSERT_EQ(2U, mock_server_->committed_ids().size());
   // If this test starts failing, be aware other sort orders could be valid.
   EXPECT_TRUE(parent_id_ == mock_server_->committed_ids()[0]);
@@ -1206,7 +1288,7 @@ TEST_F(SyncerTest, TestPurgeWhileUnapplied) {
                                       ModelTypeSet(),
                                       ModelTypeSet());
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   directory()->SaveChanges();
   {
     syncable::ReadTransaction rt(FROM_HERE, directory());
@@ -1261,14 +1343,11 @@ TEST_F(SyncerTest, TestPurgeWithJournal) {
 }
 
 TEST_F(SyncerTest, ResetVersions) {
-  // Download the top level pref node and some pref items.
-  mock_server_->AddUpdateDirectory(
-      parent_id_, root_id_, "prefs", 1, 10, std::string(), std::string());
-  mock_server_->SetLastUpdateServerTag(ModelTypeToRootTag(PREFERENCES));
-  mock_server_->AddUpdatePref("id1", parent_id_.GetServerId(), "tag1", 20, 20);
-  mock_server_->AddUpdatePref("id2", parent_id_.GetServerId(), "tag2", 30, 30);
-  mock_server_->AddUpdatePref("id3", parent_id_.GetServerId(), "tag3", 40, 40);
-  SyncShareNudge();
+  // Download some pref items.
+  mock_server_->AddUpdatePref("id1", "", "tag1", 20, 20);
+  mock_server_->AddUpdatePref("id2", "", "tag2", 30, 30);
+  mock_server_->AddUpdatePref("id3", "", "tag3", 40, 40);
+  EXPECT_TRUE(SyncShareNudge());
 
   {
     // Modify one of the preferences locally, mark another one as unapplied,
@@ -1280,7 +1359,7 @@ TEST_F(SyncerTest, ResetVersions) {
     MutableEntry entry2(&wtrans, GET_BY_CLIENT_TAG, "tag2");
     entry2.PutIsUnappliedUpdate(true);
 
-    MutableEntry entry4(&wtrans, CREATE, PREFERENCES, parent_id_, "name");
+    MutableEntry entry4(&wtrans, CREATE, PREFERENCES, "name");
     entry4.PutUniqueClientTag("tag4");
     entry4.PutIsUnsynced(true);
   }
@@ -1523,7 +1602,7 @@ TEST_F(SyncerTest, TestCommitListOrderingWithNesting) {
     }
   }
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   ASSERT_EQ(6u, mock_server_->committed_ids().size());
   // This test will NOT unroll deletes because SERVER_PARENT_ID is not set.
   // It will treat these like moves.
@@ -1593,7 +1672,7 @@ TEST_F(SyncerTest, TestCommitListOrderingWithNewItems) {
     child.PutBaseVersion(1);
   }
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   ASSERT_EQ(6u, mock_server_->committed_ids().size());
 
   // This strange iteration and std::count() usage is to allow the order to
@@ -1647,7 +1726,7 @@ TEST_F(SyncerTest, TestCommitListOrderingCounterexample) {
     child2.PutBaseVersion(1);
   }
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   ASSERT_EQ(3u, mock_server_->committed_ids().size());
   EXPECT_TRUE(parent_id_ == mock_server_->committed_ids()[0]);
   // There are two possible valid orderings.
@@ -1699,7 +1778,7 @@ TEST_F(SyncerTest, TestCommitListOrderingAndNewParent) {
     child.PutBaseVersion(1);
   }
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   ASSERT_EQ(3u, mock_server_->committed_ids().size());
   // If this test starts failing, be aware other sort orders could be valid.
   EXPECT_TRUE(parent_id_ == mock_server_->committed_ids()[0]);
@@ -1770,7 +1849,7 @@ TEST_F(SyncerTest, TestCommitListOrderingAndNewParentAndChild) {
     meta_handle_b = child.GetMetahandle();
   }
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   ASSERT_EQ(3u, mock_server_->committed_ids().size());
   // If this test starts failing, be aware other sort orders could be valid.
   EXPECT_TRUE(parent_id_ == mock_server_->committed_ids()[0]);
@@ -1808,12 +1887,12 @@ TEST_F(SyncerTest, UpdateWithZeroLengthName) {
   // And one legal one that we're going to delete.
   mock_server_->AddUpdateDirectory(2, 0, "FOO", 1, 10,
                                    foreign_cache_guid(), "-2");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   // Delete the legal one. The new update has a null name.
   mock_server_->AddUpdateDirectory(
       2, 0, std::string(), 2, 20, foreign_cache_guid(), "-2");
   mock_server_->SetLastUpdateDeleted();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 }
 
 TEST_F(SyncerTest, TestBasicUpdate) {
@@ -1825,7 +1904,7 @@ TEST_F(SyncerTest, TestBasicUpdate) {
   mock_server_->AddUpdateDirectory(id, parent_id, name, version, timestamp,
                                    foreign_cache_guid(), "-1");
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, directory());
     Entry entry(&trans, GET_BY_ID,
@@ -1859,7 +1938,7 @@ TEST_F(SyncerTest, IllegalAndLegalUpdates) {
   mock_server_->AddUpdateDirectory(3, -80, "bad_parent", 10, 10,
                                    foreign_cache_guid(), "-3");
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // Id 3 should be in conflict now.
   EXPECT_EQ(
@@ -1885,7 +1964,7 @@ TEST_F(SyncerTest, IllegalAndLegalUpdates) {
   mock_server_->AddUpdateDirectory(10, 0, "dir_to_bookmark", 10, 10,
                                    foreign_cache_guid(), "-10");
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   // The three items with an unresolved parent should be unapplied (3, 9, 100).
   // The name clash should also still be in conflict.
   EXPECT_EQ(
@@ -1931,12 +2010,12 @@ TEST_F(SyncerTest, IllegalAndLegalUpdates) {
   // Flip the is_dir bit: should fail verify & be dropped.
   mock_server_->AddUpdateBookmark(10, 0, "dir_to_bookmark", 20, 20,
                                   foreign_cache_guid(), "-10");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // Version number older than last known: should fail verify & be dropped.
   mock_server_->AddUpdateDirectory(4, 0, "old_version", 10, 10,
                                    foreign_cache_guid(), "-4");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
 
@@ -2057,7 +2136,7 @@ TEST_F(SyncerTest, CommitReuniteUpdateAdjustsChildren) {
   mock_server_->set_conflict_all_commits(true);
 
   // Alright! Apply that update!
-  SyncShareNudge();
+  EXPECT_FALSE(SyncShareNudge());
   {
     // The folder's ID should have been updated.
     syncable::ReadTransaction trans(FROM_HERE, directory());
@@ -2122,7 +2201,7 @@ TEST_F(SyncerTest, CommitReuniteUpdate) {
   mock_server_->set_conflict_all_commits(true);
 
   // Alright! Apply that update!
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
     Entry entry(&trans, GET_BY_HANDLE, entry_metahandle);
@@ -2183,7 +2262,7 @@ TEST_F(SyncerTest, CommitReuniteUpdateDoesNotChokeOnDeletedLocalEntry) {
   }
 
   // Just don't CHECK fail in sync, have the update split.
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
     Id new_entry_id = GetOnlyEntryWithName(
@@ -2205,7 +2284,7 @@ TEST_F(SyncerTest, ConflictMatchingEntryHandlesUnsanitizedNames) {
   mock_server_->AddUpdateDirectory(2, 0, "B/B", 10, 10,
                                    foreign_cache_guid(), "-2");
   mock_server_->set_conflict_all_commits(true);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     WriteTransaction wtrans(FROM_HERE, UNITTEST, directory());
 
@@ -2220,7 +2299,7 @@ TEST_F(SyncerTest, ConflictMatchingEntryHandlesUnsanitizedNames) {
     B.PutIsUnappliedUpdate(true);
     B.PutServerVersion(20);
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   saw_syncer_event_ = false;
   mock_server_->set_conflict_all_commits(false);
 
@@ -2247,7 +2326,7 @@ TEST_F(SyncerTest, ConflictMatchingEntryHandlesNormalNames) {
   mock_server_->AddUpdateDirectory(2, 0, "B", 10, 10,
                                    foreign_cache_guid(), "-2");
   mock_server_->set_conflict_all_commits(true);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     WriteTransaction wtrans(FROM_HERE, UNITTEST, directory());
 
@@ -2262,7 +2341,7 @@ TEST_F(SyncerTest, ConflictMatchingEntryHandlesNormalNames) {
     B.PutIsUnappliedUpdate(true);
     B.PutServerVersion(20);
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   saw_syncer_event_ = false;
   mock_server_->set_conflict_all_commits(false);
 
@@ -2294,7 +2373,7 @@ TEST_F(SyncerTest, ReverseFolderOrderingTest) {
                                    foreign_cache_guid(), "-2");
   mock_server_->AddUpdateDirectory(1, 0, "parent", 10, 10,
                                    foreign_cache_guid(), "-1");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   syncable::ReadTransaction trans(FROM_HERE, directory());
 
   Id child_id = GetOnlyEntryWithName(
@@ -2336,7 +2415,7 @@ TEST_F(EntryCreatedInNewFolderTest, EntryCreatedInNewFolderMidSync) {
   mock_server_->SetMidCommitCallback(
       base::Bind(&EntryCreatedInNewFolderTest::CreateFolderInBob,
                  base::Unretained(this)));
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   // We loop until no unsynced handles remain, so we will commit both ids.
   EXPECT_EQ(2u, mock_server_->committed_ids().size());
   {
@@ -2356,7 +2435,7 @@ TEST_F(EntryCreatedInNewFolderTest, EntryCreatedInNewFolderMidSync) {
 TEST_F(SyncerTest, NegativeIDInUpdate) {
   mock_server_->AddUpdateBookmark(-10, 0, "bad", 40, 40,
                                   foreign_cache_guid(), "-100");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   // The negative id would make us CHECK!
 }
 
@@ -2374,7 +2453,7 @@ TEST_F(SyncerTest, UnappliedUpdateOnCreatedItemItemDoesNotCrash) {
     WriteTestDataToEntry(&trans, &fred_match);
   }
   // Commit it.
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(1u, mock_server_->committed_ids().size());
   mock_server_->set_conflict_all_commits(true);
   syncable::Id fred_match_id;
@@ -2390,7 +2469,7 @@ TEST_F(SyncerTest, UnappliedUpdateOnCreatedItemItemDoesNotCrash) {
   }
   // Run the syncer.
   for (int i = 0 ; i < 30 ; ++i) {
-    SyncShareNudge();
+    EXPECT_TRUE(SyncShareNudge());
   }
 }
 
@@ -2420,7 +2499,7 @@ TEST_F(SyncerTest, DoublyChangedWithResolver) {
   mock_server_->AddUpdateBookmark(child_id_, parent_id_, "Pete2.htm", 11, 10,
                                   local_cache_guid(), local_id.GetServerId());
   mock_server_->set_conflict_all_commits(true);
-  SyncShareNudge();
+  EXPECT_FALSE(SyncShareNudge());
   syncable::Directory::Metahandles children;
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
@@ -2458,7 +2537,7 @@ TEST_F(SyncerTest, CommitsUpdateDoesntAlterEntry) {
     entry.PutMtime(test_time);
     entry_metahandle = entry.GetMetahandle();
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   syncable::Id id;
   int64 version;
   {
@@ -2476,7 +2555,7 @@ TEST_F(SyncerTest, CommitsUpdateDoesntAlterEntry) {
   EXPECT_EQ(id.GetServerId(), update->id_string());
   EXPECT_EQ(root_id_.GetServerId(), update->parent_id_string());
   EXPECT_EQ(version, update->version());
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
     Entry entry(&trans, syncable::GET_BY_ID, id);
@@ -2486,12 +2565,17 @@ TEST_F(SyncerTest, CommitsUpdateDoesntAlterEntry) {
 }
 
 TEST_F(SyncerTest, ParentAndChildBothMatch) {
+  // Disable PREFERENCES which is enabled at the setup step to avoid
+  // auto-creating
+  // PREFERENCES root folder and failing the test below that verifies the number
+  // of children at the root.
+  DisableDatatype(PREFERENCES);
+
   const FullModelTypeSet all_types = FullModelTypeSet::All();
   syncable::Id parent_id = ids_.NewServerId();
   syncable::Id child_id = ids_.NewServerId();
   syncable::Id parent_local_id;
   syncable::Id child_local_id;
-
 
   {
     WriteTransaction wtrans(FROM_HERE, UNITTEST, directory());
@@ -2519,9 +2603,9 @@ TEST_F(SyncerTest, ParentAndChildBothMatch) {
                                   local_cache_guid(),
                                   child_local_id.GetServerId());
   mock_server_->set_conflict_all_commits(true);
-  SyncShareNudge();
-  SyncShareNudge();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
+  EXPECT_TRUE(SyncShareNudge());
+  EXPECT_TRUE(SyncShareNudge());
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
     Directory::Metahandles children;
@@ -2546,7 +2630,7 @@ TEST_F(SyncerTest, CommittingNewDeleted) {
     entry.PutIsUnsynced(true);
     entry.PutIsDel(true);
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(0u, mock_server_->committed_ids().size());
 }
 
@@ -2574,7 +2658,7 @@ TEST_F(SyncerTest, UnappliedUpdateDuringCommit) {
     entry.PutServerSpecifics(DefaultBookmarkSpecifics());
     entry.PutIsDel(false);
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(1, session_->status_controller().TotalNumConflictingItems());
   saw_syncer_event_ = false;
 }
@@ -2601,7 +2685,7 @@ TEST_F(SyncerTest, DeletingEntryInFolder) {
     entry.PutIsUnsynced(true);
     existing_metahandle = entry.GetMetahandle();
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, directory());
     MutableEntry newfolder(&trans, CREATE, BOOKMARKS, trans.root_id(), "new");
@@ -2619,7 +2703,7 @@ TEST_F(SyncerTest, DeletingEntryInFolder) {
     newfolder.PutIsDel(true);
     existing.PutIsDel(true);
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(0, GetCommitCounters(BOOKMARKS).num_commits_conflict);
 }
 
@@ -2628,7 +2712,7 @@ TEST_F(SyncerTest, DeletingEntryWithLocalEdits) {
 
   mock_server_->AddUpdateDirectory(1, 0, "bob", 1, 10,
                                    foreign_cache_guid(), "-1");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, directory());
     MutableEntry newfolder(
@@ -2655,12 +2739,12 @@ TEST_F(SyncerTest, FolderSwapUpdate) {
                                    foreign_cache_guid(), "-7801");
   mock_server_->AddUpdateDirectory(1024, 0, "fred", 1, 10,
                                    foreign_cache_guid(), "-1024");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   mock_server_->AddUpdateDirectory(1024, 0, "bob", 2, 20,
                                    foreign_cache_guid(), "-1024");
   mock_server_->AddUpdateDirectory(7801, 0, "fred", 2, 20,
                                    foreign_cache_guid(), "-7801");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
     Entry id1(&trans, GET_BY_ID, ids_.FromNumber(7801));
@@ -2682,7 +2766,7 @@ TEST_F(SyncerTest, NameCollidingFolderSwapWorksFine) {
                                    foreign_cache_guid(), "-1024");
   mock_server_->AddUpdateDirectory(4096, 0, "alice", 1, 10,
                                    foreign_cache_guid(), "-4096");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
     Entry id1(&trans, GET_BY_ID, ids_.FromNumber(7801));
@@ -2704,7 +2788,7 @@ TEST_F(SyncerTest, NameCollidingFolderSwapWorksFine) {
                                    foreign_cache_guid(), "-7801");
   mock_server_->AddUpdateDirectory(4096, 0, "bob", 2, 20,
                                    foreign_cache_guid(), "-4096");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
     Entry id1(&trans, GET_BY_ID, ids_.FromNumber(7801));
@@ -2732,7 +2816,7 @@ TEST_F(SyncerTest, CommitManyItemsInOneGo_Success) {
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, directory());
     for (uint32 i = 0; i < items_to_commit; i++) {
-      string nameutf8 = base::StringPrintf("%d", i);
+      string nameutf8 = base::UintToString(i);
       string name(nameutf8.begin(), nameutf8.end());
       MutableEntry e(&trans, CREATE, BOOKMARKS, trans.root_id(), name);
       e.PutIsUnsynced(true);
@@ -2742,7 +2826,7 @@ TEST_F(SyncerTest, CommitManyItemsInOneGo_Success) {
   }
   ASSERT_EQ(items_to_commit, directory()->unsynced_entity_count());
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(num_batches, mock_server_->commit_messages().size());
   EXPECT_EQ(0, directory()->unsynced_entity_count());
 }
@@ -2755,7 +2839,7 @@ TEST_F(SyncerTest, CommitManyItemsInOneGo_PostBufferFail) {
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, directory());
     for (uint32 i = 0; i < items_to_commit; i++) {
-      string nameutf8 = base::StringPrintf("%d", i);
+      string nameutf8 = base::UintToString(i);
       string name(nameutf8.begin(), nameutf8.end());
       MutableEntry e(&trans, CREATE, BOOKMARKS, trans.root_id(), name);
       e.PutIsUnsynced(true);
@@ -2768,7 +2852,7 @@ TEST_F(SyncerTest, CommitManyItemsInOneGo_PostBufferFail) {
   // The second commit should fail.  It will be preceded by one successful
   // GetUpdate and one succesful commit.
   mock_server_->FailNthPostBufferToPathCall(3);
-  SyncShareNudge();
+  EXPECT_FALSE(SyncShareNudge());
 
   EXPECT_EQ(1U, mock_server_->commit_messages().size());
   EXPECT_EQ(SYNC_SERVER_ERROR,
@@ -2785,7 +2869,7 @@ TEST_F(SyncerTest, CommitManyItemsInOneGo_CommitConflict) {
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, directory());
     for (uint32 i = 0; i < items_to_commit; i++) {
-      string nameutf8 = base::StringPrintf("%d", i);
+      string nameutf8 = base::UintToString(i);
       string name(nameutf8.begin(), nameutf8.end());
       MutableEntry e(&trans, CREATE, BOOKMARKS, trans.root_id(), name);
       e.PutIsUnsynced(true);
@@ -2797,7 +2881,7 @@ TEST_F(SyncerTest, CommitManyItemsInOneGo_CommitConflict) {
 
   // Return a CONFLICT response for the first item.
   mock_server_->set_conflict_n_commits(1);
-  SyncShareNudge();
+  EXPECT_FALSE(SyncShareNudge());
 
   // We should stop looping at the first sign of trouble.
   EXPECT_EQ(1U, mock_server_->commit_messages().size());
@@ -2810,14 +2894,14 @@ TEST_F(SyncerTest, SendDebugInfoEventsOnGetUpdates_HappyCase) {
   debug_info_getter_->AddDebugEvent();
   debug_info_getter_->AddDebugEvent();
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // Verify we received one GetUpdates request with two debug info events.
   EXPECT_EQ(1U, mock_server_->requests().size());
   ASSERT_TRUE(mock_server_->last_request().has_get_updates());
   EXPECT_EQ(2, mock_server_->last_request().debug_info().events_size());
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // See that we received another GetUpdates request, but that it contains no
   // debug info events.
@@ -2827,7 +2911,7 @@ TEST_F(SyncerTest, SendDebugInfoEventsOnGetUpdates_HappyCase) {
 
   debug_info_getter_->AddDebugEvent();
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // See that we received another GetUpdates request and it contains one debug
   // info event.
@@ -2842,7 +2926,7 @@ TEST_F(SyncerTest, SendDebugInfoEventsOnGetUpdates_PostFailsDontDrop) {
   debug_info_getter_->AddDebugEvent();
 
   mock_server_->FailNextPostBufferToPathCall();
-  SyncShareNudge();
+  EXPECT_FALSE(SyncShareNudge());
 
   // Verify we attempted to send one GetUpdates request with two debug info
   // events.
@@ -2850,7 +2934,7 @@ TEST_F(SyncerTest, SendDebugInfoEventsOnGetUpdates_PostFailsDontDrop) {
   ASSERT_TRUE(mock_server_->last_request().has_get_updates());
   EXPECT_EQ(2, mock_server_->last_request().debug_info().events_size());
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // See that the client resent the two debug info events.
   EXPECT_EQ(2U, mock_server_->requests().size());
@@ -2859,10 +2943,29 @@ TEST_F(SyncerTest, SendDebugInfoEventsOnGetUpdates_PostFailsDontDrop) {
 
   // The previous send was successful so this next one shouldn't generate any
   // debug info events.
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(3U, mock_server_->requests().size());
   ASSERT_TRUE(mock_server_->last_request().has_get_updates());
   EXPECT_EQ(0, mock_server_->last_request().debug_info().events_size());
+}
+
+// Tests that commit failure with conflict will trigger GetUpdates for next
+// cycle of sync
+TEST_F(SyncerTest, CommitFailureWithConflict) {
+  ConfigureNoGetUpdatesRequired();
+  CreateUnsyncedDirectory("X", "id_X");
+  EXPECT_FALSE(nudge_tracker_.IsGetUpdatesRequired());
+
+  EXPECT_TRUE(SyncShareNudge());
+  EXPECT_FALSE(nudge_tracker_.IsGetUpdatesRequired());
+
+  CreateUnsyncedDirectory("Y", "id_Y");
+  mock_server_->set_conflict_n_commits(1);
+  EXPECT_FALSE(SyncShareNudge());
+  EXPECT_TRUE(nudge_tracker_.IsGetUpdatesRequired());
+
+  nudge_tracker_.RecordSuccessfulSyncCycle();
+  EXPECT_FALSE(nudge_tracker_.IsGetUpdatesRequired());
 }
 
 // Tests that sending debug info events on Commit works.
@@ -2874,7 +2977,7 @@ TEST_F(SyncerTest, SendDebugInfoEventsOnCommit_HappyCase) {
   // Generate a debug info event and trigger a commit.
   debug_info_getter_->AddDebugEvent();
   CreateUnsyncedDirectory("X", "id_X");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // Verify that the last request received is a Commit and that it contains a
   // debug info event.
@@ -2884,7 +2987,7 @@ TEST_F(SyncerTest, SendDebugInfoEventsOnCommit_HappyCase) {
 
   // Generate another commit, but no debug info event.
   CreateUnsyncedDirectory("Y", "id_Y");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // See that it was received and contains no debug info events.
   EXPECT_EQ(2U, mock_server_->requests().size());
@@ -2903,7 +3006,7 @@ TEST_F(SyncerTest, SendDebugInfoEventsOnCommit_PostFailsDontDrop) {
   // Generate a debug info event and trigger a commit.
   debug_info_getter_->AddDebugEvent();
   CreateUnsyncedDirectory("X", "id_X");
-  SyncShareNudge();
+  EXPECT_FALSE(SyncShareNudge());
 
   // Verify that the last request sent is a Commit and that it contains a debug
   // info event.
@@ -2912,7 +3015,7 @@ TEST_F(SyncerTest, SendDebugInfoEventsOnCommit_PostFailsDontDrop) {
   EXPECT_EQ(1, mock_server_->last_request().debug_info().events_size());
 
   // Try again.
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // Verify that we've received another Commit and that it contains a debug info
   // event (just like the previous one).
@@ -2922,7 +3025,7 @@ TEST_F(SyncerTest, SendDebugInfoEventsOnCommit_PostFailsDontDrop) {
 
   // Generate another commit and try again.
   CreateUnsyncedDirectory("Y", "id_Y");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // See that it was received and contains no debug info events.
   EXPECT_EQ(3U, mock_server_->requests().size());
@@ -2951,7 +3054,7 @@ TEST_F(SyncerTest, HugeConflict) {
       last_id = next_id;
     }
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // Check they're in the expected conflict state.
   {
@@ -2968,7 +3071,7 @@ TEST_F(SyncerTest, HugeConflict) {
   // Add the missing parent directory.
   mock_server_->AddUpdateDirectory(parent_id, TestIdFactory::root(),
       "BOB", 2, 20, foreign_cache_guid(), "-3500");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // Now they should all be OK.
   {
@@ -2985,7 +3088,7 @@ TEST_F(SyncerTest, HugeConflict) {
 TEST_F(SyncerTest, DontCrashOnCaseChange) {
   mock_server_->AddUpdateDirectory(1, 0, "bob", 1, 10,
                                    foreign_cache_guid(), "-1");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, directory());
     MutableEntry e(&trans, GET_BY_ID, ids_.FromNumber(1));
@@ -2995,25 +3098,25 @@ TEST_F(SyncerTest, DontCrashOnCaseChange) {
   mock_server_->set_conflict_all_commits(true);
   mock_server_->AddUpdateDirectory(1, 0, "BOB", 2, 20,
                                    foreign_cache_guid(), "-1");
-  SyncShareNudge();  // USED TO CAUSE AN ASSERT
+  EXPECT_FALSE(SyncShareNudge());  // USED TO CAUSE AN ASSERT
   saw_syncer_event_ = false;
 }
 
 TEST_F(SyncerTest, UnsyncedItemAndUpdate) {
   mock_server_->AddUpdateDirectory(1, 0, "bob", 1, 10,
                                    foreign_cache_guid(), "-1");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   mock_server_->set_conflict_all_commits(true);
   mock_server_->AddUpdateDirectory(2, 0, "bob", 2, 20,
                                    foreign_cache_guid(), "-2");
-  SyncShareNudge();  // USED TO CAUSE AN ASSERT
+  EXPECT_TRUE(SyncShareNudge());  // USED TO CAUSE AN ASSERT
   saw_syncer_event_ = false;
 }
 
 TEST_F(SyncerTest, NewEntryAndAlteredServerEntrySharePath) {
   mock_server_->AddUpdateBookmark(1, 0, "Foo.htm", 10, 10,
                                   foreign_cache_guid(), "-1");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   int64 local_folder_handle;
   syncable::Id local_folder_id;
   {
@@ -3032,7 +3135,7 @@ TEST_F(SyncerTest, NewEntryAndAlteredServerEntrySharePath) {
   mock_server_->AddUpdateBookmark(1, 0, "Bar.htm", 20, 20,
                                   foreign_cache_guid(), "-1");
   mock_server_->set_conflict_all_commits(true);
-  SyncShareNudge();
+  EXPECT_FALSE(SyncShareNudge());
   saw_syncer_event_ = false;
   {
     // Update #20 should have been dropped in favor of the local version.
@@ -3051,14 +3154,14 @@ TEST_F(SyncerTest, NewEntryAndAlteredServerEntrySharePath) {
   }
   // Allow local changes to commit.
   mock_server_->set_conflict_all_commits(false);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   saw_syncer_event_ = false;
 
   // Now add a server change to make the two names equal.  There should
   // be no conflict with that, since names are not unique.
   mock_server_->AddUpdateBookmark(1, 0, "Bar.htm", 30, 30,
                                   foreign_cache_guid(), "-1");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   saw_syncer_event_ = false;
   {
     WriteTransaction wtrans(FROM_HERE, UNITTEST, directory());
@@ -3083,7 +3186,7 @@ TEST_F(SyncerTest, NewEntryAndAlteredServerEntrySharePath_OldBookmarksProto) {
   mock_server_->set_use_legacy_bookmarks_protocol(true);
   mock_server_->AddUpdateBookmark(1, 0, "Foo.htm", 10, 10,
                                   foreign_cache_guid(), "-1");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   int64 local_folder_handle;
   syncable::Id local_folder_id;
   {
@@ -3102,7 +3205,7 @@ TEST_F(SyncerTest, NewEntryAndAlteredServerEntrySharePath_OldBookmarksProto) {
   mock_server_->AddUpdateBookmark(1, 0, "Bar.htm", 20, 20,
                                   foreign_cache_guid(), "-1");
   mock_server_->set_conflict_all_commits(true);
-  SyncShareNudge();
+  EXPECT_FALSE(SyncShareNudge());
   saw_syncer_event_ = false;
   {
     // Update #20 should have been dropped in favor of the local version.
@@ -3121,14 +3224,14 @@ TEST_F(SyncerTest, NewEntryAndAlteredServerEntrySharePath_OldBookmarksProto) {
   }
   // Allow local changes to commit.
   mock_server_->set_conflict_all_commits(false);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   saw_syncer_event_ = false;
 
   // Now add a server change to make the two names equal.  There should
   // be no conflict with that, since names are not unique.
   mock_server_->AddUpdateBookmark(1, 0, "Bar.htm", 30, 30,
                                   foreign_cache_guid(), "-1");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   saw_syncer_event_ = false;
   {
     WriteTransaction wtrans(FROM_HERE, UNITTEST, directory());
@@ -3155,7 +3258,7 @@ TEST_F(SyncerTest, SiblingDirectoriesBecomeCircular) {
                                    foreign_cache_guid(), "-1");
   mock_server_->AddUpdateDirectory(2, 0, "B", 10, 10,
                                    foreign_cache_guid(), "-2");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     WriteTransaction wtrans(FROM_HERE, UNITTEST, directory());
     MutableEntry A(&wtrans, GET_BY_ID, ids_.FromNumber(1));
@@ -3167,7 +3270,7 @@ TEST_F(SyncerTest, SiblingDirectoriesBecomeCircular) {
   mock_server_->AddUpdateDirectory(2, 1, "A", 20, 20,
                                    foreign_cache_guid(), "-2");
   mock_server_->set_conflict_all_commits(true);
-  SyncShareNudge();
+  EXPECT_FALSE(SyncShareNudge());
   saw_syncer_event_ = false;
   {
     WriteTransaction wtrans(FROM_HERE, UNITTEST, directory());
@@ -3187,7 +3290,7 @@ TEST_F(SyncerTest, SwapEntryNames) {
   mock_server_->AddUpdateDirectory(2, 0, "B", 10, 10,
                                    foreign_cache_guid(), "-2");
   mock_server_->set_conflict_all_commits(true);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     WriteTransaction wtrans(FROM_HERE, UNITTEST, directory());
     MutableEntry A(&wtrans, GET_BY_ID, ids_.FromNumber(1));
@@ -3200,7 +3303,7 @@ TEST_F(SyncerTest, SwapEntryNames) {
     B.PutNonUniqueName("A");
     A.PutNonUniqueName("B");
   }
-  SyncShareNudge();
+  EXPECT_FALSE(SyncShareNudge());
   saw_syncer_event_ = false;
 }
 
@@ -3210,7 +3313,7 @@ TEST_F(SyncerTest, DualDeletionWithNewItemNameClash) {
   mock_server_->AddUpdateBookmark(2, 0, "B", 10, 10,
                                   foreign_cache_guid(), "-2");
   mock_server_->set_conflict_all_commits(true);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, directory());
     MutableEntry B(&trans, GET_BY_ID, ids_.FromNumber(2));
@@ -3221,7 +3324,7 @@ TEST_F(SyncerTest, DualDeletionWithNewItemNameClash) {
   mock_server_->AddUpdateBookmark(2, 0, "A", 11, 11,
                                   foreign_cache_guid(), "-2");
   mock_server_->SetLastUpdateDeleted();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
     Entry B(&trans, GET_BY_ID, ids_.FromNumber(2));
@@ -3240,7 +3343,7 @@ TEST_F(SyncerTest, ResolveWeWroteTheyDeleted) {
 
   mock_server_->AddUpdateBookmark(1, 0, "bob", 1, 10,
                                   foreign_cache_guid(), "-1");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, directory());
     MutableEntry bob(&trans, GET_BY_ID, ids_.FromNumber(1));
@@ -3252,8 +3355,8 @@ TEST_F(SyncerTest, ResolveWeWroteTheyDeleted) {
                                   foreign_cache_guid(), "-1");
   mock_server_->SetLastUpdateDeleted();
   mock_server_->set_conflict_all_commits(true);
-  SyncShareNudge();
-  SyncShareNudge();
+  EXPECT_FALSE(SyncShareNudge());
+  EXPECT_FALSE(SyncShareNudge());
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
     Entry bob(&trans, GET_BY_HANDLE, bob_metahandle);
@@ -3289,9 +3392,9 @@ TEST_F(SyncerTest, DuplicateIDReturn) {
   mock_server_->set_next_new_id(10000);
   EXPECT_EQ(1u, directory()->unsynced_entity_count());
   // we get back a bad id in here (should never happen).
-  SyncShareNudge();
+  EXPECT_FALSE(SyncShareNudge());
   EXPECT_EQ(1u, directory()->unsynced_entity_count());
-  SyncShareNudge();  // another bad id in here.
+  EXPECT_TRUE(SyncShareNudge());  // another bad id in here.
   EXPECT_EQ(0u, directory()->unsynced_entity_count());
   saw_syncer_event_ = false;
 }
@@ -3299,7 +3402,7 @@ TEST_F(SyncerTest, DuplicateIDReturn) {
 TEST_F(SyncerTest, DeletedEntryWithBadParentInLoopCalculation) {
   mock_server_->AddUpdateDirectory(1, 0, "bob", 1, 10,
                                    foreign_cache_guid(), "-1");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, directory());
     MutableEntry bob(&trans, GET_BY_ID, ids_.FromNumber(1));
@@ -3311,8 +3414,8 @@ TEST_F(SyncerTest, DeletedEntryWithBadParentInLoopCalculation) {
   }
   mock_server_->AddUpdateDirectory(2, 1, "fred", 1, 10,
                                    foreign_cache_guid(), "-2");
-  SyncShareNudge();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
+  EXPECT_TRUE(SyncShareNudge());
 }
 
 TEST_F(SyncerTest, ConflictResolverMergesLocalDeleteAndServerUpdate) {
@@ -3337,7 +3440,7 @@ TEST_F(SyncerTest, ConflictResolverMergesLocalDeleteAndServerUpdate) {
 
   // We don't care about actually committing, just the resolution.
   mock_server_->set_conflict_all_commits(true);
-  SyncShareNudge();
+  EXPECT_FALSE(SyncShareNudge());
 
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
@@ -3376,7 +3479,7 @@ TEST_F(SyncerTest, UpdateFlipsTheFolderBit) {
   mock_server_->set_conflict_all_commits(true);
 
   // The syncer should not attempt to apply the invalid update.
-  SyncShareNudge();
+  EXPECT_FALSE(SyncShareNudge());
 
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
@@ -3396,7 +3499,7 @@ TEST_F(SyncerTest, MergingExistingItems) {
   mock_server_->set_conflict_all_commits(true);
   mock_server_->AddUpdateBookmark(1, 0, "base", 10, 10,
                                   local_cache_guid(), "-1");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, directory());
     MutableEntry entry(
@@ -3405,7 +3508,7 @@ TEST_F(SyncerTest, MergingExistingItems) {
   }
   mock_server_->AddUpdateBookmark(1, 0, "Copy of base", 50, 50,
                                   local_cache_guid(), "-1");
-  SyncShareNudge();
+  EXPECT_FALSE(SyncShareNudge());
 }
 
 // In this test a long changelog contains a child at the start of the changelog
@@ -3422,7 +3525,7 @@ TEST_F(SyncerTest, LongChangelistWithApplicationConflict) {
       folder_id, "stuck", 1, 1,
       foreign_cache_guid(), "-99999");
   mock_server_->SetChangesRemaining(depth - 1);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // Buffer up a very long series of downloads.
   // We should never be stuck (conflict resolution shouldn't
@@ -3433,7 +3536,7 @@ TEST_F(SyncerTest, LongChangelistWithApplicationConflict) {
     mock_server_->SetChangesRemaining(depth - i);
   }
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // Ensure our folder hasn't somehow applied.
   {
@@ -3450,8 +3553,8 @@ TEST_F(SyncerTest, LongChangelistWithApplicationConflict) {
       TestIdFactory::root(), "folder", 1, 1,
       foreign_cache_guid(), "-1");
   mock_server_->SetChangesRemaining(0);
-  SyncShareNudge();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
+  EXPECT_TRUE(SyncShareNudge());
   // Check that everything is as expected after the commit.
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
@@ -3470,7 +3573,7 @@ TEST_F(SyncerTest, DontMergeTwoExistingItems) {
                                   foreign_cache_guid(), "-1");
   mock_server_->AddUpdateBookmark(2, 0, "base2", 10, 10,
                                   foreign_cache_guid(), "-2");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, directory());
     MutableEntry entry(&trans, GET_BY_ID, ids_.FromNumber(2));
@@ -3480,7 +3583,7 @@ TEST_F(SyncerTest, DontMergeTwoExistingItems) {
   }
   mock_server_->AddUpdateBookmark(1, 0, "Copy of base", 50, 50,
                                   foreign_cache_guid(), "-1");
-  SyncShareNudge();
+  EXPECT_FALSE(SyncShareNudge());
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
     Entry entry1(&trans, GET_BY_ID, ids_.FromNumber(1));
@@ -3501,11 +3604,11 @@ TEST_F(SyncerTest, TestUndeleteUpdate) {
                                    foreign_cache_guid(), "-1");
   mock_server_->AddUpdateDirectory(2, 1, "bar", 1, 2,
                                    foreign_cache_guid(), "-2");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   mock_server_->AddUpdateDirectory(2, 1, "bar", 2, 3,
                                    foreign_cache_guid(), "-2");
   mock_server_->SetLastUpdateDeleted();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   int64 metahandle;
   {
@@ -3518,12 +3621,12 @@ TEST_F(SyncerTest, TestUndeleteUpdate) {
   mock_server_->AddUpdateDirectory(1, 0, "foo", 2, 4,
                                    foreign_cache_guid(), "-1");
   mock_server_->SetLastUpdateDeleted();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   // This used to be rejected as it's an undeletion. Now, it results in moving
   // the delete path aside.
   mock_server_->AddUpdateDirectory(2, 1, "bar", 3, 5,
                                    foreign_cache_guid(), "-2");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
     Entry entry(&trans, GET_BY_ID, ids_.FromNumber(2));
@@ -3540,7 +3643,7 @@ TEST_F(SyncerTest, TestMoveSanitizedNamedFolder) {
                                    foreign_cache_guid(), "-1");
   mock_server_->AddUpdateDirectory(2, 0, ":::", 1, 2,
                                    foreign_cache_guid(), "-2");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     WriteTransaction trans(FROM_HERE, UNITTEST, directory());
     MutableEntry entry(&trans, GET_BY_ID, ids_.FromNumber(2));
@@ -3548,11 +3651,11 @@ TEST_F(SyncerTest, TestMoveSanitizedNamedFolder) {
     entry.PutParentId(ids_.FromNumber(1));
     EXPECT_TRUE(entry.PutIsUnsynced(true));
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   // We use the same sync ts as before so our times match up.
   mock_server_->AddUpdateDirectory(2, 1, ":::", 2, 2,
                                    foreign_cache_guid(), "-2");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 }
 
 // Don't crash when this occurs.
@@ -3562,7 +3665,7 @@ TEST_F(SyncerTest, UpdateWhereParentIsNotAFolder) {
   mock_server_->AddUpdateDirectory(2, 1, "BookmarkParent", 10, 10,
                                    foreign_cache_guid(), "-2");
   // Used to cause a CHECK
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     syncable::ReadTransaction rtrans(FROM_HERE, directory());
     Entry good_entry(&rtrans, syncable::GET_BY_ID, ids_.FromNumber(1));
@@ -3584,7 +3687,7 @@ TEST_F(SyncerTest, DirectoryUpdateTest) {
   mock_server_->AddUpdateDirectory(in_in_root_id, in_root_id,
                                    "in_in_root_name", 3, 3,
                                    foreign_cache_guid(), "-2");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
     Entry in_root(&trans, GET_BY_ID, in_root_id);
@@ -3622,7 +3725,7 @@ TEST_F(SyncerTest, DirectoryCommitTest) {
     bar_metahandle = child.GetMetahandle();
     in_dir_id = parent.GetId();
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
     Entry fail_by_old_id_entry(&trans, GET_BY_ID, in_root_id);
@@ -3657,7 +3760,7 @@ TEST_F(SyncerTest, TestClientCommandDuringUpdate) {
   mock_server_->AddUpdateDirectory(1, 0, "in_root", 1, 1,
                                    foreign_cache_guid(), "-1");
   mock_server_->SetGUClientCommand(command);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   EXPECT_EQ(TimeDelta::FromSeconds(8), last_short_poll_interval_received_);
   EXPECT_EQ(TimeDelta::FromSeconds(800), last_long_poll_interval_received_);
@@ -3677,7 +3780,7 @@ TEST_F(SyncerTest, TestClientCommandDuringUpdate) {
   mock_server_->AddUpdateDirectory(
       1, 0, "in_root", 1, 1, foreign_cache_guid(), "-1");
   mock_server_->SetGUClientCommand(command);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   EXPECT_EQ(TimeDelta::FromSeconds(180), last_short_poll_interval_received_);
   EXPECT_EQ(TimeDelta::FromSeconds(190), last_long_poll_interval_received_);
@@ -3701,7 +3804,7 @@ TEST_F(SyncerTest, TestClientCommandDuringCommit) {
   command->set_client_invalidation_hint_buffer_size(11);
   CreateUnsyncedDirectory("X", "id_X");
   mock_server_->SetCommitClientCommand(command);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   EXPECT_EQ(TimeDelta::FromSeconds(8), last_short_poll_interval_received_);
   EXPECT_EQ(TimeDelta::FromSeconds(800), last_long_poll_interval_received_);
@@ -3720,7 +3823,7 @@ TEST_F(SyncerTest, TestClientCommandDuringCommit) {
   command->set_client_invalidation_hint_buffer_size(9);
   CreateUnsyncedDirectory("Y", "id_Y");
   mock_server_->SetCommitClientCommand(command);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   EXPECT_EQ(TimeDelta::FromSeconds(180), last_short_poll_interval_received_);
   EXPECT_EQ(TimeDelta::FromSeconds(190), last_long_poll_interval_received_);
@@ -3737,7 +3840,7 @@ TEST_F(SyncerTest, EnsureWeSendUpOldParent) {
       "folder_one", 1, 1, foreign_cache_guid(), "-1");
   mock_server_->AddUpdateDirectory(folder_two_id, TestIdFactory::root(),
       "folder_two", 1, 1, foreign_cache_guid(), "-2");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   {
     // A moved entry should send an "old parent."
     WriteTransaction trans(FROM_HERE, UNITTEST, directory());
@@ -3751,7 +3854,7 @@ TEST_F(SyncerTest, EnsureWeSendUpOldParent) {
     create.PutIsUnsynced(true);
     create.PutSpecifics(DefaultBookmarkSpecifics());
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   const sync_pb::CommitMessage& commit = mock_server_->last_sent_commit();
   ASSERT_EQ(2, commit.entries_size());
   EXPECT_TRUE(commit.entries(0).parent_id_string() == "2");
@@ -3787,7 +3890,7 @@ TEST_F(SyncerTest, TestSimpleUndelete) {
   // Let there be an entry from the server.
   mock_server_->AddUpdateBookmark(id, root, "foo", 1, 10,
                                   foreign_cache_guid(), "-1");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   // Check it out and delete it.
   {
     WriteTransaction wtrans(FROM_HERE, UNITTEST, directory());
@@ -3799,7 +3902,7 @@ TEST_F(SyncerTest, TestSimpleUndelete) {
     // Delete it locally.
     entry.PutIsDel(true);
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   // Confirm we see IS_DEL and not SERVER_IS_DEL.
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
@@ -3810,12 +3913,12 @@ TEST_F(SyncerTest, TestSimpleUndelete) {
     EXPECT_TRUE(entry.GetIsDel());
     EXPECT_FALSE(entry.GetServerIsDel());
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   // Update from server confirming deletion.
   mock_server_->AddUpdateBookmark(id, root, "foo", 2, 11,
                                   foreign_cache_guid(), "-1");
   mock_server_->SetLastUpdateDeleted();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   // IS_DEL AND SERVER_IS_DEL now both true.
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
@@ -3829,7 +3932,7 @@ TEST_F(SyncerTest, TestSimpleUndelete) {
   // Undelete from server.
   mock_server_->AddUpdateBookmark(id, root, "foo", 2, 12,
                                   foreign_cache_guid(), "-1");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   // IS_DEL and SERVER_IS_DEL now both false.
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
@@ -3848,7 +3951,7 @@ TEST_F(SyncerTest, TestUndeleteWithMissingDeleteUpdate) {
   mock_server_->set_conflict_all_commits(true);
   mock_server_->AddUpdateBookmark(id, root, "foo", 1, 10,
                                   foreign_cache_guid(), "-1");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   // Check it out and delete it.
   {
     WriteTransaction wtrans(FROM_HERE, UNITTEST, directory());
@@ -3860,7 +3963,7 @@ TEST_F(SyncerTest, TestUndeleteWithMissingDeleteUpdate) {
     // Delete it locally.
     entry.PutIsDel(true);
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   // Confirm we see IS_DEL and not SERVER_IS_DEL.
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
@@ -3871,12 +3974,12 @@ TEST_F(SyncerTest, TestUndeleteWithMissingDeleteUpdate) {
     EXPECT_TRUE(entry.GetIsDel());
     EXPECT_FALSE(entry.GetServerIsDel());
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   // Say we do not get an update from server confirming deletion. Undelete
   // from server
   mock_server_->AddUpdateBookmark(id, root, "foo", 2, 12,
                                   foreign_cache_guid(), "-1");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   // IS_DEL and SERVER_IS_DEL now both false.
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
@@ -3898,10 +4001,10 @@ TEST_F(SyncerTest, TestUndeleteIgnoreCorrectlyUnappliedUpdate) {
                                   foreign_cache_guid(), "-1");
   mock_server_->AddUpdateBookmark(id2, root, "foo", 1, 10,
                                   foreign_cache_guid(), "-2");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   mock_server_->AddUpdateBookmark(id2, root, "foo2", 2, 20,
                                   foreign_cache_guid(), "-2");
-  SyncShareNudge();  // Now just don't explode.
+  EXPECT_TRUE(SyncShareNudge());  // Now just don't explode.
 }
 
 TEST_F(SyncerTest, ClientTagServerCreatedUpdatesWork) {
@@ -3909,7 +4012,7 @@ TEST_F(SyncerTest, ClientTagServerCreatedUpdatesWork) {
                                    foreign_cache_guid(), "-1");
   mock_server_->SetLastUpdateClientTag("permfolder");
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
@@ -3925,7 +4028,7 @@ TEST_F(SyncerTest, ClientTagServerCreatedUpdatesWork) {
   mock_server_->AddUpdateDirectory(1, 0, "permitem_renamed", 10, 100,
                                    foreign_cache_guid(), "-1");
   mock_server_->SetLastUpdateClientTag("permfolder");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
@@ -3945,7 +4048,7 @@ TEST_F(SyncerTest, ClientTagIllegalUpdateIgnored) {
                                    foreign_cache_guid(), "-1");
   mock_server_->SetLastUpdateClientTag("permfolder");
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
@@ -3961,7 +4064,7 @@ TEST_F(SyncerTest, ClientTagIllegalUpdateIgnored) {
   mock_server_->AddUpdateDirectory(1, 0, "permitem_renamed", 10, 100,
                                    foreign_cache_guid(), "-1");
   mock_server_->SetLastUpdateClientTag("wrongtag");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
@@ -4001,7 +4104,7 @@ TEST_F(SyncerTest, ClientTagUncommittedTagMatchesUpdate) {
                               "tag", 10, 100);
   mock_server_->set_conflict_all_commits(true);
 
-  SyncShareNudge();
+  EXPECT_FALSE(SyncShareNudge());
   // This should cause client tag reunion, preserving the metahandle.
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
@@ -4020,7 +4123,7 @@ TEST_F(SyncerTest, ClientTagUncommittedTagMatchesUpdate) {
   }
 
   mock_server_->set_conflict_all_commits(false);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // The resolved entry ought to commit cleanly.
   {
@@ -4063,7 +4166,7 @@ TEST_F(SyncerTest, ClientTagConflictWithDeletedLocalEntry) {
                               ids_.root().GetServerId(),
                               "tag", 10, 100);
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   // The local entry will be overwritten.
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
@@ -4086,16 +4189,14 @@ TEST_F(SyncerTest, ClientTagUpdateClashesWithLocalEntry) {
   EXPECT_TRUE(ids_.FromNumber(3) < ids_.FromNumber(4));
 
   syncable::Id id1 = TestIdFactory::MakeServer("1");
-  mock_server_->AddUpdatePref(id1.GetServerId(), ids_.root().GetServerId(),
-                              "tag1", 10, 100);
+  mock_server_->AddUpdatePref(id1.GetServerId(), "", "tag1", 10, 100);
 
   syncable::Id id4 = TestIdFactory::MakeServer("4");
-  mock_server_->AddUpdatePref(id4.GetServerId(), ids_.root().GetServerId(),
-                              "tag2", 11, 110);
+  mock_server_->AddUpdatePref(id4.GetServerId(), "", "tag2", 11, 110);
 
   mock_server_->set_conflict_all_commits(true);
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   int64 tag1_metahandle = syncable::kInvalidMetaHandle;
   int64 tag2_metahandle = syncable::kInvalidMetaHandle;
   // This should cause client tag overwrite.
@@ -4124,18 +4225,20 @@ TEST_F(SyncerTest, ClientTagUpdateClashesWithLocalEntry) {
     EXPECT_EQ("tag2", tag2.GetUniqueClientTag());
     tag2_metahandle = tag2.GetMetahandle();
 
+    // Preferences type root should have been created by the updates above.
+    Entry pref_root(&trans, GET_TYPE_ROOT, PREFERENCES);
+    ASSERT_TRUE(pref_root.good());
+
     syncable::Directory::Metahandles children;
-    directory()->GetChildHandlesById(&trans, trans.root_id(), &children);
+    directory()->GetChildHandlesById(&trans, pref_root.GetId(), &children);
     ASSERT_EQ(2U, children.size());
   }
 
   syncable::Id id2 = TestIdFactory::MakeServer("2");
-  mock_server_->AddUpdatePref(id2.GetServerId(), ids_.root().GetServerId(),
-                              "tag1", 12, 120);
+  mock_server_->AddUpdatePref(id2.GetServerId(), "", "tag1", 12, 120);
   syncable::Id id3 = TestIdFactory::MakeServer("3");
-  mock_server_->AddUpdatePref(id3.GetServerId(), ids_.root().GetServerId(),
-                              "tag2", 13, 130);
-  SyncShareNudge();
+  mock_server_->AddUpdatePref(id3.GetServerId(), "", "tag2", 13, 130);
+  EXPECT_TRUE(SyncShareNudge());
 
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
@@ -4164,8 +4267,12 @@ TEST_F(SyncerTest, ClientTagUpdateClashesWithLocalEntry) {
     EXPECT_EQ("tag2", tag2.GetUniqueClientTag());
     EXPECT_EQ(tag2_metahandle, tag2.GetMetahandle());
 
+    // Preferences type root should have been created by the updates above.
+    Entry pref_root(&trans, GET_TYPE_ROOT, PREFERENCES);
+    ASSERT_TRUE(pref_root.good());
+
     syncable::Directory::Metahandles children;
-    directory()->GetChildHandlesById(&trans, trans.root_id(), &children);
+    directory()->GetChildHandlesById(&trans, pref_root.GetId(), &children);
     ASSERT_EQ(2U, children.size());
   }
 }
@@ -4177,38 +4284,37 @@ TEST_F(SyncerTest, ClientTagClashWithinBatchOfUpdates) {
   EXPECT_TRUE(ids_.FromNumber(201) < ids_.FromNumber(205));
 
   // Least ID: winner.
-  mock_server_->AddUpdatePref(ids_.FromNumber(1).GetServerId(),
-                              ids_.root().GetServerId(), "tag a", 1, 10);
-  mock_server_->AddUpdatePref(ids_.FromNumber(2).GetServerId(),
-                              ids_.root().GetServerId(), "tag a", 11, 110);
-  mock_server_->AddUpdatePref(ids_.FromNumber(3).GetServerId(),
-                              ids_.root().GetServerId(), "tag a", 12, 120);
-  mock_server_->AddUpdatePref(ids_.FromNumber(4).GetServerId(),
-                              ids_.root().GetServerId(), "tag a", 13, 130);
-
-  mock_server_->AddUpdatePref(ids_.FromNumber(105).GetServerId(),
-                              ids_.root().GetServerId(), "tag b", 14, 140);
-  mock_server_->AddUpdatePref(ids_.FromNumber(102).GetServerId(),
-                              ids_.root().GetServerId(), "tag b", 15, 150);
+  mock_server_->AddUpdatePref(ids_.FromNumber(1).GetServerId(), "", "tag a", 1,
+                              10);
+  mock_server_->AddUpdatePref(ids_.FromNumber(2).GetServerId(), "", "tag a", 11,
+                              110);
+  mock_server_->AddUpdatePref(ids_.FromNumber(3).GetServerId(), "", "tag a", 12,
+                              120);
+  mock_server_->AddUpdatePref(ids_.FromNumber(4).GetServerId(), "", "tag a", 13,
+                              130);
+  mock_server_->AddUpdatePref(ids_.FromNumber(105).GetServerId(), "", "tag b",
+                              14, 140);
+  mock_server_->AddUpdatePref(ids_.FromNumber(102).GetServerId(), "", "tag b",
+                              15, 150);
   // Least ID: winner.
-  mock_server_->AddUpdatePref(ids_.FromNumber(101).GetServerId(),
-                              ids_.root().GetServerId(), "tag b", 16, 160);
-  mock_server_->AddUpdatePref(ids_.FromNumber(104).GetServerId(),
-                              ids_.root().GetServerId(), "tag b", 17, 170);
+  mock_server_->AddUpdatePref(ids_.FromNumber(101).GetServerId(), "", "tag b",
+                              16, 160);
+  mock_server_->AddUpdatePref(ids_.FromNumber(104).GetServerId(), "", "tag b",
+                              17, 170);
 
-  mock_server_->AddUpdatePref(ids_.FromNumber(205).GetServerId(),
-                              ids_.root().GetServerId(), "tag c", 18, 180);
-  mock_server_->AddUpdatePref(ids_.FromNumber(202).GetServerId(),
-                              ids_.root().GetServerId(), "tag c", 19, 190);
-  mock_server_->AddUpdatePref(ids_.FromNumber(204).GetServerId(),
-                              ids_.root().GetServerId(), "tag c", 20, 200);
+  mock_server_->AddUpdatePref(ids_.FromNumber(205).GetServerId(), "", "tag c",
+                              18, 180);
+  mock_server_->AddUpdatePref(ids_.FromNumber(202).GetServerId(), "", "tag c",
+                              19, 190);
+  mock_server_->AddUpdatePref(ids_.FromNumber(204).GetServerId(), "", "tag c",
+                              20, 200);
   // Least ID: winner.
-  mock_server_->AddUpdatePref(ids_.FromNumber(201).GetServerId(),
-                              ids_.root().GetServerId(), "tag c", 21, 210);
+  mock_server_->AddUpdatePref(ids_.FromNumber(201).GetServerId(), "", "tag c",
+                              21, 210);
 
   mock_server_->set_conflict_all_commits(true);
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   // This should cause client tag overwrite.
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
@@ -4243,9 +4349,65 @@ TEST_F(SyncerTest, ClientTagClashWithinBatchOfUpdates) {
     EXPECT_EQ(21, tag_c.GetBaseVersion());
     EXPECT_EQ("tag c", tag_c.GetUniqueClientTag());
 
+    // Preferences type root should have been created by the updates above.
+    Entry pref_root(&trans, GET_TYPE_ROOT, PREFERENCES);
+    ASSERT_TRUE(pref_root.good());
+
+    // Verify that we have exactly 3 tagged nodes under the type root.
     syncable::Directory::Metahandles children;
-    directory()->GetChildHandlesById(&trans, trans.root_id(), &children);
+    directory()->GetChildHandlesById(&trans, pref_root.GetId(), &children);
     ASSERT_EQ(3U, children.size());
+  }
+}
+
+// This verifies transition to implicit permanent folders.
+TEST_F(SyncerTest, EntryWithParentIdUpdatedWithEntryWithoutParentId) {
+  // Make sure SPECIFICS root exists so that we can get its parent ID.
+  mock_server_->AddUpdateSpecifics(1, 0, "Folder", 10, 10, true, 1,
+                                   DefaultPreferencesSpecifics());
+  mock_server_->SetLastUpdateServerTag(ModelTypeToRootTag(PREFERENCES));
+  EXPECT_TRUE(SyncShareNudge());
+
+  Id pref_root_id;
+  {
+    // Preferences type root should have been created by the update above.
+    // We need it in order to get its ID.
+    syncable::ReadTransaction trans(FROM_HERE, directory());
+    Entry pref_root(&trans, GET_TYPE_ROOT, PREFERENCES);
+    ASSERT_TRUE(pref_root.good());
+    pref_root_id = pref_root.GetId();
+  }
+
+  // Add a preference item with explicit parent ID.
+  mock_server_->AddUpdatePref(ids_.FromNumber(2).GetServerId(),
+                              ids_.FromNumber(1).GetServerId(), "tag", 1, 10);
+
+  EXPECT_TRUE(SyncShareNudge());
+
+  {
+    syncable::ReadTransaction trans(FROM_HERE, directory());
+    Entry pref_entry(&trans, GET_BY_CLIENT_TAG, "tag");
+    ASSERT_TRUE(pref_entry.good());
+    ASSERT_EQ(pref_root_id, pref_entry.GetParentId());
+  }
+
+  // Make another update where the same item get updated, this time
+  // with implicit parent ID.
+  mock_server_->AddUpdatePref(ids_.FromNumber(2).GetServerId(), "", "tag", 2,
+                              20);
+
+  EXPECT_TRUE(SyncShareNudge());
+
+  {
+    syncable::ReadTransaction trans(FROM_HERE, directory());
+    Entry pref_entry(&trans, GET_BY_CLIENT_TAG, "tag");
+    ASSERT_TRUE(pref_entry.good());
+    ASSERT_TRUE(pref_entry.GetParentId().IsNull());
+
+    // Verify that there is still one node under the type root.
+    syncable::Directory::Metahandles children;
+    directory()->GetChildHandlesById(&trans, pref_root_id, &children);
+    ASSERT_EQ(1U, children.size());
   }
 }
 
@@ -4275,7 +4437,7 @@ TEST_F(SyncerTest, UniqueServerTagUpdates) {
   mock_server_->AddUpdateDirectory(
       2, 0, "update2", 2, 20, std::string(), std::string());
   mock_server_->SetLastUpdateServerTag("bob");
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   {
     syncable::ReadTransaction trans(FROM_HERE, directory());
@@ -4306,28 +4468,28 @@ TEST_F(SyncerTest, GetUpdatesSetsRequestedTypes) {
   // GetUpdates handler.  EnableDatatype sets the expectation value from our
   // set of enabled/disabled datatypes.
   EnableDatatype(BOOKMARKS);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
 
   EnableDatatype(AUTOFILL);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
 
   EnableDatatype(PREFERENCES);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
 
   DisableDatatype(BOOKMARKS);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
 
   DisableDatatype(AUTOFILL);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
 
   DisableDatatype(PREFERENCES);
   EnableDatatype(AUTOFILL);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
 }
 
@@ -4340,7 +4502,7 @@ TEST_F(SyncerTest, UpdateThenCommit) {
   mock_server_->AddUpdateDirectory(to_receive, ids_.root(), "x", 1, 10,
                                    foreign_cache_guid(), "-1");
   int64 commit_handle = CreateUnsyncedDirectory("y", to_commit);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // The sync cycle should have included a GetUpdate, then a commit.  By the
   // time the commit happened, we should have known for sure that there were no
@@ -4372,7 +4534,7 @@ TEST_F(SyncerTest, UpdateFailsThenDontCommit) {
                                    foreign_cache_guid(), "-1");
   int64 commit_handle = CreateUnsyncedDirectory("y", to_commit);
   mock_server_->FailNextPostBufferToPathCall();
-  SyncShareNudge();
+  EXPECT_FALSE(SyncShareNudge());
 
   syncable::ReadTransaction trans(FROM_HERE, directory());
 
@@ -4502,13 +4664,23 @@ class SyncerBookmarksTest : public SyncerTest {
     MutableEntry bookmark(
         &trans, CREATE, BOOKMARKS, ids_.root(), "clientname");
     ASSERT_TRUE(bookmark.good());
-    bookmark.PutIsUnsynced(true);
-    bookmark.PutSyncing(false);
     bookmark.PutSpecifics(DefaultBookmarkSpecifics());
     EXPECT_FALSE(bookmark.GetIsUnappliedUpdate());
     EXPECT_FALSE(bookmark.GetId().ServerKnows());
     metahandle_ = bookmark.GetMetahandle();
     local_id_ = bookmark.GetId();
+    bookmark.PutIsUnsynced(true);
+  }
+
+  void Update() {
+    WriteTransaction trans(FROM_HERE, UNITTEST, directory());
+    MutableEntry bookmark(&trans, GET_BY_ID, local_id_);
+    ASSERT_TRUE(bookmark.good());
+    bookmark.PutSpecifics(DefaultBookmarkSpecifics());
+    EXPECT_FALSE(bookmark.GetIsUnappliedUpdate());
+    bookmark.PutIsUnsynced(true);
+    if (bookmark.GetSyncing())
+      bookmark.PutDirtySync(true);
   }
 
   void Delete() {
@@ -4519,8 +4691,14 @@ class SyncerBookmarksTest : public SyncerTest {
     // The order of setting IS_UNSYNCED vs IS_DEL matters. See
     // WriteNode::Tombstone().
     entry.PutIsUnsynced(true);
+    if (entry.GetSyncing())
+      entry.PutDirtySync(true);
     entry.PutIsDel(true);
-    entry.PutSyncing(false);
+  }
+
+  void UpdateAndDelete() {
+    Update();
+    Delete();
   }
 
   void Undelete() {
@@ -4531,7 +4709,8 @@ class SyncerBookmarksTest : public SyncerTest {
     EXPECT_TRUE(entry.GetIsDel());
     entry.PutIsDel(false);
     entry.PutIsUnsynced(true);
-    entry.PutSyncing(false);
+    if (entry.GetSyncing())
+      entry.PutDirtySync(true);
   }
 
   int64 GetMetahandleOfTag() {
@@ -4639,11 +4818,11 @@ class SyncerBookmarksTest : public SyncerTest {
 TEST_F(SyncerBookmarksTest, CreateSyncThenDeleteSync) {
   Create();
   ExpectUnsyncedCreation();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   ExpectSyncedAndCreated();
   Delete();
   ExpectUnsyncedDeletion();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   ExpectSyncedAndDeleted();
 }
 
@@ -4672,17 +4851,17 @@ TEST_F(SyncerBookmarksTest, CreateThenDeleteBeforeSync) {
 TEST_F(SyncerBookmarksTest, LocalDeleteRemoteChangeConflict) {
   Create();
   ExpectUnsyncedCreation();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   ExpectSyncedAndCreated();
   Delete();
   ExpectUnsyncedDeletion();
 
   // Trigger a getupdates that modifies the bookmark. The update should  be
   // clobbered by the local delete.
-  mock_server_->AddUpdateBookmark(GetServerId(), Id(), "dummy", 10, 10,
+  mock_server_->AddUpdateBookmark(GetServerId(), Id::GetRoot(), "dummy", 10, 10,
                                   local_cache_guid(), local_id_.GetServerId());
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   ExpectSyncedAndDeleted();
 }
 
@@ -4696,7 +4875,21 @@ TEST_F(SyncerBookmarksTest, CreateThenDeleteDuringCommit) {
   mock_server_->SetMidCommitCallback(
       base::Bind(&SyncerBookmarksTest::Delete, base::Unretained(this)));
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
+  ExpectSyncedAndDeleted();
+}
+
+TEST_F(SyncerBookmarksTest, CreateThenUpdateAndDeleteDuringCommit) {
+  Create();
+  ExpectUnsyncedCreation();
+
+  // In the middle of the initial creation commit, perform an updated followed
+  // by a deletion. This should trigger performing two consecutive commit
+  // cycles, resulting in the bookmark being both deleted and synced.
+  mock_server_->SetMidCommitCallback(base::Bind(
+      &SyncerBookmarksTest::UpdateAndDelete, base::Unretained(this)));
+
+  EXPECT_TRUE(SyncShareNudge());
   ExpectSyncedAndDeleted();
 }
 
@@ -4733,7 +4926,8 @@ class SyncerUndeletionTest : public SyncerTest {
     ASSERT_TRUE(perm_folder.good());
     perm_folder.PutUniqueClientTag(client_tag_);
     perm_folder.PutIsUnsynced(true);
-    perm_folder.PutSyncing(false);
+    if (perm_folder.GetSyncing())
+      perm_folder.PutDirtySync(true);
     perm_folder.PutSpecifics(DefaultPreferencesSpecifics());
     EXPECT_FALSE(perm_folder.GetIsUnappliedUpdate());
     EXPECT_FALSE(perm_folder.GetId().ServerKnows());
@@ -4749,8 +4943,9 @@ class SyncerUndeletionTest : public SyncerTest {
     // The order of setting IS_UNSYNCED vs IS_DEL matters. See
     // WriteNode::Tombstone().
     entry.PutIsUnsynced(true);
+    if (entry.GetSyncing())
+      entry.PutDirtySync(true);
     entry.PutIsDel(true);
-    entry.PutSyncing(false);
   }
 
   void Undelete() {
@@ -4761,7 +4956,8 @@ class SyncerUndeletionTest : public SyncerTest {
     EXPECT_TRUE(entry.GetIsDel());
     entry.PutIsDel(false);
     entry.PutIsUnsynced(true);
-    entry.PutSyncing(false);
+    if (entry.GetSyncing())
+      entry.PutDirtySync(true);
   }
 
   int64 GetMetahandleOfTag() {
@@ -4860,7 +5056,7 @@ class SyncerUndeletionTest : public SyncerTest {
 TEST_F(SyncerUndeletionTest, UndeleteDuringCommit) {
   Create();
   ExpectUnsyncedCreation();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
@@ -4871,7 +5067,7 @@ TEST_F(SyncerUndeletionTest, UndeleteDuringCommit) {
   ExpectUnsyncedDeletion();
   mock_server_->SetMidCommitCallback(
       base::Bind(&SyncerUndeletionTest::Undelete, base::Unretained(this)));
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // We will continue to commit until all nodes are synced, so we expect
   // that both the delete and following undelete were committed.  We haven't
@@ -4902,7 +5098,7 @@ TEST_F(SyncerUndeletionTest, UndeleteDuringCommit) {
   update->set_originator_cache_guid(local_cache_guid());
   update->set_originator_client_item_id(local_id_.GetServerId());
 
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   ExpectSyncedAndCreated();
@@ -4911,7 +5107,7 @@ TEST_F(SyncerUndeletionTest, UndeleteDuringCommit) {
 TEST_F(SyncerUndeletionTest, UndeleteBeforeCommit) {
   Create();
   ExpectUnsyncedCreation();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
@@ -4922,7 +5118,7 @@ TEST_F(SyncerUndeletionTest, UndeleteBeforeCommit) {
   ExpectUnsyncedDeletion();
   Undelete();
   ExpectUnsyncedEdit();  // Edit, not undelete: server thinks it exists.
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // The item ought to have committed successfully.
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
@@ -4939,7 +5135,7 @@ TEST_F(SyncerUndeletionTest, UndeleteBeforeCommit) {
   sync_pb::SyncEntity* update = mock_server_->AddUpdateFromLastCommit();
   update->set_originator_cache_guid(local_cache_guid());
   update->set_originator_client_item_id(local_id_.GetServerId());
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   ExpectSyncedAndCreated();
@@ -4948,7 +5144,7 @@ TEST_F(SyncerUndeletionTest, UndeleteBeforeCommit) {
 TEST_F(SyncerUndeletionTest, UndeleteAfterCommitButBeforeGetUpdates) {
   Create();
   ExpectUnsyncedCreation();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
@@ -4957,7 +5153,7 @@ TEST_F(SyncerUndeletionTest, UndeleteAfterCommitButBeforeGetUpdates) {
   // Delete and commit.
   Delete();
   ExpectUnsyncedDeletion();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // The item ought to have committed successfully.
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
@@ -4971,7 +5167,7 @@ TEST_F(SyncerUndeletionTest, UndeleteAfterCommitButBeforeGetUpdates) {
   // Now, encounter a GetUpdates corresponding to the just-committed
   // deletion update.  The undeletion should prevail.
   mock_server_->AddUpdateFromLastCommit();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   ExpectSyncedAndCreated();
@@ -4980,7 +5176,7 @@ TEST_F(SyncerUndeletionTest, UndeleteAfterCommitButBeforeGetUpdates) {
 TEST_F(SyncerUndeletionTest, UndeleteAfterDeleteAndGetUpdates) {
   Create();
   ExpectUnsyncedCreation();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
@@ -4989,7 +5185,7 @@ TEST_F(SyncerUndeletionTest, UndeleteAfterDeleteAndGetUpdates) {
   sync_pb::SyncEntity* update = mock_server_->AddUpdateFromLastCommit();
   update->set_originator_cache_guid(local_cache_guid());
   update->set_originator_client_item_id(local_id_.GetServerId());
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
   ExpectSyncedAndCreated();
@@ -4997,7 +5193,7 @@ TEST_F(SyncerUndeletionTest, UndeleteAfterDeleteAndGetUpdates) {
   // Delete and commit.
   Delete();
   ExpectUnsyncedDeletion();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // The item ought to have committed successfully.
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
@@ -5007,7 +5203,7 @@ TEST_F(SyncerUndeletionTest, UndeleteAfterDeleteAndGetUpdates) {
   // Now, encounter a GetUpdates corresponding to the just-committed
   // deletion update.  Should be consistent.
   mock_server_->AddUpdateFromLastCommit();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   ExpectSyncedAndDeleted();
@@ -5018,7 +5214,7 @@ TEST_F(SyncerUndeletionTest, UndeleteAfterDeleteAndGetUpdates) {
 
   // Now, encounter a GetUpdates corresponding to the just-committed
   // deletion update.  The undeletion should prevail.
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   ExpectSyncedAndCreated();
@@ -5028,7 +5224,7 @@ TEST_F(SyncerUndeletionTest, UndeleteAfterDeleteAndGetUpdates) {
 TEST_F(SyncerUndeletionTest, UndeleteAfterOtherClientDeletes) {
   Create();
   ExpectUnsyncedCreation();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
@@ -5038,7 +5234,7 @@ TEST_F(SyncerUndeletionTest, UndeleteAfterOtherClientDeletes) {
   sync_pb::SyncEntity* update1 = mock_server_->AddUpdateFromLastCommit();
   update1->set_originator_cache_guid(local_cache_guid());
   update1->set_originator_client_item_id(local_id_.GetServerId());
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
   ExpectSyncedAndCreated();
@@ -5049,7 +5245,7 @@ TEST_F(SyncerUndeletionTest, UndeleteAfterOtherClientDeletes) {
     Entry entry(&trans, GET_BY_HANDLE, metahandle_);
     mock_server_->AddUpdateTombstone(entry.GetId(), PREFERENCES);
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // The update ought to have applied successfully.
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
@@ -5059,7 +5255,7 @@ TEST_F(SyncerUndeletionTest, UndeleteAfterOtherClientDeletes) {
   // Undelete it locally.
   Undelete();
   ExpectUnsyncedUndeletion();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   ExpectSyncedAndCreated();
@@ -5069,7 +5265,7 @@ TEST_F(SyncerUndeletionTest, UndeleteAfterOtherClientDeletes) {
   sync_pb::SyncEntity* update2 = mock_server_->AddUpdateFromLastCommit();
   update2->set_originator_cache_guid(local_cache_guid());
   update2->set_originator_client_item_id(local_id_.GetServerId());
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   ExpectSyncedAndCreated();
@@ -5078,7 +5274,7 @@ TEST_F(SyncerUndeletionTest, UndeleteAfterOtherClientDeletes) {
 TEST_F(SyncerUndeletionTest, UndeleteAfterOtherClientDeletesImmediately) {
   Create();
   ExpectUnsyncedCreation();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
@@ -5091,7 +5287,7 @@ TEST_F(SyncerUndeletionTest, UndeleteAfterOtherClientDeletesImmediately) {
     Entry entry(&trans, GET_BY_HANDLE, metahandle_);
     mock_server_->AddUpdateTombstone(entry.GetId(), PREFERENCES);
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // The update ought to have applied successfully.
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
@@ -5101,7 +5297,7 @@ TEST_F(SyncerUndeletionTest, UndeleteAfterOtherClientDeletesImmediately) {
   // Undelete it locally.
   Undelete();
   ExpectUnsyncedUndeletion();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   ExpectSyncedAndCreated();
@@ -5111,7 +5307,7 @@ TEST_F(SyncerUndeletionTest, UndeleteAfterOtherClientDeletesImmediately) {
   sync_pb::SyncEntity* update = mock_server_->AddUpdateFromLastCommit();
   update->set_originator_cache_guid(local_cache_guid());
   update->set_originator_client_item_id(local_id_.GetServerId());
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   ExpectSyncedAndCreated();
@@ -5120,7 +5316,7 @@ TEST_F(SyncerUndeletionTest, UndeleteAfterOtherClientDeletesImmediately) {
 TEST_F(SyncerUndeletionTest, OtherClientUndeletes) {
   Create();
   ExpectUnsyncedCreation();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
@@ -5130,7 +5326,7 @@ TEST_F(SyncerUndeletionTest, OtherClientUndeletes) {
   sync_pb::SyncEntity* update = mock_server_->AddUpdateFromLastCommit();
   update->set_originator_cache_guid(local_cache_guid());
   update->set_originator_client_item_id(local_id_.GetServerId());
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
   ExpectSyncedAndCreated();
@@ -5138,7 +5334,7 @@ TEST_F(SyncerUndeletionTest, OtherClientUndeletes) {
   // We delete the item.
   Delete();
   ExpectUnsyncedDeletion();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // The update ought to have applied successfully.
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
@@ -5148,7 +5344,7 @@ TEST_F(SyncerUndeletionTest, OtherClientUndeletes) {
   // Now, encounter a GetUpdates corresponding to the just-committed
   // deletion update.
   mock_server_->AddUpdateFromLastCommit();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   ExpectSyncedAndDeleted();
@@ -5163,7 +5359,7 @@ TEST_F(SyncerUndeletionTest, OtherClientUndeletes) {
         client_tag_, 100, 1000);
   }
   mock_server_->SetLastUpdateClientTag(client_tag_);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   ExpectSyncedAndCreated();
@@ -5172,7 +5368,7 @@ TEST_F(SyncerUndeletionTest, OtherClientUndeletes) {
 TEST_F(SyncerUndeletionTest, OtherClientUndeletesImmediately) {
   Create();
   ExpectUnsyncedCreation();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
@@ -5186,7 +5382,7 @@ TEST_F(SyncerUndeletionTest, OtherClientUndeletesImmediately) {
     Entry entry(&trans, GET_BY_HANDLE, metahandle_);
     update->set_originator_client_item_id(local_id_.GetServerId());
   }
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
   ExpectSyncedAndCreated();
@@ -5194,7 +5390,7 @@ TEST_F(SyncerUndeletionTest, OtherClientUndeletesImmediately) {
   // We delete the item.
   Delete();
   ExpectUnsyncedDeletion();
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
 
   // The update ought to have applied successfully.
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
@@ -5212,7 +5408,7 @@ TEST_F(SyncerUndeletionTest, OtherClientUndeletesImmediately) {
         client_tag_, 100, 1000);
   }
   mock_server_->SetLastUpdateClientTag(client_tag_);
-  SyncShareNudge();
+  EXPECT_TRUE(SyncShareNudge());
   EXPECT_EQ(0, session_->status_controller().TotalNumConflictingItems());
   EXPECT_EQ(1, mock_server_->GetAndClearNumGetUpdatesRequests());
   ExpectSyncedAndCreated();
@@ -5273,7 +5469,8 @@ TEST_P(MixedResult, ExtensionsActivity) {
     context_->extensions_activity()->PutRecords(records);
   }
 
-  SyncShareNudge();
+  EXPECT_EQ(!ShouldFailBookmarkCommit() && !ShouldFailAutofillCommit(),
+            SyncShareNudge());
 
   ExtensionsActivity::Records final_monitor_records;
   context_->extensions_activity()->GetAndClearRecords(&final_monitor_records);

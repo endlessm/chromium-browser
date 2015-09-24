@@ -83,6 +83,8 @@ class SYNC_EXPORT_PRIVATE ModelTypeRegistry
   void OnCryptographerStateChanged(Cryptographer* cryptographer) override;
   void OnPassphraseTypeChanged(PassphraseType type,
                                base::Time passphrase_time) override;
+  void OnLocalSetPassphraseEncryption(
+      const SyncEncryptionHandler::NigoriState& nigori_state) override;
 
   // Gets the set of enabled types.
   ModelTypeSet GetEnabledTypes() const;
@@ -97,7 +99,7 @@ class SYNC_EXPORT_PRIVATE ModelTypeRegistry
   void UnregisterDirectoryTypeDebugInfoObserver(
       syncer::TypeDebugInfoObserver* observer);
   bool HasDirectoryTypeDebugInfoObserver(
-      syncer::TypeDebugInfoObserver* observer);
+      const syncer::TypeDebugInfoObserver* observer) const;
   void RequestEmitDebugInfo();
 
   base::WeakPtr<SyncContext> AsWeakPtr();
@@ -138,9 +140,6 @@ class SYNC_EXPORT_PRIVATE ModelTypeRegistry
   // The set of encrypted types.
   ModelTypeSet encrypted_types_;
 
-  // A helper that manages cryptography state and preferences.
-  SyncEncryptionHandler* encryption_handler_;
-
   // The NudgeHandler.  Not owned.
   NudgeHandler* nudge_handler_;
 
@@ -153,7 +152,7 @@ class SYNC_EXPORT_PRIVATE ModelTypeRegistry
   // a lot of them, and their lifetimes are unpredictable, so it makes the
   // book-keeping easier if we just store the list here.  That way it's
   // guaranteed to live as long as this sync backend.
-  ObserverList<TypeDebugInfoObserver> type_debug_info_observers_;
+  base::ObserverList<TypeDebugInfoObserver> type_debug_info_observers_;
 
   base::WeakPtrFactory<ModelTypeRegistry> weak_ptr_factory_;
 

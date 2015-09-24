@@ -31,10 +31,11 @@
 #include "ui/aura/window_delegate.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/compositor/paint_recorder.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/canvas.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/image/image_skia_operations.h"
-#include "ui/gfx/rect.h"
 #include "ui/views/background.h"
 #include "ui/wm/core/window_util.h"
 #include "ui/wm/public/activation_client.h"
@@ -92,38 +93,29 @@ class DockedBackgroundWidget : public views::Widget,
     UpdateBackground();
   }
 
-  void OnNativeWidgetPaint(gfx::Canvas* canvas) override {
+  void OnNativeWidgetPaint(const ui::PaintContext& context) override {
+    gfx::Rect local_window_bounds(GetWindowBoundsInScreen().size());
+    ui::PaintRecorder recorder(context, local_window_bounds.size());
     const gfx::ImageSkia& shelf_background(
         alignment_ == DOCKED_ALIGNMENT_LEFT ?
             shelf_background_left_ : shelf_background_right_);
-    gfx::Rect rect = gfx::Rect(GetWindowBoundsInScreen().size());
     SkPaint paint;
     paint.setAlpha(alpha_);
-    canvas->DrawImageInt(shelf_background,
-                         0,
-                         0,
-                         shelf_background.width(),
-                         shelf_background.height(),
-                         alignment_ == DOCKED_ALIGNMENT_LEFT
-                             ? rect.width() - shelf_background.width()
-                             : 0,
-                         0,
-                         shelf_background.width(),
-                         rect.height(),
-                         false,
-                         paint);
-    canvas->DrawImageInt(
+    recorder.canvas()->DrawImageInt(
+        shelf_background, 0, 0, shelf_background.width(),
+        shelf_background.height(),
+        alignment_ == DOCKED_ALIGNMENT_LEFT
+            ? local_window_bounds.width() - shelf_background.width()
+            : 0,
+        0, shelf_background.width(), local_window_bounds.height(), false,
+        paint);
+    recorder.canvas()->DrawImageInt(
         shelf_background,
         alignment_ == DOCKED_ALIGNMENT_LEFT ? 0 : shelf_background.width() - 1,
-        0,
-        1,
-        shelf_background.height(),
-        alignment_ == DOCKED_ALIGNMENT_LEFT ? 0 : shelf_background.width(),
-        0,
-        rect.width() - shelf_background.width(),
-        rect.height(),
-        false,
-        paint);
+        0, 1, shelf_background.height(),
+        alignment_ == DOCKED_ALIGNMENT_LEFT ? 0 : shelf_background.width(), 0,
+        local_window_bounds.width() - shelf_background.width(),
+        local_window_bounds.height(), false, paint);
   }
 
   // BackgroundAnimatorDelegate:
@@ -221,8 +213,9 @@ bool IsPopupOrTransient(const aura::Window* window) {
           ::wm::GetTransientParent(window));
 }
 
-// Certain windows (minimized, hidden or popups) do not matter to docking.
-bool IsUsedByLayout(const aura::Window* window) {
+// Certain windows (minimized, hidden or popups) are not docked and are ignored
+// by layout logic even when they are children of a docked container.
+bool IsWindowDocked(const aura::Window* window) {
   return (window->IsVisible() &&
           !wm::GetWindowState(window)->IsMinimized() &&
           !IsPopupOrTransient(window));
@@ -490,8 +483,7 @@ void DockedWindowLayoutManager::StartDragging(aura::Window* window) {
           WindowResizer::kBoundsChangeDirection_Horizontal)) {
     for (size_t i = 0; i < dock_container_->children().size(); ++i) {
       aura::Window* window1(dock_container_->children()[i]);
-      if (IsUsedByLayout(window1) &&
-          window1 != dragged_window_ &&
+      if (IsWindowDocked(window1) && window1 != dragged_window_ &&
           window1->bounds().width() == docked_width_) {
         wm::GetWindowState(window1)->set_bounds_changed_by_user(false);
       }
@@ -756,6 +748,8 @@ void DockedWindowLayoutManager::SetChildBounds(
     actual_new_bounds.set_height(
         std::max(min_size.height(), actual_new_bounds.height()));
   }
+  if (IsWindowDocked(child) && child != dragged_window_)
+    return;
   SnapToPixelLayoutManager::SetChildBounds(child, actual_new_bounds);
   if (IsPopupOrTransient(child))
     return;
@@ -913,8 +907,10 @@ void DockedWindowLayoutManager::OnWindowDestroying(aura::Window* window) {
 // DockedWindowLayoutManager, aura::client::ActivationChangeObserver
 // implementation:
 
-void DockedWindowLayoutManager::OnWindowActivated(aura::Window* gained_active,
-                                                  aura::Window* lost_active) {
+void DockedWindowLayoutManager::OnWindowActivated(
+    aura::client::ActivationChangeObserver::ActivationReason reason,
+    aura::Window* gained_active,
+    aura::Window* lost_active) {
   if (gained_active && IsPopupOrTransient(gained_active))
     return;
   // Ignore if the window that is not managed by this was activated.
@@ -947,7 +943,7 @@ void DockedWindowLayoutManager::MaybeMinimizeChildrenExcept(
   aura::Window::Windows::const_reverse_iterator iter = children.rbegin();
   while (iter != children.rend()) {
     aura::Window* window(*iter++);
-    if (window == child || !IsUsedByLayout(window))
+    if (window == child || !IsWindowDocked(window))
       continue;
     int room_needed = GetWindowHeightCloseTo(window, 0) +
         (gap_needed ? kMinDockGap : 0);
@@ -1024,7 +1020,7 @@ void DockedWindowLayoutManager::RecordUmaAction(DockedAction action,
     if (IsPopupOrTransient(window))
       continue;
     docked_all_count++;
-    if (!IsUsedByLayout(window))
+    if (!IsWindowDocked(window))
       continue;
     docked_visible_count++;
     if (window->type() == ui::wm::WINDOW_TYPE_PANEL)
@@ -1085,7 +1081,7 @@ void DockedWindowLayoutManager::Relayout() {
   for (size_t i = 0; i < dock_container_->children().size(); ++i) {
     aura::Window* window(dock_container_->children()[i]);
 
-    if (!IsUsedByLayout(window) || window == dragged_window_)
+    if (!IsWindowDocked(window) || window == dragged_window_)
       continue;
 
     // If the shelf is currently hidden (full-screen mode), hide window until
@@ -1325,7 +1321,7 @@ void DockedWindowLayoutManager::UpdateStacking(aura::Window* active_window) {
   for (aura::Window::Windows::const_iterator it =
            dock_container_->children().begin();
        it != dock_container_->children().end(); ++it) {
-    if (!IsUsedByLayout(*it) ||
+    if (!IsWindowDocked(*it) ||
         ((*it) == dragged_window_ && !is_dragged_window_docked_)) {
       continue;
     }

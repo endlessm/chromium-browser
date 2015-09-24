@@ -18,7 +18,7 @@
 #include "chromeos/dbus/update_engine_client.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
-#include "ui/wm/core/user_activity_observer.h"
+#include "ui/base/user_activity/user_activity_observer.h"
 
 class PrefRegistrySimple;
 
@@ -71,7 +71,7 @@ namespace system {
 // /var/run ensures that it gets cleared automatically on every boot.
 class AutomaticRebootManager : public PowerManagerClient::Observer,
                                public UpdateEngineClient::Observer,
-                               public wm::UserActivityObserver,
+                               public ui::UserActivityObserver,
                                public content::NotificationObserver {
  public:
   // The current uptime and the uptime at which an update was applied and a
@@ -90,7 +90,7 @@ class AutomaticRebootManager : public PowerManagerClient::Observer,
   };
 
   explicit AutomaticRebootManager(scoped_ptr<base::TickClock> clock);
-  virtual ~AutomaticRebootManager();
+  ~AutomaticRebootManager() override;
 
   AutomaticRebootManagerObserver::Reason reboot_reason() const {
     return reboot_reason_;
@@ -101,19 +101,18 @@ class AutomaticRebootManager : public PowerManagerClient::Observer,
   void RemoveObserver(AutomaticRebootManagerObserver* observer);
 
   // PowerManagerClient::Observer:
-  virtual void SuspendDone(const base::TimeDelta& sleep_duration) override;
+  void SuspendDone(const base::TimeDelta& sleep_duration) override;
 
   // UpdateEngineClient::Observer:
-  virtual void UpdateStatusChanged(
-      const UpdateEngineClient::Status& status) override;
+  void UpdateStatusChanged(const UpdateEngineClient::Status& status) override;
 
-  // wm::UserActivityObserver:
-  virtual void OnUserActivity(const ui::Event* event) override;
+  // ui::UserActivityObserver:
+  void OnUserActivity(const ui::Event* event) override;
 
   // content::NotificationObserver:
-  virtual void Observe(int type,
-                       const content::NotificationSource& source,
-                       const content::NotificationDetails& details) override;
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override;
 
   static void RegisterPrefs(PrefRegistrySimple* registry);
 
@@ -171,7 +170,7 @@ class AutomaticRebootManager : public PowerManagerClient::Observer,
   scoped_ptr<base::OneShotTimer<AutomaticRebootManager> > grace_start_timer_;
   scoped_ptr<base::OneShotTimer<AutomaticRebootManager> > grace_end_timer_;
 
-  ObserverList<AutomaticRebootManagerObserver, true> observers_;
+  base::ObserverList<AutomaticRebootManagerObserver, true> observers_;
 
   base::WeakPtrFactory<AutomaticRebootManager> weak_ptr_factory_;
 

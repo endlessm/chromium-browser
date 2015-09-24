@@ -8,8 +8,9 @@
 #include "base/bind.h"
 #include "base/prefs/pref_service.h"
 #include "base/prefs/scoped_user_pref_update.h"
+#include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
-#include "chrome/browser/chromeos/drive/file_system_util.h"
+#include "chrome/browser/chromeos/drive/file_system_core_util.h"
 #include "chrome/browser/chromeos/drive/file_task_executor.h"
 #include "chrome/browser/chromeos/file_manager/app_id.h"
 #include "chrome/browser/chromeos/file_manager/file_browser_handlers.h"
@@ -27,6 +28,7 @@
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/chromeos_switches.h"
+#include "components/mime_util/mime_util.h"
 #include "extensions/browser/extension_host.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
@@ -220,14 +222,15 @@ std::string TaskDescriptorToId(const TaskDescriptor& task_descriptor) {
 bool ParseTaskID(const std::string& task_id, TaskDescriptor* task) {
   DCHECK(task);
 
-  std::vector<std::string> result;
-  int count = Tokenize(task_id, std::string("|"), &result);
+  std::vector<std::string> result = base::SplitString(
+      task_id, "|", base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
 
   // Parse a legacy task ID that only contain two parts. Drive tasks are
   // identified by a prefix "drive-app:" on the extension ID. The legacy task
   // IDs can be stored in preferences.
-  if (count == 2) {
-    if (StartsWithASCII(result[0], kDriveTaskExtensionPrefix, true)) {
+  if (result.size() == 2) {
+    if (base::StartsWith(result[0], kDriveTaskExtensionPrefix,
+                         base::CompareCase::SENSITIVE)) {
       task->task_type = TASK_TYPE_DRIVE_APP;
       task->app_id = result[0].substr(kDriveTaskExtensionPrefixLength);
     } else {
@@ -240,7 +243,7 @@ bool ParseTaskID(const std::string& task_id, TaskDescriptor* task) {
     return true;
   }
 
-  if (count != 3)
+  if (result.size() != 3)
     return false;
 
   TaskType task_type = StringToTaskType(result[1]);
@@ -361,11 +364,24 @@ void FindDriveAppTasks(
   }
 }
 
-bool IsGenericFileHandler(
-    const extensions::FileHandlerInfo& file_handler_info) {
-  return file_handler_info.extensions.count("*") > 0 ||
+bool IsGoodMatchFileHandler(
+    const extensions::FileHandlerInfo& file_handler_info,
+    const PathAndMimeTypeSet& path_mime_set) {
+  if (file_handler_info.extensions.count("*") > 0 ||
       file_handler_info.types.count("*") > 0 ||
-      file_handler_info.types.count("*/*") > 0;
+      file_handler_info.types.count("*/*") > 0)
+    return false;
+
+  // If text/* file handler matches with unsupported text mime type, we don't
+  // regard it as good match.
+  if (file_handler_info.types.count("text/*")) {
+    for (const auto& path_mime : path_mime_set) {
+      if (mime_util::IsUnsupportedTextMimeType(path_mime.second))
+        return false;
+    }
+  }
+
+  return true;
 }
 
 void FindFileHandlerTasks(
@@ -406,22 +422,19 @@ void FindFileHandlerTasks(
     // If the new ZIP unpacker is disabled, then hide its handlers, so we don't
     // show both the legacy one and the new one in Files app for ZIP files.
     if (extension->id() == extension_misc::kZIPUnpackerExtensionId &&
-        CommandLine::ForCurrentProcess()->HasSwitch(
+        base::CommandLine::ForCurrentProcess()->HasSwitch(
             chromeos::switches::kDisableNewZIPUnpacker)) {
       continue;
     }
 
-    // Show the first matching non-generic handler of each app. If there doesn't
-    // exist such handler, show the first matching handler of the app.
-    const extensions::FileHandlerInfo* file_handler = nullptr;
+    // Show the first good matching handler of each app. If there doesn't exist
+    // such handler, show the first matching handler of the app.
+    const extensions::FileHandlerInfo* file_handler = file_handlers.front();
     for (auto handler : file_handlers) {
-      if (!IsGenericFileHandler(*handler)) {
+      if (IsGoodMatchFileHandler(*handler, path_mime_set)) {
         file_handler = handler;
         break;
       }
-    }
-    if (file_handler == nullptr) {
-      file_handler = file_handlers.front();
     }
 
     std::string task_id = file_tasks::MakeTaskID(
@@ -434,14 +447,15 @@ void FindFileHandlerTasks(
         false,  // grayscale
         NULL);  // exists
 
-    result_list->push_back(
-        FullTaskDescriptor(TaskDescriptor(extension->id(),
-                                          file_tasks::TASK_TYPE_FILE_HANDLER,
-                                          file_handler->id),
-                           extension->name(),
-                           best_icon,
-                           false /* is_default */,
-                           IsGenericFileHandler(*file_handler)));
+    // If file handler doesn't match as good match, regards it as generic file
+    // handler.
+    const bool is_generic_file_handler =
+        !IsGoodMatchFileHandler(*file_handler, path_mime_set);
+    result_list->push_back(FullTaskDescriptor(
+        TaskDescriptor(extension->id(), file_tasks::TASK_TYPE_FILE_HANDLER,
+                       file_handler->id),
+        extension->name(), best_icon, false /* is_default */,
+        is_generic_file_handler));
   }
 }
 

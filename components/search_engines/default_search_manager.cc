@@ -100,15 +100,14 @@ DefaultSearchManager::~DefaultSearchManager() {
 // static
 void DefaultSearchManager::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterDictionaryPref(
-      kDefaultSearchProviderDataPrefName,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterDictionaryPref(kDefaultSearchProviderDataPrefName);
 }
 
 // static
-void DefaultSearchManager::AddPrefValueToMap(base::DictionaryValue* value,
-                                             PrefValueMap* pref_value_map) {
-  pref_value_map->SetValue(kDefaultSearchProviderDataPrefName, value);
+void DefaultSearchManager::AddPrefValueToMap(
+    scoped_ptr<base::DictionaryValue> value,
+    PrefValueMap* pref_value_map) {
+  pref_value_map->SetValue(kDefaultSearchProviderDataPrefName, value.Pass());
 }
 
 // static
@@ -159,7 +158,7 @@ void DefaultSearchManager::SetUserSelectedDefaultSearchEngine(
 
   base::DictionaryValue url_dict;
   url_dict.SetString(kID, base::Int64ToString(data.id));
-  url_dict.SetString(kShortName, data.short_name);
+  url_dict.SetString(kShortName, data.short_name());
   url_dict.SetString(kKeyword, data.keyword());
   url_dict.SetInteger(kPrepopulateID, data.prepopulate_id);
   url_dict.SetString(kSyncGUID, data.sync_guid);
@@ -270,7 +269,7 @@ void DefaultSearchManager::MergePrefsDataWithPrepopulated() {
       if (!prefs_default_search_->safe_for_autoreplace) {
         prepopulated_urls[i]->safe_for_autoreplace = false;
         prepopulated_urls[i]->SetKeyword(prefs_default_search_->keyword());
-        prepopulated_urls[i]->short_name = prefs_default_search_->short_name;
+        prepopulated_urls[i]->SetShortName(prefs_default_search_->short_name());
       }
       prepopulated_urls[i]->id = prefs_default_search_->id;
       prepopulated_urls[i]->sync_guid = prefs_default_search_->sync_guid;
@@ -320,7 +319,9 @@ void DefaultSearchManager::LoadDefaultSearchEngineFromPrefs() {
   std::string id;
   url_dict->GetString(kID, &id);
   base::StringToInt64(id, &prefs_default_search_->id);
-  url_dict->GetString(kShortName, &prefs_default_search_->short_name);
+  base::string16 short_name;
+  url_dict->GetString(kShortName, &short_name);
+  prefs_default_search_->SetShortName(short_name);
   url_dict->GetInteger(kPrepopulateID, &prefs_default_search_->prepopulate_id);
   url_dict->GetString(kSyncGUID, &prefs_default_search_->sync_guid);
 

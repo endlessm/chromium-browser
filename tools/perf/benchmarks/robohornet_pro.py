@@ -6,11 +6,15 @@
 
 import os
 
-from metrics import power
+from core import perf_benchmark
+
 from telemetry import benchmark
-from telemetry.page import page_set
+from telemetry import page as page_module
 from telemetry.page import page_test
+from telemetry import story
 from telemetry.value import scalar
+
+from metrics import power
 
 
 class _RobohornetProMeasurement(page_test.PageTest):
@@ -41,16 +45,29 @@ class _RobohornetProMeasurement(page_test.PageTest):
         scalar.ScalarValue(results.current_page, 'Total', 'ms', result))
 
 
+# We plan to remove this test because it doesn't give useful data, but
+# we need to wait until Chrome OS can implement support for more helpful
+# benchmarks.
+@benchmark.Enabled('chromeos')
+class RobohornetPro(perf_benchmark.PerfBenchmark):
+  """Milliseconds to complete the RoboHornetPro demo by Microsoft.
 
-class RobohornetPro(benchmark.Benchmark):
+  http://ie.microsoft.com/testdrive/performance/robohornetpro/
+  """
   test = _RobohornetProMeasurement
 
-  def CreatePageSet(self, options):
-    ps = page_set.PageSet(
-      archive_data_file='../page_sets/data/robohornet_pro.json',
-      # Measurement require use of real Date.now() for measurement.
-      make_javascript_deterministic=False,
-      file_path=os.path.abspath(__file__))
-    ps.AddPageWithDefaultRunNavigate(
-      'http://ie.microsoft.com/testdrive/performance/robohornetpro/')
+  @classmethod
+  def Name(cls):
+    return 'robohornet_pro'
+
+  def CreateStorySet(self, options):
+    ps = story.StorySet(
+        archive_data_file='../page_sets/data/robohornet_pro.json',
+        base_dir=os.path.dirname(os.path.abspath(__file__)),
+        cloud_storage_bucket=story.PARTNER_BUCKET)
+    ps.AddStory(page_module.Page(
+        'http://ie.microsoft.com/testdrive/performance/robohornetpro/',
+        ps, ps.base_dir,
+        # Measurement require use of real Date.now() for measurement.
+        make_javascript_deterministic=False))
     return ps

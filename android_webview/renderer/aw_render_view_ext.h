@@ -10,7 +10,9 @@
 #include "base/timer/timer.h"
 #include "content/public/renderer/render_view_observer.h"
 #include "third_party/skia/include/core/SkColor.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/point_f.h"
+#include "ui/gfx/geometry/size.h"
+#include "ui/gfx/geometry/size_f.h"
 
 namespace blink {
 
@@ -30,18 +32,19 @@ class AwRenderViewExt : public content::RenderViewObserver {
 
  private:
   AwRenderViewExt(content::RenderView* render_view);
-  virtual ~AwRenderViewExt();
+  ~AwRenderViewExt() override;
 
   // RenderView::Observer:
-  virtual bool OnMessageReceived(const IPC::Message& message) override;
-  virtual void FocusedNodeChanged(const blink::WebNode& node) override;
-  virtual void DidCommitCompositorFrame() override;
-  virtual void DidUpdateLayout() override;
-  virtual void Navigate(const GURL& url) override;
+  bool OnMessageReceived(const IPC::Message& message) override;
+  void FocusedNodeChanged(const blink::WebNode& node) override;
+  void DidCommitCompositorFrame() override;
+  void DidUpdateLayout() override;
+  void Navigate(const GURL& url) override;
 
   void OnDocumentHasImagesRequest(int id);
 
-  void OnDoHitTest(int view_x, int view_y);
+  void OnDoHitTest(const gfx::PointF& touch_center,
+                   const gfx::SizeF& touch_area);
 
   void OnSetTextZoomFactor(float zoom_factor);
 

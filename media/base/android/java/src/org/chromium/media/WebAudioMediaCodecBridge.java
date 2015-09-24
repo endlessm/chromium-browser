@@ -10,17 +10,17 @@ import android.media.MediaCodec.BufferInfo;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.os.ParcelFileDescriptor;
-import android.util.Log;
 
 import org.chromium.base.CalledByNative;
 import org.chromium.base.JNINamespace;
+import org.chromium.base.Log;
 
 import java.io.File;
 import java.nio.ByteBuffer;
 
 @JNINamespace("media")
 class WebAudioMediaCodecBridge {
-    static final String LOG_TAG = "WebAudioMediaCodec";
+    private static final String TAG = "cr.media";
     // TODO(rtoy): What is the correct timeout value for reading
     // from a file in memory?
     static final long TIMEOUT_MICROSECONDS = 500;
@@ -33,13 +33,10 @@ class WebAudioMediaCodecBridge {
 
     @SuppressWarnings("deprecation")
     @CalledByNative
-    private static boolean decodeAudioFile(Context ctx,
-                                           long nativeMediaCodecBridge,
-                                           int inputFD,
-                                           long dataSize) {
+    private static boolean decodeAudioFile(Context ctx, long nativeMediaCodecBridge,
+            int inputFD, long dataSize) {
 
-        if (dataSize < 0 || dataSize > 0x7fffffff)
-            return false;
+        if (dataSize < 0 || dataSize > 0x7fffffff) return false;
 
         MediaExtractor extractor = new MediaExtractor();
 
@@ -76,7 +73,7 @@ class WebAudioMediaCodecBridge {
             try {
                 durationMicroseconds = format.getLong(MediaFormat.KEY_DURATION);
             } catch (Exception e) {
-                Log.d(LOG_TAG, "Cannot get duration");
+                Log.d(TAG, "Cannot get duration");
             }
         }
 
@@ -88,23 +85,45 @@ class WebAudioMediaCodecBridge {
             durationMicroseconds = 0;
         }
 
-        Log.d(LOG_TAG, "Initial: Tracks: " + extractor.getTrackCount() + " Format: " + format);
+        Log.d(TAG, "Initial: Tracks: %d Format: %s", extractor.getTrackCount(), format);
 
         // Create decoder
         MediaCodec codec;
         try {
             codec = MediaCodec.createDecoderByType(mime);
         } catch (Exception e) {
-            Log.w(LOG_TAG, "Failed to create MediaCodec for mime type: " + mime);
+            Log.w(TAG, "Failed to create MediaCodec for mime type: %s", mime);
             encodedFD.detachFd();
             return false;
         }
 
-        codec.configure(format, null /* surface */, null /* crypto */, 0 /* flags */);
-        codec.start();
+        try {
+            codec.configure(format, null /* surface */, null /* crypto */, 0 /* flags */);
+        } catch (Exception e) {
+            Log.w(TAG, "Unable to configure codec for format " + format, e);
+            return false;
+        }
+        try {
+            codec.start();
+        } catch (Exception e) {
+            Log.w(TAG, "Unable to start()", e);
+            return false;
+        }
 
-        ByteBuffer[] codecInputBuffers = codec.getInputBuffers();
-        ByteBuffer[] codecOutputBuffers = codec.getOutputBuffers();
+        ByteBuffer[] codecInputBuffers;
+        try {
+            codecInputBuffers = codec.getInputBuffers();
+        } catch (Exception e) {
+            Log.w(TAG, "getInputBuffers() failed", e);
+            return false;
+        }
+        ByteBuffer[] codecOutputBuffers;
+        try {
+            codecOutputBuffers = codec.getOutputBuffers();
+        } catch (Exception e) {
+            Log.w(TAG, "getOutputBuffers() failed", e);
+            return false;
+        }
 
         // A track must be selected and will be used to read samples.
         extractor.selectTrack(0);
@@ -112,12 +131,20 @@ class WebAudioMediaCodecBridge {
         boolean sawInputEOS = false;
         boolean sawOutputEOS = false;
         boolean destinationInitialized = false;
+        boolean decodedSuccessfully = true;
 
         // Keep processing until the output is done.
         while (!sawOutputEOS) {
             if (!sawInputEOS) {
                 // Input side
-                int inputBufIndex = codec.dequeueInputBuffer(TIMEOUT_MICROSECONDS);
+                int inputBufIndex;
+                try {
+                    inputBufIndex = codec.dequeueInputBuffer(TIMEOUT_MICROSECONDS);
+                } catch (Exception e) {
+                    Log.w(TAG, "dequeueInputBuffer(%d) failed.", TIMEOUT_MICROSECONDS, e);
+                    decodedSuccessfully = false;
+                    break;
+                }
 
                 if (inputBufIndex >= 0) {
                     ByteBuffer dstBuf = codecInputBuffers[inputBufIndex];
@@ -131,11 +158,19 @@ class WebAudioMediaCodecBridge {
                         presentationTimeMicroSec = extractor.getSampleTime();
                     }
 
-                    codec.queueInputBuffer(inputBufIndex,
-                                           0, /* offset */
-                                           sampleSize,
-                                           presentationTimeMicroSec,
-                                           sawInputEOS ? MediaCodec.BUFFER_FLAG_END_OF_STREAM : 0);
+                    try {
+                        codec.queueInputBuffer(inputBufIndex,
+                                0, /* offset */
+                                sampleSize,
+                                presentationTimeMicroSec,
+                                sawInputEOS ? MediaCodec.BUFFER_FLAG_END_OF_STREAM : 0);
+                    } catch (Exception e) {
+                        Log.w(TAG, "queueInputBuffer(%d, 0, %d, %d, %d) failed.",
+                                inputBufIndex, sampleSize, presentationTimeMicroSec,
+                                (sawInputEOS ? MediaCodec.BUFFER_FLAG_END_OF_STREAM : 0), e);
+                        decodedSuccessfully = false;
+                        break;
+                    }
 
                     if (!sawInputEOS) {
                         extractor.advance();
@@ -145,7 +180,16 @@ class WebAudioMediaCodecBridge {
 
             // Output side
             MediaCodec.BufferInfo info = new BufferInfo();
-            final int outputBufIndex = codec.dequeueOutputBuffer(info, TIMEOUT_MICROSECONDS);
+            final int outputBufIndex;
+
+            try {
+                outputBufIndex = codec.dequeueOutputBuffer(info, TIMEOUT_MICROSECONDS);
+            } catch (Exception e) {
+                Log.w(TAG, "dequeueOutputBuffer(%s, %d) failed", info, TIMEOUT_MICROSECONDS);
+                e.printStackTrace();
+                decodedSuccessfully = false;
+                break;
+            }
 
             if (outputBufIndex >= 0) {
                 ByteBuffer buf = codecOutputBuffers[outputBufIndex];
@@ -155,10 +199,8 @@ class WebAudioMediaCodecBridge {
                     // catch any changes in format. But be sure to
                     // initialize it BEFORE we send any decoded audio,
                     // and only initialize once.
-                    Log.d(LOG_TAG, "Final:  Rate: " + sampleRate +
-                            " Channels: " + inputChannelCount +
-                            " Mime: " + mime +
-                            " Duration: " + durationMicroseconds + " microsec");
+                    Log.d(TAG, "Final:  Rate: %d Channels: %d Mime: %s Duration: %d microsec",
+                            sampleRate, inputChannelCount, mime, durationMicroseconds);
 
                     nativeInitializeDestination(nativeMediaCodecBridge,
                                                 inputChannelCount,
@@ -184,7 +226,7 @@ class WebAudioMediaCodecBridge {
                 MediaFormat newFormat = codec.getOutputFormat();
                 outputChannelCount = newFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
                 sampleRate = newFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE);
-                Log.d(LOG_TAG, "output format changed to " + newFormat);
+                Log.d(TAG, "output format changed to " + newFormat);
             }
         }
 
@@ -194,7 +236,7 @@ class WebAudioMediaCodecBridge {
         codec.release();
         codec = null;
 
-        return true;
+        return decodedSuccessfully;
     }
 
     private static native void nativeOnChunkDecoded(

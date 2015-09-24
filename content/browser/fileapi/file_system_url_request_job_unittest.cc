@@ -11,15 +11,15 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/format_macros.h"
+#include "base/location.h"
 #include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/rand_util.h"
 #include "base/run_loop.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/public/test/async_file_test_helper.h"
 #include "content/public/test/test_file_system_backend.h"
 #include "content/public/test/test_file_system_context.h"
@@ -160,7 +160,7 @@ class FileSystemURLRequestJobTest : public testing::Test {
 
     ScopedVector<storage::FileSystemBackend> additional_providers;
     additional_providers.push_back(new TestFileSystemBackend(
-        base::MessageLoopProxy::current().get(), mnt_point));
+        base::ThreadTaskRunnerHandle::Get().get(), mnt_point));
 
     std::vector<storage::URLRequestAutoMountHandler> handlers;
     handlers.push_back(base::Bind(&TestAutoMountForURLRequest));
@@ -193,7 +193,7 @@ class FileSystemURLRequestJobTest : public testing::Test {
     empty_context_.set_job_factory(job_factory_.get());
 
     request_ = empty_context_.CreateRequest(
-        url, net::DEFAULT_PRIORITY, delegate_.get(), NULL);
+        url, net::DEFAULT_PRIORITY, delegate_.get());
     if (headers)
       request_->SetExtraRequestHeaders(*headers);
 
@@ -251,7 +251,6 @@ class FileSystemURLRequestJobTest : public testing::Test {
 
   base::ScopedTempDir temp_dir_;
   scoped_refptr<storage::FileSystemContext> file_system_context_;
-  base::WeakPtrFactory<FileSystemURLRequestJobTest> weak_factory_;
 
   net::URLRequestContext empty_context_;
   scoped_ptr<FileSystemURLRequestJobFactory> job_factory_;
@@ -259,6 +258,8 @@ class FileSystemURLRequestJobTest : public testing::Test {
   // NOTE: order matters, request must die before delegate
   scoped_ptr<net::TestDelegate> delegate_;
   scoped_ptr<net::URLRequest> request_;
+
+  base::WeakPtrFactory<FileSystemURLRequestJobTest> weak_factory_;
 };
 
 namespace {

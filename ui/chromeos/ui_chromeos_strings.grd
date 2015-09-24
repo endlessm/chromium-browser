@@ -98,6 +98,96 @@
     <output filename="ui_chromeos_strings_zh-CN.pak" type="data_package" lang="zh-CN" />
     <output filename="ui_chromeos_strings_zh-TW.pak" type="data_package" lang="zh-TW" />
   </outputs>
+  <translations>
+    <file path="translations/ui_chromeos_strings_am.xtb" lang="am" />
+    <file path="translations/ui_chromeos_strings_ar.xtb" lang="ar" />
+    <if expr="use_third_party_translations">
+      <file path="../../third_party/launchpad_translations/ui_chromeos_strings_ast.xtb" lang="ast" />
+    </if>
+    <file path="translations/ui_chromeos_strings_bg.xtb" lang="bg" />
+    <file path="translations/ui_chromeos_strings_bn.xtb" lang="bn" />
+    <if expr="use_third_party_translations">
+      <file path="../../third_party/launchpad_translations/ui_chromeos_strings_bs.xtb" lang="bs" />
+    </if>
+    <file path="translations/ui_chromeos_strings_ca.xtb" lang="ca" />
+    <if expr="use_third_party_translations">
+      <file path="../../third_party/launchpad_translations/ui_chromeos_strings_ca-valencia.xtb" lang="ca@valencia" />
+    </if>
+    <file path="translations/ui_chromeos_strings_cs.xtb" lang="cs" />
+    <file path="translations/ui_chromeos_strings_da.xtb" lang="da" />
+    <file path="translations/ui_chromeos_strings_de.xtb" lang="de" />
+    <file path="translations/ui_chromeos_strings_el.xtb" lang="el" />
+    <if expr="use_third_party_translations">
+      <file path="../../third_party/launchpad_translations/ui_chromeos_strings_en-AU.xtb" lang="en-AU" />
+    </if>
+    <file path="translations/ui_chromeos_strings_en-GB.xtb" lang="en-GB" />
+    <if expr="use_third_party_translations">
+      <file path="../../third_party/launchpad_translations/ui_chromeos_strings_eo.xtb" lang="eo" />
+    </if>
+    <file path="translations/ui_chromeos_strings_es.xtb" lang="es" />
+    <file path="translations/ui_chromeos_strings_es-419.xtb" lang="es-419" />
+    <file path="translations/ui_chromeos_strings_et.xtb" lang="et" />
+    <if expr="use_third_party_translations">
+      <file path="../../third_party/launchpad_translations/ui_chromeos_strings_eu.xtb" lang="eu" />
+    </if>
+    <file path="translations/ui_chromeos_strings_fa.xtb" lang="fa" />
+    <file path="translations/ui_chromeos_strings_fi.xtb" lang="fi" />
+    <file path="translations/ui_chromeos_strings_fil.xtb" lang="fil" />
+    <file path="translations/ui_chromeos_strings_fr.xtb" lang="fr" />
+    <if expr="use_third_party_translations">
+      <file path="../../third_party/launchpad_translations/ui_chromeos_strings_gl.xtb" lang="gl" />
+    </if>
+    <file path="translations/ui_chromeos_strings_gu.xtb" lang="gu" />
+    <file path="translations/ui_chromeos_strings_hi.xtb" lang="hi" />
+    <file path="translations/ui_chromeos_strings_hr.xtb" lang="hr" />
+    <file path="translations/ui_chromeos_strings_hu.xtb" lang="hu" />
+    <if expr="use_third_party_translations">
+      <file path="../../third_party/launchpad_translations/ui_chromeos_strings_hy.xtb" lang="hy" />
+      <file path="../../third_party/launchpad_translations/ui_chromeos_strings_ia.xtb" lang="ia" />
+    </if>
+    <file path="translations/ui_chromeos_strings_id.xtb" lang="id" />
+    <file path="translations/ui_chromeos_strings_it.xtb" lang="it" />
+    <!-- The translation console uses 'iw' for Hebrew, but we use 'he'. -->
+    <file path="translations/ui_chromeos_strings_iw.xtb" lang="he" />
+    <file path="translations/ui_chromeos_strings_ja.xtb" lang="ja" />
+    <if expr="use_third_party_translations">
+      <file path="../../third_party/launchpad_translations/ui_chromeos_strings_ka.xtb" lang="ka" />
+    </if>
+    <file path="translations/ui_chromeos_strings_kn.xtb" lang="kn" />
+    <file path="translations/ui_chromeos_strings_ko.xtb" lang="ko" />
+    <if expr="use_third_party_translations">
+      <file path="../../third_party/launchpad_translations/ui_chromeos_strings_ku.xtb" lang="ku" />
+      <file path="../../third_party/launchpad_translations/ui_chromeos_strings_kw.xtb" lang="kw" />
+    </if>
+    <file path="translations/ui_chromeos_strings_lt.xtb" lang="lt" />
+    <file path="translations/ui_chromeos_strings_lv.xtb" lang="lv" />
+    <file path="translations/ui_chromeos_strings_ml.xtb" lang="ml" />
+    <file path="translations/ui_chromeos_strings_mr.xtb" lang="mr" />
+    <file path="translations/ui_chromeos_strings_ms.xtb" lang="ms" />
+    <file path="translations/ui_chromeos_strings_nl.xtb" lang="nl" />
+    <file path="translations/ui_chromeos_strings_no.xtb" lang="no" />
+    <file path="translations/ui_chromeos_strings_pl.xtb" lang="pl" />
+    <file path="translations/ui_chromeos_strings_pt-BR.xtb" lang="pt-BR" />
+    <file path="translations/ui_chromeos_strings_pt-PT.xtb" lang="pt-PT" />
+    <file path="translations/ui_chromeos_strings_ro.xtb" lang="ro" />
+    <file path="translations/ui_chromeos_strings_ru.xtb" lang="ru" />
+    <file path="translations/ui_chromeos_strings_sk.xtb" lang="sk" />
+    <file path="translations/ui_chromeos_strings_sl.xtb" lang="sl" />
+    <file path="translations/ui_chromeos_strings_sr.xtb" lang="sr" />
+    <file path="translations/ui_chromeos_strings_sv.xtb" lang="sv" />
+    <file path="translations/ui_chromeos_strings_sw.xtb" lang="sw" />
+    <file path="translations/ui_chromeos_strings_ta.xtb" lang="ta" />
+    <file path="translations/ui_chromeos_strings_te.xtb" lang="te" />
+    <file path="translations/ui_chromeos_strings_th.xtb" lang="th" />
+    <file path="translations/ui_chromeos_strings_tr.xtb" lang="tr" />
+    <if expr="use_third_party_translations">
+      <file path="../../third_party/launchpad_translations/ui_chromeos_strings_ug.xtb" lang="ug" />
+    </if>
+    <file path="translations/ui_chromeos_strings_uk.xtb" lang="uk" />
+    <file path="translations/ui_chromeos_strings_vi.xtb" lang="vi" />
+    <file path="translations/ui_chromeos_strings_zh-CN.xtb" lang="zh-CN" />
+    <file path="translations/ui_chromeos_strings_zh-TW.xtb" lang="zh-TW" />
+  </translations>
   <release seq="1" allow_pseudo="false">
     <messages fallback_to_english="true">
       <message name="IDS_ASH_STATUS_TRAY_CELLULAR_SCANNING" desc="Message when scanning for cellular networks">
@@ -131,9 +221,6 @@
         No network
       </message>
 
-      <message name="IDS_ASH_STATUS_TRAY_NETWORK_NO_VPN" desc="The label used in the tray popup to notify no vpn is configured.">
-        VPN is not configured.
-      </message>
       <message name="IDS_ASH_STATUS_TRAY_NO_NETWORKS" desc="The message to display in the network info bubble when it is otherwise empty.">
         No network information available
       </message>
@@ -173,10 +260,10 @@
       <message name="IDS_LOGIN_DEFAULT_USER_DESC_24" desc="Description of the default user icon with a picture of a frog">
         Frog
       </message>
-      <message name="IDS_LOGIN_DEFAULT_USER_DESC_25" desc="Description of the default user icon with a picture of a Ganzania (a kind of flower - okay to translate as just flower or some similar flower name)">
-        Ganzania Flower
+      <message name="IDS_LOGIN_DEFAULT_USER_DESC_25" desc="Description of the default user icon with a picture of a Gazania (a kind of flower - okay to translate as just flower or some similar flower name)">
+        Gazania Flower
       </message>
-      <message name="IDS_LOGIN_DEFAULT_USER_DESC_26" desc="Description of the default user icon with a picture of a Jack Russell Terrir (a kind of dog - okay to translate as just dog)">
+      <message name="IDS_LOGIN_DEFAULT_USER_DESC_26" desc="Description of the default user icon with a picture of a Jack Russell Terrier (a kind of dog - okay to translate as just dog)">
         Jack Russell Terrier
       </message>
       <message name="IDS_LOGIN_DEFAULT_USER_DESC_27" desc="Description of the default user icon with a picture of a jellyfish">
@@ -196,6 +283,9 @@
       </message>
       <message name="IDS_LOGIN_DEFAULT_USER_DESC_32" desc="Description of the default user icon with a picture of a butterfly upside-down on a flower; the name of the photo is Upside-Down.">
         Upside Down
+      </message>
+      <message name="IDS_LOGIN_DEFAULT_USER_DESC_33" desc="Description of the default user icon with a picture of a cat">
+        Cat
       </message>
 
       <!-- Attribution strings for stock user images, not translateable. -->
@@ -279,6 +369,9 @@
       <message translateable="false" name="IDS_LOGIN_DEFAULT_USER_AUTHOR_32">
         Magdalena Wasiczek
       </message>
+      <message translateable="false" name="IDS_LOGIN_DEFAULT_USER_AUTHOR_33">
+        Ivan Podogov
+      </message>
 
       <message translateable="false" name="IDS_LOGIN_DEFAULT_USER_WEBSITE">
       </message>
@@ -359,6 +452,12 @@
       </message>
       <message translateable="false" name="IDS_LOGIN_DEFAULT_USER_WEBSITE_32">
         http://www.magdawasiczek.pl
+      </message>
+      <message translateable="false" name="IDS_LOGIN_DEFAULT_USER_WEBSITE_33">
+      </message>
+
+      <message name="IDS_CHROMEOS_IME_INFOLIST_WINDOW_TITLE" desc="The title of the infolist window where the meanings and the usages of words are displayed.">
+        Information
       </message>
 
       <!-- Network error strings -->
@@ -449,6 +548,12 @@
       <message name="IDS_NETWORK_CONNECTION_ERROR_MESSAGE_NO_NAME" desc="Message for network connection error where the network name is unavailable">
         Failed to connect to network: <ph name="details">$1<ex>Unrecognized error</ex></ph>
       </message>
+      <message name="IDS_NETWORK_VPN_CONNECTION_LOST_TITLE" desc="Title for network notification when VPN connection is lost">
+        VPN disconnected
+      </message>
+      <message name="IDS_NETWORK_VPN_CONNECTION_LOST_BODY" desc="Message for network notification when VPN connection is lost">
+        Connection to <ph name="name">$1<ex>Google VPN</ex></ph> has been lost
+      </message>
       <message name="IDS_NETWORK_OUT_OF_CREDITS_TITLE" desc="Title for network out of data error notification">
         Network Connection Error
       </message>
@@ -470,7 +575,9 @@
       <message name="IDS_NETWORK_ACTIVATION_NEEDS_CONNECTION" desc="Message when attempting to activate a mobile network that requires a connection">
         Activation of '<ph name="name">$1<ex>Generic Wireless</ex></ph>' requires a network connection.
       </message>
-
+      <message name="IDS_NETWORK_VPN_BUILT_IN_PROVIDER" desc="The name of the built-in VPN provider that supports OpenVPN and L2TP over IPsec.">
+        OpenVPN / L2TP
+      </message>
     </messages>
   </release>
 </grit>

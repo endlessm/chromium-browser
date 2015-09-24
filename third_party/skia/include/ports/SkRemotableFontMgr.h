@@ -35,7 +35,7 @@ struct SK_API SkFontIdentity {
 
 class SK_API SkRemotableFontIdentitySet : public SkRefCnt {
 public:
-    SK_DECLARE_INST_COUNT(SkRemotableFontIdentitySet)
+    
 
     SkRemotableFontIdentitySet(int count, SkFontIdentity** data);
 
@@ -57,7 +57,7 @@ private:
 
 class SK_API SkRemotableFontMgr : public SkRefCnt {
 public:
-    SK_DECLARE_INST_COUNT(SkRemotableFontMgr)
+    
 
     /**
      *  Returns the names of the known fonts on the system.
@@ -134,14 +134,9 @@ public:
      *  Note that bpc47 is a combination of ISO 639, 15924, and 3166-1 codes,
      *  so it is fine to just pass a ISO 639 here.
      */
-#ifdef SK_FM_NEW_MATCH_FAMILY_STYLE_CHARACTER
     virtual SkFontIdentity matchNameStyleCharacter(const char familyName[], const SkFontStyle&,
                                                    const char* bcp47[], int bcp47Count,
                                                    SkUnichar character) const=0;
-#else
-    virtual SkFontIdentity matchNameStyleCharacter(const char familyName[], const SkFontStyle&,
-                                                   const char bcp47[], SkUnichar character) const=0;
-#endif
 
     /**
      *  Returns the data for the given data id.

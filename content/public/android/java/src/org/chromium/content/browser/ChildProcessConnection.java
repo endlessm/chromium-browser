@@ -40,10 +40,7 @@ public interface ChildProcessConnection {
     public static final String EXTRA_COMMAND_LINE =
             "com.google.android.apps.chrome.extra.command_line";
     // Note the FDs may only be passed in the connection bundle.
-    public static final String EXTRA_FILES_PREFIX =
-            "com.google.android.apps.chrome.extra.extraFile_";
-    public static final String EXTRA_FILES_ID_SUFFIX = "_id";
-    public static final String EXTRA_FILES_FD_SUFFIX = "_fd";
+    public static final String EXTRA_FILES = "com.google.android.apps.chrome.extra.extraFiles";
 
     // Used to pass the CPU core count to child processes.
     public static final String EXTRA_CPU_COUNT =
@@ -101,7 +98,7 @@ public interface ChildProcessConnection {
     boolean isStrongBindingBound();
 
     /**
-     * Called to remove the strong binding estabilished when the connection was started. It is safe
+     * Called to remove the strong binding established when the connection was started. It is safe
      * to call this multiple times.
      */
     void removeInitialBinding();
@@ -131,4 +128,18 @@ public interface ChildProcessConnection {
      * Called when the service is no longer in active use of the consumer.
      */
     void removeStrongBinding();
+
+    /**
+     * Attaches a moderate binding that will give the service the priority of a visible process, but
+     * keep the priority below a strongly bound process.
+     */
+    void addModerateBinding();
+
+    /**
+     * Called when the service is no longer in moderate use of the consumer.
+     */
+    void removeModerateBinding();
+
+    /** @return true iff the moderate oom binding is currently bound. */
+    boolean isModerateBindingBound();
 }

@@ -11,12 +11,15 @@ i.e., "adb forward" in reverse. Requires |host_forwarder| and |device_forwarder|
 to be built.
 """
 
+import logging
 import optparse
 import sys
 import time
 
-from pylib import android_commands
-from pylib import constants, forwarder
+from pylib import constants
+from pylib import forwarder
+from pylib.device import adb_wrapper
+from pylib.device import device_errors
 from pylib.device import device_utils
 from pylib.utils import run_tests_helper
 
@@ -51,19 +54,18 @@ def main(argv):
     parser.error('Bad port number')
     sys.exit(1)
 
-  devices = android_commands.GetAttachedDevices()
+  devices = device_utils.DeviceUtils.HealthyDevices()
 
   if options.device:
-    if options.device not in devices:
-      raise Exception('Error: %s not in attached devices %s' % (options.device,
-                      ','.join(devices)))
-    devices = [options.device]
+    device = next((d for d in devices if d == options.device), None)
+    if not device:
+      raise device_errors.DeviceUnreachableError(options.device)
+  elif devices:
+    device = devices[0]
+    logging.info('No device specified. Defaulting to %s', devices[0])
   else:
-    if not devices:
-      raise Exception('Error: no connected devices')
-    print("No device specified. Defaulting to " + devices[0])
+    raise device_errors.NoDevicesError()
 
-  device = device_utils.DeviceUtils(devices[0])
   constants.SetBuildType(options.build_type)
   try:
     forwarder.Forwarder.Map(port_pairs, device)

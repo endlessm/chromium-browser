@@ -37,7 +37,7 @@
 #include "core/dom/Document.h"
 #include "core/dom/ElementTraversal.h"
 #include "core/dom/Node.h"
-#include "core/dom/NodeRenderStyle.h"
+#include "core/dom/NodeComputedStyle.h"
 #include "core/dom/QualifiedName.h"
 #include "core/dom/SpaceSplitString.h"
 #include "core/dom/shadow/ElementShadow.h"
@@ -46,8 +46,9 @@
 #include "core/html/HTMLInputElement.h"
 #include "core/html/HTMLOptGroupElement.h"
 #include "core/html/HTMLOptionElement.h"
-#include "core/rendering/style/RenderStyle.h"
+#include "core/style/ComputedStyle.h"
 #include "core/svg/SVGElement.h"
+#include "platform/TraceEvent.h"
 #include "wtf/HashSet.h"
 #include "wtf/text/AtomicString.h"
 
@@ -198,14 +199,14 @@ bool SharedStyleFinder::canShareStyleWithElement(Element& candidate) const
     if (element() == candidate)
         return false;
     Element* parent = candidate.parentOrShadowHostElement();
-    RenderStyle* style = candidate.renderStyle();
+    const ComputedStyle* style = candidate.computedStyle();
     if (!style)
         return false;
     if (!style->isSharable())
         return false;
     if (!parent)
         return false;
-    if (element().parentOrShadowHostElement()->renderStyle() != parent->renderStyle())
+    if (element().parentOrShadowHostElement()->computedStyle() != parent->computedStyle())
         return false;
     if (candidate.tagQName() != element().tagQName())
         return false;
@@ -308,9 +309,9 @@ bool SharedStyleFinder::matchesRuleSet(RuleSet* ruleSet)
     return collector.hasAnyMatchingRules(ruleSet);
 }
 
-RenderStyle* SharedStyleFinder::findSharedStyle()
+ComputedStyle* SharedStyleFinder::findSharedStyle()
 {
-    INCREMENT_STYLE_STATS_COUNTER(m_styleResolver, sharedStyleLookups);
+    INCREMENT_STYLE_STATS_COUNTER(m_styleResolver, sharedStyleLookups, 1);
 
     if (!element().supportsStyleSharing())
         return 0;
@@ -321,30 +322,30 @@ RenderStyle* SharedStyleFinder::findSharedStyle()
     Element* shareElement = findElementForStyleSharing();
 
     if (!shareElement) {
-        if (m_styleResolver.stats() && m_styleResolver.stats()->printMissedCandidateCount && documentContainsValidCandidate())
-            INCREMENT_STYLE_STATS_COUNTER(m_styleResolver, sharedStyleMissed);
+        if (m_styleResolver.stats() && m_styleResolver.stats()->allCountersEnabled() && documentContainsValidCandidate())
+            INCREMENT_STYLE_STATS_COUNTER(m_styleResolver, sharedStyleMissed, 1);
         return 0;
     }
 
-    INCREMENT_STYLE_STATS_COUNTER(m_styleResolver, sharedStyleFound);
+    INCREMENT_STYLE_STATS_COUNTER(m_styleResolver, sharedStyleFound, 1);
 
     if (matchesRuleSet(m_siblingRuleSet)) {
-        INCREMENT_STYLE_STATS_COUNTER(m_styleResolver, sharedStyleRejectedBySiblingRules);
+        INCREMENT_STYLE_STATS_COUNTER(m_styleResolver, sharedStyleRejectedBySiblingRules, 1);
         return 0;
     }
 
     if (matchesRuleSet(m_uncommonAttributeRuleSet)) {
-        INCREMENT_STYLE_STATS_COUNTER(m_styleResolver, sharedStyleRejectedByUncommonAttributeRules);
+        INCREMENT_STYLE_STATS_COUNTER(m_styleResolver, sharedStyleRejectedByUncommonAttributeRules, 1);
         return 0;
     }
 
     // Tracking child index requires unique style for each node. This may get set by the sibling rule match above.
     if (!element().parentElementOrShadowRoot()->childrenSupportStyleSharing()) {
-        INCREMENT_STYLE_STATS_COUNTER(m_styleResolver, sharedStyleRejectedByParent);
+        INCREMENT_STYLE_STATS_COUNTER(m_styleResolver, sharedStyleRejectedByParent, 1);
         return 0;
     }
 
-    return shareElement->renderStyle();
+    return shareElement->mutableComputedStyle();
 }
 
 }

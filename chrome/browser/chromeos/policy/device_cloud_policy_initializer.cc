@@ -6,29 +6,27 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/callback.h"
 #include "base/logging.h"
 #include "base/prefs/pref_service.h"
 #include "base/sequenced_task_runner.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/policy/device_cloud_policy_manager_chromeos.h"
 #include "chrome/browser/chromeos/policy/device_cloud_policy_store_chromeos.h"
 #include "chrome/browser/chromeos/policy/device_status_collector.h"
+#include "chrome/browser/chromeos/policy/enrollment_config.h"
 #include "chrome/browser/chromeos/policy/enrollment_handler_chromeos.h"
+#include "chrome/browser/chromeos/policy/enrollment_status_chromeos.h"
 #include "chrome/browser/chromeos/policy/enterprise_install_attributes.h"
 #include "chrome/browser/chromeos/policy/server_backed_device_state.h"
-#include "chrome/browser/chromeos/settings/device_settings_service.h"
 #include "chrome/common/chrome_content_client.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/system/statistics_provider.h"
-#include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/cloud_policy_core.h"
 #include "components/policy/core/common/cloud/device_management_service.h"
 #include "components/policy/core/common/cloud/system_policy_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
-
-namespace em = enterprise_management;
 
 namespace policy {
 
@@ -56,9 +54,7 @@ DeviceCloudPolicyInitializer::DeviceCloudPolicyInitializer(
     EnterpriseInstallAttributes* install_attributes,
     ServerBackedStateKeysBroker* state_keys_broker,
     DeviceCloudPolicyStoreChromeOS* device_store,
-    DeviceCloudPolicyManagerChromeOS* manager,
-    chromeos::DeviceSettingsService* device_settings_service,
-    const base::Closure& on_connected_callback)
+    DeviceCloudPolicyManagerChromeOS* manager)
     : local_state_(local_state),
       enterprise_service_(enterprise_service),
       consumer_service_(consumer_service),
@@ -67,8 +63,6 @@ DeviceCloudPolicyInitializer::DeviceCloudPolicyInitializer(
       state_keys_broker_(state_keys_broker),
       device_store_(device_store),
       manager_(manager),
-      device_settings_service_(device_settings_service),
-      on_connected_callback_(on_connected_callback),
       is_initialized_(false) {
 }
 
@@ -85,12 +79,6 @@ void DeviceCloudPolicyInitializer::Init() {
       base::Bind(&DeviceCloudPolicyInitializer::TryToCreateClient,
                  base::Unretained(this)));
 
-  device_status_provider_.reset(
-      new DeviceStatusCollector(
-          local_state_,
-          chromeos::system::StatisticsProvider::GetInstance(),
-          NULL));
-
   TryToCreateClient();
 }
 
@@ -98,17 +86,17 @@ void DeviceCloudPolicyInitializer::Shutdown() {
   DCHECK(is_initialized_);
 
   device_store_->RemoveObserver(this);
-  device_status_provider_.reset();
   enrollment_handler_.reset();
   state_keys_update_subscription_.reset();
   is_initialized_ = false;
 }
 
 void DeviceCloudPolicyInitializer::StartEnrollment(
-    em::PolicyData::ManagementMode management_mode,
+    ManagementMode management_mode,
     DeviceManagementService* device_management_service,
+    chromeos::OwnerSettingsServiceChromeOS* owner_settings_service,
+    const EnrollmentConfig& enrollment_config,
     const std::string& auth_token,
-    bool is_auto_enrollment,
     const AllowedDeviceModes& allowed_device_modes,
     const EnrollmentCallback& enrollment_callback) {
   DCHECK(is_initialized_);
@@ -116,71 +104,96 @@ void DeviceCloudPolicyInitializer::StartEnrollment(
 
   manager_->core()->Disconnect();
   enrollment_handler_.reset(new EnrollmentHandlerChromeOS(
-      device_store_,
-      install_attributes_,
-      state_keys_broker_,
-      device_settings_service_,
-      CreateClient(device_management_service),
-      background_task_runner_,
-      auth_token,
-      install_attributes_->GetDeviceId(),
-      is_auto_enrollment,
-      manager_->GetDeviceRequisition(),
-      allowed_device_modes,
-      management_mode,
+      device_store_, install_attributes_, state_keys_broker_,
+      owner_settings_service,
+      CreateClient(device_management_service), background_task_runner_,
+      enrollment_config, auth_token, install_attributes_->GetDeviceId(),
+      manager_->GetDeviceRequisition(), allowed_device_modes, management_mode,
       base::Bind(&DeviceCloudPolicyInitializer::EnrollmentCompleted,
-                 base::Unretained(this),
-                 enrollment_callback)));
+                 base::Unretained(this), enrollment_callback)));
   enrollment_handler_->StartEnrollment();
 }
 
-bool DeviceCloudPolicyInitializer::ShouldAutoStartEnrollment() const {
-  const RestoreMode restore_mode = GetRestoreMode();
-  if (restore_mode == RESTORE_MODE_REENROLLMENT_REQUESTED ||
-      restore_mode == RESTORE_MODE_REENROLLMENT_ENFORCED) {
-    return true;
+EnrollmentConfig DeviceCloudPolicyInitializer::GetPrescribedEnrollmentConfig()
+    const {
+  EnrollmentConfig config;
+
+  const bool oobe_complete = local_state_->GetBoolean(prefs::kOobeComplete);
+  if (oobe_complete && install_attributes_->IsEnterpriseDevice()) {
+    // Regardless what mode is applicable, the enrollment domain is fixed.
+    config.management_domain = install_attributes_->GetDomain();
+
+    // Enrollment has completed previously and installation-time attributes
+    // are in place. Enrollment recovery is required when the server
+    // registration gets lost.
+    if (local_state_->GetBoolean(prefs::kEnrollmentRecoveryRequired)) {
+      LOG(WARNING) << "Enrollment recovery required according to pref.";
+      if (DeviceCloudPolicyManagerChromeOS::GetMachineID().empty())
+        LOG(WARNING) << "Postponing recovery because machine id is missing.";
+      else
+        config.mode = EnrollmentConfig::MODE_RECOVERY;
+    }
+    return config;
   }
 
-  if (local_state_->HasPrefPath(prefs::kDeviceEnrollmentAutoStart))
-    return local_state_->GetBoolean(prefs::kDeviceEnrollmentAutoStart);
+  // OOBE is still running, or it is complete but the device hasn't been
+  // enrolled yet. In either case, enrollment should take place if there's a
+  // signal present that indicates the device should enroll.
 
-  return GetMachineFlag(chromeos::system::kOemIsEnterpriseManagedKey, false);
-}
-
-bool DeviceCloudPolicyInitializer::ShouldRecoverEnrollment() const {
-  if (install_attributes_->IsEnterpriseDevice() &&
-      chromeos::StartupUtils::IsEnrollmentRecoveryRequired()) {
-    LOG(WARNING) << "Enrollment recovery required according to pref.";
-    if (!DeviceCloudPolicyManagerChromeOS::GetMachineID().empty())
-      return true;
-    LOG(WARNING) << "Postponing recovery because machine id is missing.";
-  }
-  return false;
-}
-
-std::string DeviceCloudPolicyInitializer::GetEnrollmentRecoveryDomain() const {
-  return install_attributes_->GetDomain();
-}
-
-bool DeviceCloudPolicyInitializer::CanExitEnrollment() const {
-  if (GetRestoreMode() == RESTORE_MODE_REENROLLMENT_ENFORCED)
-    return false;
-
-  if (local_state_->HasPrefPath(prefs::kDeviceEnrollmentCanExit))
-    return local_state_->GetBoolean(prefs::kDeviceEnrollmentCanExit);
-
-  return GetMachineFlag(chromeos::system::kOemCanExitEnterpriseEnrollmentKey,
-                        true);
-}
-
-std::string
-DeviceCloudPolicyInitializer::GetForcedEnrollmentDomain() const {
-  const base::DictionaryValue* device_state_dict =
+  // Gather enrollment signals from various sources.
+  const base::DictionaryValue* device_state =
       local_state_->GetDictionary(prefs::kServerBackedDeviceState);
-  std::string management_domain;
-  device_state_dict->GetString(kDeviceStateManagementDomain,
-                               &management_domain);
-  return management_domain;
+  std::string device_state_restore_mode;
+  std::string device_state_management_domain;
+  if (device_state) {
+    device_state->GetString(kDeviceStateRestoreMode,
+                            &device_state_restore_mode);
+    device_state->GetString(kDeviceStateManagementDomain,
+                            &device_state_management_domain);
+  }
+
+  const bool pref_enrollment_auto_start_present =
+      local_state_->HasPrefPath(prefs::kDeviceEnrollmentAutoStart);
+  const bool pref_enrollment_auto_start =
+      local_state_->GetBoolean(prefs::kDeviceEnrollmentAutoStart);
+
+  const bool pref_enrollment_can_exit_present =
+      local_state_->HasPrefPath(prefs::kDeviceEnrollmentCanExit);
+  const bool pref_enrollment_can_exit =
+      local_state_->GetBoolean(prefs::kDeviceEnrollmentCanExit);
+
+  const bool oem_is_managed =
+      GetMachineFlag(chromeos::system::kOemIsEnterpriseManagedKey, false);
+  const bool oem_can_exit_enrollment = GetMachineFlag(
+      chromeos::system::kOemCanExitEnterpriseEnrollmentKey, true);
+
+  // Decide enrollment mode. Give precedence to forced variants.
+  if (device_state_restore_mode ==
+      kDeviceStateRestoreModeReEnrollmentEnforced) {
+    config.mode = EnrollmentConfig::MODE_SERVER_FORCED;
+    config.management_domain = device_state_management_domain;
+  } else if (pref_enrollment_auto_start_present &&
+             pref_enrollment_auto_start &&
+             pref_enrollment_can_exit_present &&
+             !pref_enrollment_can_exit) {
+    config.mode = EnrollmentConfig::MODE_LOCAL_FORCED;
+  } else if (oem_is_managed && !oem_can_exit_enrollment) {
+    config.mode = EnrollmentConfig::MODE_LOCAL_FORCED;
+  } else if (oobe_complete) {
+    // If OOBE is complete, don't return advertised modes as there's currently
+    // no way to make sure advertised enrollment only gets shown once.
+    config.mode = EnrollmentConfig::MODE_NONE;
+  } else if (device_state_restore_mode ==
+             kDeviceStateRestoreModeReEnrollmentRequested) {
+    config.mode = EnrollmentConfig::MODE_SERVER_ADVERTISED;
+    config.management_domain = device_state_management_domain;
+  } else if (pref_enrollment_auto_start_present && pref_enrollment_auto_start) {
+    config.mode = EnrollmentConfig::MODE_LOCAL_ADVERTISED;
+  } else if (oem_is_managed) {
+    config.mode = EnrollmentConfig::MODE_LOCAL_ADVERTISED;
+  }
+
+  return config;
 }
 
 void DeviceCloudPolicyInitializer::OnStoreLoaded(CloudPolicyStore* store) {
@@ -220,38 +233,35 @@ scoped_ptr<CloudPolicyClient> DeviceCloudPolicyInitializer::CreateClient(
                             DeviceCloudPolicyManagerChromeOS::GetMachineModel(),
                             kPolicyVerificationKeyHash,
                             USER_AFFILIATION_NONE,
-                            device_status_provider_.get(),
                             device_management_service,
                             request_context));
 }
 
 void DeviceCloudPolicyInitializer::TryToCreateClient() {
-  if (device_store_->is_initialized() &&
-      device_store_->has_policy() &&
-      !device_store_->policy()->request_token().empty() &&
-      !state_keys_broker_->pending() &&
-      !enrollment_handler_) {
-    DeviceManagementService* service = NULL;
-    if (device_store_->policy()->management_mode() ==
-        em::PolicyData::CONSUMER_MANAGED) {
-      service = consumer_service_;
-    } else {
-      service = enterprise_service_;
-    }
-    if (service)
-      StartConnection(CreateClient(service));
+  if (!device_store_->is_initialized() ||
+      !device_store_->has_policy() ||
+      state_keys_broker_->pending() ||
+      enrollment_handler_) {
+    return;
   }
+
+  DeviceManagementService* service = nullptr;
+  if (GetManagementMode(*device_store_->policy()) ==
+      MANAGEMENT_MODE_CONSUMER_MANAGED) {
+    service = consumer_service_;
+  } else if (GetManagementMode(*device_store_->policy()) ==
+             MANAGEMENT_MODE_ENTERPRISE_MANAGED) {
+    service = enterprise_service_;
+  }
+
+  if (service)
+    StartConnection(CreateClient(service));
 }
 
 void DeviceCloudPolicyInitializer::StartConnection(
     scoped_ptr<CloudPolicyClient> client) {
   if (!manager_->core()->service())
-    manager_->StartConnection(client.Pass(), device_status_provider_.Pass());
-
-  if (!on_connected_callback_.is_null()) {
-    on_connected_callback_.Run();
-    on_connected_callback_.Reset();
-  }
+    manager_->StartConnection(client.Pass(), install_attributes_);
 }
 
 }  // namespace policy

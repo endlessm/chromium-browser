@@ -163,6 +163,9 @@ BOOL forceMagicMouse = NO;
 
 - (void)beginGestureWithEvent:(NSEvent*)event {
   inGesture_ = YES;
+
+  // Reset state pertaining to Magic Mouse swipe gestures.
+  mouseScrollDelta_ = NSZeroSize;
 }
 
 - (void)endGestureWithEvent:(NSEvent*)event {
@@ -213,10 +216,9 @@ BOOL forceMagicMouse = NO;
 - (void)touchesBeganWithEvent:(NSEvent*)event {
   receivingTouches_ = YES;
 
-  // Reset state pertaining to previous gestures.
+  // Reset state pertaining to previous trackpad gestures.
   gestureStartPointValid_ = NO;
   gestureTotalY_ = 0;
-  mouseScrollDelta_ = NSZeroSize;
   beganEventUnconsumed_ = NO;
   recognitionState_ = history_swiper::kPending;
 }
@@ -595,7 +597,7 @@ BOOL forceMagicMouse = NO;
       // It is unclear whether the user is attempting to perform history
       // swiping.  If the event has a vertical component, send it on to the
       // renderer.
-      return event.scrollingDeltaY == 0;
+      return [event scrollingDeltaY] == 0;
   }
 }
 

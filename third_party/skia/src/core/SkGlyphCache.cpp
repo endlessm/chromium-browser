@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2006 The Android Open Source Project
  *
@@ -6,25 +5,23 @@
  * found in the LICENSE file.
  */
 
-
 #include "SkGlyphCache.h"
 #include "SkGlyphCache_Globals.h"
-#include "SkDistanceFieldGen.h"
 #include "SkGraphics.h"
 #include "SkLazyPtr.h"
+#include "SkMutex.h"
 #include "SkPaint.h"
 #include "SkPath.h"
-#include "SkTemplates.h"
 #include "SkTLS.h"
+#include "SkTemplates.h"
 #include "SkTypeface.h"
 
 //#define SPEW_PURGE_STATUS
-//#define RECORD_HASH_EFFICIENCY
 
 namespace {
 
 SkGlyphCache_Globals* create_globals() {
-    return SkNEW_ARGS(SkGlyphCache_Globals, (SkGlyphCache_Globals::kYes_UseMutex));
+    return SkNEW(SkGlyphCache_Globals);
 }
 
 }  // namespace
@@ -32,38 +29,18 @@ SkGlyphCache_Globals* create_globals() {
 SK_DECLARE_STATIC_LAZY_PTR(SkGlyphCache_Globals, globals, create_globals);
 
 // Returns the shared globals
-static SkGlyphCache_Globals& getSharedGlobals() {
+static SkGlyphCache_Globals& get_globals() {
     return *globals.get();
-}
-
-// Returns the TLS globals (if set), or the shared globals
-static SkGlyphCache_Globals& getGlobals() {
-    SkGlyphCache_Globals* tls = SkGlyphCache_Globals::FindTLS();
-    return tls ? *tls : getSharedGlobals();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#ifdef RECORD_HASH_EFFICIENCY
-    static uint32_t gHashSuccess;
-    static uint32_t gHashCollision;
-
-    static void RecordHashSuccess() {
-        gHashSuccess += 1;
-    }
-
-    static void RecordHashCollisionIf(bool pred) {
-        if (pred) {
-            gHashCollision += 1;
-
-            uint32_t total = gHashSuccess + gHashCollision;
-            SkDebugf("Font Cache Hash success rate: %d%%\n",
-                     100 * gHashSuccess / total);
-        }
-    }
+#ifdef SK_GLYPHCACHE_TRACK_HASH_STATS
+    #define RecordHashSuccess()             fHashHitCount += 1
+    #define RecordHashCollisionIf(pred)     do { if (pred) fHashMissCount += 1; } while (0)
 #else
-    #define RecordHashSuccess() (void)0
-    #define RecordHashCollisionIf(pred) (void)0
+    #define RecordHashSuccess()             (void)0
+    #define RecordHashCollisionIf(pred)     (void)0
 #endif
 #define RecordHashCollision() RecordHashCollisionIf(true)
 
@@ -85,16 +62,22 @@ SkGlyphCache::SkGlyphCache(SkTypeface* typeface, const SkDescriptor* desc, SkSca
     fDesc = desc->copy();
     fScalerContext->getFontMetrics(&fFontMetrics);
 
-    // init to 0 so that all of the pointers will be null
-    memset(fGlyphHash, 0, sizeof(fGlyphHash));
-    // init with 0xFF so that the charCode field will be -1, which is invalid
-    memset(fCharToGlyphHash, 0xFF, sizeof(fCharToGlyphHash));
+    // Create the sentinel SkGlyph.
+    SkGlyph* sentinel = fGlyphArray.insert(0);
+    sentinel->initGlyphFromCombinedID(SkGlyph::kImpossibleID);
+
+    // Initialize all index to zero which points to the sentinel SkGlyph.
+    memset(fGlyphHash, 0x00, sizeof(fGlyphHash));
 
     fMemoryUsed = sizeof(*this);
 
     fGlyphArray.setReserve(kMinGlyphCount);
 
     fAuxProcList = NULL;
+
+#ifdef SK_GLYPHCACHE_TRACK_HASH_STATS
+    fHashHitCount = fHashMissCount = 0;
+#endif
 }
 
 SkGlyphCache::~SkGlyphCache() {
@@ -117,15 +100,15 @@ SkGlyphCache::~SkGlyphCache() {
             }
         }
 
-        printf("glyphPtrArray,%zu, Alloc,%zu, imageUsed,%zu, glyphUsed,%zu, glyphHashAlloc,%zu, glyphHashUsed,%zu, unicharHashAlloc,%zu, unicharHashUsed,%zu\n",
-                 ptrMem, glyphAlloc, imageUsed, glyphUsed, sizeof(fGlyphHash), glyphHashUsed, sizeof(fCharToGlyphHash), uniHashUsed);
+        SkDebugf("glyphPtrArray,%zu, Alloc,%zu, imageUsed,%zu, glyphUsed,%zu, glyphHashAlloc,%zu, glyphHashUsed,%zu, unicharHashAlloc,%zu, unicharHashUsed,%zu\n",
+                 ptrMem, glyphAlloc, imageUsed, glyphUsed, sizeof(fGlyphHash), glyphHashUsed, sizeof(CharGlyphRec) * kHashCount, uniHashUsed);
 
     }
 #endif
-    SkGlyph**   gptr = fGlyphArray.begin();
-    SkGlyph**   stop = fGlyphArray.end();
+    SkGlyph*   gptr = fGlyphArray.begin();
+    SkGlyph*   stop = fGlyphArray.end();
     while (gptr < stop) {
-        SkPath* path = (*gptr)->fPath;
+        SkPath* path = gptr->fPath;
         if (path) {
             SkDELETE(path);
         }
@@ -134,6 +117,36 @@ SkGlyphCache::~SkGlyphCache() {
     SkDescriptor::Free(fDesc);
     SkDELETE(fScalerContext);
     this->invokeAndRemoveAuxProcs();
+}
+
+SkGlyphCache::CharGlyphRec* SkGlyphCache::getCharGlyphRec(uint32_t id) {
+    if (NULL == fCharToGlyphHash.get()) {
+        // Allocate the array.
+        fCharToGlyphHash.reset(kHashCount);
+        // Initialize entries of fCharToGlyphHash to index the sentinel glyph and
+        // an fID value that will not match any id.
+        for (int i = 0; i <kHashCount; ++i) {
+            fCharToGlyphHash[i].fID = SkGlyph::kImpossibleID;
+            fCharToGlyphHash[i].fGlyphIndex = 0;
+        }
+    }
+
+    return &fCharToGlyphHash[ID2HashIndex(id)];
+}
+
+void SkGlyphCache::adjustCaches(int insertion_index) {
+    for (int i = 0; i < kHashCount; ++i) {
+        if (fGlyphHash[i] >= SkToU16(insertion_index)) {
+            fGlyphHash[i] += 1;
+        }
+    }
+    if (fCharToGlyphHash.get() != NULL) {
+        for (int i = 0; i < kHashCount; ++i) {
+            if (fCharToGlyphHash[i].fGlyphIndex >= SkToU16(insertion_index)) {
+                fCharToGlyphHash[i].fGlyphIndex += 1;
+            }
+        }
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -147,10 +160,10 @@ SkGlyphCache::~SkGlyphCache() {
 uint16_t SkGlyphCache::unicharToGlyph(SkUnichar charCode) {
     VALIDATE();
     uint32_t id = SkGlyph::MakeID(charCode);
-    const CharGlyphRec& rec = fCharToGlyphHash[ID2HashIndex(id)];
+    const CharGlyphRec& rec = *this->getCharGlyphRec(id);
 
     if (rec.fID == id) {
-        return rec.fGlyph->getGlyphID();
+        return fGlyphArray[rec.fGlyphIndex].getGlyphID();
     } else {
         return fScalerContext->charToGlyphID(charCode);
     }
@@ -168,160 +181,120 @@ unsigned SkGlyphCache::getGlyphCount() {
 
 const SkGlyph& SkGlyphCache::getUnicharAdvance(SkUnichar charCode) {
     VALIDATE();
-    uint32_t id = SkGlyph::MakeID(charCode);
-    CharGlyphRec* rec = &fCharToGlyphHash[ID2HashIndex(id)];
-
-    if (rec->fID != id) {
-        // this ID is based on the UniChar
-        rec->fID = id;
-        // this ID is based on the glyph index
-        id = SkGlyph::MakeID(fScalerContext->charToGlyphID(charCode));
-        rec->fGlyph = this->lookupMetrics(id, kJustAdvance_MetricsType);
-    }
-    return *rec->fGlyph;
+    return *this->lookupByChar(charCode, kJustAdvance_MetricsType);
 }
 
 const SkGlyph& SkGlyphCache::getGlyphIDAdvance(uint16_t glyphID) {
     VALIDATE();
     uint32_t id = SkGlyph::MakeID(glyphID);
-    unsigned index = ID2HashIndex(id);
-    SkGlyph* glyph = fGlyphHash[index];
-
-    if (NULL == glyph || glyph->fID != id) {
-        glyph = this->lookupMetrics(glyphID, kJustAdvance_MetricsType);
-        fGlyphHash[index] = glyph;
-    }
-    return *glyph;
+    return *this->lookupByCombinedID(id, kJustAdvance_MetricsType);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
 const SkGlyph& SkGlyphCache::getUnicharMetrics(SkUnichar charCode) {
     VALIDATE();
-    uint32_t id = SkGlyph::MakeID(charCode);
-    CharGlyphRec* rec = &fCharToGlyphHash[ID2HashIndex(id)];
-
-    if (rec->fID != id) {
-        RecordHashCollisionIf(rec->fGlyph != NULL);
-        // this ID is based on the UniChar
-        rec->fID = id;
-        // this ID is based on the glyph index
-        id = SkGlyph::MakeID(fScalerContext->charToGlyphID(charCode));
-        rec->fGlyph = this->lookupMetrics(id, kFull_MetricsType);
-    } else {
-        RecordHashSuccess();
-        if (rec->fGlyph->isJustAdvance()) {
-            fScalerContext->getMetrics(rec->fGlyph);
-        }
-    }
-    SkASSERT(rec->fGlyph->isFullMetrics());
-    return *rec->fGlyph;
+    return *this->lookupByChar(charCode, kFull_MetricsType);
 }
 
 const SkGlyph& SkGlyphCache::getUnicharMetrics(SkUnichar charCode,
                                                SkFixed x, SkFixed y) {
     VALIDATE();
-    uint32_t id = SkGlyph::MakeID(charCode, x, y);
-    CharGlyphRec* rec = &fCharToGlyphHash[ID2HashIndex(id)];
-
-    if (rec->fID != id) {
-        RecordHashCollisionIf(rec->fGlyph != NULL);
-        // this ID is based on the UniChar
-        rec->fID = id;
-        // this ID is based on the glyph index
-        id = SkGlyph::MakeID(fScalerContext->charToGlyphID(charCode), x, y);
-        rec->fGlyph = this->lookupMetrics(id, kFull_MetricsType);
-    } else {
-        RecordHashSuccess();
-        if (rec->fGlyph->isJustAdvance()) {
-            fScalerContext->getMetrics(rec->fGlyph);
-        }
-    }
-    SkASSERT(rec->fGlyph->isFullMetrics());
-    return *rec->fGlyph;
+    return *this->lookupByChar(charCode, kFull_MetricsType, x, y);
 }
 
 const SkGlyph& SkGlyphCache::getGlyphIDMetrics(uint16_t glyphID) {
     VALIDATE();
     uint32_t id = SkGlyph::MakeID(glyphID);
-    unsigned index = ID2HashIndex(id);
-    SkGlyph* glyph = fGlyphHash[index];
-
-    if (NULL == glyph || glyph->fID != id) {
-        RecordHashCollisionIf(glyph != NULL);
-        glyph = this->lookupMetrics(glyphID, kFull_MetricsType);
-        fGlyphHash[index] = glyph;
-    } else {
-        RecordHashSuccess();
-        if (glyph->isJustAdvance()) {
-            fScalerContext->getMetrics(glyph);
-        }
-    }
-    SkASSERT(glyph->isFullMetrics());
-    return *glyph;
+    return *this->lookupByCombinedID(id, kFull_MetricsType);
 }
 
-const SkGlyph& SkGlyphCache::getGlyphIDMetrics(uint16_t glyphID,
-                                               SkFixed x, SkFixed y) {
+const SkGlyph& SkGlyphCache::getGlyphIDMetrics(uint16_t glyphID, SkFixed x, SkFixed y) {
     VALIDATE();
     uint32_t id = SkGlyph::MakeID(glyphID, x, y);
-    unsigned index = ID2HashIndex(id);
-    SkGlyph* glyph = fGlyphHash[index];
+    return *this->lookupByCombinedID(id, kFull_MetricsType);
+}
 
-    if (NULL == glyph || glyph->fID != id) {
-        RecordHashCollisionIf(glyph != NULL);
-        glyph = this->lookupMetrics(id, kFull_MetricsType);
-        fGlyphHash[index] = glyph;
+SkGlyph* SkGlyphCache::lookupByChar(SkUnichar charCode, MetricsType type, SkFixed x, SkFixed y) {
+    uint32_t id = SkGlyph::MakeID(charCode, x, y);
+    CharGlyphRec* rec = this->getCharGlyphRec(id);
+    SkGlyph* glyph;
+    if (rec->fID != id) {
+        RecordHashCollisionIf(glyph_index != SkGlyph::kImpossibleID);
+        // this ID is based on the UniChar
+        rec->fID = id;
+        // this ID is based on the glyph index
+        id = SkGlyph::MakeID(fScalerContext->charToGlyphID(charCode), x, y);
+        rec->fGlyphIndex = this->lookupMetrics(id, type);
+        glyph = &fGlyphArray[rec->fGlyphIndex];
     } else {
         RecordHashSuccess();
-        if (glyph->isJustAdvance()) {
+        glyph = &fGlyphArray[rec->fGlyphIndex];
+        if (type == kFull_MetricsType && glyph->isJustAdvance()) {
             fScalerContext->getMetrics(glyph);
         }
     }
-    SkASSERT(glyph->isFullMetrics());
-    return *glyph;
+    return glyph;
 }
 
-SkGlyph* SkGlyphCache::lookupMetrics(uint32_t id, MetricsType mtype) {
-    SkGlyph* glyph;
+SkGlyph* SkGlyphCache::lookupByCombinedID(uint32_t id, MetricsType type) {
+    uint32_t hash_index = ID2HashIndex(id);
+    uint16_t glyph_index = fGlyphHash[hash_index];
+    SkGlyph* glyph = &fGlyphArray[glyph_index];
 
-    int     hi = 0;
-    int     count = fGlyphArray.count();
-
-    if (count) {
-        SkGlyph**   gptr = fGlyphArray.begin();
-        int     lo = 0;
-
-        hi = count - 1;
-        while (lo < hi) {
-            int mid = (hi + lo) >> 1;
-            if (gptr[mid]->fID < id) {
-                lo = mid + 1;
-            } else {
-                hi = mid;
-            }
+    if (glyph->fID != id) {
+        RecordHashCollisionIf(glyph_index != SkGlyph::kImpossibleID);
+        glyph_index = this->lookupMetrics(id, type);
+        fGlyphHash[hash_index] = glyph_index;
+        glyph = &fGlyphArray[glyph_index];
+    } else {
+        RecordHashSuccess();
+        if (type == kFull_MetricsType && glyph->isJustAdvance()) {
+           fScalerContext->getMetrics(glyph);
         }
-        glyph = gptr[hi];
-        if (glyph->fID == id) {
-            if (kFull_MetricsType == mtype && glyph->isJustAdvance()) {
-                fScalerContext->getMetrics(glyph);
-            }
-            return glyph;
-        }
+    }
+    return glyph;
+}
 
-        // check if we need to bump hi before falling though to the allocator
-        if (glyph->fID < id) {
-            hi += 1;
+uint16_t SkGlyphCache::lookupMetrics(uint32_t id, MetricsType mtype) {
+    SkASSERT(id != SkGlyph::kImpossibleID);
+    // Count is always greater than 0 because of the sentinel.
+    // The fGlyphArray cache is in descending order, so that the sentinel with a value of ~0 is
+    // always at index 0.
+    SkGlyph* gptr = fGlyphArray.begin();
+    int lo = 0;
+    int hi = fGlyphArray.count() - 1;
+    while (lo < hi) {
+        int mid = (hi + lo) >> 1;
+        if (gptr[mid].fID > id) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
         }
     }
 
-    // not found, but hi tells us where to inser the new glyph
+    uint16_t glyph_index = hi;
+    SkGlyph* glyph = &gptr[glyph_index];
+    if (glyph->fID == id) {
+        if (kFull_MetricsType == mtype && glyph->isJustAdvance()) {
+            fScalerContext->getMetrics(glyph);
+        }
+        SkASSERT(glyph->fID != SkGlyph::kImpossibleID);
+        return glyph_index;
+    }
+
+    // check if we need to bump hi before falling though to the allocator
+    if (glyph->fID > id) {
+        glyph_index += 1;
+    }
+
+    // Not found, but hi contains the index of the insertion point of the new glyph.
     fMemoryUsed += sizeof(SkGlyph);
 
-    glyph = (SkGlyph*)fGlyphAlloc.alloc(sizeof(SkGlyph),
-                                        SkChunkAlloc::kThrow_AllocFailType);
-    glyph->init(id);
-    *fGlyphArray.insert(hi) = glyph;
+    this->adjustCaches(glyph_index);
+
+    glyph = fGlyphArray.insert(glyph_index);
+    glyph->initGlyphFromCombinedID(id);
 
     if (kJustAdvance_MetricsType == mtype) {
         fScalerContext->getAdvance(glyph);
@@ -330,7 +303,8 @@ SkGlyph* SkGlyphCache::lookupMetrics(uint32_t id, MetricsType mtype) {
         fScalerContext->getMetrics(glyph);
     }
 
-    return glyph;
+    SkASSERT(glyph->fID != SkGlyph::kImpossibleID);
+    return glyph_index;
 }
 
 const void* SkGlyphCache::findImage(const SkGlyph& glyph) {
@@ -365,43 +339,27 @@ const SkPath* SkGlyphCache::findPath(const SkGlyph& glyph) {
     return glyph.fPath;
 }
 
-const void* SkGlyphCache::findDistanceField(const SkGlyph& glyph) {
-    if (glyph.fWidth > 0 && glyph.fWidth < kMaxGlyphWidth) {
-        if (NULL == glyph.fDistanceField) {
-            size_t  size = SkComputeDistanceFieldSize(glyph.fWidth, glyph.fHeight);
-            if (size == 0) {
-                return NULL;
-            }
-            const void* image = this->findImage(glyph);
-            // now generate the distance field
-            if (image) {
-                const_cast<SkGlyph&>(glyph).fDistanceField = fGlyphAlloc.alloc(size,
-                                            SkChunkAlloc::kReturnNil_AllocFailType);
-                if (glyph.fDistanceField) {
-                    SkMask::Format maskFormat = static_cast<SkMask::Format>(glyph.fMaskFormat);
-                    if (SkMask::kA8_Format == maskFormat) {
-                        // make the distance field from the image
-                        SkGenerateDistanceFieldFromA8Image((unsigned char*)glyph.fDistanceField,
-                                                           (unsigned char*)glyph.fImage,
-                                                           glyph.fWidth, glyph.fHeight,
-                                                           glyph.rowBytes());
-                        fMemoryUsed += size;
-                    } else if (SkMask::kBW_Format == maskFormat) {
-                        // make the distance field from the image
-                        SkGenerateDistanceFieldFromBWImage((unsigned char*)glyph.fDistanceField,
-                                                           (unsigned char*)glyph.fImage,
-                                                           glyph.fWidth, glyph.fHeight,
-                                                           glyph.rowBytes());
-                        fMemoryUsed += size;
-                    } else {
-                        fGlyphAlloc.unalloc(glyph.fDistanceField);
-                        const_cast<SkGlyph&>(glyph).fDistanceField = NULL;
-                    }
-                }
-            }
-        }
-    }
-    return glyph.fDistanceField;
+void SkGlyphCache::dump() const {
+    const SkTypeface* face = fScalerContext->getTypeface();
+    const SkScalerContextRec& rec = fScalerContext->getRec();
+    SkMatrix matrix;
+    rec.getSingleMatrix(&matrix);
+    matrix.preScale(SkScalarInvert(rec.fTextSize), SkScalarInvert(rec.fTextSize));
+    SkString name;
+    face->getFamilyName(&name);
+
+    SkString msg;
+    msg.printf("cache typeface:%x %25s:%d size:%2g [%g %g %g %g] lum:%02X devG:%d pntG:%d cntr:%d glyphs:%3d",
+               face->uniqueID(), name.c_str(), face->style(), rec.fTextSize,
+               matrix[SkMatrix::kMScaleX], matrix[SkMatrix::kMSkewX],
+               matrix[SkMatrix::kMSkewY], matrix[SkMatrix::kMScaleY],
+               rec.fLumBits & 0xFF, rec.fDeviceGamma, rec.fPaintGamma, rec.fContrast,
+               fGlyphArray.count());
+#ifdef SK_GLYPHCACHE_TRACK_HASH_STATS
+    const int sum = SkTMax(fHashHitCount + fHashMissCount, 1);   // avoid divide-by-zero
+    msg.appendf(" hash:%2d\n", 100 * fHashHitCount / sum);
+#endif
+    SkDebugf("%s\n", msg.c_str());
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -454,7 +412,14 @@ void SkGlyphCache::invokeAndRemoveAuxProcs() {
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-#include "SkThread.h"
+
+class AutoAcquire {
+public:
+    AutoAcquire(SkSpinlock& lock) : fLock(lock) { fLock.acquire(); }
+    ~AutoAcquire() { fLock.release(); }
+private:
+    SkSpinlock& fLock;
+};
 
 size_t SkGlyphCache_Globals::setCacheSizeLimit(size_t newLimit) {
     static const size_t minLimit = 256 * 1024;
@@ -462,7 +427,7 @@ size_t SkGlyphCache_Globals::setCacheSizeLimit(size_t newLimit) {
         newLimit = minLimit;
     }
 
-    SkAutoMutexAcquire    ac(fMutex);
+    AutoAcquire ac(fLock);
 
     size_t prevLimit = fCacheSizeLimit;
     fCacheSizeLimit = newLimit;
@@ -475,7 +440,7 @@ int SkGlyphCache_Globals::setCacheCountLimit(int newCount) {
         newCount = 0;
     }
 
-    SkAutoMutexAcquire    ac(fMutex);
+    AutoAcquire ac(fLock);
 
     int prevCount = fCacheCountLimit;
     fCacheCountLimit = newCount;
@@ -484,7 +449,7 @@ int SkGlyphCache_Globals::setCacheCountLimit(int newCount) {
 }
 
 void SkGlyphCache_Globals::purgeAll() {
-    SkAutoMutexAcquire    ac(fMutex);
+    AutoAcquire ac(fLock);
     this->internalPurge(fTotalMemoryUsed);
 }
 
@@ -503,25 +468,25 @@ SkGlyphCache* SkGlyphCache::VisitCache(SkTypeface* typeface,
     }
     SkASSERT(desc);
 
-    SkGlyphCache_Globals& globals = getGlobals();
-    SkAutoMutexAcquire    ac(globals.fMutex);
+    SkGlyphCache_Globals& globals = get_globals();
     SkGlyphCache*         cache;
-    bool                  insideMutex = true;
 
-    globals.validate();
+    {
+        AutoAcquire ac(globals.fLock);
 
-    for (cache = globals.internalGetHead(); cache != NULL; cache = cache->fNext) {
-        if (cache->fDesc->equals(*desc)) {
-            globals.internalDetachCache(cache);
-            goto FOUND_IT;
+        globals.validate();
+
+        for (cache = globals.internalGetHead(); cache != NULL; cache = cache->fNext) {
+            if (cache->fDesc->equals(*desc)) {
+                globals.internalDetachCache(cache);
+                if (!proc(cache, context)) {
+                    globals.internalAttachCacheToHead(cache);
+                    cache = NULL;
+                }
+                return cache;
+            }
         }
     }
-
-    /* Release the mutex now, before we create a new entry (which might have
-        side-effects like trying to access the cache/mutex (yikes!)
-    */
-    ac.release();           // release the mutex now
-    insideMutex = false;    // can't use globals anymore
 
     // Check if we can create a scaler-context before creating the glyphcache.
     // If not, we may have exhausted OS/font resources, so try purging the
@@ -531,23 +496,17 @@ SkGlyphCache* SkGlyphCache::VisitCache(SkTypeface* typeface,
         // so we can try the purge.
         SkScalerContext* ctx = typeface->createScalerContext(desc, true);
         if (!ctx) {
-            getSharedGlobals().purgeAll();
+            get_globals().purgeAll();
             ctx = typeface->createScalerContext(desc, false);
             SkASSERT(ctx);
         }
         cache = SkNEW_ARGS(SkGlyphCache, (typeface, desc, ctx));
     }
 
-FOUND_IT:
-
     AutoValidate av(cache);
 
     if (!proc(cache, context)) {   // need to reattach
-        if (insideMutex) {
-            globals.internalAttachCacheToHead(cache);
-        } else {
-            globals.attachCacheToHead(cache);
-        }
+        globals.attachCacheToHead(cache);
         cache = NULL;
     }
     return cache;
@@ -557,13 +516,40 @@ void SkGlyphCache::AttachCache(SkGlyphCache* cache) {
     SkASSERT(cache);
     SkASSERT(cache->fNext == NULL);
 
-    getGlobals().attachCacheToHead(cache);
+    get_globals().attachCacheToHead(cache);
+}
+
+void SkGlyphCache::Dump() {
+    SkGlyphCache_Globals& globals = get_globals();
+    AutoAcquire           ac(globals.fLock);
+    SkGlyphCache*         cache;
+
+    globals.validate();
+
+    SkDebugf("SkGlyphCache strikes:%d memory:%d\n",
+             globals.getCacheCountUsed(), (int)globals.getTotalMemoryUsed());
+
+#ifdef SK_GLYPHCACHE_TRACK_HASH_STATS
+    int hitCount = 0;
+    int missCount = 0;
+#endif
+
+    for (cache = globals.internalGetHead(); cache != NULL; cache = cache->fNext) {
+#ifdef SK_GLYPHCACHE_TRACK_HASH_STATS
+        hitCount += cache->fHashHitCount;
+        missCount += cache->fHashMissCount;
+#endif
+        cache->dump();
+    }
+#ifdef SK_GLYPHCACHE_TRACK_HASH_STATS
+    SkDebugf("Hash hit percent:%2d\n", 100 * hitCount / (hitCount + missCount));
+#endif
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
 void SkGlyphCache_Globals::attachCacheToHead(SkGlyphCache* cache) {
-    SkAutoMutexAcquire    ac(fMutex);
+    AutoAcquire ac(fLock);
 
     this->validate();
     cache->validate();
@@ -672,14 +658,10 @@ void SkGlyphCache::validate() const {
 #ifdef SK_DEBUG_GLYPH_CACHE
     int count = fGlyphArray.count();
     for (int i = 0; i < count; i++) {
-        const SkGlyph* glyph = fGlyphArray[i];
+        const SkGlyph* glyph = &fGlyphArray[i];
         SkASSERT(glyph);
-        SkASSERT(fGlyphAlloc.contains(glyph));
         if (glyph->fImage) {
             SkASSERT(fGlyphAlloc.contains(glyph->fImage));
-        }
-        if (glyph->fDistanceField) {
-            SkASSERT(fGlyphAlloc.contains(glyph->fDistanceField));
         }
     }
 #endif
@@ -696,8 +678,10 @@ void SkGlyphCache_Globals::validate() const {
         head = head->fNext;
     }
 
-    SkASSERT(fTotalMemoryUsed == computedBytes);
-    SkASSERT(fCacheCount == computedCount);
+    SkASSERTF(fCacheCount == computedCount, "fCacheCount: %d, computedCount: %d", fCacheCount,
+              computedCount);
+    SkASSERTF(fTotalMemoryUsed == computedBytes, "fTotalMemoryUsed: %d, computedBytes: %d",
+              fTotalMemoryUsed, computedBytes);
 }
 
 #endif
@@ -708,43 +692,34 @@ void SkGlyphCache_Globals::validate() const {
 #include "SkTypefaceCache.h"
 
 size_t SkGraphics::GetFontCacheLimit() {
-    return getSharedGlobals().getCacheSizeLimit();
+    return get_globals().getCacheSizeLimit();
 }
 
 size_t SkGraphics::SetFontCacheLimit(size_t bytes) {
-    return getSharedGlobals().setCacheSizeLimit(bytes);
+    return get_globals().setCacheSizeLimit(bytes);
 }
 
 size_t SkGraphics::GetFontCacheUsed() {
-    return getSharedGlobals().getTotalMemoryUsed();
+    return get_globals().getTotalMemoryUsed();
 }
 
 int SkGraphics::GetFontCacheCountLimit() {
-    return getSharedGlobals().getCacheCountLimit();
+    return get_globals().getCacheCountLimit();
 }
 
 int SkGraphics::SetFontCacheCountLimit(int count) {
-    return getSharedGlobals().setCacheCountLimit(count);
+    return get_globals().setCacheCountLimit(count);
 }
 
 int SkGraphics::GetFontCacheCountUsed() {
-    return getSharedGlobals().getCacheCountUsed();
+    return get_globals().getCacheCountUsed();
 }
 
 void SkGraphics::PurgeFontCache() {
-    getSharedGlobals().purgeAll();
+    get_globals().purgeAll();
     SkTypefaceCache::PurgeAll();
 }
 
-size_t SkGraphics::GetTLSFontCacheLimit() {
-    const SkGlyphCache_Globals* tls = SkGlyphCache_Globals::FindTLS();
-    return tls ? tls->getCacheSizeLimit() : 0;
-}
-
-void SkGraphics::SetTLSFontCacheLimit(size_t bytes) {
-    if (0 == bytes) {
-        SkGlyphCache_Globals::DeleteTLS();
-    } else {
-        SkGlyphCache_Globals::GetTLS().setCacheSizeLimit(bytes);
-    }
-}
+// TODO(herb): clean up TLS apis.
+size_t SkGraphics::GetTLSFontCacheLimit() { return 0; }
+void SkGraphics::SetTLSFontCacheLimit(size_t bytes) { }

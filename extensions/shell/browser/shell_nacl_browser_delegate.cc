@@ -22,7 +22,6 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/url_pattern.h"
 #include "extensions/shell/common/version.h"  // Generated file.
-#include "ppapi/c/private/ppb_nacl_private.h"
 #include "url/gurl.h"
 
 using content::BrowserContext;
@@ -126,7 +125,8 @@ ppapi::host::HostFactory* ShellNaClBrowserDelegate::CreatePpapiHostFactory(
   return NULL;
 }
 
-void ShellNaClBrowserDelegate::SetDebugPatterns(std::string debug_patterns) {
+void ShellNaClBrowserDelegate::SetDebugPatterns(
+    const std::string& debug_patterns) {
   // No debugger support. Developers should use Chrome for debugging.
 }
 

@@ -7,6 +7,7 @@
 
 #include <vector>
 
+#include "base/memory/scoped_vector.h"
 #include "base/task/cancelable_task_tracker.h"
 
 namespace autofill {
@@ -14,6 +15,8 @@ struct PasswordForm;
 }
 
 namespace password_manager {
+
+struct InteractionsStats;
 
 // Reads from the PasswordStore are done asynchronously on a separate
 // thread. PasswordStoreConsumer provides the virtual callback method, which is
@@ -24,11 +27,12 @@ class PasswordStoreConsumer {
  public:
   PasswordStoreConsumer();
 
-  // Called when the request is finished. If there are no results, it is called
-  // with an empty vector.
-  // Note: The implementation owns all PasswordForms in the vector.
+  // Called when the GetLogins() request is finished, with the associated
+  // |results|.
   virtual void OnGetPasswordStoreResults(
-      const std::vector<autofill::PasswordForm*>& results) = 0;
+      ScopedVector<autofill::PasswordForm> results) = 0;
+
+  virtual void OnGetSiteStatistics(scoped_ptr<InteractionsStats> stats);
 
   // The base::CancelableTaskTracker can be used for cancelling the
   // tasks associated with the consumer.

@@ -5,6 +5,7 @@
 #include "extensions/common/permissions/settings_override_permission.h"
 
 #include "base/strings/utf_string_conversions.h"
+#include "extensions/common/permissions/api_permission_set.h"
 #include "grit/extensions_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -17,6 +18,12 @@ SettingsOverrideAPIPermission::SettingsOverrideAPIPermission(
 
 SettingsOverrideAPIPermission::~SettingsOverrideAPIPermission() {}
 
+PermissionIDSet SettingsOverrideAPIPermission::GetPermissions() const {
+  PermissionIDSet permissions;
+  permissions.insert(info()->id(), base::UTF8ToUTF16(setting_value_));
+  return permissions;
+}
+
 bool SettingsOverrideAPIPermission::HasMessages() const {
   return info()->message_id() > PermissionMessage::kNone;
 }
@@ -24,6 +31,8 @@ bool SettingsOverrideAPIPermission::HasMessages() const {
 PermissionMessages SettingsOverrideAPIPermission::GetMessages() const {
   DCHECK(HasMessages());
   int string_id = -1;
+  // Warning: when modifying this function, be sure to modify the correct rule
+  // in ChromePermissionMessageProvider.
   switch (id()) {
     case kHomepage: {
       string_id = IDS_EXTENSION_PROMPT_WARNING_HOME_PAGE_SETTING_OVERRIDE;
@@ -100,7 +109,7 @@ APIPermission* SettingsOverrideAPIPermission::Intersect(
 void SettingsOverrideAPIPermission::Write(IPC::Message* m) const {}
 
 bool SettingsOverrideAPIPermission::Read(const IPC::Message* m,
-                                         PickleIterator* iter) {
+                                         base::PickleIterator* iter) {
   return true;
 }
 

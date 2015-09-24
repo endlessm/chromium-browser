@@ -30,6 +30,13 @@ class PrefRegistrySyncable;
 
 namespace chrome {
 
+// For reporting Cacheable NTP navigations.
+enum CacheableNTPLoad {
+  CACHEABLE_NTP_LOAD_FAILED = 0,
+  CACHEABLE_NTP_LOAD_SUCCEEDED = 1,
+  CACHEABLE_NTP_LOAD_MAX = 2
+};
+
 enum OptInState {
   // The user has not manually opted in/out of InstantExtended.
   INSTANT_EXTENDED_NOT_SET,
@@ -38,21 +45,6 @@ enum OptInState {
   // The user has opted-out of InstantExtended.
   INSTANT_EXTENDED_OPT_OUT,
   INSTANT_EXTENDED_OPT_IN_STATE_ENUM_COUNT,
-};
-
-enum DisplaySearchButtonConditions {
-  DISPLAY_SEARCH_BUTTON_NEVER,
-  DISPLAY_SEARCH_BUTTON_FOR_STR,         // STR = Search Term Replacement
-  DISPLAY_SEARCH_BUTTON_FOR_STR_OR_IIP,  // IIP = Input In Progress
-  DISPLAY_SEARCH_BUTTON_ALWAYS,
-  DISPLAY_SEARCH_BUTTON_NUM_VALUES,
-};
-
-enum OriginChipCondition {
-  ORIGIN_CHIP_DISABLED = 0,
-  ORIGIN_CHIP_ALWAYS,
-  ORIGIN_CHIP_ON_SRP,
-  ORIGIN_CHIP_NUM_VALUES,
 };
 
 // Use this value for "start margin" to prevent the "es_sm" parameter from
@@ -177,18 +169,6 @@ bool ShouldReuseInstantSearchBasePage();
 // Returns the Local Instant URL of the New Tab Page.
 // TODO(kmadhusu): Remove this function and update the call sites.
 GURL GetLocalInstantURL(Profile* profile);
-
-// Returns when we should show a search button in the omnibox.  This may be any
-// of several values, some of which depend on whether the underlying state of
-// the page would normally be to perform search term replacement; see also
-// ToolbarModel::WouldPerformSearchTermReplacement().
-DisplaySearchButtonConditions GetDisplaySearchButtonConditions();
-
-// Returns true if the origin chip should be shown.
-bool ShouldDisplayOriginChip();
-
-// Returns a value indicating when the origin chip should be shown.
-OriginChipCondition GetOriginChipCondition();
 
 // Returns true if the local new tab page should show a Google logo and search
 // box for users whose default search provider is Google, or false if not.

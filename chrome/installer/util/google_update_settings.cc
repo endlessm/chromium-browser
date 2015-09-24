@@ -5,6 +5,7 @@
 #include "chrome/installer/util/google_update_settings.h"
 
 #include <algorithm>
+#include <limits>
 
 #include "base/command_line.h"
 #include "base/files/file_path.h"
@@ -70,7 +71,7 @@ bool ReadGoogleUpdateStrKey(const wchar_t* const name, base::string16* value) {
 bool WriteGoogleUpdateAggregateNumKeyInternal(
     const AppRegistrationData& app_reg_data,
     const wchar_t* const name,
-    int value,
+    size_t value,
     const wchar_t* const aggregate) {
   DCHECK(aggregate);
   DCHECK(GoogleUpdateSettings::IsSystemInstall());
@@ -90,7 +91,11 @@ bool WriteGoogleUpdateAggregateNumKeyInternal(
   reg_path.append(name);
   RegKey key(HKEY_LOCAL_MACHINE, reg_path.c_str(), kAccess);
   key.WriteValue(google_update::kRegAggregateMethod, aggregate);
-  return (key.WriteValue(uniquename.c_str(), value) == ERROR_SUCCESS);
+
+  DWORD dword_value = (value > std::numeric_limits<DWORD>::max() ?
+      std::numeric_limits<DWORD>::max() :
+      static_cast<DWORD>(value));
+  return (key.WriteValue(uniquename.c_str(), dword_value) == ERROR_SUCCESS);
 }
 
 // Updates a registry key |name| to be |value| for the given |app_reg_data|.
@@ -214,7 +219,7 @@ bool GoogleUpdateSettings::IsSystemInstall() {
     LOG(WARNING)
         << "Failed to get directory of module; assuming per-user install.";
   } else {
-    system_install = !InstallUtil::IsPerUserInstall(module_dir.value().c_str());
+    system_install = !InstallUtil::IsPerUserInstall(module_dir);
   }
   return system_install;
 }
@@ -546,8 +551,8 @@ bool GoogleUpdateSettings::UpdateGoogleUpdateApKey(
   return modified;
 }
 
-void GoogleUpdateSettings::UpdateProfileCounts(int profiles_active,
-                                               int profiles_signedin) {
+void GoogleUpdateSettings::UpdateProfileCounts(size_t profiles_active,
+                                               size_t profiles_signedin) {
   BrowserDistribution* dist = BrowserDistribution::GetDistribution();
   // System-level installs must write into the ClientStateMedium key shared by
   // all users. Special treatment is used to aggregate across those users.
@@ -569,10 +574,10 @@ void GoogleUpdateSettings::UpdateProfileCounts(int profiles_active,
     // user-level installs.
     WriteGoogleUpdateStrKeyInternal(dist->GetAppRegistrationData(),
                                     google_update::kRegProfilesActive,
-                                    base::IntToString16(profiles_active));
+                                    base::SizeTToString16(profiles_active));
     WriteGoogleUpdateStrKeyInternal(dist->GetAppRegistrationData(),
                                     google_update::kRegProfilesSignedIn,
-                                    base::IntToString16(profiles_signedin));
+                                    base::SizeTToString16(profiles_signedin));
   }
 }
 
@@ -592,12 +597,13 @@ int GoogleUpdateSettings::DuplicateGoogleUpdateSystemClientKey() {
                        TRUE, DUPLICATE_SAME_ACCESS)) {
     return 0;
   }
-  return reinterpret_cast<int>(target_handle);
+  return static_cast<int>(reinterpret_cast<uintptr_t>(target_handle));
 }
 
 bool GoogleUpdateSettings::WriteGoogleUpdateSystemClientKey(
     int handle, const base::string16& key, const base::string16& value) {
-  HKEY reg_key = reinterpret_cast<HKEY>(reinterpret_cast<void*>(handle));
+  HKEY reg_key = reinterpret_cast<HKEY>(
+      reinterpret_cast<void*>(static_cast<uintptr_t>(handle)));
   DWORD size = static_cast<DWORD>(value.size()) * sizeof(wchar_t);
   LSTATUS status = RegSetValueEx(reg_key, key.c_str(), 0, REG_SZ,
       reinterpret_cast<const BYTE*>(value.c_str()), size);
@@ -923,6 +929,10 @@ bool GoogleUpdateSettings::SetExperimentLabels(
         system_install ? dist->GetStateMediumKey() : dist->GetStateKey());
     RegKey client_state(
         reg_root, client_state_path.c_str(), KEY_SET_VALUE | KEY_WOW64_32KEY);
+    // It is possible that the registry keys do not yet exist or have not yet
+    // been ACLed by Google Update to be user writable.
+    if (!client_state.Valid())
+      return false;
     if (experiment_labels.empty()) {
       success = client_state.DeleteValue(google_update::kExperimentLabels)
           == ERROR_SUCCESS;

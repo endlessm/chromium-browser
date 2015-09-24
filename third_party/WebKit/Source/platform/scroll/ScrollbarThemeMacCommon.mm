@@ -29,12 +29,8 @@
 
 #include <Carbon/Carbon.h>
 #include "platform/PlatformMouseEvent.h"
-#include "platform/graphics/Gradient.h"
 #include "platform/graphics/GraphicsContext.h"
-#include "platform/graphics/GraphicsContextStateSaver.h"
-#include "platform/graphics/GraphicsLayer.h"
-#include "platform/graphics/ImageBuffer.h"
-#include "platform/graphics/Pattern.h"
+#include "platform/graphics/paint/DrawingRecorder.h"
 #include "platform/mac/ColorMac.h"
 #include "platform/mac/LocalCurrentGraphicsContext.h"
 #include "platform/mac/NSScrollerImpDetails.h"
@@ -97,7 +93,7 @@ void ScrollbarThemeMacCommon::unregisterScrollbar(ScrollbarThemeClient* scrollba
     scrollbarSet().remove(scrollbar);
 }
 
-void ScrollbarThemeMacCommon::paintGivenTickmarks(GraphicsContext* context, ScrollbarThemeClient* scrollbar, const IntRect& rect, const Vector<IntRect>& tickmarks)
+void ScrollbarThemeMacCommon::paintGivenTickmarks(SkCanvas* canvas, ScrollbarThemeClient* scrollbar, const IntRect& rect, const Vector<IntRect>& tickmarks)
 {
     if (scrollbar->orientation() != VerticalScrollbar)
         return;
@@ -108,10 +104,17 @@ void ScrollbarThemeMacCommon::paintGivenTickmarks(GraphicsContext* context, Scro
     if (!tickmarks.size())
         return;
 
-    GraphicsContextStateSaver stateSaver(*context);
-    context->setShouldAntialias(false);
-    context->setStrokeColor(Color(0xCC, 0xAA, 0x00, 0xFF));
-    context->setFillColor(Color(0xFF, 0xDD, 0x00, 0xFF));
+    SkAutoCanvasRestore stateSaver(canvas, true);
+
+    SkPaint strokePaint;
+    strokePaint.setAntiAlias(false);
+    strokePaint.setColor(SkColorSetRGB(0xCC, 0xAA, 0x00));
+    strokePaint.setStyle(SkPaint::kStroke_Style);
+
+    SkPaint fillPaint;
+    fillPaint.setAntiAlias(false);
+    fillPaint.setColor(SkColorSetRGB(0xFF, 0xDD, 0x00));
+    fillPaint.setStyle(SkPaint::kFill_Style);
 
     for (Vector<IntRect>::const_iterator i = tickmarks.begin(); i != tickmarks.end(); ++i) {
         // Calculate how far down (in %) the tick-mark should appear.
@@ -124,142 +127,8 @@ void ScrollbarThemeMacCommon::paintGivenTickmarks(GraphicsContext* context, Scro
 
         // Paint.
         FloatRect tickRect(rect.x(), yPos, rect.width(), 2);
-        context->fillRect(tickRect);
-        context->strokeRect(tickRect, 1);
-    }
-}
-
-void ScrollbarThemeMacCommon::paintOverhangBackground(GraphicsContext* context, const IntRect& horizontalOverhangRect, const IntRect& verticalOverhangRect, const IntRect& dirtyRect)
-{
-    const bool hasHorizontalOverhang = !horizontalOverhangRect.isEmpty();
-    const bool hasVerticalOverhang = !verticalOverhangRect.isEmpty();
-
-    GraphicsContextStateSaver stateSaver(*context);
-
-    if (!m_overhangPattern) {
-        // Lazily load the linen pattern image used for overhang drawing.
-        RefPtr<Image> patternImage = Image::loadPlatformResource("overhangPattern");
-        m_overhangPattern = Pattern::createBitmapPattern(patternImage);
-    }
-    context->setFillPattern(m_overhangPattern);
-    if (hasHorizontalOverhang)
-        context->fillRect(intersection(horizontalOverhangRect, dirtyRect));
-    if (hasVerticalOverhang)
-        context->fillRect(intersection(verticalOverhangRect, dirtyRect));
-}
-
-void ScrollbarThemeMacCommon::paintOverhangShadows(GraphicsContext* context, const IntSize& scrollOffset, const IntRect& horizontalOverhangRect, const IntRect& verticalOverhangRect, const IntRect& dirtyRect)
-{
-    // The extent of each shadow in pixels.
-    const int kShadowSize = 4;
-    // Offset of negative one pixel to make the gradient blend with the toolbar's bottom border.
-    const int kToolbarShadowOffset = -1;
-    const struct {
-        float stop;
-        Color color;
-    } kShadowColors[] = {
-        { 0.000, Color(0, 0, 0, 255) },
-        { 0.125, Color(0, 0, 0, 57) },
-        { 0.375, Color(0, 0, 0, 41) },
-        { 0.625, Color(0, 0, 0, 18) },
-        { 0.875, Color(0, 0, 0, 6) },
-        { 1.000, Color(0, 0, 0, 0) }
-    };
-    const unsigned kNumShadowColors = sizeof(kShadowColors)/sizeof(kShadowColors[0]);
-
-    const bool hasHorizontalOverhang = !horizontalOverhangRect.isEmpty();
-    const bool hasVerticalOverhang = !verticalOverhangRect.isEmpty();
-    // Prefer non-additive shadows, but degrade to additive shadows if there is vertical overhang.
-    const bool useAdditiveShadows = hasVerticalOverhang;
-
-    GraphicsContextStateSaver stateSaver(*context);
-
-    FloatPoint shadowCornerOrigin;
-    FloatPoint shadowCornerOffset;
-
-    // Draw the shadow for the horizontal overhang.
-    if (hasHorizontalOverhang) {
-        int toolbarShadowHeight = kShadowSize;
-        RefPtr<Gradient> gradient;
-        IntRect shadowRect = horizontalOverhangRect;
-        shadowRect.setHeight(kShadowSize);
-        if (scrollOffset.height() < 0) {
-            if (useAdditiveShadows) {
-                toolbarShadowHeight = std::min(horizontalOverhangRect.height(), kShadowSize);
-            } else if (horizontalOverhangRect.height() < 2 * kShadowSize + kToolbarShadowOffset) {
-                // Split the overhang area between the web content shadow and toolbar shadow if it's too small.
-                shadowRect.setHeight((horizontalOverhangRect.height() + 1) / 2);
-                toolbarShadowHeight = horizontalOverhangRect.height() - shadowRect.height() - kToolbarShadowOffset;
-            }
-            shadowRect.setY(horizontalOverhangRect.maxY() - shadowRect.height());
-            gradient = Gradient::create(FloatPoint(0, shadowRect.maxY()), FloatPoint(0, shadowRect.maxY() - kShadowSize));
-            shadowCornerOrigin.setY(shadowRect.maxY());
-            shadowCornerOffset.setY(-kShadowSize);
-        } else {
-            gradient = Gradient::create(FloatPoint(0, shadowRect.y()), FloatPoint(0, shadowRect.maxY()));
-            shadowCornerOrigin.setY(shadowRect.y());
-        }
-        if (hasVerticalOverhang) {
-            shadowRect.setWidth(shadowRect.width() - verticalOverhangRect.width());
-            if (scrollOffset.width() < 0) {
-                shadowRect.setX(shadowRect.x() + verticalOverhangRect.width());
-                shadowCornerOrigin.setX(shadowRect.x());
-                shadowCornerOffset.setX(-kShadowSize);
-            } else {
-                shadowCornerOrigin.setX(shadowRect.maxX());
-            }
-        }
-        for (unsigned i = 0; i < kNumShadowColors; i++)
-            gradient->addColorStop(kShadowColors[i].stop, kShadowColors[i].color);
-        context->setFillGradient(gradient);
-        context->fillRect(intersection(shadowRect, dirtyRect));
-
-        // Draw a drop-shadow from the toolbar.
-        if (scrollOffset.height() < 0) {
-            shadowRect.setY(kToolbarShadowOffset);
-            shadowRect.setHeight(toolbarShadowHeight);
-            gradient = Gradient::create(FloatPoint(0, shadowRect.y()), FloatPoint(0, shadowRect.y() + kShadowSize));
-            for (unsigned i = 0; i < kNumShadowColors; i++)
-                gradient->addColorStop(kShadowColors[i].stop, kShadowColors[i].color);
-            context->setFillGradient(gradient);
-            context->fillRect(intersection(shadowRect, dirtyRect));
-        }
-    }
-
-    // Draw the shadow for the vertical overhang.
-    if (hasVerticalOverhang) {
-        RefPtr<Gradient> gradient;
-        IntRect shadowRect = verticalOverhangRect;
-        shadowRect.setWidth(kShadowSize);
-        if (scrollOffset.width() < 0) {
-            shadowRect.setX(verticalOverhangRect.maxX() - shadowRect.width());
-            gradient = Gradient::create(FloatPoint(shadowRect.maxX(), 0), FloatPoint(shadowRect.x(), 0));
-        } else {
-            gradient = Gradient::create(FloatPoint(shadowRect.x(), 0), FloatPoint(shadowRect.maxX(), 0));
-        }
-        for (unsigned i = 0; i < kNumShadowColors; i++)
-            gradient->addColorStop(kShadowColors[i].stop, kShadowColors[i].color);
-        context->setFillGradient(gradient);
-        context->fillRect(intersection(shadowRect, dirtyRect));
-
-        // Draw a drop-shadow from the toolbar.
-        shadowRect = verticalOverhangRect;
-        shadowRect.setY(kToolbarShadowOffset);
-        shadowRect.setHeight(kShadowSize);
-        gradient = Gradient::create(FloatPoint(0, shadowRect.y()), FloatPoint(0, shadowRect.maxY()));
-        for (unsigned i = 0; i < kNumShadowColors; i++)
-            gradient->addColorStop(kShadowColors[i].stop, kShadowColors[i].color);
-        context->setFillGradient(gradient);
-        context->fillRect(intersection(shadowRect, dirtyRect));
-    }
-
-    // If both rectangles present, draw a radial gradient for the corner.
-    if (hasHorizontalOverhang && hasVerticalOverhang) {
-        RefPtr<Gradient> gradient = Gradient::create(shadowCornerOrigin, 0, shadowCornerOrigin, kShadowSize);
-        for (unsigned i = 0; i < kNumShadowColors; i++)
-            gradient->addColorStop(kShadowColors[i].stop, kShadowColors[i].color);
-        context->setFillGradient(gradient);
-        context->fillRect(FloatRect(shadowCornerOrigin.x() + shadowCornerOffset.x(), shadowCornerOrigin.y() + shadowCornerOffset.y(), kShadowSize, kShadowSize));
+        canvas->drawRect(tickRect, fillPaint);
+        canvas->drawRect(tickRect, strokePaint);
     }
 }
 
@@ -277,11 +146,16 @@ void ScrollbarThemeMacCommon::paintTickmarks(GraphicsContext* context, Scrollbar
     if (!tickmarks.size())
         return;
 
+    if (DrawingRecorder::useCachedDrawingIfPossible(*context, *scrollbar, DisplayItem::ScrollbarTickmarks))
+        return;
+
+    DrawingRecorder recorder(*context, *scrollbar, DisplayItem::ScrollbarTickmarks, rect);
+
     // Inset a bit.
     IntRect tickmarkTrackRect = rect;
     tickmarkTrackRect.setX(tickmarkTrackRect.x() + 1);
     tickmarkTrackRect.setWidth(tickmarkTrackRect.width() - 2);
-    paintGivenTickmarks(context, scrollbar, tickmarkTrackRect, tickmarks);
+    paintGivenTickmarks(context->canvas(), scrollbar, tickmarkTrackRect, tickmarks);
 }
 
 ScrollbarThemeMacCommon::~ScrollbarThemeMacCommon()

@@ -28,6 +28,7 @@
 
 #include "core/dom/ActiveDOMObject.h"
 #include "modules/EventTargetModules.h"
+#include "modules/ModulesExport.h"
 #include "modules/mediastream/SourceInfo.h"
 #include "platform/mediastream/MediaStreamDescriptor.h"
 #include "platform/mediastream/MediaStreamSource.h"
@@ -40,17 +41,16 @@ class ExceptionState;
 class MediaStreamComponent;
 class MediaStreamTrackSourcesCallback;
 
-class MediaStreamTrack final
-    : public RefCountedGarbageCollectedWillBeGarbageCollectedFinalized<MediaStreamTrack>
+class MODULES_EXPORT MediaStreamTrack final
+    : public RefCountedGarbageCollectedEventTargetWithInlineData<MediaStreamTrack>
     , public ActiveDOMObject
-    , public EventTargetWithInlineData
     , public MediaStreamSource::Observer {
-    DEFINE_EVENT_TARGET_REFCOUNTING_WILL_BE_REMOVED(RefCountedGarbageCollectedWillBeGarbageCollectedFinalized<MediaStreamTrack>);
-    DEFINE_WRAPPERTYPEINFO();
+    REFCOUNTED_GARBAGE_COLLECTED_EVENT_TARGET(MediaStreamTrack);
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(MediaStreamTrack);
+    DEFINE_WRAPPERTYPEINFO();
 public:
     static MediaStreamTrack* create(ExecutionContext*, MediaStreamComponent*);
-    virtual ~MediaStreamTrack();
+    ~MediaStreamTrack() override;
 
     String kind() const;
     String id() const;
@@ -80,32 +80,34 @@ public:
     void unregisterMediaStream(MediaStream*);
 
     // EventTarget
-    virtual const AtomicString& interfaceName() const override;
-    virtual ExecutionContext* executionContext() const override;
+    const AtomicString& interfaceName() const override;
+    ExecutionContext* executionContext() const override;
 
     // ActiveDOMObject
-    virtual void stop() override;
+    void stop() override;
 
     PassOwnPtr<AudioSourceProvider> createWebAudioSource();
 
-    virtual void trace(Visitor*) override;
+    // Oilpan: need to eagerly unregister as observer.
+    EAGERLY_FINALIZE();
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     MediaStreamTrack(ExecutionContext*, MediaStreamComponent*);
 
     // MediaStreamSourceObserver
-    virtual void sourceChangedState() override;
+    void sourceChangedState() override;
 
     void propagateTrackEnded();
 
     MediaStreamSource::ReadyState m_readyState;
-    HeapHashSet<Member<MediaStream> > m_registeredMediaStreams;
+    HeapHashSet<Member<MediaStream>> m_registeredMediaStreams;
     bool m_isIteratingRegisteredMediaStreams;
     bool m_stopped;
     RefPtr<MediaStreamComponent> m_component;
 };
 
-typedef HeapVector<Member<MediaStreamTrack> > MediaStreamTrackVector;
+typedef HeapVector<Member<MediaStreamTrack>> MediaStreamTrackVector;
 
 } // namespace blink
 

@@ -4,14 +4,15 @@
 
 #include "gpu/command_buffer/service/buffer_manager.h"
 #include <limits>
-#include "base/debug/trace_event.h"
 #include "base/logging.h"
+#include "base/trace_event/trace_event.h"
 #include "gpu/command_buffer/common/gles2_cmd_utils.h"
 #include "gpu/command_buffer/service/context_state.h"
 #include "gpu/command_buffer/service/error_state.h"
 #include "gpu/command_buffer/service/feature_info.h"
 #include "gpu/command_buffer/service/memory_tracking.h"
 #include "ui/gl/gl_bindings.h"
+#include "ui/gl/gl_implementation.h"
 
 namespace gpu {
 namespace gles2 {
@@ -23,6 +24,7 @@ BufferManager::BufferManager(
           new MemoryTypeTracker(memory_tracker, MemoryTracker::kManaged)),
       feature_info_(feature_info),
       allow_buffers_on_multiple_targets_(false),
+      allow_fixed_attribs_(false),
       buffer_count_(0),
       have_context_(true),
       use_client_side_arrays_for_stream_buffers_(
@@ -72,6 +74,27 @@ void BufferManager::StopTracking(Buffer* buffer) {
   --buffer_count_;
 }
 
+Buffer::MappedRange::MappedRange(
+    GLintptr offset, GLsizeiptr size, GLenum access, void* pointer,
+    scoped_refptr<gpu::Buffer> shm)
+    : offset(offset),
+      size(size),
+      access(access),
+      pointer(pointer),
+      shm(shm) {
+  DCHECK(pointer);
+  DCHECK(shm.get() && GetShmPointer());
+}
+
+Buffer::MappedRange::~MappedRange() {
+}
+
+void* Buffer::MappedRange::GetShmPointer() const {
+  DCHECK(shm.get());
+  return shm->GetDataAddress(static_cast<unsigned int>(offset),
+                             static_cast<unsigned int>(size));
+}
+
 Buffer::Buffer(BufferManager* manager, GLuint service_id)
     : manager_(manager),
       size_(0),
@@ -79,7 +102,7 @@ Buffer::Buffer(BufferManager* manager, GLuint service_id)
       shadowed_(false),
       is_client_side_array_(false),
       service_id_(service_id),
-      target_(0),
+      initial_target_(0),
       usage_(GL_STATIC_DRAW) {
   manager_->StartTracking(this);
 }
@@ -117,6 +140,7 @@ void Buffer::SetInfo(
       memset(shadow_.get(), 0, size);
     }
   }
+  mapped_range_.reset(nullptr);
 }
 
 bool Buffer::CheckRange(
@@ -247,21 +271,25 @@ bool BufferManager::UseNonZeroSizeForClientSideArrayBuffer() {
              .use_non_zero_size_for_client_side_stream_buffers;
 }
 
-void BufferManager::SetInfo(
-    Buffer* buffer, GLsizeiptr size, GLenum usage, const GLvoid* data) {
+void BufferManager::SetInfo(Buffer* buffer, GLenum target, GLsizeiptr size,
+                            GLenum usage, const GLvoid* data) {
   DCHECK(buffer);
   memory_tracker_->TrackMemFree(buffer->size());
-  bool is_client_side_array = IsUsageClientSideArray(usage);
-  bool shadow = buffer->target() == GL_ELEMENT_ARRAY_BUFFER ||
-                allow_buffers_on_multiple_targets_ ||
-                is_client_side_array;
+  const bool is_client_side_array = IsUsageClientSideArray(usage);
+  const bool support_fixed_attribs =
+    gfx::GetGLImplementation() == gfx::kGLImplementationEGLGLES2;
+  // TODO(zmo): Don't shadow buffer data on ES3. crbug.com/491002.
+  const bool shadow = target == GL_ELEMENT_ARRAY_BUFFER ||
+                      allow_buffers_on_multiple_targets_ ||
+                      (allow_fixed_attribs_ && !support_fixed_attribs) ||
+                      is_client_side_array;
   buffer->SetInfo(size, usage, shadow, data, is_client_side_array);
   memory_tracker_->TrackMemAlloc(buffer->size());
 }
 
 void BufferManager::ValidateAndDoBufferData(
     ContextState* context_state, GLenum target, GLsizeiptr size,
-    const GLvoid * data, GLenum usage) {
+    const GLvoid* data, GLenum usage) {
   ErrorState* error_state = context_state->GetErrorState();
   if (!feature_info_->validators()->buffer_target.IsValid(target)) {
     ERRORSTATE_SET_GL_ERROR_INVALID_ENUM(
@@ -292,13 +320,14 @@ void BufferManager::ValidateAndDoBufferData(
     return;
   }
 
-  DoBufferData(error_state, buffer, size, usage, data);
+  DoBufferData(error_state, buffer, target, size, usage, data);
 }
 
 
 void BufferManager::DoBufferData(
     ErrorState* error_state,
     Buffer* buffer,
+    GLenum target,
     GLsizeiptr size,
     GLenum usage,
     const GLvoid* data) {
@@ -313,15 +342,15 @@ void BufferManager::DoBufferData(
   ERRORSTATE_COPY_REAL_GL_ERRORS_TO_WRAPPER(error_state, "glBufferData");
   if (IsUsageClientSideArray(usage)) {
     GLsizei empty_size = UseNonZeroSizeForClientSideArrayBuffer() ? 1 : 0;
-    glBufferData(buffer->target(), empty_size, NULL, usage);
+    glBufferData(target, empty_size, NULL, usage);
   } else {
-    glBufferData(buffer->target(), size, data, usage);
+    glBufferData(target, size, data, usage);
   }
   GLenum error = ERRORSTATE_PEEK_GL_ERROR(error_state, "glBufferData");
   if (error == GL_NO_ERROR) {
-    SetInfo(buffer, size, usage, data);
+    SetInfo(buffer, target, size, usage, data);
   } else {
-    SetInfo(buffer, 0, usage, NULL);
+    SetInfo(buffer, target, 0, usage, NULL);
   }
 }
 
@@ -336,12 +365,13 @@ void BufferManager::ValidateAndDoBufferSubData(
     return;
   }
 
-  DoBufferSubData(error_state, buffer, offset, size, data);
+  DoBufferSubData(error_state, buffer, target, offset, size, data);
 }
 
 void BufferManager::DoBufferSubData(
     ErrorState* error_state,
     Buffer* buffer,
+    GLenum target,
     GLintptr offset,
     GLsizeiptr size,
     const GLvoid* data) {
@@ -352,7 +382,7 @@ void BufferManager::DoBufferSubData(
   }
 
   if (!buffer->IsClientSideArray()) {
-    glBufferSubData(buffer->target(), offset, size, data);
+    glBufferSubData(target, offset, size, data);
   }
 }
 
@@ -378,26 +408,73 @@ void BufferManager::ValidateAndDoGetBufferParameteriv(
 }
 
 bool BufferManager::SetTarget(Buffer* buffer, GLenum target) {
-  // Check that we are not trying to bind it to a different target.
-  if (buffer->target() != 0 && buffer->target() != target &&
-      !allow_buffers_on_multiple_targets_) {
-    return false;
+  if (!allow_buffers_on_multiple_targets_) {
+    // After being bound to ELEMENT_ARRAY_BUFFER target, a buffer cannot be
+    // bound to any other targets except for COPY_READ/WRITE_BUFFER target;
+    // After being bound to non ELEMENT_ARRAY_BUFFER target, a buffer cannot
+    // be bound to ELEMENT_ARRAY_BUFFER target.
+
+    // Note that we don't force the WebGL 2 rule that a buffer bound to
+    // TRANSFORM_FEEDBACK_BUFFER target should not be bound to any other
+    // targets, because that is not a security threat, so we only enforce it
+    // in the WebGL2RenderingContextBase.
+    switch (buffer->initial_target()) {
+      case GL_ELEMENT_ARRAY_BUFFER:
+        switch (target) {
+          case GL_ARRAY_BUFFER:
+          case GL_PIXEL_PACK_BUFFER:
+          case GL_PIXEL_UNPACK_BUFFER:
+          case GL_TRANSFORM_FEEDBACK_BUFFER:
+          case GL_UNIFORM_BUFFER:
+            return false;
+          default:
+            break;
+        }
+        break;
+      case GL_ARRAY_BUFFER:
+      case GL_COPY_READ_BUFFER:
+      case GL_COPY_WRITE_BUFFER:
+      case GL_PIXEL_PACK_BUFFER:
+      case GL_PIXEL_UNPACK_BUFFER:
+      case GL_TRANSFORM_FEEDBACK_BUFFER:
+      case GL_UNIFORM_BUFFER:
+        if (target == GL_ELEMENT_ARRAY_BUFFER) {
+          return false;
+        }
+        break;
+      default:
+        break;
+    }
   }
-  if (buffer->target() == 0) {
-    buffer->set_target(target);
-  }
+  if (buffer->initial_target() == 0)
+    buffer->set_initial_target(target);
   return true;
 }
 
 // Since one BufferManager can be shared by multiple decoders, ContextState is
 // passed in each time and not just passed in during initialization.
 Buffer* BufferManager::GetBufferInfoForTarget(
-    ContextState* state, GLenum target) {
-  DCHECK(target == GL_ARRAY_BUFFER || target == GL_ELEMENT_ARRAY_BUFFER);
-  if (target == GL_ARRAY_BUFFER) {
-    return state->bound_array_buffer.get();
-  } else {
-    return state->vertex_attrib_manager->element_array_buffer();
+    ContextState* state, GLenum target) const {
+  switch (target) {
+    case GL_ARRAY_BUFFER:
+      return state->bound_array_buffer.get();
+    case GL_ELEMENT_ARRAY_BUFFER:
+      return state->vertex_attrib_manager->element_array_buffer();
+    case GL_COPY_READ_BUFFER:
+      return state->bound_copy_read_buffer.get();
+    case GL_COPY_WRITE_BUFFER:
+      return state->bound_copy_write_buffer.get();
+    case GL_PIXEL_PACK_BUFFER:
+      return state->bound_pixel_pack_buffer.get();
+    case GL_PIXEL_UNPACK_BUFFER:
+      return state->bound_pixel_unpack_buffer.get();
+    case GL_TRANSFORM_FEEDBACK_BUFFER:
+      return state->bound_transform_feedback_buffer.get();
+    case GL_UNIFORM_BUFFER:
+      return state->bound_uniform_buffer.get();
+    default:
+      NOTREACHED();
+      return nullptr;
   }
 }
 

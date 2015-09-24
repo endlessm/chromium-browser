@@ -1,3 +1,4 @@
+#!/usr/bin/python2
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -87,7 +88,7 @@ def _UpdateGitAlternates(proj_root, projects):
     relpath = os.path.join(relpath, 'alternates', project)
 
     osutils.SafeMakedirs(os.path.dirname(tmp_path))
-    os.symlink(relpath , tmp_path)
+    os.symlink(relpath, tmp_path)
     os.rename(tmp_path, alt_path)
 
 

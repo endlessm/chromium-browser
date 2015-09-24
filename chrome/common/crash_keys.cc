@@ -11,6 +11,9 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/common/chrome_switches.h"
+#include "content/public/common/content_switches.h"
+#include "ipc/ipc_switches.h"
 
 #if defined(OS_MACOSX)
 #include "breakpad/src/common/simple_string_dictionary.h"
@@ -48,14 +51,20 @@ static const size_t kSingleChunkLength = 63;
 #endif
 
 // Guarantees for crash key sizes.
-COMPILE_ASSERT(kSmallSize <= kSingleChunkLength,
-               crash_key_chunk_size_too_small);
+static_assert(kSmallSize <= kSingleChunkLength,
+              "crash key chunk size too small");
 #if defined(OS_MACOSX)
-COMPILE_ASSERT(kMediumSize <= kSingleChunkLength,
-               mac_has_medium_size_crash_key_chunks);
+static_assert(kMediumSize <= kSingleChunkLength,
+              "mac has medium size crash key chunks");
 #endif
 
+#if defined(OS_MACOSX)
+// Crashpad owns the "guid" key. Chrome's metrics client ID is a separate ID
+// carried in a distinct "metrics_client_id" field.
+const char kMetricsClientId[] = "metrics_client_id";
+#else
 const char kClientId[] = "guid";
+#endif
 
 const char kChannel[] = "channel";
 
@@ -71,8 +80,6 @@ const char kVariations[] = "variations";
 
 const char kExtensionID[] = "extension-%" PRIuS;
 const char kNumExtensionsCount[] = "num-extensions";
-
-const char kNumberOfViews[] = "num-views";
 
 const char kShutdownType[] = "shutdown-type";
 
@@ -116,18 +123,34 @@ const char kZombieTrace[] = "zombie_dealloc_bt";
 }  // namespace mac
 #endif
 
+#if defined(KASKO)
+const char kKaskoGuid[] = "kasko-guid";
+const char kKaskoEquivalentGuid[] = "kasko-equivalent-guid";
+#endif
+
+// Used to help investigate bug 464926.  NOTE: This value is defined multiple
+// places in the codebase due to layering issues. DO NOT change the value here
+// without changing it in all other places that it is defined in the codebase
+// (search for |kBug464926CrashKey|).
+const char kBug464926CrashKey[] = "bug-464926-info";
+
+const char kViewCount[] = "view-count";
+
 size_t RegisterChromeCrashKeys() {
   // The following keys may be chunked by the underlying crash logging system,
   // but ultimately constitute a single key-value pair.
   base::debug::CrashKey fixed_keys[] = {
+#if defined(OS_MACOSX)
+    { kMetricsClientId, kSmallSize },
+#else
     { kClientId, kSmallSize },
+#endif
     { kChannel, kSmallSize },
     { kActiveURL, kLargeSize },
     { kNumSwitches, kSmallSize },
     { kNumVariations, kSmallSize },
     { kVariations, kLargeSize },
     { kNumExtensionsCount, kSmallSize },
-    { kNumberOfViews, kSmallSize },
     { kShutdownType, kSmallSize },
 #if !defined(OS_ANDROID)
     { kGPUVendorID, kSmallSize },
@@ -143,13 +166,13 @@ size_t RegisterChromeCrashKeys() {
     { kGPURenderer, kSmallSize },
 #endif
 
-    // base/:
-    { "dm-usage", kSmallSize },
-    { "total-dm-usage", kSmallSize },
     // content/:
+    { "discardable-memory-allocated", kSmallSize },
+    { "discardable-memory-free", kSmallSize },
     { kFontKeyName, kSmallSize},
     { "ppapi_path", kMediumSize },
     { "subresource_url", kLargeSize },
+    { "total-discardable-memory-allocated", kSmallSize },
 #if defined(OS_CHROMEOS)
     { kNumberOfUsers, kSmallSize },
 #endif
@@ -170,6 +193,12 @@ size_t RegisterChromeCrashKeys() {
     // media/:
     { "VideoCaptureDeviceQTKit", kSmallSize },
 #endif
+#if defined(KASKO)
+    { kKaskoGuid, kSmallSize },
+    { kKaskoEquivalentGuid, kSmallSize },
+#endif
+    { kBug464926CrashKey, kSmallSize },
+    { kViewCount, kSmallSize },
   };
 
   // This dynamic set of keys is used for sets of key value pairs when gathering
@@ -228,63 +257,79 @@ size_t RegisterChromeCrashKeys() {
                                     kSingleChunkLength);
 }
 
-void SetCrashClientIdFromGUID(const std::string& client_guid) {
-  std::string stripped_guid(client_guid);
+void SetMetricsClientIdFromGUID(const std::string& metrics_client_guid) {
+  std::string stripped_guid(metrics_client_guid);
   // Remove all instance of '-' char from the GUID. So BCD-WXY becomes BCDWXY.
-  ReplaceSubstringsAfterOffset(&stripped_guid, 0, "-", "");
+  base::ReplaceSubstringsAfterOffset(
+      &stripped_guid, 0, "-", base::StringPiece());
   if (stripped_guid.empty())
     return;
 
+#if defined(OS_MACOSX)
+  // The crash client ID is maintained by Crashpad and is distinct from the
+  // metrics client ID, which is carried in its own key.
+  base::debug::SetCrashKeyValue(kMetricsClientId, stripped_guid);
+#else
+  // The crash client ID is set by the application when Breakpad is in use.
+  // The same ID as the metrics client ID is used.
   base::debug::SetCrashKeyValue(kClientId, stripped_guid);
+#endif
+}
+
+void ClearMetricsClientId() {
+#if defined(OS_MACOSX)
+  // Crashpad always monitors for crashes, but doesn't upload them when
+  // crash reporting is disabled. The preference to upload crash reports is
+  // linked to the preference for metrics reporting. When metrics reporting is
+  // disabled, don't put the metrics client ID into crash dumps. This way, crash
+  // reports that are saved but not uploaded will not have a metrics client ID
+  // from the time that metrics reporting was disabled even if they are uploaded
+  // by user action at a later date.
+  //
+  // Breakpad cannot be enabled or disabled without an application restart, and
+  // it needs to use the metrics client ID as its stable crash client ID, so
+  // leave its client ID intact even when metrics reporting is disabled while
+  // the application is running.
+  base::debug::ClearCrashKey(kMetricsClientId);
+#endif
 }
 
 static bool IsBoringSwitch(const std::string& flag) {
-#if defined(OS_WIN)
-  return StartsWithASCII(flag, "--channel=", true) ||
-
-         // No point to including this since we already have a ptype field.
-         StartsWithASCII(flag, "--type=", true) ||
-
-         // Not particularly interesting
-         StartsWithASCII(flag, "--flash-broker=", true) ||
-
-         // Just about everything has this, don't bother.
-         StartsWithASCII(flag, "/prefetch:", true) ||
-
-         // We handle the plugin path separately since it is usually too big
-         // to fit in the switches (limited to 63 characters).
-         StartsWithASCII(flag, "--plugin-path=", true) ||
-
-         // This is too big so we end up truncating it anyway.
-         StartsWithASCII(flag, "--force-fieldtrials=", true) ||
-
-         // These surround the flags that were added by about:flags, it lets
-         // you distinguish which flags were added manually via the command
-         // line versus those added through about:flags. For the most part
-         // we don't care how an option was enabled, so we strip these.
-         // (If you need to know can always look at the PEB).
-         flag == "--flag-switches-begin" ||
-         flag == "--flag-switches-end";
-#elif defined(OS_CHROMEOS)
   static const char* const kIgnoreSwitches[] = {
-    ::switches::kEnableImplSidePainting,
-    ::switches::kEnableLogging,
-    ::switches::kFlagSwitchesBegin,
-    ::switches::kFlagSwitchesEnd,
-    ::switches::kLoggingLevel,
-    ::switches::kPpapiFlashArgs,
-    ::switches::kPpapiFlashPath,
-    ::switches::kRegisterPepperPlugins,
-    ::switches::kUIPrioritizeInGpuProcess,
-    ::switches::kUseGL,
-    ::switches::kUserDataDir,
-    ::switches::kV,
-    ::switches::kVModule,
-    // Cros/CC flgas are specified as raw strings to avoid dependency.
-    "ash-default-wallpaper-large",
-    "ash-default-wallpaper-small",
-    "ash-guest-wallpaper-large",
-    "ash-guest-wallpaper-small",
+    switches::kEnableLogging,
+    switches::kFlagSwitchesBegin,
+    switches::kFlagSwitchesEnd,
+    switches::kLoggingLevel,
+#if defined(OS_WIN)
+    // This file is linked into both chrome.dll and chrome.exe. However //ipc
+    // is only in the .dll, so this needs to be a literal rather than the
+    // constant.
+    "channel",  // switches::kProcessChannelID
+#else
+    switches::kProcessChannelID,
+#endif
+    switches::kProcessType,
+    switches::kV,
+    switches::kVModule,
+#if defined(OS_WIN)
+    switches::kForceFieldTrials,
+    switches::kPluginPath,
+#elif defined(OS_MACOSX)
+    switches::kMetricsClientID,
+#elif defined(OS_CHROMEOS)
+    switches::kPpapiFlashArgs,
+    switches::kPpapiFlashPath,
+    switches::kRegisterPepperPlugins,
+    switches::kUIPrioritizeInGpuProcess,
+    switches::kUseGL,
+    switches::kUserDataDir,
+    // Cros/CC flags are specified as raw strings to avoid dependency.
+    "child-wallpaper-large",
+    "child-wallpaper-small",
+    "default-wallpaper-large",
+    "default-wallpaper-small",
+    "guest-wallpaper-large",
+    "guest-wallpaper-small",
     "enterprise-enable-forced-re-enrollment",
     "enterprise-enrollment-initial-modulus",
     "enterprise-enrollment-modulus-limit",
@@ -294,27 +339,32 @@ static bool IsBoringSwitch(const std::string& flag) {
     "max-unused-resource-memory-usage-percentage",
     "termination-message-file",
     "use-cras",
+#endif
   };
-  if (!StartsWithASCII(flag, "--", true))
+
+#if defined(OS_WIN)
+  // Just about everything has this, don't bother.
+  if (base::StartsWith(flag, "/prefetch:", base::CompareCase::SENSITIVE))
+    return true;
+#endif
+
+  if (!base::StartsWith(flag, "--", base::CompareCase::SENSITIVE))
     return false;
-  std::size_t end = flag.find("=");
-  int len = (end == std::string::npos) ? flag.length() - 2 : end - 2;
+  size_t end = flag.find("=");
+  size_t len = (end == std::string::npos) ? flag.length() - 2 : end - 2;
   for (size_t i = 0; i < arraysize(kIgnoreSwitches); ++i) {
     if (flag.compare(2, len, kIgnoreSwitches[i]) == 0)
       return true;
   }
   return false;
-#else
-  return false;
-#endif
 }
 
-void SetSwitchesFromCommandLine(const CommandLine* command_line) {
+void SetSwitchesFromCommandLine(const base::CommandLine* command_line) {
   DCHECK(command_line);
   if (!command_line)
     return;
 
-  const CommandLine::StringVector& argv = command_line->argv();
+  const base::CommandLine::StringVector& argv = command_line->argv();
 
   // Set the number of switches in case size > kNumSwitches.
   base::debug::SetCrashKeyValue(kNumSwitches,

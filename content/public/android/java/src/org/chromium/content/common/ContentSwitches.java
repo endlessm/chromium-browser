@@ -27,10 +27,6 @@ public abstract class ContentSwitches {
     // Change the url of the JavaScript that gets injected when accessibility mode is enabled.
     public static final String ACCESSIBILITY_JAVASCRIPT_URL = "accessibility-js-url";
 
-    // Whether to ignore signature mismatches when connecting to BrailleBack's
-    // SelfBrailleService.
-    public static final String ACCESSIBILITY_DEBUG_BRAILLE_SERVICE = "debug-braille-service";
-
     // Indicates Chrome is running for performance benchmark.
     public static final String RUNNING_PERFORMANCE_BENCHMARK =
             "running-performance-benchmark";
@@ -45,13 +41,6 @@ public abstract class ContentSwitches {
     // Sets the ISO country code that will be used for phone number detection.
     public static final String NETWORK_COUNTRY_ISO = "network-country-iso";
 
-    // Whether to enable the auto-hiding top controls.
-    public static final String ENABLE_TOP_CONTROLS_POSITION_CALCULATION =
-            "enable-top-controls-position-calculation";
-
-    // The height of the movable top controls.
-    public static final String TOP_CONTROLS_HEIGHT = "top-controls-height";
-
     // How much of the top controls need to be shown before they will auto show.
     public static final String TOP_CONTROLS_SHOW_THRESHOLD = "top-controls-show-threshold";
 
@@ -61,11 +50,11 @@ public abstract class ContentSwitches {
     // Native switch - chrome_switches::kEnableInstantExtendedAPI
     public static final String ENABLE_INSTANT_EXTENDED_API = "enable-instant-extended-api";
 
-    // Native switch - content_switches::kEnableSpeechRecognition
-    public static final String ENABLE_SPEECH_RECOGNITION = "enable-speech-recognition";
-
     // Native switch - shell_switches::kDumpRenderTree
     public static final String DUMP_RENDER_TREE = "dump-render-tree";
+
+    // Native switch - shell_switches::kRunLayoutTest
+    public static final String RUN_LAYOUT_TEST = "run-layout-test";
 
     // Native switch - chrome_switches::kDisablePopupBlocking
     public static final String DISABLE_POPUP_BLOCKING = "disable-popup-blocking";
@@ -73,6 +62,16 @@ public abstract class ContentSwitches {
     // Native switch - gfx_switches::kForceDeviceScaleFactor
     public static final String FORCE_DEVICE_SCALE_FACTOR =
             "force-device-scale-factor";
+
+    // Enable mouse hover emulation by holding your finger just over the screen.
+    public static final String ENABLE_TOUCH_HOVER = "enable-touch-hover";
+
+    // Native switch kEnableCredentialManagerAPI
+    public static final String ENABLE_CREDENTIAL_MANAGER_API = "enable-credential-manager-api";
+
+    // Native switch kDisableGestureRequirementForMediaPlayback
+    public static final String DISABLE_GESTURE_REQUIREMENT_FOR_MEDIA_PLAYBACK =
+            "disable-gesture-requirement-for-media-playback";
 
     // Prevent instantiation.
     private ContentSwitches() {}

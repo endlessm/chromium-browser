@@ -31,24 +31,25 @@
 #ifndef InspectorState_h
 #define InspectorState_h
 
-
+#include "core/CoreExport.h"
 #include "platform/JSONValues.h"
 #include "platform/heap/Handle.h"
 #include "wtf/HashMap.h"
+#include "wtf/Noncopyable.h"
 #include "wtf/text/WTFString.h"
 
 namespace blink {
 
 class InspectorStateClient;
 
-class InspectorStateUpdateListener : public WillBeGarbageCollectedMixin {
+class CORE_EXPORT InspectorStateUpdateListener : public WillBeGarbageCollectedMixin {
 public:
     virtual ~InspectorStateUpdateListener() { }
     virtual void inspectorStateUpdated() = 0;
 };
 
-class InspectorState final : public NoBaseWillBeGarbageCollectedFinalized<InspectorState> {
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
+class CORE_EXPORT InspectorState final : public NoBaseWillBeGarbageCollectedFinalized<InspectorState> {
+    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(InspectorState);
 public:
     InspectorState(InspectorStateUpdateListener*, PassRefPtr<JSONObject>);
 
@@ -73,7 +74,7 @@ public:
 
     void remove(const String&);
 
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
 private:
     void updateCookie();
@@ -88,17 +89,18 @@ private:
     RefPtr<JSONObject> m_properties;
 };
 
-class InspectorCompositeState final : public NoBaseWillBeGarbageCollectedFinalized<InspectorCompositeState>, public InspectorStateUpdateListener {
+class CORE_EXPORT InspectorCompositeState final : public NoBaseWillBeGarbageCollectedFinalized<InspectorCompositeState>, public InspectorStateUpdateListener {
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(InspectorCompositeState);
+    WTF_MAKE_NONCOPYABLE(InspectorCompositeState);
 public:
-    InspectorCompositeState(InspectorStateClient* inspectorClient)
-        : m_client(inspectorClient)
+    InspectorCompositeState(InspectorStateClient* inspectorStateClient)
+        : m_client(inspectorStateClient)
         , m_stateObject(JSONObject::create())
         , m_isMuted(false)
     {
     }
     virtual ~InspectorCompositeState() { }
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
     void mute();
     void unmute();

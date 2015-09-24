@@ -6,19 +6,33 @@
 
 #include <string>
 
+#include "base/bind.h"
+#include "base/location.h"
 #include "base/logging.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
 #include "components/url_fixer/url_fixer.h"
 
+bool FixupBrowserAboutURL(GURL* url,
+                          content::BrowserContext* browser_context) {
+  // Ensure that any cleanup done by FixupURL happens before the rewriting
+  // phase that determines the virtual URL, by including it in an initial
+  // URLHandler.  This prevents minor changes from producing a virtual URL,
+  // which could lead to a URL spoof.
+  *url = url_fixer::FixupURL(url->possibly_invalid_spec(), std::string());
+  return true;
+}
+
 bool WillHandleBrowserAboutURL(GURL* url,
                                content::BrowserContext* browser_context) {
   // TODO(msw): Eliminate "about:*" constants and literals from code and tests,
   //            then hopefully we can remove this forced fixup.
-  *url = url_fixer::FixupURL(url->possibly_invalid_spec(), std::string());
+  FixupBrowserAboutURL(url, browser_context);
 
   // Check that about: URLs are fixed up to chrome: by url_fixer::FixupURL.
   DCHECK((*url == GURL(url::kAboutBlankURL)) ||
@@ -91,30 +105,17 @@ bool WillHandleBrowserAboutURL(GURL* url,
 bool HandleNonNavigationAboutURL(const GURL& url) {
   const std::string spec(url.spec());
 
-  if (LowerCaseEqualsASCII(spec, chrome::kChromeUIRestartURL)) {
+  if (base::LowerCaseEqualsASCII(spec, chrome::kChromeUIRestartURL)) {
     // Call AttemptRestart after chrome::Navigate() completes to avoid access of
     // gtk objects after they are destroyed by BrowserWindowGtk::Close().
-    base::MessageLoop::current()->PostTask(FROM_HERE,
-        base::Bind(&chrome::AttemptRestart));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(&chrome::AttemptRestart));
     return true;
-  } else if (LowerCaseEqualsASCII(spec, chrome::kChromeUIQuitURL)) {
-    base::MessageLoop::current()->PostTask(FROM_HERE,
-        base::Bind(&chrome::AttemptExit));
-    return true;
-  }
-
-  // chrome://ipc/ is currently buggy, so we disable it for official builds.
-#if !defined(OFFICIAL_BUILD)
-
-#if (defined(OS_MACOSX) || defined(OS_WIN)) && defined(IPC_MESSAGE_LOG_ENABLED)
-  if (LowerCaseEqualsASCII(spec, chrome::kChromeUIIPCURL)) {
-    // Run the dialog. This will re-use the existing one if it's already up.
-    chrome::ShowAboutIPCDialog();
+  } else if (base::LowerCaseEqualsASCII(spec, chrome::kChromeUIQuitURL)) {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(&chrome::AttemptExit));
     return true;
   }
-#endif
-
-#endif  // OFFICIAL_BUILD
 
   return false;
 }

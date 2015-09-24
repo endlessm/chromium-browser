@@ -19,28 +19,8 @@
 #include "base/win/scoped_handle.h"
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_logging.h"
+#include "ipc/ipc_message_attachment_set.h"
 #include "ipc/ipc_message_utils.h"
-
-namespace {
-
-enum DebugFlags {
-  INIT_DONE = 1 << 0,
-  CALLED_CONNECT = 1 << 1,
-  PENDING_CONNECT = 1 << 2,
-  CONNECT_COMPLETED = 1 << 3,
-  PIPE_CONNECTED = 1 << 4,
-  WRITE_MSG = 1 << 5,
-  READ_MSG = 1 << 6,
-  WRITE_COMPLETED = 1 << 7,
-  READ_COMPLETED = 1 << 8,
-  CLOSED = 1 << 9,
-  WAIT_FOR_READ = 1 << 10,
-  WAIT_FOR_WRITE = 1 << 11,
-  WAIT_FOR_READ_COMPLETE = 1 << 12,
-  WAIT_FOR_WRITE_COMPLETE = 1 << 13
-};
-
-}  // namespace
 
 namespace IPC {
 
@@ -50,12 +30,15 @@ ChannelWin::State::State(ChannelWin* channel) : is_pending(false) {
 }
 
 ChannelWin::State::~State() {
-  COMPILE_ASSERT(!offsetof(ChannelWin::State, context),
-                 starts_with_io_context);
+  static_assert(offsetof(ChannelWin::State, context) == 0,
+                "ChannelWin::State should have context as its first data"
+                "member.");
 }
 
-ChannelWin::ChannelWin(const IPC::ChannelHandle &channel_handle,
-                       Mode mode, Listener* listener)
+ChannelWin::ChannelWin(const IPC::ChannelHandle& channel_handle,
+                       Mode mode,
+                       Listener* listener,
+                       AttachmentBroker* broker)
     : ChannelReader(listener),
       input_state_(this),
       output_state_(this),
@@ -63,12 +46,8 @@ ChannelWin::ChannelWin(const IPC::ChannelHandle &channel_handle,
       waiting_connect_(mode & MODE_SERVER_FLAG),
       processing_incoming_(false),
       validate_client_(false),
-      writing_(false),
-      debug_flags_(0),
-      write_error_(0),
-      last_write_error_(0),
-      write_size_(0),
       client_secret_(0),
+      broker_(broker),
       weak_factory_(this) {
   CreatePipe(channel_handle, mode);
 }
@@ -78,10 +57,8 @@ ChannelWin::~ChannelWin() {
 }
 
 void ChannelWin::Close() {
-  if (thread_check_.get()) {
+  if (thread_check_.get())
     DCHECK(thread_check_->CalledOnValidThread());
-  }
-  debug_flags_ |= CLOSED;
 
   if (input_state_.is_pending || output_state_.is_pending)
     CancelIo(pipe_.Get());
@@ -91,14 +68,7 @@ void ChannelWin::Close() {
   if (pipe_.IsValid())
     pipe_.Close();
 
-  if (input_state_.is_pending)
-    debug_flags_ |= WAIT_FOR_READ;
-
-  if (output_state_.is_pending)
-    debug_flags_ |= WAIT_FOR_WRITE;
-
   // Make sure all IO has completed.
-  base::Time start = base::Time::Now();
   while (input_state_.is_pending || output_state_.is_pending) {
     base::MessageLoopForIO::current()->WaitForIOCompletion(INFINITE, this);
   }
@@ -111,10 +81,25 @@ void ChannelWin::Close() {
 }
 
 bool ChannelWin::Send(Message* message) {
+  // TODO(erikchen): Remove this DCHECK once ChannelWin fully supports
+  // brokerable attachments. http://crbug.com/493414.
+  DCHECK(!message->HasAttachments());
   DCHECK(thread_check_->CalledOnValidThread());
   DVLOG(2) << "sending message @" << message << " on channel @" << this
            << " with type " << message->type()
            << " (" << output_queue_.size() << " in queue)";
+
+  // Sending a brokerable attachment requires a call to Channel::Send(), so
+  // Send() may be re-entrant. Brokered attachments must be sent before the
+  // Message itself.
+  if (message->HasBrokerableAttachments()) {
+    DCHECK(broker_);
+    for (const BrokerableAttachment* attachment :
+         message->attachment_set()->PeekBrokerableAttachments()) {
+      if (!broker_->SendAttachmentToProcess(attachment, peer_pid_))
+        return false;
+    }
+  }
 
 #ifdef IPC_MESSAGE_LOG_ENABLED
   Logging::GetInstance()->OnSendMessage(message, "");
@@ -131,6 +116,10 @@ bool ChannelWin::Send(Message* message) {
   }
 
   return true;
+}
+
+AttachmentBroker* ChannelWin::GetAttachmentBroker() {
+  return broker_;
 }
 
 base::ProcessId ChannelWin::GetPeerPID() const {
@@ -158,7 +147,6 @@ ChannelWin::ReadState ChannelWin::ReadData(
   if (!pipe_.IsValid())
     return READ_FAILED;
 
-  debug_flags_ |= READ_MSG;
   DWORD bytes_read = 0;
   BOOL ok = ReadFile(pipe_.Get(), buffer, buffer_len,
                      &bytes_read, &input_state_.context.overlapped);
@@ -194,7 +182,7 @@ bool ChannelWin::WillDispatchInputMessage(Message* msg) {
 void ChannelWin::HandleInternalMessage(const Message& msg) {
   DCHECK_EQ(msg.type(), static_cast<unsigned>(Channel::HELLO_MESSAGE_TYPE));
   // The hello message contains one parameter containing the PID.
-  PickleIterator it(msg);
+  base::PickleIterator it(msg);
   int32 claimed_pid;
   bool failed = !it.ReadInt(&claimed_pid);
 
@@ -297,7 +285,7 @@ bool ChannelWin::CreatePipe(const IPC::ChannelHandle &channel_handle,
                           0,
                           NULL,
                           OPEN_EXISTING,
-                          SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION |
+                          SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS |
                               FILE_FLAG_OVERLAPPED,
                           NULL));
   } else {
@@ -324,8 +312,6 @@ bool ChannelWin::CreatePipe(const IPC::ChannelHandle &channel_handle,
     pipe_.Close();
     return false;
   }
-
-  debug_flags_ |= INIT_DONE;
 
   output_queue_.push(m.release());
   return true;
@@ -374,8 +360,6 @@ bool ChannelWin::ProcessConnection() {
     return false;
 
   BOOL ok = ConnectNamedPipe(pipe_.Get(), &input_state_.context.overlapped);
-  debug_flags_ |= CALLED_CONNECT;
-
   DWORD err = GetLastError();
   if (ok) {
     // Uhm, the API documentation says that this function should never
@@ -387,10 +371,8 @@ bool ChannelWin::ProcessConnection() {
   switch (err) {
   case ERROR_IO_PENDING:
     input_state_.is_pending = true;
-    debug_flags_ |= PENDING_CONNECT;
     break;
   case ERROR_PIPE_CONNECTED:
-    debug_flags_ |= PIPE_CONNECTED;
     waiting_connect_ = false;
     break;
   case ERROR_NO_DATA:
@@ -435,19 +417,14 @@ bool ChannelWin::ProcessOutgoingMessages(
   // Write to pipe...
   Message* m = output_queue_.front();
   DCHECK(m->size() <= INT_MAX);
-  debug_flags_ |= WRITE_MSG;
-  CHECK(!writing_);
-  writing_ = true;
-  write_size_ = static_cast<uint32>(m->size());
-  write_error_ = 0;
   BOOL ok = WriteFile(pipe_.Get(),
                       m->data(),
-                      write_size_,
+                      static_cast<uint32>(m->size()),
                       NULL,
                       &output_state_.context.overlapped);
   if (!ok) {
-    write_error_ = GetLastError();
-    if (write_error_ == ERROR_IO_PENDING) {
+    DWORD write_error = GetLastError();
+    if (write_error == ERROR_IO_PENDING) {
       output_state_.is_pending = true;
 
       DVLOG(2) << "sent pending message @" << m << " on channel @" << this
@@ -455,9 +432,7 @@ bool ChannelWin::ProcessOutgoingMessages(
 
       return true;
     }
-    writing_ = false;
-    last_write_error_ = write_error_;
-    LOG(ERROR) << "pipe error: " << write_error_;
+    LOG(ERROR) << "pipe error: " << write_error;
     return false;
   }
 
@@ -476,7 +451,6 @@ void ChannelWin::OnIOCompleted(
   DCHECK(thread_check_->CalledOnValidThread());
   if (context == &input_state_.context) {
     if (waiting_connect_) {
-      debug_flags_ |= CONNECT_COMPLETED;
       if (!ProcessConnection())
         return;
       // We may have some messages queued up to send...
@@ -495,11 +469,6 @@ void ChannelWin::OnIOCompleted(
     // Process the new data.
     if (input_state_.is_pending) {
       // This is the normal case for everything except the initialization step.
-      debug_flags_ |= READ_COMPLETED;
-      if (debug_flags_ & WAIT_FOR_READ) {
-        CHECK(!(debug_flags_ & WAIT_FOR_READ_COMPLETE));
-        debug_flags_ |= WAIT_FOR_READ_COMPLETE;
-      }
       input_state_.is_pending = false;
       if (!bytes_transfered)
         ok = false;
@@ -514,14 +483,7 @@ void ChannelWin::OnIOCompleted(
       ok = ProcessIncomingMessages();
   } else {
     DCHECK(context == &output_state_.context);
-    CHECK(writing_);
     CHECK(output_state_.is_pending);
-    writing_ = false;
-    debug_flags_ |= WRITE_COMPLETED;
-    if (debug_flags_ & WAIT_FOR_WRITE) {
-      CHECK(!(debug_flags_ & WAIT_FOR_WRITE_COMPLETE));
-      debug_flags_ |= WAIT_FOR_WRITE_COMPLETE;
-    }
     ok = ProcessOutgoingMessages(context, bytes_transfered);
   }
   if (!ok && pipe_.IsValid()) {
@@ -535,10 +497,12 @@ void ChannelWin::OnIOCompleted(
 // Channel's methods
 
 // static
-scoped_ptr<Channel> Channel::Create(
-    const IPC::ChannelHandle &channel_handle, Mode mode, Listener* listener) {
+scoped_ptr<Channel> Channel::Create(const IPC::ChannelHandle& channel_handle,
+                                    Mode mode,
+                                    Listener* listener,
+                                    AttachmentBroker* broker) {
   return scoped_ptr<Channel>(
-      new ChannelWin(channel_handle, mode, listener));
+      new ChannelWin(channel_handle, mode, listener, broker));
 }
 
 // static

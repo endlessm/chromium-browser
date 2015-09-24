@@ -1,3 +1,10 @@
+/*
+ * Copyright 2015 Google Inc.
+ *
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
+
 #ifndef SkXfermode_proccoeff_DEFINED
 #define SkXfermode_proccoeff_DEFINED
 
@@ -22,32 +29,32 @@ public:
         fSrcCoeff = rec.fSC;
         fDstCoeff = rec.fDC;
     }
-    
-    virtual void xfer32(SkPMColor dst[], const SkPMColor src[], int count,
-                        const SkAlpha aa[]) const SK_OVERRIDE;
-    virtual void xfer16(uint16_t dst[], const SkPMColor src[], int count,
-                        const SkAlpha aa[]) const SK_OVERRIDE;
-    virtual void xferA8(SkAlpha dst[], const SkPMColor src[], int count,
-                        const SkAlpha aa[]) const SK_OVERRIDE;
 
-    virtual bool asMode(Mode* mode) const SK_OVERRIDE;
+    void xfer32(SkPMColor dst[], const SkPMColor src[], int count,
+                const SkAlpha aa[]) const override;
+    void xfer16(uint16_t dst[], const SkPMColor src[], int count,
+                const SkAlpha aa[]) const override;
+    void xferA8(SkAlpha dst[], const SkPMColor src[], int count,
+                const SkAlpha aa[]) const override;
 
-    virtual bool asCoeff(Coeff* sc, Coeff* dc) const SK_OVERRIDE;
+    bool asMode(Mode* mode) const override;
+
+    bool supportsCoverageAsAlpha() const override;
+
+    bool isOpaque(SkXfermode::SrcColorOpacity opacityType) const override;
 
 #if SK_SUPPORT_GPU
-    virtual bool asFragmentProcessor(GrFragmentProcessor**,
-                                     GrTexture* background) const SK_OVERRIDE;
+    bool asFragmentProcessor(GrFragmentProcessor**, GrProcessorDataManager*,
+                             GrTexture* background) const override;
+
+    bool asXPFactory(GrXPFactory**) const override;
 #endif
 
     SK_TO_STRING_OVERRIDE()
     SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkProcCoeffXfermode)
 
 protected:
-#ifdef SK_SUPPORT_LEGACY_DEEPFLATTENING
-    SkProcCoeffXfermode(SkReadBuffer& buffer);
-#endif
-
-    virtual void flatten(SkWriteBuffer& buffer) const SK_OVERRIDE;
+    void flatten(SkWriteBuffer& buffer) const override;
 
     Mode getMode() const { return fMode; }
 

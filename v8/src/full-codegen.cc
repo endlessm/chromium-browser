@@ -16,290 +16,10 @@
 #include "src/prettyprinter.h"
 #include "src/scopeinfo.h"
 #include "src/scopes.h"
-#include "src/snapshot.h"
+#include "src/snapshot/snapshot.h"
 
 namespace v8 {
 namespace internal {
-
-void BreakableStatementChecker::Check(Statement* stmt) {
-  Visit(stmt);
-}
-
-
-void BreakableStatementChecker::Check(Expression* expr) {
-  Visit(expr);
-}
-
-
-void BreakableStatementChecker::VisitVariableDeclaration(
-    VariableDeclaration* decl) {
-}
-
-
-void BreakableStatementChecker::VisitFunctionDeclaration(
-    FunctionDeclaration* decl) {
-}
-
-
-void BreakableStatementChecker::VisitModuleDeclaration(
-    ModuleDeclaration* decl) {
-}
-
-
-void BreakableStatementChecker::VisitImportDeclaration(
-    ImportDeclaration* decl) {
-}
-
-
-void BreakableStatementChecker::VisitExportDeclaration(
-    ExportDeclaration* decl) {
-}
-
-
-void BreakableStatementChecker::VisitModuleLiteral(ModuleLiteral* module) {
-}
-
-
-void BreakableStatementChecker::VisitModuleVariable(ModuleVariable* module) {
-}
-
-
-void BreakableStatementChecker::VisitModulePath(ModulePath* module) {
-}
-
-
-void BreakableStatementChecker::VisitModuleUrl(ModuleUrl* module) {
-}
-
-
-void BreakableStatementChecker::VisitModuleStatement(ModuleStatement* stmt) {
-}
-
-
-void BreakableStatementChecker::VisitBlock(Block* stmt) {
-}
-
-
-void BreakableStatementChecker::VisitExpressionStatement(
-    ExpressionStatement* stmt) {
-  // Check if expression is breakable.
-  Visit(stmt->expression());
-}
-
-
-void BreakableStatementChecker::VisitEmptyStatement(EmptyStatement* stmt) {
-}
-
-
-void BreakableStatementChecker::VisitIfStatement(IfStatement* stmt) {
-  // If the condition is breakable the if statement is breakable.
-  Visit(stmt->condition());
-}
-
-
-void BreakableStatementChecker::VisitContinueStatement(
-    ContinueStatement* stmt) {
-}
-
-
-void BreakableStatementChecker::VisitBreakStatement(BreakStatement* stmt) {
-}
-
-
-void BreakableStatementChecker::VisitReturnStatement(ReturnStatement* stmt) {
-  // Return is breakable if the expression is.
-  Visit(stmt->expression());
-}
-
-
-void BreakableStatementChecker::VisitWithStatement(WithStatement* stmt) {
-  Visit(stmt->expression());
-}
-
-
-void BreakableStatementChecker::VisitSwitchStatement(SwitchStatement* stmt) {
-  // Switch statements breakable if the tag expression is.
-  Visit(stmt->tag());
-}
-
-
-void BreakableStatementChecker::VisitDoWhileStatement(DoWhileStatement* stmt) {
-  // Mark do while as breakable to avoid adding a break slot in front of it.
-  is_breakable_ = true;
-}
-
-
-void BreakableStatementChecker::VisitWhileStatement(WhileStatement* stmt) {
-  // Mark while statements breakable if the condition expression is.
-  Visit(stmt->cond());
-}
-
-
-void BreakableStatementChecker::VisitForStatement(ForStatement* stmt) {
-  // Mark for statements breakable if the condition expression is.
-  if (stmt->cond() != NULL) {
-    Visit(stmt->cond());
-  }
-}
-
-
-void BreakableStatementChecker::VisitForInStatement(ForInStatement* stmt) {
-  // Mark for in statements breakable if the enumerable expression is.
-  Visit(stmt->enumerable());
-}
-
-
-void BreakableStatementChecker::VisitForOfStatement(ForOfStatement* stmt) {
-  // For-of is breakable because of the next() call.
-  is_breakable_ = true;
-}
-
-
-void BreakableStatementChecker::VisitTryCatchStatement(
-    TryCatchStatement* stmt) {
-  // Mark try catch as breakable to avoid adding a break slot in front of it.
-  is_breakable_ = true;
-}
-
-
-void BreakableStatementChecker::VisitTryFinallyStatement(
-    TryFinallyStatement* stmt) {
-  // Mark try finally as breakable to avoid adding a break slot in front of it.
-  is_breakable_ = true;
-}
-
-
-void BreakableStatementChecker::VisitDebuggerStatement(
-    DebuggerStatement* stmt) {
-  // The debugger statement is breakable.
-  is_breakable_ = true;
-}
-
-
-void BreakableStatementChecker::VisitCaseClause(CaseClause* clause) {
-}
-
-
-void BreakableStatementChecker::VisitFunctionLiteral(FunctionLiteral* expr) {
-}
-
-
-void BreakableStatementChecker::VisitClassLiteral(ClassLiteral* expr) {
-  if (expr->extends() != NULL) {
-    Visit(expr->extends());
-  }
-}
-
-
-void BreakableStatementChecker::VisitNativeFunctionLiteral(
-    NativeFunctionLiteral* expr) {
-}
-
-
-void BreakableStatementChecker::VisitConditional(Conditional* expr) {
-}
-
-
-void BreakableStatementChecker::VisitVariableProxy(VariableProxy* expr) {
-}
-
-
-void BreakableStatementChecker::VisitLiteral(Literal* expr) {
-}
-
-
-void BreakableStatementChecker::VisitRegExpLiteral(RegExpLiteral* expr) {
-}
-
-
-void BreakableStatementChecker::VisitObjectLiteral(ObjectLiteral* expr) {
-}
-
-
-void BreakableStatementChecker::VisitArrayLiteral(ArrayLiteral* expr) {
-}
-
-
-void BreakableStatementChecker::VisitAssignment(Assignment* expr) {
-  // If assigning to a property (including a global property) the assignment is
-  // breakable.
-  VariableProxy* proxy = expr->target()->AsVariableProxy();
-  Property* prop = expr->target()->AsProperty();
-  if (prop != NULL || (proxy != NULL && proxy->var()->IsUnallocated())) {
-    is_breakable_ = true;
-    return;
-  }
-
-  // Otherwise the assignment is breakable if the assigned value is.
-  Visit(expr->value());
-}
-
-
-void BreakableStatementChecker::VisitYield(Yield* expr) {
-  // Yield is breakable if the expression is.
-  Visit(expr->expression());
-}
-
-
-void BreakableStatementChecker::VisitThrow(Throw* expr) {
-  // Throw is breakable if the expression is.
-  Visit(expr->exception());
-}
-
-
-void BreakableStatementChecker::VisitProperty(Property* expr) {
-  // Property load is breakable.
-  is_breakable_ = true;
-}
-
-
-void BreakableStatementChecker::VisitCall(Call* expr) {
-  // Function calls both through IC and call stub are breakable.
-  is_breakable_ = true;
-}
-
-
-void BreakableStatementChecker::VisitCallNew(CallNew* expr) {
-  // Function calls through new are breakable.
-  is_breakable_ = true;
-}
-
-
-void BreakableStatementChecker::VisitCallRuntime(CallRuntime* expr) {
-}
-
-
-void BreakableStatementChecker::VisitUnaryOperation(UnaryOperation* expr) {
-  Visit(expr->expression());
-}
-
-
-void BreakableStatementChecker::VisitCountOperation(CountOperation* expr) {
-  Visit(expr->expression());
-}
-
-
-void BreakableStatementChecker::VisitBinaryOperation(BinaryOperation* expr) {
-  Visit(expr->left());
-  if (expr->op() != Token::AND &&
-      expr->op() != Token::OR) {
-    Visit(expr->right());
-  }
-}
-
-
-void BreakableStatementChecker::VisitCompareOperation(CompareOperation* expr) {
-  Visit(expr->left());
-  Visit(expr->right());
-}
-
-
-void BreakableStatementChecker::VisitThisFunction(ThisFunction* expr) {
-}
-
-
-void BreakableStatementChecker::VisitSuperReference(SuperReference* expr) {}
-
 
 #define __ ACCESS_MASM(masm())
 
@@ -307,6 +27,9 @@ bool FullCodeGenerator::MakeCode(CompilationInfo* info) {
   Isolate* isolate = info->isolate();
 
   TimerEventScope<TimerEventCompileFullCode> timer(info->isolate());
+
+  // Ensure that the feedback vector is large enough.
+  info->EnsureFeedbackVector();
 
   Handle<Script> script = info->script();
   if (!script->IsUndefined() && !script->source()->IsUndefined()) {
@@ -331,13 +54,11 @@ bool FullCodeGenerator::MakeCode(CompilationInfo* info) {
 
   Code::Flags flags = Code::ComputeFlags(Code::FUNCTION);
   Handle<Code> code = CodeGenerator::MakeCodeEpilogue(&masm, flags, info);
-  code->set_optimizable(info->IsOptimizable() &&
-                        !info->function()->dont_optimize() &&
-                        info->function()->scope()->AllowsLazyCompilation());
   cgen.PopulateDeoptimizationData(code);
   cgen.PopulateTypeFeedbackInfo(code);
+  cgen.PopulateHandlerTable(code);
   code->set_has_deoptimization_support(info->HasDeoptimizationSupport());
-  code->set_handler_table(*cgen.handler_table());
+  code->set_has_reloc_info_for_serialization(info->will_serialize());
   code->set_compiled_optimizable(info->IsOptimizable());
   code->set_allow_osr_at_loop_nesting_level(0);
   code->set_profiler_ticks(0);
@@ -349,7 +70,7 @@ bool FullCodeGenerator::MakeCode(CompilationInfo* info) {
 
 #ifdef DEBUG
   // Check that no context-specific object has been embedded.
-  code->VerifyEmbeddedObjectsInFullCode();
+  code->VerifyEmbeddedObjects(Code::kNoContextSpecificPointers);
 #endif  // DEBUG
   return true;
 }
@@ -417,16 +138,63 @@ void FullCodeGenerator::PopulateTypeFeedbackInfo(Handle<Code> code) {
 }
 
 
+void FullCodeGenerator::PopulateHandlerTable(Handle<Code> code) {
+  int handler_table_size = static_cast<int>(handler_table_.size());
+  Handle<HandlerTable> table =
+      Handle<HandlerTable>::cast(isolate()->factory()->NewFixedArray(
+          HandlerTable::LengthForRange(handler_table_size), TENURED));
+  for (int i = 0; i < handler_table_size; ++i) {
+    HandlerTable::CatchPrediction prediction =
+        handler_table_[i].try_catch_depth > 0 ? HandlerTable::CAUGHT
+                                              : HandlerTable::UNCAUGHT;
+    table->SetRangeStart(i, handler_table_[i].range_start);
+    table->SetRangeEnd(i, handler_table_[i].range_end);
+    table->SetRangeHandler(i, handler_table_[i].handler_offset, prediction);
+    table->SetRangeDepth(i, handler_table_[i].stack_depth);
+  }
+  code->set_handler_table(*table);
+}
+
+
+int FullCodeGenerator::NewHandlerTableEntry() {
+  int index = static_cast<int>(handler_table_.size());
+  HandlerTableEntry entry = {0, 0, 0, 0, 0};
+  handler_table_.push_back(entry);
+  return index;
+}
+
+
+bool FullCodeGenerator::MustCreateObjectLiteralWithRuntime(
+    ObjectLiteral* expr) const {
+  int literal_flags = expr->ComputeFlags();
+  // FastCloneShallowObjectStub doesn't copy elements, and object literals don't
+  // support copy-on-write (COW) elements for now.
+  // TODO(mvstanton): make object literals support COW elements.
+  return masm()->serializer_enabled() ||
+         literal_flags != ObjectLiteral::kShallowProperties ||
+         literal_flags != ObjectLiteral::kFastElements ||
+         expr->properties_count() >
+             FastCloneShallowObjectStub::kMaximumClonedProperties;
+}
+
+
+bool FullCodeGenerator::MustCreateArrayLiteralWithRuntime(
+    ArrayLiteral* expr) const {
+  // TODO(rossberg): Teach strong mode to FastCloneShallowArrayStub.
+  return expr->depth() > 1 || expr->is_strong() ||
+         expr->values()->length() > JSObject::kInitialMaxFastElementArray;
+}
+
+
 void FullCodeGenerator::Initialize() {
-  InitializeAstVisitor(info_->zone());
+  InitializeAstVisitor(info_->isolate(), info_->zone());
   // The generation of debug code must match between the snapshot code and the
   // code that is generated later.  This is assumed by the debugger when it is
   // calculating PC offsets after generating a debug version of code.  Therefore
   // we disable the production of debug code in the full compiler if we are
   // either generating a snapshot or we booted from a snapshot.
-  generate_debug_code_ = FLAG_debug_code &&
-                         !masm_->serializer_enabled() &&
-                         !Snapshot::HaveASnapshotToStartFrom();
+  generate_debug_code_ = FLAG_debug_code && !masm_->serializer_enabled() &&
+                         !info_->isolate()->snapshot_available();
   masm_->set_emit_debug_code(generate_debug_code_);
   masm_->set_predictable_code_size(true);
 }
@@ -438,14 +206,16 @@ void FullCodeGenerator::PrepareForBailout(Expression* node, State state) {
 
 
 void FullCodeGenerator::CallLoadIC(ContextualMode contextual_mode,
+                                   LanguageMode language_mode,
                                    TypeFeedbackId id) {
-  Handle<Code> ic = CodeFactory::LoadIC(isolate(), contextual_mode).code();
+  Handle<Code> ic =
+      CodeFactory::LoadIC(isolate(), contextual_mode, language_mode).code();
   CallIC(ic, id);
 }
 
 
 void FullCodeGenerator::CallStoreIC(TypeFeedbackId id) {
-  Handle<Code> ic = CodeFactory::StoreIC(isolate(), strict_mode()).code();
+  Handle<Code> ic = CodeFactory::StoreIC(isolate(), language_mode()).code();
   CallIC(ic, id);
 }
 
@@ -602,133 +372,13 @@ void FullCodeGenerator::DoTest(const TestContext* context) {
 }
 
 
-void FullCodeGenerator::AllocateModules(ZoneList<Declaration*>* declarations) {
-  DCHECK(scope_->is_global_scope());
-
-  for (int i = 0; i < declarations->length(); i++) {
-    ModuleDeclaration* declaration = declarations->at(i)->AsModuleDeclaration();
-    if (declaration != NULL) {
-      ModuleLiteral* module = declaration->module()->AsModuleLiteral();
-      if (module != NULL) {
-        Comment cmnt(masm_, "[ Link nested modules");
-        Scope* scope = module->body()->scope();
-        Interface* interface = scope->interface();
-        DCHECK(interface->IsModule() && interface->IsFrozen());
-
-        interface->Allocate(scope->module_var()->index());
-
-        // Set up module context.
-        DCHECK(scope->interface()->Index() >= 0);
-        __ Push(Smi::FromInt(scope->interface()->Index()));
-        __ Push(scope->GetScopeInfo());
-        __ CallRuntime(Runtime::kPushModuleContext, 2);
-        StoreToFrameField(StandardFrameConstants::kContextOffset,
-                          context_register());
-
-        AllocateModules(scope->declarations());
-
-        // Pop module context.
-        LoadContextField(context_register(), Context::PREVIOUS_INDEX);
-        // Update local stack frame context field.
-        StoreToFrameField(StandardFrameConstants::kContextOffset,
-                          context_register());
-      }
-    }
-  }
-}
-
-
-// Modules have their own local scope, represented by their own context.
-// Module instance objects have an accessor for every export that forwards
-// access to the respective slot from the module's context. (Exports that are
-// modules themselves, however, are simple data properties.)
-//
-// All modules have a _hosting_ scope/context, which (currently) is the
-// (innermost) enclosing global scope. To deal with recursion, nested modules
-// are hosted by the same scope as global ones.
-//
-// For every (global or nested) module literal, the hosting context has an
-// internal slot that points directly to the respective module context. This
-// enables quick access to (statically resolved) module members by 2-dimensional
-// access through the hosting context. For example,
-//
-//   module A {
-//     let x;
-//     module B { let y; }
-//   }
-//   module C { let z; }
-//
-// allocates contexts as follows:
-//
-// [header| .A | .B | .C | A | C ]  (global)
-//           |    |    |
-//           |    |    +-- [header| z ]  (module)
-//           |    |
-//           |    +------- [header| y ]  (module)
-//           |
-//           +------------ [header| x | B ]  (module)
-//
-// Here, .A, .B, .C are the internal slots pointing to the hosted module
-// contexts, whereas A, B, C hold the actual instance objects (note that every
-// module context also points to the respective instance object through its
-// extension slot in the header).
-//
-// To deal with arbitrary recursion and aliases between modules,
-// they are created and initialized in several stages. Each stage applies to
-// all modules in the hosting global scope, including nested ones.
-//
-// 1. Allocate: for each module _literal_, allocate the module contexts and
-//    respective instance object and wire them up. This happens in the
-//    PushModuleContext runtime function, as generated by AllocateModules
-//    (invoked by VisitDeclarations in the hosting scope).
-//
-// 2. Bind: for each module _declaration_ (i.e. literals as well as aliases),
-//    assign the respective instance object to respective local variables. This
-//    happens in VisitModuleDeclaration, and uses the instance objects created
-//    in the previous stage.
-//    For each module _literal_, this phase also constructs a module descriptor
-//    for the next stage. This happens in VisitModuleLiteral.
-//
-// 3. Populate: invoke the DeclareModules runtime function to populate each
-//    _instance_ object with accessors for it exports. This is generated by
-//    DeclareModules (invoked by VisitDeclarations in the hosting scope again),
-//    and uses the descriptors generated in the previous stage.
-//
-// 4. Initialize: execute the module bodies (and other code) in sequence. This
-//    happens by the separate statements generated for module bodies. To reenter
-//    the module scopes properly, the parser inserted ModuleStatements.
-
 void FullCodeGenerator::VisitDeclarations(
     ZoneList<Declaration*>* declarations) {
-  Handle<FixedArray> saved_modules = modules_;
-  int saved_module_index = module_index_;
   ZoneList<Handle<Object> >* saved_globals = globals_;
   ZoneList<Handle<Object> > inner_globals(10, zone());
   globals_ = &inner_globals;
 
-  if (scope_->num_modules() != 0) {
-    // This is a scope hosting modules. Allocate a descriptor array to pass
-    // to the runtime for initialization.
-    Comment cmnt(masm_, "[ Allocate modules");
-    DCHECK(scope_->is_global_scope());
-    modules_ =
-        isolate()->factory()->NewFixedArray(scope_->num_modules(), TENURED);
-    module_index_ = 0;
-
-    // Generate code for allocating all modules, including nested ones.
-    // The allocated contexts are stored in internal variables in this scope.
-    AllocateModules(declarations);
-  }
-
   AstVisitor::VisitDeclarations(declarations);
-
-  if (scope_->num_modules() != 0) {
-    // Initialize modules from descriptor array.
-    DCHECK(module_index_ == modules_->length());
-    DeclareModules(modules_);
-    modules_ = saved_modules;
-    module_index_ = saved_module_index;
-  }
 
   if (!globals_->is_empty()) {
     // Invoke the platform-dependent code generator to do the actual
@@ -744,181 +394,75 @@ void FullCodeGenerator::VisitDeclarations(
 }
 
 
-void FullCodeGenerator::VisitModuleLiteral(ModuleLiteral* module) {
-  Block* block = module->body();
-  Scope* saved_scope = scope();
-  scope_ = block->scope();
-  Interface* interface = scope_->interface();
-
-  Comment cmnt(masm_, "[ ModuleLiteral");
-  SetStatementPosition(block);
-
-  DCHECK(!modules_.is_null());
-  DCHECK(module_index_ < modules_->length());
-  int index = module_index_++;
-
-  // Set up module context.
-  DCHECK(interface->Index() >= 0);
-  __ Push(Smi::FromInt(interface->Index()));
-  __ Push(Smi::FromInt(0));
-  __ CallRuntime(Runtime::kPushModuleContext, 2);
-  StoreToFrameField(StandardFrameConstants::kContextOffset, context_register());
-
-  {
-    Comment cmnt(masm_, "[ Declarations");
-    VisitDeclarations(scope_->declarations());
-  }
-
-  // Populate the module description.
-  Handle<ModuleInfo> description =
-      ModuleInfo::Create(isolate(), interface, scope_);
-  modules_->set(index, *description);
-
-  scope_ = saved_scope;
-  // Pop module context.
-  LoadContextField(context_register(), Context::PREVIOUS_INDEX);
-  // Update local stack frame context field.
-  StoreToFrameField(StandardFrameConstants::kContextOffset, context_register());
-}
-
-
-void FullCodeGenerator::VisitModuleVariable(ModuleVariable* module) {
-  // Nothing to do.
-  // The instance object is resolved statically through the module's interface.
-}
-
-
-void FullCodeGenerator::VisitModulePath(ModulePath* module) {
-  // Nothing to do.
-  // The instance object is resolved statically through the module's interface.
-}
-
-
-void FullCodeGenerator::VisitModuleUrl(ModuleUrl* module) {
-  // TODO(rossberg): dummy allocation for now.
-  Scope* scope = module->body()->scope();
-  Interface* interface = scope_->interface();
-
-  DCHECK(interface->IsModule() && interface->IsFrozen());
-  DCHECK(!modules_.is_null());
-  DCHECK(module_index_ < modules_->length());
-  interface->Allocate(scope->module_var()->index());
-  int index = module_index_++;
-
-  Handle<ModuleInfo> description =
-      ModuleInfo::Create(isolate(), interface, scope_);
-  modules_->set(index, *description);
-}
-
-
 int FullCodeGenerator::DeclareGlobalsFlags() {
-  DCHECK(DeclareGlobalsStrictMode::is_valid(strict_mode()));
+  DCHECK(DeclareGlobalsLanguageMode::is_valid(language_mode()));
   return DeclareGlobalsEvalFlag::encode(is_eval()) |
-      DeclareGlobalsNativeFlag::encode(is_native()) |
-      DeclareGlobalsStrictMode::encode(strict_mode());
+         DeclareGlobalsNativeFlag::encode(is_native()) |
+         DeclareGlobalsLanguageMode::encode(language_mode());
+}
+
+
+bool RecordStatementPosition(MacroAssembler* masm, int pos) {
+  if (pos == RelocInfo::kNoPosition) return false;
+  masm->positions_recorder()->RecordStatementPosition(pos);
+  masm->positions_recorder()->RecordPosition(pos);
+  return masm->positions_recorder()->WriteRecordedPositions();
+}
+
+
+bool RecordPosition(MacroAssembler* masm, int pos) {
+  if (pos == RelocInfo::kNoPosition) return false;
+  masm->positions_recorder()->RecordPosition(pos);
+  return masm->positions_recorder()->WriteRecordedPositions();
 }
 
 
 void FullCodeGenerator::SetFunctionPosition(FunctionLiteral* fun) {
-  CodeGenerator::RecordPositions(masm_, fun->start_position());
+  RecordPosition(masm_, fun->start_position());
 }
 
 
 void FullCodeGenerator::SetReturnPosition(FunctionLiteral* fun) {
-  CodeGenerator::RecordPositions(masm_, fun->end_position() - 1);
+  RecordStatementPosition(masm_, fun->end_position() - 1);
 }
 
 
-void FullCodeGenerator::SetStatementPosition(Statement* stmt) {
-  if (!info_->is_debug()) {
-    CodeGenerator::RecordPositions(masm_, stmt->position());
-  } else {
-    // Check if the statement will be breakable without adding a debug break
-    // slot.
-    BreakableStatementChecker checker(zone());
-    checker.Check(stmt);
-    // Record the statement position right here if the statement is not
-    // breakable. For breakable statements the actual recording of the
-    // position will be postponed to the breakable code (typically an IC).
-    bool position_recorded = CodeGenerator::RecordPositions(
-        masm_, stmt->position(), !checker.is_breakable());
-    // If the position recording did record a new position generate a debug
-    // break slot to make the statement breakable.
-    if (position_recorded) {
-      DebugCodegen::GenerateSlot(masm_);
-    }
+void FullCodeGenerator::SetStatementPosition(
+    Statement* stmt, FullCodeGenerator::InsertBreak insert_break) {
+  if (stmt->position() == RelocInfo::kNoPosition) return;
+  bool recorded = RecordStatementPosition(masm_, stmt->position());
+  if (recorded && insert_break == INSERT_BREAK && info_->is_debug() &&
+      !stmt->IsDebuggerStatement()) {
+    DebugCodegen::GenerateSlot(masm_);
   }
 }
 
 
-void FullCodeGenerator::VisitSuperReference(SuperReference* super) {
+void FullCodeGenerator::SetExpressionPosition(
+    Expression* expr, FullCodeGenerator::InsertBreak insert_break) {
+  if (expr->position() == RelocInfo::kNoPosition) return;
+  bool recorded = RecordPosition(masm_, expr->position());
+  if (recorded && insert_break == INSERT_BREAK && info_->is_debug()) {
+    DebugCodegen::GenerateSlot(masm_);
+  }
+}
+
+
+void FullCodeGenerator::SetExpressionAsStatementPosition(Expression* expr) {
+  if (expr->position() == RelocInfo::kNoPosition) return;
+  bool recorded = RecordStatementPosition(masm_, expr->position());
+  if (recorded && info_->is_debug()) DebugCodegen::GenerateSlot(masm_);
+}
+
+
+void FullCodeGenerator::VisitSuperPropertyReference(
+    SuperPropertyReference* super) {
   __ CallRuntime(Runtime::kThrowUnsupportedSuperError, 0);
 }
 
 
-void FullCodeGenerator::SetExpressionPosition(Expression* expr) {
-  if (!info_->is_debug()) {
-    CodeGenerator::RecordPositions(masm_, expr->position());
-  } else {
-    // Check if the expression will be breakable without adding a debug break
-    // slot.
-    BreakableStatementChecker checker(zone());
-    checker.Check(expr);
-    // Record a statement position right here if the expression is not
-    // breakable. For breakable expressions the actual recording of the
-    // position will be postponed to the breakable code (typically an IC).
-    // NOTE this will record a statement position for something which might
-    // not be a statement. As stepping in the debugger will only stop at
-    // statement positions this is used for e.g. the condition expression of
-    // a do while loop.
-    bool position_recorded = CodeGenerator::RecordPositions(
-        masm_, expr->position(), !checker.is_breakable());
-    // If the position recording did record a new position generate a debug
-    // break slot to make the statement breakable.
-    if (position_recorded) {
-      DebugCodegen::GenerateSlot(masm_);
-    }
-  }
-}
-
-
-void FullCodeGenerator::SetSourcePosition(int pos) {
-  if (pos != RelocInfo::kNoPosition) {
-    masm_->positions_recorder()->RecordPosition(pos);
-  }
-}
-
-
-// Lookup table for code generators for  special runtime calls which are
-// generated inline.
-#define INLINE_FUNCTION_GENERATOR_ADDRESS(Name, argc, ressize)          \
-    &FullCodeGenerator::Emit##Name,
-
-const FullCodeGenerator::InlineFunctionGenerator
-  FullCodeGenerator::kInlineFunctionGenerators[] = {
-    INLINE_FUNCTION_LIST(INLINE_FUNCTION_GENERATOR_ADDRESS)
-  };
-#undef INLINE_FUNCTION_GENERATOR_ADDRESS
-
-
-FullCodeGenerator::InlineFunctionGenerator
-  FullCodeGenerator::FindInlineFunctionGenerator(Runtime::FunctionId id) {
-    int lookup_index =
-        static_cast<int>(id) - static_cast<int>(Runtime::kFirstInlineFunction);
-    DCHECK(lookup_index >= 0);
-    DCHECK(static_cast<size_t>(lookup_index) <
-           arraysize(kInlineFunctionGenerators));
-    return kInlineFunctionGenerators[lookup_index];
-}
-
-
-void FullCodeGenerator::EmitInlineRuntimeCall(CallRuntime* expr) {
-  const Runtime::Function* function = expr->function();
-  DCHECK(function != NULL);
-  DCHECK(function->intrinsic_type == Runtime::INLINE);
-  InlineFunctionGenerator generator =
-      FindInlineFunctionGenerator(function->function_id);
-  ((*this).*(generator))(expr);
+void FullCodeGenerator::VisitSuperCallReference(SuperCallReference* super) {
+  __ CallRuntime(Runtime::kThrowUnsupportedSuperError, 0);
 }
 
 
@@ -1050,19 +594,31 @@ void FullCodeGenerator::VisitArithmeticExpression(BinaryOperation* expr) {
   Comment cmnt(masm_, "[ ArithmeticExpression");
   Expression* left = expr->left();
   Expression* right = expr->right();
-  OverwriteMode mode =
-      left->ResultOverwriteAllowed()
-      ? OVERWRITE_LEFT
-      : (right->ResultOverwriteAllowed() ? OVERWRITE_RIGHT : NO_OVERWRITE);
 
   VisitForStackValue(left);
   VisitForAccumulatorValue(right);
 
-  SetSourcePosition(expr->position());
+  SetExpressionPosition(expr);
   if (ShouldInlineSmiCase(op)) {
-    EmitInlineSmiBinaryOp(expr, op, mode, left, right);
+    EmitInlineSmiBinaryOp(expr, op, left, right);
   } else {
-    EmitBinaryOp(expr, op, mode);
+    EmitBinaryOp(expr, op);
+  }
+}
+
+
+void FullCodeGenerator::VisitForTypeofValue(Expression* expr) {
+  VariableProxy* proxy = expr->AsVariableProxy();
+  DCHECK(!context()->IsEffect());
+  DCHECK(!context()->IsTest());
+
+  if (proxy != NULL && (proxy->var()->IsUnallocatedOrGlobalSlot() ||
+                        proxy->var()->IsLookupSlot())) {
+    EmitVariableLoad(proxy, INSIDE_TYPEOF);
+    PrepareForBailout(proxy, TOS_REG);
+  } else {
+    // This expression cannot throw a reference error at the top level.
+    VisitInDuplicateContext(expr);
   }
 }
 
@@ -1072,61 +628,12 @@ void FullCodeGenerator::VisitBlock(Block* stmt) {
   NestedBlock nested_block(this, stmt);
   SetStatementPosition(stmt);
 
-  Scope* saved_scope = scope();
-  // Push a block context when entering a block with block scoped variables.
-  if (stmt->scope() == NULL) {
-    PrepareForBailoutForId(stmt->EntryId(), NO_REGISTERS);
-  } else {
-    scope_ = stmt->scope();
-    DCHECK(!scope_->is_module_scope());
-    { Comment cmnt(masm_, "[ Extend block context");
-      __ Push(scope_->GetScopeInfo());
-      PushFunctionArgumentForContextAllocation();
-      __ CallRuntime(Runtime::kPushBlockContext, 2);
-
-      // Replace the context stored in the frame.
-      StoreToFrameField(StandardFrameConstants::kContextOffset,
-                        context_register());
-      PrepareForBailoutForId(stmt->EntryId(), NO_REGISTERS);
-    }
-    { Comment cmnt(masm_, "[ Declarations");
-      VisitDeclarations(scope_->declarations());
-      PrepareForBailoutForId(stmt->DeclsId(), NO_REGISTERS);
-    }
+  {
+    EnterBlockScopeIfNeeded block_scope_state(
+        this, stmt->scope(), stmt->EntryId(), stmt->DeclsId(), stmt->ExitId());
+    VisitStatements(stmt->statements());
+    __ bind(nested_block.break_label());
   }
-
-  VisitStatements(stmt->statements());
-  scope_ = saved_scope;
-  __ bind(nested_block.break_label());
-
-  // Pop block context if necessary.
-  if (stmt->scope() != NULL) {
-    LoadContextField(context_register(), Context::PREVIOUS_INDEX);
-    // Update local stack frame context field.
-    StoreToFrameField(StandardFrameConstants::kContextOffset,
-                      context_register());
-  }
-  PrepareForBailoutForId(stmt->ExitId(), NO_REGISTERS);
-}
-
-
-void FullCodeGenerator::VisitModuleStatement(ModuleStatement* stmt) {
-  Comment cmnt(masm_, "[ Module context");
-
-  __ Push(Smi::FromInt(stmt->proxy()->interface()->Index()));
-  __ Push(Smi::FromInt(0));
-  __ CallRuntime(Runtime::kPushModuleContext, 2);
-  StoreToFrameField(
-      StandardFrameConstants::kContextOffset, context_register());
-
-  Scope* saved_scope = scope_;
-  scope_ = stmt->body()->scope();
-  VisitStatements(stmt->body()->statements());
-  scope_ = saved_scope;
-  LoadContextField(context_register(), Context::PREVIOUS_INDEX);
-  // Update local stack frame context field.
-  StoreToFrameField(StandardFrameConstants::kContextOffset,
-                    context_register());
 }
 
 
@@ -1238,6 +745,21 @@ void FullCodeGenerator::EmitUnwindBeforeReturn() {
 }
 
 
+void FullCodeGenerator::EmitPropertyKey(ObjectLiteralProperty* property,
+                                        BailoutId bailout_id) {
+  VisitForStackValue(property->key());
+  __ InvokeBuiltin(Builtins::TO_NAME, CALL_FUNCTION);
+  PrepareForBailoutForId(bailout_id, NO_REGISTERS);
+  __ Push(result_register());
+}
+
+
+void FullCodeGenerator::EmitLoadSuperConstructor(SuperCallReference* ref) {
+  VisitForStackValue(ref->this_function_var());
+  __ CallRuntime(Runtime::kGetPrototype, 1);
+}
+
+
 void FullCodeGenerator::VisitReturnStatement(ReturnStatement* stmt) {
   Comment cmnt(masm_, "[ ReturnStatement");
   SetStatementPosition(stmt);
@@ -1256,6 +778,7 @@ void FullCodeGenerator::VisitWithStatement(WithStatement* stmt) {
   PushFunctionArgumentForContextAllocation();
   __ CallRuntime(Runtime::kPushWithContext, 2);
   StoreToFrameField(StandardFrameConstants::kContextOffset, context_register());
+  PrepareForBailoutForId(stmt->EntryId(), NO_REGISTERS);
 
   Scope* saved_scope = scope();
   scope_ = stmt->scope();
@@ -1273,7 +796,9 @@ void FullCodeGenerator::VisitWithStatement(WithStatement* stmt) {
 
 void FullCodeGenerator::VisitDoWhileStatement(DoWhileStatement* stmt) {
   Comment cmnt(masm_, "[ DoWhileStatement");
-  SetStatementPosition(stmt);
+  // Do not insert break location as we do that below.
+  SetStatementPosition(stmt, SKIP_BREAK);
+
   Label body, book_keeping;
 
   Iteration loop_statement(this, stmt);
@@ -1286,7 +811,9 @@ void FullCodeGenerator::VisitDoWhileStatement(DoWhileStatement* stmt) {
   // possible to break on the condition.
   __ bind(loop_statement.continue_label());
   PrepareForBailoutForId(stmt->ContinueId(), NO_REGISTERS);
-  SetExpressionPosition(stmt->cond());
+
+  // Here is the actual 'while' keyword.
+  SetExpressionAsStatementPosition(stmt->cond());
   VisitForControl(stmt->cond(),
                   &book_keeping,
                   loop_statement.break_label(),
@@ -1313,7 +840,7 @@ void FullCodeGenerator::VisitWhileStatement(WhileStatement* stmt) {
 
   __ bind(&loop);
 
-  SetExpressionPosition(stmt->cond());
+  SetExpressionAsStatementPosition(stmt->cond());
   VisitForControl(stmt->cond(),
                   &body,
                   loop_statement.break_label(),
@@ -1337,14 +864,15 @@ void FullCodeGenerator::VisitWhileStatement(WhileStatement* stmt) {
 
 void FullCodeGenerator::VisitForStatement(ForStatement* stmt) {
   Comment cmnt(masm_, "[ ForStatement");
+  // Do not insert break location as we do it below.
+  SetStatementPosition(stmt, SKIP_BREAK);
+
   Label test, body;
 
   Iteration loop_statement(this, stmt);
 
-  // Set statement position for a break slot before entering the for-body.
-  SetStatementPosition(stmt);
-
   if (stmt->init() != NULL) {
+    SetStatementPosition(stmt->init());
     Visit(stmt->init());
   }
 
@@ -1359,18 +887,16 @@ void FullCodeGenerator::VisitForStatement(ForStatement* stmt) {
   PrepareForBailoutForId(stmt->ContinueId(), NO_REGISTERS);
   __ bind(loop_statement.continue_label());
   if (stmt->next() != NULL) {
+    SetStatementPosition(stmt->next());
     Visit(stmt->next());
   }
-
-  // Emit the statement position here as this is where the for
-  // statement code starts.
-  SetStatementPosition(stmt);
 
   // Check stack before looping.
   EmitBackEdgeBookkeeping(stmt, &body);
 
   __ bind(&test);
   if (stmt->cond() != NULL) {
+    SetExpressionAsStatementPosition(stmt->cond());
     VisitForControl(stmt->cond(),
                     &body,
                     loop_statement.break_label(),
@@ -1385,9 +911,50 @@ void FullCodeGenerator::VisitForStatement(ForStatement* stmt) {
 }
 
 
+void FullCodeGenerator::VisitForOfStatement(ForOfStatement* stmt) {
+  Comment cmnt(masm_, "[ ForOfStatement");
+
+  Iteration loop_statement(this, stmt);
+  increment_loop_depth();
+
+  // var iterator = iterable[Symbol.iterator]();
+  VisitForEffect(stmt->assign_iterator());
+
+  // Loop entry.
+  __ bind(loop_statement.continue_label());
+
+  // result = iterator.next()
+  SetExpressionAsStatementPosition(stmt->next_result());
+  VisitForEffect(stmt->next_result());
+
+  // if (result.done) break;
+  Label result_not_done;
+  VisitForControl(stmt->result_done(), loop_statement.break_label(),
+                  &result_not_done, &result_not_done);
+  __ bind(&result_not_done);
+
+  // each = result.value
+  VisitForEffect(stmt->assign_each());
+
+  // Generate code for the body of the loop.
+  Visit(stmt->body());
+
+  // Check stack before looping.
+  PrepareForBailoutForId(stmt->BackEdgeId(), NO_REGISTERS);
+  EmitBackEdgeBookkeeping(stmt, loop_statement.continue_label());
+  __ jmp(loop_statement.continue_label());
+
+  // Exit and decrement the loop depth.
+  PrepareForBailoutForId(stmt->ExitId(), NO_REGISTERS);
+  __ bind(loop_statement.break_label());
+  decrement_loop_depth();
+}
+
+
 void FullCodeGenerator::VisitTryCatchStatement(TryCatchStatement* stmt) {
   Comment cmnt(masm_, "[ TryCatchStatement");
-  SetStatementPosition(stmt);
+  SetStatementPosition(stmt, SKIP_BREAK);
+
   // The try block adds a handler to the exception handler chain before
   // entering, and removes it again when exiting normally.  If an exception
   // is thrown during execution of the try block, the handler is consumed
@@ -1397,7 +964,9 @@ void FullCodeGenerator::VisitTryCatchStatement(TryCatchStatement* stmt) {
   Label try_entry, handler_entry, exit;
   __ jmp(&try_entry);
   __ bind(&handler_entry);
-  handler_table()->set(stmt->index(), Smi::FromInt(handler_entry.pos()));
+  PrepareForBailoutForId(stmt->HandlerId(), NO_REGISTERS);
+  ClearPendingMessage();
+
   // Exception handler code, the exception is in the result register.
   // Extend the context before executing the catch block.
   { Comment cmnt(masm_, "[ Extend catch context");
@@ -1423,18 +992,23 @@ void FullCodeGenerator::VisitTryCatchStatement(TryCatchStatement* stmt) {
 
   // Try block code. Sets up the exception handler chain.
   __ bind(&try_entry);
-  __ PushTryHandler(StackHandler::CATCH, stmt->index());
+
+  try_catch_depth_++;
+  int handler_index = NewHandlerTableEntry();
+  EnterTryBlock(handler_index, &handler_entry);
   { TryCatch try_body(this);
     Visit(stmt->try_block());
   }
-  __ PopTryHandler();
+  ExitTryBlock(handler_index);
+  try_catch_depth_--;
   __ bind(&exit);
 }
 
 
 void FullCodeGenerator::VisitTryFinallyStatement(TryFinallyStatement* stmt) {
   Comment cmnt(masm_, "[ TryFinallyStatement");
-  SetStatementPosition(stmt);
+  SetStatementPosition(stmt, SKIP_BREAK);
+
   // Try finally is compiled by setting up a try-handler on the stack while
   // executing the try body, and removing it again afterwards.
   //
@@ -1461,7 +1035,8 @@ void FullCodeGenerator::VisitTryFinallyStatement(TryFinallyStatement* stmt) {
   // Jump to try-handler setup and try-block code.
   __ jmp(&try_entry);
   __ bind(&handler_entry);
-  handler_table()->set(stmt->index(), Smi::FromInt(handler_entry.pos()));
+  PrepareForBailoutForId(stmt->HandlerId(), NO_REGISTERS);
+
   // Exception handler code.  This code is only executed when an exception
   // is thrown.  The exception is in the result register, and must be
   // preserved by the finally block.  Call the finally block and then
@@ -1480,11 +1055,12 @@ void FullCodeGenerator::VisitTryFinallyStatement(TryFinallyStatement* stmt) {
 
   // Set up try handler.
   __ bind(&try_entry);
-  __ PushTryHandler(StackHandler::FINALLY, stmt->index());
+  int handler_index = NewHandlerTableEntry();
+  EnterTryBlock(handler_index, &handler_entry);
   { TryFinally try_body(this, &finally_entry);
     Visit(stmt->try_block());
   }
-  __ PopTryHandler();
+  ExitTryBlock(handler_index);
   // Execute the finally block on the way out.  Clobber the unpredictable
   // value in the result register with one that's safe for GC because the
   // finally block will unconditionally preserve the result register on the
@@ -1551,7 +1127,7 @@ void FullCodeGenerator::VisitFunctionLiteral(FunctionLiteral* expr) {
 
   // Build the function boilerplate and instantiate it.
   Handle<SharedFunctionInfo> function_info =
-      Compiler::BuildFunctionInfo(expr, script(), info_);
+      Compiler::GetSharedFunctionInfo(expr, script(), info_);
   if (function_info.is_null()) {
     SetStackOverflow();
     return;
@@ -1563,30 +1139,47 @@ void FullCodeGenerator::VisitFunctionLiteral(FunctionLiteral* expr) {
 void FullCodeGenerator::VisitClassLiteral(ClassLiteral* lit) {
   Comment cmnt(masm_, "[ ClassLiteral");
 
-  if (lit->raw_name() != NULL) {
-    __ Push(lit->name());
-  } else {
-    __ Push(isolate()->factory()->undefined_value());
-  }
+  {
+    EnterBlockScopeIfNeeded block_scope_state(
+        this, lit->scope(), lit->EntryId(), lit->DeclsId(), lit->ExitId());
 
-  if (lit->extends() != NULL) {
-    VisitForStackValue(lit->extends());
-  } else {
-    __ Push(isolate()->factory()->the_hole_value());
-  }
+    if (lit->raw_name() != NULL) {
+      __ Push(lit->name());
+    } else {
+      __ Push(isolate()->factory()->undefined_value());
+    }
 
-  if (lit->constructor() != NULL) {
+    if (lit->extends() != NULL) {
+      VisitForStackValue(lit->extends());
+    } else {
+      __ Push(isolate()->factory()->the_hole_value());
+    }
+
     VisitForStackValue(lit->constructor());
-  } else {
-    __ Push(isolate()->factory()->undefined_value());
+
+    __ Push(script());
+    __ Push(Smi::FromInt(lit->start_position()));
+    __ Push(Smi::FromInt(lit->end_position()));
+
+    __ CallRuntime(Runtime::kDefineClass, 6);
+    PrepareForBailoutForId(lit->CreateLiteralId(), TOS_REG);
+
+    int store_slot_index = 0;
+    EmitClassDefineProperties(lit, &store_slot_index);
+
+    if (lit->scope() != NULL) {
+      DCHECK_NOT_NULL(lit->class_variable_proxy());
+      FeedbackVectorICSlot slot = FLAG_vector_stores
+                                      ? lit->GetNthSlot(store_slot_index++)
+                                      : FeedbackVectorICSlot::Invalid();
+      EmitVariableAssignment(lit->class_variable_proxy()->var(),
+                             Token::INIT_CONST, slot);
+    }
+
+    // Verify that compilation exactly consumed the number of store ic slots
+    // that the ClassLiteral node had to offer.
+    DCHECK(!FLAG_vector_stores || store_slot_index == lit->slot_count());
   }
-
-  __ Push(script());
-  __ Push(Smi::FromInt(lit->start_position()));
-  __ Push(Smi::FromInt(lit->end_position()));
-
-  __ CallRuntime(Runtime::kDefineClass, 6);
-  EmitClassDefineProperties(lit);
 
   context()->Plug(result_register());
 }
@@ -1596,15 +1189,19 @@ void FullCodeGenerator::VisitNativeFunctionLiteral(
     NativeFunctionLiteral* expr) {
   Comment cmnt(masm_, "[ NativeFunctionLiteral");
 
+  v8::Isolate* v8_isolate = reinterpret_cast<v8::Isolate*>(isolate());
+
   // Compute the function template for the native function.
   Handle<String> name = expr->name();
-  v8::Handle<v8::FunctionTemplate> fun_template =
-      expr->extension()->GetNativeFunctionTemplate(
-          reinterpret_cast<v8::Isolate*>(isolate()), v8::Utils::ToLocal(name));
+  v8::Local<v8::FunctionTemplate> fun_template =
+      expr->extension()->GetNativeFunctionTemplate(v8_isolate,
+                                                   v8::Utils::ToLocal(name));
   DCHECK(!fun_template.IsEmpty());
 
   // Instantiate the function and create a shared function info from it.
-  Handle<JSFunction> fun = Utils::OpenHandle(*fun_template->GetFunction());
+  Handle<JSFunction> fun = Utils::OpenHandle(
+      *fun_template->GetFunction(v8_isolate->GetCurrentContext())
+           .ToLocalChecked());
   const int literals = fun->NumberOfLiterals();
   Handle<Code> code = Handle<Code>(fun->shared()->code());
   Handle<Code> construct_stub = Handle<Code>(fun->shared()->construct_stub());
@@ -1617,8 +1214,8 @@ void FullCodeGenerator::VisitNativeFunctionLiteral(
 
   // Copy the function data to the shared function info.
   shared->set_function_data(fun->shared()->function_data());
-  int parameters = fun->shared()->formal_parameter_count();
-  shared->set_formal_parameter_count(parameters);
+  int parameters = fun->shared()->internal_formal_parameter_count();
+  shared->set_internal_formal_parameter_count(parameters);
 
   EmitNewClosure(shared, false);
 }
@@ -1627,18 +1224,66 @@ void FullCodeGenerator::VisitNativeFunctionLiteral(
 void FullCodeGenerator::VisitThrow(Throw* expr) {
   Comment cmnt(masm_, "[ Throw");
   VisitForStackValue(expr->exception());
+  SetExpressionPosition(expr);
   __ CallRuntime(Runtime::kThrow, 1);
   // Never returns here.
 }
 
 
-FullCodeGenerator::NestedStatement* FullCodeGenerator::TryCatch::Exit(
-    int* stack_depth,
-    int* context_length) {
+void FullCodeGenerator::EnterTryBlock(int handler_index, Label* handler) {
+  HandlerTableEntry* entry = &handler_table_[handler_index];
+  entry->range_start = masm()->pc_offset();
+  entry->handler_offset = handler->pos();
+  entry->try_catch_depth = try_catch_depth_;
+
+  // Determine expression stack depth of try statement.
+  int stack_depth = info_->scope()->num_stack_slots();  // Include stack locals.
+  for (NestedStatement* current = nesting_stack_; current != NULL; /*nop*/) {
+    current = current->AccumulateDepth(&stack_depth);
+  }
+  entry->stack_depth = stack_depth;
+
+  // Push context onto operand stack.
+  STATIC_ASSERT(TryBlockConstant::kElementCount == 1);
+  __ Push(context_register());
+}
+
+
+void FullCodeGenerator::ExitTryBlock(int handler_index) {
+  HandlerTableEntry* entry = &handler_table_[handler_index];
+  entry->range_end = masm()->pc_offset();
+
+  // Drop context from operand stack.
+  __ Drop(TryBlockConstant::kElementCount);
+}
+
+
+void FullCodeGenerator::VisitSpread(Spread* expr) { UNREACHABLE(); }
+
+
+FullCodeGenerator::NestedStatement* FullCodeGenerator::TryFinally::Exit(
+    int* stack_depth, int* context_length) {
   // The macros used here must preserve the result register.
-  __ Drop(*stack_depth);
-  __ PopTryHandler();
+
+  // Because the handler block contains the context of the finally
+  // code, we can restore it directly from there for the finally code
+  // rather than iteratively unwinding contexts via their previous
+  // links.
+  if (*context_length > 0) {
+    __ Drop(*stack_depth);  // Down to the handler block.
+    // Restore the context to its dedicated register and the stack.
+    STATIC_ASSERT(TryFinally::kElementCount == 1);
+    __ Pop(codegen_->context_register());
+    codegen_->StoreToFrameField(StandardFrameConstants::kContextOffset,
+                                codegen_->context_register());
+  } else {
+    // Down to the handler block and also drop context.
+    __ Drop(*stack_depth + kElementCount);
+  }
+  __ Call(finally_entry_);
+
   *stack_depth = 0;
+  *context_length = 0;
   return previous_;
 }
 
@@ -1754,7 +1399,56 @@ bool BackEdgeTable::Verify(Isolate* isolate, Code* unoptimized) {
 #endif  // DEBUG
 
 
+FullCodeGenerator::EnterBlockScopeIfNeeded::EnterBlockScopeIfNeeded(
+    FullCodeGenerator* codegen, Scope* scope, BailoutId entry_id,
+    BailoutId declarations_id, BailoutId exit_id)
+    : codegen_(codegen), exit_id_(exit_id) {
+  saved_scope_ = codegen_->scope();
+
+  if (scope == NULL) {
+    codegen_->PrepareForBailoutForId(entry_id, NO_REGISTERS);
+    needs_block_context_ = false;
+  } else {
+    needs_block_context_ = scope->ContextLocalCount() > 0;
+    codegen_->scope_ = scope;
+    {
+      if (needs_block_context_) {
+        Comment cmnt(masm(), "[ Extend block context");
+        __ Push(scope->GetScopeInfo(codegen->isolate()));
+        codegen_->PushFunctionArgumentForContextAllocation();
+        __ CallRuntime(Runtime::kPushBlockContext, 2);
+
+        // Replace the context stored in the frame.
+        codegen_->StoreToFrameField(StandardFrameConstants::kContextOffset,
+                                    codegen_->context_register());
+      }
+      CHECK_EQ(0, scope->num_stack_slots());
+      codegen_->PrepareForBailoutForId(entry_id, NO_REGISTERS);
+    }
+    {
+      Comment cmnt(masm(), "[ Declarations");
+      codegen_->VisitDeclarations(scope->declarations());
+      codegen_->PrepareForBailoutForId(declarations_id, NO_REGISTERS);
+    }
+  }
+}
+
+
+FullCodeGenerator::EnterBlockScopeIfNeeded::~EnterBlockScopeIfNeeded() {
+  if (needs_block_context_) {
+    codegen_->LoadContextField(codegen_->context_register(),
+                               Context::PREVIOUS_INDEX);
+    // Update local stack frame context field.
+    codegen_->StoreToFrameField(StandardFrameConstants::kContextOffset,
+                                codegen_->context_register());
+  }
+  codegen_->PrepareForBailoutForId(exit_id_, NO_REGISTERS);
+  codegen_->scope_ = saved_scope_;
+}
+
+
 #undef __
 
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

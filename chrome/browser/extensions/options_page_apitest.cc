@@ -3,17 +3,19 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/extensions/extension_browsertest.h"
-#include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/test_extension_dir.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/test/browser_test_utils.h"
-#include "extensions/browser/extension_system.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
+#include "extensions/common/value_builder.h"
+#include "extensions/test/extension_test_message_listener.h"
 
-using extensions::Extension;
+namespace extensions {
 
 // Used to simulate a click on the first element named 'Options'.
 static const char kScriptClickOptionButton[] =
@@ -27,14 +29,13 @@ static const char kScriptClickOptionButton[] =
 // extension's options page.
 // Disabled because of flakiness. See http://crbug.com/174934.
 IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, DISABLED_OptionsPage) {
-  ExtensionService* service = extensions::ExtensionSystem::Get(
-      browser()->profile())->extension_service();
-  size_t installed_extensions = service->extensions()->size();
+  ExtensionRegistry* registry = ExtensionRegistry::Get(browser()->profile());
+  size_t installed_extensions = registry->enabled_extensions().size();
   // Install an extension with an options page.
   const Extension* extension =
       InstallExtension(test_data_dir_.AppendASCII("options.crx"), 1);
   ASSERT_TRUE(extension);
-  EXPECT_EQ(installed_extensions + 1, service->extensions()->size());
+  EXPECT_EQ(installed_extensions + 1, registry->enabled_extensions().size());
 
   // Go to the Extension Settings page and click the Options button.
   ui_test_utils::NavigateToURL(browser(), GURL(chrome::kChromeUIExtensionsURL));
@@ -57,3 +58,35 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, DISABLED_OptionsPage) {
   EXPECT_EQ(extension->GetResourceURL("options.html"),
             tab_strip->GetWebContentsAt(1)->GetURL());
 }
+
+// Tests that navigating directly to chrome://extensions?options=<id> to an
+// extension with an embedded options page loads that extension's options page.
+IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest,
+                       LoadChromeExtensionsWithOptionsParamWhenEmbedded) {
+  TestExtensionDir extension_dir;
+  extension_dir.WriteFile(FILE_PATH_LITERAL("options.html"),
+                          "<script src=\"options.js\"></script>\n");
+  extension_dir.WriteFile(
+      FILE_PATH_LITERAL("options.js"),
+      "chrome.tabs.getCurrent(function(tab) {\n"
+      "  chrome.test.sendMessage(tab ? 'tab' : 'embedded');\n"
+      "});\n");
+  extension_dir.WriteManifest(
+      DictionaryBuilder()
+          .Set("manifest_version", 2)
+          .Set("name", "Extension for options param test")
+          .Set("options_ui", DictionaryBuilder().Set("page", "options.html"))
+          .Set("version", "1")
+          .ToJSON());
+
+  ExtensionTestMessageListener listener(false /* will_reply */);
+  scoped_refptr<const Extension> extension =
+      InstallExtension(extension_dir.Pack(), 1);
+  ASSERT_TRUE(extension.get());
+  ui_test_utils::NavigateToURL(
+      browser(), GURL("chrome://extensions?options=" + extension->id()));
+  ASSERT_TRUE(listener.WaitUntilSatisfied());
+  ASSERT_EQ("embedded", listener.message());
+}
+
+}  // namespace extensions

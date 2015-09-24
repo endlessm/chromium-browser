@@ -8,11 +8,12 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/files/file_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
+#include "components/devtools_http_handler/devtools_http_handler.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/devtools_http_handler.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/main_function_params.h"
@@ -47,10 +48,10 @@ namespace content {
 namespace {
 
 GURL GetStartupURL() {
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kContentBrowserTest))
     return GURL();
-  const CommandLine::StringVector& args = command_line->GetArgs();
+  const base::CommandLine::StringVector& args = command_line->GetArgs();
 
 #if defined(OS_ANDROID)
   // Delay renderer creation on Android until surface is ready.
@@ -58,13 +59,14 @@ GURL GetStartupURL() {
 #endif
 
   if (args.empty())
-    return GURL("http://www.google.com/");
+    return GURL("https://www.google.com/");
 
   GURL url(args[0]);
   if (url.is_valid() && url.has_scheme())
     return url;
 
-  return net::FilePathToFileURL(base::FilePath(args[0]));
+  return net::FilePathToFileURL(
+      base::MakeAbsoluteFilePath(base::FilePath(args[0])));
 }
 
 base::StringPiece PlatformResourceProvider(int key) {
@@ -87,10 +89,7 @@ ShellBrowserMainParts::ShellBrowserMainParts(
 }
 
 ShellBrowserMainParts::~ShellBrowserMainParts() {
-  if (devtools_http_handler_) {
-    // Note that Stop destroys devtools_http_handler_.
-    devtools_http_handler_->Stop();
-  }
+  DCHECK(!devtools_http_handler_);
 }
 
 #if !defined(OS_MACOSX)
@@ -127,16 +126,15 @@ void ShellBrowserMainParts::InitializeMessageLoopContext() {
   Shell::CreateNewWindow(browser_context_.get(),
                          GetStartupURL(),
                          NULL,
-                         MSG_ROUTING_NONE,
                          gfx::Size());
 }
 
 void ShellBrowserMainParts::PreMainMessageLoopRun() {
 #if defined(OS_ANDROID)
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnableCrashReporter)) {
     base::FilePath crash_dumps_dir =
-        CommandLine::ForCurrentProcess()->GetSwitchValuePath(
+        base::CommandLine::ForCurrentProcess()->GetSwitchValuePath(
             switches::kCrashDumpsDir);
     crash_dump_manager_.reset(new breakpad::CrashDumpManager(crash_dumps_dir));
   }
@@ -147,9 +145,8 @@ void ShellBrowserMainParts::PreMainMessageLoopRun() {
   Shell::Initialize();
   net::NetModule::SetResourceProvider(PlatformResourceProvider);
 
-  // CreateHttpHandler retains ownership over DevToolsHttpHandler.
-  devtools_http_handler_ =
-      ShellDevToolsManagerDelegate::CreateHttpHandler(browser_context_.get());
+  devtools_http_handler_.reset(
+      ShellDevToolsManagerDelegate::CreateHttpHandler(browser_context_.get()));
 
   InitializeMessageLoopContext();
 
@@ -165,11 +162,7 @@ bool ShellBrowserMainParts::MainMessageLoopRun(int* result_code)  {
 }
 
 void ShellBrowserMainParts::PostMainMessageLoopRun() {
-  if (devtools_http_handler_) {
-    // Note that Stop destroys devtools_http_handler_.
-    devtools_http_handler_->Stop();
-    devtools_http_handler_ = nullptr;
-  }
+  devtools_http_handler_.reset();
   browser_context_.reset();
   off_the_record_browser_context_.reset();
 }

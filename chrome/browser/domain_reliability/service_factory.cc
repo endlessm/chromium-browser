@@ -14,20 +14,52 @@
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "content/public/browser/browser_context.h"
 
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/settings/cros_settings.h"
+#endif  // defined(OS_CHROMEOS)
+
 namespace domain_reliability {
 
 namespace {
 
+// If Domain Reliability is enabled in the absence of a flag or field trial.
+const bool kDefaultEnabled = true;
+
+// The name and value of the field trial to turn Domain Reliability on.
+const char kFieldTrialName[] = "DomRel-Enable";
+const char kFieldTrialValueEnable[] = "enable";
+
 // Identifies Chrome as the source of Domain Reliability uploads it sends.
-const char* kDomainReliabilityUploadReporterString = "chrome";
+const char kUploadReporterString[] = "chrome";
 
 bool IsDomainReliabilityMonitoringEnabled() {
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kDisableDomainReliability))
     return false;
   if (command_line->HasSwitch(switches::kEnableDomainReliability))
     return true;
-  return base::FieldTrialList::FindFullName("DomRel-Enable") == "enable";
+
+  if (base::FieldTrialList::TrialExists(kFieldTrialName)) {
+    std::string value = base::FieldTrialList::FindFullName(kFieldTrialName);
+    return value == kFieldTrialValueEnable;
+  }
+
+  return kDefaultEnabled;
+}
+
+bool IsMetricsReportingEnabled() {
+#if defined(OS_CHROMEOS)
+  bool enabled;
+  bool res = chromeos::CrosSettings::Get()->GetBoolean(
+      chromeos::kStatsReportingPref, &enabled);
+  return res && enabled;
+#elif defined(OS_ANDROID)
+  return g_browser_process->local_state()->GetBoolean(
+      prefs::kCrashReportingEnabled);
+#else
+  return g_browser_process->local_state()->GetBoolean(
+      prefs::kMetricsReportingEnabled);
+#endif
 }
 
 }  // namespace
@@ -59,13 +91,10 @@ KeyedService* DomainReliabilityServiceFactory::BuildServiceInstanceFor(
   if (!IsDomainReliabilityMonitoringEnabled())
     return NULL;
 
-  if (!g_browser_process->local_state()->GetBoolean(
-          prefs::kMetricsReportingEnabled)) {
+  if (!IsMetricsReportingEnabled())
     return NULL;
-  }
 
-  return DomainReliabilityService::Create(
-      kDomainReliabilityUploadReporterString);
+  return DomainReliabilityService::Create(kUploadReporterString);
 }
 
 }  // namespace domain_reliability

@@ -6,7 +6,7 @@
 
 #include "base/bind.h"
 #include "base/location.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/single_thread_task_runner.h"
 #include "chromecast/base/metrics/cast_metrics_helper.h"
 #include "chromecast/media/cma/base/buffering_state.h"
 #include "chromecast/media/cma/base/cma_logging.h"
@@ -63,11 +63,13 @@ void BufferingController::UpdateHighLevelThreshold(
   OnBufferingStateChanged(false, false);
 }
 
-scoped_refptr<BufferingState> BufferingController::AddStream() {
+scoped_refptr<BufferingState> BufferingController::AddStream(
+    const std::string& stream_id) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
   // Add a new stream to the list of streams being monitored.
   scoped_refptr<BufferingState> buffering_state(new BufferingState(
+      stream_id,
       config_,
       base::Bind(&BufferingController::OnBufferingStateChanged, weak_this_,
                  false, false),
@@ -195,7 +197,6 @@ bool BufferingController::IsLowBufferLevel() {
 }
 
 void BufferingController::DumpState() const {
-  CMALOG(kLogControl) << __FUNCTION__;
   for (StreamList::const_iterator it = stream_list_.begin();
        it != stream_list_.end(); ++it) {
     CMALOG(kLogControl) << (*it)->ToString();

@@ -5,6 +5,7 @@
 #include "remoting/signaling/iq_sender.h"
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
@@ -12,6 +13,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "remoting/signaling/jid_util.h"
 #include "remoting/signaling/signal_strategy.h"
 #include "third_party/webrtc/libjingle/xmllite/xmlelement.h"
 #include "third_party/webrtc/libjingle/xmpp/constants.h"
@@ -108,8 +110,8 @@ bool IqSender::OnSignalStrategyIncomingStanza(const buzz::XmlElement* stanza) {
 
   IqRequest* request = it->second;
 
-  if (request->addressee_ != from) {
-    LOG(ERROR) << "Received IQ response from from a invalid JID. Ignoring it."
+  if (NormalizeJid(request->addressee_) != NormalizeJid(from)) {
+    LOG(ERROR) << "Received IQ response from an invalid JID. Ignoring it."
                << " Message received from: " << from
                << " Original JID: " << request->addressee_;
     return false;
@@ -138,15 +140,12 @@ void IqRequest::SetTimeout(base::TimeDelta timeout) {
 }
 
 void IqRequest::CallCallback(const buzz::XmlElement* stanza) {
-  if (!callback_.is_null()) {
-    IqSender::ReplyCallback callback(callback_);
-    callback_.Reset();
-    callback.Run(this, stanza);
-  }
+  if (!callback_.is_null())
+    base::ResetAndReturn(&callback_).Run(this, stanza);
 }
 
 void IqRequest::OnTimeout() {
-  CallCallback(NULL);
+  CallCallback(nullptr);
 }
 
 void IqRequest::OnResponse(const buzz::XmlElement* stanza) {

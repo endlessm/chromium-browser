@@ -7,8 +7,8 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/threading/sequenced_worker_pool.h"
+#include "chrome/browser/chromeos/drive/file_system_core_util.h"
 #include "chrome/browser/chromeos/drive/file_system_interface.h"
-#include "chrome/browser/chromeos/drive/file_system_util.h"
 #include "content/public/browser/browser_thread.h"
 
 using content::BrowserThread;
@@ -36,7 +36,7 @@ void WriteOnCacheFileAfterOpenFile(
     FileError error,
     const base::FilePath& local_cache_path,
     const base::Closure& close_callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   BrowserThread::GetBlockingPool()->PostTaskAndReply(
       FROM_HERE,
@@ -59,7 +59,7 @@ void WriteOnCacheFileAndReply(FileSystemInterface* file_system,
                               const std::string& mime_type,
                               const WriteOnCacheFileCallback& callback,
                               const FileOperationCallback& reply) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(file_system);
   DCHECK(!callback.is_null());
   DCHECK(!reply.is_null());

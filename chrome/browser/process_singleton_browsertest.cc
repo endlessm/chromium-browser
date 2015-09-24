@@ -14,11 +14,13 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/location.h"
 #include "base/memory/ref_counted.h"
 #include "base/path_service.h"
-#include "base/process/kill.h"
 #include "base/process/launch.h"
+#include "base/process/process.h"
 #include "base/process/process_iterator.h"
+#include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread.h"
@@ -39,7 +41,6 @@ class ChromeStarter : public base::RefCountedThreadSafe<ChromeStarter> {
   ChromeStarter(base::TimeDelta timeout, const base::FilePath& user_data_dir)
       : ready_event_(false /* manual */, false /* signaled */),
         done_event_(false /* manual */, false /* signaled */),
-        process_handle_(base::kNullProcessHandle),
         process_terminated_(false),
         timeout_(timeout),
         user_data_dir_(user_data_dir) {
@@ -50,9 +51,8 @@ class ChromeStarter : public base::RefCountedThreadSafe<ChromeStarter> {
   void Reset() {
     ready_event_.Reset();
     done_event_.Reset();
-    if (process_handle_ != base::kNullProcessHandle)
-      base::CloseProcessHandle(process_handle_);
-    process_handle_ = base::kNullProcessHandle;
+    if (process_.IsValid())
+      process_.Close();
     process_terminated_ = false;
   }
 
@@ -61,7 +61,7 @@ class ChromeStarter : public base::RefCountedThreadSafe<ChromeStarter> {
     // UITest::LaunchBrowserHelper somehow?
     base::FilePath program;
     ASSERT_TRUE(PathService::Get(base::FILE_EXE, &program));
-    CommandLine command_line(program);
+    base::CommandLine command_line(program);
     command_line.AppendSwitchPath(switches::kUserDataDir, user_data_dir_);
 
     if (first_run)
@@ -71,10 +71,11 @@ class ChromeStarter : public base::RefCountedThreadSafe<ChromeStarter> {
 
     // Add the normal test-mode switches, except for the ones we're adding
     // ourselves.
-    CommandLine standard_switches(CommandLine::NO_PROGRAM);
+    base::CommandLine standard_switches(base::CommandLine::NO_PROGRAM);
     test_launcher_utils::PrepareBrowserCommandLineForTests(&standard_switches);
-    const CommandLine::SwitchMap& switch_map = standard_switches.GetSwitches();
-    for (CommandLine::SwitchMap::const_iterator i = switch_map.begin();
+    const base::CommandLine::SwitchMap& switch_map =
+        standard_switches.GetSwitches();
+    for (base::CommandLine::SwitchMap::const_iterator i = switch_map.begin();
          i != switch_map.end(); ++i) {
       const std::string& switch_name = i->first;
       if (switch_name == switches::kUserDataDir ||
@@ -95,14 +96,14 @@ class ChromeStarter : public base::RefCountedThreadSafe<ChromeStarter> {
     // Here we don't wait for the app to be terminated because one of the
     // process will stay alive while the others will be restarted. If we would
     // wait here, we would never get a handle to the main process...
-    base::LaunchProcess(command_line, base::LaunchOptions(), &process_handle_);
-    ASSERT_NE(base::kNullProcessHandle, process_handle_);
+    process_ = base::LaunchProcess(command_line, base::LaunchOptions());
+    ASSERT_TRUE(process_.IsValid());
 
     // We can wait on the handle here, we should get stuck on one and only
     // one process. The test below will take care of killing that process
     // to unstuck us once it confirms there is only one.
-    process_terminated_ = base::WaitForSingleProcess(process_handle_,
-                                                     timeout_);
+    int exit_code;
+    process_terminated_ = process_.WaitForExitWithTimeout(timeout_, &exit_code);
     // Let the test know we are done.
     done_event_.Signal();
   }
@@ -110,16 +111,13 @@ class ChromeStarter : public base::RefCountedThreadSafe<ChromeStarter> {
   // Public access to simplify the test code using them.
   base::WaitableEvent ready_event_;
   base::WaitableEvent done_event_;
-  base::ProcessHandle process_handle_;
+  base::Process process_;
   bool process_terminated_;
 
  private:
   friend class base::RefCountedThreadSafe<ChromeStarter>;
 
-  ~ChromeStarter() {
-    if (process_handle_ != base::kNullProcessHandle)
-      base::CloseProcessHandle(process_handle_);
-  }
+  ~ChromeStarter() {}
 
   base::TimeDelta timeout_;
   base::FilePath user_data_dir_;
@@ -163,7 +161,7 @@ class ProcessSingletonTest : public InProcessBrowserTest {
   // flaky wait. Instead, we kill all descendants of the main process after we
   // killed it, relying on the fact that we can still get the parent id of a
   // child process, even when the parent dies.
-  void KillProcessTree(base::ProcessHandle process_handle) {
+  void KillProcessTree(const base::Process& process) {
     class ProcessTreeFilter : public base::ProcessFilter {
      public:
       explicit ProcessTreeFilter(base::ProcessId parent_pid) {
@@ -179,11 +177,11 @@ class ProcessSingletonTest : public InProcessBrowserTest {
       }
      private:
       mutable std::set<base::ProcessId> ancestor_pids_;
-    } process_tree_filter(base::GetProcId(process_handle));
+    } process_tree_filter(process.Pid());
 
     // Start by explicitly killing the main process we know about...
     static const int kExitCode = 42;
-    EXPECT_TRUE(base::KillProcess(process_handle, kExitCode, true /* wait */));
+    EXPECT_TRUE(process.Terminate(kExitCode, true /* wait */));
 
     // Then loop until we can't find any of its descendant.
     // But don't try more than kNbTries times...
@@ -257,11 +255,10 @@ IN_PROC_BROWSER_TEST_F(ProcessSingletonTest, MAYBE_StartupRaceCondition) {
       ASSERT_NE(static_cast<base::MessageLoop*>(NULL),
                 chrome_starter_threads_[i]->message_loop());
 
-      chrome_starter_threads_[i]->message_loop()->PostTask(
-          FROM_HERE, base::Bind(&ChromeStarter::StartChrome,
-                                chrome_starters_[i].get(),
-                                &threads_waker_,
-                                first_run));
+      chrome_starter_threads_[i]->task_runner()->PostTask(
+          FROM_HERE,
+          base::Bind(&ChromeStarter::StartChrome, chrome_starters_[i].get(),
+                     &threads_waker_, first_run));
     }
 
     // Wait for all the starters to be ready.
@@ -296,8 +293,8 @@ IN_PROC_BROWSER_TEST_F(ProcessSingletonTest, MAYBE_StartupRaceCondition) {
           starters_done_events, pending_starters.size());
       size_t starter_index = pending_starters[done_index];
       // If the starter is done but has not marked itself as terminated,
-      // it is because it timed out of its WaitForSingleProcess(). Only the
-      // last one standing should be left waiting... So we failed...
+      // it is because it timed out of its WaitForExitCodeWithTimeout(). Only
+      // the last one standing should be left waiting... So we failed...
       EXPECT_TRUE(chrome_starters_[starter_index]->process_terminated_ ||
                   failed) << "There is more than one main process.";
       if (!chrome_starters_[starter_index]->process_terminated_) {
@@ -305,9 +302,8 @@ IN_PROC_BROWSER_TEST_F(ProcessSingletonTest, MAYBE_StartupRaceCondition) {
         failed = true;
         // But we let the last loop turn finish so that we can properly
         // kill all remaining processes. Starting with this one...
-        if (chrome_starters_[starter_index]->process_handle_ !=
-            base::kNullProcessHandle) {
-          KillProcessTree(chrome_starters_[starter_index]->process_handle_);
+        if (chrome_starters_[starter_index]->process_.IsValid()) {
+          KillProcessTree(chrome_starters_[starter_index]->process_);
         }
       }
       pending_starters.erase(pending_starters.begin() + done_index);
@@ -317,9 +313,8 @@ IN_PROC_BROWSER_TEST_F(ProcessSingletonTest, MAYBE_StartupRaceCondition) {
     ASSERT_EQ(static_cast<size_t>(1), pending_starters.size());
     size_t last_index = pending_starters.front();
     pending_starters.clear();
-    if (chrome_starters_[last_index]->process_handle_ !=
-        base::kNullProcessHandle) {
-      KillProcessTree(chrome_starters_[last_index]->process_handle_);
+    if (chrome_starters_[last_index]->process_.IsValid()) {
+      KillProcessTree(chrome_starters_[last_index]->process_);
       chrome_starters_[last_index]->done_event_.Wait();
     }
   }

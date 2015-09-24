@@ -6,25 +6,25 @@
 
 #include <algorithm>
 
-#include "ash/wm/window_state.h"
 #include "base/bind.h"
 #include "base/i18n/rtl.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/elide_url.h"
 #include "net/base/net_util.h"
 #include "third_party/skia/include/core/SkPaint.h"
 #include "third_party/skia/include/core/SkRect.h"
-#include "ui/aura/window.h"
 #include "ui/base/theme_provider.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/animation/linear_animation.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/font_list.h"
-#include "ui/gfx/point.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/screen.h"
 #include "ui/gfx/skia_util.h"
 #include "ui/gfx/text_elider.h"
@@ -34,6 +34,10 @@
 #include "ui/views/widget/root_view.h"
 #include "ui/views/widget/widget.h"
 #include "url/gurl.h"
+
+#if defined(USE_ASH)
+#include "ash/wm/window_state.h"
+#endif
 
 // The alpha and color of the bubble's shadow.
 static const SkColor kShadowColor = SkColorSetARGB(30, 0, 0, 0);
@@ -166,12 +170,11 @@ class StatusBubbleViews::StatusView : public views::View {
   void StartShowing();
 
   // views::View:
+  const char* GetClassName() const override;
   void OnPaint(gfx::Canvas* canvas) override;
 
   BubbleState state_;
   BubbleStyle style_;
-
-  base::WeakPtrFactory<StatusBubbleViews::StatusView> timer_factory_;
 
   scoped_ptr<StatusViewAnimation> animation_;
 
@@ -184,6 +187,8 @@ class StatusBubbleViews::StatusView : public views::View {
   // Holds the theme provider of the frame that created us.
   ui::ThemeProvider* theme_service_;
 
+  base::WeakPtrFactory<StatusBubbleViews::StatusView> timer_factory_;
+
   DISALLOW_COPY_AND_ASSIGN(StatusView);
 };
 
@@ -191,10 +196,10 @@ StatusBubbleViews::StatusView::StatusView(views::Widget* popup,
                                           ui::ThemeProvider* theme_provider)
     : state_(BUBBLE_HIDDEN),
       style_(STYLE_STANDARD),
-      timer_factory_(this),
       animation_(new StatusViewAnimation(this, 0, 0)),
       popup_(popup),
-      theme_service_(theme_provider) {
+      theme_service_(theme_provider),
+      timer_factory_(this) {
 }
 
 StatusBubbleViews::StatusView::~StatusView() {
@@ -239,10 +244,9 @@ void StatusBubbleViews::StatusView::StartTimer(base::TimeDelta time) {
   if (timer_factory_.HasWeakPtrs())
     timer_factory_.InvalidateWeakPtrs();
 
-  base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::Bind(&StatusBubbleViews::StatusView::OnTimer,
-                 timer_factory_.GetWeakPtr()),
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, base::Bind(&StatusBubbleViews::StatusView::OnTimer,
+                            timer_factory_.GetWeakPtr()),
       time);
 }
 
@@ -348,6 +352,10 @@ void StatusBubbleViews::StatusView::OnAnimationEnded() {
   }
 }
 
+const char* StatusBubbleViews::StatusView::GetClassName() const {
+  return "StatusBubbleViews::StatusView";
+}
+
 void StatusBubbleViews::StatusView::OnPaint(gfx::Canvas* canvas) {
   SkPaint paint;
   paint.setStyle(SkPaint::kFill_Style);
@@ -400,13 +408,13 @@ void StatusBubbleViews::StatusView::OnPaint(gfx::Canvas* canvas) {
 
   SkRRect rrect;
   rrect.setRectRadii(RectToSkRect(rect), (const SkVector*)rad);
-  canvas->sk_canvas()->drawRRect(rrect, paint);
+  canvas->sk_canvas()->drawRRect(rrect, shadow_paint);
 
+  const int shadow_size = 2 * kShadowThickness;
   // Draw the bubble.
-  rect.SetRect(SkIntToScalar(kShadowThickness),
-               SkIntToScalar(kShadowThickness),
-               SkIntToScalar(width),
-               SkIntToScalar(height));
+  rect.SetRect(SkIntToScalar(kShadowThickness), SkIntToScalar(kShadowThickness),
+               SkIntToScalar(width - shadow_size),
+               SkIntToScalar(height - shadow_size));
   rrect.setRectRadii(RectToSkRect(rect), (const SkVector*)rad);
   canvas->sk_canvas()->drawRRect(rrect, paint);
 
@@ -414,10 +422,10 @@ void StatusBubbleViews::StatusView::OnPaint(gfx::Canvas* canvas) {
   // is aligned to the right on RTL UIs, we mirror the text bounds if the
   // locale is RTL.
   const gfx::FontList font_list;
-  int text_width = std::min(
-      gfx::GetStringWidth(text_, font_list),
-      width - (kShadowThickness * 2) - kTextPositionX - kTextHorizPadding);
-  int text_height = height - (kShadowThickness * 2);
+  int text_width =
+      std::min(gfx::GetStringWidth(text_, font_list),
+               width - shadow_size - kTextPositionX - kTextHorizPadding);
+  int text_height = height - shadow_size;
   gfx::Rect body_bounds(kShadowThickness + kTextPositionX,
                         kShadowThickness,
                         std::max(0, text_width),
@@ -573,20 +581,32 @@ void StatusBubbleViews::Init() {
       view_ = new StatusView(popup_.get(), frame->GetThemeProvider());
     if (!expand_view_.get())
       expand_view_.reset(new StatusViewExpander(this, view_));
+    // On Windows use TYPE_MENU to ensure that this window uses the software
+    // compositor which avoids the UI thread blocking issue during command
+    // buffer creation. We can revert this change once http://crbug.com/125248
+    // is fixed.
+#if defined(OS_WIN)
+    views::Widget::InitParams params(views::Widget::InitParams::TYPE_MENU);
+    // The menu style assumes a top most window. We don't want that in this
+    // case.
+    params.keep_on_top = false;
+#else
     views::Widget::InitParams params(views::Widget::InitParams::TYPE_POPUP);
+#endif
     params.opacity = views::Widget::InitParams::TRANSLUCENT_WINDOW;
     params.accept_events = false;
     params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
     params.parent = frame->GetNativeView();
     params.context = frame->GetNativeWindow();
     popup_->Init(params);
-    popup_->GetNativeView()->SetName("StatusBubbleViews");
     // We do our own animation and don't want any from the system.
     popup_->SetVisibilityChangedAnimationsEnabled(false);
     popup_->SetOpacity(0x00);
     popup_->SetContentsView(view_);
+#if defined(USE_ASH)
     ash::wm::GetWindowState(popup_->GetNativeWindow())->
         set_ignored_by_shelf(true);
+#endif
     RepositionPopup();
   }
 }
@@ -691,10 +711,9 @@ void StatusBubbleViews::SetURL(const GURL& url, const std::string& languages) {
     if (is_expanded_ && !url.is_empty()) {
       ExpandBubble();
     } else if (net::FormatUrl(url, languages).length() > url_text_.length()) {
-      base::MessageLoop::current()->PostDelayedTask(
-          FROM_HERE,
-          base::Bind(&StatusBubbleViews::ExpandBubble,
-                     expand_timer_factory_.GetWeakPtr()),
+      base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+          FROM_HERE, base::Bind(&StatusBubbleViews::ExpandBubble,
+                                expand_timer_factory_.GetWeakPtr()),
           base::TimeDelta::FromMilliseconds(kExpandHoverDelayMS));
     }
   }

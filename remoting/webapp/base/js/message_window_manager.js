@@ -8,34 +8,43 @@
 var remoting = remoting || {};
 
 /**
- * Namespace for window manager functions.
- * @type {Object}
+ * This class manages all the message windows (remoting.MessageWindow).
+ * @param {base.WindowMessageDispatcher} windowMessageDispatcher
+ * @constructor
+ * @implements {base.Disposable}
  */
-remoting.MessageWindowManager = {};
+remoting.MessageWindowManager = function(windowMessageDispatcher) {
+  /**
+   * @type {!Object<number, remoting.MessageWindow>}
+   * @private
+   */
+  this.messageWindows_ = {};
 
-/**
- * Mapping from window id to corresponding MessageWindow.
- *
- * @type {Object.<number, remoting.MessageWindow>}
- * @private
- */
-remoting.MessageWindowManager.messageWindows_ = {};
+  /**
+   * The next window id to auto-assign.
+   * @private {number}
+   */
+  this.nextId_ = 1;
 
-/**
- * The next window id to auto-assign.
- * @type {number}
- * @private
- */
-remoting.MessageWindowManager.nextId_ = 1;
+  /** @private {base.WindowMessageDispatcher} */
+  this.windowMessageDispatcher_ = windowMessageDispatcher;
+
+  this.windowMessageDispatcher_.registerMessageHandler(
+      'message-window', this.onMessage_.bind(this));
+};
+
+remoting.MessageWindowManager.prototype.dispose = function() {
+  this.windowMessageDispatcher_.unregisterMessageHandler('message-window');
+};
 
 /**
  * @param {remoting.MessageWindow} window The window to associate
  *     with the window id.
  * @return {number} The window id.
  */
-remoting.MessageWindowManager.addMessageWindow = function(window) {
-  var id = ++remoting.MessageWindowManager.nextId_;
-  remoting.MessageWindowManager.messageWindows_[id] = window;
+remoting.MessageWindowManager.prototype.addMessageWindow = function(window) {
+  var id = ++this.nextId_;
+  this.messageWindows_[id] = window;
   return id;
 };
 
@@ -43,31 +52,30 @@ remoting.MessageWindowManager.addMessageWindow = function(window) {
  * @param {number} id The window id.
  * @return {remoting.MessageWindow}
  */
-remoting.MessageWindowManager.getMessageWindow = function(id) {
-  return remoting.MessageWindowManager.messageWindows_[id];
+remoting.MessageWindowManager.prototype.getMessageWindow = function(id) {
+  return this.messageWindows_[id];
 };
 
 /**
  * @param {number} id The window id to delete.
  */
-remoting.MessageWindowManager.deleteMessageWindow = function(id) {
-  delete remoting.MessageWindowManager.messageWindows_[id];
+remoting.MessageWindowManager.prototype.deleteMessageWindow = function(id) {
+  delete this.messageWindows_[id];
 };
 
 /**
  * Close all of the registered MessageWindows
  */
-remoting.MessageWindowManager.closeAllMessageWindows = function() {
-  /** @type {Array.<remoting.MessageWindow>} */
+remoting.MessageWindowManager.prototype.closeAllMessageWindows = function() {
+  /** @type {Array<remoting.MessageWindow>} */
   var windows = [];
   // Make a list of the windows to close.
   // We don't delete the window directly in this loop because close() can
   // call deleteMessageWindow which will update messageWindows_.
-  for (var win_id in remoting.MessageWindowManager.messageWindows_) {
+  for (var win_id in this.messageWindows_) {
     /** @type {remoting.MessageWindow} */
-    var win = remoting.MessageWindowManager.getMessageWindow(
-        /** @type {number} */(win_id));
-    base.debug.assert(win != null);
+    var win = this.getMessageWindow(parseInt(win_id, 10));
+    console.assert(win != null, 'Unknown window id ' + win_id + '.');
     windows.push(win);
   }
   for (var i = 0; i < windows.length; i++) {
@@ -81,10 +89,12 @@ remoting.MessageWindowManager.closeAllMessageWindows = function() {
  * @param {Event} event
  * @private
  */
-remoting.MessageWindowManager.onMessage_ = function(event) {
-  if (typeof(event.data) != 'object') {
-    return;
-  }
+remoting.MessageWindowManager.prototype.onMessage_ = function(event) {
+  console.assert(typeof event.data === 'object',
+                 'Unexpected data. Expected object, got ' + event.data + '.');
+  console.assert(event.data['source'] == 'message-window',
+                'Bad event source: ' +
+                /** @type {string} */ (event.data['source']) + '.');
 
   if (event.data['command'] == 'messageWindowResult') {
     var id = /** @type {number} */ (event.data['id']);
@@ -95,7 +105,7 @@ remoting.MessageWindowManager.onMessage_ = function(event) {
       return;
     }
 
-    var messageWindow = remoting.MessageWindowManager.getMessageWindow(id);
+    var messageWindow = this.getMessageWindow(id);
     if (!messageWindow) {
       console.log('Ignoring unknown message window id:', id);
       return;
@@ -106,6 +116,5 @@ remoting.MessageWindowManager.onMessage_ = function(event) {
   }
 };
 
-
-window.addEventListener('message', remoting.MessageWindowManager.onMessage_,
-                        false);
+/** @type {remoting.MessageWindowManager} */
+remoting.messageWindowManager = null;

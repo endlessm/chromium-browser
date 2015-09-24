@@ -4,9 +4,13 @@
 
 #include "chrome/browser/chromeos/extensions/file_manager/private_api_drive.h"
 
+#include <map>
+#include <set>
+
 #include "base/command_line.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/drive/drive_integration_service.h"
+#include "chrome/browser/chromeos/drive/file_system_util.h"
 #include "chrome/browser/chromeos/extensions/file_manager/private_api_util.h"
 #include "chrome/browser/chromeos/file_manager/file_tasks.h"
 #include "chrome/browser/chromeos/file_manager/fileapi_util.h"
@@ -22,6 +26,7 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
+#include "chrome/common/extensions/api/file_manager_private_internal.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/network/network_handler.h"
 #include "chromeos/network/network_state_handler.h"
@@ -29,8 +34,10 @@
 #include "components/signin/core/browser/signin_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "google_apis/drive/auth_service.h"
+#include "google_apis/drive/drive_api_url_generator.h"
 #include "storage/common/fileapi/file_system_info.h"
 #include "storage/common/fileapi/file_system_util.h"
+#include "url/gurl.h"
 
 using content::BrowserThread;
 
@@ -38,12 +45,14 @@ using chromeos::file_system_provider::EntryMetadata;
 using chromeos::file_system_provider::ProvidedFileSystemInterface;
 using chromeos::file_system_provider::util::FileSystemURLParser;
 using extensions::api::file_manager_private::EntryProperties;
+using extensions::api::file_manager_private::EntryPropertyName;
 using file_manager::util::EntryDefinition;
 using file_manager::util::EntryDefinitionCallback;
 using file_manager::util::EntryDefinitionList;
 using file_manager::util::EntryDefinitionListCallback;
 using file_manager::util::FileDefinition;
 using file_manager::util::FileDefinitionList;
+using google_apis::DriveApiUrlGenerator;
 
 namespace extensions {
 namespace {
@@ -60,6 +69,10 @@ const char kDriveConnectionReasonNotReady[] = "not_ready";
 const char kDriveConnectionReasonNoNetwork[] = "no_network";
 const char kDriveConnectionReasonNoService[] = "no_service";
 
+// Maximum dimension of thumbnail in file manager. File manager shows 180x180
+// thumbnail. Given that we support hdpi devices, maximum dimension is 360.
+const int kFileManagerMaximumThumbnailDimension = 360;
+
 // Copies properties from |entry_proto| to |properties|. |shared_with_me| is
 // given from the running profile.
 void FillEntryPropertiesValueForDrive(const drive::ResourceEntry& entry_proto,
@@ -69,8 +82,8 @@ void FillEntryPropertiesValueForDrive(const drive::ResourceEntry& entry_proto,
   properties->shared.reset(new bool(entry_proto.shared()));
 
   const drive::PlatformFileInfoProto& file_info = entry_proto.file_info();
-  properties->file_size.reset(new double(file_info.size()));
-  properties->last_modified_time.reset(new double(
+  properties->size.reset(new double(file_info.size()));
+  properties->modification_time.reset(new double(
       base::Time::FromInternalValue(file_info.last_modified()).ToJsTime()));
 
   if (!entry_proto.has_file_specific_info())
@@ -80,9 +93,20 @@ void FillEntryPropertiesValueForDrive(const drive::ResourceEntry& entry_proto,
       entry_proto.file_specific_info();
 
   if (!entry_proto.resource_id().empty()) {
-    properties->thumbnail_url.reset(
-        new std::string("https://www.googledrive.com/thumb/" +
-                        entry_proto.resource_id() + "?width=500&height=500"));
+    DriveApiUrlGenerator url_generator(
+        (GURL(google_apis::DriveApiUrlGenerator::kBaseUrlForProduction)),
+        (GURL(
+            google_apis::DriveApiUrlGenerator::kBaseDownloadUrlForProduction)));
+    properties->thumbnail_url.reset(new std::string(
+        url_generator.GetThumbnailUrl(entry_proto.resource_id(),
+                                      500 /* width */, 500 /* height */,
+                                      false /* not cropped */).spec()));
+    properties->cropped_thumbnail_url.reset(new std::string(
+        url_generator.GetThumbnailUrl(
+                          entry_proto.resource_id(),
+                          kFileManagerMaximumThumbnailDimension /* width */,
+                          kFileManagerMaximumThumbnailDimension /* height */,
+                          true /* cropped */).spec()));
   }
   if (file_specific_info.has_image_width()) {
     properties->image_width.reset(
@@ -96,31 +120,31 @@ void FillEntryPropertiesValueForDrive(const drive::ResourceEntry& entry_proto,
     properties->image_rotation.reset(
         new int(file_specific_info.image_rotation()));
   }
-  properties->is_hosted.reset(
-      new bool(file_specific_info.is_hosted_document()));
+  properties->hosted.reset(new bool(file_specific_info.is_hosted_document()));
   properties->content_mime_type.reset(
       new std::string(file_specific_info.content_mime_type()));
-
-  properties->is_pinned.reset(
+  properties->pinned.reset(
       new bool(file_specific_info.cache_state().is_pinned()));
-  properties->is_present.reset(
+  properties->dirty.reset(
+      new bool(file_specific_info.cache_state().is_dirty()));
+  properties->present.reset(
       new bool(file_specific_info.cache_state().is_present()));
 
   if (file_specific_info.cache_state().is_present()) {
-    properties->is_available_offline.reset(new bool(true));
+    properties->available_offline.reset(new bool(true));
   } else if (file_specific_info.is_hosted_document() &&
              file_specific_info.has_document_extension()) {
     const std::string file_extension = file_specific_info.document_extension();
     // What's available offline? See the 'Web' column at:
-    // http://support.google.com/drive/answer/1628467
-    properties->is_available_offline.reset(
+    // https://support.google.com/drive/answer/1628467
+    properties->available_offline.reset(
         new bool(file_extension == ".gdoc" || file_extension == ".gdraw" ||
                  file_extension == ".gsheet" || file_extension == ".gslides"));
   } else {
-    properties->is_available_offline.reset(new bool(false));
+    properties->available_offline.reset(new bool(false));
   }
 
-  properties->is_available_when_metered.reset(
+  properties->available_when_metered.reset(
       new bool(file_specific_info.cache_state().is_present() ||
                file_specific_info.is_hosted_document()));
 }
@@ -157,12 +181,14 @@ class SingleEntryPropertiesGetterForDrive {
 
   // Creates an instance and starts the process.
   static void Start(const base::FilePath local_path,
+                    const std::set<EntryPropertyName>& names,
                     Profile* const profile,
                     const ResultCallback& callback) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
     SingleEntryPropertiesGetterForDrive* instance =
-        new SingleEntryPropertiesGetterForDrive(local_path, profile, callback);
+        new SingleEntryPropertiesGetterForDrive(local_path, names, profile,
+                                                callback);
     instance->StartProcess();
 
     // The instance will be destroyed by itself.
@@ -171,9 +197,11 @@ class SingleEntryPropertiesGetterForDrive {
   virtual ~SingleEntryPropertiesGetterForDrive() {}
 
  private:
-  SingleEntryPropertiesGetterForDrive(const base::FilePath local_path,
-                                      Profile* const profile,
-                                      const ResultCallback& callback)
+  SingleEntryPropertiesGetterForDrive(
+      const base::FilePath local_path,
+      const std::set<EntryPropertyName>& /* names */,
+      Profile* const profile,
+      const ResultCallback& callback)
       : callback_(callback),
         local_path_(local_path),
         running_profile_(profile),
@@ -185,7 +213,7 @@ class SingleEntryPropertiesGetterForDrive {
   }
 
   void StartProcess() {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
     file_path_ = drive::util::ExtractDrivePath(local_path_);
     file_owner_profile_ = drive::util::ExtractProfileFromPath(local_path_);
@@ -214,7 +242,7 @@ class SingleEntryPropertiesGetterForDrive {
 
   void OnGetFileInfo(drive::FileError error,
                      scoped_ptr<drive::ResourceEntry> entry) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
     if (error != drive::FILE_ERROR_OK) {
       CompleteGetEntryProperties(error);
@@ -245,7 +273,7 @@ class SingleEntryPropertiesGetterForDrive {
 
   void OnGetRunningPath(drive::FileError error,
                         const base::FilePath& file_path) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
     if (error != drive::FILE_ERROR_OK) {
       // The running profile does not know the file.
@@ -269,7 +297,7 @@ class SingleEntryPropertiesGetterForDrive {
 
   void OnGetShareInfo(drive::FileError error,
                       scoped_ptr<drive::ResourceEntry> entry) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
     if (error != drive::FILE_ERROR_OK) {
       CompleteGetEntryProperties(error);
@@ -281,7 +309,7 @@ class SingleEntryPropertiesGetterForDrive {
   }
 
   void StartParseFileInfo(bool shared_with_me) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
     FillEntryPropertiesValueForDrive(
         *owner_resource_entry_, shared_with_me, properties_.get());
@@ -336,7 +364,7 @@ class SingleEntryPropertiesGetterForDrive {
   }
 
   void CompleteGetEntryProperties(drive::FileError error) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     DCHECK(!callback_.is_null());
 
     callback_.Run(properties_.Pass(), drive::FileErrorToBaseFileError(error));
@@ -364,12 +392,13 @@ class SingleEntryPropertiesGetterForFileSystemProvider {
 
   // Creates an instance and starts the process.
   static void Start(const storage::FileSystemURL file_system_url,
+                    const std::set<EntryPropertyName>& names,
                     const ResultCallback& callback) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
     SingleEntryPropertiesGetterForFileSystemProvider* instance =
         new SingleEntryPropertiesGetterForFileSystemProvider(file_system_url,
-                                                             callback);
+                                                             names, callback);
     instance->StartProcess();
 
     // The instance will be destroyed by itself.
@@ -380,16 +409,18 @@ class SingleEntryPropertiesGetterForFileSystemProvider {
  private:
   SingleEntryPropertiesGetterForFileSystemProvider(
       const storage::FileSystemURL& file_system_url,
+      const std::set<EntryPropertyName>& names,
       const ResultCallback& callback)
       : callback_(callback),
         file_system_url_(file_system_url),
+        names_(names),
         properties_(new EntryProperties),
         weak_ptr_factory_(this) {
     DCHECK(!callback_.is_null());
   }
 
   void StartProcess() {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
     FileSystemURLParser parser(file_system_url_);
     if (!parser.Parse()) {
@@ -397,9 +428,17 @@ class SingleEntryPropertiesGetterForFileSystemProvider {
       return;
     }
 
+    ProvidedFileSystemInterface::MetadataFieldMask field_mask =
+        ProvidedFileSystemInterface::METADATA_FIELD_DEFAULT;
+    // TODO(mtomasz): Add other fields. All of them should be requested on
+    // demand. crbug.com/413161.
+    if (names_.find(
+            api::file_manager_private::ENTRY_PROPERTY_NAME_THUMBNAILURL) !=
+        names_.end())
+      field_mask |= ProvidedFileSystemInterface::METADATA_FIELD_THUMBNAIL;
+
     parser.file_system()->GetMetadata(
-        parser.file_path(),
-        ProvidedFileSystemInterface::METADATA_FIELD_THUMBNAIL,
+        parser.file_path(), field_mask,
         base::Bind(&SingleEntryPropertiesGetterForFileSystemProvider::
                        OnGetMetadataCompleted,
                    weak_ptr_factory_.GetWeakPtr()));
@@ -407,25 +446,29 @@ class SingleEntryPropertiesGetterForFileSystemProvider {
 
   void OnGetMetadataCompleted(scoped_ptr<EntryMetadata> metadata,
                               base::File::Error result) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
     if (result != base::File::FILE_OK) {
       CompleteGetEntryProperties(result);
       return;
     }
 
-    properties_->file_size.reset(new double(metadata->size));
-    properties_->last_modified_time.reset(
+    properties_->size.reset(new double(metadata->size));
+    properties_->modification_time.reset(
         new double(metadata->modification_time.ToJsTime()));
 
     if (!metadata->thumbnail.empty())
       properties_->thumbnail_url.reset(new std::string(metadata->thumbnail));
+    if (!metadata->mime_type.empty()) {
+      properties_->content_mime_type.reset(
+          new std::string(metadata->mime_type));
+    }
 
     CompleteGetEntryProperties(base::File::FILE_OK);
   }
 
   void CompleteGetEntryProperties(base::File::Error result) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     DCHECK(!callback_.is_null());
 
     callback_.Run(properties_.Pass(), result);
@@ -435,6 +478,7 @@ class SingleEntryPropertiesGetterForFileSystemProvider {
   // Given parameters.
   const ResultCallback callback_;
   const storage::FileSystemURL file_system_url_;
+  const std::set<EntryPropertyName> names_;
 
   // Values used in the process.
   scoped_ptr<EntryProperties> properties_;
@@ -445,47 +489,51 @@ class SingleEntryPropertiesGetterForFileSystemProvider {
 
 }  // namespace
 
-FileManagerPrivateGetEntryPropertiesFunction::
-    FileManagerPrivateGetEntryPropertiesFunction()
+FileManagerPrivateInternalGetEntryPropertiesFunction::
+    FileManagerPrivateInternalGetEntryPropertiesFunction()
     : processed_count_(0) {
 }
 
-FileManagerPrivateGetEntryPropertiesFunction::
-    ~FileManagerPrivateGetEntryPropertiesFunction() {
+FileManagerPrivateInternalGetEntryPropertiesFunction::
+    ~FileManagerPrivateInternalGetEntryPropertiesFunction() {
 }
 
-bool FileManagerPrivateGetEntryPropertiesFunction::RunAsync() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+bool FileManagerPrivateInternalGetEntryPropertiesFunction::RunAsync() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  using api::file_manager_private::GetEntryProperties::Params;
+  using api::file_manager_private_internal::GetEntryProperties::Params;
   const scoped_ptr<Params> params(Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params);
 
   scoped_refptr<storage::FileSystemContext> file_system_context =
-      file_manager::util::GetFileSystemContextForRenderViewHost(
-          GetProfile(), render_view_host());
+      file_manager::util::GetFileSystemContextForRenderFrameHost(
+          GetProfile(), render_frame_host());
 
-  properties_list_.resize(params->file_urls.size());
-  for (size_t i = 0; i < params->file_urls.size(); i++) {
-    const GURL url = GURL(params->file_urls[i]);
+  properties_list_.resize(params->urls.size());
+  const std::set<EntryPropertyName> names_as_set(params->names.begin(),
+                                                 params->names.end());
+  for (size_t i = 0; i < params->urls.size(); i++) {
+    const GURL url = GURL(params->urls[i]);
     const storage::FileSystemURL file_system_url =
         file_system_context->CrackURL(url);
     switch (file_system_url.type()) {
       case storage::kFileSystemTypeDrive:
         SingleEntryPropertiesGetterForDrive::Start(
-            file_system_url.path(), GetProfile(),
-            base::Bind(&FileManagerPrivateGetEntryPropertiesFunction::
+            file_system_url.path(), names_as_set, GetProfile(),
+            base::Bind(&FileManagerPrivateInternalGetEntryPropertiesFunction::
                            CompleteGetEntryProperties,
                        this, i, file_system_url));
         break;
       case storage::kFileSystemTypeProvided:
         SingleEntryPropertiesGetterForFileSystemProvider::Start(
-            file_system_url,
-            base::Bind(&FileManagerPrivateGetEntryPropertiesFunction::
+            file_system_url, names_as_set,
+            base::Bind(&FileManagerPrivateInternalGetEntryPropertiesFunction::
                            CompleteGetEntryProperties,
                        this, i, file_system_url));
         break;
       default:
+        // TODO(yawano) Change this to support other voluems (e.g. local) ,and
+        // integrate fileManagerPrivate.getMimeType to this method.
         LOG(ERROR) << "Not supported file system type.";
         CompleteGetEntryProperties(i, file_system_url,
                                    make_scoped_ptr(new EntryProperties),
@@ -496,12 +544,12 @@ bool FileManagerPrivateGetEntryPropertiesFunction::RunAsync() {
   return true;
 }
 
-void FileManagerPrivateGetEntryPropertiesFunction::CompleteGetEntryProperties(
-    size_t index,
-    const storage::FileSystemURL& url,
-    scoped_ptr<EntryProperties> properties,
-    base::File::Error error) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+void FileManagerPrivateInternalGetEntryPropertiesFunction::
+    CompleteGetEntryProperties(size_t index,
+                               const storage::FileSystemURL& url,
+                               scoped_ptr<EntryProperties> properties,
+                               base::File::Error error) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(0 <= processed_count_ && processed_count_ < properties_list_.size());
 
   properties_list_[index] = make_linked_ptr(properties.release());
@@ -514,13 +562,13 @@ void FileManagerPrivateGetEntryPropertiesFunction::CompleteGetEntryProperties(
   if (processed_count_ < properties_list_.size())
     return;
 
-  results_ = extensions::api::file_manager_private::GetEntryProperties::
-      Results::Create(properties_list_);
+  results_ = extensions::api::file_manager_private_internal::
+      GetEntryProperties::Results::Create(properties_list_);
   SendResponse(true);
 }
 
 bool FileManagerPrivatePinDriveFileFunction::RunAsync() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   using extensions::api::file_manager_private::PinDriveFile::Params;
   const scoped_ptr<Params> params(Params::Create(*args_));
@@ -533,7 +581,7 @@ bool FileManagerPrivatePinDriveFileFunction::RunAsync() {
 
   const base::FilePath drive_path =
       drive::util::ExtractDrivePath(file_manager::util::GetLocalPathFromURL(
-          render_view_host(), GetProfile(), GURL(params->file_url)));
+          render_frame_host(), GetProfile(), GURL(params->file_url)));
   if (params->pin) {
     file_system->Pin(drive_path,
                      base::Bind(&FileManagerPrivatePinDriveFileFunction::
@@ -548,7 +596,7 @@ bool FileManagerPrivatePinDriveFileFunction::RunAsync() {
 
 void FileManagerPrivatePinDriveFileFunction::
     OnPinStateSet(drive::FileError error) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (error == drive::FILE_ERROR_OK) {
     SendResponse(true);
@@ -590,7 +638,7 @@ bool FileManagerPrivateCancelFileTransfersFunction::RunAsync() {
 
     for (size_t i = 0; i < file_urls.size(); ++i) {
       base::FilePath file_path = file_manager::util::GetLocalPathFromURL(
-          render_view_host(), GetProfile(), GURL(file_urls[i]));
+          render_frame_host(), GetProfile(), GURL(file_urls[i]));
       if (file_path.empty())
         continue;
 
@@ -686,11 +734,9 @@ bool FileManagerPrivateSearchDriveMetadataFunction::RunAsync() {
   drive::EventLogger* logger = file_manager::util::GetLogger(GetProfile());
   if (logger) {
     logger->Log(logging::LOG_INFO,
-                "%s[%d] called. (types: '%s', maxResults: '%d')",
-                name().c_str(),
-                request_id(),
-                api::file_manager_private::ToString(
-                    params->search_params.types).c_str(),
+                "%s[%d] called. (types: '%s', maxResults: '%d')", name(),
+                request_id(), api::file_manager_private::ToString(
+                                  params->search_params.types).c_str(),
                 params->search_params.max_results);
   }
   set_log_on_completion(true);
@@ -822,7 +868,7 @@ bool FileManagerPrivateGetDriveConnectionStateFunction::RunSync() {
 
   drive::EventLogger* logger = file_manager::util::GetLogger(GetProfile());
   if (logger)
-    logger->Log(logging::LOG_INFO, "%s succeeded.", name().c_str());
+    logger->Log(logging::LOG_INFO, "%s succeeded.", name());
   return true;
 }
 
@@ -854,7 +900,7 @@ bool FileManagerPrivateRequestAccessTokenFunction::RunAsync() {
 }
 
 void FileManagerPrivateRequestAccessTokenFunction::OnAccessTokenFetched(
-    google_apis::GDataErrorCode code,
+    google_apis::DriveApiErrorCode code,
     const std::string& access_token) {
   SetResult(new base::StringValue(access_token));
   SendResponse(true);
@@ -866,7 +912,7 @@ bool FileManagerPrivateGetShareUrlFunction::RunAsync() {
   EXTENSION_FUNCTION_VALIDATE(params);
 
   const base::FilePath path = file_manager::util::GetLocalPathFromURL(
-      render_view_host(), GetProfile(), GURL(params->url));
+      render_frame_host(), GetProfile(), GURL(params->url));
   DCHECK(drive::util::IsUnderDriveMountPoint(path));
 
   const base::FilePath drive_path = drive::util::ExtractDrivePath(path);
@@ -904,7 +950,7 @@ bool FileManagerPrivateRequestDriveShareFunction::RunAsync() {
   EXTENSION_FUNCTION_VALIDATE(params);
 
   const base::FilePath path = file_manager::util::GetLocalPathFromURL(
-      render_view_host(), GetProfile(), GURL(params->url));
+      render_frame_host(), GetProfile(), GURL(params->url));
   const base::FilePath drive_path = drive::util::ExtractDrivePath(path);
   Profile* const owner_profile = drive::util::ExtractProfileFromPath(path);
 
@@ -977,7 +1023,7 @@ bool FileManagerPrivateGetDownloadUrlFunction::RunAsync() {
   }
 
   const base::FilePath path = file_manager::util::GetLocalPathFromURL(
-      render_view_host(), GetProfile(), GURL(params->url));
+      render_frame_host(), GetProfile(), GURL(params->url));
   if (!drive::util::IsUnderDriveMountPoint(path)) {
     SetError("The given file is not in Drive.");
     SetResult(new base::StringValue(""));  // Intentionally returns a blank.
@@ -995,7 +1041,7 @@ bool FileManagerPrivateGetDownloadUrlFunction::RunAsync() {
 void FileManagerPrivateGetDownloadUrlFunction::OnGetResourceEntry(
     drive::FileError error,
     scoped_ptr<drive::ResourceEntry> entry) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (error != drive::FILE_ERROR_OK) {
     SetError("Download Url for this item is not available.");
@@ -1004,9 +1050,10 @@ void FileManagerPrivateGetDownloadUrlFunction::OnGetResourceEntry(
     return;
   }
 
-  download_url_ =
-      google_apis::DriveApiUrlGenerator::kBaseDownloadUrlForProduction +
-      entry->resource_id();
+  DriveApiUrlGenerator url_generator(
+      (GURL(google_apis::DriveApiUrlGenerator::kBaseUrlForProduction)),
+      (GURL(google_apis::DriveApiUrlGenerator::kBaseDownloadUrlForProduction)));
+  download_url_ = url_generator.GenerateDownloadFileUrl(entry->resource_id());
 
   ProfileOAuth2TokenService* oauth2_token_service =
       ProfileOAuth2TokenServiceFactory::GetForProfile(GetProfile());
@@ -1026,7 +1073,7 @@ void FileManagerPrivateGetDownloadUrlFunction::OnGetResourceEntry(
 }
 
 void FileManagerPrivateGetDownloadUrlFunction::OnTokenFetched(
-    google_apis::GDataErrorCode code,
+    google_apis::DriveApiErrorCode code,
     const std::string& access_token) {
   if (code != google_apis::HTTP_SUCCESS) {
     SetError("Not able to fetch the token.");
@@ -1035,7 +1082,8 @@ void FileManagerPrivateGetDownloadUrlFunction::OnTokenFetched(
     return;
   }
 
-  const std::string url = download_url_ + "?access_token=" + access_token;
+  const std::string url =
+      download_url_.Resolve("?access_token=" + access_token).spec();
   SetResult(new base::StringValue(url));
 
   SendResponse(true);

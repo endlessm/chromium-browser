@@ -8,7 +8,9 @@
 #include "base/logging.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/memory/scoped_ptr.h"
-#include "components/app_modal_dialogs/native_app_modal_dialog.h"
+#include "components/app_modal/native_app_modal_dialog.h"
+
+class AppModalDialogHelper;
 
 #if __OBJC__
 @class NSAlert;
@@ -18,10 +20,11 @@ class NSAlert;
 class JavaScriptAppModalDialogHelper;
 #endif
 
-class JavaScriptAppModalDialogCocoa : public NativeAppModalDialog {
+class JavaScriptAppModalDialogCocoa : public app_modal::NativeAppModalDialog {
  public:
-  explicit JavaScriptAppModalDialogCocoa(JavaScriptAppModalDialog* dialog);
-  virtual ~JavaScriptAppModalDialogCocoa();
+  explicit JavaScriptAppModalDialogCocoa(
+      app_modal::JavaScriptAppModalDialog* dialog);
+  ~JavaScriptAppModalDialogCocoa() override;
 
   // Overridden from NativeAppModalDialog:
   int GetAppModalDialogButtons() const override;
@@ -30,17 +33,23 @@ class JavaScriptAppModalDialogCocoa : public NativeAppModalDialog {
   void CloseAppModalDialog() override;
   void AcceptAppModalDialog() override;
   void CancelAppModalDialog() override;
+  bool IsShowing() const override;
 
-  JavaScriptAppModalDialog* dialog() const { return dialog_.get(); }
+  app_modal::JavaScriptAppModalDialog* dialog() const {
+    return dialog_.get();
+  }
 
  private:
   // Returns the NSAlert associated with the modal dialog.
   NSAlert* GetAlert() const;
 
-  scoped_ptr<JavaScriptAppModalDialog> dialog_;
+  scoped_ptr<app_modal::JavaScriptAppModalDialog> dialog_;
+  scoped_ptr<AppModalDialogHelper> popup_helper_;
 
   // Created in the constructor and destroyed in the destructor.
   base::scoped_nsobject<JavaScriptAppModalDialogHelper> helper_;
+
+  bool is_showing_;
 
   DISALLOW_COPY_AND_ASSIGN(JavaScriptAppModalDialogCocoa);
 };

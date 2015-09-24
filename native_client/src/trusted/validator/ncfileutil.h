@@ -10,6 +10,7 @@
 #ifndef NATIVE_CLIENT_SRC_TRUSTED_VALIDATOR_X86_NCFILEUTIL_H_
 #define NATIVE_CLIENT_SRC_TRUSTED_VALIDATOR_X86_NCFILEUTIL_H_
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/portability.h"
 #include "native_client/src/include/elf.h"
 #include "native_client/src/trusted/validator/types_memory_model.h"
@@ -20,7 +21,7 @@ EXTERN_C_BEGIN
 static const int kNCFileUtilPageShift =      12;
 static const Elf_Addr kNCFileUtilPageSize = (1 << 12);
 /* this needs to be a #define because it's used as an array size */
-#if NACL_TARGET_SUBARCH == 64
+#if NACL_BUILD_SUBARCH == 64
 #define kMaxPhnum 64
 #else
 #define kMaxPhnum 32

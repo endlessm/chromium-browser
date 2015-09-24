@@ -71,7 +71,7 @@ struct EncodedFrame {
   };
 
   EncodedFrame();
-  ~EncodedFrame();
+  virtual ~EncodedFrame();
 
   // Convenience accessors to data as an array of uint8 elements.
   const uint8* bytes() const {
@@ -127,6 +127,8 @@ typedef scoped_refptr<base::RefCountedData<Packet> > PacketRef;
 typedef std::vector<PacketRef> PacketList;
 
 typedef base::Callback<void(scoped_ptr<Packet> packet)> PacketReceiverCallback;
+typedef base::Callback<bool(scoped_ptr<Packet> packet)>
+    PacketReceiverCallbackWithStatus;
 
 class PacketSender {
  public:

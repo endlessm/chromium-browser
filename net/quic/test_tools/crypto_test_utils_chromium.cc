@@ -55,7 +55,8 @@ class FakeProofSource : public ProofSource {
   ~FakeProofSource() override {}
 
   // ProofSource interface
-  bool GetProof(const std::string& hostname,
+  bool GetProof(const IPAddressNumber& server_ip,
+                const std::string& hostname,
                 const std::string& server_config,
                 bool ecdsa_ok,
                 const std::vector<std::string>** out_certs,
@@ -112,16 +113,15 @@ ProofSource* CryptoTestUtils::ProofSourceForTesting() {
 
 // static
 ProofVerifier* CryptoTestUtils::ProofVerifierForTesting() {
-  TestProofVerifierChromium* proof_verifier =
-      new TestProofVerifierChromium(CertVerifier::CreateDefault(),
-                                    new TransportSecurityState,
-                                    "quic_root.crt");
+  TestProofVerifierChromium* proof_verifier = new TestProofVerifierChromium(
+      CertVerifier::CreateDefault(), new TransportSecurityState,
+      "quic_root.crt");
   return proof_verifier;
 }
 
 // static
 ProofVerifyContext* CryptoTestUtils::ProofVerifyContextForTesting() {
-  return new ProofVerifyContextChromium(BoundNetLog());
+  return new ProofVerifyContextChromium(/*cert_verify_flags=*/0, BoundNetLog());
 }
 
 // static

@@ -30,7 +30,7 @@
 #define Path_h
 
 #include "platform/PlatformExport.h"
-#include "platform/geometry/RoundedRect.h"
+#include "platform/geometry/FloatRoundedRect.h"
 #include "platform/graphics/GraphicsTypes.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "third_party/skia/include/core/SkPathMeasure.h"
@@ -66,13 +66,14 @@ struct PathElement {
 typedef void (*PathApplierFunction)(void* info, const PathElement*);
 
 class PLATFORM_EXPORT Path {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED(Path);
 public:
     Path();
     ~Path();
 
     Path(const Path&);
     Path& operator=(const Path&);
+    Path& operator=(const SkPath&);
     bool operator==(const Path&) const;
 
     bool contains(const FloatPoint&, WindRule = RULE_NONZERO) const;
@@ -82,7 +83,6 @@ public:
 
     float length() const;
     FloatPoint pointAtLength(float length, bool& ok) const;
-    float normalAngleAtLength(float length, bool& ok) const;
     bool pointAndNormalAtLength(float length, FloatPoint&, float&) const;
 
     // Helper for computing a sequence of positions and normals (normal angles) on a path.
@@ -115,7 +115,6 @@ public:
     bool hasCurrentPoint() const;
     FloatPoint currentPoint() const;
 
-    WindRule windRule() const;
     void setWindRule(const WindRule);
 
     void moveTo(const FloatPoint&);
@@ -132,7 +131,7 @@ public:
 
     void addRoundedRect(const FloatRect&, const FloatSize& roundingRadii);
     void addRoundedRect(const FloatRect&, const FloatSize& topLeftRadius, const FloatSize& topRightRadius, const FloatSize& bottomLeftRadius, const FloatSize& bottomRightRadius);
-    void addRoundedRect(const RoundedRect&);
+    void addRoundedRect(const FloatRoundedRect&);
 
     void addPath(const Path&, const AffineTransform&);
 
@@ -147,13 +146,13 @@ public:
     void addBeziersForRoundedRect(const FloatRect&, const FloatSize& topLeftRadius, const FloatSize& topRightRadius, const FloatSize& bottomLeftRadius, const FloatSize& bottomRightRadius);
 
     bool subtractPath(const Path&);
-    bool intersectPath(const Path&);
 
     // Updates the path to the union (inclusive-or) of itself with the given argument.
     bool unionPath(const Path& other);
 
 private:
     void addEllipse(const FloatPoint&, float radiusX, float radiusY, float startAngle, float endAngle, bool anticlockwise);
+    SkPath strokePath(const StrokeData&) const;
 
     SkPath m_path;
 };

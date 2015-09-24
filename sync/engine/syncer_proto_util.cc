@@ -124,6 +124,8 @@ SyncProtocolErrorType ConvertSyncProtocolErrorTypePBToLocalType(
       return DISABLED_BY_ADMIN;
     case sync_pb::SyncEnums::USER_ROLLBACK:
       return USER_ROLLBACK;
+    case sync_pb::SyncEnums::PARTIAL_FAILURE:
+      return PARTIAL_FAILURE;
     case sync_pb::SyncEnums::UNKNOWN:
       return UNKNOWN_ERROR;
     case sync_pb::SyncEnums::USER_NOT_ACTIVATED:
@@ -184,8 +186,9 @@ SyncProtocolError ConvertErrorPBToLocalType(
       error.action());
 
   if (error.error_data_type_ids_size() > 0) {
-    // THROTTLED is currently the only error code that uses |error_data_types|.
-    DCHECK_EQ(error.error_type(), sync_pb::SyncEnums::THROTTLED);
+    // THROTTLED and PARTIAL_FAILURE are currently the only error codes
+    // that uses |error_data_types|.
+    // In both cases, |error_data_types| are throttled.
     for (int i = 0; i < error.error_data_type_ids_size(); ++i) {
       int field_number = error.error_data_type_ids(i);
       ModelType model_type =
@@ -311,7 +314,7 @@ base::TimeDelta SyncerProtoUtil::GetThrottleDelay(
 
 namespace {
 
-// Helper function for an assertion in PostClientToServerMessage.
+// Returns true iff |message| is an initial GetUpdates request.
 bool IsVeryFirstGetUpdates(const ClientToServerMessage& message) {
   if (!message.has_get_updates())
     return false;
@@ -320,6 +323,18 @@ bool IsVeryFirstGetUpdates(const ClientToServerMessage& message) {
     if (!message.get_updates().from_progress_marker(i).token().empty())
       return false;
   }
+  return true;
+}
+
+// Returns true iff |message| should contain a store birthday.
+bool IsBirthdayRequired(const ClientToServerMessage& message) {
+  if (message.has_clear_server_data())
+    return false;
+  if (message.has_commit())
+    return true;
+  if (message.has_get_updates())
+    return !IsVeryFirstGetUpdates(message);
+  NOTIMPLEMENTED();
   return true;
 }
 
@@ -345,7 +360,8 @@ SyncProtocolError ConvertLegacyErrorCodeToNewError(
 SyncerError SyncerProtoUtil::PostClientToServerMessage(
     ClientToServerMessage* msg,
     ClientToServerResponse* response,
-    SyncSession* session) {
+    SyncSession* session,
+    ModelTypeSet* partial_failure_data_types) {
   CHECK(response);
   DCHECK(!msg->get_updates().has_from_timestamp());  // Deprecated.
   DCHECK(!msg->get_updates().has_requested_types());  // Deprecated.
@@ -353,7 +369,7 @@ SyncerError SyncerProtoUtil::PostClientToServerMessage(
   // Add must-have fields.
   SetProtocolVersion(msg);
   AddRequestBirthday(session->context()->directory(), msg);
-  DCHECK(msg->has_store_birthday() || IsVeryFirstGetUpdates(*msg));
+  DCHECK(msg->has_store_birthday() || !IsBirthdayRequired(*msg));
   AddBagOfChips(session->context()->directory(), msg);
   msg->set_api_key(google_apis::GetAPIKey());
   msg->mutable_client_status()->CopyFrom(session->context()->client_status());
@@ -490,6 +506,17 @@ SyncerError SyncerProtoUtil::PostClientToServerMessage(
       return SERVER_RETURN_DISABLED_BY_ADMIN;
     case USER_ROLLBACK:
       return SERVER_RETURN_USER_ROLLBACK;
+    case PARTIAL_FAILURE:
+      // This only happens when partial throttling during GetUpdates.
+      if (!sync_protocol_error.error_data_types.Empty()) {
+        DLOG(WARNING) << "Some types throttled by syncer during GetUpdates.";
+        session->delegate()->OnTypesThrottled(
+            sync_protocol_error.error_data_types, GetThrottleDelay(*response));
+      }
+      if (partial_failure_data_types != NULL) {
+        *partial_failure_data_types = sync_protocol_error.error_data_types;
+      }
+      return SERVER_RETURN_PARTIAL_FAILURE;
     default:
       NOTREACHED();
       return UNSET;
@@ -504,28 +531,6 @@ bool SyncerProtoUtil::ShouldMaintainPosition(
   return GetModelType(sync_entity) == BOOKMARKS
       && !(sync_entity.folder() &&
            !sync_entity.server_defined_unique_tag().empty());
-}
-
-// static
-void SyncerProtoUtil::CopyProtoBytesIntoBlob(const std::string& proto_bytes,
-                                             syncable::Blob* blob) {
-  syncable::Blob proto_blob(proto_bytes.begin(), proto_bytes.end());
-  blob->swap(proto_blob);
-}
-
-// static
-bool SyncerProtoUtil::ProtoBytesEqualsBlob(const std::string& proto_bytes,
-                                           const syncable::Blob& blob) {
-  if (proto_bytes.size() != blob.size())
-    return false;
-  return std::equal(proto_bytes.begin(), proto_bytes.end(), blob.begin());
-}
-
-// static
-void SyncerProtoUtil::CopyBlobIntoProtoBytes(const syncable::Blob& blob,
-                                             std::string* proto_bytes) {
-  std::string blob_string(blob.begin(), blob.end());
-  proto_bytes->swap(blob_string);
 }
 
 // static

@@ -17,8 +17,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/omnibox/omnibox_edit_model.h"
-#include "components/omnibox/autocomplete_match.h"
-#include "content/public/common/url_constants.h"
+#include "components/omnibox/browser/autocomplete_match.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/native_widget_types.h"
 
@@ -44,9 +43,6 @@ class OmniboxView {
   CommandUpdater* command_updater() { return command_updater_; }
   const CommandUpdater* command_updater() const { return command_updater_; }
 
-  // Handle mouse release events concerning the origin chip.
-  void HandleOriginChipMouseRelease();
-
   // Shared cross-platform focus handling.
   void OnDidKillFocus();
 
@@ -57,12 +53,11 @@ class OmniboxView {
   // Called when the window's active tab changes.
   virtual void OnTabChanged(const content::WebContents* web_contents) = 0;
 
+  // Called to clear the saved state for |web_contents|.
+  virtual void ResetTabState(content::WebContents* web_contents) = 0;
+
   // Called when any relevant state changes other than changing tabs.
   virtual void Update() = 0;
-
-  // Updates the placeholder text with the value of GetHintText() if the
-  // origin chip is enabled.
-  virtual void UpdatePlaceholderText() = 0;
 
   // Asks the browser to load the specified match, using the supplied
   // disposition. |alternate_nav_url|, if non-empty, contains the
@@ -92,11 +87,6 @@ class OmniboxView {
 
   // Returns the resource ID of the icon to show for the current text.
   int GetIcon() const;
-
-  // Returns the hint text that should be displayed when there is no text in the
-  // omnibox.  In keyword mode, this is an empty string.  Otherwise, it's
-  // instructions to search the user's default search engine or type a URL.
-  base::string16 GetHintText() const;
 
   // The user text is the text the user has manually keyed in.  When present,
   // this is shown in preference to the permanent text; hitting escape will

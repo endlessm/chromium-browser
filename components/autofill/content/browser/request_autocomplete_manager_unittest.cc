@@ -6,6 +6,7 @@
 #include "components/autofill/content/browser/request_autocomplete_manager.h"
 #include "components/autofill/content/common/autofill_messages.h"
 #include "components/autofill/core/browser/test_autofill_client.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/test_renderer_host.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -44,7 +45,7 @@ class CustomTestAutofillClient : public TestAutofillClient {
   ~CustomTestAutofillClient() override {}
 
   void ShowRequestAutocompleteDialog(const FormData& form,
-                                     const GURL& source_url,
+                                     content::RenderFrameHost* rfh,
                                      const ResultCallback& callback) override {
     if (should_simulate_success_) {
       FormStructure form_structure(form);
@@ -71,9 +72,9 @@ class CustomTestAutofillClient : public TestAutofillClient {
 
 class TestContentAutofillDriver : public ContentAutofillDriver {
  public:
-  TestContentAutofillDriver(content::WebContents* contents,
+  TestContentAutofillDriver(content::RenderFrameHost* rfh,
                             AutofillClient* client)
-      : ContentAutofillDriver(contents, client, kAppLocale, kDownloadState) {
+      : ContentAutofillDriver(rfh, client, kAppLocale, kDownloadState) {
     SetAutofillManager(make_scoped_ptr<AutofillManager>(
         new TestAutofillManager(this, client)));
   }
@@ -82,8 +83,6 @@ class TestContentAutofillDriver : public ContentAutofillDriver {
   TestAutofillManager* mock_autofill_manager() {
     return static_cast<TestAutofillManager*>(autofill_manager());
   }
-
-  using ContentAutofillDriver::DidNavigateMainFrame;
 
   DISALLOW_COPY_AND_ASSIGN(TestContentAutofillDriver);
 };
@@ -98,8 +97,8 @@ class RequestAutocompleteManagerTest :
   void SetUp() override {
     content::RenderViewHostTestHarness::SetUp();
 
-    driver_.reset(
-        new TestContentAutofillDriver(web_contents(), &autofill_client_));
+    driver_.reset(new TestContentAutofillDriver(web_contents()->GetMainFrame(),
+                                                &autofill_client_));
     request_autocomplete_manager_.reset(
         new RequestAutocompleteManager(driver_.get()));
   }
@@ -123,10 +122,10 @@ class RequestAutocompleteManagerTest :
         process()->sink().GetFirstMessageMatching(kMsgID);
     if (!message)
       return false;
-    Tuple3<blink::WebFormElement::AutocompleteResult, base::string16, FormData>
-        autofill_param;
+    base::Tuple<blink::WebFormElement::AutocompleteResult, base::string16,
+                FormData> autofill_param;
     AutofillMsg_RequestAutocompleteResult::Read(message, &autofill_param);
-    *result = autofill_param.a;
+    *result = base::get<0>(autofill_param);
     process()->sink().ClearMessages();
     return true;
   }
@@ -141,7 +140,7 @@ class RequestAutocompleteManagerTest :
 
 TEST_F(RequestAutocompleteManagerTest, OnRequestAutocompleteSuccess) {
   blink::WebFormElement::AutocompleteResult result;
-  request_autocomplete_manager_->OnRequestAutocomplete(FormData(), GURL());
+  request_autocomplete_manager_->OnRequestAutocomplete(FormData());
   EXPECT_TRUE(GetAutocompleteResultMessage(&result));
   EXPECT_EQ(blink::WebFormElement::AutocompleteResultSuccess, result);
 }
@@ -149,7 +148,7 @@ TEST_F(RequestAutocompleteManagerTest, OnRequestAutocompleteSuccess) {
 TEST_F(RequestAutocompleteManagerTest, OnRequestAutocompleteCancel) {
   blink::WebFormElement::AutocompleteResult result;
   autofill_client_.set_should_simulate_success(false);
-  request_autocomplete_manager_->OnRequestAutocomplete(FormData(), GURL());
+  request_autocomplete_manager_->OnRequestAutocomplete(FormData());
   EXPECT_TRUE(GetAutocompleteResultMessage(&result));
   EXPECT_EQ(blink::WebFormElement::AutocompleteResultErrorDisabled, result);
 }
@@ -160,7 +159,7 @@ TEST_F(RequestAutocompleteManagerTest,
        OnRequestAutocompleteWithAutofillDisabled) {
   blink::WebFormElement::AutocompleteResult result;
   driver_->mock_autofill_manager()->set_autofill_enabled(false);
-  request_autocomplete_manager_->OnRequestAutocomplete(FormData(), GURL());
+  request_autocomplete_manager_->OnRequestAutocomplete(FormData());
   EXPECT_TRUE(GetAutocompleteResultMessage(&result));
   EXPECT_EQ(blink::WebFormElement::AutocompleteResultSuccess, result);
 }

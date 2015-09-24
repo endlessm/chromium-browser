@@ -6,36 +6,40 @@
 #define NavigatorServiceWorker_h
 
 #include "core/frame/Navigator.h"
+#include "modules/ModulesExport.h"
 #include "platform/Supplementable.h"
 #include "platform/heap/Handle.h"
 
 namespace blink {
 
 class Document;
+class ExceptionState;
 class Navigator;
 class ServiceWorkerContainer;
 
-class NavigatorServiceWorker final : public NoBaseWillBeGarbageCollected<NavigatorServiceWorker>, public WillBeHeapSupplement<Navigator>, DOMWindowProperty {
-    WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(NavigatorServiceWorker);
-    DECLARE_EMPTY_VIRTUAL_DESTRUCTOR_WILL_BE_REMOVED(NavigatorServiceWorker);
+class MODULES_EXPORT NavigatorServiceWorker final : public GarbageCollectedFinalized<NavigatorServiceWorker>, public HeapSupplement<Navigator>, public DOMWindowProperty {
+    USING_GARBAGE_COLLECTED_MIXIN(NavigatorServiceWorker);
 public:
     static NavigatorServiceWorker* from(Document&);
     static NavigatorServiceWorker& from(Navigator&);
     static NavigatorServiceWorker* toNavigatorServiceWorker(Navigator&);
-    static const char* supplementName();
 
-    static ServiceWorkerContainer* serviceWorker(Navigator&);
+    virtual ~NavigatorServiceWorker();
 
-    virtual void trace(Visitor*) override;
+    static ServiceWorkerContainer* serviceWorker(Navigator&, ExceptionState&);
+
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     explicit NavigatorServiceWorker(Navigator&);
-    ServiceWorkerContainer* serviceWorker();
+    ServiceWorkerContainer* serviceWorker(ExceptionState&);
+
+    static const char* supplementName();
 
     // DOMWindowProperty override.
-    virtual void willDetachGlobalObjectFromFrame() override;
+    void willDetachGlobalObjectFromFrame() override;
 
-    PersistentWillBeMember<ServiceWorkerContainer> m_serviceWorker;
+    Member<ServiceWorkerContainer> m_serviceWorker;
 };
 
 } // namespace blink

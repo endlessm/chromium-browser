@@ -4,18 +4,18 @@
 
 #include "chrome/browser/chromeos/drive/resource_metadata.h"
 
+#include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/guid.h"
+#include "base/location.h"
 #include "base/rand_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/sys_info.h"
 #include "chrome/browser/chromeos/drive/drive.pb.h"
 #include "chrome/browser/chromeos/drive/file_cache.h"
-#include "chrome/browser/chromeos/drive/file_system_util.h"
+#include "chrome/browser/chromeos/drive/file_system_core_util.h"
 #include "chrome/browser/chromeos/drive/resource_metadata_storage.h"
-#include "content/public/browser/browser_thread.h"
-
-using content::BrowserThread;
 
 namespace drive {
 namespace internal {
@@ -32,7 +32,7 @@ bool EnoughDiskSpaceIsAvailableForDBOperation(const base::FilePath& path) {
 // Returns a file name with a uniquifier appended. (e.g. "File (1).txt")
 std::string GetUniquifiedName(const std::string& name, int uniquifier) {
   base::FilePath name_path = base::FilePath::FromUTF8Unsafe(name);
-  name_path = name_path.InsertBeforeExtension(
+  name_path = name_path.InsertBeforeExtensionASCII(
       base::StringPrintf(" (%d)", uniquifier));
   return name_path.AsUTF8Unsafe();
 }
@@ -72,7 +72,6 @@ ResourceMetadata::ResourceMetadata(
     : blocking_task_runner_(blocking_task_runner),
       storage_(storage),
       cache_(cache) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 }
 
 FileError ResourceMetadata::Initialize() {
@@ -81,7 +80,7 @@ FileError ResourceMetadata::Initialize() {
 }
 
 void ResourceMetadata::Destroy() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
 
   blocking_task_runner_->PostTask(
       FROM_HERE,
@@ -474,7 +473,8 @@ FileError ResourceMetadata::GetIdByPath(const base::FilePath& file_path,
   // Start from the root.
   std::vector<base::FilePath::StringType> components;
   file_path.GetComponents(&components);
-  if (components.empty() || components[0] != util::kDriveGrandRootDirName)
+  if (components.empty() ||
+      components[0] != util::GetDriveGrandRootPath().value())
     return FILE_ERROR_NOT_FOUND;
 
   // Iterate over the remaining components.

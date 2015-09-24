@@ -6,6 +6,7 @@
 #include "bindings/core/v8/ScriptPromiseResolver.h"
 
 #include "bindings/core/v8/V8RecursionScope.h"
+#include "platform/LifecycleObserver.h"
 
 namespace blink {
 
@@ -95,6 +96,11 @@ void ScriptPromiseResolver::clear()
         // |ref| was called in |resolveOrReject|.
         deref();
     }
+}
+
+DEFINE_TRACE(ScriptPromiseResolver)
+{
+    ActiveDOMObject::trace(visitor);
 }
 
 } // namespace blink

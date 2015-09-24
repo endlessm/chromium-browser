@@ -128,11 +128,11 @@ void TCPSocketEventDispatcher::ReadCallback(
     // Dispatch "onReceive" event.
     sockets_tcp::ReceiveInfo receive_info;
     receive_info.socket_id = params.socket_id;
-    receive_info.data = std::string(io_buffer->data(), bytes_read);
+    receive_info.data.assign(io_buffer->data(), io_buffer->data() + bytes_read);
     scoped_ptr<base::ListValue> args =
         sockets_tcp::OnReceive::Create(receive_info);
-    scoped_ptr<Event> event(
-        new Event(sockets_tcp::OnReceive::kEventName, args.Pass()));
+    scoped_ptr<Event> event(new Event(
+        events::UNKNOWN, sockets_tcp::OnReceive::kEventName, args.Pass()));
     PostEvent(params, event.Pass());
 
     // Post a task to delay the read until the socket is available, as
@@ -152,8 +152,8 @@ void TCPSocketEventDispatcher::ReadCallback(
     receive_error_info.result_code = bytes_read;
     scoped_ptr<base::ListValue> args =
         sockets_tcp::OnReceiveError::Create(receive_error_info);
-    scoped_ptr<Event> event(
-        new Event(sockets_tcp::OnReceiveError::kEventName, args.Pass()));
+    scoped_ptr<Event> event(new Event(
+        events::UNKNOWN, sockets_tcp::OnReceiveError::kEventName, args.Pass()));
     PostEvent(params, event.Pass());
 
     // Since we got an error, the socket is now "paused" until the application

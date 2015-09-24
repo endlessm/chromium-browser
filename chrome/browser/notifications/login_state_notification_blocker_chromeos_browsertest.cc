@@ -28,14 +28,14 @@ class LoginStateNotificationBlockerChromeOSBrowserTest
   LoginStateNotificationBlockerChromeOSBrowserTest()
       : chromeos::LoginManagerTest(false),
         state_changed_count_(0) {}
-  virtual ~LoginStateNotificationBlockerChromeOSBrowserTest() {}
+  ~LoginStateNotificationBlockerChromeOSBrowserTest() override {}
 
-  virtual void SetUpOnMainThread() override {
+  void SetUpOnMainThread() override {
     chromeos::LoginState::Get()->set_always_logged_in(false);
     chromeos::LoginManagerTest::SetUpOnMainThread();
   }
 
-  virtual void TearDownOnMainThread() override {
+  void TearDownOnMainThread() override {
     if (blocker_)
       blocker_->RemoveObserver(this);
     blocker_.reset();
@@ -50,7 +50,7 @@ class LoginStateNotificationBlockerChromeOSBrowserTest
   }
 
   // message_center::NotificationBlocker::Observer ovverrides:
-  virtual void OnBlockingStateChanged(
+  void OnBlockingStateChanged(
       message_center::NotificationBlocker* blocker) override {
     state_changed_count_++;
   }
@@ -80,15 +80,13 @@ IN_PROC_BROWSER_TEST_F(LoginStateNotificationBlockerChromeOSBrowserTest,
   chromeos::StartupUtils::MarkOobeCompleted();
 }
 
- // Disabled due to flakiness. See: http://crbug.com/421325.
 IN_PROC_BROWSER_TEST_F(LoginStateNotificationBlockerChromeOSBrowserTest,
-                       DISABLED_BaseTest) {
+                       BaseTest) {
   CreateBlocker();
   message_center::NotifierId notifier_id(
       message_center::NotifierId::APPLICATION, "test-notifier");
 
   // Logged in as a normal user.
-  EXPECT_CALL(login_utils(), DoBrowserLaunch(_, _)).Times(1);
   LoginUser(kTestUsers[0]);
   EXPECT_EQ(1, GetStateChangedCountAndReset());
   EXPECT_TRUE(ShouldShowNotificationAsPopup(notifier_id));
@@ -123,7 +121,6 @@ IN_PROC_BROWSER_TEST_F(LoginStateNotificationBlockerChromeOSBrowserTest,
       ash::system_notifier::kNotifierDisplay);
 
   // Logged in as a normal user.
-  EXPECT_CALL(login_utils(), DoBrowserLaunch(_, _)).Times(1);
   LoginUser(kTestUsers[0]);
   EXPECT_EQ(1, GetStateChangedCountAndReset());
   EXPECT_TRUE(ShouldShowNotificationAsPopup(notifier_id));

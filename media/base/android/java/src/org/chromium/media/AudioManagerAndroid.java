@@ -4,6 +4,7 @@
 
 package org.chromium.media;
 
+import android.annotation.TargetApi;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothManager;
 import android.content.BroadcastReceiver;
@@ -23,10 +24,10 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Process;
 import android.provider.Settings;
-import android.util.Log;
 
 import org.chromium.base.CalledByNative;
 import org.chromium.base.JNINamespace;
+import org.chromium.base.Log;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -34,7 +35,7 @@ import java.util.List;
 
 @JNINamespace("media")
 class AudioManagerAndroid {
-    private static final String TAG = "AudioManagerAndroid";
+    private static final String TAG = "cr.media";
 
     // Set to true to enable debug logs. Avoid in production builds.
     // NOTE: always check in as false.
@@ -68,18 +69,6 @@ class AudioManagerAndroid {
             }
             return true;
         }
-    }
-
-    private static boolean runningOnJellyBeanOrHigher() {
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN;
-    }
-
-    private static boolean runningOnJellyBeanMR1OrHigher() {
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1;
-    }
-
-    private static boolean runningOnJellyBeanMR2OrHigher() {
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2;
     }
 
     /** Simple container for device information. */
@@ -171,9 +160,6 @@ class AudioManagerAndroid {
     // granted. Required to shift system-wide audio settings.
     private boolean mHasModifyAudioSettingsPermission = false;
 
-    // Enabled during initialization if RECORD_AUDIO permission is granted.
-    private boolean mHasRecordAudioPermission = false;
-
     // Enabled during initialization if BLUETOOTH permission is granted.
     private boolean mHasBluetoothPermission = false;
 
@@ -245,8 +231,7 @@ class AudioManagerAndroid {
         checkIfCalledOnValidThread();
         if (DEBUG) logd("init");
         if (DEBUG) logDeviceInfo();
-        if (mIsInitialized)
-            return;
+        if (mIsInitialized) return;
 
         // Check if process has MODIFY_AUDIO_SETTINGS and RECORD_AUDIO
         // permissions. Both are required for full functionality.
@@ -254,11 +239,6 @@ class AudioManagerAndroid {
                 android.Manifest.permission.MODIFY_AUDIO_SETTINGS);
         if (DEBUG && !mHasModifyAudioSettingsPermission) {
             logd("MODIFY_AUDIO_SETTINGS permission is missing");
-        }
-        mHasRecordAudioPermission = hasPermission(
-                android.Manifest.permission.RECORD_AUDIO);
-        if (DEBUG && !mHasRecordAudioPermission) {
-            logd("RECORD_AUDIO permission is missing");
         }
 
         // Initialize audio device list with things we know is always available.
@@ -287,8 +267,7 @@ class AudioManagerAndroid {
     private void close() {
         checkIfCalledOnValidThread();
         if (DEBUG) logd("close");
-        if (!mIsInitialized)
-            return;
+        if (!mIsInitialized) return;
 
         stopObservingVolumeChanges();
         unregisterForWiredHeadsetIntentBroadcast();
@@ -310,8 +289,8 @@ class AudioManagerAndroid {
         // The MODIFY_AUDIO_SETTINGS permission is required to allow an
         // application to modify global audio settings.
         if (!mHasModifyAudioSettingsPermission) {
-            Log.w(TAG, "MODIFY_AUDIO_SETTINGS is missing => client will run " +
-                    "with reduced functionality");
+            Log.w(TAG, "MODIFY_AUDIO_SETTINGS is missing => client will run "
+                    + "with reduced functionality");
             return;
         }
 
@@ -384,11 +363,12 @@ class AudioManagerAndroid {
     @CalledByNative
     private boolean setDevice(String deviceId) {
         if (DEBUG) logd("setDevice: " + deviceId);
-        if (!mIsInitialized)
-            return false;
-        if (!mHasModifyAudioSettingsPermission || !mHasRecordAudioPermission) {
-            Log.w(TAG, "Requires MODIFY_AUDIO_SETTINGS and RECORD_AUDIO");
-            Log.w(TAG, "Selected device will not be available for recording");
+        if (!mIsInitialized) return false;
+
+        boolean hasRecordAudioPermission = hasPermission(android.Manifest.permission.RECORD_AUDIO);
+        if (!mHasModifyAudioSettingsPermission || !hasRecordAudioPermission) {
+            Log.w(TAG, "Requires MODIFY_AUDIO_SETTINGS and RECORD_AUDIO. "
+                    + "Selected device will not be available for recording");
             return false;
         }
 
@@ -428,11 +408,12 @@ class AudioManagerAndroid {
     @CalledByNative
     private AudioDeviceName[] getAudioInputDeviceNames() {
         if (DEBUG) logd("getAudioInputDeviceNames");
-        if (!mIsInitialized)
-            return null;
-        if (!mHasModifyAudioSettingsPermission || !mHasRecordAudioPermission) {
-            Log.w(TAG, "Requires MODIFY_AUDIO_SETTINGS and RECORD_AUDIO");
-            Log.w(TAG, "No audio device will be available for recording");
+        if (!mIsInitialized) return null;
+
+        boolean hasRecordAudioPermission = hasPermission(android.Manifest.permission.RECORD_AUDIO);
+        if (!mHasModifyAudioSettingsPermission || !hasRecordAudioPermission) {
+            Log.w(TAG, "Requires MODIFY_AUDIO_SETTINGS and RECORD_AUDIO. "
+                    + "No audio device will be available for recording");
             return null;
         }
 
@@ -455,13 +436,14 @@ class AudioManagerAndroid {
         return array;
     }
 
+    @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
     @CalledByNative
     private int getNativeOutputSampleRate() {
-        if (runningOnJellyBeanMR1OrHigher()) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
             String sampleRateString = mAudioManager.getProperty(
                     AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE);
-            return (sampleRateString == null ?
-                    DEFAULT_SAMPLING_RATE : Integer.parseInt(sampleRateString));
+            return sampleRateString == null
+                    ? DEFAULT_SAMPLING_RATE : Integer.parseInt(sampleRateString);
         } else {
             return DEFAULT_SAMPLING_RATE;
         }
@@ -513,21 +495,20 @@ class AudioManagerAndroid {
                 PackageManager.FEATURE_AUDIO_LOW_LATENCY);
     }
 
+    @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
     @CalledByNative
     private int getAudioLowLatencyOutputFrameSize() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR1) {
+            return DEFAULT_FRAME_PER_BUFFER;
+        }
         String framesPerBuffer =
                 mAudioManager.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER);
-        return (framesPerBuffer == null ?
-                DEFAULT_FRAME_PER_BUFFER : Integer.parseInt(framesPerBuffer));
+        return framesPerBuffer == null
+                ? DEFAULT_FRAME_PER_BUFFER : Integer.parseInt(framesPerBuffer);
     }
 
     @CalledByNative
     private static boolean shouldUseAcousticEchoCanceler() {
-        // AcousticEchoCanceler was added in API level 16 (Jelly Bean).
-        if (!runningOnJellyBeanOrHigher()) {
-            return false;
-        }
-
         // Verify that this device is among the supported/tested models.
         List<String> supportedModels = Arrays.asList(SUPPORTED_AEC_MODELS);
         if (!supportedModels.contains(Build.MODEL)) {
@@ -642,6 +623,7 @@ class AudioManagerAndroid {
      * android.bluetooth.BluetoothAdapter.getProfileConnectionState() requires
      * the BLUETOOTH permission.
      */
+    @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR2)
     private boolean hasBluetoothHeadset() {
         if (!mHasBluetoothPermission) {
             Log.w(TAG, "hasBluetoothHeadset() requires BLUETOOTH permission");
@@ -654,7 +636,7 @@ class AudioManagerAndroid {
         // higher, retrieve it through getSystemService(String) with
         // BLUETOOTH_SERVICE.
         BluetoothAdapter btAdapter = null;
-        if (runningOnJellyBeanMR2OrHigher()) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
             // Use BluetoothManager to get the BluetoothAdapter for
             // Android 4.3 and above.
             BluetoothManager btManager =
@@ -680,8 +662,8 @@ class AudioManagerAndroid {
         // headset and handsfree profile is connected.
         // TODO(henrika): it is possible that btAdapter.isEnabled() is
         // redundant. It might be sufficient to only check the profile state.
-        return btAdapter.isEnabled() && profileConnectionState ==
-            android.bluetooth.BluetoothProfile.STATE_CONNECTED;
+        return btAdapter.isEnabled()
+                && profileConnectionState == android.bluetooth.BluetoothProfile.STATE_CONNECTED;
     }
 
     /**
@@ -705,11 +687,11 @@ class AudioManagerAndroid {
                 if (DEBUG) {
                     int microphone = intent.getIntExtra("microphone", HAS_NO_MIC);
                     String name = intent.getStringExtra("name");
-                    logd("BroadcastReceiver.onReceive: a=" + intent.getAction() +
-                            ", s=" + state +
-                            ", m=" + microphone +
-                            ", n=" + name +
-                            ", sb=" + isInitialStickyBroadcast());
+                    logd("BroadcastReceiver.onReceive: a=" + intent.getAction()
+                            + ", s=" + state
+                            + ", m=" + microphone
+                            + ", n=" + name
+                            + ", sb=" + isInitialStickyBroadcast());
                 }
                 switch (state) {
                     case STATE_UNPLUGGED:
@@ -776,9 +758,9 @@ class AudioManagerAndroid {
                         android.bluetooth.BluetoothHeadset.EXTRA_STATE,
                         android.bluetooth.BluetoothHeadset.STATE_DISCONNECTED);
                 if (DEBUG) {
-                    logd("BroadcastReceiver.onReceive: a=" + intent.getAction() +
-                            ", s=" + profileState +
-                            ", sb=" + isInitialStickyBroadcast());
+                    logd("BroadcastReceiver.onReceive: a=" + intent.getAction()
+                            + ", s=" + profileState
+                            + ", sb=" + isInitialStickyBroadcast());
                 }
 
                 switch (profileState) {
@@ -842,9 +824,9 @@ class AudioManagerAndroid {
                         AudioManager.EXTRA_SCO_AUDIO_STATE,
                         AudioManager.SCO_AUDIO_STATE_DISCONNECTED);
                 if (DEBUG) {
-                    logd("BroadcastReceiver.onReceive: a=" + intent.getAction() +
-                            ", s=" + state +
-                            ", sb=" + isInitialStickyBroadcast());
+                    logd("BroadcastReceiver.onReceive: a=" + intent.getAction()
+                            + ", s=" + state
+                            + ", sb=" + isInitialStickyBroadcast());
                 }
 
                 switch (state) {
@@ -879,8 +861,8 @@ class AudioManagerAndroid {
         if (!mHasBluetoothPermission) {
             return;
         }
-        if (mBluetoothScoState == STATE_BLUETOOTH_SCO_ON ||
-                mBluetoothScoState == STATE_BLUETOOTH_SCO_TURNING_ON) {
+        if (mBluetoothScoState == STATE_BLUETOOTH_SCO_ON
+                || mBluetoothScoState == STATE_BLUETOOTH_SCO_TURNING_ON) {
             // Unable to turn on BT in this state.
             return;
         }
@@ -902,8 +884,8 @@ class AudioManagerAndroid {
         if (!mHasBluetoothPermission) {
             return;
         }
-        if (mBluetoothScoState != STATE_BLUETOOTH_SCO_ON &&
-                mBluetoothScoState != STATE_BLUETOOTH_SCO_TURNING_ON) {
+        if (mBluetoothScoState != STATE_BLUETOOTH_SCO_ON
+                && mBluetoothScoState != STATE_BLUETOOTH_SCO_TURNING_ON) {
             // No need to turn off BT in this state.
             return;
         }
@@ -1010,8 +992,7 @@ class AudioManagerAndroid {
     private static int getNumOfAudioDevices(boolean[] devices) {
         int count = 0;
         for (int i = 0; i < DEVICE_COUNT; ++i) {
-            if (devices[i])
-                ++count;
+            if (devices[i]) ++count;
         }
         return count;
     }
@@ -1026,28 +1007,27 @@ class AudioManagerAndroid {
         synchronized (mLock) {
             List<String> devices = new ArrayList<String>();
             for (int i = 0; i < DEVICE_COUNT; ++i) {
-                if (mAudioDevices[i])
-                    devices.add(DEVICE_NAMES[i]);
+                if (mAudioDevices[i]) devices.add(DEVICE_NAMES[i]);
             }
             if (DEBUG) {
-                logd("reportUpdate: requested=" + mRequestedAudioDevice +
-                        ", btSco=" + mBluetoothScoState +
-                        ", devices=" + devices);
+                logd("reportUpdate: requested=" + mRequestedAudioDevice
+                        + ", btSco=" + mBluetoothScoState
+                        + ", devices=" + devices);
             }
         }
     }
 
     /** Information about the current build, taken from system properties. */
     private void logDeviceInfo() {
-        logd("Android SDK: " + Build.VERSION.SDK_INT + ", " +
-                "Release: " + Build.VERSION.RELEASE + ", " +
-                "Brand: " + Build.BRAND + ", " +
-                "Device: " + Build.DEVICE + ", " +
-                "Id: " + Build.ID + ", " +
-                "Hardware: " + Build.HARDWARE + ", " +
-                "Manufacturer: " + Build.MANUFACTURER + ", " +
-                "Model: " + Build.MODEL + ", " +
-                "Product: " + Build.PRODUCT);
+        logd("Android SDK: " + Build.VERSION.SDK_INT + ", "
+                + "Release: " + Build.VERSION.RELEASE + ", "
+                + "Brand: " + Build.BRAND + ", "
+                + "Device: " + Build.DEVICE + ", "
+                + "Id: " + Build.ID + ", "
+                + "Hardware: " + Build.HARDWARE + ", "
+                + "Manufacturer: " + Build.MANUFACTURER + ", "
+                + "Model: " + Build.MODEL + ", "
+                + "Product: " + Build.PRODUCT);
     }
 
     /** Trivial helper method for debug logging */
@@ -1063,8 +1043,7 @@ class AudioManagerAndroid {
     /** Start thread which observes volume changes on the voice stream. */
     private void startObservingVolumeChanges() {
         if (DEBUG) logd("startObservingVolumeChanges");
-        if (mSettingsObserverThread != null)
-            return;
+        if (mSettingsObserverThread != null) return;
         mSettingsObserverThread = new HandlerThread("SettingsObserver");
         mSettingsObserverThread.start();
 
@@ -1099,8 +1078,7 @@ class AudioManagerAndroid {
     /** Quit observer thread and stop listening for volume changes. */
     private void stopObservingVolumeChanges() {
         if (DEBUG) logd("stopObservingVolumeChanges");
-        if (mSettingsObserverThread == null)
-            return;
+        if (mSettingsObserverThread == null) return;
 
         mContentResolver.unregisterContentObserver(mSettingsObserver);
         mSettingsObserver = null;

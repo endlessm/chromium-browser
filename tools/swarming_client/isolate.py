@@ -847,17 +847,14 @@ def CMDarchive(parser, args):
   """
   add_isolate_options(parser)
   add_subdir_option(parser)
-  isolateserver.add_isolate_server_options(parser, False)
+  isolateserver.add_isolate_server_options(parser)
   auth.add_auth_options(parser)
   options, args = parser.parse_args(args)
-  process_isolate_options(parser, options)
-  auth.process_auth_options(parser, options)
-  isolateserver.process_isolate_server_options(parser, options)
   if args:
     parser.error('Unsupported argument: %s' % args)
-  if not file_path.is_url(options.isolate_server):
-    parser.error('Not a valid server URL: %s' % options.isolate_server)
-  auth.ensure_logged_in(options.isolate_server)
+  process_isolate_options(parser, options)
+  auth.process_auth_options(parser, options)
+  isolateserver.process_isolate_server_options(parser, options, True)
   result = isolate_and_archive(
       [(options, os.getcwd())], options.isolate_server, options.namespace)
   if result is None:
@@ -880,12 +877,12 @@ def CMDbatcharchive(parser, args):
   Takes a list of paths to *.isolated.gen.json files that describe what trees to
   isolate. Format of files is:
   {
-    'version': 1,
-    'dir': <absolute path to a directory all other paths are relative to>,
-    'arg': [list of command line arguments for single 'archive' command]
+    "version": 1,
+    "dir": <absolute path to a directory all other paths are relative to>,
+    "args": [list of command line arguments for single 'archive' command]
   }
   """
-  isolateserver.add_isolate_server_options(parser, False)
+  isolateserver.add_isolate_server_options(parser)
   isolateserver.add_archive_options(parser)
   auth.add_auth_options(parser)
   parser.add_option(
@@ -894,10 +891,7 @@ def CMDbatcharchive(parser, args):
       help='Write isolated hashes of archived trees to this file as JSON')
   options, args = parser.parse_args(args)
   auth.process_auth_options(parser, options)
-  isolateserver.process_isolate_server_options(parser, options)
-  if not file_path.is_url(options.isolate_server):
-    parser.error('Not a valid server URL: %s' % options.isolate_server)
-  auth.ensure_logged_in(options.isolate_server)
+  isolateserver.process_isolate_server_options(parser, options, True)
 
   # Validate all incoming options, prepare what needs to be archived as a list
   # of tuples (archival options, working directory).
@@ -1010,7 +1004,7 @@ def CMDrun(parser, args):
   cmd = tools.fix_python_path(cmd)
 
   outdir = run_isolated.make_temp_dir(
-      'isolate-%s' % datetime.date.today(),
+      u'isolate-%s' % datetime.date.today(),
       os.path.dirname(complete_state.root_dir))
   try:
     # TODO(maruel): Use run_isolated.run_tha_test().
@@ -1208,7 +1202,14 @@ def main(argv):
   dispatcher = subcommand.CommandDispatcher(__name__)
   parser = tools.OptionParserWithLogging(
         version=__version__, verbose=int(os.environ.get('ISOLATE_DEBUG', 0)))
-  return dispatcher.execute(parser, argv)
+  try:
+    return dispatcher.execute(parser, argv)
+  except isolated_format.MappingError as e:
+    print >> sys.stderr, 'Failed to find an input file: %s' % e
+    return 1
+  except ExecutionError as e:
+    print >> sys.stderr, 'Execution failure: %s' % e
+    return 1
 
 
 if __name__ == '__main__':

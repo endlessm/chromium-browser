@@ -10,13 +10,14 @@
 #include "base/prefs/pref_service.h"
 #include "base/prefs/scoped_user_pref_update.h"
 #include "chrome/browser/content_settings/content_settings_mock_observer.h"
-#include "chrome/browser/content_settings/cookie_settings.h"
+#include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/content_settings/mock_settings_observer.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/testing_pref_service_syncable.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/content_settings/core/browser/content_settings_details.h"
+#include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "content/public/test/test_browser_thread.h"
 #include "net/base/static_cookie_policy.h"
@@ -56,13 +57,23 @@ TEST_F(HostContentSettingsMapTest, DefaultValues) {
                 GURL(chrome::kChromeUINewTabURL),
                 CONTENT_SETTINGS_TYPE_IMAGES,
                 std::string()));
-  {
-    host_content_settings_map->SetDefaultContentSetting(
-        CONTENT_SETTINGS_TYPE_PLUGINS, CONTENT_SETTING_ASK);
-    EXPECT_EQ(CONTENT_SETTING_ASK,
-              host_content_settings_map->GetDefaultContentSetting(
-                  CONTENT_SETTINGS_TYPE_PLUGINS, NULL));
-  }
+
+  host_content_settings_map->SetDefaultContentSetting(
+      CONTENT_SETTINGS_TYPE_PLUGINS, CONTENT_SETTING_ALLOW);
+  EXPECT_EQ(CONTENT_SETTING_ALLOW,
+            host_content_settings_map->GetDefaultContentSetting(
+                CONTENT_SETTINGS_TYPE_PLUGINS, NULL));
+  host_content_settings_map->SetDefaultContentSetting(
+      CONTENT_SETTINGS_TYPE_PLUGINS, CONTENT_SETTING_BLOCK);
+  EXPECT_EQ(CONTENT_SETTING_BLOCK,
+            host_content_settings_map->GetDefaultContentSetting(
+                CONTENT_SETTINGS_TYPE_PLUGINS, NULL));
+  host_content_settings_map->SetDefaultContentSetting(
+      CONTENT_SETTINGS_TYPE_PLUGINS, CONTENT_SETTING_DETECT_IMPORTANT_CONTENT);
+  EXPECT_EQ(CONTENT_SETTING_DETECT_IMPORTANT_CONTENT,
+            host_content_settings_map->GetDefaultContentSetting(
+                CONTENT_SETTINGS_TYPE_PLUGINS, NULL));
+
   host_content_settings_map->SetDefaultContentSetting(
       CONTENT_SETTINGS_TYPE_POPUPS, CONTENT_SETTING_ALLOW);
   EXPECT_EQ(CONTENT_SETTING_ALLOW,
@@ -394,8 +405,8 @@ TEST_F(HostContentSettingsMapTest, HostTrimEndingDotCheck) {
   TestingProfile profile;
   HostContentSettingsMap* host_content_settings_map =
       profile.GetHostContentSettingsMap();
-  CookieSettings* cookie_settings =
-      CookieSettings::Factory::GetForProfile(&profile).get();
+  content_settings::CookieSettings* cookie_settings =
+      CookieSettingsFactory::GetForProfile(&profile).get();
 
   ContentSettingsPattern pattern =
        ContentSettingsPattern::FromString("[*.]example.com");
@@ -670,7 +681,8 @@ TEST_F(HostContentSettingsMapTest, CanonicalizeExceptionsUnicodeOnly) {
 
   // Set utf-8 data.
   {
-    DictionaryPrefUpdate update(prefs, prefs::kContentSettingsPatternPairs);
+    DictionaryPrefUpdate update(
+        prefs, prefs::kContentSettingsPatternPairs);
     base::DictionaryValue* all_settings_dictionary = update.Get();
     ASSERT_TRUE(NULL != all_settings_dictionary);
 
@@ -679,10 +691,11 @@ TEST_F(HostContentSettingsMapTest, CanonicalizeExceptionsUnicodeOnly) {
     all_settings_dictionary->SetWithoutPathExpansion("[*.]\xC4\x87ira.com,*",
                                                      dummy_payload);
   }
+
   profile.GetHostContentSettingsMap();
 
   const base::DictionaryValue* all_settings_dictionary =
-      prefs->GetDictionary(prefs::kContentSettingsPatternPairs);
+      prefs->GetDictionary(prefs::kContentSettingsImagesPatternPairs);
   const base::DictionaryValue* result = NULL;
   EXPECT_FALSE(all_settings_dictionary->GetDictionaryWithoutPathExpansion(
       "[*.]\xC4\x87ira.com,*", &result));
@@ -695,23 +708,25 @@ TEST_F(HostContentSettingsMapTest, CanonicalizeExceptionsUnicodeOnly) {
 TEST_F(HostContentSettingsMapTest, CanonicalizeExceptionsUnicodeAndPunycode) {
   TestingProfile profile;
 
-  scoped_ptr<base::Value> value(base::JSONReader::Read(
+  scoped_ptr<base::Value> value(base::JSONReader::DeprecatedRead(
       "{\"[*.]\\xC4\\x87ira.com,*\":{\"images\":1}}"));
   profile.GetPrefs()->Set(prefs::kContentSettingsPatternPairs, *value);
 
   // Set punycode equivalent, with different setting.
-  scoped_ptr<base::Value> puny_value(base::JSONReader::Read(
+  scoped_ptr<base::Value> puny_value(base::JSONReader::DeprecatedRead(
       "{\"[*.]xn--ira-ppa.com,*\":{\"images\":2}}"));
-  profile.GetPrefs()->Set(prefs::kContentSettingsPatternPairs, *puny_value);
+  profile.GetPrefs()->Set(
+      prefs::kContentSettingsPatternPairs, *puny_value);
 
   // Initialize the content map.
   profile.GetHostContentSettingsMap();
 
-  const base::DictionaryValue* content_setting_prefs =
-      profile.GetPrefs()->GetDictionary(prefs::kContentSettingsPatternPairs);
+  const base::DictionaryValue& content_setting_prefs =
+      *profile.GetPrefs()->GetDictionary(
+          prefs::kContentSettingsImagesPatternPairs);
   std::string prefs_as_json;
   base::JSONWriter::Write(content_setting_prefs, &prefs_as_json);
-  EXPECT_STREQ("{\"[*.]xn--ira-ppa.com,*\":{\"images\":2}}",
+  EXPECT_STREQ("{\"[*.]xn--ira-ppa.com,*\":{\"setting\":2}}",
                prefs_as_json.c_str());
 }
 
@@ -914,37 +929,71 @@ TEST_F(HostContentSettingsMapTest, GetContentSetting) {
 }
 
 TEST_F(HostContentSettingsMapTest, ShouldAllowAllContent) {
-  TestingProfile profile;
-  HostContentSettingsMap* host_content_settings_map =
-      profile.GetHostContentSettingsMap();
-
   GURL http_host("http://example.com/");
   GURL https_host("https://example.com/");
   GURL embedder("chrome://foo");
   GURL extension("chrome-extension://foo");
-  EXPECT_FALSE(host_content_settings_map->ShouldAllowAllContent(
+  EXPECT_FALSE(HostContentSettingsMap::ShouldAllowAllContent(
                    http_host, embedder, CONTENT_SETTINGS_TYPE_NOTIFICATIONS));
-  EXPECT_FALSE(host_content_settings_map->ShouldAllowAllContent(
+  EXPECT_FALSE(HostContentSettingsMap::ShouldAllowAllContent(
                    http_host, embedder, CONTENT_SETTINGS_TYPE_GEOLOCATION));
-  EXPECT_FALSE(host_content_settings_map->ShouldAllowAllContent(
+  EXPECT_FALSE(HostContentSettingsMap::ShouldAllowAllContent(
                    http_host, embedder, CONTENT_SETTINGS_TYPE_COOKIES));
-  EXPECT_TRUE(host_content_settings_map->ShouldAllowAllContent(
+  EXPECT_TRUE(HostContentSettingsMap::ShouldAllowAllContent(
                   https_host, embedder, CONTENT_SETTINGS_TYPE_COOKIES));
-  EXPECT_TRUE(host_content_settings_map->ShouldAllowAllContent(
+  EXPECT_TRUE(HostContentSettingsMap::ShouldAllowAllContent(
                   https_host, embedder, CONTENT_SETTINGS_TYPE_COOKIES));
-  EXPECT_TRUE(host_content_settings_map->ShouldAllowAllContent(
+  EXPECT_TRUE(HostContentSettingsMap::ShouldAllowAllContent(
                   embedder, http_host, CONTENT_SETTINGS_TYPE_COOKIES));
 #if defined(ENABLE_EXTENSIONS)
-  EXPECT_TRUE(host_content_settings_map->ShouldAllowAllContent(
+  EXPECT_TRUE(HostContentSettingsMap::ShouldAllowAllContent(
                   extension, extension, CONTENT_SETTINGS_TYPE_COOKIES));
 #else
-  EXPECT_FALSE(host_content_settings_map->ShouldAllowAllContent(
+  EXPECT_FALSE(HostContentSettingsMap::ShouldAllowAllContent(
                    extension, extension, CONTENT_SETTINGS_TYPE_COOKIES));
 #endif
-  EXPECT_FALSE(host_content_settings_map->ShouldAllowAllContent(
+  EXPECT_FALSE(HostContentSettingsMap::ShouldAllowAllContent(
                    extension, extension, CONTENT_SETTINGS_TYPE_PLUGINS));
-  EXPECT_FALSE(host_content_settings_map->ShouldAllowAllContent(
+  EXPECT_FALSE(HostContentSettingsMap::ShouldAllowAllContent(
                    extension, http_host, CONTENT_SETTINGS_TYPE_COOKIES));
+}
+
+TEST_F(HostContentSettingsMapTest, IsSettingAllowedForType) {
+  TestingProfile profile;
+  PrefService* prefs = profile.GetPrefs();
+
+  EXPECT_TRUE(HostContentSettingsMap::IsSettingAllowedForType(
+                  prefs, CONTENT_SETTING_ASK,
+                  CONTENT_SETTINGS_TYPE_FULLSCREEN));
+
+  // The mediastream setting is deprecated.
+  EXPECT_FALSE(HostContentSettingsMap::IsSettingAllowedForType(
+                   prefs, CONTENT_SETTING_ALLOW,
+                   CONTENT_SETTINGS_TYPE_MEDIASTREAM));
+  EXPECT_FALSE(HostContentSettingsMap::IsSettingAllowedForType(
+                   prefs, CONTENT_SETTING_ASK,
+                   CONTENT_SETTINGS_TYPE_MEDIASTREAM));
+  EXPECT_FALSE(HostContentSettingsMap::IsSettingAllowedForType(
+                   prefs, CONTENT_SETTING_BLOCK,
+                   CONTENT_SETTINGS_TYPE_MEDIASTREAM));
+
+  // We support the ALLOW value for media permission exceptions,
+  // but not as the default setting.
+  EXPECT_TRUE(HostContentSettingsMap::IsSettingAllowedForType(
+                  prefs, CONTENT_SETTING_ALLOW,
+                  CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC));
+  EXPECT_TRUE(HostContentSettingsMap::IsSettingAllowedForType(
+                  prefs, CONTENT_SETTING_ALLOW,
+                  CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA));
+  EXPECT_FALSE(HostContentSettingsMap::IsDefaultSettingAllowedForType(
+                   prefs, CONTENT_SETTING_ALLOW,
+                   CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC));
+  EXPECT_FALSE(HostContentSettingsMap::IsDefaultSettingAllowedForType(
+                   prefs, CONTENT_SETTING_ALLOW,
+                   CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA));
+
+  // TODO(msramek): Add more checks for setting type - setting pairs where
+  // it is not obvious whether or not they are allowed.
 }
 
 TEST_F(HostContentSettingsMapTest, AddContentSettingsObserver) {

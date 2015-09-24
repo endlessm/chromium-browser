@@ -8,15 +8,16 @@
 
 #include "base/basictypes.h"
 #include "base/strings/utf_string_conversions.h"
+#include "ui/base/ime/input_method.h"
 #include "ui/base/ime/text_input_client.h"
 #include "ui/base/models/combobox_model.h"
 #include "ui/events/event.h"
 #include "ui/events/event_constants.h"
+#include "ui/events/event_utils.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/views/controls/combobox/combobox_listener.h"
 #include "ui/views/controls/menu/menu_runner.h"
 #include "ui/views/controls/menu/menu_runner_handler.h"
-#include "ui/views/ime/mock_input_method.h"
 #include "ui/views/test/menu_runner_test_api.h"
 #include "ui/views/test/views_test_base.h"
 #include "ui/views/widget/widget.h"
@@ -224,11 +225,6 @@ class ComboboxTest : public ViewsTestBase {
     widget_->SetContentsView(container);
     container->AddChildView(combobox_);
 
-    widget_->ReplaceInputMethod(new MockInputMethod);
-
-    // Assumes the Widget is always focused.
-    widget_->GetInputMethod()->OnFocus();
-
     combobox_->RequestFocus();
     combobox_->SizeToPreferredSize();
   }
@@ -240,7 +236,10 @@ class ComboboxTest : public ViewsTestBase {
 
   void SendKeyEventWithType(ui::KeyboardCode key_code, ui::EventType type) {
     ui::KeyEvent event(type, key_code, ui::EF_NONE);
-    widget_->GetInputMethod()->DispatchKeyEvent(event);
+    FocusManager* focus_manager = widget_->GetFocusManager();
+    widget_->OnKeyEvent(&event);
+    if (!event.handled() && focus_manager)
+      focus_manager->OnKeyEvent(event);
   }
 
   View* GetFocusedView() {
@@ -248,15 +247,13 @@ class ComboboxTest : public ViewsTestBase {
   }
 
   void PerformClick(const gfx::Point& point) {
-    ui::MouseEvent pressed_event = ui::MouseEvent(ui::ET_MOUSE_PRESSED, point,
-                                                  point,
-                                                  ui::EF_LEFT_MOUSE_BUTTON,
-                                                  ui::EF_LEFT_MOUSE_BUTTON);
+    ui::MouseEvent pressed_event = ui::MouseEvent(
+        ui::ET_MOUSE_PRESSED, point, point, ui::EventTimeForNow(),
+        ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON);
     widget_->OnMouseEvent(&pressed_event);
-    ui::MouseEvent released_event = ui::MouseEvent(ui::ET_MOUSE_RELEASED, point,
-                                                   point,
-                                                   ui::EF_LEFT_MOUSE_BUTTON,
-                                                   ui::EF_LEFT_MOUSE_BUTTON);
+    ui::MouseEvent released_event = ui::MouseEvent(
+        ui::ET_MOUSE_RELEASED, point, point, ui::EventTimeForNow(),
+        ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON);
     widget_->OnMouseEvent(&released_event);
   }
 
@@ -670,24 +667,27 @@ TEST_F(ComboboxTest, TypingPrefixNotifiesListener) {
 
   TestComboboxListener listener;
   combobox_->set_listener(&listener);
+  ui::TextInputClient* input_client =
+      widget_->GetInputMethod()->GetTextInputClient();
 
   // Type the first character of the second menu item ("JELLY").
-  combobox_->GetTextInputClient()->InsertChar('J', ui::EF_NONE);
+  input_client->InsertChar('J', ui::EF_NONE);
   EXPECT_EQ(1, listener.actions_performed());
   EXPECT_EQ(1, listener.perform_action_index());
 
   // Type the second character of "JELLY", item shouldn't change and
   // OnPerformAction() shouldn't be re-called.
-  combobox_->GetTextInputClient()->InsertChar('E', ui::EF_NONE);
+  input_client->InsertChar('E', ui::EF_NONE);
   EXPECT_EQ(1, listener.actions_performed());
   EXPECT_EQ(1, listener.perform_action_index());
 
   // Clears the typed text.
   combobox_->OnBlur();
+  combobox_->RequestFocus();
 
   // Type the first character of "PEANUT BUTTER", which should change the
   // selected index and perform an action.
-  combobox_->GetTextInputClient()->InsertChar('P', ui::EF_NONE);
+  input_client->InsertChar('P', ui::EF_NONE);
   EXPECT_EQ(2, listener.actions_performed());
   EXPECT_EQ(2, listener.perform_action_index());
 }

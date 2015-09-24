@@ -26,25 +26,26 @@
 #ifndef HTMLTablePartElement_h
 #define HTMLTablePartElement_h
 
+#include "core/CoreExport.h"
 #include "core/html/HTMLElement.h"
 
 namespace blink {
 
 class HTMLTableElement;
 
-class HTMLTablePartElement : public HTMLElement {
+class CORE_EXPORT HTMLTablePartElement : public HTMLElement {
 protected:
     HTMLTablePartElement(const QualifiedName& tagName, Document& document)
         : HTMLElement(tagName, document)
     {
     }
 
-    virtual bool isPresentationAttribute(const QualifiedName&) const override;
-    virtual void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStylePropertySet*) override;
+    bool isPresentationAttribute(const QualifiedName&) const override;
+    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStylePropertySet*) override;
 
     HTMLTableElement* findParentTable() const;
 };
 
-} //namespace
+} // namespace
 
 #endif

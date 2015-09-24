@@ -35,7 +35,6 @@
 #include "bindings/core/v8/ScriptState.h"
 #include "bindings/core/v8/ScriptValue.h"
 #include "bindings/core/v8/V8ElementRegistrationOptions.h"
-#include "core/accessibility/AXObjectCache.h"
 #include "core/css/StyleSheetContents.h"
 #include "core/dom/CSSSelectorWatch.h"
 #include "core/dom/Document.h"
@@ -43,6 +42,7 @@
 #include "core/dom/Element.h"
 #include "core/dom/Fullscreen.h"
 #include "core/dom/StyleEngine.h"
+#include "core/events/Event.h"
 #include "core/html/HTMLAllCollection.h"
 #include "core/html/HTMLBodyElement.h"
 #include "core/html/HTMLCollection.h"
@@ -50,9 +50,11 @@
 #include "core/html/HTMLFormElement.h"
 #include "core/html/HTMLHeadElement.h"
 #include "core/html/HTMLLinkElement.h"
+#include "core/layout/LayoutObject.h"
+#include "core/layout/LayoutView.h"
 #include "core/loader/DocumentLoader.h"
-#include "core/rendering/RenderObject.h"
-#include "core/rendering/RenderView.h"
+#include "modules/accessibility/AXObject.h"
+#include "modules/accessibility/AXObjectCacheImpl.h"
 #include "platform/weborigin/SecurityOrigin.h"
 #include "public/platform/WebURL.h"
 #include "public/web/WebAXObject.h"
@@ -78,6 +80,17 @@ WebSecurityOrigin WebDocument::securityOrigin() const
     if (!constUnwrap<Document>())
         return WebSecurityOrigin();
     return WebSecurityOrigin(constUnwrap<Document>()->securityOrigin());
+}
+
+bool WebDocument::isPrivilegedContext(WebString& errorMessage) const
+{
+    const Document* document = constUnwrap<Document>();
+    if (!document)
+        return false;
+    String message;
+    bool result = document->isPrivilegedContext(message);
+    errorMessage = message;
+    return result;
 }
 
 WebString WebDocument::encoding() const
@@ -155,23 +168,16 @@ WebString WebDocument::title() const
     return WebString(constUnwrap<Document>()->title());
 }
 
+WebString WebDocument::contentAsTextForTesting() const
+{
+    if (Element* documentElement = constUnwrap<Document>()->documentElement())
+        return WebString(documentElement->innerText());
+    return WebString();
+}
+
 WebElementCollection WebDocument::all()
 {
     return WebElementCollection(unwrap<Document>()->all());
-}
-
-void WebDocument::images(WebVector<WebElement>& results)
-{
-    RefPtrWillBeRawPtr<HTMLCollection> images = unwrap<Document>()->images();
-    size_t sourceLength = images->length();
-    Vector<WebElement> temp;
-    temp.reserveCapacity(sourceLength);
-    for (size_t i = 0; i < sourceLength; ++i) {
-        Element* element = images->item(i);
-        if (element && element->isHTMLElement())
-            temp.append(WebElement(element));
-    }
-    results.assign(temp);
 }
 
 void WebDocument::forms(WebVector<WebFormElement>& results) const
@@ -215,12 +221,15 @@ void WebDocument::insertStyleSheet(const WebString& sourceCode)
     ASSERT(document);
     RefPtrWillBeRawPtr<StyleSheetContents> parsedSheet = StyleSheetContents::create(CSSParserContext(*document, 0));
     parsedSheet->parseString(sourceCode);
-    document->styleEngine()->addAuthorSheet(parsedSheet);
+    document->styleEngine().addAuthorSheet(parsedSheet);
 }
 
 void WebDocument::watchCSSSelectors(const WebVector<WebString>& webSelectors)
 {
     RefPtrWillBeRawPtr<Document> document = unwrap<Document>();
+    CSSSelectorWatch* watch = CSSSelectorWatch::fromIfExists(*document);
+    if (!watch && webSelectors.isEmpty())
+        return;
     Vector<String> selectors;
     selectors.append(webSelectors.data(), webSelectors.size());
     CSSSelectorWatch::from(*document).watchCSSSelectors(selectors);
@@ -262,51 +271,17 @@ WebElement WebDocument::createElement(const WebString& tagName)
     return element;
 }
 
-WebSize WebDocument::scrollOffset() const
-{
-    if (FrameView* view = constUnwrap<Document>()->view())
-        return view->scrollOffset();
-    return WebSize();
-}
-
-WebSize WebDocument::minimumScrollOffset() const
-{
-    if (FrameView* view = constUnwrap<Document>()->view())
-        return toIntSize(view->minimumScrollPosition());
-    return WebSize();
-}
-
-WebSize WebDocument::maximumScrollOffset() const
-{
-    if (FrameView* view = constUnwrap<Document>()->view())
-        return toIntSize(view->maximumScrollPosition());
-    return WebSize();
-}
-
-void WebDocument::setIsTransitionDocument()
-{
-    // This ensures the transition UA stylesheet gets applied.
-    unwrap<Document>()->setIsTransitionDocument();
-}
-
-void WebDocument::beginExitTransition(const WebString& cssSelector)
-{
-    RefPtrWillBeRawPtr<Document> document = unwrap<Document>();
-    document->hideTransitionElements(cssSelector);
-    document->styleEngine()->enableExitTransitionStylesheets();
-}
-
 WebAXObject WebDocument::accessibilityObject() const
 {
     const Document* document = constUnwrap<Document>();
-    AXObjectCache* cache = document->axObjectCache();
-    return cache ? WebAXObject(cache->getOrCreateAXObjectFromRenderView(document->renderView())) : WebAXObject();
+    AXObjectCacheImpl* cache = toAXObjectCacheImpl(document->axObjectCache());
+    return cache ? WebAXObject(cache->getOrCreate(document->layoutView())) : WebAXObject();
 }
 
 WebAXObject WebDocument::accessibilityObjectFromID(int axID) const
 {
     const Document* document = constUnwrap<Document>();
-    AXObjectCache* cache = document->axObjectCache();
+    AXObjectCacheImpl* cache = toAXObjectCacheImpl(document->axObjectCache());
     return cache ? WebAXObject(cache->objectFromAXID(axID)) : WebAXObject();
 }
 
@@ -326,7 +301,7 @@ WebVector<WebDraggableRegion> WebDocument::draggableRegions() const
     return draggableRegions;
 }
 
-v8::Handle<v8::Value> WebDocument::registerEmbedderCustomElement(const WebString& name, v8::Handle<v8::Value> options, WebExceptionCode& ec)
+v8::Local<v8::Value> WebDocument::registerEmbedderCustomElement(const WebString& name, v8::Local<v8::Value> options, WebExceptionCode& ec)
 {
     v8::Isolate* isolate = v8::Isolate::GetCurrent();
     Document* document = unwrap<Document>();
@@ -334,11 +309,11 @@ v8::Handle<v8::Value> WebDocument::registerEmbedderCustomElement(const WebString
     ElementRegistrationOptions registrationOptions;
     V8ElementRegistrationOptions::toImpl(isolate, options, registrationOptions, exceptionState);
     if (exceptionState.hadException())
-        return v8::Handle<v8::Value>();
+        return v8::Local<v8::Value>();
     ScriptValue constructor = document->registerElement(ScriptState::current(isolate), name, registrationOptions, exceptionState, CustomElement::EmbedderNames);
     ec = exceptionState.code();
     if (exceptionState.hadException())
-        return v8::Handle<v8::Value>();
+        return v8::Local<v8::Value>();
     return constructor.v8Value();
 }
 
@@ -346,6 +321,24 @@ WebURL WebDocument::manifestURL() const
 {
     const Document* document = constUnwrap<Document>();
     HTMLLinkElement* linkElement = document->linkManifest();
+    if (!linkElement)
+        return WebURL();
+    return linkElement->href();
+}
+
+bool WebDocument::manifestUseCredentials() const
+{
+    const Document* document = constUnwrap<Document>();
+    HTMLLinkElement* linkElement = document->linkManifest();
+    if (!linkElement)
+        return false;
+    return equalIgnoringCase(linkElement->fastGetAttribute(HTMLNames::crossoriginAttr), "use-credentials");
+}
+
+WebURL WebDocument::defaultPresentationURL() const
+{
+    const Document* document = constUnwrap<Document>();
+    HTMLLinkElement* linkElement = document->linkDefaultPresentation();
     if (!linkElement)
         return WebURL();
     return linkElement->href();

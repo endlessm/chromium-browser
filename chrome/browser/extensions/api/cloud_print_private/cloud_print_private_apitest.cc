@@ -22,7 +22,7 @@ using ::testing::_;
 // A base class for tests below.
 class ExtensionCloudPrintPrivateApiTest : public ExtensionApiTest {
  public:
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionApiTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII(
         switches::kCloudPrintURL,
@@ -48,8 +48,7 @@ class ExtensionCloudPrintPrivateApiTest : public ExtensionApiTest {
     // Replace the host with 'www.cloudprintapp.com' so it matches the cloud
     // print app's extent.
     GURL::Replacements replace_host;
-    std::string host_str("www.cloudprintapp.com");
-    replace_host.SetHostStr(host_str);
+    replace_host.SetHostStr("www.cloudprintapp.com");
     return url.ReplaceComponents(replace_host);
   }
 };

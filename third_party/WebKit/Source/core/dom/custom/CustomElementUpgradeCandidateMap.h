@@ -44,29 +44,26 @@ class CustomElementUpgradeCandidateMap final : public CustomElementObserver {
     WTF_MAKE_NONCOPYABLE(CustomElementUpgradeCandidateMap);
 public:
     static PassOwnPtrWillBeRawPtr<CustomElementUpgradeCandidateMap> create();
-    virtual ~CustomElementUpgradeCandidateMap();
+    ~CustomElementUpgradeCandidateMap() override;
 
     // API for CustomElementRegistrationContext to save and take candidates
 
-    typedef WillBeHeapLinkedHashSet<RawPtrWillBeWeakMember<Element> > ElementSet;
+    typedef WillBeHeapLinkedHashSet<RawPtrWillBeWeakMember<Element>> ElementSet;
 
     void add(const CustomElementDescriptor&, Element*);
     PassOwnPtrWillBeRawPtr<ElementSet> takeUpgradeCandidatesFor(const CustomElementDescriptor&);
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     CustomElementUpgradeCandidateMap() { }
 
-    virtual void elementWasDestroyed(Element*) override;
-
-    virtual void elementDidFinishParsingChildren(Element*) override;
-    void moveToEnd(Element*);
+    void elementWasDestroyed(Element*) override;
 
     typedef WillBeHeapHashMap<RawPtrWillBeWeakMember<Element>, CustomElementDescriptor> UpgradeCandidateMap;
     UpgradeCandidateMap m_upgradeCandidates;
 
-    typedef WillBeHeapHashMap<CustomElementDescriptor, OwnPtrWillBeMember<ElementSet> > UnresolvedDefinitionMap;
+    typedef WillBeHeapHashMap<CustomElementDescriptor, OwnPtrWillBeMember<ElementSet>> UnresolvedDefinitionMap;
     UnresolvedDefinitionMap m_unresolvedDefinitions;
 };
 

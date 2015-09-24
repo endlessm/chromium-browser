@@ -24,22 +24,19 @@
 #ifndef UIEvent_h
 #define UIEvent_h
 
+#include "core/CoreExport.h"
 #include "core/events/Event.h"
 #include "core/events/EventDispatchMediator.h"
-#include "core/frame/LocalDOMWindow.h"
+#include "core/events/UIEventInit.h"
+#include "core/frame/DOMWindow.h"
+#include "core/input/InputDevice.h"
 
 namespace blink {
 
-typedef LocalDOMWindow AbstractView;
+// FIXME: Get rid of this typedef.
+typedef DOMWindow AbstractView;
 
-struct UIEventInit : public EventInit {
-    UIEventInit();
-
-    RefPtrWillBeMember<AbstractView> view;
-    int detail;
-};
-
-class UIEvent : public Event {
+class CORE_EXPORT UIEvent : public Event {
     DEFINE_WRAPPERTYPEINFO();
 public:
     static PassRefPtrWillBeRawPtr<UIEvent> create()
@@ -60,6 +57,7 @@ public:
 
     AbstractView* view() const { return m_view.get(); }
     int detail() const { return m_detail; }
+    InputDevice* sourceDevice() const { return m_sourceDevice.get(); }
 
     virtual const AtomicString& interfaceName() const override;
     virtual bool isUIEvent() const override final;
@@ -67,24 +65,19 @@ public:
     virtual int keyCode() const;
     virtual int charCode() const;
 
-    virtual int layerX();
-    virtual int layerY();
-
-    virtual int pageX() const;
-    virtual int pageY() const;
-
     virtual int which() const;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 protected:
     UIEvent();
-    UIEvent(const AtomicString& type, bool canBubble, bool cancelable, PassRefPtrWillBeRawPtr<AbstractView>, int detail);
+    UIEvent(const AtomicString& type, bool canBubble, bool cancelable, PassRefPtrWillBeRawPtr<AbstractView>, int detail, InputDevice* sourceDevice = nullptr);
     UIEvent(const AtomicString&, const UIEventInit&);
 
 private:
     RefPtrWillBeMember<AbstractView> m_view;
     int m_detail;
+    PersistentWillBeMember<InputDevice> m_sourceDevice;
 };
 
 } // namespace blink

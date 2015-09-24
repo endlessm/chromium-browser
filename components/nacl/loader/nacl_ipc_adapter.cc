@@ -13,19 +13,15 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/shared_memory.h"
 #include "base/task_runner_util.h"
+#include "base/tuple.h"
 #include "build/build_config.h"
 #include "ipc/ipc_channel.h"
 #include "ipc/ipc_platform_file.h"
-#include "native_client/src/trusted/desc/nacl_desc_base.h"
-#include "native_client/src/trusted/desc/nacl_desc_custom.h"
-#include "native_client/src/trusted/desc/nacl_desc_imc_shm.h"
-#include "native_client/src/trusted/desc/nacl_desc_io.h"
+#include "native_client/src/public/nacl_desc.h"
+#include "native_client/src/public/nacl_desc_custom.h"
 #include "native_client/src/trusted/desc/nacl_desc_quota.h"
 #include "native_client/src/trusted/desc/nacl_desc_quota_interface.h"
-#include "native_client/src/trusted/desc/nacl_desc_sync_socket.h"
-#include "native_client/src/trusted/desc/nacl_desc_wrapper.h"
 #include "native_client/src/trusted/service_runtime/include/sys/fcntl.h"
-#include "native_client/src/trusted/validator/rich_file_info.h"
 #include "ppapi/c/ppb_file_io.h"
 #include "ppapi/proxy/ppapi_messages.h"
 #include "ppapi/proxy/serialized_handle.h"
@@ -326,10 +322,14 @@ NaClIPCAdapter::IOThreadData::~IOThreadData() {
 }
 
 NaClIPCAdapter::NaClIPCAdapter(const IPC::ChannelHandle& handle,
-                               base::TaskRunner* runner)
+                               base::TaskRunner* runner,
+                               ResolveFileTokenCallback resolve_file_token_cb,
+                               OpenResourceCallback open_resource_cb)
     : lock_(),
       cond_var_(&lock_),
       task_runner_(runner),
+      resolve_file_token_cb_(resolve_file_token_cb),
+      open_resource_cb_(open_resource_cb),
       locked_data_() {
   io_thread_data_.channel_ = IPC::Channel::CreateServer(handle, this);
   // Note, we can not PostTask for ConnectChannelOnIOThread here. If we did,
@@ -386,8 +386,8 @@ int NaClIPCAdapter::Send(const NaClImcTypedMsgHdr* msg) {
     // we know that data_len < max size (checked above) and our current
     // accumulated value is also < max size, we just need to make sure that
     // 2x max size can never overflow.
-    COMPILE_ASSERT(IPC::Channel::kMaximumMessageSize < (UINT_MAX / 2),
-                   MaximumMessageSizeWillOverflow);
+    static_assert(IPC::Channel::kMaximumMessageSize < (UINT_MAX / 2),
+                  "kMaximumMessageSize is too large, and may overflow");
     size_t new_size = locked_data_.to_be_sent_.size() + input_data_len;
     if (new_size > IPC::Channel::kMaximumMessageSize) {
       ClearToBeSent();
@@ -481,7 +481,7 @@ bool NaClIPCAdapter::OnMessageReceived(const IPC::Message& msg) {
   // Handle PpapiHostMsg_OpenResource outside the lock as it requires sending
   // IPC to handle properly.
   if (type == PpapiHostMsg_OpenResource::ID) {
-    PickleIterator iter = IPC::SyncMessage::GetDataIterator(&msg);
+    base::PickleIterator iter = IPC::SyncMessage::GetDataIterator(&msg);
     ppapi::proxy::SerializedHandle sh;
     uint64_t token_lo;
     uint64_t token_hi;
@@ -503,11 +503,11 @@ bool NaClIPCAdapter::OnMessageReceived(const IPC::Message& msg) {
       // arbitrary code in a plugin process.
       DCHECK(!resolve_file_token_cb_.is_null());
 
-      // resolve_file_token_cb_ must be invoked from the main thread.
+      // resolve_file_token_cb_ must be invoked from the I/O thread.
       resolve_file_token_cb_.Run(
           token_lo,
           token_hi,
-          base::Bind(&NaClIPCAdapter::OnFileTokenResolved,
+          base::Bind(&NaClIPCAdapter::SaveOpenResourceMessage,
                      this,
                      msg));
 
@@ -547,7 +547,7 @@ bool NaClIPCAdapter::RewriteMessage(const IPC::Message& msg, uint32_t type) {
 #if defined(OS_WIN)
               shm_handle,
 #else
-              shm_handle.fd,
+              base::SharedMemory::GetFdFromSharedMemoryHandle(shm_handle),
 #endif
               static_cast<size_t>(size))));
           break;
@@ -565,7 +565,7 @@ bool NaClIPCAdapter::RewriteMessage(const IPC::Message& msg, uint32_t type) {
         case ppapi::proxy::SerializedHandle::FILE: {
           // Create the NaClDesc for the file descriptor. If quota checking is
           // required, wrap it in a NaClDescQuota.
-          NaClDesc* desc = NaClDescIoDescFromHandleAllocCtor(
+          NaClDesc* desc = NaClDescIoMakeFromHandle(
 #if defined(OS_WIN)
               iter->descriptor(),
 #else
@@ -625,16 +625,17 @@ scoped_ptr<IPC::Message> CreateOpenResourceReply(
   return new_msg.Pass();
 }
 
-void NaClIPCAdapter::OnFileTokenResolved(const IPC::Message& orig_msg,
-                                         IPC::PlatformFileForTransit ipc_fd,
-                                         base::FilePath file_path) {
+void NaClIPCAdapter::SaveOpenResourceMessage(
+    const IPC::Message& orig_msg,
+    IPC::PlatformFileForTransit ipc_fd,
+    base::FilePath file_path) {
   // The path where an invalid ipc_fd is returned isn't currently
   // covered by any tests.
   if (ipc_fd == IPC::InvalidPlatformFileForTransit()) {
     // The file token didn't resolve successfully, so we give the
     // original FD to the client without making a validated NaClDesc.
     // However, we must rewrite the message to clear the file tokens.
-    PickleIterator iter = IPC::SyncMessage::GetDataIterator(&orig_msg);
+    base::PickleIterator iter = IPC::SyncMessage::GetDataIterator(&orig_msg);
     ppapi::proxy::SerializedHandle sh;
 
     // We know that this can be read safely; see the original read in
@@ -643,7 +644,7 @@ void NaClIPCAdapter::OnFileTokenResolved(const IPC::Message& orig_msg,
     scoped_ptr<IPC::Message> new_msg = CreateOpenResourceReply(orig_msg, sh);
 
     scoped_ptr<NaClDescWrapper> desc_wrapper(new NaClDescWrapper(
-        NaClDescIoDescFromHandleAllocCtor(
+        NaClDescIoMakeFromHandle(
 #if defined(OS_WIN)
             sh.descriptor(),
 #else
@@ -665,33 +666,15 @@ void NaClIPCAdapter::OnFileTokenResolved(const IPC::Message& orig_msg,
   std::string file_path_str = file_path.AsUTF8Unsafe();
   base::PlatformFile handle =
       IPC::PlatformFileForTransitToPlatformFile(ipc_fd);
-  // The file token was resolved successfully, so we populate the new
-  // NaClDesc with that information.
-  char* alloc_file_path = static_cast<char*>(
-      malloc(file_path_str.length() + 1));
-  strcpy(alloc_file_path, file_path_str.c_str());
-  scoped_ptr<NaClDescWrapper> desc_wrapper(new NaClDescWrapper(
-      NaClDescIoDescFromHandleAllocCtor(handle, NACL_ABI_O_RDONLY)));
-
-  // Mark the desc as OK for mapping as executable memory.
-  NaClDescMarkSafeForMmap(desc_wrapper->desc());
-
-  // Provide metadata for validation.
-  struct NaClRichFileInfo info;
-  NaClRichFileInfoCtor(&info);
-  info.known_file = 1;
-  info.file_path = alloc_file_path;  // Takes ownership.
-  info.file_path_length =
-      static_cast<uint32_t>(file_path_str.length());
-  NaClSetFileOriginInfo(desc_wrapper->desc(), &info);
-  NaClRichFileInfoDtor(&info);
 
   ppapi::proxy::SerializedHandle sh;
   sh.set_file_handle(ipc_fd, PP_FILEOPENFLAG_READ, 0);
   scoped_ptr<IPC::Message> new_msg = CreateOpenResourceReply(orig_msg, sh);
   scoped_refptr<RewrittenMessage> rewritten_msg(new RewrittenMessage);
 
-  rewritten_msg->AddDescriptor(desc_wrapper.release());
+  struct NaClDesc* desc =
+      NaClDescCreateWithFilePathMetadata(handle, file_path_str.c_str());
+  rewritten_msg->AddDescriptor(new NaClDescWrapper(desc));
   {
     base::AutoLock lock(lock_);
     SaveMessage(*new_msg, rewritten_msg.get());
@@ -806,6 +789,23 @@ void NaClIPCAdapter::SendMessageOnIOThread(scoped_ptr<IPC::Message> message) {
   DCHECK(io_thread_data_.pending_sync_msgs_.find(id) ==
          io_thread_data_.pending_sync_msgs_.end());
 
+  // Handle PpapiHostMsg_OpenResource locally without sending an IPC to the
+  // renderer when possible.
+  PpapiHostMsg_OpenResource::Schema::SendParam send_params;
+  if (!open_resource_cb_.is_null() &&
+      message->type() == PpapiHostMsg_OpenResource::ID &&
+      PpapiHostMsg_OpenResource::ReadSendParam(message.get(), &send_params)) {
+    const std::string key = base::get<0>(send_params);
+    // Both open_resource_cb_ and SaveOpenResourceMessage must be invoked
+    // from the I/O thread.
+    if (open_resource_cb_.Run(
+            *message.get(), key,
+            base::Bind(&NaClIPCAdapter::SaveOpenResourceMessage, this))) {
+      // The callback sent a reply to the untrusted side.
+      return;
+    }
+  }
+
   if (message->is_sync())
     io_thread_data_.pending_sync_msgs_[id] = message->type();
   io_thread_data_.channel_->Send(message.release());
@@ -824,7 +824,7 @@ void NaClIPCAdapter::SaveMessage(const IPC::Message& msg,
   header.routing = msg.routing_id();
   header.type = msg.type();
   header.flags = msg.flags();
-  header.num_fds = static_cast<int>(rewritten_msg->desc_count());
+  header.num_fds = static_cast<uint16>(rewritten_msg->desc_count());
 
   rewritten_msg->SetData(header, msg.payload(), msg.payload_size());
   locked_data_.to_be_received_.push(rewritten_msg);

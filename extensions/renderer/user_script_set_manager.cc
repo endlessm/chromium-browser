@@ -12,12 +12,12 @@
 #include "extensions/renderer/user_script_set.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_message_macros.h"
-#include "third_party/WebKit/public/web/WebFrame.h"
 
 namespace extensions {
 
 UserScriptSetManager::UserScriptSetManager(const ExtensionSet* extensions)
-    : static_scripts_(extensions), extensions_(extensions) {
+    : static_scripts_(extensions),
+      extensions_(extensions) {
   content::RenderThread::Get()->AddObserver(this);
 }
 
@@ -35,22 +35,21 @@ void UserScriptSetManager::RemoveObserver(Observer* observer) {
 scoped_ptr<ScriptInjection>
 UserScriptSetManager::GetInjectionForDeclarativeScript(
     int script_id,
-    blink::WebFrame* web_frame,
+    content::RenderFrame* render_frame,
     int tab_id,
     const GURL& url,
-    const Extension* extension) {
+    const std::string& extension_id) {
   UserScriptSet* user_script_set =
-      GetProgrammaticScriptsByExtension(extension->id());
+      GetProgrammaticScriptsByHostID(HostID(HostID::EXTENSIONS, extension_id));
   if (!user_script_set)
     return scoped_ptr<ScriptInjection>();
 
   return user_script_set->GetDeclarativeScriptInjection(
       script_id,
-      web_frame,
+      render_frame,
       tab_id,
       UserScript::BROWSER_DRIVEN,
-      url,
-      extension);
+      url);
 }
 
 bool UserScriptSetManager::OnControlMessageReceived(
@@ -65,14 +64,14 @@ bool UserScriptSetManager::OnControlMessageReceived(
 
 void UserScriptSetManager::GetAllInjections(
     ScopedVector<ScriptInjection>* injections,
-    blink::WebFrame* web_frame,
+    content::RenderFrame* render_frame,
     int tab_id,
     UserScript::RunLocation run_location) {
-  static_scripts_.GetInjections(injections, web_frame, tab_id, run_location);
+  static_scripts_.GetInjections(injections, render_frame, tab_id, run_location);
   for (UserScriptSetMap::iterator it = programmatic_scripts_.begin();
        it != programmatic_scripts_.end();
        ++it) {
-    it->second->GetInjections(injections, web_frame, tab_id, run_location);
+    it->second->GetInjections(injections, render_frame, tab_id, run_location);
   }
 }
 
@@ -87,71 +86,74 @@ void UserScriptSetManager::GetAllActiveExtensionIds(
   }
 }
 
-UserScriptSet* UserScriptSetManager::GetProgrammaticScriptsByExtension(
-    const ExtensionId& extension_id) {
-  UserScriptSetMap::const_iterator it =
-      programmatic_scripts_.find(extension_id);
+UserScriptSet* UserScriptSetManager::GetProgrammaticScriptsByHostID(
+    const HostID& host_id) {
+  UserScriptSetMap::const_iterator it = programmatic_scripts_.find(host_id);
   return it != programmatic_scripts_.end() ? it->second.get() : NULL;
 }
 
 void UserScriptSetManager::OnUpdateUserScripts(
     base::SharedMemoryHandle shared_memory,
-    const ExtensionId& extension_id,
-    const std::set<std::string>& changed_extensions) {
+    const HostID& host_id,
+    const std::set<HostID>& changed_hosts,
+    bool whitelisted_only) {
   if (!base::SharedMemory::IsHandleValid(shared_memory)) {
     NOTREACHED() << "Bad scripts handle";
     return;
   }
 
-  for (std::set<std::string>::const_iterator iter = changed_extensions.begin();
-       iter != changed_extensions.end();
-       ++iter) {
-    if (!crx_file::id_util::IdIsValid(*iter)) {
-      NOTREACHED() << "Invalid extension id: " << *iter;
+  for (const HostID& host_id : changed_hosts) {
+    if (host_id.type() == HostID::EXTENSIONS &&
+        !crx_file::id_util::IdIsValid(host_id.id())) {
+      NOTREACHED() << "Invalid extension id: " << host_id.id();
       return;
     }
   }
 
   UserScriptSet* scripts = NULL;
-  if (!extension_id.empty()) {
-    // The expectation when there is an extension that "owns" this shared
-    // memory region is that the |changed_extensions| is either the empty list
+  if (!host_id.id().empty()) {
+    // The expectation when there is a host that "owns" this shared
+    // memory region is that the |changed_hosts| is either the empty list
     // or just the owner.
-    CHECK(changed_extensions.size() <= 1);
-    if (programmatic_scripts_.find(extension_id) ==
-        programmatic_scripts_.end()) {
+    CHECK(changed_hosts.size() <= 1);
+    if (programmatic_scripts_.find(host_id) == programmatic_scripts_.end()) {
       scripts = new UserScriptSet(extensions_);
-      programmatic_scripts_[extension_id] = make_linked_ptr(scripts);
+      programmatic_scripts_[host_id] = make_linked_ptr(scripts);
     } else {
-      scripts = programmatic_scripts_[extension_id].get();
+      scripts = programmatic_scripts_[host_id].get();
     }
   } else {
     scripts = &static_scripts_;
   }
   DCHECK(scripts);
 
-  // If no extensions are included in the set, that indicates that all
-  // extensions were updated. Add them all to the set so that observers and
+  // If no hosts are included in the set, that indicates that all
+  // hosts were updated. Add them all to the set so that observers and
   // individual UserScriptSets don't need to know this detail.
-  const std::set<std::string>* effective_extensions = &changed_extensions;
-  std::set<std::string> all_extensions;
-  if (changed_extensions.empty()) {
-    // The meaning of "all extensions" varies, depending on whether some
-    // extension "owns" this shared memory region.
-    // No owner => all known extensions.
-    // Owner    => just the owner extension.
-    if (extension_id.empty())
-      all_extensions = extensions_->GetIDs();
-    else
-      all_extensions.insert(extension_id);
-    effective_extensions = &all_extensions;
+  const std::set<HostID>* effective_hosts = &changed_hosts;
+  std::set<HostID> all_hosts;
+  if (changed_hosts.empty()) {
+    // The meaning of "all hosts(extensions)" varies, depending on whether some
+    // host "owns" this shared memory region.
+    // No owner => all known hosts.
+    // Owner    => just the owner host.
+    if (host_id.id().empty()) {
+      std::set<std::string> extension_ids = extensions_->GetIDs();
+      for (const std::string& extension_id : extension_ids)
+        all_hosts.insert(HostID(HostID::EXTENSIONS, extension_id));
+    } else {
+      all_hosts.insert(host_id);
+    }
+    effective_hosts = &all_hosts;
   }
 
-  if (scripts->UpdateUserScripts(shared_memory, *effective_extensions)) {
+  if (scripts->UpdateUserScripts(shared_memory,
+                                 *effective_hosts,
+                                 whitelisted_only)) {
     FOR_EACH_OBSERVER(
         Observer,
         observers_,
-        OnUserScriptsUpdated(*effective_extensions, scripts->scripts()));
+        OnUserScriptsUpdated(*effective_hosts, scripts->scripts()));
   }
 }
 

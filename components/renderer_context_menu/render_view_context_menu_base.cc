@@ -251,7 +251,8 @@ bool RenderViewContextMenuBase::IsCommandIdKnown(
     bool* enabled) const {
   // If this command is is added by one of our observers, we dispatch
   // it to the observer.
-  ObserverListBase<RenderViewContextMenuObserver>::Iterator it(observers_);
+  base::ObserverListBase<RenderViewContextMenuObserver>::Iterator it(
+      &observers_);
   RenderViewContextMenuObserver* observer;
   while ((observer = it.GetNext()) != NULL) {
     if (observer->IsCommandIdSupported(id)) {
@@ -274,7 +275,8 @@ bool RenderViewContextMenuBase::IsCommandIdKnown(
 bool RenderViewContextMenuBase::IsCommandIdChecked(int id) const {
   // If this command is is added by one of our observers, we dispatch it to the
   // observer.
-  ObserverListBase<RenderViewContextMenuObserver>::Iterator it(observers_);
+  base::ObserverListBase<RenderViewContextMenuObserver>::Iterator it(
+      &observers_);
   RenderViewContextMenuObserver* observer;
   while ((observer = it.GetNext()) != NULL) {
     if (observer->IsCommandIdSupported(id))
@@ -294,7 +296,8 @@ void RenderViewContextMenuBase::ExecuteCommand(int id, int event_flags) {
 
   // If this command is is added by one of our observers, we dispatch
   // it to the observer.
-  ObserverListBase<RenderViewContextMenuObserver>::Iterator it(observers_);
+  base::ObserverListBase<RenderViewContextMenuObserver>::Iterator it(
+      &observers_);
   RenderViewContextMenuObserver* observer;
   while ((observer = it.GetNext()) != NULL) {
     if (observer->IsCommandIdSupported(id))
@@ -363,6 +366,15 @@ void RenderViewContextMenuBase::OpenURL(
     const GURL& url, const GURL& referring_url,
     WindowOpenDisposition disposition,
     ui::PageTransition transition) {
+  OpenURLWithExtraHeaders(url, referring_url, disposition, transition, "");
+}
+
+void RenderViewContextMenuBase::OpenURLWithExtraHeaders(
+    const GURL& url,
+    const GURL& referring_url,
+    WindowOpenDisposition disposition,
+    ui::PageTransition transition,
+    const std::string& extra_headers) {
   content::Referrer referrer = content::Referrer::SanitizeForRequest(
       url,
       content::Referrer(referring_url.GetAsReferrer(),
@@ -371,8 +383,11 @@ void RenderViewContextMenuBase::OpenURL(
   if (params_.link_url == url && disposition != OFF_THE_RECORD)
     params_.custom_context.link_followed = url;
 
-  WebContents* new_contents = source_web_contents_->OpenURL(OpenURLParams(
-      url, referrer, disposition, transition, false));
+  OpenURLParams open_url_params(url, referrer, disposition, transition, false);
+  if (!extra_headers.empty())
+    open_url_params.extra_headers = extra_headers;
+
+  WebContents* new_contents = source_web_contents_->OpenURL(open_url_params);
   if (!new_contents)
     return;
 

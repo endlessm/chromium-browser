@@ -9,6 +9,8 @@
 #include "base/files/file_path.h"
 #include "base/json/json_reader.h"
 #include "base/lazy_instance.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/trace_event/trace_event.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/api/extensions_api_client.h"
@@ -45,8 +47,9 @@ class DefaultObserver : public SettingsObserver {
     args->Append(base::JSONReader::Read(change_json));
     args->Append(new base::StringValue(settings_namespace::ToString(
         settings_namespace)));
-    scoped_ptr<Event> event(new Event(
-        core_api::storage::OnChanged::kEventName, args.Pass()));
+    scoped_ptr<Event> event(new Event(events::UNKNOWN,
+                                      core_api::storage::OnChanged::kEventName,
+                                      args.Pass()));
     EventRouter::Get(browser_context_)
         ->DispatchEventToExtension(extension_id, event.Pass());
   }
@@ -63,10 +66,10 @@ StorageFrontend* StorageFrontend::Get(BrowserContext* context) {
 }
 
 // static
-StorageFrontend* StorageFrontend::CreateForTesting(
+scoped_ptr<StorageFrontend> StorageFrontend::CreateForTesting(
     const scoped_refptr<SettingsStorageFactory>& storage_factory,
     BrowserContext* context) {
-  return new StorageFrontend(storage_factory, context);
+  return make_scoped_ptr(new StorageFrontend(storage_factory, context));
 }
 
 StorageFrontend::StorageFrontend(BrowserContext* context)
@@ -83,6 +86,9 @@ StorageFrontend::StorageFrontend(
 
 void StorageFrontend::Init(
     const scoped_refptr<SettingsStorageFactory>& factory) {
+  TRACE_EVENT0("browser,startup", "StorageFrontend::Init")
+  SCOPED_UMA_HISTOGRAM_TIMER("Extensions.StorageFrontendInitTime");
+
   observers_ = new SettingsObserverList();
   browser_context_observer_.reset(new DefaultObserver(browser_context_));
   DCHECK_CURRENTLY_ON(BrowserThread::UI);

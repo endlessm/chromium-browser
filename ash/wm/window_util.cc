@@ -19,9 +19,9 @@
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/compositor/dip_util.h"
 #include "ui/gfx/display.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/screen.h"
-#include "ui/gfx/size.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 #include "ui/wm/core/window_util.h"
@@ -75,6 +75,10 @@ bool CanActivateWindow(aura::Window* window) {
 
 bool IsWindowMinimized(aura::Window* window) {
   return ash::wm::GetWindowState(window)->IsMinimized();
+}
+
+bool IsWindowUserPositionable(aura::Window* window) {
+  return GetWindowState(window)->IsUserPositionable();
 }
 
 void CenterWindow(aura::Window* window) {

@@ -4,14 +4,16 @@
 
 #include "chrome/browser/autocomplete/autocomplete_classifier_factory.h"
 
-#include "chrome/browser/autocomplete/autocomplete_classifier.h"
-#include "chrome/browser/autocomplete/autocomplete_controller.h"
+#include "chrome/browser/autocomplete/chrome_autocomplete_provider_client.h"
 #include "chrome/browser/autocomplete/chrome_autocomplete_scheme_classifier.h"
+#include "chrome/browser/autocomplete/in_memory_url_index_factory.h"
 #include "chrome/browser/autocomplete/shortcuts_backend_factory.h"
 #include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "components/omnibox/browser/autocomplete_classifier.h"
+#include "components/omnibox/browser/autocomplete_controller.h"
 
 #if defined(ENABLE_EXTENSIONS)
 #include "extensions/browser/extension_system_provider.h"
@@ -31,15 +33,15 @@ AutocompleteClassifierFactory* AutocompleteClassifierFactory::GetInstance() {
 }
 
 // static
-KeyedService* AutocompleteClassifierFactory::BuildInstanceFor(
+scoped_ptr<KeyedService> AutocompleteClassifierFactory::BuildInstanceFor(
     content::BrowserContext* context) {
   Profile* profile = static_cast<Profile*>(context);
-  return new AutocompleteClassifier(
+  return make_scoped_ptr(new AutocompleteClassifier(
       make_scoped_ptr(new AutocompleteController(
-          profile, TemplateURLServiceFactory::GetForProfile(profile), NULL,
+          make_scoped_ptr(new ChromeAutocompleteProviderClient(profile)), NULL,
           AutocompleteClassifier::kDefaultOmniboxProviders)),
       scoped_ptr<AutocompleteSchemeClassifier>(
-          new ChromeAutocompleteSchemeClassifier(profile)));
+          new ChromeAutocompleteSchemeClassifier(profile))));
 }
 
 AutocompleteClassifierFactory::AutocompleteClassifierFactory()
@@ -54,6 +56,7 @@ AutocompleteClassifierFactory::AutocompleteClassifierFactory()
   // TODO(pkasting): Uncomment these once they exist.
   //   DependsOn(PrefServiceFactory::GetInstance());
   DependsOn(ShortcutsBackendFactory::GetInstance());
+  DependsOn(InMemoryURLIndexFactory::GetInstance());
 }
 
 AutocompleteClassifierFactory::~AutocompleteClassifierFactory() {
@@ -70,5 +73,5 @@ bool AutocompleteClassifierFactory::ServiceIsNULLWhileTesting() const {
 
 KeyedService* AutocompleteClassifierFactory::BuildServiceInstanceFor(
     content::BrowserContext* profile) const {
-  return BuildInstanceFor(static_cast<Profile*>(profile));
+  return BuildInstanceFor(static_cast<Profile*>(profile)).release();
 }

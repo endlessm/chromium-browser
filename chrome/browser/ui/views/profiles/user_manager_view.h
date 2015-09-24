@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_PROFILES_USER_MANAGER_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_PROFILES_USER_MANAGER_VIEW_H_
 
+#include "base/auto_reset.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_window.h"
@@ -22,11 +23,20 @@ class UserManagerView : public views::DialogDelegateView {
   // Do not call directly. To display the User Manager, use UserManager::Show().
   UserManagerView();
 
-  // Creates a new UserManagerView instance for the |guest_profile| and
-  // shows the |url|.
-  static void OnGuestProfileCreated(scoped_ptr<UserManagerView> instance,
-                                    Profile* guest_profile,
-                                    const std::string& url);
+  // Creates a new UserManagerView instance for the |system_profile| and shows
+  // the |url|.
+  static void OnSystemProfileCreated(scoped_ptr<UserManagerView> instance,
+                                     base::AutoReset<bool>* pending,
+                                     Profile* system_profile,
+                                     const std::string& url);
+
+  void set_user_manager_started_showing(
+      const base::Time& user_manager_started_showing) {
+    user_manager_started_showing_ = user_manager_started_showing;
+  }
+
+  // Logs how long it took the UserManager to open.
+  void LogTimeToOpen();
 
  private:
   ~UserManagerView() override;
@@ -52,6 +62,7 @@ class UserManagerView : public views::DialogDelegateView {
   views::WebView* web_view_;
 
   scoped_ptr<AutoKeepAlive> keep_alive_;
+  base::Time user_manager_started_showing_;
 
   DISALLOW_COPY_AND_ASSIGN(UserManagerView);
 };

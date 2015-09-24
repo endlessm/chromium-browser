@@ -8,19 +8,22 @@
 #include "ash/wm/lock_state_controller.h"
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/memory/weak_ptr.h"
 
 namespace chromeos {
 
 class SessionStateControllerDelegateChromeos
     : public ash::LockStateControllerDelegate {
  public:
-  SessionStateControllerDelegateChromeos() {}
-  virtual ~SessionStateControllerDelegateChromeos() {}
+  SessionStateControllerDelegateChromeos();
+  ~SessionStateControllerDelegateChromeos() override;
 
  private:
   // SessionStateControllerDelegate implementation.
-  virtual void RequestLockScreen() override;
-  virtual void RequestShutdown() override;
+  void RequestLockScreen() override;
+  void RequestShutdown() override;
+
+  base::WeakPtrFactory<SessionStateControllerDelegateChromeos> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(SessionStateControllerDelegateChromeos);
 };

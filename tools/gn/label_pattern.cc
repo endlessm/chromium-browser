@@ -4,6 +4,7 @@
 
 #include "tools/gn/label_pattern.h"
 
+#include "base/strings/string_util.h"
 #include "tools/gn/err.h"
 #include "tools/gn/filesystem_utils.h"
 #include "tools/gn/value.h"
@@ -121,7 +122,23 @@ LabelPattern LabelPattern::GetPattern(const SourceDir& current_dir,
   // Extract path and name.
   base::StringPiece path;
   base::StringPiece name;
-  size_t colon = str.find(':');
+  size_t offset = 0;
+#if defined(OS_WIN)
+  if (IsPathAbsolute(str)) {
+    if (str[0] != '/') {
+      *err = Err(value, "Bad absolute path.",
+                 "Absolute paths must be of the form /C:\\ but this is \"" +
+                     str.as_string() + "\".");
+      return LabelPattern();
+    }
+    if (str.size() > 3 && str[2] == ':' && IsSlash(str[3]) &&
+        base::IsAsciiAlpha(str[1])) {
+      // Skip over the drive letter colon.
+      offset = 3;
+    }
+  }
+#endif
+  size_t colon = str.find(':', offset);
   if (colon == std::string::npos) {
     path = base::StringPiece(str);
   } else {
@@ -166,13 +183,9 @@ LabelPattern LabelPattern::GetPattern(const SourceDir& current_dir,
     }
 
     // Resolve the non-wildcard stuff.
-    dir = current_dir.ResolveRelativeDir(path);
-    if (dir.is_null()) {
-      *err = Err(value, "Label pattern didn't resolve to a dir.",
-          "The directory name \"" + path.as_string() + "\" didn't\n"
-          "resolve to a directory.");
+    dir = current_dir.ResolveRelativeDir(value, path, err);
+    if (err->has_error())
       return LabelPattern();
-    }
   }
 
   // Resolve the name. At this point, we're doing wildcard matches so the
@@ -197,6 +210,12 @@ LabelPattern LabelPattern::GetPattern(const SourceDir& current_dir,
 
   // When we're doing wildcard matching, the name is always empty.
   return LabelPattern(type, dir, base::StringPiece(), toolchain_label);
+}
+
+bool LabelPattern::HasWildcard(const std::string& str) {
+  // Just look for a star. In the future, we may want to handle escaping or
+  // other types of patterns.
+  return str.find('*') != std::string::npos;
 }
 
 bool LabelPattern::Matches(const Label& label) const {

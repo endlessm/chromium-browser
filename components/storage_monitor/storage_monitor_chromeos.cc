@@ -6,6 +6,7 @@
 
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
@@ -79,7 +80,7 @@ bool GetDeviceInfo(const DiskMountManager::MountPointInfo& mount_info,
 // Returns whether the mount point in |mount_info| is a media device or not.
 bool CheckMountedPathOnFileThread(
     const DiskMountManager::MountPointInfo& mount_info) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
   return MediaStorageUtil::HasDcim(base::FilePath(mount_info.mount_path));
 }
 
@@ -104,9 +105,9 @@ void StorageMonitorCros::Init() {
   CheckExistingMountPoints();
 
   if (!media_transfer_protocol_manager_) {
-    scoped_refptr<base::MessageLoopProxy> loop_proxy;
     media_transfer_protocol_manager_.reset(
-        device::MediaTransferProtocolManager::Initialize(loop_proxy));
+        device::MediaTransferProtocolManager::Initialize(
+                    scoped_refptr<base::SingleThreadTaskRunner>()));
   }
 
   media_transfer_protocol_device_observer_.reset(
@@ -115,7 +116,7 @@ void StorageMonitorCros::Init() {
 }
 
 void StorageMonitorCros::CheckExistingMountPoints() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   const DiskMountManager::MountPointMap& mount_point_map =
       DiskMountManager::GetInstance()->mount_points();
   for (DiskMountManager::MountPointMap::const_iterator it =
@@ -148,7 +149,7 @@ void StorageMonitorCros::OnMountEvent(
     DiskMountManager::MountEvent event,
     chromeos::MountError error_code,
     const DiskMountManager::MountPointInfo& mount_info) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   // Ignore mount points that are not devices.
   if (mount_info.mount_type != chromeos::MOUNT_TYPE_DEVICE)
@@ -277,7 +278,7 @@ StorageMonitorCros::media_transfer_protocol_manager() {
 void StorageMonitorCros::AddMountedPath(
     const DiskMountManager::MountPointInfo& mount_info,
     bool has_dcim) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   if (ContainsKey(mount_map_, mount_info.mount_path)) {
     // CheckExistingMountPointsOnUIThread() added the mount point information

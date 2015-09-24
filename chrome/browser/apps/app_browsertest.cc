@@ -20,9 +20,11 @@
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/webui/print_preview/print_preview_ui.h"
+#include "chrome/browser/ui/zoom/chrome_zoom_level_prefs.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/test_switches.h"
@@ -30,6 +32,7 @@
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/devtools_agent_host.h"
+#include "content/public/browser/host_zoom_map.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/test/test_utils.h"
@@ -42,9 +45,11 @@
 #include "extensions/browser/notification_types.h"
 #include "extensions/browser/pref_names.h"
 #include "extensions/common/api/app_runtime.h"
+#include "extensions/common/constants.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "extensions/test/result_catcher.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "ui/base/window_open_disposition.h"
 #include "url/gurl.h"
 
 #if defined(OS_CHROMEOS)
@@ -180,7 +185,7 @@ bool CopyTestDataAndSetCommandLineArg(
   if (!(base::CopyFile(test_data_file, path)))
     return false;
 
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   command_line->AppendArgPath(path);
   return true;
 }
@@ -358,14 +363,7 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, AppWithContextMenuClicked) {
   ASSERT_TRUE(onclicked_listener.WaitUntilSatisfied());
 }
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS) && defined(USE_AURA)
-// TODO(erg): linux_aura bringup: http://crbug.com/163931
-#define MAYBE_DisallowNavigation DISABLED_DisallowNavigation
-#else
-#define MAYBE_DisallowNavigation DisallowNavigation
-#endif
-
-IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, MAYBE_DisallowNavigation) {
+IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, DisallowNavigation) {
   TabsAddedNotificationObserver observer(2);
 
   ASSERT_TRUE(StartEmbeddedTestServer());
@@ -413,13 +411,10 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, Isolation) {
   GURL set_cookie_url = embedded_test_server()->GetURL(
       "/extensions/platform_apps/isolation/set_cookie.html");
   GURL::Replacements replace_host;
-  std::string host_str("localhost");  // Must stay in scope with replace_host.
-  replace_host.SetHostStr(host_str);
+  replace_host.SetHostStr("localhost");
   set_cookie_url = set_cookie_url.ReplaceComponents(replace_host);
 
-  ui_test_utils::NavigateToURLWithDisposition(
-      browser(), set_cookie_url,
-      CURRENT_TAB, ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+  ui_test_utils::NavigateToURL(browser(), set_cookie_url);
 
   // Make sure the cookie is set.
   int cookie_size;
@@ -495,7 +490,7 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, LaunchWithFile) {
 IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, LaunchWithRelativeFile) {
   // Setup the command line
   ClearCommandLineArgs();
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   base::FilePath relative_test_doc =
       base::FilePath::FromUTF8Unsafe(kTestFilePath);
   relative_test_doc = relative_test_doc.NormalizePathSeparators();
@@ -508,9 +503,9 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, LaunchWithRelativeFile) {
   ASSERT_TRUE(extension);
 
   // Run the test
-  AppLaunchParams params(
-      browser()->profile(), extension, LAUNCH_CONTAINER_NONE, NEW_WINDOW);
-  params.command_line = *CommandLine::ForCurrentProcess();
+  AppLaunchParams params(browser()->profile(), extension, LAUNCH_CONTAINER_NONE,
+                         NEW_WINDOW, extensions::SOURCE_TEST);
+  params.command_line = *base::CommandLine::ForCurrentProcess();
   params.current_directory = test_data_dir_;
   OpenApplication(params);
 
@@ -537,17 +532,10 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
           << message_;
 }
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS) && defined(USE_AURA)
-// TODO(erg): linux_aura bringup: http://crbug.com/163931
-#define MAYBE_LaunchWithFileExtensionAndMimeType DISABLED_LaunchWithFileExtensionAndMimeType
-#else
-#define MAYBE_LaunchWithFileExtensionAndMimeType LaunchWithFileExtensionAndMimeType
-#endif
-
 // Tests that launch data is sent through if the file extension and MIME type
 // both match.
 IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
-                       MAYBE_LaunchWithFileExtensionAndMimeType) {
+                       LaunchWithFileExtensionAndMimeType) {
   SetCommandLineArg(kTestFilePath);
   ASSERT_TRUE(RunPlatformAppTest(
       "platform_apps/launch_file_by_extension_and_type")) << message_;
@@ -694,7 +682,7 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, LaunchNewFile) {
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
   ClearCommandLineArgs();
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   command_line->AppendArgPath(temp_dir.path().AppendASCII("new_file.txt"));
   ASSERT_TRUE(RunPlatformAppTest("platform_apps/launch_new_file")) << message_;
 }
@@ -838,8 +826,9 @@ void PlatformAppDevToolsBrowserTest::RunTestWithDevTools(
     content::WindowedNotificationObserver app_loaded_observer(
         content::NOTIFICATION_LOAD_COMPLETED_MAIN_FRAME,
         content::NotificationService::AllSources());
-    OpenApplication(AppLaunchParams(
-        browser()->profile(), extension, LAUNCH_CONTAINER_NONE, NEW_WINDOW));
+    OpenApplication(AppLaunchParams(browser()->profile(), extension,
+                                    LAUNCH_CONTAINER_NONE, NEW_WINDOW,
+                                    extensions::SOURCE_TEST));
     app_loaded_observer.Wait();
     window = GetFirstAppWindow();
     ASSERT_TRUE(window);
@@ -862,7 +851,8 @@ void PlatformAppDevToolsBrowserTest::RunTestWithDevTools(
 IN_PROC_BROWSER_TEST_F(PlatformAppDevToolsBrowserTest, MAYBE_ReOpenedWithID) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
   RunTestWithDevTools("minimal_id", RELAUNCH | HAS_ID);
@@ -943,7 +933,7 @@ class CheckExtensionInstalledObserver : public content::NotificationObserver {
 
   bool seen() const {
     return seen_;
-  };
+  }
 
   // NotificationObserver:
   void Observe(int type,
@@ -983,8 +973,9 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
   ASSERT_TRUE(should_install.seen());
 
   ExtensionTestMessageListener launched_listener("Launched", false);
-  OpenApplication(AppLaunchParams(
-      browser()->profile(), extension, LAUNCH_CONTAINER_NONE, NEW_WINDOW));
+  OpenApplication(AppLaunchParams(browser()->profile(), extension,
+                                  LAUNCH_CONTAINER_NONE, NEW_WINDOW,
+                                  extensions::SOURCE_TEST));
 
   ASSERT_TRUE(launched_listener.WaitUntilSatisfied());
 }
@@ -994,7 +985,6 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
 // to be run, then perform setup for step 3.
 IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
                        PRE_ComponentAppBackgroundPage) {
-
   // Since the component app is now installed, re-adding it in the same profile
   // should not cause it to be re-installed. Instead, we wait for the OnLaunched
   // in a different observer (which would timeout if not the app was not
@@ -1006,8 +996,9 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
   ASSERT_TRUE(extension);
 
   ExtensionTestMessageListener launched_listener("Launched", false);
-  OpenApplication(AppLaunchParams(
-      browser()->profile(), extension, LAUNCH_CONTAINER_NONE, NEW_WINDOW));
+  OpenApplication(AppLaunchParams(browser()->profile(), extension,
+                                  LAUNCH_CONTAINER_NONE, NEW_WINDOW,
+                                  extensions::SOURCE_TEST));
 
   ASSERT_TRUE(launched_listener.WaitUntilSatisfied());
   ASSERT_FALSE(should_not_install.seen());
@@ -1043,14 +1034,16 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, ComponentAppBackgroundPage) {
   ASSERT_TRUE(should_install.seen());
 
   ExtensionTestMessageListener launched_listener("Launched", false);
-  OpenApplication(AppLaunchParams(
-      browser()->profile(), extension, LAUNCH_CONTAINER_NONE, NEW_WINDOW));
+  OpenApplication(AppLaunchParams(browser()->profile(), extension,
+                                  LAUNCH_CONTAINER_NONE, NEW_WINDOW,
+                                  extensions::SOURCE_TEST));
 
   ASSERT_TRUE(launched_listener.WaitUntilSatisfied());
 }
 
+// Disabled due to flakiness. http://crbug.com/468609
 IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
-                       ComponentExtensionRuntimeReload) {
+                       DISABLED_ComponentExtensionRuntimeReload) {
   // Ensure that we wait until the background page is run (to register the
   // OnLaunched listener) before trying to open the application. This is similar
   // to LoadAndLaunchPlatformApp, but we want to load as a component extension.
@@ -1066,8 +1059,9 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
 
   {
     ExtensionTestMessageListener launched_listener("Launched", false);
-    OpenApplication(AppLaunchParams(
-        browser()->profile(), extension, LAUNCH_CONTAINER_NONE, NEW_WINDOW));
+    OpenApplication(AppLaunchParams(browser()->profile(), extension,
+                                    LAUNCH_CONTAINER_NONE, NEW_WINDOW,
+                                    extensions::SOURCE_TEST));
     ASSERT_TRUE(launched_listener.WaitUntilSatisfied());
   }
 
@@ -1098,15 +1092,9 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, MAYBE_Messaging) {
   EXPECT_TRUE(result_catcher.GetNextResult());
 }
 
-// TODO(linux_aura) http://crbug.com/163931
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS) && defined(USE_AURA)
-#define MAYBE_WebContentsHasFocus DISABLED_WebContentsHasFocus
-#else
 // This test depends on focus and so needs to be in interactive_ui_tests.
 // http://crbug.com/227041
-#define MAYBE_WebContentsHasFocus DISABLED_WebContentsHasFocus
-#endif
-IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, MAYBE_WebContentsHasFocus) {
+IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, DISABLED_WebContentsHasFocus) {
   LoadAndLaunchPlatformApp("minimal", "Launched");
 
   EXPECT_EQ(1LU, GetAppWindowCount());
@@ -1174,19 +1162,19 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
 class PlatformAppIncognitoBrowserTest : public PlatformAppBrowserTest,
                                         public AppWindowRegistry::Observer {
  public:
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     // Tell chromeos to launch in Guest mode, aka incognito.
     command_line->AppendSwitch(switches::kIncognito);
     PlatformAppBrowserTest::SetUpCommandLine(command_line);
   }
-  virtual void SetUp() override {
+  void SetUp() override {
     // Make sure the file manager actually gets loaded.
     ComponentLoader::EnableBackgroundExtensionsForTesting();
     PlatformAppBrowserTest::SetUp();
   }
 
   // AppWindowRegistry::Observer implementation.
-  virtual void OnAppWindowAdded(AppWindow* app_window) override {
+  void OnAppWindowAdded(AppWindow* app_window) override {
     opener_app_ids_.insert(app_window->extension_id());
   }
 
@@ -1217,8 +1205,9 @@ IN_PROC_BROWSER_TEST_F(PlatformAppIncognitoBrowserTest, IncognitoComponentApp) {
   ASSERT_TRUE(registry != NULL);
   registry->AddObserver(this);
 
-  OpenApplication(AppLaunchParams(
-      incognito_profile, file_manager, 0, chrome::HOST_DESKTOP_TYPE_NATIVE));
+  OpenApplication(AppLaunchParams(incognito_profile, file_manager, CURRENT_TAB,
+                                  chrome::HOST_DESKTOP_TYPE_NATIVE,
+                                  extensions::SOURCE_TEST));
 
   while (!ContainsKey(opener_app_ids_, file_manager->id())) {
     content::RunAllPendingInMessageLoop();
@@ -1230,10 +1219,10 @@ class RestartDeviceTest : public PlatformAppBrowserTest {
   RestartDeviceTest()
       : power_manager_client_(NULL),
         mock_user_manager_(NULL) {}
-  virtual ~RestartDeviceTest() {}
+  ~RestartDeviceTest() override {}
 
   // PlatformAppBrowserTest overrides
-  virtual void SetUpInProcessBrowserTestFixture() override {
+  void SetUpInProcessBrowserTestFixture() override {
     PlatformAppBrowserTest::SetUpInProcessBrowserTestFixture();
 
     power_manager_client_ = new chromeos::FakePowerManagerClient;
@@ -1241,7 +1230,7 @@ class RestartDeviceTest : public PlatformAppBrowserTest {
         scoped_ptr<chromeos::PowerManagerClient>(power_manager_client_));
   }
 
-  virtual void SetUpOnMainThread() override {
+  void SetUpOnMainThread() override {
     PlatformAppBrowserTest::SetUpOnMainThread();
 
     mock_user_manager_ = new chromeos::MockUserManager;
@@ -1252,14 +1241,17 @@ class RestartDeviceTest : public PlatformAppBrowserTest {
         .WillRepeatedly(testing::Return(true));
     EXPECT_CALL(*mock_user_manager_, IsLoggedInAsKioskApp())
         .WillRepeatedly(testing::Return(true));
+    EXPECT_CALL(*mock_user_manager_, GetLoggedInUsers())
+        .WillRepeatedly(testing::Invoke(mock_user_manager_,
+                                        &chromeos::MockUserManager::GetUsers));
   }
 
-  virtual void TearDownOnMainThread() override {
+  void TearDownOnMainThread() override {
     user_manager_enabler_.reset();
     PlatformAppBrowserTest::TearDownOnMainThread();
   }
 
-  virtual void TearDownInProcessBrowserTestFixture() override {
+  void TearDownInProcessBrowserTestFixture() override {
     PlatformAppBrowserTest::TearDownInProcessBrowserTestFixture();
   }
 
@@ -1326,6 +1318,29 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, ReinstallDataCleanup) {
     ResultCatcher result_catcher;
     EXPECT_TRUE(result_catcher.GetNextResult());
   }
+}
+
+IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, AppsIgnoreDefaultZoom) {
+  const Extension* extension = LoadAndLaunchPlatformApp("minimal", "Launched");
+
+  // Set the browser default zoom to something other than the default (which is
+  // 0).
+  browser()->profile()->GetZoomLevelPrefs()->SetDefaultZoomLevelPref(1);
+
+  // Launch another window. This is a simple way to guarantee that any messages
+  // that would have been delivered to the app renderer and back for zoom have
+  // made it through.
+  ExtensionTestMessageListener launched_listener("Launched", false);
+  LaunchPlatformApp(extension);
+  launched_listener.WaitUntilSatisfied();
+
+  // Now check that the app window's default zoom, and actual zoom level,
+  // have not been changed from the default.
+  WebContents* web_contents = GetFirstAppWindowWebContents();
+  content::HostZoomMap* app_host_zoom_map = content::HostZoomMap::Get(
+      web_contents->GetSiteInstance());
+  EXPECT_EQ(0, app_host_zoom_map->GetDefaultZoomLevel());
+  EXPECT_EQ(0, app_host_zoom_map->GetZoomLevel(web_contents));
 }
 
 }  // namespace extensions

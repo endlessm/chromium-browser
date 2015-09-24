@@ -14,6 +14,7 @@
 #include "chrome/browser/chromeos/file_system_provider/operations/test_util.h"
 #include "chrome/browser/chromeos/file_system_provider/provided_file_system_interface.h"
 #include "chrome/common/extensions/api/file_system_provider.h"
+#include "chrome/common/extensions/api/file_system_provider_capabilities/file_system_provider_capabilities_handler.h"
 #include "chrome/common/extensions/api/file_system_provider_internal.h"
 #include "extensions/browser/event_router.h"
 #include "storage/browser/fileapi/async_file_util.h"
@@ -27,20 +28,21 @@ namespace {
 const char kExtensionId[] = "mbflcebpggnecokmikipoihdbecnjfoj";
 const char kFileSystemId[] = "testing-file-system";
 const int kRequestId = 2;
-const base::FilePath::CharType kEntryPath[] = "/kitty/and/puppy/happy";
+const base::FilePath::CharType kEntryPath[] =
+    FILE_PATH_LITERAL("/kitty/and/puppy/happy");
 
 }  // namespace
 
 class FileSystemProviderOperationsRemoveWatcherTest : public testing::Test {
  protected:
   FileSystemProviderOperationsRemoveWatcherTest() {}
-  virtual ~FileSystemProviderOperationsRemoveWatcherTest() {}
+  ~FileSystemProviderOperationsRemoveWatcherTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     file_system_info_ = ProvidedFileSystemInfo(
-        kExtensionId,
-        MountOptions(kFileSystemId, "" /* display_name */),
-        base::FilePath());
+        kExtensionId, MountOptions(kFileSystemId, "" /* display_name */),
+        base::FilePath(), false /* configurable */, true /* watchable */,
+        extensions::SOURCE_FILE);
   }
 
   ProvidedFileSystemInfo file_system_info_;
@@ -53,10 +55,7 @@ TEST_F(FileSystemProviderOperationsRemoveWatcherTest, Execute) {
   util::StatusCallbackLog callback_log;
 
   RemoveWatcher remove_watcher(
-      NULL,
-      file_system_info_,
-      base::FilePath::FromUTF8Unsafe(kEntryPath),
-      true /* recursive */,
+      NULL, file_system_info_, base::FilePath(kEntryPath), true /* recursive */,
       base::Bind(&util::LogStatusCallback, &callback_log));
   remove_watcher.SetDispatchEventImplForTesting(
       base::Bind(&util::LoggingDispatchEventImpl::OnDispatchEventImpl,
@@ -89,10 +88,7 @@ TEST_F(FileSystemProviderOperationsRemoveWatcherTest, Execute_NoListener) {
   util::StatusCallbackLog callback_log;
 
   RemoveWatcher remove_watcher(
-      NULL,
-      file_system_info_,
-      base::FilePath::FromUTF8Unsafe(kEntryPath),
-      true /* recursive */,
+      NULL, file_system_info_, base::FilePath(kEntryPath), true /* recursive */,
       base::Bind(&util::LogStatusCallback, &callback_log));
   remove_watcher.SetDispatchEventImplForTesting(
       base::Bind(&util::LoggingDispatchEventImpl::OnDispatchEventImpl,
@@ -106,10 +102,7 @@ TEST_F(FileSystemProviderOperationsRemoveWatcherTest, OnSuccess) {
   util::StatusCallbackLog callback_log;
 
   RemoveWatcher remove_watcher(
-      NULL,
-      file_system_info_,
-      base::FilePath::FromUTF8Unsafe(kEntryPath),
-      true /* recursive */,
+      NULL, file_system_info_, base::FilePath(kEntryPath), true /* recursive */,
       base::Bind(&util::LogStatusCallback, &callback_log));
   remove_watcher.SetDispatchEventImplForTesting(
       base::Bind(&util::LoggingDispatchEventImpl::OnDispatchEventImpl,
@@ -129,10 +122,7 @@ TEST_F(FileSystemProviderOperationsRemoveWatcherTest, OnError) {
   util::StatusCallbackLog callback_log;
 
   RemoveWatcher remove_watcher(
-      NULL,
-      file_system_info_,
-      base::FilePath::FromUTF8Unsafe(kEntryPath),
-      true /* recursive */,
+      NULL, file_system_info_, base::FilePath(kEntryPath), true /* recursive */,
       base::Bind(&util::LogStatusCallback, &callback_log));
   remove_watcher.SetDispatchEventImplForTesting(
       base::Bind(&util::LoggingDispatchEventImpl::OnDispatchEventImpl,

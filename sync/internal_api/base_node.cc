@@ -21,6 +21,7 @@
 #include "sync/protocol/typed_url_specifics.pb.h"
 #include "sync/syncable/directory.h"
 #include "sync/syncable/entry.h"
+#include "sync/syncable/syncable_base_transaction.h"
 #include "sync/syncable/syncable_id.h"
 #include "sync/util/time.h"
 
@@ -34,6 +35,8 @@ using syncable::SPECIFICS;
 // string.
 static int64 IdToMetahandle(syncable::BaseTransaction* trans,
                             const syncable::Id& id) {
+  if (id.IsNull())
+    return kInvalidId;
   syncable::Entry entry(trans, syncable::GET_BY_ID, id);
   if (!entry.good())
     return kInvalidId;
@@ -54,7 +57,9 @@ bool BaseNode::DecryptIfNecessary() {
     scoped_ptr<sync_pb::PasswordSpecificsData> data(DecryptPasswordSpecifics(
         specifics, GetTransaction()->GetCryptographer()));
     if (!data) {
-      LOG(ERROR) << "Failed to decrypt password specifics.";
+      GetTransaction()->GetWrappedTrans()->OnUnrecoverableError(
+          FROM_HERE, std::string("Failed to decrypt encrypted node of type ") +
+                         ModelTypeToString(GetModelType()));
       return false;
     }
     password_data_.swap(data);
@@ -87,17 +92,14 @@ bool BaseNode::DecryptIfNecessary() {
   std::string plaintext_data = GetTransaction()->GetCryptographer()->
       DecryptToString(encrypted);
   if (plaintext_data.length() == 0) {
-    LOG(ERROR) << "Failed to decrypt encrypted node of type "
-               << ModelTypeToString(GetModelType()) << ".";
-    // Debugging for crbug.com/123223. We failed to decrypt the data, which
-    // means we applied an update without having the key or lost the key at a
-    // later point.
-    CHECK(false);
+    GetTransaction()->GetWrappedTrans()->OnUnrecoverableError(
+        FROM_HERE, std::string("Failed to decrypt encrypted node of type ") +
+                       ModelTypeToString(GetModelType()));
     return false;
   } else if (!unencrypted_data_.ParseFromString(plaintext_data)) {
-    // Debugging for crbug.com/123223. We should never succeed in decrypting
-    // but fail to parse into a protobuf.
-    CHECK(false);
+    GetTransaction()->GetWrappedTrans()->OnUnrecoverableError(
+        FROM_HERE, std::string("Failed to parse encrypted node of type ") +
+                       ModelTypeToString(GetModelType()));
     return false;
   }
   DVLOG(2) << "Decrypted specifics of type "
@@ -177,21 +179,21 @@ bool BaseNode::HasChildren() const {
 
 int64 BaseNode::GetPredecessorId() const {
   syncable::Id id_string = GetEntry()->GetPredecessorId();
-  if (id_string.IsRoot())
+  if (id_string.IsNull())
     return kInvalidId;
   return IdToMetahandle(GetTransaction()->GetWrappedTrans(), id_string);
 }
 
 int64 BaseNode::GetSuccessorId() const {
   syncable::Id id_string = GetEntry()->GetSuccessorId();
-  if (id_string.IsRoot())
+  if (id_string.IsNull())
     return kInvalidId;
   return IdToMetahandle(GetTransaction()->GetWrappedTrans(), id_string);
 }
 
 int64 BaseNode::GetFirstChildId() const {
   syncable::Id id_string = GetEntry()->GetFirstChildId();
-  if (id_string.IsRoot())
+  if (id_string.IsNull())
     return kInvalidId;
   return IdToMetahandle(GetTransaction()->GetWrappedTrans(), id_string);
 }
@@ -216,21 +218,6 @@ int64 BaseNode::GetExternalId() const {
   return GetEntry()->GetLocalExternalId();
 }
 
-const sync_pb::AppSpecifics& BaseNode::GetAppSpecifics() const {
-  DCHECK_EQ(GetModelType(), APPS);
-  return GetEntitySpecifics().app();
-}
-
-const sync_pb::AutofillSpecifics& BaseNode::GetAutofillSpecifics() const {
-  DCHECK_EQ(GetModelType(), AUTOFILL);
-  return GetEntitySpecifics().autofill();
-}
-
-const AutofillProfileSpecifics& BaseNode::GetAutofillProfileSpecifics() const {
-  DCHECK_EQ(GetModelType(), AUTOFILL_PROFILE);
-  return GetEntitySpecifics().autofill_profile();
-}
-
 const sync_pb::BookmarkSpecifics& BaseNode::GetBookmarkSpecifics() const {
   DCHECK_EQ(GetModelType(), BOOKMARKS);
   return GetEntitySpecifics().bookmark();
@@ -246,40 +233,14 @@ const sync_pb::PasswordSpecificsData& BaseNode::GetPasswordSpecifics() const {
   return *password_data_;
 }
 
-const sync_pb::ThemeSpecifics& BaseNode::GetThemeSpecifics() const {
-  DCHECK_EQ(GetModelType(), THEMES);
-  return GetEntitySpecifics().theme();
-}
-
 const sync_pb::TypedUrlSpecifics& BaseNode::GetTypedUrlSpecifics() const {
   DCHECK_EQ(GetModelType(), TYPED_URLS);
   return GetEntitySpecifics().typed_url();
 }
 
-const sync_pb::ExtensionSpecifics& BaseNode::GetExtensionSpecifics() const {
-  DCHECK_EQ(GetModelType(), EXTENSIONS);
-  return GetEntitySpecifics().extension();
-}
-
-const sync_pb::SessionSpecifics& BaseNode::GetSessionSpecifics() const {
-  DCHECK_EQ(GetModelType(), SESSIONS);
-  return GetEntitySpecifics().session();
-}
-
-const sync_pb::DeviceInfoSpecifics& BaseNode::GetDeviceInfoSpecifics() const {
-  DCHECK_EQ(GetModelType(), DEVICE_INFO);
-  return GetEntitySpecifics().device_info();
-}
-
 const sync_pb::ExperimentsSpecifics& BaseNode::GetExperimentsSpecifics() const {
   DCHECK_EQ(GetModelType(), EXPERIMENTS);
   return GetEntitySpecifics().experiments();
-}
-
-const sync_pb::PriorityPreferenceSpecifics&
-    BaseNode::GetPriorityPreferenceSpecifics() const {
-  DCHECK_EQ(GetModelType(), PRIORITY_PREFERENCES);
-  return GetEntitySpecifics().priority_preference();
 }
 
 const sync_pb::EntitySpecifics& BaseNode::GetEntitySpecifics() const {

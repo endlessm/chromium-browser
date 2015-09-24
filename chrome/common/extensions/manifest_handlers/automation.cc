@@ -48,6 +48,8 @@ class AutomationManifestPermission : public ManifestPermission {
 
   std::string id() const override;
 
+  PermissionIDSet GetPermissions() const override;
+
   bool HasMessages() const override;
 
   PermissionMessages GetMessages() const override;
@@ -78,7 +80,37 @@ bool AutomationManifestPermission::HasMessages() const {
   return GetMessages().size() > 0;
 }
 
+PermissionIDSet AutomationManifestPermission::GetPermissions() const {
+  // Meant to mimic the behavior of GetMessages().
+  PermissionIDSet permissions;
+  if (automation_info_->desktop) {
+    permissions.insert(APIPermission::kFullAccess);
+  } else if (automation_info_->matches.MatchesAllURLs()) {
+    if (automation_info_->interact) {
+      permissions.insert(APIPermission::kHostsAll);
+    } else {
+      permissions.insert(APIPermission::kHostsAllReadOnly);
+    }
+  } else {
+    // Check if we get any additional permissions from FilterHostPermissions.
+    URLPatternSet regular_hosts;
+    ExtensionsClient::Get()->FilterHostPermissions(
+        automation_info_->matches, &regular_hosts, &permissions);
+    std::set<std::string> hosts =
+        permission_message_util::GetDistinctHosts(regular_hosts, true, true);
+    if (!hosts.empty()) {
+      permission_message_util::AddHostPermissions(
+          &permissions, hosts, automation_info_->interact
+                                   ? permission_message_util::kReadWrite
+                                   : permission_message_util::kReadOnly);
+    }
+  }
+  return permissions;
+}
+
 PermissionMessages AutomationManifestPermission::GetMessages() const {
+  // When modifying this function, be careful to modify the functionality in
+  // GetPermissions() above as well.
   PermissionMessages messages;
   if (automation_info_->desktop) {
     messages.push_back(PermissionMessage(

@@ -26,10 +26,14 @@
 #include "config.h"
 #include "core/html/parser/BackgroundHTMLParser.h"
 
+#include "core/HTMLNames.h"
 #include "core/html/parser/HTMLDocumentParser.h"
 #include "core/html/parser/TextResourceDecoder.h"
 #include "core/html/parser/XSSAuditor.h"
-#include "wtf/MainThread.h"
+#include "platform/Task.h"
+#include "platform/ThreadSafeFunctional.h"
+#include "public/platform/Platform.h"
+#include "public/platform/WebScheduler.h"
 #include "wtf/text/TextPosition.h"
 
 namespace blink {
@@ -40,17 +44,18 @@ namespace blink {
 // This is a waste of memory (and potentially time if the speculation fails).
 // So we limit our outstanding tokens arbitrarily to 10,000.
 // Our maximal memory spent speculating will be approximately:
-// (outstandingTokenLimit + pendingTokenLimit) * sizeof(CompactToken)
+// (defaultOutstandingTokenLimit + defaultPendingTokenLimit) *
+//     sizeof(CompactToken)
 // We use a separate low and high water mark to avoid constantly topping
 // off the main thread's token buffer.
 // At time of writing, this is (10000 + 1000) * 28 bytes = ~308kb of memory.
 // These numbers have not been tuned.
-static const size_t outstandingTokenLimit = 10000;
+static const size_t defaultOutstandingTokenLimit = 10000;
 
 // We limit our chucks to 1000 tokens, to make sure the main
 // thread is never waiting on the parser thread for tokens.
 // This was tuned in https://bugs.webkit.org/show_bug.cgi?id=110408.
-static const size_t pendingTokenLimit = 1000;
+static const size_t defaultPendingTokenLimit = 1000;
 
 using namespace HTMLNames;
 
@@ -76,24 +81,37 @@ static void checkThatXSSInfosAreSafeToSendToAnotherThread(const XSSInfoStream& i
 
 #endif
 
-void BackgroundHTMLParser::start(PassRefPtr<WeakReference<BackgroundHTMLParser>> reference, PassOwnPtr<Configuration> config)
+void BackgroundHTMLParser::start(PassRefPtr<WeakReference<BackgroundHTMLParser>> reference, PassOwnPtr<Configuration> config, WebScheduler* scheduler)
 {
-    new BackgroundHTMLParser(reference, config);
+    new BackgroundHTMLParser(reference, config, scheduler);
     // Caller must free by calling stop().
 }
 
-BackgroundHTMLParser::BackgroundHTMLParser(PassRefPtr<WeakReference<BackgroundHTMLParser>> reference, PassOwnPtr<Configuration> config)
+BackgroundHTMLParser::Configuration::Configuration()
+    : outstandingTokenLimit(defaultOutstandingTokenLimit)
+    , pendingTokenLimit(defaultPendingTokenLimit)
+{
+}
+
+BackgroundHTMLParser::BackgroundHTMLParser(PassRefPtr<WeakReference<BackgroundHTMLParser>> reference, PassOwnPtr<Configuration> config, WebScheduler* scheduler)
     : m_weakFactory(reference, this)
     , m_token(adoptPtr(new HTMLToken))
     , m_tokenizer(HTMLTokenizer::create(config->options))
     , m_treeBuilderSimulator(config->options)
     , m_options(config->options)
+    , m_outstandingTokenLimit(config->outstandingTokenLimit)
     , m_parser(config->parser)
     , m_pendingTokens(adoptPtr(new CompactHTMLTokenStream))
+    , m_pendingTokenLimit(config->pendingTokenLimit)
     , m_xssAuditor(config->xssAuditor.release())
     , m_preloadScanner(config->preloadScanner.release())
     , m_decoder(config->decoder.release())
+    , m_scheduler(scheduler)
+    , m_startingScript(false)
 {
+    ASSERT(m_outstandingTokenLimit > 0);
+    ASSERT(m_pendingTokenLimit > 0);
+    ASSERT(m_outstandingTokenLimit >= m_pendingTokenLimit);
 }
 
 BackgroundHTMLParser::~BackgroundHTMLParser()
@@ -139,7 +157,7 @@ void BackgroundHTMLParser::updateDocument(const String& decodedData)
         m_lastSeenEncodingData = encodingData;
 
         m_xssAuditor->setEncoding(encodingData.encoding());
-        callOnMainThread(bind(&HTMLDocumentParser::didReceiveEncodingDataFromBackgroundParser, m_parser, encodingData));
+        Platform::current()->mainThread()->postTask(FROM_HERE, threadSafeBind(&HTMLDocumentParser::didReceiveEncodingDataFromBackgroundParser, AllowCrossThreadAccess(m_parser), encodingData));
     }
 
     if (decodedData.isEmpty())
@@ -156,6 +174,7 @@ void BackgroundHTMLParser::resumeFrom(PassOwnPtr<Checkpoint> checkpoint)
     m_treeBuilderSimulator.setState(checkpoint->treeBuilderState);
     m_input.rewindTo(checkpoint->inputCheckpoint, checkpoint->unparsedInput);
     m_preloadScanner->rewindTo(checkpoint->preloadScannerCheckpoint);
+    m_startingScript = false;
     pumpTokenizer();
 }
 
@@ -195,8 +214,10 @@ void BackgroundHTMLParser::markEndOfFile()
 
 void BackgroundHTMLParser::pumpTokenizer()
 {
+    HTMLTreeBuilderSimulator::SimulatedToken simulatedToken = HTMLTreeBuilderSimulator::OtherToken;
+
     // No need to start speculating until the main thread has almost caught up.
-    if (m_input.totalCheckpointTokenCount() > outstandingTokenLimit)
+    if (m_input.totalCheckpointTokenCount() > m_outstandingTokenLimit)
         return;
 
     while (true) {
@@ -219,16 +240,24 @@ void BackgroundHTMLParser::pumpTokenizer()
             CompactHTMLToken token(m_token.get(), TextPosition(m_input.current().currentLine(), m_input.current().currentColumn()));
 
             m_preloadScanner->scan(token, m_input.current(), m_pendingPreloads);
+            simulatedToken = m_treeBuilderSimulator.simulate(token, m_tokenizer.get());
+
+            // Break chunks before a script tag is inserted and flag the chunk as starting a script
+            // so the main parser can decide if it should yield before processing the chunk.
+            if (simulatedToken == HTMLTreeBuilderSimulator::ScriptStart) {
+                sendTokensToMainThread();
+                m_startingScript = true;
+            }
 
             m_pendingTokens->append(token);
         }
 
         m_token->clear();
 
-        if (!m_treeBuilderSimulator.simulate(m_pendingTokens->last(), m_tokenizer.get()) || m_pendingTokens->size() >= pendingTokenLimit) {
+        if (simulatedToken == HTMLTreeBuilderSimulator::ScriptEnd || m_pendingTokens->size() >= m_pendingTokenLimit) {
             sendTokensToMainThread();
             // If we're far ahead of the main thread, yield for a bit to avoid consuming too much memory.
-            if (m_input.totalCheckpointTokenCount() > outstandingTokenLimit)
+            if (m_input.totalCheckpointTokenCount() > m_outstandingTokenLimit)
                 break;
         }
     }
@@ -253,7 +282,12 @@ void BackgroundHTMLParser::sendTokensToMainThread()
     chunk->inputCheckpoint = m_input.createCheckpoint(m_pendingTokens->size());
     chunk->preloadScannerCheckpoint = m_preloadScanner->createCheckpoint();
     chunk->tokens = m_pendingTokens.release();
-    callOnMainThread(bind(&HTMLDocumentParser::didReceiveParsedChunkFromBackgroundParser, m_parser, chunk.release()));
+    chunk->startingScript = m_startingScript;
+    m_startingScript = false;
+
+    m_scheduler->postLoadingTask(
+        FROM_HERE,
+        new Task(threadSafeBind(&HTMLDocumentParser::didReceiveParsedChunkFromBackgroundParser, AllowCrossThreadAccess(m_parser), chunk.release())));
 
     m_pendingTokens = adoptPtr(new CompactHTMLTokenStream);
 }

@@ -10,6 +10,10 @@
 #include "base/synchronization/lock.h"
 #include "cc/resources/shared_bitmap_manager.h"
 
+namespace base {
+class SharedMemory;
+}  // namespace base
+
 namespace cc {
 
 class TestSharedBitmapManager : public SharedBitmapManager {
@@ -22,9 +26,6 @@ class TestSharedBitmapManager : public SharedBitmapManager {
   scoped_ptr<SharedBitmap> GetSharedBitmapFromId(
       const gfx::Size&,
       const SharedBitmapId& id) override;
-
-  scoped_ptr<SharedBitmap> GetBitmapForSharedMemory(
-      base::SharedMemory* memory) override;
 
  private:
   base::Lock lock_;

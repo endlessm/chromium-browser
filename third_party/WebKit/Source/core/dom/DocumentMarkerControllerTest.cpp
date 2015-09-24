@@ -34,7 +34,9 @@
 #include "bindings/core/v8/ExceptionStatePlaceholder.h"
 #include "core/dom/Document.h"
 #include "core/dom/Range.h"
+#include "core/dom/RenderedDocumentMarker.h"
 #include "core/dom/Text.h"
+#include "core/editing/EphemeralRange.h"
 #include "core/html/HTMLElement.h"
 #include "core/testing/DummyPageHolder.h"
 #include "wtf/PassRefPtr.h"
@@ -42,13 +44,11 @@
 #include "wtf/testing/WTFTestHelpers.h"
 #include <gtest/gtest.h>
 
-using namespace blink;
-
-namespace {
+namespace blink {
 
 class DocumentMarkerControllerTest : public ::testing::Test {
 protected:
-    virtual void SetUp() override;
+    void SetUp() override;
 
     Document& document() const { return *m_document; }
     DocumentMarkerController& markerController() const { return m_document->markers(); }
@@ -76,11 +76,11 @@ PassRefPtrWillBeRawPtr<Text> DocumentMarkerControllerTest::createTextNode(const 
 
 void DocumentMarkerControllerTest::markNodeContents(PassRefPtrWillBeRawPtr<Node> node)
 {
-    // Force renderers to be created; TextIterator, which is used in
+    // Force layoutObjects to be created; TextIterator, which is used in
     // DocumentMarkerControllerTest::addMarker(), needs them.
     document().updateLayout();
-    RefPtrWillBeRawPtr<Range> range = rangeOfContents(node.get());
-    markerController().addMarker(range.get(), DocumentMarker::Spelling);
+    auto range = EphemeralRange::rangeOfContents(*node);
+    markerController().addMarker(range.startPosition(), range.endPosition(), DocumentMarker::Spelling);
 }
 
 void DocumentMarkerControllerTest::setBodyInnerHTML(const char* bodyContent)
@@ -200,4 +200,22 @@ TEST_F(DocumentMarkerControllerTest, NodeWillBeRemovedBySetInnerHTML)
     EXPECT_EQ(0u, markerController().markers().size());
 }
 
+TEST_F(DocumentMarkerControllerTest, UpdateRenderedRects)
+{
+    LayoutRect invalidRect = RenderedDocumentMarker::create(DocumentMarker(0, 0, false))->renderedRect();
+
+    setBodyInnerHTML("<div style='margin: 100px'>foo</div>");
+    RefPtrWillBeRawPtr<Element> div = toElement(document().body()->firstChild());
+    markNodeContents(div);
+    Vector<IntRect> renderedRects = markerController().renderedRectsForMarkers(DocumentMarker::Spelling);
+    EXPECT_EQ(1u, renderedRects.size());
+    EXPECT_NE(invalidRect, renderedRects[0]);
+
+    div->setAttribute(HTMLNames::styleAttr, "margin: 200px");
+    document().updateLayout();
+    Vector<IntRect> newRenderedRects = markerController().renderedRectsForMarkers(DocumentMarker::Spelling);
+    EXPECT_EQ(1u, newRenderedRects.size());
+    EXPECT_NE(renderedRects[0], newRenderedRects[0]);
 }
+
+} // namespace blink

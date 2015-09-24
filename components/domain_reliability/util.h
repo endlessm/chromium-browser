@@ -10,11 +10,14 @@
 #include "base/callback_forward.h"
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/time/clock.h"
+#include "base/time/tick_clock.h"
 #include "base/time/time.h"
 #include "base/tracked_objects.h"
 #include "components/domain_reliability/domain_reliability_export.h"
-#include "net/base/backoff_entry.h"
+#include "components/domain_reliability/uploader.h"
 #include "net/http/http_response_info.h"
+#include "net/url_request/url_request_status.h"
 
 namespace domain_reliability {
 
@@ -33,10 +36,24 @@ std::string GetDomainReliabilityProtocol(
     net::HttpResponseInfo::ConnectionInfo connection_info,
     bool ssl_info_populated);
 
+// Converts a URLRequestStatus into a network error. Returns the error code for
+// FAILED; maps SUCCESS and CANCELED to OK and ERR_ABORTED, respectively; and
+// returns ERR_ABORTED for any other status.
+int GetNetErrorFromURLRequestStatus(const net::URLRequestStatus& status);
+
+// Based on the network error code, HTTP response code, and Retry-After value,
+// fills |status| with the result of a report upload.
+void GetUploadResultFromResponseDetails(
+    int net_error,
+    int http_response_code,
+    base::TimeDelta retry_after,
+    DomainReliabilityUploader::UploadResult* result);
+
 // Mockable wrapper around TimeTicks::Now and Timer. Mock version is in
 // test_util.h.
 // TODO(ttuttle): Rename to Time{Provider,Source,?}.
-class DOMAIN_RELIABILITY_EXPORT MockableTime {
+class DOMAIN_RELIABILITY_EXPORT MockableTime : public base::Clock,
+                                               public base::TickClock {
  public:
   // Mockable wrapper around (a subset of) base::Timer.
   class DOMAIN_RELIABILITY_EXPORT Timer {
@@ -53,12 +70,13 @@ class DOMAIN_RELIABILITY_EXPORT MockableTime {
     Timer();
   };
 
-  virtual ~MockableTime();
+  ~MockableTime() override;
 
-  // Returns base::Time::Now() or a mocked version thereof.
-  virtual base::Time Now() = 0;
-  // Returns base::TimeTicks::Now() or a mocked version thereof.
-  virtual base::TimeTicks NowTicks() = 0;
+  // Clock impl; returns base::Time::Now() or a mocked version thereof.
+  base::Time Now() override = 0;
+  // TickClock impl; returns base::TimeTicks::Now() or a mocked version thereof.
+  base::TimeTicks NowTicks() override = 0;
+
   // Returns a new Timer, or a mocked version thereof.
   virtual scoped_ptr<MockableTime::Timer> CreateTimer() = 0;
 
@@ -81,21 +99,6 @@ class DOMAIN_RELIABILITY_EXPORT ActualTime : public MockableTime {
   base::Time Now() override;
   base::TimeTicks NowTicks() override;
   scoped_ptr<MockableTime::Timer> CreateTimer() override;
-};
-
-// A subclass of BackoffEntry that uses a MockableTime to keep track of time.
-class MockableTimeBackoffEntry : public net::BackoffEntry {
- public:
-  MockableTimeBackoffEntry(const net::BackoffEntry::Policy* const policy,
-                           MockableTime* time);
-
-  virtual ~MockableTimeBackoffEntry();
-
- protected:
-  virtual base::TimeTicks ImplGetTimeNow() const override;
-
- private:
-  MockableTime* time_;
 };
 
 }  // namespace domain_reliability

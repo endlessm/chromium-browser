@@ -5,6 +5,7 @@
 #include "net/cert/mock_cert_verifier.h"
 
 #include "base/memory/ref_counted.h"
+#include "base/strings/pattern.h"
 #include "base/strings/string_util.h"
 #include "net/base/net_errors.h"
 #include "net/cert/cert_status_flags.h"
@@ -38,18 +39,19 @@ MockCertVerifier::~MockCertVerifier() {}
 
 int MockCertVerifier::Verify(X509Certificate* cert,
                              const std::string& hostname,
+                             const std::string& ocsp_response,
                              int flags,
                              CRLSet* crl_set,
                              CertVerifyResult* verify_result,
                              const CompletionCallback& callback,
-                             RequestHandle* out_req,
+                             scoped_ptr<Request>* out_req,
                              const BoundNetLog& net_log) {
   RuleList::const_iterator it;
   for (it = rules_.begin(); it != rules_.end(); ++it) {
     // Check just the server cert. Intermediates will be ignored.
     if (!it->cert->Equals(cert))
       continue;
-    if (!MatchPattern(hostname, it->hostname))
+    if (!base::MatchPattern(hostname, it->hostname))
       continue;
     *verify_result = it->result;
     return it->rv;
@@ -59,10 +61,6 @@ int MockCertVerifier::Verify(X509Certificate* cert,
   verify_result->verified_cert = cert;
   verify_result->cert_status = MapNetErrorToCertStatus(default_result_);
   return default_result_;
-}
-
-void MockCertVerifier::CancelRequest(RequestHandle req) {
-  NOTIMPLEMENTED();
 }
 
 void MockCertVerifier::AddResultForCert(X509Certificate* cert,

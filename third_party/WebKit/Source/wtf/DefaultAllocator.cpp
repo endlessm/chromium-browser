@@ -35,14 +35,19 @@
 
 namespace WTF {
 
-void* DefaultAllocator::backingAllocate(size_t size)
+void* DefaultAllocator::allocateBacking(size_t size)
 {
-    return partitionAllocGeneric(Partitions::getBufferPartition(), size);
+    return partitionAllocGeneric(Partitions::bufferPartition(), size);
 }
 
-void DefaultAllocator::backingFree(void* address)
+void DefaultAllocator::freeVectorBacking(void* address)
 {
-    partitionFreeGeneric(Partitions::getBufferPartition(), address);
+    partitionFreeGeneric(Partitions::bufferPartition(), address);
+}
+
+void DefaultAllocator::freeHashTableBacking(void* address)
+{
+    partitionFreeGeneric(Partitions::bufferPartition(), address);
 }
 
 } // namespace WTF

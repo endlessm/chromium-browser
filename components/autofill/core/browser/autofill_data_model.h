@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/strings/string16.h"
+#include "base/time/time.h"
 #include "components/autofill/core/browser/form_group.h"
 
 namespace autofill {
@@ -22,23 +23,31 @@ class AutofillDataModel : public FormGroup {
   AutofillDataModel(const std::string& guid, const std::string& origin);
   ~AutofillDataModel() override;
 
-  // Returns the string that should be auto-filled into a text field given the
-  // |type| of that field, localized to the given |app_locale| if appropriate.
-  // If the data model supports multiple values for the given |type|, returns
-  // the |variant|th value for the |type|.
-  virtual base::string16 GetInfoForVariant(const AutofillType& type,
-                                           size_t variant,
-                                           const std::string& app_locale) const;
-
   // Returns true if the data in this model was entered directly by the user,
   // rather than automatically aggregated.
   bool IsVerified() const;
+
+  // Called to update |use_count_| and |use_date_| when this data model is
+  // the subject of user interaction (usually, when it's used to fill a form).
+  void RecordUse();
 
   std::string guid() const { return guid_; }
   void set_guid(const std::string& guid) { guid_ = guid; }
 
   std::string origin() const { return origin_; }
   void set_origin(const std::string& origin) { origin_ = origin; }
+
+  size_t use_count() const { return use_count_; }
+  void set_use_count(size_t count) { use_count_ = count; }
+
+  const base::Time& use_date() const { return use_date_; }
+  void set_use_date(const base::Time& time) { use_date_ = time; }
+
+  const base::Time& modification_date() const { return modification_date_; }
+  // This should only be called from database code.
+  void set_modification_date(const base::Time& time) {
+    modification_date_ = time;
+  }
 
  private:
   // A globally unique ID for this object.
@@ -51,6 +60,15 @@ class AutofillDataModel : public FormGroup {
   //       URL, identifying the origin for non-aggregated data, or
   //   (c) an empty string, indicating that the origin for this data is unknown.
   std::string origin_;
+
+  // The number of times this model has been used.
+  size_t use_count_;
+
+  // The last time the model was used.
+  base::Time use_date_;
+
+  // The last time data in the model was modified.
+  base::Time modification_date_;
 };
 
 }  // namespace autofill

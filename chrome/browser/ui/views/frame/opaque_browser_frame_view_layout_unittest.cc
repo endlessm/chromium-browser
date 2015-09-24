@@ -20,7 +20,7 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/test/views_test_base.h"
 
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
 #include "chrome/browser/ui/views/profiles/supervised_user_avatar_label.h"
 #endif
 
@@ -176,7 +176,7 @@ class OpaqueBrowserFrameViewLayoutTest : public views::ViewsTestBase {
  protected:
   views::ImageButton* InitWindowCaptionButton(ViewID view_id,
                                               const gfx::Size& size) {
-    views::ImageButton* button = new views::ImageButton(NULL);
+    views::ImageButton* button = new views::ImageButton(nullptr);
     gfx::ImageSkiaRep rep(size, 1.0f);
     gfx::ImageSkia image(rep);
     button->SetImage(views::CustomButton::STATE_NORMAL, &image);
@@ -186,7 +186,7 @@ class OpaqueBrowserFrameViewLayoutTest : public views::ViewsTestBase {
   }
 
   void AddWindowTitleIcons() {
-    tab_icon_view_ = new TabIconView(NULL, NULL);
+    tab_icon_view_ = new TabIconView(nullptr, nullptr);
     tab_icon_view_->set_is_light(true);
     tab_icon_view_->set_id(VIEW_ID_WINDOW_ICON);
     root_view_->AddChildView(tab_icon_view_);
@@ -202,17 +202,18 @@ class OpaqueBrowserFrameViewLayoutTest : public views::ViewsTestBase {
 
   void AddAvatarButton() {
     // Disable the New Avatar Menu.
-    switches::DisableNewAvatarMenuForTesting(CommandLine::ForCurrentProcess());
+    switches::DisableNewAvatarMenuForTesting(
+        base::CommandLine::ForCurrentProcess());
 
-    menu_button_ = new AvatarMenuButton(NULL, false);
+    menu_button_ = new AvatarMenuButton(nullptr, false);
     menu_button_->set_id(VIEW_ID_AVATAR_BUTTON);
     delegate_->SetShouldShowAvatar(true);
     root_view_->AddChildView(menu_button_);
   }
 
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
   void AddSupervisedUserAvatarLabel() {
-    supervised_user_avatar_label_ = new SupervisedUserAvatarLabel(NULL);
+    supervised_user_avatar_label_ = new SupervisedUserAvatarLabel(nullptr);
     supervised_user_avatar_label_->set_id(VIEW_ID_SUPERVISED_USER_AVATAR_LABEL);
     root_view_->AddChildView(supervised_user_avatar_label_);
 
@@ -223,10 +224,11 @@ class OpaqueBrowserFrameViewLayoutTest : public views::ViewsTestBase {
 
   void AddNewAvatarButton() {
     // Enable the New Avatar Menu.
-    switches::EnableNewAvatarMenuForTesting(CommandLine::ForCurrentProcess());
+    switches::EnableNewAvatarMenuForTesting(
+        base::CommandLine::ForCurrentProcess());
 
     new_avatar_button_ =
-        new views::MenuButton(NULL, base::string16(), NULL, false);
+        new views::MenuButton(nullptr, base::string16(), nullptr, false);
     new_avatar_button_->set_id(VIEW_ID_NEW_AVATAR_BUTTON);
     root_view_->AddChildView(new_avatar_button_);
   }
@@ -252,7 +254,7 @@ class OpaqueBrowserFrameViewLayoutTest : public views::ViewsTestBase {
   TabIconView* tab_icon_view_;
   views::Label* window_title_;
 
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
   SupervisedUserAvatarLabel* supervised_user_avatar_label_;
 #endif
   AvatarMenuButton* menu_button_;
@@ -478,7 +480,7 @@ TEST_F(OpaqueBrowserFrameViewLayoutTest, WindowWithNewAvatar) {
   EXPECT_EQ("261x73", layout_manager_->GetMinimumSize(kWidth).ToString());
 }
 
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
 TEST_F(OpaqueBrowserFrameViewLayoutTest, WindowWithAvatarWithButtonsOnLeft) {
   // Tests the layout of a chrome window with an avatar icon and caption buttons
   // on the left. The avatar icon should therefore be on the right.

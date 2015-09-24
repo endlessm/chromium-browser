@@ -28,7 +28,6 @@
  */
 
 #include "config.h"
-
 #include "platform/geometry/FloatPolygon.h"
 
 #include <gtest/gtest.h>
@@ -40,7 +39,7 @@ public:
     FloatPolygonTestValue(const float* coordinates, unsigned coordinatesLength, WindRule fillRule)
     {
         ASSERT(!(coordinatesLength % 2));
-        OwnPtr<Vector<FloatPoint> > vertices = adoptPtr(new Vector<FloatPoint>(coordinatesLength / 2));
+        OwnPtr<Vector<FloatPoint>> vertices = adoptPtr(new Vector<FloatPoint>(coordinatesLength / 2));
         for (unsigned i = 0; i < coordinatesLength; i += 2)
             (*vertices)[i / 2] = FloatPoint(coordinates[i], coordinates[i + 1]);
         m_polygon = adoptPtr(new FloatPolygon(vertices.release(), fillRule));
@@ -52,24 +51,22 @@ private:
     OwnPtr<FloatPolygon> m_polygon;
 };
 
-} // namespace blink
-
 namespace {
 
-using namespace blink;
-
-static bool compareEdgeIndex(const FloatPolygonEdge* edge1, const FloatPolygonEdge* edge2)
+bool compareEdgeIndex(const FloatPolygonEdge* edge1, const FloatPolygonEdge* edge2)
 {
     return edge1->edgeIndex() < edge2->edgeIndex();
 }
 
-static Vector<const FloatPolygonEdge*> sortedOverlappingEdges(const FloatPolygon& polygon, float minY, float maxY)
+Vector<const FloatPolygonEdge*> sortedOverlappingEdges(const FloatPolygon& polygon, float minY, float maxY)
 {
     Vector<const FloatPolygonEdge*> result;
     polygon.overlappingEdges(minY, maxY, result);
     std::sort(result.begin(), result.end(), compareEdgeIndex);
     return result;
 }
+
+} // anonymous namespace
 
 #define SIZEOF_ARRAY(p) (sizeof(p) / sizeof(p[0]))
 
@@ -328,4 +325,4 @@ TEST(FloatPolygonTest, rectilinear)
     EXPECT_FALSE(h.contains(FloatPoint(175, 225)));
 }
 
-} // namespace
+} // namespace blink

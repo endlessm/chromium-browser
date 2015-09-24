@@ -31,7 +31,7 @@ PrivetLocalPrinterLister::PrivetLocalPrinterLister(
   privet_lister_.reset(
       new PrivetDeviceListerImpl(service_discovery_client, this));
   privet_http_factory_ = PrivetHTTPAsynchronousFactory::CreateInstance(
-      service_discovery_client, request_context);
+      request_context);
 }
 
 PrivetLocalPrinterLister::~PrivetLocalPrinterLister() {
@@ -63,14 +63,12 @@ void PrivetLocalPrinterLister::DeviceChanged(
     linked_ptr<DeviceContext> context(new DeviceContext);
     context->has_local_printing = false;
     context->description = description;
-    context->privet_resolution = privet_http_factory_->CreatePrivetHTTP(
-        name,
+    context->privet_resolution = privet_http_factory_->CreatePrivetHTTP(name);
+    device_contexts_[name] = context;
+    context->privet_resolution->Start(
         description.address,
         base::Bind(&PrivetLocalPrinterLister::OnPrivetResolved,
                    base::Unretained(this), name));
-
-    device_contexts_[name] = context;
-    context->privet_resolution->Start();
   }
 }
 

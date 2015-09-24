@@ -5,7 +5,6 @@
 #include "chrome/browser/ui/app_list/extension_app_item.h"
 
 #include "base/prefs/pref_service.h"
-#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/launch_util.h"
 #include "chrome/browser/profiles/profile.h"
@@ -14,12 +13,12 @@
 #include "chrome/browser/ui/app_list/app_list_service.h"
 #include "chrome/browser/ui/extensions/extension_enable_flow.h"
 #include "chrome/browser/ui/host_desktop.h"
-#include "chrome/browser/ui/webui/ntp/core_app_launcher_handler.h"
 #include "chrome/common/extensions/extension_constants.h"
+#include "chrome/common/extensions/extension_metrics.h"
 #include "content/public/browser/user_metrics.h"
 #include "extensions/browser/app_sorting.h"
 #include "extensions/browser/extension_prefs.h"
-#include "extensions/browser/extension_system.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_icon_set.h"
 #include "extensions/common/manifest_handlers/icons_handler.h"
@@ -29,9 +28,9 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_utils.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/image/canvas_image_source.h"
 #include "ui/gfx/image/image_skia_operations.h"
-#include "ui/gfx/rect.h"
 
 using extensions::Extension;
 
@@ -105,7 +104,10 @@ extensions::AppSorting* GetAppSorting(Profile* profile) {
   return extensions::ExtensionPrefs::Get(profile)->app_sorting();
 }
 
-const color_utils::HSL shift = {-1, 0, 0.6};
+gfx::ImageSkia CreateDisabledIcon(const gfx::ImageSkia& icon) {
+  const color_utils::HSL shift = {-1, 0, 0.6};
+  return gfx::ImageSkiaOperations::CreateHSLShiftedImage(icon, shift);
+}
 
 }  // namespace
 
@@ -121,9 +123,7 @@ ExtensionAppItem::ExtensionAppItem(
       extension_id_(extension_id),
       extension_enable_flow_controller_(NULL),
       extension_name_(extension_name),
-      installing_icon_(
-          gfx::ImageSkiaOperations::CreateHSLShiftedImage(installing_icon,
-                                                          shift)),
+      installing_icon_(CreateDisabledIcon(installing_icon)),
       is_platform_app_(is_platform_app),
       has_overlay_(false) {
   Reload();
@@ -144,23 +144,22 @@ ExtensionAppItem::~ExtensionAppItem() {
 }
 
 bool ExtensionAppItem::NeedsOverlay() const {
-  // The overlay icon is disabled for hosted apps in windowed mode with
-  // streamlined hosted apps.
-  bool streamlined_hosted_apps =
-      extensions::util::IsStreamlinedHostedAppsEnabled();
 #if defined(OS_CHROMEOS)
-  if (!streamlined_hosted_apps)
-    return false;
+  // The overlay is disabled completely in ChromeOS.
+  return false;
 #endif
+
   extensions::LaunchType launch_type =
       GetExtension()
           ? extensions::GetLaunchType(extensions::ExtensionPrefs::Get(profile_),
                                       GetExtension())
           : extensions::LAUNCH_TYPE_WINDOW;
 
+  // The overlay icon is disabled for hosted apps in windowed mode with
+  // bookmark apps enabled.
   return !is_platform_app_ && extension_id_ != extension_misc::kChromeAppId &&
-      (!streamlined_hosted_apps ||
-       launch_type != extensions::LAUNCH_TYPE_WINDOW);
+         (!extensions::util::IsNewBookmarkAppsEnabled() ||
+          launch_type != extensions::LAUNCH_TYPE_WINDOW);
 }
 
 void ExtensionAppItem::Reload() {
@@ -181,14 +180,12 @@ void ExtensionAppItem::UpdateIcon() {
 
   // Use the app icon if the app exists. Turn the image greyscale if the app is
   // not launchable.
-  if (GetExtension()) {
+  if (GetExtension() && icon_) {
     icon = icon_->image_skia();
     const bool enabled = extensions::util::IsAppLaunchable(extension_id_,
                                                            profile_);
-    if (!enabled) {
-      const color_utils::HSL shift = {-1, 0, 0.6};
-      icon = gfx::ImageSkiaOperations::CreateHSLShiftedImage(icon, shift);
-    }
+    if (!enabled)
+      icon = CreateDisabledIcon(icon);
 
     if (GetExtension()->from_bookmark())
       icon = gfx::ImageSkia(new RoundedCornersImageSource(icon), icon.size());
@@ -198,7 +195,7 @@ void ExtensionAppItem::UpdateIcon() {
   if (has_overlay_)
     icon = gfx::ImageSkia(new ShortcutOverlayImageSource(icon), icon.size());
 
-  SetIcon(icon, true);
+  SetIcon(icon);
 }
 
 void ExtensionAppItem::Move(const ExtensionAppItem* prev,
@@ -231,9 +228,10 @@ void ExtensionAppItem::Move(const ExtensionAppItem* prev,
 }
 
 const Extension* ExtensionAppItem::GetExtension() const {
-  const ExtensionService* service =
-      extensions::ExtensionSystem::Get(profile_)->extension_service();
-  const Extension* extension = service->GetInstalledExtension(extension_id_);
+  const extensions::ExtensionRegistry* registry =
+      extensions::ExtensionRegistry::Get(profile_);
+  const Extension* extension = registry->GetInstalledExtension(
+      extension_id_);
   return extension;
 }
 
@@ -318,7 +316,7 @@ void ExtensionAppItem::Activate(int event_flags) {
     return;
 
   content::RecordAction(base::UserMetricsAction("AppList_ClickOnApp"));
-  CoreAppLauncherHandler::RecordAppListMainLaunch(extension);
+  extensions::RecordAppListMainLaunch(extension);
   GetController()->ActivateApp(profile_,
                                extension,
                                AppListControllerDelegate::LAUNCH_FROM_APP_LIST,

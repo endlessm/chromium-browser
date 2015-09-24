@@ -16,14 +16,13 @@
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
-#include "chrome/browser/chromeos/login/users/fake_user_manager.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos_factory.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/device_settings_test_helper.h"
-#include "chrome/browser/chromeos/settings/stub_cros_settings_provider.h"
+#include "chrome/browser/chromeos/settings/scoped_cros_settings_test_helper.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
@@ -44,7 +43,9 @@
 #include "chromeos/login/auth/user_context.h"
 #include "chromeos/login/login_state.h"
 #include "components/ownership/mock_owner_key_util.h"
+#include "components/user_manager/fake_user_manager.h"
 #include "content/public/test/test_browser_thread_bundle.h"
+#include "crypto/nss_key_util.h"
 #include "crypto/nss_util_internal.h"
 #include "crypto/scoped_test_nss_chromeos_user.h"
 #include "google_apis/gaia/mock_url_fetcher_factory.h"
@@ -118,11 +119,11 @@ std::vector<uint8> GetOwnerPublicKey() {
                             kOwnerPublicKey + arraysize(kOwnerPublicKey));
 }
 
-scoped_ptr<crypto::RSAPrivateKey> CreateOwnerKeyInSlot(PK11SlotInfo* slot) {
+bool CreateOwnerKeyInSlot(PK11SlotInfo* slot) {
   const std::vector<uint8> key(kOwnerPrivateKey,
                                kOwnerPrivateKey + arraysize(kOwnerPrivateKey));
-  return make_scoped_ptr(
-      crypto::RSAPrivateKey::CreateSensitiveFromPrivateKeyInfo(slot, key));
+  return crypto::ImportNSSKeyFromPrivateKeyInfo(slot, key,
+                                                true /* permanent */);
 }
 
 }  // namespace
@@ -131,7 +132,7 @@ class CryptohomeAuthenticatorTest : public testing::Test {
  public:
   CryptohomeAuthenticatorTest()
       : user_context_("me@nowhere.org"),
-        user_manager_(new FakeUserManager()),
+        user_manager_(new user_manager::FakeUserManager()),
         user_manager_enabler_(user_manager_),
         mock_caller_(NULL),
         mock_homedir_methods_(NULL),
@@ -151,10 +152,11 @@ class CryptohomeAuthenticatorTest : public testing::Test {
                              FakeCryptohomeClient::GetStubSystemSalt()));
   }
 
-  virtual ~CryptohomeAuthenticatorTest() {}
+  ~CryptohomeAuthenticatorTest() override {}
 
-  virtual void SetUp() {
-    CommandLine::ForCurrentProcess()->AppendSwitch(switches::kLoginManager);
+  void SetUp() override {
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
+        switches::kLoginManager);
 
     mock_caller_ = new cryptohome::MockAsyncMethodCaller;
     cryptohome::AsyncMethodCaller::InitializeForTesting(mock_caller_);
@@ -173,7 +175,7 @@ class CryptohomeAuthenticatorTest : public testing::Test {
   }
 
   // Tears down the test fixture.
-  virtual void TearDown() {
+  void TearDown() override {
     SystemSaltGetter::Shutdown();
     DBusThreadManager::Shutdown();
 
@@ -205,13 +207,6 @@ class CryptohomeAuthenticatorTest : public testing::Test {
         .WillByDefault(Invoke(MockAuthStatusConsumer::OnFailQuitAndFail));
   }
 
-  // Allow test to fail and exit gracefully, even if
-  // OnRetailModeAuthSuccess() wasn't supposed to happen.
-  void FailOnRetailModeLoginSuccess() {
-    ON_CALL(consumer_, OnRetailModeAuthSuccess(_)).WillByDefault(
-        Invoke(MockAuthStatusConsumer::OnRetailModeSuccessQuitAndFail));
-  }
-
   // Allow test to fail and exit gracefully, even if OnAuthSuccess()
   // wasn't supposed to happen.
   void FailOnLoginSuccess() {
@@ -229,12 +224,6 @@ class CryptohomeAuthenticatorTest : public testing::Test {
   void ExpectLoginFailure(const AuthFailure& failure) {
     EXPECT_CALL(consumer_, OnAuthFailure(failure))
         .WillOnce(Invoke(MockAuthStatusConsumer::OnFailQuit))
-        .RetiresOnSaturation();
-  }
-
-  void ExpectRetailModeLoginSuccess() {
-    EXPECT_CALL(consumer_, OnRetailModeAuthSuccess(_))
-        .WillOnce(Invoke(MockAuthStatusConsumer::OnRetailModeSuccessQuit))
         .RetiresOnSaturation();
   }
 
@@ -337,7 +326,7 @@ class CryptohomeAuthenticatorTest : public testing::Test {
 
   TestingProfile profile_;
   scoped_ptr<TestingProfileManager> profile_manager_;
-  FakeUserManager* user_manager_;
+  user_manager::FakeUserManager* user_manager_;
   ScopedUserManagerEnabler user_manager_enabler_;
 
   cryptohome::MockAsyncMethodCaller* mock_caller_;
@@ -446,15 +435,9 @@ TEST_F(CryptohomeAuthenticatorTest, ResolveOwnerNeededFailedMount) {
   // and succeeded but we are in safe mode and the current user is not owner.
   state_->PresetCryptohomeStatus(true, cryptohome::MOUNT_ERROR_NONE);
   SetOwnerState(false, false);
-  // Remove the real DeviceSettingsProvider and replace it with a stub.
-  CrosSettingsProvider* device_settings_provider =
-      CrosSettings::Get()->GetProvider(chromeos::kReportDeviceVersionInfo);
-  EXPECT_TRUE(device_settings_provider != NULL);
-  EXPECT_TRUE(
-      CrosSettings::Get()->RemoveSettingsProvider(device_settings_provider));
-  StubCrosSettingsProvider stub_settings_provider;
-  CrosSettings::Get()->AddSettingsProvider(&stub_settings_provider);
-  CrosSettings::Get()->SetBoolean(kPolicyMissingMitigationMode, true);
+  ScopedCrosSettingsTestHelper settings_helper(false);
+  settings_helper.ReplaceProvider(kPolicyMissingMitigationMode);
+  settings_helper.SetBoolean(kPolicyMissingMitigationMode, true);
 
   // Initialize login state for this test to verify the login state is changed
   // to SAFE_MODE.
@@ -480,9 +463,6 @@ TEST_F(CryptohomeAuthenticatorTest, ResolveOwnerNeededFailedMount) {
   // Unset global objects used by this test.
   fake_cryptohome_client_->set_unmount_result(true);
   LoginState::Shutdown();
-  EXPECT_TRUE(
-      CrosSettings::Get()->RemoveSettingsProvider(&stub_settings_provider));
-  CrosSettings::Get()->AddSettingsProvider(device_settings_provider);
 }
 
 // Test the case that login switches to SafeMode and the Owner logs in, which
@@ -493,7 +473,7 @@ TEST_F(CryptohomeAuthenticatorTest, ResolveOwnerNeededSuccess) {
 
   crypto::ScopedPK11Slot user_slot(
       crypto::GetPublicSlotForChromeOSUser(user_context_.GetUserIDHash()));
-  CreateOwnerKeyInSlot(user_slot.get());
+  ASSERT_TRUE(CreateOwnerKeyInSlot(user_slot.get()));
 
   profile_manager_.reset(
       new TestingProfileManager(TestingBrowserProcess::GetGlobal()));
@@ -505,15 +485,9 @@ TEST_F(CryptohomeAuthenticatorTest, ResolveOwnerNeededSuccess) {
   // and succeeded but we are in safe mode and the current user is not owner.
   state_->PresetCryptohomeStatus(true, cryptohome::MOUNT_ERROR_NONE);
   SetOwnerState(false, false);
-  // Remove the real DeviceSettingsProvider and replace it with a stub.
-  CrosSettingsProvider* device_settings_provider =
-      CrosSettings::Get()->GetProvider(chromeos::kReportDeviceVersionInfo);
-  EXPECT_TRUE(device_settings_provider != NULL);
-  EXPECT_TRUE(
-      CrosSettings::Get()->RemoveSettingsProvider(device_settings_provider));
-  StubCrosSettingsProvider stub_settings_provider;
-  CrosSettings::Get()->AddSettingsProvider(&stub_settings_provider);
-  CrosSettings::Get()->SetBoolean(kPolicyMissingMitigationMode, true);
+  ScopedCrosSettingsTestHelper settings_helper(false);
+  settings_helper.ReplaceProvider(kPolicyMissingMitigationMode);
+  settings_helper.SetBoolean(kPolicyMissingMitigationMode, true);
 
   // Initialize login state for this test to verify the login state is changed
   // to SAFE_MODE.
@@ -538,9 +512,6 @@ TEST_F(CryptohomeAuthenticatorTest, ResolveOwnerNeededSuccess) {
   // Unset global objects used by this test.
   fake_cryptohome_client_->set_unmount_result(true);
   LoginState::Shutdown();
-  EXPECT_TRUE(
-      CrosSettings::Get()->RemoveSettingsProvider(&stub_settings_provider));
-  CrosSettings::Get()->AddSettingsProvider(device_settings_provider);
 }
 
 TEST_F(CryptohomeAuthenticatorTest, DriveFailedMount) {
@@ -578,32 +549,6 @@ TEST_F(CryptohomeAuthenticatorTest, DriveGuestLoginButFail) {
   EXPECT_CALL(*mock_caller_, AsyncMountGuest(_)).Times(1).RetiresOnSaturation();
 
   auth_->LoginOffTheRecord();
-  base::MessageLoop::current()->Run();
-}
-
-TEST_F(CryptohomeAuthenticatorTest, DriveRetailModeUserLogin) {
-  ExpectRetailModeLoginSuccess();
-  FailOnLoginFailure();
-
-  // Set up mock async method caller to respond as though a tmpfs mount
-  // attempt has occurred and succeeded.
-  mock_caller_->SetUp(true, cryptohome::MOUNT_ERROR_NONE);
-  EXPECT_CALL(*mock_caller_, AsyncMountGuest(_)).Times(1).RetiresOnSaturation();
-
-  auth_->LoginRetailMode();
-  base::MessageLoop::current()->Run();
-}
-
-TEST_F(CryptohomeAuthenticatorTest, DriveRetailModeLoginButFail) {
-  FailOnRetailModeLoginSuccess();
-  ExpectLoginFailure(AuthFailure(AuthFailure::COULD_NOT_MOUNT_TMPFS));
-
-  // Set up mock async method caller to respond as though a tmpfs mount
-  // attempt has occurred and failed.
-  mock_caller_->SetUp(false, cryptohome::MOUNT_ERROR_NONE);
-  EXPECT_CALL(*mock_caller_, AsyncMountGuest(_)).Times(1).RetiresOnSaturation();
-
-  auth_->LoginRetailMode();
   base::MessageLoop::current()->Run();
 }
 

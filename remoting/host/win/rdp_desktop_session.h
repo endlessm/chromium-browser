@@ -37,20 +37,23 @@ class __declspec(uuid(RDP_DESKTOP_SESSION_CLSID)) RdpDesktopSession
       _ClassFactoryCreatorClass;
 
   RdpDesktopSession();
+  ~RdpDesktopSession() override;
 
   // IRdpDesktopSession implementation.
-  STDMETHOD(Connect)(long width, long height, BSTR terminal_id,
-                     IRdpDesktopSessionEventHandler* event_handler);
-  STDMETHOD(Disconnect)();
-  STDMETHOD(ChangeResolution)(long width, long height);
-  STDMETHOD(InjectSas)();
+  STDMETHOD(Connect)(long width,
+                     long height,
+                     BSTR terminal_id,
+                     IRdpDesktopSessionEventHandler* event_handler) override;
+  STDMETHOD(Disconnect)() override;
+  STDMETHOD(ChangeResolution)(long width, long height) override;
+  STDMETHOD(InjectSas)() override;
 
   DECLARE_NO_REGISTRY()
 
  private:
   // RdpClient::EventHandler interface.
-  virtual void OnRdpConnected() override;
-  virtual void OnRdpClosed() override;
+  void OnRdpConnected() override;
+  void OnRdpClosed() override;
 
   BEGIN_COM_MAP(RdpDesktopSession)
     COM_INTERFACE_ENTRY(IRdpDesktopSession)

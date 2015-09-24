@@ -21,6 +21,13 @@ namespace android {
 // Used to mark symbols to be exported in a shared library's symbol table.
 #define JNI_EXPORT __attribute__ ((visibility("default")))
 
+// Used to disable manual JNI registration in binaries that prefer to use native
+// JNI exports for startup performance. This is not compatible with the crazy
+// linker and so defaults to off. Call DisableManualJniRegistration at the very
+// beginning of JNI_OnLoad to use this.
+BASE_EXPORT bool IsManualJniRegistrationDisabled();
+BASE_EXPORT void DisableManualJniRegistration();
+
 // Contains the registration method information for initializing JNI bindings.
 struct RegistrationMethod {
   const char* name;
@@ -122,6 +129,10 @@ BASE_EXPORT bool ClearException(JNIEnv* env);
 
 // This function will call CHECK() macro if there's any pending exception.
 BASE_EXPORT void CheckException(JNIEnv* env);
+
+// This returns a string representation of the java stack trace.
+BASE_EXPORT std::string GetJavaExceptionInfo(JNIEnv* env,
+                                             jthrowable java_throwable);
 
 }  // namespace android
 }  // namespace base

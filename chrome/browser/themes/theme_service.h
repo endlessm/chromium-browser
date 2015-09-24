@@ -92,6 +92,9 @@ class ThemeService : public base::NonThreadSafe,
   NSGradient* GetNSGradient(int id) const override;
 #endif
 
+  // KeyedService:
+  void Shutdown() override;
+
   // Overridden from content::NotificationObserver:
   void Observe(int type,
                const content::NotificationSource& source,
@@ -207,7 +210,7 @@ class ThemeService : public base::NonThreadSafe,
   // case we don't have a theme pack).
   void BuildFromExtension(const extensions::Extension* extension);
 
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
   // Returns true if the profile belongs to a supervised user.
   bool IsSupervisedUser() const;
 
@@ -247,6 +250,11 @@ class ThemeService : public base::NonThreadSafe,
   content::NotificationRegistrar registrar_;
 
   scoped_ptr<ThemeSyncableService> theme_syncable_service_;
+
+#if defined(ENABLE_EXTENSIONS)
+  class ThemeObserver;
+  scoped_ptr<ThemeObserver> theme_observer_;
+#endif
 
   base::WeakPtrFactory<ThemeService> weak_ptr_factory_;
 

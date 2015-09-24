@@ -6,23 +6,20 @@
 #define DOMDataView_h
 
 #include "core/dom/DOMArrayBufferView.h"
-#include "core/html/canvas/DataView.h"
 
 namespace blink {
 
 class DOMDataView final : public DOMArrayBufferView {
     DEFINE_WRAPPERTYPEINFO();
 public:
-    static PassRefPtr<DOMDataView> create(PassRefPtr<DOMArrayBuffer>, unsigned byteOffset, unsigned byteLength);
+    typedef char ValueType;
 
-    const DataView* view() const { return static_cast<const DataView*>(DOMArrayBufferView::view()); }
-    DataView* view() { return static_cast<DataView*>(DOMArrayBufferView::view()); }
+    static PassRefPtr<DOMDataView> create(PassRefPtr<DOMArrayBufferBase>, unsigned byteOffset, unsigned byteLength);
 
-    virtual v8::Handle<v8::Object> wrap(v8::Handle<v8::Object> creationContext, v8::Isolate*) override;
-    virtual v8::Handle<v8::Object> associateWithWrapper(const WrapperTypeInfo*, v8::Handle<v8::Object> wrapper, v8::Isolate*) override;
+    v8::Local<v8::Object> wrap(v8::Isolate*, v8::Local<v8::Object> creationContext) override;
 
 private:
-    DOMDataView(PassRefPtr<DataView> dataView, PassRefPtr<DOMArrayBuffer> domArrayBuffer)
+    DOMDataView(PassRefPtr<WTF::ArrayBufferView> dataView, PassRefPtr<DOMArrayBufferBase> domArrayBuffer)
         : DOMArrayBufferView(dataView, domArrayBuffer) { }
 };
 

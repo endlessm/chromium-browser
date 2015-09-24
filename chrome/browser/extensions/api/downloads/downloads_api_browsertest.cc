@@ -23,7 +23,6 @@
 #include "chrome/browser/extensions/browser_action_test_util.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_function_test_utils.h"
-#include "chrome/browser/history/download_row.h"
 #include "chrome/browser/net/url_request_mock_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -40,11 +39,11 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/download_test_observer.h"
-#include "content/test/net/url_request_slow_download_job.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/notification_types.h"
 #include "net/base/data_url.h"
 #include "net/base/net_util.h"
+#include "net/test/url_request/url_request_slow_download_job.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_job.h"
@@ -59,7 +58,6 @@ using content::BrowserContext;
 using content::BrowserThread;
 using content::DownloadItem;
 using content::DownloadManager;
-using content::URLRequestSlowDownloadJob;
 
 namespace errors = download_extension_errors;
 
@@ -94,7 +92,6 @@ class DownloadsEventsListener : public content::NotificationObserver {
 
   void ClearEvents() {
     STLDeleteElements(&events_);
-    events_.clear();
   }
 
   class Event {
@@ -103,12 +100,11 @@ class DownloadsEventsListener : public content::NotificationObserver {
           const std::string& event_name,
           const std::string& json_args,
           base::Time caught)
-      : profile_(profile),
-        event_name_(event_name),
-        json_args_(json_args),
-        args_(base::JSONReader::Read(json_args)),
-        caught_(caught) {
-    }
+        : profile_(profile),
+          event_name_(event_name),
+          json_args_(json_args),
+          args_(base::JSONReader::DeprecatedRead(json_args)),
+          caught_(caught) {}
 
     const base::Time& caught() { return caught_; }
 
@@ -182,8 +178,7 @@ class DownloadsEventsListener : public content::NotificationObserver {
           DownloadsNotificationSource* dns =
               content::Source<DownloadsNotificationSource>(source).ptr();
           Event* new_event = new Event(
-              dns->profile,
-              dns->event_name,
+              dns->profile, dns->event_name,
               *content::Details<std::string>(details).ptr(), base::Time::Now());
           events_.push_back(new_event);
           if (waiting_ &&
@@ -453,10 +448,8 @@ class DownloadExtensionTest : public ExtensionApiTest {
     for (size_t i = 0; i < count; ++i) {
       scoped_ptr<content::DownloadTestObserver> observer(
           CreateInProgressDownloadObserver(1));
-      GURL slow_download_url(URLRequestSlowDownloadJob::kUnknownSizeUrl);
-      ui_test_utils::NavigateToURLWithDisposition(
-          current_browser(), slow_download_url, CURRENT_TAB,
-          ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      GURL slow_download_url(net::URLRequestSlowDownloadJob::kUnknownSizeUrl);
+      ui_test_utils::NavigateToURL(current_browser(), slow_download_url);
       observer->WaitForFinished();
       EXPECT_EQ(
           1u, observer->NumDownloadsSeenInState(DownloadItem::IN_PROGRESS));
@@ -468,7 +461,7 @@ class DownloadExtensionTest : public ExtensionApiTest {
   DownloadItem* CreateSlowTestDownload() {
     scoped_ptr<content::DownloadTestObserver> observer(
         CreateInProgressDownloadObserver(1));
-    GURL slow_download_url(URLRequestSlowDownloadJob::kUnknownSizeUrl);
+    GURL slow_download_url(net::URLRequestSlowDownloadJob::kUnknownSizeUrl);
     DownloadManager* manager = GetCurrentManager();
 
     EXPECT_EQ(0, manager->NonMaliciousInProgressCount());
@@ -476,9 +469,7 @@ class DownloadExtensionTest : public ExtensionApiTest {
     if (manager->InProgressCount() != 0)
       return NULL;
 
-    ui_test_utils::NavigateToURLWithDisposition(
-        current_browser(), slow_download_url, CURRENT_TAB,
-        ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+    ui_test_utils::NavigateToURL(current_browser(), slow_download_url);
 
     observer->WaitForFinished();
     EXPECT_EQ(1u, observer->NumDownloadsSeenInState(DownloadItem::IN_PROGRESS));
@@ -501,7 +492,7 @@ class DownloadExtensionTest : public ExtensionApiTest {
   void FinishPendingSlowDownloads() {
     scoped_ptr<content::DownloadTestObserver> observer(
         CreateDownloadObserver(1));
-    GURL finish_url(URLRequestSlowDownloadJob::kFinishDownloadUrl);
+    GURL finish_url(net::URLRequestSlowDownloadJob::kFinishDownloadUrl);
     ui_test_utils::NavigateToURLWithDisposition(
         current_browser(), finish_url, NEW_FOREGROUND_TAB,
         ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
@@ -588,7 +579,7 @@ class DownloadExtensionTest : public ExtensionApiTest {
           extension_->GetResourceURL("empty.html"),
           ui::PAGE_TRANSITION_LINK);
       function->set_extension(extension_);
-      function->SetRenderViewHost(tab->GetRenderViewHost());
+      function->SetRenderFrameHost(tab->GetMainFrame());
     }
   }
 
@@ -3862,7 +3853,7 @@ IN_PROC_BROWSER_TEST_F(
 IN_PROC_BROWSER_TEST_F(
     DownloadExtensionTest,
     MAYBE_DownloadExtensionTest_OnDeterminingFilename_InterruptedResume) {
-  CommandLine::ForCurrentProcess()->AppendSwitch(
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kEnableDownloadResumption);
   LoadExtension("downloads_split");
   ASSERT_TRUE(StartEmbeddedTestServer());
@@ -3883,7 +3874,7 @@ IN_PROC_BROWSER_TEST_F(
     // resumed. http://crbug.com/225901
     ui_test_utils::NavigateToURLWithDisposition(
         current_browser(),
-        GURL(URLRequestSlowDownloadJob::kUnknownSizeUrl),
+        GURL(net::URLRequestSlowDownloadJob::kUnknownSizeUrl),
         CURRENT_TAB,
         ui_test_utils::BROWSER_TEST_NONE);
     observer->WaitForFinished();
@@ -3923,7 +3914,7 @@ IN_PROC_BROWSER_TEST_F(
   ClearEvents();
   ui_test_utils::NavigateToURLWithDisposition(
       current_browser(),
-      GURL(URLRequestSlowDownloadJob::kErrorDownloadUrl),
+      GURL(net::URLRequestSlowDownloadJob::kErrorDownloadUrl),
       NEW_BACKGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
 

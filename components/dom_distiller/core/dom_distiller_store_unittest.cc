@@ -33,6 +33,8 @@ using syncer::SyncErrorFactory;
 using testing::AssertionFailure;
 using testing::AssertionResult;
 using testing::AssertionSuccess;
+using testing::SaveArgPointee;
+using testing::_;
 
 namespace dom_distiller {
 
@@ -304,6 +306,60 @@ TEST_F(DomDistillerStoreTest, TestAddAndUpdateEntry) {
   EXPECT_FALSE(store_->UpdateEntry(GetSampleEntry(0)));
 }
 
+class MockAttachmentsCallbacks {
+ public:
+  MOCK_METHOD2(Get, void(bool, ArticleAttachmentsData*));
+  MOCK_METHOD1(Update, void(bool));
+
+  void GetImpl(bool success, scoped_ptr<ArticleAttachmentsData> attachments) {
+    Get(success, attachments.get());
+  }
+
+  DomDistillerStore::UpdateAttachmentsCallback UpdateCallback() {
+    return base::Bind(&MockAttachmentsCallbacks::Update,
+                      base::Unretained(this));
+  }
+
+  DomDistillerStore::GetAttachmentsCallback GetCallback() {
+    return base::Bind(&MockAttachmentsCallbacks::GetImpl,
+                      base::Unretained(this));
+  }
+};
+
+TEST_F(DomDistillerStoreTest, TestAttachments) {
+  ArticleEntry entry(GetSampleEntry(0));
+  AddEntry(entry, &db_model_);
+  CreateStore();
+  fake_db_->InitCallback(true);
+  fake_db_->LoadCallback(true);
+  ASSERT_TRUE(AreEntriesEqual(store_->GetEntries(), db_model_));
+
+  MockAttachmentsCallbacks callbacks;
+
+  store_->GetAttachments(entry.entry_id(), callbacks.GetCallback());
+  EXPECT_CALL(callbacks, Get(false, _));
+  base::RunLoop().RunUntilIdle();
+
+  ArticleAttachmentsData attachments, got_attachments;
+  DistilledArticleProto article_proto;
+  article_proto.set_title("A title");
+  attachments.set_distilled_article(article_proto);
+  store_->UpdateAttachments(
+      entry.entry_id(),
+      make_scoped_ptr(new ArticleAttachmentsData(attachments)),
+      callbacks.UpdateCallback());
+  EXPECT_CALL(callbacks, Update(true));
+  base::RunLoop().RunUntilIdle();
+
+  store_->GetAttachments(entry.entry_id(), callbacks.GetCallback());
+  EXPECT_CALL(callbacks, Get(true, _))
+      .WillOnce(SaveArgPointee<1>(&got_attachments));
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(attachments.ToString(),
+            got_attachments.ToString());
+}
+
 TEST_F(DomDistillerStoreTest, TestSyncMergeWithEmptyDatabase) {
   AddEntry(GetSampleEntry(0), &sync_model_);
   AddEntry(GetSampleEntry(1), &sync_model_);
@@ -339,6 +395,32 @@ TEST_F(DomDistillerStoreTest, TestSyncMergeAfterDatabaseLoad) {
   EXPECT_TRUE(AreEntriesEqual(store_->GetEntries(), db_model_));
 
   StartSyncing();
+
+  EXPECT_TRUE(AreEntriesEqual(store_->GetEntries(), expected_model));
+  EXPECT_TRUE(AreEntryMapsEqual(db_model_, expected_model));
+  EXPECT_TRUE(AreEntryMapsEqual(sync_model_, expected_model));
+}
+
+TEST_F(DomDistillerStoreTest, TestDatabaseLoadAfterSyncMerge) {
+  AddEntry(GetSampleEntry(0), &db_model_);
+  AddEntry(GetSampleEntry(1), &db_model_);
+  AddEntry(GetSampleEntry(2), &db_model_);
+
+  AddEntry(GetSampleEntry(2), &sync_model_);
+  AddEntry(GetSampleEntry(3), &sync_model_);
+  AddEntry(GetSampleEntry(4), &sync_model_);
+
+  EntryMap expected_model(db_model_);
+  AddEntry(GetSampleEntry(3), &expected_model);
+  AddEntry(GetSampleEntry(4), &expected_model);
+
+  CreateStore();
+  StartSyncing();
+
+  EXPECT_TRUE(AreEntriesEqual(store_->GetEntries(), sync_model_));
+
+  fake_db_->InitCallback(true);
+  fake_db_->LoadCallback(true);
 
   EXPECT_TRUE(AreEntriesEqual(store_->GetEntries(), expected_model));
   EXPECT_TRUE(AreEntryMapsEqual(db_model_, expected_model));

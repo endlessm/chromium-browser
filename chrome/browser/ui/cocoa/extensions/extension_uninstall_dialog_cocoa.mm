@@ -8,7 +8,8 @@
 
 #include <string>
 
-#include "base/strings/sys_string_conversions.h"
+#import "base/mac/scoped_nsobject.h"
+#import "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/grit/generated_resources.h"
 #include "extensions/common/extension.h"
@@ -48,19 +49,33 @@ void ExtensionUninstallDialogCocoa::Show() {
   NSButton* cancelButton = [alert addButtonWithTitle:l10n_util::GetNSString(
       IDS_CANCEL)];
   // Default to accept when triggered via chrome://extensions page.
-  if (triggering_extension_) {
+  if (triggering_extension()) {
     [continueButton setKeyEquivalent:@""];
     [cancelButton setKeyEquivalent:@"\r"];
   }
 
   [alert setMessageText:base::SysUTF8ToNSString(GetHeadingText())];
   [alert setAlertStyle:NSWarningAlertStyle];
-  [alert setIcon:gfx::NSImageFromImageSkia(icon_)];
+  [alert setIcon:gfx::NSImageFromImageSkia(icon())];
 
-  if ([alert runModal] == NSAlertFirstButtonReturn)
-    delegate_->ExtensionUninstallAccepted();
-  else
-    delegate_->ExtensionUninstallCanceled();
+  base::scoped_nsobject<NSButton> reportAbuseCheckbox;
+  if (ShouldShowReportAbuseCheckbox()) {
+    reportAbuseCheckbox.reset([[NSButton alloc] initWithFrame:NSZeroRect]);
+    [reportAbuseCheckbox setButtonType:NSSwitchButton];
+    [reportAbuseCheckbox setTitle:l10n_util::GetNSString(
+        IDS_EXTENSION_PROMPT_UNINSTALL_REPORT_ABUSE)];
+    [reportAbuseCheckbox sizeToFit];
+    [alert setAccessoryView:reportAbuseCheckbox];
+  }
+
+  if ([alert runModal] == NSAlertFirstButtonReturn) {
+    bool report_abuse_checked =
+        reportAbuseCheckbox.get() && [reportAbuseCheckbox state] == NSOnState;
+    OnDialogClosed(report_abuse_checked ?
+        CLOSE_ACTION_UNINSTALL_AND_REPORT_ABUSE : CLOSE_ACTION_UNINSTALL);
+  } else {
+    OnDialogClosed(CLOSE_ACTION_CANCELED);
+  }
 }
 
 }  // namespace

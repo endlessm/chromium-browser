@@ -41,6 +41,8 @@ class URLRequestContextGetter;
 
 namespace policy {
 
+class AffiliatedCloudPolicyInvalidator;
+class AffiliatedInvalidationServiceProvider;
 struct DeviceLocalAccount;
 class DeviceLocalAccountExternalDataService;
 class DeviceLocalAccountPolicyStore;
@@ -52,6 +54,7 @@ class DeviceLocalAccountPolicyBroker
     : public CloudPolicyStore::Observer,
       public ComponentCloudPolicyService::Delegate {
  public:
+  // |invalidation_service_provider| must outlive |this|.
   // |policy_update_callback| will be invoked to notify observers that the
   // policy for |account| has been updated.
   // |task_runner| is the runner for policy refresh tasks.
@@ -62,8 +65,9 @@ class DeviceLocalAccountPolicyBroker
       scoped_refptr<DeviceLocalAccountExternalDataManager>
           external_data_manager,
       const base::Closure& policy_updated_callback,
-      const scoped_refptr<base::SequencedTaskRunner>& task_runner);
-  virtual ~DeviceLocalAccountPolicyBroker();
+      const scoped_refptr<base::SequencedTaskRunner>& task_runner,
+      AffiliatedInvalidationServiceProvider* invalidation_service_provider);
+  ~DeviceLocalAccountPolicyBroker() override;
 
   // Initialize the broker, loading its |store_|.
   void Initialize();
@@ -89,6 +93,8 @@ class DeviceLocalAccountPolicyBroker
 
   SchemaRegistry* schema_registry() { return &schema_registry_; }
 
+  bool HasInvalidatorForTest() const;
+
   // Fire up the cloud connection for fetching policy for the account from the
   // cloud if this is an enterprise-managed device.
   void ConnectIfPossible(
@@ -104,16 +110,18 @@ class DeviceLocalAccountPolicyBroker
   std::string GetDisplayName() const;
 
   // CloudPolicyStore::Observer:
-  virtual void OnStoreLoaded(CloudPolicyStore* store) override;
-  virtual void OnStoreError(CloudPolicyStore* store) override;
+  void OnStoreLoaded(CloudPolicyStore* store) override;
+  void OnStoreError(CloudPolicyStore* store) override;
 
   // ComponentCloudPolicyService::Delegate:
-  virtual void OnComponentCloudPolicyUpdated() override;
+  void OnComponentCloudPolicyUpdated() override;
 
  private:
   void CreateComponentCloudPolicyService(
-      const scoped_refptr<net::URLRequestContextGetter>& request_context);
+      const scoped_refptr<net::URLRequestContextGetter>& request_context,
+      CloudPolicyClient* client);
 
+  AffiliatedInvalidationServiceProvider* const invalidation_service_provider_;
   const std::string account_id_;
   const std::string user_id_;
   const base::FilePath component_policy_cache_path_;
@@ -126,6 +134,7 @@ class DeviceLocalAccountPolicyBroker
   CloudPolicyCore core_;
   scoped_ptr<ComponentCloudPolicyService> component_policy_service_;
   base::Closure policy_update_callback_;
+  scoped_ptr<AffiliatedCloudPolicyInvalidator> invalidator_;
 
   DISALLOW_COPY_AND_ASSIGN(DeviceLocalAccountPolicyBroker);
 };
@@ -152,6 +161,7 @@ class DeviceLocalAccountPolicyService {
       chromeos::SessionManagerClient* session_manager_client,
       chromeos::DeviceSettingsService* device_settings_service,
       chromeos::CrosSettings* cros_settings,
+      AffiliatedInvalidationServiceProvider* invalidation_service_provider,
       scoped_refptr<base::SequencedTaskRunner> store_background_task_runner,
       scoped_refptr<base::SequencedTaskRunner> extension_cache_task_runner,
       scoped_refptr<base::SequencedTaskRunner>
@@ -221,11 +231,12 @@ class DeviceLocalAccountPolicyService {
   // Notifies the |observers_| that the policy for |user_id| has changed.
   void NotifyPolicyUpdated(const std::string& user_id);
 
-  ObserverList<Observer, true> observers_;
+  base::ObserverList<Observer, true> observers_;
 
   chromeos::SessionManagerClient* session_manager_client_;
   chromeos::DeviceSettingsService* device_settings_service_;
   chromeos::CrosSettings* cros_settings_;
+  AffiliatedInvalidationServiceProvider* invalidation_service_provider_;
 
   DeviceManagementService* device_management_service_;
 

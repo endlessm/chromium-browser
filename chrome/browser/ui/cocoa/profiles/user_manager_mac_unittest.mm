@@ -4,9 +4,11 @@
 
 #include "chrome/browser/ui/cocoa/profiles/user_manager_mac.h"
 
+#include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
 #include "chrome/browser/profiles/profile_window.h"
 #include "chrome/browser/ui/user_manager.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile_manager.h"
@@ -17,16 +19,19 @@ class UserManagerMacTest : public BrowserWithTestWindowTest {
       : testing_profile_manager_(TestingBrowserProcess::GetGlobal()) {
   }
 
-  virtual void SetUp() override {
+  void SetUp() override {
     BrowserWithTestWindowTest::SetUp();
     ASSERT_TRUE(testing_profile_manager_.SetUp());
-    // Pre-load the guest profile so we don't have to wait for the User Manager
+    // Create a user to make sure the System Profile isn't the only one since it
+    // shouldn't be added to the ProfileInfoCache.
+    testing_profile_manager_.CreateTestingProfile("Default");
+    // Pre-load the system profile so we don't have to wait for the User Manager
     // to asynchronously create it.
-    testing_profile_manager_.CreateGuestProfile();
+    testing_profile_manager_.CreateSystemProfile();
   }
 
-  virtual void TearDown() override {
-    testing_profile_manager_.DeleteGuestProfile();
+  void TearDown() override {
+    testing_profile_manager_.DeleteSystemProfile();
     TestingBrowserProcess::GetGlobal()->SetProfileManager(NULL);
     base::RunLoop().RunUntilIdle();
     BrowserWithTestWindowTest::TearDown();
@@ -39,6 +44,13 @@ class UserManagerMacTest : public BrowserWithTestWindowTest {
 };
 
 TEST_F(UserManagerMacTest, ShowUserManager) {
+  // Set the ProfileLastUsed pref so that SetActiveProfileToGuestIfLocked()
+  // uses a last active profile that's in the ProfileInfoCache, not default.
+  g_browser_process->local_state()->SetString(
+      prefs::kProfileLastUsed,
+      g_browser_process->profile_manager()->GetProfileInfoCache().
+          GetPathOfProfileAtIndex(0).BaseName().MaybeAsASCII());
+
   EXPECT_FALSE(UserManager::IsShowing());
   UserManager::Show(base::FilePath(),
                     profiles::USER_MANAGER_NO_TUTORIAL,

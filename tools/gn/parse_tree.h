@@ -32,23 +32,18 @@ class Comments {
   virtual ~Comments();
 
   const std::vector<Token>& before() const { return before_; }
-  void append_before(Token c) {
-    before_.push_back(c);
-  }
+  void append_before(Token c) { before_.push_back(c); }
+  void clear_before() { before_.clear(); }
 
   const std::vector<Token>& suffix() const { return suffix_; }
-  void append_suffix(Token c) {
-    suffix_.push_back(c);
-  }
+  void append_suffix(Token c) { suffix_.push_back(c); }
   // Reverse the order of the suffix comments. When walking the tree in
   // post-order we append suffix comments in reverse order, so this fixes them
   // up.
   void ReverseSuffix();
 
   const std::vector<Token>& after() const { return after_; }
-  void append_after(Token c) {
-    after_.push_back(c);
-  }
+  void append_after(Token c) { after_.push_back(c); }
 
  private:
   // Whole line comments before the expression.
@@ -160,6 +155,8 @@ class AccessorNode : public ParseNode {
   const IdentifierNode* member() const { return member_.get(); }
   void set_member(scoped_ptr<IdentifierNode> i) { member_ = i.Pass(); }
 
+  void SetNewLocation(int line_number);
+
  private:
   Value ExecuteArrayAccess(Scope* scope, Err* err) const;
   Value ExecuteScopeAccess(Scope* scope, Err* err) const;
@@ -214,8 +211,7 @@ class BinaryOpNode : public ParseNode {
 
 class BlockNode : public ParseNode {
  public:
-  // Set has_scope if this block introduces a nested scope.
-  explicit BlockNode(bool has_scope);
+  BlockNode();
   ~BlockNode() override;
 
   const BlockNode* AsBlock() const override;
@@ -235,12 +231,7 @@ class BlockNode : public ParseNode {
     statements_.push_back(s.release());
   }
 
-  // Doesn't create a nested scope.
-  Value ExecuteBlockInScope(Scope* our_scope, Err* err) const;
-
  private:
-  bool has_scope_;
-
   // Tokens corresponding to { and }, if any (may be NULL). The end is stored
   // in a custom parse node so that it can have comments hung off of it.
   Token begin_token_;
@@ -334,7 +325,7 @@ class FunctionCallNode : public ParseNode {
 class IdentifierNode : public ParseNode {
  public:
   IdentifierNode();
-  IdentifierNode(const Token& token);
+  explicit IdentifierNode(const Token& token);
   ~IdentifierNode() override;
 
   const IdentifierNode* AsIdentifier() const override;
@@ -347,6 +338,8 @@ class IdentifierNode : public ParseNode {
 
   const Token& value() const { return value_; }
   void set_value(const Token& t) { value_ = t; }
+
+  void SetNewLocation(int line_number);
 
  private:
   Token value_;
@@ -378,11 +371,30 @@ class ListNode : public ParseNode {
   }
   const std::vector<const ParseNode*>& contents() const { return contents_; }
 
+  void SortAsStringsList();
+
+  // During formatting, do we want this list to always be multliline? This is
+  // used to make assignments to deps, sources, etc. always be multiline lists,
+  // rather than collapsed to a single line when they're one element.
+  bool prefer_multiline() const { return prefer_multiline_; }
+  void set_prefer_multiline(bool prefer_multiline) {
+    prefer_multiline_ = prefer_multiline;
+  }
+
+  struct SortRange {
+    size_t begin;
+    size_t end;
+    SortRange(size_t begin, size_t end) : begin(begin), end(end) {}
+  };
+  // Only public for testing.
+  std::vector<SortRange> GetSortRanges() const;
+
  private:
   // Tokens corresponding to the [ and ]. The end token is stored in inside an
   // custom parse node so that it can have comments hung off of it.
   Token begin_token_;
   scoped_ptr<EndNode> end_;
+  bool prefer_multiline_;
 
   // Owning pointers, use unique_ptr when we can use C++11.
   std::vector<const ParseNode*> contents_;
@@ -395,7 +407,7 @@ class ListNode : public ParseNode {
 class LiteralNode : public ParseNode {
  public:
   LiteralNode();
-  LiteralNode(const Token& token);
+  explicit LiteralNode(const Token& token);
   ~LiteralNode() override;
 
   const LiteralNode* AsLiteral() const override;
@@ -408,6 +420,8 @@ class LiteralNode : public ParseNode {
 
   const Token& value() const { return value_; }
   void set_value(const Token& t) { value_ = t; }
+
+  void SetNewLocation(int line_number);
 
  private:
   Token value_;
@@ -482,7 +496,7 @@ class BlockCommentNode : public ParseNode {
 // comments can be attached.
 class EndNode : public ParseNode {
  public:
-  EndNode(const Token& token);
+  explicit EndNode(const Token& token);
   ~EndNode() override;
 
   const EndNode* AsEnd() const override;

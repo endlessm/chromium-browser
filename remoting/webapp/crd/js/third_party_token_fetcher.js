@@ -30,7 +30,7 @@ var remoting = remoting || {};
  * @param {string} tokenUrl Token-issue URL received from the host.
  * @param {string} hostPublicKey Host public key (DER and Base64 encoded).
  * @param {string} scope OAuth scope to request the token for.
- * @param {Array.<string>} tokenUrlPatterns Token URL patterns allowed for the
+ * @param {Array<string>} tokenUrlPatterns Token URL patterns allowed for the
  *     domain, received from the directory server.
  * @param {function(string, string):void} onThirdPartyTokenFetched Callback.
  */
@@ -45,8 +45,7 @@ remoting.ThirdPartyTokenFetcher = function(
   this.tokenUrlPatterns_ = tokenUrlPatterns;
   this.hostPublicKey_ = hostPublicKey;
   if (chrome.identity) {
-    /** @type {function():void}
-     * @private */
+    /** @private {function():void} */
     this.fetchTokenInternal_ = this.fetchTokenIdentityApi_.bind(this);
     this.redirectUri_ = 'https://' + window.location.hostname +
         '.chromiumapp.org/ThirdPartyAuth';
@@ -86,7 +85,7 @@ remoting.ThirdPartyTokenFetcher.prototype.fetchToken = function() {
 /**
  * Parse the access token from the URL to which we were redirected.
  *
- * @param {string} responseUrl The URL to which we were redirected.
+ * @param {string=} responseUrl The URL to which we were redirected.
  * @private
  */
 remoting.ThirdPartyTokenFetcher.prototype.parseRedirectUrl_ =
@@ -97,7 +96,7 @@ remoting.ThirdPartyTokenFetcher.prototype.parseRedirectUrl_ =
   if (responseUrl && responseUrl.search('#') >= 0) {
     var query = responseUrl.substring(responseUrl.search('#') + 1);
     var parts = query.split('&');
-    /** @type {Object.<string>} */
+    /** @type {Object<string>} */
     var queryArgs = {};
     for (var i = 0; i < parts.length; i++) {
       var pair = parts[i].split('=');
@@ -133,7 +132,7 @@ remoting.ThirdPartyTokenFetcher.prototype.parseRedirectUrl_ =
  * @private
  */
 remoting.ThirdPartyTokenFetcher.prototype.getFullTokenUrl_ = function() {
-  return this.tokenUrl_ + '?' + remoting.xhr.urlencodeParamHash({
+  return this.tokenUrl_ + '?' + remoting.Xhr.urlencodeParamHash({
     'redirect_uri': this.redirectUri_,
     'scope': this.tokenScope_,
     'client_id': this.hostPublicKey_,

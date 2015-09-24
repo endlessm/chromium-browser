@@ -12,17 +12,20 @@
 #include "base/time/time.h"
 #include "components/bookmarks/browser/bookmark_node.h"
 #include "ui/base/clipboard/clipboard_types.h"
-
 #include "url/gurl.h"
+
 #if defined(TOOLKIT_VIEWS)
 #include "ui/base/dragdrop/os_exchange_data.h"
 #endif
 
-class BookmarkModel;
+namespace base {
 class Pickle;
 class PickleIterator;
+}
 
 namespace bookmarks {
+
+class BookmarkModel;
 
 // BookmarkNodeData is used to represent the following:
 //
@@ -76,8 +79,8 @@ struct BookmarkNodeData {
     friend struct BookmarkNodeData;
 
     // For reading/writing this Element.
-    void WriteToPickle(Pickle* pickle) const;
-    bool ReadFromPickle(Pickle* pickle, PickleIterator* iterator);
+    void WriteToPickle(base::Pickle* pickle) const;
+    bool ReadFromPickle(base::PickleIterator* iterator);
 
     // ID of the node.
     int64 id_;
@@ -127,10 +130,11 @@ struct BookmarkNodeData {
 #endif
 
   // Writes the data for a drag to |pickle|.
-  void WriteToPickle(const base::FilePath& profile_path, Pickle* pickle) const;
+  void WriteToPickle(const base::FilePath& profile_path,
+                     base::Pickle* pickle) const;
 
   // Reads the data for a drag from a |pickle|.
-  bool ReadFromPickle(Pickle* pickle);
+  bool ReadFromPickle(base::Pickle* pickle);
 
   // Returns the nodes represented by this DragData. If this DragData was
   // created from the same profile then the nodes from the model are returned.
@@ -149,7 +153,7 @@ struct BookmarkNodeData {
   bool is_valid() const { return !elements.empty(); }
 
   // Returns true if there is a single url.
-  bool has_single_url() const { return is_valid() && elements[0].is_url; }
+  bool has_single_url() const { return size() == 1 && elements[0].is_url; }
 
   // Number of elements.
   size_t size() const { return elements.size(); }

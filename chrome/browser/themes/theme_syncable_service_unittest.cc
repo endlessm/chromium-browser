@@ -17,6 +17,7 @@
 #include "chrome/test/base/testing_profile.h"
 #include "content/public/test/test_browser_thread.h"
 #include "extensions/browser/extension_prefs.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/manifest_url_handlers.h"
@@ -112,8 +113,9 @@ class FakeThemeService : public ThemeService {
   bool is_dirty_;
 };
 
-KeyedService* BuildMockThemeService(content::BrowserContext* profile) {
-  return new FakeThemeService;
+scoped_ptr<KeyedService> BuildMockThemeService(
+    content::BrowserContext* profile) {
+  return make_scoped_ptr(new FakeThemeService);
 }
 
 scoped_refptr<extensions::Extension> MakeThemeExtension(
@@ -162,7 +164,7 @@ class ThemeSyncableServiceTest : public testing::Test {
   }
 
   void SetUpExtension() {
-    CommandLine command_line(CommandLine::NO_PROGRAM);
+    base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
     extensions::TestExtensionSystem* test_ext_system =
         static_cast<extensions::TestExtensionSystem*>(
                 extensions::ExtensionSystem::Get(profile_.get()));
@@ -187,7 +189,9 @@ class ThemeSyncableServiceTest : public testing::Test {
     extensions::ExtensionPrefs::Get(profile_.get())
         ->AddGrantedPermissions(theme_extension_->id(), permissions.get());
     service->AddExtension(theme_extension_.get());
-    ASSERT_EQ(1u, service->extensions()->size());
+    extensions::ExtensionRegistry* registry =
+        extensions::ExtensionRegistry::Get(profile_.get());
+    ASSERT_EQ(1u, registry->enabled_extensions().size());
   }
 
   // Overridden in PolicyInstalledThemeTest below.

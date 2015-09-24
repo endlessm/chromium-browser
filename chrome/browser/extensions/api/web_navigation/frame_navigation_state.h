@@ -28,6 +28,9 @@ class FrameNavigationState {
   FrameNavigationState();
   ~FrameNavigationState();
 
+  // True if in general webNavigation events may be sent for the given URL.
+  static bool IsValidUrl(const GURL& url);
+
   // Use these to iterate over all frame hosts known by this object.
   const_iterator begin() const { return frame_hosts_.begin(); }
   const_iterator end() const { return frame_hosts_.end(); }
@@ -35,23 +38,21 @@ class FrameNavigationState {
   // True if navigation events for the given frame can be sent.
   bool CanSendEvents(content::RenderFrameHost* frame_host) const;
 
-  // TODO(dcheng): This should be static.
-  // True if in general webNavigation events may be sent for the given URL.
-  bool IsValidUrl(const GURL& url) const;
+  // Starts to track a navigation in |frame_host| to |url|.
+  void StartTrackingNavigation(content::RenderFrameHost* frame_host,
+                               const GURL& url,
+                               bool is_error_page,
+                               bool is_iframe_srcdoc);
 
-  // Starts to track a |frame_host| showing the URL |url|.
-  void TrackFrame(content::RenderFrameHost* frame_host,
-                  const GURL& url,
-                  bool is_error_page,
-                  bool is_iframe_srcdoc);
+  // Adds the |frame_host| to the set of RenderFrameHosts associated with the
+  // WebContents this object is tracking. This method and FrameHostDeleted
+  // are used to track the set of current RenderFrameHosts, which is used to
+  // implement the GetFrame and GetAllFrames extension APIs.
+  void FrameHostCreated(content::RenderFrameHost* frame_host);
 
-  // Marks |frame_host| as detached and stops tracking it.
-  void FrameDetached(content::RenderFrameHost* frame_host);
-
-  // Stops tracking all frame hosts but |frame_host_to_skip| in
-  // |render_view_host|.
-  void StopTrackingFramesInRVH(content::RenderViewHost* render_view_host,
-                               content::RenderFrameHost* frame_host_to_skip);
+  // Removes the |frame_host| from the set of RenderFrameHosts associated with
+  // the WebContents this object is tracking.
+  void FrameHostDeleted(content::RenderFrameHost* frame_host);
 
   // Update the URL associated with |frame_host|.
   void UpdateFrame(content::RenderFrameHost* frame_host, const GURL& url);
@@ -63,9 +64,6 @@ class FrameNavigationState {
   // TODO(dcheng): Why is this needed? Can't this information be extracted from
   // RenderFrameHost?
   GURL GetUrl(content::RenderFrameHost* frame_host) const;
-
-  // Returns a pointer to the last comitted main frame host.
-  content::RenderFrameHost* GetLastCommittedMainFrameHost() const;
 
   // Marks |frame_host| as in an error state, i.e. the onErrorOccurred event was
   // fired for it, and no further events should be sent for it.
@@ -125,9 +123,6 @@ class FrameNavigationState {
 
   // Set of all known frame hosts.
   std::set<content::RenderFrameHost*> frame_hosts_;
-
-  // The last comitted main frame.
-  content::RenderFrameHost* main_frame_host_;
 
   // If true, also allow events from chrome-extension:// URLs.
   static bool allow_extension_scheme_;

@@ -6,49 +6,67 @@
 #define UI_COMPOSITOR_TEST_IN_PROCESS_CONTEXT_FACTORY_H_
 
 #include "cc/test/test_gpu_memory_buffer_manager.h"
+#include "cc/test/test_image_factory.h"
 #include "cc/test/test_shared_bitmap_manager.h"
+#include "cc/test/test_task_graph_runner.h"
 #include "ui/compositor/compositor.h"
 
 namespace base {
 class Thread;
 }
 
-namespace webkit {
-namespace gpu {
-class ContextProviderInProcess;
-}
+namespace cc {
+class OnscreenDisplayClient;
+class SurfaceManager;
 }
 
 namespace ui {
 
 class InProcessContextFactory : public ContextFactory {
  public:
-  InProcessContextFactory();
+  // surface_manager is owned by the creator of this and must outlive the
+  // context factory.
+  InProcessContextFactory(bool context_factory_for_test,
+                          cc::SurfaceManager* surface_manager);
   ~InProcessContextFactory() override;
 
-  // ContextFactory implementation
-  void CreateOutputSurface(base::WeakPtr<Compositor> compositor,
-                           bool software_fallback) override;
+  // If true (the default) an OutputSurface is created that does not display
+  // anything. Set to false if you want to see results on the screen.
+  void set_use_test_surface(bool use_test_surface) {
+    use_test_surface_ = use_test_surface;
+  }
 
-  scoped_refptr<Reflector> CreateReflector(Compositor* mirrored_compositor,
-                                           Layer* mirroring_layer) override;
-  void RemoveReflector(scoped_refptr<Reflector> reflector) override;
+  // ContextFactory implementation
+  void CreateOutputSurface(base::WeakPtr<Compositor> compositor) override;
+
+  scoped_ptr<Reflector> CreateReflector(Compositor* mirrored_compositor,
+                                        Layer* mirroring_layer) override;
+  void RemoveReflector(Reflector* reflector) override;
 
   scoped_refptr<cc::ContextProvider> SharedMainThreadContextProvider() override;
   void RemoveCompositor(Compositor* compositor) override;
   bool DoesCreateTestContexts() override;
+  uint32 GetImageTextureTarget(gfx::GpuMemoryBuffer::Format format,
+                               gfx::GpuMemoryBuffer::Usage usage) override;
   cc::SharedBitmapManager* GetSharedBitmapManager() override;
   gpu::GpuMemoryBufferManager* GetGpuMemoryBufferManager() override;
-  base::MessageLoopProxy* GetCompositorMessageLoop() override;
+  cc::TaskGraphRunner* GetTaskGraphRunner() override;
   scoped_ptr<cc::SurfaceIdAllocator> CreateSurfaceIdAllocator() override;
+  void ResizeDisplay(ui::Compositor* compositor,
+                     const gfx::Size& size) override;
 
  private:
-  scoped_ptr<base::Thread> compositor_thread_;
-  scoped_refptr<webkit::gpu::ContextProviderInProcess>
-      shared_main_thread_contexts_;
+  scoped_refptr<cc::ContextProvider> shared_main_thread_contexts_;
   cc::TestSharedBitmapManager shared_bitmap_manager_;
   cc::TestGpuMemoryBufferManager gpu_memory_buffer_manager_;
+  cc::TestImageFactory image_factory_;
+  cc::TestTaskGraphRunner task_graph_runner_;
   uint32_t next_surface_id_namespace_;
+  bool use_test_surface_;
+  bool context_factory_for_test_;
+  cc::SurfaceManager* surface_manager_;
+
+  base::hash_map<Compositor*, cc::OnscreenDisplayClient*> per_compositor_data_;
 
   DISALLOW_COPY_AND_ASSIGN(InProcessContextFactory);
 };

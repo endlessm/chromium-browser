@@ -18,6 +18,7 @@
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_window_manager.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/chromeos_switches.h"
@@ -56,7 +57,7 @@ content::BrowserContext* SessionStateDelegateChromeos::GetBrowserContextByIndex(
   user_manager::User* user =
       user_manager::UserManager::Get()->GetLRULoggedInUsers()[index];
   CHECK(user);
-  return chromeos::ProfileHelper::Get()->GetProfileByUserUnsafe(user);
+  return chromeos::ProfileHelper::Get()->GetProfileByUser(user);
 }
 
 content::BrowserContext*
@@ -64,10 +65,18 @@ SessionStateDelegateChromeos::GetBrowserContextForWindow(
     aura::Window* window) {
   const std::string& user_id =
       chrome::MultiUserWindowManager::GetInstance()->GetWindowOwner(window);
-  const user_manager::User* user =
-      user_manager::UserManager::Get()->FindUser(user_id);
-  DCHECK(user);
-  return chromeos::ProfileHelper::Get()->GetProfileByUserUnsafe(user);
+  return user_id.empty() ? NULL
+                         : multi_user_util::GetProfileFromUserID(user_id);
+}
+
+content::BrowserContext*
+SessionStateDelegateChromeos::GetUserPresentingBrowserContextForWindow(
+    aura::Window* window) {
+  const std::string& user_id =
+      chrome::MultiUserWindowManager::GetInstance()->GetUserPresentingWindow(
+          window);
+  return user_id.empty() ? NULL
+                         : multi_user_util::GetProfileFromUserID(user_id);
 }
 
 int SessionStateDelegateChromeos::GetMaximumNumberOfLoggedInUsers() const {
@@ -117,10 +126,11 @@ bool SessionStateDelegateChromeos::ShouldLockScreenBeforeSuspending() const {
        it != logged_in_users.end();
        ++it) {
     user_manager::User* user = (*it);
-    Profile* profile =
-        chromeos::ProfileHelper::Get()->GetProfileByUserUnsafe(user);
-    if (profile->GetPrefs()->GetBoolean(prefs::kEnableAutoScreenLock))
+    Profile* profile = chromeos::ProfileHelper::Get()->GetProfileByUser(user);
+    if (profile &&
+        profile->GetPrefs()->GetBoolean(prefs::kEnableAutoScreenLock)) {
       return true;
+    }
   }
   return false;
 }
@@ -140,8 +150,8 @@ void SessionStateDelegateChromeos::UnlockScreen() {
 }
 
 bool SessionStateDelegateChromeos::IsUserSessionBlocked() const {
-  bool has_login_manager = CommandLine::ForCurrentProcess()->HasSwitch(
-          chromeos::switches::kLoginManager);
+  bool has_login_manager = base::CommandLine::ForCurrentProcess()->HasSwitch(
+      chromeos::switches::kLoginManager);
   return (has_login_manager && !IsActiveUserSessionStarted()) ||
          IsScreenLocked() ||
          chromeos::UserAddingScreen::Get()->IsRunning();

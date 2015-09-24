@@ -25,10 +25,21 @@
 class SkSurface;
 class SkOSMenu;
 
+#if SK_SUPPORT_GPU
+struct GrGLInterface;
+class GrContext;
+class GrRenderTarget;
+#endif
+
 class SkWindow : public SkView {
 public:
             SkWindow();
     virtual ~SkWindow();
+
+    struct AttachmentInfo {
+        int fSampleCount;
+        int fStencilBits;
+    };
 
     SkSurfaceProps getSurfaceProps() const { return fSurfaceProps; }
     void setSurfaceProps(const SkSurfaceProps& props) {
@@ -68,6 +79,7 @@ public:
 
     virtual void onPDFSaved(const char title[], const char desc[],
         const char path[]) {}
+
 protected:
     virtual bool onEvent(const SkEvent&);
     virtual bool onDispatchClick(int x, int y, Click::State, void* owner, unsigned modi);
@@ -84,6 +96,11 @@ protected:
     virtual bool handleInval(const SkRect*);
     virtual bool onGetFocusView(SkView** focus) const;
     virtual bool onSetFocusView(SkView* focus);
+
+#if SK_SUPPORT_GPU
+    GrRenderTarget* renderTarget(const AttachmentInfo& attachmentInfo,
+                                 const GrGLInterface* , GrContext* grContext);
+#endif
 
 private:
     SkSurfaceProps  fSurfaceProps;
@@ -106,9 +123,7 @@ private:
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#if defined(SK_BUILD_FOR_NACL)
-    #include "SkOSWindow_NaCl.h"
-#elif defined(SK_BUILD_FOR_MAC)
+#if defined(SK_BUILD_FOR_MAC)
     #include "SkOSWindow_Mac.h"
 #elif defined(SK_BUILD_FOR_WIN)
     #include "SkOSWindow_Win.h"

@@ -23,6 +23,9 @@
 #include "content/browser/gpu/gpu_process_host.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/utility_process_host_impl.h"
+#if defined(V8_USE_EXTERNAL_STARTUP_DATA)
+#include "gin/v8_initializer.h"
+#endif
 #endif
 
 #if defined(OS_ANDROID)
@@ -32,15 +35,17 @@
 #include "content/public/browser/android/compositor.h"
 #include "media/base/android/media_jni_registrar.h"
 #include "net/android/net_jni_registrar.h"
+#include "ui/android/ui_android_jni_registrar.h"
 #include "ui/base/android/ui_base_jni_registrar.h"
 #include "ui/gfx/android/gfx_jni_registrar.h"
 #include "ui/gl/android/gl_jni_registrar.h"
 #include "ui/shell_dialogs/android/shell_dialogs_jni_registrar.h"
 #endif
 
-#ifdef V8_USE_EXTERNAL_STARTUP_DATA
-#include "gin/public/isolate_holder.h"
+#if defined(USE_OZONE)
+#include "ui/ozone/public/ozone_platform.h"
 #endif
+
 
 namespace content {
 
@@ -48,7 +53,7 @@ class ContentTestSuiteBaseListener : public testing::EmptyTestEventListener {
  public:
   ContentTestSuiteBaseListener() {
   }
-  virtual void OnTestEnd(const testing::TestInfo& test_info) override {
+  void OnTestEnd(const testing::TestInfo& test_info) override {
     BrowserThreadImpl::FlushThreadPoolHelperForTesting();
   }
  private:
@@ -67,8 +72,9 @@ void ContentTestSuiteBase::Initialize() {
   // by tests.
   base::StatisticsRecorder::Initialize();
 
-#ifdef V8_USE_EXTERNAL_STARTUP_DATA
-  gin::IsolateHolder::LoadV8Snapshot();
+#if !defined(OS_IOS) && defined(V8_USE_EXTERNAL_STARTUP_DATA)
+  gin::V8Initializer::LoadV8Snapshot();
+  gin::V8Initializer::LoadV8Natives();
 #endif
 
 #if defined(OS_ANDROID)
@@ -80,9 +86,15 @@ void ContentTestSuiteBase::Initialize() {
   media::RegisterJni(env);
   net::android::RegisterJni(env);
   ui::android::RegisterJni(env);
+  ui::RegisterUIAndroidJni(env);
+  ui::gl::android::RegisterJni(env);
   ui::shell_dialogs::RegisterJni(env);
 
   content::Compositor::Initialize();
+#endif
+
+#if defined(USE_OZONE)
+  ui::OzonePlatform::InitializeForUI();
 #endif
 
   testing::UnitTest::GetInstance()->listeners().Append(

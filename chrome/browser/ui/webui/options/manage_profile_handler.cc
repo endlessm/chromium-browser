@@ -31,8 +31,8 @@
 #include "chrome/browser/ui/webui/options/options_handlers_helper.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "chrome/grit/google_chrome_strings.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "content/public/browser/browser_thread.h"
@@ -64,6 +64,11 @@ bool GetProfilePathFromArgs(const base::ListValue* args,
   return base::GetValueAsFilePath(*file_path_value, profile_file_path);
 }
 
+void HandleLogDeleteUserDialogShown(const base::ListValue* args) {
+  ProfileMetrics::LogProfileDeleteUser(
+      ProfileMetrics::DELETE_PROFILE_SETTINGS_SHOW_WARNING);
+}
+
 }  // namespace
 
 ManageProfileHandler::ManageProfileHandler()
@@ -84,8 +89,6 @@ void ManageProfileHandler::GetLocalizedValues(
 
   static OptionsStringResource resources[] = {
     { "manageProfilesNameLabel", IDS_PROFILES_MANAGE_NAME_LABEL },
-    { "manageProfilesDuplicateNameError",
-        IDS_PROFILES_MANAGE_DUPLICATE_NAME_ERROR },
     { "manageProfilesIconLabel", IDS_PROFILES_MANAGE_ICON_LABEL },
     { "manageProfilesExistingSupervisedUser",
         IDS_PROFILES_CREATE_EXISTING_SUPERVISED_USER_ERROR },
@@ -130,8 +133,7 @@ void ManageProfileHandler::GetLocalizedValues(
 }
 
 void ManageProfileHandler::InitializeHandler() {
-  registrar_.Add(this, chrome::NOTIFICATION_PROFILE_CACHED_INFO_CHANGED,
-                 content::NotificationService::AllSources());
+  g_browser_process->profile_manager()->GetProfileInfoCache().AddObserver(this);
 
   Profile* profile = Profile::FromWebUI(web_ui());
   pref_change_registrar_.Init(profile->GetPrefs());
@@ -188,21 +190,36 @@ void ManageProfileHandler::RegisterMessages() {
       "showDisconnectManagedProfileDialog",
       base::Bind(&ManageProfileHandler::ShowDisconnectManagedProfileDialog,
                  base::Unretained(this)));
+  web_ui()->RegisterMessageCallback("logDeleteUserDialogShown",
+      base::Bind(&HandleLogDeleteUserDialogShown));
 }
 
 void ManageProfileHandler::Uninitialize() {
-  registrar_.RemoveAll();
+  g_browser_process->profile_manager()->
+      GetProfileInfoCache().RemoveObserver(this);
 }
 
-void ManageProfileHandler::Observe(
-    int type,
-    const content::NotificationSource& source,
-    const content::NotificationDetails& details) {
-  if (type == chrome::NOTIFICATION_PROFILE_CACHED_INFO_CHANGED) {
-    SendExistingProfileNames();
-    base::StringValue value(kManageProfileIdentifier);
-    SendProfileIconsAndNames(value);
-  }
+void ManageProfileHandler::OnProfileAdded(const base::FilePath& profile_path) {
+  SendExistingProfileNames();
+}
+
+void ManageProfileHandler::OnProfileWasRemoved(
+    const base::FilePath& profile_path,
+    const base::string16& profile_name) {
+  SendExistingProfileNames();
+}
+
+void ManageProfileHandler::OnProfileNameChanged(
+    const base::FilePath& profile_path,
+    const base::string16& old_profile_name) {
+  base::StringValue value(kManageProfileIdentifier);
+  SendProfileIconsAndNames(value);
+}
+
+void ManageProfileHandler::OnProfileAvatarChanged(
+    const base::FilePath& profile_path) {
+  base::StringValue value(kManageProfileIdentifier);
+  SendProfileIconsAndNames(value);
 }
 
 void ManageProfileHandler::OnStateChanged() {
@@ -368,7 +385,7 @@ void ManageProfileHandler::SetProfileIconAndName(const base::ListValue* args) {
   }
   ProfileMetrics::LogProfileUpdate(profile_file_path);
 
-  if (profile->IsSupervised())
+  if (profile->IsLegacySupervised())
     return;
 
   base::string16 new_profile_name;
@@ -475,8 +492,14 @@ void ManageProfileHandler::RequestCreateProfileUpdate(
       base::UTF8ToUTF16(manager->GetAuthenticatedUsername());
   ProfileSyncService* service =
      ProfileSyncServiceFactory::GetForProfile(profile);
-  GoogleServiceAuthError::State state = service->GetAuthError().state();
-  bool has_error = (state == GoogleServiceAuthError::INVALID_GAIA_CREDENTIALS ||
+  GoogleServiceAuthError::State state = GoogleServiceAuthError::NONE;
+
+  // |service| might be null if Sync is disabled from the command line.
+  if (service)
+    state = service->GetAuthError().state();
+
+  bool has_error = (!service ||
+                    state == GoogleServiceAuthError::INVALID_GAIA_CREDENTIALS ||
                     state == GoogleServiceAuthError::USER_NOT_SIGNED_UP ||
                     state == GoogleServiceAuthError::ACCOUNT_DELETED ||
                     state == GoogleServiceAuthError::ACCOUNT_DISABLED);

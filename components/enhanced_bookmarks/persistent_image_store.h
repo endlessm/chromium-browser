@@ -10,19 +10,22 @@
 #include "base/files/file_path.h"
 #include "sql/connection.h"
 #include "sql/init_status.h"
+#include "sql/meta_table.h"
 
 // The PersistentImageStore is an implementation of ImageStore that persists its
 // data on disk.
 class PersistentImageStore : public ImageStore {
  public:
+  static const char kBookmarkImageStoreDb[];
+
   // Creates a PersistentImageStore in the directory at the given path.
   explicit PersistentImageStore(const base::FilePath& path);
   bool HasKey(const GURL& page_url) override;
   void Insert(const GURL& page_url,
-              const GURL& image_url,
-              const gfx::Image& image) override;
+              scoped_refptr<enhanced_bookmarks::ImageRecord> image) override;
   void Erase(const GURL& page_url) override;
-  std::pair<gfx::Image, GURL> Get(const GURL& page_url) override;
+  scoped_refptr<enhanced_bookmarks::ImageRecord> Get(
+      const GURL& page_url) override;
   gfx::Size GetSize(const GURL& page_url) override;
   void GetAllPageUrls(std::set<GURL>* urls) override;
   void ClearAll() override;
@@ -36,6 +39,7 @@ class PersistentImageStore : public ImageStore {
 
   const base::FilePath path_;
   sql::Connection db_;
+  sql::MetaTable meta_table_;
 
   DISALLOW_COPY_AND_ASSIGN(PersistentImageStore);
 };

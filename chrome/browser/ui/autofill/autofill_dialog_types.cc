@@ -20,14 +20,6 @@ namespace autofill {
 
 static const base::char16 kRangeSeparator = '|';
 
-// Street address is multi-line, except in countries where it shares a line
-// with other inputs (such as Coite d'Ivoire).
-bool DetailInput::IsMultiline() const {
-  return (type == ADDRESS_HOME_STREET_ADDRESS ||
-          type == ADDRESS_BILLING_STREET_ADDRESS) &&
-      length == DetailInput::LONG;
-}
-
 DialogNotification::DialogNotification() : type_(NONE) {}
 
 DialogNotification::DialogNotification(Type type,
@@ -108,7 +100,9 @@ bool DialogNotification::HasCheckbox() const {
   return type_ == DialogNotification::WALLET_USAGE_CONFIRMATION;
 }
 
-SkColor const kWarningColor = SkColorSetRGB(0xde, 0x49, 0x32);
+SkColor const kWarningColor = SkColorSetRGB(0xd3, 0x2f, 0x2f);
+SkColor const kLightShadingColor = SkColorSetARGB(7, 0, 0, 0);
+SkColor const kSubtleBorderColor = SkColorSetARGB(10, 0, 0, 0);
 
 SuggestionState::SuggestionState()
     : visible(false) {}

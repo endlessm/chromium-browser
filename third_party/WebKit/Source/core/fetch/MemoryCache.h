@@ -25,6 +25,7 @@
 #ifndef MemoryCache_h
 #define MemoryCache_h
 
+#include "core/CoreExport.h"
 #include "core/fetch/Resource.h"
 #include "core/fetch/ResourcePtr.h"
 #include "public/platform/WebThread.h"
@@ -72,16 +73,14 @@ enum UpdateReason {
 // MemoryCacheEntry class is used only in MemoryCache class, but we don't make
 // MemoryCacheEntry class an inner class of MemoryCache because of dependency
 // from MemoryCacheLRUList.
-class MemoryCacheEntry final : public NoBaseWillBeGarbageCollectedFinalized<MemoryCacheEntry> {
+class MemoryCacheEntry final : public GarbageCollectedFinalized<MemoryCacheEntry> {
 public:
-    static PassOwnPtrWillBeRawPtr<MemoryCacheEntry> create(Resource* resource)
+    static MemoryCacheEntry* create(Resource* resource)
     {
-        return adoptPtrWillBeNoop(new MemoryCacheEntry(resource));
+        return new MemoryCacheEntry(resource);
     }
-    void trace(Visitor*);
-#if ENABLE(OILPAN)
+    DECLARE_TRACE();
     void dispose();
-#endif
 
     ResourcePtr<Resource> m_resource;
     bool m_inLiveDecodedResourcesList;
@@ -89,10 +88,10 @@ public:
     MemoryCacheLiveResourcePriority m_liveResourcePriority;
     double m_lastDecodedAccessTime; // Used as a thrash guard
 
-    RawPtrWillBeMember<MemoryCacheEntry> m_previousInLiveResourcesList;
-    RawPtrWillBeMember<MemoryCacheEntry> m_nextInLiveResourcesList;
-    RawPtrWillBeMember<MemoryCacheEntry> m_previousInAllResourcesList;
-    RawPtrWillBeMember<MemoryCacheEntry> m_nextInAllResourcesList;
+    Member<MemoryCacheEntry> m_previousInLiveResourcesList;
+    Member<MemoryCacheEntry> m_nextInLiveResourcesList;
+    Member<MemoryCacheEntry> m_previousInAllResourcesList;
+    Member<MemoryCacheEntry> m_nextInAllResourcesList;
 
 private:
     explicit MemoryCacheEntry(Resource* resource)
@@ -109,17 +108,19 @@ private:
     }
 };
 
+WILL_NOT_BE_EAGERLY_TRACED_CLASS(MemoryCacheEntry);
+
 // MemoryCacheLRUList is used only in MemoryCache class, but we don't make
 // MemoryCacheLRUList an inner struct of MemoryCache because we can't define
 // VectorTraits for inner structs.
 struct MemoryCacheLRUList final {
     ALLOW_ONLY_INLINE_ALLOCATION();
 public:
-    RawPtrWillBeMember<MemoryCacheEntry> m_head;
-    RawPtrWillBeMember<MemoryCacheEntry> m_tail;
+    Member<MemoryCacheEntry> m_head;
+    Member<MemoryCacheEntry> m_tail;
 
     MemoryCacheLRUList() : m_head(nullptr), m_tail(nullptr) { }
-    void trace(Visitor*);
+    DECLARE_TRACE();
 };
 
 }
@@ -128,12 +129,12 @@ WTF_ALLOW_MOVE_INIT_AND_COMPARE_WITH_MEM_FUNCTIONS(blink::MemoryCacheLRUList);
 
 namespace blink {
 
-class MemoryCache final : public NoBaseWillBeGarbageCollectedFinalized<MemoryCache>, public WebThread::TaskObserver {
-    WTF_MAKE_NONCOPYABLE(MemoryCache); WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
+class CORE_EXPORT MemoryCache final : public GarbageCollectedFinalized<MemoryCache>, public WebThread::TaskObserver {
+    WTF_MAKE_NONCOPYABLE(MemoryCache);
 public:
-    static PassOwnPtrWillBeRawPtr<MemoryCache> create();
+    static MemoryCache* create();
     ~MemoryCache();
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
     struct TypeStatistic {
         int count;
@@ -171,7 +172,7 @@ public:
 
     Resource* resourceForURL(const KURL&);
     Resource* resourceForURL(const KURL&, const String& cacheIdentifier);
-    WillBeHeapVector<Member<Resource>> resourcesForURL(const KURL&);
+    WillBeHeapVector<RawPtrWillBeMember<Resource>> resourcesForURL(const KURL&);
 
     void add(Resource*);
     void replace(Resource* newResource, Resource* oldResource);
@@ -208,7 +209,7 @@ public:
     // This should be called when a Resource object becomes unnecesarry.
     void unregisterLiveResource(Resource&);
 
-    static void removeURLFromCache(ExecutionContext*, const KURL&);
+    void removeURLFromCache(const KURL&);
 
     Statistics getStatistics();
 
@@ -222,10 +223,21 @@ public:
     MemoryCacheLiveResourcePriority priority(Resource*) const;
 
     // TaskObserver implementation
-    virtual void willProcessTask() override;
-    virtual void didProcessTask() override;
+    void willProcessTask() override;
+    void didProcessTask() override;
+
+    void pruneAll();
+
+    void updateFramePaintTimestamp();
 
 private:
+    enum PruneStrategy {
+        // Automatically decide how much to prune.
+        AutomaticPrune,
+        // Maximally prune resources.
+        MaximalPrune
+    };
+
     MemoryCache();
 
     MemoryCacheLRUList* lruListFor(unsigned accessCount, size_t);
@@ -250,9 +262,9 @@ private:
 
     // pruneDeadResources() - Flush decoded and encoded data from resources not referenced by Web pages.
     // pruneLiveResources() - Flush decoded data from resources still referenced by Web pages.
-    void pruneDeadResources(); // Automatically decide how much to prune.
-    void pruneLiveResources();
-    void pruneNow(double currentTime);
+    void pruneDeadResources(PruneStrategy);
+    void pruneLiveResources(PruneStrategy);
+    void pruneNow(double currentTime, PruneStrategy);
 
     bool evict(MemoryCacheEntry*);
 
@@ -265,6 +277,7 @@ private:
     double m_maxPruneDeferralDelay;
     double m_pruneTimeStamp;
     double m_pruneFrameTimeStamp;
+    double m_lastFramePaintTimeStamp; // used for detecting decoded resource thrash in the cache
 
     size_t m_capacity;
     size_t m_minDeadCapacity;
@@ -278,7 +291,7 @@ private:
     // Size-adjusted and popularity-aware LRU list collection for cache objects. This collection can hold
     // more resources than the cached resource map, since it can also hold "stale" multiple versions of objects that are
     // waiting to die when the clients referencing them go away.
-    WillBeHeapVector<MemoryCacheLRUList, 32> m_allResources;
+    HeapVector<MemoryCacheLRUList, 32> m_allResources;
 
     // Lists just for live resources with decoded data. Access to this list is based off of painting the resource.
     // The lists are ordered by decode priority, with higher indices having higher priorities.
@@ -286,8 +299,8 @@ private:
 
     // A URL-based map of all resources that are in the cache (including the freshest version of objects that are currently being
     // referenced by a Web page).
-    using ResourceMap = WillBeHeapHashMap<String, OwnPtrWillBeMember<MemoryCacheEntry>>;
-    using ResourceMapIndex = WillBeHeapHashMap<String, OwnPtrWillBeMember<ResourceMap>>;
+    using ResourceMap = HeapHashMap<String, Member<MemoryCacheEntry>>;
+    using ResourceMapIndex = HeapHashMap<String, Member<ResourceMap>>;
     ResourceMap* ensureResourceMap(const String& cacheIdentifier);
     ResourceMapIndex m_resourceMaps;
 
@@ -297,7 +310,7 @@ private:
     // objects.
     // FIXME: Can we remove manual lifetime management of Resource and this?
     HeapHashSet<Member<Resource>> m_liveResources;
-    friend RawPtr<MemoryCache> replaceMemoryCacheForTesting(RawPtr<MemoryCache>);
+    friend CORE_EXPORT MemoryCache* replaceMemoryCacheForTesting(MemoryCache*);
 #endif
 
     friend class MemoryCacheTest;
@@ -307,11 +320,11 @@ private:
 };
 
 // Returns the global cache.
-MemoryCache* memoryCache();
+CORE_EXPORT MemoryCache* memoryCache();
 
 // Sets the global cache, used to swap in a test instance. Returns the old
 // MemoryCache object.
-PassOwnPtrWillBeRawPtr<MemoryCache> replaceMemoryCacheForTesting(PassOwnPtrWillBeRawPtr<MemoryCache>);
+CORE_EXPORT MemoryCache* replaceMemoryCacheForTesting(MemoryCache*);
 
 }
 

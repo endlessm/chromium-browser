@@ -29,7 +29,7 @@ namespace {
 class ProcessManagementTest : public ExtensionBrowserTest {
  private:
   // This is needed for testing isolated apps, which are still experimental.
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionBrowserTest::SetUpCommandLine(command_line);
     command_line->AppendSwitch(
         extensions::switches::kEnableExperimentalExtensionApis);
@@ -67,8 +67,7 @@ IN_PROC_BROWSER_TEST_F(ProcessManagementTest, MAYBE_ProcessOverflow) {
   GURL base_url = embedded_test_server()->GetURL(
       "/extensions/");
   GURL::Replacements replace_host;
-  std::string host_str("localhost");  // Must stay in scope with replace_host.
-  replace_host.SetHostStr(host_str);
+  replace_host.SetHostStr("localhost");
   base_url = base_url.ReplaceComponents(replace_host);
 
   // Load an extension before adding tabs.
@@ -78,9 +77,8 @@ IN_PROC_BROWSER_TEST_F(ProcessManagementTest, MAYBE_ProcessOverflow) {
   GURL extension1_url = extension1->url();
 
   // Create multiple tabs for each type of renderer that might exist.
-  ui_test_utils::NavigateToURLWithDisposition(
-      browser(), base_url.Resolve("isolated_apps/app1/main.html"),
-      CURRENT_TAB, ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+  ui_test_utils::NavigateToURL(
+      browser(), base_url.Resolve("isolated_apps/app1/main.html"));
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), GURL(chrome::kChromeUINewTabURL),
       NEW_FOREGROUND_TAB, ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
@@ -201,8 +199,7 @@ IN_PROC_BROWSER_TEST_F(ProcessManagementTest, MAYBE_ExtensionProcessBalancing) {
   GURL base_url = embedded_test_server()->GetURL(
       "/extensions/");
   GURL::Replacements replace_host;
-  std::string host_str("localhost");  // Must stay in scope with replace_host.
-  replace_host.SetHostStr(host_str);
+  replace_host.SetHostStr("localhost");
   base_url = base_url.ReplaceComponents(replace_host);
 
   ASSERT_TRUE(LoadExtension(
@@ -220,22 +217,17 @@ IN_PROC_BROWSER_TEST_F(ProcessManagementTest, MAYBE_ExtensionProcessBalancing) {
   ASSERT_TRUE(LoadExtension(
       test_data_dir_.AppendASCII("api_test/management/test")));
 
-  ui_test_utils::NavigateToURLWithDisposition(
-      browser(), base_url.Resolve("isolated_apps/app1/main.html"),
-      CURRENT_TAB, ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+  ui_test_utils::NavigateToURL(
+      browser(), base_url.Resolve("isolated_apps/app1/main.html"));
 
-  ui_test_utils::NavigateToURLWithDisposition(
-      browser(), base_url.Resolve("api_test/management/test/basics.html"),
-      CURRENT_TAB, ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+  ui_test_utils::NavigateToURL(
+      browser(), base_url.Resolve("api_test/management/test/basics.html"));
 
   std::set<int> process_ids;
   Profile* profile = browser()->profile();
   extensions::ProcessManager* epm = extensions::ProcessManager::Get(profile);
-  for (extensions::ProcessManager::const_iterator iter =
-           epm->background_hosts().begin();
-       iter != epm->background_hosts().end(); ++iter) {
-    process_ids.insert((*iter)->render_process_host()->GetID());
-  }
+  for (extensions::ExtensionHost* host : epm->background_hosts())
+    process_ids.insert(host->render_process_host()->GetID());
 
   // We've loaded 5 extensions with background pages, 1 extension without
   // background page, and one isolated app. We expect only 2 unique processes

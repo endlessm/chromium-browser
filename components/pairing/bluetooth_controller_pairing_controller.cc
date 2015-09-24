@@ -70,8 +70,8 @@ void BluetoothControllerPairingController::DeviceFound(
     device::BluetoothDevice* device) {
   DCHECK_EQ(current_stage_, STAGE_DEVICES_DISCOVERY);
   DCHECK(thread_checker_.CalledOnValidThread());
-  if (StartsWith(device->GetName(), base::ASCIIToUTF16(kDeviceNamePrefix),
-                 false)) {
+  if (base::StartsWith(device->GetName(), base::ASCIIToUTF16(kDeviceNamePrefix),
+                       false)) {
     discovered_devices_.insert(device->GetAddress());
     FOR_EACH_OBSERVER(ControllerPairingController::Observer, observers_,
                       DiscoveredDevicesListChanged());
@@ -415,6 +415,11 @@ void BluetoothControllerPairingController::OnErrorMessage(
   LOG(ERROR) << message.parameters().code() << ", " <<
       message.parameters().description();
   ChangeStage(STAGE_HOST_ENROLLMENT_ERROR);
+}
+
+void BluetoothControllerPairingController::OnAddNetworkMessage(
+    const pairing_api::AddNetwork& message) {
+  NOTREACHED();
 }
 
 void BluetoothControllerPairingController::DeviceAdded(

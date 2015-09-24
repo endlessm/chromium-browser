@@ -106,6 +106,12 @@ struct evp_pkey_asn1_method_st {
    * custom implementations which do not expose key material and parameters.*/
   int (*pkey_opaque)(const EVP_PKEY *pk);
 
+  /* pkey_supports_digest returns one if |pkey| supports digests of
+   * type |md|. This is intended for use with EVP_PKEYs backing custom
+   * implementations which can't sign all digests. If null, it is
+   * assumed that all digests are supported. */
+  int (*pkey_supports_digest)(const EVP_PKEY *pkey, const EVP_MD *md);
+
   int (*pkey_size)(const EVP_PKEY *pk);
   int (*pkey_bits)(const EVP_PKEY *pk);
 
@@ -121,7 +127,6 @@ struct evp_pkey_asn1_method_st {
 
 
   void (*pkey_free)(EVP_PKEY *pkey);
-  int (*pkey_ctrl)(EVP_PKEY *pkey, int op, long arg1, void *arg2);
 
   /* Legacy functions for old PEM */
 
@@ -148,15 +153,12 @@ typedef int EVP_PKEY_gen_cb(EVP_PKEY_CTX *ctx);
 #define EVP_PKEY_OP_SIGN (1 << 3)
 #define EVP_PKEY_OP_VERIFY (1 << 4)
 #define EVP_PKEY_OP_VERIFYRECOVER (1 << 5)
-#define EVP_PKEY_OP_SIGNCTX (1 << 6)
-#define EVP_PKEY_OP_VERIFYCTX (1 << 7)
-#define EVP_PKEY_OP_ENCRYPT (1 << 8)
-#define EVP_PKEY_OP_DECRYPT (1 << 9)
-#define EVP_PKEY_OP_DERIVE (1 << 10)
+#define EVP_PKEY_OP_ENCRYPT (1 << 6)
+#define EVP_PKEY_OP_DECRYPT (1 << 7)
+#define EVP_PKEY_OP_DERIVE (1 << 8)
 
 #define EVP_PKEY_OP_TYPE_SIG                                           \
-  (EVP_PKEY_OP_SIGN | EVP_PKEY_OP_VERIFY | EVP_PKEY_OP_VERIFYRECOVER | \
-   EVP_PKEY_OP_SIGNCTX | EVP_PKEY_OP_VERIFYCTX)
+  (EVP_PKEY_OP_SIGN | EVP_PKEY_OP_VERIFY | EVP_PKEY_OP_VERIFYRECOVER)
 
 #define EVP_PKEY_OP_TYPE_CRYPT (EVP_PKEY_OP_ENCRYPT | EVP_PKEY_OP_DECRYPT)
 
@@ -165,8 +167,35 @@ typedef int EVP_PKEY_gen_cb(EVP_PKEY_CTX *ctx);
 
 #define EVP_PKEY_OP_TYPE_GEN (EVP_PKEY_OP_PARAMGEN | EVP_PKEY_OP_KEYGEN)
 
+/* EVP_PKEY_CTX_ctrl performs |cmd| on |ctx|. The |keytype| and |optype|
+ * arguments can be -1 to specify that any type and operation are acceptable,
+ * otherwise |keytype| must match the type of |ctx| and the bits of |optype|
+ * must intersect the operation flags set on |ctx|.
+ *
+ * The |p1| and |p2| arguments depend on the value of |cmd|.
+ *
+ * It returns one on success and zero on error. */
+OPENSSL_EXPORT int EVP_PKEY_CTX_ctrl(EVP_PKEY_CTX *ctx, int keytype, int optype,
+                                     int cmd, int p1, void *p2);
+
 #define EVP_PKEY_CTRL_MD 1
 #define EVP_PKEY_CTRL_GET_MD 2
+
+/* EVP_PKEY_CTRL_PEER_KEY is called with different values of |p1|:
+ *   0: Is called from |EVP_PKEY_derive_set_peer| and |p2| contains a peer key.
+ *      If the return value is <= 0, the key is rejected.
+ *   1: Is called at the end of |EVP_PKEY_derive_set_peer| and |p2| contains a
+ *      peer key. If the return value is <= 0, the key is rejected.
+ *   2: Is called with |p2| == NULL to test whether the peer's key was used.
+ *      (EC)DH always return one in this case.
+ *   3: Is called with |p2| == NULL to set whether the peer's key was used.
+ *      (EC)DH always return one in this case. This was only used for GOST. */
+#define EVP_PKEY_CTRL_PEER_KEY 3
+
+/* EVP_PKEY_ALG_CTRL is the base value from which key-type specific ctrl
+ * commands are numbered. */
+#define EVP_PKEY_ALG_CTRL 0x1000
+
 #define EVP_PKEY_CTRL_RSA_PADDING (EVP_PKEY_ALG_CTRL + 1)
 #define EVP_PKEY_CTRL_GET_RSA_PADDING (EVP_PKEY_ALG_CTRL + 2)
 #define EVP_PKEY_CTRL_RSA_PSS_SALTLEN (EVP_PKEY_ALG_CTRL + 3)
@@ -179,6 +208,8 @@ typedef int EVP_PKEY_gen_cb(EVP_PKEY_CTX *ctx);
 #define EVP_PKEY_CTRL_GET_RSA_MGF1_MD (EVP_PKEY_ALG_CTRL + 10)
 #define EVP_PKEY_CTRL_RSA_OAEP_LABEL (EVP_PKEY_ALG_CTRL + 11)
 #define EVP_PKEY_CTRL_GET_RSA_OAEP_LABEL (EVP_PKEY_ALG_CTRL + 12)
+
+#define EVP_PKEY_CTRL_EC_PARAMGEN_CURVE_NID (EVP_PKEY_ALG_CTRL + 1)
 
 struct evp_pkey_ctx_st {
   /* Method associated with this operation */
@@ -218,14 +249,6 @@ struct evp_pkey_method_st {
   int (*verify_init)(EVP_PKEY_CTX *ctx);
   int (*verify)(EVP_PKEY_CTX *ctx, const unsigned char *sig, size_t siglen,
                 const unsigned char *tbs, size_t tbslen);
-
-  int (*signctx_init)(EVP_PKEY_CTX *ctx, EVP_MD_CTX *mctx);
-  int (*signctx)(EVP_PKEY_CTX *ctx, unsigned char *sig, size_t *siglen,
-                 EVP_MD_CTX *mctx);
-
-  int (*verifyctx_init)(EVP_PKEY_CTX *ctx, EVP_MD_CTX *mctx);
-  int (*verifyctx)(EVP_PKEY_CTX *ctx, const unsigned char *sig, int siglen,
-                   EVP_MD_CTX *mctx);
 
   int (*encrypt_init)(EVP_PKEY_CTX *ctx);
   int (*encrypt)(EVP_PKEY_CTX *ctx, unsigned char *out, size_t *outlen,

@@ -6,14 +6,6 @@
 
 namespace browser_defaults {
 
-#if defined(USE_X11)
-#if defined(TOOLKIT_VIEWS)
-const bool kCanToggleSystemTitleBar = false;
-#else
-const bool kCanToggleSystemTitleBar = true;
-#endif
-#endif
-
 const int kOmniboxFontPixelSize = 16;
 
 #if defined(OS_CHROMEOS) || defined(OS_MACOSX)
@@ -25,17 +17,23 @@ const bool kShowExitMenuItem = true;
 #endif
 
 #if defined(OS_CHROMEOS)
-const bool kShowHelpMenuItemIcon = true;
 const bool kShowUpgradeMenuItem = false;
 const bool kShowImportOnBookmarkBar = false;
 const bool kAlwaysOpenIncognitoWindow = true;
 const bool kAlwaysCreateTabbedBrowserOnSessionRestore = false;
 #else
-const bool kShowHelpMenuItemIcon = false;
 const bool kShowUpgradeMenuItem = true;
 const bool kShowImportOnBookmarkBar = true;
 const bool kAlwaysOpenIncognitoWindow = false;
 const bool kAlwaysCreateTabbedBrowserOnSessionRestore = true;
+#endif
+
+#if defined(GOOGLE_CHROME_BUILD)
+#if defined(OS_CHROMEOS)
+const bool kShowHelpMenuItemIcon = true;
+#else
+const bool kShowHelpMenuItemIcon = false;
+#endif
 #endif
 
 const bool kDownloadPageHasShowInFolder = true;

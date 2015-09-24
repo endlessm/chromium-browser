@@ -24,19 +24,19 @@ class RecommendationRestorerFactory : public BrowserContextKeyedServiceFactory {
 
  protected:
   // BrowserContextKeyedServiceFactory:
-  virtual KeyedService* BuildServiceInstanceFor(
+  KeyedService* BuildServiceInstanceFor(
       content::BrowserContext* context) const override;
-  virtual bool ServiceIsCreatedWithBrowserContext() const override;
+  bool ServiceIsCreatedWithBrowserContext() const override;
 
  private:
   friend struct DefaultSingletonTraits<RecommendationRestorerFactory>;
 
   RecommendationRestorerFactory();
-  virtual ~RecommendationRestorerFactory();
+  ~RecommendationRestorerFactory() override;
 
   DISALLOW_COPY_AND_ASSIGN(RecommendationRestorerFactory);
 };
 
-} //  namespace policy
+}  //  namespace policy
 
 #endif  // CHROME_BROWSER_CHROMEOS_POLICY_RECOMMENDATION_RESTORER_FACTORY_H_

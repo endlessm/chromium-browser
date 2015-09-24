@@ -9,7 +9,6 @@
 
 #include "base/basictypes.h"
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
-#include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 namespace policy {
@@ -20,21 +19,32 @@ class MockCloudPolicyClient : public CloudPolicyClient {
   virtual ~MockCloudPolicyClient();
 
   MOCK_METHOD2(SetupRegistration, void(const std::string&, const std::string&));
-  MOCK_METHOD6(Register, void(
-      enterprise_management::DeviceRegisterRequest::Type type,
-      const std::string&, const std::string&, bool, const std::string&,
-      const std::string&));
+  MOCK_METHOD6(Register,
+               void(enterprise_management::DeviceRegisterRequest::Type type,
+                    enterprise_management::DeviceRegisterRequest::Flavor flavor,
+                    const std::string&,
+                    const std::string&,
+                    const std::string&,
+                    const std::string&));
   MOCK_METHOD0(FetchPolicy, void(void));
   MOCK_METHOD0(Unregister, void(void));
   MOCK_METHOD2(UploadCertificate,
                void(const std::string&, const StatusCallback&));
-
+  MOCK_METHOD3(UploadDeviceStatus,
+               void(const enterprise_management::DeviceStatusReportRequest*,
+                    const enterprise_management::SessionStatusReportRequest*,
+                    const StatusCallback&));
   // Sets the DMToken.
   void SetDMToken(const std::string& token);
 
   // Injects policy.
-  void SetPolicy(const PolicyNamespaceKey& policy_ns_key,
+  void SetPolicy(const std::string& policy_type,
+                 const std::string& settings_entity_id,
                  const enterprise_management::PolicyFetchResponse& policy);
+
+  // Inject invalidation version.
+  void SetFetchedInvalidationVersion(
+      int64_t fetched_invalidation_version);
 
   // Sets the status field.
   void SetStatus(DeviceManagementStatus status);
@@ -50,7 +60,7 @@ class MockCloudPolicyClient : public CloudPolicyClient {
   using CloudPolicyClient::last_policy_timestamp_;
   using CloudPolicyClient::public_key_version_;
   using CloudPolicyClient::public_key_version_valid_;
-  using CloudPolicyClient::namespaces_to_fetch_;
+  using CloudPolicyClient::types_to_fetch_;
   using CloudPolicyClient::invalidation_version_;
   using CloudPolicyClient::invalidation_payload_;
   using CloudPolicyClient::fetched_invalidation_version_;

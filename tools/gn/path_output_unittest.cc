@@ -4,6 +4,7 @@
 
 #include <sstream>
 
+#include "base/files/file_path.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "tools/gn/output_file.h"
 #include "tools/gn/path_output.h"
@@ -12,7 +13,8 @@
 
 TEST(PathOutput, Basic) {
   SourceDir build_dir("//out/Debug/");
-  PathOutput writer(build_dir, ESCAPE_NONE);
+  base::StringPiece source_root("/source/root");
+  PathOutput writer(build_dir, source_root, ESCAPE_NONE);
   {
     // Normal source-root path.
     std::ostringstream out;
@@ -53,7 +55,8 @@ TEST(PathOutput, Basic) {
 // Same as basic but the output dir is the root.
 TEST(PathOutput, BasicInRoot) {
   SourceDir build_dir("//");
-  PathOutput writer(build_dir, ESCAPE_NONE);
+  base::StringPiece source_root("/source/root");
+  PathOutput writer(build_dir, source_root, ESCAPE_NONE);
   {
     // Normal source-root path.
     std::ostringstream out;
@@ -70,7 +73,8 @@ TEST(PathOutput, BasicInRoot) {
 
 TEST(PathOutput, NinjaEscaping) {
   SourceDir build_dir("//out/Debug/");
-  PathOutput writer(build_dir, ESCAPE_NINJA);
+  base::StringPiece source_root("/source/root");
+  PathOutput writer(build_dir, source_root, ESCAPE_NINJA);
   {
     // Spaces and $ in filenames.
     std::ostringstream out;
@@ -80,14 +84,15 @@ TEST(PathOutput, NinjaEscaping) {
   {
     // Not other weird stuff
     std::ostringstream out;
-    writer.WriteFile(out, SourceFile("//foo/\"foo\\bar\".cc"));
-    EXPECT_EQ("../../foo/\"foo\\bar\".cc", out.str());
+    writer.WriteFile(out, SourceFile("//foo/\"foo\".cc"));
+    EXPECT_EQ("../../foo/\"foo\".cc", out.str());
   }
 }
 
 TEST(PathOutput, NinjaForkEscaping) {
   SourceDir build_dir("//out/Debug/");
-  PathOutput writer(build_dir, ESCAPE_NINJA_COMMAND);
+  base::StringPiece source_root("/source/root");
+  PathOutput writer(build_dir, source_root, ESCAPE_NINJA_COMMAND);
 
   // Spaces in filenames should get quoted on Windows.
   writer.set_escape_platform(ESCAPE_PLATFORM_WIN);
@@ -122,25 +127,25 @@ TEST(PathOutput, NinjaForkEscaping) {
     EXPECT_EQ("../../foo/\\\"foobar\\\".cc", out.str());
   }
 
-
   // Backslashes should get escaped on non-Windows and preserved on Windows.
   writer.set_escape_platform(ESCAPE_PLATFORM_WIN);
   {
     std::ostringstream out;
-    writer.WriteFile(out, SourceFile("//foo\\bar.cc"));
-    EXPECT_EQ("../../foo\\bar.cc", out.str());
+    writer.WriteFile(out, OutputFile("foo\\bar.cc"));
+    EXPECT_EQ("foo\\bar.cc", out.str());
   }
   writer.set_escape_platform(ESCAPE_PLATFORM_POSIX);
   {
     std::ostringstream out;
-    writer.WriteFile(out, SourceFile("//foo\\bar.cc"));
-    EXPECT_EQ("../../foo\\\\bar.cc", out.str());
+    writer.WriteFile(out, OutputFile("foo\\bar.cc"));
+    EXPECT_EQ("foo\\\\bar.cc", out.str());
   }
 }
 
 TEST(PathOutput, InhibitQuoting) {
   SourceDir build_dir("//out/Debug/");
-  PathOutput writer(build_dir, ESCAPE_NINJA_COMMAND);
+  base::StringPiece source_root("/source/root");
+  PathOutput writer(build_dir, source_root, ESCAPE_NINJA_COMMAND);
   writer.set_inhibit_quoting(true);
 
   writer.set_escape_platform(ESCAPE_PLATFORM_WIN);
@@ -163,7 +168,8 @@ TEST(PathOutput, InhibitQuoting) {
 TEST(PathOutput, WriteDir) {
   {
     SourceDir build_dir("//out/Debug/");
-    PathOutput writer(build_dir, ESCAPE_NINJA);
+    base::StringPiece source_root("/source/root");
+    PathOutput writer(build_dir, source_root, ESCAPE_NINJA);
     {
       std::ostringstream out;
       writer.WriteDir(out, SourceDir("//foo/bar/"),
@@ -259,7 +265,8 @@ TEST(PathOutput, WriteDir) {
   }
   {
     // Empty build dir writer.
-    PathOutput root_writer(SourceDir("//"), ESCAPE_NINJA);
+    base::StringPiece source_root("/source/root");
+    PathOutput root_writer(SourceDir("//"), source_root, ESCAPE_NINJA);
     {
       std::ostringstream out;
       root_writer.WriteDir(out, SourceDir("//"),

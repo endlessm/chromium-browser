@@ -441,7 +441,7 @@ CRLSetResult CheckRevocationWithCRLSet(PCCERT_CHAIN_CONTEXT chain,
     const std::string spki_hash = crypto::SHA256HashString(spki);
 
     const CRYPT_INTEGER_BLOB* serial_blob = &cert->pCertInfo->SerialNumber;
-    scoped_ptr<uint8[]> serial_bytes(new uint8[serial_blob->cbData]);
+    scoped_ptr<uint8_t[]> serial_bytes(new uint8_t[serial_blob->cbData]);
     // The bytes of the serial number are stored little-endian.
     for (unsigned j = 0; j < serial_blob->cbData; j++)
       serial_bytes[j] = serial_blob->pbData[serial_blob->cbData - j - 1];
@@ -496,7 +496,7 @@ void AppendPublicKeyHashes(PCCERT_CHAIN_CONTEXT chain,
       continue;
 
     HashValue sha1(HASH_VALUE_SHA1);
-    base::SHA1HashBytes(reinterpret_cast<const uint8*>(spki_bytes.data()),
+    base::SHA1HashBytes(reinterpret_cast<const uint8_t*>(spki_bytes.data()),
                         spki_bytes.size(), sha1.data());
     hashes->push_back(sha1);
 
@@ -559,9 +559,19 @@ bool CertVerifyProcWin::SupportsAdditionalTrustAnchors() const {
   return false;
 }
 
+bool CertVerifyProcWin::SupportsOCSPStapling() const {
+  // CERT_OCSP_RESPONSE_PROP_ID is only implemented on Vista+, but it can be
+  // set on Windows XP without error. There is some overhead from the server
+  // sending the OCSP response if it supports the extension, for the subset of
+  // XP clients who will request it but be unable to use it, but this is an
+  // acceptable trade-off for simplicity of implementation.
+  return true;
+}
+
 int CertVerifyProcWin::VerifyInternal(
     X509Certificate* cert,
     const std::string& hostname,
+    const std::string& ocsp_response,
     int flags,
     CRLSet* crl_set,
     const CertificateList& additional_trust_anchors,
@@ -633,6 +643,18 @@ int CertVerifyProcWin::VerifyInternal(
     chain_engine.reset(TestRootCerts::GetInstance()->GetChainEngine());
 
   ScopedPCCERT_CONTEXT cert_list(cert->CreateOSCertChainForCert());
+
+  if (!ocsp_response.empty()) {
+    // Attach the OCSP response to the chain.
+    CRYPT_DATA_BLOB ocsp_response_blob;
+    ocsp_response_blob.cbData = ocsp_response.size();
+    ocsp_response_blob.pbData =
+        reinterpret_cast<BYTE*>(const_cast<char*>(ocsp_response.data()));
+    CertSetCertificateContextProperty(
+        cert_list.get(), CERT_OCSP_RESPONSE_PROP_ID,
+        CERT_SET_PROPERTY_IGNORE_PERSIST_ERROR_FLAG, &ocsp_response_blob);
+  }
+
   PCCERT_CHAIN_CONTEXT chain_context;
   // IE passes a non-NULL pTime argument that specifies the current system
   // time.  IE passes CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT as the

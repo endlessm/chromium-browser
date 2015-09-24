@@ -8,9 +8,16 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
+#include "ios/web/public/web_state/page_display_state.h"
 #include "ui/base/page_transition_types.h"
 
 class GURL;
+
+#if defined(__OBJC__)
+@class NSDictionary;
+#else
+class NSDictionary;
+#endif  // __OBJC__
 
 namespace web {
 struct FaviconStatus;
@@ -68,11 +75,15 @@ class NavigationItem {
   virtual void SetPageID(int page_id) = 0;
   virtual int32 GetPageID() const = 0;
 
+  // Stores the NavigationItem's last recorded scroll offset and zoom scale.
+  virtual void SetPageDisplayState(const PageDisplayState& page_state) = 0;
+  virtual const PageDisplayState& GetPageDisplayState() const = 0;
+
   // Page-related helpers ------------------------------------------------------
 
   // Returns the title to be displayed on the tab. This could be the title of
   // the page if it is available or the URL. |languages| is the list of
-  // accpeted languages (e.g., prefs::kAcceptLanguages) or empty if proper
+  // accepted languages (e.g., prefs::kAcceptLanguages) or empty if proper
   // URL formatting isn't needed (e.g., unit tests).
   virtual const base::string16& GetTitleForDisplay(
       const std::string& languages) const = 0;
@@ -104,6 +115,26 @@ class NavigationItem {
   //   - or this navigation was copied from a foreign session.
   virtual void SetTimestamp(base::Time timestamp) = 0;
   virtual base::Time GetTimestamp() const = 0;
+
+  // |true| if this item contains unsafe resources and will be removed. This
+  // property doesn't get serialized.
+  virtual void SetUnsafe(bool is_unsafe) = 0;
+  virtual bool IsUnsafe() const = 0;
+
+  // |true| if this item uses a desktop user agent in HTTP requests and
+  // UIWebView.
+  virtual void SetIsOverridingUserAgent(bool is_overriding_user_agent) = 0;
+  virtual bool IsOverridingUserAgent() const = 0;
+
+  // |true| if this item is the result of a POST request with data.
+  virtual bool HasPostData() const = 0;
+
+  // Returns the item's current http request headers.
+  virtual NSDictionary* GetHttpRequestHeaders() const = 0;
+
+  // Adds headers from |additional_headers| to the item's http request headers.
+  // Existing headers with the same key will be overridden.
+  virtual void AddHttpRequestHeaders(NSDictionary* additional_headers) = 0;
 };
 
 }  // namespace web

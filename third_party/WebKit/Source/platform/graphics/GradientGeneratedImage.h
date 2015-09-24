@@ -42,21 +42,16 @@ public:
         return adoptRef(new GradientGeneratedImage(generator, size));
     }
 
-    virtual ~GradientGeneratedImage()
-    {
-    }
+    ~GradientGeneratedImage() override {}
 
 protected:
-    virtual void draw(GraphicsContext*, const FloatRect&, const FloatRect&,
-        CompositeOperator, WebBlendMode) override;
-    virtual void drawPattern(GraphicsContext*, const FloatRect&,
-        const FloatSize&, const FloatPoint&, CompositeOperator,
-        const FloatRect&, WebBlendMode, const IntSize& repeatSpacing) override;
+    void draw(SkCanvas*, const SkPaint&, const FloatRect&, const FloatRect&, RespectImageOrientationEnum, ImageClampingMode) override;
+    void drawTile(GraphicsContext*, const FloatRect&) final;
 
     GradientGeneratedImage(PassRefPtr<Gradient> generator, const IntSize& size)
-        : m_gradient(generator)
+        : GeneratedImage(size)
+        , m_gradient(generator)
     {
-        m_size = size;
     }
 
     RefPtr<Gradient> m_gradient;

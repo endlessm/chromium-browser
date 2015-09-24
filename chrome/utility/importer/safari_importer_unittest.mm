@@ -10,15 +10,16 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/path_service.h"
 #include "base/strings/string16.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/importer/imported_bookmark_entry.h"
-#include "chrome/common/importer/imported_favicon_usage.h"
 #include "chrome/common/importer/importer_bridge.h"
 #include "chrome/common/importer/safari_importer_utils.h"
 #include "chrome/utility/importer/safari_importer.h"
+#include "components/favicon_base/favicon_usage_data.h"
 #include "sql/connection.h"
 #include "testing/platform_test.h"
 
@@ -144,8 +145,9 @@ TEST_F(SafariImporterTest, BookmarkImport) {
     EXPECT_EQ(kImportedBookmarksData[i].in_toolbar, entry.in_toolbar);
     EXPECT_EQ(kImportedBookmarksData[i].url, entry.url);
 
-    std::vector<base::string16> path;
-    Tokenize(kImportedBookmarksData[i].path, ASCIIToUTF16("/"), &path);
+    std::vector<base::string16> path = base::SplitString(
+        kImportedBookmarksData[i].path, ASCIIToUTF16("/"),
+        base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
     ASSERT_EQ(path.size(), entry.path.size());
     for (size_t j = 0; j < path.size(); ++j) {
       EXPECT_EQ(path[j], entry.path[j]);
@@ -208,8 +210,9 @@ TEST_F(SafariImporterTest, BookmarkImportWithEmptyBookmarksMenu) {
     EXPECT_EQ(kImportedBookmarksData[i].in_toolbar, entry.in_toolbar);
     EXPECT_EQ(kImportedBookmarksData[i].url, entry.url);
 
-    std::vector<base::string16> path;
-    Tokenize(kImportedBookmarksData[i].path, ASCIIToUTF16("/"), &path);
+    std::vector<base::string16> path = base::SplitString(
+        kImportedBookmarksData[i].path, ASCIIToUTF16("/"),
+        base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
     ASSERT_EQ(path.size(), entry.path.size());
     for (size_t j = 0; j < path.size(); ++j) {
       EXPECT_EQ(path[j], entry.path[j]);
@@ -227,13 +230,13 @@ TEST_F(SafariImporterTest, FaviconImport) {
   SafariImporter::FaviconMap favicon_map;
   importer->ImportFaviconURLs(&db, &favicon_map);
 
-  std::vector<ImportedFaviconUsage> favicons;
+  favicon_base::FaviconUsageDataList favicons;
   importer->LoadFaviconData(&db, favicon_map, &favicons);
 
   size_t num_favicons = favicons.size();
   ASSERT_EQ(num_favicons, 2U);
 
-  ImportedFaviconUsage &fav0 = favicons[0];
+  favicon_base::FaviconUsageData& fav0 = favicons[0];
   EXPECT_EQ("http://s.ytimg.com/yt/favicon-vfl86270.ico",
             fav0.favicon_url.spec());
   EXPECT_GT(fav0.png_data.size(), 0U);
@@ -241,7 +244,7 @@ TEST_F(SafariImporterTest, FaviconImport) {
   EXPECT_TRUE(fav0.urls.find(GURL("http://www.youtube.com/"))
       != fav0.urls.end());
 
-  ImportedFaviconUsage &fav1 = favicons[1];
+  favicon_base::FaviconUsageData& fav1 = favicons[1];
   EXPECT_EQ("http://www.opensearch.org/favicon.ico",
             fav1.favicon_url.spec());
   EXPECT_GT(fav1.png_data.size(), 0U);

@@ -22,7 +22,7 @@
 #include "ui/aura/window_delegate.h"
 #include "ui/compositor/layer.h"
 #include "ui/gfx/display.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/views/view_constants_aura.h"
 #include "ui/views/widget/widget.h"
 
@@ -83,16 +83,11 @@ gfx::Rect GetBoundsInMaximizedMode(wm::WindowState* state_object) {
 
 // static
 void MaximizeModeWindowState::UpdateWindowPosition(
-    wm::WindowState* window_state, bool animated) {
+    wm::WindowState* window_state) {
   gfx::Rect bounds_in_parent = GetBoundsInMaximizedMode(window_state);
-
   if (bounds_in_parent == window_state->window()->bounds())
     return;
-
-  if (animated)
-    window_state->SetBoundsDirect(bounds_in_parent);
-  else
-    window_state->SetBoundsDirectAnimated(bounds_in_parent);
+  window_state->SetBoundsDirect(bounds_in_parent);
 }
 
 MaximizeModeWindowState::MaximizeModeWindowState(

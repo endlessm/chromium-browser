@@ -17,11 +17,12 @@
 
 #if defined(OS_CHROMEOS)
 #include "base/task/cancelable_task_tracker.h"
-#include "chrome/browser/chromeos/version_loader.h"
+#include "chromeos/system/version_loader.h"
 #endif  // defined(OS_CHROMEOS)
 
 namespace base {
 class DictionaryValue;
+class FilePath;
 class ListValue;
 }
 
@@ -76,7 +77,8 @@ class HelpHandler : public content::WebUIMessageHandler,
   void RequestUpdate(const base::ListValue* args);
 
   // Callback method which forwards status updates to the page.
-  void SetUpdateStatus(VersionUpdater::Status status, int progress,
+  void SetUpdateStatus(VersionUpdater::Status status,
+                       int progress,
                        const base::string16& fail_message);
 
 #if defined(OS_MACOSX)
@@ -91,8 +93,15 @@ class HelpHandler : public content::WebUIMessageHandler,
   void OnCurrentChannel(const std::string& channel);
   void OnTargetChannel(const std::string& channel);
 
-  // Callback for setting the FCC label alt text.
-  void OnFCCLabelTextRead(const std::string& text);
+  // Callback for when the directory with the regulatory label image and alt
+  // text has been found.
+  void OnRegulatoryLabelDirFound(const base::FilePath& path);
+
+  // Callback for setting the regulatory label source.
+  void OnRegulatoryLabelImageFound(const base::FilePath& path);
+
+  // Callback for setting the regulatory label alt text.
+  void OnRegulatoryLabelTextRead(const std::string& text);
 #endif
 
   // Specialized instance of the VersionUpdater used to update the browser.
@@ -100,14 +109,6 @@ class HelpHandler : public content::WebUIMessageHandler,
 
   // Used to observe notifications.
   content::NotificationRegistrar registrar_;
-
-#if defined(OS_CHROMEOS)
-  // Handles asynchronously loading the CrOS version info.
-  chromeos::VersionLoader loader_;
-
-  // Used to request the version.
-  base::CancelableTaskTracker tracker_;
-#endif  // defined(OS_CHROMEOS)
 
   // Used for callbacks.
   base::WeakPtrFactory<HelpHandler> weak_factory_;

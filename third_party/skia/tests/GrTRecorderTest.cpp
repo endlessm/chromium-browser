@@ -5,12 +5,14 @@
  * found in the LICENSE file.
  */
 
+#include "SkMatrix.h"
+#include "SkRandom.h"
+#include "SkString.h"
+#include "Test.h"
+
 #if SK_SUPPORT_GPU
 
-#include "SkMatrix.h"
-#include "SkString.h"
 #include "GrTRecorder.h"
-#include "Test.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -25,22 +27,43 @@ private:
     int fValue;
 };
 
-static void test_empty_back(skiatest::Reporter* reporter) {
-    GrTRecorder<IntWrapper, int> recorder(0);
+static void test_empty_back_and_pop(skiatest::Reporter* reporter) {
+    SkRandom rand;
+    for (int data = 0; data < 2; ++data) {
+        // Do this with different starting sizes to have different alignment between blocks and pops.
+        // pops. We want to test poping the first guy off, guys in the middle of the block, and the
+        // first guy on a non-head block.
+        for (int j = 0; j < 8; ++j) {
+            GrTRecorder<IntWrapper, int> recorder(j);
 
-    REPORTER_ASSERT(reporter, recorder.empty());
+            REPORTER_ASSERT(reporter, recorder.empty());
 
-    for (int i = 0; i < 100; ++i) {
-        REPORTER_ASSERT(reporter, i == *GrNEW_APPEND_TO_RECORDER(recorder, IntWrapper, (i)));
-        REPORTER_ASSERT(reporter, !recorder.empty());
-        REPORTER_ASSERT(reporter, i == recorder.back());
+            for (int i = 0; i < 100; ++i) {
+                if (data) {
+                    REPORTER_ASSERT(reporter, i == *GrNEW_APPEND_TO_RECORDER(recorder, 
+                                                                             IntWrapper, (i)));
+                } else {
+                    REPORTER_ASSERT(reporter, i ==
+                                    *GrNEW_APPEND_WITH_DATA_TO_RECORDER(recorder,
+                                                                        IntWrapper, (i),
+                                                                        rand.nextULessThan(10)));
+                }
+                REPORTER_ASSERT(reporter, !recorder.empty());
+                REPORTER_ASSERT(reporter, i == recorder.back());
+                if (0 == (i % 7)) {
+                    recorder.pop_back();
+                    if (i > 0) {
+                        REPORTER_ASSERT(reporter, !recorder.empty());
+                        REPORTER_ASSERT(reporter, i-1 == recorder.back());
+                    }
+                }
+            }
+
+            REPORTER_ASSERT(reporter, !recorder.empty());
+            recorder.reset();
+            REPORTER_ASSERT(reporter, recorder.empty());
+        }
     }
-
-    REPORTER_ASSERT(reporter, !recorder.empty());
-
-    recorder.reset();
-
-    REPORTER_ASSERT(reporter, recorder.empty());
 }
 
 struct ExtraData {
@@ -78,6 +101,15 @@ static void test_extra_data(skiatest::Reporter* reporter) {
         }
     }
     REPORTER_ASSERT(reporter, !iter.next());
+
+    ExtraData::Recorder::ReverseIter reverseIter(recorder);
+    for (int i = 99; i >= 0; --i) {
+        REPORTER_ASSERT(reporter, i == reverseIter->fData);
+        for (int j = 0; j < i; j++) {
+            REPORTER_ASSERT(reporter, i == reverseIter->extraData()[j]);
+        }
+        REPORTER_ASSERT(reporter, reverseIter.previous() == !!i);
+    }
 
     recorder.reset();
     REPORTER_ASSERT(reporter, 0 == activeRecorderItems);
@@ -175,19 +207,20 @@ public:
     virtual ClassType getType() { return kSubclassEmpty_ClassType; }
 };
 
+class Order {
+public:
+    Order() { this->reset(); }
+    void reset() { fCurrent = 0; }
+    ClassType next() {
+        fCurrent = 1664525 * fCurrent + 1013904223;
+        return static_cast<ClassType>(fCurrent % kNumClassTypes);
+    }
+private:
+    uint32_t fCurrent;
+};
+static void test_subclasses_iters(skiatest::Reporter*, Order&, Base::Recorder::Iter&,
+                                  Base::Recorder::ReverseIter&, int = 0);
 static void test_subclasses(skiatest::Reporter* reporter) {
-    class Order {
-    public:
-        Order() { this->reset(); }
-        void reset() { fCurrent = 0; }
-        ClassType next() {
-            fCurrent = 1664525 * fCurrent + 1013904223;
-            return static_cast<ClassType>(fCurrent % kNumClassTypes);
-        }
-    private:
-        uint32_t fCurrent;
-    };
-
     Base::Recorder recorder(1024);
 
     Order order;
@@ -214,7 +247,7 @@ static void test_subclasses(skiatest::Reporter* reporter) {
                 break;
 
             default:
-                reporter->reportFailed(SkString("Invalid class type"));
+                ERRORF(reporter, "Invalid class type");
                 break;
         }
     }
@@ -222,18 +255,36 @@ static void test_subclasses(skiatest::Reporter* reporter) {
 
     order.reset();
     Base::Recorder::Iter iter(recorder);
-    for (int i = 0; i < 1000; ++i) {
-        REPORTER_ASSERT(reporter, iter.next());
-        REPORTER_ASSERT(reporter, order.next() == iter->getType());
-        iter->validate(reporter);
-    }
+    Base::Recorder::ReverseIter reverseIter(recorder);
+
+    test_subclasses_iters(reporter, order, iter, reverseIter);
+
     REPORTER_ASSERT(reporter, !iter.next());
 
     // Don't reset the recorder. It should automatically destruct all its items.
 }
+static void test_subclasses_iters(skiatest::Reporter* reporter, Order& order,
+                                  Base::Recorder::Iter& iter,
+                                  Base::Recorder::ReverseIter& reverseIter, int i) {
+    if (i >= 1000) {
+        return;
+    }
+
+    ClassType classType = order.next();
+
+    REPORTER_ASSERT(reporter, iter.next());
+    REPORTER_ASSERT(reporter, classType == iter->getType());
+    iter->validate(reporter);
+
+    test_subclasses_iters(reporter, order, iter, reverseIter, i + 1);
+
+    REPORTER_ASSERT(reporter, classType == reverseIter->getType());
+    reverseIter->validate(reporter);
+    REPORTER_ASSERT(reporter, reverseIter.previous() == !!i);
+}
 
 DEF_GPUTEST(GrTRecorder, reporter, factory) {
-    test_empty_back(reporter);
+    test_empty_back_and_pop(reporter);
 
     test_extra_data(reporter);
     REPORTER_ASSERT(reporter, 0 == activeRecorderItems); // test_extra_data should call reset().

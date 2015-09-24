@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright 2014 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -9,12 +8,10 @@ from __future__ import print_function
 
 import json
 import os
-import sys
 import tempfile
 import urllib2
 import urlparse
 
-sys.path.insert(0, os.path.abspath('%s/../..' % os.path.dirname(__file__)))
 from chromite.lib import cros_test_lib
 from chromite.lib import perf_uploader
 from chromite.lib import osutils
@@ -97,13 +94,11 @@ class SendToDashboardTest(PerfUploadTestCase):
   def testOneEntry(self):
     perf_uploader.OutputPerfValue(self.file_name, 'desc1', 42, 'unit')
     perf_values = perf_uploader.LoadPerfValues(self.file_name)
-    perf_uploader.UploadPerfValues(perf_values, 'platform', 'cros', 'chrome',
-                                   'TestName')
+    perf_uploader.UploadPerfValues(perf_values, 'platform', 'TestName',
+                                   cros_version='cros', chrome_version='chrome')
     request = self.urlopen.call_args[0][0]
-    # pylint: disable=W0212
-    self.assertEqual(perf_uploader._DASHBOARD_UPLOAD_URL,
+    self.assertEqual(os.path.join(perf_uploader.DASHBOARD_URL, 'add_point'),
                      request.get_full_url())
-    # pylint: enable=W0212
     data = request.get_data()
     data = urlparse.parse_qs(data)['data']
     entries = [json.loads(x) for x in data]
@@ -112,6 +107,16 @@ class SendToDashboardTest(PerfUploadTestCase):
     self.assertEqual(42, entry['value'])
     self.assertEqual('cbuildbot.TestName/desc1', entry['test'])
     self.assertEqual('unit', entry['units'])
+
+  def testCustomDashboard(self):
+    """Verify we can set data to different dashboards."""
+    perf_uploader.OutputPerfValue(self.file_name, 'desc1', 42, 'unit')
+    perf_values = perf_uploader.LoadPerfValues(self.file_name)
+    perf_uploader.UploadPerfValues(perf_values, 'platform', 'TestName',
+                                   cros_version='cros', chrome_version='chrome',
+                                   dashboard='http://localhost')
+    request = self.urlopen.call_args[0][0]
+    self.assertEqual('http://localhost/add_point', request.get_full_url())
 
 
 class UploadPerfValuesTest(PerfUploadTestCase):
@@ -124,8 +129,8 @@ class UploadPerfValuesTest(PerfUploadTestCase):
     """Upload one perf value."""
     perf_uploader.OutputPerfValue(self.file_name, 'desc1', 42, 'unit')
     perf_values = perf_uploader.LoadPerfValues(self.file_name)
-    perf_uploader.UploadPerfValues(perf_values, 'platform', 'cros', 'chrome',
-                                   'TestName')
+    perf_uploader.UploadPerfValues(perf_values, 'platform', 'TestName',
+                                   cros_version='cros', chrome_version='chrome')
     positional_args, _ = self.send_func.call_args
     first_param = positional_args[0]
     data = json.loads(first_param['data'])
@@ -140,13 +145,25 @@ class UploadPerfValuesTest(PerfUploadTestCase):
     self.assertEqual(42, entry['value'])
     self.assertEqual(0, entry['error'])
 
+  def testRevision(self):
+    """Verify revision is accepted over cros/chrome version."""
+    perf_uploader.OutputPerfValue(self.file_name, 'desc1', 42, 'unit')
+    perf_values = perf_uploader.LoadPerfValues(self.file_name)
+    perf_uploader.UploadPerfValues(perf_values, 'platform', 'TestName',
+                                   revision=12345)
+    positional_args, _ = self.send_func.call_args
+    first_param = positional_args[0]
+    data = json.loads(first_param['data'])
+    entry = data[0]
+    self.assertEqual(12345, entry['revision'])
+
   def testTwoEntriesOfSameTest(self):
     """Upload one test, two perf values."""
     perf_uploader.OutputPerfValue(self.file_name, 'desc1', 40, 'unit')
     perf_uploader.OutputPerfValue(self.file_name, 'desc1', 42, 'unit')
     perf_values = perf_uploader.LoadPerfValues(self.file_name)
-    perf_uploader.UploadPerfValues(perf_values, 'platform', 'cros', 'chrome',
-                                   'TestName')
+    perf_uploader.UploadPerfValues(perf_values, 'platform', 'TestName',
+                                   cros_version='cros', chrome_version='chrome')
     positional_args, _ = self.send_func.call_args
     first_param = positional_args[0]
     data = json.loads(first_param['data'])
@@ -163,8 +180,8 @@ class UploadPerfValuesTest(PerfUploadTestCase):
     perf_uploader.OutputPerfValue(self.file_name, 'desc1', 40, 'unit')
     perf_uploader.OutputPerfValue(self.file_name, 'desc2', 42, 'unit')
     perf_values = perf_uploader.LoadPerfValues(self.file_name)
-    perf_uploader.UploadPerfValues(perf_values, 'platform', 'cros', 'chrome',
-                                   'TestName')
+    perf_uploader.UploadPerfValues(perf_values, 'platform', 'TestName',
+                                   cros_version='cros', chrome_version='chrome')
     positional_args, _ = self.send_func.call_args
     first_param = positional_args[0]
     data = json.loads(first_param['data'])
@@ -183,8 +200,8 @@ class UploadPerfValuesTest(PerfUploadTestCase):
     perf_uploader.OutputPerfValue(self.file_name, 'desc1', 42, 'unit')
     perf_uploader.OutputPerfValue(self.file_name, 'desc2', 42, 'unit')
     perf_values = perf_uploader.LoadPerfValues(self.file_name)
-    perf_uploader.UploadPerfValues(perf_values, 'platform', 'cros', 'chrome',
-                                   'TestName')
+    perf_uploader.UploadPerfValues(perf_values, 'platform', 'TestName',
+                                   cros_version='cros', chrome_version='chrome')
     positional_args, _ = self.send_func.call_args
     first_param = positional_args[0]
     data = json.loads(first_param['data'])
@@ -197,6 +214,11 @@ class UploadPerfValuesTest(PerfUploadTestCase):
     self.assertEqual(42, entry['value'])
     self.assertEqual(0, entry['error'])
 
-
-if __name__ == '__main__':
-  cros_test_lib.main()
+  def testDryRun(self):
+    """Make sure dryrun mode doesn't upload."""
+    self.send_func.side_effect = AssertionError('dryrun should not upload')
+    perf_uploader.OutputPerfValue(self.file_name, 'desc1', 40, 'unit')
+    perf_values = perf_uploader.LoadPerfValues(self.file_name)
+    perf_uploader.UploadPerfValues(perf_values, 'platform', 'TestName',
+                                   cros_version='cros', chrome_version='chrome',
+                                   dry_run=True)

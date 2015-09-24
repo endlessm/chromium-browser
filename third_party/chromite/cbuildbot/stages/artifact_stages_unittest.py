@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -8,27 +7,25 @@
 from __future__ import print_function
 
 import argparse
-import mox
+import mock
 import os
 import sys
 
-sys.path.insert(0, os.path.abspath('%s/../../..' % os.path.dirname(__file__)))
+from chromite.cbuildbot import cbuildbot_unittest
 from chromite.cbuildbot import commands
 from chromite.cbuildbot import constants
 from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot import prebuilts
-from chromite.cbuildbot.cbuildbot_unittest import BuilderRunMock
 from chromite.cbuildbot.stages import artifact_stages
 from chromite.cbuildbot.stages import build_stages_unittest
 from chromite.cbuildbot.stages import generic_stages_unittest
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_build_lib_unittest
-from chromite.lib import cros_test_lib
-from chromite.lib import git
 from chromite.lib import osutils
 from chromite.lib import parallel
 from chromite.lib import parallel_unittest
 from chromite.lib import partial_mock
+from chromite.lib import path_util
 
 from chromite.cbuildbot.stages.generic_stages_unittest import patch
 from chromite.cbuildbot.stages.generic_stages_unittest import patches
@@ -37,9 +34,15 @@ from chromite.cbuildbot.stages.generic_stages_unittest import patches
 DEFAULT_CHROME_BRANCH = '27'
 
 
-# pylint: disable=R0901,W0212
-class ArchiveStageTest(generic_stages_unittest.AbstractStageTest):
+# pylint: disable=too-many-ancestors
+
+
+class ArchiveStageTest(generic_stages_unittest.AbstractStageTestCase,
+                       cbuildbot_unittest.SimpleBuilderTestCase):
   """Exercise ArchiveStage functionality."""
+
+  # pylint: disable=protected-access
+
   RELEASE_TAG = ''
   VERSION = '3333.1.0'
 
@@ -51,7 +54,6 @@ class ArchiveStageTest(generic_stages_unittest.AbstractStageTest):
     self.AutoPatch(to_patch)
 
   def setUp(self):
-    self.StartPatcher(BuilderRunMock())
     self._PatchDependencies()
 
     self._Prepare()
@@ -80,14 +82,14 @@ class ArchiveStageTest(generic_stages_unittest.AbstractStageTest):
                   cmd_args=['--remote-trybot', '-r', self.build_root,
                             '--buildnumber=1234'])
     self.RunStage()
-    # pylint: disable=E1101
+    # pylint: disable=no-member
     self.assertEquals(commands.PushImages.call_count, 0)
 
   def ConstructStageForArchiveStep(self):
     """Stage construction for archive steps."""
     stage = self.ConstructStage()
     self.PatchObject(stage._upload_queue, 'put', autospec=True)
-    self.PatchObject(git, 'ReinterpretPathForChroot', return_value='',
+    self.PatchObject(path_util, 'ToChrootPath', return_value='',
                      autospec=True)
     return stage
 
@@ -106,23 +108,22 @@ class ArchiveStageTest(generic_stages_unittest.AbstractStageTest):
       rc.AddCmdResult(partial_mock.In('generate_delta_sysroot'), returncode=1,
                       error='generate_delta_sysroot: error')
       self.assertRaises2(cros_build_lib.RunCommandError,
-                        stage.BuildAndArchiveDeltaSysroot)
+                         stage.BuildAndArchiveDeltaSysroot)
     self.assertFalse(stage._upload_queue.put.called)
 
 
 class UploadPrebuiltsStageTest(
-    generic_stages_unittest.RunCommandAbstractStageTest):
+    generic_stages_unittest.RunCommandAbstractStageTestCase,
+    cbuildbot_unittest.SimpleBuilderTestCase):
   """Tests for the UploadPrebuilts stage."""
 
-  CMD = './upload_prebuilts'
+  cmd = 'upload_prebuilts'
   RELEASE_TAG = ''
-
-  def setUp(self):
-    self.StartPatcher(BuilderRunMock())
 
   def _Prepare(self, bot_id=None, **kwargs):
     super(UploadPrebuiltsStageTest, self)._Prepare(bot_id, **kwargs)
-
+    self.cmd = os.path.join(self.build_root, constants.CHROMITE_BIN_SUBDIR,
+                            'upload_prebuilts')
     self._run.options.prebuilts = True
 
   def ConstructStage(self):
@@ -142,8 +143,8 @@ class UploadPrebuiltsStageTest(
     """
     self._Prepare(bot_id)
     self.RunStage()
-    public_prefix = [self.CMD] + (public_args or [])
-    private_prefix = [self.CMD] + (private_args or [])
+    public_prefix = [self.cmd] + (public_args or [])
+    private_prefix = [self.cmd] + (private_args or [])
     for board, public in board_map.iteritems():
       if public or public_args:
         public_cmd = public_prefix + ['--slave-board', board]
@@ -153,16 +154,17 @@ class UploadPrebuiltsStageTest(
       self.assertCommandContains(private_cmd, expected=not public)
       count -= 1
     if board_map:
-      self.assertCommandContains([self.CMD, '--set-version',
-                                  self._run.GetVersion()])
+      self.assertCommandContains([self.cmd, '--set-version',
+                                  self._run.GetVersion()], )
       count -= 1
-    self.assertEqual(count, 0,
+    self.assertEqual(
+        count, 0,
         'Number of asserts performed does not match (%d remaining)' % count)
 
   def testFullPrebuiltsUpload(self):
     """Test uploading of full builder prebuilts."""
     self._VerifyBoardMap('x86-generic-full', 0, {})
-    self.assertCommandContains([self.CMD, '--git-sync'])
+    self.assertCommandContains([self.cmd, '--git-sync'])
 
   def testIncorrectCount(self):
     """Test that _VerifyBoardMap asserts when the count is wrong."""
@@ -171,19 +173,18 @@ class UploadPrebuiltsStageTest(
 
 
 class MasterUploadPrebuiltsStageTest(
-    generic_stages_unittest.RunCommandAbstractStageTest):
+    generic_stages_unittest.RunCommandAbstractStageTestCase,
+    cbuildbot_unittest.SimpleBuilderTestCase):
   """Tests for the MasterUploadPrebuilts stage."""
 
-  CMD = './upload_prebuilts'
+  cmd = 'upload_prebuilts'
   RELEASE_TAG = '1234.5.6'
   VERSION = 'R%s-%s' % (DEFAULT_CHROME_BRANCH, RELEASE_TAG)
 
-  def setUp(self):
-    self.StartPatcher(BuilderRunMock())
-
   def _Prepare(self, bot_id=None, **kwargs):
     super(MasterUploadPrebuiltsStageTest, self)._Prepare(bot_id, **kwargs)
-
+    self.cmd = os.path.join(self.build_root, constants.CHROMITE_BIN_SUBDIR,
+                            'upload_prebuilts')
     self._run.options.prebuilts = True
 
   def ConstructStage(self):
@@ -216,28 +217,28 @@ class MasterUploadPrebuiltsStageTest(
     if public_slave_boards:
       # It would be nice to confirm that --private is not in command, but note
       # that --sync-host should not appear in the --private command.
-      cmd = [self.CMD, '--sync-binhost-conf', '--sync-host']
+      cmd = [self.cmd, '--sync-binhost-conf', '--sync-host']
       self.assertCommandContains(cmd, expected=True)
 
     # Some args are expected for any private run.
     if private_slave_boards:
-      cmd = [self.CMD, '--sync-binhost-conf', '--private']
+      cmd = [self.cmd, '--sync-binhost-conf', '--private']
       self.assertCommandContains(cmd, expected=True)
 
     # Assert public slave boards are mentioned in public run.
     for board in public_slave_boards:
       # This check does not actually confirm that this board was in the public
       # run rather than the private run, unfortunately.
-      cmd = [self.CMD, '--slave-board', board]
+      cmd = [self.cmd, '--slave-board', board]
       self.assertCommandContains(cmd, expected=True)
 
     # Assert private slave boards are mentioned in private run.
     for board in private_slave_boards:
-      cmd = [self.CMD, '--slave-board', board, '--private']
+      cmd = [self.cmd, '--slave-board', board, '--private']
       self.assertCommandContains(cmd, expected=True)
 
     # We expect --set-version so long as build config has manifest_version=True.
-    self.assertCommandContains([self.CMD, '--set-version', self.VERSION],
+    self.assertCommandContains([self.cmd, '--set-version', self.VERSION],
                                expected=self._run.config.manifest_version)
 
   def testMasterPaladinUpload(self):
@@ -255,22 +256,22 @@ class MasterUploadPrebuiltsStageTest(
 
     # Provide a sample of private/public slave boards that are expected.
     public_slave_boards = ('amd64-generic', 'x86-generic', 'daisy')
-    private_slave_boards = ('x86-alex', 'lumpy', 'daisy_spring', 'falco')
+    private_slave_boards = ('x86-alex', 'lumpy', 'daisy_skate', 'falco')
 
     self._VerifyResults(public_slave_boards=public_slave_boards,
                         private_slave_boards=private_slave_boards)
 
 
 class UploadDevInstallerPrebuiltsStageTest(
-    generic_stages_unittest.AbstractStageTest):
+    generic_stages_unittest.AbstractStageTestCase,
+    cbuildbot_unittest.SimpleBuilderTestCase):
   """Tests for the UploadDevInstallerPrebuilts stage."""
 
   RELEASE_TAG = 'RT'
 
   def setUp(self):
-    self.mox.StubOutWithMock(prebuilts, 'UploadDevInstallerPrebuilts')
-
-    self.StartPatcher(BuilderRunMock())
+    self.upload_mock = self.PatchObject(
+        prebuilts, 'UploadDevInstallerPrebuilts')
 
     self._Prepare()
 
@@ -290,27 +291,22 @@ class UploadDevInstallerPrebuiltsStageTest(
 
   def testDevInstallerUpload(self):
     """Basic sanity test testing uploads of dev installer prebuilts."""
-    version = 'R%s-%s' % (DEFAULT_CHROME_BRANCH, self.RELEASE_TAG)
+    self.RunStage()
 
-    prebuilts.UploadDevInstallerPrebuilts(
+    self.upload_mock.assert_called_with(
         binhost_bucket=self._run.config.binhost_bucket,
         binhost_key=self._run.config.binhost_key,
         binhost_base_url=self._run.config.binhost_base_url,
         buildroot=self.build_root,
         board=self._current_board,
-        extra_args=mox.And(mox.IsA(list),
-                           mox.In(version)))
-
-    self.mox.ReplayAll()
-    self.RunStage()
-    self.mox.VerifyAll()
+        extra_args=mock.ANY)
 
 
-class CPEExportStageTest(generic_stages_unittest.AbstractStageTest):
+class CPEExportStageTest(generic_stages_unittest.AbstractStageTestCase,
+                         cbuildbot_unittest.SimpleBuilderTestCase):
   """Test CPEExportStage"""
 
   def setUp(self):
-    self.StartPatcher(BuilderRunMock())
     self.StartPatcher(generic_stages_unittest.ArchivingStageMixinMock())
     self.StartPatcher(parallel_unittest.ParallelMock())
 
@@ -332,7 +328,7 @@ class CPEExportStageTest(generic_stages_unittest.AbstractStageTest):
   def _TestPerformStage(self):
     """Run PerformStage for the stage."""
     self._Prepare()
-    self._run.attrs.release_tag = BuilderRunMock.VERSION
+    self._run.attrs.release_tag = self.VERSION
 
     self.stage = self.ConstructStage()
     self.stage.PerformStage()
@@ -342,11 +338,13 @@ class CPEExportStageTest(generic_stages_unittest.AbstractStageTest):
     self._TestPerformStage()
 
 
-class DebugSymbolsStageTest(generic_stages_unittest.AbstractStageTest):
+class DebugSymbolsStageTest(generic_stages_unittest.AbstractStageTestCase,
+                            cbuildbot_unittest.SimpleBuilderTestCase):
   """Test DebugSymbolsStage"""
 
+  # pylint: disable=protected-access
+
   def setUp(self):
-    self.StartPatcher(BuilderRunMock())
     self.StartPatcher(generic_stages_unittest.ArchivingStageMixinMock())
     self.StartPatcher(parallel_unittest.ParallelMock())
 
@@ -379,7 +377,7 @@ class DebugSymbolsStageTest(generic_stages_unittest.AbstractStageTest):
       }
 
     self._Prepare(extra_config=extra_config)
-    self._run.attrs.release_tag = BuilderRunMock.VERSION
+    self._run.attrs.release_tag = self.VERSION
 
     self.tar_mock.side_effect = '/my/tar/ball'
     self.stage = self.ConstructStage()
@@ -463,13 +461,13 @@ class UploadTestArtifactsStageMock(
       self.backup['BuildAutotestTarballs'](*args, **kwargs)
 
 
-class UploadTestArtifactsStageTest(build_stages_unittest.AllConfigsTestCase):
+class UploadTestArtifactsStageTest(build_stages_unittest.AllConfigsTestCase,
+                                   cbuildbot_unittest.SimpleBuilderTestCase):
   """Tests UploadTestArtifactsStage."""
 
   def setUp(self):
     self._release_tag = None
 
-    self.StartPatcher(BuilderRunMock())
     osutils.SafeMakedirs(os.path.join(self.build_root, 'chroot', 'tmp'))
     self.StartPatcher(UploadTestArtifactsStageMock())
 
@@ -536,11 +534,11 @@ class UploadTestArtifactsStageTest(build_stages_unittest.AllConfigsTestCase):
 
     def _HookRunCommand(rc):
       rc.AddCmdResult(
-        partial_mock.ListRegex('cros_generate_update_payload'),
-        side_effect=_SimUpdatePayload)
+          partial_mock.ListRegex('cros_generate_update_payload'),
+          side_effect=_SimUpdatePayload)
       rc.AddCmdResult(
-        partial_mock.ListRegex('cros_generate_stateful_update_payload'),
-        side_effect=_SimUpdateStatefulPayload)
+          partial_mock.ListRegex('cros_generate_stateful_update_payload'),
+          side_effect=_SimUpdateStatefulPayload)
 
     with parallel_unittest.ParallelMock():
       with self.RunStageWithConfig(mock_configurator=_HookRunCommand) as rc:
@@ -568,12 +566,12 @@ class ArchivingMock(partial_mock.PartialMock):
 
 
 # TODO: Delete ArchivingStageTest once ArchivingStage is deprecated.
-class ArchivingStageTest(generic_stages_unittest.AbstractStageTest):
+class ArchivingStageTest(generic_stages_unittest.AbstractStageTestCase,
+                         cbuildbot_unittest.SimpleBuilderTestCase):
   """Excerise ArchivingStage functionality."""
   RELEASE_TAG = ''
 
   def setUp(self):
-    self.StartPatcher(BuilderRunMock())
     self.StartPatcher(ArchivingMock())
 
     self._Prepare()
@@ -584,7 +582,3 @@ class ArchivingStageTest(generic_stages_unittest.AbstractStageTest):
         self._run, self._current_board)
     return artifact_stages.ArchivingStage(
         self._run, self._current_board, archive_stage)
-
-
-if __name__ == '__main__':
-  cros_test_lib.main()

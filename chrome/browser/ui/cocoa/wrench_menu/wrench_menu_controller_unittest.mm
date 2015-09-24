@@ -4,11 +4,14 @@
 
 #include "base/command_line.h"
 #include "base/mac/scoped_nsobject.h"
+#include "base/run_loop.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync/sessions/sessions_sync_manager.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_list_observer.h"
 #include "chrome/browser/ui/cocoa/cocoa_profile_test.h"
 #include "chrome/browser/ui/cocoa/run_loop_testing.h"
 #import "chrome/browser/ui/cocoa/toolbar/toolbar_controller.h"
@@ -69,9 +72,7 @@ class WrenchMenuControllerTest
             "device_id")) {
   }
 
-  virtual ~WrenchMenuControllerTest() {}
-
-  virtual void SetUp() override {
+  void SetUp() override {
     CocoaProfileTest::SetUp();
     ASSERT_TRUE(browser());
 
@@ -96,11 +97,11 @@ class WrenchMenuControllerTest
     helper->ExportToSessionsSyncManager(manager_.get());
   }
 
-  browser_sync::OpenTabsUIDelegate* GetOpenTabsDelegate() {
+  sync_driver::OpenTabsUIDelegate* GetOpenTabsDelegate() {
     return manager_.get();
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     fake_model_.reset();
     controller_.reset();
     manager_.reset();
@@ -200,25 +201,28 @@ TEST_F(WrenchMenuControllerTest, RecentTabsElideTitle) {
   EXPECT_TRUE(recent_tabs_menu);
   EXPECT_EQ(7, [recent_tabs_menu numberOfItems]);
 
-  // Index 0: restore tabs menu item.
-  NSString* restore_tab_label = l10n_util::FixUpWindowsStyleLabel(
-      recent_tabs_sub_menu_model.GetLabelAt(0));
-  EXPECT_NSEQ(restore_tab_label, [[recent_tabs_menu itemAtIndex:0] title]);
-
   // Item 1: separator.
   EXPECT_TRUE([[recent_tabs_menu itemAtIndex:1] isSeparatorItem]);
 
-  // Item 2: window title.
+  // Index 2: restore tabs menu item.
+  NSString* restore_tab_label = l10n_util::FixUpWindowsStyleLabel(
+      recent_tabs_sub_menu_model.GetLabelAt(2));
+  EXPECT_NSEQ(restore_tab_label, [[recent_tabs_menu itemAtIndex:2] title]);
+
+  // Item 3: separator.
+  EXPECT_TRUE([[recent_tabs_menu itemAtIndex:3] isSeparatorItem]);
+
+  // Item 4: window title.
   EXPECT_NSEQ(
-      base::SysUTF16ToNSString(recent_tabs_sub_menu_model.GetLabelAt(2)),
-      [[recent_tabs_menu itemAtIndex:2] title]);
+      base::SysUTF16ToNSString(recent_tabs_sub_menu_model.GetLabelAt(4)),
+      [[recent_tabs_menu itemAtIndex:4] title]);
 
-  // Item 3: short tab title.
+  // Item 5: short tab title.
   EXPECT_NSEQ(base::SysUTF16ToNSString(tab1_short_title),
-              [[recent_tabs_menu itemAtIndex:3] title]);
+              [[recent_tabs_menu itemAtIndex:5] title]);
 
-  // Item 4: long tab title.
-  NSString* tab2_actual_title = [[recent_tabs_menu itemAtIndex:4] title];
+  // Item 6: long tab title.
+  NSString* tab2_actual_title = [[recent_tabs_menu itemAtIndex:6] title];
   NSUInteger title_length = [tab2_actual_title length];
   EXPECT_GT(tab2_long_title.size(), title_length);
   NSString* actual_substring =
@@ -236,6 +240,32 @@ TEST_F(WrenchMenuControllerTest, RecentTabsElideTitle) {
 TEST_F(WrenchMenuControllerTest, RecentTabDeleteOrder) {
   [controller_ menuNeedsUpdate:[controller_ menu]];
   // If the delete order is wrong then the test will crash on exit.
+}
+
+class BrowserRemovedObserver : public chrome::BrowserListObserver {
+ public:
+  BrowserRemovedObserver() { BrowserList::AddObserver(this); }
+  ~BrowserRemovedObserver() override { BrowserList::RemoveObserver(this); }
+  void WaitUntilBrowserRemoved() { run_loop_.Run(); }
+  void OnBrowserRemoved(Browser* browser) override { run_loop_.Quit(); }
+
+ private:
+  base::RunLoop run_loop_;
+
+  DISALLOW_COPY_AND_ASSIGN(BrowserRemovedObserver);
+};
+
+// Test that WrenchMenuController can be destroyed after the Browser.
+// This can happen because the WrenchMenuController's owner (ToolbarController)
+// can outlive the Browser.
+TEST_F(WrenchMenuControllerTest, DestroyedAfterBrowser) {
+  BrowserRemovedObserver observer;
+  // This is normally called by ToolbarController, but since |controller_| is
+  // not owned by one, call it here.
+  [controller_ browserWillBeDestroyed];
+  CloseBrowserWindow();
+  observer.WaitUntilBrowserRemoved();
+  // |controller_| is released in TearDown().
 }
 
 }  // namespace

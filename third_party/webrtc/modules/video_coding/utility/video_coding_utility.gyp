@@ -15,13 +15,16 @@
       'target_name': 'video_coding_utility',
       'type': 'static_library',
       'dependencies': [
-        '<(webrtc_root)/system_wrappers/source/system_wrappers.gyp:system_wrappers',
+        '<(webrtc_root)/system_wrappers/system_wrappers.gyp:system_wrappers',
       ],
       'sources': [
         'frame_dropper.cc',
         'include/frame_dropper.h',
+        'include/moving_average.h',
+        'include/quality_scaler.h',
+        'include/vp8_header_parser.h',
         'quality_scaler.cc',
-        'quality_scaler.h',
+        'vp8_header_parser.cc',
       ],
     },
   ], # targets

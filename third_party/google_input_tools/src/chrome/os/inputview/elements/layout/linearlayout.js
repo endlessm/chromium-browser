@@ -14,6 +14,7 @@
 goog.provide('i18n.input.chrome.inputview.elements.layout.LinearLayout');
 
 goog.require('goog.dom.classlist');
+goog.require('goog.style');
 goog.require('i18n.input.chrome.inputview.Css');
 goog.require('i18n.input.chrome.inputview.elements.Element');
 goog.require('i18n.input.chrome.inputview.elements.ElementType');
@@ -75,6 +76,7 @@ LinearLayout.prototype.widthInWeight_ = 0;
 LinearLayout.prototype.createDom = function() {
   goog.base(this, 'createDom');
   goog.dom.classlist.add(this.getElement(), this.iconCssClass);
+  this.getElement()['view'] = null;
 };
 
 
@@ -119,6 +121,12 @@ LinearLayout.prototype.getWidthInWeight = function() {
 LinearLayout.prototype.resize = function(width, height) {
   goog.base(this, 'resize', width, height);
 
+  var elem = this.getElement();
+  var borderBox = goog.style.getBorderBox(elem);
+  var paddingBox = goog.style.getPaddingBox(elem);
+  var marginBox = goog.style.getMarginBox(elem);
+  var w = width - borderBox.left - borderBox.right - paddingBox.left -
+      paddingBox.right - marginBox.left - marginBox.right;
   var weightArray = [];
   for (var i = 0; i < this.getChildCount(); i++) {
     var child = /** @type {i18n.input.chrome.inputview.elements.Weightable} */ (
@@ -126,7 +134,7 @@ LinearLayout.prototype.resize = function(width, height) {
     weightArray.push(child.getWidthInWeight());
   }
   var splitedWidth = i18n.input.chrome.inputview.util.splitValue(weightArray,
-      width);
+      w);
   for (var i = 0; i < this.getChildCount(); i++) {
     var child = /** @type {i18n.input.chrome.inputview.elements.Element} */ (
         this.getChildAt(i));

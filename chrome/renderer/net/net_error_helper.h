@@ -44,13 +44,12 @@ class NetErrorHelper
   ~NetErrorHelper() override;
 
   // Button press notification from error page.
-  void ReloadButtonPressed();
-  void LoadStaleButtonPressed();
-  void MoreButtonPressed();
+  void ButtonPressed(error_page::NetErrorHelperCore::Button button);
 
   // RenderFrameObserver implementation.
   void DidStartProvisionalLoad() override;
-  void DidCommitProvisionalLoad(bool is_new_navigation) override;
+  void DidCommitProvisionalLoad(bool is_new_navigation,
+                                bool is_same_page_navigation) override;
   void DidFinishLoad() override;
   void OnStop() override;
   void WasShown() override;
@@ -89,7 +88,9 @@ class NetErrorHelper
       bool is_failed_post,
       scoped_ptr<error_page::ErrorPageParams> params,
       bool* reload_button_shown,
-      bool* load_stale_button_shown,
+      bool* show_saved_copy_button_shown,
+      bool* show_cached_copy_button_shown,
+      bool* show_cached_page_button_shown,
       std::string* html) const override;
   void LoadErrorPageInMainFrame(const std::string& html,
                                 const GURL& failed_url) override;

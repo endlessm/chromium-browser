@@ -10,10 +10,12 @@
 #include <vector>
 
 #include "base/memory/ref_counted.h"
+#include "base/memory/scoped_vector.h"
 #include "base/strings/string16.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/global_request_id.h"
 #include "content/public/browser/session_storage_namespace.h"
+#include "content/public/browser/site_instance.h"
 #include "content/public/common/referrer.h"
 #include "ui/base/page_transition_types.h"
 #include "url/gurl.h"
@@ -45,6 +47,11 @@ class NavigationController {
   };
 
   // Load type used in LoadURLParams.
+  //
+  // A Java counterpart will be generated for this enum.
+  // GENERATED_JAVA_ENUM_PACKAGE: (
+  //   org.chromium.content_public.browser.navigation_controller)
+  // GENERATED_JAVA_PREFIX_TO_STRIP: LOAD_TYPE_
   enum LoadURLType {
     // For loads that do not fall into any types below.
     LOAD_TYPE_DEFAULT,
@@ -63,6 +70,11 @@ class NavigationController {
   };
 
   // User agent override type used in LoadURLParams.
+  //
+  // A Java counterpart will be generated for this enum.
+  // GENERATED_JAVA_ENUM_PACKAGE: (
+  //   org.chromium.content_public.browser.navigation_controller)
+  // GENERATED_JAVA_PREFIX_TO_STRIP: UA_OVERRIDE_
   enum UserAgentOverrideOption {
     // Use the override value from the previous NavigationEntry in the
     // NavigationController.
@@ -91,7 +103,7 @@ class NavigationController {
   // Creates a navigation entry and translates the virtual url to a real one.
   // This is a general call; prefer LoadURL[FromRenderer]/TransferURL below.
   // Extra headers are separated by \n.
-  CONTENT_EXPORT static NavigationEntry* CreateNavigationEntry(
+  CONTENT_EXPORT static scoped_ptr<NavigationEntry> CreateNavigationEntry(
       const GURL& url,
       const Referrer& referrer,
       ui::PageTransition transition,
@@ -104,6 +116,10 @@ class NavigationController {
     // The url to load. This field is required.
     GURL url;
 
+    // SiteInstance of the frame that initiated the navigation or null if we
+    // don't know it.
+    scoped_refptr<SiteInstance> source_site_instance;
+
     // See LoadURLType comments above.
     LoadURLType load_type;
 
@@ -112,7 +128,7 @@ class NavigationController {
     ui::PageTransition transition_type;
 
     // The FrameTreeNode ID for the frame to navigate, or -1 for the main frame.
-    int64 frame_tree_node_id;
+    int frame_tree_node_id;
 
     // Referrer for this load. Empty if none.
     Referrer referrer;
@@ -169,6 +185,13 @@ class NavigationController {
     // commits.
     bool should_clear_history_list;
 
+#if defined(OS_ANDROID)
+    // On Android, for a load triggered by an intent, the time Chrome received
+    // the original intent that prompted the load (in milliseconds active time
+    // since boot).
+    int64 intent_received_timestamp;
+#endif
+
     explicit LoadURLParams(const GURL& url);
     ~LoadURLParams();
 
@@ -184,10 +207,10 @@ class NavigationController {
   virtual ~NavigationController() {}
 
   // Returns the web contents associated with this controller. It can never be
-  // NULL.
+  // nullptr.
   virtual WebContents* GetWebContents() const = 0;
 
-  // Get/set the browser context for this controller. It can never be NULL.
+  // Get/set the browser context for this controller. It can never be nullptr.
   virtual BrowserContext* GetBrowserContext() const = 0;
   virtual void SetBrowserContext(BrowserContext* browser_context) = 0;
 
@@ -195,11 +218,11 @@ class NavigationController {
   // using |selected_navigation| as the currently loaded entry. Before this call
   // the controller should be unused (there should be no current entry). |type|
   // indicates where the restor comes from. This takes ownership of the
-  // NavigationEntrys in |entries| and clears it out.  This is used for session
+  // NavigationEntrys in |entries| and clears it out. This is used for session
   // restore.
   virtual void Restore(int selected_navigation,
                        RestoreType type,
-                       std::vector<NavigationEntry*>* entries) = 0;
+                       ScopedVector<NavigationEntry>* entries) = 0;
 
   // Entries -------------------------------------------------------------------
 
@@ -219,14 +242,14 @@ class NavigationController {
   //
   // Returns the active entry, which is the transient entry if any, the pending
   // entry if a navigation is in progress or the last committed entry otherwise.
-  // NOTE: This can be NULL!!
+  // NOTE: This can be nullptr!!
   virtual NavigationEntry* GetActiveEntry() const = 0;
 
   // Returns the entry that should be displayed to the user in the address bar.
   // This is the transient entry if any, the pending entry if a navigation is
   // in progress *and* is safe to display to the user (see below), or the last
   // committed entry otherwise.
-  // NOTE: This can be NULL if no entry has committed!
+  // NOTE: This can be nullptr if no entry has committed!
   //
   // A pending entry is safe to display if it started in the browser process or
   // if it's a renderer-initiated navigation in a new tab which hasn't been
@@ -257,7 +280,7 @@ class NavigationController {
 
   virtual NavigationEntry* GetEntryAtIndex(int index) const = 0;
 
-  // Returns the entry at the specified offset from current.  Returns NULL
+  // Returns the entry at the specified offset from current.  Returns nullptr
   // if out of bounds.
   virtual NavigationEntry* GetEntryAtOffset(int offset) const = 0;
 
@@ -288,7 +311,7 @@ class NavigationController {
   // represented as an entry, but should go away when the user navigates away
   // from them.
   // Note that adding a transient entry does not change the active contents.
-  virtual void SetTransientEntry(NavigationEntry* entry) = 0;
+  virtual void SetTransientEntry(scoped_ptr<NavigationEntry> entry) = 0;
 
   // New navigations -----------------------------------------------------------
 
@@ -388,9 +411,8 @@ class NavigationController {
   virtual bool IsInitialNavigation() const = 0;
 
   // Broadcasts the NOTIFICATION_NAV_ENTRY_CHANGED notification for the given
-  // entry (which must be at the given index). This will keep things in sync
-  // like the saved session.
-  virtual void NotifyEntryChanged(const NavigationEntry* entry, int index) = 0;
+  // entry. This will keep things in sync like the saved session.
+  virtual void NotifyEntryChanged(const NavigationEntry* entry) = 0;
 
   // Copies the navigation state from the given controller to this one. This
   // one should be empty (just created).

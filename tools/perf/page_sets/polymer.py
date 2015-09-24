@@ -2,51 +2,70 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 from telemetry.page import page as page_module
-from telemetry.page import page_set as page_set_module
+from telemetry.page import shared_page_state
+from telemetry import story
+
 
 class PolymerPage(page_module.Page):
 
-  def __init__(self, url, page_set):
+  def __init__(self, url, page_set, run_no_page_interactions):
+    """ Base class for all polymer pages.
+
+    Args:
+      run_no_page_interactions: whether the page will run any interactions after
+        navigate steps.
+    """
     super(PolymerPage, self).__init__(
       url=url,
+      shared_page_state_class=shared_page_state.SharedMobilePageState,
       page_set=page_set)
     self.script_to_evaluate_on_commit = '''
       document.addEventListener("polymer-ready", function() {
         window.__polymer_ready = true;
       });
     '''
+    self._run_no_page_interactions = run_no_page_interactions
+
+  def RunPageInteractions(self, action_runner):
+    # If a polymer page wants to customize its actions, it should
+    # override the PerformPageInteractions method instead of this method.
+    if self._run_no_page_interactions:
+      return
+    self.PerformPageInteractions(action_runner)
+
+  def PerformPageInteractions(self, action_runner):
+    """ Override this to perform actions after the page has navigated. """
+    pass
 
   def RunNavigateSteps(self, action_runner):
-    action_runner.NavigateToPage(self)
+    super(PolymerPage, self).RunNavigateSteps(action_runner)
     action_runner.WaitForJavaScriptCondition(
         'window.__polymer_ready')
 
 
 class PolymerCalculatorPage(PolymerPage):
 
-  def __init__(self, page_set):
+  def __init__(self, page_set, run_no_page_interactions):
     super(PolymerCalculatorPage, self).__init__(
       url=('http://www.polymer-project.org/components/paper-calculator/'
           'demo.html'),
-      page_set=page_set)
+      page_set=page_set, run_no_page_interactions=run_no_page_interactions)
 
-  def RunSmoothness(self, action_runner):
+  def PerformPageInteractions(self, action_runner):
     self.TapButton(action_runner)
     self.SlidePanel(action_runner)
 
   def TapButton(self, action_runner):
-    interaction = action_runner.BeginInteraction(
-        'Action_TapAction', is_smooth=True)
-    action_runner.TapElement(element_function='''
-        document.querySelector(
-            'body /deep/ #outerPanels'
-        ).querySelector(
-            '#standard'
-        ).shadowRoot.querySelector(
-            'paper-calculator-key[label="5"]'
-        )''')
-    action_runner.Wait(2)
-    interaction.End()
+    with action_runner.CreateInteraction('PolymerAnimation', repeatable=True):
+      action_runner.TapElement(element_function='''
+          document.querySelector(
+              'body /deep/ #outerPanels'
+          ).querySelector(
+              '#standard'
+          ).shadowRoot.querySelector(
+              'paper-calculator-key[label="5"]'
+          )''')
+      action_runner.Wait(2)
 
   def SlidePanel(self, action_runner):
     # only bother with this interaction if the drawer is hidden
@@ -56,40 +75,39 @@ class PolymerCalculatorPage(PolymerPage):
           return outer.opened || outer.wideMode;
           }());''')
     if not opened:
-      interaction = action_runner.BeginInteraction(
-          'Action_SwipeAction', is_smooth=True)
-      action_runner.SwipeElement(
-          left_start_ratio=0.1, top_start_ratio=0.2,
-          direction='left', distance=300, speed_in_pixels_per_second=5000,
-          element_function='''
-              document.querySelector(
-                'body /deep/ #outerPanels'
-              ).querySelector(
-                '#advanced'
-              ).shadowRoot.querySelector(
-                '.handle-bar'
-              )''')
-      action_runner.WaitForJavaScriptCondition('''
-          var outer = document.querySelector("body /deep/ #outerPanels");
-          outer.opened || outer.wideMode;''')
-      interaction.End()
+      with action_runner.CreateInteraction('PolymerAnimation', repeatable=True):
+        action_runner.SwipeElement(
+            left_start_ratio=0.1, top_start_ratio=0.2,
+            direction='left', distance=300, speed_in_pixels_per_second=5000,
+            element_function='''
+                document.querySelector(
+                  'body /deep/ #outerPanels'
+                ).querySelector(
+                  '#advanced'
+                ).shadowRoot.querySelector(
+                  '.handle-bar'
+                )''')
+        action_runner.WaitForJavaScriptCondition('''
+            var outer = document.querySelector("body /deep/ #outerPanels");
+            outer.opened || outer.wideMode;''')
 
 
 class PolymerShadowPage(PolymerPage):
 
-  def __init__(self, page_set):
+  def __init__(self, page_set, run_no_page_interactions):
     super(PolymerShadowPage, self).__init__(
       url='http://www.polymer-project.org/components/paper-shadow/demo.html',
-      page_set=page_set)
+      page_set=page_set, run_no_page_interactions=run_no_page_interactions)
 
-  def RunSmoothness(self, action_runner):
-    action_runner.ExecuteJavaScript(
-        "document.getElementById('fab').scrollIntoView()")
-    action_runner.Wait(5)
-    self.AnimateShadow(action_runner, 'card')
-    #FIXME(wiltzius) disabling until this issue is fixed:
-    # https://github.com/Polymer/paper-shadow/issues/12
-    #self.AnimateShadow(action_runner, 'fab')
+  def PerformPageInteractions(self, action_runner):
+    with action_runner.CreateInteraction('ScrollAndShadowAnimation'):
+      action_runner.ExecuteJavaScript(
+          "document.getElementById('fab').scrollIntoView()")
+      action_runner.Wait(5)
+      self.AnimateShadow(action_runner, 'card')
+      #FIXME(wiltzius) disabling until this issue is fixed:
+      # https://github.com/Polymer/paper-shadow/issues/12
+      #self.AnimateShadow(action_runner, 'fab')
 
   def AnimateShadow(self, action_runner, eid):
     for i in range(1, 6):
@@ -100,7 +118,8 @@ class PolymerShadowPage(PolymerPage):
 
 class PolymerSampler(PolymerPage):
 
-  def __init__(self, page_set, anchor, scrolling_page=False):
+  def __init__(self, page_set, anchor, run_no_page_interactions,
+               scrolling_page=False):
     """Page exercising interactions with a single Paper Sampler subpage.
 
     Args:
@@ -112,7 +131,7 @@ class PolymerSampler(PolymerPage):
     """
     super(PolymerSampler, self).__init__(
       url=('http://www.polymer-project.org/components/%s/demo.html' % anchor),
-      page_set=page_set)
+      page_set=page_set, run_no_page_interactions=run_no_page_interactions)
     self.scrolling_page = scrolling_page
     self.iframe_js = 'document'
 
@@ -129,7 +148,7 @@ class PolymerSampler(PolymerPage):
     action_runner.WaitForJavaScriptCondition(
         'window.__polymer_ready')
 
-  def RunSmoothness(self, action_runner):
+  def PerformPageInteractions(self, action_runner):
     #TODO(wiltzius) Add interactions for input elements and shadow pages
     if self.scrolling_page:
       # Only bother scrolling the page if its been marked as worthwhile
@@ -139,18 +158,16 @@ class PolymerSampler(PolymerPage):
   def ScrollContentPane(self, action_runner):
     element_function = (self.iframe_js + '.querySelector('
         '"core-scroll-header-panel").$.mainContainer')
-    interaction = action_runner.BeginInteraction('Scroll_Page', is_smooth=True)
-    action_runner.ScrollElement(use_touch=True,
-                                direction='down',
-                                distance='900',
-                                element_function=element_function)
-    interaction.End()
-    interaction = action_runner.BeginInteraction('Scroll_Page', is_smooth=True)
-    action_runner.ScrollElement(use_touch=True,
-                                direction='up',
-                                distance='900',
-                                element_function=element_function)
-    interaction.End()
+    with action_runner.CreateInteraction('Scroll_Page', repeatable=True):
+      action_runner.ScrollElement(use_touch=True,
+                                  direction='down',
+                                  distance='900',
+                                  element_function=element_function)
+    with action_runner.CreateInteraction('Scroll_Page', repeatable=True):
+      action_runner.ScrollElement(use_touch=True,
+                                  direction='up',
+                                  distance='900',
+                                  element_function=element_function)
 
   def TouchEverything(self, action_runner):
     tappable_types = [
@@ -187,31 +204,26 @@ class PolymerSampler(PolymerPage):
         action_function(action_runner, element_query)
 
   def TapWidget(self, action_runner, element_function):
-    interaction = action_runner.BeginInteraction(
-        'Tap_Widget', is_smooth=True)
-    action_runner.TapElement(element_function=element_function)
-    action_runner.Wait(1) # wait for e.g. animations on the widget
-    interaction.End()
+    with action_runner.CreateInteraction('Tap_Widget', repeatable=True):
+      action_runner.TapElement(element_function=element_function)
+      action_runner.Wait(1) # wait for e.g. animations on the widget
 
   def SwipeWidget(self, action_runner, element_function):
-    interaction = action_runner.BeginInteraction(
-        'Swipe_Widget', is_smooth=True)
-    action_runner.SwipeElement(element_function=element_function,
-                               left_start_ratio=0.75,
-                               speed_in_pixels_per_second=300)
-    interaction.End()
+    with action_runner.CreateInteraction('Swipe_Widget'):
+      action_runner.SwipeElement(element_function=element_function,
+                                 left_start_ratio=0.75,
+                                 speed_in_pixels_per_second=300)
 
 
-class PolymerPageSet(page_set_module.PageSet):
+class PolymerPageSet(story.StorySet):
 
-  def __init__(self):
+  def __init__(self, run_no_page_interactions=False):
     super(PolymerPageSet, self).__init__(
-      user_agent_type='mobile',
       archive_data_file='data/polymer.json',
-      bucket=page_set_module.PUBLIC_BUCKET)
+      cloud_storage_bucket=story.PUBLIC_BUCKET)
 
-    self.AddPage(PolymerCalculatorPage(self))
-    self.AddPage(PolymerShadowPage(self))
+    self.AddStory(PolymerCalculatorPage(self, run_no_page_interactions))
+    self.AddStory(PolymerShadowPage(self, run_no_page_interactions))
 
     # Polymer Sampler subpages that are interesting to tap / swipe elements on
     TAPPABLE_PAGES = [
@@ -228,11 +240,20 @@ class PolymerPageSet(page_set_module.PageSet):
         'paper-toggle-button',
         ]
     for p in TAPPABLE_PAGES:
-      self.AddPage(PolymerSampler(self, p))
+      self.AddStory(PolymerSampler(
+          self, p, run_no_page_interactions=run_no_page_interactions))
 
     # Polymer Sampler subpages that are interesting to scroll
     SCROLLABLE_PAGES = [
         'core-scroll-header-panel',
         ]
     for p in SCROLLABLE_PAGES:
-      self.AddPage(PolymerSampler(self, p, scrolling_page=True))
+      self.AddStory(PolymerSampler(
+          self, p, run_no_page_interactions=run_no_page_interactions,
+          scrolling_page=True))
+
+    for page in self:
+      assert (page.__class__.RunPageInteractions ==
+              PolymerPage.RunPageInteractions), (
+              'Pages in this page set must not override PolymerPage\' '
+              'RunPageInteractions method.')

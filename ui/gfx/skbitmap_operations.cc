@@ -4,8 +4,8 @@
 
 #include "ui/gfx/skbitmap_operations.h"
 
-#include <algorithm>
 #include <string.h>
+#include <algorithm>
 
 #include "base/logging.h"
 #include "skia/ext/refptr.h"
@@ -15,9 +15,9 @@
 #include "third_party/skia/include/core/SkColorPriv.h"
 #include "third_party/skia/include/core/SkUnPreMultiply.h"
 #include "third_party/skia/include/effects/SkBlurImageFilter.h"
-#include "ui/gfx/insets.h"
-#include "ui/gfx/point.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/insets.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/gfx/geometry/size.h"
 
 // static
 SkBitmap SkBitmapOperations::CreateInvertedBitmap(const SkBitmap& image) {
@@ -654,10 +654,12 @@ SkBitmap SkBitmapOperations::UnPreMultiply(const SkBitmap& bitmap) {
   if (bitmap.isOpaque())
     return bitmap;
 
-  SkImageInfo info = bitmap.info();
-  info.fAlphaType = kOpaque_SkAlphaType;
+  const SkImageInfo& info = bitmap.info();
+  SkImageInfo opaque_info =
+      SkImageInfo::Make(info.width(), info.height(), info.colorType(),
+                        kOpaque_SkAlphaType, info.profileType());
   SkBitmap opaque_bitmap;
-  opaque_bitmap.allocPixels(info);
+  opaque_bitmap.allocPixels(opaque_info);
 
   {
     SkAutoLockPixels bitmap_lock(bitmap);
@@ -741,9 +743,11 @@ SkBitmap SkBitmapOperations::CreateDropShadow(
     SkBitmap shadow_image = SkBitmapOperations::CreateColorMask(bitmap,
                                                                 shadow.color());
 
+    // The blur is halved to produce a shadow that correctly fits within the
+    // |shadow_margin|.
+    SkScalar sigma = SkDoubleToScalar(shadow.blur() / 2);
     skia::RefPtr<SkBlurImageFilter> filter =
-        skia::AdoptRef(SkBlurImageFilter::Create(
-            SkDoubleToScalar(shadow.blur()), SkDoubleToScalar(shadow.blur())));
+        skia::AdoptRef(SkBlurImageFilter::Create(sigma, sigma));
     paint.setImageFilter(filter.get());
 
     canvas.saveLayer(0, &paint);

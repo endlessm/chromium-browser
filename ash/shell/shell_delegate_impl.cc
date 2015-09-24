@@ -24,7 +24,6 @@
 #include "components/user_manager/user_info_impl.h"
 #include "ui/app_list/app_list_view_delegate.h"
 #include "ui/aura/window.h"
-#include "ui/wm/core/input_method_event_filter.h"
 
 namespace ash {
 namespace shell {
@@ -45,6 +44,7 @@ class NewWindowDelegateImpl : public NewWindowDelegate {
   }
   void OpenFileManager() override {}
   void OpenCrosh() override {}
+  void OpenGetHelp() override {}
   void RestoreTab() override {}
   void ShowKeyboardOverlay() override {}
   void ShowTaskManager() override {}
@@ -87,6 +87,10 @@ class SessionStateDelegateImpl : public SessionStateDelegate {
   content::BrowserContext* GetBrowserContextForWindow(
       aura::Window* window) override {
     return Shell::GetInstance()->delegate()->GetActiveBrowserContext();
+  }
+  content::BrowserContext* GetUserPresentingBrowserContextForWindow(
+      aura::Window* window) override {
+    return NULL;
   }
   int GetMaximumNumberOfLoggedInUsers() const override { return 3; }
   int NumberOfLoggedInUsers() const override {
@@ -177,6 +181,10 @@ bool ShellDelegateImpl::IsRunningInForcedAppMode() const {
 }
 
 bool ShellDelegateImpl::IsMultiAccountEnabled() const {
+  return false;
+}
+
+bool ShellDelegateImpl::IsForceMaximizeOnFirstRun() const {
   return false;
 }
 

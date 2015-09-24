@@ -81,8 +81,8 @@ env.AddNodeToTestSuite(node,
                        ['small_tests', 'sel_ldr_tests'],
                        'run_raw_getpid_test')
 
-# getpid_disabled test must be run without -a, but glibc requires -a.
-getpid_disabled_is_broken = (
+# some tests need to run without -a, but glibc requires -a.
+secure_tests_broken = (
     'TRUSTED_ENV' in env and
     env['TRUSTED_ENV'].Bit('coverage_enabled') and
     env.Bit('host_mac')) or env.Bit('nacl_glibc')
@@ -95,7 +95,16 @@ node = env.CommandSelLdrTestNacl('getpid_disabled_test.out',
 env.AddNodeToTestSuite(node,
                        ['small_tests', 'sel_ldr_tests'],
                        'run_getpid_disabled_test',
-                       is_broken=getpid_disabled_is_broken)
+                       is_broken=secure_tests_broken)
+
+syscalls_secure_nexe = env.ComponentProgram('syscalls_secure_test',
+                                            ['syscalls_secure.c'],
+                                            EXTRA_LIBS=['${NONIRT_LIBS}'])
+node = env.CommandSelLdrTestNacl('syscalls_secure.out', syscalls_secure_nexe)
+env.AddNodeToTestSuite(node,
+                       ['small_tests', 'sel_ldr_tests'],
+                       'run_syscall_secure_test',
+                       is_broken=secure_tests_broken)
 
 # The next few tests test the exit syscall.
 # The first one checks for exit success.
@@ -156,7 +165,7 @@ env.AddNodeToTestSuite(node,
                        'run_mem_test')
 
 nonstable_env = env.Clone()
-if nonstable_env.AllowNonStableBitcode():
+if nonstable_env.SetNonStableBitcodeIfAllowed():
   if nonstable_env.Bit('bitcode'):
     # sysbrk_test.cc has an external reference to "end", a symbol
     # defined by the native linker, which is disallowed by PNaCl's
@@ -242,6 +251,17 @@ if not env.Bit('coverage_enabled'):
                          ['small_tests', 'sel_ldr_tests'],
                          'run_sysconf_nprocessors_test')
 
+if not env.Bit('nacl_glibc'):
+  sysconf_cpu_feature_nexe = env.ComponentProgram('sysconf_cpu_feature_test',
+                                                  ['sysconf_cpu_feature.c'],
+                                                  EXTRA_LIBS=['${NONIRT_LIBS}'])
+
+  node = env.CommandSelLdrTestNacl('sysconf_cpu_feature_test.out',
+                                   sysconf_cpu_feature_nexe)
+  env.AddNodeToTestSuite(node,
+                         ['small_tests', 'sel_ldr_tests'],
+                         'run_sysconf_cpu_feature_test')
+
 filepos_nexe = env.ComponentProgram('filepos_test',
                                     ['filepos_test.c'],
                                     EXTRA_LIBS=['imc_syscalls',
@@ -257,3 +277,29 @@ node = env.CommandSelLdrTestNacl(
 env.AddNodeToTestSuite(node,
                        ['small_tests', 'sel_ldr_tests'],
                        'run_filepos_test')
+
+
+file_access_disabling_nexe = env.ComponentProgram(
+    'file_access_disabling', ['file_access_disabling.cc'],
+    EXTRA_LIBS=['${NONIRT_LIBS}'])
+
+# Not all of the syscalls that this tests are hooked up in nacl-glibc.  Also,
+# some of the filesystem syscalls are not implemented for Windows.
+fs_disabling_test_is_broken = env.Bit('nacl_glibc') or env.Bit('host_windows')
+
+node = env.CommandSelLdrTestNacl(
+    'file_access_enabled.out',
+    file_access_disabling_nexe,
+    ['--enabled', env.MakeTempDir(prefix='tmp_file_access_enabled_test')],
+    sel_ldr_flags=['-a'])
+env.AddNodeToTestSuite(node, ['small_tests', 'sel_ldr_tests'],
+                       'run_file_access_enabled_test',
+                       is_broken=fs_disabling_test_is_broken)
+
+node = env.CommandSelLdrTestNacl(
+    'file_access_disabled.out',
+    file_access_disabling_nexe,
+    ['--disabled', env.MakeTempDir(prefix='tmp_file_access_disabled_test')])
+env.AddNodeToTestSuite(node, ['small_tests', 'sel_ldr_tests'],
+                       'run_file_access_disabled_test',
+                       is_broken=fs_disabling_test_is_broken)

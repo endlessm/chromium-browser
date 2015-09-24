@@ -225,7 +225,7 @@ void ModelTypeRegistry::ConnectSyncTypeToWorker(
   commit_contributor_map_.insert(std::make_pair(type, worker.get()));
 
   // The container takes ownership.
-  model_type_sync_workers_.push_back(worker.release());
+  model_type_sync_workers_.push_back(worker.Pass());
 
   DCHECK(Intersection(GetEnabledDirectoryTypes(),
                       GetEnabledNonBlockingTypes()).Empty());
@@ -283,7 +283,7 @@ void ModelTypeRegistry::UnregisterDirectoryTypeDebugInfoObserver(
 }
 
 bool ModelTypeRegistry::HasDirectoryTypeDebugInfoObserver(
-    syncer::TypeDebugInfoObserver* observer) {
+    const syncer::TypeDebugInfoObserver* observer) const {
   return type_debug_info_observers_.HasObserver(observer);
 }
 
@@ -331,6 +331,10 @@ void ModelTypeRegistry::OnCryptographerStateChanged(
 
 void ModelTypeRegistry::OnPassphraseTypeChanged(PassphraseType type,
                                                 base::Time passphrase_time) {
+}
+
+void ModelTypeRegistry::OnLocalSetPassphraseEncryption(
+    const SyncEncryptionHandler::NigoriState& nigori_state) {
 }
 
 ModelTypeSet ModelTypeRegistry::GetEnabledDirectoryTypes() const {

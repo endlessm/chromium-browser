@@ -4,7 +4,9 @@
 
 #include "chrome/browser/ui/views/toolbar/wrench_toolbar_button.h"
 
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/views/extensions/browser_action_drag_data.h"
@@ -13,6 +15,7 @@
 #include "grit/theme_resources.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/theme_provider.h"
+#include "ui/views/controls/button/label_button_border.h"
 #include "ui/views/metrics.h"
 #include "ui/views/painter.h"
 
@@ -25,6 +28,7 @@ WrenchToolbarButton::WrenchToolbarButton(ToolbarView* toolbar_view)
       toolbar_view_(toolbar_view),
       allow_extension_dragging_(
           extensions::FeatureSwitch::extension_action_redesign()->IsEnabled()),
+      overflowed_toolbar_action_wants_to_run_for_testing_(false),
       weak_factory_(this) {
 }
 
@@ -37,21 +41,23 @@ void WrenchToolbarButton::SetSeverity(WrenchIconPainter::Severity severity,
   SchedulePaint();
 }
 
+void WrenchToolbarButton::SetOverflowedToolbarActionWantsToRun(
+    bool wants_to_run) {
+  overflowed_toolbar_action_wants_to_run_for_testing_ = wants_to_run;
+  SchedulePaint();
+}
+
 gfx::Size WrenchToolbarButton::GetPreferredSize() const {
   return ResourceBundle::GetSharedInstance().
       GetImageSkiaNamed(IDR_TOOLBAR_BEZEL_HOVER)->size();
 }
 
-void WrenchToolbarButton::OnPaint(gfx::Canvas* canvas) {
-  views::MenuButton::OnPaint(canvas);
-  wrench_icon_painter_->Paint(canvas,
-                              GetThemeProvider(),
-                              gfx::Rect(size()),
-                              WrenchIconPainter::BEZEL_NONE);
-}
-
 void WrenchToolbarButton::ScheduleWrenchIconPaint() {
   SchedulePaint();
+}
+
+const char* WrenchToolbarButton::GetClassName() const {
+  return "WrenchToolbarButton";
 }
 
 bool WrenchToolbarButton::GetDropFormats(
@@ -76,10 +82,9 @@ void WrenchToolbarButton::OnDragEntered(const ui::DropTargetEvent& event) {
   DCHECK(allow_extension_dragging_);
   DCHECK(!weak_factory_.HasWeakPtrs());
   if (!g_open_wrench_immediately_for_testing) {
-    base::MessageLoop::current()->PostDelayedTask(
-        FROM_HERE,
-        base::Bind(&WrenchToolbarButton::ShowOverflowMenu,
-                   weak_factory_.GetWeakPtr()),
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE, base::Bind(&WrenchToolbarButton::ShowOverflowMenu,
+                              weak_factory_.GetWeakPtr()),
         base::TimeDelta::FromMilliseconds(views::GetMenuShowDelay()));
   } else {
     ShowOverflowMenu();
@@ -99,6 +104,14 @@ void WrenchToolbarButton::OnDragExited() {
 int WrenchToolbarButton::OnPerformDrop(const ui::DropTargetEvent& event) {
   DCHECK(allow_extension_dragging_);
   return ui::DragDropTypes::DRAG_MOVE;
+}
+
+void WrenchToolbarButton::OnPaint(gfx::Canvas* canvas) {
+  views::MenuButton::OnPaint(canvas);
+  wrench_icon_painter_->Paint(canvas,
+                              GetThemeProvider(),
+                              gfx::Rect(size()),
+                              WrenchIconPainter::BEZEL_NONE);
 }
 
 void WrenchToolbarButton::ShowOverflowMenu() {

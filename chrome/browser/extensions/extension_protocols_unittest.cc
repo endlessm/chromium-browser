@@ -127,13 +127,17 @@ class ExtensionProtocolTest : public testing::Test {
 
   void StartRequest(net::URLRequest* request,
                     ResourceType resource_type) {
-    content::ResourceRequestInfo::AllocateForTesting(request,
-                                                     resource_type,
-                                                     &resource_context_,
-                                                     -1,
-                                                     -1,
-                                                     -1,
-                                                     false);
+    content::ResourceRequestInfo::AllocateForTesting(
+        request,
+        resource_type,
+        &resource_context_,
+        -1,      // render_process_id
+        -1,      // render_view_id
+        -1,      // render_frame_id
+        resource_type == content::RESOURCE_TYPE_MAIN_FRAME,  // is_main_frame
+        false,   // parent_is_main_frame
+        true,    // allow_download
+        false);  // is_async
     request->Start();
     base::MessageLoop::current()->Run();
   }
@@ -187,8 +191,7 @@ TEST_F(ExtensionProtocolTest, IncognitoRequest) {
           resource_context_.GetRequestContext()->CreateRequest(
               extension->GetResourceURL("404.html"),
               net::DEFAULT_PRIORITY,
-              &test_delegate_,
-              NULL));
+              &test_delegate_));
       StartRequest(request.get(), content::RESOURCE_TYPE_MAIN_FRAME);
       EXPECT_EQ(net::URLRequestStatus::FAILED, request->status().status());
 
@@ -207,8 +210,7 @@ TEST_F(ExtensionProtocolTest, IncognitoRequest) {
           resource_context_.GetRequestContext()->CreateRequest(
               extension->GetResourceURL("404.html"),
               net::DEFAULT_PRIORITY,
-              &test_delegate_,
-              NULL));
+              &test_delegate_));
       StartRequest(request.get(), content::RESOURCE_TYPE_SUB_FRAME);
       EXPECT_EQ(net::URLRequestStatus::FAILED, request->status().status());
 
@@ -251,8 +253,7 @@ TEST_F(ExtensionProtocolTest, ComponentResourceRequest) {
         resource_context_.GetRequestContext()->CreateRequest(
             extension->GetResourceURL("webstore_icon_16.png"),
             net::DEFAULT_PRIORITY,
-            &test_delegate_,
-            NULL));
+            &test_delegate_));
     StartRequest(request.get(), content::RESOURCE_TYPE_MEDIA);
     EXPECT_EQ(net::URLRequestStatus::SUCCESS, request->status().status());
     CheckForContentLengthHeader(request.get());
@@ -266,8 +267,7 @@ TEST_F(ExtensionProtocolTest, ComponentResourceRequest) {
         resource_context_.GetRequestContext()->CreateRequest(
             extension->GetResourceURL("webstore_icon_16.png"),
             net::DEFAULT_PRIORITY,
-            &test_delegate_,
-            NULL));
+            &test_delegate_));
     StartRequest(request.get(), content::RESOURCE_TYPE_MEDIA);
     EXPECT_EQ(net::URLRequestStatus::SUCCESS, request->status().status());
     CheckForContentLengthHeader(request.get());
@@ -291,16 +291,15 @@ TEST_F(ExtensionProtocolTest, ResourceRequestResponseHeaders) {
         resource_context_.GetRequestContext()->CreateRequest(
             extension->GetResourceURL("test.dat"),
             net::DEFAULT_PRIORITY,
-            &test_delegate_,
-            NULL));
+            &test_delegate_));
     StartRequest(request.get(), content::RESOURCE_TYPE_MEDIA);
     EXPECT_EQ(net::URLRequestStatus::SUCCESS, request->status().status());
 
     // Check that cache-related headers are set.
     std::string etag;
     request->GetResponseHeaderByName("ETag", &etag);
-    EXPECT_TRUE(StartsWithASCII(etag, "\"", false));
-    EXPECT_TRUE(EndsWith(etag, "\"", false));
+    EXPECT_TRUE(base::StartsWith(etag, "\"", base::CompareCase::SENSITIVE));
+    EXPECT_TRUE(base::EndsWith(etag, "\"", base::CompareCase::SENSITIVE));
 
     std::string revalidation_header;
     request->GetResponseHeaderByName("cache-control", &revalidation_header);
@@ -332,8 +331,7 @@ TEST_F(ExtensionProtocolTest, AllowFrameRequests) {
         resource_context_.GetRequestContext()->CreateRequest(
             extension->GetResourceURL("test.dat"),
             net::DEFAULT_PRIORITY,
-            &test_delegate_,
-            NULL));
+            &test_delegate_));
     StartRequest(request.get(), content::RESOURCE_TYPE_MAIN_FRAME);
     EXPECT_EQ(net::URLRequestStatus::SUCCESS, request->status().status());
   }
@@ -342,8 +340,7 @@ TEST_F(ExtensionProtocolTest, AllowFrameRequests) {
         resource_context_.GetRequestContext()->CreateRequest(
             extension->GetResourceURL("test.dat"),
             net::DEFAULT_PRIORITY,
-            &test_delegate_,
-            NULL));
+            &test_delegate_));
     StartRequest(request.get(), content::RESOURCE_TYPE_SUB_FRAME);
     EXPECT_EQ(net::URLRequestStatus::SUCCESS, request->status().status());
   }
@@ -354,8 +351,7 @@ TEST_F(ExtensionProtocolTest, AllowFrameRequests) {
         resource_context_.GetRequestContext()->CreateRequest(
             extension->GetResourceURL("test.dat"),
             net::DEFAULT_PRIORITY,
-            &test_delegate_,
-            NULL));
+            &test_delegate_));
     StartRequest(request.get(), content::RESOURCE_TYPE_MEDIA);
     EXPECT_EQ(net::URLRequestStatus::FAILED, request->status().status());
   }

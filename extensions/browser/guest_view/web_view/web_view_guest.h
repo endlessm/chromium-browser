@@ -8,10 +8,10 @@
 #include <vector>
 
 #include "base/observer_list.h"
+#include "components/guest_view/browser/guest_view.h"
 #include "content/public/browser/javascript_dialog_manager.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
-#include "extensions/browser/guest_view/guest_view.h"
 #include "extensions/browser/guest_view/web_view/javascript_dialog_helper.h"
 #include "extensions/browser/guest_view/web_view/web_view_find_helper.h"
 #include "extensions/browser/guest_view/web_view/web_view_guest_delegate.h"
@@ -23,6 +23,10 @@ namespace blink {
 struct WebFindOptions;
 }  // nanespace blink
 
+namespace content {
+struct GlobalRequestID;
+}  // namespace content
+
 namespace extensions {
 
 class WebViewInternalFindFunction;
@@ -33,11 +37,14 @@ class WebViewInternalFindFunction;
 // a particular embedder WebContents. This happens on either initial navigation
 // or through the use of the New Window API, when a new window is attached to
 // a particular <webview>.
-class WebViewGuest : public GuestView<WebViewGuest>,
+class WebViewGuest : public guest_view::GuestView<WebViewGuest>,
                      public content::NotificationObserver {
  public:
-  static GuestViewBase* Create(content::BrowserContext* browser_context,
-                               int guest_instance_id);
+  // Clean up state when this GuestView is being destroyed. See
+  // GuestViewBase::CleanUp().
+  static void CleanUp(int embedder_process_id, int view_instance_id);
+
+  static GuestViewBase* Create(content::WebContents* owner_web_contents);
 
   // For WebViewGuest, we create special guest processes, which host the
   // tag content separately from the main application that embeds the tag.
@@ -51,11 +58,19 @@ class WebViewGuest : public GuestView<WebViewGuest>,
                                              std::string* partition_name,
                                              bool* in_memory);
 
-  // Returns guestview::kInstanceIDNone if |contents| does not correspond to a
-  // WebViewGuest.
-  static int GetViewInstanceId(content::WebContents* contents);
-
   static const char Type[];
+
+  // Returns the stored rules registry ID of the given webview. Will generate
+  // an ID for the first query.
+  static int GetOrGenerateRulesRegistryID(
+      int embedder_process_id,
+      int web_view_instance_id);
+
+  // Get the current zoom.
+  double GetZoom() const;
+
+  // Get the current zoom mode.
+  ui_zoom::ZoomController::ZoomMode GetZoomMode();
 
   // Request navigating the guest to the provided |src| URL.
   void NavigateGuest(const std::string& src, bool force_navigation);
@@ -74,8 +89,15 @@ class WebViewGuest : public GuestView<WebViewGuest>,
   // Set the zoom factor.
   void SetZoom(double zoom_factor);
 
+  // Set the zoom mode.
+  void SetZoomMode(ui_zoom::ZoomController::ZoomMode zoom_mode);
+
+  void SetAllowScaling(bool allow);
+  bool allow_scaling() const { return allow_scaling_; }
+
   // Sets the transparency of the guest.
   void SetAllowTransparency(bool allow);
+  bool allow_transparency() const { return allow_transparency_; }
 
   // Loads a data URL with a specified base URL and virtual URL.
   bool LoadDataWithBaseURL(const std::string& data_url,
@@ -84,23 +106,23 @@ class WebViewGuest : public GuestView<WebViewGuest>,
                            std::string* error);
 
   // GuestViewBase implementation.
-  const char* GetAPINamespace() const override;
-  int GetTaskPrefix() const override;
-  void CreateWebContents(const std::string& embedder_extension_id,
-                         int embedder_render_process_id,
-                         const GURL& embedder_site_url,
-                         const base::DictionaryValue& create_params,
+  bool CanRunInDetachedState() const override;
+  void CreateWebContents(const base::DictionaryValue& create_params,
                          const WebContentsCreatedCallback& callback) override;
   void DidAttachToEmbedder() override;
-  void DidInitialize() override;
-  void DidStopLoading() override;
-  void EmbedderWillBeDestroyed() override;
+  void DidDropLink(const GURL& url) override;
+  void DidInitialize(const base::DictionaryValue& create_params) override;
+  void GuestViewDidStopLoading() override;
+  void EmbedderFullscreenToggled(bool entered_fullscreen) override;
+  const char* GetAPINamespace() const override;
+  int GetTaskPrefix() const override;
   void GuestDestroyed() override;
   void GuestReady() override;
   void GuestSizeChangedDueToAutoSize(const gfx::Size& old_size,
                                      const gfx::Size& new_size) override;
+  void GuestZoomChanged(double old_zoom_level, double new_zoom_level) override;
   bool IsAutoSizeSupported() const override;
-  bool IsDragAndDropEnabled() const override;
+  void SignalWhenReady(const base::Closure& callback) override;
   void WillAttachToEmbedder() override;
   void WillDestroy() override;
 
@@ -123,28 +145,30 @@ class WebViewGuest : public GuestView<WebViewGuest>,
   void HandleKeyboardEvent(
       content::WebContents* source,
       const content::NativeWebKeyboardEvent& event) override;
+  bool PreHandleGestureEvent(content::WebContents* source,
+                             const blink::WebGestureEvent& event) override;
   void RendererResponsive(content::WebContents* source) override;
   void RendererUnresponsive(content::WebContents* source) override;
   void RequestMediaAccessPermission(
       content::WebContents* source,
       const content::MediaStreamRequest& request,
       const content::MediaResponseCallback& callback) override;
+  void RequestPointerLockPermission(
+      bool user_gesture,
+      bool last_unlocked_by_target,
+      const base::Callback<void(bool)>& callback) override;
   bool CheckMediaAccessPermission(content::WebContents* source,
                                   const GURL& security_origin,
                                   content::MediaStreamType type) override;
-  void CanDownload(content::RenderViewHost* render_view_host,
-                   const GURL& url,
+  void CanDownload(const GURL& url,
                    const std::string& request_method,
                    const base::Callback<void(bool)>& callback) override;
-  content::JavaScriptDialogManager* GetJavaScriptDialogManager() override;
-  content::ColorChooser* OpenColorChooser(
-      content::WebContents* web_contents,
-      SkColor color,
-      const std::vector<content::ColorSuggestion>& suggestions) override;
+  content::JavaScriptDialogManager* GetJavaScriptDialogManager(
+      content::WebContents* source) override;
   void AddNewContents(content::WebContents* source,
                       content::WebContents* new_contents,
                       WindowOpenDisposition disposition,
-                      const gfx::Rect& initial_pos,
+                      const gfx::Rect& initial_rect,
                       bool user_gesture,
                       bool* was_blocked) override;
   content::WebContents* OpenURLFromTab(
@@ -152,32 +176,28 @@ class WebViewGuest : public GuestView<WebViewGuest>,
       const content::OpenURLParams& params) override;
   void WebContentsCreated(content::WebContents* source_contents,
                           int opener_render_frame_id,
-                          const base::string16& frame_name,
+                          const std::string& frame_name,
                           const GURL& target_url,
                           content::WebContents* new_contents) override;
+  void EnterFullscreenModeForTab(content::WebContents* web_contents,
+                                 const GURL& origin) override;
+  void ExitFullscreenModeForTab(content::WebContents* web_contents) override;
+  bool IsFullscreenForTabOrPending(
+      const content::WebContents* web_contents) const override;
 
-  // BrowserPluginGuestDelegate implementation.
-  content::WebContents* CreateNewGuestWindow(
-      const content::WebContents::CreateParams& create_params) override;
-  void RequestPointerLockPermission(
-      bool user_gesture,
-      bool last_unlocked_by_target,
-      const base::Callback<void(bool)>& callback) override;
   // NotificationObserver implementation.
   void Observe(int type,
                const content::NotificationSource& source,
                const content::NotificationDetails& details) override;
 
-  // Returns the current zoom factor.
-  double GetZoom();
-
   // Begin or continue a find request.
-  void StartFinding(const base::string16& search_text,
-                    const blink::WebFindOptions& options,
-                    scoped_refptr<WebViewInternalFindFunction> find_function);
+  void StartFindInternal(
+      const base::string16& search_text,
+      const blink::WebFindOptions& options,
+      scoped_refptr<WebViewInternalFindFunction> find_function);
 
   // Conclude a find request to clear highlighting.
-  void StopFinding(content::StopFindAction);
+  void StopFindingInternal(content::StopFindAction);
 
   // If possible, navigate the guest to |relative_index| entries away from the
   // current navigation entry. Returns true on success.
@@ -186,9 +206,9 @@ class WebViewGuest : public GuestView<WebViewGuest>,
   // Reload the guest.
   void Reload();
 
-  typedef base::Callback<void(bool /* allow */,
-                              const std::string& /* user_input */)>
-      PermissionResponseCallback;
+  using PermissionResponseCallback =
+      base::Callback<void(bool /* allow */,
+                          const std::string& /* user_input */)>;
   int RequestPermission(
       WebViewPermissionType permission_type,
       const base::DictionaryValue& request_info,
@@ -234,18 +254,31 @@ class WebViewGuest : public GuestView<WebViewGuest>,
 
   ScriptExecutor* script_executor() { return script_executor_.get(); }
 
+  scoped_ptr<WebViewGuestDelegate> SetDelegateForTesting(
+      scoped_ptr<WebViewGuestDelegate> delegate) {
+    web_view_guest_delegate_.swap(delegate);
+    return delegate.Pass();
+  }
+
  private:
   friend class WebViewPermissionHelper;
-  WebViewGuest(content::BrowserContext* browser_context,
-               int guest_instance_id);
+
+  explicit WebViewGuest(content::WebContents* owner_web_contents);
 
   ~WebViewGuest() override;
 
-  void AttachWebViewHelpers(content::WebContents* contents);
+  void ClearDataInternal(const base::Time remove_since,
+                         uint32 removal_mask,
+                         const base::Closure& callback);
 
   void OnWebViewNewWindowResponse(int new_window_instance_id,
                                   bool allow,
                                   const std::string& user_input);
+
+  void OnFullscreenPermissionDecided(bool allowed,
+                                     const std::string& user_input);
+  bool GuestMadeEmbedderFullscreen() const;
+  void SetFullscreenState(bool is_fullscreen);
 
   // WebContentsObserver implementation.
   void DidCommitProvisionalLoadForFrame(
@@ -255,18 +288,17 @@ class WebViewGuest : public GuestView<WebViewGuest>,
   void DidFailProvisionalLoad(content::RenderFrameHost* render_frame_host,
                               const GURL& validated_url,
                               int error_code,
-                              const base::string16& error_description) override;
+                              const base::string16& error_description,
+                              bool was_ignored_by_handler) override;
   void DidStartProvisionalLoadForFrame(
       content::RenderFrameHost* render_frame_host,
       const GURL& validated_url,
       bool is_error_page,
       bool is_iframe_srcdoc) override;
-  void DocumentLoadedInFrame(
-      content::RenderFrameHost* render_frame_host) override;
-  bool OnMessageReceived(const IPC::Message& message,
-                         content::RenderFrameHost* render_frame_host) override;
   void RenderProcessGone(base::TerminationStatus status) override;
   void UserAgentOverrideSet(const std::string& user_agent) override;
+  void FrameNameChanged(content::RenderFrameHost* render_frame_host,
+                        const std::string& name) override;
 
   // Informs the embedder of a frame name change.
   void ReportFrameNameChange(const std::string& name);
@@ -283,10 +315,14 @@ class WebViewGuest : public GuestView<WebViewGuest>,
   static void RemoveWebViewStateFromIOThread(
       content::WebContents* web_contents);
 
-  void LoadURLWithParams(const GURL& url,
-                         const content::Referrer& referrer,
-                         ui::PageTransition transition_type,
-                         content::WebContents* web_contents);
+  // Loads the |url| provided. |force_navigation| indicates whether to reload
+  // the content if the provided |url| matches the current page of the guest.
+  void LoadURLWithParams(
+      const GURL& url,
+      const content::Referrer& referrer,
+      ui::PageTransition transition_type,
+      const content::GlobalRequestID& transferred_global_request_id,
+      bool force_navigation);
 
   void RequestNewWindowPermission(
       WindowOpenDisposition disposition,
@@ -301,9 +337,8 @@ class WebViewGuest : public GuestView<WebViewGuest>,
   // may be invalid.
   void LoadAbort(bool is_top_level,
                  const GURL& url,
+                 int error_code,
                  const std::string& error_type);
-
-  void OnFrameNameChanged(bool is_top_level, const std::string& name);
 
   // Creates a new guest window owned by this WebViewGuest.
   void CreateNewGuestWebViewWindow(const content::OpenURLParams& params);
@@ -313,12 +348,15 @@ class WebViewGuest : public GuestView<WebViewGuest>,
 
   bool HandleKeyboardShortcuts(const content::NativeWebKeyboardEvent& event);
 
-  void SetUpAutoSize();
+  void ApplyAttributes(const base::DictionaryValue& params);
+
+  // Identifies the set of rules registries belonging to this guest.
+  int rules_registry_id_;
 
   // Handles find requests and replies for the webview find API.
   WebViewFindHelper find_helper_;
 
-  ObserverList<ScriptExecutionObserver> script_observers_;
+  base::ObserverList<ScriptExecutionObserver> script_observers_;
   scoped_ptr<ScriptExecutor> script_executor_;
 
   content::NotificationRegistrar notification_registrar_;
@@ -330,7 +368,7 @@ class WebViewGuest : public GuestView<WebViewGuest>,
   std::string name_;
 
   // Stores whether the contents of the guest can be transparent.
-  bool guest_opaque_;
+  bool allow_transparency_;
 
   // Stores the src URL of the WebView.
   GURL src_;
@@ -355,8 +393,18 @@ class WebViewGuest : public GuestView<WebViewGuest>,
         changed(false) {}
   };
 
-  typedef std::map<WebViewGuest*, NewWindowInfo> PendingWindowMap;
+  using PendingWindowMap = std::map<WebViewGuest*, NewWindowInfo>;
   PendingWindowMap pending_new_windows_;
+
+  // Determines if this guest accepts pinch-zoom gestures.
+  bool allow_scaling_;
+  bool is_guest_fullscreen_;
+  bool is_embedder_fullscreen_;
+  bool last_fullscreen_permission_was_allowed_by_embedder_;
+
+  // Tracks whether the webview has a pending zoom from before the first
+  // navigation. This will be equal to 0 when there is no pending zoom.
+  double pending_zoom_factor_;
 
   // This is used to ensure pending tasks will not fire after this object is
   // destroyed.

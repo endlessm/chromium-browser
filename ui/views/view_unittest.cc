@@ -9,14 +9,18 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "cc/playback/display_item_list.h"
+#include "cc/playback/display_item_list_settings.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/compositor.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animator.h"
+#include "ui/compositor/paint_context.h"
 #include "ui/compositor/test/draw_waiter_for_test.h"
 #include "ui/events/event.h"
+#include "ui/events/event_utils.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/path.h"
@@ -29,7 +33,6 @@
 #include "ui/views/focus/view_storage.h"
 #include "ui/views/test/views_test_base.h"
 #include "ui/views/view.h"
-#include "ui/views/views_delegate.h"
 #include "ui/views/widget/native_widget.h"
 #include "ui/views/widget/root_view.h"
 #include "ui/views/window/dialog_client_view.h"
@@ -176,6 +179,18 @@ void ScrambleTree(views::View* view) {
     view->SetVisible(!view->visible());
 }
 
+class ScopedRTL {
+ public:
+  ScopedRTL() {
+    locale_ = l10n_util::GetApplicationLocale(std::string());
+    base::i18n::SetICUDefaultLocale("he");
+  }
+  ~ScopedRTL() { base::i18n::SetICUDefaultLocale(locale_); }
+
+ private:
+  std::string locale_;
+};
+
 }  // namespace
 
 namespace views {
@@ -188,6 +203,7 @@ class TestView : public View {
   TestView()
       : View(),
         delete_on_pressed_(false),
+        did_paint_(false),
         native_theme_(NULL),
         can_process_events_within_subtree_(true) {}
   ~TestView() override {}
@@ -199,7 +215,7 @@ class TestView : public View {
     location_.SetPoint(0, 0);
     received_mouse_enter_ = false;
     received_mouse_exit_ = false;
-    last_clip_.setEmpty();
+    did_paint_ = false;
     accelerator_count_map_.clear();
     can_process_events_within_subtree_ = true;
   }
@@ -230,7 +246,7 @@ class TestView : public View {
   void OnMouseEntered(const ui::MouseEvent& event) override;
   void OnMouseExited(const ui::MouseEvent& event) override;
 
-  void Paint(gfx::Canvas* canvas, const CullSet& cull_set) override;
+  void OnPaint(gfx::Canvas* canvas) override;
   void SchedulePaintInRect(const gfx::Rect& rect) override;
   bool AcceleratorPressed(const ui::Accelerator& accelerator) override;
 
@@ -249,9 +265,7 @@ class TestView : public View {
 
   // Painting.
   std::vector<gfx::Rect> scheduled_paint_rects_;
-
-  // Painting.
-  SkRect last_clip_;
+  bool did_paint_;
 
   // Accelerators.
   std::map<ui::Accelerator, int> accelerator_count_map_;
@@ -340,7 +354,7 @@ TEST_F(ViewTest, MouseEvent) {
   v2->Reset();
 
   gfx::Point p1(110, 120);
-  ui::MouseEvent pressed(ui::ET_MOUSE_PRESSED, p1, p1,
+  ui::MouseEvent pressed(ui::ET_MOUSE_PRESSED, p1, p1, ui::EventTimeForNow(),
                          ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON);
   root->OnMousePressed(pressed);
   EXPECT_EQ(v2->last_mouse_event_type_, ui::ET_MOUSE_PRESSED);
@@ -353,7 +367,7 @@ TEST_F(ViewTest, MouseEvent) {
   v1->Reset();
   v2->Reset();
   gfx::Point p2(50, 40);
-  ui::MouseEvent dragged(ui::ET_MOUSE_DRAGGED, p2, p2,
+  ui::MouseEvent dragged(ui::ET_MOUSE_DRAGGED, p2, p2, ui::EventTimeForNow(),
                          ui::EF_LEFT_MOUSE_BUTTON, 0);
   root->OnMouseDragged(dragged);
   EXPECT_EQ(v2->last_mouse_event_type_, ui::ET_MOUSE_DRAGGED);
@@ -365,8 +379,8 @@ TEST_F(ViewTest, MouseEvent) {
   // Releasted event out of bounds. Should still go to v2
   v1->Reset();
   v2->Reset();
-  ui::MouseEvent released(ui::ET_MOUSE_RELEASED, gfx::Point(), gfx::Point(), 0,
-                          0);
+  ui::MouseEvent released(ui::ET_MOUSE_RELEASED, gfx::Point(), gfx::Point(),
+                          ui::EventTimeForNow(), 0, 0);
   root->OnMouseDragged(released);
   EXPECT_EQ(v2->last_mouse_event_type_, ui::ET_MOUSE_RELEASED);
   EXPECT_EQ(v2->location_.x(), -100);
@@ -401,7 +415,8 @@ TEST_F(ViewTest, DeleteOnPressed) {
   v2->delete_on_pressed_ = true;
   gfx::Point point(110, 120);
   ui::MouseEvent pressed(ui::ET_MOUSE_PRESSED, point, point,
-                         ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON);
+                         ui::EventTimeForNow(), ui::EF_LEFT_MOUSE_BUTTON,
+                         ui::EF_LEFT_MOUSE_BUTTON);
   root->OnMousePressed(pressed);
   EXPECT_EQ(0, v1->child_count());
 
@@ -412,20 +427,626 @@ TEST_F(ViewTest, DeleteOnPressed) {
 // Painting
 ////////////////////////////////////////////////////////////////////////////////
 
-void TestView::Paint(gfx::Canvas* canvas, const CullSet& cull_set) {
-  canvas->sk_canvas()->getClipBounds(&last_clip_);
+void TestView::OnPaint(gfx::Canvas* canvas) {
+  did_paint_ = true;
+}
+
+namespace {
+
+// Helper class to create a Widget with standard parameters that is closed when
+// the helper class goes out of scope.
+class ScopedTestPaintWidget {
+ public:
+  explicit ScopedTestPaintWidget(const Widget::InitParams& params)
+        : widget_(new Widget) {
+    widget_->Init(params);
+    widget_->GetRootView()->SetBounds(0, 0, 25, 26);
+  }
+
+  ~ScopedTestPaintWidget() {
+    widget_->CloseNow();
+  }
+
+  Widget* operator->() { return widget_; }
+
+ private:
+  Widget* widget_;
+
+  DISALLOW_COPY_AND_ASSIGN(ScopedTestPaintWidget);
+};
+
+}  // namespace
+
+TEST_F(ViewTest, PaintEmptyView) {
+  ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
+  View* root_view = widget->GetRootView();
+
+  // |v1| is empty.
+  TestView* v1 = new TestView;
+  v1->SetBounds(10, 11, 0, 1);
+  root_view->AddChildView(v1);
+
+  // |v11| is a child of an empty |v1|.
+  TestView* v11 = new TestView;
+  v11->SetBounds(3, 4, 6, 5);
+  v1->AddChildView(v11);
+
+  // |v2| is not.
+  TestView* v2 = new TestView;
+  v2->SetBounds(3, 4, 6, 5);
+  root_view->AddChildView(v2);
+
+  // Paint "everything".
+  gfx::Rect first_paint(1, 1);
+  scoped_refptr<cc::DisplayItemList> list =
+      cc::DisplayItemList::Create(first_paint, cc::DisplayItemListSettings());
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+
+  // The empty view has nothing to paint so it doesn't try build a cache, nor do
+  // its children which would be clipped by its (empty) self.
+  EXPECT_FALSE(v1->did_paint_);
+  EXPECT_FALSE(v11->did_paint_);
+  EXPECT_TRUE(v2->did_paint_);
+}
+
+TEST_F(ViewTest, PaintWithUnknownInvalidation) {
+  ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
+  View* root_view = widget->GetRootView();
+
+  TestView* v1 = new TestView;
+  v1->SetBounds(10, 11, 12, 13);
+  root_view->AddChildView(v1);
+
+  TestView* v2 = new TestView;
+  v2->SetBounds(3, 4, 6, 5);
+  v1->AddChildView(v2);
+
+  // Paint everything once, since it has to build its cache. Then we can test
+  // invalidation.
+  gfx::Rect first_paint(1, 1);
+  scoped_refptr<cc::DisplayItemList> list =
+      cc::DisplayItemList::Create(first_paint, cc::DisplayItemListSettings());
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  v1->Reset();
+  v2->Reset();
+
+  gfx::Rect paint_area(1, 1);
+  gfx::Rect root_area(root_view->size());
+  list = cc::DisplayItemList::Create(root_area, cc::DisplayItemListSettings());
+
+  // With a known invalidation, v1 and v2 are not painted.
+  EXPECT_FALSE(v1->did_paint_);
+  EXPECT_FALSE(v2->did_paint_);
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  EXPECT_FALSE(v1->did_paint_);
+  EXPECT_FALSE(v2->did_paint_);
+
+  // With unknown invalidation, v1 and v2 are painted.
+  root_view->Paint(
+      ui::PaintContext(ui::PaintContext(list.get(), 1.f, paint_area),
+                       ui::PaintContext::CLONE_WITHOUT_INVALIDATION));
+  EXPECT_TRUE(v1->did_paint_);
+  EXPECT_TRUE(v2->did_paint_);
+}
+
+TEST_F(ViewTest, PaintContainsChildren) {
+  ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
+  View* root_view = widget->GetRootView();
+
+  TestView* v1 = new TestView;
+  v1->SetBounds(10, 11, 12, 13);
+  root_view->AddChildView(v1);
+
+  TestView* v2 = new TestView;
+  v2->SetBounds(3, 4, 6, 5);
+  v1->AddChildView(v2);
+
+  // Paint everything once, since it has to build its cache. Then we can test
+  // invalidation.
+  gfx::Rect first_paint(1, 1);
+  scoped_refptr<cc::DisplayItemList> list =
+      cc::DisplayItemList::Create(first_paint, cc::DisplayItemListSettings());
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  v1->Reset();
+  v2->Reset();
+
+  gfx::Rect paint_area(25, 26);
+  gfx::Rect root_area(root_view->size());
+  list = cc::DisplayItemList::Create(root_area, cc::DisplayItemListSettings());
+
+  EXPECT_FALSE(v1->did_paint_);
+  EXPECT_FALSE(v2->did_paint_);
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  EXPECT_TRUE(v1->did_paint_);
+  EXPECT_TRUE(v2->did_paint_);
+}
+
+TEST_F(ViewTest, PaintContainsChildrenInRTL) {
+  ScopedRTL rtl;
+  ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
+  View* root_view = widget->GetRootView();
+
+  TestView* v1 = new TestView;
+  v1->SetBounds(10, 11, 12, 13);
+  root_view->AddChildView(v1);
+
+  TestView* v2 = new TestView;
+  v2->SetBounds(3, 4, 6, 5);
+  v1->AddChildView(v2);
+
+  // Verify where the layers actually appear.
+  v1->SetPaintToLayer(true);
+  // x: 25 - 10(x) - 12(width) = 3
+  EXPECT_EQ(gfx::Rect(3, 11, 12, 13), v1->layer()->bounds());
+  v1->SetPaintToLayer(false);
+
+  v2->SetPaintToLayer(true);
+  // x: 25 - 10(parent x) - 3(x) - 6(width) = 6
+  EXPECT_EQ(gfx::Rect(6, 15, 6, 5), v2->layer()->bounds());
+  v2->SetPaintToLayer(false);
+
+  // Paint everything once, since it has to build its cache. Then we can test
+  // invalidation.
+  gfx::Rect first_paint(1, 1);
+  scoped_refptr<cc::DisplayItemList> list =
+      cc::DisplayItemList::Create(first_paint, cc::DisplayItemListSettings());
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  v1->Reset();
+  v2->Reset();
+
+  gfx::Rect paint_area(25, 26);
+  gfx::Rect root_area(root_view->size());
+  list = cc::DisplayItemList::Create(root_area, cc::DisplayItemListSettings());
+
+  EXPECT_FALSE(v1->did_paint_);
+  EXPECT_FALSE(v2->did_paint_);
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  EXPECT_TRUE(v1->did_paint_);
+  EXPECT_TRUE(v2->did_paint_);
+}
+
+TEST_F(ViewTest, PaintIntersectsChildren) {
+  ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
+  View* root_view = widget->GetRootView();
+
+  TestView* v1 = new TestView;
+  v1->SetBounds(10, 11, 12, 13);
+  root_view->AddChildView(v1);
+
+  TestView* v2 = new TestView;
+  v2->SetBounds(3, 4, 6, 5);
+  v1->AddChildView(v2);
+
+  // Paint everything once, since it has to build its cache. Then we can test
+  // invalidation.
+  gfx::Rect first_paint(1, 1);
+  scoped_refptr<cc::DisplayItemList> list =
+      cc::DisplayItemList::Create(first_paint, cc::DisplayItemListSettings());
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  v1->Reset();
+  v2->Reset();
+
+  gfx::Rect paint_area(9, 10, 5, 6);
+  gfx::Rect root_area(root_view->size());
+  list = cc::DisplayItemList::Create(root_area, cc::DisplayItemListSettings());
+
+  EXPECT_FALSE(v1->did_paint_);
+  EXPECT_FALSE(v2->did_paint_);
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  EXPECT_TRUE(v1->did_paint_);
+  EXPECT_TRUE(v2->did_paint_);
+}
+
+TEST_F(ViewTest, PaintIntersectsChildrenInRTL) {
+  ScopedRTL rtl;
+  ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
+  View* root_view = widget->GetRootView();
+
+  TestView* v1 = new TestView;
+  v1->SetBounds(10, 11, 12, 13);
+  root_view->AddChildView(v1);
+
+  TestView* v2 = new TestView;
+  v2->SetBounds(3, 4, 6, 5);
+  v1->AddChildView(v2);
+
+  // Verify where the layers actually appear.
+  v1->SetPaintToLayer(true);
+  // x: 25 - 10(x) - 12(width) = 3
+  EXPECT_EQ(gfx::Rect(3, 11, 12, 13), v1->layer()->bounds());
+  v1->SetPaintToLayer(false);
+
+  v2->SetPaintToLayer(true);
+  // x: 25 - 10(parent x) - 3(x) - 6(width) = 6
+  EXPECT_EQ(gfx::Rect(6, 15, 6, 5), v2->layer()->bounds());
+  v2->SetPaintToLayer(false);
+
+  // Paint everything once, since it has to build its cache. Then we can test
+  // invalidation.
+  gfx::Rect first_paint(1, 1);
+  scoped_refptr<cc::DisplayItemList> list =
+      cc::DisplayItemList::Create(first_paint, cc::DisplayItemListSettings());
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  v1->Reset();
+  v2->Reset();
+
+  gfx::Rect paint_area(2, 10, 5, 6);
+  gfx::Rect root_area(root_view->size());
+  list = cc::DisplayItemList::Create(root_area, cc::DisplayItemListSettings());
+
+  EXPECT_FALSE(v1->did_paint_);
+  EXPECT_FALSE(v2->did_paint_);
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  EXPECT_TRUE(v1->did_paint_);
+  EXPECT_TRUE(v2->did_paint_);
+}
+
+TEST_F(ViewTest, PaintIntersectsChildButNotGrandChild) {
+  ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
+  View* root_view = widget->GetRootView();
+
+  TestView* v1 = new TestView;
+  v1->SetBounds(10, 11, 12, 13);
+  root_view->AddChildView(v1);
+
+  TestView* v2 = new TestView;
+  v2->SetBounds(3, 4, 6, 5);
+  v1->AddChildView(v2);
+
+  // Paint everything once, since it has to build its cache. Then we can test
+  // invalidation.
+  gfx::Rect first_paint(1, 1);
+  scoped_refptr<cc::DisplayItemList> list =
+      cc::DisplayItemList::Create(first_paint, cc::DisplayItemListSettings());
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  v1->Reset();
+  v2->Reset();
+
+  gfx::Rect paint_area(9, 10, 2, 3);
+  gfx::Rect root_area(root_view->size());
+  list = cc::DisplayItemList::Create(root_area, cc::DisplayItemListSettings());
+
+  EXPECT_FALSE(v1->did_paint_);
+  EXPECT_FALSE(v2->did_paint_);
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  EXPECT_TRUE(v1->did_paint_);
+  EXPECT_FALSE(v2->did_paint_);
+}
+
+TEST_F(ViewTest, PaintIntersectsChildButNotGrandChildInRTL) {
+  ScopedRTL rtl;
+  ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
+  View* root_view = widget->GetRootView();
+
+  TestView* v1 = new TestView;
+  v1->SetBounds(10, 11, 12, 13);
+  root_view->AddChildView(v1);
+
+  TestView* v2 = new TestView;
+  v2->SetBounds(3, 4, 6, 5);
+  v1->AddChildView(v2);
+
+  // Verify where the layers actually appear.
+  v1->SetPaintToLayer(true);
+  // x: 25 - 10(x) - 12(width) = 3
+  EXPECT_EQ(gfx::Rect(3, 11, 12, 13), v1->layer()->bounds());
+  v1->SetPaintToLayer(false);
+
+  v2->SetPaintToLayer(true);
+  // x: 25 - 10(parent x) - 3(x) - 6(width) = 6
+  EXPECT_EQ(gfx::Rect(6, 15, 6, 5), v2->layer()->bounds());
+  v2->SetPaintToLayer(false);
+
+  // Paint everything once, since it has to build its cache. Then we can test
+  // invalidation.
+  gfx::Rect first_paint(1, 1);
+  scoped_refptr<cc::DisplayItemList> list =
+      cc::DisplayItemList::Create(first_paint, cc::DisplayItemListSettings());
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  v1->Reset();
+  v2->Reset();
+
+  gfx::Rect paint_area(2, 10, 2, 3);
+  gfx::Rect root_area(root_view->size());
+  list = cc::DisplayItemList::Create(root_area, cc::DisplayItemListSettings());
+
+  EXPECT_FALSE(v1->did_paint_);
+  EXPECT_FALSE(v2->did_paint_);
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  EXPECT_TRUE(v1->did_paint_);
+  EXPECT_FALSE(v2->did_paint_);
+}
+
+TEST_F(ViewTest, PaintIntersectsNoChildren) {
+  ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
+  View* root_view = widget->GetRootView();
+
+  TestView* v1 = new TestView;
+  v1->SetBounds(10, 11, 12, 13);
+  root_view->AddChildView(v1);
+
+  TestView* v2 = new TestView;
+  v2->SetBounds(3, 4, 6, 5);
+  v1->AddChildView(v2);
+
+  // Paint everything once, since it has to build its cache. Then we can test
+  // invalidation.
+  gfx::Rect first_paint(1, 1);
+  scoped_refptr<cc::DisplayItemList> list =
+      cc::DisplayItemList::Create(first_paint, cc::DisplayItemListSettings());
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  v1->Reset();
+  v2->Reset();
+
+  gfx::Rect paint_area(9, 10, 2, 1);
+  gfx::Rect root_area(root_view->size());
+  list = cc::DisplayItemList::Create(root_area, cc::DisplayItemListSettings());
+
+  EXPECT_FALSE(v1->did_paint_);
+  EXPECT_FALSE(v2->did_paint_);
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  EXPECT_FALSE(v1->did_paint_);
+  EXPECT_FALSE(v2->did_paint_);
+}
+
+TEST_F(ViewTest, PaintIntersectsNoChildrenInRTL) {
+  ScopedRTL rtl;
+  ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
+  View* root_view = widget->GetRootView();
+
+  TestView* v1 = new TestView;
+  v1->SetBounds(10, 11, 12, 13);
+  root_view->AddChildView(v1);
+
+  TestView* v2 = new TestView;
+  v2->SetBounds(3, 4, 6, 5);
+  v1->AddChildView(v2);
+
+  // Verify where the layers actually appear.
+  v1->SetPaintToLayer(true);
+  // x: 25 - 10(x) - 12(width) = 3
+  EXPECT_EQ(gfx::Rect(3, 11, 12, 13), v1->layer()->bounds());
+  v1->SetPaintToLayer(false);
+
+  v2->SetPaintToLayer(true);
+  // x: 25 - 10(parent x) - 3(x) - 6(width) = 6
+  EXPECT_EQ(gfx::Rect(6, 15, 6, 5), v2->layer()->bounds());
+  v2->SetPaintToLayer(false);
+
+  // Paint everything once, since it has to build its cache. Then we can test
+  // invalidation.
+  gfx::Rect first_paint(1, 1);
+  scoped_refptr<cc::DisplayItemList> list =
+      cc::DisplayItemList::Create(first_paint, cc::DisplayItemListSettings());
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  v1->Reset();
+  v2->Reset();
+
+  gfx::Rect paint_area(2, 10, 2, 1);
+  gfx::Rect root_area(root_view->size());
+  list = cc::DisplayItemList::Create(root_area, cc::DisplayItemListSettings());
+
+  EXPECT_FALSE(v1->did_paint_);
+  EXPECT_FALSE(v2->did_paint_);
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  EXPECT_FALSE(v1->did_paint_);
+  EXPECT_FALSE(v2->did_paint_);
+}
+
+TEST_F(ViewTest, PaintIntersectsOneChild) {
+  ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
+  View* root_view = widget->GetRootView();
+
+  TestView* v1 = new TestView;
+  v1->SetBounds(10, 11, 12, 13);
+  root_view->AddChildView(v1);
+
+  TestView* v2 = new TestView;
+  v2->SetBounds(3, 4, 6, 5);
+  root_view->AddChildView(v2);
+
+  // Paint everything once, since it has to build its cache. Then we can test
+  // invalidation.
+  gfx::Rect first_paint(1, 1);
+  scoped_refptr<cc::DisplayItemList> list =
+      cc::DisplayItemList::Create(first_paint, cc::DisplayItemListSettings());
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  v1->Reset();
+  v2->Reset();
+
+  // Intersects with the second child only.
+  gfx::Rect paint_area(3, 3, 1, 2);
+  gfx::Rect root_area(root_view->size());
+  list = cc::DisplayItemList::Create(root_area, cc::DisplayItemListSettings());
+
+  EXPECT_FALSE(v1->did_paint_);
+  EXPECT_FALSE(v2->did_paint_);
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  EXPECT_FALSE(v1->did_paint_);
+  EXPECT_TRUE(v2->did_paint_);
+
+  // Intersects with the first child only.
+  paint_area = gfx::Rect(20, 10, 1, 2);
+
+  v1->Reset();
+  v2->Reset();
+  EXPECT_FALSE(v1->did_paint_);
+  EXPECT_FALSE(v2->did_paint_);
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  EXPECT_TRUE(v1->did_paint_);
+  EXPECT_FALSE(v2->did_paint_);
+}
+
+TEST_F(ViewTest, PaintIntersectsOneChildInRTL) {
+  ScopedRTL rtl;
+  ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
+  View* root_view = widget->GetRootView();
+
+  TestView* v1 = new TestView;
+  v1->SetBounds(10, 11, 12, 13);
+  root_view->AddChildView(v1);
+
+  TestView* v2 = new TestView;
+  v2->SetBounds(3, 4, 6, 5);
+  root_view->AddChildView(v2);
+
+  // Verify where the layers actually appear.
+  v1->SetPaintToLayer(true);
+  // x: 25 - 10(x) - 12(width) = 3
+  EXPECT_EQ(gfx::Rect(3, 11, 12, 13), v1->layer()->bounds());
+  v1->SetPaintToLayer(false);
+
+  v2->SetPaintToLayer(true);
+  // x: 25 - 3(x) - 6(width) = 16
+  EXPECT_EQ(gfx::Rect(16, 4, 6, 5), v2->layer()->bounds());
+  v2->SetPaintToLayer(false);
+
+  // Paint everything once, since it has to build its cache. Then we can test
+  // invalidation.
+  gfx::Rect first_paint(1, 1);
+  scoped_refptr<cc::DisplayItemList> list =
+      cc::DisplayItemList::Create(first_paint, cc::DisplayItemListSettings());
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  v1->Reset();
+  v2->Reset();
+
+  // Intersects with the first child only.
+  gfx::Rect paint_area(3, 10, 1, 2);
+  gfx::Rect root_area(root_view->size());
+  list = cc::DisplayItemList::Create(root_area, cc::DisplayItemListSettings());
+
+  EXPECT_FALSE(v1->did_paint_);
+  EXPECT_FALSE(v2->did_paint_);
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  EXPECT_TRUE(v1->did_paint_);
+  EXPECT_FALSE(v2->did_paint_);
+
+  // Intersects with the second child only.
+  paint_area = gfx::Rect(21, 3, 1, 2);
+
+  v1->Reset();
+  v2->Reset();
+  EXPECT_FALSE(v1->did_paint_);
+  EXPECT_FALSE(v2->did_paint_);
+  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  EXPECT_FALSE(v1->did_paint_);
+  EXPECT_TRUE(v2->did_paint_);
+}
+
+TEST_F(ViewTest, PaintInPromotedToLayer) {
+  ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
+  View* root_view = widget->GetRootView();
+
+  TestView* v1 = new TestView;
+  v1->SetPaintToLayer(true);
+  v1->SetBounds(10, 11, 12, 13);
+  root_view->AddChildView(v1);
+
+  TestView* v2 = new TestView;
+  v2->SetBounds(3, 4, 6, 5);
+  v1->AddChildView(v2);
+
+  // Paint everything once, since it has to build its cache. Then we can test
+  // invalidation.
+  gfx::Rect first_paint(1, 1);
+  scoped_refptr<cc::DisplayItemList> list =
+      cc::DisplayItemList::Create(first_paint, cc::DisplayItemListSettings());
+  v1->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  v1->Reset();
+  v2->Reset();
+
+  {
+    gfx::Rect paint_area(25, 26);
+    gfx::Rect view_area(root_view->size());
+    scoped_refptr<cc::DisplayItemList> list =
+        cc::DisplayItemList::Create(view_area, cc::DisplayItemListSettings());
+
+    // The promoted views are not painted as they are separate paint roots.
+    root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+    EXPECT_FALSE(v1->did_paint_);
+    EXPECT_FALSE(v2->did_paint_);
+  }
+
+  {
+    gfx::Rect paint_area(1, 1);
+    gfx::Rect view_area(v1->size());
+    scoped_refptr<cc::DisplayItemList> list =
+        cc::DisplayItemList::Create(view_area, cc::DisplayItemListSettings());
+
+    // The |v1| view is painted. If it used its offset incorrect, it would think
+    // its at (10,11) instead of at (0,0) since it is the paint root.
+    v1->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+    EXPECT_TRUE(v1->did_paint_);
+    EXPECT_FALSE(v2->did_paint_);
+  }
+
+  v1->Reset();
+
+  {
+    gfx::Rect paint_area(3, 3, 1, 2);
+    gfx::Rect view_area(v1->size());
+    scoped_refptr<cc::DisplayItemList> list =
+        cc::DisplayItemList::Create(view_area, cc::DisplayItemListSettings());
+
+    // The |v2| view is painted also. If it used its offset incorrect, it would
+    // think its at (13,15) instead of at (3,4) since |v1| is the paint root.
+    v1->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+    EXPECT_TRUE(v1->did_paint_);
+    EXPECT_TRUE(v2->did_paint_);
+  }
+}
+
+// A derived class for testing paint.
+class TestPaintView : public TestView {
+ public:
+  TestPaintView() : TestView(), canvas_bounds_(gfx::Rect()) {}
+  ~TestPaintView() override {}
+
+  void OnPaint(gfx::Canvas* canvas) override {
+    did_paint_ = true;
+    // Get the bounds from the canvas this view paints to.
+    EXPECT_TRUE(canvas->GetClipBounds(&canvas_bounds_));
+  }
+
+  gfx::Rect canvas_bounds() const { return canvas_bounds_; }
+
+ private:
+  gfx::Rect canvas_bounds_;
+};
+
+TEST_F(ViewTest, PaintLocalBounds) {
+  ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
+  View* root_view = widget->GetRootView();
+  // Make |root_view|'s bounds larger so |v1|'s visible bounds is not clipped by
+  // |root_view|.
+  root_view->SetBounds(0, 0, 200, 200);
+
+  TestPaintView* v1 = new TestPaintView;
+  v1->SetPaintToLayer(true);
+
+  // Set bounds for |v1| such that it has an offset to its parent and only part
+  // of it is visible. The visible bounds does not intersect with |root_view|'s
+  // bounds.
+  v1->SetBounds(0, -1000, 100, 1100);
+  root_view->AddChildView(v1);
+  EXPECT_EQ(gfx::Rect(0, 0, 100, 1100), v1->GetLocalBounds());
+  EXPECT_EQ(gfx::Rect(0, 1000, 100, 100), v1->GetVisibleBounds());
+
+  scoped_refptr<cc::DisplayItemList> list =
+      cc::DisplayItemList::Create(gfx::Rect(), cc::DisplayItemListSettings());
+  ui::PaintContext context(list.get(), 1.f, gfx::Rect());
+
+  v1->Paint(context);
+  EXPECT_TRUE(v1->did_paint_);
+
+  // Check that the canvas produced by |v1| for paint contains all of |v1|'s
+  // visible bounds.
+  EXPECT_TRUE(v1->canvas_bounds().Contains(v1->GetVisibleBounds()));
 }
 
 void TestView::SchedulePaintInRect(const gfx::Rect& rect) {
   scheduled_paint_rects_.push_back(rect);
   View::SchedulePaintInRect(rect);
-}
-
-void CheckRect(const SkRect& check_rect, const SkRect& target_rect) {
-  EXPECT_EQ(target_rect.fLeft, check_rect.fLeft);
-  EXPECT_EQ(target_rect.fRight, check_rect.fRight);
-  EXPECT_EQ(target_rect.fTop, check_rect.fTop);
-  EXPECT_EQ(target_rect.fBottom, check_rect.fBottom);
 }
 
 TEST_F(ViewTest, RemoveNotification) {
@@ -999,6 +1620,8 @@ TEST_F(ViewTest, CanProcessEventsWithinSubtree) {
   result_view = NULL;
   result_view = root_view->GetTooltipHandlerForPoint(point_in_v);
   EXPECT_EQ(root_view, result_view);
+
+  widget->CloseNow();
 }
 
 TEST_F(ViewTest, NotifyEnterExitOnChild) {
@@ -1056,7 +1679,7 @@ TEST_F(ViewTest, NotifyEnterExitOnChild) {
 
   // Move the mouse in v111.
   gfx::Point p1(6, 6);
-  ui::MouseEvent move1(ui::ET_MOUSE_MOVED, p1, p1, 0, 0);
+  ui::MouseEvent move1(ui::ET_MOUSE_MOVED, p1, p1, ui::EventTimeForNow(), 0, 0);
   root_view->OnMouseMoved(move1);
   EXPECT_TRUE(v111->received_mouse_enter_);
   EXPECT_FALSE(v11->last_mouse_event_type_);
@@ -1067,7 +1690,7 @@ TEST_F(ViewTest, NotifyEnterExitOnChild) {
 
   // Now, move into v121.
   gfx::Point p2(65, 21);
-  ui::MouseEvent move2(ui::ET_MOUSE_MOVED, p2, p2, 0, 0);
+  ui::MouseEvent move2(ui::ET_MOUSE_MOVED, p2, p2, ui::EventTimeForNow(), 0, 0);
   root_view->OnMouseMoved(move2);
   EXPECT_TRUE(v111->received_mouse_exit_);
   EXPECT_TRUE(v121->received_mouse_enter_);
@@ -1078,7 +1701,7 @@ TEST_F(ViewTest, NotifyEnterExitOnChild) {
 
   // Now, move into v11.
   gfx::Point p3(1, 1);
-  ui::MouseEvent move3(ui::ET_MOUSE_MOVED, p3, p3, 0, 0);
+  ui::MouseEvent move3(ui::ET_MOUSE_MOVED, p3, p3, ui::EventTimeForNow(), 0, 0);
   root_view->OnMouseMoved(move3);
   EXPECT_TRUE(v121->received_mouse_exit_);
   EXPECT_TRUE(v11->received_mouse_enter_);
@@ -1089,7 +1712,7 @@ TEST_F(ViewTest, NotifyEnterExitOnChild) {
 
   // Move to v21.
   gfx::Point p4(121, 15);
-  ui::MouseEvent move4(ui::ET_MOUSE_MOVED, p4, p4, 0, 0);
+  ui::MouseEvent move4(ui::ET_MOUSE_MOVED, p4, p4, ui::EventTimeForNow(), 0, 0);
   root_view->OnMouseMoved(move4);
   EXPECT_TRUE(v21->received_mouse_enter_);
   EXPECT_FALSE(v2->last_mouse_event_type_);
@@ -1102,7 +1725,7 @@ TEST_F(ViewTest, NotifyEnterExitOnChild) {
 
   // Move to v1.
   gfx::Point p5(21, 0);
-  ui::MouseEvent move5(ui::ET_MOUSE_MOVED, p5, p5, 0, 0);
+  ui::MouseEvent move5(ui::ET_MOUSE_MOVED, p5, p5, ui::EventTimeForNow(), 0, 0);
   root_view->OnMouseMoved(move5);
   EXPECT_TRUE(v21->received_mouse_exit_);
   EXPECT_TRUE(v1->received_mouse_enter_);
@@ -1112,7 +1735,8 @@ TEST_F(ViewTest, NotifyEnterExitOnChild) {
 
   // Now, move into v11.
   gfx::Point p6(15, 15);
-  ui::MouseEvent mouse6(ui::ET_MOUSE_MOVED, p6, p6, 0, 0);
+  ui::MouseEvent mouse6(ui::ET_MOUSE_MOVED, p6, p6, ui::EventTimeForNow(), 0,
+                        0);
   root_view->OnMouseMoved(mouse6);
   EXPECT_TRUE(v11->received_mouse_enter_);
   EXPECT_FALSE(v1->last_mouse_event_type_);
@@ -1124,7 +1748,8 @@ TEST_F(ViewTest, NotifyEnterExitOnChild) {
   // and the mouse remains inside |v1| the whole time, it receives another ENTER
   // when the mouse leaves v11.
   gfx::Point p7(21, 0);
-  ui::MouseEvent mouse7(ui::ET_MOUSE_MOVED, p7, p7, 0, 0);
+  ui::MouseEvent mouse7(ui::ET_MOUSE_MOVED, p7, p7, ui::EventTimeForNow(), 0,
+                        0);
   root_view->OnMouseMoved(mouse7);
   EXPECT_TRUE(v11->received_mouse_exit_);
   EXPECT_FALSE(v1->received_mouse_enter_);
@@ -1646,7 +2271,7 @@ TEST_F(ViewTest, TransformEvent) {
   v2->Reset();
 
   gfx::Point p1(110, 210);
-  ui::MouseEvent pressed(ui::ET_MOUSE_PRESSED, p1, p1,
+  ui::MouseEvent pressed(ui::ET_MOUSE_PRESSED, p1, p1, ui::EventTimeForNow(),
                          ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON);
   root->OnMousePressed(pressed);
   EXPECT_EQ(0, v1->last_mouse_event_type_);
@@ -1654,8 +2279,8 @@ TEST_F(ViewTest, TransformEvent) {
   EXPECT_EQ(190, v2->location_.x());
   EXPECT_EQ(10, v2->location_.y());
 
-  ui::MouseEvent released(ui::ET_MOUSE_RELEASED, gfx::Point(), gfx::Point(), 0,
-                          0);
+  ui::MouseEvent released(ui::ET_MOUSE_RELEASED, gfx::Point(), gfx::Point(),
+                          ui::EventTimeForNow(), 0, 0);
   root->OnMouseReleased(released);
 
   // Now rotate |v2| inside |v1| clockwise.
@@ -1671,7 +2296,7 @@ TEST_F(ViewTest, TransformEvent) {
   v2->Reset();
 
   gfx::Point point2(110, 320);
-  ui::MouseEvent p2(ui::ET_MOUSE_PRESSED, point2, point2,
+  ui::MouseEvent p2(ui::ET_MOUSE_PRESSED, point2, point2, ui::EventTimeForNow(),
                     ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON);
   root->OnMousePressed(p2);
   EXPECT_EQ(0, v1->last_mouse_event_type_);
@@ -1707,7 +2332,7 @@ TEST_F(ViewTest, TransformEvent) {
   v3->Reset();
 
   gfx::Point point(112, 110);
-  ui::MouseEvent p3(ui::ET_MOUSE_PRESSED, point, point,
+  ui::MouseEvent p3(ui::ET_MOUSE_PRESSED, point, point, ui::EventTimeForNow(),
                     ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON);
   root->OnMousePressed(p3);
 
@@ -1746,7 +2371,7 @@ TEST_F(ViewTest, TransformEvent) {
   // |v3| now occupies (120, 120) to (144, 130) in |root|.
 
   gfx::Point point3(124, 125);
-  ui::MouseEvent p4(ui::ET_MOUSE_PRESSED, point3, point3,
+  ui::MouseEvent p4(ui::ET_MOUSE_PRESSED, point3, point3, ui::EventTimeForNow(),
                     ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON);
   root->OnMousePressed(p4);
 
@@ -2898,8 +3523,7 @@ TEST_F(ViewLayerTest, BoundsChangeWithLayer) {
 
 // Make sure layers are positioned correctly in RTL.
 TEST_F(ViewLayerTest, BoundInRTL) {
-  std::string locale = l10n_util::GetApplicationLocale(std::string());
-  base::i18n::SetICUDefaultLocale("he");
+  ScopedRTL rtl;
 
   View* view = new View;
   widget()->SetContentsView(view);
@@ -2950,9 +3574,65 @@ TEST_F(ViewLayerTest, BoundInRTL) {
   v2->SetBounds(v2->x() + 5, v2->y(), v2->width(), v2->height());
   l2bounds.set_x(l2bounds.x() - 5);
   EXPECT_EQ(l2bounds, v2->layer()->bounds());
+}
 
-  // Reset locale.
-  base::i18n::SetICUDefaultLocale(locale);
+// Make sure that resizing a parent in RTL correctly repositions its children.
+TEST_F(ViewLayerTest, ResizeParentInRTL) {
+  ScopedRTL rtl;
+
+  View* view = new View;
+  widget()->SetContentsView(view);
+
+  int content_width = view->width();
+
+  // Create a paints-to-layer view |v1|.
+  View* v1 = new View;
+  v1->SetPaintToLayer(true);
+  v1->SetBounds(10, 10, 20, 10);
+  view->AddChildView(v1);
+  EXPECT_EQ(gfx::Rect(content_width - 30, 10, 20, 10),
+            v1->layer()->bounds());
+
+  // Attach a paints-to-layer child view to |v1|.
+  View* v2 = new View;
+  v2->SetPaintToLayer(true);
+  v2->SetBounds(3, 5, 6, 4);
+  EXPECT_EQ(gfx::Rect(3, 5, 6, 4),
+            v2->layer()->bounds());
+  v1->AddChildView(v2);
+  // Check that |v2| now has RTL-appropriate bounds.
+  EXPECT_EQ(gfx::Rect(11, 5, 6, 4),
+            v2->layer()->bounds());
+
+  // Attach a non-layer child view to |v1|, and give it a paints-to-layer child.
+  View* v3 = new View;
+  v3->SetBounds(1, 1, 18, 8);
+  View* v4 = new View;
+  v4->SetPaintToLayer(true);
+  v4->SetBounds(2, 4, 6, 4);
+  EXPECT_EQ(gfx::Rect(2, 4, 6, 4),
+            v4->layer()->bounds());
+  v3->AddChildView(v4);
+  EXPECT_EQ(gfx::Rect(10, 4, 6, 4),
+            v4->layer()->bounds());
+  v1->AddChildView(v3);
+  // Check that |v4| now has RTL-appropriate bounds.
+  EXPECT_EQ(gfx::Rect(11, 5, 6, 4),
+            v4->layer()->bounds());
+
+  // Resize |v1|. Make sure that |v2| and |v4|'s layers have been moved
+  // correctly to RTL-appropriate bounds.
+  v1->SetSize(gfx::Size(30, 10));
+  EXPECT_EQ(gfx::Rect(21, 5, 6, 4),
+            v2->layer()->bounds());
+  EXPECT_EQ(gfx::Rect(21, 5, 6, 4),
+            v4->layer()->bounds());
+
+  // Move and resize |v3|. Make sure that |v4|'s layer has been moved correctly
+  // to RTL-appropriate bounds.
+  v3->SetBounds(2, 1, 12, 8);
+  EXPECT_EQ(gfx::Rect(20, 5, 6, 4),
+            v4->layer()->bounds());
 }
 
 // Makes sure a transform persists after toggling the visibility.
@@ -3078,20 +3758,23 @@ TEST_F(ViewLayerTest, DontPaintChildrenWithLayers) {
   widget()->SetContentsView(content_view);
   content_view->SetPaintToLayer(true);
   GetRootLayer()->GetCompositor()->ScheduleDraw();
-  ui::DrawWaiterForTest::Wait(GetRootLayer()->GetCompositor());
+  ui::DrawWaiterForTest::WaitForCompositingEnded(
+      GetRootLayer()->GetCompositor());
   GetRootLayer()->SchedulePaint(gfx::Rect(0, 0, 10, 10));
   content_view->set_painted(false);
   // content_view no longer has a dirty rect. Paint from the root and make sure
   // PaintTrackingView isn't painted.
   GetRootLayer()->GetCompositor()->ScheduleDraw();
-  ui::DrawWaiterForTest::Wait(GetRootLayer()->GetCompositor());
+  ui::DrawWaiterForTest::WaitForCompositingEnded(
+      GetRootLayer()->GetCompositor());
   EXPECT_FALSE(content_view->painted());
 
   // Make content_view have a dirty rect, paint the layers and make sure
   // PaintTrackingView is painted.
   content_view->layer()->SchedulePaint(gfx::Rect(0, 0, 10, 10));
   GetRootLayer()->GetCompositor()->ScheduleDraw();
-  ui::DrawWaiterForTest::Wait(GetRootLayer()->GetCompositor());
+  ui::DrawWaiterForTest::WaitForCompositingEnded(
+      GetRootLayer()->GetCompositor());
   EXPECT_TRUE(content_view->painted());
 }
 
@@ -3293,291 +3976,6 @@ TEST_F(ViewLayerTest, RecreateLayerMovesNonViewChildren) {
   ASSERT_EQ(2u, v.layer()->children().size());
   EXPECT_EQ(v.layer()->children()[0], &layer);
   EXPECT_EQ(v.layer()->children()[1], child.layer());
-}
-
-class BoundsTreeTestView : public View {
- public:
-  BoundsTreeTestView() {}
-
-  void PaintChildren(gfx::Canvas* canvas, const CullSet& cull_set) override {
-    // Save out a copy of the cull_set before calling the base implementation.
-    last_cull_set_.clear();
-    if (cull_set.cull_set_) {
-      for (base::hash_set<intptr_t>::iterator it = cull_set.cull_set_->begin();
-           it != cull_set.cull_set_->end();
-           ++it) {
-        last_cull_set_.insert(reinterpret_cast<View*>(*it));
-      }
-    }
-    View::PaintChildren(canvas, cull_set);
-  }
-
-  std::set<View*> last_cull_set_;
-};
-
-TEST_F(ViewLayerTest, BoundsTreePaintUpdatesCullSet) {
-  BoundsTreeTestView* test_view = new BoundsTreeTestView;
-  widget()->SetContentsView(test_view);
-
-  View* v1 = new View();
-  v1->SetBoundsRect(gfx::Rect(10, 15, 150, 151));
-  test_view->AddChildView(v1);
-
-  View* v2 = new View();
-  v2->SetBoundsRect(gfx::Rect(20, 33, 40, 50));
-  v1->AddChildView(v2);
-
-  // Schedule a full-view paint to get everyone's rectangles updated.
-  test_view->SchedulePaintInRect(test_view->bounds());
-  GetRootLayer()->GetCompositor()->ScheduleDraw();
-  ui::DrawWaiterForTest::Wait(GetRootLayer()->GetCompositor());
-
-  // Now we have test_view - v1 - v2. Damage to only test_view should only
-  // return root_view and test_view.
-  test_view->SchedulePaintInRect(gfx::Rect(0, 0, 1, 1));
-  GetRootLayer()->GetCompositor()->ScheduleDraw();
-  ui::DrawWaiterForTest::Wait(GetRootLayer()->GetCompositor());
-  EXPECT_EQ(2U, test_view->last_cull_set_.size());
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(widget()->GetRootView()));
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(test_view));
-
-  // Damage to v1 only should only return root_view, test_view, and v1.
-  test_view->SchedulePaintInRect(gfx::Rect(11, 16, 1, 1));
-  GetRootLayer()->GetCompositor()->ScheduleDraw();
-  ui::DrawWaiterForTest::Wait(GetRootLayer()->GetCompositor());
-  EXPECT_EQ(3U, test_view->last_cull_set_.size());
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(widget()->GetRootView()));
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(test_view));
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(v1));
-
-  // A Damage rect inside v2 should get all 3 views back in the |last_cull_set_|
-  // on call to TestView::Paint(), along with the widget root view.
-  test_view->SchedulePaintInRect(gfx::Rect(31, 49, 1, 1));
-  GetRootLayer()->GetCompositor()->ScheduleDraw();
-  ui::DrawWaiterForTest::Wait(GetRootLayer()->GetCompositor());
-  EXPECT_EQ(4U, test_view->last_cull_set_.size());
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(widget()->GetRootView()));
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(test_view));
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(v1));
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(v2));
-}
-
-TEST_F(ViewLayerTest, BoundsTreeWithRTL) {
-  std::string locale = l10n_util::GetApplicationLocale(std::string());
-  base::i18n::SetICUDefaultLocale("ar");
-
-  BoundsTreeTestView* test_view = new BoundsTreeTestView;
-  widget()->SetContentsView(test_view);
-
-  // Add child views, which should be in RTL coordinate space of parent view.
-  View* v1 = new View;
-  v1->SetBoundsRect(gfx::Rect(10, 12, 25, 26));
-  test_view->AddChildView(v1);
-
-  View* v2 = new View;
-  v2->SetBoundsRect(gfx::Rect(5, 6, 7, 8));
-  v1->AddChildView(v2);
-
-  // Schedule a full-view paint to get everyone's rectangles updated.
-  test_view->SchedulePaintInRect(test_view->bounds());
-  GetRootLayer()->GetCompositor()->ScheduleDraw();
-  ui::DrawWaiterForTest::Wait(GetRootLayer()->GetCompositor());
-
-  // Damage to the right side of the parent view should touch both child views.
-  gfx::Rect rtl_damage(test_view->bounds().width() - 16, 18, 1, 1);
-  test_view->SchedulePaintInRect(rtl_damage);
-  GetRootLayer()->GetCompositor()->ScheduleDraw();
-  ui::DrawWaiterForTest::Wait(GetRootLayer()->GetCompositor());
-  EXPECT_EQ(4U, test_view->last_cull_set_.size());
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(widget()->GetRootView()));
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(test_view));
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(v1));
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(v2));
-
-  // Damage to the left side of the parent view should only touch the
-  // container views.
-  gfx::Rect ltr_damage(16, 18, 1, 1);
-  test_view->SchedulePaintInRect(ltr_damage);
-  GetRootLayer()->GetCompositor()->ScheduleDraw();
-  ui::DrawWaiterForTest::Wait(GetRootLayer()->GetCompositor());
-  EXPECT_EQ(2U, test_view->last_cull_set_.size());
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(widget()->GetRootView()));
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(test_view));
-
-  // Reset locale.
-  base::i18n::SetICUDefaultLocale(locale);
-}
-
-TEST_F(ViewLayerTest, BoundsTreeSetBoundsChangesCullSet) {
-  BoundsTreeTestView* test_view = new BoundsTreeTestView;
-  widget()->SetContentsView(test_view);
-
-  View* v1 = new View;
-  v1->SetBoundsRect(gfx::Rect(5, 6, 100, 101));
-  test_view->AddChildView(v1);
-
-  View* v2 = new View;
-  v2->SetBoundsRect(gfx::Rect(20, 33, 40, 50));
-  v1->AddChildView(v2);
-
-  // Schedule a full-view paint to get everyone's rectangles updated.
-  test_view->SchedulePaintInRect(test_view->bounds());
-  GetRootLayer()->GetCompositor()->ScheduleDraw();
-  ui::DrawWaiterForTest::Wait(GetRootLayer()->GetCompositor());
-
-  // Move v1 to a new origin out of the way of our next query.
-  v1->SetBoundsRect(gfx::Rect(50, 60, 100, 101));
-  // The move will force a repaint.
-  GetRootLayer()->GetCompositor()->ScheduleDraw();
-  ui::DrawWaiterForTest::Wait(GetRootLayer()->GetCompositor());
-
-  // Schedule a paint with damage rect where v1 used to be.
-  test_view->SchedulePaintInRect(gfx::Rect(5, 6, 10, 11));
-  GetRootLayer()->GetCompositor()->ScheduleDraw();
-  ui::DrawWaiterForTest::Wait(GetRootLayer()->GetCompositor());
-
-  // Should only have picked up root_view and test_view.
-  EXPECT_EQ(2U, test_view->last_cull_set_.size());
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(widget()->GetRootView()));
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(test_view));
-}
-
-TEST_F(ViewLayerTest, BoundsTreeLayerChangeMakesNewTree) {
-  BoundsTreeTestView* test_view = new BoundsTreeTestView;
-  widget()->SetContentsView(test_view);
-
-  View* v1 = new View;
-  v1->SetBoundsRect(gfx::Rect(5, 10, 15, 20));
-  test_view->AddChildView(v1);
-
-  View* v2 = new View;
-  v2->SetBoundsRect(gfx::Rect(1, 2, 3, 4));
-  v1->AddChildView(v2);
-
-  // Schedule a full-view paint to get everyone's rectangles updated.
-  test_view->SchedulePaintInRect(test_view->bounds());
-  GetRootLayer()->GetCompositor()->ScheduleDraw();
-  ui::DrawWaiterForTest::Wait(GetRootLayer()->GetCompositor());
-
-  // Set v1 to paint to its own layer, it should remove itself from the
-  // test_view heiarchy and no longer intersect with damage rects in that cull
-  // set.
-  v1->SetPaintToLayer(true);
-
-  // Schedule another full-view paint.
-  test_view->SchedulePaintInRect(test_view->bounds());
-  GetRootLayer()->GetCompositor()->ScheduleDraw();
-  ui::DrawWaiterForTest::Wait(GetRootLayer()->GetCompositor());
-  // v1 and v2 should no longer be present in the test_view cull_set.
-  EXPECT_EQ(2U, test_view->last_cull_set_.size());
-  EXPECT_EQ(0U, test_view->last_cull_set_.count(v1));
-  EXPECT_EQ(0U, test_view->last_cull_set_.count(v2));
-
-  // Now set v1 back to not painting to a layer.
-  v1->SetPaintToLayer(false);
-  // Schedule another full-view paint.
-  test_view->SchedulePaintInRect(test_view->bounds());
-  GetRootLayer()->GetCompositor()->ScheduleDraw();
-  ui::DrawWaiterForTest::Wait(GetRootLayer()->GetCompositor());
-  // We should be back to the full cull set including v1 and v2.
-  EXPECT_EQ(4U, test_view->last_cull_set_.size());
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(widget()->GetRootView()));
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(test_view));
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(v1));
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(v2));
-}
-
-TEST_F(ViewLayerTest, BoundsTreeRemoveChildRemovesBounds) {
-  BoundsTreeTestView* test_view = new BoundsTreeTestView;
-  widget()->SetContentsView(test_view);
-
-  View* v1 = new View;
-  v1->SetBoundsRect(gfx::Rect(5, 10, 15, 20));
-  test_view->AddChildView(v1);
-
-  View* v2 = new View;
-  v2->SetBoundsRect(gfx::Rect(1, 2, 3, 4));
-  v1->AddChildView(v2);
-
-  // Schedule a full-view paint to get everyone's rectangles updated.
-  test_view->SchedulePaintInRect(test_view->bounds());
-  GetRootLayer()->GetCompositor()->ScheduleDraw();
-  ui::DrawWaiterForTest::Wait(GetRootLayer()->GetCompositor());
-
-  // Now remove v1 from the root view.
-  test_view->RemoveChildView(v1);
-
-  // Schedule another full-view paint.
-  test_view->SchedulePaintInRect(test_view->bounds());
-  GetRootLayer()->GetCompositor()->ScheduleDraw();
-  ui::DrawWaiterForTest::Wait(GetRootLayer()->GetCompositor());
-  // v1 and v2 should no longer be present in the test_view cull_set.
-  EXPECT_EQ(2U, test_view->last_cull_set_.size());
-  EXPECT_EQ(0U, test_view->last_cull_set_.count(v1));
-  EXPECT_EQ(0U, test_view->last_cull_set_.count(v2));
-
-  // View v1 and v2 are no longer part of view hierarchy and therefore won't be
-  // deleted with that hierarchy.
-  delete v1;
-}
-
-TEST_F(ViewLayerTest, BoundsTreeMoveViewMovesBounds) {
-  BoundsTreeTestView* test_view = new BoundsTreeTestView;
-  widget()->SetContentsView(test_view);
-
-  // Build hierarchy v1 - v2 - v3.
-  View* v1 = new View;
-  v1->SetBoundsRect(gfx::Rect(20, 30, 150, 160));
-  test_view->AddChildView(v1);
-
-  View* v2 = new View;
-  v2->SetBoundsRect(gfx::Rect(5, 10, 40, 50));
-  v1->AddChildView(v2);
-
-  View* v3 = new View;
-  v3->SetBoundsRect(gfx::Rect(1, 2, 3, 4));
-  v2->AddChildView(v3);
-
-  // Schedule a full-view paint and ensure all views are present in the cull.
-  test_view->SchedulePaintInRect(test_view->bounds());
-  GetRootLayer()->GetCompositor()->ScheduleDraw();
-  ui::DrawWaiterForTest::Wait(GetRootLayer()->GetCompositor());
-  EXPECT_EQ(5U, test_view->last_cull_set_.size());
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(widget()->GetRootView()));
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(test_view));
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(v1));
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(v2));
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(v3));
-
-  // Build an unrelated view hierarchy and move v2 in to it.
-  scoped_ptr<Widget> test_widget(new Widget);
-  Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_POPUP);
-  params.bounds = gfx::Rect(10, 10, 500, 500);
-  params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  test_widget->Init(params);
-  test_widget->Show();
-  BoundsTreeTestView* widget_view = new BoundsTreeTestView;
-  test_widget->SetContentsView(widget_view);
-  widget_view->AddChildView(v2);
-
-  // Now schedule full-view paints in both widgets.
-  test_view->SchedulePaintInRect(test_view->bounds());
-  widget_view->SchedulePaintInRect(widget_view->bounds());
-  GetRootLayer()->GetCompositor()->ScheduleDraw();
-  ui::DrawWaiterForTest::Wait(GetRootLayer()->GetCompositor());
-
-  // Only v1 should be present in the first cull set.
-  EXPECT_EQ(3U, test_view->last_cull_set_.size());
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(widget()->GetRootView()));
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(test_view));
-  EXPECT_EQ(1U, test_view->last_cull_set_.count(v1));
-
-  // We should find v2 and v3 in the widget_view cull_set.
-  EXPECT_EQ(4U, widget_view->last_cull_set_.size());
-  EXPECT_EQ(1U, widget_view->last_cull_set_.count(test_widget->GetRootView()));
-  EXPECT_EQ(1U, widget_view->last_cull_set_.count(widget_view));
-  EXPECT_EQ(1U, widget_view->last_cull_set_.count(v2));
-  EXPECT_EQ(1U, widget_view->last_cull_set_.count(v3));
 }
 
 namespace {

@@ -13,15 +13,16 @@
 #include "content/public/common/content_switches.h"
 #include "extensions/common/extension_utility_messages.h"
 #include "ipc/ipc_message_macros.h"
+#include "grit/extensions_strings.h"
+#include "ui/base/l10n/l10n_util.h"
 
 using content::BrowserThread;
 
 namespace extensions {
 
 SafeManifestParser::SafeManifestParser(const std::string& xml,
-                                       ManifestFetchData* fetch_data,
-                                       const UpdateCallback& update_callback)
-    : xml_(xml), fetch_data_(fetch_data), update_callback_(update_callback) {
+                                       const ResultsCallback& results_callback)
+    : xml_(xml), results_callback_(results_callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 }
 
@@ -46,6 +47,8 @@ void SafeManifestParser::ParseInSandbox() {
   content::UtilityProcessHost* host = content::UtilityProcessHost::Create(
       this,
       BrowserThread::GetMessageLoopProxyForThread(BrowserThread::UI).get());
+  host->SetName(
+      l10n_util::GetStringUTF16(IDS_UTILITY_PROCESS_MANIFEST_PARSER_NAME));
   host->Send(new ExtensionUtilityMsg_ParseUpdateManifest(xml_));
 }
 
@@ -63,17 +66,15 @@ bool SafeManifestParser::OnMessageReceived(const IPC::Message& message) {
 
 void SafeManifestParser::OnParseUpdateManifestSucceeded(
     const UpdateManifest::Results& results) {
-  VLOG(2) << "parsing manifest succeeded (" << fetch_data_->full_url() << ")";
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  update_callback_.Run(*fetch_data_, &results);
+  results_callback_.Run(&results);
 }
 
 void SafeManifestParser::OnParseUpdateManifestFailed(
     const std::string& error_message) {
-  VLOG(2) << "parsing manifest failed (" << fetch_data_->full_url() << ")";
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   LOG(WARNING) << "Error parsing update manifest:\n" << error_message;
-  update_callback_.Run(*fetch_data_, NULL);
+  results_callback_.Run(NULL);
 }
 
 }  // namespace extensions

@@ -35,7 +35,8 @@
 #include "core/dom/Element.h"
 #include "core/dom/Position.h"
 #include "core/dom/Range.h"
-#include "core/editing/TextIterator.h"
+#include "core/editing/iterators/BackwardsCharacterIterator.h"
+#include "core/editing/iterators/CharacterIterator.h"
 
 namespace blink {
 
@@ -61,35 +62,31 @@ void SurroundingText::initialize(const Position& startPosition, const Position& 
 
     Document* document = startPosition.document();
     // The position will have no document if it is null (as in no position).
-    if (!document)
+    if (!document || !document->documentElement())
         return;
 
     // The forward range starts at the selection end and ends at the document's
     // end. It will then be updated to only contain the text in the text in the
     // right range around the selection.
-    RefPtrWillBeRawPtr<Range> forwardRange = Range::create(*document, endPosition, lastPositionInNode(document->documentElement()).parentAnchoredEquivalent());
-    CharacterIterator forwardIterator(forwardRange.get(), TextIteratorStopsOnFormControls);
+    CharacterIterator forwardIterator(endPosition, lastPositionInNode(document->documentElement()).parentAnchoredEquivalent(), TextIteratorStopsOnFormControls);
     // FIXME: why do we stop going trough the text if we were not able to select something on the right?
     if (!forwardIterator.atEnd())
         forwardIterator.advance(maxLength - halfMaxLength);
 
-    forwardRange = forwardIterator.createRange();
-    if (!forwardRange || !Range::create(*document, endPosition, forwardRange->startPosition())->text().length()) {
-        ASSERT(forwardRange);
+    EphemeralRange forwardRange = forwardIterator.range();
+    if (forwardRange.isNull() || !Range::create(*document, endPosition, forwardRange.startPosition())->text().length())
         return;
-    }
 
     // Same as with the forward range but with the backward range. The range
     // starts at the document's start and ends at the selection start and will
     // be updated.
-    RefPtrWillBeRawPtr<Range> backwardsRange = Range::create(*document, firstPositionInNode(document->documentElement()).parentAnchoredEquivalent(), startPosition);
-    BackwardsCharacterIterator backwardsIterator(backwardsRange.get(), TextIteratorStopsOnFormControls);
+    BackwardsCharacterIterator backwardsIterator(firstPositionInNode(document->documentElement()).parentAnchoredEquivalent(), startPosition, TextIteratorStopsOnFormControls);
     if (!backwardsIterator.atEnd())
         backwardsIterator.advance(halfMaxLength);
 
     m_startOffsetInContent = Range::create(*document, backwardsIterator.endPosition(), startPosition)->text().length();
     m_endOffsetInContent = Range::create(*document, backwardsIterator.endPosition(), endPosition)->text().length();
-    m_contentRange = Range::create(*document, backwardsIterator.endPosition(), forwardRange->startPosition());
+    m_contentRange = Range::create(*document, backwardsIterator.endPosition(), forwardRange.startPosition());
     ASSERT(m_contentRange);
 }
 
@@ -98,7 +95,7 @@ PassRefPtrWillBeRawPtr<Range> SurroundingText::rangeFromContentOffsets(unsigned 
     if (startOffsetInContent >= endOffsetInContent || endOffsetInContent > content().length())
         return nullptr;
 
-    CharacterIterator iterator(m_contentRange.get());
+    CharacterIterator iterator(m_contentRange->startPosition(), m_contentRange->endPosition());
 
     ASSERT(!iterator.atEnd());
     iterator.advance(startOffsetInContent);

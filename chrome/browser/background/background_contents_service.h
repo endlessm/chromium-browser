@@ -12,7 +12,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/scoped_observer.h"
-#include "chrome/browser/tab_contents/background_contents.h"
+#include "chrome/browser/background/background_contents.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -75,6 +75,10 @@ class BackgroundContentsService : private content::NotificationObserver,
   static void ShowBalloonForTesting(const extensions::Extension* extension,
                                     Profile* profile);
 
+  // Disable closing the crash notification balloon for tests.
+  static void DisableCloseBalloonForTesting(
+      bool disable_close_balloon_for_testing);
+
   // Returns the BackgroundContents associated with the passed application id,
   // or NULL if none.
   BackgroundContents* GetAppBackgroundContents(const base::string16& appid);
@@ -91,7 +95,7 @@ class BackgroundContentsService : private content::NotificationObserver,
   // BackgroundContents::Delegate implementation.
   void AddWebContents(content::WebContents* new_contents,
                       WindowOpenDisposition disposition,
-                      const gfx::Rect& initial_pos,
+                      const gfx::Rect& initial_rect,
                       bool user_gesture,
                       bool* was_blocked) override;
 
@@ -109,8 +113,9 @@ class BackgroundContentsService : private content::NotificationObserver,
   BackgroundContents* CreateBackgroundContents(
       content::SiteInstance* site,
       int route_id,
+      int main_frame_route_id,
       Profile* profile,
-      const base::string16& frame_name,
+      const std::string& frame_name,
       const base::string16& application_id,
       const std::string& partition_id,
       content::SessionStorageNamespace* session_storage_namespace);
@@ -179,7 +184,7 @@ class BackgroundContentsService : private content::NotificationObserver,
   // and navigates to the passed |url|.
   void LoadBackgroundContents(Profile* profile,
                               const GURL& url,
-                              const base::string16& frame_name,
+                              const std::string& frame_name,
                               const base::string16& appid);
 
   // Invoked when a new BackgroundContents is opened.
@@ -223,7 +228,7 @@ class BackgroundContentsService : private content::NotificationObserver,
     // The BackgroundContents whose information we are tracking.
     BackgroundContents* contents;
     // The name of the top level frame for this BackgroundContents.
-    base::string16 frame_name;
+    std::string frame_name;
   };
 
   // Map associating currently loaded BackgroundContents with their parent

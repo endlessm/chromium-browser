@@ -10,8 +10,8 @@
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/common/pref_names.h"
-#include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/scoped_testing_local_state.h"
+#include "chrome/test/base/testing_browser_process.h"
 #import "ui/gfx/test/ui_cocoa_test_helper.h"
 #import "ui/message_center/cocoa/status_item_view.h"
 #include "ui/message_center/message_center.h"
@@ -20,7 +20,7 @@
 
 class MessageCenterTrayBridgeTest : public ui::CocoaTest {
  public:
-  virtual void SetUp() override {
+  void SetUp() override {
     ui::CocoaTest::SetUp();
 
     local_state_.reset(
@@ -31,7 +31,7 @@ class MessageCenterTrayBridgeTest : public ui::CocoaTest {
     bridge_.reset(new MessageCenterTrayBridge(center_));
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     bridge_.reset();
     message_center::MessageCenter::Shutdown();
     local_state_.reset();
@@ -70,13 +70,17 @@ class MessageCenterTrayBridgeTest : public ui::CocoaTest {
 class MessageCenterTrayBridgeTestPrefNever
     : public MessageCenterTrayBridgeTest {
  public:
-  virtual void SetUp() override {
+  void SetUp() override {
     MessageCenterTrayBridgeTest::SetUp();
     local_state()->SetBoolean(prefs::kMessageCenterShowIcon, false);
   }
 };
 
 TEST_F(MessageCenterTrayBridgeTest, StatusItemOnlyAfterFirstNotification) {
+  EXPECT_FALSE(status_item());
+
+  bridge_->OnMessageCenterTrayChanged();
+  base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(status_item());
 
   center_->AddNotification(GetNotification());

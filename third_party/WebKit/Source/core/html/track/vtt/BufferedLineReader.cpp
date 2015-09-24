@@ -31,7 +31,7 @@
 #include "config.h"
 #include "core/html/track/vtt/BufferedLineReader.h"
 
-#include "wtf/unicode/CharacterNames.h"
+#include "wtf/text/CharacterNames.h"
 
 namespace blink {
 
@@ -56,10 +56,10 @@ bool BufferedLineReader::getLine(String& line)
         UChar c = m_buffer.currentChar();
         m_buffer.advance();
 
-        if (c == newlineCharacter || c == carriageReturn) {
+        if (c == newlineCharacter || c == carriageReturnCharacter) {
             // We found a line ending. Return the accumulated line.
             shouldReturnLine = true;
-            checkForLF = (c == carriageReturn);
+            checkForLF = (c == carriageReturnCharacter);
             break;
         }
 

@@ -24,6 +24,7 @@ struct Geoposition;
 class JavaScriptDialogManager;
 struct KeyEvent;
 struct MouseEvent;
+struct NetworkConditions;
 struct TouchEvent;
 class Status;
 
@@ -48,6 +49,11 @@ class WebView {
 
   // Reload the current page.
   virtual Status Reload() = 0;
+
+  // Navigate |delta| steps forward in the browser history. A negative value
+  // will navigate back in the history. If the delta exceeds the number of items
+  // in the browser history, stay on the current page.
+  virtual Status TraverseHistory(int delta) = 0;
 
   // Evaluates a JavaScript expression in a specified frame and returns
   // the result. |frame| is a frame ID or an empty string for the main frame.
@@ -139,6 +145,10 @@ class WebView {
   // Overrides normal geolocation with a given geoposition.
   virtual Status OverrideGeolocation(const Geoposition& geoposition) = 0;
 
+  // Overrides normal network conditions with given conditions.
+  virtual Status OverrideNetworkConditions(
+      const NetworkConditions& network_conditions) = 0;
+
   // Captures the visible portions of the web view as a base64-encoded PNG.
   virtual Status CaptureScreenshot(std::string* screenshot) = 0;
 
@@ -162,6 +172,18 @@ class WebView {
   // CPUProfile objects. The format for the captured profile is defined
   // (by DevTools) in protocol.json.
   virtual Status EndProfile(scoped_ptr<base::Value>* profile_data) = 0;
+
+  virtual Status SynthesizeTapGesture(int x,
+                                      int y,
+                                      int tap_count,
+                                      bool is_long_press) = 0;
+
+  virtual Status SynthesizeScrollGesture(int x,
+                                         int y,
+                                         int xoffset,
+                                         int yoffset) = 0;
+
+  virtual Status SynthesizePinchGesture(int x, int y, double scale_factor) = 0;
 };
 
 #endif  // CHROME_TEST_CHROMEDRIVER_CHROME_WEB_VIEW_H_

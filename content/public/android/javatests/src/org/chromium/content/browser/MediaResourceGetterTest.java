@@ -28,8 +28,8 @@ import java.util.Map;
 public class MediaResourceGetterTest extends InstrumentationTestCase {
     private static final String TEST_HTTP_URL = "http://example.com";
     private static final String TEST_USER_AGENT = // Anything, really
-            "Mozilla/5.0 (Windows NT 6.2; Win64; x64) AppleWebKit/537.36 " +
-            "(KHTML, like Gecko) Chrome/32.0.1667.0 Safari/537.36";
+            "Mozilla/5.0 (Windows NT 6.2; Win64; x64) AppleWebKit/537.36 "
+            + "(KHTML, like Gecko) Chrome/32.0.1667.0 Safari/537.36";
     private static final String TEST_FILE_PATH = "/mnt/sdcard/test";
     private static final String TEST_FILE_URL = "file://" + TEST_FILE_PATH;
     private static final String TEST_COOKIES = "yum yum yum!";
@@ -72,15 +72,11 @@ public class MediaResourceGetterTest extends InstrumentationTestCase {
 
         @Override
         public boolean equals(Object obj) {
-            if (this == obj)
-                return true;
-            if (!super.equals(obj))
-                return false;
-            if (getClass() != obj.getClass())
-                return false;
+            if (this == obj) return true;
+            if (!super.equals(obj)) return false;
+            if (getClass() != obj.getClass()) return false;
             FakeFile other = (FakeFile) obj;
-            if (mExists != other.mExists)
-                return false;
+            if (mExists != other.mExists) return false;
             return true;
         }
 
@@ -577,23 +573,5 @@ public class MediaResourceGetterTest extends InstrumentationTestCase {
         assertEquals(fd, mFakeMRG.mFd);
         assertEquals(offset, mFakeMRG.mOffset);
         assertEquals(length, mFakeMRG.mLength);
-    }
-
-    @SmallTest
-    public void testAndroidDeviceOk_BadModel_BadVersion() {
-        assertFalse(MediaResourceGetter.androidDeviceOk(
-                "GT-I9100", android.os.Build.VERSION_CODES.ICE_CREAM_SANDWICH_MR1));
-    }
-
-    @SmallTest
-    public void testAndroidDeviceOk_BadModel_GoodVersion() {
-        assertTrue(MediaResourceGetter.androidDeviceOk(
-                "GT-I9100", android.os.Build.VERSION_CODES.JELLY_BEAN));
-    }
-
-    @SmallTest
-    public void testAndroidDeviceOk_GoodModel_AnyVersion() {
-        assertTrue(MediaResourceGetter.androidDeviceOk(
-                "Happy Device", android.os.Build.VERSION_CODES.ICE_CREAM_SANDWICH));
     }
 }

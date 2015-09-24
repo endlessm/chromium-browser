@@ -6,9 +6,11 @@
 
 #include "base/bind.h"
 #include "base/logging.h"
-#include "base/stl_util.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
+#include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_tpm_key_manager.h"
+#include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_tpm_key_manager_factory.h"
 
 namespace chromeos {
 
@@ -30,76 +32,77 @@ const char kPermitTypeLicence[] = "licence";
 }  // namespace
 
 EasyUnlockKeyManager::EasyUnlockKeyManager()
-    : operation_id_(0),
+    : write_queue_deleter_(&write_operation_queue_),
+      read_queue_deleter_(&read_operation_queue_),
       weak_ptr_factory_(this) {
 }
 
 EasyUnlockKeyManager::~EasyUnlockKeyManager() {
-  STLDeleteContainerPairSecondPointers(get_keys_ops_.begin(),
-                                       get_keys_ops_.end());
 }
 
 void EasyUnlockKeyManager::RefreshKeys(const UserContext& user_context,
                                        const base::ListValue& remote_devices,
                                        const RefreshKeysCallback& callback) {
-  // Must have the secret.
-  DCHECK(!user_context.GetKey()->GetSecret().empty());
-
-  EasyUnlockDeviceKeyDataList devices;
-  if (!RemoteDeviceListToDeviceDataList(remote_devices, &devices))
-    devices.clear();
-
-  // Only one pending request.
-  DCHECK(!HasPendingOperations());
-  create_keys_op_.reset(new EasyUnlockCreateKeysOperation(
+  base::Closure do_refresh_keys = base::Bind(
+      &EasyUnlockKeyManager::RefreshKeysWithTpmKeyPresent,
+      weak_ptr_factory_.GetWeakPtr(),
       user_context,
-      devices,
-      base::Bind(&EasyUnlockKeyManager::OnKeysCreated,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 devices.size(),
-                 callback)));
-  create_keys_op_->Start();
+      base::Owned(remote_devices.DeepCopy()),
+      callback);
+
+  EasyUnlockTpmKeyManager* tpm_key_manager =
+      EasyUnlockTpmKeyManagerFactory::GetInstance()->GetForUser(
+          user_context.GetUserID());
+  if (!tpm_key_manager) {
+    LOG(ERROR) << "No TPM key manager.";
+    callback.Run(false);
+    return;
+  }
+
+  // Private TPM key is needed only when adding new keys.
+  if (remote_devices.empty() ||
+      tpm_key_manager->PrepareTpmKey(false /* check_private_key */,
+                                     do_refresh_keys)) {
+    do_refresh_keys.Run();
+  } else {
+    // In case Chrome is supposed to restart to apply user session flags, the
+    // Chrome restart will be postponed until Easy Sign-in keys are refreshed.
+    // This is to ensure that creating TPM key does not hang if TPM system
+    // loading takes too much time. Note that in normal circumstances the
+    // chances that TPM slot cannot be loaded should be extremely low.
+    // TODO(tbarzic): Add some metrics to measure if the timeout even gets hit.
+    tpm_key_manager->StartGetSystemSlotTimeoutMs(2000);
+  }
 }
 
-void EasyUnlockKeyManager::RemoveKeys(const UserContext& user_context,
-                                      size_t start_index,
-                                      const RemoveKeysCallback& callback) {
-  // Must have the secret.
-  DCHECK(!user_context.GetKey()->GetSecret().empty());
-  // Only one pending request.
-  DCHECK(!HasPendingOperations());
+void EasyUnlockKeyManager::RefreshKeysWithTpmKeyPresent(
+    const UserContext& user_context,
+    base::ListValue* remote_devices,
+    const RefreshKeysCallback& callback) {
+  EasyUnlockTpmKeyManager* tpm_key_manager =
+      EasyUnlockTpmKeyManagerFactory::GetInstance()->GetForUser(
+          user_context.GetUserID());
+  std::string tpm_public_key =
+      tpm_key_manager->GetPublicTpmKey(user_context.GetUserID());
 
-  remove_keys_op_.reset(
-      new EasyUnlockRemoveKeysOperation(
-          user_context,
-          start_index,
-          base::Bind(&EasyUnlockKeyManager::OnKeysRemoved,
-                     weak_ptr_factory_.GetWeakPtr(),
-                     callback)));
-  remove_keys_op_->Start();
+  EasyUnlockDeviceKeyDataList devices;
+  if (!RemoteDeviceListToDeviceDataList(*remote_devices, &devices))
+    devices.clear();
+
+  write_operation_queue_.push_back(new EasyUnlockRefreshKeysOperation(
+      user_context, tpm_public_key, devices,
+      base::Bind(&EasyUnlockKeyManager::OnKeysRefreshed,
+                 weak_ptr_factory_.GetWeakPtr(), callback)));
+  RunNextOperation();
 }
 
 void EasyUnlockKeyManager::GetDeviceDataList(
     const UserContext& user_context,
     const GetDeviceDataListCallback& callback) {
-  // Defer the get operation if there is pending write operations.
-  if (create_keys_op_ || remove_keys_op_) {
-    pending_ops_.push_back(base::Bind(&EasyUnlockKeyManager::GetDeviceDataList,
-                                      weak_ptr_factory_.GetWeakPtr(),
-                                      user_context,
-                                      callback));
-    return;
-  }
-
-  const int op_id = GetNextOperationId();
-  scoped_ptr<EasyUnlockGetKeysOperation> op(new EasyUnlockGetKeysOperation(
-      user_context,
-      base::Bind(&EasyUnlockKeyManager::OnKeysFetched,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 op_id,
-                 callback)));
-  op->Start();
-  get_keys_ops_[op_id] = op.release();
+  read_operation_queue_.push_back(new EasyUnlockGetKeysOperation(
+      user_context, base::Bind(&EasyUnlockKeyManager::OnKeysFetched,
+                               weak_ptr_factory_.GetWeakPtr(), callback)));
+  RunNextOperation();
 }
 
 // static
@@ -181,64 +184,41 @@ std::string EasyUnlockKeyManager::GetKeyLabel(size_t key_index) {
   return base::StringPrintf("%s%zu", kKeyLabelPrefix, key_index);
 }
 
-bool EasyUnlockKeyManager::HasPendingOperations() const {
-  return create_keys_op_ || remove_keys_op_ || !get_keys_ops_.empty();
-}
-
-int EasyUnlockKeyManager::GetNextOperationId() {
-  return ++operation_id_;
-}
-
-void EasyUnlockKeyManager::RunNextPendingOp() {
-  if (pending_ops_.empty())
+void EasyUnlockKeyManager::RunNextOperation() {
+  if (pending_write_operation_ || pending_read_operation_)
     return;
 
-  pending_ops_.front().Run();
-  pending_ops_.pop_front();
+  if (!write_operation_queue_.empty()) {
+    pending_write_operation_ = make_scoped_ptr(write_operation_queue_.front());
+    write_operation_queue_.pop_front();
+    pending_write_operation_->Start();
+  } else if (!read_operation_queue_.empty()) {
+    pending_read_operation_ = make_scoped_ptr(read_operation_queue_.front());
+    read_operation_queue_.pop_front();
+    pending_read_operation_->Start();
+  }
 }
 
-void EasyUnlockKeyManager::OnKeysCreated(
-    size_t remove_start_index,
-    const RefreshKeysCallback& callback,
-    bool create_success) {
-  scoped_ptr<EasyUnlockCreateKeysOperation> op = create_keys_op_.Pass();
+void EasyUnlockKeyManager::OnKeysRefreshed(const RefreshKeysCallback& callback,
+                                           bool refresh_success) {
   if (!callback.is_null())
-    callback.Run(create_success);
+    callback.Run(refresh_success);
 
-  // Remove extra existing keys.
-  RemoveKeys(op->user_context(), remove_start_index, RemoveKeysCallback());
-}
-
-void EasyUnlockKeyManager::OnKeysRemoved(const RemoveKeysCallback& callback,
-                                         bool remove_success) {
-  scoped_ptr<EasyUnlockRemoveKeysOperation> op = remove_keys_op_.Pass();
-  if (!callback.is_null())
-    callback.Run(remove_success);
-
-  if (!HasPendingOperations())
-    RunNextPendingOp();
+  DCHECK(pending_write_operation_);
+  pending_write_operation_.reset();
+  RunNextOperation();
 }
 
 void EasyUnlockKeyManager::OnKeysFetched(
-    int op_id,
     const GetDeviceDataListCallback& callback,
     bool fetch_success,
     const EasyUnlockDeviceKeyDataList& fetched_data) {
-  std::map<int, EasyUnlockGetKeysOperation*>::iterator it =
-      get_keys_ops_.find(op_id);
-  scoped_ptr<EasyUnlockGetKeysOperation> op;
-  if (it != get_keys_ops_.end()) {
-    op.reset(it->second);
-    get_keys_ops_.erase(it);
-  } else {
-    NOTREACHED();
-  }
-
   if (!callback.is_null())
     callback.Run(fetch_success, fetched_data);
 
-  if (!HasPendingOperations())
-    RunNextPendingOp();
+  DCHECK(pending_read_operation_);
+  pending_read_operation_.reset();
+  RunNextOperation();
 }
 
 }  // namespace chromeos

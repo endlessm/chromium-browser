@@ -7,12 +7,12 @@
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_reauth.h"
 #include "chrome/browser/chromeos/login/lock/screen_locker.h"
-#include "chrome/browser/signin/screenlock_bridge.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/session_manager_client.h"
 #include "chromeos/login/auth/auth_status_consumer.h"
 #include "chromeos/login/auth/user_context.h"
+#include "components/proximity_auth/screenlock_bridge.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -32,7 +32,7 @@ class ReauthHandler : public content::NotificationObserver,
   explicit ReauthHandler(EasyUnlockReauth::UserContextCallback callback)
       : callback_(callback) {}
 
-  virtual ~ReauthHandler() {}
+  ~ReauthHandler() override {}
 
   bool Start() {
     ScreenLocker* screen_locker = ScreenLocker::default_screen_locker();
@@ -60,9 +60,9 @@ class ReauthHandler : public content::NotificationObserver,
   }
 
   // content::NotificationObserver
-  virtual void Observe(int type,
-                       const content::NotificationSource& source,
-                       const content::NotificationDetails& details) override {
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override {
     CHECK(type == chrome::NOTIFICATION_SCREEN_LOCK_STATE_CHANGED);
     bool is_screen_locked = *content::Details<bool>(details).ptr();
     DCHECK(is_screen_locked);
@@ -74,8 +74,9 @@ class ReauthHandler : public content::NotificationObserver,
     screen_locker->SetLoginStatusConsumer(this);
 
     // Show tooltip explaining reauth.
-    ScreenlockBridge::UserPodCustomIconOptions icon_options;
-    icon_options.SetIcon(ScreenlockBridge::USER_POD_CUSTOM_ICON_NONE);
+    proximity_auth::ScreenlockBridge::UserPodCustomIconOptions icon_options;
+    icon_options.SetIcon(
+        proximity_auth::ScreenlockBridge::USER_POD_CUSTOM_ICON_NONE);
     icon_options.SetTooltip(
         l10n_util::GetStringUTF16(
             IDS_SMART_LOCK_SCREENLOCK_TOOLTIP_HARDLOCK_REAUTH_USER),
@@ -83,20 +84,20 @@ class ReauthHandler : public content::NotificationObserver,
 
     const user_manager::UserList& lock_users = screen_locker->users();
     DCHECK(lock_users.size() == 1);
-    ScreenlockBridge::Get()->lock_handler()->ShowUserPodCustomIcon(
-        lock_users[0]->email(), icon_options);
+    proximity_auth::ScreenlockBridge::Get()
+        ->lock_handler()
+        ->ShowUserPodCustomIcon(lock_users[0]->email(), icon_options);
   }
 
   // chromeos::AuthStatusConsumer:
-  virtual void OnAuthSuccess(
-      const chromeos::UserContext& user_context) override {
+  void OnAuthSuccess(const chromeos::UserContext& user_context) override {
     callback_.Run(user_context);
     // Schedule deletion.
     base::MessageLoopForUI::current()->PostTask(FROM_HERE,
                                                 base::Bind(&EndReauthAttempt));
   }
 
-  virtual void OnAuthFailure(const chromeos::AuthFailure& error) override {}
+  void OnAuthFailure(const chromeos::AuthFailure& error) override {}
 
  private:
   content::NotificationRegistrar notification_registrar_;

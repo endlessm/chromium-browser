@@ -16,7 +16,7 @@
 #include "base/memory/scoped_ptr.h"
 #include "ui/aura/layout_manager.h"
 #include "ui/aura/window_observer.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/keyboard/keyboard_controller_observer.h"
 #include "ui/wm/public/activation_change_observer.h"
 
@@ -70,6 +70,8 @@ class ASH_EXPORT WorkspaceLayoutManager
 
   // ash::ShellObserver overrides:
   void OnDisplayWorkAreaInsetsChanged() override;
+  void OnFullscreenStateChanged(bool is_fullscreen,
+                                aura::Window* root_window) override;
 
   // Overriden from WindowObserver:
   void OnWindowHierarchyChanged(
@@ -84,8 +86,10 @@ class ASH_EXPORT WorkspaceLayoutManager
                              const gfx::Rect& new_bounds) override;
 
   // aura::client::ActivationChangeObserver overrides:
-  void OnWindowActivated(aura::Window* gained_active,
-                         aura::Window* lost_active) override;
+  void OnWindowActivated(
+      aura::client::ActivationChangeObserver::ActivationReason reason,
+      aura::Window* gained_active,
+      aura::Window* lost_active) override;
 
   // keyboard::KeyboardControllerObserver overrides:
   void OnKeyboardBoundsChanging(const gfx::Rect& new_bounds) override;

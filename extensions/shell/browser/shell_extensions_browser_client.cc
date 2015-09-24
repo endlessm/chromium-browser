@@ -4,57 +4,41 @@
 
 #include "extensions/shell/browser/shell_extensions_browser_client.h"
 
-#include "base/prefs/pref_service.h"
-#include "base/prefs/pref_service_factory.h"
-#include "base/prefs/testing_pref_store.h"
-#include "components/pref_registry/pref_registry_syncable.h"
-#include "components/user_prefs/user_prefs.h"
+#include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/render_frame_host.h"
 #include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/api/generated_api_registration.h"
 #include "extensions/browser/app_sorting.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_function_registry.h"
-#include "extensions/browser/extension_prefs.h"
+#include "extensions/browser/mojo/service_registration.h"
 #include "extensions/browser/null_app_sorting.h"
 #include "extensions/browser/updater/null_extension_cache.h"
 #include "extensions/browser/url_request_util.h"
 #include "extensions/shell/browser/api/generated_api_registration.h"
 #include "extensions/shell/browser/shell_extension_host_delegate.h"
 #include "extensions/shell/browser/shell_extension_system_factory.h"
+#include "extensions/shell/browser/shell_extension_web_contents_observer.h"
+#include "extensions/shell/browser/shell_extensions_api_client.h"
 #include "extensions/shell/browser/shell_runtime_api_delegate.h"
+
+#if defined(OS_CHROMEOS)
+#include "chromeos/login/login_state.h"
+#endif
 
 using content::BrowserContext;
 using content::BrowserThread;
 
 namespace extensions {
-namespace {
-
-// See chrome::RegisterProfilePrefs() in chrome/browser/prefs/browser_prefs.cc
-void RegisterPrefs(user_prefs::PrefRegistrySyncable* registry) {
-  ExtensionPrefs::RegisterProfilePrefs(registry);
-}
-
-}  // namespace
 
 ShellExtensionsBrowserClient::ShellExtensionsBrowserClient(
-    BrowserContext* context)
+    BrowserContext* context,
+    PrefService* pref_service)
     : browser_context_(context),
-      api_client_(new ExtensionsAPIClient),
+      pref_service_(pref_service),
+      api_client_(new ShellExtensionsAPIClient),
       extension_cache_(new NullExtensionCache()) {
-  // Set up the preferences service.
-  base::PrefServiceFactory factory;
-  factory.set_user_prefs(new TestingPrefStore);
-  factory.set_extension_prefs(new TestingPrefStore);
-  // app_shell should not require syncable preferences, but for now we need to
-  // recycle some of the RegisterProfilePrefs() code in Chrome.
-  // TODO(jamescook): Convert this to PrefRegistrySimple.
-  user_prefs::PrefRegistrySyncable* pref_registry =
-      new user_prefs::PrefRegistrySyncable;
-  // Prefs should be registered before the PrefService is created.
-  RegisterPrefs(pref_registry);
-  prefs_ = factory.Create(pref_registry).Pass();
-  user_prefs::UserPrefs::Set(browser_context_, prefs_.get());
 }
 
 ShellExtensionsBrowserClient::~ShellExtensionsBrowserClient() {
@@ -94,6 +78,13 @@ BrowserContext* ShellExtensionsBrowserClient::GetOriginalContext(
     BrowserContext* context) {
   return context;
 }
+
+#if defined(OS_CHROMEOS)
+std::string ShellExtensionsBrowserClient::GetUserIdHashFromContext(
+    content::BrowserContext* context) {
+  return chromeos::LoginState::Get()->primary_user_hash();;
+}
+#endif
 
 bool ShellExtensionsBrowserClient::IsGuestSession(
     BrowserContext* context) const {
@@ -139,7 +130,7 @@ bool ShellExtensionsBrowserClient::AllowCrossRendererResourceLoad(
 
 PrefService* ShellExtensionsBrowserClient::GetPrefServiceForContext(
     BrowserContext* context) {
-  return prefs_.get();
+  return pref_service_;
 }
 
 void ShellExtensionsBrowserClient::GetEarlyExtensionPrefsObservers(
@@ -193,13 +184,19 @@ void ShellExtensionsBrowserClient::RegisterExtensionFunctions(
   shell::api::GeneratedFunctionRegistry::RegisterAll(registry);
 }
 
+void ShellExtensionsBrowserClient::RegisterMojoServices(
+    content::RenderFrameHost* render_frame_host,
+    const Extension* extension) const {
+  RegisterServicesForFrame(render_frame_host, extension);
+}
+
 scoped_ptr<RuntimeAPIDelegate>
 ShellExtensionsBrowserClient::CreateRuntimeAPIDelegate(
     content::BrowserContext* context) const {
   return scoped_ptr<RuntimeAPIDelegate>(new ShellRuntimeAPIDelegate());
 }
 
-ComponentExtensionResourceManager*
+const ComponentExtensionResourceManager*
 ShellExtensionsBrowserClient::GetComponentExtensionResourceManager() {
   return NULL;
 }
@@ -218,7 +215,7 @@ void ShellExtensionsBrowserClient::BroadcastEventToRenderers(
     return;
   }
 
-  scoped_ptr<Event> event(new Event(event_name, args.Pass()));
+  scoped_ptr<Event> event(new Event(events::UNKNOWN, event_name, args.Pass()));
   EventRouter::Get(browser_context_)->BroadcastEvent(event.Pass());
 }
 
@@ -237,6 +234,17 @@ bool ShellExtensionsBrowserClient::IsBackgroundUpdateAllowed() {
 bool ShellExtensionsBrowserClient::IsMinBrowserVersionSupported(
     const std::string& min_version) {
   return true;
+}
+
+void ShellExtensionsBrowserClient::SetAPIClientForTest(
+    ExtensionsAPIClient* api_client) {
+  api_client_.reset(api_client);
+}
+
+ExtensionWebContentsObserver*
+ShellExtensionsBrowserClient::GetExtensionWebContentsObserver(
+    content::WebContents* web_contents) {
+  return ShellExtensionWebContentsObserver::FromWebContents(web_contents);
 }
 
 }  // namespace extensions

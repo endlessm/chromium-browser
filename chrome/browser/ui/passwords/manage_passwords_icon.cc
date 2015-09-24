@@ -28,6 +28,7 @@ void ManagePasswordsIcon::SetActive(bool active) {
 void ManagePasswordsIcon::SetState(password_manager::ui::State state) {
   if (state_ == state)
     return;
+  OnChangingState();
   state_ = state;
   UpdateIDs();
   UpdateVisibleUI();
@@ -50,7 +51,7 @@ void ManagePasswordsIcon::UpdateIDs() {
   if (state() == password_manager::ui::BLACKLIST_STATE)
     icon_id_ = active() ? IDR_SAVE_PASSWORD_DISABLED_ACTIVE
                         : IDR_SAVE_PASSWORD_DISABLED_INACTIVE;
-  else if (password_manager::ui::IsPendingState(state()))
+  else if (state() == password_manager::ui::PENDING_PASSWORD_STATE)
     tooltip_text_id_ = IDS_PASSWORD_MANAGER_TOOLTIP_SAVE;
 #endif
 }

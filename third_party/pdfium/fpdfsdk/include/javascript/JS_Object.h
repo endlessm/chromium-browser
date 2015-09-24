@@ -1,17 +1,23 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _JS_OBJECT_H_
-#define _JS_OBJECT_H_
+#ifndef FPDFSDK_INCLUDE_JAVASCRIPT_JS_OBJECT_H_
+#define FPDFSDK_INCLUDE_JAVASCRIPT_JS_OBJECT_H_
 
+#include "../fsdk_define.h"  // For FX_UINT
+#include "../fsdk_mgr.h"  // For CPDFDoc_Environment
+#include "../fx_systemhandler.h"  // For IFX_SystemHandler
+#include "../jsapi/fxjs_v8.h"
+
+class CPDFSDK_PageView;
 class CJS_Object;
 class CJS_Timer;
 class CJS_Context;
 
-class CJS_EmbedObj : public CFX_Object
+class CJS_EmbedObj
 {
 public:
 	CJS_EmbedObj(CJS_Object* pJSObject);
@@ -26,24 +32,23 @@ public:
 	operator					CJS_Object* (){return m_pJSObject;};
 
 	CPDFSDK_PageView *			JSGetPageView(IFXJS_Context* cc);
-	int							MsgBox(CPDFDoc_Environment* pApp, CPDFSDK_PageView* pPageView, FX_LPCWSTR swMsg, FX_LPCWSTR swTitle = NULL, FX_UINT nType = 0, FX_UINT nIcon = 0);
-	void						Alert(CJS_Context* pContext, FX_LPCWSTR swMsg);
-	FX_BOOL						IsSafeMode(IFXJS_Context* cc);
+	int							MsgBox(CPDFDoc_Environment* pApp, CPDFSDK_PageView* pPageView, const FX_WCHAR* swMsg, const FX_WCHAR* swTitle = NULL, FX_UINT nType = 0, FX_UINT nIcon = 0);
+	void						Alert(CJS_Context* pContext, const FX_WCHAR* swMsg);
 
 protected:
-
 	CJS_Object*					m_pJSObject;
 };
 
-class CJS_Object : public CFX_Object
+class CJS_Object
 {
 public:
 	CJS_Object(JSFXObject pObject);
 	virtual ~CJS_Object(void);
-	
-	void						MakeWeak();
 
-	virtual FX_BOOL				IsType(FX_LPCSTR sClassName){return TRUE;};
+	void						MakeWeak();
+        void                                            Dispose();
+
+	virtual FX_BOOL				IsType(const FX_CHAR* sClassName){return TRUE;};
 	virtual CFX_ByteString		GetClassName(){return "";};
 
 	virtual FX_BOOL				InitInstance(IFXJS_Context* cc){return TRUE;};
@@ -56,13 +61,13 @@ public:
 	CJS_EmbedObj *				GetEmbedObject(){return m_pEmbedObj;};
 
 	static CPDFSDK_PageView *	JSGetPageView(IFXJS_Context* cc);
-	static int					MsgBox(CPDFDoc_Environment* pApp, CPDFSDK_PageView* pPageView, FX_LPCWSTR swMsg, FX_LPCWSTR swTitle = NULL, FX_UINT nType = 0,FX_UINT nIcon = 0);
-	static void					Alert(CJS_Context* pContext, FX_LPCWSTR swMsg);
+	static int					MsgBox(CPDFDoc_Environment* pApp, CPDFSDK_PageView* pPageView, const FX_WCHAR* swMsg, const FX_WCHAR* swTitle = NULL, FX_UINT nType = 0,FX_UINT nIcon = 0);
+	static void					Alert(CJS_Context* pContext, const FX_WCHAR* swMsg);
 
 	v8::Isolate*					GetIsolate() {return m_pIsolate;}
 protected:
 	CJS_EmbedObj *				m_pEmbedObj;
-	v8::Persistent<v8::Object>			m_pObject;
+	v8::Global<v8::Object>			m_pObject;
 	v8::Isolate*					m_pIsolate;
 };
 
@@ -141,9 +146,9 @@ public:
 	}
 
 	int Find(FX_UINT nIndex)
-	{		
+	{
 		for (int i=0,sz=m_Array.GetSize(); i<sz; i++)
-		{			
+		{
 			if (JS_TIMER_MAP * pMap = m_Array.GetAt(i))
 			{
 				if (pMap->nID == nIndex)
@@ -157,7 +162,7 @@ public:
 	CTimerMapArray		m_Array;
 };
 
-static JS_TIMER_MAPARRAY	m_sTimeMap;
+JS_TIMER_MAPARRAY& GetTimeMap();
 
 class CJS_Runtime;
 
@@ -165,8 +170,8 @@ class CJS_Timer
 {
 public:
 	CJS_Timer(CJS_EmbedObj * pObj,CPDFDoc_Environment* pApp):
-		m_nTimerID(0), 
-		m_pEmbedObj(pObj), 
+		m_nTimerID(0),
+		m_pEmbedObj(pObj),
 		m_bProcessing(FALSE),
 		m_dwStartTime(0),
 		m_dwTimeOut(0),
@@ -176,7 +181,7 @@ public:
 		m_pApp(pApp)
 	{
 	}
-	
+
 	virtual ~CJS_Timer()
 	{
 		KillJSTimer();
@@ -184,11 +189,11 @@ public:
 
 public:
 	FX_UINT SetJSTimer(FX_UINT nElapse)
-	{	
+	{
 		if (m_nTimerID)KillJSTimer();
 		IFX_SystemHandler* pHandler = m_pApp->GetSysHandler();
 		m_nTimerID = pHandler->SetTimer(nElapse,TimerProc);
-		m_sTimeMap.SetAt(m_nTimerID,this);
+		GetTimeMap().SetAt(m_nTimerID,this);
 		m_dwElapse = nElapse;
 		return m_nTimerID;
 	};
@@ -199,7 +204,7 @@ public:
 		{
 			IFX_SystemHandler* pHandler = m_pApp->GetSysHandler();
 			pHandler->KillTimer(m_nTimerID);
-			m_sTimeMap.RemoveAt(m_nTimerID);
+			GetTimeMap().RemoveAt(m_nTimerID);
 			m_nTimerID = 0;
 		}
 	};
@@ -238,7 +243,7 @@ public:
 	{
 		m_pRuntime = pRuntime;
 	}
-	
+
 	CJS_Runtime* GetRuntime() const
 	{
 		return m_pRuntime;
@@ -256,7 +261,7 @@ public:
 
 	static void TimerProc(int idEvent)
 	{
-		if (CJS_Timer * pTimer = m_sTimeMap.GetAt(idEvent))
+		if (CJS_Timer * pTimer = GetTimeMap().GetAt(idEvent))
 		{
 			if (!pTimer->m_bProcessing)
 			{
@@ -272,7 +277,7 @@ public:
 	};
 
 private:
-	FX_UINT							m_nTimerID;	
+	FX_UINT							m_nTimerID;
 	CJS_EmbedObj*					m_pEmbedObj;
 	FX_BOOL							m_bProcessing;
 
@@ -286,4 +291,5 @@ private:
 
 	CPDFDoc_Environment*			m_pApp;
 };
-#endif //_JS_OBJECT_H_
+
+#endif  // FPDFSDK_INCLUDE_JAVASCRIPT_JS_OBJECT_H_

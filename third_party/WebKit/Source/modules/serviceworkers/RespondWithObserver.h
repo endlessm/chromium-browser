@@ -6,7 +6,9 @@
 #define RespondWithObserver_h
 
 #include "core/dom/ContextLifecycleObserver.h"
+#include "modules/ModulesExport.h"
 #include "platform/heap/Handle.h"
+#include "public/platform/WebServiceWorkerResponseError.h"
 #include "public/platform/WebURLRequest.h"
 
 namespace blink {
@@ -18,22 +20,23 @@ class ScriptValue;
 
 // This class observes the service worker's handling of a FetchEvent and
 // notifies the client.
-class RespondWithObserver final : public GarbageCollectedFinalized<RespondWithObserver>, public ContextLifecycleObserver {
+class MODULES_EXPORT RespondWithObserver final : public GarbageCollectedFinalized<RespondWithObserver>, public ContextLifecycleObserver {
+    WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(RespondWithObserver);
 public:
     static RespondWithObserver* create(ExecutionContext*, int eventID, WebURLRequest::FetchRequestMode, WebURLRequest::FrameType);
 
-    virtual void contextDestroyed() override;
+    void contextDestroyed() override;
 
-    void didDispatchEvent();
+    void didDispatchEvent(bool defaultPrevented);
 
     // Observes the promise and delays calling didHandleFetchEvent() until the
     // given promise is resolved or rejected.
     void respondWith(ScriptState*, const ScriptValue&, ExceptionState&);
 
-    void responseWasRejected();
+    void responseWasRejected(WebServiceWorkerResponseError);
     void responseWasFulfilled(const ScriptValue&);
 
-    void trace(Visitor*) { }
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     class ThenFunction;

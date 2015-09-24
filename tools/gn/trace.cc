@@ -42,10 +42,10 @@ class TraceLog {
   DISALLOW_COPY_AND_ASSIGN(TraceLog);
 };
 
-TraceLog* trace_log = NULL;
+TraceLog* trace_log = nullptr;
 
 struct Coalesced {
-  Coalesced() : name_ptr(NULL), total_duration(0.0), count(0) {}
+  Coalesced() : name_ptr(nullptr), total_duration(0.0), count(0) {}
 
   const std::string* name_ptr;  // Pointer to a string with the name in it.
   double total_duration;
@@ -120,21 +120,19 @@ TraceItem::~TraceItem() {
 }
 
 ScopedTrace::ScopedTrace(TraceItem::Type t, const std::string& name)
-    : item_(NULL),
-      done_(false) {
+    : item_(nullptr), done_(false) {
   if (trace_log) {
     item_ = new TraceItem(t, name, base::PlatformThread::CurrentId());
-    item_->set_begin(base::TimeTicks::HighResNow());
+    item_->set_begin(base::TimeTicks::Now());
   }
 }
 
 ScopedTrace::ScopedTrace(TraceItem::Type t, const Label& label)
-    : item_(NULL),
-      done_(false) {
+    : item_(nullptr), done_(false) {
   if (trace_log) {
     item_ = new TraceItem(t, label.GetUserVisibleName(false),
                           base::PlatformThread::CurrentId());
-    item_->set_begin(base::TimeTicks::HighResNow());
+    item_->set_begin(base::TimeTicks::Now());
   }
 }
 
@@ -147,7 +145,7 @@ void ScopedTrace::SetToolchain(const Label& label) {
     item_->set_toolchain(label.GetUserVisibleName(false));
 }
 
-void ScopedTrace::SetCommandLine(const CommandLine& cmdline) {
+void ScopedTrace::SetCommandLine(const base::CommandLine& cmdline) {
   if (item_)
     item_->set_cmdline(FilePathToUTF8(cmdline.GetArgumentsString()));
 }
@@ -156,7 +154,7 @@ void ScopedTrace::Done() {
   if (!done_) {
     done_ = true;
     if (trace_log) {
-      item_->set_end(base::TimeTicks::HighResNow());
+      item_->set_end(base::TimeTicks::Now());
       AddTrace(item_);
     }
   }

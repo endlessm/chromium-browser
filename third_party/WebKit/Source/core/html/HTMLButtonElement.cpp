@@ -32,7 +32,7 @@
 #include "core/events/KeyboardEvent.h"
 #include "core/html/FormDataList.h"
 #include "core/html/HTMLFormElement.h"
-#include "core/rendering/RenderButton.h"
+#include "core/layout/LayoutButton.h"
 #include "wtf/StdLibExtras.h"
 
 namespace blink {
@@ -56,26 +56,26 @@ void HTMLButtonElement::setType(const AtomicString& type)
     setAttribute(typeAttr, type);
 }
 
-RenderObject* HTMLButtonElement::createRenderer(RenderStyle*)
+LayoutObject* HTMLButtonElement::createLayoutObject(const ComputedStyle&)
 {
-    return new RenderButton(this);
+    return new LayoutButton(this);
 }
 
 const AtomicString& HTMLButtonElement::formControlType() const
 {
     switch (m_type) {
-        case SUBMIT: {
-            DEFINE_STATIC_LOCAL(const AtomicString, submit, ("submit", AtomicString::ConstructFromLiteral));
-            return submit;
-        }
-        case BUTTON: {
-            DEFINE_STATIC_LOCAL(const AtomicString, button, ("button", AtomicString::ConstructFromLiteral));
-            return button;
-        }
-        case RESET: {
-            DEFINE_STATIC_LOCAL(const AtomicString, reset, ("reset", AtomicString::ConstructFromLiteral));
-            return reset;
-        }
+    case SUBMIT: {
+        DEFINE_STATIC_LOCAL(const AtomicString, submit, ("submit", AtomicString::ConstructFromLiteral));
+        return submit;
+    }
+    case BUTTON: {
+        DEFINE_STATIC_LOCAL(const AtomicString, button, ("button", AtomicString::ConstructFromLiteral));
+        return button;
+    }
+    case RESET: {
+        DEFINE_STATIC_LOCAL(const AtomicString, reset, ("reset", AtomicString::ConstructFromLiteral));
+        return reset;
+    }
     }
 
     ASSERT_NOT_REACHED();
@@ -103,8 +103,9 @@ void HTMLButtonElement::parseAttribute(const QualifiedName& name, const AtomicSt
         else
             m_type = SUBMIT;
         setNeedsWillValidateCheck();
-    } else
+    } else {
         HTMLFormControlElement::parseAttribute(name, value);
+    }
 }
 
 void HTMLButtonElement::defaultEventHandler(Event* event)
@@ -130,14 +131,14 @@ void HTMLButtonElement::defaultEventHandler(Event* event)
         }
         if (event->type() == EventTypeNames::keypress) {
             switch (toKeyboardEvent(event)->charCode()) {
-                case '\r':
-                    dispatchSimulatedClick(event);
-                    event->setDefaultHandled();
-                    return;
-                case ' ':
-                    // Prevent scrolling down the page.
-                    event->setDefaultHandled();
-                    return;
+            case '\r':
+                dispatchSimulatedClick(event);
+                event->setDefaultHandled();
+                return;
+            case ' ':
+                // Prevent scrolling down the page.
+                event->setDefaultHandled();
+                return;
             }
         }
         if (event->type() == EventTypeNames::keyup && toKeyboardEvent(event)->keyIdentifier() == "U+0020") {

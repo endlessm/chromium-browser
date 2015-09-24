@@ -17,7 +17,6 @@
 #include "chrome/browser/extensions/api/messaging/message_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/common/extensions/api/i18n/default_locale_handler.h"
 #include "chrome/common/extensions/chrome_extension_messages.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_process_host.h"
@@ -25,6 +24,7 @@
 #include "extensions/common/api/messaging/message.h"
 #include "extensions/common/extension_messages.h"
 #include "extensions/common/file_util.h"
+#include "extensions/common/manifest_handlers/default_locale_handler.h"
 #include "extensions/common/message_bundle.h"
 
 using content::BrowserThread;
@@ -41,24 +41,17 @@ const uint32 kFilteredMessageClasses[] = {
 void AddActionToExtensionActivityLog(
     Profile* profile,
     scoped_refptr<extensions::Action> action) {
-  // The ActivityLog can only be accessed from the main (UI) thread.  If we're
-  // running on the wrong thread, re-dispatch from the main thread.
-  if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
-        base::Bind(&AddActionToExtensionActivityLog, profile, action));
-  } else {
-    if (!g_browser_process->profile_manager()->IsValidProfile(profile))
-      return;
-    // If the action included a URL, check whether it is for an incognito
-    // profile.  The check is performed here so that it can safely be done from
-    // the UI thread.
-    if (action->page_url().is_valid() || !action->page_title().empty())
-      action->set_page_incognito(profile->IsOffTheRecord());
-    extensions::ActivityLog* activity_log =
-        extensions::ActivityLog::GetInstance(profile);
-    activity_log->LogAction(action);
-  }
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  if (!g_browser_process->profile_manager()->IsValidProfile(profile))
+    return;
+  // If the action included a URL, check whether it is for an incognito
+  // profile.  The check is performed here so that it can safely be done from
+  // the UI thread.
+  if (action->page_url().is_valid() || !action->page_title().empty())
+    action->set_page_incognito(profile->IsOffTheRecord());
+  extensions::ActivityLog* activity_log =
+      extensions::ActivityLog::GetInstance(profile);
+  activity_log->LogAction(action);
 }
 
 }  // namespace
@@ -112,6 +105,9 @@ void ChromeExtensionMessageFilter::OverrideThreadForMessage(
   switch (message.type()) {
     case ExtensionHostMsg_PostMessage::ID:
     case ExtensionHostMsg_CloseChannel::ID:
+    case ExtensionHostMsg_AddAPIActionToActivityLog::ID:
+    case ExtensionHostMsg_AddDOMActionToActivityLog::ID:
+    case ExtensionHostMsg_AddEventToActivityLog::ID:
       *thread = BrowserThread::UI;
       break;
     default:
@@ -196,31 +192,33 @@ void ChromeExtensionMessageFilter::OpenChannelToNativeAppOnUIThread(
 }
 
 void ChromeExtensionMessageFilter::OnOpenChannelToTab(
-    int routing_id, int tab_id, const std::string& extension_id,
-    const std::string& channel_name, int* port_id) {
+    const ExtensionMsg_TabTargetConnectionInfo& info,
+    const std::string& extension_id,
+    const std::string& channel_name,
+    int* port_id) {
   int port2_id;
   extensions::MessageService::AllocatePortIdPair(port_id, &port2_id);
 
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
       base::Bind(&ChromeExtensionMessageFilter::OpenChannelToTabOnUIThread,
-                 this, render_process_id_, routing_id, port2_id, tab_id,
-                 extension_id, channel_name));
+                 this, render_process_id_, port2_id, info, extension_id,
+                 channel_name));
 }
 
 void ChromeExtensionMessageFilter::OpenChannelToTabOnUIThread(
-    int source_process_id, int source_routing_id,
+    int source_process_id,
     int receiver_port_id,
-    int tab_id,
+    const ExtensionMsg_TabTargetConnectionInfo& info,
     const std::string& extension_id,
     const std::string& channel_name) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (profile_) {
     extensions::MessageService::Get(profile_)
         ->OpenChannelToTab(source_process_id,
-                           source_routing_id,
                            receiver_port_id,
-                           tab_id,
+                           info.tab_id,
+                           info.frame_id,
                            extension_id,
                            channel_name);
   }
@@ -237,32 +235,24 @@ void ChromeExtensionMessageFilter::OnPostMessage(
 
 void ChromeExtensionMessageFilter::OnGetExtMessageBundle(
     const std::string& extension_id, IPC::Message* reply_msg) {
-  const extensions::Extension* extension =
-      extension_info_map_->extensions().GetByID(extension_id);
-  base::FilePath extension_path;
-  std::string default_locale;
-  if (extension) {
-    extension_path = extension->path();
-    default_locale = extensions::LocaleInfo::GetDefaultLocale(extension);
-  }
-
   BrowserThread::PostBlockingPoolTask(
       FROM_HERE,
       base::Bind(
           &ChromeExtensionMessageFilter::OnGetExtMessageBundleOnBlockingPool,
-          this, extension_path, extension_id, default_locale, reply_msg));
+          this, extension_id, reply_msg));
 }
 
 void ChromeExtensionMessageFilter::OnGetExtMessageBundleOnBlockingPool(
-    const base::FilePath& extension_path,
     const std::string& extension_id,
-    const std::string& default_locale,
     IPC::Message* reply_msg) {
   DCHECK(BrowserThread::GetBlockingPool()->RunsTasksOnCurrentThread());
 
+  const extensions::ExtensionSet& extension_set =
+      extension_info_map_->extensions();
+
   scoped_ptr<extensions::MessageBundle::SubstitutionMap> dictionary_map(
-      extensions::file_util::LoadMessageBundleSubstitutionMap(
-          extension_path, extension_id, default_locale));
+      extensions::file_util::LoadMessageBundleSubstitutionMapWithImports(
+          extension_id, extension_set));
 
   ExtensionHostMsg_GetMessageBundle::WriteReplyParams(reply_msg,
                                                       *dictionary_map);

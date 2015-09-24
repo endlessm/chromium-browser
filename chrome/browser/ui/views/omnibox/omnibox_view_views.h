@@ -19,7 +19,7 @@
 #include "ui/views/controls/textfield/textfield_controller.h"
 
 #if defined(OS_CHROMEOS)
-#include "chromeos/ime/input_method_manager.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
 #endif
 
 class LocationBarView;
@@ -68,8 +68,8 @@ class OmniboxViewViews
   // OmniboxView:
   void SaveStateToTab(content::WebContents* tab) override;
   void OnTabChanged(const content::WebContents* web_contents) override;
+  void ResetTabState(content::WebContents* web_contents) override;
   void Update() override;
-  void UpdatePlaceholderText() override;
   base::string16 GetText() const override;
   void SetUserText(const base::string16& text,
                    const base::string16& display_text,
@@ -85,6 +85,7 @@ class OmniboxViewViews
 
   // views::Textfield:
   gfx::Size GetMinimumSize() const override;
+  void OnPaint(gfx::Canvas* canvas) override;
   void OnNativeThemeChanged(const ui::NativeTheme* theme) override;
   void ExecuteCommand(int command_id, int event_flags) override;
 
@@ -101,9 +102,8 @@ class OmniboxViewViews
   // Paste text from the clipboard into the omnibox.
   // Textfields implementation of Paste() pastes the contents of the clipboard
   // as is. We want to strip whitespace and other things (see GetClipboardText()
-  // for details).
-  // It is assumed this is invoked after a call to OnBeforePossibleChange() and
-  // that after invoking this OnAfterPossibleChange() is invoked.
+  // for details). The function invokes OnBefore/AfterPossibleChange() as
+  // necessary.
   void OnPaste();
 
   // Handle keyword hint tab-to-search and tabbing through dropdown results.
@@ -161,12 +161,13 @@ class OmniboxViewViews
   void OnBlur() override;
   bool IsCommandIdEnabled(int command_id) const override;
   base::string16 GetSelectionClipboardText() const override;
+  void DoInsertChar(base::char16 ch) override;
 
   // chromeos::input_method::InputMethodManager::CandidateWindowObserver:
 #if defined(OS_CHROMEOS)
-  virtual void CandidateWindowOpened(
+  void CandidateWindowOpened(
       chromeos::input_method::InputMethodManager* manager) override;
-  virtual void CandidateWindowClosed(
+  void CandidateWindowClosed(
       chromeos::input_method::InputMethodManager* manager) override;
 #endif
 
@@ -192,7 +193,7 @@ class OmniboxViewViews
 
   scoped_ptr<OmniboxPopupView> popup_view_;
 
-  ToolbarModel::SecurityLevel security_level_;
+  connection_security::SecurityLevel security_level_;
 
   // Selection persisted across temporary text changes, like popup suggestions.
   gfx::Range saved_temporary_selection_;
@@ -208,6 +209,8 @@ class OmniboxViewViews
 
   // Was the delete key pressed with an empty selection at the end of the edit?
   bool delete_at_end_pressed_;
+
+  // |location_bar_view_| can be NULL in tests.
   LocationBarView* location_bar_view_;
 
   // True if the IME candidate window is open. When this is true, we want to
@@ -225,6 +228,10 @@ class OmniboxViewViews
   // GESTURE_TAP. We want to select all only when the textfield is not in focus
   // and gets a tap. So we use this variable to remember focus state before tap.
   bool select_all_on_gesture_tap_;
+
+  // The time of the first character insert operation that has not yet been
+  // painted. Used to measure omnibox responsiveness with a histogram.
+  base::TimeTicks insert_char_time_;
 
   // Used to bind callback functions to this object.
   base::WeakPtrFactory<OmniboxViewViews> weak_ptr_factory_;

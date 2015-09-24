@@ -6,22 +6,25 @@
 
 #include <algorithm>
 
+#include "base/bind.h"
 #include "base/logging.h"
-#include "base/metrics/field_trial.h"
 #include "components/gcm_driver/gcm_app_handler.h"
 
 namespace gcm {
 
 namespace {
-const char kGCMFieldTrialName[] = "GCM";
-const char kGCMFieldTrialEnabledGroupName[] = "Enabled";
+const size_t kMaxSenders = 100;
 }  // namespace
 
-// static
-bool GCMDriver::IsAllowedForAllUsers() {
-  std::string group_name =
-      base::FieldTrialList::FindFullName(kGCMFieldTrialName);
-  return group_name == kGCMFieldTrialEnabledGroupName;
+InstanceIDHandler::InstanceIDHandler() {
+}
+
+InstanceIDHandler::~InstanceIDHandler() {
+}
+
+void InstanceIDHandler::DeleteAllTokensForApp(
+    const std::string& app_id, const DeleteTokenCallback& callback) {
+  DeleteToken(app_id, "*", "*", callback);
 }
 
 GCMDriver::GCMDriver() : weak_ptr_factory_(this) {
@@ -34,10 +37,10 @@ void GCMDriver::Register(const std::string& app_id,
                          const std::vector<std::string>& sender_ids,
                          const RegisterCallback& callback) {
   DCHECK(!app_id.empty());
-  DCHECK(!sender_ids.empty());
+  DCHECK(!sender_ids.empty() && sender_ids.size() <= kMaxSenders);
   DCHECK(!callback.is_null());
 
-  GCMClient::Result result = EnsureStarted();
+  GCMClient::Result result = EnsureStarted(GCMClient::IMMEDIATE_START);
   if (result != GCMClient::SUCCESS) {
     callback.Run(std::string(), result);
     return;
@@ -82,10 +85,24 @@ void GCMDriver::Register(const std::string& app_id,
 
 void GCMDriver::Unregister(const std::string& app_id,
                            const UnregisterCallback& callback) {
+  UnregisterInternal(app_id, nullptr /* sender_id */, callback);
+}
+
+void GCMDriver::UnregisterWithSenderId(
+    const std::string& app_id,
+    const std::string& sender_id,
+    const UnregisterCallback& callback) {
+  DCHECK(!sender_id.empty());
+  UnregisterInternal(app_id, &sender_id, callback);
+}
+
+void GCMDriver::UnregisterInternal(const std::string& app_id,
+                                   const std::string* sender_id,
+                                   const UnregisterCallback& callback) {
   DCHECK(!app_id.empty());
   DCHECK(!callback.is_null());
 
-  GCMClient::Result result = EnsureStarted();
+  GCMClient::Result result = EnsureStarted(GCMClient::IMMEDIATE_START);
   if (result != GCMClient::SUCCESS) {
     callback.Run(result);
     return;
@@ -100,7 +117,10 @@ void GCMDriver::Unregister(const std::string& app_id,
 
   unregister_callbacks_[app_id] = callback;
 
-  UnregisterImpl(app_id);
+  if (sender_id)
+    UnregisterWithSenderIdImpl(app_id, *sender_id);
+  else
+    UnregisterImpl(app_id);
 }
 
 void GCMDriver::Send(const std::string& app_id,
@@ -111,7 +131,7 @@ void GCMDriver::Send(const std::string& app_id,
   DCHECK(!receiver_id.empty());
   DCHECK(!callback.is_null());
 
-  GCMClient::Result result = EnsureStarted();
+  GCMClient::Result result = EnsureStarted(GCMClient::IMMEDIATE_START);
   if (result != GCMClient::SUCCESS) {
     callback.Run(std::string(), result);
     return;
@@ -127,6 +147,11 @@ void GCMDriver::Send(const std::string& app_id,
   send_callbacks_[key] = callback;
 
   SendImpl(app_id, receiver_id, message);
+}
+
+void GCMDriver::UnregisterWithSenderIdImpl(const std::string& app_id,
+                                           const std::string& sender_id) {
+  NOTREACHED();
 }
 
 void GCMDriver::RegisterFinished(const std::string& app_id,

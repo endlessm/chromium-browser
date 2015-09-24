@@ -18,6 +18,8 @@
 #include "chrome/browser/ui/app_list/search/search_webstore_result.h"
 #include "chrome/browser/ui/app_list/search/webstore/webstore_result.h"
 #include "extensions/common/extension_urls.h"
+#include "ui/app_list/search/tokenized_string.h"
+#include "ui/app_list/search/tokenized_string_match.h"
 #include "url/gurl.h"
 
 namespace app_list {
@@ -38,13 +40,13 @@ const char kLegacyPackagedAppType[] = "legacy_packaged_app";
 // Converts the item type string from the web store to an
 // extensions::Manifest::Type.
 extensions::Manifest::Type ParseItemType(const std::string& item_type_str) {
-  if (LowerCaseEqualsASCII(item_type_str, kPlatformAppType))
+  if (base::LowerCaseEqualsASCII(item_type_str, kPlatformAppType))
     return extensions::Manifest::TYPE_PLATFORM_APP;
 
-  if (LowerCaseEqualsASCII(item_type_str, kLegacyPackagedAppType))
+  if (base::LowerCaseEqualsASCII(item_type_str, kLegacyPackagedAppType))
     return extensions::Manifest::TYPE_LEGACY_PACKAGED_APP;
 
-  if (LowerCaseEqualsASCII(item_type_str, kHostedAppType))
+  if (base::LowerCaseEqualsASCII(item_type_str, kHostedAppType))
     return extensions::Manifest::TYPE_HOSTED_APP;
 
   return extensions::Manifest::TYPE_UNKNOWN;
@@ -54,12 +56,15 @@ extensions::Manifest::Type ParseItemType(const std::string& item_type_str) {
 
 WebstoreProvider::WebstoreProvider(Profile* profile,
                                    AppListControllerDelegate* controller)
-  :  WebserviceSearchProvider(profile),
-     controller_(controller){}
+    : WebserviceSearchProvider(profile),
+      controller_(controller),
+      query_pending_(false) {
+}
 
 WebstoreProvider::~WebstoreProvider() {}
 
-void WebstoreProvider::Start(const base::string16& query) {
+void WebstoreProvider::Start(bool /*is_voice_query*/,
+                             const base::string16& query) {
   ClearResults();
   if (!IsValidQuery(query)) {
     query_.clear();
@@ -83,6 +88,7 @@ void WebstoreProvider::Start(const base::string16& query) {
         profile_->GetRequestContext()));
   }
 
+  query_pending_ = true;
   StartThrottledQuery(base::Bind(&WebstoreProvider::StartQuery,
                                  base::Unretained(this)));
 
@@ -110,6 +116,7 @@ void WebstoreProvider::OnWebstoreSearchFetched(
     scoped_ptr<base::DictionaryValue> json) {
   ProcessWebstoreSearchResults(json.get());
   cache_->Put(WebserviceCache::WEBSTORE, query_, json.Pass());
+  query_pending_ = false;
 
   if (!webstore_search_fetched_callback_.is_null())
     webstore_search_fetched_callback_.Run();
@@ -126,6 +133,7 @@ void WebstoreProvider::ProcessWebstoreSearchResults(
   }
 
   bool first_result = true;
+  TokenizedString query(base::UTF8ToUTF16(query_));
   for (base::ListValue::const_iterator it = result_list->begin();
        it != result_list->end();
        ++it) {
@@ -133,7 +141,7 @@ void WebstoreProvider::ProcessWebstoreSearchResults(
     if (!(*it)->GetAsDictionary(&dict))
       continue;
 
-    scoped_ptr<SearchResult> result(CreateResult(*dict));
+    scoped_ptr<SearchResult> result(CreateResult(query, *dict));
     if (!result)
       continue;
 
@@ -148,9 +156,8 @@ void WebstoreProvider::ProcessWebstoreSearchResults(
 }
 
 scoped_ptr<SearchResult> WebstoreProvider::CreateResult(
+    const TokenizedString& query,
     const base::DictionaryValue& dict) {
-  scoped_ptr<SearchResult> result;
-
   std::string app_id;
   std::string localized_name;
   std::string icon_url_string;
@@ -159,25 +166,30 @@ scoped_ptr<SearchResult> WebstoreProvider::CreateResult(
       !dict.GetString(kKeyLocalizedName, &localized_name) ||
       !dict.GetString(kKeyIconUrl, &icon_url_string) ||
       !dict.GetBoolean(kKeyIsPaid, &is_paid)) {
-    return result.Pass();
+    return scoped_ptr<SearchResult>();
   }
 
   GURL icon_url(icon_url_string);
   if (!icon_url.is_valid())
-    return result.Pass();
+    return scoped_ptr<SearchResult>();
 
   std::string item_type_string;
   dict.GetString(kKeyItemType, &item_type_string);
   extensions::Manifest::Type item_type = ParseItemType(item_type_string);
 
-  result.reset(new WebstoreResult(profile_,
-                                  app_id,
-                                  localized_name,
-                                  icon_url,
-                                  is_paid,
-                                  item_type,
-                                  controller_));
-  return result.Pass();
+  // Calculate the relevance score by matching the query with the title. Results
+  // with a match score of 0 are discarded. This will also be used to set the
+  // title tags (highlighting which parts of the title matched the search
+  // query).
+  TokenizedString title(base::UTF8ToUTF16(localized_name));
+  TokenizedStringMatch match;
+  if (!match.Calculate(query, title))
+    return scoped_ptr<SearchResult>();
+
+  scoped_ptr<SearchResult> result(new WebstoreResult(
+      profile_, app_id, icon_url, is_paid, item_type, controller_));
+  result->UpdateFromMatch(title, match);
+  return result;
 }
 
 }  // namespace app_list

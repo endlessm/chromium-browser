@@ -191,11 +191,11 @@ void BluetoothSocketEventDispatcher::ReceiveCallback(
   // Dispatch "onReceive" event.
   bluetooth_socket::ReceiveInfo receive_info;
   receive_info.socket_id = params.socket_id;
-  receive_info.data = std::string(io_buffer->data(), bytes_read);
+  receive_info.data.assign(io_buffer->data(), io_buffer->data() + bytes_read);
   scoped_ptr<base::ListValue> args =
       bluetooth_socket::OnReceive::Create(receive_info);
-  scoped_ptr<Event> event(
-      new Event(bluetooth_socket::OnReceive::kEventName, args.Pass()));
+  scoped_ptr<Event> event(new Event(
+      events::UNKNOWN, bluetooth_socket::OnReceive::kEventName, args.Pass()));
   PostEvent(params, event.Pass());
 
   // Post a task to delay the read until the socket is available, as
@@ -229,7 +229,8 @@ void BluetoothSocketEventDispatcher::ReceiveErrorCallback(
   scoped_ptr<base::ListValue> args =
       bluetooth_socket::OnReceiveError::Create(receive_error_info);
   scoped_ptr<Event> event(
-      new Event(bluetooth_socket::OnReceiveError::kEventName, args.Pass()));
+      new Event(events::UNKNOWN, bluetooth_socket::OnReceiveError::kEventName,
+                args.Pass()));
   PostEvent(params, event.Pass());
 
   // Since we got an error, the socket is now "paused" until the application
@@ -289,8 +290,8 @@ void BluetoothSocketEventDispatcher::AcceptCallback(
   accept_info.client_socket_id = client_socket_id;
   scoped_ptr<base::ListValue> args =
       bluetooth_socket::OnAccept::Create(accept_info);
-  scoped_ptr<Event> event(
-      new Event(bluetooth_socket::OnAccept::kEventName, args.Pass()));
+  scoped_ptr<Event> event(new Event(
+      events::UNKNOWN, bluetooth_socket::OnAccept::kEventName, args.Pass()));
   PostEvent(params, event.Pass());
 
   // Post a task to delay the accept until the socket is available, as
@@ -323,8 +324,9 @@ void BluetoothSocketEventDispatcher::AcceptErrorCallback(
   accept_error_info.error = MapAcceptErrorReason(error_reason);
   scoped_ptr<base::ListValue> args =
       bluetooth_socket::OnAcceptError::Create(accept_error_info);
-  scoped_ptr<Event> event(
-      new Event(bluetooth_socket::OnAcceptError::kEventName, args.Pass()));
+  scoped_ptr<Event> event(new Event(events::UNKNOWN,
+                                    bluetooth_socket::OnAcceptError::kEventName,
+                                    args.Pass()));
   PostEvent(params, event.Pass());
 
   // Since we got an error, the socket is now "paused" until the application
@@ -355,7 +357,7 @@ void BluetoothSocketEventDispatcher::DispatchEvent(
     void* browser_context_id,
     const std::string& extension_id,
     scoped_ptr<Event> event) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   content::BrowserContext* context =
       reinterpret_cast<content::BrowserContext*>(browser_context_id);

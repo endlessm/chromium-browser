@@ -15,16 +15,14 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/threading/thread.h"
-#include "net/base/net_log.h"
+#include "net/log/net_log.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
 
 namespace net {
-
-class NetLogLogger;
-
+class WriteToFileNetLogObserver;
 class ProxyConfigService;
-
+class SdchOwner;
 }  // namespace net
 
 namespace cronet {
@@ -37,7 +35,7 @@ class NetLogObserver : public net::NetLog::ThreadSafeObserver {
  public:
   NetLogObserver() {}
 
-  virtual ~NetLogObserver() {}
+  ~NetLogObserver() override {}
 
   void OnAddEntry(const net::NetLog::Entry& entry) override;
 
@@ -75,42 +73,46 @@ class URLRequestContextAdapter : public net::URLRequestContextGetter {
 
   const std::string& GetUserAgent(const GURL& url) const;
 
+  bool load_disable_cache() const { return load_disable_cache_; }
+
   // net::URLRequestContextGetter implementation:
   net::URLRequestContext* GetURLRequestContext() override;
   scoped_refptr<base::SingleThreadTaskRunner> GetNetworkTaskRunner()
       const override;
 
-  void StartNetLogToFile(const std::string& file_name);
+  void StartNetLogToFile(const std::string& file_name, bool log_all);
   void StopNetLog();
 
   // Called on main Java thread to initialize URLRequestContext.
   void InitRequestContextOnMainThread();
 
  private:
-  scoped_refptr<URLRequestContextAdapterDelegate> delegate_;
-  scoped_ptr<net::URLRequestContext> context_;
-  std::string user_agent_;
-  base::Thread* network_thread_;
-  scoped_ptr<NetLogObserver> net_log_observer_;
-  scoped_ptr<net::NetLogLogger> net_log_logger_;
-  scoped_ptr<net::ProxyConfigService> proxy_config_service_;
-  scoped_ptr<URLRequestContextConfig> config_;
-
-  // A queue of tasks that need to be run after context has been initialized.
-  std::queue<RunAfterContextInitTask> tasks_waiting_for_context_;
-  bool is_context_initialized_ = false;
-
-  virtual ~URLRequestContextAdapter();
+  ~URLRequestContextAdapter() override;
 
   // Initializes |context_| on the Network thread.
   void InitRequestContextOnNetworkThread();
 
   // Helper function to start writing NetLog data to file. This should only be
   // run after context is initialized.
-  void StartNetLogToFileHelper(const std::string& file_name);
+  void StartNetLogToFileHelper(const std::string& file_name, bool log_all);
   // Helper function to stop writing NetLog data to file. This should only be
   // run after context is initialized.
   void StopNetLogHelper();
+
+  scoped_refptr<URLRequestContextAdapterDelegate> delegate_;
+  scoped_ptr<net::URLRequestContext> context_;
+  std::string user_agent_;
+  bool load_disable_cache_;
+  base::Thread* network_thread_;
+  scoped_ptr<NetLogObserver> net_log_observer_;
+  scoped_ptr<net::WriteToFileNetLogObserver> write_to_file_observer_;
+  scoped_ptr<net::ProxyConfigService> proxy_config_service_;
+  scoped_ptr<net::SdchOwner> sdch_owner_;
+  scoped_ptr<URLRequestContextConfig> config_;
+
+  // A queue of tasks that need to be run after context has been initialized.
+  std::queue<RunAfterContextInitTask> tasks_waiting_for_context_;
+  bool is_context_initialized_;
 
   DISALLOW_COPY_AND_ASSIGN(URLRequestContextAdapter);
 };

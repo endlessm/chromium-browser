@@ -8,9 +8,9 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/prefs/mock_pref_change_callback.h"
 #include "base/values.h"
-#include "chrome/browser/extensions/./extension_prefs_unittest.h"
 #include "chrome/browser/extensions/api/content_settings/content_settings_service.h"
 #include "chrome/browser/extensions/api/preference/preference_api.h"
+#include "chrome/browser/extensions/extension_prefs_unittest.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "extensions/browser/extension_prefs.h"
@@ -109,14 +109,10 @@ ExtensionControlledPrefsTest::~ExtensionControlledPrefsTest() {
 
 void ExtensionControlledPrefsTest::RegisterPreferences(
     user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterStringPref(
-      kPref1, kDefaultPref1, user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterStringPref(
-      kPref2, kDefaultPref2, user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterStringPref(
-      kPref3, kDefaultPref3, user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterStringPref(
-      kPref4, kDefaultPref4, user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterStringPref(kPref1, kDefaultPref1);
+  registry->RegisterStringPref(kPref2, kDefaultPref2);
+  registry->RegisterStringPref(kPref3, kDefaultPref3);
+  registry->RegisterStringPref(kPref4, kDefaultPref4);
 }
 
 void ExtensionControlledPrefsTest::InstallExtensionControlledPref(

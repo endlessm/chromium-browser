@@ -4,8 +4,8 @@
 
 #include "sync/util/get_session_name_mac.h"
 
-#import <SystemConfiguration/SCDynamicStoreCopySpecific.h>
 #include <sys/sysctl.h>
+#import <SystemConfiguration/SCDynamicStoreCopySpecific.h>
 
 #include "base/mac/scoped_cftyperef.h"
 #include "base/strings/string_util.h"
@@ -36,7 +36,7 @@ std::string GetHardwareModelName() {
   size_t length = sizeof(modelBuffer);
   if (!sysctlbyname("hw.model", modelBuffer, &length, NULL, 0)) {
     for (size_t i = 0; i < length; i++) {
-      if (IsAsciiDigit(modelBuffer[i]))
+      if (base::IsAsciiDigit(modelBuffer[i]))
         return std::string(modelBuffer, 0, i);
     }
     return std::string(modelBuffer, 0, length);

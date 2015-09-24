@@ -11,7 +11,7 @@
 #include "base/observer_list.h"
 #include "base/prefs/pref_change_registrar.h"
 #include "chrome/browser/net/pref_proxy_config_tracker.h"
-#include "chrome/browser/prefs/proxy_config_dictionary.h"
+#include "components/proxy_config/proxy_config_dictionary.h"
 #include "net/proxy/proxy_config.h"
 #include "net/proxy/proxy_config_service.h"
 
@@ -57,7 +57,7 @@ class ChromeProxyConfigService
   void RegisterObserver();
 
   scoped_ptr<net::ProxyConfigService> base_service_;
-  ObserverList<net::ProxyConfigService::Observer, true> observers_;
+  base::ObserverList<net::ProxyConfigService::Observer, true> observers_;
 
   // Tracks configuration state of |pref_config_|. |pref_config_| is valid only
   // if |pref_config_state_| is not CONFIG_UNSET.

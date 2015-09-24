@@ -1,6 +1,6 @@
 /*
 **********************************************************************
-*   Copyright (C) 2000-2012, International Business Machines
+*   Copyright (C) 2000-2014, International Business Machines
 *   Corporation and others.  All Rights Reserved.
 **********************************************************************
 *   file name:  ucnv2022.cpp
@@ -42,8 +42,6 @@
 #include "cstring.h"
 #include "cmemory.h"
 #include "uassert.h"
-
-#define LENGTHOF(array) (int32_t)(sizeof(array)/sizeof((array)[0]))
 
 #ifdef U_ENABLE_GENERIC_ISO_2022
 /*
@@ -773,7 +771,7 @@ getKey_2022(char c,int32_t* key,int32_t* offset){
 
     while (hi != low)  /*binary search*/{
 
-        register int32_t mid = (hi+low) >> 1; /*Finds median*/
+        int32_t mid = (hi+low) >> 1; /*Finds median*/
 
         if (mid == oldmid)
             break;
@@ -1752,7 +1750,7 @@ getTrail:
                 }
 
                 /* try all the other possible charsets */
-                for(i = 0; i < LENGTHOF(jpCharsetPref); ++i) {
+                for(i = 0; i < UPRV_LENGTHOF(jpCharsetPref); ++i) {
                     cs = (int8_t)jpCharsetPref[i];
                     if(CSM(cs) & csm) {
                         choices[choiceCount++] = cs;
@@ -3815,16 +3813,8 @@ static const UConverterStaticData _ISO2022StaticData={
     0,
     { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 } /* reserved */
 };
-const UConverterSharedData _ISO2022Data={
-    sizeof(UConverterSharedData),
-    ~((uint32_t) 0),
-    NULL,
-    NULL,
-    &_ISO2022StaticData,
-    FALSE,
-    &_ISO2022Impl,
-    0, UCNV_MBCS_TABLE_INITIALIZER
-};
+const UConverterSharedData _ISO2022Data=
+        UCNV_IMMUTABLE_SHARED_DATA_INITIALIZER(&_ISO2022StaticData, &_ISO2022Impl);
 
 /*************JP****************/
 static const UConverterImpl _ISO2022JPImpl={
@@ -3871,16 +3861,8 @@ static const UConverterStaticData _ISO2022JPStaticData={
 
 namespace {
 
-const UConverterSharedData _ISO2022JPData={
-    sizeof(UConverterSharedData),
-    ~((uint32_t) 0),
-    NULL,
-    NULL,
-    &_ISO2022JPStaticData,
-    FALSE,
-    &_ISO2022JPImpl,
-    0, UCNV_MBCS_TABLE_INITIALIZER
-};
+const UConverterSharedData _ISO2022JPData=
+        UCNV_IMMUTABLE_SHARED_DATA_INITIALIZER(&_ISO2022JPStaticData, &_ISO2022JPImpl);
 
 }  // namespace
 
@@ -3930,16 +3912,8 @@ static const UConverterStaticData _ISO2022KRStaticData={
 
 namespace {
 
-const UConverterSharedData _ISO2022KRData={
-    sizeof(UConverterSharedData),
-    ~((uint32_t) 0),
-    NULL,
-    NULL,
-    &_ISO2022KRStaticData,
-    FALSE,
-    &_ISO2022KRImpl,
-    0, UCNV_MBCS_TABLE_INITIALIZER
-};
+const UConverterSharedData _ISO2022KRData=
+        UCNV_IMMUTABLE_SHARED_DATA_INITIALIZER(&_ISO2022KRStaticData, &_ISO2022KRImpl);
 
 }  // namespace
 
@@ -3989,16 +3963,8 @@ static const UConverterStaticData _ISO2022CNStaticData={
 
 namespace {
 
-const UConverterSharedData _ISO2022CNData={
-    sizeof(UConverterSharedData),
-    ~((uint32_t) 0),
-    NULL,
-    NULL,
-    &_ISO2022CNStaticData,
-    FALSE,
-    &_ISO2022CNImpl,
-    0, UCNV_MBCS_TABLE_INITIALIZER
-};
+const UConverterSharedData _ISO2022CNData=
+        UCNV_IMMUTABLE_SHARED_DATA_INITIALIZER(&_ISO2022CNStaticData, &_ISO2022CNImpl);
 
 }  // namespace
 #endif /* #if !UCONFIG_NO_NON_HTML5_CONVERSION */

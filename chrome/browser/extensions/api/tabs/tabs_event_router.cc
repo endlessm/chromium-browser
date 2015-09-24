@@ -4,6 +4,7 @@
 
 #include "chrome/browser/extensions/api/tabs/tabs_event_router.h"
 
+#include "base/command_line.h"
 #include "base/json/json_writer.h"
 #include "base/values.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -16,7 +17,10 @@
 #include "chrome/browser/ui/browser_iterator.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/tabs/tab_utils.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_constants.h"
+#include "components/favicon/content/content_favicon_driver.h"
 #include "content/public/browser/favicon_status.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
@@ -29,6 +33,7 @@ using base::ListValue;
 using base::FundamentalValue;
 using content::NavigationController;
 using content::WebContents;
+using ui_zoom::ZoomController;
 
 namespace extensions {
 
@@ -36,7 +41,7 @@ namespace {
 
 namespace tabs = api::tabs;
 
-void WillDispatchTabUpdatedEvent(
+bool WillDispatchTabUpdatedEvent(
     WebContents* contents,
     const base::DictionaryValue* changed_properties,
     content::BrowserContext* context,
@@ -52,47 +57,67 @@ void WillDispatchTabUpdatedEvent(
 
   // Overwrite the third arg with our tab value as seen by this extension.
   event_args->Set(2, ExtensionTabUtil::CreateTabValue(contents, extension));
+  return true;
 }
 
 }  // namespace
 
-TabsEventRouter::TabEntry::TabEntry() : complete_waiting_on_load_(false),
-                                        url_() {
+TabsEventRouter::TabEntry::TabEntry(content::WebContents* contents)
+    : contents_(contents),
+      complete_waiting_on_load_(false),
+      was_audible_(contents->WasRecentlyAudible()),
+      was_muted_(contents->IsAudioMuted()) {
 }
 
-base::DictionaryValue* TabsEventRouter::TabEntry::UpdateLoadState(
-    const WebContents* contents) {
+scoped_ptr<base::DictionaryValue> TabsEventRouter::TabEntry::UpdateLoadState() {
   // The tab may go in & out of loading (for instance if iframes navigate).
   // We only want to respond to the first change from loading to !loading after
   // the NAV_ENTRY_COMMITTED was fired.
-  if (!complete_waiting_on_load_ || contents->IsLoading())
-    return NULL;
+  scoped_ptr<base::DictionaryValue> changed_properties(
+      new base::DictionaryValue());
+  if (!complete_waiting_on_load_ || contents_->IsLoading()) {
+    return changed_properties.Pass();
+  }
 
   // Send "complete" state change.
   complete_waiting_on_load_ = false;
-  base::DictionaryValue* changed_properties = new base::DictionaryValue();
   changed_properties->SetString(tabs_constants::kStatusKey,
                                 tabs_constants::kStatusValueComplete);
-  return changed_properties;
+  return changed_properties.Pass();
 }
 
-base::DictionaryValue* TabsEventRouter::TabEntry::DidNavigate(
-    const WebContents* contents) {
+scoped_ptr<base::DictionaryValue> TabsEventRouter::TabEntry::DidNavigate() {
   // Send "loading" state change.
   complete_waiting_on_load_ = true;
-  base::DictionaryValue* changed_properties = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> changed_properties(
+      new base::DictionaryValue());
   changed_properties->SetString(tabs_constants::kStatusKey,
                                 tabs_constants::kStatusValueLoading);
 
-  if (contents->GetURL() != url_) {
-    url_ = contents->GetURL();
+  if (contents_->GetURL() != url_) {
+    url_ = contents_->GetURL();
     changed_properties->SetString(tabs_constants::kUrlKey, url_.spec());
   }
 
-  return changed_properties;
+  return changed_properties.Pass();
 }
 
-TabsEventRouter::TabsEventRouter(Profile* profile) : profile_(profile) {
+bool TabsEventRouter::TabEntry::SetAudible(bool new_val) {
+  if (was_audible_ == new_val)
+    return false;
+  was_audible_ = new_val;
+  return true;
+}
+
+bool TabsEventRouter::TabEntry::SetMuted(bool new_val) {
+  if (was_muted_ == new_val)
+    return false;
+  was_muted_ = new_val;
+  return true;
+}
+
+TabsEventRouter::TabsEventRouter(Profile* profile)
+    : profile_(profile), favicon_scoped_observer_(this) {
   DCHECK(!profile->IsOffTheRecord());
 
   BrowserList::AddObserver(this);
@@ -108,7 +133,7 @@ TabsEventRouter::TabsEventRouter(Profile* profile) : profile_(profile) {
       for (int i = 0; i < browser->tab_strip_model()->count(); ++i) {
         WebContents* contents = browser->tab_strip_model()->GetWebContentsAt(i);
         int tab_id = ExtensionTabUtil::GetTabId(contents);
-        tab_entries_[tab_id] = TabEntry();
+        tab_entries_[tab_id] = make_linked_ptr(new TabEntry(contents));
       }
     }
   }
@@ -146,8 +171,8 @@ void TabsEventRouter::RegisterForTabNotifications(WebContents* contents) {
   registrar_.Add(this, content::NOTIFICATION_WEB_CONTENTS_DESTROYED,
                  content::Source<WebContents>(contents));
 
-  registrar_.Add(this, chrome::NOTIFICATION_FAVICON_UPDATED,
-                 content::Source<WebContents>(contents));
+  favicon_scoped_observer_.Add(
+      favicon::ContentFaviconDriver::FromWebContents(contents));
 
   ZoomController::FromWebContents(contents)->AddObserver(this);
 }
@@ -157,8 +182,8 @@ void TabsEventRouter::UnregisterForTabNotifications(WebContents* contents) {
       content::Source<NavigationController>(&contents->GetController()));
   registrar_.Remove(this, content::NOTIFICATION_WEB_CONTENTS_DESTROYED,
       content::Source<WebContents>(contents));
-  registrar_.Remove(this, chrome::NOTIFICATION_FAVICON_UPDATED,
-      content::Source<WebContents>(contents));
+  favicon_scoped_observer_.Remove(
+      favicon::ContentFaviconDriver::FromWebContents(contents));
 
   ZoomController::FromWebContents(contents)->RemoveObserver(this);
 }
@@ -179,7 +204,7 @@ void TabsEventRouter::OnBrowserSetLastActive(Browser* browser) {
   }
 }
 
-static void WillDispatchTabCreatedEvent(WebContents* contents,
+static bool WillDispatchTabCreatedEvent(WebContents* contents,
                                         bool active,
                                         content::BrowserContext* context,
                                         const Extension* extension,
@@ -189,6 +214,7 @@ static void WillDispatchTabCreatedEvent(WebContents* contents,
   event_args->Clear();
   event_args->Append(tab_value);
   tab_value->SetBoolean(tabs_constants::kSelectedKey, active);
+  return true;
 }
 
 void TabsEventRouter::TabCreatedAt(WebContents* contents,
@@ -196,7 +222,8 @@ void TabsEventRouter::TabCreatedAt(WebContents* contents,
                                    bool active) {
   Profile* profile = Profile::FromBrowserContext(contents->GetBrowserContext());
   scoped_ptr<base::ListValue> args(new base::ListValue);
-  scoped_ptr<Event> event(new Event(tabs::OnCreated::kEventName, args.Pass()));
+  scoped_ptr<Event> event(
+      new Event(events::UNKNOWN, tabs::OnCreated::kEventName, args.Pass()));
   event->restrict_to_browser_context = profile;
   event->user_gesture = EventRouter::USER_GESTURE_NOT_ENABLED;
   event->will_dispatch_callback =
@@ -211,8 +238,8 @@ void TabsEventRouter::TabInsertedAt(WebContents* contents,
                                     bool active) {
   // If tab is new, send created event.
   int tab_id = ExtensionTabUtil::GetTabId(contents);
-  if (!GetTabEntry(contents)) {
-    tab_entries_[tab_id] = TabEntry();
+  if (GetTabEntry(contents).get() == NULL) {
+    tab_entries_[tab_id] = make_linked_ptr(new TabEntry(contents));
 
     TabCreatedAt(contents, index, active);
     return;
@@ -235,7 +262,7 @@ void TabsEventRouter::TabInsertedAt(WebContents* contents,
 }
 
 void TabsEventRouter::TabDetachedAt(WebContents* contents, int index) {
-  if (!GetTabEntry(contents)) {
+  if (GetTabEntry(contents).get() == NULL) {
     // The tab was removed. Don't send detach event.
     return;
   }
@@ -387,19 +414,30 @@ void TabsEventRouter::TabMoved(WebContents* contents,
                 EventRouter::USER_GESTURE_UNKNOWN);
 }
 
-void TabsEventRouter::TabUpdated(WebContents* contents, bool did_navigate) {
-  TabEntry* entry = GetTabEntry(contents);
-  scoped_ptr<base::DictionaryValue> changed_properties;
+void TabsEventRouter::TabUpdated(
+    linked_ptr<TabEntry> entry,
+    scoped_ptr<base::DictionaryValue> changed_properties) {
+  CHECK(entry->web_contents());
 
-  CHECK(entry);
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnableTabAudioMuting)) {
+    bool audible = entry->web_contents()->WasRecentlyAudible();
+    if (entry->SetAudible(audible)) {
+      changed_properties->SetBoolean(tabs_constants::kAudibleKey, audible);
+    }
 
-  if (did_navigate)
-    changed_properties.reset(entry->DidNavigate(contents));
-  else
-    changed_properties.reset(entry->UpdateLoadState(contents));
+    bool muted = entry->web_contents()->IsAudioMuted();
+    if (entry->SetMuted(muted)) {
+      changed_properties->SetBoolean(tabs_constants::kMutedKey, muted);
+      changed_properties->SetString(
+          tabs_constants::kMutedCauseKey,
+          chrome::GetTabAudioMutedCause(entry->web_contents()));
+    }
+  }
 
-  if (changed_properties)
-    DispatchTabUpdatedEvent(contents, changed_properties.Pass());
+  if (!changed_properties->empty()) {
+    DispatchTabUpdatedEvent(entry->web_contents(), changed_properties.Pass());
+  }
 }
 
 void TabsEventRouter::FaviconUrlUpdated(WebContents* contents) {
@@ -424,7 +462,7 @@ void TabsEventRouter::DispatchEvent(
   if (!profile_->IsSameProfile(profile) || !event_router)
     return;
 
-  scoped_ptr<Event> event(new Event(event_name, args.Pass()));
+  scoped_ptr<Event> event(new Event(events::UNKNOWN, event_name, args.Pass()));
   event->restrict_to_browser_context = profile;
   event->user_gesture = user_gesture;
   event_router->BroadcastEvent(event.Pass());
@@ -465,8 +503,8 @@ void TabsEventRouter::DispatchTabUpdatedEvent(
   // WillDispatchTabUpdatedEvent.
   Profile* profile = Profile::FromBrowserContext(contents->GetBrowserContext());
 
-  scoped_ptr<Event> event(
-      new Event(tabs::OnUpdated::kEventName, args_base.Pass()));
+  scoped_ptr<Event> event(new Event(
+      events::UNKNOWN, tabs::OnUpdated::kEventName, args_base.Pass()));
   event->restrict_to_browser_context = profile;
   event->user_gesture = EventRouter::USER_GESTURE_NOT_ENABLED;
   event->will_dispatch_callback =
@@ -476,12 +514,14 @@ void TabsEventRouter::DispatchTabUpdatedEvent(
   EventRouter::Get(profile)->BroadcastEvent(event.Pass());
 }
 
-TabsEventRouter::TabEntry* TabsEventRouter::GetTabEntry(WebContents* contents) {
+linked_ptr<TabsEventRouter::TabEntry> TabsEventRouter::GetTabEntry(
+    WebContents* contents) {
   int tab_id = ExtensionTabUtil::GetTabId(contents);
-  std::map<int, TabEntry>::iterator i = tab_entries_.find(tab_id);
+
+  TabEntryMap::iterator i = tab_entries_.find(tab_id);
   if (tab_entries_.end() == i)
-    return NULL;
-  return &i->second;
+    return linked_ptr<TabEntry>(NULL);
+  return i->second;
 }
 
 void TabsEventRouter::Observe(int type,
@@ -490,7 +530,10 @@ void TabsEventRouter::Observe(int type,
   if (type == content::NOTIFICATION_NAV_ENTRY_COMMITTED) {
     NavigationController* source_controller =
         content::Source<NavigationController>(source).ptr();
-    TabUpdated(source_controller->GetWebContents(), true);
+    linked_ptr<TabEntry> entry =
+        GetTabEntry(source_controller->GetWebContents());
+    CHECK(entry.get());
+    TabUpdated(entry, (entry.get())->DidNavigate());
   } else if (type == content::NOTIFICATION_WEB_CONTENTS_DESTROYED) {
     // Tab was destroyed after being detached (without being re-attached).
     WebContents* contents = content::Source<WebContents>(source).ptr();
@@ -498,12 +541,8 @@ void TabsEventRouter::Observe(int type,
         content::Source<NavigationController>(&contents->GetController()));
     registrar_.Remove(this, content::NOTIFICATION_WEB_CONTENTS_DESTROYED,
         content::Source<WebContents>(contents));
-    registrar_.Remove(this, chrome::NOTIFICATION_FAVICON_UPDATED,
-        content::Source<WebContents>(contents));
-  } else if (type == chrome::NOTIFICATION_FAVICON_UPDATED) {
-    bool icon_url_changed = *content::Details<bool>(details).ptr();
-    if (icon_url_changed)
-      FaviconUrlUpdated(content::Source<WebContents>(source).ptr());
+    favicon_scoped_observer_.Remove(
+        favicon::ContentFaviconDriver::FromWebContents(contents));
   } else {
     NOTREACHED();
   }
@@ -512,7 +551,9 @@ void TabsEventRouter::Observe(int type,
 void TabsEventRouter::TabChangedAt(WebContents* contents,
                                    int index,
                                    TabChangeType change_type) {
-  TabUpdated(contents, false);
+  linked_ptr<TabEntry> entry = GetTabEntry(contents);
+  CHECK(entry.get());
+  TabUpdated(entry, (entry.get())->UpdateLoadState());
 }
 
 void TabsEventRouter::TabReplacedAt(TabStripModel* tab_strip_model,
@@ -537,8 +578,8 @@ void TabsEventRouter::TabReplacedAt(TabStripModel* tab_strip_model,
   DCHECK_GT(removed_count, 0);
   UnregisterForTabNotifications(old_contents);
 
-  if (!GetTabEntry(new_contents)) {
-    tab_entries_[new_tab_id] = TabEntry();
+  if (GetTabEntry(new_contents).get() == NULL) {
+    tab_entries_[new_tab_id] = make_linked_ptr(new TabEntry(new_contents));
     RegisterForTabNotifications(new_contents);
   }
 }
@@ -580,6 +621,18 @@ void TabsEventRouter::OnZoomChanged(
                 tabs::OnZoomChange::kEventName,
                 api::tabs::OnZoomChange::Create(zoom_change_info),
                 EventRouter::USER_GESTURE_UNKNOWN);
+}
+
+void TabsEventRouter::OnFaviconAvailable(const gfx::Image& image) {
+}
+
+void TabsEventRouter::OnFaviconUpdated(favicon::FaviconDriver* favicon_driver,
+                                       bool icon_url_changed) {
+  if (icon_url_changed) {
+    favicon::ContentFaviconDriver* content_favicon_driver =
+        static_cast<favicon::ContentFaviconDriver*>(favicon_driver);
+    FaviconUrlUpdated(content_favicon_driver->web_contents());
+  }
 }
 
 }  // namespace extensions

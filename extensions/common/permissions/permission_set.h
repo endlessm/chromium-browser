@@ -5,16 +5,11 @@
 #ifndef EXTENSIONS_COMMON_PERMISSIONS_PERMISSION_SET_H_
 #define EXTENSIONS_COMMON_PERMISSIONS_PERMISSION_SET_H_
 
-#include <map>
 #include <set>
 #include <string>
-#include <vector>
 
 #include "base/gtest_prod_util.h"
 #include "base/memory/ref_counted.h"
-#include "base/memory/singleton.h"
-#include "base/strings/string16.h"
-#include "extensions/common/manifest.h"
 #include "extensions/common/permissions/api_permission.h"
 #include "extensions/common/permissions/api_permission_set.h"
 #include "extensions/common/permissions/manifest_permission.h"
@@ -22,11 +17,14 @@
 #include "extensions/common/url_pattern_set.h"
 
 namespace extensions {
-class Extension;
 
 // The PermissionSet is an immutable class that encapsulates an
 // extension's permissions. The class exposes set operations for combining and
 // manipulating the permissions.
+// TODO(sashab): PermissionIDSet should be called PermissionSet. Once
+// PermissionMessageProvider::GetCoalescedPermissionMessages() is the only
+// method used for generating permission messages, find the other users of this
+// class and deprecate or rename it as appropriate.
 class PermissionSet
     : public base::RefCountedThreadSafe<PermissionSet> {
  public:
@@ -58,6 +56,7 @@ class PermissionSet
       const PermissionSet* set1, const PermissionSet* set2);
 
   bool operator==(const PermissionSet& rhs) const;
+  bool operator!=(const PermissionSet& rhs) const;
 
   // Returns true if every API or host permission available to |set| is also
   // available to this. In other words, if the API permissions of |set| are a

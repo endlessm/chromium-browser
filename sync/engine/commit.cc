@@ -4,7 +4,7 @@
 
 #include "sync/engine/commit.h"
 
-#include "base/debug/trace_event.h"
+#include "base/trace_event/trace_event.h"
 #include "sync/engine/commit_contribution.h"
 #include "sync/engine/commit_processor.h"
 #include "sync/engine/commit_util.h"
@@ -16,15 +16,13 @@
 
 namespace syncer {
 
-Commit::Commit(
-    const std::map<ModelType, CommitContribution*>& contributions,
-    const sync_pb::ClientToServerMessage& message,
-    ExtensionsActivity::Records extensions_activity_buffer)
-  : contributions_(contributions),
-    deleter_(&contributions_),
-    message_(message),
-    extensions_activity_buffer_(extensions_activity_buffer),
-    cleaned_up_(false) {
+Commit::Commit(ContributionMap contributions,
+               const sync_pb::ClientToServerMessage& message,
+               ExtensionsActivity::Records extensions_activity_buffer)
+    : contributions_(contributions.Pass()),
+      message_(message),
+      extensions_activity_buffer_(extensions_activity_buffer),
+      cleaned_up_(false) {
 }
 
 Commit::~Commit() {
@@ -59,7 +57,7 @@ Commit* Commit::Init(
 
   // Set extensions activity if bookmark commits are present.
   ExtensionsActivity::Records extensions_activity_buffer;
-  ContributionMap::iterator it = contributions.find(syncer::BOOKMARKS);
+  ContributionMap::const_iterator it = contributions.find(syncer::BOOKMARKS);
   if (it != contributions.end() && it->second->GetNumEntries() != 0) {
     commit_util::AddExtensionsActivityToMessage(
         extensions_activity,
@@ -73,16 +71,18 @@ Commit* Commit::Init(
       commit_message);
 
   // Finally, serialize all our contributions.
-  for (std::map<ModelType, CommitContribution*>::iterator it =
-           contributions.begin(); it != contributions.end(); ++it) {
+  for (std::map<ModelType, CommitContribution*>::const_iterator it =
+           contributions.begin();
+       it != contributions.end(); ++it) {
     it->second->AddToCommitMessage(&message);
   }
 
   // If we made it this far, then we've successfully prepared a commit message.
-  return new Commit(contributions, message, extensions_activity_buffer);
+  return new Commit(contributions.Pass(), message, extensions_activity_buffer);
 }
 
 SyncerError Commit::PostAndProcessResponse(
+    sessions::NudgeTracker* nudge_tracker,
     sessions::SyncSession* session,
     sessions::StatusController* status,
     ExtensionsActivity* extensions_activity) {
@@ -109,7 +109,7 @@ SyncerError Commit::PostAndProcessResponse(
 
   TRACE_EVENT_BEGIN0("sync", "PostCommit");
   const SyncerError post_result = SyncerProtoUtil::PostClientToServerMessage(
-      &message_, &response_, session);
+      &message_, &response_, session, NULL);
   TRACE_EVENT_END0("sync", "PostCommit");
 
   // TODO(rlarocque): Use result that includes errors captured later?
@@ -147,12 +147,15 @@ SyncerError Commit::PostAndProcessResponse(
 
   // Let the contributors process the responses to each of their requests.
   SyncerError processing_result = SYNCER_OK;
-  for (std::map<ModelType, CommitContribution*>::iterator it =
-       contributions_.begin(); it != contributions_.end(); ++it) {
+  for (ContributionMap::const_iterator it = contributions_.begin();
+       it != contributions_.end(); ++it) {
     TRACE_EVENT1("sync", "ProcessCommitResponse",
                  "type", ModelTypeToString(it->first));
     SyncerError type_result =
         it->second->ProcessCommitResponse(response_, status);
+    if (type_result == SERVER_RETURN_CONFLICT) {
+      nudge_tracker->RecordCommitConflict(it->first);
+    }
     if (processing_result == SYNCER_OK && type_result != SYNCER_OK) {
       processing_result = type_result;
     }
@@ -168,7 +171,7 @@ SyncerError Commit::PostAndProcessResponse(
 }
 
 void Commit::CleanUp() {
-  for (ContributionMap::iterator it = contributions_.begin();
+  for (ContributionMap::const_iterator it = contributions_.begin();
        it != contributions_.end(); ++it) {
     it->second->CleanUp();
   }

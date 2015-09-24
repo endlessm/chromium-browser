@@ -1,6 +1,6 @@
 /*
  * libjingle
- * Copyright 2012, Google Inc.
+ * Copyright 2012 Google Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -45,7 +45,7 @@ static const uint32 kAdmMaxIdleTimeProcess = 1000;
 // Constants here are derived by running VoE using a real ADM.
 // The constants correspond to 10ms of mono audio at 44kHz.
 static const int kTimePerFrameMs = 10;
-static const int kNumberOfChannels = 1;
+static const uint8_t kNumberOfChannels = 1;
 static const int kSamplesPerSecond = 44000;
 static const int kTotalDelayMs = 0;
 static const int kClockDriftMs = 0;
@@ -94,7 +94,7 @@ int FakeAudioCaptureModule::frames_received() const {
   return frames_received_;
 }
 
-int32_t FakeAudioCaptureModule::TimeUntilNextProcess() {
+int64_t FakeAudioCaptureModule::TimeUntilNextProcess() {
   const uint32 current_time = rtc::Time();
   if (current_time < last_process_time_ms_) {
     // TODO: wraparound could be handled more gracefully.
@@ -109,11 +109,6 @@ int32_t FakeAudioCaptureModule::TimeUntilNextProcess() {
 
 int32_t FakeAudioCaptureModule::Process() {
   last_process_time_ms_ = rtc::Time();
-  return 0;
-}
-
-int32_t FakeAudioCaptureModule::ChangeUniqueId(const int32_t /*id*/) {
-  ASSERT(false);
   return 0;
 }
 
@@ -628,8 +623,8 @@ bool FakeAudioCaptureModule::Initialize() {
 
 void FakeAudioCaptureModule::SetSendBuffer(int value) {
   Sample* buffer_ptr = reinterpret_cast<Sample*>(send_buffer_);
-  const int buffer_size_in_samples = sizeof(send_buffer_) /
-      kNumberBytesPerSample;
+  const int buffer_size_in_samples =
+      sizeof(send_buffer_) / kNumberBytesPerSample;
   for (int i = 0; i < buffer_size_in_samples; ++i) {
     buffer_ptr[i] = value;
   }
@@ -641,8 +636,8 @@ void FakeAudioCaptureModule::ResetRecBuffer() {
 
 bool FakeAudioCaptureModule::CheckRecBuffer(int value) {
   const Sample* buffer_ptr = reinterpret_cast<const Sample*>(rec_buffer_);
-  const int buffer_size_in_samples = sizeof(rec_buffer_) /
-      kNumberBytesPerSample;
+  const int buffer_size_in_samples =
+      sizeof(rec_buffer_) / kNumberBytesPerSample;
   for (int i = 0; i < buffer_size_in_samples; ++i) {
     if (buffer_ptr[i] >= value) return true;
   }
@@ -709,20 +704,12 @@ void FakeAudioCaptureModule::ReceiveFrameP() {
     }
     ResetRecBuffer();
     uint32_t nSamplesOut = 0;
-#ifdef USE_WEBRTC_DEV_BRANCH
     int64_t elapsed_time_ms = 0;
-#else
-    uint32_t rtp_timestamp = 0;
-#endif
     int64_t ntp_time_ms = 0;
     if (audio_callback_->NeedMorePlayData(kNumberSamples, kNumberBytesPerSample,
                                          kNumberOfChannels, kSamplesPerSecond,
                                          rec_buffer_, nSamplesOut,
-#ifdef USE_WEBRTC_DEV_BRANCH
                                          &elapsed_time_ms, &ntp_time_ms) != 0) {
-#else
-                                         &rtp_timestamp, &ntp_time_ms) != 0) {
-#endif
       ASSERT(false);
     }
     ASSERT(nSamplesOut == kNumberSamples);

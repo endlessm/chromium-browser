@@ -39,12 +39,12 @@ namespace storage_monitor {
 class StorageMonitorWinTest : public testing::Test {
  public:
   StorageMonitorWinTest();
-  virtual ~StorageMonitorWinTest();
+  ~StorageMonitorWinTest() override;
 
  protected:
   // testing::Test:
-  virtual void SetUp() override;
-  virtual void TearDown() override;
+  void SetUp() override;
+  void TearDown() override;
 
   void PreAttachDevices();
 
@@ -97,7 +97,6 @@ void StorageMonitorWinTest::SetUp() {
 void StorageMonitorWinTest::TearDown() {
   RunUntilIdle();
   monitor_->RemoveObserver(&observer_);
-  volume_mount_watcher_->ShutdownWorkerPool();
 
   // Windows storage monitor must be destroyed on the same thread
   // as construction.

@@ -18,7 +18,6 @@ class DaemonControllerDelegateLinux : public DaemonController::Delegate {
   // DaemonController::Delegate interface.
   DaemonController::State GetState() override;
   scoped_ptr<base::DictionaryValue> GetConfig() override;
-  void InstallHost(const DaemonController::CompletionCallback& done) override;
   void SetConfigAndStart(
       scoped_ptr<base::DictionaryValue> config,
       bool consent,
@@ -26,8 +25,6 @@ class DaemonControllerDelegateLinux : public DaemonController::Delegate {
   void UpdateConfig(scoped_ptr<base::DictionaryValue> config,
                     const DaemonController::CompletionCallback& done) override;
   void Stop(const DaemonController::CompletionCallback& done) override;
-  void SetWindow(void* window_handle) override;
-  std::string GetVersion() override;
   DaemonController::UsageStatsConsent GetUsageStatsConsent() override;
 
  private:

@@ -17,7 +17,6 @@
 #include "chrome/browser/extensions/api/sync_file_system/extension_sync_event_observer.h"
 #include "chrome/browser/extensions/api/sync_file_system/sync_file_system_api_helpers.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync_file_system/local/local_file_sync_service.h"
 #include "chrome/browser/sync_file_system/logger.h"
@@ -28,6 +27,7 @@
 #include "chrome/browser/sync_file_system/sync_status_code.h"
 #include "chrome/browser/sync_file_system/syncable_file_system_util.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "components/sync_driver/sync_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_partition.h"
 #include "extensions/browser/extension_prefs.h"
@@ -158,7 +158,7 @@ class LocalSyncRunner : public SyncProcessRunner,
 
   // LocalFileSyncService::Observer overrides.
   void OnLocalChangeAvailable(int64 pending_changes) override {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
     OnChangesUpdated(pending_changes);
 
@@ -208,7 +208,7 @@ class RemoteSyncRunner : public SyncProcessRunner,
 
   // RemoteFileSyncService::Observer overrides.
   void OnRemoteChangeQueueUpdated(int64 pending_changes) override {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
     OnChangesUpdated(pending_changes);
 
@@ -251,7 +251,7 @@ class RemoteSyncRunner : public SyncProcessRunner,
 // SyncFileSystemService
 
 void SyncFileSystemService::Shutdown() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   local_sync_runners_.clear();
   remote_sync_runners_.clear();
@@ -261,8 +261,8 @@ void SyncFileSystemService::Shutdown() {
 
   remote_service_.reset();
 
-  ProfileSyncServiceBase* profile_sync_service =
-      ProfileSyncServiceFactory::GetForProfile(profile_);
+  sync_driver::SyncService* profile_sync_service =
+      ProfileSyncServiceFactory::GetSyncServiceForBrowserContext(profile_);
   if (profile_sync_service)
     profile_sync_service->RemoveObserver(this);
 
@@ -272,7 +272,7 @@ void SyncFileSystemService::Shutdown() {
 }
 
 SyncFileSystemService::~SyncFileSystemService() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(!profile_);
 }
 
@@ -323,7 +323,7 @@ void SyncFileSystemService::DumpDatabase(const DumpFilesCallback& callback) {
 void SyncFileSystemService::GetFileSyncStatus(
     const FileSystemURL& url, const SyncFileStatusCallback& callback) {
   DCHECK(local_service_);
-  DCHECK(GetRemoteService(url.origin()));
+  DCHECK(remote_service_);
 
   // It's possible to get an invalid FileEntry.
   if (!url.is_valid()) {
@@ -352,7 +352,7 @@ void SyncFileSystemService::RemoveSyncEventObserver(
 
 LocalChangeProcessor* SyncFileSystemService::GetLocalChangeProcessor(
     const GURL& origin) {
-  return GetRemoteService(origin)->GetLocalChangeProcessor();
+  return remote_service_->GetLocalChangeProcessor();
 }
 
 void SyncFileSystemService::OnSyncIdle() {
@@ -446,7 +446,7 @@ SyncFileSystemService::SyncFileSystemService(Profile* profile)
 void SyncFileSystemService::Initialize(
     scoped_ptr<LocalFileSyncService> local_service,
     scoped_ptr<RemoteFileSyncService> remote_service) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(local_service);
   DCHECK(remote_service);
   DCHECK(profile_);
@@ -470,8 +470,8 @@ void SyncFileSystemService::Initialize(
   local_sync_runners_.push_back(local_syncer.release());
   remote_sync_runners_.push_back(remote_syncer.release());
 
-  ProfileSyncServiceBase* profile_sync_service =
-      ProfileSyncServiceFactory::GetForProfile(profile_);
+  sync_driver::SyncService* profile_sync_service =
+      ProfileSyncServiceFactory::GetSyncServiceForBrowserContext(profile_);
   if (profile_sync_service) {
     UpdateSyncEnabledStatus(profile_sync_service);
     profile_sync_service->AddObserver(this);
@@ -494,7 +494,12 @@ void SyncFileSystemService::DidInitializeFileSystem(
 
   // Local side of initialization for the app is done.
   // Continue on initializing the remote side.
-  GetRemoteService(app_origin)->RegisterOrigin(
+  if (!remote_service_) {
+    callback.Run(SYNC_STATUS_ABORT);
+    return;
+  }
+
+  remote_service_->RegisterOrigin(
       app_origin,
       base::Bind(&SyncFileSystemService::DidRegisterOrigin,
                  AsWeakPtr(), app_origin, callback));
@@ -509,13 +514,18 @@ void SyncFileSystemService::DidRegisterOrigin(
             app_origin.spec().c_str(),
             SyncStatusCodeToString(status));
 
+  if (!remote_service_) {
+    callback.Run(SYNC_STATUS_ABORT);
+    return;
+  }
+
   UMA_HISTOGRAM_ENUMERATION("SyncFileSystem.RegisterOriginResult",
-                            GetRemoteService(app_origin)->GetCurrentState(),
+                            remote_service_->GetCurrentState(),
                             REMOTE_SERVICE_STATE_MAX);
 
   if (status == SYNC_STATUS_FAILED) {
     // If we got generic error return the service status information.
-    switch (GetRemoteService(app_origin)->GetCurrentState()) {
+    switch (remote_service_->GetCurrentState()) {
       case REMOTE_SERVICE_AUTHENTICATION_REQUIRED:
         callback.Run(SYNC_STATUS_AUTHENTICATION_FAILED);
         return;
@@ -541,7 +551,12 @@ void SyncFileSystemService::DidInitializeFileSystemForDump(
     return;
   }
 
-  GetRemoteService(origin)->DumpFiles(
+  if (!remote_service_) {
+    callback.Run(base::ListValue());
+    return;
+  }
+
+  remote_service_->DumpFiles(
       origin,
       base::Bind(
           &SyncFileSystemService::DidDumpFiles,
@@ -554,7 +569,8 @@ void SyncFileSystemService::DidDumpFiles(
     const GURL& origin,
     const DumpFilesCallback& callback,
     scoped_ptr<base::ListValue> dump_files) {
-  if (!dump_files || !dump_files->GetSize()) {
+  if (!dump_files || !dump_files->GetSize() ||
+      !local_service_ || !remote_service_) {
     callback.Run(base::ListValue());
     return;
   }
@@ -619,7 +635,7 @@ void SyncFileSystemService::DidGetLocalChangeStatus(
 void SyncFileSystemService::OnRemoteServiceStateUpdated(
     RemoteServiceState state,
     const std::string& description) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   util::Log(logging::LOG_VERBOSE, FROM_HERE,
             "OnRemoteServiceStateChanged: %d %s", state, description.c_str());
 
@@ -666,7 +682,7 @@ void SyncFileSystemService::OnExtensionUnloaded(
 
   DVLOG(1) << "Handle extension notification for UNLOAD(DISABLE): "
            << app_origin;
-  GetRemoteService(app_origin)->DisableOrigin(
+  remote_service_->DisableOrigin(
       app_origin,
       base::Bind(&DidHandleUnloadedEvent, app_origin));
   local_service_->SetOriginEnabled(app_origin, false);
@@ -689,7 +705,7 @@ void SyncFileSystemService::OnExtensionUninstalled(
   GURL app_origin = Extension::GetBaseURLFromExtensionId(extension->id());
   DVLOG(1) << "Handle extension notification for UNINSTALLED: "
            << app_origin;
-  GetRemoteService(app_origin)->UninstallOrigin(
+  remote_service_->UninstallOrigin(
       app_origin, flag,
       base::Bind(&DidHandleUninstalledEvent, app_origin));
   local_service_->SetOriginEnabled(app_origin, false);
@@ -700,15 +716,15 @@ void SyncFileSystemService::OnExtensionLoaded(
     const Extension* extension) {
   GURL app_origin = Extension::GetBaseURLFromExtensionId(extension->id());
   DVLOG(1) << "Handle extension notification for LOADED: " << app_origin;
-  GetRemoteService(app_origin)->EnableOrigin(
+  remote_service_->EnableOrigin(
       app_origin,
       base::Bind(&DidHandleLoadEvent, app_origin));
   local_service_->SetOriginEnabled(app_origin, true);
 }
 
 void SyncFileSystemService::OnStateChanged() {
-  ProfileSyncServiceBase* profile_sync_service =
-      ProfileSyncServiceFactory::GetForProfile(profile_);
+  sync_driver::SyncService* profile_sync_service =
+      ProfileSyncServiceFactory::GetSyncServiceForBrowserContext(profile_);
   if (profile_sync_service)
     UpdateSyncEnabledStatus(profile_sync_service);
 }
@@ -725,7 +741,7 @@ void SyncFileSystemService::OnFileStatusChanged(
 }
 
 void SyncFileSystemService::UpdateSyncEnabledStatus(
-    ProfileSyncServiceBase* profile_sync_service) {
+    sync_driver::SyncService* profile_sync_service) {
   if (!profile_sync_service->HasSyncSetupCompleted())
     return;
   bool old_sync_enabled = sync_enabled_;
@@ -746,11 +762,6 @@ void SyncFileSystemService::RunForEachSyncRunners(
            remote_sync_runners_.begin();
        iter != remote_sync_runners_.end(); ++iter)
     ((*iter)->*method)();
-}
-
-RemoteFileSyncService* SyncFileSystemService::GetRemoteService(
-    const GURL& origin) {
-  return remote_service_.get();
 }
 
 }  // namespace sync_file_system

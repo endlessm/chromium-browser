@@ -41,7 +41,8 @@ class SYNC_EXPORT_PRIVATE SyncRollbackManagerBase :
       ModelTypeSet types) override;
   bool PurgePartiallySyncedTypes() override;
   void UpdateCredentials(const SyncCredentials& credentials) override;
-  void StartSyncingNormally(const ModelSafeRoutingInfo& routing_info) override;
+  void StartSyncingNormally(const ModelSafeRoutingInfo& routing_info,
+                            base::Time last_poll_time) override;
   void ConfigureSyncer(ConfigureReason reason,
                        ModelTypeSet to_download,
                        ModelTypeSet to_purge,
@@ -91,7 +92,7 @@ class SYNC_EXPORT_PRIVATE SyncRollbackManagerBase :
       ModelTypeSet models_with_changes) override;
 
  protected:
-  ObserverList<SyncManager::Observer>* GetObservers();
+  base::ObserverList<SyncManager::Observer>* GetObservers();
 
   // Initialize sync backup DB.
   bool InitInternal(
@@ -99,7 +100,7 @@ class SYNC_EXPORT_PRIVATE SyncRollbackManagerBase :
       InternalComponentsFactory* internal_components_factory,
       InternalComponentsFactory::StorageOption storage,
       scoped_ptr<UnrecoverableErrorHandler> unrecoverable_error_handler,
-      ReportUnrecoverableErrorFunction report_unrecoverable_error_function);
+      const base::Closure& report_unrecoverable_error_function);
 
   void RegisterDirectoryTypeDebugInfoObserver(
       syncer::TypeDebugInfoObserver* observer) override;
@@ -125,10 +126,10 @@ class SYNC_EXPORT_PRIVATE SyncRollbackManagerBase :
   void InitBookmarkFolder(const std::string& folder);
 
   UserShare share_;
-  ObserverList<SyncManager::Observer> observers_;
+  base::ObserverList<SyncManager::Observer> observers_;
 
   scoped_ptr<UnrecoverableErrorHandler> unrecoverable_error_handler_;
-  ReportUnrecoverableErrorFunction report_unrecoverable_error_function_;
+  base::Closure report_unrecoverable_error_function_;
 
   scoped_ptr<SyncEncryptionHandler> dummy_handler_;
 

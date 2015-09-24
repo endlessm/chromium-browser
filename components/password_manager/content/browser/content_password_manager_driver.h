@@ -7,11 +7,11 @@
 
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "components/autofill/core/common/password_form_field_prediction_map.h"
 #include "components/password_manager/core/browser/password_autofill_manager.h"
 #include "components/password_manager/core/browser/password_generation_manager.h"
 #include "components/password_manager/core/browser/password_manager.h"
 #include "components/password_manager/core/browser/password_manager_driver.h"
-#include "content/public/browser/web_contents_observer.h"
 
 namespace autofill {
 class AutofillManager;
@@ -19,47 +19,71 @@ struct PasswordForm;
 }
 
 namespace content {
+struct FrameNavigateParams;
+struct LoadCommittedDetails;
+class RenderFrameHost;
 class WebContents;
+}
+
+namespace IPC {
+class Message;
 }
 
 namespace password_manager {
 
-class ContentPasswordManagerDriver : public PasswordManagerDriver,
-                                     public content::WebContentsObserver {
+// There is one ContentPasswordManagerDriver per RenderFrameHost.
+// The lifetime is managed by the ContentPasswordManagerDriverFactory.
+class ContentPasswordManagerDriver : public PasswordManagerDriver {
  public:
-  ContentPasswordManagerDriver(content::WebContents* web_contents,
+  ContentPasswordManagerDriver(content::RenderFrameHost* render_frame_host,
                                PasswordManagerClient* client,
                                autofill::AutofillClient* autofill_client);
   ~ContentPasswordManagerDriver() override;
 
+  // Gets the driver for |render_frame_host|.
+  static ContentPasswordManagerDriver* GetForRenderFrameHost(
+      content::RenderFrameHost* render_frame_host);
+
   // PasswordManagerDriver implementation.
   void FillPasswordForm(
       const autofill::PasswordFormFillData& form_data) override;
-  bool DidLastPageLoadEncounterSSLErrors() override;
-  bool IsOffTheRecord() override;
   void AllowPasswordGenerationForForm(
       const autofill::PasswordForm& form) override;
   void AccountCreationFormsFound(
       const std::vector<autofill::FormData>& forms) override;
+  void AutofillDataReceived(
+      const std::map<autofill::FormData,
+                     autofill::PasswordFormFieldPredictionMap>& predictions)
+      override;
+  void GeneratedPasswordAccepted(const base::string16& password) override;
   void FillSuggestion(const base::string16& username,
                       const base::string16& password) override;
   void PreviewSuggestion(const base::string16& username,
                          const base::string16& password) override;
   void ClearPreviewedForm() override;
+  void ForceSavePassword() override;
 
   PasswordGenerationManager* GetPasswordGenerationManager() override;
   PasswordManager* GetPasswordManager() override;
-  autofill::AutofillManager* GetAutofillManager() override;
   PasswordAutofillManager* GetPasswordAutofillManager() override;
 
-  // content::WebContentsObserver overrides.
-  bool OnMessageReceived(const IPC::Message& message) override;
-  void DidNavigateMainFrame(
-      const content::LoadCommittedDetails& details,
-      const content::FrameNavigateParams& params) override;
+  bool HandleMessage(const IPC::Message& message);
+  void DidNavigateFrame(const content::LoadCommittedDetails& details,
+                        const content::FrameNavigateParams& params);
+
+  // Pass-throughs to PasswordManager.
+  void OnPasswordFormsParsed(const std::vector<autofill::PasswordForm>& forms);
+  void OnPasswordFormsRendered(
+      const std::vector<autofill::PasswordForm>& visible_forms,
+      bool did_stop_loading);
+  void OnPasswordFormSubmitted(const autofill::PasswordForm& password_form);
+  void OnInPageNavigation(const autofill::PasswordForm& password_form);
+  void OnPasswordNoLongerGenerated(const autofill::PasswordForm& password_form);
+  void OnFocusedPasswordFormFound(const autofill::PasswordForm& password_form);
 
  private:
-  PasswordManager password_manager_;
+  content::RenderFrameHost* render_frame_host_;
+  PasswordManagerClient* client_;
   PasswordGenerationManager password_generation_manager_;
   PasswordAutofillManager password_autofill_manager_;
 

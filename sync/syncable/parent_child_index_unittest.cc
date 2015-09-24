@@ -19,9 +19,11 @@ namespace {
 
 static const std::string kCacheGuid = "8HhNIHlEOCGQbIAALr9QEg==";
 
+}  // namespace
+
 class ParentChildIndexTest : public testing::Test {
  public:
-  virtual void TearDown() {
+  void TearDown() override {
     // To make memory management easier, we take ownership of all EntryKernels
     // returned by our factory methods and delete them here.
     STLDeleteElements(&owned_entry_kernels_);
@@ -49,28 +51,35 @@ class ParentChildIndexTest : public testing::Test {
     root->put(BASE_VERSION, -1);
     root->put(SERVER_VERSION, 0);
     root->put(IS_DIR, true);
-    root->put(ID, syncable::Id());
-    root->put(PARENT_ID, syncable::Id());
-    root->put(SERVER_PARENT_ID, syncable::Id());
+    root->put(ID, syncable::Id::GetRoot());
+    root->put(PARENT_ID, syncable::Id::GetRoot());
 
     owned_entry_kernels_.push_back(root);
     return root;
   }
 
-  EntryKernel* MakeBookmarkRoot() {
+  EntryKernel* MakeTypeRoot(ModelType model_type, const syncable::Id& id) {
     // Mimics a server-created bookmark folder.
     EntryKernel* folder = new EntryKernel;
     folder->put(META_HANDLE, 1);
     folder->put(BASE_VERSION, 9);
     folder->put(SERVER_VERSION, 9);
     folder->put(IS_DIR, true);
-    folder->put(ID, GetBookmarkRootId());
-    folder->put(SERVER_PARENT_ID, syncable::Id());
-    folder->put(PARENT_ID, syncable::Id());
-    folder->put(UNIQUE_SERVER_TAG, "google_chrome_bookmarks");
+    folder->put(ID, id);
+    folder->put(PARENT_ID, syncable::Id::GetRoot());
+    folder->put(UNIQUE_SERVER_TAG, ModelTypeToRootTag(model_type));
+
+    // Ensure that GetModelType() returns a correct value.
+    sync_pb::EntitySpecifics specifics;
+    AddDefaultFieldValue(model_type, &specifics);
+    folder->put(SPECIFICS, specifics);
 
     owned_entry_kernels_.push_back(folder);
     return folder;
+  }
+
+  EntryKernel* MakeBookmarkRoot() {
+    return MakeTypeRoot(BOOKMARKS, GetBookmarkRootId());
   }
 
   EntryKernel* MakeBookmark(int n, int pos, bool is_dir) {
@@ -82,7 +91,6 @@ class ParentChildIndexTest : public testing::Test {
     bm->put(IS_DIR, is_dir);
     bm->put(ID, GetBookmarkId(n));
     bm->put(PARENT_ID, GetBookmarkRootId());
-    bm->put(SERVER_PARENT_ID, GetBookmarkRootId());
 
     bm->put(UNIQUE_BOOKMARK_TAG,
             syncable::GenerateSyncableBookmarkHash(kCacheGuid,
@@ -97,19 +105,42 @@ class ParentChildIndexTest : public testing::Test {
     return bm;
   }
 
-  EntryKernel* MakeUniqueClientItem(int n) {
+  EntryKernel* MakeUniqueClientItem(ModelType model_type,
+                                    int n,
+                                    const syncable::Id& parent_id) {
     EntryKernel* item = new EntryKernel();
     item->put(META_HANDLE, n);
     item->put(BASE_VERSION, 10);
     item->put(SERVER_VERSION, 10);
     item->put(IS_DIR, false);
     item->put(ID, GetClientUniqueId(n));
-    item->put(PARENT_ID, syncable::Id());
-    item->put(SERVER_PARENT_ID, syncable::Id());
     item->put(UNIQUE_CLIENT_TAG, base::IntToString(n));
+
+    if (!parent_id.IsNull()) {
+      item->put(PARENT_ID, parent_id);
+    }
+
+    if (model_type != UNSPECIFIED) {
+      // Ensure that GetModelType() returns a correct value.
+      sync_pb::EntitySpecifics specifics;
+      AddDefaultFieldValue(model_type, &specifics);
+      item->put(SPECIFICS, specifics);
+    }
 
     owned_entry_kernels_.push_back(item);
     return item;
+  }
+
+  EntryKernel* MakeUniqueClientItem(int n, const syncable::Id& parent_id) {
+    return MakeUniqueClientItem(UNSPECIFIED, n, parent_id);
+  }
+
+  EntryKernel* MakeUniqueClientItem(ModelType model_type, int n) {
+    return MakeUniqueClientItem(model_type, n, Id());
+  }
+
+  const syncable::Id& IndexKnownModelTypeRootId(ModelType model_type) const {
+    return index_.GetModelTypeRootId(model_type);
   }
 
   ParentChildIndex index_;
@@ -126,6 +157,11 @@ TEST_F(ParentChildIndexTest, TestRootNode) {
 TEST_F(ParentChildIndexTest, TestBookmarkRootFolder) {
   EntryKernel* bm_folder = MakeBookmarkRoot();
   EXPECT_TRUE(ParentChildIndex::ShouldInclude(bm_folder));
+
+  index_.Insert(bm_folder);
+  // Since BOOKMARKS is a hierarchical type, its type root folder shouldn't be
+  // tracked by ParentChildIndex.
+  EXPECT_EQ(Id(), IndexKnownModelTypeRootId(BOOKMARKS));
 }
 
 // Tests iteration over a set of siblings.
@@ -293,8 +329,8 @@ TEST_F(ParentChildIndexTest, RemoveWithHierarchy) {
 // Test that involves two non-ordered items.
 TEST_F(ParentChildIndexTest, UnorderedChildren) {
   // Make two unique client tag items under the root node.
-  EntryKernel* u1 = MakeUniqueClientItem(1);
-  EntryKernel* u2 = MakeUniqueClientItem(2);
+  EntryKernel* u1 = MakeUniqueClientItem(1, syncable::Id::GetRoot());
+  EntryKernel* u2 = MakeUniqueClientItem(2, syncable::Id::GetRoot());
 
   EXPECT_FALSE(u1->ShouldMaintainPosition());
   EXPECT_FALSE(u2->ShouldMaintainPosition());
@@ -302,7 +338,7 @@ TEST_F(ParentChildIndexTest, UnorderedChildren) {
   index_.Insert(u1);
   index_.Insert(u2);
 
-  const OrderedChildSet* children = index_.GetChildren(syncable::Id());
+  const OrderedChildSet* children = index_.GetChildren(syncable::Id::GetRoot());
   EXPECT_EQ(children->count(u1), 1UL);
   EXPECT_EQ(children->count(u2), 1UL);
   EXPECT_EQ(children->size(), 2UL);
@@ -316,8 +352,7 @@ TEST_F(ParentChildIndexTest, OrderedAndUnorderedChildren) {
 
   EntryKernel* b1 = MakeBookmark(1, 1, false);
   EntryKernel* b2 = MakeBookmark(2, 2, false);
-  EntryKernel* u1 = MakeUniqueClientItem(1);
-  u1->put(PARENT_ID, GetBookmarkRootId());
+  EntryKernel* u1 = MakeUniqueClientItem(1, GetBookmarkRootId());
 
   index_.Insert(b1);
   index_.Insert(u1);
@@ -325,7 +360,7 @@ TEST_F(ParentChildIndexTest, OrderedAndUnorderedChildren) {
 
   const OrderedChildSet* children = index_.GetChildren(GetBookmarkRootId());
   ASSERT_TRUE(children);
-  EXPECT_EQ(children->size(), 3UL);
+  EXPECT_EQ(3UL, children->size());
 
   // Ensure that the non-positionable item is moved to the far right.
   OrderedChildSet::const_iterator it = children->begin();
@@ -338,7 +373,102 @@ TEST_F(ParentChildIndexTest, OrderedAndUnorderedChildren) {
   EXPECT_TRUE(it == children->end());
 }
 
-}  // namespace
+TEST_F(ParentChildIndexTest, NodesWithImplicitParentId) {
+  syncable::Id type_root_id = syncable::Id::CreateFromServerId("type_root");
+  EntryKernel* type_root = MakeTypeRoot(PREFERENCES, type_root_id);
+  index_.Insert(type_root);
+  EXPECT_EQ(type_root_id, IndexKnownModelTypeRootId(PREFERENCES));
+
+  // Create entries without parent ID
+  EntryKernel* p1 = MakeUniqueClientItem(PREFERENCES, 1);
+  EntryKernel* p2 = MakeUniqueClientItem(PREFERENCES, 2);
+
+  index_.Insert(p1);
+  index_.Insert(p2);
+
+  EXPECT_TRUE(index_.Contains(p1));
+  EXPECT_TRUE(index_.Contains(p2));
+
+  // Items should appear under the type root
+  const OrderedChildSet* children = index_.GetChildren(type_root);
+  ASSERT_TRUE(children);
+  EXPECT_EQ(2UL, children->size());
+
+  EXPECT_EQ(2UL, index_.GetSiblings(p1)->size());
+  EXPECT_EQ(2UL, index_.GetSiblings(p2)->size());
+
+  index_.Remove(p1);
+
+  EXPECT_FALSE(index_.Contains(p1));
+  EXPECT_TRUE(index_.Contains(p2));
+  children = index_.GetChildren(type_root_id);
+  ASSERT_TRUE(children);
+  EXPECT_EQ(1UL, children->size());
+
+  index_.Remove(p2);
+
+  EXPECT_FALSE(index_.Contains(p2));
+  children = index_.GetChildren(type_root);
+  ASSERT_EQ(nullptr, children);
+}
+
+// Test that the removal isn't sensitive to the order (PurgeEntriesWithTypeIn
+// removes items in arbitrary order).
+TEST_F(ParentChildIndexTest, RemoveOutOfOrder) {
+  // Insert a type root and two items (with implicit parent ID).
+  syncable::Id type_root_id = syncable::Id::CreateFromServerId("type_root");
+  EntryKernel* type_root = MakeTypeRoot(PREFERENCES, type_root_id);
+  index_.Insert(type_root);
+  EntryKernel* p1 = MakeUniqueClientItem(PREFERENCES, 1);
+  EntryKernel* p2 = MakeUniqueClientItem(PREFERENCES, 2);
+  index_.Insert(p1);
+  index_.Insert(p2);
+
+  // Two items expected under the type root.
+  const OrderedChildSet* children = index_.GetChildren(type_root);
+  ASSERT_TRUE(children);
+  EXPECT_EQ(2UL, children->size());
+
+  // Remove all 3 items in arbitrary order.
+  index_.Remove(p2);
+  index_.Remove(type_root);
+  index_.Remove(p1);
+
+  EXPECT_EQ(nullptr, index_.GetChildren(type_root));
+
+  // Add a new root and another two items again.
+  type_root = MakeTypeRoot(PREFERENCES, type_root_id);
+  index_.Insert(type_root);
+
+  index_.Insert(MakeUniqueClientItem(PREFERENCES, 3));
+  index_.Insert(MakeUniqueClientItem(PREFERENCES, 4));
+
+  children = index_.GetChildren(type_root);
+  ASSERT_TRUE(children);
+  // Should have 2 items. If the out of order removal cleared the implicit
+  // parent folder ID prematurely, the collection would have 3 items including
+  // p1.
+  EXPECT_EQ(2UL, children->size());
+}
+
+// Test that the insert isn't sensitive to the order (Loading entries from
+// Sync DB is done in arbitrary order).
+TEST_F(ParentChildIndexTest, InsertOutOfOrder) {
+  // Insert two Preferences entries with implicit parent first
+  index_.Insert(MakeUniqueClientItem(PREFERENCES, 1));
+  index_.Insert(MakeUniqueClientItem(PREFERENCES, 2));
+
+  // Then insert the Preferences type root
+  syncable::Id type_root_id = syncable::Id::CreateFromServerId("type_root");
+  index_.Insert(MakeTypeRoot(PREFERENCES, type_root_id));
+
+  // The index should still be able to associate Preferences entries
+  // with the root.
+  const OrderedChildSet* children = index_.GetChildren(type_root_id);
+  ASSERT_TRUE(children);
+  EXPECT_EQ(2UL, children->size());
+}
+
 }  // namespace syncable
 }  // namespace syncer
 

@@ -59,13 +59,13 @@
 #include "vpx/vp8dx.h"
 #include "vpx/vpx_decoder.h"
 
-#include "./tools_common.h"
-#include "./video_reader.h"
+#include "../tools_common.h"
+#include "../video_reader.h"
 #include "./vpx_config.h"
 
 static const char *exec_name;
 
-void usage_exit() {
+void usage_exit(void) {
   fprintf(stderr, "Usage: %s <infile> <outfile> <N-M|N/M>\n", exec_name);
   exit(EXIT_FAILURE);
 }

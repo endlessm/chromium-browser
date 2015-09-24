@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/fxcrt/fx_basic.h"
@@ -26,7 +26,7 @@ void FX_PRIVATEDATA::FreeData()
         m_pCallback(m_pData);
     }
 }
-void CFX_PrivateData::AddData(FX_LPVOID pModuleId, FX_LPVOID pData, PD_CALLBACK_FREEDATA callback, FX_BOOL bSelfDestruct)
+void CFX_PrivateData::AddData(void* pModuleId, void* pData, PD_CALLBACK_FREEDATA callback, FX_BOOL bSelfDestruct)
 {
     if (pModuleId == NULL) {
         return;
@@ -44,15 +44,15 @@ void CFX_PrivateData::AddData(FX_LPVOID pModuleId, FX_LPVOID pData, PD_CALLBACK_
     FX_PRIVATEDATA data = {pModuleId, pData, callback, bSelfDestruct};
     m_DataList.Add(data);
 }
-void CFX_PrivateData::SetPrivateData(FX_LPVOID pModuleId, FX_LPVOID pData, PD_CALLBACK_FREEDATA callback)
+void CFX_PrivateData::SetPrivateData(void* pModuleId, void* pData, PD_CALLBACK_FREEDATA callback)
 {
     AddData(pModuleId, pData, callback, FALSE);
 }
-void CFX_PrivateData::SetPrivateObj(FX_LPVOID pModuleId, CFX_DestructObject* pObj)
+void CFX_PrivateData::SetPrivateObj(void* pModuleId, CFX_DestructObject* pObj)
 {
     AddData(pModuleId, pObj, NULL, TRUE);
 }
-FX_BOOL CFX_PrivateData::RemovePrivateData(FX_LPVOID pModuleId)
+FX_BOOL CFX_PrivateData::RemovePrivateData(void* pModuleId)
 {
     if (pModuleId == NULL) {
         return FALSE;
@@ -67,7 +67,7 @@ FX_BOOL CFX_PrivateData::RemovePrivateData(FX_LPVOID pModuleId)
     }
     return FALSE;
 }
-FX_LPVOID CFX_PrivateData::GetPrivateData(FX_LPVOID pModuleId)
+void* CFX_PrivateData::GetPrivateData(void* pModuleId)
 {
     if (pModuleId == NULL) {
         return NULL;
@@ -90,12 +90,12 @@ void CFX_PrivateData::ClearAll()
     }
     m_DataList.RemoveAll();
 }
-void FX_atonum(FX_BSTR strc, FX_BOOL& bInteger, void* pData)
+void FX_atonum(const CFX_ByteStringC& strc, FX_BOOL& bInteger, void* pData)
 {
     if (FXSYS_memchr(strc.GetPtr(), '.', strc.GetLength()) == NULL) {
         bInteger = TRUE;
         int cc = 0, integer = 0;
-        FX_LPCSTR str = strc.GetCStr();
+        const FX_CHAR* str = strc.GetCStr();
         int len = strc.GetLength();
         FX_BOOL bNegative = FALSE;
         if (str[0] == '+') {
@@ -123,14 +123,14 @@ void FX_atonum(FX_BSTR strc, FX_BOOL& bInteger, void* pData)
         *(FX_FLOAT*)pData = FX_atof(strc);
     }
 }
-FX_FLOAT FX_atof(FX_BSTR strc)
+FX_FLOAT FX_atof(const CFX_ByteStringC& strc)
 {
     if (strc.GetLength() == 0) {
         return 0.0;
     }
     int cc = 0;
     FX_BOOL bNegative = FALSE;
-    FX_LPCSTR str = strc.GetCStr();
+    const FX_CHAR* str = strc.GetCStr();
     int len = strc.GetLength();
     if (str[0] == '+') {
         cc++;
@@ -169,22 +169,40 @@ FX_FLOAT FX_atof(FX_BSTR strc)
     }
     return bNegative ? -value : value;
 }
-static FX_BOOL FX_IsDigit(FX_BYTE ch)
+
+#if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_ && _MSC_VER < 1900
+void FXSYS_snprintf(char *str, size_t size, _Printf_format_string_ const char* fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    FXSYS_vsnprintf(str, size, fmt, ap);
+    va_end(ap);
+}
+void FXSYS_vsnprintf(char *str, size_t size, const char* fmt, va_list ap)
+{
+    (void) _vsnprintf(str, size, fmt, ap);
+    if (size) {
+        str[size - 1] = 0;
+    }
+}
+#endif  // _FXM_PLATFORM_WINDOWS_ && _MSC_VER < 1900
+
+static FX_BOOL FX_IsDigit(uint8_t ch)
 {
     return (ch >= '0' && ch <= '9') ? TRUE : FALSE;
 }
-static FX_BOOL FX_IsXDigit(FX_BYTE ch)
+static FX_BOOL FX_IsXDigit(uint8_t ch)
 {
     return (FX_IsDigit(ch) || (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f')) ? TRUE : FALSE;
 }
-static FX_BYTE FX_MakeUpper(FX_BYTE ch)
+static uint8_t FX_MakeUpper(uint8_t ch)
 {
     if (ch < 'a' || ch > 'z') {
         return ch;
     }
     return ch - 32;
 }
-static int FX_HexToI(FX_BYTE ch)
+static int FX_HexToI(uint8_t ch)
 {
     ch = FX_MakeUpper(ch);
     return FX_IsDigit(ch) ? (ch - '0') : (ch - 55);
@@ -219,7 +237,7 @@ CFX_ByteString FX_UrlEncode(const CFX_WideString& wsUrl)
             int nByte = bsUri.GetLength();
             for (int j = 0; j < nByte; j++) {
                 rUrl += '%';
-                FX_BYTE code = bsUri.GetAt(j);
+                uint8_t code = bsUri.GetAt(j);
                 rUrl += arDigits[code >> 4];
                 rUrl += arDigits[code & 0x0F];
             }
@@ -250,7 +268,7 @@ CFX_ByteString FX_EncodeURI(const CFX_WideString& wsURI)
     CFX_ByteString bsUri = wsURI.UTF8Encode();
     int nLength = bsUri.GetLength();
     for (int i = 0; i < nLength; i++) {
-        FX_BYTE code = bsUri.GetAt(i);
+        uint8_t code = bsUri.GetAt(i);
         if (code > 0x7F || url_encodeTable[code] == 1) {
             rURI += '%';
             rURI += arDigits[code >> 4];
@@ -276,7 +294,7 @@ CFX_WideString FX_DecodeURI(const CFX_ByteString& bsURI)
     return CFX_WideString::FromUTF8(rURI, rURI.GetLength());
 }
 #if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
-class CFindFileData : public CFX_Object
+class CFindFileData
 {
 public:
     virtual ~CFindFileData() {}
@@ -296,24 +314,18 @@ public:
     WIN32_FIND_DATAW	m_FindData;
 };
 #endif
-void* FX_OpenFolder(FX_LPCSTR path)
+void* FX_OpenFolder(const FX_CHAR* path)
 {
 #if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
 #ifndef _WIN32_WCE
-    CFindFileDataA* pData = FX_NEW CFindFileDataA;
-    if (!pData) {
-        return NULL;
-    }
+    CFindFileDataA* pData = new CFindFileDataA;
 #ifdef _FX_WINAPI_PARTITION_DESKTOP_
     pData->m_Handle = FindFirstFileA(CFX_ByteString(path) + "/*.*", &pData->m_FindData);
 #else
     pData->m_Handle = FindFirstFileExA(CFX_ByteString(path) + "/*.*", FindExInfoStandard, &pData->m_FindData, FindExSearchNameMatch, NULL, 0);
 #endif
 #else
-    CFindFileDataW* pData = FX_NEW CFindFileDataW;
-    if (!pData) {
-        return NULL;
-    }
+    CFindFileDataW* pData = new CFindFileDataW;
     pData->m_Handle = FindFirstFileW(CFX_WideString::FromLocal(path) + L"/*.*", &pData->m_FindData);
 #endif
     if (pData->m_Handle == INVALID_HANDLE_VALUE) {
@@ -327,17 +339,14 @@ void* FX_OpenFolder(FX_LPCSTR path)
     return dir;
 #endif
 }
-void* FX_OpenFolder(FX_LPCWSTR path)
+void* FX_OpenFolder(const FX_WCHAR* path)
 {
 #if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
-    CFindFileDataW* pData = FX_NEW CFindFileDataW;
-    if (!pData) {
-        return NULL;
-    }
+    CFindFileDataW* pData = new CFindFileDataW;
 #ifdef _FX_WINAPI_PARTITION_DESKTOP_
-    pData->m_Handle = FindFirstFileW(CFX_WideString(path) + L"/*.*", &pData->m_FindData);
+    pData->m_Handle = FindFirstFileW((CFX_WideString(path) + L"/*.*").c_str(), &pData->m_FindData);
 #else
-    pData->m_Handle = FindFirstFileExW(CFX_WideString(path) + L"/*.*", FindExInfoStandard, &pData->m_FindData, FindExSearchNameMatch, NULL, 0);
+    pData->m_Handle = FindFirstFileExW((CFX_WideString(path) + L"/*.*").c_str(), FindExInfoStandard, &pData->m_FindData, FindExSearchNameMatch, NULL, 0);
 #endif
     if (pData->m_Handle == INVALID_HANDLE_VALUE) {
         delete pData;

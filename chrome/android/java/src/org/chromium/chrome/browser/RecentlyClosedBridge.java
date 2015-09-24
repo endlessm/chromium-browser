@@ -6,7 +6,6 @@ package org.chromium.chrome.browser;
 
 import org.chromium.base.CalledByNative;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.ui.WindowOpenDisposition;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -61,12 +60,6 @@ public class RecentlyClosedBridge {
         mNativeRecentlyClosedTabsBridge = nativeInit(profile);
     }
 
-    @Override
-    protected void finalize() {
-        // Ensure that destroy() was called.
-        assert mNativeRecentlyClosedTabsBridge == 0;
-    }
-
     /**
      * Cleans up the C++ side of this class. This instance must not be used after calling destroy().
      */
@@ -93,18 +86,6 @@ public class RecentlyClosedBridge {
         boolean received = nativeGetRecentlyClosedTabs(mNativeRecentlyClosedTabsBridge, tabs,
                 maxTabCount);
         return received ? tabs : null;
-    }
-
-    // TODO(newt): delete this once all callers are using the new method below.
-    /**
-     * Opens a recently closed tab in the current tab.
-     *
-     * @param tab The current Tab.
-     * @param recentTab The RecentlyClosedTab to open.
-     * @return Whether the tab was successfully opened.
-     */
-    public boolean openRecentlyClosedTab(Tab tab, RecentlyClosedTab recentTab) {
-        return openRecentlyClosedTab(tab, recentTab, WindowOpenDisposition.CURRENT_TAB);
     }
 
     /**

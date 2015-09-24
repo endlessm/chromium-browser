@@ -10,7 +10,7 @@
 #include "third_party/WebKit/public/platform/WebCredential.h"
 #include "third_party/WebKit/public/platform/WebCredentialManagerClient.h"
 #include "third_party/WebKit/public/platform/WebCredentialManagerError.h"
-#include "third_party/WebKit/public/platform/WebLocalCredential.h"
+#include "third_party/WebKit/public/platform/WebPasswordCredential.h"
 
 namespace password_manager {
 
@@ -24,12 +24,13 @@ class CredentialManagerClientTest : public content::RenderViewTest {
 
   void SetUp() override {
     content::RenderViewTest::SetUp();
-    credential_.reset(new blink::WebLocalCredential("", "", GURL(), ""));
+    credential_.reset(new blink::WebPasswordCredential("", "", "", GURL()));
     client_.reset(new CredentialManagerClient(view_));
   }
 
   void TearDown() override {
     credential_.reset();
+    client_.reset();
     content::RenderViewTest::TearDown();
   }
 
@@ -51,31 +52,24 @@ class CredentialManagerClientTest : public content::RenderViewTest {
       return false;
 
     switch (message_id) {
-      case CredentialManagerHostMsg_NotifyFailedSignIn::ID: {
-        Tuple2<int, CredentialInfo> param;
-        CredentialManagerHostMsg_NotifyFailedSignIn::Read(message, &param);
-        request_id = param.a;
-        break;
-      }
-
       case CredentialManagerHostMsg_NotifySignedIn::ID: {
-        Tuple2<int, CredentialInfo> param;
+        base::Tuple<int, CredentialInfo> param;
         CredentialManagerHostMsg_NotifySignedIn::Read(message, &param);
-        request_id = param.a;
+        request_id = base::get<0>(param);
         break;
       }
 
-      case CredentialManagerHostMsg_NotifySignedOut::ID: {
-        Tuple1<int> param;
-        CredentialManagerHostMsg_NotifySignedOut::Read(message, &param);
-        request_id = param.a;
+      case CredentialManagerHostMsg_RequireUserMediation::ID: {
+        base::Tuple<int> param;
+        CredentialManagerHostMsg_RequireUserMediation::Read(message, &param);
+        request_id = base::get<0>(param);
         break;
       }
 
       case CredentialManagerHostMsg_RequestCredential::ID: {
-        Tuple3<int, bool, std::vector<GURL> > param;
+        base::Tuple<int, bool, std::vector<GURL>> param;
         CredentialManagerHostMsg_RequestCredential::Read(message, &param);
-        request_id = param.a;
+        request_id = base::get<0>(param);
         break;
       }
 
@@ -102,7 +96,7 @@ class CredentialManagerClientTest : public content::RenderViewTest {
   bool callback_errored_;
   bool callback_succeeded_;
 
-  scoped_ptr<blink::WebLocalCredential> credential_;
+  scoped_ptr<blink::WebPasswordCredential> credential_;
 };
 
 class TestNotificationCallbacks
@@ -145,23 +139,6 @@ class TestRequestCallbacks
 
 }  // namespace
 
-TEST_F(CredentialManagerClientTest, SendNotifyFailedSignIn) {
-  int request_id;
-  EXPECT_FALSE(ExtractRequestId(CredentialManagerHostMsg_NotifyFailedSignIn::ID,
-                                request_id));
-
-  scoped_ptr<TestNotificationCallbacks> callbacks(
-      new TestNotificationCallbacks(this));
-  client_->dispatchFailedSignIn(*credential(), callbacks.release());
-
-  EXPECT_TRUE(ExtractRequestId(CredentialManagerHostMsg_NotifyFailedSignIn::ID,
-                               request_id));
-
-  client_->OnAcknowledgeFailedSignIn(request_id);
-  EXPECT_TRUE(callback_succeeded());
-  EXPECT_FALSE(callback_errored());
-}
-
 TEST_F(CredentialManagerClientTest, SendNotifySignedIn) {
   int request_id;
   EXPECT_FALSE(ExtractRequestId(CredentialManagerHostMsg_NotifySignedIn::ID,
@@ -179,19 +156,19 @@ TEST_F(CredentialManagerClientTest, SendNotifySignedIn) {
   EXPECT_FALSE(callback_errored());
 }
 
-TEST_F(CredentialManagerClientTest, SendNotifySignedOut) {
+TEST_F(CredentialManagerClientTest, SendRequestUserMediation) {
   int request_id;
-  EXPECT_FALSE(ExtractRequestId(CredentialManagerHostMsg_NotifySignedOut::ID,
-                                request_id));
+  EXPECT_FALSE(ExtractRequestId(
+      CredentialManagerHostMsg_RequireUserMediation::ID, request_id));
 
   scoped_ptr<TestNotificationCallbacks> callbacks(
       new TestNotificationCallbacks(this));
-  client_->dispatchSignedOut(callbacks.release());
+  client_->dispatchRequireUserMediation(callbacks.release());
 
-  EXPECT_TRUE(ExtractRequestId(CredentialManagerHostMsg_NotifySignedOut::ID,
-                               request_id));
+  EXPECT_TRUE(ExtractRequestId(
+      CredentialManagerHostMsg_RequireUserMediation::ID, request_id));
 
-  client_->OnAcknowledgeSignedOut(request_id);
+  client_->OnAcknowledgeRequireUserMediation(request_id);
   EXPECT_TRUE(callback_succeeded());
   EXPECT_FALSE(callback_errored());
 }
@@ -209,7 +186,7 @@ TEST_F(CredentialManagerClientTest, SendRequestCredential) {
                                request_id));
 
   CredentialInfo info;
-  info.type = CREDENTIAL_TYPE_LOCAL;
+  info.type = CredentialType::CREDENTIAL_TYPE_PASSWORD;
   client_->OnSendCredential(request_id, info);
   EXPECT_TRUE(callback_succeeded());
   EXPECT_FALSE(callback_errored());
@@ -227,7 +204,7 @@ TEST_F(CredentialManagerClientTest, SendRequestCredentialEmpty) {
   EXPECT_TRUE(ExtractRequestId(CredentialManagerHostMsg_RequestCredential::ID,
                                request_id));
 
-  CredentialInfo info; // Send an empty credential in response.
+  CredentialInfo info;  // Send an empty credential in response.
   client_->OnSendCredential(request_id, info);
   EXPECT_TRUE(callback_succeeded());
   EXPECT_FALSE(callback_errored());

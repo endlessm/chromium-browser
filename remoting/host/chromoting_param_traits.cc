@@ -18,10 +18,10 @@ void ParamTraits<webrtc::DesktopVector>::Write(Message* m,
 
 // static
 bool ParamTraits<webrtc::DesktopVector>::Read(const Message* m,
-                                              PickleIterator* iter,
+                                              base::PickleIterator* iter,
                                               webrtc::DesktopVector* r) {
   int x, y;
-  if (!m->ReadInt(iter, &x) || !m->ReadInt(iter, &y))
+  if (!iter->ReadInt(&x) || !iter->ReadInt(&y))
     return false;
   *r = webrtc::DesktopVector(x, y);
   return true;
@@ -43,10 +43,10 @@ void ParamTraits<webrtc::DesktopSize>::Write(Message* m,
 
 // static
 bool ParamTraits<webrtc::DesktopSize>::Read(const Message* m,
-                                            PickleIterator* iter,
+                                            base::PickleIterator* iter,
                                             webrtc::DesktopSize* r) {
   int width, height;
-  if (!m->ReadInt(iter, &width) || !m->ReadInt(iter, &height))
+  if (!iter->ReadInt(&width) || !iter->ReadInt(&height))
     return false;
   *r = webrtc::DesktopSize(width, height);
   return true;
@@ -70,11 +70,11 @@ void ParamTraits<webrtc::DesktopRect>::Write(Message* m,
 
 // static
 bool ParamTraits<webrtc::DesktopRect>::Read(const Message* m,
-                                            PickleIterator* iter,
+                                            base::PickleIterator* iter,
                                             webrtc::DesktopRect* r) {
   int left, right, top, bottom;
-  if (!m->ReadInt(iter, &left) || !m->ReadInt(iter, &top) ||
-      !m->ReadInt(iter, &right) || !m->ReadInt(iter, &bottom)) {
+  if (!iter->ReadInt(&left) || !iter->ReadInt(&top) ||
+      !iter->ReadInt(&right) || !iter->ReadInt(&bottom)) {
     return false;
   }
   *r = webrtc::DesktopRect::MakeLTRB(left, top, right, bottom);
@@ -110,10 +110,9 @@ void ParamTraits<webrtc::MouseCursor>::Write(
 }
 
 // static
-bool ParamTraits<webrtc::MouseCursor>::Read(
-    const Message* m,
-    PickleIterator* iter,
-    webrtc::MouseCursor* r) {
+bool ParamTraits<webrtc::MouseCursor>::Read(const Message* m,
+                                            base::PickleIterator* iter,
+                                            webrtc::MouseCursor* r) {
   webrtc::DesktopSize size;
   if (!ParamTraits<webrtc::DesktopSize>::Read(m, iter, &size) ||
       size.width() <= 0 || size.width() > (SHRT_MAX / 2) ||
@@ -126,10 +125,8 @@ bool ParamTraits<webrtc::MouseCursor>::Read(
 
   const char* data;
   int data_length;
-  if (!m->ReadData(iter, &data, &data_length) ||
-      data_length != expected_length) {
+  if (!iter->ReadData(&data, &data_length) || data_length != expected_length)
     return false;
-  }
 
   webrtc::DesktopVector hotspot;
   if (!ParamTraits<webrtc::DesktopVector>::Read(m, iter, &hotspot))
@@ -165,7 +162,7 @@ void ParamTraits<remoting::ScreenResolution>::Write(
 // static
 bool ParamTraits<remoting::ScreenResolution>::Read(
     const Message* m,
-    PickleIterator* iter,
+    base::PickleIterator* iter,
     remoting::ScreenResolution* r) {
   webrtc::DesktopSize size;
   webrtc::DesktopVector dpi;

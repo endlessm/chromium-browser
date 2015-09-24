@@ -221,7 +221,7 @@ void ExternalProcessImporterClient::OnFaviconsImportStart(
 }
 
 void ExternalProcessImporterClient::OnFaviconsImportGroup(
-    const std::vector<ImportedFaviconUsage>& favicons_group) {
+    const favicon_base::FaviconUsageDataList& favicons_group) {
   if (cancelled_)
     return;
 
@@ -240,11 +240,11 @@ void ExternalProcessImporterClient::OnPasswordFormImportReady(
 }
 
 void ExternalProcessImporterClient::OnKeywordsImportReady(
-    const std::vector<importer::URLKeywordInfo>& url_keywords,
+    const std::vector<importer::SearchEngineInfo>& search_engines,
     bool unique_on_host_and_path) {
   if (cancelled_)
     return;
-  bridge_->SetKeywords(url_keywords, unique_on_host_and_path);
+  bridge_->SetKeywords(search_engines, unique_on_host_and_path);
 }
 
 void ExternalProcessImporterClient::OnFirefoxSearchEngineDataReceived(
@@ -312,6 +312,8 @@ void ExternalProcessImporterClient::StartProcessOnIOThread(
   utility_process_host_ = UtilityProcessHost::Create(
       this, BrowserThread::GetMessageLoopProxyForThread(thread_id).get())
       ->AsWeakPtr();
+  utility_process_host_->SetName(l10n_util::GetStringUTF16(
+      IDS_UTILITY_PROCESS_PROFILE_IMPORTER_NAME));
   utility_process_host_->DisableSandbox();
 
 #if defined(OS_MACOSX)

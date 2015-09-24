@@ -9,9 +9,11 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
+#include "extensions/common/feature_switch.h"
 
 namespace extensions {
 class Extension;
+class ExtensionToolbarModel;
 }
 
 class BrowserActionTestUtil;
@@ -29,6 +31,7 @@ class BrowserActionsBarBrowserTest : public ExtensionBrowserTest {
   BrowserActionTestUtil* browser_actions_bar() {
     return browser_actions_bar_.get();
   }
+  extensions::ExtensionToolbarModel* toolbar_model() { return toolbar_model_; }
 
   // Creates three different extensions, each with a browser action, and adds
   // them to associated ExtensionService. These can then be accessed via
@@ -48,12 +51,31 @@ class BrowserActionsBarBrowserTest : public ExtensionBrowserTest {
  private:
   scoped_ptr<BrowserActionTestUtil> browser_actions_bar_;
 
+  // The associated toolbar model, weak.
+  extensions::ExtensionToolbarModel* toolbar_model_;
+
   // Extensions with browser actions used for testing.
   scoped_refptr<const extensions::Extension> extension_a_;
   scoped_refptr<const extensions::Extension> extension_b_;
   scoped_refptr<const extensions::Extension> extension_c_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserActionsBarBrowserTest);
+};
+
+// A test with the extension-action-redesign switch enabled.
+class BrowserActionsBarRedesignBrowserTest
+    : public BrowserActionsBarBrowserTest {
+ protected:
+  BrowserActionsBarRedesignBrowserTest();
+  ~BrowserActionsBarRedesignBrowserTest() override;
+
+  void SetUpCommandLine(base::CommandLine* command_line) override;
+
+ private:
+  // Enable the feature redesign switch.
+  scoped_ptr<extensions::FeatureSwitch::ScopedOverride> enable_redesign_;
+
+  DISALLOW_COPY_AND_ASSIGN(BrowserActionsBarRedesignBrowserTest);
 };
 
 #endif  // CHROME_BROWSER_UI_TOOLBAR_BROWSER_ACTIONS_BAR_BROWSERTEST_H_

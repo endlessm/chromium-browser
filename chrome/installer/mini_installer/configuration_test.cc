@@ -2,9 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chrome/installer/mini_installer/configuration.h"
+
+#include <stdlib.h>
+
 #include "base/basictypes.h"
 #include "chrome/installer/mini_installer/appid.h"
-#include "chrome/installer/mini_installer/configuration.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using mini_installer::Configuration;
@@ -16,7 +19,8 @@ class TestConfiguration : public Configuration {
   }
  private:
   void Initialize(const wchar_t* command_line) {
-    ASSERT_TRUE(InitializeFromCommandLine(command_line));
+    Clear();
+    ASSERT_TRUE(ParseCommandLine(command_line));
   }
 };
 
@@ -57,7 +61,7 @@ TEST(MiniInstallerConfigurationTest, CommandLine) {
     L"spam.exe",
     L"spam.exe --foo",
   };
-  for (size_t i = 0; i < arraysize(kCommandLines); ++i) {
+  for (size_t i = 0; i < _countof(kCommandLines); ++i) {
     EXPECT_TRUE(std::wstring(kCommandLines[i]) ==
                 TestConfiguration(kCommandLines[i]).command_line());
   }

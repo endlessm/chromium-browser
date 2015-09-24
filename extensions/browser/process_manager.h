@@ -14,10 +14,12 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "base/time/time.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
+#include "extensions/browser/event_page_tracker.h"
+#include "extensions/browser/extension_registry_observer.h"
+#include "extensions/common/extension.h"
 #include "extensions/common/view_type.h"
 
 class GURL;
@@ -25,9 +27,9 @@ class GURL;
 namespace content {
 class BrowserContext;
 class DevToolsAgentHost;
-class RenderViewHost;
 class RenderFrameHost;
 class SiteInstance;
+class WebContents;
 };
 
 namespace extensions {
@@ -35,29 +37,40 @@ namespace extensions {
 class Extension;
 class ExtensionHost;
 class ExtensionRegistry;
-class ProcessManagerDelegate;
 class ProcessManagerObserver;
 
 // Manages dynamic state of running Chromium extensions. There is one instance
 // of this class per Profile. OTR Profiles have a separate instance that keeps
 // track of split-mode extensions only.
 class ProcessManager : public KeyedService,
-                       public content::NotificationObserver {
+                       public content::NotificationObserver,
+                       public ExtensionRegistryObserver,
+                       public EventPageTracker {
  public:
-  typedef std::set<extensions::ExtensionHost*> ExtensionHostSet;
-  typedef ExtensionHostSet::const_iterator const_iterator;
+  using ExtensionHostSet = std::set<extensions::ExtensionHost*>;
 
   static ProcessManager* Get(content::BrowserContext* context);
   ~ProcessManager() override;
 
-  const ExtensionHostSet& background_hosts() const {
-    return background_hosts_;
-  }
+  void RegisterRenderFrameHost(content::WebContents* web_contents,
+                               content::RenderFrameHost* render_frame_host,
+                               const Extension* extension);
+  void UnregisterRenderFrameHost(content::RenderFrameHost* render_frame_host);
 
-  typedef std::set<content::RenderViewHost*> ViewSet;
-  const ViewSet GetAllViews() const;
+  // Returns the SiteInstance that the given URL belongs to.
+  // TODO(aa): This only returns correct results for extensions and packaged
+  // apps, not hosted apps.
+  virtual scoped_refptr<content::SiteInstance> GetSiteInstanceForURL(
+      const GURL& url);
 
-  // The typical observer interface.
+  using FrameSet = std::set<content::RenderFrameHost*>;
+  const FrameSet GetAllFrames() const;
+
+  // Returns all RenderFrameHosts that are registered for the specified
+  // extension.
+  ProcessManager::FrameSet GetRenderFrameHostsForExtension(
+      const std::string& extension_id);
+
   void AddObserver(ProcessManagerObserver* observer);
   void RemoveObserver(ProcessManagerObserver* observer);
 
@@ -68,41 +81,29 @@ class ProcessManager : public KeyedService,
   virtual bool CreateBackgroundHost(const Extension* extension,
                                     const GURL& url);
 
-  // Gets the ExtensionHost for the background page for an extension, or NULL if
+  // Creates background hosts if the embedder is ready and they are not already
+  // loaded.
+  void MaybeCreateStartupBackgroundHosts();
+
+  // Gets the ExtensionHost for the background page for an extension, or null if
   // the extension isn't running or doesn't have a background page.
   ExtensionHost* GetBackgroundHostForExtension(const std::string& extension_id);
 
-  // Returns the SiteInstance that the given URL belongs to.
-  // TODO(aa): This only returns correct results for extensions and packaged
-  // apps, not hosted apps.
-  virtual content::SiteInstance* GetSiteInstanceForURL(const GURL& url);
-
-  // If the view isn't keeping the lazy background page alive, increments the
-  // keepalive count to do so.
-  void AcquireLazyKeepaliveCountForView(
-      content::RenderViewHost* render_view_host);
-
-  // If the view is keeping the lazy background page alive, decrements the
-  // keepalive count to stop doing it.
-  void ReleaseLazyKeepaliveCountForView(
-      content::RenderViewHost* render_view_host);
-
-  // Unregisters a RenderViewHost as hosting any extension.
-  void UnregisterRenderViewHost(content::RenderViewHost* render_view_host);
-
-  // Returns all RenderViewHosts that are registered for the specified
-  // extension.
-  std::set<content::RenderViewHost*> GetRenderViewHostsForExtension(
-      const std::string& extension_id);
-
-  // Returns the extension associated with the specified RenderViewHost, or
-  // NULL.
-  const Extension* GetExtensionForRenderViewHost(
-      content::RenderViewHost* render_view_host);
+  // Returns the ExtensionHost for the given |render_frame_host|, if there is
+  // one.
+  ExtensionHost* GetExtensionHostForRenderFrameHost(
+      content::RenderFrameHost* render_frame_host);
 
   // Returns true if the (lazy) background host for the given extension has
   // already been sent the unload event and is shutting down.
   bool IsBackgroundHostClosing(const std::string& extension_id);
+
+  // Returns the extension associated with the specified RenderFrameHost/
+  // WebContents, or null.
+  const Extension* GetExtensionForRenderFrameHost(
+      content::RenderFrameHost* render_frame_host);
+  const Extension* GetExtensionForWebContents(
+      const content::WebContents* web_contents);
 
   // Getter and setter for the lazy background page's keepalive count. This is
   // the count of how many outstanding "things" are keeping the page alive.
@@ -117,7 +118,7 @@ class ProcessManager : public KeyedService,
   // called regularly.
   void KeepaliveImpulse(const Extension* extension);
 
-  // Triggers a keepalive impulse for a plug-in (e.g NaCl).
+  // Triggers a keepalive impulse for a plugin (e.g NaCl).
   static void OnKeepaliveFromPlugin(int render_process_id,
                                     int render_frame_id,
                                     const std::string& extension_id);
@@ -131,31 +132,30 @@ class ProcessManager : public KeyedService,
 
   // Tracks network requests for a given RenderFrameHost, used to know
   // when network activity is idle for lazy background pages.
-  void OnNetworkRequestStarted(content::RenderFrameHost* render_frame_host);
-  void OnNetworkRequestDone(content::RenderFrameHost* render_frame_host);
+  void OnNetworkRequestStarted(content::RenderFrameHost* render_frame_host,
+                               uint64 request_id);
+  void OnNetworkRequestDone(content::RenderFrameHost* render_frame_host,
+                            uint64 request_id);
 
   // Prevents |extension|'s background page from being closed and sends the
   // onSuspendCanceled() event to it.
   void CancelSuspend(const Extension* extension);
 
-  // Creates background hosts if the embedder is ready and they are not already
-  // loaded.
-  void MaybeCreateStartupBackgroundHosts();
-
   // Called on shutdown to close our extension hosts.
   void CloseBackgroundHosts();
 
-  // Gets the BrowserContext associated with site_instance_ and all other
-  // related SiteInstances.
-  content::BrowserContext* GetBrowserContext() const;
-
   // Sets callbacks for testing keepalive impulse behavior.
-  typedef base::Callback<void(const std::string& extension_id)>
-      ImpulseCallbackForTesting;
+  using ImpulseCallbackForTesting =
+      base::Callback<void(const std::string& extension_id)>;
   void SetKeepaliveImpulseCallbackForTesting(
       const ImpulseCallbackForTesting& callback);
   void SetKeepaliveImpulseDecrementCallbackForTesting(
       const ImpulseCallbackForTesting& callback);
+
+  // EventPageTracker implementation.
+  bool IsEventPageSuspended(const std::string& extension_id) override;
+  bool WakeEventPage(const std::string& extension_id,
+                     const base::Callback<void(bool)>& callback) override;
 
   // Sets the time in milliseconds that an extension event page can
   // be idle before it is shut down; must be > 0.
@@ -179,6 +179,12 @@ class ProcessManager : public KeyedService,
       content::BrowserContext* original_context,
       ExtensionRegistry* registry);
 
+  content::BrowserContext* browser_context() const { return browser_context_; }
+
+  const ExtensionHostSet& background_hosts() const {
+    return background_hosts_;
+  }
+
   bool startup_background_hosts_created_for_test() const {
     return startup_background_hosts_created_;
   }
@@ -186,27 +192,12 @@ class ProcessManager : public KeyedService,
  protected:
   static ProcessManager* Create(content::BrowserContext* context);
 
-  //  |context| is incognito pass the master context as |original_context|.
+  // |context| is incognito pass the master context as |original_context|.
   // Otherwise pass the same context for both. Pass the ExtensionRegistry for
   // |context| as |registry|, or override it for testing.
   ProcessManager(content::BrowserContext* context,
                  content::BrowserContext* original_context,
                  ExtensionRegistry* registry);
-
-  // content::NotificationObserver:
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override;
-
-  content::NotificationRegistrar registrar_;
-
-  // The set of ExtensionHosts running viewless background extensions.
-  ExtensionHostSet background_hosts_;
-
-  // A SiteInstance related to the SiteInstance for all extensions in
-  // this profile.  We create it in such a way that a new
-  // browsing instance is created.  This controls process grouping.
-  scoped_refptr<content::SiteInstance> site_instance_;
 
   // Not owned. Also used by IncognitoProcessManager.
   ExtensionRegistry* extension_registry_;
@@ -215,13 +206,24 @@ class ProcessManager : public KeyedService,
   friend class ProcessManagerFactory;
   friend class ProcessManagerTest;
 
+  // content::NotificationObserver:
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override;
+
+  // ExtensionRegistryObserver:
+  void OnExtensionLoaded(content::BrowserContext* browser_context,
+                         const Extension* extension) override;
+  void OnExtensionUnloaded(content::BrowserContext* browser_context,
+                           const Extension* extension,
+                           UnloadedExtensionInfo::Reason reason) override;
+
   // Extra information we keep for each extension's background page.
   struct BackgroundPageData;
-  struct ExtensionRenderViewData;
-  typedef std::string ExtensionId;
-  typedef std::map<ExtensionId, BackgroundPageData> BackgroundPageDataMap;
-  typedef std::map<content::RenderViewHost*, ExtensionRenderViewData>
-      ExtensionRenderViews;
+  struct ExtensionRenderFrameData;
+  using BackgroundPageDataMap = std::map<ExtensionId, BackgroundPageData>;
+  using ExtensionRenderFrames =
+      std::map<content::RenderFrameHost*, ExtensionRenderFrameData>;
 
   // Load all background pages once the profile data is ready and the pages
   // should be loaded.
@@ -232,6 +234,16 @@ class ProcessManager : public KeyedService,
 
   // Close the given |host| iff it's a background page.
   void CloseBackgroundHost(ExtensionHost* host);
+
+  // If the frame isn't keeping the lazy background page alive, increments the
+  // keepalive count to do so.
+  void AcquireLazyKeepaliveCountForFrame(
+      content::RenderFrameHost* render_frame_host);
+
+  // If the frame is keeping the lazy background page alive, decrements the
+  // keepalive count to stop doing it.
+  void ReleaseLazyKeepaliveCountForFrame(
+      content::RenderFrameHost* render_frame_host);
 
   // Internal implementation of DecrementLazyKeepaliveCount with an
   // |extension_id| known to have a lazy background page.
@@ -248,25 +260,32 @@ class ProcessManager : public KeyedService,
   void CloseLazyBackgroundPageNow(const std::string& extension_id,
                                   uint64 sequence_id);
 
-  // Potentially registers a RenderViewHost, if it is associated with an
-  // extension. Does nothing if this is not an extension renderer.
-  // Returns true, if render_view_host was registered (it is associated
-  // with an extension).
-  bool RegisterRenderViewHost(content::RenderViewHost* render_view_host);
+  void OnDevToolsStateChanged(content::DevToolsAgentHost*, bool attached);
 
-  // Unregister RenderViewHosts and clear background page data for an extension
+  // Unregister RenderFrameHosts and clear background page data for an extension
   // which has been unloaded.
   void UnregisterExtension(const std::string& extension_id);
 
   // Clears background page data for this extension.
   void ClearBackgroundPageData(const std::string& extension_id);
 
-  void OnDevToolsStateChanged(content::DevToolsAgentHost*, bool attached);
+  content::NotificationRegistrar registrar_;
 
-  // Contains all active extension-related RenderViewHost instances for all
+  // The set of ExtensionHosts running viewless background extensions.
+  ExtensionHostSet background_hosts_;
+
+  // A SiteInstance related to the SiteInstance for all extensions in
+  // this profile.  We create it in such a way that a new
+  // browsing instance is created.  This controls process grouping.
+  scoped_refptr<content::SiteInstance> site_instance_;
+
+  // The browser context associated with the |site_instance_|.
+  content::BrowserContext* browser_context_;
+
+  // Contains all active extension-related RenderFrameHost instances for all
   // extensions. We also keep a cache of the host's view type, because that
   // information is not accessible at registration/deregistration time.
-  ExtensionRenderViews all_extension_views_;
+  ExtensionRenderFrames all_extension_frames_;
 
   BackgroundPageDataMap background_page_data_;
 
@@ -278,7 +297,7 @@ class ProcessManager : public KeyedService,
   ImpulseCallbackForTesting keepalive_impulse_callback_for_testing_;
   ImpulseCallbackForTesting keepalive_impulse_decrement_callback_for_testing_;
 
-  ObserverList<ProcessManagerObserver> observer_list_;
+  base::ObserverList<ProcessManagerObserver> observer_list_;
 
   // ID Counter used to set ProcessManager::BackgroundPageData close_sequence_id
   // members. These IDs are tracked per extension in background_page_data_ and

@@ -21,7 +21,35 @@ namespace crazy {
    MAYBE_MAP_FLAG((x), PF_R, PROT_READ) | \
    MAYBE_MAP_FLAG((x), PF_W, PROT_WRITE))
 
-ElfLoader::ElfLoader(bool no_map_exec_support_fallback_enabled)
+// Whether to add a Breakpad guard region.  Breakpad currently requires
+// a library's reported start_addr to be equal to its load_bias.  It will
+// also complain if there is an apparent overlap in the memory mappings
+// it reads in from a microdump.  So if load_bias and start_addr differ
+// due to relocation packing, and if something in the process mmaps into
+// the address space between load_bias and start_addr, this will break
+// Breakpad's minidump processor.
+//
+// For now, the expedient workround is to add a "guard region" ahead of
+// the start_addr where a library with a non-zero min vaddr is loaded.
+// Making this part of the reserved address space for the library ensures
+// that nothing will later mmap into it.
+//
+// Note: ~SharedLibrary() calls munmap() on the values returned from here
+// through load_start() and load_size().  Where we added a guard region,
+// these values do not cover the entire reserved mapping.  The result is
+// that we potentially 'leak' between 2Mb and 6Mb of virtual address space
+// if we unload a library in a controlled fashion.  For now we live with
+// this, since a) we do not unload libraries on Android targets, and b) any
+// leakage that might occur if we did is small and should not consume any
+// real memory.
+//
+// Also defined in linker_jni.cc.  If changing here, change there also.
+//
+// For more, see:
+//   https://crbug.com/504410
+#define RESERVE_BREAKPAD_GUARD_REGION 1
+
+ElfLoader::ElfLoader()
     : fd_(),
       path_(NULL),
       phdr_num_(0),
@@ -34,8 +62,8 @@ ElfLoader::ElfLoader(bool no_map_exec_support_fallback_enabled)
       load_size_(0),
       load_bias_(0),
       loaded_phdr_(NULL),
-      no_map_exec_support_fallback_enabled_(
-          no_map_exec_support_fallback_enabled) {}
+      reserved_start_(NULL),
+      reserved_size_(0) {}
 
 ElfLoader::~ElfLoader() {
   if (phdr_mmap_) {
@@ -93,8 +121,8 @@ bool ElfLoader::LoadAt(const char* lib_path,
   if (!LoadSegments(error) || !FindPhdr(error)) {
     // An error occured, cleanup the address space by un-mapping the
     // range that was reserved by ReserveAddressSpace().
-    if (load_start_ && load_size_)
-      munmap(load_start_, load_size_);
+    if (reserved_start_ && reserved_size_)
+      munmap(reserved_start_, reserved_size_);
 
     return false;
   }
@@ -195,7 +223,7 @@ bool ElfLoader::ReserveAddressSpace(Error* error) {
     return false;
   }
 
-  uint8_t* addr = reinterpret_cast<uint8_t*>(min_vaddr);
+  uint8_t* addr = NULL;
   int mmap_flags = MAP_PRIVATE | MAP_ANONYMOUS;
 
   // Support loading at a fixed address.
@@ -203,20 +231,56 @@ bool ElfLoader::ReserveAddressSpace(Error* error) {
     addr = static_cast<uint8_t*>(wanted_load_address_);
   }
 
-  LOG("%s: address=%p size=%p\n", __FUNCTION__, addr, load_size_);
-  void* start = mmap(addr, load_size_, PROT_NONE, mmap_flags, -1, 0);
+  reserved_size_ = load_size_;
+
+#if RESERVE_BREAKPAD_GUARD_REGION
+  // Increase size to extend the address reservation mapping so that it will
+  // also include a min_vaddr bytes region from load_bias_ to start_addr.
+  // If loading at a fixed address, move our requested address back by the
+  // guard region size.
+  if (min_vaddr) {
+    reserved_size_ += min_vaddr;
+    if (wanted_load_address_) {
+      addr -= min_vaddr;
+    }
+    LOG("%s: added %d to size, for Breakpad guard\n", __FUNCTION__, min_vaddr);
+  }
+#endif
+
+  LOG("%s: address=%p size=%p\n", __FUNCTION__, addr, reserved_size_);
+  void* start = mmap(addr, reserved_size_, PROT_NONE, mmap_flags, -1, 0);
   if (start == MAP_FAILED) {
-    error->Format("Could not reserve %d bytes of address space", load_size_);
+    error->Format("Could not reserve %d bytes of address space",
+                  reserved_size_);
     return false;
   }
-  if (wanted_load_address_ && start != addr) {
+  if (addr && start != addr) {
     error->Format("Could not map at %p requested, backing out", addr);
-    munmap(start, load_size_);
+    munmap(start, reserved_size_);
     return false;
   }
 
+  reserved_start_ = start;
+  LOG("%s: reserved start=%p\n", __FUNCTION__, reserved_start_);
+
   load_start_ = start;
   load_bias_ = reinterpret_cast<ELF::Addr>(start) - min_vaddr;
+
+#if RESERVE_BREAKPAD_GUARD_REGION
+  // If we increased size to accommodate a Breakpad guard region, move
+  // load_start_ and load_bias_ upwards by the size of the guard region.
+  // File data is mapped at load_start_, and while nothing ever uses the
+  // guard region between load_bias_ and load_start_, the fact that we
+  // included it in the mmap() above means that nothing else will map it.
+  if (min_vaddr) {
+    load_start_ = reinterpret_cast<void*>(
+        reinterpret_cast<uintptr_t>(load_start_) + min_vaddr);
+    load_bias_ += min_vaddr;
+    LOG("%s: moved map by %d, for Breakpad guard\n", __FUNCTION__, min_vaddr);
+  }
+#endif
+
+  LOG("%s: load start=%p, bias=%p\n", __FUNCTION__, load_start_, load_bias_);
   return true;
 }
 
@@ -315,61 +379,8 @@ bool ElfLoader::LoadSegments(Error* error) {
                                MAP_FIXED | MAP_PRIVATE,
                                file_page_start + file_offset_);
       if (seg_addr == MAP_FAILED) {
-        if (!no_map_exec_support_fallback_enabled_ || errno != EACCES ||
-            !(prot_flags & PROT_EXEC)) {
-          // We don't have a fallback in this case.
-          error->Format("Could not map segment %d: %s", i, strerror(errno));
-          return false;
-        }
-
-        // We were unable to map executable code from the file directly.
-        // This can happen because of overly strict SELinux settings prevent
-        // mapping executable code directly. We fallback by copying the
-        // executable code into memory.
-
-        // Cast away the const (we are making the pages writable).
-        seg_addr = (void*)seg_page_start;
-
-        // Add PROT_WRITE to the pages. Note that even though the above Map()
-        // failed these pages have already been mapped MAP_ANONYMOUS by
-        // ReserveAddressSpace, so at this point we just use mprotect.
-        if (mprotect(seg_addr, file_length, prot_flags | PROT_WRITE) == -1) {
-          error->Format("mprotect failed to add PROT_WRITE %d: %s",
-                        i, strerror(errno));
-          return false;
-        }
-
-        // Map the library for READ.
-        void* lib_addr = fd_.Map(NULL,
-                                 file_length,
-                                 PROT_READ,
-                                 MAP_PRIVATE,
-                                 file_page_start + file_offset_);
-        if (lib_addr == MAP_FAILED) {
-          error->Format(
-              "Could not map segment (PROT_READ) %d: %s",
-              i, strerror(errno));
-          return false;
-        }
-
-        // Copy the library into the desired location in memory.
-        memcpy(seg_addr, lib_addr, file_length);
-
-        // Unmap the library.
-        if (munmap(lib_addr, file_length) == -1) {
-          error->Format("Failed to unmap the library segment %d: %s",
-                        i, strerror(errno));
-          return false;
-        }
-
-        if (!(prot_flags & PROT_WRITE)) {
-          // Remove write permissions (PROT_WRITE).
-          if (mprotect(seg_addr, file_length, prot_flags) == -1) {
-            error->Format("mprotect failed to remove PROT_WRITE %d: %s",
-                          i, strerror(errno));
-            return false;
-          }
-        }
+        error->Format("Could not map segment %d: %s", i, strerror(errno));
+        return false;
       }
     }
 

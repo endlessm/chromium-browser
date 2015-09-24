@@ -8,9 +8,9 @@
 
 #include "base/macros.h"
 #include "chrome/browser/sync/glue/invalidation_helper.h"
-#include "components/invalidation/invalidation.h"
-#include "components/invalidation/invalidation_service_util.h"
-#include "components/invalidation/object_id_invalidation_map.h"
+#include "components/invalidation/impl/invalidation_service_util.h"
+#include "components/invalidation/public/invalidation.h"
+#include "components/invalidation/public/object_id_invalidation_map.h"
 #include "sync/internal_api/public/base/model_type.h"
 
 namespace fake_server {
@@ -30,10 +30,10 @@ void FakeServerInvalidationService::RegisterInvalidationHandler(
   invalidator_registrar_.RegisterHandler(handler);
 }
 
-void FakeServerInvalidationService::UpdateRegisteredInvalidationIds(
+bool FakeServerInvalidationService::UpdateRegisteredInvalidationIds(
       syncer::InvalidationHandler* handler,
       const syncer::ObjectIdSet& ids) {
-  invalidator_registrar_.UpdateRegisteredIds(handler, ids);
+  return invalidator_registrar_.UpdateRegisteredIds(handler, ids);
 }
 
 void FakeServerInvalidationService::UnregisterInvalidationHandler(

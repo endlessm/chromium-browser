@@ -10,7 +10,7 @@
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/memory/ref_counted.h"
-#include "components/component_updater/component_updater_service.h"
+#include "components/update_client/update_client.h"
 
 namespace base {
 class DictionaryValue;
@@ -21,8 +21,11 @@ namespace net {
 class CRLSet;
 }
 
-class CRLSetFetcher : public component_updater::ComponentInstaller,
-                      public base::RefCountedThreadSafe<CRLSetFetcher> {
+namespace component_updater {
+class ComponentUpdateService;
+}
+
+class CRLSetFetcher : public update_client::CrxInstaller {
  public:
   CRLSetFetcher();
 
@@ -38,6 +41,7 @@ class CRLSetFetcher : public component_updater::ComponentInstaller,
                const base::FilePath& unpack_path) override;
   bool GetInstalledFile(const std::string& file,
                         base::FilePath* installed_file) override;
+  bool Uninstall() override;
 
  private:
   friend class base::RefCountedThreadSafe<CRLSetFetcher>;

@@ -12,9 +12,15 @@
 #include "GrGLNoOpInterface.h"
 #include "SkTLS.h"
 
+// TODO: Delete this file after chrome starts using SkNullGLContext.
+
+// added to suppress 'no previous prototype' warning and because this code is duplicated in
+// SkNullGLContext.cpp
+namespace {      
+
 class BufferObj {
 public:
-    SK_DECLARE_INST_COUNT_ROOT(BufferObj);
+    
 
     BufferObj(GrGLuint id) : fID(id), fDataPtr(NULL), fSize(0), fMapped(false) {
     }
@@ -47,7 +53,7 @@ private:
 // This class maintains a sparsely populated array of buffer pointers.
 class BufferManager {
 public:
-    SK_DECLARE_INST_COUNT_ROOT(BufferManager);
+    
 
     BufferManager() : fFreeListHead(kFreeListEnd) {}
 
@@ -116,7 +122,7 @@ private:
  */
 struct ThreadContext {
 public:
-    SK_DECLARE_INST_COUNT_ROOT(ThreadContext);
+    
 
     BufferManager   fBufferManager;
     GrGLuint        fCurrArrayBuffer;
@@ -140,8 +146,6 @@ private:
 };
 
 // Functions not declared in GrGLBogusInterface.h (not common with the Debug GL interface).
-
-namespace { // added to suppress 'no previous prototype' warning
 
 GrGLvoid GR_GL_FUNCTION_TYPE nullGLActiveTexture(GrGLenum texture) {}
 GrGLvoid GR_GL_FUNCTION_TYPE nullGLAttachShader(GrGLuint program, GrGLuint shader) {}
@@ -353,6 +357,7 @@ const GrGLInterface* GrGLCreateNullInterface() {
     functions->fBindTexture = nullGLBindTexture;
     functions->fBindVertexArray = nullGLBindVertexArray;
     functions->fBlendColor = noOpGLBlendColor;
+    functions->fBlendEquation = noOpGLBlendEquation;
     functions->fBlendFunc = noOpGLBlendFunc;
     functions->fBufferData = nullGLBufferData;
     functions->fBufferSubData = noOpGLBufferSubData;
@@ -377,9 +382,11 @@ const GrGLInterface* GrGLCreateNullInterface() {
     functions->fDisable = noOpGLDisable;
     functions->fDisableVertexAttribArray = noOpGLDisableVertexAttribArray;
     functions->fDrawArrays = noOpGLDrawArrays;
+    functions->fDrawArraysInstanced = noOpGLDrawArraysInstanced;
     functions->fDrawBuffer = noOpGLDrawBuffer;
     functions->fDrawBuffers = noOpGLDrawBuffers;
     functions->fDrawElements = noOpGLDrawElements;
+    functions->fDrawElementsInstanced = noOpGLDrawElementsInstanced;
     functions->fEnable = noOpGLEnable;
     functions->fEnableVertexAttribArray = noOpGLEnableVertexAttribArray;
     functions->fEndQuery = noOpGLEndQuery;
@@ -459,6 +466,7 @@ const GrGLInterface* GrGLCreateNullInterface() {
     functions->fVertexAttrib3fv = noOpGLVertexAttrib3fv;
     functions->fVertexAttrib4fv = noOpGLVertexAttrib4fv;
     functions->fVertexAttribPointer = noOpGLVertexAttribPointer;
+    functions->fVertexAttribDivisor = noOpGLVertexAttribDivisor;
     functions->fViewport = nullGLViewport;
     functions->fBindFramebuffer = nullGLBindFramebuffer;
     functions->fBindRenderbuffer = nullGLBindRenderbuffer;

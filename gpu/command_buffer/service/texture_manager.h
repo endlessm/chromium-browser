@@ -17,6 +17,7 @@
 #include "gpu/command_buffer/service/gl_utils.h"
 #include "gpu/command_buffer/service/memory_tracking.h"
 #include "gpu/gpu_export.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gl/gl_image.h"
 
 namespace gpu {
@@ -48,6 +49,10 @@ class GPU_EXPORT Texture {
     return mag_filter_;
   }
 
+  GLenum wrap_r() const {
+    return wrap_r_;
+  }
+
   GLenum wrap_s() const {
     return wrap_s_;
   }
@@ -62,6 +67,30 @@ class GPU_EXPORT Texture {
 
   GLenum pool() const {
     return pool_;
+  }
+
+  GLenum compare_func() const {
+    return compare_func_;
+  }
+
+  GLenum compare_mode() const {
+    return compare_mode_;
+  }
+
+  GLfloat max_lod() const {
+    return max_lod_;
+  }
+
+  GLfloat min_lod() const {
+    return min_lod_;
+  }
+
+  GLint base_level() const {
+    return base_level_;
+  }
+
+  GLint max_level() const {
+    return max_level_;
   }
 
   int num_uncleared_mips() const {
@@ -97,10 +126,12 @@ class GPU_EXPORT Texture {
     return cleared_;
   }
 
-  // Get the width and height for a particular level. Returns false if level
+  // Get the width/height/depth for a particular level. Returns false if level
   // does not exist.
+  // |depth| is optional and can be nullptr.
   bool GetLevelSize(
-      GLint target, GLint level, GLsizei* width, GLsizei* height) const;
+      GLint target, GLint level,
+      GLsizei* width, GLsizei* height, GLsizei* depth) const;
 
   // Get the type of a level. Returns false if level does not exist.
   bool GetLevelType(
@@ -121,8 +152,10 @@ class GPU_EXPORT Texture {
       GLint level,
       GLint xoffset,
       GLint yoffset,
+      GLint zoffset,
       GLsizei width,
       GLsizei height,
+      GLsizei depth,
       GLenum type) const;
 
   bool IsValid() const {
@@ -149,6 +182,10 @@ class GPU_EXPORT Texture {
   bool IsImmutable() const {
     return immutable_;
   }
+
+  // Get the cleared rectangle for a particular level. Returns an empty
+  // rectangle if level does not exist.
+  gfx::Rect GetLevelClearedRect(GLenum target, GLint level) const;
 
   // Whether a particular level/face is cleared.
   bool IsLevelCleared(GLenum target, GLint level) const;
@@ -195,7 +232,7 @@ class GPU_EXPORT Texture {
     LevelInfo(const LevelInfo& rhs);
     ~LevelInfo();
 
-    bool cleared;
+    gfx::Rect cleared_rect;
     GLenum target;
     GLint level;
     GLenum internal_format;
@@ -218,18 +255,17 @@ class GPU_EXPORT Texture {
   };
 
   // Set the info for a particular level.
-  void SetLevelInfo(
-      const FeatureInfo* feature_info,
-      GLenum target,
-      GLint level,
-      GLenum internal_format,
-      GLsizei width,
-      GLsizei height,
-      GLsizei depth,
-      GLint border,
-      GLenum format,
-      GLenum type,
-      bool cleared);
+  void SetLevelInfo(const FeatureInfo* feature_info,
+                    GLenum target,
+                    GLint level,
+                    GLenum internal_format,
+                    GLsizei width,
+                    GLsizei height,
+                    GLsizei depth,
+                    GLint border,
+                    GLenum format,
+                    GLenum type,
+                    const gfx::Rect& cleared_rect);
 
   // In GLES2 "texture complete" means it has all required mips for filtering
   // down to a 1x1 pixel texture, they are in the correct order, they are all
@@ -248,6 +284,11 @@ class GPU_EXPORT Texture {
   bool npot() const {
     return npot_;
   }
+
+  // Marks a |rect| of a particular level as cleared.
+  void SetLevelClearedRect(GLenum target,
+                           GLint level,
+                           const gfx::Rect& cleared_rect);
 
   // Marks a particular level as cleared or uncleared.
   void SetLevelCleared(GLenum target, GLint level, bool cleared);
@@ -314,6 +355,7 @@ class GPU_EXPORT Texture {
   // Parameters:
   //   target: GL_TEXTURE_2D or GL_TEXTURE_CUBE_MAP or
   //           GL_TEXTURE_EXTERNAL_OES or GL_TEXTURE_RECTANGLE_ARB
+  //           GL_TEXTURE_2D_ARRAY or GL_TEXTURE_3D (for GLES3)
   //   max_levels: The maximum levels this type of target can have.
   void SetTarget(
       const FeatureInfo* feature_info, GLenum target, GLint max_levels);
@@ -341,7 +383,10 @@ class GPU_EXPORT Texture {
 
   // Updates the uncleared mip count in all the managers referencing this
   // texture.
-  void UpdateMipCleared(LevelInfo* info, bool cleared);
+  void UpdateMipCleared(LevelInfo* info,
+                        GLsizei width,
+                        GLsizei height,
+                        const gfx::Rect& cleared_rect);
 
   // Computes the CanRenderCondition flag.
   CanRenderCondition GetCanRenderCondition() const;
@@ -381,15 +426,23 @@ class GPU_EXPORT Texture {
   int num_npot_faces_;
 
   // The target. 0 if unset, otherwise GL_TEXTURE_2D or GL_TEXTURE_CUBE_MAP.
+  //             Or GL_TEXTURE_2D_ARRAY or GL_TEXTURE_3D (for GLES3).
   GLenum target_;
 
   // Texture parameters.
   GLenum min_filter_;
   GLenum mag_filter_;
+  GLenum wrap_r_;
   GLenum wrap_s_;
   GLenum wrap_t_;
   GLenum usage_;
   GLenum pool_;
+  GLenum compare_func_;
+  GLenum compare_mode_;
+  GLfloat max_lod_;
+  GLfloat min_lod_;
+  GLint base_level_;
+  GLint max_level_;
 
   // The maximum level that has been set.
   GLint max_level_set_;
@@ -479,21 +532,22 @@ class GPU_EXPORT TextureRef : public base::RefCounted<TextureRef> {
 struct DecoderTextureState {
   // total_texture_upload_time automatically initialized to 0 in default
   // constructor.
-  explicit DecoderTextureState(bool texsubimage2d_faster_than_teximage2d)
-      : tex_image_2d_failed(false),
+  explicit DecoderTextureState(bool texsubimage_faster_than_teximage)
+      : tex_image_failed(false),
         texture_upload_count(0),
-        texsubimage2d_faster_than_teximage2d(
-            texsubimage2d_faster_than_teximage2d) {}
+        texsubimage_faster_than_teximage(texsubimage_faster_than_teximage) {}
 
-  // This indicates all the following texSubImage2D calls that are part of the
-  // failed texImage2D call should be ignored.
-  bool tex_image_2d_failed;
+  // This indicates all the following texSubImage*D calls that are part of the
+  // failed texImage*D call should be ignored. The client calls have a lock
+  // around them, so it will affect only a single texImage*D + texSubImage*D
+  // group.
+  bool tex_image_failed;
 
   // Command buffer stats.
   int texture_upload_count;
   base::TimeDelta total_texture_upload_time;
 
-  bool texsubimage2d_faster_than_teximage2d;
+  bool texsubimage_faster_than_teximage;
 };
 
 // This class keeps track of the textures and their sizes so we can do NPOT and
@@ -530,6 +584,8 @@ class GPU_EXPORT TextureManager {
                  FeatureInfo* feature_info,
                  GLsizei max_texture_size,
                  GLsizei max_cube_map_texture_size,
+                 GLsizei max_rectangle_texture_size,
+                 GLsizei max_3d_texture_size,
                  bool use_default_textures);
   ~TextureManager();
 
@@ -550,6 +606,9 @@ class GPU_EXPORT TextureManager {
         return  max_levels_;
       case GL_TEXTURE_EXTERNAL_OES:
         return 1;
+      case GL_TEXTURE_3D:
+      case GL_TEXTURE_2D_ARRAY:
+        return max_3d_levels_;
       default:
         return max_cube_map_levels_;
     }
@@ -561,6 +620,11 @@ class GPU_EXPORT TextureManager {
       case GL_TEXTURE_2D:
       case GL_TEXTURE_EXTERNAL_OES:
         return max_texture_size_;
+      case GL_TEXTURE_RECTANGLE:
+        return max_rectangle_texture_size_;
+      case GL_TEXTURE_3D:
+      case GL_TEXTURE_2D_ARRAY:
+        return max_3d_texture_size_;
       default:
         return max_cube_map_texture_size_;
     }
@@ -591,39 +655,44 @@ class GPU_EXPORT TextureManager {
   // Sets the Texture's target
   // Parameters:
   //   target: GL_TEXTURE_2D or GL_TEXTURE_CUBE_MAP
+  //           GL_TEXTURE_2D_ARRAY or GL_TEXTURE_3D (for GLES3)
   //   max_levels: The maximum levels this type of target can have.
   void SetTarget(
       TextureRef* ref,
       GLenum target);
 
   // Set the info for a particular level in a TexureInfo.
-  void SetLevelInfo(
-      TextureRef* ref,
-      GLenum target,
-      GLint level,
-      GLenum internal_format,
-      GLsizei width,
-      GLsizei height,
-      GLsizei depth,
-      GLint border,
-      GLenum format,
-      GLenum type,
-      bool cleared);
+  void SetLevelInfo(TextureRef* ref,
+                    GLenum target,
+                    GLint level,
+                    GLenum internal_format,
+                    GLsizei width,
+                    GLsizei height,
+                    GLsizei depth,
+                    GLint border,
+                    GLenum format,
+                    GLenum type,
+                    const gfx::Rect& cleared_rect);
 
   // Adapter to call above function.
   void SetLevelInfoFromParams(TextureRef* ref,
                               const gpu::AsyncTexImage2DParams& params) {
-    SetLevelInfo(
-        ref, params.target, params.level, params.internal_format,
-        params.width, params.height, 1 /* depth */,
-        params.border, params.format,
-        params.type, true /* cleared */);
+    SetLevelInfo(ref, params.target, params.level, params.internal_format,
+                 params.width, params.height, 1 /* depth */, params.border,
+                 params.format, params.type,
+                 gfx::Rect(params.width, params.height) /* cleared_rect */);
   }
 
   Texture* Produce(TextureRef* ref);
 
   // Maps an existing texture into the texture manager, at a given client ID.
   TextureRef* Consume(GLuint client_id, Texture* texture);
+
+  // Sets |rect| of mip as cleared.
+  void SetLevelClearedRect(TextureRef* ref,
+                           GLenum target,
+                           GLint level,
+                           const gfx::Rect& cleared_rect);
 
   // Sets a mip as cleared.
   void SetLevelCleared(TextureRef* ref, GLenum target,
@@ -746,32 +815,40 @@ class GPU_EXPORT TextureManager {
     NOTREACHED();
   }
 
-  struct DoTextImage2DArguments {
+  struct DoTexImageArguments {
+    enum TexImageCommandType {
+      kTexImage2D,
+      kTexImage3D,
+    };
+
     GLenum target;
     GLint level;
     GLenum internal_format;
     GLsizei width;
     GLsizei height;
+    GLsizei depth;
     GLint border;
     GLenum format;
     GLenum type;
     const void* pixels;
     uint32 pixels_size;
+    TexImageCommandType command_type;
   };
 
-  bool ValidateTexImage2D(
+  bool ValidateTexImage(
     ContextState* state,
     const char* function_name,
-    const DoTextImage2DArguments& args,
+    const DoTexImageArguments& args,
     // Pointer to TextureRef filled in if validation successful.
     // Presumes the pointer is valid.
     TextureRef** texture_ref);
 
-  void ValidateAndDoTexImage2D(
+  void ValidateAndDoTexImage(
     DecoderTextureState* texture_state,
     ContextState* state,
     DecoderFramebufferState* framebuffer_state,
-    const DoTextImage2DArguments& args);
+    const char* function_name,
+    const DoTexImageArguments& args);
 
   // TODO(kloveless): Make GetTexture* private once this is no longer called
   // from gles2_cmd_decoder.
@@ -798,12 +875,13 @@ class GPU_EXPORT TextureManager {
       GLenum target,
       GLuint* black_texture);
 
-  void DoTexImage2D(
+  void DoTexImage(
     DecoderTextureState* texture_state,
     ErrorState* error_state,
     DecoderFramebufferState* framebuffer_state,
+    const char* function_name,
     TextureRef* texture_ref,
-    const DoTextImage2DArguments& args);
+    const DoTexImageArguments& args);
 
   void StartTracking(TextureRef* texture);
   void StopTracking(TextureRef* texture);
@@ -831,8 +909,11 @@ class GPU_EXPORT TextureManager {
 
   GLsizei max_texture_size_;
   GLsizei max_cube_map_texture_size_;
+  GLsizei max_rectangle_texture_size_;
+  GLsizei max_3d_texture_size_;
   GLint max_levels_;
   GLint max_cube_map_levels_;
+  GLint max_3d_levels_;
 
   const bool use_default_textures_;
 

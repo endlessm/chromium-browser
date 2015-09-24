@@ -10,13 +10,14 @@
 #include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/values.h"
-#include "chrome/browser/chromeos/customization_document.h"
+#include "chrome/browser/chromeos/customization/customization_document.h"
 #include "chrome/browser/chromeos/input_method/input_method_configuration.h"
 #include "chrome/browser/ui/webui/chromeos/login/l10n_util_test_util.h"
-#include "chromeos/ime/component_extension_ime_manager.h"
 #include "chromeos/system/statistics_provider.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/ime/chromeos/component_extension_ime_manager.h"
 
 namespace chromeos {
 
@@ -34,8 +35,8 @@ class MachineStatisticsInitializer {
 
 MachineStatisticsInitializer::MachineStatisticsInitializer() {
   base::MessageLoop loop;
-  chromeos::system::StatisticsProvider::GetInstance()->
-      StartLoadingMachineStatistics(loop.message_loop_proxy(), false);
+  chromeos::system::StatisticsProvider::GetInstance()
+      ->StartLoadingMachineStatistics(loop.task_runner(), false);
   loop.RunUntilIdle();
 }
 
@@ -72,11 +73,11 @@ void VerifyLanguageCode(const base::ListValue& list,
 class L10nUtilTest : public testing::Test {
  public:
   L10nUtilTest();
-  virtual ~L10nUtilTest();
+  ~L10nUtilTest() override;
 
   // testing::Test:
-  virtual void SetUp() override;
-  virtual void TearDown() override;
+  void SetUp() override;
+  void TearDown() override;
 
   void SetInputMethods1();
   void SetInputMethods2();

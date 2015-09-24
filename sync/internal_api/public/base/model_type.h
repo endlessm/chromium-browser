@@ -14,6 +14,7 @@
 #include <string>
 
 #include "base/logging.h"
+#include "base/memory/scoped_ptr.h"
 #include "sync/base/sync_export.h"
 #include "sync/internal_api/public/base/enum_set.h"
 
@@ -63,6 +64,12 @@ enum ModelType {
   AUTOFILL_PROFILE,
   // An autofill object.
   AUTOFILL,
+  // Credit cards and addresses synced from the user's account. These are
+  // read-only on the client.
+  AUTOFILL_WALLET_DATA,
+  // Usage counts and last use dates for Wallet cards and addresses. This data
+  // is both readable and writable.
+  AUTOFILL_WALLET_METADATA,
   // A themes object.
   THEMES,
   // A typed_url object.
@@ -80,13 +87,13 @@ enum ModelType {
   // An extension setting from the extension settings API.
   EXTENSION_SETTINGS,
   // App notifications.
-  APP_NOTIFICATIONS,
+  APP_NOTIFICATIONS,  // Deprecated.
   // History delete directives.
   HISTORY_DELETE_DIRECTIVES,
   // Synced push notifications.
-  SYNCED_NOTIFICATIONS,
+  SYNCED_NOTIFICATIONS,   // Deprecated.
   // Synced Notification app info.
-  SYNCED_NOTIFICATION_APP_INFO,
+  SYNCED_NOTIFICATION_APP_INFO,  // Deprecated.
   // Custom spelling dictionary.
   DICTIONARY,
   // Favicon images.
@@ -114,6 +121,9 @@ enum ModelType {
   // WiFi credentials. Each item contains the information for connecting to one
   // WiFi network. This includes, e.g., network name and password.
   WIFI_CREDENTIALS,
+  // Supervised user whitelists. Each item contains a CRX ID (like an extension
+  // ID) and a name.
+  SUPERVISED_USER_WHITELISTS,
 
   // ---- Proxy types ----
   // Proxy types are excluded from the sync protocol, but are still considered
@@ -251,8 +261,6 @@ SYNC_EXPORT_PRIVATE ModelType GetModelTypeFromSpecificsFieldNumber(
 
 // Return the field number of the EntitySpecifics field associated with
 // a model type.
-//
-// Used by tests outside of sync.
 SYNC_EXPORT int GetSpecificsFieldNumberFromModelType(
     ModelType model_type);
 
@@ -288,8 +296,8 @@ SYNC_EXPORT std::string ModelTypeSetToString(ModelTypeSet model_types);
 SYNC_EXPORT ModelTypeSet ModelTypeSetFromString(
     const std::string& model_type_string);
 
-// Caller takes ownership of returned list.
-SYNC_EXPORT base::ListValue* ModelTypeSetToValue(ModelTypeSet model_types);
+SYNC_EXPORT scoped_ptr<base::ListValue> ModelTypeSetToValue(
+    ModelTypeSet model_types);
 
 SYNC_EXPORT ModelTypeSet ModelTypeSetFromValue(const base::ListValue& value);
 
@@ -322,6 +330,20 @@ SYNC_EXPORT bool IsProxyType(ModelType model_type);
 // clients.
 // TODO(haitaol): Make entries of act-once data types immutable.
 SYNC_EXPORT bool IsActOnceDataType(ModelType model_type);
+
+// Returns true if |model_type| requires its root folder to be explicitly
+// created on the server during initial sync.
+SYNC_EXPORT bool IsTypeWithServerGeneratedRoot(ModelType model_type);
+
+// Returns true if root folder for |model_type| is created on the client when
+// that type is initially synced.
+SYNC_EXPORT bool IsTypeWithClientGeneratedRoot(ModelType model_type);
+
+// Returns true if |model_type| supports parent-child hierarchy or entries.
+SYNC_EXPORT bool TypeSupportsHierarchy(ModelType model_type);
+
+// Returns true if |model_type| supports ordering of sibling entries.
+SYNC_EXPORT bool TypeSupportsOrdering(ModelType model_type);
 
 // Returns set of model types that should be backed up before first sync.
 SYNC_EXPORT ModelTypeSet BackupTypes();

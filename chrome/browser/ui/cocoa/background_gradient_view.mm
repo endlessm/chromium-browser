@@ -8,6 +8,7 @@
 #import "chrome/browser/themes/theme_service.h"
 #import "chrome/browser/ui/cocoa/themed_window.h"
 #include "grit/theme_resources.h"
+#import "ui/base/cocoa/nsgraphics_context_additions.h"
 #import "ui/base/cocoa/nsview_additions.h"
 
 @interface BackgroundGradientView (Private)
@@ -33,11 +34,6 @@
   return self;
 }
 
-- (void)dealloc {
-  [[NSNotificationCenter defaultCenter] removeObserver:self];
-  [super dealloc];
-}
-
 - (void)commonInit {
   showsDivider_ = YES;
 }
@@ -49,26 +45,37 @@
   [self setNeedsDisplay:YES];
 }
 
-- (void)drawBackgroundWithOpaque:(BOOL)opaque {
-  const NSRect bounds = [self bounds];
+- (NSPoint)patternPhase {
+  return [[self window]
+      themeImagePositionForAlignment:THEME_IMAGE_ALIGN_WITH_TAB_STRIP];
+}
 
-  if (opaque) {
+- (void)drawBackground:(NSRect)dirtyRect {
+  [[NSGraphicsContext currentContext]
+      cr_setPatternPhase:[self patternPhase]
+                 forView:[self cr_viewBeingDrawnTo]];
+
+  ui::ThemeProvider* themeProvider = [[self window] themeProvider];
+  if (themeProvider && !themeProvider->UsingSystemTheme()) {
     // If the background image is semi transparent then we need something
     // to blend against. Using 20% black gives us a color similar to Windows.
     [[NSColor colorWithCalibratedWhite:0.2 alpha:1.0] set];
-    NSRectFill(bounds);
+    NSRectFill(dirtyRect);
   }
 
   [[self backgroundImageColor] set];
-  NSRectFillUsingOperation(bounds, NSCompositeSourceOver);
+  NSRectFillUsingOperation(dirtyRect, NSCompositeSourceOver);
 
   if (showsDivider_) {
     // Draw bottom stroke
-    [[self strokeColor] set];
     NSRect borderRect, contentRect;
-    NSDivideRect(bounds, &borderRect, &contentRect, [self cr_lineWidth],
+    NSDivideRect([self bounds], &borderRect, &contentRect, [self cr_lineWidth],
                  NSMinYEdge);
-    NSRectFillUsingOperation(borderRect, NSCompositeSourceOver);
+    if (NSIntersectsRect(borderRect, dirtyRect)) {
+      [[self strokeColor] set];
+      NSRectFillUsingOperation(NSIntersectionRect(borderRect, dirtyRect),
+                               NSCompositeSourceOver);
+    }
   }
 }
 
@@ -93,15 +100,14 @@
 }
 
 - (NSColor*)backgroundImageColor {
-  ThemeService* themeProvider =
-      static_cast<ThemeService*>([[self window] themeProvider]);
+  ui::ThemeProvider* themeProvider = [[self window] themeProvider];
   if (!themeProvider)
     return [[self window] backgroundColor];
 
   // Themes don't have an inactive image so only look for one if there's no
   // theme.
   BOOL isActive = [[self window] isMainWindow];
-  if (!isActive && themeProvider->UsingDefaultTheme()) {
+  if (!isActive && themeProvider->UsingSystemTheme()) {
     NSColor* color = themeProvider->GetNSImageColorNamed(
         IDR_THEME_TOOLBAR_INACTIVE);
     if (color)
@@ -111,52 +117,63 @@
   return themeProvider->GetNSImageColorNamed(IDR_THEME_TOOLBAR);
 }
 
-- (void)windowFocusDidChange:(NSNotification*)notification {
-  // Some child views will indirectly use BackgroundGradientView by calling an
-  // ancestor's draw function (e.g, BookmarkButtonView). Call setNeedsDisplay
-  // on all descendants to ensure that these views re-draw.
-  // TODO(ccameron): Enable these views to listen for focus notifications
-  // directly.
-  [self cr_recursivelySetNeedsDisplay:YES];
+- (void)viewDidMoveToWindow {
+  [super viewDidMoveToWindow];
+  if ([self window]) {
+    // The new window for the view may have a different focus state than the
+    // last window this view was part of.
+    // This happens when the view is moved into a TabWindowOverlayWindow for
+    // tab dragging.
+    [self windowDidChangeActive];
+  }
 }
 
-- (void)viewWillMoveToWindow:(NSWindow*)window {
-  if ([self window]) {
-    [[NSNotificationCenter defaultCenter]
-        removeObserver:self
-                  name:NSWindowDidBecomeKeyNotification
-                object:[self window]];
-    [[NSNotificationCenter defaultCenter]
-        removeObserver:self
-                  name:NSWindowDidBecomeMainNotification
-                object:[self window]];
+- (void)viewWillStartLiveResize {
+  [super viewWillStartLiveResize];
+
+  ui::ThemeProvider* themeProvider = [[self window] themeProvider];
+  if (themeProvider && themeProvider->UsingSystemTheme()) {
+    // The default theme's background image is a subtle texture pattern that
+    // we can scale without being easily noticed. Optimize this case by
+    // skipping redraws during live resize.
+    [self setLayerContentsRedrawPolicy:
+        NSViewLayerContentsRedrawOnSetNeedsDisplay];
   }
-  if (window) {
-    [[NSNotificationCenter defaultCenter]
-        addObserver:self
-           selector:@selector(windowFocusDidChange:)
-               name:NSWindowDidBecomeMainNotification
-             object:window];
-    [[NSNotificationCenter defaultCenter]
-        addObserver:self
-           selector:@selector(windowFocusDidChange:)
-               name:NSWindowDidResignMainNotification
-             object:window];
-    // The new window for the view may have a different focus state than the
-    // last window this view was part of. Force a re-draw to ensure that the
-    // view draws the right state.
-    [self windowFocusDidChange:nil];
+}
+
+- (void)viewDidEndLiveResize {
+  [super viewDidEndLiveResize];
+
+  if ([self layerContentsRedrawPolicy] !=
+      NSViewLayerContentsRedrawDuringViewResize) {
+    // If we have been scaling the layer during live resize, now is the time to
+    // redraw the layer.
+    [self setLayerContentsRedrawPolicy:
+        NSViewLayerContentsRedrawDuringViewResize];
+    [self setNeedsDisplay:YES];
   }
-  [super viewWillMoveToWindow:window];
 }
 
 - (void)setFrameOrigin:(NSPoint)origin {
   // The background color depends on the view's vertical position. This impacts
   // any child views that draw using this view's functions.
-  if (NSMinY([self frame]) != origin.y)
+  // When resizing the window, the view's vertical position (NSMinY) may change
+  // even though our relative position to the nearest window edge is still the
+  // same. Don't redraw unnecessarily in this case.
+  if (![self inLiveResize] && NSMinY([self frame]) != origin.y)
     [self cr_recursivelySetNeedsDisplay:YES];
 
   [super setFrameOrigin:origin];
+}
+
+// ThemedWindowDrawing implementation.
+
+- (void)windowDidChangeTheme {
+  [self setNeedsDisplay:YES];
+}
+
+- (void)windowDidChangeActive {
+  [self setNeedsDisplay:YES];
 }
 
 @end

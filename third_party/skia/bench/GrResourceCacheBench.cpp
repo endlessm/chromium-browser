@@ -6,243 +6,182 @@
  * found in the LICENSE file.
  */
 
+#include "Benchmark.h"
+
 #if SK_SUPPORT_GPU
 
-#include "Benchmark.h"
 #include "GrGpuResource.h"
+#include "GrGpuResourcePriv.h"
 #include "GrContext.h"
 #include "GrGpu.h"
 #include "GrResourceCache.h"
-#include "GrStencilBuffer.h"
-#include "GrTexture.h"
-#include "GrTexturePriv.h"
 #include "SkCanvas.h"
 
 enum {
-    CACHE_SIZE_COUNT = 2048,
-    CACHE_SIZE_BYTES = 2 * 1024 * 1024,
+    CACHE_SIZE_COUNT = 4096,
 };
 
-class StencilResource : public GrGpuResource {
+class BenchResource : public GrGpuResource {
 public:
-    SK_DECLARE_INST_COUNT(StencilResource);
-    StencilResource(GrGpu* gpu, int id)
-        : INHERITED(gpu, false)
-        , fID(id) {
+    BenchResource (GrGpu* gpu)
+        : INHERITED(gpu, kCached_LifeCycle) {
         this->registerWithCache();
     }
 
-    virtual ~StencilResource() { this->release(); }
-
-    virtual size_t gpuMemorySize() const SK_OVERRIDE {
-        return 100 + ((fID % 1 == 0) ? -5 : 6);
+    static void ComputeKey(int i, int keyData32Count, GrUniqueKey* key) {
+        static GrUniqueKey::Domain kDomain = GrUniqueKey::GenerateDomain();
+        GrUniqueKey::Builder builder(key, kDomain, keyData32Count);
+        for (int j = 0; j < keyData32Count; ++j) {
+            builder[j] = i + j;
+        }
     }
-
-    static GrResourceKey ComputeKey(int width, int height, int sampleCnt) {
-        return GrStencilBuffer::ComputeKey(width, height, sampleCnt);
-    }
-
-    int fID;
 
 private:
+    size_t onGpuMemorySize() const override { return 100; }
     typedef GrGpuResource INHERITED;
 };
 
-class TextureResource : public GrGpuResource {
-public:
-    SK_DECLARE_INST_COUNT(TextureResource);
-    TextureResource(GrGpu* gpu, int id)
-        : INHERITED(gpu, false)
-        , fID(id) {
-        this->registerWithCache();
-    }
-
-    virtual ~TextureResource() { this->release(); }
-
-    virtual size_t gpuMemorySize() const SK_OVERRIDE {
-        return 100 + ((fID % 1 == 0) ? -40 : 33);
-    }
-
-    static GrResourceKey ComputeKey(const GrSurfaceDesc& desc) {
-        GrCacheID::Key key;
-        memset(&key, 0, sizeof(key));
-        key.fData32[0] = (desc.fWidth) | (desc.fHeight << 16);
-        key.fData32[1] = desc.fConfig | desc.fSampleCnt << 16;
-        key.fData32[2] = desc.fFlags;
-        static int gType = GrResourceKey::GenerateResourceType();
-        static int gDomain = GrCacheID::GenerateDomain();
-        return GrResourceKey(GrCacheID(gDomain, key), gType, 0);
-    }
-
-    int fID;
-
-private:
-    typedef GrGpuResource INHERITED;
-};
-
-static void get_stencil(int i, int* w, int* h, int* s) {
-    *w = i % 1024;
-    *h = i * 2 % 1024;
-    *s = i % 1 == 0 ? 0 : 4;
-}
-
-static void get_texture_desc(int i, GrSurfaceDesc* desc) {
-    desc->fFlags = kRenderTarget_GrSurfaceFlag |
-        kNoStencil_GrSurfaceFlag;
-    desc->fWidth  = i % 1024;
-    desc->fHeight = i * 2 % 1024;
-    desc->fConfig = static_cast<GrPixelConfig>(i % (kLast_GrPixelConfig + 1));
-    desc->fSampleCnt = i % 1 == 0 ? 0 : 4;
-}
-
-static void populate_cache(GrResourceCache* cache, GrGpu* gpu, int resourceCount) {
+static void populate_cache(GrGpu* gpu, int resourceCount, int keyData32Count) {
     for (int i = 0; i < resourceCount; ++i) {
-        int w, h, s;
-        get_stencil(i, &w, &h, &s);
-        GrResourceKey key = GrStencilBuffer::ComputeKey(w, h, s);
-        GrGpuResource* resource = SkNEW_ARGS(StencilResource, (gpu, i));
-        cache->purgeAsNeeded(1, resource->gpuMemorySize());
-        cache->addResource(key, resource);
+        GrUniqueKey key;
+        BenchResource::ComputeKey(i, keyData32Count, &key);
+        GrGpuResource* resource = SkNEW_ARGS(BenchResource, (gpu));
+        resource->resourcePriv().setUniqueKey(key);
         resource->unref();
-    }
-
-    for (int i = 0; i < resourceCount; ++i) {
-        GrSurfaceDesc desc;
-        get_texture_desc(i, &desc);
-        GrResourceKey key =  TextureResource::ComputeKey(desc);
-        GrGpuResource* resource = SkNEW_ARGS(TextureResource, (gpu, i));
-        cache->purgeAsNeeded(1, resource->gpuMemorySize());
-        cache->addResource(key, resource);
-        resource->unref();
-    }
-}
-
-static void check_cache_contents_or_die(GrResourceCache* cache, int k) {
-    // Benchmark find calls that succeed.
-    {
-        GrSurfaceDesc desc;
-        get_texture_desc(k, &desc);
-        GrResourceKey key = TextureResource::ComputeKey(desc);
-        GrGpuResource* item = cache->find(key);
-        if (NULL == item) {
-            SkFAIL("cache add does not work as expected");
-            return;
-        }
-        if (static_cast<TextureResource*>(item)->fID != k) {
-            SkFAIL("cache add does not work as expected");
-            return;
-        }
-    }
-    {
-        int w, h, s;
-        get_stencil(k, &w, &h, &s);
-        GrResourceKey key = StencilResource::ComputeKey(w, h, s);
-        GrGpuResource* item = cache->find(key);
-        if (NULL == item) {
-            SkFAIL("cache add does not work as expected");
-            return;
-        }
-        if (static_cast<TextureResource*>(item)->fID != k) {
-            SkFAIL("cache add does not work as expected");
-            return;
-        }
-    }
-
-    // Benchmark also find calls that always fail.
-    {
-        GrSurfaceDesc desc;
-        get_texture_desc(k, &desc);
-        desc.fHeight |= 1;
-        GrResourceKey key = TextureResource::ComputeKey(desc);
-        GrGpuResource* item = cache->find(key);
-        if (item) {
-            SkFAIL("cache add does not work as expected");
-            return;
-        }
-    }
-    {
-        int w, h, s;
-        get_stencil(k, &w, &h, &s);
-        h |= 1;
-        GrResourceKey key = StencilResource::ComputeKey(w, h, s);
-        GrGpuResource* item = cache->find(key);
-        if (item) {
-            SkFAIL("cache add does not work as expected");
-            return;
-        }
     }
 }
 
 class GrResourceCacheBenchAdd : public Benchmark {
-    enum {
-        RESOURCE_COUNT = CACHE_SIZE_COUNT / 2,
-        DUPLICATE_COUNT = CACHE_SIZE_COUNT / 4,
-    };
-
 public:
-    virtual bool isSuitableFor(Backend backend) SK_OVERRIDE {
-        return backend == kGPU_Backend;
+    GrResourceCacheBenchAdd(int keyData32Count)
+        : fFullName("grresourcecache_add")
+        , fKeyData32Count(keyData32Count) {
+        if (keyData32Count > 1) {
+            fFullName.appendf("_%d", fKeyData32Count);
+        }
     }
 
+    bool isSuitableFor(Backend backend) override {
+        return backend == kNonRendering_Backend;
+    }
 protected:
-    virtual const char* onGetName() SK_OVERRIDE {
-        return "grresourcecache_add";
+    const char* onGetName() override {
+        return fFullName.c_str();
     }
 
-    virtual void onDraw(const int loops, SkCanvas* canvas) SK_OVERRIDE {
-        GrGpu* gpu = canvas->getGrContext()->getGpu();
+    void onDraw(const int loops, SkCanvas* canvas) override {
+        SkAutoTUnref<GrContext> context(GrContext::CreateMockContext());
+        if (NULL == context) {
+            return;
+        }
+        // Set the cache budget to be very large so no purging occurs.
+        context->setResourceCacheLimits(CACHE_SIZE_COUNT, 1 << 30);
+
+        GrResourceCache* cache = context->getResourceCache();
+
+        // Make sure the cache is empty.
+        cache->purgeAllUnlocked();
+        SkASSERT(0 == cache->getResourceCount() && 0 == cache->getResourceBytes());
+
+        GrGpu* gpu = context->getGpu();
 
         for (int i = 0; i < loops; ++i) {
-            GrResourceCache cache(gpu->caps(), CACHE_SIZE_COUNT, CACHE_SIZE_BYTES);
-            populate_cache(&cache, gpu, DUPLICATE_COUNT);
-            populate_cache(&cache, gpu, RESOURCE_COUNT);
-
-            // Check that cache works.
-            for (int k = 0; k < RESOURCE_COUNT; k += 33) {
-                check_cache_contents_or_die(&cache, k);
-            }
-            cache.purgeAllUnlocked();
+            populate_cache(gpu, CACHE_SIZE_COUNT, fKeyData32Count);
+            SkASSERT(CACHE_SIZE_COUNT == cache->getResourceCount());
         }
     }
 
 private:
+    SkString fFullName;
+    int fKeyData32Count;
     typedef Benchmark INHERITED;
 };
 
 class GrResourceCacheBenchFind : public Benchmark {
-    enum {
-        RESOURCE_COUNT = (CACHE_SIZE_COUNT / 2) - 100,
-        DUPLICATE_COUNT = 100
-    };
-
 public:
-    virtual bool isSuitableFor(Backend backend) SK_OVERRIDE {
-        return backend == kGPU_Backend;
+    GrResourceCacheBenchFind(int keyData32Count)
+        : fFullName("grresourcecache_find")
+        , fKeyData32Count(keyData32Count) {
+        if (keyData32Count > 1) {
+            fFullName.appendf("_%d", fKeyData32Count);
+        }
     }
 
+    bool isSuitableFor(Backend backend) override {
+        return backend == kNonRendering_Backend;
+    }
 protected:
-    virtual const char* onGetName() SK_OVERRIDE {
-        return "grresourcecache_find";
+    const char* onGetName() override {
+        return fFullName.c_str();
     }
 
-    virtual void onDraw(const int loops, SkCanvas* canvas) SK_OVERRIDE {
-        GrGpu* gpu = canvas->getGrContext()->getGpu();
-        GrResourceCache cache(gpu->caps(), CACHE_SIZE_COUNT, CACHE_SIZE_BYTES);
-        populate_cache(&cache, gpu, DUPLICATE_COUNT);
-        populate_cache(&cache, gpu, RESOURCE_COUNT);
+    void onPreDraw() override {
+        fContext.reset(GrContext::CreateMockContext());
+        if (!fContext) {
+            return;
+        }
+        // Set the cache budget to be very large so no purging occurs.
+        fContext->setResourceCacheLimits(CACHE_SIZE_COUNT, 1 << 30);
 
+        GrResourceCache* cache = fContext->getResourceCache();
+
+        // Make sure the cache is empty.
+        cache->purgeAllUnlocked();
+        SkASSERT(0 == cache->getResourceCount() && 0 == cache->getResourceBytes());
+
+        GrGpu* gpu = fContext->getGpu();
+
+        populate_cache(gpu, CACHE_SIZE_COUNT, fKeyData32Count);
+    }
+
+    void onDraw(const int loops, SkCanvas* canvas) override {
+        if (!fContext) {
+            return;
+        }
+        GrResourceCache* cache = fContext->getResourceCache();
+        SkASSERT(CACHE_SIZE_COUNT == cache->getResourceCount());
         for (int i = 0; i < loops; ++i) {
-            for (int k = 0; k < RESOURCE_COUNT; ++k) {
-                check_cache_contents_or_die(&cache, k);
+            for (int k = 0; k < CACHE_SIZE_COUNT; ++k) {
+                GrUniqueKey key;
+                BenchResource::ComputeKey(k, fKeyData32Count, &key);
+                SkAutoTUnref<GrGpuResource> resource(cache->findAndRefUniqueResource(key));
+                SkASSERT(resource);
             }
         }
     }
 
 private:
+    SkAutoTUnref<GrContext> fContext;
+    SkString fFullName;
+    int fKeyData32Count;
     typedef Benchmark INHERITED;
 };
 
-DEF_BENCH( return new GrResourceCacheBenchAdd(); )
-DEF_BENCH( return new GrResourceCacheBenchFind(); )
+DEF_BENCH( return new GrResourceCacheBenchAdd(1); )
+#ifdef SK_RELEASE
+// Only on release because on debug the SkTDynamicHash validation is too slow.
+DEF_BENCH( return new GrResourceCacheBenchAdd(2); )
+DEF_BENCH( return new GrResourceCacheBenchAdd(3); )
+DEF_BENCH( return new GrResourceCacheBenchAdd(4); )
+DEF_BENCH( return new GrResourceCacheBenchAdd(5); )
+DEF_BENCH( return new GrResourceCacheBenchAdd(10); )
+DEF_BENCH( return new GrResourceCacheBenchAdd(25); )
+DEF_BENCH( return new GrResourceCacheBenchAdd(54); )
+DEF_BENCH( return new GrResourceCacheBenchAdd(55); )
+DEF_BENCH( return new GrResourceCacheBenchAdd(56); )
+#endif
+
+DEF_BENCH( return new GrResourceCacheBenchFind(1); )
+#ifdef SK_RELEASE
+DEF_BENCH( return new GrResourceCacheBenchFind(2); )
+DEF_BENCH( return new GrResourceCacheBenchFind(3); )
+DEF_BENCH( return new GrResourceCacheBenchFind(4); )
+DEF_BENCH( return new GrResourceCacheBenchFind(5); )
+DEF_BENCH( return new GrResourceCacheBenchFind(10); )
+DEF_BENCH( return new GrResourceCacheBenchFind(25); )
+DEF_BENCH( return new GrResourceCacheBenchFind(54); )
+DEF_BENCH( return new GrResourceCacheBenchFind(55); )
+DEF_BENCH( return new GrResourceCacheBenchFind(56); )
+#endif
 
 #endif

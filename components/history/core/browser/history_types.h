@@ -9,6 +9,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/basictypes.h"
@@ -18,23 +19,18 @@
 #include "base/strings/string16.h"
 #include "base/time/time.h"
 #include "components/favicon_base/favicon_types.h"
+#include "components/history/core/browser/history_context.h"
 #include "components/history/core/browser/url_row.h"
 #include "components/history/core/common/thumbnail_score.h"
 #include "ui/base/page_transition_types.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "url/gurl.h"
-
-class PageUsageData;
-
-// TODO(sdefresne): remove, http://crbug.com/371816
-namespace content {
-class WebContents;
-}
 
 namespace history {
 
 // Forward declaration for friend statements.
 class HistoryBackend;
+class PageUsageData;
 class URLDatabase;
 
 // Container for a list of URLs.
@@ -43,12 +39,6 @@ typedef std::vector<GURL> RedirectList;
 typedef int64 FaviconBitmapID; // Identifier for a bitmap in a favicon.
 typedef int64 SegmentID;  // URL segments for the most visited view.
 typedef int64 IconMappingID; // For page url and icon mapping.
-
-// Identifier for a context to scope page ids. (ContextIDs are used in
-// comparisons only and are never dereferenced.)
-// NB: The use of WebContents here is temporary; when the dependency on content
-// is broken, some other type will take its place.
-typedef content::WebContents* ContextID;
 
 // The enumeration of all possible sources of visits is listed below.
 // The source will be propagated along with a URL or a visit item
@@ -373,15 +363,15 @@ struct HistoryAddPageArgs {
   //
   //   HistoryAddPageArgs(
   //       GURL(), base::Time(), NULL, 0, GURL(),
-  //       history::RedirectList(), ui::PAGE_TRANSITION_LINK,
+  //       RedirectList(), ui::PAGE_TRANSITION_LINK,
   //       SOURCE_BROWSED, false)
   HistoryAddPageArgs();
   HistoryAddPageArgs(const GURL& url,
                      base::Time time,
                      ContextID context_id,
-                     int32 page_id,
+                     int nav_entry_id,
                      const GURL& referrer,
-                     const history::RedirectList& redirects,
+                     const RedirectList& redirects,
                      ui::PageTransition transition,
                      VisitSource source,
                      bool did_replace_entry);
@@ -389,12 +379,10 @@ struct HistoryAddPageArgs {
 
   GURL url;
   base::Time time;
-
   ContextID context_id;
-  int32 page_id;
-
+  int nav_entry_id;
   GURL referrer;
-  history::RedirectList redirects;
+  RedirectList redirects;
   ui::PageTransition transition;
   VisitSource visit_source;
   bool did_replace_entry;
@@ -461,6 +449,9 @@ class MostVisitedThumbnails
   DISALLOW_COPY_AND_ASSIGN(MostVisitedThumbnails);
 };
 
+// Map from host to visit count, sorted by visit count descending.
+typedef std::vector<std::pair<std::string, int>> TopHostsList;
+
 // Favicons -------------------------------------------------------------------
 
 // Used for the mapping between the page and icon.
@@ -510,18 +501,14 @@ struct FaviconBitmap {
   // Time at which |bitmap_data| was last updated.
   base::Time last_updated;
 
+  // Time at which |bitmap_data| was last requested.
+  base::Time last_requested;
+
   // The bits of the bitmap.
   scoped_refptr<base::RefCountedMemory> bitmap_data;
 
   // The pixel dimensions of bitmap_data.
   gfx::Size pixel_size;
-};
-
-// Abbreviated information about a visit.
-struct BriefVisitInfo {
-  URLID url_id;
-  base::Time time;
-  ui::PageTransition transition;
 };
 
 struct ExpireHistoryArgs {

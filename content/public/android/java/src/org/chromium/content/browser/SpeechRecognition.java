@@ -8,7 +8,6 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
 import android.os.Bundle;
@@ -19,6 +18,7 @@ import android.speech.SpeechRecognizer;
 
 import org.chromium.base.CalledByNative;
 import org.chromium.base.JNINamespace;
+import org.chromium.base.PackageUtils;
 import org.chromium.content_public.common.SpeechRecognitionErrorCode;
 
 import java.util.ArrayList;
@@ -95,7 +95,7 @@ public class SpeechRecognition {
             // Translate Android SpeechRecognizer errors to Web Speech API errors.
             switch(error) {
                 case SpeechRecognizer.ERROR_AUDIO:
-                    code = SpeechRecognitionErrorCode.AUDIO;
+                    code = SpeechRecognitionErrorCode.AUDIO_CAPTURE;
                     break;
                 case SpeechRecognizer.ERROR_CLIENT:
                     code = SpeechRecognitionErrorCode.ABORTED;
@@ -174,8 +174,7 @@ public class SpeechRecognition {
      * continuous recognition.
      */
     public static boolean initialize(Context context) {
-        if (!SpeechRecognizer.isRecognitionAvailable(context))
-            return false;
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) return false;
 
         PackageManager pm = context.getPackageManager();
         Intent intent = new Intent(RecognitionService.SERVICE_INTERFACE);
@@ -184,17 +183,9 @@ public class SpeechRecognition {
         for (ResolveInfo resolve : list) {
             ServiceInfo service = resolve.serviceInfo;
 
-            if (!service.packageName.equals(PROVIDER_PACKAGE_NAME))
-                continue;
+            if (!service.packageName.equals(PROVIDER_PACKAGE_NAME)) continue;
 
-            int versionCode;
-            try {
-                versionCode = pm.getPackageInfo(service.packageName, 0).versionCode;
-            } catch (NameNotFoundException e) {
-                continue;
-            }
-
-            if (versionCode < PROVIDER_MIN_VERSION)
+            if (PackageUtils.getPackageVersion(context, service.packageName) < PROVIDER_MIN_VERSION)
                 continue;
 
             sRecognitionProvider = new ComponentName(service.packageName, service.name);
@@ -238,8 +229,9 @@ public class SpeechRecognition {
             mState = STATE_IDLE;
         }
 
-        if (error != SpeechRecognitionErrorCode.NONE)
+        if (error != SpeechRecognitionErrorCode.NONE) {
             nativeOnRecognitionError(mNativeSpeechRecognizerImplAndroid, error);
+        }
 
         mRecognizer.destroy();
         mRecognizer = null;
@@ -255,8 +247,7 @@ public class SpeechRecognition {
 
     @CalledByNative
     private void startRecognition(String language, boolean continuous, boolean interimResults) {
-        if (mRecognizer == null)
-            return;
+        if (mRecognizer == null) return;
 
         mContinuous = continuous;
         mIntent.putExtra("android.speech.extra.DICTATION_MODE", continuous);
@@ -267,8 +258,7 @@ public class SpeechRecognition {
 
     @CalledByNative
     private void abortRecognition() {
-        if (mRecognizer == null)
-            return;
+        if (mRecognizer == null) return;
 
         mRecognizer.cancel();
         terminate(SpeechRecognitionErrorCode.ABORTED);
@@ -276,8 +266,7 @@ public class SpeechRecognition {
 
     @CalledByNative
     private void stopRecognition() {
-        if (mRecognizer == null)
-            return;
+        if (mRecognizer == null) return;
 
         mContinuous = false;
         mRecognizer.stopListening();
@@ -289,9 +278,9 @@ public class SpeechRecognition {
     private native void nativeOnSoundEnd(long nativeSpeechRecognizerImplAndroid);
     private native void nativeOnAudioEnd(long nativeSpeechRecognizerImplAndroid);
     private native void nativeOnRecognitionResults(long nativeSpeechRecognizerImplAndroid,
-                                                   String[] results,
-                                                   float[] scores,
-                                                   boolean provisional);
+            String[] results,
+            float[] scores,
+            boolean provisional);
     private native void nativeOnRecognitionError(long nativeSpeechRecognizerImplAndroid, int error);
     private native void nativeOnRecognitionEnd(long nativeSpeechRecognizerImplAndroid);
 }

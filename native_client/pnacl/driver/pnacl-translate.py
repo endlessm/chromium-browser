@@ -90,7 +90,7 @@ EXTRA_ENV = {
   # BE CAREFUL: anything added here can introduce skew between
   # the pnacl-translate commandline tool and the in-browser translator.
   # See: llvm/tools/pnacl-llc/srpc_main.cpp and
-  # chromium/src/ppapi/native_client/src/trusted/plugin/pnacl_options.cc
+  # Chromium's plugin/pnacl_translate_thread.cc
   'LLC_FLAGS_COMMON': '${PIC ? -relocation-model=pic} ' +
                       #  -force-tls-non-pic makes the code generator (llc)
                       # do the work that would otherwise be done by
@@ -105,10 +105,15 @@ EXTRA_ENV = {
   # BE CAREFUL: anything added here can introduce skew between
   # the pnacl-translate commandline tool and the in-browser translator.
   # See: llvm/tools/pnacl-llc/srpc_main.cpp and
-  # chromium/src/ppapi/native_client/src/trusted/plugin/pnacl_options.cc
+  # Chromium's plugin/pnacl_translate_thread.cc
   'LLC_FLAGS_EXTRA' : '${FAST_TRANSLATION ? ${LLC_FLAGS_FAST}} ' +
                       '${#OPT_LEVEL ? -O${OPT_LEVEL}} ' +
                       '${OPT_LEVEL == 0 ? -disable-fp-elim}',
+  # The output type for subzero.
+  'SZ_FLAGS_TARGET': '--filetype=${outfiletype}',
+  # Additional subzero flags that need to be specified to both the
+  # host and the sandboxed pnacl-sz.
+  'SZ_FLAGS_EXTRA' : '',
 
   # Opt level from command line (if any)
   'OPT_LEVEL' : '',
@@ -124,17 +129,29 @@ EXTRA_ENV = {
   # Note: this is only used in the unsandboxed case
   'RUN_LLC'       : '${LLVM_PNACL_LLC} ${LLC_FLAGS} ${LLC_MCPU} '
                     '${input} -o ${output} ',
+  'RUN_SZ': '${LLVM_PNACL_SZ} ${SZ_FLAGS_ARCH} ${SZ_FLAGS_TARGET} '
+            '${SZ_FLAGS_EXTRA} ${input} -o ${output}',
   # Whether to stream the bitcode from a single FD in unsandboxed mode
   # (otherwise it will use concurrent file reads when using multithreaded module
   # splitting)
-  'STREAM_BITCODE' : '1',
+  'STREAM_BITCODE' : '0',
   # Rate in bits/sec to stream the bitcode from sel_universal over SRPC
   # for testing. Defaults to 1Gbps (effectively unlimited).
   'BITCODE_STREAM_RATE' : '1000000000',
-  # Default to 0, which means unset by the user. In this cases the driver will
-  # use up to 4 modules if there are enough cores. If the user overrides,
-  # use as many modules as specified (which could be only 1).
-  'SPLIT_MODULE' : '0',
+  # Default to 'auto', which means unset by the user. In this case the driver
+  # will use up to 4 modules if there are enough cores. If the user overrides,
+  # use the number of modules as specified (which must be at least 1).
+  'SPLIT_MODULE' : 'auto',
+  # Module split scheduling. 'dynamic' will produce non-deterministic results
+  # with faster compilation, whereas 'static' will still use multiple cores but
+  # will be deterministic and slightly slower.
+  'SPLIT_MODULE_SCHED' : '${SANDBOXED ? dynamic : static}',
+  # Whether to (try to) use pnacl-sz for translation instead of pnacl-llc.
+  'USE_SZ' : '0',
+  # Whether an option has been specified that Subzero can't (yet) handle.
+  'SZ_UNSUPPORTED' : '0',
+  # Subzero equivalent of SPLIT_MODULE, i.e. default # of translation threads.
+  'SZ_THREADS' : '0',
 }
 
 
@@ -151,16 +168,22 @@ TranslatorPatterns = [
   # BE CAREFUL: anything added here can introduce skew between
   # the pnacl-translate commandline tool and the in-browser translator.
   # See: llvm/tools/pnacl-llc/srpc_main.cpp and
-  # chromium/src/ppapi/native_client/src/trusted/plugin/pnacl_options.cc
-  ( '(-sfi-.+)',        "env.append('LLC_FLAGS_EXTRA', $0)"),
+  # Chromium's plugin/pnacl_translate_thread.cc
+  ( '(-sfi-.+)',        "env.append('LLC_FLAGS_EXTRA', $0)\n"
+                        "env.set('SZ_UNSUPPORTED', '1')"),
   ( '(-mtls-use-call)', "env.append('LLC_FLAGS_EXTRA', $0)"),
-  ( '(-force-align-stack)', "env.append('LLC_FLAGS_EXTRA', $0)"),
+  ( '(-force-align-stack)', "env.append('LLC_FLAGS_EXTRA', $0)\n"
+                            "env.set('SZ_UNSUPPORTED', '1')"),
   # These flags are usually used for linktime dead code/data
   # removal but also help with reloc overflows on ARM
-  ( '(-fdata-sections)',     "env.append('LLC_FLAGS_EXTRA', $0)"),
-  ( '(-ffunction-sections)', "env.append('LLC_FLAGS_EXTRA', $0)"),
+  ( '(-fdata-sections)',     "env.append('LLC_FLAGS_EXTRA', '-data-sections')\n"
+                             "env.append('SZ_FLAGS_EXTRA', $0)"),
+  ( '(-ffunction-sections)',
+    "env.append('LLC_FLAGS_EXTRA', '-function-sections')\n"
+    "env.append('SZ_FLAGS_EXTRA', $0)"),
   ( '(--gc-sections)',       "env.append('LD_FLAGS', $0)"),
-  ( '(-mattr=.*)', "env.append('LLC_FLAGS_EXTRA', $0)"),
+  ( '(-mattr=.*)', "env.append('LLC_FLAGS_EXTRA', $0)\n"
+                   "env.append('SZ_FLAGS_EXTRA', $0)"),
   ( '(-mcpu=.*)', "env.set('LLC_MCPU', '')\n"
                   "env.append('LLC_FLAGS_EXTRA', $0)"),
   ( '(-pnaclabi-verify=.*)', "env.append('LLC_FLAGS_EXTRA', $0)"),
@@ -171,6 +194,8 @@ TranslatorPatterns = [
   # This adds arch specific flags to the llc invocation aimed at
   # improving translation speed at the expense of code quality.
   ( '-translate-fast',  "env.set('FAST_TRANSLATION', '1')"),
+  # Allow Subzero.
+  ( '--use-sz', "env.set('USE_SZ', '1')"),
 
   ( '-nostdlib',       "env.set('USE_STDLIB', '0')"),
 
@@ -188,14 +213,18 @@ TranslatorPatterns = [
   # "--pnacl-allow-zerocost-eh".
   ( '--pnacl-allow-exceptions', "env.set('ALLOW_ZEROCOST_CXX_EH', '1')"),
 
-  ( '--allow-llvm-bitcode-input', "env.set('ALLOW_LLVM_BITCODE_INPUT', '1')"),
+  ( '--allow-llvm-bitcode-input',
+    "env.set('ALLOW_LLVM_BITCODE_INPUT', '1')\n"
+    "env.set('SZ_UNSUPPORTED', '1')"),
 
-  ( '-fPIC',           "env.set('PIC', '1')"),
+  ( '-fPIC',           "env.set('PIC', '1')\n"
+                       "env.set('SZ_UNSUPPORTED', '1')"),
 
   ( '(--build-id)',    "env.append('LD_FLAGS', $0)"),
   ( '-bitcode-stream-rate=([0-9]+)', "env.set('BITCODE_STREAM_RATE', $0)"),
-  ( '-split-module=([0-9]+)', "env.set('SPLIT_MODULE', $0)"),
-  ( '-no-stream-bitcode', "env.set('STREAM_BITCODE', '0')"),
+  ( '-(split-module|threads)=([0-9]+|auto|seq)', "env.set('SPLIT_MODULE', $1)"),
+  ( '-split-module-sched=(.*)', "env.set('SPLIT_MODULE_SCHED', $0)"),
+  ( '-stream-bitcode', "env.set('STREAM_BITCODE', '1')"),
 
   # Treat general linker flags as inputs so they don't get re-ordered
   ( '-Wl,(.*)',        "env.append('INPUTS', *($0).split(','))"),
@@ -246,9 +275,7 @@ def SetUpArch():
 
   llc_flags_map = {
       'ARM': ['-float-abi=hard', '-mattr=+neon'],
-      # Once PNaCl's build of compiler-rt (libgcc.a) defines __aeabi_*
-      # functions, we can drop '-arm-enable-aeabi-functions=0' option.
-      'ARM_NONSFI': ['-float-abi=hard', '-arm-enable-aeabi-functions=0'],
+      'ARM_NONSFI': ['-float-abi=hard', '-arm-enable-dwarf-eh=1'],
       # To translate x86-32 binary, we set -malign-double option so that the
       # backend's datalayout matches the datalayout for "le32" used by the
       # frontend. The le32 datalayout uses 8-byte alignment for the types i64
@@ -259,12 +286,32 @@ def SetUpArch():
       'X8632_NONSFI': ['-malign-double'],
       }
   env.set('LLC_FLAGS_ARCH', *llc_flags_map.get(env.getone('ARCH'), []))
+  env.set('SZ_FLAGS_ARCH', '')
   # When linking against a host OS's libc (such as Linux glibc), don't
   # use %gs:0 to read the thread pointer because that won't be
   # compatible with the libc's use of %gs:0.  Similarly, Non-SFI Mode
   # currently offers no optimized path for reading the thread pointer.
   if env.getone('TARGET_OS') != 'nacl' or env.getbool('NONSFI_NACL'):
     env.append('LLC_FLAGS_ARCH', '-mtls-use-call')
+  # For Subzero, determine -target and -sandbox options.
+  env.append('SZ_FLAGS_ARCH', '--sandbox=' +
+             ('1' if env.getone('TARGET_OS') == 'nacl' else '0'))
+  env.append('SZ_FLAGS_ARCH', '--target=' + base_arch.lower())
+  if base_arch != 'X8632':
+    env.set('SZ_UNSUPPORTED', '1')
+    # Hard-fail on an unsupported architecture.
+    if env.getbool('USE_SZ'):
+      Log.Fatal('Unsupported architecture when using --sz: ' + base_arch)
+  # This is a fine place to map OPT_LEVEL to the Subzero equivalent, with
+  # default of -O2.
+  sz_opt_map = {
+    '0': '-Om1',
+    '1': '-O2',
+    '2': '-O2',
+    }
+  env.append('SZ_FLAGS_EXTRA', sz_opt_map.get(env.getone('OPT_LEVEL'), '-O2'))
+  # At this point, the only Subzero options left to set are -o, -filetype, and
+  # -threads.
 
 
 def SetUpLinkOptions():
@@ -279,17 +326,7 @@ def SetUpLinkOptions():
     # "_begin" allows a PIE to find its load address in order to apply
     # dynamic relocations.
     env.append('LD_FLAGS', '-defsym=_begin=0')
-    if env.getbool('USE_IRT'):
-      env.append('LD_FLAGS', '-pie')
-    else:
-      # Note that we really want to use "-pie" for this case, but it
-      # currently adds a PT_INTERP header to the executable that we don't
-      # want because it stops the executable from being loadable by Linux.
-      # TODO(mseaborn): Add a linker option to omit PT_INTERP.
-      env.append('LD_FLAGS', '-static')
-      # Set _DYNAMIC to a dummy value.  TODO(mseaborn): Remove this when we
-      # use "-pie" instead of "-static" for this case.
-      env.append('LD_FLAGS', '-defsym=_DYNAMIC=1')
+    env.append('LD_FLAGS', '-pie')
   else:
     env.append('LD_FLAGS', '-static')
     # Give non-IRT builds 12MB of text before starting rodata instead of
@@ -305,6 +342,9 @@ def main(argv):
   driver_tools.GetArch(required = True)
   SetUpArch()
   SetUpLinkOptions()
+
+  # Now commit to whether or not Subzero is used.
+  use_sz = env.getbool('USE_SZ') and not env.getbool('SZ_UNSUPPORTED')
 
   inputs = env.get('INPUTS')
   output = env.getone('OUTPUT')
@@ -330,16 +370,10 @@ def main(argv):
   else:
     bcfile = None
 
-  if not env.getbool('SPLIT_MODULE'):
-    try:
-      env.set('SPLIT_MODULE', str(min(4, multiprocessing.cpu_count())))
-    except NotImplementedError:
-      env.set('SPLIT_MODULE', '2')
-  elif int(env.getone('SPLIT_MODULE')) < 1:
-    Log.Fatal('Value given for -split-module must be > 0')
-  if (env.getbool('ALLOW_LLVM_BITCODE_INPUT') or
-      env.getone('TARGET_OS') != 'nacl' or
-      env.getbool('USE_EMULATOR')):
+  if ((env.getbool('ALLOW_LLVM_BITCODE_INPUT') or
+       env.getone('TARGET_OS') != 'nacl' or
+       env.getbool('USE_EMULATOR')) and
+      env.getone('SPLIT_MODULE') == 'auto'):
     # When llvm input is allowed, the pexe may not be ABI-stable, so do not
     # split it.  Non-ABI-stable pexes may have symbol naming and visibility
     # issues that the current splitting scheme doesn't account for.
@@ -350,16 +384,41 @@ def main(argv):
     #
     # The x86->arm emulator is very flaky when threading is used, so don't
     # do module splitting when using it.
+    env.set('SPLIT_MODULE', 'seq')
+  # Do not set -streaming-bitcode for sandboxed mode, because it is already
+  # in the default command line.
+  if not env.getbool('SANDBOXED') and env.getbool('STREAM_BITCODE'):
+    env.append('LLC_FLAGS_EXTRA', '-streaming-bitcode')
+
+  if env.getone('SPLIT_MODULE') == 'seq':
     env.set('SPLIT_MODULE', '1')
+    env.set('SZ_THREADS', '0')
+  elif env.getone('SPLIT_MODULE') == 'auto':
+    try:
+      num_modules = min(4, multiprocessing.cpu_count())
+    except NotImplementedError:
+      num_modules = 2
+    env.set('SPLIT_MODULE', str(num_modules))
+    env.set('SZ_THREADS', str(num_modules))
   else:
-    modules = env.getone('SPLIT_MODULE')
-    if modules != '1':
-      env.append('LLC_FLAGS_EXTRA', '-split-module=' + modules)
-      env.append('LD_FLAGS', '-split-module=' + modules)
-    if not env.getbool('SANDBOXED') and env.getbool('STREAM_BITCODE'):
-      # Do not set -streaming-bitcode for sandboxed mode, because it is already
-      # in the default command line.
-      env.append('LLC_FLAGS_EXTRA', '-streaming-bitcode')
+    num_modules = int(env.getone('SPLIT_MODULE'))
+    if num_modules < 1:
+      Log.Fatal('Value given for -split-module must be > 0')
+    env.set('SPLIT_MODULE', str(num_modules))
+    env.set('SZ_THREADS', str(num_modules))
+
+  modules = env.getone('SPLIT_MODULE')
+  module_sched = env.getone('SPLIT_MODULE_SCHED')
+  sz_threads = env.getone('SZ_THREADS')
+  # TODO(dschuff,jvoung): No need to specify -split-module=X since the IPC
+  # already has a parameter for the number of threads and modules.
+  env.append('LLC_FLAGS_EXTRA', '-split-module=' + modules)
+  env.append('LD_FLAGS', '-split-module=' + ('1' if use_sz else modules))
+  env.append('LLC_FLAGS_EXTRA', '-split-module-sched=' + module_sched)
+  # In sandboxed mode, the IPC already has a parameter for the number
+  # of threads, so no need to specify that again via argv[].
+  if not env.getbool('SANDBOXED'):
+    env.append('SZ_FLAGS_EXTRA', '--threads=' + sz_threads)
 
   # If there's a bitcode file, translate it now.
   tng = driver_tools.TempNameGen(inputs + bcfiles, output)
@@ -376,17 +435,21 @@ def main(argv):
       ofile = tng.TempNameForInput(bcfile, 'o')
 
     if sfile:
-      RunLLC(bcfile, sfile, outfiletype='asm')
+      RunCompiler(bcfile, sfile, outfiletype='asm', use_sz=use_sz)
       if ofile:
         RunAS(sfile, ofile)
     else:
-      RunLLC(bcfile, ofile, outfiletype='obj')
+      RunCompiler(bcfile, ofile, outfiletype='obj', use_sz=use_sz)
   else:
     ofile = None
 
   # If we've been told to stop after translation, stop now.
   if output_type in ('o','s'):
     return 0
+
+  if use_sz:
+    # Reset SPLIT_MODULE to 1 to fall back to normal linking behavior.
+    env.set('SPLIT_MODULE', '1')
 
   # Replace the bitcode file with __BITCODE__ in the input list
   if bcfile:
@@ -441,20 +504,20 @@ def RunHostLD(infile, outfile):
              + 'x86-32-%s/lib' % env.getone('TARGET_OS'))
   args = ['gcc', '-m32', infile, '-o', outfile,
           os.path.join(lib_dir, 'unsandboxed_irt.o'),
+          os.path.join(lib_dir, 'irt_random.o'),
           os.path.join(lib_dir, 'irt_query_list.o'),
           '-lpthread']
   if env.getone('TARGET_OS') == 'linux':
     args.append('-lrt')  # For clock_gettime()
   driver_tools.Run(args)
 
-def RunLLC(infile, outfile, outfiletype):
+def RunCompiler(infile, outfile, outfiletype, use_sz):
   env.push()
   env.setmany(input=infile, output=outfile, outfiletype=outfiletype)
   if env.getbool('SANDBOXED'):
-    RunLLCSandboxed()
-    env.pop()
+    RunSandboxedCompiler(use_sz)
   else:
-    args = ["${RUN_LLC}"]
+    args = ["${RUN_SZ}" if use_sz else "${RUN_LLC}"]
     if filetype.IsPNaClBitcode(infile):
       args.append("-bitcode-format=pnacl")
     elif filetype.IsLLVMBitcode(infile):
@@ -462,10 +525,10 @@ def RunLLC(infile, outfile, outfiletype):
         Log.Fatal('Translator expects finalized PNaCl bitcode. '
                   'Pass --allow-llvm-bitcode-input to override.')
     driver_tools.Run(' '.join(args))
-    env.pop()
+  env.pop()
   return 0
 
-def RunLLCSandboxed():
+def RunSandboxedCompiler(use_sz):
   driver_tools.CheckTranslatorPrerequisites()
   infile = env.getone('input')
   outfile = env.getone('output')
@@ -473,9 +536,13 @@ def RunLLCSandboxed():
   if not is_pnacl and not env.getbool('ALLOW_LLVM_BITCODE_INPUT'):
     Log.Fatal('Translator expects finalized PNaCl bitcode. '
               'Pass --allow-llvm-bitcode-input to override.')
-  script = MakeSelUniversalScriptForLLC(infile, outfile, is_pnacl)
-  command = ('${SEL_UNIVERSAL_PREFIX} ${SEL_UNIVERSAL} ${SEL_UNIVERSAL_FLAGS} '
-    '-- ${LLC_SB}')
+  script = MakeSelUniversalScriptForCompiler(infile, outfile,
+                                             is_pnacl, use_sz)
+  command = '${SEL_UNIVERSAL_PREFIX} ${SEL_UNIVERSAL} ${SEL_UNIVERSAL_FLAGS} '
+  if use_sz:
+    command += '-- ${PNACL_SZ_SB}'
+  else:
+    command += '-- ${LLC_SB}'
   driver_tools.Run(command,
                    stdin_contents=script,
                    # stdout/stderr will be automatically dumped
@@ -483,12 +550,16 @@ def RunLLCSandboxed():
                    redirect_stderr=subprocess.PIPE,
                    redirect_stdout=subprocess.PIPE)
 
-def BuildOverrideLLCCommandLine(is_pnacl):
-  extra_flags = env.get('LLC_FLAGS_EXTRA')
-  # The mcpu is not part of the default flags, so append that too.
-  mcpu = env.getone('LLC_MCPU')
-  if mcpu:
-    extra_flags.append(mcpu)
+def BuildOverrideCompilerCommandLine(is_pnacl, use_sz):
+  if use_sz:
+    # Subzero doesn't allow -mcpu=X tuning, only -mattr=X.
+    extra_flags = env.get('SZ_FLAGS_EXTRA')
+  else:
+    extra_flags = env.get('LLC_FLAGS_EXTRA')
+    # The mcpu is not part of the default flags, so append that too.
+    mcpu = env.getone('LLC_MCPU')
+    if mcpu:
+      extra_flags.append(mcpu)
   if not is_pnacl:
     extra_flags.append('-bitcode-format=llvm')
   # command_line is a NUL (\x00) terminated sequence.
@@ -497,25 +568,33 @@ def BuildOverrideLLCCommandLine(is_pnacl):
   command_line_escaped = command_line.replace(kTerminator, '\\x00')
   return len(command_line), command_line_escaped
 
-def MakeSelUniversalScriptForLLC(infile, outfile, is_pnacl):
+def MakeSelUniversalScriptForCompiler(infile, outfile, is_pnacl, use_sz):
   script = []
   script.append('readwrite_file objfile %s' % outfile)
-  modules = int(env.getone('SPLIT_MODULE'))
+  if use_sz:
+    modules = 1
+    threads = int(env.getone('SZ_THREADS'))
+    toolname = 'pnacl-sz'
+  else:
+    modules = int(env.getone('SPLIT_MODULE'))
+    threads = modules
+    toolname = 'pnacl-llc'
   if modules > 1:
     script.extend(['readwrite_file objfile%d %s.module%d' % (m, outfile, m)
                    for m in range(1, modules)])
   stream_rate = int(env.getraw('BITCODE_STREAM_RATE'))
   assert stream_rate != 0
-  cmdline_len, cmdline_escaped = BuildOverrideLLCCommandLine(is_pnacl)
+  cmdline_len, cmdline_escaped = BuildOverrideCompilerCommandLine(is_pnacl,
+                                                                  use_sz)
   assert modules in range(1, 17)
-  script.append('rpc StreamInitWithSplit i(%d) h(objfile) ' % modules +
+  script.append('rpc StreamInitWithSplit i(%d) h(objfile) ' % threads +
                 ' '.join(['h(objfile%d)' % m for m in range(1, modules)] +
                          ['h(invalid)' for x in range(modules, 16)]) +
                 ' C(%d,%s) * s()' % (cmdline_len, cmdline_escaped))
   # specify filename, chunk size and rate in bits/s
   script.append('stream_file %s %s %s' % (infile, 64 * 1024, stream_rate))
   script.append('rpc StreamEnd * i() s() s() s()')
-  script.append('echo "pnacl-llc complete"')
+  script.append('echo "%s complete"' % toolname)
   script.append('')
   return '\n'.join(script)
 
@@ -543,6 +622,11 @@ ADVANCED OPTIONS:
                           turns cpu features on and off.
   -S                      Generate native assembly only.
   -c                      Generate native object file only.
+  --use-sz                Use the Subzero fast translator.
   --pnacl-sb              Use the translator which runs inside the NaCl sandbox.
+                          Applies to both pnacl-llc and pnacl-sz translators.
   -O[0-3]                 Change translation-time optimization level.
+  -threads=<num>          Use <num> parallel threads for translation.
+  -threads=auto           Automatically determine number of translation threads.
+  -threads=seq            Use the minimal number of threads for translation.
 """

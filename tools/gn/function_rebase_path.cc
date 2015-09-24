@@ -71,34 +71,38 @@ Value ConvertOnePath(const Scope* scope,
     base::FilePath system_path;
     if (looks_like_dir) {
       system_path = scope->settings()->build_settings()->GetFullPath(
-          from_dir.ResolveRelativeDir(string_value));
+          from_dir.ResolveRelativeDir(value, err,
+              scope->settings()->build_settings()->root_path_utf8()));
     } else {
       system_path = scope->settings()->build_settings()->GetFullPath(
-          from_dir.ResolveRelativeFile(string_value));
+          from_dir.ResolveRelativeFile(value, err,
+              scope->settings()->build_settings()->root_path_utf8()));
     }
+    if (err->has_error())
+      return Value();
+
     result = Value(function, FilePathToUTF8(system_path));
     if (looks_like_dir)
       MakeSlashEndingMatchInput(string_value, &result.string_value());
     return result;
   }
 
-  if (from_dir.is_system_absolute() || to_dir.is_system_absolute()) {
-    *err = Err(function, "System-absolute directories are not supported for "
-        "the source or dest dir for rebase_path. It would be nice to add this "
-        "if you're so inclined!");
-    return result;
-  }
-
   result = Value(function, Value::STRING);
   if (looks_like_dir) {
-    result.string_value() = RebaseSourceAbsolutePath(
-        from_dir.ResolveRelativeDir(string_value).value(),
-        to_dir);
+    result.string_value() = RebasePath(
+        from_dir.ResolveRelativeDir(value, err,
+            scope->settings()->build_settings()->root_path_utf8()).value(),
+        to_dir,
+        scope->settings()->build_settings()->root_path_utf8());
     MakeSlashEndingMatchInput(string_value, &result.string_value());
   } else {
-    result.string_value() = RebaseSourceAbsolutePath(
-        from_dir.ResolveRelativeFile(string_value).value(),
-        to_dir);
+    result.string_value() = RebasePath(
+        from_dir.ResolveRelativeFile(value, err,
+            scope->settings()->build_settings()->root_path_utf8()).value(),
+        to_dir,
+        scope->settings()->build_settings()->root_path_utf8());
+    if (err->has_error())
+      return Value();
   }
 
   return result;
@@ -162,11 +166,6 @@ const char kRebasePath_Help[] =
     "      relative to the current build file. Use \".\" (the default) to\n"
     "      convert paths from the current BUILD-file's directory.\n"
     "\n"
-    "      On Posix systems there are no path separator transformations\n"
-    "      applied. If the new_base is empty (specifying absolute output)\n"
-    "      this parameter should not be supplied since paths will always be\n"
-    "      converted,\n"
-    "\n"
     "Return value\n"
     "\n"
     "  The return value will be the same type as the input value (either a\n"
@@ -186,14 +185,10 @@ const char kRebasePath_Help[] =
     "  # Might produce \"D:\\source\\project\\myfile.txt\" on Windows or\n"
     "  # \"/home/you/source/project/myfile.txt\" on Linux.\n"
     "\n"
-    "  # Convert a file's path separators from forward slashes to system\n"
-    "  # slashes.\n"
-    "  foo = rebase_path(\"source/myfile.txt\", \".\", \".\", \"to_system\")\n"
-    "\n"
     "  # Typical usage for converting to the build directory for a script.\n"
     "  action(\"myscript\") {\n"
     "    # Don't convert sources, GN will automatically convert these to be\n"
-    "    # relative to the build directory when it contructs the command\n"
+    "    # relative to the build directory when it constructs the command\n"
     "    # line for your script.\n"
     "    sources = [ \"foo.txt\", \"bar.txt\" ]\n"
     "\n"
@@ -204,7 +199,7 @@ const char kRebasePath_Help[] =
     "      rebase_path(\"//mything/data/input.dat\", root_build_dir),\n"
     "      \"--rel\",\n"
     "      rebase_path(\"relative_path.txt\", root_build_dir)\n"
-    "    ] + sources\n"
+    "    ] + rebase_path(sources, root_build_dir)\n"
     "  }\n";
 
 Value RunRebasePath(Scope* scope,
@@ -233,8 +228,11 @@ Value RunRebasePath(Scope* scope,
     if (!args[kArgIndexDest].VerifyTypeIs(Value::STRING, err))
       return result;
     if (!args[kArgIndexDest].string_value().empty()) {
-      to_dir =
-          current_dir.ResolveRelativeDir(args[kArgIndexDest].string_value());
+      to_dir = current_dir.ResolveRelativeDir(
+          args[kArgIndexDest], err,
+          scope->settings()->build_settings()->root_path_utf8());
+      if (err->has_error())
+        return Value();
       convert_to_system_absolute = false;
     }
   }
@@ -244,8 +242,11 @@ Value RunRebasePath(Scope* scope,
   if (args.size() > kArgIndexFrom) {
     if (!args[kArgIndexFrom].VerifyTypeIs(Value::STRING, err))
       return result;
-    from_dir =
-        current_dir.ResolveRelativeDir(args[kArgIndexFrom].string_value());
+    from_dir = current_dir.ResolveRelativeDir(
+        args[kArgIndexFrom], err,
+        scope->settings()->build_settings()->root_path_utf8());
+    if (err->has_error())
+      return Value();
   } else {
     // Default to current directory if unspecified.
     from_dir = current_dir;

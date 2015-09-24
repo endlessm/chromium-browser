@@ -26,6 +26,10 @@
 #include "ui/events/event_switches.h"
 #include "ui/gfx/screen.h"
 
+#if defined(OS_ANDROID) && defined(__arm__)
+#include <cpu-features.h>
+#endif  // defined(OS_ANDROID) && defined(__arm__)
+
 #if defined(OS_LINUX) && !defined(OS_CHROMEOS)
 #include <gnu/libc-version.h>
 
@@ -45,10 +49,7 @@ enum UMALinuxGlibcVersion {
   UMA_LINUX_GLIBC_NOT_PARSEABLE,
   UMA_LINUX_GLIBC_UNKNOWN,
   UMA_LINUX_GLIBC_2_11,
-  UMA_LINUX_GLIBC_2_19 = UMA_LINUX_GLIBC_2_11 + 8,
-  // NOTE: Add new version above this line and update the enum list in
-  // tools/metrics/histograms/histograms.xml accordingly.
-  UMA_LINUX_GLIBC_VERSION_COUNT
+  // To log newer versions, just update tools/metrics/histograms/histograms.xml.
 };
 
 enum UMALinuxWindowManager {
@@ -91,6 +92,14 @@ enum UMATouchEventsState {
   UMA_TOUCH_EVENTS_STATE_COUNT
 };
 
+#if defined(OS_ANDROID) && defined(__arm__)
+enum UMAAndroidArmFpu {
+  UMA_ANDROID_ARM_FPU_VFPV3_D16, // The ARM CPU only supports vfpv3-d16.
+  UMA_ANDROID_ARM_FPU_NEON,      // The Arm CPU supports NEON.
+  UMA_ANDROID_ARM_FPU_COUNT
+};
+#endif  // defined(OS_ANDROID) && defined(__arm__)
+
 void RecordMicroArchitectureStats() {
 #if defined(ARCH_CPU_X86_FAMILY)
   base::CPU cpu;
@@ -98,6 +107,19 @@ void RecordMicroArchitectureStats() {
   UMA_HISTOGRAM_ENUMERATION("Platform.IntelMaxMicroArchitecture", arch,
                             base::CPU::MAX_INTEL_MICRO_ARCHITECTURE);
 #endif  // defined(ARCH_CPU_X86_FAMILY)
+#if defined(OS_ANDROID) && defined(__arm__)
+  // Detect NEON support.
+  // TODO(fdegans): Remove once non-NEON support has been removed.
+  if (android_getCpuFeatures() & ANDROID_CPU_ARM_FEATURE_NEON) {
+    UMA_HISTOGRAM_ENUMERATION("Android.ArmFpu",
+                              UMA_ANDROID_ARM_FPU_NEON,
+                              UMA_ANDROID_ARM_FPU_COUNT);
+  } else {
+    UMA_HISTOGRAM_ENUMERATION("Android.ArmFpu",
+                              UMA_ANDROID_ARM_FPU_VFPV3_D16,
+                              UMA_ANDROID_ARM_FPU_COUNT);
+  }
+#endif  // defined(OS_ANDROID) && defined(__arm__)
   UMA_HISTOGRAM_SPARSE_SLOWLY("Platform.LogicalCpuCount",
                               base::SysInfo::NumberOfProcessors());
 }
@@ -115,7 +137,13 @@ void RecordStartupMetricsOnBlockingPool() {
   UMA_HISTOGRAM_ENUMERATION("OSX.BluetoothAvailability",
                             availability,
                             bluetooth_utility::BLUETOOTH_AVAILABILITY_COUNT);
-#endif  // defined(OS_MACOSX) && !defined(OS_IOS)
+#endif   // defined(OS_MACOSX) && !defined(OS_IOS)
+
+  // Record whether Chrome is the default browser or not.
+  ShellIntegration::DefaultWebClientState default_state =
+      ShellIntegration::GetDefaultBrowser();
+  UMA_HISTOGRAM_ENUMERATION("DefaultBrowser.State", default_state,
+                            ShellIntegration::NUM_DEFAULT_STATES);
 }
 
 void RecordLinuxGlibcVersion() {
@@ -125,23 +153,21 @@ void RecordLinuxGlibcVersion() {
   UMALinuxGlibcVersion glibc_version_result = UMA_LINUX_GLIBC_NOT_PARSEABLE;
   if (version.IsValid() && version.components().size() == 2) {
     glibc_version_result = UMA_LINUX_GLIBC_UNKNOWN;
-    int glibc_major_version = version.components()[0];
-    int glibc_minor_version = version.components()[1];
+    uint32_t glibc_major_version = version.components()[0];
+    uint32_t glibc_minor_version = version.components()[1];
     if (glibc_major_version == 2) {
       // A constant to translate glibc 2.x minor versions to their
       // equivalent UMALinuxGlibcVersion values.
       const int kGlibcMinorVersionTranslationOffset = 11 - UMA_LINUX_GLIBC_2_11;
-      int translated_glibc_minor_version =
+      uint32_t translated_glibc_minor_version =
           glibc_minor_version - kGlibcMinorVersionTranslationOffset;
-      if (translated_glibc_minor_version >= UMA_LINUX_GLIBC_2_11 &&
-          translated_glibc_minor_version <= UMA_LINUX_GLIBC_2_19) {
+      if (translated_glibc_minor_version >= UMA_LINUX_GLIBC_2_11) {
         glibc_version_result =
             static_cast<UMALinuxGlibcVersion>(translated_glibc_minor_version);
       }
     }
   }
-  UMA_HISTOGRAM_ENUMERATION("Linux.GlibcVersion", glibc_version_result,
-                            UMA_LINUX_GLIBC_VERSION_COUNT);
+  UMA_HISTOGRAM_SPARSE_SLOWLY("Linux.GlibcVersion", glibc_version_result);
 #endif
 }
 
@@ -196,7 +222,8 @@ UMALinuxWindowManager GetLinuxWindowManager() {
 #endif
 
 void RecordTouchEventState() {
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
   const std::string touch_enabled_switch =
       command_line.HasSwitch(switches::kTouchEvents) ?
       command_line.GetSwitchValueASCII(switches::kTouchEvents) :
@@ -264,6 +291,11 @@ void ChromeBrowserMainExtraPartsMetrics::PostBrowserStart() {
   UMA_HISTOGRAM_COUNTS_100("Hardware.Display.Count.OnStartup", display_count_);
   gfx::Screen::GetNativeScreen()->AddObserver(this);
   is_screen_observer_ = true;
+
+#if !defined(OS_ANDROID)
+  first_web_contents_profiler_ =
+      FirstWebContentsProfiler::CreateProfilerForFirstWebContents(this).Pass();
+#endif  // !defined(OS_ANDROID)
 }
 
 void ChromeBrowserMainExtraPartsMetrics::OnDisplayAdded(
@@ -279,6 +311,10 @@ void ChromeBrowserMainExtraPartsMetrics::OnDisplayRemoved(
 void ChromeBrowserMainExtraPartsMetrics::OnDisplayMetricsChanged(
     const gfx::Display& display,
     uint32_t changed_metrics) {
+}
+
+void ChromeBrowserMainExtraPartsMetrics::ProfilerFinishedCollectingMetrics() {
+  first_web_contents_profiler_.reset();
 }
 
 void ChromeBrowserMainExtraPartsMetrics::EmitDisplaysChangedMetric() {

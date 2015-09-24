@@ -24,7 +24,6 @@
 #include "extensions/browser/uninstall_reason.h"
 #include "extensions/common/dom_action_types.h"
 #include "extensions/common/extension_builder.h"
-#include "sql/statement.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if defined(OS_CHROMEOS)
@@ -61,10 +60,10 @@ class ActivityLogTest : public ChromeRenderViewHostTestHarness {
 #if defined OS_CHROMEOS
     test_user_manager_.reset(new chromeos::ScopedTestUserManager());
 #endif
-    CommandLine command_line(CommandLine::NO_PROGRAM);
-    CommandLine::ForCurrentProcess()->AppendSwitch(
+    base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
         switches::kEnableExtensionActivityLogging);
-    CommandLine::ForCurrentProcess()->AppendSwitch(
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
         switches::kEnableExtensionActivityLogTesting);
     extension_service_ = static_cast<TestExtensionSystem*>(
         ExtensionSystem::Get(profile()))->CreateExtensionService
@@ -247,11 +246,9 @@ TEST_F(ActivityLogTest, LogPrerender) {
       prerender::PrerenderManagerFactory::GetForProfile(
           Profile::FromBrowserContext(profile()));
 
-  prerender_manager->OnCookieStoreLoaded();
-
   const gfx::Size kSize(640, 480);
   scoped_ptr<prerender::PrerenderHandle> prerender_handle(
-      prerender_manager->AddPrerenderFromLocalPredictor(
+      prerender_manager->AddPrerenderFromOmnibox(
           url,
           web_contents()->GetController().GetDefaultSessionStorageNamespace(),
           kSize));

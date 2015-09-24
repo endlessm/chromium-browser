@@ -23,8 +23,6 @@
 #include "chrome/browser/sessions/session_restore.h"
 #include "chrome/browser/sessions/tab_restore_service_delegate.h"
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
-#include "chrome/browser/sync/glue/synced_session.h"
-#include "chrome/browser/sync/open_tabs_ui_delegate.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/ui/browser.h"
@@ -32,6 +30,8 @@
 #include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/pref_names.h"
+#include "components/sync_driver/glue/synced_session.h"
+#include "components/sync_driver/open_tabs_ui_delegate.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/extension_function_dispatcher.h"
 #include "extensions/browser/extension_function_registry.h"
@@ -59,14 +59,15 @@ const char kRestoreInIncognitoError[] =
 
 // Comparator function for use with std::sort that will sort sessions by
 // descending modified_time (i.e., most recent first).
-bool SortSessionsByRecency(const browser_sync::SyncedSession* s1,
-                           const browser_sync::SyncedSession* s2) {
+bool SortSessionsByRecency(const sync_driver::SyncedSession* s1,
+                           const sync_driver::SyncedSession* s2) {
   return s1->modified_time > s2->modified_time;
 }
 
 // Comparator function for use with std::sort that will sort tabs in a window
 // by descending timestamp (i.e., most recent first).
-bool SortTabsByRecency(const SessionTab* t1, const SessionTab* t2) {
+bool SortTabsByRecency(const sessions::SessionTab* t1,
+                       const sessions::SessionTab* t2) {
   return t1->timestamp > t2->timestamp;
 }
 
@@ -108,10 +109,10 @@ scoped_ptr<tabs::Tab> CreateTabModelHelper(
 }
 
 scoped_ptr<windows::Window> CreateWindowModelHelper(
-    scoped_ptr<std::vector<linked_ptr<tabs::Tab> > > tabs,
+    scoped_ptr<std::vector<linked_ptr<tabs::Tab>>> tabs,
     const std::string& session_id,
-    const windows::Window::Type& type,
-    const windows::Window::State& state) {
+    const windows::WindowType& type,
+    const windows::WindowState& state) {
   scoped_ptr<windows::Window> window_struct(new windows::Window);
   window_struct->tabs = tabs.Pass();
   window_struct->session_id.reset(new std::string(session_id));
@@ -171,10 +172,9 @@ scoped_ptr<windows::Window>
                        window.selected_tab_index).release()));
   }
 
-  return CreateWindowModelHelper(tabs.Pass(),
-                                 base::IntToString(session_id),
-                                 windows::Window::TYPE_NORMAL,
-                                 windows::Window::STATE_NORMAL);
+  return CreateWindowModelHelper(tabs.Pass(), base::IntToString(session_id),
+                                 windows::WINDOW_TYPE_NORMAL,
+                                 windows::WINDOW_STATE_NORMAL);
 }
 
 scoped_ptr<api::sessions::Session>
@@ -240,7 +240,7 @@ bool SessionsGetRecentlyClosedFunction::RunSync() {
 
 scoped_ptr<tabs::Tab> SessionsGetDevicesFunction::CreateTabModel(
     const std::string& session_tag,
-    const SessionTab& tab,
+    const sessions::SessionTab& tab,
     int tab_index,
     int selected_index) {
   std::string session_id = SessionId(session_tag, tab.tab_id.id()).ToString();
@@ -255,14 +255,14 @@ scoped_ptr<tabs::Tab> SessionsGetDevicesFunction::CreateTabModel(
 }
 
 scoped_ptr<windows::Window> SessionsGetDevicesFunction::CreateWindowModel(
-        const SessionWindow& window, const std::string& session_tag) {
+        const sessions::SessionWindow& window, const std::string& session_tag) {
   DCHECK(!window.tabs.empty());
 
   // Prune tabs that are not syncable or are NewTabPage. Then, sort the tabs
   // from most recent to least recent.
-  std::vector<const SessionTab*> tabs_in_window;
+  std::vector<const sessions::SessionTab*> tabs_in_window;
   for (size_t i = 0; i < window.tabs.size(); ++i) {
-    const SessionTab* tab = window.tabs[i];
+    const sessions::SessionTab* tab = window.tabs[i];
     if (tab->navigations.empty())
       continue;
     const sessions::SerializedNavigationEntry& current_navigation =
@@ -287,29 +287,30 @@ scoped_ptr<windows::Window> SessionsGetDevicesFunction::CreateWindowModel(
   std::string session_id =
       SessionId(session_tag, window.window_id.id()).ToString();
 
-  windows::Window::Type type = windows::Window::TYPE_NONE;
+  windows::WindowType type = windows::WINDOW_TYPE_NONE;
   switch (window.type) {
-    case SessionWindow::TYPE_TABBED:
-      type = windows::Window::TYPE_NORMAL;
+    case sessions::SessionWindow::TYPE_TABBED:
+      type = windows::WINDOW_TYPE_NORMAL;
       break;
-    case SessionWindow::TYPE_POPUP:
-      type = windows::Window::TYPE_POPUP;
+    case sessions::SessionWindow::TYPE_POPUP:
+      type = windows::WINDOW_TYPE_POPUP;
       break;
   }
 
-  windows::Window::State state = windows::Window::STATE_NONE;
+  windows::WindowState state = windows::WINDOW_STATE_NONE;
   switch (window.show_state) {
     case ui::SHOW_STATE_NORMAL:
-      state = windows::Window::STATE_NORMAL;
+    case ui::SHOW_STATE_DOCKED:
+      state = windows::WINDOW_STATE_NORMAL;
       break;
     case ui::SHOW_STATE_MINIMIZED:
-      state = windows::Window::STATE_MINIMIZED;
+      state = windows::WINDOW_STATE_MINIMIZED;
       break;
     case ui::SHOW_STATE_MAXIMIZED:
-      state = windows::Window::STATE_MAXIMIZED;
+      state = windows::WINDOW_STATE_MAXIMIZED;
       break;
     case ui::SHOW_STATE_FULLSCREEN:
-      state = windows::Window::STATE_FULLSCREEN;
+      state = windows::WINDOW_STATE_FULLSCREEN;
       break;
     case ui::SHOW_STATE_DEFAULT:
     case ui::SHOW_STATE_INACTIVE:
@@ -331,7 +332,7 @@ scoped_ptr<windows::Window> SessionsGetDevicesFunction::CreateWindowModel(
 
 scoped_ptr<api::sessions::Session>
 SessionsGetDevicesFunction::CreateSessionModel(
-    const SessionWindow& window, const std::string& session_tag) {
+    const sessions::SessionWindow& window, const std::string& session_tag) {
   scoped_ptr<windows::Window> window_model(
       CreateWindowModel(window, session_tag));
   // There is a chance that after pruning uninteresting tabs the window will be
@@ -343,7 +344,7 @@ SessionsGetDevicesFunction::CreateSessionModel(
 }
 
 scoped_ptr<api::sessions::Device> SessionsGetDevicesFunction::CreateDeviceModel(
-    const browser_sync::SyncedSession* session) {
+    const sync_driver::SyncedSession* session) {
   int max_results = api::sessions::MAX_SESSION_RESULTS;
   // Already validated in RunAsync().
   scoped_ptr<GetDevices::Params> params(GetDevices::Params::Create(*args_));
@@ -354,9 +355,11 @@ scoped_ptr<api::sessions::Device> SessionsGetDevicesFunction::CreateDeviceModel(
   device_struct->info = session->session_name;
   device_struct->device_name = session->session_name;
 
-  for (browser_sync::SyncedSession::SyncedWindowMap::const_iterator it =
-       session->windows.begin(); it != session->windows.end() &&
-       static_cast<int>(device_struct->sessions.size()) < max_results; ++it) {
+  for (sync_driver::SyncedSession::SyncedWindowMap::const_iterator it =
+           session->windows.begin();
+       it != session->windows.end() &&
+           static_cast<int>(device_struct->sessions.size()) < max_results;
+       ++it) {
     scoped_ptr<api::sessions::Session> session_model(CreateSessionModel(
         *it->second, session->session_tag));
     if (session_model)
@@ -376,9 +379,8 @@ bool SessionsGetDevicesFunction::RunSync() {
     return true;
   }
 
-  browser_sync::OpenTabsUIDelegate* open_tabs =
-      service->GetOpenTabsUIDelegate();
-  std::vector<const browser_sync::SyncedSession*> sessions;
+  sync_driver::OpenTabsUIDelegate* open_tabs = service->GetOpenTabsUIDelegate();
+  std::vector<const sync_driver::SyncedSession*> sessions;
   if (!(open_tabs && open_tabs->GetAllForeignSessions(&sessions))) {
     results_ = GetDevices::Results::Create(
         std::vector<linked_ptr<api::sessions::Device> >());
@@ -521,14 +523,13 @@ bool SessionsRestoreFunction::RestoreForeignSession(const SessionId& session_id,
     SetError(kSessionSyncError);
     return false;
   }
-  browser_sync::OpenTabsUIDelegate* open_tabs =
-      service->GetOpenTabsUIDelegate();
+  sync_driver::OpenTabsUIDelegate* open_tabs = service->GetOpenTabsUIDelegate();
   if (!open_tabs) {
     SetError(kSessionSyncError);
     return false;
   }
 
-  const SessionTab* tab = NULL;
+  const sessions::SessionTab* tab = NULL;
   if (open_tabs->GetForeignTab(session_id.session_tag(),
                                session_id.id(),
                                &tab)) {
@@ -543,13 +544,14 @@ bool SessionsRestoreFunction::RestoreForeignSession(const SessionId& session_id,
   }
 
   // Restoring a full window.
-  std::vector<const SessionWindow*> windows;
+  std::vector<const sessions::SessionWindow*> windows;
   if (!open_tabs->GetForeignSession(session_id.session_tag(), &windows)) {
     SetInvalidIdError(session_id.ToString());
     return false;
   }
 
-  std::vector<const SessionWindow*>::const_iterator window = windows.begin();
+  std::vector<const sessions::SessionWindow*>::const_iterator window =
+      windows.begin();
   while (window != windows.end()
          && (*window)->window_id.id() != session_id.id()) {
     ++window;
@@ -617,8 +619,8 @@ SessionsEventRouter::~SessionsEventRouter() {
 void SessionsEventRouter::TabRestoreServiceChanged(
     TabRestoreService* service) {
   scoped_ptr<base::ListValue> args(new base::ListValue());
-  EventRouter::Get(profile_)->BroadcastEvent(make_scoped_ptr(
-      new Event(api::sessions::OnChanged::kEventName, args.Pass())));
+  EventRouter::Get(profile_)->BroadcastEvent(make_scoped_ptr(new Event(
+      events::UNKNOWN, api::sessions::OnChanged::kEventName, args.Pass())));
 }
 
 void SessionsEventRouter::TabRestoreServiceDestroyed(

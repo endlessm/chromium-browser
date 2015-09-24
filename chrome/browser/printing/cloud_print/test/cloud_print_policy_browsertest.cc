@@ -31,63 +31,31 @@ class CloudPrintPolicyTest : public InProcessBrowserTest {
 IN_PROC_BROWSER_TEST_F(CloudPrintPolicyTest, NormalPassedFlag) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
   base::FilePath test_file_path = ui_test_utils::GetTestFilePath(
       base::FilePath(), base::FilePath().AppendASCII("empty.html"));
-  CommandLine new_command_line(GetCommandLineForRelaunch());
+  base::CommandLine new_command_line(GetCommandLineForRelaunch());
   new_command_line.AppendArgPath(test_file_path);
 
   content::WindowedNotificationObserver observer(
       chrome::NOTIFICATION_TAB_ADDED,
       content::NotificationService::AllSources());
 
-  base::ProcessHandle handle;
-  bool launched =
-      base::LaunchProcess(new_command_line, base::LaunchOptionsForTest(),
-          &handle);
-  EXPECT_TRUE(launched);
+  base::Process process =
+      base::LaunchProcess(new_command_line, base::LaunchOptionsForTest());
+  EXPECT_TRUE(process.IsValid());
 
   observer.Wait();
 
   int exit_code = -100;
-  bool exited =
-      base::WaitForExitCodeWithTimeout(handle, &exit_code,
-                                       TestTimeouts::action_timeout());
-
+  bool exited = process.WaitForExitWithTimeout(TestTimeouts::action_timeout(),
+                                               &exit_code);
   EXPECT_TRUE(exited);
   EXPECT_EQ(chrome::RESULT_CODE_NORMAL_EXIT_PROCESS_NOTIFIED, exit_code);
-  base::CloseProcessHandle(handle);
-}
-
-// Disabled due to http://crbug.com/144393.
-IN_PROC_BROWSER_TEST_F(CloudPrintPolicyTest, DISABLED_CloudPrintPolicyFlag) {
-  CommandLine new_command_line(GetCommandLineForRelaunch());
-  new_command_line.AppendSwitch(switches::kCheckCloudPrintConnectorPolicy);
-  // This is important for the test as the way the browser process is launched
-  // here causes the predictor databases to be initialized multiple times. This
-  // is not an issue for production where the process is launched as a service
-  // and a Profile is not created. See http://crbug.com/140466 for more details.
-  new_command_line.AppendSwitchASCII(
-      switches::kSpeculativeResourcePrefetching,
-      switches::kSpeculativeResourcePrefetchingDisabled);
-
-  base::ProcessHandle handle;
-  bool launched =
-      base::LaunchProcess(new_command_line, base::LaunchOptionsForTest(),
-          &handle);
-  EXPECT_TRUE(launched);
-
-  int exit_code = -100;
-  bool exited =
-      base::WaitForExitCodeWithTimeout(handle, &exit_code,
-                                       TestTimeouts::action_timeout());
-
-  EXPECT_TRUE(exited);
-  EXPECT_EQ(content::RESULT_CODE_NORMAL_EXIT, exit_code);
-  base::CloseProcessHandle(handle);
 }
 
 }  // namespace

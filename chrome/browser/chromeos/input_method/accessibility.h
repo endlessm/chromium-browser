@@ -5,7 +5,7 @@
 #ifndef CHROME_BROWSER_CHROMEOS_INPUT_METHOD_ACCESSIBILITY_H_
 #define CHROME_BROWSER_CHROMEOS_INPUT_METHOD_ACCESSIBILITY_H_
 
-#include "chromeos/ime/input_method_manager.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
 
 namespace chromeos {
 namespace input_method {
@@ -15,12 +15,13 @@ class Accessibility
     : public InputMethodManager::Observer {
  public:
   explicit Accessibility(InputMethodManager* imm);
-  virtual ~Accessibility();
+  ~Accessibility() override;
 
  private:
   // InputMethodManager::Observer implementation.
-  virtual void InputMethodChanged(InputMethodManager* imm,
-                                  bool show_message) override;
+  void InputMethodChanged(InputMethodManager* imm,
+                          Profile* profile,
+                          bool show_message) override;
   InputMethodManager* imm_;
 
   DISALLOW_COPY_AND_ASSIGN(Accessibility);

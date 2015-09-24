@@ -14,18 +14,18 @@
 #include "chrome/browser/ui/search/search_model.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_bar_view.h"
 #include "chrome/browser/ui/views/download/download_shelf_view.h"
+#include "chrome/browser/ui/views/exclusive_access_bubble_views.h"
 #include "chrome/browser/ui/views/frame/browser_view_layout_delegate.h"
 #include "chrome/browser/ui/views/frame/contents_layout_manager.h"
 #include "chrome/browser/ui/views/frame/immersive_mode_controller.h"
 #include "chrome/browser/ui/views/frame/top_container_view.h"
-#include "chrome/browser/ui/views/fullscreen_exit_bubble_views.h"
 #include "chrome/browser/ui/views/infobars/infobar_container_view.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "components/web_modal/web_contents_modal_dialog_host.h"
 #include "ui/base/hit_test.h"
-#include "ui/gfx/point.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/scrollbar_size.h"
-#include "ui/gfx/size.h"
 #include "ui/views/controls/webview/webview.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/client_view.h"
@@ -108,7 +108,7 @@ class BrowserViewLayout::WebContentsModalDialogHostViews
 
   BrowserViewLayout* const browser_view_layout_;
 
-  ObserverList<ModalDialogHostObserver> observer_list_;
+  base::ObserverList<ModalDialogHostObserver> observer_list_;
 
   DISALLOW_COPY_AND_ASSIGN(WebContentsModalDialogHostViews);
 };
@@ -120,17 +120,17 @@ const int BrowserViewLayout::kToolbarTabStripVerticalOverlap = 3;
 // BrowserViewLayout, public:
 
 BrowserViewLayout::BrowserViewLayout()
-    : browser_(NULL),
-      browser_view_(NULL),
-      top_container_(NULL),
-      tab_strip_(NULL),
-      toolbar_(NULL),
-      bookmark_bar_(NULL),
-      infobar_container_(NULL),
-      contents_container_(NULL),
-      contents_layout_manager_(NULL),
-      download_shelf_(NULL),
-      immersive_mode_controller_(NULL),
+    : browser_(nullptr),
+      browser_view_(nullptr),
+      top_container_(nullptr),
+      tab_strip_(nullptr),
+      toolbar_(nullptr),
+      bookmark_bar_(nullptr),
+      infobar_container_(nullptr),
+      contents_container_(nullptr),
+      contents_layout_manager_(nullptr),
+      download_shelf_(nullptr),
+      immersive_mode_controller_(nullptr),
       dialog_host_(new WebContentsModalDialogHostViews(this)),
       web_contents_modal_dialog_top_y_(-1) {}
 
@@ -348,16 +348,16 @@ void BrowserViewLayout::Layout(views::View* browser_view) {
   // TabContentsContainer's bounds being up to date.
   if (browser()->HasFindBarController()) {
     browser()->GetFindBarController()->find_bar()->MoveWindowIfNecessary(
-        gfx::Rect(), true);
+        gfx::Rect());
   }
 
   // Adjust the fullscreen exit bubble bounds for |top_container_|'s new bounds.
   // This makes the fullscreen exit bubble look like it animates with
   // |top_container_| in immersive fullscreen.
-  FullscreenExitBubbleViews* fullscreen_exit_bubble =
-      delegate_->GetFullscreenExitBubble();
-  if (fullscreen_exit_bubble)
-    fullscreen_exit_bubble->RepositionIfVisible();
+  ExclusiveAccessBubbleViews* exclusive_access_bubble =
+      delegate_->GetExclusiveAccessBubble();
+  if (exclusive_access_bubble)
+    exclusive_access_bubble->RepositionIfVisible();
 
   // Adjust any hosted dialogs if the browser's dialog hosting bounds changed.
   const gfx::Rect dialog_bounds(dialog_host_->GetDialogPosition(gfx::Size()),

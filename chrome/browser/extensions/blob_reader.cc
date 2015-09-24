@@ -21,16 +21,15 @@ BlobReader::BlobReader(Profile* profile,
     : callback_(callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   GURL blob_url;
-  if (StartsWithASCII(blob_uuid, "blob:blobinternal", true)) {
+  if (base::StartsWith(blob_uuid, "blob:blobinternal",
+                       base::CompareCase::SENSITIVE)) {
     // TODO(michaeln): remove support for deprecated blob urls
     blob_url = GURL(blob_uuid);
   } else {
     blob_url = GURL(std::string("blob:uuid/") + blob_uuid);
   }
   DCHECK(blob_url.is_valid());
-  fetcher_.reset(net::URLFetcher::Create(
-      blob_url, net::URLFetcher::GET,
-      this));
+  fetcher_ = net::URLFetcher::Create(blob_url, net::URLFetcher::GET, this);
   fetcher_->SetRequestContext(profile->GetRequestContext());
 }
 

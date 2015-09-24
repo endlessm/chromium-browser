@@ -4,16 +4,13 @@
 
 #include "missing_ctor.h"
 
-#include <string>
-#include <vector>
-
 // We don't warn on classes that use default ctors in cpp files.
 class MissingInCPPOK {
  public:
 
  private:
-  std::vector<int> one_;
-  std::vector<std::string> two_;
+  MyVector<int> one_;
+  MyVector<MyString> two_;
 };
 
 int main() {

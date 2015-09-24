@@ -6,6 +6,7 @@
  * David A. McGrew
  * Cisco Systems, Inc.
  */
+
 /*
  *	
  * Copyright (c) 2001-2006, Cisco Systems, Inc.
@@ -41,7 +42,6 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  */
-
 
 #include "rtp_priv.h"
 
@@ -223,5 +223,5 @@ rtp_receiver_alloc(void) {
 
 void
 rtp_receiver_dealloc(rtp_receiver_t rtp_ctx) {
-  return free(rtp_ctx);
+  free(rtp_ctx);
 }

@@ -6,9 +6,12 @@
 
 #include "gpu/command_buffer/client/cmd_buffer_helper.h"
 
+#include <algorithm>
 #include "base/logging.h"
 #include "base/time/time.h"
+#include "gpu/command_buffer/common/buffer.h"
 #include "gpu/command_buffer/common/command_buffer.h"
+#include "gpu/command_buffer/common/constants.h"
 #include "gpu/command_buffer/common/trace_event.h"
 
 namespace gpu {
@@ -150,10 +153,22 @@ void CommandBufferHelper::Flush() {
   if (put_ == total_entry_count_)
     put_ = 0;
 
-  if (usable() && last_put_sent_ != put_) {
+  if (usable()) {
     last_flush_time_ = base::TimeTicks::Now();
     last_put_sent_ = put_;
     command_buffer_->Flush(put_);
+    ++flush_generation_;
+    CalcImmediateEntries(0);
+  }
+}
+
+void CommandBufferHelper::OrderingBarrier() {
+  // Wrap put_ before setting the barrier.
+  if (put_ == total_entry_count_)
+    put_ = 0;
+
+  if (usable()) {
+    command_buffer_->OrderingBarrier(put_);
     ++flush_generation_;
     CalcImmediateEntries(0);
   }

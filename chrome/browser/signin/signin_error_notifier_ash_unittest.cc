@@ -10,14 +10,13 @@
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/signin/fake_signin_manager.h"
-#include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
+#include "chrome/browser/signin/signin_error_controller_factory.h"
 #include "chrome/browser/signin/signin_error_notifier_factory_ash.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
 #include "components/signin/core/browser/fake_auth_status_provider.h"
-#include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_error_controller.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -37,7 +36,6 @@ namespace test {
 namespace {
 
 static const char kTestAccountId[] = "testuser@test.com";
-static const char kTestUsername[] = "testuser@test.com";
 
 // Notification ID corresponding to kProfileSigninNotificationId +
 // kTestAccountId.
@@ -49,8 +47,7 @@ static const std::string kNotificationId =
 class ScreenTypeDelegateDesktop : public gfx::ScreenTypeDelegate {
  public:
   ScreenTypeDelegateDesktop() {}
-  virtual gfx::ScreenType GetScreenTypeForNativeView(
-      gfx::NativeView view) override {
+  gfx::ScreenType GetScreenTypeForNativeView(gfx::NativeView view) override {
     return chrome::IsNativeViewInAsh(view) ?
         gfx::SCREEN_TYPE_ALTERNATE :
         gfx::SCREEN_TYPE_NATIVE;
@@ -81,18 +78,19 @@ class SigninErrorNotifierTest : public AshTestBase {
 #if defined(OS_WIN)
     test_screen_.reset(aura::TestScreen::Create(gfx::Size()));
     gfx::Screen::SetScreenInstance(gfx::SCREEN_TYPE_NATIVE, test_screen_.get());
-    gfx::Screen::SetScreenTypeDelegate(new ScreenTypeDelegateDesktop);
+    gfx::Screen::SetScreenTypeDelegate(&screen_type_delegate_);
 #endif
 
-    error_controller_ =
-        ProfileOAuth2TokenServiceFactory::GetForProfile(profile_.get())->
-            signin_error_controller();
+    error_controller_ = SigninErrorControllerFactory::GetForProfile(
+        profile_.get());
     SigninErrorNotifierFactory::GetForProfile(profile_.get());
     notification_ui_manager_ = g_browser_process->notification_ui_manager();
   }
 
   void TearDown() override {
 #if defined(OS_WIN)
+    gfx::Screen::SetScreenTypeDelegate(nullptr);
+    gfx::Screen::SetScreenInstance(gfx::SCREEN_TYPE_NATIVE, nullptr);
     test_screen_.reset();
 #endif
     profile_manager_.reset();
@@ -111,6 +109,7 @@ class SigninErrorNotifierTest : public AshTestBase {
   }
 
 #if defined(OS_WIN)
+  ScreenTypeDelegateDesktop screen_type_delegate_;
   scoped_ptr<gfx::Screen> test_screen_;
 #endif
   scoped_ptr<TestingProfileManager> profile_manager_;
@@ -143,7 +142,6 @@ TEST_F(SigninErrorNotifierTest, ErrorAuthStatusProvider) {
       FakeAuthStatusProvider error_provider(error_controller_);
       error_provider.SetAuthError(
           kTestAccountId,
-          kTestUsername,
           GoogleServiceAuthError(
               GoogleServiceAuthError::INVALID_GAIA_CREDENTIALS));
       ASSERT_TRUE(notification_ui_manager_->FindById(
@@ -174,7 +172,6 @@ TEST_F(SigninErrorNotifierTest, MAYBE_AuthStatusProviderErrorTransition) {
     FakeAuthStatusProvider provider1(error_controller_);
     provider0.SetAuthError(
         kTestAccountId,
-        kTestUsername,
         GoogleServiceAuthError(
             GoogleServiceAuthError::INVALID_GAIA_CREDENTIALS));
     ASSERT_TRUE(notification_ui_manager_->FindById(
@@ -187,12 +184,10 @@ TEST_F(SigninErrorNotifierTest, MAYBE_AuthStatusProviderErrorTransition) {
     // Now set another auth error and clear the original.
     provider1.SetAuthError(
         kTestAccountId,
-        kTestUsername,
         GoogleServiceAuthError(
             GoogleServiceAuthError::UNEXPECTED_SERVICE_RESPONSE));
     provider0.SetAuthError(
         kTestAccountId,
-        kTestUsername,
         GoogleServiceAuthError::AuthErrorNone());
 
     ASSERT_TRUE(notification_ui_manager_->FindById(
@@ -205,7 +200,7 @@ TEST_F(SigninErrorNotifierTest, MAYBE_AuthStatusProviderErrorTransition) {
     ASSERT_NE(new_message, message);
 
     provider1.SetAuthError(
-        kTestAccountId, kTestUsername, GoogleServiceAuthError::AuthErrorNone());
+        kTestAccountId, GoogleServiceAuthError::AuthErrorNone());
     ASSERT_FALSE(notification_ui_manager_->FindById(
         kNotificationId, NotificationUIManager::GetProfileID(profile_.get())));
   }
@@ -236,13 +231,12 @@ TEST_F(SigninErrorNotifierTest, AuthStatusEnumerateAllErrors) {
     { GoogleServiceAuthError::SERVICE_ERROR, true },
     { GoogleServiceAuthError::WEB_LOGIN_REQUIRED, true },
   };
-  COMPILE_ASSERT(arraysize(table) == GoogleServiceAuthError::NUM_STATES,
-      kTable_size_does_not_match_number_of_auth_error_types);
+  static_assert(arraysize(table) == GoogleServiceAuthError::NUM_STATES,
+      "table size should match number of auth error types");
 
   for (size_t i = 0; i < arraysize(table); ++i) {
     FakeAuthStatusProvider provider(error_controller_);
     provider.SetAuthError(kTestAccountId,
-                          kTestUsername,
                           GoogleServiceAuthError(table[i].error_state));
     const Notification* notification = notification_ui_manager_->FindById(
         kNotificationId, NotificationUIManager::GetProfileID(profile_.get()));

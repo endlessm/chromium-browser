@@ -10,6 +10,7 @@
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/form_field.h"
@@ -21,7 +22,7 @@ class AutofillScanner;
 
 class AddressField : public FormField {
  public:
-  static FormField* Parse(AutofillScanner* scanner);
+  static scoped_ptr<FormField> Parse(AutofillScanner* scanner);
 
  protected:
   // FormField:
@@ -40,6 +41,10 @@ class AddressField : public FormField {
   FRIEND_TEST_ALL_PREFIXES(AddressFieldTest, ParseTwoLineAddressMissingLabel);
   FRIEND_TEST_ALL_PREFIXES(AddressFieldTest, ParseCompany);
 
+  static const int kZipCodeMatchType;
+  static const int kCityMatchType;
+  static const int kStateMatchType;
+
   AddressField();
 
   bool ParseCompany(AutofillScanner* scanner);
@@ -49,9 +54,21 @@ class AddressField : public FormField {
   bool ParseCity(AutofillScanner* scanner);
   bool ParseState(AutofillScanner* scanner);
 
+  // Parses the current field pointed to by |scanner|, if it exists, and tries
+  // to figure out whether the field's type: city, state, zip, or none of those.
+  bool ParseCityStateZipCode(AutofillScanner* scanner);
+
+  // Run matches on the name and label separately. If the return result is
+  // RESULT_MATCH_NAME_LABEL, then |scanner| advances and the field is set.
+  // Otherwise |scanner| rewinds and the field is cleared.
+  ParseNameLabelResult ParseNameAndLabelForZipCode(AutofillScanner* scanner);
+  ParseNameLabelResult ParseNameAndLabelForCity(AutofillScanner* scanner);
+  ParseNameLabelResult ParseNameAndLabelForState(AutofillScanner* scanner);
+
   AutofillField* company_;
   AutofillField* address1_;
   AutofillField* address2_;
+  AutofillField* address3_;
   AutofillField* street_address_;
   AutofillField* city_;
   AutofillField* state_;

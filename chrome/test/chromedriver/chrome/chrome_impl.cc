@@ -4,6 +4,7 @@
 
 #include "chrome/test/chromedriver/chrome/chrome_impl.h"
 
+#include "base/bind.h"
 #include "chrome/test/chromedriver/chrome/devtools_client.h"
 #include "chrome/test/chromedriver/chrome/devtools_event_listener.h"
 #include "chrome/test/chromedriver/chrome/devtools_http_client.h"
@@ -11,16 +12,23 @@
 #include "chrome/test/chromedriver/chrome/web_view_impl.h"
 #include "chrome/test/chromedriver/net/port_server.h"
 
+namespace {
+
+void DoNothingWithWebViewInfo(const WebViewInfo& view) {
+}
+
+}  // namespace
+
 ChromeImpl::~ChromeImpl() {
   if (!quit_)
     port_reservation_->Leak();
 }
 
-ChromeDesktopImpl* ChromeImpl::GetAsDesktop() {
-  return NULL;
+Status ChromeImpl::GetAsDesktop(ChromeDesktopImpl** desktop) {
+  return Status(kUnknownError, "operation unsupported");
 }
 
-const BrowserInfo* ChromeImpl::GetBrowserInfo() {
+const BrowserInfo* ChromeImpl::GetBrowserInfo() const {
   return devtools_http_client_->browser_info();
 }
 
@@ -34,6 +42,12 @@ bool ChromeImpl::HasCrashedWebView() {
 }
 
 Status ChromeImpl::GetWebViewIds(std::list<std::string>* web_view_ids) {
+  WebViewCallback callback = base::Bind(&DoNothingWithWebViewInfo);
+  return UpdateWebViewIds(web_view_ids, callback);
+}
+
+Status ChromeImpl::UpdateWebViewIds(std::list<std::string>* web_view_ids,
+                                    const WebViewCallback& on_open_web_view) {
   WebViewsInfo views_info;
   Status status = devtools_http_client_->GetWebViewsInfo(&views_info);
   if (status.IsError())
@@ -52,31 +66,35 @@ Status ChromeImpl::GetWebViewIds(std::list<std::string>* web_view_ids) {
   // Check for newly-opened web views.
   for (size_t i = 0; i < views_info.GetSize(); ++i) {
     const WebViewInfo& view = views_info.Get(i);
-    if (view.type != WebViewInfo::kPage && view.type != WebViewInfo::kApp)
-      continue;
-
-    bool found = false;
-    for (WebViewList::const_iterator web_view_iter = web_views_.begin();
-         web_view_iter != web_views_.end(); ++web_view_iter) {
-      if ((*web_view_iter)->GetId() == view.id) {
-        found = true;
-        break;
+    if (view.type == WebViewInfo::kPage ||
+        view.type == WebViewInfo::kApp ||
+        (view.type == WebViewInfo::kOther &&
+         (view.url.find("chrome-extension://") == 0 ||
+          view.url == "chrome://print/"))) {
+      bool found = false;
+      for (WebViewList::const_iterator web_view_iter = web_views_.begin();
+           web_view_iter != web_views_.end(); ++web_view_iter) {
+        if ((*web_view_iter)->GetId() == view.id) {
+          found = true;
+          break;
+        }
       }
-    }
-    if (!found) {
-      scoped_ptr<DevToolsClient> client(
-          devtools_http_client_->CreateClient(view.id));
-      for (ScopedVector<DevToolsEventListener>::const_iterator listener =
-               devtools_event_listeners_.begin();
-           listener != devtools_event_listeners_.end(); ++listener) {
-        client->AddListener(*listener);
-        // OnConnected will fire when DevToolsClient connects later.
+      if (!found) {
+        scoped_ptr<DevToolsClient> client(
+            devtools_http_client_->CreateClient(view.id));
+        for (ScopedVector<DevToolsEventListener>::const_iterator listener =
+                 devtools_event_listeners_.begin();
+             listener != devtools_event_listeners_.end(); ++listener) {
+          client->AddListener(*listener);
+          // OnConnected will fire when DevToolsClient connects later.
+        }
+        web_views_.push_back(make_linked_ptr(new WebViewImpl(
+            view.id,
+            devtools_http_client_->browser_info(),
+            client.Pass(),
+            devtools_http_client_->device_metrics())));
+        on_open_web_view.Run(view);
       }
-      web_views_.push_back(make_linked_ptr(new WebViewImpl(
-          view.id,
-          devtools_http_client_->browser_info(),
-          client.Pass(),
-          devtools_http_client_->device_metrics())));
     }
   }
 
@@ -119,6 +137,10 @@ Status ChromeImpl::ActivateWebView(const std::string& id) {
 }
 
 bool ChromeImpl::IsMobileEmulationEnabled() const {
+  return false;
+}
+
+bool ChromeImpl::HasTouchScreen() const {
   return false;
 }
 

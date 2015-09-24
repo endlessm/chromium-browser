@@ -14,6 +14,7 @@
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/drive/debug_info_collector.h"
 #include "chrome/browser/chromeos/drive/download_handler.h"
+#include "chrome/browser/chromeos/drive/drive_pref_names.h"
 #include "chrome/browser/chromeos/drive/file_cache.h"
 #include "chrome/browser/chromeos/drive/file_system.h"
 #include "chrome/browser/chromeos/drive/file_system_util.h"
@@ -46,7 +47,6 @@
 #include "content/public/browser/notification_service.h"
 #include "content/public/common/user_agent.h"
 #include "google_apis/drive/auth_service.h"
-#include "google_apis/drive/gdata_wapi_url_generator.h"
 #include "storage/browser/fileapi/external_mount_points.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -220,7 +220,7 @@ DriveIntegrationService::DriveIntegrationService(
       cache_root_directory_(!test_cache_root.empty() ?
                             test_cache_root : util::GetCacheRootPath(profile)),
       weak_ptr_factory_(this) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(profile && !profile->IsOffTheRecord());
 
   logger_.reset(new EventLogger);
@@ -240,7 +240,6 @@ DriveIntegrationService::DriveIntegrationService(
         blocking_task_runner_.get(),
         GURL(google_apis::DriveApiUrlGenerator::kBaseUrlForProduction),
         GURL(google_apis::DriveApiUrlGenerator::kBaseDownloadUrlForProduction),
-        GURL(google_apis::GDataWapiUrlGenerator::kBaseUrlForProduction),
         GetDriveUserAgent()));
   }
   scheduler_.reset(new JobScheduler(
@@ -261,16 +260,16 @@ DriveIntegrationService::DriveIntegrationService(
   resource_metadata_.reset(new internal::ResourceMetadata(
       metadata_storage_.get(), cache_.get(), blocking_task_runner_));
 
+  file_task_runner_ =
+      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE);
   file_system_.reset(
-      test_file_system ? test_file_system : new FileSystem(
-          profile_->GetPrefs(),
-          logger_.get(),
-          cache_.get(),
-          drive_service_.get(),
-          scheduler_.get(),
-          resource_metadata_.get(),
-          blocking_task_runner_.get(),
-          cache_root_directory_.Append(kTemporaryFileDirectory)));
+      test_file_system
+          ? test_file_system
+          : new FileSystem(
+                profile_->GetPrefs(), logger_.get(), cache_.get(),
+                scheduler_.get(), resource_metadata_.get(),
+                blocking_task_runner_.get(), file_task_runner_.get(),
+                cache_root_directory_.Append(kTemporaryFileDirectory)));
   download_handler_.reset(new DownloadHandler(file_system()));
   debug_info_collector_.reset(new DebugInfoCollector(
       resource_metadata_.get(), file_system(), blocking_task_runner_.get()));
@@ -284,11 +283,11 @@ DriveIntegrationService::DriveIntegrationService(
 }
 
 DriveIntegrationService::~DriveIntegrationService() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 }
 
 void DriveIntegrationService::Shutdown() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   weak_ptr_factory_.InvalidateWeakPtrs();
 
@@ -360,13 +359,13 @@ bool DriveIntegrationService::IsMounted() const {
 
 void DriveIntegrationService::AddObserver(
     DriveIntegrationServiceObserver* observer) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   observers_.AddObserver(observer);
 }
 
 void DriveIntegrationService::RemoveObserver(
     DriveIntegrationServiceObserver* observer) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   observers_.RemoveObserver(observer);
 }
 
@@ -385,7 +384,7 @@ void DriveIntegrationService::OnPushNotificationEnabled(bool enabled) {
 
 void DriveIntegrationService::ClearCacheAndRemountFileSystem(
     const base::Callback<void(bool)>& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(!callback.is_null());
 
   if (state_ != INITIALIZED) {
@@ -408,7 +407,7 @@ void DriveIntegrationService::ClearCacheAndRemountFileSystem(
 void DriveIntegrationService::AddBackDriveMountPoint(
     const base::Callback<void(bool)>& callback,
     FileError error) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(!callback.is_null());
 
   state_ = error == FILE_ERROR_OK ? INITIALIZED : NOT_INITIALIZED;
@@ -424,7 +423,7 @@ void DriveIntegrationService::AddBackDriveMountPoint(
 }
 
 void DriveIntegrationService::AddDriveMountPoint() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK_EQ(INITIALIZED, state_);
   DCHECK(enabled_);
 
@@ -450,7 +449,7 @@ void DriveIntegrationService::AddDriveMountPoint() {
 }
 
 void DriveIntegrationService::RemoveDriveMountPoint() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (!mount_point_name_.empty()) {
     job_list()->CancelAllJobs();
@@ -468,7 +467,7 @@ void DriveIntegrationService::RemoveDriveMountPoint() {
 }
 
 void DriveIntegrationService::Initialize() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK_EQ(NOT_INITIALIZED, state_);
   DCHECK(enabled_);
 
@@ -489,7 +488,7 @@ void DriveIntegrationService::Initialize() {
 
 void DriveIntegrationService::InitializeAfterMetadataInitialized(
     FileError error) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK_EQ(INITIALIZING, state_);
 
   SigninManagerBase* signin_manager =
@@ -556,9 +555,9 @@ void DriveIntegrationService::InitializeAfterMetadataInitialized(
 void DriveIntegrationService::AvoidDriveAsDownloadDirecotryPreference() {
   PrefService* pref_service = profile_->GetPrefs();
   if (util::IsUnderDriveMountPoint(
-          pref_service->GetFilePath(prefs::kDownloadDefaultDirectory))) {
+          pref_service->GetFilePath(::prefs::kDownloadDefaultDirectory))) {
     pref_service->SetFilePath(
-        prefs::kDownloadDefaultDirectory,
+        ::prefs::kDownloadDefaultDirectory,
         file_manager::util::GetDownloadsFolderForProfile(profile_));
   }
 }

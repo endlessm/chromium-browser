@@ -15,23 +15,19 @@
 #include "chrome/browser/ui/cocoa/omnibox/omnibox_view_mac.h"
 #include "chrome/browser/ui/omnibox/omnibox_edit_model.h"
 #include "chrome/browser/ui/omnibox/omnibox_popup_model.h"
-#include "components/omnibox/autocomplete_match.h"
-#include "components/omnibox/autocomplete_match_type.h"
+#include "components/omnibox/browser/autocomplete_match.h"
+#include "components/omnibox/browser/autocomplete_match_type.h"
 #include "grit/theme_resources.h"
 #include "skia/ext/skia_utils_mac.h"
 #import "third_party/google_toolbox_for_mac/src/AppKit/GTMNSAnimation+Duration.h"
 #import "ui/base/cocoa/cocoa_base_utils.h"
 #import "ui/base/cocoa/flipped_view.h"
 #include "ui/base/cocoa/window_size_constants.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/scoped_ns_graphics_context_save_gstate_mac.h"
 #include "ui/gfx/text_elider.h"
 
 namespace {
-
-// How much to adjust the cell sizing up from the default determined
-// by the font.
-const CGFloat kCellHeightAdjust = 6.0;
 
 // Padding between matrix and the top and bottom of the popup window.
 const CGFloat kPopupPaddingVertical = 5.0;
@@ -65,7 +61,7 @@ OmniboxPopupViewMac::~OmniboxPopupViewMac() {
 
   // Break references to |this| because the popup may not be
   // deallocated immediately.
-  [matrix_ setDelegate:NULL];
+  [matrix_ setObserver:NULL];
 }
 
 bool OmniboxPopupViewMac::IsOpen() const {
@@ -75,15 +71,14 @@ bool OmniboxPopupViewMac::IsOpen() const {
 void OmniboxPopupViewMac::UpdatePopupAppearance() {
   DCHECK([NSThread isMainThread]);
   const AutocompleteResult& result = GetResult();
-  const size_t start_match = result.ShouldHideTopMatch() ? 1 : 0;
-  const size_t rows = result.size() - start_match;
+  const size_t rows = result.size();
   if (rows == 0) {
     [[popup_ parentWindow] removeChildWindow:popup_];
     [popup_ orderOut:nil];
 
     // Break references to |this| because the popup may not be
     // deallocated immediately.
-    [matrix_ setDelegate:nil];
+    [matrix_ setObserver:NULL];
     matrix_.reset();
 
     popup_.reset(nil);
@@ -95,43 +90,17 @@ void OmniboxPopupViewMac::UpdatePopupAppearance() {
 
   CreatePopupIfNeeded();
 
-  // Calculate the width of the matrix based on backing out the popup's border
-  // from the width of the field.
-  const CGFloat matrix_width = NSWidth([field_ bounds]);
-  DCHECK_GT(matrix_width, 0.0);
-
-  // Load the results into the popup's matrix.
-  DCHECK_GT(rows, 0U);
-  [matrix_ renewRows:rows columns:1];
-  CGFloat max_match_contents_width = 0.0f;
-  CGFloat contents_offset = -1.0f;
-  for (size_t ii = 0; ii < rows; ++ii) {
-    OmniboxPopupCell* cell = [matrix_ cellAtRow:ii column:0];
-    const AutocompleteMatch& match = GetResult().match_at(ii + start_match);
-    [cell setImage:ImageForMatch(match)];
-    [cell setMatch:match];
-    if (match.type == AutocompleteMatchType::SEARCH_SUGGEST_INFINITE) {
-      max_match_contents_width = std::max(max_match_contents_width,
-                                           [cell getMatchContentsWidth]);
-      if (contents_offset < 0.0f) {
-        contents_offset = [OmniboxPopupCell computeContentsOffset:match];
-      }
-      [cell setContentsOffset:contents_offset];
-    }
+  NSImage* answerImage = nil;
+  if (!model_->answer_bitmap().isNull()) {
+    answerImage =
+        gfx::Image::CreateFrom1xBitmap(model_->answer_bitmap()).CopyNSImage();
   }
-
-  for (size_t ii = 0; ii < rows; ++ii) {
-    OmniboxPopupCell* cell = [matrix_ cellAtRow:ii column:0];
-    [cell setMaxMatchContentsWidth:max_match_contents_width];
-  }
-
-  // Set the cell size to fit a line of text in the cell's font.  All
-  // cells should use the same font and each should layout in one
-  // line, so they should all be about the same height.
-  const NSSize cell_size = [[matrix_ cellAtRow:0 column:0] cellSize];
-  DCHECK_GT(cell_size.height, 0.0);
-  const CGFloat cell_height = cell_size.height + kCellHeightAdjust;
-  [matrix_ setCellSize:NSMakeSize(matrix_width, cell_height)];
+  [matrix_ setController:[[OmniboxPopupTableController alloc]
+                             initWithMatchResults:result
+                                        tableView:matrix_
+                                        popupView:*this
+                                      answerImage:answerImage]];
+  [matrix_ setSeparator:[OmniboxPopupCell createSeparatorString]];
 
   // Update the selection before placing (and displaying) the window.
   PaintUpdatesNow();
@@ -140,7 +109,7 @@ void OmniboxPopupViewMac::UpdatePopupAppearance() {
   // because actually resizing the matrix messed up the popup size
   // animation.
   DCHECK_EQ([matrix_ intercellSpacing].height, 0.0);
-  PositionPopup(rows * cell_height);
+  PositionPopup(NSHeight([matrix_ frame]));
 }
 
 gfx::Rect OmniboxPopupViewMac::GetTargetBounds() {
@@ -155,19 +124,12 @@ gfx::Rect OmniboxPopupViewMac::GetTargetBounds() {
 // This is only called by model in SetSelectedLine() after updating
 // everything.  Popup should already be visible.
 void OmniboxPopupViewMac::PaintUpdatesNow() {
-  size_t start_match = model_->result().ShouldHideTopMatch() ? 1 : 0;
-  if (start_match > model_->selected_line()) {
-    [matrix_ deselectAllCells];
-  } else {
-    [matrix_ selectCellAtRow:model_->selected_line() - start_match column:0];
-  }
-
+  [matrix_ selectRowIndex:model_->selected_line()];
 }
 
 void OmniboxPopupViewMac::OnMatrixRowSelected(OmniboxPopupMatrix* matrix,
                                               size_t row) {
-  size_t start_match = model_->result().ShouldHideTopMatch() ? 1 : 0;
-  model_->SetSelectedLine(row + start_match, false, false);
+  model_->SetSelectedLine(row, false, false);
 }
 
 void OmniboxPopupViewMac::OnMatrixRowClicked(OmniboxPopupMatrix* matrix,
@@ -191,7 +153,7 @@ void OmniboxPopupViewMac::CreatePopupIfNeeded() {
         [[NSWindow alloc] initWithContentRect:ui::kWindowSizeDeterminedLater
                                     styleMask:NSBorderlessWindowMask
                                       backing:NSBackingStoreBuffered
-                                        defer:YES]);
+                                        defer:NO]);
     [popup_ setBackgroundColor:[NSColor clearColor]];
     [popup_ setOpaque:NO];
 
@@ -209,7 +171,7 @@ void OmniboxPopupViewMac::CreatePopupIfNeeded() {
     [background_view_ setContentViewMargins:NSZeroSize];
     [contentView addSubview:background_view_];
 
-    matrix_.reset([[OmniboxPopupMatrix alloc] initWithDelegate:this]);
+    matrix_.reset([[OmniboxPopupMatrix alloc] initWithObserver:this]);
     [background_view_ addSubview:matrix_];
 
     top_separator_view_.reset(
@@ -242,10 +204,6 @@ void OmniboxPopupViewMac::PositionPopup(const CGFloat matrixHeight) {
   popup_frame.origin =
       [[controller window] convertBaseToScreen:popup_frame.origin];
 
-  // Do nothing if the popup is already animating to the given |frame|.
-  if (NSEqualRects(popup_frame, target_popup_frame_))
-    return;
-
   // Top separator.
   NSRect top_separator_frame = NSZeroRect;
   top_separator_frame.size.width = NSWidth(popup_frame);
@@ -270,23 +228,37 @@ void OmniboxPopupViewMac::PositionPopup(const CGFloat matrixHeight) {
   background_rect.origin.y = NSMaxY(top_separator_frame);
   [background_view_ setFrame:background_rect];
 
+  // Calculate the width of the table based on backing out the popup's border
+  // from the width of the field.
+  const CGFloat tableWidth = NSWidth([field_ bounds]);
+  DCHECK_GT(tableWidth, 0.0);
+
   // Matrix.
   NSPoint field_origin_base =
       [field_ convertPoint:[field_ bounds].origin toView:nil];
   NSRect matrix_frame = NSZeroRect;
   matrix_frame.origin.x = field_origin_base.x - NSMinX(anchor_rect_base);
   matrix_frame.origin.y = kPopupPaddingVertical;
-  matrix_frame.size.width = [matrix_ cellSize].width;
+  matrix_frame.size.width = tableWidth;
   matrix_frame.size.height = matrixHeight;
   [matrix_ setFrame:matrix_frame];
+  [[[matrix_ tableColumns] objectAtIndex:0] setWidth:tableWidth];
 
-  NSRect current_poup_frame = [popup_ frame];
+  // Don't play animation games on first display.
   target_popup_frame_ = popup_frame;
+  if (![popup_ parentWindow]) {
+    DCHECK(![popup_ isVisible]);
+    [popup_ setFrame:popup_frame display:NO];
+    [[field_ window] addChildWindow:popup_ ordered:NSWindowAbove];
+    return;
+  }
+  DCHECK([popup_ isVisible]);
 
   // Animate the frame change if the only change is that the height got smaller.
   // Otherwise, resize immediately.
-  bool animate = (NSHeight(popup_frame) < NSHeight(current_poup_frame) &&
-                  NSWidth(popup_frame) == NSWidth(current_poup_frame));
+  NSRect current_popup_frame = [popup_ frame];
+  bool animate = (NSHeight(popup_frame) < NSHeight(current_popup_frame) &&
+                  NSWidth(popup_frame) == NSWidth(current_popup_frame));
 
   base::scoped_nsobject<NSDictionary> savedAnimations;
   if (!animate) {
@@ -302,7 +274,7 @@ void OmniboxPopupViewMac::PositionPopup(const CGFloat matrixHeight) {
   }
 
   [NSAnimationContext beginGrouping];
-  // Don't use the GTM additon for the "Steve" slowdown because this can happen
+  // Don't use the GTM addition for the "Steve" slowdown because this can happen
   // async from user actions and the effects could be a surprise.
   [[NSAnimationContext currentContext] setDuration:kShrinkAnimationDuration];
   [[popup_ animator] setFrame:popup_frame display:YES];
@@ -313,12 +285,10 @@ void OmniboxPopupViewMac::PositionPopup(const CGFloat matrixHeight) {
     // previously running animations.
     [popup_ setAnimations:savedAnimations];
   }
-
-  if (![popup_ isVisible])
-    [[field_ window] addChildWindow:popup_ ordered:NSWindowAbove];
 }
 
-NSImage* OmniboxPopupViewMac::ImageForMatch(const AutocompleteMatch& match) {
+NSImage* OmniboxPopupViewMac::ImageForMatch(
+    const AutocompleteMatch& match) const {
   gfx::Image image = model_->GetIconIfExtensionMatch(match);
   if (!image.IsEmpty())
     return image.AsNSImage();
@@ -330,8 +300,6 @@ NSImage* OmniboxPopupViewMac::ImageForMatch(const AutocompleteMatch& match) {
 
 void OmniboxPopupViewMac::OpenURLForRow(size_t row,
                                         WindowOpenDisposition disposition) {
-  size_t start_match = model_->result().ShouldHideTopMatch() ? 1 : 0;
-  row += start_match;
   DCHECK_LT(row, GetResult().size());
   omnibox_view_->OpenMatch(GetResult().match_at(row), disposition, GURL(),
                            base::string16(), row);

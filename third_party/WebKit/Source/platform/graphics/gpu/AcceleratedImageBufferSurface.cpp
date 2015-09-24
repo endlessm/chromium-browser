@@ -42,7 +42,7 @@
 
 namespace blink {
 
-AcceleratedImageBufferSurface::AcceleratedImageBufferSurface(const IntSize& size, OpacityMode opacityMode, int msaaSampleCount)
+AcceleratedImageBufferSurface::AcceleratedImageBufferSurface(const IntSize& size, OpacityMode opacityMode)
     : ImageBufferSurface(size, opacityMode)
 {
     m_contextProvider = adoptPtr(Platform::current()->createSharedOffscreenGraphicsContext3DProvider());
@@ -54,19 +54,24 @@ AcceleratedImageBufferSurface::AcceleratedImageBufferSurface(const IntSize& size
 
     SkAlphaType alphaType = (Opaque == opacityMode) ? kOpaque_SkAlphaType : kPremul_SkAlphaType;
     SkImageInfo info = SkImageInfo::MakeN32(size.width(), size.height(), alphaType);
-    m_surface = adoptPtr(SkSurface::NewScratchRenderTarget(grContext, info, msaaSampleCount));
+    SkSurfaceProps disableLCDProps(0, kUnknown_SkPixelGeometry);
+    m_surface = adoptPtr(SkSurface::NewRenderTarget(grContext, SkSurface::kYes_Budgeted, info, 0 /* sampleCount */,
+        Opaque == opacityMode ? nullptr : &disableLCDProps));
     if (!m_surface.get())
         return;
     clear();
 }
 
-Platform3DObject AcceleratedImageBufferSurface::getBackingTexture() const
+PassRefPtr<SkImage> AcceleratedImageBufferSurface::newImageSnapshot() const
 {
-    GrRenderTarget* renderTarget = m_surface->getCanvas()->getTopDevice()->accessRenderTarget();
-    if (renderTarget) {
-        return renderTarget->asTexture()->getTextureHandle();
-    }
-    return 0;
+    return adoptRef(m_surface->newImageSnapshot());
+}
+
+Platform3DObject AcceleratedImageBufferSurface::getBackingTextureHandleForOverwrite()
+{
+    if (!m_surface)
+        return 0;
+    return m_surface->getTextureHandle(SkSurface::kDiscardWrite_TextureHandleAccess);
 }
 
 } // namespace blink

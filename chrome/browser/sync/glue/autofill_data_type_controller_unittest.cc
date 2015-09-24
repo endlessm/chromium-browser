@@ -6,6 +6,7 @@
 #include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -13,11 +14,11 @@
 #include "chrome/browser/sync/profile_sync_components_factory_mock.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync/profile_sync_service_mock.h"
-#include "chrome/browser/webdata/autocomplete_syncable_service.h"
-#include "chrome/browser/webdata/web_data_service_factory.h"
+#include "chrome/browser/web_data_service_factory.h"
+#include "components/autofill/core/browser/webdata/autocomplete_syncable_service.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
 #include "components/sync_driver/data_type_controller_mock.h"
-#include "components/webdata/common/web_data_service_test_util.h"
+#include "components/webdata_services/web_data_service_test_util.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
@@ -93,7 +94,7 @@ class FakeWebDataService : public AutofillWebDataService {
   void CreateSyncableService() {
     ASSERT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::DB));
     // These services are deleted in DestroySyncableService().
-    AutocompleteSyncableService::CreateForWebDataServiceAndBackend(
+    autofill::AutocompleteSyncableService::CreateForWebDataServiceAndBackend(
         this,
         &autofill_backend_);
   }
@@ -107,8 +108,8 @@ class FakeWebDataService : public AutofillWebDataService {
 
 class MockWebDataServiceWrapperSyncable : public MockWebDataServiceWrapper {
  public:
-  static KeyedService* Build(content::BrowserContext* profile) {
-    return new MockWebDataServiceWrapperSyncable();
+  static scoped_ptr<KeyedService> Build(content::BrowserContext* profile) {
+    return make_scoped_ptr(new MockWebDataServiceWrapperSyncable());
   }
 
   MockWebDataServiceWrapperSyncable()
@@ -192,10 +193,9 @@ class SyncAutofillDataTypeControllerTest : public testing::Test {
 // immediately try to start association and fail (due to missing DB
 // thread).
 TEST_F(SyncAutofillDataTypeControllerTest, StartWDSReady) {
-  FakeWebDataService* web_db =
-      static_cast<FakeWebDataService*>(
-          WebDataServiceFactory::GetAutofillWebDataForProfile(
-              &profile_, Profile::EXPLICIT_ACCESS).get());
+  FakeWebDataService* web_db = static_cast<FakeWebDataService*>(
+      WebDataServiceFactory::GetAutofillWebDataForProfile(
+          &profile_, ServiceAccessType::EXPLICIT_ACCESS).get());
   web_db->LoadDatabase();
   autofill_dtc_->LoadModels(
     base::Bind(&SyncAutofillDataTypeControllerTest::OnLoadFinished,
@@ -228,7 +228,7 @@ TEST_F(SyncAutofillDataTypeControllerTest, StartWDSNotReady) {
 
   FakeWebDataService* web_db = static_cast<FakeWebDataService*>(
       WebDataServiceFactory::GetAutofillWebDataForProfile(
-          &profile_, Profile::EXPLICIT_ACCESS).get());
+          &profile_, ServiceAccessType::EXPLICIT_ACCESS).get());
   web_db->LoadDatabase();
 
   autofill_dtc_->StartAssociating(

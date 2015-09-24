@@ -128,13 +128,7 @@ class WrenchMenuModel : public ui::SimpleMenuModel,
                         public TabStripModelObserver,
                         public content::NotificationObserver {
  public:
-  // Range of command ID's to use for the items representing bookmarks in the
-  // bookmark menu, must not overlap with that for recent tabs submenu.
-  static const int kMinBookmarkCommandId = 1;
-  static const int kMaxBookmarkCommandId = 1000;
-
-  // Range of command ID's to use for the items in the recent tabs submenu, must
-  // not overlap with that for bookmarks.
+  // Range of command IDs to use for the items in the recent tabs submenu.
   static const int kMinRecentTabsCommandId = 1001;
   static const int kMaxRecentTabsCommandId = 1200;
 
@@ -190,7 +184,10 @@ class WrenchMenuModel : public ui::SimpleMenuModel,
 
   void Build();
 
-  void AddGlobalErrorMenuItems();
+  // Adds actionable global error menu items to the menu.
+  // Examples: Extension permissions and sign in errors.
+  // Returns a boolean indicating whether any menu items were added.
+  bool AddGlobalErrorMenuItems();
 
   // Appends everything needed for the clipboard menu: a menu break, the
   // clipboard menu content and the finalizing menu break.
@@ -250,7 +247,6 @@ class WrenchMenuModel : public ui::SimpleMenuModel,
   Browser* browser_;  // weak
   TabStripModel* tab_strip_model_; // weak
 
-  scoped_ptr<content::HostZoomMap::Subscription> content_zoom_subscription_;
   scoped_ptr<content::HostZoomMap::Subscription> browser_zoom_subscription_;
   content::NotificationRegistrar registrar_;
 

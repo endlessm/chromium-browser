@@ -7,14 +7,9 @@
 
 #include "modules/EventModules.h"
 #include "modules/gamepad/Gamepad.h"
+#include "modules/gamepad/GamepadEventInit.h"
 
 namespace blink {
-
-struct GamepadEventInit : public EventInit {
-    GamepadEventInit();
-
-    Member<Gamepad> gamepad;
-};
 
 class GamepadEvent final : public Event {
     DEFINE_WRAPPERTYPEINFO();
@@ -31,13 +26,13 @@ public:
     {
         return adoptRefWillBeNoop(new GamepadEvent(type, initializer));
     }
-    virtual ~GamepadEvent();
+    ~GamepadEvent() override;
 
     Gamepad* gamepad() const { return m_gamepad.get(); }
 
-    virtual const AtomicString& interfaceName() const override;
+    const AtomicString& interfaceName() const override;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     GamepadEvent();

@@ -58,6 +58,8 @@ class ASH_EXPORT TrayUser : public SystemTrayItem,
   // Update the TrayUser as if the current LoginStatus is |status|.
   void UpdateAfterLoginStatusChangeForTest(user::LoginStatus status);
 
+  // Use for access inside of tests.
+  tray::UserView* user_view_for_test() const { return user_; }
 
  private:
   // Overridden from SystemTrayItem.
@@ -75,9 +77,6 @@ class ASH_EXPORT TrayUser : public SystemTrayItem,
   void OnUserAddedToSession() override;
 
   void UpdateAvatarImage(user::LoginStatus status);
-
-  // Get the user index which should be used for the tray icon of this item.
-  MultiProfileIndex GetTrayIndex();
 
   // Updates the layout of this item.
   void UpdateLayoutOfItem();

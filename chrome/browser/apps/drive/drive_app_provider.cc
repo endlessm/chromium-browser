@@ -8,9 +8,11 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/apps/drive/drive_app_converter.h"
 #include "chrome/browser/apps/drive/drive_app_mapping.h"
 #include "chrome/browser/apps/drive/drive_app_uninstall_sync_service.h"
@@ -30,7 +32,7 @@ using extensions::ExtensionRegistry;
 
 namespace {
 
-void IgnoreUninstallResult(google_apis::GDataErrorCode) {
+void IgnoreUninstallResult(google_apis::DriveApiErrorCode) {
 }
 
 }  // namespace
@@ -42,6 +44,7 @@ DriveAppProvider::DriveAppProvider(
       uninstall_sync_service_(uninstall_sync_service),
       service_bridge_(DriveServiceBridge::Create(profile).Pass()),
       mapping_(new DriveAppMapping(profile->GetPrefs())),
+      drive_app_registry_updated_(false),
       weak_ptr_factory_(this) {
   service_bridge_->GetAppRegistry()->AddObserver(this);
   ExtensionRegistry::Get(profile_)->AddObserver(this);
@@ -73,10 +76,9 @@ void DriveAppProvider::AddUninstalledDriveAppFromSync(
   // Decouple the operation because this function could be called during
   // sync processing and UpdateDriveApps could trigger another sync change.
   // See http://crbug.com/429205
-  base::MessageLoop::current()->PostTask(
-      FROM_HERE,
-      base::Bind(&DriveAppProvider::UpdateDriveApps,
-                 weak_ptr_factory_.GetWeakPtr()));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&DriveAppProvider::UpdateDriveApps,
+                            weak_ptr_factory_.GetWeakPtr()));
 }
 
 void DriveAppProvider::RemoveUninstalledDriveAppFromSync(
@@ -86,10 +88,9 @@ void DriveAppProvider::RemoveUninstalledDriveAppFromSync(
   // Decouple the operation because this function could be called during
   // sync processing and UpdateDriveApps could trigger another sync change.
   // See http://crbug.com/429205
-  base::MessageLoop::current()->PostTask(
-      FROM_HERE,
-      base::Bind(&DriveAppProvider::UpdateDriveApps,
-                 weak_ptr_factory_.GetWeakPtr()));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&DriveAppProvider::UpdateDriveApps,
+                            weak_ptr_factory_.GetWeakPtr()));
 }
 
 void DriveAppProvider::UpdateMappingAndExtensionSystem(
@@ -236,13 +237,18 @@ void DriveAppProvider::ProcessRemovedDriveApp(const std::string& drive_app_id) {
 }
 
 void DriveAppProvider::UpdateDriveApps() {
+  if (!drive_app_registry_updated_)
+    return;
+
   service_bridge_->GetAppRegistry()->GetAppList(&drive_apps_);
 
   IdSet current_ids;
   for (size_t i = 0; i < drive_apps_.size(); ++i) {
     const std::string& drive_app_id = drive_apps_[i].app_id;
-    if (!mapping_->IsUninstalledDriveApp(drive_app_id))
+    if (!mapping_->IsUninstalledDriveApp(drive_app_id) &&
+        drive_apps_[i].create_url.is_valid()) {
       current_ids.insert(drive_app_id);
+    }
   }
 
   const IdSet existing_ids = mapping_->GetDriveAppIds();
@@ -255,13 +261,16 @@ void DriveAppProvider::UpdateDriveApps() {
   }
 
   for (size_t i = 0; i < drive_apps_.size(); ++i) {
-    if (!mapping_->IsUninstalledDriveApp(drive_apps_[i].app_id))
+    if (!mapping_->IsUninstalledDriveApp(drive_apps_[i].app_id) &&
+        drive_apps_[i].create_url.is_valid()) {
       AddOrUpdateDriveApp(drive_apps_[i]);
+    }
   }
   SchedulePendingConverters();
 }
 
 void DriveAppProvider::OnDriveAppRegistryUpdated() {
+  drive_app_registry_updated_ = true;
   UpdateDriveApps();
 }
 
@@ -290,11 +299,10 @@ void DriveAppProvider::OnExtensionInstalled(
       // Defer the processing because it touches the extensions system and
       // it is better to let the current task finish to avoid unexpected
       // incomplete status.
-      base::MessageLoop::current()->PostTask(
+      base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE,
           base::Bind(&DriveAppProvider::ProcessDeferredOnExtensionInstalled,
-                     weak_ptr_factory_.GetWeakPtr(),
-                     drive_apps_[i].app_id,
+                     weak_ptr_factory_.GetWeakPtr(), drive_apps_[i].app_id,
                      extension->id()));
       return;
     }

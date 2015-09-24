@@ -5,11 +5,10 @@
 #ifndef COMPONENTS_PREF_REGISTRY_PREF_REGISTRY_SYNCABLE_H_
 #define COMPONENTS_PREF_REGISTRY_PREF_REGISTRY_SYNCABLE_H_
 
-#include <set>
 #include <string>
 
 #include "base/callback.h"
-#include "base/prefs/pref_registry.h"
+#include "base/prefs/pref_registry_simple.h"
 #include "components/pref_registry/pref_registry_export.h"
 
 namespace base {
@@ -32,29 +31,33 @@ namespace user_prefs {
 // appropriate time before the PrefService for these preferences is
 // constructed. See e.g. chrome/browser/prefs/browser_prefs.cc which
 // does this for Chrome.
-class PREF_REGISTRY_EXPORT PrefRegistrySyncable : public PrefRegistry {
+//
+// TODO(raymes): This class only exists to support SyncableRegistrationCallback
+// logic which is only required to support pref registration after the
+// PrefService has been created which is only used by tests. We can remove this
+// entire class and those tests with some work.
+class PREF_REGISTRY_EXPORT PrefRegistrySyncable : public PrefRegistrySimple {
  public:
-  // Enum used when registering preferences to determine if it should
-  // be synced or not. Syncable priority preferences are preferences that are
-  // never encrypted and are synced before other datatypes. Because they're
-  // never encrypted, on first sync, they can be synced down before the user
-  // is prompted for a passphrase.
-  enum PrefSyncStatus {
-    UNSYNCABLE_PREF,
-    SYNCABLE_PREF,
-    SYNCABLE_PRIORITY_PREF,
+  // Enum of flags used when registering preferences to determine if it should
+  // be synced or not. These flags are mutually exclusive, only one of them
+  // should ever be specified.
+  //
+  // Note: These must NOT overlap with PrefRegistry::PrefRegistrationFlags.
+  enum PrefRegistrationFlags : uint32 {
+    // The pref will be synced.
+    SYNCABLE_PREF = 1 << 0,
+
+    // The pref will be synced. The pref will never be encrypted and will be
+    // synced before other datatypes. Because they're never encrypted, on first
+    // sync, they can be synced down before the user is prompted for a
+    // passphrase.
+    SYNCABLE_PRIORITY_PREF = 1 << 1,
   };
 
-  typedef
-      base::Callback<void(const char* path, const PrefSyncStatus sync_status)>
-          SyncableRegistrationCallback;
+  typedef base::Callback<void(const std::string& path, uint32 flags)>
+      SyncableRegistrationCallback;
 
   PrefRegistrySyncable();
-
-  typedef std::map<std::string, PrefSyncStatus> PrefToStatus;
-
-  // Retrieve the set of syncable preferences currently registered.
-  const PrefToStatus& syncable_preferences() const;
 
   // Exactly one callback can be set for the event of a syncable
   // preference being registered. It will be fired after the
@@ -65,50 +68,6 @@ class PREF_REGISTRY_EXPORT PrefRegistrySyncable : public PrefRegistry {
   // instead.
   void SetSyncableRegistrationCallback(const SyncableRegistrationCallback& cb);
 
-  void RegisterBooleanPref(const char* path,
-                           bool default_value,
-                           PrefSyncStatus sync_status);
-  void RegisterIntegerPref(const char* path,
-                           int default_value,
-                           PrefSyncStatus sync_status);
-  void RegisterDoublePref(const char* path,
-                          double default_value,
-                          PrefSyncStatus sync_status);
-  void RegisterStringPref(const char* path,
-                          const std::string& default_value,
-                          PrefSyncStatus sync_status);
-  void RegisterFilePathPref(const char* path,
-                            const base::FilePath& default_value,
-                            PrefSyncStatus sync_status);
-  void RegisterListPref(const char* path,
-                        PrefSyncStatus sync_status);
-  void RegisterDictionaryPref(const char* path,
-                              PrefSyncStatus sync_status);
-  void RegisterListPref(const char* path,
-                        base::ListValue* default_value,
-                        PrefSyncStatus sync_status);
-  void RegisterDictionaryPref(const char* path,
-                              base::DictionaryValue* default_value,
-                              PrefSyncStatus sync_status);
-  void RegisterLocalizedBooleanPref(const char* path,
-                                    int locale_default_message_id,
-                                    PrefSyncStatus sync_status);
-  void RegisterLocalizedIntegerPref(const char* path,
-                                    int locale_default_message_id,
-                                    PrefSyncStatus sync_status);
-  void RegisterLocalizedDoublePref(const char* path,
-                                   int locale_default_message_id,
-                                   PrefSyncStatus sync_status);
-  void RegisterLocalizedStringPref(const char* path,
-                                   int locale_default_message_id,
-                                   PrefSyncStatus sync_status);
-  void RegisterInt64Pref(const char* path,
-                         int64 default_value,
-                         PrefSyncStatus sync_status);
-  void RegisterUint64Pref(const char* path,
-                          uint64 default_value,
-                          PrefSyncStatus sync_status);
-
   // Returns a new PrefRegistrySyncable that uses the same defaults
   // store.
   scoped_refptr<PrefRegistrySyncable> ForkForIncognito();
@@ -116,14 +75,12 @@ class PREF_REGISTRY_EXPORT PrefRegistrySyncable : public PrefRegistry {
  private:
   ~PrefRegistrySyncable() override;
 
-  void RegisterSyncablePreference(const char* path,
-                                  base::Value* default_value,
-                                  PrefSyncStatus sync_status);
+  // PrefRegistrySimple overrides.
+  void OnPrefRegistered(const std::string& path,
+                        base::Value* default_value,
+                        uint32 flags) override;
 
   SyncableRegistrationCallback callback_;
-
-  // Contains the names of all registered preferences that are syncable.
-  PrefToStatus syncable_preferences_;
 
   DISALLOW_COPY_AND_ASSIGN(PrefRegistrySyncable);
 };

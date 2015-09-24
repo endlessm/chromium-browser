@@ -16,38 +16,31 @@
 #include "webrtc/modules/audio_processing/ns/nsx_core.h"
 #include "webrtc/modules/audio_processing/ns/nsx_defines.h"
 
-int WebRtcNsx_Create(NsxHandle** nsxInst) {
-  NsxInst_t* self = malloc(sizeof(NsxInst_t));
-  *nsxInst = (NsxHandle*)self;
-
-  if (self != NULL) {
-    WebRtcSpl_Init();
-    self->real_fft = NULL;
-    self->initFlag = 0;
-    return 0;
-  } else {
-    return -1;
-  }
-
+NsxHandle* WebRtcNsx_Create() {
+  NoiseSuppressionFixedC* self = malloc(sizeof(NoiseSuppressionFixedC));
+  WebRtcSpl_Init();
+  self->real_fft = NULL;
+  self->initFlag = 0;
+  return (NsxHandle*)self;
 }
 
-int WebRtcNsx_Free(NsxHandle* nsxInst) {
-  WebRtcSpl_FreeRealFFT(((NsxInst_t*)nsxInst)->real_fft);
+void WebRtcNsx_Free(NsxHandle* nsxInst) {
+  WebRtcSpl_FreeRealFFT(((NoiseSuppressionFixedC*)nsxInst)->real_fft);
   free(nsxInst);
-  return 0;
 }
 
 int WebRtcNsx_Init(NsxHandle* nsxInst, uint32_t fs) {
-  return WebRtcNsx_InitCore((NsxInst_t*)nsxInst, fs);
+  return WebRtcNsx_InitCore((NoiseSuppressionFixedC*)nsxInst, fs);
 }
 
 int WebRtcNsx_set_policy(NsxHandle* nsxInst, int mode) {
-  return WebRtcNsx_set_policy_core((NsxInst_t*)nsxInst, mode);
+  return WebRtcNsx_set_policy_core((NoiseSuppressionFixedC*)nsxInst, mode);
 }
 
-int WebRtcNsx_Process(NsxHandle* nsxInst, short* speechFrame,
-                      short* speechFrameHB, short* outFrame,
-                      short* outFrameHB) {
-  return WebRtcNsx_ProcessCore(
-      (NsxInst_t*)nsxInst, speechFrame, speechFrameHB, outFrame, outFrameHB);
+void WebRtcNsx_Process(NsxHandle* nsxInst,
+                      const short* const* speechFrame,
+                      int num_bands,
+                      short* const* outFrame) {
+  WebRtcNsx_ProcessCore((NoiseSuppressionFixedC*)nsxInst, speechFrame,
+                        num_bands, outFrame);
 }

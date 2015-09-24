@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chrome/browser/background/background_mode_manager.h"
+
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -9,13 +11,16 @@
 #include "base/base_paths.h"
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/location.h"
 #include "base/logging.h"
+#include "base/metrics/histogram.h"
 #include "base/prefs/pref_registry_simple.h"
 #include "base/prefs/pref_service.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/background/background_application_list_model.h"
-#include "chrome/browser/background/background_mode_manager.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -32,6 +37,7 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/chrome_pages.h"
+#include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/user_manager.h"
@@ -44,20 +50,63 @@
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/user_metrics.h"
 #include "extensions/browser/extension_system.h"
+#include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest_handlers/options_page_info.h"
+#include "extensions/common/one_shot_event.h"
 #include "extensions/common/permissions/permission_set.h"
 #include "grit/chrome_unscaled_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+
+#if defined(OS_WIN)
+#include "components/browser_watcher/exit_funnel_win.h"
+#endif
 
 using base::UserMetricsAction;
 using extensions::Extension;
 using extensions::UpdatedExtensionPermissionsInfo;
 
 namespace {
+
 const int kInvalidExtensionIndex = -1;
+
+// Records histogram about which auto-launch pattern (if any) was used to launch
+// the current process based on |command_line|.
+void RecordAutoLaunchState(const base::CommandLine& command_line) {
+  enum AutoLaunchState {
+    AUTO_LAUNCH_NONE = 0,
+    AUTO_LAUNCH_BACKGROUND = 1,
+    AUTO_LAUNCH_FOREGROUND = 2,
+    AUTO_LAUNCH_FOREGROUND_USELESS = 3,
+    AUTO_LAUNCH_NUM_STATES
+  } auto_launch_state = AUTO_LAUNCH_NONE;
+
+  if (command_line.HasSwitch(switches::kNoStartupWindow))
+    auto_launch_state = AUTO_LAUNCH_BACKGROUND;
+
+  if (command_line.HasSwitch(switches::kAutoLaunchAtStartup)) {
+    // The only purpose of kAutoLaunchAtStartup is to override a background
+    // auto-launch from kNoStartupWindow into a foreground auto-launch. It's a
+    // meaningless switch on its own.
+    if (auto_launch_state == AUTO_LAUNCH_BACKGROUND) {
+      auto_launch_state = AUTO_LAUNCH_FOREGROUND;
+    } else {
+      auto_launch_state = AUTO_LAUNCH_FOREGROUND_USELESS;
+    }
+  }
+
+  // Observe the AutoLaunchStates in the wild. According to the platform-
+  // specific implementations of EnableLaunchOnStartup(), we'd expect only Mac
+  // and Windows to have any sort of AutoLaunchState and only Windows should use
+  // FOREGROUND if at all (it was only used by a deprecated experiment and a
+  // master pref which may not be used much). Tighten up auto-launch settings
+  // based on the result of usage in the wild.
+  UMA_HISTOGRAM_ENUMERATION("BackgroundMode.OnStartup.AutoLaunchState",
+                            auto_launch_state, AUTO_LAUNCH_NUM_STATES);
 }
+
+}  // namespace
 
 BackgroundModeManager::BackgroundModeData::BackgroundModeData(
     Profile* profile,
@@ -198,7 +247,7 @@ bool BackgroundModeManager::BackgroundModeData::BackgroundModeDataCompare(
 ///////////////////////////////////////////////////////////////////////////////
 //  BackgroundModeManager, public
 BackgroundModeManager::BackgroundModeManager(
-    CommandLine* command_line,
+    const base::CommandLine& command_line,
     ProfileInfoCache* profile_cache)
     : profile_cache_(profile_cache),
       status_tray_(NULL),
@@ -208,7 +257,8 @@ BackgroundModeManager::BackgroundModeManager(
       keep_alive_for_startup_(false),
       keep_alive_for_test_(false),
       background_mode_suspended_(false),
-      keeping_alive_(false) {
+      keeping_alive_(false),
+      weak_factory_(this) {
   // We should never start up if there is no browser process or if we are
   // currently quitting.
   CHECK(g_browser_process != NULL);
@@ -217,6 +267,10 @@ BackgroundModeManager::BackgroundModeManager(
   // Add self as an observer for the profile info cache so we know when profiles
   // are deleted and their names change.
   profile_cache_->AddObserver(this);
+
+  RecordAutoLaunchState(command_line);
+  UMA_HISTOGRAM_BOOLEAN("BackgroundMode.OnStartup.IsBackgroundModePrefEnabled",
+                        IsBackgroundModePrefEnabled());
 
   // Listen for the background mode preference changing.
   if (g_browser_process->local_state()) {  // Skip for unit tests
@@ -231,7 +285,7 @@ BackgroundModeManager::BackgroundModeManager(
   // by the --no-startup-window flag. We want to stay alive until we load
   // extensions, at which point we should either run in background mode (if
   // there are background apps) or exit if there are none.
-  if (command_line->HasSwitch(switches::kNoStartupWindow)) {
+  if (command_line.HasSwitch(switches::kNoStartupWindow)) {
     keep_alive_for_startup_ = true;
     chrome::IncrementKeepAliveCount();
   } else {
@@ -243,7 +297,7 @@ BackgroundModeManager::BackgroundModeManager(
 
   // If the -keep-alive-for-test flag is passed, then always keep chrome running
   // in the background until the user explicitly terminates it.
-  if (command_line->HasSwitch(switches::kKeepAliveForTest))
+  if (command_line.HasSwitch(switches::kKeepAliveForTest))
     keep_alive_for_test_ = true;
 
   if (ShouldBeInBackgroundMode())
@@ -284,7 +338,6 @@ void BackgroundModeManager::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(prefs::kBackgroundModeEnabled, true);
 }
 
-
 void BackgroundModeManager::RegisterProfile(Profile* profile) {
   // We don't want to register multiple times for one profile.
   DCHECK(background_mode_data_.find(profile) == background_mode_data_.end());
@@ -302,9 +355,10 @@ void BackgroundModeManager::RegisterProfile(Profile* profile) {
   // Check for the presence of background apps after all extensions have been
   // loaded, to handle the case where an extension has been manually removed
   // while Chrome was not running.
-  registrar_.Add(this,
-                 extensions::NOTIFICATION_EXTENSIONS_READY_DEPRECATED,
-                 content::Source<Profile>(profile));
+  extensions::ExtensionSystem::Get(profile)->ready().Post(
+      FROM_HERE,
+      base::Bind(&BackgroundModeManager::OnExtensionsReady,
+        weak_factory_.GetWeakPtr()));
 
   bmd->applications_->AddObserver(this);
 
@@ -318,7 +372,8 @@ void BackgroundModeManager::RegisterProfile(Profile* profile) {
 void BackgroundModeManager::LaunchBackgroundApplication(
     Profile* profile,
     const Extension* extension) {
-  OpenApplication(AppLaunchParams(profile, extension, NEW_FOREGROUND_TAB));
+  OpenApplication(AppLaunchParams(profile, extension, NEW_FOREGROUND_TAB,
+                                  extensions::SOURCE_BACKGROUND));
 }
 
 bool BackgroundModeManager::IsBackgroundModeActive() {
@@ -336,11 +391,6 @@ void BackgroundModeManager::Observe(
     const content::NotificationSource& source,
     const content::NotificationDetails& details) {
   switch (type) {
-    case extensions::NOTIFICATION_EXTENSIONS_READY_DEPRECATED:
-      // Extensions are loaded, so we don't need to manually keep the browser
-      // process alive any more when running in no-startup-window mode.
-      DecrementKeepAliveCountForStartup();
-      break;
     case chrome::NOTIFICATION_APP_TERMINATING:
       // Make sure we aren't still keeping the app alive (only happens if we
       // don't receive an EXTENSIONS_READY notification for some reason).
@@ -362,6 +412,12 @@ void BackgroundModeManager::Observe(
       NOTREACHED();
       break;
   }
+}
+
+void BackgroundModeManager::OnExtensionsReady() {
+  // Extensions are loaded, so we don't need to manually keep the browser
+  // process alive any more when running in no-startup-window mode.
+  DecrementKeepAliveCountForStartup();
 }
 
 void BackgroundModeManager::OnBackgroundModeEnabledPrefChanged() {
@@ -529,6 +585,10 @@ void BackgroundModeManager::ExecuteCommand(int command_id, int event_flags) {
       }
       break;
     case IDC_EXIT:
+#if defined(OS_WIN)
+      browser_watcher::ExitFunnel::RecordSingleEvent(
+            chrome::kBrowserExitCodesRegistryPath, L"TraybarExit");
+#endif
       content::RecordAction(UserMetricsAction("Exit"));
       chrome::CloseAllBrowsers();
       break;
@@ -566,7 +626,7 @@ void BackgroundModeManager::DecrementKeepAliveCountForStartup() {
     // We call this via the message queue to make sure we don't try to end
     // keep-alive (which can shutdown Chrome) before the message loop has
     // started.
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(&chrome::DecrementKeepAliveCount));
   }
 }
@@ -635,6 +695,11 @@ void BackgroundModeManager::UpdateKeepAliveAndTrayIcon() {
     if (!keeping_alive_) {
       keeping_alive_ = true;
       chrome::IncrementKeepAliveCount();
+
+#if defined(OS_WIN)
+      browser_watcher::ExitFunnel::RecordSingleEvent(
+            chrome::kBrowserExitCodesRegistryPath, L"BackgroundOn");
+#endif
     }
     CreateStatusTrayIcon();
     return;
@@ -644,6 +709,11 @@ void BackgroundModeManager::UpdateKeepAliveAndTrayIcon() {
   if (keeping_alive_) {
     keeping_alive_ = false;
     chrome::DecrementKeepAliveCount();
+
+#if defined(OS_WIN)
+    browser_watcher::ExitFunnel::RecordSingleEvent(
+          chrome::kBrowserExitCodesRegistryPath, L"BackgroundOff");
+#endif
   }
 }
 

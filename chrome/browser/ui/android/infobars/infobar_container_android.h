@@ -23,29 +23,23 @@ class WebContents;
 class InfoBarContainerAndroid : public infobars::InfoBarContainer {
  public:
   InfoBarContainerAndroid(JNIEnv* env,
-                          jobject infobar_container,
-                          jobject auto_login_delegate);
+                          jobject infobar_container);
+  void SetWebContents(JNIEnv* env, jobject obj, jobject web_contents);
   void Destroy(JNIEnv* env, jobject obj);
-
-  JavaObjectWeakGlobalRef auto_login_delegate() const {
-    return weak_java_auto_login_delegate_;
-  }
 
   JavaObjectWeakGlobalRef java_container() const {
     return weak_java_infobar_container_;
   }
 
  private:
-  virtual ~InfoBarContainerAndroid() override;
+  ~InfoBarContainerAndroid() override;
 
   // InfobarContainer:
-  virtual void PlatformSpecificAddInfoBar(infobars::InfoBar* infobar,
-                                          size_t position) override;
-  virtual void PlatformSpecificRemoveInfoBar(infobars::InfoBar* infobar)
-      override;
-  virtual void PlatformSpecificReplaceInfoBar(
-      infobars::InfoBar* old_infobar,
-      infobars::InfoBar* new_infobar) override;
+  void PlatformSpecificAddInfoBar(infobars::InfoBar* infobar,
+                                  size_t position) override;
+  void PlatformSpecificRemoveInfoBar(infobars::InfoBar* infobar) override;
+  void PlatformSpecificReplaceInfoBar(infobars::InfoBar* old_infobar,
+                                      infobars::InfoBar* new_infobar) override;
 
   // Create the Java equivalent of |android_bar| and add it to the java
   // container.
@@ -54,7 +48,6 @@ class InfoBarContainerAndroid : public infobars::InfoBarContainer {
   // We're owned by the java infobar, need to use a weak ref so it can destroy
   // us.
   JavaObjectWeakGlobalRef weak_java_infobar_container_;
-  JavaObjectWeakGlobalRef weak_java_auto_login_delegate_;
 
   DISALLOW_COPY_AND_ASSIGN(InfoBarContainerAndroid);
 };

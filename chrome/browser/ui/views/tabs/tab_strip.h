@@ -13,8 +13,8 @@
 #include "chrome/browser/ui/views/tabs/tab.h"
 #include "chrome/browser/ui/views/tabs/tab_controller.h"
 #include "ui/gfx/animation/animation_container.h"
-#include "ui/gfx/point.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/views/animation/bounds_animator.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/mouse_watcher.h"
@@ -213,6 +213,7 @@ class TabStrip : public views::View,
   // TabController overrides:
   const ui::ListSelectionModel& GetSelectionModel() override;
   bool SupportsMultipleSelection() override;
+  bool ShouldHideCloseButtonForInactiveTabs() override;
   void SelectTab(Tab* tab) override;
   void ExtendSelectionTo(Tab* tab) override;
   void ToggleSelected(Tab* tab) override;
@@ -244,8 +245,7 @@ class TabStrip : public views::View,
 
   // views::View overrides:
   void Layout() override;
-  void PaintChildren(gfx::Canvas* canvas,
-                     const views::CullSet& cull_set) override;
+  void PaintChildren(const ui::PaintContext& context) override;
   const char* GetClassName() const override;
   gfx::Size GetPreferredSize() const override;
   // NOTE: the drag and drop methods are invoked from FrameView. This is done
@@ -270,10 +270,10 @@ class TabStrip : public views::View,
 
   friend class TabDragController;
   friend class TabDragControllerTest;
-  FRIEND_TEST_ALL_PREFIXES(TabDragControllerTest, GestureEndShouldEndDragTest);
   friend class TabStripTest;
+  FRIEND_TEST_ALL_PREFIXES(TabDragControllerTest, GestureEndShouldEndDragTest);
   FRIEND_TEST_ALL_PREFIXES(TabStripTest, TabHitTestMaskWhenStacked);
-  FRIEND_TEST_ALL_PREFIXES(TabStripTest, ClippedTabCloseButton);
+  FRIEND_TEST_ALL_PREFIXES(TabStripTest, TabCloseButtonVisibilityWhenStacked);
 
   // Used during a drop session of a url. Tracks the position of the drop as
   // well as a window used to highlight where the drop occurs.
@@ -310,8 +310,8 @@ class TabStrip : public views::View,
     DISALLOW_COPY_AND_ASSIGN(DropInfo);
   };
 
-  // Horizontal gap between mini and non-mini-tabs.
-  static const int kMiniToNonMiniGap;
+  // Horizontal gap between pinned and non-pinned tabs.
+  static const int kPinnedToNonPinnedGap;
 
   void Init();
 
@@ -378,8 +378,8 @@ class TabStrip : public views::View,
   // and drop to calculate offsets and positioning.
   int GetSizeNeededForTabs(const Tabs& tabs);
 
-  // Returns the number of mini-tabs.
-  int GetMiniTabCount() const;
+  // Returns the number of pinned tabs.
+  int GetPinnedTabCount() const;
 
   // Returns the last tab in the strip that's actually visible.  This will be
   // the actual last tab unless the strip is in the overflow state.
@@ -431,9 +431,7 @@ class TabStrip : public views::View,
   FindClosingTabResult FindClosingTab(const Tab* tab);
 
   // Paints all the tabs in |tabs_closing_map_[index]|.
-  void PaintClosingTabs(gfx::Canvas* canvas,
-                        int index,
-                        const views::CullSet& cull_set);
+  void PaintClosingTabs(int index, const ui::PaintContext& context);
 
   // Invoked when a mouse event occurs over |source|. Potentially switches the
   // |stacked_layout_|.
@@ -450,10 +448,10 @@ class TabStrip : public views::View,
   // desired strip width and number of tabs.  If
   // |width_of_tabs_for_mouse_close_| is nonnegative we use that value in
   // calculating the desired strip width; otherwise we use the current width.
-  // |mini_tab_count| gives the number of mini-tabs and |tab_count| the number
-  // of mini and non-mini-tabs.
+  // |pinned_tab_count| gives the number of pinned tabs and |tab_count| the
+  // number of pinned and non-pinned tabs.
   void GetDesiredTabWidths(int tab_count,
-                           int mini_tab_count,
+                           int pinned_tab_count,
                            double* unselected_width,
                            double* selected_width) const;
 
@@ -505,10 +503,10 @@ class TabStrip : public views::View,
   // button.
   void GenerateIdealBounds();
 
-  // Generates the ideal bounds for the mini tabs. Returns the index to position
-  // the first non-mini tab and sets |first_non_mini_index| to the index of the
-  // first non-mini tab.
-  int GenerateIdealBoundsForMiniTabs(int* first_non_mini_index);
+  // Generates the ideal bounds for the pinned tabs. Returns the index to
+  // position the first non-pinned tab and sets |first_non_pinned_index| to the
+  // index of the first non-pinned tab.
+  int GenerateIdealBoundsForPinnedTabs(int* first_non_pinned_index);
 
   // Returns the width needed for the new tab button (and padding).
   static int new_tab_button_width() {
@@ -521,7 +519,7 @@ class TabStrip : public views::View,
 
   // Starts various types of TabStrip animations.
   void StartResizeLayoutAnimation();
-  void StartMiniTabAnimation();
+  void StartPinnedTabAnimation();
   void StartMouseInitiatedRemoveTabAnimation(int model_index);
 
   // Returns true if the specified point in TabStrip coords is within the
@@ -672,7 +670,7 @@ class TabStrip : public views::View,
   bool immersive_style_;
 
   // Our observers.
-  typedef ObserverList<TabStripObserver> TabStripObservers;
+  typedef base::ObserverList<TabStripObserver> TabStripObservers;
   TabStripObservers observers_;
 
   DISALLOW_COPY_AND_ASSIGN(TabStrip);

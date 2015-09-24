@@ -6,7 +6,7 @@
 #define CONTENT_PUBLIC_BROWSER_SCREEN_ORIENTATION_DISPATCHER_HOST_H_
 
 #include "content/common/content_export.h"
-#include "third_party/WebKit/public/platform/WebLockOrientationError.h"
+#include "third_party/WebKit/public/platform/modules/screen_orientation/WebLockOrientationError.h"
 
 namespace content {
 
@@ -33,4 +33,4 @@ class CONTENT_EXPORT ScreenOrientationDispatcherHost {
 
 }  // namespace content
 
-#endif // CONTENT_PUBLIC_BROWSER_SCREEN_ORIENTATION_DISPATCHER_HOST_H_
+#endif  // CONTENT_PUBLIC_BROWSER_SCREEN_ORIENTATION_DISPATCHER_HOST_H_

@@ -140,7 +140,7 @@ std::string TestTCPSocket::TestSetOption() {
   TestCompletionCallback cb_2(instance_->pp_instance(), callback_type());
   TestCompletionCallback cb_3(instance_->pp_instance(), callback_type());
 
-  // These options cannot be set before the socket is connected.
+  // These options can be set even before the socket is connected.
   int32_t result_1 = socket.SetOption(PP_TCPSOCKET_OPTION_NO_DELAY,
                                       true, cb_1.GetCallback());
   int32_t result_2 = socket.SetOption(PP_TCPSOCKET_OPTION_SEND_BUFFER_SIZE,
@@ -150,15 +150,15 @@ std::string TestTCPSocket::TestSetOption() {
 
   cb_1.WaitForResult(result_1);
   CHECK_CALLBACK_BEHAVIOR(cb_1);
-  ASSERT_EQ(PP_ERROR_FAILED, cb_1.result());
+  ASSERT_EQ(PP_OK, cb_1.result());
 
   cb_2.WaitForResult(result_2);
   CHECK_CALLBACK_BEHAVIOR(cb_2);
-  ASSERT_EQ(PP_ERROR_FAILED, cb_2.result());
+  ASSERT_EQ(PP_OK, cb_2.result());
 
   cb_3.WaitForResult(result_3);
   CHECK_CALLBACK_BEHAVIOR(cb_3);
-  ASSERT_EQ(PP_ERROR_FAILED, cb_3.result());
+  ASSERT_EQ(PP_OK, cb_3.result());
 
   cb_1.WaitForResult(socket.Connect(addr_, cb_1.GetCallback()));
   CHECK_CALLBACK_BEHAVIOR(cb_1);
@@ -285,7 +285,7 @@ std::string TestTCPSocket::TestBacklog() {
   }
 
   for (size_t i = 0; i < kBacklog; ++i) {
-    const char byte = 'a' + i;
+    const char byte = static_cast<char>('a' + i);
     ASSERT_SUBTEST_SUCCESS(WriteToSocket(client_sockets[i],
                                          std::string(1, byte)));
   }
@@ -384,7 +384,8 @@ std::string TestTCPSocket::ReadFromSocket(pp::TCPSocket* socket,
   while (num_bytes > 0) {
     TestCompletionCallback callback(instance_->pp_instance(), callback_type());
     callback.WaitForResult(
-        socket->Read(buffer, num_bytes, callback.GetCallback()));
+        socket->Read(buffer, static_cast<int32_t>(num_bytes),
+        callback.GetCallback()));
     CHECK_CALLBACK_BEHAVIOR(callback);
     ASSERT_GT(callback.result(), 0);
     buffer += callback.result();
@@ -401,7 +402,9 @@ std::string TestTCPSocket::WriteToSocket(pp::TCPSocket* socket,
   while (written < s.size()) {
     TestCompletionCallback cb(instance_->pp_instance(), callback_type());
     cb.WaitForResult(
-        socket->Write(buffer + written, s.size() - written, cb.GetCallback()));
+        socket->Write(buffer + written,
+                      static_cast<int32_t>(s.size() - written),
+                      cb.GetCallback()));
     CHECK_CALLBACK_BEHAVIOR(cb);
     ASSERT_GT(cb.result(), 0);
     written += cb.result();
@@ -418,7 +421,8 @@ std::string TestTCPSocket::WriteToSocket_1_0(
   while (written < s.size()) {
     TestCompletionCallback cb(instance_->pp_instance(), callback_type());
     cb.WaitForResult(socket_interface_1_0_->Write(
-        socket, buffer + written, s.size() - written,
+        socket, buffer + written,
+        static_cast<int32_t>(s.size() - written),
         cb.GetCallback().pp_completion_callback()));
     CHECK_CALLBACK_BEHAVIOR(cb);
     ASSERT_GT(cb.result(), 0);
@@ -458,4 +462,3 @@ std::string TestTCPSocket::StartListen(pp::TCPSocket* socket, int32_t backlog) {
 
   PASS();
 }
-

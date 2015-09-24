@@ -19,7 +19,10 @@ if sys.platform == 'darwin':
   test = TestGyp.TestGyp(formats=['ninja', 'make', 'xcode'])
 
   CHDIR = 'loadable-module-bundle-product-extension'
-  test.run_gyp('test.gyp', chdir=CHDIR)
+  test.run_gyp('test.gyp',
+               '-G', 'xcode_ninja_target_pattern=^.*$',
+               chdir=CHDIR)
+
   test.build('test.gyp', test.ALL, chdir=CHDIR)
 
   test.must_exist(test.built_file_path('Collide.foo', chdir=CHDIR))

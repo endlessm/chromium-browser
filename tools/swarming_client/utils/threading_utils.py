@@ -378,6 +378,7 @@ class AutoRetryThreadPool(ThreadPool):
       if channel is None:
         return result
       channel.send_result(result)
+    # pylint: disable=catching-non-exception
     except self._swallowed_exceptions as e:
       # Retry a few times, lowering the priority.
       actual_retries = priority & self.INTERNAL_PRIORITY_BITS
@@ -412,7 +413,7 @@ class IOAutoRetryThreadPool(AutoRetryThreadPool):
   """
   # Initial and maximum number of worker threads.
   INITIAL_WORKERS = 2
-  MAX_WORKERS = 16
+  MAX_WORKERS = 16 if sys.maxsize > 2L**32 else 8
   RETRIES = 5
 
   def __init__(self):

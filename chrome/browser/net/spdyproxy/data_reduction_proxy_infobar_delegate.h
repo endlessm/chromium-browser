@@ -14,6 +14,10 @@ namespace content {
 class WebContents;
 }
 
+namespace infobars {
+class InfoBarManager;
+}
+
 // Configures an InfoBar with no buttons that stays visible until it is
 // explicitly dismissed. This InfoBar is suitable for displaying a message
 // and a link, and is used only by an Android field trial.
@@ -30,12 +34,13 @@ class DataReductionProxyInfoBarDelegate : public ConfirmInfoBarDelegate {
 
   // Returns a Data Reduction Proxy infobar that owns |delegate|.
   static scoped_ptr<infobars::InfoBar> CreateInfoBar(
+      infobars::InfoBarManager* infobar_manager,
       scoped_ptr<DataReductionProxyInfoBarDelegate> delegate);
 
   // ConfirmInfoBarDelegate
+  bool ShouldExpire(const NavigationDetails& details) const override;
   base::string16 GetMessageText() const override;
   int GetButtons() const override;
-  bool ShouldExpire(const NavigationDetails& details) const override;
   bool LinkClicked(WindowOpenDisposition disposition) override;
 
   std::string link_url_;

@@ -20,15 +20,16 @@ class MessageCenter;
 }
 
 namespace ash {
+
+class BatteryNotification;
+
 namespace tray {
-class PowerNotificationView;
 class PowerTrayView;
 }
 
 class ASH_EXPORT TrayPower : public SystemTrayItem,
                              public PowerStatus::Observer {
  public:
-  // Visible for testing.
   enum NotificationState {
     NOTIFICATION_NONE,
 
@@ -51,7 +52,7 @@ class ASH_EXPORT TrayPower : public SystemTrayItem,
 
   TrayPower(SystemTray* system_tray,
             message_center::MessageCenter* message_center);
-  virtual ~TrayPower();
+  ~TrayPower() override;
 
  private:
   friend class TrayPowerTest;
@@ -68,19 +69,15 @@ class ASH_EXPORT TrayPower : public SystemTrayItem,
   };
 
   // Overridden from SystemTrayItem.
-  virtual views::View* CreateTrayView(user::LoginStatus status) override;
-  virtual views::View* CreateDefaultView(user::LoginStatus status) override;
-  virtual views::View* CreateNotificationView(
-      user::LoginStatus status) override;
-  virtual void DestroyTrayView() override;
-  virtual void DestroyDefaultView() override;
-  virtual void DestroyNotificationView() override;
-  virtual void UpdateAfterLoginStatusChange(user::LoginStatus status) override;
-  virtual void UpdateAfterShelfAlignmentChange(
-      ShelfAlignment alignment) override;
+  views::View* CreateTrayView(user::LoginStatus status) override;
+  views::View* CreateDefaultView(user::LoginStatus status) override;
+  void DestroyTrayView() override;
+  void DestroyDefaultView() override;
+  void UpdateAfterLoginStatusChange(user::LoginStatus status) override;
+  void UpdateAfterShelfAlignmentChange(ShelfAlignment alignment) override;
 
   // Overridden from PowerStatus::Observer.
-  virtual void OnPowerStatusChanged() override;
+  void OnPowerStatusChanged() override;
 
   // Show a notification that a low-power USB charger has been connected.
   // Returns true if a notification was shown or explicitly hidden.
@@ -91,12 +88,9 @@ class ASH_EXPORT TrayPower : public SystemTrayItem,
   bool UpdateNotificationStateForRemainingTime();
   bool UpdateNotificationStateForRemainingPercentage();
 
-  // Records the charger type in UMA.
-  void RecordChargerType();
-
   message_center::MessageCenter* message_center_;  // Not owned.
   tray::PowerTrayView* power_tray_;
-  tray::PowerNotificationView* notification_view_;
+  scoped_ptr<BatteryNotification> battery_notification_;
   NotificationState notification_state_;
 
   // Was a USB charger connected the last time OnPowerStatusChanged() was

@@ -5,65 +5,63 @@
 #ifndef CHROME_BROWSER_HISTORY_CHROME_HISTORY_CLIENT_H_
 #define CHROME_BROWSER_HISTORY_CHROME_HISTORY_CLIENT_H_
 
+#include <set>
+
+#include "base/callback_forward.h"
+#include "base/callback_list.h"
 #include "base/macros.h"
+#include "base/memory/scoped_ptr.h"
+#include "components/bookmarks/browser/base_bookmark_model_observer.h"
 #include "components/history/core/browser/history_client.h"
-#include "components/history/core/browser/history_service_observer.h"
-#include "components/history/core/browser/top_sites_observer.h"
 
+class GURL;
+
+namespace bookmarks {
 class BookmarkModel;
-class HistoryService;
-class Profile;
-
-namespace history {
-class TopSites;
+class BookmarkNode;
 }
 
 // This class implements history::HistoryClient to abstract operations that
 // depend on Chrome environment.
 class ChromeHistoryClient : public history::HistoryClient,
-                            public history::HistoryServiceObserver,
-                            public history::TopSitesObserver {
+                            public bookmarks::BaseBookmarkModelObserver {
  public:
-  explicit ChromeHistoryClient(BookmarkModel* bookmark_model,
-                               Profile* profile,
-                               history::TopSites* top_sites);
+  explicit ChromeHistoryClient(bookmarks::BookmarkModel* bookmark_model);
   ~ChromeHistoryClient() override;
 
-  // TODO(sdefresne): once NOTIFICATION_HISTORY_URL* notifications are no
-  // longer used, remove this reference to the HistoryService from the
-  // ChromeHistoryClient, http://crbug.com/373326
-  void SetHistoryService(HistoryService* history_service);
-
-  // history::HistoryClient:
-  void BlockUntilBookmarksLoaded() override;
-  bool IsBookmarked(const GURL& url) override;
-  void GetBookmarks(std::vector<history::URLAndTitle>* bookmarks) override;
-  void NotifyProfileError(sql::InitStatus init_status) override;
-  bool ShouldReportDatabaseError() override;
-
-  // KeyedService:
+  // history::HistoryClient implementation.
+  void OnHistoryServiceCreated(
+      history::HistoryService* history_service) override;
   void Shutdown() override;
-
-  // TopSitesObserver:
-  void TopSitesLoaded(history::TopSites* top_sites) override;
-  void TopSitesChanged(history::TopSites* top_sites) override;
+  bool CanAddURL(const GURL& url) override;
+  void NotifyProfileError(sql::InitStatus init_status) override;
+  scoped_ptr<history::HistoryBackendClient> CreateBackendClient() override;
 
  private:
-  // The BookmarkModel, this should outlive ChromeHistoryClient.
-  BookmarkModel* bookmark_model_;
-  Profile* profile_;
-  HistoryService* history_service_;
-  // The TopSites object is owned by the Profile (see
-  // chrome/browser/profiles/profile_impl.h)
-  // and lazily constructed by the  getter.
-  // ChromeHistoryClient is a KeyedService linked to the Profile lifetime by the
-  // ChromeHistoryClientFactory (which is a BrowserContextKeyedServiceFactory).
-  // Before the Profile is destroyed, all the KeyedService Shutdown methods are
-  // called, and the Profile is fully constructed before any of the KeyedService
-  // can  be constructed. The TopSites does not use the HistoryService nor the
-  // HistoryClient during construction (it uses it later, but supports getting
-  // an NULL  pointer).
-  history::TopSites* top_sites_;
+  // bookmarks::BaseBookmarkModelObserver implementation.
+  void BookmarkModelChanged() override;
+
+  // bookmarks::BookmarkModelObserver implementation.
+  void BookmarkNodeRemoved(bookmarks::BookmarkModel* bookmark_model,
+                           const bookmarks::BookmarkNode* parent,
+                           int old_index,
+                           const bookmarks::BookmarkNode* node,
+                           const std::set<GURL>& removed_url) override;
+  void BookmarkAllUserNodesRemoved(bookmarks::BookmarkModel* bookmark_model,
+                                   const std::set<GURL>& removed_urls) override;
+
+  // BookmarkModel instance providing access to bookmarks. May be null during
+  // testing but must outlive ChromeHistoryClient if non-null.
+  bookmarks::BookmarkModel* bookmark_model_;
+  bool is_bookmark_model_observer_;
+
+  // Callback invoked when URLs are removed from BookmarkModel.
+  base::Callback<void(const std::set<GURL>&)> on_bookmarks_removed_;
+
+  // Subscription for notifications of changes to favicons.
+  scoped_ptr<base::CallbackList<void(const std::set<GURL>&,
+                                     const GURL&)>::Subscription>
+      favicons_changed_subscription_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeHistoryClient);
 };

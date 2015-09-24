@@ -6,18 +6,17 @@
 
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
+#include "chrome/browser/signin/chrome_signin_client_factory.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/signin/core/browser/account_tracker_service.h"
-#include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/common/signin_pref_names.h"
 
 AccountTrackerServiceFactory::AccountTrackerServiceFactory()
     : BrowserContextKeyedServiceFactory(
         "AccountTrackerServiceFactory",
         BrowserContextDependencyManager::GetInstance()) {
-  DependsOn(ProfileOAuth2TokenServiceFactory::GetInstance());
+  DependsOn(ChromeSigninClientFactory::GetInstance());
 }
 
 AccountTrackerServiceFactory::~AccountTrackerServiceFactory() {
@@ -37,22 +36,15 @@ AccountTrackerServiceFactory* AccountTrackerServiceFactory::GetInstance() {
 
 void AccountTrackerServiceFactory::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterListPref(
-      AccountTrackerService::kAccountInfoPref,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterIntegerPref(
-      prefs::kAccountIdMigrationState,
-      AccountTrackerService::MIGRATION_NOT_STARTED,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterListPref(AccountTrackerService::kAccountInfoPref);
+  registry->RegisterIntegerPref(prefs::kAccountIdMigrationState,
+                                AccountTrackerService::MIGRATION_NOT_STARTED);
 }
 
 KeyedService* AccountTrackerServiceFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
   Profile* profile = static_cast<Profile*>(context);
   AccountTrackerService* service = new AccountTrackerService();
-  service->Initialize(
-      ProfileOAuth2TokenServiceFactory::GetForProfile(profile),
-      profile->GetPrefs(),
-      profile->GetRequestContext());
+  service->Initialize(ChromeSigninClientFactory::GetForProfile(profile));
   return service;
 }

@@ -16,6 +16,12 @@ class APP_LIST_EXPORT SearchBoxViewDelegate {
   // Invoked when query text has changed by the user.
   virtual void QueryChanged(SearchBoxView* sender) = 0;
 
+  // Invoked when the back button has been pressed.
+  virtual void BackButtonPressed() = 0;
+
+  // Selects first item or clears selection from search list.
+  virtual void SetSearchResultSelection(bool select) = 0;
+
  protected:
   virtual ~SearchBoxViewDelegate() {}
 };

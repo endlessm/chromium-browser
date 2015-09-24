@@ -33,6 +33,7 @@
 
 #include "core/dom/ExecutionContext.h"
 #include "core/dom/ExecutionContextTask.h"
+#include "public/platform/WebTraceLocation.h"
 #include "wtf/text/WTFString.h"
 
 namespace blink {
@@ -46,12 +47,12 @@ public:
         return adoptPtr(new DispatchCallbackTask(callback, data, taskName));
     }
 
-    virtual void performTask(ExecutionContext*) override
+    void performTask(ExecutionContext*) override
     {
         m_callback->handleEvent(m_data);
     }
 
-    virtual String taskNameForInstrumentation() const override
+    String taskNameForInstrumentation() const override
     {
         return m_taskName;
     }
@@ -73,7 +74,7 @@ private:
 
 void StringCallback::scheduleCallback(StringCallback* callback, ExecutionContext* context, const String& data, const String& instrumentationName)
 {
-    context->postTask(DispatchCallbackTask::create(callback, data, instrumentationName));
+    context->postTask(FROM_HERE, DispatchCallbackTask::create(callback, data, instrumentationName));
 }
 
 } // namespace blink

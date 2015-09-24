@@ -16,17 +16,19 @@
 class TestLooper : public SkDrawLooper {
 public:
 
-    virtual SkDrawLooper::Context* createContext(SkCanvas*, void* storage) const SK_OVERRIDE {
+    SkDrawLooper::Context* createContext(SkCanvas*, void* storage) const override {
         return SkNEW_PLACEMENT(storage, TestDrawLooperContext);
     }
 
-    virtual size_t contextSize() const SK_OVERRIDE { return sizeof(TestDrawLooperContext); }
+    size_t contextSize() const override { return sizeof(TestDrawLooperContext); }
 
 #ifndef SK_IGNORE_TO_STRING
-    virtual void toString(SkString* str) const SK_OVERRIDE {
+    void toString(SkString* str) const override {
         str->append("TestLooper:");
     }
 #endif
+
+    SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(TestLooper);
 
 private:
     class TestDrawLooperContext : public SkDrawLooper::Context {
@@ -34,7 +36,7 @@ private:
         TestDrawLooperContext() : fOnce(true) {}
         virtual ~TestDrawLooperContext() {}
 
-        virtual bool next(SkCanvas* canvas, SkPaint*) SK_OVERRIDE {
+        bool next(SkCanvas* canvas, SkPaint*) override {
             if (fOnce) {
                 fOnce = false;
                 canvas->translate(SkIntToScalar(10), 0);
@@ -45,9 +47,9 @@ private:
     private:
         bool fOnce;
     };
-
-    SK_DECLARE_UNFLATTENABLE_OBJECT()
 };
+
+SkFlattenable* TestLooper::CreateProc(SkReadBuffer&) { return SkNEW(TestLooper); }
 
 static void test_drawBitmap(skiatest::Reporter* reporter) {
     SkBitmap src;
@@ -85,6 +87,23 @@ static void test_drawBitmap(skiatest::Reporter* reporter) {
     REPORTER_ASSERT(reporter, 0xFFFFFFFF == *dst.getAddr32(5, 5));
 }
 
+static void test_layers(skiatest::Reporter* reporter) {
+    SkCanvas canvas(100, 100);
+
+    SkRect r = SkRect::MakeWH(10, 10);
+    REPORTER_ASSERT(reporter, false == canvas.quickReject(r));
+
+    r.offset(300, 300);
+    REPORTER_ASSERT(reporter, true == canvas.quickReject(r));
+
+    // Test that saveLayer updates quickReject
+    SkRect bounds = SkRect::MakeLTRB(50, 50, 70, 70);
+    canvas.saveLayer(&bounds, NULL);
+    REPORTER_ASSERT(reporter, true == canvas.quickReject(SkRect::MakeWH(10, 10)));
+    REPORTER_ASSERT(reporter, false == canvas.quickReject(SkRect::MakeWH(60, 60)));
+}
+
 DEF_TEST(QuickReject, reporter) {
     test_drawBitmap(reporter);
+    test_layers(reporter);
 }

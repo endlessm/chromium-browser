@@ -7,7 +7,6 @@
 #include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/files/file_path.h"
-#include "base/ios/ios_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/values.h"
@@ -31,25 +30,24 @@ class TestHarness : public PolicyProviderTestHarness {
   // If |use_encoded_key| is true then AddPolicies() serializes and encodes
   // the policies, and publishes them under the EncodedChromePolicy key.
   explicit TestHarness(bool use_encoded_key);
-  virtual ~TestHarness();
+  ~TestHarness() override;
 
-  virtual void SetUp() override;
+  void SetUp() override;
 
-  virtual ConfigurationPolicyProvider* CreateProvider(
+  ConfigurationPolicyProvider* CreateProvider(
       SchemaRegistry* registry,
       scoped_refptr<base::SequencedTaskRunner> task_runner) override;
 
-  virtual void InstallEmptyPolicy() override;
-  virtual void InstallStringPolicy(const std::string& policy_name,
-                                   const std::string& policy_value) override;
-  virtual void InstallIntegerPolicy(const std::string& policy_name,
-                                    int policy_value) override;
-  virtual void InstallBooleanPolicy(const std::string& policy_name,
-                                    bool policy_value) override;
-  virtual void InstallStringListPolicy(
-      const std::string& policy_name,
-      const base::ListValue* policy_value) override;
-  virtual void InstallDictionaryPolicy(
+  void InstallEmptyPolicy() override;
+  void InstallStringPolicy(const std::string& policy_name,
+                           const std::string& policy_value) override;
+  void InstallIntegerPolicy(const std::string& policy_name,
+                            int policy_value) override;
+  void InstallBooleanPolicy(const std::string& policy_name,
+                            bool policy_value) override;
+  void InstallStringListPolicy(const std::string& policy_name,
+                               const base::ListValue* policy_value) override;
+  void InstallDictionaryPolicy(
       const std::string& policy_name,
       const base::DictionaryValue* policy_value) override;
 
@@ -145,13 +143,7 @@ PolicyProviderTestHarness* TestHarness::Create() {
 
 // static
 PolicyProviderTestHarness* TestHarness::CreateWithEncodedKey() {
-  if (base::ios::IsRunningOnIOS7OrLater())
-    return new TestHarness(true);
-  // Earlier versions of iOS don't have the APIs to support this test.
-  // Unfortunately it's not possible to conditionally run this harness using
-  // gtest, so we just fallback to running the non-encoded version.
-  NSLog(@"Skipping test");
-  return new TestHarness(false);
+  return new TestHarness(true);
 }
 
 void TestHarness::AddPolicies(NSDictionary* policy) {
@@ -230,12 +222,6 @@ INSTANTIATE_TEST_CASE_P(
 TEST(PolicyProviderIOSTest, ChromePolicyOverEncodedChromePolicy) {
   // This test verifies that if the "ChromePolicy" key is present then the
   // "EncodedChromePolicy" key is ignored.
-
-  if (!base::ios::IsRunningOnIOS7OrLater()) {
-    // Skip this test if running on a version earlier than iOS 7.
-    NSLog(@"Skipping test");
-    return;
-  }
 
   NSDictionary* policy = @{
     @"shared": @"wrong",

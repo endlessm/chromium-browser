@@ -4,11 +4,7 @@
 
 #include "components/rappor/rappor_service.h"
 
-#include "base/base64.h"
 #include "base/metrics/field_trial.h"
-#include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/pref_service.h"
-#include "base/rand_util.h"
 #include "base/stl_util.h"
 #include "base/time/time.h"
 #include "components/metrics/metrics_hashes.h"
@@ -16,6 +12,7 @@
 #include "components/rappor/proto/rappor_metric.pb.h"
 #include "components/rappor/rappor_metric.h"
 #include "components/rappor/rappor_pref_names.h"
+#include "components/rappor/rappor_prefs.h"
 #include "components/variations/variations_associated_data.h"
 
 namespace rappor {
@@ -51,6 +48,24 @@ GURL GetServerUrl() {
 }
 
 const RapporParameters kRapporParametersForType[NUM_RAPPOR_TYPES] = {
+    // UMA_RAPPOR_TYPE
+    {128 /* Num cohorts */,
+     4 /* Bloom filter size bytes */,
+     2 /* Bloom filter hash count */,
+     rappor::PROBABILITY_50 /* Fake data probability */,
+     rappor::PROBABILITY_50 /* Fake one probability */,
+     rappor::PROBABILITY_75 /* One coin probability */,
+     rappor::PROBABILITY_25 /* Zero coin probability */,
+     UMA_RAPPOR_GROUP /* Recording group */},
+    // SAFEBROWSING_RAPPOR_TYPE
+    {128 /* Num cohorts */,
+     1 /* Bloom filter size bytes */,
+     2 /* Bloom filter hash count */,
+     rappor::PROBABILITY_50 /* Fake data probability */,
+     rappor::PROBABILITY_50 /* Fake one probability */,
+     rappor::PROBABILITY_75 /* One coin probability */,
+     rappor::PROBABILITY_25 /* Zero coin probability */,
+     SAFEBROWSING_RAPPOR_GROUP /* Recording group */},
     // ETLD_PLUS_ONE_RAPPOR_TYPE
     {128 /* Num cohorts */,
      16 /* Bloom filter size bytes */,
@@ -59,27 +74,21 @@ const RapporParameters kRapporParametersForType[NUM_RAPPOR_TYPES] = {
      rappor::PROBABILITY_50 /* Fake one probability */,
      rappor::PROBABILITY_75 /* One coin probability */,
      rappor::PROBABILITY_25 /* Zero coin probability */,
-     FINE_LEVEL /* Reporting level */},
-    // COARSE_RAPPOR_TYPE
-    {128 /* Num cohorts */,
-     1 /* Bloom filter size bytes */,
-     2 /* Bloom filter hash count */,
-     rappor::PROBABILITY_50 /* Fake data probability */,
-     rappor::PROBABILITY_50 /* Fake one probability */,
-     rappor::PROBABILITY_75 /* One coin probability */,
-     rappor::PROBABILITY_25 /* Zero coin probability */,
-     COARSE_LEVEL /* Reporting level */},
+     UMA_RAPPOR_GROUP /* Recording group */},
 };
 
 }  // namespace
 
-RapporService::RapporService(PrefService* pref_service)
+RapporService::RapporService(
+    PrefService* pref_service,
+    const base::Callback<bool(void)> is_incognito_callback)
     : pref_service_(pref_service),
+      is_incognito_callback_(is_incognito_callback),
       cohort_(-1),
       daily_event_(pref_service,
                    prefs::kRapporLastDailySample,
                    kRapporDailyEventHistogram),
-      reporting_level_(REPORTING_DISABLED) {
+      recording_groups_(0) {
 }
 
 RapporService::~RapporService() {
@@ -91,43 +100,84 @@ void RapporService::AddDailyObserver(
   daily_event_.AddObserver(observer.Pass());
 }
 
-void RapporService::Start(net::URLRequestContextGetter* request_context,
-                          bool metrics_enabled) {
+void RapporService::Initialize(net::URLRequestContextGetter* request_context) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK(!IsInitialized());
   const GURL server_url = GetServerUrl();
   if (!server_url.is_valid()) {
     DVLOG(1) << server_url.spec() << " is invalid. "
              << "RapporService not started.";
     return;
   }
-  // TODO(holte): Consider moving this logic once we've determined the
-  // conditions for COARSE metrics.
-  ReportingLevel reporting_level = metrics_enabled ?
-                                   FINE_LEVEL : REPORTING_DISABLED;
-  DVLOG(1) << "RapporService reporting_level_? " << reporting_level;
-  if (reporting_level <= REPORTING_DISABLED)
-    return;
-  DVLOG(1) << "RapporService started. Reporting to " << server_url.spec();
-  DCHECK(!uploader_);
-  Initialize(LoadCohort(), LoadSecret(), reporting_level);
-  uploader_.reset(new LogUploader(server_url, kMimeType, request_context));
-  log_rotation_timer_.Start(
-      FROM_HERE,
-      base::TimeDelta::FromSeconds(kInitialLogIntervalSeconds),
-      this,
-      &RapporService::OnLogInterval);
+  DVLOG(1) << "RapporService reporting to " << server_url.spec();
+  InitializeInternal(make_scoped_ptr(new LogUploader(server_url,
+                                                     kMimeType,
+                                                     request_context)),
+                     internal::LoadCohort(pref_service_),
+                     internal::LoadSecret(pref_service_));
 }
 
-void RapporService::Initialize(int32_t cohort,
-                               const std::string& secret,
-                               const ReportingLevel& reporting_level) {
+void RapporService::Update(int recording_groups, bool may_upload) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK(IsInitialized());
+  if (recording_groups_ != recording_groups) {
+    if (recording_groups == 0) {
+      DVLOG(1) << "Rappor service stopped because all groups were disabled.";
+      recording_groups_ = 0;
+      CancelNextLogRotation();
+    } else if (recording_groups_ == 0) {
+      DVLOG(1) << "RapporService started for groups: "
+               << recording_groups;
+      recording_groups_ = recording_groups;
+      ScheduleNextLogRotation(
+          base::TimeDelta::FromSeconds(kInitialLogIntervalSeconds));
+    } else {
+      DVLOG(1) << "RapporService recording_groups changed:" << recording_groups;
+      recording_groups_ = recording_groups;
+    }
+  }
+
+  DVLOG(1) << "RapporService recording_groups=" << recording_groups_
+           << " may_upload=" << may_upload;
+  if (may_upload) {
+    uploader_->Start();
+  } else {
+    uploader_->Stop();
+  }
+}
+
+// static
+void RapporService::RegisterPrefs(PrefRegistrySimple* registry) {
+  internal::RegisterPrefs(registry);
+}
+
+void RapporService::InitializeInternal(
+    scoped_ptr<LogUploaderInterface> uploader,
+    int32_t cohort,
+    const std::string& secret) {
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!IsInitialized());
   DCHECK(secret_.empty());
+  uploader_.swap(uploader);
   cohort_ = cohort;
   secret_ = secret;
-  reporting_level_ = reporting_level;
+}
+
+void RapporService::CancelNextLogRotation() {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  STLDeleteValues(&metrics_map_);
+  log_rotation_timer_.Stop();
+}
+
+void RapporService::ScheduleNextLogRotation(base::TimeDelta interval) {
+  log_rotation_timer_.Start(FROM_HERE,
+                            interval,
+                            this,
+                            &RapporService::OnLogInterval);
 }
 
 void RapporService::OnLogInterval() {
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(uploader_);
   DVLOG(2) << "RapporService::OnLogInterval";
   daily_event_.CheckInterval();
@@ -140,87 +190,54 @@ void RapporService::OnLogInterval() {
              << reports.report_size() << " value(s).";
     uploader_->QueueLog(log_text);
   }
-  log_rotation_timer_.Start(FROM_HERE,
-                            base::TimeDelta::FromSeconds(kLogIntervalSeconds),
-                            this,
-                            &RapporService::OnLogInterval);
-}
-
-// static
-void RapporService::RegisterPrefs(PrefRegistrySimple* registry) {
-  registry->RegisterStringPref(prefs::kRapporSecret, std::string());
-  registry->RegisterIntegerPref(prefs::kRapporCohortDeprecated, -1);
-  registry->RegisterIntegerPref(prefs::kRapporCohortSeed, -1);
-  metrics::DailyEvent::RegisterPref(registry,
-                                       prefs::kRapporLastDailySample);
-}
-
-int32_t RapporService::LoadCohort() {
-  // Ignore and delete old cohort parameter.
-  pref_service_->ClearPref(prefs::kRapporCohortDeprecated);
-
-  int32_t cohort = pref_service_->GetInteger(prefs::kRapporCohortSeed);
-  // If the user is already assigned to a valid cohort, we're done.
-  if (cohort >= 0 && cohort < RapporParameters::kMaxCohorts)
-    return cohort;
-
-  // This is the first time the client has started the service (or their
-  // preferences were corrupted).  Randomly assign them to a cohort.
-  cohort = base::RandGenerator(RapporParameters::kMaxCohorts);
-  DVLOG(2) << "Selected a new Rappor cohort: " << cohort;
-  pref_service_->SetInteger(prefs::kRapporCohortSeed, cohort);
-  return cohort;
-}
-
-std::string RapporService::LoadSecret() {
-  std::string secret;
-  std::string secret_base64 = pref_service_->GetString(prefs::kRapporSecret);
-  if (!secret_base64.empty()) {
-    bool decoded = base::Base64Decode(secret_base64, &secret);
-    if (decoded && secret_.size() == HmacByteVectorGenerator::kEntropyInputSize)
-      return secret;
-    // If the preference fails to decode, or is the wrong size, it must be
-    // corrupt, so continue as though it didn't exist yet and generate a new
-    // one.
-  }
-
-  DVLOG(2) << "Generated a new Rappor secret.";
-  secret = HmacByteVectorGenerator::GenerateEntropyInput();
-  base::Base64Encode(secret, &secret_base64);
-  pref_service_->SetString(prefs::kRapporSecret, secret_base64);
-  return secret;
+  ScheduleNextLogRotation(base::TimeDelta::FromSeconds(kLogIntervalSeconds));
 }
 
 bool RapporService::ExportMetrics(RapporReports* reports) {
-  if (metrics_map_.empty()) {
-    DVLOG(2) << "metrics_map_ is empty.";
-    return false;
-  }
-
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK_GE(cohort_, 0);
   reports->set_cohort(cohort_);
 
-  for (std::map<std::string, RapporMetric*>::const_iterator it =
-           metrics_map_.begin();
-       it != metrics_map_.end();
-       ++it) {
-    const RapporMetric* metric = it->second;
+  for (const auto& kv : metrics_map_) {
+    const RapporMetric* metric = kv.second;
     RapporReports::Report* report = reports->add_report();
-    report->set_name_hash(metrics::HashMetricName(it->first));
+    report->set_name_hash(metrics::HashMetricName(kv.first));
     ByteVector bytes = metric->GetReport(secret_);
     report->set_bits(std::string(bytes.begin(), bytes.end()));
+    DVLOG(2) << "Exporting metric " << kv.first;
   }
   STLDeleteValues(&metrics_map_);
-  return true;
+
+  sampler_.ExportMetrics(secret_, reports);
+
+  DVLOG(2) << "Generated a report with " << reports->report_size()
+           << " metrics.";
+  return reports->report_size() > 0;
 }
 
 bool RapporService::IsInitialized() const {
   return cohort_ >= 0;
 }
 
+bool RapporService::RecordingAllowed(const RapporParameters& parameters) {
+  // Skip recording in incognito mode.
+  if (is_incognito_callback_.Run()) {
+    DVLOG(2) << "Metric not logged due to incognito mode.";
+    return false;
+  }
+  // Skip this metric if its recording_group is not enabled.
+  if (!(recording_groups_ & parameters.recording_group)) {
+    DVLOG(2) << "Metric not logged due to recording_group "
+             << recording_groups_ << " < " << parameters.recording_group;
+    return false;
+  }
+  return true;
+}
+
 void RapporService::RecordSample(const std::string& metric_name,
                                  RapporType type,
                                  const std::string& sample) {
+  DCHECK(thread_checker_.CalledOnValidThread());
   // Ignore the sample if the service hasn't started yet.
   if (!IsInitialized())
     return;
@@ -235,20 +252,17 @@ void RapporService::RecordSample(const std::string& metric_name,
 void RapporService::RecordSampleInternal(const std::string& metric_name,
                                          const RapporParameters& parameters,
                                          const std::string& sample) {
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(IsInitialized());
-  // Skip this metric if it's reporting level is less than the enabled
-  // reporting level.
-  if (reporting_level_ < parameters.reporting_level) {
-    DVLOG(2) << "Metric not logged due to reporting_level "
-             << reporting_level_ << " < " << parameters.reporting_level;
+  if (!RecordingAllowed(parameters))
     return;
-  }
   RapporMetric* metric = LookUpMetric(metric_name, parameters);
   metric->AddSample(sample);
 }
 
 RapporMetric* RapporService::LookUpMetric(const std::string& metric_name,
                                           const RapporParameters& parameters) {
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(IsInitialized());
   std::map<std::string, RapporMetric*>::const_iterator it =
       metrics_map_.find(metric_name);
@@ -261,6 +275,22 @@ RapporMetric* RapporService::LookUpMetric(const std::string& metric_name,
   RapporMetric* new_metric = new RapporMetric(metric_name, parameters, cohort_);
   metrics_map_[metric_name] = new_metric;
   return new_metric;
+}
+
+scoped_ptr<Sample> RapporService::CreateSample(RapporType type) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK(IsInitialized());
+  return scoped_ptr<Sample>(
+      new Sample(cohort_, kRapporParametersForType[type]));
+}
+
+void RapporService::RecordSampleObj(const std::string& metric_name,
+                                    scoped_ptr<Sample> sample) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  if (!RecordingAllowed(sample->parameters()))
+    return;
+  DVLOG(1) << "Recording sample of metric \"" << metric_name << "\"";
+  sampler_.AddSample(metric_name, sample.Pass());
 }
 
 }  // namespace rappor

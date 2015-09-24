@@ -7,10 +7,6 @@
 
 #include "extensions/renderer/object_backed_native_handler.h"
 
-namespace content {
-class RenderView;
-}
-
 namespace extensions {
 
 class Extension;
@@ -20,10 +16,6 @@ class LazyBackgroundPageNativeHandler : public ObjectBackedNativeHandler {
   explicit LazyBackgroundPageNativeHandler(ScriptContext* context);
   void IncrementKeepaliveCount(const v8::FunctionCallbackInfo<v8::Value>& args);
   void DecrementKeepaliveCount(const v8::FunctionCallbackInfo<v8::Value>& args);
-
- private:
-  bool IsContextLazyBackgroundPage(content::RenderView* render_view,
-                                   const Extension* extension);
 };
 
 }  // namespace extensions

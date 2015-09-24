@@ -20,7 +20,9 @@ goog.require('i18n.input.chrome.inputview.Css');
 goog.require('i18n.input.chrome.inputview.elements.Element');
 goog.require('i18n.input.chrome.inputview.elements.ElementType');
 goog.require('i18n.input.chrome.inputview.elements.content.Candidate');
+goog.require('i18n.input.chrome.inputview.elements.content.EnterKey');
 goog.require('i18n.input.chrome.inputview.elements.content.FunctionalKey');
+goog.require('i18n.input.chrome.inputview.util');
 
 
 goog.scope(function() {
@@ -31,6 +33,8 @@ var Candidate = i18n.input.chrome.inputview.elements.content.Candidate;
 var Type = i18n.input.chrome.inputview.elements.content.Candidate.Type;
 var ElementType = i18n.input.chrome.inputview.elements.ElementType;
 var FunctionalKey = i18n.input.chrome.inputview.elements.content.FunctionalKey;
+var EnterKey = i18n.input.chrome.inputview.elements.content.EnterKey;
+var util = i18n.input.chrome.inputview.util;
 
 
 
@@ -56,9 +60,9 @@ i18n.input.chrome.inputview.elements.content.ExpandedCandidateView = function(
   /**
    * The functional keys at the right.
    *
-   * @private {!Array.<FunctionalKey>}
+   * @private {!Object.<ElementType, FunctionalKey>}
    */
-  this.keys_ = [];
+  this.keys_ = {};
 
   /**
    * Key: page index.
@@ -152,6 +156,23 @@ ExpandedCandidateView.prototype.widthPerCell_ = 0;
 ExpandedCandidateView.prototype.heightPerCell_ = 0;
 
 
+/**
+ * The width in weight which stands for the entire row. It is used for the
+ * alignment of the number row.
+ *
+ * @private {number}
+ */
+ExpandedCandidateView.prototype.widthInWeight_ = 0;
+
+
+/**
+ * The width in weight of the backspace key.
+ *
+ * @private {number}
+ */
+ExpandedCandidateView.prototype.backspaceWeight_ = 0;
+
+
 /** @override */
 ExpandedCandidateView.prototype.createDom = function() {
   goog.base(this, 'createDom');
@@ -194,13 +215,19 @@ ExpandedCandidateView.prototype.createCandidateLine_ = function(isTopLine) {
  *
  * @param {ElementType} type .
  * @param {string} iconCss .
+ * @return {!i18n.input.chrome.inputview.elements.Element} key.
  * @private
  */
 ExpandedCandidateView.prototype.createKey_ = function(type, iconCss) {
-  var key = new FunctionalKey('', type, '', iconCss, this);
+  var key;
+  if (type == ElementType.ENTER_KEY) {
+    key = new EnterKey('', iconCss, this);
+  } else {
+    key = new FunctionalKey('', type, '', iconCss, this);
+  }
   key.render(this.getElement());
   goog.dom.classlist.add(key.getElement(), Css.INLINE_DIV);
-  this.keys_.push(key);
+  this.keys_[type] = key;
   return key;
 };
 
@@ -245,8 +272,7 @@ ExpandedCandidateView.prototype.close = function() {
  * @param {!Array.<!Object>} candidates .
  * @param {number} start .
  */
-ExpandedCandidateView.prototype.showCandidates = function(candidates,
-    start) {
+ExpandedCandidateView.prototype.showCandidates = function(candidates, start) {
   this.setVisible(true);
   var dom = this.getDomHelper();
   for (var i = 0; i < this.lines_.length; i++) {
@@ -257,7 +283,7 @@ ExpandedCandidateView.prototype.showCandidates = function(candidates,
   this.candidates_ = candidates;
   var lineIndex = 0;
   var line = this.lines_[lineIndex];
-  var cellsInLine = ExpandedCandidateView.CELLS_PER_LINE_;
+  var cellsLeftInLine = ExpandedCandidateView.CELLS_PER_LINE_;
   var previousCandidate = null;
   var previousCandidateWidth = 0;
   var i;
@@ -267,59 +293,103 @@ ExpandedCandidateView.prototype.showCandidates = function(candidates,
         this.heightPerCell_, false, undefined, this);
     candidateElem.render(line);
     var size = goog.style.getSize(candidateElem.getElement());
-    var cells = Math.ceil(size.width / this.widthPerCell_);
-    if (cellsInLine < cells) {
+    var cellsOfCandidate = Math.ceil(size.width / this.widthPerCell_);
+    if (cellsLeftInLine < cellsOfCandidate && previousCandidate) {
       // If there is not enough cells, just put this candidate to a new line
       // and give the rest cells to the last candidate.
       line.removeChild(candidateElem.getElement());
-      goog.style.setSize(previousCandidate.getElement(), cellsInLine *
-          this.widthPerCell_ + previousCandidateWidth, this.heightPerCell_);
-      lineIndex++;
-      if (lineIndex == ExpandedCandidateView.LINES_) {
-        break;
-      }
-      cellsInLine = ExpandedCandidateView.CELLS_PER_LINE_ - cells;
-      line = this.lines_[lineIndex];
-      dom.appendChild(line, candidateElem.getElement());
+      // Will start new lines and set previous element as null,
+      // then won't hit this code in next loop.
+      i--;
+      previousCandidate.setSize(
+          cellsLeftInLine * this.widthPerCell_ + previousCandidateWidth,
+          this.heightPerCell_);
+      cellsLeftInLine = 0;
+    } else if ((cellsLeftInLine < cellsOfCandidate && !previousCandidate) ||
+        cellsLeftInLine == cellsOfCandidate) {
+      // If there is not enough space and not any candidate is inserted in this
+      // line, or after inert this candidate, there is 0 space left, then just
+      // set the size of the current candidate.
+      candidateElem.setSize(cellsLeftInLine * this.widthPerCell_,
+          this.heightPerCell_);
+      cellsLeftInLine = 0;
     } else {
-      cellsInLine -= cells;
+      cellsLeftInLine -= cellsOfCandidate;
+      candidateElem.setSize(cellsOfCandidate * this.widthPerCell_,
+          this.heightPerCell_);
     }
-    var width = cells * this.widthPerCell_;
-    goog.style.setSize(candidateElem.getElement(), width, this.heightPerCell_);
 
-    if (cellsInLine == 0) {
+
+    if (cellsLeftInLine == 0) {
+      // Changes to new line if there is no space left.
       lineIndex++;
       if (lineIndex == ExpandedCandidateView.LINES_) {
         break;
       }
-      cellsInLine = ExpandedCandidateView.CELLS_PER_LINE_;
+      cellsLeftInLine = ExpandedCandidateView.CELLS_PER_LINE_;
       line = this.lines_[lineIndex];
+      previousCandidateWidth = 0;
+      previousCandidate = null;
+    } else {
+      previousCandidateWidth = size.width;
+      previousCandidate = candidateElem;
     }
-
-    candidateElem.setVisible(true);
-    previousCandidateWidth = width;
-    previousCandidate = candidateElem;
   }
   this.candidateStartIndex_ = i;
+  var pageDownKey = this.keys_[ElementType.CANDIDATES_PAGE_DOWN].getElement();
+  var pageUpKey = this.keys_[ElementType.CANDIDATES_PAGE_UP].getElement();
+  if (i >= candidates.length) {
+    goog.dom.classlist.add(pageDownKey, Css.PAGE_NAVI_INACTIVE);
+  } else {
+    goog.dom.classlist.remove(pageDownKey, Css.PAGE_NAVI_INACTIVE);
+  }
+
+  if (this.pageIndex_ > 0) {
+    goog.dom.classlist.remove(pageUpKey, Css.PAGE_NAVI_INACTIVE);
+  } else {
+    goog.dom.classlist.add(pageUpKey, Css.PAGE_NAVI_INACTIVE);
+  }
+};
+
+
+/**
+ * Sets the widthInWeight which equals to a total line in the
+ * keyset view and it is used for alignment of number row.
+ *
+ * @param {number} widthInWeight .
+ * @param {number} backspaceWeight .
+ */
+ExpandedCandidateView.prototype.setWidthInWeight = function(widthInWeight,
+    backspaceWeight) {
+  this.widthInWeight_ = widthInWeight;
+  this.backspaceWeight_ = backspaceWeight;
 };
 
 
 /** @override */
 ExpandedCandidateView.prototype.resize = function(width, height) {
   goog.base(this, 'resize', width, height);
-
   goog.style.setSize(this.getElement(), width, height);
-  this.widthPerCell_ = Math.floor((width - ExpandedCandidateView.
-      RIGHT_KEY_WIDTH_) / ExpandedCandidateView.CELLS_PER_LINE_);
-  this.heightPerCell_ = height / ExpandedCandidateView.LINES_;
+  var lastKeyWidth = ExpandedCandidateView.RIGHT_KEY_WIDTH_;
+  if (this.backspaceWeight_ > 0) {
+    var weightArray = [Math.round(this.widthInWeight_ - this.backspaceWeight_)];
+    weightArray.push(this.backspaceWeight_);
+    var values = util.splitValue(weightArray, width);
+    lastKeyWidth = values[values.length - 1];
+  }
+
+  var candidatesWidth = Math.floor(width - lastKeyWidth);
+  this.widthPerCell_ = Math.floor(candidatesWidth /
+      ExpandedCandidateView.CELLS_PER_LINE_);
+  this.heightPerCell_ = Math.floor(height / ExpandedCandidateView.LINES_);
   for (var i = 0; i < this.lines_.length; i++) {
     var line = this.lines_[i];
-    goog.style.setSize(line, Math.floor(width -
-        ExpandedCandidateView.RIGHT_KEY_WIDTH_), this.heightPerCell_);
+    goog.style.setSize(line, candidatesWidth, this.heightPerCell_);
   }
-  for (var i = 0; i < this.keys_.length; i++) {
-    var key = this.keys_[i];
-    key.resize(ExpandedCandidateView.RIGHT_KEY_WIDTH_, this.heightPerCell_);
+  for (var type in this.keys_) {
+    type = /** @type {ElementType} */ (Number(type));
+    var key = this.keys_[type];
+    key.resize(lastKeyWidth, this.heightPerCell_);
   }
 };
 

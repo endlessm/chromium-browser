@@ -4,6 +4,8 @@
 
 #include "ash/wm/overview/window_selector_controller.h"
 
+#include <vector>
+
 #include "ash/metrics/user_metrics_recorder.h"
 #include "ash/root_window_controller.h"
 #include "ash/session/session_state_delegate.h"
@@ -44,13 +46,20 @@ void WindowSelectorController::ToggleOverview() {
     if (!CanSelect())
       return;
 
-    std::vector<aura::Window*> windows = ash::Shell::GetInstance()->
-        mru_window_tracker()->BuildMruWindowList();
+    aura::Window::Windows windows =
+        ash::Shell::GetInstance()->mru_window_tracker()->BuildMruWindowList();
+    auto end =
+        std::remove_if(windows.begin(), windows.end(),
+                       std::not1(std::ptr_fun(&WindowSelector::IsSelectable)));
+    windows.resize(end - windows.begin());
+
     // Don't enter overview mode with no windows.
     if (windows.empty())
       return;
 
-    window_selector_.reset(new WindowSelector(windows, this));
+    Shell::GetInstance()->OnOverviewModeStarting();
+    window_selector_.reset(new WindowSelector(this));
+    window_selector_->Init(windows);
     OnSelectionStarted();
   }
 }
@@ -59,11 +68,18 @@ bool WindowSelectorController::IsSelecting() {
   return window_selector_.get() != NULL;
 }
 
+bool WindowSelectorController::IsRestoringMinimizedWindows() const {
+  return window_selector_.get() != NULL &&
+         window_selector_->restoring_minimized_windows();
+}
+
 // TODO(flackr): Make WindowSelectorController observe the activation of
 // windows, so we can remove WindowSelectorDelegate.
 void WindowSelectorController::OnSelectionEnded() {
+  window_selector_->Shutdown();
   window_selector_.reset();
   last_selection_time_ = base::Time::Now();
+  Shell::GetInstance()->OnOverviewModeEnded();
 }
 
 void WindowSelectorController::OnSelectionStarted() {

@@ -17,6 +17,7 @@
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/browser/ui/login/login_interstitial_delegate.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/password_manager/content/browser/content_password_manager_driver.h"
 #include "components/password_manager/core/browser/browser_save_password_progress_logger.h"
 #include "components/password_manager/core/browser/password_manager.h"
 #include "content/public/browser/browser_thread.h"
@@ -34,6 +35,10 @@
 #include "net/url_request/url_request_context.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/text_elider.h"
+
+#if defined(ENABLE_EXTENSIONS)
+#include "components/guest_view/browser/guest_view_base.h"
+#endif
 
 using autofill::PasswordForm;
 using content::BrowserThread;
@@ -133,6 +138,14 @@ WebContents* LoginHandler::GetWebContentsForLogin() const {
   content::RenderFrameHost* rfh = content::RenderFrameHost::FromID(
       render_process_host_id_, render_frame_id_);
   return WebContents::FromRenderFrameHost(rfh);
+}
+
+password_manager::ContentPasswordManagerDriver*
+LoginHandler::GetPasswordManagerDriverForLogin() {
+  content::RenderFrameHost* rfh = content::RenderFrameHost::FromID(
+      render_process_host_id_, render_frame_id_);
+  return password_manager::ContentPasswordManagerDriver::GetForRenderFrameHost(
+      rfh);
 }
 
 void LoginHandler::SetAuth(const base::string16& username,
@@ -419,9 +432,9 @@ void MakeInputForPasswordManager(
     LoginHandler* handler,
     std::vector<PasswordForm>* password_manager_input) {
   PasswordForm dialog_form;
-  if (LowerCaseEqualsASCII(auth_info->scheme, "basic")) {
+  if (base::LowerCaseEqualsASCII(auth_info->scheme, "basic")) {
     dialog_form.scheme = PasswordForm::SCHEME_BASIC;
-  } else if (LowerCaseEqualsASCII(auth_info->scheme, "digest")) {
+  } else if (base::LowerCaseEqualsASCII(auth_info->scheme, "digest")) {
     dialog_form.scheme = PasswordForm::SCHEME_DIGEST;
   } else {
     dialog_form.scheme = PasswordForm::SCHEME_OTHER;
@@ -460,19 +473,8 @@ void ShowLoginPrompt(const GURL& request_url,
     return;
   }
 
-  password_manager::PasswordManager* password_manager =
-      ChromePasswordManagerClient::GetManagerFromWebContents(parent_contents);
-  if (!password_manager) {
-    // Same logic as above.
-    handler->CancelAuth();
-    return;
-  }
-
-  // Tell the password manager to look for saved passwords.
-  std::vector<PasswordForm> v;
-  MakeInputForPasswordManager(request_url, auth_info, handler, &v);
-  password_manager->OnPasswordFormsParsed(v);
-  handler->SetPasswordManager(password_manager);
+  password_manager::ContentPasswordManagerDriver* driver =
+      handler->GetPasswordManagerDriverForLogin();
 
   // The realm is controlled by the remote server, so there is no reason
   // to believe it is of a reasonable length.
@@ -487,7 +489,37 @@ void ShowLoginPrompt(const GURL& request_url,
       l10n_util::GetStringFUTF16(IDS_LOGIN_DIALOG_DESCRIPTION,
                                  host_and_port,
                                  elided_realm);
-  handler->BuildViewForPasswordManager(password_manager, explanation);
+
+  if (!driver) {
+#if defined(ENABLE_EXTENSIONS)
+    // A WebContents in a <webview> (a GuestView type) does not have a password
+    // manager, but still needs to be able to show login prompts.
+    if (guest_view::GuestViewBase::FromWebContents(parent_contents)) {
+      handler->BuildViewForPasswordManager(nullptr, explanation);
+      return;
+    }
+#endif
+    handler->CancelAuth();
+    return;
+  }
+
+  password_manager::PasswordManager* password_manager =
+      driver->GetPasswordManager();
+  if (password_manager && password_manager->client()->IsLoggingActive()) {
+    password_manager::BrowserSavePasswordProgressLogger logger(
+        password_manager->client());
+    logger.LogMessage(
+        autofill::SavePasswordProgressLogger::STRING_SHOW_LOGIN_PROMPT_METHOD);
+  }
+
+  // Tell the password manager to look for saved passwords.
+  std::vector<PasswordForm> v;
+  MakeInputForPasswordManager(request_url, auth_info, handler, &v);
+  driver->OnPasswordFormsParsed(v);
+  handler->SetPasswordManager(driver->GetPasswordManager());
+
+  handler->BuildViewForPasswordManager(driver->GetPasswordManager(),
+                                       explanation);
 }
 
 // This callback is run on the UI thread and creates a constrained window with
@@ -510,24 +542,33 @@ void LoginDialogCallback(const GURL& request_url,
     return;
   }
 
-  // Check if the request is cross origin. There are two different ways the
-  // navigation can occur:
+  // Check if this is a main frame navigation and
+  // (a) if the request is cross origin or
+  // (b) if an interstitial is already being shown.
+  //
+  // For (a), there are two different ways the navigation can occur:
   // 1- The user enters the resource URL in the omnibox.
   // 2- The page redirects to the resource.
   // In both cases, the last committed URL is different than the resource URL,
   // so checking it is sufficient.
   // Note that (1) will not be true once site isolation is enabled, as any
   // navigation could cause a cross-process swap, including link clicks.
-  if (is_main_frame &&
-      parent_contents->GetLastCommittedURL().GetOrigin() !=
-          request_url.GetOrigin()) {
+  //
+  // For (b), the login interstitial should always replace an existing
+  // interstitial. This is because |LoginHandler::CloseContentsDeferred| tries
+  // to proceed whatever interstitial is being shown when the login dialog is
+  // closed, so that interstitial should only be a login interstitial.
+  if (is_main_frame && (parent_contents->ShowingInterstitialPage() ||
+                        parent_contents->GetLastCommittedURL().GetOrigin() !=
+                            request_url.GetOrigin())) {
     // Show a blank interstitial for main-frame, cross origin requests
     // so that the correct URL is shown in the omnibox.
     base::Closure callback = base::Bind(&ShowLoginPrompt,
                                         request_url,
                                         make_scoped_refptr(auth_info),
                                         make_scoped_refptr(handler));
-    // This is owned by the interstitial it creates.
+    // This is owned by the interstitial it creates. It cancels any existing
+    // interstitial.
     new LoginInterstitialDelegate(parent_contents,
                                   request_url,
                                   callback);

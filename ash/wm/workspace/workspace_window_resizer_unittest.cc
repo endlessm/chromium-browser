@@ -25,7 +25,7 @@
 #include "ui/base/hit_test.h"
 #include "ui/events/gesture_detection/gesture_configuration.h"
 #include "ui/events/test/event_generator.h"
-#include "ui/gfx/insets.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/screen.h"
 #include "ui/views/widget/widget.h"
 
@@ -39,7 +39,7 @@ class TestWindowDelegate : public aura::test::TestWindowDelegate {
  public:
   TestWindowDelegate() {
   }
-  virtual ~TestWindowDelegate() {}
+  ~TestWindowDelegate() override {}
 
   void set_min_size(const gfx::Size& size) {
     min_size_ = size;
@@ -51,13 +51,9 @@ class TestWindowDelegate : public aura::test::TestWindowDelegate {
 
  private:
   // Overridden from aura::Test::TestWindowDelegate:
-  virtual gfx::Size GetMinimumSize() const override {
-    return min_size_;
-  }
+  gfx::Size GetMinimumSize() const override { return min_size_; }
 
-  virtual gfx::Size GetMaximumSize() const override {
-    return max_size_;
-  }
+  gfx::Size GetMaximumSize() const override { return max_size_; }
 
   gfx::Size min_size_;
   gfx::Size max_size_;
@@ -70,9 +66,9 @@ class TestWindowDelegate : public aura::test::TestWindowDelegate {
 class WorkspaceWindowResizerTest : public test::AshTestBase {
  public:
   WorkspaceWindowResizerTest() : workspace_resizer_(NULL) {}
-  virtual ~WorkspaceWindowResizerTest() {}
+  ~WorkspaceWindowResizerTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     AshTestBase::SetUp();
     UpdateDisplay(base::StringPrintf("800x%d", kRootHeight));
     // Ignore the touch slop region.
@@ -90,30 +86,30 @@ class WorkspaceWindowResizerTest : public test::AshTestBase {
     Shell::GetInstance()->SetDisplayWorkAreaInsets(root, gfx::Insets());
     window_.reset(new aura::Window(&delegate_));
     window_->SetType(ui::wm::WINDOW_TYPE_NORMAL);
-    window_->Init(aura::WINDOW_LAYER_NOT_DRAWN);
+    window_->Init(ui::LAYER_NOT_DRAWN);
     ParentWindowInPrimaryRootWindow(window_.get());
     window_->set_id(1);
 
     window2_.reset(new aura::Window(&delegate2_));
     window2_->SetType(ui::wm::WINDOW_TYPE_NORMAL);
-    window2_->Init(aura::WINDOW_LAYER_NOT_DRAWN);
+    window2_->Init(ui::LAYER_NOT_DRAWN);
     ParentWindowInPrimaryRootWindow(window2_.get());
     window2_->set_id(2);
 
     window3_.reset(new aura::Window(&delegate3_));
     window3_->SetType(ui::wm::WINDOW_TYPE_NORMAL);
-    window3_->Init(aura::WINDOW_LAYER_NOT_DRAWN);
+    window3_->Init(ui::LAYER_NOT_DRAWN);
     ParentWindowInPrimaryRootWindow(window3_.get());
     window3_->set_id(3);
 
     window4_.reset(new aura::Window(&delegate4_));
     window4_->SetType(ui::wm::WINDOW_TYPE_NORMAL);
-    window4_->Init(aura::WINDOW_LAYER_NOT_DRAWN);
+    window4_->Init(ui::LAYER_NOT_DRAWN);
     ParentWindowInPrimaryRootWindow(window4_.get());
     window4_->set_id(4);
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     window_.reset();
     window2_.reset();
     window3_.reset();
@@ -261,10 +257,15 @@ TEST_F(WorkspaceWindowResizerTest, AttachedResize_RIGHT_Compress) {
   EXPECT_EQ("300,200 200x200", window2_->bounds().ToString());
 
   // Collapse all the way to w1's min.
-  delegate_.set_min_size(gfx::Size(20, 20));
+  delegate_.set_min_size(gfx::Size(25, 25));
+  resizer->Drag(CalculateDragPoint(*resizer, -800, 25), 0);
+  EXPECT_EQ("0,300 25x300", window_->bounds().ToString());
+  EXPECT_EQ("25,200 475x200", window2_->bounds().ToString());
+
+  // But should keep minimum visible width;
   resizer->Drag(CalculateDragPoint(*resizer, -800, 20), 0);
-  EXPECT_EQ("0,300 20x300", window_->bounds().ToString());
-  EXPECT_EQ("20,200 480x200", window2_->bounds().ToString());
+  EXPECT_EQ("0,300 25x300", window_->bounds().ToString());
+  EXPECT_EQ("25,200 475x200", window2_->bounds().ToString());
 
   // Move 100 to the left.
   resizer->Drag(CalculateDragPoint(*resizer, 100, 10), 0);

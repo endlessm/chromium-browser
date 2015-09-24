@@ -85,11 +85,13 @@ class DesktopSessionAgent::SharedBuffer : public webrtc::SharedMemory {
                scoped_ptr<base::SharedMemory> memory,
                size_t size,
                int id)
-      : SharedMemory(memory->memory(), size,
+      : SharedMemory(memory->memory(),
+                     size,
 #if defined(OS_WIN)
                      memory->handle(),
 #else
-                     memory->handle().fd,
+                     base::SharedMemory::GetFdFromSharedMemoryHandle(
+                         memory->handle()),
 #endif
                      id),
         agent_(agent),
@@ -139,6 +141,8 @@ bool DesktopSessionAgent::OnMessageReceived(const IPC::Message& message) {
                           OnInjectTextEvent)
       IPC_MESSAGE_HANDLER(ChromotingNetworkDesktopMsg_InjectMouseEvent,
                           OnInjectMouseEvent)
+      IPC_MESSAGE_HANDLER(ChromotingNetworkDesktopMsg_InjectTouchEvent,
+                          OnInjectTouchEvent)
       IPC_MESSAGE_HANDLER(ChromotingNetworkDesktopMsg_SetScreenResolution,
                           SetScreenResolution)
       IPC_MESSAGE_UNHANDLED(handled = false)
@@ -371,7 +375,7 @@ void DesktopSessionAgent::ProcessAudioPacket(scoped_ptr<AudioPacket> packet) {
 bool DesktopSessionAgent::Start(const base::WeakPtr<Delegate>& delegate,
                                 IPC::PlatformFileForTransit* desktop_pipe_out) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
-  DCHECK(delegate_.get() == NULL);
+  DCHECK(delegate_.get() == nullptr);
 
   delegate_ = delegate;
 
@@ -513,6 +517,19 @@ void DesktopSessionAgent::OnInjectMouseEvent(
   // InputStub implementations must verify events themselves, so we don't need
   // verification here. This matches HostEventDispatcher.
   remote_input_filter_->InjectMouseEvent(event);
+}
+
+void DesktopSessionAgent::OnInjectTouchEvent(
+    const std::string& serialized_event) {
+  DCHECK(caller_task_runner_->BelongsToCurrentThread());
+
+  protocol::TouchEvent event;
+  if (!event.ParseFromString(serialized_event)) {
+    LOG(ERROR) << "Failed to parse protocol::TouchEvent.";
+    return;
+  }
+
+  remote_input_filter_->InjectTouchEvent(event);
 }
 
 void DesktopSessionAgent::SetScreenResolution(

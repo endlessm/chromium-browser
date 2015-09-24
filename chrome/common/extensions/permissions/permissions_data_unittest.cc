@@ -17,6 +17,7 @@
 #include "extensions/common/manifest.h"
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/permissions/api_permission.h"
+#include "extensions/common/permissions/permission_message_test_util.h"
 #include "extensions/common/permissions/permission_set.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "extensions/common/permissions/socket_permission.h"
@@ -42,7 +43,7 @@ bool CheckSocketPermission(
     scoped_refptr<Extension> extension,
     SocketPermissionRequest::OperationType type,
     const char* host,
-    int port) {
+    uint16 port) {
   SocketPermission::CheckParam param(type, host, port);
   return extension->permissions_data()->CheckAPIPermissionWithParam(
       APIPermission::kSocket, &param);
@@ -87,7 +88,6 @@ void CheckRestrictedUrls(const Extension* extension,
   EXPECT_EQ(block_chrome_urls,
             PermissionsData::IsRestrictedUrl(
                 chrome_settings_url,
-                chrome_settings_url,
                 extension,
                 &error)) << name;
   if (block_chrome_urls)
@@ -99,7 +99,6 @@ void CheckRestrictedUrls(const Extension* extension,
   EXPECT_EQ(block_chrome_urls,
             PermissionsData::IsRestrictedUrl(
                 chrome_extension_url,
-                chrome_extension_url,
                 extension,
                 &error)) << name;
   if (block_chrome_urls)
@@ -110,13 +109,13 @@ void CheckRestrictedUrls(const Extension* extension,
   // Google should never be a restricted url.
   error.clear();
   EXPECT_FALSE(PermissionsData::IsRestrictedUrl(
-      google_url, google_url, extension, &error)) << name;
+      google_url, extension, &error)) << name;
   EXPECT_TRUE(error.empty()) << name;
 
   // We should always be able to access our own extension pages.
   error.clear();
   EXPECT_FALSE(PermissionsData::IsRestrictedUrl(
-      self_url, self_url, extension, &error)) << name;
+      self_url, extension, &error)) << name;
   EXPECT_TRUE(error.empty()) << name;
 
   // We should only allow other schemes for extensions when it's a whitelisted
@@ -126,7 +125,7 @@ void CheckRestrictedUrls(const Extension* extension,
       PermissionsData::CanExecuteScriptEverywhere(extension);
   EXPECT_EQ(!allow_on_other_schemes,
             PermissionsData::IsRestrictedUrl(
-                invalid_url, invalid_url, extension, &error)) << name;
+                invalid_url, extension, &error)) << name;
   if (!allow_on_other_schemes) {
     EXPECT_EQ(ErrorUtils::FormatErrorMessage(
                   manifest_errors::kCannotAccessPage,
@@ -215,6 +214,22 @@ TEST(PermissionsDataTest, EffectiveHostPermissions) {
   EXPECT_TRUE(hosts.MatchesURL(GURL("https://test/")));
   EXPECT_TRUE(hosts.MatchesURL(GURL("http://www.google.com")));
   EXPECT_TRUE(extension->permissions_data()->HasEffectiveAccessToAllHosts());
+
+  // Tab-specific permissions should be included in the effective hosts.
+  GURL tab_url("http://www.example.com/");
+  URLPatternSet new_hosts;
+  new_hosts.AddOrigin(URLPattern::SCHEME_ALL, tab_url);
+  extension->permissions_data()->UpdateTabSpecificPermissions(
+      1,
+      new PermissionSet(APIPermissionSet(),
+                        ManifestPermissionSet(),
+                        new_hosts,
+                        URLPatternSet()));
+  EXPECT_TRUE(extension->permissions_data()->GetEffectiveHostPermissions().
+      MatchesURL(tab_url));
+  extension->permissions_data()->ClearTabSpecificPermissions(1);
+  EXPECT_FALSE(extension->permissions_data()->GetEffectiveHostPermissions().
+      MatchesURL(tab_url));
 }
 
 TEST(PermissionsDataTest, SocketPermissions) {
@@ -276,32 +291,29 @@ TEST(PermissionsDataTest, IsRestrictedUrl) {
 TEST(PermissionsDataTest, GetPermissionMessages_ManyAPIPermissions) {
   scoped_refptr<Extension> extension;
   extension = LoadManifest("permissions", "many-apis.json");
-  std::vector<base::string16> warnings =
-      extension->permissions_data()->GetPermissionMessageStrings();
   // Warning for "tabs" is suppressed by "history" permission.
-  ASSERT_EQ(5u, warnings.size());
-  EXPECT_EQ("Read and change your data on api.flickr.com",
-            UTF16ToUTF8(warnings[0]));
-  EXPECT_EQ("Read and change your bookmarks", UTF16ToUTF8(warnings[1]));
-  EXPECT_EQ("Detect your physical location", UTF16ToUTF8(warnings[2]));
-  EXPECT_EQ("Read and change your browsing history", UTF16ToUTF8(warnings[3]));
-  EXPECT_EQ("Manage your apps, extensions, and themes",
-            UTF16ToUTF8(warnings[4]));
+  std::vector<std::string> expected_messages;
+  expected_messages.push_back("Read and change your data on api.flickr.com");
+  expected_messages.push_back("Read and change your bookmarks");
+  expected_messages.push_back("Detect your physical location");
+  expected_messages.push_back("Read and change your browsing history");
+  expected_messages.push_back("Manage your apps, extensions, and themes");
+  EXPECT_TRUE(VerifyPermissionMessages(extension->permissions_data(),
+                                       expected_messages, false));
 }
 
 TEST(PermissionsDataTest, GetPermissionMessages_ManyHostsPermissions) {
   scoped_refptr<Extension> extension;
   extension = LoadManifest("permissions", "more-than-3-hosts.json");
-  std::vector<base::string16> warnings =
-      extension->permissions_data()->GetPermissionMessageStrings();
-  std::vector<base::string16> warnings_details =
-      extension->permissions_data()->GetPermissionMessageDetailsStrings();
-  ASSERT_EQ(1u, warnings.size());
-  ASSERT_EQ(1u, warnings_details.size());
-  EXPECT_EQ("Read and change your data on a number of websites",
-            UTF16ToUTF8(warnings[0]));
-  EXPECT_EQ("www.a.com\nwww.b.com\nwww.c.com\nwww.d.com\nwww.e.com",
-            UTF16ToUTF8(warnings_details[0]));
+  std::vector<std::string> submessages;
+  submessages.push_back("www.a.com");
+  submessages.push_back("www.b.com");
+  submessages.push_back("www.c.com");
+  submessages.push_back("www.d.com");
+  submessages.push_back("www.e.com");
+  EXPECT_TRUE(VerifyOnePermissionMessageWithSubmessages(
+      extension->permissions_data(),
+      "Read and change your data on a number of websites", submessages));
 }
 
 TEST(PermissionsDataTest, GetPermissionMessages_LocationApiPermission) {
@@ -310,39 +322,66 @@ TEST(PermissionsDataTest, GetPermissionMessages_LocationApiPermission) {
                            "location-api.json",
                            Manifest::COMPONENT,
                            Extension::NO_FLAGS);
-  std::vector<base::string16> warnings =
-      extension->permissions_data()->GetPermissionMessageStrings();
-  ASSERT_EQ(1u, warnings.size());
-  EXPECT_EQ("Detect your physical location", UTF16ToUTF8(warnings[0]));
+  EXPECT_TRUE(VerifyOnePermissionMessage(extension->permissions_data(),
+                                         "Detect your physical location"));
 }
 
 TEST(PermissionsDataTest, GetPermissionMessages_ManyHosts) {
   scoped_refptr<Extension> extension;
   extension = LoadManifest("permissions", "many-hosts.json");
-  std::vector<base::string16> warnings =
-      extension->permissions_data()->GetPermissionMessageStrings();
-  ASSERT_EQ(1u, warnings.size());
-  EXPECT_EQ(
-      "Read and change your data on encrypted.google.com and www.google.com",
-      UTF16ToUTF8(warnings[0]));
+  EXPECT_TRUE(VerifyOnePermissionMessage(
+      extension->permissions_data(),
+      "Read and change your data on encrypted.google.com and www.google.com"));
 }
 
 TEST(PermissionsDataTest, GetPermissionMessages_Plugins) {
   scoped_refptr<Extension> extension;
   extension = LoadManifest("permissions", "plugins.json");
-  std::vector<base::string16> warnings =
-      extension->permissions_data()->GetPermissionMessageStrings();
 // We don't parse the plugins key on Chrome OS, so it should not ask for any
 // permissions.
 #if defined(OS_CHROMEOS)
-  ASSERT_EQ(0u, warnings.size());
+  EXPECT_TRUE(VerifyNoPermissionMessages(extension->permissions_data()));
 #else
-  ASSERT_EQ(1u, warnings.size());
-  EXPECT_EQ(
+  EXPECT_TRUE(VerifyOnePermissionMessage(
+      extension->permissions_data(),
       "Read and change all your data on your computer and the websites you "
-      "visit",
-      UTF16ToUTF8(warnings[0]));
+      "visit"));
 #endif
+}
+
+TEST(PermissionsDataTest, ExternalFiles) {
+  GURL external_file("externalfile:abc");
+  scoped_refptr<const Extension> extension;
+
+  // A regular extension shouldn't get access to externalfile: scheme URLs
+  // even with <all_urls> specified.
+  extension = GetExtensionWithHostPermission(
+      "regular_extension", "<all_urls>", Manifest::UNPACKED);
+  ASSERT_FALSE(extension->permissions_data()->HasHostPermission(external_file));
+
+  // Component extensions should get access to externalfile: scheme URLs when
+  // <all_urls> is specified.
+  extension = GetExtensionWithHostPermission(
+      "component_extension", "<all_urls>", Manifest::COMPONENT);
+  ASSERT_TRUE(extension->permissions_data()->HasHostPermission(external_file));
+}
+
+TEST(PermissionsDataTest, ExtensionScheme) {
+  GURL external_file(
+      "chrome-extension://abcdefghijklmnopabcdefghijklmnop/index.html");
+  scoped_refptr<const Extension> extension;
+
+  // A regular extension shouldn't get access to chrome-extension: scheme URLs
+  // even with <all_urls> specified.
+  extension = GetExtensionWithHostPermission("regular_extension", "<all_urls>",
+                                             Manifest::UNPACKED);
+  ASSERT_FALSE(extension->permissions_data()->HasHostPermission(external_file));
+
+  // Component extensions should get access to chrome-extension: scheme URLs
+  // when <all_urls> is specified.
+  extension = GetExtensionWithHostPermission("component_extension",
+                                             "<all_urls>", Manifest::COMPONENT);
+  ASSERT_TRUE(extension->permissions_data()->HasHostPermission(external_file));
 }
 
 // Base class for testing the CanAccessPage and CanCaptureVisiblePage
@@ -372,21 +411,18 @@ class ExtensionScriptAndCaptureVisibleTest : public testing::Test {
     PermissionsData::SetPolicyDelegate(NULL);
   }
 
-  bool AllowedScript(const Extension* extension, const GURL& url,
-                     const GURL& top_url) {
-    return AllowedScript(extension, url, top_url, -1);
+  bool AllowedScript(const Extension* extension, const GURL& url) {
+    return AllowedScript(extension, url, -1);
   }
 
-  bool AllowedScript(const Extension* extension, const GURL& url,
-                     const GURL& top_url, int tab_id) {
+  bool AllowedScript(const Extension* extension, const GURL& url, int tab_id) {
     return extension->permissions_data()->CanAccessPage(
-        extension, url, top_url, tab_id, -1, NULL);
+        extension, url, tab_id, -1, NULL);
   }
 
-  bool BlockedScript(const Extension* extension, const GURL& url,
-                     const GURL& top_url) {
+  bool BlockedScript(const Extension* extension, const GURL& url) {
     return !extension->permissions_data()->CanAccessPage(
-        extension, url, top_url, -1, -1, NULL);
+        extension, url, -1, -1, NULL);
   }
 
   bool Allowed(const Extension* extension, const GURL& url) {
@@ -395,7 +431,7 @@ class ExtensionScriptAndCaptureVisibleTest : public testing::Test {
 
   bool Allowed(const Extension* extension, const GURL& url, int tab_id) {
     return (extension->permissions_data()->CanAccessPage(
-                extension, url, url, tab_id, -1, NULL) &&
+                extension, url, tab_id, -1, NULL) &&
             extension->permissions_data()->CanCaptureVisiblePage(tab_id, NULL));
   }
 
@@ -405,18 +441,16 @@ class ExtensionScriptAndCaptureVisibleTest : public testing::Test {
 
   bool CaptureOnly(const Extension* extension, const GURL& url, int tab_id) {
     return !extension->permissions_data()->CanAccessPage(
-               extension, url, url, tab_id, -1, NULL) &&
+               extension, url, tab_id, -1, NULL) &&
            extension->permissions_data()->CanCaptureVisiblePage(tab_id, NULL);
   }
 
-  bool ScriptOnly(const Extension* extension, const GURL& url,
-                  const GURL& top_url) {
-    return ScriptOnly(extension, url, top_url, -1);
+  bool ScriptOnly(const Extension* extension, const GURL& url) {
+    return ScriptOnly(extension, url, -1);
   }
 
-  bool ScriptOnly(const Extension* extension, const GURL& url,
-                  const GURL& top_url, int tab_id) {
-    return AllowedScript(extension, url, top_url, tab_id) &&
+  bool ScriptOnly(const Extension* extension, const GURL& url, int tab_id) {
+    return AllowedScript(extension, url, tab_id) &&
            !extension->permissions_data()->CanCaptureVisiblePage(tab_id, NULL);
   }
 
@@ -426,7 +460,7 @@ class ExtensionScriptAndCaptureVisibleTest : public testing::Test {
 
   bool Blocked(const Extension* extension, const GURL& url, int tab_id) {
     return !(extension->permissions_data()->CanAccessPage(
-                 extension, url, url, tab_id, -1, NULL) ||
+                 extension, url, tab_id, -1, NULL) ||
              extension->permissions_data()->CanCaptureVisiblePage(tab_id,
                                                                   NULL));
   }
@@ -439,7 +473,7 @@ class ExtensionScriptAndCaptureVisibleTest : public testing::Test {
     for (std::set<GURL>::iterator it = urls_.begin(); it != urls_.end(); ++it) {
       const GURL& url = *it;
       if (allowed_urls.count(url))
-        result &= AllowedScript(extension, url, url, tab_id);
+        result &= AllowedScript(extension, url, tab_id);
       else
         result &= Blocked(extension, url, tab_id);
     }
@@ -482,12 +516,11 @@ TEST_F(ExtensionScriptAndCaptureVisibleTest, Permissions) {
 
   // Test access to iframed content.
   GURL within_extension_url = extension->GetResourceURL("page.html");
-  EXPECT_TRUE(AllowedScript(extension.get(), http_url, http_url_with_path));
-  EXPECT_TRUE(AllowedScript(extension.get(), https_url, http_url_with_path));
-  EXPECT_TRUE(AllowedScript(extension.get(), http_url, within_extension_url));
-  EXPECT_TRUE(AllowedScript(extension.get(), https_url, within_extension_url));
-  EXPECT_TRUE(BlockedScript(extension.get(), http_url, extension_url));
-  EXPECT_TRUE(BlockedScript(extension.get(), https_url, extension_url));
+  EXPECT_TRUE(AllowedScript(extension.get(), http_url));
+  EXPECT_TRUE(AllowedScript(extension.get(), http_url_with_path));
+  EXPECT_TRUE(AllowedScript(extension.get(), https_url));
+  EXPECT_TRUE(BlockedScript(extension.get(), within_extension_url));
+  EXPECT_TRUE(BlockedScript(extension.get(), extension_url));
 
   EXPECT_FALSE(extension->permissions_data()->HasHostPermission(settings_url));
   EXPECT_FALSE(extension->permissions_data()->HasHostPermission(about_url));
@@ -496,8 +529,8 @@ TEST_F(ExtensionScriptAndCaptureVisibleTest, Permissions) {
   // Test * for scheme, which implies just the http/https schemes.
   extension = LoadManifestStrict("script_and_capture",
       "extension_wildcard.json");
-  EXPECT_TRUE(ScriptOnly(extension.get(), http_url, http_url));
-  EXPECT_TRUE(ScriptOnly(extension.get(), https_url, https_url));
+  EXPECT_TRUE(ScriptOnly(extension.get(), http_url));
+  EXPECT_TRUE(ScriptOnly(extension.get(), https_url));
   EXPECT_TRUE(Blocked(extension.get(), settings_url));
   EXPECT_TRUE(Blocked(extension.get(), about_url));
   EXPECT_TRUE(Blocked(extension.get(), file_url));
@@ -551,7 +584,7 @@ TEST_F(ExtensionScriptAndCaptureVisibleTest, Permissions) {
   extension = LoadManifest("script_and_capture",
       "extension_component_google.json", Manifest::COMPONENT,
       Extension::NO_FLAGS);
-  EXPECT_TRUE(ScriptOnly(extension.get(), http_url, http_url));
+  EXPECT_TRUE(ScriptOnly(extension.get(), http_url));
   EXPECT_TRUE(Blocked(extension.get(), https_url));
   EXPECT_TRUE(Blocked(extension.get(), file_url));
   EXPECT_TRUE(Blocked(extension.get(), settings_url));
@@ -562,7 +595,7 @@ TEST_F(ExtensionScriptAndCaptureVisibleTest, Permissions) {
 }
 
 TEST_F(ExtensionScriptAndCaptureVisibleTest, PermissionsWithChromeURLsEnabled) {
-  CommandLine::ForCurrentProcess()->AppendSwitch(
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kExtensionsOnChromeURLs);
 
   scoped_refptr<Extension> extension;
@@ -580,12 +613,11 @@ TEST_F(ExtensionScriptAndCaptureVisibleTest, PermissionsWithChromeURLsEnabled) {
 
   // Test access to iframed content.
   GURL within_extension_url = extension->GetResourceURL("page.html");
-  EXPECT_TRUE(AllowedScript(extension.get(), http_url, http_url_with_path));
-  EXPECT_TRUE(AllowedScript(extension.get(), https_url, http_url_with_path));
-  EXPECT_TRUE(AllowedScript(extension.get(), http_url, within_extension_url));
-  EXPECT_TRUE(AllowedScript(extension.get(), https_url, within_extension_url));
-  EXPECT_TRUE(AllowedScript(extension.get(), http_url, extension_url));
-  EXPECT_TRUE(AllowedScript(extension.get(), https_url, extension_url));
+  EXPECT_TRUE(AllowedScript(extension.get(), http_url));
+  EXPECT_TRUE(AllowedScript(extension.get(), http_url_with_path));
+  EXPECT_TRUE(AllowedScript(extension.get(), https_url));
+  EXPECT_TRUE(BlockedScript(extension.get(), within_extension_url));
+  EXPECT_TRUE(BlockedScript(extension.get(), extension_url));
 
   const PermissionsData* permissions_data = extension->permissions_data();
   EXPECT_FALSE(permissions_data->HasHostPermission(settings_url));
@@ -595,8 +627,8 @@ TEST_F(ExtensionScriptAndCaptureVisibleTest, PermissionsWithChromeURLsEnabled) {
   // Test * for scheme, which implies just the http/https schemes.
   extension = LoadManifestStrict("script_and_capture",
       "extension_wildcard.json");
-  EXPECT_TRUE(ScriptOnly(extension.get(), http_url, http_url));
-  EXPECT_TRUE(ScriptOnly(extension.get(), https_url, https_url));
+  EXPECT_TRUE(ScriptOnly(extension.get(), http_url));
+  EXPECT_TRUE(ScriptOnly(extension.get(), https_url));
   EXPECT_TRUE(Blocked(extension.get(), settings_url));
   EXPECT_TRUE(Blocked(extension.get(), about_url));
   EXPECT_TRUE(Blocked(extension.get(), file_url));
@@ -615,16 +647,16 @@ TEST_F(ExtensionScriptAndCaptureVisibleTest, PermissionsWithChromeURLsEnabled) {
   EXPECT_FALSE(extension.get() == NULL);
   EXPECT_TRUE(Blocked(extension.get(), http_url));
   EXPECT_TRUE(Blocked(extension.get(), https_url));
-  EXPECT_TRUE(ScriptOnly(extension.get(), settings_url, settings_url));
+  EXPECT_TRUE(ScriptOnly(extension.get(), settings_url));
   EXPECT_TRUE(Blocked(extension.get(), about_url));
   EXPECT_TRUE(Blocked(extension.get(), file_url));
-  EXPECT_TRUE(ScriptOnly(extension.get(), favicon_url, favicon_url));
+  EXPECT_TRUE(ScriptOnly(extension.get(), favicon_url));
 
   // Having chrome://favicon/* should not give you chrome://*
   extension = LoadManifestStrict("script_and_capture",
       "extension_chrome_favicon_wildcard.json");
   EXPECT_TRUE(Blocked(extension.get(), settings_url));
-  EXPECT_TRUE(ScriptOnly(extension.get(), favicon_url, favicon_url));
+  EXPECT_TRUE(ScriptOnly(extension.get(), favicon_url));
   EXPECT_TRUE(Blocked(extension.get(), about_url));
   EXPECT_TRUE(extension->permissions_data()->HasHostPermission(favicon_url));
 
@@ -648,7 +680,7 @@ TEST_F(ExtensionScriptAndCaptureVisibleTest, PermissionsWithChromeURLsEnabled) {
   extension = LoadManifest("script_and_capture",
       "extension_component_google.json", Manifest::COMPONENT,
       Extension::NO_FLAGS);
-  EXPECT_TRUE(ScriptOnly(extension.get(), http_url, http_url));
+  EXPECT_TRUE(ScriptOnly(extension.get(), http_url));
   EXPECT_TRUE(Blocked(extension.get(), https_url));
   EXPECT_TRUE(Blocked(extension.get(), file_url));
   EXPECT_TRUE(Blocked(extension.get(), settings_url));

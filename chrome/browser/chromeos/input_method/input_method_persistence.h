@@ -9,7 +9,7 @@
 
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
-#include "chromeos/ime/input_method_manager.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
 
 class PrefService;
 
@@ -26,14 +26,15 @@ class InputMethodPersistence : public InputMethodManager::Observer {
   // OnSessionStateChange whenever the InputMethodManager::UISessionState
   // changes.
   explicit InputMethodPersistence(InputMethodManager* input_method_manager);
-  virtual ~InputMethodPersistence();
+  ~InputMethodPersistence() override;
 
   // Receives notification of session state changes.
   void OnSessionStateChange(InputMethodManager::UISessionState new_session);
 
   // InputMethodManager::Observer overrides.
-  virtual void InputMethodChanged(InputMethodManager* manager,
-                                  bool show_message) override;
+  void InputMethodChanged(InputMethodManager* manager,
+                          Profile* profile,
+                          bool show_message) override;
 
  private:
   InputMethodManager* input_method_manager_;

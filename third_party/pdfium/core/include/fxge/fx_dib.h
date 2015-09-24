@@ -1,14 +1,15 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _FPDF_DIB_H_
-#define _FPDF_DIB_H_
-#ifndef _FXCRT_EXTENSION_
-#include "../fxcrt/fx_ext.h"
-#endif
+#ifndef CORE_INCLUDE_FXGE_FX_DIB_H_
+#define CORE_INCLUDE_FXGE_FX_DIB_H_
+
+#include "../fxcrt/fx_basic.h"
+#include "../fxcrt/fx_coordinates.h"
+
 enum FXDIB_Format {
     FXDIB_Invalid = 0,
     FXDIB_1bppMask = 0x101,
@@ -74,10 +75,10 @@ class CFX_DIBitmap;
 #define FXSYS_GetBValue(rgb) (((rgb) >> 16) & 0xff)
 #define FX_CCOLOR(val) (255-(val))
 #define FXSYS_CMYK(c, m, y, k) (((c) << 24) | ((m) << 16) | ((y) << 8) | (k))
-#define FXSYS_GetCValue(cmyk) ((FX_BYTE)((cmyk) >> 24) & 0xff)
-#define FXSYS_GetMValue(cmyk) ((FX_BYTE)((cmyk) >> 16) & 0xff)
-#define FXSYS_GetYValue(cmyk) ((FX_BYTE)((cmyk) >> 8) & 0xff)
-#define FXSYS_GetKValue(cmyk) ((FX_BYTE)(cmyk) & 0xff)
+#define FXSYS_GetCValue(cmyk) ((uint8_t)((cmyk) >> 24) & 0xff)
+#define FXSYS_GetMValue(cmyk) ((uint8_t)((cmyk) >> 16) & 0xff)
+#define FXSYS_GetYValue(cmyk) ((uint8_t)((cmyk) >> 8) & 0xff)
+#define FXSYS_GetKValue(cmyk) ((uint8_t)(cmyk) & 0xff)
 void CmykDecode(FX_CMYK cmyk, int& c, int& m, int& y, int& k);
 inline FX_CMYK CmykEncode(int c, int m, int y, int k)
 {
@@ -90,53 +91,53 @@ inline FX_ARGB ArgbEncode(int a, int r, int g, int b)
     return (a << 24) | (r << 16) | (g << 8) | b;
 }
 FX_ARGB ArgbEncode(int a, FX_COLORREF rgb);
-#define FXARGB_A(argb) ((FX_BYTE)((argb) >> 24))
-#define FXARGB_R(argb) ((FX_BYTE)((argb) >> 16))
-#define FXARGB_G(argb) ((FX_BYTE)((argb) >> 8))
-#define FXARGB_B(argb) ((FX_BYTE)(argb))
+#define FXARGB_A(argb) ((uint8_t)((argb) >> 24))
+#define FXARGB_R(argb) ((uint8_t)((argb) >> 16))
+#define FXARGB_G(argb) ((uint8_t)((argb) >> 8))
+#define FXARGB_B(argb) ((uint8_t)(argb))
 #define FXARGB_MAKE(a,r,g,b) (((FX_DWORD)(a) << 24) | ((r) << 16) | ((g) << 8) | (b))
 #define FXARGB_MUL_ALPHA(argb, alpha) (((((argb) >> 24) * (alpha) / 255) << 24) | ((argb) & 0xffffff))
 #define FXRGB2GRAY(r,g,b) (((b) * 11 + (g) * 59 + (r) * 30) / 100)
 #define FXCMYK2GRAY(c,m,y,k) (((255-(c)) * (255-(k)) * 30 + (255-(m)) * (255-(k)) * 59 + (255-(y)) * (255-(k)) * 11) / 25500)
 #define FXDIB_ALPHA_MERGE(backdrop, source, source_alpha) (((backdrop) * (255-(source_alpha)) + (source)*(source_alpha))/255)
 #define FXDIB_ALPHA_UNION(dest, src) ((dest) + (src) - (dest)*(src)/255)
-#define FXCMYK_GETDIB(p) ((((FX_LPBYTE)(p))[0] << 24 | (((FX_LPBYTE)(p))[1] << 16) | (((FX_LPBYTE)(p))[2] << 8) | ((FX_LPBYTE)(p))[3]))
-#define FXCMYK_SETDIB(p, cmyk)  ((FX_LPBYTE)(p))[0] = (FX_BYTE)((cmyk) >> 24), \
-        ((FX_LPBYTE)(p))[1] = (FX_BYTE)((cmyk) >> 16), \
-                              ((FX_LPBYTE)(p))[2] = (FX_BYTE)((cmyk) >> 8), \
-                                      ((FX_LPBYTE)(p))[3] = (FX_BYTE)(cmyk))
-#define FXARGB_GETDIB(p) ((((FX_LPBYTE)(p))[0]) | (((FX_LPBYTE)(p))[1] << 8) | (((FX_LPBYTE)(p))[2] << 16) | (((FX_LPBYTE)(p))[3] << 24))
-#define FXARGB_SETDIB(p, argb) ((FX_LPBYTE)(p))[0] = (FX_BYTE)(argb), \
-        ((FX_LPBYTE)(p))[1] = (FX_BYTE)((argb) >> 8), \
-                              ((FX_LPBYTE)(p))[2] = (FX_BYTE)((argb) >> 16), \
-                                      ((FX_LPBYTE)(p))[3] = (FX_BYTE)((argb) >> 24)
-#define FXARGB_COPY(dest, src) *(FX_LPBYTE)(dest) = *(FX_LPBYTE)(src), \
-        *((FX_LPBYTE)(dest)+1) = *((FX_LPBYTE)(src)+1), \
-                                 *((FX_LPBYTE)(dest)+2) = *((FX_LPBYTE)(src)+2), \
-                                         *((FX_LPBYTE)(dest)+3) = *((FX_LPBYTE)(src)+3)
-#define FXCMYK_COPY(dest, src)  *(FX_LPBYTE)(dest) = *(FX_LPBYTE)(src), \
-        *((FX_LPBYTE)(dest)+1) = *((FX_LPBYTE)(src)+1), \
-                                 *((FX_LPBYTE)(dest)+2) = *((FX_LPBYTE)(src)+2), \
-                                         *((FX_LPBYTE)(dest)+3) = *((FX_LPBYTE)(src)+3)
-#define FXARGB_SETRGBORDERDIB(p, argb) ((FX_LPBYTE)(p))[3] = (FX_BYTE)(argb>>24), \
-        ((FX_LPBYTE)(p))[0] = (FX_BYTE)((argb) >> 16), \
-                              ((FX_LPBYTE)(p))[1] = (FX_BYTE)((argb) >> 8), \
-                                      ((FX_LPBYTE)(p))[2] = (FX_BYTE)(argb)
-#define FXARGB_GETRGBORDERDIB(p) (((FX_LPBYTE)(p))[2]) | (((FX_LPBYTE)(p))[1] << 8) | (((FX_LPBYTE)(p))[0] << 16) | (((FX_LPBYTE)(p))[3] << 24)
-#define FXARGB_RGBORDERCOPY(dest, src) *((FX_LPBYTE)(dest)+3) = *((FX_LPBYTE)(src)+3), \
-        *(FX_LPBYTE)(dest) = *((FX_LPBYTE)(src)+2), \
-                             *((FX_LPBYTE)(dest)+1) = *((FX_LPBYTE)(src)+1), \
-                                     *((FX_LPBYTE)(dest)+2) = *((FX_LPBYTE)(src))
+#define FXCMYK_GETDIB(p) ((((uint8_t*)(p))[0] << 24 | (((uint8_t*)(p))[1] << 16) | (((uint8_t*)(p))[2] << 8) | ((uint8_t*)(p))[3]))
+#define FXCMYK_SETDIB(p, cmyk)  ((uint8_t*)(p))[0] = (uint8_t)((cmyk) >> 24), \
+        ((uint8_t*)(p))[1] = (uint8_t)((cmyk) >> 16), \
+                              ((uint8_t*)(p))[2] = (uint8_t)((cmyk) >> 8), \
+                                      ((uint8_t*)(p))[3] = (uint8_t)(cmyk))
+#define FXARGB_GETDIB(p) ((((uint8_t*)(p))[0]) | (((uint8_t*)(p))[1] << 8) | (((uint8_t*)(p))[2] << 16) | (((uint8_t*)(p))[3] << 24))
+#define FXARGB_SETDIB(p, argb) ((uint8_t*)(p))[0] = (uint8_t)(argb), \
+        ((uint8_t*)(p))[1] = (uint8_t)((argb) >> 8), \
+                              ((uint8_t*)(p))[2] = (uint8_t)((argb) >> 16), \
+                                      ((uint8_t*)(p))[3] = (uint8_t)((argb) >> 24)
+#define FXARGB_COPY(dest, src) *(uint8_t*)(dest) = *(uint8_t*)(src), \
+        *((uint8_t*)(dest)+1) = *((uint8_t*)(src)+1), \
+                                 *((uint8_t*)(dest)+2) = *((uint8_t*)(src)+2), \
+                                         *((uint8_t*)(dest)+3) = *((uint8_t*)(src)+3)
+#define FXCMYK_COPY(dest, src)  *(uint8_t*)(dest) = *(uint8_t*)(src), \
+        *((uint8_t*)(dest)+1) = *((uint8_t*)(src)+1), \
+                                 *((uint8_t*)(dest)+2) = *((uint8_t*)(src)+2), \
+                                         *((uint8_t*)(dest)+3) = *((uint8_t*)(src)+3)
+#define FXARGB_SETRGBORDERDIB(p, argb) ((uint8_t*)(p))[3] = (uint8_t)(argb>>24), \
+        ((uint8_t*)(p))[0] = (uint8_t)((argb) >> 16), \
+                              ((uint8_t*)(p))[1] = (uint8_t)((argb) >> 8), \
+                                      ((uint8_t*)(p))[2] = (uint8_t)(argb)
+#define FXARGB_GETRGBORDERDIB(p) (((uint8_t*)(p))[2]) | (((uint8_t*)(p))[1] << 8) | (((uint8_t*)(p))[0] << 16) | (((uint8_t*)(p))[3] << 24)
+#define FXARGB_RGBORDERCOPY(dest, src) *((uint8_t*)(dest)+3) = *((uint8_t*)(src)+3), \
+        *(uint8_t*)(dest) = *((uint8_t*)(src)+2), \
+                             *((uint8_t*)(dest)+1) = *((uint8_t*)(src)+1), \
+                                     *((uint8_t*)(dest)+2) = *((uint8_t*)(src))
 #define FXARGB_TODIB(argb) (argb)
-#define FXCMYK_TODIB(cmyk) ((FX_BYTE)((cmyk) >> 24) | ((FX_BYTE)((cmyk) >> 16)) << 8 | ((FX_BYTE)((cmyk) >> 8)) << 16 | ((FX_BYTE)(cmyk) << 24))
-#define FXARGB_TOBGRORDERDIB(argb) ((FX_BYTE)(argb>>16) | ((FX_BYTE)(argb>>8)) << 8 | ((FX_BYTE)(argb)) << 16 | ((FX_BYTE)(argb>>24) << 24))
-#define FXGETFLAG_COLORTYPE(flag)			(FX_BYTE)((flag)>>8)
-#define FXGETFLAG_ALPHA_FILL(flag)			(FX_BYTE)(flag)
-#define FXGETFLAG_ALPHA_STROKE(flag)		(FX_BYTE)((flag)>>16)
+#define FXCMYK_TODIB(cmyk) ((uint8_t)((cmyk) >> 24) | ((uint8_t)((cmyk) >> 16)) << 8 | ((uint8_t)((cmyk) >> 8)) << 16 | ((uint8_t)(cmyk) << 24))
+#define FXARGB_TOBGRORDERDIB(argb) ((uint8_t)(argb>>16) | ((uint8_t)(argb>>8)) << 8 | ((uint8_t)(argb)) << 16 | ((uint8_t)(argb>>24) << 24))
+#define FXGETFLAG_COLORTYPE(flag)			(uint8_t)((flag)>>8)
+#define FXGETFLAG_ALPHA_FILL(flag)			(uint8_t)(flag)
+#define FXGETFLAG_ALPHA_STROKE(flag)		(uint8_t)((flag)>>16)
 #define FXSETFLAG_COLORTYPE(flag, val)		flag = (((val)<<8)|(flag&0xffff00ff))
 #define FXSETFLAG_ALPHA_FILL(flag, val)		flag = ((val)|(flag&0xffffff00))
 #define FXSETFLAG_ALPHA_STROKE(flag, val)	flag = (((val)<<16)|(flag&0xff00ffff))
-class CFX_DIBSource : public CFX_Object
+class CFX_DIBSource
 {
 public:
 
@@ -171,19 +172,19 @@ public:
 
 
 
-    virtual	FX_LPBYTE	GetBuffer() const
+    virtual	uint8_t*	GetBuffer() const
     {
         return NULL;
     }
 
-    virtual FX_LPCBYTE	GetScanline(int line) const = 0;
+    virtual const uint8_t*	GetScanline(int line) const = 0;
 
     virtual FX_BOOL		SkipToScanline(int line, IFX_Pause* pPause) const
     {
         return FALSE;
     }
 
-    virtual void		DownSampleScanline(int line, FX_LPBYTE dest_scan, int dest_bpp,
+    virtual void		DownSampleScanline(int line, uint8_t* dest_scan, int dest_bpp,
                                            int dest_width, FX_BOOL bFlipX, int clip_left, int clip_width) const = 0;
 
     virtual void		SetDownSampleSize(int width, int height) const {}
@@ -291,21 +292,21 @@ public:
 
     CFX_DIBitmap(const CFX_DIBitmap& src);
 
-    FX_BOOL			Create(int width, int height, FXDIB_Format format, FX_LPBYTE pBuffer = NULL, int pitch = 0);
+    FX_BOOL			Create(int width, int height, FXDIB_Format format, uint8_t* pBuffer = NULL, int pitch = 0);
 
     FX_BOOL			Copy(const CFX_DIBSource* pSrc);
 
-    virtual	FX_LPBYTE	GetBuffer() const
+    virtual	uint8_t*	GetBuffer() const
     {
         return m_pBuffer;
     }
 
-    virtual FX_LPCBYTE	GetScanline(int line) const
+    virtual const uint8_t*	GetScanline(int line) const
     {
         return m_pBuffer ? m_pBuffer + line * m_Pitch : NULL;
     }
 
-    virtual void	DownSampleScanline(int line, FX_LPBYTE dest_scan, int dest_bpp,
+    virtual void	DownSampleScanline(int line, uint8_t* dest_scan, int dest_bpp,
                                        int dest_width, FX_BOOL bFlipX, int clip_left, int clip_width) const;
 
     void			TakeOver(CFX_DIBitmap* pSrcBitmap);
@@ -347,13 +348,13 @@ public:
     FX_BOOL			DitherFS(const FX_DWORD* pPalette, int pal_size, const FX_RECT* pRect = NULL);
 protected:
 
-    FX_LPBYTE		m_pBuffer;
+    uint8_t*		m_pBuffer;
 
     FX_BOOL			m_bExtBuf;
 
     FX_BOOL			GetGrayData(void* pIccTransform = NULL);
 };
-class CFX_DIBExtractor : public CFX_Object
+class CFX_DIBExtractor
 {
 public:
 
@@ -385,55 +386,54 @@ public:
     virtual FX_DWORD*		GetDestPalette() = 0;
 
 
-    virtual void			TranslateScanline(FX_LPBYTE dest_buf, FX_LPCBYTE src_buf) const = 0;
+    virtual void			TranslateScanline(uint8_t* dest_buf, const uint8_t* src_buf) const = 0;
 
-    virtual void			TranslateDownSamples(FX_LPBYTE dest_buf, FX_LPCBYTE src_buf, int pixels, int Bpp) const = 0;
+    virtual void			TranslateDownSamples(uint8_t* dest_buf, const uint8_t* src_buf, int pixels, int Bpp) const = 0;
 protected:
-    virtual FX_LPCBYTE		GetScanline(int line) const;
-    virtual void			DownSampleScanline(int line, FX_LPBYTE dest_scan, int dest_bpp,
+    virtual const uint8_t*		GetScanline(int line) const;
+    virtual void			DownSampleScanline(int line, uint8_t* dest_scan, int dest_bpp,
             int dest_width, FX_BOOL bFlipX, int clip_left, int clip_width) const;
 
     const CFX_DIBSource*	m_pSrc;
 
     FX_BOOL					m_bAutoDropSrc;
 
-    FX_LPBYTE				m_pScanline;
+    uint8_t*				m_pScanline;
 };
 class IFX_ScanlineComposer
 {
 public:
+    virtual ~IFX_ScanlineComposer() { }
 
-    virtual	void		ComposeScanline(int line, FX_LPCBYTE scanline, FX_LPCBYTE scan_extra_alpha = NULL) = 0;
-
+    virtual	void		ComposeScanline(int line, const uint8_t* scanline, const uint8_t* scan_extra_alpha = NULL) = 0;
 
     virtual FX_BOOL		SetInfo(int width, int height, FXDIB_Format src_format, FX_DWORD* pSrcPalette) = 0;
 };
-class CFX_ScanlineCompositor : public CFX_Object
+class CFX_ScanlineCompositor
 {
 public:
-
     CFX_ScanlineCompositor();
 
     ~CFX_ScanlineCompositor();
 
-    FX_BOOL				Init(FXDIB_Format dest_format, FXDIB_Format src_format, FX_INT32 width, FX_DWORD* pSrcPalette,
+    FX_BOOL				Init(FXDIB_Format dest_format, FXDIB_Format src_format, int32_t width, FX_DWORD* pSrcPalette,
                              FX_DWORD mask_color, int blend_type, FX_BOOL bClip, FX_BOOL bRgbByteOrder = FALSE, int alpha_flag = 0, void* pIccTransform = NULL);
 
 
-    void				CompositeRgbBitmapLine(FX_LPBYTE dest_scan, FX_LPCBYTE src_scan, int width, FX_LPCBYTE clip_scan,
-            FX_LPCBYTE src_extra_alpha = NULL, FX_LPBYTE dst_extra_alpha = NULL);
+    void				CompositeRgbBitmapLine(uint8_t* dest_scan, const uint8_t* src_scan, int width, const uint8_t* clip_scan,
+            const uint8_t* src_extra_alpha = NULL, uint8_t* dst_extra_alpha = NULL);
 
 
-    void				CompositePalBitmapLine(FX_LPBYTE dest_scan, FX_LPCBYTE src_scan, int src_left, int width, FX_LPCBYTE clip_scan,
-            FX_LPCBYTE src_extra_alpha = NULL, FX_LPBYTE dst_extra_alpha = NULL);
+    void				CompositePalBitmapLine(uint8_t* dest_scan, const uint8_t* src_scan, int src_left, int width, const uint8_t* clip_scan,
+            const uint8_t* src_extra_alpha = NULL, uint8_t* dst_extra_alpha = NULL);
 
 
-    void				CompositeByteMaskLine(FX_LPBYTE dest_scan, FX_LPCBYTE src_scan, int width, FX_LPCBYTE clip_scan,
-            FX_LPBYTE dst_extra_alpha = NULL);
+    void				CompositeByteMaskLine(uint8_t* dest_scan, const uint8_t* src_scan, int width, const uint8_t* clip_scan,
+            uint8_t* dst_extra_alpha = NULL);
 
 
-    void				CompositeBitMaskLine(FX_LPBYTE dest_scan, FX_LPCBYTE src_scan, int src_left, int width, FX_LPCBYTE clip_scan,
-            FX_LPBYTE dst_extra_alpha = NULL);
+    void				CompositeBitMaskLine(uint8_t* dest_scan, const uint8_t* src_scan, int src_left, int width, const uint8_t* clip_scan,
+            uint8_t* dst_extra_alpha = NULL);
 protected:
     int					m_Transparency;
     FXDIB_Format		m_SrcFormat,
@@ -447,11 +447,11 @@ protected:
                         m_MaskBlack;
     int					m_BlendType;
     void*				m_pIccTransform;
-    FX_LPBYTE			m_pCacheScanline;
+    uint8_t*			m_pCacheScanline;
     int					m_CacheSize;
     FX_BOOL             m_bRgbByteOrder;
 };
-class CFX_BitmapComposer : public IFX_ScanlineComposer, public CFX_Object
+class CFX_BitmapComposer : public IFX_ScanlineComposer
 {
 public:
 
@@ -468,11 +468,11 @@ public:
     virtual FX_BOOL		SetInfo(int width, int height, FXDIB_Format src_format, FX_DWORD* pSrcPalette);
 
 
-    virtual	void		ComposeScanline(int line, FX_LPCBYTE scanline, FX_LPCBYTE scan_extra_alpha);
+    virtual	void		ComposeScanline(int line, const uint8_t* scanline, const uint8_t* scan_extra_alpha);
 protected:
 
-    void				DoCompose(FX_LPBYTE dest_scan, FX_LPCBYTE src_scan, int dest_width, FX_LPCBYTE clip_scan,
-                                  FX_LPCBYTE src_extra_alpha = NULL, FX_LPBYTE dst_extra_alpha = NULL);
+    void				DoCompose(uint8_t* dest_scan, const uint8_t* src_scan, int dest_width, const uint8_t* clip_scan,
+                                  const uint8_t* src_extra_alpha = NULL, uint8_t* dst_extra_alpha = NULL);
     CFX_DIBitmap*		m_pBitmap;
     const CFX_ClipRgn*	m_pClipRgn;
     FXDIB_Format		m_SrcFormat;
@@ -485,10 +485,13 @@ protected:
     void*				m_pIccTransform;
     FX_BOOL             m_bRgbByteOrder;
     int					m_BlendType;
-    void				ComposeScanlineV(int line, FX_LPCBYTE scanline, FX_LPCBYTE scan_extra_alpha = NULL);
-    FX_LPBYTE			m_pScanlineV, m_pClipScanV, m_pAddClipScan, m_pScanlineAlphaV;
+    void				ComposeScanlineV(int line, const uint8_t* scanline, const uint8_t* scan_extra_alpha = NULL);
+    uint8_t* m_pScanlineV;
+    uint8_t* m_pClipScanV;
+    uint8_t* m_pAddClipScan;
+    uint8_t* m_pScanlineAlphaV;
 };
-class CFX_BitmapStorer : public IFX_ScanlineComposer, public CFX_Object
+class CFX_BitmapStorer : public IFX_ScanlineComposer
 {
 public:
 
@@ -496,7 +499,7 @@ public:
 
     ~CFX_BitmapStorer();
 
-    virtual	void		ComposeScanline(int line, FX_LPCBYTE scanline, FX_LPCBYTE scan_extra_alpha);
+    virtual	void		ComposeScanline(int line, const uint8_t* scanline, const uint8_t* scan_extra_alpha);
 
     virtual FX_BOOL		SetInfo(int width, int height, FXDIB_Format src_format, FX_DWORD* pSrcPalette);
 
@@ -512,7 +515,7 @@ private:
     CFX_DIBitmap*		m_pBitmap;
 };
 class CStretchEngine;
-class CFX_ImageStretcher : public CFX_Object
+class CFX_ImageStretcher
 {
 public:
 
@@ -520,11 +523,11 @@ public:
 
     ~CFX_ImageStretcher();
 
-    FX_INT32		Start(IFX_ScanlineComposer* pDest, const CFX_DIBSource* pBitmap,
+    int32_t		Start(IFX_ScanlineComposer* pDest, const CFX_DIBSource* pBitmap,
                           int dest_width, int dest_height, const FX_RECT& bitmap_rect, FX_DWORD flags);
 
 
-    FX_INT32		Continue(IFX_Pause* pPause);
+    int32_t		Continue(IFX_Pause* pPause);
     IFX_ScanlineComposer*	m_pDest;
     const CFX_DIBSource*	m_pSource;
     CStretchEngine*		m_pStretchEngine;
@@ -536,20 +539,20 @@ public:
     FX_RECT			m_ClipRect;
     int				m_LineIndex;
     int				m_DestBPP;
-    FX_LPBYTE		m_pScanline;
-    FX_LPBYTE       m_pMaskScanline;
+    uint8_t*		m_pScanline;
+    uint8_t*       m_pMaskScanline;
     FXDIB_Format	m_DestFormat;
-    FX_INT32		m_Status;
+    int32_t		m_Status;
 
-    FX_INT32		StartQuickStretch();
+    int32_t		StartQuickStretch();
 
-    FX_INT32		StartStretch();
+    int32_t		StartStretch();
 
-    FX_INT32		ContinueQuickStretch(IFX_Pause* pPause);
+    int32_t		ContinueQuickStretch(IFX_Pause* pPause);
 
-    FX_INT32		ContinueStretch(IFX_Pause* pPause);
+    int32_t		ContinueStretch(IFX_Pause* pPause);
 };
-class CFX_ImageTransformer : public CFX_Object
+class CFX_ImageTransformer
 {
 public:
 
@@ -557,10 +560,10 @@ public:
 
     ~CFX_ImageTransformer();
 
-    FX_INT32	Start(const CFX_DIBSource* pSrc, const CFX_AffineMatrix* pMatrix, int flags, const FX_RECT* pClip);
+    int32_t	Start(const CFX_DIBSource* pSrc, const CFX_AffineMatrix* pMatrix, int flags, const FX_RECT* pClip);
 
 
-    FX_INT32	Continue(IFX_Pause* pPause);
+    int32_t	Continue(IFX_Pause* pPause);
     CFX_AffineMatrix* m_pMatrix;
     FX_RECT		m_StretchClip;
     int			m_ResultLeft, m_ResultTop, m_ResultWidth, m_ResultHeight;
@@ -570,7 +573,7 @@ public:
     FX_DWORD	m_Flags;
     int			m_Status;
 };
-class CFX_ImageRenderer : public CFX_Object
+class CFX_ImageRenderer
 {
 public:
 
@@ -578,13 +581,13 @@ public:
 
     ~CFX_ImageRenderer();
 
-    FX_INT32			Start(CFX_DIBitmap* pDevice, const CFX_ClipRgn* pClipRgn,
+    int32_t			Start(CFX_DIBitmap* pDevice, const CFX_ClipRgn* pClipRgn,
                               const CFX_DIBSource* pSource, int bitmap_alpha,
                               FX_DWORD mask_color, const CFX_AffineMatrix* pMatrix, FX_DWORD dib_flags,
                               FX_BOOL bRgbByteOrder = FALSE, int alpha_flag = 0, void* pIccTransform = NULL,
                               int blend_type = FXDIB_BLEND_NORMAL);
 
-    FX_INT32			Continue(IFX_Pause* pPause);
+    int32_t			Continue(IFX_Pause* pPause);
 protected:
     CFX_DIBitmap*		m_pDevice;
     const CFX_ClipRgn*	m_pClipRgn;
@@ -603,4 +606,5 @@ protected:
     FX_BOOL				m_bRgbByteOrder;
     int					m_BlendType;
 };
-#endif
+
+#endif  // CORE_INCLUDE_FXGE_FX_DIB_H_

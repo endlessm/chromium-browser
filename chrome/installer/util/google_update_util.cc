@@ -66,7 +66,7 @@ bool GetUserLevelGoogleUpdateInstallCommandLine(base::string16* cmd_string) {
   base::FilePath google_update_setup(
       GetGoogleUpdateSetupExe(true));  // system-level.
   if (!google_update_setup.empty()) {
-    CommandLine cmd(google_update_setup);
+    base::CommandLine cmd(google_update_setup);
     // Appends "/install runtime=true&needsadmin=false /silent /nomitag".
     // NB: /nomitag needs to be at the end.
     // Constants are found in code.google.com/p/omaha/common/const_cmd_line.h.
@@ -89,14 +89,13 @@ bool GetUserLevelGoogleUpdateInstallCommandLine(base::string16* cmd_string) {
 bool LaunchProcessAndWaitWithTimeout(const base::string16& cmd_string,
                                      base::TimeDelta timeout) {
   bool success = false;
-  base::win::ScopedHandle process;
   int exit_code = 0;
   VLOG(0) << "Launching: " << cmd_string;
-  if (!base::LaunchProcess(cmd_string, base::LaunchOptions(),
-                           &process)) {
+  base::Process process =
+      base::LaunchProcess(cmd_string, base::LaunchOptions());
+  if (!process.IsValid()) {
     PLOG(ERROR) << "Failed to launch (" << cmd_string << ")";
-  } else if (!base::WaitForExitCodeWithTimeout(process.Get(), &exit_code,
-                                               timeout)) {
+  } else if (!process.WaitForExitWithTimeout(timeout, &exit_code)) {
     // The GetExitCodeProcess failed or timed-out.
     LOG(ERROR) <<"Command (" << cmd_string << ") is taking more than "
                << timeout.InMilliseconds() << " milliseconds to complete.";
@@ -155,8 +154,7 @@ void ElevateIfNeededToReenableUpdates() {
   }
   installer::ProductState product_state;
   BrowserDistribution* dist = BrowserDistribution::GetDistribution();
-  const bool system_install = !InstallUtil::IsPerUserInstall(
-      chrome_exe.value().c_str());
+  const bool system_install = !InstallUtil::IsPerUserInstall(chrome_exe);
   if (!product_state.Initialize(system_install, dist))
     return;
   base::FilePath exe_path(product_state.GetSetupPath());
@@ -165,7 +163,7 @@ void ElevateIfNeededToReenableUpdates() {
     return;
   }
 
-  CommandLine cmd(exe_path);
+  base::CommandLine cmd(exe_path);
   cmd.AppendSwitch(installer::switches::kReenableAutoupdates);
   installer::Product product(dist);
   product.InitializeFromUninstallCommand(product_state.uninstall_command());
@@ -182,9 +180,9 @@ void ElevateIfNeededToReenableUpdates() {
 
   if (base::win::GetVersion() >= base::win::VERSION_VISTA &&
       base::win::UserAccountControlIsEnabled()) {
-    base::LaunchElevatedProcess(cmd, launch_options, NULL);
+    base::LaunchElevatedProcess(cmd, launch_options);
   } else {
-    base::LaunchProcess(cmd, launch_options, NULL);
+    base::LaunchProcess(cmd, launch_options);
   }
 }
 

@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include "components/content_settings/core/common/permission_request_id.h"
+#include "chrome/browser/permissions/permission_request_id.h"
 #include "components/infobars/core/confirm_infobar_delegate.h"
 #include "url/gurl.h"
 
@@ -32,31 +32,27 @@ class ProtectedMediaIdentifierInfoBarDelegate : public ConfirmInfoBarDelegate {
   ProtectedMediaIdentifierInfoBarDelegate(PermissionQueueController* controller,
                                           const PermissionRequestID& id,
                                           const GURL& requesting_frame,
-                                          int contents_unique_id,
                                           const std::string& display_languages);
-  virtual ~ProtectedMediaIdentifierInfoBarDelegate();
+  ~ProtectedMediaIdentifierInfoBarDelegate() override;
 
   // Calls back to the controller to inform it of the user's decision.
   void SetPermission(bool update_content_setting, bool allowed);
 
  private:
   // ConfirmInfoBarDelegate:
-  virtual void InfoBarDismissed() override;
-  virtual int GetIconID() const override;
-  virtual Type GetInfoBarType() const override;
-  virtual bool ShouldExpireInternal(
-      const NavigationDetails& details) const override;
-  virtual base::string16 GetMessageText() const override;
-  virtual base::string16 GetButtonLabel(InfoBarButton button) const override;
-  virtual bool Accept() override;
-  virtual bool Cancel() override;
-  virtual base::string16 GetLinkText() const override;
-  virtual bool LinkClicked(WindowOpenDisposition disposition) override;
+  Type GetInfoBarType() const override;
+  int GetIconID() const override;
+  void InfoBarDismissed() override;
+  base::string16 GetMessageText() const override;
+  base::string16 GetButtonLabel(InfoBarButton button) const override;
+  bool Accept() override;
+  bool Cancel() override;
+  base::string16 GetLinkText() const override;
+  bool LinkClicked(WindowOpenDisposition disposition) override;
 
   PermissionQueueController* controller_;
   const PermissionRequestID id_;
   GURL requesting_frame_;
-  int contents_unique_id_;
   std::string display_languages_;
 
   DISALLOW_COPY_AND_ASSIGN(ProtectedMediaIdentifierInfoBarDelegate);

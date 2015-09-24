@@ -45,9 +45,6 @@ class HpackEncoderPeer {
   HpackHeaderTablePeer table_peer() {
     return HpackHeaderTablePeer(table());
   }
-  bool allow_huffman_compression() {
-    return encoder_->allow_huffman_compression_;
-  }
   void set_allow_huffman_compression(bool allow) {
     encoder_->allow_huffman_compression_ = allow;
   }
@@ -63,7 +60,7 @@ class HpackEncoderPeer {
   static void CookieToCrumbs(StringPiece cookie,
                              std::vector<StringPiece>* out) {
     Representations tmp;
-    HpackEncoder::CookieToCrumbs(make_pair("", cookie), &tmp);
+    HpackEncoder::CookieToCrumbs(std::make_pair("", cookie), &tmp);
 
     out->clear();
     for (size_t i = 0; i != tmp.size(); ++i) {
@@ -73,7 +70,8 @@ class HpackEncoderPeer {
   static void DecomposeRepresentation(StringPiece value,
                                       std::vector<StringPiece>* out) {
     Representations tmp;
-    HpackEncoder::DecomposeRepresentation(make_pair("foobar", value), &tmp);
+    HpackEncoder::DecomposeRepresentation(std::make_pair("foobar", value),
+                                          &tmp);
 
     out->clear();
     for (size_t i = 0; i != tmp.size(); ++i) {
@@ -152,9 +150,6 @@ class HpackEncoderTest : public ::testing::Test {
     expected_.TakeString(&expected_out);
     EXPECT_TRUE(encoder_.EncodeHeaderSet(header_set, &actual_out));
     EXPECT_EQ(expected_out, actual_out);
-  }
-  size_t IndexOf(HpackEntry* entry) {
-    return peer_.table()->IndexOf(entry);
   }
   size_t IndexOf(const HpackEntry* entry) {
     return peer_.table()->IndexOf(entry);
@@ -256,7 +251,7 @@ TEST_F(HpackEncoderTest, CookieHeaderIsCrumbled) {
   ExpectIndexedLiteral(peer_.table()->GetByName("cookie"), "e=ff");
 
   map<string, string> headers;
-  headers["cookie"] = "e=ff; a=bb; c=dd";
+  headers["cookie"] = "a=bb; c=dd; e=ff";
   CompareWithExpectedEncoding(headers);
 }
 
@@ -384,17 +379,17 @@ TEST_F(HpackEncoderTest, CookieToCrumbs) {
   std::vector<StringPiece> out;
 
   // A space after ';' is consumed. All other spaces remain. ';' at beginning
-  // and end of string produce empty crumbs. Duplicate crumbs are removed.
+  // and end of string produce empty crumbs.
   // See section 8.1.3.4 "Compressing the Cookie Header Field" in the HTTP/2
   // specification at http://tools.ietf.org/html/draft-ietf-httpbis-http2-11
   peer.CookieToCrumbs(" foo=1;bar=2 ; bar=3;  bing=4; ", &out);
-  EXPECT_THAT(out, ElementsAre("", " bing=4", " foo=1", "bar=2 ", "bar=3"));
+  EXPECT_THAT(out, ElementsAre(" foo=1", "bar=2 ", "bar=3", " bing=4", ""));
 
   peer.CookieToCrumbs(";;foo = bar ;; ;baz =bing", &out);
-  EXPECT_THAT(out, ElementsAre("", "baz =bing", "foo = bar "));
+  EXPECT_THAT(out, ElementsAre("", "", "foo = bar ", "", "", "baz =bing"));
 
   peer.CookieToCrumbs("baz=bing; foo=bar; baz=bing", &out);
-  EXPECT_THAT(out, ElementsAre("baz=bing", "foo=bar"));
+  EXPECT_THAT(out, ElementsAre("baz=bing", "foo=bar", "baz=bing"));
 
   peer.CookieToCrumbs("baz=bing", &out);
   EXPECT_THAT(out, ElementsAre("baz=bing"));
@@ -403,7 +398,7 @@ TEST_F(HpackEncoderTest, CookieToCrumbs) {
   EXPECT_THAT(out, ElementsAre(""));
 
   peer.CookieToCrumbs("foo;bar; baz;baz;bing;", &out);
-  EXPECT_THAT(out, ElementsAre("", "bar", "baz", "bing", "foo"));
+  EXPECT_THAT(out, ElementsAre("foo", "bar", "baz", "baz", "bing", ""));
 }
 
 TEST_F(HpackEncoderTest, UpdateCharacterCounts) {

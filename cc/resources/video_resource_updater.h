@@ -35,6 +35,7 @@ class CC_EXPORT VideoFrameExternalResources {
     NONE,
     YUV_RESOURCE,
     RGB_RESOURCE,
+    RGBA_RESOURCE,
     STREAM_TEXTURE_RESOURCE,
     IO_SURFACE,
 
@@ -52,6 +53,7 @@ class CC_EXPORT VideoFrameExternalResources {
   ResourceType type;
   std::vector<TextureMailbox> mailboxes;
   std::vector<ReleaseCallbackImpl> release_callbacks;
+  bool read_lock_fences_enabled;
 
   // TODO(danakj): Remove these too.
   std::vector<unsigned> software_resources;
@@ -61,13 +63,13 @@ class CC_EXPORT VideoFrameExternalResources {
   ~VideoFrameExternalResources();
 };
 
-// VideoResourceUpdater is by the video system to produce frame content as
+// VideoResourceUpdater is used by the video system to produce frame content as
 // resources consumable by the compositor.
 class CC_EXPORT VideoResourceUpdater
     : public base::SupportsWeakPtr<VideoResourceUpdater> {
  public:
-  explicit VideoResourceUpdater(ContextProvider* context_provider,
-                                ResourceProvider* resource_provider);
+  VideoResourceUpdater(ContextProvider* context_provider,
+                       ResourceProvider* resource_provider);
   ~VideoResourceUpdater();
 
   VideoFrameExternalResources CreateExternalResourcesFromVideoFrame(
@@ -87,7 +89,7 @@ class CC_EXPORT VideoResourceUpdater
     // frame pointer will only be used for pointer comparison, i.e. the
     // underlying data will not be accessed.
     const void* frame_ptr;
-    int plane_index;
+    size_t plane_index;
     base::TimeDelta timestamp;
 
     PlaneResource(unsigned resource_id,
@@ -98,10 +100,10 @@ class CC_EXPORT VideoResourceUpdater
 
   static bool PlaneResourceMatchesUniqueID(const PlaneResource& plane_resource,
                                            const media::VideoFrame* video_frame,
-                                           int plane_index);
+                                           size_t plane_index);
 
   static void SetPlaneResourceUniqueId(const media::VideoFrame* video_frame,
-                                       int plane_index,
+                                       size_t plane_index,
                                        PlaneResource* plane_resource);
 
   // This needs to be a container where iterators can be erased without
@@ -131,6 +133,7 @@ class CC_EXPORT VideoResourceUpdater
   ContextProvider* context_provider_;
   ResourceProvider* resource_provider_;
   scoped_ptr<media::SkCanvasVideoRenderer> video_renderer_;
+  std::vector<uint8_t> upload_pixels_;
 
   // Recycle resources so that we can reduce the number of allocations and
   // data transfers.

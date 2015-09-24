@@ -28,9 +28,6 @@ namespace suggestions {
 
 // static
 SuggestionsService* SuggestionsServiceFactory::GetForProfile(Profile* profile) {
-  if (!SuggestionsService::IsEnabled() || profile->IsOffTheRecord())
-    return NULL;
-
   return static_cast<SuggestionsService*>(
       GetInstance()->GetServiceForBrowserContext(profile, true));
 }
@@ -48,11 +45,6 @@ SuggestionsServiceFactory::SuggestionsServiceFactory()
 }
 
 SuggestionsServiceFactory::~SuggestionsServiceFactory() {}
-
-content::BrowserContext* SuggestionsServiceFactory::GetBrowserContextToUse(
-    content::BrowserContext* context) const {
-  return chrome::GetBrowserContextRedirectedInIncognito(context);
-}
 
 KeyedService* SuggestionsServiceFactory::BuildServiceInstanceFor(
     content::BrowserContext* profile) const {
@@ -75,7 +67,9 @@ KeyedService* SuggestionsServiceFactory::BuildServiceInstanceFor(
   scoped_ptr<ImageFetcherImpl> image_fetcher(
       new ImageFetcherImpl(the_profile->GetRequestContext()));
   scoped_ptr<ImageManager> thumbnail_manager(
-      new ImageManager(image_fetcher.Pass(), db.Pass(), database_dir));
+      new ImageManager(
+          image_fetcher.Pass(), db.Pass(), database_dir,
+          BrowserThread::GetMessageLoopProxyForThread(BrowserThread::DB)));
   return new SuggestionsService(
       the_profile->GetRequestContext(), suggestions_store.Pass(),
       thumbnail_manager.Pass(), blacklist_store.Pass());

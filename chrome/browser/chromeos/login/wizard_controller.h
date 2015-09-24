@@ -23,19 +23,19 @@
 #include "chrome/browser/chromeos/login/screens/base_screen_delegate.h"
 #include "chrome/browser/chromeos/login/screens/controller_pairing_screen.h"
 #include "chrome/browser/chromeos/login/screens/eula_screen.h"
+#include "chrome/browser/chromeos/login/screens/hid_detection_screen.h"
 #include "chrome/browser/chromeos/login/screens/host_pairing_screen.h"
+#include "chrome/browser/chromeos/login/screens/network_screen.h"
+#include "chrome/browser/chromeos/login/screens/reset_screen.h"
+#include "chrome/browser/chromeos/policy/enrollment_config.h"
 
 class PrefRegistrySimple;
 class PrefService;
 
-namespace base {
-class DictionaryValue;
-}
-
 namespace pairing_chromeos {
-class SharkConnectionListener;
 class ControllerPairingController;
 class HostPairingController;
+class SharkConnectionListener;
 }
 
 namespace chromeos {
@@ -46,7 +46,6 @@ class ErrorScreen;
 struct Geoposition;
 class LoginDisplayHost;
 class LoginScreenContext;
-class NetworkScreen;
 class OobeDisplay;
 class SimpleGeolocationProvider;
 class SupervisedUserCreationScreen;
@@ -61,7 +60,9 @@ class WizardController : public BaseScreenDelegate,
                          public ScreenManager,
                          public EulaScreen::Delegate,
                          public ControllerPairingScreen::Delegate,
-                         public HostPairingScreen::Delegate {
+                         public HostPairingScreen::Delegate,
+                         public NetworkScreen::Delegate,
+                         public HIDDetectionScreen::Delegate {
  public:
   // Observes screen changes.
   class Observer {
@@ -74,7 +75,7 @@ class WizardController : public BaseScreenDelegate,
   };
 
   WizardController(LoginDisplayHost* host, OobeDisplay* oobe_display);
-  virtual ~WizardController();
+  ~WizardController() override;
 
   // Returns the default wizard controller if it has been created.
   static WizardController* default_controller() {
@@ -100,20 +101,9 @@ class WizardController : public BaseScreenDelegate,
   // Terms of Service, user image selection).
   static void SkipPostLoginScreensForTesting();
 
-  // Checks whether OOBE should start enrollment automatically.
-  static bool ShouldAutoStartEnrollment();
-
-  // Checks whether OOBE should recover enrollment.  Note that this flips to
-  // false once device policy has been restored as a part of recovery.
-  static bool ShouldRecoverEnrollment();
-
-  // Obtains domain the device used to be enrolled to from install attributes.
-  static std::string GetEnrollmentRecoveryDomain();
-
   // Shows the first screen defined by |first_screen_name| or by default
-  // if the parameter is empty. Takes ownership of |screen_parameters|.
-  void Init(const std::string& first_screen_name,
-            scoped_ptr<base::DictionaryValue> screen_parameters);
+  // if the parameter is empty.
+  void Init(const std::string& first_screen_name);
 
   // Advances to screen defined by |screen_name| and shows it.
   void AdvanceToScreen(const std::string& screen_name);
@@ -143,7 +133,8 @@ class WizardController : public BaseScreenDelegate,
   bool login_screen_started() const { return login_screen_started_; }
 
   // ScreenManager implementation.
-  virtual BaseScreen* CreateScreen(const std::string& screen_name) override;
+  BaseScreen* GetScreen(const std::string& screen_name) override;
+  BaseScreen* CreateScreen(const std::string& screen_name) override;
 
   static const char kNetworkScreenName[];
   static const char kLoginScreenName[];
@@ -152,6 +143,7 @@ class WizardController : public BaseScreenDelegate,
   static const char kOutOfBoxScreenName[];
   static const char kTestNoScreenName[];
   static const char kEulaScreenName[];
+  static const char kEnableDebuggingScreenName[];
   static const char kEnrollmentScreenName[];
   static const char kResetScreenName[];
   static const char kKioskEnableScreenName[];
@@ -179,6 +171,7 @@ class WizardController : public BaseScreenDelegate,
   void ShowEnrollmentScreen();
   void ShowResetScreen();
   void ShowKioskAutolaunchScreen();
+  void ShowEnableDebuggingScreen();
   void ShowKioskEnableScreen();
   void ShowTermsOfServiceScreen();
   void ShowWrongHWIDScreen();
@@ -191,12 +184,6 @@ class WizardController : public BaseScreenDelegate,
 
   // Shows images login screen.
   void ShowLoginScreen(const LoginScreenContext& context);
-
-  // Resumes a pending login screen.
-  void ResumeLoginScreen();
-
-  // Invokes corresponding first OOBE screen.
-  void OnHIDScreenNecessityCheck(bool screen_needed);
 
   // Exit handlers:
   void OnHIDDetectionCompleted();
@@ -211,7 +198,7 @@ class WizardController : public BaseScreenDelegate,
   void OnUserImageSkipped();
   void OnEnrollmentDone();
   void OnAutoEnrollmentDone();
-  void OnResetCanceled();
+  void OnDeviceModificationCanceled();
   void OnKioskAutolaunchCanceled();
   void OnKioskAutolaunchConfirmed();
   void OnKioskEnableCompleted();
@@ -246,25 +233,34 @@ class WizardController : public BaseScreenDelegate,
   void PerformOOBECompletedActions();
 
   // Overridden from BaseScreenDelegate:
-  virtual void OnExit(ExitCodes exit_code) override;
-  virtual void ShowCurrentScreen() override;
-  virtual ErrorScreen* GetErrorScreen() override;
-  virtual void ShowErrorScreen() override;
-  virtual void HideErrorScreen(BaseScreen* parent_screen) override;
+  void OnExit(BaseScreen& screen,
+              ExitCodes exit_code,
+              const ::login::ScreenContext* context) override;
+  void ShowCurrentScreen() override;
+  ErrorScreen* GetErrorScreen() override;
+  void ShowErrorScreen() override;
+  void HideErrorScreen(BaseScreen* parent_screen) override;
 
   // Overridden from EulaScreen::Delegate:
-  virtual void SetUsageStatisticsReporting(bool val) override;
-  virtual bool GetUsageStatisticsReporting() const override;
+  void SetUsageStatisticsReporting(bool val) override;
+  bool GetUsageStatisticsReporting() const override;
 
   // Override from ControllerPairingScreen::Delegate:
-  virtual void SetHostConfiguration() override;
+  void SetHostConfiguration() override;
 
   // Override from HostPairingScreen::Delegate:
-  virtual void ConfigureHost(bool accepted_eula,
-                             const std::string& lang,
-                             const std::string& timezone,
-                             bool send_reports,
-                             const std::string& keyboard_layout) override;
+  void ConfigureHostRequested(bool accepted_eula,
+                              const std::string& lang,
+                              const std::string& timezone,
+                              bool send_reports,
+                              const std::string& keyboard_layout) override;
+  void AddNetworkRequested(const std::string& onc_spec) override;
+
+  // Override from NetworkScreen::Delegate:
+  void OnEnableDebuggingScreenRequested() override;
+
+  // Override from HIDDetectionScreen::Delegate
+  void OnHIDScreenNecessityCheck(bool screen_needed) override;
 
   // Notification of a change in the state of an accessibility setting.
   void OnAccessibilityStatusChanged(
@@ -282,12 +278,6 @@ class WizardController : public BaseScreenDelegate,
 
   // Launched kiosk app configured for auto-launch.
   void AutoLaunchKioskApp();
-
-  // Checks whether the user is allowed to exit enrollment.
-  static bool CanExitEnrollment();
-
-  // Gets the management domain.
-  static std::string GetForcedEnrollmentDomain();
 
   // Called when LocalState is initialized.
   void OnLocalStateInitialized(bool /* succeeded */);
@@ -332,6 +322,10 @@ class WizardController : public BaseScreenDelegate,
   void OnSharkConnected(
       scoped_ptr<pairing_chromeos::HostPairingController> pairing_controller);
 
+  // Start the enrollment screen using the config from
+  // |prescribed_enrollment_config_|.
+  void StartEnrollmentScreen();
+
   // Whether to skip any screens that may normally be shown after login
   // (registration, Terms of Service, user image selection).
   static bool skip_post_login_screens_;
@@ -359,9 +353,6 @@ class WizardController : public BaseScreenDelegate,
   // Default WizardController.
   static WizardController* default_controller_;
 
-  // Parameters for the first screen. May be NULL.
-  scoped_ptr<base::DictionaryValue> screen_parameters_;
-
   base::OneShotTimer<WizardController> smooth_show_timer_;
 
   OobeDisplay* oobe_display_;
@@ -374,9 +365,8 @@ class WizardController : public BaseScreenDelegate,
   // EULA is accepted.
   bool skip_update_enroll_after_eula_;
 
-  // Whether enrollment will be or has been recovered in the current wizard
-  // instance.
-  bool enrollment_recovery_;
+  // The prescribed enrollment configuration for the device.
+  policy::EnrollmentConfig prescribed_enrollment_config_;
 
   // Whether the auto-enrollment check should be retried or the cached result
   // returned if present.
@@ -390,7 +380,7 @@ class WizardController : public BaseScreenDelegate,
   // user Sign-In completed.
   base::Time time_oobe_started_;
 
-  ObserverList<Observer> observer_list_;
+  base::ObserverList<Observer> observer_list_;
 
   bool login_screen_started_;
 
@@ -434,6 +424,8 @@ class WizardController : public BaseScreenDelegate,
   // conroller swithces to a pairing OOBE.
   scoped_ptr<pairing_chromeos::SharkConnectionListener>
       shark_connection_listener_;
+
+  BaseScreen* hid_screen_;
 
   base::WeakPtrFactory<WizardController> weak_factory_;
 

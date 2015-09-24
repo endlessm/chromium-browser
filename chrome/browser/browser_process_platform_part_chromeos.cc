@@ -11,14 +11,18 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/login/session/chrome_session_manager.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager_impl.h"
-#include "chrome/browser/chromeos/memory/oom_priority_manager.h"
+#include "chrome/browser/chromeos/net/delay_network_call.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/system/automatic_reboot_manager.h"
 #include "chrome/browser/chromeos/system/device_disabling_manager.h"
 #include "chrome/browser/chromeos/system/device_disabling_manager_default_delegate.h"
+#include "chrome/browser/chromeos/system/timezone_util.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/common/chrome_switches.h"
+#include "chromeos/geolocation/simple_geolocation_provider.h"
+#include "chromeos/timezone/timezone_resolver.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/user_manager/user_manager.h"
 
@@ -41,6 +45,7 @@ void BrowserProcessPlatformPart::ShutdownAutomaticRebootManager() {
 }
 
 void BrowserProcessPlatformPart::InitializeChromeUserManager() {
+  DisableDinoEasterEggIfEnrolled();
   DCHECK(!chrome_user_manager_);
   chrome_user_manager_ =
       chromeos::ChromeUserManagerImpl::CreateChromeUserManager();
@@ -86,14 +91,6 @@ session_manager::SessionManager* BrowserProcessPlatformPart::SessionManager() {
   return session_manager_.get();
 }
 
-chromeos::OomPriorityManager*
-    BrowserProcessPlatformPart::oom_priority_manager() {
-  DCHECK(CalledOnValidThread());
-  if (!oom_priority_manager_.get())
-    oom_priority_manager_.reset(new chromeos::OomPriorityManager());
-  return oom_priority_manager_.get();
-}
-
 chromeos::ProfileHelper* BrowserProcessPlatformPart::profile_helper() {
   DCHECK(CalledOnValidThread());
   if (!created_profile_helper_)
@@ -107,7 +104,32 @@ BrowserProcessPlatformPart::browser_policy_connector_chromeos() {
       g_browser_process->browser_policy_connector());
 }
 
+void BrowserProcessPlatformPart::DisableDinoEasterEggIfEnrolled() {
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  const bool is_enterprise_managed = g_browser_process->platform_part()->
+             browser_policy_connector_chromeos()->IsEnterpriseManaged();
+  if (is_enterprise_managed)
+    command_line->AppendSwitch(switches::kDisableDinosaurEasterEgg);
+}
+
+chromeos::TimeZoneResolver* BrowserProcessPlatformPart::GetTimezoneResolver() {
+  if (!timezone_resolver_.get()) {
+    timezone_resolver_.reset(new chromeos::TimeZoneResolver(
+        g_browser_process->system_request_context(),
+        chromeos::SimpleGeolocationProvider::DefaultGeolocationProviderURL(),
+        base::Bind(&chromeos::system::ApplyTimeZone),
+        base::Bind(&chromeos::DelayNetworkCall,
+                   base::TimeDelta::FromMilliseconds(
+                       chromeos::kDefaultNetworkRetryDelayMS)),
+        g_browser_process->local_state()));
+  }
+  return timezone_resolver_.get();
+}
+
 void BrowserProcessPlatformPart::StartTearDown() {
+  // interactive_ui_tests check for memory leaks before this object is
+  // destroyed.  So we need to destroy |timezone_resolver_| here.
+  timezone_resolver_.reset();
   profile_helper_.reset();
 }
 

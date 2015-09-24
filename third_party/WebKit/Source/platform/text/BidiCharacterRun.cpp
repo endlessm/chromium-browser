@@ -24,7 +24,7 @@
 #include "config.h"
 #include "platform/text/BidiCharacterRun.h"
 
-#include "platform/Partitions.h"
+#include "wtf/Partitions.h"
 #include "wtf/RefCountedLeakCounter.h"
 
 using namespace WTF;
@@ -38,7 +38,7 @@ void* BidiCharacterRun::operator new(size_t sz)
 #ifndef NDEBUG
     bidiRunCounter.increment();
 #endif
-    return partitionAlloc(Partitions::getRenderingPartition(), sz);
+    return partitionAlloc(Partitions::layoutPartition(), sz);
 }
 
 void BidiCharacterRun::operator delete(void* ptr)

@@ -48,35 +48,32 @@ static const int kPointSize = 300;
 class ShaderText3GM : public GM {
 public:
     ShaderText3GM() {
-        this->setBGColor(0xFFDDDDDD);
+        this->setBGColor(sk_tool_utils::color_to_565(0xFFDDDDDD));
     }
 
 protected:
-    virtual uint32_t onGetFlags() const SK_OVERRIDE {
-        return kSkipTiled_Flag;
-    }
 
-    virtual SkString onShortName() SK_OVERRIDE {
+    SkString onShortName() override {
         return SkString("shadertext3");
     }
 
-    virtual SkISize onISize() SK_OVERRIDE{ return SkISize::Make(800, 1000); }
+    SkISize onISize() override{ return SkISize::Make(800, 1000); }
 
-    virtual void onOnceBeforeDraw() SK_OVERRIDE {
+    void onOnceBeforeDraw() override {
         makebm(&fBmp, kPointSize / 4, kPointSize / 4);
     }
 
-    virtual void onDraw(SkCanvas* canvas) SK_OVERRIDE {
+    void onDraw(SkCanvas* canvas) override {
 
         SkPaint bmpPaint;
         bmpPaint.setAntiAlias(true);
-        bmpPaint.setFilterLevel(SkPaint::kLow_FilterLevel);
+        bmpPaint.setFilterQuality(kLow_SkFilterQuality);
         bmpPaint.setAlpha(0x80);
         canvas->drawBitmap(fBmp, 5.f, 5.f, &bmpPaint);
 
         SkPaint outlinePaint;
         outlinePaint.setAntiAlias(true);
-        sk_tool_utils::set_portable_typeface(&outlinePaint);
+        sk_tool_utils::set_portable_typeface_always(&outlinePaint);
         outlinePaint.setTextSize(SkIntToScalar(kPointSize));
         outlinePaint.setStyle(SkPaint::kStroke_Style);
         outlinePaint.setStrokeWidth(0.f);
@@ -110,9 +107,9 @@ protected:
 
                 SkPaint fillPaint;
                 fillPaint.setAntiAlias(true);
-                sk_tool_utils::set_portable_typeface(&fillPaint);
+                sk_tool_utils::set_portable_typeface_always(&fillPaint);
                 fillPaint.setTextSize(SkIntToScalar(kPointSize));
-                fillPaint.setFilterLevel(SkPaint::kLow_FilterLevel);
+                fillPaint.setFilterQuality(kLow_SkFilterQuality);
                 fillPaint.setShader(shader);
 
                 canvas->drawText(kText, kTextLen, 0, 0, fillPaint);

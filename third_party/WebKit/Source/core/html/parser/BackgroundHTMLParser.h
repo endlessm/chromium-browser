@@ -42,19 +42,25 @@ namespace blink {
 
 class HTMLDocumentParser;
 class XSSAuditor;
+class WebScheduler;
 
 class BackgroundHTMLParser {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED(BackgroundHTMLParser);
 public:
     struct Configuration {
+        Configuration();
         HTMLParserOptions options;
         WeakPtr<HTMLDocumentParser> parser;
         OwnPtr<XSSAuditor> xssAuditor;
         OwnPtr<TokenPreloadScanner> preloadScanner;
         OwnPtr<TextResourceDecoder> decoder;
+        // outstandingTokenLimit must be greater than or equal to
+        // pendingTokenLimit
+        size_t outstandingTokenLimit;
+        size_t pendingTokenLimit;
     };
 
-    static void start(PassRefPtr<WeakReference<BackgroundHTMLParser>>, PassOwnPtr<Configuration>);
+    static void start(PassRefPtr<WeakReference<BackgroundHTMLParser>>, PassOwnPtr<Configuration>, WebScheduler*);
 
     struct Checkpoint {
         WeakPtr<HTMLDocumentParser> parser;
@@ -79,7 +85,7 @@ public:
     void forcePlaintextForTextDocument();
 
 private:
-    BackgroundHTMLParser(PassRefPtr<WeakReference<BackgroundHTMLParser>>, PassOwnPtr<Configuration>);
+    BackgroundHTMLParser(PassRefPtr<WeakReference<BackgroundHTMLParser>>, PassOwnPtr<Configuration>, WebScheduler*);
     ~BackgroundHTMLParser();
 
     void appendDecodedBytes(const String&);
@@ -95,9 +101,11 @@ private:
     OwnPtr<HTMLTokenizer> m_tokenizer;
     HTMLTreeBuilderSimulator m_treeBuilderSimulator;
     HTMLParserOptions m_options;
+    const size_t m_outstandingTokenLimit;
     WeakPtr<HTMLDocumentParser> m_parser;
 
     OwnPtr<CompactHTMLTokenStream> m_pendingTokens;
+    const size_t m_pendingTokenLimit;
     PreloadRequestStream m_pendingPreloads;
     XSSInfoStream m_pendingXSSInfos;
 
@@ -105,6 +113,9 @@ private:
     OwnPtr<TokenPreloadScanner> m_preloadScanner;
     OwnPtr<TextResourceDecoder> m_decoder;
     DocumentEncodingData m_lastSeenEncodingData;
+    WebScheduler* m_scheduler; // NOT OWNED, scheduler will outlive BackgroundHTMLParser
+
+    bool m_startingScript;
 };
 
 }

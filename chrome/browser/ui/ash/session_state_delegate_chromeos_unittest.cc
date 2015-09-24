@@ -7,8 +7,9 @@
 #include <string>
 #include <vector>
 
+#include "base/memory/scoped_ptr.h"
 #include "base/run_loop.h"
-#include "chrome/browser/chromeos/login/users/fake_user_manager.h"
+#include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/multi_profile_user_controller.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/browser/chromeos/policy/policy_cert_service.h"
@@ -33,11 +34,11 @@ const char* kUser = "user@test.com";
 // we've ensured the profile has been shut down.
 policy::PolicyCertVerifier* g_policy_cert_verifier_for_factory = NULL;
 
-KeyedService* CreateTestPolicyCertService(content::BrowserContext* context) {
+scoped_ptr<KeyedService> CreateTestPolicyCertService(
+    content::BrowserContext* context) {
   return policy::PolicyCertService::CreateForTesting(
-             kUser,
-             g_policy_cert_verifier_for_factory,
-             user_manager::UserManager::Get()).release();
+      kUser, g_policy_cert_verifier_for_factory,
+      user_manager::UserManager::Get());
 }
 
 }  // namespace
@@ -47,12 +48,12 @@ class SessionStateDelegateChromeOSTest : public testing::Test {
   SessionStateDelegateChromeOSTest() : user_manager_(NULL) {
   }
 
-  virtual ~SessionStateDelegateChromeOSTest() {
-  }
+  ~SessionStateDelegateChromeOSTest() override {}
 
-  virtual void SetUp() override {
-    // Initialize the UserManager singleton to a fresh FakeUserManager instance.
-    user_manager_ = new chromeos::FakeUserManager;
+  void SetUp() override {
+    // Initialize the UserManager singleton to a fresh FakeChromeUserManager
+    // instance.
+    user_manager_ = new FakeChromeUserManager;
     user_manager_enabler_.reset(
         new chromeos::ScopedUserManagerEnabler(user_manager_));
 
@@ -61,7 +62,7 @@ class SessionStateDelegateChromeOSTest : public testing::Test {
     testing::Test::SetUp();
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     testing::Test::TearDown();
     session_state_delegate_.reset();
     user_manager_enabler_.reset();
@@ -90,7 +91,7 @@ class SessionStateDelegateChromeOSTest : public testing::Test {
     return user_manager::UserManager::Get()->GetActiveUser()->email();
   }
 
-  chromeos::FakeUserManager* user_manager() { return user_manager_; }
+  FakeChromeUserManager* user_manager() { return user_manager_; }
   SessionStateDelegateChromeos* session_state_delegate() {
     return session_state_delegate_.get();
   }
@@ -120,7 +121,7 @@ class SessionStateDelegateChromeOSTest : public testing::Test {
   scoped_ptr<SessionStateDelegateChromeos> session_state_delegate_;
 
   // Not owned.
-  chromeos::FakeUserManager* user_manager_;
+  FakeChromeUserManager* user_manager_;
 
   DISALLOW_COPY_AND_ASSIGN(SessionStateDelegateChromeOSTest);
 };

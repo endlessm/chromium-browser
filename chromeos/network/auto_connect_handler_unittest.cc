@@ -37,9 +37,6 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
-// http://crbug.com/418369
-#ifdef NDEBUG
-
 namespace chromeos {
 
 namespace {
@@ -115,7 +112,7 @@ class AutoConnectHandlerTest : public testing::Test {
     network_state_handler_.reset(NetworkStateHandler::InitializeForTest());
     network_config_handler_.reset(
         NetworkConfigurationHandler::InitializeForTest(
-            network_state_handler_.get()));
+            network_state_handler_.get(), NULL /* network_device_handler */));
 
     network_profile_handler_.reset(new NetworkProfileHandler());
     network_profile_handler_->Init();
@@ -217,9 +214,10 @@ class AutoConnectHandlerTest : public testing::Test {
     scoped_ptr<base::ListValue> network_configs(new base::ListValue);
     if (!network_configs_json.empty()) {
       std::string error;
-      base::Value* network_configs_value = base::JSONReader::ReadAndReturnError(
-          network_configs_json, base::JSON_ALLOW_TRAILING_COMMAS, nullptr,
-          &error);
+      base::Value* network_configs_value =
+          base::JSONReader::DeprecatedReadAndReturnError(
+              network_configs_json, base::JSON_ALLOW_TRAILING_COMMAS, nullptr,
+              &error);
       ASSERT_TRUE(network_configs_value) << error;
       base::ListValue* network_configs_list = nullptr;
       ASSERT_TRUE(network_configs_value->GetAsList(&network_configs_list));
@@ -269,7 +267,7 @@ const char* kPolicy =
     "    \"Type\": \"WiFi\","
     "    \"WiFi\": {"
     "      \"Security\": \"WPA-PSK\","
-    "      \"SSID\": \"wifi1\","
+    "      \"HexSSID\": \"7769666931\","  // "wifi1"
     "      \"Passphrase\": \"passphrase\""
     "    }"
     "} ]";
@@ -280,7 +278,7 @@ const char* kPolicyCertPattern =
     "    \"Type\": \"WiFi\","
     "    \"WiFi\": {"
     "      \"Security\": \"WPA-EAP\","
-    "      \"SSID\": \"wifi1\","
+    "      \"HexSSID\": \"7769666931\","  // "wifi1"
     "      \"EAP\": {"
     "        \"Outer\": \"EAP-TLS\","
     "        \"ClientCertType\": \"Pattern\","
@@ -471,5 +469,3 @@ TEST_F(AutoConnectHandlerTest, ManualConnectAbortsReconnectAfterLogin) {
 }
 
 }  // namespace chromeos
-
-#endif

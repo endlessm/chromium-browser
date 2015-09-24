@@ -12,13 +12,14 @@
 #include "net/quic/crypto/proof_verifier.h"
 #include "net/quic/quic_server_id.h"
 #include "net/quic/test_tools/quic_connection_peer.h"
-#include "net/quic/test_tools/quic_session_peer.h"
+#include "net/quic/test_tools/quic_spdy_session_peer.h"
 #include "net/quic/test_tools/quic_test_utils.h"
 #include "net/quic/test_tools/reliable_quic_stream_peer.h"
 #include "net/tools/balsa/balsa_headers.h"
 #include "net/tools/quic/quic_epoll_connection_helper.h"
 #include "net/tools/quic/quic_packet_writer_wrapper.h"
 #include "net/tools/quic/quic_spdy_client_stream.h"
+#include "net/tools/quic/spdy_balsa_utils.h"
 #include "net/tools/quic/test_tools/http_message.h"
 #include "net/tools/quic/test_tools/quic_client_peer.h"
 #include "url/gurl.h"
@@ -26,7 +27,7 @@
 using base::StringPiece;
 using net::QuicServerId;
 using net::test::QuicConnectionPeer;
-using net::test::QuicSessionPeer;
+using net::test::QuicSpdySessionPeer;
 using net::test::ReliableQuicStreamPeer;
 using std::string;
 using std::vector;
@@ -107,7 +108,6 @@ MockableQuicClient::MockableQuicClient(
     : QuicClient(server_address,
                  server_id,
                  supported_versions,
-                 false,
                  epoll_server),
       override_connection_id_(0),
       test_writer_(nullptr) {}
@@ -121,7 +121,6 @@ MockableQuicClient::MockableQuicClient(
     : QuicClient(server_address,
                  server_id,
                  supported_versions,
-                 false,
                  config,
                  epoll_server),
       override_connection_id_(0),
@@ -236,6 +235,16 @@ ssize_t QuicTestClient::SendRequest(const string& uri) {
   return SendMessage(message);
 }
 
+void QuicTestClient::SendRequestsAndWaitForResponses(
+    const vector<string>& url_list) {
+  for (const string& url : url_list) {
+    SendRequest(url);
+  }
+  while (client()->WaitForEvents()) {
+  }
+  return;
+}
+
 ssize_t QuicTestClient::SendMessage(const HTTPMessage& message) {
   stream_ = nullptr;  // Always force creation of a stream for SendMessage.
 
@@ -257,17 +266,24 @@ ssize_t QuicTestClient::SendMessage(const HTTPMessage& message) {
   scoped_ptr<BalsaHeaders> munged_headers(MungeHeaders(message.headers(),
                                           secure_));
   ssize_t ret = GetOrCreateStream()->SendRequest(
-      munged_headers.get() ? *munged_headers.get() : *message.headers(),
-      message.body(),
-      message.has_complete_message());
+      SpdyBalsaUtils::RequestHeadersToSpdyHeaders(
+          munged_headers.get() ? *munged_headers : *message.headers(),
+          stream->version()),
+      message.body(), message.has_complete_message());
   WaitForWriteToFlush();
   return ret;
 }
 
 ssize_t QuicTestClient::SendData(string data, bool last_data) {
+  return SendData(data, last_data, nullptr);
+}
+
+ssize_t QuicTestClient::SendData(string data,
+                                 bool last_data,
+                                 QuicAckNotifier::DelegateInterface* delegate) {
   QuicSpdyClientStream* stream = GetOrCreateStream();
   if (!stream) { return 0; }
-  GetOrCreateStream()->SendBody(data, last_data);
+  GetOrCreateStream()->SendBody(data, last_data, delegate);
   WaitForWriteToFlush();
   return data.length();
 }
@@ -310,9 +326,12 @@ string QuicTestClient::SendCustomSynchronousRequest(
 string QuicTestClient::SendSynchronousRequest(const string& uri) {
   if (SendRequest(uri) == 0) {
     DLOG(ERROR) << "Failed the request for uri:" << uri;
-    return "";
+    // Set the response_ explicitly.  Otherwise response_ will contain the
+    // response from the previously successful request.
+    response_ = "";
+  } else {
+    WaitForResponse();
   }
-  WaitForResponse();
   return response_;
 }
 
@@ -453,14 +472,15 @@ ssize_t QuicTestClient::Send(const void *buffer, size_t size) {
 bool QuicTestClient::response_headers_complete() const {
   if (stream_ != nullptr) {
     return stream_->headers_decompressed();
-  } else {
-    return response_headers_complete_;
   }
+  return response_headers_complete_;
 }
 
 const BalsaHeaders* QuicTestClient::response_headers() const {
   if (stream_ != nullptr) {
-    return &stream_->headers();
+    SpdyBalsaUtils::SpdyHeadersToResponseHeaders(stream_->headers(), &headers_,
+                                                 stream_->version());
+    return &headers_;
   } else {
     return &headers_;
   }
@@ -479,6 +499,11 @@ size_t QuicTestClient::bytes_written() const {
 }
 
 void QuicTestClient::OnClose(QuicDataStream* stream) {
+  if (stream != nullptr) {
+    // Always close the stream, regardless of whether it was the last stream
+    // written.
+    client()->OnClose(stream);
+  }
   if (stream_ != stream) {
     return;
   }
@@ -488,7 +513,8 @@ void QuicTestClient::OnClose(QuicDataStream* stream) {
   }
   response_complete_ = true;
   response_headers_complete_ = stream_->headers_decompressed();
-  headers_.CopyFrom(stream_->headers());
+  SpdyBalsaUtils::SpdyHeadersToResponseHeaders(stream_->headers(), &headers_,
+                                               stream_->version());
   stream_error_ = stream_->stream_error();
   bytes_read_ = stream_->stream_bytes_read() + stream_->header_bytes_read();
   bytes_written_ =
@@ -550,7 +576,7 @@ void QuicTestClient::SetFecPolicy(FecPolicy fec_policy) {
   fec_policy_ = fec_policy;
   // Set policy for headers and crypto streams.
   ReliableQuicStreamPeer::SetFecPolicy(
-      QuicSessionPeer::GetHeadersStream(client()->session()), fec_policy);
+      QuicSpdySessionPeer::GetHeadersStream(client()->session()), fec_policy);
   ReliableQuicStreamPeer::SetFecPolicy(client()->session()->GetCryptoStream(),
                                        fec_policy);
 }

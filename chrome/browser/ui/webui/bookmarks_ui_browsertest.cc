@@ -18,6 +18,11 @@ class BookmarksTest : public InProcessBrowserTest {
  public:
   BookmarksTest() {}
 
+  void SetUpOnMainThread() override {
+    InProcessBrowserTest::SetUpOnMainThread();
+    EnableAccessibilityChecksForTestCase(true);
+  }
+
   void OpenBookmarksManager() {
     content::TestNavigationObserver navigation_observer(
         browser()->tab_strip_model()->GetActiveWebContents(), 2);
@@ -58,12 +63,8 @@ IN_PROC_BROWSER_TEST_F(BookmarksTest, CommandOpensBookmarksTab) {
   AssertIsBookmarksPage(browser()->tab_strip_model()->GetActiveWebContents());
 }
 
-// TODO(linux_aura): http://crbug.com/163931
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS) && defined(USE_AURA)
-#define MAYBE_CommandAgainGoesBackToBookmarksTab \
-  DISABLED_CommandAgainGoesBackToBookmarksTab
 // Flaky on Mac: http://crbug.com/87200
-#elif defined(OS_MACOSX)
+#if defined(OS_MACOSX)
 #define MAYBE_CommandAgainGoesBackToBookmarksTab \
   DISABLED_CommandAgainGoesBackToBookmarksTab
 #else

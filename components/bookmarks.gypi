@@ -13,7 +13,9 @@
       ],
       'dependencies': [
         '../base/base.gyp:base',
+        '../base/base.gyp:base_i18n',
         '../net/net.gyp:net',
+        '../third_party/icu/icu.gyp:icui18n',
         '../third_party/icu/icu.gyp:icuuc',
         '../ui/base/ui_base.gyp:ui_base',
         '../ui/gfx/gfx.gyp:gfx',
@@ -57,6 +59,8 @@
         'bookmarks/browser/bookmark_utils.h',
         'bookmarks/browser/scoped_group_bookmark_actions.cc',
         'bookmarks/browser/scoped_group_bookmark_actions.h',
+        'bookmarks/browser/startup_task_runner_service.cc',
+        'bookmarks/browser/startup_task_runner_service.h',
       ],
       'conditions': [
         ['OS == "android"', {
@@ -72,6 +76,11 @@
             'bookmarks/common/android/bookmark_type_list.h',
             'bookmarks/common/android/component_jni_registrar.cc',
             'bookmarks/common/android/component_jni_registrar.h',
+          ],
+        }],
+        ['toolkit_views==1', {
+          'dependencies': [
+            '<(DEPTH)/ui/views/views.gyp:views',
           ],
         }],
       ],
@@ -91,6 +100,22 @@
         'bookmarks/common/bookmark_constants.h',
         'bookmarks/common/bookmark_pref_names.cc',
         'bookmarks/common/bookmark_pref_names.h',
+      ],
+    },
+    {
+      # GN version: //components/bookmarks/managed
+      'target_name': 'bookmarks_managed',
+      'type': 'static_library',
+      'include_dirs': [
+        '..',
+      ],
+      'dependencies': [
+        'bookmarks_browser',
+        'components_strings.gyp:components_strings',
+      ],
+      'sources': [
+        'bookmarks/managed/managed_bookmarks_tracker.cc',
+        'bookmarks/managed/managed_bookmarks_tracker.h',
       ],
     },
     {

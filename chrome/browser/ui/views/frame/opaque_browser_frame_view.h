@@ -11,8 +11,6 @@
 #include "chrome/browser/ui/views/frame/browser_non_client_frame_view.h"
 #include "chrome/browser/ui/views/frame/opaque_browser_frame_view_layout_delegate.h"
 #include "chrome/browser/ui/views/tab_icon_view_model.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_registrar.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/menu_button_listener.h"
 #include "ui/views/window/non_client_view.h"
@@ -30,7 +28,6 @@ class Label;
 }
 
 class OpaqueBrowserFrameView : public BrowserNonClientFrameView,
-                               public content::NotificationObserver,
                                public views::ButtonListener,
                                public views::MenuButtonListener,
                                public chrome::TabIconViewModel,
@@ -72,11 +69,6 @@ class OpaqueBrowserFrameView : public BrowserNonClientFrameView,
   bool ShouldTabIconViewAnimate() const override;
   gfx::ImageSkia GetFaviconForTabIconView() override;
 
-  // content::NotificationObserver implementation:
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override;
-
   // OpaqueBrowserFrameViewLayoutDelegate implementation:
   bool ShouldShowWindowIcon() const override;
   bool ShouldShowWindowTitle() const override;
@@ -103,6 +95,10 @@ class OpaqueBrowserFrameView : public BrowserNonClientFrameView,
 
   // views::View:
   void OnPaint(gfx::Canvas* canvas) override;
+
+  // BrowserNonClientFrameView:
+  bool ShouldPaintAsThemed() const override;
+  void UpdateNewAvatarButtonImpl() override;
 
  private:
   // views::NonClientFrameView:
@@ -149,12 +145,6 @@ class OpaqueBrowserFrameView : public BrowserNonClientFrameView,
   void PaintToolbarBackground(gfx::Canvas* canvas);
   void PaintRestoredClientEdge(gfx::Canvas* canvas);
 
-  // Compute aspects of the frame needed to paint the frame background.
-  SkColor GetFrameColor() const;
-  gfx::ImageSkia* GetFrameImage() const;
-  gfx::ImageSkia* GetFrameOverlayImage() const;
-  int GetTopAreaHeight() const;
-
   // Returns the bounds of the client area for the specified view size.
   gfx::Rect CalculateClientAreaBounds(int width, int height) const;
 
@@ -170,8 +160,6 @@ class OpaqueBrowserFrameView : public BrowserNonClientFrameView,
   // The window icon and title.
   TabIconView* window_icon_;
   views::Label* window_title_;
-
-  content::NotificationRegistrar registrar_;
 
   // Background painter for the window frame.
   scoped_ptr<views::FrameBackground> frame_background_;

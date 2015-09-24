@@ -52,12 +52,35 @@ Local Modifications:
 
 - Avoid mixing size_t and uint32_t in Leb128Decoder::Dequeue().
 
-- Add fallback library loading when SELinux blocks EXEC permission.
-
 - Re-order application of relocation sections to match the system linker.
-
-- Add method for enabling/disabling the memory fallback (disabled by default).
 
 - Add a check whether file is uncompressed in zip file.
 
+- Fix -Wreorder warning (error with -Werror) in class ElfLoader.
+
+- Control static_assert invocations with a new COMPILE_ASSERT macro.
+
+- Fix unit test crash caused by use of deleted data inside an unload callback.
+
 - Fix for crbug/444714 (Chrome_Android: Crash Report - -1DB24FB5)
+
+- Speculative fix for crbug/450659.
+
+- Add basic LD_PRELOAD handling, for crbug/448968.
+
+- Speculative fix for crbug/479220.
+
+- Fix RELRO sharing issue caused by packing relocations.
+
+- Correct fix for crbug/479220 (replace IsSystemLibrary() with caller flags).
+
+- Fix link_map_.l_addr (was load address, should be load bias).
+
+- Convert packed relocation code to handle Android packed relocations.
+
+- Implement a stub __cxa_demangle to avoid linking to LLVM's implementation.
+
+- Change relocation packing constant names for C++ style (cosmetic only).
+
+- Add a Breakpad "guard region" to the start of reserved address space.
+

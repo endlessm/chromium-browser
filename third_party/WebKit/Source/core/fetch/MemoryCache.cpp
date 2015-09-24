@@ -23,12 +23,7 @@
 #include "config.h"
 #include "core/fetch/MemoryCache.h"
 
-#include "core/dom/CrossThreadTask.h"
 #include "core/fetch/ResourcePtr.h"
-#include "core/frame/FrameView.h"
-#include "core/workers/WorkerGlobalScope.h"
-#include "core/workers/WorkerLoaderProxy.h"
-#include "core/workers/WorkerThread.h"
 #include "platform/Logging.h"
 #include "platform/TraceEvent.h"
 #include "platform/weborigin/SecurityOrigin.h"
@@ -36,13 +31,14 @@
 #include "public/platform/Platform.h"
 #include "wtf/Assertions.h"
 #include "wtf/CurrentTime.h"
+#include "wtf/MainThread.h"
 #include "wtf/MathExtras.h"
 #include "wtf/TemporaryChange.h"
 #include "wtf/text/CString.h"
 
 namespace blink {
 
-static OwnPtrWillBePersistent<MemoryCache>* gMemoryCache;
+static Persistent<MemoryCache>* gMemoryCache;
 
 static const unsigned cDefaultCacheCapacity = 8192 * 1024;
 static const unsigned cDeferredPruneDeadCapacityFactor = 2;
@@ -54,27 +50,25 @@ MemoryCache* memoryCache()
 {
     ASSERT(WTF::isMainThread());
     if (!gMemoryCache)
-        gMemoryCache = new OwnPtrWillBePersistent<MemoryCache>(MemoryCache::create());
+        gMemoryCache = new Persistent<MemoryCache>(MemoryCache::create());
     return gMemoryCache->get();
 }
 
-PassOwnPtrWillBeRawPtr<MemoryCache> replaceMemoryCacheForTesting(PassOwnPtrWillBeRawPtr<MemoryCache> cache)
+MemoryCache* replaceMemoryCacheForTesting(MemoryCache* cache)
 {
 #if ENABLE(OILPAN)
     // Move m_liveResources content to keep Resource objects alive.
     for (const auto& resource : memoryCache()->m_liveResources)
         cache->m_liveResources.add(resource);
     memoryCache()->m_liveResources.clear();
-#else
-    // Make sure we have non-empty gMemoryCache.
-    memoryCache();
 #endif
-    OwnPtrWillBeRawPtr<MemoryCache> oldCache = gMemoryCache->release();
+    memoryCache();
+    MemoryCache* oldCache = gMemoryCache->release();
     *gMemoryCache = cache;
-    return oldCache.release();
+    return oldCache;
 }
 
-void MemoryCacheEntry::trace(Visitor* visitor)
+DEFINE_TRACE(MemoryCacheEntry)
 {
     visitor->trace(m_previousInLiveResourcesList);
     visitor->trace(m_nextInLiveResourcesList);
@@ -82,14 +76,12 @@ void MemoryCacheEntry::trace(Visitor* visitor)
     visitor->trace(m_nextInAllResourcesList);
 }
 
-#if ENABLE(OILPAN)
 void MemoryCacheEntry::dispose()
 {
     m_resource.clear();
 }
-#endif
 
-void MemoryCacheLRUList::trace(Visitor* visitor)
+DEFINE_TRACE(MemoryCacheLRUList)
 {
     visitor->trace(m_head);
     visitor->trace(m_tail);
@@ -99,6 +91,9 @@ inline MemoryCache::MemoryCache()
     : m_inPruneResources(false)
     , m_prunePending(false)
     , m_maxPruneDeferralDelay(cMaxPruneDeferralDelay)
+    , m_pruneTimeStamp(0.0)
+    , m_pruneFrameTimeStamp(0.0)
+    , m_lastFramePaintTimeStamp(0.0)
     , m_capacity(cDefaultCacheCapacity)
     , m_minDeadCapacity(0)
     , m_maxDeadCapacity(cDefaultCacheCapacity)
@@ -114,27 +109,26 @@ inline MemoryCache::MemoryCache()
     const double statsIntervalInSeconds = 15;
     m_statsTimer.startRepeating(statsIntervalInSeconds, FROM_HERE);
 #endif
-    m_pruneTimeStamp = m_pruneFrameTimeStamp = FrameView::currentFrameTimeStamp();
 }
 
-PassOwnPtrWillBeRawPtr<MemoryCache> MemoryCache::create()
+MemoryCache* MemoryCache::create()
 {
-    return adoptPtrWillBeNoop(new MemoryCache());
+    return new MemoryCache;
 }
 
 MemoryCache::~MemoryCache()
 {
     if (m_prunePending)
-        blink::Platform::current()->currentThread()->removeTaskObserver(this);
+        Platform::current()->currentThread()->removeTaskObserver(this);
 }
 
-void MemoryCache::trace(Visitor* visitor)
+DEFINE_TRACE(MemoryCache)
 {
-#if ENABLE(OILPAN)
     visitor->trace(m_allResources);
     for (size_t i = 0; i < WTF_ARRAY_LENGTH(m_liveDecodedResources); ++i)
         visitor->trace(m_liveDecodedResources[i]);
     visitor->trace(m_resourceMaps);
+#if ENABLE(OILPAN)
     visitor->trace(m_liveResources);
 #endif
 }
@@ -161,7 +155,7 @@ String MemoryCache::defaultCacheIdentifier()
 MemoryCache::ResourceMap* MemoryCache::ensureResourceMap(const String& cacheIdentifier)
 {
     if (!m_resourceMaps.contains(cacheIdentifier)) {
-        ResourceMapIndex::AddResult result = m_resourceMaps.add(cacheIdentifier, adoptPtrWillBeNoop(new ResourceMap()));
+        ResourceMapIndex::AddResult result = m_resourceMaps.add(cacheIdentifier, new ResourceMap);
         RELEASE_ASSERT(result.isNewEntry);
     }
     return m_resourceMaps.get(cacheIdentifier);
@@ -211,6 +205,9 @@ Resource* MemoryCache::resourceForURL(const KURL& resourceURL)
 Resource* MemoryCache::resourceForURL(const KURL& resourceURL, const String& cacheIdentifier)
 {
     ASSERT(WTF::isMainThread());
+    if (!resourceURL.isValid() || resourceURL.isNull())
+        return nullptr;
+    ASSERT(!cacheIdentifier.isNull());
     ResourceMap* resources = m_resourceMaps.get(cacheIdentifier);
     if (!resources)
         return nullptr;
@@ -228,11 +225,11 @@ Resource* MemoryCache::resourceForURL(const KURL& resourceURL, const String& cac
     return resource;
 }
 
-WillBeHeapVector<Member<Resource>> MemoryCache::resourcesForURL(const KURL& resourceURL)
+WillBeHeapVector<RawPtrWillBeMember<Resource>> MemoryCache::resourcesForURL(const KURL& resourceURL)
 {
     ASSERT(WTF::isMainThread());
     KURL url = removeFragmentIdentifierIfNeeded(resourceURL);
-    WillBeHeapVector<Member<Resource>> results;
+    WillBeHeapVector<RawPtrWillBeMember<Resource>> results;
     for (const auto& resourceMapIter : m_resourceMaps) {
         if (MemoryCacheEntry* entry = resourceMapIter.value->get(url))
             results.append(entry->m_resource.get());
@@ -255,10 +252,12 @@ size_t MemoryCache::liveCapacity() const
     return m_capacity - deadCapacity();
 }
 
-void MemoryCache::pruneLiveResources()
+void MemoryCache::pruneLiveResources(PruneStrategy strategy)
 {
     ASSERT(!m_prunePending);
     size_t capacity = liveCapacity();
+    if (strategy == MaximalPrune)
+        capacity = 0;
     if (!m_liveSize || (capacity && m_liveSize <= capacity))
         return;
 
@@ -283,7 +282,7 @@ void MemoryCache::pruneLiveResources()
             if (current->m_resource->isLoaded() && current->m_resource->decodedSize()) {
                 // Check to see if the remaining resources are too new to prune.
                 double elapsedTime = m_pruneFrameTimeStamp - current->m_lastDecodedAccessTime;
-                if (elapsedTime < m_delayBeforeLiveDecodedPrune)
+                if (strategy == AutomaticPrune && elapsedTime < m_delayBeforeLiveDecodedPrune)
                     return;
 
                 // Destroy our decoded data if possible. This will remove us
@@ -299,9 +298,11 @@ void MemoryCache::pruneLiveResources()
     }
 }
 
-void MemoryCache::pruneDeadResources()
+void MemoryCache::pruneDeadResources(PruneStrategy strategy)
 {
     size_t capacity = deadCapacity();
+    if (strategy == MaximalPrune)
+        capacity = 0;
     if (!m_deadSize || (capacity && m_deadSize <= capacity))
         return;
 
@@ -411,17 +412,12 @@ bool MemoryCache::evict(MemoryCacheEntry* entry)
     ASSERT(resources);
     ResourceMap::iterator it = resources->find(resource->url());
     ASSERT(it != resources->end());
-#if ENABLE(OILPAN)
+
     MemoryCacheEntry* entryPtr = it->value;
-#else
-    OwnPtr<MemoryCacheEntry> entryPtr;
-    entryPtr.swap(it->value);
-#endif
     resources->remove(it);
-#if ENABLE(OILPAN)
     if (entryPtr)
         entryPtr->dispose();
-#endif
+
     return canDelete;
 }
 
@@ -613,7 +609,7 @@ void MemoryCache::updateDecodedResource(Resource* resource, UpdateReason reason,
     if (reason != UpdateForAccess)
         return;
 
-    double timestamp = resource->isImage() ? FrameView::currentFrameTimeStamp() : 0.0;
+    double timestamp = resource->isImage() ? m_lastFramePaintTimeStamp : 0.0;
     if (!timestamp)
         timestamp = currentTime();
     entry->m_lastDecodedAccessTime = timestamp;
@@ -627,19 +623,9 @@ MemoryCacheLiveResourcePriority MemoryCache::priority(Resource* resource) const
     return entry->m_liveResourcePriority;
 }
 
-void MemoryCache::removeURLFromCache(ExecutionContext* context, const KURL& url)
+void MemoryCache::removeURLFromCache(const KURL& url)
 {
-    if (context->isWorkerGlobalScope()) {
-        WorkerGlobalScope* workerGlobalScope = toWorkerGlobalScope(context);
-        workerGlobalScope->thread()->workerLoaderProxy().postTaskToLoader(createCrossThreadTask(&removeURLFromCacheInternal, url));
-        return;
-    }
-    removeURLFromCacheInternal(context, url);
-}
-
-void MemoryCache::removeURLFromCacheInternal(ExecutionContext*, const KURL& url)
-{
-    WillBeHeapVector<Member<Resource>> resources = memoryCache()->resourcesForURL(url);
+    WillBeHeapVector<RawPtrWillBeMember<Resource>> resources = resourcesForURL(url);
     for (Resource* resource : resources)
         memoryCache()->remove(resource);
 }
@@ -726,14 +712,14 @@ void MemoryCache::prune(Resource* justReleasedResource)
     double currentTime = WTF::currentTime();
     if (m_prunePending) {
         if (currentTime - m_pruneTimeStamp >= m_maxPruneDeferralDelay) {
-            pruneNow(currentTime);
+            pruneNow(currentTime, AutomaticPrune);
         }
     } else {
         if (currentTime - m_pruneTimeStamp >= m_maxPruneDeferralDelay) {
-            pruneNow(currentTime); // Delay exceeded, prune now.
+            pruneNow(currentTime, AutomaticPrune); // Delay exceeded, prune now.
         } else {
             // Defer.
-            blink::Platform::current()->currentThread()->addTaskObserver(this);
+            Platform::current()->currentThread()->addTaskObserver(this);
             m_prunePending = true;
         }
     }
@@ -754,7 +740,7 @@ void MemoryCache::prune(Resource* justReleasedResource)
 
         // As a last resort, prune immediately
         if (m_deadSize > m_maxDeferredPruneDeadCapacity)
-            pruneNow(currentTime);
+            pruneNow(currentTime, AutomaticPrune);
     }
 }
 
@@ -766,46 +752,49 @@ void MemoryCache::didProcessTask()
 {
     // Perform deferred pruning
     ASSERT(m_prunePending);
-    pruneNow(WTF::currentTime());
+    pruneNow(WTF::currentTime(), AutomaticPrune);
 }
 
-void MemoryCache::pruneNow(double currentTime)
+void MemoryCache::pruneAll()
+{
+    double currentTime = WTF::currentTime();
+    pruneNow(currentTime, MaximalPrune);
+}
+
+void MemoryCache::pruneNow(double currentTime, PruneStrategy strategy)
 {
     if (m_prunePending) {
         m_prunePending = false;
-        blink::Platform::current()->currentThread()->removeTaskObserver(this);
+        Platform::current()->currentThread()->removeTaskObserver(this);
     }
 
     TemporaryChange<bool> reentrancyProtector(m_inPruneResources, true);
-    pruneDeadResources(); // Prune dead first, in case it was "borrowing" capacity from live.
-    pruneLiveResources();
-    m_pruneFrameTimeStamp = FrameView::currentFrameTimeStamp();
+    pruneDeadResources(strategy); // Prune dead first, in case it was "borrowing" capacity from live.
+    pruneLiveResources(strategy);
+    m_pruneFrameTimeStamp = m_lastFramePaintTimeStamp;
     m_pruneTimeStamp = currentTime;
 }
 
-#if ENABLE(OILPAN)
+void MemoryCache::updateFramePaintTimestamp()
+{
+    m_lastFramePaintTimeStamp = currentTime();
+}
+
 void MemoryCache::registerLiveResource(Resource& resource)
 {
+#if ENABLE(OILPAN)
     ASSERT(!m_liveResources.contains(&resource));
     m_liveResources.add(&resource);
+#endif
 }
 
 void MemoryCache::unregisterLiveResource(Resource& resource)
 {
+#if ENABLE(OILPAN)
     ASSERT(m_liveResources.contains(&resource));
     m_liveResources.remove(&resource);
-}
-
-#else
-
-void MemoryCache::registerLiveResource(Resource&)
-{
-}
-
-void MemoryCache::unregisterLiveResource(Resource&)
-{
-}
 #endif
+}
 
 #ifdef MEMORY_CACHE_STATS
 
@@ -838,13 +827,13 @@ void MemoryCache::dumpLRULists(bool includeLive) const
     int size = m_allResources.size();
     for (int i = size - 1; i >= 0; i--) {
         printf("\n\nList %d: ", i);
-        Resource* current = m_allResources[i].m_tail;
+        MemoryCacheEntry* current = m_allResources[i].m_tail;
         while (current) {
-            Resource* prev = current->m_prevInAllResourcesList;
-            if (includeLive || !current->hasClients())
-                printf("(%.1fK, %.1fK, %uA, %dR, %d, %d); ", current->decodedSize() / 1024.0f, (current->encodedSize() + current->overheadSize()) / 1024.0f, current->accessCount(), current->hasClients(), current->isPurgeable(), current->wasPurged());
+            ResourcePtr<Resource> currentResource = current->m_resource;
+            if (includeLive || !currentResource->hasClients())
+                printf("(%.1fK, %.1fK, %uA, %dR, %d, %d); ", currentResource->decodedSize() / 1024.0f, (currentResource->encodedSize() + currentResource->overheadSize()) / 1024.0f, current->m_accessCount, currentResource->hasClients(), currentResource->isPurgeable(), currentResource->wasPurged());
 
-            current = prev;
+            current = current->m_previousInAllResourcesList;
         }
     }
 }

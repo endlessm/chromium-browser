@@ -4,32 +4,35 @@
 
 package org.chromium.base;
 
-import android.animation.ValueAnimator;
 import android.annotation.TargetApi;
-import android.app.ActivityOptions;
-import android.app.Notification;
+import android.app.Activity;
+import android.app.ActivityManager;
 import android.app.PendingIntent;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
+import android.content.res.Resources;
+import android.content.res.Resources.NotFoundException;
+import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
-import android.os.Bundle;
+import android.os.PowerManager;
+import android.os.Process;
 import android.provider.Settings;
 import android.view.View;
 import android.view.ViewGroup.MarginLayoutParams;
-import android.view.ViewTreeObserver;
-import android.widget.ImageView;
-import android.widget.RemoteViews;
+import android.view.Window;
+import android.view.WindowManager;
 import android.widget.TextView;
 
 /**
  * Utility class to use new APIs that were added after ICS (API level 14).
  */
+@TargetApi(Build.VERSION_CODES.LOLLIPOP)
 public class ApiCompatibilityUtils {
-
-    private static final String TAG = "ApiCompatibilityUtils";
-
     private ApiCompatibilityUtils() {
     }
 
@@ -64,13 +67,6 @@ public class ApiCompatibilityUtils {
      */
     public static boolean isPrintingSupported() {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT;
-    }
-
-    /**
-     * @return True if the running version of the Android supports HTML clipboard.
-     */
-    public static boolean isHTMLClipboardSupported() {
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN;
     }
 
     /**
@@ -241,120 +237,7 @@ public class ApiCompatibilityUtils {
         }
     }
 
-    /**
-     * @see android.view.View#postInvalidateOnAnimation()
-     */
-    public static void postInvalidateOnAnimation(View view) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-            view.postInvalidateOnAnimation();
-        } else {
-            view.postInvalidate();
-        }
-    }
-
-    /**
-     * @see android.view.View#postOnAnimation()
-     */
-    public static void postOnAnimation(View view, Runnable action) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-            view.postOnAnimation(action);
-        } else {
-            view.postDelayed(action, getFrameTime());
-        }
-    }
-
-    /**
-     * @see android.view.View#postOnAnimationDelayed()
-     */
-    public static void postOnAnimationDelayed(View view, Runnable action, long delayMillis) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-            view.postOnAnimationDelayed(action, delayMillis);
-        } else {
-            view.postDelayed(action, getFrameTime() + delayMillis);
-        }
-    }
-
-    private static long getFrameTime() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
-            return ValueAnimator.getFrameDelay();
-        } else {
-            // Any reasonable fake frame delay will have to do.
-            return 10;
-        }
-    }
-
-    /**
-     * @see android.widget.RemoteViews#setContentDescription(int, CharSequence)
-     */
-    public static void setContentDescriptionForRemoteView(RemoteViews remoteViews, int viewId,
-            CharSequence contentDescription) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH_MR1) {
-            remoteViews.setContentDescription(viewId, contentDescription);
-        } else {
-            // setContentDescription() is unavailable in earlier versions.
-        }
-    }
-
-    /**
-     * @see android.app.Activity#startActivity(Intent, Bundle)
-     */
-    public static void startActivity(Context context, Intent intent, Bundle options) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-            context.startActivity(intent, options);
-        } else {
-            context.startActivity(intent);
-        }
-    }
-
-    /**
-     * @see android.app.ActivityOptions#toBundle()
-     */
-    public static Bundle toBundle(ActivityOptions options) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-            return options.toBundle();
-        } else {
-            return null;
-        }
-    }
-
     // These methods have a new name, and the old name is deprecated.
-
-    /**
-     * @see android.view.View#setBackground(Drawable)
-     */
-    @SuppressWarnings("deprecation")
-    public static void setBackgroundForView(View view, Drawable drawable) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-            view.setBackground(drawable);
-        } else {
-            view.setBackgroundDrawable(drawable);
-        }
-    }
-
-    /**
-     * @see android.view.ViewTreeObserver#removeOnGlobalLayoutListener()
-     */
-    @SuppressWarnings("deprecation")
-    public static void removeOnGlobalLayoutListener(
-            View view, ViewTreeObserver.OnGlobalLayoutListener listener) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-            view.getViewTreeObserver().removeOnGlobalLayoutListener(listener);
-        } else {
-            view.getViewTreeObserver().removeGlobalOnLayoutListener(listener);
-        }
-    }
-
-    /**
-     * @see android.widget.ImageView#setImageAlpha(int)
-     */
-    @SuppressWarnings("deprecation")
-    public static void setImageAlpha(ImageView iv, int alpha) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-            iv.setImageAlpha(alpha);
-        } else {
-            iv.setAlpha(alpha);
-        }
-    }
 
     /**
      * @see android.app.PendingIntent#getCreatorPackage()
@@ -369,18 +252,6 @@ public class ApiCompatibilityUtils {
     }
 
     /**
-     * @see android.app.Notification.Builder#setLocalOnly(boolean)
-     */
-    @SuppressWarnings("deprecation")
-    public static Notification build(Notification.Builder builder) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-            return builder.build();
-        } else {
-            return builder.getNotification();
-        }
-    }
-
-    /**
      * @see android.provider.Settings.Global#DEVICE_PROVISIONED
      */
     @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
@@ -390,5 +261,172 @@ public class ApiCompatibilityUtils {
         if (context.getContentResolver() == null) return true;
         return Settings.Global.getInt(
                 context.getContentResolver(), Settings.Global.DEVICE_PROVISIONED, 0) != 0;
+    }
+
+    /**
+     * @see android.app.Activity#finishAndRemoveTask()
+     */
+    public static void finishAndRemoveTask(Activity activity) {
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.LOLLIPOP) {
+            activity.finishAndRemoveTask();
+        } else if (Build.VERSION.SDK_INT == Build.VERSION_CODES.LOLLIPOP) {
+            // crbug.com/395772 : Fallback for Activity.finishAndRemoveTask() failing.
+            new FinishAndRemoveTaskWithRetry(activity).run();
+        } else {
+            activity.finish();
+        }
+    }
+
+    private static class FinishAndRemoveTaskWithRetry implements Runnable {
+        private static final long RETRY_DELAY_MS = 500;
+        private static final long MAX_TRY_COUNT = 3;
+        private final Activity mActivity;
+        private int mTryCount;
+
+        FinishAndRemoveTaskWithRetry(Activity activity) {
+            mActivity = activity;
+        }
+
+        @Override
+        public void run() {
+            mActivity.finishAndRemoveTask();
+            mTryCount++;
+            if (!mActivity.isFinishing()) {
+                if (mTryCount < MAX_TRY_COUNT) {
+                    ThreadUtils.postOnUiThreadDelayed(this, RETRY_DELAY_MS);
+                } else {
+                    mActivity.finish();
+                }
+            }
+        }
+    }
+
+    /**
+     * @return Whether the screen of the device is interactive.
+     */
+    @SuppressWarnings("deprecation")
+    public static boolean isInteractive(Context context) {
+        PowerManager manager = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT_WATCH) {
+            return manager.isInteractive();
+        } else {
+            return manager.isScreenOn();
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    public static int getActivityNewDocumentFlag() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            return Intent.FLAG_ACTIVITY_NEW_DOCUMENT;
+        } else {
+            return Intent.FLAG_ACTIVITY_CLEAR_WHEN_TASK_RESET;
+        }
+    }
+
+    /**
+     * @see android.provider.Settings.Secure#SKIP_FIRST_USE_HINTS
+     */
+    public static boolean shouldSkipFirstUseHints(ContentResolver contentResolver) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            return Settings.Secure.getInt(
+                    contentResolver, Settings.Secure.SKIP_FIRST_USE_HINTS, 0) != 0;
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * @param activity Activity that should get the task description update.
+     * @param title Title of the activity.
+     * @param icon Icon of the activity.
+     * @param color Color of the activity.
+     */
+    public static void setTaskDescription(Activity activity, String title, Bitmap icon, int color) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            ActivityManager.TaskDescription description =
+                    new ActivityManager.TaskDescription(title, icon, color);
+            activity.setTaskDescription(description);
+        }
+    }
+
+    /**
+     * @see android.view.Window#setStatusBarColor(int color).
+     * TODO(ianwen): remove this method after downstream rolling.
+     */
+    public static void setStatusBarColor(Activity activity, int statusBarColor) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            // If both system bars are black, we can remove these from our layout,
+            // removing or shrinking the SurfaceFlinger overlay required for our views.
+            Window window = activity.getWindow();
+            if (statusBarColor == Color.BLACK && window.getNavigationBarColor() == Color.BLACK) {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+            } else {
+                window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+            }
+            window.setStatusBarColor(statusBarColor);
+        }
+    }
+
+    /**
+     * @see android.view.Window#setStatusBarColor(int color).
+     */
+    public static void setStatusBarColor(Window window, int statusBarColor) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            // If both system bars are black, we can remove these from our layout,
+            // removing or shrinking the SurfaceFlinger overlay required for our views.
+            if (statusBarColor == Color.BLACK && window.getNavigationBarColor() == Color.BLACK) {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+            } else {
+                window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+            }
+            window.setStatusBarColor(statusBarColor);
+        }
+    }
+
+    /**
+     * @see android.content.res.Resources#getDrawable(int id).
+     */
+    @SuppressWarnings("deprecation")
+    public static Drawable getDrawable(Resources res, int id) throws NotFoundException {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            return res.getDrawable(id, null);
+        } else {
+            return res.getDrawable(id);
+        }
+    }
+
+    /**
+     * @see android.content.res.Resources#getDrawableForDensity(int id, int density).
+     */
+    @SuppressWarnings("deprecation")
+    public static Drawable getDrawableForDensity(Resources res, int id, int density) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            return res.getDrawableForDensity(id, density, null);
+        } else {
+            return res.getDrawableForDensity(id, density);
+        }
+    }
+
+    /**
+     * @see android.app.Activity#finishAfterTransition().
+     */
+    public static void finishAfterTransition(Activity activity) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            activity.finishAfterTransition();
+        } else {
+            activity.finish();
+        }
+    }
+
+    /**
+     * @see android.content.pm.PackageManager#getUserBadgedIcon(Drawable, android.os.UserHandle).
+     */
+    public static Drawable getUserBadgedIcon(Context context, int id) {
+        Drawable drawable = getDrawable(context.getResources(), id);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            PackageManager packageManager = context.getPackageManager();
+            drawable = packageManager.getUserBadgedIcon(drawable, Process.myUserHandle());
+        }
+        return drawable;
     }
 }

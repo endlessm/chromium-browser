@@ -11,13 +11,13 @@ config("sdk") {
 
   defines = [
     "_ATL_NO_OPENGL",
-    "_WIN32_WINNT=0x0602",
+    "_WIN32_WINNT=0x0603",
     "_WINDOWS",
     "CERT_CHAIN_PARA_HAS_EXTRA_FIELDS",
-    "NTDDI_VERSION=0x06020000",
+    "NTDDI_VERSION=0x06030000",
     "PSAPI_VERSION=1",
     "WIN32",
-    "WINVER=0x0602",
+    "WINVER=0x0603",
   ]
 
   # The Windows SDK include directories must be first. They both have a sal.h,
@@ -49,7 +49,7 @@ config("sdk") {
 
 # Linker flags for Windows SDK setup, this is applied only to EXEs and DLLs.
 config("sdk_link") {
-  if (cpu_arch == "x64") {
+  if (current_cpu == "x64") {
     ldflags = [ "/MACHINE:X64" ]
     lib_dirs = [
       "$windows_sdk_path\Lib\win8\um\x64",
@@ -87,7 +87,10 @@ config("sdk_link") {
     #     (40000040) with different attributes
     #   - warning LNK4078: multiple 'ATL' sections found with different
     #     attributes
-    ldflags += [ "/ignore:4254", "/ignore:4078" ]
+    ldflags += [
+      "/ignore:4254",
+      "/ignore:4078",
+    ]
   }
 }
 
@@ -157,9 +160,7 @@ config("unicode") {
 # to have a separate config for it. Remove this config from your target to
 # get the "bloaty and accomodating" version of windows.h.
 config("lean_and_mean") {
-  defines = [
-    "WIN32_LEAN_AND_MEAN",
-  ]
+  defines = [ "WIN32_LEAN_AND_MEAN" ]
 }
 
 # Nominmax --------------------------------------------------------------------
@@ -169,7 +170,5 @@ config("lean_and_mean") {
 # For such targets, this config can be removed.
 
 config("nominmax") {
-  defines = [
-    "NOMINMAX",
-  ]
+  defines = [ "NOMINMAX" ]
 }

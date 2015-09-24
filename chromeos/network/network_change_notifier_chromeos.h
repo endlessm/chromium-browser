@@ -8,8 +8,11 @@
 #include <string>
 
 #include "base/basictypes.h"
+#include "base/callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/memory/weak_ptr.h"
+#include "base/single_thread_task_runner.h"
 #include "chromeos/chromeos_export.h"
 #include "chromeos/dbus/power_manager_client.h"
 #include "chromeos/network/network_state_handler_observer.h"
@@ -23,7 +26,7 @@ class CHROMEOS_EXPORT NetworkChangeNotifierChromeos
       public chromeos::NetworkStateHandlerObserver {
  public:
   NetworkChangeNotifierChromeos();
-  virtual ~NetworkChangeNotifierChromeos();
+  ~NetworkChangeNotifierChromeos() override;
 
   // Starts observing changes from the network state handler.
   void Initialize();
@@ -32,14 +35,15 @@ class CHROMEOS_EXPORT NetworkChangeNotifierChromeos
   void Shutdown();
 
   // NetworkChangeNotifier overrides.
-  virtual net::NetworkChangeNotifier::ConnectionType
-      GetCurrentConnectionType() const override;
+  net::NetworkChangeNotifier::ConnectionType GetCurrentConnectionType()
+      const override;
+  double GetCurrentMaxBandwidth() const override;
 
   // PowerManagerClient::Observer overrides.
-  virtual void SuspendDone(const base::TimeDelta& sleep_duration) override;
+  void SuspendDone(const base::TimeDelta& sleep_duration) override;
 
   // NetworkStateHandlerObserver overrides.
-  virtual void DefaultNetworkChanged(
+  void DefaultNetworkChanged(
       const chromeos::NetworkState* default_network) override;
 
  private:
@@ -54,16 +58,29 @@ class CHROMEOS_EXPORT NetworkChangeNotifierChromeos
   // type change.
   // |ip_address_changed| is set to true if we must report an IP address change.
   // |dns_changed| is set to true if we must report a DNS config change.
+  // |max_bandwidth_changed| is set to true if we must report a max bandwidth
+  // change.
   void UpdateState(const chromeos::NetworkState* default_network,
                    bool* connection_type_changed,
                    bool* ip_address_changed,
-                   bool* dns_changed);
+                   bool* dns_changed,
+                   bool* max_bandwidth_changed);
+
+  // Proactively retrieves current network state from the network
+  // state handler and calls UpdateState with the result.
+  void PollForState();
 
   // Maps the shill network type and technology to its NetworkChangeNotifier
   // equivalent.
   static net::NetworkChangeNotifier::ConnectionType
       ConnectionTypeFromShill(const std::string& type,
                               const std::string& technology);
+
+  // Maps the shill network type and technology to its NetworkChangeNotifier
+  // subtype equivalent.
+  static net::NetworkChangeNotifier::ConnectionSubtype GetConnectionSubtype(
+      const std::string& type,
+      const std::string& technology);
 
   // Calculates parameters used for network change notifier online/offline
   // signals.
@@ -78,7 +95,18 @@ class CHROMEOS_EXPORT NetworkChangeNotifierChromeos
   // Service path for the current default network.
   std::string service_path_;
 
+  // The maximum theoretical bandwidth in megabits per second for the current
+  // default network.
+  double max_bandwidth_mbps_;
+
   scoped_ptr<DnsConfigService> dns_config_service_;
+
+  // Callback for refreshing network state.
+  base::Closure poll_callback_;
+
+  // For setting up network refresh polling callbacks.
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+  base::WeakPtrFactory<NetworkChangeNotifierChromeos> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(NetworkChangeNotifierChromeos);
 };

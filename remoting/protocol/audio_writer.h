@@ -12,7 +12,6 @@
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
 #include "remoting/protocol/audio_stub.h"
-#include "remoting/protocol/buffered_socket_writer.h"
 #include "remoting/protocol/channel_dispatcher_base.h"
 
 namespace net {
@@ -38,13 +37,8 @@ class AudioWriter : public ChannelDispatcherBase,
   void ProcessAudioPacket(scoped_ptr<AudioPacket> packet,
                           const base::Closure& done) override;
 
- protected:
-  void OnInitialized() override;
-
  private:
   AudioWriter();
-
-  BufferedSocketWriter buffered_writer_;
 
   DISALLOW_COPY_AND_ASSIGN(AudioWriter);
 };

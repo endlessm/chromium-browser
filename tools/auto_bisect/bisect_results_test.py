@@ -158,6 +158,58 @@ class BisectResultsTest(unittest.TestCase):
     self.assertEqual(revision_states[2], results.first_working_revision)
     self.assertEqual(revision_states[1], results.last_broken_revision)
 
+  def testCorrectlyFindsBreakingRangeNotInOrder(self):
+    revision_states = self.mock_bisect_state.mock_revision_states
+    revision_states[0].passed = 0
+    revision_states[1].passed = 1
+    revision_states[2].passed = 0
+    revision_states[3].passed = 1
+    revision_states[4].passed = 1
+
+    results = BisectResults(self.mock_bisect_state, self.mock_depot_registry,
+                            self.mock_opts, self.mock_warnings)
+    self.assertEqual(revision_states[1], results.first_working_revision)
+    self.assertEqual(revision_states[2], results.last_broken_revision)
+
+  def testCorrectlyFindsBreakingRangeIncompleteBisect(self):
+    revision_states = self.mock_bisect_state.mock_revision_states
+    revision_states[0].passed = 0
+    revision_states[1].passed = 0
+    revision_states[2].passed = '?'
+    revision_states[3].passed = 1
+    revision_states[4].passed = 1
+
+    results = BisectResults(self.mock_bisect_state, self.mock_depot_registry,
+                            self.mock_opts, self.mock_warnings)
+    self.assertEqual(revision_states[3], results.first_working_revision)
+    self.assertEqual(revision_states[1], results.last_broken_revision)
+
+  def testFindBreakingRangeAllPassed(self):
+    revision_states = self.mock_bisect_state.mock_revision_states
+    revision_states[0].passed = 1
+    revision_states[1].passed = 1
+    revision_states[2].passed = 1
+    revision_states[3].passed = 1
+    revision_states[4].passed = 1
+
+    results = BisectResults(self.mock_bisect_state, self.mock_depot_registry,
+                            self.mock_opts, self.mock_warnings)
+    self.assertEqual(revision_states[0], results.first_working_revision)
+    self.assertIsNone(results.last_broken_revision)
+
+  def testFindBreakingRangeNonePassed(self):
+    revision_states = self.mock_bisect_state.mock_revision_states
+    revision_states[0].passed = 0
+    revision_states[1].passed = 0
+    revision_states[2].passed = 0
+    revision_states[3].passed = 0
+    revision_states[4].passed = 0
+
+    results = BisectResults(self.mock_bisect_state, self.mock_depot_registry,
+                            self.mock_opts, self.mock_warnings)
+    self.assertIsNone(results.first_working_revision)
+    self.assertEqual(revision_states[4], results.last_broken_revision)
+
   def testCorrectlyComputesRegressionStatistics(self):
     revision_states = self.mock_bisect_state.mock_revision_states
     revision_states[0].passed = 0
@@ -183,30 +235,11 @@ class BisectResultsTest(unittest.TestCase):
     revision_states[2].depot = 'webkit'
 
     results = BisectResults(self.mock_bisect_state, self.mock_depot_registry,
-                          self.mock_opts, self.mock_warnings)
+                            self.mock_opts, self.mock_warnings)
 
     self.assertEqual(1, len(results.culprit_revisions))
     self.assertEqual(('b', {'test': 'b'}, 'chromium'),
                      results.culprit_revisions[0])
-
-  def testFindsOtherRegressions(self):
-    revision_states = self.mock_bisect_state.mock_revision_states
-    revision_states[0].passed = 0
-    revision_states[0].value = {'values': [100, 100, 100]}
-    revision_states[1].passed = 0
-    revision_states[1].value = {'values': [100, 100, 100]}
-    revision_states[2].passed = 1
-    revision_states[2].value = {'values': [10, 10, 10]}
-    revision_states[3].passed = 1
-    revision_states[3].value = {'values': [100, 100, 100]}
-    revision_states[4].passed = 1
-    revision_states[4].value = {'values': [60, 60, 60]}
-
-    results = BisectResults(self.mock_bisect_state, self.mock_depot_registry,
-                            self.mock_opts, self.mock_warnings)
-    expected_regressions = [[revision_states[2], revision_states[1], 99.9],
-                            [revision_states[4], revision_states[3], 80.0]]
-    self.assertEqual(expected_regressions, results.other_regressions)
 
   def testNoResultBasedWarningsForNormalState(self):
     results = BisectResults(self.mock_bisect_state, self.mock_depot_registry,
@@ -227,9 +260,9 @@ class BisectResultsTest(unittest.TestCase):
 
   def testWarningForTooLowConfidence(self):
     revision_states = self.mock_bisect_state.mock_revision_states
-    revision_states[2].value = {'values': [95, 100, 90]}
-    revision_states[3].value = {'values': [95, 100, 90]}
-    revision_states[4].value = {'values': [95, 100, 90]}
+    revision_states[2].value = {'values': [95, 90, 90]}
+    revision_states[3].value = {'values': [95, 90, 90]}
+    revision_states[4].value = {'values': [95, 90, 90]}
     results = BisectResults(self.mock_bisect_state, self.mock_depot_registry,
                             self.mock_opts, self.mock_warnings)
     self.assertGreater(results.confidence, 0)

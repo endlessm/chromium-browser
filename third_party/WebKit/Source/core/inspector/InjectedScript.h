@@ -33,21 +33,32 @@
 
 #include "bindings/core/v8/ScriptValue.h"
 #include "core/InspectorTypeBuilder.h"
-#include "core/inspector/InjectedScriptBase.h"
 #include "core/inspector/InjectedScriptManager.h"
-#include "core/inspector/ScriptArguments.h"
+#include "core/inspector/InjectedScriptNative.h"
 #include "wtf/Forward.h"
 #include "wtf/Vector.h"
 
 namespace blink {
 
-class InjectedScriptModule;
+class JSONValue;
 class Node;
+class ScriptFunctionCall;
 
-class InjectedScript final : public InjectedScriptBase {
+typedef String ErrorString;
+PassRefPtr<JSONValue> toJSONValue(const ScriptValue&);
+
+
+class InjectedScript final {
 public:
     InjectedScript();
-    virtual ~InjectedScript() { }
+    ~InjectedScript();
+
+    bool isEmpty() const { return m_injectedScriptObject.isEmpty(); }
+    ScriptState* scriptState() const
+    {
+        ASSERT(!isEmpty());
+        return m_injectedScriptObject.scriptState();
+    }
 
     void evaluate(
         ErrorString*,
@@ -85,10 +96,12 @@ public:
     void getStepInPositions(ErrorString*, const ScriptValue& callFrames, const String& callFrameId, RefPtr<TypeBuilder::Array<TypeBuilder::Debugger::Location> >& positions);
     void setVariableValue(ErrorString*, const ScriptValue& callFrames, const String* callFrameIdOpt, const String* functionObjectIdOpt, int scopeNumber, const String& variableName, const String& newValueStr);
     void getFunctionDetails(ErrorString*, const String& functionId, RefPtr<TypeBuilder::Debugger::FunctionDetails>* result);
+    void getGeneratorObjectDetails(ErrorString*, const String& functionId, RefPtr<TypeBuilder::Debugger::GeneratorObjectDetails>* result);
     void getCollectionEntries(ErrorString*, const String& objectId, RefPtr<TypeBuilder::Array<TypeBuilder::Debugger::CollectionEntry> >* result);
-    void getProperties(ErrorString*, const String& objectId, bool ownProperties, bool accessorPropertiesOnly, RefPtr<TypeBuilder::Array<TypeBuilder::Runtime::PropertyDescriptor> >* result);
-    void getInternalProperties(ErrorString*, const String& objectId, RefPtr<TypeBuilder::Array<TypeBuilder::Runtime::InternalPropertyDescriptor> >* result);
+    void getProperties(ErrorString*, const String& objectId, bool ownProperties, bool accessorPropertiesOnly, bool generatePreview, RefPtr<TypeBuilder::Array<TypeBuilder::Runtime::PropertyDescriptor>>* result, RefPtr<TypeBuilder::Debugger::ExceptionDetails>*);
+    void getInternalProperties(ErrorString*, const String& objectId, RefPtr<TypeBuilder::Array<TypeBuilder::Runtime::InternalPropertyDescriptor>>* result, RefPtr<TypeBuilder::Debugger::ExceptionDetails>*);
     Node* nodeForObjectId(const String& objectId);
+    EventTarget* eventTargetForObjectId(const String& objectId);
     void releaseObject(const String& objectId);
 
     PassRefPtr<TypeBuilder::Array<TypeBuilder::Debugger::CallFrame> > wrapCallFrames(const ScriptValue&, int asyncOrdinal);
@@ -98,19 +111,29 @@ public:
     PassRefPtr<TypeBuilder::Runtime::RemoteObject> wrapNode(Node*, const String& groupName);
     ScriptValue findObjectById(const String& objectId) const;
 
-    void inspectNode(Node*);
+    String objectIdToObjectGroupName(const String& objectId) const;
     void releaseObjectGroup(const String&);
 
-    void setLastEvaluationResult(const String& objectId);
+    void setCustomObjectFormatterEnabled(bool);
 
 private:
-    friend class InjectedScriptModule;
     friend InjectedScript InjectedScriptManager::injectedScriptFor(ScriptState*);
-    InjectedScript(ScriptValue, InspectedStateAccessCheck);
+    using InspectedStateAccessCheck = bool (*)(ScriptState*);
+    InjectedScript(ScriptValue, InspectedStateAccessCheck, PassRefPtr<InjectedScriptNative>);
 
     ScriptValue nodeAsScriptValue(Node*);
-};
+    void initialize(ScriptValue, InspectedStateAccessCheck);
+    bool canAccessInspectedWindow() const;
+    const ScriptValue& injectedScriptObject() const;
+    ScriptValue callFunctionWithEvalEnabled(ScriptFunctionCall&, bool& hadException) const;
+    void makeCall(ScriptFunctionCall&, RefPtr<JSONValue>* result);
+    void makeEvalCall(ErrorString*, ScriptFunctionCall&, RefPtr<TypeBuilder::Runtime::RemoteObject>* result, TypeBuilder::OptOutput<bool>* wasThrown, RefPtr<TypeBuilder::Debugger::ExceptionDetails>* = 0);
+    void makeCallWithExceptionDetails(ScriptFunctionCall&, RefPtr<JSONValue>* result, RefPtr<TypeBuilder::Debugger::ExceptionDetails>*);
 
+    ScriptValue m_injectedScriptObject;
+    InspectedStateAccessCheck m_inspectedStateAccessCheck;
+    RefPtr<InjectedScriptNative> m_native;
+};
 
 } // namespace blink
 

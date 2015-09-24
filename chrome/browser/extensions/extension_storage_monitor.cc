@@ -122,7 +122,7 @@ class StorageEventObserver
       int64 next_threshold,
       const base::TimeDelta& rate,
       bool should_uma) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+    DCHECK_CURRENTLY_ON(BrowserThread::IO);
     DCHECK(quota_manager.get());
 
     GURL origin = site_url.GetOrigin();
@@ -147,7 +147,7 @@ class StorageEventObserver
   // Updates the threshold for an extension already being monitored.
   void UpdateThresholdForExtension(const std::string& extension_id,
                                    int64 next_threshold) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+    DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
     for (OriginStorageStateMap::iterator it = origin_state_map_.begin();
          it != origin_state_map_.end();
@@ -161,7 +161,7 @@ class StorageEventObserver
 
   // Deregister as an observer for the extension's storage events.
   void StopObservingForExtension(const std::string& extension_id) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+    DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
     for (OriginStorageStateMap::iterator it = origin_state_map_.begin();
          it != origin_state_map_.end(); ) {
@@ -186,7 +186,7 @@ class StorageEventObserver
 
   // Stop observing all storage events. Called during shutdown.
   void StopObserving() {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+    DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
     for (OriginStorageStateMap::iterator it = origin_state_map_.begin();
          it != origin_state_map_.end(); ++it) {
@@ -365,26 +365,12 @@ void ExtensionStorageMonitor::OnExtensionUninstalled(
   RemoveNotificationForExtension(extension->id());
 }
 
-void ExtensionStorageMonitor::ExtensionUninstallAccepted() {
-  DCHECK(!uninstall_extension_id_.empty());
-
-  const Extension* extension = GetExtensionById(context_,
-                                                uninstall_extension_id_);
-  uninstall_extension_id_.clear();
-  if (!extension)
-    return;
-
-  ExtensionService* service =
-      ExtensionSystem::Get(context_)->extension_service();
-  DCHECK(service);
-  service->UninstallExtension(
-      extension->id(),
-      extensions::UNINSTALL_REASON_STORAGE_THRESHOLD_EXCEEDED,
-      base::Bind(&base::DoNothing),
-      NULL);
-}
-
-void ExtensionStorageMonitor::ExtensionUninstallCanceled() {
+void ExtensionStorageMonitor::OnExtensionUninstallDialogClosed(
+    bool did_start_uninstall,
+    const base::string16& error) {
+  // We may get a lagging OnExtensionUninstalledDialogClosed() call during
+  // testing, but did_start_uninstall should be false in this case.
+  DCHECK(!uninstall_extension_id_.empty() || !did_start_uninstall);
   uninstall_extension_id_.clear();
 }
 
@@ -401,7 +387,7 @@ void ExtensionStorageMonitor::OnStorageThresholdExceeded(
     const std::string& extension_id,
     int64 next_threshold,
     int64 current_usage) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   const Extension* extension = GetExtensionById(context_, extension_id);
   if (!extension)
@@ -621,7 +607,8 @@ void ExtensionStorageMonitor::ShowUninstallPrompt(
   }
 
   uninstall_extension_id_ = extension->id();
-  uninstall_dialog_->ConfirmUninstall(extension);
+  uninstall_dialog_->ConfirmUninstall(
+      extension, extensions::UNINSTALL_REASON_STORAGE_THRESHOLD_EXCEEDED);
 }
 
 int64 ExtensionStorageMonitor::GetNextStorageThreshold(

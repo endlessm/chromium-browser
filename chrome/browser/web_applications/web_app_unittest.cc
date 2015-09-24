@@ -5,6 +5,7 @@
 #include "chrome/browser/web_applications/web_app.h"
 
 #include "base/files/file_path.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/web_applications/web_app.h"
@@ -15,7 +16,7 @@
 
 #if defined(TOOLKIT_VIEWS)
 #include "chrome/browser/extensions/tab_helper.h"
-#include "chrome/browser/favicon/favicon_tab_helper.h"
+#include "chrome/browser/favicon/favicon_helper.h"
 #endif
 
 using content::RenderViewHostTester;
@@ -26,7 +27,7 @@ class WebApplicationTest : public ChromeRenderViewHostTestHarness {
     ChromeRenderViewHostTestHarness::SetUp();
 #if defined(TOOLKIT_VIEWS)
     extensions::TabHelper::CreateForWebContents(web_contents());
-    FaviconTabHelper::CreateForWebContents(web_contents());
+    favicon::CreateContentFaviconDriverForWebContents(web_contents());
 #endif
   }
 };
@@ -43,12 +44,12 @@ TEST_F(WebApplicationTest, GetShortcutInfoForTab) {
 
   RenderViewHostTester::TestOnMessageReceived(
       rvh(), ChromeViewHostMsg_DidGetWebApplicationInfo(0, web_app_info));
-  web_app::ShortcutInfo info;
-  web_app::GetShortcutInfoForTab(web_contents(), &info);
+  scoped_ptr<web_app::ShortcutInfo> info =
+      web_app::GetShortcutInfoForTab(web_contents());
 
-  EXPECT_EQ(title, info.title);
-  EXPECT_EQ(description, info.description);
-  EXPECT_EQ(url, info.url);
+  EXPECT_EQ(title, info->title);
+  EXPECT_EQ(description, info->description);
+  EXPECT_EQ(url, info->url);
 }
 #endif
 

@@ -21,18 +21,11 @@ class SimpleThumbnailCrop : public ThumbnailingAlgorithm {
   ClipResult GetCanvasCopyInfo(const gfx::Size& source_size,
                                ui::ScaleFactor scale_factor,
                                gfx::Rect* clipping_rect,
-                               gfx::Size* target_size) const override;
+                               gfx::Size* copy_size) const override;
 
   void ProcessBitmap(scoped_refptr<ThumbnailingContext> context,
                      const ConsumerCallback& callback,
                      const SkBitmap& bitmap) override;
-
-  // Calculates how "boring" a thumbnail is. The boring score is the
-  // 0,1 ranged percentage of pixels that are the most common
-  // luma. Higher boring scores indicate that a higher percentage of a
-  // bitmap are all the same brightness.
-  // Statically exposed for use by tests only.
-  static double CalculateBoringScore(const SkBitmap& bitmap);
 
   // Gets the clipped bitmap from |bitmap| per the aspect ratio of the
   // desired width and the desired height. For instance, if the input
@@ -44,6 +37,8 @@ class SimpleThumbnailCrop : public ThumbnailingAlgorithm {
                                    int desired_width,
                                    int desired_height,
                                    thumbnails::ClipResult* clip_result);
+  // Returns the size copied from the backing store. |thumbnail_size| is in
+  // DIP, returned size in pixels.
   static gfx::Size GetCopySizeForThumbnail(ui::ScaleFactor scale_factor,
                                            const gfx::Size& thumbnail_size);
   static gfx::Rect GetClippingRect(const gfx::Size& source_size,
@@ -64,11 +59,12 @@ class SimpleThumbnailCrop : public ThumbnailingAlgorithm {
                                   const gfx::Size& desired_size,
                                   ClipResult* clip_result);
 
+  // The target size of the captured thumbnails, in DIPs.
   const gfx::Size target_size_;
 
   DISALLOW_COPY_AND_ASSIGN(SimpleThumbnailCrop);
 };
 
-}
+}  // namespace thumbnails
 
 #endif  // CHROME_BROWSER_THUMBNAILS_SIMPLE_THUMBNAIL_CROP_H_

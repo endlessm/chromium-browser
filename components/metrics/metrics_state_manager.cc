@@ -6,7 +6,7 @@
 
 #include "base/command_line.h"
 #include "base/guid.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/prefs/pref_registry_simple.h"
 #include "base/prefs/pref_service.h"
@@ -124,14 +124,9 @@ void MetricsStateManager::ForceClientIdCreation() {
   client_id_ = base::GenerateGUID();
   local_state_->SetString(prefs::kMetricsClientID, client_id_);
 
-  if (local_state_->GetString(prefs::kMetricsOldClientID).empty()) {
-    // Record the timestamp of when the user opted in to UMA.
-    local_state_->SetInt64(prefs::kMetricsReportingEnabledTimestamp,
-                           base::Time::Now().ToTimeT());
-  } else {
-    UMA_HISTOGRAM_BOOLEAN("UMA.ClientIdMigrated", true);
-  }
-  local_state_->ClearPref(prefs::kMetricsOldClientID);
+  // Record the timestamp of when the user opted in to UMA.
+  local_state_->SetInt64(prefs::kMetricsReportingEnabledTimestamp,
+                         base::Time::Now().ToTimeT());
 
   BackUpCurrentClientInfo();
 }
@@ -161,17 +156,14 @@ MetricsStateManager::CreateEntropyProvider() {
   UMA_HISTOGRAM_SPARSE_SLOWLY("UMA.LowEntropySourceValue",
                               low_entropy_source_value);
   if (IsMetricsReportingEnabled()) {
-    if (entropy_source_returned_ == ENTROPY_SOURCE_NONE)
-      entropy_source_returned_ = ENTROPY_SOURCE_HIGH;
+    UpdateEntropySourceReturnedValue(ENTROPY_SOURCE_HIGH);
     const std::string high_entropy_source =
         client_id_ + base::IntToString(low_entropy_source_value);
     return scoped_ptr<const base::FieldTrial::EntropyProvider>(
         new SHA1EntropyProvider(high_entropy_source));
   }
 
-  if (entropy_source_returned_ == ENTROPY_SOURCE_NONE)
-    entropy_source_returned_ = ENTROPY_SOURCE_LOW;
-
+  UpdateEntropySourceReturnedValue(ENTROPY_SOURCE_LOW);
 #if defined(OS_ANDROID) || defined(OS_IOS)
   return scoped_ptr<const base::FieldTrial::EntropyProvider>(
       new CachingPermutedEntropyProvider(local_state_,
@@ -211,17 +203,9 @@ void MetricsStateManager::RegisterPrefs(PrefRegistrySimple* registry) {
 
   ClonedInstallDetector::RegisterPrefs(registry);
   CachingPermutedEntropyProvider::RegisterPrefs(registry);
-
-  // TODO(asvitkine): Remove these once a couple of releases have passed.
-  // http://crbug.com/357704
-  registry->RegisterStringPref(prefs::kMetricsOldClientID, std::string());
-  registry->RegisterIntegerPref(prefs::kMetricsOldLowEntropySource, 0);
 }
 
 void MetricsStateManager::BackUpCurrentClientInfo() {
-  // TODO(gayane): Eliminate use of ScopedAllowIO. crbug.com/413783
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
-
   ClientInfo client_info;
   client_info.client_id = client_id_;
   client_info.installation_date = local_state_->GetInt64(prefs::kInstallDate);
@@ -270,7 +254,7 @@ int MetricsStateManager::GetLowEntropySource() {
   if (low_entropy_source_ != kLowEntropySourceNotSet)
     return low_entropy_source_;
 
-  const CommandLine* command_line(CommandLine::ForCurrentProcess());
+  const base::CommandLine* command_line(base::CommandLine::ForCurrentProcess());
   // Only try to load the value from prefs if the user did not request a
   // reset.
   // Otherwise, skip to generating a new value.
@@ -289,10 +273,19 @@ int MetricsStateManager::GetLowEntropySource() {
   low_entropy_source_ = GenerateLowEntropySource();
   local_state_->SetInteger(prefs::kMetricsLowEntropySource,
                            low_entropy_source_);
-  local_state_->ClearPref(prefs::kMetricsOldLowEntropySource);
   CachingPermutedEntropyProvider::ClearCache(local_state_);
 
   return low_entropy_source_;
+}
+
+void MetricsStateManager::UpdateEntropySourceReturnedValue(
+    EntropySourceType type) {
+  if (entropy_source_returned_ != ENTROPY_SOURCE_NONE)
+    return;
+
+  entropy_source_returned_ = type;
+  UMA_HISTOGRAM_ENUMERATION("UMA.EntropySourceType", type,
+                            ENTROPY_SOURCE_ENUM_SIZE);
 }
 
 void MetricsStateManager::ResetMetricsIDsIfNecessary() {

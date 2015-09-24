@@ -15,7 +15,7 @@
 
 class TestingAccess {
 public:
-    static int NumLayers(GrLayerCache* cache) {
+    static unsigned NumLayers(GrLayerCache* cache) {
         return cache->numLayers();
     }
     static void Purge(GrLayerCache* cache, uint32_t pictureID) {
@@ -24,24 +24,32 @@ public:
     static int Uses(GrCachedLayer* layer) {
         return layer->uses();
     }
+    static GrCachedLayer* Find(GrLayerCache* cache, uint32_t pictureID,
+                               const SkMatrix& initialMat, 
+                               const unsigned* key, int keySize) {
+        return cache->findLayer(pictureID, initialMat, key, keySize);
+    }
 };
 
 // Add several layers to the cache
 static void create_layers(skiatest::Reporter* reporter,
                           GrLayerCache* cache,
                           const SkPicture& picture,
-                          int numToAdd,
-                          int idOffset) {
+                          unsigned numToAdd,
+                          unsigned idOffset) {
 
-    for (int i = 0; i < numToAdd; ++i) {
+    for (unsigned i = 0; i < numToAdd; ++i) {
+        unsigned indices[1] = { idOffset+i+1 };
         GrCachedLayer* layer = cache->findLayerOrCreate(picture.uniqueID(), 
                                                         idOffset+i+1, idOffset+i+2, 
                                                         SkIRect::MakeEmpty(),
+                                                        SkIRect::MakeEmpty(),
                                                         SkMatrix::I(),
+                                                        indices, 1,
                                                         NULL);
         REPORTER_ASSERT(reporter, layer);
-        GrCachedLayer* temp = cache->findLayer(picture.uniqueID(), idOffset + i + 1,
-                                               SkIRect::MakeEmpty(), SkMatrix::I());
+        GrCachedLayer* temp = TestingAccess::Find(cache, picture.uniqueID(), SkMatrix::I(), 
+                                                  indices, 1);
         REPORTER_ASSERT(reporter, temp == layer);
 
         REPORTER_ASSERT(reporter, TestingAccess::NumLayers(cache) == idOffset + i + 1);
@@ -53,8 +61,6 @@ static void create_layers(skiatest::Reporter* reporter,
         REPORTER_ASSERT(reporter, NULL == layer->paint());
         REPORTER_ASSERT(reporter, !layer->isAtlased());
     }
-
-    cache->trackPicture(&picture);
 }
 
 static void lock_layer(skiatest::Reporter* reporter,
@@ -89,7 +95,7 @@ static void lock_layer(skiatest::Reporter* reporter,
 // locking & unlocking textures).
 // TODO: need to add checks on VRAM usage!
 DEF_GPUTEST(GpuLayerCache, reporter, factory) {
-    static const int kInitialNumLayers = 5;
+    static const unsigned kInitialNumLayers = 5;
 
     for (int i= 0; i < GrContextFactory::kGLContextTypeCnt; ++i) {
         GrContextFactory::GLContextType glCtxType = (GrContextFactory::GLContextType) i;
@@ -105,16 +111,20 @@ DEF_GPUTEST(GpuLayerCache, reporter, factory) {
         }
 
         SkPictureRecorder recorder;
-        recorder.beginRecording(1, 1);
+        SkCanvas* c = recorder.beginRecording(1, 1);
+            // Draw something, anything, to prevent an empty-picture optimization,
+            // which is a singleton and never purged.
+            c->drawRect(SkRect::MakeWH(1,1), SkPaint());
         SkAutoTUnref<const SkPicture> picture(recorder.endRecording());
 
         GrLayerCache cache(context);
 
         create_layers(reporter, &cache, *picture, kInitialNumLayers, 0);
 
-        for (int i = 0; i < kInitialNumLayers; ++i) {
-            GrCachedLayer* layer = cache.findLayer(picture->uniqueID(), i+1, 
-                                                   SkIRect::MakeEmpty(), SkMatrix::I());
+        for (unsigned i = 0; i < kInitialNumLayers; ++i) {
+            unsigned indices[1] = { i + 1 };
+            GrCachedLayer* layer = TestingAccess::Find(&cache, picture->uniqueID(), SkMatrix::I(),
+                                                       indices, 1);
             REPORTER_ASSERT(reporter, layer);
 
             lock_layer(reporter, &cache, layer);
@@ -130,16 +140,20 @@ DEF_GPUTEST(GpuLayerCache, reporter, factory) {
         }
 
         // Unlock the textures
-        for (int i = 0; i < kInitialNumLayers; ++i) {
-            GrCachedLayer* layer = cache.findLayer(picture->uniqueID(), i+1, 
-                                                   SkIRect::MakeEmpty(), SkMatrix::I());
+        for (unsigned i = 0; i < kInitialNumLayers; ++i) {
+            unsigned indices[1] = { i+1 };
+
+            GrCachedLayer* layer = TestingAccess::Find(&cache, picture->uniqueID(), SkMatrix::I(),
+                                                       indices, 1);
             REPORTER_ASSERT(reporter, layer);
             cache.removeUse(layer);
         }
 
-        for (int i = 0; i < kInitialNumLayers; ++i) {
-            GrCachedLayer* layer = cache.findLayer(picture->uniqueID(), i+1, 
-                                                   SkIRect::MakeEmpty(), SkMatrix::I());
+        for (unsigned i = 0; i < kInitialNumLayers; ++i) {
+            unsigned indices[1] = { i+1 };
+
+            GrCachedLayer* layer = TestingAccess::Find(&cache, picture->uniqueID(), SkMatrix::I(),
+                                                       indices, 1);
             REPORTER_ASSERT(reporter, layer);
 
             // All the layers should be unlocked
@@ -163,21 +177,24 @@ DEF_GPUTEST(GpuLayerCache, reporter, factory) {
         }
 
         {
+            unsigned indices[1] = { kInitialNumLayers+1 };
+
             // Add an additional layer. Since all the layers are unlocked this 
             // will force out the first atlased layer
             create_layers(reporter, &cache, *picture, 1, kInitialNumLayers);
-            GrCachedLayer* layer = cache.findLayer(picture->uniqueID(), 
-                                                   kInitialNumLayers+1, 
-                                                   SkIRect::MakeEmpty(), SkMatrix::I());
+            GrCachedLayer* layer = TestingAccess::Find(&cache, picture->uniqueID(), SkMatrix::I(),
+                                                       indices, 1);
             REPORTER_ASSERT(reporter, layer);
 
             lock_layer(reporter, &cache, layer);
             cache.removeUse(layer);
         }
 
-        for (int i = 0; i < kInitialNumLayers+1; ++i) {
-            GrCachedLayer* layer = cache.findLayer(picture->uniqueID(), i + 1,
-                                                   SkIRect::MakeEmpty(), SkMatrix::I());
+        for (unsigned i = 0; i < kInitialNumLayers+1; ++i) {
+            unsigned indices[1] = { i+1 };
+
+            GrCachedLayer* layer = TestingAccess::Find(&cache, picture->uniqueID(), SkMatrix::I(),
+                                                       indices, 1);
 #if GR_CACHE_HOISTED_LAYERS
             // 3 old layers plus the new one should be in the atlas.
             if (1 == i || 2 == i || 3 == i || 5 == i) {

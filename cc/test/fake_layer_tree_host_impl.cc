@@ -10,39 +10,45 @@
 namespace cc {
 
 FakeLayerTreeHostImpl::FakeLayerTreeHostImpl(Proxy* proxy,
-                                             SharedBitmapManager* manager)
+                                             SharedBitmapManager* manager,
+                                             TaskGraphRunner* task_graph_runner)
     : LayerTreeHostImpl(LayerTreeSettings(),
                         &client_,
                         proxy,
                         &stats_instrumentation_,
                         manager,
                         NULL,
+                        task_graph_runner,
                         0) {
   // Explicitly clear all debug settings.
   SetDebugState(LayerTreeDebugState());
   SetViewportSize(gfx::Size(100, 100));
 
-  // Avoid using Now() as the frame time in unit tests.
+  // Start an impl frame so tests have a valid frame_time to work with.
   base::TimeTicks time_ticks = base::TimeTicks::FromInternalValue(1);
-  SetCurrentBeginFrameArgs(CreateBeginFrameArgsForTesting(time_ticks));
+  WillBeginImplFrame(
+      CreateBeginFrameArgsForTesting(BEGINFRAME_FROM_HERE, time_ticks));
 }
 
 FakeLayerTreeHostImpl::FakeLayerTreeHostImpl(const LayerTreeSettings& settings,
                                              Proxy* proxy,
-                                             SharedBitmapManager* manager)
+                                             SharedBitmapManager* manager,
+                                             TaskGraphRunner* task_graph_runner)
     : LayerTreeHostImpl(settings,
                         &client_,
                         proxy,
                         &stats_instrumentation_,
                         manager,
                         NULL,
+                        task_graph_runner,
                         0) {
   // Explicitly clear all debug settings.
   SetDebugState(LayerTreeDebugState());
 
-  // Avoid using Now() as the frame time in unit tests.
+  // Start an impl frame so tests have a valid frame_time to work with.
   base::TimeTicks time_ticks = base::TimeTicks::FromInternalValue(1);
-  SetCurrentBeginFrameArgs(CreateBeginFrameArgsForTesting(time_ticks));
+  WillBeginImplFrame(
+      CreateBeginFrameArgsForTesting(BEGINFRAME_FROM_HERE, time_ticks));
 }
 
 FakeLayerTreeHostImpl::~FakeLayerTreeHostImpl() {}
@@ -50,19 +56,19 @@ FakeLayerTreeHostImpl::~FakeLayerTreeHostImpl() {}
 void FakeLayerTreeHostImpl::CreatePendingTree() {
   LayerTreeHostImpl::CreatePendingTree();
   float arbitrary_large_page_scale = 100000.f;
-  pending_tree()->SetPageScaleFactorAndLimits(
+  pending_tree()->PushPageScaleFromMainThread(
       1.f, 1.f / arbitrary_large_page_scale, arbitrary_large_page_scale);
 }
 
 BeginFrameArgs FakeLayerTreeHostImpl::CurrentBeginFrameArgs() const {
-  if (!current_begin_frame_args_.IsValid())
-    return LayerTreeHostImpl::CurrentBeginFrameArgs();
-  return current_begin_frame_args_;
+  return current_begin_frame_tracker_.DangerousMethodCurrentOrLast();
 }
 
-void FakeLayerTreeHostImpl::SetCurrentBeginFrameArgs(
-    const BeginFrameArgs& args) {
-  current_begin_frame_args_ = args;
+void FakeLayerTreeHostImpl::AdvanceToNextFrame(base::TimeDelta advance_by) {
+  BeginFrameArgs next_begin_frame_args = current_begin_frame_tracker_.Current();
+  next_begin_frame_args.frame_time += advance_by;
+  DidFinishImplFrame();
+  WillBeginImplFrame(next_begin_frame_args);
 }
 
 int FakeLayerTreeHostImpl::RecursiveUpdateNumChildren(LayerImpl* layer) {
@@ -84,7 +90,8 @@ void FakeLayerTreeHostImpl::UpdateNumChildrenAndDrawPropertiesForActiveTree() {
 void FakeLayerTreeHostImpl::UpdateNumChildrenAndDrawProperties(
     LayerTreeImpl* layerTree) {
   RecursiveUpdateNumChildren(layerTree->root_layer());
-  layerTree->UpdateDrawProperties();
+  bool update_lcd_text = false;
+  layerTree->UpdateDrawProperties(update_lcd_text);
 }
 
 }  // namespace cc

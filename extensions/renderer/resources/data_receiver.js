@@ -22,7 +22,7 @@ define('data_receiver', [
     /**
      * The promise that will be resolved or rejected when this receive completes
      * or fails, respectively.
-     * @type {!Promise.<ArrayBuffer>}
+     * @type {!Promise<ArrayBuffer>}
      * @private
      */
     this.promise_ = new Promise(function(resolve, reject) {
@@ -44,7 +44,7 @@ define('data_receiver', [
   /**
    * Returns the promise that will be resolved when this operation completes or
    * rejected if an error occurs.
-   * @return {Promise.<ArrayBuffer>} A promise to the data received.
+   * @return {Promise<ArrayBuffer>} A promise to the data received.
    */
   PendingReceive.prototype.getPromise = function() {
     return this.promise_;
@@ -86,15 +86,16 @@ define('data_receiver', [
 
   /**
    * A DataReceiver that receives data from a DataSource.
-   * @param {!MojoHandle} handle The handle to the DataSource.
+   * @param {!MojoHandle} source The handle to the DataSource.
+   * @param {!MojoHandle} client The handle to the DataSourceClient.
    * @param {number} bufferSize How large a buffer to use.
    * @param {number} fatalErrorValue The receive error value to report in the
    *     event of a fatal error.
    * @constructor
    * @alias module:data_receiver.DataReceiver
    */
-  function DataReceiver(handle, bufferSize, fatalErrorValue) {
-    this.init_(handle, fatalErrorValue, 0, null, [], false);
+  function DataReceiver(source, client, bufferSize, fatalErrorValue) {
+    this.init_(source, client, fatalErrorValue, 0, null, [], false);
     this.source_.init(bufferSize);
   }
 
@@ -109,6 +110,7 @@ define('data_receiver', [
       return;
     this.shutDown_ = true;
     this.router_.close();
+    this.clientRouter_.close();
     if (this.receive_) {
       this.receive_.dispatchFatalError(this.fatalErrorValue_);
       this.receive_ = null;
@@ -117,23 +119,21 @@ define('data_receiver', [
 
   /**
    * Initialize this DataReceiver.
-   * @param {!MojoHandle} source A handle to the DataSource
+   * @param {!MojoHandle} source A handle to the DataSource.
+   * @param {!MojoHandle} client A handle to the DataSourceClient.
    * @param {number} fatalErrorValue The error to dispatch in the event of a
    *     fatal error.
    * @param {number} bytesReceived The number of bytes already received.
    * @param {PendingReceiveError} pendingError The pending error if there is
    *     one.
-   * @param {!Array.<!ArrayBuffer>} pendingData Data received from the
+   * @param {!Array<!ArrayBuffer>} pendingData Data received from the
    *     DataSource not yet requested by the client.
    * @param {boolean} paused Whether the DataSource is paused.
    * @private
    */
-  DataReceiver.prototype.init_ = function(source,
-                                          fatalErrorValue,
-                                          bytesReceived,
-                                          pendingError,
-                                          pendingData,
-                                          paused) {
+  DataReceiver.prototype.init_ = function(source, client, fatalErrorValue,
+                                          bytesReceived, pendingError,
+                                          pendingData, paused) {
     /**
      * The [Router]{@link module:mojo/public/js/router.Router} for the
      * connection to the DataSource.
@@ -141,11 +141,18 @@ define('data_receiver', [
      */
     this.router_ = new router.Router(source);
     /**
+     * The [Router]{@link module:mojo/public/js/router.Router} for the
+     * connection to the DataSource.
+     * @private
+     */
+    this.clientRouter_ = new router.Router(client);
+    /**
      * The connection to the DataSource.
      * @private
      */
     this.source_ = new dataStream.DataSource.proxyClass(this.router_);
-    this.router_.setIncomingReceiver(this);
+    this.client_ = new dataStream.DataSourceClient.stubClass(this);
+    this.clientRouter_.setIncomingReceiver(this.client_);
     /**
      * The current receive operation.
      * @type {module:data_receiver~PendingReceive}
@@ -188,7 +195,7 @@ define('data_receiver', [
   /**
    * Serializes this DataReceiver.
    * This will cancel a receive if one is in progress.
-   * @return {!Promise.<SerializedDataReceiver>} A promise that will resolve to
+   * @return {!Promise<SerializedDataReceiver>} A promise that will resolve to
    *     the serialization of this DataReceiver. If this DataReceiver has shut
    *     down, the promise will resolve to null.
    */
@@ -202,6 +209,7 @@ define('data_receiver', [
     }
     var serialized = new serialization.SerializedDataReceiver();
     serialized.source = this.router_.connector_.handle_;
+    serialized.client = this.clientRouter_.connector_.handle_;
     serialized.fatal_error_value = this.fatalErrorValue_;
     serialized.paused = this.paused_;
     serialized.pending_error = this.pendingError_;
@@ -211,6 +219,8 @@ define('data_receiver', [
     });
     this.router_.connector_.handle_ = null;
     this.router_.close();
+    this.clientRouter_.connector_.handle_ = null;
+    this.clientRouter_.close();
     this.shutDown_ = true;
     return Promise.resolve(serialized);
   };
@@ -242,17 +252,14 @@ define('data_receiver', [
       buffer.set(data);
       pendingData.push(buffer.buffer);
     });
-    this.init_(serialized.source,
-               serialized.fatal_error_value,
-               serialized.bytes_received,
-               serialized.pending_error,
-               pendingData,
-               serialized.paused);
+    this.init_(serialized.source, serialized.client,
+               serialized.fatal_error_value, serialized.bytes_received,
+               serialized.pending_error, pendingData, serialized.paused);
   };
 
   /**
    * Receive data from the DataSource.
-   * @return {Promise.<ArrayBuffer>} A promise to the received data. If an error
+   * @return {Promise<ArrayBuffer>} A promise to the received data. If an error
    *     occurs, the promise will reject with an Error object with a property
    *     error containing the error code.
    * @throws Will throw if this has encountered a fatal error or another receive

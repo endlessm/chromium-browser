@@ -15,8 +15,8 @@
 #include "base/files/file_path.h"
 #include "base/i18n/case_conversion.h"
 #include "base/i18n/string_search.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/app_list/app_list_item.h"
 #include "ui/app_list/app_list_item_list.h"
@@ -144,7 +144,7 @@ class WindowTypeShelfItem : public app_list::AppListItem {
 WindowTypeShelfItem::WindowTypeShelfItem(const std::string& id, Type type)
     : app_list::AppListItem(id), type_(type) {
   std::string title(GetTitle(type));
-  SetIcon(GetIcon(type), false);
+  SetIcon(GetIcon(type));
   SetName(title);
 }
 
@@ -192,7 +192,7 @@ class ExampleSearchResult : public app_list::SearchResult {
   WindowTypeShelfItem::Type type() const { return type_; }
 
   // app_list::SearchResult:
-  scoped_ptr<SearchResult> Duplicate() override {
+  scoped_ptr<SearchResult> Duplicate() const override {
     return scoped_ptr<SearchResult>();
   }
 
@@ -215,7 +215,7 @@ class ExampleAppListViewDelegate : public app_list::AppListViewDelegate {
     for (int i = 0; i < static_cast<int>(WindowTypeShelfItem::LAST_TYPE); ++i) {
       WindowTypeShelfItem::Type type =
           static_cast<WindowTypeShelfItem::Type>(i);
-      std::string id = base::StringPrintf("%d", i);
+      std::string id = base::IntToString(i);
       scoped_ptr<WindowTypeShelfItem> shelf_item(
           new WindowTypeShelfItem(id, type));
       model_->AddItem(shelf_item.Pass());
@@ -348,6 +348,10 @@ class ExampleAppListViewDelegate : public app_list::AppListViewDelegate {
       const gfx::Size& size) override {
     return std::vector<views::View*>();
   }
+
+  void CustomLauncherPageAnimationChanged(double progress) override {}
+
+  void CustomLauncherPagePopSubpage() override {}
 
   bool IsSpeechRecognitionEnabled() override { return false; }
 

@@ -12,7 +12,6 @@
 
 #include "base/containers/hash_tables.h"
 #include "base/logging.h"
-#include "base/port.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "net/tools/balsa/balsa_enums.h"
@@ -771,6 +770,11 @@ void BalsaHeaders::DumpToString(std::string* str) const {
     return;
   }
 
+  DumpHeadersToString(str);
+}
+
+void BalsaHeaders::DumpHeadersToString(std::string* str) const {
+  const base::StringPiece firstline = first_line();
   // If the header is complete, then just dump them with the logical key value
   // pair.
   str->reserve(str->size() + GetSizeForWriteBuffer());

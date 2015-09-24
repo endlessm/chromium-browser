@@ -6,6 +6,7 @@
 
 #include "base/basictypes.h"
 #include "base/bind.h"
+#include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/memory_mapped_file.h"
 #include "base/logging.h"
@@ -13,20 +14,25 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/path_service.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/thread.h"
 #include "base/time/time.h"
 #include "chromecast/media/base/decrypt_context.h"
 #include "chromecast/media/cma/backend/audio_pipeline_device.h"
 #include "chromecast/media/cma/backend/media_clock_device.h"
 #include "chromecast/media/cma/backend/media_pipeline_device.h"
+#include "chromecast/media/cma/backend/media_pipeline_device_factory.h"
 #include "chromecast/media/cma/backend/media_pipeline_device_params.h"
 #include "chromecast/media/cma/backend/video_pipeline_device.h"
 #include "chromecast/media/cma/base/decoder_buffer_adapter.h"
 #include "chromecast/media/cma/base/decoder_buffer_base.h"
+#include "chromecast/media/cma/base/decoder_config_adapter.h"
 #include "chromecast/media/cma/test/frame_segmenter_for_test.h"
 #include "chromecast/media/cma/test/media_component_device_feeder_for_test.h"
+#include "chromecast/public/cast_media_shlib.h"
+#include "chromecast/public/media/decoder_config.h"
 #include "media/base/audio_decoder_config.h"
 #include "media/base/buffers.h"
 #include "media/base/decoder_buffer.h"
@@ -67,7 +73,16 @@ class AudioVideoPipelineDeviceTest : public testing::Test {
   };
 
   AudioVideoPipelineDeviceTest();
-  virtual ~AudioVideoPipelineDeviceTest();
+  ~AudioVideoPipelineDeviceTest() override;
+
+  void SetUp() override {
+    CastMediaShlib::Initialize(
+        base::CommandLine::ForCurrentProcess()->argv());
+  }
+
+  void TearDown() override {
+    CastMediaShlib::Finalize();
+  }
 
   void ConfigureForFile(std::string filename);
   void ConfigureForAudioOnly(std::string filename);
@@ -154,7 +169,9 @@ void AudioVideoPipelineDeviceTest::LoadAudioStream(std::string filename) {
   AudioPipelineDevice* audio_pipeline_device =
       media_pipeline_device_->GetAudioPipelineDevice();
 
-  bool success = audio_pipeline_device->SetConfig(demux_result.audio_config);
+  bool success = audio_pipeline_device->SetConfig(
+      DecoderConfigAdapter::ToCastAudioConfig(kPrimary,
+                                              demux_result.audio_config));
   ASSERT_TRUE(success);
 
   VLOG(2) << "Got " << frames.size() << " audio input frames";
@@ -174,7 +191,7 @@ void AudioVideoPipelineDeviceTest::LoadAudioStream(std::string filename) {
 void AudioVideoPipelineDeviceTest::LoadVideoStream(std::string filename,
                                                    bool raw_h264) {
   BufferList frames;
-  ::media::VideoDecoderConfig video_config;
+  VideoConfig video_config;
 
   if (raw_h264) {
     base::FilePath file_path = GetTestDataFilePath(filename);
@@ -183,26 +200,18 @@ void AudioVideoPipelineDeviceTest::LoadVideoStream(std::string filename,
         << "Couldn't open stream file: " << file_path.MaybeAsASCII();
     frames = H264SegmenterForTest(video_stream.data(), video_stream.length());
 
-    // Use arbitraty sizes.
-    gfx::Size coded_size(320, 240);
-    gfx::Rect visible_rect(0, 0, 320, 240);
-    gfx::Size natural_size(320, 240);
-
-    // TODO(kjoswiak): Either pull data from stream or make caller specify value
-    video_config = ::media::VideoDecoderConfig(
-        ::media::kCodecH264,
-        ::media::H264PROFILE_MAIN,
-        ::media::VideoFrame::I420,
-        coded_size,
-        visible_rect,
-        natural_size,
-        NULL, 0, false);
+    // TODO(erickung): Either pull data from stream or make caller specify value
+    video_config.codec = kCodecH264;
+    video_config.profile = kH264Main;
+    video_config.additional_config = NULL;
+    video_config.is_encrypted = false;
   } else {
     base::FilePath file_path = GetTestDataFilePath(filename);
     DemuxResult demux_result = FFmpegDemuxForTest(file_path,
                                                   /*audio*/ false);
     frames = demux_result.frames;
-    video_config = demux_result.video_config;
+    video_config = DecoderConfigAdapter::ToCastVideoConfig(
+        kPrimary, demux_result.video_config);
   }
 
   VideoPipelineDevice* video_pipeline_device =
@@ -230,19 +239,17 @@ void AudioVideoPipelineDeviceTest::Start() {
   pause_time_ = base::TimeDelta();
   pause_pattern_idx_ = 0;
 
-  for (int i = 0; i < component_device_feeders_.size(); i++) {
-    base::MessageLoopProxy::current()->PostTask(
-        FROM_HERE,
-        base::Bind(&MediaComponentDeviceFeederForTest::Feed,
-                   base::Unretained(component_device_feeders_[i])));
+  for (size_t i = 0; i < component_device_feeders_.size(); i++) {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(&MediaComponentDeviceFeederForTest::Feed,
+                              base::Unretained(component_device_feeders_[i])));
   }
 
   media_clock_device_->SetState(MediaClockDevice::kStateRunning);
 
-  base::MessageLoopProxy::current()->PostTask(
-      FROM_HERE,
-      base::Bind(&AudioVideoPipelineDeviceTest::MonitorLoop,
-                 base::Unretained(this)));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&AudioVideoPipelineDeviceTest::MonitorLoop,
+                            base::Unretained(this)));
 }
 
 void AudioVideoPipelineDeviceTest::MonitorLoop() {
@@ -259,19 +266,17 @@ void AudioVideoPipelineDeviceTest::MonitorLoop() {
         pause_pattern_[pause_pattern_idx_].length.InMilliseconds() << "ms";
 
     // Wait for pause finish
-    base::MessageLoopProxy::current()->PostDelayedTask(
-        FROM_HERE,
-        base::Bind(&AudioVideoPipelineDeviceTest::OnPauseCompleted,
-                   base::Unretained(this)),
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE, base::Bind(&AudioVideoPipelineDeviceTest::OnPauseCompleted,
+                              base::Unretained(this)),
         pause_pattern_[pause_pattern_idx_].length);
     return;
   }
 
   // Check state again in a little while
-  base::MessageLoopProxy::current()->PostDelayedTask(
-      FROM_HERE,
-      base::Bind(&AudioVideoPipelineDeviceTest::MonitorLoop,
-                 base::Unretained(this)),
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, base::Bind(&AudioVideoPipelineDeviceTest::MonitorLoop,
+                            base::Unretained(this)),
       kMonitorLoopDelay);
 }
 
@@ -318,7 +323,9 @@ void AudioVideoPipelineDeviceTest::OnEos(
 void AudioVideoPipelineDeviceTest::Initialize() {
   // Create the media device.
   MediaPipelineDeviceParams params;
-  media_pipeline_device_.reset(CreateMediaPipelineDevice(params).release());
+  scoped_ptr<MediaPipelineDeviceFactory> device_factory =
+      GetMediaPipelineDeviceFactory(params);
+  media_pipeline_device_.reset(new MediaPipelineDevice(device_factory.Pass()));
   media_clock_device_ = media_pipeline_device_->GetMediaClockDevice();
 
   // Clock initialization and configuration.

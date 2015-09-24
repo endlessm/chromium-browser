@@ -7,25 +7,12 @@
     '../../build/win_precompile.gypi',
   ],
   'variables': {
-    'variables': {
-      'conditions': [
-        ['sysroot!=""', {
-          'pkg-config': '<(chroot_cmd) ../../build/linux/pkg-config-wrapper "<(sysroot)" "<(target_arch)" "<(system_libdir)"',
-        }, {
-          'pkg-config': 'pkg-config'
-        }],
-      ],
-    },
-
-    'pkg-config': '<(pkg-config)',
-
     'conditions': [
-      ['OS=="linux" and (buildtype!="Official" or chromeos==1) and embedded==0', {
+      ['OS=="linux" and chromeos==1', {
         # Since version 1.31.0, pangoft2 which we depend on pulls in harfbuzz
         # anyways. However, we want to have control of the version of harfbuzz
-        # we use, so don't use system harfbuzz for official builds, unless we
-        # are building for chrome os, where we have the system harfbuzz under
-        # control as well.
+        # we use, so don't use system harfbuzz unless we are building for
+        # chrome os, where we have the system harfbuzz under control.
         'use_system_harfbuzz%': '<!(python ../../build/check_return_value.py <(pkg-config) --atleast-version=1.31.0 pangoft2)',
       }, {
         'use_system_harfbuzz': 0,
@@ -73,6 +60,8 @@
             'src/hb-open-file-private.hh',
             'src/hb-open-type-private.hh',
             'src/hb-ot.h',
+            'src/hb-ot-font.cc',
+            'src/hb-ot-font.h',
             'src/hb-ot-head-table.hh',
             'src/hb-ot-hhea-table.hh',
             'src/hb-ot-hmtx-table.hh',
@@ -91,6 +80,7 @@
             'src/hb-ot-shape.cc',
             'src/hb-ot-shape-complex-arabic.cc',
             'src/hb-ot-shape-complex-arabic-fallback.hh',
+            'src/hb-ot-shape-complex-arabic-private.hh',
             'src/hb-ot-shape-complex-arabic-table.hh',
             'src/hb-ot-shape-complex-default.cc',
             'src/hb-ot-shape-complex-hangul.cc',
@@ -102,10 +92,12 @@
             'src/hb-ot-shape-complex-myanmar.cc',
             'src/hb-ot-shape-complex-myanmar-machine.hh',
             'src/hb-ot-shape-complex-private.hh',
-            'src/hb-ot-shape-complex-sea.cc',
-            'src/hb-ot-shape-complex-sea-machine.hh',
             'src/hb-ot-shape-complex-thai.cc',
             'src/hb-ot-shape-complex-tibetan.cc',
+            'src/hb-ot-shape-complex-use.cc',
+            'src/hb-ot-shape-complex-use-machine.hh',
+            'src/hb-ot-shape-complex-use-private.hh',
+            'src/hb-ot-shape-complex-use-table.cc',
             'src/hb-ot-shape-fallback.cc',
             'src/hb-ot-shape-fallback-private.hh',
             'src/hb-ot-shape.h',
@@ -160,6 +152,30 @@
               'sources': [
                 'src/hb-coretext.cc',
                 'src/hb-coretext.h',
+              ],
+            }],
+            # When without -fvisibility=hidden for pango to use the harfbuzz
+            # in the tree, all symbols pango needs must be included, or
+            # pango uses mixed versions of harfbuzz and leads to crash.
+            # See crbug.com/462689.
+            ['use_pango==1 and OS=="linux" and chromeos==0 and buildtype!="Official" and target_arch!="arm"', {
+              'cflags!': ['-fvisibility=hidden'],
+              'sources': [
+                'src/hb-ft.cc',
+                'src/hb-ft.h',
+                'src/hb-glib.cc',
+                'src/hb-glib.h',
+              ],
+              'link_settings': {
+                'ldflags': [
+                  # These symbols are referenced from libpangoft2, which will be
+                  # dynamically linked later.
+                  '-Wl,-uhb_ft_face_create_cached,-uhb_glib_get_unicode_funcs',
+                ],
+              },
+              'dependencies': [
+                '../../build/linux/system.gyp:freetype2',
+                '../../build/linux/system.gyp:glib',
               ],
             }],
           ],

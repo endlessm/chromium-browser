@@ -24,16 +24,12 @@
 
 #include "config.h"
 
-#if ENABLE(OPENTYPE_VERTICAL)
-
 #include "platform/SharedBuffer.h"
 #include "platform/fonts/opentype/OpenTypeTypes.h"
 #include "wtf/RefPtr.h"
 #include <gtest/gtest.h>
 
-using namespace blink;
-
-namespace {
+namespace blink {
 
 struct TestTable : OpenType::TableBase {
     OpenType::Fixed version;
@@ -81,6 +77,4 @@ TEST(OpenTypeVerticalDataTest, ValidateOffsetTest)
     EXPECT_FALSE(table->validateOffset<uint16_t>(*buffer, sizeof(TestTable) - 1));
 }
 
-} // namespace
-
-#endif // ENABLE(OPENTYPE_VERTICAL)
+} // namespace blink

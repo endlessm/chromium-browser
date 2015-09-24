@@ -135,8 +135,14 @@ TEST_F(StackTraceTest, DebugPrintBacktrace) {
 
 #if defined(OS_POSIX) && !defined(OS_ANDROID)
 #if !defined(OS_IOS)
+static char* newArray() {
+  // Clang warns about the mismatched new[]/delete if they occur in the same
+  // function.
+  return new char[10];
+}
+
 MULTIPROCESS_TEST_MAIN(MismatchedMallocChildProcess) {
-  char* pointer = new char[10];
+  char* pointer = newArray();
   delete pointer;
   return 2;
 }
@@ -146,9 +152,11 @@ MULTIPROCESS_TEST_MAIN(MismatchedMallocChildProcess) {
 // and e.g. mismatched new[]/delete would cause a hang because
 // of re-entering malloc.
 TEST_F(StackTraceTest, AsyncSignalUnsafeSignalHandlerHang) {
-  ProcessHandle child = SpawnChild("MismatchedMallocChildProcess");
-  ASSERT_NE(kNullProcessHandle, child);
-  ASSERT_TRUE(WaitForSingleProcess(child, TestTimeouts::action_timeout()));
+  Process child = SpawnChild("MismatchedMallocChildProcess");
+  ASSERT_TRUE(child.IsValid());
+  int exit_code;
+  ASSERT_TRUE(child.WaitForExitWithTimeout(TestTimeouts::action_timeout(),
+                                           &exit_code));
 }
 #endif  // !defined(OS_IOS)
 

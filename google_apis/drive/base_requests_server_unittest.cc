@@ -33,16 +33,16 @@ class BaseRequestsServerTest : public testing::Test {
   BaseRequestsServerTest() {
   }
 
-  virtual void SetUp() override {
+  void SetUp() override {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
 
     request_context_getter_ = new net::TestURLRequestContextGetter(
-        message_loop_.message_loop_proxy());
+        message_loop_.task_runner());
 
     request_sender_.reset(new RequestSender(
         new DummyAuthService,
         request_context_getter_.get(),
-        message_loop_.message_loop_proxy(),
+        message_loop_.task_runner(),
         kTestUserAgent));
 
     ASSERT_TRUE(test_server_.InitializeAndWaitUntilReady());
@@ -70,7 +70,7 @@ class BaseRequestsServerTest : public testing::Test {
 };
 
 TEST_F(BaseRequestsServerTest, DownloadFileRequest_ValidFile) {
-  GDataErrorCode result_code = GDATA_OTHER_ERROR;
+  DriveApiErrorCode result_code = DRIVE_OTHER_ERROR;
   base::FilePath temp_file;
   {
     base::RunLoop run_loop;
@@ -84,7 +84,7 @@ TEST_F(BaseRequestsServerTest, DownloadFileRequest_ValidFile) {
         test_server_.GetURL("/files/drive/testfile.txt"),
         GetTestCachedFilePath(
             base::FilePath::FromUTF8Unsafe("cached_testfile.txt")));
-    request_sender_->StartRequestWithRetry(request);
+    request_sender_->StartRequestWithAuthRetry(request);
     run_loop.Run();
   }
 
@@ -104,7 +104,7 @@ TEST_F(BaseRequestsServerTest, DownloadFileRequest_ValidFile) {
 }
 
 TEST_F(BaseRequestsServerTest, DownloadFileRequest_NonExistentFile) {
-  GDataErrorCode result_code = GDATA_OTHER_ERROR;
+  DriveApiErrorCode result_code = DRIVE_OTHER_ERROR;
   base::FilePath temp_file;
   {
     base::RunLoop run_loop;
@@ -118,7 +118,7 @@ TEST_F(BaseRequestsServerTest, DownloadFileRequest_NonExistentFile) {
         test_server_.GetURL("/files/gdata/no-such-file.txt"),
         GetTestCachedFilePath(
             base::FilePath::FromUTF8Unsafe("cache_no-such-file.txt")));
-    request_sender_->StartRequestWithRetry(request);
+    request_sender_->StartRequestWithAuthRetry(request);
     run_loop.Run();
   }
   EXPECT_EQ(HTTP_NOT_FOUND, result_code);

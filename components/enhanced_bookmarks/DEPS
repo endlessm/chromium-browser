@@ -3,18 +3,11 @@ include_rules = [
   "+components/keyed_service",
   "+components/pref_registry",
   "+components/signin",
+  "+components/sync_driver",
   "+google_apis/gaia",
   "+jni",
   "+net",
   "+sql",
+  "+third_party/skia",
   "+ui",
 ]
-
-specific_include_rules = {
-  "image_store_unittest\.cc": [
-    "+third_party/skia"
-  ],
-  "test_image_store\.cc": [
-    "+third_party/skia"
-  ],
-}

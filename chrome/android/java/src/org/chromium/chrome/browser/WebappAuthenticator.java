@@ -4,6 +4,7 @@
 
 package org.chromium.chrome.browser;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.os.AsyncTask;
 import android.util.Log;
@@ -128,8 +129,8 @@ public class WebappAuthenticator {
         byte[] keyBytes = key.getEncoded();
         FileOutputStream output = null;
         if (MAC_KEY_BYTE_COUNT != keyBytes.length) {
-            Log.e(TAG, "writeKeyToFile got key encoded bytes length " + keyBytes.length +
-                       "; expected " + MAC_KEY_BYTE_COUNT);
+            Log.e(TAG, "writeKeyToFile got key encoded bytes length " + keyBytes.length
+                    + "; expected " + MAC_KEY_BYTE_COUNT);
             return false;
         }
 
@@ -189,6 +190,9 @@ public class WebappAuthenticator {
             }
 
             sMacKeyGenerator = new FutureTask<SecretKey>(new Callable<SecretKey>() {
+                // SecureRandomInitializer addresses the bug in SecureRandom that "TrulyRandom"
+                // warns about, so this lint warning can safely be suppressed.
+                @SuppressLint("TrulyRandom")
                 @Override
                 public SecretKey call() throws Exception {
                     KeyGenerator generator = KeyGenerator.getInstance(MAC_ALGORITHM_NAME);

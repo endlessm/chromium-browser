@@ -18,8 +18,8 @@
 #include <iterator>
 
 #include "webrtc/modules/rtp_rtcp/interface/rtp_rtcp_defines.h"
+#include "webrtc/modules/rtp_rtcp/source/byte_io.h"
 #include "webrtc/modules/rtp_rtcp/source/forward_error_correction_internal.h"
-#include "webrtc/modules/rtp_rtcp/source/rtp_utility.h"
 #include "webrtc/system_wrappers/interface/logging.h"
 
 namespace webrtc {
@@ -55,7 +55,7 @@ int32_t ForwardErrorCorrection::Packet::Release() {
 // TODO(holmer): Refactor into a proper class.
 class ProtectedPacket : public ForwardErrorCorrection::SortablePacket {
  public:
-  scoped_refptr<ForwardErrorCorrection::Packet> pkt;
+  rtc::scoped_refptr<ForwardErrorCorrection::Packet> pkt;
 };
 
 typedef std::list<ProtectedPacket*> ProtectedPacketList;
@@ -68,7 +68,7 @@ class FecPacket : public ForwardErrorCorrection::SortablePacket {
  public:
   ProtectedPacketList protected_pkt_list;
   uint32_t ssrc;  // SSRC of the current frame.
-  scoped_refptr<ForwardErrorCorrection::Packet> pkt;
+  rtc::scoped_refptr<ForwardErrorCorrection::Packet> pkt;
 };
 
 bool ForwardErrorCorrection::SortablePacket::LessThan(
@@ -230,7 +230,7 @@ void ForwardErrorCorrection::GenerateFecBitStrings(
         Packet* media_packet = *media_list_it;
 
         // Assign network-ordered media payload length.
-        RtpUtility::AssignUWord16ToBuffer(
+        ByteWriter<uint16_t>::WriteBigEndian(
             media_payload_length, media_packet->length - kRtpHeaderSize);
 
         fec_packet_length = media_packet->length + fec_rtp_offset;
@@ -432,7 +432,7 @@ void ForwardErrorCorrection::GenerateFecUlpHeaders(
     // -- ULP header --
     // Copy the payload size to the protection length field.
     // (We protect the entire packet.)
-    RtpUtility::AssignUWord16ToBuffer(
+    ByteWriter<uint16_t>::WriteBigEndian(
         &generated_fec_packets_[i].data[10],
         generated_fec_packets_[i].length - kFecHeaderSize - ulp_header_size);
 
@@ -537,7 +537,7 @@ void ForwardErrorCorrection::InsertFECPacket(
   fec_packet->ssrc = rx_packet->ssrc;
 
   const uint16_t seq_num_base =
-      RtpUtility::BufferToUWord16(&fec_packet->pkt->data[2]);
+      ByteReader<uint16_t>::ReadBigEndian(&fec_packet->pkt->data[2]);
   const uint16_t maskSizeBytes =
       (fec_packet->pkt->data[0] & 0x40) ? kMaskSizeLBitSet
                                         : kMaskSizeLBitClear;  // L bit set?
@@ -634,23 +634,35 @@ void ForwardErrorCorrection::InsertPackets(
   DiscardOldPackets(recovered_packet_list);
 }
 
-void ForwardErrorCorrection::InitRecovery(const FecPacket* fec_packet,
+bool ForwardErrorCorrection::InitRecovery(const FecPacket* fec_packet,
                                           RecoveredPacket* recovered) {
   // This is the first packet which we try to recover with.
   const uint16_t ulp_header_size =
       fec_packet->pkt->data[0] & 0x40 ? kUlpHeaderSizeLBitSet
                                       : kUlpHeaderSizeLBitClear;  // L bit set?
+  if (fec_packet->pkt->length <
+      static_cast<size_t>(kFecHeaderSize + ulp_header_size)) {
+    LOG(LS_WARNING)
+        << "Truncated FEC packet doesn't contain room for ULP header.";
+    return false;
+  }
   recovered->pkt = new Packet;
   memset(recovered->pkt->data, 0, IP_PACKET_SIZE);
   recovered->returned = false;
   recovered->was_recovered = true;
-  uint8_t protection_length[2];
-  // Copy the protection length from the ULP header.
-  memcpy(protection_length, &fec_packet->pkt->data[10], 2);
+  uint16_t protection_length =
+      ByteReader<uint16_t>::ReadBigEndian(&fec_packet->pkt->data[10]);
+  if (protection_length >
+      std::min(
+          sizeof(recovered->pkt->data) - kRtpHeaderSize,
+          sizeof(fec_packet->pkt->data) - kFecHeaderSize - ulp_header_size)) {
+    LOG(LS_WARNING) << "Incorrect FEC protection length, dropping.";
+    return false;
+  }
   // Copy FEC payload, skipping the ULP header.
   memcpy(&recovered->pkt->data[kRtpHeaderSize],
          &fec_packet->pkt->data[kFecHeaderSize + ulp_header_size],
-         RtpUtility::BufferToUWord16(protection_length));
+         protection_length);
   // Copy the length recovery field.
   memcpy(recovered->length_recovery, &fec_packet->pkt->data[8], 2);
   // Copy the first 2 bytes of the FEC header.
@@ -658,20 +670,27 @@ void ForwardErrorCorrection::InitRecovery(const FecPacket* fec_packet,
   // Copy the 5th to 8th bytes of the FEC header.
   memcpy(&recovered->pkt->data[4], &fec_packet->pkt->data[4], 4);
   // Set the SSRC field.
-  RtpUtility::AssignUWord32ToBuffer(&recovered->pkt->data[8], fec_packet->ssrc);
+  ByteWriter<uint32_t>::WriteBigEndian(&recovered->pkt->data[8],
+                                       fec_packet->ssrc);
+  return true;
 }
 
-void ForwardErrorCorrection::FinishRecovery(RecoveredPacket* recovered) {
+bool ForwardErrorCorrection::FinishRecovery(RecoveredPacket* recovered) {
   // Set the RTP version to 2.
   recovered->pkt->data[0] |= 0x80;  // Set the 1st bit.
   recovered->pkt->data[0] &= 0xbf;  // Clear the 2nd bit.
 
   // Set the SN field.
-  RtpUtility::AssignUWord16ToBuffer(&recovered->pkt->data[2],
-                                    recovered->seq_num);
+  ByteWriter<uint16_t>::WriteBigEndian(&recovered->pkt->data[2],
+                                       recovered->seq_num);
   // Recover the packet length.
   recovered->pkt->length =
-      RtpUtility::BufferToUWord16(recovered->length_recovery) + kRtpHeaderSize;
+      ByteReader<uint16_t>::ReadBigEndian(recovered->length_recovery) +
+      kRtpHeaderSize;
+  if (recovered->pkt->length > sizeof(recovered->pkt->data) - kRtpHeaderSize)
+    return false;
+
+  return true;
 }
 
 void ForwardErrorCorrection::XorPackets(const Packet* src_packet,
@@ -686,21 +705,23 @@ void ForwardErrorCorrection::XorPackets(const Packet* src_packet,
   }
   // XOR with the network-ordered payload size.
   uint8_t media_payload_length[2];
-  RtpUtility::AssignUWord16ToBuffer(media_payload_length,
-                                    src_packet->length - kRtpHeaderSize);
+  ByteWriter<uint16_t>::WriteBigEndian(media_payload_length,
+                                       src_packet->length - kRtpHeaderSize);
   dst_packet->length_recovery[0] ^= media_payload_length[0];
   dst_packet->length_recovery[1] ^= media_payload_length[1];
 
   // XOR with RTP payload.
   // TODO(marpan/ajm): Are we doing more XORs than required here?
-  for (int32_t i = kRtpHeaderSize; i < src_packet->length; ++i) {
+  for (size_t i = kRtpHeaderSize; i < src_packet->length; ++i) {
     dst_packet->pkt->data[i] ^= src_packet->data[i];
   }
 }
 
-void ForwardErrorCorrection::RecoverPacket(
-    const FecPacket* fec_packet, RecoveredPacket* rec_packet_to_insert) {
-  InitRecovery(fec_packet, rec_packet_to_insert);
+bool ForwardErrorCorrection::RecoverPacket(
+    const FecPacket* fec_packet,
+    RecoveredPacket* rec_packet_to_insert) {
+  if (!InitRecovery(fec_packet, rec_packet_to_insert))
+    return false;
   ProtectedPacketList::const_iterator protected_it =
       fec_packet->protected_pkt_list.begin();
   while (protected_it != fec_packet->protected_pkt_list.end()) {
@@ -712,7 +733,9 @@ void ForwardErrorCorrection::RecoverPacket(
     }
     ++protected_it;
   }
-  FinishRecovery(rec_packet_to_insert);
+  if (!FinishRecovery(rec_packet_to_insert))
+    return false;
+  return true;
 }
 
 void ForwardErrorCorrection::AttemptRecover(
@@ -727,7 +750,13 @@ void ForwardErrorCorrection::AttemptRecover(
       // Recovery possible.
       RecoveredPacket* packet_to_insert = new RecoveredPacket;
       packet_to_insert->pkt = NULL;
-      RecoverPacket(*fec_packet_list_it, packet_to_insert);
+      if (!RecoverPacket(*fec_packet_list_it, packet_to_insert)) {
+        // Can't recover using this packet, drop it.
+        DiscardFECPacket(*fec_packet_list_it);
+        fec_packet_list_it = fec_packet_list_.erase(fec_packet_list_it);
+        delete packet_to_insert;
+        continue;
+      }
 
       // Add recovered packet to the list of recovered packets and update any
       // FEC packets covering this packet with a pointer to the data.
@@ -816,7 +845,7 @@ int32_t ForwardErrorCorrection::DecodeFEC(
   return 0;
 }
 
-uint16_t ForwardErrorCorrection::PacketOverhead() {
+size_t ForwardErrorCorrection::PacketOverhead() {
   return kFecHeaderSize + kUlpHeaderSizeLBitSet;
 }
 }  // namespace webrtc

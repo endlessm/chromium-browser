@@ -16,7 +16,8 @@
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_checker.h"
-#include "net/socket/tcp_listen_socket.h"
+#include "net/base/address_list.h"
+#include "net/test/embedded_test_server/tcp_listen_socket.h"
 #include "url/gurl.h"
 
 namespace base {
@@ -26,6 +27,7 @@ class FilePath;
 namespace net {
 namespace test_server {
 
+class EmbeddedTestServerConnectionListener;
 class HttpConnection;
 class HttpResponse;
 struct HttpRequest;
@@ -71,7 +73,7 @@ class HttpListenSocket : public TCPListenSocket {
 //   if (absolute_url.path() != "/test")
 //     return scoped_ptr<HttpResponse>();
 //
-//   scoped_ptr<HttpResponse> http_response(new HttpResponse());
+//   scoped_ptr<BasicHttpResponse> http_response(new BasicHttpResponse());
 //   http_response->set_code(test_server::SUCCESS);
 //   http_response->set_content("hello");
 //   http_response->set_content_type("text/plain");
@@ -108,6 +110,11 @@ class EmbeddedTestServer : public StreamListenSocket::Delegate {
   EmbeddedTestServer();
   ~EmbeddedTestServer() override;
 
+  // Sets a connection listener, that would be notified when various connection
+  // events happen. May only be called before the server is started. Caller
+  // maintains ownership of the listener.
+  void SetConnectionListener(EmbeddedTestServerConnectionListener* listener);
+
   // Initializes and waits until the server is ready to accept requests.
   bool InitializeAndWaitUntilReady() WARN_UNUSED_RESULT;
 
@@ -135,8 +142,11 @@ class EmbeddedTestServer : public StreamListenSocket::Delegate {
   GURL GetURL(const std::string& hostname,
               const std::string& relative_url) const;
 
+  // Returns the address list needed to connect to the server.
+  bool GetAddressList(net::AddressList* address_list) const WARN_UNUSED_RESULT;
+
   // Returns the port number used by the server.
-  int port() const { return port_; }
+  uint16 port() const { return port_; }
 
   // Registers request handler which serves files from |directory|.
   // For instance, a request to "/foo.html" is served by "foo.html" under
@@ -188,7 +198,8 @@ class EmbeddedTestServer : public StreamListenSocket::Delegate {
   scoped_ptr<base::Thread> io_thread_;
 
   scoped_ptr<HttpListenSocket> listen_socket_;
-  int port_;
+  EmbeddedTestServerConnectionListener* connection_listener_;
+  uint16 port_;
   GURL base_url_;
 
   // Owns the HttpConnection objects.
@@ -206,7 +217,7 @@ class EmbeddedTestServer : public StreamListenSocket::Delegate {
   DISALLOW_COPY_AND_ASSIGN(EmbeddedTestServer);
 };
 
-}  // namespace test_servers
+}  // namespace test_server
 }  // namespace net
 
 #endif  // NET_TEST_EMBEDDED_TEST_SERVER_EMBEDDED_TEST_SERVER_H_

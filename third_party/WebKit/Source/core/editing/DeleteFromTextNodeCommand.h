@@ -39,13 +39,13 @@ public:
         return adoptRefWillBeNoop(new DeleteFromTextNodeCommand(node, offset, count));
     }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     DeleteFromTextNodeCommand(PassRefPtrWillBeRawPtr<Text>, unsigned offset, unsigned count);
 
-    virtual void doApply() override;
-    virtual void doUnapply() override;
+    void doApply() override;
+    void doUnapply() override;
 
     RefPtrWillBeMember<Text> m_node;
     unsigned m_offset;

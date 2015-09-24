@@ -49,7 +49,7 @@ class DeviceInfoSetTraits {
 };
 
 typedef base::win::GenericScopedHandle<DeviceInfoSetTraits,
-                                       base::win::VerifierTraits>
+                                       base::win::DummyVerifierTraits>
     ScopedDeviceInfoSetHandle;
 
 bool StringToBluetoothAddress(const std::string& value,
@@ -597,6 +597,9 @@ DevicePropertyValue::DevicePropertyValue(DEVPROPTYPE property_type,
       value_size_(value_size) {
 }
 
+DevicePropertyValue::~DevicePropertyValue() {
+}
+
 uint32_t DevicePropertyValue::AsUint32() const {
   CHECK_EQ(property_type_, static_cast<DEVPROPTYPE>(DEVPROP_TYPE_UINT32));
   CHECK_EQ(value_size_, sizeof(uint32_t));
@@ -646,7 +649,7 @@ bool EnumerateKnownBluetoothLowEnergyDevices(
       case kError:
         return false;
       case kOk:
-        devices->push_back(device_info.release());
+        devices->push_back(device_info.Pass());
     }
   }
 }

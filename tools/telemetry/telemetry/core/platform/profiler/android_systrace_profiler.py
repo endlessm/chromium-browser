@@ -7,10 +7,11 @@ import StringIO
 import subprocess
 import zipfile
 
-from telemetry.core import util
-from telemetry.core.backends.chrome import android_browser_finder
 from telemetry.core.platform import profiler
-from telemetry.core.platform import tracing_options
+from telemetry.core import util
+from telemetry.internal.backends.chrome import android_browser_finder
+from telemetry.timeline import trace_data as trace_data_module
+from telemetry.timeline import tracing_options
 
 _SYSTRACE_CATEGORIES = [
     'gfx',
@@ -23,7 +24,8 @@ _SYSTRACE_CATEGORIES = [
 class AndroidSystraceProfiler(profiler.Profiler):
   """Collects a Systrace on Android."""
 
-  def __init__(self, browser_backend, platform_backend, output_path, state):
+  def __init__(self, browser_backend, platform_backend, output_path, state,
+               device=None):
     super(AndroidSystraceProfiler, self).__init__(
         browser_backend, platform_backend, output_path, state)
     assert self._browser_backend.supports_tracing
@@ -36,13 +38,15 @@ class AndroidSystraceProfiler(profiler.Profiler):
     options = tracing_options.TracingOptions()
     options.enable_chrome_trace = True
     self._browser_backend.StartTracing(options, timeout=10)
-    self._profiler = subprocess.Popen(
-        ['python', os.path.join(util.GetChromiumSrcDir(), 'tools',
-                                'profile_chrome.py'),
-         '--categories', '', '--continuous', '--output',
-         self._systrace_output_path, '--json', '--systrace',
-         ','.join(_SYSTRACE_CATEGORIES)],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    command = ['python', os.path.join(util.GetChromiumSrcDir(), 'tools',
+                                      'profile_chrome.py'),
+               '--categories', '', '--continuous', '--output',
+               self._systrace_output_path, '--json', '--systrace',
+               ','.join(_SYSTRACE_CATEGORIES)]
+    if device:
+      command.extend(['--device', device])
+    self._profiler = subprocess.Popen(command, stdin=subprocess.PIPE,
+                                      stdout=subprocess.PIPE)
 
   @classmethod
   def name(cls):
@@ -56,7 +60,9 @@ class AndroidSystraceProfiler(profiler.Profiler):
 
   def CollectProfile(self):
     self._profiler.communicate(input='\n')
-    trace_result = self._browser_backend.StopTracing()
+    trace_result_builder = trace_data_module.TraceDataBuilder()
+    self._browser_backend.StopTracing(trace_result_builder)
+    trace_result = trace_result_builder.AsData()
 
     trace_file = StringIO.StringIO()
     trace_result.Serialize(trace_file)

@@ -1,11 +1,12 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
+#include "../../core/include/fxcrt/fx_xml.h"
+#include "../../public/fpdf_ext.h"
 #include "../include/fsdk_define.h"
-#include "../include/fpdf_ext.h"
 
 #define  FPDFSDK_UNSUPPORT_CALL 100
 
@@ -28,7 +29,7 @@ void CFSDK_UnsupportInfo_Adapter::ReportError(int nErrorType)
 	}
 }
 
-void FreeUnsupportInfo(FX_LPVOID pData)
+void FreeUnsupportInfo(void* pData)
 {
 	CFSDK_UnsupportInfo_Adapter * pAdapter = (CFSDK_UnsupportInfo_Adapter *)pData;
 	delete pAdapter;
@@ -42,7 +43,7 @@ FX_BOOL FPDF_UnSupportError(int nError)
 		return FALSE;
 	pAdapter->ReportError(nError);
 	return TRUE;
-}	
+}
 
 DLLEXPORT FPDF_BOOL STDCALL FSDK_SetUnSpObjProcessHandler(UNSUPPORT_INFO* unsp_info)
 {
@@ -64,7 +65,7 @@ void CheckUnSupportAnnot(CPDF_Document * pDoc, CPDF_Annot* pPDFAnnot)
 	}
 	else if(cbSubType.Compare("Screen") ==0)
 	{
-		CPDF_Dictionary* pAnnotDict = pPDFAnnot->m_pAnnotDict;
+		CPDF_Dictionary* pAnnotDict = pPDFAnnot->GetAnnotDict();
 		CFX_ByteString cbString;
 		if(pAnnotDict->KeyExist("IT"))
 			cbString = pAnnotDict->GetString("IT");
@@ -89,27 +90,27 @@ void CheckUnSupportAnnot(CPDF_Document * pDoc, CPDF_Annot* pPDFAnnot)
 	}
 	else if(cbSubType.Compare("Widget") ==0)
 	{
-		CPDF_Dictionary* pAnnotDict = pPDFAnnot->m_pAnnotDict;
+		CPDF_Dictionary* pAnnotDict = pPDFAnnot->GetAnnotDict();
 		CFX_ByteString cbString;
 		if(pAnnotDict->KeyExist("FT"))
 		{
 			cbString = pAnnotDict->GetString("FT");
-		}	
+		}
 		if(cbString.Compare("Sig") == 0)
 		{
 			FPDF_UnSupportError(FPDF_UNSP_ANNOT_SIG);
 		}
 	}
-	
+
 }
 
 FX_BOOL CheckSharedForm(CXML_Element * pElement, CFX_ByteString cbName)
 {
 	int count = pElement->CountAttrs();
 	int i=0;
-	for (i = 0; i < count; i++) 
+	for (i = 0; i < count; i++)
 	{
-		CFX_ByteString space, name; 
+		CFX_ByteString space, name;
 		CFX_WideString value;
 		pElement->GetAttrByIndex(i, space, name, value);
 		if (space == FX_BSTRC("xmlns") && name == FX_BSTRC("adhocwf") && value ==  L"http://ns.adobe.com/AcrobatAdhocWorkflow/1.0/")
@@ -159,7 +160,7 @@ void CheckUnSupportError(CPDF_Document * pDoc, FX_DWORD err_code)
 	if(!pDoc)
 		return ;
 
-	// Portfolios and Packages 
+	// Portfolios and Packages
 	CPDF_Dictionary * pRootDict = pDoc->GetRoot();
 	if(pRootDict)
 	{
@@ -204,42 +205,41 @@ void CheckUnSupportError(CPDF_Document * pDoc, FX_DWORD err_code)
 	if(pElement)
 		CheckSharedForm(pElement, "workflowType");
 
-	
 	// XFA Forms
-	CPDF_InterForm * pInterForm = FX_NEW CPDF_InterForm(pDoc,FALSE);
-	if (pInterForm)
+	CPDF_InterForm * pInterForm = new CPDF_InterForm(pDoc,FALSE);
+	if (pInterForm->HasXFAForm())
 	{
-		if(pInterForm->HasXFAForm())
-		{
-			FPDF_UnSupportError(FPDF_UNSP_DOC_XFAFORM);
-		}
-		delete pInterForm;
+		FPDF_UnSupportError(FPDF_UNSP_DOC_XFAFORM);
 	}
+	delete pInterForm;
 }
 
 DLLEXPORT int FPDFDoc_GetPageMode(FPDF_DOCUMENT document)
 {
-	if (!document) return PAGEMODE_UNKNOWN;
-	CPDF_Dictionary *pRoot = ((CPDF_Document*)document)->GetRoot();
-	if (!pRoot)
-		return PAGEMODE_UNKNOWN;
-	CPDF_Object* pName = pRoot->GetElement("PageMode");
-	if (!pName)
-		return PAGEMODE_USENONE;
-	CFX_ByteString strPageMode = pName->GetString();
-	
-	if (strPageMode.IsEmpty()||strPageMode.EqualNoCase(FX_BSTR("UseNone")))
-		return PAGEMODE_USENONE;
-	else if (strPageMode.EqualNoCase(FX_BSTR("UseOutlines")))
-		return PAGEMODE_USEOUTLINES;
-	else if (strPageMode.EqualNoCase(FX_BSTR("UseThumbs")))
-		return PAGEMODE_USETHUMBS;
-	else if (strPageMode.EqualNoCase(FX_BSTR("FullScreen")))
-		return PAGEMODE_FULLSCREEN;
-	else if (strPageMode.EqualNoCase(FX_BSTR("UseOC")))
-		return PAGEMODE_USEOC;
-	else if (strPageMode.EqualNoCase(FX_BSTR("UseAttachments")))
-		return PAGEMODE_USEATTACHMENTS;
+    if (!document)
+        return PAGEMODE_UNKNOWN;
 
-	return PAGEMODE_UNKNOWN;
+    CPDF_Dictionary* pRoot = ((CPDF_Document*)document)->GetRoot();
+    if (!pRoot)
+        return PAGEMODE_UNKNOWN;
+
+    CPDF_Object* pName = pRoot->GetElement("PageMode");
+    if (!pName)
+        return PAGEMODE_USENONE;
+
+    CFX_ByteString strPageMode = pName->GetString();
+    if (strPageMode.IsEmpty()||strPageMode.EqualNoCase("UseNone"))
+        return PAGEMODE_USENONE;
+    if (strPageMode.EqualNoCase("UseOutlines"))
+        return PAGEMODE_USEOUTLINES;
+    if (strPageMode.EqualNoCase("UseThumbs"))
+        return PAGEMODE_USETHUMBS;
+    if (strPageMode.EqualNoCase("FullScreen"))
+        return PAGEMODE_FULLSCREEN;
+    if (strPageMode.EqualNoCase("UseOC"))
+        return PAGEMODE_USEOC;
+    if (strPageMode.EqualNoCase("UseAttachments"))
+        return PAGEMODE_USEATTACHMENTS;
+
+    return PAGEMODE_UNKNOWN;
 }

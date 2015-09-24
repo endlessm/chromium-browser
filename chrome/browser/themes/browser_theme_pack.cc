@@ -26,12 +26,12 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/codec/png_codec.h"
+#include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/image/canvas_image_source.h"
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_operations.h"
 #include "ui/gfx/screen.h"
-#include "ui/gfx/size_conversions.h"
 #include "ui/gfx/skia_util.h"
 #include "ui/resources/grit/ui_resources.h"
 
@@ -43,7 +43,7 @@ namespace {
 // Version number of the current theme pack. We just throw out and rebuild
 // theme packs that aren't int-equal to this. Increment this number if you
 // change default theme assets.
-const int kThemePackVersion = 35;
+const int kThemePackVersion = 36;
 
 // IDs that are in the DataPack won't clash with the positive integer
 // uint16. kHeaderID should always have the maximum value because we want the
@@ -91,7 +91,7 @@ struct PersistingImagesTable {
 
   // String to check for when parsing theme manifests or NULL if this isn't
   // supposed to be changeable by the user.
-  const char* key;
+  const char* const key;
 };
 
 // IDR_* resource names change whenever new resources are added; use persistent
@@ -100,70 +100,75 @@ struct PersistingImagesTable {
 // TODO(erg): The cocoa port is the last user of the IDR_*_[HP] variants. These
 // should be removed once the cocoa port no longer uses them.
 PersistingImagesTable kPersistingImages[] = {
-  { PRS_THEME_FRAME, IDR_THEME_FRAME,
-    "theme_frame" },
-  { PRS_THEME_FRAME_INACTIVE, IDR_THEME_FRAME_INACTIVE,
-    "theme_frame_inactive" },
-  { PRS_THEME_FRAME_INCOGNITO, IDR_THEME_FRAME_INCOGNITO,
-    "theme_frame_incognito" },
-  { PRS_THEME_FRAME_INCOGNITO_INACTIVE, IDR_THEME_FRAME_INCOGNITO_INACTIVE,
-    "theme_frame_incognito_inactive" },
-  { PRS_THEME_TOOLBAR, IDR_THEME_TOOLBAR,
-    "theme_toolbar" },
-  { PRS_THEME_TAB_BACKGROUND, IDR_THEME_TAB_BACKGROUND,
-    "theme_tab_background" },
+    {PRS_THEME_FRAME, IDR_THEME_FRAME, "theme_frame"},
+    {PRS_THEME_FRAME_INACTIVE,
+     IDR_THEME_FRAME_INACTIVE,
+     "theme_frame_inactive"},
+    {PRS_THEME_FRAME_INCOGNITO,
+     IDR_THEME_FRAME_INCOGNITO,
+     "theme_frame_incognito"},
+    {PRS_THEME_FRAME_INCOGNITO_INACTIVE,
+     IDR_THEME_FRAME_INCOGNITO_INACTIVE,
+     "theme_frame_incognito_inactive"},
+    {PRS_THEME_TOOLBAR, IDR_THEME_TOOLBAR, "theme_toolbar"},
+    {PRS_THEME_TAB_BACKGROUND,
+     IDR_THEME_TAB_BACKGROUND,
+     "theme_tab_background"},
 #if !defined(OS_MACOSX)
-  { PRS_THEME_TAB_BACKGROUND_INCOGNITO, IDR_THEME_TAB_BACKGROUND_INCOGNITO,
-    "theme_tab_background_incognito" },
+    {PRS_THEME_TAB_BACKGROUND_INCOGNITO,
+     IDR_THEME_TAB_BACKGROUND_INCOGNITO,
+     "theme_tab_background_incognito"},
 #endif
-  { PRS_THEME_TAB_BACKGROUND_V, IDR_THEME_TAB_BACKGROUND_V,
-    "theme_tab_background_v"},
-  { PRS_THEME_NTP_BACKGROUND, IDR_THEME_NTP_BACKGROUND,
-    "theme_ntp_background" },
-  { PRS_THEME_FRAME_OVERLAY, IDR_THEME_FRAME_OVERLAY,
-    "theme_frame_overlay" },
-  { PRS_THEME_FRAME_OVERLAY_INACTIVE, IDR_THEME_FRAME_OVERLAY_INACTIVE,
-    "theme_frame_overlay_inactive" },
-  { PRS_THEME_BUTTON_BACKGROUND, IDR_THEME_BUTTON_BACKGROUND,
-    "theme_button_background" },
-  { PRS_THEME_NTP_ATTRIBUTION, IDR_THEME_NTP_ATTRIBUTION,
-    "theme_ntp_attribution" },
-  { PRS_THEME_WINDOW_CONTROL_BACKGROUND, IDR_THEME_WINDOW_CONTROL_BACKGROUND,
-    "theme_window_control_background"},
+    {PRS_THEME_TAB_BACKGROUND_V,
+     IDR_THEME_TAB_BACKGROUND_V,
+     "theme_tab_background_v"},
+    {PRS_THEME_NTP_BACKGROUND,
+     IDR_THEME_NTP_BACKGROUND,
+     "theme_ntp_background"},
+    {PRS_THEME_FRAME_OVERLAY, IDR_THEME_FRAME_OVERLAY, "theme_frame_overlay"},
+    {PRS_THEME_FRAME_OVERLAY_INACTIVE,
+     IDR_THEME_FRAME_OVERLAY_INACTIVE,
+     "theme_frame_overlay_inactive"},
+    {PRS_THEME_BUTTON_BACKGROUND,
+     IDR_THEME_BUTTON_BACKGROUND,
+     "theme_button_background"},
+    {PRS_THEME_NTP_ATTRIBUTION,
+     IDR_THEME_NTP_ATTRIBUTION,
+     "theme_ntp_attribution"},
+    {PRS_THEME_WINDOW_CONTROL_BACKGROUND,
+     IDR_THEME_WINDOW_CONTROL_BACKGROUND,
+     "theme_window_control_background"},
 
-  // The rest of these entries have no key because they can't be overridden
-  // from the json manifest.
-  { 15, IDR_BACK, NULL },
-  { 16, IDR_BACK_D, NULL },
-  { 17, IDR_BACK_H, NULL },
-  { 18, IDR_BACK_P, NULL },
-  { 19, IDR_FORWARD, NULL },
-  { 20, IDR_FORWARD_D, NULL },
-  { 21, IDR_FORWARD_H, NULL },
-  { 22, IDR_FORWARD_P, NULL },
-  { 23, IDR_HOME, NULL },
-  { 24, IDR_HOME_H, NULL },
-  { 25, IDR_HOME_P, NULL },
-  { 26, IDR_RELOAD, NULL },
-  { 27, IDR_RELOAD_H, NULL },
-  { 28, IDR_RELOAD_P, NULL },
-  { 29, IDR_STOP, NULL },
-  { 30, IDR_STOP_D, NULL },
-  { 31, IDR_STOP_H, NULL },
-  { 32, IDR_STOP_P, NULL },
-  { 33, IDR_BROWSER_ACTIONS_OVERFLOW, NULL },
-  { 34, IDR_BROWSER_ACTIONS_OVERFLOW_H, NULL },
-  { 35, IDR_BROWSER_ACTIONS_OVERFLOW_P, NULL },
-  { 36, IDR_TOOLS, NULL },
-  { 37, IDR_TOOLS_H, NULL },
-  { 38, IDR_TOOLS_P, NULL },
-  { 39, IDR_MENU_DROPARROW, NULL },
-  { 40, IDR_THROBBER, NULL },
-  { 41, IDR_THROBBER_WAITING, NULL },
-  { 42, IDR_THROBBER_LIGHT, NULL },
-  { 43, IDR_TOOLBAR_BEZEL_HOVER, NULL },
-  { 44, IDR_TOOLBAR_BEZEL_PRESSED, NULL },
-  { 45, IDR_TOOLS_BAR, NULL },
+    // The rest of these entries have no key because they can't be overridden
+    // from the json manifest.
+    {15, IDR_BACK, NULL},
+    {16, IDR_BACK_D, NULL},
+    {17, IDR_BACK_H, NULL},
+    {18, IDR_BACK_P, NULL},
+    {19, IDR_FORWARD, NULL},
+    {20, IDR_FORWARD_D, NULL},
+    {21, IDR_FORWARD_H, NULL},
+    {22, IDR_FORWARD_P, NULL},
+    {23, IDR_HOME, NULL},
+    {24, IDR_HOME_H, NULL},
+    {25, IDR_HOME_P, NULL},
+    {26, IDR_RELOAD, NULL},
+    {27, IDR_RELOAD_H, NULL},
+    {28, IDR_RELOAD_P, NULL},
+    {29, IDR_STOP, NULL},
+    {30, IDR_STOP_D, NULL},
+    {31, IDR_STOP_H, NULL},
+    {32, IDR_STOP_P, NULL},
+    {33, IDR_BROWSER_ACTIONS_OVERFLOW, NULL},
+    {34, IDR_BROWSER_ACTIONS_OVERFLOW_H, NULL},
+    {35, IDR_BROWSER_ACTIONS_OVERFLOW_P, NULL},
+    {36, IDR_TOOLS, NULL},
+    {37, IDR_TOOLS_H, NULL},
+    {38, IDR_TOOLS_P, NULL},
+    {39, IDR_MENU_DROPARROW, NULL},
+    {40, IDR_TOOLBAR_BEZEL_HOVER, NULL},
+    {41, IDR_TOOLBAR_BEZEL_PRESSED, NULL},
+    {42, IDR_TOOLS_BAR, NULL},
 };
 const size_t kPersistingImagesLength = arraysize(kPersistingImages);
 
@@ -204,8 +209,8 @@ int GetPersistentIDByNameHelper(const std::string& key,
                                 const PersistingImagesTable* image_table,
                                 size_t image_table_size) {
   for (size_t i = 0; i < image_table_size; ++i) {
-    if (image_table[i].key != NULL &&
-        base::strcasecmp(key.c_str(), image_table[i].key) == 0) {
+    if (image_table[i].key &&
+        base::LowerCaseEqualsASCII(key, image_table[i].key)) {
       return image_table[i].persistent_id;
     }
   }
@@ -286,7 +291,7 @@ std::string GetScaleFactorsAsString(
 }
 
 struct StringToIntTable {
-  const char* key;
+  const char* const key;
   ThemeProperties::OverwritableByUserThemeProperty id;
 };
 
@@ -340,7 +345,7 @@ int GetIntForString(const std::string& key,
                     StringToIntTable* table,
                     size_t table_length) {
   for (size_t i = 0; i < table_length; ++i) {
-    if (base::strcasecmp(key.c_str(), table[i].key) == 0) {
+    if (base::LowerCaseEqualsASCII(key, table[i].key)) {
       return table[i].id;
     }
   }
@@ -652,7 +657,7 @@ BrowserThemePack::~BrowserThemePack() {
 // static
 scoped_refptr<BrowserThemePack> BrowserThemePack::BuildFromExtension(
     const Extension* extension) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(extension);
   DCHECK(extension->is_theme());
 
@@ -713,7 +718,7 @@ scoped_refptr<BrowserThemePack> BrowserThemePack::BuildFromExtension(
 // static
 scoped_refptr<BrowserThemePack> BrowserThemePack::BuildFromDataPack(
     const base::FilePath& path, const std::string& expected_id) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   // Allow IO on UI thread due to deep-seated theme design issues.
   // (see http://crbug.com/80206)
   base::ThreadRestrictions::ScopedAllowIO allow_io;
@@ -779,18 +784,18 @@ scoped_refptr<BrowserThemePack> BrowserThemePack::BuildFromDataPack(
 }
 
 // static
-void BrowserThemePack::GetThemeableImageIDRs(std::set<int>* result) {
-  if (!result)
-    return;
-
-  result->clear();
+bool BrowserThemePack::IsPersistentImageID(int id) {
   for (size_t i = 0; i < kPersistingImagesLength; ++i)
-    result->insert(kPersistingImages[i].idr_id);
+    if (kPersistingImages[i].idr_id == id)
+      return true;
 
 #if defined(USE_ASH) && !defined(OS_CHROMEOS)
   for (size_t i = 0; i < kPersistingImagesDesktopAuraLength; ++i)
-    result->insert(kPersistingImagesDesktopAura[i].idr_id);
+    if (kPersistingImagesDesktopAura[i].idr_id == id)
+      return true;
 #endif
+
+  return false;
 }
 
 bool BrowserThemePack::WriteToDisk(const base::FilePath& path) const {
@@ -959,8 +964,8 @@ void BrowserThemePack::BuildHeader(const Extension* extension) {
   // is that ui::DataPack removes this same check.
 #if defined(__BYTE_ORDER)
   // Linux check
-  COMPILE_ASSERT(__BYTE_ORDER == __LITTLE_ENDIAN,
-                 datapack_assumes_little_endian);
+  static_assert(__BYTE_ORDER == __LITTLE_ENDIAN,
+                "datapack assumes little endian");
 #elif defined(__BIG_ENDIAN__)
   // Mac check
   #error DataPack assumes little endian

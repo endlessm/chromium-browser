@@ -24,35 +24,43 @@
 #ifndef HTMLIFrameElement_h
 #define HTMLIFrameElement_h
 
+#include "core/dom/DOMSettableTokenList.h"
 #include "core/html/HTMLFrameElementBase.h"
 
 namespace blink {
 
-class HTMLIFrameElement final : public HTMLFrameElementBase {
+class HTMLIFrameElement final : public HTMLFrameElementBase, public DOMSettableTokenListObserver {
     DEFINE_WRAPPERTYPEINFO();
+    WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(HTMLIFrameElement);
 public:
     DECLARE_NODE_FACTORY(HTMLIFrameElement);
+    DECLARE_VIRTUAL_TRACE();
+    ~HTMLIFrameElement() override;
+    DOMSettableTokenList* sandbox() const;
 
 private:
     explicit HTMLIFrameElement(Document&);
 
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void attributeWillChange(const QualifiedName&, const AtomicString& oldValue, const AtomicString& newValue) override;
-    virtual bool isPresentationAttribute(const QualifiedName&) const override;
-    virtual void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStylePropertySet*) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void attributeWillChange(const QualifiedName&, const AtomicString& oldValue, const AtomicString& newValue) override;
+    bool isPresentationAttribute(const QualifiedName&) const override;
+    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStylePropertySet*) override;
 
-    virtual InsertionNotificationRequest insertedInto(ContainerNode*) override;
-    virtual void removedFrom(ContainerNode*) override;
+    InsertionNotificationRequest insertedInto(ContainerNode*) override;
+    void removedFrom(ContainerNode*) override;
 
-    virtual bool rendererIsNeeded(const RenderStyle&) override;
-    virtual RenderObject* createRenderer(RenderStyle*) override;
+    bool layoutObjectIsNeeded(const ComputedStyle&) override;
+    LayoutObject* createLayoutObject(const ComputedStyle&) override;
 
-    virtual bool loadedNonEmptyDocument() const override { return m_didLoadNonEmptyDocument; }
-    virtual void didLoadNonEmptyDocument() override { m_didLoadNonEmptyDocument = true; }
-    virtual bool isInteractiveContent() const override;
+    bool loadedNonEmptyDocument() const override { return m_didLoadNonEmptyDocument; }
+    void didLoadNonEmptyDocument() override { m_didLoadNonEmptyDocument = true; }
+    bool isInteractiveContent() const override;
+
+    void valueChanged() override;
 
     AtomicString m_name;
     bool m_didLoadNonEmptyDocument;
+    RefPtrWillBeMember<DOMSettableTokenList> m_sandbox;
 };
 
 } // namespace blink

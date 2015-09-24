@@ -2,23 +2,24 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-"""This program examines success/fail history for Chrome/ium OS builds and
-checks in a LKGM version for Chrome OS for other consumers.
+"""Examine success/fail history for Chrome/ium OS builds.
+
+Used to check in a LKGM version for Chrome OS for other consumers.
 """
 
 from __future__ import print_function
 
 import distutils.version
-import logging
 import os
 
 from chromite.cbuildbot import archive_lib
-from chromite.cbuildbot import cbuildbot_config
+from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import tree_status
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import gclient
 from chromite.lib import gs
 from chromite.lib import osutils
@@ -48,6 +49,8 @@ class ChromeCommitter(object):
     self._dryrun = dryrun
     self._lkgm = None
     self._old_lkgm = None
+    self.site_config = config_lib.LoadConfigFromFile()
+
 
   def CheckoutChromeLKGM(self):
     """Checkout chromeos LKGM file for chrome into tmp checkout dir."""
@@ -88,13 +91,23 @@ class ChromeCommitter(object):
     return sorted(new_canary_versions, key=lv,
                   reverse=True)[0:self._CANDIDATES_TO_CONSIDER]
 
+  def GetCanariesForChromeLKGM(self):
+    """Grabs a list of builders that are important for the Chrome LKGM."""
+    builders = []
+    for build_name, conf in self.site_config.iteritems():
+      if (conf['build_type'] == constants.CANARY_TYPE and
+          conf['critical_for_chrome'] and not conf['child_configs']):
+        builders.append(build_name)
+
+    return builders
+
   def FindNewLKGM(self):
     """Finds a new LKGM for chrome from previous chromeos releases."""
     versions = self._GetLatestCanaryVersions()
     if not versions:
       raise LKGMNotFound('No valid LKGM found newer than the old LKGM.')
 
-    canaries = cbuildbot_config.GetCanariesForChromeLKGM()
+    canaries = self.GetCanariesForChromeLKGM()
     logging.info('Considering the following versions: %s', ' '.join(versions))
     logging.info('Using scores from the following canaries: %s',
                  ' '.join(canaries))
@@ -148,7 +161,8 @@ class ChromeCommitter(object):
           'Could not create git commit with new LKGM: %r' % e)
 
     if not tree_status.IsTreeOpen(status_url=gclient.STATUS_URL,
-        period=self._SLEEP_TIMEOUT, timeout=self._TREE_TIMEOUT):
+                                  period=self._SLEEP_TIMEOUT,
+                                  timeout=self._TREE_TIMEOUT):
       raise LKGMNotCommitted('Chromium Tree is closed')
 
     if not self._dryrun:
@@ -180,17 +194,17 @@ class ChromeCommitter(object):
       if not found and latest_url:
         try:
           copy_ctx.Copy(latest_url, url, version=0, acl=acl)
-          cros_build_lib.Info('Copied %s -> %s', latest_url, url)
+          logging.info('Copied %s -> %s', latest_url, url)
         except gs.GSContextPreconditionFailed:
           found = True
 
       if found:
-        cros_build_lib.Info('Found %s', url)
+        logging.info('Found %s', url)
         latest_url = url
 
   def UpdateLatestFiles(self):
     """Update the LATEST files since LKGM, in Google Storage."""
-    ext_cfgs, int_cfgs = cbuildbot_config.FindFullConfigsForBoard(board=None)
+    ext_cfgs, int_cfgs = self.site_config.FindFullConfigsForBoard(board=None)
     versions = self._GetLatestCanaryVersions() + [self._old_lkgm]
     tasks = [[cfg, versions] for cfg in ext_cfgs + int_cfgs]
     parallel.RunTasksInProcessPool(self.UpdateLatestFilesForBot, tasks,
@@ -203,8 +217,8 @@ def _GetParser():
   parser.add_argument('--dryrun', action='store_true', default=False,
                       help="Find the next LKGM but don't commit it.")
   parser.add_argument('--workdir', default=os.path.join(os.getcwd(), 'src'),
-                      help=("Path to a checkout of chromium/src. "
-                            "Defaults to PWD/src"))
+                      help=('Path to a checkout of chromium/src. '
+                            'Defaults to PWD/src'))
 
   return parser
 

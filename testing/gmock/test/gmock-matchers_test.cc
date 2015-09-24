@@ -54,7 +54,7 @@
 #include "gtest/gtest.h"
 #include "gtest/gtest-spi.h"
 
-#if GTEST_LANG_CXX11
+#if GTEST_HAS_STD_FORWARD_LIST_
 # include <forward_list>  // NOLINT
 #endif
 
@@ -607,11 +607,11 @@ TEST(MatcherCastTest, FromSameType) {
   EXPECT_FALSE(m2.Matches(1));
 }
 
-// Implicitly convertible form any type.
+// Implicitly convertible from any type.
 struct ConvertibleFromAny {
   ConvertibleFromAny(int a_value) : value(a_value) {}
   template <typename T>
-  ConvertibleFromAny(const T& a_value) : value(-1) {
+  ConvertibleFromAny(const T& /*a_value*/) : value(-1) {
     ADD_FAILURE() << "Conversion constructor called";
   }
   int value;
@@ -4478,8 +4478,8 @@ class Streamlike {
   class ConstIter : public std::iterator<std::input_iterator_tag,
                                          value_type,
                                          ptrdiff_t,
-                                         const value_type&,
-                                         const value_type*> {
+                                         const value_type*,
+                                         const value_type&> {
    public:
     ConstIter(const Streamlike* s,
               typename std::list<value_type>::iterator pos)
@@ -4545,7 +4545,7 @@ TEST(StreamlikeTest, Iteration) {
   }
 }
 
-#if GTEST_LANG_CXX11
+#if GTEST_HAS_STD_FORWARD_LIST_
 TEST(BeginEndDistanceIsTest, WorksWithForwardList) {
   std::forward_list<int> container;
   EXPECT_THAT(container, BeginEndDistanceIs(0));
@@ -4557,7 +4557,7 @@ TEST(BeginEndDistanceIsTest, WorksWithForwardList) {
   EXPECT_THAT(container, Not(BeginEndDistanceIs(0)));
   EXPECT_THAT(container, BeginEndDistanceIs(2));
 }
-#endif  // GTEST_LANG_CXX11
+#endif  // GTEST_HAS_STD_FORWARD_LIST_
 
 TEST(BeginEndDistanceIsTest, WorksWithNonStdList) {
   const int a[5] = {1, 2, 3, 4, 5};

@@ -26,6 +26,7 @@ class AppCache;
 class AppCacheEntry;
 class AppCacheGroup;
 class AppCacheQuotaClientTest;
+class AppCacheResponseMetadataWriter;
 class AppCacheResponseReader;
 class AppCacheResponseTest;
 class AppCacheResponseWriter;
@@ -150,6 +151,10 @@ class CONTENT_EXPORT AppCacheStorage {
                                  Delegate* delegate,
                                  int response_code) = 0;
 
+  // Schedules a task to update persistent storage with the times of the first
+  // evictable error and last successful full update check.
+  virtual void StoreEvictionTimes(AppCacheGroup* group) = 0;
+
   // Cancels all pending callbacks for the delegate. The delegate callbacks
   // will not be invoked after, however any scheduled operations will still
   // take place. The callbacks for subsequently scheduled operations are
@@ -168,6 +173,11 @@ class CONTENT_EXPORT AppCacheStorage {
   // establishes a new response id.
   virtual AppCacheResponseWriter* CreateResponseWriter(
       const GURL& manifest_url, int64 group_id) = 0;
+
+  // Creates a metadata writer to write metadata of response to storage.
+  virtual AppCacheResponseMetadataWriter* CreateResponseMetadataWriter(
+      int64 group_id,
+      int64 response_id) = 0;
 
   // Schedules the lazy deletion of responses and saves the ids
   // persistently such that the responses will be deleted upon restart

@@ -13,36 +13,44 @@ enum {
 };
 
 GrPathRange::GrPathRange(GrGpu* gpu,
-                         PathGenerator* pathGenerator,
-                         const SkStrokeRec& stroke)
-    : INHERITED(gpu, kIsWrapped),
+                         PathGenerator* pathGenerator)
+    : INHERITED(gpu, kCached_LifeCycle),
       fPathGenerator(SkRef(pathGenerator)),
-      fNumPaths(fPathGenerator->getNumPaths()),
-      fStroke(stroke) {
+      fNumPaths(fPathGenerator->getNumPaths()) {
     const int numGroups = (fNumPaths + kPathsPerGroup - 1) / kPathsPerGroup;
     fGeneratedPaths.reset((numGroups + 7) / 8); // 1 bit per path group.
     memset(&fGeneratedPaths.front(), 0, fGeneratedPaths.count());
 }
 
 GrPathRange::GrPathRange(GrGpu* gpu,
-                         int numPaths,
-                         const SkStrokeRec& stroke)
-    : INHERITED(gpu, kIsWrapped),
-      fNumPaths(numPaths),
-      fStroke(stroke) {
+                         int numPaths)
+    : INHERITED(gpu, kCached_LifeCycle),
+      fNumPaths(numPaths) {
 }
 
-void GrPathRange::willDrawPaths(const uint32_t indices[], int count) const {
-    if (NULL == fPathGenerator.get()) {
+void GrPathRange::willDrawPaths(const void* indices, PathIndexType indexType, int count) const {
+    if (!fPathGenerator) {
         return;
     }
 
+    switch (indexType) {
+        case kU8_PathIndexType: return this->willDrawPaths<uint8_t>(indices, count);
+        case kU16_PathIndexType: return this->willDrawPaths<uint16_t>(indices, count);
+        case kU32_PathIndexType: return this->willDrawPaths<uint32_t>(indices, count);
+        default: SkFAIL("Unknown path index type");
+    }
+}
+
+template<typename IndexType> void GrPathRange::willDrawPaths(const void* indices, int count) const {
+    SkASSERT(fPathGenerator);
+
+    const IndexType* indexArray = reinterpret_cast<const IndexType*>(indices);
     bool didLoadPaths = false;
 
     for (int i = 0; i < count; ++i) {
-        SkASSERT(indices[i] < static_cast<uint32_t>(fNumPaths));
+        SkASSERT(indexArray[i] < static_cast<uint32_t>(fNumPaths));
 
-        const int groupIndex = indices[i] / kPathsPerGroup;
+        const int groupIndex = indexArray[i] / kPathsPerGroup;
         const int groupByte = groupIndex / 8;
         const uint8_t groupBit = 1 << (groupIndex % 8);
 

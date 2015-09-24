@@ -15,6 +15,7 @@ import stat
 
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import osutils
 
 
@@ -96,14 +97,14 @@ class GconvModules(object):
         toset = toset.rstrip('/')
         # Warn if the same charset is defined as two different aliases.
         if self._alias.get(fromset, toset) != toset:
-          cros_build_lib.Error('charset "%s" already defined as "%s".',
-                               fromset, self._alias[fromset])
+          logging.error('charset "%s" already defined as "%s".', fromset,
+                        self._alias[fromset])
         self._alias[fromset] = toset
       else:
         cros_build_lib.Die('Unknown line: %s', line)
 
-    cros_build_lib.Debug('Found %d modules and %d alias in %s',
-                         len(self._modules), len(self._alias), self._filename)
+    logging.debug('Found %d modules and %d alias in %s', len(self._modules),
+                  len(self._alias), self._filename)
     charsets = sorted(self._alias.keys() + self._modules.keys())
     # Remove the 'INTERNAL' charset from the list, since it is not a charset
     # but an internal representation used to convert to and from other charsets.
@@ -149,15 +150,14 @@ class GconvModules(object):
                        if deps.intersection(used_modules))
     unused_libdeps = set(libdeps).difference(used_libdeps)
 
-    cros_build_lib.Debug('Used modules: %s', ', '.join(sorted(used_modules)))
-    cros_build_lib.Debug('Used dependency libs: %s',
-                         ', '.join(sorted(used_libdeps)))
+    logging.debug('Used modules: %s', ', '.join(sorted(used_modules)))
+    logging.debug('Used dependency libs: %s, '.join(sorted(used_libdeps)))
 
     unused_size = 0
     for module in sorted(unused_modules):
       module_path = os.path.join(modules_dir, '%s.so' % module)
       unused_size += os.lstat(module_path).st_size
-      cros_build_lib.Debug('rm %s', module_path)
+      logging.debug('rm %s', module_path)
       if not dry_run:
         os.unlink(module_path)
 
@@ -165,15 +165,14 @@ class GconvModules(object):
     for lib in sorted(unused_libdeps):
       lib_path = os.path.join(modules_dir, lib)
       unused_libdeps_size += os.lstat(lib_path).st_size
-      cros_build_lib.Debug('rm %s', lib_path)
+      logging.debug('rm %s', lib_path)
       if not dry_run:
         os.unlink(lib_path)
 
-    cros_build_lib.Info(
-        'Done. Using %d gconv modules. Removed %d unused modules'
-        ' (%.1f KiB) and %d unused dependencies (%.1f KiB)',
-        len(used_modules), len(unused_modules), unused_size / 1024.,
-        len(unused_libdeps), unused_libdeps_size / 1024.)
+    logging.info('Done. Using %d gconv modules. Removed %d unused modules'
+                 ' (%.1f KiB) and %d unused dependencies (%.1f KiB)',
+                 len(used_modules), len(unused_modules), unused_size / 1024.,
+                 len(unused_libdeps), unused_libdeps_size / 1024.)
 
     # Recompute the gconv-modules file with only the included gconv modules.
     result = []
@@ -241,7 +240,7 @@ def GconvStrip(opts):
   gconv_modules_files = glob.glob(os.path.join(opts.root, GCONV_MODULES_PATH))
 
   if not gconv_modules_files:
-    cros_build_lib.Warning('gconv-modules file not found.')
+    logging.warning('gconv-modules file not found.')
     return 1
 
   # Only one gconv-modules files should be present, either on /usr/lib or
@@ -250,8 +249,8 @@ def GconvStrip(opts):
     cros_build_lib.Die('Found several gconv-modules files.')
 
   gconv_modules_file = gconv_modules_files[0]
-  cros_build_lib.Info('Searching for unused gconv files defined in %s',
-                      gconv_modules_file)
+  logging.info('Searching for unused gconv files defined in %s',
+               gconv_modules_file)
 
   gmods = GconvModules(gconv_modules_file)
   charsets = gmods.Load()
@@ -266,8 +265,7 @@ def GconvStrip(opts):
     result = cros_build_lib.RunCommand(cmd, redirect_stdout=True,
                                        print_cmd=False)
     symbol_files = result.output.splitlines()
-    cros_build_lib.Debug('Symbol %s found on %d files.',
-                         symbol, len(symbol_files))
+    logging.debug('Symbol %s found on %d files.', symbol, len(symbol_files))
     files.update(symbol_files)
 
   # The charsets are represented as nul-terminated strings in the binary files,
@@ -278,14 +276,14 @@ def GconvStrip(opts):
   # 'IT' charset. Empirical test on ChromeOS images suggests that only 4
   # charsets could fall in category.
   strings = [s + '\0' for s in charsets]
-  cros_build_lib.Info('Will search for %d strings in %d files',
-                      len(strings), len(files))
+  logging.info('Will search for %d strings in %d files', len(strings),
+               len(files))
 
   # Charsets listed in STICKY_MOUDLES are initialized as used. Note that those
   # strings should be listed in the gconv-modules file.
   unknown_sticky_modules = set(STICKY_MODULES) - set(charsets)
   if unknown_sticky_modules:
-    cros_build_lib.Warning(
+    logging.warning(
         'The following charsets were explicitly requested in STICKY_MODULES '
         'even though they don\'t exist: %s',
         ', '.join(unknown_sticky_modules))
@@ -298,10 +296,10 @@ def GconvStrip(opts):
     global_used = map(operator.or_, global_used, used_filename)
     # Check the debug flag to avoid running an useless loop.
     if opts.debug and any(used_filename):
-      cros_build_lib.Debug('File %s:', filename)
+      logging.debug('File %s:', filename)
       for i in range(len(used_filename)):
         if used_filename[i]:
-          cros_build_lib.Debug(' - %s', strings[i])
+          logging.debug(' - %s', strings[i])
 
   used_charsets = [cs for cs, used in zip(charsets, global_used) if used]
   gmods.Rewrite(used_charsets, opts.dry_run)
@@ -327,6 +325,6 @@ def ParseArgs(argv):
 def main(argv):
   """Main function to start the script."""
   opts = ParseArgs(argv)
-  cros_build_lib.Debug('Options are %s', opts)
+  logging.debug('Options are %s', opts)
 
   return GconvStrip(opts)

@@ -4,26 +4,16 @@
 
 package org.chromium.chromoting;
 
+import android.content.Context;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.TextView;
-import android.widget.Toast;
 
 /** Describes the appearance and behavior of each host list entry. */
 class HostListAdapter extends ArrayAdapter<HostInfo> {
-    /** Color to use for hosts that are online. */
-    private static final String HOST_COLOR_ONLINE = "green";
-
-    /** Color to use for hosts that are offline. */
-    private static final String HOST_COLOR_OFFLINE = "red";
-
-    private Chromoting mChromoting;
-
-    /** Constructor. */
-    public HostListAdapter(Chromoting chromoting, int textViewResourceId, HostInfo[] hosts) {
-        super(chromoting, textViewResourceId, hosts);
-        mChromoting = chromoting;
+    public HostListAdapter(Context context, int textViewResourceId, HostInfo[] hosts) {
+        super(context, textViewResourceId, hosts);
     }
 
     /** Generates a View corresponding to this particular host. */
@@ -35,26 +25,10 @@ class HostListAdapter extends ArrayAdapter<HostInfo> {
 
         target.setText(host.name);
         target.setCompoundDrawablesWithIntrinsicBounds(
-                host.isOnline ? R.drawable.icon_host : R.drawable.icon_host_offline, 0, 0, 0);
+                host.isOnline ? R.drawable.ic_host_online : R.drawable.ic_host_offline, 0, 0, 0);
 
-        if (host.isOnline) {
-            target.setOnClickListener(new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        mChromoting.connectToHost(host);
-                    }
-            });
-        } else {
-            target.setTextColor(mChromoting.getResources().getColor(R.color.host_offline_text));
-            target.setBackgroundResource(R.drawable.list_item_disabled_selector);
-            target.setOnClickListener(new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        Toast.makeText(mChromoting,
-                                mChromoting.getString(R.string.host_offline_tooltip),
-                                Toast.LENGTH_SHORT).show();
-                    }
-            });
+        if (!host.isOnline) {
+            target.setTextColor(getContext().getResources().getColor(R.color.host_offline_text));
         }
 
         return target;

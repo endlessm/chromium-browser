@@ -210,6 +210,22 @@
       <message name="IDS_EXTENSION_MANIFEST_INVALID" desc="">
         Manifest file is invalid.
       </message>
+      <message name="IDS_EXTENSION_PACKAGE_DIRECTORY_ERROR" desc="Message for when an error occurs while trying to create the temporary directory needed to unzip a packaged extension or app.">
+        Could not create directory for unzipping: '<ph name="DIRECTORY_PATH">$1<ex>profile/Extensions/CRX_INSTALL</ex></ph>'
+      </message>
+      <message name="IDS_EXTENSION_PACKAGE_IMAGE_PATH_ERROR" desc="Error message for when a packaged extension or app contains a reference to an image that could be outside the package.">
+        Illegal path (absolute or relative with '..'): '<ph name="IMAGE_PATH">$1<ex>../image.png</ex></ph>'
+      </message>
+      <message name="IDS_EXTENSION_PACKAGE_IMAGE_ERROR" desc="Message for when an error occurs while trying to decode an image found within a packaged extension or app.">
+        Could not decode image: '<ph name="IMAGE_NAME">$1<ex>image.png</ex></ph>'
+      </message>
+      <message name="IDS_EXTENSION_PACKAGE_UNZIP_ERROR" desc="Message for when an error occurs while unzipping a packaged extension or app.">
+        Could not unzip extension
+      </message>
+
+      <message name="IDS_EXTENSION_PROMPT_WARNING_CLIPBOARD" desc="Permission string for access to clipboard.">
+        Read data you copy and paste
+      </message>
       <message name="IDS_EXTENSION_PROMPT_WARNING_DECLARATIVE_WEB_REQUEST" desc="Permission string for Declarative Web Request API.">
         Block parts of web pages
       </message>
@@ -286,6 +302,9 @@
       <message name="IDS_EXTENSION_CANT_UNINSTALL_POLICY_REQUIRED" desc="Error message when a user tries to uninstall an extension that is required by administrator policy.">
         The administrator of this machine requires <ph name="EXTENSION_NAME">$1<ex>Google Talk</ex></ph> to be installed. It cannot be uninstalled.
       </message>
+      <message name="IDS_EXTENSION_DISABLED_UPDATE_REQUIRED_BY_POLICY" desc="Error message when an extension doesn't meet minimum version required by administrator policy.">
+        The administrator of this machine requires <ph name="EXTENSION_NAME">$1<ex>Google Talk</ex></ph> to have a minimum version of <ph name="EXTENSION_VERSION">$2<ex>1.1.0</ex></ph>. It cannot be enabled until it has updated to that version (or higher).
+      </message>
 
       <!-- Settings override strings. Please keep alphabetized. -->
       <message name="IDS_EXTENSION_PROMPT_WARNING_HOME_PAGE_SETTING_OVERRIDE" desc="Permission string for home page override.">
@@ -302,64 +321,103 @@
       <message name="IDS_EXTENSION_PROMPT_WARNING_NETWORK_STATE" desc="Permission string for network list access.">
         Access list of network connections
       </message>
-      <message name="IDS_EXTENSION_PROMPT_WARNING_SOCKET_ANY_HOST" desc="Permission string for access to any computer on the local network or internet.">
-        Exchange data with any computer on the local network or internet
+      <message name="IDS_EXTENSION_PROMPT_WARNING_SOCKET_ANY_HOST" desc="Permission string for access to any device on the local network or internet.">
+        Exchange data with any device on the local network or internet
       </message>
-      <message name="IDS_EXTENSION_PROMPT_WARNING_SOCKET_HOSTS_IN_DOMAIN" desc="Permission string for access to any computer within a single domains on the local network or internet.">
-        Exchange data with any computer in the domain <ph name="DOMAIN">$1<ex>example.com</ex></ph>
+      <message name="IDS_EXTENSION_PROMPT_WARNING_SOCKET_HOSTS_IN_DOMAIN" desc="Permission string for access to any device within a single domains on the local network or internet.">
+        Exchange data with any device in the domain <ph name="DOMAIN">$1<ex>example.com</ex></ph>
       </message>
-      <message name="IDS_EXTENSION_PROMPT_WARNING_SOCKET_HOSTS_IN_DOMAINS" desc="Permission string for access to any computer within multiple domains on the local network or internet.">
-        Exchange data with any computer in the domains: <ph name="DOMAINS">$1<ex>example.com example.org</ex></ph>
+      <message name="IDS_EXTENSION_PROMPT_WARNING_SOCKET_HOSTS_IN_DOMAINS" desc="Permission string for access to any device within multiple domains on the local network or internet.">
+        Exchange data with any device in the domains: <ph name="DOMAINS">$1<ex>example.com example.org</ex></ph>
       </message>
-      <message name="IDS_EXTENSION_PROMPT_WARNING_SOCKET_SPECIFIC_HOST" desc="Permission string for access to a single specific computers on the local network or internet.">
-        Exchange data with the computer named <ph name="HOSTNAME">$1<ex>foo.example.com</ex></ph>
+      <message name="IDS_EXTENSION_PROMPT_WARNING_SOCKET_SPECIFIC_HOST" desc="Permission string for access to a single specific device on the local network or internet.">
+        Exchange data with the device named <ph name="HOSTNAME">$1<ex>foo.example.com</ex></ph>
       </message>
-      <message name="IDS_EXTENSION_PROMPT_WARNING_SOCKET_SPECIFIC_HOSTS" desc="Permission string for access to multiple specific computers on the local network or internet.">
-        Exchange data with the computers named: <ph name="HOSTNAMES">$1<ex>foo.example.com bar.example.com</ex></ph>
+      <message name="IDS_EXTENSION_PROMPT_WARNING_SOCKET_SPECIFIC_HOSTS" desc="Permission string for access to multiple specific devices on the local network or internet.">
+        Exchange data with the devices named: <ph name="HOSTNAMES">$1<ex>foo.example.com bar.example.com</ex></ph>
       </message>
 
       <!-- Device API strings. Please keep alphabetized. -->
-      <message name="IDS_DEVICE_PERMISSIONS_DEVICE_NAME" desc="String describing a device in a list of devices.">
-        <ph name="PRODUCT_NAME">$1<ex>SoundKnob</ex></ph> from <ph name="VENDOR_NAME">$2<ex>Griffin Technology</ex></ph>
+      <message name="IDS_DEVICE_NAME_WITH_PRODUCT_SERIAL" desc="String describing a device by its product name and serial number.">
+        <ph name="PRODUCT_NAME">$1<ex>Power Knob</ex></ph> (serial number <ph name="SERIAL_NUMBER">$2<ex>00001</ex></ph>)
       </message>
-      <message name="IDS_DEVICE_PERMISSIONS_PROMPT_HEADING" desc="Title of the device selection dialog.">
-        USB Devices
+      <message name="IDS_DEVICE_NAME_WITH_PRODUCT_VENDOR" desc="String describing a device by its product name and vendor.">
+        <ph name="PRODUCT_NAME">$1<ex>Power Knob</ex></ph> from <ph name="VENDOR_NAME">$2<ex>Griffin Technology</ex></ph>
       </message>
-      <message name="IDS_DEVICE_PERMISSIONS_PROMPT_SINGLE" desc="Instructions asking the user to select one device for use with an app.">
-        Select a device to use with <ph name="APP_NAME">$1<ex>Chrome Dev Editor</ex></ph>.
+      <message name="IDS_DEVICE_NAME_WITH_PRODUCT_VENDOR_SERIAL" desc="String describing a device by its product name and vendor and serial number.">
+        <ph name="PRODUCT_NAME">$1<ex>Power Knob</ex></ph> from <ph name="VENDOR_NAME">$2<ex>Griffin Technology</ex></ph> (serial number <ph name="SERIAL_NUMBER">$3<ex>00001</ex></ph>)
+      </message>
+      <message name="IDS_DEVICE_NAME_WITH_PRODUCT_UNKNOWN_VENDOR" desc="String describing a device by its product name when only the numeric vendor ID is available.">
+        <ph name="PRODUCT_NAME">$1<ex>Power Knob</ex></ph> from vendor <ph name="VENDOR_ID">$2<ex>abcd</ex></ph>
+      </message>
+      <message name="IDS_DEVICE_NAME_WITH_PRODUCT_UNKNOWN_VENDOR_SERIAL" desc="String describing a device by its product name and serial number when the numeric vendor ID is available.">
+        <ph name="PRODUCT_NAME">$1<ex>Power Knob</ex></ph> from vendor <ph name="VENDOR_ID">$2<ex>abcd</ex></ph> (serial number <ph name="SERIAL_NUMBER">$3<ex>00001</ex></ph>)
+      </message>
+      <message name="IDS_DEVICE_NAME_WITH_UNKNOWN_PRODUCT_VENDOR" desc="String describing a device by its vendor name when only the numeric product ID is available.">
+        Unknown product <ph name="PRODUCT_ID">$1<ex>b33f</ex></ph> from <ph name="VENDOR_NAME">$2<ex>Griffin Technology</ex></ph>
+      </message>
+      <message name="IDS_DEVICE_NAME_WITH_UNKNOWN_PRODUCT_VENDOR_SERIAL" desc="String describing a device by its vendor name and serial number when only the numeric product ID is available.">
+        Unknown product <ph name="PRODUCT_ID">$1<ex>1234</ex></ph> from <ph name="VENDOR_NAME">$2<ex>Griffin Technology</ex></ph> (serial number <ph name="SERIAL_NUMBER">$3<ex>00001</ex></ph>)
+      </message>
+      <message name="IDS_DEVICE_NAME_WITH_UNKNOWN_PRODUCT_UNKNOWN_VENDOR" desc="String describing a device when only numeric vendor and product IDs are available.">
+        Unknown product <ph name="PRODUCT_ID">$1<ex>1234</ex></ph> from vendor <ph name="VENDOR_ID">$2<ex>abcd</ex></ph>
+      </message>
+      <message name="IDS_DEVICE_NAME_WITH_UNKNOWN_PRODUCT_UNKNOWN_VENDOR_SERIAL" desc="String describing a device by its serial number when only numeric vendor and product IDs are available.">
+        Unknown product <ph name="PRODUCT_ID">$1<ex>1234</ex></ph> from vendor <ph name="VENDOR_ID">$2<ex>abcd</ex></ph> (serial number <ph name="SERIAL_NUMBER">$3<ex>00001</ex></ph>)
       </message>
       <message name="IDS_DEVICE_PERMISSIONS_PROMPT_MULTIPLE" desc="Instructions asking the user to select one or more devices for use with an app.">
-        Select devices to use with <ph name="APP_NAME">$1<ex>Chrome Dev Editor</ex></ph>.
+        The application "<ph name="APP_NAME">$1<ex>Chrome Dev Editor</ex></ph>" is requesting access to one or more of your devices.
       </message>
-      <message name="IDS_DEVICE_PERMISSIONS_PROMPT_DEVICE_TOOLTIP" desc="String providing device vendor and product ID details in a tooltip.">
-        <ph name="VENDOR_NAME">$1<ex>Griffin Technology</ex></ph> (<ph name="VENDOR_ID">$2<ex>0x1234</ex></ph>), <ph name="PRODUCT_NAME">$3<ex>SoundKnob</ex></ph> (<ph name="PRODUCT_ID">$4<ex>0x5678</ex></ph>)
+      <message name="IDS_DEVICE_PERMISSIONS_PROMPT_SINGLE" desc="Instructions asking the user to select one device for use with an app.">
+        The application "<ph name="APP_NAME">$1<ex>Chrome Dev Editor</ex></ph>" is requesting access to one of your devices.
       </message>
-      <message name="IDS_DEVICE_UNKNOWN_PRODUCT" desc="String used when no human-readable product name is available for a device.">
-        Product <ph name="PRODUCT_ID">$1<ex>0x1234</ex></ph>
+      <message name="IDS_HID_DEVICE_PERMISSIONS_PROMPT_TITLE_MULTIPLE" desc="Title of the HID device selection dialog when the app will accept one or more selected devices.">
+        Select HID devices
       </message>
-      <message name="IDS_DEVICE_UNKNOWN_VENDOR" desc="String used when no human-readable vendor name is available for a device.">
-        Vendor <ph name="VENDOR_ID">$1<ex>0x1234</ex></ph>
+      <message name="IDS_HID_DEVICE_PERMISSIONS_PROMPT_TITLE_SINGLE" desc="Title of the HID device selection dialog when the app wants only one device selected.">
+        Select a HID device
       </message>
-      <message name="IDS_EXTENSION_PROMPT_WARNING_HID" desc="Permission string for access to HID devices.">
-        Access your input devices
+      <message name="IDS_USB_DEVICE_PERMISSIONS_PROMPT_TITLE_MULTIPLE" desc="Title of the USB device selection dialog when the app will accept one or more selected devices.">
+        Select USB devices
+      </message>
+      <message name="IDS_USB_DEVICE_PERMISSIONS_PROMPT_TITLE_SINGLE" desc="Title of the USB device selection dialog when the app wants only one device selected.">
+        Select a USB device
+      </message>
+      <message name="IDS_EXTENSION_PROMPT_WARNING_NETWORKING_CONFIG" desc="Permission string for Networking Config API.">
+        Configure network connections
+      </message>
+      <message name="IDS_EXTENSION_PROMPT_WARNING_NETWORKING_PRIVATE" desc="Permission string for Networking Private API.">
+        Manage network connections
       </message>
       <message name="IDS_EXTENSION_PROMPT_WARNING_SERIAL" desc="Permission string for access to serial devices.">
         Access your serial devices
       </message>
-      <message name="IDS_EXTENSION_PROMPT_WARNING_USB" desc="Permission string for access to USB devices.">
-        Access your USB devices
-      </message>
       <message name="IDS_EXTENSION_PROMPT_WARNING_VPN" desc="Permission string for access to VPN API.">
         Access your network traffic
       </message>
+      <message name="IDS_EXTENSION_PROMPT_WARNING_USB_DEVICE_PRODUCT_NAME_AND_VENDOR" desc="USB device name and vendor string, used in various permission messages for USB devices.">
+        <ph name="PRODUCT_NAME">$1<ex>SoundKnob</ex></ph> from <ph name="VENDOR_NAME">$2<ex>Griffin Technology</ex></ph>
+      </message>
       <message name="IDS_EXTENSION_PROMPT_WARNING_USB_DEVICE" desc="Permission string for access to a specific USB device.">
-        Access the USB device <ph name="PRODUCT_NAME">$1<ex>SoundKnob</ex></ph> from <ph name="VENDOR_NAME">$2<ex>Griffin Technology</ex></ph>
+        Access any <ph name="PRODUCT_NAME_AND_VENDOR">$1<ex>SoundKnob from Griffin Technology</ex></ph> via USB
       </message>
-      <message name="IDS_EXTENSION_PROMPT_WARNING_USB_DEVICE_MISSING_PRODUCT" desc="Permission string for access to a specific USB device when a product name cannot be established for a USB device.">
-        Access the USB device from <ph name="VENDOR_NAME">$1<ex>Griffin Technology</ex></ph>
+      <message name="IDS_EXTENSION_PROMPT_WARNING_USB_DEVICE_UNKNOWN_PRODUCT" desc="Permission string for access to a specific USB device with an unknown product ID.">
+        Access USB devices from <ph name="VENDOR_NAME">$1<ex>Griffin Technology</ex></ph>
       </message>
-      <message name="IDS_EXTENSION_PROMPT_WARNING_USB_DEVICE_MISSING_VENDOR" desc="Permission string for access to a specific USB device when a vendor name cannot be established for a USB device.">
-        Access the USB device
+      <message name="IDS_EXTENSION_PROMPT_WARNING_USB_DEVICE_UNKNOWN_VENDOR" desc="Permission string for acceess to a specific USB device with an unknown vendor ID.">
+        Access USB devices from an unknown vendor
+      </message>
+      <message name="IDS_EXTENSION_PROMPT_WARNING_USB_DEVICE_LIST" desc="Permission string for access to a list of USB devices.">
+        Access any of these USB devices
+      </message>
+      <message name="IDS_EXTENSION_PROMPT_WARNING_USB_DEVICE_LIST_ITEM" desc="Line item for a USB device listed under IDS_EXTENSION_PROMPT_WARNING_USB_DEVICE_LIST.">
+        <ph name="PRODUCT_NAME_AND_VENDOR">$1<ex>SoundKnob from Griffin Technology</ex></ph>
+      </message>
+      <message name="IDS_EXTENSION_PROMPT_WARNING_USB_DEVICE_LIST_ITEM_UNKNOWN_PRODUCT" desc="Line item for a USB device listed under IDS_EXTENSION_PROMPT_WARNING_USB_DEVICE_LIST that has an unknown product ID.">
+        unknown devices from <ph name="VENDOR_NAME">$1<ex>Griffin Technology</ex></ph>
+      </message>
+      <message name="IDS_EXTENSION_PROMPT_WARNING_USB_DEVICE_LIST_ITEM_UNKNOWN_VENDOR" desc="Line item for a USB device listed under IDS_EXTENSION_PROMPT_WARNING_USB_DEVICE_LIST that has an unknown vendor ID.">
+        devices from an unknown vendor
       </message>
       <message name="IDS_EXTENSION_TASK_MANAGER_APPVIEW_TAG_PREFIX" desc="The prefix for a guest page loaded in an appview tag in the Task Manager">
         Appview: <ph name="APPVIEW_TAG_NAME">$1<ex>Google Hangouts</ex></ph>
@@ -367,11 +425,17 @@
       <message name="IDS_EXTENSION_TASK_MANAGER_EXTENSIONOPTIONS_TAG_PREFIX" desc="The prefix for a guest page loaded in an extensionoptions tag in the Task Manager">
         Options: <ph name="EXTENSIONOPTIONS_TAG_NAME">$1<ex>Google Hangouts</ex></ph>
       </message>
+      <message name="IDS_EXTENSION_TASK_MANAGER_EXTENSIONVIEW_TAG_PREFIX" desc="The prefix for a guest page loaded in an extensionview tag in the Task Manager">
+        ExtensionView: <ph name="EXTENSIONVIEW_TAG_NAME">$1<ex>Google Hangouts</ex></ph>
+      </message>
       <message name="IDS_EXTENSION_TASK_MANAGER_MIMEHANDLERVIEW_TAG_PREFIX" desc="The prefix for a guest page loaded in a mime handler view page in the task manager">
         Mimehandler: <ph name="MIMEHANDLERVIEW_TAG_NAME">$1<ex>My mime handler view</ex></ph>
       </message>
       <message name="IDS_EXTENSION_TASK_MANAGER_WEBVIEW_TAG_PREFIX" desc="The prefix for a guest page loaded in a webview tag in the Task Manager">
         Webview: <ph name="WEBVIEW_TAG_NAME">$1<ex>Google</ex></ph>
+      </message>
+      <message name="IDS_EXTENSION_TASK_MANAGER_SURFACEWORKER_TAG_PREFIX" desc="The prefix for a guest page loaded in an appview tag in the Task Manager">
+        SurfaceWorker: <ph name="SURFACEWORKER_TAG_NAME">$1<ex>Google Hangouts</ex></ph>
       </message>
       <message name="IDS_EXTENSION_PROMPT_WARNING_USB_DEVICE_SERIAL" desc="Permission string for accessing a USB device with a known vendor name, product name and serial number.">
         <ph name="PRODUCT_NAME">$1<ex>Nexus 5</ex></ph> from <ph name="VENDOR_NAME">$2<ex>Google Inc.</ex></ph> (serial number <ph name="SERIAL_NUMBER">$3<ex>ABCDEF123456</ex></ph>)
@@ -409,6 +473,37 @@
         Communicate with cooperating websites
       </message>
 
+      <!-- Install related messages. Please keep alphabetized. -->
+      <message name="IDS_EXTENSION_INSTALL_PROCESS_CRASHED" desc="Error message in case package fails to install because a utility process crashed.">
+        Could not install package because a utility process crashed. Try restarting Chrome and trying again.
+      </message>
+      <message name="IDS_EXTENSION_PACKAGE_ERROR_CODE" desc="Error message in cases where we fail to install the extension because the crx file is invalid. For example, because the crx header or signature is invalid.">
+        Package is invalid: '<ph name="ERROR_CODE">$1<ex>error</ex></ph>'.
+      </message>
+      <message name="IDS_EXTENSION_PACKAGE_ERROR_MESSAGE" desc="The cases where we get an error message string back from some other component. The message might be in English, but these are typically developer errors, and the extension SDK is English.">
+        Package is invalid. Details: '<ph name="ERROR_MESSAGE">$1<ex>error</ex></ph>'.
+      </message>
+      <message name="IDS_EXTENSION_PACKAGE_INSTALL_ERROR" desc="Error message in case package fails to install because of some problem with the filesystem.">
+        Could not install package: '<ph name="ERROR_CODE">$1<ex>error</ex></ph>'
+      </message>
+      <if expr="is_win">
+        <message name="IDS_EXTENSION_UNPACK_FAILED" desc="On windows, it is possible to mount a disk without the root of that disk having a drive letter.  The sandbox does not support this. See crbug/49530 .">
+          Can not unpack extension.  To safely unpack an extension, there must be a path to your profile directory that starts with a drive letter and does not contain a junction, mount point, or symlink.  No such path exists for your profile.
+        </message>
+      </if>
+      <if expr="not is_win">
+        <message name="IDS_EXTENSION_UNPACK_FAILED" desc="">
+          Can not unpack extension.  To safely unpack an extension, there must be a path to your profile directory that does not contain a symlink.  No such path exists for your profile.
+        </message>
+      </if>
+
+      <!-- Utility process names. Please keep alphabetized. -->
+      <message name="IDS_UTILITY_PROCESS_EXTENSION_UNPACKER_NAME" desc="The name of the utility process used for unpacking extensions.">
+        Extension Unpacker
+      </message>
+      <message name="IDS_UTILITY_PROCESS_MANIFEST_PARSER_NAME" desc="The name of the utility process used for parsing extension manifests.">
+        Extension Manifest Parser
+      </message>
     </messages>
   </release>
 </grit>

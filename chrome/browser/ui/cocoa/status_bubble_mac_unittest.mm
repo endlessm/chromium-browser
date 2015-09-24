@@ -15,7 +15,7 @@
 #import "testing/gtest_mac.h"
 #include "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
-#include "ui/gfx/point.h"
+#include "ui/gfx/geometry/point.h"
 #include "url/gurl.h"
 
 using base::UTF8ToUTF16;
@@ -89,7 +89,7 @@ class StatusBubbleMacIgnoreMouseMoved : public StatusBubbleMac {
 
 class StatusBubbleMacTest : public CocoaTest {
  public:
-  virtual void SetUp() {
+  void SetUp() override {
     CocoaTest::SetUp();
     NSWindow* window = test_window();
     EXPECT_TRUE(window);
@@ -109,7 +109,7 @@ class StatusBubbleMacTest : public CocoaTest {
     EXPECT_TRUE(bubble_->window_);  // immediately creates window
   }
 
-  virtual void TearDown() {
+  void TearDown() override {
     // Not using a scoped_ptr because bubble must be deleted before calling
     // TearDown to get rid of bubble's window.
     delete bubble_;
@@ -496,7 +496,7 @@ TEST_F(StatusBubbleMacTest, UpdateSizeAndPosition) {
   NSRect rect_before = [GetWindow() frame];
   bubble_->UpdateSizeAndPosition();
   NSRect rect_after = [GetWindow() frame];
-  EXPECT_TRUE(NSEqualRects(rect_before, rect_after));
+  EXPECT_NSEQ(rect_before, rect_after);
 
   // Move the window and call resize; only the origin should change.
   NSWindow* window = test_window();
@@ -534,7 +534,7 @@ TEST_F(StatusBubbleMacTest, MovingWindowUpdatesPosition) {
   // Show the bubble and make sure it has the same origin as |window|.
   bubble_->SetStatus(UTF8ToUTF16("Showing"));
   StatusBubbleWindow* child = GetWindow();
-  EXPECT_TRUE(NSEqualPoints([window frame].origin, [child frame].origin));
+  EXPECT_NSEQ([window frame].origin, [child frame].origin);
 
   // Hide the bubble, move the window, and show it again.
   bubble_->Hide();
@@ -545,7 +545,7 @@ TEST_F(StatusBubbleMacTest, MovingWindowUpdatesPosition) {
 
   // The bubble should reattach in the correct location.
   child = GetWindow();
-  EXPECT_TRUE(NSEqualPoints([window frame].origin, [child frame].origin));
+  EXPECT_NSEQ([window frame].origin, [child frame].origin);
 }
 
 TEST_F(StatusBubbleMacTest, StatuBubbleRespectsBaseFrameLimits) {
@@ -554,7 +554,7 @@ TEST_F(StatusBubbleMacTest, StatuBubbleRespectsBaseFrameLimits) {
   // Show the bubble and make sure it has the same origin as |window|.
   bubble_->SetStatus(UTF8ToUTF16("Showing"));
   StatusBubbleWindow* child = GetWindow();
-  EXPECT_TRUE(NSEqualPoints([window frame].origin, [child frame].origin));
+  EXPECT_NSEQ([window frame].origin, [child frame].origin);
 
   // Hide the bubble, change base frame offset, and show it again.
   bubble_->Hide();
@@ -570,7 +570,7 @@ TEST_F(StatusBubbleMacTest, StatuBubbleRespectsBaseFrameLimits) {
   NSPoint expectedOrigin = [window frame].origin;
   expectedOrigin.x += baseFrameOffset.x;
   expectedOrigin.y += baseFrameOffset.y;
-  EXPECT_TRUE(NSEqualPoints(expectedOrigin, [child frame].origin));
+  EXPECT_NSEQ(expectedOrigin, [child frame].origin);
 }
 
 TEST_F(StatusBubbleMacTest, ExpandBubble) {
@@ -666,4 +666,20 @@ TEST_F(StatusBubbleMacTest, BubbleAvoidsMouse) {
   for (int x = windowWidth; x >= 0; x -= smallValue) {
     ASSERT_TRUE(CheckAvoidsMouse(x, smallValue));
   }
+}
+
+TEST_F(StatusBubbleMacTest, ReparentBubble) {
+  // The second window is borderless, like the window used in fullscreen mode.
+  base::scoped_nsobject<NSWindow> fullscreenParent(
+      [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 800, 600)
+                                  styleMask:NSBorderlessWindowMask
+                                    backing:NSBackingStoreBuffered
+                                      defer:NO]);
+
+  // Switch parents with the bubble hidden.
+  bubble_->SwitchParentWindow(fullscreenParent);
+
+  // Switch back to the original parent with the bubble showing.
+  bubble_->SetStatus(UTF8ToUTF16("Showing"));
+  bubble_->SwitchParentWindow(test_window());
 }

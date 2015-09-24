@@ -4,7 +4,7 @@
 
 #include "net/quic/crypto/quic_crypto_client_config.h"
 
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
@@ -22,10 +22,9 @@
 #include "net/quic/quic_utils.h"
 
 using base::StringPiece;
-using std::find;
-using std::make_pair;
 using std::map;
 using std::string;
+using std::queue;
 using std::vector;
 
 namespace net {
@@ -119,6 +118,25 @@ QuicCryptoClientConfig::CachedState::GetServerConfig() const {
   return scfg_.get();
 }
 
+void QuicCryptoClientConfig::CachedState::add_server_designated_connection_id(
+    QuicConnectionId connection_id) {
+  server_designated_connection_ids_.push(connection_id);
+}
+
+bool QuicCryptoClientConfig::CachedState::has_server_designated_connection_id()
+    const {
+  return !server_designated_connection_ids_.empty();
+}
+
+void QuicCryptoClientConfig::CachedState::add_server_nonce(
+    const string& server_nonce) {
+  server_nonces_.push(server_nonce);
+}
+
+bool QuicCryptoClientConfig::CachedState::has_server_nonce() const {
+  return !server_nonces_.empty();
+}
+
 QuicCryptoClientConfig::CachedState::ServerConfigState
 QuicCryptoClientConfig::CachedState::SetServerConfig(
     StringPiece server_config, QuicWallTime now, string* error_details) {
@@ -164,6 +182,8 @@ void QuicCryptoClientConfig::CachedState::InvalidateServerConfig() {
   server_config_.clear();
   scfg_.reset();
   SetProofInvalid();
+  queue<QuicConnectionId> empty_queue;
+  swap(server_designated_connection_ids_, empty_queue);
 }
 
 void QuicCryptoClientConfig::CachedState::SetProof(const vector<string>& certs,
@@ -199,6 +219,8 @@ void QuicCryptoClientConfig::CachedState::Clear() {
   proof_verify_details_.reset();
   scfg_.reset();
   ++generation_counter_;
+  queue<QuicConnectionId> empty_queue;
+  swap(server_designated_connection_ids_, empty_queue);
 }
 
 void QuicCryptoClientConfig::CachedState::ClearProof() {
@@ -293,10 +315,34 @@ void QuicCryptoClientConfig::CachedState::InitializeFrom(
   certs_ = other.certs_;
   server_config_sig_ = other.server_config_sig_;
   server_config_valid_ = other.server_config_valid_;
+  server_designated_connection_ids_ = other.server_designated_connection_ids_;
   if (other.proof_verify_details_.get() != nullptr) {
     proof_verify_details_.reset(other.proof_verify_details_->Clone());
   }
   ++generation_counter_;
+}
+
+QuicConnectionId
+QuicCryptoClientConfig::CachedState::GetNextServerDesignatedConnectionId() {
+  if (server_designated_connection_ids_.empty()) {
+    LOG(DFATAL)
+        << "Attempting to consume a connection id that was never designated.";
+    return 0;
+  }
+  const QuicConnectionId next_id = server_designated_connection_ids_.front();
+  server_designated_connection_ids_.pop();
+  return next_id;
+}
+
+string QuicCryptoClientConfig::CachedState::GetNextServerNonce() {
+  if (server_nonces_.empty()) {
+    LOG(DFATAL)
+        << "Attempting to consume a server nonce that was never designated.";
+    return "";
+  }
+  const string server_nonce = server_nonces_.front();
+  server_nonces_.pop();
+  return server_nonce;
 }
 
 void QuicCryptoClientConfig::SetDefaults() {
@@ -323,7 +369,7 @@ QuicCryptoClientConfig::CachedState* QuicCryptoClientConfig::LookupOrCreate(
   }
 
   CachedState* cached = new CachedState;
-  cached_states_.insert(make_pair(server_id, cached));
+  cached_states_.insert(std::make_pair(server_id, cached));
   bool cache_populated = PopulateFromCanonicalConfig(server_id, cached);
   UMA_HISTOGRAM_BOOLEAN(
       "Net.QuicCryptoClientConfig.PopulatedFromCanonicalConfig",
@@ -524,26 +570,28 @@ QuicErrorCode QuicCryptoClientConfig::FillClientHello(
     cetv.SetStringPiece(kCIDS, signature);
 
     CrypterPair crypters;
-    if (!CryptoUtils::DeriveKeys(out_params->initial_premaster_secret,
-                                 out_params->aead, out_params->client_nonce,
-                                 out_params->server_nonce, hkdf_input,
-                                 CryptoUtils::CLIENT, &crypters,
-                                 nullptr /* subkey secret */)) {
+    if (!CryptoUtils::DeriveKeys(
+            out_params->initial_premaster_secret, out_params->aead,
+            out_params->client_nonce, out_params->server_nonce, hkdf_input,
+            Perspective::IS_CLIENT, &crypters, nullptr /* subkey secret */)) {
       *error_details = "Symmetric key setup failed";
       return QUIC_CRYPTO_SYMMETRIC_KEY_SETUP_FAILED;
     }
 
     const QuicData& cetv_plaintext = cetv.GetSerialized();
-    scoped_ptr<QuicData> cetv_ciphertext(crypters.encrypter->EncryptPacket(
-        0 /* sequence number */,
-        StringPiece() /* associated data */,
-        cetv_plaintext.AsStringPiece()));
-    if (!cetv_ciphertext.get()) {
+    const size_t encrypted_len =
+        crypters.encrypter->GetCiphertextSize(cetv_plaintext.length());
+    scoped_ptr<char[]> output(new char[encrypted_len]);
+    size_t output_size = 0;
+    if (!crypters.encrypter->EncryptPacket(
+            0 /* sequence number */, StringPiece() /* associated data */,
+            cetv_plaintext.AsStringPiece(), output.get(), &output_size,
+            encrypted_len)) {
       *error_details = "Packet encryption failed";
       return QUIC_ENCRYPTION_FAILURE;
     }
 
-    out->SetStringPiece(kCETV, cetv_ciphertext->AsStringPiece());
+    out->SetStringPiece(kCETV, StringPiece(output.get(), output_size));
     out->MarkDirty();
 
     out->set_minimum_size(orig_min_size);
@@ -568,10 +616,10 @@ QuicErrorCode QuicCryptoClientConfig::FillClientHello(
   hkdf_input.append(out_params->hkdf_input_suffix);
 
   if (!CryptoUtils::DeriveKeys(
-           out_params->initial_premaster_secret, out_params->aead,
-           out_params->client_nonce, out_params->server_nonce, hkdf_input,
-           CryptoUtils::CLIENT, &out_params->initial_crypters,
-           nullptr /* subkey secret */)) {
+          out_params->initial_premaster_secret, out_params->aead,
+          out_params->client_nonce, out_params->server_nonce, hkdf_input,
+          Perspective::IS_CLIENT, &out_params->initial_crypters,
+          nullptr /* subkey secret */)) {
     *error_details = "Symmetric key setup failed";
     return QUIC_CRYPTO_SYMMETRIC_KEY_SETUP_FAILED;
   }
@@ -651,8 +699,8 @@ QuicErrorCode QuicCryptoClientConfig::ProcessRejection(
     string* error_details) {
   DCHECK(error_details != nullptr);
 
-  if (rej.tag() != kREJ) {
-    *error_details = "Message is not REJ";
+  if ((rej.tag() != kREJ) && (rej.tag() != kSREJ)) {
+    *error_details = "Message is not REJ or SREJ";
     return QUIC_CRYPTO_INTERNAL_ERROR;
   }
 
@@ -669,7 +717,7 @@ QuicErrorCode QuicCryptoClientConfig::ProcessRejection(
 
   const uint32* reject_reasons;
   size_t num_reject_reasons;
-  COMPILE_ASSERT(sizeof(QuicTag) == sizeof(uint32), header_out_of_sync);
+  static_assert(sizeof(QuicTag) == sizeof(uint32), "header out of sync");
   if (rej.GetTaglist(kRREJ, &reject_reasons,
                      &num_reject_reasons) == QUIC_NO_ERROR) {
     uint32 packed_error = 0;
@@ -690,6 +738,19 @@ QuicErrorCode QuicCryptoClientConfig::ProcessRejection(
       UMA_HISTOGRAM_SPARSE_SLOWLY("Net.QuicClientHelloRejectReasons.Insecure",
                                   packed_error);
     }
+  }
+
+  if (rej.tag() == kSREJ) {
+    QuicConnectionId connection_id;
+    if (rej.GetUint64(kRCID, &connection_id) != QUIC_NO_ERROR) {
+      *error_details = "Missing kRCID";
+      return QUIC_CRYPTO_MESSAGE_PARAMETER_NOT_FOUND;
+    }
+    cached->add_server_designated_connection_id(connection_id);
+    if (!nonce.empty()) {
+      cached->add_server_nonce(nonce.as_string());
+    }
+    return QUIC_NO_ERROR;
   }
 
   return QUIC_NO_ERROR;
@@ -760,10 +821,10 @@ QuicErrorCode QuicCryptoClientConfig::ProcessServerHello(
   hkdf_input.append(out_params->hkdf_input_suffix);
 
   if (!CryptoUtils::DeriveKeys(
-           out_params->forward_secure_premaster_secret, out_params->aead,
-           out_params->client_nonce, out_params->server_nonce, hkdf_input,
-           CryptoUtils::CLIENT, &out_params->forward_secure_crypters,
-           &out_params->subkey_secret)) {
+          out_params->forward_secure_premaster_secret, out_params->aead,
+          out_params->client_nonce, out_params->server_nonce, hkdf_input,
+          Perspective::IS_CLIENT, &out_params->forward_secure_crypters,
+          &out_params->subkey_secret)) {
     *error_details = "Symmetric key setup failed";
     return QUIC_CRYPTO_SYMMETRIC_KEY_SETUP_FAILED;
   }
@@ -826,7 +887,7 @@ void QuicCryptoClientConfig::PreferAesGcm() {
   if (aead.size() <= 1) {
     return;
   }
-  QuicTagVector::iterator pos = find(aead.begin(), aead.end(), kAESG);
+  QuicTagVector::iterator pos = std::find(aead.begin(), aead.end(), kAESG);
   if (pos != aead.end()) {
     aead.erase(pos);
     aead.insert(aead.begin(), kAESG);
@@ -843,12 +904,13 @@ bool QuicCryptoClientConfig::PopulateFromCanonicalConfig(
   DCHECK(server_state->IsEmpty());
   size_t i = 0;
   for (; i < canonical_suffixes_.size(); ++i) {
-    if (EndsWith(server_id.host(), canonical_suffixes_[i], false)) {
+    if (base::EndsWith(server_id.host(), canonical_suffixes_[i], false)) {
       break;
     }
   }
-  if (i == canonical_suffixes_.size())
+  if (i == canonical_suffixes_.size()) {
     return false;
+  }
 
   QuicServerId suffix_server_id(canonical_suffixes_[i], server_id.port(),
                                 server_id.is_https(),

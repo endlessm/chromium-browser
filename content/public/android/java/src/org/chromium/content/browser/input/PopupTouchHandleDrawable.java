@@ -13,10 +13,10 @@ import android.view.View;
 import android.view.animation.AnimationUtils;
 import android.widget.PopupWindow;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.CalledByNative;
 import org.chromium.base.JNINamespace;
 import org.chromium.content.browser.PositionObserver;
+import org.chromium.ui.touch_selection.TouchHandleOrientation;
 
 import java.lang.ref.WeakReference;
 
@@ -58,12 +58,7 @@ public class PopupTouchHandleDrawable extends View {
 
     private final int[] mTempScreenCoords = new int[2];
 
-    @SuppressLint("RtlHardcoded")
-    static final int LEFT = 0;
-    static final int CENTER = 1;
-    @SuppressLint("RtlHardcoded")
-    static final int RIGHT = 2;
-    private int mOrientation = -1;
+    private int mOrientation = TouchHandleOrientation.UNDEFINED;
 
     // Length of the delay before fading in after the last page movement.
     private static final int FADE_IN_DELAY_MS = 300;
@@ -72,6 +67,13 @@ public class PopupTouchHandleDrawable extends View {
     private long mFadeStartTime;
     private boolean mVisible;
     private boolean mTemporarilyHidden;
+
+    // There are no guarantees that the side effects of setting the position of
+    // the PopupWindow and the visibility of its content View will be realized
+    // in the same frame. Thus, to ensure the PopupWindow is seen in the right
+    // location, when the PopupWindow reappears we delay the visibility update
+    // by one frame after setting the position.
+    private boolean mDelayVisibilityUpdateWAR;
 
     // Deferred runnable to avoid invalidating outside of frame dispatch,
     // in turn avoiding issues with sync barrier insertion.
@@ -127,12 +129,8 @@ public class PopupTouchHandleDrawable extends View {
     @SuppressLint("ClickableViewAccessibility")
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        final PopupTouchHandleDrawableDelegate delegate = mDelegate.get();
-        if (delegate == null) {
-            // If the delegate is gone, we should immediately dispose of the popup.
-            hide();
-            return false;
-        }
+        final PopupTouchHandleDrawableDelegate delegate = getDelegateAndHideIfNull();
+        if (delegate == null) return false;
 
         // Convert from PopupWindow local coordinates to
         // parent view local coordinates prior to forwarding.
@@ -146,35 +144,40 @@ public class PopupTouchHandleDrawable extends View {
         return handled;
     }
 
+    @CalledByNative
     private void setOrientation(int orientation) {
-        assert orientation >= LEFT && orientation <= RIGHT;
+        assert (orientation >= TouchHandleOrientation.LEFT
+                && orientation <= TouchHandleOrientation.UNDEFINED);
         if (mOrientation == orientation) return;
 
-        final boolean hadValidOrientation = mOrientation != -1;
+        final boolean hadValidOrientation = mOrientation != TouchHandleOrientation.UNDEFINED;
         mOrientation = orientation;
 
         final int oldAdjustedPositionX = getAdjustedPositionX();
         final int oldAdjustedPositionY = getAdjustedPositionY();
 
         switch (orientation) {
-            case LEFT: {
+            case TouchHandleOrientation.LEFT: {
                 mDrawable = HandleViewResources.getLeftHandleDrawable(mContext);
                 mHotspotX = (mDrawable.getIntrinsicWidth() * 3) / 4f;
                 break;
             }
 
-            case RIGHT: {
+            case TouchHandleOrientation.RIGHT: {
                 mDrawable = HandleViewResources.getRightHandleDrawable(mContext);
                 mHotspotX = mDrawable.getIntrinsicWidth() / 4f;
                 break;
             }
 
-            case CENTER:
-            default: {
+            case TouchHandleOrientation.CENTER: {
                 mDrawable = HandleViewResources.getCenterHandleDrawable(mContext);
                 mHotspotX = mDrawable.getIntrinsicWidth() / 2f;
                 break;
             }
+
+            case TouchHandleOrientation.UNDEFINED:
+            default:
+                break;
         }
         mHotspotY = 0;
 
@@ -205,8 +208,20 @@ public class PopupTouchHandleDrawable extends View {
     }
 
     private void updateVisibility() {
-        boolean visible = mVisible && !mTemporarilyHidden;
-        setVisibility(visible ? VISIBLE : INVISIBLE);
+        int newVisibility = mVisible && !mTemporarilyHidden ? VISIBLE : INVISIBLE;
+
+        // When regaining visibility, delay the visibility update by one frame
+        // to ensure the PopupWindow has first been positioned properly.
+        if (newVisibility == VISIBLE && getVisibility() != VISIBLE) {
+            if (!mDelayVisibilityUpdateWAR) {
+                mDelayVisibilityUpdateWAR = true;
+                scheduleInvalidate();
+                return;
+            }
+        }
+        mDelayVisibilityUpdateWAR = false;
+
+        setVisibility(newVisibility);
     }
 
     private void updateAlpha() {
@@ -225,8 +240,8 @@ public class PopupTouchHandleDrawable extends View {
 
     private void doInvalidate() {
         if (!mContainer.isShowing()) return;
-        updatePosition();
         updateVisibility();
+        updatePosition();
         invalidate();
     }
 
@@ -243,7 +258,7 @@ public class PopupTouchHandleDrawable extends View {
 
         if (mHasPendingInvalidate) return;
         mHasPendingInvalidate = true;
-        ApiCompatibilityUtils.postOnAnimation(this, mInvalidationRunnable);
+        postOnAnimation(mInvalidationRunnable);
     }
 
     private void rescheduleFadeIn() {
@@ -262,8 +277,7 @@ public class PopupTouchHandleDrawable extends View {
         }
 
         removeCallbacks(mDeferredHandleFadeInRunnable);
-        ApiCompatibilityUtils.postOnAnimationDelayed(
-                this, mDeferredHandleFadeInRunnable, FADE_IN_DELAY_MS);
+        postOnAnimationDelayed(mDeferredHandleFadeInRunnable, FADE_IN_DELAY_MS);
     }
 
     private void beginFadeIn() {
@@ -290,6 +304,12 @@ public class PopupTouchHandleDrawable extends View {
         mDrawable.draw(c);
     }
 
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        hide();
+    }
+
     // Returns the x coordinate of the position that the handle appears to be pointing to relative
     // to the handles "parent" view.
     private int getAdjustedPositionX() {
@@ -302,13 +322,16 @@ public class PopupTouchHandleDrawable extends View {
         return mPositionY + Math.round(mHotspotY);
     }
 
-    private boolean isScrollInProgress() {
+    private PopupTouchHandleDrawableDelegate getDelegateAndHideIfNull() {
         final PopupTouchHandleDrawableDelegate delegate = mDelegate.get();
-        if (delegate == null) {
-            hide();
-            return false;
-        }
+        // If the delegate is gone, we should immediately dispose of the popup.
+        if (delegate == null) hide();
+        return delegate;
+    }
 
+    private boolean isScrollInProgress() {
+        final PopupTouchHandleDrawableDelegate delegate = getDelegateAndHideIfNull();
+        if (delegate == null) return false;
         return delegate.isScrollInProgress();
     }
 
@@ -316,11 +339,8 @@ public class PopupTouchHandleDrawable extends View {
     private void show() {
         if (mContainer.isShowing()) return;
 
-        final PopupTouchHandleDrawableDelegate delegate = mDelegate.get();
-        if (delegate == null) {
-            hide();
-            return;
-        }
+        final PopupTouchHandleDrawableDelegate delegate = getDelegateAndHideIfNull();
+        if (delegate == null) return;
 
         mParentPositionObserver = delegate.getParentPositionObserver();
         assert mParentPositionObserver != null;
@@ -338,33 +358,14 @@ public class PopupTouchHandleDrawable extends View {
     @CalledByNative
     private void hide() {
         mTemporarilyHidden = false;
-        mContainer.dismiss();
+        mAlpha = 1.0f;
+        if (mDeferredHandleFadeInRunnable != null) removeCallbacks(mDeferredHandleFadeInRunnable);
+        if (mContainer.isShowing()) mContainer.dismiss();
         if (mParentPositionObserver != null) {
             mParentPositionObserver.removeListener(mParentPositionListener);
             // Clear the strong reference to allow garbage collection.
             mParentPositionObserver = null;
         }
-    }
-
-    @CalledByNative
-    private void setRightOrientation() {
-        setOrientation(RIGHT);
-    }
-
-    @CalledByNative
-    private void setLeftOrientation() {
-        setOrientation(LEFT);
-    }
-
-    @CalledByNative
-    private void setCenterOrientation() {
-        setOrientation(CENTER);
-    }
-
-    @CalledByNative
-    private void setOpacity(float alpha) {
-        // Ignore opacity updates from the caller as they are not compatible
-        // with the custom fade animation.
     }
 
     @CalledByNative
@@ -390,13 +391,24 @@ public class PopupTouchHandleDrawable extends View {
     }
 
     @CalledByNative
-    private boolean intersectsWith(float x, float y, float width, float height) {
-        if (mDrawable == null) return false;
-        final int drawableWidth = mDrawable.getIntrinsicWidth();
-        final int drawableHeight = mDrawable.getIntrinsicHeight();
-        return !(x >= mPositionX + drawableWidth
-                || y >= mPositionY + drawableHeight
-                || x + width <= mPositionX
-                || y + height <= mPositionY);
+    private int getPositionX() {
+        return mPositionX;
+    }
+
+    @CalledByNative
+    private int getPositionY() {
+        return mPositionY;
+    }
+
+    @CalledByNative
+    private int getVisibleWidth() {
+        if (mDrawable == null) return 0;
+        return mDrawable.getIntrinsicWidth();
+    }
+
+    @CalledByNative
+    private int getVisibleHeight() {
+        if (mDrawable == null) return 0;
+        return mDrawable.getIntrinsicHeight();
     }
 }

@@ -7,7 +7,7 @@
 
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ui/omnibox/omnibox_popup_model.h"
-#include "chrome/browser/ui/omnibox/omnibox_popup_view.h"
+#include "components/omnibox/browser/omnibox_popup_view.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/animation/slide_animation.h"
@@ -40,7 +40,7 @@ class OmniboxPopupContentsView : public views::View,
 
   virtual void LayoutChildren();
 
-  // Overridden from OmniboxPopupView:
+  // OmniboxPopupView:
   bool IsOpen() const override;
   void InvalidateLine(size_t line) override;
   void UpdatePopupAppearance() override;
@@ -48,10 +48,10 @@ class OmniboxPopupContentsView : public views::View,
   void PaintUpdatesNow() override;
   void OnDragCanceled() override;
 
-  // Overridden from gfx::AnimationDelegate:
+  // gfx::AnimationDelegate:
   void AnimationProgressed(const gfx::Animation* animation) override;
 
-  // Overridden from views::View:
+  // views::View:
   void Layout() override;
   views::View* GetTooltipHandlerForPoint(const gfx::Point& point) override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
@@ -61,8 +61,6 @@ class OmniboxPopupContentsView : public views::View,
   void OnMouseMoved(const ui::MouseEvent& event) override;
   void OnMouseEntered(const ui::MouseEvent& event) override;
   void OnMouseExited(const ui::MouseEvent& event) override;
-
-  // Overridden from ui::EventHandler:
   void OnGestureEvent(ui::GestureEvent* event) override;
 
   bool IsSelectedIndex(size_t index) const;
@@ -83,26 +81,18 @@ class OmniboxPopupContentsView : public views::View,
 
   LocationBarView* location_bar_view() { return location_bar_view_; }
 
-  virtual void PaintResultViews(gfx::Canvas* canvas);
-
   // Calculates the height needed to show all the results in the model.
   virtual int CalculatePopupHeight();
   virtual OmniboxResultView* CreateResultView(int model_index,
                                               const gfx::FontList& font_list);
 
-  // Overridden from views::View:
-  void OnPaint(gfx::Canvas* canvas) override;
-  // This method should not be triggered directly as we paint our children
-  // in an un-conventional way inside OnPaint. We use a separate canvas to
-  // paint the children. Hence we override this method to a no-op so that
-  // the view hierarchy does not "accidentally" trigger this.
-  void PaintChildren(gfx::Canvas* canvas,
-                     const views::CullSet& cull_set) override;
-
-  scoped_ptr<OmniboxPopupModel> model_;
-
  private:
   class AutocompletePopupWidget;
+
+  // views::View:
+  const char* GetClassName() const override;
+  void OnPaint(gfx::Canvas* canvas) override;
+  void PaintChildren(const ui::PaintContext& context) override;
 
   // views::ViewTargeterDelegate:
   views::View* TargetForRect(views::View* root, const gfx::Rect& rect) override;
@@ -115,10 +105,6 @@ class OmniboxPopupContentsView : public views::View,
 
   // Returns the match at the specified index within the popup model.
   const AutocompleteMatch& GetMatchAtIndex(size_t index) const;
-
-  // Fill a path for the contents' roundrect. |bounding_rect| is the rect that
-  // bounds the path.
-  void MakeContentsPath(gfx::Path* path, const gfx::Rect& bounding_rect);
 
   // Find the index of the match under the given |point|, specified in window
   // coordinates. Returns OmniboxPopupModel::kNoMatch if there isn't a match at
@@ -136,6 +122,8 @@ class OmniboxPopupContentsView : public views::View,
                         WindowOpenDisposition disposition);
 
   OmniboxResultView* result_view_at(size_t i);
+
+  scoped_ptr<OmniboxPopupModel> model_;
 
   // The popup that contains this view.  We create this, but it deletes itself
   // when its window is destroyed.  This is a WeakPtr because it's possible for
@@ -169,9 +157,6 @@ class OmniboxPopupContentsView : public views::View,
   int right_margin_;
 
   const gfx::ImageSkia* bottom_shadow_;  // Ptr owned by resource bundle.
-
-  // Amount of extra padding to add to the popup on the top and bottom.
-  int outside_vertical_padding_;
 
   // When the dropdown is not wide enough while displaying postfix suggestions,
   // we use the width of widest match contents to shift the suggestions so that

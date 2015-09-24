@@ -25,7 +25,6 @@
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_navigator.h"
@@ -33,15 +32,14 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/sync/one_click_signin_sync_observer.h"
+#include "chrome/browser/ui/tab_dialogs.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service_factory.h"
-#include "chrome/browser/ui/webui/signin/profile_signin_confirmation_dialog.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/signin/core/browser/signin_metrics.h"
-#include "components/signin/core/common/profile_management_switches.h"
 #include "components/sync_driver/sync_prefs.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -75,6 +73,7 @@ void SetUserChoiceHistogram(SigninChoice choice) {
 OneClickSigninSyncStarter::OneClickSigninSyncStarter(
     Profile* profile,
     Browser* browser,
+    const std::string& gaia_id,
     const std::string& email,
     const std::string& password,
     const std::string& refresh_token,
@@ -100,7 +99,7 @@ OneClickSigninSyncStarter::OneClickSigninSyncStarter(
   // before signin completes.
   SigninManagerFactory::GetForProfile(profile_)->
       StartSignInWithRefreshToken(
-          refresh_token, email, password,
+          refresh_token, gaia_id, email, password,
           base::Bind(&OneClickSigninSyncStarter::ConfirmSignin,
                      weak_pointer_factory_.GetWeakPtr()));
 }
@@ -142,16 +141,16 @@ void OneClickSigninSyncStarter::Initialize(Profile* profile, Browser* browser) {
   if (profile_sync_service)
     profile_sync_service->SetSetupInProgress(true);
 
-  // Make sure the syncing is not suppressed, otherwise the SigninManager
+  // Make sure the syncing is requested, otherwise the SigninManager
   // will not be able to complete sucessfully.
   sync_driver::SyncPrefs sync_prefs(profile_->GetPrefs());
-  sync_prefs.SetStartSuppressed(false);
+  sync_prefs.SetSyncRequested(true);
 }
 
 void OneClickSigninSyncStarter::ConfirmSignin(const std::string& oauth_token) {
   DCHECK(!oauth_token.empty());
   SigninManager* signin = SigninManagerFactory::GetForProfile(profile_);
-  // If this is a new signin (no authenticated username yet) try loading
+  // If this is a new signin (no account authenticated yet) try loading
   // policy for this user now, before any signed in services are initialized.
   if (!signin->IsAuthenticated()) {
 #if defined(ENABLE_CONFIGURATION_POLICY)
@@ -229,9 +228,8 @@ void OneClickSigninSyncStarter::OnRegisteredForPolicy(
     CancelSigninAndDelete();
     return;
   }
-  chrome::ShowProfileSigninConfirmationDialog(
+  TabDialogs::FromWebContents(web_contents)->ShowProfileSigninConfirmation(
       browser_,
-      web_contents,
       profile_,
       signin->GetUsernameForAuthInProgress(),
       new SigninDialogDelegate(weak_pointer_factory_.GetWeakPtr()));
@@ -432,13 +430,11 @@ void OneClickSigninSyncStarter::SigninFailed(
 }
 
 void OneClickSigninSyncStarter::SigninSuccess() {
-  if (switches::IsEnableWebBasedSignin())
-    MergeSessionComplete(GoogleServiceAuthError(GoogleServiceAuthError::NONE));
 }
 
-void OneClickSigninSyncStarter::MergeSessionComplete(
+void OneClickSigninSyncStarter::AccountAddedToCookie(
     const GoogleServiceAuthError& error) {
-  // Regardless of whether the merge session completed sucessfully or not,
+  // Regardless of whether the account was successfully added or not,
   // continue with sync starting.
 
   if (!sync_setup_completed_callback_.is_null())
@@ -537,8 +533,7 @@ void OneClickSigninSyncStarter::ShowSettingsPage(bool configure_sync) {
           Profile::FromBrowserContext(web_contents()->GetBrowserContext()) ==
           profile_;
       use_same_tab =
-          (is_chrome_signin_url ||
-           signin::IsContinueUrlForWebBasedSigninFlow(current_url)) &&
+          is_chrome_signin_url &&
           !signin::IsAutoCloseEnabledInURL(current_url) &&
           is_same_profile;
     }
@@ -574,7 +569,7 @@ void OneClickSigninSyncStarter::ShowSettingsPage(bool configure_sync) {
 
 ProfileSyncService* OneClickSigninSyncStarter::GetProfileSyncService() {
   ProfileSyncService* service = NULL;
-  if (profile_->IsSyncAccessible())
+  if (profile_->IsSyncAllowed())
     service = ProfileSyncServiceFactory::GetForProfile(profile_);
   return service;
 }

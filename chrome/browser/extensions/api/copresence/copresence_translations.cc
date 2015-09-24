@@ -4,6 +4,7 @@
 
 #include "chrome/browser/extensions/api/copresence/copresence_translations.h"
 
+#include "base/stl_util.h"
 #include "chrome/common/extensions/api/copresence.h"
 #include "components/copresence/proto/data.pb.h"
 #include "components/copresence/proto/enums.pb.h"
@@ -89,7 +90,9 @@ bool AddPublishToRequest(const std::string& app_id,
   publish_proto->set_id(publish.id);
   publish_proto->mutable_message()->mutable_type()->set_type(
       publish.message.type);
-  publish_proto->mutable_message()->set_payload(publish.message.payload);
+  publish_proto->mutable_message()->set_payload(
+      vector_as_array(&publish.message.payload),
+      publish.message.payload.size());
 
   int ttl = SanitizeTtl(publish.time_to_live_millis.get());
   if (ttl < 0)
@@ -101,7 +104,8 @@ bool AddPublishToRequest(const std::string& app_id,
                            publish_proto->mutable_token_exchange_strategy());
 
   DVLOG(2) << "Publishing message of type " << publish.message.type << ":\n"
-           << publish.message.payload;
+           << std::string(publish.message.payload.begin(),
+                          publish.message.payload.end());
   // TODO(ckehoe): Validate that required fields are non-empty, etc.
   return true;
 }
@@ -200,15 +204,14 @@ bool PrepareReportRequestProto(
     const std::string& app_id,
     SubscriptionToAppMap* apps_by_subscription_id,
     ReportRequest* request) {
-  for (size_t i = 0; i < operations.size(); ++i) {
-    linked_ptr<Operation> op = operations[i];
+  for (const linked_ptr<Operation>& op : operations) {
     DCHECK(op.get());
 
     // Verify our object has exactly one operation.
-    if (static_cast<int>(op->publish != NULL) +
-        static_cast<int>(op->subscribe != NULL) +
-        static_cast<int>(op->unpublish != NULL) +
-        static_cast<int>(op->unsubscribe != NULL) != 1) {
+    if (static_cast<int>(op->publish != nullptr) +
+        static_cast<int>(op->subscribe != nullptr) +
+        static_cast<int>(op->unpublish != nullptr) +
+        static_cast<int>(op->unsubscribe != nullptr) != 1) {
       return false;
     }
 

@@ -8,7 +8,6 @@
 
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/host_desktop.h"
@@ -33,21 +32,6 @@
 #include "ui/views/layout/layout_constants.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/dialog_client_view.h"
-
-namespace chrome {
-// Declared in browser_dialogs.h
-void ShowProfileSigninConfirmationDialog(
-    Browser* browser,
-    content::WebContents* web_contents,
-    Profile* profile,
-    const std::string& username,
-    ui::ProfileSigninConfirmationDelegate* delegate) {
-  ProfileSigninConfirmationDialogViews::ShowDialog(browser,
-                                                   profile,
-                                                   username,
-                                                   delegate);
-}
-}  // namespace chrome
 
 ProfileSigninConfirmationDialogViews::ProfileSigninConfirmationDialogViews(
     Browser* browser,
@@ -91,7 +75,7 @@ void ProfileSigninConfirmationDialogViews::ShowDialog(
 
 void ProfileSigninConfirmationDialogViews::Show(bool prompt_for_new_profile) {
   prompt_for_new_profile_ = prompt_for_new_profile;
-  CreateBrowserModalDialogViews(
+  constrained_window::CreateBrowserModalDialogViews(
       this, browser_->window()->GetNativeWindow())->Show();
 }
 
@@ -153,7 +137,7 @@ void ProfileSigninConfirmationDialogViews::OnClosed() {
 }
 
 ui::ModalType ProfileSigninConfirmationDialogViews::GetModalType() const {
-  return ui::MODAL_TYPE_CHILD;
+  return ui::MODAL_TYPE_WINDOW;
 }
 
 void ProfileSigninConfirmationDialogViews::ViewHierarchyChanged(
@@ -252,7 +236,7 @@ void ProfileSigninConfirmationDialogViews::StyledLabelLinkClicked(
     int event_flags) {
   chrome::NavigateParams params(
       browser_,
-      GURL("http://support.google.com/chromeos/bin/answer.py?answer=1331549"),
+      GURL("https://support.google.com/chromebook/answer/1331549"),
       ui::PAGE_TRANSITION_LINK);
   params.disposition = NEW_POPUP;
   params.window_action = chrome::NavigateParams::SHOW_WINDOW;

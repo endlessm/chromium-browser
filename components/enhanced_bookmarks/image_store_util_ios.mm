@@ -8,6 +8,8 @@
 
 #include "base/mac/scoped_cftyperef.h"
 #include "base/mac/scoped_nsobject.h"
+#include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/gfx/color_analysis.h"
 
 namespace {
 // An implementation of RefCountedMemory, where the bytes are stored in a
@@ -16,16 +18,14 @@ class RefCountedNSDataMemory : public base::RefCountedMemory {
  public:
   explicit RefCountedNSDataMemory(NSData* memory) : data_([memory retain]) {}
 
-  virtual const unsigned char* front() const override {
+  const unsigned char* front() const override {
     return reinterpret_cast<const unsigned char*>([data_ bytes]);
   }
 
-  virtual size_t size() const override {
-    return [data_ length];
-  }
+  size_t size() const override { return [data_ length]; }
 
 private:
-  virtual ~RefCountedNSDataMemory() {}
+ ~RefCountedNSDataMemory() override {}
 
   base::scoped_nsobject<NSData> data_;
   DISALLOW_COPY_AND_ASSIGN(RefCountedNSDataMemory);
@@ -45,6 +45,10 @@ scoped_refptr<base::RefCountedMemory> BytesForImage(const gfx::Image& image) {
 gfx::Image ImageForBytes(const scoped_refptr<base::RefCountedMemory>& data) {
   return gfx::Image([[NSKeyedUnarchiver unarchiveObjectWithData:
       [NSData dataWithBytes:data->front() length:data->size()]] retain]);
+}
+
+SkColor DominantColorForImage(const gfx::Image& image) {
+  return color_utils::CalculateKMeanColorOfBitmap(*image.ToSkBitmap());
 }
 
 }  // namespace enhanced_bookmarks

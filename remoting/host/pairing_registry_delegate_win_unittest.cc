@@ -18,7 +18,7 @@ using protocol::PairingRegistry;
 
 class PairingRegistryDelegateWinTest : public testing::Test {
  public:
-  virtual void SetUp() override {
+  void SetUp() override {
     key_name_ = base::GenerateGUID();
 
     base::win::RegKey root;
@@ -32,7 +32,7 @@ class PairingRegistryDelegateWinTest : public testing::Test {
                                      KEY_READ | KEY_WRITE) == ERROR_SUCCESS);
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     privileged_.Close();
     unprivileged_.Close();
     EXPECT_TRUE(
@@ -112,7 +112,7 @@ TEST_F(PairingRegistryDelegateWinTest, Unprivileged) {
   // Strip the delegate from write access and validate that it still can be used
   // to read the pairings.
   delegate.reset(new PairingRegistryDelegateWin());
-  delegate->SetRootKeys(NULL, unprivileged_.Handle());
+  delegate->SetRootKeys(nullptr, unprivileged_.Handle());
 
   PairingRegistry::Pairing unprivileged_pairing =
       delegate->Load(pairing.client_id());

@@ -18,9 +18,6 @@ LIBRARY_DEPENDENCIES_DEFAULT = {
     'debug_stub': [
         'sel',
         ],
-    'desc_cacheability': [
-        'nrd_xfer',
-        ],
     'imc': [
         'platform',
         ],
@@ -41,14 +38,9 @@ LIBRARY_DEPENDENCIES_DEFAULT = {
     'platform_qual_lib': [
         'cpu_features',
         ],
-    'reverse_service': [
-        'validation_cache',
-        ],
     'sel': [
-        'desc_cacheability',
         'nacl_error_code',
         'env_cleanser',
-        'manifest_proxy',
         'simple_service',
         'thread_interface',
         'nonnacl_srpc',
@@ -167,7 +159,7 @@ def AddLibDeps(env, platform, libraries):
         PLATFORM_LIBRARY_DEPENDENCIES.get(platform, {}).get(library, []))
     if env['NACL_BUILD_FAMILY'] != 'TRUSTED':
       ret.extend(UNTRUSTED_LIBRARY_DEPENDENCIES.get(library, []))
-    if library == 'validators' and env.Bit('target_x86'):
+    if library == 'validators' and env.Bit('build_x86'):
       ret.append(env.NaClTargetArchSuffix('dfa_validate_caller'))
     return ret
 

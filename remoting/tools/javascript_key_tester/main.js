@@ -4,16 +4,43 @@
  */
 
 function onLoad() {
-  var parentDiv = document.getElementById('key-log');
-  var chordTracker = new ChordTracker(parentDiv);
-  document.body.addEventListener(
-      'keydown', chordTracker.addKeyEvent.bind(chordTracker), false);
-  document.body.addEventListener(
-      'keyup', chordTracker.addKeyEvent.bind(chordTracker), false);
-  window.addEventListener(
-      'blur', chordTracker.releaseAllKeys.bind(chordTracker), false);
+  var pnaclLog = document.getElementById('pnacl-log');
+  var pnaclPlugin = document.getElementById('pnacl-plugin');
+  var pnaclListener = document.getElementById('pnacl-listener');
+  var textLog = document.getElementById('text-log');
+  var textLogContainer = document.getElementById('text-log-container');
+
+  var eventListeners = new EventListeners(pnaclLog, textLog,
+                                          pnaclPlugin, pnaclListener);
+  eventListeners.activate();
+
   document.getElementById('clear-log').addEventListener(
-      'click', function() { parentDiv.innerText = ''; }, false);
+      'click',
+      function() {
+        pnaclLog.innerText = '';
+        textLog.innerText = '';
+      },
+      false);
+  document.getElementById('show-log').addEventListener(
+      'click',
+      function() {
+        eventListeners.deactivate();
+        textLogContainer.hidden = false;
+
+        var selection = window.getSelection();
+        var range = document.createRange();
+        range.selectNodeContents(textLog);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      },
+      false);
+  document.getElementById('hide-log').addEventListener(
+      'click',
+      function() {
+        eventListeners.activate();
+        textLogContainer.hidden = true;
+      },
+      false);
 }
 
 window.addEventListener('load', onLoad, false);

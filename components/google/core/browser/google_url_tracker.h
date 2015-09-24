@@ -16,11 +16,14 @@
 #include "net/url_request/url_fetcher_delegate.h"
 #include "url/gurl.h"
 
-class GoogleURLTrackerNavigationHelper;
 class PrefService;
 
 namespace infobars {
 class InfoBar;
+}
+
+namespace user_prefs {
+class PrefRegistrySyncable;
 }
 
 // This object is responsible for checking the Google URL once per network
@@ -57,6 +60,10 @@ class GoogleURLTracker
   GoogleURLTracker(scoped_ptr<GoogleURLTrackerClient> client, Mode mode);
 
   ~GoogleURLTracker() override;
+
+  // Register user preferences for GoogleURLTracker.
+  static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
+
 
   // Returns the current Google homepage URL.
   const GURL& google_url() const { return google_url_; }

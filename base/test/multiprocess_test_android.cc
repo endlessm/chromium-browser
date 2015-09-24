@@ -2,13 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/posix/global_descriptors.h"
 #include "base/test/multiprocess_test.h"
 
 #include <unistd.h>
 
+#include "base/base_switches.h"
+#include "base/command_line.h"
 #include "base/containers/hash_tables.h"
 #include "base/logging.h"
+#include "base/posix/global_descriptors.h"
 #include "testing/multiprocess_func_list.h"
 
 namespace base {
@@ -16,11 +18,10 @@ namespace base {
 // A very basic implementation for Android. On Android tests can run in an APK
 // and we don't have an executable to exec*. This implementation does the bare
 // minimum to execute the method specified by procname (in the child process).
-//  - |base_command_line| is ignored.
 //  - All options except |fds_to_remap| are ignored.
-ProcessHandle SpawnMultiProcessTestChild(const std::string& procname,
-                                         const CommandLine& base_command_line,
-                                         const LaunchOptions& options) {
+Process SpawnMultiProcessTestChild(const std::string& procname,
+                                   const CommandLine& base_command_line,
+                                   const LaunchOptions& options) {
   // TODO(viettrungluu): The FD-remapping done below is wrong in the presence of
   // cycles (e.g., fd1 -> fd2, fd2 -> fd1). crbug.com/326576
   FileHandleMappingVector empty;
@@ -31,11 +32,11 @@ ProcessHandle SpawnMultiProcessTestChild(const std::string& procname,
 
   if (pid < 0) {
     PLOG(ERROR) << "fork";
-    return kNullProcessHandle;
+    return Process();
   }
   if (pid > 0) {
     // Parent process.
-    return pid;
+    return Process(pid);
   }
   // Child process.
   base::hash_set<int> fds_to_keep_open;
@@ -60,8 +61,15 @@ ProcessHandle SpawnMultiProcessTestChild(const std::string& procname,
     }
     close(old_fd);
   }
+  CommandLine::Reset();
+  CommandLine::Init(0, nullptr);
+  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  command_line->InitFromArgv(base_command_line.argv());
+  if (!command_line->HasSwitch(switches::kTestChildProcess))
+    command_line->AppendSwitchASCII(switches::kTestChildProcess, procname);
+
   _exit(multi_process_function_list::InvokeChildProcessTest(procname));
-  return 0;
+  return Process();
 }
 
 }  // namespace base

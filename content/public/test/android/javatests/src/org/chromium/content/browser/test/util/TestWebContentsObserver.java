@@ -4,11 +4,11 @@
 
 package org.chromium.content.browser.test.util;
 
-import org.chromium.content.browser.WebContentsObserver;
 import org.chromium.content.browser.test.util.TestCallbackHelperContainer.OnPageFinishedHelper;
 import org.chromium.content.browser.test.util.TestCallbackHelperContainer.OnPageStartedHelper;
 import org.chromium.content.browser.test.util.TestCallbackHelperContainer.OnReceivedErrorHelper;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.content_public.browser.WebContentsObserver;
 
 /**
  * The default WebContentsObserver used by ContentView tests. The below callbacks can be
@@ -59,8 +59,9 @@ public class TestWebContentsObserver extends WebContentsObserver {
 
     @Override
     public void didFailLoad(boolean isProvisionalLoad, boolean isMainFrame,
-            int errorCode, String description, String failingUrl) {
-        super.didFailLoad(isProvisionalLoad, isMainFrame, errorCode, description, failingUrl);
+            int errorCode, String description, String failingUrl, boolean wasIgnoredByHandler) {
+        super.didFailLoad(isProvisionalLoad, isMainFrame, errorCode, description, failingUrl,
+                wasIgnoredByHandler);
         mOnReceivedErrorHelper.notifyCalled(errorCode, description, failingUrl);
     }
 }

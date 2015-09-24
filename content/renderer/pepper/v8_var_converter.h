@@ -2,13 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CONTENT_RENDERER_PEPPER_V8_VAR_CONVERTER_H
-#define CONTENT_RENDERER_PEPPER_V8_VAR_CONVERTER_H
+#ifndef CONTENT_RENDERER_PEPPER_V8_VAR_CONVERTER_H_
+#define CONTENT_RENDERER_PEPPER_V8_VAR_CONVERTER_H_
 
 #include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/compiler_specific.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "ppapi/c/pp_instance.h"
 #include "ppapi/c/pp_var.h"
 #include "ppapi/shared_impl/scoped_pp_var.h"
@@ -36,8 +35,8 @@ class CONTENT_EXPORT V8VarConverter {
 
   // Converts the given PP_Var to a v8::Value. True is returned upon success.
   bool ToV8Value(const PP_Var& var,
-                 v8::Handle<v8::Context> context,
-                 v8::Handle<v8::Value>* result);
+                 v8::Local<v8::Context> context,
+                 v8::Local<v8::Value>* result);
 
   struct VarResult {
    public:
@@ -66,16 +65,16 @@ class CONTENT_EXPORT V8VarConverter {
   // the conversion can occur synchronously, |callback| will not be run,
   // otherwise it will be run.
   VarResult FromV8Value(
-      v8::Handle<v8::Value> val,
-      v8::Handle<v8::Context> context,
+      v8::Local<v8::Value> val,
+      v8::Local<v8::Context> context,
       const base::Callback<void(const ppapi::ScopedPPVar&, bool)>& callback);
-  bool FromV8ValueSync(v8::Handle<v8::Value> val,
-                       v8::Handle<v8::Context> context,
+  bool FromV8ValueSync(v8::Local<v8::Value> val,
+                       v8::Local<v8::Context> context,
                        ppapi::ScopedPPVar* result_var);
  private:
   // Returns true on success, false on failure.
-  bool FromV8ValueInternal(v8::Handle<v8::Value> val,
-                           v8::Handle<v8::Context> context,
+  bool FromV8ValueInternal(v8::Local<v8::Value> val,
+                           v8::Local<v8::Context> context,
                            ppapi::ScopedPPVar* result_var);
 
   PP_Instance instance_;
@@ -91,4 +90,4 @@ class CONTENT_EXPORT V8VarConverter {
 
 }  // namespace content
 
-#endif  // CONTENT_RENDERER_PEPPER_V8_VAR_CONVERTER_H
+#endif  // CONTENT_RENDERER_PEPPER_V8_VAR_CONVERTER_H_

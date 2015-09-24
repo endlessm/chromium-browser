@@ -41,12 +41,14 @@ bool GrSurface::readPixels(int left, int top, int width, int height,
     return false;
 }
 
-SkImageInfo GrSurface::info() const {
+SkImageInfo GrSurface::info(SkAlphaType alphaType) const {
     SkColorType colorType;
-    if (!GrPixelConfig2ColorType(this->config(), &colorType)) {
+    SkColorProfileType profileType;
+    if (!GrPixelConfig2ColorAndProfileType(this->config(), &colorType, &profileType)) {
         sk_throw();
     }
-    return SkImageInfo::Make(this->width(), this->height(), colorType, kPremul_SkAlphaType);
+    return SkImageInfo::Make(this->width(), this->height(), colorType, alphaType,
+                             profileType);
 }
 
 // TODO: This should probably be a non-member helper function. It might only be needed in
@@ -82,9 +84,9 @@ void GrSurface::flushWrites() {
     }
 }
 
-void GrSurface::prepareForExternalRead() {
+void GrSurface::prepareForExternalIO() {
     if (!this->wasDestroyed()) {
-        this->getContext()->prepareSurfaceForExternalRead(this);
+        this->getContext()->prepareSurfaceForExternalIO(this);
     }
 }
 
@@ -124,13 +126,12 @@ bool GrSurface::hasPendingIO() const {
     return false;
 }
 
-bool GrSurface::isSameAs(const GrSurface* other) const {
-    const GrRenderTarget* thisRT = this->asRenderTarget();
-    if (thisRT) {
-        return thisRT == other->asRenderTarget();
-    } else {
-        const GrTexture* thisTex = this->asTexture();
-        SkASSERT(thisTex); // We must be one or the other
-        return thisTex == other->asTexture();
-    }
+void GrSurface::onRelease() {
+    this->invokeReleaseProc();
+    this->INHERITED::onRelease();
+}
+
+void GrSurface::onAbandon() {
+    this->invokeReleaseProc();
+    this->INHERITED::onAbandon();
 }

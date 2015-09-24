@@ -15,18 +15,10 @@
 #include "content/common/content_export.h"
 #include "media/base/video_decoder_config.h"
 #include "third_party/webrtc/modules/video_coding/codecs/interface/video_codec_interface.h"
-#include "ui/gfx/size.h"
-
-namespace base {
-
-class MessageLoopProxy;
-
-}  // namespace base
+#include "ui/gfx/geometry/size.h"
 
 namespace media {
-
 class GpuVideoAcceleratorFactories;
-
 }  // namespace media
 
 namespace content {
@@ -54,15 +46,15 @@ class CONTENT_EXPORT RTCVideoEncoder
   // appropriate VEA methods.
   int32_t InitEncode(const webrtc::VideoCodec* codec_settings,
                      int32_t number_of_cores,
-                     uint32_t max_payload_size) override;
+                     size_t max_payload_size) override;
   int32_t Encode(
-      const webrtc::I420VideoFrame& input_image,
+      const webrtc::VideoFrame& input_image,
       const webrtc::CodecSpecificInfo* codec_specific_info,
       const std::vector<webrtc::VideoFrameType>* frame_types) override;
   int32_t RegisterEncodeCompleteCallback(
       webrtc::EncodedImageCallback* callback) override;
   int32_t Release() override;
-  int32_t SetChannelParameters(uint32_t packet_loss, int rtt) override;
+  int32_t SetChannelParameters(uint32_t packet_loss, int64_t rtt) override;
   int32_t SetRates(uint32_t new_bit_rate, uint32_t frame_rate) override;
 
  private:
@@ -85,7 +77,7 @@ class CONTENT_EXPORT RTCVideoEncoder
   const webrtc::VideoCodecType video_codec_type_;
 
   // Factory for creating VEAs, shared memory buffers, etc.
-  scoped_refptr<media::GpuVideoAcceleratorFactories> gpu_factories_;
+  const scoped_refptr<media::GpuVideoAcceleratorFactories> gpu_factories_;
 
   // webrtc::VideoEncoder encode complete callback.
   webrtc::EncodedImageCallback* encoded_image_callback_;

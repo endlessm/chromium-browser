@@ -17,40 +17,51 @@ namespace content {
 // "Zyyy" is the ISO 15924 script code for undetermined script aka Common.
 const char kCommonScript[] = "Zyyy";
 
-#define COMPILE_ASSERT_MATCHING_ENUMS(content_name, blink_name)         \
-    COMPILE_ASSERT(                                                     \
+#define STATIC_ASSERT_MATCHING_ENUMS(content_name, blink_name)         \
+    static_assert(                                                     \
         static_cast<int>(content_name) == static_cast<int>(blink_name), \
-        mismatching_enums)
+        "mismatching enums: " #content_name)
 
-COMPILE_ASSERT_MATCHING_ENUMS(EDITING_BEHAVIOR_MAC,
-                              WebSettings::EditingBehaviorMac);
-COMPILE_ASSERT_MATCHING_ENUMS(EDITING_BEHAVIOR_WIN,
-                              WebSettings::EditingBehaviorWin);
-COMPILE_ASSERT_MATCHING_ENUMS(EDITING_BEHAVIOR_UNIX,
-                              WebSettings::EditingBehaviorUnix);
-COMPILE_ASSERT_MATCHING_ENUMS(EDITING_BEHAVIOR_ANDROID,
-                              WebSettings::EditingBehaviorAndroid);
+STATIC_ASSERT_MATCHING_ENUMS(EDITING_BEHAVIOR_MAC,
+                             WebSettings::EditingBehaviorMac);
+STATIC_ASSERT_MATCHING_ENUMS(EDITING_BEHAVIOR_WIN,
+                             WebSettings::EditingBehaviorWin);
+STATIC_ASSERT_MATCHING_ENUMS(EDITING_BEHAVIOR_UNIX,
+                             WebSettings::EditingBehaviorUnix);
+STATIC_ASSERT_MATCHING_ENUMS(EDITING_BEHAVIOR_ANDROID,
+                             WebSettings::EditingBehaviorAndroid);
 
-COMPILE_ASSERT_MATCHING_ENUMS(V8_CACHE_OPTIONS_OFF,
-                              WebSettings::V8CacheOptionsOff);
-COMPILE_ASSERT_MATCHING_ENUMS(V8_CACHE_OPTIONS_PARSE,
-                              WebSettings::V8CacheOptionsParse);
-COMPILE_ASSERT_MATCHING_ENUMS(V8_CACHE_OPTIONS_CODE,
-                              WebSettings::V8CacheOptionsCode);
-COMPILE_ASSERT_MATCHING_ENUMS(V8_CACHE_OPTIONS_LAST,
-                              WebSettings::V8CacheOptionsCode);
+STATIC_ASSERT_MATCHING_ENUMS(V8_CACHE_OPTIONS_DEFAULT,
+                             WebSettings::V8CacheOptionsDefault);
+STATIC_ASSERT_MATCHING_ENUMS(V8_CACHE_OPTIONS_NONE,
+                             WebSettings::V8CacheOptionsNone);
+STATIC_ASSERT_MATCHING_ENUMS(V8_CACHE_OPTIONS_PARSE,
+                             WebSettings::V8CacheOptionsParse);
+STATIC_ASSERT_MATCHING_ENUMS(V8_CACHE_OPTIONS_CODE,
+                             WebSettings::V8CacheOptionsCode);
+STATIC_ASSERT_MATCHING_ENUMS(V8_CACHE_OPTIONS_LAST,
+                             WebSettings::V8CacheOptionsCode);
 
-COMPILE_ASSERT_MATCHING_ENUMS(V8_SCRIPT_STREAMING_MODE_ALL,
-                              WebSettings::V8ScriptStreamingModeAll);
-COMPILE_ASSERT_MATCHING_ENUMS(
-    V8_SCRIPT_STREAMING_MODE_ONLY_ASYNC_AND_DEFER,
-    WebSettings::V8ScriptStreamingModeOnlyAsyncAndDefer);
-COMPILE_ASSERT_MATCHING_ENUMS(
-    V8_SCRIPT_STREAMING_MODE_ALL_PLUS_BLOCK_PARSER_BLOCKING,
-    WebSettings::V8ScriptStreamingModeAllPlusBlockParsingBlocking);
-COMPILE_ASSERT_MATCHING_ENUMS(
-    V8_SCRIPT_STREAMING_MODE_LAST,
-    WebSettings::V8ScriptStreamingModeAllPlusBlockParsingBlocking);
+STATIC_ASSERT_MATCHING_ENUMS(IMAGE_ANIMATION_POLICY_ALLOWED,
+                             WebSettings::ImageAnimationPolicyAllowed);
+STATIC_ASSERT_MATCHING_ENUMS(IMAGE_ANIMATION_POLICY_ANIMATION_ONCE,
+                             WebSettings::ImageAnimationPolicyAnimateOnce);
+STATIC_ASSERT_MATCHING_ENUMS(IMAGE_ANIMATION_POLICY_NO_ANIMATION,
+                             WebSettings::ImageAnimationPolicyNoAnimation);
+
+STATIC_ASSERT_MATCHING_ENUMS(ui::POINTER_TYPE_NONE,
+                             WebSettings::PointerTypeNone);
+STATIC_ASSERT_MATCHING_ENUMS(ui::POINTER_TYPE_COARSE,
+                             WebSettings::PointerTypeCoarse);
+STATIC_ASSERT_MATCHING_ENUMS(ui::POINTER_TYPE_FINE,
+                             WebSettings::PointerTypeFine);
+
+STATIC_ASSERT_MATCHING_ENUMS(ui::HOVER_TYPE_NONE,
+                             WebSettings::HoverTypeNone);
+STATIC_ASSERT_MATCHING_ENUMS(ui::HOVER_TYPE_ON_DEMAND,
+                             WebSettings::HoverTypeOnDemand);
+STATIC_ASSERT_MATCHING_ENUMS(ui::HOVER_TYPE_HOVER,
+                             WebSettings::HoverTypeHover);
 
 WebPreferences::WebPreferences()
     : default_font_size(16),
@@ -58,6 +69,11 @@ WebPreferences::WebPreferences()
       minimum_font_size(0),
       minimum_logical_font_size(6),
       default_encoding("ISO-8859-1"),
+#if defined(OS_WIN)
+      context_menu_on_mouse_up(true),
+#else
+      context_menu_on_mouse_up(false),
+#endif
       javascript_enabled(true),
       web_security_enabled(true),
       javascript_can_open_windows_automatically(true),
@@ -95,7 +111,6 @@ WebPreferences::WebPreferences()
       privileged_webgl_extensions_enabled(false),
       webgl_errors_to_console_enabled(true),
       mock_scrollbars_enabled(false),
-      layer_squashing_enabled(true),
       asynchronous_spell_checking_enabled(true),
       unified_textchecker_enabled(false),
       accelerated_2d_canvas_enabled(false),
@@ -109,18 +124,23 @@ WebPreferences::WebPreferences()
       text_blobs_enabled(false),
       allow_displaying_insecure_content(true),
       allow_running_insecure_content(false),
+      disable_reading_from_canvas(false),
+      strict_mixed_content_checking(false),
+      strict_powerful_feature_restrictions(false),
       password_echo_enabled(false),
       should_print_backgrounds(false),
       should_clear_document_background(true),
       enable_scroll_animator(false),
-      region_based_columns_enabled(false),
       touch_enabled(false),
       device_supports_touch(false),
       device_supports_mouse(true),
       touch_adjustment_enabled(true),
       pointer_events_max_touch_points(0),
+      available_pointer_types(0),
+      primary_pointer_type(ui::POINTER_TYPE_NONE),
+      available_hover_types(0),
+      primary_hover_type(ui::HOVER_TYPE_NONE),
       sync_xhr_in_documents_enabled(true),
-      deferred_image_decoding_enabled(false),
       image_color_profiles_enabled(false),
       should_respect_image_orientation(false),
       number_of_cpu_cores(1),
@@ -146,18 +166,16 @@ WebPreferences::WebPreferences()
       smart_insert_delete_enabled(false),
 #endif
       spatial_navigation_enabled(false),
-      pinch_virtual_viewport_enabled(false),
+      invert_viewport_scroll_order(false),
       pinch_overlay_scrollbar_thickness(0),
       use_solid_color_scrollbars(false),
       navigate_on_drag_drop(true),
-      v8_cache_options(V8_CACHE_OPTIONS_OFF),
-      v8_script_streaming_enabled(false),
-      v8_script_streaming_mode(V8_SCRIPT_STREAMING_MODE_ALL),
+      v8_cache_options(V8_CACHE_OPTIONS_DEFAULT),
       slimming_paint_enabled(false),
       cookie_enabled(true),
-      pepper_accelerated_video_decode_enabled(false)
+      pepper_accelerated_video_decode_enabled(false),
+      animation_policy(IMAGE_ANIMATION_POLICY_ALLOWED),
 #if defined(OS_ANDROID)
-      ,
       text_autosizing_enabled(true),
       font_scale_factor(1.0f),
       device_scale_adjustment(1.0f),
@@ -176,7 +194,17 @@ WebPreferences::WebPreferences()
       viewport_meta_zero_values_quirk(false),
       clobber_user_agent_initial_scale_quirk(false),
       ignore_main_frame_overflow_hidden_quirk(false),
-      report_screen_size_in_physical_pixels_quirk(false)
+      report_screen_size_in_physical_pixels_quirk(false),
+#endif
+#if defined(OS_ANDROID)
+      default_minimum_page_scale_factor(0.25f),
+      default_maximum_page_scale_factor(5.f)
+#elif defined(OS_MACOSX)
+      default_minimum_page_scale_factor(1.f),
+      default_maximum_page_scale_factor(3.f)
+#else
+      default_minimum_page_scale_factor(1.f),
+      default_maximum_page_scale_factor(4.f)
 #endif
 {
   standard_font_family_map[kCommonScript] =

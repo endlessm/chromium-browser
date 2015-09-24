@@ -360,14 +360,14 @@ ActivityLog::ActivityLog(content::BrowserContext* context)
       extension_registry_observer_(this),
       watchdog_apps_active_(0) {
   // This controls whether logging statements are printed & which policy is set.
-  testing_mode_ = CommandLine::ForCurrentProcess()->HasSwitch(
-    switches::kEnableExtensionActivityLogTesting);
+  testing_mode_ = base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kEnableExtensionActivityLogTesting);
 
   // Check if the watchdog extension is previously installed and active.
   watchdog_apps_active_ =
       profile_->GetPrefs()->GetInteger(prefs::kWatchdogExtensionActive);
 
-  observers_ = new ObserverListThreadSafe<Observer>;
+  observers_ = new base::ObserverListThreadSafe<Observer>;
 
   // Check that the right threads exist for logging to the database.
   // If not, we shouldn't try to do things that require them.
@@ -377,14 +377,12 @@ ActivityLog::ActivityLog(content::BrowserContext* context)
     has_threads_ = false;
   }
 
-  db_enabled_ = has_threads_
-      && (CommandLine::ForCurrentProcess()->
-          HasSwitch(switches::kEnableExtensionActivityLogging)
-      || watchdog_apps_active_);
+  db_enabled_ =
+      has_threads_ && (base::CommandLine::ForCurrentProcess()->HasSwitch(
+                           switches::kEnableExtensionActivityLogging) ||
+                       watchdog_apps_active_);
 
-  ExtensionSystem::Get(profile_)->ready().Post(
-      FROM_HERE,
-      base::Bind(&ActivityLog::StartObserving, base::Unretained(this)));
+  extension_registry_observer_.Add(ExtensionRegistry::Get(profile_));
 
   if (!profile_->IsOffTheRecord())
     uma_policy_ = new UmaPolicy(profile_);
@@ -433,10 +431,6 @@ ActivityLog::~ActivityLog() {
 
 // MAINTAIN STATUS. ------------------------------------------------------------
 
-void ActivityLog::StartObserving() {
-  extension_registry_observer_.Add(ExtensionRegistry::Get(profile_));
-}
-
 void ActivityLog::ChooseDatabasePolicy() {
   if (!(IsDatabaseEnabled() || IsWatchdogAppActive()))
     return;
@@ -480,7 +474,7 @@ void ActivityLog::OnExtensionUnloaded(content::BrowserContext* browser_context,
   profile_->GetPrefs()->SetInteger(prefs::kWatchdogExtensionActive,
                                    watchdog_apps_active_);
   if (watchdog_apps_active_ == 0 &&
-      !CommandLine::ForCurrentProcess()->HasSwitch(
+      !base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnableExtensionActivityLogging)) {
     db_enabled_ = false;
   }
@@ -492,7 +486,7 @@ void ActivityLog::OnExtensionUninstalled(
     const Extension* extension,
     extensions::UninstallReason reason) {
   if (ActivityLogAPI::IsExtensionWhitelisted(extension->id()) &&
-      !CommandLine::ForCurrentProcess()->HasSwitch(
+      !base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnableExtensionActivityLogging) &&
       watchdog_apps_active_ == 0) {
     DeleteDatabase();
@@ -512,10 +506,7 @@ void ActivityLog::RemoveObserver(ActivityLog::Observer* observer) {
 // static
 void ActivityLog::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterIntegerPref(
-      prefs::kWatchdogExtensionActive,
-      false,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterIntegerPref(prefs::kWatchdogExtensionActive, false);
 }
 
 // LOG ACTIONS. ----------------------------------------------------------------
@@ -530,7 +521,8 @@ void ActivityLog::LogAction(scoped_refptr<Action> action) {
 
   // Mark DOM XHR requests as such, for easier processing later.
   if (action->action_type() == Action::ACTION_DOM_ACCESS &&
-      StartsWithASCII(action->api_name(), kDomXhrPrefix, true) &&
+      base::StartsWith(action->api_name(), kDomXhrPrefix,
+                       base::CompareCase::SENSITIVE) &&
       action->other()) {
     base::DictionaryValue* other = action->mutable_other();
     int dom_verb = -1;
@@ -545,7 +537,7 @@ void ActivityLog::LogAction(scoped_refptr<Action> action) {
   if (IsDatabaseEnabled() && database_policy_)
     database_policy_->ProcessAction(action);
   if (IsWatchdogAppActive())
-    observers_->Notify(&Observer::OnExtensionActivity, action);
+    observers_->Notify(FROM_HERE, &Observer::OnExtensionActivity, action);
   if (testing_mode_)
     VLOG(1) << action->PrintForDebug();
 }

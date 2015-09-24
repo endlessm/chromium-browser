@@ -8,6 +8,9 @@ namespace content {
 
 FrameNavigateParams::FrameNavigateParams()
     : page_id(0),
+      nav_entry_id(0),
+      item_sequence_number(-1),
+      document_sequence_number(-1),
       transition(ui::PAGE_TRANSITION_LINK),
       should_update_history(false) {
 }

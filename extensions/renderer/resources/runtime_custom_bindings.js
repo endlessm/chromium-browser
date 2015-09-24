@@ -41,11 +41,12 @@ if (window == backgroundPage) {
   var GetIsolatedFileSystem = fileSystemNatives.GetIsolatedFileSystem;
   var bindDirectoryEntryCallback = function(functionName, apiFunctions) {
     apiFunctions.setCustomCallback(functionName,
-        function(name, request, response) {
-      if (request.callback && response) {
-        var callback = request.callback;
-        request.callback = null;
-
+        function(name, request, callback, response) {
+      if (callback) {
+        if (!response) {
+          callback();
+          return;
+        }
         var fileSystemId = response.fileSystemId;
         var baseName = response.baseName;
         var fs = GetIsolatedFileSystem(fileSystemId);
@@ -157,8 +158,16 @@ binding.registerCustomHook(function(binding, id, contextType) {
     if (unloadEvent.wasDispatched)
       throw new Error('Error connecting to extension ' + targetId);
 
-    if (!targetId)
+    if (!targetId) {
+      // runtime.id is only defined inside extensions. If we're in a webpage,
+      // the best we can do at this point is to fail.
+      if (!runtime.id) {
+        throw new Error('chrome.runtime.connect() called from a webpage must ' +
+                        'specify an Extension ID (string) for its first ' +
+                        'argument');
+      }
       targetId = runtime.id;
+    }
 
     var name = '';
     if (connectInfo && connectInfo.name)
@@ -191,12 +200,11 @@ binding.registerCustomHook(function(binding, id, contextType) {
   });
 
   apiFunctions.setCustomCallback('getBackgroundPage',
-                                 function(name, request, response) {
-    if (request.callback) {
+                                 function(name, request, callback, response) {
+    if (callback) {
       var bg = runtimeNatives.GetExtensionViews(-1, 'BACKGROUND')[0] || null;
-      request.callback(bg);
+      callback(bg);
     }
-    request.callback = null;
   });
 
   bindDirectoryEntryCallback('getPackageDirectoryEntry', apiFunctions);

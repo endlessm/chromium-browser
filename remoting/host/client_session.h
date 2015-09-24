@@ -35,14 +35,13 @@ class SingleThreadTaskRunner;
 
 namespace remoting {
 
-class AudioEncoder;
-class AudioScheduler;
+class AudioPump;
 class DesktopEnvironment;
 class DesktopEnvironmentFactory;
 class InputInjector;
+class MouseShapePump;
 class ScreenControls;
-class VideoEncoder;
-class VideoScheduler;
+class VideoFramePump;
 
 // A ClientSession keeps a reference to a connection to a client, and maintains
 // per-client state.
@@ -123,8 +122,8 @@ class ClientSession
       protocol::ConnectionToClient* connection) override;
   void OnConnectionClosed(protocol::ConnectionToClient* connection,
                           protocol::ErrorCode error) override;
-  void OnSequenceNumberUpdated(protocol::ConnectionToClient* connection,
-                               int64 sequence_number) override;
+  void OnEventTimestamp(protocol::ConnectionToClient* connection,
+                        int64 timestamp) override;
   void OnRouteChange(protocol::ConnectionToClient* connection,
                      const std::string& channel_name,
                      const protocol::TransportRoute& route) override;
@@ -142,7 +141,7 @@ class ClientSession
     return connection_.get();
   }
 
-  bool is_authenticated() { return auth_input_filter_.enabled();  }
+  bool is_authenticated() { return is_authenticated_;  }
 
   const std::string* client_capabilities() const {
     return client_capabilities_.get();
@@ -151,14 +150,6 @@ class ClientSession
  private:
   // Creates a proxy for sending clipboard events to the client.
   scoped_ptr<protocol::ClipboardStub> CreateClipboardProxy();
-
-  // Creates an audio encoder for the specified configuration.
-  static scoped_ptr<AudioEncoder> CreateAudioEncoder(
-      const protocol::SessionConfig& config);
-
-  // Creates a video encoder for the specified configuration.
-  static scoped_ptr<VideoEncoder> CreateVideoEncoder(
-      const protocol::SessionConfig& config);
 
   EventHandler* event_handler_;
 
@@ -194,10 +185,6 @@ class ClientSession
   protocol::InputFilter disable_input_filter_;
   protocol::ClipboardFilter disable_clipboard_filter_;
 
-  // Filters used to disable input & clipboard when we're not authenticated.
-  protocol::InputFilter auth_input_filter_;
-  protocol::ClipboardFilter auth_clipboard_filter_;
-
   // Factory for weak pointers to the client clipboard stub.
   // This must appear after |clipboard_echo_filter_|, so that it won't outlive
   // it.
@@ -218,11 +205,12 @@ class ClientSession
   scoped_refptr<base::SingleThreadTaskRunner> network_task_runner_;
   scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner_;
 
-  // Schedulers for audio and video capture.
-  // |video_scheduler_| may be NULL if the video channel is not required - see
-  // ResetVideoPipeline().
-  scoped_refptr<AudioScheduler> audio_scheduler_;
-  scoped_refptr<VideoScheduler> video_scheduler_;
+  // Pumps for audio, video and mouse shape.
+  // |video_frame_pump_| and |mouse_shape_pump_| may be nullptr if the video
+  // stream is handled by an extension, see ResetVideoPipeline().
+  scoped_ptr<AudioPump> audio_pump_;
+  scoped_ptr<VideoFramePump> video_frame_pump_;
+  scoped_ptr<MouseShapePump> mouse_shape_pump_;
 
   // The set of all capabilities supported by the client.
   scoped_ptr<std::string> client_capabilities_;
@@ -247,6 +235,9 @@ class ClientSession
 
   // Used to manage extension functionality.
   scoped_ptr<HostExtensionSessionManager> extension_manager_;
+
+  // Set to true if the client was authenticated successfully.
+  bool is_authenticated_;
 
   // Used to store video channel pause & lossless parameters.
   bool pause_video_;

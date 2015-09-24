@@ -26,6 +26,7 @@
 #include "sync/protocol/managed_user_setting_specifics.pb.h"
 #include "sync/protocol/managed_user_shared_setting_specifics.pb.h"
 #include "sync/protocol/managed_user_specifics.pb.h"
+#include "sync/protocol/managed_user_whitelist_specifics.pb.h"
 #include "sync/protocol/nigori_specifics.pb.h"
 #include "sync/protocol/password_specifics.pb.h"
 #include "sync/protocol/preference_specifics.pb.h"
@@ -45,9 +46,9 @@ class ProtoValueConversionsTest : public testing::Test {
  protected:
   template <class T>
   void TestSpecificsToValue(
-      base::DictionaryValue* (*specifics_to_value)(const T&)) {
+      scoped_ptr<base::DictionaryValue>(*specifics_to_value)(const T&)) {
     const T& specifics(T::default_instance());
-    scoped_ptr<base::DictionaryValue> value(specifics_to_value(specifics));
+    scoped_ptr<base::DictionaryValue> value = specifics_to_value(specifics);
     // We can't do much but make sure that this doesn't crash.
   }
 };
@@ -56,7 +57,7 @@ TEST_F(ProtoValueConversionsTest, ProtoChangeCheck) {
   // If this number changes, that means we added or removed a data
   // type.  Don't forget to add a unit test for {New
   // type}SpecificsToValue below.
-  EXPECT_EQ(33, MODEL_TYPE_COUNT);
+  EXPECT_EQ(36, MODEL_TYPE_COUNT);
 
   // We'd also like to check if we changed any field in our messages.
   // However, that's hard to do: sizeof could work, but it's
@@ -134,6 +135,14 @@ TEST_F(ProtoValueConversionsTest, AutofillProfileSpecificsToValue) {
   TestSpecificsToValue(AutofillProfileSpecificsToValue);
 }
 
+TEST_F(ProtoValueConversionsTest, AutofillWalletSpecificsToValue) {
+  TestSpecificsToValue(AutofillWalletSpecificsToValue);
+}
+
+TEST_F(ProtoValueConversionsTest, WalletMetadataSpecificsToValue) {
+  TestSpecificsToValue(WalletMetadataSpecificsToValue);
+}
+
 TEST_F(ProtoValueConversionsTest, BookmarkSpecificsToValue) {
   TestSpecificsToValue(BookmarkSpecificsToValue);
 }
@@ -175,6 +184,10 @@ TEST_F(ProtoValueConversionsTest, BookmarkSpecificsData) {
   EXPECT_TRUE(meta_info->GetString("value", &meta_value));
   EXPECT_EQ("key2", meta_key);
   EXPECT_EQ("value2", meta_value);
+}
+
+TEST_F(ProtoValueConversionsTest, LinkedAppIconInfoToValue) {
+  TestSpecificsToValue(LinkedAppIconInfoToValue);
 }
 
 TEST_F(ProtoValueConversionsTest, PriorityPreferenceSpecificsToValue) {
@@ -219,6 +232,10 @@ TEST_F(ProtoValueConversionsTest, ManagedUserSpecificsToValue) {
 
 TEST_F(ProtoValueConversionsTest, ManagedUserSharedSettingSpecificsToValue) {
   TestSpecificsToValue(ManagedUserSharedSettingSpecificsToValue);
+}
+
+TEST_F(ProtoValueConversionsTest, ManagedUserWhitelistSpecificsToValue) {
+  TestSpecificsToValue(ManagedUserWhitelistSpecificsToValue);
 }
 
 TEST_F(ProtoValueConversionsTest, NigoriSpecificsToValue) {
@@ -295,6 +312,7 @@ TEST_F(ProtoValueConversionsTest, EntitySpecificsToValue) {
   SET_FIELD(history_delete_directive);
   SET_FIELD(managed_user_setting);
   SET_FIELD(managed_user_shared_setting);
+  SET_FIELD(managed_user_whitelist);
   SET_FIELD(managed_user);
   SET_FIELD(nigori);
   SET_FIELD(password);
@@ -307,6 +325,8 @@ TEST_F(ProtoValueConversionsTest, EntitySpecificsToValue) {
   SET_FIELD(theme);
   SET_FIELD(typed_url);
   SET_FIELD(wifi_credential);
+  SET_FIELD(autofill_wallet);
+  SET_FIELD(wallet_metadata);
 
 #undef SET_FIELD
 

@@ -4,10 +4,12 @@
 
 #include "ui/views/widget/root_view.h"
 
+#include "ui/events/event_utils.h"
 #include "ui/views/context_menu_controller.h"
 #include "ui/views/test/views_test_base.h"
 #include "ui/views/view_targeter.h"
 #include "ui/views/widget/root_view.h"
+#include "ui/views/widget/widget_deletion_observer.h"
 
 namespace views {
 namespace test {
@@ -335,6 +337,221 @@ TEST_F(RootViewTest, ContextMenuFromLongPressOnDisabledView) {
   EXPECT_FALSE(details.target_destroyed);
   EXPECT_FALSE(details.dispatcher_destroyed);
   EXPECT_EQ(0, controller.show_context_menu_calls());
+}
+
+namespace {
+
+// View class which destroys itself when it gets an event of type
+// |delete_event_type|.
+class DeleteViewOnEvent : public View {
+ public:
+  DeleteViewOnEvent(ui::EventType delete_event_type, bool* was_destroyed)
+      : delete_event_type_(delete_event_type), was_destroyed_(was_destroyed) {}
+
+  ~DeleteViewOnEvent() override {
+      *was_destroyed_ = true;
+  }
+
+  void OnEvent(ui::Event* event) override {
+    if (event->type() == delete_event_type_)
+      delete this;
+  }
+
+ private:
+  // The event type which causes the view to destroy itself.
+  ui::EventType delete_event_type_;
+
+  // Tracks whether the view was destroyed.
+  bool* was_destroyed_;
+
+  DISALLOW_COPY_AND_ASSIGN(DeleteViewOnEvent);
+};
+
+}  // namespace
+
+// Verifies deleting a View in OnMouseExited() doesn't crash.
+TEST_F(RootViewTest, DeleteViewOnMouseExitDispatch) {
+  Widget widget;
+  Widget::InitParams init_params =
+      CreateParams(Widget::InitParams::TYPE_POPUP);
+  init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+  widget.Init(init_params);
+  widget.SetBounds(gfx::Rect(10, 10, 500, 500));
+
+  View* content = new View;
+  widget.SetContentsView(content);
+
+  bool view_destroyed = false;
+  View* child = new DeleteViewOnEvent(ui::ET_MOUSE_EXITED, &view_destroyed);
+  content->AddChildView(child);
+  child->SetBounds(10, 10, 500, 500);
+
+  internal::RootView* root_view =
+      static_cast<internal::RootView*>(widget.GetRootView());
+
+  // Generate a mouse move event which ensures that the mouse_moved_handler_
+  // member is set in the RootView class.
+  ui::MouseEvent moved_event(ui::ET_MOUSE_MOVED, gfx::Point(15, 15),
+                             gfx::Point(15, 15), ui::EventTimeForNow(), 0,
+                             0);
+  root_view->OnMouseMoved(moved_event);
+  ASSERT_FALSE(view_destroyed);
+
+  // Generate a mouse exit event which in turn will delete the child view which
+  // was the target of the mouse move event above. This should not crash when
+  // the mouse exit handler returns from the child.
+  ui::MouseEvent exit_event(ui::ET_MOUSE_EXITED, gfx::Point(), gfx::Point(),
+                            ui::EventTimeForNow(), 0, 0);
+  root_view->OnMouseExited(exit_event);
+
+  EXPECT_TRUE(view_destroyed);
+  EXPECT_FALSE(content->has_children());
+}
+
+// Verifies deleting a View in OnMouseEntered() doesn't crash.
+TEST_F(RootViewTest, DeleteViewOnMouseEnterDispatch) {
+  Widget widget;
+  Widget::InitParams init_params =
+      CreateParams(Widget::InitParams::TYPE_POPUP);
+  init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+  widget.Init(init_params);
+  widget.SetBounds(gfx::Rect(10, 10, 500, 500));
+
+  View* content = new View;
+  widget.SetContentsView(content);
+
+  bool view_destroyed = false;
+  View* child = new DeleteViewOnEvent(ui::ET_MOUSE_ENTERED, &view_destroyed);
+  content->AddChildView(child);
+
+  // Make |child| smaller than the containing Widget and RootView.
+  child->SetBounds(100, 100, 100, 100);
+
+  internal::RootView* root_view =
+      static_cast<internal::RootView*>(widget.GetRootView());
+
+  // Move the mouse within |widget| but outside of |child|.
+  ui::MouseEvent moved_event(ui::ET_MOUSE_MOVED, gfx::Point(15, 15),
+                             gfx::Point(15, 15), ui::EventTimeForNow(), 0,
+                             0);
+  root_view->OnMouseMoved(moved_event);
+  ASSERT_FALSE(view_destroyed);
+
+  // Move the mouse within |child|, which should dispatch a mouse enter event to
+  // |child| and destroy the view. This should not crash when the mouse enter
+  // handler returns from the child.
+  ui::MouseEvent moved_event2(ui::ET_MOUSE_MOVED, gfx::Point(115, 115),
+                              gfx::Point(115, 115), ui::EventTimeForNow(), 0,
+                              0);
+  root_view->OnMouseMoved(moved_event2);
+
+  EXPECT_TRUE(view_destroyed);
+  EXPECT_FALSE(content->has_children());
+}
+
+namespace {
+
+// View class which deletes its owning Widget when it gets a mouse exit event.
+class DeleteWidgetOnMouseExit : public View {
+ public:
+  explicit DeleteWidgetOnMouseExit(Widget* widget)
+      : widget_(widget) {
+  }
+
+  ~DeleteWidgetOnMouseExit() override {}
+
+  void OnMouseExited(const ui::MouseEvent& event) override {
+    delete widget_;
+  }
+
+ private:
+  Widget* widget_;
+
+  DISALLOW_COPY_AND_ASSIGN(DeleteWidgetOnMouseExit);
+};
+
+}  // namespace
+
+// Test that there is no crash if a View deletes its parent Widget in
+// View::OnMouseExited().
+TEST_F(RootViewTest, DeleteWidgetOnMouseExitDispatch) {
+  Widget* widget = new Widget;
+  Widget::InitParams init_params =
+      CreateParams(Widget::InitParams::TYPE_POPUP);
+  init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+  widget->Init(init_params);
+  widget->SetBounds(gfx::Rect(10, 10, 500, 500));
+  WidgetDeletionObserver widget_deletion_observer(widget);
+
+  View* content = new View();
+  View* child = new DeleteWidgetOnMouseExit(widget);
+  content->AddChildView(child);
+  widget->SetContentsView(content);
+
+  // Make |child| smaller than the containing Widget and RootView.
+  child->SetBounds(100, 100, 100, 100);
+
+  internal::RootView* root_view =
+      static_cast<internal::RootView*>(widget->GetRootView());
+
+  // Move the mouse within |child|.
+  ui::MouseEvent moved_event(ui::ET_MOUSE_MOVED, gfx::Point(115, 115),
+                             gfx::Point(115, 115), ui::EventTimeForNow(), 0,
+                             0);
+  root_view->OnMouseMoved(moved_event);
+  ASSERT_TRUE(widget_deletion_observer.IsWidgetAlive());
+
+  // Move the mouse outside of |child| which should dispatch a mouse exit event
+  // to |child| and destroy the widget. This should not crash when the mouse
+  // exit handler returns from the child.
+  ui::MouseEvent move_event2(ui::ET_MOUSE_MOVED, gfx::Point(15, 15),
+                             gfx::Point(15, 15), ui::EventTimeForNow(), 0, 0);
+  root_view->OnMouseMoved(move_event2);
+  EXPECT_FALSE(widget_deletion_observer.IsWidgetAlive());
+}
+
+// Test that there is no crash if a View deletes its parent widget as a result
+// of a mouse exited event which was propagated from one of its children.
+TEST_F(RootViewTest, DeleteWidgetOnMouseExitDispatchFromChild) {
+  Widget* widget = new Widget;
+  Widget::InitParams init_params =
+      CreateParams(Widget::InitParams::TYPE_POPUP);
+  init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+  widget->Init(init_params);
+  widget->SetBounds(gfx::Rect(10, 10, 500, 500));
+  WidgetDeletionObserver widget_deletion_observer(widget);
+
+  View* content = new View();
+  View* child = new DeleteWidgetOnMouseExit(widget);
+  View* subchild = new View();
+  widget->SetContentsView(content);
+  content->AddChildView(child);
+  child->AddChildView(subchild);
+
+  // Make |child| and |subchild| smaller than the containing Widget and
+  // RootView.
+  child->SetBounds(100, 100, 100, 100);
+  subchild->SetBounds(0, 0, 100, 100);
+
+  // Make mouse enter and exit events get propagated from |subchild| to |child|.
+  child->set_notify_enter_exit_on_child(true);
+
+  internal::RootView* root_view =
+      static_cast<internal::RootView*>(widget->GetRootView());
+
+  // Move the mouse within |subchild| and |child|.
+  ui::MouseEvent moved_event(ui::ET_MOUSE_MOVED, gfx::Point(115, 115),
+                             gfx::Point(115, 115), ui::EventTimeForNow(), 0, 0);
+  root_view->OnMouseMoved(moved_event);
+  ASSERT_TRUE(widget_deletion_observer.IsWidgetAlive());
+
+  // Move the mouse outside of |subchild| and |child| which should dispatch a
+  // mouse exit event to |subchild| and destroy the widget. This should not
+  // crash when the mouse exit handler returns from |subchild|.
+  ui::MouseEvent move_event2(ui::ET_MOUSE_MOVED, gfx::Point(15, 15),
+                             gfx::Point(15, 15), ui::EventTimeForNow(), 0, 0);
+  root_view->OnMouseMoved(move_event2);
+  EXPECT_FALSE(widget_deletion_observer.IsWidgetAlive());
 }
 
 }  // namespace test

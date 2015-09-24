@@ -4,9 +4,11 @@
 
 #include "chrome/browser/search/hotword_service_factory.h"
 
+#include "base/command_line.h"
 #include "base/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search/hotword_service.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/pref_registry/pref_registry_syncable.h"
@@ -40,11 +42,13 @@ bool HotwordServiceFactory::IsHotwordAllowed(BrowserContext* context) {
 }
 
 // static
-bool HotwordServiceFactory::IsHotwordHardwareAvailable() {
-  // TODO(rlp, dgreid): return has_hotword_hardware()
-  // Fill in once the hardware has the correct interface implemented.
-  // In the meantime, this function can be used to get other parts moving.
-  return true;
+bool HotwordServiceFactory::IsAlwaysOnAvailable() {
+#if defined(OS_CHROMEOS)
+  if (HotwordService::IsHotwordHardwareAvailable())
+    return true;
+#endif
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  return command_line->HasSwitch(switches::kEnableExperimentalHotwordHardware);
 }
 
 // static
@@ -55,43 +59,14 @@ int HotwordServiceFactory::GetCurrentError(BrowserContext* context) {
   return hotword_service->error_message();
 }
 
-// static
-bool HotwordServiceFactory::IsMicrophoneAvailable() {
-  return GetInstance()->microphone_available();
-}
-
-// static
-bool HotwordServiceFactory::IsAudioDeviceStateUpdated() {
-  return GetInstance()->audio_device_state_updated();
-}
-
 HotwordServiceFactory::HotwordServiceFactory()
     : BrowserContextKeyedServiceFactory(
         "HotwordService",
-        BrowserContextDependencyManager::GetInstance()),
-      microphone_available_(false),
-      audio_device_state_updated_(false) {
+        BrowserContextDependencyManager::GetInstance()) {
   // No dependencies.
-
-  // Register with the device observer list to update the microphone
-  // availability.
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
-      base::Bind(&HotwordServiceFactory::InitializeMicrophoneObserver,
-                 base::Unretained(this)));
 }
 
 HotwordServiceFactory::~HotwordServiceFactory() {
-}
-
-void HotwordServiceFactory::InitializeMicrophoneObserver() {
-  MediaCaptureDevicesDispatcher::GetInstance()->AddObserver(this);
-}
-
-void HotwordServiceFactory::OnUpdateAudioDevices(
-    const content::MediaStreamDevices& devices) {
-  microphone_available_ = !devices.empty();
-  audio_device_state_updated_ = true;
 }
 
 void HotwordServiceFactory::UpdateMicrophoneState() {
@@ -102,25 +77,16 @@ void HotwordServiceFactory::UpdateMicrophoneState() {
 
 void HotwordServiceFactory::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* prefs) {
-  // Although this is default true, users will not send back information to
-  // Google unless they have opted-in to Hotwording at which point they must
-  // also confirm that they wish this preference to be true or opt out of it.
   prefs->RegisterBooleanPref(prefs::kHotwordAudioLoggingEnabled,
-                             true,
+                             false,
                              user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
   prefs->RegisterStringPref(prefs::kHotwordPreviousLanguage,
                             std::string(),
                             user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
-  prefs->RegisterBooleanPref(prefs::kHotwordAudioHistoryEnabled,
-                             false,
-                             user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
   // Per-device settings (do not sync).
-  prefs->RegisterBooleanPref(prefs::kHotwordSearchEnabled,
-                             false,
-                             user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  prefs->RegisterBooleanPref(prefs::kHotwordAlwaysOnSearchEnabled,
-                             false,
-                             user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  prefs->RegisterBooleanPref(prefs::kHotwordSearchEnabled, false);
+  prefs->RegisterBooleanPref(prefs::kHotwordAlwaysOnSearchEnabled, false);
+  prefs->RegisterBooleanPref(prefs::kHotwordAlwaysOnNotificationSeen, false);
 }
 
 KeyedService* HotwordServiceFactory::BuildServiceInstanceFor(

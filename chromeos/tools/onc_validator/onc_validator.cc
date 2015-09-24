@@ -84,13 +84,13 @@ void PrintHelp() {
 
 scoped_ptr<base::DictionaryValue> ReadDictionary(std::string filename) {
   base::FilePath path(filename);
-  JSONFileValueSerializer serializer(path);
-  serializer.set_allow_trailing_comma(true);
+  JSONFileValueDeserializer deserializer(path);
+  deserializer.set_allow_trailing_comma(true);
 
   base::DictionaryValue* dict = NULL;
 
   std::string json_error;
-  base::Value* value = serializer.Deserialize(NULL, &json_error);
+  base::Value* value = deserializer.Deserialize(NULL, &json_error);
   if (!value) {
     LOG(ERROR) << "Couldn't json-deserialize file '" << filename
                << "': " << json_error;
@@ -107,10 +107,11 @@ scoped_ptr<base::DictionaryValue> ReadDictionary(std::string filename) {
 }
 
 int main(int argc, const char* argv[]) {
-  CommandLine::Init(argc, argv);
+  base::CommandLine::Init(argc, argv);
 
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
-  CommandLine::StringVector args = command_line.GetArgs();
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
+  base::CommandLine::StringVector args = command_line.GetArgs();
   if (args.size() != 2) {
     PrintHelp();
     return kStatusArgumentError;

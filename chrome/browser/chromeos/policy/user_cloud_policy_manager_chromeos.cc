@@ -12,10 +12,11 @@
 #include "base/sequenced_task_runner.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/chromeos/login/helper.h"
+#include "chrome/browser/chromeos/login/session/user_session_manager.h"
 #include "chrome/browser/chromeos/policy/policy_oauth2_token_fetcher.h"
 #include "chrome/browser/chromeos/policy/user_cloud_policy_manager_factory_chromeos.h"
 #include "chrome/browser/chromeos/policy/wildcard_login_checker.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/common/chrome_content_client.h"
 #include "components/policy/core/common/cloud/cloud_external_data_manager.h"
@@ -80,12 +81,12 @@ UserCloudPolicyManagerChromeOS::UserCloudPolicyManagerChromeOS(
     const scoped_refptr<base::SequencedTaskRunner>& task_runner,
     const scoped_refptr<base::SequencedTaskRunner>& file_task_runner,
     const scoped_refptr<base::SequencedTaskRunner>& io_task_runner)
-    : CloudPolicyManager(
-          PolicyNamespaceKey(dm_protocol::kChromeUserPolicyType, std::string()),
-          store.get(),
-          task_runner,
-          file_task_runner,
-          io_task_runner),
+    : CloudPolicyManager(dm_protocol::kChromeUserPolicyType,
+                         std::string(),
+                         store.get(),
+                         task_runner,
+                         file_task_runner,
+                         io_task_runner),
       store_(store.Pass()),
       external_data_manager_(external_data_manager.Pass()),
       component_policy_cache_path_(component_policy_cache_path),
@@ -125,15 +126,13 @@ void UserCloudPolicyManagerChromeOS::Connect(
   scoped_ptr<CloudPolicyClient> cloud_policy_client(
       new CloudPolicyClient(std::string(), std::string(),
                             kPolicyVerificationKeyHash, user_affiliation,
-                            NULL, device_management_service,
-                            request_context));
+                            device_management_service, request_context));
+  CreateComponentCloudPolicyService(component_policy_cache_path_,
+                                    request_context, cloud_policy_client.get());
   core()->Connect(cloud_policy_client.Pass());
   client()->AddObserver(this);
 
   external_data_manager_->Connect(request_context);
-
-  CreateComponentCloudPolicyService(component_policy_cache_path_,
-                                    request_context);
 
   // Determine the next step after the CloudPolicyService initializes.
   if (service()->IsInitializationComplete()) {
@@ -214,7 +213,7 @@ void UserCloudPolicyManagerChromeOS::OnInitializationCompleted(
   // access token is already available.
   if (!client()->is_registered()) {
     if (wait_for_policy_fetch_) {
-      FetchPolicyOAuthTokenUsingSigninProfile();
+      FetchPolicyOAuthToken();
     } else if (!access_token_.empty()) {
       OnAccessTokenAvailable(access_token_);
     }
@@ -288,24 +287,33 @@ void UserCloudPolicyManagerChromeOS::GetChromePolicy(PolicyMap* policy_map) {
   SetEnterpriseUsersDefaults(policy_map);
 }
 
-void UserCloudPolicyManagerChromeOS::FetchPolicyOAuthTokenUsingSigninProfile() {
-  scoped_refptr<net::URLRequestContextGetter> signin_context;
-  Profile* signin_profile = chromeos::ProfileHelper::GetSigninProfile();
-  if (signin_profile)
-    signin_context = signin_profile->GetRequestContext();
+void UserCloudPolicyManagerChromeOS::FetchPolicyOAuthToken() {
+  const std::string& refresh_token = chromeos::UserSessionManager::GetInstance()
+                                         ->user_context()
+                                         .GetRefreshToken();
+  if (!refresh_token.empty()) {
+    token_fetcher_.reset(new PolicyOAuth2TokenFetcher());
+    token_fetcher_->StartWithRefreshToken(
+        refresh_token, g_browser_process->system_request_context(),
+        base::Bind(&UserCloudPolicyManagerChromeOS::OnOAuth2PolicyTokenFetched,
+                   base::Unretained(this)));
+    return;
+  }
+
+  scoped_refptr<net::URLRequestContextGetter> signin_context =
+      chromeos::login::GetSigninContext();
   if (!signin_context.get()) {
-    LOG(ERROR) << "No signin Profile for policy oauth token fetch!";
+    LOG(ERROR) << "No signin context for policy oauth token fetch!";
     OnOAuth2PolicyTokenFetched(
         std::string(), GoogleServiceAuthError(GoogleServiceAuthError::NONE));
     return;
   }
 
-  token_fetcher_.reset(new PolicyOAuth2TokenFetcher(
-      signin_context.get(),
-      g_browser_process->system_request_context(),
+  token_fetcher_.reset(new PolicyOAuth2TokenFetcher());
+  token_fetcher_->StartWithSigninContext(
+      signin_context.get(), g_browser_process->system_request_context(),
       base::Bind(&UserCloudPolicyManagerChromeOS::OnOAuth2PolicyTokenFetched,
-                 base::Unretained(this))));
-  token_fetcher_->Start();
+                 base::Unretained(this)));
 }
 
 void UserCloudPolicyManagerChromeOS::OnOAuth2PolicyTokenFetched(
@@ -321,8 +329,10 @@ void UserCloudPolicyManagerChromeOS::OnOAuth2PolicyTokenFetched(
   if (error.state() == GoogleServiceAuthError::NONE) {
     // Start client registration. Either OnRegistrationStateChanged() or
     // OnClientError() will be called back.
-    client()->Register(em::DeviceRegisterRequest::USER, policy_token,
-                       std::string(), false, std::string(), std::string());
+    client()->Register(em::DeviceRegisterRequest::USER,
+                       em::DeviceRegisterRequest::FLAVOR_USER_REGISTRATION,
+                       policy_token, std::string(), std::string(),
+                       std::string());
   } else {
     // Failed to get a token, stop waiting and use an empty policy.
     CancelWaitForPolicyFetch();
@@ -331,8 +341,10 @@ void UserCloudPolicyManagerChromeOS::OnOAuth2PolicyTokenFetched(
                               error.state(),
                               GoogleServiceAuthError::NUM_STATES);
     if (error.state() == GoogleServiceAuthError::CONNECTION_FAILED) {
+      // Network errors are negative in the code, but the histogram data type
+      // expects the corresponding positive value.
       UMA_HISTOGRAM_SPARSE_SLOWLY(kUMAInitialFetchOAuth2NetworkError,
-                                  error.network_error());
+                                  -error.network_error());
     }
   }
 

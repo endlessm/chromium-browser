@@ -42,19 +42,25 @@ class CC_SURFACES_EXPORT SurfaceManager {
     observer_list_.RemoveObserver(obs);
   }
 
-  void SurfaceModified(SurfaceId surface_id);
+  bool SurfaceModified(SurfaceId surface_id);
 
   // A frame for a surface satisfies a set of sequence numbers in a particular
   // id namespace.
   void DidSatisfySequences(uint32_t id_namespace,
                            std::vector<uint32_t>* sequence);
 
+  void RegisterSurfaceIdNamespace(uint32_t id_namespace);
+
+  // Invalidate a namespace that might still have associated sequences,
+  // possibly because a renderer process has crashed.
+  void InvalidateSurfaceIdNamespace(uint32_t id_namespace);
+
  private:
-  void SearchForSatisfaction();
+  void GarbageCollectSurfaces();
 
   typedef base::hash_map<SurfaceId, Surface*> SurfaceMap;
   SurfaceMap surface_map_;
-  ObserverList<SurfaceDamageObserver> observer_list_;
+  base::ObserverList<SurfaceDamageObserver> observer_list_;
   base::ThreadChecker thread_checker_;
 
   // List of surfaces to be destroyed, along with what sequences they're still
@@ -65,6 +71,11 @@ class CC_SURFACES_EXPORT SurfaceManager {
   // Set of SurfaceSequences that have been satisfied by a frame but not yet
   // waited on.
   base::hash_set<SurfaceSequence> satisfied_sequences_;
+
+  // Set of valid surface ID namespaces. When a namespace is removed from
+  // this set, any remaining sequences with that namespace are considered
+  // satisfied.
+  base::hash_set<uint32_t> valid_surface_id_namespaces_;
 
   DISALLOW_COPY_AND_ASSIGN(SurfaceManager);
 };

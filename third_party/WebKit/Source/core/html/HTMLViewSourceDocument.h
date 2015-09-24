@@ -47,12 +47,12 @@ public:
 
     void addSource(const String&, HTMLToken&, SourceAnnotation);
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     HTMLViewSourceDocument(const DocumentInit&, const String& mimeType);
 
-    virtual PassRefPtrWillBeRawPtr<DocumentParser> createParser() override;
+    PassRefPtrWillBeRawPtr<DocumentParser> createParser() override;
 
     void processDoctypeToken(const String& source, HTMLToken&);
     void processEndOfFileToken(const String& source, HTMLToken&);

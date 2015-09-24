@@ -7,11 +7,33 @@ package org.chromium.chrome.browser;
 import android.view.ContextMenu;
 
 import org.chromium.content.browser.ContentViewCore;
+import org.chromium.content_public.browser.LoadUrlParams;
+import org.chromium.content_public.browser.WebContents;
 
 /**
  * An observer that is notified of changes to a {@link Tab} object.
  */
 public interface TabObserver {
+
+    /**
+     * Called when a {@link Tab} is shown.
+     * @param tab The notifying {@link Tab}.
+     */
+    void onShown(Tab tab);
+
+    /**
+     * Called when a {@link Tab} is hidden.
+     * @param tab The notifying {@link Tab}.
+     */
+    void onHidden(Tab tab);
+
+    /**
+     * Called when a {@link Tab}'s closing state has changed.
+     *
+     * @param tab The notifying {@link Tab}.
+     * @param closing Whether the {@link Tab} is currently marked for closure.
+     */
+    void onClosingStateChanged(Tab tab, boolean closing);
 
     /**
      * Called when a {@link Tab} is being destroyed.
@@ -26,9 +48,23 @@ public interface TabObserver {
     void onContentChanged(Tab tab);
 
     /**
+     * Called when a {@link ContentViewCore} overlay is attached to {@code tab}.
+     * @param tab     The notifying {@link Tab}.
+     * @param content The {@link ContentViewCore} being added.
+     */
+    void onOverlayContentViewCoreAdded(Tab tab, ContentViewCore content);
+
+    /**
+     * Called when a {@link ContentViewCore} overlay is detached from {@code tab}.
+     * @param tab     The notifying {@link Tab}.
+     * @param content The {@link ContentViewCore} being removed.
+     */
+    void onOverlayContentViewCoreRemoved(Tab tab, ContentViewCore content);
+
+    /**
      * Called when loadUrl is triggered on a a {@link Tab}.
      * @param tab      The notifying {@link Tab}.
-     * @param url      The url that is being loaded.
+     * @param params   The params describe the page being loaded.
      * @param loadType The type of load that was performed.
      *
      * @see TabLoadStatus#PAGE_LOAD_FAILED
@@ -36,7 +72,37 @@ public interface TabObserver {
      * @see TabLoadStatus#PARTIAL_PRERENDERED_PAGE_LOAD
      * @see TabLoadStatus#FULL_PRERENDERED_PAGE_LOAD
      */
-    void onLoadUrl(Tab tab, String url, int loadType);
+    void onLoadUrl(Tab tab, LoadUrlParams params, int loadType);
+
+    /**
+     * Called when a tab has started to load a page.
+     * <p>
+     * This will occur when the main frame has committed a provisional load, and will also
+     * occur in instances where we need to simulate load progress (i.e. swapping in a not
+     * fully loaded pre-rendered page).
+     * <p>
+     * For visual loading indicators/throbbers, {@link #onLoadStarted(Tab)} and
+     * {@link #onLoadStopped(Tab)} should be used to drive updates.
+     *
+     * @param tab The notifying {@link Tab}.
+     * @param url The committed URL being navigated to.
+     */
+    void onPageLoadStarted(Tab tab, String url);
+
+    /**
+     * Called when a tab has finished loading a page.
+     *
+     * @param tab The notifying {@link Tab}.
+     */
+    void onPageLoadFinished(Tab tab);
+
+    /**
+     * Called when a tab has failed loading a page.
+     *
+     * @param tab The notifying {@link Tab}.
+     * @param errorCode The error code that causes the page to fail loading.
+     */
+    void onPageLoadFailed(Tab tab, int errorCode);
 
     /**
      * Called when the favicon of a {@link Tab} has been updated.
@@ -63,6 +129,13 @@ public interface TabObserver {
     void onSSLStateUpdated(Tab tab);
 
     /**
+     * Called when the ContentView of a {@link Tab} crashes.
+     * @param tab The notifying {@link Tab}.
+     * @param sadTabShown Whether or not the sad tab was shown
+     */
+    void onCrash(Tab tab, boolean sadTabShown);
+
+    /**
      * Called when the WebContents of a {@link Tab} have been swapped.
      * @param tab The notifying {@link Tab}.
      * @param didStartLoad Whether WebContentsObserver::DidStartProvisionalLoadForFrame() has
@@ -79,6 +152,14 @@ public interface TabObserver {
     void onContextMenuShown(Tab tab, ContextMenu menu);
 
     /**
+     * Called when the contextual action bar's visibility has changed (i.e. the widget shown
+     * when you can copy/paste text after long press).
+     * @param tab The notifying {@link Tab}.
+     * @param visible Whether the contextual action bar is now visible.
+     */
+    void onContextualActionBarVisibilityChanged(Tab tab, boolean visible);
+
+    /**
      * Called when the WebContents Instant support is disabled.
      */
     void onWebContentsInstantSupportDisabled();
@@ -86,7 +167,10 @@ public interface TabObserver {
     // WebContentsDelegateAndroid methods ---------------------------------------------------------
 
     /**
-     * Called when the contents loading starts.
+     * Called when the WebContents starts loading. Different from
+     * {@link #onPageLoadStarted(Tab, String)}, if the user is navigated to a different url while
+     * staying in the same html document, {@link #onLoadStarted(Tab)} will be called, while
+     * {@link #onPageLoadStarted(Tab, String)} will not.
      * @param tab The notifying {@link Tab}.
      */
     void onLoadStarted(Tab tab);
@@ -178,6 +262,12 @@ public interface TabObserver {
             boolean isNavigationToDifferentPage, boolean isFragmentNavigation, int statusCode);
 
     /**
+     * Called when the page has painted something non-empty.
+     * @param tab The notifying {@link Tab}.
+     */
+    public void didFirstVisuallyNonEmptyPaint(Tab tab);
+
+    /**
      * Called when the theme color is changed
      * @param color the new color in ARGB format.
      */
@@ -194,4 +284,30 @@ public interface TabObserver {
      * @param tab The notifying {@link Tab}.
      */
     public void onDidDetachInterstitialPage(Tab tab);
+
+    /**
+     * Called when a navigation is started to a pending entry.
+     * @param tab The notifying {@link Tab}.
+     * @param url The url being navigated to.
+     */
+    public void onDidStartNavigationToPendingEntry(Tab tab, String url);
+
+    /**
+     * Called when the background color for the tab has changed.
+     * @param tab The notifying {@link Tab}.
+     * @param color The current background color.
+     */
+    public void onBackgroundColorChanged(Tab tab, int color);
+
+    /**
+     * Called when a {@link WebContents} object has been created.
+     * @param tab                 The notifying {@link Tab}.
+     * @param sourceWebContents   The {@link WebContents} that triggered the creation.
+     * @param openerRenderFrameId The opener render frame id.
+     * @param frameName           The name of the frame.
+     * @param targetUrl           The target url.
+     * @param newWebContents      The newly created {@link WebContents}.
+     */
+    public void webContentsCreated(Tab tab, WebContents sourceWebContents, long openerRenderFrameId,
+            String frameName, String targetUrl, WebContents newWebContents);
 }

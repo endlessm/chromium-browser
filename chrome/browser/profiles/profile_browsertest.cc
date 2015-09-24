@@ -8,7 +8,10 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/json/json_reader.h"
-#include "base/metrics/field_trial.h"
+#include "base/logging.h"
+#include "base/macros.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/prefs/pref_service.h"
 #include "base/sequenced_task_runner.h"
 #include "base/synchronization/waitable_event.h"
@@ -16,24 +19,79 @@
 #include "base/version.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/net/url_request_mock_util.h"
 #include "chrome/browser/profiles/chrome_version_service.h"
 #include "chrome/browser/profiles/profile_impl.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/profiles/startup_task_runner_service.h"
-#include "chrome/browser/profiles/startup_task_runner_service_factory.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_version_info.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "chrome/test/base/ui_test_utils.h"
+#include "components/bookmarks/browser/startup_task_runner_service.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_utils.h"
+#include "net/base/net_errors.h"
+#include "net/test/url_request/url_request_failed_job.h"
+#include "net/url_request/url_fetcher.h"
+#include "net/url_request/url_fetcher_delegate.h"
+#include "net/url_request/url_request_context_getter.h"
+#include "net/url_request/url_request_status.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "url/gurl.h"
 
 #if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chromeos/chromeos_switches.h"
 #endif
 
 namespace {
+
+// Simple URLFetcherDelegate with an expected final status and the ability to
+// wait until a request completes. It's not considered a failure for the request
+// to never complete.
+class TestURLFetcherDelegate : public net::URLFetcherDelegate {
+ public:
+  // Creating the TestURLFetcherDelegate automatically creates and starts a
+  // URLFetcher.
+  TestURLFetcherDelegate(
+      scoped_refptr<net::URLRequestContextGetter> context_getter,
+      const GURL& url,
+      net::URLRequestStatus expected_request_status)
+      : expected_request_status_(expected_request_status),
+        is_complete_(false),
+        fetcher_(net::URLFetcher::Create(url, net::URLFetcher::GET, this)) {
+    fetcher_->SetRequestContext(context_getter.get());
+    fetcher_->Start();
+  }
+
+  ~TestURLFetcherDelegate() override {}
+
+  void OnURLFetchComplete(const net::URLFetcher* source) override {
+    EXPECT_EQ(expected_request_status_.status(), source->GetStatus().status());
+    EXPECT_EQ(expected_request_status_.error(), source->GetStatus().error());
+
+    run_loop_.Quit();
+  }
+
+  void WaitForCompletion() {
+    run_loop_.Run();
+  }
+
+  bool is_complete() const { return is_complete_; }
+
+ private:
+  const net::URLRequestStatus expected_request_status_;
+  base::RunLoop run_loop_;
+
+  bool is_complete_;
+  scoped_ptr<net::URLFetcher> fetcher_;
+
+  DISALLOW_COPY_AND_ASSIGN(TestURLFetcherDelegate);
+};
 
 class MockProfileDelegate : public Profile::Delegate {
  public:
@@ -62,13 +120,6 @@ void CheckChromeVersion(Profile *profile, bool is_new) {
   EXPECT_EQ(created_by_version, pref_version);
 }
 
-void BlockThread(
-    base::WaitableEvent* is_blocked,
-    base::WaitableEvent* unblock) {
-  is_blocked->Signal();
-  unblock->Wait();
-}
-
 void FlushTaskRunner(base::SequencedTaskRunner* runner) {
   ASSERT_TRUE(runner);
   base::WaitableEvent unblock(false, false);
@@ -93,11 +144,25 @@ void SpinThreads() {
 
 class ProfileBrowserTest : public InProcessBrowserTest {
  protected:
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
 #if defined(OS_CHROMEOS)
     command_line->AppendSwitch(
         chromeos::switches::kIgnoreUserProfileMappingForTests);
 #endif
+  }
+
+  // content::BrowserTestBase implementation:
+
+  void SetUpOnMainThread() override {
+    content::BrowserThread::PostTask(
+        content::BrowserThread::IO, FROM_HERE,
+        base::Bind(&chrome_browser_net::SetUrlRequestMocksEnabled, true));
+  }
+
+  void TearDownOnMainThread() override {
+    content::BrowserThread::PostTask(
+        content::BrowserThread::IO, FROM_HERE,
+        base::Bind(&chrome_browser_net::SetUrlRequestMocksEnabled, false));
   }
 
   scoped_ptr<Profile> CreateProfile(
@@ -119,7 +184,83 @@ class ProfileBrowserTest : public InProcessBrowserTest {
     SpinThreads();
   }
 
+  // Starts a test where a URLFetcher is active during profile shutdown. The
+  // test completes during teardown of the test fixture. The request should be
+  // canceled by |context_getter| during profile shutdown, before the
+  // URLRequestContext is destroyed. If that doesn't happen, the Context's
+  // will still have oustanding requests during its destruction, and will
+  // trigger a CHECK failure.
+  void StartActiveFetcherDuringProfileShutdownTest(
+      scoped_refptr<net::URLRequestContextGetter> context_getter) {
+    // This method should only be called once per test.
+    DCHECK(!url_fetcher_delegate_);
+
+    // Start a hanging request.  This request may or may not completed before
+    // the end of the request.
+    url_fetcher_delegate_.reset(new TestURLFetcherDelegate(
+        context_getter.get(),
+        net::URLRequestFailedJob::GetMockHttpUrl(net::ERR_IO_PENDING),
+        net::URLRequestStatus(net::URLRequestStatus::CANCELED,
+                              net::ERR_CONTEXT_SHUT_DOWN)));
+
+    // Start a second mock request that just fails, and wait for it to complete.
+    // This ensures the first request has reached the network stack.
+    TestURLFetcherDelegate url_fetcher_delegate2(
+        context_getter.get(),
+        net::URLRequestFailedJob::GetMockHttpUrl(net::ERR_FAILED),
+        net::URLRequestStatus(net::URLRequestStatus::FAILED,
+                              net::ERR_FAILED));
+    url_fetcher_delegate2.WaitForCompletion();
+
+    // The first request should still be hung.
+    EXPECT_FALSE(url_fetcher_delegate_->is_complete());
+  }
+
+  // Runs a test where an incognito profile's URLFetcher is active during
+  // teardown of the profile, and makes sure the request fails as expected.
+  // Also tries issuing a request after the incognito profile has been
+  // destroyed.
+  static void RunURLFetcherActiveDuringIncognitoTeardownTest(
+      Browser* incognito_browser,
+      scoped_refptr<net::URLRequestContextGetter> context_getter) {
+    // Start a hanging request.
+    TestURLFetcherDelegate url_fetcher_delegate1(
+        context_getter.get(),
+        net::URLRequestFailedJob::GetMockHttpUrl(net::ERR_IO_PENDING),
+        net::URLRequestStatus(net::URLRequestStatus::CANCELED,
+                              net::ERR_CONTEXT_SHUT_DOWN));
+
+    // Start a second mock request that just fails, and wait for it to complete.
+    // This ensures the first request has reached the network stack.
+    TestURLFetcherDelegate url_fetcher_delegate2(
+        context_getter.get(),
+        net::URLRequestFailedJob::GetMockHttpUrl(net::ERR_FAILED),
+        net::URLRequestStatus(net::URLRequestStatus::FAILED,
+                              net::ERR_FAILED));
+    url_fetcher_delegate2.WaitForCompletion();
+
+    // The first request should still be hung.
+    EXPECT_FALSE(url_fetcher_delegate1.is_complete());
+
+    // Close all incognito tabs, starting profile shutdown.
+    incognito_browser->tab_strip_model()->CloseAllTabs();
+
+    // The request should have been canceled when the Profile shut down.
+    url_fetcher_delegate1.WaitForCompletion();
+
+    // Requests issued after Profile shutdown should fail in a similar manner.
+    TestURLFetcherDelegate url_fetcher_delegate3(
+        context_getter.get(),
+        net::URLRequestFailedJob::GetMockHttpUrl(net::ERR_IO_PENDING),
+        net::URLRequestStatus(net::URLRequestStatus::CANCELED,
+                              net::ERR_CONTEXT_SHUT_DOWN));
+    url_fetcher_delegate3.WaitForCompletion();
+  }
+
   scoped_refptr<base::SequencedTaskRunner> profile_io_task_runner_;
+
+  // URLFetcherDelegate that outlives the Profile, to test shutdown.
+  scoped_ptr<TestURLFetcherDelegate> url_fetcher_delegate_;
 };
 
 // Test OnProfileCreate is called with is_new_profile set to true when
@@ -224,9 +365,6 @@ IN_PROC_BROWSER_TEST_F(ProfileBrowserTest, DISABLED_ProfileReadmeCreated) {
   MockProfileDelegate delegate;
   EXPECT_CALL(delegate, OnProfileCreated(testing::NotNull(), true, true));
 
-  // No delay before README creation.
-  ProfileImpl::create_readme_delay_ms = 0;
-
   {
     content::WindowedNotificationObserver observer(
         chrome::NOTIFICATION_PROFILE_CREATED,
@@ -238,48 +376,10 @@ IN_PROC_BROWSER_TEST_F(ProfileBrowserTest, DISABLED_ProfileReadmeCreated) {
     // Wait for the profile to be created.
     observer.Wait();
 
-    // Wait for file thread to create the README.
-    content::RunAllPendingInMessageLoop(content::BrowserThread::FILE);
-
     // Verify that README exists.
     EXPECT_TRUE(base::PathExists(
         temp_dir.path().Append(chrome::kReadmeFilename)));
   }
-
-  FlushIoTaskRunnerAndSpinThreads();
-}
-
-// Test that Profile can be deleted before README file is created.
-IN_PROC_BROWSER_TEST_F(ProfileBrowserTest, ProfileDeletedBeforeReadmeCreated) {
-  base::ScopedTempDir temp_dir;
-  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
-
-  MockProfileDelegate delegate;
-  EXPECT_CALL(delegate, OnProfileCreated(testing::NotNull(), true, true));
-
-  // No delay before README creation.
-  ProfileImpl::create_readme_delay_ms = 0;
-
-  base::WaitableEvent is_blocked(false, false);
-  base::WaitableEvent* unblock = new base::WaitableEvent(false, false);
-
-  // Block file thread.
-  content::BrowserThread::PostTask(
-      content::BrowserThread::FILE, FROM_HERE,
-      base::Bind(&BlockThread, &is_blocked, base::Owned(unblock)));
-  // Wait for file thread to actually be blocked.
-  is_blocked.Wait();
-
-  scoped_ptr<Profile> profile(CreateProfile(
-      temp_dir.path(), &delegate, Profile::CREATE_MODE_SYNCHRONOUS));
-
-  // Delete the Profile instance before we give the file thread a chance to
-  // create the README.
-  profile.reset();
-
-  // Now unblock the file thread again and run pending tasks (this includes the
-  // task for README creation).
-  unblock->Signal();
 
   FlushIoTaskRunnerAndSpinThreads();
 }
@@ -320,7 +420,7 @@ IN_PROC_BROWSER_TEST_F(ProfileBrowserTest, ExitType) {
 
 // The EndSession IO synchronization is only critical on Windows, but also
 // happens under the USE_X11 define. See BrowserProcessImpl::EndSession.
-#if defined(USE_X11) || defined(OS_WIN)
+#if defined(USE_X11) || defined(OS_WIN) || defined(USE_OZONE)
 
 namespace {
 
@@ -331,7 +431,7 @@ std::string GetExitTypePreferenceFromDisk(Profile* profile) {
   if (!base::ReadFileToString(prefs_path, &prefs))
     return std::string();
 
-  scoped_ptr<base::Value> value(base::JSONReader::Read(prefs));
+  scoped_ptr<base::Value> value = base::JSONReader::Read(prefs);
   if (!value)
     return std::string();
 
@@ -360,12 +460,22 @@ IN_PROC_BROWSER_TEST_F(ProfileBrowserTest,
   ASSERT_NE(loaded_profiles.size(), 0UL);
   Profile* profile = loaded_profiles[0];
 
+#if defined(OS_CHROMEOS)
+  for (const auto& loaded_profile : loaded_profiles) {
+    if (!chromeos::ProfileHelper::IsSigninProfile(loaded_profile)) {
+      profile = loaded_profile;
+      break;
+    }
+  }
+#endif
+
   // This retry loop reduces flakiness due to the fact that this ultimately
   // tests whether or not a code path hits a timed wait.
   bool succeeded = false;
   for (size_t retries = 0; !succeeded && retries < 3; ++retries) {
     // Flush the profile data to disk for all loaded profiles.
     profile->SetExitType(Profile::EXIT_CRASHED);
+    profile->GetPrefs()->CommitPendingWrite();
     FlushTaskRunner(profile->GetIOTaskRunner().get());
 
     // Make sure that the prefs file was written with the expected key/value.
@@ -398,66 +508,47 @@ IN_PROC_BROWSER_TEST_F(ProfileBrowserTest,
   ASSERT_TRUE(succeeded) << "profile->EndSession() timed out too often.";
 }
 
+#endif  // defined(USE_X11) || defined(OS_WIN) || defined(USE_OZONE)
+
+// The following tests make sure that it's safe to shut down while one of the
+// Profile's URLRequestContextGetters is in use by a URLFetcher.
+
 IN_PROC_BROWSER_TEST_F(ProfileBrowserTest,
-                       EndSessionBrokenSynchronizationExperiment) {
-  base::ScopedTempDir temp_dir;
-  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
-
-  // Select into the field trial group.
-  base::FieldTrialList::CreateFieldTrial("WindowsLogoffRace",
-                                         "BrokenSynchronization");
-
-  ProfileManager* profile_manager = g_browser_process->profile_manager();
-  ASSERT_TRUE(profile_manager);
-  std::vector<Profile*> loaded_profiles = profile_manager->GetLoadedProfiles();
-
-  ASSERT_NE(loaded_profiles.size(), 0UL);
-  Profile* profile = loaded_profiles[0];
-
-  bool mis_wrote = false;
-  // This retry loop reduces flakiness due to the fact that this ultimately
-  // tests whether or not a code path hits a timed wait.
-  for (size_t retries = 0; retries < 3; ++retries) {
-    // Flush the profile data to disk for all loaded profiles.
-    profile->SetExitType(Profile::EXIT_CRASHED);
-    FlushTaskRunner(profile->GetIOTaskRunner().get());
-
-    // Make sure that the prefs file was written with the expected key/value.
-    ASSERT_EQ(GetExitTypePreferenceFromDisk(profile), "Crashed");
-
-    base::WaitableEvent is_blocked(false, false);
-    base::WaitableEvent* unblock = new base::WaitableEvent(false, false);
-
-    // Block the profile's IO thread.
-    profile->GetIOTaskRunner()->PostTask(FROM_HERE,
-        base::Bind(&BlockThread, &is_blocked, base::Owned(unblock)));
-    // Wait for the IO thread to actually be blocked.
-    is_blocked.Wait();
-
-    // The blocking wait in EndSession has a timeout, so a non-write can only be
-    // concluded if it happens in less time than the timeout.
-    base::Time start = base::Time::Now();
-
-    // With the broken synchronization this is expected to return without
-    // blocking for the Profile's IO thread.
-    g_browser_process->EndSession();
-
-    base::Time end = base::Time::Now();
-
-    // The EndSession timeout is 10 seconds, we take a 5 second run-through as
-    // sufficient proof that we didn't hit the timed wait.
-    if (end - start < base::TimeDelta::FromSeconds(5)) {
-      // Make sure that the prefs file is unmodified with the expected
-      // key/value.
-      EXPECT_EQ(GetExitTypePreferenceFromDisk(profile), "Crashed");
-      mis_wrote = true;
-    }
-
-    // Release the IO thread thread.
-    unblock->Signal();
-  }
-
-  ASSERT_TRUE(mis_wrote);
+                       URLFetcherUsingMainContextDuringShutdown) {
+  StartActiveFetcherDuringProfileShutdownTest(
+      browser()->profile()->GetRequestContext());
 }
 
-#endif  // defined(USE_X11) || defined(OS_WIN)
+IN_PROC_BROWSER_TEST_F(ProfileBrowserTest,
+                       URLFetcherUsingMediaContextDuringShutdown) {
+  StartActiveFetcherDuringProfileShutdownTest(
+      browser()->profile()->GetMediaRequestContext());
+}
+
+IN_PROC_BROWSER_TEST_F(ProfileBrowserTest,
+                       URLFetcherUsingExtensionContextDuringShutdown) {
+  StartActiveFetcherDuringProfileShutdownTest(
+      browser()->profile()->GetRequestContextForExtensions());
+}
+
+// The following tests make sure that it's safe to destroy an incognito profile
+// while one of the its URLRequestContextGetters is in use by a URLFetcher.
+
+IN_PROC_BROWSER_TEST_F(ProfileBrowserTest,
+                       URLFetcherUsingMainContextDuringIncognitoTeardown) {
+  Browser* incognito_browser =
+      ui_test_utils::OpenURLOffTheRecord(browser()->profile(),
+                                         GURL("about:blank"));
+  RunURLFetcherActiveDuringIncognitoTeardownTest(
+      incognito_browser, incognito_browser->profile()->GetRequestContext());
+}
+
+IN_PROC_BROWSER_TEST_F(ProfileBrowserTest,
+                       URLFetcherUsingExtensionContextDuringIncognitoTeardown) {
+  Browser* incognito_browser =
+      ui_test_utils::OpenURLOffTheRecord(browser()->profile(),
+                                         GURL("about:blank"));
+  RunURLFetcherActiveDuringIncognitoTeardownTest(
+      incognito_browser,
+      incognito_browser->profile()->GetRequestContextForExtensions());
+}

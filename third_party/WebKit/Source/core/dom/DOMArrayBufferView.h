@@ -6,34 +6,55 @@
 #define DOMArrayBufferView_h
 
 #include "bindings/core/v8/ScriptWrappable.h"
+#include "core/CoreExport.h"
 #include "core/dom/DOMArrayBuffer.h"
+#include "core/dom/DOMSharedArrayBuffer.h"
 #include "wtf/ArrayBufferView.h"
 #include "wtf/RefCounted.h"
 
 namespace blink {
 
-class DOMArrayBufferView : public RefCounted<DOMArrayBufferView>, public ScriptWrappable {
+class CORE_EXPORT DOMArrayBufferView : public RefCounted<DOMArrayBufferView>, public ScriptWrappable {
     DEFINE_WRAPPERTYPEINFO();
 public:
     typedef WTF::ArrayBufferView::ViewType ViewType;
-    static const int TypeInt8 = WTF::ArrayBufferView::TypeInt8;
-    static const int TypeUint8 = WTF::ArrayBufferView::TypeUint8;
-    static const int TypeUint8Clamped = WTF::ArrayBufferView::TypeUint8Clamped;
-    static const int TypeInt16 = WTF::ArrayBufferView::TypeInt16;
-    static const int TypeUint16 = WTF::ArrayBufferView::TypeUint16;
-    static const int TypeInt32 = WTF::ArrayBufferView::TypeInt32;
-    static const int TypeUint32 = WTF::ArrayBufferView::TypeUint32;
-    static const int TypeFloat32 = WTF::ArrayBufferView::TypeFloat32;
-    static const int TypeFloat64 = WTF::ArrayBufferView::TypeFloat64;
-    static const int TypeDataView = WTF::ArrayBufferView::TypeDataView;
+    static const ViewType TypeInt8 = WTF::ArrayBufferView::TypeInt8;
+    static const ViewType TypeUint8 = WTF::ArrayBufferView::TypeUint8;
+    static const ViewType TypeUint8Clamped = WTF::ArrayBufferView::TypeUint8Clamped;
+    static const ViewType TypeInt16 = WTF::ArrayBufferView::TypeInt16;
+    static const ViewType TypeUint16 = WTF::ArrayBufferView::TypeUint16;
+    static const ViewType TypeInt32 = WTF::ArrayBufferView::TypeInt32;
+    static const ViewType TypeUint32 = WTF::ArrayBufferView::TypeUint32;
+    static const ViewType TypeFloat32 = WTF::ArrayBufferView::TypeFloat32;
+    static const ViewType TypeFloat64 = WTF::ArrayBufferView::TypeFloat64;
+    static const ViewType TypeDataView = WTF::ArrayBufferView::TypeDataView;
 
     virtual ~DOMArrayBufferView() { }
 
     PassRefPtr<DOMArrayBuffer> buffer() const
     {
-        if (!m_domArrayBuffer)
+        ASSERT(!isShared());
+        if (!m_domArrayBuffer) {
             m_domArrayBuffer = DOMArrayBuffer::create(view()->buffer());
-        return m_domArrayBuffer;
+        }
+        return static_pointer_cast<DOMArrayBuffer>(m_domArrayBuffer);
+    }
+
+    PassRefPtr<DOMSharedArrayBuffer> bufferShared() const
+    {
+        ASSERT(isShared());
+        if (!m_domArrayBuffer) {
+            m_domArrayBuffer = DOMSharedArrayBuffer::create(view()->buffer());
+        }
+        return static_pointer_cast<DOMSharedArrayBuffer>(m_domArrayBuffer);
+    }
+
+    PassRefPtr<DOMArrayBufferBase> bufferBase() const
+    {
+        if (isShared()) {
+            return bufferShared();
+        }
+        return buffer();
     }
 
     const WTF::ArrayBufferView* view() const { return m_bufferView.get(); }
@@ -44,16 +65,13 @@ public:
     void* baseAddress() const { return view()->baseAddress(); }
     unsigned byteOffset() const { return view()->byteOffset(); }
     unsigned byteLength() const { return view()->byteLength(); }
+    void setNeuterable(bool flag) { return view()->setNeuterable(flag); }
+    bool isShared() const { return view()->isShared(); }
 
-    virtual v8::Handle<v8::Object> wrap(v8::Handle<v8::Object> creationContext, v8::Isolate*) override
+    v8::Local<v8::Object> wrap(v8::Isolate*, v8::Local<v8::Object> creationContext) override
     {
         ASSERT_NOT_REACHED();
-        return v8::Handle<v8::Object>();
-    }
-    virtual v8::Handle<v8::Object> associateWithWrapper(const WrapperTypeInfo*, v8::Handle<v8::Object> wrapper, v8::Isolate*) override
-    {
-        ASSERT_NOT_REACHED();
-        return v8::Handle<v8::Object>();
+        return v8::Local<v8::Object>();
     }
 
 protected:
@@ -62,7 +80,7 @@ protected:
     {
         ASSERT(m_bufferView);
     }
-    DOMArrayBufferView(PassRefPtr<WTF::ArrayBufferView> bufferView, PassRefPtr<DOMArrayBuffer> domArrayBuffer)
+    DOMArrayBufferView(PassRefPtr<WTF::ArrayBufferView> bufferView, PassRefPtr<DOMArrayBufferBase> domArrayBuffer)
         : m_bufferView(bufferView), m_domArrayBuffer(domArrayBuffer)
     {
         ASSERT(m_bufferView);
@@ -72,7 +90,7 @@ protected:
 
 private:
     RefPtr<WTF::ArrayBufferView> m_bufferView;
-    mutable RefPtr<DOMArrayBuffer> m_domArrayBuffer;
+    mutable RefPtr<DOMArrayBufferBase> m_domArrayBuffer;
 };
 
 } // namespace blink

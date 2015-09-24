@@ -6,6 +6,8 @@
 
 #include <string>
 
+#include "ash/session/session_state_delegate.h"
+#include "ash/shell.h"
 #include "base/bind.h"
 #include "base/prefs/pref_change_registrar.h"
 #include "base/strings/string_number_conversions.h"
@@ -31,11 +33,6 @@
 #include "content/public/browser/web_ui.h"
 #include "ui/base/l10n/l10n_util.h"
 
-#if !defined(USE_ATHENA)
-#include "ash/session/session_state_delegate.h"
-#include "ash/shell.h"
-#endif
-
 namespace chromeos {
 namespace options {
 
@@ -46,10 +43,21 @@ const char* kNonPrivilegedSettings[] = {
     kSystemTimezone
 };
 
+// List of settings that should only be changeable by the primary user.
+const char* kPrimaryUserSettings[] = {
+  prefs::kWakeOnWifiSsid,
+};
+
 // Returns true if |pref| can be controlled (e.g. by policy or owner).
 bool IsSettingPrivileged(const std::string& pref) {
   const char** end = kNonPrivilegedSettings + arraysize(kNonPrivilegedSettings);
   return std::find(kNonPrivilegedSettings, end, pref) == end;
+}
+
+// Returns true if |pref| is shared (controlled by the primary user).
+bool IsSettingShared(const std::string& pref) {
+  const char** end = kPrimaryUserSettings + arraysize(kPrimaryUserSettings);
+  return std::find(kPrimaryUserSettings, end, pref) != end;
 }
 
 // Creates a user info dictionary to be stored in the |ListValue| that is
@@ -88,6 +96,14 @@ base::Value* CreateUsersWhitelist(const base::Value *pref_value) {
   return user_list;
 }
 
+// Checks whether this is a secondary user in a multi-profile session.
+bool IsSecondaryUser(Profile* profile) {
+  user_manager::UserManager* user_manager = user_manager::UserManager::Get();
+  const user_manager::User* user =
+      ProfileHelper::Get()->GetUserByProfile(profile);
+  return user && user->email() != user_manager->GetPrimaryUser()->email();
+}
+
 const char kSelectNetworkMessage[] = "selectNetwork";
 
 }  // namespace
@@ -112,7 +128,7 @@ void CoreChromeOSOptionsHandler::RegisterMessages() {
 void CoreChromeOSOptionsHandler::InitializeHandler() {
   // This function is both called on the initial page load and on each reload.
   // For the latter case, forget the last selected network.
-  proxy_config_service_.SetCurrentNetwork(std::string());
+  proxy_config_service_.SetCurrentNetworkGuid("");
   // And clear the cached configuration.
   proxy_config_service_.UpdateFromPrefs();
 
@@ -158,20 +174,35 @@ base::Value* CoreChromeOSOptionsHandler::FetchPref(
     proxy_cros_settings_parser::GetProxyPrefValue(
         proxy_config_service_, pref_name, &value);
     if (!value)
-      return base::Value::CreateNullValue();
+      return base::Value::CreateNullValue().release();
 
     return value;
   }
 
+  Profile* profile = Profile::FromWebUI(web_ui());
   if (!CrosSettings::IsCrosSettings(pref_name)) {
     std::string controlling_pref =
         pref_name == prefs::kUseSharedProxies ? prefs::kProxy : std::string();
-    return CreateValueForPref(pref_name, controlling_pref);
+    base::Value* value = CreateValueForPref(pref_name, controlling_pref);
+    if (!IsSettingShared(pref_name) || !IsSecondaryUser(profile))
+      return value;
+    base::DictionaryValue* dict;
+    if (!value->GetAsDictionary(&dict) || dict->HasKey("controlledBy"))
+      return value;
+    Profile* primary_profile = ProfileHelper::Get()->GetProfileByUser(
+        user_manager::UserManager::Get()->GetPrimaryUser());
+    if (!primary_profile)
+      return value;
+    dict->SetString("controlledBy", "shared");
+    dict->SetBoolean("disabled", true);
+    dict->SetBoolean("value", primary_profile->GetPrefs()->GetBoolean(
+        pref_name));
+    return dict;
   }
 
   const base::Value* pref_value = CrosSettings::Get()->GetPref(pref_name);
   if (!pref_value)
-    return base::Value::CreateNullValue();
+    return base::Value::CreateNullValue().release();
 
   // Decorate pref value as CoreOptionsHandler::CreateValueForPref() does.
   // TODO(estade): seems that this should replicate CreateValueForPref less.
@@ -187,7 +218,7 @@ base::Value* CoreChromeOSOptionsHandler::FetchPref(
         g_browser_process->platform_part()->browser_policy_connector_chromeos();
     if (connector->IsEnterpriseManaged())
       controlled_by = "policy";
-    else if (!ProfileHelper::IsOwnerProfile(Profile::FromWebUI(web_ui())))
+    else if (!ProfileHelper::IsOwnerProfile(profile))
       controlled_by = "owner";
   }
   dict->SetBoolean("disabled", !controlled_by.empty());
@@ -228,10 +259,8 @@ void CoreChromeOSOptionsHandler::SetPref(const std::string& pref_name,
   }
   if (!CrosSettings::IsCrosSettings(pref_name))
     return ::options::CoreOptionsHandler::SetPref(pref_name, value, metric);
-  Profile* profile = Profile::FromWebUI(web_ui());
   OwnerSettingsServiceChromeOS* service =
-      profile ? OwnerSettingsServiceChromeOSFactory::GetForProfile(profile)
-              : nullptr;
+      OwnerSettingsServiceChromeOS::FromWebUI(web_ui());
   if (service && service->HandlesSetting(pref_name))
     service->Set(pref_name, *value);
   else
@@ -253,11 +282,6 @@ void CoreChromeOSOptionsHandler::StopObservingPref(const std::string& path) {
 base::Value* CoreChromeOSOptionsHandler::CreateValueForPref(
     const std::string& pref_name,
     const std::string& controlling_pref_name) {
-  // Athena doesn't have ash::Shell and its session_state_delegate, so the
-  // following code will cause crash.
-  // TODO(mukai|antrim): re-enable this after having session_state_delegate.
-  // http://crbug.com/370175
-#if !defined(USE_ATHENA)
   // The screen lock setting is shared if multiple users are logged in and at
   // least one has chosen to require passwords.
   if (pref_name == prefs::kEnableAutoScreenLock &&
@@ -285,7 +309,6 @@ base::Value* CoreChromeOSOptionsHandler::CreateValueForPref(
       }
     }
   }
-#endif
 
   return CoreOptionsHandler::CreateValueForPref(pref_name,
                                                 controlling_pref_name);
@@ -301,10 +324,7 @@ void CoreChromeOSOptionsHandler::GetLocalizedValues(
 
   user_manager::UserManager* user_manager = user_manager::UserManager::Get();
 
-  // Check at load time whether this is a secondary user in a multi-profile
-  // session.
-  user_manager::User* user = ProfileHelper::Get()->GetUserByProfile(profile);
-  if (user && user->email() != user_manager->GetPrimaryUser()->email()) {
+  if (IsSecondaryUser(profile)) {
     const std::string& primary_email = user_manager->GetPrimaryUser()->email();
 
     // Set secondaryUser to show the shared icon by the network section header.
@@ -348,13 +368,12 @@ void CoreChromeOSOptionsHandler::GetLocalizedValues(
 
 void CoreChromeOSOptionsHandler::SelectNetworkCallback(
     const base::ListValue* args) {
-  std::string service_path;
-  if (args->GetSize() != 1 ||
-      !args->GetString(0, &service_path)) {
+  std::string guid;
+  if (args->GetSize() != 1 || !args->GetString(0, &guid)) {
     NOTREACHED();
     return;
   }
-  proxy_config_service_.SetCurrentNetwork(service_path);
+  proxy_config_service_.SetCurrentNetworkGuid(guid);
   NotifyProxyPrefsChanged();
 }
 

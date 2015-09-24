@@ -29,8 +29,6 @@ class ExtensionRegistry;
 namespace app_list {
 
 class AppContextMenu;
-class TokenizedString;
-class TokenizedStringMatch;
 
 class AppResult : public SearchResult,
                   public extensions::IconImage::Observer,
@@ -40,18 +38,16 @@ class AppResult : public SearchResult,
  public:
   AppResult(Profile* profile,
             const std::string& app_id,
-            AppListControllerDelegate* controller);
+            AppListControllerDelegate* controller,
+            bool is_recommendation);
   ~AppResult() override;
-
-  void UpdateFromMatch(const TokenizedString& title,
-                       const TokenizedStringMatch& match);
 
   void UpdateFromLastLaunched(const base::Time& current_time,
                               const base::Time& last_launched);
 
   // SearchResult overrides:
   void Open(int event_flags) override;
-  scoped_ptr<SearchResult> Duplicate() override;
+  scoped_ptr<SearchResult> Duplicate() const override;
   ui::MenuModel* GetContextMenuModel() override;
 
  private:
@@ -79,9 +75,6 @@ class AppResult : public SearchResult,
   // extensions::ExtensionRegistryObserver override:
   void OnExtensionLoaded(content::BrowserContext* browser_context,
                          const extensions::Extension* extension) override;
-  void OnExtensionUninstalled(content::BrowserContext* browser_context,
-                              const extensions::Extension* extension,
-                              extensions::UninstallReason reason) override;
   void OnShutdown(extensions::ExtensionRegistry* registry) override;
 
   Profile* profile_;

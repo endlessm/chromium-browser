@@ -10,16 +10,21 @@
 #include "chrome/browser/ui/webui/help/version_updater.h"
 #include "chromeos/dbus/update_engine_client.h"
 
+namespace content {
+class BrowserContext;
+class WebContents;
+}
+
 class VersionUpdaterCros : public VersionUpdater,
                            public chromeos::UpdateEngineClient::Observer {
  public:
   // VersionUpdater implementation.
-  virtual void CheckForUpdate(const StatusCallback& callback) override;
-  virtual void RelaunchBrowser() const override;
-  virtual void SetChannel(const std::string& channel,
-                          bool is_powerwash_allowed) override;
-  virtual void GetChannel(bool get_current_channel,
-                          const ChannelCallback& callback) override;
+  void CheckForUpdate(const StatusCallback& callback) override;
+  void RelaunchBrowser() const override;
+  void SetChannel(const std::string& channel,
+                  bool is_powerwash_allowed) override;
+  void GetChannel(bool get_current_channel,
+                  const ChannelCallback& callback) override;
 
   // Gets the last update status, without triggering a new check or download.
   void GetUpdateStatus(const StatusCallback& callback);
@@ -28,16 +33,19 @@ class VersionUpdaterCros : public VersionUpdater,
   friend class VersionUpdater;
 
   // Clients must use VersionUpdater::Create().
-  VersionUpdaterCros();
-  virtual ~VersionUpdaterCros();
+  explicit VersionUpdaterCros(content::WebContents* web_contents);
+  ~VersionUpdaterCros() override;
 
  private:
   // UpdateEngineClient::Observer implementation.
-  virtual void UpdateStatusChanged(
+  void UpdateStatusChanged(
       const chromeos::UpdateEngineClient::Status& status) override;
 
   // Callback from UpdateEngineClient::RequestUpdateCheck().
   void OnUpdateCheck(chromeos::UpdateEngineClient::UpdateCheckResult result);
+
+  // BrowserContext in which the class was instantiated.
+  content::BrowserContext* context_;
 
   // Callback used to communicate update status to the client.
   StatusCallback callback_;

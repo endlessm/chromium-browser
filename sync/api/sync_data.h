@@ -190,19 +190,10 @@ class SYNC_EXPORT SyncDataRemote : public SyncData {
   void GetOrDownloadAttachments(
       const AttachmentIdList& attachment_ids,
       const AttachmentService::GetOrDownloadCallback& callback);
-
-  // Drop (delete from local storage) the attachments associated with this
-  // SyncData specified in |attachment_ids|. This method will not delete
-  // attachments from the server.
-  //
-  // |callback| will be invoked when the operation is complete (successfully
-  // or otherwise).
-  void DropAttachments(const AttachmentIdList& attachment_ids,
-                       const AttachmentService::DropCallback& callback);
 };
 
 // gmock printer helper.
-void PrintTo(const SyncData& sync_data, std::ostream* os);
+void SYNC_EXPORT PrintTo(const SyncData& sync_data, std::ostream* os);
 
 typedef std::vector<SyncData> SyncDataList;
 

@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 from telemetry.page import page as page_module
-from telemetry.page import page_set as page_set_module
+from telemetry import story
 
 
 class MseCasesPage(page_module.Page):
@@ -11,16 +11,17 @@ class MseCasesPage(page_module.Page):
     super(MseCasesPage, self).__init__(url=url, page_set=page_set)
 
   def RunNavigateSteps(self, action_runner):
-    action_runner.NavigateToPage(self)
+    super(MseCasesPage, self).RunNavigateSteps(action_runner)
     action_runner.WaitForJavaScriptCondition('window.__testDone == true')
 
 
-class MseCasesPageSet(page_set_module.PageSet):
+class MseCasesPageSet(story.StorySet):
 
   """ Media source extensions perf benchmark """
 
   def __init__(self):
-    super(MseCasesPageSet, self).__init__()
+    super(MseCasesPageSet, self).__init__(
+        cloud_storage_bucket=story.PUBLIC_BUCKET)
 
     urls_list = [
       'file://mse_cases/startup_test.html?testType=AV',
@@ -44,4 +45,4 @@ class MseCasesPageSet(page_set_module.PageSet):
     ]
 
     for url in urls_list:
-      self.AddPage(MseCasesPage(url, self))
+      self.AddStory(MseCasesPage(url, self))

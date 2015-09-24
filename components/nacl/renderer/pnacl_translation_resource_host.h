@@ -8,12 +8,15 @@
 #include <map>
 
 #include "base/callback.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "ipc/ipc_platform_file.h"
 #include "ipc/message_filter.h"
 #include "ppapi/c/pp_bool.h"
 #include "ppapi/c/pp_instance.h"
 #include "ppapi/c/private/pp_file_handle.h"
+
+namespace base {
+class SingleThreadTaskRunner;
+}
 
 namespace nacl {
 struct PnaclCacheInfo;
@@ -31,7 +34,7 @@ class PnaclTranslationResourceHost : public IPC::MessageFilter {
           RequestNexeFdCallback;
 
   explicit PnaclTranslationResourceHost(
-      const scoped_refptr<base::MessageLoopProxy>& io_message_loop);
+      scoped_refptr<base::SingleThreadTaskRunner> io_task_runner);
   void RequestNexeFd(int render_view_id,
                      PP_Instance instance,
                      const nacl::PnaclCacheInfo& cache_info,
@@ -63,7 +66,7 @@ class PnaclTranslationResourceHost : public IPC::MessageFilter {
                            IPC::PlatformFileForTransit file);
   void CleanupCacheRequests();
 
-  scoped_refptr<base::MessageLoopProxy> io_message_loop_;
+  scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
 
   // Should be accessed on the io thread.
   IPC::Sender* sender_;

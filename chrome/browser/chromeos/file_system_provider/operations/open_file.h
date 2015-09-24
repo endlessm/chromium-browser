@@ -32,22 +32,22 @@ class OpenFile : public Operation {
   OpenFile(extensions::EventRouter* event_router,
            const ProvidedFileSystemInfo& file_system_info,
            const base::FilePath& file_path,
-           ProvidedFileSystemInterface::OpenFileMode mode,
+           OpenFileMode mode,
            const ProvidedFileSystemInterface::OpenFileCallback& callback);
-  virtual ~OpenFile();
+  ~OpenFile() override;
 
   // Operation overrides.
-  virtual bool Execute(int request_id) override;
-  virtual void OnSuccess(int request_id,
-                         scoped_ptr<RequestValue> result,
-                         bool has_more) override;
-  virtual void OnError(int request_id,
-                       scoped_ptr<RequestValue> result,
-                       base::File::Error error) override;
+  bool Execute(int request_id) override;
+  void OnSuccess(int request_id,
+                 scoped_ptr<RequestValue> result,
+                 bool has_more) override;
+  void OnError(int request_id,
+               scoped_ptr<RequestValue> result,
+               base::File::Error error) override;
 
  private:
   base::FilePath file_path_;
-  ProvidedFileSystemInterface::OpenFileMode mode_;
+  OpenFileMode mode_;
   const ProvidedFileSystemInterface::OpenFileCallback callback_;
 
   DISALLOW_COPY_AND_ASSIGN(OpenFile);

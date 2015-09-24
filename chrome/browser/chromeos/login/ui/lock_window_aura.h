@@ -17,25 +17,21 @@ class LockWindowAura : public views::Widget,
                        public LockWindow {
  public:
   // LockWindow implementation:
-  virtual void Grab() override;
-  virtual views::Widget* GetWidget() override;
+  void Grab() override;
+  views::Widget* GetWidget() override;
 
   // views::WidgetDelegate implementation:
-  virtual views::View* GetInitiallyFocusedView() override;
-  virtual const views::Widget* GetWidget() const override;
+  views::View* GetInitiallyFocusedView() override;
+  const views::Widget* GetWidget() const override;
 
  private:
   friend class LockWindow;
 
   LockWindowAura();
-  virtual ~LockWindowAura();
+  ~LockWindowAura() override;
 
   // Initialize the Aura lock window.
   void Init();
-
-#if defined(USE_ATHENA)
-  scoped_ptr<aura::Window> lock_screen_container_;
-#endif
 
   DISALLOW_COPY_AND_ASSIGN(LockWindowAura);
 };

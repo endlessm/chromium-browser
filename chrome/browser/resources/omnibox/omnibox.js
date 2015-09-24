@@ -17,13 +17,14 @@
  * are available, the Javascript formats them and displays them.
  */
 define('main', [
+    'mojo/public/js/bindings',
+    'mojo/public/js/core',
     'mojo/public/js/connection',
     'chrome/browser/ui/webui/omnibox/omnibox.mojom',
     'content/public/renderer/service_provider',
-], function(connector, browser, serviceProvider) {
+], function(bindings, core, connection, browser, serviceProvider) {
   'use strict';
 
-  var connection;
   var page;
 
   /**
@@ -71,12 +72,17 @@ define('main', [
     // - forth element: the value of prefer-keyword
     // - fifth element: the value of page-classification
     cursorPositionUsed = $('input-text').selectionEnd;
+    var pipe = core.createMessagePipe();
+    var stub = connection.bindHandleToStub(pipe.handle0, browser.OmniboxPage);
+    bindings.StubBindings(stub).delegate = page;
+    page.stub_ = stub;
     page.browser_.startOmniboxQuery(
         $('input-text').value,
         cursorPositionUsed,
         $('prevent-inline-autocomplete').checked,
         $('prefer-keyword').checked,
-        parseInt($('page-classification').value));
+        parseInt($('page-classification').value),
+        pipe.handle1);
     // Cancel the submit action.  i.e., don't submit the form.  (We handle
     // display the results solely with Javascript.)
     event.preventDefault();
@@ -110,7 +116,7 @@ define('main', [
    * properties to output in what order.  This is an array of
    * PresentationInfoRecord() objects; for details see that
    * function.
-   * @type {Array.<Object>}
+   * @type {Array<Object>}
    * @const
    */
   var PROPERTY_OUTPUT_ORDER = [
@@ -129,10 +135,6 @@ define('main', [
         'navigates to).'),
     new PresentationInfoRecord('Starred', '', 'starred', false,
         'A green checkmark indicates that the result has been bookmarked.'),
-    new PresentationInfoRecord(
-        'HWYT', '', 'is_history_what_you_typed_match', false,
-        'A green checkmark indicates that the result is an History What You ' +
-        'Typed Match'),
     new PresentationInfoRecord('Description', '', 'description', false,
         'The page title of the result.'),
     new PresentationInfoRecord('URL', '', 'destination_url', true,
@@ -421,7 +423,6 @@ define('main', [
 
   function OmniboxPageImpl(browser) {
     this.browser_ = browser;
-    page = this;
     initialize();
   }
 
@@ -434,10 +435,10 @@ define('main', [
   };
 
   return function() {
-    connection = new connector.Connection(
+    var browserProxy = connection.bindHandleToProxy(
         serviceProvider.connectToService(
             browser.OmniboxUIHandlerMojo.name),
-        OmniboxPageImpl,
-        browser.OmniboxUIHandlerMojo.proxyClass);
+        browser.OmniboxUIHandlerMojo);
+    page = new OmniboxPageImpl(browserProxy);
   };
 });

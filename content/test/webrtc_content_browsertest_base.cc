@@ -23,16 +23,17 @@
 
 namespace content {
 
-void WebRtcContentBrowserTest::SetUpCommandLine(CommandLine* command_line) {
+void WebRtcContentBrowserTest::SetUpCommandLine(
+    base::CommandLine* command_line) {
   // Assume this is set by the content test launcher.
-  ASSERT_TRUE(CommandLine::ForCurrentProcess()->HasSwitch(
+  ASSERT_TRUE(base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kUseFakeUIForMediaStream));
-  ASSERT_TRUE(CommandLine::ForCurrentProcess()->HasSwitch(
+  ASSERT_TRUE(base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kUseFakeDeviceForMediaStream));
 
   // Always include loopback interface in network list, in case the test device
   // doesn't have other interfaces available.
-  CommandLine::ForCurrentProcess()->AppendSwitch(
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kAllowLoopbackInPeerConnection);
 }
 
@@ -57,9 +58,9 @@ void WebRtcContentBrowserTest::TearDown() {
 std::string WebRtcContentBrowserTest::ExecuteJavascriptAndReturnResult(
     const std::string& javascript) {
   std::string result;
-  EXPECT_TRUE(ExecuteScriptAndExtractString(shell()->web_contents(),
-                                            javascript,
-                                            &result));
+  EXPECT_TRUE(ExecuteScriptAndExtractString(
+      shell()->web_contents(), javascript, &result))
+          << "Failed to execute javascript " << javascript << ".";
   return result;
 }
 
@@ -67,7 +68,10 @@ void WebRtcContentBrowserTest::ExecuteJavascriptAndWaitForOk(
     const std::string& javascript) {
    std::string result = ExecuteJavascriptAndReturnResult(javascript);
    if (result != "OK") {
-     printf("From javascript: %s", result.c_str());
+     if (result.empty())
+       result = "(nothing)";
+     printf("From javascript: %s\nWhen executing '%s'\n", result.c_str(),
+            javascript.c_str());
      FAIL();
    }
  }
@@ -91,14 +95,6 @@ std::string WebRtcContentBrowserTest::GenerateGetUserMediaCall(
       max_height,
       min_frame_rate,
       max_frame_rate);
-}
-
-void WebRtcContentBrowserTest::DisableOpusIfOnAndroid() {
-#if defined(OS_ANDROID)
-  // Always force iSAC 16K on Android for now (Opus is broken).
-  EXPECT_EQ("isac-forced",
-            ExecuteJavascriptAndReturnResult("forceIsac16KInSdp();"));
-#endif
 }
 
 bool WebRtcContentBrowserTest::OnWinXp() const {

@@ -6,6 +6,7 @@
  * Drag selector used on the file list or the grid table.
  * TODO(hirono): Support drag selection for grid view. crbug.com/224832
  * @constructor
+ * @struct
  */
 function DragSelector() {
   /**
@@ -38,14 +39,14 @@ function DragSelector() {
 
   /**
    * Indexes of selected items by dragging at the last update.
-   * @type {Array.<number>!}
+   * @type {Array<number>!}
    * @private
    */
   this.lastSelection_ = [];
 
   /**
    * Indexes of selected items at the start of dragging.
-   * @type {Array.<number>!}
+   * @type {Array<number>!}
    * @private
    */
   this.originalSelection_ = [];
@@ -53,8 +54,6 @@ function DragSelector() {
   // Bind handlers to make them removable.
   this.onMouseMoveBound_ = this.onMouseMove_.bind(this);
   this.onMouseUpBound_ = this.onMouseUp_.bind(this);
-
-  Object.seal(this);
 }
 
 /**
@@ -124,17 +123,12 @@ DragSelector.prototype.startDragSelection = function(list, event) {
   this.border_.style.height = '0';
   list.appendChild(this.border_);
 
-  // If no modifier key is pressed, clear the original selection.
-  if (!event.shiftKey && !event.ctrlKey)
-    this.target_.selectionModel_.unselectAll();
-
   // Register event handlers.
   // The handlers are bounded at the constructor.
   this.target_.ownerDocument.addEventListener(
       'mousemove', this.onMouseMoveBound_, true);
   this.target_.ownerDocument.addEventListener(
       'mouseup', this.onMouseUpBound_, true);
-  cr.dispatchSimpleEvent(this.target_, 'dragselectionstart');
 };
 
 /**
@@ -233,7 +227,6 @@ DragSelector.prototype.onMouseUp_ = function(event) {
       'mousemove', this.onMouseMoveBound_, true);
   this.target_.ownerDocument.removeEventListener(
       'mouseup', this.onMouseUpBound_, true);
-  cr.dispatchSimpleEvent(this.target_, 'dragselectionend');
   this.target_.cachedBounds = null;
   this.target_ = null;
   // The target may select an item by reacting to the mouseup event.

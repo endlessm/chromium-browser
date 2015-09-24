@@ -5,7 +5,6 @@
 #import "chrome/browser/ui/cocoa/download/download_shelf_controller.h"
 
 #include "base/mac/bundle_locations.h"
-#include "base/mac/mac_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/browser/download/download_stats.h"
 #include "chrome/browser/profiles/profile.h"
@@ -143,13 +142,26 @@ const NSSize kHoverCloseButtonDefaultSize = { 18, 18 };
 }
 
 - (void)dealloc {
-  [[NSNotificationCenter defaultCenter] removeObserver:self];
-  [self cancelAutoClose];
-  [self removeTrackingArea];
-
-  // The controllers will unregister themselves as observers when they are
-  // deallocated. No need to do that here.
+  [self browserWillBeDestroyed];
   [super dealloc];
+}
+
+- (void)browserWillBeDestroyed {
+  [[NSNotificationCenter defaultCenter] removeObserver:self];
+
+  // We need to explicitly release our download controllers here since they need
+  // to remove themselves as observers before the remaining shutdown happens.
+  [[self animatableView] stopAnimation];
+  [self removeTrackingArea];
+  [self cancelAutoClose];
+  while ([downloadItemControllers_ count] > 0) {
+    [self removeDownload:[downloadItemControllers_ lastObject]
+          isShelfClosing:YES];
+  }
+  downloadItemControllers_.reset();
+
+  bridge_.reset();
+  navigator_ = nullptr;
 }
 
 // Called after the frame's rect has changed; usually when the height is
@@ -212,19 +224,6 @@ const NSSize kHoverCloseButtonDefaultSize = { 18, 18 };
   // This should only be called on the main thead.
   DCHECK([NSThread isMainThread]);
   [self maybeAutoCloseAfterDelay];
-}
-
-// We need to explicitly release our download controllers here since they need
-// to remove themselves as observers before the remaining shutdown happens.
-- (void)exiting {
-  [[self animatableView] stopAnimation];
-  [self removeTrackingArea];
-  [self cancelAutoClose];
-  while ([downloadItemControllers_ count] > 0) {
-    [self removeDownload:[downloadItemControllers_ lastObject]
-          isShelfClosing:YES];
-  }
-  downloadItemControllers_.reset();
 }
 
 - (void)showDownloadShelf:(BOOL)show

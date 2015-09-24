@@ -10,11 +10,11 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.Environment;
 import android.text.TextUtils;
-import android.util.Log;
 import android.widget.Toast;
 
 import org.chromium.base.CalledByNative;
 import org.chromium.base.JNINamespace;
+import org.chromium.base.Log;
 import org.chromium.content.R;
 
 import java.io.File;
@@ -42,7 +42,7 @@ import java.util.TimeZone;
 @JNINamespace("content")
 public class TracingControllerAndroid {
 
-    private static final String TAG = "TracingControllerAndroid";
+    private static final String TAG = "cr.TracingController";
 
     private static final String ACTION_START = "GPU_PROFILER_START";
     private static final String ACTION_STOP = "GPU_PROFILER_STOP";
@@ -177,7 +177,7 @@ public class TracingControllerAndroid {
      * (in content/public/browser/trace_controller.h) for the format.
      * @param traceOptions Which trace options to use. See
      * TraceOptions::TraceOptions(const std::string& options_string)
-     * (in base/debug/trace_event_impl.h) for the format.
+     * (in base/trace_event/trace_event_impl.h) for the format.
      */
     public boolean startTracing(String filename, boolean showToasts, String categories,
             String traceOptions) {
@@ -239,12 +239,6 @@ public class TracingControllerAndroid {
         }
     }
 
-    @Override
-    protected void finalize() {
-        // Ensure that destroy() was called.
-        assert mNativeTracingControllerAndroid == 0;
-    }
-
     /**
      * Clean up the C++ side of this class.
      * After the call, this class instance shouldn't be used.
@@ -289,9 +283,8 @@ public class TracingControllerAndroid {
                     categories = categories.replaceFirst(
                             DEFAULT_CHROME_CATEGORIES_PLACE_HOLDER, nativeGetDefaultCategories());
                 }
-                String traceOptions =
-                        intent.getStringExtra(RECORD_CONTINUOUSLY_EXTRA) == null ?
-                        "record-until-full" : "record-continuously";
+                String traceOptions = intent.getStringExtra(RECORD_CONTINUOUSLY_EXTRA) == null
+                        ? "record-until-full" : "record-continuously";
                 String filename = intent.getStringExtra(FILE_EXTRA);
                 if (filename != null) {
                     startTracing(filename, true, categories, traceOptions);
@@ -303,7 +296,7 @@ public class TracingControllerAndroid {
             } else if (intent.getAction().endsWith(ACTION_LIST_CATEGORIES)) {
                 getCategoryGroups();
             } else {
-                Log.e(TAG, "Unexpected intent: " + intent);
+                Log.e(TAG, "Unexpected intent: %s", intent);
             }
         }
     }

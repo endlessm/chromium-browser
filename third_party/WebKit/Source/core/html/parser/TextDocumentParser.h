@@ -32,16 +32,16 @@ namespace blink {
 
 class TextDocumentParser final : public HTMLDocumentParser {
 public:
-    static PassRefPtrWillBeRawPtr<TextDocumentParser> create(HTMLDocument& document)
+    static PassRefPtrWillBeRawPtr<TextDocumentParser> create(HTMLDocument& document, ParserSynchronizationPolicy syncPolicy)
     {
-        return adoptRefWillBeNoop(new TextDocumentParser(document));
+        return adoptRefWillBeNoop(new TextDocumentParser(document, syncPolicy));
     }
-    virtual ~TextDocumentParser();
+    ~TextDocumentParser() override;
 
 private:
-    explicit TextDocumentParser(HTMLDocument&);
+    explicit TextDocumentParser(HTMLDocument&, ParserSynchronizationPolicy);
 
-    virtual void appendBytes(const char*, size_t) override;
+    void appendBytes(const char*, size_t) override;
     void insertFakePreElement();
 
     bool m_haveInsertedFakePreElement;

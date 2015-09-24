@@ -17,6 +17,7 @@
 #include "chrome/browser/chromeos/drive/debug_info_collector.h"
 #include "chrome/browser/chromeos/drive/drive.pb.h"
 #include "chrome/browser/chromeos/drive/drive_integration_service.h"
+#include "chrome/browser/chromeos/drive/drive_pref_names.h"
 #include "chrome/browser/chromeos/drive/file_system_util.h"
 #include "chrome/browser/chromeos/drive/job_list.h"
 #include "chrome/browser/chromeos/file_manager/path_util.h"
@@ -33,8 +34,8 @@
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/browser/web_ui_message_handler.h"
 #include "google_apis/drive/auth_service.h"
+#include "google_apis/drive/drive_api_error_codes.h"
 #include "google_apis/drive/drive_api_parser.h"
-#include "google_apis/drive/gdata_errorcode.h"
 #include "google_apis/drive/time_util.h"
 #include "grit/browser_resources.h"
 
@@ -210,12 +211,11 @@ class DriveInternalsWebUIHandler : public content::WebUIMessageHandler {
         weak_ptr_factory_(this) {
   }
 
-  virtual ~DriveInternalsWebUIHandler() {
-  }
+  ~DriveInternalsWebUIHandler() override {}
 
  private:
   // WebUIMessageHandler override.
-  virtual void RegisterMessages() override;
+  void RegisterMessages() override;
 
   // Returns a DriveIntegrationService.
   drive::DriveIntegrationService* GetIntegrationService();
@@ -273,12 +273,12 @@ class DriveInternalsWebUIHandler : public content::WebUIMessageHandler {
 
   // Called when GetAboutResource() call to DriveService is complete.
   void OnGetAboutResource(
-      google_apis::GDataErrorCode status,
+      google_apis::DriveApiErrorCode status,
       scoped_ptr<google_apis::AboutResource> about_resource);
 
   // Called when GetAppList() call to DriveService is complete.
   void OnGetAppList(
-      google_apis::GDataErrorCode status,
+      google_apis::DriveApiErrorCode status,
       scoped_ptr<google_apis::AppList> app_list);
 
   // Callback for DebugInfoCollector::GetMetadata for local update.
@@ -309,7 +309,7 @@ class DriveInternalsWebUIHandler : public content::WebUIMessageHandler {
 };
 
 void DriveInternalsWebUIHandler::OnGetAboutResource(
-    google_apis::GDataErrorCode status,
+    google_apis::DriveApiErrorCode status,
     scoped_ptr<google_apis::AboutResource> parsed_about_resource) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
@@ -323,7 +323,7 @@ void DriveInternalsWebUIHandler::OnGetAboutResource(
   about_resource.SetDouble("account-quota-total",
                            parsed_about_resource->quota_bytes_total());
   about_resource.SetDouble("account-quota-used",
-                           parsed_about_resource->quota_bytes_used());
+                           parsed_about_resource->quota_bytes_used_aggregate());
   about_resource.SetDouble("account-largest-changestamp-remote",
                            parsed_about_resource->largest_change_id());
   about_resource.SetString("root-resource-id",
@@ -333,7 +333,7 @@ void DriveInternalsWebUIHandler::OnGetAboutResource(
 }
 
 void DriveInternalsWebUIHandler::OnGetAppList(
-    google_apis::GDataErrorCode status,
+    google_apis::DriveApiErrorCode status,
     scoped_ptr<google_apis::AppList> parsed_app_list) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
@@ -456,9 +456,9 @@ void DriveInternalsWebUIHandler::UpdateDriveRelatedPreferencesSection() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   const char* kDriveRelatedPreferences[] = {
-    prefs::kDisableDrive,
-    prefs::kDisableDriveOverCellular,
-    prefs::kDisableDriveHostedFiles,
+      drive::prefs::kDisableDrive,
+      drive::prefs::kDisableDriveOverCellular,
+      drive::prefs::kDisableDriveHostedFiles,
   };
 
   Profile* profile = Profile::FromWebUI(web_ui());

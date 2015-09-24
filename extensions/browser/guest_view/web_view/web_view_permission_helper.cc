@@ -4,6 +4,7 @@
 
 #include "extensions/browser/guest_view/web_view/web_view_permission_helper.h"
 
+#include "components/guest_view/browser/guest_view_event.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/user_metrics.h"
@@ -15,6 +16,7 @@
 
 using content::BrowserPluginGuestDelegate;
 using content::RenderViewHost;
+using guest_view::GuestViewEvent;
 
 namespace extensions {
 
@@ -25,6 +27,8 @@ static std::string PermissionTypeToString(WebViewPermissionType type) {
       return webview::kPermissionTypeDownload;
     case WEB_VIEW_PERMISSION_TYPE_FILESYSTEM:
       return webview::kPermissionTypeFileSystem;
+    case WEB_VIEW_PERMISSION_TYPE_FULLSCREEN:
+      return webview::kPermissionTypeFullscreen;
     case WEB_VIEW_PERMISSION_TYPE_GEOLOCATION:
       return webview::kPermissionTypeGeolocation;
     case WEB_VIEW_PERMISSION_TYPE_JAVASCRIPT_DIALOG:
@@ -60,6 +64,10 @@ void RecordUserInitiatedUMA(
       case WEB_VIEW_PERMISSION_TYPE_FILESYSTEM:
         content::RecordAction(
             UserMetricsAction("WebView.PermissionAllow.FileSystem"));
+        break;
+      case WEB_VIEW_PERMISSION_TYPE_FULLSCREEN:
+        content::RecordAction(
+            UserMetricsAction("WebView.PermissionAllow.Fullscreen"));
         break;
       case WEB_VIEW_PERMISSION_TYPE_GEOLOCATION:
         content::RecordAction(
@@ -97,6 +105,10 @@ void RecordUserInitiatedUMA(
         content::RecordAction(
             UserMetricsAction("WebView.PermissionDeny.FileSystem"));
         break;
+      case WEB_VIEW_PERMISSION_TYPE_FULLSCREEN:
+        content::RecordAction(
+            UserMetricsAction("WebView.PermissionDeny.Fullscreen"));
+        break;
       case WEB_VIEW_PERMISSION_TYPE_GEOLOCATION:
         content::RecordAction(
             UserMetricsAction("WebView.PermissionDeny.Geolocation"));
@@ -131,7 +143,7 @@ void RecordUserInitiatedUMA(
 
 WebViewPermissionHelper::WebViewPermissionHelper(WebViewGuest* web_view_guest)
     : content::WebContentsObserver(web_view_guest->web_contents()),
-      next_permission_request_id_(guestview::kInstanceIDNone),
+      next_permission_request_id_(guest_view::kInstanceIDNone),
       web_view_guest_(web_view_guest),
       weak_factory_(this) {
       web_view_permission_helper_delegate_.reset(
@@ -181,7 +193,7 @@ void WebViewPermissionHelper::RequestMediaAccessPermission(
     const content::MediaStreamRequest& request,
     const content::MediaResponseCallback& callback) {
   base::DictionaryValue request_info;
-  request_info.SetString(guestview::kUrl, request.security_origin.spec());
+  request_info.SetString(guest_view::kUrl, request.security_origin.spec());
   RequestPermission(
       WEB_VIEW_PERMISSION_TYPE_MEDIA,
       request_info,
@@ -234,12 +246,11 @@ void WebViewPermissionHelper::OnMediaPermissionResponse(
 }
 
 void WebViewPermissionHelper::CanDownload(
-    content::RenderViewHost* render_view_host,
     const GURL& url,
     const std::string& request_method,
     const base::Callback<void(bool)>& callback) {
-  web_view_permission_helper_delegate_->CanDownload(
-      render_view_host, url, request_method, callback);
+  web_view_permission_helper_delegate_->CanDownload(url, request_method,
+                                                    callback);
 }
 
 void WebViewPermissionHelper::RequestPointerLockPermission(
@@ -315,25 +326,25 @@ int WebViewPermissionHelper::RequestPermission(
   int request_id = next_permission_request_id_++;
   pending_permission_requests_[request_id] =
       PermissionResponseInfo(callback, permission_type, allowed_by_default);
-  scoped_ptr<base::DictionaryValue> args(request_info.DeepCopy());
+  scoped_ptr<base::DictionaryValue> args(new base::DictionaryValue());
+  args->Set(webview::kRequestInfo, request_info.DeepCopy());
   args->SetInteger(webview::kRequestId, request_id);
   switch (permission_type) {
     case WEB_VIEW_PERMISSION_TYPE_NEW_WINDOW: {
-      web_view_guest_->DispatchEventToEmbedder(
-          new GuestViewBase::Event(webview::kEventNewWindow, args.Pass()));
+      web_view_guest_->DispatchEventToView(
+          new GuestViewEvent(webview::kEventNewWindow, args.Pass()));
       break;
     }
     case WEB_VIEW_PERMISSION_TYPE_JAVASCRIPT_DIALOG: {
-      web_view_guest_->DispatchEventToEmbedder(
-          new GuestViewBase::Event(webview::kEventDialog, args.Pass()));
+      web_view_guest_->DispatchEventToView(
+          new GuestViewEvent(webview::kEventDialog, args.Pass()));
       break;
     }
     default: {
       args->SetString(webview::kPermission,
                       PermissionTypeToString(permission_type));
-      web_view_guest_->DispatchEventToEmbedder(new GuestViewBase::Event(
-          webview::kEventPermissionRequest,
-          args.Pass()));
+      web_view_guest_->DispatchEventToView(new GuestViewEvent(
+          webview::kEventPermissionRequest, args.Pass()));
       break;
     }
   }

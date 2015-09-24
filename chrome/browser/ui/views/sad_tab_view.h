@@ -10,6 +10,8 @@
 #include "chrome/browser/ui/sad_tab.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/link_listener.h"
+#include "ui/views/controls/styled_label.h"
+#include "ui/views/controls/styled_label_listener.h"
 #include "ui/views/view.h"
 
 namespace content {
@@ -34,6 +36,12 @@ class SadTabView : public chrome::SadTab,
                    public views::LinkListener,
                    public views::ButtonListener {
  public:
+  // Tag to denote which type of action button is displayed.
+  enum ButtonTag {
+    SAD_TAB_BUTTON_FEEDBACK,
+    SAD_TAB_BUTTON_RELOAD,
+  };
+
   SadTabView(content::WebContents* web_contents, chrome::SadTabKind kind);
   ~SadTabView() override;
 
@@ -56,15 +64,16 @@ class SadTabView : public chrome::SadTab,
   void Close() override;
 
   views::Label* CreateLabel(const base::string16& text);
-  views::Link* CreateLink(const base::string16& text);
+  views::Link* CreateLink(const base::string16& text, const SkColor& color);
 
   content::WebContents* web_contents_;
   chrome::SadTabKind kind_;
   bool painted_;
   views::Label* message_;
   views::Link* help_link_;
-  views::Link* feedback_link_;
-  views::LabelButton* reload_button_;
+  views::LabelButton* action_button_;
+  views::Label* title_;
+  views::StyledLabel* help_message_;
 
   DISALLOW_COPY_AND_ASSIGN(SadTabView);
 };

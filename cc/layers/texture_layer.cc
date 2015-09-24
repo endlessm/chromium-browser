@@ -19,14 +19,17 @@
 namespace cc {
 
 scoped_refptr<TextureLayer> TextureLayer::CreateForMailbox(
+    const LayerSettings& settings,
     TextureLayerClient* client) {
-  return scoped_refptr<TextureLayer>(new TextureLayer(client));
+  return scoped_refptr<TextureLayer>(new TextureLayer(settings, client));
 }
 
-TextureLayer::TextureLayer(TextureLayerClient* client)
-    : Layer(),
+TextureLayer::TextureLayer(const LayerSettings& settings,
+                           TextureLayerClient* client)
+    : Layer(settings),
       client_(client),
       flipped_(true),
+      nearest_neighbor_(false),
       uv_top_left_(0.f, 0.f),
       uv_bottom_right_(1.f, 1.f),
       premultiplied_alpha_(true),
@@ -62,6 +65,13 @@ void TextureLayer::SetFlipped(bool flipped) {
   if (flipped_ == flipped)
     return;
   flipped_ = flipped;
+  SetNeedsCommit();
+}
+
+void TextureLayer::SetNearestNeighbor(bool nearest_neighbor) {
+  if (nearest_neighbor_ == nearest_neighbor)
+    return;
+  nearest_neighbor_ = nearest_neighbor;
   SetNeedsCommit();
 }
 
@@ -206,9 +216,8 @@ bool TextureLayer::HasDrawableContent() const {
   return (client_ || holder_ref_) && Layer::HasDrawableContent();
 }
 
-bool TextureLayer::Update(ResourceUpdateQueue* queue,
-                          const OcclusionTracker<Layer>* occlusion) {
-  bool updated = Layer::Update(queue, occlusion);
+bool TextureLayer::Update() {
+  bool updated = Layer::Update();
   if (client_) {
     TextureMailbox mailbox;
     scoped_ptr<SingleReleaseCallback> release_callback;
@@ -238,6 +247,7 @@ void TextureLayer::PushPropertiesTo(LayerImpl* layer) {
 
   TextureLayerImpl* texture_layer = static_cast<TextureLayerImpl*>(layer);
   texture_layer->SetFlipped(flipped_);
+  texture_layer->SetNearestNeighbor(nearest_neighbor_);
   texture_layer->SetUVTopLeft(uv_top_left_);
   texture_layer->SetUVBottomRight(uv_bottom_right_);
   texture_layer->SetVertexOpacity(vertex_opacity_);
@@ -255,16 +265,6 @@ void TextureLayer::PushPropertiesTo(LayerImpl* layer) {
                                      release_callback_impl.Pass());
     needs_set_mailbox_ = false;
   }
-}
-
-SimpleEnclosedRegion TextureLayer::VisibleContentOpaqueRegion() const {
-  if (contents_opaque())
-    return SimpleEnclosedRegion(visible_content_rect());
-
-  if (blend_background_color_ && (SkColorGetA(background_color()) == 0xFF))
-    return SimpleEnclosedRegion(visible_content_rect());
-
-  return SimpleEnclosedRegion();
 }
 
 TextureLayer::TextureMailboxHolder::MainThreadReference::MainThreadReference(

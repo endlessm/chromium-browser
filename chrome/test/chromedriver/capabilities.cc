@@ -108,7 +108,9 @@ Status ParseDeviceName(std::string device_name, Capabilities* capabilities) {
   }
 
   capabilities->device_metrics.reset(device->device_metrics.release());
-  capabilities->switches.SetSwitch("user-agent", device->user_agent);
+  // Don't override the user agent if blank (like for notebooks).
+  if (!device->user_agent.empty())
+    capabilities->switches.SetSwitch("user-agent", device->user_agent);
 
   return Status(kOk);
 }
@@ -139,13 +141,25 @@ Status ParseMobileEmulation(const base::Value& option,
     int width = 0;
     int height = 0;
     double device_scale_factor = 0;
+    bool touch = true;
+    bool mobile = true;
     if (!metrics->GetInteger("width", &width) ||
         !metrics->GetInteger("height", &height) ||
         !metrics->GetDouble("pixelRatio", &device_scale_factor))
       return Status(kUnknownError, "invalid 'deviceMetrics'");
 
+    if (metrics->HasKey("touch")) {
+      if (!metrics->GetBoolean("touch", &touch))
+        return Status(kUnknownError, "'touch' must be a boolean");
+    }
+
+    if (metrics->HasKey("mobile")) {
+      if (!metrics->GetBoolean("mobile", &mobile))
+        return Status(kUnknownError, "'mobile' must be a boolean");
+    }
+
     DeviceMetrics* device_metrics =
-        new DeviceMetrics(width, height, device_scale_factor);
+        new DeviceMetrics(width, height, device_scale_factor, touch, mobile);
     capabilities->device_metrics =
         scoped_ptr<DeviceMetrics>(device_metrics);
   }
@@ -203,7 +217,7 @@ Status ParseProxy(const base::Value& option, Capabilities* capabilities) {
   } else if (proxy_type == "system") {
     // Chrome default.
   } else if (proxy_type == "pac") {
-    CommandLine::StringType proxy_pac_url;
+    base::CommandLine::StringType proxy_pac_url;
     if (!proxy_dict->GetString("proxyAutoconfigUrl", &proxy_pac_url))
       return Status(kUnknownError, "'proxyAutoconfigUrl' must be a string");
     capabilities->switches.SetSwitch("proxy-pac-url", proxy_pac_url);
@@ -506,7 +520,7 @@ size_t Switches::GetSize() const {
   return switch_map_.size();
 }
 
-void Switches::AppendToCommandLine(CommandLine* command) const {
+void Switches::AppendToCommandLine(base::CommandLine* command) const {
   for (SwitchMap::const_iterator iter = switch_map_.begin();
        iter != switch_map_.end();
        ++iter) {
@@ -536,7 +550,7 @@ std::string Switches::ToString() const {
 PerfLoggingPrefs::PerfLoggingPrefs()
     : network(InspectorDomainStatus::kDefaultEnabled),
       page(InspectorDomainStatus::kDefaultEnabled),
-      timeline(InspectorDomainStatus::kDefaultEnabled),
+      timeline(InspectorDomainStatus::kDefaultDisabled),
       trace_categories(),
       buffer_usage_reporting_interval(1000) {}
 

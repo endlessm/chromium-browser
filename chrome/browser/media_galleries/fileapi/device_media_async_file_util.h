@@ -10,8 +10,9 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "storage/browser/blob/shareable_file_reference.h"
 #include "storage/browser/fileapi/async_file_util.h"
-#include "storage/common/blob/shareable_file_reference.h"
+#include "storage/browser/fileapi/watcher_manager.h"
 
 namespace storage {
 class FileSystemOperationContext;
@@ -108,12 +109,28 @@ class DeviceMediaAsyncFileUtil : public storage::AsyncFileUtil {
       const base::Time& expected_modification_time,
       storage::FileSystemContext* context);
 
+  // Adds watcher to |url|.
+  void AddWatcher(const storage::FileSystemURL& url,
+                  bool recursive,
+                  const storage::WatcherManager::StatusCallback& callback,
+                  const storage::WatcherManager::NotificationCallback&
+                      notification_callback);
+
+  // Removes watcher of |url|.
+  void RemoveWatcher(const storage::FileSystemURL& url,
+                     const bool recursive,
+                     const storage::WatcherManager::StatusCallback& callback);
+
  private:
   class MediaPathFilterWrapper;
 
   // Use Create() to get an instance of DeviceMediaAsyncFileUtil.
   DeviceMediaAsyncFileUtil(const base::FilePath& profile_path,
                            MediaFileValidationType validation_type);
+
+  // Called when CreateDirectory method call succeeds. |callback| is invoked to
+  // complete the CreateDirectory request.
+  void OnDidCreateDirectory(const StatusCallback& callback);
 
   // Called when GetFileInfo method call succeeds. |file_info| contains the
   // file details of the requested url. |callback| is invoked to complete the
@@ -140,6 +157,26 @@ class DeviceMediaAsyncFileUtil : public storage::AsyncFileUtil {
       const ReadDirectoryCallback& callback,
       const EntryList& file_list,
       bool has_more);
+
+  // Called when MoveFileLocal method call succeeds. |callback| is invoked to
+  // complete the MoveFileLocal request.
+  void OnDidMoveFileLocal(const StatusCallback& callback);
+
+  // Called when CopyFileLocal method call succeeds. |callback| is invoked to
+  // complete the CopyFileLocal request.
+  void OnDidCopyFileLocal(const StatusCallback& callback);
+
+  // Called when CopyInForeignFile method call succeeds. |callback| is invoked
+  // to complete the CopyInForeignFile request.
+  void OnDidCopyInForeignFile(const StatusCallback& callback);
+
+  // Called when DeleteFile method call succeeeds. |callback| is invoked to
+  // complete the DeleteFile request.
+  void OnDidDeleteFile(const StatusCallback& callback);
+
+  // Called when DeleteDirectory method call succeeds. |callback| is invoked to
+  // complete the DeleteDirectory request.
+  void OnDidDeleteDirectory(const StatusCallback& callback);
 
   bool validate_media_files() const;
 

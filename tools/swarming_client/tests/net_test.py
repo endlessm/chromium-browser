@@ -73,33 +73,6 @@ class RetryLoopTest(RetryLoopMockedTest):
     self.assertNotEqual(a, b)
 
 
-class GetHttpServiceTest(unittest.TestCase):
-  """Tests get_http_service implementation."""
-
-  def test_get_http_service(self):
-    def assert_is_appengine_service(service):
-      """Verifies HttpService is configured for App Engine communications."""
-      self.assertIsNotNone(service.authenticator)
-
-    def assert_is_googlestorage_service(service):
-      """Verifies HttpService is configured for GS communications."""
-      self.assertIsNone(service.authenticator)
-
-    # Can recognize app engine URLs.
-    assert_is_appengine_service(
-        net.get_http_service('https://appengine-app.appspot.com'))
-    assert_is_appengine_service(
-        net.get_http_service('https://version-dot-appengine-app.appspot.com'))
-
-    # Localhost is also sort of appengine when running on dev server...
-    assert_is_appengine_service(
-        net.get_http_service('http://localhost:8080'))
-
-    # Check GS urls.
-    assert_is_googlestorage_service(
-        net.get_http_service('https://bucket-name.storage.googleapis.com'))
-
-
 class HttpServiceTest(RetryLoopMockedTest):
   """Tests for HttpService class."""
 
@@ -119,6 +92,12 @@ class HttpServiceTest(RetryLoopMockedTest):
     class MockedRequestEngine(object):
       def perform_request(self, request):
         return perform_request(request) if perform_request else None
+      @classmethod
+      def timeout_exception_classes(cls):
+        return ()
+      @classmethod
+      def parse_request_exception(cls, exc):
+        return None, None
 
     return net.HttpService(
         url,
@@ -359,6 +338,24 @@ class HttpServiceTest(RetryLoopMockedTest):
     self.assertEqual(
         False, net.url_retrieve('filepath', 'https://localhost/test'))
     self.assertEqual(['filepath'], removed)
+
+
+class TestNetFunctions(auto_stub.TestCase):
+  def test_fix_url(self):
+    data = [
+      ('http://foo.com/', 'http://foo.com'),
+      ('https://foo.com/', 'https://foo.com'),
+      ('https://foo.com', 'https://foo.com'),
+      ('https://foo.com/a', 'https://foo.com/a'),
+      ('https://foo.com/a/', 'https://foo.com/a'),
+      ('https://foo.com:8080/a/', 'https://foo.com:8080/a'),
+      ('foo.com', 'https://foo.com'),
+      ('foo.com:8080', 'https://foo.com:8080'),
+      ('foo.com/', 'https://foo.com'),
+      ('foo.com/a/', 'https://foo.com/a'),
+    ]
+    for value, expected in data:
+      self.assertEqual(expected, net.fix_url(value))
 
 
 if __name__ == '__main__':

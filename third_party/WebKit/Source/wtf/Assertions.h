@@ -127,10 +127,10 @@ using WTF::FrameToNameScope;
 
 /* IMMEDIATE_CRASH() - Like CRASH() below but crashes in the fastest, simplest possible way with no attempt at logging. */
 #ifndef IMMEDIATE_CRASH
-#if COMPILER(GCC)
+#if COMPILER(GCC) || COMPILER(CLANG)
 #define IMMEDIATE_CRASH() __builtin_trap()
 #else
-#define IMMEDIATE_CRASH() ((void(*)())0)()
+#define IMMEDIATE_CRASH() ((void)(*(volatile char*)0 = 0))
 #endif
 #endif
 
@@ -143,10 +143,14 @@ using WTF::FrameToNameScope;
    Signals are ignored by the crash reporter on OS X so we must do better.
 */
 #ifndef CRASH
+#if COMPILER(MSVC)
+#define CRASH() (__debugbreak(), IMMEDIATE_CRASH())
+#else
 #define CRASH() \
     (WTFReportBacktrace(), \
      (*(int*)0xfbadbeef = 0), \
      IMMEDIATE_CRASH())
+#endif
 #endif
 
 #if COMPILER(CLANG)
@@ -289,18 +293,6 @@ while (0)
     } \
 while (0)
 
-#endif
-
-/* COMPILE_ASSERT */
-#ifndef COMPILE_ASSERT
-#if COMPILER_SUPPORTS(C_STATIC_ASSERT)
-/* Unlike static_assert below, this also works in plain C code. */
-#define COMPILE_ASSERT(exp, name) _Static_assert((exp), #name)
-#elif COMPILER_SUPPORTS(CXX_STATIC_ASSERT)
-#define COMPILE_ASSERT(exp, name) static_assert((exp), #name)
-#else
-#define COMPILE_ASSERT(exp, name) typedef int dummy##name [(exp) ? 1 : -1]
-#endif
 #endif
 
 /* FATAL */

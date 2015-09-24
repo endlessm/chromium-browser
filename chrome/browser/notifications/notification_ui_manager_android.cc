@@ -4,10 +4,19 @@
 
 #include "chrome/browser/notifications/notification_ui_manager_android.h"
 
+#include <utility>
+
+#include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/logging.h"
-#include "base/strings/string16.h"
-#include "chrome/browser/notifications/profile_notification.h"
+#include "base/strings/string_number_conversions.h"
+#include "chrome/browser/browser_process.h"
+#include "chrome/browser/notifications/notification.h"
+#include "chrome/browser/notifications/persistent_notification_delegate.h"
+#include "chrome/browser/notifications/platform_notification_service_impl.h"
+#include "chrome/browser/profiles/profile_manager.h"
+#include "content/public/common/persistent_notification_status.h"
+#include "content/public/common/platform_notification_data.h"
 #include "jni/NotificationUIManager_jni.h"
 #include "ui/gfx/android/java_bitmap.h"
 #include "ui/gfx/image/image.h"
@@ -16,6 +25,13 @@ using base::android::AttachCurrentThread;
 using base::android::ConvertJavaStringToUTF8;
 using base::android::ConvertUTF16ToJavaString;
 using base::android::ConvertUTF8ToJavaString;
+
+// Called by the Java side when a notification event has been received, but the
+// NotificationUIManager has not been initialized yet. Enforce initialization of
+// the class.
+static void InitializeNotificationUIManager(JNIEnv* env, jclass clazz) {
+  g_browser_process->notification_ui_manager();
+}
 
 // static
 NotificationUIManager* NotificationUIManager::Create(PrefService* local_state) {
@@ -30,228 +46,186 @@ NotificationUIManagerAndroid::NotificationUIManagerAndroid() {
           base::android::GetApplicationContext()));
 }
 
-NotificationUIManagerAndroid::~NotificationUIManagerAndroid() {}
-
-void NotificationUIManagerAndroid::OnNotificationClicked(
-    JNIEnv* env, jobject java_object, jstring notification_id) {
-  std::string id = ConvertJavaStringToUTF8(env, notification_id);
-
-  auto iter = profile_notifications_.find(id);
-  if (iter == profile_notifications_.end())
-    return;
-
-  const Notification& notification = iter->second->notification();
-  notification.delegate()->Click();
+NotificationUIManagerAndroid::~NotificationUIManagerAndroid() {
+  Java_NotificationUIManager_destroy(AttachCurrentThread(),
+                                     java_object_.obj());
 }
 
-void NotificationUIManagerAndroid::OnNotificationClosed(
-    JNIEnv* env, jobject java_object, jstring notification_id) {
-  std::string id = ConvertJavaStringToUTF8(env, notification_id);
+bool NotificationUIManagerAndroid::OnNotificationClicked(
+    JNIEnv* env,
+    jobject java_object,
+    jlong persistent_notification_id,
+    jstring java_origin,
+    jstring java_tag) {
+  GURL origin(ConvertJavaStringToUTF8(env, java_origin));
+  std::string tag = ConvertJavaStringToUTF8(env, java_tag);
 
-  auto iter = profile_notifications_.find(id);
-  if (iter == profile_notifications_.end())
-    return;
+  regenerated_notification_infos_[persistent_notification_id] =
+      std::make_pair(origin.spec(), tag);
 
-  const Notification& notification = iter->second->notification();
-  notification.delegate()->Close(true /** by_user **/);
+  // TODO(peter): Rather than assuming that the last used profile is the
+  // appropriate one for this notification, the used profile should be
+  // stored as part of the notification's data. See https://crbug.com/437574.
+  PlatformNotificationServiceImpl::GetInstance()->OnPersistentNotificationClick(
+      ProfileManager::GetLastUsedProfile(),
+      persistent_notification_id,
+      origin);
+
+  return true;
+}
+
+bool NotificationUIManagerAndroid::OnNotificationClosed(
+    JNIEnv* env,
+    jobject java_object,
+    jlong persistent_notification_id,
+    jstring java_origin,
+    jstring java_tag) {
+  GURL origin(ConvertJavaStringToUTF8(env, java_origin));
+  std::string tag = ConvertJavaStringToUTF8(env, java_tag);
+
+  // The notification was closed by the platform, so clear all local state.
+  regenerated_notification_infos_.erase(persistent_notification_id);
+
+  // TODO(peter): Rather than assuming that the last used profile is the
+  // appropriate one for this notification, the used profile should be
+  // stored as part of the notification's data. See https://crbug.com/437574.
+  PlatformNotificationServiceImpl::GetInstance()->OnPersistentNotificationClose(
+      ProfileManager::GetLastUsedProfile(),
+      persistent_notification_id,
+      origin);
+
+  return true;
 }
 
 void NotificationUIManagerAndroid::Add(const Notification& notification,
                                        Profile* profile) {
-  if (Update(notification, profile))
-    return;
-
-  ProfileNotification* profile_notification =
-      new ProfileNotification(profile, notification);
-
-  // Takes ownership of |profile_notification|.
-  AddProfileNotification(profile_notification);
-
   JNIEnv* env = AttachCurrentThread();
 
-  ScopedJavaLocalRef<jstring> id = ConvertUTF8ToJavaString(
-      env, profile_notification->notification().id());
+  // The Android notification UI manager only supports Web Notifications, which
+  // have a PersistentNotificationDelegate. The persistent id of the
+  // notification is exposed through it's interface.
+  //
+  // TODO(peter): When content/ passes a message_center::Notification to the
+  // chrome/ layer, the persistent notification id should be captured as a
+  // property on that object instead, making this cast unnecessary.
+  PersistentNotificationDelegate* delegate =
+      static_cast<PersistentNotificationDelegate*>(notification.delegate());
+  DCHECK(delegate);
+
+  int64_t persistent_notification_id = delegate->persistent_notification_id();
+  GURL origin_url(notification.origin_url().GetOrigin());
+
+  ScopedJavaLocalRef<jstring> origin = ConvertUTF8ToJavaString(
+      env, origin_url.spec());
+  ScopedJavaLocalRef<jstring> tag =
+      ConvertUTF8ToJavaString(env, notification.tag());
   ScopedJavaLocalRef<jstring> title = ConvertUTF16ToJavaString(
       env, notification.title());
   ScopedJavaLocalRef<jstring> body = ConvertUTF16ToJavaString(
       env, notification.message());
 
+  ScopedJavaLocalRef<jobject> icon;
+
   SkBitmap icon_bitmap = notification.icon().AsBitmap();
-  ScopedJavaLocalRef<jobject> icon = gfx::ConvertToJavaBitmap(&icon_bitmap);
+  if (!icon_bitmap.isNull())
+    icon = gfx::ConvertToJavaBitmap(&icon_bitmap);
 
-  int platform_id = Java_NotificationUIManager_displayNotification(
-      env, java_object_.obj(), id.obj(), title.obj(), body.obj(), icon.obj());
+  ScopedJavaLocalRef<jintArray> vibration_pattern =
+      base::android::ToJavaIntArray(env, notification.vibration_pattern());
 
-  std::string notification_id = profile_notification->notification().id();
-  platform_notifications_[notification_id] = platform_id;
+  Java_NotificationUIManager_displayNotification(
+      env,
+      java_object_.obj(),
+      persistent_notification_id,
+      origin.obj(),
+      tag.obj(),
+      title.obj(),
+      body.obj(),
+      icon.obj(),
+      vibration_pattern.obj(),
+      notification.silent());
+
+  regenerated_notification_infos_[persistent_notification_id] =
+      std::make_pair(origin_url.spec(), notification.tag());
 
   notification.delegate()->Display();
 }
 
 bool NotificationUIManagerAndroid::Update(const Notification& notification,
                                           Profile* profile) {
-  const base::string16& replace_id = notification.replace_id();
-  if (replace_id.empty())
-    return false;
-
-  const GURL origin_url = notification.origin_url();
-  DCHECK(origin_url.is_valid());
-
-  for (auto iterator : profile_notifications_) {
-    ProfileNotification* profile_notification = iterator.second;
-    if (profile_notification->notification().replace_id() != replace_id ||
-        profile_notification->notification().origin_url() != origin_url ||
-        profile_notification->profile() != profile)
-      continue;
-
-    std::string notification_id = profile_notification->notification().id();
-
-    // TODO(peter): Use Android's native notification replacement mechanism.
-    // Right now FALSE is returned from this function even when we would be
-    // able to update the notification, so that Add() creates a new one.
-    RemoveProfileNotification(profile_notification);
-    break;
-  }
-
+  NOTREACHED();
   return false;
 }
 
 const Notification* NotificationUIManagerAndroid::FindById(
     const std::string& delegate_id,
     ProfileID profile_id) const {
-  std::string profile_notification_id =
-      ProfileNotification::GetProfileNotificationId(delegate_id, profile_id);
-  ProfileNotification* profile_notification =
-      FindProfileNotification(profile_notification_id);
-  if (!profile_notification)
-    return 0;
-
-  return &profile_notification->notification();
+  NOTREACHED();
+  return nullptr;
 }
 
 bool NotificationUIManagerAndroid::CancelById(const std::string& delegate_id,
                                               ProfileID profile_id) {
-  std::string profile_notification_id =
-      ProfileNotification::GetProfileNotificationId(delegate_id, profile_id);
-  ProfileNotification* profile_notification =
-      FindProfileNotification(profile_notification_id);
-  if (!profile_notification)
+  int64_t persistent_notification_id = 0;
+
+  // TODO(peter): Use the |delegate_id| directly when notification ids are being
+  // generated by content/ instead of us.
+  if (!base::StringToInt64(delegate_id, &persistent_notification_id))
     return false;
 
-  RemoveProfileNotification(profile_notification);
+  const auto iterator =
+      regenerated_notification_infos_.find(persistent_notification_id);
+  if (iterator == regenerated_notification_infos_.end())
+    return false;
+
+  const RegeneratedNotificationInfo& notification_info = iterator->second;
+
+  JNIEnv* env = AttachCurrentThread();
+
+  ScopedJavaLocalRef<jstring> origin =
+      ConvertUTF8ToJavaString(env, notification_info.first);
+  ScopedJavaLocalRef<jstring> tag =
+      ConvertUTF8ToJavaString(env, notification_info.second);
+
+  regenerated_notification_infos_.erase(iterator);
+
+  Java_NotificationUIManager_closeNotification(env,
+                                               java_object_.obj(),
+                                               persistent_notification_id,
+                                               origin.obj(),
+                                               tag.obj());
   return true;
 }
 
 std::set<std::string>
 NotificationUIManagerAndroid::GetAllIdsByProfileAndSourceOrigin(
-    Profile* profile,
+    ProfileID profile_id,
     const GURL& source) {
-  // |profile| may be invalid, so no calls must be made based on the instance.
-  std::set<std::string> delegate_ids;
+  NOTREACHED();
+  return std::set<std::string>();
+}
 
-  for (auto iterator : profile_notifications_) {
-    ProfileNotification* profile_notification = iterator.second;
-    if (profile_notification->notification().origin_url() == source &&
-        profile_notification->profile() == profile)
-      delegate_ids.insert(profile_notification->notification().id());
-  }
-
-  return delegate_ids;
+std::set<std::string> NotificationUIManagerAndroid::GetAllIdsByProfile(
+    ProfileID profile_id) {
+  NOTREACHED();
+  return std::set<std::string>();
 }
 
 bool NotificationUIManagerAndroid::CancelAllBySourceOrigin(
     const GURL& source_origin) {
-  bool removed = true;
-
-  for (auto iterator = profile_notifications_.begin();
-       iterator != profile_notifications_.end();) {
-    auto current_iterator = iterator++;
-
-    ProfileNotification* profile_notification = current_iterator->second;
-    if (profile_notification->notification().origin_url() == source_origin) {
-      RemoveProfileNotification(profile_notification);
-      removed = true;
-    }
-  }
-
-  return removed;
+  NOTREACHED();
+  return false;
 }
 
 bool NotificationUIManagerAndroid::CancelAllByProfile(ProfileID profile_id) {
-  bool removed = true;
-
-  for (auto iterator = profile_notifications_.begin();
-       iterator != profile_notifications_.end();) {
-    auto current_iterator = iterator++;
-
-    ProfileNotification* profile_notification = current_iterator->second;
-    ProfileID current_profile_id =
-        NotificationUIManager::GetProfileID(profile_notification->profile());
-    if (current_profile_id == profile_id) {
-      RemoveProfileNotification(profile_notification);
-      removed = true;
-    }
-  }
-
-  return removed;
+  NOTREACHED();
+  return false;
 }
 
 void NotificationUIManagerAndroid::CancelAll() {
-  for (auto iterator : profile_notifications_) {
-    ProfileNotification* profile_notification = iterator.second;
-
-    PlatformCloseNotification(profile_notification);
-    delete profile_notification;
-  }
-
-  profile_notifications_.clear();
+  NOTREACHED();
 }
 
 bool NotificationUIManagerAndroid::RegisterNotificationUIManager(JNIEnv* env) {
   return RegisterNativesImpl(env);
 }
-
-void NotificationUIManagerAndroid::PlatformCloseNotification(
-    ProfileNotification* profile_notification) {
-  std::string id = profile_notification->notification().id();
-
-  auto iterator = platform_notifications_.find(id);
-  if (iterator == platform_notifications_.end())
-    return;
-
-  int platform_id = iterator->second;
-  platform_notifications_.erase(id);
-
-  Java_NotificationUIManager_closeNotification(AttachCurrentThread(),
-                                               java_object_.obj(),
-                                               platform_id);
-}
-
-void NotificationUIManagerAndroid::AddProfileNotification(
-    ProfileNotification* profile_notification) {
-  std::string id = profile_notification->notification().id();
-
-  // Notification ids should be unique.
-  DCHECK(profile_notifications_.find(id) == profile_notifications_.end());
-
-  profile_notifications_[id] = profile_notification;
-}
-
-void NotificationUIManagerAndroid::RemoveProfileNotification(
-    ProfileNotification* profile_notification) {
-  PlatformCloseNotification(profile_notification);
-
-  std::string id = profile_notification->notification().id();
-  profile_notifications_.erase(id);
-  delete profile_notification;
-}
-
-ProfileNotification* NotificationUIManagerAndroid::FindProfileNotification(
-    const std::string& id) const {
-  auto iter = profile_notifications_.find(id);
-  if (iter == profile_notifications_.end())
-    return nullptr;
-
-  return iter->second;
-}
-

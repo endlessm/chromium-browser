@@ -17,10 +17,11 @@ class AwRenderFrameExt : public content::RenderFrameObserver {
   AwRenderFrameExt(content::RenderFrame* render_frame);
 
  private:
-  virtual ~AwRenderFrameExt();
+  ~AwRenderFrameExt() override;
 
   // RenderFrame::Observer:
-  virtual void DidCommitProvisionalLoad(bool is_new_navigation) override;
+  void DidCommitProvisionalLoad(bool is_new_navigation,
+                                bool is_same_page_navigation) override;
   DISALLOW_COPY_AND_ASSIGN(AwRenderFrameExt);
 };
 

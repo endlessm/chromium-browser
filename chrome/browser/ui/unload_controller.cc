@@ -4,7 +4,9 @@
 
 #include "chrome/browser/ui/unload_controller.h"
 
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/ui/browser.h"
@@ -320,7 +322,7 @@ void UnloadController::ProcessPendingTabs() {
     // Null check render_view_host here as this gets called on a PostTask and
     // the tab's render_view_host may have been nulled out.
     if (web_contents->GetRenderViewHost()) {
-      web_contents->GetRenderViewHost()->ClosePage();
+      web_contents->ClosePage();
     } else {
       ClearUnloadState(web_contents, true);
     }
@@ -356,10 +358,9 @@ void UnloadController::ClearUnloadState(content::WebContents* web_contents,
     if (process_now) {
       ProcessPendingTabs();
     } else {
-      base::MessageLoop::current()->PostTask(
-          FROM_HERE,
-          base::Bind(&UnloadController::ProcessPendingTabs,
-                     weak_factory_.GetWeakPtr()));
+      base::ThreadTaskRunnerHandle::Get()->PostTask(
+          FROM_HERE, base::Bind(&UnloadController::ProcessPendingTabs,
+                                weak_factory_.GetWeakPtr()));
     }
   }
 }

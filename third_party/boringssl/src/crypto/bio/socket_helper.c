@@ -18,15 +18,17 @@
 #include <openssl/err.h>
 
 #include <fcntl.h>
+#include <string.h>
 #include <sys/types.h>
 
 #if !defined(OPENSSL_WINDOWS)
 #include <netdb.h>
 #include <unistd.h>
 #else
-#include <WinSock2.h>
-#include <WS2tcpip.h>
-typedef int socklen_t;
+#pragma warning(push, 3)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma warning(pop)
 #endif
 
 #include "internal.h"
@@ -49,7 +51,7 @@ int bio_ip_and_port_to_socket_and_addr(int *out_sock,
   ret = getaddrinfo(hostname, port_str, &hint, &result);
   if (ret != 0) {
     OPENSSL_PUT_ERROR(SYS, getaddrinfo, 0);
-    ERR_add_error_data(2, gai_strerror(ret));
+    ERR_add_error_data(1, gai_strerror(ret));
     return 0;
   }
 

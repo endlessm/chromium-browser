@@ -33,6 +33,7 @@
 
 #include "core/svg/SVGStringListTearOff.h"
 #include "core/svg/properties/SVGAnimatedProperty.h"
+#include "platform/heap/Handle.h"
 
 namespace blink {
 
@@ -42,31 +43,33 @@ class SVGElement;
 // Inherits SVGAnimatedPropertyBase to enable XML attribute synchronization, but this is never animated.
 class SVGStaticStringList final : public SVGAnimatedPropertyBase {
 public:
-    static PassRefPtr<SVGStaticStringList> create(SVGElement* contextElement, const QualifiedName& attributeName)
+    static PassRefPtrWillBeRawPtr<SVGStaticStringList> create(SVGElement* contextElement, const QualifiedName& attributeName)
     {
-        return adoptRef(new SVGStaticStringList(contextElement, attributeName));
+        return adoptRefWillBeNoop(new SVGStaticStringList(contextElement, attributeName));
     }
 
-    virtual ~SVGStaticStringList();
+    ~SVGStaticStringList() override;
 
     // SVGAnimatedPropertyBase:
-    virtual SVGPropertyBase* currentValueBase() override;
-    virtual bool isAnimating() const override;
-    virtual PassRefPtr<SVGPropertyBase> createAnimatedValue() override;
-    virtual void setAnimatedValue(PassRefPtr<SVGPropertyBase>) override;
-    virtual void animationEnded() override;
-    virtual bool needsSynchronizeAttribute() override;
+    SVGPropertyBase* currentValueBase() override;
+    bool isAnimating() const override;
+    PassRefPtrWillBeRawPtr<SVGPropertyBase> createAnimatedValue() override;
+    void setAnimatedValue(PassRefPtrWillBeRawPtr<SVGPropertyBase>) override;
+    void animationEnded() override;
+    bool needsSynchronizeAttribute() override;
 
     void setBaseValueAsString(const String& value, SVGParsingError& parseError);
 
     SVGStringList* value() { return m_value.get(); }
     SVGStringListTearOff* tearOff();
 
+    DECLARE_VIRTUAL_TRACE();
+
 private:
     SVGStaticStringList(SVGElement*, const QualifiedName&);
 
-    RefPtr<SVGStringList> m_value;
-    RefPtr<SVGStringListTearOff> m_tearOff;
+    RefPtrWillBeMember<SVGStringList> m_value;
+    RefPtrWillBeMember<SVGStringListTearOff> m_tearOff;
 };
 
 }

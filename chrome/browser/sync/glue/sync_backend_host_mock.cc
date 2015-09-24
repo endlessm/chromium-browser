@@ -22,9 +22,9 @@ void SyncBackendHostMock::Initialize(
     bool delete_sync_data_folder,
     scoped_ptr<syncer::SyncManagerFactory> sync_manager_factory,
     scoped_ptr<syncer::UnrecoverableErrorHandler> unrecoverable_error_handler,
-    syncer::ReportUnrecoverableErrorFunction
-        report_unrecoverable_error_function,
-    syncer::NetworkResources* network_resources) {
+    const base::Closure& report_unrecoverable_error_function,
+    syncer::NetworkResources* network_resources,
+    scoped_ptr<syncer::SyncEncryptionHandler::NigoriState> saved_nigori_state) {
   frontend->OnBackendInitialized(
       syncer::WeakHandle<syncer::JsBackend>(),
       syncer::WeakHandle<syncer::DataTypeDebugInfoListener>(),
@@ -55,12 +55,14 @@ scoped_ptr<base::Thread> SyncBackendHostMock::Shutdown(
 
 void SyncBackendHostMock::UnregisterInvalidationIds() {}
 
-void SyncBackendHostMock::ConfigureDataTypes(
+syncer::ModelTypeSet SyncBackendHostMock::ConfigureDataTypes(
     syncer::ConfigureReason reason,
     const DataTypeConfigStateMap& config_state_map,
-    const base::Callback<void(syncer::ModelTypeSet,
-                              syncer::ModelTypeSet)>& ready_task,
-    const base::Callback<void()>& retry_callback) {}
+    const base::Callback<void(syncer::ModelTypeSet, syncer::ModelTypeSet)>&
+        ready_task,
+    const base::Callback<void()>& retry_callback) {
+  return syncer::ModelTypeSet();
+}
 
 void SyncBackendHostMock::EnableEncryptEverything() {}
 
@@ -117,6 +119,8 @@ base::MessageLoop* SyncBackendHostMock::GetSyncLoopForTesting() {
   return NULL;
 }
 
+void SyncBackendHostMock::RefreshTypesForTest(syncer::ModelTypeSet types) {}
+
 void SyncBackendHostMock::RequestBufferedProtocolEventsAndEnableForwarding() {}
 
 void SyncBackendHostMock::DisableProtocolEventForwarding() {}
@@ -135,4 +139,3 @@ void SyncBackendHostMock::set_fail_initial_download(bool should_fail) {
 }
 
 }  // namespace browser_sync
-

@@ -47,15 +47,16 @@ BaseFile::BaseFile(const base::FilePath& full_path,
     secure_hash_.reset(crypto::SecureHash::Create(crypto::SecureHash::SHA256));
     if ((bytes_so_far_ > 0) &&  // Not starting at the beginning.
         (!IsEmptyHash(hash_state_bytes))) {
-      Pickle hash_state(hash_state_bytes.c_str(), hash_state_bytes.size());
-      PickleIterator data_iterator(hash_state);
+      base::Pickle hash_state(hash_state_bytes.c_str(),
+                              hash_state_bytes.size());
+      base::PickleIterator data_iterator(hash_state);
       secure_hash_->Deserialize(&data_iterator);
     }
   }
 }
 
 BaseFile::~BaseFile() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
   if (detached_)
     Close();
   else
@@ -64,7 +65,7 @@ BaseFile::~BaseFile() {
 
 DownloadInterruptReason BaseFile::Initialize(
     const base::FilePath& default_directory) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
   DCHECK(!detached_);
 
   if (full_path_.empty()) {
@@ -90,7 +91,7 @@ DownloadInterruptReason BaseFile::Initialize(
 
 DownloadInterruptReason BaseFile::AppendDataToFile(const char* data,
                                                    size_t data_len) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
   DCHECK(!detached_);
 
   // NOTE(benwells): The above DCHECK won't be present in release builds,
@@ -137,7 +138,7 @@ DownloadInterruptReason BaseFile::AppendDataToFile(const char* data,
 }
 
 DownloadInterruptReason BaseFile::Rename(const base::FilePath& new_path) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
   DownloadInterruptReason rename_result = DOWNLOAD_INTERRUPT_REASON_NONE;
 
   // If the new path is same as the old one, there is no need to perform the
@@ -179,7 +180,7 @@ void BaseFile::Detach() {
 }
 
 void BaseFile::Cancel() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
   DCHECK(!detached_);
 
   bound_net_log_.AddEvent(net::NetLog::TYPE_CANCELLED);
@@ -195,7 +196,7 @@ void BaseFile::Cancel() {
 }
 
 void BaseFile::Finish() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
 
   if (calculate_hash_)
     secure_hash_->Finish(sha256_hash_, crypto::kSHA256Length);
@@ -225,7 +226,7 @@ std::string BaseFile::GetHashState() {
   if (!calculate_hash_)
     return std::string();
 
-  Pickle hash_state;
+  base::Pickle hash_state;
   if (!secure_hash_->Serialize(&hash_state))
     return std::string();
 
@@ -251,7 +252,7 @@ std::string BaseFile::DebugString() const {
 }
 
 DownloadInterruptReason BaseFile::Open() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
   DCHECK(!detached_);
   DCHECK(!full_path_.empty());
 
@@ -297,7 +298,7 @@ DownloadInterruptReason BaseFile::Open() {
 }
 
 void BaseFile::Close() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
 
   bound_net_log_.AddEvent(net::NetLog::TYPE_DOWNLOAD_FILE_CLOSED);
 

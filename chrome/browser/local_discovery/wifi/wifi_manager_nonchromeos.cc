@@ -5,6 +5,7 @@
 #include "chrome/browser/local_discovery/wifi/wifi_manager_nonchromeos.h"
 
 #include "base/cancelable_callback.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "base/threading/thread.h"
 #include "components/onc/onc_constants.h"
@@ -120,13 +121,13 @@ class WifiManagerNonChromeos::WifiServiceWrapper
   // SSID of network we are connecting to.
   std::string connecting_network_guid_;
 
-  scoped_refptr<base::MessageLoopProxy> callback_runner_;
-
-  base::WeakPtrFactory<WifiServiceWrapper> weak_factory_;
+  scoped_refptr<base::SingleThreadTaskRunner> callback_runner_;
 
 #if defined(OS_WIN)
   scoped_refptr<CredentialGetterWin> credential_getter_;
 #endif  // OS_WIN
+
+  base::WeakPtrFactory<WifiServiceWrapper> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(WifiServiceWrapper);
 };
@@ -134,7 +135,7 @@ class WifiManagerNonChromeos::WifiServiceWrapper
 WifiManagerNonChromeos::WifiServiceWrapper::WifiServiceWrapper(
     base::WeakPtr<WifiManagerNonChromeos> wifi_manager)
     : wifi_manager_(wifi_manager),
-      callback_runner_(base::MessageLoopProxy::current()),
+      callback_runner_(base::ThreadTaskRunnerHandle::Get()),
       weak_factory_(this) {
 }
 
@@ -143,13 +144,13 @@ WifiManagerNonChromeos::WifiServiceWrapper::~WifiServiceWrapper() {
 }
 
 void WifiManagerNonChromeos::WifiServiceWrapper::Start() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
   wifi_service_.reset(WiFiService::Create());
 
-  wifi_service_->Initialize(base::MessageLoopProxy::current());
+  wifi_service_->Initialize(base::ThreadTaskRunnerHandle::Get());
 
   wifi_service_->SetEventObservers(
-      base::MessageLoopProxy::current(),
+      base::ThreadTaskRunnerHandle::Get(),
       base::Bind(&WifiServiceWrapper::OnNetworksChangedEvent, AsWeakPtr()),
       base::Bind(&WifiServiceWrapper::OnNetworkListChangedEvent, AsWeakPtr()));
 
@@ -158,7 +159,7 @@ void WifiManagerNonChromeos::WifiServiceWrapper::Start() {
 
 void WifiManagerNonChromeos::WifiServiceWrapper::GetSSIDList(
     const WifiManager::SSIDListCallback& callback) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
 
   scoped_ptr<NetworkPropertiesList> ssid_list(new NetworkPropertiesList);
   GetSSIDListInternal(ssid_list.get());
@@ -175,7 +176,7 @@ void WifiManagerNonChromeos::WifiServiceWrapper::ConfigureAndConnectPskNetwork(
     const std::string& ssid,
     const std::string& password,
     const WifiManager::SuccessCallback& callback) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
   scoped_ptr<base::DictionaryValue> properties = MakeProperties(ssid, password);
 
   std::string network_guid;
@@ -201,7 +202,7 @@ void WifiManagerNonChromeos::WifiServiceWrapper::ConfigureAndConnectPskNetwork(
 
 void WifiManagerNonChromeos::WifiServiceWrapper::OnNetworkListChangedEvent(
     const std::vector<std::string>& network_guids) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
   scoped_ptr<NetworkPropertiesList> ssid_list(new NetworkPropertiesList);
   GetSSIDListInternal(ssid_list.get());
   callback_runner_->PostTask(
@@ -213,7 +214,7 @@ void WifiManagerNonChromeos::WifiServiceWrapper::OnNetworkListChangedEvent(
 
 void WifiManagerNonChromeos::WifiServiceWrapper::OnNetworksChangedEvent(
     const std::vector<std::string>& network_guids) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
   if (connecting_network_guid_.empty() ||
       !IsConnected(connecting_network_guid_)) {
     return;
@@ -234,14 +235,14 @@ WifiManagerNonChromeos::WifiServiceWrapper::AsWeakPtr() {
 }
 
 void WifiManagerNonChromeos::WifiServiceWrapper::RequestScan() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
   wifi_service_->RequestNetworkScan();
 }
 
 void WifiManagerNonChromeos::WifiServiceWrapper::ConnectToNetworkByID(
     const std::string& network_guid,
     const WifiManager::SuccessCallback& callback) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
 
   std::string connected_network_id = GetConnectedGUID();
   std::string error_string;
@@ -295,7 +296,7 @@ void WifiManagerNonChromeos::WifiServiceWrapper::OnConnectToNetworkTimeout() {
 void WifiManagerNonChromeos::WifiServiceWrapper::RequestNetworkCredentials(
     const std::string& ssid,
     const WifiManager::CredentialsCallback& callback) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
 
   bool success = true;
   std::string guid;
@@ -471,7 +472,7 @@ WifiManagerNonChromeos::~WifiManagerNonChromeos() {
 }
 
 void WifiManagerNonChromeos::Start() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   task_runner_ = content::BrowserThread::GetMessageLoopProxyForThread(
       content::BrowserThread::FILE);
 
@@ -486,7 +487,7 @@ void WifiManagerNonChromeos::Start() {
 }
 
 void WifiManagerNonChromeos::GetSSIDList(const SSIDListCallback& callback) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   task_runner_->PostTask(FROM_HERE,
                          base::Bind(&WifiServiceWrapper::GetSSIDList,
                                     wifi_wrapper_->AsWeakPtr(),
@@ -494,7 +495,7 @@ void WifiManagerNonChromeos::GetSSIDList(const SSIDListCallback& callback) {
 }
 
 void WifiManagerNonChromeos::RequestScan() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   task_runner_->PostTask(
       FROM_HERE,
       base::Bind(&WifiServiceWrapper::RequestScan, wifi_wrapper_->AsWeakPtr()));
@@ -502,14 +503,14 @@ void WifiManagerNonChromeos::RequestScan() {
 
 void WifiManagerNonChromeos::OnNetworkListChanged(
     scoped_ptr<NetworkPropertiesList> ssid_list) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   FOR_EACH_OBSERVER(NetworkListObserver,
                     network_list_observers_,
                     OnNetworkListChanged(*ssid_list));
 }
 
 void WifiManagerNonChromeos::PostClosure(const base::Closure& callback) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   callback.Run();
 }
 
@@ -523,7 +524,7 @@ void WifiManagerNonChromeos::ConfigureAndConnectNetwork(
     const std::string& ssid,
     const WifiCredentials& credentials,
     const SuccessCallback& callback) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   task_runner_->PostTask(
       FROM_HERE,
       base::Bind(&WifiServiceWrapper::ConfigureAndConnectPskNetwork,
@@ -536,7 +537,7 @@ void WifiManagerNonChromeos::ConfigureAndConnectNetwork(
 void WifiManagerNonChromeos::ConnectToNetworkByID(
     const std::string& internal_id,
     const SuccessCallback& callback) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   task_runner_->PostTask(FROM_HERE,
                          base::Bind(&WifiServiceWrapper::ConnectToNetworkByID,
                                     wifi_wrapper_->AsWeakPtr(),
@@ -547,7 +548,7 @@ void WifiManagerNonChromeos::ConnectToNetworkByID(
 void WifiManagerNonChromeos::RequestNetworkCredentials(
     const std::string& ssid,
     const CredentialsCallback& callback) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   task_runner_->PostTask(
       FROM_HERE,
       base::Bind(&WifiServiceWrapper::RequestNetworkCredentials,

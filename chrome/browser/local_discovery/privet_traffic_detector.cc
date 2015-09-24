@@ -4,14 +4,16 @@
 
 #include "chrome/browser/local_discovery/privet_traffic_detector.h"
 
+#include "base/location.h"
 #include "base/metrics/histogram.h"
+#include "base/single_thread_task_runner.h"
 #include "base/sys_byteorder.h"
 #include "net/base/dns_util.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_log.h"
 #include "net/dns/dns_protocol.h"
 #include "net/dns/dns_response.h"
 #include "net/dns/mdns_client.h"
+#include "net/log/net_log.h"
 #include "net/udp/datagram_server_socket.h"
 #include "net/udp/udp_server_socket.h"
 
@@ -22,7 +24,7 @@ const char kPrivetDeviceTypeDnsString[] = "\x07_privet";
 
 void GetNetworkListOnFileThread(
     const base::Callback<void(const net::NetworkInterfaceList&)> callback) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
   net::NetworkInterfaceList networks;
   if (!GetNetworkList(&networks, net::INCLUDE_HOST_SCOPE_VIRTUAL_INTERFACES))
     return;
@@ -32,7 +34,7 @@ void GetNetworkListOnFileThread(
     net::AddressFamily address_family =
         net::GetAddressFamily(networks[i].address);
     if (address_family == net::ADDRESS_FAMILY_IPV4 &&
-        networks[i].network_prefix >= 24) {
+        networks[i].prefix_length >= 24) {
       ip4_networks.push_back(networks[i]);
     }
   }
@@ -59,7 +61,7 @@ PrivetTrafficDetector::PrivetTrafficDetector(
     net::AddressFamily address_family,
     const base::Closure& on_traffic_detected)
     : on_traffic_detected_(on_traffic_detected),
-      callback_runner_(base::MessageLoop::current()->message_loop_proxy()),
+      callback_runner_(base::MessageLoop::current()->task_runner()),
       address_family_(address_family),
       io_buffer_(
           new net::IOBufferWithSize(net::dns_protocol::kMaxMulticastSize)),
@@ -76,26 +78,26 @@ void PrivetTrafficDetector::Start() {
 }
 
 PrivetTrafficDetector::~PrivetTrafficDetector() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   net::NetworkChangeNotifier::RemoveNetworkChangeObserver(this);
 }
 
 void PrivetTrafficDetector::StartOnIOThread() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   net::NetworkChangeNotifier::AddNetworkChangeObserver(this);
   ScheduleRestart();
 }
 
 void PrivetTrafficDetector::OnNetworkChanged(
     net::NetworkChangeNotifier::ConnectionType type) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   restart_attempts_ = kMaxRestartAttempts;
   if (type != net::NetworkChangeNotifier::CONNECTION_NONE)
     ScheduleRestart();
 }
 
 void PrivetTrafficDetector::ScheduleRestart() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   socket_.reset();
   weak_ptr_factory_.InvalidateWeakPtrs();
   content::BrowserThread::PostDelayedTask(
@@ -108,7 +110,7 @@ void PrivetTrafficDetector::ScheduleRestart() {
 }
 
 void PrivetTrafficDetector::Restart(const net::NetworkInterfaceList& networks) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   networks_ = networks;
   if (Bind() < net::OK || DoLoop(0) < net::OK) {
     if ((restart_attempts_--) > 0)
@@ -125,7 +127,7 @@ int PrivetTrafficDetector::Bind() {
     UMA_HISTOGRAM_LONG_TIMES("LocalDiscovery.DetectorRestartTime", time_delta);
   }
   start_time_ = base::Time::Now();
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   socket_.reset(new net::UDPServerSocket(NULL, net::NetLog::Source()));
   net::IPEndPoint multicast_addr = net::GetMDnsIPEndPoint(address_family_);
   net::IPAddressNumber address_any(multicast_addr.address().size());
@@ -141,7 +143,7 @@ int PrivetTrafficDetector::Bind() {
 bool PrivetTrafficDetector::IsSourceAcceptable() const {
   for (size_t i = 0; i < networks_.size(); ++i) {
     if (net::IPNumberMatchesPrefix(recv_addr_.address(), networks_[i].address,
-                                   networks_[i].network_prefix)) {
+                                   networks_[i].prefix_length)) {
       return true;
     }
   }
@@ -170,7 +172,7 @@ bool PrivetTrafficDetector::IsPrivetPacket(int rv) const {
 }
 
 int PrivetTrafficDetector::DoLoop(int rv) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   do {
     if (IsPrivetPacket(rv)) {
       socket_.reset();

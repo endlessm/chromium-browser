@@ -8,13 +8,21 @@
 #include "base/android/jni_string.h"
 #include "base/android/scoped_java_ref.h"
 #include "base/base64.h"
-#include "base/command_line.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/prefs/pref_service.h"
+#include "base/test/test_simple_task_runner.h"
+#include "base/time/time.h"
 #include "chrome/browser/net/spdyproxy/data_reduction_proxy_chrome_settings.h"
-#include "chrome/browser/prefs/proxy_prefs.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
+#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config_test_utils.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_settings_test_utils.h"
+#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_test_utils.h"
+#include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
+#include "components/data_reduction_proxy/core/common/data_reduction_proxy_params_test_utils.h"
+#include "components/proxy_config/proxy_prefs.h"
+#include "net/proxy/proxy_server.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -22,8 +30,6 @@
 using testing::_;
 using testing::AnyNumber;
 using testing::Return;
-
-const char kDataReductionProxyDev[] = "http://foo-dev.com:80";
 
 using data_reduction_proxy::DataReductionProxySettings;
 
@@ -39,9 +45,7 @@ class TestDataReductionProxySettingsAndroid
         settings_(settings) {}
 
   // Returns the provided setting object. Used by wrapping methods.
-  virtual DataReductionProxySettings* Settings() override {
-    return settings_;
-  }
+  DataReductionProxySettings* Settings() override { return settings_; }
 
   // The wrapped settings object.
   DataReductionProxySettings* settings_;
@@ -51,7 +55,6 @@ template <class C>
 void data_reduction_proxy::DataReductionProxySettingsTestBase::ResetSettings(
     bool allowed,
     bool fallback_allowed,
-    bool alt_allowed,
     bool promo_allowed,
     bool holdback) {
   int flags = 0;
@@ -59,74 +62,39 @@ void data_reduction_proxy::DataReductionProxySettingsTestBase::ResetSettings(
     flags |= DataReductionProxyParams::kAllowed;
   if (fallback_allowed)
     flags |= DataReductionProxyParams::kFallbackAllowed;
-  if (alt_allowed)
-    flags |= DataReductionProxyParams::kAlternativeAllowed;
   if (promo_allowed)
     flags |= DataReductionProxyParams::kPromoAllowed;
   if (holdback)
     flags |= DataReductionProxyParams::kHoldback;
   MockDataReductionProxySettings<C>* settings =
-      new MockDataReductionProxySettings<C>(flags);
+      new MockDataReductionProxySettings<C>();
+  settings->config_ = test_context_->config();
+  settings->data_reduction_proxy_service_ =
+      test_context_->CreateDataReductionProxyService();
+  test_context_->config()->ResetParamFlagsForTest(flags);
+  settings->UpdateConfigValues();
   EXPECT_CALL(*settings, GetOriginalProfilePrefs())
       .Times(AnyNumber())
-      .WillRepeatedly(Return(&pref_service_));
+      .WillRepeatedly(Return(test_context_->pref_service()));
   EXPECT_CALL(*settings, GetLocalStatePrefs())
       .Times(AnyNumber())
-      .WillRepeatedly(Return(&pref_service_));
-  EXPECT_CALL(*settings, GetURLFetcherForAvailabilityCheck()).Times(0);
-  EXPECT_CALL(*settings, LogProxyState(_, _, _)).Times(0);
+      .WillRepeatedly(Return(test_context_->pref_service()));
   settings_.reset(settings);
-  settings_->SetDataReductionProxyStatisticsPrefs(statistics_prefs_.get());
-}
-
-template <class C>
-void data_reduction_proxy::DataReductionProxySettingsTestBase::SetProbeResult(
-    const std::string& test_url,
-    const std::string& response,
-    ProbeURLFetchResult result,
-    bool success,
-    int expected_calls)  {
-  MockDataReductionProxySettings<C>* settings =
-      static_cast<MockDataReductionProxySettings<C>*>(settings_.get());
-  if (0 == expected_calls) {
-    EXPECT_CALL(*settings, GetURLFetcherForAvailabilityCheck()).Times(0);
-    EXPECT_CALL(*settings, RecordProbeURLFetchResult(_)).Times(0);
-  } else {
-    EXPECT_CALL(*settings, RecordProbeURLFetchResult(result)).Times(1);
-    EXPECT_CALL(*settings, GetURLFetcherForAvailabilityCheck())
-        .Times(expected_calls)
-        .WillRepeatedly(Return(new net::FakeURLFetcher(
-            GURL(test_url),
-            settings,
-            response,
-            success ? net::HTTP_OK : net::HTTP_INTERNAL_SERVER_ERROR,
-            success ? net::URLRequestStatus::SUCCESS :
-                      net::URLRequestStatus::FAILED)));
-  }
 }
 
 template void
 data_reduction_proxy::DataReductionProxySettingsTestBase::ResetSettings<
     DataReductionProxyChromeSettings>(bool allowed,
                                        bool fallback_allowed,
-                                       bool alt_allowed,
                                        bool promo_allowed,
                                        bool holdback);
-
-template void
-data_reduction_proxy::DataReductionProxySettingsTestBase::SetProbeResult<
-    DataReductionProxyChromeSettings>(const std::string& test_url,
-                                       const std::string& response,
-                                       ProbeURLFetchResult result,
-                                       bool success,
-                                       int expected_calls);
 
 class DataReductionProxySettingsAndroidTest
     : public data_reduction_proxy::ConcreteDataReductionProxySettingsTest<
           DataReductionProxyChromeSettings> {
  public:
   // DataReductionProxySettingsTest implementation:
-  virtual void SetUp() override {
+  void SetUp() override {
     env_ = base::android::AttachCurrentThread();
     DataReductionProxySettingsAndroid::Register(env_);
     DataReductionProxySettingsTestBase::SetUp();
@@ -150,31 +118,6 @@ class DataReductionProxySettingsAndroidTest
   JNIEnv* env_;
 };
 
-TEST_F(DataReductionProxySettingsAndroidTest, TestGetDataReductionProxyOrigin) {
-  // SetUp() adds the origin to the command line, which should be returned here.
-  ScopedJavaLocalRef<jstring> result =
-      SettingsAndroid()->GetDataReductionProxyOrigin(env_, NULL);
-  ASSERT_TRUE(result.obj());
-  const base::android::JavaRef<jstring>& str_ref = result;
-  EXPECT_EQ(GURL(expected_params_->DefaultOrigin()),
-            GURL(ConvertJavaStringToUTF8(str_ref)));
-}
-
-TEST_F(DataReductionProxySettingsAndroidTest,
-       TestGetDataReductionProxyDevOrigin) {
-  CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-      data_reduction_proxy::switches::kDataReductionProxyDev,
-      kDataReductionProxyDev);
-  ResetSettings(true, true, false, true, false);
-  ResetSettingsAndroid();
-  ScopedJavaLocalRef<jstring> result =
-      SettingsAndroid()->GetDataReductionProxyOrigin(env_, NULL);
-  ASSERT_TRUE(result.obj());
-  const base::android::JavaRef<jstring>& str_ref = result;
-  EXPECT_EQ(GURL(kDataReductionProxyDev),
-            GURL(ConvertJavaStringToUTF8(str_ref)));
-}
-
 TEST_F(DataReductionProxySettingsAndroidTest, TestGetDailyContentLengths) {
   ScopedJavaLocalRef<jlongArray> result =
       SettingsAndroid()->GetDailyContentLengths(
@@ -193,4 +136,3 @@ TEST_F(DataReductionProxySettingsAndroidTest, TestGetDailyContentLengths) {
             (data_reduction_proxy::kNumDaysInHistory - 1 - i) * 2), value);
   }
 }
-

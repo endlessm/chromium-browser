@@ -11,6 +11,8 @@
 
 #include "base/memory/scoped_ptr.h"
 
+class Profile;
+
 namespace base {
 
 template <typename T>
@@ -21,18 +23,29 @@ class Callback;
 namespace chromeos {
 namespace locale_util {
 
+struct LanguageSwitchResult {
+  LanguageSwitchResult(const std::string& requested_locale,
+                       const std::string& loaded_locale,
+                       bool success);
+
+  std::string requested_locale;
+  std::string loaded_locale;
+  bool success;
+};
+
 // This callback is called on UI thread, when ReloadLocaleResources() is
 // completed on BlockingPool.
-// Arguments:
+// |result| contains:
 //   locale - (copy of) locale argument to SwitchLanguage(). Expected locale.
 //   loaded_locale - actual locale name loaded.
 //   success - if locale load succeeded.
 // (const std::string* locale, const std::string* loaded_locale, bool success)
-typedef base::Callback<void(const std::string&, const std::string&, bool)>
+typedef base::Callback<void(const LanguageSwitchResult& result)>
     SwitchLanguageCallback;
 
 // This function updates input methods only if requested. In general, you want
-// |enable_locale_keyboard_layouts = true|.
+// |enable_locale_keyboard_layouts = true|. |profile| is needed because IME
+// extensions are per-user.
 // Note: in case of |enable_locale_keyboard_layouts = false|, the input method
 // currently in use may not be supported by the new locale. Using the new locale
 // with an unsupported input method may lead to undefined behavior. Use
@@ -41,7 +54,8 @@ typedef base::Callback<void(const std::string&, const std::string&, bool)>
 void SwitchLanguage(const std::string& locale,
                     const bool enable_locale_keyboard_layouts,
                     const bool login_layouts_only,
-                    scoped_ptr<SwitchLanguageCallback> callback);
+                    const SwitchLanguageCallback& callback,
+                    Profile* profile);
 
 }  // namespace locale_util
 }  // namespace chromeos

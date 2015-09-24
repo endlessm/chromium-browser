@@ -72,7 +72,7 @@ class NativeMessageProcessHost :
 
   // Callback for NativeProcessLauncher::Launch().
   void OnHostProcessLaunched(NativeProcessLauncher::LaunchResult result,
-                             base::ProcessHandle process_handle,
+                             base::Process process,
                              base::File read_file,
                              base::File write_file);
 
@@ -88,7 +88,7 @@ class NativeMessageProcessHost :
   void HandleWriteResult(int result);
   void OnWritten(int result);
 
-  // Closes the connection. Called from OnError() and destructor.
+  // Closes the connection and reports the |error_message| to the client.
   void Close(const std::string& error_message);
 
   // The Client messages will be posted to. Should only be accessed from the
@@ -108,7 +108,7 @@ class NativeMessageProcessHost :
   // due to an error.
   bool closed_;
 
-  base::ProcessHandle process_handle_;
+  base::Process process_;
 
   // Input stream reader.
   scoped_ptr<net::FileStream> read_stream_;

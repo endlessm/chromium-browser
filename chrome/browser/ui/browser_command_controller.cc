@@ -130,12 +130,12 @@ class SwitchToMetroUIHandler
     default_browser_worker_->StartCheckIsDefault();
   }
 
-  virtual ~SwitchToMetroUIHandler() {
+  ~SwitchToMetroUIHandler() override {
     default_browser_worker_->ObserverDestroyed();
   }
 
  private:
-  virtual void SetDefaultWebClientUIState(
+  void SetDefaultWebClientUIState(
       ShellIntegration::DefaultWebClientUIState state) override {
     switch (state) {
       case ShellIntegration::STATE_PROCESSING:
@@ -157,7 +157,7 @@ class SwitchToMetroUIHandler
     delete this;
   }
 
-  virtual void OnSetAsDefaultConcluded(bool success)  override {
+  void OnSetAsDefaultConcluded(bool success) override {
     if (!success) {
       delete this;
       return;
@@ -166,7 +166,7 @@ class SwitchToMetroUIHandler
     default_browser_worker_->StartCheckIsDefault();
   }
 
-  virtual bool IsInteractiveSetDefaultPermitted() override {
+  bool IsInteractiveSetDefaultPermitted() override {
     return true;
   }
 
@@ -341,6 +341,11 @@ void BrowserCommandController::LoadingStateChanged(bool is_loading,
   UpdateReloadStopState(is_loading, force);
 }
 
+void BrowserCommandController::ExtensionStateChanged() {
+  // Extensions may disable the bookmark editing commands.
+  UpdateCommandsForBookmarkEditing();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // BrowserCommandController, CommandUpdaterDelegate implementation:
 
@@ -456,7 +461,7 @@ void BrowserCommandController::ExecuteCommandWithDisposition(
       break;
     case IDC_FULLSCREEN:
 #if defined(OS_MACOSX)
-      chrome::ToggleFullscreenWithChromeOrFallback(browser_);
+      chrome::ToggleFullscreenWithToolbarOrFallback(browser_);
 #else
       chrome::ToggleFullscreenMode(browser_);
 #endif
@@ -529,7 +534,7 @@ void BrowserCommandController::ExecuteCommandWithDisposition(
       SavePage(browser_);
       break;
     case IDC_BOOKMARK_PAGE:
-      BookmarkCurrentPage(browser_);
+      BookmarkCurrentPageAllowingExtensionOverrides(browser_);
       break;
     case IDC_BOOKMARK_ALL_TABS:
       BookmarkAllTabs(browser_);
@@ -565,7 +570,6 @@ void BrowserCommandController::ExecuteCommandWithDisposition(
     case IDC_ENCODING_WINDOWS1252:
     case IDC_ENCODING_GBK:
     case IDC_ENCODING_GB18030:
-    case IDC_ENCODING_BIG5HKSCS:
     case IDC_ENCODING_BIG5:
     case IDC_ENCODING_KOREAN:
     case IDC_ENCODING_SHIFTJIS:
@@ -580,6 +584,7 @@ void BrowserCommandController::ExecuteCommandWithDisposition(
     case IDC_ENCODING_WINDOWS1251:
     case IDC_ENCODING_KOI8R:
     case IDC_ENCODING_KOI8U:
+    case IDC_ENCODING_IBM866:
     case IDC_ENCODING_ISO88597:
     case IDC_ENCODING_WINDOWS1253:
     case IDC_ENCODING_ISO88594:
@@ -601,13 +606,9 @@ void BrowserCommandController::ExecuteCommandWithDisposition(
 
     // Clipboard commands
     case IDC_CUT:
-      Cut(browser_);
-      break;
     case IDC_COPY:
-      Copy(browser_);
-      break;
     case IDC_PASTE:
-      Paste(browser_);
+      CutCopyPaste(browser_, id);
       break;
 
     // Find-in-page
@@ -718,6 +719,9 @@ void BrowserCommandController::ExecuteCommandWithDisposition(
     case IDC_SHOW_AVATAR_MENU:
       ShowAvatarMenu(browser_);
       break;
+    case IDC_SHOW_FAST_USER_SWITCHER:
+      ShowFastUserSwitcher(browser_);
+      break;
     case IDC_SHOW_HISTORY:
       ShowHistory(browser_);
       break;
@@ -761,7 +765,7 @@ void BrowserCommandController::ExecuteCommandWithDisposition(
       ShowHelp(browser_, HELP_SOURCE_MENU);
       break;
     case IDC_SHOW_SIGNIN:
-      ShowBrowserSignin(browser_, signin::SOURCE_MENU);
+      ShowBrowserSigninOrSettings(browser_, signin_metrics::SOURCE_MENU);
       break;
     case IDC_TOGGLE_SPEECH_INPUT:
       ToggleSpeechInput(browser_);
@@ -911,7 +915,6 @@ void BrowserCommandController::InitCommandState() {
   command_updater_.UpdateCommandEnabled(IDC_ENCODING_WINDOWS1252, true);
   command_updater_.UpdateCommandEnabled(IDC_ENCODING_GBK, true);
   command_updater_.UpdateCommandEnabled(IDC_ENCODING_GB18030, true);
-  command_updater_.UpdateCommandEnabled(IDC_ENCODING_BIG5HKSCS, true);
   command_updater_.UpdateCommandEnabled(IDC_ENCODING_BIG5, true);
   command_updater_.UpdateCommandEnabled(IDC_ENCODING_THAI, true);
   command_updater_.UpdateCommandEnabled(IDC_ENCODING_KOREAN, true);
@@ -926,6 +929,7 @@ void BrowserCommandController::InitCommandState() {
   command_updater_.UpdateCommandEnabled(IDC_ENCODING_WINDOWS1251, true);
   command_updater_.UpdateCommandEnabled(IDC_ENCODING_KOI8R, true);
   command_updater_.UpdateCommandEnabled(IDC_ENCODING_KOI8U, true);
+  command_updater_.UpdateCommandEnabled(IDC_ENCODING_IBM866, true);
   command_updater_.UpdateCommandEnabled(IDC_ENCODING_ISO88597, true);
   command_updater_.UpdateCommandEnabled(IDC_ENCODING_WINDOWS1253, true);
   command_updater_.UpdateCommandEnabled(IDC_ENCODING_ISO88594, true);
@@ -950,7 +954,10 @@ void BrowserCommandController::InitCommandState() {
   command_updater_.UpdateCommandEnabled(IDC_ZOOM_MINUS, true);
 
   // Show various bits of UI
-  const bool guest_session = profile()->IsGuestSession();
+  const bool guest_session = profile()->IsGuestSession() ||
+                             profile()->IsSystemProfile();
+  DCHECK(!profile()->IsSystemProfile())
+      << "Ought to never have browser for the system profile.";
   const bool normal_window = browser_->is_type_tabbed();
   UpdateOpenFileState(&command_updater_);
   command_updater_.UpdateCommandEnabled(IDC_CREATE_SHORTCUTS, false);
@@ -971,8 +978,10 @@ void BrowserCommandController::InitCommandState() {
   command_updater_.UpdateCommandEnabled(IDC_TOUCH_HUD_PROJECTION_TOGGLE, true);
 #else
   // Chrome OS uses the system tray menu to handle multi-profiles.
-  if (normal_window && (guest_session || !profile()->IsOffTheRecord()))
+  if (normal_window && (guest_session || !profile()->IsOffTheRecord())) {
     command_updater_.UpdateCommandEnabled(IDC_SHOW_AVATAR_MENU, true);
+    command_updater_.UpdateCommandEnabled(IDC_SHOW_FAST_USER_SWITCHER, true);
+  }
 #endif
 
   UpdateShowSyncState(true);
@@ -980,8 +989,8 @@ void BrowserCommandController::InitCommandState() {
   // Navigation commands
   command_updater_.UpdateCommandEnabled(
       IDC_HOME,
-      normal_window || (extensions::util::IsStreamlinedHostedAppsEnabled() &&
-                        browser_->is_app()));
+      normal_window ||
+          (extensions::util::IsNewBookmarkAppsEnabled() && browser_->is_app()));
 
   // Window management commands
   command_updater_.UpdateCommandEnabled(IDC_SELECT_NEXT_TAB, normal_window);
@@ -1017,9 +1026,8 @@ void BrowserCommandController::InitCommandState() {
 
   // Distill current page.
   command_updater_.UpdateCommandEnabled(
-      IDC_DISTILL_PAGE,
-      CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableDomDistiller));
+      IDC_DISTILL_PAGE, base::CommandLine::ForCurrentProcess()->HasSwitch(
+                            switches::kEnableDomDistiller));
 
   // Initialize other commands whose state changes based on various conditions.
   UpdateCommandsForFullscreenMode();
@@ -1118,9 +1126,9 @@ void BrowserCommandController::UpdateCommandsForTabState() {
   command_updater_.UpdateCommandEnabled(
       IDC_CREATE_SHORTCUTS,
       CanCreateApplicationShortcuts(browser_));
+#endif
   command_updater_.UpdateCommandEnabled(IDC_CREATE_HOSTED_APP,
                                         CanCreateBookmarkApp(browser_));
-#endif
 
   command_updater_.UpdateCommandEnabled(
       IDC_TOGGLE_REQUEST_TABLET_SITE,
@@ -1138,9 +1146,12 @@ void BrowserCommandController::UpdateCommandsForZoomState() {
       browser_->tab_strip_model()->GetActiveWebContents();
   if (!contents)
     return;
-  command_updater_.UpdateCommandEnabled(IDC_ZOOM_PLUS, CanZoomIn(contents));
-  command_updater_.UpdateCommandEnabled(IDC_ZOOM_NORMAL, ActualSize(contents));
-  command_updater_.UpdateCommandEnabled(IDC_ZOOM_MINUS, CanZoomOut(contents));
+  command_updater_.UpdateCommandEnabled(IDC_ZOOM_PLUS,
+                                        CanZoomIn(contents));
+  command_updater_.UpdateCommandEnabled(IDC_ZOOM_NORMAL,
+                                        CanResetZoom(contents));
+  command_updater_.UpdateCommandEnabled(IDC_ZOOM_MINUS,
+                                        CanZoomOut(contents));
 }
 
 void BrowserCommandController::UpdateCommandsForContentRestrictionState() {
@@ -1185,6 +1196,7 @@ void BrowserCommandController::UpdateCommandsForBookmarkBar() {
   command_updater_.UpdateCommandEnabled(
       IDC_SHOW_BOOKMARK_BAR,
       browser_defaults::bookmarks_enabled && !profile()->IsGuestSession() &&
+          !profile()->IsSystemProfile() &&
           !profile()->GetPrefs()->IsManagedPreference(
               bookmarks::prefs::kShowBookmarkBar) &&
           IsShowingMainUI());

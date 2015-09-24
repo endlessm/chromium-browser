@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 #include "base/command_line.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/renderer/extensions/chrome_extensions_dispatcher_delegate.h"
 #include "chrome/renderer/extensions/renderer_permissions_policy_delegate.h"
@@ -60,25 +59,6 @@ scoped_refptr<const Extension> CreateTestExtension(const std::string& id) {
 
 }  // namespace
 
-// Tests that CanAccessPage returns false for the signin process,
-// all else being equal.
-TEST_F(RendererPermissionsPolicyDelegateTest, CannotScriptSigninProcess) {
-  GURL kSigninUrl(
-      "https://accounts.google.com/ServiceLogin?service=chromiumsync");
-  scoped_refptr<const Extension> extension(CreateTestExtension("a"));
-  std::string error;
-
-  EXPECT_TRUE(extension->permissions_data()->CanAccessPage(
-      extension.get(), kSigninUrl, kSigninUrl, -1, -1, &error))
-      << error;
-  // Pretend we are in the signin process. We should not be able to execute
-  // script.
-  CommandLine::ForCurrentProcess()->AppendSwitch(switches::kSigninProcess);
-  EXPECT_FALSE(extension->permissions_data()->CanAccessPage(
-      extension.get(), kSigninUrl, kSigninUrl, -1, -1, &error))
-      << error;
-}
-
 // Tests that CanAccessPage returns false for the any process
 // which hosts the webstore.
 TEST_F(RendererPermissionsPolicyDelegateTest, CannotScriptWebstore) {
@@ -87,17 +67,16 @@ TEST_F(RendererPermissionsPolicyDelegateTest, CannotScriptWebstore) {
   std::string error;
 
   EXPECT_TRUE(extension->permissions_data()->CanAccessPage(
-      extension.get(), kAnyUrl, kAnyUrl, -1, -1, &error))
-      << error;
+      extension.get(), kAnyUrl, -1, -1, &error)) << error;
 
   // Pretend we are in the webstore process. We should not be able to execute
   // script.
   scoped_refptr<const Extension> webstore_extension(
       CreateTestExtension(extensions::kWebStoreAppId));
-  extension_dispatcher_->OnLoadedInternal(webstore_extension);
+  extension_dispatcher_->LoadExtensionForTest(webstore_extension.get());
   extension_dispatcher_->OnActivateExtension(extensions::kWebStoreAppId);
   EXPECT_FALSE(extension->permissions_data()->CanAccessPage(
-      extension.get(), kAnyUrl, kAnyUrl, -1, -1, &error))
+      extension.get(), kAnyUrl, -1, -1, &error))
       << error;
 }
 

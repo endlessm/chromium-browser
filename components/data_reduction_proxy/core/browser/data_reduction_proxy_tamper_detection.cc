@@ -9,11 +9,12 @@
 
 #include "base/base64.h"
 #include "base/md5.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_headers.h"
+#include "net/base/mime_util.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_util.h"
 
@@ -21,9 +22,9 @@
 #include "net/android/network_library.h"
 #endif
 
-// Macro for UMA reporting. HTTP response first reports to histogram events
-// |http_histogram| by |carrier_id|; then reports the total counts to
-// |http_histogram|_Total. HTTPS response reports to histograms
+// Macro for UMA reporting of tamper detection. HTTP response first reports to
+// histogram events |http_histogram| by |carrier_id|; then reports the total
+// counts to |http_histogram|_Total. HTTPS response reports to histograms
 // |https_histogram| and |https_histogram|_Total similarly.
 #define REPORT_TAMPER_DETECTION_UMA( \
     scheme_is_https, https_histogram, http_histogram, carrier_id) \
@@ -34,7 +35,44 @@
     } else { \
       UMA_HISTOGRAM_SPARSE_SLOWLY(http_histogram, carrier_id); \
       UMA_HISTOGRAM_COUNTS(http_histogram "_Total", 1); \
-    }\
+    } \
+  } while (0)
+
+// Macro for UMA reporting of compression ratio. Reports |compression_ratio|
+// to either "HTTPS" histogram or "HTTP" histogram, depending on the response
+// type.
+#define REPORT_TAMPER_DETECTION_UMA_COMPRESSION_RATIO( \
+    scheme_is_https, histogram, compression_ratio) \
+  do { \
+    if (scheme_is_https) { \
+      UMA_HISTOGRAM_SPARSE_SLOWLY( \
+          "DataReductionProxy.HeaderTamperedHTTPS_CompressionRatio" \
+          histogram, compression_ratio); \
+    } else { \
+      UMA_HISTOGRAM_SPARSE_SLOWLY( \
+          "DataReductionProxy.HeaderTamperedHTTP_CompressionRatio" \
+          histogram, compression_ratio); \
+    } \
+  } while (0)
+
+// Macro for UMA reporting of tamper detection as well as compression ratio.
+#define REPORT_TAMPER_DETECTION_UMA_AND_COMPRESSION_RATIO( \
+    scheme_is_https, https_histogram, http_histogram, carrier_id, \
+    histogram_compression_ratio, compression_ratio) \
+  do { \
+    if (scheme_is_https) { \
+      UMA_HISTOGRAM_SPARSE_SLOWLY(https_histogram, carrier_id); \
+      UMA_HISTOGRAM_COUNTS(https_histogram "_Total", 1); \
+      UMA_HISTOGRAM_SPARSE_SLOWLY( \
+          "DataReductionProxy.HeaderTamperedHTTPS_CompressionRatio" \
+          histogram_compression_ratio, compression_ratio); \
+    } else { \
+      UMA_HISTOGRAM_SPARSE_SLOWLY(http_histogram, carrier_id); \
+      UMA_HISTOGRAM_COUNTS(http_histogram "_Total", 1); \
+      UMA_HISTOGRAM_SPARSE_SLOWLY( \
+          "DataReductionProxy.HeaderTamperedHTTP_CompressionRatio" \
+          histogram_compression_ratio, compression_ratio); \
+    } \
   } while (0)
 
 namespace data_reduction_proxy {
@@ -42,15 +80,18 @@ namespace data_reduction_proxy {
 // static
 bool DataReductionProxyTamperDetection::DetectAndReport(
     const net::HttpResponseHeaders* headers,
-    const bool scheme_is_https) {
-  DCHECK(headers);
+    bool scheme_is_https,
+    int64 content_length) {
+  if (headers == nullptr) {
+    return false;
+  }
+
   // Abort tamper detection, if the fingerprint of the Chrome-Proxy header is
   // absent.
   std::string chrome_proxy_fingerprint;
   if (!GetDataReductionProxyActionFingerprintChromeProxy(
-      headers, &chrome_proxy_fingerprint)) {
+      headers, &chrome_proxy_fingerprint))
     return false;
-  }
 
   // Get carrier ID.
   unsigned carrier_id = 0;
@@ -63,27 +104,21 @@ bool DataReductionProxyTamperDetection::DetectAndReport(
 
   // Checks if the Chrome-Proxy header has been tampered with.
   if (tamper_detection.ValidateChromeProxyHeader(chrome_proxy_fingerprint)) {
-    tamper_detection.ReportUMAforChromeProxyHeaderValidation();
+    tamper_detection.ReportUMAForChromeProxyHeaderValidation();
     return true;
   }
 
   // Chrome-Proxy header has not been tampered with, and thus other
-  // fingerprints are valid. Reports the number of responses that other
-  // fingerprints will be checked.
-  REPORT_TAMPER_DETECTION_UMA(
-      scheme_is_https,
-      "DataReductionProxy.HeaderTamperDetectionHTTPS",
-      "DataReductionProxy.HeaderTamperDetectionHTTP",
-      carrier_id);
-
+  // fingerprints are valid.
   bool tampered = false;
+  int64 original_content_length = -1;
   std::string fingerprint;
 
   if (GetDataReductionProxyActionFingerprintVia(headers, &fingerprint)) {
     bool has_chrome_proxy_via_header;
     if (tamper_detection.ValidateViaHeader(
         fingerprint, &has_chrome_proxy_via_header)) {
-      tamper_detection.ReportUMAforViaHeaderValidation(
+      tamper_detection.ReportUMAForViaHeaderValidation(
           has_chrome_proxy_via_header);
       tampered = true;
     }
@@ -92,15 +127,18 @@ bool DataReductionProxyTamperDetection::DetectAndReport(
   if (GetDataReductionProxyActionFingerprintOtherHeaders(
       headers, &fingerprint)) {
     if (tamper_detection.ValidateOtherHeaders(fingerprint)) {
-      tamper_detection.ReportUMAforOtherHeadersValidation();
+      tamper_detection.ReportUMAForOtherHeadersValidation();
       tampered = true;
     }
   }
 
   if (GetDataReductionProxyActionFingerprintContentLength(
       headers, &fingerprint)) {
-    if (tamper_detection.ValidateContentLengthHeader(fingerprint)) {
-      tamper_detection.ReportUMAforContentLengthHeaderValidation();
+    if (tamper_detection.ValidateContentLength(fingerprint,
+                                               content_length,
+                                               &original_content_length)) {
+      tamper_detection.ReportUMAForContentLength(content_length,
+                                                 original_content_length);
       tampered = true;
     }
   }
@@ -112,6 +150,10 @@ bool DataReductionProxyTamperDetection::DetectAndReport(
         "DataReductionProxy.HeaderTamperDetectionPassHTTP",
         carrier_id);
   }
+
+  // Reports the number of responses that other fingerprints will be checked,
+  // separated by MIME type.
+  tamper_detection.ReportUMAForTamperDetectionCount(original_content_length);
 
   return tampered;
 }
@@ -128,6 +170,88 @@ DataReductionProxyTamperDetection::DataReductionProxyTamperDetection(
 }
 
 DataReductionProxyTamperDetection::~DataReductionProxyTamperDetection() {};
+
+void DataReductionProxyTamperDetection::ReportUMAForTamperDetectionCount(
+    int64 original_content_length) const {
+  REPORT_TAMPER_DETECTION_UMA(
+      scheme_is_https_, "DataReductionProxy.HeaderTamperDetectionHTTPS",
+      "DataReductionProxy.HeaderTamperDetectionHTTP", carrier_id_);
+
+  std::string mime_type;
+  response_headers_->GetMimeType(&mime_type);
+
+  if (net::MatchesMimeType("text/javascript", mime_type) ||
+      net::MatchesMimeType("application/x-javascript", mime_type) ||
+      net::MatchesMimeType("application/javascript", mime_type)) {
+    REPORT_TAMPER_DETECTION_UMA(
+        scheme_is_https_, "DataReductionProxy.HeaderTamperDetectionHTTPS_JS",
+        "DataReductionProxy.HeaderTamperDetectionHTTP_JS", carrier_id_);
+  } else if (net::MatchesMimeType("text/css", mime_type)) {
+    REPORT_TAMPER_DETECTION_UMA(
+        scheme_is_https_, "DataReductionProxy.HeaderTamperDetectionHTTPS_CSS",
+        "DataReductionProxy.HeaderTamperDetectionHTTP_CSS", carrier_id_);
+  } else if (net::MatchesMimeType("image/*", mime_type)) {
+    REPORT_TAMPER_DETECTION_UMA(
+        scheme_is_https_, "DataReductionProxy.HeaderTamperDetectionHTTPS_Image",
+        "DataReductionProxy.HeaderTamperDetectionHTTP_Image", carrier_id_);
+
+    if (net::MatchesMimeType("image/gif", mime_type)) {
+      REPORT_TAMPER_DETECTION_UMA(
+          scheme_is_https_,
+          "DataReductionProxy.HeaderTamperDetectionHTTPS_Image_GIF",
+          "DataReductionProxy.HeaderTamperDetectionHTTP_Image_GIF",
+          carrier_id_);
+    } else if (net::MatchesMimeType("image/jpeg", mime_type) ||
+               net::MatchesMimeType("image/jpg", mime_type)) {
+      REPORT_TAMPER_DETECTION_UMA(
+          scheme_is_https_,
+          "DataReductionProxy.HeaderTamperDetectionHTTPS_Image_JPG",
+          "DataReductionProxy.HeaderTamperDetectionHTTP_Image_JPG",
+          carrier_id_);
+    } else if (net::MatchesMimeType("image/png", mime_type)) {
+      REPORT_TAMPER_DETECTION_UMA(
+          scheme_is_https_,
+          "DataReductionProxy.HeaderTamperDetectionHTTPS_Image_PNG",
+          "DataReductionProxy.HeaderTamperDetectionHTTP_Image_PNG",
+          carrier_id_);
+    } else if (net::MatchesMimeType("image/webp", mime_type)) {
+      REPORT_TAMPER_DETECTION_UMA(
+          scheme_is_https_,
+          "DataReductionProxy.HeaderTamperDetectionHTTPS_Image_WEBP",
+          "DataReductionProxy.HeaderTamperDetectionHTTP_Image_WEBP",
+          carrier_id_);
+    }
+
+    if (original_content_length == -1)
+      return;
+
+    if (original_content_length < 10 * 1024) {  // 0-10KB
+      REPORT_TAMPER_DETECTION_UMA(
+          scheme_is_https_,
+          "DataReductionProxy.HeaderTamperDetectionHTTPS_Image_0_10KB",
+          "DataReductionProxy.HeaderTamperDetectionHTTP_Image_0_10KB",
+          carrier_id_);
+    } else if (original_content_length < 100 * 1024) {  // 10-100KB
+      REPORT_TAMPER_DETECTION_UMA(
+          scheme_is_https_,
+          "DataReductionProxy.HeaderTamperDetectionHTTPS_Image_10_100KB",
+          "DataReductionProxy.HeaderTamperDetectionHTTP_Image_10_100KB",
+          carrier_id_);
+    } else if (original_content_length < 500 * 1024) {  // 100-500KB
+      REPORT_TAMPER_DETECTION_UMA(
+          scheme_is_https_,
+          "DataReductionProxy.HeaderTamperDetectionHTTPS_Image_100_500KB",
+          "DataReductionProxy.HeaderTamperDetectionHTTP_Image_100_500KB",
+          carrier_id_);
+    } else {  // >=500KB
+      REPORT_TAMPER_DETECTION_UMA(
+          scheme_is_https_,
+          "DataReductionProxy.HeaderTamperDetectionHTTPS_Image_500KB",
+          "DataReductionProxy.HeaderTamperDetectionHTTP_Image_500KB",
+          carrier_id_);
+    }
+  }
+}
 
 // |fingerprint| is Base64 encoded. Decodes it first. Then calculates the
 // fingerprint of received Chrome-Proxy header, and compares the two to see
@@ -152,7 +276,7 @@ bool DataReductionProxyTamperDetection::ValidateChromeProxyHeader(
 }
 
 void DataReductionProxyTamperDetection::
-    ReportUMAforChromeProxyHeaderValidation() const {
+    ReportUMAForChromeProxyHeaderValidation() const {
   REPORT_TAMPER_DETECTION_UMA(
       scheme_is_https_,
       "DataReductionProxy.HeaderTamperedHTTPS_ChromeProxy",
@@ -160,9 +284,9 @@ void DataReductionProxyTamperDetection::
       carrier_id_);
 }
 
-// Checks whether there are other proxies/middleboxes' named after the data
-// reduction proxy's name in Via header. |has_chrome_proxy_via_header| marks
-// that whether the data reduction proxy's Via header occurs or not.
+// Checks whether there are other proxies/middleboxes' named after the Data
+// Reduction Proxy's name in Via header. |has_chrome_proxy_via_header| marks
+// that whether the Data Reduction Proxy's Via header occurs or not.
 bool DataReductionProxyTamperDetection::ValidateViaHeader(
     const std::string& fingerprint,
     bool* has_chrome_proxy_via_header) const {
@@ -176,9 +300,9 @@ bool DataReductionProxyTamperDetection::ValidateViaHeader(
   return true;
 }
 
-void DataReductionProxyTamperDetection::ReportUMAforViaHeaderValidation(
+void DataReductionProxyTamperDetection::ReportUMAForViaHeaderValidation(
     bool has_chrome_proxy) const {
-  // The Via header of the data reduction proxy is missing.
+  // The Via header of the Data Reduction Proxy is missing.
   if (!has_chrome_proxy) {
     REPORT_TAMPER_DETECTION_UMA(
         scheme_is_https_,
@@ -195,7 +319,7 @@ void DataReductionProxyTamperDetection::ReportUMAforViaHeaderValidation(
       carrier_id_);
 }
 
-// The data reduction proxy constructs a canonical representation of values of
+// The Data Reduction Proxy constructs a canonical representation of values of
 // a list of headers. The fingerprint is constructed as follows:
 // 1) for each header, gets the string representation of its values (same as
 //    ValuesToSortedString);
@@ -209,7 +333,7 @@ void DataReductionProxyTamperDetection::ReportUMAforViaHeaderValidation(
 // client receives, the client firstly extracts the header names. For
 // each header, gets its string representation (by ValuesToSortedString),
 // concatenates them and calculates the MD5 hash value. Compares the hash
-// value to the fingerprint received from the data reduction proxy.
+// value to the fingerprint received from the Data Reduction Proxy.
 bool DataReductionProxyTamperDetection::ValidateOtherHeaders(
     const std::string& fingerprint) const {
   DCHECK(!fingerprint.empty());
@@ -250,7 +374,7 @@ bool DataReductionProxyTamperDetection::ValidateOtherHeaders(
 }
 
 void DataReductionProxyTamperDetection::
-    ReportUMAforOtherHeadersValidation() const {
+    ReportUMAForOtherHeadersValidation() const {
   REPORT_TAMPER_DETECTION_UMA(
       scheme_is_https_,
       "DataReductionProxy.HeaderTamperedHTTPS_OtherHeaders",
@@ -258,35 +382,22 @@ void DataReductionProxyTamperDetection::
       carrier_id_);
 }
 
-// The Content-Length value will not be reported as different if at either side
-// (the data reduction proxy side and the client side), the Content-Length is
-// missing or it cannot be decoded as a valid integer.
-bool DataReductionProxyTamperDetection::ValidateContentLengthHeader(
-    const std::string& fingerprint) const {
-  int received_content_length_fingerprint, actual_content_length;
-  // Abort, if Content-Length value from the data reduction proxy does not
+bool DataReductionProxyTamperDetection::ValidateContentLength(
+    const std::string& fingerprint,
+    int64 content_length,
+    int64* original_content_length) const {
+  DCHECK(original_content_length);
+  // Abort, if Content-Length value from the Data Reduction Proxy does not
   // exist or it cannot be converted to an integer.
-  if (!base::StringToInt(fingerprint, &received_content_length_fingerprint))
+  if (!base::StringToInt64(fingerprint, original_content_length))
     return false;
 
-  std::string actual_content_length_string;
-  // Abort, if there is no Content-Length header received.
-  if (!response_headers_->GetNormalizedHeader("Content-Length",
-      &actual_content_length_string)) {
-    return false;
-  }
-
-  // Abort, if the Content-Length value cannot be converted to integer.
-  if (!base::StringToInt(actual_content_length_string,
-                         &actual_content_length)) {
-    return false;
-  }
-
-  return received_content_length_fingerprint != actual_content_length;
+  return *original_content_length != content_length;
 }
 
-void DataReductionProxyTamperDetection::
-    ReportUMAforContentLengthHeaderValidation() const {
+void DataReductionProxyTamperDetection::ReportUMAForContentLength(
+    int64 content_length,
+    int64 original_content_length) const {
   // Gets MIME type of the response and reports to UMA histograms separately.
   // Divides MIME types into 4 groups: JavaScript, CSS, Images, and others.
   REPORT_TAMPER_DETECTION_UMA(
@@ -299,40 +410,86 @@ void DataReductionProxyTamperDetection::
   std::string mime_type;
   response_headers_->GetMimeType(&mime_type);
 
-  std::string JS1   = "text/javascript";
-  std::string JS2   = "application/x-javascript";
-  std::string JS3   = "application/javascript";
-  std::string CSS   = "text/css";
-  std::string IMAGE = "image/";
+  // Gets the compression ratio as a percentage. The compression ratio is
+  // defined as the received content length of the Chromium client, over the
+  // sent content length of the Data Reduction Proxy.
+  int compression_ratio = 0;
+  if (original_content_length != 0) {
+    compression_ratio = content_length * 100 / original_content_length;
+  }
 
-  size_t mime_type_size = mime_type.size();
-  if ((mime_type_size >= JS1.size() && LowerCaseEqualsASCII(mime_type.begin(),
-      mime_type.begin() + JS1.size(), JS1.c_str())) ||
-      (mime_type_size >= JS2.size() && LowerCaseEqualsASCII(mime_type.begin(),
-      mime_type.begin() + JS2.size(), JS2.c_str())) ||
-      (mime_type_size >= JS3.size() && LowerCaseEqualsASCII(mime_type.begin(),
-      mime_type.begin() + JS3.size(), JS3.c_str()))) {
+  if (net::MatchesMimeType("text/javascript", mime_type) ||
+      net::MatchesMimeType("application/x-javascript", mime_type) ||
+      net::MatchesMimeType("application/javascript", mime_type)) {
     REPORT_TAMPER_DETECTION_UMA(
         scheme_is_https_,
         "DataReductionProxy.HeaderTamperedHTTPS_ContentLength_JS",
         "DataReductionProxy.HeaderTamperedHTTP_ContentLength_JS",
         carrier_id_);
-  } else if (mime_type_size >= CSS.size() &&
-      LowerCaseEqualsASCII(mime_type.begin(),
-      mime_type.begin() + CSS.size(), CSS.c_str())) {
+  } else if (net::MatchesMimeType("text/css", mime_type)) {
     REPORT_TAMPER_DETECTION_UMA(
         scheme_is_https_,
         "DataReductionProxy.HeaderTamperedHTTPS_ContentLength_CSS",
         "DataReductionProxy.HeaderTamperedHTTP_ContentLength_CSS",
         carrier_id_);
-  } else if (mime_type_size >= IMAGE.size() &&
-      LowerCaseEqualsASCII(mime_type.begin(),
-      mime_type.begin() + IMAGE.size(), IMAGE.c_str())) {
+  } else if (net::MatchesMimeType("image/*", mime_type)) {
     REPORT_TAMPER_DETECTION_UMA(
         scheme_is_https_,
         "DataReductionProxy.HeaderTamperedHTTPS_ContentLength_Image",
         "DataReductionProxy.HeaderTamperedHTTP_ContentLength_Image",
         carrier_id_);
+
+    if (net::MatchesMimeType("image/gif", mime_type)) {
+      REPORT_TAMPER_DETECTION_UMA_AND_COMPRESSION_RATIO(
+          scheme_is_https_,
+          "DataReductionProxy.HeaderTamperedHTTPS_ContentLength_Image_GIF",
+          "DataReductionProxy.HeaderTamperedHTTP_ContentLength_Image_GIF",
+          carrier_id_,
+          "_Image_GIF",
+          compression_ratio);
+    } else if (net::MatchesMimeType("image/jpeg", mime_type) ||
+        net::MatchesMimeType("image/jpg", mime_type)) {
+      REPORT_TAMPER_DETECTION_UMA_AND_COMPRESSION_RATIO(
+          scheme_is_https_,
+          "DataReductionProxy.HeaderTamperedHTTPS_ContentLength_Image_JPG",
+          "DataReductionProxy.HeaderTamperedHTTP_ContentLength_Image_JPG",
+          carrier_id_,
+          "_Image_JPG",
+          compression_ratio);
+    } else if (net::MatchesMimeType("image/png", mime_type)) {
+      REPORT_TAMPER_DETECTION_UMA_AND_COMPRESSION_RATIO(
+          scheme_is_https_,
+          "DataReductionProxy.HeaderTamperedHTTPS_ContentLength_Image_PNG",
+          "DataReductionProxy.HeaderTamperedHTTP_ContentLength_Image_PNG",
+          carrier_id_,
+          "_Image_PNG",
+          compression_ratio);
+    } else if (net::MatchesMimeType("image/webp", mime_type)) {
+      REPORT_TAMPER_DETECTION_UMA_AND_COMPRESSION_RATIO(
+          scheme_is_https_,
+          "DataReductionProxy.HeaderTamperedHTTPS_ContentLength_Image_WEBP",
+          "DataReductionProxy.HeaderTamperedHTTP_ContentLength_Image_WEBP",
+          carrier_id_,
+          "_Image_WEBP",
+          compression_ratio);
+    }
+
+    REPORT_TAMPER_DETECTION_UMA_COMPRESSION_RATIO(
+        scheme_is_https_, "_Image", compression_ratio);
+
+    if (original_content_length < 10*1024) { // 0-10KB
+      REPORT_TAMPER_DETECTION_UMA_COMPRESSION_RATIO(
+          scheme_is_https_, "_Image_0_10KB", compression_ratio);
+    } else if (original_content_length < 100*1024) { // 10-100KB
+      REPORT_TAMPER_DETECTION_UMA_COMPRESSION_RATIO(
+          scheme_is_https_, "_Image_10_100KB", compression_ratio);
+    } else if (original_content_length < 500*1024) { // 100-500KB
+      REPORT_TAMPER_DETECTION_UMA_COMPRESSION_RATIO(
+          scheme_is_https_, "_Image_100_500KB", compression_ratio);
+    } else { // >=500KB
+      REPORT_TAMPER_DETECTION_UMA_COMPRESSION_RATIO(
+          scheme_is_https_, "_Image_500KB", compression_ratio);
+    }
   } else {
     REPORT_TAMPER_DETECTION_UMA(
         scheme_is_https_,

@@ -68,30 +68,30 @@ class SpellCheckProvider
                                blink::WebTextCheckingCompletion* completion);
 
   // blink::WebSpellCheckClient implementation.
-  virtual void spellCheck(
+  void spellCheck(
       const blink::WebString& text,
       int& offset,
       int& length,
       blink::WebVector<blink::WebString>* optional_suggestions) override;
-  virtual void checkTextOfParagraph(
+  void checkTextOfParagraph(
       const blink::WebString& text,
       blink::WebTextCheckingTypeMask mask,
       blink::WebVector<blink::WebTextCheckingResult>* results) override;
 
-  virtual void requestCheckingOfText(
+  void requestCheckingOfText(
       const blink::WebString& text,
       const blink::WebVector<uint32>& markers,
       const blink::WebVector<unsigned>& marker_offsets,
       blink::WebTextCheckingCompletion* completion) override;
 
-  virtual blink::WebString autoCorrectWord(
+  blink::WebString autoCorrectWord(
       const blink::WebString& misspelled_word) override;
-  virtual void showSpellingUI(bool show) override;
-  virtual bool isShowingSpellingUI() override;
-  virtual void updateSpellingUIWithMisspelledWord(
+  void showSpellingUI(bool show) override;
+  bool isShowingSpellingUI() override;
+  void updateSpellingUIWithMisspelledWord(
       const blink::WebString& word) override;
 
-#if !defined(OS_MACOSX)
+#if !defined(USE_PLATFORM_SPELLCHECKER)
   void OnRespondSpellingService(
       int identifier,
       bool succeeded,
@@ -103,7 +103,7 @@ class SpellCheckProvider
   // needs to check this text.
   bool HasWordCharacters(const base::string16& text, int index) const;
 
-#if defined(OS_MACOSX)
+#if defined(USE_PLATFORM_SPELLCHECKER)
   void OnAdvanceToNextMisspelling();
   void OnRespondTextCheck(
       int identifier,

@@ -7,7 +7,7 @@
 #include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/profiles/profile.h"
@@ -170,16 +170,20 @@ class FactoryForMedia : public ChromeURLRequestContextFactory {
 ChromeURLRequestContextGetter::ChromeURLRequestContextGetter(
     ChromeURLRequestContextFactory* factory)
     : factory_(factory),
-      url_request_context_(NULL) {
+      url_request_context_(nullptr) {
   DCHECK(factory);
 }
 
-ChromeURLRequestContextGetter::~ChromeURLRequestContextGetter() {}
+ChromeURLRequestContextGetter::~ChromeURLRequestContextGetter() {
+  // NotifyContextShuttingDown() must have been called.
+  DCHECK(!factory_.get());
+  DCHECK(!url_request_context_);
+}
 
 // Lazily create a URLRequestContext using our factory.
 net::URLRequestContext*
 ChromeURLRequestContextGetter::GetURLRequestContext() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   if (factory_.get()) {
     DCHECK(!url_request_context_);
@@ -187,17 +191,15 @@ ChromeURLRequestContextGetter::GetURLRequestContext() {
     factory_.reset();
   }
 
-  // Context reference is valid, unless we're trying to use the
-  // URLRequestContextGetter after the Profile has already been deleted.
-  CHECK(url_request_context_);
-
   return url_request_context_;
 }
 
-void ChromeURLRequestContextGetter::Invalidate() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+void ChromeURLRequestContextGetter::NotifyContextShuttingDown() {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+
   factory_.reset();
-  url_request_context_ = NULL;
+  url_request_context_ = nullptr;
+  URLRequestContextGetter::NotifyContextShuttingDown();
 }
 
 scoped_refptr<base::SingleThreadTaskRunner>

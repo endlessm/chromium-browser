@@ -25,13 +25,12 @@
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/website_settings/permission_bubble_manager.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
-#include "components/infobars/core/confirm_infobar_delegate.h"
-#include "components/infobars/core/infobar.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/notification_types.h"
@@ -50,12 +49,6 @@
 namespace {
 
 const char kExpectedIconUrl[] = "/notifications/no_such_file.png";
-
-enum InfobarAction {
-  DISMISS = 0,
-  ALLOW,
-  DENY,
-};
 
 class NotificationChangeObserver {
 public:
@@ -112,6 +105,39 @@ class MessageCenterChangeObserver
   DISALLOW_COPY_AND_ASSIGN(MessageCenterChangeObserver);
 };
 
+// Used to observe the creation of permission prompt without responding.
+class PermissionRequestObserver : public PermissionBubbleManager::Observer {
+ public:
+  explicit PermissionRequestObserver(content::WebContents* web_contents)
+      : bubble_manager_(PermissionBubbleManager::FromWebContents(web_contents)),
+        request_shown_(false),
+        message_loop_runner_(new content::MessageLoopRunner) {
+    bubble_manager_->AddObserver(this);
+  }
+  ~PermissionRequestObserver() override {
+    // Safe to remove twice if it happens.
+    bubble_manager_->RemoveObserver(this);
+  }
+
+  void Wait() { message_loop_runner_->Run(); }
+
+  bool request_shown() { return request_shown_; }
+
+ private:
+  // PermissionBubbleManager::Observer
+  void OnBubbleAdded() override {
+    request_shown_ = true;
+    bubble_manager_->RemoveObserver(this);
+    message_loop_runner_->Quit();
+  }
+
+  PermissionBubbleManager* bubble_manager_;
+  bool request_shown_;
+  scoped_refptr<content::MessageLoopRunner> message_loop_runner_;
+
+  DISALLOW_COPY_AND_ASSIGN(PermissionRequestObserver);
+};
+
 }  // namespace
 
 class NotificationsTest : public InProcessBrowserTest {
@@ -130,7 +156,6 @@ class NotificationsTest : public InProcessBrowserTest {
   void AllowAllOrigins();
   void SetDefaultContentSetting(ContentSetting setting);
 
-  void VerifyInfoBar(const Browser* browser, int index);
   std::string CreateNotification(Browser* browser,
                                  bool wait_for_new_balloon,
                                  const char* icon,
@@ -139,24 +164,34 @@ class NotificationsTest : public InProcessBrowserTest {
                                  const char* replace_id);
   std::string CreateSimpleNotification(Browser* browser,
                                        bool wait_for_new_balloon);
+  bool RequestAndAcceptPermission(Browser* browser);
+  bool RequestAndDenyPermission(Browser* browser);
+  bool RequestAndDismissPermission(Browser* browser);
   bool RequestPermissionAndWait(Browser* browser);
   bool CancelNotification(const char* notification_id, Browser* browser);
-  bool PerformActionOnInfoBar(Browser* browser,
-                              InfobarAction action,
-                              size_t infobar_index,
-                              int tab_index);
   void GetPrefsByContentSetting(ContentSetting setting,
                                 ContentSettingsForOneType* settings);
   bool CheckOriginInSetting(const ContentSettingsForOneType& settings,
                             const GURL& origin);
 
-  GURL GetTestPageURL() const {
+  GURL GetTestPageURLForFile(const std::string& file) const {
     return embedded_test_server()->GetURL(
-      "/notifications/notification_tester.html");
+      std::string("/notifications/") + file);
+  }
+
+  GURL GetTestPageURL() const {
+    return GetTestPageURLForFile("notification_tester.html");
+  }
+
+  content::WebContents* GetActiveWebContents(Browser* browser) {
+    return browser->tab_strip_model()->GetActiveWebContents();
   }
 
  private:
   void DropOriginPreference(const GURL& origin);
+  std::string RequestAndRespondToPermission(
+      Browser* browser,
+      PermissionBubbleManager::AutoResponseType bubble_response);
 };
 
 int NotificationsTest::GetNotificationCount() {
@@ -201,19 +236,6 @@ void NotificationsTest::SetDefaultContentSetting(ContentSetting setting) {
       CONTENT_SETTINGS_TYPE_NOTIFICATIONS, setting);
 }
 
-void NotificationsTest::VerifyInfoBar(const Browser* browser, int index) {
-  InfoBarService* infobar_service = InfoBarService::FromWebContents(
-      browser->tab_strip_model()->GetWebContentsAt(index));
-
-  ASSERT_EQ(1U, infobar_service->infobar_count());
-  ConfirmInfoBarDelegate* confirm_infobar =
-      infobar_service->infobar_at(0)->delegate()->AsConfirmInfoBarDelegate();
-  ASSERT_TRUE(confirm_infobar);
-  int buttons = confirm_infobar->GetButtons();
-  EXPECT_TRUE(buttons & ConfirmInfoBarDelegate::BUTTON_OK);
-  EXPECT_TRUE(buttons & ConfirmInfoBarDelegate::BUTTON_CANCEL);
-}
-
 std::string NotificationsTest::CreateNotification(
     Browser* browser,
     bool wait_for_new_balloon,
@@ -228,9 +250,7 @@ std::string NotificationsTest::CreateNotification(
   MessageCenterChangeObserver observer;
   std::string result;
   bool success = content::ExecuteScriptAndExtractString(
-      browser->tab_strip_model()->GetActiveWebContents(),
-      script,
-      &result);
+      GetActiveWebContents(browser), script, &result);
   if (success && result != "-1" && wait_for_new_balloon)
     success = observer.Wait();
   EXPECT_TRUE(success);
@@ -246,21 +266,46 @@ std::string NotificationsTest::CreateSimpleNotification(
       "no_such_file.png", "My Title", "My Body", "");
 }
 
-bool NotificationsTest::RequestPermissionAndWait(Browser* browser) {
-  InfoBarService* infobar_service = InfoBarService::FromWebContents(
-      browser->tab_strip_model()->GetActiveWebContents());
-  content::WindowedNotificationObserver observer(
-      chrome::NOTIFICATION_TAB_CONTENTS_INFOBAR_ADDED,
-      content::Source<InfoBarService>(infobar_service));
+std::string NotificationsTest::RequestAndRespondToPermission(
+    Browser* browser,
+    PermissionBubbleManager::AutoResponseType bubble_response) {
   std::string result;
-  bool success = content::ExecuteScriptAndExtractString(
-      browser->tab_strip_model()->GetActiveWebContents(),
-      "requestPermission();",
-      &result);
-  if (!success || result != "1")
-    return false;
+  content::WebContents* web_contents = GetActiveWebContents(browser);
+  PermissionBubbleManager::FromWebContents(web_contents)
+      ->set_auto_response_for_test(bubble_response);
+  EXPECT_TRUE(content::ExecuteScriptAndExtractString(
+      web_contents, "requestPermission();", &result));
+  return result;
+}
+
+bool NotificationsTest::RequestAndAcceptPermission(Browser* browser) {
+  std::string result = RequestAndRespondToPermission(
+      browser, PermissionBubbleManager::ACCEPT_ALL);
+  return "request-callback-granted" == result;
+}
+
+bool NotificationsTest::RequestAndDenyPermission(Browser* browser) {
+  std::string result =
+      RequestAndRespondToPermission(browser, PermissionBubbleManager::DENY_ALL);
+  return "request-callback-denied" == result;
+}
+
+bool NotificationsTest::RequestAndDismissPermission(Browser* browser) {
+  std::string result =
+      RequestAndRespondToPermission(browser, PermissionBubbleManager::DISMISS);
+  return "request-callback-default" == result;
+}
+
+bool NotificationsTest::RequestPermissionAndWait(Browser* browser) {
+  content::WebContents* web_contents = GetActiveWebContents(browser);
+  ui_test_utils::NavigateToURL(browser, GetTestPageURL());
+  PermissionRequestObserver observer(web_contents);
+  std::string result;
+  EXPECT_TRUE(content::ExecuteScriptAndExtractString(
+      web_contents, "requestPermissionAndRespond();", &result));
+  EXPECT_EQ("requested", result);
   observer.Wait();
-  return true;
+  return observer.request_shown();
 }
 
 bool NotificationsTest::CancelNotification(
@@ -273,58 +318,10 @@ bool NotificationsTest::CancelNotification(
   MessageCenterChangeObserver observer;
   std::string result;
   bool success = content::ExecuteScriptAndExtractString(
-      browser->tab_strip_model()->GetActiveWebContents(),
-      script,
-      &result);
+      GetActiveWebContents(browser), script, &result);
   if (!success || result != "1")
     return false;
   return observer.Wait();
-}
-
-bool NotificationsTest::PerformActionOnInfoBar(
-    Browser* browser,
-    InfobarAction action,
-    size_t infobar_index,
-    int tab_index) {
-  InfoBarService* infobar_service = InfoBarService::FromWebContents(
-      browser->tab_strip_model()->GetWebContentsAt(tab_index));
-  if (infobar_index >= infobar_service->infobar_count()) {
-    ADD_FAILURE();
-    return false;
-  }
-
-  infobars::InfoBar* infobar = infobar_service->infobar_at(infobar_index);
-  infobars::InfoBarDelegate* infobar_delegate = infobar->delegate();
-  switch (action) {
-    case DISMISS:
-      infobar_delegate->InfoBarDismissed();
-      infobar_service->RemoveInfoBar(infobar);
-      return true;
-
-    case ALLOW: {
-      ConfirmInfoBarDelegate* confirm_infobar_delegate =
-          infobar_delegate->AsConfirmInfoBarDelegate();
-      if (!confirm_infobar_delegate) {
-        ADD_FAILURE();
-      } else if (confirm_infobar_delegate->Accept()) {
-        infobar_service->RemoveInfoBar(infobar);
-        return true;
-      }
-    }
-
-    case DENY: {
-      ConfirmInfoBarDelegate* confirm_infobar_delegate =
-          infobar_delegate->AsConfirmInfoBarDelegate();
-      if (!confirm_infobar_delegate) {
-        ADD_FAILURE();
-      } else if (confirm_infobar_delegate->Cancel()) {
-        infobar_service->RemoveInfoBar(infobar);
-        return true;
-      }
-    }
-  }
-
-  return false;
 }
 
 void NotificationsTest::GetPrefsByContentSetting(
@@ -359,8 +356,8 @@ void NotificationsTest::DropOriginPreference(const GURL& origin) {
       ContentSettingsPattern::FromURLNoWildcard(origin));
 }
 
-// If this flakes, use http://crbug.com/62311 and http://crbug.com/74428.
-IN_PROC_BROWSER_TEST_F(NotificationsTest, TestUserGestureInfobar) {
+// Flaky on Windows, Mac, Linux: http://crbug.com/437414.
+IN_PROC_BROWSER_TEST_F(NotificationsTest, DISABLED_TestUserGestureInfobar) {
   ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
 
   ui_test_utils::NavigateToURL(
@@ -372,9 +369,8 @@ IN_PROC_BROWSER_TEST_F(NotificationsTest, TestUserGestureInfobar) {
   // That's considered a user gesture to webkit, and should produce an infobar.
   bool result;
   ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      browser()->tab_strip_model()->GetActiveWebContents(),
-      "window.domAutomationController.send(request());",
-      &result));
+      GetActiveWebContents(browser()),
+      "window.domAutomationController.send(request());", &result));
   EXPECT_TRUE(result);
 
   InfoBarService* infobar_service = InfoBarService::FromWebContents(
@@ -437,41 +433,36 @@ IN_PROC_BROWSER_TEST_F(NotificationsTest, TestCancelNotification) {
   ASSERT_EQ(0, GetNotificationCount());
 }
 
-IN_PROC_BROWSER_TEST_F(NotificationsTest, TestPermissionInfobarAppears) {
+// Requests notification privileges and verifies the prompt appears.
+IN_PROC_BROWSER_TEST_F(NotificationsTest, TestPermissionRequestUIAppears) {
   ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
 
-  // Requests notification privileges and verifies the infobar appears.
   ui_test_utils::NavigateToURL(browser(), GetTestPageURL());
-  ASSERT_TRUE(RequestPermissionAndWait(browser()));
-
+  EXPECT_TRUE(RequestPermissionAndWait(browser()));
   ASSERT_EQ(0, GetNotificationCount());
-  ASSERT_NO_FATAL_FAILURE(VerifyInfoBar(browser(), 0));
 }
 
-IN_PROC_BROWSER_TEST_F(NotificationsTest, TestAllowOnPermissionInfobar) {
+IN_PROC_BROWSER_TEST_F(NotificationsTest, TestAllowOnPermissionRequestUI) {
   ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
 
-  // Tries to create a notification and clicks allow on the infobar.
+  // Tries to create a notification & clicks 'allow' on the prompt.
   ui_test_utils::NavigateToURL(browser(), GetTestPageURL());
   // This notification should not be shown because we do not have permission.
   CreateSimpleNotification(browser(), false);
   ASSERT_EQ(0, GetNotificationCount());
 
-  ASSERT_TRUE(RequestPermissionAndWait(browser()));
-  ASSERT_TRUE(PerformActionOnInfoBar(browser(), ALLOW, 0, 0));
+  ASSERT_TRUE(RequestAndAcceptPermission(browser()));
 
   CreateSimpleNotification(browser(), true);
   EXPECT_EQ(1, GetNotificationCount());
 }
 
-IN_PROC_BROWSER_TEST_F(NotificationsTest, TestDenyOnPermissionInfobar) {
+IN_PROC_BROWSER_TEST_F(NotificationsTest, TestDenyOnPermissionRequestUI) {
   ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
 
-  // Test that no notification is created
-  // when Deny is chosen from permission infobar.
+  // Test that no notification is created when Deny is chosen from prompt.
   ui_test_utils::NavigateToURL(browser(), GetTestPageURL());
-  ASSERT_TRUE(RequestPermissionAndWait(browser()));
-  PerformActionOnInfoBar(browser(), DENY, 0, 0);
+  ASSERT_TRUE(RequestAndDenyPermission(browser()));
   CreateSimpleNotification(browser(), false);
   ASSERT_EQ(0, GetNotificationCount());
   ContentSettingsForOneType settings;
@@ -479,13 +470,12 @@ IN_PROC_BROWSER_TEST_F(NotificationsTest, TestDenyOnPermissionInfobar) {
   EXPECT_TRUE(CheckOriginInSetting(settings, GetTestPageURL()));
 }
 
-IN_PROC_BROWSER_TEST_F(NotificationsTest, TestClosePermissionInfobar) {
+IN_PROC_BROWSER_TEST_F(NotificationsTest, TestClosePermissionRequestUI) {
   ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
 
-  // Test that no notification is created when permission infobar is dismissed.
+  // Test that no notification is created when prompt is dismissed.
   ui_test_utils::NavigateToURL(browser(), GetTestPageURL());
-  ASSERT_TRUE(RequestPermissionAndWait(browser()));
-  PerformActionOnInfoBar(browser(), DISMISS, 0, 0);
+  ASSERT_TRUE(RequestAndDismissPermission(browser()));
   CreateSimpleNotification(browser(), false);
   ASSERT_EQ(0, GetNotificationCount());
   ContentSettingsForOneType settings;
@@ -504,9 +494,6 @@ IN_PROC_BROWSER_TEST_F(NotificationsTest, TestAllowNotificationsFromAllSites) {
   EXPECT_NE("-1", result);
 
   ASSERT_EQ(1, GetNotificationCount());
-  InfoBarService* infobar_service = InfoBarService::FromWebContents(
-      browser()->tab_strip_model()->GetWebContentsAt(0));
-  EXPECT_EQ(0U, infobar_service->infobar_count());
 }
 
 IN_PROC_BROWSER_TEST_F(NotificationsTest, TestDenyNotificationsFromAllSites) {
@@ -572,9 +559,6 @@ IN_PROC_BROWSER_TEST_F(NotificationsTest, TestDenyAndThenAllowDomain) {
   EXPECT_NE("-1", result);
 
   ASSERT_EQ(1, GetNotificationCount());
-  InfoBarService* infobar_service = InfoBarService::FromWebContents(
-      browser()->tab_strip_model()->GetWebContentsAt(0));
-  EXPECT_EQ(0U, infobar_service->infobar_count());
 }
 
 IN_PROC_BROWSER_TEST_F(NotificationsTest, TestCreateDenyCloseNotifications) {
@@ -609,14 +593,12 @@ IN_PROC_BROWSER_TEST_F(
   // Verify that allow/deny origin preferences are not saved in incognito.
   Browser* incognito = CreateIncognitoBrowser();
   ui_test_utils::NavigateToURL(incognito, GetTestPageURL());
-  ASSERT_TRUE(RequestPermissionAndWait(incognito));
-  PerformActionOnInfoBar(incognito, DENY, 0, 0);
+  ASSERT_TRUE(RequestAndDenyPermission(incognito));
   CloseBrowserWindow(incognito);
 
   incognito = CreateIncognitoBrowser();
   ui_test_utils::NavigateToURL(incognito, GetTestPageURL());
-  ASSERT_TRUE(RequestPermissionAndWait(incognito));
-  PerformActionOnInfoBar(incognito, ALLOW, 0, 0);
+  ASSERT_TRUE(RequestAndAcceptPermission(incognito));
   CreateSimpleNotification(incognito, true);
   ASSERT_EQ(1, GetNotificationCount());
   CloseBrowserWindow(incognito);
@@ -632,38 +614,6 @@ IN_PROC_BROWSER_TEST_F(
   EXPECT_EQ(0U, settings.size());
 }
 
-IN_PROC_BROWSER_TEST_F(NotificationsTest, TestExitBrowserWithInfobar) {
-  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
-
-  // Exit the browser window, when the infobar appears.
-  ui_test_utils::NavigateToURL(browser(), GetTestPageURL());
-  ASSERT_TRUE(RequestPermissionAndWait(browser()));
-}
-
-// Times out on Windows and Linux. http://crbug.com/168976
-#if defined(OS_WIN) || defined(OS_LINUX)
-#define MAYBE_TestCrashTabWithPermissionInfobar \
-    DISABLED_TestCrashTabWithPermissionInfobar
-#else
-#define MAYBE_TestCrashTabWithPermissionInfobar \
-    TestCrashTabWithPermissionInfobar
-#endif
-IN_PROC_BROWSER_TEST_F(NotificationsTest,
-                       MAYBE_TestCrashTabWithPermissionInfobar) {
-  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
-
-  // Test crashing the tab with permission infobar doesn't crash Chrome.
-  ui_test_utils::NavigateToURLWithDisposition(
-      browser(),
-      embedded_test_server()->GetURL("/empty.html"),
-      NEW_BACKGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_TAB);
-  browser()->tab_strip_model()->ActivateTabAt(0, true);
-  ui_test_utils::NavigateToURL(browser(), GetTestPageURL());
-  ASSERT_TRUE(RequestPermissionAndWait(browser()));
-  CrashTab(browser(), 0);
-}
-
 IN_PROC_BROWSER_TEST_F(NotificationsTest, TestIncognitoNotification) {
   ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
 
@@ -671,51 +621,22 @@ IN_PROC_BROWSER_TEST_F(NotificationsTest, TestIncognitoNotification) {
   Browser* browser = CreateIncognitoBrowser();
   ui_test_utils::NavigateToURL(browser, GetTestPageURL());
   browser->tab_strip_model()->ActivateTabAt(0, true);
-  ASSERT_TRUE(RequestPermissionAndWait(browser));
-  PerformActionOnInfoBar(browser, ALLOW, 0, 0);
+  ASSERT_TRUE(RequestAndAcceptPermission(browser));
   CreateSimpleNotification(browser, true);
   ASSERT_EQ(1, GetNotificationCount());
 }
 
-IN_PROC_BROWSER_TEST_F(NotificationsTest, TestCloseTabWithPermissionInfobar) {
+IN_PROC_BROWSER_TEST_F(NotificationsTest, TestCloseTabWithPermissionRequestUI) {
   ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
 
-  // Test that user can close tab when infobar present.
-  ui_test_utils::NavigateToURLWithDisposition(
-      browser(),
-      GURL("about:blank"),
-      NEW_BACKGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_TAB);
-  browser()->tab_strip_model()->ActivateTabAt(0, true);
+  // Test that user can close tab when bubble present.
   ui_test_utils::NavigateToURL(browser(), GetTestPageURL());
-  ASSERT_TRUE(RequestPermissionAndWait(browser()));
+  EXPECT_TRUE(RequestPermissionAndWait(browser()));
   content::WebContentsDestroyedWatcher destroyed_watcher(
       browser()->tab_strip_model()->GetWebContentsAt(0));
   browser()->tab_strip_model()->CloseWebContentsAt(0,
                                                    TabStripModel::CLOSE_NONE);
   destroyed_watcher.Wait();
-}
-
-IN_PROC_BROWSER_TEST_F(
-    NotificationsTest,
-    TestNavigateAwayWithPermissionInfobar) {
-  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
-
-  // Test navigating away when an infobar is present,
-  // then trying to create a notification from the same page.
-  ui_test_utils::NavigateToURLWithDisposition(
-      browser(),
-      GURL("about:blank"),
-      NEW_BACKGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_TAB);
-  browser()->tab_strip_model()->ActivateTabAt(0, true);
-  ui_test_utils::NavigateToURL(browser(), GetTestPageURL());
-  ASSERT_TRUE(RequestPermissionAndWait(browser()));
-  ui_test_utils::NavigateToURL(browser(), GetTestPageURL());
-  ASSERT_TRUE(RequestPermissionAndWait(browser()));
-  PerformActionOnInfoBar(browser(), ALLOW, 0, 0);
-  CreateSimpleNotification(browser(), true);
-  ASSERT_EQ(1, GetNotificationCount());
 }
 
 // See crbug.com/248470
@@ -836,4 +757,84 @@ IN_PROC_BROWSER_TEST_F(NotificationsTest,
   EXPECT_NE("-1", result);
 
   ASSERT_EQ(1, GetNotificationPopupCount());
+}
+
+IN_PROC_BROWSER_TEST_F(NotificationsTest, TestNotificationValidIcon) {
+  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  AllowAllOrigins();
+
+  ui_test_utils::NavigateToURL(browser(), GetTestPageURL());
+  ASSERT_EQ(0, GetNotificationPopupCount());
+
+  std::string result = CreateNotification(
+      browser(), true, "icon.png", "Title1", "Body1", "chat");
+  EXPECT_NE("-1", result);
+
+  message_center::NotificationList::PopupNotifications notifications =
+      message_center::MessageCenter::Get()->GetPopupNotifications();
+  ASSERT_EQ(1u, notifications.size());
+
+  auto* notification = *notifications.rbegin();
+
+  EXPECT_EQ(100, notification->icon().Width());
+  EXPECT_EQ(100, notification->icon().Height());
+}
+
+IN_PROC_BROWSER_TEST_F(NotificationsTest, TestNotificationInvalidIcon) {
+  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  AllowAllOrigins();
+
+  ui_test_utils::NavigateToURL(browser(), GetTestPageURL());
+  ASSERT_EQ(0, GetNotificationPopupCount());
+
+  // Not supplying an icon URL.
+  std::string result = CreateNotification(
+      browser(), true, "", "Title1", "Body1", "chat");
+  EXPECT_NE("-1", result);
+
+  message_center::NotificationList::PopupNotifications notifications =
+      message_center::MessageCenter::Get()->GetPopupNotifications();
+  ASSERT_EQ(1u, notifications.size());
+
+  auto* notification = *notifications.rbegin();
+  EXPECT_TRUE(notification->icon().IsEmpty());
+
+  // Supplying an invalid icon URL.
+  result = CreateNotification(
+      browser(), true, "invalid.png", "Title1", "Body1", "chat");
+  EXPECT_NE("-1", result);
+
+  notifications = message_center::MessageCenter::Get()->GetPopupNotifications();
+  ASSERT_EQ(1u, notifications.size());
+
+  notification = *notifications.rbegin();
+  EXPECT_TRUE(notification->icon().IsEmpty());
+}
+
+IN_PROC_BROWSER_TEST_F(NotificationsTest, TestNotificationDoubleClose) {
+  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  AllowAllOrigins();
+
+  ui_test_utils::NavigateToURL(
+      browser(), GetTestPageURLForFile("notification-double-close.html"));
+  ASSERT_EQ(0, GetNotificationPopupCount());
+
+  std::string result = CreateNotification(
+      browser(), true, "", "Title1", "Body1", "chat");
+  EXPECT_NE("-1", result);
+
+  ASSERT_EQ(1, GetNotificationCount());
+  message_center::NotificationList::Notifications notifications =
+      message_center::MessageCenter::Get()->GetVisibleNotifications();
+  message_center::MessageCenter::Get()->RemoveNotification(
+      (*notifications.rbegin())->id(),
+      true);  // by_user
+
+  ASSERT_EQ(0, GetNotificationCount());
+
+  // Calling WebContents::IsCrashed() will return FALSE here, even if the WC did
+  // crash. Work around this timing issue by creating another notification,
+  // which requires interaction with the renderer process.
+  result = CreateNotification(browser(), true, "", "Title1", "Body1", "chat");
+  EXPECT_NE("-1", result);
 }

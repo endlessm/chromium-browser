@@ -23,6 +23,7 @@
 #include "content/renderer/message_delivery_policy.h"
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_sender.h"
+#include "third_party/WebKit/public/platform/WebDisplayMode.h"
 #include "third_party/WebKit/public/platform/WebRect.h"
 #include "third_party/WebKit/public/web/WebCompositionUnderline.h"
 #include "third_party/WebKit/public/web/WebInputEvent.h"
@@ -36,11 +37,11 @@
 #include "ui/base/ime/text_input_mode.h"
 #include "ui/base/ime/text_input_type.h"
 #include "ui/base/ui_base_types.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/vector2d.h"
+#include "ui/gfx/geometry/vector2d_f.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/range/range.h"
-#include "ui/gfx/rect.h"
-#include "ui/gfx/vector2d.h"
-#include "ui/gfx/vector2d_f.h"
 #include "ui/surface/transport_dib.h"
 
 struct ViewHostMsg_UpdateRect_Params;
@@ -54,13 +55,19 @@ class SyncMessageFilter;
 
 namespace blink {
 struct WebDeviceEmulationParams;
+class WebFrameWidget;
 class WebGestureEvent;
 class WebKeyboardEvent;
+class WebLocalFrame;
 class WebMouseEvent;
+class WebNode;
+struct WebPoint;
 class WebTouchEvent;
+class WebView;
 }
 
 namespace cc {
+struct InputHandlerScrollResult;
 class OutputSurface;
 class SwapPromise;
 }
@@ -70,6 +77,7 @@ class Range;
 }
 
 namespace content {
+class CompositorDependencies;
 class ExternalPopupMenu;
 class FrameSwapMessageQueue;
 class PepperPluginInstanceImpl;
@@ -79,6 +87,7 @@ class RenderWidgetCompositor;
 class RenderWidgetTest;
 class ResizingModeSelector;
 struct ContextMenuParams;
+struct DidOverscrollParams;
 struct WebPluginGeometry;
 
 // RenderWidget provides a communication bridge between a WebWidget and
@@ -92,23 +101,38 @@ class CONTENT_EXPORT RenderWidget
   // Creates a new RenderWidget.  The opener_id is the routing ID of the
   // RenderView that this widget lives inside.
   static RenderWidget* Create(int32 opener_id,
+                              CompositorDependencies* compositor_deps,
                               blink::WebPopupType popup_type,
                               const blink::WebScreenInfo& screen_info);
+
+  // Creates a new RenderWidget that will be attached to a RenderFrame.
+  static RenderWidget* CreateForFrame(int routing_id,
+                                      int surface_id,
+                                      bool hidden,
+                                      const blink::WebScreenInfo& screen_info,
+                                      CompositorDependencies* compositor_deps,
+                                      blink::WebLocalFrame* frame);
+
+  static blink::WebWidget* CreateWebFrameWidget(RenderWidget* render_widget,
+                                                blink::WebLocalFrame* frame);
 
   // Creates a WebWidget based on the popup type.
   static blink::WebWidget* CreateWebWidget(RenderWidget* render_widget);
 
   int32 routing_id() const { return routing_id_; }
   int32 surface_id() const { return surface_id_; }
+  CompositorDependencies* compositor_deps() const { return compositor_deps_; }
   blink::WebWidget* webwidget() const { return webwidget_; }
   gfx::Size size() const { return size_; }
   bool has_focus() const { return has_focus_; }
-  bool is_fullscreen() const { return is_fullscreen_; }
+  bool is_fullscreen_granted() const { return is_fullscreen_granted_; }
+  blink::WebDisplayMode display_mode() const { return display_mode_; }
   bool is_hidden() const { return is_hidden_; }
   bool handling_input_event() const { return handling_input_event_; }
   // Temporary for debugging purposes...
   bool closing() const { return closing_; }
   bool is_swapped_out() { return is_swapped_out_; }
+  bool for_oopif() { return for_oopif_; }
   ui::MenuSourceType context_menu_source_type() {
     return context_menu_source_type_;
   }
@@ -118,6 +142,9 @@ class CONTENT_EXPORT RenderWidget
   gfx::Point host_context_menu_location() {
     return host_context_menu_location_;
   }
+
+  // ScreenInfo exposed so it can be passed to subframe RenderWidgets.
+  blink::WebScreenInfo screen_info() const { return screen_info_; }
 
   // Functions to track out-of-process frames for special notifications.
   void RegisterRenderFrameProxy(RenderFrameProxy* proxy);
@@ -140,20 +167,14 @@ class CONTENT_EXPORT RenderWidget
   bool Send(IPC::Message* msg) override;
 
   // blink::WebWidgetClient
-  virtual void willBeginCompositorFrame();
   virtual void didAutoResize(const blink::WebSize& new_size);
   virtual void initializeLayerTreeView();
   virtual blink::WebLayerTreeView* layerTreeView();
-  virtual void didBecomeReadyForAdditionalInput();
-  virtual void didCommitAndDrawCompositorFrame();
-  virtual void didCompleteSwapBuffers();
-  virtual void scheduleComposite();
   virtual void didFocus();
   virtual void didBlur();
   virtual void didChangeCursor(const blink::WebCursorInfo&);
   virtual void closeWidgetSoon();
   virtual void show(blink::WebNavigationPolicy);
-  virtual void runModal() {}
   virtual blink::WebRect windowRect();
   virtual void setToolTipText(const blink::WebString& text,
                               blink::WebTextDirection hint);
@@ -165,7 +186,23 @@ class CONTENT_EXPORT RenderWidget
   virtual void resetInputMethod();
   virtual void didHandleGestureEvent(const blink::WebGestureEvent& event,
                                      bool event_cancelled);
+  virtual void didOverscroll(
+      const blink::WebFloatSize& unusedDelta,
+      const blink::WebFloatSize& accumulatedRootOverScroll,
+      const blink::WebFloatPoint& position,
+      const blink::WebFloatSize& velocity);
   virtual void showImeIfNeeded();
+
+#if defined(OS_ANDROID)
+  // Notifies that a tap was not consumed, so showing a UI for the unhandled
+  // tap may be needed.
+  // Performs various checks on the given WebNode to apply heuristics to
+  // determine if triggering is appropriate.
+  virtual void showUnhandledTapUIIfNeeded(
+      const blink::WebPoint& tapped_position,
+      const blink::WebNode& tapped_node,
+      bool page_changed) override;
+#endif
 
   // Begins the compositor's scheduler to start producing frames.
   void StartCompositor();
@@ -201,9 +238,6 @@ class CONTENT_EXPORT RenderWidget
   // Close the underlying WebWidget.
   virtual void Close();
 
-  // Notifies about a compositor frame commit operation having finished.
-  virtual void DidCommitCompositorFrame();
-
   // Deliveres |message| together with compositor state change updates. The
   // exact behavior depends on |policy|.
   // This mechanism is not a drop-in replacement for IPC: messages sent this way
@@ -223,10 +257,8 @@ class CONTENT_EXPORT RenderWidget
   // Returns whether we currently should handle an IME event.
   bool ShouldHandleImeEvent();
 
-  virtual void InstrumentWillBeginFrame(int frame_id) {}
-  virtual void InstrumentDidBeginFrame() {}
-  virtual void InstrumentDidCancelFrame() {}
-  virtual void InstrumentWillComposite() {}
+  // Called by the compositor when page scale animation completed.
+  virtual void DidCompletePageScaleAnimation() {}
 
   // When paused in debugger, we send ack for mouse event early. This ensures
   // that we continue receiving mouse moves and pass them to debugger. Returns
@@ -243,14 +275,25 @@ class CONTENT_EXPORT RenderWidget
   // widget if required to fit into the browser window.
   class ScreenMetricsEmulator;
 
-  // Emulates screen and widget metrics. Supplied values override everything
-  // coming from host.
-  void EnableScreenMetricsEmulation(
-      const blink::WebDeviceEmulationParams& params);
-  void DisableScreenMetricsEmulation();
   void SetPopupOriginAdjustmentsForEmulation(ScreenMetricsEmulator* emulator);
   gfx::Rect AdjustValidationMessageAnchor(const gfx::Rect& anchor);
 
+  // Indicates that the compositor is about to begin a frame. This is primarily
+  // to signal to flow control mechanisms that a frame is beginning, not to
+  // perform actual painting work.
+  void WillBeginCompositorFrame();
+
+  // Notifies about a compositor frame commit operation having finished.
+  virtual void DidCommitCompositorFrame();
+
+  // Notifies that the draw commands for a committed frame have been issued.
+  void DidCommitAndDrawCompositorFrame();
+
+  // Notifies that the compositor has posted a swapbuffers operation to the GPU
+  // process.
+  void DidCompleteSwapBuffers();
+
+  void ScheduleComposite();
   void ScheduleCompositeWithForcedRedraw();
 
   // Called by the compositor in single-threaded mode when a swap is posted,
@@ -291,16 +334,19 @@ class CONTENT_EXPORT RenderWidget
   void UpdateTextInputState(ShowIme show_ime, ChangeSource change_source);
 #endif
 
-#if defined(OS_MACOSX) || defined(USE_AURA) || defined(OS_ANDROID)
+  // Called when animations due to focus change have completed (if any). Can be
+  // called from the renderer, browser, or compositor.
+  virtual void FocusChangeComplete() {}
+
   // Checks if the composition range or composition character bounds have been
   // changed. If they are changed, the new value will be sent to the browser
   // process. This method does nothing when the browser process is not able to
   // handle composition range and composition character bounds.
   void UpdateCompositionInfo(bool should_update_range);
-#endif
 
 #if defined(OS_ANDROID)
   void DidChangeBodyBackgroundColor(SkColor bg_color);
+  bool DoesRecordFullLayer() const;
 #endif
 
   bool host_closing() const { return host_closing_; }
@@ -327,10 +373,11 @@ class CONTENT_EXPORT RenderWidget
 
   // Initializes this view with the given opener.  CompleteInit must be called
   // later.
-  bool Init(int32 opener_id);
+  bool Init(int32 opener_id, CompositorDependencies* compositor_deps);
 
   // Called by Init and subclasses to perform initialization.
   bool DoInit(int32 opener_id,
+              CompositorDependencies* compositor_deps,
               blink::WebWidget* web_widget,
               IPC::SyncMessage* create_widget_message);
 
@@ -350,23 +397,23 @@ class CONTENT_EXPORT RenderWidget
   void FlushPendingInputEventAck();
   void DoDeferredClose();
   void DoDeferredSetWindowRect(const blink::WebRect& pos);
+  void NotifyOnClose();
 
   // Resizes the render widget.
   void Resize(const gfx::Size& new_size,
               const gfx::Size& physical_backing_size,
-              float top_controls_layout_height,
+              bool top_controls_shrink_blink_size,
+              float top_controls_height,
               const gfx::Size& visible_viewport_size,
               const gfx::Rect& resizer_rect,
-              bool is_fullscreen,
+              bool is_fullscreen_granted,
+              blink::WebDisplayMode display_mode,
               ResizeAck resize_ack);
   // Used to force the size of a window when running layout tests.
-  void ResizeSynchronously(
-      const gfx::Rect& new_position,
-      const gfx::Size& visible_viewport_size);
+  void SetWindowRectSynchronously(const gfx::Rect& new_window_rect);
   virtual void SetScreenMetricsEmulationParameters(
-      float device_scale_factor,
-      const gfx::Point& root_layer_offset,
-      float root_layer_scale);
+      bool enabled,
+      const blink::WebDeviceEmulationParams& params);
 #if defined(OS_MACOSX) || defined(OS_ANDROID)
   void SetExternalPopupOriginAdjustmentsForEmulation(
       ExternalPopupMenu* popup, ScreenMetricsEmulator* emulator);
@@ -379,9 +426,11 @@ class CONTENT_EXPORT RenderWidget
   void OnCursorVisibilityChange(bool is_visible);
   void OnMouseCaptureLost();
   virtual void OnSetFocus(bool enable);
-  virtual void OnClose();
+  void OnClose();
   void OnCreatingNewAck();
   virtual void OnResize(const ViewMsg_Resize_Params& params);
+  void OnEnableDeviceEmulation(const blink::WebDeviceEmulationParams& params);
+  void OnDisableDeviceEmulation();
   void OnColorProfile(const std::vector<char>& color_profile);
   void OnChangeResizeRect(const gfx::Rect& resizer_rect);
   virtual void OnWasHidden();
@@ -391,9 +440,6 @@ class CONTENT_EXPORT RenderWidget
   void OnUpdateVideoAck(int32 video_id);
   void OnRequestMoveAck();
   void OnSetInputMethodActive(bool is_active);
-  void OnCandidateWindowShown();
-  void OnCandidateWindowUpdated();
-  void OnCandidateWindowHidden();
   virtual void OnImeSetComposition(
       const base::string16& text,
       const std::vector<blink::WebCompositionUnderline>& underlines,
@@ -409,6 +455,7 @@ class CONTENT_EXPORT RenderWidget
   void OnUpdateScreenRects(const gfx::Rect& view_screen_rect,
                            const gfx::Rect& window_screen_rect);
   void OnShowImeIfNeeded();
+  void OnSetSurfaceIdNamespace(uint32_t surface_id_namespace);
 
 #if defined(OS_ANDROID)
   // Whenever an IME event that needs an acknowledgement is sent to the browser,
@@ -466,7 +513,6 @@ class CONTENT_EXPORT RenderWidget
       MessageDeliveryPolicy policy,
       FrameSwapMessageQueue* frame_swap_message_queue,
       scoped_refptr<IPC::SyncMessageFilter> sync_message_filter,
-      bool commit_requested,
       int source_frame_number);
 
   // Override point to obtain that the current input method state and caret
@@ -475,7 +521,6 @@ class CONTENT_EXPORT RenderWidget
   virtual ui::TextInputType WebKitToUiTextInputType(
       blink::WebTextInputType type);
 
-#if defined(OS_MACOSX) || defined(USE_AURA) || defined(OS_ANDROID)
   // Override point to obtain that the current composition character bounds.
   // In the case of surrogate pairs, the character is treated as two characters:
   // the bounds for first character is actual one, and the bounds for second
@@ -492,7 +537,6 @@ class CONTENT_EXPORT RenderWidget
   bool ShouldUpdateCompositionInfo(
       const gfx::Range& range,
       const std::vector<gfx::Rect>& bounds);
-#endif
 
   // Override point to obtain that the current input method state about
   // composition text.
@@ -526,13 +570,11 @@ class CONTENT_EXPORT RenderWidget
   // won't be sent to WebKit.
   virtual bool WillHandleGestureEvent(const blink::WebGestureEvent& event);
 
-  // Called by OnHandleInputEvent() to notify subclasses that a mouse event was
-  // just handled.
-  virtual void DidHandleMouseEvent(const blink::WebMouseEvent& event) {}
-
-  // Called by OnHandleInputEvent() to notify subclasses that a touch event was
-  // just handled.
-  virtual void DidHandleTouchEvent(const blink::WebTouchEvent& event) {}
+  // Called by OnHandleInputEvent() to forward a mouse wheel event to the
+  // compositor thread, to effect the elastic overscroll effect.
+  void ObserveWheelEventAndResult(const blink::WebMouseWheelEvent& wheel_event,
+                                  const gfx::Vector2dF& wheel_unused_delta,
+                                  bool event_processed);
 
   // Check whether the WebWidget has any touch event handlers registered
   // at the given point.
@@ -557,6 +599,10 @@ class CONTENT_EXPORT RenderWidget
 
   int32 surface_id_;
 
+  // Dependencies for initializing a compositor, including flags for optional
+  // features.
+  CompositorDependencies* compositor_deps_;
+
   // We are responsible for destroying this object via its Close method.
   // May be NULL when the window is closing.
   blink::WebWidget* webwidget_;
@@ -573,8 +619,8 @@ class CONTENT_EXPORT RenderWidget
   // view is.
   int32 opener_id_;
 
-  // The position where this view should be initially shown.
-  gfx::Rect initial_pos_;
+  // The rect where this view should be initially shown.
+  gfx::Rect initial_rect_;
 
   bool init_complete_;
 
@@ -588,9 +634,13 @@ class CONTENT_EXPORT RenderWidget
   // The size of the view's backing surface in non-DPI-adjusted pixels.
   gfx::Size physical_backing_size_;
 
-  // The amount that the viewport size given to Blink was shrunk by the URL-bar
-  // (always 0 on platforms where URL-bar hiding isn't supported).
-  float top_controls_layout_height_;
+  // Whether or not Blink's viewport size should be shrunk by the height of the
+  // URL-bar (always false on platforms where URL-bar hiding isn't supported).
+  bool top_controls_shrink_blink_size_;
+
+  // The height of the top controls (always 0 on platforms where URL-bar hiding
+  // isn't supported).
+  float top_controls_height_;
 
   // The size of the visible viewport in DPI-adjusted pixels.
   gfx::Size visible_viewport_size_;
@@ -618,14 +668,23 @@ class CONTENT_EXPORT RenderWidget
   // Indicates that we are never visible, so never produce graphical output.
   bool never_visible_;
 
-  // Indicates that we are in fullscreen mode.
-  bool is_fullscreen_;
+  // Indicates whether tab-initiated fullscreen was granted.
+  bool is_fullscreen_granted_;
+
+  // Indicates the display mode.
+  blink::WebDisplayMode display_mode_;
 
   // Indicates whether we have been focused/unfocused by the browser.
   bool has_focus_;
 
   // Are we currently handling an input event?
   bool handling_input_event_;
+
+  // Used to intercept overscroll notifications while an event is being
+  // handled. If the event causes overscroll, the overscroll metadata can be
+  // bundled in the event ack, saving an IPC.  Note that we must continue
+  // supporting overscroll IPC notifications due to fling animation updates.
+  scoped_ptr<DidOverscrollParams>* handling_event_overscroll_;
 
   // Are we currently handling an ime event?
   bool handling_ime_event_;
@@ -647,6 +706,11 @@ class CONTENT_EXPORT RenderWidget
   // being rendered by another process.  If all RenderWidgets in a process are
   // swapped out, the process can exit.
   bool is_swapped_out_;
+
+  // TODO(simonhong): Remove this when we enable BeginFrame scheduling for
+  // OOPIF(crbug.com/471411).
+  // Whether this RenderWidget is for an out-of-process iframe or not.
+  bool for_oopif_;
 
   // Indicates if an input method is active in the browser process.
   bool input_method_is_active_;
@@ -740,8 +804,8 @@ class CONTENT_EXPORT RenderWidget
 
   // Popups may be displaced when screen metrics emulation is enabled.
   // These values are used to properly adjust popup position.
-  gfx::Point popup_view_origin_for_emulation_;
-  gfx::Point popup_screen_origin_for_emulation_;
+  gfx::PointF popup_view_origin_for_emulation_;
+  gfx::PointF popup_screen_origin_for_emulation_;
   float popup_origin_scale_for_emulation_;
 
   scoped_refptr<FrameSwapMessageQueue> frame_swap_message_queue_;
@@ -749,15 +813,15 @@ class CONTENT_EXPORT RenderWidget
 
   // Lists of RenderFrameProxy objects that need to be notified of
   // compositing-related events (e.g. DidCommitCompositorFrame).
-  ObserverList<RenderFrameProxy> render_frame_proxies_;
+  base::ObserverList<RenderFrameProxy> render_frame_proxies_;
 #if defined(VIDEO_HOLE)
-  ObserverList<RenderFrameImpl> video_hole_frames_;
+  base::ObserverList<RenderFrameImpl> video_hole_frames_;
 #endif  // defined(VIDEO_HOLE)
 
   // A list of RenderFrames associated with this RenderWidget. Notifications
   // are sent to each frame in the list for events such as changing
   // visibility state for example.
-  ObserverList<RenderFrameImpl> render_frames_;
+  base::ObserverList<RenderFrameImpl> render_frames_;
 
   ui::MenuSourceType context_menu_source_type_;
   bool has_host_context_menu_location_;

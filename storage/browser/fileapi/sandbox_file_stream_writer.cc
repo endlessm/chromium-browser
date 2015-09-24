@@ -8,9 +8,8 @@
 #include "base/sequenced_task_runner.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
-#include "storage/browser/blob/file_stream_reader.h"
 #include "storage/browser/fileapi/file_observers.h"
-#include "storage/browser/fileapi/file_stream_writer.h"
+#include "storage/browser/fileapi/file_stream_reader.h"
 #include "storage/browser/fileapi/file_system_context.h"
 #include "storage/browser/fileapi/file_system_operation_runner.h"
 #include "storage/browser/quota/quota_manager_proxy.h"
@@ -213,7 +212,7 @@ void SandboxFileStreamWriter::DidWrite(
     if (overlapped < 0)
       overlapped = 0;
     observers_.Notify(&FileUpdateObserver::OnUpdate,
-                      MakeTuple(url_, write_response - overlapped));
+                      base::MakeTuple(url_, write_response - overlapped));
   }
   total_bytes_written_ += write_response;
 

@@ -13,18 +13,18 @@
 #include "base/gtest_prod_util.h"
 #include "base/strings/string16.h"
 #include "chrome/utility/importer/importer.h"
+#include "components/favicon_base/favicon_usage_data.h"
 
 struct ImportedBookmarkEntry;
-struct ImportedFaviconUsage;
 
 class IEImporter : public Importer {
  public:
   IEImporter();
 
   // Importer:
-  virtual void StartImport(const importer::SourceProfile& source_profile,
-                           uint16 items,
-                           ImporterBridge* bridge) override;
+  void StartImport(const importer::SourceProfile& source_profile,
+                   uint16 items,
+                   ImporterBridge* bridge) override;
 
  private:
   typedef std::vector<ImportedBookmarkEntry> BookmarkVector;
@@ -43,7 +43,7 @@ class IEImporter : public Importer {
 
   FRIEND_TEST_ALL_PREFIXES(ImporterTest, IEImporter);
 
-  virtual ~IEImporter();
+  ~IEImporter() override;
 
   void ImportFavorites();
 
@@ -69,10 +69,9 @@ class IEImporter : public Importer {
 
   // This function will read the files in the Favorites folder, and store
   // the bookmark items in |bookmarks| and favicon information in |favicons|.
-  void ParseFavoritesFolder(
-      const FavoritesInfo& info,
-      BookmarkVector* bookmarks,
-      std::vector<ImportedFaviconUsage>* favicons);
+  void ParseFavoritesFolder(const FavoritesInfo& info,
+                            BookmarkVector* bookmarks,
+                            favicon_base::FaviconUsageDataList* favicons);
 
   // Determines which version of IE is in use.
   int CurrentIEVersion() const;

@@ -5,10 +5,10 @@ import logging
 import os
 import unittest
 
-from telemetry.core import util
 from telemetry.core.platform.profiler import perf_profiler
-from telemetry.unittest import options_for_unittests
-from telemetry.unittest import simple_mock
+from telemetry.core import util
+from telemetry.testing import options_for_unittests
+from telemetry.testing import simple_mock
 
 
 class TestPerfProfiler(unittest.TestCase):
@@ -36,16 +36,16 @@ class TestPerfProfiler(unittest.TestCase):
     try:
       self.assertEqual(
           perf_profiler.PerfProfiler.GetTopSamples(profile_file, 10),
-          { 'v8::internal::StaticMarkingVisitor::MarkMapContents': 63615201,
-            'v8::internal::RelocIterator::next': 38271931,
-            'v8::internal::LAllocator::MeetConstraintsBetween': 42913933,
-            'v8::internal::FlexibleBodyVisitor::Visit': 31909537,
-            'v8::internal::LiveRange::CreateAssignedOperand': 42913933,
-            'void v8::internal::RelocInfo::Visit': 96878864,
-            'WebCore::HTMLTokenizer::nextToken': 48240439,
-            'v8::internal::Scanner::ScanIdentifierOrKeyword': 46054550,
-            'sk_memset32_SSE2': 45121317,
-            'v8::internal::HeapObject::Size': 39786862
-            })
+          {'v8::internal::StaticMarkingVisitor::MarkMapContents': 63615201,
+           'v8::internal::RelocIterator::next': 38271931,
+           'v8::internal::LAllocator::MeetConstraintsBetween': 42913933,
+           'v8::internal::FlexibleBodyVisitor::Visit': 31909537,
+           'v8::internal::LiveRange::CreateAssignedOperand': 42913933,
+           'void v8::internal::RelocInfo::Visit': 96878864,
+           'WebCore::HTMLTokenizer::nextToken': 48240439,
+           'v8::internal::Scanner::ScanIdentifierOrKeyword': 46054550,
+           'sk_memset32_SSE2': 45121317,
+           'v8::internal::HeapObject::Size': 39786862
+           })
     finally:
       perf_profiler.subprocess = real_subprocess

@@ -22,6 +22,7 @@
 #include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_iterator.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/tabs/tab_utils.h"
 #include "chrome/common/extensions/api/tabs.h"
 #include "chrome/common/url_constants.h"
 #include "components/url_fixer/url_fixer.h"
@@ -55,8 +56,7 @@ WindowController* GetAppWindowController(const WebContents* contents) {
   AppWindowRegistry* registry = AppWindowRegistry::Get(profile);
   if (!registry)
     return NULL;
-  AppWindow* app_window =
-      registry->GetAppWindowForRenderViewHost(contents->GetRenderViewHost());
+  AppWindow* app_window = registry->GetAppWindowForWebContents(contents);
   if (!app_window)
     return NULL;
   return WindowControllerList::GetInstance()->FindWindowById(
@@ -143,7 +143,8 @@ base::DictionaryValue* ExtensionTabUtil::OpenTab(
                                         browser->host_desktop_type());
 
   if (!browser || !browser->window()) {
-    // TODO(rpaquay): Error message?
+    if (error)
+      *error = keys::kNoCurrentWindowError;
     return NULL;
   }
 
@@ -160,7 +161,10 @@ base::DictionaryValue* ExtensionTabUtil::OpenTab(
                                       NULL,
                                       &opener,
                                       NULL)) {
-      // TODO(rpaquay): Error message?
+      if (error) {
+        *error = ErrorUtils::FormatErrorMessage(keys::kTabNotFoundError,
+                                                base::IntToString(opener_id));
+      }
       return NULL;
     }
   }
@@ -171,7 +175,7 @@ base::DictionaryValue* ExtensionTabUtil::OpenTab(
 
   GURL url;
   if (params.url.get()) {
-    std::string url_string= *params.url;
+    std::string url_string = *params.url;
     url = ExtensionTabUtil::ResolvePossiblyRelativeURL(url_string,
                                                        function->extension());
     if (!url.is_valid()) {
@@ -382,6 +386,12 @@ base::DictionaryValue* ExtensionTabUtil::CreateTabValue(
                    tab_strip && tab_strip->IsTabSelected(tab_index));
   result->SetBoolean(keys::kPinnedKey,
                      tab_strip && tab_strip->IsTabPinned(tab_index));
+  result->SetBoolean(keys::kAudibleKey,
+                     tab_strip && chrome::IsPlayingAudio(contents));
+  result->SetBoolean(keys::kMutedKey,
+                     tab_strip && chrome::IsTabAudioMuted(contents));
+  result->SetString(keys::kMutedCauseKey,
+                    chrome::GetTabAudioMutedCause(contents));
   result->SetBoolean(keys::kIncognitoKey,
                      contents->GetBrowserContext()->IsOffTheRecord());
   result->SetInteger(keys::kWidthKey,
@@ -528,7 +538,7 @@ bool ExtensionTabUtil::IsCrashURL(const GURL& url) {
 void ExtensionTabUtil::CreateTab(WebContents* web_contents,
                                  const std::string& extension_id,
                                  WindowOpenDisposition disposition,
-                                 const gfx::Rect& initial_pos,
+                                 const gfx::Rect& initial_rect,
                                  bool user_gesture) {
   Profile* profile =
       Profile::FromBrowserContext(web_contents->GetBrowserContext());
@@ -548,7 +558,7 @@ void ExtensionTabUtil::CreateTab(WebContents* web_contents,
     params.extension_app_id = extension_id;
 
   params.disposition = disposition;
-  params.window_bounds = initial_pos;
+  params.window_bounds = initial_rect;
   params.window_action = chrome::NavigateParams::SHOW_WINDOW;
   params.user_gesture = user_gesture;
   chrome::Navigate(&params);
@@ -575,9 +585,10 @@ WindowController* ExtensionTabUtil::GetWindowControllerOfTab(
   return NULL;
 }
 
-void ExtensionTabUtil::OpenOptionsPage(const Extension* extension,
+bool ExtensionTabUtil::OpenOptionsPage(const Extension* extension,
                                        Browser* browser) {
-  DCHECK(OptionsPageInfo::HasOptionsPage(extension));
+  if (!OptionsPageInfo::HasOptionsPage(extension))
+    return false;
 
   // Force the options page to open in non-OTR window, because it won't be
   // able to save settings from OTR.
@@ -589,34 +600,27 @@ void ExtensionTabUtil::OpenOptionsPage(const Extension* extension,
     browser = displayer->browser();
   }
 
-  if (!OptionsPageInfo::ShouldOpenInTab(extension)) {
-    // If we should embed the options page for this extension, open
-    // chrome://extensions in a new tab and show the extension options in an
-    // embedded popup.
-    chrome::NavigateParams params(chrome::GetSingletonTabNavigateParams(
-        browser, GURL(chrome::kChromeUIExtensionsURL)));
-    params.path_behavior = chrome::NavigateParams::IGNORE_AND_NAVIGATE;
-
+  GURL url_to_navigate;
+  if (OptionsPageInfo::ShouldOpenInTab(extension)) {
+    // Options page tab is simply e.g. chrome-extension://.../options.html.
+    url_to_navigate = OptionsPageInfo::GetOptionsPage(extension);
+  } else {
+    // Options page tab is Extension settings pointed at that Extension's ID,
+    // e.g. chrome://extensions?options=...
+    url_to_navigate = GURL(chrome::kChromeUIExtensionsURL);
     GURL::Replacements replacements;
     std::string query =
         base::StringPrintf("options=%s", extension->id().c_str());
     replacements.SetQueryStr(query);
-    params.url = params.url.ReplaceComponents(replacements);
-
-    chrome::ShowSingletonTabOverwritingNTP(browser, params);
-  } else {
-    // Otherwise open a new tab with the extension's options page
-    content::OpenURLParams params(OptionsPageInfo::GetOptionsPage(extension),
-                                  content::Referrer(),
-                                  SINGLETON_TAB,
-                                  ui::PAGE_TRANSITION_LINK,
-                                  false);
-    browser->OpenURL(params);
-    browser->window()->Show();
-    WebContents* web_contents =
-        browser->tab_strip_model()->GetActiveWebContents();
-    web_contents->GetDelegate()->ActivateContents(web_contents);
+    url_to_navigate = url_to_navigate.ReplaceComponents(replacements);
   }
+
+  chrome::NavigateParams params(
+      chrome::GetSingletonTabNavigateParams(browser, url_to_navigate));
+  params.path_behavior = chrome::NavigateParams::IGNORE_AND_NAVIGATE;
+  params.url = url_to_navigate;
+  chrome::ShowSingletonTabOverwritingNTP(browser, params);
+  return true;
 }
 
 }  // namespace extensions

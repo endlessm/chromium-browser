@@ -4,7 +4,7 @@
 
 """
 See http://dev.chromium.org/developers/how-tos/depottools/presubmit-scripts
-for more details on the presubmit API built into gcl.
+for more details on the presubmit API built into depot_tools.
 """
 
 import re
@@ -76,13 +76,3 @@ def CheckChangeOnUpload(input_api, output_api):
 
 def CheckChangeOnCommit(input_api, output_api):
   return CheckChange(input_api, output_api)
-
-def GetPreferredTryMasters(project, change):
-  return {
-    'tryserver.chromium.linux': {
-      'linux_valgrind': set(['defaulttests']),
-    },
-    'tryserver.chromium.mac': {
-      'mac_valgrind': set(['defaulttests']),
-    }
-  }

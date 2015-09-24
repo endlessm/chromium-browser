@@ -11,11 +11,12 @@
 #include "base/logging.h"
 #include "base/rand_util.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/thread.h"
 #include "base/time/default_tick_clock.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
-#include "net/udp/udp_socket.h"
+#include "net/udp/udp_server_socket.h"
 
 namespace media {
 namespace cast {
@@ -56,7 +57,7 @@ class Buffer : public PacketPipe {
     CHECK_GT(max_megabits_per_second, 0);
   }
 
-  void Send(scoped_ptr<Packet> packet) override {
+  void Send(scoped_ptr<Packet> packet) final {
     if (packet->size() + buffer_size_ <= max_buffer_size_) {
       buffer_size_ += packet->size();
       buffer_.push_back(linked_ptr<Packet>(packet.release()));
@@ -116,7 +117,7 @@ class RandomDrop : public PacketPipe {
   RandomDrop(double drop_fraction)
       : drop_fraction_(static_cast<int>(drop_fraction * RAND_MAX)) {}
 
-  void Send(scoped_ptr<Packet> packet) override {
+  void Send(scoped_ptr<Packet> packet) final {
     if (rand() > drop_fraction_) {
       pipe_->Send(packet.Pass());
     }
@@ -158,7 +159,7 @@ class SimpleDelayBase : public PacketPipe {
 class ConstantDelay : public SimpleDelayBase {
  public:
   ConstantDelay(double delay_seconds) : delay_seconds_(delay_seconds) {}
-  double GetDelay() override { return delay_seconds_; }
+  double GetDelay() final { return delay_seconds_; }
 
  private:
   double delay_seconds_;
@@ -189,11 +190,11 @@ class DuplicateAndDelay : public RandomUnsortedDelay {
       RandomUnsortedDelay(random_delay),
       delay_min_(delay_min) {
   }
-  void Send(scoped_ptr<Packet> packet) override {
+  void Send(scoped_ptr<Packet> packet) final {
     pipe_->Send(scoped_ptr<Packet>(new Packet(*packet.get())));
     RandomUnsortedDelay::Send(packet.Pass());
   }
-  double GetDelay() override {
+  double GetDelay() final {
     return RandomUnsortedDelay::GetDelay() + delay_min_;
   }
  private:
@@ -216,7 +217,7 @@ class RandomSortedDelay : public PacketPipe {
         seconds_between_extra_delay_(seconds_between_extra_delay),
         weak_factory_(this) {}
 
-  void Send(scoped_ptr<Packet> packet) override {
+  void Send(scoped_ptr<Packet> packet) final {
     buffer_.push_back(linked_ptr<Packet>(packet.release()));
     if (buffer_.size() == 1) {
       next_send_ = std::max(
@@ -228,7 +229,7 @@ class RandomSortedDelay : public PacketPipe {
   }
   void InitOnIOThread(
       const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
-      base::TickClock* clock) override {
+      base::TickClock* clock) final {
     PacketPipe::InitOnIOThread(task_runner, clock);
     // As we start the stream, assume that we are in a random
     // place between two extra delays, thus multiplier = 1.0;
@@ -283,8 +284,8 @@ class RandomSortedDelay : public PacketPipe {
   double random_delay_;
   double extra_delay_;
   double seconds_between_extra_delay_;
-  base::WeakPtrFactory<RandomSortedDelay> weak_factory_;
   base::TimeTicks next_send_;
+  base::WeakPtrFactory<RandomSortedDelay> weak_factory_;
 };
 
 scoped_ptr<PacketPipe> NewRandomSortedDelay(
@@ -307,12 +308,12 @@ class NetworkGlitchPipe : public PacketPipe {
 
   void InitOnIOThread(
       const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
-      base::TickClock* clock) override {
+      base::TickClock* clock) final {
     PacketPipe::InitOnIOThread(task_runner, clock);
     Flip();
   }
 
-  void Send(scoped_ptr<Packet> packet) override {
+  void Send(scoped_ptr<Packet> packet) final {
     if (works_) {
       pipe_->Send(packet.Pass());
     }
@@ -356,7 +357,7 @@ class InterruptedPoissonProcess::InternalBuffer : public PacketPipe {
         weak_factory_(this) {
   }
 
-  void Send(scoped_ptr<Packet> packet) override {
+  void Send(scoped_ptr<Packet> packet) final {
     // Drop if buffer is full.
     if (stored_size_ >= stored_limit_)
       return;
@@ -368,7 +369,7 @@ class InterruptedPoissonProcess::InternalBuffer : public PacketPipe {
 
   void InitOnIOThread(
       const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
-      base::TickClock* clock) override {
+      base::TickClock* clock) final {
     clock_ = clock;
     if (ipp_)
       ipp_->InitOnIOThread(task_runner, clock);
@@ -548,8 +549,8 @@ class PacketSender : public PacketPipe {
  public:
   PacketSender(UDPProxyImpl* udp_proxy, const net::IPEndPoint* destination)
       : udp_proxy_(udp_proxy), destination_(destination) {}
-  void Send(scoped_ptr<Packet> packet) override;
-  void AppendToPipe(scoped_ptr<PacketPipe> pipe) override { NOTREACHED(); }
+  void Send(scoped_ptr<Packet> packet) final;
+  void AppendToPipe(scoped_ptr<PacketPipe> pipe) final { NOTREACHED(); }
 
  private:
   UDPProxyImpl* udp_proxy_;
@@ -629,6 +630,40 @@ scoped_ptr<PacketPipe> EvilNetwork() {
   return pipe.Pass();
 }
 
+scoped_ptr<InterruptedPoissonProcess> DefaultInterruptedPoissonProcess() {
+  // The following values are taken from a session reported from a user.
+  // They are experimentally tested to demonstrate challenging network
+  // conditions. The average bitrate is about 2mbits/s.
+
+  // Each element in this vector is the average number of packets sent
+  // per millisecond. The average changes and rotates every second.
+  std::vector<double> average_rates;
+  average_rates.push_back(0.609);
+  average_rates.push_back(0.495);
+  average_rates.push_back(0.561);
+  average_rates.push_back(0.458);
+  average_rates.push_back(0.538);
+  average_rates.push_back(0.513);
+  average_rates.push_back(0.585);
+  average_rates.push_back(0.592);
+  average_rates.push_back(0.658);
+  average_rates.push_back(0.556);
+  average_rates.push_back(0.371);
+  average_rates.push_back(0.595);
+  average_rates.push_back(0.490);
+  average_rates.push_back(0.980);
+  average_rates.push_back(0.781);
+  average_rates.push_back(0.463);
+
+  const double burstiness = 0.609;
+  const double variance = 4.1;
+
+  scoped_ptr<InterruptedPoissonProcess> ipp(
+      new InterruptedPoissonProcess(
+          average_rates, burstiness, variance, 0));
+  return ipp.Pass();
+}
+
 class UDPProxyImpl : public UDPProxy {
  public:
   UDPProxyImpl(const net::IPEndPoint& local_port,
@@ -647,7 +682,7 @@ class UDPProxyImpl : public UDPProxy {
     proxy_thread_.StartWithOptions(
         base::Thread::Options(base::MessageLoop::TYPE_IO, 0));
     base::WaitableEvent start_event(false, false);
-    proxy_thread_.message_loop_proxy()->PostTask(
+    proxy_thread_.task_runner()->PostTask(
         FROM_HERE,
         base::Bind(&UDPProxyImpl::Start,
                    base::Unretained(this),
@@ -656,9 +691,9 @@ class UDPProxyImpl : public UDPProxy {
     start_event.Wait();
   }
 
-  ~UDPProxyImpl() override {
+  ~UDPProxyImpl() final {
     base::WaitableEvent stop_event(false, false);
-    proxy_thread_.message_loop_proxy()->PostTask(
+    proxy_thread_.task_runner()->PostTask(
         FROM_HERE,
         base::Bind(&UDPProxyImpl::Stop,
                    base::Unretained(this),
@@ -704,22 +739,19 @@ class UDPProxyImpl : public UDPProxy {
  private:
   void Start(base::WaitableEvent* start_event,
              net::NetLog* net_log) {
-    socket_.reset(new net::UDPSocket(net::DatagramSocket::DEFAULT_BIND,
-                                     net::RandIntCallback(),
-                                     net_log,
-                                     net::NetLog::Source()));
+    socket_.reset(new net::UDPServerSocket(net_log, net::NetLog::Source()));
     BuildPipe(&to_dest_pipe_, new PacketSender(this, &destination_));
     BuildPipe(&from_dest_pipe_, new PacketSender(this, &return_address_));
-    to_dest_pipe_->InitOnIOThread(base::MessageLoopProxy::current(),
+    to_dest_pipe_->InitOnIOThread(base::ThreadTaskRunnerHandle::Get(),
                                   &tick_clock_);
-    from_dest_pipe_->InitOnIOThread(base::MessageLoopProxy::current(),
+    from_dest_pipe_->InitOnIOThread(base::ThreadTaskRunnerHandle::Get(),
                                     &tick_clock_);
 
     VLOG(0) << "From:" << local_port_.ToString();
     if (!destination_is_mutable_)
       VLOG(0) << "To:" << destination_.ToString();
 
-    CHECK_GE(socket_->Bind(local_port_), 0);
+    CHECK_GE(socket_->Listen(local_port_), 0);
 
     start_event->Signal();
     PollRead();
@@ -796,7 +828,7 @@ class UDPProxyImpl : public UDPProxy {
 
   base::DefaultTickClock tick_clock_;
   base::Thread proxy_thread_;
-  scoped_ptr<net::UDPSocket> socket_;
+  scoped_ptr<net::UDPServerSocket> socket_;
   scoped_ptr<PacketPipe> to_dest_pipe_;
   scoped_ptr<PacketPipe> from_dest_pipe_;
 

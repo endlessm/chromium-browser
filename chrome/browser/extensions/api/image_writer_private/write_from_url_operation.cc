@@ -57,7 +57,7 @@ void WriteFromUrlOperation::GetDownloadTarget(
     return;
   }
 
-  if (url_.ExtractFileName() == "") {
+  if (url_.ExtractFileName().empty()) {
     if (!base::CreateTemporaryFileInDir(temp_dir_.path(), &image_path_)) {
       Error(error::kTempFileError);
       return;
@@ -84,7 +84,7 @@ void WriteFromUrlOperation::Download(const base::Closure& continuation) {
 
   // Store the URL fetcher on this object so that it is destroyed before this
   // object is.
-  url_fetcher_.reset(net::URLFetcher::Create(url_, net::URLFetcher::GET, this));
+  url_fetcher_ = net::URLFetcher::Create(url_, net::URLFetcher::GET, this);
 
   url_fetcher_->SetRequestContext(request_context_);
   url_fetcher_->SaveResponseToFileAtPath(

@@ -11,13 +11,15 @@
 #include "base/synchronization/lock.h"
 #include "base/threading/thread_checker.h"
 #include "cc/layers/video_frame_provider.h"
-#include "media/filters/skcanvas_video_renderer.h"
+#include "media/blink/skcanvas_video_renderer.h"
+#include "media/blink/webmediaplayer_util.h"
 #include "skia/ext/platform_canvas.h"
 #include "third_party/WebKit/public/platform/WebMediaPlayer.h"
 #include "url/gurl.h"
 
 namespace blink {
 class WebFrame;
+class WebGraphicsContext3D;
 class WebMediaPlayerClient;
 }
 
@@ -74,6 +76,8 @@ class WebMediaPlayerMS
   virtual void seek(double seconds);
   virtual void setRate(double rate);
   virtual void setVolume(double volume);
+  virtual void setSinkId(const blink::WebString& device_id,
+                         media::WebSetSinkIdCB* web_callback);
   virtual void setPreload(blink::WebMediaPlayer::Preload preload);
   virtual blink::WebTimeRanges buffered() const;
   virtual blink::WebTimeRanges seekable() const;
@@ -113,11 +117,22 @@ class WebMediaPlayerMS
   virtual unsigned audioDecodedByteCount() const;
   virtual unsigned videoDecodedByteCount() const;
 
+  bool copyVideoTextureToPlatformTexture(
+      blink::WebGraphicsContext3D* web_graphics_context,
+      unsigned int texture,
+      unsigned int internal_format,
+      unsigned int type,
+      bool premultiply_alpha,
+      bool flip_y) override;
+
   // VideoFrameProvider implementation.
   void SetVideoFrameProviderClient(
       cc::VideoFrameProvider::Client* client) override;
+  bool UpdateCurrentFrame(base::TimeTicks deadline_min,
+                          base::TimeTicks deadline_max) override;
+  bool HasCurrentFrame() override;
   scoped_refptr<media::VideoFrame> GetCurrentFrame() override;
-  void PutCurrentFrame(const scoped_refptr<media::VideoFrame>& frame) override;
+  void PutCurrentFrame() override;
 
  private:
   // The callback for VideoFrameProvider to signal a new frame is available.
@@ -168,7 +183,6 @@ class WebMediaPlayerMS
   bool current_frame_used_;
   // |current_frame_lock_| protects |current_frame_used_| and |current_frame_|.
   base::Lock current_frame_lock_;
-  bool pending_repaint_;
 
   scoped_ptr<cc_blink::WebLayerImpl> video_weblayer_;
 

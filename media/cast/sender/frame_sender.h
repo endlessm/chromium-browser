@@ -20,12 +20,13 @@
 namespace media {
 namespace cast {
 
+struct SenderEncodedFrame;
+
 class FrameSender {
  public:
   FrameSender(scoped_refptr<CastEnvironment> cast_environment,
               bool is_audio,
               CastTransportSender* const transport_sender,
-              base::TimeDelta rtcp_interval,
               int rtp_timebase,
               uint32 ssrc,
               double max_frame_rate,
@@ -46,7 +47,7 @@ class FrameSender {
 
   // Called by the encoder with the next EncodeFrame to send.
   void SendEncodedFrame(int requested_bitrate_before_encode,
-                        scoped_ptr<EncodedFrame> encoded_frame);
+                        scoped_ptr<SenderEncodedFrame> encoded_frame);
 
  protected:
   // Returns the number of frames in the encoder's backlog.
@@ -107,8 +108,6 @@ class FrameSender {
   // Returns the number of frames that were sent but not yet acknowledged.
   int GetUnacknowledgedFrameCount() const;
 
-  const base::TimeDelta rtcp_interval_;
-
   // The total amount of time between a frame's capture/recording on the sender
   // and its playback on the receiver (i.e., shown to a user).  This is fixed as
   // a value large enough to give the system sufficient time to encode,
@@ -149,10 +148,6 @@ class FrameSender {
   // receiver hasn't yet received the first packet of the next frame.  In this
   // case, VideoSender will trigger a re-send of the next frame.
   int duplicate_ack_counter_;
-
-  // If this sender is ready for use, this is STATUS_AUDIO_INITIALIZED or
-  // STATUS_VIDEO_INITIALIZED.
-  CastInitializationStatus cast_initialization_status_;
 
   // This object controls how we change the bitrate to make sure the
   // buffer doesn't overflow.

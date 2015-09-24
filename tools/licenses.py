@@ -15,6 +15,7 @@ Commands:
 (You can also import this as a module.)
 """
 
+import argparse
 import cgi
 import os
 import sys
@@ -28,6 +29,9 @@ PRUNE_PATHS = set([
     # Placeholder directory only, not third-party code.
     os.path.join('third_party','adobe'),
 
+    # Apache 2.0 license. See crbug.com/140478
+    os.path.join('third_party','bidichecker'),
+
     # Build files only, not third-party code.
     os.path.join('third_party','widevine'),
 
@@ -39,6 +43,7 @@ PRUNE_PATHS = set([
     os.path.join('third_party','bison'),
     os.path.join('third_party','blanketjs'),
     os.path.join('third_party','cygwin'),
+    os.path.join('third_party','gles2_conform'),
     os.path.join('third_party','gnu_binutils'),
     os.path.join('third_party','gold'),
     os.path.join('third_party','gperf'),
@@ -68,11 +73,18 @@ PRUNE_PATHS = set([
     os.path.join('third_party', 'pcre'),
     os.path.join('third_party', 'psutils'),
     os.path.join('third_party', 'sawbuck'),
+    # See crbug.com/350472
+    os.path.join('chrome', 'browser', 'resources', 'chromeos', 'quickoffice'),
+    # Chrome for Android proprietary code.
+    os.path.join('clank'),
 
     # Redistribution does not require attribution in documentation.
     os.path.join('third_party','directxsdk'),
     os.path.join('third_party','platformsdk_win2008_6_1'),
     os.path.join('third_party','platformsdk_win7'),
+
+    # For testing only, presents on some bots.
+    os.path.join('isolate_deps_dir'),
 ])
 
 # Directories we don't scan through.
@@ -96,9 +108,9 @@ ADDITIONAL_PATHS = (
     os.path.join('tools', 'page_cycler', 'acid3'),
     os.path.join('url', 'third_party', 'mozilla'),
     os.path.join('v8'),
-    # Fake directory so we can include the strongtalk license.
+    # Fake directories to include the strongtalk and fdlibm licenses.
     os.path.join('v8', 'strongtalk'),
-    os.path.join('v8', 'third_party', 'fdlibm'),
+    os.path.join('v8', 'fdlibm'),
 )
 
 
@@ -189,7 +201,7 @@ SPECIAL_CASES = {
         "URL": "http://webkit.org/",
         "License": "BSD and GPL v2",
         # Absolute path here is resolved as relative to the source root.
-        "License File": "/webkit/LICENSE",
+        "License File": "/third_party/WebKit/LICENSE_FOR_ABOUT_CREDITS",
     },
     os.path.join('third_party', 'webpagereplay'): {
         "Name": "webpagereplay",
@@ -221,13 +233,27 @@ SPECIAL_CASES = {
         # Absolute path here is resolved as relative to the source root.
         "License File": "/v8/LICENSE.strongtalk",
     },
-    os.path.join('v8', 'third_party', 'fdlibm'): {
+    os.path.join('v8', 'fdlibm'): {
         "Name": "fdlibm",
         "URL": "http://www.netlib.org/fdlibm/",
         "License": "Freely Distributable",
         # Absolute path here is resolved as relative to the source root.
-        "License File" : "/v8/third_party/fdlibm/LICENSE",
+        "License File" : "/v8/src/third_party/fdlibm/LICENSE",
         "License Android Compatible" : "yes",
+    },
+    os.path.join('third_party', 'khronos_glcts'): {
+        # These sources are not shipped, are not public, and it isn't
+        # clear why they're tripping the license check.
+        "Name": "khronos_glcts",
+        "URL": "http://no-public-url",
+        "License": "Khronos",
+        "License File": "NOT_SHIPPED",
+    },
+    os.path.join('tools', 'telemetry', 'third_party', 'gsutil'): {
+        "Name": "gsutil",
+        "URL": "https://cloud.google.com/storage/docs/gsutil",
+        "License": "Apache 2.0",
+        "License File": "NOT_SHIPPED",
     },
 }
 
@@ -372,12 +398,16 @@ def FindThirdPartyDirs(prune_paths, root):
     return third_party_dirs
 
 
+def FindThirdPartyDirsWithFiles(root):
+    third_party_dirs = FindThirdPartyDirs(PRUNE_PATHS, root)
+    return FilterDirsWithFiles(third_party_dirs, root)
+
+
 def ScanThirdPartyDirs(root=None):
     """Scan a list of directories and report on any problems we find."""
     if root is None:
       root = os.getcwd()
-    third_party_dirs = FindThirdPartyDirs(PRUNE_PATHS, root)
-    third_party_dirs = FilterDirsWithFiles(third_party_dirs, root)
+    third_party_dirs = FindThirdPartyDirsWithFiles(root)
 
     errors = []
     for path in sorted(third_party_dirs):
@@ -393,12 +423,8 @@ def ScanThirdPartyDirs(root=None):
     return len(errors) == 0
 
 
-def GenerateCredits():
+def GenerateCredits(file_template_file, entry_template_file, output_file):
     """Generate about:credits."""
-
-    if len(sys.argv) not in (2, 3):
-      print 'usage: licenses.py credits [output_file]'
-      return False
 
     def EvaluateTemplate(template, env, escape=True):
         """Expand a template with variables like {{foo}} using a
@@ -412,10 +438,17 @@ def GenerateCredits():
     root = os.path.join(os.path.dirname(__file__), '..')
     third_party_dirs = FindThirdPartyDirs(PRUNE_PATHS, root)
 
-    entry_template = open(os.path.join(root, 'chrome', 'browser', 'resources',
-                                       'about_credits_entry.tmpl'), 'rb').read()
+    if not file_template_file:
+        file_template_file = os.path.join(root, 'chrome', 'browser',
+                                          'resources', 'about_credits.tmpl')
+    if not entry_template_file:
+        entry_template_file = os.path.join(root, 'chrome', 'browser',
+                                           'resources',
+                                           'about_credits_entry.tmpl')
+
+    entry_template = open(entry_template_file).read()
     entries = []
-    for path in sorted(third_party_dirs):
+    for path in third_party_dirs:
         try:
             metadata = ParseDir(path, root)
         except LicenseError:
@@ -428,34 +461,45 @@ def GenerateCredits():
             'url': metadata['URL'],
             'license': open(metadata['License File'], 'rb').read(),
         }
-        entries.append(EvaluateTemplate(entry_template, env))
+        entry = {
+            'name': metadata['Name'],
+            'content': EvaluateTemplate(entry_template, env),
+        }
+        entries.append(entry)
 
-    file_template = open(os.path.join(root, 'chrome', 'browser', 'resources',
-                                      'about_credits.tmpl'), 'rb').read()
+    entries.sort(key=lambda entry: (entry['name'], entry['content']))
+    entries_contents = '\n'.join([entry['content'] for entry in entries])
+    file_template = open(file_template_file).read()
     template_contents = "<!-- Generated by licenses.py; do not edit. -->"
     template_contents += EvaluateTemplate(file_template,
-                                          {'entries': '\n'.join(entries)},
+                                          {'entries': entries_contents},
                                           escape=False)
 
-    if len(sys.argv) == 3:
-      with open(sys.argv[2], 'w') as output_file:
-        output_file.write(template_contents)
-    elif len(sys.argv) == 2:
+    if output_file:
+      with open(output_file, 'w') as output:
+        output.write(template_contents)
+    else:
       print template_contents
 
     return True
 
 
 def main():
-    command = 'help'
-    if len(sys.argv) > 1:
-        command = sys.argv[1]
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--file-template',
+                        help='Template HTML to use for the license page.')
+    parser.add_argument('--entry-template',
+                        help='Template HTML to use for each license.')
+    parser.add_argument('command', choices=['help', 'scan', 'credits'])
+    parser.add_argument('output_file', nargs='?')
+    args = parser.parse_args()
 
-    if command == 'scan':
+    if args.command == 'scan':
         if not ScanThirdPartyDirs():
             return 1
-    elif command == 'credits':
-        if not GenerateCredits():
+    elif args.command == 'credits':
+        if not GenerateCredits(args.file_template, args.entry_template,
+                               args.output_file):
             return 1
     else:
         print __doc__

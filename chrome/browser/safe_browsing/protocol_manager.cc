@@ -8,6 +8,7 @@
 #include "base/logging.h"
 #include "base/memory/scoped_vector.h"
 #include "base/metrics/histogram.h"
+#include "base/profiler/scoped_tracker.h"
 #include "base/rand_util.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
@@ -94,6 +95,10 @@ SafeBrowsingProtocolManager* SafeBrowsingProtocolManager::Create(
     SafeBrowsingProtocolManagerDelegate* delegate,
     net::URLRequestContextGetter* request_context_getter,
     const SafeBrowsingProtocolConfig& config) {
+  // TODO(cbentzel): Remove ScopedTracker below once crbug.com/483689 is fixed.
+  tracked_objects::ScopedTracker tracking_profile(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "483689 SafeBrowsingProtocolManager::Create"));
   if (!factory_)
     factory_ = new SBProtocolManagerFactoryImpl();
   return factory_->CreateProtocolManager(
@@ -183,8 +188,9 @@ void SafeBrowsingProtocolManager::GetFullHash(
     return;
   }
   GURL gethash_url = GetHashUrl();
-  net::URLFetcher* fetcher = net::URLFetcher::Create(
-      url_fetcher_id_++, gethash_url, net::URLFetcher::POST, this);
+  net::URLFetcher* fetcher =
+      net::URLFetcher::Create(url_fetcher_id_++, gethash_url,
+                              net::URLFetcher::POST, this).release();
   hash_requests_[fetcher] = FullHashDetails(callback, is_download);
 
   const std::string get_hash = safe_browsing::FormatGetHash(prefixes);
@@ -462,6 +468,10 @@ bool SafeBrowsingProtocolManager::HandleServiceResponse(
 
 void SafeBrowsingProtocolManager::Initialize() {
   DCHECK(CalledOnValidThread());
+  // TODO(cbentzel): Remove ScopedTracker below once crbug.com/483689 is fixed.
+  tracked_objects::ScopedTracker tracking_profile(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "483689 SafeBrowsingProtocolManager::Initialize"));
   // Don't want to hit the safe browsing servers on build/chrome bots.
   scoped_ptr<base::Environment> env(base::Environment::Create());
   if (env->HasVar(env_vars::kHeadless))
@@ -557,8 +567,8 @@ bool SafeBrowsingProtocolManager::IssueBackupUpdateRequest(
   backup_update_reason_ = backup_update_reason;
 
   GURL backup_update_url = BackupUpdateUrl(backup_update_reason);
-  request_.reset(net::URLFetcher::Create(
-      url_fetcher_id_++, backup_update_url, net::URLFetcher::POST, this));
+  request_ = net::URLFetcher::Create(url_fetcher_id_++, backup_update_url,
+                                     net::URLFetcher::POST, this);
   request_->SetLoadFlags(net::LOAD_DISABLE_CACHE);
   request_->SetRequestContext(request_context_getter_.get());
   request_->SetUploadData("text/plain", update_list_data_);
@@ -584,8 +594,8 @@ void SafeBrowsingProtocolManager::IssueChunkRequest() {
   DCHECK(!next_chunk.url.empty());
   GURL chunk_url = NextChunkUrl(next_chunk.url);
   request_type_ = CHUNK_REQUEST;
-  request_.reset(net::URLFetcher::Create(
-      url_fetcher_id_++, chunk_url, net::URLFetcher::GET, this));
+  request_ = net::URLFetcher::Create(url_fetcher_id_++, chunk_url,
+                                     net::URLFetcher::GET, this);
   request_->SetLoadFlags(net::LOAD_DISABLE_CACHE);
   request_->SetRequestContext(request_context_getter_.get());
   chunk_request_start_ = base::Time::Now();
@@ -635,8 +645,8 @@ void SafeBrowsingProtocolManager::OnGetChunksComplete(
   UMA_HISTOGRAM_COUNTS("SB2.UpdateRequestSize", update_list_data_.size());
 
   GURL update_url = UpdateUrl();
-  request_.reset(net::URLFetcher::Create(
-      url_fetcher_id_++, update_url, net::URLFetcher::POST, this));
+  request_ = net::URLFetcher::Create(url_fetcher_id_++, update_url,
+                                     net::URLFetcher::POST, this);
   request_->SetLoadFlags(net::LOAD_DISABLE_CACHE);
   request_->SetRequestContext(request_context_getter_.get());
   request_->SetUploadData("text/plain", update_list_data_);
@@ -739,10 +749,13 @@ GURL SafeBrowsingProtocolManager::GetHashUrl() const {
 GURL SafeBrowsingProtocolManager::NextChunkUrl(const std::string& url) const {
   DCHECK(CalledOnValidThread());
   std::string next_url;
-  if (!StartsWithASCII(url, "http://", false) &&
-      !StartsWithASCII(url, "https://", false)) {
+  if (!base::StartsWith(url, "http://",
+                        base::CompareCase::INSENSITIVE_ASCII) &&
+      !base::StartsWith(url, "https://",
+                        base::CompareCase::INSENSITIVE_ASCII)) {
     // Use https if we updated via https, otherwise http (useful for testing).
-    if (StartsWithASCII(url_prefix_, "https://", false))
+    if (base::StartsWith(url_prefix_, "https://",
+                         base::CompareCase::INSENSITIVE_ASCII))
       next_url.append("https://");
     else
       next_url.append("http://");

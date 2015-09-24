@@ -7,13 +7,16 @@
 #include <algorithm>
 
 #include "base/compiler_specific.h"
+#include "base/location.h"
 #include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_log.h"
+#include "net/log/net_log.h"
 #include "net/socket/client_socket_handle.h"
 #include "net/socket/client_socket_pool_base.h"
 #include "net/socket/websocket_endpoint_lock_manager.h"
@@ -228,18 +231,15 @@ int WebSocketTransportConnectJob::ConnectInternal() {
 WebSocketTransportClientSocketPool::WebSocketTransportClientSocketPool(
     int max_sockets,
     int max_sockets_per_group,
-    ClientSocketPoolHistograms* histograms,
     HostResolver* host_resolver,
     ClientSocketFactory* client_socket_factory,
     NetLog* net_log)
     : TransportClientSocketPool(max_sockets,
                                 max_sockets_per_group,
-                                histograms,
                                 host_resolver,
                                 client_socket_factory,
                                 net_log),
       connect_job_delegate_(this),
-      histograms_(histograms),
       pool_net_log_(net_log),
       client_socket_factory_(client_socket_factory),
       host_resolver_(host_resolver),
@@ -435,11 +435,12 @@ LoadState WebSocketTransportClientSocketPool::GetLoadState(
   return LookupConnectJob(handle)->GetLoadState();
 }
 
-base::DictionaryValue* WebSocketTransportClientSocketPool::GetInfoAsValue(
-    const std::string& name,
-    const std::string& type,
-    bool include_nested_pools) const {
-  base::DictionaryValue* dict = new base::DictionaryValue();
+scoped_ptr<base::DictionaryValue>
+    WebSocketTransportClientSocketPool::GetInfoAsValue(
+        const std::string& name,
+        const std::string& type,
+        bool include_nested_pools) const {
+  scoped_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   dict->SetString("name", name);
   dict->SetString("type", type);
   dict->SetInteger("handed_out_socket_count", handed_out_socket_count_);
@@ -448,16 +449,11 @@ base::DictionaryValue* WebSocketTransportClientSocketPool::GetInfoAsValue(
   dict->SetInteger("max_socket_count", max_sockets_);
   dict->SetInteger("max_sockets_per_group", max_sockets_);
   dict->SetInteger("pool_generation_number", 0);
-  return dict;
+  return dict.Pass();
 }
 
 TimeDelta WebSocketTransportClientSocketPool::ConnectionTimeout() const {
   return TimeDelta::FromSeconds(kTransportConnectJobTimeoutInSeconds);
-}
-
-ClientSocketPoolHistograms* WebSocketTransportClientSocketPool::histograms()
-    const {
-  return histograms_;
 }
 
 bool WebSocketTransportClientSocketPool::IsStalled() const {
@@ -513,13 +509,10 @@ void WebSocketTransportClientSocketPool::InvokeUserCallbackLater(
     int rv) {
   DCHECK(!pending_callbacks_.count(handle));
   pending_callbacks_.insert(handle);
-  base::MessageLoop::current()->PostTask(
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::Bind(&WebSocketTransportClientSocketPool::InvokeUserCallback,
-                 weak_factory_.GetWeakPtr(),
-                 handle,
-                 callback,
-                 rv));
+                 weak_factory_.GetWeakPtr(), handle, callback, rv));
 }
 
 void WebSocketTransportClientSocketPool::InvokeUserCallback(

@@ -4,7 +4,6 @@
 
 body {
   -webkit-user-select: none;
-  font-family: Noto Sans UI, sans-serif;
   font-size: 84%;
   margin: 0;
 }
@@ -102,10 +101,11 @@ input[type='checkbox']:checked {
 }
 
 .gallery .image-container > .image {
+  left: 0;
   pointer-events: none;
   position: absolute;
   /* Duration and timing function are set in Javascript. */
-  transition-property: -webkit-transform, opacity;
+  transition-property: transform, opacity;
 }
 
 .gallery .image-container > .image[fade] {
@@ -114,7 +114,8 @@ input[type='checkbox']:checked {
 
 /* Full resolution image is invisible unless printing. */
 .gallery .image-container > canvas.fullres {
-  display: none;
+  opacity: 0;
+  position: absolute;
 }
 
 @media print {
@@ -138,9 +139,14 @@ input[type='checkbox']:checked {
 
   /* Print the full resolution image instead. */
   .gallery .image-container > canvas.fullres {
-    display: block !important;
+    height: auto !important;
     max-height: 100%;
     max-width: 100%;
+    opacity: 1 !important;
+    position: static !important;
+    transform: none !important;
+    visibility: visible !important;
+    width: auto !important;
   }
 }
 
@@ -191,7 +197,7 @@ input[type='checkbox']:checked {
 
 /* Hide immediately when entering the slideshow. */
 .gallery[tools][slideshow] > .toolbar {
-  transition-duration: 0;
+  transition-duration: 0ms;
 }
 
 .gallery[tools][locked] > .toolbar {
@@ -295,22 +301,12 @@ input[type='checkbox']:checked {
   background-color: transparent;
   overflow: hidden;
   position: absolute;
-  transition: visibility 0 linear 180ms, all 180ms linear;
+  transition: visibility 0ms linear 180ms, all 180ms linear;
   width: 260px;
 }
 
 .gallery .filename-spacer * {
   color: white;
-}
-
-.gallery .filename-spacer .namebox {
-  height: 22px;
-  top: 15px;
-}
-
-.gallery[editing] .filename-spacer .namebox {
-  height: 21px;
-  top: 5px;
 }
 
 .gallery .filename-spacer .namebox {
@@ -320,12 +316,20 @@ input[type='checkbox']:checked {
   cursor: pointer;
   display: block;
   font-size: 120%;
+  height: 22px;
   outline: none;
   overflow: hidden;
   padding: 0 3px;
   position: absolute;
   text-overflow: ellipsis;
+  top: 15px;
   white-space: nowrap;
+  width: 100%;
+}
+
+.gallery[editing] .filename-spacer .namebox {
+  height: 21px;
+  top: 5px;
 }
 
 .gallery .filename-spacer .namebox[disabled] {
@@ -384,18 +388,18 @@ input[type='checkbox']:checked {
   pointer-events: auto;
 }
 
-.gallery[editing] .options[saved] .overwrite-original {
+.gallery[editing] .overwrite-original[disabled] {
   opacity: 0.5;
 }
 
-.gallery[editing] .options[saved] .overwrite-original,
-.gallery[editing] .options[saved] .overwrite-original > * {
+.gallery[editing] .overwrite-original[disabled],
+.gallery[editing] .overwrite-original[disabled] > * {
   cursor: default;
   pointer-events: none;
 }
 
 .gallery .filename-spacer .saved[highlighted] {
-  -webkit-transform: scaleX(1.1) scaleY(1.1) rotate(0);
+  transform: scaleX(1.1) scaleY(1.1) rotate(0);
   opacity: 1;
 }
 
@@ -441,13 +445,14 @@ input[type='checkbox']:checked {
 .gallery .toolbar .ribbon {
   height: 100%;
   overflow: hidden;
-  transition: opacity 180ms linear, visibility 0 linear;
+  transition: opacity 180ms linear, visibility 0ms linear;
+  white-space: nowrap;
   z-index: 0;
 }
 
 .gallery[editing] .toolbar .ribbon {
   opacity: 0;
-  transition-delay: 0, 180ms;
+  transition-delay: 0ms, 180ms;
   visibility: hidden;
 }
 
@@ -456,7 +461,7 @@ input[type='checkbox']:checked {
   cursor: pointer;
   display: inline-block;
   height: 47px;
-  margin: 2px;
+  margin: 2px 2px 2px 0;
   overflow: hidden;
   transition: all 180ms linear;
   width: 47px;
@@ -511,26 +516,22 @@ input[type='checkbox']:checked {
 /* Editor buttons */
 
 .gallery .edit-bar-spacer {
-  -webkit-box-align: center;
-  -webkit-box-orient: horizontal;
-  -webkit-box-pack: center;
-  display: -webkit-box;
   height: 100%;
-  left: 280px;
   opacity: 0;
-  right: 280px;
-  transition: opacity 180ms linear, visibility 0 linear 180ms;
+  transition: opacity 180ms linear, visibility 0ms linear 180ms;
   visibility: hidden;
-  margin-bottom: -55px;
 }
 
 .gallery .toolbar .edit-main {
-  -webkit-box-orient: horizontal;
-  -webkit-box-pack: center;
+  bottom: 0;
   color: white;
-  display: -webkit-box;
+  display: flex;
   height: 55px;
+  justify-content: center;
+  left: 252px;
   overflow: visible;
+  position: absolute;
+  right: 252px;
 }
 
 .gallery[editing] .edit-bar-spacer {
@@ -581,15 +582,18 @@ input[type='checkbox']:checked {
 
   .gallery .edit-main button,
   .gallery .edit-main button[disabled] {
-      background-position: 5px center;
-    max-width: 60px;
-    min-width: 0;  /* Reset. */
+    background-position: 5px center;
+    flex: 0 1 auto;
+    min-width: 60px;
     padding: 0 10px 0 35px;
     width: auto;
   }
 
   .gallery > .toolbar button span {
-    display: inline;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
 }
@@ -692,7 +696,6 @@ input[type='checkbox']:checked {
   background-image: -webkit-image-set(
       url(../images/100/icon_redo.png) 1x,
       url(../images/200/icon_redo.png) 2x);
-  position: absolute;  /* Exclude from center-packing*/
 }
 
 .gallery > .toolbar button.redo:active,
@@ -1107,15 +1110,15 @@ input[type='checkbox']:checked {
 
 .gallery .spinner {
   background-image:
-      url(../../file_manager/foreground/images/common/spinner.svg);
+      url(chrome://resources/images/throbber.svg);
   background-size: 100%;
-  height: 16px;
+  height: 32px;
   left: 50%;
-  margin-left: -8px;
-  margin-top: -8px;
+  margin-left: -16px;
+  margin-top: -16px;
   position: absolute;
   top: 50%;
-  width: 16px;
+  width: 32px;
 }
 
 .gallery:not([spinner]) .spinner {
@@ -1154,7 +1157,7 @@ input[type='checkbox']:checked {
   top: 0;
 
   /* transition-duration is set in Javascript. */
-  transition-property: -webkit-transform;
+  transition-property: transform;
   transition-timing-function: linear;
 }
 
@@ -1174,7 +1177,7 @@ input[type='checkbox']:checked {
   position: absolute;
   /* Tile's zoom factor is animated on hover. We apply the transform to
   the entire tile so that the image outline is included into the animation. */
-  transition: -webkit-transform 150ms linear;
+  transition: transform 150ms linear;
   z-index: 50;
 }
 
@@ -1338,4 +1341,29 @@ input[type='checkbox']:checked {
       url(chrome://resources/images/apps/topbar_button_close.png) 1x,
       url(chrome://resources/images/2x/apps/topbar_button_close.png) 2x)
       center;
+}
+
+.debug-me .load-target-content-metadata::before,
+.debug-me .load-target-external-metadata::before,
+.debug-me .load-target-file-entry::before {
+  bottom: 0;
+  content: '';
+  display: block;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
+  z-index: 1;
+}
+
+.debug-me .load-target-content-metadata::before {
+  background-color: rgba(255, 0, 0, 0.3);
+}
+
+.debug-me .load-target-external-metadata::before {
+  background-color: rgba(0, 255, 0, 0.3);
+}
+
+.debug-me .load-target-file-entry::before {
+  background-color: rgba(0, 0, 255, 0.3);
 }

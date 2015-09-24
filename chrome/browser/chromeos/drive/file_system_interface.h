@@ -24,22 +24,24 @@ class FileSystemObserver;
 // browser.
 struct SearchResultInfo {
   SearchResultInfo(const base::FilePath& path, bool is_directory)
-      : path(path),
-        is_directory(is_directory) {
-  }
+      : path(path), is_directory(is_directory) {}
 
   base::FilePath path;
   bool is_directory;
 };
 
+// File path and its MD5 hash obtained from drive API.
+struct HashAndFilePath {
+  std::string hash;
+  base::FilePath path;
+};
+
 // Struct to represent a search result for SearchMetadata().
 struct MetadataSearchResult {
-  MetadataSearchResult(const base::FilePath& in_path,
+  MetadataSearchResult(const base::FilePath& path,
                        bool is_directory,
-                       const std::string& in_highlighted_base_name)
-      : path(in_path),
-        is_directory(is_directory),
-        highlighted_base_name(in_highlighted_base_name) {}
+                       const std::string& highlighted_base_name,
+                       const std::string& md5);
 
   // The two members are used to create FileEntry object.
   base::FilePath path;
@@ -55,6 +57,9 @@ struct MetadataSearchResult {
   //
   // Why <b> instead of <strong>? Because <b> is shorter.
   std::string highlighted_base_name;
+
+  // MD5 hash of the file.
+  std::string md5;
 };
 
 typedef std::vector<MetadataSearchResult> MetadataSearchResultVector;
@@ -96,6 +101,11 @@ typedef base::Callback<void(
     FileError error,
     scoped_ptr<MetadataSearchResultVector> result)> SearchMetadataCallback;
 
+// Callback for SearchByHashesCallback. On success, vector contains hash and
+// corresponding files. The vector can include multiple entries for one hash.
+typedef base::Callback<void(FileError, const std::vector<HashAndFilePath>&)>
+    SearchByHashesCallback;
+
 // Used to open files from the file system. |file_path| is the path on the local
 // file system for the opened file.
 // If |close_callback| is not null, it must be called when the
@@ -128,6 +138,9 @@ typedef base::Callback<void(FileError error,
 // Used to get file path.
 typedef base::Callback<void(FileError error, const base::FilePath& file_path)>
     GetFilePathCallback;
+
+// Used to free space.
+typedef base::Callback<void(bool)> FreeDiskSpaceCallback;
 
 // The mode of opening a file.
 enum OpenMode {
@@ -382,6 +395,13 @@ class FileSystemInterface {
                               int at_most_num_matches,
                               const SearchMetadataCallback& callback) = 0;
 
+  // Searches the local resource metadata, and returns the entries that have the
+  // given |hashes|. The list of resource entries are passed to |callback|. The
+  // item of the list can be null if the corresponding file is not found.
+  // |callback| must not be null.
+  virtual void SearchByHashes(const std::set<std::string>& hashes,
+                              const SearchByHashesCallback& callback) = 0;
+
   // Fetches the user's Account Metadata to find out current quota information
   // and returns it to the callback.
   virtual void GetAvailableSpace(const GetAvailableSpaceCallback& callback) = 0;
@@ -419,12 +439,26 @@ class FileSystemInterface {
                              google_apis::drive::PermissionRole role,
                              const FileOperationCallback& callback) = 0;
 
+  // Sets the |key| property on the file or directory at |drive_file_path| with
+  // the specified |visibility|. If already exists, then it will be overwritten.
+  virtual void SetProperty(const base::FilePath& drive_file_path,
+                           google_apis::drive::Property::Visibility visibility,
+                           const std::string& key,
+                           const std::string& value,
+                           const FileOperationCallback& callback) = 0;
+
   // Resets local data.
   virtual void Reset(const FileOperationCallback& callback) = 0;
 
   // Finds a path of an entry (a file or a directory) by |resource_id|.
   virtual void GetPathFromResourceId(const std::string& resource_id,
                                      const GetFilePathCallback& callback) = 0;
+
+  // Free drive caches if needed to secure given available spaces. |callback|
+  // takes whether given bytes are available or not.
+  virtual void FreeDiskSpaceIfNeededFor(
+      int64 num_bytes,
+      const FreeDiskSpaceCallback& callback) = 0;
 };
 
 }  // namespace drive

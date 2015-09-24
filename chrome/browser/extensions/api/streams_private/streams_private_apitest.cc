@@ -11,7 +11,6 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/extensions/api/streams_private.h"
-#include "chrome/common/extensions/manifest_handlers/mime_types_handler.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/test_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
@@ -23,6 +22,7 @@
 #include "content/public/test/download_test_observer.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_system.h"
+#include "extensions/common/manifest_handlers/mime_types_handler.h"
 #include "extensions/test/result_catcher.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -181,7 +181,8 @@ class StreamsPrivateApiTest : public ExtensionApiTest {
     info.expected_content_size = 20;
 
     scoped_ptr<Event> event(
-        new Event(streams_private::OnExecuteMimeTypeHandler::kEventName,
+        new Event(extensions::events::UNKNOWN,
+                  streams_private::OnExecuteMimeTypeHandler::kEventName,
                   streams_private::OnExecuteMimeTypeHandler::Create(info)));
 
     extensions::EventRouter::Get(browser()->profile())
@@ -244,7 +245,8 @@ class StreamsPrivateApiTest : public ExtensionApiTest {
 IN_PROC_BROWSER_TEST_F(StreamsPrivateApiTest, Navigate) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -274,7 +276,8 @@ IN_PROC_BROWSER_TEST_F(StreamsPrivateApiTest, Navigate) {
 IN_PROC_BROWSER_TEST_F(StreamsPrivateApiTest, FileURL) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -304,7 +307,8 @@ IN_PROC_BROWSER_TEST_F(StreamsPrivateApiTest, FileURL) {
 IN_PROC_BROWSER_TEST_F(StreamsPrivateApiTest, NavigateCrossSite) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -313,10 +317,10 @@ IN_PROC_BROWSER_TEST_F(StreamsPrivateApiTest, NavigateCrossSite) {
   ResultCatcher catcher;
 
   // Navigate to a URL on a different hostname.
-  std::string initial_host = "www.example.com";
-  host_resolver()->AddRule(initial_host, "127.0.0.1");
+  static const char kInitialHost[] = "www.example.com";
+  host_resolver()->AddRule(kInitialHost, "127.0.0.1");
   GURL::Replacements replacements;
-  replacements.SetHostStr(initial_host);
+  replacements.SetHostStr(kInitialHost);
   GURL initial_url =
       test_server_->GetURL("/index.html").ReplaceComponents(replacements);
   ui_test_utils::NavigateToURL(browser(), initial_url);
@@ -434,7 +438,8 @@ IN_PROC_BROWSER_TEST_F(StreamsPrivateApiTest, DirectDownload) {
 IN_PROC_BROWSER_TEST_F(StreamsPrivateApiTest, Headers) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -463,7 +468,8 @@ IN_PROC_BROWSER_TEST_F(StreamsPrivateApiTest, Headers) {
 IN_PROC_BROWSER_TEST_F(StreamsPrivateApiTest, Abort) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 

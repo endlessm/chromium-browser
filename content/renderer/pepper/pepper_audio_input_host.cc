@@ -6,6 +6,7 @@
 
 #include "base/logging.h"
 #include "build/build_config.h"
+#include "content/common/pepper_file_util.h"
 #include "content/renderer/pepper/pepper_media_device_manager.h"
 #include "content/renderer/pepper/pepper_platform_audio_input.h"
 #include "content/renderer/pepper/pepper_plugin_instance_impl.h"
@@ -24,17 +25,6 @@ namespace {
 
 base::PlatformFile ConvertSyncSocketHandle(const base::SyncSocket& socket) {
   return socket.handle();
-}
-
-base::PlatformFile ConvertSharedMemoryHandle(
-    const base::SharedMemory& shared_memory) {
-#if defined(OS_POSIX)
-  return shared_memory.handle().fd;
-#elif defined(OS_WIN)
-  return shared_memory.handle();
-#else
-#error "Platform not supported."
-#endif
 }
 
 }  // namespace
@@ -182,9 +172,10 @@ int32_t PepperAudioInputHost::GetRemoteHandles(
   if (*remote_socket_handle == IPC::InvalidPlatformFileForTransit())
     return PP_ERROR_FAILED;
 
-  *remote_shared_memory_handle = renderer_ppapi_host_->ShareHandleWithRemote(
-      ConvertSharedMemoryHandle(shared_memory), false);
-  if (*remote_shared_memory_handle == IPC::InvalidPlatformFileForTransit())
+  *remote_shared_memory_handle =
+      renderer_ppapi_host_->ShareSharedMemoryHandleWithRemote(
+          shared_memory.handle());
+  if (!base::SharedMemory::IsHandleValid(*remote_shared_memory_handle))
     return PP_ERROR_FAILED;
 
   return PP_OK;

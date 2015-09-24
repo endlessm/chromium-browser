@@ -17,10 +17,10 @@ class CmaTestSuite : public base::TestSuite {
  public:
   // Note: the base class constructor creates an AtExitManager.
   CmaTestSuite(int argc, char** argv) : TestSuite(argc, argv) {}
-  virtual ~CmaTestSuite() {}
+  ~CmaTestSuite() override {}
 
  protected:
-  virtual void Initialize() override;
+  void Initialize() override;
 };
 
 void CmaTestSuite::Initialize() {
@@ -33,7 +33,7 @@ void CmaTestSuite::Initialize() {
 
   // Initialize the FFMpeg library.
   // Note: at this time, AtExitManager is already present.
-  media::InitializeMediaLibraryForTesting();
+  media::InitializeMediaLibrary();
 }
 
 int main(int argc, char** argv) {

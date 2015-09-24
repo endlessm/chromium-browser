@@ -31,8 +31,9 @@
 #include "config.h"
 #include "platform/graphics/GeneratedImage.h"
 
-#include "platform/geometry/FloatSize.h"
-
+#include "platform/geometry/FloatRect.h"
+#include "platform/graphics/paint/SkPictureBuilder.h"
+#include "third_party/skia/include/core/SkPicture.h"
 
 namespace blink {
 
@@ -40,6 +41,35 @@ void GeneratedImage::computeIntrinsicDimensions(Length& intrinsicWidth, Length& 
 {
     Image::computeIntrinsicDimensions(intrinsicWidth, intrinsicHeight, intrinsicRatio);
     intrinsicRatio = FloatSize();
+}
+
+void GeneratedImage::drawPattern(GraphicsContext* destContext, const FloatRect& srcRect, const FloatSize& scale,
+    const FloatPoint& phase, SkXfermode::Mode compositeOp, const FloatRect& destRect,
+    const IntSize& repeatSpacing)
+{
+    FloatRect tileRect = srcRect;
+    tileRect.expand(repeatSpacing);
+
+    SkPictureBuilder builder(tileRect, nullptr, destContext);
+    if (RuntimeEnabledFeatures::slimmingPaintEnabled())
+        builder.context().beginRecording(tileRect);
+    drawTile(&builder.context(), srcRect);
+    RefPtr<const SkPicture> tilePicture = builder.endRecording();
+
+    AffineTransform patternTransform;
+    patternTransform.translate(phase.x(), phase.y());
+    patternTransform.scale(scale.width(), scale.height());
+    patternTransform.translate(tileRect.x(), tileRect.y());
+
+    RefPtr<Pattern> picturePattern = Pattern::createPicturePattern(tilePicture);
+    picturePattern->setPatternSpaceTransform(patternTransform);
+
+    SkPaint fillPaint = destContext->fillPaint();
+    fillPaint.setShader(picturePattern->shader());
+    fillPaint.setColor(SK_ColorBLACK);
+    fillPaint.setXfermodeMode(compositeOp);
+
+    destContext->drawRect(destRect, fillPaint);
 }
 
 } // namespace blink

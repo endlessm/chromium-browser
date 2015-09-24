@@ -30,7 +30,7 @@
 #include "modules/indexeddb/IDBFactory.h"
 
 #include "bindings/core/v8/ExceptionState.h"
-#include "bindings/modules/v8/IDBBindingUtilities.h"
+#include "bindings/modules/v8/V8BindingForModules.h"
 #include "core/dom/Document.h"
 #include "core/dom/ExceptionCode.h"
 #include "modules/indexeddb/IDBDatabase.h"
@@ -44,7 +44,7 @@
 #include "platform/weborigin/DatabaseIdentifier.h"
 #include "platform/weborigin/SecurityOrigin.h"
 #include "public/platform/Platform.h"
-#include "public/platform/WebIDBFactory.h"
+#include "public/platform/modules/indexeddb/WebIDBFactory.h"
 
 namespace blink {
 
@@ -55,7 +55,7 @@ IDBFactory::IDBFactory(IndexedDBClient* permissionClient)
 {
 }
 
-void IDBFactory::trace(Visitor* visitor)
+DEFINE_TRACE(IDBFactory)
 {
     visitor->trace(m_permissionClient);
 }
@@ -77,10 +77,10 @@ IDBRequest* IDBFactory::getDatabaseNames(ScriptState* scriptState, ExceptionStat
         return nullptr;
     if (!scriptState->executionContext()->securityOrigin()->canAccessDatabase()) {
         exceptionState.throwSecurityError("access to the Indexed Database API is denied in this context.");
-        return 0;
+        return nullptr;
     }
 
-    IDBRequest* request = IDBRequest::create(scriptState, IDBAny::createNull(), 0);
+    IDBRequest* request = IDBRequest::create(scriptState, IDBAny::createNull(), nullptr);
 
     if (!m_permissionClient->allowIndexedDB(scriptState->executionContext(), "Database Listing")) {
         request->onError(DOMError::create(UnknownError, permissionDeniedErrorMessage));
@@ -96,7 +96,7 @@ IDBOpenDBRequest* IDBFactory::open(ScriptState* scriptState, const String& name,
     IDB_TRACE("IDBFactory::open");
     if (!version) {
         exceptionState.throwTypeError("The version provided must not be 0.");
-        return 0;
+        return nullptr;
     }
     return openInternal(scriptState, name, version, exceptionState);
 }
@@ -105,15 +105,11 @@ IDBOpenDBRequest* IDBFactory::openInternal(ScriptState* scriptState, const Strin
 {
     Platform::current()->histogramEnumeration("WebCore.IndexedDB.FrontEndAPICalls", IDBOpenCall, IDBMethodsMax);
     ASSERT(version >= 1 || version == IDBDatabaseMetadata::NoIntVersion);
-    if (name.isNull()) {
-        exceptionState.throwTypeError("The name provided must not be empty.");
-        return 0;
-    }
     if (!isContextValid(scriptState->executionContext()))
         return nullptr;
     if (!scriptState->executionContext()->securityOrigin()->canAccessDatabase()) {
         exceptionState.throwSecurityError("access to the Indexed Database API is denied in this context.");
-        return 0;
+        return nullptr;
     }
 
     IDBDatabaseCallbacks* databaseCallbacks = IDBDatabaseCallbacks::create();
@@ -139,15 +135,11 @@ IDBOpenDBRequest* IDBFactory::deleteDatabase(ScriptState* scriptState, const Str
 {
     IDB_TRACE("IDBFactory::deleteDatabase");
     Platform::current()->histogramEnumeration("WebCore.IndexedDB.FrontEndAPICalls", IDBDeleteDatabaseCall, IDBMethodsMax);
-    if (name.isNull()) {
-        exceptionState.throwTypeError("The name provided must not be empty.");
-        return 0;
-    }
     if (!isContextValid(scriptState->executionContext()))
         return nullptr;
     if (!scriptState->executionContext()->securityOrigin()->canAccessDatabase()) {
         exceptionState.throwSecurityError("access to the Indexed Database API is denied in this context.");
-        return 0;
+        return nullptr;
     }
 
     IDBOpenDBRequest* request = IDBOpenDBRequest::create(scriptState, nullptr, 0, IDBDatabaseMetadata::DefaultIntVersion);
@@ -163,13 +155,20 @@ IDBOpenDBRequest* IDBFactory::deleteDatabase(ScriptState* scriptState, const Str
 
 short IDBFactory::cmp(ScriptState* scriptState, const ScriptValue& firstValue, const ScriptValue& secondValue, ExceptionState& exceptionState)
 {
-    IDBKey* first = scriptValueToIDBKey(scriptState->isolate(), firstValue);
-    IDBKey* second = scriptValueToIDBKey(scriptState->isolate(), secondValue);
-
+    IDBKey* first = ScriptValue::to<IDBKey*>(scriptState->isolate(), firstValue, exceptionState);
+    if (exceptionState.hadException())
+        return 0;
     ASSERT(first);
-    ASSERT(second);
+    if (!first->isValid()) {
+        exceptionState.throwDOMException(DataError, IDBDatabase::notValidKeyErrorMessage);
+        return 0;
+    }
 
-    if (!first->isValid() || !second->isValid()) {
+    IDBKey* second = ScriptValue::to<IDBKey*>(scriptState->isolate(), secondValue, exceptionState);
+    if (exceptionState.hadException())
+        return 0;
+    ASSERT(second);
+    if (!second->isValid()) {
         exceptionState.throwDOMException(DataError, IDBDatabase::notValidKeyErrorMessage);
         return 0;
     }

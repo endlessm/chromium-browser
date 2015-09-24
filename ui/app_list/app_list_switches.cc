@@ -13,9 +13,6 @@ namespace switches {
 // added to the experimental app launcher.
 const char kCustomLauncherPage[] = "custom-launcher-page";
 
-// If set, the app info context menu item is not available in the app list UI.
-const char kDisableAppInfo[] = "disable-app-list-app-info";
-
 // If set, the app list will not be dismissed when it loses focus. This is
 // useful when testing the app list or a custom launcher page. It can still be
 // dismissed via the other methods (like the Esc key).
@@ -24,31 +21,55 @@ const char kDisableAppListDismissOnBlur[] = "disable-app-list-dismiss-on-blur";
 // If set, Drive apps will not be shown side-by-side with Chrome apps.
 const char kDisableDriveAppsInAppList[] = "disable-drive-apps-in-app-list";
 
-// Disables syncing of the app list independent of extensions.
-const char kDisableSyncAppList[] = "disable-sync-app-list";
+// If set, the app list will be enabled as if enabled from CWS.
+const char kEnableAppList[] = "enable-app-list";
 
 // If set, the app list will be centered and wide instead of tall.
 const char kEnableCenteredAppList[] = "enable-centered-app-list";
 
-// If set, the experimental app list will be used. Implies
+// Enable/disable the experimental app list. If enabled, implies
 // --enable-centered-app-list.
 const char kEnableExperimentalAppList[] = "enable-experimental-app-list";
+const char kDisableExperimentalAppList[] = "disable-experimental-app-list";
 
-// Enables syncing of the app list independent of extensions.
+// Enable/disable syncing of the app list independent of extensions.
 const char kEnableSyncAppList[] = "enable-sync-app-list";
+const char kDisableSyncAppList[] = "disable-sync-app-list";
+
+// Enable/disable drive search in chrome launcher.
+const char kEnableDriveSearchInChromeLauncher[] =
+    "enable-drive-search-in-app-launcher";
+const char kDisableDriveSearchInChromeLauncher[] =
+    "disable-drive-search-in-app-launcher";
+
+// Enable/disable the new "blended" algorithm in app_list::Mixer. This is just
+// forcing the AppListMixer/Blended field trial.
+const char kEnableNewAppListMixer[] = "enable-new-app-list-mixer";
+const char kDisableNewAppListMixer[] = "disable-new-app-list-mixer";
+
+// If set, the app list will forget it has been installed on startup. Note this
+// doesn't prevent the app list from running, it just makes Chrome think the app
+// list hasn't been enabled (as in kEnableAppList) yet.
+const char kResetAppListInstallState[] = "reset-app-list-install-state";
+
+#if defined(OS_MACOSX)
+// Enables use of the toolkit-views app list on Mac.
+const char kEnableMacViewsAppList[] = "enable-mac-views-app-list";
+#endif
 
 bool IsAppListSyncEnabled() {
-#if defined(TOOLKIT_VIEWS)
-  return !CommandLine::ForCurrentProcess()->HasSwitch(kDisableSyncAppList);
-#else
-  return CommandLine::ForCurrentProcess()->HasSwitch(kEnableSyncAppList);
+#if defined(OS_MACOSX)
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(kEnableSyncAppList))
+    return true;
+
+  if (!IsMacViewsAppListEnabled())
+    return false;
 #endif
+  return !base::CommandLine::ForCurrentProcess()->HasSwitch(
+      kDisableSyncAppList);
 }
 
 bool IsFolderUIEnabled() {
-#if !defined(TOOLKIT_VIEWS)
-  return false;  // Folder UI not implemented for Cocoa.
-#endif
   // Folder UI is available only when AppList sync is enabled, and should
   // not be disabled separately.
   return IsAppListSyncEnabled();
@@ -63,37 +84,67 @@ bool IsVoiceSearchEnabled() {
 #endif
 }
 
-bool IsAppInfoEnabled() {
-#if defined(TOOLKIT_VIEWS)
-  return !CommandLine::ForCurrentProcess()->HasSwitch(kDisableAppInfo);
+bool IsExperimentalAppListEnabled() {
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          kEnableExperimentalAppList))
+    return true;
+
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          kDisableExperimentalAppList))
+    return false;
+
+#if defined(OS_CHROMEOS)
+  return true;
 #else
   return false;
 #endif
 }
 
-bool IsExperimentalAppListEnabled() {
-  return CommandLine::ForCurrentProcess()->HasSwitch(
-      kEnableExperimentalAppList);
-}
-
 bool IsCenteredAppListEnabled() {
-  return CommandLine::ForCurrentProcess()->HasSwitch(kEnableCenteredAppList) ||
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+             kEnableCenteredAppList) ||
          IsExperimentalAppListEnabled();
 }
 
 bool ShouldNotDismissOnBlur() {
-  return CommandLine::ForCurrentProcess()->HasSwitch(
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
       kDisableAppListDismissOnBlur);
 }
 
 bool IsDriveAppsInAppListEnabled() {
 #if defined(OS_CHROMEOS)
-  return !CommandLine::ForCurrentProcess()->HasSwitch(
+  return !base::CommandLine::ForCurrentProcess()->HasSwitch(
       kDisableDriveAppsInAppList);
 #else
   return false;
 #endif
 }
+
+bool IsDriveSearchInChromeLauncherEnabled() {
+#if defined(OS_CHROMEOS)
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          kEnableDriveSearchInChromeLauncher))
+    return true;
+
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          kDisableDriveSearchInChromeLauncher))
+    return false;
+
+  return false;
+#else
+  return false;
+#endif
+}
+
+#if defined(OS_MACOSX)
+bool IsMacViewsAppListEnabled() {
+#if defined(TOOLKIT_VIEWS)
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      kEnableMacViewsAppList);
+#endif
+  return false;
+}
+#endif  // defined(OS_MACOSX)
 
 }  // namespace switches
 }  // namespace app_list

@@ -9,6 +9,7 @@
 #include "chrome/browser/ui/passwords/password_ui_view.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/password_manager/core/browser/mock_password_store.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -22,12 +23,13 @@ class MockPasswordUIView : public PasswordUIView {
       : profile_(profile), password_manager_presenter_(this) {
     password_manager_presenter_.Initialize();
   }
-  virtual ~MockPasswordUIView() {}
-  virtual Profile* GetProfile() override;
+  ~MockPasswordUIView() override {}
+  Profile* GetProfile() override;
 #if !defined(OS_ANDROID)
-  virtual gfx::NativeWindow GetNativeWindow() const override;
+  gfx::NativeWindow GetNativeWindow() const override;
 #endif
-  MOCK_METHOD2(ShowPassword, void(size_t, const base::string16&));
+  MOCK_METHOD4(ShowPassword, void(
+      size_t, const std::string&, const std::string&, const base::string16&));
   MOCK_METHOD2(SetPasswordList,
                void(const ScopedVector<autofill::PasswordForm>&, bool));
   MOCK_METHOD1(SetPasswordExceptionList,
@@ -66,6 +68,7 @@ class PasswordManagerPresenterTest : public testing::Test {
   MockPasswordUIView* GetUIController() { return mock_controller_.get(); }
 
  private:
+  content::TestBrowserThreadBundle thread_bundle_;
   TestingProfile profile_;
   scoped_ptr<MockPasswordUIView> mock_controller_;
 

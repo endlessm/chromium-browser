@@ -33,40 +33,40 @@
 
 #include "core/dom/Position.h"
 #include "core/editing/VisiblePosition.h"
-#include "core/rendering/RenderLayer.h"
-#include "core/rendering/compositing/CompositedSelectionBound.h"
+#include "core/layout/compositing/CompositedSelectionBound.h"
+#include "core/paint/DeprecatedPaintLayer.h"
 
 namespace blink {
 
-static inline RenderObject* rendererFromPosition(const Position& position)
+static inline LayoutObject* layoutObjectFromPosition(const Position& position)
 {
     ASSERT(position.isNotNull());
-    Node* rendererNode = nullptr;
+    Node* layoutObjectNode = nullptr;
     switch (position.anchorType()) {
-    case Position::PositionIsOffsetInAnchor:
-        rendererNode = position.computeNodeAfterPosition();
-        if (!rendererNode || !rendererNode->renderer())
-            rendererNode = position.anchorNode()->lastChild();
+    case PositionAnchorType::OffsetInAnchor:
+        layoutObjectNode = position.computeNodeAfterPosition();
+        if (!layoutObjectNode || !layoutObjectNode->layoutObject())
+            layoutObjectNode = position.anchorNode()->lastChild();
         break;
 
-    case Position::PositionIsBeforeAnchor:
-    case Position::PositionIsAfterAnchor:
+    case PositionAnchorType::BeforeAnchor:
+    case PositionAnchorType::AfterAnchor:
         break;
 
-    case Position::PositionIsBeforeChildren:
-        rendererNode = position.anchorNode()->firstChild();
+    case PositionAnchorType::BeforeChildren:
+        layoutObjectNode = position.anchorNode()->firstChild();
         break;
-    case Position::PositionIsAfterChildren:
-        rendererNode = position.anchorNode()->lastChild();
+    case PositionAnchorType::AfterChildren:
+        layoutObjectNode = position.anchorNode()->lastChild();
         break;
     }
-    if (!rendererNode || !rendererNode->renderer())
-        rendererNode = position.anchorNode();
-    return rendererNode->renderer();
+    if (!layoutObjectNode || !layoutObjectNode->layoutObject())
+        layoutObjectNode = position.anchorNode();
+    return layoutObjectNode->layoutObject();
 }
 
 RenderedPosition::RenderedPosition(const VisiblePosition& position)
-    : m_renderer(nullptr)
+    : m_layoutObject(nullptr)
     , m_inlineBox(nullptr)
     , m_offset(0)
     , m_prevLeafChild(uncachedInlineBox())
@@ -74,15 +74,17 @@ RenderedPosition::RenderedPosition(const VisiblePosition& position)
 {
     if (position.isNull())
         return;
-    position.getInlineBoxAndOffset(m_inlineBox, m_offset);
+    InlineBoxPosition boxPosition = position.computeInlineBoxPosition();
+    m_inlineBox = boxPosition.inlineBox;
+    m_offset = boxPosition.offsetInBox;
     if (m_inlineBox)
-        m_renderer = &m_inlineBox->renderer();
+        m_layoutObject = &m_inlineBox->layoutObject();
     else
-        m_renderer = rendererFromPosition(position.deepEquivalent());
+        m_layoutObject = layoutObjectFromPosition(position.deepEquivalent());
 }
 
 RenderedPosition::RenderedPosition(const Position& position, EAffinity affinity)
-    : m_renderer(nullptr)
+    : m_layoutObject(nullptr)
     , m_inlineBox(nullptr)
     , m_offset(0)
     , m_prevLeafChild(uncachedInlineBox())
@@ -90,11 +92,18 @@ RenderedPosition::RenderedPosition(const Position& position, EAffinity affinity)
 {
     if (position.isNull())
         return;
-    position.getInlineBoxAndOffset(affinity, m_inlineBox, m_offset);
+    InlineBoxPosition boxPosition = position.computeInlineBoxPosition(affinity);
+    m_inlineBox = boxPosition.inlineBox;
+    m_offset = boxPosition.offsetInBox;
     if (m_inlineBox)
-        m_renderer = &m_inlineBox->renderer();
+        m_layoutObject = &m_inlineBox->layoutObject();
     else
-        m_renderer = rendererFromPosition(position);
+        m_layoutObject = layoutObjectFromPosition(position);
+}
+
+RenderedPosition::RenderedPosition(const PositionInComposedTree& position, EAffinity affinity)
+    : RenderedPosition(toPositionInDOMTree(position), affinity)
+{
 }
 
 InlineBox* RenderedPosition::prevLeafChild() const
@@ -113,7 +122,7 @@ InlineBox* RenderedPosition::nextLeafChild() const
 
 bool RenderedPosition::isEquivalent(const RenderedPosition& other) const
 {
-    return (m_renderer == other.m_renderer && m_inlineBox == other.m_inlineBox && m_offset == other.m_offset)
+    return (m_layoutObject == other.m_layoutObject && m_inlineBox == other.m_inlineBox && m_offset == other.m_offset)
         || (atLeftmostOffsetInBox() && other.atRightmostOffsetInBox() && prevLeafChild() == other.m_inlineBox)
         || (atRightmostOffsetInBox() && other.atLeftmostOffsetInBox() && nextLeafChild() == other.m_inlineBox);
 }
@@ -139,7 +148,7 @@ RenderedPosition RenderedPosition::leftBoundaryOfBidiRun(unsigned char bidiLevel
     do {
         InlineBox* prev = box->prevLeafChildIgnoringLineBreak();
         if (!prev || prev->bidiLevel() < bidiLevelOfRun)
-            return RenderedPosition(&box->renderer(), box, box->caretLeftmostOffset());
+            return RenderedPosition(&box->layoutObject(), box, box->caretLeftmostOffset());
         box = prev;
     } while (box);
 
@@ -156,7 +165,7 @@ RenderedPosition RenderedPosition::rightBoundaryOfBidiRun(unsigned char bidiLeve
     do {
         InlineBox* next = box->nextLeafChildIgnoringLineBreak();
         if (!next || next->bidiLevel() < bidiLevelOfRun)
-            return RenderedPosition(&box->renderer(), box, box->caretRightmostOffset());
+            return RenderedPosition(&box->layoutObject(), box, box->caretRightmostOffset());
         box = next;
     } while (box);
 
@@ -209,9 +218,9 @@ Position RenderedPosition::positionAtLeftBoundaryOfBiDiRun() const
     ASSERT(atLeftBoundaryOfBidiRun());
 
     if (atLeftmostOffsetInBox())
-        return createLegacyEditingPosition(m_renderer->node(), m_offset);
+        return createLegacyEditingPosition(m_layoutObject->node(), m_offset);
 
-    return createLegacyEditingPosition(nextLeafChild()->renderer().node(), nextLeafChild()->caretLeftmostOffset());
+    return createLegacyEditingPosition(nextLeafChild()->layoutObject().node(), nextLeafChild()->caretLeftmostOffset());
 }
 
 Position RenderedPosition::positionAtRightBoundaryOfBiDiRun() const
@@ -219,9 +228,9 @@ Position RenderedPosition::positionAtRightBoundaryOfBiDiRun() const
     ASSERT(atRightBoundaryOfBidiRun());
 
     if (atRightmostOffsetInBox())
-        return createLegacyEditingPosition(m_renderer->node(), m_offset);
+        return createLegacyEditingPosition(m_layoutObject->node(), m_offset);
 
-    return createLegacyEditingPosition(prevLeafChild()->renderer().node(), prevLeafChild()->caretRightmostOffset());
+    return createLegacyEditingPosition(prevLeafChild()->layoutObject().node(), prevLeafChild()->caretRightmostOffset());
 }
 
 IntRect RenderedPosition::absoluteRect(LayoutUnit* extraWidthToEndOfLine) const
@@ -229,8 +238,8 @@ IntRect RenderedPosition::absoluteRect(LayoutUnit* extraWidthToEndOfLine) const
     if (isNull())
         return IntRect();
 
-    IntRect localRect = pixelSnappedIntRect(m_renderer->localCaretRect(m_inlineBox, m_offset, extraWidthToEndOfLine));
-    return localRect == IntRect() ? IntRect() : m_renderer->localToAbsoluteQuad(FloatRect(localRect)).enclosingBoundingBox();
+    IntRect localRect = pixelSnappedIntRect(m_layoutObject->localCaretRect(m_inlineBox, m_offset, extraWidthToEndOfLine));
+    return localRect == IntRect() ? IntRect() : m_layoutObject->localToAbsoluteQuad(FloatRect(localRect)).enclosingBoundingBox();
 }
 
 void RenderedPosition::positionInGraphicsLayerBacking(CompositedSelectionBound& bound) const
@@ -241,17 +250,17 @@ void RenderedPosition::positionInGraphicsLayerBacking(CompositedSelectionBound& 
     if (isNull())
         return;
 
-    LayoutRect rect = m_renderer->localCaretRect(m_inlineBox, m_offset);
-    RenderLayer* layer = nullptr;
-    bound.edgeTopInLayer = m_renderer->localToInvalidationBackingPoint(rect.minXMinYCorner(), &layer);
-    bound.edgeBottomInLayer = m_renderer->localToInvalidationBackingPoint(rect.minXMaxYCorner(), nullptr);
-    bound.layer = layer->graphicsLayerBacking();
+    LayoutRect rect = m_layoutObject->localCaretRect(m_inlineBox, m_offset);
+    DeprecatedPaintLayer* layer = nullptr;
+    bound.edgeTopInLayer = m_layoutObject->localToInvalidationBackingPoint(rect.minXMinYCorner(), &layer);
+    bound.edgeBottomInLayer = m_layoutObject->localToInvalidationBackingPoint(rect.minXMaxYCorner(), nullptr);
+    bound.layer = layer ? layer->graphicsLayerBacking() : nullptr;
 }
 
-bool renderObjectContainsPosition(RenderObject* target, const Position& position)
+bool layoutObjectContainsPosition(LayoutObject* target, const Position& position)
 {
-    for (RenderObject* renderer = rendererFromPosition(position); renderer && renderer->node(); renderer = renderer->parent()) {
-        if (renderer == target)
+    for (LayoutObject* layoutObject = layoutObjectFromPosition(position); layoutObject && layoutObject->node(); layoutObject = layoutObject->parent()) {
+        if (layoutObject == target)
             return true;
     }
     return false;

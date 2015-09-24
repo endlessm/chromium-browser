@@ -18,26 +18,24 @@ namespace base {
 
 SharedMemory::SharedMemory()
     : mapped_file_(-1),
-      inode_(0),
       mapped_size_(0),
       memory_(NULL),
       read_only_(false),
       requested_size_(0) {
 }
 
-SharedMemory::SharedMemory(SharedMemoryHandle handle, bool read_only)
+SharedMemory::SharedMemory(const SharedMemoryHandle& handle, bool read_only)
     : mapped_file_(handle.fd),
-      inode_(0),
       mapped_size_(0),
       memory_(NULL),
       read_only_(read_only),
       requested_size_(0) {
 }
 
-SharedMemory::SharedMemory(SharedMemoryHandle handle, bool read_only,
+SharedMemory::SharedMemory(const SharedMemoryHandle& handle,
+                           bool read_only,
                            ProcessHandle process)
     : mapped_file_(handle.fd),
-      inode_(0),
       mapped_size_(0),
       memory_(NULL),
       read_only_(read_only),
@@ -46,6 +44,7 @@ SharedMemory::SharedMemory(SharedMemoryHandle handle, bool read_only,
 }
 
 SharedMemory::~SharedMemory() {
+  Unmap();
   Close();
 }
 
@@ -64,6 +63,15 @@ void SharedMemory::CloseHandle(const SharedMemoryHandle& handle) {
   DCHECK_GE(handle.fd, 0);
   if (close(handle.fd) < 0)
     DPLOG(ERROR) << "close";
+}
+
+// static
+SharedMemoryHandle SharedMemory::DuplicateHandle(
+    const SharedMemoryHandle& handle) {
+  int duped_handle = HANDLE_EINTR(dup(handle.fd));
+  if (duped_handle < 0)
+    return base::SharedMemory::NULLHandle();
+  return base::FileDescriptor(duped_handle, true);
 }
 
 bool SharedMemory::CreateAndMapAnonymous(size_t size) {
@@ -125,20 +133,11 @@ SharedMemoryHandle SharedMemory::handle() const {
 }
 
 void SharedMemory::Close() {
-  Unmap();
   if (mapped_file_ > 0) {
     if (close(mapped_file_) < 0)
       DPLOG(ERROR) << "close";
     mapped_file_ = -1;
   }
-}
-
-void SharedMemory::LockDeprecated() {
-  NOTIMPLEMENTED();
-}
-
-void SharedMemory::UnlockDeprecated() {
-  NOTIMPLEMENTED();
 }
 
 bool SharedMemory::ShareToProcessCommon(ProcessHandle process,
@@ -159,8 +158,10 @@ bool SharedMemory::ShareToProcessCommon(ProcessHandle process,
   new_handle->fd = new_fd;
   new_handle->auto_close = true;
 
-  if (close_self)
+  if (close_self) {
+    Unmap();
     Close();
+  }
   return true;
 }
 

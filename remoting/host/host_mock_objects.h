@@ -8,6 +8,7 @@
 #include <string>
 
 #include "net/base/ip_endpoint.h"
+#include "remoting/codec/video_encoder.h"
 #include "remoting/host/chromoting_host_context.h"
 #include "remoting/host/client_session.h"
 #include "remoting/host/client_session_control.h"
@@ -19,6 +20,7 @@
 #include "remoting/host/screen_resolution.h"
 #include "remoting/proto/control.pb.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "third_party/webrtc/modules/desktop_capture/desktop_frame.h"
 #include "third_party/webrtc/modules/desktop_capture/mouse_cursor_monitor.h"
 
 namespace base {
@@ -30,7 +32,7 @@ namespace remoting {
 class MockDesktopEnvironment : public DesktopEnvironment {
  public:
   MockDesktopEnvironment();
-  virtual ~MockDesktopEnvironment();
+  ~MockDesktopEnvironment() override;
 
   MOCK_METHOD0(CreateAudioCapturerPtr, AudioCapturer*());
   MOCK_METHOD0(CreateInputInjectorPtr, InputInjector*());
@@ -43,20 +45,20 @@ class MockDesktopEnvironment : public DesktopEnvironment {
       protocol::ClientStub* client_stub));
 
   // DesktopEnvironment implementation.
-  virtual scoped_ptr<AudioCapturer> CreateAudioCapturer() override;
-  virtual scoped_ptr<InputInjector> CreateInputInjector() override;
-  virtual scoped_ptr<ScreenControls> CreateScreenControls() override;
-  virtual scoped_ptr<webrtc::DesktopCapturer> CreateVideoCapturer() override;
-  virtual scoped_ptr<GnubbyAuthHandler> CreateGnubbyAuthHandler(
+  scoped_ptr<AudioCapturer> CreateAudioCapturer() override;
+  scoped_ptr<InputInjector> CreateInputInjector() override;
+  scoped_ptr<ScreenControls> CreateScreenControls() override;
+  scoped_ptr<webrtc::DesktopCapturer> CreateVideoCapturer() override;
+  scoped_ptr<GnubbyAuthHandler> CreateGnubbyAuthHandler(
       protocol::ClientStub* client_stub) override;
-  virtual scoped_ptr<webrtc::MouseCursorMonitor> CreateMouseCursorMonitor()
+  scoped_ptr<webrtc::MouseCursorMonitor> CreateMouseCursorMonitor()
       override;
 };
 
 class MockClientSessionControl : public ClientSessionControl {
  public:
   MockClientSessionControl();
-  virtual ~MockClientSessionControl();
+  ~MockClientSessionControl() override;
 
   MOCK_CONST_METHOD0(client_jid, const std::string&());
   MOCK_METHOD0(DisconnectSession, void());
@@ -71,7 +73,7 @@ class MockClientSessionControl : public ClientSessionControl {
 class MockClientSessionEventHandler : public ClientSession::EventHandler {
  public:
   MockClientSessionEventHandler();
-  virtual ~MockClientSessionEventHandler();
+  ~MockClientSessionEventHandler() override;
 
   MOCK_METHOD1(OnSessionAuthenticating, void(ClientSession* client));
   MOCK_METHOD1(OnSessionAuthenticated, bool(ClientSession* client));
@@ -90,12 +92,12 @@ class MockClientSessionEventHandler : public ClientSession::EventHandler {
 class MockDesktopEnvironmentFactory : public DesktopEnvironmentFactory {
  public:
   MockDesktopEnvironmentFactory();
-  virtual ~MockDesktopEnvironmentFactory();
+  ~MockDesktopEnvironmentFactory() override;
 
   MOCK_METHOD0(CreatePtr, DesktopEnvironment*());
   MOCK_CONST_METHOD0(SupportsAudioCapture, bool());
 
-  virtual scoped_ptr<DesktopEnvironment> Create(
+  scoped_ptr<DesktopEnvironment> Create(
       base::WeakPtr<ClientSessionControl> client_session_control) override;
 
  private:
@@ -105,13 +107,14 @@ class MockDesktopEnvironmentFactory : public DesktopEnvironmentFactory {
 class MockInputInjector : public InputInjector {
  public:
   MockInputInjector();
-  virtual ~MockInputInjector();
+  ~MockInputInjector() override;
 
   MOCK_METHOD1(InjectClipboardEvent,
                void(const protocol::ClipboardEvent& event));
   MOCK_METHOD1(InjectKeyEvent, void(const protocol::KeyEvent& event));
   MOCK_METHOD1(InjectTextEvent, void(const protocol::TextEvent& event));
   MOCK_METHOD1(InjectMouseEvent, void(const protocol::MouseEvent& event));
+  MOCK_METHOD1(InjectTouchEvent, void(const protocol::TouchEvent& event));
   MOCK_METHOD1(StartPtr,
                void(protocol::ClipboardStub* client_clipboard));
 
@@ -124,7 +127,7 @@ class MockInputInjector : public InputInjector {
 class MockHostStatusObserver : public HostStatusObserver {
  public:
   MockHostStatusObserver();
-  virtual ~MockHostStatusObserver();
+  ~MockHostStatusObserver() override;
 
   MOCK_METHOD1(OnAccessDenied, void(const std::string& jid));
   MOCK_METHOD1(OnClientAuthenticated, void(const std::string& jid));
@@ -141,7 +144,7 @@ class MockHostStatusObserver : public HostStatusObserver {
 class MockGnubbyAuthHandler : public GnubbyAuthHandler {
  public:
   MockGnubbyAuthHandler();
-  virtual ~MockGnubbyAuthHandler();
+  ~MockGnubbyAuthHandler() override;
 
   MOCK_METHOD1(DeliverClientMessage, void(const std::string& message));
   MOCK_CONST_METHOD2(DeliverHostDataMessage,
@@ -154,13 +157,25 @@ class MockGnubbyAuthHandler : public GnubbyAuthHandler {
 class MockMouseCursorMonitor : public webrtc::MouseCursorMonitor {
  public:
   MockMouseCursorMonitor();
-  virtual ~MockMouseCursorMonitor();
+  ~MockMouseCursorMonitor() override;
 
   MOCK_METHOD2(Init, void(Callback* callback, Mode mode));
   MOCK_METHOD0(Capture, void());
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockMouseCursorMonitor);
+};
+
+class MockVideoEncoder : public VideoEncoder {
+ public:
+  MockVideoEncoder();
+  ~MockVideoEncoder() override;
+
+  MOCK_METHOD1(SetLosslessEncode, void(bool));
+  MOCK_METHOD1(SetLosslessColor, void(bool));
+  MOCK_METHOD1(EncodePtr, VideoPacket*(const webrtc::DesktopFrame&));
+
+  scoped_ptr<VideoPacket> Encode(const webrtc::DesktopFrame& frame) override;
 };
 
 }  // namespace remoting

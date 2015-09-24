@@ -1,17 +1,15 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _FPDF_PAGEOBJ_H_
-#define _FPDF_PAGEOBJ_H_
-#ifndef _FPDF_RESOURCE_
-#include "fpdf_resource.h"
-#endif
-#ifndef _FX_GE_H_
+#ifndef CORE_INCLUDE_FPDFAPI_FPDF_PAGEOBJ_H_
+#define CORE_INCLUDE_FPDFAPI_FPDF_PAGEOBJ_H_
+
 #include "../fxge/fx_ge.h"
-#endif
+#include "fpdf_resource.h"
+
 class CPDF_Path;
 class CPDF_ClipPathData;
 class CPDF_ClipPath;
@@ -31,15 +29,11 @@ class CPDF_PathObject;
 class CPDF_ImageObject;
 class CPDF_ShadingObject;
 class CPDF_FormObject;
-class CPDF_InlineImages;
 typedef CFX_PathData CPDF_PathData;
+
 class CPDF_Path : public CFX_CountRef<CFX_PathData>
 {
 public:
-
-
-
-
     int					GetPointCount()
     {
         return m_pObject->m_PointCount;
@@ -99,7 +93,7 @@ public:
         return m_pObject->IsRect();
     }
 };
-class CPDF_ClipPathData : public CFX_Object
+class CPDF_ClipPathData
 {
 public:
 
@@ -116,7 +110,7 @@ public:
 
     CPDF_Path*			m_pPathList;
 
-    FX_BYTE*			m_pTypeList;
+    uint8_t*			m_pTypeList;
 
     int					m_TextCount;
 
@@ -161,7 +155,7 @@ public:
 
     void				Transform(const CFX_AffineMatrix& matrix);
 };
-class CPDF_ColorStateData : public CFX_Object
+class CPDF_ColorStateData
 {
 public:
 
@@ -208,7 +202,7 @@ class CPDF_GraphState : public CFX_CountRef<CFX_GraphStateData>
 {
 public:
 };
-class CPDF_TextStateData : public CFX_Object
+class CPDF_TextStateData
 {
 public:
 
@@ -267,7 +261,7 @@ public:
 
 };
 class CPDF_TransferFunc;
-class CPDF_GeneralStateData : public CFX_Object
+class CPDF_GeneralStateData
 {
 public:
 
@@ -276,7 +270,7 @@ public:
     CPDF_GeneralStateData(const CPDF_GeneralStateData& src);
     ~CPDF_GeneralStateData();
 
-    void				SetBlendMode(FX_BSTR blend_mode);
+    void				SetBlendMode(const CFX_ByteStringC& blend_mode);
 
     char				m_BlendMode[16];
 
@@ -336,7 +330,7 @@ public:
         return m_pObject ? FXSYS_round((bStroke ? m_pObject->m_StrokeAlpha : m_pObject->m_FillAlpha) * 255) : 255;
     }
 };
-class CPDF_ContentMarkItem : public CFX_Object
+class CPDF_ContentMarkItem
 {
 public:
 
@@ -388,7 +382,7 @@ private:
 
     void*				m_pParam;
 };
-class CPDF_ContentMarkData : public CFX_Object
+class CPDF_ContentMarkData
 {
 public:
 
@@ -424,20 +418,20 @@ public:
         return m_pObject ? m_pObject->GetMCID() : -1;
     }
 
-    FX_BOOL				HasMark(FX_BSTR mark) const;
+    FX_BOOL				HasMark(const CFX_ByteStringC& mark) const;
 
-    FX_BOOL				LookupMark(FX_BSTR mark, CPDF_Dictionary*& pDict) const;
+    FX_BOOL				LookupMark(const CFX_ByteStringC& mark, CPDF_Dictionary*& pDict) const;
 };
-#define PDFPAGE_TEXT		1
-#define PDFPAGE_PATH		2
-#define PDFPAGE_IMAGE		3
-#define PDFPAGE_SHADING		4
-#define PDFPAGE_FORM		5
-#define PDFPAGE_INLINES		6
-class CPDF_GraphicStates : public CFX_Object
+
+#define PDFPAGE_TEXT     1
+#define PDFPAGE_PATH     2
+#define PDFPAGE_IMAGE    3
+#define PDFPAGE_SHADING  4
+#define PDFPAGE_FORM     5
+
+class CPDF_GraphicStates
 {
 public:
-
     void				CopyStates(const CPDF_GraphicStates& src);
 
     void				DefaultStates();
@@ -452,21 +446,18 @@ public:
 
     CPDF_GeneralState	m_GeneralState;
 };
+
 class CPDF_PageObject : public CPDF_GraphicStates
 {
 public:
-
     static CPDF_PageObject* Create(int type);
-
-    void				Release();
+    virtual ~CPDF_PageObject();
 
     CPDF_PageObject*	Clone() const;
 
     void				Copy(const CPDF_PageObject* pSrcObject);
 
-    virtual void		Transform(const CFX_AffineMatrix& matrix) = 0;
-
-
+    virtual void Transform(const CFX_AffineMatrix& matrix) = 0;
 
     void				RemoveClipPath();
 
@@ -477,7 +468,6 @@ public:
     void				TransformClipPath(CFX_AffineMatrix& matrix);
 
     void				TransformGeneralState(CFX_AffineMatrix& matrix);
-
 
     void				SetColorState(CPDF_ColorState state)
     {
@@ -497,92 +487,91 @@ public:
     FX_FLOAT			m_Bottom;
 
     CPDF_ContentMark	m_ContentMark;
-protected:
 
-    virtual void		CopyData(const CPDF_PageObject* pSrcObject) {}
+protected:
+    virtual void CopyData(const CPDF_PageObject* pSrcObject) = 0;
 
     void				RecalcBBox();
 
     CPDF_PageObject() {}
 
-    virtual ~CPDF_PageObject() {}
 };
-struct CPDF_TextObjectItem : public CFX_Object {
 
-    FX_DWORD			m_CharCode;
-
-    FX_FLOAT			m_OriginX;
-
-    FX_FLOAT			m_OriginY;
+struct CPDF_TextObjectItem {
+    FX_DWORD m_CharCode;
+    FX_FLOAT m_OriginX;
+    FX_FLOAT m_OriginY;
 };
+
 class CPDF_TextObject : public CPDF_PageObject
 {
 public:
-
     CPDF_TextObject();
+    ~CPDF_TextObject() override;
 
-    virtual ~CPDF_TextObject();
-
-    int					CountItems() const
+    int CountItems() const
     {
         return m_nChars;
     }
 
-    void				GetItemInfo(int index, CPDF_TextObjectItem* pInfo) const;
+    void GetItemInfo(int index, CPDF_TextObjectItem* pInfo) const;
 
-    int					CountChars() const;
+    int CountChars() const;
 
-    void				GetCharInfo(int index, FX_DWORD& charcode, FX_FLOAT& kerning) const;
-    void				GetCharInfo(int index, CPDF_TextObjectItem* pInfo) const;
+    void GetCharInfo(int index, FX_DWORD& charcode, FX_FLOAT& kerning) const;
+    void GetCharInfo(int index, CPDF_TextObjectItem* pInfo) const;
 
-    void				GetCharRect(int index, CFX_FloatRect& rect) const;
+    void GetCharRect(int index, CFX_FloatRect& rect) const;
 
+    FX_FLOAT GetCharWidth(FX_DWORD charcode) const;
+    FX_FLOAT GetSpaceCharWidth() const;
 
-    FX_FLOAT			GetCharWidth(FX_DWORD charcode) const;
-    FX_FLOAT			GetSpaceCharWidth() const;
-
-    FX_FLOAT			GetPosX() const
+    FX_FLOAT GetPosX() const
     {
         return m_PosX;
     }
 
-    FX_FLOAT			GetPosY() const
+    FX_FLOAT GetPosY() const
     {
         return m_PosY;
     }
 
-    void				GetTextMatrix(CFX_AffineMatrix* pMatrix) const;
+    void GetTextMatrix(CFX_AffineMatrix* pMatrix) const;
 
-    CPDF_Font*			GetFont() const
+    CPDF_Font* GetFont() const
     {
         return m_TextState.GetFont();
     }
 
-    FX_FLOAT			GetFontSize() const
+    FX_FLOAT GetFontSize() const
     {
         return m_TextState.GetFontSize();
     }
 
-    void				SetEmpty();
+    void SetEmpty();
 
-    void				SetText(const CFX_ByteString& text);
+    void SetText(const CFX_ByteString& text);
 
-    void				SetText(CFX_ByteString* pStrs, FX_FLOAT* pKerning, int nSegs);
+    void SetText(CFX_ByteString* pStrs, FX_FLOAT* pKerning, int nSegs);
 
-    void				SetText(int nChars, FX_DWORD* pCharCodes, FX_FLOAT* pKernings);
+    void SetText(int nChars, FX_DWORD* pCharCodes, FX_FLOAT* pKernings);
 
-    void				SetPosition(FX_FLOAT x, FX_FLOAT y);
+    void SetPosition(FX_FLOAT x, FX_FLOAT y);
 
-    void				SetTextState(CPDF_TextState TextState);
-    virtual void		Transform(const CFX_AffineMatrix& matrix);
+    void SetTextState(CPDF_TextState TextState);
 
-    void				CalcCharPos(FX_FLOAT* pPosArray) const;
+    // CPDF_PageObject:
+    void Transform(const CFX_AffineMatrix& matrix) override;
 
+    void CalcCharPos(FX_FLOAT* pPosArray) const;
 
+    void SetData(int nChars,
+                 FX_DWORD* pCharCodes,
+                 FX_FLOAT* pCharPos,
+                 FX_FLOAT x,
+                 FX_FLOAT y);
 
-    void				SetData(int nChars, FX_DWORD* pCharCodes, FX_FLOAT* pCharPos, FX_FLOAT x, FX_FLOAT y);
-
-    void				GetData(int& nChars, FX_DWORD*& pCharCodes, FX_FLOAT*& pCharPos)
+    void GetData(int& nChars, FX_DWORD*& pCharCodes, FX_FLOAT*& pCharPos)
     {
         nChars = m_nChars;
         pCharCodes = m_pCharCodes;
@@ -590,44 +579,49 @@ public:
     }
 
 
-    void				RecalcPositionData()
+    void RecalcPositionData()
     {
-        CalcPositionData(NULL, NULL, 1);
+        CalcPositionData(nullptr, nullptr, 1);
     }
+
 protected:
-    virtual void		CopyData(const CPDF_PageObject* pSrcObject);
+    friend class CPDF_RenderStatus;
+    friend class CPDF_StreamContentParser;
+    friend class CPDF_TextRenderer;
+    friend class CTextPage;
 
-    FX_FLOAT			m_PosX;
+    // CPDF_PageObject:
+    void CopyData(const CPDF_PageObject* pSrcObject) override;
 
-    FX_FLOAT			m_PosY;
+    void SetSegments(const CFX_ByteString* pStrs,
+                     FX_FLOAT* pKerning,
+                     int nSegs);
 
-    int					m_nChars;
+    void CalcPositionData(FX_FLOAT* pTextAdvanceX,
+                          FX_FLOAT* pTextAdvanceY,
+                          FX_FLOAT horz_scale,
+                          int level = 0);
 
-    FX_DWORD*			m_pCharCodes;
+    FX_FLOAT m_PosX;
+    FX_FLOAT m_PosY;
 
-    FX_FLOAT*		m_pCharPos;
+    int m_nChars;
 
-    void				SetSegments(const CFX_ByteString* pStrs, FX_FLOAT* pKerning, int nSegs);
+    FX_DWORD* m_pCharCodes;
 
-    void				CalcPositionData(FX_FLOAT* pTextAdvanceX, FX_FLOAT* pTextAdvanceY, FX_FLOAT horz_scale, int level = 0);
-    friend class		CPDF_StreamContentParser;
-    friend class		CPDF_RenderStatus;
-    friend class		CPDF_QuickDrawer;
-    friend class		CPDF_TextRenderer;
-    friend class		CTextPage;
-    friend class		CPDF_ContentGenerator;
+    FX_FLOAT* m_pCharPos;
 };
+
 class CPDF_PathObject : public CPDF_PageObject
 {
 public:
-
     CPDF_PathObject()
     {
         m_Type = PDFPAGE_PATH;
     }
 
     virtual ~CPDF_PathObject() {}
-    virtual void		Transform(const CFX_AffineMatrix& maxtrix);
+    void Transform(const CFX_AffineMatrix& maxtrix) override;
 
     void				SetGraphState(CPDF_GraphState GraphState);
 
@@ -641,30 +635,32 @@ public:
 
 
     void				CalcBoundingBox();
+
 protected:
-    virtual void		CopyData(const CPDF_PageObject* pSrcObjet);
+    void CopyData(const CPDF_PageObject* pSrcObject) override;
 };
+
 class CPDF_ImageObject : public CPDF_PageObject
 {
 public:
-
     CPDF_ImageObject();
 
     virtual ~CPDF_ImageObject();
-    virtual void		Transform(const CFX_AffineMatrix& matrix);
+    void Transform(const CFX_AffineMatrix& matrix) override;
 
     CPDF_Image*			m_pImage;
 
     CFX_AffineMatrix	m_Matrix;
 
     void				CalcBoundingBox();
+
 private:
-    virtual void		CopyData(const CPDF_PageObject* pSrcObjet);
+    void CopyData(const CPDF_PageObject* pSrcObject) override;
 };
+
 class CPDF_ShadingObject : public CPDF_PageObject
 {
 public:
-
     CPDF_ShadingObject();
 
     virtual ~CPDF_ShadingObject();
@@ -674,16 +670,17 @@ public:
     CFX_AffineMatrix	m_Matrix;
 
     CPDF_Page*			m_pPage;
-    virtual void		Transform(const CFX_AffineMatrix& matrix);
+    void Transform(const CFX_AffineMatrix& matrix) override;
 
     void				CalcBoundingBox();
+
 protected:
-    virtual void		CopyData(const CPDF_PageObject* pSrcObjet);
+    void CopyData(const CPDF_PageObject* pSrcObject) override;
 };
+
 class CPDF_FormObject : public CPDF_PageObject
 {
 public:
-
     CPDF_FormObject()
     {
         m_Type = PDFPAGE_FORM;
@@ -691,33 +688,16 @@ public:
     }
 
     virtual ~CPDF_FormObject();
-    virtual void		Transform(const CFX_AffineMatrix& matrix);
+    void Transform(const CFX_AffineMatrix& matrix) override;
 
     CPDF_Form*			m_pForm;
 
     CFX_AffineMatrix	m_FormMatrix;
 
     void				CalcBoundingBox();
+
 protected:
-    virtual void		CopyData(const CPDF_PageObject* pSrcObjet);
+    void CopyData(const CPDF_PageObject* pSrcObject) override;
 };
-class CPDF_InlineImages : public CPDF_PageObject
-{
-public:
 
-    CPDF_InlineImages();
-
-    virtual ~CPDF_InlineImages();
-
-    CPDF_Stream*		m_pStream;
-
-    CFX_DIBitmap*		m_pBitmap;
-
-    CFX_ArrayTemplate<CFX_AffineMatrix>	m_Matrices;
-
-    void				AddMatrix(CFX_AffineMatrix& matrix);
-protected:
-    virtual void		Transform(const CFX_AffineMatrix& matrix) {}
-    virtual void		CopyData(const CPDF_PageObject* pSrcObjet) {}
-};
-#endif
+#endif  // CORE_INCLUDE_FPDFAPI_FPDF_PAGEOBJ_H_

@@ -1,6 +1,6 @@
 #
 # libjingle
-# Copyright 2013, Google Inc.
+# Copyright 2013 Google Inc.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -122,9 +122,6 @@
           'action': [
             '--extra-variable', 'mac_product_name', '<(mac_product_name)',
           ],
-        }],
-        ["test_isolation_outdir!=''", {
-          'action': [ '--isolate-server', '<(test_isolation_outdir)' ],
         }],
       ],
     },

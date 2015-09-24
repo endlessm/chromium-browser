@@ -117,8 +117,11 @@ static void disableSubsamplingForHighQuality(jpeg_compress_struct* cinfo, int qu
     }
 }
 
-static bool encodePixels(IntSize imageSize, unsigned char* inputPixels, bool premultiplied, int quality, Vector<unsigned char>* output)
+static bool encodePixels(IntSize imageSize, const unsigned char* inputPixels, bool premultiplied, int quality, Vector<unsigned char>* output)
 {
+    if (imageSize.width() <= 0 || imageSize.height() <= 0)
+        return false;
+
     JPEGOutputBuffer destination;
     destination.output = output;
     Vector<JSAMPLE> row;
@@ -141,7 +144,6 @@ static bool encodePixels(IntSize imageSize, unsigned char* inputPixels, bool pre
     cinfo.dest->empty_output_buffer = writeOutput;
     cinfo.dest->term_destination = finishOutput;
 
-    imageSize.clampNegativeToZero();
     cinfo.image_height = imageSize.height();
     cinfo.image_width = imageSize.width();
 
@@ -156,7 +158,7 @@ static bool encodePixels(IntSize imageSize, unsigned char* inputPixels, bool pre
         disableSubsamplingForHighQuality(&cinfo, quality);
         jpeg_start_compress(&cinfo, TRUE);
 
-        unsigned char* pixels = inputPixels;
+        unsigned char* pixels = const_cast<unsigned char*>(inputPixels);
         const size_t pixelRowStride = cinfo.image_width * 4;
         while (cinfo.next_scanline < cinfo.image_height) {
             jpeg_write_scanlines(&cinfo, &pixels, 1);
@@ -182,7 +184,7 @@ static bool encodePixels(IntSize imageSize, unsigned char* inputPixels, bool pre
     disableSubsamplingForHighQuality(&cinfo, quality);
     jpeg_start_compress(&cinfo, TRUE);
 
-    unsigned char* pixels = inputPixels;
+    unsigned char* pixels = const_cast<unsigned char*>(inputPixels);
     row.resize(cinfo.image_width * cinfo.input_components);
     const size_t pixelRowStride = cinfo.image_width * 4;
     while (cinfo.next_scanline < cinfo.image_height) {
@@ -209,7 +211,10 @@ bool JPEGImageEncoder::encode(const SkBitmap& bitmap, int quality, Vector<unsign
 
 bool JPEGImageEncoder::encode(const ImageDataBuffer& imageData, int quality, Vector<unsigned char>* output)
 {
-    return encodePixels(imageData.size(), imageData.data(), false, quality, output);
+    if (!imageData.pixels())
+        return false;
+
+    return encodePixels(IntSize(imageData.width(), imageData.height()), imageData.pixels(), false, quality, output);
 }
 
 } // namespace blink

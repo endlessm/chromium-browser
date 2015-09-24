@@ -14,10 +14,10 @@
 #include "build/build_config.h"
 #include "chrome/common/importer/importer_data_types.h"
 #include "chrome/common/importer/importer_url_row.h"
+#include "components/favicon_base/favicon_usage_data.h"
 
 class GURL;
 struct ImportedBookmarkEntry;
-struct ImportedFaviconUsage;
 struct ImporterAutofillFormDataEntry;
 
 namespace autofill {
@@ -29,7 +29,7 @@ namespace importer {
 struct ImporterIE7PasswordInfo;
 #endif
 struct ImporterURlRow;
-struct URLKeywordInfo;
+struct SearchEngineInfo;
 }
 
 class ImporterBridge : public base::RefCountedThreadSafe<ImporterBridge> {
@@ -48,13 +48,13 @@ class ImporterBridge : public base::RefCountedThreadSafe<ImporterBridge> {
 #endif
 
   virtual void SetFavicons(
-      const std::vector<ImportedFaviconUsage>& favicons) = 0;
+      const favicon_base::FaviconUsageDataList& favicons) = 0;
 
   virtual void SetHistoryItems(const std::vector<ImporterURLRow>& rows,
                                importer::VisitSource visit_source) = 0;
 
   virtual void SetKeywords(
-      const std::vector<importer::URLKeywordInfo>& url_keywords,
+      const std::vector<importer::SearchEngineInfo>& search_engines,
       bool unique_on_host_and_path) = 0;
 
   // The search_engine_data vector contains XML data retrieved from the Firefox

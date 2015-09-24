@@ -8,18 +8,26 @@
 #include <string>
 
 #include "base/callback.h"
+#include "base/gtest_prod_util.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
-#include "chrome/browser/local_discovery/privet_url_fetcher.h"
+#include "base/memory/weak_ptr.h"
 #include "chrome/common/extensions/api/gcd_private.h"
+#include "net/url_request/url_fetcher.h"
 
 namespace base {
 class DictionaryValue;
 }
 
+namespace crypto {
+class P224EncryptedKeyExchange;
+}
+
 namespace local_discovery {
 
 class PrivetHTTPClient;
+class PrivetJSONOperation;
+class PrivetURLFetcher;
 
 // Manages secure communication between browser and local Privet device.
 class PrivetV3Session {
@@ -31,7 +39,7 @@ class PrivetV3Session {
   typedef extensions::api::gcd_private::Status Result;
 
   typedef base::Callback<
-      void(Result result, const std::vector<PairingType>& types)> InitCallback;
+      void(Result result, const base::DictionaryValue& response)> InitCallback;
 
   typedef base::Callback<void(Result result)> ResultCallback;
   typedef base::Callback<void(Result result,
@@ -41,40 +49,74 @@ class PrivetV3Session {
   explicit PrivetV3Session(scoped_ptr<PrivetHTTPClient> client);
   ~PrivetV3Session();
 
-  // Initialized session.
+  // Initializes session. Queries /privet/info and returns supported pairing
+  // types in callback.
   void Init(const InitCallback& callback);
 
+  // Starts pairing by calling /privet/v3/pairing/start.
   void StartPairing(PairingType pairing_type, const ResultCallback& callback);
 
+  // Confirms pairing code by calling /privet/v3/pairing/confirm.
+  // Calls /privet/v3/pairing/auth after pairing.
   void ConfirmCode(const std::string& code, const ResultCallback& callback);
 
-  // Create a single /privet/v3/session/call request.
+  // TODO(vitalybuka): Make HTTPS request to device with certificate validation.
   void SendMessage(const std::string& api,
                    const base::DictionaryValue& input,
                    const MessageCallback& callback);
 
  private:
-  // Represents request in progress using secure session.
-  class Request {
-   public:
-    Request();
-    virtual ~Request();
+  friend class PrivetV3SessionTest;
+  FRIEND_TEST_ALL_PREFIXES(PrivetV3SessionTest, Pairing);
 
-    virtual void OnError() = 0;
-    virtual void OnParsedJson(const base::DictionaryValue& value,
-                              bool has_error) = 0;
-
-   private:
-    friend class PrivetV3Session;
-    scoped_ptr<FetcherDelegate> fetcher_delegate_;
-  };
+  void OnInfoDone(const InitCallback& callback,
+                  Result result,
+                  const base::DictionaryValue& response);
+  void OnPairingStartDone(const ResultCallback& callback,
+                          Result result,
+                          const base::DictionaryValue& response);
+  void OnPairingConfirmDone(const ResultCallback& callback,
+                            Result result,
+                            const base::DictionaryValue& response);
+  void OnAuthenticateDone(const ResultCallback& callback,
+                          Result result,
+                          const base::DictionaryValue& response);
 
   void RunCallback(const base::Closure& callback);
+  void StartGetRequest(const std::string& api, const MessageCallback& callback);
+  void StartPostRequest(const std::string& api,
+                        const base::DictionaryValue& input,
+                        const MessageCallback& callback);
+  PrivetURLFetcher* CreateFetcher(const std::string& api,
+                                  net::URLFetcher::RequestType request_type,
+                                  const MessageCallback& callback);
   void DeleteFetcher(const FetcherDelegate* fetcher);
+  void Cancel();
 
+  // Creates instances of PrivetURLFetcher.
   scoped_ptr<PrivetHTTPClient> client_;
-  bool code_confirmed_;
+
+  // Current authentication token.
+  std::string privet_auth_token_;
+
+  // ID of the session received from pairing/start.
+  std::string session_id_;
+
+  // Device commitment received from pairing/start.
+  std::string commitment_;
+
+  // Key exchange algorithm for pairing.
+  scoped_ptr<crypto::P224EncryptedKeyExchange> spake_;
+
+  // HTTPS certificate fingerprint received during pairing.
+  std::string fingerprint_;
+
+  // List of fetches to cancel when session is destroyed.
   ScopedVector<FetcherDelegate> fetchers_;
+
+  // Intercepts POST requests. Used by tests only.
+  base::Callback<void(const base::DictionaryValue&)> on_post_data_;
+
   base::WeakPtrFactory<PrivetV3Session> weak_ptr_factory_;
   DISALLOW_COPY_AND_ASSIGN(PrivetV3Session);
 };

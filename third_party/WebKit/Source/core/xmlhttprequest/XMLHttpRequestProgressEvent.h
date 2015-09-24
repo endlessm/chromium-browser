@@ -27,7 +27,11 @@
 #ifndef XMLHttpRequestProgressEvent_h
 #define XMLHttpRequestProgressEvent_h
 
+#include "bindings/core/v8/ScriptWrappable.h"
 #include "core/events/ProgressEvent.h"
+#include "platform/heap/Handle.h"
+#include "wtf/Forward.h"
+#include "wtf/PassRefPtr.h"
 
 namespace blink {
 
@@ -47,9 +51,9 @@ public:
     unsigned long long position() const { return loaded(); }
     unsigned long long totalSize() const { return total(); }
 
-    virtual const AtomicString& interfaceName() const override { return EventNames::XMLHttpRequestProgressEvent; }
+    const AtomicString& interfaceName() const override { return EventNames::XMLHttpRequestProgressEvent; }
 
-    virtual void trace(Visitor* visitor) override { ProgressEvent::trace(visitor); }
+    DEFINE_INLINE_VIRTUAL_TRACE() { ProgressEvent::trace(visitor); }
 
 private:
     XMLHttpRequestProgressEvent() { }

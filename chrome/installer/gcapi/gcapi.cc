@@ -58,14 +58,9 @@ const wchar_t kChromeRegClientsKey[] =
 const wchar_t kChromeRegClientStateKey[] =
     L"Software\\Google\\Update\\ClientState\\"
     L"{8A69D345-D564-463c-AFF1-A69D9E530F96}";
-const wchar_t kChromeRegClientStateMediumKey[] =
-    L"Software\\Google\\Update\\ClientStateMedium\\"
-    L"{8A69D345-D564-463c-AFF1-A69D9E530F96}";
 
 const wchar_t kGCAPITempKey[] = L"Software\\Google\\GCAPITemp";
 
-const wchar_t kChromeRegLaunchCmd[] = L"InstallerSuccessLaunchCmdLine";
-const wchar_t kChromeRegLastLaunchCmd[] = L"LastInstallerSuccessLaunchCmdLine";
 const wchar_t kChromeRegVersion[] = L"pv";
 const wchar_t kNoChromeOfferUntil[] =
     L"SOFTWARE\\Google\\No Chrome Offer Until";
@@ -256,7 +251,7 @@ WindowsVersion GetWindowsVersion() {
 // Windows API are not available. We always invoke this function after checking
 // that current OS is Vista or later.
 bool VerifyAdminGroup() {
-  SID_IDENTIFIER_AUTHORITY NtAuthority = SECURITY_NT_AUTHORITY;
+  SID_IDENTIFIER_AUTHORITY NtAuthority = {SECURITY_NT_AUTHORITY};
   PSID Group;
   BOOL check = ::AllocateAndInitializeSid(&NtAuthority, 2,
                                           SECURITY_BUILTIN_DOMAIN_RID,
@@ -366,9 +361,9 @@ BOOL CALLBACK ChromeWindowEnumProc(HWND hwnd, LPARAM lparam) {
 
   if (!params->shunted_hwnds.count(hwnd) &&
       ::GetClassName(hwnd, window_class, arraysize(window_class)) &&
-      StartsWith(window_class, kChromeWindowClassPrefix, false) &&
-      ::SetWindowPos(hwnd, params->window_insert_after, params->x,
-                     params->y, params->width, params->height, params->flags)) {
+      base::StartsWith(window_class, kChromeWindowClassPrefix, false) &&
+      ::SetWindowPos(hwnd, params->window_insert_after, params->x, params->y,
+                     params->width, params->height, params->flags)) {
     params->shunted_hwnds.insert(hwnd);
     params->success = true;
   }
@@ -391,11 +386,11 @@ bool GetGoogleChromePath(base::FilePath* chrome_exe_path) {
 
   // Now grab the uninstall string from the appropriate ClientState key
   // and use that as the base for a path to chrome.exe.
-  *chrome_exe_path =
-      chrome_launcher_support::GetChromePathForInstallationLevel(
-          install_key == HKEY_LOCAL_MACHINE ?
-              chrome_launcher_support::SYSTEM_LEVEL_INSTALLATION :
-              chrome_launcher_support::USER_LEVEL_INSTALLATION);
+  *chrome_exe_path = chrome_launcher_support::GetChromePathForInstallationLevel(
+      install_key == HKEY_LOCAL_MACHINE
+          ? chrome_launcher_support::SYSTEM_LEVEL_INSTALLATION
+          : chrome_launcher_support::USER_LEVEL_INSTALLATION,
+      false /* is_sxs */);
   return !chrome_exe_path->empty();
 }
 
@@ -504,7 +499,7 @@ BOOL __stdcall LaunchGoogleChrome() {
     }
   }
 
-  CommandLine chrome_command(chrome_exe_path);
+  base::CommandLine chrome_command(chrome_exe_path);
 
   bool ret = false;
   ScopedComPtr<IProcessLauncher> ipl;
@@ -519,8 +514,7 @@ BOOL __stdcall LaunchGoogleChrome() {
     // Couldn't get Omaha's process launcher, Omaha may not be installed at
     // system level. Try just running Chrome instead.
     ret = base::LaunchProcess(chrome_command.GetCommandLineString(),
-                              base::LaunchOptions(),
-                              NULL);
+                              base::LaunchOptions()).IsValid();
   }
 
   if (impersonation_success)
@@ -541,7 +535,7 @@ BOOL __stdcall LaunchGoogleChromeWithDimensions(int x,
     // When launching in the background, use WMI to ensure that chrome.exe is
     // is not our child process. This prevents it from pushing itself to
     // foreground.
-    CommandLine chrome_command(chrome_exe_path);
+    base::CommandLine chrome_command(chrome_exe_path);
 
     ScopedCOMInitializer com_initializer;
     if (!installer::WMIProcess::Launch(chrome_command.GetCommandLineString(),

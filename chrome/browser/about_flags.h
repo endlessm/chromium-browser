@@ -25,15 +25,6 @@ namespace about_flags {
 
 class FlagsStorage;
 
-// This value is reported as switch histogram ID if switch name has unknown
-// format.
-extern const base::HistogramBase::Sample kBadSwitchFormatHistogramId;
-
-// Enumeration of OSs.
-// This is exposed only for testing.
-enum { kOsMac = 1 << 0, kOsWin = 1 << 1, kOsLinux = 1 << 2 , kOsCrOS = 1 << 3,
-       kOsAndroid = 1 << 4, kOsCrOSOwnerOnly = 1 << 5 };
-
 // Experiment is used internally by about_flags to describe an experiment (and
 // for testing).
 // This is exposed only for testing.
@@ -41,6 +32,12 @@ struct Experiment {
   enum Type {
     // An experiment with a single value. This is typically what you want.
     SINGLE_VALUE,
+
+    // A default enabled experiment with a single value to disable it. This is
+    // for default enabled SINGLE_VALUE experiments. Please consider whether
+    // you really need a flag to disable the experiment, and even if so remove
+    // the disable flag as soon as it is no longer needed.
+    SINGLE_DISABLE_VALUE,
 
     // The experiment has multiple values only one of which is ever enabled.
     // The first of the values should correspond to a deactivated state for this
@@ -94,7 +91,7 @@ struct Experiment {
   // Simple switches that have no value should use "" for command_line_value.
   const char* command_line_value;
 
-  // For ENABLE_DISABLE_VALUE, the command line switch and value to explictly
+  // For ENABLE_DISABLE_VALUE, the command line switch and value to explicitly
   // disable the feature.
   const char* disable_command_line_switch;
   const char* disable_command_line_value;
@@ -130,7 +127,7 @@ void ConvertFlagsToSwitches(FlagsStorage* flags_storage,
 bool AreSwitchesIdenticalToCurrentCommandLine(
     const base::CommandLine& new_cmdline,
     const base::CommandLine& active_cmdline,
-    std::set<CommandLine::StringType>* out_difference);
+    std::set<base::CommandLine::StringType>* out_difference);
 
 // Differentiate between generic flags available on a per session base and flags
 // that influence the whole machine and can be said by the admin only. This flag
@@ -196,6 +193,10 @@ const Experiment* GetExperiments(size_t* count);
 // Separator used for multi values. Multi values are represented in prefs as
 // name-of-experiment + kMultiSeparator + selected_index.
 extern const char kMultiSeparator[];
+
+// This value is reported as switch histogram ID if switch name has unknown
+// format.
+extern const base::HistogramBase::Sample kBadSwitchFormatHistogramId;
 
 }  // namespace testing
 

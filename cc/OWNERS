@@ -23,9 +23,14 @@ ccameron@chromium.org
 
 # input, gestures, scrolling
 aelias@chromium.org
-jamesr@chromium.org
 
-# scheduling and texture uploading
+# scheduling / begin frames
+brianderson@chromium.org
+skyostil@chromium.org
+mithro@mithis.com
+sunnyps@chromium.org
+
+# texture uploading
 brianderson@chromium.org
 reveman@chromium.org
 skyostil@chromium.org
@@ -42,5 +47,6 @@ vollick@chromium.org
 vollick@chromium.org
 ajuma@chromium.org
 
-per-file *.isolate=csharp@chromium.org
 per-file *.isolate=maruel@chromium.org
+per-file *.isolate=tandrii@chromium.org
+per-file *.isolate=vadimsh@chromium.org

@@ -20,12 +20,13 @@ class CC_EXPORT SurfaceLayerImpl : public LayerImpl {
   ~SurfaceLayerImpl() override;
 
   void SetSurfaceId(SurfaceId surface_id);
+  void SetSurfaceScale(float scale);
+  void SetSurfaceSize(const gfx::Size& size);
 
   // LayerImpl overrides.
   scoped_ptr<LayerImpl> CreateLayerImpl(LayerTreeImpl* tree_impl) override;
   void PushPropertiesTo(LayerImpl* layer) override;
   void AppendQuads(RenderPass* render_pass,
-                   const Occlusion& occlusion_in_content_space,
                    AppendQuadsData* append_quads_data) override;
 
  protected:
@@ -33,10 +34,12 @@ class CC_EXPORT SurfaceLayerImpl : public LayerImpl {
 
  private:
   void GetDebugBorderProperties(SkColor* color, float* width) const override;
-  void AsValueInto(base::debug::TracedValue* dict) const override;
+  void AsValueInto(base::trace_event::TracedValue* dict) const override;
   const char* LayerTypeAsString() const override;
 
   SurfaceId surface_id_;
+  gfx::Size surface_size_;
+  float surface_scale_;
 
   DISALLOW_COPY_AND_ASSIGN(SurfaceLayerImpl);
 };

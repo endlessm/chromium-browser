@@ -37,11 +37,11 @@ namespace XPath {
 class Number final : public Expression {
 public:
     explicit Number(double);
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
-    virtual Value evaluate(EvaluationContext&) const override;
-    virtual Value::Type resultType() const override { return Value::NumberValue; }
+    Value evaluate(EvaluationContext&) const override;
+    Value::Type resultType() const override { return Value::NumberValue; }
 
     Value m_value;
 };
@@ -49,19 +49,19 @@ private:
 class StringExpression final : public Expression {
 public:
     explicit StringExpression(const String&);
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
-    virtual Value evaluate(EvaluationContext&) const override;
-    virtual Value::Type resultType() const override { return Value::StringValue; }
+    Value evaluate(EvaluationContext&) const override;
+    Value::Type resultType() const override { return Value::StringValue; }
 
     Value m_value;
 };
 
 class Negative final : public Expression {
 private:
-    virtual Value evaluate(EvaluationContext&) const override;
-    virtual Value::Type resultType() const override { return Value::NumberValue; }
+    Value evaluate(EvaluationContext&) const override;
+    Value::Type resultType() const override { return Value::NumberValue; }
 };
 
 class NumericOp final : public Expression {
@@ -69,11 +69,11 @@ public:
     enum Opcode {
         OP_Add, OP_Sub, OP_Mul, OP_Div, OP_Mod
     };
-    NumericOp(Opcode, PassOwnPtrWillBeRawPtr<Expression> lhs, PassOwnPtrWillBeRawPtr<Expression> rhs);
+    NumericOp(Opcode, Expression* lhs, Expression* rhs);
 
 private:
-    virtual Value evaluate(EvaluationContext&) const override;
-    virtual Value::Type resultType() const override { return Value::NumberValue; }
+    Value evaluate(EvaluationContext&) const override;
+    Value::Type resultType() const override { return Value::NumberValue; }
 
     Opcode m_opcode;
 };
@@ -81,11 +81,11 @@ private:
 class EqTestOp final : public Expression {
 public:
     enum Opcode { OpcodeEqual, OpcodeNotEqual, OpcodeGreaterThan, OpcodeLessThan, OpcodeGreaterOrEqual, OpcodeLessOrEqual };
-    EqTestOp(Opcode, PassOwnPtrWillBeRawPtr<Expression> lhs, PassOwnPtrWillBeRawPtr<Expression> rhs);
-    virtual Value evaluate(EvaluationContext&) const override;
+    EqTestOp(Opcode, Expression* lhs, Expression* rhs);
+    Value evaluate(EvaluationContext&) const override;
 
 private:
-    virtual Value::Type resultType() const override { return Value::BooleanValue; }
+    Value::Type resultType() const override { return Value::BooleanValue; }
     bool compare(EvaluationContext&, const Value&, const Value&) const;
 
     Opcode m_opcode;
@@ -94,38 +94,38 @@ private:
 class LogicalOp final : public Expression {
 public:
     enum Opcode { OP_And, OP_Or };
-    LogicalOp(Opcode, PassOwnPtrWillBeRawPtr<Expression> lhs, PassOwnPtrWillBeRawPtr<Expression> rhs);
+    LogicalOp(Opcode, Expression* lhs, Expression* rhs);
 
 private:
-    virtual Value::Type resultType() const override { return Value::BooleanValue; }
+    Value::Type resultType() const override { return Value::BooleanValue; }
     bool shortCircuitOn() const;
-    virtual Value evaluate(EvaluationContext&) const override;
+    Value evaluate(EvaluationContext&) const override;
 
     Opcode m_opcode;
 };
 
 class Union final : public Expression {
 private:
-    virtual Value evaluate(EvaluationContext&) const override;
-    virtual Value::Type resultType() const override { return Value::NodeSetValue; }
+    Value evaluate(EvaluationContext&) const override;
+    Value::Type resultType() const override { return Value::NodeSetValue; }
 };
 
-class Predicate final : public NoBaseWillBeGarbageCollected<Predicate> {
-    WTF_MAKE_NONCOPYABLE(Predicate); WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
-    DECLARE_EMPTY_DESTRUCTOR_WILL_BE_REMOVED(Predicate);
+class Predicate final : public GarbageCollected<Predicate> {
+    WTF_MAKE_NONCOPYABLE(Predicate);
 public:
-    explicit Predicate(PassOwnPtrWillBeRawPtr<Expression>);
-    void trace(Visitor*);
+    explicit Predicate(Expression*);
+    DECLARE_TRACE();
 
     bool evaluate(EvaluationContext&) const;
     bool isContextPositionSensitive() const { return m_expr->isContextPositionSensitive() || m_expr->resultType() == Value::NumberValue; }
     bool isContextSizeSensitive() const { return m_expr->isContextSizeSensitive(); }
 
 private:
-    OwnPtrWillBeMember<Expression> m_expr;
+    Member<Expression> m_expr;
 };
 
-}
+} // namespace XPath
 
-}
+} // namespace blink
+
 #endif // XPathPredicate_h

@@ -5,68 +5,71 @@
 #include "config.h"
 #include "core/paint/ListMarkerPainter.h"
 
+#include "core/layout/LayoutListItem.h"
+#include "core/layout/LayoutListMarker.h"
+#include "core/layout/TextRunConstructor.h"
 #include "core/paint/BlockPainter.h"
-#include "core/paint/DrawingRecorder.h"
-#include "core/rendering/GraphicsContextAnnotator.h"
-#include "core/rendering/PaintInfo.h"
-#include "core/rendering/RenderListItem.h"
-#include "core/rendering/RenderListMarker.h"
-#include "core/rendering/TextRunConstructor.h"
+#include "core/paint/LayoutObjectDrawingRecorder.h"
+#include "core/paint/PaintInfo.h"
 #include "platform/geometry/LayoutPoint.h"
 #include "platform/graphics/GraphicsContextStateSaver.h"
-#include "wtf/unicode/CharacterNames.h"
+#include "wtf/text/CharacterNames.h"
 
 namespace blink {
 
-void ListMarkerPainter::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
+void ListMarkerPainter::paint(const PaintInfo& paintInfo, const LayoutPoint& paintOffset)
 {
-    ANNOTATE_GRAPHICS_CONTEXT(paintInfo, &m_renderListMarker);
-
     if (paintInfo.phase != PaintPhaseForeground)
         return;
 
-    if (m_renderListMarker.style()->visibility() != VISIBLE)
+    if (m_layoutListMarker.style()->visibility() != VISIBLE)
         return;
 
-    LayoutPoint boxOrigin(paintOffset + m_renderListMarker.location());
-    LayoutRect overflowRect(m_renderListMarker.visualOverflowRect());
+    if (LayoutObjectDrawingRecorder::useCachedDrawingIfPossible(*paintInfo.context, m_layoutListMarker, paintInfo.phase))
+        return;
+
+    LayoutPoint boxOrigin(paintOffset + m_layoutListMarker.location());
+    LayoutRect overflowRect(m_layoutListMarker.visualOverflowRect());
+    if (m_layoutListMarker.selectionState() != LayoutObject::SelectionNone)
+        overflowRect.unite(m_layoutListMarker.localSelectionRect());
     overflowRect.moveBy(boxOrigin);
 
     IntRect pixelSnappedOverflowRect = pixelSnappedIntRect(overflowRect);
     if (!paintInfo.rect.intersects(pixelSnappedOverflowRect))
         return;
 
-    DrawingRecorder recorder(paintInfo.context, &m_renderListMarker, paintInfo.phase, pixelSnappedOverflowRect);
-    LayoutRect box(boxOrigin, m_renderListMarker.size());
+    LayoutObjectDrawingRecorder recorder(*paintInfo.context, m_layoutListMarker, paintInfo.phase, pixelSnappedOverflowRect);
 
-    IntRect marker = m_renderListMarker.getRelativeMarkerRect();
+    LayoutRect box(boxOrigin, m_layoutListMarker.size());
+
+    IntRect marker = m_layoutListMarker.getRelativeMarkerRect();
     marker.moveBy(roundedIntPoint(boxOrigin));
 
     GraphicsContext* context = paintInfo.context;
 
-    if (m_renderListMarker.isImage()) {
-        context->drawImage(m_renderListMarker.image()->image(&m_renderListMarker, marker.size()).get(), marker);
-        if (m_renderListMarker.selectionState() != RenderObject::SelectionNone) {
-            LayoutRect selRect = m_renderListMarker.localSelectionRect();
+    if (m_layoutListMarker.isImage()) {
+        context->drawImage(m_layoutListMarker.image()->image(&m_layoutListMarker, marker.size()).get(), marker);
+        if (m_layoutListMarker.selectionState() != LayoutObject::SelectionNone) {
+            LayoutRect selRect = m_layoutListMarker.localSelectionRect();
             selRect.moveBy(boxOrigin);
-            context->fillRect(pixelSnappedIntRect(selRect), m_renderListMarker.selectionBackgroundColor());
+            context->fillRect(pixelSnappedIntRect(selRect), m_layoutListMarker.listItem()->selectionBackgroundColor());
         }
         return;
     }
 
-    if (m_renderListMarker.selectionState() != RenderObject::SelectionNone) {
-        LayoutRect selRect = m_renderListMarker.localSelectionRect();
+    if (m_layoutListMarker.selectionState() != LayoutObject::SelectionNone) {
+        LayoutRect selRect = m_layoutListMarker.localSelectionRect();
         selRect.moveBy(boxOrigin);
-        context->fillRect(pixelSnappedIntRect(selRect), m_renderListMarker.selectionBackgroundColor());
+        context->fillRect(pixelSnappedIntRect(selRect), m_layoutListMarker.listItem()->selectionBackgroundColor());
     }
 
-    const Color color(m_renderListMarker.resolveColor(CSSPropertyColor));
+    const Color color(m_layoutListMarker.resolveColor(CSSPropertyColor));
     context->setStrokeColor(color);
     context->setStrokeStyle(SolidStroke);
     context->setStrokeThickness(1.0f);
     context->setFillColor(color);
 
-    EListStyleType type = m_renderListMarker.style()->listStyleType();
+    EListStyleType type = m_layoutListMarker.style()->listStyleType();
     switch (type) {
     case Disc:
         context->fillEllipse(marker);
@@ -79,12 +82,8 @@ void ListMarkerPainter::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffs
         return;
     case NoneListStyle:
         return;
-    case Afar:
-    case Amharic:
-    case AmharicAbegede:
     case ArabicIndic:
     case Armenian:
-    case BinaryListStyle:
     case Bengali:
     case Cambodian:
     case CJKIdeographic:
@@ -93,28 +92,19 @@ void ListMarkerPainter::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffs
     case DecimalLeadingZero:
     case DecimalListStyle:
     case Devanagari:
-    case Ethiopic:
-    case EthiopicAbegede:
-    case EthiopicAbegedeAmEt:
-    case EthiopicAbegedeGez:
-    case EthiopicAbegedeTiEr:
-    case EthiopicAbegedeTiEt:
-    case EthiopicHalehameAaEr:
-    case EthiopicHalehameAaEt:
-    case EthiopicHalehameAmEt:
-    case EthiopicHalehameGez:
-    case EthiopicHalehameOmEt:
-    case EthiopicHalehameSidEt:
-    case EthiopicHalehameSoEt:
+    case EthiopicHalehame:
+    case EthiopicHalehameAm:
     case EthiopicHalehameTiEr:
     case EthiopicHalehameTiEt:
-    case EthiopicHalehameTig:
     case Georgian:
     case Gujarati:
     case Gurmukhi:
+    case Hebrew:
     case Hangul:
     case HangulConsonant:
-    case Hebrew:
+    case KoreanHangulFormal:
+    case KoreanHanjaFormal:
+    case KoreanHanjaInformal:
     case Hiragana:
     case HiraganaIroha:
     case Kannada:
@@ -125,50 +115,38 @@ void ListMarkerPainter::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffs
     case LowerAlpha:
     case LowerArmenian:
     case LowerGreek:
-    case LowerHexadecimal:
     case LowerLatin:
-    case LowerNorwegian:
     case LowerRoman:
     case Malayalam:
     case Mongolian:
     case Myanmar:
-    case Octal:
     case Oriya:
-    case Oromo:
     case Persian:
-    case Sidama:
-    case Somali:
+    case SimpChineseFormal:
+    case SimpChineseInformal:
     case Telugu:
     case Thai:
     case Tibetan:
-    case Tigre:
-    case TigrinyaEr:
-    case TigrinyaErAbegede:
-    case TigrinyaEt:
-    case TigrinyaEtAbegede:
+    case TradChineseFormal:
+    case TradChineseInformal:
     case UpperAlpha:
     case UpperArmenian:
-    case UpperGreek:
-    case UpperHexadecimal:
     case UpperLatin:
-    case UpperNorwegian:
     case UpperRoman:
     case Urdu:
-    case Asterisks:
-    case Footnotes:
         break;
     }
-    if (m_renderListMarker.text().isEmpty())
+    if (m_layoutListMarker.text().isEmpty())
         return;
 
-    const Font& font = m_renderListMarker.style()->font();
-    TextRun textRun = constructTextRun(&m_renderListMarker, font, m_renderListMarker.text(), m_renderListMarker.style());
+    const Font& font = m_layoutListMarker.style()->font();
+    TextRun textRun = constructTextRun(&m_layoutListMarker, font, m_layoutListMarker.text(), m_layoutListMarker.styleRef());
 
     GraphicsContextStateSaver stateSaver(*context, false);
-    if (!m_renderListMarker.style()->isHorizontalWritingMode()) {
+    if (!m_layoutListMarker.style()->isHorizontalWritingMode()) {
         marker.moveBy(roundedIntPoint(-boxOrigin));
         marker = marker.transposedRect();
-        marker.moveBy(IntPoint(roundToInt(box.x()), roundToInt(box.y() - m_renderListMarker.logicalHeight())));
+        marker.moveBy(IntPoint(roundToInt(box.x()), roundToInt(box.y() - m_layoutListMarker.logicalHeight())));
         stateSaver.save();
         context->translate(marker.x(), marker.maxY());
         context->rotate(static_cast<float>(deg2rad(90.)));
@@ -177,40 +155,36 @@ void ListMarkerPainter::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffs
 
     TextRunPaintInfo textRunPaintInfo(textRun);
     textRunPaintInfo.bounds = marker;
-    IntPoint textOrigin = IntPoint(marker.x(), marker.y() + m_renderListMarker.style()->fontMetrics().ascent());
+    IntPoint textOrigin = IntPoint(marker.x(), marker.y() + m_layoutListMarker.style()->fontMetrics().ascent());
 
-    if (type == Asterisks || type == Footnotes) {
+    // Text is not arbitrary. We can judge whether it's RTL from the first character,
+    // and we only need to handle the direction RightToLeft for now.
+    bool textNeedsReversing = WTF::Unicode::direction(m_layoutListMarker.text()[0]) == WTF::Unicode::RightToLeft;
+    StringBuilder reversedText;
+    if (textNeedsReversing) {
+        unsigned length = m_layoutListMarker.text().length();
+        reversedText.reserveCapacity(length);
+        for (int i = length - 1; i >= 0; --i)
+            reversedText.append(m_layoutListMarker.text()[i]);
+        ASSERT(reversedText.length() == length);
+        textRun.setText(reversedText.toString());
+    }
+
+    const UChar suffix = m_layoutListMarker.listMarkerSuffix(type, m_layoutListMarker.listItem()->value());
+    UChar suffixStr[2] = {
+        m_layoutListMarker.style()->isLeftToRightDirection() ? suffix : static_cast<UChar>(' '),
+        m_layoutListMarker.style()->isLeftToRightDirection() ? static_cast<UChar>(' ') : suffix
+    };
+    TextRun suffixRun = constructTextRun(&m_layoutListMarker, font, suffixStr, 2, m_layoutListMarker.styleRef(), m_layoutListMarker.style()->direction());
+    TextRunPaintInfo suffixRunInfo(suffixRun);
+    suffixRunInfo.bounds = marker;
+
+    if (m_layoutListMarker.style()->isLeftToRightDirection()) {
         context->drawText(font, textRunPaintInfo, textOrigin);
+        context->drawText(font, suffixRunInfo, textOrigin + IntSize(font.width(textRun), 0));
     } else {
-        // Text is not arbitrary. We can judge whether it's RTL from the first character,
-        // and we only need to handle the direction RightToLeft for now.
-        bool textNeedsReversing = WTF::Unicode::direction(m_renderListMarker.text()[0]) == WTF::Unicode::RightToLeft;
-        StringBuilder reversedText;
-        if (textNeedsReversing) {
-            int length = m_renderListMarker.text().length();
-            reversedText.reserveCapacity(length);
-            for (int i = length - 1; i >= 0; --i)
-                reversedText.append(m_renderListMarker.text()[i]);
-            ASSERT(reversedText.length() == reversedText.capacity());
-            textRun.setText(reversedText.toString());
-        }
-
-        const UChar suffix = m_renderListMarker.listMarkerSuffix(type, m_renderListMarker.listItem()->value());
-        UChar suffixStr[2] = {
-            m_renderListMarker.style()->isLeftToRightDirection() ? suffix : ' ',
-            m_renderListMarker.style()->isLeftToRightDirection() ? ' ' : suffix
-        };
-        TextRun suffixRun = constructTextRun(&m_renderListMarker, font, suffixStr, 2, m_renderListMarker.style(), m_renderListMarker.style()->direction());
-        TextRunPaintInfo suffixRunInfo(suffixRun);
-        suffixRunInfo.bounds = marker;
-
-        if (m_renderListMarker.style()->isLeftToRightDirection()) {
-            context->drawText(font, textRunPaintInfo, textOrigin);
-            context->drawText(font, suffixRunInfo, textOrigin + IntSize(font.width(textRun), 0));
-        } else {
-            context->drawText(font, suffixRunInfo, textOrigin);
-            context->drawText(font, textRunPaintInfo, textOrigin + IntSize(font.width(suffixRun), 0));
-        }
+        context->drawText(font, suffixRunInfo, textOrigin);
+        context->drawText(font, textRunPaintInfo, textOrigin + IntSize(font.width(suffixRun), 0));
     }
 }
 

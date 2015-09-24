@@ -26,9 +26,11 @@
 #ifndef WebUnitTestSupport_h
 #define WebUnitTestSupport_h
 
+#include "WebBlobData.h"
 #include "WebCommon.h"
 #include "WebData.h"
 #include "WebString.h"
+#include "WebVector.h"
 
 namespace blink {
 
@@ -57,9 +59,16 @@ public:
 
     // Constructs a WebLayerTreeView set up with reasonable defaults for
     // testing.
-    virtual WebLayerTreeView* createLayerTreeViewForTesting() { return 0; }
+    virtual WebLayerTreeView* createLayerTreeViewForTesting() { return nullptr; }
 
     virtual WebData readFromFile(const WebString& path) { return WebData(); }
+
+    // Gets the blob items from the blob handle's uuid.
+    // The ownership of WebBlobData::Items is not transferred.
+    virtual bool getBlobItems(const WebString& uuid, WebVector<WebBlobData::Item*>*) { return false; }
+
+    virtual void enterRunLoop() { }
+    virtual void exitRunLoop() { }
 };
 
 }

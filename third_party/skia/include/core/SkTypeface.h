@@ -10,16 +10,19 @@
 #ifndef SkTypeface_DEFINED
 #define SkTypeface_DEFINED
 
-#include "SkAdvancedTypefaceMetrics.h"
 #include "SkFontStyle.h"
 #include "SkLazyPtr.h"
+#include "SkRect.h"
+#include "SkString.h"
 #include "SkWeakRefCnt.h"
 
 class SkDescriptor;
+class SkFontData;
 class SkFontDescriptor;
 class SkScalerContext;
 struct SkScalerContextRec;
 class SkStream;
+class SkStreamAsset;
 class SkAdvancedTypefaceMetrics;
 class SkWStream;
 
@@ -38,8 +41,6 @@ typedef uint32_t SkFontTableTag;
 */
 class SK_API SkTypeface : public SkWeakRefCnt {
 public:
-    SK_DECLARE_INST_COUNT(SkTypeface)
-
     /** Style specifies the intrinsic style attributes of a given typeface
     */
     enum Style {
@@ -130,17 +131,28 @@ public:
         not a valid font file, returns null. Ownership of the stream is
         transferred, so the caller must not reference it again.
     */
-    static SkTypeface* CreateFromStream(SkStream* stream, int index = 0);
+    static SkTypeface* CreateFromStream(SkStreamAsset* stream, int index = 0);
+
+    /** Return a new typeface given font data and configuration. If the data
+        is not valid font data, returns null. Ownership of the font data is
+        transferred, so the caller must not reference it again.
+    */
+    static SkTypeface* CreateFromFontData(SkFontData*);
 
     /** Write a unique signature to a stream, sufficient to reconstruct a
         typeface referencing the same font when Deserialize is called.
      */
     void serialize(SkWStream*) const;
 
+    /** Like serialize, but write the whole font (not just a signature) if possible.
+     */
+    void serializeForcingEmbedding(SkWStream*) const;
+
     /** Given the data previously written by serialize(), return a new instance
         to a typeface referring to the same font. If that font is not available,
         return null. If an instance is returned, the caller is responsible for
         calling unref() when they are done with it.
+        Does not affect ownership of SkStream.
      */
     static SkTypeface* Deserialize(SkStream*);
 
@@ -272,8 +284,15 @@ public:
      *  If ttcIndex is not null, it is set to the TrueTypeCollection index
      *  of this typeface within the stream, or 0 if the stream is not a
      *  collection.
+     *  The caller is responsible for deleting the stream.
      */
-    SkStream* openStream(int* ttcIndex) const;
+    SkStreamAsset* openStream(int* ttcIndex) const;
+
+    /**
+     *  Return the font data, or NULL on failure.
+     *  The caller is responsible for deleting the font data.
+     */
+    SkFontData* createFontData() const;
 
     /**
      *  Return a scalercontext for the given descriptor. If this fails, then
@@ -300,6 +319,16 @@ public:
     }
 
 protected:
+    // The type of advance data wanted.
+    enum PerGlyphInfo {
+        kNo_PerGlyphInfo         = 0x0, // Don't populate any per glyph info.
+        kHAdvance_PerGlyphInfo   = 0x1, // Populate horizontal advance data.
+        kVAdvance_PerGlyphInfo   = 0x2, // Populate vertical advance data.
+        kGlyphNames_PerGlyphInfo = 0x4, // Populate glyph names (Type 1 only).
+        kToUnicode_PerGlyphInfo  = 0x8  // Populate ToUnicode table, ignored
+        // for Type 1 fonts
+    };
+
     /** uniqueID must be unique and non-zero
     */
     SkTypeface(const SkFontStyle& style, SkFontID uniqueID, bool isFixedPitch = false);
@@ -314,11 +343,14 @@ protected:
     virtual SkScalerContext* onCreateScalerContext(const SkDescriptor*) const = 0;
     virtual void onFilterRec(SkScalerContextRec*) const = 0;
     virtual SkAdvancedTypefaceMetrics* onGetAdvancedTypefaceMetrics(
-                        SkAdvancedTypefaceMetrics::PerGlyphInfo perGlyphInfo,
+                        PerGlyphInfo,
                         const uint32_t* glyphIDs,
                         uint32_t glyphIDsCount) const = 0;
 
-    virtual SkStream* onOpenStream(int* ttcIndex) const = 0;
+    virtual SkStreamAsset* onOpenStream(int* ttcIndex) const = 0;
+    // TODO: make pure virtual.
+    virtual SkFontData* onCreateFontData() const;
+
     virtual void onGetFontDescriptor(SkFontDescriptor*, bool* isLocal) const = 0;
 
     virtual int onCharsToGlyphs(const void* chars, Encoding, uint16_t glyphs[],
@@ -349,6 +381,7 @@ private:
     friend class SkPDFCIDFont;
     friend class GrPathRendering;
     friend class GrGLPathRendering;
+    friend class SkRandomTypeface; // For debugging
 
     /** Retrieve detailed typeface metrics.  Used by the PDF backend.
      @param perGlyphInfo Indicate what glyph specific information (advances,
@@ -361,7 +394,7 @@ private:
      @return The returned object has already been referenced.
      */
     SkAdvancedTypefaceMetrics* getAdvancedTypefaceMetrics(
-                          SkAdvancedTypefaceMetrics::PerGlyphInfo perGlyphInfo,
+                          PerGlyphInfo,
                           const uint32_t* glyphIDs = NULL,
                           uint32_t glyphIDsCount = 0) const;
 
@@ -379,8 +412,6 @@ private:
 
     friend class SkPaint;
     friend class SkGlyphCache;  // GetDefaultTypeface
-    // just so deprecated fonthost can call protected methods
-    friend class SkFontHost;
 
     typedef SkWeakRefCnt INHERITED;
 };

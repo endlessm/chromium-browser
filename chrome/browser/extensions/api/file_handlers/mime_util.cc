@@ -6,6 +6,7 @@
 
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/base/filename_util.h"
@@ -18,6 +19,12 @@
 #endif
 
 using content::BrowserThread;
+
+namespace {
+
+const char kMimeTypeApplicationOctetStream[] = "application/octet-stream";
+
+}  // namespace
 
 namespace extensions {
 namespace app_file_handler_util {
@@ -82,6 +89,15 @@ void OnGetMimeTypeFromMetadataForNonNativeLocalPathCompleted(
 void OnSniffMimeTypeForNativeLocalPathCompleted(
     scoped_ptr<std::string> mime_type,
     const base::Callback<void(const std::string&)>& callback) {
+  // Do not return application/zip as sniffed result. If the file has .zip
+  // extension, it should be already returned as application/zip. If the file
+  // does not have .zip extension and couldn't find mime type from the
+  // extension, it might be unknown internally zipped file.
+  if (*mime_type == "application/zip") {
+    callback.Run(kMimeTypeApplicationOctetStream);
+    return;
+  }
+
   callback.Run(*mime_type);
 }
 
@@ -99,7 +115,8 @@ void OnGetMimeTypeFromFileForNativeLocalPathCompleted(
     return;
   }
 
-  scoped_ptr<std::string> sniffed_mime_type(new std::string);
+  scoped_ptr<std::string> sniffed_mime_type(
+      new std::string(kMimeTypeApplicationOctetStream));
   std::string* const sniffed_mime_type_ptr = sniffed_mime_type.get();
   BrowserThread::PostBlockingPoolTaskAndReply(
       FROM_HERE,
@@ -175,7 +192,7 @@ void MimeTypeCollector::CollectForLocalPaths(
 
   if (!left_) {
     // Nothing to process.
-    base::MessageLoopProxy::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(callback_, base::Passed(&result_)));
     callback_ = CompletionCallback();
     return;
@@ -194,7 +211,7 @@ void MimeTypeCollector::OnMimeTypeCollected(size_t index,
                                             const std::string& mime_type) {
   (*result_)[index] = mime_type;
   if (!--left_) {
-    base::MessageLoopProxy::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(callback_, base::Passed(&result_)));
     // Release the callback to avoid a circullar reference in case an instance
     // of this class is a member of a ref counted class, which instance is bound

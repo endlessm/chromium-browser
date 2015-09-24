@@ -5,7 +5,9 @@
 #include "chromeos/dbus/modem_messaging_client.h"
 
 #include "base/bind.h"
+#include "base/location.h"
 #include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/values.h"
 #include "dbus/message.h"
 #include "dbus/mock_bus.h"
@@ -54,7 +56,7 @@ class ModemMessagingClientTest : public testing::Test {
   ModemMessagingClientTest() : response_(NULL),
                                expected_result_(NULL) {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     // Create a mock bus.
     dbus::Bus::Options options;
     options.bus_type = dbus::Bus::SYSTEM;
@@ -89,9 +91,7 @@ class ModemMessagingClientTest : public testing::Test {
     client_->Init(mock_bus_.get());
   }
 
-  virtual void TearDown() override {
-    mock_bus_->ShutdownAndBlock();
-  }
+  void TearDown() override { mock_bus_->ShutdownAndBlock(); }
 
   // Handles Delete method call.
   void OnDelete(dbus::MethodCall* method_call,
@@ -106,7 +106,8 @@ class ModemMessagingClientTest : public testing::Test {
     EXPECT_EQ(expected_sms_path_, sms_path);
     EXPECT_FALSE(reader.HasMoreData());
 
-    message_loop_.PostTask(FROM_HERE, base::Bind(callback, response_));
+    message_loop_.task_runner()->PostTask(FROM_HERE,
+                                          base::Bind(callback, response_));
   }
 
   // Handles List method call.
@@ -119,7 +120,8 @@ class ModemMessagingClientTest : public testing::Test {
     dbus::MessageReader reader(method_call);
     EXPECT_FALSE(reader.HasMoreData());
 
-    message_loop_.PostTask(FROM_HERE, base::Bind(callback, response_));
+    message_loop_.task_runner()->PostTask(FROM_HERE,
+                                          base::Bind(callback, response_));
   }
 
   // Checks the results of List.
@@ -154,10 +156,9 @@ class ModemMessagingClientTest : public testing::Test {
       const dbus::ObjectProxy::OnConnectedCallback& on_connected_callback) {
     sms_received_callback_ = signal_callback;
     const bool success = true;
-    message_loop_.PostTask(FROM_HERE, base::Bind(on_connected_callback,
-                                                 interface_name,
-                                                 signal_name,
-                                                 success));
+    message_loop_.task_runner()->PostTask(
+        FROM_HERE, base::Bind(on_connected_callback, interface_name,
+                              signal_name, success));
   }
 };
 

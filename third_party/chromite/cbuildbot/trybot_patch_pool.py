@@ -6,8 +6,13 @@
 
 from __future__ import print_function
 
-import constants
 import functools
+
+from chromite.cbuildbot import constants
+from chromite.lib import cros_logging as logging
+from chromite.lib import gerrit
+from chromite.lib import git
+from chromite.lib import patch as cros_patch
 
 
 def ChromiteFilter(patch):
@@ -57,8 +62,7 @@ class TrybotPatchPool(object):
       for key in kwargs:
         if getattr(patch, key, object()) != kwargs[key]:
           return False
-      else:
-        return True
+      return True
 
     return self.FilterFn(AttributeFilter)
 
@@ -72,7 +76,7 @@ class TrybotPatchPool(object):
     """
     f = filter_fn
     if negate:
-      f = lambda p : not filter_fn(p)
+      f = lambda p: not filter_fn(p)
 
     return self.__class__(
         gerrit_patches=filter(f, self.gerrit_patches),
@@ -100,3 +104,42 @@ class TrybotPatchPool(object):
                    self.gerrit_patches]:
       for patch in source:
         yield patch
+
+  @classmethod
+  def FromOptions(cls, gerrit_patches=None, local_patches=None, sourceroot=None,
+                  remote_patches=None):
+    """Generate patch objects from passed in options.
+
+    Args:
+      gerrit_patches: Gerrit ids that gerrit.GetGerritPatchInfo accepts.
+      local_patches: Local ids that cros_patch.PrepareLocalPatches accepts.
+      sourceroot: The source repository to look up |local_patches|.
+      remote_patches: Remote ids that cros_patch.PrepareRemotePatches accepts.
+
+    Returns:
+      A TrybotPatchPool object.
+
+    Raises:
+      gerrit.GerritException, cros_patch.PatchException
+    """
+    if gerrit_patches:
+      gerrit_patches = gerrit.GetGerritPatchInfo(gerrit_patches)
+      for patch in gerrit_patches:
+        if patch.IsAlreadyMerged():
+          logging.warning('Patch %s has already been merged.', patch)
+    else:
+      gerrit_patches = ()
+
+    if local_patches:
+      manifest = git.ManifestCheckout.Cached(sourceroot)
+      local_patches = cros_patch.PrepareLocalPatches(manifest, local_patches)
+    else:
+      local_patches = ()
+
+    if remote_patches:
+      remote_patches = cros_patch.PrepareRemotePatches(remote_patches)
+    else:
+      remote_patches = ()
+
+    return cls(gerrit_patches=gerrit_patches, local_patches=local_patches,
+               remote_patches=remote_patches)

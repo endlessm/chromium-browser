@@ -86,52 +86,51 @@ public abstract class TabModelBase extends TabModelJniBridge {
      */
     @Override
     public void addTab(Tab tab, int index, TabLaunchType type) {
-        TraceEvent.begin();
+        try {
+            TraceEvent.begin("TabModelBase.addTab");
 
-        for (TabModelObserver obs : mObservers) obs.willAddTab(tab, type);
+            for (TabModelObserver obs : mObservers) obs.willAddTab(tab, type);
 
-        boolean selectTab = mOrderController.willOpenInForeground(type, isIncognito());
+            boolean selectTab = mOrderController.willOpenInForeground(type, isIncognito());
 
-        index = mOrderController.determineInsertionIndex(type, index, tab);
-        assert index <= mTabs.size();
+            index = mOrderController.determineInsertionIndex(type, index, tab);
+            assert index <= mTabs.size();
 
-        assert tab.isIncognito() == isIncognito();
+            assert tab.isIncognito() == isIncognito();
 
-        // TODO(dtrainor): Update the list of undoable tabs instead of committing it.
-        commitAllTabClosures();
+            // TODO(dtrainor): Update the list of undoable tabs instead of committing it.
+            commitAllTabClosures();
 
-        if (index < 0 || index > mTabs.size()) {
-            mTabs.add(tab);
-        } else {
-            mTabs.add(index, tab);
-            if (index <= mIndex) {
-                mIndex++;
+            if (index < 0 || index > mTabs.size()) {
+                mTabs.add(tab);
+            } else {
+                mTabs.add(index, tab);
+                if (index <= mIndex) {
+                    mIndex++;
+                }
             }
+
+            if (!isCurrentModel()) {
+                // When adding new tabs in the background, make sure we set a valid index when the
+                // first one is added.  When in the foreground, calls to setIndex will take care of
+                // this.
+                mIndex = Math.max(mIndex, 0);
+            }
+
+            mRewoundList.resetRewoundState();
+
+            int newIndex = indexOf(tab);
+            tabAddedToModel(tab);
+
+            for (TabModelObserver obs : mObservers) obs.didAddTab(tab, type);
+
+            if (selectTab) {
+                mModelDelegate.selectModel(isIncognito());
+                setIndex(newIndex, TabModel.TabSelectionType.FROM_NEW);
+            }
+        } finally {
+            TraceEvent.end("TabModelBase.addTab");
         }
-
-        if (!isCurrentModel()) {
-            // When adding new tabs in the background, make sure we set a valid index when the
-            // first one is added.  When in the foreground, calls to setIndex will take care of
-            // this.
-            mIndex = Math.max(mIndex, 0);
-        }
-
-        mRewoundList.resetRewoundState();
-
-        int newIndex = indexOf(tab);
-        mModelDelegate.didChange();
-        mModelDelegate.didCreateNewTab(tab);
-
-        tabAddedToModel(tab);
-
-        for (TabModelObserver obs : mObservers) obs.didAddTab(tab, type);
-
-        if (selectTab) {
-            mModelDelegate.selectModel(isIncognito());
-            setIndex(newIndex, TabModel.TabSelectionType.FROM_NEW);
-        }
-
-        TraceEvent.end();
     }
 
     @Override
@@ -162,7 +161,6 @@ public abstract class TabModelBase extends TabModelJniBridge {
 
         mRewoundList.resetRewoundState();
 
-        mModelDelegate.didChange();
         for (TabModelObserver obs : mObservers) obs.didMoveTab(tab, newIndex, curIndex);
     }
 
@@ -283,6 +281,10 @@ public abstract class TabModelBase extends TabModelJniBridge {
         }
 
         assert !mRewoundList.hasPendingClosures();
+
+        if (supportsPendingClosures()) {
+            for (TabModelObserver obs : mObservers) obs.allTabsClosureCommitted();
+        }
     }
 
     @Override
@@ -312,10 +314,10 @@ public abstract class TabModelBase extends TabModelJniBridge {
 
         canUndo &= supportsPendingClosures();
 
+        startTabClosure(tabToClose, animate, uponExit, canUndo);
         if (notify && canUndo) {
             for (TabModelObserver obs : mObservers) obs.tabPendingClosure(tabToClose);
         }
-        startTabClosure(tabToClose, animate, uponExit, canUndo);
         if (!canUndo) finalizeTabClosure(tabToClose);
 
         return true;
@@ -346,16 +348,18 @@ public abstract class TabModelBase extends TabModelJniBridge {
      *                will not actually be closed until {@link #commitTabClosure(int)} or
      *                {@link #commitAllTabClosures()} is called, but they will be effectively
      *                removed from this list.
-     * @return a list containing the ids of tabs that have been closed
      */
-    public ArrayList<Integer> closeAllTabs(boolean animate, boolean uponExit, boolean canUndo) {
+    public void closeAllTabs(boolean animate, boolean uponExit, boolean canUndo) {
         ArrayList<Integer> closedTabs = new ArrayList<Integer>();
         while (getCount() > 0) {
             Tab tab = getTabAt(0);
             closedTabs.add(tab.getId());
             closeTab(tab, animate, uponExit, canUndo, false);
         }
-        return closedTabs;
+
+        if (!uponExit && canUndo && supportsPendingClosures()) {
+            for (TabModelObserver obs : mObservers) obs.allTabsPendingClosure(closedTabs);
+        }
     }
 
     @Override
@@ -390,32 +394,31 @@ public abstract class TabModelBase extends TabModelJniBridge {
     // This function is complex and its behavior depends on persisted state, including mIndex.
     @Override
     public void setIndex(int i, final TabSelectionType type) {
-        TraceEvent.begin();
-        int lastId = getLastId(type);
+        try {
+            TraceEvent.begin("TabModelBase.setIndex");
+            int lastId = getLastId(type);
 
-        if (!isCurrentModel()) {
-            mModelDelegate.selectModel(isIncognito());
+            if (!isCurrentModel()) {
+                mModelDelegate.selectModel(isIncognito());
+            }
+
+            if (mTabs.size() <= 0) {
+                mIndex = INVALID_TAB_INDEX;
+            } else {
+                mIndex = MathUtils.clamp(i, 0, mTabs.size() - 1);
+            }
+
+            Tab tab = TabModelUtils.getCurrentTab(this);
+
+            mModelDelegate.requestToShowTab(tab, type);
+
+            if (tab != null) {
+                for (TabModelObserver obs : mObservers) obs.didSelectTab(tab, type, lastId);
+            }
+
+        } finally {
+            TraceEvent.end("TabModelBase.setIndex");
         }
-
-        if (mTabs.size() <= 0) {
-            mIndex = INVALID_TAB_INDEX;
-        } else {
-            mIndex = MathUtils.clamp(i, 0, mTabs.size() - 1);
-        }
-
-        Tab tab = TabModelUtils.getCurrentTab(this);
-
-        mModelDelegate.requestToShowTab(tab, type);
-
-        if (tab != null) {
-            for (TabModelObserver obs : mObservers) obs.didSelectTab(tab, type, lastId);
-        }
-
-        // notifyDataSetChanged() can call into
-        // ChromeViewHolderTablet.handleTabChangeExternal(), which will eventually move the
-        // ContentView onto the current view hierarchy (with addView()).
-        mModelDelegate.didChange();
-        TraceEvent.end();
     }
 
     /**

@@ -1,6 +1,6 @@
 /*
  * libjingle
- * Copyright 2013, Google Inc.
+ * Copyright 2013 Google Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -24,28 +24,51 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
 package org.appspot.apprtc;
 
 import org.webrtc.IceCandidate;
-import org.webrtc.MediaConstraints;
 import org.webrtc.PeerConnection;
 import org.webrtc.SessionDescription;
 
 import java.util.List;
 
+/**
+ * AppRTCClient is the interface representing an AppRTC client.
+ */
 public interface AppRTCClient {
-  /**
-   * Asynchronously connect to an AppRTC room URL, e.g.
-   * https://apprtc.appspot.com/?r=NNN. Once connection is established
-   * onConnectedToRoom() callback with room parameters is invoked.
-   */
-  public void connectToRoom(String url);
 
   /**
-   * Send local SDP (offer or answer, depending on role) to the
-   * other participant.
+   * Struct holding the connection parameters of an AppRTC room.
    */
-  public void sendLocalDescription(final SessionDescription sdp);
+  public static class RoomConnectionParameters {
+    public final String roomUrl;
+    public final String roomId;
+    public final boolean loopback;
+    public RoomConnectionParameters(
+        String roomUrl, String roomId, boolean loopback) {
+      this.roomUrl = roomUrl;
+      this.roomId = roomId;
+      this.loopback = loopback;
+    }
+  }
+
+  /**
+   * Asynchronously connect to an AppRTC room URL using supplied connection
+   * parameters. Once connection is established onConnectedToRoom()
+   * callback with room parameters is invoked.
+   */
+  public void connectToRoom(RoomConnectionParameters connectionParameters);
+
+  /**
+   * Send offer SDP to the other participant.
+   */
+  public void sendOfferSdp(final SessionDescription sdp);
+
+  /**
+   * Send answer SDP to the other participant.
+   */
+  public void sendAnswerSdp(final SessionDescription sdp);
 
   /**
    * Send Ice candidate to the other participant.
@@ -53,49 +76,48 @@ public interface AppRTCClient {
   public void sendLocalIceCandidate(final IceCandidate candidate);
 
   /**
-   * Disconnect from the channel.
+   * Disconnect from room.
    */
-  public void disconnect();
+  public void disconnectFromRoom();
 
   /**
    * Struct holding the signaling parameters of an AppRTC room.
    */
-  public class AppRTCSignalingParameters {
+  public static class SignalingParameters {
     public final List<PeerConnection.IceServer> iceServers;
     public final boolean initiator;
-    public final MediaConstraints pcConstraints;
-    public final MediaConstraints videoConstraints;
-    public final MediaConstraints audioConstraints;
+    public final String clientId;
+    public final String wssUrl;
+    public final String wssPostUrl;
+    public final SessionDescription offerSdp;
+    public final List<IceCandidate> iceCandidates;
 
-    public AppRTCSignalingParameters(
+    public SignalingParameters(
         List<PeerConnection.IceServer> iceServers,
-        boolean initiator, MediaConstraints pcConstraints,
-        MediaConstraints videoConstraints, MediaConstraints audioConstraints) {
+        boolean initiator, String clientId,
+        String wssUrl, String wssPostUrl,
+        SessionDescription offerSdp, List<IceCandidate> iceCandidates) {
       this.iceServers = iceServers;
       this.initiator = initiator;
-      this.pcConstraints = pcConstraints;
-      this.videoConstraints = videoConstraints;
-      this.audioConstraints = audioConstraints;
+      this.clientId = clientId;
+      this.wssUrl = wssUrl;
+      this.wssPostUrl = wssPostUrl;
+      this.offerSdp = offerSdp;
+      this.iceCandidates = iceCandidates;
     }
   }
 
   /**
-   * Callback interface for messages delivered on signalling channel.
+   * Callback interface for messages delivered on signaling channel.
    *
-   * Methods are guaranteed to be invoked on the UI thread of |activity|.
+   * <p>Methods are guaranteed to be invoked on the UI thread of |activity|.
    */
-  public static interface AppRTCSignalingEvents {
+  public static interface SignalingEvents {
     /**
      * Callback fired once the room's signaling parameters
-     * AppRTCSignalingParameters are extracted.
+     * SignalingParameters are extracted.
      */
-    public void onConnectedToRoom(final AppRTCSignalingParameters params);
-
-    /**
-     * Callback fired once channel for signaling messages is opened and
-     * ready to receive messages.
-     */
-    public void onChannelOpen();
+    public void onConnectedToRoom(final SignalingParameters params);
 
     /**
      * Callback fired once remote SDP is received.
@@ -115,6 +137,6 @@ public interface AppRTCClient {
     /**
      * Callback fired once channel error happened.
      */
-    public void onChannelError(int code, String description);
+    public void onChannelError(final String description);
   }
 }

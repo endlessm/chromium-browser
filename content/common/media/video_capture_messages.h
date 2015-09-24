@@ -8,7 +8,8 @@
 #include "content/public/common/common_param_traits.h"
 #include "gpu/command_buffer/common/mailbox_holder.h"
 #include "ipc/ipc_message_macros.h"
-#include "media/video/capture/video_capture_types.h"
+#include "media/base/video_capture_types.h"
+#include "media/base/video_frame.h"
 
 #undef IPC_MESSAGE_EXPORT
 #define IPC_MESSAGE_EXPORT CONTENT_EXPORT
@@ -16,14 +17,31 @@
 
 IPC_ENUM_TRAITS_MAX_VALUE(content::VideoCaptureState,
                           content::VIDEO_CAPTURE_STATE_LAST)
-
 IPC_ENUM_TRAITS_MAX_VALUE(media::ResolutionChangePolicy,
                           media::RESOLUTION_POLICY_LAST)
+IPC_ENUM_TRAITS_MAX_VALUE(media::VideoFrame::Format,
+                          media::VideoFrame::FORMAT_MAX)
+IPC_ENUM_TRAITS_MAX_VALUE(media::VideoFrame::StorageType,
+                          media::VideoFrame::STORAGE_LAST)
+IPC_ENUM_TRAITS_MAX_VALUE(media::VideoPixelFormat, media::PIXEL_FORMAT_MAX)
+IPC_ENUM_TRAITS_MAX_VALUE(media::VideoPixelStorage, media::PIXEL_STORAGE_MAX)
 
 IPC_STRUCT_TRAITS_BEGIN(media::VideoCaptureParams)
   IPC_STRUCT_TRAITS_MEMBER(requested_format)
   IPC_STRUCT_TRAITS_MEMBER(resolution_change_policy)
 IPC_STRUCT_TRAITS_END()
+
+IPC_STRUCT_BEGIN(VideoCaptureMsg_BufferReady_Params)
+  IPC_STRUCT_MEMBER(int, device_id)
+  IPC_STRUCT_MEMBER(int, buffer_id)
+  IPC_STRUCT_MEMBER(base::TimeTicks, timestamp)
+  IPC_STRUCT_MEMBER(base::DictionaryValue, metadata)
+  IPC_STRUCT_MEMBER(media::VideoFrame::Format, pixel_format)
+  IPC_STRUCT_MEMBER(media::VideoFrame::StorageType, storage_type)
+  IPC_STRUCT_MEMBER(gfx::Size, coded_size)
+  IPC_STRUCT_MEMBER(gfx::Rect, visible_rect)
+  IPC_STRUCT_MEMBER(gpu::MailboxHolder, mailbox_holder)
+IPC_STRUCT_END()
 
 // TODO(nick): device_id in these messages is basically just a route_id. We
 // should shift to IPC_MESSAGE_ROUTED and use MessageRouter in the filter impls.
@@ -47,22 +65,10 @@ IPC_MESSAGE_CONTROL2(VideoCaptureMsg_FreeBuffer,
                      int /* device id */,
                      int /* buffer_id */)
 
-// Tell the renderer process that a buffer is available from video capture.
-IPC_MESSAGE_CONTROL5(VideoCaptureMsg_BufferReady,
-                     int /* device id */,
-                     int /* buffer_id */,
-                     media::VideoCaptureFormat /* format */,
-                     gfx::Rect /* visible_rect */,
-                     base::TimeTicks /* timestamp */)
-
-// Tell the renderer process that a texture mailbox buffer is available from
-// video capture.
-IPC_MESSAGE_CONTROL5(VideoCaptureMsg_MailboxBufferReady,
-                     int /* device_id */,
-                     int /* buffer_id */,
-                     gpu::MailboxHolder /* mailbox_holder */,
-                     media::VideoCaptureFormat /* format */,
-                     base::TimeTicks /* timestamp */)
+// Tell the renderer process that a Buffer is available from video capture, and
+// send the associated VideoFrame constituient parts as IPC parameters.
+IPC_MESSAGE_CONTROL1(VideoCaptureMsg_BufferReady,
+                     VideoCaptureMsg_BufferReady_Params)
 
 // Notify the renderer about a device's supported formats; this is a response
 // to a VideoCaptureHostMsg_GetDeviceSupportedFormats request.
@@ -100,10 +106,11 @@ IPC_MESSAGE_CONTROL1(VideoCaptureHostMsg_Stop,
 
 // Tell the browser process that the renderer has finished reading from
 // a buffer previously delivered by VideoCaptureMsg_BufferReady.
-IPC_MESSAGE_CONTROL3(VideoCaptureHostMsg_BufferReady,
+IPC_MESSAGE_CONTROL4(VideoCaptureHostMsg_BufferReady,
                      int /* device_id */,
                      int /* buffer_id */,
-                     uint32 /* syncpoint */)
+                     uint32 /* syncpoint */,
+                     double /* consumer_resource_utilization */)
 
 // Get the formats supported by a device referenced by |capture_session_id|.
 IPC_MESSAGE_CONTROL2(VideoCaptureHostMsg_GetDeviceSupportedFormats,

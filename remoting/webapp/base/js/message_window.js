@@ -11,8 +11,7 @@ function MessageWindowImpl() {
   /**
    * Used to prevent multiple responses due to the closeWindow handler.
    *
-   * @type {boolean}
-   * @private
+   * @private {boolean}
    */
   this.sentReply_ = false;
 
@@ -21,7 +20,7 @@ function MessageWindowImpl() {
 
 /**
  * @param {Window} parentWindow The id of the window that showed the message.
- * @param {string} messageId The identifier of the message, as supplied by the
+ * @param {number} messageId The identifier of the message, as supplied by the
  *     parent.
  * @param {number} result 0 if window was closed without pressing a button;
  *     otherwise the index of the button pressed (e.g., 1 = primary).
@@ -32,6 +31,7 @@ MessageWindowImpl.prototype.sendReply_ = function(
   // Only forward the first reply that we receive.
   if (!this.sentReply_) {
     var message = {
+      source: 'message-window',
       command: 'messageWindowResult',
       id: messageId,
       result: result
@@ -40,22 +40,8 @@ MessageWindowImpl.prototype.sendReply_ = function(
     this.sentReply_ = true;
   } else {
     // Make sure that the reply we're ignoring is from the window close.
-    base.debug.assert(result == 0);
+    console.assert(result == 0, 'Received unexpected result ' + result + '.');
   }
-};
-
-/**
- * Size the window to its content vertically.
- * @private
- */
-MessageWindowImpl.prototype.updateSize_ = function() {
-  var outerBounds = chrome.app.window.current().outerBounds;
-  var innerBounds = chrome.app.window.current().innerBounds;
-  var borderY = outerBounds.height - innerBounds.height;
-  window.resizeTo(outerBounds.width, document.body.clientHeight + borderY);
-  // Sometimes, resizing the window causes its position to be reset to (0, 0),
-  // so restore it explicitly.
-  window.moveTo(outerBounds.left, outerBounds.top);
 };
 
 /**
@@ -145,7 +131,7 @@ MessageWindowImpl.prototype.onMessage_ = function(event) {
       chrome.app.window.current().onClosed.addListener(
           this.sendReply_.bind(this, event.source, messageId, 0));
 
-      this.updateSize_();
+      base.resizeWindowToContent(true);
       chrome.app.window.current().show();
       break;
 
@@ -159,7 +145,7 @@ MessageWindowImpl.prototype.onMessage_ = function(event) {
       var messageDiv = document.getElementById('message');
       messageDiv.innerText = message;
 
-      this.updateSize_();
+      base.resizeWindowToContent(true);
       break;
 
     default:

@@ -46,22 +46,34 @@ SyncStatusCode MigrateDatabaseFromV4ToV3(leveldb::DB* db) {
     std::string key = itr->key().ToString();
 
     // Do nothing for valid entries in both versions.
-    if (StartsWithASCII(key, kServiceMetadataKey, true) ||
-        StartsWithASCII(key, kFileMetadataKeyPrefix, true) ||
-        StartsWithASCII(key, kFileTrackerKeyPrefix, true)) {
+    if (base::StartsWith(key, kServiceMetadataKey,
+                         base::CompareCase::SENSITIVE) ||
+        base::StartsWith(key, kFileMetadataKeyPrefix,
+                         base::CompareCase::SENSITIVE) ||
+        base::StartsWith(key, kFileTrackerKeyPrefix,
+                         base::CompareCase::SENSITIVE)) {
       continue;
     }
 
     // Drop entries used in version 4 only.
-    if (StartsWithASCII(key, kAppRootIDByAppIDKeyPrefix, true) ||
-        StartsWithASCII(key, kActiveTrackerIDByFileIDKeyPrefix, true) ||
-        StartsWithASCII(key, kTrackerIDByFileIDKeyPrefix, true) ||
-        StartsWithASCII(key, kMultiTrackerByFileIDKeyPrefix, true) ||
-        StartsWithASCII(key, kActiveTrackerIDByParentAndTitleKeyPrefix, true) ||
-        StartsWithASCII(key, kTrackerIDByParentAndTitleKeyPrefix, true) ||
-        StartsWithASCII(key, kMultiBackingParentAndTitleKeyPrefix, true) ||
-        StartsWithASCII(key, kDirtyIDKeyPrefix, true) ||
-        StartsWithASCII(key, kDemotedDirtyIDKeyPrefix, true)) {
+    if (base::StartsWith(key, kAppRootIDByAppIDKeyPrefix,
+                         base::CompareCase::SENSITIVE) ||
+        base::StartsWith(key, kActiveTrackerIDByFileIDKeyPrefix,
+                         base::CompareCase::SENSITIVE) ||
+        base::StartsWith(key, kTrackerIDByFileIDKeyPrefix,
+                         base::CompareCase::SENSITIVE) ||
+        base::StartsWith(key, kMultiTrackerByFileIDKeyPrefix,
+                         base::CompareCase::SENSITIVE) ||
+        base::StartsWith(key, kActiveTrackerIDByParentAndTitleKeyPrefix,
+                         base::CompareCase::SENSITIVE) ||
+        base::StartsWith(key, kTrackerIDByParentAndTitleKeyPrefix,
+                         base::CompareCase::SENSITIVE) ||
+        base::StartsWith(key, kMultiBackingParentAndTitleKeyPrefix,
+                         base::CompareCase::SENSITIVE) ||
+        base::StartsWith(key, kDirtyIDKeyPrefix,
+                         base::CompareCase::SENSITIVE) ||
+        base::StartsWith(key, kDemotedDirtyIDKeyPrefix,
+                         base::CompareCase::SENSITIVE)) {
       write_batch.Delete(key);
       continue;
     }

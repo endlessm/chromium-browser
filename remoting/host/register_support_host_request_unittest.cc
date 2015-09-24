@@ -13,7 +13,6 @@
 #include "remoting/base/constants.h"
 #include "remoting/base/rsa_key_pair.h"
 #include "remoting/base/test_rsa_key_pair.h"
-#include "remoting/host/in_memory_host_config.h"
 #include "remoting/signaling/iq_sender.h"
 #include "remoting/signaling/mock_signal_strategy.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -34,7 +33,8 @@ namespace remoting {
 
 namespace {
 const char kTestBotJid[] = "remotingunittest@bot.talk.google.com";
-const char kTestJid[] = "user@gmail.com/chromoting123";
+const char kTestJid[] = "User@gmail.com/chromotingABC123";
+const char kTestJidNormalized[] = "user@gmail.com/chromotingABC123";
 const char kSupportId[] = "AB4RF3";
 const char kSupportIdLifetime[] = "300";
 const char kStanzaId[] = "123";
@@ -48,8 +48,9 @@ ACTION_P(RemoveListener, list) {
 
 class MockCallback {
  public:
-  MOCK_METHOD3(OnResponse, void(bool result, const std::string& support_id,
-                                const base::TimeDelta& lifetime));
+  MOCK_METHOD3(OnResponse, void(const std::string& support_id,
+                                const base::TimeDelta& lifetime,
+                                const std::string& error_message));
 };
 
 }  // namespace
@@ -71,7 +72,7 @@ class RegisterSupportHostRequestTest : public testing::Test {
 
   base::MessageLoop message_loop_;
   MockSignalStrategy signal_strategy_;
-  ObserverList<SignalStrategy::Listener, true> signal_strategy_listeners_;
+  base::ObserverList<SignalStrategy::Listener, true> signal_strategy_listeners_;
   scoped_refptr<RsaKeyPair> key_pair_;
   MockCallback callback_;
 };
@@ -86,7 +87,7 @@ TEST_F(RegisterSupportHostRequestTest, Send) {
                                      base::Bind(&MockCallback::OnResponse,
                                                 base::Unretained(&callback_))));
 
-  XmlElement* sent_iq = NULL;
+  XmlElement* sent_iq = nullptr;
   EXPECT_CALL(signal_strategy_, GetNextId())
       .WillOnce(Return(kStanzaId));
   EXPECT_CALL(signal_strategy_, SendStanzaPtr(NotNull()))
@@ -97,7 +98,7 @@ TEST_F(RegisterSupportHostRequestTest, Send) {
 
   // Verify format of the query.
   scoped_ptr<XmlElement> stanza(sent_iq);
-  ASSERT_TRUE(stanza != NULL);
+  ASSERT_TRUE(stanza != nullptr);
 
   EXPECT_EQ(stanza->Attr(buzz::QName(std::string(), "to")),
             std::string(kTestBotJid));
@@ -108,8 +109,8 @@ TEST_F(RegisterSupportHostRequestTest, Send) {
 
   QName signature_tag(kChromotingXmlNamespace, "signature");
   XmlElement* signature = stanza->FirstElement()->FirstNamed(signature_tag);
-  ASSERT_TRUE(signature != NULL);
-  EXPECT_TRUE(stanza->NextNamed(signature_tag) == NULL);
+  ASSERT_TRUE(signature != nullptr);
+  EXPECT_TRUE(stanza->NextNamed(signature_tag) == nullptr);
 
   std::string time_str =
       signature->Attr(QName(kChromotingXmlNamespace, "time"));
@@ -123,12 +124,13 @@ TEST_F(RegisterSupportHostRequestTest, Send) {
   ASSERT_TRUE(key_pair.get());
 
   std::string expected_signature =
-      key_pair->SignMessage(std::string(kTestJid) + ' ' + time_str);
+      key_pair->SignMessage(std::string(kTestJidNormalized) + ' ' + time_str);
   EXPECT_EQ(expected_signature, signature->BodyText());
 
   // Generate response and verify that callback is called.
-  EXPECT_CALL(callback_, OnResponse(true, kSupportId,
-                                    base::TimeDelta::FromSeconds(300)));
+  EXPECT_CALL(callback_, OnResponse(kSupportId,
+                                    base::TimeDelta::FromSeconds(300),
+                                    ""));
 
   scoped_ptr<XmlElement> response(new XmlElement(buzz::QN_IQ));
   response->AddAttr(QName(std::string(), "from"), kTestBotJid);
@@ -150,10 +152,10 @@ TEST_F(RegisterSupportHostRequestTest, Send) {
   result->AddElement(support_id_lifetime);
 
   int consumed = 0;
-  ObserverListBase<SignalStrategy::Listener>::Iterator it(
-      signal_strategy_listeners_);
+  base::ObserverListBase<SignalStrategy::Listener>::Iterator it(
+      &signal_strategy_listeners_);
   SignalStrategy::Listener* listener;
-  while ((listener = it.GetNext()) != NULL) {
+  while ((listener = it.GetNext()) != nullptr) {
     if (listener->OnSignalStrategyIncomingStanza(response.get()))
       consumed++;
   }

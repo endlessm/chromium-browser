@@ -13,7 +13,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_tab_util.h"
 #include "chrome/browser/extensions/menu_manager_factory.h"
 #include "chrome/browser/extensions/tab_helper.h"
@@ -24,10 +23,10 @@
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/child_process_host.h"
 #include "content/public/common/context_menu_params.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_registry.h"
-#include "extensions/browser/extension_system.h"
 #include "extensions/browser/guest_view/web_view/web_view_guest.h"
 #include "extensions/browser/state_store.h"
 #include "extensions/common/extension.h"
@@ -35,13 +34,11 @@
 #include "ui/gfx/favicon_size.h"
 #include "ui/gfx/text_elider.h"
 
+using content::ChildProcessHost;
 using content::WebContents;
-using extensions::ExtensionSystem;
+using guest_view::kInstanceIDNone;
 
 namespace extensions {
-
-namespace context_menus = api::context_menus;
-namespace chrome_web_view = api::chrome_web_view_internal;
 
 namespace {
 
@@ -175,7 +172,8 @@ base::string16 MenuItem::TitleWithReplacement(const base::string16& selection,
   base::string16 result = base::UTF8ToUTF16(title_);
   // TODO(asargent) - Change this to properly handle %% escaping so you can
   // put "%s" in titles that won't get substituted.
-  ReplaceSubstringsAfterOffset(&result, 0, base::ASCIIToUTF16("%s"), selection);
+  base::ReplaceSubstringsAfterOffset(
+      &result, 0, base::ASCIIToUTF16("%s"), selection);
 
   if (result.length() > max_length)
     result = gfx::TruncateString(result, max_length, gfx::WORD_BREAK);
@@ -346,8 +344,8 @@ const MenuItem::List* MenuManager::MenuItems(
 
 bool MenuManager::AddContextItem(const Extension* extension, MenuItem* item) {
   const MenuItem::ExtensionKey& key = item->id().extension_key;
-  // The item must have a non-empty extension id, and not have already been
-  // added.
+
+  // The item must have a non-empty key, and not have already been added.
   if (key.empty() || ContainsKey(items_by_id_, item->id()))
     return false;
 
@@ -518,9 +516,20 @@ bool MenuManager::RemoveContextMenuItem(const MenuItem::Id& id) {
 
 void MenuManager::RemoveAllContextItems(
     const MenuItem::ExtensionKey& extension_key) {
+  auto it = context_items_.find(extension_key);
+  if (it == context_items_.end())
+    return;
+
+  // We use the |extension_id| from the stored ExtensionKey, since the provided
+  // |extension_key| may leave it empty (if matching solely basted on the
+  // webview IDs).
+  // TODO(paulmeyer): We can get rid of this hack if/when we reliably track
+  // extension IDs at WebView cleanup.
+  std::string extension_id = it->first.extension_id;
+  MenuItem::List& context_items_for_key = it->second;
   MenuItem::List::iterator i;
-  for (i = context_items_[extension_key].begin();
-       i != context_items_[extension_key].end();
+  for (i = context_items_for_key.begin();
+       i != context_items_for_key.end();
        ++i) {
     MenuItem* item = *i;
     items_by_id_.erase(item->id());
@@ -532,9 +541,9 @@ void MenuManager::RemoveAllContextItems(
       items_by_id_.erase(*j);
     }
   }
-  STLDeleteElements(&context_items_[extension_key]);
+  STLDeleteElements(&context_items_for_key);
   context_items_.erase(extension_key);
-  icon_manager_.RemoveIcon(extension_key.extension_id);
+  icon_manager_.RemoveIcon(extension_id);
 }
 
 MenuItem* MenuManager::GetItemById(const MenuItem::Id& id) const {
@@ -616,11 +625,9 @@ void MenuManager::ExecuteCommand(content::BrowserContext* context,
   if (!item)
     return;
 
-  // ExtensionService/Extension can be NULL in unit tests :(
-  ExtensionService* service =
-      ExtensionSystem::Get(browser_context_)->extension_service();
+  ExtensionRegistry* registry = ExtensionRegistry::Get(browser_context_);
   const Extension* extension =
-      service ? service->extensions()->GetByID(item->extension_id()) : NULL;
+      registry->enabled_extensions().GetByID(item->extension_id());
 
   if (item->type() == MenuItem::RADIO)
     RadioItemSelected(item);
@@ -694,16 +701,19 @@ void MenuManager::ExecuteCommand(content::BrowserContext* context,
   }
 
   // Note: web_contents are NULL in unit tests :(
-  if (web_contents && extensions::TabHelper::FromWebContents(web_contents)) {
-    extensions::TabHelper::FromWebContents(web_contents)->
-        active_tab_permission_granter()->GrantIfRequested(extension);
+  if (web_contents && TabHelper::FromWebContents(web_contents)) {
+    TabHelper::FromWebContents(web_contents)
+        ->active_tab_permission_granter()
+        ->GrantIfRequested(extension);
   }
 
   {
-    // Dispatch to menu item's .onclick handler.
+    // Dispatch to menu item's .onclick handler (this is the legacy API, from
+    // before chrome.contextMenus.onClicked existed).
     scoped_ptr<Event> event(
-        new Event(webview_guest ? kOnWebviewContextMenus
-                                : kOnContextMenus,
+        new Event(webview_guest ? events::WEB_VIEW_INTERNAL_CONTEXT_MENUS
+                                : events::CONTEXT_MENUS,
+                  webview_guest ? kOnWebviewContextMenus : kOnContextMenus,
                   scoped_ptr<base::ListValue>(args->DeepCopy())));
     event->restrict_to_browser_context = context;
     event->user_gesture = EventRouter::USER_GESTURE_ENABLED;
@@ -711,10 +721,12 @@ void MenuManager::ExecuteCommand(content::BrowserContext* context,
   }
   {
     // Dispatch to .contextMenus.onClicked handler.
-    scoped_ptr<Event> event(
-        new Event(webview_guest ? chrome_web_view::OnClicked::kEventName
-                                : context_menus::OnClicked::kEventName,
-                  args.Pass()));
+    scoped_ptr<Event> event(new Event(
+        webview_guest ? events::CHROME_WEB_VIEW_INTERNAL_ON_CLICKED
+                      : events::CONTEXT_MENUS_ON_CLICKED,
+        webview_guest ? api::chrome_web_view_internal::OnClicked::kEventName
+                      : api::context_menus::OnClicked::kEventName,
+        args.Pass()));
     event->restrict_to_browser_context = context;
     event->user_gesture = EventRouter::USER_GESTURE_ENABLED;
     if (webview_guest)
@@ -804,10 +816,9 @@ void MenuManager::WriteToStorage(const Extension* extension,
 
 void MenuManager::ReadFromStorage(const std::string& extension_id,
                                   scoped_ptr<base::Value> value) {
-  const Extension* extension = ExtensionSystem::Get(browser_context_)
-                                   ->extension_service()
-                                   ->extensions()
-                                   ->GetByID(extension_id);
+  const Extension* extension = ExtensionRegistry::Get(browser_context_)
+                                   ->enabled_extensions()
+                                   .GetByID(extension_id);
   if (!extension)
     return;
 
@@ -889,25 +900,52 @@ void MenuManager::RemoveAllIncognitoContextItems() {
     RemoveContextMenuItem(*remove_iter);
 }
 
-MenuItem::ExtensionKey::ExtensionKey() : webview_instance_id(0) {}
-
-MenuItem::ExtensionKey::ExtensionKey(const std::string& extension_id,
-                                     int webview_instance_id)
-    : extension_id(extension_id), webview_instance_id(webview_instance_id) {}
+MenuItem::ExtensionKey::ExtensionKey()
+    : webview_embedder_process_id(ChildProcessHost::kInvalidUniqueID),
+      webview_instance_id(kInstanceIDNone) {}
 
 MenuItem::ExtensionKey::ExtensionKey(const std::string& extension_id)
-    : extension_id(extension_id), webview_instance_id(0) {}
+    : extension_id(extension_id),
+      webview_embedder_process_id(ChildProcessHost::kInvalidUniqueID),
+      webview_instance_id(kInstanceIDNone) {
+  DCHECK(!extension_id.empty());
+}
+
+MenuItem::ExtensionKey::ExtensionKey(const std::string& extension_id,
+                                     int webview_embedder_process_id,
+                                     int webview_instance_id)
+    : extension_id(extension_id),
+      webview_embedder_process_id(webview_embedder_process_id),
+      webview_instance_id(webview_instance_id) {
+  DCHECK(webview_embedder_process_id != ChildProcessHost::kInvalidUniqueID &&
+         webview_instance_id != kInstanceIDNone);
+}
 
 bool MenuItem::ExtensionKey::operator==(const ExtensionKey& other) const {
-  return extension_id == other.extension_id &&
-         webview_instance_id == other.webview_instance_id;
+  bool webview_ids_match = webview_instance_id == other.webview_instance_id &&
+      webview_embedder_process_id == other.webview_embedder_process_id;
+
+  // If either extension ID is empty, then these ExtensionKeys will be matched
+  // only based on the other IDs.
+  if (extension_id.empty() || other.extension_id.empty())
+    return webview_ids_match;
+
+  return extension_id == other.extension_id && webview_ids_match;
 }
 
 bool MenuItem::ExtensionKey::operator<(const ExtensionKey& other) const {
-  if (extension_id != other.extension_id)
-    return extension_id < other.extension_id;
+  if (webview_embedder_process_id != other.webview_embedder_process_id)
+    return webview_embedder_process_id < other.webview_embedder_process_id;
 
-  return webview_instance_id < other.webview_instance_id;
+  if (webview_instance_id != other.webview_instance_id)
+    return webview_instance_id < other.webview_instance_id;
+
+  // If either extension ID is empty, then these ExtensionKeys will be compared
+  // only based on the other IDs.
+  if (extension_id.empty() || other.extension_id.empty())
+    return false;
+
+  return extension_id < other.extension_id;
 }
 
 bool MenuItem::ExtensionKey::operator!=(const ExtensionKey& other) const {
@@ -915,7 +953,9 @@ bool MenuItem::ExtensionKey::operator!=(const ExtensionKey& other) const {
 }
 
 bool MenuItem::ExtensionKey::empty() const {
-  return extension_id.empty() && !webview_instance_id;
+  return extension_id.empty() &&
+      webview_embedder_process_id == ChildProcessHost::kInvalidUniqueID &&
+      webview_instance_id == kInstanceIDNone;
 }
 
 MenuItem::Id::Id() : incognito(false), uid(0) {}

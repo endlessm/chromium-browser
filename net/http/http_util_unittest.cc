@@ -9,14 +9,14 @@
 #include "net/http/http_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-using net::HttpUtil;
+namespace net {
 
 namespace {
 class HttpUtilTest : public testing::Test {};
 }
 
 TEST(HttpUtilTest, IsSafeHeader) {
-  static const char* unsafe_headers[] = {
+  static const char* const unsafe_headers[] = {
     "sec-",
     "sEc-",
     "sec-foo",
@@ -50,10 +50,11 @@ TEST(HttpUtilTest, IsSafeHeader) {
   for (size_t i = 0; i < arraysize(unsafe_headers); ++i) {
     EXPECT_FALSE(HttpUtil::IsSafeHeader(unsafe_headers[i]))
       << unsafe_headers[i];
-    EXPECT_FALSE(HttpUtil::IsSafeHeader(StringToUpperASCII(std::string(
-        unsafe_headers[i])))) << unsafe_headers[i];
+    EXPECT_FALSE(HttpUtil::IsSafeHeader(
+        base::StringToUpperASCII(std::string(unsafe_headers[i]))))
+        << unsafe_headers[i];
   }
-  static const char* safe_headers[] = {
+  static const char* const safe_headers[] = {
     "foo",
     "x-",
     "x-foo",
@@ -95,15 +96,16 @@ TEST(HttpUtilTest, IsSafeHeader) {
   };
   for (size_t i = 0; i < arraysize(safe_headers); ++i) {
     EXPECT_TRUE(HttpUtil::IsSafeHeader(safe_headers[i])) << safe_headers[i];
-    EXPECT_TRUE(HttpUtil::IsSafeHeader(StringToUpperASCII(std::string(
-        safe_headers[i])))) << safe_headers[i];
+    EXPECT_TRUE(HttpUtil::IsSafeHeader(
+        base::StringToUpperASCII(std::string(safe_headers[i]))))
+        << safe_headers[i];
   }
 }
 
 TEST(HttpUtilTest, HasHeader) {
   static const struct {
-    const char* headers;
-    const char* name;
+    const char* const headers;
+    const char* const name;
     bool expected_result;
   } tests[] = {
     { "", "foo", false },
@@ -121,7 +123,7 @@ TEST(HttpUtilTest, HasHeader) {
 }
 
 TEST(HttpUtilTest, StripHeaders) {
-  static const char* headers =
+  static const char* const headers =
       "Origin: origin\r\n"
       "Content-Type: text/plain\r\n"
       "Cookies: foo1\r\n"
@@ -130,11 +132,11 @@ TEST(HttpUtilTest, StripHeaders) {
       "Server: Apache\r\n"
       "OrIGin: origin2\r\n";
 
-  static const char* header_names[] = {
+  static const char* const header_names[] = {
     "origin", "content-type", "cookies"
   };
 
-  static const char* expected_stripped_headers =
+  static const char* const expected_stripped_headers =
       "Custom: baz\r\n"
       "Server: Apache\r\n";
 
@@ -262,15 +264,20 @@ TEST(HttpUtilTest, Quote) {
 
 TEST(HttpUtilTest, LocateEndOfHeaders) {
   struct {
-    const char* input;
+    const char* const input;
     int expected_result;
   } tests[] = {
-    { "foo\r\nbar\r\n\r\n", 12 },
-    { "foo\nbar\n\n", 9 },
-    { "foo\r\nbar\r\n\r\njunk", 12 },
-    { "foo\nbar\n\njunk", 9 },
-    { "foo\nbar\n\r\njunk", 10 },
-    { "foo\nbar\r\n\njunk", 10 },
+      {"\r\n", -1},
+      {"\n", -1},
+      {"\r", -1},
+      {"foo", -1},
+      {"\r\n\r\n", 4},
+      {"foo\r\nbar\r\n\r\n", 12},
+      {"foo\nbar\n\n", 9},
+      {"foo\r\nbar\r\n\r\njunk", 12},
+      {"foo\nbar\n\njunk", 9},
+      {"foo\nbar\n\r\njunk", 10},
+      {"foo\nbar\r\n\njunk", 10},
   };
   for (size_t i = 0; i < arraysize(tests); ++i) {
     int input_len = static_cast<int>(strlen(tests[i].input));
@@ -279,10 +286,33 @@ TEST(HttpUtilTest, LocateEndOfHeaders) {
   }
 }
 
+TEST(HttpUtilTest, LocateEndOfAdditionalHeaders) {
+  struct {
+    const char* const input;
+    int expected_result;
+  } tests[] = {
+      {"\r\n", 2},
+      {"\n", 1},
+      {"\r", -1},
+      {"foo", -1},
+      {"\r\n\r\n", 2},
+      {"foo\r\nbar\r\n\r\n", 12},
+      {"foo\nbar\n\n", 9},
+      {"foo\r\nbar\r\n\r\njunk", 12},
+      {"foo\nbar\n\njunk", 9},
+      {"foo\nbar\n\r\njunk", 10},
+      {"foo\nbar\r\n\njunk", 10},
+  };
+  for (size_t i = 0; i < arraysize(tests); ++i) {
+    int input_len = static_cast<int>(strlen(tests[i].input));
+    int eoh = HttpUtil::LocateEndOfAdditionalHeaders(tests[i].input, input_len);
+    EXPECT_EQ(tests[i].expected_result, eoh);
+  }
+}
 TEST(HttpUtilTest, AssembleRawHeaders) {
   struct {
-    const char* input;  // with '|' representing '\0'
-    const char* expected_result;  // with '\0' changed to '|'
+    const char* const input;  // with '|' representing '\0'
+    const char* const expected_result;  // with '\0' changed to '|'
   } tests[] = {
     { "HTTP/1.0 200 OK\r\nFoo: 1\r\nBar: 2\r\n\r\n",
       "HTTP/1.0 200 OK|Foo: 1|Bar: 2||" },
@@ -591,51 +621,44 @@ TEST(HttpUtilTest, AssembleRawHeaders) {
   }
 }
 
-// Test SpecForRequest() and PathForRequest().
+// Test SpecForRequest().
 TEST(HttpUtilTest, RequestUrlSanitize) {
   struct {
-    const char* url;
-    const char* expected_spec;
-    const char* expected_path;
+    const char* const url;
+    const char* const expected_spec;
   } tests[] = {
     { // Check that #hash is removed.
       "http://www.google.com:78/foobar?query=1#hash",
       "http://www.google.com:78/foobar?query=1",
-      "/foobar?query=1"
     },
     { // The reference may itself contain # -- strip all of it.
       "http://192.168.0.1?query=1#hash#10#11#13#14",
       "http://192.168.0.1/?query=1",
-      "/?query=1"
     },
     { // Strip username/password.
       "http://user:pass@google.com",
       "http://google.com/",
-      "/"
     },
     { // https scheme
       "https://www.google.com:78/foobar?query=1#hash",
       "https://www.google.com:78/foobar?query=1",
-      "/foobar?query=1"
     },
     { // WebSocket's ws scheme
       "ws://www.google.com:78/foobar?query=1#hash",
       "ws://www.google.com:78/foobar?query=1",
-      "/foobar?query=1"
     },
     { // WebSocket's wss scheme
       "wss://www.google.com:78/foobar?query=1#hash",
       "wss://www.google.com:78/foobar?query=1",
-      "/foobar?query=1"
     }
   };
   for (size_t i = 0; i < arraysize(tests); ++i) {
+    SCOPED_TRACE(i);
+
     GURL url(GURL(tests[i].url));
     std::string expected_spec(tests[i].expected_spec);
-    std::string expected_path(tests[i].expected_path);
 
     EXPECT_EQ(expected_spec, HttpUtil::SpecForRequest(url));
-    EXPECT_EQ(expected_path, HttpUtil::PathForRequest(url));
   }
 }
 
@@ -657,11 +680,11 @@ TEST(HttpUtilTest, GenerateAcceptLanguageHeader) {
 // HttpResponseHeadersTest.GetMimeType also tests ParseContentType.
 TEST(HttpUtilTest, ParseContentType) {
   const struct {
-    const char* content_type;
-    const char* expected_mime_type;
-    const char* expected_charset;
+    const char* const content_type;
+    const char* const expected_mime_type;
+    const char* const expected_charset;
     const bool expected_had_charset;
-    const char* expected_boundary;
+    const char* const expected_boundary;
   } tests[] = {
     { "text/html; charset=utf-8",
       "text/html",
@@ -730,8 +753,8 @@ TEST(HttpUtilTest, ParseContentType) {
     std::string charset;
     bool had_charset = false;
     std::string boundary;
-    net::HttpUtil::ParseContentType(tests[i].content_type, &mime_type,
-                                    &charset, &had_charset, &boundary);
+    HttpUtil::ParseContentType(tests[i].content_type, &mime_type, &charset,
+                               &had_charset, &boundary);
     EXPECT_EQ(tests[i].expected_mime_type, mime_type) << "i=" << i;
     EXPECT_EQ(tests[i].expected_charset, charset) << "i=" << i;
     EXPECT_EQ(tests[i].expected_had_charset, had_charset) << "i=" << i;
@@ -741,7 +764,7 @@ TEST(HttpUtilTest, ParseContentType) {
 
 TEST(HttpUtilTest, ParseRanges) {
   const struct {
-    const char* headers;
+    const char* const headers;
     bool expected_return_value;
     size_t expected_ranges_size;
     const struct {
@@ -854,7 +877,7 @@ TEST(HttpUtilTest, ParseRanges) {
   };
 
   for (size_t i = 0; i < arraysize(tests); ++i) {
-    std::vector<net::HttpByteRange> ranges;
+    std::vector<HttpByteRange> ranges;
     bool return_value = HttpUtil::ParseRanges(std::string(tests[i].headers),
                                               &ranges);
     EXPECT_EQ(tests[i].expected_return_value, return_value);
@@ -993,7 +1016,7 @@ void CheckInvalidNameValuePair(std::string valid_part,
   ASSERT_FALSE(invalid_parser.valid());
 }
 
-}  // anonymous namespace
+}  // namespace
 
 TEST(HttpUtilTest, NameValuePairsIteratorCopyAndAssign) {
   std::string data = "alpha='\\'a\\''; beta=\" b \"; cappa='c;'; delta=\"d\"";
@@ -1114,3 +1137,5 @@ TEST(HttpUtilTest, NameValuePairsIteratorMissingEndQuote) {
   ASSERT_NO_FATAL_FAILURE(CheckNextNameValuePair(
       &parser, false, true, std::string(), std::string()));
 }
+
+}  // namespace net

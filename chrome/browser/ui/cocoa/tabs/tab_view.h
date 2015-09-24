@@ -11,6 +11,7 @@
 #include "base/mac/scoped_cftyperef.h"
 #include "base/mac/scoped_nsobject.h"
 #import "chrome/browser/ui/cocoa/hover_close_button.h"
+#import "chrome/browser/ui/cocoa/themed_window.h"
 
 namespace tabs {
 
@@ -42,7 +43,7 @@ const CGFloat kImageNoFocusAlpha = 0.65;
 // on the tab strip. Relies on an associated TabController to provide a
 // target/action for selecting the tab.
 
-@interface TabView : NSView {
+@interface TabView : NSView<ThemedWindowDrawing> {
  @private
   TabController* controller_;
   base::scoped_nsobject<NSTextField> titleView_;
@@ -74,12 +75,6 @@ const CGFloat kImageNoFocusAlpha = 0.65;
 
   // The tool tip text for this tab view.
   base::scoped_nsobject<NSString> toolTipText_;
-
-  // A one-element mask image cache.  This cache makes drawing roughly 16%
-  // faster.
-  base::ScopedCFTypeRef<CGImageRef> maskCache_;
-  CGFloat maskCacheWidth_;
-  CGFloat maskCacheScale_;
 }
 
 @property(retain, nonatomic) NSString* title;
@@ -102,13 +97,13 @@ const CGFloat kImageNoFocusAlpha = 0.65;
 // clicks inside it from sending messages.
 @property(assign, nonatomic, getter=isClosing) BOOL closing;
 
+// The tool tip text for this tab view.
+@property(copy, nonatomic) NSString* toolTipText;
+
 // Designated initializer.
 - (id)initWithFrame:(NSRect)frame
          controller:(TabController*)controller
         closeButton:(HoverCloseButton*)closeButton;
-
-// Returns the inset multiplier used to compute the inset of the top of the tab.
-+ (CGFloat)insetMultiplier;
 
 // Enables/Disables tracking regions for the tab.
 - (void)setTrackingEnabled:(BOOL)enabled;
@@ -121,8 +116,9 @@ const CGFloat kImageNoFocusAlpha = 0.65;
 // will make it fade away.
 - (void)cancelAlert;
 
-// Returns the tool tip text for this tab view.
-- (NSString*)toolTipText;
+// Returns the width of the largest part of the tab that is available for the
+// user to click to select/activate the tab.
+- (int)widthOfLargestSelectableRegion;
 
 @end
 

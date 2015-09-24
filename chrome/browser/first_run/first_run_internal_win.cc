@@ -46,9 +46,8 @@ bool LaunchSetupForEula(const base::FilePath::StringType& value,
     return false;
   exe_dir = exe_dir.Append(installer::kInstallerDir);
   base::FilePath exe_path = exe_dir.Append(installer::kSetupExe);
-  base::ProcessHandle ph;
 
-  CommandLine cl(CommandLine::NO_PROGRAM);
+  base::CommandLine cl(base::CommandLine::NO_PROGRAM);
   cl.AppendSwitchNative(installer::switches::kShowEula, value);
 
   if (base::win::IsMetroProcess()) {
@@ -64,14 +63,14 @@ bool LaunchSetupForEula(const base::FilePath::StringType& value,
                              SEE_MASK_FLAG_LOG_USAGE | SEE_MASK_FLAG_NO_UI);
     return false;
   } else {
-    CommandLine setup_path(exe_path);
+    base::CommandLine setup_path(exe_path);
     setup_path.AppendArguments(cl, false);
 
+    base::Process process =
+        base::LaunchProcess(setup_path, base::LaunchOptions());
     int exit_code = 0;
-    if (!base::LaunchProcess(setup_path, base::LaunchOptions(), &ph) ||
-        !base::WaitForExitCode(ph, &exit_code)) {
+    if (!process.IsValid() || !process.WaitForExit(&exit_code))
       return false;
-    }
 
     *ret_code = exit_code;
     return true;
@@ -129,7 +128,7 @@ void DoPostImportPlatformSpecificTasks(Profile* /* profile */) {
   base::FilePath chrome_exe;
   if (!PathService::Get(base::FILE_EXE, &chrome_exe)) {
     NOTREACHED();
-  } else if (!InstallUtil::IsPerUserInstall(chrome_exe.value().c_str())) {
+  } else if (!InstallUtil::IsPerUserInstall(chrome_exe)) {
     content::BrowserThread::GetBlockingPool()->PostDelayedTask(
         FROM_HERE,
         base::Bind(&InstallUtil::TriggerActiveSetupCommand),
@@ -146,7 +145,7 @@ bool IsFirstRunSentinelPresent() {
   // from the application directory to the user data directory.
   base::FilePath exe_path;
   if (PathService::Get(base::DIR_EXE, &exe_path) &&
-      InstallUtil::IsPerUserInstall(exe_path.value().c_str())) {
+      InstallUtil::IsPerUserInstall(exe_path)) {
     base::FilePath legacy_sentinel = exe_path.Append(chrome::kFirstRunSentinel);
     if (base::PathExists(legacy_sentinel)) {
       // Copy the file instead of moving it to avoid breaking developer builds
@@ -181,10 +180,10 @@ bool ShowPostInstallEULAIfNeeded(installer::MasterPreferences* install_prefs) {
       CreateEULASentinel();
 
       if (retcode == installer::EULA_ACCEPTED) {
-        VLOG(1) << "EULA : no collection";
+        DVLOG(1) << "EULA : no collection";
         GoogleUpdateSettings::SetCollectStatsConsent(false);
       } else if (retcode == installer::EULA_ACCEPTED_OPT_IN) {
-        VLOG(1) << "EULA : collection consent";
+        DVLOG(1) << "EULA : collection consent";
         GoogleUpdateSettings::SetCollectStatsConsent(true);
       }
     }

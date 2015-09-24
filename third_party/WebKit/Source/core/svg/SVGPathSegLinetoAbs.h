@@ -22,24 +22,29 @@
 #ifndef SVGPathSegLinetoAbs_h
 #define SVGPathSegLinetoAbs_h
 
-#include "core/svg/SVGPathSegWithContext.h"
+#include "core/svg/SVGPathSeg.h"
 
 namespace blink {
 
 class SVGPathSegLinetoAbs final : public SVGPathSegSingleCoordinate {
     DEFINE_WRAPPERTYPEINFO();
 public:
-    static PassRefPtr<SVGPathSegLinetoAbs> create(SVGPathElement* element, float x, float y)
+    static PassRefPtrWillBeRawPtr<SVGPathSegLinetoAbs> create(SVGPathElement* element, float x, float y)
     {
-        return adoptRef(new SVGPathSegLinetoAbs(element, x, y));
+        return adoptRefWillBeNoop(new SVGPathSegLinetoAbs(element, x, y));
+    }
+
+    PassRefPtrWillBeRawPtr<SVGPathSeg> clone() override
+    {
+        return adoptRefWillBeNoop(new SVGPathSegLinetoAbs(nullptr, x(), y()));
     }
 
 private:
     SVGPathSegLinetoAbs(SVGPathElement* element, float x, float y)
         : SVGPathSegSingleCoordinate(element, x, y) { }
 
-    virtual unsigned short pathSegType() const override { return PATHSEG_LINETO_ABS; }
-    virtual String pathSegTypeAsLetter() const override { return "L"; }
+    unsigned short pathSegType() const override { return PATHSEG_LINETO_ABS; }
+    String pathSegTypeAsLetter() const override { return "L"; }
 };
 
 } // namespace blink

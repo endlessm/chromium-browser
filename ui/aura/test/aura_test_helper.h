@@ -57,11 +57,9 @@ class AuraTestHelper {
   base::MessageLoopForUI* message_loop_;
   bool setup_called_;
   bool teardown_called_;
-  bool owns_host_;
   scoped_ptr<WindowTreeHost> host_;
   scoped_ptr<TestWindowTreeClient> stacking_client_;
   scoped_ptr<client::DefaultCaptureClient> capture_client_;
-  scoped_ptr<ui::InputMethod> test_input_method_;
   scoped_ptr<client::FocusClient> focus_client_;
   scoped_ptr<TestScreen> test_screen_;
   scoped_ptr<ui::ScopedAnimationDurationScaleMode> zero_duration_mode_;

@@ -4,35 +4,21 @@
 
 import json
 import os
+import unittest
 
-from telemetry import benchmark
-from telemetry.core import exceptions
-from telemetry.core import wpr_modes
+from telemetry import decorators
+from telemetry import story
 from telemetry.page import page as page_module
-from telemetry.page import page_set
-from telemetry.page import page_set_archive_info
 from telemetry.page import page_test
-from telemetry.unittest import options_for_unittests
-from telemetry.unittest import page_test_test_case
-from telemetry.value import scalar
+from telemetry.testing import options_for_unittests
+from telemetry.testing import page_test_test_case
+from telemetry.util import wpr_modes
+from telemetry.wpr import archive_info
 
 
 class PageTestThatFails(page_test.PageTest):
   def ValidateAndMeasurePage(self, page, tab, results):
-    raise exceptions.IntentionalException
-
-
-class PageTestThatHasDefaults(page_test.PageTest):
-  def AddCommandLineArgs(self, parser):
-    parser.add_option('-x', dest='x', default=3)
-
-  def ValidateAndMeasurePage(self, page, tab, results):
-    if not hasattr(self.options, 'x'):
-      raise page_test.MeasurementFailure('Default option was not set.')
-    if self.options.x != 3:
-      raise page_test.MeasurementFailure(
-          'Expected x == 3, got x == ' + self.options.x)
-    results.AddValue(scalar.ScalarValue(page, 'x', 'ms', 7))
+    raise page_test.Failure
 
 
 class PageTestForBlank(page_test.PageTest):
@@ -62,18 +48,18 @@ class PageTestQueryParams(page_test.PageTest):
 
 class PageTestWithAction(page_test.PageTest):
   def __init__(self):
-    super(PageTestWithAction, self).__init__('RunTestAction')
+    super(PageTestWithAction, self).__init__()
 
   def ValidateAndMeasurePage(self, page, tab, results):
     pass
 
 
 class PageWithAction(page_module.Page):
-  def __init__(self, url, ps):
-    super(PageWithAction, self).__init__(url, ps, ps.base_dir)
+  def __init__(self, url, story_set):
+    super(PageWithAction, self).__init__(url, story_set, story_set.base_dir)
     self.run_test_action_called = False
 
-  def RunTestAction(self, _):
+  def RunPageInteractions(self, _):
     self.run_test_action_called = True
 
 
@@ -84,34 +70,29 @@ class PageTestUnitTest(page_test_test_case.PageTestTestCase):
     self._options.browser_options.wpr_mode = wpr_modes.WPR_OFF
 
   def testGotToBlank(self):
-    ps = self.CreatePageSetFromFileInUnittestDataDir('blank.html')
+    story_set = self.CreateStorySetFromFileInUnittestDataDir('blank.html')
     measurement = PageTestForBlank()
-    all_results = self.RunMeasurement(measurement, ps, options=self._options)
+    all_results = self.RunMeasurement(
+        measurement, story_set, options=self._options)
     self.assertEquals(0, len(all_results.failures))
 
   def testGotQueryParams(self):
-    ps = self.CreatePageSetFromFileInUnittestDataDir('blank.html?foo=1')
+    story_set = self.CreateStorySetFromFileInUnittestDataDir('blank.html?foo=1')
     measurement = PageTestQueryParams()
-    all_results = self.RunMeasurement(measurement, ps, options=self._options)
+    all_results = self.RunMeasurement(
+        measurement, story_set, options=self._options)
     self.assertEquals(0, len(all_results.failures))
 
   def testFailure(self):
-    ps = self.CreatePageSetFromFileInUnittestDataDir('blank.html')
+    story_set = self.CreateStorySetFromFileInUnittestDataDir('blank.html')
     measurement = PageTestThatFails()
-    all_results = self.RunMeasurement(measurement, ps, options=self._options)
+    all_results = self.RunMeasurement(
+        measurement, story_set, options=self._options)
     self.assertEquals(1, len(all_results.failures))
-
-  def testDefaults(self):
-    ps = self.CreatePageSetFromFileInUnittestDataDir('blank.html')
-    measurement = PageTestThatHasDefaults()
-    all_results = self.RunMeasurement(measurement, ps, options=self._options)
-    self.assertEquals(len(all_results.all_page_specific_values), 1)
-    self.assertEquals(
-      all_results.all_page_specific_values[0].value, 7)
 
   # This test is disabled because it runs against live sites, and needs to be
   # fixed. crbug.com/179038
-  @benchmark.Disabled
+  @decorators.Disabled
   def testRecordAndReplay(self):
     test_archive = '/tmp/google.wpr'
     google_url = 'http://www.google.com/'
@@ -124,33 +105,40 @@ class PageTestUnitTest(page_test_test_case.PageTestTestCase):
 }
 """)
     try:
-      ps = page_set.PageSet()
+      story_set = story.StorySet.PageSet()
       measurement = PageTestForReplay()
 
       # First record an archive with only www.google.com.
       self._options.browser_options.wpr_mode = wpr_modes.WPR_RECORD
 
-      ps.wpr_archive_info = page_set_archive_info.PageSetArchiveInfo(
-          '', '', json.loads(archive_info_template %
-                             (test_archive, google_url)))
-      ps.pages = [page_module.Page(google_url, ps)]
-      all_results = self.RunMeasurement(measurement, ps, options=self._options)
+      # pylint: disable=protected-access
+      story_set._wpr_archive_info = archive_info.WprArchiveInfo(
+          '', '', story_set.bucket, json.loads(archive_info_template %
+                                        (test_archive, google_url)))
+      story_set.pages = [page_module.Page(google_url, story_set)]
+      all_results = self.RunMeasurement(
+          measurement, story_set, options=self._options)
       self.assertEquals(0, len(all_results.failures))
 
       # Now replay it and verify that google.com is found but foo.com is not.
       self._options.browser_options.wpr_mode = wpr_modes.WPR_REPLAY
 
-      ps.wpr_archive_info = page_set_archive_info.PageSetArchiveInfo(
-          '', '', json.loads(archive_info_template % (test_archive, foo_url)))
-      ps.pages = [page_module.Page(foo_url, ps)]
-      all_results = self.RunMeasurement(measurement, ps, options=self._options)
+      # pylint: disable=protected-access
+      story_set._wpr_archive_info = archive_info.WprArchiveInfo(
+          '', '', story_set.bucket, json.loads(archive_info_template %
+                                        (test_archive, foo_url)))
+      story_set.pages = [page_module.Page(foo_url, story_set)]
+      all_results = self.RunMeasurement(
+          measurement, story_set, options=self._options)
       self.assertEquals(1, len(all_results.failures))
 
-      ps.wpr_archive_info = page_set_archive_info.PageSetArchiveInfo(
-          '', '', json.loads(archive_info_template %
-                             (test_archive, google_url)))
-      ps.pages = [page_module.Page(google_url, ps)]
-      all_results = self.RunMeasurement(measurement, ps, options=self._options)
+      # pylint: disable=protected-access
+      story_set._wpr_archive_info = archive_info.WprArchiveInfo(
+          '', '', story_set.bucket, json.loads(archive_info_template %
+                                        (test_archive, google_url)))
+      story_set.pages = [page_module.Page(google_url, story_set)]
+      all_results = self.RunMeasurement(
+          measurement, story_set, options=self._options)
       self.assertEquals(0, len(all_results.failures))
 
       self.assertTrue(os.path.isfile(test_archive))
@@ -160,9 +148,38 @@ class PageTestUnitTest(page_test_test_case.PageTestTestCase):
         os.remove(test_archive)
 
   def testRunActions(self):
-    ps = self.CreateEmptyPageSet()
-    page = PageWithAction('file://blank.html', ps)
-    ps.AddPage(page)
+    story_set = self.CreateEmptyPageSet()
+    page = PageWithAction('file://blank.html', story_set)
+    story_set.AddStory(page)
     measurement = PageTestWithAction()
-    self.RunMeasurement(measurement, ps, options=self._options)
+    self.RunMeasurement(measurement, story_set, options=self._options)
     self.assertTrue(page.run_test_action_called)
+
+
+class MultiTabPageTestUnitTest(unittest.TestCase):
+  def testNoTabForPageReturnsFalse(self):
+    class PageTestWithoutTabForPage(page_test.PageTest):
+      def ValidateAndMeasurePage(self, *_):
+        pass
+    test = PageTestWithoutTabForPage()
+    self.assertFalse(test.is_multi_tab_test)
+
+  def testHasTabForPageReturnsTrue(self):
+    class PageTestWithTabForPage(page_test.PageTest):
+      def ValidateAndMeasurePage(self, *_):
+        pass
+      def TabForPage(self, *_):
+        pass
+    test = PageTestWithTabForPage()
+    self.assertTrue(test.is_multi_tab_test)
+
+  def testHasTabForPageInAncestor(self):
+    class PageTestWithTabForPage(page_test.PageTest):
+      def ValidateAndMeasurePage(self, *_):
+        pass
+      def TabForPage(self, *_):
+        pass
+    class PageTestWithTabForPageInParent(PageTestWithTabForPage):
+      pass
+    test = PageTestWithTabForPageInParent()
+    self.assertTrue(test.is_multi_tab_test)

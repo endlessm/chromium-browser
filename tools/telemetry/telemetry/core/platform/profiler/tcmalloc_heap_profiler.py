@@ -6,8 +6,8 @@ import logging
 import os
 import sys
 
-from telemetry.core.backends.chrome import android_browser_finder
 from telemetry.core.platform import profiler
+from telemetry.internal.backends.chrome import android_browser_finder
 
 # Enviroment variables to (android properties, default value) mapping.
 _ENV_VARIABLES = {
@@ -34,26 +34,34 @@ class _TCMallocHeapProfilerAndroid(object):
   def _SetDeviceProperties(self, properties):
     device_configured = False
     # This profiler requires adb root to set properties.
-    self._browser_backend.adb.device().old_interface.EnableAdbRoot()
+    try:
+      self._browser_backend.device.EnableRoot()
+    except:
+      logging.exception('New exception caused by DeviceUtils conversion')
+      raise
     for values in properties.itervalues():
-      device_property = self._browser_backend.adb.device().GetProp(values[0])
+      device_property = self._browser_backend.device.GetProp(values[0])
       if not device_property or not device_property.strip():
-        self._browser_backend.adb.device().SetProp(values[0], values[1])
+        self._browser_backend.device.SetProp(values[0], values[1])
         device_configured = True
-    if not self._browser_backend.adb.device().FileExists(
+    if not self._browser_backend.device.FileExists(
         self._DEFAULT_DEVICE_DIR):
-      self._browser_backend.adb.RunShellCommand(
+      self._browser_backend.device.RunShellCommand(
           'mkdir -p ' + self._DEFAULT_DEVICE_DIR)
-      self._browser_backend.adb.RunShellCommand(
+      self._browser_backend.device.RunShellCommand(
           'chmod 777 ' + self._DEFAULT_DEVICE_DIR)
       device_configured = True
     if device_configured:
       raise Exception('Device required special config, run again.')
 
   def CollectProfile(self):
-    self._browser_backend.adb.device().old_interface.Adb().Pull(
-        self._DEFAULT_DEVICE_DIR, self._output_path)
-    self._browser_backend.adb.RunShellCommand(
+    try:
+      self._browser_backend.device.PullFile(
+          self._DEFAULT_DEVICE_DIR, self._output_path)
+    except:
+      logging.exception('New exception caused by DeviceUtils conversion')
+      raise
+    self._browser_backend.device.RunShellCommand(
         'rm ' + os.path.join(self._DEFAULT_DEVICE_DIR, '*'))
     if os.path.exists(self._output_path):
       logging.info('TCMalloc dumps pulled to %s', self._output_path)

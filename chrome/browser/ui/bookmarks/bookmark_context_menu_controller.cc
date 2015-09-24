@@ -18,7 +18,6 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/undo/bookmark_undo_service.h"
 #include "chrome/browser/undo/bookmark_undo_service_factory.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -26,11 +25,14 @@
 #include "components/bookmarks/browser/bookmark_client.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
+#include "components/undo/bookmark_undo_service.h"
 #include "content/public/browser/page_navigator.h"
 #include "content/public/browser/user_metrics.h"
+#include "grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 
 using base::UserMetricsAction;
+using bookmarks::BookmarkNode;
 using content::PageNavigator;
 
 BookmarkContextMenuController::BookmarkContextMenuController(
@@ -92,8 +94,8 @@ void BookmarkContextMenuController::BuildMenu() {
 
   AddSeparator();
   AddItem(IDC_BOOKMARK_BAR_REMOVE, IDS_BOOKMARK_BAR_REMOVE);
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableBookmarkUndo)) {
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnableBookmarkUndo)) {
     AddItem(IDC_BOOKMARK_BAR_UNDO, IDS_BOOKMARK_BAR_UNDO);
     AddItem(IDC_BOOKMARK_BAR_REDO, IDS_BOOKMARK_BAR_REDO);
   }
@@ -198,7 +200,7 @@ void BookmarkContextMenuController::ExecuteCommand(int id, int event_flags) {
       for (size_t i = 0; i < selection_.size(); ++i) {
         int index = selection_[i]->parent()->GetIndexOf(selection_[i]);
         if (index > -1)
-          model_->Remove(selection_[i]->parent(), index);
+          model_->Remove(selection_[i]);
       }
       selection_.clear();
       break;

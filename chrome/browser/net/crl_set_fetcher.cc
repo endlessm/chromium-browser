@@ -5,16 +5,17 @@
 #include "chrome/browser/net/crl_set_fetcher.h"
 
 #include "base/bind.h"
-#include "base/debug/trace_event.h"
 #include "base/files/file_util.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/rand_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
+#include "base/trace_event/trace_event.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "components/component_updater/component_updater_service.h"
+#include "components/update_client/update_client.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/cert/crl_set.h"
 #include "net/cert/crl_set_storage.h"
@@ -35,7 +36,7 @@ base::FilePath CRLSetFetcher::GetCRLSetFilePath() const {
 
 void CRLSetFetcher::StartInitialLoad(ComponentUpdateService* cus,
                                      const base::FilePath& path) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (path.empty())
     return;
   SetCRLSetFilePath(path);
@@ -49,7 +50,7 @@ void CRLSetFetcher::StartInitialLoad(ComponentUpdateService* cus,
 }
 
 void CRLSetFetcher::DeleteFromDisk(const base::FilePath& path) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (path.empty())
     return;
@@ -62,7 +63,7 @@ void CRLSetFetcher::DeleteFromDisk(const base::FilePath& path) {
 }
 
 void CRLSetFetcher::DoInitialLoadFromDisk() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
 
   LoadFromDisk(GetCRLSetFilePath(), &crl_set_);
 
@@ -86,7 +87,7 @@ void CRLSetFetcher::LoadFromDisk(base::FilePath path,
                                  scoped_refptr<net::CRLSet>* out_crl_set) {
   TRACE_EVENT0("CRLSetFetcher", "LoadFromDisk");
 
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
 
   std::string crl_set_bytes;
   {
@@ -112,7 +113,7 @@ void CRLSetFetcher::LoadFromDisk(base::FilePath path,
 
 void CRLSetFetcher::SetCRLSetIfNewer(
     scoped_refptr<net::CRLSet> crl_set) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   scoped_refptr<net::CRLSet> old_crl_set(net::SSLConfigService::GetCRLSet());
   if (old_crl_set.get() && old_crl_set->sequence() > crl_set->sequence()) {
@@ -136,9 +137,9 @@ static const uint8 kPublicKeySHA256[32] = {
 };
 
 void CRLSetFetcher::RegisterComponent(uint32 sequence_of_loaded_crl) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  component_updater::CrxComponent component;
+  update_client::CrxComponent component;
   component.pk_hash.assign(kPublicKeySHA256,
                            kPublicKeySHA256 + sizeof(kPublicKeySHA256));
   component.installer = this;
@@ -150,14 +151,12 @@ void CRLSetFetcher::RegisterComponent(uint32 sequence_of_loaded_crl) {
     component.version = Version("0");
   }
 
-  if (cus_->RegisterComponent(component) !=
-      ComponentUpdateService::kOk) {
+  if (!cus_->RegisterComponent(component))
     NOTREACHED() << "RegisterComponent returned error";
-  }
 }
 
 void CRLSetFetcher::DoDeleteFromDisk() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
 
   DeleteFile(GetCRLSetFilePath(), false /* not recursive */);
 }
@@ -182,6 +181,13 @@ bool CRLSetFetcher::Install(const base::DictionaryValue& manifest,
   bool is_delta;
   if (!net::CRLSetStorage::GetIsDeltaUpdate(crl_set_bytes, &is_delta)) {
     LOG(WARNING) << "GetIsDeltaUpdate failed on CRL set from update CRX";
+    return false;
+  }
+
+  if (is_delta && !crl_set_.get()) {
+    // The update server gave us a delta update, but we don't have any base
+    // revision to apply it to.
+    LOG(WARNING) << "Received unsolicited delta update.";
     return false;
   }
 
@@ -230,6 +236,10 @@ bool CRLSetFetcher::Install(const base::DictionaryValue& manifest,
 
 bool CRLSetFetcher::GetInstalledFile(
     const std::string& file, base::FilePath* installed_file) {
+  return false;
+}
+
+bool CRLSetFetcher::Uninstall() {
   return false;
 }
 

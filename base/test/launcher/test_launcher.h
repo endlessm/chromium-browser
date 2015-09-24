@@ -11,6 +11,7 @@
 #include "base/basictypes.h"
 #include "base/callback_forward.h"
 #include "base/compiler_specific.h"
+#include "base/test/gtest_util.h"
 #include "base/test/launcher/test_result.h"
 #include "base/test/launcher/test_results_tracker.h"
 #include "base/time/time.h"
@@ -40,11 +41,15 @@ extern const char kGTestOutputFlag[];
 // which tests and how are run.
 class TestLauncherDelegate {
  public:
+  // Called to get names of tests available for running. The delegate
+  // must put the result in |output| and return true on success.
+  virtual bool GetTests(std::vector<SplitTestName>* output) = 0;
+
   // Called before a test is considered for running. If it returns false,
   // the test is not run. If it returns true, the test will be run provided
   // it is part of the current shard.
-  virtual bool ShouldRunTest(const testing::TestCase* test_case,
-                             const testing::TestInfo* test_info) = 0;
+  virtual bool ShouldRunTest(const std::string& test_case_name,
+                             const std::string& test_name) = 0;
 
   // Called to make the delegate run the specified tests. The delegate must
   // return the number of actual tests it's going to run (can be smaller,
@@ -110,10 +115,6 @@ class TestLauncher {
   // Called when a test has finished running.
   void OnTestFinished(const TestResult& result);
 
-  // Constructs a full test name given a test case name and a test name.
-  static std::string FormatFullTestName(const std::string& test_case_name,
-                                        const std::string& test_name);
-
  private:
   bool Init() WARN_UNUSED_RESULT;
 
@@ -157,6 +158,9 @@ class TestLauncher {
   // Test filters (empty means no filter).
   std::vector<std::string> positive_test_filter_;
   std::vector<std::string> negative_test_filter_;
+
+  // Tests to use (cached result of TestLauncherDelegate::GetTests).
+  std::vector<SplitTestName> tests_;
 
   // Number of tests started in this iteration.
   size_t test_started_count_;

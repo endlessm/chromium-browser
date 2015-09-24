@@ -4,7 +4,9 @@
 
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
+#include <GLES2/gl2extchromium.h>
 
+#include "gpu/command_buffer/service/context_group.h"
 #include "gpu/command_buffer/tests/gl_manager.h"
 #include "gpu/command_buffer/tests/gl_test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -21,6 +23,15 @@ class GLProgramTest : public testing::Test {
   void TearDown() override { gl_.Destroy(); }
 
   GLManager gl_;
+};
+
+class WebGLProgramTest : public GLProgramTest {
+ protected:
+  void SetUp() override {
+    GLManager::Options options;
+    options.webgl_version = 1;
+    gl_.Initialize(options);
+  }
 };
 
 TEST_F(GLProgramTest, GetSetUniform) {
@@ -121,6 +132,35 @@ TEST_F(GLProgramTest, NewShaderInCurrentProgram) {
   GLTestHelper::CheckGLError("no errors", __LINE__);
 }
 
+TEST_F(GLProgramTest, ShaderLengthSpecified) {
+  const std::string valid_shader_str = SHADER(
+      attribute vec4 a_position;
+      void main()
+      {
+         gl_Position = a_position;
+      }
+  );
+
+  const std::string invalid_shader = valid_shader_str + "invalid suffix";
+
+  // Compiling invalid program should fail.
+  const char* invalid_shader_strings[] = { invalid_shader.c_str() };
+  GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+  glShaderSource(vs, 1, invalid_shader_strings, NULL);
+  glCompileShader(vs);
+
+  GLint compile_state = 0;
+  glGetShaderiv(vs, GL_COMPILE_STATUS, &compile_state);
+  EXPECT_EQ(GL_FALSE, compile_state);
+
+  // Compiling program cutting off invalid parts should succeed.
+  const GLint lengths[] = { valid_shader_str.length() };
+  glShaderSource(vs, 1, invalid_shader_strings, lengths);
+  glCompileShader(vs);
+  glGetShaderiv(vs, GL_COMPILE_STATUS, &compile_state);
+  EXPECT_EQ(GL_TRUE, compile_state);
+}
+
 TEST_F(GLProgramTest, UniformsInCurrentProgram) {
   static const char* v_shader_str = SHADER(
       attribute vec4 a_position;
@@ -156,6 +196,84 @@ TEST_F(GLProgramTest, UniformsInCurrentProgram) {
   uint8 expected_color[] = { 0, 0, 255, 255, };
   EXPECT_TRUE(GLTestHelper::CheckPixels(0, 0, 1, 1, 0, expected_color));
   GLTestHelper::CheckGLError("no errors", __LINE__);
+}
+
+TEST_F(WebGLProgramTest, DeferCompileWithExt) {
+  // This test must have extensions enabled.
+  gles2::ContextGroup* context_group = gl_.decoder()->GetContextGroup();
+  gles2::FeatureInfo* feature_info = context_group->feature_info();
+  const gles2::FeatureInfo::FeatureFlags& flags = feature_info->feature_flags();
+  if (!flags.ext_frag_depth)
+    return;
+
+  static const char* v_shdr_str = R"(
+      attribute vec4 vPosition;
+      void main()
+      {
+        gl_Position = vPosition;
+      }
+  )";
+  static const char* f_shdr_str = R"(
+      #extension GL_EXT_frag_depth : enable
+      void main()
+      {
+        gl_FragDepthEXT = 1.0;
+      }
+  )";
+
+  // Extension is disabled by default and be sure shader does not compile.
+  GLuint vs_bad = GLTestHelper::CompileShader(GL_VERTEX_SHADER, v_shdr_str);
+  GLuint fs_bad = GLTestHelper::CompileShader(GL_FRAGMENT_SHADER, f_shdr_str);
+  GLuint program_bad = GLTestHelper::LinkProgram(vs_bad, fs_bad);
+  GLint linked_bad = 0;
+  glGetProgramiv(program_bad, GL_LINK_STATUS, &linked_bad);
+  EXPECT_EQ(0, linked_bad);
+
+  // linking bad compilations with extension enabled should still not link.
+  glRequestExtensionCHROMIUM("GL_EXT_frag_depth");
+  program_bad = GLTestHelper::LinkProgram(vs_bad, fs_bad);
+  linked_bad = 0;
+  glGetProgramiv(program_bad, GL_LINK_STATUS, &linked_bad);
+  EXPECT_EQ(0, linked_bad);
+
+  // Be sure extension was actually turned on by recompiling.
+  GLuint vs_good = GLTestHelper::LoadShader(GL_VERTEX_SHADER, v_shdr_str);
+  GLuint fs_good = GLTestHelper::LoadShader(GL_FRAGMENT_SHADER, f_shdr_str);
+  GLuint program_good = GLTestHelper::SetupProgram(vs_good, fs_good);
+  EXPECT_NE(0u, program_good);
+}
+
+TEST_F(GLProgramTest, DeleteAttachedShaderLinks) {
+  static const char* v_shdr_str = R"(
+      attribute vec4 vPosition;
+      void main()
+      {
+        gl_Position = vPosition;
+      }
+  )";
+  static const char* f_shdr_str = R"(
+      void main()
+      {
+        gl_FragColor = vec4(1, 1, 1, 1);
+      }
+  )";
+
+  // Compiling the shaders, attaching, then deleting before linking should work.
+  GLuint vs = GLTestHelper::CompileShader(GL_VERTEX_SHADER, v_shdr_str);
+  GLuint fs = GLTestHelper::CompileShader(GL_FRAGMENT_SHADER, f_shdr_str);
+
+  GLuint program = glCreateProgram();
+  glAttachShader(program, vs);
+  glAttachShader(program, fs);
+
+  glDeleteShader(vs);
+  glDeleteShader(fs);
+
+  glLinkProgram(program);
+
+  GLint linked = 0;
+  glGetProgramiv(program, GL_LINK_STATUS, &linked);
+  EXPECT_NE(0, linked);
 }
 
 }  // namespace gpu

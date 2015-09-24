@@ -8,10 +8,8 @@
 #include "chrome/browser/chromeos/drive/drive.pb.h"
 #include "chrome/browser/chromeos/drive/file_change.h"
 #include "chrome/browser/chromeos/drive/file_system/operation_delegate.h"
+#include "chrome/browser/chromeos/drive/job_scheduler.h"
 #include "chrome/browser/chromeos/drive/resource_metadata.h"
-#include "content/public/browser/browser_thread.h"
-
-using content::BrowserThread;
 
 namespace drive {
 namespace file_system {
@@ -38,7 +36,7 @@ FileError UpdateLocalState(internal::ResourceMetadata* metadata,
   if (!parent_entry.file_info().is_directory())
     return FILE_ERROR_NOT_A_DIRECTORY;
 
-  changed_files->Update(src_path, entry, FileChange::DELETE);
+  changed_files->Update(src_path, entry, FileChange::CHANGE_TYPE_DELETE);
 
   // Strip the extension for a hosted document if necessary.
   const std::string new_extension =
@@ -60,7 +58,8 @@ FileError UpdateLocalState(internal::ResourceMetadata* metadata,
   if (error != FILE_ERROR_OK)
     return error;
 
-  changed_files->Update(dest_path, entry, FileChange::ADD_OR_UPDATE);
+  changed_files->Update(dest_path, entry,
+                        FileChange::CHANGE_TYPE_ADD_OR_UPDATE);
   return FILE_ERROR_OK;
 }
 
@@ -73,17 +72,16 @@ MoveOperation::MoveOperation(base::SequencedTaskRunner* blocking_task_runner,
       delegate_(delegate),
       metadata_(metadata),
       weak_ptr_factory_(this) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 }
 
 MoveOperation::~MoveOperation() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
 }
 
 void MoveOperation::Move(const base::FilePath& src_file_path,
                          const base::FilePath& dest_file_path,
                          const FileOperationCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   FileChange* changed_files = new FileChange;
@@ -109,11 +107,12 @@ void MoveOperation::MoveAfterUpdateLocalState(
     const FileChange* changed_files,
     const std::string* local_id,
     FileError error) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   if (error == FILE_ERROR_OK) {
     // Notify the change of directory.
     delegate_->OnFileChangedByOperation(*changed_files);
-    delegate_->OnEntryUpdatedByOperation(*local_id);
+    delegate_->OnEntryUpdatedByOperation(ClientContext(USER_INITIATED),
+                                         *local_id);
   }
   callback.Run(error);
 }

@@ -14,6 +14,7 @@
 #include "remoting/protocol/channel_authenticator.h"
 
 namespace net {
+class CertVerifier;
 class DrainableIOBuffer;
 class GrowableIOBuffer;
 class SSLSocket;
@@ -77,7 +78,6 @@ class SslHmacChannelAuthenticator : public ChannelAuthenticator,
 
   void CheckDone(bool* callback_called);
   void NotifyError(int error);
-  void CallDoneCallback(int error, scoped_ptr<net::StreamSocket> socket);
 
   // The mutual secret used for authentication.
   std::string auth_key_;
@@ -89,6 +89,7 @@ class SslHmacChannelAuthenticator : public ChannelAuthenticator,
   // Used in the CLIENT mode only.
   std::string remote_cert_;
   scoped_ptr<net::TransportSecurityState> transport_security_state_;
+  scoped_ptr<net::CertVerifier> cert_verifier_;
 
   scoped_ptr<net::SSLSocket> socket_;
   DoneCallback done_callback_;

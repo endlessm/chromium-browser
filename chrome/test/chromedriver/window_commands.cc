@@ -15,12 +15,14 @@
 #include "base/values.h"
 #include "chrome/test/chromedriver/basic_types.h"
 #include "chrome/test/chromedriver/chrome/automation_extension.h"
+#include "chrome/test/chromedriver/chrome/browser_info.h"
 #include "chrome/test/chromedriver/chrome/chrome.h"
 #include "chrome/test/chromedriver/chrome/chrome_desktop_impl.h"
 #include "chrome/test/chromedriver/chrome/devtools_client.h"
 #include "chrome/test/chromedriver/chrome/geoposition.h"
 #include "chrome/test/chromedriver/chrome/javascript_dialog_manager.h"
 #include "chrome/test/chromedriver/chrome/js.h"
+#include "chrome/test/chromedriver/chrome/network_conditions.h"
 #include "chrome/test/chromedriver/chrome/status.h"
 #include "chrome/test/chromedriver/chrome/ui_events.h"
 #include "chrome/test/chromedriver/chrome/web_view.h"
@@ -209,20 +211,20 @@ Status ExecuteWindowCommand(
     return Status(kUnexpectedAlertOpen);
 
   Status nav_status(kOk);
-  for (int attempt = 0; attempt < 2; attempt++) {
-    if (attempt == 1) {
-      if (status.code() == kNoSuchExecutionContext)
-        // Switch to main frame and retry command if subframe no longer exists.
-        session->SwitchToTopFrame();
-      else
-        break;
+  for (int attempt = 0; attempt < 3; attempt++) {
+    if (attempt == 2) {
+      // Switch to main frame and retry command if subframe no longer exists.
+      session->SwitchToTopFrame();
     }
+
     nav_status = web_view->WaitForPendingNavigations(
         session->GetCurrentFrameId(), session->page_load_timeout, true);
     if (nav_status.IsError())
       return nav_status;
 
     status = command.Run(session, web_view, params, value);
+    if (status.code() != kNoSuchExecutionContext)
+      break;
   }
 
   nav_status = web_view->WaitForPendingNavigations(
@@ -244,7 +246,11 @@ Status ExecuteGet(
   std::string url;
   if (!params.GetString("url", &url))
     return Status(kUnknownError, "'url' must be a string");
-  return web_view->Load(url);
+  Status status = web_view->Load(url);
+  if (status.IsError())
+    return status;
+  session->SwitchToTopFrame();
+  return Status(kOk);
 }
 
 Status ExecuteExecuteScript(
@@ -435,8 +441,11 @@ Status ExecuteGoBack(
     WebView* web_view,
     const base::DictionaryValue& params,
     scoped_ptr<base::Value>* value) {
-  return web_view->EvaluateScript(
-      std::string(), "window.history.back();", value);
+  Status status = web_view->TraverseHistory(-1);
+  if (status.IsError())
+    return status;
+  session->SwitchToTopFrame();
+  return Status(kOk);
 }
 
 Status ExecuteGoForward(
@@ -444,8 +453,11 @@ Status ExecuteGoForward(
     WebView* web_view,
     const base::DictionaryValue& params,
     scoped_ptr<base::Value>* value) {
-  return web_view->EvaluateScript(
-      std::string(), "window.history.forward();", value);
+  Status status = web_view->TraverseHistory(1);
+  if (status.IsError())
+    return status;
+  session->SwitchToTopFrame();
+  return Status(kOk);
 }
 
 Status ExecuteRefresh(
@@ -453,7 +465,11 @@ Status ExecuteRefresh(
     WebView* web_view,
     const base::DictionaryValue& params,
     scoped_ptr<base::Value>* value) {
-  return web_view->Reload();
+  Status status = web_view->Reload();
+  if (status.IsError())
+    return status;
+  session->SwitchToTopFrame();
+  return Status(kOk);
 }
 
 Status ExecuteMouseMoveTo(
@@ -472,22 +488,15 @@ Status ExecuteMouseMoveTo(
 
   WebPoint location;
   if (has_element) {
-    Status status = ScrollElementIntoView(
-        session, web_view, element_id, &location);
+    WebPoint offset(x_offset, y_offset);
+    Status status = ScrollElementIntoView(session, web_view, element_id,
+        has_offset ? &offset : nullptr, &location);
     if (status.IsError())
       return status;
   } else {
     location = session->mouse_position;
-  }
-
-  if (has_offset) {
-    location.Offset(x_offset, y_offset);
-  } else {
-    WebSize size;
-    Status status = GetElementSize(session, web_view, element_id, &size);
-    if (status.IsError())
-      return status;
-    location.Offset(size.width / 2, size.height / 2);
+    if (has_offset)
+      location.Offset(x_offset, y_offset);
   }
 
   std::list<MouseEvent> events;
@@ -599,6 +608,53 @@ Status ExecuteTouchMove(
     const base::DictionaryValue& params,
     scoped_ptr<base::Value>* value) {
   return ExecuteTouchEvent(session, web_view, kTouchMove, params);
+}
+
+Status ExecuteTouchScroll(
+    Session *session,
+    WebView* web_view,
+    const base::DictionaryValue& params,
+    scoped_ptr<base::Value>* value) {
+  if (session->chrome->GetBrowserInfo()->build_no < 2286) {
+    // TODO(samuong): remove this once we stop supporting M41.
+    return Status(kUnknownCommand, "Touch scroll action requires Chrome 42+");
+  }
+  WebPoint location = session->mouse_position;
+  std::string element;
+  if (params.GetString("element", &element)) {
+    Status status = GetElementClickableLocation(
+        session, web_view, element, &location);
+    if (status.IsError())
+      return status;
+  }
+  int xoffset;
+  if (!params.GetInteger("xoffset", &xoffset))
+    return Status(kUnknownError, "'xoffset' must be an integer");
+  int yoffset;
+  if (!params.GetInteger("yoffset", &yoffset))
+    return Status(kUnknownError, "'yoffset' must be an integer");
+  return web_view->SynthesizeScrollGesture(
+      location.x, location.y, xoffset, yoffset);
+}
+
+Status ExecuteTouchPinch(
+    Session* session,
+    WebView* web_view,
+    const base::DictionaryValue& params,
+    scoped_ptr<base::Value>* value) {
+  if (session->chrome->GetBrowserInfo()->build_no < 2286) {
+    // TODO(samuong): remove this once we stop supporting M41.
+    return Status(kUnknownCommand, "Pinch action requires Chrome 42+");
+  }
+  WebPoint location;
+  if (!params.GetInteger("x", &location.x))
+    return Status(kUnknownError, "'x' must be an integer");
+  if (!params.GetInteger("y", &location.y))
+    return Status(kUnknownError, "'y' must be an integer");
+  double scale_factor;
+  if (!params.GetDouble("scale", &scale_factor))
+    return Status(kUnknownError, "'scale' must be an integer");
+  return web_view->SynthesizePinchGesture(location.x, location.y, scale_factor);
 }
 
 Status ExecuteGetActiveElement(
@@ -753,10 +809,11 @@ Status ExecuteScreenshot(
     return status;
 
   std::string screenshot;
-  if (session->chrome->GetAsDesktop() && !session->force_devtools_screenshot) {
+  ChromeDesktopImpl* desktop = NULL;
+  status = session->chrome->GetAsDesktop(&desktop);
+  if (status.IsOk() && !session->force_devtools_screenshot) {
     AutomationExtension* extension = NULL;
-    status =
-        session->chrome->GetAsDesktop()->GetAutomationExtension(&extension);
+    status = desktop->GetAutomationExtension(&extension);
     if (status.IsError())
       return status;
     status = extension->CaptureScreenshot(&screenshot);
@@ -874,6 +931,89 @@ Status ExecuteSetLocation(
   Status status = web_view->OverrideGeolocation(geoposition);
   if (status.IsOk())
     session->overridden_geoposition.reset(new Geoposition(geoposition));
+  return status;
+}
+
+Status ExecuteSetNetworkConditions(
+    Session* session,
+    WebView* web_view,
+    const base::DictionaryValue& params,
+    scoped_ptr<base::Value>* value) {
+  std::string network_name;
+  const base::DictionaryValue* conditions = NULL;
+  scoped_ptr<NetworkConditions> network_conditions(new NetworkConditions());
+  if (params.GetString("network_name", &network_name)) {
+    // Get conditions from preset list.
+    Status status = FindPresetNetwork(network_name, network_conditions.get());
+    if (status.IsError())
+      return status;
+  } else if (params.GetDictionary("network_conditions", &conditions)) {
+    // |latency| is required.
+    if (!conditions->GetDouble("latency", &network_conditions->latency))
+      return Status(kUnknownError,
+                    "invalid 'network_conditions' is missing 'latency'");
+
+    // Either |throughput| or the pair |download_throughput| and
+    // |upload_throughput| is required.
+    if (conditions->HasKey("throughput")) {
+      if (!conditions->GetDouble("throughput",
+                                 &network_conditions->download_throughput))
+        return Status(kUnknownError, "invalid 'throughput'");
+      conditions->GetDouble("throughput",
+                            &network_conditions->upload_throughput);
+    } else if (conditions->HasKey("download_throughput") &&
+               conditions->HasKey("upload_throughput")) {
+      if (!conditions->GetDouble("download_throughput",
+                                 &network_conditions->download_throughput) ||
+          !conditions->GetDouble("upload_throughput",
+                                 &network_conditions->upload_throughput))
+        return Status(kUnknownError,
+                      "invalid 'download_throughput' or 'upload_throughput'");
+    } else {
+      return Status(kUnknownError,
+                    "invalid 'network_conditions' is missing 'throughput' or "
+                    "'download_throughput'/'upload_throughput' pair");
+    }
+
+    // |offline| is optional.
+    if (conditions->HasKey("offline")) {
+      if (!conditions->GetBoolean("offline", &network_conditions->offline))
+        return Status(kUnknownError, "invalid 'offline'");
+    } else {
+      network_conditions->offline = false;
+    }
+  } else {
+    return Status(kUnknownError,
+                  "either 'network_conditions' or 'network_name' must be "
+                  "supplied");
+  }
+
+  session->overridden_network_conditions.reset(
+      network_conditions.release());
+  return web_view->OverrideNetworkConditions(
+      *session->overridden_network_conditions);
+}
+
+Status ExecuteDeleteNetworkConditions(
+    Session* session,
+    WebView* web_view,
+    const base::DictionaryValue& params,
+    scoped_ptr<base::Value>* value) {
+  // Chrome does not have any command to stop overriding network conditions, so
+  // we just override the network conditions with the "No throttling" preset.
+  NetworkConditions network_conditions;
+  // Get conditions from preset list.
+  Status status = FindPresetNetwork("No throttling", &network_conditions);
+  if (status.IsError())
+    return status;
+
+  status = web_view->OverrideNetworkConditions(network_conditions);
+  if (status.IsError())
+    return status;
+
+  // After we've successfully overridden the network conditions with
+  // "No throttling", we can delete them from |session|.
+  session->overridden_network_conditions.reset();
   return status;
 }
 

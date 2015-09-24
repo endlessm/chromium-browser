@@ -35,8 +35,14 @@ class FakeSignalStrategy : public SignalStrategy,
     return received_messages_;
   }
 
+  void set_send_delay(base::TimeDelta delay) {
+    send_delay_ = delay;
+  }
+
   // Connects current FakeSignalStrategy to receive messages from |peer|.
   void ConnectTo(FakeSignalStrategy* peer);
+
+  void SetLocalJid(const std::string& jid);
 
   // SignalStrategy interface.
   void Connect() override;
@@ -66,9 +72,11 @@ class FakeSignalStrategy : public SignalStrategy,
 
   std::string jid_;
   PeerCallback peer_callback_;
-  ObserverList<Listener, true> listeners_;
+  base::ObserverList<Listener, true> listeners_;
 
   int last_id_;
+
+  base::TimeDelta send_delay_;
 
   // All received messages, includes thouse still in |pending_messages_|.
   std::list<buzz::XmlElement*> received_messages_;

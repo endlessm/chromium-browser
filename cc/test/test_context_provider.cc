@@ -12,6 +12,8 @@
 #include "base/logging.h"
 #include "cc/test/test_gles2_interface.h"
 #include "cc/test/test_web_graphics_context_3d.h"
+#include "third_party/skia/include/gpu/GrContext.h"
+#include "third_party/skia/include/gpu/gl/SkNullGLContext.h"
 
 namespace cc {
 
@@ -53,7 +55,7 @@ bool TestContextProvider::BindToCurrentThread() {
   if (bound_)
     return true;
 
-  if (context3d_->isContextLost()) {
+  if (context_gl_->GetGraphicsResetStatusKHR() != GL_NO_ERROR) {
     base::AutoLock lock(destroyed_lock_);
     destroyed_ = true;
     return false;
@@ -65,6 +67,10 @@ bool TestContextProvider::BindToCurrentThread() {
                  base::Unretained(this)));
 
   return true;
+}
+
+void TestContextProvider::DetachFromThread() {
+  context_thread_checker_.DetachFromThread();
 }
 
 ContextProvider::Capabilities TestContextProvider::ContextCapabilities() {
@@ -90,22 +96,42 @@ class GrContext* TestContextProvider::GrContext() {
   DCHECK(bound_);
   DCHECK(context_thread_checker_.CalledOnValidThread());
 
-  // TODO(danakj): Make a test GrContext that works with a test Context3d.
-  return NULL;
+  if (gr_context_)
+    return gr_context_.get();
+
+  skia::RefPtr<class SkGLContext> gl_context =
+      skia::AdoptRef(SkNullGLContext::Create(kNone_GrGLStandard));
+  gl_context->makeCurrent();
+  gr_context_ = skia::AdoptRef(GrContext::Create(
+      kOpenGL_GrBackend, reinterpret_cast<GrBackendContext>(gl_context->gl())));
+
+  // If GlContext is already lost, also abandon the new GrContext.
+  if (ContextGL()->GetGraphicsResetStatusKHR() != GL_NO_ERROR)
+    gr_context_->abandonContext();
+
+  return gr_context_.get();
 }
 
-bool TestContextProvider::IsContextLost() {
+void TestContextProvider::InvalidateGrContext(uint32_t state) {
   DCHECK(bound_);
   DCHECK(context_thread_checker_.CalledOnValidThread());
 
-  return context3d_->isContextLost();
+  if (gr_context_)
+    gr_context_.get()->resetContext(state);
+}
+
+void TestContextProvider::SetupLock() {
+}
+
+base::Lock* TestContextProvider::GetLock() {
+  return &context_lock_;
 }
 
 void TestContextProvider::VerifyContexts() {
   DCHECK(bound_);
   DCHECK(context_thread_checker_.CalledOnValidThread());
 
-  if (context3d_->isContextLost()) {
+  if (ContextGL()->GetGraphicsResetStatusKHR() != GL_NO_ERROR) {
     base::AutoLock lock(destroyed_lock_);
     destroyed_ = true;
   }
@@ -131,6 +157,8 @@ void TestContextProvider::OnLostContext() {
   }
   if (!lost_context_callback_.is_null())
     base::ResetAndReturn(&lost_context_callback_).Run();
+  if (gr_context_)
+    gr_context_->abandonContext();
 }
 
 TestWebGraphicsContext3D* TestContextProvider::TestContext3d() {

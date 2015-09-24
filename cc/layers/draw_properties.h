@@ -6,6 +6,8 @@
 #define CC_LAYERS_DRAW_PROPERTIES_H_
 
 #include "base/memory/scoped_ptr.h"
+#include "cc/trees/occlusion.h"
+#include "third_party/skia/include/core/SkXfermode.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/transform.h"
 
@@ -17,6 +19,7 @@ template <typename LayerType>
 struct CC_EXPORT DrawProperties {
   DrawProperties()
       : opacity(0.f),
+        blend_mode(SkXfermode::kSrcOver_Mode),
         opacity_is_animating(false),
         screen_space_opacity_is_animating(false),
         target_space_transform_is_animating(false),
@@ -24,22 +27,17 @@ struct CC_EXPORT DrawProperties {
         can_use_lcd_text(false),
         is_clipped(false),
         render_target(nullptr),
-        contents_scale_x(1.f),
-        contents_scale_y(1.f),
         num_unclipped_descendants(0),
         layer_or_descendant_has_copy_request(false),
         layer_or_descendant_has_input_handler(false),
         has_child_with_a_scroll_parent(false),
-        sorted_for_recursion(false),
         index_of_first_descendants_addition(0),
         num_descendants_added(0),
         index_of_first_render_surface_layer_list_addition(0),
         num_render_surfaces_added(0),
         last_drawn_render_surface_layer_list_id(0),
-        ideal_contents_scale(0.f),
         maximum_animation_contents_scale(0.f),
-        page_scale_factor(0.f),
-        device_scale_factor(0.f) {}
+        starting_animation_contents_scale(0.f) {}
 
   // Transforms objects from content space to target surface space, where
   // this layer would be drawn.
@@ -48,10 +46,17 @@ struct CC_EXPORT DrawProperties {
   // Transforms objects from content space to screen space (viewport space).
   gfx::Transform screen_space_transform;
 
+  // Known occlusion above the layer mapped to the content space of the layer.
+  Occlusion occlusion_in_content_space;
+
   // DrawProperties::opacity may be different than LayerType::opacity,
   // particularly in the case when a RenderSurface re-parents the layer's
   // opacity, or when opacity is compounded by the hierarchy.
   float opacity;
+
+  // DrawProperties::blend_mode may be different than LayerType::blend_mode,
+  // when a RenderSurface re-parents the layer's blend_mode.
+  SkXfermode::Mode blend_mode;
 
   // xxx_is_animating flags are used to indicate whether the DrawProperties
   // are actually meaningful on the main thread. When the properties are
@@ -73,11 +78,9 @@ struct CC_EXPORT DrawProperties {
   // ancestor of this layer.
   LayerType* render_target;
 
-  // The surface that this layer and its subtree would contribute to.
-  scoped_ptr<typename LayerType::RenderSurfaceType> render_surface;
-
-  // This rect is in the layer's content space.
-  gfx::Rect visible_content_rect;
+  // This rect is a bounding box around what part of the layer is visible, in
+  // the layer's coordinate space.
+  gfx::Rect visible_layer_rect;
 
   // In target surface space, the rect that encloses the clipped, drawable
   // content of the layer.
@@ -87,17 +90,9 @@ struct CC_EXPORT DrawProperties {
   // value is used to avoid unnecessarily changing GL scissor state.
   gfx::Rect clip_rect;
 
-  // The scale used to move between layer space and content space, and bounds
-  // of the space. One is always a function of the other, but which one
-  // depends on the layer type. For picture layers, this is an ideal scale,
-  // and not always the one used.
-  float contents_scale_x;
-  float contents_scale_y;
-  gfx::Size content_bounds;
-
   // Number of descendants with a clip parent that is our ancestor. NB - this
   // does not include our clip children because they are clipped by us.
-  int num_unclipped_descendants;
+  size_t num_unclipped_descendants;
 
   // If true, the layer or some layer in its sub-tree has a CopyOutputRequest
   // present on it.
@@ -111,10 +106,6 @@ struct CC_EXPORT DrawProperties {
   // lets us avoid work in CalculateDrawPropertiesInternal -- if none of our
   // children have scroll parents, we will not need to recur out of order.
   bool has_child_with_a_scroll_parent;
-
-  // This is true if the order (wrt to its siblings in the tree) in which the
-  // layer will be visited while computing draw properties has been determined.
-  bool sorted_for_recursion;
 
   // If this layer is visited out of order, its contribution to the descendant
   // and render surface layer lists will be put aside in a temporary list.
@@ -133,20 +124,13 @@ struct CC_EXPORT DrawProperties {
   // of date or 0.
   int last_drawn_render_surface_layer_list_id;
 
-  // The scale at which content for the layer should be rastered in order to be
-  // perfectly crisp.
-  float ideal_contents_scale;
-
   // The maximum scale during the layers current animation at which content
   // should be rastered at to be crisp.
   float maximum_animation_contents_scale;
 
-  // The page scale factor that is applied to the layer. Since some layers may
-  // have page scale applied and others not, this may differ between layers.
-  float page_scale_factor;
-
-  // The device scale factor that is applied to the layer.
-  float device_scale_factor;
+  // The scale during the layer animation start at which content should be
+  // rastered at to be crisp.
+  float starting_animation_contents_scale;
 };
 
 }  // namespace cc

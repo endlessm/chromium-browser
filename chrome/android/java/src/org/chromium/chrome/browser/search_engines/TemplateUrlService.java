@@ -4,6 +4,8 @@
 
 package org.chromium.chrome.browser.search_engines;
 
+import android.text.TextUtils;
+
 import org.chromium.base.CalledByNative;
 import org.chromium.base.ObserverList;
 import org.chromium.base.ThreadUtils;
@@ -26,7 +28,17 @@ public class TemplateUrlService {
      * This listener will be notified when template url service is done loading.
      */
     public interface LoadListener {
-        public abstract void onTemplateUrlServiceLoaded();
+        void onTemplateUrlServiceLoaded();
+    }
+
+    /**
+     * Observer to be notified whenever the set of TemplateURLs are modified.
+     */
+    public interface TemplateUrlServiceObserver {
+        /**
+         * Notification that the template url model has changed in some way.
+         */
+        void onTemplateURLServiceChanged();
     }
 
     /**
@@ -38,7 +50,8 @@ public class TemplateUrlService {
         private final String mKeyword;
 
         @CalledByNative("TemplateUrl")
-        public static TemplateUrl create(int id, String shortName, String keyword) {
+        public static TemplateUrl create(
+                int id, String shortName, String keyword) {
             return new TemplateUrl(id, shortName, keyword);
         }
 
@@ -59,6 +72,25 @@ public class TemplateUrlService {
         public String getKeyword() {
             return mKeyword;
         }
+
+        @Override
+        public int hashCode() {
+            final int prime = 31;
+            int result = 1;
+            result = prime * result + mIndex;
+            result = prime * result + ((mKeyword == null) ? 0 : mKeyword.hashCode());
+            result = prime * result + ((mShortName == null) ? 0 : mShortName.hashCode());
+            return result;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (!(other instanceof TemplateUrl)) return false;
+            TemplateUrl otherTemplateUrl = (TemplateUrl) other;
+            return mIndex == otherTemplateUrl.mIndex
+                    && TextUtils.equals(mShortName, otherTemplateUrl.mShortName)
+                    && TextUtils.equals(mKeyword, otherTemplateUrl.mKeyword);
+        }
     }
 
     private static TemplateUrlService sService;
@@ -73,6 +105,8 @@ public class TemplateUrlService {
 
     private final long mNativeTemplateUrlServiceAndroid;
     private final ObserverList<LoadListener> mLoadListeners = new ObserverList<LoadListener>();
+    private final ObserverList<TemplateUrlServiceObserver> mObservers =
+            new ObserverList<TemplateUrlServiceObserver>();
 
     private TemplateUrlService() {
         // Note that this technically leaks the native object, however, TemlateUrlService
@@ -91,7 +125,11 @@ public class TemplateUrlService {
     }
 
     /**
-     * Get the collection of localized search engines.
+     * Returns a list of the prepopulated search engines.
+     *
+     * Warning: TemplateUrl.getIndex() is *not* an index into this list, since this list contains
+     * only prepopulated search engines. E.g. getLocalizedSearchEngines().get(0).getIndex() could
+     * return 3.
      */
     public List<TemplateUrl> getLocalizedSearchEngines() {
         ThreadUtils.assertOnUiThread();
@@ -115,6 +153,13 @@ public class TemplateUrlService {
         ThreadUtils.assertOnUiThread();
         for (LoadListener listener : mLoadListeners) {
             listener.onTemplateUrlServiceLoaded();
+        }
+    }
+
+    @CalledByNative
+    private void onTemplateURLServiceChanged() {
+        for (TemplateUrlServiceObserver observer : mObservers) {
+            observer.onTemplateURLServiceChanged();
         }
     }
 
@@ -188,6 +233,22 @@ public class TemplateUrlService {
     }
 
     /**
+     * Adds an observer to be notified on changes to the template URLs.
+     * @param observer The observer to be added.
+     */
+    public void addObserver(TemplateUrlServiceObserver observer) {
+        mObservers.addObserver(observer);
+    }
+
+    /**
+     * Removes an observer for changes to the template URLs.
+     * @param observer The observer to be removed.
+     */
+    public void removeObserver(TemplateUrlServiceObserver observer) {
+        mObservers.removeObserver(observer);
+    }
+
+    /**
      * Finds the default search engine for the default provider and returns the url query
      * {@link String} for {@code query}.
      * @param query The {@link String} that represents the text query the search url should
@@ -223,21 +284,6 @@ public class TemplateUrlService {
         return nativeReplaceSearchTermsInUrl(mNativeTemplateUrlServiceAndroid, query, url);
     }
 
-    // TODO(donnd): Delete once the client no longer references it.
-    /**
-     * Finds the default search engine for the default provider and returns the url query
-     * {@link String} for {@code query} with the contextual search version param set.
-     * @param query The search term to use as the main query in the returned search url.
-     * @param alternateTerm The alternate search term to use as an alternate suggestion.
-     * @return      A {@link String} that contains the url of the default search engine with
-     *              {@code query} and {@code alternateTerm} inserted as parameters and contextual
-     *              search and prefetch parameters set.
-     */
-    public String getUrlForContextualSearchQuery(String query, String alternateTerm) {
-        return nativeGetUrlForContextualSearchQuery(
-            mNativeTemplateUrlServiceAndroid, query, alternateTerm, true);
-    }
-
     /**
      * Finds the default search engine for the default provider and returns the url query
      * {@link String} for {@code query} with the contextual search version param set.
@@ -252,6 +298,15 @@ public class TemplateUrlService {
             boolean shouldPrefetch) {
         return nativeGetUrlForContextualSearchQuery(
             mNativeTemplateUrlServiceAndroid, query, alternateTerm, shouldPrefetch);
+    }
+
+    /**
+     * Finds the URL for the search engine at the given index.
+     * @param index The templateUrl index to look up.
+     * @return      A {@link String} that contains the url of the specified search engine.
+     */
+    public String getSearchEngineUrlFromTemplateUrl(int index) {
+        return nativeGetSearchEngineUrlFromTemplateUrl(mNativeTemplateUrlServiceAndroid, index);
     }
 
     private native long nativeInit();
@@ -274,4 +329,6 @@ public class TemplateUrlService {
             String query, String currentUrl);
     private native String nativeGetUrlForContextualSearchQuery(long nativeTemplateUrlServiceAndroid,
             String query, String alternateTerm, boolean shouldPrefetch);
+    private native String nativeGetSearchEngineUrlFromTemplateUrl(
+            long nativeTemplateUrlServiceAndroid, int index);
 }

@@ -72,6 +72,13 @@ BrowserContext* TestExtensionsBrowserClient::GetOriginalContext(
   return main_context_;
 }
 
+#if defined(OS_CHROMEOS)
+std::string TestExtensionsBrowserClient::GetUserIdHashFromContext(
+    content::BrowserContext* context) {
+  return "";
+}
+#endif
+
 bool TestExtensionsBrowserClient::IsGuestSession(
     BrowserContext* context) const {
   return false;
@@ -153,13 +160,18 @@ TestExtensionsBrowserClient::GetExtensionSystemFactory() {
 void TestExtensionsBrowserClient::RegisterExtensionFunctions(
     ExtensionFunctionRegistry* registry) const {}
 
+void TestExtensionsBrowserClient::RegisterMojoServices(
+    content::RenderFrameHost* render_frame_host,
+    const Extension* extension) const {
+}
+
 scoped_ptr<RuntimeAPIDelegate>
 TestExtensionsBrowserClient::CreateRuntimeAPIDelegate(
     content::BrowserContext* context) const {
   return scoped_ptr<RuntimeAPIDelegate>(new TestRuntimeAPIDelegate());
 }
 
-ComponentExtensionResourceManager*
+const ComponentExtensionResourceManager*
 TestExtensionsBrowserClient::GetComponentExtensionResourceManager() {
   return NULL;
 }
@@ -184,6 +196,12 @@ bool TestExtensionsBrowserClient::IsBackgroundUpdateAllowed() {
 bool TestExtensionsBrowserClient::IsMinBrowserVersionSupported(
     const std::string& min_version) {
   return true;
+}
+
+ExtensionWebContentsObserver*
+TestExtensionsBrowserClient::GetExtensionWebContentsObserver(
+    content::WebContents* web_contents) {
+  return nullptr;
 }
 
 }  // namespace extensions

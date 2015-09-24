@@ -33,13 +33,18 @@
 
 #include "core/frame/FrameView.h"
 #include "core/frame/LocalFrame.h"
+#include "core/input/EventHandler.h"
+#include "core/layout/LayoutView.h"
+#include "core/layout/compositing/DeprecatedPaintLayerCompositor.h"
 #include "core/page/AutoscrollController.h"
-#include "core/page/EventHandler.h"
 #include "core/page/Page.h"
-#include "core/rendering/RenderView.h"
-#include "core/rendering/compositing/RenderLayerCompositor.h"
+#include "core/paint/TransformRecorder.h"
 #include "platform/Logging.h"
 #include "platform/graphics/GraphicsContext.h"
+#include "platform/graphics/paint/ClipRecorder.h"
+#include "platform/graphics/paint/DrawingRecorder.h"
+#include "platform/graphics/paint/SkPictureBuilder.h"
+#include "platform/transforms/AffineTransform.h"
 #include "public/web/WebInputEvent.h"
 #include "web/PageOverlayList.h"
 #include "web/WebInputEventConversion.h"
@@ -61,26 +66,40 @@ void PageWidgetDelegate::layout(Page& page, LocalFrame& root)
     page.animator().updateLayoutAndStyleForPainting(&root);
 }
 
-void PageWidgetDelegate::paint(Page& page, PageOverlayList* overlays, WebCanvas* canvas, const WebRect& rect, CanvasBackground background, LocalFrame& root)
+void PageWidgetDelegate::paint(Page& page, PageOverlayList* overlays, WebCanvas* canvas,
+    const WebRect& rect, LocalFrame& root)
 {
     if (rect.isEmpty())
         return;
-    GraphicsContext gc(canvas);
-    gc.setCertainlyOpaque(background == Opaque);
-    gc.applyDeviceScaleFactor(page.deviceScaleFactor());
-    gc.setDeviceScaleFactor(page.deviceScaleFactor());
-    IntRect dirtyRect(rect);
-    gc.save(); // Needed to save the canvas, not the GraphicsContext.
-    FrameView* view = root.view();
-    if (view) {
-        gc.clip(dirtyRect);
-        view->paint(&gc, dirtyRect);
-        if (overlays)
-            overlays->paintWebFrame(gc);
-    } else {
-        gc.fillRect(dirtyRect, Color::white);
+
+    IntRect intRect(rect);
+    SkPictureBuilder pictureBuilder(intRect);
+    {
+        GraphicsContext& paintContext = pictureBuilder.context();
+
+        // FIXME: device scale factor settings are layering violations and should not
+        // be used within Blink paint code.
+        float scaleFactor = page.deviceScaleFactor();
+        paintContext.setDeviceScaleFactor(scaleFactor);
+
+        AffineTransform scale;
+        scale.scale(scaleFactor);
+        TransformRecorder scaleRecorder(paintContext, root, scale);
+
+        IntRect dirtyRect(rect);
+        FrameView* view = root.view();
+        if (view) {
+            ClipRecorder clipRecorder(paintContext, root, DisplayItem::PageWidgetDelegateClip, LayoutRect(dirtyRect));
+
+            view->paint(&paintContext, dirtyRect);
+            if (overlays)
+                overlays->paintWebFrame(paintContext);
+        } else if (!DrawingRecorder::useCachedDrawingIfPossible(paintContext, root, DisplayItem::PageWidgetDelegateBackgroundFallback)) {
+            DrawingRecorder drawingRecorder(paintContext, root, DisplayItem::PageWidgetDelegateBackgroundFallback, dirtyRect);
+            paintContext.fillRect(dirtyRect, Color::white);
+        }
     }
-    gc.restore();
+    pictureBuilder.endRecording()->playback(canvas);
 }
 
 bool PageWidgetDelegate::handleInputEvent(PageWidgetEventHandler& handler, const WebInputEvent& event, LocalFrame* root)
@@ -128,7 +147,6 @@ bool PageWidgetDelegate::handleInputEvent(PageWidgetEventHandler& handler, const
     case WebInputEvent::GestureScrollBegin:
     case WebInputEvent::GestureScrollEnd:
     case WebInputEvent::GestureScrollUpdate:
-    case WebInputEvent::GestureScrollUpdateWithoutPropagation:
     case WebInputEvent::GestureFlingStart:
     case WebInputEvent::GestureFlingCancel:
     case WebInputEvent::GestureTap:
@@ -149,15 +167,12 @@ bool PageWidgetDelegate::handleInputEvent(PageWidgetEventHandler& handler, const
         if (!root || !root->view())
             return false;
         return handler.handleTouchEvent(*root, static_cast<const WebTouchEvent&>(event));
-
     case WebInputEvent::GesturePinchBegin:
     case WebInputEvent::GesturePinchEnd:
     case WebInputEvent::GesturePinchUpdate:
-        // FIXME: Once PlatformGestureEvent is updated to support pinch, this
-        // should call handleGestureEvent, just like it currently does for
-        // gesture scroll.
+        // Touchscreen pinch events are currently not handled in main thread. Once they are,
+        // these should be passed to |handleGestureEvent| similar to gesture scroll events.
         return false;
-
     default:
         return false;
     }

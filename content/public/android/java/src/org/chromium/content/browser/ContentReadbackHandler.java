@@ -11,6 +11,7 @@ import android.util.SparseArray;
 import org.chromium.base.CalledByNative;
 import org.chromium.base.JNINamespace;
 import org.chromium.base.ThreadUtils;
+import org.chromium.content_public.browser.readback_types.ReadbackResponse;
 import org.chromium.ui.base.WindowAndroid;
 
 /**
@@ -27,7 +28,7 @@ public abstract class ContentReadbackHandler {
          * @param bitmap     The {@link Bitmap} of the content.  Null will be passed for readback
          *                   failure.
          */
-        public void onFinishGetBitmap(Bitmap bitmap);
+        public void onFinishGetBitmap(Bitmap bitmap, int response);
     }
 
     private int mNextReadbackId = 1;
@@ -59,11 +60,11 @@ public abstract class ContentReadbackHandler {
 
 
     @CalledByNative
-    private void notifyGetBitmapFinished(int readbackId, Bitmap bitmap) {
+    private void notifyGetBitmapFinished(int readbackId, Bitmap bitmap, int response) {
         GetBitmapCallback callback = mGetBitmapRequests.get(readbackId);
         if (callback != null) {
             mGetBitmapRequests.delete(readbackId);
-            callback.onFinishGetBitmap(bitmap);
+            callback.onFinishGetBitmap(bitmap, response);
         } else {
             // readback Id is unregistered.
             assert false : "Readback finished for unregistered Id: " + readbackId;
@@ -78,12 +79,13 @@ public abstract class ContentReadbackHandler {
      * @param srcRect  A subrect of the original content to capture. If this is empty, it will grab
      *                 the whole surface.
      * @param view  The {@link ContentViewCore} to grab the bitmap from.
+     * @param config  The output content bitmap configuration.
      * @param callback The callback to be executed after readback completes.
      */
     public void getContentBitmapAsync(float scale, Rect srcRect, ContentViewCore view,
-            GetBitmapCallback callback) {
+            Bitmap.Config config, GetBitmapCallback callback) {
         if (!readyForReadback()) {
-            callback.onFinishGetBitmap(null);
+            callback.onFinishGetBitmap(null, ReadbackResponse.SURFACE_UNAVAILABLE);
             return;
         }
         ThreadUtils.assertOnUiThread();
@@ -91,7 +93,7 @@ public abstract class ContentReadbackHandler {
         int readbackId = mNextReadbackId++;
         mGetBitmapRequests.put(readbackId, callback);
         nativeGetContentBitmap(mNativeContentReadbackHandler, readbackId, scale,
-                Bitmap.Config.ARGB_8888, srcRect.top, srcRect.left, srcRect.width(),
+                config, srcRect.top, srcRect.left, srcRect.width(),
                 srcRect.height(), view);
     }
 
@@ -101,9 +103,15 @@ public abstract class ContentReadbackHandler {
      * @param windowAndroid The window that hosts the compositor.
      * @param callback      The callback to be executed after readback completes.
      */
-    public void getCompositorBitmapAsync(WindowAndroid windowAndroid, GetBitmapCallback callback) {
+    public void getCompositorBitmapAsync(
+            WindowAndroid windowAndroid, final GetBitmapCallback callback) {
         if (!readyForReadback()) {
-            callback.onFinishGetBitmap(null);
+            ThreadUtils.postOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    callback.onFinishGetBitmap(null, ReadbackResponse.SURFACE_UNAVAILABLE);
+                }
+            });
             return;
         }
         ThreadUtils.assertOnUiThread();

@@ -12,11 +12,15 @@
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/native_widget_types.h"
 
-class BookmarkNode;
 class Browser;
 class GURL;
 class PrefService;
 class Profile;
+
+namespace bookmarks {
+class BookmarkNode;
+struct BookmarkNodeData;
+}
 
 namespace content {
 class BrowserContext;
@@ -24,9 +28,8 @@ class PageNavigator;
 class WebContents;
 }
 
-namespace extensions {
-class CommandService;
-class Extension;
+namespace ui {
+class DropTargetEvent;
 }
 
 namespace chrome {
@@ -44,19 +47,19 @@ extern int num_bookmark_urls_before_prompting;
 // background tabs. |navigator| is used to open the URLs.
 void OpenAll(gfx::NativeWindow parent,
              content::PageNavigator* navigator,
-             const std::vector<const BookmarkNode*>& nodes,
+             const std::vector<const bookmarks::BookmarkNode*>& nodes,
              WindowOpenDisposition initial_disposition,
              content::BrowserContext* browser_context);
 
 // Convenience for OpenAll() with a single BookmarkNode.
 void OpenAll(gfx::NativeWindow parent,
              content::PageNavigator* navigator,
-             const BookmarkNode* node,
+             const bookmarks::BookmarkNode* node,
              WindowOpenDisposition initial_disposition,
              content::BrowserContext* browser_context);
 
 // Asks the user before deleting a non-empty bookmark folder.
-bool ConfirmDeleteBookmarkNode(const BookmarkNode* node,
+bool ConfirmDeleteBookmarkNode(const bookmarks::BookmarkNode* node,
                                gfx::NativeWindow window);
 
 // Shows the bookmark all tabs dialog.
@@ -64,12 +67,13 @@ void ShowBookmarkAllTabsDialog(Browser* browser);
 
 // Returns true if OpenAll() can open at least one bookmark of type url
 // in |selection|.
-bool HasBookmarkURLs(const std::vector<const BookmarkNode*>& selection);
+bool HasBookmarkURLs(
+    const std::vector<const bookmarks::BookmarkNode*>& selection);
 
 // Returns true if OpenAll() can open at least one bookmark of type url
 // in |selection| with incognito mode.
 bool HasBookmarkURLsAllowedInIncognitoMode(
-    const std::vector<const BookmarkNode*>& selection,
+    const std::vector<const bookmarks::BookmarkNode*>& selection,
     content::BrowserContext* browser_context);
 
 // Returns the bookmarkable URL for |web_contents|.
@@ -113,6 +117,34 @@ bool ShouldRemoveBookmarkThisPageUI(Profile* profile);
 // Whether the menu item and shortcut to bookmark open pages should be removed
 // from the user interface.
 bool ShouldRemoveBookmarkOpenPagesUI(Profile* profile);
+
+// Returns the drag operations for the specified node.
+int GetBookmarkDragOperation(content::BrowserContext* browser_context,
+                             const bookmarks::BookmarkNode* node);
+
+// Calculates the drop operation given |source_operations| and the ideal
+// set of drop operations (|operations|). This prefers the following ordering:
+// COPY, LINK then MOVE.
+int GetPreferredBookmarkDropOperation(int source_operations, int operations);
+
+// Returns the preferred drop operation on a bookmark menu/bar.
+// |parent| is the parent node the drop is to occur on and |index| the index the
+// drop is over.
+int GetBookmarkDropOperation(Profile* profile,
+                             const ui::DropTargetEvent& event,
+                             const bookmarks::BookmarkNodeData& data,
+                             const bookmarks::BookmarkNode* parent,
+                             int index);
+
+// Returns true if the bookmark data can be dropped on |drop_parent| at
+// |index|. A drop from a separate profile is always allowed, where as
+// a drop from the same profile is only allowed if none of the nodes in
+// |data| are an ancestor of |drop_parent| and one of the nodes isn't already
+// a child of |drop_parent| at |index|.
+bool IsValidBookmarkDropLocation(Profile* profile,
+                                 const bookmarks::BookmarkNodeData& data,
+                                 const bookmarks::BookmarkNode* drop_parent,
+                                 int index);
 
 }  // namespace chrome
 

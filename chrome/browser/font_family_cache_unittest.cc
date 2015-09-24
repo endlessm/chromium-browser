@@ -7,6 +7,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/test/base/testing_pref_service_syncable.h"
 #include "chrome/test/base/testing_profile.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -31,6 +32,7 @@ class TestingFontFamilyCache : public FontFamilyCache {
 
 // Tests that the cache is correctly set and cleared.
 TEST(FontFamilyCacheTest, Caching) {
+  content::TestBrowserThreadBundle thread_bundle_;
   TestingProfile profile;
   TestingFontFamilyCache cache(&profile);
   TestingPrefServiceSyncable* prefs = profile.GetTestingPrefService();
@@ -43,14 +45,8 @@ TEST(FontFamilyCacheTest, Caching) {
   std::string pref_name2(map_name + '.' + "adsf");
 
   // Registers 2 preferences, and sets the first one.
-  prefs->registry()->RegisterStringPref(
-      pref_name.c_str(),
-      std::string(),
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  prefs->registry()->RegisterStringPref(
-      pref_name2.c_str(),
-      std::string(),
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  prefs->registry()->RegisterStringPref(pref_name.c_str(), std::string());
+  prefs->registry()->RegisterStringPref(pref_name2.c_str(), std::string());
   prefs->SetString(pref_name.c_str(), font1.c_str());
 
   // Check that the right preference is returned.

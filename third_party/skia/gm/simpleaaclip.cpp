@@ -49,7 +49,10 @@ public:
 
     SimpleClipGM(SkGeomTypes geomType)
     : fGeomType(geomType) {
+    }
 
+protected:
+    void onOnceBeforeDraw() override {
         // offset the rects a bit so we get anti-aliasing in the rect case
         fBase.set(100.65f,
                   100.65f,
@@ -61,10 +64,9 @@ public:
 
         fBasePath.addRoundRect(fBase, SkIntToScalar(5), SkIntToScalar(5));
         fRectPath.addRoundRect(fRect, SkIntToScalar(5), SkIntToScalar(5));
-        INHERITED::setBGColor(0xFFDDDDDD);
+        INHERITED::setBGColor(sk_tool_utils::color_to_565(0xFFDDDDDD));
     }
 
-protected:
     void buildRgn(SkAAClip* clip, SkRegion::Op op) {
         clip->setPath(fBasePath, NULL, true);
 
@@ -154,7 +156,7 @@ protected:
 
         SkPaint textPaint;
         textPaint.setAntiAlias(true);
-        sk_tool_utils::set_portable_typeface(&textPaint);
+        sk_tool_utils::set_portable_typeface_always(&textPaint);
         textPaint.setTextSize(SK_Scalar1*24);
         int xOff = 0;
 

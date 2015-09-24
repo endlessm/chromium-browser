@@ -7,21 +7,18 @@
 #include <ostream>
 
 #include "base/basictypes.h"
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/prefs/pref_registry_simple.h"
 #include "base/prefs/testing_pref_service.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/policy/policy_helpers.h"
 #include "components/policy/core/common/policy_pref_names.h"
 #include "components/url_fixer/url_fixer.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
-#include "net/base/request_priority.h"
-#include "net/url_request/url_request.h"
-#include "net/url_request/url_request_context.h"
-#include "net/url_request/url_request_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
@@ -44,8 +41,8 @@ class TestingURLBlacklistManager : public URLBlacklistManager {
  public:
   explicit TestingURLBlacklistManager(PrefService* pref_service)
       : URLBlacklistManager(pref_service,
-                            base::MessageLoopProxy::current(),
-                            base::MessageLoopProxy::current(),
+                            base::ThreadTaskRunnerHandle::Get(),
+                            base::ThreadTaskRunnerHandle::Get(),
                             GetSegmentURLCallback(),
                             base::Bind(OverrideBlacklistForURL)),
         update_called_(0),
@@ -642,34 +639,10 @@ TEST_F(URLBlacklistManagerTest, DontBlockResources) {
   blacklist_manager_->SetBlacklist(blacklist.Pass());
   EXPECT_TRUE(blacklist_manager_->IsURLBlocked(GURL("http://google.com")));
 
-  net::TestURLRequestContext context;
-  scoped_ptr<net::URLRequest> request(context.CreateRequest(
-      GURL("http://google.com"), net::DEFAULT_PRIORITY, NULL, NULL));
-
   int reason = net::ERR_UNEXPECTED;
-  // Background requests aren't filtered.
-  EXPECT_FALSE(blacklist_manager_->IsRequestBlocked(*request.get(), &reason));
-
-  // Main frames are filtered.
-  request->SetLoadFlags(net::LOAD_MAIN_FRAME);
-  EXPECT_TRUE(blacklist_manager_->IsRequestBlocked(*request.get(), &reason));
+  EXPECT_TRUE(blacklist_manager_->ShouldBlockRequestForFrame(
+      GURL("http://google.com"), &reason));
   EXPECT_EQ(net::ERR_BLOCKED_BY_ADMINISTRATOR, reason);
-
-  // On most platforms, sync gets a free pass due to signin flows.
-  bool block_signin_urls = false;
-#if defined(OS_CHROMEOS)
-  // There are no sync specific signin flows on Chrome OS, so no special
-  // treatment.
-  block_signin_urls = true;
-#endif
-
-  GURL sync_url(GaiaUrls::GetInstance()->service_login_url().Resolve(
-      "?service=chromiumsync"));
-  scoped_ptr<net::URLRequest> sync_request(context.CreateRequest(
-      sync_url, net::DEFAULT_PRIORITY, NULL, NULL));
-  sync_request->SetLoadFlags(net::LOAD_MAIN_FRAME);
-  EXPECT_EQ(block_signin_urls,
-            blacklist_manager_->IsRequestBlocked(*sync_request.get(), &reason));
 }
 
 TEST_F(URLBlacklistManagerTest, DefaultBlacklistExceptions) {

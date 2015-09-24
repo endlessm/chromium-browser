@@ -24,6 +24,7 @@ goog.require('i18n.input.chrome.inputview.elements.content.FunctionalKey');
 
 goog.scope(function() {
 var StateType = i18n.input.chrome.inputview.StateType;
+var Css = i18n.input.chrome.inputview.Css;
 
 
 
@@ -101,12 +102,14 @@ ModifierKey.prototype.isDoubleClicking = false;
 ModifierKey.prototype.createDom = function() {
   goog.base(this, 'createDom');
 
-  if (this.toState == i18n.input.chrome.inputview.StateType.CAPSLOCK ||
-      this.supportSticky) {
+  if (this.toState == i18n.input.chrome.inputview.StateType.CAPSLOCK) {
     var dom = this.getDomHelper();
-    this.dotIcon_ = dom.createDom(goog.dom.TagName.DIV,
-        i18n.input.chrome.inputview.Css.CAPSLOCK_DOT);
+    this.dotIcon_ = dom.createDom(goog.dom.TagName.DIV, Css.CAPSLOCK_DOT);
     dom.appendChild(this.tableCell, this.dotIcon_);
+  }
+
+  if (this.toState == i18n.input.chrome.inputview.StateType.SHIFT) {
+    this.disableBackgroundHighlight();
   }
 
   this.setAriaLabel(this.getChromeVoxMessage());
@@ -121,12 +124,15 @@ ModifierKey.prototype.update = function() {
   this.setHighlighted(isStateEnabled);
   if (this.dotIcon_) {
     if (isStateEnabled && isSticky && isFinalSticky) {
-      goog.dom.classlist.add(this.dotIcon_,
-          i18n.input.chrome.inputview.Css.CAPSLOCK_DOT_HIGHLIGHT);
+      goog.dom.classlist.add(this.dotIcon_, Css.CAPSLOCK_DOT_HIGHLIGHT);
     } else {
-      goog.dom.classlist.remove(this.dotIcon_,
-          i18n.input.chrome.inputview.Css.CAPSLOCK_DOT_HIGHLIGHT);
+      goog.dom.classlist.remove(this.dotIcon_, Css.CAPSLOCK_DOT_HIGHLIGHT);
     }
+  }
+  if (isStateEnabled && isSticky && isFinalSticky) {
+    goog.dom.classlist.add(this.bgElem, Css.FUNCITONAL_KEY_STICKY);
+  } else {
+    goog.dom.classlist.remove(this.bgElem, Css.FUNCITONAL_KEY_STICKY);
   }
 };
 

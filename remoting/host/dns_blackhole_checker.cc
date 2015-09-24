@@ -4,6 +4,7 @@
 
 #include "remoting/host/dns_blackhole_checker.h"
 
+#include "base/callback_helpers.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "remoting/base/logging.h"
@@ -19,9 +20,9 @@ const char kTalkGadgetUrl[] = ".talkgadget.google.com/talkgadget/"
                               "oauth/chrome-remote-desktop-host";
 
 DnsBlackholeChecker::DnsBlackholeChecker(
-    scoped_refptr<net::URLRequestContextGetter> url_request_context_getter,
+    const scoped_refptr<net::URLRequestContextGetter>& request_context_getter,
     std::string talkgadget_prefix)
-    : url_request_context_getter_(url_request_context_getter),
+    : url_request_context_getter_(request_context_getter),
       talkgadget_prefix_(talkgadget_prefix) {
 }
 
@@ -39,9 +40,8 @@ void DnsBlackholeChecker::OnURLFetchComplete(const net::URLFetcher* source) {
   } else {
     HOST_LOG << "Unable to connect to host talkgadget (" << response << ")";
   }
-  url_fetcher_.reset(NULL);
-  callback_.Run(allow);
-  callback_.Reset();
+  url_fetcher_.reset(nullptr);
+  base::ResetAndReturn(&callback_).Run(allow);
 }
 
 void DnsBlackholeChecker::CheckForDnsBlackhole(
@@ -58,8 +58,8 @@ void DnsBlackholeChecker::CheckForDnsBlackhole(
     }
     talkgadget_url += kTalkGadgetUrl;
     HOST_LOG << "Verifying connection to " << talkgadget_url;
-    url_fetcher_.reset(net::URLFetcher::Create(GURL(talkgadget_url),
-                                               net::URLFetcher::GET, this));
+    url_fetcher_ = net::URLFetcher::Create(GURL(talkgadget_url),
+                                           net::URLFetcher::GET, this);
     url_fetcher_->SetRequestContext(url_request_context_getter_.get());
     url_fetcher_->Start();
   } else {

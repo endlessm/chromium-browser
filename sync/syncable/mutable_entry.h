@@ -30,8 +30,15 @@ class SYNC_EXPORT_PRIVATE MutableEntry : public ModelNeutralMutableEntry {
 
  public:
   MutableEntry(WriteTransaction* trans, CreateNewUpdateItem, const Id& id);
-  MutableEntry(WriteTransaction* trans, Create, ModelType model_type,
-               const Id& parent_id, const std::string& name);
+  MutableEntry(WriteTransaction* trans,
+               Create,
+               ModelType model_type,
+               const std::string& name);
+  MutableEntry(WriteTransaction* trans,
+               Create,
+               ModelType model_type,
+               const Id& parent_id,
+               const std::string& name);
   MutableEntry(WriteTransaction* trans, GetByHandle, int64);
   MutableEntry(WriteTransaction* trans, GetById, const Id&);
   MutableEntry(WriteTransaction* trans, GetByClientTag, const std::string& tag);
@@ -59,8 +66,7 @@ class SYNC_EXPORT_PRIVATE MutableEntry : public ModelNeutralMutableEntry {
   // ID to put the node in first position.
   bool PutPredecessor(const Id& predecessor_id);
 
-  void PutAttachmentMetadata(
-      const sync_pb::AttachmentMetadata& attachment_metadata);
+  void PutAttachmentMetadata(const sync_pb::AttachmentMetadata& value);
 
   // Update attachment metadata for |attachment_id| to indicate that this
   // attachment has been uploaded to the sync server.

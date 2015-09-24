@@ -39,19 +39,16 @@ class RuleSet;
 class SelectorFilter;
 class StaticCSSRuleList;
 
-typedef unsigned CascadeScope;
 typedef unsigned CascadeOrder;
 
-const CascadeScope ignoreCascadeScope = 0;
 const CascadeOrder ignoreCascadeOrder = 0;
 
 class MatchedRule {
     ALLOW_ONLY_INLINE_ALLOCATION();
 public:
-    MatchedRule(const RuleData* ruleData, unsigned specificity, CascadeScope cascadeScope, CascadeOrder cascadeOrder, unsigned styleSheetIndex, const CSSStyleSheet* parentStyleSheet)
+    MatchedRule(const RuleData* ruleData, unsigned specificity, CascadeOrder cascadeOrder, unsigned styleSheetIndex, const CSSStyleSheet* parentStyleSheet)
         : m_ruleData(ruleData)
         , m_specificity(specificity)
-        , m_cascadeScope(cascadeScope)
         , m_parentStyleSheet(parentStyleSheet)
     {
         ASSERT(m_ruleData);
@@ -61,11 +58,10 @@ public:
     }
 
     const RuleData* ruleData() const { return m_ruleData; }
-    uint32_t cascadeScope() const { return m_cascadeScope; }
     uint64_t position() const { return m_position; }
     unsigned specificity() const { return ruleData()->specificity() + m_specificity; }
     const CSSStyleSheet* parentStyleSheet() const { return m_parentStyleSheet; }
-    void trace(Visitor* visitor)
+    DEFINE_INLINE_TRACE()
     {
         visitor->trace(m_parentStyleSheet);
     }
@@ -77,7 +73,6 @@ private:
     // trace a raw rule data pointer at this point.
     const RuleData* m_ruleData;
     unsigned m_specificity;
-    CascadeScope m_cascadeScope;
     uint64_t m_position;
     RawPtrWillBeMember<const CSSStyleSheet> m_parentStyleSheet;
 };
@@ -88,30 +83,30 @@ WTF_ALLOW_MOVE_AND_INIT_WITH_MEM_FUNCTIONS(blink::MatchedRule);
 
 namespace blink {
 
-// FIXME: oilpan: when transition types are gone this class can be replaced with HeapVector.
-class StyleRuleList final : public RefCountedWillBeGarbageCollected<StyleRuleList> {
-public:
-    static PassRefPtrWillBeRawPtr<StyleRuleList> create() { return adoptRefWillBeNoop(new StyleRuleList()); }
-
-    void trace(Visitor* visitor)
-    {
 #if ENABLE(OILPAN)
-        visitor->trace(m_list);
-#endif
-    }
+using StyleRuleList = HeapVector<Member<StyleRule>>;
+#else
+class StyleRuleList final : public RefCounted<StyleRuleList> {
+public:
+    static PassRefPtr<StyleRuleList> create() { return adoptRef(new StyleRuleList()); }
 
-    WillBeHeapVector<RawPtrWillBeMember<StyleRule> > m_list;
+    void append(StyleRule* rule) { m_list.append(rule); }
+    StyleRule* at(size_t index) const { return m_list[index]; }
+    size_t size() const { return m_list.size(); }
+
+    Vector<StyleRule*> m_list;
 };
+#endif
 
 // ElementRuleCollector is designed to be used as a stack object.
 // Create one, ask what rules the ElementResolveContext matches
 // and then let it go out of scope.
-// FIXME: Currently it modifies the RenderStyle but should not!
+// FIXME: Currently it modifies the ComputedStyle but should not!
 class ElementRuleCollector {
     STACK_ALLOCATED();
     WTF_MAKE_NONCOPYABLE(ElementRuleCollector);
 public:
-    ElementRuleCollector(const ElementResolveContext&, const SelectorFilter&, RenderStyle* = 0);
+    ElementRuleCollector(const ElementResolveContext&, const SelectorFilter&, ComputedStyle* = 0);
     ~ElementRuleCollector();
 
     void setMode(SelectorChecker::Mode mode) { m_mode = mode; }
@@ -123,37 +118,27 @@ public:
     bool scopeContainsLastMatchedElement() const { return m_scopeContainsLastMatchedElement; }
     bool hasAnyMatchingRules(RuleSet*);
 
-    MatchResult& matchedResult();
+    const MatchResult& matchedResult() const;
     PassRefPtrWillBeRawPtr<StyleRuleList> matchedStyleRuleList();
     PassRefPtrWillBeRawPtr<CSSRuleList> matchedCSSRuleList();
 
-    void collectMatchingRules(const MatchRequest&, RuleRange&, CascadeScope = ignoreCascadeScope, CascadeOrder = ignoreCascadeOrder, bool matchingTreeBoundaryRules = false);
+    void collectMatchingRules(const MatchRequest&, CascadeOrder = ignoreCascadeOrder, bool matchingTreeBoundaryRules = false);
+    void collectMatchingShadowHostRules(const MatchRequest&, CascadeOrder = ignoreCascadeOrder, bool matchingTreeBoundaryRules = false);
     void sortAndTransferMatchedRules();
     void clearMatchedRules();
     void addElementStyleProperties(const StylePropertySet*, bool isCacheable = true);
 
 private:
-    void collectRuleIfMatches(const RuleData&, CascadeScope, CascadeOrder, const MatchRequest&, RuleRange&);
-
     template<typename RuleDataListType>
-    void collectMatchingRulesForList(const RuleDataListType* rules, CascadeScope cascadeScope, CascadeOrder cascadeOrder, const MatchRequest& matchRequest, RuleRange& ruleRange)
-    {
-        if (!rules)
-            return;
+    void collectMatchingRulesForList(const RuleDataListType*, CascadeOrder, const MatchRequest&);
 
-        for (const auto& rule : *rules)
-            collectRuleIfMatches(rule, cascadeScope, cascadeOrder, matchRequest, ruleRange);
-    }
+    void didMatchRule(const RuleData&, const SelectorChecker::MatchResult&, CascadeOrder, const MatchRequest&);
 
-    bool ruleMatches(const RuleData&, const ContainerNode* scope, SelectorChecker::MatchResult*);
-
-    CSSRuleList* nestedRuleList(CSSRule*);
     template<class CSSRuleCollection>
     CSSRule* findStyleRule(CSSRuleCollection*, StyleRule*);
     void appendCSSOMWrapperForRule(CSSStyleSheet*, StyleRule*);
 
     void sortMatchedRules();
-    void addMatchedRule(const RuleData*, unsigned specificity, CascadeScope, CascadeOrder, unsigned styleSheetIndex, const CSSStyleSheet* parentStyleSheet);
 
     StaticCSSRuleList* ensureRuleList();
     StyleRuleList* ensureStyleRuleList();
@@ -161,7 +146,7 @@ private:
 private:
     const ElementResolveContext& m_context;
     const SelectorFilter& m_selectorFilter;
-    RefPtr<RenderStyle> m_style; // FIXME: This can be mutated during matching!
+    RefPtr<ComputedStyle> m_style; // FIXME: This can be mutated during matching!
 
     PseudoStyleRequest m_pseudoStyleRequest;
     SelectorChecker::Mode m_mode;
@@ -170,7 +155,7 @@ private:
     bool m_matchingUARules;
     bool m_scopeContainsLastMatchedElement;
 
-    OwnPtrWillBeMember<WillBeHeapVector<MatchedRule, 32> > m_matchedRules;
+    WillBeHeapVector<MatchedRule, 32> m_matchedRules;
 
     // Output.
     RefPtrWillBeMember<StaticCSSRuleList> m_cssRuleList;

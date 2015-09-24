@@ -7,21 +7,21 @@
 from __future__ import print_function
 
 import collections
-import logging
 import os
 
 from chromite.cbuildbot import commands
-from chromite.cbuildbot import cbuildbot_config
-from chromite.cbuildbot import failures_lib
+from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
+from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot import lab_status
 from chromite.cbuildbot import validation_pool
 from chromite.cbuildbot.stages import generic_stages
 from chromite.lib import cgroups
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
+from chromite.lib import image_test_lib
 from chromite.lib import osutils
 from chromite.lib import perf_uploader
-from chromite.lib import retry_util
 from chromite.lib import timeout_util
 
 
@@ -36,9 +36,6 @@ individual test that failed -- or if an update failed, check the
 corresponding update directory.
 """
 PRE_CQ = validation_pool.PRE_CQ
-
-CQ_HWTEST_WAS_ABORTED = ('HWTest was aborted, because another commit '
-                         'queue builder failed outside of HWTest.')
 
 
 class UnitTestStage(generic_stages.BoardSpecificBuilderStage):
@@ -61,7 +58,6 @@ class UnitTestStage(generic_stages.BoardSpecificBuilderStage):
     with timeout_util.Timeout(self.UNIT_TEST_TIMEOUT):
       commands.RunUnitTests(self._build_root,
                             self._current_board,
-                            full=(not self._run.config.quick_unit),
                             blacklist=self._run.config.unittest_blacklist,
                             extra_env=extra_env)
 
@@ -143,7 +139,7 @@ class VMTestStage(generic_stages.BoardSpecificBuilderStage,
     self._Upload([os.path.basename(image) for image in vm_files])
 
   def _Upload(self, filenames):
-    cros_build_lib.Info('Uploading artifacts to Google Storage...')
+    logging.info('Uploading artifacts to Google Storage...')
     with self.ArtifactUploader(archive=False, strict=False) as queue:
       for filename in filenames:
         queue.put([filename])
@@ -168,7 +164,7 @@ class VMTestStage(generic_stages.BoardSpecificBuilderStage,
       commands.RunCrosVMTest(self._current_board, self.GetImageDirSymlink())
     elif test_type == constants.DEV_MODE_TEST_TYPE:
       commands.RunDevModeTest(
-        self._build_root, self._current_board, self.GetImageDirSymlink())
+          self._build_root, self._current_board, self.GetImageDirSymlink())
     else:
       commands.RunTestSuite(self._build_root,
                             self._current_board,
@@ -185,14 +181,13 @@ class VMTestStage(generic_stages.BoardSpecificBuilderStage,
     test_basename = constants.VM_TEST_RESULTS % dict(attempt=self._attempt)
     try:
       for test_type in self._run.config.vm_tests:
-        cros_build_lib.Info('Running VM test %s.', test_type)
+        logging.info('Running VM test %s.', test_type)
         with cgroups.SimpleContainChildren('VMTest'):
           with timeout_util.Timeout(self.VM_TEST_TIMEOUT):
             self._RunTest(test_type, test_results_dir)
 
     except Exception:
-      cros_build_lib.Error(_VM_TEST_ERROR_MSG %
-                           dict(vm_test_results=test_basename))
+      logging.error(_VM_TEST_ERROR_MSG % dict(vm_test_results=test_basename))
       self._ArchiveVMFiles(test_results_dir)
       raise
     finally:
@@ -208,30 +203,16 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
 
   PERF_RESULTS_EXTENSION = 'results'
 
-  def __init__(self, builder_run, board, suite_config, **kwargs):
+  def __init__(self, builder_run, board, suite_config, suffix=None, **kwargs):
+    suffix = self.UpdateSuffix(suite_config.suite, suffix)
     super(HWTestStage, self).__init__(builder_run, board,
-                                      suffix=' [%s]' % suite_config.suite,
+                                      suffix=suffix,
                                       **kwargs)
     if not self._run.IsToTBuild():
       suite_config.SetBranchedValues()
 
     self.suite_config = suite_config
     self.wait_for_results = True
-
-  @failures_lib.SetFailureType(failures_lib.GSFailure)
-  def _CheckAborted(self):
-    """Checks with GS to see if HWTest for this build's release_tag was aborted.
-
-    We currently only support aborting HWTests for the CQ, so this method only
-    returns True for paladin builders.
-
-    Returns:
-      True if HWTest have been aborted for this build's release_tag.
-      False otherwise.
-    """
-    aborted = (cbuildbot_config.IsCQType(self._run.config.build_type) and
-               commands.HaveCQHWTestsBeenAborted(self._run.GetVersion()))
-    return aborted
 
   # Disable complaint about calling _HandleStageException.
   # pylint: disable=W0212
@@ -246,28 +227,14 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
     if self.suite_config.critical:
       return super(HWTestStage, self)._HandleStageException(exc_info)
 
-    aborted = False
-    try:
-      # _CheckAborted accesses Google Storage and could fail for many
-      # reasons. Ignore any failures because we are already handling
-      # exceptions.
-      aborted = self._CheckAborted()
-    except Exception:
-      logging.warning('Unable to check whether HWTest was aborted.')
-
-    if aborted:
-      # HWTest was aborted. This is only applicable to CQ.
-      logging.warning(CQ_HWTEST_WAS_ABORTED)
-      return self._HandleExceptionAsWarning(exc_info)
-
-    if issubclass(exc_type, commands.TestWarning):
+    if issubclass(exc_type, failures_lib.TestWarning):
       # HWTest passed with warning. All builders should pass.
       logging.warning('HWTest passed with warning code.')
       return self._HandleExceptionAsWarning(exc_info)
-    elif issubclass(exc_type, commands.BoardNotAvailable):
+    elif issubclass(exc_type, failures_lib.BoardNotAvailable):
       # Some boards may not have been setup in the lab yet for
       # non-code-checkin configs.
-      if not cbuildbot_config.IsPFQType(self._run.config.build_type):
+      if not config_lib.IsPFQType(self._run.config.build_type):
         logging.warning('HWTest did not run because the board was not '
                         'available in the lab yet')
         return self._HandleExceptionAsWarning(exc_info)
@@ -283,9 +250,16 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
     lab_status.CheckLabStatus(self._current_board)
 
   def PerformStage(self):
-    if self._CheckAborted():
-      cros_build_lib.PrintBuildbotStepText('aborted')
-      cros_build_lib.Warning(CQ_HWTEST_WAS_ABORTED)
+    # Wait for UploadHWTestArtifacts to generate the payloads.
+    if not self.GetParallel('payloads_generated', pretty_name='payloads'):
+      cros_build_lib.PrintBuildbotStepWarnings('missing payloads')
+      logging.warning('Cannot run HWTest because UploadTestArtifacts failed. '
+                      'See UploadTestArtifacts for details.')
+      return
+
+    if (self.suite_config.suite == constants.HWTEST_AFDO_SUITE and
+        not self._run.attrs.metadata.GetValue('chrome_was_uprevved')):
+      logging.info('Chrome was not uprevved. Nothing to do in this stage')
       return
 
     build = '/'.join([self._bot_id, self.version])
@@ -295,18 +269,19 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
       debug = self._run.options.debug
 
     self._CheckLabStatus()
-    commands.RunHWTestSuite(build,
-                            self.suite_config.suite,
-                            self._current_board,
-                            self.suite_config.pool,
-                            self.suite_config.num,
-                            self.suite_config.file_bugs,
-                            self.wait_for_results,
-                            self.suite_config.priority,
-                            self.suite_config.timeout_mins,
-                            self.suite_config.retry,
-                            self.suite_config.minimum_duts,
-                            debug)
+    commands.RunHWTestSuite(
+        build, self.suite_config.suite, self._current_board,
+        pool=self.suite_config.pool, num=self.suite_config.num,
+        file_bugs=self.suite_config.file_bugs,
+        wait_for_results=self.wait_for_results,
+        priority=self.suite_config.priority,
+        timeout_mins=self.suite_config.timeout_mins,
+        retry=self.suite_config.retry,
+        max_retries=self.suite_config.max_retries,
+        minimum_duts=self.suite_config.minimum_duts,
+        suite_min_duts=self.suite_config.suite_min_duts,
+        offload_failures_only=self.suite_config.offload_failures_only,
+        debug=debug)
 
 
 class AUTestStage(HWTestStage):
@@ -314,6 +289,14 @@ class AUTestStage(HWTestStage):
 
   def PerformStage(self):
     """Wait for payloads to be staged and uploads its au control files."""
+    # Wait for UploadHWTestArtifacts to generate the payloads.
+    if not self.GetParallel('delta_payloads_generated',
+                            pretty_name='delta payloads'):
+      cros_build_lib.PrintBuildbotStepWarnings('missing delta payloads')
+      logging.warning('Cannot run HWTest because UploadTestArtifacts failed. '
+                      'See UploadTestArtifacts for details.')
+      return
+
     with osutils.TempDir() as tempdir:
       tarball = commands.BuildAUTestTarball(
           self._build_root, self._current_board, tempdir,
@@ -332,7 +315,6 @@ class ASyncHWTestStage(HWTestStage, generic_stages.ForgivingBuilderStage):
 
 
 class ImageTestStage(generic_stages.BoardSpecificBuilderStage,
-                     generic_stages.ForgivingBuilderStage,
                      generic_stages.ArchivingStageMixin):
   """Stage that launches tests on the produced disk image."""
 
@@ -372,25 +354,37 @@ class ImageTestStage(generic_stages.BoardSpecificBuilderStage,
     Args:
       test_results_dir: A path to the directory with perf files.
     """
-    # Import image_test here so that extra imports from image_test does not
-    # affect cbuildbot in bootstrap.
-    from chromite.cros.tests import image_test
     # A dict of list of perf values, keyed by test name.
     perf_entries = collections.defaultdict(list)
     for root, _, filenames in os.walk(test_results_dir):
       for relative_name in filenames:
-        if not image_test.IsPerfFile(relative_name):
+        if not image_test_lib.IsPerfFile(relative_name):
           continue
         full_name = os.path.join(root, relative_name)
         entries = perf_uploader.LoadPerfValues(full_name)
-        test_name = image_test.ImageTestCase.GetTestName(relative_name)
+        test_name = image_test_lib.ImageTestCase.GetTestName(relative_name)
         perf_entries[test_name].extend(entries)
 
     platform_name = self._run.bot_id
-    cros_ver = self._run.GetVersionInfo(self._run.buildroot).VersionString()
+    cros_ver = self._run.GetVersionInfo().VersionString()
     chrome_ver = self._run.DetermineChromeVersion()
     for test_name, perf_values in perf_entries.iteritems():
-      retry_util.RetryException(perf_uploader.PerfUploadingError, 3,
-                                perf_uploader.UploadPerfValues,
-                                perf_values, platform_name, cros_ver,
-                                chrome_ver, test_name)
+      try:
+        perf_uploader.UploadPerfValues(perf_values, platform_name, test_name,
+                                       cros_version=cros_ver,
+                                       chrome_version=chrome_ver)
+      except Exception:
+        logging.exception('Fail to upload perf result for test %s.', test_name)
+
+
+class BinhostTestStage(generic_stages.BuilderStage):
+  """Stage that verifies Chrome prebuilts."""
+
+  config_name = 'binhost_test'
+
+  def PerformStage(self):
+    # Verify our binhosts.
+    # Don't check for incremental compatibility when we uprev chrome.
+    incremental = not (self._run.config.chrome_rev or
+                       self._run.options.chrome_rev)
+    commands.RunBinhostTest(self._build_root, incremental=incremental)

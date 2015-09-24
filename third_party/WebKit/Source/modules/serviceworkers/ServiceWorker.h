@@ -34,6 +34,7 @@
 #include "bindings/core/v8/ScriptPromise.h"
 #include "bindings/core/v8/SerializedScriptValue.h"
 #include "core/workers/AbstractWorker.h"
+#include "modules/ModulesExport.h"
 #include "public/platform/WebServiceWorker.h"
 #include "public/platform/WebServiceWorkerProxy.h"
 #include "wtf/OwnPtr.h"
@@ -45,52 +46,44 @@ namespace blink {
 
 class ScriptPromiseResolver;
 
-class ServiceWorker final : public AbstractWorker, public WebServiceWorkerProxy {
+class MODULES_EXPORT ServiceWorker final : public AbstractWorker, public WebServiceWorkerProxy {
     DEFINE_WRAPPERTYPEINFO();
 public:
-    // For CallbackPromiseAdapter
     typedef WebServiceWorker WebType;
-    static PassRefPtrWillBeRawPtr<ServiceWorker> take(ScriptPromiseResolver*, WebType* worker);
-
     static PassRefPtrWillBeRawPtr<ServiceWorker> from(ExecutionContext*, WebType*);
-    static void dispose(WebType*);
+
+    ~ServiceWorker() override;
+
+    // Eager finalization needed to promptly release owned WebServiceWorker.
+    EAGERLY_FINALIZE();
+#if ENABLE(OILPAN)
+    // Override 'operator new' to enforce allocation of eagerly finalized object.
+    DECLARE_EAGER_FINALIZATION_OPERATOR_NEW();
+#endif
 
     void postMessage(ExecutionContext*, PassRefPtr<SerializedScriptValue> message, const MessagePortArray*, ExceptionState&);
-    void terminate(ExceptionState&);
 
     String scriptURL() const;
-    const AtomicString& state() const;
+    String state() const;
     DEFINE_ATTRIBUTE_EVENT_LISTENER(statechange);
 
     // WebServiceWorkerProxy overrides.
-    virtual bool isReady() override;
-    virtual void dispatchStateChangeEvent() override;
+    void dispatchStateChangeEvent() override;
 
     // AbstractWorker overrides.
-    virtual const AtomicString& interfaceName() const override;
+    const AtomicString& interfaceName() const override;
 
+    void internalsTerminate();
 private:
-    class ThenFunction;
-
-    enum ProxyState {
-        Initial,
-        RegisterPromisePending,
-        Ready,
-        ContextStopped
-    };
-
     static PassRefPtrWillBeRawPtr<ServiceWorker> getOrCreate(ExecutionContext*, WebType*);
     ServiceWorker(ExecutionContext*, PassOwnPtr<WebServiceWorker>);
-    void setProxyState(ProxyState);
-    void onPromiseResolved();
-    void waitOnPromise(ScriptPromiseResolver*);
 
     // ActiveDOMObject overrides.
-    virtual bool hasPendingActivity() const override;
-    virtual void stop() override;
+    bool hasPendingActivity() const override;
+    void stop() override;
 
     OwnPtr<WebServiceWorker> m_outerWorker;
-    ProxyState m_proxyState;
+    bool m_wasStopped;
 };
 
 } // namespace blink

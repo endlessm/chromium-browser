@@ -45,79 +45,28 @@ namespace rtc {
 class Thread;
 }
 
-namespace buzz {
-class QName;
-class XmlElement;
-}
-
 namespace cricket {
 
-struct ParseError;
-struct WriteError;
-class CandidateTranslator;
 class PortAllocator;
-class SessionManager;
-class Session;
 class TransportChannel;
 class TransportChannelImpl;
 
-typedef std::vector<buzz::XmlElement*> XmlElements;
 typedef std::vector<Candidate> Candidates;
 
-// Used to parse and serialize (write) transport candidates.  For
-// convenience of old code, Transports will implement TransportParser.
-// Parse/Write seems better than Serialize/Deserialize or
-// Create/Translate.
-class TransportParser {
- public:
-  // The incoming Translator value may be null, in which case
-  // ParseCandidates should return false if there are candidates to
-  // parse (indicating a failure to parse).  If the Translator is null
-  // and there are no candidates to parse, then return true,
-  // indicating a successful parse of 0 candidates.
-
-  // Parse or write a transport description, including ICE credentials and
-  // any DTLS fingerprint. Since only Jingle has transport descriptions, these
-  // functions are only used when serializing to Jingle.
-  virtual bool ParseTransportDescription(const buzz::XmlElement* elem,
-                                         const CandidateTranslator* translator,
-                                         TransportDescription* tdesc,
-                                         ParseError* error) = 0;
-  virtual bool WriteTransportDescription(const TransportDescription& tdesc,
-                                         const CandidateTranslator* translator,
-                                         buzz::XmlElement** tdesc_elem,
-                                         WriteError* error) = 0;
-
-
-  // Parse a single candidate. This must be used when parsing Gingle
-  // candidates, since there is no enclosing transport description.
-  virtual bool ParseGingleCandidate(const buzz::XmlElement* elem,
-                                    const CandidateTranslator* translator,
-                                    Candidate* candidates,
-                                    ParseError* error) = 0;
-  virtual bool WriteGingleCandidate(const Candidate& candidate,
-                                    const CandidateTranslator* translator,
-                                    buzz::XmlElement** candidate_elem,
-                                    WriteError* error) = 0;
-
-  // Helper function to parse an element describing an address.  This
-  // retrieves the IP and port from the given element and verifies
-  // that they look like plausible values.
-  bool ParseAddress(const buzz::XmlElement* elem,
-                    const buzz::QName& address_name,
-                    const buzz::QName& port_name,
-                    rtc::SocketAddress* address,
-                    ParseError* error);
-
-  virtual ~TransportParser() {}
-};
-
-// For "writable" and "readable", we need to differentiate between
+// For "writable", "readable", and "receiving", we need to differentiate between
 // none, all, and some.
 enum TransportState {
   TRANSPORT_STATE_NONE = 0,
   TRANSPORT_STATE_SOME,
   TRANSPORT_STATE_ALL
+};
+
+// When checking transport state, we need to differentiate between
+// "readable", "writable", or "receiving" check.
+enum TransportStateType {
+  TRANSPORT_READABLE_STATE = 0,
+  TRANSPORT_WRITABLE_STATE,
+  TRANSPORT_RECEIVING_STATE
 };
 
 // Stats that we can return about the connections for a transport channel.
@@ -132,6 +81,8 @@ struct ConnectionInfo {
         rtt(0),
         sent_total_bytes(0),
         sent_bytes_second(0),
+        sent_discarded_packets(0),
+        sent_total_packets(0),
         recv_total_bytes(0),
         recv_bytes_second(0),
         key(NULL) {}
@@ -144,6 +95,11 @@ struct ConnectionInfo {
   size_t rtt;                  // The STUN RTT for this connection.
   size_t sent_total_bytes;     // Total bytes sent on this connection.
   size_t sent_bytes_second;    // Bps over the last measurement interval.
+  size_t sent_discarded_packets;  // Number of outgoing packets discarded due to
+                                  // socket errors.
+  size_t sent_total_packets;  // Number of total outgoing packets attempted for
+                              // sending.
+
   size_t recv_total_bytes;     // Total bytes received on this connection.
   size_t recv_bytes_second;    // Bps over the last measurement interval.
   Candidate local_candidate;   // The local candidate for this connection.
@@ -158,6 +114,8 @@ typedef std::vector<ConnectionInfo> ConnectionInfos;
 struct TransportChannelStats {
   int component;
   ConnectionInfos connection_infos;
+  std::string srtp_cipher;
+  std::string ssl_cipher;
 };
 
 // Information about all the channels of a transport.
@@ -222,8 +180,14 @@ class Transport : public rtc::MessageHandler,
   bool all_channels_writable() const {
     return (writable_ == TRANSPORT_STATE_ALL);
   }
+  bool any_channel_receiving() const {
+    return (receiving_ == TRANSPORT_STATE_SOME ||
+            receiving_ == TRANSPORT_STATE_ALL);
+  }
+
   sigslot::signal1<Transport*> SignalReadableState;
   sigslot::signal1<Transport*> SignalWritableState;
+  sigslot::signal1<Transport*> SignalReceivingState;
   sigslot::signal1<Transport*> SignalCompleted;
   sigslot::signal1<Transport*> SignalFailed;
 
@@ -309,22 +273,13 @@ class Transport : public rtc::MessageHandler,
                    int,  // component
                    const Candidate&> SignalRouteChange;
 
-  // A transport message has generated an transport-specific error.  The
-  // stanza that caused the error is available in session_msg.  If false is
-  // returned, the error is considered unrecoverable, and the session is
-  // terminated.
-  // TODO(juberti): Remove these obsolete functions once Session no longer
-  // references them.
-  virtual void OnTransportError(const buzz::XmlElement* error) {}
-  sigslot::signal6<Transport*, const buzz::XmlElement*, const buzz::QName&,
-                   const std::string&, const std::string&,
-                   const buzz::XmlElement*>
-      SignalTransportError;
-
   // Forwards the signal from TransportChannel to BaseSession.
   sigslot::signal0<> SignalRoleConflict;
 
   virtual bool GetSslRole(rtc::SSLRole* ssl_role) const;
+
+  // Must be called before channel is starting to connect.
+  virtual bool SetSslMaxProtocolVersion(rtc::SSLProtocolVersion version);
 
  protected:
   // These are called by Create/DestroyChannel above in order to create or
@@ -382,6 +337,10 @@ class Transport : public rtc::MessageHandler,
     return false;
   }
 
+  virtual bool SetSslMaxProtocolVersion_w(rtc::SSLProtocolVersion version) {
+    return false;
+  }
+
  private:
   struct ChannelMapEntry {
     ChannelMapEntry() : impl_(NULL), candidates_allocated_(false), ref_(0) {}
@@ -418,6 +377,9 @@ class Transport : public rtc::MessageHandler,
   void OnChannelReadableState(TransportChannel* channel);
   void OnChannelWritableState(TransportChannel* channel);
 
+  // Called when the receiving state of a channel changes.
+  void OnChannelReceivingState(TransportChannel* channel);
+
   // Called when a channel requests signaling.
   void OnChannelRequestSignaling(TransportChannelImpl* channel);
 
@@ -448,7 +410,8 @@ class Transport : public rtc::MessageHandler,
   void OnRemoteCandidate_w(const Candidate& candidate);
   void OnChannelReadableState_s();
   void OnChannelWritableState_s();
-  void OnChannelRequestSignaling_s(int component);
+  void OnChannelReceivingState_s();
+  void OnChannelRequestSignaling_s();
   void OnConnecting_s();
   void OnChannelRouteChange_s(const TransportChannel* channel,
                               const Candidate& remote_candidate);
@@ -458,8 +421,9 @@ class Transport : public rtc::MessageHandler,
   typedef void (TransportChannelImpl::* TransportChannelFunc)();
   void CallChannels_w(TransportChannelFunc func);
 
-  // Computes the OR of the channel's read or write state (argument picks).
-  TransportState GetTransportState_s(bool read);
+  // Computes the AND and OR of the channel's read/write/receiving state
+  // (argument picks the operation).
+  TransportState GetTransportState_s(TransportStateType type);
 
   void OnChannelCandidateReady_s();
 
@@ -477,14 +441,15 @@ class Transport : public rtc::MessageHandler,
   // Sends SignalCompleted if we are now in that state.
   void MaybeCompleted_w();
 
-  rtc::Thread* signaling_thread_;
-  rtc::Thread* worker_thread_;
-  std::string content_name_;
-  std::string type_;
-  PortAllocator* allocator_;
+  rtc::Thread* const signaling_thread_;
+  rtc::Thread* const worker_thread_;
+  const std::string content_name_;
+  const std::string type_;
+  PortAllocator* const allocator_;
   bool destroyed_;
   TransportState readable_;
   TransportState writable_;
+  TransportState receiving_;
   bool was_writable_;
   bool connect_requested_;
   IceRole ice_role_;
@@ -494,6 +459,7 @@ class Transport : public rtc::MessageHandler,
   rtc::scoped_ptr<TransportDescription> local_description_;
   rtc::scoped_ptr<TransportDescription> remote_description_;
 
+  // TODO(tommi): Make sure we only use this on the worker thread.
   ChannelMap channels_;
   // Buffers the ready_candidates so that SignalCanidatesReady can
   // provide them in multiples.
@@ -501,7 +467,7 @@ class Transport : public rtc::MessageHandler,
   // Protects changes to channels and messages
   rtc::CriticalSection crit_;
 
-  DISALLOW_EVIL_CONSTRUCTORS(Transport);
+  DISALLOW_COPY_AND_ASSIGN(Transport);
 };
 
 // Extract a TransportProtocol from a TransportDescription.

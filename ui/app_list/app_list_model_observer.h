@@ -33,6 +33,12 @@ class APP_LIST_EXPORT AppListModelObserver {
   // Triggered after |item| has moved, changed folders, or changed properties.
   virtual void OnAppListItemUpdated(AppListItem* item) {}
 
+  // Triggered when the custom launcher page enabled state is changed.
+  virtual void OnCustomLauncherPageEnabledStateChanged(bool enabled) {}
+
+  // Triggered when the search engine is changed to and from Google.
+  virtual void OnSearchEngineIsGoogleChanged(bool is_google) {}
+
  protected:
   virtual ~AppListModelObserver() {}
 };

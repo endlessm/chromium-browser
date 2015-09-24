@@ -24,11 +24,11 @@
  */
 
 #include "config.h"
-#include "public/platform/WebIDBKeyRange.h"
+#include "public/platform/modules/indexeddb/WebIDBKeyRange.h"
 
 #include "modules/indexeddb/IDBKey.h"
 #include "modules/indexeddb/IDBKeyRange.h"
-#include "public/platform/WebIDBKey.h"
+#include "public/platform/modules/indexeddb/WebIDBKey.h"
 
 namespace blink {
 
@@ -45,10 +45,12 @@ void WebIDBKeyRange::assign(const WebIDBKey& lower, const WebIDBKey& upper, bool
         m_private = IDBKeyRange::create(lower, upper, lowerOpen ? IDBKeyRange::LowerBoundOpen : IDBKeyRange::LowerBoundClosed, upperOpen ? IDBKeyRange::UpperBoundOpen : IDBKeyRange::UpperBoundClosed);
 }
 
+#if BLINK_WEB_IMPLEMENTATION || !LINK_CORE_MODULES_SEPARATELY
 void WebIDBKeyRange::reset()
 {
     m_private.reset();
 }
+#endif
 
 WebIDBKey WebIDBKeyRange::lower() const
 {
@@ -72,22 +74,6 @@ bool WebIDBKeyRange::lowerOpen() const
 bool WebIDBKeyRange::upperOpen() const
 {
     return m_private.get() && m_private->upperOpen();
-}
-
-WebIDBKeyRange::WebIDBKeyRange(IDBKeyRange* value)
-    : m_private(value)
-{
-}
-
-WebIDBKeyRange& WebIDBKeyRange::operator=(IDBKeyRange* value)
-{
-    m_private = value;
-    return *this;
-}
-
-WebIDBKeyRange::operator IDBKeyRange*() const
-{
-    return m_private.get();
 }
 
 } // namespace blink

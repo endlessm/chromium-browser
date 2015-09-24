@@ -11,74 +11,111 @@ MockNotificationDelegate::~MockNotificationDelegate() {}
 
 std::string MockNotificationDelegate::id() const { return id_; }
 
-// TODO(peter): |notification_| should be initialized with the correct origin.
-StubNotificationUIManager::StubNotificationUIManager(const GURL& welcome_origin)
-    : notification_(GURL(),
-                    base::string16(),
-                    base::string16(),
-                    gfx::Image(),
-                    base::string16(),
-                    base::string16(),
-                    new MockNotificationDelegate("stub")),
-      profile_(NULL),
-      welcome_origin_(welcome_origin),
-      welcomed_(false),
-      added_notifications_(0U) {
-}
+// -----------------------------------------------------------------------------
+
+StubNotificationUIManager::StubNotificationUIManager() {}
 
 StubNotificationUIManager::~StubNotificationUIManager() {}
 
+unsigned int StubNotificationUIManager::GetNotificationCount() const {
+  return notifications_.size();
+}
+
+const Notification& StubNotificationUIManager::GetNotificationAt(
+    unsigned int index) const {
+  DCHECK_GT(GetNotificationCount(), index);
+  return notifications_[index].first;
+}
+
+void StubNotificationUIManager::SetNotificationAddedCallback(
+    const base::Closure& callback) {
+  notification_added_callback_ = callback;
+}
+
 void StubNotificationUIManager::Add(const Notification& notification,
                                     Profile* profile) {
-  // Make a deep copy of the notification that we can inspect.
-  notification_ = notification;
-  profile_ = profile;
-  ++added_notifications_;
+  notifications_.push_back(std::make_pair(
+      notification, NotificationUIManager::GetProfileID(profile)));
 
-  if (notification.origin_url() == welcome_origin_)
-    welcomed_ = true;
+  if (!notification_added_callback_.is_null()) {
+    notification_added_callback_.Run();
+    notification_added_callback_.Reset();
+  }
+
+  // Fire the Display() event on the delegate.
+  notification.delegate()->Display();
 }
 
 bool StubNotificationUIManager::Update(const Notification& notification,
                                        Profile* profile) {
-  // Make a deep copy of the notification that we can inspect.
-  notification_ = notification;
-  profile_ = profile;
-  return true;
+  return false;
 }
 
 const Notification* StubNotificationUIManager::FindById(
     const std::string& delegate_id,
     ProfileID profile_id) const {
-  if (notification_.delegate_id() == delegate_id && profile_ == profile_id)
-    return &notification_;
-  else
-    return NULL;
+  auto iter = notifications_.begin();
+  for (; iter != notifications_.end(); ++iter) {
+    if (iter->first.delegate_id() != delegate_id || iter->second != profile_id)
+      continue;
+
+    return &iter->first;
+  }
+
+  return nullptr;
 }
 
 bool StubNotificationUIManager::CancelById(const std::string& delegate_id,
                                            ProfileID profile_id) {
-  dismissed_id_ = delegate_id;
-  return true;
+  auto iter = notifications_.begin();
+  for (; iter != notifications_.end(); ++iter) {
+    if (iter->first.delegate_id() != delegate_id ||
+        iter->second != profile_id)
+      continue;
+
+    iter->first.delegate()->Close(false /* by_user */);
+    notifications_.erase(iter);
+    return true;
+  }
+
+  return false;
 }
 
 std::set<std::string>
 StubNotificationUIManager::GetAllIdsByProfileAndSourceOrigin(
-    Profile* profile,
+    ProfileID profile_id,
     const GURL& source) {
   std::set<std::string> delegate_ids;
-  if (source == notification_.origin_url() && profile->IsSameProfile(profile_))
-    delegate_ids.insert(notification_.delegate_id());
+  for (const auto& pair : notifications_) {
+    if (pair.second == profile_id && pair.first.origin_url() == source)
+      delegate_ids.insert(pair.first.delegate_id());
+  }
+  return delegate_ids;
+}
+
+std::set<std::string> StubNotificationUIManager::GetAllIdsByProfile(
+    ProfileID profile_id) {
+  std::set<std::string> delegate_ids;
+  for (const auto& pair : notifications_) {
+    if (pair.second == profile_id)
+      delegate_ids.insert(pair.first.delegate_id());
+  }
   return delegate_ids;
 }
 
 bool StubNotificationUIManager::CancelAllBySourceOrigin(
     const GURL& source_origin) {
+  NOTIMPLEMENTED();
   return false;
 }
 
 bool StubNotificationUIManager::CancelAllByProfile(ProfileID profile_id) {
+  NOTIMPLEMENTED();
   return false;
 }
 
-void StubNotificationUIManager::CancelAll() {}
+void StubNotificationUIManager::CancelAll() {
+  for (const auto& pair : notifications_)
+    pair.first.delegate()->Close(false /* by_user */);
+  notifications_.clear();
+}

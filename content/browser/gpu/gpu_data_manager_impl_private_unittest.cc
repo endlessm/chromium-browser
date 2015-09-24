@@ -8,9 +8,9 @@
 #include "base/time/time.h"
 #include "content/browser/gpu/gpu_data_manager_impl_private.h"
 #include "content/public/browser/gpu_data_manager_observer.h"
-#include "gpu/command_buffer/service/gpu_switches.h"
 #include "gpu/config/gpu_feature_type.h"
 #include "gpu/config/gpu_info.h"
+#include "gpu/config/gpu_switches.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
@@ -218,7 +218,7 @@ TEST_F(GpuDataManagerImplPrivateTest, GpuSideExceptions) {
   manager->InitializeForTesting(blacklist_json, gpu_info);
 
   EXPECT_TRUE(manager->GpuAccessAllowed(NULL));
-  EXPECT_EQ(0u, manager->GetBlacklistedFeatureCount());
+  EXPECT_EQ(1u, manager->GetBlacklistedFeatureCount());
 
   // Now assume gpu process launches and full GPU info is collected.
   gpu_info.gl_renderer = "NVIDIA GeForce GT 120";
@@ -536,7 +536,7 @@ TEST_F(GpuDataManagerImplPrivateTest, SetGLStrings) {
 
   // Not enough GPUInfo.
   EXPECT_TRUE(manager->GpuAccessAllowed(NULL));
-  EXPECT_EQ(0u, manager->GetBlacklistedFeatureCount());
+  EXPECT_EQ(1u, manager->GetBlacklistedFeatureCount());
 
   // Now assume browser gets GL strings from local state.
   // The entry applies, blacklist more features than from the preliminary step.

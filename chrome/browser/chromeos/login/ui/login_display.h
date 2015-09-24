@@ -12,12 +12,11 @@
 #include "base/strings/string16.h"
 #include "chrome/browser/chromeos/login/help_app_launcher.h"
 #include "chrome/browser/chromeos/login/signin_specifics.h"
-#include "components/user_manager/remove_user_delegate.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/native_widget_types.h"
-#include "ui/gfx/rect.h"
 
 namespace chromeos {
 
@@ -25,7 +24,7 @@ class UserContext;
 
 // TODO(nkostylev): Extract interface, create a BaseLoginDisplay class.
 // An abstract class that defines login UI implementation.
-class LoginDisplay : public user_manager::RemoveUserDelegate {
+class LoginDisplay {
  public:
   // Sign in error IDs that require detailed error screen and not just
   // a simple error bubble.
@@ -72,6 +71,9 @@ class LoginDisplay : public user_manager::RemoveUserDelegate {
     // Called when the user requests enterprise enrollment.
     virtual void OnStartEnterpriseEnrollment() = 0;
 
+    // Called when the user requests enable developer features screen.
+    virtual void OnStartEnableDebuggingScreen() = 0;
+
     // Called when the user requests kiosk enable screen.
     virtual void OnStartKioskEnableScreen() = 0;
 
@@ -90,6 +92,9 @@ class LoginDisplay : public user_manager::RemoveUserDelegate {
 
     // Restarts the public-session auto-login timer if it is running.
     virtual void ResetPublicSessionAutoLoginTimer() = 0;
+
+    // Returns true if user is allowed to log in by domain policy.
+    virtual bool IsUserWhitelisted(const std::string& user_id) = 0;
 
    protected:
     virtual ~Delegate();
@@ -113,10 +118,6 @@ class LoginDisplay : public user_manager::RemoveUserDelegate {
   // the user have changed and it needs to refresh.
   virtual void OnPreferencesChanged() = 0;
 
-  // Called when user image has been changed.
-  // |user| contains updated user.
-  virtual void OnUserImageChanged(const user_manager::User& user) = 0;
-
   // Changes enabled state of the UI.
   virtual void SetUIEnabled(bool is_enabled) = 0;
 
@@ -135,10 +136,15 @@ class LoginDisplay : public user_manager::RemoveUserDelegate {
 
   // Show password changed dialog. If |show_password_error| is not null
   // user already tried to enter old password but it turned out to be incorrect.
-  virtual void ShowPasswordChangedDialog(bool show_password_error) = 0;
+  virtual void ShowPasswordChangedDialog(bool show_password_error,
+                                         const std::string& email) = 0;
 
   // Shows signin UI with specified email.
   virtual void ShowSigninUI(const std::string& email) = 0;
+
+  // Show whitelist check failed error. Happens after user completes online
+  // signin but whitelist check fails.
+  virtual void ShowWhitelistCheckFailedError() = 0;
 
   gfx::Rect background_bounds() const { return background_bounds_; }
   void set_background_bounds(const gfx::Rect& background_bounds) {

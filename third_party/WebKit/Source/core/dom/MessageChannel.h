@@ -29,8 +29,6 @@
 
 #include "bindings/core/v8/ScriptWrappable.h"
 #include "platform/heap/Handle.h"
-#include "wtf/PassRefPtr.h"
-#include "wtf/RefCounted.h"
 #include "wtf/RefPtr.h"
 
 namespace blink {
@@ -38,25 +36,25 @@ namespace blink {
 class MessagePort;
 class ExecutionContext;
 
-class MessageChannel final : public RefCountedWillBeGarbageCollected<MessageChannel>, public ScriptWrappable {
+class MessageChannel final : public GarbageCollectedFinalized<MessageChannel>, public ScriptWrappable {
     DECLARE_EMPTY_DESTRUCTOR_WILL_BE_REMOVED(MessageChannel);
     DEFINE_WRAPPERTYPEINFO();
 public:
-    static PassRefPtrWillBeRawPtr<MessageChannel> create(ExecutionContext* context)
+    static MessageChannel* create(ExecutionContext* context)
     {
-        return adoptRefWillBeNoop(new MessageChannel(context));
+        return new MessageChannel(context);
     }
 
-    MessagePort* port1() const { return m_port1.get(); }
-    MessagePort* port2() const { return m_port2.get(); }
+    MessagePort* port1() const { return m_port1; }
+    MessagePort* port2() const { return m_port2; }
 
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
 private:
     explicit MessageChannel(ExecutionContext*);
 
-    RefPtrWillBeMember<MessagePort> m_port1;
-    RefPtrWillBeMember<MessagePort> m_port2;
+    Member<MessagePort> m_port1;
+    Member<MessagePort> m_port2;
 };
 
 } // namespace blink

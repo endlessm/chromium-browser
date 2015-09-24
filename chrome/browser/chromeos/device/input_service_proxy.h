@@ -11,7 +11,9 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
+#include "base/task_runner.h"
 #include "base/threading/thread_checker.h"
+#include "content/public/browser/browser_thread.h"
 #include "device/hid/input_service_linux.h"
 
 namespace chromeos {
@@ -37,9 +39,6 @@ class InputServiceProxy {
   InputServiceProxy();
   ~InputServiceProxy();
 
-  // Used for early init for cashing info about available HID.
-  static void WarmUp();
-
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
 
@@ -47,16 +46,23 @@ class InputServiceProxy {
   void GetDeviceInfo(const std::string& id,
                      const GetDeviceInfoCallback& callback);
 
+  // Should be called once before any InputServiceProxy instance is created.
+  static void SetThreadIdForTesting(content::BrowserThread::ID thread_id);
+
  private:
+  static content::BrowserThread::ID thread_identifier_;
+
   class ServiceObserver;
 
   void OnDeviceAdded(const device::InputServiceLinux::InputDeviceInfo& info);
   void OnDeviceRemoved(const std::string& id);
 
-  ObserverList<Observer> observers_;
+  base::ObserverList<Observer> observers_;
   scoped_ptr<ServiceObserver> service_observer_;
 
   base::ThreadChecker thread_checker_;
+
+  scoped_refptr<base::TaskRunner> task_runner_;
 
   base::WeakPtrFactory<InputServiceProxy> weak_factory_;
 

@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -10,12 +9,9 @@ from __future__ import print_function
 import contextlib
 import functools
 import datetime
+import mock
 import os
-import string # pylint: disable=W0402
-import sys
-import unittest
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))))
+import string
 
 from chromite.cbuildbot import constants
 from chromite.lib import cros_build_lib
@@ -24,11 +20,7 @@ from chromite.lib import cros_test_lib
 from chromite.lib import gs
 from chromite.lib import osutils
 from chromite.lib import partial_mock
-from chromite.lib import retry_util
-
-# TODO(build): Finish test wrapper (http://crosbug.com/37517).
-# Until then, this has to be after the chromite imports.
-import mock
+from chromite.lib import retry_stats
 
 
 def PatchGS(*args, **kwargs):
@@ -44,10 +36,11 @@ class GSContextMock(partial_mock.PartialCmdMock):
            'DEFAULT_GSUTIL_BUILDER_BIN', 'GSUTIL_URL')
   DEFAULT_ATTR = 'DoCommand'
 
-  GSResponsePreconditionFailed = """
-[Setting Content-Type=text/x-python]
-        GSResponseError:: status=412, code=PreconditionFailed,
-        reason=Precondition Failed."""
+  GSResponsePreconditionFailed = """\
+Copying file:///dev/null [Content-Type=application/octet-stream]...
+Uploading   gs://chromeos-throw-away-bucket/vapier/null:         0 B    \r\
+Uploading   gs://chromeos-throw-away-bucket/vapier/null:         0 B    \r\
+PreconditionException: 412 Precondition Failed"""
 
   DEFAULT_SLEEP_TIME = 0
   DEFAULT_RETRIES = 2
@@ -69,7 +62,7 @@ class GSContextMock(partial_mock.PartialCmdMock):
     self.GSUTIL_URL = 'file://%s' % gsutil_path
 
   def PreStart(self):
-    os.environ.pop("BOTO_CONFIG", None)
+    os.environ.pop('BOTO_CONFIG', None)
     # Set it here for now, instead of mocking out Cached() directly because
     # python-mock has a bug with mocking out class methods with autospec=True.
     # TODO(rcui): Change this when this is fixed in PartialMock.
@@ -81,7 +74,7 @@ class GSContextMock(partial_mock.PartialCmdMock):
 
   def DoCommand(self, inst, gsutil_cmd, **kwargs):
     result = self._results['DoCommand'].LookupResult(
-        (gsutil_cmd,), hook_args=(inst, gsutil_cmd,), hook_kwargs=kwargs)
+        (gsutil_cmd,), hook_args=(inst, gsutil_cmd), hook_kwargs=kwargs)
 
     rc_mock = cros_build_lib_unittest.RunCommandMock()
     rc_mock.AddCmdResult(
@@ -151,6 +144,7 @@ class VersionTest(AbstractGSContextTest):
 
   def testGetVersionCached(self):
     """Simple gsutil_version fetch test from cache."""
+    # pylint: disable=protected-access
     self.ctx._gsutil_version = '3.37'
     self.assertEquals('3.37', self.ctx.gsutil_version)
 
@@ -397,12 +391,12 @@ class CopyTest(AbstractGSContextTest, cros_test_lib.TempDirTestCase):
     self.gs_mock.AddCmdResult(partial_mock.In('cp'), returncode=1)
     self.assertRaises(cros_build_lib.RunCommandError, self.Copy)
 
-  def testGSContextException(self):
-    """GSContextException is raised properly."""
+  def testGSContextPreconditionFailed(self):
+    """GSContextPreconditionFailed is raised properly."""
     self.gs_mock.AddCmdResult(
         partial_mock.In('cp'), returncode=1,
         error=self.gs_mock.GSResponsePreconditionFailed)
-    self.assertRaises(gs.GSContextException, self.Copy)
+    self.assertRaises(gs.GSContextPreconditionFailed, self.Copy)
 
   def testNonRecursive(self):
     """Test non-recursive copy."""
@@ -428,6 +422,41 @@ class CopyTest(AbstractGSContextTest, cros_test_lib.TempDirTestCase):
     self.assertRaises(ValueError, self._Copy, self.ctx, path,
                       self.GIVEN_REMOTE, auto_compress=True)
 
+  def testGeneration(self):
+    """Test generation return value."""
+    exp_gen = 1413571271901000
+    error = (
+        'Copying file:///dev/null [Content-Type=application/octet-stream]...\n'
+        'Uploading   %(uri)s:               0 B    \r'
+        'Uploading   %(uri)s:               0 B    \r'
+        'Created: %(uri)s#%(gen)s'
+    ) % {'uri': self.GIVEN_REMOTE, 'gen': exp_gen}
+    self.gs_mock.AddCmdResult(partial_mock.In('cp'), returncode=0, error=error)
+    gen = self.Copy()
+    self.assertEqual(gen, exp_gen)
+
+  def testGeneration404(self):
+    """Test behavior when we get weird output."""
+    error = (
+        # This is a bit verbose, but it's from real output, so should be fine.
+        'Copying file:///tmp/tmpyUUPg1 [Content-Type=application/octet-stream]'
+        '...\n'
+        'Uploading   ...recovery-R38-6158.66.0-mccloud.instructions.lock:'
+        ' 0 B/38 B    \r'
+        'Uploading   ...recovery-R38-6158.66.0-mccloud.instructions.lock:'
+        ' 38 B/38 B    \r'
+        'NotFoundException: 404 Attempt to get key for "gs://chromeos-releases'
+        '/tobesigned/50,beta-\n'
+        'channel,mccloud,6158.66.0,ChromeOS-\n'
+        'recovery-R38-6158.66.0-mccloud.instructions.lock" failed. This can '
+        'happen if the\n'
+        'URI refers to a non-existent object or if you meant to operate on a '
+        'directory\n'
+        '(e.g., leaving off -R option on gsutil cp, mv, or ls of a bucket)\n'
+    )
+    self.gs_mock.AddCmdResult(partial_mock.In('cp'), returncode=1, error=error)
+    self.assertEqual(self.Copy(), None)
+
 
 class UnmockedCopyTest(cros_test_lib.TempDirTestCase):
   """Tests Copy functionality w/out mocks."""
@@ -451,6 +480,7 @@ class UnmockedCopyTest(cros_test_lib.TempDirTestCase):
       # Verify the generation is sane.  All we can assume is that it's a valid
       # whole number greater than 0.
       self.assertNotEqual(gen, None)
+      self.assertIn(type(gen), (int, long))
       self.assertGreater(gen, 0)
 
       # Verify the size is what we expect.
@@ -553,7 +583,7 @@ class RemoveTest(AbstractGSContextTest):
 
   def testRecursive(self):
     """Verify we pass down -R in recursive mode."""
-    self.ctx.Remove('gs://foo/bar', recurse=True)
+    self.ctx.Remove('gs://foo/bar', recursive=True)
     self.gs_mock.assertCommandContains(['rm', '-R'])
 
 
@@ -585,11 +615,10 @@ class UnmockedRemoveTest(cros_test_lib.TestCase):
     with gs.TemporaryURL('chromite.rm') as tempuri:
       for p in files:
         ctx.Copy('/dev/null', os.path.join(tempuri, p))
-      ctx.Remove(tempuri, recurse=True)
+      ctx.Remove(tempuri, recursive=True)
       for p in files:
         self.assertFalse(ctx.Exists(os.path.join(tempuri, p)))
 
-  @unittest.skip('this gsutil version is broken b/17882592')
   @cros_test_lib.NetworkTest()
   def testGeneration(self):
     """Test conditional remove behavior."""
@@ -628,12 +657,11 @@ class MoveTest(AbstractGSContextTest, cros_test_lib.TempDirTestCase):
         ['mv', '--', self.local_path, self.EXPECTED_REMOTE])
 
 
-#pylint: disable=E1101,W0212
 class GSContextInitTest(cros_test_lib.MockTempDirTestCase):
   """Tests GSContext.__init__() functionality."""
 
   def setUp(self):
-    os.environ.pop("BOTO_CONFIG", None)
+    os.environ.pop('BOTO_CONFIG', None)
     self.bad_path = os.path.join(self.tempdir, 'nonexistent')
 
     file_list = ['gsutil_bin', 'boto_file', 'acl_file']
@@ -655,6 +683,7 @@ class GSContextInitTest(cros_test_lib.MockTempDirTestCase):
                       gsutil_bin=self.bad_path)
 
   def testInitBotoFileEnv(self):
+    """Test boto file environment is set correctly."""
     os.environ['BOTO_CONFIG'] = self.gsutil_bin
     self.assertTrue(gs.GSContext().boto_file, self.gsutil_bin)
     self.assertEqual(gs.GSContext(boto_file=self.acl_file).boto_file,
@@ -674,6 +703,13 @@ class GSContextInitTest(cros_test_lib.MockTempDirTestCase):
     """Test bad boto file."""
     self.assertEqual(gs.GSContext(boto_file=self.bad_path).boto_file,
                      self.bad_path)
+
+  def testDoNotUseDefaultBotoFileIfItDoesNotExist(self):
+    """Do not set boto file if the default path does not exist."""
+    if 'BOTO_CONFIG' in os.environ:
+      del os.environ['BOTO_CONFIG']
+    gs.GSContext.DEFAULT_BOTO_FILE = 'foo/bar/doesnotexist'
+    self.assertEqual(gs.GSContext().boto_file, None)
 
   def testInitAclFile(self):
     """Test ACL selection logic in __init__."""
@@ -741,7 +777,7 @@ class GSDoCommandTest(cros_test_lib.TestCase):
       sleep = ctx.DEFAULT_SLEEP_TIME
 
     result = cros_build_lib.CommandResult(error='')
-    with mock.patch.object(retry_util, 'GenericRetry', autospec=True,
+    with mock.patch.object(retry_stats, 'RetryWithStats', autospec=True,
                            return_value=result):
       ctx.Copy('/blah', 'gs://foon', version=version, recursive=recursive)
       cmd = [self.ctx.gsutil_bin] + self.ctx.gsutil_flags + list(headers)
@@ -750,13 +786,15 @@ class GSDoCommandTest(cros_test_lib.TestCase):
         cmd += ['-r', '-e']
       cmd += ['--', '/blah', 'gs://foon']
 
-      retry_util.GenericRetry.assert_called_once_with(
+      # pylint: disable=protected-access
+      retry_stats.RetryWithStats.assert_called_once_with(
+          retry_stats.GSUTIL,
           ctx._RetryFilter, retries,
           cros_build_lib.RunCommand,
           cmd, sleep=sleep,
           redirect_stderr=True,
           capture_output=True,
-          extra_env={'BOTO_CONFIG': mock.ANY})
+          extra_env=mock.ANY)
 
   def testDoCommandDefault(self):
     """Verify the internal DoCommand function works correctly."""
@@ -780,13 +818,15 @@ class GSDoCommandTest(cros_test_lib.TestCase):
 class GSRetryFilterTest(cros_test_lib.TestCase):
   """Verifies that we filter and process gsutil errors correctly."""
 
+  # pylint: disable=protected-access
+
   LOCAL_PATH = '/tmp/file'
   REMOTE_PATH = ('gs://chromeos-prebuilt/board/beltino/paladin-R33-4926.0.0'
                  '-rc2/packages/chromeos-base/autotest-tests-0.0.1-r4679.tbz2')
   GSUTIL_TRACKER_DIR = '/foo'
   UPLOAD_TRACKER_FILE = (
       'upload_TRACKER_9263880a80e4a582aec54eaa697bfcdd9c5621ea.9.tbz2__JSON.url'
-      )
+  )
   DOWNLOAD_TRACKER_FILE = (
       'download_TRACKER_5a695131f3ef6e4c903f594783412bb996a7f375._file__JSON.'
       'etag')
@@ -1138,7 +1178,7 @@ class UnmockedStatTest(cros_test_lib.TempDirTestCase):
       self.assertRaises(gs.GSNoSuchKey, ctx.Stat, url)
 
       # Populate the URL.
-      ctx.Copy('-', url, input='test file contents')
+      ctx.CreateWithContents(url, 'test file contents')
 
       # Stat a URL that exists.
       result = ctx.Stat(url)
@@ -1246,6 +1286,10 @@ class DryRunTest(cros_build_lib_unittest.RunCommandTestCase):
     self.ctx.Copy('/dev/null', 'gs://foo/bar')
     self.ctx.Copy('gs://foo/bar', '/dev/null')
 
+  def testCreateWithContents(self):
+    """Test Copy in dry_run mode."""
+    self.ctx.CreateWithContents('gs://foo/bar', 'My Little Content(tm)')
+
   def testCopyInto(self):
     """Test CopyInto in dry_run mode."""
     self.ctx.CopyInto('/dev/null', 'gs://foo/bar')
@@ -1303,6 +1347,8 @@ class DryRunTest(cros_build_lib_unittest.RunCommandTestCase):
 
 class InitBotoTest(AbstractGSContextTest):
   """Test boto file interactive initialization."""
+
+  # pylint: disable=protected-access
 
   GS_LS_ERROR = """\
 You are attempting to access protected data with no configured credentials.
@@ -1498,7 +1544,3 @@ class UnmockedGSCounterTest(cros_test_lib.TestCase):
     with self._Counter() as counter:
       self._SetCounter(counter, 100)
       self.assertEqual(counter.StreakDecrement(), -1)
-
-
-if __name__ == '__main__':
-  cros_test_lib.main()

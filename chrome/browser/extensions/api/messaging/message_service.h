@@ -13,6 +13,7 @@
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/values.h"
 #include "chrome/browser/extensions/api/messaging/message_property_provider.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -22,10 +23,6 @@
 
 class GURL;
 class Profile;
-
-namespace base {
-class DictionaryValue;
-}
 
 namespace content {
 class BrowserContext;
@@ -74,7 +71,11 @@ class MessageService : public BrowserContextKeyedAPI,
     // Notify the port that the channel has been opened.
     virtual void DispatchOnConnect(int dest_port_id,
                                    const std::string& channel_name,
-                                   const base::DictionaryValue& source_tab,
+                                   scoped_ptr<base::DictionaryValue> source_tab,
+                                   int source_frame_id,
+                                   int target_frame_id,
+                                   int guest_process_id,
+                                   int guest_render_frame_routing_id,
                                    const std::string& source_extension_id,
                                    const std::string& target_extension_id,
                                    const GURL& source_url,
@@ -141,10 +142,12 @@ class MessageService : public BrowserContextKeyedAPI,
   // Same as above, but opens a channel to the tab with the given ID.  Messages
   // are restricted to that tab, so if there are multiple tabs in that process,
   // only the targeted tab will receive messages.
-  void OpenChannelToTab(
-      int source_process_id, int source_routing_id, int receiver_port_id,
-      int tab_id, const std::string& extension_id,
-      const std::string& channel_name);
+  void OpenChannelToTab(int source_process_id,
+                        int receiver_port_id,
+                        int tab_id,
+                        int frame_id,
+                        const std::string& extension_id,
+                        const std::string& channel_name);
 
   void OpenChannelToNativeApp(
       int source_process_id,
@@ -171,9 +174,9 @@ class MessageService : public BrowserContextKeyedAPI,
 
   typedef std::pair<int, Message> PendingMessage;
   typedef std::vector<PendingMessage> PendingMessagesQueue;
-  // A set of channel IDs waiting for TLS channel IDs to complete opening,
-  // and any pending messages queued to be sent on those channels.
-  typedef std::map<int, PendingMessagesQueue> PendingTlsChannelIdMap;
+  // A set of channel IDs waiting to complete opening, and any pending messages
+  // queued to be sent on those channels.
+  typedef std::map<int, PendingMessagesQueue> PendingChannelMap;
 
   // A map of channel ID to information about the extension that is waiting
   // for that channel to open. Used for lazy background pages.
@@ -184,7 +187,7 @@ class MessageService : public BrowserContextKeyedAPI,
       PendingLazyBackgroundPageChannelMap;
 
   // Common among OpenChannel* variants.
-  bool OpenChannelImpl(scoped_ptr<OpenChannelParams> params);
+  void OpenChannelImpl(scoped_ptr<OpenChannelParams> params);
 
   void CloseChannelImpl(MessageChannelMap::iterator channel_iter,
                         int port_id,
@@ -203,6 +206,9 @@ class MessageService : public BrowserContextKeyedAPI,
   // A process that might be in our list of channels has closed.
   void OnProcessClosed(content::RenderProcessHost* process);
 
+  // If the channel is being opened from an incognito tab the user must allow
+  // the connection.
+  void OnOpenChannelAllowed(scoped_ptr<OpenChannelParams> params, bool allowed);
   void GotChannelID(scoped_ptr<OpenChannelParams> params,
                     const std::string& tls_channel_id);
 
@@ -225,7 +231,8 @@ class MessageService : public BrowserContextKeyedAPI,
   bool MaybeAddPendingLazyBackgroundPageOpenChannelTask(
       content::BrowserContext* context,
       const Extension* extension,
-      OpenChannelParams* params);
+      scoped_ptr<OpenChannelParams>* params,
+      const PendingMessagesQueue& pending_messages);
 
   // Callbacks for LazyBackgroundTaskQueue tasks. The queue passes in an
   // ExtensionHost to its task callbacks, though some of our callbacks don't
@@ -253,6 +260,9 @@ class MessageService : public BrowserContextKeyedAPI,
                             int port_id,
                             const std::string& error_message);
 
+  void DispatchPendingMessages(const PendingMessagesQueue& queue,
+                               int channel_id);
+
   // BrowserContextKeyedAPI implementation.
   static const char* service_name() {
     return "MessageService";
@@ -263,7 +273,15 @@ class MessageService : public BrowserContextKeyedAPI,
 
   content::NotificationRegistrar registrar_;
   MessageChannelMap channels_;
-  PendingTlsChannelIdMap pending_tls_channel_id_channels_;
+  // A set of channel IDs waiting for TLS channel IDs to complete opening, and
+  // any pending messages queued to be sent on those channels. This and the
+  // following two maps form a pipeline where messages are queued before the
+  // channel they are addressed to is ready.
+  PendingChannelMap pending_tls_channel_id_channels_;
+  // A set of channel IDs waiting for user permission to cross the border
+  // between an incognito page and an app or extension, and any pending messages
+  // queued to be sent on those channels.
+  PendingChannelMap pending_incognito_channels_;
   PendingLazyBackgroundPageChannelMap pending_lazy_background_page_channels_;
   MessagePropertyProvider property_provider_;
 

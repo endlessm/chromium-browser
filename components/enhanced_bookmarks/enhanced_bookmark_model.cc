@@ -8,10 +8,12 @@
 #include <sstream>
 
 #include "base/base64.h"
+#include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/rand_util.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_node.h"
 #include "components/enhanced_bookmarks/enhanced_bookmark_model_observer.h"
@@ -19,10 +21,12 @@
 #include "ui/base/models/tree_node_iterator.h"
 #include "url/gurl.h"
 
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
+
 namespace {
 const char* kBookmarkBarId = "f_bookmarks_bar";
 
-const char* kFlagsKey = "stars.flags";
 const char* kIdKey = "stars.id";
 const char* kImageDataKey = "stars.imageData";
 const char* kNoteKey = "stars.note";
@@ -31,11 +35,6 @@ const char* kPageDataKey = "stars.pageData";
 const char* kVersionKey = "stars.version";
 
 const char* kBookmarkPrefix = "ebc_";
-
-enum Flags {
-  // When set the server will attempt to fill in image and snippet information.
-  NEEDS_OFFLINE_PROCESSING = 0x1,
-};
 
 // Helper method for working with bookmark metainfo.
 std::string DataForMetaInfoField(const BookmarkNode* node,
@@ -91,6 +90,7 @@ EnhancedBookmarkModel::EnhancedBookmarkModel(BookmarkModel* bookmark_model,
       version_(version),
       weak_ptr_factory_(this) {
   bookmark_model_->AddObserver(this);
+  bookmark_model_->AddNonClonedKey(kIdKey);
   if (bookmark_model_->loaded()) {
     InitializeIdMap();
     loaded_ = true;
@@ -134,7 +134,10 @@ const BookmarkNode* EnhancedBookmarkModel::AddFolder(
     const BookmarkNode* parent,
     int index,
     const base::string16& title) {
-  return bookmark_model_->AddFolder(parent, index, title);
+  BookmarkNode::MetaInfoMap meta_info;
+  meta_info[kVersionKey] = GetVersionString();
+  return bookmark_model_->AddFolderWithMetaInfo(parent, index, title,
+                                                &meta_info);
 }
 
 // Adds a url at the specified position.
@@ -146,6 +149,7 @@ const BookmarkNode* EnhancedBookmarkModel::AddURL(
     const base::Time& creation_time) {
   BookmarkNode::MetaInfoMap meta_info;
   meta_info[kIdKey] = GenerateRemoteId();
+  meta_info[kVersionKey] = GetVersionString();
   return bookmark_model_->AddURLWithCreationTimeAndMetaInfo(
       parent, index, title, url, creation_time, &meta_info);
 }
@@ -194,7 +198,7 @@ bool EnhancedBookmarkModel::SetOriginalImage(const BookmarkNode* node,
   image::collections::ImageData data;
 
   // Try to populate the imageData with the existing data.
-  if (decoded != "") {
+  if (!decoded.empty()) {
     // If the parsing fails, something is wrong. Immediately fail.
     bool result = data.ParseFromString(decoded);
     if (!result)
@@ -219,12 +223,22 @@ bool EnhancedBookmarkModel::SetOriginalImage(const BookmarkNode* node,
   return true;
 }
 
+void EnhancedBookmarkModel::RemoveImageData(const BookmarkNode* node) {
+  DCHECK(node->is_url());
+  image::collections::ImageData data;
+  data.set_user_removed_image(true);
+
+  std::string encoded_data;
+  base::Base64Encode(data.SerializeAsString(), &encoded_data);
+  SetMetaInfo(node, kImageDataKey, encoded_data);
+}
+
 bool EnhancedBookmarkModel::GetOriginalImage(const BookmarkNode* node,
                                              GURL* url,
                                              int* width,
                                              int* height) {
   std::string decoded(DataForMetaInfoField(node, kImageDataKey));
-  if (decoded == "")
+  if (decoded.empty())
     return false;
 
   image::collections::ImageData data;
@@ -243,7 +257,7 @@ bool EnhancedBookmarkModel::GetThumbnailImage(const BookmarkNode* node,
                                               int* width,
                                               int* height) {
   std::string decoded(DataForMetaInfoField(node, kImageDataKey));
-  if (decoded == "")
+  if (decoded.empty())
     return false;
 
   image::collections::ImageData data;
@@ -294,14 +308,6 @@ void EnhancedBookmarkModel::BookmarkNodeAdded(BookmarkModel* model,
   if (node->GetMetaInfo(kIdKey, &remote_id)) {
     AddToIdMap(node);
     ScheduleResetDuplicateRemoteIds();
-  } else if (node->is_url()) {
-    set_needs_offline_processing_tasks_[node] =
-        make_linked_ptr(new base::CancelableClosure(
-            base::Bind(&EnhancedBookmarkModel::SetNeedsOfflineProcessing,
-                       weak_ptr_factory_.GetWeakPtr(),
-                       base::Unretained(node))));
-    base::MessageLoopProxy::current()->PostTask(
-        FROM_HERE, set_needs_offline_processing_tasks_[node]->callback());
   }
   FOR_EACH_OBSERVER(
       EnhancedBookmarkModelObserver, observers_, EnhancedBookmarkAdded(node));
@@ -390,15 +396,13 @@ void EnhancedBookmarkModel::RemoveNodeFromMaps(const BookmarkNode* node) {
   std::string remote_id = GetRemoteId(node);
   id_map_.erase(remote_id);
   nodes_to_reset_.erase(node);
-  set_needs_offline_processing_tasks_.erase(node);
 }
 
 void EnhancedBookmarkModel::ScheduleResetDuplicateRemoteIds() {
   if (!nodes_to_reset_.empty()) {
-    base::MessageLoopProxy::current()->PostTask(
-        FROM_HERE,
-        base::Bind(&EnhancedBookmarkModel::ResetDuplicateRemoteIds,
-                   weak_ptr_factory_.GetWeakPtr()));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(&EnhancedBookmarkModel::ResetDuplicateRemoteIds,
+                              weak_ptr_factory_.GetWeakPtr()));
   }
 }
 
@@ -412,19 +416,6 @@ void EnhancedBookmarkModel::ResetDuplicateRemoteIds() {
     SetMultipleMetaInfo(it->first, meta_info);
   }
   nodes_to_reset_.clear();
-}
-
-void EnhancedBookmarkModel::SetNeedsOfflineProcessing(
-    const BookmarkNode* node) {
-  set_needs_offline_processing_tasks_.erase(node);
-  int flags = 0;
-  std::string flags_str;
-  if (node->GetMetaInfo(kFlagsKey, &flags_str)) {
-    if (!base::StringToInt(flags_str, &flags))
-      flags = 0;
-  }
-  flags |= NEEDS_OFFLINE_PROCESSING;
-  SetMetaInfo(node, kFlagsKey, base::IntToString(flags));
 }
 
 void EnhancedBookmarkModel::SetMetaInfo(const BookmarkNode* node,
@@ -498,7 +489,7 @@ bool EnhancedBookmarkModel::SetAllImages(const BookmarkNode* node,
   image::collections::ImageData data;
 
   // Try to populate the imageData with the existing data.
-  if (decoded != "") {
+  if (!decoded.empty()) {
     // If the parsing fails, something is wrong. Immediately fail.
     bool result = data.ParseFromString(decoded);
     if (!result)

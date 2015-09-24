@@ -150,6 +150,7 @@ interface TestObject {
     attribute TestInterface? testInterfaceOrNullAttribute;
     // Enumerations
     attribute TestEnum testEnumAttribute;
+    attribute TestEnum? testEnumOrNullAttribute;
     // Static attributes
     static attribute DOMString staticStringAttribute;
     static attribute long staticLongAttribute;
@@ -157,6 +158,11 @@ interface TestObject {
     attribute EventHandler eventHandlerAttribute;
     // Union types
     attribute (double or DOMString) doubleOrStringAttribute;
+    attribute (double or DOMString)? doubleOrStringOrNullAttribute;
+    attribute (double? or DOMString) doubleOrNullStringAttribute;
+    attribute (DOMString or sequence<DOMString>) stringOrStringSequenceAttribute;
+    attribute (TestEnum or double) testEnumOrDoubleAttribute;
+    attribute (unrestricted double or DOMString) unrestrictedDoubleOrStringAttribute;
 
     // Extended attributes
     [LogActivity, LogAllWorlds] attribute long activityLoggingAccessForAllWorldsLongAttribute;
@@ -189,7 +195,6 @@ interface TestObject {
     [Custom=Setter, ImplementedAs=implementedAsNameWithCustomGetter] attribute long customSetterImplementedAsLongAttribute;
     [MeasureAs=TestFeature] attribute long measureAsLongAttribute;
     [NotEnumerable] attribute long notEnumerableLongAttribute;
-    [PerContextEnabled=FeatureName] attribute long perContextEnabledLongAttribute;
     [PerWorldBindings] readonly attribute TestInterfaceEmpty perWorldBindingsReadonlyTestInterfaceEmptyAttribute;
     [LogActivity, LogAllWorlds, PerWorldBindings] attribute long activityLoggingAccessPerWorldBindingsLongAttribute;
     [LogActivity, PerWorldBindings] attribute long activityLoggingAccessForIsolatedWorldsPerWorldBindingsLongAttribute;
@@ -233,9 +238,9 @@ interface TestObject {
     [Reflect, ReflectOnly=("empty","missing","invalid","a-normal"), ReflectEmpty="empty", ReflectMissing="missing", ReflectInvalid="invalid"] readonly attribute DOMString limitedWithEmptyMissingInvalidAttribute;
 
     [Replaceable] readonly attribute long replaceableReadonlyLongAttribute;
-    [Replaceable, PutForwards=href] readonly attribute TestNode locationReplaceable;
+    [Replaceable, ExposeJSAccessors] readonly attribute long replaceableReadonlyLongAccessor;
+    [PutForwards=href] readonly attribute TestNode locationPutForwards;
     [RuntimeEnabled=FeatureName] attribute long runtimeEnabledLongAttribute;
-    [PerContextEnabled=FeatureName, RuntimeEnabled=FeatureName] attribute long perContextEnabledRuntimeEnabledLongAttribute;
     [Conditional=CONDITION, RuntimeEnabled=FeatureName] attribute long conditionalRuntimeEnabledLongAttribute;
     [SetterCallWith=(ActiveWindow,FirstWindow)] attribute DOMString setterCallWithActiveWindowAndFirstWindowStringAttribute;
     [SetterCallWith=ExecutionContext] attribute DOMString setterCallWithExecutionContextStringAttribute;
@@ -254,6 +259,12 @@ interface TestObject {
     [Reflect, URL] attribute DOMString urlStringAttribute;
     [Reflect=reflectUrlAttribute, URL] attribute DOMString urlStringAttribute;
     [Unforgeable] attribute long unforgeableLongAttribute;
+    [Measure] attribute long measuredLongAttribute;
+    [SameObject] attribute TestInterface sameObjectAttribute;
+    [Unscopeable] attribute long unscopeableLongAttribute;
+    [Unscopeable, RuntimeEnabled=FeatureName] attribute long unscopeableRuntimeEnabledLongAttribute;
+    [Unscopeable] void unscopeableVoidMethod();
+    [Unscopeable, RuntimeEnabled=FeatureName] void unscopeableRuntimeEnabledVoidMethod();
 
 
     // Methods
@@ -308,6 +319,8 @@ interface TestObject {
     VoidCallbackFunction voidCallbackFunctionMethod();
     AnyCallbackFunctionOptionalAnyArg anyCallbackFunctionOptionalAnyArgMethod();
     void voidMethodVoidCallbackFunctionArg(VoidCallbackFunction voidCallbackFunctionArg);
+    void voidMethodOptionalVoidCallbackFunctionArg(optional VoidCallbackFunction voidCallbackFunctionArg);
+    void voidMethodNullableVoidCallbackFunctionArg(VoidCallbackFunction? voidCallbackFunctionArg);
     void voidMethodAnyCallbackFunctionOptionalAnyArg(AnyCallbackFunctionOptionalAnyArg anyCallbackFunctionOptionalAnyArgArg);
     // Custom type conversions
     any anyMethod();
@@ -338,6 +351,7 @@ interface TestObject {
     void voidMethodArrayLongArg(long[] arrayLongArg);
     void voidMethodArrayStringArg(DOMString[] arrayStringArg);
     void voidMethodArrayTestInterfaceEmptyArg(TestInterfaceEmpty[] arrayTestInterfaceEmptyArg);
+    void voidMethodNullableArrayLongArg(long[]? arrayLongArg);
     // Sequences
     sequence<long> longSequenceMethod();
     sequence<DOMString> stringSequenceMethod();
@@ -346,6 +360,7 @@ interface TestObject {
     void voidMethodSequenceStringArg(sequence<DOMString> stringSequenceArg);
     void voidMethodSequenceTestInterfaceEmptyArg(sequence<TestInterfaceEmpty> testInterfaceEmptySequenceArg);
     void voidMethodSequenceSequenceDOMStringArg(sequence<sequence<DOMString>> stringSequenceSequenceArg);
+    void voidMethodNullableSequenceLongArg(sequence<long>? longSequenceArg);
     // Nullable types
     long? nullableLongMethod();
     DOMString? nullableStringMethod();
@@ -356,8 +371,13 @@ interface TestObject {
     (TestInterfaceWillBeGarbageCollected or TestDictionary) testInterfaceWillBeGarbageCollectedOrTestDictionaryMethod();
     (boolean or DOMString or unrestricted double) booleanOrDOMStringOrUnrestrictedDoubleMethod();
     (TestInterface or long) testInterfaceOrLongMethod();
-    void voidMethodDOMStringOrDouble((DOMString or double) arg);
-    void voidMethodDOMStringOrArrayBufferOrArrayBufferView((DOMString or ArrayBuffer or ArrayBufferView) arg);
+    void voidMethodDoubleOrDOMStringArg((double or DOMString) arg);
+    void voidMethodDoubleOrDOMStringOrNullArg((double or DOMString)? arg);
+    void voidMethodDoubleOrNullOrDOMStringArg((double? or DOMString) arg);
+    void voidMethodDOMStringOrArrayBufferOrArrayBufferViewArg((DOMString or ArrayBuffer or ArrayBufferView) arg);
+    void voidMethodArrayBufferOrArrayBufferViewOrDictionaryArg((ArrayBuffer or ArrayBufferView or Dictionary) arg);
+    // Array of Union types
+    void voidMethodArrayOfDoubleOrDOMStringArg((double or DOMString)... arg);
     // Currently only used on interface type arguments
     void voidMethodTestInterfaceEmptyOrNullArg(TestInterfaceEmpty? nullableTestInterfaceEmptyArg);
     // Callback interface types
@@ -370,6 +390,8 @@ interface TestObject {
     // Exceptional types
     Dictionary dictionaryMethod();
     TestDictionary testDictionaryMethod();
+    TestDictionary? nullableTestDictionaryMethod();
+    void passPermissiveDictionaryMethod([PermissiveDictionaryConversion] optional TestDictionary arg);
     NodeFilter nodeFilterMethod();
     Promise<void> promiseMethod(long arg1, Dictionary arg2, DOMString arg3, DOMString... variadic);
     Promise promiseMethodWithoutExceptionState(Dictionary arg1);
@@ -410,6 +432,10 @@ interface TestObject {
     void voidMethodDefaultNullableByteStringArg(optional ByteString? defaultStringArg = null);
     void voidMethodDefaultNullableStringArg(optional DOMString? defaultStringArg = null);
     void voidMethodDefaultNullableTestInterfaceArg(optional TestInterface? defaultTestInterfaceArg = null);
+    void voidMethodDefaultDoubleOrStringArgs(optional (double or DOMString) defaultLongArg = 10.0,
+                                             optional (double or DOMString?) defaultStringArg = "foo",
+                                             optional (double or DOMString)? defaultNullArg = null);
+    void voidMethodDefaultStringSequenceArg(optional sequence<DOMString> defaultStringSequenceArg = []);
 
     // Variadic operations
     void voidMethodVariadicStringArg(DOMString... variadicStringArgs);
@@ -440,6 +466,10 @@ interface TestObject {
     void overloadedMethodI(double doubleArg);
     void overloadedMethodJ(DOMString stringArg);
     void overloadedMethodJ(TestDictionary testDictionaryArg);
+    void overloadedMethodK(Function functionArg);
+    void overloadedMethodK(DOMString stringArg);
+    void overloadedMethodL(long longArg, any... restArgs);
+    void overloadedMethodL(DOMString stringArg, any... restArgs);
 
     Promise promiseOverloadMethod();
     Promise promiseOverloadMethod(Window arg1, double arg2);
@@ -450,6 +480,14 @@ interface TestObject {
 
     static void overloadedStaticMethod(long longArg);
     static void overloadedStaticMethod(long longArg1, long longArg2);
+
+    // Special operations
+    [CallWith=ScriptState] getter any item(unsigned long index);
+    [CallWith=ScriptState] getter object(DOMString name);
+    [CallWith=ScriptState] setter DOMString setItem(unsigned long index, DOMString value);
+    [CallWith=ScriptState] setter DOMString(DOMString name, DOMString value);
+    [RaisesException, CallWith=ScriptState] deleter boolean(unsigned long index);
+    [CallWith=ScriptState] deleter boolean(DOMString name);
 
     // Extended attributes for arguments
     // [Clamp]
@@ -476,16 +514,22 @@ interface TestObject {
     [CallWith=(ScriptState,ScriptArguments)] void callWithScriptStateScriptArgumentsVoidMethodOptionalBooleanArg(optional boolean optionalBooleanArg);
     [CallWith=ActiveWindow] void callWithActiveWindow();
     [CallWith=(ActiveWindow,FirstWindow)] void callWithActiveWindowScriptWindow();
+    [CallWith=ThisValue] void callWithThisValue();
     [CheckSecurity=Node] void checkSecurityForNodeVoidMethod();
     [Conditional=CONDITION] void conditionalConditionVoidMethod();
     [Conditional=CONDITION] static void conditionalConditionStaticVoidMethod();
     [Custom] void customVoidMethod();
+    [Custom=CallPrologue] void customCallPrologueVoidMethod();
+    [Custom=CallEpilogue] void customCallEpilogueVoidMethod();
     [Conditional=CONDITION, Custom] void conditionalConditionCustomVoidMethod();
     [CustomElementCallbacks] void customElementCallbacksVoidMethod();
     [DeprecateAs=voidMethod] void deprecatedVoidMethod();
     [DoNotCheckSignature] void doNotCheckSignatureVoidMethod();
     [ImplementedAs=implementedAsMethodName] void implementedAsVoidMethod();
     [MeasureAs=TestFeature] void measureAsVoidMethod();
+    [Measure] void measureMethod();
+    [Measure] void measureOverloadedMethod();
+    [Measure] void measureOverloadedMethod(long arg);
     [DeprecateAs=TestFeatureA] void DeprecateAsOverloadedMethod();
     [DeprecateAs=TestFeatureB] void DeprecateAsOverloadedMethod(long arg);
     [DeprecateAs=TestFeature] void DeprecateAsSameValueOverloadedMethod();
@@ -501,9 +545,9 @@ interface TestObject {
     [DeprecateAs=TestFeatureA, MeasureAs=TestFeatureB] void deprecateAsSameValueMeasureAsSameValueOverloadedMethod();
     [DeprecateAs=TestFeatureA, MeasureAs=TestFeatureB] void deprecateAsSameValueMeasureAsSameValueOverloadedMethod(long arg);
     [NotEnumerable] void notEnumerableVoidMethod();
-    [PerContextEnabled=FeatureName] void perContextEnabledVoidMethod();
     [PerWorldBindings] void perWorldBindingsVoidMethod();
     [PerWorldBindings] void perWorldBindingsVoidMethodTestInterfaceEmptyArg(TestInterfaceEmpty testInterfaceEmptyArg);
+    [PostMessage, RaisesException] void postMessage(SerializedScriptValue message, optional sequence<Transferable> transfer);
     [LogActivity, LogAllWorlds, PerWorldBindings] void activityLoggingForAllWorldsPerWorldBindingsVoidMethod();
     [LogActivity, PerWorldBindings] void activityLoggingForIsolatedWorldsPerWorldBindingsVoidMethod();
     [RaisesException] void raisesExceptionVoidMethod();
@@ -512,14 +556,16 @@ interface TestObject {
     [RaisesException] void raisesExceptionVoidMethodTestCallbackInterfaceArg(TestCallbackInterface testCallbackInterfaceArg);
     [RaisesException] void raisesExceptionVoidMethodOptionalTestCallbackInterfaceArg(optional TestCallbackInterface optionalTestCallbackInterfaceArg);
     [RaisesException] TestInterfaceEmpty raisesExceptionTestInterfaceEmptyVoidMethod();
+    [RaisesException] XPathNSResolver raisesExceptionXPathNSResolverVoidMethod();
     [CallWith=ExecutionContext, RaisesException] void callWithExecutionContextRaisesExceptionVoidMethodLongArg(long longArg);
     [RuntimeEnabled=FeatureName] void runtimeEnabledVoidMethod();
     [PerWorldBindings, RuntimeEnabled=FeatureName] void perWorldBindingsRuntimeEnabledVoidMethod();
     [RuntimeEnabled=FeatureName] void runtimeEnabledOverloadedVoidMethod(DOMString stringArg);
     [RuntimeEnabled=FeatureName] void runtimeEnabledOverloadedVoidMethod(long longArg);
     [RuntimeEnabled=FeatureName1] void partiallyRuntimeEnabledOverloadedVoidMethod(DOMString stringArg);
-    [RuntimeEnabled=FeatureName2] void partiallyRuntimeEnabledOverloadedVoidMethod(TestInterface testInterface);
-    void partiallyRuntimeEnabledOverloadedVoidMethod(long longArg);
+    [RuntimeEnabled=FeatureName2] void partiallyRuntimeEnabledOverloadedVoidMethod(TestInterface testInterfaceArg);
+    void partiallyRuntimeEnabledOverloadedVoidMethod(long longArg, DOMString stringArg);
+    [RuntimeEnabled=FeatureName3] void partiallyRuntimeEnabledOverloadedVoidMethod(long longArg, DOMString stringArg, TestInterface testInterfaceArg);
     [TreatReturnedNullStringAs=Null] DOMString treatReturnedNullStringAsNullStringMethod();
     [TreatReturnedNullStringAs=Undefined] DOMString treatReturnedNullStringAsUndefinedStringMethod();
     [TreatReturnedNullStringAs=Null] ByteString treatReturnedNullStringAsNullByteStringMethod();
@@ -532,12 +578,15 @@ interface TestObject {
     [TypeChecking=Interface] void useToImpl4ArgumentsCheckingIfPossibleWithOptionalArg(Node node1, optional Node node2);
     [TypeChecking=Interface] void useToImpl4ArgumentsCheckingIfPossibleWithNullableArg(Node node1, Node? node2);
     [TypeChecking=Interface] void useToImpl4ArgumentsCheckingIfPossibleWithUndefinedArg(Node node1, [Default=Undefined] optional Node node2);
-    [TypeChecking=Unrestricted] void typeCheckingUnrestrictedVoidMethodFloatArgDoubleArg(float floatArg, double doubleArg);
+    void typeCheckingUnrestrictedVoidMethodFloatArgDoubleArg(float floatArg, double doubleArg);
     [Unforgeable] void unforgeableVoidMethod();
     void voidMethodTestInterfaceGarbageCollectedSequenceArg(sequence<TestInterfaceGarbageCollected> testInterfaceGarbageCollectedSequenceArg);
     void voidMethodTestInterfaceGarbageCollectedArrayArg(TestInterfaceGarbageCollected[] testInterfaceGarbageCollectedArrayArg);
     void voidMethodTestInterfaceWillBeGarbageCollectedSequenceArg(sequence<TestInterfaceWillBeGarbageCollected> testInterfaceWillBeGarbageCollectedSequenceArg);
     void voidMethodTestInterfaceWillBeGarbageCollectedArrayArg(TestInterfaceWillBeGarbageCollected[] testInterfaceWillBeGarbageCollectedArrayArg);
+    [NewObject] TestInterface newObjectTestInterfaceMethod();
+
+    serializer DOMString serializerMethod();
 
     // Extended attributes on referenced interfaces
     // (not self; self-reference tests at interface themselves)
@@ -563,4 +612,6 @@ interface TestObject {
     [ImplementedInPrivateScript, OnlyExposedToPrivateScript] short methodForPrivateScriptOnly(short value1, short value2);
     [ImplementedInPrivateScript, OnlyExposedToPrivateScript] attribute DOMString attributeForPrivateScriptOnly;
     [ImplementedInPrivateScript] attribute TestEnum enumForPrivateScript;
+
+    maplike<long, DOMStringOrDouble>;
 };

@@ -19,7 +19,7 @@
 #include "remoting/host/chromoting_host_context.h"
 #include "remoting/host/native_messaging/native_messaging_pipe.h"
 #include "remoting/host/native_messaging/pipe_messaging_channel.h"
-#include "remoting/host/policy_hack/policy_watcher.h"
+#include "remoting/host/policy_watcher.h"
 #include "remoting/host/setup/test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -69,12 +69,13 @@ void VerifyCommonProperties(scoped_ptr<base::DictionaryValue> response,
 class MockIt2MeHost : public It2MeHost {
  public:
   MockIt2MeHost(scoped_ptr<ChromotingHostContext> context,
-                scoped_ptr<policy_hack::PolicyWatcher> policy_watcher,
+                scoped_ptr<PolicyWatcher> policy_watcher,
                 base::WeakPtr<It2MeHost::Observer> observer,
                 const XmppSignalStrategy::XmppServerConfig& xmpp_server_config,
                 const std::string& directory_bot_jid)
       : It2MeHost(context.Pass(),
                   policy_watcher.Pass(),
+                  nullptr,
                   observer,
                   xmpp_server_config,
                   directory_bot_jid) {}
@@ -141,9 +142,9 @@ void MockIt2MeHost::RequestNatPolicy() {}
 void MockIt2MeHost::RunSetState(It2MeHostState state) {
   if (!host_context()->network_task_runner()->BelongsToCurrentThread()) {
     host_context()->network_task_runner()->PostTask(
-        FROM_HERE, base::Bind(&It2MeHost::SetStateForTesting, this, state));
+        FROM_HERE, base::Bind(&It2MeHost::SetStateForTesting, this, state, ""));
   } else {
-    SetStateForTesting(state);
+    SetStateForTesting(state, "");
   }
 }
 
@@ -189,7 +190,6 @@ class It2MeNativeMessagingHostTest : public testing::Test {
 
  private:
   void StartHost();
-  void StopHost();
   void ExitTest();
 
   // Each test creates two unidirectional pipes: "input" and "output".
@@ -224,7 +224,7 @@ void It2MeNativeMessagingHostTest::SetUp() {
   host_thread_->Start();
 
   host_task_runner_ = new AutoThreadTaskRunner(
-      host_thread_->message_loop_proxy(),
+      host_thread_->task_runner(),
       base::Bind(&It2MeNativeMessagingHostTest::ExitTest,
                  base::Unretained(this)));
 
@@ -238,6 +238,10 @@ void It2MeNativeMessagingHostTest::SetUp() {
 }
 
 void It2MeNativeMessagingHostTest::TearDown() {
+  // Release reference to AutoThreadTaskRunner, so the host thread can be shut
+  // down.
+  host_task_runner_ = nullptr;
+
   // Closing the write-end of the input will send an EOF to the native
   // messaging reader. This will trigger a host shutdown.
   input_write_file_.Close();
@@ -274,7 +278,7 @@ It2MeNativeMessagingHostTest::ReadMessageFromOutputPipe() {
     return nullptr;
   }
 
-  scoped_ptr<base::Value> message(base::JSONReader::Read(message_json));
+  scoped_ptr<base::Value> message = base::JSONReader::Read(message_json);
   if (!message || !message->IsType(base::Value::TYPE_DICTIONARY)) {
     LOG(ERROR) << "Malformed message:" << message_json;
     return nullptr;
@@ -287,7 +291,7 @@ It2MeNativeMessagingHostTest::ReadMessageFromOutputPipe() {
 void It2MeNativeMessagingHostTest::WriteMessageToInputPipe(
     const base::Value& message) {
   std::string message_json;
-  base::JSONWriter::Write(&message, &message_json);
+  base::JSONWriter::Write(message, &message_json);
 
   uint32 length = message_json.length();
   input_write_file_.WriteAtCurrentPos(reinterpret_cast<char*>(&length),
@@ -442,31 +446,16 @@ void It2MeNativeMessagingHostTest::StartHost() {
           make_scoped_ptr(new MockIt2MeHostFactory())));
   it2me_host->Start(pipe_.get());
 
-  pipe_->Start(it2me_host.Pass(),
-               channel.Pass(),
-               base::Bind(&It2MeNativeMessagingHostTest::StopHost,
-                          base::Unretained(this)));
+  pipe_->Start(it2me_host.Pass(), channel.Pass());
 
   // Notify the test that the host has finished starting up.
-  test_message_loop_->message_loop_proxy()->PostTask(
+  test_message_loop_->task_runner()->PostTask(
       FROM_HERE, test_run_loop_->QuitClosure());
 }
 
-void It2MeNativeMessagingHostTest::StopHost() {
-  DCHECK(host_task_runner_->RunsTasksOnCurrentThread());
-
-  pipe_.reset();
-
-  // Wait till all shutdown tasks have completed.
-  base::RunLoop().RunUntilIdle();
-
-  // Trigger a test shutdown via ExitTest().
-  host_task_runner_ = NULL;
-}
-
 void It2MeNativeMessagingHostTest::ExitTest() {
-  if (!test_message_loop_->message_loop_proxy()->RunsTasksOnCurrentThread()) {
-    test_message_loop_->message_loop_proxy()->PostTask(
+  if (!test_message_loop_->task_runner()->RunsTasksOnCurrentThread()) {
+    test_message_loop_->task_runner()->PostTask(
         FROM_HERE,
         base::Bind(&It2MeNativeMessagingHostTest::ExitTest,
                    base::Unretained(this)));
@@ -558,4 +547,3 @@ TEST_F(It2MeNativeMessagingHostTest, InvalidType) {
 }
 
 }  // namespace remoting
-

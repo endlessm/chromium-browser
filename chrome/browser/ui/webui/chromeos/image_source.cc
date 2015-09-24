@@ -4,11 +4,15 @@
 
 #include "chrome/browser/ui/webui/chromeos/image_source.h"
 
+#include <vector>
+
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/sequenced_task_runner.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/chromeos/login/users/avatar/user_image_loader.h"
 #include "chrome/common/url_constants.h"
 #include "components/user_manager/user_image/user_image.h"
@@ -20,15 +24,15 @@ using content::BrowserThread;
 namespace chromeos {
 namespace {
 
-const char* kWhitelistedFiles[] = {
-  "fcc/label.png"
+const char* kWhitelistedDirectories[] = {
+  "regulatory_labels"
 };
 
 // Callback for user_manager::UserImageLoader.
 void ImageLoaded(
     const content::URLDataSource::GotDataCallback& got_data_callback,
     const user_manager::UserImage& user_image) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (user_image.has_raw_image())
     got_data_callback.Run(new base::RefCountedBytes(user_image.raw_image()));
@@ -41,7 +45,7 @@ void StartOnBlockingPool(
     const std::string& path,
     scoped_refptr<UserImageLoader> image_loader,
     const content::URLDataSource::GotDataCallback& got_data_callback,
-    scoped_refptr<base::MessageLoopProxy> message_loop_proxy) {
+    scoped_refptr<base::SingleThreadTaskRunner> thread_task_runner) {
   DCHECK(BrowserThread::GetBlockingPool()->RunsTasksOnCurrentThread());
 
   const base::FilePath asset_dir(FILE_PATH_LITERAL(chrome::kChromeOSAssetPath));
@@ -50,7 +54,7 @@ void StartOnBlockingPool(
     image_loader->Start(image_path.value(), 0,
                         base::Bind(&ImageLoaded, got_data_callback));
   } else {
-    message_loop_proxy->PostTask(FROM_HERE,
+    thread_task_runner->PostTask(FROM_HERE,
                                  base::Bind(got_data_callback, nullptr));
   }
 }
@@ -82,7 +86,7 @@ void ImageSource::StartDataRequest(
     return;
   }
 
-  if (!image_loader_.get()) {
+  if (!image_loader_) {
     image_loader_ = new UserImageLoader(ImageDecoder::DEFAULT_CODEC,
                                         task_runner_);
   }
@@ -93,7 +97,7 @@ void ImageSource::StartDataRequest(
                  path,
                  image_loader_,
                  got_data_callback,
-                 base::MessageLoopProxy::current()));
+                 base::ThreadTaskRunnerHandle::Get()));
 }
 
 std::string ImageSource::GetMimeType(const std::string& path) const {
@@ -105,8 +109,21 @@ std::string ImageSource::GetMimeType(const std::string& path) const {
 }
 
 bool ImageSource::IsWhitelisted(const std::string& path) const {
-  const char** end = kWhitelistedFiles + arraysize(kWhitelistedFiles);
-  return std::find(kWhitelistedFiles, end, path) != end;
+  base::FilePath file_path(path);
+  if (file_path.ReferencesParent())
+    return false;
+
+  // Check if the path starts with a whitelisted directory.
+  std::vector<std::string> components;
+  file_path.GetComponents(&components);
+  if (components.empty())
+    return false;
+
+  for (size_t i = 0; i < arraysize(kWhitelistedDirectories); i++) {
+    if (components[0] == kWhitelistedDirectories[i])
+      return true;
+  }
+  return false;
 }
 
 }  // namespace chromeos

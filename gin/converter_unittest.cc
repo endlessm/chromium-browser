@@ -14,19 +14,19 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "v8/include/v8.h"
 
+namespace gin {
+
 using v8::Array;
 using v8::Boolean;
-using v8::Handle;
 using v8::HandleScope;
 using v8::Integer;
+using v8::Local;
 using v8::Null;
 using v8::Number;
 using v8::Object;
 using v8::String;
 using v8::Undefined;
 using v8::Value;
-
-namespace gin {
 
 typedef V8Test ConverterTest;
 
@@ -39,7 +39,7 @@ TEST_F(ConverterTest, Bool) {
       Boolean::New(instance_->isolate(), false)));
 
   struct {
-    Handle<Value> input;
+    Local<Value> input;
     bool expected;
   } test_data[] = {
     { Boolean::New(instance_->isolate(), false).As<Value>(), false },
@@ -79,7 +79,7 @@ TEST_F(ConverterTest, Int32) {
   }
 
   struct {
-    v8::Handle<v8::Value> input;
+    v8::Local<v8::Value> input;
     bool expect_sucess;
     int expected_result;
   } test_data_from[] = {
@@ -116,19 +116,16 @@ TEST_F(ConverterTest, Vector) {
   expected.push_back(0);
   expected.push_back(1);
 
-  Handle<Array> js_array = Handle<Array>::Cast(
-      Converter<std::vector<int> >::ToV8(instance_->isolate(), expected));
-  ASSERT_FALSE(js_array.IsEmpty());
-  EXPECT_EQ(3u, js_array->Length());
+  auto maybe = Converter<std::vector<int>>::ToV8(
+      instance_->isolate()->GetCurrentContext(), expected);
+  Local<Value> js_value;
+  EXPECT_TRUE(maybe.ToLocal(&js_value));
+  Local<Array> js_array2 = Local<Array>::Cast(js_value);
+  EXPECT_EQ(3u, js_array2->Length());
   for (size_t i = 0; i < expected.size(); ++i) {
     EXPECT_TRUE(Integer::New(instance_->isolate(), expected[i])
-                    ->StrictEquals(js_array->Get(static_cast<int>(i))));
+                    ->StrictEquals(js_array2->Get(static_cast<int>(i))));
   }
-
-  std::vector<int> actual;
-  EXPECT_TRUE(Converter<std::vector<int> >::FromV8(instance_->isolate(),
-                                                   js_array, &actual));
-  EXPECT_EQ(expected, actual);
 }
 
 }  // namespace gin

@@ -6,8 +6,10 @@
 
 #import <Cocoa/Cocoa.h>
 
+#import "base/mac/scoped_nsautorelease_pool.h"
 #import "base/mac/scoped_nsobject.h"
 #include "base/memory/scoped_ptr.h"
+#import "testing/gtest_mac.h"
 #include "ui/views/controls/native/native_view_host.h"
 #include "ui/views/controls/native/native_view_host_test_base.h"
 #include "ui/views/view.h"
@@ -18,6 +20,15 @@ namespace views {
 class NativeViewHostMacTest : public test::NativeViewHostTestBase {
  public:
   NativeViewHostMacTest() {}
+
+  // testing::Test:
+  void TearDown() override {
+    // On Aura, the compositor is destroyed when the WindowTreeHost provided by
+    // AuraTestHelper is destroyed. On Mac, the Widget is the host, so it must
+    // be closed before the ContextFactory is torn down by ViewsTestBase.
+    DestroyTopLevel();
+    NativeViewHostTestBase::TearDown();
+  }
 
   NativeViewHostMac* native_host() {
     return static_cast<NativeViewHostMac*>(GetNativeWrapper());
@@ -74,7 +85,7 @@ TEST_F(NativeViewHostMacTest, Attach) {
 
   EXPECT_FALSE([native_view_ superview]);
   EXPECT_FALSE([native_view_ window]);
-  EXPECT_TRUE(NSEqualRects(NSZeroRect, [native_view_ frame]));
+  EXPECT_NSEQ(NSZeroRect, [native_view_ frame]);
 
   host()->Attach(native_view_);
   EXPECT_TRUE([native_view_ superview]);
@@ -82,8 +93,9 @@ TEST_F(NativeViewHostMacTest, Attach) {
 
   // Expect the top-left to be 10 pixels below the titlebar.
   int bottom = toplevel()->GetClientAreaBoundsInScreen().height() - 10 - 60;
-  EXPECT_TRUE(NSEqualRects(NSMakeRect(10, bottom, 80, 60),
-                           [native_view_ frame]));
+  EXPECT_NSEQ(NSMakeRect(10, bottom, 80, 60), [native_view_ frame]);
+
+  DestroyHost();
 }
 
 // Ensure the native view is hidden along with its host, and when detaching, or
@@ -123,6 +135,29 @@ TEST_F(NativeViewHostMacTest, NativeViewHidden) {
   toplevel()->GetRootView()->AddChildView(host());
   EXPECT_FALSE([native_view_ isHidden]);  // And visible when added.
   EXPECT_TRUE([native_view_ superview]);
+
+  DestroyHost();
+}
+
+// Check that we can destroy cleanly even if the native view has already been
+// released.
+TEST_F(NativeViewHostMacTest, NativeViewReleased) {
+  {
+    base::mac::ScopedNSAutoreleasePool pool;
+    CreateHost();
+    // In practice the native view is a WebContentsViewCocoa which is retained
+    // by its superview (a TabContentsContainerView) and by WebContentsViewMac.
+    // It's possible for both of them to be destroyed without calling
+    // NativeHostView::Detach().
+    [native_view_ removeFromSuperview];
+    native_view_.reset();
+  }
+
+  // During teardown, NativeViewDetaching() is called in RemovedFromWidget().
+  // Just trigger it with Detach().
+  host()->Detach();
+
+  DestroyHost();
 }
 
 }  // namespace views

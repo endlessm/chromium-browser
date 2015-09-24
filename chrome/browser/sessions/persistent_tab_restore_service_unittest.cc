@@ -7,6 +7,7 @@
 #include <string>
 
 #include "base/compiler_specific.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/sequenced_worker_pool.h"
@@ -14,7 +15,6 @@
 #include "chrome/browser/sessions/session_service.h"
 #include "chrome/browser/sessions/session_service_factory.h"
 #include "chrome/browser/sessions/session_service_utils.h"
-#include "chrome/browser/sessions/session_types.h"
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
 #include "chrome/browser/sessions/tab_restore_service_observer.h"
 #include "chrome/common/url_constants.h"
@@ -22,6 +22,7 @@
 #include "chrome/test/base/chrome_render_view_test.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/sessions/serialized_navigation_entry_test_helper.h"
+#include "components/sessions/session_types.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
@@ -146,9 +147,8 @@ class PersistentTabRestoreServiceTest : public ChromeRenderViewHostTestHarness {
   // way of AddWindowWithOneTabToSessionService. If |pinned| is true, the
   // tab is marked as pinned in the session service.
   void CreateSessionServiceWithOneWindow(bool pinned) {
-    // The profile takes ownership of this.
-    SessionService* session_service = new SessionService(profile());
-    SessionServiceFactory::SetForTestProfile(profile(), session_service);
+    scoped_ptr<SessionService> session_service(new SessionService(profile()));
+    SessionServiceFactory::SetForTestProfile(profile(), session_service.Pass());
 
     AddWindowWithOneTabToSessionService(pinned);
 
@@ -642,7 +642,7 @@ TEST_F(PersistentTabRestoreServiceTest, PruneEntries) {
     SerializedNavigationEntry navigation =
         SerializedNavigationEntryTestHelper::CreateNavigation(
             base::StringPrintf("http://%d", static_cast<int>(i)),
-            base::StringPrintf("%d", static_cast<int>(i)));
+            base::SizeTToString(i));
 
     Tab* tab = new Tab();
     tab->navigations.push_back(navigation);

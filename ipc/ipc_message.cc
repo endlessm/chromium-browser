@@ -7,10 +7,12 @@
 #include "base/atomic_sequence_num.h"
 #include "base/logging.h"
 #include "build/build_config.h"
+#include "ipc/ipc_message_attachment.h"
+#include "ipc/ipc_message_attachment_set.h"
 
 #if defined(OS_POSIX)
 #include "base/file_descriptor_posix.h"
-#include "ipc/file_descriptor_set_posix.h"
+#include "ipc/ipc_platform_file_attachment_posix.h"
 #endif
 
 namespace {
@@ -21,9 +23,10 @@ base::StaticAtomicSequenceNumber g_ref_num;
 // values has the reference number stored in the upper 24 bits, leaving the low
 // 8 bits set to 0 for use as flags.
 inline uint32 GetRefNumUpper24() {
-  base::debug::TraceLog* trace_log = base::debug::TraceLog::GetInstance();
-  int32 pid = trace_log ? trace_log->process_id() : 0;
-  int32 count = g_ref_num.GetNext();
+  base::trace_event::TraceLog* trace_log =
+      base::trace_event::TraceLog::GetInstance();
+  uint32 pid = trace_log ? trace_log->process_id() : 0;
+  uint32 count = g_ref_num.GetNext();
   // The 24 bit hash is composed of 14 bits of the count and 10 bits of the
   // Process ID. With the current trace event buffer cap, the 14-bit count did
   // not appear to wrap during a trace. Note that it is not a big deal if
@@ -40,8 +43,7 @@ namespace IPC {
 Message::~Message() {
 }
 
-Message::Message()
-    : Pickle(sizeof(Header)) {
+Message::Message() : base::Pickle(sizeof(Header)) {
   header()->routing = header()->type = 0;
   header()->flags = GetRefNumUpper24();
 #if defined(OS_POSIX)
@@ -52,7 +54,7 @@ Message::Message()
 }
 
 Message::Message(int32 routing_id, uint32 type, PriorityValue priority)
-    : Pickle(sizeof(Header)) {
+    : base::Pickle(sizeof(Header)) {
   header()->routing = routing_id;
   header()->type = type;
   DCHECK((priority & 0xffffff00) == 0);
@@ -64,14 +66,15 @@ Message::Message(int32 routing_id, uint32 type, PriorityValue priority)
   Init();
 }
 
-Message::Message(const char* data, int data_len) : Pickle(data, data_len) {
+Message::Message(const char* data, int data_len)
+    : base::Pickle(data, data_len) {
   Init();
 }
 
-Message::Message(const Message& other) : Pickle(other) {
+Message::Message(const Message& other) : base::Pickle(other) {
   Init();
 #if defined(OS_POSIX)
-  file_descriptor_set_ = other.file_descriptor_set_;
+  attachment_set_ = other.attachment_set_;
 #endif
 }
 
@@ -85,9 +88,9 @@ void Message::Init() {
 }
 
 Message& Message::operator=(const Message& other) {
-  *static_cast<Pickle*>(this) = other;
+  *static_cast<base::Pickle*>(this) = other;
 #if defined(OS_POSIX)
-  file_descriptor_set_ = other.file_descriptor_set_;
+  attachment_set_ = other.attachment_set_;
 #endif
   return *this;
 }
@@ -99,6 +102,11 @@ void Message::SetHeaderValues(int32 routing, uint32 type, uint32 flags) {
   header()->routing = routing;
   header()->type = type;
   header()->flags = flags;
+}
+
+void Message::EnsureMessageAttachmentSet() {
+  if (attachment_set_.get() == NULL)
+    attachment_set_ = new MessageAttachmentSet;
 }
 
 #ifdef IPC_MESSAGE_LOG_ENABLED
@@ -122,48 +130,39 @@ void Message::set_received_time(int64 time) const {
 }
 #endif
 
-#if defined(OS_POSIX)
-bool Message::WriteFile(base::ScopedFD descriptor) {
+bool Message::WriteAttachment(scoped_refptr<MessageAttachment> attachment) {
   // We write the index of the descriptor so that we don't have to
   // keep the current descriptor as extra decoding state when deserialising.
-  WriteInt(file_descriptor_set()->size());
-  return file_descriptor_set()->AddToOwn(descriptor.Pass());
+  WriteInt(attachment_set()->size());
+  return attachment_set()->AddAttachment(attachment);
 }
 
-bool Message::WriteBorrowingFile(const base::PlatformFile& descriptor) {
-  // We write the index of the descriptor so that we don't have to
-  // keep the current descriptor as extra decoding state when deserialising.
-  WriteInt(file_descriptor_set()->size());
-  return file_descriptor_set()->AddToBorrow(descriptor);
-}
-
-bool Message::ReadFile(PickleIterator* iter, base::ScopedFD* descriptor) const {
+bool Message::ReadAttachment(
+    base::PickleIterator* iter,
+    scoped_refptr<MessageAttachment>* attachment) const {
   int descriptor_index;
-  if (!ReadInt(iter, &descriptor_index))
+  if (!iter->ReadInt(&descriptor_index))
     return false;
 
-  FileDescriptorSet* file_descriptor_set = file_descriptor_set_.get();
-  if (!file_descriptor_set)
+  MessageAttachmentSet* attachment_set = attachment_set_.get();
+  if (!attachment_set)
     return false;
 
-  base::PlatformFile file =
-      file_descriptor_set->TakeDescriptorAt(descriptor_index);
-  if (file < 0)
-    return false;
-
-  descriptor->reset(file);
-  return true;
+  *attachment = attachment_set->GetAttachmentAt(descriptor_index);
+  return nullptr != attachment->get();
 }
 
-bool Message::HasFileDescriptors() const {
-  return file_descriptor_set_.get() && !file_descriptor_set_->empty();
+bool Message::HasAttachments() const {
+  return attachment_set_.get() && !attachment_set_->empty();
 }
 
-void Message::EnsureFileDescriptorSet() {
-  if (file_descriptor_set_.get() == NULL)
-    file_descriptor_set_ = new FileDescriptorSet;
+bool Message::HasMojoHandles() const {
+  return attachment_set_.get() && attachment_set_->num_mojo_handles() > 0;
 }
 
-#endif
+bool Message::HasBrokerableAttachments() const {
+  return attachment_set_.get() &&
+         attachment_set_->num_brokerable_attachments() > 0;
+}
 
 }  // namespace IPC

@@ -26,9 +26,10 @@
 #include <windows.h>
 #endif
 
-#include <fstream>
-
 #include "chrome/common/logging_chrome.h"
+
+#include <fstream>  // NOLINT
+#include <string>  // NOLINT
 
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
@@ -37,14 +38,12 @@
 #include "base/environment.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
-#include "base/logging.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
-#include "base/time/time.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -117,7 +116,7 @@ void SuppressDialogs() {
 
 namespace logging {
 
-LoggingDestination DetermineLogMode(const CommandLine& command_line) {
+LoggingDestination DetermineLogMode(const base::CommandLine& command_line) {
   // only use OutputDebugString in debug mode
 #ifdef NDEBUG
   bool enable_logging = false;
@@ -187,7 +186,7 @@ void RemoveSymlinkAndLog(const base::FilePath& link_path,
 
 }  // anonymous namespace
 
-base::FilePath GetSessionLogDir(const CommandLine& command_line) {
+base::FilePath GetSessionLogDir(const base::CommandLine& command_line) {
   base::FilePath log_dir;
   std::string log_dir_str;
   scoped_ptr<base::Environment> env(base::Environment::Create());
@@ -213,11 +212,11 @@ base::FilePath GetSessionLogDir(const CommandLine& command_line) {
   return log_dir;
 }
 
-base::FilePath GetSessionLogFile(const CommandLine& command_line) {
+base::FilePath GetSessionLogFile(const base::CommandLine& command_line) {
   return GetSessionLogDir(command_line).Append(GetLogFileName().BaseName());
 }
 
-void RedirectChromeLogging(const CommandLine& command_line) {
+void RedirectChromeLogging(const base::CommandLine& command_line) {
   if (chrome_logging_redirected_) {
     // TODO(nkostylev): Support multiple active users. http://crbug.com/230345
     LOG(WARNING) << "NOT redirecting logging for multi-profiles case.";
@@ -252,7 +251,7 @@ void RedirectChromeLogging(const CommandLine& command_line) {
 
 #endif  // OS_CHROMEOS
 
-void InitChromeLogging(const CommandLine& command_line,
+void InitChromeLogging(const base::CommandLine& command_line,
                        OldFileDeletionState delete_old_log_file) {
   DCHECK(!chrome_logging_initialized_) <<
     "Attempted to initialize logging when it was already initialized.";
@@ -315,7 +314,8 @@ void InitChromeLogging(const CommandLine& command_line,
 #endif
 
   // Default to showing error dialogs.
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(switches::kNoErrorDialogs))
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kNoErrorDialogs))
     logging::SetShowErrorDialogs(true);
 
   // we want process and thread IDs because we have a lot of things running
@@ -333,14 +333,19 @@ void InitChromeLogging(const CommandLine& command_line,
       command_line.HasSwitch(switches::kNoErrorDialogs))
     SuppressDialogs();
 
-  // Use a minimum log level if the command line asks for one,
-  // otherwise leave it at the default level (INFO).
-  if (command_line.HasSwitch(switches::kLoggingLevel)) {
-    std::string log_level = command_line.GetSwitchValueASCII(
-        switches::kLoggingLevel);
+  // Use a minimum log level if the command line asks for one. Ignore this
+  // switch if there's vlog level switch present too (as both of these switches
+  // refer to the same underlying log level, and the vlog level switch has
+  // already been processed inside logging::InitLogging). If there is neither
+  // log level nor vlog level specified, then just leave the default level
+  // (INFO).
+  if (command_line.HasSwitch(switches::kLoggingLevel) &&
+      logging::GetMinLogLevel() >= 0) {
+    std::string log_level =
+        command_line.GetSwitchValueASCII(switches::kLoggingLevel);
     int level = 0;
-    if (base::StringToInt(log_level, &level) &&
-        level >= 0 && level < LOG_NUM_SEVERITIES) {
+    if (base::StringToInt(log_level, &level) && level >= 0 &&
+        level < LOG_NUM_SEVERITIES) {
       logging::SetMinLogLevel(level);
     } else {
       DLOG(WARNING) << "Bad log level: " << log_level;
@@ -391,35 +396,6 @@ base::FilePath GetLogFileName() {
 bool DialogsAreSuppressed() {
   return dialogs_are_suppressed_;
 }
-
-size_t GetFatalAssertions(AssertionList* assertions) {
-  // In this function, we don't assume that assertions is non-null, so
-  // that if you just want an assertion count, you can pass in NULL.
-  if (assertions)
-    assertions->clear();
-  size_t assertion_count = 0;
-
-  std::ifstream log_file;
-  log_file.open(GetLogFileName().value().c_str());
-  if (!log_file.is_open())
-    return 0;
-
-  std::string utf8_line;
-  std::wstring wide_line;
-  while (!log_file.eof()) {
-    getline(log_file, utf8_line);
-    if (utf8_line.find(":FATAL:") != std::string::npos) {
-      wide_line = base::UTF8ToWide(utf8_line);
-      if (assertions)
-        assertions->push_back(wide_line);
-      ++assertion_count;
-    }
-  }
-  log_file.close();
-
-  return assertion_count;
-}
-
 base::FilePath GenerateTimestampedName(const base::FilePath& base_path,
                                        base::Time timestamp) {
   base::Time::Exploded time_deets;

@@ -1,22 +1,24 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _FXCRT_PLATFORMS_
-#define _FXCRT_PLATFORMS_
+#ifndef CORE_SRC_FXCRT_FXCRT_PLATFORMS_H_
+#define CORE_SRC_FXCRT_FXCRT_PLATFORMS_H_
+
 #include "extension.h"
+
 #if _FX_OS_ == _FX_ANDROID_
 void	FXCRT_GetFileModeString(FX_DWORD dwModes, CFX_ByteString &bsMode);
 void	FXCRT_GetFileModeString(FX_DWORD dwModes, CFX_WideString &wsMode);
-class CFXCRT_FileAccess_CRT : public IFXCRT_FileAccess, public CFX_Object
+class CFXCRT_FileAccess_CRT : public IFXCRT_FileAccess
 {
 public:
     CFXCRT_FileAccess_CRT();
     virtual ~CFXCRT_FileAccess_CRT();
-    virtual FX_BOOL		Open(FX_BSTR fileName, FX_DWORD dwMode);
-    virtual FX_BOOL		Open(FX_WSTR fileName, FX_DWORD dwMode);
+    virtual FX_BOOL		Open(const CFX_ByteStringC& fileName, FX_DWORD dwMode);
+    virtual FX_BOOL		Open(const CFX_WideStringC& fileName, FX_DWORD dwMode);
     virtual void		Close();
     virtual void		Release();
     virtual FX_FILESIZE	GetSize() const;
@@ -32,4 +34,5 @@ protected:
     FXSYS_FILE*	m_hFile;
 };
 #endif
-#endif
+
+#endif  // CORE_SRC_FXCRT_FXCRT_PLATFORMS_H_

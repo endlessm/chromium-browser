@@ -17,11 +17,12 @@
 #include "base/files/scoped_file.h"
 #include "base/format_macros.h"
 #include "base/linux_util.h"
+#include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/rand_util.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread.h"
@@ -184,11 +185,11 @@ void CrashHandlerHostLinux::OnFileCanReadWithoutBlocking(int fd) {
   iov[5].iov_base = serialized_crash_keys;
   iov[5].iov_len = crash_keys_size;
 #if !defined(ADDRESS_SANITIZER)
-  COMPILE_ASSERT(5 == kCrashIovSize - 1, Incorrect_Number_Of_Iovec_Members);
+  static_assert(5 == kCrashIovSize - 1, "kCrashIovSize should equal 6");
 #else
   iov[6].iov_base = asan_report.get();
   iov[6].iov_len = kMaxAsanReportSize + 1;
-  COMPILE_ASSERT(6 == kCrashIovSize - 1, Incorrect_Number_Of_Iovec_Members);
+  static_assert(6 == kCrashIovSize - 1, "kCrashIovSize should equal 7");
 #endif
   msg.msg_iov = iov;
   msg.msg_iovlen = kCrashIovSize;
@@ -402,7 +403,7 @@ void CrashHandlerHostLinux::WriteDumpFile(scoped_ptr<BreakpadInfo> info,
 
 void CrashHandlerHostLinux::QueueCrashDumpTask(scoped_ptr<BreakpadInfo> info,
                                                int signal_fd) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   // Send the done signal to the process: it can exit now.
   struct msghdr msg = {0};
@@ -415,7 +416,7 @@ void CrashHandlerHostLinux::QueueCrashDumpTask(scoped_ptr<BreakpadInfo> info,
   HANDLE_EINTR(sendmsg(signal_fd, &msg, MSG_DONTWAIT | MSG_NOSIGNAL));
   close(signal_fd);
 
-  uploader_thread_->message_loop()->PostTask(
+  uploader_thread_->task_runner()->PostTask(
       FROM_HERE,
       base::Bind(&CrashDumpTask, base::Unretained(this), base::Passed(&info)));
 }

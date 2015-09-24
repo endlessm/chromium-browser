@@ -56,11 +56,15 @@
 
 #include <openssl/rsa.h>
 
+#include <string.h>
+
 #include <openssl/bn.h>
 #include <openssl/err.h>
 #include <openssl/mem.h>
+#include <openssl/thread.h>
 
 #include "internal.h"
+#include "../internal.h"
 
 
 #define OPENSSL_RSA_MAX_MODULUS_BITS 16384
@@ -70,14 +74,17 @@
 
 
 static int finish(RSA *rsa) {
-  if (rsa->_method_mod_n != NULL) {
-    BN_MONT_CTX_free(rsa->_method_mod_n);
-  }
-  if (rsa->_method_mod_p != NULL) {
-    BN_MONT_CTX_free(rsa->_method_mod_p);
-  }
-  if (rsa->_method_mod_q != NULL) {
-    BN_MONT_CTX_free(rsa->_method_mod_q);
+  BN_MONT_CTX_free(rsa->_method_mod_n);
+  BN_MONT_CTX_free(rsa->_method_mod_p);
+  BN_MONT_CTX_free(rsa->_method_mod_q);
+
+  if (rsa->additional_primes != NULL) {
+    size_t i;
+    for (i = 0; i < sk_RSA_additional_prime_num(rsa->additional_primes); i++) {
+      RSA_additional_prime *ap =
+          sk_RSA_additional_prime_value(rsa->additional_primes, i);
+      BN_MONT_CTX_free(ap->method_mod);
+    }
   }
 
   return 1;
@@ -163,13 +170,14 @@ static int encrypt(RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out,
   }
 
   if (rsa->flags & RSA_FLAG_CACHE_PUBLIC) {
-    if (!BN_MONT_CTX_set_locked(&rsa->_method_mod_n, CRYPTO_LOCK_RSA, rsa->n,
-                                ctx)) {
+    if (BN_MONT_CTX_set_locked(&rsa->_method_mod_n, &rsa->lock, rsa->n, ctx) ==
+        NULL) {
       goto err;
     }
   }
 
-  if (!rsa->meth->bn_mod_exp(result, f, rsa->e, rsa->n, ctx, rsa->_method_mod_n)) {
+  if (!rsa->meth->bn_mod_exp(result, f, rsa->e, rsa->n, ctx,
+                             rsa->_method_mod_n)) {
     goto err;
   }
 
@@ -215,37 +223,20 @@ static BN_BLINDING *rsa_blinding_get(RSA *rsa, unsigned *index_used,
   uint8_t *new_blindings_inuse;
   char overflow = 0;
 
-  CRYPTO_w_lock(CRYPTO_LOCK_RSA_BLINDING);
-  if (rsa->num_blindings > 0) {
-    unsigned i, starting_index;
-    CRYPTO_THREADID threadid;
+  CRYPTO_MUTEX_lock_write(&rsa->lock);
 
-    /* We start searching the array at a value based on the
-     * threadid in order to try avoid bouncing the BN_BLINDING
-     * values around different threads. It's harmless if
-     * threadid.val is always set to zero. */
-    CRYPTO_THREADID_current(&threadid);
-    starting_index = threadid.val % rsa->num_blindings;
-
-    for (i = starting_index;;) {
-      if (rsa->blindings_inuse[i] == 0) {
-        rsa->blindings_inuse[i] = 1;
-        ret = rsa->blindings[i];
-        *index_used = i;
-        break;
-      }
-      i++;
-      if (i == rsa->num_blindings) {
-        i = 0;
-      }
-      if (i == starting_index) {
-        break;
-      }
+  unsigned i;
+  for (i = 0; i < rsa->num_blindings; i++) {
+    if (rsa->blindings_inuse[i] == 0) {
+      rsa->blindings_inuse[i] = 1;
+      ret = rsa->blindings[i];
+      *index_used = i;
+      break;
     }
   }
 
   if (ret != NULL) {
-    CRYPTO_w_unlock(CRYPTO_LOCK_RSA_BLINDING);
+    CRYPTO_MUTEX_unlock(&rsa->lock);
     return ret;
   }
 
@@ -254,7 +245,7 @@ static BN_BLINDING *rsa_blinding_get(RSA *rsa, unsigned *index_used,
   /* We didn't find a free BN_BLINDING to use so increase the length of
    * the arrays by one and use the newly created element. */
 
-  CRYPTO_w_unlock(CRYPTO_LOCK_RSA_BLINDING);
+  CRYPTO_MUTEX_unlock(&rsa->lock);
   ret = rsa_setup_blinding(rsa, ctx);
   if (ret == NULL) {
     return NULL;
@@ -267,7 +258,7 @@ static BN_BLINDING *rsa_blinding_get(RSA *rsa, unsigned *index_used,
     return ret;
   }
 
-  CRYPTO_w_lock(CRYPTO_LOCK_RSA_BLINDING);
+  CRYPTO_MUTEX_lock_write(&rsa->lock);
 
   new_blindings =
       OPENSSL_malloc(sizeof(BN_BLINDING *) * (rsa->num_blindings + 1));
@@ -286,24 +277,20 @@ static BN_BLINDING *rsa_blinding_get(RSA *rsa, unsigned *index_used,
   new_blindings_inuse[rsa->num_blindings] = 1;
   *index_used = rsa->num_blindings;
 
-  if (rsa->blindings != NULL) {
-    OPENSSL_free(rsa->blindings);
-  }
+  OPENSSL_free(rsa->blindings);
   rsa->blindings = new_blindings;
-  if (rsa->blindings_inuse != NULL) {
-    OPENSSL_free(rsa->blindings_inuse);
-  }
+  OPENSSL_free(rsa->blindings_inuse);
   rsa->blindings_inuse = new_blindings_inuse;
   rsa->num_blindings++;
 
-  CRYPTO_w_unlock(CRYPTO_LOCK_RSA_BLINDING);
+  CRYPTO_MUTEX_unlock(&rsa->lock);
   return ret;
 
 err2:
   OPENSSL_free(new_blindings);
 
 err1:
-  CRYPTO_w_unlock(CRYPTO_LOCK_RSA_BLINDING);
+  CRYPTO_MUTEX_unlock(&rsa->lock);
   BN_BLINDING_free(ret);
   return NULL;
 }
@@ -318,9 +305,9 @@ static void rsa_blinding_release(RSA *rsa, BN_BLINDING *blinding,
     return;
   }
 
-  CRYPTO_w_lock(CRYPTO_LOCK_RSA_BLINDING);
+  CRYPTO_MUTEX_lock_write(&rsa->lock);
   rsa->blindings_inuse[blinding_index] = 0;
-  CRYPTO_w_unlock(CRYPTO_LOCK_RSA_BLINDING);
+  CRYPTO_MUTEX_unlock(&rsa->lock);
 }
 
 /* signing */
@@ -358,8 +345,7 @@ static int sign_raw(RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out,
   }
 
   if (!RSA_private_transform(rsa, out, buf, rsa_size)) {
-      OPENSSL_PUT_ERROR(RSA, sign_raw, ERR_R_INTERNAL_ERROR);
-      goto err;
+    goto err;
   }
 
   *out_len = rsa_size;
@@ -398,7 +384,6 @@ static int decrypt(RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out,
   }
 
   if (!RSA_private_transform(rsa, buf, in, rsa_size)) {
-    OPENSSL_PUT_ERROR(RSA, decrypt, ERR_R_INTERNAL_ERROR);
     goto err;
   }
 
@@ -495,8 +480,8 @@ static int verify_raw(RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out,
   }
 
   if (rsa->flags & RSA_FLAG_CACHE_PUBLIC) {
-    if (!BN_MONT_CTX_set_locked(&rsa->_method_mod_n, CRYPTO_LOCK_RSA, rsa->n,
-                                ctx)) {
+    if (BN_MONT_CTX_set_locked(&rsa->_method_mod_n, &rsa->lock, rsa->n, ctx) ==
+        NULL) {
       goto err;
     }
   }
@@ -599,8 +584,8 @@ static int private_transform(RSA *rsa, uint8_t *out, const uint8_t *in,
     BN_with_flags(d, rsa->d, BN_FLG_CONSTTIME);
 
     if (rsa->flags & RSA_FLAG_CACHE_PUBLIC) {
-      if (!BN_MONT_CTX_set_locked(&rsa->_method_mod_n, CRYPTO_LOCK_RSA, rsa->n,
-                                  ctx)) {
+      if (BN_MONT_CTX_set_locked(&rsa->_method_mod_n, &rsa->lock, rsa->n,
+                                 ctx) == NULL) {
         goto err;
       }
     }
@@ -640,6 +625,11 @@ static int mod_exp(BIGNUM *r0, const BIGNUM *I, RSA *rsa, BN_CTX *ctx) {
   BIGNUM local_dmp1, local_dmq1, local_c, local_r1;
   BIGNUM *dmp1, *dmq1, *c, *pr1;
   int ret = 0;
+  size_t i, num_additional_primes = 0;
+
+  if (rsa->additional_primes != NULL) {
+    num_additional_primes = sk_RSA_additional_prime_num(rsa->additional_primes);
+  }
 
   BN_CTX_start(ctx);
   r1 = BN_CTX_get(ctx);
@@ -661,18 +651,20 @@ static int mod_exp(BIGNUM *r0, const BIGNUM *I, RSA *rsa, BN_CTX *ctx) {
     BN_with_flags(q, rsa->q, BN_FLG_CONSTTIME);
 
     if (rsa->flags & RSA_FLAG_CACHE_PRIVATE) {
-      if (!BN_MONT_CTX_set_locked(&rsa->_method_mod_p, CRYPTO_LOCK_RSA, p, ctx)) {
+      if (BN_MONT_CTX_set_locked(&rsa->_method_mod_p, &rsa->lock, p, ctx) ==
+          NULL) {
         goto err;
       }
-      if (!BN_MONT_CTX_set_locked(&rsa->_method_mod_q, CRYPTO_LOCK_RSA, q, ctx)) {
+      if (BN_MONT_CTX_set_locked(&rsa->_method_mod_q, &rsa->lock, q, ctx) ==
+          NULL) {
         goto err;
       }
     }
   }
 
   if (rsa->flags & RSA_FLAG_CACHE_PUBLIC) {
-    if (!BN_MONT_CTX_set_locked(&rsa->_method_mod_n, CRYPTO_LOCK_RSA, rsa->n,
-                                ctx)) {
+    if (BN_MONT_CTX_set_locked(&rsa->_method_mod_n, &rsa->lock, rsa->n, ctx) ==
+        NULL) {
       goto err;
     }
   }
@@ -746,6 +738,42 @@ static int mod_exp(BIGNUM *r0, const BIGNUM *I, RSA *rsa, BN_CTX *ctx) {
     goto err;
   }
 
+  for (i = 0; i < num_additional_primes; i++) {
+    /* multi-prime RSA. */
+    BIGNUM local_exp, local_prime;
+    BIGNUM *exp = &local_exp, *prime = &local_prime;
+    RSA_additional_prime *ap =
+        sk_RSA_additional_prime_value(rsa->additional_primes, i);
+
+    BN_with_flags(exp, ap->exp, BN_FLG_CONSTTIME);
+    BN_with_flags(prime, ap->prime, BN_FLG_CONSTTIME);
+
+    /* c will already point to a BIGNUM with the correct flags. */
+    if (!BN_mod(r1, c, prime, ctx)) {
+      goto err;
+    }
+
+    if ((rsa->flags & RSA_FLAG_CACHE_PRIVATE) &&
+        !BN_MONT_CTX_set_locked(&ap->method_mod, &rsa->lock, prime, ctx)) {
+      goto err;
+    }
+
+    if (!rsa->meth->bn_mod_exp(m1, r1, exp, prime, ctx, ap->method_mod)) {
+      goto err;
+    }
+
+    BN_set_flags(m1, BN_FLG_CONSTTIME);
+
+    if (!BN_sub(m1, m1, r0) ||
+        !BN_mul(m1, m1, ap->coeff, ctx) ||
+        !BN_mod(m1, m1, prime, ctx) ||
+        (BN_is_negative(m1) && !BN_add(m1, m1, prime)) ||
+        !BN_mul(m1, m1, ap->r, ctx) ||
+        !BN_add(r0, r0, m1)) {
+      goto err;
+    }
+  }
+
   if (rsa->e && rsa->n) {
     if (!rsa->meth->bn_mod_exp(vrfy, r0, rsa->e, rsa->n, ctx,
                                rsa->_method_mod_n)) {
@@ -788,12 +816,20 @@ err:
   return ret;
 }
 
-static int keygen(RSA *rsa, int bits, BIGNUM *e_value, BN_GENCB *cb) {
+static int keygen_multiprime(RSA *rsa, int bits, int num_primes,
+                             BIGNUM *e_value, BN_GENCB *cb) {
   BIGNUM *r0 = NULL, *r1 = NULL, *r2 = NULL, *r3 = NULL, *tmp;
   BIGNUM local_r0, local_d, local_p;
   BIGNUM *pr0, *d, *p;
-  int bitsp, bitsq, ok = -1, n = 0;
+  int prime_bits, ok = -1, n = 0, i, j;
   BN_CTX *ctx = NULL;
+  STACK_OF(RSA_additional_prime) *additional_primes = NULL;
+
+  if (num_primes < 2) {
+    ok = 0; /* we set our own err */
+    OPENSSL_PUT_ERROR(RSA, keygen_multiprime, RSA_R_MUST_HAVE_AT_LEAST_TWO_PRIMES);
+    goto err;
+  }
 
   ctx = BN_CTX_new();
   if (ctx == NULL) {
@@ -808,123 +844,269 @@ static int keygen(RSA *rsa, int bits, BIGNUM *e_value, BN_GENCB *cb) {
     goto err;
   }
 
-  bitsp = (bits + 1) / 2;
-  bitsq = bits - bitsp;
+  if (num_primes > 2) {
+    additional_primes = sk_RSA_additional_prime_new_null();
+    if (additional_primes == NULL) {
+      goto err;
+    }
+  }
+
+  for (i = 2; i < num_primes; i++) {
+    RSA_additional_prime *ap = OPENSSL_malloc(sizeof(RSA_additional_prime));
+    if (ap == NULL) {
+      goto err;
+    }
+    memset(ap, 0, sizeof(RSA_additional_prime));
+    ap->prime = BN_new();
+    ap->exp = BN_new();
+    ap->coeff = BN_new();
+    ap->r = BN_new();
+    if (ap->prime == NULL ||
+        ap->exp == NULL ||
+        ap->coeff == NULL ||
+        ap->r == NULL ||
+        !sk_RSA_additional_prime_push(additional_primes, ap)) {
+      RSA_additional_prime_free(ap);
+      goto err;
+    }
+  }
 
   /* We need the RSA components non-NULL */
-  if (!rsa->n && ((rsa->n = BN_new()) == NULL))
+  if (!rsa->n && ((rsa->n = BN_new()) == NULL)) {
     goto err;
-  if (!rsa->d && ((rsa->d = BN_new()) == NULL))
+  }
+  if (!rsa->d && ((rsa->d = BN_new()) == NULL)) {
     goto err;
-  if (!rsa->e && ((rsa->e = BN_new()) == NULL))
+  }
+  if (!rsa->e && ((rsa->e = BN_new()) == NULL)) {
     goto err;
-  if (!rsa->p && ((rsa->p = BN_new()) == NULL))
+  }
+  if (!rsa->p && ((rsa->p = BN_new()) == NULL)) {
     goto err;
-  if (!rsa->q && ((rsa->q = BN_new()) == NULL))
+  }
+  if (!rsa->q && ((rsa->q = BN_new()) == NULL)) {
     goto err;
-  if (!rsa->dmp1 && ((rsa->dmp1 = BN_new()) == NULL))
+  }
+  if (!rsa->dmp1 && ((rsa->dmp1 = BN_new()) == NULL)) {
     goto err;
-  if (!rsa->dmq1 && ((rsa->dmq1 = BN_new()) == NULL))
+  }
+  if (!rsa->dmq1 && ((rsa->dmq1 = BN_new()) == NULL)) {
     goto err;
-  if (!rsa->iqmp && ((rsa->iqmp = BN_new()) == NULL))
+  }
+  if (!rsa->iqmp && ((rsa->iqmp = BN_new()) == NULL)) {
     goto err;
+  }
 
-  BN_copy(rsa->e, e_value);
+  if (!BN_copy(rsa->e, e_value)) {
+    goto err;
+  }
 
   /* generate p and q */
+  prime_bits = (bits + (num_primes - 1)) / num_primes;
   for (;;) {
-    if (!BN_generate_prime_ex(rsa->p, bitsp, 0, NULL, NULL, cb))
+    if (!BN_generate_prime_ex(rsa->p, prime_bits, 0, NULL, NULL, cb) ||
+        !BN_sub(r2, rsa->p, BN_value_one()) ||
+        !BN_gcd(r1, r2, rsa->e, ctx)) {
       goto err;
-    if (!BN_sub(r2, rsa->p, BN_value_one()))
-      goto err;
-    if (!BN_gcd(r1, r2, rsa->e, ctx))
-      goto err;
-    if (BN_is_one(r1))
+    }
+    if (BN_is_one(r1)) {
       break;
-    if (!BN_GENCB_call(cb, 2, n++))
+    }
+    if (!BN_GENCB_call(cb, 2, n++)) {
       goto err;
+    }
   }
-  if (!BN_GENCB_call(cb, 3, 0))
+  if (!BN_GENCB_call(cb, 3, 0)) {
     goto err;
+  }
+  prime_bits = ((bits - prime_bits) + (num_primes - 2)) / (num_primes - 1);
   for (;;) {
     /* When generating ridiculously small keys, we can get stuck
      * continually regenerating the same prime values. Check for
      * this and bail if it happens 3 times. */
     unsigned int degenerate = 0;
     do {
-      if (!BN_generate_prime_ex(rsa->q, bitsq, 0, NULL, NULL, cb))
+      if (!BN_generate_prime_ex(rsa->q, prime_bits, 0, NULL, NULL, cb)) {
         goto err;
+      }
     } while ((BN_cmp(rsa->p, rsa->q) == 0) && (++degenerate < 3));
     if (degenerate == 3) {
       ok = 0; /* we set our own err */
-      OPENSSL_PUT_ERROR(RSA, keygen, RSA_R_KEY_SIZE_TOO_SMALL);
+      OPENSSL_PUT_ERROR(RSA, keygen_multiprime, RSA_R_KEY_SIZE_TOO_SMALL);
       goto err;
     }
-    if (!BN_sub(r2, rsa->q, BN_value_one()))
+    if (!BN_sub(r2, rsa->q, BN_value_one()) ||
+        !BN_gcd(r1, r2, rsa->e, ctx)) {
       goto err;
-    if (!BN_gcd(r1, r2, rsa->e, ctx))
-      goto err;
-    if (BN_is_one(r1))
+    }
+    if (BN_is_one(r1)) {
       break;
-    if (!BN_GENCB_call(cb, 2, n++))
+    }
+    if (!BN_GENCB_call(cb, 2, n++)) {
       goto err;
+    }
   }
-  if (!BN_GENCB_call(cb, 3, 1))
+
+  if (!BN_GENCB_call(cb, 3, 1) ||
+      !BN_mul(rsa->n, rsa->p, rsa->q, ctx)) {
     goto err;
+  }
+
+  for (i = 2; i < num_primes; i++) {
+    RSA_additional_prime *ap =
+        sk_RSA_additional_prime_value(additional_primes, i - 2);
+    prime_bits = ((bits - BN_num_bits(rsa->n)) + (num_primes - (i + 1))) /
+                 (num_primes - i);
+
+    for (;;) {
+      if (!BN_generate_prime_ex(ap->prime, prime_bits, 0, NULL, NULL, cb)) {
+        goto err;
+      }
+      if (BN_cmp(rsa->p, ap->prime) == 0 ||
+          BN_cmp(rsa->q, ap->prime) == 0) {
+        continue;
+      }
+
+      for (j = 0; j < i - 2; j++) {
+        if (BN_cmp(sk_RSA_additional_prime_value(additional_primes, j)->prime,
+                   ap->prime) == 0) {
+          break;
+        }
+      }
+      if (j != i - 2) {
+        continue;
+      }
+
+      if (!BN_sub(r2, ap->prime, BN_value_one()) ||
+          !BN_gcd(r1, r2, rsa->e, ctx)) {
+        goto err;
+      }
+
+      if (!BN_is_one(r1)) {
+        continue;
+      }
+      if (i != num_primes - 1) {
+        break;
+      }
+
+      /* For the last prime we'll check that it makes n large enough. In the
+       * two prime case this isn't a problem because we generate primes with
+       * the top two bits set and so the product is always of the expected
+       * size. In the multi prime case, this doesn't follow. */
+      if (!BN_mul(r1, rsa->n, ap->prime, ctx)) {
+        goto err;
+      }
+      if (BN_num_bits(r1) == bits) {
+        break;
+      }
+
+      if (!BN_GENCB_call(cb, 2, n++)) {
+        goto err;
+      }
+    }
+
+    /* ap->r is is the product of all the primes prior to the current one
+     * (including p and q). */
+    if (!BN_copy(ap->r, rsa->n)) {
+      goto err;
+    }
+    if (i == num_primes - 1) {
+      /* In the case of the last prime, we calculated n as |r1| in the loop
+       * above. */
+      if (!BN_copy(rsa->n, r1)) {
+        goto err;
+      }
+    } else if (!BN_mul(rsa->n, rsa->n, ap->prime, ctx)) {
+      goto err;
+    }
+
+    if (!BN_GENCB_call(cb, 3, 1)) {
+      goto err;
+    }
+  }
+
   if (BN_cmp(rsa->p, rsa->q) < 0) {
     tmp = rsa->p;
     rsa->p = rsa->q;
     rsa->q = tmp;
   }
 
-  /* calculate n */
-  if (!BN_mul(rsa->n, rsa->p, rsa->q, ctx))
-    goto err;
-
   /* calculate d */
-  if (!BN_sub(r1, rsa->p, BN_value_one()))
+  if (!BN_sub(r1, rsa->p, BN_value_one())) {
     goto err; /* p-1 */
-  if (!BN_sub(r2, rsa->q, BN_value_one()))
+  }
+  if (!BN_sub(r2, rsa->q, BN_value_one())) {
     goto err; /* q-1 */
-  if (!BN_mul(r0, r1, r2, ctx))
+  }
+  if (!BN_mul(r0, r1, r2, ctx)) {
     goto err; /* (p-1)(q-1) */
+  }
+  for (i = 2; i < num_primes; i++) {
+    RSA_additional_prime *ap =
+        sk_RSA_additional_prime_value(additional_primes, i - 2);
+    if (!BN_sub(r3, ap->prime, BN_value_one()) ||
+        !BN_mul(r0, r0, r3, ctx)) {
+      goto err;
+    }
+  }
   pr0 = &local_r0;
   BN_with_flags(pr0, r0, BN_FLG_CONSTTIME);
-  if (!BN_mod_inverse(rsa->d, rsa->e, pr0, ctx))
+  if (!BN_mod_inverse(rsa->d, rsa->e, pr0, ctx)) {
     goto err; /* d */
+  }
 
   /* set up d for correct BN_FLG_CONSTTIME flag */
   d = &local_d;
   BN_with_flags(d, rsa->d, BN_FLG_CONSTTIME);
 
   /* calculate d mod (p-1) */
-  if (!BN_mod(rsa->dmp1, d, r1, ctx))
+  if (!BN_mod(rsa->dmp1, d, r1, ctx)) {
     goto err;
+  }
 
   /* calculate d mod (q-1) */
-  if (!BN_mod(rsa->dmq1, d, r2, ctx))
+  if (!BN_mod(rsa->dmq1, d, r2, ctx)) {
     goto err;
+  }
 
   /* calculate inverse of q mod p */
   p = &local_p;
   BN_with_flags(p, rsa->p, BN_FLG_CONSTTIME);
 
-  if (!BN_mod_inverse(rsa->iqmp, rsa->q, p, ctx))
+  if (!BN_mod_inverse(rsa->iqmp, rsa->q, p, ctx)) {
     goto err;
+  }
+
+  for (i = 2; i < num_primes; i++) {
+    RSA_additional_prime *ap =
+        sk_RSA_additional_prime_value(additional_primes, i - 2);
+    if (!BN_sub(ap->exp, ap->prime, BN_value_one()) ||
+        !BN_mod(ap->exp, rsa->d, ap->exp, ctx) ||
+        !BN_mod_inverse(ap->coeff, ap->r, ap->prime, ctx)) {
+      goto err;
+    }
+  }
 
   ok = 1;
+  rsa->additional_primes = additional_primes;
+  additional_primes = NULL;
 
 err:
   if (ok == -1) {
-    OPENSSL_PUT_ERROR(RSA, keygen, ERR_LIB_BN);
+    OPENSSL_PUT_ERROR(RSA, keygen_multiprime, ERR_LIB_BN);
     ok = 0;
   }
   if (ctx != NULL) {
     BN_CTX_end(ctx);
     BN_CTX_free(ctx);
   }
-
+  sk_RSA_additional_prime_pop_free(additional_primes,
+                                   RSA_additional_prime_free);
   return ok;
+}
+
+static int keygen(RSA *rsa, int bits, BIGNUM *e_value, BN_GENCB *cb) {
+  return keygen_multiprime(rsa, bits, 2 /* num primes */, e_value, cb);
 }
 
 const struct rsa_meth_st RSA_default_method = {
@@ -955,4 +1137,5 @@ const struct rsa_meth_st RSA_default_method = {
   RSA_FLAG_CACHE_PUBLIC | RSA_FLAG_CACHE_PRIVATE,
 
   keygen,
+  keygen_multiprime,
 };

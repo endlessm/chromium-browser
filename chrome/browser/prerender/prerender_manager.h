@@ -6,36 +6,26 @@
 #define CHROME_BROWSER_PRERENDER_PRERENDER_MANAGER_H_
 
 #include <list>
-#include <map>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "base/gtest_prod_util.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
-#include "base/task/cancelable_task_tracker.h"
 #include "base/threading/non_thread_safe.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
-#include "chrome/browser/history/history_service.h"
 #include "chrome/browser/media/media_capture_devices_dispatcher.h"
-#include "chrome/browser/predictors/logged_in_predictor_table.h"
 #include "chrome/browser/prerender/prerender_config.h"
 #include "chrome/browser/prerender/prerender_contents.h"
-#include "chrome/browser/prerender/prerender_events.h"
 #include "chrome/browser/prerender/prerender_final_status.h"
 #include "chrome/browser/prerender/prerender_histograms.h"
 #include "chrome/browser/prerender/prerender_origin.h"
-#include "chrome/browser/prerender/prerender_tracker.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/render_process_host_observer.h"
-#include "content/public/browser/session_storage_namespace.h"
-#include "content/public/browser/web_contents_observer.h"
-#include "net/cookies/canonical_cookie.h"
 #include "net/cookies/cookie_monster.h"
 #include "url/gurl.h"
 
@@ -57,10 +47,6 @@ class WebContents;
 
 namespace gfx {
 class Size;
-}
-
-namespace net {
-class URLRequestContextGetter;
 }
 
 namespace prerender {
@@ -101,13 +87,8 @@ class PrerenderManager : public base::SupportsWeakPtr<PrerenderManager>,
     CLEAR_MAX = 0x1 << 2
   };
 
-  typedef predictors::LoggedInPredictorTable::LoggedInStateMap LoggedInStateMap;
-
-  // ID indicating that no experiment is active.
-  static const uint8 kNoExperiment = 0;
-
   // Owned by a Profile object for the lifetime of the profile.
-  PrerenderManager(Profile* profile, PrerenderTracker* prerender_tracker);
+  explicit PrerenderManager(Profile* profile);
 
   ~PrerenderManager() override;
 
@@ -131,17 +112,12 @@ class PrerenderManager : public base::SupportsWeakPtr<PrerenderManager>,
       const gfx::Size& size);
 
   // Adds a prerender for |url| if valid. As the prerender request is coming
-  // from a source without a RenderViewHost (i.e., the omnibox) we don't have a
+  // from a source without a RenderFrameHost (i.e., the omnibox) we don't have a
   // child or route id, or a referrer. This method uses sensible values for
   // those. The |session_storage_namespace| matches the namespace of the active
   // tab at the time the prerender is generated from the omnibox. Returns a
   // caller-owned PrerenderHandle*, or NULL.
   PrerenderHandle* AddPrerenderFromOmnibox(
-      const GURL& url,
-      content::SessionStorageNamespace* session_storage_namespace,
-      const gfx::Size& size);
-
-  PrerenderHandle* AddPrerenderFromLocalPredictor(
       const GURL& url,
       content::SessionStorageNamespace* session_storage_namespace,
       const gfx::Size& size);
@@ -199,7 +175,7 @@ class PrerenderManager : public base::SupportsWeakPtr<PrerenderManager>,
   static const char* GetModeString();
   static bool IsPrerenderingPossible();
   static bool ActuallyPrerendering();
-  static bool IsControlGroup(uint8 experiment_id);
+  static bool IsControlGroup();
   static bool IsNoUseGroup();
 
   // Query the list of current prerender pages to see if the given web contents
@@ -264,19 +240,8 @@ class PrerenderManager : public base::SupportsWeakPtr<PrerenderManager>,
   // (necessary to flag MatchComplete dummies).
   void RecordFinalStatusWithMatchCompleteStatus(
       Origin origin,
-      uint8 experiment_id,
       PrerenderContents::MatchCompleteStatus mc_status,
       FinalStatus final_status) const;
-
-  // Record a cookie status histogram (see prerender_histograms.h).
-  void RecordCookieStatus(Origin origin,
-                          uint8 experiment_id,
-                          int cookie_status) const;
-
-  // Record a cookie send type histogram (see prerender_histograms.h).
-  void RecordCookieSendType(Origin origin,
-                            uint8 experiment_id,
-                            int cookie_send_type) const;
 
   // content::NotificationObserver
   void Observe(int type,
@@ -290,30 +255,9 @@ class PrerenderManager : public base::SupportsWeakPtr<PrerenderManager>,
   const Config& config() const { return config_; }
   Config& mutable_config() { return config_; }
 
-  PrerenderTracker* prerender_tracker() { return prerender_tracker_; }
-
-  bool cookie_store_loaded() { return cookie_store_loaded_; }
-
   // Records that some visible tab navigated (or was redirected) to the
   // provided URL.
   void RecordNavigation(const GURL& url);
-
-  // Updates the LoggedInPredictor state to reflect that a login has likely
-  // on the URL provided.
-  void RecordLikelyLoginOnURL(const GURL& url);
-
-  // Checks if the LoggedInPredictor shows that the user is likely logged on
-  // to the site for the URL provided.
-  void CheckIfLikelyLoggedInOnURL(const GURL& url,
-                                  bool* lookup_result,
-                                  bool* database_was_present,
-                                  const base::Closure& result_cb);
-
-  void OnHistoryServiceDidQueryURL(Origin origin,
-                                   uint8 experiment_id,
-                                   bool success,
-                                   const history::URLRow& url_row,
-                                   const history::VisitVector& visits);
 
   Profile* profile() const { return profile_; }
 
@@ -322,30 +266,6 @@ class PrerenderManager : public base::SupportsWeakPtr<PrerenderManager>,
   // mock advancing/retarding time.
   virtual base::Time GetCurrentTime() const;
   virtual base::TimeTicks GetCurrentTimeTicks() const;
-
-  scoped_refptr<predictors::LoggedInPredictorTable>
-  logged_in_predictor_table() {
-    return logged_in_predictor_table_;
-  }
-
-  PrerenderLocalPredictor* local_predictor() {
-    return local_predictor_.get();
-  }
-
-  // Notification that a cookie event happened on a render frame. Will record a
-  // cookie event for a given render frame, if it is being prerendered.
-  // If cookies were sent, all cookies must be supplied in |cookie_list|.
-  static void RecordCookieEvent(int process_id,
-                                int frame_id,
-                                const GURL& url,
-                                const GURL& frame_url,
-                                bool is_for_blocking_resource,
-                                PrerenderContents::CookieEvent event,
-                                const net::CookieList* cookie_list);
-
-  // Arranges for all session storage merges to hang indefinitely. This is used
-  // to reliably test various swap abort cases.
-  static void HangSessionStorageMergesForTesting();
 
   // Notification that a prerender has completed and its bytes should be
   // recorded.
@@ -370,17 +290,7 @@ class PrerenderManager : public base::SupportsWeakPtr<PrerenderManager>,
   // content::RenderProcessHostObserver implementation.
   void RenderProcessHostDestroyed(content::RenderProcessHost* host) override;
 
-  // To be called once the cookie store for this profile has been loaded.
-  void OnCookieStoreLoaded();
-
-  // For testing purposes. Issues a callback once the cookie store has been
-  // loaded.
-  void set_on_cookie_store_loaded_cb_for_testing(base::Closure cb) {
-    on_cookie_store_loaded_cb_for_testing_ = cb;
-  }
-
  protected:
-  class PendingSwap;
   class PrerenderData : public base::SupportsWeakPtr<PrerenderData> {
    public:
     struct OrderByExpiryTime;
@@ -422,13 +332,6 @@ class PrerenderManager : public base::SupportsWeakPtr<PrerenderManager>,
       expiry_time_ = expiry_time;
     }
 
-    void ClearPendingSwap();
-
-    PendingSwap* pending_swap() { return pending_swap_.get(); }
-    void set_pending_swap(PendingSwap* pending_swap) {
-      pending_swap_.reset(pending_swap);
-    }
-
    private:
     PrerenderManager* manager_;
     scoped_ptr<PrerenderContents> contents_;
@@ -447,71 +350,7 @@ class PrerenderManager : public base::SupportsWeakPtr<PrerenderManager>,
     // removed.
     base::TimeTicks expiry_time_;
 
-    // If a session storage namespace merge is in progress for this object,
-    // we need to keep track of various state associated with it.
-    scoped_ptr<PendingSwap> pending_swap_;
-
     DISALLOW_COPY_AND_ASSIGN(PrerenderData);
-  };
-
-  // When a swap can't happen immediately, due to a sesison storage namespace
-  // merge, there will be a pending swap object while the merge is in
-  // progress. It retains all the data needed to do the merge, maintains
-  // throttles for the navigation in the target WebContents that needs to be
-  // delayed, and handles all conditions which would cancel a pending swap.
-  class PendingSwap : public content::WebContentsObserver {
-   public:
-    PendingSwap(PrerenderManager* manager,
-                content::WebContents* target_contents,
-                PrerenderData* prerender_data,
-                const GURL& url,
-                bool should_replace_current_entry);
-    ~PendingSwap() override;
-
-    void set_swap_successful(bool swap_successful) {
-      swap_successful_ = swap_successful;
-    }
-
-    void BeginSwap();
-
-    // content::WebContentsObserver implementation.
-    void AboutToNavigateRenderView(
-        content::RenderViewHost* render_view_host) override;
-    void DidStartProvisionalLoadForFrame(
-        content::RenderFrameHost* render_frame_host,
-        const GURL& validated_url,
-        bool is_error_page,
-        bool is_iframe_srcdoc) override;
-    void DidCommitProvisionalLoadForFrame(
-        content::RenderFrameHost* render_frame_host,
-        const GURL& validated_url,
-        ui::PageTransition transition_type) override;
-    void DidFailProvisionalLoad(
-        content::RenderFrameHost* render_frame_host,
-        const GURL& validated_url,
-        int error_code,
-        const base::string16& error_description) override;
-    void WebContentsDestroyed() override;
-
-   private:
-    void RecordEvent(PrerenderEvent event) const;
-
-    void OnMergeCompleted(content::SessionStorageNamespace::MergeResult result);
-    void OnMergeTimeout();
-
-    // Prerender parameters.
-    PrerenderManager* manager_;
-    PrerenderData* prerender_data_;
-    GURL url_;
-    bool should_replace_current_entry_;
-
-    base::TimeTicks start_time_;
-    PrerenderTracker::ChildRouteIdPair target_route_id_;
-    bool seen_target_route_id_;
-    base::OneShotTimer<PendingSwap> merge_timeout_;
-    bool swap_successful_;
-
-    base::WeakPtrFactory<PendingSwap> weak_factory_;
   };
 
   void SetPrerenderContentsFactory(
@@ -523,11 +362,6 @@ class PrerenderManager : public base::SupportsWeakPtr<PrerenderManager>,
   // might have committed an omnibox navigation. This is used to possibly
   // shorten the TTL of the prerendered page.
   void SourceNavigatedAway(PrerenderData* prerender_data);
-
-  // Gets the request context for the profile.
-  // For unit tests, this will be overriden to return NULL, since it is not
-  // needed.
-  virtual net::URLRequestContextGetter* GetURLRequestContext();
 
  private:
   friend class ::InstantSearchPrerendererTest;
@@ -547,14 +381,12 @@ class PrerenderManager : public base::SupportsWeakPtr<PrerenderManager>,
 
   void OnCancelPrerenderHandle(PrerenderData* prerender_data);
 
-  // Adds a prerender for |url| from |referrer| initiated from the process
-  // |child_id|. The |origin| specifies how the prerender was added. If |size|
-  // is empty, then PrerenderContents::StartPrerendering will instead use a
-  // default from PrerenderConfig. Returns a PrerenderHandle*, owned by the
-  // caller, or NULL.
+  // Adds a prerender for |url| from |referrer|. The |origin| specifies how the
+  // prerender was added. If |size| is empty, then
+  // PrerenderContents::StartPrerendering will instead use a default from
+  // PrerenderConfig. Returns a PrerenderHandle*, owned by the caller, or NULL.
   PrerenderHandle* AddPrerender(
       Origin origin,
-      int child_id,
       const GURL& url,
       const content::Referrer& referrer,
       const gfx::Size& size,
@@ -583,8 +415,7 @@ class PrerenderManager : public base::SupportsWeakPtr<PrerenderManager>,
   virtual PrerenderContents* CreatePrerenderContents(
       const GURL& url,
       const content::Referrer& referrer,
-      Origin origin,
-      uint8 experiment_id);
+      Origin origin);
 
   // Insures the |active_prerenders_| are sorted by increasing expiry time. Call
   // after every mutation of active_prerenders_ that can possibly make it
@@ -596,11 +427,6 @@ class PrerenderManager : public base::SupportsWeakPtr<PrerenderManager>,
   PrerenderData* FindPrerenderData(
       const GURL& url,
       const content::SessionStorageNamespace* session_storage_namespace);
-
-  // Finds the active PrerenderData object currently in a PendingSwap for
-  // |target_contents|. Otherwise, returns NULL.
-  PrerenderData* FindPrerenderDataForTargetContents(
-      content::WebContents* target_contents);
 
   // Given the |prerender_contents|, find the iterator in active_prerenders_
   // correponding to the given prerender.
@@ -645,16 +471,8 @@ class PrerenderManager : public base::SupportsWeakPtr<PrerenderManager>,
   // This is a helper function which will ultimately call
   // RecordFinalStatusWthMatchCompleteStatus, using MATCH_COMPLETE_DEFAULT.
   void RecordFinalStatusWithoutCreatingPrerenderContents(
-      const GURL& url, Origin origin, uint8 experiment_id,
-      FinalStatus final_status) const;
+      const GURL& url, Origin origin, FinalStatus final_status) const;
 
-
-  void CookieChanged(ChromeCookieDetails* details);
-  void CookieChangedAnyCookiesLeftLookupResult(const std::string& domain_key,
-                                               bool cookies_exist);
-  void LoggedInPredictorDataReceived(scoped_ptr<LoggedInStateMap> new_map);
-
-  void RecordEvent(PrerenderContents* contents, PrerenderEvent event) const;
 
   // Swaps a prerender |prerender_data| for |url| into the tab, replacing
   // |web_contents|.  Returns the new WebContents that was swapped in, or NULL
@@ -670,8 +488,6 @@ class PrerenderManager : public base::SupportsWeakPtr<PrerenderManager>,
 
   // The profile that owns this PrerenderManager.
   Profile* profile_;
-
-  PrerenderTracker* prerender_tracker_;
 
   // All running prerenders. Sorted by expiry time, in ascending order.
   ScopedVector<PrerenderData> active_prerenders_;
@@ -706,21 +522,7 @@ class PrerenderManager : public base::SupportsWeakPtr<PrerenderManager>,
 
   scoped_ptr<PrerenderHistograms> histograms_;
 
-  scoped_ptr<PrerenderLocalPredictor> local_predictor_;
-
-  scoped_refptr<predictors::LoggedInPredictorTable> logged_in_predictor_table_;
-
-  // Here, we keep the logged in predictor state, but potentially a superset
-  // of its actual (database-backed) state, since we do not incorporate
-  // browser data deletion. We do not use this for actual lookups, but only
-  // to query cookie data for domains we know there was a login before.
-  // This is required to avoid a large number of cookie lookups on bulk
-  // deletion of cookies.
-  scoped_ptr<LoggedInStateMap> logged_in_state_;
-
   content::NotificationRegistrar notification_registrar_;
-
-  base::CancelableTaskTracker query_url_tracker_;
 
   // The number of bytes transferred over the network for the profile this
   // PrerenderManager is attached to.
@@ -732,11 +534,6 @@ class PrerenderManager : public base::SupportsWeakPtr<PrerenderManager>,
   // Set of process hosts being prerendered.
   typedef std::set<content::RenderProcessHost*> PrerenderProcessSet;
   PrerenderProcessSet prerender_process_hosts_;
-
-  // Indicates whether the cookie store for this profile has fully loaded yet.
-  bool cookie_store_loaded_;
-
-  base::Closure on_cookie_store_loaded_cb_for_testing_;
 
   DISALLOW_COPY_AND_ASSIGN(PrerenderManager);
 };

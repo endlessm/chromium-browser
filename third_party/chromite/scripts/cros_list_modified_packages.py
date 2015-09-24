@@ -23,9 +23,7 @@ Some caveats:
 from __future__ import print_function
 
 import errno
-import logging
 import multiprocessing
-import optparse
 import os
 try:
   import Queue
@@ -36,76 +34,57 @@ except ImportError:
   import queue as Queue
 
 from chromite.cbuildbot import constants
+from chromite.lib import brick_lib
+from chromite.lib import commandline
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import git
 from chromite.lib import osutils
 from chromite.lib import parallel
 from chromite.lib import portage_util
+from chromite.lib import sysroot_lib
+from chromite.lib import workon_helper
 
 
-class WorkonProjectsMonitor(object):
-  """Class for monitoring the last modification time of workon projects.
+class ModificationTimeMonitor(object):
+  """Base class for monitoring last modification time of paths.
+
+  This takes a list of (keys, path) pairs and finds the latest mtime of an
+  object within each of the path's subtrees, populating a map from keys to
+  mtimes. Note that a key may be associated with multiple paths, in which case
+  the latest mtime among them will be returned.
 
   Members:
-    _tasks: A list of the (project, path) pairs to check.
-    _result_queue: A queue. When GetProjectModificationTimes is called,
-      (project, mtime) tuples are pushed onto the end of this queue.
+    _tasks: A list of (key, path) pairs to check.
+    _result_queue: A queue populated with corresponding (key, mtime) pairs.
   """
 
-  def __init__(self, projects):
-    """Create a new object for checking what projects were modified and when.
-
-    Args:
-      projects: A list of the project names we are interested in monitoring.
-    """
-    manifest = git.ManifestCheckout.Cached(constants.SOURCE_ROOT)
-    self._tasks = []
-    for project in set(projects).intersection(manifest.checkouts_by_name):
-      for checkout in manifest.FindCheckouts(project):
-        self._tasks.append((project, checkout.GetPath(absolute=True)))
+  def __init__(self, key_path_pairs):
+    self._tasks = list(key_path_pairs)
     self._result_queue = multiprocessing.Queue(len(self._tasks))
 
-  def _EnqueueProjectModificationTime(self, project, path):
-    """Calculate the last time that this project was modified, and enqueue it.
-
-    Args:
-      project: The project to look at.
-      path: The path associated with the specified project.
-    """
+  def _EnqueueModificationTime(self, key, path):
+    """Calculate the last modification time of |path| and enqueue it."""
     if os.path.isdir(path):
-      self._result_queue.put((project, self._LastModificationTime(path)))
+      self._result_queue.put((key, self._LastModificationTime(path)))
 
   def _LastModificationTime(self, path):
-    """Calculate the last time a directory subtree was modified.
-
-    Args:
-      path: Directory to look at.
-    """
+    """Returns the latest modification time for anything under |path|."""
     cmd = 'find . -name .git -prune -o -printf "%T@\n" | sort -nr | head -n1'
     ret = cros_build_lib.RunCommand(cmd, cwd=path, shell=True, print_cmd=False,
                                     capture_output=True)
     return float(ret.output) if ret.output else 0
 
-  def GetProjectModificationTimes(self):
-    """Get the last modification time of each specified project.
-
-    Returns:
-      A dictionary mapping project names to last modification times.
-    """
-    task = self._EnqueueProjectModificationTime
-    parallel.RunTasksInProcessPool(task, self._tasks)
-
-    # Create a dictionary mapping project names to last modification times.
-    # All of the workon projects are already stored in the queue, so we can
-    # retrieve them all without waiting any longer.
+  def GetModificationTimes(self):
+    """Get the latest modification time for each of the queued keys."""
+    parallel.RunTasksInProcessPool(self._EnqueueModificationTime, self._tasks)
     mtimes = {}
-    while True:
-      try:
-        project, mtime = self._result_queue.get_nowait()
-      except Queue.Empty:
-        break
-      mtimes[project] = mtime
-    return mtimes
+    try:
+      while True:
+        key, mtime = self._result_queue.get_nowait()
+        mtimes[key] = max((mtimes.get(key, 0), mtime))
+    except Queue.Empty:
+      return mtimes
 
 
 class WorkonPackageInfo(object):
@@ -114,56 +93,63 @@ class WorkonPackageInfo(object):
   Members:
     cp: The package name (e.g. chromeos-base/power_manager).
     mtime: The modification time of the installed package.
-    project: The project associated with the installed package.
+    projects: The project(s) associated with the package.
+    full_srcpaths: The brick source path(s) associated with the package.
     src_ebuild_mtime: The modification time of the source ebuild.
   """
 
-  def __init__(self, cp, mtime, projects, src_ebuild_mtime):
+  def __init__(self, cp, mtime, projects, full_srcpaths, src_ebuild_mtime):
     self.cp = cp
     self.pkg_mtime = int(mtime)
     self.projects = projects
+    self.full_srcpaths = full_srcpaths
     self.src_ebuild_mtime = src_ebuild_mtime
 
 
-def ListWorkonPackages(board, host, all_opt=False):
+def ListWorkonPackages(sysroot, all_opt=False):
   """List the packages that are currently being worked on.
 
   Args:
-    board: The board to look at. If host is True, this should be set to None.
-    host: Whether to look at workon packages for the host.
+    sysroot: sysroot_lib.Sysroot object.
     all_opt: Pass --all to cros_workon. For testing purposes.
   """
-  cmd = [os.path.join(constants.CROSUTILS_DIR, 'cros_workon'), 'list']
-  cmd.extend(['--host'] if host else ['--board', board])
-  if all_opt:
-    cmd.append('--all')
-  result = cros_build_lib.RunCommand(cmd, print_cmd=False, capture_output=True)
-  return result.output.split()
+  helper = workon_helper.WorkonHelper(sysroot.path)
+  return helper.ListAtoms(use_all=all_opt)
 
 
-def ListWorkonPackagesInfo(board, host):
+def ListWorkonPackagesInfo(sysroot):
   """Find the specified workon packages for the specified board.
 
   Args:
-    board: The board to look at. If host is True, this should be set to None.
-    host: Whether to look at workon packages for the host.
+    sysroot: sysroot_lib.Sysroot object.
 
   Returns:
-    A list of unique packages being worked on.
+    A list of WorkonPackageInfo objects for unique packages being worked on.
   """
   # Import portage late so that this script can be imported outside the chroot.
   # pylint: disable=F0401
   import portage.const
-  packages = ListWorkonPackages(board, host)
+  packages = ListWorkonPackages(sysroot)
   if not packages:
     return []
   results = {}
-  install_root = cros_build_lib.GetSysroot(board=board)
-  vdb_path = os.path.join(install_root, portage.const.VDB_PATH)
-  buildroot, both = constants.SOURCE_ROOT, constants.BOTH_OVERLAYS
-  for overlay in portage_util.FindOverlays(both, board, buildroot):
-    for filename, projects in portage_util.GetWorkonProjectMap(overlay,
-                                                               packages):
+
+  if sysroot.path == '/':
+    overlays = portage_util.FindOverlays(constants.BOTH_OVERLAYS, None)
+  else:
+    overlays = sysroot.GetStandardField('PORTDIR_OVERLAY').splitlines()
+
+  vdb_path = os.path.join(sysroot.path, portage.const.VDB_PATH)
+
+  for overlay in overlays:
+    # Is this a brick overlay? Get its source base directory.
+    brick_srcbase = ''
+    brick = brick_lib.FindBrickInPath(overlay)
+    if brick and brick.OverlayDir() == overlay.rstrip(os.path.sep):
+      brick_srcbase = brick.SourceDir()
+
+    for filename, projects, srcpaths in portage_util.GetWorkonProjectMap(
+        overlay, packages):
       # chromeos-base/power_manager/power_manager-9999
       # cp = chromeos-base/power_manager
       # cpv = chromeos-base/power_manager-9999
@@ -184,58 +170,92 @@ def ListWorkonPackagesInfo(board, host):
       # Get the modificaton time of the ebuild in the overlay.
       src_ebuild_mtime = os.lstat(os.path.join(overlay, filename)).st_mtime
 
+      # Translate relative srcpath values into their absolute counterparts.
+      full_srcpaths = [os.path.join(brick_srcbase, s) for s in srcpaths]
+
       # Write info into the results dictionary, overwriting any previous
       # values. This ensures that overlays override appropriately.
-      results[cp] = WorkonPackageInfo(cp, pkg_mtime, projects, src_ebuild_mtime)
+      results[cp] = WorkonPackageInfo(cp, pkg_mtime, projects, full_srcpaths,
+                                      src_ebuild_mtime)
 
   return results.values()
 
 
-def ListModifiedWorkonPackages(board, host):
+def WorkonProjectsMonitor(projects):
+  """Returns a monitor for project modification times."""
+  # TODO(garnold) In order for the mtime monitor to be as accurate as
+  # possible, this only needs to enqueue the checkout(s) relevant for the
+  # task at hand, e.g. the specific ebuild we want to emerge. In general, the
+  # CROS_WORKON_LOCALNAME variable in workon ebuilds defines the source path
+  # uniquely and can be used for this purpose.
+  project_path_pairs = []
+  manifest = git.ManifestCheckout.Cached(constants.SOURCE_ROOT)
+  for project in set(projects).intersection(manifest.checkouts_by_name):
+    for checkout in manifest.FindCheckouts(project):
+      project_path_pairs.append((project, checkout.GetPath(absolute=True)))
+
+  return ModificationTimeMonitor(project_path_pairs)
+
+
+def WorkonSrcpathsMonitor(srcpaths):
+  """Returns a monitor for srcpath modification times."""
+  return ModificationTimeMonitor(zip(srcpaths, srcpaths))
+
+
+def ListModifiedWorkonPackages(sysroot):
   """List the workon packages that need to be rebuilt.
 
   Args:
-    board: The board to look at. If host is True, this should be set to None.
-    host: Whether to look at workon packages for the host.
+    sysroot: sysroot_lib.Sysroot object.
   """
-  packages = ListWorkonPackagesInfo(board, host)
-  if packages:
-    projects = []
-    for info in packages:
-      projects.extend(info.projects)
-    mtimes = WorkonProjectsMonitor(projects).GetProjectModificationTimes()
-    for info in packages:
-      mtime = int(max([mtimes.get(p, 0) for p in info.projects] +
-                      [info.src_ebuild_mtime]))
-      if mtime >= info.pkg_mtime:
-        yield info.cp
+  packages = ListWorkonPackagesInfo(sysroot)
+  if not packages:
+    return
+
+  # Get mtimes for all projects and source paths associated with our packages.
+  all_projects = [p for info in packages for p in info.projects]
+  project_mtimes = WorkonProjectsMonitor(all_projects).GetModificationTimes()
+  all_srcpaths = [s for info in packages for s in info.full_srcpaths]
+  srcpath_mtimes = WorkonSrcpathsMonitor(all_srcpaths).GetModificationTimes()
+
+  for info in packages:
+    mtime = int(max([project_mtimes.get(p, 0) for p in info.projects] +
+                    [srcpath_mtimes.get(s, 0) for s in info.full_srcpaths] +
+                    [info.src_ebuild_mtime]))
+    if mtime >= info.pkg_mtime:
+      yield info.cp
 
 
 def _ParseArguments(argv):
-  parser = optparse.OptionParser(usage='USAGE: %prog [options]')
+  parser = commandline.ArgumentParser(description=__doc__)
 
-  parser.add_option('--board', default=None,
-                    dest='board',
-                    help='Board name')
-  parser.add_option('--host', default=False,
-                    dest='host', action='store_true',
-                    help='Look at host packages instead of board packages')
+  target = parser.add_mutually_exclusive_group(required=True)
+  target.add_argument('--board', help='Board name')
+  target.add_argument('--brick', help='Brick locator')
+  target.add_argument('--host', default=False, action='store_true',
+                      help='Look at host packages instead of board packages')
+  target.add_argument('--sysroot', help='Sysroot path.')
 
-  flags, remaining_arguments = parser.parse_args(argv)
-  if not flags.board and not flags.host:
-    parser.print_help()
-    cros_build_lib.Die('--board or --host is required')
-  if flags.board is not None and flags.host:
-    parser.print_help()
-    cros_build_lib.Die('--board and --host are mutually exclusive')
-  if remaining_arguments:
-    parser.print_help()
-    cros_build_lib.Die('Invalid arguments')
+  flags = parser.parse_args(argv)
+  flags.Freeze()
   return flags
 
 
 def main(argv):
   logging.getLogger().setLevel(logging.INFO)
   flags = _ParseArguments(argv)
-  modified = ListModifiedWorkonPackages(flags.board, flags.host)
+  sysroot = None
+  if flags.brick:
+    try:
+      sysroot = cros_build_lib.GetSysroot(brick_lib.Brick(flags.brick))
+    except brick_lib.BrickNotFound:
+      cros_build_lib.Die('Could not load brick %s.' % flags.brick)
+  elif flags.board:
+    sysroot = cros_build_lib.GetSysroot(flags.board)
+  elif flags.host:
+    sysroot = '/'
+  else:
+    sysroot = flags.sysroot
+
+  modified = ListModifiedWorkonPackages(sysroot_lib.Sysroot(sysroot))
   print(' '.join(sorted(modified)))

@@ -43,7 +43,7 @@ public:
     void clearHost() { m_host = nullptr; }
 #endif
 
-    virtual void trace(Visitor* visitor) override
+    DEFINE_INLINE_VIRTUAL_TRACE()
     {
         visitor->trace(m_host);
         DocumentFragment::trace(visitor);
@@ -56,7 +56,7 @@ private:
     {
     }
 
-    virtual bool isTemplateContent() const override { return true; }
+    bool isTemplateContent() const override { return true; }
 
     RawPtrWillBeMember<Element> m_host;
 };

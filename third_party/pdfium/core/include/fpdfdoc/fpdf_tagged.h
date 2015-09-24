@@ -1,19 +1,20 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _FPDF_TAGGED_H_
-#define _FPDF_TAGGED_H_
-class CPDF_StructTree;
-class CPDF_StructElement;
-struct CPDF_StructKid;
+#ifndef CORE_INCLUDE_FPDFDOC_FPDF_TAGGED_H_
+#define CORE_INCLUDE_FPDFDOC_FPDF_TAGGED_H_
+
 class CPDF_Document;
 class CPDF_Page;
-class IPDF_ReflowEngine;
+class CPDF_StructElement;
+class CPDF_StructTree;
 class IPDF_ReflowedPage;
-class CPDF_StructTree : public CFX_Object
+struct CPDF_StructKid;
+
+class CPDF_StructTree
 {
 public:
 
@@ -65,9 +66,10 @@ struct CPDF_StructKid {
         } m_Object;
     };
 };
-class CPDF_StructElement : public CFX_Object
+class CPDF_StructElement
 {
 public:
+    virtual ~CPDF_StructElement() { }
 
     virtual CPDF_StructTree*	GetTree() const = 0;
 
@@ -83,17 +85,18 @@ public:
 
     virtual CFX_PtrArray*		GetObjectArray() = 0;
 
-    virtual CPDF_Object*		GetAttr(FX_BSTR owner, FX_BSTR name, FX_BOOL bInheritable = FALSE, FX_FLOAT fLevel = 0.0F) = 0;
+    virtual CPDF_Object*		GetAttr(const CFX_ByteStringC& owner, const CFX_ByteStringC& name, FX_BOOL bInheritable = FALSE, FX_FLOAT fLevel = 0.0F) = 0;
 
 
 
-    virtual CFX_ByteString		GetName(FX_BSTR owner, FX_BSTR name, FX_BSTR default_value, FX_BOOL bInheritable = FALSE, int subindex = -1) = 0;
+    virtual CFX_ByteString		GetName(const CFX_ByteStringC& owner, const CFX_ByteStringC& name, const CFX_ByteStringC& default_value, FX_BOOL bInheritable = FALSE, int subindex = -1) = 0;
 
-    virtual FX_ARGB				GetColor(FX_BSTR owner, FX_BSTR name, FX_ARGB default_value, FX_BOOL bInheritable = FALSE, int subindex = -1) = 0;
+    virtual FX_ARGB				GetColor(const CFX_ByteStringC& owner, const CFX_ByteStringC& name, FX_ARGB default_value, FX_BOOL bInheritable = FALSE, int subindex = -1) = 0;
 
-    virtual FX_FLOAT			GetNumber(FX_BSTR owner, FX_BSTR name, FX_FLOAT default_value, FX_BOOL bInheritable = FALSE, int subindex = -1) = 0;
+    virtual FX_FLOAT			GetNumber(const CFX_ByteStringC& owner, const CFX_ByteStringC& name, FX_FLOAT default_value, FX_BOOL bInheritable = FALSE, int subindex = -1) = 0;
 
-    virtual int					GetInteger(FX_BSTR owner, FX_BSTR name, int default_value, FX_BOOL bInheritable = FALSE, int subindex = -1) = 0;
+    virtual int					GetInteger(const CFX_ByteStringC& owner, const CFX_ByteStringC& name, int default_value, FX_BOOL bInheritable = FALSE, int subindex = -1) = 0;
 
 };
-#endif
+
+#endif  // CORE_INCLUDE_FPDFDOC_FPDF_TAGGED_H_

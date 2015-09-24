@@ -171,10 +171,12 @@ bool FindAddress(const base::string16::const_iterator& begin,
           if (current_word_length == 2 && words.size() > 2) {
             const Word& previous_word = words[state_first_word - 1];
             if (previous_word.end - previous_word.begin == 2 &&
-                LowerCaseEqualsASCII(previous_word.begin, previous_word.end,
-                                     "et") &&
-                LowerCaseEqualsASCII(current_word.begin, current_word.end,
-                                     "al"))
+                base::LowerCaseEqualsASCII(previous_word.begin,
+                                           previous_word.end,
+                                           "et") &&
+                base::LowerCaseEqualsASCII(current_word.begin,
+                                           current_word.end,
+                                           "al"))
               break;
           }
 
@@ -182,8 +184,14 @@ bool FindAddress(const base::string16::const_iterator& begin,
           size_t zip_word = state_last_word + 1;
           if (zip_word == words.size()) {
             do {
-              if (!tokenizer.GetNext())
-                return false;
+              if (!tokenizer.GetNext()) {
+                // The address ends with a state name without a zip code. This
+                // is legal according to WebView#findAddress public
+                // documentation.
+                *start_pos = words[0].begin - begin;
+                *end_pos = words[state_last_word].end - begin;
+                return true;
+              }
             } while (tokenizer.token_is_delim());
             words.push_back(Word(tokenizer.token_begin(),
                             tokenizer.token_end()));

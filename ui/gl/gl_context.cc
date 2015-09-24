@@ -4,9 +4,12 @@
 
 #include <string>
 
+#include "base/bind.h"
+#include "base/cancelable_callback.h"
 #include "base/command_line.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
+#include "base/strings/string_util.h"
 #include "base/threading/thread_local.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
@@ -15,6 +18,7 @@
 #include "ui/gl/gl_surface.h"
 #include "ui/gl/gl_switches.h"
 #include "ui/gl/gl_version_info.h"
+#include "ui/gl/gpu_timing.h"
 
 namespace gfx {
 
@@ -30,7 +34,7 @@ GLContext::ScopedReleaseCurrent::ScopedReleaseCurrent() : canceled_(false) {}
 
 GLContext::ScopedReleaseCurrent::~ScopedReleaseCurrent() {
   if (!canceled_ && GetCurrent()) {
-    GetCurrent()->ReleaseCurrent(NULL);
+    GetCurrent()->ReleaseCurrent(nullptr);
   }
 }
 
@@ -38,21 +42,17 @@ void GLContext::ScopedReleaseCurrent::Cancel() {
   canceled_ = true;
 }
 
-GLContext::FlushEvent::FlushEvent() {
-}
-
-GLContext::FlushEvent::~FlushEvent() {
-}
-
-void GLContext::FlushEvent::Signal() {
-  flag_.Set();
-}
-
-bool GLContext::FlushEvent::IsSignaled() {
-  return flag_.IsSet();
-}
-
-GLContext::GLContext(GLShareGroup* share_group) : share_group_(share_group) {
+GLContext::GLContext(GLShareGroup* share_group) :
+    share_group_(share_group),
+    state_dirtied_externally_(false),
+    swap_interval_(1),
+    force_swap_interval_zero_(false),
+    state_dirtied_callback_(
+        base::Bind(&GLContext::SetStateWasDirtiedExternally,
+        // Note that if this is not unretained, it will create a cycle (and
+        // will never be freed.
+        base::Unretained(this),
+        true)) {
   if (!share_group_.get())
     share_group_ = new GLShareGroup;
 
@@ -62,15 +62,8 @@ GLContext::GLContext(GLShareGroup* share_group) : share_group_(share_group) {
 GLContext::~GLContext() {
   share_group_->RemoveContext(this);
   if (GetCurrent() == this) {
-    SetCurrent(NULL);
+    SetCurrent(nullptr);
   }
-}
-
-scoped_refptr<GLContext::FlushEvent> GLContext::SignalFlush() {
-  DCHECK(IsCurrent(NULL));
-  scoped_refptr<FlushEvent> flush_event = new FlushEvent();
-  flush_events_.push_back(flush_event);
-  return flush_event;
 }
 
 bool GLContext::GetTotalGpuMemory(size_t* bytes) {
@@ -91,23 +84,55 @@ void GLContext::SetUnbindFboOnMakeCurrent() {
 }
 
 std::string GLContext::GetExtensions() {
-  DCHECK(IsCurrent(NULL));
-  const char* ext = reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS));
-  return std::string(ext ? ext : "");
+  DCHECK(IsCurrent(nullptr));
+  if (gfx::GetGLImplementation() !=
+      gfx::kGLImplementationDesktopGLCoreProfile) {
+    const char* ext = reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS));
+    return std::string(ext ? ext : "");
+  }
+
+  std::vector<std::string> exts;
+  GLint num_extensions = 0;
+  glGetIntegerv(GL_NUM_EXTENSIONS, &num_extensions);
+  for (GLint i = 0; i < num_extensions; ++i) {
+    const char* extension = reinterpret_cast<const char*>(
+        glGetStringi(GL_EXTENSIONS, i));
+    DCHECK(extension != nullptr);
+    exts.push_back(extension);
+  }
+  return JoinString(exts, " ");
 }
 
 std::string GLContext::GetGLVersion() {
-  DCHECK(IsCurrent(NULL));
+  DCHECK(IsCurrent(nullptr));
   const char *version =
       reinterpret_cast<const char*>(glGetString(GL_VERSION));
   return std::string(version ? version : "");
 }
 
 std::string GLContext::GetGLRenderer() {
-  DCHECK(IsCurrent(NULL));
+  DCHECK(IsCurrent(nullptr));
   const char *renderer =
       reinterpret_cast<const char*>(glGetString(GL_RENDERER));
   return std::string(renderer ? renderer : "");
+}
+
+base::Closure GLContext::GetStateWasDirtiedExternallyCallback() {
+  return state_dirtied_callback_.callback();
+}
+
+void GLContext::RestoreStateIfDirtiedExternally() {
+  NOTREACHED();
+}
+
+bool GLContext::GetStateWasDirtiedExternally() const {
+  DCHECK(virtual_gl_api_);
+  return state_dirtied_externally_;
+}
+
+void GLContext::SetStateWasDirtiedExternally(bool dirtied_externally) {
+  DCHECK(virtual_gl_api_);
+  state_dirtied_externally_ = dirtied_externally;
 }
 
 bool GLContext::HasExtension(const char* name) {
@@ -124,8 +149,10 @@ const GLVersionInfo* GLContext::GetVersionInfo() {
   if(!version_info_) {
     std::string version = GetGLVersion();
     std::string renderer = GetGLRenderer();
-    version_info_ = scoped_ptr<GLVersionInfo>(
-        new GLVersionInfo(version.c_str(), renderer.c_str()));
+    version_info_ =
+        make_scoped_ptr(new GLVersionInfo(
+            version.c_str(), renderer.c_str(),
+            GetExtensions().c_str()));
   }
   return version_info_.get();
 }
@@ -160,7 +187,7 @@ GLContext* GLContext::GetRealCurrent() {
 }
 
 void GLContext::SetCurrent(GLSurface* surface) {
-  current_context_.Pointer()->Set(surface ? this : NULL);
+  current_context_.Pointer()->Set(surface ? this : nullptr);
   GLSurface::SetCurrent(surface);
   // Leave the real GL api current so that unit tests work correctly.
   // TODO(sievers): Remove this, but needs all gpu_unittest classes
@@ -178,12 +205,22 @@ void GLContext::SetGLStateRestorer(GLStateRestorer* state_restorer) {
   state_restorer_ = make_scoped_ptr(state_restorer);
 }
 
+void GLContext::SetSwapInterval(int interval) {
+  swap_interval_ = interval;
+  OnSetSwapInterval(force_swap_interval_zero_ ? 0 : swap_interval_);
+}
+
+void GLContext::ForceSwapIntervalZero(bool force) {
+  force_swap_interval_zero_ = force;
+  OnSetSwapInterval(force_swap_interval_zero_ ? 0 : swap_interval_);
+}
+
 bool GLContext::WasAllocatedUsingRobustnessExtension() {
   return false;
 }
 
 bool GLContext::InitializeDynamicBindings() {
-  DCHECK(IsCurrent(NULL));
+  DCHECK(IsCurrent(nullptr));
   static bool initialized = false;
   if (initialized)
     return initialized;
@@ -217,20 +254,21 @@ void GLContext::SetRealGLApi() {
   SetGLToRealGLApi();
 }
 
-void GLContext::OnFlush() {
-  for (size_t n = 0; n < flush_events_.size(); n++)
-    flush_events_[n]->Signal();
-  flush_events_.clear();
-}
-
 GLContextReal::GLContextReal(GLShareGroup* share_group)
     : GLContext(share_group) {}
+
+scoped_refptr<gfx::GPUTimingClient> GLContextReal::CreateGPUTimingClient() {
+  if (!gpu_timing_) {
+    gpu_timing_.reset(GPUTiming::CreateGPUTiming(this));
+  }
+  return gpu_timing_->CreateGPUTimingClient();
+}
 
 GLContextReal::~GLContextReal() {}
 
 void GLContextReal::SetCurrent(GLSurface* surface) {
   GLContext::SetCurrent(surface);
-  current_real_context_.Pointer()->Set(surface ? this : NULL);
+  current_real_context_.Pointer()->Set(surface ? this : nullptr);
 }
 
 }  // namespace gfx

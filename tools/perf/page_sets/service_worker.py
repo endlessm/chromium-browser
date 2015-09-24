@@ -3,28 +3,40 @@
 # found in the LICENSE file.
 
 from telemetry.page import page as page
-from telemetry.page import page_set as page_set
+from telemetry import story
 
 
 archive_data_file_path = 'data/service_worker.json'
 
 
-class ServiceWorkerPageSet(page_set.PageSet):
+class ServiceWorkerPageSet(story.StorySet):
   """Page set of applications using ServiceWorker"""
 
   def __init__(self):
     super(ServiceWorkerPageSet, self).__init__(
         archive_data_file=archive_data_file_path,
-        make_javascript_deterministic=False,
-        bucket=page_set.PARTNER_BUCKET)
+        cloud_storage_bucket=story.PARTNER_BUCKET)
 
     # Why: the first application using ServiceWorker
     # 1st time: registration
-    self.AddPage(page.Page(
-        'https://jakearchibald.github.io/trained-to-thrill/', self))
+    self.AddStory(page.Page(
+        'https://jakearchibald.github.io/trained-to-thrill/', self,
+        name='first_load', make_javascript_deterministic=False))
     # 2st time: 1st onfetch with caching
-    self.AddPage(page.Page(
-        'https://jakearchibald.github.io/trained-to-thrill/', self))
+    self.AddStory(page.Page(
+        'https://jakearchibald.github.io/trained-to-thrill/', self,
+        name='second_load', make_javascript_deterministic=False))
     # 3rd time: 2nd onfetch from cache
-    self.AddPage(page.Page(
-        'https://jakearchibald.github.io/trained-to-thrill/', self))
+    self.AddStory(page.Page(
+        'https://jakearchibald.github.io/trained-to-thrill/', self,
+        name='third_load', make_javascript_deterministic=False))
+
+    # Why: another caching strategy: cache.addAll in oninstall handler
+    # 1st time: registration and caching
+    self.AddStory(page.Page(
+        'https://jakearchibald.github.io/svgomg/', self,
+        name='svgomg_first_load', make_javascript_deterministic=False))
+    # 2st time: onfetch from cache
+    self.AddStory(page.Page(
+        'https://jakearchibald.github.io/svgomg/', self,
+        name='svgomg_second_load', make_javascript_deterministic=False))

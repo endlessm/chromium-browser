@@ -50,7 +50,7 @@ WebstoreInstallerTest::WebstoreInstallerTest(
 
 WebstoreInstallerTest::~WebstoreInstallerTest() {}
 
-void WebstoreInstallerTest::SetUpCommandLine(CommandLine* command_line) {
+void WebstoreInstallerTest::SetUpCommandLine(base::CommandLine* command_line) {
   ExtensionBrowserTest::SetUpCommandLine(command_line);
   // We start the test server now instead of in
   // SetUpInProcessBrowserTestFixture so that we can get its port number.
@@ -64,7 +64,7 @@ void WebstoreInstallerTest::SetUpCommandLine(CommandLine* command_line) {
       switches::kAppsGalleryURL, test_gallery_url_);
 
   GURL crx_url = GenerateTestServerUrl(webstore_domain_, crx_filename_);
-  CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
       switches::kAppsGalleryUpdateURL, crx_url.spec());
 
   // Allow tests to call window.gc(), so that we can check that callback
@@ -99,16 +99,20 @@ GURL WebstoreInstallerTest::GenerateTestServerUrl(
   return page_url.ReplaceComponents(replace_host);
 }
 
-void WebstoreInstallerTest::RunTest(const std::string& test_function_name) {
+void WebstoreInstallerTest::RunTest(WebContents* web_contents,
+                                    const std::string& test_function_name) {
   bool result = false;
   std::string script = base::StringPrintf(
       "%s('%s')", test_function_name.c_str(),
       test_gallery_url_.c_str());
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      browser()->tab_strip_model()->GetActiveWebContents(),
-      script,
-      &result));
+  ASSERT_TRUE(
+      content::ExecuteScriptAndExtractBool(web_contents, script, &result));
   EXPECT_TRUE(result);
+}
+
+void WebstoreInstallerTest::RunTest(const std::string& test_function_name) {
+  RunTest(browser()->tab_strip_model()->GetActiveWebContents(),
+          test_function_name);
 }
 
 bool WebstoreInstallerTest::RunIndexedTest(
@@ -130,15 +134,17 @@ void WebstoreInstallerTest::RunTestAsync(
   std::string script = base::StringPrintf(
       "%s('%s')", test_function_name.c_str(), test_gallery_url_.c_str());
   browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame()->
-      ExecuteJavaScriptForTests(base::UTF8ToUTF16(script));
+      ExecuteJavaScriptWithUserGestureForTests(base::UTF8ToUTF16(script));
 }
 
 void WebstoreInstallerTest::AutoAcceptInstall() {
-  ExtensionInstallPrompt::g_auto_confirm_for_tests =
-      ExtensionInstallPrompt::ACCEPT;
+  install_auto_confirm_.reset();  // Destroy any old override first.
+  install_auto_confirm_.reset(new extensions::ScopedTestDialogAutoConfirm(
+      extensions::ScopedTestDialogAutoConfirm::ACCEPT));
 }
 
 void WebstoreInstallerTest::AutoCancelInstall() {
-  ExtensionInstallPrompt::g_auto_confirm_for_tests =
-      ExtensionInstallPrompt::CANCEL;
+  install_auto_confirm_.reset();  // Destroy any old override first.
+  install_auto_confirm_.reset(new extensions::ScopedTestDialogAutoConfirm(
+      extensions::ScopedTestDialogAutoConfirm::CANCEL));
 }

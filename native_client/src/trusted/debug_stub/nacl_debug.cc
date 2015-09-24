@@ -12,6 +12,7 @@
  * NaCl Functions for intereacting with debuggers
  */
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/nacl_string.h"
 #include "native_client/src/shared/platform/nacl_check.h"
 #include "native_client/src/shared/platform/nacl_exit.h"
@@ -28,7 +29,7 @@
 #include "native_client/src/trusted/service_runtime/thread_suspension.h"
 
 using port::IPlatform;
-using port::IThread;
+using port::Thread;
 using port::ITransport;
 using port::SocketBinding;
 

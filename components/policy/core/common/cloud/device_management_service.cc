@@ -8,8 +8,9 @@
 
 #include "base/bind.h"
 #include "base/compiler_specific.h"
-#include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
@@ -125,6 +126,14 @@ const char* JobTypeToRequestType(DeviceManagementRequestJob::JobType type) {
       return dm_protocol::kValueRequestUploadCertificate;
     case DeviceManagementRequestJob::TYPE_DEVICE_STATE_RETRIEVAL:
       return dm_protocol::kValueRequestDeviceStateRetrieval;
+    case DeviceManagementRequestJob::TYPE_UPLOAD_STATUS:
+      return dm_protocol::kValueRequestUploadStatus;
+    case DeviceManagementRequestJob::TYPE_REMOTE_COMMANDS:
+      return dm_protocol::kValueRequestRemoteCommands;
+    case DeviceManagementRequestJob::TYPE_ATTRIBUTE_UPDATE_PERMISSION:
+      return dm_protocol::kValueRequestDeviceAttributeUpdatePermission;
+    case DeviceManagementRequestJob::TYPE_ATTRIBUTE_UPDATE:
+      return dm_protocol::kValueRequestDeviceAttributeUpdate;
   }
   NOTREACHED() << "Invalid job type " << type;
   return "";
@@ -429,10 +438,9 @@ DeviceManagementRequestJob* DeviceManagementService::CreateJob(
 void DeviceManagementService::ScheduleInitialization(int64 delay_milliseconds) {
   if (initialized_)
     return;
-  base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::Bind(&DeviceManagementService::Initialize,
-                 weak_ptr_factory_.GetWeakPtr()),
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, base::Bind(&DeviceManagementService::Initialize,
+                            weak_ptr_factory_.GetWeakPtr()),
       base::TimeDelta::FromMilliseconds(delay_milliseconds));
 }
 
@@ -467,8 +475,9 @@ DeviceManagementService::DeviceManagementService(
 
 void DeviceManagementService::StartJob(DeviceManagementRequestJobImpl* job) {
   std::string server_url = GetServerUrl();
-  net::URLFetcher* fetcher = net::URLFetcher::Create(
-      kURLFetcherID, job->GetURL(server_url), net::URLFetcher::POST, this);
+  net::URLFetcher* fetcher =
+      net::URLFetcher::Create(kURLFetcherID, job->GetURL(server_url),
+                              net::URLFetcher::POST, this).release();
   job->ConfigureRequest(fetcher);
   pending_jobs_[fetcher] = job;
   fetcher->Start();

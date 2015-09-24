@@ -24,7 +24,9 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "jni/AwContentsIoThreadClient_jni.h"
+#include "net/base/net_errors.h"
 #include "net/http/http_request_headers.h"
+#include "net/http/http_response_headers.h"
 #include "net/url_request/url_request.h"
 #include "url/gurl.h"
 
@@ -116,9 +118,9 @@ class ClientMapEntryUpdater : public content::WebContentsObserver {
   ClientMapEntryUpdater(JNIEnv* env, WebContents* web_contents,
                         jobject jdelegate);
 
-  virtual void RenderFrameCreated(RenderFrameHost* render_frame_host) override;
-  virtual void RenderFrameDeleted(RenderFrameHost* render_frame_host) override;
-  virtual void WebContentsDestroyed() override;
+  void RenderFrameCreated(RenderFrameHost* render_frame_host) override;
+  void RenderFrameDeleted(RenderFrameHost* render_frame_host) override;
+  void WebContentsDestroyed() override;
 
  private:
   JavaObjectWeakGlobalRef jdelegate_;
@@ -151,6 +153,38 @@ void ClientMapEntryUpdater::RenderFrameDeleted(RenderFrameHost* rfh) {
 void ClientMapEntryUpdater::WebContentsDestroyed() {
   delete this;
 }
+
+struct WebResourceRequest {
+  ScopedJavaLocalRef<jstring> jstring_url;
+  bool is_main_frame;
+  bool has_user_gesture;
+  ScopedJavaLocalRef<jstring> jstring_method;
+  ScopedJavaLocalRef<jobjectArray> jstringArray_header_names;
+  ScopedJavaLocalRef<jobjectArray> jstringArray_header_values;
+
+  WebResourceRequest(JNIEnv* env, const net::URLRequest* request)
+      : jstring_url(ConvertUTF8ToJavaString(env, request->url().spec())),
+        jstring_method(ConvertUTF8ToJavaString(env, request->method())) {
+    const content::ResourceRequestInfo* info =
+        content::ResourceRequestInfo::ForRequest(request);
+    is_main_frame =
+        info && info->GetResourceType() == content::RESOURCE_TYPE_MAIN_FRAME;
+    has_user_gesture = info && info->HasUserGesture();
+
+    vector<string> header_names;
+    vector<string> header_values;
+    net::HttpRequestHeaders headers;
+    if (!request->GetFullRequestHeaders(&headers))
+      headers = request->extra_request_headers();
+    net::HttpRequestHeaders::Iterator headers_iterator(headers);
+    while (headers_iterator.GetNext()) {
+      header_names.push_back(headers_iterator.name());
+      header_values.push_back(headers_iterator.value());
+    }
+    jstringArray_header_names = ToJavaArrayOfStrings(env, header_names);
+    jstringArray_header_values = ToJavaArrayOfStrings(env, header_values);
+  }
+};
 
 } // namespace
 
@@ -223,7 +257,7 @@ bool AwContentsIoThreadClientImpl::PendingAssociation() const {
 
 AwContentsIoThreadClient::CacheMode
 AwContentsIoThreadClientImpl::GetCacheMode() const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (java_object_.is_null())
     return AwContentsIoThreadClient::LOAD_DEFAULT;
 
@@ -235,51 +269,26 @@ AwContentsIoThreadClientImpl::GetCacheMode() const {
 
 scoped_ptr<AwWebResourceResponse>
 AwContentsIoThreadClientImpl::ShouldInterceptRequest(
-    const GURL& location,
     const net::URLRequest* request) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (java_object_.is_null())
     return scoped_ptr<AwWebResourceResponse>();
-  const content::ResourceRequestInfo* info =
-      content::ResourceRequestInfo::ForRequest(request);
-  bool is_main_frame = info &&
-      info->GetResourceType() == content::RESOURCE_TYPE_MAIN_FRAME;
-  bool has_user_gesture = info && info->HasUserGesture();
-
-  vector<string> headers_names;
-  vector<string> headers_values;
-  {
-    net::HttpRequestHeaders headers;
-    if (!request->GetFullRequestHeaders(&headers))
-      headers = request->extra_request_headers();
-    net::HttpRequestHeaders::Iterator headers_iterator(headers);
-    while (headers_iterator.GetNext()) {
-      headers_names.push_back(headers_iterator.name());
-      headers_values.push_back(headers_iterator.value());
-    }
-  }
 
   JNIEnv* env = AttachCurrentThread();
-  ScopedJavaLocalRef<jstring> jstring_url =
-      ConvertUTF8ToJavaString(env, location.spec());
-  ScopedJavaLocalRef<jstring> jstring_method =
-      ConvertUTF8ToJavaString(env, request->method());
-  ScopedJavaLocalRef<jobjectArray> jstringArray_headers_names =
-      ToJavaArrayOfStrings(env, headers_names);
-  ScopedJavaLocalRef<jobjectArray> jstringArray_headers_values =
-      ToJavaArrayOfStrings(env, headers_values);
+  WebResourceRequest web_request(env, request);
+
   devtools_instrumentation::ScopedEmbedderCallbackTask embedder_callback(
       "shouldInterceptRequest");
   ScopedJavaLocalRef<jobject> ret =
       Java_AwContentsIoThreadClient_shouldInterceptRequest(
           env,
           java_object_.obj(),
-          jstring_url.obj(),
-          is_main_frame,
-          has_user_gesture,
-          jstring_method.obj(),
-          jstringArray_headers_names.obj(),
-          jstringArray_headers_values.obj());
+          web_request.jstring_url.obj(),
+          web_request.is_main_frame,
+          web_request.has_user_gesture,
+          web_request.jstring_method.obj(),
+          web_request.jstringArray_header_names.obj(),
+          web_request.jstringArray_header_values.obj());
   if (ret.is_null())
     return scoped_ptr<AwWebResourceResponse>();
   return scoped_ptr<AwWebResourceResponse>(
@@ -287,7 +296,7 @@ AwContentsIoThreadClientImpl::ShouldInterceptRequest(
 }
 
 bool AwContentsIoThreadClientImpl::ShouldBlockContentUrls() const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (java_object_.is_null())
     return false;
 
@@ -297,7 +306,7 @@ bool AwContentsIoThreadClientImpl::ShouldBlockContentUrls() const {
 }
 
 bool AwContentsIoThreadClientImpl::ShouldBlockFileUrls() const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (java_object_.is_null())
     return false;
 
@@ -307,7 +316,7 @@ bool AwContentsIoThreadClientImpl::ShouldBlockFileUrls() const {
 }
 
 bool AwContentsIoThreadClientImpl::ShouldAcceptThirdPartyCookies() const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (java_object_.is_null())
     return false;
 
@@ -317,7 +326,7 @@ bool AwContentsIoThreadClientImpl::ShouldAcceptThirdPartyCookies() const {
 }
 
 bool AwContentsIoThreadClientImpl::ShouldBlockNetworkLoads() const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (java_object_.is_null())
     return false;
 
@@ -332,7 +341,7 @@ void AwContentsIoThreadClientImpl::NewDownload(
     const string& content_disposition,
     const string& mime_type,
     int64 content_length) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (java_object_.is_null())
     return;
 
@@ -359,7 +368,7 @@ void AwContentsIoThreadClientImpl::NewDownload(
 void AwContentsIoThreadClientImpl::NewLoginRequest(const string& realm,
                                                    const string& account,
                                                    const string& args) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (java_object_.is_null())
     return;
 
@@ -373,6 +382,85 @@ void AwContentsIoThreadClientImpl::NewLoginRequest(const string& realm,
 
   Java_AwContentsIoThreadClient_newLoginRequest(
       env, java_object_.obj(), jrealm.obj(), jaccount.obj(), jargs.obj());
+}
+
+void AwContentsIoThreadClientImpl::OnReceivedError(
+    const net::URLRequest* request) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  if (java_object_.is_null())
+    return;
+
+  JNIEnv* env = AttachCurrentThread();
+  WebResourceRequest web_request(env, request);
+
+  int error_code = request->status().error();
+  ScopedJavaLocalRef<jstring> jstring_description = ConvertUTF8ToJavaString(
+      env, net::ErrorToString(request->status().error()));
+
+  Java_AwContentsIoThreadClient_onReceivedError(
+      env,
+      java_object_.obj(),
+      web_request.jstring_url.obj(),
+      web_request.is_main_frame,
+      web_request.has_user_gesture,
+      web_request.jstring_method.obj(),
+      web_request.jstringArray_header_names.obj(),
+      web_request.jstringArray_header_values.obj(),
+      error_code,
+      jstring_description.obj());
+}
+
+void AwContentsIoThreadClientImpl::OnReceivedHttpError(
+    const net::URLRequest* request,
+    const net::HttpResponseHeaders* response_headers) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  if (java_object_.is_null())
+    return;
+
+  JNIEnv* env = AttachCurrentThread();
+  WebResourceRequest web_request(env, request);
+
+  vector<string> response_header_names;
+  vector<string> response_header_values;
+  {
+    void* headers_iterator = NULL;
+    string header_name, header_value;
+    while (response_headers->EnumerateHeaderLines(
+        &headers_iterator, &header_name, &header_value)) {
+      response_header_names.push_back(header_name);
+      response_header_values.push_back(header_value);
+    }
+  }
+
+  string mime_type, encoding;
+  response_headers->GetMimeTypeAndCharset(&mime_type, &encoding);
+  ScopedJavaLocalRef<jstring> jstring_mime_type =
+      ConvertUTF8ToJavaString(env, mime_type);
+  ScopedJavaLocalRef<jstring> jstring_encoding =
+      ConvertUTF8ToJavaString(env, encoding);
+  int status_code = response_headers->response_code();
+  ScopedJavaLocalRef<jstring> jstring_reason =
+      ConvertUTF8ToJavaString(env, response_headers->GetStatusText());
+  ScopedJavaLocalRef<jobjectArray> jstringArray_response_header_names =
+      ToJavaArrayOfStrings(env, response_header_names);
+  ScopedJavaLocalRef<jobjectArray> jstringArray_response_header_values =
+      ToJavaArrayOfStrings(env, response_header_values);
+
+  Java_AwContentsIoThreadClient_onReceivedHttpError(
+      env,
+      java_object_.obj(),
+      web_request.jstring_url.obj(),
+      web_request.is_main_frame,
+      web_request.has_user_gesture,
+      web_request.jstring_method.obj(),
+      web_request.jstringArray_header_names.obj(),
+      web_request.jstringArray_header_values.obj(),
+      jstring_mime_type.obj(),
+      jstring_encoding.obj(),
+      status_code,
+      jstring_reason.obj(),
+      jstringArray_response_header_names.obj(),
+      jstringArray_response_header_values.obj());
 }
 
 bool RegisterAwContentsIoThreadClientImpl(JNIEnv* env) {

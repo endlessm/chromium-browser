@@ -21,69 +21,67 @@ DevToolsNetworkProtocolHandler::~DevToolsNetworkProtocolHandler() {
 base::DictionaryValue* DevToolsNetworkProtocolHandler::HandleCommand(
     content::DevToolsAgentHost* agent_host,
     base::DictionaryValue* command_dict) {
-  scoped_ptr<DevToolsProtocol::Command> command(
-       DevToolsProtocol::ParseCommand(command_dict));
-  if (!command)
-    return NULL;
+  int id = 0;
+  std::string method;
+  const base::DictionaryValue* params = nullptr;
+  if (!DevToolsProtocol::ParseCommand(command_dict, &id, &method, &params))
+    return nullptr;
 
   namespace network = ::chrome::devtools::Network;
-  const std::string method = command->method();
-  scoped_ptr<DevToolsProtocol::Response> response;
 
-  if (method == network::emulateNetworkConditions::kName) {
-    response = EmulateNetworkConditions(agent_host, command.get());
-  } else if (method == network::canEmulateNetworkConditions::kName) {
-    response = CanEmulateNetworkConditions(agent_host, command.get());
-  }
+  if (method == network::emulateNetworkConditions::kName)
+    return EmulateNetworkConditions(agent_host, id, params).release();
 
-  if (response)
-    return response->Serialize();
-  return NULL;
+  if (method == network::canEmulateNetworkConditions::kName)
+    return CanEmulateNetworkConditions(agent_host, id, params).release();
+
+  return nullptr;
 }
 
-Profile* DevToolsNetworkProtocolHandler::GetProfile(
-    content::DevToolsAgentHost* agent_host) {
-  content::WebContents* web_contents = agent_host->GetWebContents();
-  if (!web_contents)
-    return NULL;
-  return Profile::FromBrowserContext(web_contents->GetBrowserContext());
-}
-
-scoped_ptr<DevToolsProtocol::Response>
+scoped_ptr<base::DictionaryValue>
 DevToolsNetworkProtocolHandler::CanEmulateNetworkConditions(
     content::DevToolsAgentHost* agent_host,
-    DevToolsProtocol::Command* command) {
-  base::DictionaryValue* result = new base::DictionaryValue();
+    int command_id,
+    const base::DictionaryValue* params) {
+  scoped_ptr<base::DictionaryValue> result(new base::DictionaryValue());
   result->SetBoolean(chrome::devtools::kResult, true);
-  return command->SuccessResponse(result);
+  return DevToolsProtocol::CreateSuccessResponse(command_id, result.Pass());
 }
 
-scoped_ptr<DevToolsProtocol::Response>
+scoped_ptr<base::DictionaryValue>
 DevToolsNetworkProtocolHandler::EmulateNetworkConditions(
     content::DevToolsAgentHost* agent_host,
-    DevToolsProtocol::Command* command) {
-  base::DictionaryValue* params = command->params();
+    int command_id,
+    const base::DictionaryValue* params) {
   namespace names = ::chrome::devtools::Network::emulateNetworkConditions;
 
   bool offline = false;
-  if (!params || !params->GetBoolean(names::kParamOffline, &offline))
-    return command->InvalidParamResponse(names::kParamOffline);
-
+  if (!params || !params->GetBoolean(names::kParamOffline, &offline)) {
+    return DevToolsProtocol::CreateInvalidParamsResponse(
+        command_id, names::kParamOffline);
+  }
   double latency = 0.0;
-  if (!params->GetDouble(names::kParamLatency, &latency))
-    return command->InvalidParamResponse(names::kParamLatency);
+  if (!params->GetDouble(names::kParamLatency, &latency)) {
+    return DevToolsProtocol::CreateInvalidParamsResponse(
+        command_id, names::kParamLatency);
+  }
   if (latency < 0.0)
     latency = 0.0;
 
   double download_throughput = 0.0;
-  if (!params->GetDouble(names::kParamDownloadThroughput, &download_throughput))
-    return command->InvalidParamResponse(names::kParamDownloadThroughput);
+  if (!params->GetDouble(names::kParamDownloadThroughput,
+                         &download_throughput)) {
+    return DevToolsProtocol::CreateInvalidParamsResponse(
+        command_id, names::kParamDownloadThroughput);
+  }
   if (download_throughput < 0.0)
     download_throughput = 0.0;
 
   double upload_throughput = 0.0;
-  if (!params->GetDouble(names::kParamUploadThroughput, &upload_throughput))
-    return command->InvalidParamResponse(names::kParamUploadThroughput);
+  if (!params->GetDouble(names::kParamUploadThroughput, &upload_throughput)) {
+    return DevToolsProtocol::CreateInvalidParamsResponse(
+        command_id, names::kParamUploadThroughput);
+  }
   if (upload_throughput < 0.0)
     upload_throughput = 0.0;
 
@@ -92,13 +90,14 @@ DevToolsNetworkProtocolHandler::EmulateNetworkConditions(
           offline, latency, download_throughput, upload_throughput));
 
   UpdateNetworkState(agent_host, conditions.Pass());
-  return command->SuccessResponse(NULL);
+  return scoped_ptr<base::DictionaryValue>();
 }
 
 void DevToolsNetworkProtocolHandler::UpdateNetworkState(
     content::DevToolsAgentHost* agent_host,
     scoped_ptr<DevToolsNetworkConditions> conditions) {
-  Profile* profile = GetProfile(agent_host);
+  Profile* profile = Profile::FromBrowserContext(
+      agent_host->GetBrowserContext());
   if (!profile)
     return;
   profile->GetDevToolsNetworkController()->SetNetworkState(

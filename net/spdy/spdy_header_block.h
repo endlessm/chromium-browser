@@ -9,7 +9,7 @@
 #include <string>
 
 #include "net/base/net_export.h"
-#include "net/base/net_log.h"
+#include "net/log/net_log.h"
 
 namespace net {
 
@@ -17,11 +17,10 @@ namespace net {
 // SYN_STREAM or SYN_REPLY frame.
 typedef std::map<std::string, std::string> SpdyHeaderBlock;
 
-// Converts a SpdyHeaderBlock into NetLog event parameters.  Caller takes
-// ownership of returned value.
-NET_EXPORT base::Value* SpdyHeaderBlockNetLogCallback(
+// Converts a SpdyHeaderBlock into NetLog event parameters.
+NET_EXPORT scoped_ptr<base::Value> SpdyHeaderBlockNetLogCallback(
     const SpdyHeaderBlock* headers,
-    NetLog::LogLevel log_level);
+    NetLogCaptureMode capture_mode);
 
 // Converts NetLog event parameters into a SPDY header block and writes them
 // to |headers|.  |event_param| must have been created by

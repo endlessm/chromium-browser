@@ -170,38 +170,36 @@ class RegistryTestHarness : public PolicyProviderTestHarness,
                             public AppliedGPOListProvider {
  public:
   RegistryTestHarness(HKEY hive, PolicyScope scope);
-  virtual ~RegistryTestHarness();
+  ~RegistryTestHarness() override;
 
   // PolicyProviderTestHarness:
-  virtual void SetUp() override;
+  void SetUp() override;
 
-  virtual ConfigurationPolicyProvider* CreateProvider(
+  ConfigurationPolicyProvider* CreateProvider(
       SchemaRegistry* registry,
       scoped_refptr<base::SequencedTaskRunner> task_runner) override;
 
-  virtual void InstallEmptyPolicy() override;
-  virtual void InstallStringPolicy(const std::string& policy_name,
-                                   const std::string& policy_value) override;
-  virtual void InstallIntegerPolicy(const std::string& policy_name,
-                                    int policy_value) override;
-  virtual void InstallBooleanPolicy(const std::string& policy_name,
-                                    bool policy_value) override;
-  virtual void InstallStringListPolicy(
-      const std::string& policy_name,
-      const base::ListValue* policy_value) override;
-  virtual void InstallDictionaryPolicy(
+  void InstallEmptyPolicy() override;
+  void InstallStringPolicy(const std::string& policy_name,
+                           const std::string& policy_value) override;
+  void InstallIntegerPolicy(const std::string& policy_name,
+                            int policy_value) override;
+  void InstallBooleanPolicy(const std::string& policy_name,
+                            bool policy_value) override;
+  void InstallStringListPolicy(const std::string& policy_name,
+                               const base::ListValue* policy_value) override;
+  void InstallDictionaryPolicy(
       const std::string& policy_name,
       const base::DictionaryValue* policy_value) override;
-  virtual void Install3rdPartyPolicy(
-      const base::DictionaryValue* policies) override;
+  void Install3rdPartyPolicy(const base::DictionaryValue* policies) override;
 
   // AppliedGPOListProvider:
-  virtual DWORD GetAppliedGPOList(DWORD flags,
-                                  LPCTSTR machine_name,
-                                  PSID sid_user,
-                                  GUID* extension_guid,
-                                  PGROUP_POLICY_OBJECT* gpo_list) override;
-  virtual BOOL FreeGPOList(PGROUP_POLICY_OBJECT gpo_list) override;
+  DWORD GetAppliedGPOList(DWORD flags,
+                          LPCTSTR machine_name,
+                          PSID sid_user,
+                          GUID* extension_guid,
+                          PGROUP_POLICY_OBJECT* gpo_list) override;
+  BOOL FreeGPOList(PGROUP_POLICY_OBJECT gpo_list) override;
 
   // Creates a harness instance that will install policy in HKCU or HKLM,
   // respectively.
@@ -221,38 +219,36 @@ class PRegTestHarness : public PolicyProviderTestHarness,
                         public AppliedGPOListProvider {
  public:
   PRegTestHarness();
-  virtual ~PRegTestHarness();
+  ~PRegTestHarness() override;
 
   // PolicyProviderTestHarness:
-  virtual void SetUp() override;
+  void SetUp() override;
 
-  virtual ConfigurationPolicyProvider* CreateProvider(
+  ConfigurationPolicyProvider* CreateProvider(
       SchemaRegistry* registry,
       scoped_refptr<base::SequencedTaskRunner> task_runner) override;
 
-  virtual void InstallEmptyPolicy() override;
-  virtual void InstallStringPolicy(const std::string& policy_name,
-                                   const std::string& policy_value) override;
-  virtual void InstallIntegerPolicy(const std::string& policy_name,
-                                    int policy_value) override;
-  virtual void InstallBooleanPolicy(const std::string& policy_name,
-                                    bool policy_value) override;
-  virtual void InstallStringListPolicy(
-      const std::string& policy_name,
-      const base::ListValue* policy_value) override;
-  virtual void InstallDictionaryPolicy(
+  void InstallEmptyPolicy() override;
+  void InstallStringPolicy(const std::string& policy_name,
+                           const std::string& policy_value) override;
+  void InstallIntegerPolicy(const std::string& policy_name,
+                            int policy_value) override;
+  void InstallBooleanPolicy(const std::string& policy_name,
+                            bool policy_value) override;
+  void InstallStringListPolicy(const std::string& policy_name,
+                               const base::ListValue* policy_value) override;
+  void InstallDictionaryPolicy(
       const std::string& policy_name,
       const base::DictionaryValue* policy_value) override;
-  virtual void Install3rdPartyPolicy(
-      const base::DictionaryValue* policies) override;
+  void Install3rdPartyPolicy(const base::DictionaryValue* policies) override;
 
   // AppliedGPOListProvider:
-  virtual DWORD GetAppliedGPOList(DWORD flags,
-                                  LPCTSTR machine_name,
-                                  PSID sid_user,
-                                  GUID* extension_guid,
-                                  PGROUP_POLICY_OBJECT* gpo_list) override;
-  virtual BOOL FreeGPOList(PGROUP_POLICY_OBJECT gpo_list) override;
+  DWORD GetAppliedGPOList(DWORD flags,
+                          LPCTSTR machine_name,
+                          PSID sid_user,
+                          GUID* extension_guid,
+                          PGROUP_POLICY_OBJECT* gpo_list) override;
+  BOOL FreeGPOList(PGROUP_POLICY_OBJECT gpo_list) override;
 
   // Creates a harness instance.
   static PolicyProviderTestHarness* Create();
@@ -406,7 +402,7 @@ void RegistryTestHarness::InstallDictionaryPolicy(
     const std::string& policy_name,
     const base::DictionaryValue* policy_value) {
   std::string json;
-  base::JSONWriter::Write(policy_value, &json);
+  base::JSONWriter::Write(*policy_value, &json);
   RegKey key(hive_, kTestPolicyKey, KEY_ALL_ACCESS);
   ASSERT_TRUE(key.Valid());
   key.WriteValue(UTF8ToUTF16(policy_name).c_str(),
@@ -510,7 +506,7 @@ void PRegTestHarness::InstallDictionaryPolicy(
     const std::string& policy_name,
     const base::DictionaryValue* policy_value) {
   std::string json;
-  base::JSONWriter::Write(policy_value, &json);
+  base::JSONWriter::Write(*policy_value, &json);
   AppendStringToPRegFile(kTestPolicyKey, policy_name, json);
 }
 
@@ -700,9 +696,9 @@ class PolicyLoaderWinTest : public PolicyTestBase,
   PolicyLoaderWinTest()
       : gpo_list_(NULL),
         gpo_list_status_(ERROR_ACCESS_DENIED) {}
-  virtual ~PolicyLoaderWinTest() {}
+  ~PolicyLoaderWinTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     base::win::SetDomainStateForTesting(false);
     PolicyTestBase::SetUp();
 
@@ -712,18 +708,20 @@ class PolicyLoaderWinTest : public PolicyTestBase,
                                    .AppendASCII("data")
                                    .AppendASCII("policy")
                                    .AppendASCII("gpo");
+
+    gpo_list_provider_ = this;
   }
 
   // AppliedGPOListProvider:
-  virtual DWORD GetAppliedGPOList(DWORD flags,
-                                  LPCTSTR machine_name,
-                                  PSID sid_user,
-                                  GUID* extension_guid,
-                                  PGROUP_POLICY_OBJECT* gpo_list) override {
+  DWORD GetAppliedGPOList(DWORD flags,
+                          LPCTSTR machine_name,
+                          PSID sid_user,
+                          GUID* extension_guid,
+                          PGROUP_POLICY_OBJECT* gpo_list) override {
     *gpo_list = gpo_list_;
     return gpo_list_status_;
   }
-  virtual BOOL FreeGPOList(PGROUP_POLICY_OBJECT gpo_list) override {
+  BOOL FreeGPOList(PGROUP_POLICY_OBJECT gpo_list) override {
     return TRUE;
   }
 
@@ -740,7 +738,8 @@ class PolicyLoaderWinTest : public PolicyTestBase,
   }
 
   bool Matches(const PolicyBundle& expected) {
-    PolicyLoaderWin loader(loop_.message_loop_proxy(), kTestPolicyKey, this);
+    PolicyLoaderWin loader(loop_.task_runner(), kTestPolicyKey,
+                           gpo_list_provider_);
     scoped_ptr<PolicyBundle> loaded(
         loader.InitialLoad(schema_registry_.schema_map()));
     return loaded->Equals(expected);
@@ -783,6 +782,7 @@ class PolicyLoaderWinTest : public PolicyTestBase,
   PGROUP_POLICY_OBJECT gpo_list_;
   DWORD gpo_list_status_;
   base::FilePath test_data_dir_;
+  AppliedGPOListProvider* gpo_list_provider_;
 };
 
 const base::char16 PolicyLoaderWinTest::kTestPolicyKey[] =
@@ -910,11 +910,11 @@ TEST_F(PolicyLoaderWinTest, LoadStringEncodedValues) {
   policy.Set("list", list.DeepCopy());
   // Encode |policy| before adding the "dict" entry.
   std::string encoded_dict;
-  base::JSONWriter::Write(&policy, &encoded_dict);
+  base::JSONWriter::Write(policy, &encoded_dict);
   ASSERT_FALSE(encoded_dict.empty());
   policy.Set("dict", policy.DeepCopy());
   std::string encoded_list;
-  base::JSONWriter::Write(&list, &encoded_list);
+  base::JSONWriter::Write(list, &encoded_list);
   ASSERT_FALSE(encoded_list.empty());
   base::DictionaryValue encoded_policy;
   encoded_policy.SetString("null", "");
@@ -1047,7 +1047,19 @@ TEST_F(PolicyLoaderWinTest, AppliedPolicyInDomain) {
   gpo_list_ = &gpo;
   gpo_list_status_ = ERROR_SUCCESS;
 
-  PolicyBundle empty;
+  EXPECT_TRUE(MatchesRegistrySentinel());
+}
+
+TEST_F(PolicyLoaderWinTest, GpoProviderNotSpecified) {
+  base::win::SetDomainStateForTesting(false);
+  InstallRegistrySentinel();
+  base::FilePath gpo_dir(test_data_dir_.AppendASCII("empty"));
+  GROUP_POLICY_OBJECT gpo;
+  InitGPO(&gpo, 0, gpo_dir, NULL, NULL);
+  gpo_list_ = &gpo;
+  gpo_list_status_ = ERROR_SUCCESS;
+  gpo_list_provider_ = nullptr;
+
   EXPECT_TRUE(MatchesRegistrySentinel());
 }
 

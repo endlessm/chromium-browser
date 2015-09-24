@@ -11,7 +11,7 @@
 #include "base/compiler_specific.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "chrome/browser/chromeos/dbus/cros_dbus_service.h"
+#include "chromeos/dbus/services/cros_dbus_service.h"
 #include "dbus/exported_object.h"
 
 namespace dbus {
@@ -26,11 +26,10 @@ class ScreenLockServiceProvider
     : public CrosDBusService::ServiceProviderInterface {
  public:
   ScreenLockServiceProvider();
-  virtual ~ScreenLockServiceProvider();
+  ~ScreenLockServiceProvider() override;
 
   // CrosDBusService::ServiceProviderInterface overrides:
-  virtual void Start(
-      scoped_refptr<dbus::ExportedObject> exported_object) override;
+  void Start(scoped_refptr<dbus::ExportedObject> exported_object) override;
 
  private:
   // Called from ExportedObject when a handler is exported as a D-Bus

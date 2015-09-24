@@ -4,6 +4,7 @@
 
 #include "chrome/browser/extensions/extension_apitest.h"
 
+#include "base/base_switches.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -11,10 +12,14 @@
 #include "chrome/browser/extensions/unpacked_installer.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "content/public/common/content_switches.h"
 #include "extensions/browser/api/test/test_api.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
+#include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_set.h"
 #include "extensions/test/result_catcher.h"
@@ -36,7 +41,8 @@ const char kSpawnedTestServerPort[] = "spawnedTestServer.port";
 
 scoped_ptr<net::test_server::HttpResponse> HandleServerRedirectRequest(
     const net::test_server::HttpRequest& request) {
-  if (!StartsWithASCII(request.relative_url, "/server-redirect?", true))
+  if (!base::StartsWith(request.relative_url, "/server-redirect?",
+                        base::CompareCase::SENSITIVE))
     return nullptr;
 
   size_t query_string_pos = request.relative_url.find('?');
@@ -52,7 +58,8 @@ scoped_ptr<net::test_server::HttpResponse> HandleServerRedirectRequest(
 
 scoped_ptr<net::test_server::HttpResponse> HandleEchoHeaderRequest(
     const net::test_server::HttpRequest& request) {
-  if (!StartsWithASCII(request.relative_url, "/echoheader?", true))
+  if (!base::StartsWith(request.relative_url, "/echoheader?",
+                        base::CompareCase::SENSITIVE))
     return nullptr;
 
   size_t query_string_pos = request.relative_url.find('?');
@@ -74,7 +81,8 @@ scoped_ptr<net::test_server::HttpResponse> HandleEchoHeaderRequest(
 
 scoped_ptr<net::test_server::HttpResponse> HandleSetCookieRequest(
     const net::test_server::HttpRequest& request) {
-  if (!StartsWithASCII(request.relative_url, "/set-cookie?", true))
+  if (!base::StartsWith(request.relative_url, "/set-cookie?",
+                        base::CompareCase::SENSITIVE))
     return nullptr;
 
   scoped_ptr<net::test_server::BasicHttpResponse> http_response(
@@ -96,7 +104,8 @@ scoped_ptr<net::test_server::HttpResponse> HandleSetCookieRequest(
 
 scoped_ptr<net::test_server::HttpResponse> HandleSetHeaderRequest(
     const net::test_server::HttpRequest& request) {
-  if (!StartsWithASCII(request.relative_url, "/set-header?", true))
+  if (!base::StartsWith(request.relative_url, "/set-header?",
+                        base::CompareCase::SENSITIVE))
     return nullptr;
 
   size_t query_string_pos = request.relative_url.find('?');
@@ -201,6 +210,16 @@ bool ExtensionApiTest::RunExtensionTestIncognitoNoFileAccess(
       extension_name, std::string(), NULL, kFlagEnableIncognito);
 }
 
+bool ExtensionApiTest::ExtensionSubtestsAreSkipped() {
+  // See http://crbug.com/177163 for details.
+#if defined(OS_WIN) && !defined(NDEBUG)
+  LOG(WARNING) << "Workaround for 177163, prematurely returning";
+  return true;
+#else
+  return false;
+#endif
+}
+
 bool ExtensionApiTest::RunExtensionSubtest(const std::string& extension_name,
                                            const std::string& page_url) {
   return RunExtensionSubtest(extension_name, page_url, kFlagEnableFileAccess);
@@ -210,15 +229,10 @@ bool ExtensionApiTest::RunExtensionSubtest(const std::string& extension_name,
                                            const std::string& page_url,
                                            int flags) {
   DCHECK(!page_url.empty()) << "Argument page_url is required.";
-  // See http://crbug.com/177163 for details.
-#if defined(OS_WIN) && !defined(NDEBUG)
-  LOG(WARNING) << "Workaround for 177163, prematurely returning";
-  return true;
-#else
+  if (ExtensionSubtestsAreSkipped())
+    return true;
   return RunExtensionTestImpl(extension_name, page_url, NULL, flags);
-#endif
 }
-
 
 bool ExtensionApiTest::RunPageTest(const std::string& page_url) {
   return RunExtensionSubtest(std::string(), page_url);
@@ -307,11 +321,10 @@ bool ExtensionApiTest::RunExtensionTestImpl(const std::string& extension_name,
     else
       ui_test_utils::NavigateToURL(browser(), url);
   } else if (launch_platform_app) {
-    AppLaunchParams params(browser()->profile(),
-                           extension,
-                           extensions::LAUNCH_CONTAINER_NONE,
-                           NEW_WINDOW);
-    params.command_line = *CommandLine::ForCurrentProcess();
+    AppLaunchParams params(browser()->profile(), extension,
+                           extensions::LAUNCH_CONTAINER_NONE, NEW_WINDOW,
+                           extensions::SOURCE_TEST);
+    params.command_line = *base::CommandLine::ForCurrentProcess();
     OpenApplication(params);
   }
 
@@ -325,34 +338,33 @@ bool ExtensionApiTest::RunExtensionTestImpl(const std::string& extension_name,
 
 // Test that exactly one extension is loaded, and return it.
 const extensions::Extension* ExtensionApiTest::GetSingleLoadedExtension() {
-  ExtensionService* service = extensions::ExtensionSystem::Get(
-      browser()->profile())->extension_service();
+  extensions::ExtensionRegistry* registry =
+      extensions::ExtensionRegistry::Get(browser()->profile());
 
-  const extensions::Extension* extension = NULL;
-  for (extensions::ExtensionSet::const_iterator it =
-           service->extensions()->begin();
-       it != service->extensions()->end(); ++it) {
+  const extensions::Extension* result = NULL;
+  for (const scoped_refptr<const extensions::Extension>& extension :
+       registry->enabled_extensions()) {
     // Ignore any component extensions. They are automatically loaded into all
     // profiles and aren't the extension we're looking for here.
-    if ((*it)->location() == extensions::Manifest::COMPONENT)
+    if (extension->location() == extensions::Manifest::COMPONENT)
       continue;
 
-    if (extension != NULL) {
+    if (result != NULL) {
       // TODO(yoz): this is misleading; it counts component extensions.
       message_ = base::StringPrintf(
           "Expected only one extension to be present.  Found %u.",
-          static_cast<unsigned>(service->extensions()->size()));
+          static_cast<unsigned>(registry->enabled_extensions().size()));
       return NULL;
     }
 
-    extension = it->get();
+    result = extension.get();
   }
 
-  if (!extension) {
+  if (!result) {
     message_ = "extension pointer is NULL.";
     return NULL;
   }
-  return extension;
+  return result;
 }
 
 bool ExtensionApiTest::StartEmbeddedTestServer() {
@@ -412,7 +424,11 @@ bool ExtensionApiTest::StartSpawnedTestServer() {
   return true;
 }
 
-void ExtensionApiTest::SetUpCommandLine(CommandLine* command_line) {
+void ExtensionApiTest::SetUpCommandLine(base::CommandLine* command_line) {
   ExtensionBrowserTest::SetUpCommandLine(command_line);
   test_data_dir_ = test_data_dir_.AppendASCII("api_test");
+  // Backgrounded renderer processes run at a lower priority, causing the
+  // tests to take more time to complete. Disable backgrounding so that the
+  // tests don't time out.
+  command_line->AppendSwitch(switches::kDisableRendererBackgrounding);
 }

@@ -18,10 +18,12 @@
  * Boston, MA 02110-1301, USA.
  */
 
-[
-    WillBeGarbageCollected,
-    Constructor
-] interface XMLSerializer {
-    [RaisesException] DOMString serializeToString([Default=Undefined] optional Node node);
-};
+// https://dvcs.w3.org/hg/innerhtml/raw-file/tip/index.html#the-xmlserializer-interface
 
+[
+    Constructor,
+    GarbageCollected,
+    TypeChecking=Interface,
+] interface XMLSerializer {
+    DOMString serializeToString(Node root);
+};

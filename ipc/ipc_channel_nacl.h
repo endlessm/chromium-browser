@@ -35,17 +35,20 @@ class ChannelNacl : public Channel,
                     public internal::ChannelReader {
  public:
   // Mirror methods of Channel, see ipc_channel.h for description.
+  // |broker| must outlive the newly created object.
   ChannelNacl(const IPC::ChannelHandle& channel_handle,
               Mode mode,
-              Listener* listener);
-  virtual ~ChannelNacl();
+              Listener* listener,
+              AttachmentBroker* broker);
+  ~ChannelNacl() override;
 
   // Channel implementation.
-  virtual base::ProcessId GetPeerPID() const override;
-  virtual base::ProcessId GetSelfPID() const override;
-  virtual bool Connect() override;
-  virtual void Close() override;
-  virtual bool Send(Message* message) override;
+  base::ProcessId GetPeerPID() const override;
+  base::ProcessId GetSelfPID() const override;
+  bool Connect() override;
+  void Close() override;
+  bool Send(Message* message) override;
+  AttachmentBroker* GetAttachmentBroker() override;
 
   // Posted to the main thread by ReaderThreadRunner.
   void DidRecvMsg(scoped_ptr<MessageContents> contents);
@@ -59,12 +62,12 @@ class ChannelNacl : public Channel,
   void CallOnChannelConnected();
 
   // ChannelReader implementation.
-  virtual ReadState ReadData(char* buffer,
-                             int buffer_len,
-                             int* bytes_read) override;
-  virtual bool WillDispatchInputMessage(Message* msg) override;
-  virtual bool DidEmptyInputBuffers() override;
-  virtual void HandleInternalMessage(const Message& msg) override;
+  ReadState ReadData(char* buffer,
+                     int buffer_len,
+                     int* bytes_read) override;
+  bool WillDispatchInputMessage(Message* msg) override;
+  bool DidEmptyInputBuffers() override;
+  void HandleInternalMessage(const Message& msg) override;
 
   Mode mode_;
   bool waiting_connect_;
@@ -113,6 +116,9 @@ class ChannelNacl : public Channel,
   std::deque<linked_ptr<Message> > output_queue_;
 
   base::WeakPtrFactory<ChannelNacl> weak_ptr_factory_;
+
+  // |broker_| must outlive this instance.
+  AttachmentBroker* broker_;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(ChannelNacl);
 };

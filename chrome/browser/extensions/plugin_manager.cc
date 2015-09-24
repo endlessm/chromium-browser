@@ -12,11 +12,11 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/api/plugins/plugins_handler.h"
-#include "chrome/common/extensions/manifest_handlers/mime_types_handler.h"
 #include "content/public/browser/plugin_service.h"
 #include "content/public/common/pepper_plugin_info.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
+#include "extensions/common/manifest_handlers/mime_types_handler.h"
 #include "url/gurl.h"
 
 #if !defined(DISABLE_NACL)
@@ -89,8 +89,8 @@ void PluginManager::OnExtensionLoaded(content::BrowserContext* browser_context,
 
     content::WebPluginInfo info;
     info.type = content::WebPluginInfo::PLUGIN_TYPE_BROWSER_PLUGIN;
-    info.name = base::UTF8ToUTF16(handler->extension_id());
-    info.path = base::FilePath::FromUTF8Unsafe(handler->extension_id());
+    info.name = base::UTF8ToUTF16(extension->name());
+    info.path = base::FilePath::FromUTF8Unsafe(extension->url().spec());
 
     for (std::set<std::string>::const_iterator mime_type =
          handler->mime_type_set().begin();
@@ -149,7 +149,7 @@ void PluginManager::OnExtensionUnloaded(
   if (handler && !handler->handler_url().empty()) {
     plugins_or_nacl_changed = true;
     base::FilePath path =
-        base::FilePath::FromUTF8Unsafe(handler->extension_id());
+        base::FilePath::FromUTF8Unsafe(extension->url().spec());
     PluginService::GetInstance()->UnregisterInternalPlugin(path);
     PluginService::GetInstance()->ForcePluginShutdown(path);
     PluginService::GetInstance()->RefreshPlugins();

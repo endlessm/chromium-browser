@@ -10,8 +10,8 @@
 #include "chrome/browser/ui/autofill/new_credit_card_bubble_controller.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
-#import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/base_bubble_controller.h"
+#import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/info_bubble_view.h"
 #import "chrome/browser/ui/cocoa/info_bubble_window.h"
 #import "chrome/browser/ui/cocoa/toolbar/toolbar_controller.h"
@@ -83,7 +83,7 @@ const CGFloat kAnchorlessTopPadding = 10;
                        parentWindow:parentWindow
                          anchoredAt:NSZeroPoint])) {
     controller_ = controller;
-    [window setCanBecomeKeyWindow:NO];
+    [window setInfoBubbleCanBecomeKeyWindow:NO];
 
     ui::NativeTheme* nativeTheme = ui::NativeTheme::instance();
     [[self bubble] setBackgroundColor:

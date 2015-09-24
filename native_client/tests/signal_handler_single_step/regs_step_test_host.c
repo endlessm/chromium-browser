@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/mman.h>
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/nacl_assert.h"
 #include "native_client/src/include/portability_io.h"
 #include "native_client/src/shared/platform/nacl_check.h"
@@ -22,8 +23,7 @@
 #include "native_client/src/trusted/service_runtime/nacl_app_thread.h"
 #include "native_client/src/trusted/service_runtime/nacl_copy.h"
 #include "native_client/src/trusted/service_runtime/nacl_signal.h"
-#include "native_client/src/trusted/service_runtime/nacl_syscall_common.h"
-#include "native_client/src/trusted/service_runtime/nacl_syscall_handlers.h"
+#include "native_client/src/trusted/service_runtime/nacl_syscall_register.h"
 #include "native_client/src/trusted/service_runtime/sel_ldr.h"
 #include "native_client/src/trusted/service_runtime/sys_memory.h"
 #include "native_client/src/trusted/service_runtime/thread_suspension_unwind.h"
@@ -186,8 +186,6 @@ static void SetUpBreakpoints(struct NaClApp *nap) {
 
 
 static int32_t TestSyscall(struct NaClAppThread *natp) {
-  NaClCopyDropLock(natp->nap);
-
   if (g_call_count == 0) {
     g_natp = natp;
 #if NACL_ARCH(NACL_BUILD_ARCH) == NACL_arm
@@ -216,6 +214,8 @@ static int32_t TestSyscall(struct NaClAppThread *natp) {
   }
   return 0;
 }
+
+NACL_DEFINE_SYSCALL_0(TestSyscall)
 
 static void TrapSignalHandler(int signal,
                               const struct NaClSignalContext *context_ptr,
@@ -311,9 +311,8 @@ int main(int argc, char **argv) {
     NaClLog(LOG_FATAL, "Expected 1 argument: executable filename\n");
   }
 
-  NaClAddSyscall(NACL_sys_test_syscall_1, TestSyscall);
-
   CHECK(NaClAppCtor(&app));
+  NACL_REGISTER_SYSCALL(&app, TestSyscall, NACL_sys_test_syscall_1);
   CHECK(NaClAppLoadFileFromFilename(&app, argv[1]) == LOAD_OK);
   NaClAppInitialDescriptorHookup(&app);
 

@@ -5,27 +5,32 @@
 #ifndef CONTENT_BROWSER_LOADER_RESOURCE_LOADER_H_
 #define CONTENT_BROWSER_LOADER_RESOURCE_LOADER_H_
 
-#include "base/gtest_prod_util.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/timer/timer.h"
 #include "content/browser/loader/resource_handler.h"
+#include "content/browser/ssl/ssl_client_auth_handler.h"
 #include "content/browser/ssl/ssl_error_handler.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/resource_controller.h"
 #include "content/public/common/signed_certificate_timestamp_id_and_status.h"
 #include "net/url_request/url_request.h"
 
+namespace net {
+class X509Certificate;
+}
+
 namespace content {
 class ResourceDispatcherHostLoginDelegate;
 class ResourceLoaderDelegate;
 class ResourceRequestInfoImpl;
-class SSLClientAuthHandler;
 
 // This class is responsible for driving the URLRequest (i.e., calling Start,
 // Read, and servicing events).  It has a ResourceHandler, which is typically a
 // chain of ResourceHandlers, and is the ResourceController for its handler.
 class CONTENT_EXPORT ResourceLoader : public net::URLRequest::Delegate,
                                       public SSLErrorHandler::Delegate,
+                                      public SSLClientAuthHandler::Delegate,
                                       public ResourceController {
  public:
   ResourceLoader(scoped_ptr<net::URLRequest> request,
@@ -46,15 +51,11 @@ class CONTENT_EXPORT ResourceLoader : public net::URLRequest::Delegate,
   ResourceRequestInfoImpl* GetRequestInfo();
 
   void ClearLoginDelegate();
-  void ClearSSLClientAuthHandler();
 
   // IPC message handlers:
   void OnUploadProgressACK();
 
  private:
-  FRIEND_TEST_ALL_PREFIXES(ResourceLoaderTest, ClientCertStoreLookup);
-  FRIEND_TEST_ALL_PREFIXES(ResourceLoaderTest, ClientCertStoreNull);
-
   // net::URLRequest::Delegate implementation:
   void OnReceivedRedirect(net::URLRequest* request,
                           const net::RedirectInfo& redirect_info,
@@ -73,6 +74,10 @@ class CONTENT_EXPORT ResourceLoader : public net::URLRequest::Delegate,
   // SSLErrorHandler::Delegate implementation:
   void CancelSSLRequest(int error, const net::SSLInfo* ssl_info) override;
   void ContinueSSLRequest() override;
+
+  // SSLClientAuthHandler::Delegate implementation.
+  void ContinueWithCertificate(net::X509Certificate* cert) override;
+  void CancelCertificateSelection() override;
 
   // ResourceController implementation:
   void Resume() override;
@@ -129,7 +134,7 @@ class CONTENT_EXPORT ResourceLoader : public net::URLRequest::Delegate,
   ResourceLoaderDelegate* delegate_;
 
   scoped_refptr<ResourceDispatcherHostLoginDelegate> login_delegate_;
-  scoped_refptr<SSLClientAuthHandler> ssl_client_auth_handler_;
+  scoped_ptr<SSLClientAuthHandler> ssl_client_auth_handler_;
 
   uint64 last_upload_position_;
   bool waiting_for_upload_progress_ack_;
@@ -140,6 +145,14 @@ class CONTENT_EXPORT ResourceLoader : public net::URLRequest::Delegate,
   // consumer.  We are waiting for a notification to complete the transfer, at
   // which point we'll receive a new ResourceHandler.
   bool is_transferring_;
+
+  // Instrumentation add to investigate http://crbug.com/503306.
+  // TODO(mmenke): Remove once bug is fixed.
+  int times_cancelled_before_request_start_;
+  bool started_request_;
+  int times_cancelled_after_request_start_;
+
+  base::RepeatingTimer<ResourceLoader> progress_timer_;
 
   base::WeakPtrFactory<ResourceLoader> weak_ptr_factory_;
 

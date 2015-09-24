@@ -7,11 +7,10 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/debug/trace_event.h"
-#include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/pickle.h"
 #include "base/stl_util.h"
+#include "base/trace_event/trace_event.h"
 #include "storage/browser/fileapi/timed_task_helper.h"
 
 namespace storage {
@@ -39,8 +38,7 @@ const int FileSystemUsageCache::kUsageFileHeaderSize = 4;
 
 // Pickle::{Read,Write}Bool treat bool as int
 const int FileSystemUsageCache::kUsageFileSize =
-    sizeof(Pickle::Header) +
-    FileSystemUsageCache::kUsageFileHeaderSize +
+    sizeof(base::Pickle::Header) + FileSystemUsageCache::kUsageFileHeaderSize +
     sizeof(int) + sizeof(int32) + sizeof(int64);  // NOLINT
 
 bool FileSystemUsageCache::GetUsage(const base::FilePath& usage_file_path,
@@ -95,10 +93,7 @@ bool FileSystemUsageCache::DecrementDirty(
   bool is_valid = true;
   uint32 dirty = 0;
   int64 usage = 0;
-  if (!Read(usage_file_path, &is_valid, &dirty, &usage) || dirty <= 0)
-    return false;
-
-  if (dirty <= 0)
+  if (!Read(usage_file_path, &is_valid, &dirty, &usage) || dirty == 0)
     return false;
 
   return Write(usage_file_path, is_valid, dirty - 1, usage);
@@ -180,15 +175,15 @@ bool FileSystemUsageCache::Read(const base::FilePath& usage_file_path,
   if (usage_file_path.empty() ||
       !ReadBytes(usage_file_path, buffer, kUsageFileSize))
     return false;
-  Pickle read_pickle(buffer, kUsageFileSize);
-  PickleIterator iter(read_pickle);
+  base::Pickle read_pickle(buffer, kUsageFileSize);
+  base::PickleIterator iter(read_pickle);
   uint32 dirty = 0;
   int64 usage = 0;
 
-  if (!read_pickle.ReadBytes(&iter, &header, kUsageFileHeaderSize) ||
-      !read_pickle.ReadBool(&iter, is_valid) ||
-      !read_pickle.ReadUInt32(&iter, &dirty) ||
-      !read_pickle.ReadInt64(&iter, &usage))
+  if (!iter.ReadBytes(&header, kUsageFileHeaderSize) ||
+      !iter.ReadBool(is_valid) ||
+      !iter.ReadUInt32(&dirty) ||
+      !iter.ReadInt64(&usage))
     return false;
 
   if (header[0] != kUsageFileHeader[0] ||
@@ -208,7 +203,7 @@ bool FileSystemUsageCache::Write(const base::FilePath& usage_file_path,
                                  int64 usage) {
   TRACE_EVENT0("FileSystem", "UsageCache::Write");
   DCHECK(CalledOnValidThread());
-  Pickle write_pickle;
+  base::Pickle write_pickle;
   write_pickle.WriteBytes(kUsageFileHeader, kUsageFileHeaderSize);
   write_pickle.WriteBool(is_valid);
   write_pickle.WriteUInt32(dirty);

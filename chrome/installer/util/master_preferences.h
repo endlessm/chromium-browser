@@ -52,7 +52,8 @@ const char kDefaultMasterPrefs[] = "master_preferences";
 //      "make_chrome_default_for_user": true,
 //      "require_eula": true,
 //      "system_level": false,
-//      "verbose_logging": true
+//      "verbose_logging": true,
+//      "welcome_page_on_os_upgrade_enabled": false
 //   },
 //   "browser": {
 //      "show_home_button": true
@@ -156,6 +157,9 @@ class MasterPreferences {
   //
   bool GetExtensionsBlock(base::DictionaryValue** extensions) const;
 
+  // Returns the compressed variations seed entry from the master prefs.
+  std::string GetCompressedVariationsSeed() const;
+
   // Returns the variations seed entry from the master prefs.
   std::string GetVariationsSeed() const;
 
@@ -169,10 +173,6 @@ class MasterPreferences {
 
   bool install_chrome() const {
     return chrome_;
-  }
-
-  bool install_chrome_app_launcher() const {
-    return chrome_app_launcher_;
   }
 
   bool is_multi_install() const {
@@ -212,7 +212,6 @@ class MasterPreferences {
   base::DictionaryValue* distribution_;
   bool preferences_read_from_file_;
   bool chrome_;
-  bool chrome_app_launcher_;
   bool multi_install_;
 
  private:

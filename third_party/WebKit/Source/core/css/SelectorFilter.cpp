@@ -30,6 +30,7 @@
 #include "core/css/SelectorFilter.h"
 
 #include "core/css/CSSSelector.h"
+#include "core/dom/Document.h"
 
 namespace blink {
 
@@ -38,7 +39,7 @@ enum { TagNameSalt = 13, IdAttributeSalt = 17, ClassAttributeSalt = 19 };
 
 static inline void collectElementIdentifierHashes(const Element& element, Vector<unsigned, 4>& identifierHashes)
 {
-    identifierHashes.append(element.localName().impl()->existingHash() * TagNameSalt);
+    identifierHashes.append(element.localNameForSelectorMatching().impl()->existingHash() * TagNameSalt);
     if (element.hasID())
         identifierHashes.append(element.idForStyleResolution().impl()->existingHash() * IdAttributeSalt);
     if (element.isStyledElement() && element.hasClass()) {
@@ -100,12 +101,32 @@ void SelectorFilter::setupParentStack(Element& parent)
 
 void SelectorFilter::pushParent(Element& parent)
 {
+    const Element* parentsParent = parent.parentOrShadowHostElement();
+
+    // We are not always invoked consistently. For example, script execution can cause us to enter
+    // style recalc in the middle of tree building. We may also be invoked from somewhere within the tree.
+    // Reset the stack in this case, or if we see a new root element.
+    // Otherwise just push the new parent.
+    if (!parentsParent || m_parentStack.isEmpty()) {
+        setupParentStack(parent);
+        return;
+    }
+
     ASSERT(m_ancestorIdentifierFilter);
     // We may get invoked for some random elements in some wacky cases during style resolve.
     // Pause maintaining the stack in this case.
     if (m_parentStack.last().element != parent.parentOrShadowHostElement())
         return;
     pushParentStackFrame(parent);
+}
+
+void SelectorFilter::popParent(Element& parent)
+{
+    // Note that we may get invoked for some random elements in some wacky cases during style resolve.
+    // Pause maintaining the stack in this case.
+    if (!parentStackIsConsistent(&parent))
+        return;
+    popParentStackFrame();
 }
 
 static inline void collectDescendantSelectorIdentifierHashes(const CSSSelector& selector, unsigned*& hash)
@@ -170,14 +191,16 @@ void SelectorFilter::collectIdentifierHashes(const CSSSelector& selector, unsign
     *hash = 0;
 }
 
-void SelectorFilter::ParentStackFrame::trace(Visitor* visitor)
+DEFINE_TRACE(SelectorFilter::ParentStackFrame)
 {
     visitor->trace(element);
 }
 
-void SelectorFilter::trace(Visitor* visitor)
+DEFINE_TRACE(SelectorFilter)
 {
+#if ENABLE(OILPAN)
     visitor->trace(m_parentStack);
+#endif
 }
 
 }

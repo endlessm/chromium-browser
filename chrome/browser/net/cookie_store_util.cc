@@ -12,19 +12,17 @@
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/net/chrome_cookie_notification_details.h"
 #include "chrome/browser/net/evicted_domain_cookie_counter.h"
-#include "chrome/browser/prerender/prerender_manager.h"
-#include "chrome/browser/prerender/prerender_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/os_crypt/os_crypt.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/cookie_crypto_delegate.h"
 #include "content/public/browser/cookie_store_factory.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/common/content_constants.h"
 #include "extensions/common/constants.h"
+#include "net/extras/sqlite/cookie_crypto_delegate.h"
 
 using content::BrowserThread;
 
@@ -36,7 +34,7 @@ class ChromeCookieMonsterDelegate : public net::CookieMonsterDelegate {
       : profile_getter_(
           base::Bind(&GetProfileOnUI, g_browser_process->profile_manager(),
                      profile)) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     DCHECK(profile);
   }
 
@@ -49,13 +47,6 @@ class ChromeCookieMonsterDelegate : public net::CookieMonsterDelegate {
         BrowserThread::UI, FROM_HERE,
         base::Bind(&ChromeCookieMonsterDelegate::OnCookieChangedAsyncHelper,
                    this, cookie, removed, cause));
-  }
-
-  void OnLoaded() override {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
-        base::Bind(&ChromeCookieMonsterDelegate::OnLoadedAsyncHelper,
-                   this));
   }
 
  private:
@@ -82,36 +73,12 @@ class ChromeCookieMonsterDelegate : public net::CookieMonsterDelegate {
     }
   }
 
-  void OnLoadedAsyncHelper() {
-    Profile* profile = profile_getter_.Run();
-    if (profile) {
-      prerender::PrerenderManager* prerender_manager =
-          prerender::PrerenderManagerFactory::GetForProfile(profile);
-      if (prerender_manager)
-        prerender_manager->OnCookieStoreLoaded();
-    }
-  }
-
   const base::Callback<Profile*(void)> profile_getter_;
 };
 
 }  // namespace
 
 namespace chrome_browser_net {
-
-bool IsCookieRecordMode() {
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
-  // Only allow Record Mode if we are in a Debug build or where we are running
-  // a cycle, and the user has limited control.
-  return command_line.HasSwitch(switches::kRecordMode) &&
-      chrome::kRecordModeEnabled;
-}
-
-bool ShouldUseInMemoryCookiesAndCache() {
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
-  return IsCookieRecordMode() ||
-      command_line.HasSwitch(switches::kPlaybackMode);
-}
 
 net::CookieMonsterDelegate* CreateCookieDelegate(Profile* profile) {
   return new EvictedDomainCookieCounter(
@@ -127,7 +94,7 @@ namespace {
 //
 // TODO(bcwhite): Enable on MACOSX -- requires all Cookie tests to call
 // OSCrypt::UseMockKeychain or will hang waiting for user input.
-class CookieOSCryptoDelegate : public content::CookieCryptoDelegate {
+class CookieOSCryptoDelegate : public net::CookieCryptoDelegate {
  public:
   bool EncryptString(const std::string& plaintext,
                      std::string* ciphertext) override;
@@ -152,11 +119,11 @@ base::LazyInstance<CookieOSCryptoDelegate> g_cookie_crypto_delegate =
 
 }  // namespace
 
-content::CookieCryptoDelegate* GetCookieCryptoDelegate() {
+net::CookieCryptoDelegate* GetCookieCryptoDelegate() {
   return g_cookie_crypto_delegate.Pointer();
 }
 #else  // defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
-content::CookieCryptoDelegate* GetCookieCryptoDelegate() {
+net::CookieCryptoDelegate* GetCookieCryptoDelegate() {
   return NULL;
 }
 #endif  // defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)

@@ -46,16 +46,17 @@ PasswordManagerInternalsUI::PasswordManagerInternalsUI(content::WebUI* web_ui)
 }
 
 PasswordManagerInternalsUI::~PasswordManagerInternalsUI() {
-  UnregisterFromLoggingService();
+  UnregisterFromLoggingServiceIfNecessary();
 }
 
-void PasswordManagerInternalsUI::DidStartLoading(
-    content::RenderViewHost* /* render_view_host */) {
-  UnregisterFromLoggingService();
+void PasswordManagerInternalsUI::DidStartLoading() {
+  // In case this tab is being reloaded, unregister itself until the reload is
+  // completed.
+  UnregisterFromLoggingServiceIfNecessary();
 }
 
-void PasswordManagerInternalsUI::DidStopLoading(
-    content::RenderViewHost* /* render_view_host */) {
+void PasswordManagerInternalsUI::DidStopLoading() {
+  DCHECK(!registered_with_logging_service_);
   PasswordManagerInternalsService* service =
       PasswordManagerInternalsServiceFactory::GetForBrowserContext(
           Profile::FromWebUI(web_ui()));
@@ -77,9 +78,10 @@ void PasswordManagerInternalsUI::LogSavePasswordProgress(
                                    text_string_value);
 }
 
-void PasswordManagerInternalsUI::UnregisterFromLoggingService() {
+void PasswordManagerInternalsUI::UnregisterFromLoggingServiceIfNecessary() {
   if (!registered_with_logging_service_)
     return;
+  registered_with_logging_service_ = false;
   PasswordManagerInternalsService* service =
       PasswordManagerInternalsServiceFactory::GetForBrowserContext(
           Profile::FromWebUI(web_ui()));

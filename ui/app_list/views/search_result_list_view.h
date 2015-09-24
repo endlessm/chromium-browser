@@ -33,8 +33,6 @@ class APP_LIST_EXPORT SearchResultListView : public gfx::AnimationDelegate,
                        AppListViewDelegate* view_delegate);
   ~SearchResultListView() override;
 
-  void SetSelectedIndex(int selected_index);
-
   void UpdateAutoLaunchState();
 
   bool IsResultViewSelected(const SearchResultView* result_view) const;
@@ -47,8 +45,6 @@ class APP_LIST_EXPORT SearchResultListView : public gfx::AnimationDelegate,
 
   void OnSearchResultInstalled(SearchResultView* view);
 
-  void OnSearchResultUninstalled(SearchResultView* view);
-
   // Overridden from views::View:
   bool OnKeyPressed(const ui::KeyEvent& event) override;
   gfx::Size GetPreferredSize() const override;
@@ -57,10 +53,17 @@ class APP_LIST_EXPORT SearchResultListView : public gfx::AnimationDelegate,
   void ListItemsRemoved(size_t start, size_t count) override;
 
   // Overridden from SearchResultContainerView:
-  void Update() override;
+  void OnContainerSelected(bool from_bottom,
+                           bool directional_movement) override;
+  void NotifyFirstResultYIndex(int y_index) override;
+  int GetYSize() override;
 
  private:
   friend class test::SearchResultListViewTest;
+
+  // Overridden from SearchResultContainerView:
+  int Update() override;
+  void UpdateSelectedIndex(int old_selected, int new_selected) override;
 
   // Updates the auto launch states.
   void SetAutoLaunchTimeout(const base::TimeDelta& timeout);
@@ -87,9 +90,6 @@ class APP_LIST_EXPORT SearchResultListView : public gfx::AnimationDelegate,
   views::View* results_container_;
   views::View* auto_launch_indicator_;
   scoped_ptr<gfx::LinearAnimation> auto_launch_animation_;
-
-  int last_visible_index_;
-  int selected_index_;
 
   DISALLOW_COPY_AND_ASSIGN(SearchResultListView);
 };

@@ -22,12 +22,13 @@ def AppendDictionary(d1, d2):
 
 
 class ToolchainConfig(object):
-  def __init__(self, desc, commands, tools_needed, is_flaky=False,
-               attributes=[], **extra):
+  def __init__(self, desc, commands=None, tools_needed=None, is_flaky=False,
+               attributes=[], base=None, **extra):
     self._desc = desc,
-    self._commands = commands
-    self._tools_needed = tools_needed
-    self._extra = extra
+    self._commands = commands or base._commands
+    self._tools_needed = tools_needed or base._tools_needed
+    self._extra = base._extra.copy() if base else {}
+    self._extra.update(extra)
     self._flaky = is_flaky
     self._attributes = attributes
 
@@ -92,9 +93,6 @@ NACL_GCC_X32 = NACL_X86_NEWLIB + '/bin/i686-nacl-gcc'
 NACL_GCC_X64 = NACL_X86_NEWLIB + '/bin/x86_64-nacl-gcc'
 
 GLOBAL_CFLAGS = ' '.join(['-DSTACK_SIZE=0x40000',
-                          '"-D__INT_LEAST8_TYPE__=signed char"',
-                          '"-D__UINT_LEAST8_TYPE__=unsigned char"',
-                          '"-D__UINT_LEAST32_TYPE__=unsigned int"',
                           '-D_XOPEN_SOURCE=600',
                           '-DNO_TRAMPOLINES',
                           '-DNO_LABEL_VALUES',])
@@ -237,14 +235,16 @@ COMMANDS_llvm_pnacl_arm = [
 # In the PNaCl ToolchainConfig attributes, the convention for the 'b'
 # and 'f' suffixes is that 'O0f' means frontend (clang) compilation
 # with -O0, and 'O2b' means backend (llc) translation with -O2.
+# In addition, the 'b_sz' suffix means to use pnacl-sz rather than pnacl-llc.
+# TODO(stichnot): Add 'b_sz' configs to the missing architectures when Subzero
+# supports them.
 
 TOOLCHAIN_CONFIGS['llvm_pnacl_arm_O0'] = ToolchainConfig(
     desc='pnacl llvm [arm]',
     attributes=['arm', 'O0f', 'O2b'],
     commands=COMMANDS_llvm_pnacl_arm,
     tools_needed=[PNACL_FRONTEND, PNACL_FINALIZE, PNACL_LD,
-                  EMU_SCRIPT, BOOTSTRAP_ARM,
-                  SEL_LDR_ARM],
+                  EMU_SCRIPT, BOOTSTRAP_ARM, SEL_LDR_ARM],
     is_flaky = True,
     CC = PNACL_FRONTEND,
     FINALIZE = PNACL_FINALIZE,
@@ -257,59 +257,27 @@ TOOLCHAIN_CONFIGS['llvm_pnacl_arm_O0'] = ToolchainConfig(
     TRANSLATE_FLAGS='')
 
 TOOLCHAIN_CONFIGS['llvm_pnacl_arm_O3'] = ToolchainConfig(
+    base=TOOLCHAIN_CONFIGS['llvm_pnacl_arm_O0'],
     desc='pnacl llvm with optimizations [arm]',
     attributes=['arm', 'O3f', 'O2b'],
-    commands=COMMANDS_llvm_pnacl_arm,
-    tools_needed=[PNACL_FRONTEND, PNACL_FINALIZE, PNACL_LD,
-                  EMU_SCRIPT, BOOTSTRAP_ARM, SEL_LDR_ARM],
     is_flaky = True,
-    CC = PNACL_FRONTEND,
-    FINALIZE = PNACL_FINALIZE,
-    LD = PNACL_LD  + ' -arch arm',
-    EMU = EMU_SCRIPT,
-    SEL_LDR = RUN_SEL_LDR_ARM,
-    IRT = IRT_ARM,
     CFLAGS = '-O3 -D__OPTIMIZE__ -static ' + CLANG_CFLAGS  + ' '
-              + GLOBAL_CFLAGS,
-    FINALIZE_FLAGS = '',
-    TRANSLATE_FLAGS = '')
+              + GLOBAL_CFLAGS)
 
 # Based on llvm_pnacl_arm_O3 with TRANSLATE_FLAGS=-translate-fast
 TOOLCHAIN_CONFIGS['llvm_pnacl_arm_O3_O0'] = ToolchainConfig(
+    base=TOOLCHAIN_CONFIGS['llvm_pnacl_arm_O3'],
     desc='pnacl llvm with optimizations and fast translation [arm]',
     attributes=['arm', 'O3f', 'O0b'],
-    commands=COMMANDS_llvm_pnacl_arm,
-    tools_needed=[PNACL_FRONTEND, PNACL_FINALIZE, PNACL_LD,
-                  EMU_SCRIPT, BOOTSTRAP_ARM, SEL_LDR_ARM],
     is_flaky = True,
-    CC = PNACL_FRONTEND,
-    FINALIZE = PNACL_FINALIZE,
-    LD = PNACL_LD  + ' -arch arm',
-    EMU = EMU_SCRIPT,
-    SEL_LDR = RUN_SEL_LDR_ARM,
-    IRT = IRT_ARM,
-    CFLAGS = '-O3 -D__OPTIMIZE__ -static ' + CLANG_CFLAGS  + ' '
-              + GLOBAL_CFLAGS,
-    FINALIZE_FLAGS = '',
     TRANSLATE_FLAGS = '-translate-fast')
 
 # Based on llvm_pnacl_arm_O0 with TRANSLATE_FLAGS=-translate-fast
 TOOLCHAIN_CONFIGS['llvm_pnacl_arm_O0_O0'] = ToolchainConfig(
+    base=TOOLCHAIN_CONFIGS['llvm_pnacl_arm_O0'],
     desc='pnacl llvm [arm]',
     attributes=['arm', 'O0f', 'O0b'],
-    commands=COMMANDS_llvm_pnacl_arm,
-    tools_needed=[PNACL_FRONTEND, PNACL_FINALIZE, PNACL_LD,
-                  EMU_SCRIPT, BOOTSTRAP_ARM,
-                  SEL_LDR_ARM],
     is_flaky = True,
-    CC = PNACL_FRONTEND,
-    FINALIZE = PNACL_FINALIZE,
-    LD = PNACL_LD + ' -arch arm',
-    EMU = EMU_SCRIPT,
-    SEL_LDR = RUN_SEL_LDR_ARM,
-    IRT = IRT_ARM,
-    CFLAGS = '-O0 -static ' + CLANG_CFLAGS + ' ' + GLOBAL_CFLAGS,
-    FINALIZE_FLAGS = '',
     TRANSLATE_FLAGS='-translate-fast')
 
 ######################################################################
@@ -349,54 +317,55 @@ TOOLCHAIN_CONFIGS['llvm_pnacl_x86-32_O0'] = ToolchainConfig(
     FINALIZE_FLAGS = '',
     TRANSLATE_FLAGS = '')
 
+# Based on llvm_pnacl_x86-32_O0 with -O3 -D__OPTIMIZE__ instead of -O0
 TOOLCHAIN_CONFIGS['llvm_pnacl_x86-32_O3'] = ToolchainConfig(
+    base=TOOLCHAIN_CONFIGS['llvm_pnacl_x86-32_O0'],
     desc='pnacl llvm [x8632]',
     attributes=['x86-32', 'O3f', 'O2b'],
-    commands=COMMANDS_llvm_pnacl_x86,
-    tools_needed=[PNACL_FRONTEND, PNACL_FINALIZE, PNACL_LD,
-                  BOOTSTRAP_X32, SEL_LDR_X32],
-    CC = PNACL_FRONTEND,
-    FINALIZE = PNACL_FINALIZE,
-    LD = PNACL_LD + ' -arch x86-32',
-    SEL_LDR = RUN_SEL_LDR_X32,
-    IRT = IRT_X32,
     CFLAGS = '-O3 -D__OPTIMIZE__ -static ' + CLANG_CFLAGS + ' '
-             + GLOBAL_CFLAGS,
-    FINALIZE_FLAGS = '',
-    TRANSLATE_FLAGS = '')
+             + GLOBAL_CFLAGS)
 
 # Based on llvm_pnacl_x86-32_O3 with TRANSLATE_FLAGS=-translate-fast
 TOOLCHAIN_CONFIGS['llvm_pnacl_x86-32_O3_O0'] = ToolchainConfig(
+    base=TOOLCHAIN_CONFIGS['llvm_pnacl_x86-32_O3'],
     desc='pnacl llvm with fast translation [x8632]',
     attributes=['x86-32', 'O3f', 'O0b'],
-    commands=COMMANDS_llvm_pnacl_x86,
-    tools_needed=[PNACL_FRONTEND, PNACL_FINALIZE, PNACL_LD,
-                  BOOTSTRAP_X32, SEL_LDR_X32],
-    CC = PNACL_FRONTEND,
-    FINALIZE = PNACL_FINALIZE,
-    LD = PNACL_LD + ' -arch x86-32',
-    SEL_LDR = RUN_SEL_LDR_X32,
-    IRT = IRT_X32,
-    CFLAGS = '-O3 -D__OPTIMIZE__ -static ' + CLANG_CFLAGS + ' '
-             + GLOBAL_CFLAGS,
-    FINALIZE_FLAGS = '',
     TRANSLATE_FLAGS = '-translate-fast')
 
 # Based on llvm_pnacl_x86-32_O0 with TRANSLATE_FLAGS=-translate-fast
 TOOLCHAIN_CONFIGS['llvm_pnacl_x86-32_O0_O0'] = ToolchainConfig(
-    desc='pnacl llvm [x8632]',
+    base=TOOLCHAIN_CONFIGS['llvm_pnacl_x86-32_O0'],
+    desc='pnacl llvm with fast translation [x8632]',
     attributes=['x86-32', 'O0f', 'O0b'],
-    commands=COMMANDS_llvm_pnacl_x86,
-    tools_needed=[PNACL_FRONTEND, PNACL_FINALIZE, PNACL_LD,
-                  BOOTSTRAP_X32, SEL_LDR_X32],
-    CC = PNACL_FRONTEND,
-    FINALIZE = PNACL_FINALIZE,
-    LD = PNACL_LD + ' -arch x86-32',
-    SEL_LDR = RUN_SEL_LDR_X32,
-    IRT = IRT_X32,
-    CFLAGS = '-O0  -static ' + CLANG_CFLAGS + ' ' + GLOBAL_CFLAGS,
-    FINALIZE_FLAGS = '',
     TRANSLATE_FLAGS = '-translate-fast')
+
+# Based on llvm_pnacl_x86-32_O0 with TRANSLATE_FLAGS+=--use-sz
+TOOLCHAIN_CONFIGS['llvm_pnacl_x86-32_O0_sz'] = ToolchainConfig(
+    base=TOOLCHAIN_CONFIGS['llvm_pnacl_x86-32_O0'],
+    desc='pnacl llvm with Subzero [x8632]',
+    attributes=['x86-32', 'O0f', 'O2b_sz'],
+    TRANSLATE_FLAGS = '--use-sz')
+
+# Based on llvm_pnacl_x86-32_O3 with TRANSLATE_FLAGS+=--use-sz
+TOOLCHAIN_CONFIGS['llvm_pnacl_x86-32_O3_sz'] = ToolchainConfig(
+    base=TOOLCHAIN_CONFIGS['llvm_pnacl_x86-32_O3'],
+    desc='pnacl llvm with Subzero [x8632]',
+    attributes=['x86-32', 'O3f', 'O2b_sz'],
+    TRANSLATE_FLAGS = '--use-sz')
+
+# Based on llvm_pnacl_x86-32_O3_O0 with TRANSLATE_FLAGS+=--use-sz
+TOOLCHAIN_CONFIGS['llvm_pnacl_x86-32_O3_O0_sz'] = ToolchainConfig(
+    base=TOOLCHAIN_CONFIGS['llvm_pnacl_x86-32_O3_O0'],
+    desc='pnacl llvm with Subzero -Om1 [x8632]',
+    attributes=['x86-32', 'O3f', 'O0b_sz'],
+    TRANSLATE_FLAGS = '-translate-fast --use-sz')
+
+# Based on llvm_pnacl_x86-32_O0_O0 with TRANSLATE_FLAGS+=--use-sz
+TOOLCHAIN_CONFIGS['llvm_pnacl_x86-32_O0_O0_sz'] = ToolchainConfig(
+    base=TOOLCHAIN_CONFIGS['llvm_pnacl_x86-32_O0_O0'],
+    desc='pnacl llvm with Subzero -Om1 [x8632]',
+    attributes=['x86-32', 'O0f', 'O0b_sz'],
+    TRANSLATE_FLAGS = '-translate-fast --use-sz')
 
 ######################################################################
 # PNACL + SEL_LDR [X8664]
@@ -417,51 +386,112 @@ TOOLCHAIN_CONFIGS['llvm_pnacl_x86-64_O0'] = ToolchainConfig(
     FINALIZE_FLAGS = '',
     TRANSLATE_FLAGS = '')
 
+# Based on llvm_pnacl_x86-64_O0 with -O3 -D__OPTIMIZE__ instead of -O0
 TOOLCHAIN_CONFIGS['llvm_pnacl_x86-64_O3'] = ToolchainConfig(
+    base=TOOLCHAIN_CONFIGS['llvm_pnacl_x86-64_O0'],
     desc='pnacl llvm [x8664]',
     attributes=['x86-64', 'O3f', 'O2b'],
-    commands=COMMANDS_llvm_pnacl_x86,
-    tools_needed=[PNACL_FRONTEND, PNACL_FINALIZE, PNACL_LD,
-                  BOOTSTRAP_X64, SEL_LDR_X64],
-    CC = PNACL_FRONTEND,
-    FINALIZE = PNACL_FINALIZE,
-    LD = PNACL_LD + ' -arch x86-64',
-    SEL_LDR = RUN_SEL_LDR_X64,
-    IRT = IRT_X64,
     CFLAGS = '-O3 -D__OPTIMIZE__ -static ' + CLANG_CFLAGS + ' '
-             + GLOBAL_CFLAGS,
-    FINALIZE_FLAGS = '',
-    TRANSLATE_FLAGS = '')
+             + GLOBAL_CFLAGS)
 
 # Based on llvm_pnacl_x86-64_O3 with TRANSLATE_FLAGS=-translate-fast
 TOOLCHAIN_CONFIGS['llvm_pnacl_x86-64_O3_O0'] = ToolchainConfig(
+    base=TOOLCHAIN_CONFIGS['llvm_pnacl_x86-64_O3'],
     desc='pnacl llvm with fast translation [x8664]',
     attributes=['x86-64', 'O3f', 'O0b'],
-    commands=COMMANDS_llvm_pnacl_x86,
-    tools_needed=[PNACL_FRONTEND, PNACL_FINALIZE, PNACL_LD,
-                  BOOTSTRAP_X64, SEL_LDR_X64],
-    CC = PNACL_FRONTEND,
-    FINALIZE = PNACL_FINALIZE,
-    LD = PNACL_LD + ' -arch x86-64',
-    SEL_LDR = RUN_SEL_LDR_X64,
-    IRT = IRT_X64,
-    CFLAGS = '-O3 -D__OPTIMIZE__ -static ' + CLANG_CFLAGS + ' '
-             + GLOBAL_CFLAGS,
-    FINALIZE_FLAGS = '',
     TRANSLATE_FLAGS = '-translate-fast')
 
 # Based on llvm_pnacl_x86-64_O0 with TRANSLATE_FLAGS=-translate-fast
 TOOLCHAIN_CONFIGS['llvm_pnacl_x86-64_O0_O0'] = ToolchainConfig(
+    base=TOOLCHAIN_CONFIGS['llvm_pnacl_x86-64_O0'],
     desc='pnacl llvm [x8664]',
     attributes=['x86-64', 'O0f', 'O0b'],
-    commands=COMMANDS_llvm_pnacl_x86,
-    tools_needed=[PNACL_FRONTEND, PNACL_FINALIZE, PNACL_LD,
-                  BOOTSTRAP_X64, SEL_LDR_X64],
-    CC = PNACL_FRONTEND,
-    FINALIZE = PNACL_FINALIZE,
-    LD = PNACL_LD + ' -arch x86-64',
-    SEL_LDR = RUN_SEL_LDR_X64,
-    IRT = IRT_X64,
-    CFLAGS = '-O0 -static ' + CLANG_CFLAGS + ' ' + GLOBAL_CFLAGS,
-    FINALIZE_FLAGS = '',
     TRANSLATE_FLAGS = '-translate-fast')
+
+######################################################################
+# CLANG + SEL_LDR
+######################################################################
+
+def NaClClangCommands(arch):
+  commands = [
+      ('compile',
+       '%(CC)s %(src)s %(CFLAGS)s -o %(tmp)s.nexe -lm',
+      ),
+  ]
+  if arch == 'arm':
+    commands.append(
+        ('qemu-sel_ldr',
+         '%(EMU)s %(SEL_LDR)s -B %(IRT)s -Q %(tmp)s.nexe',
+        ))
+  else:
+    commands.append(
+        ('sel_ldr',
+         '%(SEL_LDR)s -B %(IRT)s %(tmp)s.nexe',
+        ))
+  return commands
+
+def NaClClang(arch, cpp=False):
+  arch_map = {'x86-64': 'x86_64', 'x86-32': 'i686', 'arm': 'arm'}
+  suffix = '++' if cpp else ''
+  return os.path.join(PNACL_ROOT, 'bin',
+                      arch_map[arch] + '-nacl-clang' + suffix)
+
+# TODO(dschuff): the other uses of SEL_LDR_ARCH etc can probably just be
+# replaced with something like this everywhere.
+def Tool(arch, tool):
+  toolmap = {
+    'x86-64': {
+      'sel_ldr': SEL_LDR_X64,
+      'bootstrap': BOOTSTRAP_X64,
+      'irt': IRT_X64,
+      'run_sel_ldr': RUN_SEL_LDR_X64,
+    },
+    'x86-32': {
+      'sel_ldr': SEL_LDR_X32,
+      'bootstrap': BOOTSTRAP_X32,
+      'irt': IRT_X32,
+      'run_sel_ldr': RUN_SEL_LDR_X32,
+    },
+    'arm': {
+      'sel_ldr': SEL_LDR_ARM,
+      'bootstrap': BOOTSTRAP_ARM,
+      'irt': IRT_ARM,
+      'run_sel_ldr': RUN_SEL_LDR_ARM,
+    }
+  }
+  return toolmap[arch][tool]
+
+for arch in ['x86-64', 'x86-32', 'arm']:
+  TOOLCHAIN_CONFIGS['nacl_clang_%s_O0' % arch] = ToolchainConfig(
+    desc='clang [%s O0]' % arch,
+    attributes=[arch, 'O0'],
+    commands=NaClClangCommands(arch),
+    tools_needed=[NaClClang(arch), Tool(arch, 'bootstrap'),
+                  Tool(arch, 'sel_ldr')],
+    CC = NaClClang(arch),
+    SEL_LDR = Tool(arch, 'run_sel_ldr'),
+    IRT = Tool(arch, 'irt'),
+    EMU = EMU_SCRIPT,
+    CFLAGS = '-O0 ' + CLANG_CFLAGS + ' ' + GLOBAL_CFLAGS)
+
+  # Unlike gcc (which doesn't care) and pnacl-clang (which figures out the
+  # source language and explicitly tells the underlying clang), nacl-clang
+  # doesn't like building C files using the C++ compiler. So different configs
+  # are needed for C++ vs C tests.
+  TOOLCHAIN_CONFIGS['nacl_clang++_%s_O0' % arch] = ToolchainConfig(
+    base=TOOLCHAIN_CONFIGS['nacl_clang_%s_O0' % arch],
+    desc='clang++ [%s O0]' % arch,
+    attributes=[arch, 'O3'],
+    CC = NaClClang(arch, cpp=True))
+
+  TOOLCHAIN_CONFIGS['nacl_clang_%s_O3' % arch] = ToolchainConfig(
+    base=TOOLCHAIN_CONFIGS['nacl_clang_%s_O0' % arch],
+    desc='clang [%s O3]' % arch,
+    attributes=[arch, 'O3'],
+    CFLAGS = '-O3 ' + CLANG_CFLAGS + ' ' + GLOBAL_CFLAGS)
+
+  TOOLCHAIN_CONFIGS['nacl_clang++_%s_O3' % arch] = ToolchainConfig(
+    base=TOOLCHAIN_CONFIGS['nacl_clang_%s_O3' % arch],
+    desc='clang++ [%s O3]' % arch,
+    attributes=[arch, 'O3'],
+    CC = NaClClang(arch, cpp=True))

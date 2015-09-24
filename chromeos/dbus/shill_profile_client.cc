@@ -5,8 +5,9 @@
 #include "chromeos/dbus/shill_profile_client.h"
 
 #include "base/bind.h"
+#include "base/containers/scoped_ptr_map.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/stl_util.h"
 #include "base/values.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/shill_property_changed_observer.h"
@@ -26,71 +27,65 @@ class ShillProfileClientImpl : public ShillProfileClient {
  public:
   ShillProfileClientImpl();
 
-  virtual void AddPropertyChangedObserver(
+  void AddPropertyChangedObserver(
       const dbus::ObjectPath& profile_path,
       ShillPropertyChangedObserver* observer) override {
     GetHelper(profile_path)->AddPropertyChangedObserver(observer);
   }
 
-  virtual void RemovePropertyChangedObserver(
+  void RemovePropertyChangedObserver(
       const dbus::ObjectPath& profile_path,
       ShillPropertyChangedObserver* observer) override {
     GetHelper(profile_path)->RemovePropertyChangedObserver(observer);
   }
 
-  virtual void GetProperties(
-      const dbus::ObjectPath& profile_path,
-      const DictionaryValueCallbackWithoutStatus& callback,
-      const ErrorCallback& error_callback) override;
-  virtual void GetEntry(const dbus::ObjectPath& profile_path,
-                        const std::string& entry_path,
-                        const DictionaryValueCallbackWithoutStatus& callback,
-                        const ErrorCallback& error_callback) override;
-  virtual void DeleteEntry(const dbus::ObjectPath& profile_path,
-                           const std::string& entry_path,
-                           const base::Closure& callback,
-                           const ErrorCallback& error_callback) override;
+  void GetProperties(const dbus::ObjectPath& profile_path,
+                     const DictionaryValueCallbackWithoutStatus& callback,
+                     const ErrorCallback& error_callback) override;
+  void GetEntry(const dbus::ObjectPath& profile_path,
+                const std::string& entry_path,
+                const DictionaryValueCallbackWithoutStatus& callback,
+                const ErrorCallback& error_callback) override;
+  void DeleteEntry(const dbus::ObjectPath& profile_path,
+                   const std::string& entry_path,
+                   const base::Closure& callback,
+                   const ErrorCallback& error_callback) override;
 
-  virtual TestInterface* GetTestInterface() override {
-    return NULL;
-  }
+  TestInterface* GetTestInterface() override { return NULL; }
 
  protected:
-  virtual void Init(dbus::Bus* bus) override {
-    bus_ = bus;
-  }
+  void Init(dbus::Bus* bus) override { bus_ = bus; }
 
  private:
-  typedef std::map<std::string, ShillClientHelper*> HelperMap;
+  typedef base::ScopedPtrMap<std::string, scoped_ptr<ShillClientHelper>>
+      HelperMap;
 
   // Returns the corresponding ShillClientHelper for the profile.
   ShillClientHelper* GetHelper(const dbus::ObjectPath& profile_path);
 
   dbus::Bus* bus_;
   HelperMap helpers_;
-  STLValueDeleter<HelperMap> helpers_deleter_;
 
   DISALLOW_COPY_AND_ASSIGN(ShillProfileClientImpl);
 };
 
-ShillProfileClientImpl::ShillProfileClientImpl()
-    : bus_(NULL),
-      helpers_deleter_(&helpers_) {
+ShillProfileClientImpl::ShillProfileClientImpl() : bus_(NULL) {
 }
 
 ShillClientHelper* ShillProfileClientImpl::GetHelper(
     const dbus::ObjectPath& profile_path) {
-  HelperMap::iterator it = helpers_.find(profile_path.value());
+  HelperMap::const_iterator it = helpers_.find(profile_path.value());
   if (it != helpers_.end())
     return it->second;
 
   // There is no helper for the profile, create it.
   dbus::ObjectProxy* object_proxy =
       bus_->GetObjectProxy(shill::kFlimflamServiceName, profile_path);
-  ShillClientHelper* helper = new ShillClientHelper(object_proxy);
+  scoped_ptr<ShillClientHelper> helper(new ShillClientHelper(object_proxy));
   helper->MonitorPropertyChanged(shill::kFlimflamProfileInterface);
-  helpers_.insert(HelperMap::value_type(profile_path.value(), helper));
-  return helper;
+  ShillClientHelper* helper_ptr = helper.get();
+  helpers_.insert(profile_path.value(), helper.Pass());
+  return helper_ptr;
 }
 
 void ShillProfileClientImpl::GetProperties(

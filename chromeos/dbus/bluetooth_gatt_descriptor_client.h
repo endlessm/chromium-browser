@@ -6,6 +6,7 @@
 #define CHROMEOS_DBUS_BLUETOOTH_GATT_DESCRIPTOR_CLIENT_H_
 
 #include <string>
+#include <vector>
 
 #include "base/basictypes.h"
 #include "base/callback.h"
@@ -29,10 +30,14 @@ class CHROMEOS_EXPORT BluetoothGattDescriptorClient : public DBusClient {
     // [read-only]
     dbus::Property<dbus::ObjectPath> characteristic;
 
+    // The cached value of the descriptor. This property gets updated only after
+    // a successful read request. [read-only]
+    dbus::Property<std::vector<uint8_t>> value;
+
     Properties(dbus::ObjectProxy* object_proxy,
                const std::string& interface_name,
                const PropertyChangedCallback& callback);
-    virtual ~Properties();
+    ~Properties() override;
   };
 
   // Interface for observing changes from a remote GATT characteristic
@@ -61,7 +66,7 @@ class CHROMEOS_EXPORT BluetoothGattDescriptorClient : public DBusClient {
                               const std::string& error_message)> ErrorCallback;
   typedef base::Callback<void(const std::vector<uint8>& value)> ValueCallback;
 
-  virtual ~BluetoothGattDescriptorClient();
+  ~BluetoothGattDescriptorClient() override;
 
   // Adds and removes observers for events on all remote GATT descriptors. Check
   // the |object_path| parameter of observer methods to determine which GATT

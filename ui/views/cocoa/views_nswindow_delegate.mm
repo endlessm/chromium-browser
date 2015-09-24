@@ -23,13 +23,39 @@
   return parent_->native_widget_mac();
 }
 
-- (void)onWindowOrderWillChange:(NSWindowOrderingMode)orderingMode {
-  if (orderingMode != NSWindowOut)
-    [parent_->ns_view() setWillShow:YES];
+- (NSCursor*)cursor {
+  return cursor_.get();
 }
 
-- (void)onWindowOrderChanged {
-  [parent_->ns_view() setWillShow:NO];
+- (void)setCursor:(NSCursor*)newCursor {
+  if (cursor_.get() == newCursor)
+    return;
+
+  cursor_.reset([newCursor retain]);
+  [parent_->ns_window() resetCursorRects];
+}
+
+- (void)onWindowOrderWillChange:(NSWindowOrderingMode)orderingMode {
+  parent_->OnVisibilityChangedTo(orderingMode != NSWindowOut);
+}
+
+- (void)onWindowOrderChanged:(NSNotification*)notification {
+  parent_->OnVisibilityChanged();
+}
+
+- (void)onWindowWillDisplay {
+  parent_->OnVisibilityChangedTo(true);
+}
+
+- (void)sheetDidEnd:(NSWindow*)sheet
+         returnCode:(NSInteger)returnCode
+        contextInfo:(void*)contextInfo {
+  [sheet orderOut:nil];
+  parent_->OnWindowWillClose();
+}
+
+- (BOOL)shouldRepostPendingLeftMouseDown:(NSPoint)locationInWindow {
+  return parent_->ShouldRepostPendingLeftMouseDown(locationInWindow);
 }
 
 // NSWindowDelegate implementation.
@@ -49,19 +75,33 @@
   DCHECK(!parent_->target_fullscreen_state());
 }
 
+- (void)windowDidResize:(NSNotification*)notification {
+  parent_->OnSizeChanged();
+}
+
 - (void)windowDidBecomeKey:(NSNotification*)notification {
-  parent_->native_widget_mac()->GetWidget()->OnNativeWidgetActivationChanged(
-      true);
+  parent_->OnWindowKeyStatusChangedTo(true);
 }
 
 - (void)windowDidResignKey:(NSNotification*)notification {
-  parent_->native_widget_mac()->GetWidget()->OnNativeWidgetActivationChanged(
-      false);
+  parent_->OnWindowKeyStatusChangedTo(false);
 }
 
 - (void)windowWillClose:(NSNotification*)notification {
   DCHECK([parent_->ns_window() isEqual:[notification object]]);
   parent_->OnWindowWillClose();
+}
+
+- (void)windowDidMiniaturize:(NSNotification*)notification {
+  parent_->OnVisibilityChanged();
+}
+
+- (void)windowDidDeminiaturize:(NSNotification*)notification {
+  parent_->OnVisibilityChanged();
+}
+
+- (void)windowDidChangeBackingProperties:(NSNotification*)notification {
+  parent_->OnBackingPropertiesChanged();
 }
 
 - (void)windowWillEnterFullScreen:(NSNotification*)notification {
@@ -78,6 +118,16 @@
 
 - (void)windowDidExitFullScreen:(NSNotification*)notification {
   parent_->OnFullscreenTransitionComplete(false);
+}
+
+// Allow non-resizable windows (without NSResizableWindowMask) to fill the
+// screen in fullscreen mode. This only happens when
+// -[NSWindow toggleFullscreen:] is called since non-resizable windows have no
+// fullscreen button. Without this they would only enter fullscreen at their
+// current size.
+- (NSSize)window:(NSWindow*)window
+    willUseFullScreenContentSize:(NSSize)proposedSize {
+  return proposedSize;
 }
 
 @end

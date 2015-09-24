@@ -69,11 +69,11 @@ const char kDailyOriginalContentLengthWithDataReductionProxyEnabled[] =
 // authentication, if any.
 const char kDataReductionProxy[] = "auth.spdyproxy.origin";
 
+// String that specifies a persisted Data Reduction Proxy configuration.
+const char kDataReductionProxyConfig[] = "data_reduction.config";
+
 // A boolean specifying whether the data reduction proxy is enabled.
 const char kDataReductionProxyEnabled[] = "spdy_proxy.enabled";
-
-// A boolean specifying whether the data reduction proxy alternative is enabled.
-const char kDataReductionProxyAltEnabled[] = "data_reduction_alt.enabled";
 
 // A boolean specifying whether the data reduction proxy was ever enabled
 // before.
@@ -87,6 +87,33 @@ const char kHttpReceivedContentLength[] = "http_received_content_length";
 // An int64 pref that contains the total original size of all HTTP content
 // received over the network.
 const char kHttpOriginalContentLength[] = "http_original_content_length";
+
+// An integer pref that contains the Lo-Fi epoch for the implicit opt-out rules.
+// Any time this value is incremented via Finch,
+// kLoFiConsecutiveSessionDisables is reset to zero.
+const char kLoFiImplicitOptOutEpoch[] =
+    "data_reduction_lo_fi.implicit_opt_out_epoch";
+
+// An integer pref that contains the number of times that "Load images" has been
+// requested on the Lo-Fi snackbar for the current session.
+const char kLoFiLoadImagesPerSession[] =
+    "data_reduction_lo_fi.load_images_requests_per_session";
+
+// An integer pref that contains the number of consecutive sessions that LoFi
+// has been disabled.
+const char kLoFiConsecutiveSessionDisables[] =
+    "data_reduction_lo_fi.consecutive_session_disables";
+
+// A boolean pref specifying whether Lo-Fi was used this session.
+const char kLoFiWasUsedThisSession[] =
+    "data_reduction_lo_fi.was_used_this_session";
+
+// Pref to store the retrieval time of the last simulated Data Reduction Proxy
+// configuration. This is part of an experiment to see how many bytes are lost
+// if the Data Reduction Proxy is not used due to configuration being expired
+// or not available.
+const char kSimulatedConfigRetrieveTime[] =
+    "data_reduction.simulated_config_retrieve_time";
 
 // A boolean specifying whether the data reduction proxy statistics preferences
 // have migrated from local state to the profile.

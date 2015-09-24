@@ -8,6 +8,8 @@
 #include "Resources.h"
 #include "SkBitmapSource.h"
 #include "SkCanvas.h"
+#include "SkFixed.h"
+#include "SkFontDescriptor.h"
 #include "SkMallocPixelRef.h"
 #include "SkOSFile.h"
 #include "SkPictureRecorder.h"
@@ -315,27 +317,14 @@ static void compare_bitmaps(skiatest::Reporter* reporter,
     }
     REPORTER_ASSERT(reporter, 0 == pixelErrors);
 }
-
-static void TestPictureTypefaceSerialization(skiatest::Reporter* reporter) {
-    // Load typeface form file.
-    // This test cannot run if there is no resource path.
-    SkString resourcePath = GetResourcePath();
-    if (resourcePath.isEmpty()) {
-        SkDebugf("Could not run fontstream test because resourcePath not specified.");
-        return;
-    }
-    SkString filename = SkOSPath::Join(resourcePath.c_str(), "test.ttc");
-    SkTypeface* typeface = SkTypeface::CreateFromFile(filename.c_str(), 1);
-    if (!typeface) {
-        SkDebugf("Could not run fontstream test because test.ttc not found.");
-        return;
-    }
-
-    // Create a paint with the typeface we loaded.
+static void serialize_and_compare_typeface(SkTypeface* typeface, const char* text,
+                                           skiatest::Reporter* reporter)
+{
+    // Create a paint with the typeface.
     SkPaint paint;
     paint.setColor(SK_ColorGRAY);
     paint.setTextSize(SkIntToScalar(30));
-    SkSafeUnref(paint.setTypeface(typeface));
+    paint.setTypeface(typeface);
 
     // Paint some text.
     SkPictureRecorder recorder;
@@ -344,19 +333,49 @@ static void TestPictureTypefaceSerialization(skiatest::Reporter* reporter) {
                                                SkIntToScalar(canvasRect.height()), 
                                                NULL, 0);
     canvas->drawColor(SK_ColorWHITE);
-    canvas->drawText("A!", 2, 24, 32, paint);
+    canvas->drawText(text, 2, 24, 32, paint);
     SkAutoTUnref<SkPicture> picture(recorder.endRecording());
 
     // Serlialize picture and create its clone from stream.
     SkDynamicMemoryWStream stream;
     picture->serialize(&stream);
-    SkAutoTUnref<SkStream> inputStream(stream.detachAsStream());
+    SkAutoTDelete<SkStream> inputStream(stream.detachAsStream());
     SkAutoTUnref<SkPicture> loadedPicture(SkPicture::CreateFromStream(inputStream.get()));
 
     // Draw both original and clone picture and compare bitmaps -- they should be identical.
     SkBitmap origBitmap = draw_picture(*picture);
     SkBitmap destBitmap = draw_picture(*loadedPicture);
     compare_bitmaps(reporter, origBitmap, destBitmap);
+}
+
+static void TestPictureTypefaceSerialization(skiatest::Reporter* reporter) {
+    {
+        // Load typeface from file to test CreateFromFile with index.
+        SkString filename = GetResourcePath("/fonts/test.ttc");
+        SkAutoTUnref<SkTypeface> typeface(SkTypeface::CreateFromFile(filename.c_str(), 1));
+        if (!typeface) {
+            SkDebugf("Could not run fontstream test because test.ttc not found.");
+        } else {
+            serialize_and_compare_typeface(typeface, "A!", reporter);
+        }
+    }
+
+    {
+        // Load typeface as stream to create with axis settings.
+        SkAutoTDelete<SkStreamAsset> distortable(GetResourceAsStream("/fonts/Distortable.ttf"));
+        if (!distortable) {
+            SkDebugf("Could not run fontstream test because Distortable.ttf not found.");
+        } else {
+            SkFixed axis = SK_FixedSqrt2;
+            SkAutoTUnref<SkTypeface> typeface(SkTypeface::CreateFromFontData(
+                new SkFontData(distortable.detach(), 0, &axis, 1)));
+            if (!typeface) {
+                SkDebugf("Could not run fontstream test because Distortable.ttf not created.");
+            } else {
+                serialize_and_compare_typeface(typeface, "abc", reporter);
+            }
+        }
+    }
 }
 
 static void setup_bitmap_for_canvas(SkBitmap* bitmap) {
@@ -397,15 +416,10 @@ static void draw_something(SkCanvas* canvas) {
     canvas->drawBitmap(bitmap, 0, 0, NULL);
     canvas->restore();
 
-    const char beforeStr[] = "before circle";
-    const char afterStr[] = "after circle";
-
     paint.setAntiAlias(true);
 
     paint.setColor(SK_ColorRED);
-    canvas->drawData(beforeStr, sizeof(beforeStr));
     canvas->drawCircle(SkIntToScalar(kBitmapSize/2), SkIntToScalar(kBitmapSize/2), SkIntToScalar(kBitmapSize/3), paint);
-    canvas->drawData(afterStr, sizeof(afterStr));
     paint.setColor(SK_ColorBLACK);
     paint.setTextSize(SkIntToScalar(kBitmapSize/3));
     canvas->drawText("Picture", 7, SkIntToScalar(kBitmapSize/2), SkIntToScalar(kBitmapSize/4), paint);

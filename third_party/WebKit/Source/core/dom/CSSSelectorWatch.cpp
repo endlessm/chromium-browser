@@ -31,14 +31,13 @@
 #include "config.h"
 #include "core/dom/CSSSelectorWatch.h"
 
-#include "core/css/CSSSelectorList.h"
 #include "core/css/StylePropertySet.h"
 #include "core/css/parser/CSSParser.h"
 #include "core/dom/Document.h"
 #include "core/dom/ExecutionContext.h"
 #include "core/frame/LocalFrame.h"
 #include "core/loader/FrameLoaderClient.h"
-#include "core/rendering/style/StyleRareNonInheritedData.h"
+#include "core/style/StyleRareNonInheritedData.h"
 
 namespace blink {
 
@@ -54,12 +53,17 @@ CSSSelectorWatch::CSSSelectorWatch(Document& document)
 
 CSSSelectorWatch& CSSSelectorWatch::from(Document& document)
 {
-    CSSSelectorWatch* watch = static_cast<CSSSelectorWatch*>(DocumentSupplement::from(document, kSupplementName));
+    CSSSelectorWatch* watch = fromIfExists(document);
     if (!watch) {
         watch = new CSSSelectorWatch(document);
-        DocumentSupplement::provideTo(document, kSupplementName, adoptPtrWillBeNoop(watch));
+        WillBeHeapSupplement<Document>::provideTo(document, kSupplementName, adoptPtrWillBeNoop(watch));
     }
     return *watch;
+}
+
+CSSSelectorWatch* CSSSelectorWatch::fromIfExists(Document& document)
+{
+    return static_cast<CSSSelectorWatch*>(WillBeHeapSupplement<Document>::from(document, kSupplementName));
 }
 
 void CSSSelectorWatch::callbackSelectorChangeTimerFired(Timer<CSSSelectorWatch>*)
@@ -141,13 +145,12 @@ static bool allCompound(const CSSSelectorList& selectorList)
 void CSSSelectorWatch::watchCSSSelectors(const Vector<String>& selectors)
 {
     m_watchedCallbackSelectors.clear();
-    CSSParser parser(CSSParserContext(UASheetMode, 0));
 
     const RefPtrWillBeRawPtr<StylePropertySet> callbackPropertySet = ImmutableStylePropertySet::create(nullptr, 0, UASheetMode);
 
     CSSSelectorList selectorList;
     for (unsigned i = 0; i < selectors.size(); ++i) {
-        parser.parseSelector(selectors[i], selectorList);
+        CSSParser::parseSelector(CSSParserContext(UASheetMode, 0), selectors[i], selectorList);
         if (!selectorList.isValid())
             continue;
 
@@ -155,19 +158,16 @@ void CSSSelectorWatch::watchCSSSelectors(const Vector<String>& selectors)
         if (!allCompound(selectorList))
             continue;
 
-        RefPtrWillBeRawPtr<StyleRule> rule = StyleRule::create();
-        rule->wrapperAdoptSelectorList(selectorList);
-        rule->setProperties(callbackPropertySet);
-        m_watchedCallbackSelectors.append(rule.release());
+        m_watchedCallbackSelectors.append(StyleRule::create(selectorList, callbackPropertySet));
     }
     document().changedSelectorWatch();
 }
 
-void CSSSelectorWatch::trace(Visitor* visitor)
+DEFINE_TRACE(CSSSelectorWatch)
 {
     visitor->trace(m_watchedCallbackSelectors);
     visitor->trace(m_document);
-    DocumentSupplement::trace(visitor);
+    WillBeHeapSupplement<Document>::trace(visitor);
 }
 
 } // namespace blink

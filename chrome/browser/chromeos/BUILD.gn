@@ -4,15 +4,13 @@
 
 import("//build/config/features.gni")
 import("//build/config/ui.gni")
-import("//components/nacl/nacl_defines.gni")
 import("//media/media_options.gni")
 import("//third_party/protobuf/proto_library.gni")
 
-gypi_values = exec_script(
-    "//build/gypi_to_gn.py",
-    [ rebase_path("../../chrome_browser_chromeos.gypi") ],
-    "scope",
-    [ "chrome_browser_chromeos.gypi" ])
+gypi_values = exec_script("//build/gypi_to_gn.py",
+                          [ rebase_path("../../chrome_browser_chromeos.gypi") ],
+                          "scope",
+                          [ "../../chrome_browser_chromeos.gypi" ])
 
 source_set("chromeos") {
   assert(enable_extensions, "ChromeOS Chrome has to be built with extensions")
@@ -41,17 +39,18 @@ source_set("chromeos") {
     # TODO(tbarzic): Cleanup this list.
     "//ash",
     "//ash:ash_with_content",
-    "//breakpad:client",
     "//components/login",
     "//components/session_manager/core",
     "//components/user_manager",
+    "//components/wallpaper",
+    "//components/wifi_sync",
     "//chrome/browser/devtools",
     "//chrome/browser/extensions",
-    "//chrome/browser/history:in_memory_url_index_cache_proto",
-    "//chrome/browser/net:cert_logger_proto",
+    "//chrome/browser/net:encrypted_cert_logger_proto",
     "//chrome/browser/safe_browsing:chunk_proto",
     "//chrome/browser/safe_browsing:metadata_proto",
     "//chrome/browser/safe_browsing:report_proto",
+    "//chrome/browser/ssl:cert_logger_proto",
     "//chrome/common",
     "//chrome/common/extensions/api",
     "//chrome/common/extensions/api:api_registration",
@@ -66,6 +65,7 @@ source_set("chromeos") {
     "//components/ownership",
     "//components/pairing",
     "//components/policy",
+
     # This depends directly on the variations target, rather than just
     # transitively via the common target because the proto sources need to
     # be generated before code in this target can start building.
@@ -78,8 +78,10 @@ source_set("chromeos") {
     "//device/bluetooth",
     "//device/hid",
     "//media",
+    "//media/mojo/interfaces",
     "//net",
-    "//ppapi:ppapi_ipc",  # For PpapiMsg_LoadPlugin
+    "//ppapi/proxy:ipc",  # For PpapiMsg_LoadPlugin
+
     # TODO: care about enable_basic_printing and enable_print_preview.
     "//printing",
     "//skia",
@@ -89,14 +91,12 @@ source_set("chromeos") {
     "//third_party/adobe/flash:flapper_version_h",
     "//third_party/cacheinvalidation",
     "//third_party/expat",
-    "//third_party/hunspell",
     "//third_party/icu",
     "//third_party/leveldatabase",
     "//third_party/libevent",
     "//third_party/libjingle",
     "//third_party/libusb",
     "//third_party/libxml",
-    "//third_party/npapi",
     "//third_party/protobuf:protobuf_lite",
     "//third_party/protobuf:protoc($host_toolchain)",
     "//third_party/re2",
@@ -107,8 +107,9 @@ source_set("chromeos") {
     "//ui/chromeos:ui_chromeos",
     "//ui/compositor",
     "//ui/display",
+    "//ui/events/devices",
     "//ui/events/platform",
-    "//ui/events:dom4_keycode_converter",
+    "//ui/events:dom_keycode_converter",
     "//ui/file_manager",
     "//ui/message_center",
     "//ui/surface",
@@ -122,25 +123,19 @@ source_set("chromeos") {
     ":drive_proto",
   ]
 
-  defines = nacl_defines
+  defines = []
 
-  sources = rebase_path(gypi_values.browser_chromeos_sources,
-                        ".", "//chrome") +
+  sources = rebase_path(gypi_values.browser_chromeos_sources, ".", "//chrome") +
             rebase_path(gypi_values.browser_chromeos_extension_sources,
-                        ".", "//chrome")
-  if (use_athena) {
-    defines += ["USE_ATHENA=1"]
-  } else {
-    sources += rebase_path(
-        gypi_values.browser_chromeos_non_athena_sources,
-        ".", "//chrome") +
-        rebase_path(gypi_values.browser_chromeos_extension_non_athena_sources,
-                    ".", "//chrome")
-  }
-
+                        ".",
+                        "//chrome")
   if (use_x11) {
     configs += [ "//build/config/linux:x11" ]
     deps += [ "//ui/events/devices" ]
+    sources -= [
+      "system/input_device_settings_impl_ozone.cc",
+      "system_logs/touch_log_source_ozone.cc",
+    ]
   } else {
     assert(use_ozone, "Either use_x11 or use_ozone has to be specified.")
     deps += [ "//ui/ozone" ]
@@ -151,6 +146,8 @@ source_set("chromeos") {
       "events/system_key_event_listener.h",
       "events/xinput_hierarchy_changed_event_listener.cc",
       "events/xinput_hierarchy_changed_event_listener.h",
+      "system/input_device_settings_impl_x11.cc",
+      "system_logs/touch_log_source_x11.cc",
     ]
   }
 
@@ -164,7 +161,9 @@ source_set("chromeos") {
 }
 
 proto_library("drive_proto") {
-  sources = [ "drive/drive.proto" ]
+  sources = [
+    "drive/drive.proto",
+  ]
 }
 
 proto_library("device_policy_proto") {

@@ -5,17 +5,22 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/location.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_log.h"
-#include "net/base/net_log_unittest.h"
 #include "net/base/test_completion_callback.h"
 #include "net/dns/mock_host_resolver.h"
+#include "net/log/net_log.h"
+#include "net/log/test_net_log.h"
+#include "net/log/test_net_log_entry.h"
+#include "net/log/test_net_log_util.h"
 #include "net/proxy/dhcp_proxy_script_fetcher.h"
 #include "net/proxy/mock_proxy_script_fetcher.h"
 #include "net/proxy/proxy_config.h"
@@ -188,14 +193,14 @@ TEST(ProxyScriptDeciderTest, CustomPacSucceeds) {
   Rules::Rule rule = rules.AddSuccessRule("http://custom/proxy.pac");
 
   TestCompletionCallback callback;
-  CapturingNetLog log;
+  TestNetLog log;
   ProxyScriptDecider decider(&fetcher, &dhcp_fetcher, &log);
   EXPECT_EQ(OK, decider.Start(
       config, base::TimeDelta(), true, callback.callback()));
   EXPECT_EQ(rule.text(), decider.script_data()->utf16());
 
   // Check the NetLog was filled correctly.
-  CapturingNetLog::CapturedEntryList entries;
+  TestNetLogEntry::List entries;
   log.GetEntries(&entries);
 
   EXPECT_EQ(4u, entries.size());
@@ -224,7 +229,7 @@ TEST(ProxyScriptDeciderTest, CustomPacFails1) {
   rules.AddFailDownloadRule("http://custom/proxy.pac");
 
   TestCompletionCallback callback;
-  CapturingNetLog log;
+  TestNetLog log;
   ProxyScriptDecider decider(&fetcher, &dhcp_fetcher, &log);
   EXPECT_EQ(kFailedDownloading,
             decider.Start(config, base::TimeDelta(), true,
@@ -232,7 +237,7 @@ TEST(ProxyScriptDeciderTest, CustomPacFails1) {
   EXPECT_EQ(NULL, decider.script_data());
 
   // Check the NetLog was filled correctly.
-  CapturingNetLog::CapturedEntryList entries;
+  TestNetLogEntry::List entries;
   log.GetEntries(&entries);
 
   EXPECT_EQ(4u, entries.size());
@@ -428,6 +433,16 @@ TEST_F(ProxyScriptDeciderQuickCheckTest, ExplicitPacUrl) {
   EXPECT_EQ(rule.url, decider_->effective_config().pac_url());
 }
 
+// Regression test for http://crbug.com/409698.
+// This test lets the state machine get into state QUICK_CHECK_COMPLETE, then
+// destroys the decider, causing a cancel.
+TEST_F(ProxyScriptDeciderQuickCheckTest, CancelPartway) {
+  resolver_.set_synchronous_mode(false);
+  resolver_.set_ondemand_mode(true);
+  EXPECT_EQ(ERR_IO_PENDING, StartDecider());
+  decider_.reset(NULL);
+}
+
 // Fails at WPAD (downloading), but succeeds in choosing the custom PAC.
 TEST(ProxyScriptDeciderTest, AutodetectFailCustomSuccess1) {
   Rules rules;
@@ -467,7 +482,7 @@ TEST(ProxyScriptDeciderTest, AutodetectFailCustomSuccess2) {
   Rules::Rule rule = rules.AddSuccessRule("http://custom/proxy.pac");
 
   TestCompletionCallback callback;
-  CapturingNetLog log;
+  TestNetLog log;
 
   ProxyScriptDecider decider(&fetcher, &dhcp_fetcher, &log);
   EXPECT_EQ(OK, decider.Start(config, base::TimeDelta(),
@@ -482,7 +497,7 @@ TEST(ProxyScriptDeciderTest, AutodetectFailCustomSuccess2) {
   // Check the NetLog was filled correctly.
   // (Note that various states are repeated since both WPAD and custom
   // PAC scripts are tried).
-  CapturingNetLog::CapturedEntryList entries;
+  TestNetLogEntry::List entries;
   log.GetEntries(&entries);
 
   EXPECT_EQ(10u, entries.size());
@@ -572,7 +587,7 @@ TEST(ProxyScriptDeciderTest, CustomPacFails1_WithPositiveDelay) {
   rules.AddFailDownloadRule("http://custom/proxy.pac");
 
   TestCompletionCallback callback;
-  CapturingNetLog log;
+  TestNetLog log;
   ProxyScriptDecider decider(&fetcher, &dhcp_fetcher, &log);
   EXPECT_EQ(ERR_IO_PENDING,
             decider.Start(config, base::TimeDelta::FromMilliseconds(1),
@@ -582,7 +597,7 @@ TEST(ProxyScriptDeciderTest, CustomPacFails1_WithPositiveDelay) {
   EXPECT_EQ(NULL, decider.script_data());
 
   // Check the NetLog was filled correctly.
-  CapturingNetLog::CapturedEntryList entries;
+  TestNetLogEntry::List entries;
   log.GetEntries(&entries);
 
   EXPECT_EQ(6u, entries.size());
@@ -614,7 +629,7 @@ TEST(ProxyScriptDeciderTest, CustomPacFails1_WithNegativeDelay) {
   rules.AddFailDownloadRule("http://custom/proxy.pac");
 
   TestCompletionCallback callback;
-  CapturingNetLog log;
+  TestNetLog log;
   ProxyScriptDecider decider(&fetcher, &dhcp_fetcher, &log);
   EXPECT_EQ(kFailedDownloading,
             decider.Start(config, base::TimeDelta::FromSeconds(-5),
@@ -622,7 +637,7 @@ TEST(ProxyScriptDeciderTest, CustomPacFails1_WithNegativeDelay) {
   EXPECT_EQ(NULL, decider.script_data());
 
   // Check the NetLog was filled correctly.
-  CapturingNetLog::CapturedEntryList entries;
+  TestNetLogEntry::List entries;
   log.GetEntries(&entries);
 
   EXPECT_EQ(4u, entries.size());
@@ -724,7 +739,7 @@ class AsyncFailDhcpFetcher
   int Fetch(base::string16* utf16_text,
             const CompletionCallback& callback) override {
     callback_ = callback;
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(&AsyncFailDhcpFetcher::CallbackWithFailure, AsWeakPtr()));
     return ERR_IO_PENDING;

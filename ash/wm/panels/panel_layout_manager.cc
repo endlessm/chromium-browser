@@ -15,6 +15,7 @@
 #include "ash/shelf/shelf_widget.h"
 #include "ash/shell.h"
 #include "ash/shell_window_ids.h"
+#include "ash/wm/overview/window_selector_controller.h"
 #include "ash/wm/window_animations.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
@@ -32,8 +33,8 @@
 #include "ui/aura/window_tracker.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/canvas.h"
-#include "ui/gfx/rect.h"
-#include "ui/gfx/vector2d.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/vector2d.h"
 #include "ui/views/background.h"
 #include "ui/views/widget/widget.h"
 #include "ui/wm/public/activation_client.h"
@@ -464,6 +465,10 @@ void PanelLayoutManager::OnShelfIconPositionsChanged() {
 ////////////////////////////////////////////////////////////////////////////////
 // PanelLayoutManager, ash::ShellObserver implementation:
 
+void PanelLayoutManager::OnOverviewModeEnded() {
+  Relayout();
+}
+
 void PanelLayoutManager::OnShelfAlignmentChanged(aura::Window* root_window) {
   if (panel_container_->GetRootWindow() == root_window)
     Relayout();
@@ -508,8 +513,10 @@ void PanelLayoutManager::OnPostWindowStateTypeChange(
 ////////////////////////////////////////////////////////////////////////////////
 // PanelLayoutManager, aura::client::ActivationChangeObserver implementation:
 
-void PanelLayoutManager::OnWindowActivated(aura::Window* gained_active,
-                                           aura::Window* lost_active) {
+void PanelLayoutManager::OnWindowActivated(
+    aura::client::ActivationChangeObserver::ActivationReason reason,
+    aura::Window* gained_active,
+    aura::Window* lost_active) {
   // Ignore if the panel that is not managed by this was activated.
   if (gained_active && gained_active->type() == ui::wm::WINDOW_TYPE_PANEL &&
       gained_active->parent() == panel_container_) {
@@ -599,7 +606,15 @@ void PanelLayoutManager::Relayout() {
   if (!shelf_ || !shelf_->shelf_widget())
     return;
 
-  if (in_layout_)
+  // Suppress layouts during overview mode because changing window bounds
+  // interfered with overview mode animations. However, layouts need to be done
+  // when the WindowSelectorController is restoring minimized windows so that
+  // they actually become visible.
+  WindowSelectorController* window_selector_controller =
+      Shell::GetInstance()->window_selector_controller();
+  if (in_layout_ || !window_selector_controller ||
+      (window_selector_controller->IsSelecting() &&
+          !window_selector_controller->IsRestoringMinimizedWindows()))
     return;
   base::AutoReset<bool> auto_reset_in_layout(&in_layout_, true);
 

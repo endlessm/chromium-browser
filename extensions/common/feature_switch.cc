@@ -35,10 +35,10 @@ class CommonSwitches {
                                FeatureSwitch::DEFAULT_DISABLED),
         embedded_extension_options(switches::kEmbeddedExtensionOptions,
                                    FeatureSwitch::DEFAULT_DISABLED),
-        mime_handler_view(switches::kMimeHandlerView,
-                          FeatureSwitch::DEFAULT_DISABLED),
+        surface_worker(switches::kSurfaceWorker,
+                       FeatureSwitch::DEFAULT_DISABLED),
         trace_app_source(switches::kTraceAppSource,
-                         FeatureSwitch::DEFAULT_DISABLED) {
+                         FeatureSwitch::DEFAULT_ENABLED) {
   }
 
   // Enables extensions to be easily installed from sites other than the web
@@ -56,7 +56,7 @@ class CommonSwitches {
   FeatureSwitch extension_action_redesign;
   FeatureSwitch scripts_require_action;
   FeatureSwitch embedded_extension_options;
-  FeatureSwitch mime_handler_view;
+  FeatureSwitch surface_worker;
   FeatureSwitch trace_app_source;
 };
 
@@ -89,8 +89,8 @@ FeatureSwitch* FeatureSwitch::scripts_require_action() {
 FeatureSwitch* FeatureSwitch::embedded_extension_options() {
   return &g_common_switches.Get().embedded_extension_options;
 }
-FeatureSwitch* FeatureSwitch::mime_handler_view() {
-  return &g_common_switches.Get().mime_handler_view;
+FeatureSwitch* FeatureSwitch::surface_worker() {
+  return &g_common_switches.Get().surface_worker;
 }
 FeatureSwitch* FeatureSwitch::trace_app_source() {
   return &g_common_switches.Get().trace_app_source;
@@ -110,16 +110,16 @@ FeatureSwitch::ScopedOverride::~ScopedOverride() {
 
 FeatureSwitch::FeatureSwitch(const char* switch_name,
                              DefaultValue default_value) {
-  Init(CommandLine::ForCurrentProcess(), switch_name, default_value);
+  Init(base::CommandLine::ForCurrentProcess(), switch_name, default_value);
 }
 
-FeatureSwitch::FeatureSwitch(const CommandLine* command_line,
+FeatureSwitch::FeatureSwitch(const base::CommandLine* command_line,
                              const char* switch_name,
                              DefaultValue default_value) {
   Init(command_line, switch_name, default_value);
 }
 
-void FeatureSwitch::Init(const CommandLine* command_line,
+void FeatureSwitch::Init(const base::CommandLine* command_line,
                          const char* switch_name,
                          DefaultValue default_value) {
   command_line_ = command_line;

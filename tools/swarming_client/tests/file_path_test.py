@@ -17,9 +17,11 @@ import time
 BASE_DIR = unicode(os.path.dirname(os.path.abspath(__file__)))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.insert(0, ROOT_DIR)
+sys.path.insert(0, os.path.join(ROOT_DIR, 'third_party'))
 
 FILE_PATH = unicode(os.path.abspath(__file__))
 
+from depot_tools import auto_stub
 import test_utils
 from utils import file_path
 
@@ -29,7 +31,7 @@ def write_content(filepath, content):
     f.write(content)
 
 
-class FilePathTest(unittest.TestCase):
+class FilePathTest(auto_stub.TestCase):
   def setUp(self):
     super(FilePathTest, self).setUp()
     self._tempdir = None
@@ -47,7 +49,7 @@ class FilePathTest(unittest.TestCase):
   @property
   def tempdir(self):
     if not self._tempdir:
-      self._tempdir = tempfile.mkdtemp(prefix='run_isolated_test')
+      self._tempdir = tempfile.mkdtemp(prefix=u'run_isolated_test')
     return self._tempdir
 
   def assertFileMode(self, filepath, mode, umask=None):
@@ -156,6 +158,16 @@ class FilePathTest(unittest.TestCase):
     # must be reset to be read-only after deleting one of the hard link
     # directory entry.
 
+  def test_rmtree_unicode(self):
+    subdir = os.path.join(self.tempdir, 'hi')
+    os.mkdir(subdir)
+    filepath = os.path.join(
+        subdir, u'\u0627\u0644\u0635\u064A\u0646\u064A\u0629')
+    with open(filepath, 'wb') as f:
+      f.write('hi')
+    # In particular, it fails when the input argument is a str.
+    file_path.rmtree(str(subdir))
+
   if sys.platform == 'darwin':
     def test_native_case_symlink_wrong_case(self):
       base_dir = file_path.get_native_path_case(BASE_DIR)
@@ -217,7 +229,7 @@ class FilePathTest(unittest.TestCase):
   if sys.platform == 'win32':
     def test_native_case_alternate_datastream(self):
       # Create the file manually, since tempfile doesn't support ADS.
-      tempdir = unicode(tempfile.mkdtemp(prefix='trace_inputs'))
+      tempdir = unicode(tempfile.mkdtemp(prefix=u'trace_inputs'))
       try:
         tempdir = file_path.get_native_path_case(tempdir)
         basename = 'foo.txt'
@@ -259,6 +271,45 @@ class FilePathTest(unittest.TestCase):
         self.assertEqual([2, 4, 2], sleeps)
         # sys.stderr.getvalue() would return a fair amount of output but it is
         # not completely deterministic so we're not testing it here.
+      finally:
+        proc.wait()
+
+    def test_filter_processes_dir_win(self):
+      python_dir = os.path.dirname(sys.executable)
+      processes = file_path.filter_processes_dir_win(
+          file_path.enum_processes_win(), python_dir)
+      self.assertTrue(processes)
+      proc_names = [proc.ExecutablePath for proc in processes]
+      # Try to find at least one python process.
+      self.assertTrue(
+          any(proc == sys.executable for proc in proc_names), proc_names)
+
+    def test_filter_processes_tree_win(self):
+      # Create a grand-child.
+      script = (
+        'import subprocess,sys;'
+        'proc = subprocess.Popen('
+          '[sys.executable, \'-u\', \'-c\', \'import time; print(1); '
+          'time.sleep(60)\'], stdout=subprocess.PIPE); '
+        # Signal grand child is ready.
+        'print(proc.stdout.read(1)); '
+        # Wait for parent to have completed the test.
+        'sys.stdin.read(1); '
+        'proc.kill()'
+      )
+      proc = subprocess.Popen(
+          [sys.executable, '-u', '-c', script],
+          stdin=subprocess.PIPE,
+          stdout=subprocess.PIPE)
+      try:
+        proc.stdout.read(1)
+        processes = file_path.filter_processes_tree_win(
+            file_path.enum_processes_win())
+        self.assertEqual(3, len(processes), processes)
+        proc.stdin.write('a')
+        proc.wait()
+      except Exception:
+        proc.kill()
       finally:
         proc.wait()
 

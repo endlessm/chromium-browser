@@ -49,7 +49,7 @@ template <class> struct ValueToString;
 
 class PLATFORM_EXPORT FloatPolygon {
 public:
-    FloatPolygon(PassOwnPtr<Vector<FloatPoint> > vertices, WindRule fillRule);
+    FloatPolygon(PassOwnPtr<Vector<FloatPoint>> vertices, WindRule fillRule);
 
     const FloatPoint& vertexAt(unsigned index) const { return (*m_vertices)[index]; }
     unsigned numberOfVertices() const { return m_vertices->size(); }
@@ -71,7 +71,7 @@ private:
     bool containsNonZero(const FloatPoint&) const;
     bool containsEvenOdd(const FloatPoint&) const;
 
-    OwnPtr<Vector<FloatPoint> > m_vertices;
+    OwnPtr<Vector<FloatPoint>> m_vertices;
     WindRule m_fillRule;
     FloatRect m_boundingBox;
     bool m_empty;
@@ -98,13 +98,13 @@ public:
 class PLATFORM_EXPORT FloatPolygonEdge : public VertexPair {
     friend class FloatPolygon;
 public:
-    virtual const FloatPoint& vertex1() const override
+    const FloatPoint& vertex1() const override
     {
         ASSERT(m_polygon);
         return m_polygon->vertexAt(m_vertexIndex1);
     }
 
-    virtual const FloatPoint& vertex2() const override
+    const FloatPoint& vertex2() const override
     {
         ASSERT(m_polygon);
         return m_polygon->vertexAt(m_vertexIndex2);

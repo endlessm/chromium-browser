@@ -79,7 +79,7 @@ namespace {
 
 class EditSearchEngineControllerTest : public CocoaProfileTest {
  public:
-  virtual void SetUp() {
+  void SetUp() override {
     CocoaProfileTest::SetUp();
     ASSERT_TRUE(profile());
 
@@ -89,7 +89,7 @@ class EditSearchEngineControllerTest : public CocoaProfileTest {
                                                    templateURL:nil];
   }
 
-  virtual void TearDown() {
+  void TearDown() override {
     // Force the window to load so we hit |-awakeFromNib| to register as the
     // window's delegate so that the controller can clean itself up in
     // |-windowWillClose:|.
@@ -232,7 +232,7 @@ TEST_F(EditSearchEngineControllerTest, ValidateFields) {
 // Tests editing an existing TemplateURL.
 TEST_F(EditSearchEngineControllerTest, EditTemplateURL) {
   TemplateURLData data;
-  data.short_name = base::ASCIIToUTF16("Foobar");
+  data.SetShortName(base::ASCIIToUTF16("Foobar"));
   data.SetKeyword(base::ASCIIToUTF16("keyword"));
   std::string urlString = TemplateURLRef::DisplayURLToURLRef(
       base::ASCIIToUTF16("http://foo-bar.com"));

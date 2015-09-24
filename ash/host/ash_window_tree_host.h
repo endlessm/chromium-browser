@@ -18,17 +18,33 @@ class Insets;
 class Rect;
 }
 
+namespace ui {
+class EventSource;
+class KeyEvent;
+class LocatedEvent;
+}
+
 namespace ash {
 struct AshWindowTreeHostInitParams;
+class InputMethodEventHandler;
 class RootWindowTransformer;
 
 class ASH_EXPORT AshWindowTreeHost {
  public:
+  AshWindowTreeHost();
   virtual ~AshWindowTreeHost() {}
 
   // Creates a new AshWindowTreeHost. The caller owns the returned value.
   static AshWindowTreeHost* Create(
       const AshWindowTreeHostInitParams& init_params);
+
+  void set_input_method_handler(InputMethodEventHandler* input_method_handler) {
+    input_method_handler_ = input_method_handler;
+  }
+
+  InputMethodEventHandler* input_method_handler() {
+    return input_method_handler_;
+  }
 
   // Toggles the host's full screen state.
   virtual void ToggleFullScreen() = 0;
@@ -48,15 +64,17 @@ class ASH_EXPORT AshWindowTreeHost {
 
   virtual aura::WindowTreeHost* AsWindowTreeHost() = 0;
 
-  // Updates the display IDs associated with this root window.
-  // A root window can be associated with up to 2 display IDs (e.g. in mirror
-  // mode dual monitors case). If the root window is only associated with one
-  // display id, then the other id should be set to
-  // gfx::Display::kInvalidDisplayID.
-  virtual void UpdateDisplayID(int64 id1, int64 id2) {}
-
   // Stop listening for events in preparation for shutdown.
   virtual void PrepareForShutdown() {}
+
+  virtual void RegisterMirroringHost(AshWindowTreeHost* mirroring_ash_host) {}
+
+ protected:
+  // Translates the native mouse location into screen coordinates.
+  void TranslateLocatedEvent(ui::LocatedEvent* event);
+
+ private:
+  InputMethodEventHandler* input_method_handler_;
 };
 
 }  // namespace ash

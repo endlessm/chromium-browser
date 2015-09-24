@@ -13,6 +13,7 @@
 #include "base/prefs/pref_service.h"
 #include "base/time/clock.h"
 #include "base/time/time.h"
+#include "chrome/browser/chromeos/login/reauth_stats.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
@@ -31,14 +32,9 @@ const int kDefaultSAMLOfflineSigninTimeLimit = 14 * 24 * 60 * 60;  // 14 days.
 // static
 void SAMLOfflineSigninLimiter::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterIntegerPref(
-      prefs::kSAMLOfflineSigninTimeLimit,
-      kDefaultSAMLOfflineSigninTimeLimit,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterInt64Pref(
-      prefs::kSAMLLastGAIASignInTime,
-      0,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterIntegerPref(prefs::kSAMLOfflineSigninTimeLimit,
+                                kDefaultSAMLOfflineSigninTimeLimit);
+  registry->RegisterInt64Pref(prefs::kSAMLLastGAIASignInTime, 0);
 }
 
 void SAMLOfflineSigninLimiter::SignedIn(UserContext::AuthFlow auth_flow) {
@@ -141,13 +137,15 @@ void SAMLOfflineSigninLimiter::UpdateLimit() {
 }
 
 void SAMLOfflineSigninLimiter::ForceOnlineLogin() {
-  user_manager::User* user = ProfileHelper::Get()->GetUserByProfile(profile_);
+  const user_manager::User* user =
+      ProfileHelper::Get()->GetUserByProfile(profile_);
   if (!user) {
     NOTREACHED();
     return;
   }
 
   user_manager::UserManager::Get()->SaveForceOnlineSignin(user->email(), true);
+  RecordReauthReason(user->email(), ReauthReason::SAML_REAUTH_POLICY);
   offline_signin_limit_timer_.reset();
 }
 

@@ -12,6 +12,7 @@
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/path_service.h"
+#include "build/build_config.h"
 #include "cc/base/switches.h"
 #include "content/public/browser/browser_main_runner.h"
 #include "content/public/common/content_switches.h"
@@ -26,7 +27,9 @@
 #include "content/shell/common/shell_switches.h"
 #include "content/shell/renderer/layout_test/layout_test_content_renderer_client.h"
 #include "content/shell/renderer/shell_content_renderer_client.h"
+#include "content/shell/utility/shell_content_utility_client.h"
 #include "media/base/media_switches.h"
+#include "media/base/mime_util.h"
 #include "net/cookies/cookie_monster.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/ui_base_paths.h"
@@ -46,6 +49,7 @@
 #endif
 
 #if defined(OS_ANDROID)
+#include "base/android/apk_assets.h"
 #include "base/posix/global_descriptors.h"
 #include "content/shell/android/shell_descriptors.h"
 #endif
@@ -114,6 +118,14 @@ ShellMainDelegate::~ShellMainDelegate() {
 }
 
 bool ShellMainDelegate::BasicStartupComplete(int* exit_code) {
+  base::CommandLine& command_line = *base::CommandLine::ForCurrentProcess();
+
+  // "dump-render-tree" has been renamed to "run-layout-test", but the old
+  // flag name is still used in some places, so this check will remain until
+  // it is phased out entirely.
+  if (command_line.HasSwitch(switches::kDumpRenderTree))
+    command_line.AppendSwitch(switches::kRunLayoutTest);
+
 #if defined(OS_WIN)
   // Enable trace control and transport through event tracing for Windows.
   logging::LogEventProvider::Initialize(kContentShellProviderName);
@@ -129,7 +141,6 @@ bool ShellMainDelegate::BasicStartupComplete(int* exit_code) {
 #endif  // OS_MACOSX
 
   InitLogging();
-  CommandLine& command_line = *CommandLine::ForCurrentProcess();
   if (command_line.HasSwitch(switches::kCheckLayoutTestSysDeps)) {
     // If CheckLayoutSystemDeps succeeds, we don't exit early. Instead we
     // continue and try to load the fonts in BlinkTestPlatformInitialize
@@ -141,14 +152,17 @@ bool ShellMainDelegate::BasicStartupComplete(int* exit_code) {
     }
   }
 
-  if (command_line.HasSwitch(switches::kDumpRenderTree)) {
+  if (command_line.HasSwitch(switches::kRunLayoutTest)) {
     EnableBrowserLayoutTestMode();
 
     command_line.AppendSwitch(switches::kProcessPerTab);
     command_line.AppendSwitch(switches::kEnableLogging);
     command_line.AppendSwitch(switches::kAllowFileAccessFromFiles);
-    command_line.AppendSwitchASCII(switches::kUseGL,
-                                   gfx::kGLImplementationOSMesaName);
+    // only default to osmesa if the flag isn't already specified.
+    if (!command_line.HasSwitch(switches::kUseGL)) {
+      command_line.AppendSwitchASCII(switches::kUseGL,
+                                     gfx::kGLImplementationOSMesaName);
+    }
     command_line.AppendSwitch(switches::kSkipGpuDataLoading);
     command_line.AppendSwitchASCII(switches::kTouchEvents,
                                    switches::kTouchEventsEnabled);
@@ -161,24 +175,25 @@ bool ShellMainDelegate::BasicStartupComplete(int* exit_code) {
     if (!command_line.HasSwitch(switches::kStableReleaseMode)) {
       command_line.AppendSwitch(
         switches::kEnableExperimentalWebPlatformFeatures);
+      // Only enable WebBluetooth during Layout Tests in non release mode.
+      command_line.AppendSwitch(switches::kEnableWebBluetooth);
     }
 
     if (!command_line.HasSwitch(switches::kEnableThreadedCompositing)) {
       command_line.AppendSwitch(switches::kDisableThreadedCompositing);
       command_line.AppendSwitch(cc::switches::kDisableThreadedAnimation);
-      command_line.AppendSwitch(switches::kDisableImplSidePainting);
+    }
+
+    if (!command_line.HasSwitch(switches::kEnableDisplayList2dCanvas)) {
+      command_line.AppendSwitch(switches::kDisableDisplayList2dCanvas);
     }
 
     command_line.AppendSwitch(switches::kEnableInbandTextTracks);
     command_line.AppendSwitch(switches::kMuteAudio);
 
-#if defined(USE_AURA) || defined(OS_ANDROID) || defined(OS_MACOSX)
     // TODO: crbug.com/311404 Make layout tests work w/ delegated renderer.
     command_line.AppendSwitch(switches::kDisableDelegatedRenderer);
     command_line.AppendSwitch(cc::switches::kCompositeToMailbox);
-#endif
-
-    command_line.AppendSwitch(switches::kEnableFileCookies);
 
     command_line.AppendSwitch(switches::kEnablePreciseMemoryInfo);
 
@@ -188,7 +203,7 @@ bool ShellMainDelegate::BasicStartupComplete(int* exit_code) {
     // Unless/until WebM files are added to the media layout tests, we need to
     // avoid removing MP4/H264/AAC so that layout tests can run on Android.
 #if !defined(OS_ANDROID)
-    net::RemoveProprietaryMediaTypesAndCodecsForTests();
+    media::RemoveProprietaryMediaTypesAndCodecsForTests();
 #endif
 
     if (!BlinkTestPlatformInitialize()) {
@@ -207,10 +222,10 @@ void ShellMainDelegate::PreSandboxStartup() {
   // cpu_brand info.
   base::CPU cpu_info;
 #endif
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnableCrashReporter)) {
     std::string process_type =
-        CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+        base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
             switches::kProcessType);
     crash_reporter::SetCrashReporterClient(g_shell_crash_client.Pointer());
 #if defined(OS_MACOSX)
@@ -253,8 +268,8 @@ int ShellMainDelegate::RunProcess(
 #endif
 
   browser_runner_.reset(BrowserMainRunner::Create());
-  CommandLine& command_line = *CommandLine::ForCurrentProcess();
-  return command_line.HasSwitch(switches::kDumpRenderTree) ||
+  base::CommandLine& command_line = *base::CommandLine::ForCurrentProcess();
+  return command_line.HasSwitch(switches::kRunLayoutTest) ||
                  command_line.HasSwitch(switches::kCheckLayoutTestSysDeps)
              ? LayoutTestBrowserMain(main_function_params, browser_runner_)
              : ShellBrowserMain(main_function_params, browser_runner_);
@@ -262,10 +277,10 @@ int ShellMainDelegate::RunProcess(
 
 #if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MACOSX)
 void ShellMainDelegate::ZygoteForked() {
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnableCrashReporter)) {
     std::string process_type =
-        CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+        base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
             switches::kProcessType);
     breakpad::InitCrashReporter(process_type);
   }
@@ -274,56 +289,69 @@ void ShellMainDelegate::ZygoteForked() {
 
 void ShellMainDelegate::InitializeResourceBundle() {
 #if defined(OS_ANDROID)
-  // In the Android case, the renderer runs with a different UID and can never
-  // access the file system.  So we are passed a file descriptor to the
-  // ResourceBundle pak at launch time.
-  int pak_fd =
-      base::GlobalDescriptors::GetInstance()->MaybeGet(kShellPakDescriptor);
+  // On Android, the renderer runs with a different UID and can never access
+  // the file system. Use the file descriptor passed in at launch time.
+  auto* global_descriptors = base::GlobalDescriptors::GetInstance();
+  int pak_fd = global_descriptors->MaybeGet(kShellPakDescriptor);
+  base::MemoryMappedFile::Region pak_region;
   if (pak_fd >= 0) {
-    // This is clearly wrong. See crbug.com/330930
-    ui::ResourceBundle::InitSharedInstanceWithPakFileRegion(
-        base::File(pak_fd), base::MemoryMappedFile::Region::kWholeFile);
-    ResourceBundle::GetSharedInstance().AddDataPackFromFile(
-        base::File(pak_fd), ui::SCALE_FACTOR_100P);
-    return;
+    pak_region = global_descriptors->GetRegion(kShellPakDescriptor);
+  } else {
+    pak_fd =
+        base::android::OpenApkAsset("assets/content_shell.pak", &pak_region);
+    // Loaded from disk for browsertests.
+    if (pak_fd < 0) {
+      base::FilePath pak_file;
+      bool r = PathService::Get(base::DIR_ANDROID_APP_DATA, &pak_file);
+      DCHECK(r);
+      pak_file = pak_file.Append(FILE_PATH_LITERAL("paks"));
+      pak_file = pak_file.Append(FILE_PATH_LITERAL("content_shell.pak"));
+      int flags = base::File::FLAG_OPEN | base::File::FLAG_READ;
+      pak_fd = base::File(pak_file, flags).TakePlatformFile();
+      pak_region = base::MemoryMappedFile::Region::kWholeFile;
+    }
+    global_descriptors->Set(kShellPakDescriptor, pak_fd, pak_region);
   }
-#endif
-
-  base::FilePath pak_file;
+  DCHECK_GE(pak_fd, 0);
+  // This is clearly wrong. See crbug.com/330930
+  ui::ResourceBundle::InitSharedInstanceWithPakFileRegion(base::File(pak_fd),
+                                                          pak_region);
+  ui::ResourceBundle::GetSharedInstance().AddDataPackFromFileRegion(
+      base::File(pak_fd), pak_region, ui::SCALE_FACTOR_100P);
+#else  // defined(OS_ANDROID)
 #if defined(OS_MACOSX)
-  pak_file = GetResourcesPakFilePath();
+  base::FilePath pak_file = GetResourcesPakFilePath();
 #else
-  base::FilePath pak_dir;
-
-#if defined(OS_ANDROID)
-  bool got_path = PathService::Get(base::DIR_ANDROID_APP_DATA, &pak_dir);
-  DCHECK(got_path);
-  pak_dir = pak_dir.Append(FILE_PATH_LITERAL("paks"));
-#else
-  PathService::Get(base::DIR_MODULE, &pak_dir);
-#endif
-
-  pak_file = pak_dir.Append(FILE_PATH_LITERAL("content_shell.pak"));
-#endif
+  base::FilePath pak_file;
+  bool r = PathService::Get(base::DIR_MODULE, &pak_file);
+  DCHECK(r);
+  pak_file = pak_file.Append(FILE_PATH_LITERAL("content_shell.pak"));
+#endif  // defined(OS_MACOSX)
   ui::ResourceBundle::InitSharedInstanceWithPakPath(pak_file);
+#endif  // defined(OS_ANDROID)
 }
 
 ContentBrowserClient* ShellMainDelegate::CreateContentBrowserClient() {
-  browser_client_.reset(
-      CommandLine::ForCurrentProcess()->HasSwitch(switches::kDumpRenderTree) ?
-          new LayoutTestContentBrowserClient :
-          new ShellContentBrowserClient);
+  browser_client_.reset(base::CommandLine::ForCurrentProcess()->HasSwitch(
+                            switches::kRunLayoutTest)
+                            ? new LayoutTestContentBrowserClient
+                            : new ShellContentBrowserClient);
 
   return browser_client_.get();
 }
 
 ContentRendererClient* ShellMainDelegate::CreateContentRendererClient() {
-  renderer_client_.reset(
-      CommandLine::ForCurrentProcess()->HasSwitch(switches::kDumpRenderTree) ?
-          new LayoutTestContentRendererClient :
-          new ShellContentRendererClient);
+  renderer_client_.reset(base::CommandLine::ForCurrentProcess()->HasSwitch(
+                             switches::kRunLayoutTest)
+                             ? new LayoutTestContentRendererClient
+                             : new ShellContentRendererClient);
 
   return renderer_client_.get();
+}
+
+ContentUtilityClient* ShellMainDelegate::CreateContentUtilityClient() {
+  utility_client_.reset(new ShellContentUtilityClient);
+  return utility_client_.get();
 }
 
 }  // namespace content

@@ -24,8 +24,8 @@ class MultiUserContextMenuChromeOSTest : public AshTestBase {
  public:
   MultiUserContextMenuChromeOSTest() : multi_user_window_manager_(NULL) {}
 
-  virtual void SetUp() override;
-  virtual void TearDown() override;
+  void SetUp() override;
+  void TearDown() override;
 
  protected:
   // Set up the test environment for this many windows.
@@ -60,6 +60,7 @@ void MultiUserContextMenuChromeOSTest::SetUp() {
   window_->Show();
 
   multi_user_window_manager_ = new chrome::MultiUserWindowManagerChromeOS("A");
+  multi_user_window_manager_->Init();
   chrome::MultiUserWindowManager::SetInstanceForTest(multi_user_window_manager_,
         chrome::MultiUserWindowManager::MULTI_PROFILE_MODE_SEPARATED);
   EXPECT_TRUE(multi_user_window_manager_);

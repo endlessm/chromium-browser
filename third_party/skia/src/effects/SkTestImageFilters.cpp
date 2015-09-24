@@ -1,3 +1,9 @@
+/*
+ * Copyright 2011 Google Inc.
+ *
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
 
 #include "SkTestImageFilters.h"
 #include "SkCanvas.h"
@@ -49,7 +55,7 @@ bool SkDownSampleImageFilter::onFilterImage(Proxy* proxy, const SkBitmap& src,
         OwnDeviceCanvas canvas(dev);
         SkPaint paint;
 
-        paint.setFilterLevel(SkPaint::kLow_FilterLevel);
+        paint.setFilterQuality(kLow_SkFilterQuality);
         canvas.scale(scale, scale);
         canvas.drawBitmap(src, 0, 0, &paint);
         tmp = dev->accessBitmap(false);
@@ -81,10 +87,9 @@ void SkDownSampleImageFilter::flatten(SkWriteBuffer& buffer) const {
     buffer.writeScalar(fScale);
 }
 
-#ifdef SK_SUPPORT_LEGACY_DEEPFLATTENING
-SkDownSampleImageFilter::SkDownSampleImageFilter(SkReadBuffer& buffer)
-  : INHERITED(1, buffer) {
-    fScale = buffer.readScalar();
-    buffer.validate(SkScalarIsFinite(fScale));
+#ifndef SK_IGNORE_TO_STRING
+void SkDownSampleImageFilter::toString(SkString* str) const {
+    str->appendf("SkDownSampleImageFilter: (");
+    str->append(")");
 }
 #endif

@@ -7,21 +7,30 @@
  *
  * TODO(hirono): Pass each component instead of the entire FileManager.
  * @param {FileManager} fileManager FileManager instance.
- * @param {Object=} opt_params File manager load parameters.
  * @constructor
  */
-function FileTasks(fileManager, opt_params) {
+function FileTasks(fileManager) {
   this.fileManager_ = fileManager;
-  this.params_ = opt_params;
+
+  /**
+   * @private {Array<!Object>}
+   */
   this.tasks_ = null;
+
+  /**
+   * @private {Object}
+   */
   this.defaultTask_ = null;
+
+  /**
+   * @private {Array<!Entry>}
+   */
   this.entries_ = null;
 
   /**
    * List of invocations to be called once tasks are available.
    *
-   * @private
-   * @type {Array.<Object>}
+   * @private {Array<Object>}
    */
   this.pendingInvocations_ = [];
 }
@@ -60,6 +69,16 @@ FileTasks.VIDEO_PLAYER_ID = 'jcgeabjmjgoblfofpppfkcoakmfobdko';
 FileTasks.ZIP_UNPACKER_TASK_ID = 'oedeeodfidgoollimchfdnbmhcpnklnd|app|zip';
 
 /**
+ * Available actions in task menu button.
+ * @enum {string}
+ */
+FileTasks.TaskMenuButtonActions = {
+  ShowMenu: 'ShowMenu',
+  RunTask: 'RunTask',
+  ChangeDefaultAction: 'ChangeDefaultAction'
+};
+
+/**
  * Returns URL of the Chrome Web Store which show apps supporting the given
  * file-extension and mime-type.
  *
@@ -88,8 +107,9 @@ FileTasks.createWebStoreLink = function(extension, mimeType) {
 /**
  * Complete the initialization.
  *
- * @param {Array.<Entry>} entries List of file entries.
- * @param {Array.<string>=} opt_mimeTypes Mime-type specified for each entries.
+ * @param {Array<Entry>} entries List of file entries.
+ * @param {Array<string>=} opt_mimeTypes Mime-type specified for each entries.
+ * @return {!Promise} Promise to be fulfilled when the initialization completes.
  */
 FileTasks.prototype.init = function(entries, opt_mimeTypes) {
   this.entries_ = entries;
@@ -98,8 +118,24 @@ FileTasks.prototype.init = function(entries, opt_mimeTypes) {
   // TODO(mtomasz): Move conversion from entry to url to custom bindings.
   // crbug.com/345527.
   var urls = util.entriesToURLs(entries);
-  if (urls.length > 0)
-    chrome.fileManagerPrivate.getFileTasks(urls, this.onTasks_.bind(this));
+  if (urls.length > 0) {
+    return new Promise(function(fulfill) {
+      chrome.fileManagerPrivate.getFileTasks(urls, function(taskItems) {
+        this.onTasks_(taskItems);
+        fulfill();
+      }.bind(this));
+    }.bind(this));
+  } else {
+    return Promise.resolve();
+  }
+};
+
+/**
+ * Obtains the task items.
+ * @return {Array<!Object>}
+ */
+FileTasks.prototype.getTaskItems = function() {
+  return this.tasks_;
 };
 
 /**
@@ -114,7 +150,7 @@ FileTasks.prototype.size = function() {
 /**
  * Callback when tasks found.
  *
- * @param {Array.<Object>} tasks The tasks.
+ * @param {Array<Object>} tasks The tasks.
  * @private
  */
 FileTasks.prototype.onTasks_ = function(tasks) {
@@ -133,7 +169,7 @@ FileTasks.prototype.onTasks_ = function(tasks) {
  * inserted.
  *
  * @const
- * @type {Array.<string>}
+ * @type {Array<string>}
  * @private
  */
 FileTasks.UMA_INDEX_KNOWN_EXTENSIONS_ = Object.freeze([
@@ -150,7 +186,7 @@ FileTasks.UMA_INDEX_KNOWN_EXTENSIONS_ = Object.freeze([
  * The list of executable file extensions.
  *
  * @const
- * @type {Array.<string>}
+ * @type {Array<string>}
  */
 FileTasks.EXECUTABLE_EXTENSIONS = Object.freeze([
   '.exe', '.lnk', '.deb', '.dmg', '.jar', '.msi',
@@ -159,7 +195,7 @@ FileTasks.EXECUTABLE_EXTENSIONS = Object.freeze([
 /**
  * The list of extensions to skip the suggest app dialog.
  * @const
- * @type {Array.<string>}
+ * @type {Array<string>}
  * @private
  */
 FileTasks.EXTENSIONS_TO_SKIP_SUGGEST_APPS_ = Object.freeze([
@@ -169,7 +205,7 @@ FileTasks.EXTENSIONS_TO_SKIP_SUGGEST_APPS_ = Object.freeze([
 /**
  * Records trial of opening file grouped by extensions.
  *
- * @param {Array.<Entry>} entries The entries to be opened.
+ * @param {Array<Entry>} entries The entries to be opened.
  * @private
  */
 FileTasks.recordViewingFileTypeUMA_ = function(entries) {
@@ -206,29 +242,19 @@ FileTasks.isInternalTask_ = function(taskId) {
 /**
  * Processes internal tasks.
  *
- * @param {Array.<Object>} tasks The tasks.
+ * @param {Array<Object>} tasks The tasks.
  * @private
  */
 FileTasks.prototype.processTasks_ = function(tasks) {
   this.tasks_ = [];
   var id = chrome.runtime.id;
-  var isOnDrive = false;
-  var fm = this.fileManager_;
-  for (var index = 0; index < this.entries_.length; ++index) {
-    var locationInfo = fm.volumeManager.getLocationInfo(this.entries_[index]);
-    if (locationInfo && locationInfo.isDriveBased) {
-      isOnDrive = true;
-      break;
-    }
-  }
-
   for (var i = 0; i < tasks.length; i++) {
     var task = tasks[i];
     var taskParts = task.taskId.split('|');
 
     // Skip internal Files.app's handlers.
-    if (taskParts[0] === id && (taskParts[2] === 'auto-open' ||
-        taskParts[2] === 'select' || taskParts[2] === 'open')) {
+    if (taskParts[0] === id &&
+        (taskParts[2] === 'select' || taskParts[2] === 'open')) {
       continue;
     }
 
@@ -300,7 +326,7 @@ FileTasks.prototype.processTasks_ = function(tasks) {
 /**
  * Executes default task.
  *
- * @param {function(boolean, Array.<Entry>)=} opt_callback Called when the
+ * @param {function(boolean, Array<Entry>)=} opt_callback Called when the
  *     default task is executed, or the error is occurred.
  * @private
  */
@@ -312,8 +338,8 @@ FileTasks.prototype.executeDefault_ = function(opt_callback) {
 /**
  * Executes default task.
  *
- * @param {Array.<Entry>} entries Entries to execute.
- * @param {function(boolean, Array.<Entry>)=} opt_callback Called when the
+ * @param {Array<Entry>} entries Entries to execute.
+ * @param {function(boolean, Array<Entry>)=} opt_callback Called when the
  *     default task is executed, or the error is occurred.
  * @private
  */
@@ -357,23 +383,23 @@ FileTasks.prototype.executeDefaultInternal_ = function(entries, opt_callback) {
     var webStoreUrl = FileTasks.createWebStoreLink(extension, mimeType);
     var text = strf(textMessageId, webStoreUrl, str('NO_ACTION_FOR_FILE_URL'));
     var title = titleMessageId ? str(titleMessageId) : filename;
-    this.fileManager_.alert.showHtml(title, text, function() {});
+    this.fileManager_.ui.alertDialog.showHtml(title, text, null, null, null);
     callback(false, entries);
   }.bind(this);
 
   var onViewFilesFailure = function() {
-    var fm = this.fileManager_;
-    if (!fm.isOnDrive() ||
-        !entries[0] ||
-        FileTasks.EXTENSIONS_TO_SKIP_SUGGEST_APPS_.indexOf(extension) !== -1) {
+    var fileManager = this.fileManager_;
+
+    if (FileTasks.EXTENSIONS_TO_SKIP_SUGGEST_APPS_.indexOf(extension) !== -1 ||
+        FileTasks.EXECUTABLE_EXTENSIONS.indexOf(extension) !== -1) {
       showAlert();
       return;
     }
 
-    fm.openSuggestAppsDialog(
+    fileManager.taskController.openSuggestAppsDialog(
         entries[0],
         function() {
-          var newTasks = new FileTasks(fm);
+          var newTasks = new FileTasks(fileManager);
           newTasks.init(entries, this.mimeTypes_);
           newTasks.executeDefault();
           callback(true, entries);
@@ -421,7 +447,7 @@ FileTasks.prototype.executeDefaultInternal_ = function(entries, opt_callback) {
  * Executes a single task.
  *
  * @param {string} taskId Task identifier.
- * @param {Array.<Entry>=} opt_entries Entries to xecute on instead of
+ * @param {Array<Entry>=} opt_entries Entries to xecute on instead of
  *     this.entries_|.
  * @private
  */
@@ -435,7 +461,7 @@ FileTasks.prototype.execute_ = function(taskId, opt_entries) {
  * The core implementation to execute a single task.
  *
  * @param {string} taskId Task identifier.
- * @param {Array.<Entry>} entries Entries to execute.
+ * @param {Array<Entry>} entries Entries to execute.
  * @private
  */
 FileTasks.prototype.executeInternal_ = function(taskId, entries) {
@@ -464,6 +490,7 @@ FileTasks.prototype.executeInternal_ = function(taskId, entries) {
 /**
  * Checks whether the remote files are available right now.
  *
+ * Must not call before initialization.
  * @param {function()} callback The callback.
  * @private
  */
@@ -477,30 +504,33 @@ FileTasks.prototype.checkAvailability_ = function(callback) {
   };
 
   var fm = this.fileManager_;
-  var entries = this.entries_;
+  var metadataModel = this.fileManager_.getMetadataModel();
+  var entries = assert(this.entries_);
 
   var isDriveOffline = fm.volumeManager.getDriveConnectionState().type ===
       VolumeManagerCommon.DriveConnectionType.OFFLINE;
 
   if (fm.isOnDrive() && isDriveOffline) {
-    fm.metadataCache_.get(entries, 'external', function(props) {
-      if (areAll(props, 'availableOffline')) {
-        callback();
-        return;
-      }
+    metadataModel.get(entries, ['availableOffline', 'hosted']).then(
+        function(props) {
+          if (areAll(props, 'availableOffline')) {
+            callback();
+            return;
+          }
 
-      fm.alert.showHtml(
-          loadTimeData.getString('OFFLINE_HEADER'),
-          props[0].hosted ?
-              loadTimeData.getStringF(
-                  entries.length === 1 ?
-                      'HOSTED_OFFLINE_MESSAGE' :
-                      'HOSTED_OFFLINE_MESSAGE_PLURAL') :
-              loadTimeData.getStringF(
-                  entries.length === 1 ?
-                      'OFFLINE_MESSAGE' :
-                      'OFFLINE_MESSAGE_PLURAL',
-                  loadTimeData.getString('OFFLINE_COLUMN_LABEL')));
+          fm.ui.alertDialog.showHtml(
+              loadTimeData.getString('OFFLINE_HEADER'),
+              props[0].hosted ?
+                  loadTimeData.getStringF(
+                      entries.length === 1 ?
+                          'HOSTED_OFFLINE_MESSAGE' :
+                          'HOSTED_OFFLINE_MESSAGE_PLURAL') :
+                  loadTimeData.getStringF(
+                      entries.length === 1 ?
+                          'OFFLINE_MESSAGE' :
+                          'OFFLINE_MESSAGE_PLURAL',
+                      loadTimeData.getString('OFFLINE_COLUMN_LABEL')),
+              null, null, null);
     });
     return;
   }
@@ -509,27 +539,26 @@ FileTasks.prototype.checkAvailability_ = function(callback) {
       VolumeManagerCommon.DriveConnectionType.METERED;
 
   if (fm.isOnDrive() && isOnMetered) {
-    fm.metadataCache_.get(entries, 'external', function(driveProps) {
-      if (areAll(driveProps, 'availableWhenMetered')) {
-        callback();
-        return;
-      }
+    metadataModel.get(entries, ['availableWhenMetered', 'size']).then(
+        function(props) {
+          if (areAll(props, 'availableWhenMetered')) {
+            callback();
+            return;
+          }
 
-      fm.metadataCache_.get(entries, 'filesystem', function(fileProps) {
-        var sizeToDownload = 0;
-        for (var i = 0; i !== entries.length; i++) {
-          if (!driveProps[i].availableWhenMetered)
-            sizeToDownload += fileProps[i].size;
-        }
-        fm.confirm.show(
-            loadTimeData.getStringF(
-                entries.length === 1 ?
-                    'CONFIRM_MOBILE_DATA_USE' :
-                    'CONFIRM_MOBILE_DATA_USE_PLURAL',
-                util.bytesToString(sizeToDownload)),
-            callback);
-      });
-    });
+          var sizeToDownload = 0;
+          for (var i = 0; i !== entries.length; i++) {
+            if (!props[i].availableWhenMetered)
+              sizeToDownload += props[i].size;
+          }
+          fm.ui.confirmDialog.show(
+              loadTimeData.getStringF(
+                  entries.length === 1 ?
+                      'CONFIRM_MOBILE_DATA_USE' :
+                      'CONFIRM_MOBILE_DATA_USE_PLURAL',
+                  util.bytesToString(sizeToDownload)),
+              callback, null, null);
+        });
     return;
   }
 
@@ -540,7 +569,7 @@ FileTasks.prototype.checkAvailability_ = function(callback) {
  * Executes an internal task.
  *
  * @param {string} id The short task id.
- * @param {Array.<Entry>} entries The entries to execute on.
+ * @param {Array<Entry>} entries The entries to execute on.
  * @private
  */
 FileTasks.prototype.executeInternalTask_ = function(id, entries) {
@@ -557,7 +586,7 @@ FileTasks.prototype.executeInternalTask_ = function(id, entries) {
 /**
  * Mounts archives.
  *
- * @param {Array.<Entry>} entries Mount file entries list.
+ * @param {Array<Entry>} entries Mount file entries list.
  */
 FileTasks.prototype.mountArchives = function(entries) {
   FileTasks.recordViewingFileTypeUMA_(entries);
@@ -567,7 +596,7 @@ FileTasks.prototype.mountArchives = function(entries) {
 /**
  * The core implementation of mounts archives.
  *
- * @param {Array.<Entry>} entries Mount file entries list.
+ * @param {Array<Entry>} entries Mount file entries list.
  * @private
  */
 FileTasks.prototype.mountArchivesInternal_ = function(entries) {
@@ -602,8 +631,10 @@ FileTasks.prototype.mountArchivesInternal_ = function(entries) {
           tracker.stop();
           var path = util.extractFilePath(url);
           var namePos = path.lastIndexOf('/');
-          fm.alert.show(strf('ARCHIVE_MOUNT_FAILED',
-                             path.substr(namePos + 1), error));
+          fm.ui.alertDialog.show(
+              strf('ARCHIVE_MOUNT_FAILED', path.substr(namePos + 1), error),
+              null,
+              null);
         }.bind(null, urls[index]));
   }
 };
@@ -626,15 +657,12 @@ FileTasks.prototype.display_ = function(combobutton) {
 
   // If there exist defaultTask show it on the combobutton.
   if (this.defaultTask_) {
-    if (this.defaultTask_.taskId === FileTasks.ZIP_UNPACKER_TASK_ID) {
-      combobutton.defaultItem = this.createCombobuttonItem_(this.defaultTask_,
-          str('ACTION_OPEN'));
-    } else {
-      combobutton.defaultItem = this.createCombobuttonItem_(this.defaultTask_);
-    }
+    combobutton.defaultItem = this.createCombobuttonItem_(this.defaultTask_,
+        str('ACTION_OPEN'));
   } else {
     combobutton.defaultItem = {
-      label: loadTimeData.getString('MORE_ACTIONS')
+      action: FileTasks.TaskMenuButtonActions.ShowMenu,
+      label: str('OPEN_WITH_BUTTON_LABEL')
     };
   }
 
@@ -653,6 +681,7 @@ FileTasks.prototype.display_ = function(combobutton) {
     if (this.defaultTask_) {
       combobutton.addSeparator();
       var changeDefaultMenuItem = combobutton.addDropDownItem({
+        action: FileTasks.TaskMenuButtonActions.ChangeDefaultAction,
         label: loadTimeData.getString('CHANGE_DEFAULT_MENU_ITEM')
       });
       changeDefaultMenuItem.classList.add('change-default');
@@ -702,15 +731,6 @@ FileTasks.prototype.createItems_ = function() {
 };
 
 /**
- * Updates context menu with default item.
- * @private
- */
-
-FileTasks.prototype.updateMenuItem_ = function() {
-  this.fileManager_.updateContextMenuActionItems(this.tasks_);
-};
-
-/**
  * Creates combobutton item based on task.
  *
  * @param {Object} task Task to convert.
@@ -724,6 +744,7 @@ FileTasks.prototype.createCombobuttonItem_ = function(task, opt_title,
                                                       opt_bold,
                                                       opt_isDefault) {
   return {
+    action: FileTasks.TaskMenuButtonActions.RunTask,
     label: opt_title || task.title,
     iconUrl: task.iconUrl,
     iconType: task.iconType,
@@ -760,7 +781,7 @@ FileTasks.prototype.showTaskPicker = function(actionDialog, title, message,
       defaultIdx = j;
   }
 
-  actionDialog.show(
+  actionDialog.showDefaultActionDialog(
       title,
       message,
       items, defaultIdx,
@@ -770,25 +791,38 @@ FileTasks.prototype.showTaskPicker = function(actionDialog, title, message,
 };
 
 /**
- * Decorates a FileTasks method, so it will be actually executed after the tasks
- * are available.
- * This decorator expects an implementation called |method + '_'|.
- *
- * @param {string} method The method name.
+ * @param {cr.ui.ComboButton} combobutton The task picker element.
  */
-FileTasks.decorate = function(method) {
-  var privateMethod = method + '_';
-  FileTasks.prototype[method] = function() {
-    if (this.tasks_) {
-      this[privateMethod].apply(this, arguments);
-    } else {
-      this.pendingInvocations_.push([privateMethod, arguments]);
-    }
-    return this;
-  };
+FileTasks.prototype.display = function(combobutton) {
+  if (this.tasks_)
+    this.display_(combobutton);
+  else
+    this.pendingInvocations_.push(['display_', [combobutton]]);
 };
 
-FileTasks.decorate('display');
-FileTasks.decorate('updateMenuItem');
-FileTasks.decorate('execute');
-FileTasks.decorate('executeDefault');
+/**
+ * Executes a single task.
+ *
+ * @param {string} taskId Task identifier.
+ * @param {Array<Entry>=} opt_entries Entries to xecute on instead of
+ *     this.entries_|.
+ */
+FileTasks.prototype.execute = function(taskId, opt_entries) {
+  if (this.tasks_)
+    this.execute_(taskId, opt_entries);
+  else
+    this.pendingInvocations_.push(['execute_', [taskId, opt_entries]]);
+};
+
+/**
+ * Executes default task.
+ *
+ * @param {function(boolean, Array<Entry>)=} opt_callback Called when the
+ *     default task is executed, or the error is occurred.
+ */
+FileTasks.prototype.executeDefault = function(opt_callback) {
+  if (this.tasks_)
+    this.executeDefault_(opt_callback);
+  else
+    this.pendingInvocations_.push(['executeDefault_', [opt_callback]]);
+};

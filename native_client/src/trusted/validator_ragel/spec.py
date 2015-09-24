@@ -923,8 +923,14 @@ _XMM_AVX_INSTRUCTIONS.update([
   'vbroadcastf128',
   'vbroadcastsd',
   'vbroadcastss',
+  'vcvtpd2psx',
+  'vcvtpd2psy',
+  'vcvtpd2dqx',
+  'vcvtpd2dqy',
   'vcvtph2ps',
   'vcvtps2ph',
+  'vcvttpd2dqx',
+  'vcvttpd2dqy',
   'vextractf128',
   'vfrczpd',
   'vfrczps',
@@ -991,6 +997,32 @@ _XMM_AVX_INSTRUCTIONS.update([
   'vtestps',
   'vzeroall',
   'vzeroupper',
+])
+
+# Add AXV2 instructions.
+_XMM_AVX_INSTRUCTIONS.update([
+  'vpblendd',
+  'vpmaskmovd',
+  'vpmaskmovq',
+  'vpsllvd',
+  'vpsllvq',
+  'vpsrlvd',
+  'vpsrlvq',
+  'vpsravd',
+  'vpbroadcastb',
+  'vpbroadcastw',
+  'vpbroadcastd',
+  'vpbroadcastq',
+  'vbroadcasti128',
+  'vbroadastsd',
+  'vbroadastss',
+  'vextracti128',
+  'vinserti128',
+  'vpermd',
+  'vperm2i128',
+  'vpermps',
+  'vpermpd',
+  'vpermq',
 ])
 
 # Add instructions like VFMADDPD/VFMADD132PD/VFMADD213PD/VFMADD231PD.
@@ -1126,7 +1158,7 @@ def ValidateRegularInstruction(instruction, bitness):
          'btc', 'btr', 'bts', 'bt',
          'cmp', 'test',
          'imul', 'mul', 'div', 'idiv', 'push',
-        ]) or name in ['movd', 'vmovd']:
+        ]) or name in ['movd', 'vmovd', 'vmovq']:
       return Condition(), Condition()
 
     elif name in [

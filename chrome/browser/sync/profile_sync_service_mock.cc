@@ -17,15 +17,10 @@
 #include "components/signin/core/browser/signin_manager.h"
 
 ProfileSyncServiceMock::ProfileSyncServiceMock(Profile* profile)
-    : ProfileSyncService(
+    : ProfileSyncServiceMock(
           scoped_ptr<ProfileSyncComponentsFactory>(
               new ProfileSyncComponentsFactoryMock()),
-          profile,
-          make_scoped_ptr(new SupervisedUserSigninManagerWrapper(
-              profile,
-              SigninManagerFactory::GetForProfile(profile))),
-          ProfileOAuth2TokenServiceFactory::GetForProfile(profile),
-          browser_sync::MANUAL_START) {
+          profile) {
 }
 
 ProfileSyncServiceMock::ProfileSyncServiceMock(
@@ -38,6 +33,7 @@ ProfileSyncServiceMock::ProfileSyncServiceMock(
               SigninManagerFactory::GetForProfile(profile))),
           ProfileOAuth2TokenServiceFactory::GetForProfile(profile),
           browser_sync::MANUAL_START) {
+    ON_CALL(*this, IsSyncRequested()).WillByDefault(testing::Return(true));
 }
 
 ProfileSyncServiceMock::~ProfileSyncServiceMock() {
@@ -46,12 +42,14 @@ ProfileSyncServiceMock::~ProfileSyncServiceMock() {
 // static
 TestingProfile* ProfileSyncServiceMock::MakeSignedInTestingProfile() {
   TestingProfile* profile = new TestingProfile();
-  profile->GetPrefs()->SetString(prefs::kGoogleServicesUsername, "foo");
+  SigninManagerFactory::GetForProfile(profile)->
+      SetAuthenticatedAccountInfo("12345", "foo");
   return profile;
 }
 
 // static
-KeyedService* ProfileSyncServiceMock::BuildMockProfileSyncService(
+scoped_ptr<KeyedService> ProfileSyncServiceMock::BuildMockProfileSyncService(
     content::BrowserContext* profile) {
-  return new ProfileSyncServiceMock(static_cast<Profile*>(profile));
+  return make_scoped_ptr(
+      new ProfileSyncServiceMock(static_cast<Profile*>(profile)));
 }

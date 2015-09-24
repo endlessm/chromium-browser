@@ -66,15 +66,6 @@ cr.define('options', function() {
         };
       }
 
-      var experimentalExceptionsButtons =
-          this.pageDiv.querySelectorAll('.website-settings-permission-button');
-      for (var i = 0; i < experimentalExceptionsButtons.length; i++) {
-        experimentalExceptionsButtons[i].onclick = function(event) {
-          var hash = event.currentTarget.getAttribute('contentType');
-          WebsiteSettingsManager.showWebsiteSettings(hash);
-        };
-      }
-
       var manageHandlersButton = $('manage-handlers-button');
       if (manageHandlersButton) {
         manageHandlersButton.onclick = function(event) {
@@ -106,20 +97,6 @@ cr.define('options', function() {
           ContentSettings.setDefaultMicrophone_);
       $('media-select-camera').addEventListener('change',
           ContentSettings.setDefaultCamera_);
-
-      if (loadTimeData.getBoolean('websiteSettingsManagerEnabled')) {
-        var oldUI =
-            this.pageDiv.querySelectorAll('.replace-with-website-settings');
-        for (var i = 0; i < oldUI.length; i++) {
-          oldUI[i].hidden = true;
-        }
-
-        var newUI =
-            this.pageDiv.querySelectorAll('.experimental-website-settings');
-        for (var i = 0; i < newUI.length; i++) {
-          newUI[i].hidden = false;
-        }
-      }
     },
   };
 
@@ -131,8 +108,8 @@ cr.define('options', function() {
 
   /**
    * Sets the values for all the content settings radios and labels.
-   * @param {Object.<string, {managedBy: string, value: string}>} dict A mapping
-   *     from radio groups to the checked value for that group.
+   * @param {Object<{managedBy: string, value: string}>} dict A mapping from
+   *     radio groups to the checked value for that group.
    */
   ContentSettings.setContentFilterSettingsValue = function(dict) {
     for (var group in dict) {
@@ -218,7 +195,7 @@ cr.define('options', function() {
   /**
    * Initializes an exceptions list.
    * @param {string} type The content type that we are setting exceptions for.
-   * @param {Array.<options.Exception>} exceptions An array of pairs, where the
+   * @param {Array<options.Exception>} exceptions An array of pairs, where the
    *     first element of each pair is the filter string, and the second is the
    *     setting (allow/block).
    */
@@ -290,14 +267,6 @@ cr.define('options', function() {
    */
   ContentSettings.showMediaPepperFlashExceptionsLink = function(show) {
     $('media-pepper-flash-exceptions').hidden = !show;
-  };
-
-  /**
-   * Shows/hides the whole Web MIDI settings.
-   * @param {boolean} show Wether to show the whole Web MIDI settings.
-   */
-  ContentSettings.showExperimentalWebMIDISettings = function(show) {
-    $('experimental-web-midi-settings').hidden = !show;
   };
 
   /**

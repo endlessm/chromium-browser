@@ -5,12 +5,11 @@
 #ifndef REMOTING_PROTOCOL_HOST_CONTROL_DISPATCHER_H_
 #define REMOTING_PROTOCOL_HOST_CONTROL_DISPATCHER_H_
 
-#include "remoting/protocol/buffered_socket_writer.h"
 #include "remoting/protocol/channel_dispatcher_base.h"
 #include "remoting/protocol/client_stub.h"
 #include "remoting/protocol/clipboard_stub.h"
 #include "remoting/protocol/cursor_shape_stub.h"
-#include "remoting/protocol/message_reader.h"
+#include "remoting/protocol/protobuf_message_parser.h"
 
 namespace net {
 class StreamSocket;
@@ -54,10 +53,6 @@ class HostControlDispatcher : public ChannelDispatcherBase,
   // message. |host_stub| must outlive this object.
   void set_host_stub(HostStub* host_stub) { host_stub_ = host_stub; }
 
- protected:
-  // ChannelDispatcherBase overrides.
-  void OnInitialized() override;
-
  private:
   void OnMessageReceived(scoped_ptr<ControlMessage> message,
                          const base::Closure& done_task);
@@ -65,8 +60,7 @@ class HostControlDispatcher : public ChannelDispatcherBase,
   ClipboardStub* clipboard_stub_;
   HostStub* host_stub_;
 
-  ProtobufMessageReader<ControlMessage> reader_;
-  BufferedSocketWriter writer_;
+  ProtobufMessageParser<ControlMessage> parser_;
 
   DISALLOW_COPY_AND_ASSIGN(HostControlDispatcher);
 };

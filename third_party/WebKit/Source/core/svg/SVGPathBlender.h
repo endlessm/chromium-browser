@@ -20,52 +20,31 @@
 #ifndef SVGPathBlender_h
 #define SVGPathBlender_h
 
-#include "core/svg/SVGPathConsumer.h"
+#include "platform/heap/Handle.h"
+#include "wtf/Noncopyable.h"
 
 namespace blink {
 
-enum FloatBlendMode {
-    BlendHorizontal,
-    BlendVertical
-};
-
+struct PathSegmentData;
+class SVGPathConsumer;
 class SVGPathSource;
 
-class SVGPathBlender {
-    WTF_MAKE_NONCOPYABLE(SVGPathBlender); WTF_MAKE_FAST_ALLOCATED;
+class SVGPathBlender final {
+    WTF_MAKE_NONCOPYABLE(SVGPathBlender);
+    STACK_ALLOCATED();
 public:
-    SVGPathBlender();
+    SVGPathBlender(SVGPathSource* fromSource, SVGPathSource* toSource, SVGPathConsumer*);
 
-    bool addAnimatedPath(SVGPathSource*, SVGPathSource*, SVGPathConsumer*, unsigned repeatCount);
-    bool blendAnimatedPath(float, SVGPathSource*, SVGPathSource*, SVGPathConsumer*);
-    void cleanup();
+    bool addAnimatedPath(unsigned repeatCount);
+    bool blendAnimatedPath(float);
 
 private:
-    bool blendMoveToSegment();
-    bool blendLineToSegment();
-    bool blendLineToHorizontalSegment();
-    bool blendLineToVerticalSegment();
-    bool blendCurveToCubicSegment();
-    bool blendCurveToCubicSmoothSegment();
-    bool blendCurveToQuadraticSegment();
-    bool blendCurveToQuadraticSmoothSegment();
-    bool blendArcToSegment();
-
-    float blendAnimatedDimensonalFloat(float, float, FloatBlendMode);
-    FloatPoint blendAnimatedFloatPoint(const FloatPoint& from, const FloatPoint& to);
+    class BlendState;
+    bool blendAnimatedPath(BlendState&);
 
     SVGPathSource* m_fromSource;
     SVGPathSource* m_toSource;
     SVGPathConsumer* m_consumer;
-
-    FloatPoint m_fromCurrentPoint;
-    FloatPoint m_toCurrentPoint;
-
-    PathCoordinateMode m_fromMode;
-    PathCoordinateMode m_toMode;
-    float m_progress;
-    unsigned m_addTypesCount;
-    bool m_isInFirstHalfOfAnimation;
 };
 
 } // namespace blink

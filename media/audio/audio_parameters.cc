@@ -54,16 +54,11 @@ AudioParameters::AudioParameters(Format format, ChannelLayout channel_layout,
       frames_per_buffer_(frames_per_buffer),
       channels_(channels),
       effects_(effects) {
-  if (channel_layout != CHANNEL_LAYOUT_DISCRETE)
-    DCHECK_EQ(channels, ChannelLayoutToChannelCount(channel_layout));
 }
 
 void AudioParameters::Reset(Format format, ChannelLayout channel_layout,
                             int channels, int sample_rate,
                             int bits_per_sample, int frames_per_buffer) {
-  if (channel_layout != CHANNEL_LAYOUT_DISCRETE)
-    DCHECK_EQ(channels, ChannelLayoutToChannelCount(channel_layout));
-
   format_ = format;
   channel_layout_ = channel_layout;
   channels_ = channels;
@@ -73,18 +68,16 @@ void AudioParameters::Reset(Format format, ChannelLayout channel_layout,
 }
 
 bool AudioParameters::IsValid() const {
-  return (format_ >= AUDIO_PCM_LINEAR) &&
-         (format_ < AUDIO_LAST_FORMAT) &&
-         (channels_ > 0) &&
-         (channels_ <= media::limits::kMaxChannels) &&
+  return (channels_ > 0) && (channels_ <= media::limits::kMaxChannels) &&
          (channel_layout_ > CHANNEL_LAYOUT_UNSUPPORTED) &&
-         (channel_layout_ <= CHANNEL_LAYOUT_MAX) &&
          (sample_rate_ >= media::limits::kMinSampleRate) &&
          (sample_rate_ <= media::limits::kMaxSampleRate) &&
          (bits_per_sample_ > 0) &&
          (bits_per_sample_ <= media::limits::kMaxBitsPerSample) &&
          (frames_per_buffer_ > 0) &&
-         (frames_per_buffer_ <= media::limits::kMaxSamplesPerPacket);
+         (frames_per_buffer_ <= media::limits::kMaxSamplesPerPacket) &&
+         (channel_layout_ == CHANNEL_LAYOUT_DISCRETE ||
+          channels_ == ChannelLayoutToChannelCount(channel_layout_));
 }
 
 std::string AudioParameters::AsHumanReadableString() const {

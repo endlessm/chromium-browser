@@ -18,13 +18,13 @@
 #include "base/memory/ref_counted.h"
 #include "third_party/npapi/bindings/npapi.h"
 #include "third_party/npapi/bindings/nphostapi.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
-#include "ui/gfx/point.h"
-#include "ui/gfx/rect.h"
 #include "url/gurl.h"
 
 namespace base {
-class MessageLoop;
+class SingleThreadTaskRunner;
 }
 
 namespace content {
@@ -305,7 +305,7 @@ class PluginInstance : public base::RefCountedThreadSafe<PluginInstance> {
   gfx::Rect                                containing_window_frame_;
   NPCocoaEvent*                            currently_handled_event_;  // weak
 #endif
-  base::MessageLoop*                       message_loop_;
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   scoped_refptr<PluginStreamUrl>           plugin_data_stream_;
 
   // This flag if true indicates that the plugin data would be passed from

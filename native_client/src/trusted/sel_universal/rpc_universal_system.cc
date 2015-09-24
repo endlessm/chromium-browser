@@ -12,6 +12,7 @@
 #include <sstream>
 
 using std::stringstream;
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/shared/platform/nacl_log.h"
 #include "native_client/src/trusted/desc/nacl_desc_base.h"
 #include "native_client/src/trusted/desc/nacl_desc_sync_socket.h"
@@ -94,28 +95,6 @@ bool HandlerReadwriteFile(NaClCommandLoop* ncl, const vector<string>& args) {
   nacl::DescWrapper* desc =
       factory.OpenHostFile(args[2].c_str(),
                            NACL_ABI_O_RDWR | NACL_ABI_O_CREAT, 0666);
-  if (NULL == desc) {
-    NaClLog(LOG_ERROR, "cound not create file desc for %s\n", args[2].c_str());
-    return false;
-  }
-  ncl->AddDesc(desc->desc(), args[1]);
-  return true;
-}
-
-// create a descriptor representing a read-write file with quota management.
-bool HandlerReadwriteFileQuota(NaClCommandLoop* ncl,
-                               const vector<string>& args) {
-  if (args.size() < 3) {
-    NaClLog(LOG_ERROR, "not enough args\n");
-    return false;
-  }
-
-  static const uint8_t kFileId[] = "SelUniversal000";
-  nacl::DescWrapperFactory factory;
-  nacl::DescWrapper* desc =
-      factory.OpenHostFileQuota(args[2].c_str(),
-                                NACL_ABI_O_RDWR | NACL_ABI_O_CREAT, 0666,
-                                kFileId);
   if (NULL == desc) {
     NaClLog(LOG_ERROR, "cound not create file desc for %s\n", args[2].c_str());
     return false;

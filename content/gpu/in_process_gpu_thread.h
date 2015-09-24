@@ -7,16 +7,18 @@
 
 #include "base/threading/thread.h"
 #include "content/common/content_export.h"
+#include "content/common/in_process_child_thread_params.h"
 
 namespace content {
 
+class GpuMemoryBufferFactory;
 class GpuProcess;
 
 // This class creates a GPU thread (instead of a GPU process), when running
 // with --in-process-gpu or --single-process.
 class InProcessGpuThread : public base::Thread {
  public:
-  explicit InProcessGpuThread(const std::string& channel_id);
+  InProcessGpuThread(const InProcessChildThreadParams& params);
   ~InProcessGpuThread() override;
 
  protected:
@@ -24,15 +26,18 @@ class InProcessGpuThread : public base::Thread {
   void CleanUp() override;
 
  private:
-  std::string channel_id_;
+  InProcessChildThreadParams params_;
+
   // Deleted in CleanUp() on the gpu thread, so don't use smart pointers.
   GpuProcess* gpu_process_;
+
+  scoped_ptr<GpuMemoryBufferFactory> gpu_memory_buffer_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(InProcessGpuThread);
 };
 
 CONTENT_EXPORT base::Thread* CreateInProcessGpuThread(
-    const std::string& channel_id);
+    const InProcessChildThreadParams& params);
 
 }  // namespace content
 

@@ -4,20 +4,26 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _FX_STRING_H_
-#define _FX_STRING_H_
-class CFX_ByteStringC;
+#ifndef CORE_INCLUDE_FXCRT_FX_STRING_H_
+#define CORE_INCLUDE_FXCRT_FX_STRING_H_
+
+#include <stdint.h>  // For intptr_t.
+#include <algorithm>
+
+#include "fx_memory.h"
+#include "fx_system.h"
+
+class CFX_BinaryBuf;
 class CFX_ByteString;
-class CFX_WideStringC;
 class CFX_WideString;
 struct CFX_CharMap;
-class CFX_BinaryBuf;
-typedef int FX_STRSIZE;
-class CFX_ByteStringL;
-class CFX_WideStringL;
-class CFX_ByteStringC : public CFX_Object
+
+// An immutable string with caller-provided storage which must outlive the
+// string itself.
+class CFX_ByteStringC
 {
 public:
+    typedef FX_CHAR value_type;
 
     CFX_ByteStringC()
     {
@@ -25,32 +31,35 @@ public:
         m_Length = 0;
     }
 
-    CFX_ByteStringC(FX_LPCBYTE ptr, FX_STRSIZE size)
+    CFX_ByteStringC(const uint8_t* ptr, FX_STRSIZE size)
     {
         m_Ptr = ptr;
         m_Length = size;
     }
 
-    CFX_ByteStringC(FX_LPCSTR ptr)
+    CFX_ByteStringC(const FX_CHAR* ptr)
     {
-        m_Ptr = (FX_LPCBYTE)ptr;
-        m_Length = ptr ? (FX_STRSIZE)FXSYS_strlen(ptr) : 0;
+        m_Ptr = (const uint8_t*)ptr;
+        m_Length = ptr ? FXSYS_strlen(ptr) : 0;
     }
 
+    // |ch| must be an lvalue that outlives the the CFX_ByteStringC. However,
+    // the use of char rvalues are not caught at compile time.  They are
+    // implicitly promoted to CFX_ByteString (see below) and then the
+    // CFX_ByteStringC is constructed from the CFX_ByteString via the alternate
+    // constructor below. The CFX_ByteString then typically goes out of scope
+    // and |m_Ptr| may be left pointing to invalid memory. Beware.
+    // TODO(tsepez): Mark single-argument string constructors as explicit.
     CFX_ByteStringC(FX_CHAR& ch)
     {
-        m_Ptr = (FX_LPCBYTE)&ch;
+        m_Ptr = (const uint8_t*)&ch;
         m_Length = 1;
     }
 
-    CFX_ByteStringC(FX_LPCSTR ptr, FX_STRSIZE len)
+    CFX_ByteStringC(const FX_CHAR* ptr, FX_STRSIZE len)
     {
-        m_Ptr = (FX_LPCBYTE)ptr;
-        if (len == -1) {
-            m_Length = (FX_STRSIZE)FXSYS_strlen(ptr);
-        } else {
-            m_Length = len;
-        }
+        m_Ptr = (const uint8_t*)ptr;
+        m_Length = (len == -1) ? FXSYS_strlen(ptr) : len;
     }
 
     CFX_ByteStringC(const CFX_ByteStringC& src)
@@ -61,10 +70,10 @@ public:
 
     CFX_ByteStringC(const CFX_ByteString& src);
 
-    CFX_ByteStringC& operator = (FX_LPCSTR src)
+    CFX_ByteStringC& operator = (const FX_CHAR* src)
     {
-        m_Ptr = (FX_LPCBYTE)src;
-        m_Length = (FX_STRSIZE)FXSYS_strlen(src);
+        m_Ptr = (const uint8_t*)src;
+        m_Length = m_Ptr ? FXSYS_strlen(src) : 0;
         return *this;
     }
 
@@ -77,27 +86,29 @@ public:
 
     CFX_ByteStringC& operator = (const CFX_ByteString& src);
 
-    bool			operator == (const CFX_ByteStringC& str) const
-    {
-        return 	str.m_Length == m_Length && FXSYS_memcmp32(str.m_Ptr, m_Ptr, m_Length) == 0;
+    bool operator== (const char* ptr) const {
+        return FXSYS_strlen(ptr) == m_Length &&
+                FXSYS_memcmp(ptr, m_Ptr, m_Length) == 0;
     }
-
-    bool			operator != (const CFX_ByteStringC& str) const
-    {
-        return 	str.m_Length != m_Length || FXSYS_memcmp32(str.m_Ptr, m_Ptr, m_Length) != 0;
+    bool operator== (const CFX_ByteStringC& other) const {
+        return other.m_Length == m_Length &&
+                FXSYS_memcmp(other.m_Ptr, m_Ptr, m_Length) == 0;
     }
-#define FXBSTR_ID(c1, c2, c3, c4) ((c1 << 24) | (c2 << 16) | (c3 << 8) | (c4))
+    bool operator!= (const char* ptr) const { return !(*this == ptr); }
+    bool operator!= (const CFX_ByteStringC& other) const {
+        return !(*this == other);
+    }
 
     FX_DWORD		GetID(FX_STRSIZE start_pos = 0) const;
 
-    FX_LPCBYTE		GetPtr() const
+    const uint8_t*		GetPtr() const
     {
         return m_Ptr;
     }
 
-    FX_LPCSTR		GetCStr() const
+    const FX_CHAR*		GetCStr() const
     {
-        return (FX_LPCSTR)m_Ptr;
+        return (const FX_CHAR*)m_Ptr;
     }
 
     FX_STRSIZE		GetLength() const
@@ -110,12 +121,7 @@ public:
         return m_Length == 0;
     }
 
-    operator		FX_LPCBYTE() const
-    {
-        return m_Ptr;
-    }
-
-    FX_BYTE			GetAt(FX_STRSIZE index) const
+    uint8_t			GetAt(FX_STRSIZE index) const
     {
         return m_Ptr[index];
     }
@@ -133,65 +139,86 @@ public:
         }
         return CFX_ByteStringC(m_Ptr + index, count);
     }
+
+    const uint8_t& operator[] (size_t index) const
+    {
+        return m_Ptr[index];
+    }
+
+    bool operator< (const CFX_ByteStringC& that) const
+    {
+        int result = memcmp(m_Ptr, that.m_Ptr, std::min(m_Length, that.m_Length));
+        return result < 0 || (result == 0 && m_Length < that.m_Length);
+    }
+
 protected:
-
-    FX_LPCBYTE		m_Ptr;
-
+    const uint8_t*		m_Ptr;
     FX_STRSIZE		m_Length;
-private:
 
+private:
     void*			operator new (size_t) throw()
     {
         return NULL;
     }
 };
-typedef const CFX_ByteStringC& FX_BSTR;
+inline bool operator== (const char* lhs, const CFX_ByteStringC& rhs) {
+    return rhs == lhs;
+}
+inline bool operator!= (const char* lhs, const CFX_ByteStringC& rhs) {
+    return rhs != lhs;
+}
 #define FX_BSTRC(str) CFX_ByteStringC(str, sizeof str-1)
-struct CFX_StringData {
+#define FXBSTR_ID(c1, c2, c3, c4) ((c1 << 24) | (c2 << 16) | (c3 << 8) | (c4))
 
-    long		m_nRefs;
-
-    FX_STRSIZE	m_nDataLength;
-
-    FX_STRSIZE	m_nAllocLength;
-
-    FX_CHAR		m_String[1];
-};
-class CFX_ByteString : public CFX_Object
+// A mutable string with shared buffers using copy-on-write semantics that
+// avoids the cost of std::string's iterator stability guarantees.
+class CFX_ByteString
 {
 public:
+    typedef FX_CHAR value_type;
 
-    CFX_ByteString()
-    {
-        m_pData = NULL;
-    }
+    CFX_ByteString() : m_pData(nullptr) { }
 
+    // Copy constructor.
     CFX_ByteString(const CFX_ByteString& str);
 
+    // Move constructor.
+    inline CFX_ByteString(CFX_ByteString&& other) {
+        m_pData = other.m_pData;
+        other.m_pData = nullptr;
+    }
+
     CFX_ByteString(char ch);
+    CFX_ByteString(const FX_CHAR* ptr)
+            : CFX_ByteString(ptr, ptr ? FXSYS_strlen(ptr) : 0) { }
 
-    CFX_ByteString(FX_LPCSTR ptr, FX_STRSIZE len = -1);
+    CFX_ByteString(const FX_CHAR* ptr, FX_STRSIZE len);
+    CFX_ByteString(const uint8_t* ptr, FX_STRSIZE len);
 
-    CFX_ByteString(FX_LPCBYTE ptr, FX_STRSIZE len);
-
-    CFX_ByteString(FX_BSTR bstrc);
-
-    CFX_ByteString(FX_BSTR bstrc1, FX_BSTR bstrc2);
+    CFX_ByteString(const CFX_ByteStringC& bstrc);
+    CFX_ByteString(const CFX_ByteStringC& bstrc1, const CFX_ByteStringC& bstrc2);
 
     ~CFX_ByteString();
 
-    static CFX_ByteString	FromUnicode(FX_LPCWSTR ptr, FX_STRSIZE len = -1);
+    static CFX_ByteString	FromUnicode(const FX_WCHAR* ptr, FX_STRSIZE len = -1);
 
     static CFX_ByteString	FromUnicode(const CFX_WideString& str);
 
-    operator				FX_LPCSTR() const
+    // Explicit conversion to raw string
+    const FX_CHAR* c_str() const
     {
         return m_pData ? m_pData->m_String : "";
     }
 
-    operator				FX_LPCBYTE() const
+    // Implicit conversion to C-style string -- deprecated
+    operator				const FX_CHAR*() const
     {
-        return m_pData ? (FX_LPCBYTE)m_pData->m_String : NULL;
+        return m_pData ? m_pData->m_String : "";
+    }
+
+    operator				const uint8_t*() const
+    {
+        return m_pData ? (const uint8_t*)m_pData->m_String : NULL;
     }
 
     FX_STRSIZE				GetLength() const
@@ -204,67 +231,59 @@ public:
         return !GetLength();
     }
 
-    int						Compare(FX_BSTR str) const;
+    int						Compare(const CFX_ByteStringC& str) const;
 
 
-    bool					Equal(FX_BSTR str) const;
+    bool Equal(const char* ptr) const;
+    bool Equal(const CFX_ByteStringC& str) const;
+    bool Equal(const CFX_ByteString& other) const;
 
+    bool EqualNoCase(const CFX_ByteStringC& str) const;
 
-    bool					EqualNoCase(FX_BSTR str) const;
+    bool operator== (const char* ptr) const { return Equal(ptr); }
+    bool operator== (const CFX_ByteStringC& str) const { return Equal(str); }
+    bool operator== (const CFX_ByteString& other) const { return Equal(other); }
 
-    bool					operator == (FX_LPCSTR str) const
-    {
-        return Equal(str);
+    bool operator!= (const char* ptr) const { return !(*this == ptr); }
+    bool operator!= (const CFX_ByteStringC& str) const {
+        return !(*this == str);
+    }
+    bool operator!= (const CFX_ByteString& other) const {
+        return !(*this == other);
     }
 
-    bool					operator == (FX_BSTR str) const
+    bool operator< (const CFX_ByteString& str) const
     {
-        return Equal(str);
-    }
-
-    bool					operator == (const CFX_ByteString& str) const;
-
-    bool					operator != (FX_LPCSTR str) const
-    {
-        return !Equal(str);
-    }
-
-    bool					operator != (FX_BSTR str) const
-    {
-        return !Equal(str);
-    }
-
-    bool					operator != (const CFX_ByteString& str) const
-    {
-        return !operator==(str);
+        int result = FXSYS_memcmp(c_str(), str.c_str(), std::min(GetLength(), str.GetLength()));
+        return result < 0 || (result == 0 && GetLength() < str.GetLength());
     }
 
     void					Empty();
 
-    const CFX_ByteString&	operator = (FX_LPCSTR str);
+    const CFX_ByteString&	operator = (const FX_CHAR* str);
 
-    const CFX_ByteString&	operator = (FX_BSTR bstrc);
+    const CFX_ByteString&	operator = (const CFX_ByteStringC& bstrc);
 
     const CFX_ByteString&	operator = (const CFX_ByteString& stringSrc);
 
     const CFX_ByteString&	operator = (const CFX_BinaryBuf& buf);
 
-    void					Load(FX_LPCBYTE str, FX_STRSIZE len);
+    void					Load(const uint8_t* str, FX_STRSIZE len);
 
     const CFX_ByteString&	operator += (FX_CHAR ch);
 
-    const CFX_ByteString&	operator += (FX_LPCSTR str);
+    const CFX_ByteString&	operator += (const FX_CHAR* str);
 
     const CFX_ByteString&	operator += (const CFX_ByteString& str);
 
-    const CFX_ByteString&	operator += (FX_BSTR bstrc);
+    const CFX_ByteString&	operator += (const CFX_ByteStringC& bstrc);
 
-    FX_BYTE					GetAt(FX_STRSIZE nIndex) const
+    uint8_t					GetAt(FX_STRSIZE nIndex) const
     {
         return m_pData ? m_pData->m_String[nIndex] : 0;
     }
 
-    FX_BYTE					operator[](FX_STRSIZE nIndex) const
+    uint8_t					operator[](FX_STRSIZE nIndex) const
     {
         return m_pData ? m_pData->m_String[nIndex] : 0;
     }
@@ -276,16 +295,14 @@ public:
     FX_STRSIZE				Delete(FX_STRSIZE index, FX_STRSIZE count = 1);
 
 
-    void					Format(FX_LPCSTR lpszFormat, ... );
+    void					Format(const FX_CHAR* lpszFormat, ... );
 
-    void					FormatV(FX_LPCSTR lpszFormat, va_list argList);
+    void					FormatV(const FX_CHAR* lpszFormat, va_list argList);
 
 
     void					Reserve(FX_STRSIZE len);
 
-    FX_LPSTR				GetBuffer(FX_STRSIZE len);
-
-    FX_LPSTR				LockBuffer();
+    FX_CHAR*				GetBuffer(FX_STRSIZE len);
 
     void					ReleaseBuffer(FX_STRSIZE len = -1);
 
@@ -297,7 +314,7 @@ public:
 
     CFX_ByteString			Right(FX_STRSIZE count) const;
 
-    FX_STRSIZE				Find(FX_BSTR lpszSub, FX_STRSIZE start = 0) const;
+    FX_STRSIZE				Find(const CFX_ByteStringC& lpszSub, FX_STRSIZE start = 0) const;
 
     FX_STRSIZE				Find(FX_CHAR ch, FX_STRSIZE start = 0) const;
 
@@ -311,15 +328,15 @@ public:
 
     void					TrimRight(FX_CHAR chTarget);
 
-    void					TrimRight(FX_BSTR lpszTargets);
+    void					TrimRight(const CFX_ByteStringC& lpszTargets);
 
     void					TrimLeft();
 
     void					TrimLeft(FX_CHAR chTarget);
 
-    void					TrimLeft(FX_BSTR lpszTargets);
+    void					TrimLeft(const CFX_ByteStringC& lpszTargets);
 
-    FX_STRSIZE				Replace(FX_BSTR lpszOld, FX_BSTR lpszNew);
+    FX_STRSIZE				Replace(const CFX_ByteStringC& lpszOld, const CFX_ByteStringC& lpszNew);
 
     FX_STRSIZE				Remove(FX_CHAR ch);
 
@@ -329,53 +346,94 @@ public:
 
     FX_DWORD				GetID(FX_STRSIZE start_pos = 0) const;
 
-    static CFX_ByteString	LoadFromFile(FX_BSTR file_path);
 #define FXFORMAT_SIGNED			1
 #define FXFORMAT_HEX			2
 #define FXFORMAT_CAPITAL		4
 
     static CFX_ByteString	FormatInteger(int i, FX_DWORD flags = 0);
-
     static CFX_ByteString	FormatFloat(FX_FLOAT f, int precision = 0);
-protected:
 
-    struct CFX_StringData*	m_pData;
+protected:
+    // To ensure ref counts do not overflow, consider the worst possible case:
+    // the entire address space contains nothing but pointers to this object.
+    // Since the count increments with each new pointer, the largest value is
+    // the number of pointers that can fit into the address space. The size of
+    // the address space itself is a good upper bound on it; we need not go
+    // larger.
+    class StringData {
+      public:
+        static StringData* Create(int nLen);
+        void Retain() { ++m_nRefs; }
+        void Release() { if (--m_nRefs <= 0) FX_Free(this); }
+
+        intptr_t    m_nRefs;  // Would prefer ssize_t, but no windows support.
+        FX_STRSIZE  m_nDataLength;
+        FX_STRSIZE  m_nAllocLength;
+        FX_CHAR     m_String[1];
+
+      private:
+        StringData(FX_STRSIZE dataLen, FX_STRSIZE allocLen)
+                : m_nRefs(1), m_nDataLength(dataLen), m_nAllocLength(allocLen) {
+            FXSYS_assert(dataLen >= 0);
+            FXSYS_assert(allocLen >= 0);
+            FXSYS_assert(dataLen <= allocLen);
+            m_String[dataLen] = 0;
+        }
+        ~StringData() = delete;
+    };
+
     void					AllocCopy(CFX_ByteString& dest, FX_STRSIZE nCopyLen, FX_STRSIZE nCopyIndex) const;
-    void					AssignCopy(FX_STRSIZE nSrcLen, FX_LPCSTR lpszSrcData);
-    void					ConcatCopy(FX_STRSIZE nSrc1Len, FX_LPCSTR lpszSrc1Data, FX_STRSIZE nSrc2Len, FX_LPCSTR lpszSrc2Data);
-    void					ConcatInPlace(FX_STRSIZE nSrcLen, FX_LPCSTR lpszSrcData);
+    void					AssignCopy(FX_STRSIZE nSrcLen, const FX_CHAR* lpszSrcData);
+    void					ConcatCopy(FX_STRSIZE nSrc1Len, const FX_CHAR* lpszSrc1Data, FX_STRSIZE nSrc2Len, const FX_CHAR* lpszSrc2Data);
+    void					ConcatInPlace(FX_STRSIZE nSrcLen, const FX_CHAR* lpszSrcData);
     void					CopyBeforeWrite();
     void					AllocBeforeWrite(FX_STRSIZE nLen);
+
+    StringData* m_pData;
+    friend class fxcrt_ByteStringConcatInPlace_Test;
 };
 inline CFX_ByteStringC::CFX_ByteStringC(const CFX_ByteString& src)
 {
-    m_Ptr = (FX_LPCBYTE)src;
+    m_Ptr = (const uint8_t*)src;
     m_Length = src.GetLength();
 }
 inline CFX_ByteStringC& CFX_ByteStringC::operator = (const CFX_ByteString& src)
 {
-    m_Ptr = (FX_LPCBYTE)src;
+    m_Ptr = (const uint8_t*)src;
     m_Length = src.GetLength();
     return *this;
 }
 
-inline CFX_ByteString operator + (FX_BSTR str1, FX_BSTR str2)
+inline bool operator== (const char* lhs, const CFX_ByteString& rhs) {
+    return rhs == lhs;
+}
+inline bool operator== (const CFX_ByteStringC& lhs, const CFX_ByteString& rhs) {
+    return rhs == lhs;
+}
+inline bool operator!= (const char* lhs, const CFX_ByteString& rhs) {
+    return rhs != lhs;
+}
+inline bool operator!= (const CFX_ByteStringC& lhs, const CFX_ByteString& rhs) {
+    return rhs != lhs;
+}
+
+inline CFX_ByteString operator + (const CFX_ByteStringC& str1, const CFX_ByteStringC& str2)
 {
     return CFX_ByteString(str1, str2);
 }
-inline CFX_ByteString operator + (FX_BSTR str1, FX_LPCSTR str2)
+inline CFX_ByteString operator + (const CFX_ByteStringC& str1, const FX_CHAR* str2)
 {
     return CFX_ByteString(str1, str2);
 }
-inline CFX_ByteString operator + (FX_LPCSTR str1, FX_BSTR str2)
+inline CFX_ByteString operator + (const FX_CHAR* str1, const CFX_ByteStringC& str2)
 {
     return CFX_ByteString(str1, str2);
 }
-inline CFX_ByteString operator + (FX_BSTR str1, FX_CHAR ch)
+inline CFX_ByteString operator + (const CFX_ByteStringC& str1, FX_CHAR ch)
 {
     return CFX_ByteString(str1, CFX_ByteStringC(ch));
 }
-inline CFX_ByteString operator + (FX_CHAR ch, FX_BSTR str2)
+inline CFX_ByteString operator + (FX_CHAR ch, const CFX_ByteStringC& str2)
 {
     return CFX_ByteString(ch, str2);
 }
@@ -391,81 +449,26 @@ inline CFX_ByteString operator + (FX_CHAR ch, const CFX_ByteString& str2)
 {
     return CFX_ByteString(ch, str2);
 }
-inline CFX_ByteString operator + (const CFX_ByteString& str1, FX_LPCSTR str2)
+inline CFX_ByteString operator + (const CFX_ByteString& str1, const FX_CHAR* str2)
 {
     return CFX_ByteString(str1, str2);
 }
-inline CFX_ByteString operator + (FX_LPCSTR str1, const CFX_ByteString& str2)
+inline CFX_ByteString operator + (const FX_CHAR* str1, const CFX_ByteString& str2)
 {
     return CFX_ByteString(str1, str2);
 }
-inline CFX_ByteString operator + (const CFX_ByteString& str1, FX_BSTR str2)
+inline CFX_ByteString operator + (const CFX_ByteString& str1, const CFX_ByteStringC& str2)
 {
     return CFX_ByteString(str1, str2);
 }
-inline CFX_ByteString operator + (FX_BSTR str1, const CFX_ByteString& str2)
+inline CFX_ByteString operator + (const CFX_ByteStringC& str1, const CFX_ByteString& str2)
 {
     return CFX_ByteString(str1, str2);
 }
-class CFX_StringBufBase : public CFX_Object
+class CFX_WideStringC
 {
 public:
-
-    CFX_StringBufBase(FX_STRSIZE limit)
-    {
-        m_Size = 0;
-        m_Limit = limit;
-    }
-
-    FX_CHAR*	GetPtr() const
-    {
-        return (FX_CHAR*)(this + 1);
-    }
-
-    FX_STRSIZE	GetSize() const
-    {
-        return m_Size;
-    }
-
-    void		Empty()
-    {
-        m_Size = 0;
-    }
-
-    void		Copy(FX_BSTR str);
-
-    void		Append(FX_BSTR str);
-
-    void		Append(int i, FX_DWORD flags = 0);
-
-    CFX_ByteStringC		GetStringC() const
-    {
-        return CFX_ByteStringC((FX_CHAR*)(this + 1), m_Size);
-    }
-
-    CFX_ByteString		GetString() const
-    {
-        return CFX_ByteString((FX_CHAR*)(this + 1), m_Size);
-    }
-protected:
-
-    FX_STRSIZE	m_Limit;
-
-    FX_STRSIZE	m_Size;
-};
-template<FX_STRSIZE limit>
-class CFX_StringBufTemplate : public CFX_StringBufBase
-{
-public:
-
-    CFX_StringBufTemplate() : CFX_StringBufBase(limit) {}
-
-    FX_CHAR		m_Buffer[limit];
-};
-typedef CFX_StringBufTemplate<256> CFX_StringBuf256;
-class CFX_WideStringC : public CFX_Object
-{
-public:
+    typedef FX_WCHAR value_type;
 
     CFX_WideStringC()
     {
@@ -473,10 +476,10 @@ public:
         m_Length = 0;
     }
 
-    CFX_WideStringC(FX_LPCWSTR ptr)
+    CFX_WideStringC(const FX_WCHAR* ptr)
     {
         m_Ptr = ptr;
-        m_Length = ptr ? (FX_STRSIZE)FXSYS_wcslen(ptr) : 0;
+        m_Length = ptr ? FXSYS_wcslen(ptr) : 0;
     }
 
     CFX_WideStringC(FX_WCHAR& ch)
@@ -485,14 +488,10 @@ public:
         m_Length = 1;
     }
 
-    CFX_WideStringC(FX_LPCWSTR ptr, FX_STRSIZE len)
+    CFX_WideStringC(const FX_WCHAR* ptr, FX_STRSIZE len)
     {
         m_Ptr = ptr;
-        if (len == -1) {
-            m_Length = (FX_STRSIZE)FXSYS_wcslen(ptr);
-        } else {
-            m_Length = len;
-        }
+        m_Length = (len == -1) ? FXSYS_wcslen(ptr) : len;
     }
 
     CFX_WideStringC(const CFX_WideStringC& src)
@@ -503,10 +502,10 @@ public:
 
     CFX_WideStringC(const CFX_WideString& src);
 
-    CFX_WideStringC& operator = (FX_LPCWSTR src)
+    CFX_WideStringC& operator = (const FX_WCHAR* src)
     {
         m_Ptr = src;
-        m_Length = (FX_STRSIZE)FXSYS_wcslen(src);
+        m_Length = FXSYS_wcslen(src);
         return *this;
     }
 
@@ -519,17 +518,20 @@ public:
 
     CFX_WideStringC& operator = (const CFX_WideString& src);
 
-    bool			operator == (const CFX_WideStringC& str) const
-    {
-        return 	str.m_Length == m_Length && FXSYS_memcmp32(str.m_Ptr, m_Ptr, m_Length * sizeof(FX_WCHAR)) == 0;
+    bool operator== (const wchar_t* ptr) const  {
+        return FXSYS_wcslen(ptr) == m_Length &&
+            wmemcmp(ptr, m_Ptr, m_Length) == 0;
+    }
+    bool operator== (const CFX_WideStringC& str) const  {
+        return str.m_Length == m_Length &&
+            wmemcmp(str.m_Ptr, m_Ptr, m_Length) == 0;
+    }
+    bool operator!= (const wchar_t* ptr) const { return !(*this == ptr); }
+    bool operator!= (const CFX_WideStringC& str) const {
+        return !(*this == str);
     }
 
-    bool			operator != (const CFX_WideStringC& str) const
-    {
-        return 	str.m_Length != m_Length || FXSYS_memcmp32(str.m_Ptr, m_Ptr, m_Length * sizeof(FX_WCHAR)) != 0;
-    }
-
-    FX_LPCWSTR		GetPtr() const
+    const FX_WCHAR*		GetPtr() const
     {
         return m_Ptr;
     }
@@ -584,45 +586,58 @@ public:
         }
         return CFX_WideStringC(m_Ptr + m_Length - count, count);
     }
+
+    const FX_WCHAR& operator[] (size_t index) const
+    {
+        return m_Ptr[index];
+    }
+
+    bool operator< (const CFX_WideStringC& that) const
+    {
+        int result = wmemcmp(m_Ptr, that.m_Ptr, std::min(m_Length, that.m_Length));
+        return result < 0 || (result == 0 && m_Length < that.m_Length);
+     }
+
 protected:
-
-    FX_LPCWSTR		m_Ptr;
-
+    const FX_WCHAR*		m_Ptr;
     FX_STRSIZE		m_Length;
-private:
 
+private:
     void*			operator new (size_t) throw()
     {
         return NULL;
     }
 };
-typedef const CFX_WideStringC&	FX_WSTR;
-#define FX_WSTRC(wstr) CFX_WideStringC((FX_LPCWSTR)wstr, sizeof(wstr) / sizeof(FX_WCHAR) - 1)
-struct CFX_StringDataW {
+inline bool operator== (const wchar_t* lhs, const CFX_WideStringC& rhs) {
+    return rhs == lhs;
+}
+inline bool operator!= (const wchar_t* lhs, const CFX_WideStringC& rhs) {
+    return rhs != lhs;
+}
+#define FX_WSTRC(wstr) CFX_WideStringC(wstr, FX_ArraySize(wstr) - 1)
 
-    long		m_nRefs;
-
-    FX_STRSIZE	m_nDataLength;
-
-    FX_STRSIZE	m_nAllocLength;
-
-    FX_WCHAR	m_String[1];
-};
-class CFX_WideString : public CFX_Object
+// A mutable string with shared buffers using copy-on-write semantics that
+// avoids the cost of std::string's iterator stability guarantees.
+class CFX_WideString
 {
 public:
+    typedef FX_WCHAR value_type;
 
-    CFX_WideString()
-    {
-        m_pData = NULL;
-    }
+    CFX_WideString() : m_pData(nullptr) { }
 
+    // Copy constructor.
     CFX_WideString(const CFX_WideString& str);
 
-    CFX_WideString(FX_LPCWSTR ptr, FX_STRSIZE len = -1)
-    {
-        InitStr(ptr, len);
+    // Move constructor.
+    inline CFX_WideString(CFX_WideString&& other) {
+        m_pData = other.m_pData;
+        other.m_pData = nullptr;
     }
+
+    CFX_WideString(const FX_WCHAR* ptr)
+            : CFX_WideString(ptr, ptr ? FXSYS_wcslen(ptr) : 0) { }
+
+    CFX_WideString(const FX_WCHAR* ptr, FX_STRSIZE len);
 
     CFX_WideString(FX_WCHAR ch);
 
@@ -640,9 +655,16 @@ public:
 
     static FX_STRSIZE       WStringLength(const unsigned short* str);
 
-    operator FX_LPCWSTR() const
+    // Explicit conversion to raw string
+    const FX_WCHAR* c_str() const
     {
-        return m_pData ? m_pData->m_String : (FX_WCHAR*)L"";
+        return m_pData ? m_pData->m_String : L"";
+    }
+
+    // Implicit conversion to C-style wide string -- deprecated
+    operator const FX_WCHAR*() const
+    {
+        return m_pData ? m_pData->m_String : L"";
     }
 
     void					Empty();
@@ -658,19 +680,36 @@ public:
         return m_pData ? m_pData->m_nDataLength : 0;
     }
 
-    const CFX_WideString&	operator = (FX_LPCWSTR str);
+    const CFX_WideString&	operator = (const FX_WCHAR* str);
 
     const CFX_WideString&	operator =(const CFX_WideString& stringSrc);
 
     const CFX_WideString&	operator =(const CFX_WideStringC& stringSrc);
 
-    const CFX_WideString&	operator += (FX_LPCWSTR str);
+    const CFX_WideString&	operator += (const FX_WCHAR* str);
 
     const CFX_WideString&	operator += (FX_WCHAR ch);
 
     const CFX_WideString&	operator += (const CFX_WideString& str);
 
     const CFX_WideString&	operator += (const CFX_WideStringC& str);
+
+    bool operator== (const wchar_t* ptr) const { return Equal(ptr); }
+    bool operator== (const CFX_WideStringC& str) const { return Equal(str); }
+    bool operator== (const CFX_WideString& other) const { return Equal(other); }
+
+    bool operator!= (const wchar_t* ptr) const { return !(*this == ptr); }
+    bool operator!= (const CFX_WideStringC& str) const {
+        return !(*this == str);
+    }
+    bool operator!= (const CFX_WideString& other) const {
+        return !(*this == other);
+    }
+
+    bool operator< (const CFX_WideString& str) const {
+        int result = wmemcmp(c_str(), str.c_str(), std::min(GetLength(), str.GetLength()));
+        return result < 0 || (result == 0 && GetLength() < str.GetLength());
+    }
 
     FX_WCHAR				GetAt(FX_STRSIZE nIndex) const
     {
@@ -684,13 +723,15 @@ public:
 
     void					SetAt(FX_STRSIZE nIndex, FX_WCHAR ch);
 
-    int						Compare(FX_LPCWSTR str) const;
+    int						Compare(const FX_WCHAR* str) const;
 
     int						Compare(const CFX_WideString& str) const;
 
-    int						CompareNoCase(FX_LPCWSTR str) const;
+    int						CompareNoCase(const FX_WCHAR* str) const;
 
-    bool					Equal(const CFX_WideStringC& str) const;
+    bool Equal(const wchar_t* ptr) const;
+    bool Equal(const CFX_WideStringC& str) const;
+    bool Equal(const CFX_WideString& other) const;
 
     CFX_WideString			Mid(FX_STRSIZE first) const;
 
@@ -704,9 +745,9 @@ public:
 
     FX_STRSIZE				Delete(FX_STRSIZE index, FX_STRSIZE count = 1);
 
-    void					Format(FX_LPCWSTR lpszFormat, ... );
+    void					Format(const FX_WCHAR* lpszFormat, ... );
 
-    void					FormatV(FX_LPCWSTR lpszFormat, va_list argList);
+    void					FormatV(const FX_WCHAR* lpszFormat, va_list argList);
 
     void					MakeLower();
 
@@ -716,19 +757,17 @@ public:
 
     void					TrimRight(FX_WCHAR chTarget);
 
-    void					TrimRight(FX_LPCWSTR lpszTargets);
+    void					TrimRight(const FX_WCHAR* lpszTargets);
 
     void					TrimLeft();
 
     void					TrimLeft(FX_WCHAR chTarget);
 
-    void					TrimLeft(FX_LPCWSTR lpszTargets);
+    void					TrimLeft(const FX_WCHAR* lpszTargets);
 
     void					Reserve(FX_STRSIZE len);
 
-    FX_LPWSTR				GetBuffer(FX_STRSIZE len);
-
-    FX_LPWSTR				LockBuffer();
+    FX_WCHAR*				GetBuffer(FX_STRSIZE len);
 
     void					ReleaseBuffer(FX_STRSIZE len = -1);
 
@@ -736,38 +775,61 @@ public:
 
     FX_FLOAT				GetFloat() const;
 
-    FX_STRSIZE				Find(FX_LPCWSTR lpszSub, FX_STRSIZE start = 0) const;
+    FX_STRSIZE				Find(const FX_WCHAR* lpszSub, FX_STRSIZE start = 0) const;
 
     FX_STRSIZE				Find(FX_WCHAR ch, FX_STRSIZE start = 0) const;
 
-    FX_STRSIZE				Replace(FX_LPCWSTR lpszOld, FX_LPCWSTR lpszNew);
+    FX_STRSIZE				Replace(const FX_WCHAR* lpszOld, const FX_WCHAR* lpszNew);
 
     FX_STRSIZE				Remove(FX_WCHAR ch);
 
     CFX_ByteString			UTF8Encode() const;
 
-    CFX_ByteString			UTF16LE_Encode(FX_BOOL bTerminate = TRUE) const;
+    CFX_ByteString			UTF16LE_Encode() const;
 
     void					ConvertFrom(const CFX_ByteString& str, CFX_CharMap* pCharMap = NULL);
-protected:
-    void					InitStr(FX_LPCWSTR ptr, int len);
 
-    CFX_StringDataW*		m_pData;
-    void					CopyBeforeWrite();
-    void					AllocBeforeWrite(FX_STRSIZE nLen);
-    void					ConcatInPlace(FX_STRSIZE nSrcLen, FX_LPCWSTR lpszSrcData);
-    void					ConcatCopy(FX_STRSIZE nSrc1Len, FX_LPCWSTR lpszSrc1Data, FX_STRSIZE nSrc2Len, FX_LPCWSTR lpszSrc2Data);
-    void					AssignCopy(FX_STRSIZE nSrcLen, FX_LPCWSTR lpszSrcData);
-    void					AllocCopy(CFX_WideString& dest, FX_STRSIZE nCopyLen, FX_STRSIZE nCopyIndex) const;
+protected:
+    class StringData {
+      public:
+        static StringData* Create(int nLen);
+        void Retain() { ++m_nRefs; }
+        void Release() { if (--m_nRefs <= 0) FX_Free(this); }
+
+        intptr_t    m_nRefs;  // Would prefer ssize_t, but no windows support.
+        FX_STRSIZE  m_nDataLength;
+        FX_STRSIZE  m_nAllocLength;
+        FX_WCHAR    m_String[1];
+
+      private:
+        StringData(FX_STRSIZE dataLen, FX_STRSIZE allocLen)
+                : m_nRefs(1), m_nDataLength(dataLen), m_nAllocLength(allocLen) {
+            FXSYS_assert(dataLen >= 0);
+            FXSYS_assert(allocLen >= 0);
+            FXSYS_assert(dataLen <= allocLen);
+            m_String[dataLen] = 0;
+        }
+        ~StringData() = delete;
+    };
+
+    void                    CopyBeforeWrite();
+    void                    AllocBeforeWrite(FX_STRSIZE nLen);
+    void                    ConcatInPlace(FX_STRSIZE nSrcLen, const FX_WCHAR* lpszSrcData);
+    void                    ConcatCopy(FX_STRSIZE nSrc1Len, const FX_WCHAR* lpszSrc1Data, FX_STRSIZE nSrc2Len, const FX_WCHAR* lpszSrc2Data);
+    void                    AssignCopy(FX_STRSIZE nSrcLen, const FX_WCHAR* lpszSrcData);
+    void                    AllocCopy(CFX_WideString& dest, FX_STRSIZE nCopyLen, FX_STRSIZE nCopyIndex) const;
+
+    StringData* m_pData;
+    friend class fxcrt_WideStringConcatInPlace_Test;
 };
 inline CFX_WideStringC::CFX_WideStringC(const CFX_WideString& src)
 {
-    m_Ptr = (FX_LPCWSTR)src;
+    m_Ptr = src.c_str();
     m_Length = src.GetLength();
 }
 inline CFX_WideStringC& CFX_WideStringC::operator = (const CFX_WideString& src)
 {
-    m_Ptr = (FX_LPCWSTR)src;
+    m_Ptr = src.c_str();
     m_Length = src.GetLength();
     return *this;
 }
@@ -776,11 +838,11 @@ inline CFX_WideString operator + (const CFX_WideStringC& str1, const CFX_WideStr
 {
     return CFX_WideString(str1, str2);
 }
-inline CFX_WideString operator + (const CFX_WideStringC& str1, FX_LPCWSTR str2)
+inline CFX_WideString operator + (const CFX_WideStringC& str1, const FX_WCHAR* str2)
 {
     return CFX_WideString(str1, str2);
 }
-inline CFX_WideString operator + (FX_LPCWSTR str1, const CFX_WideStringC& str2)
+inline CFX_WideString operator + (const FX_WCHAR* str1, const CFX_WideStringC& str2)
 {
     return CFX_WideString(str1, str2);
 }
@@ -804,11 +866,11 @@ inline CFX_WideString operator + (FX_WCHAR ch, const CFX_WideString& str2)
 {
     return CFX_WideString(ch, str2);
 }
-inline CFX_WideString operator + (const CFX_WideString& str1, FX_LPCWSTR str2)
+inline CFX_WideString operator + (const CFX_WideString& str1, const FX_WCHAR* str2)
 {
     return CFX_WideString(str1, str2);
 }
-inline CFX_WideString operator + (FX_LPCWSTR str1, const CFX_WideString& str2)
+inline CFX_WideString operator + (const FX_WCHAR* str1, const CFX_WideString& str2)
 {
     return CFX_WideString(str1, str2);
 }
@@ -820,27 +882,29 @@ inline CFX_WideString operator + (const CFX_WideStringC& str1, const CFX_WideStr
 {
     return CFX_WideString(str1, str2);
 }
-
-bool operator==(const CFX_WideString& s1, const CFX_WideString& s2);
-bool operator==(const CFX_WideString& s1, const CFX_WideStringC& s2);
-bool operator==(const CFX_WideStringC& s1, const CFX_WideString& s2);
-bool operator== (const CFX_WideString& s1, FX_LPCWSTR s2);
-bool operator==(FX_LPCWSTR s1, const CFX_WideString& s2);
-bool operator!=(const CFX_WideString& s1, const CFX_WideString& s2);
-bool operator!=(const CFX_WideString& s1, const CFX_WideStringC& s2);
-bool operator!=(const CFX_WideStringC& s1, const CFX_WideString& s2);
-bool operator!= (const CFX_WideString& s1, FX_LPCWSTR s2);
-bool operator!=(FX_LPCWSTR s1, const CFX_WideString& s2);
-FX_FLOAT FX_atof(FX_BSTR str);
-void FX_atonum(FX_BSTR str, FX_BOOL& bInteger, void* pData);
-FX_STRSIZE FX_ftoa(FX_FLOAT f, FX_LPSTR buf);
-CFX_ByteString	FX_UTF8Encode(FX_LPCWSTR pwsStr, FX_STRSIZE len);
-inline CFX_ByteString	FX_UTF8Encode(FX_WSTR wsStr)
+inline bool operator== (const wchar_t* lhs, const CFX_WideString& rhs) {
+    return rhs == lhs;
+}
+inline bool operator== (const CFX_WideStringC& lhs, const CFX_WideString& rhs) {
+    return rhs == lhs;
+}
+inline bool operator!= (const wchar_t* lhs, const CFX_WideString& rhs) {
+    return rhs != lhs;
+}
+inline bool operator!= (const CFX_WideStringC& lhs, const CFX_WideString& rhs) {
+    return rhs != lhs;
+}
+FX_FLOAT FX_atof(const CFX_ByteStringC& str);
+void FX_atonum(const CFX_ByteStringC& str, FX_BOOL& bInteger, void* pData);
+FX_STRSIZE FX_ftoa(FX_FLOAT f, FX_CHAR* buf);
+CFX_ByteString	FX_UTF8Encode(const FX_WCHAR* pwsStr, FX_STRSIZE len);
+inline CFX_ByteString	FX_UTF8Encode(const CFX_WideStringC& wsStr)
 {
     return FX_UTF8Encode(wsStr.GetPtr(), wsStr.GetLength());
 }
 inline CFX_ByteString	FX_UTF8Encode(const CFX_WideString &wsStr)
 {
-    return FX_UTF8Encode((FX_LPCWSTR)wsStr, wsStr.GetLength());
+    return FX_UTF8Encode(wsStr.c_str(), wsStr.GetLength());
 }
-#endif
+
+#endif  // CORE_INCLUDE_FXCRT_FX_STRING_H_

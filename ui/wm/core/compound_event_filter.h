@@ -80,10 +80,7 @@ class WM_EXPORT CompoundEventFilter : public ui::EventHandler {
   void OnGestureEvent(ui::GestureEvent* event) override;
 
   // Additional pre-target event handlers.
-  ObserverList<ui::EventHandler, true> handlers_;
-
-  // True if the cursur was hidden by the filter.
-  bool cursor_hidden_by_filter_;
+  base::ObserverList<ui::EventHandler, true> handlers_;
 
   DISALLOW_COPY_AND_ASSIGN(CompoundEventFilter);
 };

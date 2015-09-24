@@ -7,6 +7,7 @@
 #include <string>
 
 #include "base/bind.h"
+#include "base/location.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
 #include "base/sequenced_task_runner.h"
@@ -19,6 +20,9 @@
 #include "chromeos/dbus/bluetooth_device_client.h"
 #include "chromeos/dbus/bluetooth_input_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
+#include "device/bluetooth/bluetooth_adapter_profile_chromeos.h"
+#include "device/bluetooth/bluetooth_advertisement_chromeos.h"
+#include "device/bluetooth/bluetooth_audio_sink_chromeos.h"
 #include "device/bluetooth/bluetooth_device.h"
 #include "device/bluetooth/bluetooth_device_chromeos.h"
 #include "device/bluetooth/bluetooth_pairing_chromeos.h"
@@ -31,7 +35,9 @@
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
 using device::BluetoothAdapter;
+using device::BluetoothAudioSink;
 using device::BluetoothDevice;
+using device::BluetoothDiscoveryFilter;
 using device::BluetoothSocket;
 using device::BluetoothUUID;
 
@@ -61,7 +67,7 @@ base::WeakPtr<BluetoothAdapter> BluetoothAdapter::CreateAdapter(
   return chromeos::BluetoothAdapterChromeOS::CreateAdapter();
 }
 
-}
+}  // namespace device
 
 namespace chromeos {
 
@@ -71,8 +77,40 @@ base::WeakPtr<BluetoothAdapter> BluetoothAdapterChromeOS::CreateAdapter() {
   return adapter->weak_ptr_factory_.GetWeakPtr();
 }
 
+void BluetoothAdapterChromeOS::Shutdown() {
+  if (dbus_is_shutdown_)
+    return;
+  DCHECK(DBusThreadManager::IsInitialized())
+      << "Call BluetoothAdapterFactory::Shutdown() before "
+         "DBusThreadManager::Shutdown().";
+
+  if (IsPresent())
+    RemoveAdapter();  // Also deletes devices_.
+  DCHECK(devices_.empty());
+  // profiles_ is empty because all BluetoothSockets have been notified
+  // that this adapter is disappearing.
+  DCHECK(profiles_.empty());
+
+  for (auto& it : profile_queues_)
+    delete it.second;
+  profile_queues_.clear();
+
+  DBusThreadManager::Get()->GetBluetoothAdapterClient()->RemoveObserver(this);
+  DBusThreadManager::Get()->GetBluetoothDeviceClient()->RemoveObserver(this);
+  DBusThreadManager::Get()->GetBluetoothInputClient()->RemoveObserver(this);
+
+  VLOG(1) << "Unregistering pairing agent";
+  DBusThreadManager::Get()->GetBluetoothAgentManagerClient()->UnregisterAgent(
+      dbus::ObjectPath(kAgentPath), base::Bind(&base::DoNothing),
+      base::Bind(&OnUnregisterAgentError));
+
+  agent_.reset();
+  dbus_is_shutdown_ = true;
+}
+
 BluetoothAdapterChromeOS::BluetoothAdapterChromeOS()
-    : num_discovery_sessions_(0),
+    : dbus_is_shutdown_(false),
+      num_discovery_sessions_(0),
       discovery_request_pending_(false),
       weak_ptr_factory_(this) {
   ui_task_runner_ = base::ThreadTaskRunnerHandle::Get();
@@ -98,28 +136,7 @@ BluetoothAdapterChromeOS::BluetoothAdapterChromeOS()
 }
 
 BluetoothAdapterChromeOS::~BluetoothAdapterChromeOS() {
-  DBusThreadManager::Get()->GetBluetoothAdapterClient()->RemoveObserver(this);
-  DBusThreadManager::Get()->GetBluetoothDeviceClient()->RemoveObserver(this);
-  DBusThreadManager::Get()->GetBluetoothInputClient()->RemoveObserver(this);
-
-  VLOG(1) << "Unregistering pairing agent";
-  DBusThreadManager::Get()->GetBluetoothAgentManagerClient()->
-      UnregisterAgent(
-          dbus::ObjectPath(kAgentPath),
-          base::Bind(&base::DoNothing),
-          base::Bind(&OnUnregisterAgentError));
-}
-
-void BluetoothAdapterChromeOS::AddObserver(
-    BluetoothAdapter::Observer* observer) {
-  DCHECK(observer);
-  observers_.AddObserver(observer);
-}
-
-void BluetoothAdapterChromeOS::RemoveObserver(
-    BluetoothAdapter::Observer* observer) {
-  DCHECK(observer);
-  observers_.RemoveObserver(observer);
+  Shutdown();
 }
 
 std::string BluetoothAdapterChromeOS::GetAddress() const {
@@ -149,8 +166,10 @@ std::string BluetoothAdapterChromeOS::GetName() const {
 void BluetoothAdapterChromeOS::SetName(const std::string& name,
                                        const base::Closure& callback,
                                        const ErrorCallback& error_callback) {
-  if (!IsPresent())
+  if (!IsPresent()) {
     error_callback.Run();
+    return;
+  }
 
   DBusThreadManager::Get()->GetBluetoothAdapterClient()->
       GetProperties(object_path_)->alias.Set(
@@ -166,7 +185,7 @@ bool BluetoothAdapterChromeOS::IsInitialized() const {
 }
 
 bool BluetoothAdapterChromeOS::IsPresent() const {
-  return !object_path_.value().empty();
+  return !dbus_is_shutdown_ && !object_path_.value().empty();
 }
 
 bool BluetoothAdapterChromeOS::IsPowered() const {
@@ -184,8 +203,10 @@ void BluetoothAdapterChromeOS::SetPowered(
     bool powered,
     const base::Closure& callback,
     const ErrorCallback& error_callback) {
-  if (!IsPresent())
+  if (!IsPresent()) {
     error_callback.Run();
+    return;
+  }
 
   DBusThreadManager::Get()->GetBluetoothAdapterClient()->
       GetProperties(object_path_)->powered.Set(
@@ -211,8 +232,10 @@ void BluetoothAdapterChromeOS::SetDiscoverable(
     bool discoverable,
     const base::Closure& callback,
     const ErrorCallback& error_callback) {
-  if (!IsPresent())
+  if (!IsPresent()) {
     error_callback.Run();
+    return;
+  }
 
   DBusThreadManager::Get()->GetBluetoothAdapterClient()->
       GetProperties(object_path_)->discoverable.Set(
@@ -239,6 +262,7 @@ void BluetoothAdapterChromeOS::CreateRfcommService(
     const ServiceOptions& options,
     const CreateServiceCallback& callback,
     const CreateServiceErrorCallback& error_callback) {
+  DCHECK(!dbus_is_shutdown_);
   VLOG(1) << object_path_.value() << ": Creating RFCOMM service: "
           << uuid.canonical_value();
   scoped_refptr<BluetoothSocketChromeOS> socket =
@@ -257,6 +281,7 @@ void BluetoothAdapterChromeOS::CreateL2capService(
     const ServiceOptions& options,
     const CreateServiceCallback& callback,
     const CreateServiceErrorCallback& error_callback) {
+  DCHECK(!dbus_is_shutdown_);
   VLOG(1) << object_path_.value() << ": Creating L2CAP service: "
           << uuid.canonical_value();
   scoped_refptr<BluetoothSocketChromeOS> socket =
@@ -270,11 +295,37 @@ void BluetoothAdapterChromeOS::CreateL2capService(
                  error_callback);
 }
 
+void BluetoothAdapterChromeOS::RegisterAudioSink(
+    const BluetoothAudioSink::Options& options,
+    const device::BluetoothAdapter::AcquiredCallback& callback,
+    const BluetoothAudioSink::ErrorCallback& error_callback) {
+  VLOG(1) << "Registering audio sink";
+  if (!this->IsPresent()) {
+    error_callback.Run(BluetoothAudioSink::ERROR_INVALID_ADAPTER);
+    return;
+  }
+  scoped_refptr<BluetoothAudioSinkChromeOS> audio_sink(
+      new BluetoothAudioSinkChromeOS(this));
+  audio_sink->Register(
+      options, base::Bind(&BluetoothAdapterChromeOS::OnRegisterAudioSink,
+                          weak_ptr_factory_.GetWeakPtr(), callback,
+                          error_callback, audio_sink),
+      error_callback);
+}
+
+void BluetoothAdapterChromeOS::RegisterAdvertisement(
+    scoped_ptr<device::BluetoothAdvertisement::Data> advertisement_data,
+    const CreateAdvertisementCallback& callback,
+    const CreateAdvertisementErrorCallback& error_callback) {
+  scoped_refptr<BluetoothAdvertisementChromeOS> advertisement(
+      new BluetoothAdvertisementChromeOS(advertisement_data.Pass(), this));
+  advertisement->Register(base::Bind(callback, advertisement), error_callback);
+}
+
 void BluetoothAdapterChromeOS::RemovePairingDelegateInternal(
     BluetoothDevice::PairingDelegate* pairing_delegate) {
-  // Before removing a pairing delegate make sure that there aren't any devices
-  // currently using it; if there are, clear the pairing context which will
-  // make any responses no-ops.
+  // Check if any device is using the pairing delegate.
+  // If so, clear the pairing context which will make any responses no-ops.
   for (DevicesMap::iterator iter = devices_.begin();
        iter != devices_.end(); ++iter) {
     BluetoothDeviceChromeOS* device_chromeos =
@@ -304,26 +355,30 @@ void BluetoothAdapterChromeOS::AdapterPropertyChanged(
     const std::string& property_name) {
   if (object_path != object_path_)
     return;
+  DCHECK(IsPresent());
 
   BluetoothAdapterClient::Properties* properties =
       DBusThreadManager::Get()->GetBluetoothAdapterClient()->
           GetProperties(object_path_);
 
-  if (property_name == properties->powered.name())
+  if (property_name == properties->powered.name()) {
     PoweredChanged(properties->powered.value());
-  else if (property_name == properties->discoverable.name())
+  } else if (property_name == properties->discoverable.name()) {
     DiscoverableChanged(properties->discoverable.value());
-  else if (property_name == properties->discovering.name())
+  } else if (property_name == properties->discovering.name()) {
     DiscoveringChanged(properties->discovering.value());
+  }
 }
 
 void BluetoothAdapterChromeOS::DeviceAdded(
   const dbus::ObjectPath& object_path) {
+  DCHECK(DBusThreadManager::Get());
   BluetoothDeviceClient::Properties* properties =
       DBusThreadManager::Get()->GetBluetoothDeviceClient()->
           GetProperties(object_path);
-  if (properties->adapter.value() != object_path_)
+  if (!properties || properties->adapter.value() != object_path_)
     return;
+  DCHECK(IsPresent());
 
   BluetoothDeviceChromeOS* device_chromeos =
       new BluetoothDeviceChromeOS(this,
@@ -374,15 +429,16 @@ void BluetoothAdapterChromeOS::DevicePropertyChanged(
       property_name == properties->connected.name() ||
       property_name == properties->uuids.name() ||
       property_name == properties->rssi.name() ||
-      property_name == properties->connection_rssi.name() ||
-      property_name == properties->connection_tx_power.name())
+      property_name == properties->tx_power.name()) {
     NotifyDeviceChanged(device_chromeos);
+  }
 
   // When a device becomes paired, mark it as trusted so that the user does
   // not need to approve every incoming connection
   if (property_name == properties->paired.name() &&
-      properties->paired.value() && !properties->trusted.value())
+      properties->paired.value() && !properties->trusted.value()) {
     device_chromeos->SetTrusted();
+  }
 
   // UMA connection counting
   if (property_name == properties->connected.name()) {
@@ -419,14 +475,16 @@ void BluetoothAdapterChromeOS::InputPropertyChanged(
   // Properties structure can be removed, which triggers a change in the
   // BluetoothDevice::IsConnectable() property, as does a change in the
   // actual reconnect_mode property.
-  if (!properties ||
-      property_name == properties->reconnect_mode.name())
+  if (!properties || property_name == properties->reconnect_mode.name()) {
     NotifyDeviceChanged(device_chromeos);
+  }
 }
 
 void BluetoothAdapterChromeOS::Released() {
-  DCHECK(agent_.get());
   VLOG(1) << "Release";
+  if (!IsPresent())
+    return;
+  DCHECK(agent_.get());
 
   // Called after we unregister the pairing agent, e.g. when changing I/O
   // capabilities. Nothing much to be done right now.
@@ -435,6 +493,7 @@ void BluetoothAdapterChromeOS::Released() {
 void BluetoothAdapterChromeOS::RequestPinCode(
     const dbus::ObjectPath& device_path,
     const PinCodeCallback& callback) {
+  DCHECK(IsPresent());
   DCHECK(agent_.get());
   VLOG(1) << device_path.value() << ": RequestPinCode";
 
@@ -450,6 +509,7 @@ void BluetoothAdapterChromeOS::RequestPinCode(
 void BluetoothAdapterChromeOS::DisplayPinCode(
     const dbus::ObjectPath& device_path,
     const std::string& pincode) {
+  DCHECK(IsPresent());
   DCHECK(agent_.get());
   VLOG(1) << device_path.value() << ": DisplayPinCode: " << pincode;
 
@@ -463,6 +523,7 @@ void BluetoothAdapterChromeOS::DisplayPinCode(
 void BluetoothAdapterChromeOS::RequestPasskey(
     const dbus::ObjectPath& device_path,
     const PasskeyCallback& callback) {
+  DCHECK(IsPresent());
   DCHECK(agent_.get());
   VLOG(1) << device_path.value() << ": RequestPasskey";
 
@@ -479,6 +540,7 @@ void BluetoothAdapterChromeOS::DisplayPasskey(
     const dbus::ObjectPath& device_path,
     uint32 passkey,
     uint16 entered) {
+  DCHECK(IsPresent());
   DCHECK(agent_.get());
   VLOG(1) << device_path.value() << ": DisplayPasskey: " << passkey
           << " (" << entered << " entered)";
@@ -497,6 +559,7 @@ void BluetoothAdapterChromeOS::RequestConfirmation(
     const dbus::ObjectPath& device_path,
     uint32 passkey,
     const ConfirmationCallback& callback) {
+  DCHECK(IsPresent());
   DCHECK(agent_.get());
   VLOG(1) << device_path.value() << ": RequestConfirmation: " << passkey;
 
@@ -512,6 +575,7 @@ void BluetoothAdapterChromeOS::RequestConfirmation(
 void BluetoothAdapterChromeOS::RequestAuthorization(
     const dbus::ObjectPath& device_path,
     const ConfirmationCallback& callback) {
+  DCHECK(IsPresent());
   DCHECK(agent_.get());
   VLOG(1) << device_path.value() << ": RequestAuthorization";
 
@@ -528,6 +592,7 @@ void BluetoothAdapterChromeOS::AuthorizeService(
     const dbus::ObjectPath& device_path,
     const std::string& uuid,
     const ConfirmationCallback& callback) {
+  DCHECK(IsPresent());
   DCHECK(agent_.get());
   VLOG(1) << device_path.value() << ": AuthorizeService: " << uuid;
 
@@ -554,6 +619,7 @@ void BluetoothAdapterChromeOS::AuthorizeService(
 }
 
 void BluetoothAdapterChromeOS::Cancel() {
+  DCHECK(IsPresent());
   DCHECK(agent_.get());
   VLOG(1) << "Cancel";
 }
@@ -568,7 +634,6 @@ void BluetoothAdapterChromeOS::OnRegisterAgent() {
                      weak_ptr_factory_.GetWeakPtr()),
           base::Bind(&BluetoothAdapterChromeOS::OnRequestDefaultAgentError,
                      weak_ptr_factory_.GetWeakPtr()));
-
 }
 
 void BluetoothAdapterChromeOS::OnRegisterAgentError(
@@ -593,28 +658,44 @@ void BluetoothAdapterChromeOS::OnRequestDefaultAgentError(
                << error_name << ": " << error_message;
 }
 
+void BluetoothAdapterChromeOS::OnRegisterAudioSink(
+    const device::BluetoothAdapter::AcquiredCallback& callback,
+    const device::BluetoothAudioSink::ErrorCallback& error_callback,
+    scoped_refptr<BluetoothAudioSink> audio_sink) {
+  if (!IsPresent()) {
+    VLOG(1) << "Failed to register audio sink, adapter not present";
+    error_callback.Run(BluetoothAudioSink::ERROR_INVALID_ADAPTER);
+    return;
+  }
+  DCHECK(audio_sink.get());
+  callback.Run(audio_sink);
+}
+
 BluetoothDeviceChromeOS*
 BluetoothAdapterChromeOS::GetDeviceWithPath(
     const dbus::ObjectPath& object_path) {
-  for (DevicesMap::iterator iter = devices_.begin();
-       iter != devices_.end(); ++iter) {
+  if (!IsPresent())
+    return nullptr;
+
+  for (DevicesMap::iterator iter = devices_.begin(); iter != devices_.end();
+       ++iter) {
     BluetoothDeviceChromeOS* device_chromeos =
         static_cast<BluetoothDeviceChromeOS*>(iter->second);
     if (device_chromeos->object_path() == object_path)
       return device_chromeos;
   }
 
-  return NULL;
+  return nullptr;
 }
 
 BluetoothPairingChromeOS* BluetoothAdapterChromeOS::GetPairing(
-    const dbus::ObjectPath& object_path)
-{
+    const dbus::ObjectPath& object_path) {
+  DCHECK(IsPresent());
   BluetoothDeviceChromeOS* device_chromeos = GetDeviceWithPath(object_path);
   if (!device_chromeos) {
     LOG(WARNING) << "Pairing Agent request for unknown device: "
                  << object_path.value();
-    return NULL;
+    return nullptr;
   }
 
   BluetoothPairingChromeOS* pairing = device_chromeos->GetPairing();
@@ -625,13 +706,14 @@ BluetoothPairingChromeOS* BluetoothAdapterChromeOS::GetPairing(
   // pairing request that should use our best default delegate (if we have one).
   BluetoothDevice::PairingDelegate* pairing_delegate = DefaultPairingDelegate();
   if (!pairing_delegate)
-    return NULL;
+    return nullptr;
 
   return device_chromeos->BeginPairing(pairing_delegate);
 }
 
 void BluetoothAdapterChromeOS::SetAdapter(const dbus::ObjectPath& object_path) {
   DCHECK(!IsPresent());
+  DCHECK(!dbus_is_shutdown_);
   object_path_ = object_path;
 
   VLOG(1) << object_path_.value() << ": using adapter.";
@@ -672,6 +754,7 @@ void BluetoothAdapterChromeOS::SetAdapter(const dbus::ObjectPath& object_path) {
 }
 
 void BluetoothAdapterChromeOS::SetDefaultAdapterName() {
+  DCHECK(IsPresent());
   std::string board = base::SysInfo::GetLsbReleaseBoard();
   std::string alias;
   if (board.substr(0, 6) == "stumpy") {
@@ -732,8 +815,8 @@ void BluetoothAdapterChromeOS::DiscoveringChanged(
   // If the adapter stopped discovery due to a reason other than a request by
   // us, reset the count to 0.
   VLOG(1) << "Discovering changed: " << discovering;
-  if (!discovering && !discovery_request_pending_
-      && num_discovery_sessions_ > 0) {
+  if (!discovering && !discovery_request_pending_ &&
+      num_discovery_sessions_ > 0) {
     VLOG(1) << "Marking sessions as inactive.";
     num_discovery_sessions_ = 0;
     MarkDiscoverySessionsAsInactive();
@@ -749,6 +832,7 @@ void BluetoothAdapterChromeOS::PresentChanged(bool present) {
 
 void BluetoothAdapterChromeOS::NotifyDeviceChanged(
     BluetoothDeviceChromeOS* device) {
+  DCHECK(device);
   DCHECK(device->adapter_ == this);
 
   FOR_EACH_OBSERVER(BluetoothAdapter::Observer, observers_,
@@ -866,10 +950,122 @@ void BluetoothAdapterChromeOS::NotifyGattDescriptorValueChanged(
                     GattDescriptorValueChanged(this, descriptor, value));
 }
 
+void BluetoothAdapterChromeOS::UseProfile(
+    const BluetoothUUID& uuid,
+    const dbus::ObjectPath& device_path,
+    const BluetoothProfileManagerClient::Options& options,
+    BluetoothProfileServiceProvider::Delegate* delegate,
+    const ProfileRegisteredCallback& success_callback,
+    const ErrorCompletionCallback& error_callback) {
+  DCHECK(delegate);
+
+  if (!IsPresent()) {
+    VLOG(2) << "Adapter not present, erroring out";
+    error_callback.Run("Adapter not present");
+    return;
+  }
+
+  if (profiles_.find(uuid) != profiles_.end()) {
+    // TODO(jamuraa) check that the options are the same and error when they are
+    // not.
+    SetProfileDelegate(uuid, device_path, delegate, success_callback,
+                       error_callback);
+    return;
+  }
+
+  if (profile_queues_.find(uuid) == profile_queues_.end()) {
+    BluetoothAdapterProfileChromeOS::Register(
+        uuid, options,
+        base::Bind(&BluetoothAdapterChromeOS::OnRegisterProfile, this, uuid),
+        base::Bind(&BluetoothAdapterChromeOS::OnRegisterProfileError, this,
+                   uuid));
+
+    profile_queues_[uuid] = new std::vector<RegisterProfileCompletionPair>();
+  }
+
+  profile_queues_[uuid]->push_back(std::make_pair(
+      base::Bind(&BluetoothAdapterChromeOS::SetProfileDelegate, this, uuid,
+                 device_path, delegate, success_callback, error_callback),
+      error_callback));
+}
+
+void BluetoothAdapterChromeOS::ReleaseProfile(
+    const dbus::ObjectPath& device_path,
+    BluetoothAdapterProfileChromeOS* profile) {
+  VLOG(2) << "Releasing Profile: " << profile->uuid().canonical_value()
+          << " from " << device_path.value();
+  profile->RemoveDelegate(
+      device_path, base::Bind(&BluetoothAdapterChromeOS::RemoveProfile,
+                              weak_ptr_factory_.GetWeakPtr(), profile->uuid()));
+}
+
+void BluetoothAdapterChromeOS::RemoveProfile(const BluetoothUUID& uuid) {
+  VLOG(2) << "Remove Profile: " << uuid.canonical_value();
+
+  if (profiles_.find(uuid) != profiles_.end()) {
+    delete profiles_[uuid];
+    profiles_.erase(uuid);
+  }
+}
+
+void BluetoothAdapterChromeOS::OnRegisterProfile(
+    const BluetoothUUID& uuid,
+    scoped_ptr<BluetoothAdapterProfileChromeOS> profile) {
+  profiles_[uuid] = profile.release();
+
+  if (profile_queues_.find(uuid) == profile_queues_.end())
+    return;
+
+  for (auto& it : *profile_queues_[uuid])
+    it.first.Run();
+  delete profile_queues_[uuid];
+  profile_queues_.erase(uuid);
+}
+
+void BluetoothAdapterChromeOS::SetProfileDelegate(
+    const BluetoothUUID& uuid,
+    const dbus::ObjectPath& device_path,
+    BluetoothProfileServiceProvider::Delegate* delegate,
+    const ProfileRegisteredCallback& success_callback,
+    const ErrorCompletionCallback& error_callback) {
+  if (profiles_.find(uuid) == profiles_.end()) {
+    error_callback.Run("Cannot find profile!");
+    return;
+  }
+
+  if (profiles_[uuid]->SetDelegate(device_path, delegate)) {
+    success_callback.Run(profiles_[uuid]);
+    return;
+  }
+  // Already set
+  error_callback.Run(bluetooth_agent_manager::kErrorAlreadyExists);
+}
+
+void BluetoothAdapterChromeOS::OnRegisterProfileError(
+    const BluetoothUUID& uuid,
+    const std::string& error_name,
+    const std::string& error_message) {
+  VLOG(2) << object_path_.value() << ": Failed to register profile: "
+          << error_name << ": " << error_message;
+  if (profile_queues_.find(uuid) == profile_queues_.end())
+    return;
+
+  for (auto& it : *profile_queues_[uuid])
+    it.second.Run(error_message);
+
+  delete profile_queues_[uuid];
+  profile_queues_.erase(uuid);
+}
+
 void BluetoothAdapterChromeOS::OnSetDiscoverable(
     const base::Closure& callback,
     const ErrorCallback& error_callback,
     bool success) {
+  if (!IsPresent()) {
+    error_callback.Run();
+    return;
+  }
+
   // Set the discoverable_timeout property to zero so the adapter remains
   // discoverable forever.
   DBusThreadManager::Get()->GetBluetoothAdapterClient()->
@@ -885,15 +1081,21 @@ void BluetoothAdapterChromeOS::OnPropertyChangeCompleted(
     const base::Closure& callback,
     const ErrorCallback& error_callback,
     bool success) {
-  if (success)
+  if (IsPresent() && success) {
     callback.Run();
-  else
+  } else {
     error_callback.Run();
+  }
 }
 
 void BluetoothAdapterChromeOS::AddDiscoverySession(
+    BluetoothDiscoveryFilter* discovery_filter,
     const base::Closure& callback,
     const ErrorCallback& error_callback) {
+  if (!IsPresent()) {
+    error_callback.Run();
+    return;
+  }
   VLOG(1) << __func__;
   if (discovery_request_pending_) {
     // The pending request is either to stop a previous session or to start a
@@ -901,7 +1103,8 @@ void BluetoothAdapterChromeOS::AddDiscoverySession(
     DCHECK(num_discovery_sessions_ == 1 || num_discovery_sessions_ == 0);
     VLOG(1) << "Pending request to start/stop device discovery. Queueing "
             << "request to start a new discovery session.";
-    discovery_request_queue_.push(std::make_pair(callback, error_callback));
+    discovery_request_queue_.push(
+        std::make_tuple(discovery_filter, callback, error_callback));
     return;
   }
 
@@ -910,37 +1113,60 @@ void BluetoothAdapterChromeOS::AddDiscoverySession(
     DCHECK(IsDiscovering());
     DCHECK(!discovery_request_pending_);
     num_discovery_sessions_++;
-    callback.Run();
+    SetDiscoveryFilter(BluetoothDiscoveryFilter::Merge(
+                           GetMergedDiscoveryFilter().get(), discovery_filter),
+                       callback, error_callback);
     return;
   }
 
   // There are no active discovery sessions.
-  DCHECK(num_discovery_sessions_ == 0);
+  DCHECK_EQ(num_discovery_sessions_, 0);
+
+  if (discovery_filter) {
+    discovery_request_pending_ = true;
+
+    scoped_ptr<BluetoothDiscoveryFilter> df(new BluetoothDiscoveryFilter(
+        BluetoothDiscoveryFilter::Transport::TRANSPORT_DUAL));
+    df->CopyFrom(*discovery_filter);
+    SetDiscoveryFilter(
+        df.Pass(),
+        base::Bind(&BluetoothAdapterChromeOS::OnPreSetDiscoveryFilter,
+                   weak_ptr_factory_.GetWeakPtr(), callback, error_callback),
+        base::Bind(&BluetoothAdapterChromeOS::OnPreSetDiscoveryFilterError,
+                   weak_ptr_factory_.GetWeakPtr(), callback, error_callback));
+    return;
+  } else {
+    current_filter_.reset();
+  }
 
   // This is the first request to start device discovery.
   discovery_request_pending_ = true;
-  DBusThreadManager::Get()->GetBluetoothAdapterClient()->
-      StartDiscovery(
-          object_path_,
-          base::Bind(&BluetoothAdapterChromeOS::OnStartDiscovery,
-                     weak_ptr_factory_.GetWeakPtr(),
-                     callback),
-          base::Bind(&BluetoothAdapterChromeOS::OnStartDiscoveryError,
-                     weak_ptr_factory_.GetWeakPtr(),
-                     callback,
-                     error_callback));
+  DBusThreadManager::Get()->GetBluetoothAdapterClient()->StartDiscovery(
+      object_path_,
+      base::Bind(&BluetoothAdapterChromeOS::OnStartDiscovery,
+                 weak_ptr_factory_.GetWeakPtr(), callback, error_callback),
+      base::Bind(&BluetoothAdapterChromeOS::OnStartDiscoveryError,
+                 weak_ptr_factory_.GetWeakPtr(), callback, error_callback));
 }
 
 void BluetoothAdapterChromeOS::RemoveDiscoverySession(
+    BluetoothDiscoveryFilter* discovery_filter,
     const base::Closure& callback,
     const ErrorCallback& error_callback) {
+  if (!IsPresent()) {
+    error_callback.Run();
+    return;
+  }
+
   VLOG(1) << __func__;
   // There are active sessions other than the one currently being removed.
   if (num_discovery_sessions_ > 1) {
     DCHECK(IsDiscovering());
     DCHECK(!discovery_request_pending_);
     num_discovery_sessions_--;
-    callback.Run();
+
+    SetDiscoveryFilter(GetMergedDiscoveryFilterMasked(discovery_filter),
+                       callback, error_callback);
     return;
   }
 
@@ -964,7 +1190,7 @@ void BluetoothAdapterChromeOS::RemoveDiscoverySession(
 
   // There is exactly one active discovery session. Request BlueZ to stop
   // discovery.
-  DCHECK(num_discovery_sessions_ == 1);
+  DCHECK_EQ(num_discovery_sessions_, 1);
   discovery_request_pending_ = true;
   DBusThreadManager::Get()->GetBluetoothAdapterClient()->
       StopDiscovery(
@@ -977,14 +1203,89 @@ void BluetoothAdapterChromeOS::RemoveDiscoverySession(
                      error_callback));
 }
 
-void BluetoothAdapterChromeOS::OnStartDiscovery(const base::Closure& callback) {
+void BluetoothAdapterChromeOS::SetDiscoveryFilter(
+    scoped_ptr<BluetoothDiscoveryFilter> discovery_filter,
+    const base::Closure& callback,
+    const ErrorCallback& error_callback) {
+  if (!IsPresent()) {
+    error_callback.Run();
+    return;
+  }
+
+  // If old and new filter are equal (null) then don't make request, just call
+  // succes callback
+  if (!current_filter_ && !discovery_filter.get()) {
+    callback.Run();
+    return;
+  }
+
+  // If old and new filter are not null and equal then don't make request, just
+  // call succes callback
+  if (current_filter_ && discovery_filter &&
+      current_filter_->Equals(*discovery_filter)) {
+    callback.Run();
+    return;
+  }
+
+  current_filter_.reset(discovery_filter.release());
+
+  chromeos::BluetoothAdapterClient::DiscoveryFilter dbus_discovery_filter;
+
+  if (current_filter_.get()) {
+    uint16_t pathloss;
+    int16_t rssi;
+    uint8_t transport;
+    std::set<device::BluetoothUUID> uuids;
+
+    if (current_filter_->GetPathloss(&pathloss))
+      dbus_discovery_filter.pathloss.reset(new uint16_t(pathloss));
+
+    if (current_filter_->GetRSSI(&rssi))
+      dbus_discovery_filter.rssi.reset(new int16_t(rssi));
+
+    transport = current_filter_->GetTransport();
+    if (transport == BluetoothDiscoveryFilter::Transport::TRANSPORT_LE) {
+      dbus_discovery_filter.transport.reset(new std::string("le"));
+    } else if (transport ==
+               BluetoothDiscoveryFilter::Transport::TRANSPORT_CLASSIC) {
+      dbus_discovery_filter.transport.reset(new std::string("bredr"));
+    } else if (transport ==
+               BluetoothDiscoveryFilter::Transport::TRANSPORT_DUAL) {
+      dbus_discovery_filter.transport.reset(new std::string("auto"));
+    }
+
+    current_filter_->GetUUIDs(uuids);
+    if (uuids.size()) {
+      dbus_discovery_filter.uuids =
+          scoped_ptr<std::vector<std::string>>(new std::vector<std::string>);
+
+      for (const auto& it : uuids)
+        dbus_discovery_filter.uuids.get()->push_back(it.value());
+    }
+  }
+
+  DBusThreadManager::Get()->GetBluetoothAdapterClient()->SetDiscoveryFilter(
+      object_path_, dbus_discovery_filter,
+      base::Bind(&BluetoothAdapterChromeOS::OnSetDiscoveryFilter,
+                 weak_ptr_factory_.GetWeakPtr(), callback, error_callback),
+      base::Bind(&BluetoothAdapterChromeOS::OnSetDiscoveryFilterError,
+                 weak_ptr_factory_.GetWeakPtr(), callback, error_callback));
+}
+
+void BluetoothAdapterChromeOS::OnStartDiscovery(
+    const base::Closure& callback,
+    const ErrorCallback& error_callback) {
   // Report success on the original request and increment the count.
   VLOG(1) << __func__;
   DCHECK(discovery_request_pending_);
-  DCHECK(num_discovery_sessions_ == 0);
+  DCHECK_EQ(num_discovery_sessions_, 0);
   discovery_request_pending_ = false;
   num_discovery_sessions_++;
-  callback.Run();
+  if (IsPresent()) {
+    callback.Run();
+  } else {
+    error_callback.Run();
+  }
 
   // Try to add a new discovery session for each queued request.
   ProcessQueuedDiscoveryRequests();
@@ -999,14 +1300,15 @@ void BluetoothAdapterChromeOS::OnStartDiscoveryError(
                << error_name << ": " << error_message;
 
   // Failed to start discovery. This can only happen if the count is at 0.
-  DCHECK(num_discovery_sessions_ == 0);
+  DCHECK_EQ(num_discovery_sessions_, 0);
   DCHECK(discovery_request_pending_);
   discovery_request_pending_ = false;
 
   // Discovery request may fail if discovery was previously initiated by Chrome,
   // but the session were invalidated due to the discovery state unexpectedly
   // changing to false and then back to true. In this case, report success.
-  if (error_name == bluetooth_device::kErrorInProgress && IsDiscovering()) {
+  if (IsPresent() && error_name == bluetooth_device::kErrorInProgress &&
+      IsDiscovering()) {
     VLOG(1) << "Discovery previously initiated. Reporting success.";
     num_discovery_sessions_++;
     callback.Run();
@@ -1022,10 +1324,12 @@ void BluetoothAdapterChromeOS::OnStopDiscovery(const base::Closure& callback) {
   // Report success on the original request and decrement the count.
   VLOG(1) << __func__;
   DCHECK(discovery_request_pending_);
-  DCHECK(num_discovery_sessions_ == 1);
+  DCHECK_EQ(num_discovery_sessions_, 1);
   discovery_request_pending_ = false;
   num_discovery_sessions_--;
   callback.Run();
+
+  current_filter_.reset();
 
   // Try to add a new discovery session for each queued request.
   ProcessQueuedDiscoveryRequests();
@@ -1040,8 +1344,67 @@ void BluetoothAdapterChromeOS::OnStopDiscoveryError(
 
   // Failed to stop discovery. This can only happen if the count is at 1.
   DCHECK(discovery_request_pending_);
-  DCHECK(num_discovery_sessions_ == 1);
+  DCHECK_EQ(num_discovery_sessions_, 1);
   discovery_request_pending_ = false;
+  error_callback.Run();
+
+  // Try to add a new discovery session for each queued request.
+  ProcessQueuedDiscoveryRequests();
+}
+
+void BluetoothAdapterChromeOS::OnPreSetDiscoveryFilter(
+    const base::Closure& callback,
+    const ErrorCallback& error_callback) {
+  // This is the first request to start device discovery.
+  DCHECK(discovery_request_pending_);
+  DCHECK_EQ(num_discovery_sessions_, 0);
+
+  DBusThreadManager::Get()->GetBluetoothAdapterClient()->StartDiscovery(
+      object_path_,
+      base::Bind(&BluetoothAdapterChromeOS::OnStartDiscovery,
+                 weak_ptr_factory_.GetWeakPtr(), callback, error_callback),
+      base::Bind(&BluetoothAdapterChromeOS::OnStartDiscoveryError,
+                 weak_ptr_factory_.GetWeakPtr(), callback, error_callback));
+}
+
+void BluetoothAdapterChromeOS::OnPreSetDiscoveryFilterError(
+    const base::Closure& callback,
+    const ErrorCallback& error_callback) {
+  LOG(WARNING) << object_path_.value()
+               << ": Failed to pre set discovery filter.";
+
+  // Failed to start discovery. This can only happen if the count is at 0.
+  DCHECK_EQ(num_discovery_sessions_, 0);
+  DCHECK(discovery_request_pending_);
+  discovery_request_pending_ = false;
+
+  error_callback.Run();
+
+  // Try to add a new discovery session for each queued request.
+  ProcessQueuedDiscoveryRequests();
+}
+
+void BluetoothAdapterChromeOS::OnSetDiscoveryFilter(
+    const base::Closure& callback,
+    const ErrorCallback& error_callback) {
+  // Report success on the original request and increment the count.
+  VLOG(1) << __func__;
+  if (IsPresent()) {
+    callback.Run();
+  } else {
+    error_callback.Run();
+  }
+}
+
+void BluetoothAdapterChromeOS::OnSetDiscoveryFilterError(
+    const base::Closure& callback,
+    const ErrorCallback& error_callback,
+    const std::string& error_name,
+    const std::string& error_message) {
+  LOG(WARNING) << object_path_.value()
+               << ": Failed to set discovery filter: " << error_name << ": "
+               << error_message;
+
   error_callback.Run();
 
   // Try to add a new discovery session for each queued request.
@@ -1051,9 +1414,10 @@ void BluetoothAdapterChromeOS::OnStopDiscoveryError(
 void BluetoothAdapterChromeOS::ProcessQueuedDiscoveryRequests() {
   while (!discovery_request_queue_.empty()) {
     VLOG(1) << "Process queued discovery request.";
-    DiscoveryCallbackPair callbacks = discovery_request_queue_.front();
+    DiscoveryParamTuple params = discovery_request_queue_.front();
     discovery_request_queue_.pop();
-    AddDiscoverySession(callbacks.first, callbacks.second);
+    AddDiscoverySession(std::get<0>(params), std::get<1>(params),
+                        std::get<2>(params));
 
     // If the queued request resulted in a pending call, then let it
     // asynchonously process the remaining queued requests once the pending

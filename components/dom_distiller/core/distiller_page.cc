@@ -6,11 +6,13 @@
 
 #include "base/bind.h"
 #include "base/json/json_writer.h"
+#include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "grit/components_resources.h"
 #include "third_party/dom_distiller_js/dom_distiller.pb.h"
@@ -23,9 +25,13 @@ namespace dom_distiller {
 namespace {
 
 const char* kOptionsPlaceholder = "$$OPTIONS";
+const char* kStringifyPlaceholder = "$$STRINGIFY";
+const char* kNewContextPlaceholder = "$$NEW_CONTEXT";
 
 std::string GetDistillerScriptWithOptions(
-    const dom_distiller::proto::DomDistillerOptions& options) {
+    const dom_distiller::proto::DomDistillerOptions& options,
+    bool stringify_output,
+    bool create_new_context) {
   std::string script = ResourceBundle::GetSharedInstance()
                            .GetRawDataResource(IDR_DISTILLER_JS)
                            .as_string();
@@ -36,7 +42,7 @@ std::string GetDistillerScriptWithOptions(
   scoped_ptr<base::Value> options_value(
       dom_distiller::proto::json::DomDistillerOptions::WriteToValue(options));
   std::string options_json;
-  if (!base::JSONWriter::Write(options_value.get(), &options_json)) {
+  if (!base::JSONWriter::Write(*options_value, &options_json)) {
     NOTREACHED();
   }
   size_t options_offset = script.find(kOptionsPlaceholder);
@@ -45,6 +51,25 @@ std::string GetDistillerScriptWithOptions(
             script.find(kOptionsPlaceholder, options_offset + 1));
   script =
       script.replace(options_offset, strlen(kOptionsPlaceholder), options_json);
+
+  std::string stringify = stringify_output ? "true" : "false";
+  size_t stringify_offset = script.find(kStringifyPlaceholder);
+  DCHECK_NE(std::string::npos, stringify_offset);
+  DCHECK_EQ(std::string::npos,
+            script.find(kStringifyPlaceholder, stringify_offset + 1));
+  script = script.replace(stringify_offset,
+                          strlen(kStringifyPlaceholder),
+                          stringify);
+
+  std::string new_context = create_new_context ? "true" : "false";
+  size_t new_context_offset = script.find(kNewContextPlaceholder);
+  DCHECK_NE(std::string::npos, new_context_offset);
+  DCHECK_EQ(std::string::npos,
+            script.find(kNewContextPlaceholder, new_context_offset + 1));
+  script = script.replace(new_context_offset,
+                          strlen(kNewContextPlaceholder),
+                          new_context);
+
   return script;
 }
 
@@ -65,7 +90,10 @@ void DistillerPage::DistillPage(
   // the callback to OnDistillationDone happens.
   ready_ = false;
   distiller_page_callback_ = callback;
-  DistillPageImpl(gurl, GetDistillerScriptWithOptions(options));
+  distillation_start_ = base::TimeTicks::Now();
+  DistillPageImpl(gurl, GetDistillerScriptWithOptions(options,
+                                                      StringifyOutput(),
+                                                      CreateNewContext()));
 }
 
 void DistillerPage::OnDistillationDone(const GURL& page_url,
@@ -85,6 +113,11 @@ void DistillerPage::OnDistillationDone(const GURL& page_url,
     if (!found_content) {
       DVLOG(1) << "Unable to parse DomDistillerResult.";
     } else {
+      base::TimeDelta distillation_time =
+          base::TimeTicks::Now() - distillation_start_;
+      UMA_HISTOGRAM_TIMES("DomDistiller.Time.DistillPage", distillation_time);
+      VLOG(1) << "DomDistiller.Time.DistillPage = " << distillation_time;
+
       if (distiller_result->has_timing_info()) {
         const dom_distiller::proto::TimingInfo& timing =
             distiller_result->timing_info();
@@ -114,6 +147,8 @@ void DistillerPage::OnDistillationDone(const GURL& page_url,
           UMA_HISTOGRAM_TIMES(
               "DomDistiller.Time.DistillationTotal",
               base::TimeDelta::FromMillisecondsD(timing.total_time()));
+          VLOG(1) << "DomDistiller.Time.DistillationTotal = " <<
+              base::TimeDelta::FromMillisecondsD(timing.total_time());
         }
       }
       if (distiller_result->has_statistics_info()) {
@@ -129,11 +164,9 @@ void DistillerPage::OnDistillationDone(const GURL& page_url,
     }
   }
 
-  base::MessageLoop::current()->PostTask(
-      FROM_HERE,
-      base::Bind(distiller_page_callback_,
-                 base::Passed(&distiller_result),
-                 found_content));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(distiller_page_callback_,
+                            base::Passed(&distiller_result), found_content));
 }
 
 }  // namespace dom_distiller

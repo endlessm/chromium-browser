@@ -2,7 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-from telemetry.perf_tests_helper import FlattenList
+import logging
+
+from telemetry.util import perf_tests_helper
 from telemetry.util import statistics
 from telemetry.value import list_of_scalar_values
 from telemetry.value import scalar
@@ -49,16 +51,19 @@ class SmoothnessMetric(timeline_based_metric.TimelineBasedMetric):
     self.VerifyNonOverlappedRecords(interaction_records)
     renderer_process = renderer_thread.parent
     stats = rendering_stats.RenderingStats(
-      renderer_process, model.browser_process,
+      renderer_process, model.browser_process, model.surface_flinger_process,
       [r.GetBounds() for r in interaction_records])
-    self._PopulateResultsFromStats(results, stats)
+    has_surface_flinger_stats = model.surface_flinger_process is not None
+    self._PopulateResultsFromStats(results, stats, has_surface_flinger_stats)
 
-  def _PopulateResultsFromStats(self, results, stats):
+  def _PopulateResultsFromStats(self, results, stats,
+                                has_surface_flinger_stats):
     page = results.current_page
     values = [
         self._ComputeQueueingDuration(page, stats),
         self._ComputeFrameTimeDiscrepancy(page, stats),
-        self._ComputeMeanPixelsApproximated(page, stats)
+        self._ComputeMeanPixelsApproximated(page, stats),
+        self._ComputeMeanPixelsCheckerboarded(page, stats)
     ]
     values += self._ComputeLatencyMetric(page, stats, 'input_event_latency',
                                          stats.input_event_latency)
@@ -66,6 +71,9 @@ class SmoothnessMetric(timeline_based_metric.TimelineBasedMetric):
                                          stats.scroll_update_latency)
     values += self._ComputeFirstGestureScrollUpdateLatency(page, stats)
     values += self._ComputeFrameTimeMetric(page, stats)
+    if has_surface_flinger_stats:
+      values += self._ComputeSurfaceFlingerMetric(page, stats)
+
     for v in values:
       results.AddValue(v)
 
@@ -73,13 +81,91 @@ class SmoothnessMetric(timeline_based_metric.TimelineBasedMetric):
     """Whether we have collected at least two frames in every timestamp list."""
     return all(len(s) >= 2 for s in list_of_frame_timestamp_lists)
 
+  @staticmethod
+  def _GetNormalizedDeltas(data, refresh_period, min_normalized_delta=None):
+    deltas = [t2 - t1 for t1, t2 in zip(data, data[1:])]
+    if min_normalized_delta != None:
+      deltas = [d for d in deltas
+                if d / refresh_period >= min_normalized_delta]
+    return (deltas, [delta / refresh_period for delta in deltas])
+
+  @staticmethod
+  def _JoinTimestampRanges(frame_timestamps):
+    """Joins ranges of timestamps, adjusting timestamps to remove deltas
+    between the start of a range and the end of the prior range.
+    """
+    timestamps = []
+    for timestamp_range in frame_timestamps:
+      if len(timestamps) == 0:
+        timestamps.extend(timestamp_range)
+      else:
+        for i in range(1, len(timestamp_range)):
+          timestamps.append(timestamps[-1] +
+              timestamp_range[i] - timestamp_range[i-1])
+    return timestamps
+
+  def _ComputeSurfaceFlingerMetric(self, page, stats):
+    jank_count = None
+    avg_surface_fps = None
+    max_frame_delay = None
+    frame_lengths = None
+    none_value_reason = None
+    if self._HasEnoughFrames(stats.frame_timestamps):
+      timestamps = self._JoinTimestampRanges(stats.frame_timestamps)
+      frame_count = len(timestamps)
+      milliseconds = timestamps[-1] - timestamps[0]
+      min_normalized_frame_length = 0.5
+
+      frame_lengths, normalized_frame_lengths = \
+          self._GetNormalizedDeltas(timestamps, stats.refresh_period,
+                                    min_normalized_frame_length)
+      if len(frame_lengths) < frame_count - 1:
+        logging.warning('Skipping frame lengths that are too short.')
+        frame_count = len(frame_lengths) + 1
+      if len(frame_lengths) == 0:
+        raise Exception('No valid frames lengths found.')
+      _, normalized_changes = \
+          self._GetNormalizedDeltas(frame_lengths, stats.refresh_period)
+      jankiness = [max(0, round(change)) for change in normalized_changes]
+      pause_threshold = 20
+      jank_count = sum(1 for change in jankiness
+                       if change > 0 and change < pause_threshold)
+      avg_surface_fps = int(round((frame_count - 1) * 1000.0 / milliseconds))
+      max_frame_delay = round(max(normalized_frame_lengths))
+      frame_lengths = normalized_frame_lengths
+    else:
+      none_value_reason = NOT_ENOUGH_FRAMES_MESSAGE
+
+    return (
+        scalar.ScalarValue(
+            page, 'avg_surface_fps', 'fps', avg_surface_fps,
+            description='Average frames per second as measured by the '
+                        'platform\'s SurfaceFlinger.',
+            none_value_reason=none_value_reason),
+        scalar.ScalarValue(
+            page, 'jank_count', 'janks', jank_count,
+            description='Number of changes in frame rate as measured by the '
+                        'platform\'s SurfaceFlinger.',
+            none_value_reason=none_value_reason),
+        scalar.ScalarValue(
+            page, 'max_frame_delay', 'vsyncs', max_frame_delay,
+            description='Largest frame time as measured by the platform\'s '
+                        'SurfaceFlinger.',
+            none_value_reason=none_value_reason),
+        list_of_scalar_values.ListOfScalarValues(
+            page, 'frame_lengths', 'vsyncs', frame_lengths,
+            description='Frame time in vsyncs as measured by the platform\'s '
+                        'SurfaceFlinger.',
+            none_value_reason=none_value_reason)
+    )
+
   def _ComputeLatencyMetric(self, page, stats, name, list_of_latency_lists):
     """Returns Values for the mean and discrepancy for given latency stats."""
     mean_latency = None
     latency_discrepancy = None
     none_value_reason = None
     if self._HasEnoughFrames(stats.frame_timestamps):
-      latency_list = FlattenList(list_of_latency_lists)
+      latency_list = perf_tests_helper.FlattenList(list_of_latency_lists)
       if len(latency_list) == 0:
         return ()
       mean_latency = round(statistics.ArithmeticMean(latency_list), 3)
@@ -103,7 +189,8 @@ class SmoothnessMetric(timeline_based_metric.TimelineBasedMetric):
     first_gesture_scroll_update_latency = None
     none_value_reason = None
     if self._HasEnoughFrames(stats.frame_timestamps):
-      latency_list = FlattenList(stats.gesture_scroll_update_latency)
+      latency_list = perf_tests_helper.FlattenList(
+          stats.gesture_scroll_update_latency)
       if len(latency_list) == 0:
         return ()
       first_gesture_scroll_update_latency = round(latency_list[0], 4)
@@ -127,7 +214,8 @@ class SmoothnessMetric(timeline_based_metric.TimelineBasedMetric):
     if 'frame_queueing_durations' in stats.errors:
       none_value_reason = stats.errors['frame_queueing_durations']
     elif self._HasEnoughFrames(stats.frame_timestamps):
-      queueing_durations = FlattenList(stats.frame_queueing_durations)
+      queueing_durations = perf_tests_helper.FlattenList(
+          stats.frame_queueing_durations)
       if len(queueing_durations) == 0:
         queueing_durations = None
         none_value_reason = 'No frame queueing durations recorded.'
@@ -154,7 +242,7 @@ class SmoothnessMetric(timeline_based_metric.TimelineBasedMetric):
     percentage_smooth = None
     none_value_reason = None
     if self._HasEnoughFrames(stats.frame_timestamps):
-      frame_times = FlattenList(stats.frame_times)
+      frame_times = perf_tests_helper.FlattenList(stats.frame_times)
       mean_frame_time = round(statistics.ArithmeticMean(frame_times), 3)
       # We use 17ms as a somewhat looser threshold, instead of 1000.0/60.0.
       smooth_threshold = 17.0
@@ -209,11 +297,37 @@ class SmoothnessMetric(timeline_based_metric.TimelineBasedMetric):
     none_value_reason = None
     if self._HasEnoughFrames(stats.frame_timestamps):
       mean_pixels_approximated = round(statistics.ArithmeticMean(
-          FlattenList(stats.approximated_pixel_percentages)), 3)
+          perf_tests_helper.FlattenList(
+              stats.approximated_pixel_percentages)), 3)
     else:
       none_value_reason = NOT_ENOUGH_FRAMES_MESSAGE
     return scalar.ScalarValue(
         page, 'mean_pixels_approximated', 'percent', mean_pixels_approximated,
         description='Percentage of pixels that were approximated '
                     '(checkerboarding, low-resolution tiles, etc.).',
+        none_value_reason=none_value_reason)
+
+  def _ComputeMeanPixelsCheckerboarded(self, page, stats):
+    """Add the mean percentage of pixels checkerboarded.
+
+    This looks at tiles which are only missing.
+    It does not take into consideration tiles which are of low or
+    non-ideal resolution.
+    """
+    mean_pixels_checkerboarded = None
+    none_value_reason = None
+    if self._HasEnoughFrames(stats.frame_timestamps):
+      if rendering_stats.CHECKERBOARDED_PIXEL_ERROR in stats.errors:
+        none_value_reason = stats.errors[
+            rendering_stats.CHECKERBOARDED_PIXEL_ERROR]
+      else:
+        mean_pixels_checkerboarded = round(statistics.ArithmeticMean(
+            perf_tests_helper.FlattenList(
+                stats.checkerboarded_pixel_percentages)), 3)
+    else:
+      none_value_reason = NOT_ENOUGH_FRAMES_MESSAGE
+    return scalar.ScalarValue(
+        page, 'mean_pixels_checkerboarded', 'percent',
+        mean_pixels_checkerboarded,
+        description='Percentage of pixels that were checkerboarded.',
         none_value_reason=none_value_reason)

@@ -15,7 +15,7 @@
 #include "base/threading/thread.h"
 #include "chrome/browser/sync/glue/extensions_activity_monitor.h"
 #include "chrome/browser/sync/glue/sync_backend_host.h"
-#include "components/invalidation/invalidation_handler.h"
+#include "components/invalidation/public/invalidation_handler.h"
 #include "components/sync_driver/backend_data_type_configurer.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -24,7 +24,6 @@
 #include "sync/internal_api/public/sessions/sync_session_snapshot.h"
 #include "sync/internal_api/public/sessions/type_debug_info_observer.h"
 #include "sync/internal_api/public/sync_manager.h"
-#include "sync/internal_api/public/util/report_unrecoverable_error_function.h"
 #include "sync/internal_api/public/util/unrecoverable_error_handler.h"
 #include "sync/internal_api/public/util/weak_handle.h"
 #include "sync/protocol/encryption.pb.h"
@@ -88,9 +87,10 @@ class SyncBackendHostImpl
       bool delete_sync_data_folder,
       scoped_ptr<syncer::SyncManagerFactory> sync_manager_factory,
       scoped_ptr<syncer::UnrecoverableErrorHandler> unrecoverable_error_handler,
-      syncer::ReportUnrecoverableErrorFunction
-          report_unrecoverable_error_function,
-      syncer::NetworkResources* network_resources) override;
+      const base::Closure& report_unrecoverable_error_function,
+      syncer::NetworkResources* network_resources,
+      scoped_ptr<syncer::SyncEncryptionHandler::NigoriState> saved_nigori_state)
+      override;
   void UpdateCredentials(const syncer::SyncCredentials& credentials) override;
   void StartSyncingWithServer() override;
   void SetEncryptionPassphrase(const std::string& passphrase,
@@ -100,7 +100,7 @@ class SyncBackendHostImpl
   void StopSyncingForShutdown() override;
   scoped_ptr<base::Thread> Shutdown(syncer::ShutdownReason reason) override;
   void UnregisterInvalidationIds() override;
-  void ConfigureDataTypes(
+  syncer::ModelTypeSet ConfigureDataTypes(
       syncer::ConfigureReason reason,
       const DataTypeConfigStateMap& config_state_map,
       const base::Callback<void(syncer::ModelTypeSet, syncer::ModelTypeSet)>&
@@ -134,6 +134,7 @@ class SyncBackendHostImpl
       base::Callback<void(const std::vector<syncer::ModelType>&,
                           ScopedVector<base::ListValue>)> type) override;
   base::MessageLoop* GetSyncLoopForTesting() override;
+  void RefreshTypesForTest(syncer::ModelTypeSet types) override;
 
  protected:
   // The types and functions below are protected so that test
@@ -281,7 +282,8 @@ class SyncBackendHostImpl
       syncer::PassphraseType type,
       base::Time explicit_passphrase_time);
 
-  void HandleStopSyncingPermanentlyOnFrontendLoop();
+  void HandleLocalSetPassphraseEncryptionOnFrontendLoop(
+      const syncer::SyncEncryptionHandler::NigoriState& nigori_state);
 
   // Dispatched to from OnConnectionStatusChange to handle updating
   // frontend UI components.
@@ -363,4 +365,3 @@ class SyncBackendHostImpl
 }  // namespace browser_sync
 
 #endif  // CHROME_BROWSER_SYNC_GLUE_SYNC_BACKEND_HOST_IMPL_H_
-

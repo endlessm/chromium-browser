@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/message_loop/message_loop.h"
 #include "content/common/media/audio_messages.h"
 #include "content/renderer/media/audio_message_filter.h"
 #include "media/audio/audio_output_ipc.h"
@@ -11,7 +10,6 @@
 namespace content {
 namespace {
 
-const int kRenderViewId = 1;
 const int kRenderFrameId = 2;
 
 class MockAudioDelegate : public media::AudioOutputIPCDelegate {
@@ -20,7 +18,7 @@ class MockAudioDelegate : public media::AudioOutputIPCDelegate {
     Reset();
   }
 
-  void OnStateChanged(media::AudioOutputIPCDelegate::State state) override {
+  void OnStateChanged(media::AudioOutputIPCDelegateState state) override {
     state_changed_received_ = true;
     state_ = state;
   }
@@ -33,11 +31,17 @@ class MockAudioDelegate : public media::AudioOutputIPCDelegate {
     length_ = length;
   }
 
+  void OnOutputDeviceSwitched(int request_id,
+                              media::SwitchOutputDeviceResult result) override {
+    output_device_switched_received_ = true;
+    switch_output_device_result_ = result;
+  }
+
   void OnIPCClosed() override {}
 
   void Reset() {
     state_changed_received_ = false;
-    state_ = media::AudioOutputIPCDelegate::kError;
+    state_ = media::AUDIO_OUTPUT_IPC_DELEGATE_STATE_ERROR;
 
     created_received_ = false;
     handle_ = base::SharedMemory::NULLHandle();
@@ -45,18 +49,29 @@ class MockAudioDelegate : public media::AudioOutputIPCDelegate {
 
     volume_received_ = false;
     volume_ = 0;
+
+    output_device_switched_received_ = false;
+    switch_output_device_result_ =
+        media::SWITCH_OUTPUT_DEVICE_RESULT_ERROR_NOT_SUPPORTED;
   }
 
   bool state_changed_received() { return state_changed_received_; }
-  media::AudioOutputIPCDelegate::State state() { return state_; }
+  media::AudioOutputIPCDelegateState state() { return state_; }
 
   bool created_received() { return created_received_; }
   base::SharedMemoryHandle handle() { return handle_; }
   uint32 length() { return length_; }
 
+  bool output_device_switched_received() {
+    return output_device_switched_received_;
+  }
+  media::SwitchOutputDeviceResult switch_output_device_result() {
+    return switch_output_device_result_;
+  }
+
  private:
   bool state_changed_received_;
-  media::AudioOutputIPCDelegate::State state_;
+  media::AudioOutputIPCDelegateState state_;
 
   bool created_received_;
   base::SharedMemoryHandle handle_;
@@ -64,6 +79,9 @@ class MockAudioDelegate : public media::AudioOutputIPCDelegate {
 
   bool volume_received_;
   double volume_;
+
+  bool output_device_switched_received_;
+  media::SwitchOutputDeviceResult switch_output_device_result_;
 
   DISALLOW_COPY_AND_ASSIGN(MockAudioDelegate);
 };
@@ -73,12 +91,12 @@ class MockAudioDelegate : public media::AudioOutputIPCDelegate {
 TEST(AudioMessageFilterTest, Basic) {
   base::MessageLoopForIO message_loop;
 
-  scoped_refptr<AudioMessageFilter> filter(new AudioMessageFilter(
-      message_loop.message_loop_proxy()));
+  scoped_refptr<AudioMessageFilter> filter(
+      new AudioMessageFilter(message_loop.task_runner()));
 
   MockAudioDelegate delegate;
   const scoped_ptr<media::AudioOutputIPC> ipc =
-      filter->CreateAudioOutputIPC(kRenderViewId, kRenderFrameId);
+      filter->CreateAudioOutputIPC(kRenderFrameId);
   static const int kSessionId = 0;
   ipc->CreateStream(&delegate, media::AudioParameters(), kSessionId);
   static const int kStreamId = 1;
@@ -99,11 +117,19 @@ TEST(AudioMessageFilterTest, Basic) {
   EXPECT_FALSE(delegate.state_changed_received());
   filter->OnMessageReceived(
       AudioMsg_NotifyStreamStateChanged(
-          kStreamId, media::AudioOutputIPCDelegate::kPlaying));
+          kStreamId, media::AUDIO_OUTPUT_IPC_DELEGATE_STATE_PLAYING));
   EXPECT_TRUE(delegate.state_changed_received());
-  EXPECT_EQ(media::AudioOutputIPCDelegate::kPlaying, delegate.state());
+  EXPECT_EQ(media::AUDIO_OUTPUT_IPC_DELEGATE_STATE_PLAYING, delegate.state());
   delegate.Reset();
 
+  // AudioMsg_NotifyOutputDeviceSwitched
+  static const int kSwitchOutputRequestId = 1;
+  EXPECT_FALSE(delegate.output_device_switched_received());
+  filter->OnOutputDeviceSwitched(kStreamId, kSwitchOutputRequestId,
+                                 media::SWITCH_OUTPUT_DEVICE_RESULT_SUCCESS);
+  EXPECT_TRUE(delegate.output_device_switched_received());
+  EXPECT_EQ(media::SWITCH_OUTPUT_DEVICE_RESULT_SUCCESS,
+            delegate.switch_output_device_result());
   message_loop.RunUntilIdle();
 
   ipc->CloseStream();
@@ -114,15 +140,15 @@ TEST(AudioMessageFilterTest, Basic) {
 TEST(AudioMessageFilterTest, Delegates) {
   base::MessageLoopForIO message_loop;
 
-  scoped_refptr<AudioMessageFilter> filter(new AudioMessageFilter(
-      message_loop.message_loop_proxy()));
+  scoped_refptr<AudioMessageFilter> filter(
+      new AudioMessageFilter(message_loop.task_runner()));
 
   MockAudioDelegate delegate1;
   MockAudioDelegate delegate2;
   const scoped_ptr<media::AudioOutputIPC> ipc1 =
-      filter->CreateAudioOutputIPC(kRenderViewId, kRenderFrameId);
+      filter->CreateAudioOutputIPC(kRenderFrameId);
   const scoped_ptr<media::AudioOutputIPC> ipc2 =
-      filter->CreateAudioOutputIPC(kRenderViewId, kRenderFrameId);
+      filter->CreateAudioOutputIPC(kRenderFrameId);
   static const int kSessionId = 0;
   ipc1->CreateStream(&delegate1, media::AudioParameters(), kSessionId);
   ipc2->CreateStream(&delegate2, media::AudioParameters(), kSessionId);
@@ -136,7 +162,7 @@ TEST(AudioMessageFilterTest, Delegates) {
   EXPECT_FALSE(delegate2.state_changed_received());
   filter->OnMessageReceived(
       AudioMsg_NotifyStreamStateChanged(
-          kStreamId1, media::AudioOutputIPCDelegate::kPlaying));
+          kStreamId1, media::AUDIO_OUTPUT_IPC_DELEGATE_STATE_PLAYING));
   EXPECT_TRUE(delegate1.state_changed_received());
   EXPECT_FALSE(delegate2.state_changed_received());
   delegate1.Reset();
@@ -145,7 +171,7 @@ TEST(AudioMessageFilterTest, Delegates) {
   EXPECT_FALSE(delegate2.state_changed_received());
   filter->OnMessageReceived(
       AudioMsg_NotifyStreamStateChanged(
-          kStreamId2, media::AudioOutputIPCDelegate::kPlaying));
+          kStreamId2, media::AUDIO_OUTPUT_IPC_DELEGATE_STATE_PLAYING));
   EXPECT_FALSE(delegate1.state_changed_received());
   EXPECT_TRUE(delegate2.state_changed_received());
   delegate2.Reset();

@@ -1,14 +1,16 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef TTGSUBTable_H
-#define TTGSUBTable_H
-#include "../../fx_freetype.h"
+#ifndef CORE_SRC_FPDFAPI_FPDF_FONT_TTGSUBTABLE_H_
+#define CORE_SRC_FPDFAPI_FPDF_FONT_TTGSUBTABLE_H_
+
+#include "../../../include/fxge/fx_freetype.h"
 #include "../../../include/fxcrt/fx_basic.h"
 #include "common.h"
+
 class CFX_GlyphMap
 {
 public:
@@ -19,7 +21,7 @@ public:
 protected:
     CFX_BinaryBuf	m_Buffer;
 };
-class CFX_CTTGSUBTable : public CFX_Object
+class CFX_CTTGSUBTable
 {
 public:
     CFX_CTTGSUBTable(void): m_bFeautureMapLoad(FALSE), loaded(false) {};
@@ -280,9 +282,7 @@ private:
         }
         ~TSingleSubstFormat1()
         {
-            if(Coverage) {
-                delete Coverage;
-            }
+            delete Coverage;
         }
     private:
         TSingleSubstFormat1(const TSingleSubstFormat1&);
@@ -298,12 +298,8 @@ private:
         }
         ~TSingleSubstFormat2()
         {
-            if(Coverage) {
-                delete Coverage;
-            }
-            if(Substitute) {
-                delete[] Substitute;
-            }
+            delete Coverage;
+            delete[] Substitute;
         }
     private:
         TSingleSubstFormat2(const TSingleSubstFormat2&);
@@ -406,14 +402,13 @@ private:
     struct TFeatureList FeatureList;
     struct TLookupList LookupList;
 };
-class CFX_GSUBTable FX_FINAL : public IFX_GSUBTable, public CFX_Object
+class CFX_GSUBTable final : public IFX_GSUBTable
 {
 public:
-    virtual void	Release() FX_OVERRIDE
-    {
-        delete this;
-    }
-    virtual FX_BOOL GetVerticalGlyph(FX_DWORD glyphnum, FX_DWORD* vglyphnum) FX_OVERRIDE;
+    ~CFX_GSUBTable() override {}
+    virtual FX_BOOL GetVerticalGlyph(FX_DWORD glyphnum, FX_DWORD* vglyphnum) override;
+
     CFX_CTTGSUBTable m_GsubImp;
 };
-#endif
+
+#endif  // CORE_SRC_FPDFAPI_FPDF_FONT_TTGSUBTABLE_H_

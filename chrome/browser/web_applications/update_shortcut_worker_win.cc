@@ -15,7 +15,6 @@
 #include "base/win/windows_version.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/tab_helper.h"
-#include "chrome/browser/favicon/favicon_tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/browser/web_applications/web_app_win.h"
@@ -39,15 +38,18 @@ UpdateShortcutWorker::UpdateShortcutWorker(WebContents* web_contents)
           web_contents->GetBrowserContext())->GetPath()) {
   extensions::TabHelper* extensions_tab_helper =
       extensions::TabHelper::FromWebContents(web_contents);
-  web_app::GetShortcutInfoForTab(web_contents_, &shortcut_info_);
+  shortcut_info_ = web_app::GetShortcutInfoForTab(web_contents_);
   web_app::GetIconsInfo(extensions_tab_helper->web_app_info(),
                         &unprocessed_icons_);
-  file_name_ = web_app::internals::GetSanitizedFileName(shortcut_info_.title);
+  file_name_ = web_app::internals::GetSanitizedFileName(shortcut_info_->title);
 
   registrar_.Add(
       this,
       chrome::NOTIFICATION_TAB_CLOSING,
       content::Source<NavigationController>(&web_contents->GetController()));
+}
+
+UpdateShortcutWorker::~UpdateShortcutWorker() {
 }
 
 void UpdateShortcutWorker::Run() {
@@ -89,6 +91,7 @@ void UpdateShortcutWorker::DownloadIcon() {
       unprocessed_icons_.back().url,
       true,  // favicon
       0,  // no maximum size
+      false,  // normal cache policy
       base::Bind(&UpdateShortcutWorker::DidDownloadFavicon,
                  base::Unretained(this),
                  preferred_size));
@@ -117,7 +120,7 @@ void UpdateShortcutWorker::DidDownloadFavicon(
 
   if (!bitmap.isNull()) {
     // Update icon with download image and update shortcut.
-    shortcut_info_.favicon.Add(gfx::Image::CreateFrom1xBitmap(bitmap));
+    shortcut_info_->favicon.Add(gfx::Image::CreateFrom1xBitmap(bitmap));
     extensions::TabHelper* extensions_tab_helper =
         extensions::TabHelper::FromWebContents(web_contents_);
     extensions_tab_helper->SetAppIcon(bitmap);
@@ -179,7 +182,7 @@ void UpdateShortcutWorker::UpdateShortcutsOnFileThread() {
   DCHECK_CURRENTLY_ON(BrowserThread::FILE);
 
   base::FilePath web_app_path = web_app::GetWebAppDataDirectory(
-      profile_path_, shortcut_info_.extension_id, shortcut_info_.url);
+      profile_path_, shortcut_info_->extension_id, shortcut_info_->url);
 
   // Ensure web_app_path exists. web_app_path could be missing for a legacy
   // shortcut created by Gears.
@@ -190,8 +193,9 @@ void UpdateShortcutWorker::UpdateShortcutsOnFileThread() {
   }
 
   base::FilePath icon_file =
-      web_app::internals::GetIconFilePath(web_app_path, shortcut_info_.title);
-  web_app::internals::CheckAndSaveIcon(icon_file, shortcut_info_.favicon);
+      web_app::internals::GetIconFilePath(web_app_path, shortcut_info_->title);
+  web_app::internals::CheckAndSaveIcon(icon_file, shortcut_info_->favicon,
+                                       true);
 
   // Update existing shortcuts' description, icon and app id.
   CheckExistingShortcuts();
@@ -199,17 +203,17 @@ void UpdateShortcutWorker::UpdateShortcutsOnFileThread() {
     // Generates app id from web app url and profile path.
     base::string16 app_id = ShellIntegration::GetAppModelIdForProfile(
         base::UTF8ToWide(
-            web_app::GenerateApplicationNameFromURL(shortcut_info_.url)),
+            web_app::GenerateApplicationNameFromURL(shortcut_info_->url)),
         profile_path_);
 
     // Sanitize description
-    if (shortcut_info_.description.length() >= MAX_PATH)
-      shortcut_info_.description.resize(MAX_PATH - 1);
+    if (shortcut_info_->description.length() >= MAX_PATH)
+      shortcut_info_->description.resize(MAX_PATH - 1);
 
     for (size_t i = 0; i < shortcut_files_.size(); ++i) {
       base::win::ShortcutProperties shortcut_properties;
       shortcut_properties.set_target(shortcut_files_[i]);
-      shortcut_properties.set_description(shortcut_info_.description);
+      shortcut_properties.set_description(shortcut_info_->description);
       shortcut_properties.set_icon(icon_file, 0);
       shortcut_properties.set_app_id(app_id);
       base::win::CreateOrUpdateShortcutLink(

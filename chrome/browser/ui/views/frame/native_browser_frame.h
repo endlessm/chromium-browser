@@ -6,7 +6,8 @@
 #define CHROME_BROWSER_UI_VIEWS_FRAME_NATIVE_BROWSER_FRAME_H_
 
 #include "ui/base/ui_base_types.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/views/widget/widget.h"
 
 class BrowserFrame;
 class BrowserView;
@@ -19,8 +20,11 @@ class NativeBrowserFrame {
  public:
   virtual ~NativeBrowserFrame() {}
 
-  virtual views::NativeWidget* AsNativeWidget() = 0;
-  virtual const views::NativeWidget* AsNativeWidget() const = 0;
+  // Returns the platform specific InitParams for initializing our widget.
+  virtual views::Widget::InitParams GetWidgetParams() = 0;
+
+  // Returns |true| if we should use the custom frame.
+  virtual bool UseCustomFrame() const = 0;
 
   // Returns true if the OS takes care of showing the system menu. Returning
   // false means BrowserFrame handles showing the system menu.

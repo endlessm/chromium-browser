@@ -8,8 +8,11 @@
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "extensions/renderer/script_context.h"
+#include "extensions/renderer/v8_helpers.h"
 
 namespace extensions {
+
+using namespace v8_helpers;
 
 namespace {
 
@@ -66,15 +69,16 @@ const char kScript[] =
     "// Save only what is needed by the extension modules.\n"
     "saveBuiltin(Object,\n"
     "            ['hasOwnProperty'],\n"
-    "            ['create', 'defineProperty', 'getOwnPropertyDescriptor',\n"
-    "             'getPrototypeOf', 'keys']);\n"
+    "            ['create', 'defineProperty', 'freeze',\n"
+    "             'getOwnPropertyDescriptor', 'getPrototypeOf', 'keys']);\n"
     "saveBuiltin(Function,\n"
     "            ['apply', 'bind', 'call']);\n"
     "saveBuiltin(Array,\n"
     "            ['concat', 'forEach', 'indexOf', 'join', 'push', 'slice',\n"
     "             'splice', 'map', 'filter']);\n"
     "saveBuiltin(String,\n"
-    "            ['indexOf', 'slice', 'split']);\n"
+    "            ['indexOf', 'slice', 'split', 'substr', 'toUpperCase',\n"
+    "             'replace']);\n"
     "saveBuiltin(RegExp,\n"
     "            ['test']);\n"
     "saveBuiltin(Error,\n"
@@ -122,8 +126,8 @@ const char kScript[] =
     "}());\n";
 
 v8::Local<v8::String> MakeKey(const char* name, v8::Isolate* isolate) {
-  return v8::String::NewFromUtf8(
-      isolate, base::StringPrintf("%s::%s", kClassName, name).c_str());
+  return ToV8StringUnsafe(isolate,
+                          base::StringPrintf("%s::%s", kClassName, name));
 }
 
 void SaveImpl(const char* name,
@@ -134,11 +138,11 @@ void SaveImpl(const char* name,
                                     value);
 }
 
-v8::Local<v8::Object> Load(const char* name, v8::Handle<v8::Context> context) {
+v8::Local<v8::Object> Load(const char* name, v8::Local<v8::Context> context) {
   v8::Local<v8::Value> value =
       context->Global()->GetHiddenValue(MakeKey(name, context->GetIsolate()));
   CHECK(!value.IsEmpty() && value->IsObject()) << name;
-  return value->ToObject();
+  return v8::Local<v8::Object>::Cast(value);
 }
 
 class ExtensionImpl : public v8::Extension {
@@ -146,15 +150,16 @@ class ExtensionImpl : public v8::Extension {
   ExtensionImpl() : v8::Extension(kClassName, kScript) {}
 
  private:
-  v8::Handle<v8::FunctionTemplate> GetNativeFunctionTemplate(
+  v8::Local<v8::FunctionTemplate> GetNativeFunctionTemplate(
       v8::Isolate* isolate,
-      v8::Handle<v8::String> name) override {
-    if (name->Equals(v8::String::NewFromUtf8(isolate, "Apply")))
+      v8::Local<v8::String> name) override {
+    v8::Local<v8::Context> context = isolate->GetCurrentContext();
+    if (IsTrue(name->Equals(context, ToV8StringUnsafe(isolate, "Apply"))))
       return v8::FunctionTemplate::New(isolate, Apply);
-    if (name->Equals(v8::String::NewFromUtf8(isolate, "Save")))
+    if (IsTrue(name->Equals(context, ToV8StringUnsafe(isolate, "Save"))))
       return v8::FunctionTemplate::New(isolate, Save);
     NOTREACHED() << *v8::String::Utf8Value(name);
-    return v8::Handle<v8::FunctionTemplate>();
+    return v8::Local<v8::FunctionTemplate>();
   }
 
   static void Apply(const v8::FunctionCallbackInfo<v8::Value>& info) {
@@ -166,29 +171,33 @@ class ExtensionImpl : public v8::Extension {
     v8::Local<v8::Function> function = info[0].As<v8::Function>();
     v8::Local<v8::Object> recv;
     if (info[1]->IsObject()) {
-      recv = info[1]->ToObject();
+      recv = v8::Local<v8::Object>::Cast(info[1]);
     } else if (info[1]->IsString()) {
-      recv = v8::StringObject::New(info[1]->ToString())->ToObject();
+      recv = v8::StringObject::New(v8::Local<v8::String>::Cast(info[1]))
+                 .As<v8::Object>();
     } else {
       info.GetIsolate()->ThrowException(
-          v8::Exception::TypeError(v8::String::NewFromUtf8(
+          v8::Exception::TypeError(ToV8StringUnsafe(
               info.GetIsolate(),
               "The first argument is the receiver and must be an object")));
       return;
     }
-    v8::Local<v8::Object> args = info[2]->ToObject();
-    int first_arg_index = static_cast<int>(info[3]->ToInt32()->Value());
-    int args_length = static_cast<int>(info[4]->ToInt32()->Value());
+    v8::Local<v8::Object> args = v8::Local<v8::Object>::Cast(info[2]);
+    int first_arg_index = info[3].As<v8::Int32>()->Value();
+    int args_length = info[4].As<v8::Int32>()->Value();
 
+    v8::Local<v8::Context> context = info.GetIsolate()->GetCurrentContext();
     int argc = args_length - first_arg_index;
     scoped_ptr<v8::Local<v8::Value> []> argv(new v8::Local<v8::Value>[argc]);
     for (int i = 0; i < argc; ++i) {
-      CHECK(args->Has(i + first_arg_index));
-      argv[i] = args->Get(i + first_arg_index);
+      CHECK(IsTrue(args->Has(context, i + first_arg_index)));
+      // Getting a property value could throw an exception.
+      if (!GetProperty(context, args, i + first_arg_index, &argv[i]))
+        return;
     }
 
-    v8::Local<v8::Value> return_value = function->Call(recv, argc, argv.get());
-    if (!return_value.IsEmpty())
+    v8::Local<v8::Value> return_value;
+    if (function->Call(context, recv, argc, argv.get()).ToLocal(&return_value))
       info.GetReturnValue().Set(return_value);
   }
 

@@ -25,7 +25,6 @@ class ClipboardX11 : public Clipboard,
   // Clipboard interface.
   void Start(scoped_ptr<protocol::ClipboardStub> client_clipboard) override;
   void InjectClipboardEvent(const protocol::ClipboardEvent& event) override;
-  void Stop() override;
 
   // MessageLoopForIO::Watcher interface.
   void OnFileCanReadWithoutBlocking(int fd) override;
@@ -52,17 +51,18 @@ class ClipboardX11 : public Clipboard,
 };
 
 ClipboardX11::ClipboardX11()
-    : display_(NULL) {
+    : display_(nullptr) {
 }
 
 ClipboardX11::~ClipboardX11() {
-  Stop();
+  if (display_)
+    XCloseDisplay(display_);
 }
 
 void ClipboardX11::Start(
     scoped_ptr<protocol::ClipboardStub> client_clipboard) {
   // TODO(lambroslambrou): Share the X connection with InputInjector.
-  display_ = XOpenDisplay(NULL);
+  display_ = XOpenDisplay(nullptr);
   if (!display_) {
     LOG(ERROR) << "Couldn't open X display";
     return;
@@ -85,16 +85,6 @@ void ClipboardX11::Start(
 void ClipboardX11::InjectClipboardEvent(
     const protocol::ClipboardEvent& event) {
   x_server_clipboard_.SetClipboard(event.mime_type(), event.data());
-}
-
-void ClipboardX11::Stop() {
-  client_clipboard_.reset();
-  x_connection_watcher_.StopWatchingFileDescriptor();
-
-  if (display_) {
-    XCloseDisplay(display_);
-    display_ = NULL;
-  }
 }
 
 void ClipboardX11::OnFileCanReadWithoutBlocking(int fd) {

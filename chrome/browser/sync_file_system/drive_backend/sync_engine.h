@@ -159,6 +159,7 @@ class SyncEngine : public RemoteFileSyncService,
   SyncEngine(const scoped_refptr<base::SingleThreadTaskRunner>& ui_task_runner,
              const scoped_refptr<base::SequencedTaskRunner>& worker_task_runner,
              const scoped_refptr<base::SequencedTaskRunner>& drive_task_runner,
+             const scoped_refptr<base::SequencedWorkerPool>& worker_pool,
              const base::FilePath& sync_file_system_dir,
              TaskLogger* task_logger,
              drive::DriveNotificationManager* notification_manager,
@@ -184,6 +185,7 @@ class SyncEngine : public RemoteFileSyncService,
   scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner_;
   scoped_refptr<base::SequencedTaskRunner> worker_task_runner_;
   scoped_refptr<base::SequencedTaskRunner> drive_task_runner_;
+  scoped_refptr<base::SequencedWorkerPool> worker_pool_;
 
   const base::FilePath sync_file_system_dir_;
   TaskLogger* task_logger_;
@@ -220,8 +222,8 @@ class SyncEngine : public RemoteFileSyncService,
   scoped_ptr<WorkerObserver> worker_observer_;
   scoped_ptr<SyncWorkerInterface> sync_worker_;
 
-  ObserverList<SyncServiceObserver> service_observers_;
-  ObserverList<FileStatusObserver> file_status_observers_;
+  base::ObserverList<SyncServiceObserver> service_observers_;
+  base::ObserverList<FileStatusObserver> file_status_observers_;
   leveldb::Env* env_override_;
 
   CallbackTracker callback_tracker_;

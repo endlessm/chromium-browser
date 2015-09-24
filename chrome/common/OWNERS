@@ -7,7 +7,7 @@ per-file url_constants.h=*
 
 # Mac Sandbox profiles.
 per-file nacl_loader.sb=set noparent
-per-file nacl_loader.sb=jeremy@chromium.org
+per-file nacl_loader.sb=rsesek@chromium.org
 
 # Changes to IPC messages require a security review to avoid introducing
 # new sandbox escapes.
@@ -26,13 +26,10 @@ per-file *_messages*.h=wfh@chromium.org
 
 # Spellcheck files. Not using spellcheck* since it covers IPC messages too.
 per-file spellcheck_common.*=groby@chromium.org
-per-file spellcheck_common.*=rlp@chromium.org
 per-file spellcheck_common.*=rouslan@chromium.org
 per-file spellcheck_marker.h=groby@chromium.org
-per-file spellcheck_marker.h=rlp@chromium.org
 per-file spellcheck_marker.h=rouslan@chromium.org
 per-file spellcheck_result.h=groby@chromium.org
-per-file spellcheck_result.h=rlp@chromium.org
 per-file spellcheck_result.h=rouslan@chromium.org
 
 # Instant/Search files.
@@ -58,3 +55,8 @@ per-file autocomplete_match_type.*=mpearson@chromium.org
 per-file autocomplete_match_type.*=pkasting@chromium.org
 per-file autocomplete_match_type.*=sky@chromium.org
 per-file crash_keys*=rsesek@chromium.org
+
+# Tracing
+per-file trace_event_args_whitelist*=nduca@chromium.org
+per-file trace_event_args_whitelist*=dsinclair@chromium.org
+per-file trace_event_args_whitelist*=oysteine@chromium.org

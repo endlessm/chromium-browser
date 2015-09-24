@@ -13,11 +13,10 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
 #include "base/scoped_observer.h"
-#include "ui/aura/window_layer_type.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/events/event_source.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
-#include "ui/gfx/rect.h"
 #include "ui/native_theme/native_theme_observer.h"
 #include "ui/views/focus/focus_manager.h"
 #include "ui/views/widget/native_widget_delegate.h"
@@ -61,7 +60,6 @@ class ThemeProvider;
 namespace views {
 
 class DesktopWindowTreeHost;
-class InputMethod;
 class NativeWidget;
 class NonClientFrameView;
 class TooltipManager;
@@ -249,8 +247,8 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
     // rid of NW subclasses and do this all via message handling.
     DesktopWindowTreeHost* desktop_window_tree_host;
     // Only used by NativeWidgetAura. Specifies the type of layer for the
-    // aura::Window. Default is WINDOW_LAYER_TEXTURED.
-    aura::WindowLayerType layer_type;
+    // aura::Window. Default is ui::LAYER_TEXTURED.
+    ui::LayerType layer_type;
     // Only used by Aura. Provides a context window whose RootWindow is
     // consulted during widget creation to determine where in the Window
     // hierarchy this widget should be placed. (This is separate from |parent|;
@@ -364,12 +362,12 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   // Add/remove observer.
   void AddObserver(WidgetObserver* observer);
   void RemoveObserver(WidgetObserver* observer);
-  bool HasObserver(WidgetObserver* observer);
+  bool HasObserver(const WidgetObserver* observer) const;
 
   // Add/remove removals observer.
   void AddRemovalsObserver(WidgetRemovalsObserver* observer);
   void RemoveRemovalsObserver(WidgetRemovalsObserver* observer);
-  bool HasRemovalsObserver(WidgetRemovalsObserver* observer);
+  bool HasRemovalsObserver(const WidgetRemovalsObserver* observer) const;
 
   // Returns the accelerator given a command id. Returns false if there is
   // no accelerator associated with a given id, which is a common condition.
@@ -459,7 +457,7 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
 
   // Sets a shape on the widget. Passing a NULL |shape| reverts the widget to
   // be rectangular. Takes ownership of |shape|.
-  void SetShape(gfx::NativeRegion shape);
+  void SetShape(SkRegion* shape);
 
   // Hides the widget then closes it after a return to the message loop.
   virtual void Close();
@@ -567,15 +565,8 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   FocusManager* GetFocusManager();
   const FocusManager* GetFocusManager() const;
 
-  // Returns the InputMethod for this widget.
-  // Note that all widgets in a widget hierarchy share the same input method.
-  InputMethod* GetInputMethod();
-  const InputMethod* GetInputMethod() const;
-
   // Returns the ui::InputMethod for this widget.
-  // TODO(yukishiino): Rename this method to GetInputMethod once we remove
-  // views::InputMethod.
-  ui::InputMethod* GetHostInputMethod();
+  ui::InputMethod* GetInputMethod();
 
   // Starts a drag operation for the specified view. This blocks until the drag
   // operation completes. |view| can be NULL.
@@ -626,6 +617,10 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   // Notifies the view hierarchy contained in this widget that locale resources
   // changed.
   void LocaleChanged();
+
+  // Notifies the view hierarchy contained in this widget that the device scale
+  // factor changed.
+  void DeviceScaleFactorChanged(float device_scale_factor);
 
   void SetFocusTraversableParent(FocusTraversable* parent);
   void SetFocusTraversableParentView(View* parent_view);
@@ -773,8 +768,8 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   bool IsInactiveRenderingDisabled() const override;
   void EnableInactiveRendering() override;
   void OnNativeWidgetActivationChanged(bool active) override;
-  void OnNativeFocus(gfx::NativeView old_focused_view) override;
-  void OnNativeBlur(gfx::NativeView new_focused_view) override;
+  void OnNativeFocus() override;
+  void OnNativeBlur() override;
   void OnNativeWidgetVisibilityChanging(bool visible) override;
   void OnNativeWidgetVisibilityChanged(bool visible) override;
   void OnNativeWidgetCreated(bool desktop_widget) override;
@@ -788,8 +783,7 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   void OnNativeWidgetBeginUserBoundsChange() override;
   void OnNativeWidgetEndUserBoundsChange() override;
   bool HasFocusManager() const override;
-  bool OnNativeWidgetPaintAccelerated(const gfx::Rect& dirty_region) override;
-  void OnNativeWidgetPaint(gfx::Canvas* canvas) override;
+  void OnNativeWidgetPaint(const ui::PaintContext& context) override;
   int GetNonClientComponent(const gfx::Point& point) override;
   void OnKeyEvent(ui::KeyEvent* event) override;
   void OnMouseEvent(ui::MouseEvent* event) override;
@@ -797,7 +791,6 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   void OnScrollEvent(ui::ScrollEvent* event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
   bool ExecuteCommand(int command_id) override;
-  InputMethod* GetInputMethodDirect() override;
   const std::vector<ui::Layer*>& GetRootLayers() override;
   bool HasHitTestMask() const override;
   void GetHitTestMask(gfx::Path* mask) const override;
@@ -861,19 +854,11 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   bool GetSavedWindowPlacement(gfx::Rect* bounds,
                                ui::WindowShowState* show_state);
 
-  // Creates and initializes a new InputMethod and returns it, otherwise null.
-  scoped_ptr<InputMethod> CreateInputMethod();
-
-  // Sets a different InputMethod instance to this widget. The instance
-  // must not be initialized, the ownership will be assumed by the widget.
-  // It's only for testing purpose.
-  void ReplaceInputMethod(InputMethod* input_method);
-
   internal::NativeWidgetPrivate* native_widget_;
 
-  ObserverList<WidgetObserver> observers_;
+  base::ObserverList<WidgetObserver> observers_;
 
-  ObserverList<WidgetRemovalsObserver> removals_observers_;
+  base::ObserverList<WidgetRemovalsObserver> removals_observers_;
 
   // Non-owned pointer to the Widget's delegate. If a NULL delegate is supplied
   // to Init() a default WidgetDelegate is created.
@@ -932,8 +917,6 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   // when the widget is shown. Set this value to false to override
   // initial focus for the widget.
   bool focus_on_creation_;
-
-  mutable scoped_ptr<InputMethod> input_method_;
 
   // See |is_top_level()| accessor.
   bool is_top_level_;

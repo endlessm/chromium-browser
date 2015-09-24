@@ -30,76 +30,45 @@ namespace data_reduction_proxy {
 // Make sure any changes here that have the potential to impact android_webview
 // are reflected in RegisterSimpleProfilePrefs.
 void RegisterSyncableProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterBooleanPref(
-      prefs::kDataReductionProxyEnabled,
-      false,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kDataReductionProxyAltEnabled,
-      false,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kDataReductionProxyWasEnabledBefore,
-      false,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterBooleanPref(prefs::kDataReductionProxyEnabled, false);
+  registry->RegisterBooleanPref(prefs::kDataReductionProxyWasEnabledBefore,
+                                false);
 
-  registry->RegisterInt64Pref(
-      prefs::kHttpReceivedContentLength,
-      0,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterInt64Pref(
-      prefs::kHttpOriginalContentLength,
-      0,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterInt64Pref(prefs::kHttpReceivedContentLength, 0);
+  registry->RegisterInt64Pref(prefs::kHttpOriginalContentLength, 0);
 
-  registry->RegisterBooleanPref(
-      prefs::kStatisticsPrefsMigrated,
-      false,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterBooleanPref(prefs::kStatisticsPrefsMigrated, false);
   registry->RegisterBooleanPref(prefs::kUpdateDailyReceivedContentLengths,
-      false,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+                                false);
+  registry->RegisterListPref(prefs::kDailyHttpOriginalContentLength);
+  registry->RegisterListPref(prefs::kDailyHttpReceivedContentLength);
   registry->RegisterListPref(
-      prefs::kDailyHttpOriginalContentLength,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+      prefs::kDailyOriginalContentLengthWithDataReductionProxyEnabled);
   registry->RegisterListPref(
-      prefs::kDailyHttpReceivedContentLength,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+      prefs::kDailyContentLengthWithDataReductionProxyEnabled);
   registry->RegisterListPref(
-      prefs::kDailyOriginalContentLengthWithDataReductionProxyEnabled,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+      prefs::kDailyContentLengthHttpsWithDataReductionProxyEnabled);
   registry->RegisterListPref(
-      prefs::kDailyContentLengthWithDataReductionProxyEnabled,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+      prefs::kDailyContentLengthShortBypassWithDataReductionProxyEnabled);
   registry->RegisterListPref(
-      prefs::kDailyContentLengthHttpsWithDataReductionProxyEnabled,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+      prefs::kDailyContentLengthLongBypassWithDataReductionProxyEnabled);
   registry->RegisterListPref(
-      prefs::kDailyContentLengthShortBypassWithDataReductionProxyEnabled,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+      prefs::kDailyContentLengthUnknownWithDataReductionProxyEnabled);
   registry->RegisterListPref(
-      prefs::kDailyContentLengthLongBypassWithDataReductionProxyEnabled,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterListPref(
-      prefs::kDailyContentLengthUnknownWithDataReductionProxyEnabled,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterListPref(
-      prefs::kDailyOriginalContentLengthViaDataReductionProxy,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterListPref(
-      prefs::kDailyContentLengthViaDataReductionProxy,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterInt64Pref(
-      prefs::kDailyHttpContentLengthLastUpdateDate,
-      0L,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+      prefs::kDailyOriginalContentLengthViaDataReductionProxy);
+  registry->RegisterListPref(prefs::kDailyContentLengthViaDataReductionProxy);
+  registry->RegisterInt64Pref(prefs::kDailyHttpContentLengthLastUpdateDate, 0L);
+  registry->RegisterIntegerPref(prefs::kLoFiImplicitOptOutEpoch, 0);
+  registry->RegisterIntegerPref(prefs::kLoFiLoadImagesPerSession, 0);
+  registry->RegisterIntegerPref(prefs::kLoFiConsecutiveSessionDisables, 0);
+  registry->RegisterBooleanPref(prefs::kLoFiWasUsedThisSession, false);
+  registry->RegisterInt64Pref(prefs::kSimulatedConfigRetrieveTime, 0L);
+  registry->RegisterStringPref(prefs::kDataReductionProxyConfig, std::string());
 }
 
 void RegisterSimpleProfilePrefs(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(
       prefs::kDataReductionProxyEnabled, false);
-  registry->RegisterBooleanPref(
-      prefs::kDataReductionProxyAltEnabled, false);
   registry->RegisterBooleanPref(
       prefs::kDataReductionProxyWasEnabledBefore, false);
 
@@ -109,7 +78,7 @@ void RegisterSimpleProfilePrefs(PrefRegistrySimple* registry) {
 }
 
 // Add any new data reduction proxy prefs to the |pref_map_| or the
-// |list_pref_map_| in Init() of DataReductionProxyStatisticsPrefs.
+// |list_pref_map_| in Init() of DataReductionProxyCompressionStats.
 void RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterInt64Pref(
       prefs::kHttpReceivedContentLength, 0);
@@ -139,6 +108,12 @@ void RegisterPrefs(PrefRegistrySimple* registry) {
       prefs::kDailyContentLengthViaDataReductionProxy);
   registry->RegisterInt64Pref(
       prefs::kDailyHttpContentLengthLastUpdateDate, 0L);
+  registry->RegisterIntegerPref(prefs::kLoFiImplicitOptOutEpoch, 0);
+  registry->RegisterIntegerPref(prefs::kLoFiLoadImagesPerSession, 0);
+  registry->RegisterIntegerPref(prefs::kLoFiConsecutiveSessionDisables, 0);
+  registry->RegisterBooleanPref(prefs::kLoFiWasUsedThisSession, false);
+  registry->RegisterInt64Pref(prefs::kSimulatedConfigRetrieveTime, 0L);
+  registry->RegisterStringPref(prefs::kDataReductionProxyConfig, std::string());
 }
 
 void MigrateStatisticsPrefs(PrefService* local_state_prefs,

@@ -8,7 +8,7 @@
 #import <Foundation/Foundation.h>
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/ui/panels/native_panel.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
 class Panel;
 @class PanelWindowControllerCocoa;
@@ -35,7 +35,6 @@ class PanelCocoa : public NativePanel {
   gfx::NativeWindow GetNativePanelWindow() override;
   void UpdatePanelTitleBar() override;
   void UpdatePanelLoadingAnimations(bool should_animate) override;
-  void PanelWebContentsFocused(content::WebContents* contents) override;
   void PanelCut() override;
   void PanelCopy() override;
   void PanelPaste() override;

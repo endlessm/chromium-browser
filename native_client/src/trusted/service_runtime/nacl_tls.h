@@ -7,6 +7,7 @@
 #ifndef SERVICE_RUNTIME_NACL_THREAD_H__
 #define SERVICE_RUNTIME_NACL_THREAD_H__ 1
 
+#include "native_client/src/include/build_config.h"
 /*
  * This header contains the prototypes for thread/tls related
  * functions whose implementation is highly architecture/platform

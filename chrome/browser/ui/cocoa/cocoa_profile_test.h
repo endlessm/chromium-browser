@@ -33,15 +33,15 @@ class TestingProfile;
 class CocoaProfileTest : public CocoaTest {
  public:
   CocoaProfileTest();
-  virtual ~CocoaProfileTest();
+  ~CocoaProfileTest() override;
 
   // This constructs a a Browser and a TestingProfile. It is guaranteed to
   // succeed, else it will ASSERT and cause the test to fail. Subclasses that
   // do work in SetUp should ASSERT that either browser() or profile() are
   // non-NULL before proceeding after the call to super (this).
-  virtual void SetUp() override;
+  void SetUp() override;
 
-  virtual void TearDown() override;
+  void TearDown() override;
 
   TestingProfileManager* testing_profile_manager() {
     return &profile_manager_;
@@ -58,9 +58,19 @@ class CocoaProfileTest : public CocoaTest {
   // test window.
   virtual Browser* CreateBrowser();
 
+  // Define the TestingFactories to be used when SetUp() builds a Profile. To be
+  // called in the subclass' constructor.
+  void AddTestingFactories(
+      const TestingProfile::TestingFactories& testing_factories);
+
+  const TestingProfile::TestingFactories& testing_factories() {
+    return testing_factories_;
+  }
+
  private:
   TestingProfileManager profile_manager_;
   TestingProfile* profile_;  // Weak; owned by profile_manager_.
+  TestingProfile::TestingFactories testing_factories_;
   scoped_ptr<Browser> browser_;
 
   scoped_ptr<content::TestBrowserThreadBundle> thread_bundle_;

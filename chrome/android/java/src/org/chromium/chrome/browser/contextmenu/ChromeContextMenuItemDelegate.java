@@ -12,6 +12,11 @@ import org.chromium.content_public.common.Referrer;
  * A delegate responsible for taking actions based on context menu selections.
  */
 public interface ChromeContextMenuItemDelegate {
+    // The type of the data to save to the clipboard.
+    public static final int CLIPBOARD_TYPE_LINK_URL = 0;
+    public static final int CLIPBOARD_TYPE_LINK_TEXT = 1;
+    public static final int CLIPBOARD_TYPE_IMAGE_URL = 2;
+
     /**
      * @return Whether or not this context menu is being shown for an incognito
      *     {@link ContentViewCore}.
@@ -28,6 +33,13 @@ public interface ChromeContextMenuItemDelegate {
      *         image.
      */
     boolean canLoadOriginalImage();
+
+    /**
+     * Returns whether or not the Data Reduction Proxy is enabled for input url.
+     * @param url Input url to check for the Data Reduction Proxy setting.
+     * @return true if the Data Reduction Proxy is enabled for the url.
+    */
+    boolean isDataReductionProxyEnabledForURL(String url);
 
     /**
      * Called when the context menu is trying to start a download.
@@ -63,11 +75,21 @@ public interface ChromeContextMenuItemDelegate {
     void onOpenImageInNewTab(String url, Referrer referrer);
 
     /**
-     * Called when the {@code text} should be saved to the clipboard.
-     * @param text  The text to save to the clipboard.
-     * @param isUrl Whether or not the text is a URL.
+     * Called when the page should be reloaded ignoring the cache.
      */
-    void onSaveToClipboard(String text, boolean isUrl);
+    void onReloadIgnoringCache();
+
+    /**
+     * Called when the original image should be loaded.
+     */
+    void onLoadOriginalImage();
+
+    /**
+     * Called when the {@code text} should be saved to the clipboard.
+     * @param text The text to save to the clipboard.
+     * @param type The type of data in {@code text}.
+     */
+    void onSaveToClipboard(String text, int clipboardType);
 
     /**
      * Called when the {@code url} is of an image and a link to the image should be saved to the

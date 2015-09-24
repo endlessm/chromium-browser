@@ -82,16 +82,20 @@ base::StringPiece FindDir(const std::string* path);
 // empty substring if none. For example "//foo/bar/" -> "bar".
 base::StringPiece FindLastDirComponent(const SourceDir& dir);
 
+// Returns true if the given string is in the given output dir. This is pretty
+// stupid and doesn't handle "." and "..", etc., it is designed for a sanity
+// check to keep people from writing output files to the source directory
+// accidentally.
+bool IsStringInOutputDir(const SourceDir& output_dir, const std::string& str);
+
 // Verifies that the given string references a file inside of the given
-// directory. This is pretty stupid and doesn't handle "." and "..", etc.,
-// it is designed for a sanity check to keep people from writing output files
-// to the source directory accidentally.
+// directory. This just uses IsStringInOutputDir above.
 //
 // The origin will be blamed in the error.
 //
 // If the file isn't in the dir, returns false and sets the error. Otherwise
 // returns true and leaves the error untouched.
-bool EnsureStringIsInOutputDir(const SourceDir& dir,
+bool EnsureStringIsInOutputDir(const SourceDir& output_dir,
                                const std::string& str,
                                const ParseNode* origin,
                                Err* err);
@@ -116,11 +120,6 @@ bool MakeAbsolutePathRelativeIfPossible(const base::StringPiece& source_root,
                                         const base::StringPiece& path,
                                         std::string* dest);
 
-// Converts a directory to its inverse (e.g. "/foo/bar/" -> "../../").
-// This will be the empty string for the root directories ("/" and "//"), and
-// in all other cases, this is guaranteed to end in a slash.
-std::string InvertDir(const SourceDir& dir);
-
 // Collapses "." and sequential "/"s and evaluates "..".
 void NormalizePath(std::string* path);
 
@@ -128,10 +127,17 @@ void NormalizePath(std::string* path);
 // for other systems.
 void ConvertPathToSystem(std::string* path);
 
-// Takes a source-absolute path (must begin with "//") and makes it relative
-// to the given directory, which also must be source-absolute.
-std::string RebaseSourceAbsolutePath(const std::string& input,
-                                     const SourceDir& dest_dir);
+// Takes a path, |input|, and makes it relative to the given directory
+// |dest_dir|. Both inputs may be source-relative (e.g. begins with
+// with "//") or may be absolute.
+//
+// If supplied, the |source_root| parameter is the absolute path to
+// the source root and not end in a slash. Unless you know that the
+// inputs are always source relative, this should be supplied.
+std::string RebasePath(
+    const std::string& input,
+    const SourceDir& dest_dir,
+    const base::StringPiece& source_root = base::StringPiece());
 
 // Returns the given directory with no terminating slash at the end, such that
 // appending a slash and more stuff will produce a valid path.
@@ -142,8 +148,8 @@ std::string DirectoryWithNoLastSlash(const SourceDir& dir);
 
 // Returns the "best" SourceDir representing the given path. If it's inside the
 // given source_root, a source-relative directory will be returned (e.g.
-// "//foo/bar.cc". If it's outside of the source root, a system-absolute
-// directory will be returned.
+// "//foo/bar.cc". If it's outside of the source root or the source root is
+// empty, a system-absolute directory will be returned.
 SourceDir SourceDirForPath(const base::FilePath& source_root,
                            const base::FilePath& path);
 

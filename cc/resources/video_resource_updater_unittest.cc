@@ -8,9 +8,11 @@
 #include "cc/resources/resource_provider.h"
 #include "cc/test/fake_output_surface.h"
 #include "cc/test/fake_output_surface_client.h"
+#include "cc/test/fake_resource_provider.h"
 #include "cc/test/test_shared_bitmap_manager.h"
 #include "cc/test/test_web_graphics_context_3d.h"
 #include "cc/trees/blocking_task_runner.h"
+#include "gpu/GLES2/gl2extchromium.h"
 #include "media/base/video_frame.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -38,6 +40,21 @@ class WebGraphicsContext3DUploadCounter : public TestWebGraphicsContext3D {
   int upload_count_;
 };
 
+class SharedBitmapManagerAllocationCounter : public TestSharedBitmapManager {
+ public:
+  scoped_ptr<SharedBitmap> AllocateSharedBitmap(
+      const gfx::Size& size) override {
+    ++allocation_count_;
+    return TestSharedBitmapManager::AllocateSharedBitmap(size);
+  }
+
+  int AllocationCount() { return allocation_count_; }
+  void ResetAllocationCount() { allocation_count_ = 0; }
+
+ private:
+  int allocation_count_;
+};
+
 class VideoResourceUpdaterTest : public testing::Test {
  protected:
   VideoResourceUpdaterTest() {
@@ -49,15 +66,17 @@ class VideoResourceUpdaterTest : public testing::Test {
     output_surface3d_ =
         FakeOutputSurface::Create3d(context3d.Pass());
     CHECK(output_surface3d_->BindToClient(&client_));
-    shared_bitmap_manager_.reset(new TestSharedBitmapManager());
-    resource_provider3d_ =
-        ResourceProvider::Create(output_surface3d_.get(),
-                                 shared_bitmap_manager_.get(),
-                                 NULL,
-                                 NULL,
-                                 0,
-                                 false,
-                                 1);
+
+    output_surface_software_ = FakeOutputSurface::CreateSoftware(
+        make_scoped_ptr(new SoftwareOutputDevice));
+    CHECK(output_surface_software_->BindToClient(&client_));
+
+    shared_bitmap_manager_.reset(new SharedBitmapManagerAllocationCounter());
+    resource_provider3d_ = FakeResourceProvider::Create(
+        output_surface3d_.get(), shared_bitmap_manager_.get());
+
+    resource_provider_software_ = FakeResourceProvider::Create(
+        output_surface_software_.get(), shared_bitmap_manager_.get());
   }
 
   scoped_refptr<media::VideoFrame> CreateTestYUVVideoFrame() {
@@ -78,15 +97,62 @@ class VideoResourceUpdaterTest : public testing::Test {
         y_data,                   // y_data
         u_data,                   // u_data
         v_data,                   // v_data
-        base::TimeDelta(),        // timestamp,
-        base::Closure());         // no_longer_needed_cb
+        base::TimeDelta());       // timestamp
+  }
+
+  static void ReleaseMailboxCB(unsigned sync_point) {}
+
+  scoped_refptr<media::VideoFrame> CreateTestRGBAHardwareVideoFrame() {
+    const int kDimension = 10;
+    gfx::Size size(kDimension, kDimension);
+
+    gpu::Mailbox mailbox;
+    mailbox.name[0] = 51;
+
+    const unsigned sync_point = 7;
+    const unsigned target = GL_TEXTURE_2D;
+    return media::VideoFrame::WrapNativeTexture(
+        media::VideoFrame::ARGB,
+        gpu::MailboxHolder(mailbox, target, sync_point),
+        base::Bind(&ReleaseMailboxCB),
+        size,                // coded_size
+        gfx::Rect(size),     // visible_rect
+        size,                // natural_size
+        base::TimeDelta());  // timestamp
+  }
+
+  scoped_refptr<media::VideoFrame> CreateTestYUVHardareVideoFrame() {
+    const int kDimension = 10;
+    gfx::Size size(kDimension, kDimension);
+
+    const int kPlanesNum = 3;
+    gpu::Mailbox mailbox[kPlanesNum];
+    for (int i = 0; i < kPlanesNum; ++i) {
+      mailbox[i].name[0] = 50 + 1;
+    }
+    const unsigned sync_point = 7;
+    const unsigned target = GL_TEXTURE_RECTANGLE_ARB;
+    return media::VideoFrame::WrapYUV420NativeTextures(
+        gpu::MailboxHolder(mailbox[media::VideoFrame::kYPlane], target,
+                           sync_point),
+        gpu::MailboxHolder(mailbox[media::VideoFrame::kUPlane], target,
+                           sync_point),
+        gpu::MailboxHolder(mailbox[media::VideoFrame::kVPlane], target,
+                           sync_point),
+        base::Bind(&ReleaseMailboxCB),
+        size,                // coded_size
+        gfx::Rect(size),     // visible_rect
+        size,                // natural_size
+        base::TimeDelta());  // timestamp
   }
 
   WebGraphicsContext3DUploadCounter* context3d_;
   FakeOutputSurfaceClient client_;
   scoped_ptr<FakeOutputSurface> output_surface3d_;
-  scoped_ptr<TestSharedBitmapManager> shared_bitmap_manager_;
+  scoped_ptr<FakeOutputSurface> output_surface_software_;
+  scoped_ptr<SharedBitmapManagerAllocationCounter> shared_bitmap_manager_;
   scoped_ptr<ResourceProvider> resource_provider3d_;
+  scoped_ptr<ResourceProvider> resource_provider_software_;
 };
 
 TEST_F(VideoResourceUpdaterTest, SoftwareFrame) {
@@ -112,6 +178,7 @@ TEST_F(VideoResourceUpdaterTest, ReuseResource) {
   EXPECT_EQ(VideoFrameExternalResources::YUV_RESOURCE, resources.type);
   EXPECT_EQ(size_t(3), resources.mailboxes.size());
   EXPECT_EQ(size_t(3), resources.release_callbacks.size());
+  EXPECT_EQ(size_t(0), resources.software_resources.size());
   // Expect exactly three texture uploads, one for each plane.
   EXPECT_EQ(3, context3d_->UploadCount());
 
@@ -143,6 +210,7 @@ TEST_F(VideoResourceUpdaterTest, ReuseResourceNoDelete) {
   EXPECT_EQ(VideoFrameExternalResources::YUV_RESOURCE, resources.type);
   EXPECT_EQ(size_t(3), resources.mailboxes.size());
   EXPECT_EQ(size_t(3), resources.release_callbacks.size());
+  EXPECT_EQ(size_t(0), resources.software_resources.size());
   // Expect exactly three texture uploads, one for each plane.
   EXPECT_EQ(3, context3d_->UploadCount());
 
@@ -156,5 +224,95 @@ TEST_F(VideoResourceUpdaterTest, ReuseResourceNoDelete) {
   EXPECT_EQ(0, context3d_->UploadCount());
 }
 
+TEST_F(VideoResourceUpdaterTest, SoftwareFrameSoftwareCompositor) {
+  VideoResourceUpdater updater(nullptr, resource_provider_software_.get());
+  scoped_refptr<media::VideoFrame> video_frame = CreateTestYUVVideoFrame();
+
+  VideoFrameExternalResources resources =
+      updater.CreateExternalResourcesFromVideoFrame(video_frame);
+  EXPECT_EQ(VideoFrameExternalResources::SOFTWARE_RESOURCE, resources.type);
+}
+
+TEST_F(VideoResourceUpdaterTest, ReuseResourceSoftwareCompositor) {
+  VideoResourceUpdater updater(nullptr, resource_provider_software_.get());
+  scoped_refptr<media::VideoFrame> video_frame = CreateTestYUVVideoFrame();
+  video_frame->set_timestamp(base::TimeDelta::FromSeconds(1234));
+
+  // Allocate the resources for a software video frame.
+  shared_bitmap_manager_->ResetAllocationCount();
+  VideoFrameExternalResources resources =
+      updater.CreateExternalResourcesFromVideoFrame(video_frame);
+  EXPECT_EQ(VideoFrameExternalResources::SOFTWARE_RESOURCE, resources.type);
+  EXPECT_EQ(size_t(0), resources.mailboxes.size());
+  EXPECT_EQ(size_t(0), resources.release_callbacks.size());
+  EXPECT_EQ(size_t(1), resources.software_resources.size());
+  // Expect exactly one allocated shared bitmap.
+  EXPECT_EQ(1, shared_bitmap_manager_->AllocationCount());
+
+  // Simulate the ResourceProvider releasing the resource back to the video
+  // updater.
+  resources.software_release_callback.Run(0, false, nullptr);
+
+  // Allocate resources for the same frame.
+  shared_bitmap_manager_->ResetAllocationCount();
+  resources = updater.CreateExternalResourcesFromVideoFrame(video_frame);
+  EXPECT_EQ(VideoFrameExternalResources::SOFTWARE_RESOURCE, resources.type);
+  EXPECT_EQ(size_t(0), resources.mailboxes.size());
+  EXPECT_EQ(size_t(0), resources.release_callbacks.size());
+  EXPECT_EQ(size_t(1), resources.software_resources.size());
+  // The data should be reused so expect no new allocations.
+  EXPECT_EQ(0, shared_bitmap_manager_->AllocationCount());
+}
+
+TEST_F(VideoResourceUpdaterTest, ReuseResourceNoDeleteSoftwareCompositor) {
+  VideoResourceUpdater updater(nullptr, resource_provider_software_.get());
+  scoped_refptr<media::VideoFrame> video_frame = CreateTestYUVVideoFrame();
+  video_frame->set_timestamp(base::TimeDelta::FromSeconds(1234));
+
+  // Allocate the resources for a software video frame.
+  shared_bitmap_manager_->ResetAllocationCount();
+  VideoFrameExternalResources resources =
+      updater.CreateExternalResourcesFromVideoFrame(video_frame);
+  EXPECT_EQ(VideoFrameExternalResources::SOFTWARE_RESOURCE, resources.type);
+  EXPECT_EQ(size_t(0), resources.mailboxes.size());
+  EXPECT_EQ(size_t(0), resources.release_callbacks.size());
+  EXPECT_EQ(size_t(1), resources.software_resources.size());
+  // Expect exactly one allocated shared bitmap.
+  EXPECT_EQ(1, shared_bitmap_manager_->AllocationCount());
+
+  // Allocate resources for the same frame.
+  shared_bitmap_manager_->ResetAllocationCount();
+  resources = updater.CreateExternalResourcesFromVideoFrame(video_frame);
+  EXPECT_EQ(VideoFrameExternalResources::SOFTWARE_RESOURCE, resources.type);
+  EXPECT_EQ(size_t(0), resources.mailboxes.size());
+  EXPECT_EQ(size_t(0), resources.release_callbacks.size());
+  EXPECT_EQ(size_t(1), resources.software_resources.size());
+  // The data should be reused so expect no new allocations.
+  EXPECT_EQ(0, shared_bitmap_manager_->AllocationCount());
+}
+
+TEST_F(VideoResourceUpdaterTest, CreateForHardwarePlanes) {
+  VideoResourceUpdater updater(output_surface3d_->context_provider(),
+                               resource_provider3d_.get());
+
+  scoped_refptr<media::VideoFrame> video_frame =
+      CreateTestRGBAHardwareVideoFrame();
+
+  VideoFrameExternalResources resources =
+      updater.CreateExternalResourcesFromVideoFrame(video_frame);
+  EXPECT_EQ(VideoFrameExternalResources::RGBA_RESOURCE, resources.type);
+  EXPECT_EQ(1u, resources.mailboxes.size());
+  EXPECT_EQ(1u, resources.release_callbacks.size());
+  EXPECT_EQ(0u, resources.software_resources.size());
+
+  video_frame = CreateTestYUVHardareVideoFrame();
+
+  resources = updater.CreateExternalResourcesFromVideoFrame(video_frame);
+  EXPECT_EQ(VideoFrameExternalResources::YUV_RESOURCE, resources.type);
+  EXPECT_TRUE(resources.read_lock_fences_enabled);
+  EXPECT_EQ(3u, resources.mailboxes.size());
+  EXPECT_EQ(3u, resources.release_callbacks.size());
+  EXPECT_EQ(0u, resources.software_resources.size());
+}
 }  // namespace
 }  // namespace cc

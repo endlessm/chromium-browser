@@ -5,9 +5,18 @@
 #ifndef CONTENT_PUBLIC_RENDERER_BROWSER_PLUGIN_DELEGATE_H_
 #define CONTENT_PUBLIC_RENDERER_BROWSER_PLUGIN_DELEGATE_H_
 
-#include <string>
-
+#include "base/memory/weak_ptr.h"
 #include "content/common/content_export.h"
+
+namespace gfx {
+class Size;
+}
+
+namespace v8 {
+class Isolate;
+class Object;
+template<typename T> class Local;
+}  // namespace v8
 
 namespace content {
 
@@ -18,8 +27,6 @@ class RenderFrame;
 // behavior of the plugin.
 class CONTENT_EXPORT BrowserPluginDelegate {
  public:
-  virtual ~BrowserPluginDelegate() {}
-
   // Called when the BrowserPlugin's geometry has been computed for the first
   // time.
   virtual void Ready() {}
@@ -33,6 +40,21 @@ class CONTENT_EXPORT BrowserPluginDelegate {
   // Sets the instance ID that idenfies the plugin within current render
   // process.
   virtual void SetElementInstanceID(int element_instance_id) {}
+
+  // Called when the plugin resizes.
+  virtual void DidResizeElement(const gfx::Size& new_size) {}
+
+  // Called when the plugin is about to be destroyed.
+  virtual void DidDestroyElement() {}
+
+  // Returns a scriptable object for the plugin.
+  virtual v8::Local<v8::Object> V8ScriptableObject(v8::Isolate* isolate);
+
+  // Returns a weak pointer to this delegate.
+  virtual base::WeakPtr<BrowserPluginDelegate> GetWeakPtr() = 0;
+
+ protected:
+  virtual ~BrowserPluginDelegate() {}
 };
 
 }  // namespace content

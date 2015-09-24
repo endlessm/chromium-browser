@@ -2,8 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/location.h"
 #include "base/prefs/pref_service.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/extension_apitest.h"
@@ -13,6 +16,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/content_settings/core/common/pref_names.h"
 #include "components/translate/core/common/translate_pref_names.h"
 #include "content/public/browser/notification_service.h"
 #include "extensions/browser/extension_registry.h"
@@ -88,7 +92,7 @@ class ExtensionPreferenceApiTest : public ExtensionApiTest {
   void TearDownOnMainThread() override {
     // ReleaseBrowserProcessModule() needs to be called in a message loop, so we
     // post a task to do it, then run the message loop.
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(&ReleaseBrowserProcessModule));
     content::RunAllPendingInMessageLoop();
 
@@ -118,6 +122,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionPreferenceApiTest, MAYBE_Standard) {
                     false);
   prefs->SetBoolean(prefs::kSafeBrowsingEnabled, false);
   prefs->SetBoolean(prefs::kSearchSuggestEnabled, false);
+#if defined(ENABLE_WEBRTC)
+  prefs->SetBoolean(prefs::kWebRTCMultipleRoutesEnabled, false);
+#endif
 
   const char kExtensionPath[] = "preference/standard";
 
@@ -329,4 +336,14 @@ IN_PROC_BROWSER_TEST_F(ExtensionPreferenceApiTest, OnChangeSplit) {
 
   EXPECT_TRUE(catcher.GetNextResult()) << catcher.message();
   EXPECT_TRUE(catcher_incognito.GetNextResult()) << catcher.message();
+}
+
+#if defined(OS_WIN)  // http://crbug.com/477844
+#define MAYBE_DataReductionProxy DISABLED_DataReductionProxy
+#else
+#define MAYBE_DataReductionProxy DataReductionProxy
+#endif
+IN_PROC_BROWSER_TEST_F(ExtensionPreferenceApiTest, MAYBE_DataReductionProxy) {
+  EXPECT_TRUE(RunExtensionTest("preference/data_reduction_proxy")) <<
+      message_;
 }

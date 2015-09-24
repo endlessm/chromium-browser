@@ -15,13 +15,13 @@
 #include "chrome/common/importer/importer_autofill_form_data_entry.h"
 #include "chrome/common/importer/importer_data_types.h"
 #include "chrome/common/importer/importer_url_row.h"
+#include "components/favicon_base/favicon_usage_data.h"
 #include "components/history/core/browser/history_types.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/utility_process_host_client.h"
 
 class ExternalProcessImporterHost;
 struct ImportedBookmarkEntry;
-struct ImportedFaviconUsage;
 class InProcessImporterBridge;
 
 namespace autofill {
@@ -37,7 +37,7 @@ namespace importer {
 struct ImporterIE7PasswordInfo;
 #endif
 struct ImporterAutofillFormDataEntry;
-struct URLKeywordInfo;
+struct SearchEngineInfo;
 }
 
 // This class is the client for the out of process profile importing.  It
@@ -77,10 +77,10 @@ class ExternalProcessImporterClient : public content::UtilityProcessHostClient {
       const std::vector<ImportedBookmarkEntry>& bookmarks_group);
   void OnFaviconsImportStart(size_t total_favicons_count);
   void OnFaviconsImportGroup(
-      const std::vector<ImportedFaviconUsage>& favicons_group);
+      const favicon_base::FaviconUsageDataList& favicons_group);
   void OnPasswordFormImportReady(const autofill::PasswordForm& form);
   void OnKeywordsImportReady(
-      const std::vector<importer::URLKeywordInfo>& url_keywords,
+      const std::vector<importer::SearchEngineInfo>& search_engines,
       bool unique_on_host_and_path);
   void OnFirefoxSearchEngineDataReceived(
       const std::vector<std::string> search_engine_data);
@@ -113,7 +113,7 @@ class ExternalProcessImporterClient : public content::UtilityProcessHostClient {
   // entire group has been collected and is ready to be written to the profile.
   std::vector<ImporterURLRow> history_rows_;
   std::vector<ImportedBookmarkEntry> bookmarks_;
-  std::vector<ImportedFaviconUsage> favicons_;
+  favicon_base::FaviconUsageDataList favicons_;
   std::vector<ImporterAutofillFormDataEntry> autofill_form_data_;
 
   // Usually some variation on IDS_BOOKMARK_GROUP_...; the name of the folder

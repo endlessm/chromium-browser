@@ -46,13 +46,15 @@ class SuspiciousExtensionBubbleDelegate
       ExtensionMessageBubbleController::BubbleAction user_action) override;
   void PerformAction(const extensions::ExtensionIdList& list) override;
   base::string16 GetTitle() const override;
-  base::string16 GetMessageBody(bool anchored_to_browser_action) const override;
+  base::string16 GetMessageBody(bool anchored_to_browser_action,
+                                int extension_count) const override;
   base::string16 GetOverflowText(
       const base::string16& overflow_count) const override;
   GURL GetLearnMoreUrl() const override;
   base::string16 GetActionButtonLabel() const override;
   base::string16 GetDismissButtonLabel() const override;
   bool ShouldShowExtensionList() const override;
+  bool ShouldHighlightExtensions() const override;
   void LogExtensionCount(size_t count) override;
   void LogAction(
       ExtensionMessageBubbleController::BubbleAction action) override;
@@ -100,9 +102,13 @@ base::string16 SuspiciousExtensionBubbleDelegate::GetTitle() const {
 }
 
 base::string16 SuspiciousExtensionBubbleDelegate::GetMessageBody(
-    bool anchored_to_browser_action) const {
-  return l10n_util::GetStringFUTF16(IDS_EXTENSIONS_UNSUPPORTED_DISABLED_BODY,
-      l10n_util::GetStringUTF16(IDS_EXTENSION_WEB_STORE_TITLE));
+    bool anchored_to_browser_action,
+    int extension_count) const {
+  int message_id = extension_count == 1 ?
+      IDS_EXTENSIONS_SINGLE_UNSUPPORTED_DISABLED_BODY :
+      IDS_EXTENSIONS_MULTIPLE_UNSUPPORTED_DISABLED_BODY;
+  return l10n_util::GetStringFUTF16(
+      message_id, l10n_util::GetStringUTF16(IDS_EXTENSION_WEB_STORE_TITLE));
 }
 
 base::string16 SuspiciousExtensionBubbleDelegate::GetOverflowText(
@@ -126,9 +132,12 @@ SuspiciousExtensionBubbleDelegate::GetDismissButtonLabel() const {
   return l10n_util::GetStringUTF16(IDS_EXTENSIONS_UNSUPPORTED_DISABLED_BUTTON);
 }
 
-bool
-SuspiciousExtensionBubbleDelegate::ShouldShowExtensionList() const {
+bool SuspiciousExtensionBubbleDelegate::ShouldShowExtensionList() const {
   return true;
+}
+
+bool SuspiciousExtensionBubbleDelegate::ShouldHighlightExtensions() const {
+  return false;
 }
 
 void SuspiciousExtensionBubbleDelegate::LogExtensionCount(

@@ -41,9 +41,9 @@ namespace {
 class MockDaemonListener : public IPC::Listener {
  public:
   MockDaemonListener() {}
-  virtual ~MockDaemonListener() {}
+  ~MockDaemonListener() override {}
 
-  virtual bool OnMessageReceived(const IPC::Message& message) override;
+  bool OnMessageReceived(const IPC::Message& message) override;
 
   MOCK_METHOD1(OnDesktopAttached, void(IPC::PlatformFileForTransit));
   MOCK_METHOD1(OnChannelConnected, void(int32));
@@ -56,9 +56,9 @@ class MockDaemonListener : public IPC::Listener {
 class MockNetworkListener : public IPC::Listener {
  public:
   MockNetworkListener() {}
-  virtual ~MockNetworkListener() {}
+  ~MockNetworkListener() override {}
 
-  virtual bool OnMessageReceived(const IPC::Message& message) override;
+  bool OnMessageReceived(const IPC::Message& message) override;
 
   MOCK_METHOD1(OnChannelConnected, void(int32));
   MOCK_METHOD0(OnChannelError, void());
@@ -225,7 +225,7 @@ webrtc::DesktopCapturer* DesktopProcessTest::CreateVideoCapturer() {
 void DesktopProcessTest::DisconnectChannels() {
   daemon_channel_.reset();
   network_channel_.reset();
-  io_task_runner_ = NULL;
+  io_task_runner_ = nullptr;
 }
 
 void DesktopProcessTest::PostDisconnectChannels() {
@@ -237,10 +237,10 @@ void DesktopProcessTest::RunDesktopProcess() {
   base::RunLoop run_loop;
   base::Closure quit_ui_task_runner = base::Bind(
       base::IgnoreResult(&base::SingleThreadTaskRunner::PostTask),
-      message_loop_.message_loop_proxy(),
+      message_loop_.task_runner(),
       FROM_HERE, run_loop.QuitClosure());
   scoped_refptr<AutoThreadTaskRunner> ui_task_runner = new AutoThreadTaskRunner(
-      message_loop_.message_loop_proxy(), quit_ui_task_runner);
+      message_loop_.task_runner(), quit_ui_task_runner);
 
   io_task_runner_ = AutoThread::CreateWithType(
       "IPC thread", ui_task_runner, base::MessageLoop::TYPE_IO);
@@ -264,7 +264,7 @@ void DesktopProcessTest::RunDesktopProcess() {
   DesktopProcess desktop_process(ui_task_runner, io_task_runner_, channel_name);
   EXPECT_TRUE(desktop_process.Start(desktop_environment_factory.Pass()));
 
-  ui_task_runner = NULL;
+  ui_task_runner = nullptr;
   run_loop.Run();
 }
 

@@ -102,7 +102,7 @@ class SocketsUdpBindFunction : public UDPSocketAsyncApiFunction {
 
   // AsyncApiFunction:
   bool Prepare() override;
-  void Work() override;
+  void AsyncWorkStart() override;
 
  private:
   scoped_ptr<sockets_udp::Bind::Params> params_;
@@ -271,6 +271,24 @@ class SocketsUdpGetJoinedGroupsFunction : public UDPSocketAsyncApiFunction {
 
  private:
   scoped_ptr<sockets_udp::GetJoinedGroups::Params> params_;
+};
+
+class SocketsUdpSetBroadcastFunction : public UDPSocketAsyncApiFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("sockets.udp.setBroadcast",
+                             SOCKETS_UDP_SETBROADCAST)
+
+  SocketsUdpSetBroadcastFunction();
+
+ protected:
+  ~SocketsUdpSetBroadcastFunction() override;
+
+  // AsyncApiFunction
+  bool Prepare() override;
+  void Work() override;
+
+ private:
+  scoped_ptr<sockets_udp::SetBroadcast::Params> params_;
 };
 
 }  // namespace core_api

@@ -20,16 +20,18 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/android/tab_android.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/history/top_sites.h"
+#include "chrome/browser/history/top_sites_factory.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/android/tab_model/tab_model.h"
 #include "chrome/browser/ui/android/tab_model/tab_model_list.h"
+#include "chrome/common/chrome_content_client.h"
+#include "chrome/common/chrome_version_info.h"
+#include "components/devtools_http_handler/devtools_http_handler.h"
+#include "components/devtools_http_handler/devtools_http_handler_delegate.h"
+#include "components/history/core/browser/top_sites.h"
 #include "content/public/browser/android/devtools_auth.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/devtools_agent_host.h"
-#include "content/public/browser/devtools_http_handler.h"
-#include "content/public/browser/devtools_http_handler_delegate.h"
-#include "content/public/browser/devtools_target.h"
 #include "content/public/browser/favicon_status.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/render_view_host.h"
@@ -41,7 +43,6 @@
 #include "grit/browser_resources.h"
 #include "jni/DevToolsServer_jni.h"
 #include "net/base/net_errors.h"
-#include "net/socket/unix_domain_listen_socket_posix.h"
 #include "net/socket/unix_domain_server_socket_posix.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -49,6 +50,7 @@
 using content::DevToolsAgentHost;
 using content::RenderViewHost;
 using content::WebContents;
+using devtools_http_handler::DevToolsHttpHandler;
 
 namespace {
 
@@ -64,8 +66,10 @@ namespace {
 const char kDevToolsChannelNameFormat[] = "%s_devtools_remote";
 
 const char kFrontEndURL[] =
-    "http://chrome-devtools-frontend.appspot.com/serve_rev/%s/devtools.html";
+    "http://chrome-devtools-frontend.appspot.com/serve_rev/%s/inspector.html";
 const char kTetheringSocketName[] = "chrome_devtools_tethering_%d_%d";
+
+const int kBackLog = 10;
 
 bool AuthorizeSocketAccessWithDebugPermission(
     const net::UnixDomainServerSocket::Credentials& credentials) {
@@ -78,15 +82,13 @@ bool AuthorizeSocketAccessWithDebugPermission(
 
 // Delegate implementation for the devtools http handler on android. A new
 // instance of this gets created each time devtools is enabled.
-class DevToolsServerDelegate : public content::DevToolsHttpHandlerDelegate {
+class DevToolsServerDelegate :
+    public devtools_http_handler::DevToolsHttpHandlerDelegate {
  public:
-  explicit DevToolsServerDelegate(
-      const net::UnixDomainServerSocket::AuthCallback& auth_callback)
-      : last_tethering_socket_(0),
-        auth_callback_(auth_callback) {
+  DevToolsServerDelegate() {
   }
 
-  virtual std::string GetDiscoveryPageHTML() override {
+  std::string GetDiscoveryPageHTML() override {
     // TopSites updates itself after a delay. Ask TopSites to update itself
     // when we're about to show the remote debugging landing page.
     content::BrowserThread::PostTask(
@@ -97,35 +99,32 @@ class DevToolsServerDelegate : public content::DevToolsHttpHandlerDelegate {
         IDR_DEVTOOLS_DISCOVERY_PAGE_HTML).as_string();
   }
 
-  virtual bool BundlesFrontendResources() override {
-    return false;
+  std::string GetFrontendResource(const std::string& path) override {
+    return std::string();
   }
 
-  virtual base::FilePath GetDebugFrontendDir() override {
-    return base::FilePath();
-  }
-
-  virtual scoped_ptr<net::StreamListenSocket> CreateSocketForTethering(
-      net::StreamListenSocket::Delegate* delegate,
-      std::string* name) override {
-    *name = base::StringPrintf(
-        kTetheringSocketName, getpid(), ++last_tethering_socket_);
-    return net::deprecated::UnixDomainListenSocket::
-        CreateAndListenWithAbstractNamespace(
-            *name, "", delegate, auth_callback_);
+  std::string GetPageThumbnailData(const GURL& url) override {
+    Profile* profile =
+        ProfileManager::GetLastUsedProfile()->GetOriginalProfile();
+    scoped_refptr<history::TopSites> top_sites =
+        TopSitesFactory::GetForProfile(profile);
+    if (top_sites) {
+      scoped_refptr<base::RefCountedMemory> data;
+      if (top_sites->GetPageThumbnail(url, false, &data))
+        return std::string(data->front_as<char>(), data->size());
+    }
+    return std::string();
   }
 
  private:
   static void PopulatePageThumbnails() {
     Profile* profile =
         ProfileManager::GetLastUsedProfile()->GetOriginalProfile();
-    history::TopSites* top_sites = profile->GetTopSites();
+    scoped_refptr<history::TopSites> top_sites =
+        TopSitesFactory::GetForProfile(profile);
     if (top_sites)
       top_sites->SyncWithHistory();
   }
-
-  int last_tethering_socket_;
-  const net::UnixDomainServerSocket::AuthCallback auth_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(DevToolsServerDelegate);
 };
@@ -133,42 +132,49 @@ class DevToolsServerDelegate : public content::DevToolsHttpHandlerDelegate {
 // Factory for UnixDomainServerSocket. It tries a fallback socket when
 // original socket doesn't work.
 class UnixDomainServerSocketFactory
-    : public content::DevToolsHttpHandler::ServerSocketFactory {
+    : public DevToolsHttpHandler::ServerSocketFactory {
  public:
   UnixDomainServerSocketFactory(
       const std::string& socket_name,
       const net::UnixDomainServerSocket::AuthCallback& auth_callback)
-      : content::DevToolsHttpHandler::ServerSocketFactory(socket_name, 0, 1),
+      : socket_name_(socket_name),
+        last_tethering_socket_(0),
         auth_callback_(auth_callback) {
   }
 
  private:
-  // content::DevToolsHttpHandler::ServerSocketFactory.
-  virtual scoped_ptr<net::ServerSocket> Create() const override {
-    return scoped_ptr<net::ServerSocket>(
+  scoped_ptr<net::ServerSocket> CreateForHttpServer() override {
+    scoped_ptr<net::ServerSocket> socket(
         new net::UnixDomainServerSocket(auth_callback_,
                                         true /* use_abstract_namespace */));
-  }
 
-  virtual scoped_ptr<net::ServerSocket> CreateAndListen() const override {
-    scoped_ptr<net::ServerSocket> socket = Create();
-    if (!socket)
-      return scoped_ptr<net::ServerSocket>();
-
-    if (socket->ListenWithAddressAndPort(address_, port_, backlog_) == net::OK)
+    if (socket->ListenWithAddressAndPort(socket_name_, 0, kBackLog) == net::OK)
       return socket.Pass();
 
     // Try a fallback socket name.
     const std::string fallback_address(
-        base::StringPrintf("%s_%d", address_.c_str(), getpid()));
-    if (socket->ListenWithAddressAndPort(fallback_address, port_, backlog_)
+        base::StringPrintf("%s_%d", socket_name_.c_str(), getpid()));
+    if (socket->ListenWithAddressAndPort(fallback_address, 0, kBackLog)
         == net::OK)
       return socket.Pass();
 
     return scoped_ptr<net::ServerSocket>();
   }
 
-  const net::UnixDomainServerSocket::AuthCallback auth_callback_;
+  scoped_ptr<net::ServerSocket> CreateForTethering(std::string* name) override {
+    *name = base::StringPrintf(
+        kTetheringSocketName, getpid(), ++last_tethering_socket_);
+    scoped_ptr<net::UnixDomainServerSocket> socket(
+        new net::UnixDomainServerSocket(auth_callback_, true));
+    if (socket->ListenWithAddressAndPort(*name, 0, kBackLog) != net::OK)
+      return scoped_ptr<net::ServerSocket>();
+
+    return socket.Pass();
+  }
+
+  std::string socket_name_;
+  int last_tethering_socket_;
+  net::UnixDomainServerSocket::AuthCallback auth_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(UnixDomainServerSocketFactory);
 };
@@ -177,10 +183,10 @@ class UnixDomainServerSocketFactory
 
 DevToolsServer::DevToolsServer(const std::string& socket_name_prefix)
     : socket_name_(base::StringPrintf(kDevToolsChannelNameFormat,
-                                      socket_name_prefix.c_str())),
-      protocol_handler_(NULL) {
+                                      socket_name_prefix.c_str())) {
   // Override the socket name if one is specified on the command line.
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
   if (command_line.HasSwitch(switches::kRemoteDebuggingSocketName)) {
     socket_name_ = command_line.GetSwitchValueASCII(
         switches::kRemoteDebuggingSocketName);
@@ -192,33 +198,33 @@ DevToolsServer::~DevToolsServer() {
 }
 
 void DevToolsServer::Start(bool allow_debug_permission) {
-  if (protocol_handler_)
+  if (devtools_http_handler_)
     return;
 
   net::UnixDomainServerSocket::AuthCallback auth_callback =
       allow_debug_permission ?
           base::Bind(&AuthorizeSocketAccessWithDebugPermission) :
           base::Bind(&content::CanUserConnectToDevTools);
-  scoped_ptr<content::DevToolsHttpHandler::ServerSocketFactory> factory(
+  chrome::VersionInfo version_info;
+
+  scoped_ptr<DevToolsHttpHandler::ServerSocketFactory> factory(
       new UnixDomainServerSocketFactory(socket_name_, auth_callback));
-  protocol_handler_ = content::DevToolsHttpHandler::Start(
+  devtools_http_handler_.reset(new DevToolsHttpHandler(
       factory.Pass(),
       base::StringPrintf(kFrontEndURL, content::GetWebKitRevision().c_str()),
-      new DevToolsServerDelegate(auth_callback),
-      base::FilePath());
+      new DevToolsServerDelegate(),
+      base::FilePath(),
+      base::FilePath(),
+      version_info.ProductNameAndVersionForUserAgent(),
+      ::GetUserAgent()));
 }
 
 void DevToolsServer::Stop() {
-  if (!protocol_handler_)
-    return;
-  // Note that the call to Stop() below takes care of |protocol_handler_|
-  // deletion.
-  protocol_handler_->Stop();
-  protocol_handler_ = NULL;
+  devtools_http_handler_.reset();
 }
 
 bool DevToolsServer::IsStarted() const {
-  return protocol_handler_;
+  return devtools_http_handler_;
 }
 
 bool RegisterDevToolsServer(JNIEnv* env) {

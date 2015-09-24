@@ -22,6 +22,7 @@
 #include "chrome/browser/chromeos/file_system_provider/request_manager.h"
 #include "chrome/browser/chromeos/file_system_provider/watcher.h"
 #include "chrome/common/extensions/api/file_system_provider.h"
+#include "chrome/common/extensions/api/file_system_provider_capabilities/file_system_provider_capabilities_handler.h"
 #include "chrome/common/extensions/api/file_system_provider_internal.h"
 #include "chrome/test/base/testing_profile.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -40,7 +41,10 @@ const char kAnotherOrigin[] =
 const char kExtensionId[] = "mbflcebpggnecokmikipoihdbecnjfoj";
 const char kFileSystemId[] = "camera-pictures";
 const char kDisplayName[] = "Camera Pictures";
-const base::FilePath::CharType kDirectoryPath[] = "/hello/world";
+const base::FilePath::CharType kDirectoryPath[] =
+    FILE_PATH_LITERAL("/hello/world");
+const base::FilePath::CharType kFilePath[] =
+    FILE_PATH_LITERAL("/welcome/to/my/world");
 
 // Fake implementation of the event router, mocking out a real extension.
 // Handles requests and replies with fake answers back to the file system via
@@ -51,13 +55,12 @@ class FakeEventRouter : public extensions::EventRouter {
       : EventRouter(profile, NULL),
         file_system_(file_system),
         reply_result_(base::File::FILE_OK) {}
-  virtual ~FakeEventRouter() {}
+  ~FakeEventRouter() override {}
 
   // Handles an event which would normally be routed to an extension. Instead
   // replies with a hard coded response.
-  virtual void DispatchEventToExtension(
-      const std::string& extension_id,
-      scoped_ptr<extensions::Event> event) override {
+  void DispatchEventToExtension(const std::string& extension_id,
+                                scoped_ptr<extensions::Event> event) override {
     ASSERT_TRUE(file_system_);
     std::string file_system_id;
     const base::DictionaryValue* dictionary_value = NULL;
@@ -69,7 +72,11 @@ class FakeEventRouter : public extensions::EventRouter {
     EXPECT_TRUE(event->event_name == extensions::api::file_system_provider::
                                          OnAddWatcherRequested::kEventName ||
                 event->event_name == extensions::api::file_system_provider::
-                                         OnRemoveWatcherRequested::kEventName);
+                                         OnRemoveWatcherRequested::kEventName ||
+                event->event_name == extensions::api::file_system_provider::
+                                         OnOpenFileRequested::kEventName ||
+                event->event_name == extensions::api::file_system_provider::
+                                         OnCloseFileRequested::kEventName);
 
     if (reply_result_ == base::File::FILE_OK) {
       base::ListValue value_as_list;
@@ -126,29 +133,34 @@ class Observer : public ProvidedFileSystemObserver {
   Observer() : list_changed_counter_(0), tag_updated_counter_(0) {}
 
   // ProvidedFileSystemInterfaceObserver overrides.
-  virtual void OnWatcherChanged(
-      const ProvidedFileSystemInfo& file_system_info,
-      const Watcher& watcher,
-      storage::WatcherManager::ChangeType change_type,
-      const ProvidedFileSystemObserver::Changes& changes,
-      const base::Closure& callback) override {
+  void OnWatcherChanged(const ProvidedFileSystemInfo& file_system_info,
+                        const Watcher& watcher,
+                        storage::WatcherManager::ChangeType change_type,
+                        const ProvidedFileSystemObserver::Changes& changes,
+                        const base::Closure& callback) override {
     EXPECT_EQ(kFileSystemId, file_system_info.file_system_id());
     change_events_.push_back(new ChangeEvent(change_type, changes));
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, callback);
+    complete_callback_ = callback;
   }
 
-  virtual void OnWatcherTagUpdated(
-      const ProvidedFileSystemInfo& file_system_info,
-      const Watcher& watcher) override {
+  void OnWatcherTagUpdated(const ProvidedFileSystemInfo& file_system_info,
+                           const Watcher& watcher) override {
     EXPECT_EQ(kFileSystemId, file_system_info.file_system_id());
     ++tag_updated_counter_;
   }
 
-  virtual void OnWatcherListChanged(
-      const ProvidedFileSystemInfo& file_system_info,
-      const Watchers& watchers) override {
+  void OnWatcherListChanged(const ProvidedFileSystemInfo& file_system_info,
+                            const Watchers& watchers) override {
     EXPECT_EQ(kFileSystemId, file_system_info.file_system_id());
     ++list_changed_counter_;
+  }
+
+  // Completes handling the OnWatcherChanged event.
+  void CompleteOnWatcherChanged() {
+    DCHECK(!complete_callback_.is_null());
+    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
+                                                  complete_callback_);
+    complete_callback_ = base::Closure();
   }
 
   int list_changed_counter() const { return list_changed_counter_; }
@@ -161,6 +173,7 @@ class Observer : public ProvidedFileSystemObserver {
   ScopedVector<ChangeEvent> change_events_;
   int list_changed_counter_;
   int tag_updated_counter_;
+  base::Closure complete_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(Observer);
 };
@@ -169,13 +182,13 @@ class Observer : public ProvidedFileSystemObserver {
 class StubNotificationManager : public NotificationManagerInterface {
  public:
   StubNotificationManager() {}
-  virtual ~StubNotificationManager() {}
+  ~StubNotificationManager() override {}
 
   // NotificationManagerInterface overrides.
-  virtual void ShowUnresponsiveNotification(
+  void ShowUnresponsiveNotification(
       int id,
       const NotificationCallback& callback) override {}
-  virtual void HideUnresponsiveNotification(int id) override {}
+  void HideUnresponsiveNotification(int id) override {}
 
  private:
   DISALLOW_COPY_AND_ASSIGN(StubNotificationManager);
@@ -183,16 +196,24 @@ class StubNotificationManager : public NotificationManagerInterface {
 
 typedef std::vector<base::File::Error> Log;
 typedef std::vector<storage::WatcherManager::ChangeType> NotificationLog;
+typedef std::vector<std::pair<int, base::File::Error>> OpenFileLog;
 
 // Writes a |result| to the |log| vector.
 void LogStatus(Log* log, base::File::Error result) {
   log->push_back(result);
 }
 
-// Writes an |change_type| to the |notification_log| vector.
+// Writes a |change_type| to the |notification_log| vector.
 void LogNotification(NotificationLog* notification_log,
                      storage::WatcherManager::ChangeType change_type) {
   notification_log->push_back(change_type);
+}
+
+// Writes a |file_handle| and |result| to the |open_file_log| vector.
+void LogOpenFile(OpenFileLog* open_file_log,
+                 int file_handle,
+                 base::File::Error result) {
+  open_file_log->push_back(std::make_pair(file_handle, result));
 }
 
 }  // namespace
@@ -200,9 +221,9 @@ void LogNotification(NotificationLog* notification_log,
 class FileSystemProviderProvidedFileSystemTest : public testing::Test {
  protected:
   FileSystemProviderProvidedFileSystemTest() {}
-  virtual ~FileSystemProviderProvidedFileSystemTest() {}
+  ~FileSystemProviderProvidedFileSystemTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     profile_.reset(new TestingProfile);
     const base::FilePath mount_path =
         util::GetMountPath(profile_.get(), kExtensionId, kFileSystemId);
@@ -210,8 +231,10 @@ class FileSystemProviderProvidedFileSystemTest : public testing::Test {
     mount_options.file_system_id = kFileSystemId;
     mount_options.display_name = kDisplayName;
     mount_options.supports_notify_tag = true;
-    file_system_info_.reset(
-        new ProvidedFileSystemInfo(kExtensionId, mount_options, mount_path));
+    mount_options.writable = true;
+    file_system_info_.reset(new ProvidedFileSystemInfo(
+        kExtensionId, mount_options, mount_path, false /* configurable */,
+        true /* watchable */, extensions::SOURCE_FILE));
     provided_file_system_.reset(
         new ProvidedFileSystem(profile_.get(), *file_system_info_.get()));
     event_router_.reset(
@@ -224,6 +247,12 @@ class FileSystemProviderProvidedFileSystemTest : public testing::Test {
                                         OnRemoveWatcherRequested::kEventName,
                                     NULL,
                                     kExtensionId);
+    event_router_->AddEventListener(
+        extensions::api::file_system_provider::OnOpenFileRequested::kEventName,
+        NULL, kExtensionId);
+    event_router_->AddEventListener(
+        extensions::api::file_system_provider::OnCloseFileRequested::kEventName,
+        NULL, kExtensionId);
     provided_file_system_->SetEventRouterForTesting(event_router_.get());
     provided_file_system_->SetNotificationManagerForTesting(
         make_scoped_ptr(new StubNotificationManager));
@@ -297,11 +326,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher_NotFound) {
   event_router_->set_reply_result(base::File::FILE_ERROR_NOT_FOUND);
 
   provided_file_system_->AddWatcher(
-      GURL(kOrigin),
-      base::FilePath::FromUTF8Unsafe(kDirectoryPath),
-      false /* recursive */,
-      false /* persistent */,
-      base::Bind(&LogStatus, base::Unretained(&log)),
+      GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
+      false /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
       base::Bind(&LogNotification, base::Unretained(&notification_log)));
   base::RunLoop().RunUntilIdle();
 
@@ -327,11 +353,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher) {
   provided_file_system_->AddObserver(&observer);
 
   provided_file_system_->AddWatcher(
-      GURL(kOrigin),
-      base::FilePath::FromUTF8Unsafe(kDirectoryPath),
-      false /* recursive */,
-      true /* persistent */,
-      base::Bind(&LogStatus, base::Unretained(&log)),
+      GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
+      true /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
       storage::WatcherManager::NotificationCallback());
   base::RunLoop().RunUntilIdle();
 
@@ -361,11 +384,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher_PersistentIllegal) {
     provided_file_system_->AddObserver(&observer);
 
     provided_file_system_->AddWatcher(
-        GURL(kOrigin),
-        base::FilePath::FromUTF8Unsafe(kDirectoryPath),
-        false /* recursive */,
-        true /* persistent */,
-        base::Bind(&LogStatus, base::Unretained(&log)),
+        GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
+        true /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
         base::Bind(&LogNotification, base::Unretained(&notification_log)));
     base::RunLoop().RunUntilIdle();
 
@@ -393,7 +413,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher_PersistentIllegal) {
     mount_options.display_name = kDisplayName;
     mount_options.supports_notify_tag = false;
     ProvidedFileSystemInfo file_system_info(
-        kExtensionId, mount_options, mount_path);
+        kExtensionId, mount_options, mount_path, false /* configurable */,
+        true /* watchable */, extensions::SOURCE_FILE);
     ProvidedFileSystem simple_provided_file_system(profile_.get(),
                                                    file_system_info);
     simple_provided_file_system.SetEventRouterForTesting(event_router_.get());
@@ -403,11 +424,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher_PersistentIllegal) {
     simple_provided_file_system.AddObserver(&observer);
 
     simple_provided_file_system.AddWatcher(
-        GURL(kOrigin),
-        base::FilePath::FromUTF8Unsafe(kDirectoryPath),
-        false /* recursive */,
-        true /* persistent */,
-        base::Bind(&LogStatus, base::Unretained(&log)),
+        GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
+        true /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
         storage::WatcherManager::NotificationCallback());
     base::RunLoop().RunUntilIdle();
 
@@ -428,11 +446,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher_Exists) {
     // First watch a directory not recursively.
     Log log;
     provided_file_system_->AddWatcher(
-        GURL(kOrigin),
-        base::FilePath::FromUTF8Unsafe(kDirectoryPath),
-        false /* recursive */,
-        true /* persistent */,
-        base::Bind(&LogStatus, base::Unretained(&log)),
+        GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
+        true /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
         storage::WatcherManager::NotificationCallback());
     base::RunLoop().RunUntilIdle();
 
@@ -461,11 +476,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher_Exists) {
     // Create another non-recursive observer. That should fail.
     Log log;
     provided_file_system_->AddWatcher(
-        GURL(kOrigin),
-        base::FilePath::FromUTF8Unsafe(kDirectoryPath),
-        false /* recursive */,
-        true /* persistent */,
-        base::Bind(&LogStatus, base::Unretained(&log)),
+        GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
+        true /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
         storage::WatcherManager::NotificationCallback());
     base::RunLoop().RunUntilIdle();
 
@@ -479,11 +491,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher_Exists) {
     // Lastly, create another recursive observer. That should succeed.
     Log log;
     provided_file_system_->AddWatcher(
-        GURL(kOrigin),
-        base::FilePath::FromUTF8Unsafe(kDirectoryPath),
-        true /* recursive */,
-        true /* persistent */,
-        base::Bind(&LogStatus, base::Unretained(&log)),
+        GURL(kOrigin), base::FilePath(kDirectoryPath), true /* recursive */,
+        true /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
         storage::WatcherManager::NotificationCallback());
     base::RunLoop().RunUntilIdle();
 
@@ -506,11 +515,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher_MultipleOrigins) {
     NotificationLog notification_log;
 
     provided_file_system_->AddWatcher(
-        GURL(kOrigin),
-        base::FilePath::FromUTF8Unsafe(kDirectoryPath),
-        false /* recursive */,
-        false /* persistent */,
-        base::Bind(&LogStatus, base::Unretained(&log)),
+        GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
+        false /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
         base::Bind(&LogNotification, base::Unretained(&notification_log)));
     base::RunLoop().RunUntilIdle();
 
@@ -543,10 +549,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher_MultipleOrigins) {
     NotificationLog notification_log;
 
     provided_file_system_->AddWatcher(
-        GURL(kAnotherOrigin),
-        base::FilePath::FromUTF8Unsafe(kDirectoryPath),
-        true /* recursive */,
-        false /* persistent */,
+        GURL(kAnotherOrigin), base::FilePath(kDirectoryPath),
+        true /* recursive */, false /* persistent */,
         base::Bind(&LogStatus, base::Unretained(&log)),
         base::Bind(&LogNotification, base::Unretained(&notification_log)));
     base::RunLoop().RunUntilIdle();
@@ -578,10 +582,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AddWatcher_MultipleOrigins) {
     // Remove the second watcher gracefully.
     Log log;
     provided_file_system_->RemoveWatcher(
-        GURL(kAnotherOrigin),
-        base::FilePath::FromUTF8Unsafe(kDirectoryPath),
-        true /* recursive */,
-        base::Bind(&LogStatus, base::Unretained(&log)));
+        GURL(kAnotherOrigin), base::FilePath(kDirectoryPath),
+        true /* recursive */, base::Bind(&LogStatus, base::Unretained(&log)));
     base::RunLoop().RunUntilIdle();
 
     ASSERT_EQ(1u, log.size());
@@ -618,9 +620,7 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, RemoveWatcher) {
     // error.
     Log log;
     provided_file_system_->RemoveWatcher(
-        GURL(kOrigin),
-        base::FilePath::FromUTF8Unsafe(kDirectoryPath),
-        false /* recursive */,
+        GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
         base::Bind(&LogStatus, base::Unretained(&log)));
     base::RunLoop().RunUntilIdle();
 
@@ -636,11 +636,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, RemoveWatcher) {
     NotificationLog notification_log;
 
     provided_file_system_->AddWatcher(
-        GURL(kOrigin),
-        base::FilePath::FromUTF8Unsafe(kDirectoryPath),
-        false /* recursive */,
-        false /* persistent */,
-        base::Bind(&LogStatus, base::Unretained(&log)),
+        GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
+        false /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
         base::Bind(&LogNotification, base::Unretained(&notification_log)));
     base::RunLoop().RunUntilIdle();
 
@@ -658,9 +655,7 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, RemoveWatcher) {
     // Remove a watcher gracefully.
     Log log;
     provided_file_system_->RemoveWatcher(
-        GURL(kOrigin),
-        base::FilePath::FromUTF8Unsafe(kDirectoryPath),
-        false /* recursive */,
+        GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
         base::Bind(&LogStatus, base::Unretained(&log)));
     base::RunLoop().RunUntilIdle();
 
@@ -679,11 +674,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, RemoveWatcher) {
     NotificationLog notification_log;
 
     provided_file_system_->AddWatcher(
-        GURL(kOrigin),
-        base::FilePath::FromUTF8Unsafe(kDirectoryPath),
-        false /* recursive */,
-        false /* persistent */,
-        base::Bind(&LogStatus, base::Unretained(&log)),
+        GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
+        false /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
         base::Bind(&LogNotification, base::Unretained(&notification_log)));
     base::RunLoop().RunUntilIdle();
 
@@ -704,9 +696,7 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, RemoveWatcher) {
 
     Log log;
     provided_file_system_->RemoveWatcher(
-        GURL(kOrigin),
-        base::FilePath::FromUTF8Unsafe(kDirectoryPath),
-        false /* recursive */,
+        GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
         base::Bind(&LogStatus, base::Unretained(&log)));
     base::RunLoop().RunUntilIdle();
 
@@ -732,11 +722,8 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, Notify) {
     Log log;
 
     provided_file_system_->AddWatcher(
-        GURL(kOrigin),
-        base::FilePath::FromUTF8Unsafe(kDirectoryPath),
-        false /* recursive */,
-        false /* persistent */,
-        base::Bind(&LogStatus, base::Unretained(&log)),
+        GURL(kOrigin), base::FilePath(kDirectoryPath), false /* recursive */,
+        false /* persistent */, base::Bind(&LogStatus, base::Unretained(&log)),
         base::Bind(&LogNotification, base::Unretained(&notification_log)));
     base::RunLoop().RunUntilIdle();
 
@@ -757,12 +744,13 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, Notify) {
     const storage::WatcherManager::ChangeType change_type =
         storage::WatcherManager::CHANGED;
     const std::string tag = "hello-world";
-    EXPECT_TRUE(provided_file_system_->Notify(
-        base::FilePath::FromUTF8Unsafe(kDirectoryPath),
-        false /* recursive */,
-        change_type,
-        make_scoped_ptr(new ProvidedFileSystemObserver::Changes),
-        tag));
+
+    Log log;
+    provided_file_system_->Notify(
+        base::FilePath(kDirectoryPath), false /* recursive */, change_type,
+        make_scoped_ptr(new ProvidedFileSystemObserver::Changes), tag,
+        base::Bind(&LogStatus, base::Unretained(&log)));
+    base::RunLoop().RunUntilIdle();
 
     // Confirm that the notification callback was called.
     ASSERT_EQ(1u, notification_log.size());
@@ -783,7 +771,11 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, Notify) {
     EXPECT_EQ("", watchers->begin()->second.last_tag);
 
     // Wait until all observers finish handling the notification.
+    observer.CompleteOnWatcherChanged();
     base::RunLoop().RunUntilIdle();
+
+    ASSERT_EQ(1u, log.size());
+    EXPECT_EQ(base::File::FILE_OK, log[0]);
 
     // Confirm, that the watcher still exists, and that the tag is updated.
     ASSERT_EQ(1u, watchers->size());
@@ -798,13 +790,20 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, Notify) {
         storage::WatcherManager::DELETED;
     const ProvidedFileSystemObserver::Changes changes;
     const std::string tag = "chocolate-disco";
-    EXPECT_TRUE(provided_file_system_->Notify(
-        base::FilePath::FromUTF8Unsafe(kDirectoryPath),
-        false /* recursive */,
-        change_type,
-        make_scoped_ptr(new ProvidedFileSystemObserver::Changes),
-        tag));
+
+    Log log;
+    provided_file_system_->Notify(
+        base::FilePath(kDirectoryPath), false /* recursive */, change_type,
+        make_scoped_ptr(new ProvidedFileSystemObserver::Changes), tag,
+        base::Bind(&LogStatus, base::Unretained(&log)));
     base::RunLoop().RunUntilIdle();
+
+    // Complete all change events.
+    observer.CompleteOnWatcherChanged();
+    base::RunLoop().RunUntilIdle();
+
+    ASSERT_EQ(1u, log.size());
+    EXPECT_EQ(base::File::FILE_OK, log[0]);
 
     // Confirm that the notification callback was called.
     ASSERT_EQ(2u, notification_log.size());
@@ -825,6 +824,95 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, Notify) {
     EXPECT_EQ(2, observer.list_changed_counter());
     EXPECT_EQ(2, observer.tag_updated_counter());
   }
+
+  provided_file_system_->RemoveObserver(&observer);
+}
+
+TEST_F(FileSystemProviderProvidedFileSystemTest, OpenedFiles) {
+  Observer observer;
+  provided_file_system_->AddObserver(&observer);
+
+  OpenFileLog log;
+  provided_file_system_->OpenFile(
+      base::FilePath(kFilePath), OPEN_FILE_MODE_WRITE,
+      base::Bind(LogOpenFile, base::Unretained(&log)));
+  base::RunLoop().RunUntilIdle();
+
+  ASSERT_EQ(1u, log.size());
+  EXPECT_EQ(base::File::FILE_OK, log[0].second);
+  const int file_handle = log[0].first;
+
+  const OpenedFiles& opened_files = provided_file_system_->GetOpenedFiles();
+  const auto opened_file_it = opened_files.find(file_handle);
+  ASSERT_NE(opened_files.end(), opened_file_it);
+  EXPECT_EQ(kFilePath, opened_file_it->second.file_path.AsUTF8Unsafe());
+  EXPECT_EQ(OPEN_FILE_MODE_WRITE, opened_file_it->second.mode);
+
+  Log close_log;
+  provided_file_system_->CloseFile(
+      file_handle, base::Bind(LogStatus, base::Unretained(&close_log)));
+  base::RunLoop().RunUntilIdle();
+
+  ASSERT_EQ(1u, close_log.size());
+  EXPECT_EQ(base::File::FILE_OK, close_log[0]);
+  EXPECT_EQ(0u, opened_files.size());
+
+  provided_file_system_->RemoveObserver(&observer);
+}
+
+TEST_F(FileSystemProviderProvidedFileSystemTest, OpenedFiles_OpeningFailure) {
+  Observer observer;
+  provided_file_system_->AddObserver(&observer);
+
+  event_router_->set_reply_result(base::File::FILE_ERROR_NOT_FOUND);
+
+  OpenFileLog log;
+  provided_file_system_->OpenFile(
+      base::FilePath(kFilePath), OPEN_FILE_MODE_WRITE,
+      base::Bind(LogOpenFile, base::Unretained(&log)));
+  base::RunLoop().RunUntilIdle();
+
+  ASSERT_EQ(1u, log.size());
+  EXPECT_EQ(base::File::FILE_ERROR_NOT_FOUND, log[0].second);
+
+  const OpenedFiles& opened_files = provided_file_system_->GetOpenedFiles();
+  EXPECT_EQ(0u, opened_files.size());
+
+  provided_file_system_->RemoveObserver(&observer);
+}
+
+TEST_F(FileSystemProviderProvidedFileSystemTest, OpenedFile_ClosingFailure) {
+  Observer observer;
+  provided_file_system_->AddObserver(&observer);
+
+  OpenFileLog log;
+  provided_file_system_->OpenFile(
+      base::FilePath(kFilePath), OPEN_FILE_MODE_WRITE,
+      base::Bind(LogOpenFile, base::Unretained(&log)));
+  base::RunLoop().RunUntilIdle();
+
+  ASSERT_EQ(1u, log.size());
+  EXPECT_EQ(base::File::FILE_OK, log[0].second);
+  const int file_handle = log[0].first;
+
+  const OpenedFiles& opened_files = provided_file_system_->GetOpenedFiles();
+  const auto opened_file_it = opened_files.find(file_handle);
+  ASSERT_NE(opened_files.end(), opened_file_it);
+  EXPECT_EQ(kFilePath, opened_file_it->second.file_path.AsUTF8Unsafe());
+  EXPECT_EQ(OPEN_FILE_MODE_WRITE, opened_file_it->second.mode);
+
+  // Simulate an error for closing a file. Still, the file should be closed
+  // in the C++ layer, anyway.
+  event_router_->set_reply_result(base::File::FILE_ERROR_NOT_FOUND);
+
+  Log close_log;
+  provided_file_system_->CloseFile(
+      file_handle, base::Bind(LogStatus, base::Unretained(&close_log)));
+  base::RunLoop().RunUntilIdle();
+
+  ASSERT_EQ(1u, close_log.size());
+  EXPECT_EQ(base::File::FILE_ERROR_NOT_FOUND, close_log[0]);
+  EXPECT_EQ(0u, opened_files.size());
 
   provided_file_system_->RemoveObserver(&observer);
 }

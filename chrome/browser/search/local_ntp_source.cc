@@ -4,6 +4,7 @@
 
 #include "chrome/browser/search/local_ntp_source.h"
 
+#include "base/command_line.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted_memory.h"
@@ -25,6 +26,7 @@
 #include "net/url_request/url_request.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/base/ui_base_switches.h"
 #include "ui/base/webui/jstemplate_builder.h"
 #include "ui/base/webui/web_ui_util.h"
 #include "ui/resources/grit/ui_resources.h"
@@ -32,26 +34,17 @@
 
 namespace {
 
-// Constants related to the Material Design NTP field trial.
-const char kMaterialDesignNTPFieldTrialName[] = "MaterialDesignNTP";
-const char kMaterialDesignNTPFieldTrialEnabledPrefix[] = "Enabled";
-
-// Names of NTP designs in local resources, also used in CSS.
-const char kClassicalNTPName[] = "classical";
-const char kMaterialDesignNTPName[] = "md";
-
 // Signifies a locally constructed resource, i.e. not from grit/.
 const int kLocalResource = -1;
 
 const char kConfigDataFilename[] = "config.js";
-const char kLocalNTPFilename[] = "local-ntp.html";
 
 const struct Resource{
   const char* filename;
   int identifier;
   const char* mime_type;
 } kResources[] = {
-  { kLocalNTPFilename, IDR_LOCAL_NTP_HTML, "text/html" },
+  { "local-ntp.html", IDR_LOCAL_NTP_HTML, "text/html" },
   { "local-ntp.js", IDR_LOCAL_NTP_JS, "application/javascript" },
   { kConfigDataFilename, kLocalResource, "application/javascript" },
   { "local-ntp.css", IDR_LOCAL_NTP_CSS, "text/css" },
@@ -60,6 +53,7 @@ const struct Resource{
   { "images/close_2_active.png", IDR_CLOSE_2_P, "image/png" },
   { "images/close_2_white.png", IDR_CLOSE_2_MASK, "image/png" },
   { "images/close_3_mask.png", IDR_CLOSE_3_MASK, "image/png" },
+  { "images/close_4_button.png", IDR_CLOSE_4_BUTTON, "image/png" },
   { "images/google_logo.png", IDR_LOCAL_NTP_IMAGES_LOGO_PNG, "image/png" },
   { "images/white_google_logo.png",
     IDR_LOCAL_NTP_IMAGES_WHITE_LOGO_PNG, "image/png" },
@@ -88,12 +82,19 @@ bool DefaultSearchProviderIsGoogle(Profile* profile) {
        SEARCH_ENGINE_GOOGLE);
 }
 
-// Returns whether the user is part of a group where the Material Design NTP is
-// enabled.
-bool IsMaterialDesignEnabled() {
-  return StartsWithASCII(
-      base::FieldTrialList::FindFullName(kMaterialDesignNTPFieldTrialName),
-      kMaterialDesignNTPFieldTrialEnabledPrefix, true);
+// Returns whether icon NTP is enabled by experiment.
+// TODO(huangs): Remove all 3 copies of this routine once Icon NTP launches.
+bool IsIconNTPEnabled() {
+  // Note: It's important to query the field trial state first, to ensure that
+  // UMA reports the correct group.
+  const std::string group_name = base::FieldTrialList::FindFullName("IconNTP");
+  using base::CommandLine;
+  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kDisableIconNtp))
+    return false;
+  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kEnableIconNtp))
+    return true;
+
+  return base::StartsWith(group_name, "Enabled", base::CompareCase::SENSITIVE);
 }
 
 // Adds a localized string keyed by resource id to the dictionary.
@@ -106,7 +107,7 @@ void AddString(base::DictionaryValue* dictionary,
 // Adds a localized string for the Google searchbox placeholder text.
 void AddGoogleSearchboxPlaceholderString(base::DictionaryValue* dictionary) {
   base::string16 placeholder = l10n_util::GetStringFUTF16(
-      IDS_OMNIBOX_EMPTY_HINT_WITH_DEFAULT_SEARCH_PROVIDER,
+      IDS_SEARCH_BOX_EMPTY_HINT,
       base::ASCIIToUTF16("Google"));
   dictionary->SetString("searchboxPlaceholder", placeholder);
 }
@@ -142,11 +143,7 @@ std::string GetConfigData(Profile* profile) {
   config_data.Set("translatedStrings",
                   GetTranslatedStrings(is_google).release());
   config_data.SetBoolean("isGooglePage", is_google);
-  if (IsMaterialDesignEnabled()) {
-    scoped_ptr<base::Value> design_value(
-        new base::StringValue(kMaterialDesignNTPName));
-    config_data.Set("ntpDesignName", design_value.release());
-  }
+  config_data.SetBoolean("useIcons", IsIconNTPEnabled());
 
   // Serialize the dictionary.
   std::string js_text;
@@ -186,13 +183,6 @@ void LocalNtpSource::StartDataRequest(
   if (stripped_path == kConfigDataFilename) {
     std::string config_data_js = GetConfigData(profile_);
     callback.Run(base::RefCountedString::TakeString(&config_data_js));
-    return;
-  }
-  if (stripped_path == kLocalNTPFilename) {
-    SendResourceWithClass(
-        IDR_LOCAL_NTP_HTML,
-        IsMaterialDesignEnabled() ? kMaterialDesignNTPName : kClassicalNTPName,
-        callback);
     return;
   }
   float scale = 1.0f;
@@ -243,15 +233,4 @@ std::string LocalNtpSource::GetContentSecurityPolicyFrameSrc() const {
   // Allow embedding of most visited iframes.
   return base::StringPrintf("frame-src %s;",
                             chrome::kChromeSearchMostVisitedUrl);
-}
-
-void LocalNtpSource::SendResourceWithClass(
-    int resource_id,
-    const std::string& class_name,
-    const content::URLDataSource::GotDataCallback& callback) {
-  base::StringPiece resource_data =
-      ResourceBundle::GetSharedInstance().GetRawDataResource(resource_id);
-  std::string response(resource_data.as_string());
-  ReplaceFirstSubstringAfterOffset(&response, 0, "{{CLASS}}", class_name);
-  callback.Run(base::RefCountedString::TakeString(&response));
 }

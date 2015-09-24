@@ -92,15 +92,14 @@
 // Note that our definition of HTML payload is much stricter than IE's
 // definition and roughly the same as Firefox's definition.
 
+#include <stdint.h>
 #include <string>
 
 #include "net/base/mime_sniffer.h"
 
-#include "base/basictypes.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
 #include "base/strings/string_util.h"
-#include "net/base/mime_util.h"
 #include "url/gurl.h"
 
 namespace net {
@@ -110,11 +109,11 @@ namespace net {
 static const size_t kBytesRequiredForMagic = 42;
 
 struct MagicNumber {
-  const char* mime_type;
-  const char* magic;
+  const char* const mime_type;
+  const char* const magic;
   size_t magic_len;
   bool is_string;
-  const char* mask;  // if set, must have same length as |magic|
+  const char* const mask;  // if set, must have same length as |magic|
 };
 
 #define MAGIC_NUMBER(mime_type, magic) \
@@ -122,7 +121,8 @@ struct MagicNumber {
 
 template <int MagicSize, int MaskSize>
 class VerifySizes {
-  COMPILE_ASSERT(MagicSize == MaskSize, sizes_must_be_equal);
+  static_assert(MagicSize == MaskSize, "sizes must be equal");
+
  public:
   enum { SIZES = MagicSize };
 };
@@ -162,10 +162,6 @@ static const MagicNumber kMagicNumbers[] = {
   MAGIC_NUMBER("audio/mpeg", "ID3")
   MAGIC_NUMBER("image/webp", "RIFF....WEBPVP8 ")
   MAGIC_NUMBER("video/webm", "\x1A\x45\xDF\xA3")
-  // TODO(abarth): we don't handle partial byte matches yet
-  // MAGIC_NUMBER("video/mpeg", "\x00\x00\x01\xB")
-  // MAGIC_NUMBER("audio/mpeg", "\xFF\xE")
-  // MAGIC_NUMBER("audio/mpeg", "\xFF\xF")
   MAGIC_NUMBER("application/zip", "PK\x03\x04")
   MAGIC_NUMBER("application/x-rar-compressed", "Rar!\x1A\x07\x00")
   MAGIC_NUMBER("application/x-msmetafile", "\xD7\xCD\xC6\x9A")
@@ -208,7 +204,7 @@ enum OfficeDocType {
 
 struct OfficeExtensionType {
   OfficeDocType doc_type;
-  const char* extension;
+  const char* const extension;
   size_t extension_len;
 };
 
@@ -409,7 +405,7 @@ static bool SniffForHTML(const char* content,
   const char* const end = content + size;
   const char* pos;
   for (pos = content; pos < end; ++pos) {
-    if (!IsAsciiWhitespace(*pos))
+    if (!base::IsAsciiWhitespace(*pos))
       break;
   }
   static base::HistogramBase* counter(NULL);
@@ -651,27 +647,6 @@ static const MagicNumber kByteOrderMark[] = {
   MAGIC_NUMBER("text/plain", "\xEF\xBB\xBF")  // UTF-8
 };
 
-// Whether a given byte looks like it might be part of binary content.
-// Source: HTML5 spec
-static char kByteLooksBinary[] = {
-  1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1,  // 0x00 - 0x0F
-  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1,  // 0x10 - 0x1F
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0x20 - 0x2F
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0x30 - 0x3F
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0x40 - 0x4F
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0x50 - 0x5F
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0x60 - 0x6F
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0x70 - 0x7F
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0x80 - 0x8F
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0x90 - 0x9F
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0xA0 - 0xAF
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0xB0 - 0xBF
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0xC0 - 0xCF
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0xD0 - 0xDF
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0xE0 - 0xEF
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0xF0 - 0xFF
-};
-
 // Returns true and sets result to "application/octet-stream" if the content
 // appears to be binary data. Otherwise, returns false and sets "text/plain".
 // Clears have_enough_content if more data could possibly change the result.
@@ -704,12 +679,9 @@ static bool SniffBinary(const char* content,
   }
 
   // Next we look to see if any of the bytes "look binary."
-  for (size_t i = 0; i < size; ++i) {
-    // If we a see a binary-looking byte, we think the content is binary.
-    if (kByteLooksBinary[static_cast<unsigned char>(content[i])]) {
-      result->assign("application/octet-stream");
-      return true;
-    }
+  if (LooksLikeBinary(content, size)) {
+    result->assign("application/octet-stream");
+    return true;
   }
 
   // No evidence either way. Default to non-binary and, if truncated, clear
@@ -723,7 +695,7 @@ static bool SniffBinary(const char* content,
 static bool IsUnknownMimeType(const std::string& mime_type) {
   // TODO(tc): Maybe reuse some code in net/http/http_response_headers.* here.
   // If we do, please be careful not to alter the semantics at all.
-  static const char* kUnknownMimeTypes[] = {
+  static const char* const kUnknownMimeTypes[] = {
     // Empty mime types are as unknown as they get.
     "",
     // The unknown/unknown type is popular and uninformative
@@ -818,7 +790,7 @@ bool ShouldSniffMimeType(const GURL& url, const std::string& mime_type) {
     return false;
   }
 
-  static const char* kSniffableTypes[] = {
+  static const char* const kSniffableTypes[] = {
     // Many web servers are misconfigured to send text/plain for many
     // different types of content.
     "text/plain",
@@ -967,6 +939,24 @@ bool SniffMimeTypeFromLocalData(const char* content,
   // Finally check the original table.
   return CheckForMagicNumbers(content, size, kMagicNumbers,
                               arraysize(kMagicNumbers), NULL, result);
+}
+
+bool LooksLikeBinary(const char* content, size_t size) {
+  // The definition of "binary bytes" is from the spec at
+  // https://mimesniff.spec.whatwg.org/#binary-data-byte
+  //
+  // The bytes which are considered to be "binary" are all < 0x20. Encode them
+  // one bit per byte, with 1 for a "binary" bit, and 0 for a "text" bit. The
+  // least-significant bit represents byte 0x00, the most-significant bit
+  // represents byte 0x1F.
+  const uint32_t kBinaryBits =
+      ~(1u << '\t' | 1u << '\n' | 1u << '\r' | 1u << '\f' | 1u << '\x1b');
+  for (size_t i = 0; i < size; ++i) {
+    uint8_t byte = static_cast<uint8_t>(content[i]);
+    if (byte < 0x20 && (kBinaryBits & (1u << byte)))
+      return true;
+  }
+  return false;
 }
 
 }  // namespace net

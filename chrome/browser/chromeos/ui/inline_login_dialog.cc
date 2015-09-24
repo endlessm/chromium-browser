@@ -43,9 +43,10 @@ base::string16 InlineLoginDialog::GetDialogTitle() const {
 }
 
 GURL InlineLoginDialog::GetDialogContentURL() const {
-  return GURL(signin::GetPromoURL(signin::SOURCE_AVATAR_BUBBLE_ADD_ACCOUNT,
-                                  false /* auto_close */,
-                                  true /* is_constrained */));
+  return GURL(signin::GetPromoURL(
+      signin_metrics::SOURCE_AVATAR_BUBBLE_ADD_ACCOUNT,
+      false /* auto_close */,
+      true /* is_constrained */));
 }
 
 void InlineLoginDialog::GetWebUIMessageHandlers(
@@ -70,8 +71,7 @@ void InlineLoginDialog::OnDialogClosed(const std::string& json_retval) {
 
 void InlineLoginDialog::OnCloseContents(content::WebContents* source,
                                         bool* out_close_dialog) {
-  if (out_close_dialog)
-    *out_close_dialog = true;
+  *out_close_dialog = true;
 }
 
 bool InlineLoginDialog::ShouldShowDialogTitle() const {

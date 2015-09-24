@@ -9,13 +9,16 @@
 #include "base/bind.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
+#include "base/metrics/statistics_recorder.h"
 #include "base/prefs/testing_pref_service.h"
 #include "base/threading/platform_thread.h"
 #include "components/metrics/client_info.h"
 #include "components/metrics/compression_utils.h"
+#include "components/metrics/metrics_hashes.h"
 #include "components/metrics/metrics_log.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_state_manager.h"
+#include "components/metrics/test_metrics_provider.h"
 #include "components/metrics/test_metrics_service_client.h"
 #include "components/variations/metrics_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -30,30 +33,6 @@ void StoreNoClientInfoBackup(const ClientInfo& /* client_info */) {
 scoped_ptr<ClientInfo> ReturnNoBackup() {
   return scoped_ptr<ClientInfo>();
 }
-
-class TestMetricsProvider : public MetricsProvider {
- public:
-  explicit TestMetricsProvider(bool has_stability_metrics) :
-      has_stability_metrics_(has_stability_metrics),
-      provide_stability_metrics_called_(false) {
-  }
-
-  bool HasStabilityMetrics() override { return has_stability_metrics_; }
-  void ProvideStabilityMetrics(
-      SystemProfileProto* system_profile_proto) override {
-    provide_stability_metrics_called_ = true;
-  }
-
-  bool provide_stability_metrics_called() const {
-    return provide_stability_metrics_called_;
-  }
-
- private:
-  bool has_stability_metrics_;
-  bool provide_stability_metrics_called_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestMetricsProvider);
-};
 
 class TestMetricsService : public MetricsService {
  public:
@@ -131,13 +110,40 @@ class MetricsServiceTest : public testing::Test {
       const std::string& trial_group) {
     uint32 trial_name_hash = HashName(trial_name);
     uint32 trial_group_hash = HashName(trial_group);
-    for (std::vector<variations::ActiveGroupId>::const_iterator it =
-             synthetic_trials.begin();
-         it != synthetic_trials.end(); ++it) {
-      if ((*it).name == trial_name_hash && (*it).group == trial_group_hash)
+    for (const variations::ActiveGroupId& trial : synthetic_trials) {
+      if (trial.name == trial_name_hash && trial.group == trial_group_hash)
         return true;
     }
     return false;
+  }
+
+  // Finds a histogram with the specified |name_hash| in |histograms|.
+  const base::HistogramBase* FindHistogram(
+      const base::StatisticsRecorder::Histograms& histograms,
+      uint64 name_hash) {
+    for (const base::HistogramBase* histogram : histograms) {
+      if (name_hash == HashMetricName(histogram->histogram_name()))
+        return histogram;
+    }
+    return nullptr;
+  }
+
+  // Checks whether |uma_log| contains any histograms that are not flagged
+  // with kUmaStabilityHistogramFlag. Stability logs should only contain such
+  // histograms.
+  void CheckForNonStabilityHistograms(
+      const ChromeUserMetricsExtension& uma_log) {
+    const int kStabilityFlags = base::HistogramBase::kUmaStabilityHistogramFlag;
+    base::StatisticsRecorder::Histograms histograms;
+    base::StatisticsRecorder::GetHistograms(&histograms);
+    for (int i = 0; i < uma_log.histogram_event_size(); ++i) {
+      const uint64 hash = uma_log.histogram_event(i).name_hash();
+
+      const base::HistogramBase* histogram = FindHistogram(histograms, hash);
+      EXPECT_TRUE(histogram) << hash;
+
+      EXPECT_EQ(kStabilityFlags, histogram->flags() & kStabilityFlags) << hash;
+    }
   }
 
  private:
@@ -163,7 +169,7 @@ TEST_F(MetricsServiceTest, InitialStabilityLogAfterCleanShutDown) {
   TestMetricsService service(
       GetMetricsStateManager(), &client, GetLocalState());
 
-  TestMetricsProvider* test_provider = new TestMetricsProvider(false);
+  TestMetricsProvider* test_provider = new TestMetricsProvider();
   service.RegisterMetricsProvider(scoped_ptr<MetricsProvider>(test_provider));
 
   service.InitializeMetricsRecordingState();
@@ -171,8 +177,9 @@ TEST_F(MetricsServiceTest, InitialStabilityLogAfterCleanShutDown) {
   EXPECT_FALSE(service.log_manager()->has_unsent_logs());
   EXPECT_FALSE(service.log_manager()->has_staged_log());
 
-  // The test provider should not have been called upon to provide stability
-  // metrics.
+  // The test provider should not have been called upon to provide initial
+  // stability nor regular stability metrics.
+  EXPECT_FALSE(test_provider->provide_initial_stability_metrics_called());
   EXPECT_FALSE(test_provider->provide_stability_metrics_called());
 }
 
@@ -184,8 +191,7 @@ TEST_F(MetricsServiceTest, InitialStabilityLogAtProviderRequest) {
   TestMetricsServiceClient client;
   TestMetricsLog log("client", 1, &client, GetLocalState());
   log.RecordEnvironment(std::vector<MetricsProvider*>(),
-                        std::vector<variations::ActiveGroupId>(),
-                        0);
+                        std::vector<variations::ActiveGroupId>(), 0, 0);
 
   // Record stability build time and version from previous session, so that
   // stability metrics (including exited cleanly flag) won't be cleared.
@@ -201,7 +207,8 @@ TEST_F(MetricsServiceTest, InitialStabilityLogAtProviderRequest) {
   TestMetricsService service(
       GetMetricsStateManager(), &client, GetLocalState());
   // Add a metrics provider that requests a stability log.
-  TestMetricsProvider* test_provider = new TestMetricsProvider(true);
+  TestMetricsProvider* test_provider = new TestMetricsProvider();
+  test_provider->set_has_initial_stability_metrics(true);
   service.RegisterMetricsProvider(
       scoped_ptr<MetricsProvider>(test_provider));
 
@@ -212,65 +219,10 @@ TEST_F(MetricsServiceTest, InitialStabilityLogAtProviderRequest) {
   EXPECT_TRUE(log_manager->has_unsent_logs());
   EXPECT_FALSE(log_manager->has_staged_log());
 
-  // The test provider should have been called upon to provide stability
-  // metrics.
+  // The test provider should have been called upon to provide initial
+  // stability and regular stability metrics.
+  EXPECT_TRUE(test_provider->provide_initial_stability_metrics_called());
   EXPECT_TRUE(test_provider->provide_stability_metrics_called());
-
-  // Stage the log and retrieve it.
-  log_manager->StageNextLogForUpload();
-  EXPECT_TRUE(log_manager->has_staged_log());
-
-  std::string uncompressed_log;
-  EXPECT_TRUE(GzipUncompress(log_manager->staged_log(),
-                                      &uncompressed_log));
-
-  ChromeUserMetricsExtension uma_log;
-  EXPECT_TRUE(uma_log.ParseFromString(uncompressed_log));
-
-  EXPECT_TRUE(uma_log.has_client_id());
-  EXPECT_TRUE(uma_log.has_session_id());
-  EXPECT_TRUE(uma_log.has_system_profile());
-  EXPECT_EQ(0, uma_log.user_action_event_size());
-  EXPECT_EQ(0, uma_log.omnibox_event_size());
-  EXPECT_EQ(0, uma_log.histogram_event_size());
-  EXPECT_EQ(0, uma_log.profiler_event_size());
-  EXPECT_EQ(0, uma_log.perf_data_size());
-
-  // As there wasn't an unclean shutdown, this log has zero crash count.
-  EXPECT_EQ(0, uma_log.system_profile().stability().crash_count());
-}
-
-TEST_F(MetricsServiceTest, InitialStabilityLogAfterCrash) {
-  EnableMetricsReporting();
-  GetLocalState()->ClearPref(prefs::kStabilityExitedCleanly);
-
-  // Set up prefs to simulate restarting after a crash.
-
-  // Save an existing system profile to prefs, to correspond to what would be
-  // saved from a previous session.
-  TestMetricsServiceClient client;
-  TestMetricsLog log("client", 1, &client, GetLocalState());
-  log.RecordEnvironment(std::vector<MetricsProvider*>(),
-                        std::vector<variations::ActiveGroupId>(),
-                        0);
-
-  // Record stability build time and version from previous session, so that
-  // stability metrics (including exited cleanly flag) won't be cleared.
-  GetLocalState()->SetInt64(prefs::kStabilityStatsBuildTime,
-                            MetricsLog::GetBuildTime());
-  GetLocalState()->SetString(prefs::kStabilityStatsVersion,
-                             client.GetVersionString());
-
-  GetLocalState()->SetBoolean(prefs::kStabilityExitedCleanly, false);
-
-  TestMetricsService service(
-      GetMetricsStateManager(), &client, GetLocalState());
-  service.InitializeMetricsRecordingState();
-
-  // The initial stability log should be generated and persisted in unsent logs.
-  MetricsLogManager* log_manager = service.log_manager();
-  EXPECT_TRUE(log_manager->has_unsent_logs());
-  EXPECT_FALSE(log_manager->has_staged_log());
 
   // Stage the log and retrieve it.
   log_manager->StageNextLogForUpload();
@@ -287,9 +239,71 @@ TEST_F(MetricsServiceTest, InitialStabilityLogAfterCrash) {
   EXPECT_TRUE(uma_log.has_system_profile());
   EXPECT_EQ(0, uma_log.user_action_event_size());
   EXPECT_EQ(0, uma_log.omnibox_event_size());
-  EXPECT_EQ(0, uma_log.histogram_event_size());
   EXPECT_EQ(0, uma_log.profiler_event_size());
   EXPECT_EQ(0, uma_log.perf_data_size());
+  CheckForNonStabilityHistograms(uma_log);
+
+  // As there wasn't an unclean shutdown, this log has zero crash count.
+  EXPECT_EQ(0, uma_log.system_profile().stability().crash_count());
+}
+
+TEST_F(MetricsServiceTest, InitialStabilityLogAfterCrash) {
+  EnableMetricsReporting();
+  GetLocalState()->ClearPref(prefs::kStabilityExitedCleanly);
+
+  // Set up prefs to simulate restarting after a crash.
+
+  // Save an existing system profile to prefs, to correspond to what would be
+  // saved from a previous session.
+  TestMetricsServiceClient client;
+  TestMetricsLog log("client", 1, &client, GetLocalState());
+  log.RecordEnvironment(std::vector<MetricsProvider*>(),
+                        std::vector<variations::ActiveGroupId>(), 0, 0);
+
+  // Record stability build time and version from previous session, so that
+  // stability metrics (including exited cleanly flag) won't be cleared.
+  GetLocalState()->SetInt64(prefs::kStabilityStatsBuildTime,
+                            MetricsLog::GetBuildTime());
+  GetLocalState()->SetString(prefs::kStabilityStatsVersion,
+                             client.GetVersionString());
+
+  GetLocalState()->SetBoolean(prefs::kStabilityExitedCleanly, false);
+
+  TestMetricsService service(
+      GetMetricsStateManager(), &client, GetLocalState());
+  // Add a provider.
+  TestMetricsProvider* test_provider = new TestMetricsProvider();
+  service.RegisterMetricsProvider(scoped_ptr<MetricsProvider>(test_provider));
+  service.InitializeMetricsRecordingState();
+
+  // The initial stability log should be generated and persisted in unsent logs.
+  MetricsLogManager* log_manager = service.log_manager();
+  EXPECT_TRUE(log_manager->has_unsent_logs());
+  EXPECT_FALSE(log_manager->has_staged_log());
+
+  // The test provider should have been called upon to provide initial
+  // stability and regular stability metrics.
+  EXPECT_TRUE(test_provider->provide_initial_stability_metrics_called());
+  EXPECT_TRUE(test_provider->provide_stability_metrics_called());
+
+  // Stage the log and retrieve it.
+  log_manager->StageNextLogForUpload();
+  EXPECT_TRUE(log_manager->has_staged_log());
+
+  std::string uncompressed_log;
+  EXPECT_TRUE(GzipUncompress(log_manager->staged_log(), &uncompressed_log));
+
+  ChromeUserMetricsExtension uma_log;
+  EXPECT_TRUE(uma_log.ParseFromString(uncompressed_log));
+
+  EXPECT_TRUE(uma_log.has_client_id());
+  EXPECT_TRUE(uma_log.has_session_id());
+  EXPECT_TRUE(uma_log.has_system_profile());
+  EXPECT_EQ(0, uma_log.user_action_event_size());
+  EXPECT_EQ(0, uma_log.omnibox_event_size());
+  EXPECT_EQ(0, uma_log.profiler_event_size());
+  EXPECT_EQ(0, uma_log.perf_data_size());
+  CheckForNonStabilityHistograms(uma_log);
 
   EXPECT_EQ(1, uma_log.system_profile().stability().crash_count());
 }

@@ -27,6 +27,23 @@ struct CONTENT_EXPORT FrameNavigateParams {
   // iframes are loaded automatically.
   int32 page_id;
 
+  // The unique ID of the NavigationEntry for browser-initiated navigations.
+  // This value was given to the render process in the HistoryNavigationParams
+  // and is being returned by the renderer without it having any idea what it
+  // means. If the navigation was renderer-initiated, this value is 0.
+  int nav_entry_id;
+
+  // The item sequence number identifies each stop in the session history.  It
+  // is unique within the renderer process and makes a best effort to be unique
+  // across browser sessions (using a renderer process timestamp).
+  int64 item_sequence_number;
+
+  // The document sequence number is used to identify cross-document navigations
+  // in session history.  It increments for each new document and is unique in
+  // the same way as |item_sequence_number|.  In-page navigations get a new item
+  // sequence number but the same document sequence number.
+  int64 document_sequence_number;
+
   // URL of the page being loaded.
   GURL url;
 

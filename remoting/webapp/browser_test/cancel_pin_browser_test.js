@@ -17,12 +17,15 @@
 /** @constructor */
 browserTest.Cancel_PIN = function() {};
 
+/**
+ * @param {{pin:string}} data
+ */
 browserTest.Cancel_PIN.prototype.run = function(data) {
   browserTest.expect(typeof data.pin == 'string');
 
   var AppMode = remoting.AppMode;
   browserTest.connectMe2Me().then(function() {
-    browserTest.clickOnControl('cancel-pin-entry-button');
+    browserTest.clickOnControl('#pin-dialog .cancel-button');
     return browserTest.onUIMode(AppMode.HOME);
   }).then(function() {
     return browserTest.connectMe2Me()

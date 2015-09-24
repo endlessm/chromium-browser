@@ -15,8 +15,10 @@ class ChromeAppViewGuestDelegate : public AppViewGuestDelegate {
   ChromeAppViewGuestDelegate();
   ~ChromeAppViewGuestDelegate() override;
 
+  // AppViewGuestDelegate:
   bool HandleContextMenu(content::WebContents* web_contents,
                          const content::ContextMenuParams& params) override;
+  AppDelegate* CreateAppDelegate() override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ChromeAppViewGuestDelegate);

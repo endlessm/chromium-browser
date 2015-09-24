@@ -276,7 +276,8 @@ void NaClDomHandler::AddPnaclInfo(base::ListValue* list) {
 void NaClDomHandler::AddNaClInfo(base::ListValue* list) {
   base::string16 nacl_enabled_string = ASCIIToUTF16("Disabled");
   if (isPluginEnabled(0) &&
-      CommandLine::ForCurrentProcess()->HasSwitch(switches::kEnableNaCl)) {
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnableNaCl)) {
     nacl_enabled_string = ASCIIToUTF16("Enabled by flag '--enable-nacl'");
   }
   AddPair(list,
@@ -327,9 +328,9 @@ void NaClDomHandler::DidCheckPathAndVersion(const std::string* version,
 void CheckVersion(const base::FilePath& pnacl_path, std::string* version) {
   base::FilePath pnacl_json_path =
       pnacl_path.AppendASCII("pnacl_public_pnacl_json");
-  JSONFileValueSerializer serializer(pnacl_json_path);
+  JSONFileValueDeserializer deserializer(pnacl_json_path);
   std::string error;
-  scoped_ptr<base::Value> root(serializer.Deserialize(NULL, &error));
+  scoped_ptr<base::Value> root(deserializer.Deserialize(NULL, &error));
   if (!root || !root->IsType(base::Value::TYPE_DICTIONARY))
     return;
 

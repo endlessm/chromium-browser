@@ -17,31 +17,34 @@ namespace {
 
 // See http://dev.chromium.org/chromium-os/chromiumos-design-docs/
 // system-notifications for the reasoning.
-const char* kAlwaysShownNotifierIds[] = {
-  kNotifierDisplay,
-  kNotifierDisplayError,
-#if defined(OS_CHROMEOS)
-  ui::NetworkStateNotifier::kNotifierNetworkError,
-#endif
-  kNotifierPower,
-  // Note: Order doesn't matter here, so keep this in alphabetic order, don't
-  // just add your stuff at the end!
-  NULL
-};
 
+// |kAlwaysShownSystemNotifierIds| is the list of system notification sources
+// which can appear regardless of the situation, such like login screen or lock
+// screen.
+const char* kAlwaysShownSystemNotifierIds[] = {
+    kNotifierBattery,
+    kNotifierDisplay,
+    kNotifierDisplayError,
+#if defined(OS_CHROMEOS)
+    ui::NetworkStateNotifier::kNotifierNetworkError,
+    kNotifierOobeScreen,
+#endif
+    kNotifierPower,
+    // Note: Order doesn't matter here, so keep this in alphabetic order, don't
+    // just add your stuff at the end!
+    NULL};
+
+// |kAshSystemNotifiers| is the list of normal system notification sources for
+// ash events. These notifications can be hidden in some context.
 const char* kAshSystemNotifiers[] = {
   kNotifierBluetooth,
-  kNotifierDisplay,
-  kNotifierDisplayError,
   kNotifierDisplayResolutionChange,
   kNotifierLocale,
   kNotifierMultiProfileFirstRun,
 #if defined(OS_CHROMEOS)
   ui::NetworkStateNotifier::kNotifierNetwork,
-  ui::NetworkStateNotifier::kNotifierNetworkError,
 #endif
   kNotifierNetworkPortalDetector,
-  kNotifierPower,
   kNotifierScreenshot,
   kNotifierScreenCapture,
   kNotifierScreenShare,
@@ -66,6 +69,7 @@ bool MatchSystemNotifierId(const message_center::NotifierId& notifier_id,
 
 }  // namespace
 
+const char kNotifierBattery[] = "ash.battery";
 const char kNotifierBluetooth[] = "ash.bluetooth";
 const char kNotifierDisplay[] = "ash.display";
 const char kNotifierDisplayError[] = "ash.display.error";
@@ -73,6 +77,7 @@ const char kNotifierDisplayResolutionChange[] = "ash.display.resolution-change";
 const char kNotifierLocale[] = "ash.locale";
 const char kNotifierMultiProfileFirstRun[] = "ash.multi-profile.first-run";
 const char kNotifierNetworkPortalDetector[] = "ash.network.portal-detector";
+const char kNotifierOobeScreen[] = "ash.oobe-screen";
 const char kNotifierPower[] = "ash.power";
 const char kNotifierScreenshot[] = "ash.screenshot";
 const char kNotifierScreenCapture[] = "ash.screen-capture";
@@ -81,11 +86,12 @@ const char kNotifierSessionLengthTimeout[] = "ash.session-length-timeout";
 const char kNotifierSupervisedUser[] = "ash.locally-managed-user";
 
 bool ShouldAlwaysShowPopups(const message_center::NotifierId& notifier_id) {
-  return MatchSystemNotifierId(notifier_id, kAlwaysShownNotifierIds);
+  return MatchSystemNotifierId(notifier_id, kAlwaysShownSystemNotifierIds);
 }
 
 bool IsAshSystemNotifier(const message_center::NotifierId& notifier_id) {
-  return MatchSystemNotifierId(notifier_id, kAshSystemNotifiers);
+  return ShouldAlwaysShowPopups(notifier_id) ||
+         MatchSystemNotifierId(notifier_id, kAshSystemNotifiers);
 }
 
 }  // namespace system_notifier

@@ -20,8 +20,8 @@
 #include "base/rand_util.h"
 #include "base/task_runner.h"
 #include "base/threading/thread.h"
-#include "components/invalidation/non_blocking_invalidator.h"
-#include "components/invalidation/object_id_invalidation_map.h"
+#include "components/invalidation/impl/non_blocking_invalidator.h"
+#include "components/invalidation/public/object_id_invalidation_map.h"
 #include "jingle/notifier/base/notification_method.h"
 #include "jingle/notifier/base/notifier_options.h"
 #include "net/base/host_port_pair.h"
@@ -38,7 +38,6 @@
 #include "sync/internal_api/public/read_node.h"
 #include "sync/internal_api/public/sync_manager.h"
 #include "sync/internal_api/public/sync_manager_factory.h"
-#include "sync/internal_api/public/util/report_unrecoverable_error_function.h"
 #include "sync/internal_api/public/util/unrecoverable_error_handler.h"
 #include "sync/internal_api/public/util/weak_handle.h"
 #include "sync/js/js_event_details.h"
@@ -122,7 +121,7 @@ class NullEncryptor : public Encryptor {
 
 std::string ValueToString(const base::Value& value) {
   std::string str;
-  base::JSONWriter::Write(&value, &str);
+  base::JSONWriter::Write(value, &str);
   return str;
 }
 
@@ -255,9 +254,8 @@ void LogUnrecoverableErrorContext() {
 }
 
 notifier::NotifierOptions ParseNotifierOptions(
-    const CommandLine& command_line,
-    const scoped_refptr<net::URLRequestContextGetter>&
-        request_context_getter) {
+    const base::CommandLine& command_line,
+    const scoped_refptr<net::URLRequestContextGetter>& request_context_getter) {
   notifier::NotifierOptions notifier_options;
   notifier_options.request_context_getter = request_context_getter;
   notifier_options.auth_mechanism = "X-OAUTH2";
@@ -293,7 +291,7 @@ int SyncClientMain(int argc, char* argv[]) {
   base::mac::ScopedNSAutoreleasePool pool;
 #endif
   base::AtExitManager exit_manager;
-  CommandLine::Init(argc, argv);
+  base::CommandLine::Init(argc, argv);
   logging::LoggingSettings settings;
   settings.logging_dest = logging::LOG_TO_SYSTEM_DEBUG_LOG;
   logging::InitLogging(settings);
@@ -305,7 +303,8 @@ int SyncClientMain(int argc, char* argv[]) {
   io_thread.StartWithOptions(options);
 
   // Parse command line.
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
   SyncCredentials credentials;
   credentials.email = command_line.GetSwitchValueASCII(kEmailSwitch);
   credentials.sync_token = command_line.GetSwitchValueASCII(kTokenSwitch);
@@ -331,7 +330,7 @@ int SyncClientMain(int argc, char* argv[]) {
 
   // Set up sync notifier factory.
   const scoped_refptr<MyTestURLRequestContextGetter> context_getter =
-      new MyTestURLRequestContextGetter(io_thread.message_loop_proxy());
+      new MyTestURLRequestContextGetter(io_thread.task_runner());
   const notifier::NotifierOptions& notifier_options =
       ParseNotifierOptions(command_line, context_getter);
   syncer::NetworkChannelCreator network_channel_creator =
@@ -437,7 +436,8 @@ int SyncClientMain(int argc, char* argv[]) {
       new InternalComponentsFactoryImpl(factory_switches));
   args.encryptor = &null_encryptor;
   args.unrecoverable_error_handler.reset(new LoggingUnrecoverableErrorHandler);
-  args.report_unrecoverable_error_function = &LogUnrecoverableErrorContext;
+  args.report_unrecoverable_error_function =
+      base::Bind(LogUnrecoverableErrorContext);
   args.cancelation_signal = &scm_cancelation_signal;
   sync_manager->Init(&args);
   // TODO(akalin): Avoid passing in model parameters multiple times by
@@ -445,9 +445,9 @@ int SyncClientMain(int argc, char* argv[]) {
   invalidator->UpdateCredentials(credentials.email, credentials.sync_token);
   scoped_ptr<InvalidatorShim> shim(new InvalidatorShim(sync_manager.get()));
   invalidator->RegisterHandler(shim.get());
-  invalidator->UpdateRegisteredIds(
-      shim.get(), ModelTypeSetToObjectIdSet(model_types));
-  sync_manager->StartSyncingNormally(routing_info);
+  CHECK(invalidator->UpdateRegisteredIds(
+      shim.get(), ModelTypeSetToObjectIdSet(model_types)));
+  sync_manager->StartSyncingNormally(routing_info, base::Time());
 
   sync_loop.Run();
 

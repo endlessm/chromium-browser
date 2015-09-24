@@ -20,31 +20,29 @@ namespace fake_server {
 TombstoneEntity::~TombstoneEntity() { }
 
 // static
-FakeServerEntity* TombstoneEntity::Create(const string& id) {
-  return new TombstoneEntity(id, GetModelTypeFromId(id));
+scoped_ptr<FakeServerEntity> TombstoneEntity::Create(const string& id) {
+  return scoped_ptr<FakeServerEntity>(
+      new TombstoneEntity(id, GetModelTypeFromId(id)));
 }
 
 TombstoneEntity::TombstoneEntity(const string& id,
                                  const ModelType& model_type)
-    : FakeServerEntity(id, model_type, 0, string()) { }
+    : FakeServerEntity(id, model_type, 0, string()) {
+  sync_pb::EntitySpecifics specifics;
+  AddDefaultFieldValue(model_type, &specifics);
+  SetSpecifics(specifics);
+}
 
 string TombstoneEntity::GetParentId() const {
   return string();
 }
 
-void TombstoneEntity::SerializeAsProto(sync_pb::SyncEntity* proto) {
+void TombstoneEntity::SerializeAsProto(sync_pb::SyncEntity* proto) const {
   FakeServerEntity::SerializeBaseProtoFields(proto);
-
-  sync_pb::EntitySpecifics* specifics = proto->mutable_specifics();
-  AddDefaultFieldValue(FakeServerEntity::GetModelType(), specifics);
 }
 
 bool TombstoneEntity::IsDeleted() const {
   return true;
-}
-
-bool TombstoneEntity::IsFolder() const {
-  return false;
 }
 
 }  // namespace fake_server

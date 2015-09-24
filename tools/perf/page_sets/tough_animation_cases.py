@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 from telemetry.page import page as page_module
-from telemetry.page import page_set as page_set_module
+from telemetry import story
 
 
 class ToughAnimationCasesPage(page_module.Page):
@@ -13,14 +13,15 @@ class ToughAnimationCasesPage(page_module.Page):
     self._need_measurement_ready = need_measurement_ready
 
   def RunNavigateSteps(self, action_runner):
-    action_runner.NavigateToPage(self)
+    super(ToughAnimationCasesPage, self).RunNavigateSteps(action_runner)
     if self._need_measurement_ready:
       action_runner.WaitForJavaScriptCondition('window.measurementReady')
 
-  def RunSmoothness(self, action_runner):
-    action_runner.Wait(10)
+  def RunPageInteractions(self, action_runner):
+    with action_runner.CreateInteraction('ToughAnimation'):
+      action_runner.Wait(10)
 
-class ToughAnimationCasesPageSet(page_set_module.PageSet):
+class ToughAnimationCasesPageSet(story.StorySet):
 
   """
   Description: A collection of animation performance tests
@@ -29,7 +30,7 @@ class ToughAnimationCasesPageSet(page_set_module.PageSet):
   def __init__(self):
     super(ToughAnimationCasesPageSet, self).__init__(
       archive_data_file='data/tough_animation_cases.json',
-      bucket=page_set_module.PARTNER_BUCKET)
+      cloud_storage_bucket=story.PARTNER_BUCKET)
 
     urls_list_one = [
       # Why: Tests the balls animation implemented with SVG animations.
@@ -181,10 +182,57 @@ class ToughAnimationCasesPageSet(page_set_module.PageSet):
       # Why: Tests many Web Animations all starting at different times.
       # pylint: disable=C0301
       'file://tough_animation_cases/web_animations_staggered_triggering.html?N=0316',
+
+      # Why: Tests color animations using CSS Animations.
+      # pylint: disable=C0301
+      'file://tough_animation_cases/css_value_type_color.html?api=css_animations&N=0316',
+      # Why: Tests filter animations using CSS Animations.
+      # pylint: disable=C0301
+      'file://tough_animation_cases/css_value_type_filter.html?api=css_animations&N=0316',
+      # Why: Tests length 3D animations using CSS Animations.
+      # pylint: disable=C0301
+      'file://tough_animation_cases/css_value_type_length_3d.html?api=css_animations&N=0316',
+      # Why: Tests complex length animations using CSS Animations.
+      # pylint: disable=C0301
+      'file://tough_animation_cases/css_value_type_length_complex.html?api=css_animations&N=0316',
+      # Why: Tests simple length animations using CSS Animations.
+      # pylint: disable=C0301
+      'file://tough_animation_cases/css_value_type_length_simple.html?api=css_animations&N=0316',
+      # Why: Tests shadow animations using CSS Animations.
+      # pylint: disable=C0301
+      'file://tough_animation_cases/css_value_type_shadow.html?api=css_animations&N=0316',
+      # Why: Tests complex transform animations using CSS Animations.
+      # pylint: disable=C0301
+      'file://tough_animation_cases/css_value_type_transform_complex.html?api=css_animations&N=0316',
+      # Why: Tests simple transform animations using CSS Animations.
+      # pylint: disable=C0301
+      'file://tough_animation_cases/css_value_type_transform_simple.html?api=css_animations&N=0316',
+
+      # Why: Tests color animations using Web Animations.
+      # pylint: disable=C0301
+      'file://tough_animation_cases/css_value_type_color.html?api=web_animations&N=0316',
+      # Why: Tests length 3D animations using Web Animations.
+      # pylint: disable=C0301
+      'file://tough_animation_cases/css_value_type_length_3d.html?api=web_animations&N=0316',
+      # Why: Tests complex length animations using Web Animations.
+      # pylint: disable=C0301
+      'file://tough_animation_cases/css_value_type_length_complex.html?api=web_animations&N=0316',
+      # Why: Tests simple length animations using Web Animations.
+      # pylint: disable=C0301
+      'file://tough_animation_cases/css_value_type_length_simple.html?api=web_animations&N=0316',
+      # Why: Tests shadow animations using Web Animations.
+      # pylint: disable=C0301
+      'file://tough_animation_cases/css_value_type_shadow.html?api=web_animations&N=0316',
+      # Why: Tests complex transform animations using Web Animations.
+      # pylint: disable=C0301
+      'file://tough_animation_cases/css_value_type_transform_complex.html?api=web_animations&N=0316',
+      # Why: Tests simple transform animations using Web Animations.
+      # pylint: disable=C0301
+      'file://tough_animation_cases/css_value_type_transform_simple.html?api=web_animations&N=0316',
     ]
 
     for url in urls_list_one:
-      self.AddPage(ToughAnimationCasesPage(url, self,
+      self.AddStory(ToughAnimationCasesPage(url, self,
                                            need_measurement_ready=True))
 
     urls_list_two = [
@@ -193,7 +241,18 @@ class ToughAnimationCasesPageSet(page_set_module.PageSet):
       # Why: Tests various transitions.
       'file://tough_animation_cases/transform_transitions.html',
       # Why: JS execution blocks CSS transition unless initial transform is set.
-      'file://tough_animation_cases/transform_transition_js_block.html'
+      'file://tough_animation_cases/transform_transition_js_block.html',
+      # Why: Tests animating elements having mix-blend-mode: difference (a
+      # separable popular blend mode).
+      'file://tough_animation_cases/mix_blend_mode_animation_difference.html',
+      # Why: Tests animating elements having mix-blend-mode: hue (a
+      # non-separable blend mode).
+      'file://tough_animation_cases/mix_blend_mode_animation_hue.html',
+      # Why: Tests animating elements having mix-blend-mode: screen.
+      'file://tough_animation_cases/mix_blend_mode_animation_screen.html',
+      # Why: Tests software-animating a deep DOM subtree having one blending
+      # leaf.
+      'file://tough_animation_cases/mix_blend_mode_propagating_isolation.html',
 
       # Disabled: crbug.com/350692
       # Why: Login page is slow because of ineffecient transform operations.
@@ -201,5 +260,5 @@ class ToughAnimationCasesPageSet(page_set_module.PageSet):
     ]
 
     for url in urls_list_two:
-      self.AddPage(ToughAnimationCasesPage(url, self,
+      self.AddStory(ToughAnimationCasesPage(url, self,
                                            need_measurement_ready=False))

@@ -11,12 +11,9 @@
 #include "ash/wm/gestures/long_press_affordance_handler.h"
 #include "ash/wm/gestures/overview_gesture_handler.h"
 #include "ash/wm/gestures/shelf_gesture_handler.h"
+#include "ui/base/touch/touch_device.h"
 #include "ui/events/event.h"
 #include "ui/events/event_constants.h"
-
-#if defined(OS_CHROMEOS) && defined(USE_X11)
-#include "ui/events/devices/x11/touch_factory_x11.h"
-#endif
 
 namespace ash {
 
@@ -30,10 +27,8 @@ SystemGestureEventFilter::~SystemGestureEventFilter() {
 }
 
 void SystemGestureEventFilter::OnMouseEvent(ui::MouseEvent* event) {
-#if defined(OS_CHROMEOS) && defined(USE_X11)
-  if (event->type() == ui::ET_MOUSE_PRESSED && event->native_event() &&
-      ui::TouchFactory::GetInstance()->IsTouchDevicePresent() &&
-      Shell::GetInstance()->delegate()) {
+#if defined(OS_CHROMEOS)
+  if (event->type() == ui::ET_MOUSE_PRESSED && ui::IsTouchDevicePresent()) {
     Shell::GetInstance()->metrics()->RecordUserMetricsAction(UMA_MOUSE_DOWN);
   }
 #endif
@@ -63,7 +58,7 @@ void SystemGestureEventFilter::OnGestureEvent(ui::GestureEvent* event) {
   }
 
   if (event->type() == ui::ET_GESTURE_WIN8_EDGE_SWIPE &&
-      shelf_gesture_handler_->ProcessGestureEvent(*event)) {
+      shelf_gesture_handler_->ProcessGestureEvent(*event, target)) {
     // Do not stop propagation, since the immersive fullscreen controller may
     // need to handle this event.
     return;

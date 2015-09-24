@@ -12,6 +12,7 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string_split.h"
 #include "base/threading/thread_checker.h"
+#include "third_party/leveldatabase/env_chromium.h"
 #include "third_party/leveldatabase/src/include/leveldb/db.h"
 #include "third_party/leveldatabase/src/include/leveldb/iterator.h"
 #include "third_party/leveldatabase/src/include/leveldb/options.h"
@@ -23,14 +24,13 @@ namespace leveldb_proto {
 
 LevelDB::LevelDB() {}
 
-LevelDB::~LevelDB() { DFAKE_SCOPED_LOCK(thread_checker_); }
-
-bool LevelDB::Init(const base::FilePath& database_dir) {
+LevelDB::~LevelDB() {
   DFAKE_SCOPED_LOCK(thread_checker_);
+}
 
-  leveldb::Options options;
-  options.create_if_missing = true;
-  options.max_open_files = 0;  // Use minimum.
+bool LevelDB::InitWithOptions(const base::FilePath& database_dir,
+                              const leveldb::Options& options) {
+  DFAKE_SCOPED_LOCK(thread_checker_);
 
   std::string path = database_dir.AsUTF8Unsafe();
 
@@ -52,9 +52,20 @@ bool LevelDB::Init(const base::FilePath& database_dir) {
   return false;
 }
 
+bool LevelDB::Init(const base::FilePath& database_dir) {
+  leveldb::Options options;
+  options.create_if_missing = true;
+  options.max_open_files = 0;  // Use minimum.
+  options.reuse_logs = leveldb_env::kDefaultLogReuseOptionValue;
+  return InitWithOptions(database_dir, options);
+}
+
 bool LevelDB::Save(const base::StringPairs& entries_to_save,
                    const std::vector<std::string>& keys_to_remove) {
   DFAKE_SCOPED_LOCK(thread_checker_);
+  if (!db_) {
+    return false;
+  }
 
   leveldb::WriteBatch updates;
   for (base::StringPairs::const_iterator it = entries_to_save.begin();
@@ -79,6 +90,9 @@ bool LevelDB::Save(const base::StringPairs& entries_to_save,
 
 bool LevelDB::Load(std::vector<std::string>* entries) {
   DFAKE_SCOPED_LOCK(thread_checker_);
+  if (!db_) {
+    return false;
+  }
 
   leveldb::ReadOptions options;
   scoped_ptr<leveldb::Iterator> db_iterator(db_->NewIterator(options));

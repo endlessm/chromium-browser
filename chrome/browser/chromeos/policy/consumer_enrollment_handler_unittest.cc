@@ -4,138 +4,107 @@
 
 #include "chrome/browser/chromeos/policy/consumer_enrollment_handler.h"
 
+#include <utility>
+
+#include "base/memory/scoped_ptr.h"
 #include "base/run_loop.h"
+#include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
-#include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/chromeos/login/users/mock_user_manager.h"
+#include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/policy/device_cloud_policy_initializer.h"
+#include "chrome/browser/chromeos/policy/consumer_management_service.h"
+#include "chrome/browser/chromeos/policy/consumer_management_stage.h"
 #include "chrome/browser/chromeos/policy/enrollment_status_chromeos.h"
+#include "chrome/browser/chromeos/policy/fake_consumer_management_service.h"
 #include "chrome/browser/chromeos/policy/fake_device_cloud_policy_initializer.h"
-#include "chrome/browser/notifications/notification_ui_manager.h"
-#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/prefs/pref_service_syncable.h"
 #include "chrome/browser/signin/fake_profile_oauth2_token_service.h"
 #include "chrome/browser/signin/fake_profile_oauth2_token_service_builder.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
-#include "chrome/common/pref_names.h"
-#include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile_manager.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_manager_base.h"
-#include "content/public/browser/notification_details.h"
-#include "content/public/browser/notification_source.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "google_apis/gaia/google_service_auth_error.h"
-#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-using testing::NiceMock;
-using testing::Return;
-
 namespace {
-const char* kTestOwner = "test@chromium.org.test";
+const char* kTestOwner = "test.owner@chromium.org.test";
+const char* kTestUser = "test.user@chromium.org.test";
 }
 
 namespace policy {
 
-class ConsumerEnrollmentHandlerTest : public BrowserWithTestWindowTest {
+class ConsumerEnrollmentHandlerTest : public testing::Test {
  public:
   ConsumerEnrollmentHandlerTest()
-      : mock_user_manager_(new NiceMock<chromeos::MockUserManager>()),
-        scoped_user_manager_enabler_(mock_user_manager_),
-        fake_initializer_(new FakeDeviceCloudPolicyInitializer()) {
-    // Set up MockUserManager. The first user will be the owner.
-    mock_user_manager_->AddUser(kTestOwner);
+      : fake_service_(new FakeConsumerManagementService()),
+        fake_initializer_(new FakeDeviceCloudPolicyInitializer()),
+        fake_user_manager_(new chromeos::FakeChromeUserManager()),
+        scoped_user_manager_enabler_(fake_user_manager_),
+        testing_profile_manager_(
+            new TestingProfileManager(TestingBrowserProcess::GetGlobal())) {
+    // Set up FakeConsumerManagementService.
+    fake_service_->SetStatusAndStage(
+        ConsumerManagementService::STATUS_ENROLLING,
+        ConsumerManagementStage::EnrollmentOwnerStored());
 
-    // Return false for IsCurrentUserOwner() so that the enrollment stage is not
-    // reset.
-    ON_CALL(*mock_user_manager_, IsCurrentUserOwner())
-        .WillByDefault(Return(false));
-
-    // Inject FakeDeviceCloudPolicyInitializer.
+    // Inject fake objects.
     BrowserPolicyConnectorChromeOS* connector =
         g_browser_process->platform_part()->browser_policy_connector_chromeos();
+    connector->SetConsumerManagementServiceForTesting(
+        make_scoped_ptr(fake_service_));
     connector->SetDeviceCloudPolicyInitializerForTesting(
-        scoped_ptr<DeviceCloudPolicyInitializer>(fake_initializer_));
+        make_scoped_ptr(fake_initializer_));
+
+    // Set up FakeChromeUserManager.
+    fake_user_manager_->AddUser(kTestOwner);
+    fake_user_manager_->AddUser(kTestUser);
+    fake_user_manager_->set_owner_email(kTestOwner);
   }
 
-  virtual void SetUp() override {
-    BrowserWithTestWindowTest::SetUp();
-
-    testing_profile_manager_.reset(new TestingProfileManager(
-        TestingBrowserProcess::GetGlobal()));
+  void SetUp() override {
     ASSERT_TRUE(testing_profile_manager_->SetUp());
-
-    service_.reset(new ConsumerManagementService(NULL, NULL));
-    handler_.reset(new ConsumerEnrollmentHandler(service_.get(), NULL));
-
-    // Set up the testing profile.
-    profile()->set_profile_name(kTestOwner);
-
-    // Set up FakeProfileOAuth2TokenService and issue a fake refresh token.
-    ProfileOAuth2TokenServiceFactory::GetInstance()->SetTestingFactory(
-        profile(), &BuildAutoIssuingFakeProfileOAuth2TokenService);
-    GetFakeProfileOAuth2TokenService()->
-        IssueRefreshTokenForUser(kTestOwner, "fake_token");
+    TestingProfile::TestingFactories factories;
+    factories.push_back(
+        std::make_pair(ProfileOAuth2TokenServiceFactory::GetInstance(),
+                       BuildAutoIssuingFakeProfileOAuth2TokenService));
+    profile_ = testing_profile_manager_->CreateTestingProfile(
+        kTestUser, scoped_ptr<PrefServiceSyncable>(),
+        base::UTF8ToUTF16(kTestUser), 0, std::string(), factories);
 
     // Set up the authenticated user name and ID.
-    SigninManagerFactory::GetForProfile(profile())->
-        SetAuthenticatedUsername(kTestOwner);
+    SigninManagerFactory::GetForProfile(profile_)
+        ->SetAuthenticatedAccountInfo(kTestOwner, kTestOwner);
 
-    // The service should continue the enrollment process if the stage is
-    // ENROLLMENT_STAGE_OWNER_STORED.
-    SetEnrollmentStage(
-        ConsumerManagementService::ENROLLMENT_STAGE_OWNER_STORED);
-  }
-
-  virtual void TearDown() override {
-    g_browser_process->notification_ui_manager()->CancelAll();
-    testing_profile_manager_.reset();
-    handler_.reset();
-    service_.reset();
-
-    BrowserWithTestWindowTest::TearDown();
-  }
-
-  ConsumerManagementService::EnrollmentStage GetEnrollmentStage() {
-    return static_cast<ConsumerManagementService::EnrollmentStage>(
-        g_browser_process->local_state()->GetInteger(
-            prefs::kConsumerManagementEnrollmentStage));
-  }
-
-  void SetEnrollmentStage(ConsumerManagementService::EnrollmentStage stage) {
-    g_browser_process->local_state()->SetInteger(
-        prefs::kConsumerManagementEnrollmentStage, stage);
+    // Issue a fake refresh token.
+    GetFakeProfileOAuth2TokenService()->UpdateCredentials(kTestOwner,
+                                                          "fake_token");
   }
 
   FakeProfileOAuth2TokenService* GetFakeProfileOAuth2TokenService() {
     return static_cast<FakeProfileOAuth2TokenService*>(
-        ProfileOAuth2TokenServiceFactory::GetForProfile(profile()));
-  }
-
-  bool HasEnrollmentNotification() {
-    return g_browser_process->notification_ui_manager()->FindById(
-        "consumer_management.enroll",
-        NotificationUIManager::GetProfileID(profile()));
+        ProfileOAuth2TokenServiceFactory::GetForProfile(profile_));
   }
 
   void RunEnrollmentTest() {
-    // Send the profile prepared notification to continue the enrollment.
-    handler_->Observe(chrome::NOTIFICATION_LOGIN_USER_PROFILE_PREPARED,
-                      content::Source<void>(NULL),  // Not used.
-                      content::Details<Profile>(profile()));
+    handler_.reset(
+        new ConsumerEnrollmentHandler(profile_, fake_service_, NULL));
     base::RunLoop().RunUntilIdle();
   }
 
-  NiceMock<chromeos::MockUserManager>* mock_user_manager_;
-  chromeos::ScopedUserManagerEnabler scoped_user_manager_enabler_;
+  content::TestBrowserThreadBundle thread_bundle;
+  FakeConsumerManagementService* fake_service_;
   FakeDeviceCloudPolicyInitializer* fake_initializer_;
-  scoped_ptr<ConsumerManagementService> service_;
-  scoped_ptr<ConsumerEnrollmentHandler> handler_;
+  chromeos::FakeChromeUserManager* fake_user_manager_;
+  chromeos::ScopedUserManagerEnabler scoped_user_manager_enabler_;
   scoped_ptr<TestingProfileManager> testing_profile_manager_;
+  Profile* profile_;
+  scoped_ptr<ConsumerEnrollmentHandler> handler_;
 };
 
 TEST_F(ConsumerEnrollmentHandlerTest, EnrollsSuccessfully) {
@@ -144,24 +113,8 @@ TEST_F(ConsumerEnrollmentHandlerTest, EnrollsSuccessfully) {
   RunEnrollmentTest();
 
   EXPECT_TRUE(fake_initializer_->was_start_enrollment_called());
-  EXPECT_EQ(ConsumerManagementService::ENROLLMENT_STAGE_SUCCESS,
-            GetEnrollmentStage());
-  EXPECT_FALSE(HasEnrollmentNotification());
-}
-
-TEST_F(ConsumerEnrollmentHandlerTest,
-       ShowsDesktopNotificationAndResetsEnrollmentStageIfCurrentUserIsOwner) {
-  EXPECT_EQ(ConsumerManagementService::ENROLLMENT_STAGE_OWNER_STORED,
-            GetEnrollmentStage());
-  EXPECT_FALSE(HasEnrollmentNotification());
-  EXPECT_CALL(*mock_user_manager_, IsCurrentUserOwner())
-      .WillOnce(Return(true));
-
-  RunEnrollmentTest();
-
-  EXPECT_EQ(ConsumerManagementService::ENROLLMENT_STAGE_NONE,
-            GetEnrollmentStage());
-  EXPECT_TRUE(HasEnrollmentNotification());
+  EXPECT_EQ(ConsumerManagementStage::EnrollmentSuccess(),
+            fake_service_->GetStage());
 }
 
 TEST_F(ConsumerEnrollmentHandlerTest, FailsToGetAccessToken) {
@@ -184,8 +137,8 @@ TEST_F(ConsumerEnrollmentHandlerTest, FailsToGetAccessToken) {
       GoogleServiceAuthError(GoogleServiceAuthError::SERVICE_ERROR));
 
   EXPECT_FALSE(fake_initializer_->was_start_enrollment_called());
-  EXPECT_EQ(ConsumerManagementService::ENROLLMENT_STAGE_GET_TOKEN_FAILED,
-            GetEnrollmentStage());
+  EXPECT_EQ(ConsumerManagementStage::EnrollmentGetTokenFailed(),
+            fake_service_->GetStage());
 }
 
 TEST_F(ConsumerEnrollmentHandlerTest, FailsToRegister) {
@@ -196,21 +149,8 @@ TEST_F(ConsumerEnrollmentHandlerTest, FailsToRegister) {
   RunEnrollmentTest();
 
   EXPECT_TRUE(fake_initializer_->was_start_enrollment_called());
-  EXPECT_EQ(ConsumerManagementService::ENROLLMENT_STAGE_DM_SERVER_FAILED,
-            GetEnrollmentStage());
-}
-
-TEST_F(ConsumerEnrollmentHandlerTest,
-       ShowsDesktopNotificationOnlyIfEnrollmentIsAlreadyCompleted) {
-  SetEnrollmentStage(ConsumerManagementService::ENROLLMENT_STAGE_CANCELED);
-  EXPECT_FALSE(HasEnrollmentNotification());
-
-  RunEnrollmentTest();
-
-  EXPECT_FALSE(fake_initializer_->was_start_enrollment_called());
-  EXPECT_EQ(ConsumerManagementService::ENROLLMENT_STAGE_NONE,
-            GetEnrollmentStage());
-  EXPECT_TRUE(HasEnrollmentNotification());
+  EXPECT_EQ(ConsumerManagementStage::EnrollmentDMServerFailed(),
+            fake_service_->GetStage());
 }
 
 }  // namespace policy

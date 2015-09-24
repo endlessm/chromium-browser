@@ -5,6 +5,7 @@
 #include "chrome/browser/signin/signin_global_error.h"
 
 #include "base/logging.h"
+#include "base/metrics/histogram_macros.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/signin_header_helper.h"
@@ -21,6 +22,7 @@
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/signin/core/browser/signin_manager.h"
+#include "components/signin/core/browser/signin_metrics.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "net/base/url_util.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -93,14 +95,17 @@ void SigninGlobalError::ExecuteMenuItem(Browser* browser) {
   }
 #endif
 
-  // Global errors don't show up in the wrench menu on android.
-#if !defined(OS_ANDROID)
+  // Global errors don't show up in the wrench menu on mobile.
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
   LoginUIService* login_ui = LoginUIServiceFactory::GetForProfile(profile_);
   if (login_ui->current_login_ui()) {
     login_ui->current_login_ui()->FocusUI();
     return;
   }
 
+  UMA_HISTOGRAM_ENUMERATION("Signin.Reauth",
+                            signin_metrics::HISTOGRAM_REAUTH_SHOWN,
+                            signin_metrics::HISTOGRAM_REAUTH_MAX);
   if (switches::IsNewAvatarMenu()) {
     browser->window()->ShowAvatarBubbleFromAvatarButton(
         BrowserWindow::AVATAR_BUBBLE_MODE_REAUTH,

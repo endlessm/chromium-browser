@@ -10,8 +10,8 @@
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "chrome/browser/supervised_user/supervised_user_shared_settings_service.h"
-#include "chrome/browser/supervised_user/supervised_user_sync_service.h"
+#include "chrome/browser/supervised_user/legacy/supervised_user_shared_settings_service.h"
+#include "chrome/browser/supervised_user/legacy/supervised_user_sync_service.h"
 #include "chrome/browser/supervised_user/supervised_users.h"
 #include "chromeos/login/auth/extended_authenticator.h"
 #include "components/keyed_service/core/keyed_service.h"
@@ -33,17 +33,16 @@ class ManagerPasswordService
       public chromeos::ExtendedAuthenticator::NewAuthStatusConsumer {
  public:
   ManagerPasswordService();
-  virtual ~ManagerPasswordService();
+  ~ManagerPasswordService() override;
 
-  virtual void Shutdown() override;
+  void Shutdown() override;
 
   void Init(const std::string& user_id,
             SupervisedUserSyncService* user_service,
             SupervisedUserSharedSettingsService* service);
 
   // chromeos::ExtendedAuthenticator::AuthStatusConsumer overrides:
-  virtual void OnAuthenticationFailure(ExtendedAuthenticator::AuthState state)
-      override;
+  void OnAuthenticationFailure(ExtendedAuthenticator::AuthState state) override;
 
  private:
   void OnSharedSettingsChange(const std::string& su_id, const std::string& key);

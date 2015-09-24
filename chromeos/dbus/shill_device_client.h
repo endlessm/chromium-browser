@@ -26,6 +26,12 @@ class ObjectPath;
 
 }  // namespace dbus
 
+namespace net {
+
+class IPEndPoint;
+
+}  // namespace net
+
 namespace chromeos {
 
 class ShillPropertyChangedObserver;
@@ -53,12 +59,14 @@ class CHROMEOS_EXPORT ShillDeviceClient : public DBusClient {
                                    const std::string& name,
                                    const base::Value& value) = 0;
     virtual std::string GetDevicePathForType(const std::string& type) = 0;
+    virtual void SetTDLSBusyCount(int count) = 0;
+    virtual void SetTDLSState(const std::string& state) = 0;
 
    protected:
     virtual ~TestInterface() {}
   };
 
-  virtual ~ShillDeviceClient();
+  ~ShillDeviceClient() override;
 
   // Factory function, creates a new instance which is owned by the caller.
   // For normal usage, access the singleton via DBusThreadManager::Get().
@@ -162,6 +170,29 @@ class CHROMEOS_EXPORT ShillDeviceClient : public DBusClient {
                                     const std::string& peer,
                                     const StringCallback& callback,
                                     const ErrorCallback& error_callback) = 0;
+
+  // Adds |ip_endpoint| to the list of tcp connections that the device should
+  // monitor to wake the system from suspend.
+   virtual void AddWakeOnPacketConnection(
+      const dbus::ObjectPath& device_path,
+      const net::IPEndPoint& ip_endpoint,
+      const base::Closure& callback,
+      const ErrorCallback& error_callback) = 0;
+
+  // Removes |ip_endpoint| from the list of tcp connections that the device
+  // should monitor to wake the system from suspend.
+  virtual void RemoveWakeOnPacketConnection(
+      const dbus::ObjectPath& device_path,
+      const net::IPEndPoint& ip_endpoint,
+      const base::Closure& callback,
+      const ErrorCallback& error_callback) = 0;
+
+  // Clears the list of tcp connections that the device should monitor to wake
+  // the system from suspend.
+  virtual void RemoveAllWakeOnPacketConnections(
+      const dbus::ObjectPath& device_path,
+      const base::Closure& callback,
+      const ErrorCallback& error_callback) = 0;
 
   // Returns an interface for testing (stub only), or returns NULL.
   virtual TestInterface* GetTestInterface() = 0;

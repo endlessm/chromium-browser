@@ -10,13 +10,20 @@
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "components/metrics/net/network_metrics_provider.h"
 
 namespace metrics {
 
 // Scheduler task to drive a MetricsService object's uploading.
 class MetricsReportingScheduler {
  public:
-  explicit MetricsReportingScheduler(const base::Closure& upload_callback);
+  // Creates MetricsServiceScheduler object with the given |upload_callback|
+  // callback to call when uploading should happen and
+  // |upload_interval_callback| to determine the interval between uploads
+  // in steady state.
+  MetricsReportingScheduler(
+      const base::Closure& upload_callback,
+      const base::Callback<base::TimeDelta(void)>& upload_interval_callback);
   ~MetricsReportingScheduler();
 
   // Starts scheduling uploads. This in a no-op if the scheduler is already
@@ -51,10 +58,7 @@ class MetricsReportingScheduler {
   // where the server is having issues.
   void BackOffUploadInterval();
 
-  // Returns upload interval based on the system and experiment that the user is
-  // assigned to.
-  // TODO(gayane): Only for experimenting with upload interval for Android
-  // (bug: 17391128). Should be removed once the experiments are done.
+  // Returns upload interval to use in steady state.
   base::TimeDelta GetStandardUploadInterval();
 
   // The MetricsService method to call when uploading should happen.
@@ -83,6 +87,9 @@ class MetricsReportingScheduler {
   // Whether the initial scheduled upload timer has fired before the init task
   // has been completed.
   bool waiting_for_init_task_complete_;
+
+  // Callback function used to get the standard upload time.
+  base::Callback<base::TimeDelta(void)> upload_interval_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(MetricsReportingScheduler);
 };

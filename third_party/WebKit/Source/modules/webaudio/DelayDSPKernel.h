@@ -25,8 +25,8 @@
 #ifndef DelayDSPKernel_h
 #define DelayDSPKernel_h
 
-#include "platform/audio/AudioDelayDSPKernel.h"
 #include "modules/webaudio/DelayProcessor.h"
+#include "platform/audio/AudioDelayDSPKernel.h"
 
 namespace blink {
 
@@ -37,9 +37,9 @@ public:
     explicit DelayDSPKernel(DelayProcessor*);
 
 protected:
-    virtual bool hasSampleAccurateValues() override;
-    virtual void calculateSampleAccurateValues(float* delayTimes, size_t framesToProcess) override;
-    virtual double delayTime(float sampleRate) override;
+    bool hasSampleAccurateValues() override;
+    void calculateSampleAccurateValues(float* delayTimes, size_t framesToProcess) override;
+    double delayTime(float sampleRate) override;
 
 private:
     DelayProcessor* delayProcessor() { return static_cast<DelayProcessor*>(processor()); }

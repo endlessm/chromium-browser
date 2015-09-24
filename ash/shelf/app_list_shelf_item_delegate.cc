@@ -8,6 +8,7 @@
 #include "ash/shell.h"
 #include "ash/shell_delegate.h"
 #include "grit/ash_strings.h"
+#include "ui/app_list/app_list_switches.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace ash {
@@ -22,18 +23,27 @@ AppListShelfItemDelegate::~AppListShelfItemDelegate() {
   // ShelfItemDelegateManager owns and destroys this class.
 }
 
-bool AppListShelfItemDelegate::ItemSelected(const ui::Event& event) {
+ShelfItemDelegate::PerformedAction AppListShelfItemDelegate::ItemSelected(
+    const ui::Event& event) {
   // Pass NULL here to show the app list in the currently active RootWindow.
   Shell::GetInstance()->ToggleAppList(NULL);
-  return false;
+  return ShelfItemDelegate::kAppListMenuShown;
 }
 
 base::string16 AppListShelfItemDelegate::GetTitle() {
   ShelfModel* model = Shell::GetInstance()->shelf_model();
   DCHECK(model);
-  return model->status() == ShelfModel::STATUS_LOADING ?
-      l10n_util::GetStringUTF16(IDS_ASH_SHELF_APP_LIST_SYNCING_TITLE) :
-      l10n_util::GetStringUTF16(IDS_ASH_SHELF_APP_LIST_TITLE);
+  int title_id;
+  if (app_list::switches::IsExperimentalAppListEnabled()) {
+    title_id = model->status() == ShelfModel::STATUS_LOADING
+                   ? IDS_ASH_SHELF_APP_LIST_LAUNCHER_SYNCING_TITLE
+                   : IDS_ASH_SHELF_APP_LIST_LAUNCHER_TITLE;
+  } else {
+    title_id = model->status() == ShelfModel::STATUS_LOADING
+                   ? IDS_ASH_SHELF_APP_LIST_SYNCING_TITLE
+                   : IDS_ASH_SHELF_APP_LIST_TITLE;
+  }
+  return l10n_util::GetStringUTF16(title_id);
 }
 
 ui::MenuModel* AppListShelfItemDelegate::CreateContextMenu(

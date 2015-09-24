@@ -50,17 +50,16 @@ bool RegisterTestDefaultBrowser() {
   }
 
   // Perform the registration by invoking test_registrar.exe.
-  CommandLine register_command(registrar);
+  base::CommandLine register_command(registrar);
   register_command.AppendArg("/RegServer");
 
-  base::win::ScopedHandle register_handle;
-  if (base::LaunchProcess(register_command.GetCommandLineString(),
-                          base::LaunchOptions(),
-                          &register_handle)) {
+  base::Process register_process =
+      base::LaunchProcess(register_command.GetCommandLineString(),
+                          base::LaunchOptions());
+  if (register_process.IsValid()) {
     int ret = 0;
-    if (base::WaitForExitCodeWithTimeout(
-            register_handle.Get(), &ret,
-            base::TimeDelta::FromSeconds(kRegistrationTimeoutSeconds))) {
+    if (register_process.WaitForExitWithTimeout(
+            base::TimeDelta::FromSeconds(kRegistrationTimeoutSeconds), &ret)) {
       if (ret == 0) {
         return true;
       } else {

@@ -9,14 +9,13 @@
 #include "base/files/file_util.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/json/json_string_value_serializer.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "components/bookmarks/browser/bookmark_codec.h"
 #include "components/bookmarks/browser/bookmark_index.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/common/bookmark_constants.h"
-#include "components/startup_metric_utils/startup_metric_utils.h"
 
 using base::TimeTicks;
 
@@ -51,13 +50,11 @@ void LoadCallback(const base::FilePath& path,
                   const base::WeakPtr<BookmarkStorage>& storage,
                   scoped_ptr<BookmarkLoadDetails> details,
                   base::SequencedTaskRunner* task_runner) {
-  startup_metric_utils::ScopedSlowStartupUMA
-      scoped_timer("Startup.SlowStartupBookmarksLoad");
   bool load_index = false;
   bool bookmark_file_exists = base::PathExists(path);
   if (bookmark_file_exists) {
-    JSONFileValueSerializer serializer(path);
-    scoped_ptr<base::Value> root(serializer.Deserialize(NULL, NULL));
+    JSONFileValueDeserializer deserializer(path);
+    scoped_ptr<base::Value> root(deserializer.Deserialize(NULL, NULL));
 
     if (root.get()) {
       // Building the index can take a while, so we do it on the background
@@ -205,10 +202,10 @@ bool BookmarkStorage::SaveNow() {
     return false;
   }
 
-  std::string data;
-  if (!SerializeData(&data))
+  scoped_ptr<std::string> data(new std::string);
+  if (!SerializeData(data.get()))
     return false;
-  writer_.WriteNow(data);
+  writer_.WriteNow(data.Pass());
   return true;
 }
 

@@ -9,11 +9,15 @@
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
+#include "content/public/browser/resource_context.h"
 #include "content/public/browser/resource_controller.h"
 #include "content/public/browser/resource_request_info.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/referrer.h"
 #include "net/http/http_response_headers.h"
+#include "net/url_request/redirect_info.h"
+#include "net/url_request/url_request_context.h"
+#include "net/url_request/url_request_job_factory.h"
 #include "net/url_request/url_request.h"
 #include "ui/base/page_transition_types.h"
 
@@ -69,7 +73,7 @@ InterceptNavigationResourceThrottle::InterceptNavigationResourceThrottle(
 }
 
 InterceptNavigationResourceThrottle::~InterceptNavigationResourceThrottle() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 }
 
 void InterceptNavigationResourceThrottle::WillStartRequest(bool* defer) {
@@ -78,24 +82,14 @@ void InterceptNavigationResourceThrottle::WillStartRequest(bool* defer) {
 }
 
 void InterceptNavigationResourceThrottle::WillRedirectRequest(
-    const GURL& new_url,
+    const net::RedirectInfo& redirect_info,
     bool* defer) {
-  *defer =
-      CheckIfShouldIgnoreNavigation(new_url, GetMethodAfterRedirect(), true);
+  *defer = CheckIfShouldIgnoreNavigation(redirect_info.new_url,
+                                         redirect_info.new_method, true);
 }
 
 const char* InterceptNavigationResourceThrottle::GetNameForLogging() const {
   return "InterceptNavigationResourceThrottle";
-}
-
-std::string InterceptNavigationResourceThrottle::GetMethodAfterRedirect() {
-  net::HttpResponseHeaders* headers = request_->response_headers();
-  if (!headers)
-    return request_->method();
-  // TODO(davidben): Plumb net::RedirectInfo through content::ResourceThrottle
-  // and unexpose net::URLRequest::ComputeMethodForRedirect.
-  return net::URLRequest::ComputeMethodForRedirect(
-             request_->method(), headers->response_code());
 }
 
 bool InterceptNavigationResourceThrottle::CheckIfShouldIgnoreNavigation(
@@ -110,13 +104,15 @@ bool InterceptNavigationResourceThrottle::CheckIfShouldIgnoreNavigation(
   if (!info->GetAssociatedRenderFrame(&render_process_id, &render_frame_id))
     return false;
 
-  NavigationParams navigation_params(url,
-                                     Referrer(GURL(request_->referrer()),
-                                              info->GetReferrerPolicy()),
-                                     info->HasUserGesture(),
-                                     method == "POST",
-                                     info->GetPageTransition(),
-                                     is_redirect);
+  bool is_external_protocol =
+      !info->GetContext()->GetRequestContext()->job_factory()->IsHandledURL(
+          url);
+  NavigationParams navigation_params(
+      url,
+      Referrer::SanitizeForRequest(
+          url, Referrer(GURL(request_->referrer()), info->GetReferrerPolicy())),
+      info->HasUserGesture(), method == "POST", info->GetPageTransition(),
+      is_redirect, is_external_protocol, true);
 
   BrowserThread::PostTask(
       BrowserThread::UI,
@@ -138,7 +134,7 @@ bool InterceptNavigationResourceThrottle::CheckIfShouldIgnoreNavigation(
 
 void InterceptNavigationResourceThrottle::OnResultObtained(
     bool should_ignore_navigation) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   if (should_ignore_navigation) {
     controller()->CancelAndIgnore();

@@ -127,8 +127,7 @@ void DownloadShelfView::AddDownloadView(DownloadItemView* view) {
 }
 
 void DownloadShelfView::DoAddDownload(DownloadItem* download) {
-  DownloadItemView* view = new DownloadItemView(download, this);
-  AddDownloadView(view);
+  AddDownloadView(new DownloadItemView(download, this));
 }
 
 void DownloadShelfView::MouseMovedOutOfHost() {
@@ -367,7 +366,7 @@ void DownloadShelfView::ButtonPressed(
 }
 
 bool DownloadShelfView::IsShowing() const {
-  return shelf_animation_->IsShowing();
+  return visible() && shelf_animation_->IsShowing();
 }
 
 bool DownloadShelfView::IsClosing() const {
@@ -375,6 +374,7 @@ bool DownloadShelfView::IsClosing() const {
 }
 
 void DownloadShelfView::DoShow() {
+  SetVisible(true);
   shelf_animation_->Show();
 }
 
@@ -416,6 +416,7 @@ void DownloadShelfView::Closed() {
       ++i;
     }
   }
+  SetVisible(false);
 }
 
 bool DownloadShelfView::CanAutoClose() {

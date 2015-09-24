@@ -9,7 +9,6 @@
 #include "base/auto_reset.h"
 #include "base/logging.h"
 #include "base/mac/bundle_locations.h"
-#include "base/mac/mac_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/bookmarks/chrome_bookmark_client.h"
@@ -26,6 +25,8 @@
 #include "ui/base/l10n/l10n_util_mac.h"
 
 using bookmarks::BookmarkExpandedStateTracker;
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
 
 @interface BookmarkEditorBaseController ()
 
@@ -116,13 +117,15 @@ void BookmarkEditor::Show(gfx::NativeWindow parent_window,
 }
 
 // Adapter to tell BookmarkEditorBaseController when bookmarks change.
-class BookmarkEditorBaseControllerBridge : public BookmarkModelObserver {
+class BookmarkEditorBaseControllerBridge
+    : public bookmarks::BookmarkModelObserver {
  public:
   BookmarkEditorBaseControllerBridge(BookmarkEditorBaseController* controller)
       : controller_(controller),
         importing_(false)
   { }
 
+  // bookmarks::BookmarkModelObserver:
   void BookmarkModelLoaded(BookmarkModel* model, bool ids_reassigned) override {
     [controller_ modelChangedPreserveSelection:YES];
   }

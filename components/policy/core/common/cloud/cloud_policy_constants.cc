@@ -6,7 +6,11 @@
 
 #include "base/basictypes.h"
 #include "base/command_line.h"
+#include "base/logging.h"
 #include "components/policy/core/common/policy_switches.h"
+#include "policy/proto/device_management_backend.pb.h"
+
+namespace em = enterprise_management;
 
 namespace policy {
 
@@ -33,8 +37,13 @@ const char kValueRequestApiAuthorization[] = "api_authorization";
 const char kValueRequestUnregister[] = "unregister";
 const char kValueRequestUploadCertificate[] = "cert_upload";
 const char kValueRequestDeviceStateRetrieval[] = "device_state_retrieval";
+const char kValueRequestUploadStatus[] = "status_upload";
+const char kValueRequestRemoteCommands[] = "remote_commands";
 const char kValueUserAffiliationManaged[] = "managed";
 const char kValueUserAffiliationNone[] = "none";
+const char kValueRequestDeviceAttributeUpdatePermission[] =
+    "device_attribute_update_permission";
+const char kValueRequestDeviceAttributeUpdate[] = "device_attribute_update";
 
 const char kChromeDevicePolicyType[] = "google/chromeos/device";
 #if defined(OS_CHROMEOS)
@@ -84,7 +93,7 @@ const char kPolicyVerificationKeyHash[] = "1:356l7w";
 std::string GetPolicyVerificationKey() {
   // Disable key verification by default until production servers generate
   // the proper signatures.
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kDisablePolicyKeyVerification)) {
     return std::string();
   } else {
@@ -95,11 +104,50 @@ std::string GetPolicyVerificationKey() {
 
 const char* GetChromeUserPolicyType() {
 #if defined(OS_ANDROID) || defined(OS_IOS)
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kFakeCloudPolicyType))
     return "google/chrome/user";
 #endif
   return dm_protocol::kChromeUserPolicyType;
+}
+
+void SetManagementMode(em::PolicyData& policy_data, ManagementMode mode) {
+  switch (mode) {
+    case MANAGEMENT_MODE_LOCAL_OWNER:
+      policy_data.set_management_mode(em::PolicyData::LOCAL_OWNER);
+      return;
+
+    case MANAGEMENT_MODE_ENTERPRISE_MANAGED:
+      policy_data.set_management_mode(em::PolicyData::ENTERPRISE_MANAGED);
+      return;
+
+    case MANAGEMENT_MODE_CONSUMER_MANAGED:
+      policy_data.set_management_mode(em::PolicyData::CONSUMER_MANAGED);
+      return;
+  }
+  NOTREACHED();
+}
+
+ManagementMode GetManagementMode(const em::PolicyData& policy_data) {
+  if (policy_data.has_management_mode()) {
+    switch (policy_data.management_mode()) {
+      case em::PolicyData::LOCAL_OWNER:
+        return MANAGEMENT_MODE_LOCAL_OWNER;
+
+      case em::PolicyData::ENTERPRISE_MANAGED:
+        return MANAGEMENT_MODE_ENTERPRISE_MANAGED;
+
+      case em::PolicyData::CONSUMER_MANAGED:
+        return MANAGEMENT_MODE_CONSUMER_MANAGED;
+
+      default:
+        NOTREACHED();
+        return MANAGEMENT_MODE_LOCAL_OWNER;
+    }
+  }
+
+  return policy_data.has_request_token() ?
+      MANAGEMENT_MODE_ENTERPRISE_MANAGED : MANAGEMENT_MODE_LOCAL_OWNER;
 }
 
 }  // namespace policy

@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,22 +6,25 @@
 
 from __future__ import print_function
 
+import argparse
 import cPickle
 import signal
 import os
 import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))))
 
+from chromite.cbuildbot import constants
+from chromite.cli import command
 from chromite.lib import commandline
+from chromite.lib import cros_build_lib
 from chromite.lib import cros_build_lib_unittest
 from chromite.lib import cros_test_lib
 from chromite.lib import gs
-from chromite.lib import partial_mock
+from chromite.lib import path_util
+from chromite.lib import workspace_lib
 
-from chromite.cbuildbot import constants
+# pylint: disable=protected-access
 
-# pylint: disable=W0212
+
 class TestShutDownException(cros_test_lib.TestCase):
   """Test that ShutDownException can be pickled."""
 
@@ -34,20 +36,20 @@ class TestShutDownException(cros_test_lib.TestCase):
     self.assertEqual(ex.message, ex2.message)
 
 
-class GSPathTest(cros_test_lib.TestCase):
+class GSPathTest(cros_test_lib.OutputTestCase):
   """Test type=gs_path normalization functionality."""
 
   GS_REL_PATH = 'bucket/path/to/artifacts'
 
   @staticmethod
   def _ParseCommandLine(argv):
-    parser = commandline.OptionParser()
-    parser.add_option('-g', '--gs-path', type='gs_path',
-                      help=('GS path that contains the chrome to deploy.'))
+    parser = commandline.ArgumentParser()
+    parser.add_argument('-g', '--gs-path', type='gs_path',
+                        help='GS path that contains the chrome to deploy.')
     return parser.parse_args(argv)
 
   def _RunGSPathTestCase(self, raw, parsed):
-    options, _ =  self._ParseCommandLine(['--gs-path', raw])
+    options = self._ParseCommandLine(['--gs-path', raw])
     self.assertEquals(options.gs_path, parsed)
 
   def testNoGSPathCorrectionNeeded(self):
@@ -80,149 +82,271 @@ class GSPathTest(cros_test_lib.TestCase):
 
   def testInvalidPath(self):
     """Path cannot be normalized."""
-    with cros_test_lib.OutputCapturer():
+    with self.OutputCapturer():
       self.assertRaises2(
           SystemExit, self._RunGSPathTestCase, 'http://badhost.com/path', '',
           check_attrs={'code': 2})
 
 
-class DetermineCheckoutTest(cros_test_lib.MockTempDirTestCase):
-  """Verify functionality for figuring out what checkout we're in."""
+class BoolTest(cros_test_lib.TestCase):
+  """Test type='bool' functionality."""
+
+  @staticmethod
+  def _ParseCommandLine(argv):
+    parser = commandline.ArgumentParser()
+    parser.add_argument('-e', '--enable', type='bool',
+                        help='Boolean Argument.')
+    return parser.parse_args(argv)
+
+  def _RunBoolTestCase(self, enable, expected):
+    options = self._ParseCommandLine(['--enable', enable])
+    self.assertEquals(options.enable, expected)
+
+  def testBoolTrue(self):
+    """Test case setting the value to true."""
+    self._RunBoolTestCase('True', True)
+    self._RunBoolTestCase('1', True)
+    self._RunBoolTestCase('true', True)
+    self._RunBoolTestCase('yes', True)
+    self._RunBoolTestCase('TrUe', True)
+
+  def testBoolFalse(self):
+    """Test case setting the value to false."""
+    self._RunBoolTestCase('False', False)
+    self._RunBoolTestCase('0', False)
+    self._RunBoolTestCase('false', False)
+    self._RunBoolTestCase('no', False)
+    self._RunBoolTestCase('FaLse', False)
+
+
+class DeviceParseTest(cros_test_lib.OutputTestCase):
+  """Test device parsing functionality."""
+
+  _ALL_SCHEMES = (commandline.DEVICE_SCHEME_FILE,
+                  commandline.DEVICE_SCHEME_SSH,
+                  commandline.DEVICE_SCHEME_USB)
+
+  def _CheckDeviceParse(self, device_input, scheme, username=None,
+                        hostname=None, port=None, path=None):
+    """Checks that parsing a device input gives the expected result.
+
+    Args:
+      device_input: String input specifying a device.
+      scheme: String expected scheme.
+      username: String expected username or None.
+      hostname: String expected hostname or None.
+      port: Int expected port or None.
+      path: String expected path or None.
+    """
+    parser = commandline.ArgumentParser()
+    parser.add_argument('device', type=commandline.DeviceParser(scheme))
+    device = parser.parse_args([device_input]).device
+    self.assertEqual(device.scheme, scheme)
+    self.assertEqual(device.username, username)
+    self.assertEqual(device.hostname, hostname)
+    self.assertEqual(device.port, port)
+    self.assertEqual(device.path, path)
+
+  def _CheckDeviceParseFails(self, device_input, schemes=_ALL_SCHEMES):
+    """Checks that parsing a device input fails.
+
+    Args:
+      device_input: String input specifying a device.
+      schemes: A scheme or list of allowed schemes, by default allows all.
+    """
+    parser = commandline.ArgumentParser()
+    parser.add_argument('device', type=commandline.DeviceParser(schemes))
+    with self.OutputCapturer():
+      self.assertRaises2(SystemExit, parser.parse_args, [device_input])
+
+  def testNoDevice(self):
+    """Verify that an empty device specification fails."""
+    self._CheckDeviceParseFails('')
+
+  def testSshScheme(self):
+    """Verify that SSH scheme-only device specification fails."""
+    self._CheckDeviceParseFails('ssh://')
+
+  def testSshHostname(self):
+    """Test SSH hostname-only device specification."""
+    self._CheckDeviceParse('192.168.1.200',
+                           scheme=commandline.DEVICE_SCHEME_SSH,
+                           hostname='192.168.1.200')
+
+  def testSshUsernameHostname(self):
+    """Test SSH username and hostname device specification."""
+    self._CheckDeviceParse('me@foo_host',
+                           scheme=commandline.DEVICE_SCHEME_SSH,
+                           username='me',
+                           hostname='foo_host')
+
+  def testSshUsernameHostnamePort(self):
+    """Test SSH username, hostname, and port device specification."""
+    self._CheckDeviceParse('me@foo_host:4500',
+                           scheme=commandline.DEVICE_SCHEME_SSH,
+                           username='me',
+                           hostname='foo_host',
+                           port=4500)
+
+  def testSshSchemeUsernameHostnamePort(self):
+    """Test SSH scheme, username, hostname, and port device specification."""
+    self._CheckDeviceParse('ssh://me@foo_host:4500',
+                           scheme=commandline.DEVICE_SCHEME_SSH,
+                           username='me',
+                           hostname='foo_host',
+                           port=4500)
+
+  def testUsbScheme(self):
+    """Test USB scheme-only device specification."""
+    self._CheckDeviceParse('usb://', scheme=commandline.DEVICE_SCHEME_USB)
+
+  def testUsbSchemePath(self):
+    """Test USB scheme and path device specification."""
+    self._CheckDeviceParse('usb://path/to/my/device',
+                           scheme=commandline.DEVICE_SCHEME_USB,
+                           path='path/to/my/device')
+
+  def testFileScheme(self):
+    """Verify that file scheme-only device specification fails."""
+    self._CheckDeviceParseFails('file://')
+
+  def testFileSchemePath(self):
+    """Test file scheme and path device specification."""
+    self._CheckDeviceParse('file://foo/bar',
+                           scheme=commandline.DEVICE_SCHEME_FILE,
+                           path='foo/bar')
+
+  def testAbsolutePath(self):
+    """Verify that an absolute path defaults to file scheme."""
+    self._CheckDeviceParse('/path/to/my/device',
+                           scheme=commandline.DEVICE_SCHEME_FILE,
+                           path='/path/to/my/device')
+
+  def testUnsupportedScheme(self):
+    """Verify that an unsupported scheme fails."""
+    self._CheckDeviceParseFails('ssh://192.168.1.200',
+                                schemes=commandline.DEVICE_SCHEME_USB)
+    self._CheckDeviceParseFails('usb://path/to/my/device',
+                                schemes=[commandline.DEVICE_SCHEME_SSH,
+                                         commandline.DEVICE_SCHEME_FILE])
+
+  def testUnknownScheme(self):
+    """Verify that an unknown scheme fails."""
+    self._CheckDeviceParseFails('ftp://192.168.1.200')
+
+  def testSchemeCaseInsensitive(self):
+    """Verify that schemes are case-insensitive."""
+    self._CheckDeviceParse('SSH://foo_host',
+                           scheme=commandline.DEVICE_SCHEME_SSH,
+                           hostname='foo_host')
+
+
+class NormalizeWorkspacePathTest(cros_test_lib.WorkspaceTestCase):
+  """Tests for NormalizeWorkspacePath() and associated functions."""
 
   def setUp(self):
-    self.rc_mock = cros_build_lib_unittest.RunCommandMock()
-    self.StartPatcher(self.rc_mock)
-    self.rc_mock.SetDefaultCmdResult()
+    self.CreateWorkspace()
+    # By default set the CWD to be the workspace directory.
+    self.cwd_mock = self.PatchObject(os, 'getcwd')
+    self.cwd_mock.return_value = self.workspace_path
 
-  def RunTest(self, dir_struct, cwd, expected_root, expected_type,
-              expected_src):
-    """Run a test with specific parameters and expected results."""
-    cros_test_lib.CreateOnDiskHierarchy(self.tempdir, dir_struct)
-    cwd = os.path.join(self.tempdir, cwd)
-    checkout_info = commandline.DetermineCheckout(cwd)
-    full_root = expected_root
-    if expected_root is not None:
-      full_root = os.path.join(self.tempdir, expected_root)
-    full_src = expected_src
-    if expected_src is not None:
-      full_src = os.path.join(self.tempdir, expected_src)
+  def _VerifyNormalized(self, path, expected, **kwargs):
+    """Verifies tests on NormalizeWorkspacePath().
 
-    self.assertEquals(checkout_info.root, full_root)
-    self.assertEquals(checkout_info.type, expected_type)
-    self.assertEquals(checkout_info.chrome_src_dir, full_src)
+    Args:
+      path: Input path to test.
+      expected: Expected output.
+      kwargs: Keyword args for NormalizeWorkspacePath().
+    """
+    self.assertEqual(expected,
+                     commandline.NormalizeWorkspacePath(path, **kwargs))
 
-  def testGclientRepo(self):
-    dir_struct = [
-        'a/.gclient',
-        'a/b/.repo/',
-        'a/b/c/.gclient',
-        'a/b/c/d/somefile',
-    ]
-    self.RunTest(dir_struct, 'a/b/c', 'a/b/c',
-                 commandline.CHECKOUT_TYPE_GCLIENT,
-                 'a/b/c/src')
-    self.RunTest(dir_struct, 'a/b/c/d', 'a/b/c',
-                 commandline.CHECKOUT_TYPE_GCLIENT,
-                 'a/b/c/src')
-    self.RunTest(dir_struct, 'a/b', 'a/b',
-                 commandline.CHECKOUT_TYPE_REPO,
-                 None)
-    self.RunTest(dir_struct, 'a', 'a',
-                 commandline.CHECKOUT_TYPE_GCLIENT,
-                 'a/src')
 
-  def testGitSubmodule(self):
-    """Recognizes a chrome git submodule checkout."""
-    self.rc_mock.AddCmdResult(
-        partial_mock.In('config'), output=constants.CHROMIUM_GOB_URL)
-    dir_struct = [
-        'a/.gclient',
-        'a/.repo',
-        'a/b/.git/',
-    ]
-    self.RunTest(dir_struct, 'a/b', 'a/b',
-                 commandline.CHECKOUT_TYPE_SUBMODULE,
-                 'a/b')
+  def testLocatorConversion(self):
+    """Tests NormalizeWorkspacePath() conversion to a locator."""
+    # Relative paths.
+    self._VerifyNormalized('a', '//a')
+    self._VerifyNormalized('a/b', '//a/b')
 
-  def testBadGit1(self):
-    """.git is not a directory."""
-    self.RunTest(['a/.git'], 'a', None,
-                 commandline.CHECKOUT_TYPE_UNKNOWN, None)
+    # Absolute paths.
+    self._VerifyNormalized(os.path.join(self.workspace_path, 'a'), '//a')
+    self._VerifyNormalized(os.path.join(self.workspace_path, 'a', 'b'), '//a/b')
 
-  def testBadGit2(self):
-    """'git config' returns nothing."""
-    self.RunTest(['a/.repo/', 'a/b/.git/'], 'a/b', 'a',
-                 commandline.CHECKOUT_TYPE_REPO, None)
+    # Locators should be unchanged.
+    self._VerifyNormalized('//a', '//a')
+    self._VerifyNormalized('//a/b', '//a/b')
 
-  def testBadGit3(self):
-    """'git config' returns error."""
-    self.rc_mock.AddCmdResult(partial_mock.In('config'), returncode=5)
-    self.RunTest(['a/.git/'], 'a', None,
-                 commandline.CHECKOUT_TYPE_UNKNOWN, None)
+    # Paths outside the workspace should fail.
+    for path in ('/', '..'):
+      with self.assertRaises(ValueError):
+        commandline.NormalizeWorkspacePath(path)
+
+  def testDefaultDir(self):
+    """Tests the default_dir parameter."""
+    self._VerifyNormalized('a', '//default/a', default_dir='//default')
+    self._VerifyNormalized('a/b', '//a/b', default_dir='//default')
+    self._VerifyNormalized('./a', '//a', default_dir='//default')
+
+  def testExtension(self):
+    """Tests the extension parameter."""
+    self._VerifyNormalized('a', '//a.txt', extension='txt')
+    self._VerifyNormalized('a.bin', '//a.bin.txt', extension='txt')
+    self._VerifyNormalized('a.txt', '//a.txt', extension='txt')
+
+  def testSpecificPaths(self):
+    """Tests normalizing brick/BSP/blueprint paths."""
+    self.assertEqual('//bricks/a', commandline.NormalizeBrickPath('a'))
+    self.assertEqual('//bsps/a', commandline.NormalizeBspPath('a'))
+    self.assertEqual('//blueprints/a.json',
+                     commandline.NormalizeBlueprintPath('a'))
+
+  def testParser(self):
+    """Tests adding these types to a parser."""
+    parser = commandline.ArgumentParser()
+    parser.add_argument('path', type='workspace_path')
+    parser.add_argument('brick', type='brick_path')
+    parser.add_argument('bsp', type='bsp_path')
+    parser.add_argument('blueprint', type='blueprint_path')
+
+    options = parser.parse_args(['my_path', 'my_brick', 'my_bsp',
+                                 'my_blueprint'])
+    self.assertEqual('//my_path', options.path)
+    self.assertEqual('//bricks/my_brick', options.brick)
+    self.assertEqual('//bsps/my_bsp', options.bsp)
+    self.assertEqual('//blueprints/my_blueprint.json', options.blueprint)
 
 
 class CacheTest(cros_test_lib.MockTempDirTestCase):
-  """Test cache dir specification and finding functionality."""
+  """Test cache dir default / override functionality."""
 
-  REPO_ROOT = '/fake/repo/root'
-  GCLIENT_ROOT = '/fake/gclient/root'
-  SUBMODULE_ROOT = '/fake/submodule/root'
   CACHE_DIR = '/fake/cache/dir'
 
   def setUp(self):
     self.PatchObject(commandline.ArgumentParser, 'ConfigureCacheDir')
     dir_struct = [
-      'repo/.repo/',
-      'gclient/.gclient',
-      'submodule/.git/',
+        'repo/.repo/',
     ]
     cros_test_lib.CreateOnDiskHierarchy(self.tempdir, dir_struct)
     self.repo_root = os.path.join(self.tempdir, 'repo')
-    self.gclient_root = os.path.join(self.tempdir, 'gclient')
-    self.submodule_root = os.path.join(self.tempdir, 'submodule')
-    self.nocheckout_root = os.path.join(self.tempdir, 'nothing')
-
-    self.rc_mock = self.StartPatcher(cros_build_lib_unittest.RunCommandMock())
-    self.rc_mock.AddCmdResult(
-        partial_mock.In('config'), output=constants.CHROMIUM_GOB_URL)
     self.cwd_mock = self.PatchObject(os, 'getcwd')
     self.parser = commandline.ArgumentParser(caching=True)
 
-  def _CheckCall(self, expected):
+  def _CheckCall(self, cwd_retval, args_to_parse, expected, assert_func):
     # pylint: disable=E1101
-    f = self.parser.ConfigureCacheDir
-    self.assertEquals(1, f.call_count)
-    self.assertTrue(f.call_args[0][0].startswith(expected))
+    self.cwd_mock.return_value = cwd_retval
+    self.parser.parse_args(args_to_parse)
+    cache_dir_mock = self.parser.ConfigureCacheDir
+    self.assertEquals(1, cache_dir_mock.call_count)
+    assert_func(cache_dir_mock.call_args[0][0], expected)
 
-  def testRepoRoot(self):
-    """Test when we are inside a repo checkout."""
-    self.cwd_mock.return_value = self.repo_root
-    self.parser.parse_args([])
-    self._CheckCall(self.repo_root)
+  def testRepoRootNoOverride(self):
+    """Test default cache location when in a repo checkout."""
+    self._CheckCall(self.repo_root, [], self.repo_root, self.assertStartsWith)
 
-  def testGclientRoot(self):
-    """Test when we are inside a gclient checkout."""
-    self.cwd_mock.return_value = self.gclient_root
-    self.parser.parse_args([])
-    self._CheckCall(self.gclient_root)
-
-  def testSubmoduleRoot(self):
-    """Test when we are inside a git submodule Chrome checkout."""
-    self.cwd_mock.return_value = self.submodule_root
-    self.parser.parse_args([])
-    self._CheckCall(self.submodule_root)
-
-  def testTempdir(self):
-    """Test when we are not in any checkout."""
-    self.cwd_mock.return_value = self.nocheckout_root
-    self.parser.parse_args([])
-    self._CheckCall('/tmp')
-
-  def testSpecifiedDir(self):
-    """Test when user specifies a cache dir."""
-    self.cwd_mock.return_value = self.repo_root
-    self.parser.parse_args(['--cache-dir', self.CACHE_DIR])
-    self._CheckCall(self.CACHE_DIR)
+  def testRepoRootWithOverride(self):
+    """User provided cache location overrides repo checkout default."""
+    self._CheckCall(self.repo_root, ['--cache-dir', self.CACHE_DIR],
+                    self.CACHE_DIR, self.assertEquals)
 
 
 class ParseArgsTest(cros_test_lib.TestCase):
@@ -287,7 +411,7 @@ class ParseArgsTest(cros_test_lib.TestCase):
 
     parsed = parser.parse_args(argv)
 
-    if isinstance(parser, commandline.OptionParser):
+    if isinstance(parser, commandline.FilteringParser):
       # optparse returns options and args separately.
       options, args = parsed
       self.assertEquals(['foobar'], args)
@@ -316,9 +440,6 @@ class ParseArgsTest(cros_test_lib.TestCase):
                       setattr, options, 'aaa', 'Arnold')
     self.assertEquals('Arick', options.aaa)
 
-  def testOptionParser(self):
-    self._TestParser(self._CreateOptionParser(commandline.OptionParser))
-
   def testFilterParser(self):
     self._TestParser(self._CreateOptionParser(commandline.FilteringParser))
 
@@ -331,36 +452,134 @@ class ScriptWrapperMainTest(cros_test_lib.MockTestCase):
 
   def setUp(self):
     self.PatchObject(sys, 'exit')
+    self.lastTargetFound = None
 
-  # pylint: disable=W0613
-  @staticmethod
-  def _DummyChrootTarget(args):
-    raise commandline.ChrootRequiredError()
+  SYS_ARGV = ['/cmd', '/cmd', 'arg1', 'arg2']
+  CMD_ARGS = ['/cmd', 'arg1', 'arg2']
+  CHROOT_ARGS = ['--workspace', '/work']
 
-  DUMMY_CHROOT_TARGET_ARGS = ['cmd', 'arg1', 'arg2']
-
-  @staticmethod
-  def _DummyChrootTargetArgs(args):
-    args = ScriptWrapperMainTest.DUMMY_CHROOT_TARGET_ARGS
-    raise commandline.ChrootRequiredError(args)
-
-  def testRestartInChroot(self):
+  def testRestartInChrootPreserveArgs(self):
+    """Verify args to ScriptWrapperMain are passed through to chroot.."""
+    # Setup Mocks/Fakes
     rc = self.StartPatcher(cros_build_lib_unittest.RunCommandMock())
     rc.SetDefaultCmdResult()
 
-    ret = lambda x: ScriptWrapperMainTest._DummyChrootTarget
-    commandline.ScriptWrapperMain(ret)
+    def findTarget(target):
+      """ScriptWrapperMain needs a function to find a function to run."""
+      def raiseChrootRequiredError(args):
+        raise commandline.ChrootRequiredError(args)
+
+      self.lastTargetFound = target
+      return raiseChrootRequiredError
+
+    # Run Test
+    commandline.ScriptWrapperMain(findTarget, self.SYS_ARGV)
+
+    # Verify Results
     rc.assertCommandContains(enter_chroot=True)
-    rc.assertCommandContains(self.DUMMY_CHROOT_TARGET_ARGS, expected=False)
+    rc.assertCommandContains(self.CMD_ARGS)
+    self.assertEqual('/cmd', self.lastTargetFound)
 
-  def testRestartInChrootArgs(self):
+  def testRestartInChrootWithChrootArgs(self):
+    """Verify args and chroot args from exception are used."""
+    # Setup Mocks/Fakes
     rc = self.StartPatcher(cros_build_lib_unittest.RunCommandMock())
     rc.SetDefaultCmdResult()
 
-    ret = lambda x: ScriptWrapperMainTest._DummyChrootTargetArgs
-    commandline.ScriptWrapperMain(ret)
-    rc.assertCommandContains(self.DUMMY_CHROOT_TARGET_ARGS, enter_chroot=True)
+    def findTarget(_):
+      """ScriptWrapperMain needs a function to find a function to run."""
+      def raiseChrootRequiredError(_args):
+        raise commandline.ChrootRequiredError(self.CMD_ARGS, self.CHROOT_ARGS)
+
+      return raiseChrootRequiredError
+
+    # Run Test
+    commandline.ScriptWrapperMain(findTarget, ['unrelated'])
+
+    # Verify Results
+    rc.assertCommandContains(enter_chroot=True)
+    rc.assertCommandContains(self.CMD_ARGS)
+    rc.assertCommandContains(chroot_args=self.CHROOT_ARGS)
 
 
-if __name__ == '__main__':
-  cros_test_lib.main()
+class TestRunInsideChroot(cros_test_lib.MockTestCase):
+  """Test commandline.RunInsideChroot()."""
+
+  def setUp(self):
+    self.orig_argv = sys.argv
+    sys.argv = ['/cmd', 'arg1', 'arg2']
+
+    self.mockFromHostToChrootPath = self.PatchObject(
+        path_util, 'ToChrootPath', return_value='/inside/cmd')
+
+    # Return values for these two should be set by each test.
+    self.mock_inside_chroot = self.PatchObject(cros_build_lib, 'IsInsideChroot')
+    self.mock_workspace_path = self.PatchObject(workspace_lib, 'WorkspacePath')
+
+    # Mocked CliCommand object to pass to RunInsideChroot.
+    self.cmd = command.CliCommand(argparse.Namespace())
+    self.cmd.options.log_level = 'info'
+
+  def teardown(self):
+    sys.argv = self.orig_argv
+
+  def _VerifyRunInsideChroot(self, expected_cmd, expected_chroot_args=None,
+                             expected_extra_env=None, log_level_args=None,
+                             **kwargs):
+    """Run RunInsideChroot, and verify it raises with expected values.
+
+    Args:
+      expected_cmd: Command that should be executed inside the chroot.
+      expected_chroot_args: Args that should be passed as chroot args.
+      expected_extra_env: Environmental variables to set in the chroot.
+      log_level_args: Args that set the log level of cros_sdk.
+      kwargs: Additional args to pass to RunInsideChroot().
+    """
+    with self.assertRaises(commandline.ChrootRequiredError) as cm:
+      commandline.RunInsideChroot(self.cmd, **kwargs)
+
+    if log_level_args is None:
+      log_level_args = ['--log-level', self.cmd.options.log_level]
+
+    if expected_chroot_args is not None:
+      log_level_args.extend(expected_chroot_args)
+      expected_chroot_args = log_level_args
+    else:
+      expected_chroot_args = log_level_args
+
+    self.assertEqual(expected_cmd, cm.exception.cmd)
+    self.assertEqual(expected_chroot_args, cm.exception.chroot_args)
+    self.assertEqual(expected_extra_env or {}, cm.exception.extra_env)
+
+  def testRunInsideChrootLogLevel(self):
+    self.cmd.options.log_level = 'notice'
+    self.mock_inside_chroot.return_value = False
+    self.mock_workspace_path.return_value = None
+    self._VerifyRunInsideChroot(['/inside/cmd', 'arg1', 'arg2'],
+                                log_level_args=['--log-level', 'notice'])
+
+  def testRunInsideChrootNoWorkspace(self):
+    """Test we can restart inside the chroot, with no workspace."""
+    self.mock_inside_chroot.return_value = False
+    self.mock_workspace_path.return_value = None
+
+    self._VerifyRunInsideChroot(['/inside/cmd', 'arg1', 'arg2'])
+
+  def testRunInsideChrootWithWorkspace(self):
+    """Test we can restart inside the chroot, with a workspace."""
+    self.mock_inside_chroot.return_value = False
+    self.mock_workspace_path.return_value = '/work'
+    self.PatchObject(path_util.ChrootPathResolver, 'ToChroot',
+                     return_value=constants.CHROOT_WORKSPACE_ROOT)
+
+    self._VerifyRunInsideChroot(
+        ['/inside/cmd', 'arg1', 'arg2'],
+        ['--chroot', '/work/.chroot', '--workspace', '/work'],
+        {commandline.CHROOT_CWD_ENV_VAR: constants.CHROOT_WORKSPACE_ROOT})
+
+  def testRunInsideChrootAlreadyInside(self):
+    """Test we don't restart inside the chroot if we are already there."""
+    self.mock_inside_chroot.return_value = True
+
+    # Since we are in the chroot, it should return, doing nothing.
+    commandline.RunInsideChroot(self.cmd)

@@ -17,7 +17,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/codec/png_codec.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/skia_util.h"
 
 const bool kAsyncCall = true;
@@ -35,7 +35,7 @@ class BitmapFetcherTestDelegate : public BitmapFetcherDelegate {
   ~BitmapFetcherTestDelegate() override { EXPECT_TRUE(called_); }
 
   // Method inherited from BitmapFetcherDelegate.
-  void OnFetchComplete(const GURL url, const SkBitmap* bitmap) override {
+  void OnFetchComplete(const GURL& url, const SkBitmap* bitmap) override {
     called_ = true;
     url_ = url;
     if (bitmap) {
@@ -113,11 +113,12 @@ IN_PROC_BROWSER_TEST_F(BitmapFetcherBrowserTest, StartTest) {
 
   // We expect that the image decoder will get called and return
   // an image in a callback to OnImageDecoded().
-  fetcher.Start(
+  fetcher.Init(
       browser()->profile()->GetRequestContext(),
       std::string(),
       net::URLRequest::CLEAR_REFERRER_ON_TRANSITION_FROM_SECURE_TO_INSECURE,
       net::LOAD_NORMAL);
+  fetcher.Start();
 
   // Blocks until test delegate is notified via a callback.
   delegate.Wait();
@@ -141,7 +142,7 @@ IN_PROC_BROWSER_TEST_F(BitmapFetcherBrowserTest, OnImageDecodedTest) {
 
   BitmapFetcher fetcher(url, &delegate);
 
-  fetcher.OnImageDecoded(NULL, image);
+  fetcher.OnImageDecoded(image);
 
   // Ensure image is marked as succeeded.
   EXPECT_TRUE(delegate.success());
@@ -165,11 +166,12 @@ IN_PROC_BROWSER_TEST_F(BitmapFetcherBrowserTest, OnURLFetchFailureTest) {
                                         net::HTTP_INTERNAL_SERVER_ERROR,
                                         net::URLRequestStatus::FAILED);
 
-  fetcher.Start(
+  fetcher.Init(
       browser()->profile()->GetRequestContext(),
       std::string(),
       net::URLRequest::CLEAR_REFERRER_ON_TRANSITION_FROM_SECURE_TO_INSECURE,
       net::LOAD_NORMAL);
+  fetcher.Start();
 
   // Blocks until test delegate is notified via a callback.
   delegate.Wait();
@@ -186,11 +188,12 @@ IN_PROC_BROWSER_TEST_F(BitmapFetcherBrowserTest, HandleImageFailedTest) {
                                         net::HTTP_OK,
                                         net::URLRequestStatus::SUCCESS);
 
-  fetcher.Start(
+  fetcher.Init(
       browser()->profile()->GetRequestContext(),
       std::string(),
       net::URLRequest::CLEAR_REFERRER_ON_TRANSITION_FROM_SECURE_TO_INSECURE,
       net::LOAD_NORMAL);
+  fetcher.Start();
 
   // Blocks until test delegate is notified via a callback.
   delegate.Wait();

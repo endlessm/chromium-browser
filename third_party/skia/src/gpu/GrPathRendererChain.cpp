@@ -9,9 +9,9 @@
 
 #include "GrPathRendererChain.h"
 
+#include "GrCaps.h"
 #include "GrContext.h"
 #include "GrDefaultPathRenderer.h"
-#include "GrDrawTargetCaps.h"
 #include "GrGpu.h"
 
 GrPathRendererChain::GrPathRendererChain(GrContext* context)
@@ -31,9 +31,11 @@ GrPathRenderer* GrPathRendererChain::addPathRenderer(GrPathRenderer* pr) {
     return pr;
 }
 
-GrPathRenderer* GrPathRendererChain::getPathRenderer(const SkPath& path,
-                                                     const SkStrokeRec& stroke,
-                                                     const GrDrawTarget* target,
+GrPathRenderer* GrPathRendererChain::getPathRenderer(const GrDrawTarget* target,
+                                                     const GrPipelineBuilder* pipelineBuilder,
+                                                     const SkMatrix& viewMatrix,
+                                                     const SkPath& path,
+                                                     const GrStrokeInfo& stroke,
                                                      DrawType drawType,
                                                      StencilSupport* stencilSupport) {
     if (!fInit) {
@@ -58,11 +60,10 @@ GrPathRenderer* GrPathRendererChain::getPathRenderer(const SkPath& path,
 
 
     for (int i = 0; i < fChain.count(); ++i) {
-        if (fChain[i]->canDrawPath(path, stroke, target, antiAlias)) {
+        if (fChain[i]->canDrawPath(target, pipelineBuilder, viewMatrix, path, stroke, antiAlias)) {
             if (GrPathRenderer::kNoSupport_StencilSupport != minStencilSupport) {
-                GrPathRenderer::StencilSupport support = fChain[i]->getStencilSupport(path,
-                                                                                      stroke,
-                                                                                      target);
+                GrPathRenderer::StencilSupport support =
+                    fChain[i]->getStencilSupport(target, pipelineBuilder, path, stroke);
                 if (support < minStencilSupport) {
                     continue;
                 } else if (stencilSupport) {
@@ -77,9 +78,9 @@ GrPathRenderer* GrPathRendererChain::getPathRenderer(const SkPath& path,
 
 void GrPathRendererChain::init() {
     SkASSERT(!fInit);
-    GrGpu* gpu = fOwner->getGpu();
-    bool twoSided = gpu->caps()->twoSidedStencilSupport();
-    bool wrapOp = gpu->caps()->stencilWrapOpsSupport();
+    const GrCaps* caps = fOwner->caps();
+    bool twoSided = caps->twoSidedStencilSupport();
+    bool wrapOp = caps->stencilWrapOpsSupport();
     GrPathRenderer::AddPathRenderers(fOwner, this);
     this->addPathRenderer(SkNEW_ARGS(GrDefaultPathRenderer,
                                      (twoSided, wrapOp)))->unref();

@@ -28,7 +28,7 @@ class LoggingNativeHandler : public ObjectBackedNativeHandler {
   // void(predicate, message?)
   void Dcheck(const v8::FunctionCallbackInfo<v8::Value>& args);
 
-  // Equivalent to DCHECK_IS_ON.
+  // Equivalent to DCHECK_IS_ON().
   //
   // bool()
   void DcheckIsOn(const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -47,7 +47,7 @@ class LoggingNativeHandler : public ObjectBackedNativeHandler {
                  bool* check_value,
                  std::string* error_message);
 
-  std::string ToStringOrDefault(const v8::Handle<v8::String>& v8_string,
+  std::string ToStringOrDefault(const v8::Local<v8::String>& v8_string,
                                 const std::string& dflt);
 };
 

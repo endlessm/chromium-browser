@@ -9,6 +9,7 @@
 #include "base/stl_util.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/base/io_buffer.h"
+#include "net/base/load_flags.h"
 #include "net/base/request_priority.h"
 #include "net/url_request/url_request_context.h"
 
@@ -125,7 +126,7 @@ void ResourcePrefetcher::SendRequest(Request* request) {
 
   net::URLRequest* url_request =
       delegate_->GetURLRequestContext()->CreateRequest(
-          request->resource_url, net::LOW, this, NULL).release();
+          request->resource_url, net::LOW, this).release();
 
   inflight_requests_[url_request] = request;
   host_inflight_counts_[url_request->original_url().host()] += 1;
@@ -133,6 +134,7 @@ void ResourcePrefetcher::SendRequest(Request* request) {
   url_request->set_method("GET");
   url_request->set_first_party_for_cookies(navigation_id_.main_frame_url);
   url_request->SetReferrer(navigation_id_.main_frame_url.spec());
+  url_request->SetLoadFlags(url_request->load_flags() | net::LOAD_PREFETCH);
   StartURLRequest(url_request);
 }
 

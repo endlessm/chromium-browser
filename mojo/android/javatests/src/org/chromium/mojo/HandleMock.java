@@ -5,12 +5,14 @@
 package org.chromium.mojo;
 
 import org.chromium.mojo.system.Core;
+import org.chromium.mojo.system.Core.WaitResult;
 import org.chromium.mojo.system.DataPipe;
 import org.chromium.mojo.system.DataPipe.ConsumerHandle;
 import org.chromium.mojo.system.DataPipe.ProducerHandle;
 import org.chromium.mojo.system.Handle;
 import org.chromium.mojo.system.MessagePipeHandle;
 import org.chromium.mojo.system.MojoResult;
+import org.chromium.mojo.system.ResultAnd;
 import org.chromium.mojo.system.SharedBufferHandle;
 import org.chromium.mojo.system.UntypedHandle;
 import org.chromium.mojo.system.impl.CoreImpl;
@@ -36,9 +38,11 @@ public class HandleMock implements UntypedHandle, MessagePipeHandle,
      * @see Handle#wait(Core.HandleSignals, long)
      */
     @Override
-    public int wait(Core.HandleSignals signals, long deadline) {
+    public WaitResult wait(Core.HandleSignals signals, long deadline) {
         // Do nothing.
-        return MojoResult.OK;
+        WaitResult result = new WaitResult();
+        result.setMojoResult(MojoResult.OK);
+        return result;
     }
 
     /**
@@ -94,10 +98,9 @@ public class HandleMock implements UntypedHandle, MessagePipeHandle,
      * @see ConsumerHandle#readData(java.nio.ByteBuffer, DataPipe.ReadFlags)
      */
     @Override
-    public int readData(ByteBuffer elements,
-            DataPipe.ReadFlags flags) {
+    public ResultAnd<Integer> readData(ByteBuffer elements, DataPipe.ReadFlags flags) {
         // Do nothing.
-        return 0;
+        return new ResultAnd<Integer>(MojoResult.OK, 0);
     }
 
     /**
@@ -122,10 +125,9 @@ public class HandleMock implements UntypedHandle, MessagePipeHandle,
      * @see ProducerHandle#writeData(java.nio.ByteBuffer, DataPipe.WriteFlags)
      */
     @Override
-    public int writeData(ByteBuffer elements,
-            DataPipe.WriteFlags flags) {
+    public ResultAnd<Integer> writeData(ByteBuffer elements, DataPipe.WriteFlags flags) {
         // Do nothing.
-        return 0;
+        return new ResultAnd<Integer>(MojoResult.OK, 0);
     }
 
     /**
@@ -160,10 +162,10 @@ public class HandleMock implements UntypedHandle, MessagePipeHandle,
      * @see MessagePipeHandle#readMessage(java.nio.ByteBuffer, int, MessagePipeHandle.ReadFlags)
      */
     @Override
-    public ReadMessageResult readMessage(ByteBuffer bytes, int maxNumberOfHandles,
-            ReadFlags flags) {
+    public ResultAnd<ReadMessageResult> readMessage(
+            ByteBuffer bytes, int maxNumberOfHandles, ReadFlags flags) {
         // Do nothing.
-        return new ReadMessageResult();
+        return new ResultAnd<ReadMessageResult>(MojoResult.OK, new ReadMessageResult());
     }
 
     /**

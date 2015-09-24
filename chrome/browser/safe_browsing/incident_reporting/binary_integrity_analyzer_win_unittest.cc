@@ -10,11 +10,16 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
 #include "base/test/scoped_path_override.h"
+#include "chrome/browser/safe_browsing/incident_reporting/incident.h"
+#include "chrome/browser/safe_browsing/incident_reporting/mock_incident_receiver.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/safe_browsing/csd.pb.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "version.h"  // NOLINT
+
+using ::testing::_;
+using ::testing::StrictMock;
 
 namespace safe_browsing {
 
@@ -44,19 +49,13 @@ class BinaryIntegrityAnalyzerWinTest : public ::testing::Test {
  public:
   BinaryIntegrityAnalyzerWinTest();
 
-  void OnAddIncident(
-      scoped_ptr<ClientIncidentReport_IncidentData> incident_data);
-
  protected:
-  bool callback_called_;
   base::FilePath test_data_dir_;
   base::ScopedTempDir temp_dir_;
   scoped_ptr<base::ScopedPathOverride> exe_dir_override_;
-  scoped_ptr<ClientIncidentReport_IncidentData> incident_data_;
 };
 
-BinaryIntegrityAnalyzerWinTest::BinaryIntegrityAnalyzerWinTest()
-    : callback_called_(false) {
+BinaryIntegrityAnalyzerWinTest::BinaryIntegrityAnalyzerWinTest() {
   temp_dir_.CreateUniqueTempDir();
   base::CreateDirectory(temp_dir_.path().AppendASCII(CHROME_VERSION_STRING));
 
@@ -67,16 +66,6 @@ BinaryIntegrityAnalyzerWinTest::BinaryIntegrityAnalyzerWinTest()
 
   exe_dir_override_.reset(
       new base::ScopedPathOverride(base::DIR_EXE, temp_dir_.path()));
-}
-
-// Mock the AddIncidentCallback so we can test that VerifyBinaryIntegrity
-// adds an incident callback when a signature verification fails.
-void BinaryIntegrityAnalyzerWinTest::OnAddIncident(
-    scoped_ptr<ClientIncidentReport_IncidentData> incident_data) {
-  callback_called_ = true;
-
-  // Take ownership of the incident so that the text fixture can inspect it.
-  incident_data_ = incident_data.Pass();
 }
 
 TEST_F(BinaryIntegrityAnalyzerWinTest, GetCriticalBinariesPath) {
@@ -112,23 +101,27 @@ TEST_F(BinaryIntegrityAnalyzerWinTest, VerifyBinaryIntegrity) {
 
   ASSERT_TRUE(base::CopyFile(signed_binary_path, chrome_elf_path));
 
-  AddIncidentCallback callback = base::Bind(
-      &BinaryIntegrityAnalyzerWinTest::OnAddIncident, base::Unretained(this));
-
-  VerifyBinaryIntegrity(callback);
-  ASSERT_FALSE(callback_called_);
+  scoped_ptr<MockIncidentReceiver> mock_receiver(
+      new StrictMock<MockIncidentReceiver>());
+  VerifyBinaryIntegrity(mock_receiver.Pass());
 
   ASSERT_TRUE(EraseFileContent(chrome_elf_path));
 
-  VerifyBinaryIntegrity(callback);
-  ASSERT_TRUE(callback_called_);
+  mock_receiver.reset(new MockIncidentReceiver());
+  scoped_ptr<Incident> incident;
+  EXPECT_CALL(*mock_receiver, DoAddIncidentForProcess(_))
+      .WillOnce(TakeIncident(&incident));
+
+  VerifyBinaryIntegrity(mock_receiver.Pass());
 
   // Verify that the incident report contains the expected data.
-  ASSERT_TRUE(incident_data_->has_binary_integrity());
-  ASSERT_TRUE(incident_data_->binary_integrity().has_file_basename());
+  scoped_ptr<ClientIncidentReport_IncidentData> incident_data(
+      incident->TakePayload());
+  ASSERT_TRUE(incident_data->has_binary_integrity());
+  ASSERT_TRUE(incident_data->binary_integrity().has_file_basename());
   ASSERT_EQ("chrome_elf.dll",
-            incident_data_->binary_integrity().file_basename());
-  ASSERT_TRUE(incident_data_->binary_integrity().has_signature());
+            incident_data->binary_integrity().file_basename());
+  ASSERT_TRUE(incident_data->binary_integrity().has_signature());
 }
 
 }  // namespace safe_browsing

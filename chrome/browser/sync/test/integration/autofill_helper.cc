@@ -4,6 +4,7 @@
 
 #include "chrome/browser/sync/test/integration/autofill_helper.h"
 
+#include "base/guid.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile.h"
@@ -12,7 +13,7 @@
 #include "chrome/browser/sync/test/integration/multi_client_status_change_checker.h"
 #include "chrome/browser/sync/test/integration/sync_datatype_helper.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
-#include "chrome/browser/webdata/web_data_service_factory.h"
+#include "chrome/browser/web_data_service_factory.h"
 #include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/autofill/core/browser/autofill_type.h"
@@ -101,14 +102,14 @@ void RemoveKeyDontBlockForSync(int profile, const AutofillKey& key) {
 
 void GetAllAutofillEntriesOnDBThread(AutofillWebDataService* wds,
                                      std::vector<AutofillEntry>* entries) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
+  DCHECK_CURRENTLY_ON(BrowserThread::DB);
   AutofillTable::FromWebDatabase(
       wds->GetDatabase())->GetAllAutofillEntries(entries);
 }
 
 std::vector<AutofillEntry> GetAllAutofillEntries(AutofillWebDataService* wds) {
   std::vector<AutofillEntry> entries;
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   RunOnDBThreadAndBlock(Bind(&GetAllAutofillEntriesOnDBThread,
                              Unretained(wds),
                              &entries));
@@ -146,7 +147,7 @@ AutofillProfile CreateAutofillProfile(ProfileType type) {
           "137DE1C3-6A30-4571-AC86-109B1ECFBE7F",
           "Homer", "J.", "Simpson",
           "homer@abc.com", "SNPP",
-          "1 Main St", "PO Box 1", "Springfield", "MA",
+          "742 Evergreen Terrace", "PO Box 1", "Springfield", "MA",
           "94101", "US", "14155551212");
       break;
     case PROFILE_FRASIER:
@@ -165,9 +166,20 @@ AutofillProfile CreateAutofillProfile(ProfileType type) {
   return profile;
 }
 
+AutofillProfile CreateUniqueAutofillProfile() {
+  AutofillProfile profile;
+  autofill::test::SetProfileInfoWithGuid(&profile,
+      base::GenerateGUID().c_str(),
+      "First", "Middle", "Last",
+      "email@domain.tld", "Company",
+      "123 Main St", "Apt 456", "Nowhere", "OK",
+      "73038", "US", "12345678910");
+  return profile;
+}
+
 scoped_refptr<AutofillWebDataService> GetWebDataService(int index) {
   return WebDataServiceFactory::GetAutofillWebDataForProfile(
-      test()->GetProfile(index), Profile::EXPLICIT_ACCESS);
+      test()->GetProfile(index), ServiceAccessType::EXPLICIT_ACCESS);
 }
 
 PersonalDataManager* GetPersonalDataManager(int index) {

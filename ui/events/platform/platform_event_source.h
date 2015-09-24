@@ -51,6 +51,11 @@ class EVENTS_EXPORT PlatformEventSource {
   scoped_ptr<ScopedEventDispatcher> OverrideDispatcher(
       PlatformEventDispatcher* dispatcher);
 
+  // Called to indicate that the source should stop dispatching the current
+  // stream of events and wait until the next iteration of the message-loop to
+  // dispatch the rest of the events.
+  virtual void StopCurrentEventStream();
+
   void AddPlatformEventObserver(PlatformEventObserver* observer);
   void RemovePlatformEventObserver(PlatformEventObserver* observer);
 
@@ -70,21 +75,18 @@ class EVENTS_EXPORT PlatformEventSource {
   friend class ScopedEventDispatcher;
   static PlatformEventSource* instance_;
 
-  // Called to indicate that the source should stop dispatching the current
-  // stream of events and wait until the next iteration of the message-loop to
-  // dispatch the rest of the events.
-  virtual void StopCurrentEventStream();
-
   // This is invoked when the list of dispatchers changes (i.e. a new dispatcher
   // is added, or a dispatcher is removed).
   virtual void OnDispatcherListChanged();
 
   void OnOverriddenDispatcherRestored();
 
-  // Use an ObserverList<> instead of an std::vector<> to store the list of
+  // Use an base::ObserverList<> instead of an std::vector<> to store the list
+  // of
   // dispatchers, so that adding/removing dispatchers during an event dispatch
   // is well-defined.
-  typedef ObserverList<PlatformEventDispatcher> PlatformEventDispatcherList;
+  typedef base::ObserverList<PlatformEventDispatcher>
+      PlatformEventDispatcherList;
   PlatformEventDispatcherList dispatchers_;
   PlatformEventDispatcher* overridden_dispatcher_;
 
@@ -92,7 +94,7 @@ class EVENTS_EXPORT PlatformEventSource {
   // reset and a previous override-dispatcher has been restored.
   bool overridden_dispatcher_restored_;
 
-  ObserverList<PlatformEventObserver> observers_;
+  base::ObserverList<PlatformEventObserver> observers_;
 
   DISALLOW_COPY_AND_ASSIGN(PlatformEventSource);
 };

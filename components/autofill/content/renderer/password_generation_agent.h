@@ -9,8 +9,9 @@
 #include <utility>
 #include <vector>
 
+#include "base/memory/linked_ptr.h"
 #include "base/memory/scoped_ptr.h"
-#include "content/public/renderer/render_view_observer.h"
+#include "content/public/renderer/render_frame_observer.h"
 #include "third_party/WebKit/public/web/WebInputElement.h"
 #include "url/gurl.h"
 
@@ -22,13 +23,15 @@ namespace autofill {
 
 struct FormData;
 struct PasswordForm;
+class PasswordAutofillAgent;
 
 // This class is responsible for controlling communication for password
 // generation between the browser (which shows the popup and generates
 // passwords) and WebKit (shows the generation icon in the password field).
-class PasswordGenerationAgent : public content::RenderViewObserver {
+class PasswordGenerationAgent : public content::RenderFrameObserver {
  public:
-  explicit PasswordGenerationAgent(content::RenderView* render_view);
+  PasswordGenerationAgent(content::RenderFrame* render_frame,
+                          PasswordAutofillAgent* password_agent);
   ~PasswordGenerationAgent() override;
 
   // Returns true if the field being changed is one where a generated password
@@ -39,15 +42,15 @@ class PasswordGenerationAgent : public content::RenderViewObserver {
   bool FocusedNodeHasChanged(const blink::WebNode& node);
 
   // Called when new form controls are inserted.
-  void OnDynamicFormsSeen(blink::WebLocalFrame* frame);
+  void OnDynamicFormsSeen();
 
   // The length that a password can be before the UI is hidden.
   static const size_t kMaximumOfferSize = 5;
 
  protected:
-  // Returns true if this document is one that we should consider analyzing.
-  // Virtual so that it can be overriden during testing.
-  virtual bool ShouldAnalyzeDocument(const blink::WebDocument& document) const;
+  // Returns true if the document for |render_frame()| is one that we should
+  // consider analyzing. Virtual so that it can be overriden during testing.
+  virtual bool ShouldAnalyzeDocument() const;
 
   // RenderViewObserver:
   bool OnMessageReceived(const IPC::Message& message) override;
@@ -56,9 +59,20 @@ class PasswordGenerationAgent : public content::RenderViewObserver {
   void set_enabled(bool enabled) { enabled_ = enabled; }
 
  private:
-  // RenderViewObserver:
-  void DidFinishDocumentLoad(blink::WebLocalFrame* frame) override;
-  void DidFinishLoad(blink::WebLocalFrame* frame) override;
+  struct AccountCreationFormData {
+    linked_ptr<PasswordForm> form;
+    std::vector<blink::WebInputElement> password_elements;
+
+    AccountCreationFormData(
+        linked_ptr<PasswordForm> form,
+        std::vector<blink::WebInputElement> password_elements);
+    ~AccountCreationFormData();
+  };
+
+  typedef std::vector<AccountCreationFormData> AccountCreationFormDataList;
+
+  // RenderFrameObserver:
+  void DidFinishDocumentLoad() override;
 
   // Message handlers.
   void OnFormNotBlacklisted(const PasswordForm& form);
@@ -68,7 +82,7 @@ class PasswordGenerationAgent : public content::RenderViewObserver {
 
   // Helper function that will try and populate |password_elements_| and
   // |possible_account_creation_form_|.
-  void FindPossibleGenerationForm(blink::WebLocalFrame* frame);
+  void FindPossibleGenerationForm();
 
   // Helper function to decide if |passwords_| contains password fields for
   // an account creation form. Sets |generation_element_| to the field that
@@ -84,10 +98,8 @@ class PasswordGenerationAgent : public content::RenderViewObserver {
   // Hides a password generation popup if one exists.
   void HidePopup();
 
-  content::RenderView* render_view_;
-
-  // Stores the origin of the account creation form we detected.
-  scoped_ptr<PasswordForm> possible_account_creation_form_;
+  // Stores forms that are candidates for account creation.
+  AccountCreationFormDataList possible_account_creation_forms_;
 
   // Stores the origins of the password forms confirmed not to be blacklisted
   // by the browser. A form can be blacklisted if a user chooses "never save
@@ -99,8 +111,8 @@ class PasswordGenerationAgent : public content::RenderViewObserver {
   // not be sent if the feature is disabled.
   std::vector<autofill::FormData> generation_enabled_forms_;
 
-  // Password elements that may be part of an account creation form.
-  std::vector<blink::WebInputElement> password_elements_;
+  // Data for form which generation is allowed on.
+  scoped_ptr<AccountCreationFormData> generation_form_data_;
 
   // Element where we want to trigger password generation UI.
   blink::WebInputElement generation_element_;
@@ -125,6 +137,10 @@ class PasswordGenerationAgent : public content::RenderViewObserver {
 
   // If this feature is enabled. Controlled by Finch.
   bool enabled_;
+
+  // Unowned pointer. Used to notify PassowrdAutofillAgent when values
+  // in password fields are updated.
+  PasswordAutofillAgent* password_agent_;
 
   DISALLOW_COPY_AND_ASSIGN(PasswordGenerationAgent);
 };

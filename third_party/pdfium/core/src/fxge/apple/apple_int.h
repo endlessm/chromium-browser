@@ -1,11 +1,12 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _APPLE_INT_H_
-#define _APPLE_INT_H_
+#ifndef CORE_SRC_FXGE_APPLE_APPLE_INT_H_
+#define CORE_SRC_FXGE_APPLE_APPLE_INT_H_
+
 #if _FXM_PLATFORM_  == _FXM_PLATFORM_APPLE_
 #if _FX_OS_ == _FX_MACOSX_
 #include <Carbon/Carbon.h>
@@ -47,7 +48,7 @@ public:
     void*	createGraphics(CFX_DIBitmap* bitmap);
     void	destroyGraphics(void* graphics);
 
-    void*	CreateFont(FX_LPCBYTE pFontData, FX_DWORD dwFontSize);
+    void*	CreateFont(const uint8_t* pFontData, FX_DWORD dwFontSize);
     void	DestroyFont(void* pFont);
     void	setGraphicsTextMatrix(void* graphics, CFX_AffineMatrix* matrix);
     FX_BOOL	drawGraphicsString(void*                graphics,
@@ -55,13 +56,13 @@ public:
                                FX_FLOAT             fontSize,
                                FX_WORD*             glyphIndices,
                                CGPoint*          glyphPositions,
-                               FX_INT32             chars,
+                               int32_t             chars,
                                FX_ARGB              argb,
                                CFX_AffineMatrix*    matrix = NULL);
     void saveGraphicsState(void* graphics);
     void restoreGraphicsState(void* graphics);
 };
-class CApplePlatform : public CFX_Object
+class CApplePlatform
 {
 public:
     CApplePlatform()
@@ -70,9 +71,7 @@ public:
     }
     ~CApplePlatform()
     {
-        if (m_pFontMapper) {
-            delete m_pFontMapper;
-        }
+        delete m_pFontMapper;
     }
     CQuartz2D	_quartz2d;
     IFX_FontMapper* m_pFontMapper;
@@ -80,7 +79,7 @@ public:
 class CFX_QuartzDeviceDriver : public IFX_RenderDeviceDriver
 {
 public:
-    CFX_QuartzDeviceDriver(CGContextRef context, FX_INT32 deviceClass);
+    CFX_QuartzDeviceDriver(CGContextRef context, int32_t deviceClass);
     virtual ~CFX_QuartzDeviceDriver();
 
     virtual int		GetDeviceCaps(int caps_id);
@@ -140,17 +139,17 @@ public:
                                   int dest_width, int dest_height, const FX_RECT* pClipRect, FX_DWORD flags,
                                   int alpha_flag = 0, void* pIccTransform = NULL, int blend_type = FXDIB_BLEND_NORMAL);
     virtual FX_BOOL	StartDIBits(const CFX_DIBSource* pBitmap, int bitmap_alpha, FX_DWORD color,
-                                const CFX_AffineMatrix* pMatrix, FX_DWORD flags, FX_LPVOID& handle,
+                                const CFX_AffineMatrix* pMatrix, FX_DWORD flags, void*& handle,
                                 int alpha_flag = 0, void* pIccTransform = NULL,
                                 int blend_type = FXDIB_BLEND_NORMAL)
     {
         return FALSE;
     }
-    virtual FX_BOOL	ContinueDIBits(FX_LPVOID handle, IFX_Pause* pPause)
+    virtual FX_BOOL	ContinueDIBits(void* handle, IFX_Pause* pPause)
     {
         return FALSE;
     }
-    virtual void	CancelDIBits(FX_LPVOID handle) {}
+    virtual void	CancelDIBits(void* handle) {}
     virtual FX_BOOL DrawDeviceText(int nChars, const FXTEXT_CHARPOS* pCharPos, CFX_Font* pFont,
                                    CFX_FontCache* pCache, const CFX_AffineMatrix* pObject2Device, FX_FLOAT font_size, FX_DWORD color,
                                    int alpha_flag = 0, void* pIccTransform = NULL);
@@ -175,38 +174,38 @@ protected:
     CGContextRef	_context;
     CGAffineTransform _foxitDevice2User;
     CGAffineTransform _user2FoxitDevice;
-    FX_INT32        m_saveCount;
+    int32_t        m_saveCount;
 
-    FX_INT32		_width;
-    FX_INT32		_height;
-    FX_INT32		_bitsPerPixel;
-    FX_INT32		_deviceClass;
-    FX_INT32		_renderCaps;
-    FX_INT32	_horzSize;
-    FX_INT32	_vertSize;
+    int32_t		_width;
+    int32_t		_height;
+    int32_t		_bitsPerPixel;
+    int32_t		_deviceClass;
+    int32_t		_renderCaps;
+    int32_t	_horzSize;
+    int32_t	_vertSize;
 };
-class CFX_FontProvider FX_FINAL : public IFX_FileRead
+class CFX_FontProvider final : public IFX_FileRead
 {
 public:
-    virtual void			Release() FX_OVERRIDE
+    virtual void			Release() override
     {
         delete this;
     }
-    virtual FX_FILESIZE		GetSize() FX_OVERRIDE
+    virtual FX_FILESIZE		GetSize() override
     {
         return (FX_FILESIZE)_totalSize;
     }
-    virtual FX_BOOL			ReadBlock(void* buffer, FX_FILESIZE offset, size_t size) FX_OVERRIDE;
+    virtual FX_BOOL			ReadBlock(void* buffer, FX_FILESIZE offset, size_t size) override;
 
-    virtual FX_BOOL			IsEOF() FX_OVERRIDE
+    virtual FX_BOOL			IsEOF() override
     {
         return _offSet == _totalSize;
     }
-    virtual FX_FILESIZE		GetPosition() FX_OVERRIDE
+    virtual FX_FILESIZE		GetPosition() override
     {
         return (FX_FILESIZE)_offSet;
     }
-    virtual size_t			ReadBlock(void* buffer, size_t size) FX_OVERRIDE;
+    virtual size_t			ReadBlock(void* buffer, size_t size) override;
 public:
     CFX_FontProvider(CGFontRef cgFont);
     ~CFX_FontProvider();
@@ -238,9 +237,10 @@ private:
     int _tableCount;
     int _totalSize;
 };
-FX_UINT32 FX_GetHashCode( FX_LPCSTR pStr);
-FX_DWORD  FX_IOSGetMatchFamilyNameHashcode(FX_LPCSTR pFontName);
-FX_UINT32 FX_IOSGetFamilyNamesCount();
-FX_LPCSTR FX_IOSGetFamilyName( FX_UINT32 uIndex);
+uint32_t FX_GetHashCode( const FX_CHAR* pStr);
+FX_DWORD  FX_IOSGetMatchFamilyNameHashcode(const FX_CHAR* pFontName);
+uint32_t FX_IOSGetFamilyNamesCount();
+const FX_CHAR* FX_IOSGetFamilyName( uint32_t uIndex);
 #endif
-#endif
+
+#endif  // CORE_SRC_FXGE_APPLE_APPLE_INT_H_

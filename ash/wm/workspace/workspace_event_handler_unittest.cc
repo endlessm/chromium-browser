@@ -18,6 +18,7 @@
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/hit_test.h"
 #include "ui/events/event_processor.h"
+#include "ui/events/event_utils.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/gfx/screen.h"
 #include "ui/wm/core/window_util.h"
@@ -29,6 +30,23 @@
 
 namespace ash {
 
+namespace {
+
+// Clicks |button| with |flags|.
+void ClickButtonWithFlags(ui::test::EventGenerator* generator,
+                          int button,
+                          int flags) {
+  gfx::Point location = generator->current_location();
+  ui::MouseEvent press(ui::ET_MOUSE_PRESSED, location, location,
+                       ui::EventTimeForNow(), button | flags, button);
+  generator->Dispatch(&press);
+  ui::MouseEvent release(ui::ET_MOUSE_RELEASED, location, location,
+                         ui::EventTimeForNow(), button | flags, button);
+  generator->Dispatch(&release);
+}
+
+}  // namespace
+
 class WorkspaceEventHandlerTest : public test::AshTestBase {
  public:
   WorkspaceEventHandlerTest() {}
@@ -39,7 +57,7 @@ class WorkspaceEventHandlerTest : public test::AshTestBase {
                                  const gfx::Rect& bounds) {
     aura::Window* window = new aura::Window(delegate);
     window->SetType(ui::wm::WINDOW_TYPE_NORMAL);
-    window->Init(aura::WINDOW_LAYER_TEXTURED);
+    window->Init(ui::LAYER_TEXTURED);
     ParentWindowInPrimaryRootWindow(window);
     window->SetBounds(bounds);
     window->Show();
@@ -322,19 +340,16 @@ TEST_F(WorkspaceEventHandlerTest, DoubleClickCaptionTogglesMaximize) {
   delegate.set_window_component(HTCAPTION);
   aura::Window* root = Shell::GetPrimaryRootWindow();
   ui::test::EventGenerator generator(root, window.get());
-  generator.ClickLeftButton();
   generator.DoubleClickLeftButton();
   EXPECT_NE(restore_bounds.ToString(), window->bounds().ToString());
   EXPECT_TRUE(window_state->IsMaximized());
 
-  generator.ClickLeftButton();
   generator.DoubleClickLeftButton();
   EXPECT_TRUE(window_state->IsNormalStateType());
   EXPECT_EQ(restore_bounds.ToString(), window->bounds().ToString());
 
   // 2) Double clicking a horizontally maximized window should maximize.
   delegate.set_window_component(HTLEFT);
-  generator.ClickLeftButton();
   generator.DoubleClickLeftButton();
   EXPECT_TRUE(window_state->IsNormalStateType());
   EXPECT_EQ(work_area_in_parent.x(), window->bounds().x());
@@ -343,11 +358,9 @@ TEST_F(WorkspaceEventHandlerTest, DoubleClickCaptionTogglesMaximize) {
   EXPECT_EQ(restore_bounds.height(), window->bounds().height());
 
   delegate.set_window_component(HTCAPTION);
-  generator.ClickLeftButton();
   generator.DoubleClickLeftButton();
   EXPECT_TRUE(window_state->IsMaximized());
 
-  generator.ClickLeftButton();
   generator.DoubleClickLeftButton();
   EXPECT_TRUE(window_state->IsNormalStateType());
   EXPECT_EQ(restore_bounds.ToString(), window->bounds().ToString());
@@ -357,11 +370,9 @@ TEST_F(WorkspaceEventHandlerTest, DoubleClickCaptionTogglesMaximize) {
   window_state->OnWMEvent(&snap_event);
   EXPECT_TRUE(window_state->IsSnapped());
   generator.MoveMouseTo(window->GetBoundsInRootWindow().CenterPoint());
-  generator.ClickLeftButton();
   generator.DoubleClickLeftButton();
   EXPECT_TRUE(window_state->IsMaximized());
 
-  generator.ClickLeftButton();
   generator.DoubleClickLeftButton();
   EXPECT_TRUE(window_state->IsNormalStateType());
   EXPECT_EQ(restore_bounds.ToString(), window->bounds().ToString());
@@ -380,19 +391,9 @@ TEST_F(WorkspaceEventHandlerTest,
   ui::test::EventGenerator generator(root, window.get());
 
   WindowPropertyObserver observer(window.get());
-  ui::MouseEvent press(ui::ET_MOUSE_PRESSED, generator.current_location(),
-                       generator.current_location(),
-                       ui::EF_MIDDLE_MOUSE_BUTTON | ui::EF_IS_DOUBLE_CLICK,
-                       ui::EF_MIDDLE_MOUSE_BUTTON);
-  ui::EventProcessor* dispatcher = root->GetHost()->event_processor();
-  ui::EventDispatchDetails details = dispatcher->OnEventFromSource(&press);
-  ASSERT_FALSE(details.dispatcher_destroyed);
-  ui::MouseEvent release(ui::ET_MOUSE_RELEASED, generator.current_location(),
-                         generator.current_location(),
-                         ui::EF_IS_DOUBLE_CLICK,
-                         ui::EF_MIDDLE_MOUSE_BUTTON);
-  details = dispatcher->OnEventFromSource(&release);
-  ASSERT_FALSE(details.dispatcher_destroyed);
+  ClickButtonWithFlags(&generator, ui::EF_MIDDLE_MOUSE_BUTTON, ui::EF_NONE);
+  ClickButtonWithFlags(&generator, ui::EF_MIDDLE_MOUSE_BUTTON,
+                       ui::EF_IS_DOUBLE_CLICK);
 
   EXPECT_FALSE(wm::GetWindowState(window.get())->IsMaximized());
   EXPECT_EQ("1,2 30x40", window->bounds().ToString());
@@ -484,7 +485,8 @@ TEST_F(WorkspaceEventHandlerTest,
 
   // Second click will go to the header
   delegate.set_window_component(HTCAPTION);
-  generator.DoubleClickLeftButton();
+  ClickButtonWithFlags(&generator, ui::EF_LEFT_MOUSE_BUTTON,
+                       ui::EF_IS_DOUBLE_CLICK);
   EXPECT_FALSE(window_state->IsMaximized());
 }
 
@@ -542,7 +544,8 @@ TEST_F(WorkspaceEventHandlerTest,
   generator.PressRightButton();
   generator.ReleaseRightButton();
   EXPECT_FALSE(window_state->IsMaximized());
-  generator.DoubleClickLeftButton();
+  ClickButtonWithFlags(&generator, ui::EF_LEFT_MOUSE_BUTTON,
+                       ui::EF_IS_DOUBLE_CLICK);
   EXPECT_FALSE(window_state->IsMaximized());
 }
 

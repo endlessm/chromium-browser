@@ -47,88 +47,109 @@ BaseDownloadsWebUITest.prototype = {
    * @override
    */
   setUp: function() {
+    this.createdDownloads = [];
+
     // The entries will begin at 1:00 AM on Sept 2, 2008, and will be spaced
     // two minutes apart.
     var timestamp = new Date(2008, 9, 2, 1, 0).getTime();
     for (var i = 0; i < TOTAL_RESULT_COUNT; ++i) {
-      downloads.updated(this.createDownload_(i, timestamp));
+      this.createDownload(i, timestamp);
       timestamp += 2 * 60 * 1000;  // Next visit is two minutes later.
     }
-    expectEquals(downloads.size(), TOTAL_RESULT_COUNT);
+    downloads.Manager.updateAll(this.createdDownloads);
+    expectEquals(downloads.Manager.size(), TOTAL_RESULT_COUNT);
   },
 
   /**
    * Creates a download object to be passed to the page, following the expected
    * backend format (see downloads_dom_handler.cc).
-   * @param {number} A unique ID for the download.
-   * @param {number} The time the download purportedly started.
+   * @param {number} id A unique ID for the download.
+   * @param {number} timestamp The time the download purportedly started.
    * @return {!Object} A fake download object.
-   * @private
    */
-  createDownload_: function(id, timestamp) {
-    return {
+  createDownload: function(id, timestamp) {
+    this.createdDownloads.unshift({
       id: id,
       started: timestamp,
       otr: false,
-      state: Download.States.COMPLETE,
+      state: downloads.States.COMPLETE,
       retry: false,
       file_path: '/path/to/file',
       file_url: 'http://google.com/' + timestamp,
       file_name: 'download_' + timestamp,
       url: 'http://google.com/' + timestamp,
       file_externally_removed: false,
-      danger_type: Download.DangerType.NOT_DANGEROUS,
+      danger_type: downloads.DangerType.NOT_DANGEROUS,
       last_reason_text: '',
       since_string: 'today',
       date_string: 'today',
       percent: 100,
       progress_status_text: 'done',
       received: 128,
-    };
+    });
+    return this.createdDownloads[0];
   },
 
   /**
-   * Asserts the correctness of the state of the UI elements
-   * that delete the download history.
-   * @param {boolean} allowDelete True if download history deletion is
-   *     allowed and false otherwise.
-   * @param {boolean} expectControlsHidden True if the controls to delete
-   *     download history are expected to be hidden and false otherwise.
+   * Creates a dangerous download object. See downloads_dom_handler.cc.
+   * @param {number} id The ID of the download.
+   * @param {number} timestamp The time this download started.
+   * @return {!Object} A fake, dangerous download object.
    */
-  testHelper: function(allowDelete, expectControlsHidden) {
-    var clearAllElements = document.getElementsByClassName('clear-all-link');
-    var disabledElements = document.getElementsByClassName('disabled-link');
-    var removeLinkElements =
-        document.getElementsByClassName('control-remove-link');
+  createDangerousDownload: function(id, timestamp) {
+    this.createdDownloads.unshift({
+      id: id,
+      started: timestamp,
+      otr: false,
+      state: downloads.States.DANGEROUS,
+      retry: false,
+      file_path: '/oh/noes.jpg.exe',
+      file_url: 'http://evil.com/cute/kittens' + timestamp,
+      file_name: 'evil.' + timestamp + '.jar',
+      file_url: 'http://evil.com/cute/kittens' + timestamp,
+      file_externally_removed: false,
+      danger_type: downloads.DangerType.DANGEROUS_FILE,
+      last_reason_text: '',
+      since_string: 'today',
+      date_string: 'today',
+      percent: 0,
+      progress_status_text: '',
+      received: 128,
+    });
+    return this.createdDownloads[0];
+  },
 
-    // "Clear all" should be a link only when deletions are allowed.
-    expectEquals(allowDelete ? 1 : 0, clearAllElements.length);
+  /**
+   * Simulates getting no results from C++.
+   */
+  sendEmptyList: function() {
+    downloads.Manager.updateAll([]);
+    assertEquals(0, downloads.Manager.size());
+  },
 
-    // There should be no disabled links when deletions are allowed.
-    // On the other hand, when deletions are not allowed, "Clear All"
-    // and all "Remove from list" links should be disabled.
-    expectEquals(allowDelete ? 0 : TOTAL_RESULT_COUNT + 1,
-        disabledElements.length);
+  /**
+   * Check that |element| is showing and contains |text|.
+   * @param {Element} element
+   * @param {string} text
+   */
+  checkShowing: function(element, text) {
+    expectFalse(element.hidden);
+    expectNotEquals(-1, element.textContent.indexOf(text));
+  },
 
-    // All "Remove from list" items should be links when deletions are allowed.
-    // On the other hand, when deletions are not allowed, all
-    // "Remove from list" items should be text.
-    expectEquals(allowDelete ? TOTAL_RESULT_COUNT : 0,
-        removeLinkElements.length);
+  /**
+   * Asserts the correctness of the state of the UI elements that delete the
+   * download history.
+   * @param {boolean} visible True if download deletion UI should be visible.
+   */
+  expectDeleteControlsVisible: function(visible) {
+    // "Clear all" should only be showing when deletions are allowed.
+    expectEquals(!visible, $('clear-all').hidden);
 
-    if (allowDelete) {
-      // "Clear all" should not be hidden.
-      expectFalse(clearAllElements[0].hidden);
-
-      // No "Remove from list" items should be hidden.
-      expectFalse(removeLinkElements[0].hidden);
-    } else {
-      expectEquals(expectControlsHidden, disabledElements[0].hidden);
-    }
-
-    // The model is updated synchronously, even though the actual
-    // back-end removal (tested elsewhere) is asynchronous.
-    clearAll();
-    expectEquals(allowDelete ? 0 : TOTAL_RESULT_COUNT, downloads.size());
+    // "Remove from list" links should only exist when deletions are allowed.
+    var query = '#downloads-display .safe .remove';
+    if (!visible)
+      query += '[hidden]';
+    expectEquals(TOTAL_RESULT_COUNT, document.querySelectorAll(query).length);
   },
 };

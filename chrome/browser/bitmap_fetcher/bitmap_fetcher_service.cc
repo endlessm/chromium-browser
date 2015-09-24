@@ -23,7 +23,7 @@ class BitmapFetcherRequest {
                        BitmapFetcherService::Observer* observer);
   ~BitmapFetcherRequest();
 
-  void NotifyImageChanged(const SkBitmap& bitmap);
+  void NotifyImageChanged(const SkBitmap* bitmap);
   BitmapFetcherService::RequestId request_id() const { return request_id_; }
 
   // Weak ptr |fetcher| is used to identify associated fetchers.
@@ -47,9 +47,9 @@ BitmapFetcherRequest::BitmapFetcherRequest(
 BitmapFetcherRequest::~BitmapFetcherRequest() {
 }
 
-void BitmapFetcherRequest::NotifyImageChanged(const SkBitmap& bitmap) {
-  if (!bitmap.empty())
-    observer_->OnImageChanged(request_id_, bitmap);
+void BitmapFetcherRequest::NotifyImageChanged(const SkBitmap* bitmap) {
+  if (bitmap && !bitmap->empty())
+    observer_->OnImageChanged(request_id_, *bitmap);
 }
 
 BitmapFetcherService::CacheEntry::CacheEntry() {
@@ -95,7 +95,7 @@ BitmapFetcherService::RequestId BitmapFetcherService::RequestImage(
   base::OwningMRUCache<GURL, CacheEntry*>::iterator iter = cache_.Get(url);
   if (iter != cache_.end()) {
     BitmapFetcherService::CacheEntry* entry = iter->second;
-    request->NotifyImageChanged(*(entry->bitmap.get()));
+    request->NotifyImageChanged(entry->bitmap.get());
 
     // There is no request ID associated with this - data is already delivered.
     return REQUEST_ID_INVALID;
@@ -121,11 +121,12 @@ void BitmapFetcherService::Prefetch(const GURL& url) {
 chrome::BitmapFetcher* BitmapFetcherService::CreateFetcher(const GURL& url) {
   chrome::BitmapFetcher* new_fetcher = new chrome::BitmapFetcher(url, this);
 
-  new_fetcher->Start(
+  new_fetcher->Init(
       context_->GetRequestContext(),
       std::string(),
       net::URLRequest::CLEAR_REFERRER_ON_TRANSITION_FROM_SECURE_TO_INSECURE,
       net::LOAD_NORMAL);
+  new_fetcher->Start();
   return new_fetcher;
 }
 
@@ -163,10 +164,8 @@ void BitmapFetcherService::RemoveFetcher(const chrome::BitmapFetcher* fetcher) {
   NOTREACHED();  // RemoveFetcher should always result in removal.
 }
 
-void BitmapFetcherService::OnFetchComplete(const GURL url,
+void BitmapFetcherService::OnFetchComplete(const GURL& url,
                                            const SkBitmap* bitmap) {
-  DCHECK(bitmap);  // can never be NULL, guaranteed by BitmapFetcher.
-
   const chrome::BitmapFetcher* fetcher = FindFetcherForUrl(url);
   DCHECK(fetcher);
 
@@ -174,14 +173,14 @@ void BitmapFetcherService::OnFetchComplete(const GURL url,
   ScopedVector<BitmapFetcherRequest>::iterator iter = requests_.begin();
   while (iter != requests_.end()) {
     if ((*iter)->get_fetcher() == fetcher) {
-      (*iter)->NotifyImageChanged(*bitmap);
+      (*iter)->NotifyImageChanged(bitmap);
       iter = requests_.erase(iter);
     } else {
       ++iter;
     }
   }
 
-  if (!bitmap->isNull()) {
+  if (bitmap && !bitmap->isNull()) {
     CacheEntry* entry = new CacheEntry;
     entry->bitmap.reset(new SkBitmap(*bitmap));
     cache_.Put(fetcher->url(), entry);

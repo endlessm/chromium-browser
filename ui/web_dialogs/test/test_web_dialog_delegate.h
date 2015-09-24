@@ -8,7 +8,7 @@
 #include <string>
 
 #include "base/compiler_specific.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/web_dialogs/web_dialog_delegate.h"
 #include "url/gurl.h"
 
@@ -23,6 +23,11 @@ class TestWebDialogDelegate : public WebDialogDelegate {
   void set_size(int width, int height) {
     size_.SetSize(width, height);
   }
+
+  // Sets the test delegate to delete when closed, as recommended by
+  // WebDialogDelegate::OnDialogClosed(). |observed_destroy| must be a pointer
+  // to a bool, which will be set to true when the destructor is called.
+  void SetDeleteOnClosedAndObserve(bool* destroy_observer);
 
   // WebDialogDelegate implementation:
   ModalType GetDialogModalType() const override;
@@ -40,6 +45,7 @@ class TestWebDialogDelegate : public WebDialogDelegate {
  protected:
   const GURL url_;
   gfx::Size size_;
+  bool* did_delete_;
 
   DISALLOW_COPY_AND_ASSIGN(TestWebDialogDelegate);
 };

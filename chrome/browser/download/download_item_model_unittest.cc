@@ -10,6 +10,7 @@
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/string16.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/public/test/mock_download_item.h"
@@ -31,7 +32,7 @@ using ::testing::_;
 namespace {
 
 // Create a char array that has as many elements as there are download
-// interrupt reasons. We can then use that in a COMPILE_ASSERT to make sure
+// interrupt reasons. We can then use that in a static_assert to make sure
 // that all the interrupt reason codes are accounted for. The reason codes are
 // unfortunately sparse, making this necessary.
 char kInterruptReasonCounter[] = {
@@ -163,15 +164,17 @@ TEST_F(DownloadItemModelTest, InterruptedStatus) {
       "Failed - Needs authorization" },
     { content::DOWNLOAD_INTERRUPT_REASON_SERVER_CERT_PROBLEM,
       "Failed - Bad certificate" },
+    { content::DOWNLOAD_INTERRUPT_REASON_SERVER_FORBIDDEN,
+      "Failed - Forbidden" },
     { content::DOWNLOAD_INTERRUPT_REASON_USER_CANCELED,
-      "Cancelled" },
+      "Canceled" },
     { content::DOWNLOAD_INTERRUPT_REASON_USER_SHUTDOWN,
       "Failed - Shutdown" },
     { content::DOWNLOAD_INTERRUPT_REASON_CRASH,
       "Failed - Crash" },
   };
-  COMPILE_ASSERT(kInterruptReasonCount == arraysize(kTestCases),
-                 interrupt_reason_mismatch);
+  static_assert(kInterruptReasonCount == arraysize(kTestCases),
+                "interrupt reason mismatch");
 
   SetupDownloadItemDefaults();
   for (unsigned i = 0; i < arraysize(kTestCases); ++i) {
@@ -239,6 +242,8 @@ TEST_F(DownloadItemModelTest, InterruptTooltip) {
       "foo.bar\nNeeds authorization" },
     { content::DOWNLOAD_INTERRUPT_REASON_SERVER_CERT_PROBLEM,
       "foo.bar\nBad certificate" },
+    { content::DOWNLOAD_INTERRUPT_REASON_SERVER_FORBIDDEN,
+      "foo.bar\nForbidden" },
     { content::DOWNLOAD_INTERRUPT_REASON_USER_CANCELED,
       "foo.bar" },
     { content::DOWNLOAD_INTERRUPT_REASON_USER_SHUTDOWN,
@@ -246,8 +251,8 @@ TEST_F(DownloadItemModelTest, InterruptTooltip) {
     { content::DOWNLOAD_INTERRUPT_REASON_CRASH,
       "foo.bar\nCrash" },
   };
-  COMPILE_ASSERT(kInterruptReasonCount == arraysize(kTestCases),
-                 interrupt_reason_mismatch);
+  static_assert(kInterruptReasonCount == arraysize(kTestCases),
+                "interrupt reason mismatch");
 
   // Large tooltip width. Should be large enough to accommodate the entire
   // tooltip without truncation.
@@ -275,12 +280,12 @@ TEST_F(DownloadItemModelTest, InterruptTooltip) {
 
     // Check that if the width is small, the returned tooltip only contains
     // lines of the given width or smaller.
-    std::vector<base::string16> lines;
     base::string16 truncated_tooltip =
         model().GetTooltipText(font_list, kSmallTooltipWidth);
-    Tokenize(truncated_tooltip, base::ASCIIToUTF16("\n"), &lines);
-    for (unsigned i = 0; i < lines.size(); ++i)
-      EXPECT_GE(kSmallTooltipWidth, gfx::GetStringWidth(lines[i], font_list));
+    for (const base::string16& line :
+         base::SplitString(truncated_tooltip, base::ASCIIToUTF16("\n"),
+                           base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY))
+      EXPECT_GE(kSmallTooltipWidth, gfx::GetStringWidth(line, font_list));
   }
 }
 

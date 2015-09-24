@@ -10,22 +10,19 @@
 
 namespace v8 {
 namespace internal {
-
-// Forward declarations.
-class Heap;
-
 namespace compiler {
 
 // Forward declarations.
 class JSGraph;
 class MachineOperatorBuilder;
 
-class SimplifiedOperatorReducer FINAL : public Reducer {
+
+class SimplifiedOperatorReducer final : public Reducer {
  public:
   explicit SimplifiedOperatorReducer(JSGraph* jsgraph);
-  virtual ~SimplifiedOperatorReducer();
+  ~SimplifiedOperatorReducer() final;
 
-  virtual Reduction Reduce(Node* node) OVERRIDE;
+  Reduction Reduce(Node* node) final;
 
  private:
   Reduction Change(Node* node, const Operator* op, Node* a);
@@ -38,12 +35,11 @@ class SimplifiedOperatorReducer FINAL : public Reducer {
   Reduction ReplaceNumber(int32_t value);
 
   Graph* graph() const;
-  Factory* factory() const;
   JSGraph* jsgraph() const { return jsgraph_; }
   MachineOperatorBuilder* machine() const;
   SimplifiedOperatorBuilder* simplified() { return &simplified_; }
 
-  JSGraph* jsgraph_;
+  JSGraph* const jsgraph_;
   SimplifiedOperatorBuilder simplified_;
 
   DISALLOW_COPY_AND_ASSIGN(SimplifiedOperatorReducer);

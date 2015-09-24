@@ -5,15 +5,14 @@
 package org.chromium.components.gcm_driver;
 
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.os.AsyncTask;
 import android.os.Bundle;
-import android.preference.PreferenceManager;
 import android.util.Log;
 
 import org.chromium.base.CalledByNative;
 import org.chromium.base.JNINamespace;
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.library_loader.ProcessInitException;
 import org.chromium.content.app.ContentApplication;
 import org.chromium.content.browser.BrowserStartupController;
@@ -24,7 +23,7 @@ import java.util.List;
 
 /**
  * This class is the Java counterpart to the C++ GCMDriverAndroid class.
- * It uses Android's Java GCM APIs to implements GCM registration etc, and
+ * It uses Android's Java GCM APIs to implement GCM registration etc, and
  * sends back GCM messages over JNI.
  *
  * Threading model: all calls to/from C++ happen on the UI thread.
@@ -33,17 +32,17 @@ import java.util.List;
 public class GCMDriver {
     private static final String TAG = "GCMDriver";
 
-    private static final String LAST_GCM_APP_ID_KEY = "last_gcm_app_id";
-
     // The instance of GCMDriver currently owned by a C++ GCMDriverAndroid, if any.
     private static GCMDriver sInstance = null;
 
     private long mNativeGCMDriverAndroid;
     private final Context mContext;
+    private final GoogleCloudMessagingV2 mGcm;
 
     private GCMDriver(long nativeGCMDriverAndroid, Context context) {
         mNativeGCMDriverAndroid = nativeGCMDriverAndroid;
         mContext = context;
+        mGcm = new GoogleCloudMessagingV2(context);
     }
 
     /**
@@ -75,19 +74,16 @@ public class GCMDriver {
     }
 
     @CalledByNative
-    private void register(final String appId, final String[] senderIds) {
-        setLastAppId(appId);
+    private void register(final String appId, final String senderId) {
         new AsyncTask<Void, Void, String>() {
             @Override
             protected String doInBackground(Void... voids) {
-                // TODO(johnme): Should check if GMS is installed on the device first. Ditto below.
                 try {
                     String subtype = appId;
-                    GoogleCloudMessagingV2 gcm = new GoogleCloudMessagingV2(mContext);
-                    String registrationId = gcm.register(subtype, senderIds);
+                    String registrationId = mGcm.subscribe(senderId, subtype, null);
                     return registrationId;
                 } catch (IOException ex) {
-                    Log.w(TAG, "GCMv2 registration failed for " + appId, ex);
+                    Log.w(TAG, "GCM subscription failed for " + appId + ", " + senderId, ex);
                     return "";
                 }
             }
@@ -100,17 +96,16 @@ public class GCMDriver {
     }
 
     @CalledByNative
-    private void unregister(final String appId) {
+    private void unregister(final String appId, final String senderId) {
         new AsyncTask<Void, Void, Boolean>() {
             @Override
             protected Boolean doInBackground(Void... voids) {
                 try {
                     String subtype = appId;
-                    GoogleCloudMessagingV2 gcm = new GoogleCloudMessagingV2(mContext);
-                    gcm.unregister(subtype);
+                    mGcm.unsubscribe(senderId, subtype, null);
                     return true;
                 } catch (IOException ex) {
-                    Log.w(TAG, "GCMv2 unregistration failed for " + appId, ex);
+                    Log.w(TAG, "GCM unsubscription failed for " + appId + ", " + senderId, ex);
                     return false;
                 }
             }
@@ -122,7 +117,7 @@ public class GCMDriver {
         }.execute();
     }
 
-    static void onMessageReceived(Context context, final String appId, final Bundle extras) {
+    public static void onMessageReceived(Context context, final String appId, final Bundle extras) {
         // TODO(johnme): Store message and redeliver later if Chrome is killed before delivery.
         ThreadUtils.assertOnUiThread();
         launchNativeThen(context, new Runnable() {
@@ -138,17 +133,15 @@ public class GCMDriver {
                 List<String> dataKeysAndValues = new ArrayList<String>();
                 for (String key : extras.keySet()) {
                     // TODO(johnme): Check there aren't other keys that we need to exclude.
-                    if (key.equals(bundleSubtype) || key.equals(bundleSenderId) ||
-                            key.equals(bundleCollapseKey) || key.startsWith(bundleGcmplex))
+                    if (key.equals(bundleSubtype) || key.equals(bundleSenderId)
+                            || key.equals(bundleCollapseKey) || key.startsWith(bundleGcmplex))
                         continue;
                     dataKeysAndValues.add(key);
                     dataKeysAndValues.add(extras.getString(key));
                 }
 
-                String guessedAppId = GCMListener.UNKNOWN_APP_ID.equals(appId) ? getLastAppId()
-                                                                               : appId;
                 sInstance.nativeOnMessageReceived(sInstance.mNativeGCMDriverAndroid,
-                        guessedAppId, senderId, collapseKey,
+                        appId, senderId, collapseKey,
                         dataKeysAndValues.toArray(new String[dataKeysAndValues.size()]));
             }
         });
@@ -159,9 +152,7 @@ public class GCMDriver {
         ThreadUtils.assertOnUiThread();
         launchNativeThen(context, new Runnable() {
             @Override public void run() {
-                String guessedAppId = GCMListener.UNKNOWN_APP_ID.equals(appId) ? getLastAppId()
-                                                                               : appId;
-                sInstance.nativeOnMessagesDeleted(sInstance.mNativeGCMDriverAndroid, guessedAppId);
+                sInstance.nativeOnMessagesDeleted(sInstance.mNativeGCMDriverAndroid, appId);
             }
         });
     }
@@ -174,21 +165,6 @@ public class GCMDriver {
             String senderId, String collapseKey, String[] dataKeysAndValues);
     private native void nativeOnMessagesDeleted(long nativeGCMDriverAndroid, String appId);
 
-    // TODO(johnme): This and setLastAppId are just temporary (crbug.com/350383).
-    private static String getLastAppId() {
-        SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(
-                sInstance.mContext);
-        return settings.getString(LAST_GCM_APP_ID_KEY, "push#unknown_app_id#0");
-    }
-
-    private static void setLastAppId(String appId) {
-        SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(
-                sInstance.mContext);
-        SharedPreferences.Editor editor = settings.edit();
-        editor.putString(LAST_GCM_APP_ID_KEY, appId);
-        editor.commit();
-    }
-
     private static void launchNativeThen(Context context, Runnable task) {
         if (sInstance != null) {
             task.run();
@@ -198,7 +174,8 @@ public class GCMDriver {
         ContentApplication.initCommandLine(context);
 
         try {
-            BrowserStartupController.get(context).startBrowserProcessesSync(false);
+            BrowserStartupController.get(context, LibraryProcessType.PROCESS_BROWSER)
+                    .startBrowserProcessesSync(false);
             if (sInstance != null) {
                 task.run();
             } else {

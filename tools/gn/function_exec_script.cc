@@ -23,7 +23,40 @@
 namespace functions {
 
 namespace {
-const char kNoExecSwitch[] = "no-exec";
+
+bool CheckExecScriptPermissions(const BuildSettings* build_settings,
+                                const FunctionCallNode* function,
+                                Err* err) {
+  const std::set<SourceFile>* whitelist =
+      build_settings->exec_script_whitelist();
+  if (!whitelist)
+    return true;  // No whitelist specified, don't check.
+
+  LocationRange function_range = function->GetRange();
+  if (!function_range.begin().file())
+    return true;  // No file, might be some internal thing, implicitly pass.
+
+  if (whitelist->find(function_range.begin().file()->name()) !=
+      whitelist->end())
+    return true;  // Whitelisted, this is OK.
+
+  // Disallowed case.
+  *err = Err(function, "Disallowed exec_script call.",
+      "The use of exec_script use is restricted in this build. exec_script\n"
+      "is discouraged because it can slow down the GN run and is easily\n"
+      "abused.\n"
+      "\n"
+      "Generally nontrivial work should be done as build steps rather than\n"
+      "when GN is run. For example, if you need to compute a nontrivial\n"
+      "preprocessor define, it will be better to have an action target\n"
+      "generate a header containing the define rather than blocking the GN\n"
+      "run to compute the value.\n"
+      "\n"
+      "The allowed callers of exec_script is maintained in the \"//.gn\" file\n"
+      "if you need to modify the whitelist.");
+  return false;
+}
+
 }  // namespace
 
 const char kExecScript[] = "exec_script";
@@ -96,11 +129,15 @@ Value RunExecScript(Scope* scope,
   const BuildSettings* build_settings = settings->build_settings();
   const SourceDir& cur_dir = scope->GetSourceDir();
 
-  // Find the python script to run.
-  if (!args[0].VerifyTypeIs(Value::STRING, err))
+  if (!CheckExecScriptPermissions(build_settings, function, err))
     return Value();
+
+  // Find the python script to run.
   SourceFile script_source =
-      cur_dir.ResolveRelativeFile(args[0].string_value());
+      cur_dir.ResolveRelativeFile(args[0], err,
+          scope->settings()->build_settings()->root_path_utf8());
+  if (err->has_error())
+    return Value();
   base::FilePath script_path = build_settings->GetFullPath(script_source);
   if (!build_settings->secondary_source_path().empty() &&
       !base::PathExists(script_path)) {
@@ -124,13 +161,16 @@ Value RunExecScript(Scope* scope,
         return Value();
       g_scheduler->AddGenDependency(
           build_settings->GetFullPath(cur_dir.ResolveRelativeFile(
-              dep.string_value())));
+              dep, err,
+              scope->settings()->build_settings()->root_path_utf8())));
+      if (err->has_error())
+        return Value();
     }
   }
 
   // Make the command line.
   const base::FilePath& python_path = build_settings->python_path();
-  CommandLine cmdline(python_path);
+  base::CommandLine cmdline(python_path);
   cmdline.AppendArgPath(script_path);
 
   if (args.size() >= 2) {
@@ -174,13 +214,11 @@ Value RunExecScript(Scope* scope,
   std::string output;
   std::string stderr_output;
   int exit_code = 0;
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(kNoExecSwitch)) {
-    if (!internal::ExecProcess(
-            cmdline, startup_dir, &output, &stderr_output, &exit_code)) {
-      *err = Err(function->function(), "Could not execute python.",
-          "I was trying to execute \"" + FilePathToUTF8(python_path) + "\".");
-      return Value();
-    }
+  if (!internal::ExecProcess(
+          cmdline, startup_dir, &output, &stderr_output, &exit_code)) {
+    *err = Err(function->function(), "Could not execute python.",
+        "I was trying to execute \"" + FilePathToUTF8(python_path) + "\".");
+    return Value();
   }
   if (g_scheduler->verbose_logging()) {
     g_scheduler->Log("Pythoning", script_source.value() + " took " +

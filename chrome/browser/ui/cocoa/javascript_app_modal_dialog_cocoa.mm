@@ -11,10 +11,13 @@
 #import "base/mac/foundation_util.h"
 #include "base/strings/sys_string_conversions.h"
 #import "chrome/browser/chrome_browser_application_mac.h"
-#include "chrome/browser/ui/app_modal_dialogs/chrome_javascript_native_dialog_factory.h"
-#include "components/app_modal_dialogs/javascript_app_modal_dialog.h"
-#include "components/app_modal_dialogs/javascript_dialog_manager.h"
-#include "components/app_modal_dialogs/javascript_native_dialog_factory.h"
+#include "chrome/browser/ui/app_modal/chrome_javascript_native_dialog_factory.h"
+#include "chrome/browser/ui/blocked_content/app_modal_dialog_helper.h"
+#include "components/app_modal/javascript_app_modal_dialog.h"
+#include "components/app_modal/javascript_dialog_manager.h"
+#include "components/app_modal/javascript_native_dialog_factory.h"
+#include "content/public/browser/web_contents.h"
+#include "content/public/browser/web_contents_delegate.h"
 #include "grit/components_strings.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 #include "ui/base/ui_base_types.h"
@@ -149,6 +152,8 @@ enum AlertAction {
       NOTREACHED();
     }
   }
+
+  delete nativeDialog_;  // Careful, this will delete us.
 }
 
 - (void)playOrQueueAction:(AlertAction)action {
@@ -219,9 +224,10 @@ enum AlertAction {
 // JavaScriptAppModalDialogCocoa, public:
 
 JavaScriptAppModalDialogCocoa::JavaScriptAppModalDialogCocoa(
-    JavaScriptAppModalDialog* dialog)
+    app_modal::JavaScriptAppModalDialog* dialog)
     : dialog_(dialog),
-      helper_(NULL) {
+      popup_helper_(new AppModalDialogHelper(dialog->web_contents())),
+      is_showing_(false) {
   // Determine the names of the dialog buttons based on the flags. "Default"
   // is the OK button. "Other" is the cancel button. We don't use the
   // "Alternate" button in NSRunAlertPanel.
@@ -413,6 +419,8 @@ int JavaScriptAppModalDialogCocoa::GetAppModalDialogButtons() const {
 }
 
 void JavaScriptAppModalDialogCocoa::ShowAppModalDialog() {
+  is_showing_ = true;
+
   // Dispatch the method to show the alert back to the top of the CFRunLoop.
   // This fixes an interaction bug with NSSavePanel. http://crbug.com/375785
   // When this object is destroyed, outstanding performSelector: requests
@@ -437,27 +445,35 @@ void JavaScriptAppModalDialogCocoa::CancelAppModalDialog() {
   [helper_ playOrQueueAction:ACTION_CANCEL];
 }
 
+bool JavaScriptAppModalDialogCocoa::IsShowing() const {
+  return is_showing_;
+}
+
 namespace {
 
-class ChromeJavaScritpNativeDialogCocoaFactory
-    : public JavaScriptNativeDialogFactory {
+class ChromeJavaScriptNativeDialogCocoaFactory
+    : public app_modal::JavaScriptNativeDialogFactory {
  public:
-  ChromeJavaScritpNativeDialogCocoaFactory() {}
-  ~ChromeJavaScritpNativeDialogCocoaFactory() override {}
+  ChromeJavaScriptNativeDialogCocoaFactory() {}
+  ~ChromeJavaScriptNativeDialogCocoaFactory() override {}
 
  private:
-  NativeAppModalDialog* CreateNativeJavaScriptDialog(
-      JavaScriptAppModalDialog* dialog,
-      gfx::NativeWindow parent_window) override {
-    return new JavaScriptAppModalDialogCocoa(dialog);
+  app_modal::NativeAppModalDialog* CreateNativeJavaScriptDialog(
+      app_modal::JavaScriptAppModalDialog* dialog) override {
+    app_modal::NativeAppModalDialog* d =
+        new JavaScriptAppModalDialogCocoa(dialog);
+    dialog->web_contents()->GetDelegate()->ActivateContents(
+        dialog->web_contents());
+    return d;
   }
 
-  DISALLOW_COPY_AND_ASSIGN(ChromeJavaScritpNativeDialogCocoaFactory);
+  DISALLOW_COPY_AND_ASSIGN(ChromeJavaScriptNativeDialogCocoaFactory);
 };
 
 }  // namespace
 
 void InstallChromeJavaScriptNativeDialogFactory() {
-  SetJavaScriptNativeDialogFactory(
-      make_scoped_ptr(new ChromeJavaScritpNativeDialogCocoaFactory));
+  app_modal::JavaScriptDialogManager::GetInstance()->
+      SetNativeDialogFactory(
+          make_scoped_ptr(new ChromeJavaScriptNativeDialogCocoaFactory));
 }

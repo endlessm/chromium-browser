@@ -1,11 +1,11 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../../include/fxge/fx_ge.h"
-#if _FX_OS_ == _FX_WIN32_DESKTOP_ || _FX_OS_ == _FX_WIN64_
+#if _FX_OS_ == _FX_WIN32_DESKTOP_ || _FX_OS_ == _FX_WIN64_DESKTOP_
 #include <windows.h>
 #include <algorithm>
 namespace Gdiplus {
@@ -220,7 +220,7 @@ typedef GpStatus (WINGDIPAPI *FuncType_GdipSetImagePalette)(GpImage *image, GDIP
 typedef GpStatus (WINGDIPAPI *FuncType_GdipSetInterpolationMode)(GpGraphics *graphics, InterpolationMode interpolationMode);
 typedef GpStatus (WINGDIPAPI *FuncType_GdipDrawImagePointsI)(GpGraphics *graphics, GpImage *image, GDIPCONST GpPoint *dstpoints, INT count);
 typedef GpStatus (WINGDIPAPI *FuncType_GdipCreateBitmapFromGdiDib)(GDIPCONST BITMAPINFO* gdiBitmapInfo, VOID* gdiBitmapData, GpBitmap** bitmap);
-typedef Status (WINAPI *FuncType_GdiplusStartup)(OUT FX_UINTPTR *token, const GdiplusStartupInput *input, OUT GdiplusStartupOutput *output);
+typedef Status (WINAPI *FuncType_GdiplusStartup)(OUT uintptr_t *token, const GdiplusStartupInput *input, OUT GdiplusStartupOutput *output);
 typedef GpStatus (WINGDIPAPI *FuncType_GdipDrawLineI)(GpGraphics *graphics, GpPen *pen, int x1, int y1, int x2, int y2);
 typedef GpStatus (WINGDIPAPI *FuncType_GdipResetClip)(GpGraphics *graphics);
 typedef GpStatus (WINGDIPAPI *FuncType_GdipCreatePath)(GpFillMode brushMode, GpPath **path);
@@ -302,10 +302,7 @@ static CFX_DIBitmap* _StretchMonoToGray(int dest_width, int dest_height,
     int result_width = pClipRect->Width();
     int result_height = pClipRect->Height();
     int result_pitch = (result_width + 3) / 4 * 4;
-    CFX_DIBitmap* pStretched = FX_NEW CFX_DIBitmap;
-    if (!pStretched) {
-        return NULL;
-    }
+    CFX_DIBitmap* pStretched = new CFX_DIBitmap;
     if (!pStretched->Create(result_width, result_height, FXDIB_8bppRgb)) {
         delete pStretched;
         return NULL;
@@ -352,7 +349,7 @@ static void OutputImageMask(GpGraphics* pGraphics, BOOL bMonoDevice, const CFX_D
     CGdiplusExt& GdiplusExt = ((CWin32Platform*)CFX_GEModule::Get()->GetPlatformData())->m_GdiplusExt;
     int src_width = pBitmap->GetWidth(), src_height = pBitmap->GetHeight();
     int src_pitch = pBitmap->GetPitch();
-    FX_LPBYTE scan0 = pBitmap->GetBuffer();
+    uint8_t* scan0 = pBitmap->GetBuffer();
     if (src_width == 1 && src_height == 1) {
         if ((scan0[0] & 0x80) == 0) {
             return;
@@ -433,7 +430,7 @@ static void OutputImage(GpGraphics* pGraphics, const CFX_DIBitmap* pBitmap, cons
         return;
     }
     int src_pitch = pBitmap->GetPitch();
-    FX_LPBYTE scan0 = pBitmap->GetBuffer() + pSrcRect->top * src_pitch + pBitmap->GetBPP() * pSrcRect->left / 8;
+    uint8_t* scan0 = pBitmap->GetBuffer() + pSrcRect->top * src_pitch + pBitmap->GetBPP() * pSrcRect->left / 8;
     GpBitmap* bitmap = NULL;
     switch (pBitmap->GetFormat()) {
         case FXDIB_Argb:
@@ -509,7 +506,7 @@ void CGdiplusExt::Load()
             return;
         }
     }
-    FX_UINTPTR gdiplusToken;
+    uintptr_t gdiplusToken;
     GdiplusStartupInput gdiplusStartupInput;
     ((FuncType_GdiplusStartup)m_Functions[FuncId_GdiplusStartup])(&gdiplusToken, &gdiplusStartupInput, NULL);
     m_GdiModule = LoadLibraryA("GDI32.DLL");
@@ -572,7 +569,7 @@ FX_BOOL CGdiplusExt::GdipCreateFromImage(void* bitmap, void** graphics)
     }
     return FALSE;
 }
-FX_BOOL CGdiplusExt::GdipCreateFontFamilyFromName(FX_LPCWSTR name, void* pFontCollection, void**pFamily)
+FX_BOOL CGdiplusExt::GdipCreateFontFamilyFromName(const FX_WCHAR* name, void* pFontCollection, void**pFamily)
 {
     CGdiplusExt& GdiplusExt = ((CWin32Platform*)CFX_GEModule::Get()->GetPlatformData())->m_GdiplusExt;
     GpStatus status = CallFunc(GdipCreateFontFamilyFromName)((GDIPCONST WCHAR *)name, (GpFontCollection*)pFontCollection, (GpFontFamily**)pFamily);
@@ -769,9 +766,6 @@ static GpPen* _GdipCreatePen(const CFX_GraphStateData* pGraphState, const CFX_Af
     CallFunc(GdipSetPenLineJoin)(pPen, lineJoin);
     if(pGraphState->m_DashCount) {
         FX_FLOAT* pDashArray = FX_Alloc(FX_FLOAT, pGraphState->m_DashCount + pGraphState->m_DashCount % 2);
-        if (!pDashArray) {
-            return NULL;
-        }
         int nCount = 0;
         FX_FLOAT on_leftover = 0, off_leftover = 0;
         for (int i = 0; i < pGraphState->m_DashCount; i += 2) {
@@ -813,12 +807,13 @@ static GpPen* _GdipCreatePen(const CFX_GraphStateData* pGraphState, const CFX_Af
         }
         CallFunc(GdipSetPenDashArray)(pPen, pDashArray, nCount);
         FX_FLOAT phase = pGraphState->m_DashPhase;
-        if (bDashExtend)
+        if (bDashExtend) {
             if (phase < 0.5f) {
                 phase = 0;
             } else {
                 phase -= 0.5f;
             }
+        }
         CallFunc(GdipSetPenDashOffset)(pPen, phase);
         FX_Free(pDashArray);
         pDashArray = NULL;
@@ -873,14 +868,7 @@ BOOL CGdiplusExt::DrawPath(HDC hDC, const CFX_PathData* pPathData,
         CallFunc(GdipSetWorldTransform)(pGraphics, pMatrix);
     }
     PointF *points = FX_Alloc(PointF, nPoints);
-    if (!points) {
-        return FALSE;
-    }
     BYTE * types  = FX_Alloc(BYTE, nPoints);
-    if (!types) {
-        FX_Free(points);
-        return FALSE;
-    }
     int nSubPathes = 0;
     FX_BOOL bSubClose = FALSE;
     int pos_subclose = 0;
@@ -948,7 +936,7 @@ BOOL CGdiplusExt::DrawPath(HDC hDC, const CFX_PathData* pPathData,
         if (!bSmooth && (fill_mode & 3)) {
             bSmooth = TRUE;
         }
-        if (bSmooth || pGraphState && pGraphState->m_LineWidth > 2) {
+        if (bSmooth || (pGraphState && pGraphState->m_LineWidth > 2)) {
             CallFunc(GdipSetSmoothingMode)(pGraphics, SmoothingModeAntiAlias);
         }
     }
@@ -1008,7 +996,7 @@ BOOL CGdiplusExt::DrawPath(HDC hDC, const CFX_PathData* pPathData,
     CallFunc(GdipDeleteGraphics)(pGraphics);
     return TRUE;
 }
-class GpStream FX_FINAL : public IStream, public CFX_Object
+class GpStream final : public IStream
 {
     LONG	m_RefCount;
     int     m_ReadPos;
@@ -1056,8 +1044,8 @@ public:
         }
         bytes_left = m_InterStream.GetLength() - m_ReadPos;
         bytes_out = FX_MIN(cb, bytes_left);
-        FXSYS_memcpy32(Output, m_InterStream.GetBuffer() + m_ReadPos, bytes_out);
-        m_ReadPos += (FX_INT32)bytes_out;
+        FXSYS_memcpy(Output, m_InterStream.GetBuffer() + m_ReadPos, bytes_out);
+        m_ReadPos += (int32_t)bytes_out;
         if (pcbRead != NULL) {
             *pcbRead = (ULONG)bytes_out;
         }
@@ -1164,10 +1152,7 @@ static PREVIEW3_DIBITMAP* LoadDIBitmap(WINDIB_Open_Args_ args)
         if (args.memory_size == 0 || !args.memory_base) {
             return NULL;
         }
-        pStream = FX_NEW GpStream;
-        if (!pStream) {
-            return NULL;
-        }
+        pStream = new GpStream;
         pStream->Write(args.memory_base, (ULONG)args.memory_size, NULL);
         status = CallFunc(GdipCreateBitmapFromStreamICM)(pStream, &pBitmap);
     }
@@ -1198,12 +1183,6 @@ static PREVIEW3_DIBITMAP* LoadDIBitmap(WINDIB_Open_Args_ args)
         dest_pixel_format = PixelFormat32bppARGB;
     }
     LPBYTE buf = FX_Alloc(BYTE, info_size);
-    if (!buf) {
-        if (pStream) {
-            pStream->Release();
-        }
-        return NULL;
-    }
     BITMAPINFOHEADER* pbmih = (BITMAPINFOHEADER*)buf;
     pbmih->biBitCount = bpp;
     pbmih->biCompression = BI_RGB;
@@ -1212,12 +1191,6 @@ static PREVIEW3_DIBITMAP* LoadDIBitmap(WINDIB_Open_Args_ args)
     pbmih->biWidth = width;
     Rect rect(0, 0, width, height);
     BitmapData* pBitmapData = FX_Alloc(BitmapData, 1);
-    if (!pBitmapData) {
-        if (pStream) {
-            pStream->Release();
-        }
-        return NULL;
-    }
     CallFunc(GdipBitmapLockBits)(pBitmap, &rect, ImageLockModeRead,
                                  dest_pixel_format, pBitmapData);
     if (pixel_format == PixelFormat1bppIndexed || pixel_format == PixelFormat8bppIndexed) {
@@ -1236,12 +1209,6 @@ static PREVIEW3_DIBITMAP* LoadDIBitmap(WINDIB_Open_Args_ args)
         }
     }
     PREVIEW3_DIBITMAP* pInfo = FX_Alloc(PREVIEW3_DIBITMAP, 1);
-    if (!pInfo) {
-        if (pStream) {
-            pStream->Release();
-        }
-        return NULL;
-    }
     pInfo->pbmi = (BITMAPINFO*)buf;
     pInfo->pScan0 = (LPBYTE)pBitmapData->Scan0;
     pInfo->Stride = pBitmapData->Stride;
@@ -1272,16 +1239,14 @@ CFX_DIBitmap* CGdiplusExt::LoadDIBitmap(WINDIB_Open_Args_ args)
     int height = abs(pInfo->pbmi->bmiHeader.biHeight);
     int width = pInfo->pbmi->bmiHeader.biWidth;
     int dest_pitch = (width * pInfo->pbmi->bmiHeader.biBitCount + 31) / 32 * 4;
-    LPBYTE pData = FX_Alloc(BYTE, dest_pitch * height);
-    if (pData == NULL) {
-        FreeDIBitmap(pInfo);
-        return NULL;
-    }
+    LPBYTE pData = FX_Alloc2D(BYTE, dest_pitch, height);
     if (dest_pitch == pInfo->Stride) {
-        FXSYS_memcpy32(pData, pInfo->pScan0, dest_pitch * height);
-    } else for (int i = 0; i < height; i ++) {
-            FXSYS_memcpy32(pData + dest_pitch * i, pInfo->pScan0 + pInfo->Stride * i, dest_pitch);
+        FXSYS_memcpy(pData, pInfo->pScan0, dest_pitch * height);
+    } else {
+        for (int i = 0; i < height; i ++) {
+            FXSYS_memcpy(pData + dest_pitch * i, pInfo->pScan0 + pInfo->Stride * i, dest_pitch);
         }
+    }
     CFX_DIBitmap* pDIBitmap = _FX_WindowsDIB_LoadFromBuf(pInfo->pbmi, pData, pInfo->pbmi->bmiHeader.biBitCount == 32);
     FX_Free(pData);
     FreeDIBitmap(pInfo);

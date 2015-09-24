@@ -5,7 +5,7 @@
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 
 #include "base/basictypes.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/prefs/pref_service.h"
 #include "base/prefs/scoped_user_pref_update.h"
@@ -66,8 +66,7 @@ size_t GetGroupIndex(size_t domain_index, PrefService* pref_service) {
     ListPrefUpdate group_indices_updater(
         pref_service, prefs::kPasswordManagerGroupsForDomains);
     // This value has not been generated yet.
-    result =
-        base::checked_cast<int>(base::RandGenerator(kGroupsPerDomain));
+    result = base::checked_cast<int>(base::RandGenerator(kGroupsPerDomain));
     group_indices_updater->Set(domain_index, new FundamentalValue(result));
   }
   return base::checked_cast<size_t>(result);
@@ -103,11 +102,9 @@ void LogUMAHistogramEnumeration(const std::string& name,
 
 void LogUMAHistogramBoolean(const std::string& name, bool sample) {
   // Note: This leaks memory, which is expected behavior.
-  base::HistogramBase* histogram =
-      base::BooleanHistogram::FactoryGet(
-          name,
-          base::Histogram::kNoFlags);
-          histogram->AddBoolean(sample);
+  base::HistogramBase* histogram = base::BooleanHistogram::FactoryGet(
+      name, base::Histogram::kUmaTargetedHistogramFlag);
+  histogram->AddBoolean(sample);
 }
 
 std::string GroupIdToString(size_t group_id) {
@@ -149,6 +146,27 @@ void LogUIDisplayDisposition(UIDisplayDisposition disposition) {
   UMA_HISTOGRAM_ENUMERATION("PasswordBubble.DisplayDisposition",
                             disposition,
                             NUM_DISPLAY_DISPOSITIONS);
+}
+
+void LogFormDataDeserializationStatus(FormDeserializationStatus status) {
+  UMA_HISTOGRAM_ENUMERATION("PasswordManager.FormDataDeserializationStatus",
+                            status, NUM_DESERIALIZATION_STATUSES);
+}
+
+void LogFilledCredentialIsFromAndroidApp(bool from_android) {
+  UMA_HISTOGRAM_BOOLEAN(
+      "PasswordManager.FilledCredentialWasFromAndroidApp",
+      from_android);
+}
+
+void LogPasswordSyncState(PasswordSyncState state) {
+  UMA_HISTOGRAM_ENUMERATION("PasswordManager.PasswordSyncState", state,
+                            NUM_SYNC_STATES);
+}
+
+void LogPasswordGenerationSubmissionEvent(PasswordSubmissionEvent event) {
+  UMA_HISTOGRAM_ENUMERATION("PasswordGeneration.SubmissionEvent", event,
+                            SUBMISSION_EVENT_ENUM_COUNT);
 }
 
 }  // namespace metrics_util

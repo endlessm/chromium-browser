@@ -25,12 +25,14 @@ class TestRenderFrameHostFactory : public RenderFrameHostFactory {
  protected:
   // RenderFrameHostFactory implementation.
   scoped_ptr<RenderFrameHostImpl> CreateRenderFrameHost(
+      SiteInstance* site_instance,
       RenderViewHostImpl* render_view_host,
       RenderFrameHostDelegate* delegate,
+      RenderWidgetHostDelegate* rwh_delegate,
       FrameTree* frame_tree,
       FrameTreeNode* frame_tree_node,
       int routing_id,
-      bool is_swapped_out) override;
+      int flags) override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TestRenderFrameHostFactory);

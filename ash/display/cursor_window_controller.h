@@ -5,6 +5,7 @@
 #ifndef ASH_DISPLAY_CURSOR_WINDOW_CONTROLLER_H_
 #define ASH_DISPLAY_CURSOR_WINDOW_CONTROLLER_H_
 
+#include "ash/ash_export.h"
 #include "ui/aura/window.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/gfx/display.h"
@@ -14,6 +15,7 @@ namespace test {
 class MirrorWindowTestApi;
 }
 
+class CursorWindowControllerTest;
 class CursorWindowDelegate;
 
 // Draws a mouse cursor on a given container window.
@@ -21,7 +23,7 @@ class CursorWindowDelegate;
 // to scale and rotate the mouse cursor bitmap to match settings of the
 // primary display.
 // When cursor compositing is enabled, just draw the cursor as-is.
-class CursorWindowController {
+class ASH_EXPORT CursorWindowController {
  public:
   CursorWindowController();
   ~CursorWindowController();
@@ -47,6 +49,7 @@ class CursorWindowController {
   void SetVisibility(bool visible);
 
  private:
+  friend class CursorWindowControllerTest;
   friend class test::MirrorWindowTestApi;
 
   // Sets the container window for the cursor window controller.
@@ -59,6 +62,9 @@ class CursorWindowController {
   // Updates cursor image based on current cursor state.
   void UpdateCursorImage();
 
+  // Hides/shows cursor window based on current cursor state.
+  void UpdateCursorVisibility();
+
   bool is_cursor_compositing_enabled_;
   aura::Window* container_;
 
@@ -68,8 +74,10 @@ class CursorWindowController {
   // The native_type of the cursor, see definitions in cursor.h
   int cursor_type_;
 
+  // The last requested cursor visibility.
+  bool visible_;
+
   ui::CursorSetType cursor_set_;
-  gfx::Display::Rotation cursor_rotation_;
   gfx::Point hot_point_;
 
   // The display on which the cursor is drawn.

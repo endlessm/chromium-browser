@@ -17,13 +17,14 @@ var onControlMessageReceived = function(message) {
   chrome.test.runTests([testAll]);
 }
 
+var pass_count = 0
 var onPluginMessageReceived = function(message) {
-  if (message.data == "hello") {
-    chrome.test.sendMessage("hello", onControlMessageReceived);
+  if (message.data == "PASS") {
+    pass_count++;
+    if (pass_count == 2)
+      chrome.test.sendMessage("PASS", onControlMessageReceived);
   } else if (message.data) {
     chrome.test.fail(message.data);
-  } else {
-    chrome.test.succeed();
   }
 };
 

@@ -48,41 +48,40 @@ Address IC::address() const {
 }
 
 
-ConstantPoolArray* IC::constant_pool() const {
-  if (!FLAG_enable_ool_constant_pool) {
+Address IC::constant_pool() const {
+  if (!FLAG_enable_embedded_constant_pool) {
     return NULL;
   } else {
-    Handle<ConstantPoolArray> result = raw_constant_pool_;
+    Address constant_pool = raw_constant_pool();
     Debug* debug = isolate()->debug();
     // First check if any break points are active if not just return the
     // original constant pool.
-    if (!debug->has_break_points()) return *result;
+    if (!debug->has_break_points()) return constant_pool;
 
     // At least one break point is active perform additional test to ensure that
     // break point locations are updated correctly.
     Address target = Assembler::target_address_from_return_address(pc());
     if (debug->IsDebugBreak(
-            Assembler::target_address_at(target, raw_constant_pool()))) {
+            Assembler::target_address_at(target, constant_pool))) {
       // If the call site is a call to debug break then we want to return the
       // constant pool for the original code instead of the breakpointed code.
       return GetOriginalCode()->constant_pool();
     }
-    return *result;
+    return constant_pool;
   }
 }
 
 
-ConstantPoolArray* IC::raw_constant_pool() const {
-  if (FLAG_enable_ool_constant_pool) {
-    return *raw_constant_pool_;
+Address IC::raw_constant_pool() const {
+  if (FLAG_enable_embedded_constant_pool) {
+    return *constant_pool_address_;
   } else {
     return NULL;
   }
 }
 
 
-Code* IC::GetTargetAtAddress(Address address,
-                             ConstantPoolArray* constant_pool) {
+Code* IC::GetTargetAtAddress(Address address, Address constant_pool) {
   // Get the target address of the IC.
   Address target = Assembler::target_address_at(address, constant_pool);
   // Convert target address to the code object. Code::GetCodeFromTargetAddress
@@ -94,17 +93,26 @@ Code* IC::GetTargetAtAddress(Address address,
 
 
 void IC::SetTargetAtAddress(Address address, Code* target,
-                            ConstantPoolArray* constant_pool) {
+                            Address constant_pool) {
+  if (AddressIsDeoptimizedCode(target->GetIsolate(), address)) return;
+
   DCHECK(target->is_inline_cache_stub() || target->is_compare_ic_stub());
+
+  DCHECK(!target->is_inline_cache_stub() ||
+         (target->kind() != Code::LOAD_IC &&
+          target->kind() != Code::KEYED_LOAD_IC &&
+          (!FLAG_vector_stores || (target->kind() != Code::STORE_IC &&
+                                   target->kind() != Code::KEYED_STORE_IC))));
+
   Heap* heap = target->GetHeap();
   Code* old_target = GetTargetAtAddress(address, constant_pool);
 #ifdef DEBUG
   // STORE_IC and KEYED_STORE_IC use Code::extra_ic_state() to mark
-  // ICs as strict mode. The strict-ness of the IC must be preserved.
+  // ICs as language mode. The language mode of the IC must be preserved.
   if (old_target->kind() == Code::STORE_IC ||
       old_target->kind() == Code::KEYED_STORE_IC) {
-    DCHECK(StoreIC::GetStrictMode(old_target->extra_ic_state()) ==
-           StoreIC::GetStrictMode(target->extra_ic_state()));
+    DCHECK(StoreICState::GetLanguageMode(old_target->extra_ic_state()) ==
+           StoreICState::GetLanguageMode(target->extra_ic_state()));
   }
 #endif
   Assembler::set_target_address_at(address, constant_pool,
@@ -119,9 +127,6 @@ void IC::SetTargetAtAddress(Address address, Code* target,
 
 
 void IC::set_target(Code* code) {
-#ifdef VERIFY_HEAP
-  code->VerifyEmbeddedObjectsDependency();
-#endif
   SetTargetAtAddress(address(), code, constant_pool());
   target_set_ = true;
 }
@@ -131,22 +136,26 @@ void LoadIC::set_target(Code* code) {
   // The contextual mode must be preserved across IC patching.
   DCHECK(LoadICState::GetContextualMode(code->extra_ic_state()) ==
          LoadICState::GetContextualMode(target()->extra_ic_state()));
+  // Strongness must be preserved across IC patching.
+  DCHECK(LoadICState::GetLanguageMode(code->extra_ic_state()) ==
+         LoadICState::GetLanguageMode(target()->extra_ic_state()));
 
   IC::set_target(code);
 }
 
 
 void StoreIC::set_target(Code* code) {
-  // Strict mode must be preserved across IC patching.
-  DCHECK(GetStrictMode(code->extra_ic_state()) ==
-         GetStrictMode(target()->extra_ic_state()));
+  // Language mode must be preserved across IC patching.
+  DCHECK(StoreICState::GetLanguageMode(code->extra_ic_state()) ==
+         StoreICState::GetLanguageMode(target()->extra_ic_state()));
   IC::set_target(code);
 }
 
 
 void KeyedStoreIC::set_target(Code* code) {
-  // Strict mode must be preserved across IC patching.
-  DCHECK(GetStrictMode(code->extra_ic_state()) == strict_mode());
+  // Language mode must be preserved across IC patching.
+  DCHECK(StoreICState::GetLanguageMode(code->extra_ic_state()) ==
+         language_mode());
   IC::set_target(code);
 }
 
@@ -158,15 +167,15 @@ Code* IC::raw_target() const {
 void IC::UpdateTarget() { target_ = handle(raw_target(), isolate_); }
 
 
-template <class TypeClass>
-JSFunction* IC::GetRootConstructor(TypeClass* type, Context* native_context) {
-  if (type->Is(TypeClass::Boolean())) {
+JSFunction* IC::GetRootConstructor(Map* receiver_map, Context* native_context) {
+  Isolate* isolate = receiver_map->GetIsolate();
+  if (receiver_map == isolate->heap()->boolean_map()) {
     return native_context->boolean_function();
-  } else if (type->Is(TypeClass::Number())) {
+  } else if (receiver_map->instance_type() == HEAP_NUMBER_TYPE) {
     return native_context->number_function();
-  } else if (type->Is(TypeClass::String())) {
+  } else if (receiver_map->instance_type() < FIRST_NONSTRING_TYPE) {
     return native_context->string_function();
-  } else if (type->Is(TypeClass::Symbol())) {
+  } else if (receiver_map->instance_type() == SYMBOL_TYPE) {
     return native_context->symbol_function();
   } else {
     return NULL;
@@ -174,15 +183,15 @@ JSFunction* IC::GetRootConstructor(TypeClass* type, Context* native_context) {
 }
 
 
-Handle<Map> IC::GetHandlerCacheHolder(HeapType* type, bool receiver_is_holder,
-                                      Isolate* isolate, CacheHolderFlag* flag) {
-  Handle<Map> receiver_map = TypeToMap(type, isolate);
+Handle<Map> IC::GetHandlerCacheHolder(Handle<Map> receiver_map,
+                                      bool receiver_is_holder, Isolate* isolate,
+                                      CacheHolderFlag* flag) {
   if (receiver_is_holder) {
     *flag = kCacheOnReceiver;
     return receiver_map;
   }
   Context* native_context = *isolate->native_context();
-  JSFunction* builtin_ctor = GetRootConstructor(type, native_context);
+  JSFunction* builtin_ctor = GetRootConstructor(*receiver_map, native_context);
   if (builtin_ctor != NULL) {
     *flag = kCacheOnPrototypeReceiverIsPrimitive;
     return handle(HeapObject::cast(builtin_ctor->instance_prototype())->map());
@@ -195,24 +204,37 @@ Handle<Map> IC::GetHandlerCacheHolder(HeapType* type, bool receiver_is_holder,
 }
 
 
-Handle<Map> IC::GetICCacheHolder(HeapType* type, Isolate* isolate,
+Handle<Map> IC::GetICCacheHolder(Handle<Map> map, Isolate* isolate,
                                  CacheHolderFlag* flag) {
   Context* native_context = *isolate->native_context();
-  JSFunction* builtin_ctor = GetRootConstructor(type, native_context);
+  JSFunction* builtin_ctor = GetRootConstructor(*map, native_context);
   if (builtin_ctor != NULL) {
     *flag = kCacheOnPrototype;
     return handle(builtin_ctor->initial_map());
   }
   *flag = kCacheOnReceiver;
-  return TypeToMap(type, isolate);
+  return map;
 }
 
 
-inline Code* IC::get_host() {
+Code* IC::get_host() {
   return isolate()
       ->inner_pointer_to_code_cache()
       ->GetCacheEntry(address())
       ->code;
+}
+
+
+bool IC::AddressIsDeoptimizedCode() const {
+  return AddressIsDeoptimizedCode(isolate(), address());
+}
+
+
+bool IC::AddressIsDeoptimizedCode(Isolate* isolate, Address address) {
+  Code* host =
+      isolate->inner_pointer_to_code_cache()->GetCacheEntry(address)->code;
+  return (host->kind() == Code::OPTIMIZED_FUNCTION &&
+          host->marked_for_deoptimization());
 }
 }
 }  // namespace v8::internal

@@ -1,23 +1,26 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
+#include "../../../third_party/base/nonstd_unique_ptr.h"
 #include "../../include/fpdfapi/fpdf_page.h"
 #include "../../include/fpdfapi/fpdf_pageobj.h"
 #include "../../include/fpdftext/fpdf_text.h"
-#include "txtproc.h"
+#include "../../include/fxcrt/fx_arb.h"
+#include "../../include/fxcrt/fx_ucd.h"
 #include "text_int.h"
-#if !defined(_FPDFAPI_MINI_) || defined(_FXCORE_FEATURE_ALL_)
-extern FX_LPCSTR FCS_GetAltStr(FX_WCHAR);
-CFX_ByteString CharFromUnicodeAlt(FX_WCHAR unicode, int destcp, FX_LPCSTR defchar)
+#include "txtproc.h"
+
+extern const FX_CHAR* FCS_GetAltStr(FX_WCHAR);
+CFX_ByteString CharFromUnicodeAlt(FX_WCHAR unicode, int destcp, const FX_CHAR* defchar)
 {
     if (destcp == 0) {
         if (unicode < 0x80) {
             return CFX_ByteString((char)unicode);
         }
-        FX_LPCSTR altstr = FCS_GetAltStr(unicode);
+        const FX_CHAR* altstr = FCS_GetAltStr(unicode);
         if (altstr) {
             return CFX_ByteString(altstr, -1);
         }
@@ -29,7 +32,7 @@ CFX_ByteString CharFromUnicodeAlt(FX_WCHAR unicode, int destcp, FX_LPCSTR defcha
     if (ret && !bDef) {
         return CFX_ByteString(buf, ret);
     }
-    FX_LPCSTR altstr = FCS_GetAltStr(unicode);
+    const FX_CHAR* altstr = FCS_GetAltStr(unicode);
     if (altstr) {
         return CFX_ByteString(altstr, -1);
     }
@@ -58,10 +61,9 @@ void CTextPage::ProcessObject(CPDF_PageObject* pObject)
     CPDF_TextObject* pText = (CPDF_TextObject*)pObject;
     CPDF_Font* pFont = pText->m_TextState.GetFont();
     int count = pText->CountItems();
-    FX_FLOAT* pPosArray = FX_Alloc(FX_FLOAT, count * 2);
-    if (pPosArray) {
-        pText->CalcCharPos(pPosArray);
-    }
+    FX_FLOAT* pPosArray = FX_Alloc2D(FX_FLOAT, count, 2);
+    pText->CalcCharPos(pPosArray);
+
     FX_FLOAT fontsize_h = pText->m_TextState.GetFontSizeH();
     FX_FLOAT fontsize_v = pText->m_TextState.GetFontSizeV();
     FX_DWORD space_charcode = pFont->CharCodeFromUnicode(' ');
@@ -77,7 +79,7 @@ void CTextPage::ProcessObject(CPDF_PageObject* pObject)
         CFX_AffineMatrix matrix;
         pText->GetTextMatrix(&matrix);
         for (int i = 0; i < pText->m_nChars; i ++) {
-            FX_DWORD charcode = pText->m_nChars == 1 ? (FX_DWORD)(FX_UINTPTR)pText->m_pCharCodes : pText->m_pCharCodes[i];
+            FX_DWORD charcode = pText->m_nChars == 1 ? (FX_DWORD)(uintptr_t)pText->m_pCharCodes : pText->m_pCharCodes[i];
             if (charcode == (FX_DWORD) - 1) {
                 continue;
             }
@@ -115,7 +117,7 @@ void CTextPage::ProcessObject(CPDF_PageObject* pObject)
     int space_count = 0;
     FX_FLOAT last_left = 0, last_right = 0, segment_left = 0, segment_right = 0;
     for (int i = 0; i < pText->m_nChars; i ++) {
-        FX_DWORD charcode = pText->m_nChars == 1 ? (FX_DWORD)(FX_UINTPTR)pText->m_pCharCodes : pText->m_pCharCodes[i];
+        FX_DWORD charcode = pText->m_nChars == 1 ? (FX_DWORD)(uintptr_t)pText->m_pCharCodes : pText->m_pCharCodes[i];
         if (charcode == (FX_DWORD) - 1) {
             continue;
         }
@@ -149,7 +151,6 @@ void CTextPage::ProcessObject(CPDF_PageObject* pObject)
                                   topy, bottomy, spacew, fontsize_v, segment, pFont);
     FX_Free(pPosArray);
 }
-static void ConvertPDFString(CFX_ByteString& result, CFX_ByteString& src, CPDF_Font* pFont);
 CTextBaseLine* CTextPage::InsertTextBox(CTextBaseLine* pBaseLine, FX_FLOAT basey, FX_FLOAT leftx,
                                         FX_FLOAT rightx, FX_FLOAT topy, FX_FLOAT bottomy, FX_FLOAT spacew, FX_FLOAT fontsize_v,
                                         CFX_ByteString& str, CPDF_Font* pFont)
@@ -170,19 +171,16 @@ CTextBaseLine* CTextPage::InsertTextBox(CTextBaseLine* pBaseLine, FX_FLOAT basey
             }
         }
         if (pBaseLine == NULL) {
-            pBaseLine = FX_NEW CTextBaseLine;
-            if (NULL == pBaseLine) {
-                return NULL;
-            }
+            pBaseLine = new CTextBaseLine;
             pBaseLine->m_BaseLine = basey;
             m_BaseLines.InsertAt(i, pBaseLine);
         }
     }
     CFX_WideString text;
-    FX_LPCSTR pStr = str;
+    const FX_CHAR* pStr = str;
     int len = str.GetLength(), offset = 0;
     while (offset < len) {
-        FX_DWORD ch = pFont->GetNextChar(pStr, offset);
+        FX_DWORD ch = pFont->GetNextChar(pStr, len, offset);
         CFX_WideString unicode_str = pFont->UnicodeFromCharCode(ch);
         if (unicode_str.IsEmpty()) {
             text += (FX_WCHAR)ch;
@@ -229,44 +227,42 @@ void CTextPage::WriteOutput(CFX_WideStringArray& lines, int iMinWidth)
     }
     if (m_bAutoWidth) {
         int* widths = FX_Alloc(int, m_BaseLines.GetSize());
-        if (widths) {
-            for (i = 0; i < m_BaseLines.GetSize(); i ++) {
-                widths[i] = 0;
-                CTextBaseLine* pBaseLine = (CTextBaseLine*)m_BaseLines.GetAt(i);
-                int TotalChars = 0;
-                FX_FLOAT TotalWidth = 0;
-                int minchars;
-                pBaseLine->CountChars(TotalChars, TotalWidth, minchars);
-                if (TotalChars) {
-                    FX_FLOAT charwidth = TotalWidth / TotalChars;
-                    widths[i] = (int)((MaxRightX - MinLeftX) / charwidth);
-                }
-                if (widths[i] > 1000) {
-                    widths[i] = 1000;
-                }
-                if (widths[i] < minchars) {
-                    widths[i] = minchars;
-                }
+        for (i = 0; i < m_BaseLines.GetSize(); i ++) {
+            widths[i] = 0;
+            CTextBaseLine* pBaseLine = (CTextBaseLine*)m_BaseLines.GetAt(i);
+            int TotalChars = 0;
+            FX_FLOAT TotalWidth = 0;
+            int minchars;
+            pBaseLine->CountChars(TotalChars, TotalWidth, minchars);
+            if (TotalChars) {
+                FX_FLOAT charwidth = TotalWidth / TotalChars;
+                widths[i] = (int)((MaxRightX - MinLeftX) / charwidth);
             }
-            int AvgWidth = 0, widthcount = 0;
-            for (i = 0; i < m_BaseLines.GetSize(); i ++)
-                if (widths[i]) {
-                    AvgWidth += widths[i];
-                    widthcount ++;
-                }
-            AvgWidth = int((FX_FLOAT)AvgWidth / widthcount + 0.5);
-            int MaxWidth = 0;
-            for (i = 0; i < m_BaseLines.GetSize(); i ++)
-                if (MaxWidth < widths[i]) {
-                    MaxWidth = widths[i];
-                }
-            if (MaxWidth > AvgWidth * 6 / 5) {
-                MaxWidth = AvgWidth * 6 / 5;
+            if (widths[i] > 1000) {
+                widths[i] = 1000;
             }
-            FX_Free(widths);
-            if (iMinWidth < MaxWidth) {
-                iMinWidth = MaxWidth;
+            if (widths[i] < minchars) {
+                widths[i] = minchars;
             }
+        }
+        int AvgWidth = 0, widthcount = 0;
+        for (i = 0; i < m_BaseLines.GetSize(); i ++)
+            if (widths[i]) {
+                AvgWidth += widths[i];
+                widthcount ++;
+            }
+        AvgWidth = int((FX_FLOAT)AvgWidth / widthcount + 0.5);
+        int MaxWidth = 0;
+        for (i = 0; i < m_BaseLines.GetSize(); i ++)
+            if (MaxWidth < widths[i]) {
+                MaxWidth = widths[i];
+            }
+        if (MaxWidth > AvgWidth * 6 / 5) {
+            MaxWidth = AvgWidth * 6 / 5;
+        }
+        FX_Free(widths);
+        if (iMinWidth < MaxWidth) {
+            iMinWidth = MaxWidth;
         }
     }
     for (i = 0; i < m_BaseLines.GetSize(); i ++) {
@@ -294,7 +290,7 @@ void CTextPage::WriteOutput(CFX_WideStringArray& lines, int iMinWidth)
 void NormalizeCompositeChar(FX_WCHAR wChar, CFX_WideString& sDest)
 {
     wChar = FX_GetMirrorChar(wChar, TRUE, FALSE);
-    FX_LPWSTR pDst = NULL;
+    FX_WCHAR* pDst = NULL;
     FX_STRSIZE nCount = FX_Unicode_GetNormalization(wChar, pDst);
     if (nCount < 1 ) {
         sDest += wChar;
@@ -313,17 +309,14 @@ void NormalizeString(CFX_WideString& str)
         return;
     }
     CFX_WideString sBuffer;
-    IFX_BidiChar* BidiChar = IFX_BidiChar::Create();
-    if (NULL == BidiChar)	{
-        return;
-    }
+    nonstd::unique_ptr<IFX_BidiChar> pBidiChar(IFX_BidiChar::Create());
     CFX_WordArray order;
     FX_BOOL bR2L = FALSE;
-    FX_INT32 start = 0, count = 0, i = 0;
+    int32_t start = 0, count = 0, i = 0;
     int nR2L = 0, nL2R = 0;
     for (i = 0; i < str.GetLength(); i++) {
-        if(BidiChar->AppendChar(str.GetAt(i))) {
-            FX_INT32 ret = BidiChar->GetBidiInfo(start, count);
+        if(pBidiChar->AppendChar(str.GetAt(i))) {
+            int32_t ret = pBidiChar->GetBidiInfo(start, count);
             order.Add(start);
             order.Add(count);
             order.Add(ret);
@@ -336,8 +329,8 @@ void NormalizeString(CFX_WideString& str)
             }
         }
     }
-    if(BidiChar->EndChar()) {
-        FX_INT32 ret = BidiChar->GetBidiInfo(start, count);
+    if(pBidiChar->EndChar()) {
+        int32_t ret = pBidiChar->GetBidiInfo(start, count);
         order.Add(start);
         order.Add(count);
         order.Add(ret);
@@ -433,7 +426,6 @@ void NormalizeString(CFX_WideString& str)
     }
     str.Empty();
     str += sBuffer;
-    BidiChar->Release();
 }
 static FX_BOOL IsNumber(CFX_WideString& str)
 {
@@ -454,13 +446,11 @@ void CTextPage::FindColumns()
             CTextBox* pTextBox = (CTextBox*)pBaseLine->m_TextList.GetAt(j);
             CTextColumn* pColumn = FindColumn(pTextBox->m_Right);
             if (pColumn == NULL) {
-                pColumn = FX_NEW CTextColumn;
-                if (pColumn) {
-                    pColumn->m_Count = 1;
-                    pColumn->m_AvgPos = pTextBox->m_Right;
-                    pColumn->m_TextPos = -1;
-                    m_TextColumns.Add(pColumn);
-                }
+                pColumn = new CTextColumn;
+                pColumn->m_Count = 1;
+                pColumn->m_AvgPos = pTextBox->m_Right;
+                pColumn->m_TextPos = -1;
+                m_TextColumns.Add(pColumn);
             } else {
                 pColumn->m_AvgPos = (pColumn->m_Count * pColumn->m_AvgPos + pTextBox->m_Right) /
                                     (pColumn->m_Count + 1);
@@ -533,10 +523,7 @@ void CTextBaseLine::InsertTextBox(FX_FLOAT leftx, FX_FLOAT rightx, FX_FLOAT topy
             break;
         }
     }
-    CTextBox* pText = FX_NEW CTextBox;
-    if (NULL == pText) {
-        return;
-    }
+    CTextBox* pText = new CTextBox;
     pText->m_Text = text;
     pText->m_Left = leftx;
     pText->m_Right = rightx;
@@ -776,7 +763,6 @@ void PDF_GetPageText(CFX_ByteStringArray& lines, CPDF_Document* pDoc, CPDF_Dicti
         lines.Add(str);
     }
 }
-#endif
 extern void _PDF_GetTextStream_Unicode(CFX_WideTextBuf& buffer, CPDF_PageObjects* pPage, FX_BOOL bUseLF,
                                        CFX_PtrArray* pObjArray);
 void PDF_GetTextStream_Unicode(CFX_WideTextBuf& buffer, CPDF_Document* pDoc, CPDF_Dictionary* pPage, FX_DWORD flags)

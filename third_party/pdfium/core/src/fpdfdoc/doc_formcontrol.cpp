@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/fpdfdoc/fpdf_doc.h"
@@ -248,18 +248,17 @@ int CPDF_FormControl::GetTextPosition()
 }
 CPDF_Action CPDF_FormControl::GetAction()
 {
-    if (m_pWidgetDict == NULL) {
-        return NULL;
+    if (!m_pWidgetDict) {
+        return CPDF_Action();
     }
     if (m_pWidgetDict->KeyExist("A")) {
-        return m_pWidgetDict->GetDict("A");
-    } else {
-        CPDF_Object* pObj = FPDF_GetFieldAttr(m_pField->m_pDict, "A");
-        if (pObj == NULL) {
-            return NULL;
-        }
-        return pObj->GetDict();
+        return CPDF_Action(m_pWidgetDict->GetDict("A"));
     }
+    CPDF_Object* pObj = FPDF_GetFieldAttr(m_pField->m_pDict, "A");
+    if (!pObj) {
+        return CPDF_Action();
+    }
+    return CPDF_Action(pObj->GetDict());
 }
 CPDF_AAction CPDF_FormControl::GetAdditionalAction()
 {
@@ -287,44 +286,51 @@ CPDF_DefaultAppearance CPDF_FormControl::GetDefaultAppearance()
         return pObj->GetString();
     }
 }
+
 CPDF_Font* CPDF_FormControl::GetDefaultControlFont()
 {
     CPDF_DefaultAppearance cDA = GetDefaultAppearance();
     CFX_ByteString csFontNameTag;
     FX_FLOAT fFontSize;
     cDA.GetFont(csFontNameTag, fFontSize);
-    if (csFontNameTag.IsEmpty()) {
-        return NULL;
-    }
+    if (csFontNameTag.IsEmpty())
+        return nullptr;
+
     CPDF_Object* pObj = FPDF_GetFieldAttr(m_pWidgetDict, "DR");
-    if (pObj != NULL && pObj->GetType() == PDFOBJ_DICTIONARY) {
+    if (pObj && pObj->GetType() == PDFOBJ_DICTIONARY) {
         CPDF_Dictionary* pFonts = ((CPDF_Dictionary*)pObj)->GetDict("Font");
-        if (pFonts != NULL) {
-            CPDF_Dictionary *pElement = pFonts->GetDict(csFontNameTag);
-            CPDF_Font *pFont = m_pField->m_pForm->m_pDocument->LoadFont(pElement);
-            if (pFont != NULL) {
-                return pFont;
+        if (pFonts) {
+            CPDF_Dictionary* pElement = pFonts->GetDict(csFontNameTag);
+            if (pElement) {
+                CPDF_Font* pFont =
+                    m_pField->m_pForm->m_pDocument->LoadFont(pElement);
+                if (pFont) {
+                    return pFont;
+                }
             }
         }
     }
-    CPDF_Font *pFont = m_pField->m_pForm->GetFormFont(csFontNameTag);
-    if (pFont != NULL) {
-        return pFont;
-    }
+    if (CPDF_Font* pFormFont = m_pField->m_pForm->GetFormFont(csFontNameTag))
+      return pFormFont;
+
     CPDF_Dictionary *pPageDict = m_pWidgetDict->GetDict("P");
     pObj = FPDF_GetFieldAttr(pPageDict, "Resources");
-    if (pObj != NULL && pObj->GetType() == PDFOBJ_DICTIONARY) {
+    if (pObj && pObj->GetType() == PDFOBJ_DICTIONARY) {
         CPDF_Dictionary* pFonts = ((CPDF_Dictionary*)pObj)->GetDict("Font");
-        if (pFonts != NULL) {
-            CPDF_Dictionary *pElement = pFonts->GetDict(csFontNameTag);
-            CPDF_Font *pFont = m_pField->m_pForm->m_pDocument->LoadFont(pElement);
-            if (pFont != NULL) {
-                return pFont;
+        if (pFonts) {
+            CPDF_Dictionary* pElement = pFonts->GetDict(csFontNameTag);
+            if (pElement) {
+                CPDF_Font* pFont =
+                    m_pField->m_pForm->m_pDocument->LoadFont(pElement);
+                if (pFont) {
+                    return pFont;
+                }
             }
         }
     }
-    return NULL;
+    return nullptr;
 }
+
 int CPDF_FormControl::GetControlAlignment()
 {
     if (m_pWidgetDict == NULL) {
@@ -340,7 +346,7 @@ int CPDF_FormControl::GetControlAlignment()
         return pObj->GetInteger();
     }
 }
-FX_BOOL CPDF_ApSettings::HasMKEntry(FX_BSTR csEntry)
+FX_BOOL CPDF_ApSettings::HasMKEntry(const CFX_ByteStringC& csEntry)
 {
     if (m_pDict == NULL) {
         return FALSE;
@@ -354,7 +360,7 @@ int CPDF_ApSettings::GetRotation()
     }
     return m_pDict->GetInteger(FX_BSTRC("R"));
 }
-FX_ARGB CPDF_ApSettings::GetColor(int& iColorType, FX_BSTR csEntry)
+FX_ARGB CPDF_ApSettings::GetColor(int& iColorType, const CFX_ByteStringC& csEntry)
 {
     iColorType = COLORTYPE_TRANSPARENT;
     if (m_pDict == NULL) {
@@ -389,7 +395,7 @@ FX_ARGB CPDF_ApSettings::GetColor(int& iColorType, FX_BSTR csEntry)
     }
     return color;
 }
-FX_FLOAT CPDF_ApSettings::GetOriginalColor(int index, FX_BSTR csEntry)
+FX_FLOAT CPDF_ApSettings::GetOriginalColor(int index, const CFX_ByteStringC& csEntry)
 {
     if (m_pDict == NULL) {
         return 0;
@@ -400,7 +406,7 @@ FX_FLOAT CPDF_ApSettings::GetOriginalColor(int index, FX_BSTR csEntry)
     }
     return 0;
 }
-void CPDF_ApSettings::GetOriginalColor(int& iColorType, FX_FLOAT fc[4], FX_BSTR csEntry)
+void CPDF_ApSettings::GetOriginalColor(int& iColorType, FX_FLOAT fc[4], const CFX_ByteStringC& csEntry)
 {
     iColorType = COLORTYPE_TRANSPARENT;
     for (int i = 0; i < 4; i ++) {
@@ -430,7 +436,7 @@ void CPDF_ApSettings::GetOriginalColor(int& iColorType, FX_FLOAT fc[4], FX_BSTR 
         fc[3] = pEntry->GetNumber(3);
     }
 }
-CFX_WideString CPDF_ApSettings::GetCaption(FX_BSTR csEntry)
+CFX_WideString CPDF_ApSettings::GetCaption(const CFX_ByteStringC& csEntry)
 {
     CFX_WideString csCaption;
     if (m_pDict == NULL) {
@@ -438,7 +444,7 @@ CFX_WideString CPDF_ApSettings::GetCaption(FX_BSTR csEntry)
     }
     return m_pDict->GetUnicodeText(csEntry);
 }
-CPDF_Stream* CPDF_ApSettings::GetIcon(FX_BSTR csEntry)
+CPDF_Stream* CPDF_ApSettings::GetIcon(const CFX_ByteStringC& csEntry)
 {
     if (m_pDict == NULL) {
         return NULL;

@@ -20,10 +20,10 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/scoped_handle.h"
 #include "base/win/windows_version.h"
-#include "chrome/common/attrition_experiments.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_result_codes.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/grit/chromium_strings.h"
 #include "chrome/installer/util/browser_distribution.h"
 #include "chrome/installer/util/google_update_constants.h"
 #include "chrome/installer/util/google_update_settings.h"
@@ -69,7 +69,7 @@ base::string16 GetWelcomeBackUrl() {
 // 100 nanosecond units. For example 5:30 pm of June 15, 2009 is 3580464.
 int FileTimeToHours(const FILETIME& time) {
   const ULONGLONG k100sNanoSecsToHours = 10000000LL * 60 * 60;
-  ULARGE_INTEGER uli = {time.dwLowDateTime, time.dwHighDateTime};
+  ULARGE_INTEGER uli = {{time.dwLowDateTime, time.dwHighDateTime}};
   return static_cast<int>(uli.QuadPart / k100sNanoSecsToHours);
 }
 
@@ -111,8 +111,9 @@ int GetUserDataDirectoryWriteAgeInHours() {
 // If handle to experiment result key was given at startup, re-add it.
 // Does not wait for the process to terminate.
 // |cmd_line| may be modified as a result of this call.
-bool LaunchSetup(CommandLine* cmd_line, bool system_level_toast) {
-  const CommandLine& current_cmd_line = *CommandLine::ForCurrentProcess();
+bool LaunchSetup(base::CommandLine* cmd_line, bool system_level_toast) {
+  const base::CommandLine& current_cmd_line =
+      *base::CommandLine::ForCurrentProcess();
 
   // Propagate --verbose-logging to the invoked setup.exe.
   if (current_cmd_line.HasSwitch(switches::kVerboseLogging))
@@ -136,11 +137,13 @@ bool LaunchSetup(CommandLine* cmd_line, bool system_level_toast) {
       // gets inherited by the child process.
       base::LaunchOptions options;
       options.inherit_handles = true;
-      return base::LaunchProcess(*cmd_line, options, NULL);
+      base::Process process = base::LaunchProcess(*cmd_line, options);
+      return process.IsValid();
     }
   }
 
-  return base::LaunchProcess(*cmd_line, base::LaunchOptions(), NULL);
+  base::Process process = base::LaunchProcess(*cmd_line, base::LaunchOptions());
+  return process.IsValid();
 }
 
 // For System level installs, setup.exe lives in the system temp, which
@@ -200,13 +203,14 @@ bool FixDACLsForExecute(const base::FilePath& exe) {
 // the computer is on but nobody has logged in locally.
 // Remote Desktop sessions do not count as interactive sessions; running this
 // method as a user logged in via remote desktop will do nothing.
-bool LaunchSetupAsConsoleUser(CommandLine* cmd_line) {
+bool LaunchSetupAsConsoleUser(base::CommandLine* cmd_line) {
   // Convey to the invoked setup.exe that it's operating on a system-level
   // installation.
   cmd_line->AppendSwitch(switches::kSystemLevel);
 
   // Propagate --verbose-logging to the invoked setup.exe.
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kVerboseLogging))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kVerboseLogging))
     cmd_line->AppendSwitch(switches::kVerboseLogging);
 
   // Get the Google Update results key, and pass it on the command line to
@@ -240,10 +244,10 @@ bool LaunchSetupAsConsoleUser(CommandLine* cmd_line) {
   options.inherit_handles = true;
   options.empty_desktop_name = true;
   VLOG(1) << __FUNCTION__ << " launching " << cmd_line->GetCommandLineString();
-  bool launched = base::LaunchProcess(*cmd_line, options, NULL);
+  base::Process process = base::LaunchProcess(*cmd_line, options);
   ::CloseHandle(user_token);
-  VLOG(1) << __FUNCTION__ << "   result: " << launched;
-  return launched;
+  VLOG(1) << __FUNCTION__ << "   result: " << process.IsValid();
+  return process.IsValid();
 }
 
 // A helper function that writes to HKLM if the handle was passed through the
@@ -256,7 +260,7 @@ void SetClient(const base::string16& experiment_group, bool last_write) {
     // If a specific Toast Results key handle (presumably to our HKLM key) was
     // passed in to the command line (such as for system level installs), we use
     // it. Otherwise, we write to the key under HKCU.
-    const CommandLine& cmd_line = *CommandLine::ForCurrentProcess();
+    const base::CommandLine& cmd_line = *base::CommandLine::ForCurrentProcess();
     if (cmd_line.HasSwitch(switches::kToastResultsKey)) {
       // Get the handle to the key under HKLM.
       base::StringToInt(
@@ -271,8 +275,10 @@ void SetClient(const base::string16& experiment_group, bool last_write) {
     // Use it to write the experiment results.
     GoogleUpdateSettings::WriteGoogleUpdateSystemClientKey(
         reg_key_handle, google_update::kRegClientField, experiment_group);
-    if (last_write)
-      CloseHandle((HANDLE) reg_key_handle);
+    if (last_write) {
+      CloseHandle(
+          reinterpret_cast<HANDLE>(static_cast<uintptr_t>(reg_key_handle)));
+    }
   } else {
     // Write to HKCU.
     GoogleUpdateSettings::SetClient(experiment_group);
@@ -302,7 +308,6 @@ bool CreateExperimentDetails(int flavor, ExperimentDetails* experiment) {
   // The experiment in Feb 2011 used SJxx SKxx SLxx SMxx.
   // The experiment in Mar 2012 used ZAxx ZBxx ZCxx.
   // The experiment in Jan 2013 uses DAxx.
-  using namespace attrition_experiments;
 
   static const struct UserExperimentSpecs {
     const wchar_t* locale;  // Locale to show this experiment for (* for all).
@@ -338,16 +343,16 @@ bool CreateExperimentDetails(int flavor, ExperimentDetails* experiment) {
 
   base::string16 locale;
   GoogleUpdateSettings::GetLanguage(&locale);
-  if (locale.empty() || (locale == base::ASCIIToWide("en")))
-    locale = base::ASCIIToWide("en-US");
+  if (locale.empty() || (locale == L"en"))
+    locale = L"en-US";
 
   base::string16 brand;
   if (!GoogleUpdateSettings::GetBrand(&brand))
-    brand = base::ASCIIToWide("");  // Could still be viable for catch-all rules
+    brand.clear();  // Could still be viable for catch-all rules
 
   for (int i = 0; i < arraysize(kExperiments); ++i) {
-    if (kExperiments[i].locale != locale &&
-        kExperiments[i].locale != base::ASCIIToWide("*"))
+    base::string16 experiment_locale = kExperiments[i].locale;
+    if (experiment_locale != locale && experiment_locale != L"*")
       continue;
 
     std::vector<base::string16> brand_codes;
@@ -371,7 +376,8 @@ bool CreateExperimentDetails(int flavor, ExperimentDetails* experiment) {
       experiment->flavor = flavor;
       experiment->heading = match.flavors[flavor].heading_id;
       experiment->control_group = match.control_group;
-      const wchar_t prefix[] = { match.prefix[0], match.prefix[1] + flavor, 0 };
+      const wchar_t prefix[] = {
+          match.prefix[0], static_cast<wchar_t>(match.prefix[1] + flavor), 0};
       experiment->prefix = prefix;
       experiment->flags = match.flavors[flavor].flags;
       return true;
@@ -389,12 +395,12 @@ bool CreateExperimentDetails(int flavor, ExperimentDetails* experiment) {
 // 2- Is a system-install and it updated : relaunch as the interactive user
 // 3- It has been re-launched from the #2 case. In this case we enter
 //    this function with |system_install| true and a REENTRY_SYS_UPDATE status.
-void LaunchBrowserUserExperiment(const CommandLine& base_cmd_line,
+void LaunchBrowserUserExperiment(const base::CommandLine& base_cmd_line,
                                  InstallStatus status,
                                  bool system_level) {
   if (system_level) {
     if (NEW_VERSION_UPDATED == status) {
-      CommandLine cmd_line(base_cmd_line);
+      base::CommandLine cmd_line(base_cmd_line);
       cmd_line.AppendSwitch(switches::kSystemLevelToast);
       // We need to relaunch as the interactive user.
       LaunchSetupAsConsoleUser(&cmd_line);
@@ -468,7 +474,7 @@ void LaunchBrowserUserExperiment(const CommandLine& base_cmd_line,
   // because google_update expects the upgrade process to be quick and nimble.
   // System level: We have already been relaunched, so we don't need to be
   // quick, but we relaunch to follow the exact same codepath.
-  CommandLine cmd_line(base_cmd_line);
+  base::CommandLine cmd_line(base_cmd_line);
   cmd_line.AppendSwitchASCII(switches::kInactiveUserToast,
                              base::IntToString(flavor));
   cmd_line.AppendSwitchASCII(switches::kExperimentGroup,
@@ -483,7 +489,7 @@ void InactiveUserToastExperiment(int flavor,
                                  const Product& product,
                                  const base::FilePath& application_path) {
   // Add the 'welcome back' url for chrome to show.
-  CommandLine options(CommandLine::NO_PROGRAM);
+  base::CommandLine options(base::CommandLine::NO_PROGRAM);
   options.AppendSwitchNative(::switches::kTryChromeAgain,
       base::IntToString16(flavor));
   // Prepend the url with a space.
@@ -523,12 +529,12 @@ void InactiveUserToastExperiment(int flavor,
   // The user wants to uninstall. This is a best effort operation. Note that
   // we waited for chrome to exit so the uninstall would not detect chrome
   // running.
-  bool system_level_toast = CommandLine::ForCurrentProcess()->HasSwitch(
+  bool system_level_toast = base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kSystemLevelToast);
 
-  CommandLine cmd(InstallUtil::GetChromeUninstallCmd(
-                      system_level_toast, product.distribution()->GetType()));
-  base::LaunchProcess(cmd, base::LaunchOptions(), NULL);
+  base::CommandLine cmd(InstallUtil::GetChromeUninstallCmd(
+      system_level_toast, product.distribution()->GetType()));
+  base::LaunchProcess(cmd, base::LaunchOptions());
 }
 
 }  // namespace installer

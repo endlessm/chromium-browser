@@ -7,6 +7,10 @@
 #include <algorithm>
 #include <vector>
 
+#include "base/bind.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "components/gcm_driver/gcm_driver.h"
 #include "google_apis/gaia/google_service_auth_error.h"
@@ -80,14 +84,18 @@ void GCMAccountTracker::Start() {
 }
 
 void GCMAccountTracker::ScheduleReportTokens() {
+  // Shortcutting here, in case GCM Driver is not yet connected. In that case
+  // reporting will be scheduled/started when the connection is made.
+  if (!driver_->IsConnected())
+    return;
+
   DVLOG(1) << "Deferring the token reporting for: "
            << GetTimeToNextTokenReporting().InSeconds() << " seconds.";
 
   reporting_weak_ptr_factory_.InvalidateWeakPtrs();
-  base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::Bind(&GCMAccountTracker::ReportTokens,
-                 reporting_weak_ptr_factory_.GetWeakPtr()),
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, base::Bind(&GCMAccountTracker::ReportTokens,
+                            reporting_weak_ptr_factory_.GetWeakPtr()),
       GetTimeToNextTokenReporting());
 }
 
@@ -164,8 +172,12 @@ void GCMAccountTracker::OnGetTokenFailure(
 }
 
 void GCMAccountTracker::OnConnected(const net::IPEndPoint& ip_endpoint) {
+  // We are sure here, that GCM is running and connected. We can start reporting
+  // tokens if reporting is due now, or schedule reporting for later.
   if (IsTokenReportingRequired())
     ReportTokens();
+  else
+    ScheduleReportTokens();
 }
 
 void GCMAccountTracker::OnDisconnected() {
@@ -276,8 +288,20 @@ base::TimeDelta GCMAccountTracker::GetTimeToNextTokenReporting() const {
       driver_->GetLastTokenFetchTime() +
       base::TimeDelta::FromMilliseconds(kTokenReportingIntervalMs) -
       base::Time::Now();
-  return time_till_next_reporting < base::TimeDelta() ?
-             base::TimeDelta() : time_till_next_reporting;
+
+  // Case when token fetching is overdue.
+  if (time_till_next_reporting < base::TimeDelta())
+    return base::TimeDelta();
+
+  // Case when calculated period is larger than expected, including the
+  // situation when the method is called before GCM driver is completely
+  // initialized.
+  if (time_till_next_reporting >
+          base::TimeDelta::FromMilliseconds(kTokenReportingIntervalMs)) {
+    return base::TimeDelta::FromMilliseconds(kTokenReportingIntervalMs);
+  }
+
+  return time_till_next_reporting;
 }
 
 void GCMAccountTracker::DeleteTokenRequest(

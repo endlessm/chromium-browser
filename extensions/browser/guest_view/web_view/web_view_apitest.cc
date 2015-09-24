@@ -8,6 +8,9 @@
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "components/guest_view/browser/guest_view_manager.h"
+#include "components/guest_view/browser/guest_view_manager_factory.h"
+#include "components/guest_view/browser/test_guest_view_manager.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
@@ -17,9 +20,7 @@
 #include "extensions/browser/app_window/app_window.h"
 #include "extensions/browser/app_window/app_window_registry.h"
 #include "extensions/browser/extension_host.h"
-#include "extensions/browser/guest_view/guest_view_manager.h"
-#include "extensions/browser/guest_view/guest_view_manager_factory.h"
-#include "extensions/browser/guest_view/test_guest_view_manager.h"
+#include "extensions/browser/guest_view/extensions_guest_view_manager_delegate.h"
 #include "extensions/browser/process_manager.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_paths.h"
@@ -32,6 +33,9 @@
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
 #include "ui/gfx/switches.h"
+
+using guest_view::GuestViewManager;
+using guest_view::TestGuestViewManager;
 
 namespace {
 
@@ -54,13 +58,13 @@ static scoped_ptr<net::test_server::HttpResponse> UserAgentResponseHandler(
     const std::string& path,
     const GURL& redirect_target,
     const net::test_server::HttpRequest& request) {
-  if (!StartsWithASCII(path, request.relative_url, true))
+  if (!base::StartsWithASCII(path, request.relative_url, true))
     return scoped_ptr<net::test_server::HttpResponse>();
 
   std::map<std::string, std::string>::const_iterator it =
         request.headers.find("User-Agent");
   EXPECT_TRUE(it != request.headers.end());
-  if (!StartsWithASCII("foobar", it->second, true))
+  if (!base::StartsWithASCII("foobar", it->second, true))
     return scoped_ptr<net::test_server::HttpResponse>();
 
   scoped_ptr<net::test_server::BasicHttpResponse> http_response(
@@ -99,7 +103,7 @@ scoped_ptr<net::test_server::HttpResponse> RedirectResponseHandler(
     const std::string& path,
     const GURL& redirect_target,
     const net::test_server::HttpRequest& request) {
-  if (!StartsWithASCII(path, request.relative_url, true))
+  if (!base::StartsWithASCII(path, request.relative_url, true))
     return scoped_ptr<net::test_server::HttpResponse>();
 
   scoped_ptr<net::test_server::BasicHttpResponse> http_response(
@@ -113,7 +117,7 @@ scoped_ptr<net::test_server::HttpResponse> RedirectResponseHandler(
 scoped_ptr<net::test_server::HttpResponse> EmptyResponseHandler(
     const std::string& path,
     const net::test_server::HttpRequest& request) {
-  if (StartsWithASCII(path, request.relative_url, true)) {
+  if (base::StartsWithASCII(path, request.relative_url, true)) {
     return scoped_ptr<net::test_server::HttpResponse>(new EmptyHttpResponse);
   }
 
@@ -143,6 +147,7 @@ void WebViewAPITest::LaunchApp(const std::string& app_location) {
   extension_system_->LaunchApp(extension->id());
 
   ExtensionTestMessageListener launch_listener("LAUNCHED", false);
+  launch_listener.set_failure_message("FAILURE");
   ASSERT_TRUE(launch_listener.WaitUntilSatisfied());
 
   embedder_web_contents_ = GetFirstAppWindowWebContents();
@@ -151,7 +156,7 @@ void WebViewAPITest::LaunchApp(const std::string& app_location) {
 content::WebContents* WebViewAPITest::GetFirstAppWindowWebContents() {
   const AppWindowRegistry::AppWindowList& app_window_list =
       AppWindowRegistry::Get(browser_context_)->app_windows();
-  DCHECK(app_window_list.size() == 1);
+  DCHECK_EQ(1u, app_window_list.size());
   return (*app_window_list.begin())->web_contents();
 }
 
@@ -236,9 +241,20 @@ content::WebContents* WebViewAPITest::GetEmbedderWebContents() {
 }
 
 TestGuestViewManager* WebViewAPITest::GetGuestViewManager() {
-  return static_cast<TestGuestViewManager*>(
-      TestGuestViewManager::FromBrowserContext(
-          ShellContentBrowserClient::Get()->GetBrowserContext()));
+  content::BrowserContext* context =
+      ShellContentBrowserClient::Get()->GetBrowserContext();
+  TestGuestViewManager* manager = static_cast<TestGuestViewManager*>(
+      TestGuestViewManager::FromBrowserContext(context));
+  // TestGuestViewManager::WaitForSingleGuestCreated may and will get called
+  // before a guest is created.
+  if (!manager) {
+    manager = static_cast<TestGuestViewManager*>(
+        GuestViewManager::CreateWithDelegate(
+            context,
+            scoped_ptr<guest_view::GuestViewManagerDelegate>(
+                new ExtensionsGuestViewManagerDelegate(context))));
+  }
+  return manager;
 }
 
 void WebViewAPITest::SendMessageToGuestAndWait(
@@ -417,7 +433,9 @@ IN_PROC_BROWSER_TEST_F(WebViewDPIAPITest, TestAutosizeRemoveAttributes) {
   RunTest("testAutosizeRemoveAttributes", "web_view/apitest");
 }
 
-IN_PROC_BROWSER_TEST_F(WebViewAPITest, TestAutosizeWithPartialAttributes) {
+// http://crbug.com/473177
+IN_PROC_BROWSER_TEST_F(WebViewAPITest,
+                       DISABLED_TestAutosizeWithPartialAttributes) {
   RunTest("testAutosizeWithPartialAttributes", "web_view/apitest");
 }
 
@@ -635,8 +653,7 @@ IN_PROC_BROWSER_TEST_F(WebViewAPITest, TestRemoveWebviewOnExit) {
   LaunchApp("web_view/apitest");
 
   GURL::Replacements replace_host;
-  std::string host_str("localhost");  // Must stay in scope with replace_host.
-  replace_host.SetHostStr(host_str);
+  replace_host.SetHostStr("localhost");
 
   // Run the test and wait until the guest WebContents is available and has
   // finished loading.
@@ -645,7 +662,7 @@ IN_PROC_BROWSER_TEST_F(WebViewAPITest, TestRemoveWebviewOnExit) {
                                      "runTest('testRemoveWebviewOnExit')"));
 
   content::WebContents* guest_web_contents = GetGuestWebContents();
-  EXPECT_TRUE(guest_web_contents->GetRenderProcessHost()->IsIsolatedGuest());
+  EXPECT_TRUE(guest_web_contents->GetRenderProcessHost()->IsForGuestsOnly());
   ASSERT_TRUE(guest_loaded_listener.WaitUntilSatisfied());
 
   content::WebContentsDestroyedWatcher destroyed_watcher(guest_web_contents);
@@ -704,5 +721,11 @@ IN_PROC_BROWSER_TEST_F(WebViewAPITest, TestWebRequestAPIExistence) {
 IN_PROC_BROWSER_TEST_F(WebViewAPITest, TestWebRequestAPIGoogleProperty) {
   RunTest("testWebRequestAPIGoogleProperty", "web_view/apitest");
 }
+
+// This test verifies that webview.contentWindow works inside an iframe
+IN_PROC_BROWSER_TEST_F(WebViewAPITest, TestWebViewInsideFrame) {
+  LaunchApp("web_view/inside_iframe");
+}
+
 
 }  // namespace extensions

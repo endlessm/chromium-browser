@@ -39,17 +39,13 @@
           'sources': [
             'gtest_mac.h',
             'gtest_mac.mm',
+            'platform_test_mac.mm',
           ],
           'link_settings': {
             'libraries': [
               '$(SDKROOT)/System/Library/Frameworks/Foundation.framework',
             ],
           },
-        }],
-        ['OS == "mac"', {
-          'sources': [
-            'platform_test_mac.mm',
-          ],
         }],
         ['OS == "ios"', {
           'dependencies' : [
@@ -85,7 +81,6 @@
           'sources': [
             'coverage_util_ios.cc',
             'coverage_util_ios.h',
-            'platform_test_ios.mm',
           ],
         }],
         ['OS=="ios" and asan==1', {
@@ -195,6 +190,14 @@
           }],
         ],
         'msvs_disabled_warnings': [4800],
+      },
+      'variables': {
+        'clang_warning_flags': [
+          # The Mutex constructor initializer list in gtest-port.cc is
+          # incorrectly ordered. See
+          # https://groups.google.com/d/msg/googletestframework/S5uSV8L2TX8/U1FaTDa6J6sJ.
+          '-Wno-reorder',
+        ]
       },
     },
     {

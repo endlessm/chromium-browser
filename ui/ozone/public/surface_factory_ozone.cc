@@ -13,22 +13,10 @@
 
 namespace ui {
 
-// static
-SurfaceFactoryOzone* SurfaceFactoryOzone::impl_ = NULL;
-
 SurfaceFactoryOzone::SurfaceFactoryOzone() {
-  DCHECK(!impl_) << "There should only be a single SurfaceFactoryOzone.";
-  impl_ = this;
 }
 
 SurfaceFactoryOzone::~SurfaceFactoryOzone() {
-  DCHECK_EQ(impl_, this);
-  impl_ = NULL;
-}
-
-SurfaceFactoryOzone* SurfaceFactoryOzone::GetInstance() {
-  DCHECK(impl_) << "No SurfaceFactoryOzone implementation set.";
-  return impl_;
 }
 
 intptr_t SurfaceFactoryOzone::GetNativeDisplay() {
@@ -38,20 +26,20 @@ intptr_t SurfaceFactoryOzone::GetNativeDisplay() {
 scoped_ptr<SurfaceOzoneEGL> SurfaceFactoryOzone::CreateEGLSurfaceForWidget(
     gfx::AcceleratedWidget widget) {
   NOTIMPLEMENTED();
-  return scoped_ptr<SurfaceOzoneEGL>();
+  return nullptr;
 }
 
 scoped_ptr<SurfaceOzoneEGL>
 SurfaceFactoryOzone::CreateSurfacelessEGLSurfaceForWidget(
     gfx::AcceleratedWidget widget) {
   NOTIMPLEMENTED();
-  return scoped_ptr<SurfaceOzoneEGL>();
+  return nullptr;
 }
 
 scoped_ptr<SurfaceOzoneCanvas> SurfaceFactoryOzone::CreateCanvasForWidget(
     gfx::AcceleratedWidget widget) {
   NOTIMPLEMENTED();
-  return scoped_ptr<SurfaceOzoneCanvas>();
+  return nullptr;
 }
 
 const int32* SurfaceFactoryOzone::GetEGLSurfaceProperties(
@@ -59,28 +47,20 @@ const int32* SurfaceFactoryOzone::GetEGLSurfaceProperties(
   return desired_attributes;
 }
 
-ui::OverlayCandidatesOzone* SurfaceFactoryOzone::GetOverlayCandidates(
-    gfx::AcceleratedWidget w) {
-  return NULL;
-}
-
 scoped_refptr<ui::NativePixmap> SurfaceFactoryOzone::CreateNativePixmap(
-    gfx::Size size,
-    BufferFormat format) {
-  return NULL;
-}
-
-bool SurfaceFactoryOzone::ScheduleOverlayPlane(
     gfx::AcceleratedWidget widget,
-    int plane_z_order,
-    gfx::OverlayTransform plane_transform,
-    scoped_refptr<NativePixmap> buffer,
-    const gfx::Rect& display_bounds,
-    const gfx::RectF& crop_rect) {
-  return false;
+    gfx::Size size,
+    BufferFormat format,
+    BufferUsage usage) {
+  return NULL;
 }
 
 bool SurfaceFactoryOzone::CanShowPrimaryPlaneAsOverlay() {
   return false;
 }
+
+bool SurfaceFactoryOzone::CanCreateNativePixmap(BufferUsage usage) {
+  return false;
+}
+
 }  // namespace ui

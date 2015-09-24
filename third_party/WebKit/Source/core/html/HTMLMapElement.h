@@ -23,6 +23,7 @@
 #ifndef HTMLMapElement_h
 #define HTMLMapElement_h
 
+#include "core/CoreExport.h"
 #include "core/html/HTMLElement.h"
 
 namespace blink {
@@ -30,15 +31,15 @@ namespace blink {
 class HitTestResult;
 class HTMLImageElement;
 
-class HTMLMapElement final : public HTMLElement {
+class CORE_EXPORT HTMLMapElement final : public HTMLElement {
     DEFINE_WRAPPERTYPEINFO();
 public:
     DECLARE_NODE_FACTORY(HTMLMapElement);
-    virtual ~HTMLMapElement();
+    ~HTMLMapElement() override;
 
     const AtomicString& getName() const { return m_name; }
 
-    bool mapMouseEvent(LayoutPoint location, const LayoutSize&, HitTestResult&);
+    HTMLAreaElement* areaForPoint(LayoutPoint, const LayoutSize& containerSize);
 
     HTMLImageElement* imageElement();
     PassRefPtrWillBeRawPtr<HTMLCollection> areas();
@@ -46,10 +47,10 @@ public:
 private:
     explicit HTMLMapElement(Document&);
 
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) override;
 
-    virtual InsertionNotificationRequest insertedInto(ContainerNode*) override;
-    virtual void removedFrom(ContainerNode*) override;
+    InsertionNotificationRequest insertedInto(ContainerNode*) override;
+    void removedFrom(ContainerNode*) override;
 
     AtomicString m_name;
 };

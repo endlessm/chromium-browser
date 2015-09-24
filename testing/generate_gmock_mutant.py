@@ -56,8 +56,8 @@ HEADER = """\
 //   }
 //
 //   void QuitMessageLoop(int seconds) {
-//     MessageLoop* loop = MessageLoop::current();
-//     loop->PostDelayedTask(FROM_HERE, MessageLoop::QuitClosure(),
+//     base::MessageLoop* loop = base::MessageLoop::current();
+//     loop->PostDelayedTask(FROM_HERE, base::MessageLoop::QuitClosure(),
 //                           1000 * seconds);
 //   }
 // };
@@ -66,7 +66,7 @@ HEADER = """\
 // // Will invoke mock.HandleFlowers("orchids", n, request)
 // // "orchids" is a pre-bound argument, and <n> and <request> are call-time
 // // arguments - they are not known until the OnRequest mock is invoked.
-// EXPECT_CALL(mock, OnRequest(Ge(5), StartsWith("flower"))
+// EXPECT_CALL(mock, OnRequest(Ge(5), base::StartsWith("flower"))
 //   .Times(1)
 //   .WillOnce(Invoke(CreateFunctor(&mock, &Mock::HandleFlowers,
 //       string("orchids"))));
@@ -113,7 +113,7 @@ HEADER = """\
 //
 
 #include "base/memory/linked_ptr.h"
-#include "base/tuple.h"  // for Tuple
+#include "base/tuple.h"
 
 namespace testing {"""
 
@@ -202,7 +202,7 @@ struct MutantFunctor {
   }
 
   inline R operator()() {
-    return impl_->RunWithParams(Tuple0());
+    return impl_->RunWithParams(base::Tuple<>());
   }
 
   template <typename Arg1>
@@ -241,8 +241,8 @@ FOOTER = """\
 
 # Templates for DispatchToMethod/DispatchToFunction functions.
 # template_params - typename P1, typename P2.. typename C1..
-# prebound - TupleN<P1, .. PN>
-# calltime - TupleN<C1, .. CN>
+# prebound - Tuple<P1, .. PN>
+# calltime - Tuple<C1, .. CN>
 # args - p.a, p.b.., c.a, c.b..
 DISPATCH_TO_METHOD_TEMPLATE = """\
 template <typename R, typename T, typename Method, %(template_params)s>
@@ -264,8 +264,8 @@ inline R DispatchToFunction(Function function,
 
 # Templates for CreateFunctor functions.
 # template_params - typename P1, typename P2.. typename C1.. typename X1..
-# prebound - TupleN<P1, .. PN>
-# calltime - TupleN<A1, .. AN>
+# prebound - Tuple<P1, .. PN>
+# calltime - Tuple<A1, .. AN>
 # params - X1,.. , A1, ..
 # args - const P1& p1 ..
 # call_args - p1, p2, p3..
@@ -276,7 +276,7 @@ CreateFunctor(T* obj, R (U::*method)(%(params)s), %(args)s) {
   MutantRunner<R, %(calltime)s>* t =
       new Mutant<R, T, R (U::*)(%(params)s),
                  %(prebound)s, %(calltime)s>
-          (obj, method, MakeTuple(%(call_args)s));
+          (obj, method, base::MakeTuple(%(call_args)s));
   return MutantFunctor<R, %(calltime)s>(t);
 }
 """
@@ -288,14 +288,14 @@ CreateFunctor(R (*function)(%(params)s), %(args)s) {
   MutantRunner<R, %(calltime)s>* t =
       new MutantFunction<R, R (*)(%(params)s),
                          %(prebound)s, %(calltime)s>
-          (function, MakeTuple(%(call_args)s));
+          (function, base::MakeTuple(%(call_args)s));
   return MutantFunctor<R, %(calltime)s>(t);
 }
 """
 
 def SplitLine(line, width):
   """Splits a single line at comma, at most |width| characters long."""
-  if len(line) < width:
+  if len(line) <= width:
     return (line, None)
   n = 1 + line[:width].rfind(",")
   if n == 0:  # If comma cannot be found give up and return the entire line.
@@ -305,7 +305,7 @@ def SplitLine(line, width):
   return (line[:n], line[n + 1:])
 
 
-def Wrap(s, width, subsequent_offset=4):
+def Wrap(s, width, subsequent_offset):
   """Wraps a single line |s| at commas so every line is at most |width|
      characters long.
   """
@@ -324,10 +324,8 @@ def Clean(s):
 
   Our simple string formatting/concatenation may introduce extra commas.
   """
-  s = s.replace("<>", "")
   s = s.replace(", >", ">")
   s = s.replace(", )", ")")
-  s = s.replace(">>", "> >")
   return s
 
 
@@ -339,23 +337,13 @@ def ExpandPattern(pattern, it):
   return [pattern.replace("%", x) for x in it]
 
 
-def Gen(pattern, n):
-  """Expands pattern replacing '%' with sequential integers.
+def Gen(pattern, n, start):
+  """Expands pattern replacing '%' with sequential integers starting with start.
 
   Expanded patterns will be joined with comma separator.
-  GenAlphs("X%", 3) will return "X1, X2, X3".
+  Gen("X%", 3, 1) will return "X1, X2, X3".
   """
-  it = string.hexdigits[1:n + 1]
-  return ", ".join(ExpandPattern(pattern, it))
-
-
-def GenAlpha(pattern, n):
-  """Expands pattern replacing '%' with sequential small ASCII letters.
-
-  Expanded patterns will be joined with comma separator.
-  GenAlphs("X%", 3) will return "Xa, Xb, Xc".
-  """
-  it = string.ascii_lowercase[0:n]
+  it = string.hexdigits[start:n + start]
   return ", ".join(ExpandPattern(pattern, it))
 
 
@@ -364,25 +352,30 @@ def Merge(a):
 
 
 def GenTuple(pattern, n):
-  return Clean("Tuple%d<%s>" % (n, Gen(pattern, n)))
+  return Clean("base::Tuple<%s>" % (Gen(pattern, n, 1)))
 
 
 def FixCode(s):
   lines = Clean(s).splitlines()
-  # Wrap sometimes very long 1st and 3rd line at 80th column.
+  # Wrap sometimes very long 1st line to be inside the "template <"
   lines[0] = Wrap(lines[0], 80, 10)
-  lines[2] = Wrap(lines[2], 80, 4)
+
+  # Wrap all subsequent lines to 6 spaces arbitrarily. This is a 2-space line
+  # indent, plus a 4 space continuation indent.
+  for line in xrange(1, len(lines)):
+    lines[line] = Wrap(lines[line], 80, 6)
   return "\n".join(lines)
 
 
 def GenerateDispatch(prebound, calltime):
   print "\n// %d - %d" % (prebound, calltime)
   args = {
-      "template_params": Merge([Gen("typename P%", prebound),
-                                Gen("typename C%", calltime)]),
+      "template_params": Merge([Gen("typename P%", prebound, 1),
+                                Gen("typename C%", calltime, 1)]),
       "prebound": GenTuple("P%", prebound),
       "calltime": GenTuple("C%", calltime),
-      "args": Merge([GenAlpha("p.%", prebound), GenAlpha("c.%", calltime)]),
+      "args": Merge([Gen("base::get<%>(p)", prebound, 0),
+                     Gen("base::get<%>(c)", calltime, 0)]),
   }
 
   print FixCode(DISPATCH_TO_METHOD_TEMPLATE % args)
@@ -394,12 +387,12 @@ def GenerateCreateFunctor(prebound, calltime):
   args = {
       "calltime": GenTuple("A%", calltime),
       "prebound": GenTuple("P%", prebound),
-      "params": Merge([Gen("X%", prebound), Gen("A%", calltime)]),
-      "args": Gen("const P%& p%", prebound),
-      "call_args": Gen("p%", prebound),
-      "template_params": Merge([Gen("typename P%", prebound),
-                                Gen("typename A%", calltime),
-                                Gen("typename X%", prebound)])
+      "params": Merge([Gen("X%", prebound, 1), Gen("A%", calltime, 1)]),
+      "args": Gen("const P%& p%", prebound, 1),
+      "call_args": Gen("p%", prebound, 1),
+      "template_params": Merge([Gen("typename P%", prebound, 1),
+                                Gen("typename A%", calltime, 1),
+                                Gen("typename X%", prebound, 1)])
   }
 
   mutant = FixCode(CREATE_METHOD_FUNCTOR_TEMPLATE % args)

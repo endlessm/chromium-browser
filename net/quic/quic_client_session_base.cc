@@ -8,11 +8,10 @@
 
 namespace net {
 
-QuicClientSessionBase::QuicClientSessionBase(
-    QuicConnection* connection,
-    const QuicConfig& config,
-    bool is_secure)
-    : QuicSession(connection, config, is_secure) {}
+QuicClientSessionBase::QuicClientSessionBase(QuicConnection* connection,
+                                             const QuicConfig& config)
+    : QuicSpdySession(connection, config) {
+}
 
 QuicClientSessionBase::~QuicClientSessionBase() {}
 
@@ -28,7 +27,7 @@ void QuicClientSessionBase::OnCryptoHandshakeEvent(CryptoHandshakeEvent event) {
   }
   // kFHDR config maps to FEC protection always for headers stream.
   // TODO(jri): Add crypto stream in addition to headers for kHDR.
-  headers_stream_->set_fec_policy(FEC_PROTECT_ALWAYS);
+  headers_stream()->set_fec_policy(FEC_PROTECT_ALWAYS);
 }
 
 }  // namespace net

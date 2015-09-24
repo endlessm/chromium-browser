@@ -59,7 +59,7 @@ void SetProcessTitleFromCommandLine(const char** main_argv) {
     // If the binary has since been deleted, Linux appends " (deleted)" to the
     // symlink target. Remove it, since this is not really part of our name.
     const std::string kDeletedSuffix = " (deleted)";
-    if (EndsWith(title, kDeletedSuffix, true))
+    if (base::EndsWith(title, kDeletedSuffix, true))
       title.resize(title.size() - kDeletedSuffix.size());
 
     // PR_SET_NAME is available in Linux 2.6.9 and newer.
@@ -70,7 +70,8 @@ void SetProcessTitleFromCommandLine(const char** main_argv) {
   }
 #endif  // defined(OS_LINUX)
 
-  const CommandLine* command_line = CommandLine::ForCurrentProcess();
+  const base::CommandLine* command_line =
+      base::CommandLine::ForCurrentProcess();
   for (size_t i = 1; i < command_line->argv().size(); ++i) {
     if (!title.empty())
       title += " ";

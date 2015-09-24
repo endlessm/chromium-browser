@@ -90,15 +90,12 @@ const ModuleEnumerator::Module kStandardModuleNoSignature =
 
 // Name, location, description and signature are compared by hashing.
 static const char kMatchName[] = "88e8c9e0";             // "bar.dll".
-static const char kNoMatchName[] = "barfoo.dll";
 static const char kMatchLocation[] = "e6ca7b1c";         // "c:\\foo\\".
 static const char kNoMatchLocation[] = "c:\\foobar\\";
 static const char kMatchDesc[] = "5c4419a6";             // "Desc".
-static const char kNoMatchDesc[] = "NoDesc";
 static const char kVersionHigh[] = "2.0";
 static const char kVersionLow[] = "0.5";
 static const char kMatchSignature[] = "7bfd87e1";        // "Sig".
-static const char kNoMatchSignature[] = "giS";
 static const char kEmpty[] = "";
 
 const struct MatchingEntryList {
@@ -191,7 +188,7 @@ const struct MatchingEntryList {
       "0.0", "1.0", kOs, ModuleEnumerator::SEE_LINK }
   }, {  // All empty fields doesn't produce a match.
     ModuleEnumerator::NOT_MATCHED,
-    { kType, kStatus, L"", L"", L"", L"", L""},
+    { kType, kStatus, L"", L"", L"", L"", L"", L"", ModuleEnumerator::NONE },
     { "a.dll", "", "", "", "", kOs, ModuleEnumerator::SEE_LINK }
   },
 };

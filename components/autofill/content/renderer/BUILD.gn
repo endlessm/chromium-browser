@@ -25,18 +25,38 @@ static_library("renderer") {
 
   deps = [
     "//base",
+    "//base:i18n",
     "//components/autofill/content/common",
     "//components/autofill/core/common",
     "//components/strings",
     "//content/public/common",
     "//content/public/renderer",
+    "//google_apis",
     "//ipc",
+    "//net",
     "//skia",
+    "//third_party/icu",
     "//third_party/WebKit/public:blink",
+    "//ui/base",
   ]
 
-  if (is_win) {
-    # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-    cflags = [ "/wd4267" ]
-  }
+  # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
+}
+
+source_set("test_support") {
+  testonly = true
+  sources = [
+    "test_password_autofill_agent.cc",
+    "test_password_autofill_agent.h",
+    "test_password_generation_agent.cc",
+    "test_password_generation_agent.h",
+  ]
+
+  deps = [
+    "//base",
+    "//components/autofill/content/renderer",
+    "//ipc",
+    "//skia",
+  ]
 }

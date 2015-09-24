@@ -4,8 +4,8 @@
 
 #import "chrome/browser/ui/cocoa/constrained_window/constrained_window_custom_sheet.h"
 
-#import "chrome/browser/ui/cocoa/constrained_window/constrained_window_animation.h"
 #import "chrome/browser/ui/cocoa/constrained_window/constrained_window_sheet_controller.h"
+#import "ui/base/cocoa/constrained_window/constrained_window_animation.h"
 
 @implementation CustomConstrainedWindowSheet
 
@@ -71,6 +71,10 @@
   NSPoint origin = [controller originForSheet:self
                                withWindowSize:[customWindow_ frame].size];
   [customWindow_ setFrameOrigin:origin];
+}
+
+- (NSWindow*)sheetWindow {
+  return customWindow_;
 }
 
 @end

@@ -161,7 +161,7 @@ class ExtensionTabUtil {
   static void CreateTab(content::WebContents* web_contents,
                         const std::string& extension_id,
                         WindowOpenDisposition disposition,
-                        const gfx::Rect& initial_pos,
+                        const gfx::Rect& initial_rect,
                         bool user_gesture);
 
   // Executes the specified callback for all tabs in all browser windows.
@@ -171,8 +171,10 @@ class ExtensionTabUtil {
   static WindowController* GetWindowControllerOfTab(
       const content::WebContents* web_contents);
 
-  // Open the extension's options page.
-  static void OpenOptionsPage(const Extension* extension, Browser* browser);
+  // Open the extension's options page. Returns true if an options page was
+  // successfully opened (though it may not necessarily *load*, e.g. if the
+  // URL does not exist).
+  static bool OpenOptionsPage(const Extension* extension, Browser* browser);
 };
 
 }  // namespace extensions

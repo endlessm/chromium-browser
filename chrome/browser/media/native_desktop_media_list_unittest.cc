@@ -4,7 +4,9 @@
 
 #include "chrome/browser/media/native_desktop_media_list.h"
 
+#include "base/location.h"
 #include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/lock.h"
 #include "chrome/browser/media/desktop_media_list_observer.h"
@@ -43,11 +45,6 @@ class FakeScreenCapturer : public webrtc::ScreenCapturer {
         new webrtc::BasicDesktopFrame(webrtc::DesktopSize(10, 10));
     memset(frame->data(), 0, frame->stride() * frame->size().height());
     callback_->OnCaptureCompleted(frame);
-  }
-
-  void SetMouseShapeObserver(
-      MouseShapeObserver* mouse_shape_observer) override {
-    NOTIMPLEMENTED();
   }
 
   bool GetScreenList(ScreenList* screens) override {
@@ -136,7 +133,8 @@ ACTION_P2(CheckListSize, model, expected_list_size) {
 }
 
 ACTION_P(QuitMessageLoop, message_loop) {
-  message_loop->PostTask(FROM_HERE, base::MessageLoop::QuitClosure());
+  message_loop->task_runner()->PostTask(FROM_HERE,
+                                        base::MessageLoop::QuitClosure());
 }
 
 class DesktopMediaListTest : public testing::Test {

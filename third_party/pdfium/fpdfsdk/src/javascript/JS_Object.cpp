@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/javascript/JavaScript.h"
@@ -12,7 +12,14 @@
 // #include "../../include/javascript/JS_ResMgr.h"
 #include "../../include/javascript/JS_Context.h"
 
-int FXJS_MsgBox(CPDFDoc_Environment* pApp, CPDFSDK_PageView* pPageView, FX_LPCWSTR swMsg, FX_LPCWSTR swTitle, FX_UINT nType, FX_UINT nIcon)
+JS_TIMER_MAPARRAY& GetTimeMap()
+{
+  // Leak the timer array at shutdown.
+  static auto* timeMap = new JS_TIMER_MAPARRAY;
+  return *timeMap;
+}
+
+int FXJS_MsgBox(CPDFDoc_Environment* pApp, CPDFSDK_PageView* pPageView, const FX_WCHAR* swMsg, const FX_WCHAR* swTitle, FX_UINT nType, FX_UINT nIcon)
 {
 	int nRet = 0;
 
@@ -39,7 +46,7 @@ CPDFSDK_PageView* FXJS_GetPageView(IFXJS_Context* cc)
 
 /* ---------------------------------  CJS_EmbedObj --------------------------------- */
 
-CJS_EmbedObj::CJS_EmbedObj(CJS_Object* pJSObject) : 
+CJS_EmbedObj::CJS_EmbedObj(CJS_Object* pJSObject) :
 	m_pJSObject(pJSObject)
 {
 }
@@ -55,12 +62,12 @@ CPDFSDK_PageView* CJS_EmbedObj::JSGetPageView(IFXJS_Context* cc)
 	return FXJS_GetPageView(cc);
 }
 
-int CJS_EmbedObj::MsgBox(CPDFDoc_Environment* pApp, CPDFSDK_PageView* pPageView,FX_LPCWSTR swMsg,FX_LPCWSTR swTitle,FX_UINT nType,FX_UINT nIcon)
+int CJS_EmbedObj::MsgBox(CPDFDoc_Environment* pApp, CPDFSDK_PageView* pPageView,const FX_WCHAR* swMsg,const FX_WCHAR* swTitle,FX_UINT nType,FX_UINT nIcon)
 {
 	return FXJS_MsgBox(pApp, pPageView, swMsg, swTitle, nType, nIcon);
 }
 
-void CJS_EmbedObj::Alert(CJS_Context* pContext, FX_LPCWSTR swMsg)
+void CJS_EmbedObj::Alert(CJS_Context* pContext, const FX_WCHAR* swMsg)
 {
 	CJS_Object::Alert(pContext, swMsg);
 }
@@ -69,7 +76,7 @@ CJS_Timer* CJS_EmbedObj::BeginTimer(CPDFDoc_Environment * pApp,FX_UINT nElapse)
 {
 	CJS_Timer* pTimer = new CJS_Timer(this,pApp);
 	pTimer->SetJSTimer(nElapse);
-	
+
 	return pTimer;
 }
 
@@ -80,24 +87,20 @@ void CJS_EmbedObj::EndTimer(CJS_Timer* pTimer)
 	delete pTimer;
 }
 
-FX_BOOL	CJS_EmbedObj::IsSafeMode(IFXJS_Context* cc)
-{
-	ASSERT(cc != NULL);
-
-	return TRUE;
-}
-
 /* ---------------------------------  CJS_Object --------------------------------- */
-void  FreeObject(const v8::WeakCallbackData<v8::Object, CJS_Object>& data)
+void  FreeObject(const v8::WeakCallbackInfo<CJS_Object>& data)
 {
 	CJS_Object* pJSObj  = data.GetParameter();
-	if(pJSObj)
-	{
-		pJSObj->ExitInstance();
-		delete pJSObj;
-	}
-	v8::Local<v8::Object> obj = data.GetValue();
-	JS_FreePrivate(obj);
+        pJSObj->ExitInstance();
+        delete pJSObj;
+	JS_FreePrivate(data.GetInternalField(0));
+}
+
+void  DisposeObject(const v8::WeakCallbackInfo<CJS_Object>& data)
+{
+	CJS_Object* pJSObj  = data.GetParameter();
+        pJSObj->Dispose();
+        data.SetSecondPassCallback(FreeObject);
 }
 
 CJS_Object::CJS_Object(JSFXObject pObject) :m_pEmbedObj(NULL)
@@ -117,7 +120,13 @@ CJS_Object::~CJS_Object(void)
 
 void	CJS_Object::MakeWeak()
 {
-	m_pObject.SetWeak(this, FreeObject);
+	m_pObject.SetWeak(
+            this, DisposeObject, v8::WeakCallbackType::kInternalFields);
+}
+
+void    CJS_Object::Dispose()
+{
+        m_pObject.Reset();
 }
 
 CPDFSDK_PageView* CJS_Object::JSGetPageView(IFXJS_Context* cc)
@@ -125,12 +134,12 @@ CPDFSDK_PageView* CJS_Object::JSGetPageView(IFXJS_Context* cc)
 	return FXJS_GetPageView(cc);
 }
 
-int CJS_Object::MsgBox(CPDFDoc_Environment* pApp, CPDFSDK_PageView* pPageView, FX_LPCWSTR swMsg, FX_LPCWSTR swTitle, FX_UINT nType, FX_UINT nIcon)
+int CJS_Object::MsgBox(CPDFDoc_Environment* pApp, CPDFSDK_PageView* pPageView, const FX_WCHAR* swMsg, const FX_WCHAR* swTitle, FX_UINT nType, FX_UINT nIcon)
 {
 	return FXJS_MsgBox(pApp, pPageView, swMsg, swTitle, nType, nIcon);
 }
 
-void CJS_Object::Alert(CJS_Context* pContext, FX_LPCWSTR swMsg)
+void CJS_Object::Alert(CJS_Context* pContext, const FX_WCHAR* swMsg)
 {
 	ASSERT(pContext != NULL);
 

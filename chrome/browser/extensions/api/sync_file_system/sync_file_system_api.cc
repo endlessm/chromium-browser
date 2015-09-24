@@ -18,7 +18,7 @@
 #include "chrome/browser/sync_file_system/sync_file_system_service_factory.h"
 #include "chrome/common/extensions/api/sync_file_system.h"
 #include "content/public/browser/browser_context.h"
-#include "content/public/browser/render_view_host.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_client.h"
 #include "storage/browser/fileapi/file_system_context.h"
@@ -47,10 +47,12 @@ sync_file_system::SyncFileSystemService* GetSyncFileSystemService(
     Profile* profile) {
   sync_file_system::SyncFileSystemService* service =
       SyncFileSystemServiceFactory::GetForProfile(profile);
-  DCHECK(service);
+  if (!service)
+    return nullptr;
   ExtensionSyncEventObserver* observer =
       ExtensionSyncEventObserver::GetFactoryInstance()->Get(profile);
-  DCHECK(observer);
+  if (!observer)
+    return nullptr;
   observer->InitializeForService(service);
   return service;
 }
@@ -69,8 +71,8 @@ bool SyncFileSystemDeleteFileSystemFunction::RunAsync() {
   EXTENSION_FUNCTION_VALIDATE(args_->GetString(0, &url));
 
   scoped_refptr<storage::FileSystemContext> file_system_context =
-      BrowserContext::GetStoragePartition(GetProfile(),
-                                          render_view_host()->GetSiteInstance())
+      BrowserContext::GetStoragePartition(
+          GetProfile(), render_frame_host()->GetSiteInstance())
           ->GetFileSystemContext();
   storage::FileSystemURL file_system_url(
       file_system_context->CrackURL(GURL(url)));
@@ -116,7 +118,8 @@ bool SyncFileSystemRequestFileSystemFunction::RunAsync() {
   // SyncFileSystem initialization is done in OpenFileSystem below, but we call
   // GetSyncFileSystemService here too to initialize sync event observer for
   // extensions API.
-  GetSyncFileSystemService(GetProfile());
+  if (!GetSyncFileSystemService(GetProfile()))
+    return false;
 
   // Initializes sync context for this extension and continue to open
   // a new file system.
@@ -133,9 +136,9 @@ bool SyncFileSystemRequestFileSystemFunction::RunAsync() {
 
 storage::FileSystemContext*
 SyncFileSystemRequestFileSystemFunction::GetFileSystemContext() {
-  DCHECK(render_view_host());
+  DCHECK(render_frame_host());
   return BrowserContext::GetStoragePartition(
-      GetProfile(), render_view_host()->GetSiteInstance())
+             GetProfile(), render_frame_host()->GetSiteInstance())
       ->GetFileSystemContext();
 }
 
@@ -172,13 +175,18 @@ bool SyncFileSystemGetFileStatusFunction::RunAsync() {
   EXTENSION_FUNCTION_VALIDATE(args_->GetString(0, &url));
 
   scoped_refptr<storage::FileSystemContext> file_system_context =
-      BrowserContext::GetStoragePartition(GetProfile(),
-                                          render_view_host()->GetSiteInstance())
+      BrowserContext::GetStoragePartition(
+          GetProfile(), render_frame_host()->GetSiteInstance())
           ->GetFileSystemContext();
   storage::FileSystemURL file_system_url(
       file_system_context->CrackURL(GURL(url)));
 
-  GetSyncFileSystemService(GetProfile())->GetFileSyncStatus(
+  sync_file_system::SyncFileSystemService* sync_file_system_service =
+      GetSyncFileSystemService(GetProfile());
+  if (!sync_file_system_service)
+    return false;
+
+  sync_file_system_service->GetFileSyncStatus(
       file_system_url,
       Bind(&SyncFileSystemGetFileStatusFunction::DidGetFileStatus, this));
   return true;
@@ -212,8 +220,8 @@ bool SyncFileSystemGetFileStatusesFunction::RunAsync() {
   EXTENSION_FUNCTION_VALIDATE(args_->GetList(0, &file_entry_urls));
 
   scoped_refptr<storage::FileSystemContext> file_system_context =
-      BrowserContext::GetStoragePartition(GetProfile(),
-                                          render_view_host()->GetSiteInstance())
+      BrowserContext::GetStoragePartition(
+          GetProfile(), render_frame_host()->GetSiteInstance())
           ->GetFileSystemContext();
 
   // Map each file path->SyncFileStatus in the callback map.
@@ -223,6 +231,9 @@ bool SyncFileSystemGetFileStatusesFunction::RunAsync() {
   file_sync_statuses_.clear();
   sync_file_system::SyncFileSystemService* sync_file_system_service =
       GetSyncFileSystemService(GetProfile());
+  if (!sync_file_system_service)
+    return false;
+
   for (unsigned int i = 0; i < num_expected_results_; i++) {
     std::string url;
     file_entry_urls->GetString(i, &url);
@@ -288,15 +299,15 @@ bool SyncFileSystemGetUsageAndQuotaFunction::RunAsync() {
   EXTENSION_FUNCTION_VALIDATE(args_->GetString(0, &url));
 
   scoped_refptr<storage::FileSystemContext> file_system_context =
-      BrowserContext::GetStoragePartition(GetProfile(),
-                                          render_view_host()->GetSiteInstance())
+      BrowserContext::GetStoragePartition(
+          GetProfile(), render_frame_host()->GetSiteInstance())
           ->GetFileSystemContext();
   storage::FileSystemURL file_system_url(
       file_system_context->CrackURL(GURL(url)));
 
   scoped_refptr<storage::QuotaManager> quota_manager =
-      BrowserContext::GetStoragePartition(GetProfile(),
-                                          render_view_host()->GetSiteInstance())
+      BrowserContext::GetStoragePartition(
+          GetProfile(), render_frame_host()->GetSiteInstance())
           ->GetQuotaManager();
 
   BrowserThread::PostTask(
@@ -364,6 +375,8 @@ bool SyncFileSystemGetConflictResolutionPolicyFunction::RunSync() {
 bool SyncFileSystemGetServiceStatusFunction::RunSync() {
   sync_file_system::SyncFileSystemService* service =
       GetSyncFileSystemService(GetProfile());
+  if (!service)
+    return false;
   results_ = api::sync_file_system::GetServiceStatus::Results::Create(
       SyncServiceStateToExtensionEnum(service->GetSyncServiceState()));
   return true;

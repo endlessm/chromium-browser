@@ -8,7 +8,6 @@ from __future__ import print_function
 
 import functools
 import glob
-import logging
 import os
 import re
 import shlex
@@ -16,6 +15,7 @@ import shutil
 
 from chromite.cbuildbot import failures_lib
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import osutils
 
 
@@ -27,7 +27,7 @@ def _NameValueListToDict(name_value_list):
   of the pairs.  If a string is simply NAME, then the value in the dictionary
   is set to True.  If VALUE can be converted to an integer, it is.
   """
-  result = { }
+  result = {}
   for item in name_value_list:
     tokens = item.split('=', 1)
     if len(tokens) == 2:
@@ -212,8 +212,8 @@ class Copier(object):
       elif path.optional or (not strict and path.cond):
         logging.debug('%s does not exist and is optional.  Skipping.', src)
       else:
-        logging.warn('%s does not exist and is required.  Skipping anyway.',
-                     src)
+        logging.warning('%s does not exist and is required.  Skipping anyway.',
+                        src)
     elif len(paths) > 1 and path.dest and not path.dest.endswith('/'):
       raise MultipleMatchError(
           'Glob pattern %r has multiple matches, but dest %s '
@@ -293,14 +293,12 @@ class Path(object):
 
 
 _DISABLE_NACL = 'disable_nacl'
-_USE_DRM = 'use_drm'
-
 
 _CHROME_INTERNAL_FLAG = 'chrome_internal'
 _HIGHDPI_FLAG = 'highdpi'
 STAGING_FLAGS = (
-  _CHROME_INTERNAL_FLAG,
-  _HIGHDPI_FLAG,
+    _CHROME_INTERNAL_FLAG,
+    _HIGHDPI_FLAG,
 )
 
 _CHROME_SANDBOX_DEST = 'chrome-sandbox'
@@ -308,76 +306,87 @@ C = Conditions
 
 # Files shared between all deployment types.
 _COPY_PATHS_COMMON = (
-  Path('chrome_sandbox', mode=0o4755, dest=_CHROME_SANDBOX_DEST),
-  Path('icudtl.dat', cond=C.GypSet('icu_use_data_file_flag')),
-  Path('libffmpegsumo.so', exe=True, optional=True),
-  Path('libosmesa.so', exe=True, optional=True),
-  Path('libpdf.so', exe=True, optional=True),
-  Path('libppGoogleNaClPluginChrome.so',
-       exe=True,
-       cond=C.GypNotSet(_DISABLE_NACL),
-       optional=True),
-  Path('mojo_shell', exe=True, optional=True),
-  # Do not strip the nacl_helper_bootstrap binary because the binutils
-  # objcopy/strip mangles the ELF program headers.
-  Path('nacl_helper_bootstrap',
-       exe=True, strip=False,
-       cond=C.GypNotSet(_DISABLE_NACL)),
-  Path('nacl_irt_*.nexe',
-       cond=C.GypNotSet(_DISABLE_NACL)),
-  Path('nacl_helper',
-       exe=True,
-       optional=True,
-       cond=C.GypNotSet(_DISABLE_NACL)),
-  Path('pnacl/',
-       cond=C.GypNotSet(_DISABLE_NACL)),
+    Path('chrome_sandbox', mode=0o4755, dest=_CHROME_SANDBOX_DEST),
+    Path('icudtl.dat'),
+    # Set as optional for backwards compatibility.
+    Path('lib/libpeerconnection.so',
+         exe=True,
+         cond=C.StagingFlagSet(_CHROME_INTERNAL_FLAG),
+         optional=True),
+    Path('libffmpegsumo.so', exe=True, optional=True),
+    Path('libosmesa.so', exe=True, optional=True),
+    Path('libpdf.so', exe=True, optional=True),
+    Path('libppGoogleNaClPluginChrome.so',
+         exe=True,
+         cond=C.GypNotSet(_DISABLE_NACL),
+         optional=True),
+    Path('mojo_shell', exe=True, optional=True),
+    # Do not strip the nacl_helper_bootstrap binary because the binutils
+    # objcopy/strip mangles the ELF program headers.
+    Path('nacl_helper_bootstrap',
+         exe=True,
+         strip=False,
+         cond=C.GypNotSet(_DISABLE_NACL)),
+    Path('nacl_irt_*.nexe', cond=C.GypNotSet(_DISABLE_NACL)),
+    Path('nacl_helper',
+         exe=True,
+         optional=True,
+         cond=C.GypNotSet(_DISABLE_NACL)),
+    Path('nacl_helper_nonsfi',
+         exe=True,
+         optional=True,
+         cond=C.GypNotSet(_DISABLE_NACL)),
+    Path('natives_blob.bin', optional=True),
+    Path('pnacl/', cond=C.GypNotSet(_DISABLE_NACL)),
+    Path('snapshot_blob.bin', optional=True),
 )
 
 _COPY_PATHS_APP_SHELL = (
-  Path('app_shell', exe=True),
-  Path('extensions_shell_and_test.pak'),
+    Path('app_shell', exe=True),
+    Path('extensions_shell_and_test.pak'),
 ) + _COPY_PATHS_COMMON
 
 _COPY_PATHS_CHROME = (
-  Path('ash_shell', exe=True, cond=C.GypSet(_USE_DRM)),
-  Path('aura_demo', exe=True, cond=C.GypSet(_USE_DRM)),
-  Path('chrome', exe=True),
-  Path('chrome-wrapper'),
-  Path('chrome_100_percent.pak'),
-  Path('chrome_200_percent.pak', cond=C.StagingFlagSet(_HIGHDPI_FLAG)),
-  Path('keyboard_resources.pak'),
-  Path('lib/*.so',
-       exe=True,
-       cond=C.GypSet('component', value='shared_library')),
-  # Set as optional for backwards compatibility.
-  Path('lib/libpeerconnection.so',
-       exe=True,
-       cond=C.StagingFlagSet(_CHROME_INTERNAL_FLAG),
-       optional=True),
-  # Set as optional for backwards compatibility.
-  Path('libexif.so',
-       exe=True,
-       optional=True),
-  # Widevine binaries are already pre-stripped.  In addition, they don't
-  # play well with the binutils stripping tools, so skip stripping.
-  Path('libwidevinecdmadapter.so',
-       exe=True,
-       strip=False,
-       cond=C.StagingFlagSet(_CHROME_INTERNAL_FLAG)),
-  Path('libwidevinecdm.so',
-       exe=True,
-       strip=False,
-       cond=C.StagingFlagSet(_CHROME_INTERNAL_FLAG)),
-  Path('locales/'),
-  Path('resources/'),
-  Path('resources.pak'),
-  Path('xdg-settings'),
-  Path('*.png'),
+    Path('chrome', exe=True),
+    Path('chrome-wrapper'),
+    Path('chrome_100_percent.pak'),
+    Path('chrome_200_percent.pak', cond=C.StagingFlagSet(_HIGHDPI_FLAG)),
+    Path('chrome_material_100_percent.pak', optional=True),
+    Path('chrome_material_200_percent.pak',
+         optional=True,
+         cond=C.StagingFlagSet(_HIGHDPI_FLAG)),
+    Path('keyboard_resources.pak'),
+    Path('lib/*.so',
+         exe=True,
+         cond=C.GypSet('component', value='shared_library')),
+    # Set as optional for backwards compatibility.
+    Path('libexif.so', exe=True, optional=True),
+    # Widevine binaries are already pre-stripped.  In addition, they don't
+    # play well with the binutils stripping tools, so skip stripping.
+    Path('libwidevinecdmadapter.so',
+         exe=True,
+         strip=False,
+         cond=C.StagingFlagSet(_CHROME_INTERNAL_FLAG)),
+    Path('libwidevinecdm.so',
+         exe=True,
+         strip=False,
+         cond=C.StagingFlagSet(_CHROME_INTERNAL_FLAG)),
+    Path('locales/'),
+    Path('resources/'),
+    Path('resources.pak'),
+    Path('xdg-settings'),
+    Path('*.png'),
+) + _COPY_PATHS_COMMON
+
+_COPY_PATHS_ENVOY = (
+    Path('envoy_shell', exe=True),
+    Path('envoy_shell.pak'),
 ) + _COPY_PATHS_COMMON
 
 _COPY_PATHS_MAP = {
-  'app_shell': _COPY_PATHS_APP_SHELL,
-  'chrome': _COPY_PATHS_CHROME,
+    'app_shell': _COPY_PATHS_APP_SHELL,
+    'chrome': _COPY_PATHS_CHROME,
+    'envoy': _COPY_PATHS_ENVOY,
 }
 
 
@@ -392,8 +401,8 @@ def GetCopyPaths(deployment_type='chrome'):
   """Returns the list of copy paths used as a filter for staging files.
 
   Args:
-    deployment_type: String describing the deployment type. Either "app_shell"
-                     or "chrome".
+    deployment_type: String describing the deployment type. Either "app_shell",
+                     "chrome", or "envoy".
 
   Returns:
     The list of paths to use as a filter for staging files.

@@ -34,16 +34,20 @@ class ImageTransportSurfaceFBO
     // Allocate the storage for the color buffer. The specified context is
     // current, and there is a texture bound to GL_TEXTURE_RECTANGLE_ARB.
     virtual bool AllocateColorBufferStorage(
-        CGLContextObj context, GLuint texture,
-        gfx::Size size, float scale_factor) = 0;
+        CGLContextObj context, const base::Closure& context_dirtied_callback,
+        GLuint texture, gfx::Size size, float scale_factor) = 0;
 
     // Free the storage allocated in the AllocateColorBufferStorage call. The
     // GL texture that was bound has already been deleted by the caller.
     virtual void FreeColorBufferStorage() = 0;
 
-    // Swap buffers and return the handle for the surface to send to the browser
-    // process to display.
-    virtual void SwapBuffers(const gfx::Size& size, float scale_factor) = 0;
+    // Called when the frame size has changed (the buffer may not have been
+    // reallocated, since its size may be rounded).
+    virtual void FrameSizeChanged(
+        const gfx::Size& pixel_size, float scale_factor) = 0;
+
+    // Swap buffers, or post sub-buffer.
+    virtual void SwapBuffers(const gfx::Rect& dirty_rect) = 0;
 
     // Indicate that the backbuffer will be written to.
     virtual void WillWriteToBackbuffer() = 0;
@@ -67,8 +71,8 @@ class ImageTransportSurfaceFBO
   void Destroy() override;
   bool DeferDraws() override;
   bool IsOffscreen() override;
-  bool SwapBuffers() override;
-  bool PostSubBuffer(int x, int y, int width, int height) override;
+  gfx::SwapResult SwapBuffers() override;
+  gfx::SwapResult PostSubBuffer(int x, int y, int width, int height) override;
   bool SupportsPostSubBuffer() override;
   gfx::Size GetSize() override;
   void* GetHandle() override;
@@ -84,6 +88,8 @@ class ImageTransportSurfaceFBO
                        const gfx::Size pixel_size,
                        float scale_factor);
   void SetRendererID(int renderer_id);
+
+  const gpu::gles2::FeatureInfo* GetFeatureInfo() const;
 
  protected:
   // ImageTransportSurface implementation
@@ -103,6 +109,7 @@ class ImageTransportSurfaceFBO
   void DestroyFramebuffer();
   void AllocateOrResizeFramebuffer(
       const gfx::Size& pixel_size, float scale_factor);
+  bool SwapBuffersInternal(const gfx::Rect& dirty_rect);
 
   scoped_ptr<StorageProvider> storage_provider_;
 
@@ -128,6 +135,7 @@ class ImageTransportSurfaceFBO
   // Whether a SwapBuffers IPC needs to be sent to the browser.
   bool is_swap_buffers_send_pending_;
   std::vector<ui::LatencyInfo> latency_info_;
+  gfx::Rect pending_swap_pixel_damage_rect_;
 
   scoped_ptr<ImageTransportHelper> helper_;
 
@@ -136,4 +144,4 @@ class ImageTransportSurfaceFBO
 
 }  // namespace content
 
-#endif  //  CONTENT_COMMON_GPU_IMAGE_TRANSPORT_SURFACE_MAC_H_
+#endif  // CONTENT_COMMON_GPU_IMAGE_TRANSPORT_SURFACE_FBO_MAC_H_

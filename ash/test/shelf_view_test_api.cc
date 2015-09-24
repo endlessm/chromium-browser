@@ -139,5 +139,10 @@ bool ShelfViewTestAPI::DraggedItemFromOverflowToShelf() {
     return shelf_view_->dragged_off_from_overflow_to_shelf_;
 }
 
+ShelfButtonPressedMetricTracker*
+ShelfViewTestAPI::shelf_button_pressed_metric_tracker() {
+  return &(shelf_view_->shelf_button_pressed_metric_tracker_);
+}
+
 }  // namespace test
 }  // namespace ash

@@ -10,20 +10,23 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/gfx/display.h"
-#include "ui/gfx/rect_conversions.h"
+#include "ui/gfx/geometry/rect_conversions.h"
+#include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/screen.h"
-#include "ui/gfx/vector2d.h"
 
 namespace autofill {
 
 PopupControllerCommon::PopupControllerCommon(
     const gfx::RectF& element_bounds,
+    base::i18n::TextDirection text_direction,
     const gfx::NativeView container_view,
     content::WebContents* web_contents)
     : element_bounds_(element_bounds),
+      text_direction_(text_direction),
       container_view_(container_view),
       web_contents_(web_contents),
-      key_press_event_target_(NULL) {}
+      key_press_event_target_(NULL) {
+}
 PopupControllerCommon::~PopupControllerCommon() {}
 
 void PopupControllerCommon::SetKeyPressCallback(
@@ -82,12 +85,20 @@ std::pair<int, int> PopupControllerCommon::CalculatePopupXAndWidth(
   int popup_width = std::min(popup_required_width,
                              std::max(right_available, left_available));
 
-  // If there is enough space for the popup on the right, show it there,
-  // otherwise choose the larger size.
-  if (right_available >= popup_width || right_available >= left_available)
-    return std::make_pair(right_growth_start, popup_width);
-  else
-    return std::make_pair(left_growth_end - popup_width, popup_width);
+  std::pair<int, int> grow_right(right_growth_start, popup_width);
+  std::pair<int, int> grow_left(left_growth_end - popup_width, popup_width);
+
+  // Prefer to grow towards the end (right for LTR, left for RTL). But if there
+  // is not enough space available in the desired direction and more space in
+  // the other direction, reverse it.
+  if (is_rtl()) {
+    return left_available >= popup_width || left_available >= right_available
+               ? grow_left
+               : grow_right;
+  }
+  return right_available >= popup_width || right_available >= left_available
+             ? grow_right
+             : grow_left;
 }
 
 std::pair<int,int> PopupControllerCommon::CalculatePopupYAndHeight(

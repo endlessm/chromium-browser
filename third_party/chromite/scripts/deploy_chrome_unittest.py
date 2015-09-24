@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,29 +6,21 @@
 
 from __future__ import print_function
 
+import mock
 import os
-import sys
 import time
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                '..', '..'))
-
-from chromite.cros.commands import cros_chrome_sdk_unittest
+from chromite.cli.cros import cros_chrome_sdk_unittest
 from chromite.lib import chrome_util
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_test_lib
 from chromite.lib import osutils
 from chromite.lib import partial_mock
+from chromite.lib import remote_access
 from chromite.lib import remote_access_unittest
 from chromite.lib import stats
 from chromite.lib import stats_unittest
-
 from chromite.scripts import deploy_chrome
-
-
-# TODO(build): Finish test wrapper (http://crosbug.com/37517).
-# Until then, this has to be after the chromite imports.
-import mock
 
 
 # pylint: disable=W0212
@@ -60,7 +51,7 @@ class InterfaceTest(cros_test_lib.OutputTestCase):
 
   def testLocalPathSpecified(self):
     """Test case of local path specified."""
-    argv =  list(_REGULAR_TO) + ['--local-pkg-path', '/path/to/chrome']
+    argv = list(_REGULAR_TO) + ['--local-pkg-path', '/path/to/chrome']
     _ParseCommandLine(argv)
 
   def testNoTarget(self):
@@ -90,24 +81,24 @@ class InterfaceTest(cros_test_lib.OutputTestCase):
 
   def testMountOptionSetsTargetDir(self):
     argv = list(_REGULAR_TO) + ['--gs-path', _GS_PATH, '--mount']
-    options, _ = _ParseCommandLine(argv)
+    options = _ParseCommandLine(argv)
     self.assertIsNot(options.target_dir, None)
 
   def testMountOptionSetsMountDir(self):
     argv = list(_REGULAR_TO) + ['--gs-path', _GS_PATH, '--mount']
-    options, _ = _ParseCommandLine(argv)
+    options = _ParseCommandLine(argv)
     self.assertIsNot(options.mount_dir, None)
 
   def testMountOptionDoesNotOverrideTargetDir(self):
     argv = list(_REGULAR_TO) + ['--gs-path', _GS_PATH, '--mount',
                                 '--target-dir', '/foo/bar/cow']
-    options, _ = _ParseCommandLine(argv)
+    options = _ParseCommandLine(argv)
     self.assertEqual(options.target_dir, '/foo/bar/cow')
 
   def testMountOptionDoesNotOverrideMountDir(self):
     argv = list(_REGULAR_TO) + ['--gs-path', _GS_PATH, '--mount',
                                 '--mount-dir', '/foo/bar/cow']
-    options, _ = _ParseCommandLine(argv)
+    options = _ParseCommandLine(argv)
     self.assertEqual(options.mount_dir, '/foo/bar/cow')
 
 
@@ -119,6 +110,7 @@ class DeployChromeMock(partial_mock.PartialMock):
 
   def __init__(self):
     partial_mock.PartialMock.__init__(self)
+    self.remote_device_mock = remote_access_unittest.RemoteDeviceMock()
     # Target starts off as having rootfs verification enabled.
     self.rsh_mock = remote_access_unittest.RemoteShMock()
     self.rsh_mock.SetDefaultCmdResult(0)
@@ -135,10 +127,12 @@ class DeployChromeMock(partial_mock.PartialMock):
       self.backup['_DisableRootfsVerification'](inst)
 
   def PreStart(self):
+    self.remote_device_mock.start()
     self.rsh_mock.start()
 
   def PreStop(self):
     self.rsh_mock.stop()
+    self.remote_device_mock.stop()
 
   def _KillProcsIfNeeded(self, _inst):
     # Fully stub out for now.
@@ -170,7 +164,7 @@ class DeployTest(cros_test_lib.MockTempDirTestCase):
   """Setup a deploy object with a GS-path for use in tests."""
 
   def _GetDeployChrome(self, args):
-    options, _ = _ParseCommandLine(args)
+    options = _ParseCommandLine(args)
     return deploy_chrome.DeployChrome(
         options, self.tempdir, os.path.join(self.tempdir, 'staging'))
 
@@ -187,13 +181,13 @@ class TestDisableRootfsVerification(DeployTest):
     """Test the working case, disabling rootfs verification."""
     self.deploy_mock.MockMountCmd(0)
     self.deploy._DisableRootfsVerification()
-    self.assertFalse(self.deploy._rootfs_is_still_readonly.is_set())
+    self.assertFalse(self.deploy._target_dir_is_still_readonly.is_set())
 
   def testDisableRootfsVerificationFailure(self):
     """Test failure to disable rootfs verification."""
     self.assertRaises(cros_build_lib.RunCommandError,
                       self.deploy._DisableRootfsVerification)
-    self.assertFalse(self.deploy._rootfs_is_still_readonly.is_set())
+    self.assertFalse(self.deploy._target_dir_is_still_readonly.is_set())
 
 
 class TestMount(DeployTest):
@@ -201,22 +195,32 @@ class TestMount(DeployTest):
 
   def testSuccess(self):
     """Test case where we are able to mount as writable."""
-    self.assertFalse(self.deploy._rootfs_is_still_readonly.is_set())
+    self.assertFalse(self.deploy._target_dir_is_still_readonly.is_set())
     self.deploy_mock.MockMountCmd(0)
     self.deploy._MountRootfsAsWritable()
-    self.assertFalse(self.deploy._rootfs_is_still_readonly.is_set())
+    self.assertFalse(self.deploy._target_dir_is_still_readonly.is_set())
 
   def testMountError(self):
     """Test that mount failure doesn't raise an exception by default."""
-    self.assertFalse(self.deploy._rootfs_is_still_readonly.is_set())
+    self.assertFalse(self.deploy._target_dir_is_still_readonly.is_set())
+    self.PatchObject(remote_access.RemoteDevice, 'IsDirWritable',
+                     return_value=False, autospec=True)
     self.deploy._MountRootfsAsWritable()
-    self.assertTrue(self.deploy._rootfs_is_still_readonly.is_set())
+    self.assertTrue(self.deploy._target_dir_is_still_readonly.is_set())
 
   def testMountRwFailure(self):
     """Test that mount failure raises an exception if error_code_ok=False."""
     self.assertRaises(cros_build_lib.RunCommandError,
                       self.deploy._MountRootfsAsWritable, error_code_ok=False)
-    self.assertFalse(self.deploy._rootfs_is_still_readonly.is_set())
+    self.assertFalse(self.deploy._target_dir_is_still_readonly.is_set())
+
+  def testMountTempDir(self):
+    """Test that mount succeeds if target dir is writable."""
+    self.assertFalse(self.deploy._target_dir_is_still_readonly.is_set())
+    self.PatchObject(remote_access.RemoteDevice, 'IsDirWritable',
+                     return_value=True, autospec=True)
+    self.deploy._MountRootfsAsWritable()
+    self.assertFalse(self.deploy._target_dir_is_still_readonly.is_set())
 
 
 class TestUiJobStarted(DeployTest):
@@ -257,7 +261,7 @@ class StagingTest(cros_test_lib.MockTempDirTestCase):
 
   def testSingleFileDeployFailure(self):
     """Default staging enforces that mandatory files are copied"""
-    options, _ = _ParseCommandLine(self.common_flags)
+    options = _ParseCommandLine(self.common_flags)
     osutils.Touch(os.path.join(self.build_dir, 'chrome'), makedirs=True)
     self.assertRaises(
         chrome_util.MissingPathError, deploy_chrome._PrepareStagingDir,
@@ -265,21 +269,21 @@ class StagingTest(cros_test_lib.MockTempDirTestCase):
 
   def testSloppyDeployFailure(self):
     """Sloppy staging enforces that at least one file is copied."""
-    options, _ = _ParseCommandLine(self.common_flags + ['--sloppy'])
+    options = _ParseCommandLine(self.common_flags + ['--sloppy'])
     self.assertRaises(
         chrome_util.MissingPathError, deploy_chrome._PrepareStagingDir,
         options, self.tempdir, self.staging_dir, chrome_util._COPY_PATHS_CHROME)
 
   def testSloppyDeploySuccess(self):
     """Sloppy staging - stage one file."""
-    options, _ = _ParseCommandLine(self.common_flags + ['--sloppy'])
+    options = _ParseCommandLine(self.common_flags + ['--sloppy'])
     osutils.Touch(os.path.join(self.build_dir, 'chrome'), makedirs=True)
     deploy_chrome._PrepareStagingDir(options, self.tempdir, self.staging_dir,
                                      chrome_util._COPY_PATHS_CHROME)
 
   def testEmptyDeployStrict(self):
     """Strict staging fails when there are no files."""
-    options, _ = _ParseCommandLine(
+    options = _ParseCommandLine(
         self.common_flags + ['--gyp-defines', 'chromeos=1', '--strict'])
 
     self.assertRaises(
@@ -291,7 +295,7 @@ class DeployTestBuildDir(cros_test_lib.MockTempDirTestCase):
   """Set up a deploy object with a build-dir for use in deployment type tests"""
 
   def _GetDeployChrome(self, args):
-    options, _ = _ParseCommandLine(args)
+    options = _ParseCommandLine(args)
     return deploy_chrome.DeployChrome(
         options, self.tempdir, os.path.join(self.tempdir, 'staging'))
 
@@ -312,6 +316,15 @@ class DeployTestBuildDir(cros_test_lib.MockTempDirTestCase):
 class TestDeploymentType(DeployTestBuildDir):
   """Test detection of deployment type using build dir."""
 
+  def testEnvoyDetection(self):
+    """Check for an envoy deployment"""
+    osutils.Touch(os.path.join(self.deploy.options.build_dir, 'envoy_shell'),
+                  makedirs=True)
+    self.deploy._CheckDeployType()
+    self.assertTrue(self.getCopyPath('envoy_shell'))
+    self.assertFalse(self.getCopyPath('app_shell'))
+    self.assertFalse(self.getCopyPath('chrome'))
+
   def testAppShellDetection(self):
     """Check for an app_shell deployment"""
     osutils.Touch(os.path.join(self.deploy.options.build_dir, 'app_shell'),
@@ -319,24 +332,26 @@ class TestDeploymentType(DeployTestBuildDir):
     self.deploy._CheckDeployType()
     self.assertTrue(self.getCopyPath('app_shell'))
     self.assertFalse(self.getCopyPath('chrome'))
+    self.assertFalse(self.getCopyPath('envoy_shell'))
 
   def testChromeAndAppShellDetection(self):
-    """Check for a regular chrome deployment when app_shell also exists."""
+    """Check for a chrome deployment when app_shell/envoy_shell also exist."""
     osutils.Touch(os.path.join(self.deploy.options.build_dir, 'chrome'),
                   makedirs=True)
     osutils.Touch(os.path.join(self.deploy.options.build_dir, 'app_shell'),
                   makedirs=True)
+    osutils.Touch(os.path.join(self.deploy.options.build_dir, 'envoy_shell'),
+                  makedirs=True)
     self.deploy._CheckDeployType()
-    self.assertFalse(self.getCopyPath('app_shell'))
     self.assertTrue(self.getCopyPath('chrome'))
+    self.assertFalse(self.getCopyPath('app_shell'))
+    self.assertFalse(self.getCopyPath('envoy_shell'))
 
   def testChromeDetection(self):
     """Check for a regular chrome deployment"""
     osutils.Touch(os.path.join(self.deploy.options.build_dir, 'chrome'),
                   makedirs=True)
     self.deploy._CheckDeployType()
-    self.assertFalse(self.getCopyPath('app_shell'))
     self.assertTrue(self.getCopyPath('chrome'))
-
-if __name__ == '__main__':
-  cros_test_lib.main()
+    self.assertFalse(self.getCopyPath('app_shell'))
+    self.assertFalse(self.getCopyPath('envoy_shell'))

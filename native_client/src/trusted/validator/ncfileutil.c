@@ -10,6 +10,7 @@
 
 #include "native_client/src/trusted/validator/ncfileutil.h"
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/portability.h"
 
 #include <stdarg.h>
@@ -85,7 +86,7 @@ static const char* GetEiClassName(unsigned char c) {
 static int nc_load(ncfile *ncf, int fd) {
   union {
     Elf32_Ehdr h32;
-#if NACL_TARGET_SUBARCH == 64
+#if NACL_BUILD_SUBARCH == 64
     Elf64_Ehdr h64;
 #endif
   } h;
@@ -111,7 +112,7 @@ static int nc_load(ncfile *ncf, int fd) {
     return -1;
   }
 
-#if NACL_TARGET_SUBARCH == 64
+#if NACL_BUILD_SUBARCH == 64
   if (h.h32.e_ident[EI_CLASS] == ELFCLASS64) {
     if (h.h64.e_phoff > 0xffffffffU) {
       ncf->error_fn("nc_load(%s): e_phoff overflows 32 bits\n", ncf->fname);
@@ -155,7 +156,7 @@ static int nc_load(ncfile *ncf, int fd) {
     return -1;
   }
   phsize = phnum * sizeof(*ncf->pheaders);
-#if NACL_TARGET_SUBARCH == 64
+#if NACL_BUILD_SUBARCH == 64
   if (h.h32.e_ident[EI_CLASS] == ELFCLASS64) {
     /*
      * Read 64-bit program headers and convert them.
@@ -242,7 +243,7 @@ static int nc_load(ncfile *ncf, int fd) {
                   ncf->fname, shsize);
     return -1;
   }
-#if NACL_TARGET_SUBARCH == 64
+#if NACL_BUILD_SUBARCH == 64
   if (h.h32.e_ident[EI_CLASS] == ELFCLASS64) {
     /*
      * Read 64-bit section headers and convert them.

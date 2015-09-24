@@ -5,6 +5,7 @@
 #include "gpu/command_buffer/service/memory_program_cache.h"
 
 #include "base/base64.h"
+#include "base/callback.h"
 #include "base/command_line.h"
 #include "base/metrics/histogram.h"
 #include "base/sha1.h"
@@ -15,13 +16,13 @@
 #include "gpu/command_buffer/service/gles2_cmd_decoder.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
 #include "gpu/command_buffer/service/shader_manager.h"
-#include "gpu/command_buffer/service/shader_translator.h"
 #include "ui/gl/gl_bindings.h"
 
 namespace {
 
 size_t GetCacheSizeBytes() {
-  const CommandLine* command_line = CommandLine::ForCurrentProcess();
+  const base::CommandLine* command_line =
+      base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kGpuProgramCacheSizeKb)) {
     size_t size;
     if (base::StringToSizeT(
@@ -172,24 +173,26 @@ void MemoryProgramCache::ClearBackend() {
 ProgramCache::ProgramLoadResult MemoryProgramCache::LoadLinkedProgram(
     GLuint program,
     Shader* shader_a,
-    const ShaderTranslatorInterface* translator_a,
     Shader* shader_b,
-    const ShaderTranslatorInterface* translator_b,
     const LocationMap* bind_attrib_location_map,
+    const std::vector<std::string>& transform_feedback_varyings,
+    GLenum transform_feedback_buffer_mode,
     const ShaderCacheCallback& shader_callback) {
   char a_sha[kHashLength];
   char b_sha[kHashLength];
-  DCHECK(shader_a && !shader_a->signature_source().empty() &&
-         shader_b && !shader_b->signature_source().empty());
+  DCHECK(shader_a && !shader_a->last_compiled_source().empty() &&
+         shader_b && !shader_b->last_compiled_source().empty());
   ComputeShaderHash(
-      shader_a->signature_source(), translator_a, a_sha);
+      shader_a->last_compiled_signature(), a_sha);
   ComputeShaderHash(
-      shader_b->signature_source(), translator_b, b_sha);
+      shader_b->last_compiled_signature(), b_sha);
 
   char sha[kHashLength];
   ComputeProgramHash(a_sha,
                      b_sha,
                      bind_attrib_location_map,
+                     transform_feedback_varyings,
+                     transform_feedback_buffer_mode,
                      sha);
   const std::string sha_string(sha, kHashLength);
 
@@ -215,7 +218,7 @@ ProgramCache::ProgramLoadResult MemoryProgramCache::LoadLinkedProgram(
   shader_b->set_varying_map(value->varying_map_1());
 
   if (!shader_callback.is_null() &&
-      !CommandLine::ForCurrentProcess()->HasSwitch(
+      !base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kDisableGpuShaderDiskCache)) {
     scoped_ptr<GpuProgramProto> proto(
         GpuProgramProto::default_instance().New());
@@ -234,10 +237,10 @@ ProgramCache::ProgramLoadResult MemoryProgramCache::LoadLinkedProgram(
 void MemoryProgramCache::SaveLinkedProgram(
     GLuint program,
     const Shader* shader_a,
-    const ShaderTranslatorInterface* translator_a,
     const Shader* shader_b,
-    const ShaderTranslatorInterface* translator_b,
     const LocationMap* bind_attrib_location_map,
+    const std::vector<std::string>& transform_feedback_varyings,
+    GLenum transform_feedback_buffer_mode,
     const ShaderCacheCallback& shader_callback) {
   GLenum format;
   GLsizei length = 0;
@@ -255,17 +258,19 @@ void MemoryProgramCache::SaveLinkedProgram(
 
   char a_sha[kHashLength];
   char b_sha[kHashLength];
-  DCHECK(shader_a && !shader_a->signature_source().empty() &&
-         shader_b && !shader_b->signature_source().empty());
+  DCHECK(shader_a && !shader_a->last_compiled_source().empty() &&
+         shader_b && !shader_b->last_compiled_source().empty());
   ComputeShaderHash(
-      shader_a->signature_source(), translator_a, a_sha);
+      shader_a->last_compiled_signature(), a_sha);
   ComputeShaderHash(
-      shader_b->signature_source(), translator_b, b_sha);
+      shader_b->last_compiled_signature(), b_sha);
 
   char sha[kHashLength];
   ComputeProgramHash(a_sha,
                      b_sha,
                      bind_attrib_location_map,
+                     transform_feedback_varyings,
+                     transform_feedback_buffer_mode,
                      sha);
   const std::string sha_string(sha, sizeof(sha));
 
@@ -284,7 +289,7 @@ void MemoryProgramCache::SaveLinkedProgram(
   }
 
   if (!shader_callback.is_null() &&
-      !CommandLine::ForCurrentProcess()->HasSwitch(
+      !base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kDisableGpuShaderDiskCache)) {
     scoped_ptr<GpuProgramProto> proto(
         GpuProgramProto::default_instance().New());

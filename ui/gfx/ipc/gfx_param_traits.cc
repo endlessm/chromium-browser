@@ -7,8 +7,9 @@
 #include <string>
 
 #include "third_party/skia/include/core/SkBitmap.h"
-#include "ui/gfx/rect.h"
-#include "ui/gfx/rect_f.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/rect_f.h"
+#include "ui/gfx/range/range.h"
 
 namespace {
 
@@ -27,10 +28,10 @@ struct SkBitmap_Data {
 
   void InitSkBitmapDataForTransfer(const SkBitmap& bitmap) {
     const SkImageInfo& info = bitmap.info();
-    fColorType = info.fColorType;
-    fAlphaType = info.fAlphaType;
-    fWidth = info.fWidth;
-    fHeight = info.fHeight;
+    fColorType = info.colorType();
+    fAlphaType = info.alphaType();
+    fWidth = info.width();
+    fHeight = info.height();
   }
 
   // Returns whether |bitmap| successfully initialized.
@@ -56,11 +57,12 @@ void ParamTraits<gfx::Point>::Write(Message* m, const gfx::Point& p) {
   m->WriteInt(p.y());
 }
 
-bool ParamTraits<gfx::Point>::Read(const Message* m, PickleIterator* iter,
+bool ParamTraits<gfx::Point>::Read(const Message* m,
+                                   base::PickleIterator* iter,
                                    gfx::Point* r) {
   int x, y;
-  if (!m->ReadInt(iter, &x) ||
-      !m->ReadInt(iter, &y))
+  if (!iter->ReadInt(&x) ||
+      !iter->ReadInt(&y))
     return false;
   r->set_x(x);
   r->set_y(y);
@@ -77,8 +79,8 @@ void ParamTraits<gfx::PointF>::Write(Message* m, const gfx::PointF& v) {
 }
 
 bool ParamTraits<gfx::PointF>::Read(const Message* m,
-                                      PickleIterator* iter,
-                                      gfx::PointF* r) {
+                                    base::PickleIterator* iter,
+                                    gfx::PointF* r) {
   float x, y;
   if (!ParamTraits<float>::Read(m, iter, &x) ||
       !ParamTraits<float>::Read(m, iter, &y))
@@ -100,10 +102,10 @@ void ParamTraits<gfx::Size>::Write(Message* m, const gfx::Size& p) {
 }
 
 bool ParamTraits<gfx::Size>::Read(const Message* m,
-                                  PickleIterator* iter,
+                                  base::PickleIterator* iter,
                                   gfx::Size* r) {
   const char* char_values;
-  if (!m->ReadBytes(iter, &char_values, sizeof(int) * 2))
+  if (!iter->ReadBytes(&char_values, sizeof(int) * 2))
     return false;
   const int* values = reinterpret_cast<const int*>(char_values);
   if (values[0] < 0 || values[1] < 0)
@@ -123,10 +125,10 @@ void ParamTraits<gfx::SizeF>::Write(Message* m, const gfx::SizeF& p) {
 }
 
 bool ParamTraits<gfx::SizeF>::Read(const Message* m,
-                                   PickleIterator* iter,
+                                   base::PickleIterator* iter,
                                    gfx::SizeF* r) {
   const char* char_values;
-  if (!m->ReadBytes(iter, &char_values, sizeof(float) * 2))
+  if (!iter->ReadBytes(&char_values, sizeof(float) * 2))
     return false;
   const float* values = reinterpret_cast<const float*>(char_values);
   r->set_width(values[0]);
@@ -144,10 +146,10 @@ void ParamTraits<gfx::Vector2d>::Write(Message* m, const gfx::Vector2d& p) {
 }
 
 bool ParamTraits<gfx::Vector2d>::Read(const Message* m,
-                                      PickleIterator* iter,
+                                      base::PickleIterator* iter,
                                       gfx::Vector2d* r) {
   const char* char_values;
-  if (!m->ReadBytes(iter, &char_values, sizeof(int) * 2))
+  if (!iter->ReadBytes(&char_values, sizeof(int) * 2))
     return false;
   const int* values = reinterpret_cast<const int*>(char_values);
   r->set_x(values[0]);
@@ -165,10 +167,10 @@ void ParamTraits<gfx::Vector2dF>::Write(Message* m, const gfx::Vector2dF& p) {
 }
 
 bool ParamTraits<gfx::Vector2dF>::Read(const Message* m,
-                                      PickleIterator* iter,
-                                      gfx::Vector2dF* r) {
+                                       base::PickleIterator* iter,
+                                       gfx::Vector2dF* r) {
   const char* char_values;
-  if (!m->ReadBytes(iter, &char_values, sizeof(float) * 2))
+  if (!iter->ReadBytes(&char_values, sizeof(float) * 2))
     return false;
   const float* values = reinterpret_cast<const float*>(char_values);
   r->set_x(values[0]);
@@ -186,10 +188,10 @@ void ParamTraits<gfx::Rect>::Write(Message* m, const gfx::Rect& p) {
 }
 
 bool ParamTraits<gfx::Rect>::Read(const Message* m,
-                                  PickleIterator* iter,
+                                  base::PickleIterator* iter,
                                   gfx::Rect* r) {
   const char* char_values;
-  if (!m->ReadBytes(iter, &char_values, sizeof(int) * 4))
+  if (!iter->ReadBytes(&char_values, sizeof(int) * 4))
     return false;
   const int* values = reinterpret_cast<const int*>(char_values);
   if (values[2] < 0 || values[3] < 0)
@@ -209,10 +211,10 @@ void ParamTraits<gfx::RectF>::Write(Message* m, const gfx::RectF& p) {
 }
 
 bool ParamTraits<gfx::RectF>::Read(const Message* m,
-                                   PickleIterator* iter,
+                                   base::PickleIterator* iter,
                                    gfx::RectF* r) {
   const char* char_values;
-  if (!m->ReadBytes(iter, &char_values, sizeof(float) * 4))
+  if (!iter->ReadBytes(&char_values, sizeof(float) * 4))
     return false;
   const float* values = reinterpret_cast<const float*>(char_values);
   r->SetRect(values[0], values[1], values[2], values[3]);
@@ -237,11 +239,11 @@ void ParamTraits<SkBitmap>::Write(Message* m, const SkBitmap& p) {
 }
 
 bool ParamTraits<SkBitmap>::Read(const Message* m,
-                                 PickleIterator* iter,
+                                 base::PickleIterator* iter,
                                  SkBitmap* r) {
   const char* fixed_data;
   int fixed_data_size = 0;
-  if (!m->ReadData(iter, &fixed_data, &fixed_data_size) ||
+  if (!iter->ReadData(&fixed_data, &fixed_data_size) ||
      (fixed_data_size <= 0)) {
     NOTREACHED();
     return false;
@@ -251,7 +253,7 @@ bool ParamTraits<SkBitmap>::Read(const Message* m,
 
   const char* variable_data;
   int variable_data_size = 0;
-  if (!m->ReadData(iter, &variable_data, &variable_data_size) ||
+  if (!iter->ReadData(&variable_data, &variable_data_size) ||
      (variable_data_size < 0)) {
     NOTREACHED();
     return false;
@@ -264,5 +266,26 @@ bool ParamTraits<SkBitmap>::Read(const Message* m,
 void ParamTraits<SkBitmap>::Log(const SkBitmap& p, std::string* l) {
   l->append("<SkBitmap>");
 }
+
+void ParamTraits<gfx::Range>::Write(Message* m, const gfx::Range& r) {
+  m->WriteSizeT(r.start());
+  m->WriteSizeT(r.end());
+}
+
+bool ParamTraits<gfx::Range>::Read(const Message* m,
+                                   base::PickleIterator* iter,
+                                   gfx::Range* r) {
+  size_t start, end;
+  if (!iter->ReadSizeT(&start) || !iter->ReadSizeT(&end))
+    return false;
+  r->set_start(start);
+  r->set_end(end);
+  return true;
+}
+
+void ParamTraits<gfx::Range>::Log(const gfx::Range& r, std::string* l) {
+  l->append(base::StringPrintf("(%" PRIuS ", %" PRIuS ")", r.start(), r.end()));
+}
+
 
 }  // namespace IPC

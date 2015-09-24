@@ -21,8 +21,8 @@
   "#define SamplerType sampler2D\n" \
   "#define TextureLookup texture2D\n" SHADER(src)
 #define SHADER_RECTANGLE_ARB(src)     \
-  "#define SamplerType samplerRect\n" \
-  "#define TextureLookup textureRect\n" SHADER(src)
+  "#define SamplerType sampler2DRect\n" \
+  "#define TextureLookup texture2DRect\n" SHADER(src)
 #define SHADER_EXTERNAL_OES(src)                     \
   "#extension GL_OES_EGL_image_external : require\n" \
   "#define SamplerType samplerExternalOES\n"         \
@@ -31,6 +31,11 @@
   SHADER_2D(src), SHADER_RECTANGLE_ARB(src), SHADER_EXTERNAL_OES(src)
 
 namespace {
+
+const GLfloat kIdentityMatrix[16] = {1.0f, 0.0f, 0.0f, 0.0f,
+                                     0.0f, 1.0f, 0.0f, 0.0f,
+                                     0.0f, 0.0f, 1.0f, 0.0f,
+                                     0.0f, 0.0f, 0.0f, 1.0f};
 
 enum VertexShaderId {
   VERTEX_SHADER_COPY_TEXTURE,
@@ -54,23 +59,23 @@ enum FragmentShaderId {
 const char* vertex_shader_source[NUM_VERTEX_SHADERS] = {
   // VERTEX_SHADER_COPY_TEXTURE
   SHADER(
-    uniform mat4 u_matrix;
+    uniform vec2 u_vertex_translate;
     uniform vec2 u_half_size;
     attribute vec4 a_position;
     varying TexCoordPrecision vec2 v_uv;
     void main(void) {
-      gl_Position = u_matrix * a_position;
+      gl_Position = a_position + vec4(u_vertex_translate, 0.0, 0.0);
       v_uv = a_position.xy * vec2(u_half_size.s, u_half_size.t) +
              vec2(u_half_size.s, u_half_size.t);
     }),
   // VERTEX_SHADER_COPY_TEXTURE_FLIP_Y
   SHADER(
-    uniform mat4 u_matrix;
+    uniform vec2 u_vertex_translate;
     uniform vec2 u_half_size;
     attribute vec4 a_position;
     varying TexCoordPrecision vec2 v_uv;
     void main(void) {
-      gl_Position = u_matrix * a_position;
+      gl_Position = a_position + vec4(u_vertex_translate, 0.0, 0.0);
       v_uv = a_position.xy * vec2(u_half_size.s, -u_half_size.t) +
              vec2(u_half_size.s, u_half_size.t);
     }),
@@ -80,24 +85,30 @@ const char* fragment_shader_source[NUM_FRAGMENT_SHADERS] = {
   // FRAGMENT_SHADER_COPY_TEXTURE_*
   FRAGMENT_SHADERS(
     uniform SamplerType u_sampler;
+    uniform mat4 u_tex_coord_transform;
     varying TexCoordPrecision vec2 v_uv;
     void main(void) {
-      gl_FragColor = TextureLookup(u_sampler, v_uv.st);
+      TexCoordPrecision vec4 uv = u_tex_coord_transform * vec4(v_uv, 0, 1);
+      gl_FragColor = TextureLookup(u_sampler, uv.st);
     }),
   // FRAGMENT_SHADER_COPY_TEXTURE_PREMULTIPLY_ALPHA_*
   FRAGMENT_SHADERS(
     uniform SamplerType u_sampler;
+    uniform mat4 u_tex_coord_transform;
     varying TexCoordPrecision vec2 v_uv;
     void main(void) {
-      gl_FragColor = TextureLookup(u_sampler, v_uv.st);
+      TexCoordPrecision vec4 uv = u_tex_coord_transform * vec4(v_uv, 0, 1);
+      gl_FragColor = TextureLookup(u_sampler, uv.st);
       gl_FragColor.rgb *= gl_FragColor.a;
     }),
   // FRAGMENT_SHADER_COPY_TEXTURE_UNPREMULTIPLY_ALPHA_*
   FRAGMENT_SHADERS(
     uniform SamplerType u_sampler;
+    uniform mat4 u_tex_coord_transform;
     varying TexCoordPrecision vec2 v_uv;
     void main(void) {
-      gl_FragColor = TextureLookup(u_sampler, v_uv.st);
+      TexCoordPrecision vec4 uv = u_tex_coord_transform * vec4(v_uv, 0, 1);
+      gl_FragColor = TextureLookup(u_sampler, uv.st);
       if (gl_FragColor.a > 0.0)
         gl_FragColor.rgb /= gl_FragColor.a;
     }),
@@ -188,7 +199,6 @@ void DeleteShader(GLuint shader) {
 
 bool BindFramebufferTexture2D(GLenum target,
                               GLuint texture_id,
-                              GLint level,
                               GLuint framebuffer) {
   DCHECK(target == GL_TEXTURE_2D || target == GL_TEXTURE_RECTANGLE_ARB);
   glActiveTexture(GL_TEXTURE0);
@@ -200,8 +210,8 @@ bool BindFramebufferTexture2D(GLenum target,
   glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebuffer);
-  glFramebufferTexture2DEXT(
-      GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, target, texture_id, level);
+  glFramebufferTexture2DEXT(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, target,
+                            texture_id, 0);
 
 #ifndef NDEBUG
   GLenum fb_status = glCheckFramebufferStatusEXT(GL_FRAMEBUFFER);
@@ -217,28 +227,50 @@ void DoCopyTexImage2D(const gpu::gles2::GLES2Decoder* decoder,
                       GLenum source_target,
                       GLuint source_id,
                       GLuint dest_id,
-                      GLint dest_level,
                       GLenum dest_internal_format,
                       GLsizei width,
                       GLsizei height,
                       GLuint framebuffer) {
   DCHECK(source_target == GL_TEXTURE_2D ||
          source_target == GL_TEXTURE_RECTANGLE_ARB);
-  if (BindFramebufferTexture2D(
-          source_target, source_id, 0 /* level */, framebuffer)) {
+  if (BindFramebufferTexture2D(source_target, source_id, framebuffer)) {
     glBindTexture(GL_TEXTURE_2D, dest_id);
     glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glCopyTexImage2D(GL_TEXTURE_2D,
-                     dest_level,
-                     dest_internal_format,
-                     0 /* x */,
-                     0 /* y */,
-                     width,
-                     height,
-                     0 /* border */);
+    glCopyTexImage2D(GL_TEXTURE_2D, 0 /* level */, dest_internal_format,
+                     0 /* x */, 0 /* y */, width, height, 0 /* border */);
+  }
+
+  decoder->RestoreTextureState(source_id);
+  decoder->RestoreTextureState(dest_id);
+  decoder->RestoreTextureUnitBindings(0);
+  decoder->RestoreActiveTexture();
+  decoder->RestoreFramebufferBindings();
+}
+
+void DoCopyTexSubImage2D(const gpu::gles2::GLES2Decoder* decoder,
+                         GLenum source_target,
+                         GLuint source_id,
+                         GLuint dest_id,
+                         GLint xoffset,
+                         GLint yoffset,
+                         GLint source_x,
+                         GLint source_y,
+                         GLsizei source_width,
+                         GLsizei source_height,
+                         GLuint framebuffer) {
+  DCHECK(source_target == GL_TEXTURE_2D ||
+         source_target == GL_TEXTURE_RECTANGLE_ARB);
+  if (BindFramebufferTexture2D(source_target, source_id, framebuffer)) {
+    glBindTexture(GL_TEXTURE_2D, dest_id);
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0 /* level */, xoffset, yoffset,
+                        source_x, source_y, source_width, source_height);
   }
 
   decoder->RestoreTextureState(source_id);
@@ -260,15 +292,16 @@ CopyTextureCHROMIUMResourceManager::CopyTextureCHROMIUMResourceManager()
       framebuffer_(0u) {}
 
 CopyTextureCHROMIUMResourceManager::~CopyTextureCHROMIUMResourceManager() {
-  DCHECK(!buffer_id_);
-  DCHECK(!framebuffer_);
+  // |buffer_id_| and |framebuffer_| can be not-null because when GPU context is
+  // lost, this class can be deleted without releasing resources like
+  // GLES2DecoderImpl.
 }
 
 void CopyTextureCHROMIUMResourceManager::Initialize(
     const gles2::GLES2Decoder* decoder) {
-  COMPILE_ASSERT(
+  static_assert(
       kVertexPositionAttrib == 0u,
-      Position_attribs_must_be_0);
+      "kVertexPositionAttrib must be 0");
   DCHECK(!buffer_id_);
   DCHECK(!framebuffer_);
   DCHECK(programs_.empty());
@@ -317,7 +350,6 @@ void CopyTextureCHROMIUMResourceManager::DoCopyTexture(
     GLuint source_id,
     GLenum source_internal_format,
     GLuint dest_id,
-    GLint dest_level,
     GLenum dest_internal_format,
     GLsizei width,
     GLsizei height,
@@ -330,7 +362,8 @@ void CopyTextureCHROMIUMResourceManager::DoCopyTexture(
   // format of internalformat.
   // https://www.khronos.org/opengles/sdk/docs/man/xhtml/glCopyTexImage2D.xml
   bool source_format_contain_superset_of_dest_format =
-      source_internal_format == dest_internal_format ||
+      (source_internal_format == dest_internal_format &&
+       source_internal_format != GL_BGRA_EXT) ||
       (source_internal_format == GL_RGBA && dest_internal_format == GL_RGB);
   // GL_TEXTURE_RECTANGLE_ARB on FBO is supported by OpenGL, not GLES2,
   // so restrict this to GL_TEXTURE_2D.
@@ -340,7 +373,6 @@ void CopyTextureCHROMIUMResourceManager::DoCopyTexture(
                      source_target,
                      source_id,
                      dest_id,
-                     dest_level,
                      dest_internal_format,
                      width,
                      height,
@@ -348,22 +380,54 @@ void CopyTextureCHROMIUMResourceManager::DoCopyTexture(
     return;
   }
 
-  // Use default transform matrix if no transform passed in.
-  const static GLfloat default_matrix[16] = {1.0f, 0.0f, 0.0f, 0.0f,
-                                             0.0f, 1.0f, 0.0f, 0.0f,
-                                             0.0f, 0.0f, 1.0f, 0.0f,
-                                             0.0f, 0.0f, 0.0f, 1.0f};
-  DoCopyTextureWithTransform(decoder,
-                             source_target,
-                             source_id,
-                             dest_id,
-                             dest_level,
-                             width,
-                             height,
-                             flip_y,
-                             premultiply_alpha,
-                             unpremultiply_alpha,
-                             default_matrix);
+  // Use kIdentityMatrix if no transform passed in.
+  DoCopyTextureWithTransform(decoder, source_target, source_id, dest_id, width,
+                             height, flip_y, premultiply_alpha,
+                             unpremultiply_alpha, kIdentityMatrix);
+}
+
+void CopyTextureCHROMIUMResourceManager::DoCopySubTexture(
+    const gles2::GLES2Decoder* decoder,
+    GLenum source_target,
+    GLuint source_id,
+    GLenum source_internal_format,
+    GLuint dest_id,
+    GLenum dest_internal_format,
+    GLint xoffset,
+    GLint yoffset,
+    GLint x,
+    GLint y,
+    GLsizei width,
+    GLsizei height,
+    GLsizei dest_width,
+    GLsizei dest_height,
+    GLsizei source_width,
+    GLsizei source_height,
+    bool flip_y,
+    bool premultiply_alpha,
+    bool unpremultiply_alpha) {
+  bool premultiply_alpha_change = premultiply_alpha ^ unpremultiply_alpha;
+  // GL_INVALID_OPERATION is generated if the currently bound framebuffer's
+  // format does not contain a superset of the components required by the base
+  // format of internalformat.
+  // https://www.khronos.org/opengles/sdk/docs/man/xhtml/glCopyTexImage2D.xml
+  bool source_format_contain_superset_of_dest_format =
+      (source_internal_format == dest_internal_format &&
+       source_internal_format != GL_BGRA_EXT) ||
+      (source_internal_format == GL_RGBA && dest_internal_format == GL_RGB);
+  // GL_TEXTURE_RECTANGLE_ARB on FBO is supported by OpenGL, not GLES2,
+  // so restrict this to GL_TEXTURE_2D.
+  if (source_target == GL_TEXTURE_2D && !flip_y && !premultiply_alpha_change &&
+      source_format_contain_superset_of_dest_format) {
+    DoCopyTexSubImage2D(decoder, source_target, source_id, dest_id, xoffset,
+                        yoffset, x, y, width, height, framebuffer_);
+    return;
+  }
+
+  DoCopyTextureInternal(decoder, source_target, source_id, dest_id, xoffset,
+                        yoffset, x, y, width, height, dest_width, dest_height,
+                        source_width, source_height, flip_y, premultiply_alpha,
+                        unpremultiply_alpha, kIdentityMatrix);
 }
 
 void CopyTextureCHROMIUMResourceManager::DoCopyTextureWithTransform(
@@ -371,9 +435,35 @@ void CopyTextureCHROMIUMResourceManager::DoCopyTextureWithTransform(
     GLenum source_target,
     GLuint source_id,
     GLuint dest_id,
-    GLint dest_level,
     GLsizei width,
     GLsizei height,
+    bool flip_y,
+    bool premultiply_alpha,
+    bool unpremultiply_alpha,
+    const GLfloat transform_matrix[16]) {
+  GLsizei dest_width = width;
+  GLsizei dest_height = height;
+  DoCopyTextureInternal(decoder, source_target, source_id, dest_id, 0, 0, 0, 0,
+                        width, height, dest_width, dest_height, width, height,
+                        flip_y, premultiply_alpha, unpremultiply_alpha,
+                        transform_matrix);
+}
+
+void CopyTextureCHROMIUMResourceManager::DoCopyTextureInternal(
+    const gles2::GLES2Decoder* decoder,
+    GLenum source_target,
+    GLuint source_id,
+    GLuint dest_id,
+    GLint xoffset,
+    GLint yoffset,
+    GLint x,
+    GLint y,
+    GLsizei width,
+    GLsizei height,
+    GLsizei dest_width,
+    GLsizei dest_height,
+    GLsizei source_width,
+    GLsizei source_height,
     bool flip_y,
     bool premultiply_alpha,
     bool unpremultiply_alpha,
@@ -381,6 +471,8 @@ void CopyTextureCHROMIUMResourceManager::DoCopyTextureWithTransform(
   DCHECK(source_target == GL_TEXTURE_2D ||
          source_target == GL_TEXTURE_RECTANGLE_ARB ||
          source_target == GL_TEXTURE_EXTERNAL_OES);
+  DCHECK(xoffset >= 0 && xoffset + source_width <= dest_width);
+  DCHECK(yoffset >= 0 && yoffset + source_height <= dest_height);
   if (!initialized_) {
     DLOG(ERROR) << "CopyTextureCHROMIUM: Uninitialized manager.";
     return;
@@ -418,30 +510,50 @@ void CopyTextureCHROMIUMResourceManager::DoCopyTextureWithTransform(
     if (!linked)
       DLOG(ERROR) << "CopyTextureCHROMIUM: program link failure.";
 #endif
-    info->matrix_handle = glGetUniformLocation(info->program, "u_matrix");
+    info->vertex_translate_handle = glGetUniformLocation(info->program,
+                                                         "u_vertex_translate");
+    info->tex_coord_transform_handle =
+        glGetUniformLocation(info->program, "u_tex_coord_transform");
     info->half_size_handle = glGetUniformLocation(info->program, "u_half_size");
     info->sampler_handle = glGetUniformLocation(info->program, "u_sampler");
   }
   glUseProgram(info->program);
 
-#ifndef NDEBUG
-  glValidateProgram(info->program);
-  GLint validation_status;
-  glGetProgramiv(info->program, GL_VALIDATE_STATUS, &validation_status);
-  if (GL_TRUE != validation_status) {
-    DLOG(ERROR) << "CopyTextureCHROMIUM: Invalid shader.";
-    return;
-  }
-#endif
+  glUniformMatrix4fv(info->tex_coord_transform_handle, 1, GL_FALSE,
+                     transform_matrix);
 
-  glUniformMatrix4fv(info->matrix_handle, 1, GL_FALSE, transform_matrix);
+  GLint x_translate = xoffset - x;
+  GLint y_translate = yoffset - y;
+  if (!x_translate && !y_translate) {
+    glUniform2f(info->vertex_translate_handle, 0.0f, 0.0f);
+  } else {
+    // transform offsets from ([0, dest_width], [0, dest_height]) coord.
+    // to ([-1, 1], [-1, 1]) coord.
+    GLfloat x_translate_on_vertex = ((2.f * x_translate) / dest_width);
+    GLfloat y_translate_on_vertex = ((2.f * y_translate) / dest_height);
+
+    // Pass translation to the shader program.
+    glUniform2f(info->vertex_translate_handle, x_translate_on_vertex,
+                y_translate_on_vertex);
+  }
   if (source_target == GL_TEXTURE_RECTANGLE_ARB)
-    glUniform2f(info->half_size_handle, width / 2.0f, height / 2.0f);
+    glUniform2f(info->half_size_handle, source_width / 2.0f,
+                source_height / 2.0f);
   else
     glUniform2f(info->half_size_handle, 0.5f, 0.5f);
 
-  if (BindFramebufferTexture2D(
-          GL_TEXTURE_2D, dest_id, dest_level, framebuffer_)) {
+  if (BindFramebufferTexture2D(GL_TEXTURE_2D, dest_id, framebuffer_)) {
+#ifndef NDEBUG
+    // glValidateProgram of MACOSX validates FBO unlike other platforms, so
+    // glValidateProgram must be called after FBO binding. crbug.com/463439
+    glValidateProgram(info->program);
+    GLint validation_status;
+    glGetProgramiv(info->program, GL_VALIDATE_STATUS, &validation_status);
+    if (GL_TRUE != validation_status) {
+      DLOG(ERROR) << "CopyTextureCHROMIUM: Invalid shader.";
+      return;
+    }
+#endif
     decoder->ClearAllAttributes();
     glEnableVertexAttribArray(kVertexPositionAttrib);
 
@@ -457,14 +569,19 @@ void CopyTextureCHROMIUMResourceManager::DoCopyTextureWithTransform(
     glTexParameteri(source_target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 
     glDisable(GL_DEPTH_TEST);
-    glDisable(GL_SCISSOR_TEST);
     glDisable(GL_STENCIL_TEST);
     glDisable(GL_CULL_FACE);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glDepthMask(GL_FALSE);
     glDisable(GL_BLEND);
 
-    glViewport(0, 0, width, height);
+    bool need_scissor =
+        xoffset || yoffset || width != dest_width || height != dest_height;
+    if (need_scissor) {
+      glEnable(GL_SCISSOR_TEST);
+      glScissor(xoffset, yoffset, width, height);
+    }
+    glViewport(0, 0, dest_width, dest_height);
     glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
   }
 

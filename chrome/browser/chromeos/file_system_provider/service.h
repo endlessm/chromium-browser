@@ -23,6 +23,7 @@
 #include "chrome/browser/chromeos/file_system_provider/watcher.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/extensions/api/file_system_provider.h"
+#include "chrome/common/extensions/api/file_system_provider_capabilities/file_system_provider_capabilities_handler.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "content/public/browser/browser_context.h"
 #include "extensions/browser/extension_registry_observer.h"
@@ -50,6 +51,16 @@ struct MountOptions;
 // Registers preferences to remember registered file systems between reboots.
 void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
 
+// Holds information for a providing extension.
+struct ProvidingExtensionInfo {
+  ProvidingExtensionInfo();
+  ~ProvidingExtensionInfo();
+
+  std::string extension_id;
+  std::string name;
+  extensions::FileSystemProviderCapabilities capabilities;
+};
+
 // Manages and registers the file system provider service. Maintains provided
 // file systems.
 class Service : public KeyedService,
@@ -67,7 +78,7 @@ class Service : public KeyedService,
   enum UnmountReason { UNMOUNT_REASON_USER, UNMOUNT_REASON_SHUTDOWN };
 
   Service(Profile* profile, extensions::ExtensionRegistry* extension_registry);
-  virtual ~Service();
+  ~Service() override;
 
   // Sets a custom ProvidedFileSystemInterface factory. Used by unit tests,
   // where an event router is not available.
@@ -82,21 +93,26 @@ class Service : public KeyedService,
   // Otherwise, only read-only operations are supported. If change notification
   // tags are supported, then |supports_notify_tag| must be true. Note, that
   // it is required in order to enable the internal cache. For success, returns
-  // true, otherwise false.
-  bool MountFileSystem(const std::string& extension_id,
-                       const MountOptions& options);
+  // base::File::FILE_OK, otherwise an error code.
+  base::File::Error MountFileSystem(const std::string& extension_id,
+                                    const MountOptions& options);
 
   // Unmounts a file system with the specified |file_system_id| for the
-  // |extension_id|. For success returns true, otherwise false.
-  bool UnmountFileSystem(const std::string& extension_id,
-                         const std::string& file_system_id,
-                         UnmountReason reason);
+  // |extension_id|. For success returns base::File::FILE_OK, otherwise an error
+  // code.
+  base::File::Error UnmountFileSystem(const std::string& extension_id,
+                                      const std::string& file_system_id,
+                                      UnmountReason reason);
 
-  // Requests unmounting of the file system. The callback is called when the
-  // request is accepted or rejected, with an error code. Returns false if the
-  // request could not been created, true otherwise.
+  // Requests unmounting of the file system. Returns false if the request could
+  // not been created, true otherwise.
   bool RequestUnmount(const std::string& extension_id,
                       const std::string& file_system_id);
+
+  // Requests mounting a new file system by the providing extension with
+  // |extension_id|. Returns false if the request could not been created, true
+  // otherwise.
+  bool RequestMount(const std::string& extension_id);
 
   // Returns a list of information of all currently provided file systems. All
   // items are copied.
@@ -113,6 +129,16 @@ class Service : public KeyedService,
   ProvidedFileSystemInterface* GetProvidedFileSystem(
       const std::string& mount_point_name);
 
+  // Returns a list of information of all currently installed providing
+  // extensions.
+  std::vector<ProvidingExtensionInfo> GetProvidingExtensionInfoList() const;
+
+  // Fills information of the specified providing extension and returns true.
+  // If the extension is not a provider, or it doesn't exist, then false is
+  // returned.
+  bool GetProvidingExtensionInfo(const std::string& extension_id,
+                                 ProvidingExtensionInfo* result) const;
+
   // Adds and removes observers.
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
@@ -121,27 +147,23 @@ class Service : public KeyedService,
   static Service* Get(content::BrowserContext* context);
 
   // extensions::ExtensionRegistryObserver overrides.
-  virtual void OnExtensionUnloaded(
+  void OnExtensionUnloaded(
       content::BrowserContext* browser_context,
       const extensions::Extension* extension,
       extensions::UnloadedExtensionInfo::Reason reason) override;
-  virtual void OnExtensionLoaded(
-      content::BrowserContext* browser_context,
-      const extensions::Extension* extension) override;
+  void OnExtensionLoaded(content::BrowserContext* browser_context,
+                         const extensions::Extension* extension) override;
 
   // ProvidedFileSystemInterface::Observer overrides.
-  virtual void OnWatcherChanged(
-      const ProvidedFileSystemInfo& file_system_info,
-      const Watcher& watcher,
-      storage::WatcherManager::ChangeType change_type,
-      const ProvidedFileSystemObserver::Changes& changes,
-      const base::Closure& callback) override;
-  virtual void OnWatcherTagUpdated(
-      const ProvidedFileSystemInfo& file_system_info,
-      const Watcher& watcher) override;
-  virtual void OnWatcherListChanged(
-      const ProvidedFileSystemInfo& file_system_info,
-      const Watchers& watchers) override;
+  void OnWatcherChanged(const ProvidedFileSystemInfo& file_system_info,
+                        const Watcher& watcher,
+                        storage::WatcherManager::ChangeType change_type,
+                        const ProvidedFileSystemObserver::Changes& changes,
+                        const base::Closure& callback) override;
+  void OnWatcherTagUpdated(const ProvidedFileSystemInfo& file_system_info,
+                           const Watcher& watcher) override;
+  void OnWatcherListChanged(const ProvidedFileSystemInfo& file_system_info,
+                            const Watchers& watchers) override;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(FileSystemProviderServiceTest, RememberFileSystem);
@@ -153,6 +175,12 @@ class Service : public KeyedService,
   typedef std::map<FileSystemKey, ProvidedFileSystemInterface*>
       ProvidedFileSystemMap;
   typedef std::map<std::string, FileSystemKey> MountPointNameToKeyMap;
+
+  // Mounts the file system in the specified context. See MountFileSystem() for
+  // more information.
+  base::File::Error MountFileSystemInternal(const std::string& extension_id,
+                                            const MountOptions& options,
+                                            MountContext context);
 
   // Called when the providing extension accepts or refuses a unmount request.
   // If |error| is equal to FILE_OK, then the request is accepted.
@@ -176,7 +204,7 @@ class Service : public KeyedService,
   Profile* profile_;
   extensions::ExtensionRegistry* extension_registry_;  // Not owned.
   FileSystemFactoryCallback file_system_factory_;
-  ObserverList<Observer> observers_;
+  base::ObserverList<Observer> observers_;
   ProvidedFileSystemMap file_system_map_;  // Owns pointers.
   MountPointNameToKeyMap mount_point_name_to_key_map_;
   scoped_ptr<RegistryInterface> registry_;

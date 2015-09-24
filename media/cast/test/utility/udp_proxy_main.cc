@@ -10,11 +10,12 @@
 #include "base/at_exit.h"
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "media/cast/test/utility/udp_proxy.h"
-
-base::TimeTicks last_printout;
 
 class ByteCounter {
  public:
@@ -60,15 +61,23 @@ class ByteCounter {
   std::deque<base::TimeTicks> time_data_;
 };
 
-ByteCounter in_pipe_input_counter;
-ByteCounter in_pipe_output_counter;
-ByteCounter out_pipe_input_counter;
-ByteCounter out_pipe_output_counter;
+namespace {
+struct GlobalCounter {
+  base::TimeTicks last_printout;
+  ByteCounter in_pipe_input_counter;
+  ByteCounter in_pipe_output_counter;
+  ByteCounter out_pipe_input_counter;
+  ByteCounter out_pipe_output_counter;
+};
+}  // namespace
+
+base::LazyInstance<GlobalCounter>::Leaky g_counter =
+    LAZY_INSTANCE_INITIALIZER;
 
 class ByteCounterPipe : public media::cast::test::PacketPipe {
  public:
   ByteCounterPipe(ByteCounter* counter) : counter_(counter) {}
-  void Send(scoped_ptr<media::cast::Packet> packet) override {
+  void Send(scoped_ptr<media::cast::Packet> packet) final {
     counter_->Increment(packet->size());
     pipe_->Send(packet.Pass());
   }
@@ -90,43 +99,45 @@ void SetupByteCounters(scoped_ptr<media::cast::test::PacketPipe>* pipe,
 
 void CheckByteCounters() {
   base::TimeTicks now = base::TimeTicks::Now();
-  in_pipe_input_counter.push(now);
-  in_pipe_output_counter.push(now);
-  out_pipe_input_counter.push(now);
-  out_pipe_output_counter.push(now);
-  if ((now - last_printout).InSeconds() >= 5) {
+  g_counter.Get().in_pipe_input_counter.push(now);
+  g_counter.Get().in_pipe_output_counter.push(now);
+  g_counter.Get().out_pipe_input_counter.push(now);
+  g_counter.Get().out_pipe_output_counter.push(now);
+  if ((now - g_counter.Get().last_printout).InSeconds() >= 5) {
     fprintf(stderr, "Sending  : %5.2f / %5.2f mbps %6.2f / %6.2f packets / s\n",
-            in_pipe_output_counter.megabits_per_second(),
-            in_pipe_input_counter.megabits_per_second(),
-            in_pipe_output_counter.packets_per_second(),
-            in_pipe_input_counter.packets_per_second());
+            g_counter.Get().in_pipe_output_counter.megabits_per_second(),
+            g_counter.Get().in_pipe_input_counter.megabits_per_second(),
+            g_counter.Get().in_pipe_output_counter.packets_per_second(),
+            g_counter.Get().in_pipe_input_counter.packets_per_second());
     fprintf(stderr, "Receiving: %5.2f / %5.2f mbps %6.2f / %6.2f packets / s\n",
-            out_pipe_output_counter.megabits_per_second(),
-            out_pipe_input_counter.megabits_per_second(),
-            out_pipe_output_counter.packets_per_second(),
-            out_pipe_input_counter.packets_per_second());
+            g_counter.Get().out_pipe_output_counter.megabits_per_second(),
+            g_counter.Get().out_pipe_input_counter.megabits_per_second(),
+            g_counter.Get().out_pipe_output_counter.packets_per_second(),
+            g_counter.Get().out_pipe_input_counter.packets_per_second());
 
-    last_printout = now;
+    g_counter.Get().last_printout = now;
   }
-  base::MessageLoopProxy::current()->PostDelayedTask(
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
       base::Bind(&CheckByteCounters),
       base::TimeDelta::FromMilliseconds(100));
 }
 
 int main(int argc, char** argv) {
+  base::AtExitManager at_exit;
+  base::CommandLine::Init(argc, argv);
+  logging::LoggingSettings settings;
+  settings.logging_dest = logging::LOG_TO_SYSTEM_DEBUG_LOG;
+  InitLogging(settings);
+
   if (argc != 5 && argc != 3) {
     fprintf(stderr,
             "Usage: udp_proxy <localport> <remotehost> <remoteport> <type>\n"
             "or:\n"
             "       udp_proxy <localport> <type>\n"
-            "Where type is one of: perfect, wifi, bad, evil\n");
+            "Where type is one of: perfect, wifi, bad, evil, poisson-wifi\n");
     exit(1);
   }
-
-  base::AtExitManager exit_manager;
-  CommandLine::Init(argc, argv);
-  InitLogging(logging::LoggingSettings());
 
   net::IPAddressNumber remote_ip_number;
   net::IPAddressNumber local_ip_number;
@@ -144,9 +155,18 @@ int main(int argc, char** argv) {
     // V1 proxy
     network_type = argv[2];
   }
-  net::IPEndPoint remote_endpoint(remote_ip_number, remote_port);
-  net::IPEndPoint local_endpoint(local_ip_number, local_port);
+  if (local_port < 0 || local_port > 65535 || remote_port < 0 ||
+      remote_port > 65535) {
+    fprintf(stderr, "Port numbers must be between 0 and 65535\n");
+    exit(1);
+  }
+  net::IPEndPoint remote_endpoint(remote_ip_number,
+                                  static_cast<uint16>(remote_port));
+  net::IPEndPoint local_endpoint(local_ip_number,
+                                 static_cast<uint16>(local_port));
   scoped_ptr<media::cast::test::PacketPipe> in_pipe, out_pipe;
+  scoped_ptr<media::cast::test::InterruptedPoissonProcess> ipp(
+      media::cast::test::DefaultInterruptedPoissonProcess());
 
   if (network_type == "perfect") {
     // No action needed.
@@ -159,14 +179,19 @@ int main(int argc, char** argv) {
   } else if (network_type == "evil") {
     in_pipe = media::cast::test::EvilNetwork().Pass();
     out_pipe = media::cast::test::EvilNetwork().Pass();
+  } else if (network_type == "poisson-wifi") {
+    in_pipe = ipp->NewBuffer(128 * 1024).Pass();
+    out_pipe = ipp->NewBuffer(128 * 1024).Pass();
   } else {
     fprintf(stderr, "Unknown network type.\n");
     exit(1);
   }
 
-  SetupByteCounters(&in_pipe, &in_pipe_input_counter, &in_pipe_output_counter);
+  SetupByteCounters(&in_pipe, &(g_counter.Get().in_pipe_input_counter),
+                    &(g_counter.Get().in_pipe_output_counter));
   SetupByteCounters(
-      &out_pipe, &out_pipe_input_counter, &out_pipe_output_counter);
+      &out_pipe, &(g_counter.Get().out_pipe_input_counter),
+      &(g_counter.Get().out_pipe_output_counter));
 
   printf("Press Ctrl-C when done.\n");
   scoped_ptr<media::cast::test::UDPProxy> proxy(
@@ -176,7 +201,7 @@ int main(int argc, char** argv) {
                                           out_pipe.Pass(),
                                           NULL));
   base::MessageLoop message_loop;
-  last_printout = base::TimeTicks::Now();
+  g_counter.Get().last_printout = base::TimeTicks::Now();
   CheckByteCounters();
   message_loop.Run();
   return 1;

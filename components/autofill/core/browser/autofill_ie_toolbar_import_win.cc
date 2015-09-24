@@ -216,7 +216,7 @@ class AutofillImporter : public PersonalDataManagerObserver {
   }
 
   // PersonalDataManagerObserver:
-  virtual void OnPersonalDataChanged() override {
+  void OnPersonalDataChanged() override {
     for (std::vector<AutofillProfile>::const_iterator iter = profiles_.begin();
          iter != profiles_.end(); ++iter) {
       personal_data_manager_->AddProfile(*iter);
@@ -229,9 +229,7 @@ class AutofillImporter : public PersonalDataManagerObserver {
   }
 
  private:
-  ~AutofillImporter() {
-    personal_data_manager_->RemoveObserver(this);
-  }
+  ~AutofillImporter() override { personal_data_manager_->RemoveObserver(this); }
 
   PersonalDataManager* personal_data_manager_;
   std::vector<AutofillProfile> profiles_;

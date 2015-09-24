@@ -29,75 +29,102 @@ namespace {
 
 // The default list of languages the Google translation server supports.
 // We use this list until we receive the list that the server exposes.
-// For information, here is the list of languages that Chrome can be run in
-// but that the translation server does not support:
-// am Amharic
-// bn Bengali
-// gu Gujarati
-// kn Kannada
-// ml Malayalam
-// mr Marathi
-// ta Tamil
-// te Telugu
+// Server also supports "hmm" (Hmong) and "jw" (Javanese), but these are
+// excluded because Chrome l10n library does not support it.
 const char* const kDefaultSupportedLanguages[] = {
   "af",     // Afrikaans
-  "sq",     // Albanian
   "ar",     // Arabic
+  "az",     // Azerbaijani
   "be",     // Belarusian
   "bg",     // Bulgarian
+  "bn",     // Bengali
+  "bs",     // Bosnian
   "ca",     // Catalan
-  "zh-CN",  // Chinese (Simplified)
-  "zh-TW",  // Chinese (Traditional)
-  "hr",     // Croatian
+  "ceb",    // Cebuano
   "cs",     // Czech
+  "cy",     // Welsh
   "da",     // Danish
-  "nl",     // Dutch
-  "en",     // English
-  "eo",     // Esperanto
-  "et",     // Estonian
-  "tl",     // Filipino
-  "fi",     // Finnish
-  "fr",     // French
-  "gl",     // Galician
   "de",     // German
   "el",     // Greek
-  "ht",     // Haitian Creole
-  "iw",     // Hebrew
-  "hi",     // Hindi
-  "hu",     // Hungarian
-  "is",     // Icelandic
-  "id",     // Indonesian
+  "en",     // English
+  "eo",     // Esperanto
+  "es",     // Spanish
+  "et",     // Estonian
+  "eu",     // Basque
+  "fa",     // Persian
+  "fi",     // Finnish
+  "fr",     // French
   "ga",     // Irish
+  "gl",     // Galician
+  "gu",     // Gujarati
+  "ha",     // Hausa
+  "hi",     // Hindi
+  "hr",     // Croatian
+  "ht",     // Haitian Creole
+  "hu",     // Hungarian
+  "hy",     // Armenian
+  "id",     // Indonesian
+  "ig",     // Igbo
+  "is",     // Icelandic
   "it",     // Italian
+  "iw",     // Hebrew
   "ja",     // Japanese
+  "ka",     // Georgian
+  "kk",     // Kazakh
+  "km",     // Khmer
+  "kn",     // Kannada
   "ko",     // Korean
-  "lv",     // Latvian
+  "la",     // Latin
+  "lo",     // Lao
   "lt",     // Lithuanian
+  "lv",     // Latvian
+  "mg",     // Malagasy
+  "mi",     // Maori
   "mk",     // Macedonian
+  "ml",     // Malayalam
+  "mn",     // Mongolian
+  "mr",     // Marathi
   "ms",     // Malay
   "mt",     // Maltese
+  "my",     // Burmese
+  "ne",     // Nepali
+  "nl",     // Dutch
   "no",     // Norwegian
-  "fa",     // Persian
+  "ny",     // Nyanja
+  "pa",     // Punjabi
   "pl",     // Polish
   "pt",     // Portuguese
   "ro",     // Romanian
   "ru",     // Russian
-  "sr",     // Serbian
+  "si",     // Sinhala
   "sk",     // Slovak
   "sl",     // Slovenian
-  "es",     // Spanish
-  "sw",     // Swahili
+  "so",     // Somali
+  "sq",     // Albanian
+  "sr",     // Serbian
+  "st",     // Southern Sotho
+  "su",     // Sundanese
   "sv",     // Swedish
+  "sw",     // Swahili
+  "ta",     // Tamil
+  "te",     // Telugu
+  "tg",     // Tajik
   "th",     // Thai
+  "tl",     // Tagalog
   "tr",     // Turkish
   "uk",     // Ukrainian
+  "ur",     // Urdu
+  "uz",     // Uzbek
   "vi",     // Vietnamese
-  "cy",     // Welsh
   "yi",     // Yiddish
+  "yo",     // Yoruba
+  "zh-CN",  // Chinese (Simplified)
+  "zh-TW",  // Chinese (Traditional)
+  "zu",     // Zulu
 };
 
 // Constant URL string to fetch server supporting language list.
-const char kLanguageListFetchPath[] = "translate_a/l?client=chrome&cb=sl";
+const char kLanguageListFetchPath[] = "translate_a/l?client=chrome";
 
 // Used in kTranslateScriptURL to request supporting languages list including
 // "alpha languages".
@@ -112,8 +139,6 @@ const int kMaxRetryOn5xx = 5;
 
 }  // namespace
 
-// This must be kept in sync with the &cb= value in the kLanguageListFetchURL.
-const char TranslateLanguageList::kLanguageListCallbackName[] = "sl(";
 const char TranslateLanguageList::kTargetLanguagesKey[] = "tl";
 const char TranslateLanguageList::kAlphaLanguagesKey[] = "al";
 
@@ -243,10 +268,11 @@ void TranslateLanguageList::OnLanguageListFetchComplete(
 
   DCHECK_EQ(kFetcherId, id);
 
-  SetSupportedLanguages(data);
+  bool parsed_correctly = SetSupportedLanguages(data);
   language_list_fetcher_.reset();
 
-  last_updated_ = base::Time::Now();
+  if (parsed_correctly)
+    last_updated_ = base::Time::Now();
 }
 
 void TranslateLanguageList::NotifyEvent(int line, const std::string& message) {
@@ -254,37 +280,22 @@ void TranslateLanguageList::NotifyEvent(int line, const std::string& message) {
   callback_list_.Notify(details);
 }
 
-void TranslateLanguageList::SetSupportedLanguages(
+bool TranslateLanguageList::SetSupportedLanguages(
     const std::string& language_list) {
-  // The format is:
-  // sl({
+  // The format is in JSON as:
+  // {
   //   "sl": {"XX": "LanguageName", ...},
   //   "tl": {"XX": "LanguageName", ...},
   //   "al": {"XX": 1, ...}
-  // })
-  // Where "sl(" is set in kLanguageListCallbackName, "tl" is
-  // kTargetLanguagesKey and "al" kAlphaLanguagesKey.
-  if (!StartsWithASCII(language_list,
-                       TranslateLanguageList::kLanguageListCallbackName,
-                       false) ||
-      !EndsWith(language_list, ")", false)) {
-    // We don't have a NOTREACHED here since this can happen in ui_tests, even
-    // though the the BrowserMain function won't call us with parameters.ui_task
-    // is NULL some tests don't set it, so we must bail here.
-    return;
-  }
-  static const size_t kLanguageListCallbackNameLength =
-      strlen(TranslateLanguageList::kLanguageListCallbackName);
-  std::string languages_json = language_list.substr(
-      kLanguageListCallbackNameLength,
-      language_list.size() - kLanguageListCallbackNameLength - 1);
-
-  scoped_ptr<base::Value> json_value(
-      base::JSONReader::Read(languages_json, base::JSON_ALLOW_TRAILING_COMMAS));
+  // }
+  // Where "tl" and "al" are set in kTargetLanguagesKey and kAlphaLanguagesKey.
+  scoped_ptr<base::Value> json_value(base::JSONReader::DeprecatedRead(
+      language_list, base::JSON_ALLOW_TRAILING_COMMAS));
 
   if (json_value == NULL || !json_value->IsType(base::Value::TYPE_DICTIONARY)) {
+    NotifyEvent(__LINE__, "Language list is invalid");
     NOTREACHED();
-    return;
+    return false;
   }
   // The first level dictionary contains three sub-dict, first for source
   // languages and second for target languages, we want to use the target
@@ -295,8 +306,9 @@ void TranslateLanguageList::SetSupportedLanguages(
   if (!language_dict->GetDictionary(TranslateLanguageList::kTargetLanguagesKey,
                                     &target_languages) ||
       target_languages == NULL) {
+    NotifyEvent(__LINE__, "Target languages are not found in the response");
     NOTREACHED();
-    return;
+    return false;
   }
 
   const std::string& locale =
@@ -327,7 +339,8 @@ void TranslateLanguageList::SetSupportedLanguages(
   if (!language_dict->GetDictionary(TranslateLanguageList::kAlphaLanguagesKey,
                                     &alpha_languages) ||
       alpha_languages == NULL) {
-    return;
+    // Return true since alpha language part is optional.
+    return true;
   }
 
   // We assume that the alpha languages are included in the above target
@@ -340,6 +353,7 @@ void TranslateLanguageList::SetSupportedLanguages(
       continue;
     alpha_languages_.insert(lang);
   }
+  return true;
 }
 
 }  // namespace translate

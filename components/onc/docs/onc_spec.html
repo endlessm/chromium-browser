@@ -20,7 +20,7 @@
   <h1>Objective</h1>
   <p>
     We would like to create a simple, open, but complete format to describe
-    multiple network configurations for Wi-Fi, Ethernet, Cellular,
+    multiple network configurations for WiFi, Ethernet, Cellular,
     Bluetooth/WiFi-Direct, and VPN connections in a single file format, in order
     to simplify and automate network configuration for users.
   </p>
@@ -33,7 +33,7 @@
     is a problem shared across desktop, laptop, tablet, and phone users of all
     operating system types. It is exacerbated in business and schools which
     often have complex network configurations (VPNs and 802.1X networking) that
-    change often and have many connected devices. Configuration of Wi-Fi is
+    change often and have many connected devices. Configuration of WiFi is
     still done manually, often by administrators physically standing next to
     users working on devices. Certificate distribution is particularly painful
     which often results in admins instead using passphrases to protect networks
@@ -202,7 +202,7 @@
         (optional)
         <span class="type">array of NetworkConfiguration</span>
       </span>
-      Describes Wi-Fi, Ethernet, VPN, and wireless connections.
+      Describes WiFi, Ethernet, VPN, and wireless connections.
     </dd>
 
     <dt class="field">Certificates</dt>
@@ -251,6 +251,44 @@
       string.
     </dd>
 
+    <dt class="field">IPAddressConfigType</dt>
+    <dd>
+      <span class="field_meta">
+        (optional if <span class="field">Remove</span> is
+        <span class="value">false</span>, otherwise ignored. Defaults to
+        <span class="value">DHCP</span> if
+        <span class="field">NameServersConfigType</span> is specified)
+        <span class="type">string</span>
+      </span>
+      <span class="rule">
+        <span class="rule_id"></span>
+        Allowed values are <span class="value">DHCP</span> and
+        <span class="value">Static</span>.
+      </span>
+      Determines whether the IP Address configuration is statically configured,
+      see <span class="field">StaticIPConfig</span>, or automatically configured
+      using DHCP.
+    </dd>
+
+    <dt class="field">NameServersConfigType</dt>
+    <dd>
+      <span class="field_meta">
+        (optional if <span class="field">Remove</span> is
+        <span class="value">false</span>, otherwise ignored. Defaults to
+        <span class="value">DHCP</span> if
+        <span class="field">IPAddressConfigType</span> is specified)
+        <span class="type">string</span>
+      </span>
+      <span class="rule">
+        <span class="rule_id"></span>
+        Allowed values are <span class="value">DHCP</span> and
+        <span class="value">Static</span>.
+      </span>
+      Determines whether the NameServers configuration is statically configured,
+      see <span class="field">StaticIPConfig</span>, or automatically configured
+      using DHCP.
+    </dd>
+
     <dt class="field">IPConfigs</dt>
     <dd>
       <span class="field_meta">
@@ -263,12 +301,19 @@
     <dt class="field">StaticIPConfig</dt>
     <dd>
       <span class="field_meta">
-        (optional if <span class="field">Remove</span> is
-        <span class="value">false</span>, otherwise ignored)
+        (required if <span class="field">IPAddressConfigType</span> or
+        <span class="field">NameServersConfigType</span> is set to
+        <span class="value">Static</span>)
         <span class="type">IPConfig</span>
       </span>
       Each property set in this IPConfig object overrides the respective
       parameter received over DHCP.
+      If <span class="field">IPAddressConfigType</span> is set to
+      <span class="value">Static</span>, <span class="field">IPAddress</span>
+      and <span class="field">Gateway</span> are required.
+      If <span class="field">NameServersConfigType</span> is set to
+      <span class="value">Static</span>, <span class="field">NameServers</span>
+      is required.
     </dd>
 
     <dt class="field">SavedIPConfig</dt>
@@ -312,30 +357,6 @@
       Proxy settings for this network
     </dd>
 
-    <dt class="field">NameServers</dt>
-    <dd>
-      <span class="field_meta">
-        (optional if <span class="field">Remove</span> is
-        <span class="value">false</span>, otherwise ignored)
-        <span class="type">array of string</span>
-      </span>
-      Array of addresses to use for name servers. If not specified, DHCP values
-      will be used.
-    </dd>
-
-    <dt class="field">SearchDomains</dt>
-    <dd>
-      <span class="field_meta">
-        (optional if <span class="field">Remove</span> is
-        <span class="value">false</span>, otherwise ignored)
-        <span class="type">array of string</span>
-      </span>
-      Array of strings to append to names for resolution. Items in this array
-      should not start with a dot. Example:
-      <span class="snippet">["corp.acme.org", "acme.org"]</span>. If not
-      specified, DHCP values will be used.
-    </dd>
-
     <dt class="field">VPN</dt>
     <dd>
       <span class="field_meta">
@@ -353,7 +374,7 @@
         <span class="value">WiFi</span>, otherwise ignored)
         <span class="type">WiFi</span>
       </span>
-      Wi-Fi settings.
+      WiFi settings.
     </dd>
 
     <dt class="field">WiMAX</dt>
@@ -435,10 +456,10 @@
         (optional, read-only)
         <span class="type">string</span>
       </span>
-      The current error state for this network. Error states are provided by
-      the system and are not explicitly defined here. They may or may not be
-      human-readable. This field will be empty or absent if the network is not
-      in an error state.
+      The current error state for this network, if any. Error states are
+      provided by the system and are not explicitly defined here. They may or
+      may not be human-readable. This field will be empty or absent if the
+      network is not in an error state.
     </dd>
 
     <dt class="field">MacAddress</dt>
@@ -530,12 +551,13 @@
 </section>
 
 <section>
-  <h1>IP Config</h1>
+  <h1>IPConfig</h1>
   <p>
-    Field <span class="field">IPConfigs</span> is an array
-    of <span class="type">IPConfig</span>
-    objects. Each <span class="type">IPConfig</span> object describes a
-    particular static IP configuration and contains the following fields:
+    Objects of type <span class="type">IPConfig</span> are used to report the
+    actual IP configuration of a connected network (see
+    <span class="field">IPConfigs</span>), the IP configuration received from
+    DHCP (see <span class="field">SavedIPConfig</span>) and to configure a 
+    static IP configuration (see <span class="field">StaticIPConfig</span>).
   </p>
 
   <dl class="field_list">
@@ -556,7 +578,7 @@
     <dt class="field">IPAddress</dt>
     <dd>
       <span class="field_meta">
-        (required)
+        (optional)
         <span class="type">string</span>
       </span>
       Describes the IPv4 or IPv6 address of a connection, depending on the value
@@ -567,7 +589,8 @@
     <dt class="field">RoutingPrefix</dt>
     <dd>
       <span class="field_meta">
-        (required)
+        (required if <span class="field">IPAddress</span> is set. Otherwise
+        ignored.)
         <span class="type">integer</span>
       </span>
       <span class="rule">
@@ -581,7 +604,8 @@
     <dt class="field">Gateway</dt>
     <dd>
       <span class="field_meta">
-        (optional)
+        (required if <span class="field">IPAddress</span> is set. Otherwise
+        ignored.)
         <span class="type">string</span>
       </span>
       Describes the gateway address to use for the configuration. Must match
@@ -596,9 +620,8 @@
         <span class="type">array of string</span>
       </span>
       Array of addresses to use for name servers. Address format must match that
-      specified in the <span class="field">Type</span> field. Overrides values
-      in the top level NameServers field for this configuration. If not
-      specified, top level values will be used.
+      specified in the <span class="field">Type</span> field. If not specified,
+      DHCP values will be used.
     </dd>
 
     <dt class="field">SearchDomains</dt>
@@ -609,15 +632,14 @@
       </span>
       Array of strings to append to names for resolution. Items in this array
       should not start with a dot. Example: <span class="snippet">[
-      "corp.acme.org", "acme.org" ]</span>. Overrides values in the top level
-      SearchDomains field for this configuration. If not specified, top level
-      values will be used.
+      "corp.acme.org", "acme.org" ]</span>. If not specified, DHCP values will
+      be used.
     </dd>
 
     <dt class="field">WebProxyAutoDiscoveryUrl</dt>
     <dd>
       <span class="field_meta">
-        (optional if part of <span class="field">IPConfigs</span>)
+        (optional if part of <span class="field">IPConfigs</span>, read-only)
         <span class="type">string</span>
       </span>
       The Web Proxy Auto-Discovery URL for this network as reported over DHCP.
@@ -627,9 +649,9 @@
 </section>
 
 <section>
-  <h1>Wi-Fi networks</h1>
+  <h1>WiFi networks</h1>
   <p>
-    For Wi-Fi connections, <span class="field">Type</span> must be set to
+    For WiFi connections, <span class="field">Type</span> must be set to
     <span class="value">WiFi</span> and the
     field <span class="field">WiFi</span> must be set to an object of
     type <span class="type">WiFi</span> containing the following fields:
@@ -669,6 +691,16 @@
       EAP settings.
     </dd>
 
+    <dt class="field">HexSSID</dt>
+    <dd>
+      <span class="field_meta">
+        (optional if <span class="field">SSID</span> is set, if so defaults to
+        a hex representation of <span class="field">SSID</span>)
+        <span class="type">string</span>
+      </span>
+      Hex representation of the network's SSID.
+    </dd>
+
     <dt class="field">HiddenSSID</dt>
     <dd>
       <span class="field_meta">
@@ -692,6 +724,17 @@
       40, 104, 128, or 232 bits.
     </dd>
 
+    <dt class="field">RoamThreshold</dt>
+    <dd>
+      <span class="field_meta">
+        (optional)
+        <span class="type">integer</span>
+      </span>
+      The roam threshold for this network, which is the signal-to-noise value
+      (in dB) below which we will attempt to roam to a new network. If this
+      value is not set, the default value will be used.
+    </dd>
+
     <dt class="field">Security</dt>
     <dd>
       <span class="field_meta">
@@ -711,10 +754,20 @@
     <dt class="field">SSID</dt>
     <dd>
       <span class="field_meta">
-        (required)
+        (optional if <span class="field">HexSSID</span> is set, otherwise
+        ignored)
         <span class="type">string</span>
       </span>
-      SSID of the network.
+      Property to access the decoded SSID of a network.<br/>
+      If this field is set, but <span class="field">HexSSID</span> is not,
+      its value will be UTF-8 encoded and the hex representation will be
+      assigned to <span class="field">HexSSID</span>. To configure a non-UTF-8
+      SSID, field <span class="field">HexSSID</span> must be used.<br/>
+      When reading the configuration of a network, both this field and
+      <span class="field">HexSSID</span> might be set. Then this field is the
+      decoding of <span class="field">HexSSID</span>. If possible the HexSSID is
+      decoded using UTF-8, otherwise an encoding is guessed on a best effort
+      basis.
     </dd>
 
     <dt class="field">SignalStrength</dt>
@@ -728,6 +781,14 @@
       be set to '0' or not present.
     </dd>
   </dl>
+  <span class="rule">
+    <span class="rule_id"></span>
+      At least one of the fields <span class="field">HexSSID</span> or
+      <span class="field">SSID</span> must be present. If both
+      <span class="field">HexSSID</span> and <span class="field">SSID</span>
+      are set, the values must be consistent.
+    </span>
+  </span>
 </section>
 
 <section>
@@ -800,6 +861,16 @@
       OpenVPN settings.
     </dd>
 
+    <dt class="field">ThirdPartyVPN</dt>
+    <dd>
+      <span class="field_meta">
+        (required if <span class="field">Type</span> is
+        <span class="value">ThirdPartyVPN</span>, otherwise ignored)
+        <span class="type">ThirdPartyVPN</span>
+      </span>
+      Third-party VPN provider settings.
+    </dd>
+
     <dt class="field">Type</dt>
     <dd>
       <span class="field_meta">
@@ -809,8 +880,9 @@
       <span class="rule">
         <span class="rule_id"></span>
         Allowed values are <span class="value">IPsec</span>,
-        <span class="value">L2TP-IPsec</span>, and
-        <span class="value">OpenVPN</span>.
+        <span class="value">L2TP-IPsec</span>,
+        <span class="value">OpenVPN</span>, and
+        <span class="value">ThirdPartyVPN</span>.
       </span>
       Type of the VPN.
     </dd>
@@ -971,6 +1043,17 @@
     </p>
 
     <dl class="field_list">
+      <dt class="field">LcpEchoDisabled</dt>
+      <dd>
+        <span class="field_meta">
+          (optional, defaults to <span class="value">false</span>)
+          <span class="type">boolean</span>
+        </span>
+        Disable L2TP connection monitoring via PPP LCP frames.  This
+        allows the VPN client to work around server implementations
+        that do not support the LCP echo feature.
+      </dd>
+
       <dt class="field">Password</dt>
       <dd>
         <span class="field_meta">
@@ -1530,7 +1613,29 @@
       Determines which of the host's X.509 names will be verified. Allowed values are <span class="value">name</span>, <span class="value">name-prefix</span> and <span class="value">subject</span>. See OpenVPN's documentation for "--verify-x509-name" for the meaning of each value. Defaults to OpenVPN's default if not specified. 
     </dd>
   </dl>
+</section>
 
+<section>
+  <h1>Third-party VPN provider based connections and types</h1>
+  <p>
+    <span class="field">VPN.Type</span> must be
+    <span class="value">ThirdPartyVPN</span>.
+  </p>
+
+  <p>
+    <span class="type">ThirdPartyVPN</span> type contains the following:
+  </p>
+
+  <dl class="field_list">
+    <dt class="field">ExtensionID</dt>
+    <dd>
+      <span class="field_meta">
+        (required)
+        <span class="type">string</span>
+      </span>
+      The extension ID of the third-party VPN provider used by this network.
+    </dd>
+  </dl>
 </section>
 
 </section>
@@ -1868,8 +1973,8 @@
         <span class="rule_id"></span>
         Allowed values are <span class="value">Automatic</span>,
         <span class="value">MD5</span>, <span class="value">MSCHAPv2</span>,
-        <span class="value">EAP-MSCHAPv2</span>, and
-        <span class="value">PAP</span>.
+        <span class="value">EAP-MSCHAPv2</span>,
+        <span class="value">PAP</span>, and <span class="value">GTC</span>.
       </span>
       For tunneling outer protocols.
     </dd>
@@ -1943,6 +2048,16 @@
       CA or to one of the given CA certificates. If <span class="field">UseSystemCAs</span>
       is <span class="value">false</span>, and no <span class="field">ServerCARef</span> is set, the certificate
       must be a self signed certificate, and no CA signature is required.
+    </dd>
+
+    <dt class="field">UseProactiveKeyCaching</dt>
+    <dd>
+      <span class="field_meta">
+        (optional, defaults to <span class="value">false</span>)
+        <span class="type">boolean</span>
+      </span>
+      Indicates whether Proactive Key Caching (also known as Opportunistic
+      Key Caching) should be used on a per-service basis.
     </dd>
   </dl>
 
@@ -2221,12 +2336,26 @@
       network technology currently in use.
       <span class="rule"><span class="rule_id"></span>
         Allowed values are
-        <span class="value">1xRTT</span>, <span class="value">EVDO</span>,
-        <span class="value">GPRS</span>, <span class="value">EDGE</span>,
+        <span class="value">CDMA1XRTT</span>,
+        <span class="value">EDGE</span>,
+        <span class="value">EVDO</span>,
+        <span class="value">GPRS</span>,
+        <span class="value">GSM</span>,
+        <span class="value">HSPA</span>,
+        <span class="value">HSPAPlus</span>,
+        <span class="value">LTE</span>,
+        <span class="value">LTEAdvanced</span>
         <span class="value">UMTS</span>,
-        <span class="value">HSPA</span>, <span class="value">HSPA+</span>,
-        <span class="value">LTE</span>, <span class="value">LTE Advanced</span>
       </span>
+    </dd>
+
+    <dt class="field">PaymentPortal</dt>
+    <dd>
+      <span class="field_meta">(optional, read-only)
+        <span class="type">PaymentPortal</span>
+      </span>
+      Properties describing the online payment portal (OLP) at which a user can
+      sign up for or modify a mobile data plan.
     </dd>
 
     <dt class="field">PRLVersion</dt>
@@ -2237,21 +2366,17 @@
       The revision of the Preferred Roaming List that is loaded in the modem.
     </dd>
 
-    <dt class="field">ProviderRequiresRoaming</dt>
-    <dd>
-      <span class="field_meta">(optional, read-only)
-        <span class="type">boolean</span>
-      </span>
-      Indicates that the cellular provider (determined based on IMSI and SPN)
-      requires roaming.
-    </dd>
-
     <dt class="field">RoamingState</dt>
     <dd>
       <span class="field_meta">(optional, read-only)
         <span class="type">string</span>
       </span>
       The roaming status of the cellular modem on the current network.
+      <span class="rule"><span class="rule_id"></span>
+        Allowed values are <span class="value">Home</span>,
+        <span class="value">Roaming</span>, or if the provider has no home
+        network, <span class="value">Required</span>.
+      </span>
     </dd>
 
     <dt class="field">ServingOperator</dt>
@@ -2399,6 +2524,35 @@
     </dd>
   </dl>
 
+  <p><span class="type">PaymentPortal</span> type contains the following:</p>
+  <dl class="field_list">
+    <dt class="field">Method</dt>
+    <dd>
+      <span class="field_meta">(required)
+        <span class="type">string</span>
+      </span>
+      The HTTP method to use, "GET" or "POST"
+    </dd>
+
+    <dt class="field">PostData</dt>
+    <dd>
+      <span class="field_meta">
+        (required if <span class="field">Method</span> is
+        <span class="value">POST</span>, otherwise ignored)
+        <span class="type">string</span>
+      </span>
+      The postdata to send.
+    </dd>
+
+    <dt class="field">Url</dt>
+    <dd>
+      <span class="field_meta">(required)
+        <span class="type">string</span>
+      </span>
+      The URL for the portal.
+    </dd>
+  </dl>
+
   <p><span class="type">CellularProvider</span> type contains the following:</p>
   <dl class="field_list">
     <dt class="field">Name</dt>
@@ -2468,7 +2622,7 @@
 <section>
   <h1>Bluetooth / WiFi Direct Networks</h1>
   <p>
-    This format will eventually also cover configuration of Bluetooth and Wi-Fi
+    This format will eventually also cover configuration of Bluetooth and WiFi
     Direct network technologies, however they are currently not supported.
   </p>
 </section>

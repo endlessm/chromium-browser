@@ -4,6 +4,9 @@
 
 #include "ash/system/chromeos/tray_display.h"
 
+#include <vector>
+
+#include "ash/content/display/screen_orientation_controller_chromeos.h"
 #include "ash/display/display_controller.h"
 #include "ash/display/display_manager.h"
 #include "ash/shell.h"
@@ -14,7 +17,6 @@
 #include "ash/system/tray/system_tray_delegate.h"
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/tray/tray_notification_view.h"
-#include "ash/wm/maximize_mode/maximize_mode_controller.h"
 #include "base/bind.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -50,9 +52,9 @@ base::string16 GetDisplaySize(int64 display_id) {
 
   // We don't show display size for mirrored display. Fallback
   // to empty string if this happens on release build.
-  bool mirrored_display = display_manager->mirrored_display_id() == display_id;
-  DCHECK(!mirrored_display);
-  if (mirrored_display)
+  bool mirroring = display_manager->mirroring_display_id() == display_id;
+  DCHECK(!mirroring);
+  if (mirroring)
     return base::string16();
 
   DCHECK(display->is_valid());
@@ -64,7 +66,7 @@ base::string16 GetDisplaySize(int64 display_id) {
 base::string16 GetDisplayInfoLine(int64 display_id) {
   const DisplayInfo& display_info =
       GetDisplayManager()->GetDisplayInfo(display_id);
-  if (GetDisplayManager()->mirrored_display_id() == display_id)
+  if (GetDisplayManager()->mirroring_display_id() == display_id)
     return GetDisplayName(display_id);
 
   base::string16 size_text = GetDisplaySize(display_id);
@@ -90,9 +92,10 @@ base::string16 GetAllDisplayInfo() {
   std::vector<base::string16> lines;
   int64 internal_id = gfx::Display::kInvalidDisplayID;
   // Make sure to show the internal display first.
-  if (display_manager->HasInternalDisplay() &&
-      display_manager->IsInternalDisplayId(
-          display_manager->first_display_id())) {
+  if (!display_manager->IsInUnifiedMode() &&
+      gfx::Display::HasInternalDisplay() &&
+      gfx::Display::InternalDisplayId() ==
+          display_manager->first_display_id()) {
     internal_id = display_manager->first_display_id();
     lines.push_back(GetDisplayInfoLine(internal_id));
   }
@@ -118,7 +121,6 @@ void OpenSettings() {
     case user::LOGGED_IN_USER:
     case user::LOGGED_IN_OWNER:
     case user::LOGGED_IN_GUEST:
-    case user::LOGGED_IN_RETAIL_MODE:
     case user::LOGGED_IN_PUBLIC:
     case user::LOGGED_IN_SUPERVISED:
     case user::LOGGED_IN_KIOSK_APP:
@@ -154,7 +156,7 @@ class DisplayView : public ActionableView {
     Update();
   }
 
-  virtual ~DisplayView() {}
+  ~DisplayView() override {}
 
   void Update() {
     base::string16 message = GetTrayDisplayMessage(NULL);
@@ -169,8 +171,8 @@ class DisplayView : public ActionableView {
   const views::Label* label() const { return label_; }
 
   // Overridden from views::View.
-  virtual bool GetTooltipText(const gfx::Point& p,
-                              base::string16* tooltip) const override {
+  bool GetTooltipText(const gfx::Point& p,
+                      base::string16* tooltip) const override {
     base::string16 tray_message = GetTrayDisplayMessage(NULL);
     base::string16 display_message = GetAllDisplayInfo();
     if (tray_message.empty() && display_message.empty())
@@ -185,7 +187,7 @@ class DisplayView : public ActionableView {
   // mirroring.
   static base::string16 GetExternalDisplayName() {
     DisplayManager* display_manager = GetDisplayManager();
-    DCHECK(!display_manager->IsMirrored());
+    DCHECK(!display_manager->IsInMirrorMode());
 
     int64 external_id = gfx::Display::kInvalidDisplayID;
     for (size_t i = 0; i < display_manager->GetNumDisplays(); ++i) {
@@ -206,7 +208,7 @@ class DisplayView : public ActionableView {
     base::string16 name = GetDisplayName(external_id);
     const DisplayInfo& display_info =
         display_manager->GetDisplayInfo(external_id);
-    if (display_info.rotation() != gfx::Display::ROTATE_0 ||
+    if (display_info.GetActiveRotation() != gfx::Display::ROTATE_0 ||
         display_info.configured_ui_scale() != 1.0f ||
         !display_info.overscan_insets_in_dip().empty()) {
       name = l10n_util::GetStringFUTF16(
@@ -227,7 +229,7 @@ class DisplayView : public ActionableView {
       base::string16* additional_message_out) {
     DisplayManager* display_manager = GetDisplayManager();
     if (display_manager->GetNumDisplays() > 1) {
-      if (GetDisplayManager()->HasInternalDisplay()) {
+      if (gfx::Display::HasInternalDisplay()) {
         return l10n_util::GetStringFUTF16(
             IDS_ASH_STATUS_TRAY_DISPLAY_EXTENDED, GetExternalDisplayName());
       }
@@ -235,19 +237,22 @@ class DisplayView : public ActionableView {
           IDS_ASH_STATUS_TRAY_DISPLAY_EXTENDED_NO_INTERNAL);
     }
 
-    if (display_manager->IsMirrored()) {
-      if (GetDisplayManager()->HasInternalDisplay()) {
+    if (display_manager->IsInMirrorMode()) {
+      if (gfx::Display::HasInternalDisplay()) {
         return l10n_util::GetStringFUTF16(
             IDS_ASH_STATUS_TRAY_DISPLAY_MIRRORING,
-            GetDisplayName(display_manager->mirrored_display_id()));
+            GetDisplayName(display_manager->mirroring_display_id()));
       }
       return l10n_util::GetStringUTF16(
           IDS_ASH_STATUS_TRAY_DISPLAY_MIRRORING_NO_INTERNAL);
     }
 
+    if (display_manager->IsInUnifiedMode())
+      return l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_DISPLAY_UNIFIED);
+
     int64 primary_id = Shell::GetScreen()->GetPrimaryDisplay().id();
-    if (display_manager->HasInternalDisplay() &&
-        !display_manager->IsInternalDisplayId(primary_id)) {
+    if (gfx::Display::HasInternalDisplay() &&
+        !(gfx::Display::InternalDisplayId() == primary_id)) {
       if (additional_message_out) {
         *additional_message_out = l10n_util::GetStringUTF16(
             IDS_ASH_STATUS_TRAY_DISPLAY_DOCKED_DESCRIPTION);
@@ -262,19 +267,19 @@ class DisplayView : public ActionableView {
   bool ShouldShowFirstDisplayInfo() const {
     const DisplayInfo& display_info = GetDisplayManager()->GetDisplayInfo(
         GetDisplayManager()->first_display_id());
-    return display_info.rotation() != gfx::Display::ROTATE_0 ||
-        display_info.configured_ui_scale() != 1.0f ||
-        !display_info.overscan_insets_in_dip().empty() ||
-        display_info.has_overscan();
+    return display_info.GetActiveRotation() != gfx::Display::ROTATE_0 ||
+           display_info.configured_ui_scale() != 1.0f ||
+           !display_info.overscan_insets_in_dip().empty() ||
+           display_info.has_overscan();
   }
 
   // Overridden from ActionableView.
-  virtual bool PerformAction(const ui::Event& event) override {
+  bool PerformAction(const ui::Event& event) override {
     OpenSettings();
     return true;
   }
 
-  virtual void OnBoundsChanged(const gfx::Rect& previous_bounds) override {
+  void OnBoundsChanged(const gfx::Rect& previous_bounds) override {
     int label_max_width = bounds().width() - kTrayPopupPaddingHorizontal * 2 -
         kTrayPopupPaddingBetweenItems - image_->GetPreferredSize().width();
     label_->SizeToFit(label_max_width);
@@ -333,15 +338,15 @@ bool TrayDisplay::GetDisplayMessageForNotification(
 
     if (iter->second.configured_ui_scale() !=
         old_iter->second.configured_ui_scale()) {
-      *message_out = l10n_util::GetStringFUTF16(
+      *additional_message_out = l10n_util::GetStringFUTF16(
           IDS_ASH_STATUS_TRAY_DISPLAY_RESOLUTION_CHANGED,
-          GetDisplayName(iter->first),
-          GetDisplaySize(iter->first));
+          GetDisplayName(iter->first), GetDisplaySize(iter->first));
       return true;
     }
-    if (iter->second.rotation() != old_iter->second.rotation()) {
+    if (iter->second.GetActiveRotation() !=
+        old_iter->second.GetActiveRotation()) {
       int rotation_text_id = 0;
-      switch (iter->second.rotation()) {
+      switch (iter->second.GetActiveRotation()) {
         case gfx::Display::ROTATE_0:
           rotation_text_id = IDS_ASH_STATUS_TRAY_DISPLAY_STANDARD_ORIENTATION;
           break;
@@ -355,9 +360,8 @@ bool TrayDisplay::GetDisplayMessageForNotification(
           rotation_text_id = IDS_ASH_STATUS_TRAY_DISPLAY_ORIENTATION_270;
           break;
       }
-      *message_out = l10n_util::GetStringFUTF16(
-          IDS_ASH_STATUS_TRAY_DISPLAY_ROTATED,
-          GetDisplayName(iter->first),
+      *additional_message_out = l10n_util::GetStringFUTF16(
+          IDS_ASH_STATUS_TRAY_DISPLAY_ROTATED, GetDisplayName(iter->first),
           l10n_util::GetStringUTF16(rotation_text_id));
       return true;
     }
@@ -375,13 +379,14 @@ void TrayDisplay::CreateOrUpdateNotification(
   message_center::MessageCenter::Get()->RemoveNotification(
       kNotificationId, false /* by_user */);
 
-  if (message.empty())
+  if (message.empty() && additional_message.empty())
     return;
 
   // Don't display notifications for accelerometer triggered screen rotations.
   // See http://crbug.com/364949
-  if (Shell::GetInstance()->maximize_mode_controller()->
-      ignore_display_configuration_updates()) {
+  if (Shell::GetInstance()
+          ->screen_orientation_controller()
+          ->ignore_display_configuration_updates()) {
     return;
   }
 

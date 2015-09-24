@@ -5,15 +5,19 @@
 syntax = "proto2";
 
 option optimize_for = LITE_RUNTIME;
+option java_outer_classname = "SampledProfileProtos";
+option java_package = "org.chromium.components.metrics";
 
 package metrics;
 
+import "call_stack_profile.proto";
 import "perf_data.proto";
+import "perf_stat.proto";
 
 // Protocol buffer for collected sample-based profiling data.
 // Contains the parameters and data from a single profile collection event.
 
-// Next tag: 9
+// Next tag: 11
 message SampledProfile {
   // Indicates the event that triggered this collection.
   enum TriggerEvent {
@@ -31,6 +35,15 @@ message SampledProfile {
 
     // The profile was collected upon restoring a previous session.
     RESTORE_SESSION = 3;
+    
+    // The profile was collected at process startup.
+    PROCESS_STARTUP = 4;
+
+    // The profile was collected after jank was detected while executing a task.
+    JANKY_TASK = 5;
+
+    // The profile was collected after a thread was determined to be hung.
+    THREAD_HUNG = 6;
   }
   optional TriggerEvent trigger_event = 1;
 
@@ -59,6 +72,12 @@ message SampledProfile {
   // collected. Only set when |trigger_event| is RESTORE_SESSION.
   optional int64 ms_after_restore = 8;
 
-  // The actual perf data that was collected.
+  // Sampled profile data collected from Linux perf tool.
   optional PerfDataProto perf_data = 4;
+
+  // Sampled profile data collected by periodic sampling of call stacks.
+  optional CallStackProfile call_stack_profile = 9;
+
+  // Perf counter data collected using "perf stat".
+  optional PerfStatProto perf_stat = 10;
 }

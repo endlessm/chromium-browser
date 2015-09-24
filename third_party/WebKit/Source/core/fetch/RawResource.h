@@ -23,18 +23,30 @@
 #ifndef RawResource_h
 #define RawResource_h
 
+#include "core/CoreExport.h"
 #include "core/fetch/ResourceClient.h"
 #include "core/fetch/ResourcePtr.h"
 #include "public/platform/WebDataConsumerHandle.h"
 #include "wtf/PassOwnPtr.h"
 
 namespace blink {
+class FetchRequest;
 class RawResourceClient;
+class ResourceFetcher;
+class SubstituteData;
 
-class RawResource final : public Resource {
+class CORE_EXPORT RawResource final : public Resource {
 public:
     typedef RawResourceClient ClientType;
 
+    static ResourcePtr<Resource> fetchSynchronously(FetchRequest&, ResourceFetcher*);
+    static ResourcePtr<RawResource> fetch(FetchRequest&, ResourceFetcher*);
+    static ResourcePtr<RawResource> fetchMainResource(FetchRequest&, ResourceFetcher*, const SubstituteData&);
+    static ResourcePtr<RawResource> fetchImport(FetchRequest&, ResourceFetcher*);
+    static ResourcePtr<RawResource> fetchMedia(FetchRequest&, ResourceFetcher*);
+    static ResourcePtr<RawResource> fetchTextTrack(FetchRequest&, ResourceFetcher*);
+
+    // Exposed for testing
     RawResource(const ResourceRequest&, Type);
 
     // FIXME: AssociatedURLLoader shouldn't be a DocumentThreadableLoader and therefore shouldn't
@@ -45,6 +57,18 @@ public:
     bool canReuse(const ResourceRequest&) const override;
 
 private:
+    class RawResourceFactory : public ResourceFactory {
+    public:
+        RawResourceFactory(Resource::Type type)
+            : ResourceFactory(type) { }
+
+        Resource* create(const ResourceRequest& request, const String& charset) const override
+        {
+            return new RawResource(request, m_type);
+        }
+    };
+    static void preCacheSubstituteDataForMainResource(const FetchRequest&, ResourceFetcher*, const SubstituteData&);
+
     void didAddClient(ResourceClient*) override;
     void appendData(const char*, unsigned) override;
 
@@ -53,8 +77,10 @@ private:
     void willFollowRedirect(ResourceRequest&, const ResourceResponse&) override;
     void updateRequest(const ResourceRequest&) override;
     void responseReceived(const ResourceResponse&, PassOwnPtr<WebDataConsumerHandle>) override;
+    void setSerializedCachedMetadata(const char*, size_t) override;
     void didSendData(unsigned long long bytesSent, unsigned long long totalBytesToBeSent) override;
     void didDownloadData(int) override;
+    void reportResourceTimingToClients(const ResourceTimingInfo&) override;
 };
 
 #if ENABLE(SECURITY_ASSERT)
@@ -70,18 +96,20 @@ inline RawResource* toRawResource(const ResourcePtr<Resource>& resource)
     return static_cast<RawResource*>(resource.get());
 }
 
-class RawResourceClient : public ResourceClient {
+class CORE_EXPORT RawResourceClient : public ResourceClient {
 public:
-    virtual ~RawResourceClient() { }
+    ~RawResourceClient() override {}
     static ResourceClientType expectedType() { return RawResourceType; }
-    virtual ResourceClientType resourceClientType() const override final { return expectedType(); }
+    ResourceClientType resourceClientType() const final { return expectedType(); }
 
     virtual void dataSent(Resource*, unsigned long long /* bytesSent */, unsigned long long /* totalBytesToBeSent */) { }
     virtual void responseReceived(Resource*, const ResourceResponse&, PassOwnPtr<WebDataConsumerHandle>) { }
+    virtual void setSerializedCachedMetadata(Resource*, const char*, size_t) { }
     virtual void dataReceived(Resource*, const char* /* data */, unsigned /* length */) { }
     virtual void redirectReceived(Resource*, ResourceRequest&, const ResourceResponse&) { }
     virtual void updateRequest(Resource*, const ResourceRequest&) { }
     virtual void dataDownloaded(Resource*, int) { }
+    virtual void didReceiveResourceTiming(Resource*, const ResourceTimingInfo&) { }
 };
 
 }

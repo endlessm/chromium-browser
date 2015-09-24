@@ -2,59 +2,119 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from core import perf_benchmark
+
 from benchmarks import silk_flags
 from measurements import thread_times
 import page_sets
 from telemetry import benchmark
 
+class _ThreadTimes(perf_benchmark.PerfBenchmark):
+  @classmethod
+  def AddBenchmarkCommandLineArgs(cls, parser):
+    parser.add_option('--report-silk-details', action='store_true',
+                      help='Report details relevant to silk.')
+
+  @classmethod
+  def Name(cls):
+    return 'thread_times'
+
+  @classmethod
+  def ValueCanBeAddedPredicate(cls, value, _):
+    # Default to only reporting per-frame metrics.
+    return 'per_second' not in value.name
+
+  def CreatePageTest(self, options):
+    return thread_times.ThreadTimes(options.report_silk_details)
+
 
 @benchmark.Enabled('android')
-class ThreadTimesKeySilkCases(benchmark.Benchmark):
+class ThreadTimesKeySilkCases(_ThreadTimes):
   """Measures timeline metrics while performing smoothness action on key silk
   cases."""
-  test = thread_times.ThreadTimes
   page_set = page_sets.KeySilkCasesPageSet
 
-
-@benchmark.Disabled
-class LegacySilkBenchmark(ThreadTimesKeySilkCases):
-  """Same as thread_times.key_silk_cases but with the old name."""
   @classmethod
-  def GetName(cls):
-    return "silk.key_silk_cases"
+  def Name(cls):
+    return 'thread_times.key_silk_cases'
 
+@benchmark.Enabled('android', 'linux')
+class ThreadTimesKeyHitTestCases(_ThreadTimes):
+  """Measure timeline metrics while performing smoothness action on key hit
+  testing cases."""
+  page_set = page_sets.KeyHitTestCasesPageSet
+
+  @classmethod
+  def Name(cls):
+    return 'thread_times.key_hit_test_cases'
 
 @benchmark.Enabled('android')
-class ThreadTimesFastPathMobileSites(benchmark.Benchmark):
+class ThreadTimesFastPathMobileSites(_ThreadTimes):
   """Measures timeline metrics while performing smoothness action on
   key mobile sites labeled with fast-path tag.
   http://www.chromium.org/developers/design-documents/rendering-benchmarks"""
-  test = thread_times.ThreadTimes
-  page_set = page_sets.KeyMobileSitesPageSet
-  options = {'page_label_filter' : 'fastpath'}
+  page_set = page_sets.KeyMobileSitesSmoothPageSet
+  options = {'story_label_filter' : 'fastpath'}
+
+  @classmethod
+  def Name(cls):
+    return 'thread_times.key_mobile_sites_smooth'
 
 
 @benchmark.Enabled('android')
-class ThreadTimesSimpleMobileSites(benchmark.Benchmark):
+class ThreadTimesSimpleMobileSites(_ThreadTimes):
   """Measures timeline metric using smoothness action on simple mobile sites
   http://www.chromium.org/developers/design-documents/rendering-benchmarks"""
-  test = thread_times.ThreadTimes
   page_set = page_sets.SimpleMobileSitesPageSet
 
+  @classmethod
+  def Name(cls):
+    return 'thread_times.simple_mobile_sites'
 
-class ThreadTimesCompositorCases(benchmark.Benchmark):
+
+@benchmark.Disabled('win') # crbug.com/443781
+class ThreadTimesCompositorCases(_ThreadTimes):
   """Measures timeline metrics while performing smoothness action on
   tough compositor cases, using software rasterization.
 
   http://www.chromium.org/developers/design-documents/rendering-benchmarks"""
-  test = thread_times.ThreadTimes
   page_set = page_sets.ToughCompositorCasesPageSet
-  def CustomizeBrowserOptions(self, options):
+  def SetExtraBrowserOptions(self, options):
     silk_flags.CustomizeBrowserOptionsForSoftwareRasterization(options)
 
+  @classmethod
+  def Name(cls):
+    return 'thread_times.tough_compositor_cases'
+
 @benchmark.Enabled('android')
-class ThreadTimesPolymer(benchmark.Benchmark):
+class ThreadTimesPolymer(_ThreadTimes):
   """Measures timeline metrics while performing smoothness action on
   Polymer cases."""
-  test = thread_times.ThreadTimes
   page_set = page_sets.PolymerPageSet
+  @classmethod
+  def Name(cls):
+    return 'thread_times.polymer'
+
+@benchmark.Enabled('android')
+class ThreadTimesKeyIdlePowerCases(_ThreadTimes):
+  """Measures timeline metrics for sites that should be idle in foreground
+  and background scenarios. The metrics are per-second rather than per-frame."""
+  page_set = page_sets.KeyIdlePowerCasesPageSet
+
+  @classmethod
+  def Name(cls):
+    return 'thread_times.key_idle_power_cases'
+
+  @classmethod
+  def ValueCanBeAddedPredicate(cls, value, _):
+    # Only report per-second metrics.
+    return 'per_frame' not in value.name and 'mean_frame' not in value.name
+
+class ThreadTimesToughScrollingCases(_ThreadTimes):
+  """Measure timeline metrics while performing smoothness action on tough
+  scrolling cases."""
+  page_set = page_sets.ToughScrollingCasesPageSet
+
+  @classmethod
+  def Name(cls):
+    return 'thread_times.tough_scrolling_cases'

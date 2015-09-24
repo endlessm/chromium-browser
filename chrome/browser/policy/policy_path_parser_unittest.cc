@@ -20,8 +20,12 @@ class PolicyPathParserTests : public testing::Test {
   }
 };
 
+// TODO(pastarmovj): Modify test or change the logic after investigating why it
+// is flaky. Please only redisable after it has had a chance to run for a few
+// times. See bug http://crbug.com/327520 for context.
+// TODO(pastarmovj): Disabling on Mac OS X as the test is flaky. See
+// crbug.com/458590 for details.
 #if defined(OS_MACOSX)
-// http://crbug.com/327520
 #define MAYBE_AllPlatformVariables DISABLED_AllPlatformVariables
 #else
 #define MAYBE_AllPlatformVariables AllPlatformVariables
@@ -110,6 +114,8 @@ TEST_F(PolicyPathParserTests, WinVariables) {
                        FILE_PATH_LITERAL("${windows}"));
   CheckForSubstitution(FILE_PATH_LITERAL("//$C/${client_name}"),
                        FILE_PATH_LITERAL("${client_name}"));
+  CheckForSubstitution(FILE_PATH_LITERAL("//$C/${session_name}"),
+                       FILE_PATH_LITERAL("${session_name}"));
 }
 
 #endif  // OS_WIN

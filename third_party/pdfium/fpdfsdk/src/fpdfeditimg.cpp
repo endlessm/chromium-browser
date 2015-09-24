@@ -1,19 +1,19 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
+#include "../../public/fpdf_edit.h"
 #include "../include/fsdk_define.h"
-#include "../include/fpdfedit.h"
 
 
 DLLEXPORT FPDF_PAGEOBJECT STDCALL FPDFPageObj_NewImgeObj(FPDF_DOCUMENT document)
 {
 	if (!document)
 		return NULL;
-	CPDF_ImageObject* pImageObj = FX_NEW CPDF_ImageObject;
-	CPDF_Image* pImg = FX_NEW CPDF_Image((CPDF_Document *)document);
+	CPDF_ImageObject* pImageObj = new CPDF_ImageObject;
+	CPDF_Image* pImg = new CPDF_Image((CPDF_Document *)document);
 	pImageObj->m_pImage = pImg;
 	return pImageObj;
 }
@@ -23,13 +23,12 @@ DLLEXPORT FPDF_BOOL STDCALL FPDFImageObj_LoadJpegFile(FPDF_PAGE* pages, int nCou
 	if (!image_object || !fileAccess)
 		return FALSE;
 
-	IFX_FileRead* pFile = FX_NEW CPDF_CustomAccess(fileAccess);
-
+	IFX_FileRead* pFile = new CPDF_CustomAccess(fileAccess);
 	CPDF_ImageObject* pImgObj = (CPDF_ImageObject*)image_object;
 	pImgObj->m_GeneralState.GetModify();
 	for (int index=0;index<nCount;index++)
 	{
-		CPDF_Page* pPage = (CPDF_Page*)pages[index]; 
+		CPDF_Page* pPage = (CPDF_Page*)pages[index];
 		pImgObj->m_pImage->ResetCache(pPage,NULL);
 	}
 	pImgObj->m_pImage->SetJpegImage(pFile);
@@ -64,7 +63,7 @@ DLLEXPORT FPDF_BOOL STDCALL FPDFImageObj_SetBitmap(FPDF_PAGE* pages,int nCount,F
 	pImgObj->m_GeneralState.GetModify();
 	for (int index=0;index<nCount;index++)
 	{
-		CPDF_Page* pPage = (CPDF_Page*)pages[index]; 
+		CPDF_Page* pPage = (CPDF_Page*)pages[index];
 		pImgObj->m_pImage->ResetCache(pPage,NULL);
 	}
 	pImgObj->m_pImage->SetImage(pBmp,FALSE);

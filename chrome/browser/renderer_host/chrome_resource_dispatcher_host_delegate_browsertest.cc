@@ -30,7 +30,8 @@ static const char kServerRedirectUrl[] = "/server-redirect";
 
 scoped_ptr<net::test_server::HttpResponse> HandleTestRequest(
     const net::test_server::HttpRequest& request) {
-  if (StartsWithASCII(request.relative_url, kServerRedirectUrl, true)) {
+  if (base::StartsWith(request.relative_url, kServerRedirectUrl,
+                       base::CompareCase::SENSITIVE)) {
     // Extract the target URL and redirect there.
     size_t query_string_pos = request.relative_url.find('?');
     std::string redirect_target =
@@ -52,11 +53,7 @@ scoped_ptr<net::test_server::HttpResponse> HandleTestRequest(
 
 class TestDispatcherHostDelegate : public ChromeResourceDispatcherHostDelegate {
  public:
-  explicit TestDispatcherHostDelegate(
-      prerender::PrerenderTracker* prerender_tracker)
-      : ChromeResourceDispatcherHostDelegate(prerender_tracker) {
-  }
-
+  TestDispatcherHostDelegate() {}
   ~TestDispatcherHostDelegate() override {}
 
   void RequestBeginning(
@@ -102,8 +99,7 @@ class ChromeResourceDispatcherHostDelegateBrowserTest :
   void SetUpOnMainThread() override {
     InProcessBrowserTest::SetUpOnMainThread();
     // Hook navigations with our delegate.
-    dispatcher_host_delegate_.reset(new TestDispatcherHostDelegate(
-        g_browser_process->prerender_tracker()));
+    dispatcher_host_delegate_.reset(new TestDispatcherHostDelegate);
     content::ResourceDispatcherHost::Get()->SetDelegate(
         dispatcher_host_delegate_.get());
 

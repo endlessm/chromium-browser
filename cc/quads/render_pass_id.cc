@@ -7,9 +7,10 @@
 namespace cc {
 
 void* RenderPassId::AsTracingId() const {
-  COMPILE_ASSERT(sizeof(size_t) <= sizeof(void*),  // NOLINT
-                 size_t_bigger_than_pointer);
-  return reinterpret_cast<void*>(base::HashPair(layer_id, index));
+  static_assert(sizeof(size_t) <= sizeof(void*),  // NOLINT
+                "size of size_t should not be greater than that of a pointer");
+  return reinterpret_cast<void*>(
+      base::HashPair(layer_id, static_cast<int>(index)));
 }
 
 }  // namespace cc

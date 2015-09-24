@@ -6,7 +6,13 @@ package org.chromium.content.browser;
 
 import android.test.suitebuilder.annotation.SmallTest;
 
+import dalvik.system.DexClassLoader;
+
+import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.UrlUtils;
+
+import java.io.File;
 
 /**
  * Part of the test suite for the Java Bridge. This class tests that
@@ -21,6 +27,7 @@ import org.chromium.base.test.util.Feature;
  * break backwards-compatibility. See b/4408210.
  */
 public class JavaBridgeCoercionTest extends JavaBridgeTestBase {
+    @SuppressFBWarnings("CHROMIUM_SYNCHRONIZED_METHOD")
     private class TestObject extends Controller {
         private Object mObjectInstance;
         private CustomType mCustomTypeInstance;
@@ -153,6 +160,7 @@ public class JavaBridgeCoercionTest extends JavaBridgeTestBase {
 
     private TestObject mTestObject;
 
+    @SuppressFBWarnings("CHROMIUM_SYNCHRONIZED_METHOD")
     private class TestController extends Controller {
         private boolean mBooleanValue;
 
@@ -170,12 +178,12 @@ public class JavaBridgeCoercionTest extends JavaBridgeTestBase {
 
     // Note that this requires that we can pass a JavaScript boolean to Java.
     private void assertRaisesException(String script) throws Throwable {
-        executeJavaScript("try {" +
-                          script + ";" +
-                          "  testController.setBooleanValue(false);" +
-                          "} catch (exception) {" +
-                          "  testController.setBooleanValue(true);" +
-                          "}");
+        executeJavaScript("try {"
+                + script + ";"
+                + "  testController.setBooleanValue(false);"
+                + "} catch (exception) {"
+                + "  testController.setBooleanValue(true);"
+                + "}");
         assertTrue(mTestController.waitForBooleanValue());
     }
 
@@ -183,9 +191,8 @@ public class JavaBridgeCoercionTest extends JavaBridgeTestBase {
     protected void setUp() throws Exception {
         super.setUp();
         mTestObject = new TestObject();
-        setUpContentView(mTestObject, "testObject");
         mTestController = new TestController();
-        setUpContentView(mTestController, "testController");
+        injectObjectsAndReload(mTestObject, "testObject", mTestController, "testController", null);
     }
 
     // Test passing a 32-bit integer JavaScript number to a method of an
@@ -608,6 +615,56 @@ public class JavaBridgeCoercionTest extends JavaBridgeTestBase {
         // LIVECONNECT_COMPLIANCE: Should raise a JavaScript exception.
         executeJavaScript("testObject.setBooleanValue(testObject.getObjectInstance());");
         assertFalse(mTestObject.waitForBooleanValue());
+    }
+
+    static void assertFileIsReadable(String filePath) {
+        File file = new File(filePath);
+        try {
+            assertTrue("Test file \"" + filePath + "\" is not readable.", file.canRead());
+        } catch (SecurityException e) {
+            fail("Got a SecurityException for \"" + filePath + "\": " + e.toString());
+        }
+    }
+
+    // Verifies that classes obtained via custom class loaders can be
+    // passed in and out to injected methods. In real life WebView scenarios
+    // WebView and the app use different class loaders, thus we need to make
+    // sure that WebView code doesn't attempt to find an app's class using
+    // its own class loader. See crbug.com/491800.
+    @SmallTest
+    @Feature({"AndroidWebView", "Android-JavaBridge"})
+    public void testPassJavaObjectFromCustomClassLoader() throws Throwable {
+        // Compiled bytecode (dex) for the following class:
+        //
+        // package org.example;
+        // public class SelfConsumingObject {
+        //   public SelfConsumingObject getSelf() {
+        //     return this;
+        //   }
+        //   public boolean verifySelf(SelfConsumingObject self) {
+        //     return this == self;
+        //   }
+        // }
+        final String dexFileName = "content/test/data/android/SelfConsumingObject.dex";
+        assertFileIsReadable(UrlUtils.getIsolatedTestFilePath(dexFileName));
+        final File optimizedDir = File.createTempFile("optimized", "");
+        assertTrue(optimizedDir.delete());
+        assertTrue(optimizedDir.mkdirs());
+        DexClassLoader loader = new DexClassLoader(UrlUtils.getIsolatedTestFilePath(dexFileName),
+                optimizedDir.getAbsolutePath(), null, ClassLoader.getSystemClassLoader());
+        final Object selfConsuming = loader.loadClass(
+                "org.example.SelfConsumingObject").newInstance();
+        runTestOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                getContentViewCore().addPossiblyUnsafeJavascriptInterface(
+                        selfConsuming, "selfConsuming", null);
+            }
+        });
+        synchronousPageReload();
+        executeJavaScript("testObject.setBooleanValue("
+                + "selfConsuming.verifySelf(selfConsuming.getSelf()));");
+        assertTrue(mTestObject.waitForBooleanValue());
     }
 
     // Test passing JavaScript null to a method of an injected object.

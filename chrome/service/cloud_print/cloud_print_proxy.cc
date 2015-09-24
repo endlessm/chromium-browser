@@ -22,44 +22,6 @@
 #include "google_apis/google_api_keys.h"
 #include "url/gurl.h"
 
-namespace {
-
-void LaunchBrowserProcessWithSwitch(const std::string& switch_string) {
-  DCHECK(g_service_process->io_thread()->message_loop_proxy()->
-      BelongsToCurrentThread());
-  base::FilePath exe_path;
-  PathService::Get(base::FILE_EXE, &exe_path);
-  if (exe_path.empty()) {
-    NOTREACHED() << "Unable to get browser process binary name.";
-  }
-  CommandLine cmd_line(exe_path);
-
-  const CommandLine& process_command_line = *CommandLine::ForCurrentProcess();
-  base::FilePath user_data_dir =
-      process_command_line.GetSwitchValuePath(switches::kUserDataDir);
-  if (!user_data_dir.empty())
-    cmd_line.AppendSwitchPath(switches::kUserDataDir, user_data_dir);
-  cmd_line.AppendSwitch(switch_string);
-
-#if defined(OS_POSIX) && !defined(OS_MACOSX)
-  base::ProcessHandle pid = 0;
-  base::LaunchProcess(cmd_line, base::LaunchOptions(), &pid);
-  base::EnsureProcessGetsReaped(pid);
-#else
-  base::LaunchOptions launch_options;
-#if defined(OS_WIN)
-  launch_options.force_breakaway_from_job_ = true;
-#endif  // OS_WIN
-  base::LaunchProcess(cmd_line, launch_options, NULL);
-#endif
-}
-
-void CheckCloudPrintProxyPolicyInBrowser() {
-  LaunchBrowserProcessWithSwitch(switches::kCheckCloudPrintConnectorPolicy);
-}
-
-}  // namespace
-
 namespace cloud_print {
 
 CloudPrintProxy::CloudPrintProxy()
@@ -125,7 +87,7 @@ void CloudPrintProxy::EnableForUserWithRobot(
     service_prefs_->SetString(prefs::kCloudPrintProxyId, proxy_id);
   }
   service_prefs_->SetValue(prefs::kCloudPrintUserSettings,
-                           user_settings.DeepCopy());
+                           user_settings.CreateDeepCopy());
   service_prefs_->WritePrefs();
 
   if (!CreateBackend())
@@ -210,11 +172,6 @@ void CloudPrintProxy::GetPrinters(std::vector<std::string>* printers) {
     printers->push_back(printer_list[i].printer_name);
 }
 
-void CloudPrintProxy::CheckCloudPrintProxyPolicy() {
-  g_service_process->io_thread()->message_loop_proxy()->PostTask(
-      FROM_HERE, base::Bind(&CheckCloudPrintProxyPolicyInBrowser));
-}
-
 void CloudPrintProxy::OnAuthenticated(
     const std::string& robot_oauth_refresh_token,
     const std::string& robot_email,
@@ -234,7 +191,7 @@ void CloudPrintProxy::OnAuthenticated(
   service_prefs_->WritePrefs();
   // When this switch used we don't want connector continue running, we just
   // need authentication.
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kCloudPrintSetupProxy)) {
     ShutdownBackend();
     if (client_) {

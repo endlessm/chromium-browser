@@ -4,11 +4,14 @@
 
 #include "chrome/browser/media_galleries/linux/mtp_device_delegate_impl_linux.h"
 
+#include <fcntl.h>
 #include <algorithm>
 #include <vector>
 
 #include "base/bind.h"
+#include "base/files/file_util.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/posix/eintr_wrapper.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -51,13 +54,16 @@ std::string GetDeviceRelativePath(const base::FilePath& registered_dev_path,
 // storage.
 //
 // |storage_name| specifies the name of the storage device.
+// |read_only| specifies the mode of the storage device.
 // Returns NULL if the |storage_name| is no longer valid (e.g. because the
 // corresponding storage device is detached, etc).
 MTPDeviceTaskHelper* GetDeviceTaskHelperForStorage(
-    const std::string& storage_name) {
+    const std::string& storage_name,
+    const bool read_only) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   return MTPDeviceTaskHelperMapService::GetInstance()->GetDeviceTaskHelper(
-      storage_name);
+      storage_name,
+      read_only);
 }
 
 // Opens the storage device for communication.
@@ -66,20 +72,47 @@ MTPDeviceTaskHelper* GetDeviceTaskHelperForStorage(
 // MediaTransferProtocolManager.
 //
 // |storage_name| specifies the name of the storage device.
+// |read_only| specifies the mode of the storage device.
 // |reply_callback| is called when the OpenStorage request completes.
 // |reply_callback| runs on the IO thread.
 void OpenStorageOnUIThread(
     const std::string& storage_name,
+    const bool read_only,
     const MTPDeviceTaskHelper::OpenStorageCallback& reply_callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   MTPDeviceTaskHelper* task_helper =
-      GetDeviceTaskHelperForStorage(storage_name);
+      GetDeviceTaskHelperForStorage(storage_name, read_only);
   if (!task_helper) {
     task_helper =
         MTPDeviceTaskHelperMapService::GetInstance()->CreateDeviceTaskHelper(
-            storage_name);
+            storage_name, read_only);
   }
-  task_helper->OpenStorage(storage_name, reply_callback);
+  task_helper->OpenStorage(storage_name, read_only, reply_callback);
+}
+
+// Creates |directory_name| on |parent_id|.
+//
+// |storage_name| specifies the name of the storage device.
+// |read_only| specifies the mode of the storage device.
+// |parent_id| is an object id of the parent directory.
+// |directory_name| is name of the new directory.
+// |success_callback| is called when the directory is created successfully.
+// |error_callback| is called when it fails to create a directory.
+// |success_callback| and |error_callback| runs on the IO thread.
+void CreateDirectoryOnUIThread(
+    const std::string& storage_name,
+    const bool read_only,
+    const uint32 parent_id,
+    const std::string& directory_name,
+    const MTPDeviceTaskHelper::CreateDirectorySuccessCallback& success_callback,
+    const MTPDeviceTaskHelper::ErrorCallback& error_callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  MTPDeviceTaskHelper* task_helper =
+      GetDeviceTaskHelperForStorage(storage_name, read_only);
+  if (!task_helper)
+    return;
+  task_helper->CreateDirectory(parent_id, directory_name, success_callback,
+                               error_callback);
 }
 
 // Enumerates the |dir_id| directory file entries.
@@ -88,20 +121,26 @@ void OpenStorageOnUIThread(
 // MediaTransferProtocolManager.
 //
 // |storage_name| specifies the name of the storage device.
+// |read_only| specifies the mode of the storage device.
+// |directory_id| is an id of a directory to read.
+// |max_size| is a maximum size to read. Set 0 not to specify the maximum size.
 // |success_callback| is called when the ReadDirectory request succeeds.
 // |error_callback| is called when the ReadDirectory request fails.
 // |success_callback| and |error_callback| runs on the IO thread.
 void ReadDirectoryOnUIThread(
     const std::string& storage_name,
-    uint32 dir_id,
+    const bool read_only,
+    const uint32 directory_id,
+    const size_t max_size,
     const MTPDeviceTaskHelper::ReadDirectorySuccessCallback& success_callback,
     const MTPDeviceTaskHelper::ErrorCallback& error_callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   MTPDeviceTaskHelper* task_helper =
-      GetDeviceTaskHelperForStorage(storage_name);
+      GetDeviceTaskHelperForStorage(storage_name, read_only);
   if (!task_helper)
     return;
-  task_helper->ReadDirectory(dir_id, success_callback, error_callback);
+  task_helper->ReadDirectory(directory_id, max_size, success_callback,
+                             error_callback);
 }
 
 // Gets the |file_path| details.
@@ -110,17 +149,19 @@ void ReadDirectoryOnUIThread(
 // MediaTransferProtocolManager.
 //
 // |storage_name| specifies the name of the storage device.
+// |read_only| specifies the mode of the storage device.
 // |success_callback| is called when the GetFileInfo request succeeds.
 // |error_callback| is called when the GetFileInfo request fails.
 // |success_callback| and |error_callback| runs on the IO thread.
 void GetFileInfoOnUIThread(
     const std::string& storage_name,
+    const bool read_only,
     uint32 file_id,
     const MTPDeviceTaskHelper::GetFileInfoSuccessCallback& success_callback,
     const MTPDeviceTaskHelper::ErrorCallback& error_callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   MTPDeviceTaskHelper* task_helper =
-      GetDeviceTaskHelperForStorage(storage_name);
+      GetDeviceTaskHelperForStorage(storage_name, read_only);
   if (!task_helper)
     return;
   task_helper->GetFileInfo(file_id, success_callback, error_callback);
@@ -132,6 +173,7 @@ void GetFileInfoOnUIThread(
 // MediaTransferProtocolManager.
 //
 // |storage_name| specifies the name of the storage device.
+// |read_only| specifies the mode of the storage device.
 // |device_file_path| specifies the media device file path.
 // |snapshot_file_path| specifies the platform path of the snapshot file.
 // |file_size| specifies the number of bytes that will be written to the
@@ -141,11 +183,12 @@ void GetFileInfoOnUIThread(
 // |success_callback| and |error_callback| runs on the IO thread.
 void WriteDataIntoSnapshotFileOnUIThread(
     const std::string& storage_name,
+    const bool read_only,
     const SnapshotRequestInfo& request_info,
     const base::File::Info& snapshot_file_info) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   MTPDeviceTaskHelper* task_helper =
-      GetDeviceTaskHelperForStorage(storage_name);
+      GetDeviceTaskHelperForStorage(storage_name, read_only);
   if (!task_helper)
     return;
   task_helper->WriteDataIntoSnapshotFile(request_info, snapshot_file_info);
@@ -157,16 +200,98 @@ void WriteDataIntoSnapshotFileOnUIThread(
 // MediaTransferProtocolManager.
 //
 // |storage_name| specifies the name of the storage device.
+// |read_only| specifies the mode of the storage device.
 // |request| is a struct containing details about the byte read request.
 void ReadBytesOnUIThread(
     const std::string& storage_name,
+    const bool read_only,
     const MTPDeviceAsyncDelegate::ReadBytesRequest& request) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   MTPDeviceTaskHelper* task_helper =
-      GetDeviceTaskHelperForStorage(storage_name);
+      GetDeviceTaskHelperForStorage(storage_name, read_only);
   if (!task_helper)
     return;
   task_helper->ReadBytes(request);
+}
+
+// Renames |object_id| to |new_name|.
+//
+// |storage_name| specifies the name of the storage device.
+// |read_only| specifies the mode of the storage device.
+// |object_id| is an id of object to be renamed.
+// |new_name| is new name of the object.
+// |success_callback| is called when the object is renamed successfully.
+// |error_callback| is called when it fails to rename the object.
+// |success_callback| and |error_callback| runs on the IO thread.
+void RenameObjectOnUIThread(
+    const std::string& storage_name,
+    const bool read_only,
+    const uint32 object_id,
+    const std::string& new_name,
+    const MTPDeviceTaskHelper::RenameObjectSuccessCallback& success_callback,
+    const MTPDeviceTaskHelper::ErrorCallback& error_callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  MTPDeviceTaskHelper* task_helper =
+      GetDeviceTaskHelperForStorage(storage_name, read_only);
+  if (!task_helper)
+    return;
+  task_helper->RenameObject(object_id, new_name, success_callback,
+                            error_callback);
+}
+
+// Copies the file |source_file_descriptor| to |file_name| in |parent_id|.
+//
+// |storage_name| specifies the name of the storage device.
+// |read_only| specifies the mode of the storage device.
+// |source_file_descriptor| file descriptor of source file.
+// |parent_id| object id of a target directory.
+// |file_name| file name of a target file.
+// |success_callback| is called when the file is copied successfully.
+// |error_callback| is called when it fails to copy file.
+// Since this method does not close the file descriptor, callbacks are
+// responsible for closing it.
+void CopyFileFromLocalOnUIThread(
+    const std::string& storage_name,
+    const bool read_only,
+    const int source_file_descriptor,
+    const uint32 parent_id,
+    const std::string& file_name,
+    const MTPDeviceTaskHelper::CopyFileFromLocalSuccessCallback&
+        success_callback,
+    const MTPDeviceTaskHelper::ErrorCallback& error_callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  MTPDeviceTaskHelper* task_helper =
+      GetDeviceTaskHelperForStorage(storage_name, read_only);
+  if (!task_helper)
+    return;
+  task_helper->CopyFileFromLocal(storage_name, source_file_descriptor,
+                                 parent_id, file_name, success_callback,
+                                 error_callback);
+}
+
+// Deletes |object_id|.
+//
+// Called on the UI thread to dispatch the request to the
+// MediaTransferProtocolManager.
+//
+// |storage_name| specifies the name of the storage device.
+// |read_only| specifies the mode of the storage device.
+// |object_id| is the object to be deleted.
+// |success_callback| is called when the object is deleted successfully.
+// |error_callback| is called when it fails to delete the object.
+// |success_callback| and |error_callback| runs on the IO thread.
+void DeleteObjectOnUIThread(
+    const std::string storage_name,
+    const bool read_only,
+    const uint32 object_id,
+    const MTPDeviceTaskHelper::DeleteObjectSuccessCallback success_callback,
+    const MTPDeviceTaskHelper::ErrorCallback error_callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  MTPDeviceTaskHelper* task_helper =
+      GetDeviceTaskHelperForStorage(storage_name, read_only);
+  if (!task_helper)
+    return;
+  task_helper->DeleteObject(object_id, success_callback, error_callback);
 }
 
 // Closes the device storage specified by the |storage_name| and destroys the
@@ -175,15 +300,55 @@ void ReadBytesOnUIThread(
 // Called on the UI thread to dispatch the request to the
 // MediaTransferProtocolManager.
 void CloseStorageAndDestroyTaskHelperOnUIThread(
-    const std::string& storage_name) {
+    const std::string& storage_name,
+    const bool read_only) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   MTPDeviceTaskHelper* task_helper =
-      GetDeviceTaskHelperForStorage(storage_name);
+      GetDeviceTaskHelperForStorage(storage_name, read_only);
   if (!task_helper)
     return;
   task_helper->CloseStorage();
   MTPDeviceTaskHelperMapService::GetInstance()->DestroyDeviceTaskHelper(
-      storage_name);
+      storage_name, read_only);
+}
+
+// Opens |file_path| with |flags|. Returns the result as a pair.
+// first is file descriptor.
+// second is base::File::Error. This value is set as following.
+// - When it succeeds to open a file descriptor, base::File::FILE_OK is set.
+// - When |file_path| is a directory, base::File::FILE_ERROR_NOT_A_FILE is set.
+// - When |file_path| does not exist, base::File::FILE_ERROR_NOT_FOUND is set.
+// - For other error cases, base::File::FILE_ERROR_FAILED is set.
+std::pair<int, base::File::Error> OpenFileDescriptor(const char* file_path,
+                                                     const int flags) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
+
+  if (base::DirectoryExists(base::FilePath(file_path)))
+    return std::make_pair(-1, base::File::FILE_ERROR_NOT_A_FILE);
+  int file_descriptor = open(file_path, flags);
+  if (file_descriptor >= 0)
+    return std::make_pair(file_descriptor, base::File::FILE_OK);
+  if (errno == ENOENT)
+    return std::make_pair(file_descriptor, base::File::FILE_ERROR_NOT_FOUND);
+  return std::make_pair(file_descriptor, base::File::FILE_ERROR_FAILED);
+}
+
+// Closes |file_descriptor| on file thread.
+void CloseFileDescriptor(const int file_descriptor) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
+
+  IGNORE_EINTR(close(file_descriptor));
+}
+
+// Deletes a temporary file |file_path|.
+void DeleteTemporaryFile(const base::FilePath& file_path) {
+  content::BrowserThread::PostBlockingPoolTask(
+      FROM_HERE, base::Bind(base::IgnoreResult(base::DeleteFile), file_path,
+                            false /* not recursive*/));
+}
+
+// A fake callback to be passed as CopyFileProgressCallback.
+void FakeCopyFileProgressCallback(int64 size) {
 }
 
 }  // namespace
@@ -222,13 +387,16 @@ class MTPDeviceDelegateImplLinux::MTPFileNode {
 
   bool DeleteChild(uint32 file_id);
 
+  bool HasChildren() const;
+
   uint32 file_id() const { return file_id_; }
   const std::string& file_name() const { return file_name_; }
   MTPFileNode* parent() { return parent_; }
 
  private:
   // Container for holding a node's children.
-  typedef base::ScopedPtrHashMap<std::string, MTPFileNode> ChildNodes;
+  typedef base::ScopedPtrHashMap<std::string, scoped_ptr<MTPFileNode>>
+      ChildNodes;
 
   const uint32 file_id_;
   const std::string file_name_;
@@ -302,6 +470,7 @@ bool MTPDeviceDelegateImplLinux::MTPFileNode::DeleteChild(uint32 file_id) {
   for (ChildNodes::iterator it = children_.begin();
        it != children_.end(); ++it) {
     if (it->second->file_id() == file_id) {
+      DCHECK(!it->second->HasChildren());
       children_.erase(it);
       return true;
     }
@@ -309,11 +478,18 @@ bool MTPDeviceDelegateImplLinux::MTPFileNode::DeleteChild(uint32 file_id) {
   return false;
 }
 
+bool MTPDeviceDelegateImplLinux::MTPFileNode::HasChildren() const {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+  return children_.size() > 0;
+}
+
 MTPDeviceDelegateImplLinux::MTPDeviceDelegateImplLinux(
-    const std::string& device_location)
+    const std::string& device_location,
+    const bool read_only)
     : init_state_(UNINITIALIZED),
       task_in_progress_(false),
       device_path_(device_location),
+      read_only_(read_only),
       root_node_(new MTPFileNode(mtpd::kRootFileId,
                                  "",    // Root node has no name.
                                  NULL,  // And no parent node.
@@ -327,6 +503,41 @@ MTPDeviceDelegateImplLinux::MTPDeviceDelegateImplLinux(
 
 MTPDeviceDelegateImplLinux::~MTPDeviceDelegateImplLinux() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+}
+
+void MTPDeviceDelegateImplLinux::CreateDirectory(
+    const base::FilePath& directory_path,
+    const bool exclusive,
+    const bool recursive,
+    const CreateDirectorySuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+  DCHECK(!directory_path.empty());
+
+  // If |directory_path| is not the path in this device, fails with error.
+  if (!device_path_.IsParent(directory_path)) {
+    error_callback.Run(base::File::FILE_ERROR_FAILED);
+    return;
+  }
+
+  // Decomposes |directory_path| to components. CreateDirectoryInternal creates
+  // directories by reading |components| from back.
+  std::vector<base::FilePath> components;
+  if (recursive) {
+    for (base::FilePath path = directory_path; path != device_path_;
+         path = path.DirName()) {
+      components.push_back(path);
+    }
+  } else {
+    components.push_back(directory_path);
+  }
+
+  const base::Closure closure =
+      base::Bind(&MTPDeviceDelegateImplLinux::CreateDirectoryInternal,
+                 weak_ptr_factory_.GetWeakPtr(), components, exclusive,
+                 success_callback, error_callback);
+  EnsureInitAndRunTask(PendingTaskInfo(
+      directory_path, content::BrowserThread::IO, FROM_HERE, closure));
 }
 
 void MTPDeviceDelegateImplLinux::GetFileInfo(
@@ -432,13 +643,196 @@ void MTPDeviceDelegateImplLinux::ReadBytes(
                                        closure));
 }
 
+bool MTPDeviceDelegateImplLinux::IsReadOnly() const {
+  return read_only_;
+}
+
+void MTPDeviceDelegateImplLinux::CopyFileLocal(
+    const base::FilePath& source_file_path,
+    const base::FilePath& device_file_path,
+    const CreateTemporaryFileCallback& create_temporary_file_callback,
+    const CopyFileProgressCallback& progress_callback,
+    const CopyFileLocalSuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+  DCHECK(!source_file_path.empty());
+  DCHECK(!device_file_path.empty());
+
+  // Create a temporary file for creating a copy of source file on local.
+  content::BrowserThread::PostTaskAndReplyWithResult(
+      content::BrowserThread::FILE, FROM_HERE, create_temporary_file_callback,
+      base::Bind(
+          &MTPDeviceDelegateImplLinux::OnDidCreateTemporaryFileToCopyFileLocal,
+          weak_ptr_factory_.GetWeakPtr(), source_file_path, device_file_path,
+          progress_callback, success_callback, error_callback));
+}
+
+void MTPDeviceDelegateImplLinux::MoveFileLocal(
+    const base::FilePath& source_file_path,
+    const base::FilePath& device_file_path,
+    const CreateTemporaryFileCallback& create_temporary_file_callback,
+    const MoveFileLocalSuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+  DCHECK(!source_file_path.empty());
+  DCHECK(!device_file_path.empty());
+
+  // Get file info to move file on local.
+  const GetFileInfoSuccessCallback success_callback_wrapper = base::Bind(
+      &MTPDeviceDelegateImplLinux::MoveFileLocalInternal,
+      weak_ptr_factory_.GetWeakPtr(), source_file_path, device_file_path,
+      create_temporary_file_callback, success_callback, error_callback);
+  const base::Closure closure =
+      base::Bind(&MTPDeviceDelegateImplLinux::GetFileInfoInternal,
+                 weak_ptr_factory_.GetWeakPtr(), source_file_path,
+                 success_callback_wrapper, error_callback);
+  EnsureInitAndRunTask(PendingTaskInfo(
+      source_file_path, content::BrowserThread::IO, FROM_HERE, closure));
+}
+
+void MTPDeviceDelegateImplLinux::CopyFileFromLocal(
+    const base::FilePath& source_file_path,
+    const base::FilePath& device_file_path,
+    const CopyFileFromLocalSuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+  DCHECK(!source_file_path.empty());
+  DCHECK(!device_file_path.empty());
+
+  // Get file info of destination file path.
+  const GetFileInfoSuccessCallback success_callback_wrapper = base::Bind(
+      &MTPDeviceDelegateImplLinux::OnDidGetDestFileInfoToCopyFileFromLocal,
+      weak_ptr_factory_.GetWeakPtr(), error_callback);
+  const ErrorCallback error_callback_wrapper = base::Bind(
+      &MTPDeviceDelegateImplLinux::OnGetDestFileInfoErrorToCopyFileFromLocal,
+      weak_ptr_factory_.GetWeakPtr(), source_file_path, device_file_path,
+      success_callback, error_callback);
+  const base::Closure closure =
+      base::Bind(&MTPDeviceDelegateImplLinux::GetFileInfoInternal,
+                 weak_ptr_factory_.GetWeakPtr(), device_file_path,
+                 success_callback_wrapper, error_callback_wrapper);
+  EnsureInitAndRunTask(PendingTaskInfo(
+      device_file_path, content::BrowserThread::IO, FROM_HERE, closure));
+}
+
+void MTPDeviceDelegateImplLinux::DeleteFile(
+    const base::FilePath& file_path,
+    const DeleteFileSuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+  DCHECK(!file_path.empty());
+
+  const GetFileInfoSuccessCallback& success_callback_wrapper =
+      base::Bind(&MTPDeviceDelegateImplLinux::DeleteFileInternal,
+                 weak_ptr_factory_.GetWeakPtr(), file_path, success_callback,
+                 error_callback);
+
+  const base::Closure closure =
+      base::Bind(&MTPDeviceDelegateImplLinux::GetFileInfoInternal,
+                 weak_ptr_factory_.GetWeakPtr(), file_path,
+                 success_callback_wrapper, error_callback);
+  EnsureInitAndRunTask(PendingTaskInfo(file_path, content::BrowserThread::IO,
+                                       FROM_HERE, closure));
+}
+
+void MTPDeviceDelegateImplLinux::DeleteDirectory(
+    const base::FilePath& file_path,
+    const DeleteDirectorySuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+  DCHECK(!file_path.empty());
+
+  const GetFileInfoSuccessCallback& success_callback_wrapper =
+      base::Bind(&MTPDeviceDelegateImplLinux::DeleteDirectoryInternal,
+                 weak_ptr_factory_.GetWeakPtr(), file_path, success_callback,
+                 error_callback);
+
+  const base::Closure closure =
+      base::Bind(&MTPDeviceDelegateImplLinux::GetFileInfoInternal,
+                 weak_ptr_factory_.GetWeakPtr(), file_path,
+                 success_callback_wrapper, error_callback);
+  EnsureInitAndRunTask(PendingTaskInfo(file_path, content::BrowserThread::IO,
+                                       FROM_HERE, closure));
+}
+
+void MTPDeviceDelegateImplLinux::AddWatcher(
+    const GURL& origin,
+    const base::FilePath& file_path,
+    const bool recursive,
+    const storage::WatcherManager::StatusCallback& callback,
+    const storage::WatcherManager::NotificationCallback&
+        notification_callback) {
+  if (recursive) {
+    callback.Run(base::File::FILE_ERROR_INVALID_OPERATION);
+    return;
+  }
+
+  const auto it = subscribers_.find(file_path);
+  if (it != subscribers_.end()) {
+    // Adds to existing origin callback map.
+    if (ContainsKey(it->second, origin)) {
+      callback.Run(base::File::FILE_ERROR_EXISTS);
+      return;
+    }
+
+    it->second.insert(std::make_pair(origin, notification_callback));
+  } else {
+    // Creates new origin callback map.
+    OriginNotificationCallbackMap callback_map;
+    callback_map.insert(std::make_pair(origin, notification_callback));
+    subscribers_.insert(std::make_pair(file_path, callback_map));
+  }
+
+  callback.Run(base::File::FILE_OK);
+}
+
+void MTPDeviceDelegateImplLinux::RemoveWatcher(
+    const GURL& origin,
+    const base::FilePath& file_path,
+    const bool recursive,
+    const storage::WatcherManager::StatusCallback& callback) {
+  if (recursive) {
+    callback.Run(base::File::FILE_ERROR_INVALID_OPERATION);
+    return;
+  }
+
+  const auto it = subscribers_.find(file_path);
+  if (it == subscribers_.end()) {
+    callback.Run(base::File::FILE_ERROR_NOT_FOUND);
+    return;
+  }
+
+  if (it->second.erase(origin) == 0) {
+    callback.Run(base::File::FILE_ERROR_NOT_FOUND);
+    return;
+  }
+
+  if (it->second.empty())
+    subscribers_.erase(it);
+
+  callback.Run(base::File::FILE_OK);
+}
+
+void MTPDeviceDelegateImplLinux::NotifyFileChange(
+    const base::FilePath& file_path,
+    const storage::WatcherManager::ChangeType change_type) {
+  const auto it = subscribers_.find(file_path);
+  if (it != subscribers_.end()) {
+    for (const auto& origin_callback : it->second) {
+      origin_callback.second.Run(change_type);
+    }
+  }
+}
+
 void MTPDeviceDelegateImplLinux::CancelPendingTasksAndDeleteDelegate() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   // To cancel all the pending tasks, destroy the MTPDeviceTaskHelper object.
   content::BrowserThread::PostTask(
       content::BrowserThread::UI,
       FROM_HERE,
-      base::Bind(&CloseStorageAndDestroyTaskHelperOnUIThread, storage_name_));
+      base::Bind(&CloseStorageAndDestroyTaskHelperOnUIThread,
+                 storage_name_,
+                 read_only_));
   delete this;
 }
 
@@ -463,6 +857,7 @@ void MTPDeviceDelegateImplLinux::GetFileInfoInternal(
 
     base::Closure closure = base::Bind(&GetFileInfoOnUIThread,
                                        storage_name_,
+                                       read_only_,
                                        file_id,
                                        success_callback_wrapper,
                                        error_callback_wrapper);
@@ -473,6 +868,70 @@ void MTPDeviceDelegateImplLinux::GetFileInfoInternal(
   } else {
     error_callback.Run(base::File::FILE_ERROR_NOT_FOUND);
   }
+  PendingRequestDone();
+}
+
+void MTPDeviceDelegateImplLinux::CreateDirectoryInternal(
+    const std::vector<base::FilePath>& components,
+    const bool exclusive,
+    const CreateDirectorySuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  const base::FilePath current_component = components.back();
+  std::vector<base::FilePath> other_components = components;
+  other_components.pop_back();
+
+  if (other_components.empty()) {
+    // Either we reached the last component in the recursive case, or this is
+    // the non-recursive case.
+    uint32 parent_id;
+    if (CachedPathToId(current_component.DirName(), &parent_id)) {
+      const base::Closure closure =
+          base::Bind(&MTPDeviceDelegateImplLinux::CreateSingleDirectory,
+                     weak_ptr_factory_.GetWeakPtr(), current_component,
+                     exclusive, success_callback, error_callback);
+      EnsureInitAndRunTask(PendingTaskInfo(
+          base::FilePath(), content::BrowserThread::IO, FROM_HERE, closure));
+    } else {
+      error_callback.Run(base::File::FILE_ERROR_NOT_FOUND);
+    }
+  } else {
+    // Ensures that parent directories are created for recursive case.
+    uint32 directory_id;
+    if (CachedPathToId(current_component, &directory_id)) {
+      // Parent directory |current_component| already exists, continue creating
+      // directories.
+      const base::Closure closure =
+          base::Bind(&MTPDeviceDelegateImplLinux::CreateDirectoryInternal,
+                     weak_ptr_factory_.GetWeakPtr(), other_components,
+                     exclusive, success_callback, error_callback);
+      EnsureInitAndRunTask(PendingTaskInfo(
+          base::FilePath(), content::BrowserThread::IO, FROM_HERE, closure));
+    } else {
+      // If parent directory |current_component| does not exist, create it.
+      const CreateDirectorySuccessCallback success_callback_wrapper =
+          base::Bind(&MTPDeviceDelegateImplLinux::
+                         OnDidCreateParentDirectoryToCreateDirectory,
+                     weak_ptr_factory_.GetWeakPtr(), current_component,
+                     other_components, exclusive, success_callback,
+                     error_callback);
+      // Wraps error callback to return all errors of creating parent
+      // directories as FILE_ERROR_FAILED.
+      const ErrorCallback error_callback_wrapper =
+          base::Bind(&MTPDeviceDelegateImplLinux::
+                         OnCreateParentDirectoryErrorToCreateDirectory,
+                     weak_ptr_factory_.GetWeakPtr(), error_callback);
+      const base::Closure closure =
+          base::Bind(&MTPDeviceDelegateImplLinux::CreateSingleDirectory,
+                     weak_ptr_factory_.GetWeakPtr(), current_component,
+                     false /* not exclusive */, success_callback_wrapper,
+                     error_callback_wrapper);
+      EnsureInitAndRunTask(PendingTaskInfo(
+          base::FilePath(), content::BrowserThread::IO, FROM_HERE, closure));
+    }
+  }
+
   PendingRequestDone();
 }
 
@@ -497,6 +956,7 @@ void MTPDeviceDelegateImplLinux::ReadDirectoryInternal(
                    dir_id);
     base::Closure closure = base::Bind(&GetFileInfoOnUIThread,
                                        storage_name_,
+                                       read_only_,
                                        dir_id,
                                        success_callback_wrapper,
                                        error_callback_wrapper);
@@ -536,6 +996,7 @@ void MTPDeviceDelegateImplLinux::CreateSnapshotFileInternal(
                    file_id);
     base::Closure closure = base::Bind(&GetFileInfoOnUIThread,
                                        storage_name_,
+                                       read_only_,
                                        file_id,
                                        success_callback_wrapper,
                                        error_callback_wrapper);
@@ -569,7 +1030,7 @@ void MTPDeviceDelegateImplLinux::ReadBytesInternal(
                    file_id));
 
     base::Closure closure =
-        base::Bind(base::Bind(&ReadBytesOnUIThread, storage_name_, request));
+        base::Bind(&ReadBytesOnUIThread, storage_name_, read_only_, request);
     EnsureInitAndRunTask(PendingTaskInfo(base::FilePath(),
                                          content::BrowserThread::UI,
                                          FROM_HERE,
@@ -578,6 +1039,246 @@ void MTPDeviceDelegateImplLinux::ReadBytesInternal(
     error_callback.Run(base::File::FILE_ERROR_NOT_FOUND);
   }
   PendingRequestDone();
+}
+
+void MTPDeviceDelegateImplLinux::MoveFileLocalInternal(
+    const base::FilePath& source_file_path,
+    const base::FilePath& device_file_path,
+    const CreateTemporaryFileCallback& create_temporary_file_callback,
+    const MoveFileLocalSuccessCallback& success_callback,
+    const ErrorCallback& error_callback,
+    const base::File::Info& source_file_info) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  if (source_file_info.is_directory) {
+    error_callback.Run(base::File::FILE_ERROR_NOT_A_FILE);
+    return;
+  }
+
+  if (source_file_path.DirName() == device_file_path.DirName()) {
+    // If a file is moved in a same directory, rename the file.
+    uint32 file_id;
+    if (CachedPathToId(source_file_path, &file_id)) {
+      const MTPDeviceTaskHelper::RenameObjectSuccessCallback
+          success_callback_wrapper = base::Bind(
+              &MTPDeviceDelegateImplLinux::OnDidMoveFileLocalWithRename,
+              weak_ptr_factory_.GetWeakPtr(), success_callback,
+              source_file_path, file_id);
+      const MTPDeviceTaskHelper::ErrorCallback error_callback_wrapper =
+          base::Bind(&MTPDeviceDelegateImplLinux::HandleDeviceFileError,
+                     weak_ptr_factory_.GetWeakPtr(), error_callback, file_id);
+      const base::Closure closure =
+          base::Bind(&RenameObjectOnUIThread, storage_name_, read_only_,
+                     file_id, device_file_path.BaseName().value(),
+                     success_callback_wrapper, error_callback_wrapper);
+      EnsureInitAndRunTask(PendingTaskInfo(
+          base::FilePath(), content::BrowserThread::UI, FROM_HERE, closure));
+    } else {
+      error_callback.Run(base::File::FILE_ERROR_NOT_FOUND);
+    }
+  } else {
+    // If a file is moved to a different directory, create a copy to the
+    // destination path, and remove source file.
+    const CopyFileLocalSuccessCallback& success_callback_wrapper =
+        base::Bind(&MTPDeviceDelegateImplLinux::DeleteFileInternal,
+                   weak_ptr_factory_.GetWeakPtr(), source_file_path,
+                   success_callback, error_callback, source_file_info);
+    // TODO(yawano): Avoid to call external method from internal code.
+    CopyFileLocal(source_file_path, device_file_path,
+                  create_temporary_file_callback,
+                  base::Bind(&FakeCopyFileProgressCallback),
+                  success_callback_wrapper, error_callback);
+  }
+}
+
+void MTPDeviceDelegateImplLinux::OnDidOpenFDToCopyFileFromLocal(
+    const base::FilePath& device_file_path,
+    const CopyFileFromLocalSuccessCallback& success_callback,
+    const ErrorCallback& error_callback,
+    const std::pair<int, base::File::Error>& open_fd_result) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  if (open_fd_result.second != base::File::FILE_OK) {
+    error_callback.Run(open_fd_result.second);
+    return;
+  }
+
+  const int source_file_descriptor = open_fd_result.first;
+  uint32 parent_id;
+  if (CachedPathToId(device_file_path.DirName(), &parent_id)) {
+    CopyFileFromLocalSuccessCallback success_callback_wrapper =
+        base::Bind(&MTPDeviceDelegateImplLinux::OnDidCopyFileFromLocal,
+                   weak_ptr_factory_.GetWeakPtr(), success_callback,
+                   device_file_path, source_file_descriptor);
+
+    ErrorCallback error_callback_wrapper = base::Bind(
+        &MTPDeviceDelegateImplLinux::HandleCopyFileFromLocalError,
+        weak_ptr_factory_.GetWeakPtr(), error_callback, source_file_descriptor);
+
+    base::Closure closure = base::Bind(&CopyFileFromLocalOnUIThread,
+                                       storage_name_,
+                                       read_only_,
+                                       source_file_descriptor,
+                                       parent_id,
+                                       device_file_path.BaseName().value(),
+                                       success_callback_wrapper,
+                                       error_callback_wrapper);
+
+    EnsureInitAndRunTask(PendingTaskInfo(
+        base::FilePath(), content::BrowserThread::UI, FROM_HERE, closure));
+  } else {
+    HandleCopyFileFromLocalError(error_callback, source_file_descriptor,
+                                 base::File::FILE_ERROR_NOT_FOUND);
+  }
+}
+
+void MTPDeviceDelegateImplLinux::DeleteFileInternal(
+    const base::FilePath& file_path,
+    const DeleteFileSuccessCallback& success_callback,
+    const ErrorCallback& error_callback,
+    const base::File::Info& file_info) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  if (file_info.is_directory) {
+    error_callback.Run(base::File::FILE_ERROR_NOT_A_FILE);
+  } else {
+    uint32 file_id;
+    if (CachedPathToId(file_path, &file_id))
+      RunDeleteObjectOnUIThread(file_path, file_id, success_callback,
+                                error_callback);
+    else
+      error_callback.Run(base::File::FILE_ERROR_NOT_FOUND);
+  }
+}
+
+void MTPDeviceDelegateImplLinux::DeleteDirectoryInternal(
+    const base::FilePath& file_path,
+    const DeleteDirectorySuccessCallback& success_callback,
+    const ErrorCallback& error_callback,
+    const base::File::Info& file_info) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  if (!file_info.is_directory) {
+    error_callback.Run(base::File::FILE_ERROR_NOT_A_DIRECTORY);
+    return;
+  }
+
+  uint32 directory_id;
+  if (!CachedPathToId(file_path, &directory_id)) {
+    error_callback.Run(base::File::FILE_ERROR_NOT_FOUND);
+    return;
+  }
+
+  // Checks the cache first. If it has children in cache, the directory cannot
+  // be empty.
+  FileIdToMTPFileNodeMap::const_iterator it =
+      file_id_to_node_map_.find(directory_id);
+  if (it != file_id_to_node_map_.end() && it->second->HasChildren()) {
+    error_callback.Run(base::File::FILE_ERROR_NOT_EMPTY);
+    return;
+  }
+
+  // Since the directory can contain a file even if the cache returns it as
+  // empty, read the directory and confirm the directory is actually empty.
+  const MTPDeviceTaskHelper::ReadDirectorySuccessCallback
+      success_callback_wrapper = base::Bind(
+          &MTPDeviceDelegateImplLinux::OnDidReadDirectoryToDeleteDirectory,
+          weak_ptr_factory_.GetWeakPtr(), file_path, directory_id,
+          success_callback, error_callback);
+  const MTPDeviceTaskHelper::ErrorCallback error_callback_wrapper =
+      base::Bind(&MTPDeviceDelegateImplLinux::HandleDeviceFileError,
+                 weak_ptr_factory_.GetWeakPtr(), error_callback, directory_id);
+  const base::Closure closure = base::Bind(
+      &ReadDirectoryOnUIThread, storage_name_, read_only_, directory_id,
+      1 /* max_size */, success_callback_wrapper, error_callback_wrapper);
+  EnsureInitAndRunTask(PendingTaskInfo(
+      base::FilePath(), content::BrowserThread::UI, FROM_HERE, closure));
+}
+
+void MTPDeviceDelegateImplLinux::CreateSingleDirectory(
+    const base::FilePath& directory_path,
+    const bool exclusive,
+    const CreateDirectorySuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  const GetFileInfoSuccessCallback success_callback_wrapper = base::Bind(
+      &MTPDeviceDelegateImplLinux::OnPathAlreadyExistsForCreateSingleDirectory,
+      weak_ptr_factory_.GetWeakPtr(), exclusive, success_callback,
+      error_callback);
+  const ErrorCallback error_callback_wrapper = base::Bind(
+      &MTPDeviceDelegateImplLinux::OnPathDoesNotExistForCreateSingleDirectory,
+      weak_ptr_factory_.GetWeakPtr(), directory_path, success_callback,
+      error_callback);
+  const base::Closure closure =
+      base::Bind(&MTPDeviceDelegateImplLinux::GetFileInfoInternal,
+                 weak_ptr_factory_.GetWeakPtr(), directory_path,
+                 success_callback_wrapper, error_callback_wrapper);
+  EnsureInitAndRunTask(PendingTaskInfo(
+      base::FilePath(), content::BrowserThread::IO, FROM_HERE, closure));
+  PendingRequestDone();
+}
+
+void MTPDeviceDelegateImplLinux::OnDidReadDirectoryToCreateDirectory(
+    const std::vector<base::FilePath>& components,
+    const bool exclusive,
+    const CreateDirectorySuccessCallback& success_callback,
+    const ErrorCallback& error_callback,
+    const storage::AsyncFileUtil::EntryList& /* file_list */,
+    const bool has_more) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  if (has_more)
+    return;  // Wait until all entries have been read.
+
+  const base::Closure closure =
+      base::Bind(&MTPDeviceDelegateImplLinux::CreateDirectoryInternal,
+                 weak_ptr_factory_.GetWeakPtr(), components, exclusive,
+                 success_callback, error_callback);
+  EnsureInitAndRunTask(PendingTaskInfo(
+      base::FilePath(), content::BrowserThread::IO, FROM_HERE, closure));
+}
+
+void MTPDeviceDelegateImplLinux::OnDidReadDirectoryToDeleteDirectory(
+    const base::FilePath& directory_path,
+    const uint32 directory_id,
+    const DeleteDirectorySuccessCallback& success_callback,
+    const ErrorCallback& error_callback,
+    const storage::AsyncFileUtil::EntryList& entries,
+    const bool has_more) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+  DCHECK(!has_more);
+
+  if (entries.size() > 0) {
+    error_callback.Run(base::File::FILE_ERROR_NOT_EMPTY);
+  } else {
+    RunDeleteObjectOnUIThread(directory_path, directory_id, success_callback,
+                              error_callback);
+  }
+
+  PendingRequestDone();
+}
+
+void MTPDeviceDelegateImplLinux::RunDeleteObjectOnUIThread(
+    const base::FilePath& object_path,
+    const uint32 object_id,
+    const DeleteObjectSuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  const MTPDeviceTaskHelper::DeleteObjectSuccessCallback
+      success_callback_wrapper =
+          base::Bind(&MTPDeviceDelegateImplLinux::OnDidDeleteObject,
+                     weak_ptr_factory_.GetWeakPtr(), object_path, object_id,
+                     success_callback);
+
+  const MTPDeviceTaskHelper::ErrorCallback error_callback_wrapper =
+      base::Bind(&MTPDeviceDelegateImplLinux::HandleDeleteFileOrDirectoryError,
+                 weak_ptr_factory_.GetWeakPtr(), error_callback);
+
+  const base::Closure closure =
+      base::Bind(&DeleteObjectOnUIThread, storage_name_, read_only_, object_id,
+                 success_callback_wrapper, error_callback_wrapper);
+  EnsureInitAndRunTask(PendingTaskInfo(
+      base::FilePath(), content::BrowserThread::UI, FROM_HERE, closure));
 }
 
 void MTPDeviceDelegateImplLinux::EnsureInitAndRunTask(
@@ -599,10 +1300,8 @@ void MTPDeviceDelegateImplLinux::EnsureInitAndRunTask(
     init_state_ = PENDING_INIT;
     task_in_progress_ = true;
     content::BrowserThread::PostTask(
-        content::BrowserThread::UI,
-        FROM_HERE,
-        base::Bind(&OpenStorageOnUIThread,
-                   storage_name_,
+        content::BrowserThread::UI, FROM_HERE,
+        base::Bind(&OpenStorageOnUIThread, storage_name_, read_only_,
                    base::Bind(&MTPDeviceDelegateImplLinux::OnInitCompleted,
                               weak_ptr_factory_.GetWeakPtr())));
   }
@@ -649,6 +1348,7 @@ void MTPDeviceDelegateImplLinux::WriteDataIntoSnapshotFile(
 
   base::Closure task_closure = base::Bind(&WriteDataIntoSnapshotFileOnUIThread,
                                           storage_name_,
+                                          read_only_,
                                           request_info,
                                           file_info);
   content::BrowserThread::PostTask(content::BrowserThread::UI,
@@ -657,6 +1357,7 @@ void MTPDeviceDelegateImplLinux::WriteDataIntoSnapshotFile(
 }
 
 void MTPDeviceDelegateImplLinux::PendingRequestDone() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   DCHECK(task_in_progress_);
   task_in_progress_ = false;
   ProcessNextPendingRequest();
@@ -687,6 +1388,52 @@ void MTPDeviceDelegateImplLinux::OnDidGetFileInfo(
   PendingRequestDone();
 }
 
+void MTPDeviceDelegateImplLinux::OnPathAlreadyExistsForCreateSingleDirectory(
+    const bool exclusive,
+    const CreateDirectorySuccessCallback& success_callback,
+    const ErrorCallback& error_callback,
+    const base::File::Info& file_info) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  if (!file_info.is_directory || exclusive)
+    error_callback.Run(base::File::FILE_ERROR_EXISTS);
+  else
+    success_callback.Run();
+}
+
+void MTPDeviceDelegateImplLinux::OnPathDoesNotExistForCreateSingleDirectory(
+    const base::FilePath& directory_path,
+    const CreateDirectorySuccessCallback& success_callback,
+    const ErrorCallback& error_callback,
+    const base::File::Error error) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  if (error != base::File::FILE_ERROR_NOT_FOUND) {
+    error_callback.Run(base::File::FILE_ERROR_NOT_FOUND);
+    return;
+  }
+
+  uint32 parent_id;
+  if (!CachedPathToId(directory_path.DirName(), &parent_id)) {
+    error_callback.Run(base::File::FILE_ERROR_NOT_FOUND);
+    return;
+  }
+
+  const MTPDeviceTaskHelper::CreateDirectorySuccessCallback
+      success_callback_wrapper = base::Bind(
+          &MTPDeviceDelegateImplLinux::OnDidCreateSingleDirectory,
+          weak_ptr_factory_.GetWeakPtr(), directory_path, success_callback);
+  const MTPDeviceTaskHelper::ErrorCallback error_callback_wrapper =
+      base::Bind(&MTPDeviceDelegateImplLinux::HandleDeviceFileError,
+                 weak_ptr_factory_.GetWeakPtr(), error_callback, parent_id);
+  const base::Closure closure =
+      base::Bind(&CreateDirectoryOnUIThread, storage_name_, read_only_,
+                 parent_id, directory_path.BaseName().value(),
+                 success_callback_wrapper, error_callback_wrapper);
+  EnsureInitAndRunTask(PendingTaskInfo(
+      base::FilePath(), content::BrowserThread::UI, FROM_HERE, closure));
+}
+
 void MTPDeviceDelegateImplLinux::OnDidGetFileInfoToReadDirectory(
     uint32 dir_id,
     const ReadDirectorySuccessCallback& success_callback,
@@ -700,18 +1447,13 @@ void MTPDeviceDelegateImplLinux::OnDidGetFileInfoToReadDirectory(
                                  base::File::FILE_ERROR_NOT_A_DIRECTORY);
   }
 
-  base::Closure task_closure =
-      base::Bind(&ReadDirectoryOnUIThread,
-                 storage_name_,
-                 dir_id,
-                 base::Bind(&MTPDeviceDelegateImplLinux::OnDidReadDirectory,
-                            weak_ptr_factory_.GetWeakPtr(),
-                            dir_id,
-                            success_callback),
-                 base::Bind(&MTPDeviceDelegateImplLinux::HandleDeviceFileError,
-                            weak_ptr_factory_.GetWeakPtr(),
-                            error_callback,
-                            dir_id));
+  base::Closure task_closure = base::Bind(
+      &ReadDirectoryOnUIThread, storage_name_, read_only_, dir_id,
+      0 /* max_size */,
+      base::Bind(&MTPDeviceDelegateImplLinux::OnDidReadDirectory,
+                 weak_ptr_factory_.GetWeakPtr(), dir_id, success_callback),
+      base::Bind(&MTPDeviceDelegateImplLinux::HandleDeviceFileError,
+                 weak_ptr_factory_.GetWeakPtr(), error_callback, dir_id));
   content::BrowserThread::PostTask(content::BrowserThread::UI,
                                    FROM_HERE,
                                    task_closure);
@@ -747,6 +1489,81 @@ void MTPDeviceDelegateImplLinux::OnDidGetFileInfoToCreateSnapshotFile(
         snapshot_file_info, current_snapshot_request_info_->snapshot_file_path);
   }
   WriteDataIntoSnapshotFile(snapshot_file_info);
+}
+
+void MTPDeviceDelegateImplLinux::OnDidGetDestFileInfoToCopyFileFromLocal(
+    const ErrorCallback& error_callback,
+    const base::File::Info& file_info) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  if (file_info.is_directory)
+    error_callback.Run(base::File::FILE_ERROR_INVALID_OPERATION);
+  else
+    error_callback.Run(base::File::FILE_ERROR_FAILED);
+}
+
+void MTPDeviceDelegateImplLinux::OnGetDestFileInfoErrorToCopyFileFromLocal(
+    const base::FilePath& source_file_path,
+    const base::FilePath& device_file_path,
+    const CopyFileFromLocalSuccessCallback& success_callback,
+    const ErrorCallback& error_callback,
+    const base::File::Error error) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  if (error != base::File::FILE_ERROR_NOT_FOUND) {
+    error_callback.Run(error);
+    return;
+  }
+
+  content::BrowserThread::PostTaskAndReplyWithResult(
+      content::BrowserThread::FILE, FROM_HERE,
+      base::Bind(&OpenFileDescriptor, source_file_path.value().c_str(),
+                 O_RDONLY),
+      base::Bind(&MTPDeviceDelegateImplLinux::OnDidOpenFDToCopyFileFromLocal,
+                 weak_ptr_factory_.GetWeakPtr(), device_file_path,
+                 success_callback, error_callback));
+}
+
+void MTPDeviceDelegateImplLinux::OnDidCreateSingleDirectory(
+    const base::FilePath& directory_path,
+    const CreateDirectorySuccessCallback& success_callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  success_callback.Run();
+  NotifyFileChange(directory_path.DirName(),
+                   storage::WatcherManager::ChangeType::CHANGED);
+  PendingRequestDone();
+}
+
+void MTPDeviceDelegateImplLinux::OnDidCreateParentDirectoryToCreateDirectory(
+    const base::FilePath& created_directory,
+    const std::vector<base::FilePath>& components,
+    const bool exclusive,
+    const CreateDirectorySuccessCallback& success_callback,
+    const ErrorCallback& error_callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  // Calls ReadDirectoryInternal to fill the cache for created directory.
+  // Calls ReadDirectoryInternal in this method to call it via
+  // EnsureInitAndRunTask.
+  const ReadDirectorySuccessCallback& success_callback_wrapper = base::Bind(
+      &MTPDeviceDelegateImplLinux::OnDidReadDirectoryToCreateDirectory,
+      weak_ptr_factory_.GetWeakPtr(), components, exclusive, success_callback,
+      error_callback);
+  const base::Closure closure =
+      base::Bind(&MTPDeviceDelegateImplLinux::ReadDirectoryInternal,
+                 weak_ptr_factory_.GetWeakPtr(), created_directory.DirName(),
+                 success_callback_wrapper, error_callback);
+  EnsureInitAndRunTask(PendingTaskInfo(
+      base::FilePath(), content::BrowserThread::IO, FROM_HERE, closure));
+}
+
+void MTPDeviceDelegateImplLinux::OnCreateParentDirectoryErrorToCreateDirectory(
+    const ErrorCallback& callback,
+    const base::File::Error error) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  callback.Run(base::File::FILE_ERROR_FAILED);
 }
 
 void MTPDeviceDelegateImplLinux::OnDidReadDirectory(
@@ -854,20 +1671,153 @@ void MTPDeviceDelegateImplLinux::OnFillFileCacheFailed(
   pending_tasks_.front().path.clear();
 }
 
+void MTPDeviceDelegateImplLinux::OnDidCreateTemporaryFileToCopyFileLocal(
+    const base::FilePath& source_file_path,
+    const base::FilePath& device_file_path,
+    const CopyFileProgressCallback& progress_callback,
+    const CopyFileLocalSuccessCallback& success_callback,
+    const ErrorCallback& error_callback,
+    const base::FilePath& temporary_file_path) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  if (temporary_file_path.empty()) {
+    error_callback.Run(base::File::FILE_ERROR_FAILED);
+    return;
+  }
+
+  CreateSnapshotFile(
+      source_file_path, temporary_file_path,
+      base::Bind(
+          &MTPDeviceDelegateImplLinux::OnDidCreateSnapshotFileOfCopyFileLocal,
+          weak_ptr_factory_.GetWeakPtr(), device_file_path, progress_callback,
+          success_callback, error_callback),
+      base::Bind(&MTPDeviceDelegateImplLinux::HandleCopyFileLocalError,
+                 weak_ptr_factory_.GetWeakPtr(), error_callback,
+                 temporary_file_path));
+}
+
+void MTPDeviceDelegateImplLinux::OnDidCreateSnapshotFileOfCopyFileLocal(
+    const base::FilePath& device_file_path,
+    const CopyFileProgressCallback& progress_callback,
+    const CopyFileLocalSuccessCallback& success_callback,
+    const ErrorCallback& error_callback,
+    const base::File::Info& file_info,
+    const base::FilePath& temporary_file_path) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  // Consider that half of copy is completed by creating a temporary file.
+  progress_callback.Run(file_info.size / 2);
+
+  // TODO(yawano): Avoid to call external method from internal code.
+  CopyFileFromLocal(
+      temporary_file_path, device_file_path,
+      base::Bind(
+          &MTPDeviceDelegateImplLinux::OnDidCopyFileFromLocalOfCopyFileLocal,
+          weak_ptr_factory_.GetWeakPtr(), success_callback,
+          temporary_file_path),
+      base::Bind(&MTPDeviceDelegateImplLinux::HandleCopyFileLocalError,
+                 weak_ptr_factory_.GetWeakPtr(), error_callback,
+                 temporary_file_path));
+}
+
+void MTPDeviceDelegateImplLinux::OnDidCopyFileFromLocalOfCopyFileLocal(
+    const CopyFileFromLocalSuccessCallback success_callback,
+    const base::FilePath& temporary_file_path) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  DeleteTemporaryFile(temporary_file_path);
+  success_callback.Run();
+}
+
+void MTPDeviceDelegateImplLinux::OnDidMoveFileLocalWithRename(
+    const MoveFileLocalSuccessCallback& success_callback,
+    const base::FilePath& source_file_path,
+    const uint32 file_id) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  EvictCachedPathToId(file_id);
+  success_callback.Run();
+  NotifyFileChange(source_file_path,
+                   storage::WatcherManager::ChangeType::DELETED);
+  NotifyFileChange(source_file_path.DirName(),
+                   storage::WatcherManager::ChangeType::CHANGED);
+  PendingRequestDone();
+}
+
+void MTPDeviceDelegateImplLinux::OnDidCopyFileFromLocal(
+    const CopyFileFromLocalSuccessCallback& success_callback,
+    const base::FilePath& file_path,
+    const int source_file_descriptor) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  const base::Closure closure = base::Bind(&CloseFileDescriptor,
+                                           source_file_descriptor);
+
+  content::BrowserThread::PostTask(content::BrowserThread::FILE, FROM_HERE,
+                                   closure);
+
+  success_callback.Run();
+  NotifyFileChange(file_path.DirName(),
+                   storage::WatcherManager::ChangeType::CHANGED);
+  PendingRequestDone();
+}
+
+void MTPDeviceDelegateImplLinux::HandleCopyFileLocalError(
+    const ErrorCallback& error_callback,
+    const base::FilePath& temporary_file_path,
+    const base::File::Error error) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  DeleteTemporaryFile(temporary_file_path);
+  error_callback.Run(error);
+}
+
+void MTPDeviceDelegateImplLinux::HandleCopyFileFromLocalError(
+    const ErrorCallback& error_callback,
+    const int source_file_descriptor,
+    base::File::Error error) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  const base::Closure closure = base::Bind(&CloseFileDescriptor,
+                                           source_file_descriptor);
+
+  content::BrowserThread::PostTask(content::BrowserThread::FILE, FROM_HERE,
+                                   closure);
+
+  error_callback.Run(error);
+  PendingRequestDone();
+}
+
+void MTPDeviceDelegateImplLinux::OnDidDeleteObject(
+    const base::FilePath& object_path,
+    const uint32 object_id,
+    const DeleteObjectSuccessCallback success_callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  EvictCachedPathToId(object_id);
+  success_callback.Run();
+  NotifyFileChange(object_path, storage::WatcherManager::ChangeType::DELETED);
+  NotifyFileChange(object_path.DirName(),
+                   storage::WatcherManager::ChangeType::CHANGED);
+  PendingRequestDone();
+}
+
+void MTPDeviceDelegateImplLinux::HandleDeleteFileOrDirectoryError(
+    const ErrorCallback& error_callback,
+    base::File::Error error) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+
+  error_callback.Run(error);
+  PendingRequestDone();
+}
+
 void MTPDeviceDelegateImplLinux::HandleDeviceFileError(
     const ErrorCallback& error_callback,
     uint32 file_id,
     base::File::Error error) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
-  FileIdToMTPFileNodeMap::iterator it = file_id_to_node_map_.find(file_id);
-  if (it != file_id_to_node_map_.end()) {
-    MTPFileNode* parent = it->second->parent();
-    if (parent) {
-      bool ret = parent->DeleteChild(file_id);
-      DCHECK(ret);
-    }
-  }
+  EvictCachedPathToId(file_id);
   error_callback.Run(error);
   PendingRequestDone();
 }
@@ -941,9 +1891,22 @@ bool MTPDeviceDelegateImplLinux::CachedPathToId(const base::FilePath& path,
   return true;
 }
 
+void MTPDeviceDelegateImplLinux::EvictCachedPathToId(const uint32 id) {
+  FileIdToMTPFileNodeMap::iterator it = file_id_to_node_map_.find(id);
+  if (it != file_id_to_node_map_.end()) {
+    DCHECK(!it->second->HasChildren());
+    MTPFileNode* parent = it->second->parent();
+    if (parent) {
+      const bool ret = parent->DeleteChild(id);
+      DCHECK(ret);
+    }
+  }
+}
+
 void CreateMTPDeviceAsyncDelegate(
     const std::string& device_location,
+    const bool read_only,
     const CreateMTPDeviceAsyncDelegateCallback& callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-  callback.Run(new MTPDeviceDelegateImplLinux(device_location));
+  callback.Run(new MTPDeviceDelegateImplLinux(device_location, read_only));
 }

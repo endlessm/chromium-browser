@@ -30,7 +30,6 @@
 #include "platform/geometry/FloatPoint.h"
 #include "platform/geometry/FloatSize.h"
 #include "platform/geometry/IntRect.h"
-#include "platform/mac/ScrollElasticityController.h"
 #include "platform/scroll/ScrollAnimator.h"
 #include "wtf/RetainPtr.h"
 
@@ -40,19 +39,15 @@ OBJC_CLASS WebScrollbarPainterDelegate;
 
 typedef id ScrollbarPainterController;
 
-#if !USE(RUBBER_BANDING)
-class ScrollElasticityControllerClient { };
-#endif
-
 namespace blink {
 
 class Scrollbar;
 
-class PLATFORM_EXPORT ScrollAnimatorMac : public ScrollAnimator, private ScrollElasticityControllerClient {
+class PLATFORM_EXPORT ScrollAnimatorMac : public ScrollAnimator {
 
 public:
     ScrollAnimatorMac(ScrollableArea*);
-    virtual ~ScrollAnimatorMac();
+    ~ScrollAnimatorMac() override;
 
     void immediateScrollToPointForScrollAnimation(const FloatPoint& newPosition);
     bool haveScrolledSincePageLoad() const { return m_haveScrolledSincePageLoad; }
@@ -85,71 +80,43 @@ private:
     Timer<ScrollAnimatorMac> m_sendContentAreaScrolledTimer;
     FloatSize m_contentAreaScrolledTimerScrollDelta;
 
-    virtual bool scroll(ScrollbarOrientation, ScrollGranularity, float step, float delta) override;
-    virtual void scrollToOffsetWithoutAnimation(const FloatPoint&) override;
+    ScrollResultOneDimensional userScroll(ScrollbarOrientation, ScrollGranularity, float step, float delta) override;
+    void scrollToOffsetWithoutAnimation(const FloatPoint&) override;
 
-#if USE(RUBBER_BANDING)
-    virtual bool handleWheelEvent(const PlatformWheelEvent&) override;
-#endif
+    void handleWheelEventPhase(PlatformWheelEventPhase) override;
 
-    virtual void handleWheelEventPhase(PlatformWheelEventPhase) override;
+    void cancelAnimations() override;
+    void setIsActive() override;
 
-    virtual void cancelAnimations() override;
-    virtual void setIsActive() override;
-
-    virtual void contentAreaWillPaint() const override;
-    virtual void mouseEnteredContentArea() const override;
-    virtual void mouseExitedContentArea() const override;
-    virtual void mouseMovedInContentArea() const override;
-    virtual void mouseEnteredScrollbar(Scrollbar*) const override;
-    virtual void mouseExitedScrollbar(Scrollbar*) const override;
-    virtual void willStartLiveResize() override;
-    virtual void contentsResized() const override;
-    virtual void willEndLiveResize() override;
-    virtual void contentAreaDidShow() const override;
-    virtual void contentAreaDidHide() const override;
+    void contentAreaWillPaint() const override;
+    void mouseEnteredContentArea() const override;
+    void mouseExitedContentArea() const override;
+    void mouseMovedInContentArea() const override;
+    void mouseEnteredScrollbar(Scrollbar*) const override;
+    void mouseExitedScrollbar(Scrollbar*) const override;
+    void willStartLiveResize() override;
+    void contentsResized() const override;
+    void willEndLiveResize() override;
+    void contentAreaDidShow() const override;
+    void contentAreaDidHide() const override;
     void didBeginScrollGesture() const;
     void didEndScrollGesture() const;
     void mayBeginScrollGesture() const;
 
-    virtual void finishCurrentScrollAnimations() override;
+    void finishCurrentScrollAnimations() override;
 
-    virtual void didAddVerticalScrollbar(Scrollbar*) override;
-    virtual void willRemoveVerticalScrollbar(Scrollbar*) override;
-    virtual void didAddHorizontalScrollbar(Scrollbar*) override;
-    virtual void willRemoveHorizontalScrollbar(Scrollbar*) override;
+    void didAddVerticalScrollbar(Scrollbar*) override;
+    void willRemoveVerticalScrollbar(Scrollbar*) override;
+    void didAddHorizontalScrollbar(Scrollbar*) override;
+    void willRemoveHorizontalScrollbar(Scrollbar*) override;
 
-    virtual bool shouldScrollbarParticipateInHitTesting(Scrollbar*) override;
+    bool shouldScrollbarParticipateInHitTesting(Scrollbar*) override;
 
-    virtual void notifyContentAreaScrolled(const FloatSize& delta) override;
+    void notifyContentAreaScrolled(const FloatSize& delta) override;
 
     FloatPoint adjustScrollPositionIfNecessary(const FloatPoint&) const;
 
     void immediateScrollTo(const FloatPoint&);
-
-    virtual bool isRubberBandInProgress() const override;
-
-#if USE(RUBBER_BANDING)
-    /// ScrollElasticityControllerClient member functions.
-    virtual IntSize stretchAmount() override;
-    virtual bool allowsHorizontalStretching() override;
-    virtual bool allowsVerticalStretching() override;
-    virtual bool pinnedInDirection(const FloatSize&) override;
-    virtual bool canScrollHorizontally() override;
-    virtual bool canScrollVertically() override;
-    virtual IntPoint absoluteScrollPosition() override;
-    virtual void immediateScrollByWithoutContentEdgeConstraints(const FloatSize&) override;
-    virtual void immediateScrollBy(const FloatSize&) override;
-    virtual void startSnapRubberbandTimer() override;
-    virtual void stopSnapRubberbandTimer() override;
-    virtual void adjustScrollPositionToBoundsIfNecessary() override;
-
-    bool pinnedInDirection(float deltaX, float deltaY);
-    void snapRubberBandTimerFired(Timer<ScrollAnimatorMac>*);
-
-    ScrollElasticityController m_scrollElasticityController;
-    Timer<ScrollAnimatorMac> m_snapRubberBandTimer;
-#endif
 
     bool m_haveScrolledSincePageLoad;
     bool m_needsScrollerStyleUpdate;

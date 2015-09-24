@@ -14,11 +14,11 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
+#import "chrome/browser/ui/cocoa/profiles/avatar_button.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/signin/core/browser/signin_error_controller.h"
 #include "grit/theme_resources.h"
 #import "ui/base/cocoa/appkit_utils.h"
-#import "ui/base/cocoa/hover_image_button.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 #include "ui/base/nine_image_painter_factory.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -102,7 +102,7 @@ NSImage* GetImageFromResourceID(int resourceId) {
 - (void)drawBezelWithFrame:(NSRect)frame
                     inView:(NSView*)controlView {
   HoverState hoverState =
-      [base::mac::ObjCCastStrict<HoverImageButton>(controlView) hoverState];
+      [base::mac::ObjCCastStrict<AvatarButton>(controlView) hoverState];
   ui::NinePartImageIds imageIds = kNormalBorderImageIds;
   if (isThemedWindow_)
     imageIds = kThemedBorderImageIds;
@@ -120,15 +120,13 @@ NSImage* GetImageFromResourceID(int resourceId) {
 
 - (void)setHasError:(BOOL)hasError withTitle:(NSString*)title {
   hasError_ = hasError;
-  if (hasError) {
-    [self accessibilitySetOverrideValue:l10n_util::GetNSStringF(
-        IDS_PROFILES_ACCOUNT_BUTTON_AUTH_ERROR_ACCESSIBLE_NAME,
-        base::SysNSStringToUTF16(title))
-                           forAttribute:NSAccessibilityTitleAttribute];
-  } else {
-    [self accessibilitySetOverrideValue:title
-                           forAttribute:NSAccessibilityTitleAttribute];
-  }
+  int messageId = hasError ?
+      IDS_PROFILES_ACCOUNT_BUTTON_AUTH_ERROR_ACCESSIBLE_NAME :
+      IDS_PROFILES_NEW_AVATAR_BUTTON_ACCESSIBLE_NAME;
+
+  [self accessibilitySetOverrideValue:l10n_util::GetNSStringF(
+      messageId, base::SysNSStringToUTF16(title))
+                         forAttribute:NSAccessibilityTitleAttribute];
 }
 
 @end
@@ -148,29 +146,29 @@ NSImage* GetImageFromResourceID(int resourceId) {
         ThemeServiceFactory::GetForProfile(browser->profile());
     isThemedWindow_ = !themeService->UsingSystemTheme();
 
-    HoverImageButton* hoverButton =
-        [[HoverImageButton alloc] initWithFrame:NSZeroRect];
-    button_.reset(hoverButton);
+    AvatarButton* avatarButton =
+        [[AvatarButton alloc] initWithFrame:NSZeroRect];
+    button_.reset(avatarButton);
     base::scoped_nsobject<CustomThemeButtonCell> cell(
         [[CustomThemeButtonCell alloc] initWithThemedWindow:isThemedWindow_]);
-    [button_ setCell:cell.get()];
+    [avatarButton setCell:cell.get()];
 
     // Check if the account already has an authentication error.
     SigninErrorController* errorController =
         profiles::GetSigninErrorController(browser->profile());
     hasError_ = errorController && errorController->HasError();
-    [cell setHasError:hasError_ withTitle:nil];
 
-    [button_ setWantsLayer:YES];
-    [self setView:button_];
+    [avatarButton setWantsLayer:YES];
+    [self setView:avatarButton];
 
-    [button_ setBezelStyle:NSShadowlessSquareBezelStyle];
-    [button_ setButtonType:NSMomentaryChangeButton];
-    [button_ setBordered:YES];
+    [avatarButton setBezelStyle:NSShadowlessSquareBezelStyle];
+    [avatarButton setButtonType:NSMomentaryChangeButton];
+    [avatarButton setBordered:YES];
 
-    [button_ setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
-    [button_ setTarget:self];
-    [button_ setAction:@selector(buttonClicked:)];
+    [avatarButton setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
+    [avatarButton setTarget:self];
+    [avatarButton setAction:@selector(buttonClicked:)];
+    [avatarButton setRightAction:@selector(buttonRightClicked:)];
 
     [self updateAvatarButtonAndLayoutParent:NO];
 
@@ -227,15 +225,16 @@ NSImage* GetImageFromResourceID(int resourceId) {
   // profile is Guest.
   bool useGenericButton = (!browser_->profile()->IsGuestSession() &&
                            cache.GetNumberOfProfiles() == 1 &&
-                           cache.GetUserNameOfProfileAtIndex(0).empty());
+                           !cache.ProfileIsAuthenticatedAtIndex(0));
 
 
   NSString* buttonTitle = base::SysUTF16ToNSString(useGenericButton ?
       base::string16() :
       profiles::GetAvatarButtonTextForProfile(browser_->profile()));
+  [[button_ cell] setHasError:hasError_ withTitle:buttonTitle];
 
-  HoverImageButton* button =
-      base::mac::ObjCCastStrict<HoverImageButton>(button_);
+  AvatarButton* button =
+      base::mac::ObjCCastStrict<AvatarButton>(button_);
   if (useGenericButton) {
     [button setDefaultImage:GetImageFromResourceID(
         IDR_AVATAR_MAC_BUTTON_AVATAR)];
@@ -287,7 +286,6 @@ NSImage* GetImageFromResourceID(int resourceId) {
 
 - (void)updateErrorStatus:(BOOL)hasError {
   hasError_ = hasError;
-  [[button_ cell] setHasError:hasError withTitle:[button_ title]];
   [self updateAvatarButtonAndLayoutParent:YES];
 }
 

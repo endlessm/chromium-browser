@@ -35,15 +35,16 @@
 #include "core/dom/NodeWithIndex.h"
 #include "core/dom/ProcessingInstruction.h"
 #include "core/dom/Text.h"
-#include "core/editing/TextIterator.h"
 #include "core/editing/VisiblePosition.h"
 #include "core/editing/VisibleUnits.h"
+#include "core/editing/htmlediting.h"
+#include "core/editing/iterators/TextIterator.h"
 #include "core/editing/markup.h"
 #include "core/events/ScopedEventQueue.h"
 #include "core/html/HTMLBodyElement.h"
 #include "core/html/HTMLElement.h"
-#include "core/rendering/RenderBoxModelObject.h"
-#include "core/rendering/RenderText.h"
+#include "core/layout/LayoutBoxModelObject.h"
+#include "core/layout/LayoutText.h"
 #include "core/svg/SVGSVGElement.h"
 #include "platform/geometry/FloatQuad.h"
 #include "wtf/RefCountedLeakCounter.h"
@@ -101,6 +102,26 @@ PassRefPtrWillBeRawPtr<Range> Range::create(Document& ownerDocument, const Posit
     return adoptRefWillBeNoop(new Range(ownerDocument, start.containerNode(), start.computeOffsetInContainerNode(), end.containerNode(), end.computeOffsetInContainerNode()));
 }
 
+PassRefPtrWillBeRawPtr<Range> Range::createAdjustedToTreeScope(const TreeScope& treeScope, const Position& position)
+{
+    RefPtrWillBeRawPtr<Range> range = create(treeScope.document(), position, position);
+
+    // Make sure the range is in this scope.
+    Node* firstNode = range->firstNode();
+    ASSERT(firstNode);
+    Node* shadowHostInThisScopeOrFirstNode = treeScope.ancestorInThisScope(firstNode);
+    ASSERT(shadowHostInThisScopeOrFirstNode);
+    if (shadowHostInThisScopeOrFirstNode == firstNode)
+        return range.release();
+
+    // If not, create a range for the shadow host in this scope.
+    ContainerNode* container = shadowHostInThisScopeOrFirstNode->parentNode();
+    ASSERT(container);
+    unsigned offset = shadowHostInThisScopeOrFirstNode->nodeIndex();
+    return Range::create(treeScope.document(), container, offset, container, offset);
+}
+
+#if !ENABLE(OILPAN) || !defined(NDEBUG)
 Range::~Range()
 {
 #if !ENABLE(OILPAN)
@@ -112,6 +133,7 @@ Range::~Range()
     rangeCounter.decrement();
 #endif
 }
+#endif
 
 void Range::setDocument(Document& document)
 {
@@ -129,15 +151,11 @@ Node* Range::commonAncestorContainer() const
     return commonAncestorContainer(m_start.container(), m_end.container());
 }
 
-Node* Range::commonAncestorContainer(Node* containerA, Node* containerB)
+Node* Range::commonAncestorContainer(const Node* containerA, const Node* containerB)
 {
-    for (Node* parentA = containerA; parentA; parentA = parentA->parentNode()) {
-        for (Node* parentB = containerB; parentB; parentB = parentB->parentNode()) {
-            if (parentA == parentB)
-                return parentA;
-        }
-    }
-    return 0;
+    if (!containerA || !containerB)
+        return nullptr;
+    return containerA->commonAncestor(*containerB, NodeTraversal::parent);
 }
 
 static inline bool checkForDifferentRootContainer(const RangeBoundaryPoint& start, const RangeBoundaryPoint& end)
@@ -155,7 +173,8 @@ static inline bool checkForDifferentRootContainer(const RangeBoundaryPoint& star
 void Range::setStart(PassRefPtrWillBeRawPtr<Node> refNode, int offset, ExceptionState& exceptionState)
 {
     if (!refNode) {
-        exceptionState.throwDOMException(NotFoundError, "The node provided was null.");
+        // FIXME: Generated bindings code never calls with null, and neither should other callers!
+        exceptionState.throwTypeError("The node provided is null.");
         return;
     }
 
@@ -178,7 +197,8 @@ void Range::setStart(PassRefPtrWillBeRawPtr<Node> refNode, int offset, Exception
 void Range::setEnd(PassRefPtrWillBeRawPtr<Node> refNode, int offset, ExceptionState& exceptionState)
 {
     if (!refNode) {
-        exceptionState.throwDOMException(NotFoundError, "The node provided was null.");
+        // FIXME: Generated bindings code never calls with null, and neither should other callers!
+        exceptionState.throwTypeError("The node provided is null.");
         return;
     }
 
@@ -218,10 +238,19 @@ void Range::collapse(bool toStart)
         m_start = m_end;
 }
 
-bool Range::isPointInRange(Node* refNode, int offset, ExceptionState& exceptionState)
+bool Range::isNodeFullyContained(Node& node) const
+{
+    ContainerNode* parentNode = node.parentNode();
+    int nodeIndex = node.nodeIndex();
+    return isPointInRange(parentNode, nodeIndex, IGNORE_EXCEPTION) // starts in the middle of this range, or on the boundary points.
+        && isPointInRange(parentNode, nodeIndex + 1, IGNORE_EXCEPTION); // ends in the middle of this range, or on the boundary points.
+}
+
+bool Range::isPointInRange(Node* refNode, int offset, ExceptionState& exceptionState) const
 {
     if (!refNode) {
-        exceptionState.throwDOMException(HierarchyRequestError, "The node provided was null.");
+        // FIXME: Generated bindings code never calls with null, and neither should other callers!
+        exceptionState.throwTypeError("The node provided is null.");
         return false;
     }
 
@@ -272,48 +301,6 @@ short Range::comparePoint(Node* refNode, int offset, ExceptionState& exceptionSt
     return 0;
 }
 
-Range::CompareResults Range::compareNode(Node* refNode, ExceptionState& exceptionState) const
-{
-    // http://developer.mozilla.org/en/docs/DOM:range.compareNode
-    // This method returns 0, 1, 2, or 3 based on if the node is before, after,
-    // before and after(surrounds), or inside the range, respectively
-
-    if (!refNode) {
-        exceptionState.throwDOMException(NotFoundError, "The node provided was null.");
-        return NODE_BEFORE;
-    }
-
-    if (!refNode->inActiveDocument()) {
-        // Firefox doesn't throw an exception for this case; it returns 0.
-        return NODE_BEFORE;
-    }
-
-    if (refNode->document() != m_ownerDocument) {
-        // Firefox doesn't throw an exception for this case; it returns 0.
-        return NODE_BEFORE;
-    }
-
-    ContainerNode* parentNode = refNode->parentNode();
-    int nodeIndex = refNode->nodeIndex();
-
-    if (!parentNode) {
-        // if the node is the top document we should return NODE_BEFORE_AND_AFTER
-        // but we throw to match firefox behavior
-        exceptionState.throwDOMException(NotFoundError, "The provided node has no parent.");
-        return NODE_BEFORE;
-    }
-
-    if (comparePoint(parentNode, nodeIndex, exceptionState) < 0) { // starts before
-        if (comparePoint(parentNode, nodeIndex + 1, exceptionState) > 0) // ends after the range
-            return NODE_BEFORE_AND_AFTER;
-        return NODE_BEFORE; // ends before or in the range
-    }
-    // starts at or after the range start
-    if (comparePoint(parentNode, nodeIndex + 1, exceptionState) > 0) // ends after the range
-        return NODE_AFTER;
-    return NODE_INSIDE; // ends inside the range
-}
-
 short Range::compareBoundaryPoints(unsigned how, const Range* sourceRange, ExceptionState& exceptionState) const
 {
     if (!(how == START_TO_START || how == START_TO_END || how == END_TO_END || how == END_TO_START)) {
@@ -340,14 +327,14 @@ short Range::compareBoundaryPoints(unsigned how, const Range* sourceRange, Excep
     }
 
     switch (how) {
-        case START_TO_START:
-            return compareBoundaryPoints(m_start, sourceRange->m_start, exceptionState);
-        case START_TO_END:
-            return compareBoundaryPoints(m_end, sourceRange->m_start, exceptionState);
-        case END_TO_END:
-            return compareBoundaryPoints(m_end, sourceRange->m_end, exceptionState);
-        case END_TO_START:
-            return compareBoundaryPoints(m_start, sourceRange->m_end, exceptionState);
+    case START_TO_START:
+        return compareBoundaryPoints(m_start, sourceRange->m_start, exceptionState);
+    case START_TO_END:
+        return compareBoundaryPoints(m_end, sourceRange->m_start, exceptionState);
+    case END_TO_END:
+        return compareBoundaryPoints(m_end, sourceRange->m_end, exceptionState);
+    case END_TO_START:
+        return compareBoundaryPoints(m_start, sourceRange->m_end, exceptionState);
     }
 
     ASSERT_NOT_REACHED();
@@ -356,95 +343,13 @@ short Range::compareBoundaryPoints(unsigned how, const Range* sourceRange, Excep
 
 short Range::compareBoundaryPoints(Node* containerA, int offsetA, Node* containerB, int offsetB, ExceptionState& exceptionState)
 {
-    ASSERT(containerA);
-    ASSERT(containerB);
-
-    if (!containerA)
-        return -1;
-    if (!containerB)
-        return 1;
-
-    // see DOM2 traversal & range section 2.5
-
-    // case 1: both points have the same container
-    if (containerA == containerB) {
-        if (offsetA == offsetB)
-            return 0;           // A is equal to B
-        if (offsetA < offsetB)
-            return -1;          // A is before B
-        else
-            return 1;           // A is after B
-    }
-
-    // case 2: node C (container B or an ancestor) is a child node of A
-    Node* c = containerB;
-    while (c && c->parentNode() != containerA)
-        c = c->parentNode();
-    if (c) {
-        int offsetC = 0;
-        Node* n = containerA->firstChild();
-        while (n != c && offsetC < offsetA) {
-            offsetC++;
-            n = n->nextSibling();
-        }
-
-        if (offsetA <= offsetC)
-            return -1;              // A is before B
-        else
-            return 1;               // A is after B
-    }
-
-    // case 3: node C (container A or an ancestor) is a child node of B
-    c = containerA;
-    while (c && c->parentNode() != containerB)
-        c = c->parentNode();
-    if (c) {
-        int offsetC = 0;
-        Node* n = containerB->firstChild();
-        while (n != c && offsetC < offsetB) {
-            offsetC++;
-            n = n->nextSibling();
-        }
-
-        if (offsetC < offsetB)
-            return -1;              // A is before B
-        else
-            return 1;               // A is after B
-    }
-
-    // case 4: containers A & B are siblings, or children of siblings
-    // ### we need to do a traversal here instead
-    Node* commonAncestor = commonAncestorContainer(containerA, containerB);
-    if (!commonAncestor) {
+    bool disconnected = false;
+    short result = comparePositionsInDOMTree(containerA, offsetA, containerB, offsetB, &disconnected);
+    if (disconnected) {
         exceptionState.throwDOMException(WrongDocumentError, "The two ranges are in separate documents.");
         return 0;
     }
-    Node* childA = containerA;
-    while (childA && childA->parentNode() != commonAncestor)
-        childA = childA->parentNode();
-    if (!childA)
-        childA = commonAncestor;
-    Node* childB = containerB;
-    while (childB && childB->parentNode() != commonAncestor)
-        childB = childB->parentNode();
-    if (!childB)
-        childB = commonAncestor;
-
-    if (childA == childB)
-        return 0; // A is equal to B
-
-    Node* n = commonAncestor->firstChild();
-    while (n) {
-        if (n == childA)
-            return -1; // A is before B
-        if (n == childB)
-            return 1; // A is after B
-        n = n->nextSibling();
-    }
-
-    // Should never reach this point.
-    ASSERT_NOT_REACHED();
-    return 0;
+    return result;
 }
 
 short Range::compareBoundaryPoints(const RangeBoundaryPoint& boundaryA, const RangeBoundaryPoint& boundaryB, ExceptionState& exceptionState)
@@ -471,7 +376,8 @@ void Range::deleteContents(ExceptionState& exceptionState)
 static bool nodeValidForIntersects(Node* refNode, Document* expectedDocument, ExceptionState& exceptionState)
 {
     if (!refNode) {
-        exceptionState.throwDOMException(NotFoundError, "The node provided is null.");
+        // FIXME: Generated bindings code never calls with null, and neither should other callers!
+        exceptionState.throwTypeError("The node provided is null.");
         return false;
     }
 
@@ -714,8 +620,9 @@ PassRefPtrWillBeRawPtr<Node> Range::processContentsBetweenOffsets(ActionType act
             if (fragment) {
                 result = fragment;
                 result->appendChild(c.release(), exceptionState);
-            } else
+            } else {
                 result = c.release();
+            }
         }
         if (action == EXTRACT_CONTENTS || action == DELETE_CONTENTS)
             toCharacterData(container)->deleteData(startOffset, endOffset - startOffset, exceptionState);
@@ -728,8 +635,9 @@ PassRefPtrWillBeRawPtr<Node> Range::processContentsBetweenOffsets(ActionType act
             if (fragment) {
                 result = fragment;
                 result->appendChild(c.release(), exceptionState);
-            } else
+            } else {
                 result = c.release();
+            }
         }
         if (action == EXTRACT_CONTENTS || action == DELETE_CONTENTS) {
             ProcessingInstruction* pi = toProcessingInstruction(container);
@@ -858,7 +766,8 @@ void Range::insertNode(PassRefPtrWillBeRawPtr<Node> prpNewNode, ExceptionState& 
     RefPtrWillBeRawPtr<Node> newNode = prpNewNode;
 
     if (!newNode) {
-        exceptionState.throwDOMException(NotFoundError, "The node provided is null.");
+        // FIXME: Generated bindings code never calls with null, and neither should other callers!
+        exceptionState.throwTypeError("The node provided is null.");
         return;
     }
 
@@ -987,14 +896,9 @@ String Range::toString() const
     return builder.toString();
 }
 
-String Range::toHTML() const
-{
-    return createMarkup(this);
-}
-
 String Range::text() const
 {
-    return plainText(this, TextIteratorEmitsObjectReplacementCharacter);
+    return plainText(startPosition(), endPosition(), TextIteratorEmitsObjectReplacementCharacter);
 }
 
 PassRefPtrWillBeRawPtr<DocumentFragment> Range::createContextualFragment(const String& markup, ExceptionState& exceptionState)
@@ -1050,30 +954,30 @@ void Range::detach()
 Node* Range::checkNodeWOffset(Node* n, int offset, ExceptionState& exceptionState) const
 {
     switch (n->nodeType()) {
-        case Node::DOCUMENT_TYPE_NODE:
-            exceptionState.throwDOMException(InvalidNodeTypeError, "The node provided is of type '" + n->nodeName() + "'.");
+    case Node::DOCUMENT_TYPE_NODE:
+        exceptionState.throwDOMException(InvalidNodeTypeError, "The node provided is of type '" + n->nodeName() + "'.");
+        return nullptr;
+    case Node::CDATA_SECTION_NODE:
+    case Node::COMMENT_NODE:
+    case Node::TEXT_NODE:
+        if (static_cast<unsigned>(offset) > toCharacterData(n)->length())
+            exceptionState.throwDOMException(IndexSizeError, "The offset " + String::number(offset) + " is larger than or equal to the node's length (" + String::number(toCharacterData(n)->length()) + ").");
+        return nullptr;
+    case Node::PROCESSING_INSTRUCTION_NODE:
+        if (static_cast<unsigned>(offset) > toProcessingInstruction(n)->data().length())
+            exceptionState.throwDOMException(IndexSizeError, "The offset " + String::number(offset) + " is larger than or equal to than the node's length (" + String::number(toProcessingInstruction(n)->data().length()) + ").");
+        return nullptr;
+    case Node::ATTRIBUTE_NODE:
+    case Node::DOCUMENT_FRAGMENT_NODE:
+    case Node::DOCUMENT_NODE:
+    case Node::ELEMENT_NODE: {
+        if (!offset)
             return nullptr;
-        case Node::CDATA_SECTION_NODE:
-        case Node::COMMENT_NODE:
-        case Node::TEXT_NODE:
-            if (static_cast<unsigned>(offset) > toCharacterData(n)->length())
-                exceptionState.throwDOMException(IndexSizeError, "The offset " + String::number(offset) + " is larger than or equal to the node's length (" + String::number(toCharacterData(n)->length()) + ").");
-            return nullptr;
-        case Node::PROCESSING_INSTRUCTION_NODE:
-            if (static_cast<unsigned>(offset) > toProcessingInstruction(n)->data().length())
-                exceptionState.throwDOMException(IndexSizeError, "The offset " + String::number(offset) + " is larger than or equal to than the node's length (" + String::number(toProcessingInstruction(n)->data().length()) + ").");
-            return nullptr;
-        case Node::ATTRIBUTE_NODE:
-        case Node::DOCUMENT_FRAGMENT_NODE:
-        case Node::DOCUMENT_NODE:
-        case Node::ELEMENT_NODE: {
-            if (!offset)
-                return nullptr;
-            Node* childBefore = NodeTraversal::childAt(*n, offset - 1);
-            if (!childBefore)
-                exceptionState.throwDOMException(IndexSizeError, "There is no child at offset " + String::number(offset) + ".");
-            return childBefore;
-        }
+        Node* childBefore = NodeTraversal::childAt(*n, offset - 1);
+        if (!childBefore)
+            exceptionState.throwDOMException(IndexSizeError, "There is no child at offset " + String::number(offset) + ".");
+        return childBefore;
+    }
     }
     ASSERT_NOT_REACHED();
     return nullptr;
@@ -1082,7 +986,8 @@ Node* Range::checkNodeWOffset(Node* n, int offset, ExceptionState& exceptionStat
 void Range::checkNodeBA(Node* n, ExceptionState& exceptionState) const
 {
     if (!n) {
-        exceptionState.throwDOMException(NotFoundError, "The node provided is null.");
+        // FIXME: Generated bindings code never calls with null, and neither should other callers!
+        exceptionState.throwTypeError("The node provided is null.");
         return;
     }
 
@@ -1096,18 +1001,18 @@ void Range::checkNodeBA(Node* n, ExceptionState& exceptionState) const
     }
 
     switch (n->nodeType()) {
-        case Node::ATTRIBUTE_NODE:
-        case Node::DOCUMENT_FRAGMENT_NODE:
-        case Node::DOCUMENT_NODE:
-            exceptionState.throwDOMException(InvalidNodeTypeError, "The node provided is of type '" + n->nodeName() + "'.");
-            return;
-        case Node::CDATA_SECTION_NODE:
-        case Node::COMMENT_NODE:
-        case Node::DOCUMENT_TYPE_NODE:
-        case Node::ELEMENT_NODE:
-        case Node::PROCESSING_INSTRUCTION_NODE:
-        case Node::TEXT_NODE:
-            break;
+    case Node::ATTRIBUTE_NODE:
+    case Node::DOCUMENT_FRAGMENT_NODE:
+    case Node::DOCUMENT_NODE:
+        exceptionState.throwDOMException(InvalidNodeTypeError, "The node provided is of type '" + n->nodeName() + "'.");
+        return;
+    case Node::CDATA_SECTION_NODE:
+    case Node::COMMENT_NODE:
+    case Node::DOCUMENT_TYPE_NODE:
+    case Node::ELEMENT_NODE:
+    case Node::PROCESSING_INSTRUCTION_NODE:
+    case Node::TEXT_NODE:
+        break;
     }
 
     Node* root = n;
@@ -1115,18 +1020,18 @@ void Range::checkNodeBA(Node* n, ExceptionState& exceptionState) const
         root = parent;
 
     switch (root->nodeType()) {
-        case Node::ATTRIBUTE_NODE:
-        case Node::DOCUMENT_NODE:
-        case Node::DOCUMENT_FRAGMENT_NODE:
-        case Node::ELEMENT_NODE:
-            break;
-        case Node::CDATA_SECTION_NODE:
-        case Node::COMMENT_NODE:
-        case Node::DOCUMENT_TYPE_NODE:
-        case Node::PROCESSING_INSTRUCTION_NODE:
-        case Node::TEXT_NODE:
-            exceptionState.throwDOMException(InvalidNodeTypeError, "The node provided is of type '" + n->nodeName() + "'.");
-            return;
+    case Node::ATTRIBUTE_NODE:
+    case Node::DOCUMENT_NODE:
+    case Node::DOCUMENT_FRAGMENT_NODE:
+    case Node::ELEMENT_NODE:
+        break;
+    case Node::CDATA_SECTION_NODE:
+    case Node::COMMENT_NODE:
+    case Node::DOCUMENT_TYPE_NODE:
+    case Node::PROCESSING_INSTRUCTION_NODE:
+    case Node::TEXT_NODE:
+        exceptionState.throwDOMException(InvalidNodeTypeError, "The node provided is of type '" + n->nodeName() + "'.");
+        return;
     }
 }
 
@@ -1165,7 +1070,8 @@ void Range::setEndAfter(Node* refNode, ExceptionState& exceptionState)
 void Range::selectNode(Node* refNode, ExceptionState& exceptionState)
 {
     if (!refNode) {
-        exceptionState.throwDOMException(NotFoundError, "The node provided is null.");
+        // FIXME: Generated bindings code never calls with null, and neither should other callers!
+        exceptionState.throwTypeError("The node provided is null.");
         return;
     }
 
@@ -1179,34 +1085,34 @@ void Range::selectNode(Node* refNode, ExceptionState& exceptionState)
     // node.
     for (ContainerNode* anc = refNode->parentNode(); anc; anc = anc->parentNode()) {
         switch (anc->nodeType()) {
-            case Node::ATTRIBUTE_NODE:
-            case Node::CDATA_SECTION_NODE:
-            case Node::COMMENT_NODE:
-            case Node::DOCUMENT_FRAGMENT_NODE:
-            case Node::DOCUMENT_NODE:
-            case Node::ELEMENT_NODE:
-            case Node::PROCESSING_INSTRUCTION_NODE:
-            case Node::TEXT_NODE:
-                break;
-            case Node::DOCUMENT_TYPE_NODE:
-                exceptionState.throwDOMException(InvalidNodeTypeError, "The node provided has an ancestor of type '" + anc->nodeName() + "'.");
-                return;
-        }
-    }
-
-    switch (refNode->nodeType()) {
+        case Node::ATTRIBUTE_NODE:
         case Node::CDATA_SECTION_NODE:
         case Node::COMMENT_NODE:
-        case Node::DOCUMENT_TYPE_NODE:
+        case Node::DOCUMENT_FRAGMENT_NODE:
+        case Node::DOCUMENT_NODE:
         case Node::ELEMENT_NODE:
         case Node::PROCESSING_INSTRUCTION_NODE:
         case Node::TEXT_NODE:
             break;
-        case Node::ATTRIBUTE_NODE:
-        case Node::DOCUMENT_FRAGMENT_NODE:
-        case Node::DOCUMENT_NODE:
-            exceptionState.throwDOMException(InvalidNodeTypeError, "The node provided is of type '" + refNode->nodeName() + "'.");
+        case Node::DOCUMENT_TYPE_NODE:
+            exceptionState.throwDOMException(InvalidNodeTypeError, "The node provided has an ancestor of type '" + anc->nodeName() + "'.");
             return;
+        }
+    }
+
+    switch (refNode->nodeType()) {
+    case Node::CDATA_SECTION_NODE:
+    case Node::COMMENT_NODE:
+    case Node::DOCUMENT_TYPE_NODE:
+    case Node::ELEMENT_NODE:
+    case Node::PROCESSING_INSTRUCTION_NODE:
+    case Node::TEXT_NODE:
+        break;
+    case Node::ATTRIBUTE_NODE:
+    case Node::DOCUMENT_FRAGMENT_NODE:
+    case Node::DOCUMENT_NODE:
+        exceptionState.throwDOMException(InvalidNodeTypeError, "The node provided is of type '" + refNode->nodeName() + "'.");
+        return;
     }
 
     if (m_ownerDocument != refNode->document())
@@ -1219,7 +1125,8 @@ void Range::selectNode(Node* refNode, ExceptionState& exceptionState)
 void Range::selectNodeContents(Node* refNode, ExceptionState& exceptionState)
 {
     if (!refNode) {
-        exceptionState.throwDOMException(NotFoundError, "The node provided is null.");
+        // FIXME: Generated bindings code never calls with null, and neither should other callers!
+        exceptionState.throwTypeError("The node provided is null.");
         return;
     }
 
@@ -1284,7 +1191,8 @@ void Range::surroundContents(PassRefPtrWillBeRawPtr<Node> passNewParent, Excepti
 {
     RefPtrWillBeRawPtr<Node> newParent = passNewParent;
     if (!newParent) {
-        exceptionState.throwDOMException(NotFoundError, "The node provided is null.");
+        // FIXME: Generated bindings code never calls with null, and neither should other callers!
+        exceptionState.throwTypeError("The node provided is null.");
         return;
     }
 
@@ -1303,18 +1211,18 @@ void Range::surroundContents(PassRefPtrWillBeRawPtr<Node> passNewParent, Excepti
     // InvalidNodeTypeError: Raised if node is an Attr, Entity, DocumentType, Notation,
     // Document, or DocumentFragment node.
     switch (newParent->nodeType()) {
-        case Node::ATTRIBUTE_NODE:
-        case Node::DOCUMENT_FRAGMENT_NODE:
-        case Node::DOCUMENT_NODE:
-        case Node::DOCUMENT_TYPE_NODE:
-            exceptionState.throwDOMException(InvalidNodeTypeError, "The node provided is of type '" + newParent->nodeName() + "'.");
-            return;
-        case Node::CDATA_SECTION_NODE:
-        case Node::COMMENT_NODE:
-        case Node::ELEMENT_NODE:
-        case Node::PROCESSING_INSTRUCTION_NODE:
-        case Node::TEXT_NODE:
-            break;
+    case Node::ATTRIBUTE_NODE:
+    case Node::DOCUMENT_FRAGMENT_NODE:
+    case Node::DOCUMENT_NODE:
+    case Node::DOCUMENT_TYPE_NODE:
+        exceptionState.throwDOMException(InvalidNodeTypeError, "The node provided is of type '" + newParent->nodeName() + "'.");
+        return;
+    case Node::CDATA_SECTION_NODE:
+    case Node::COMMENT_NODE:
+    case Node::ELEMENT_NODE:
+    case Node::PROCESSING_INSTRUCTION_NODE:
+    case Node::TEXT_NODE:
+        break;
     }
 
     // Raise a HierarchyRequestError if m_start.container() doesn't accept children like newParent.
@@ -1336,7 +1244,7 @@ void Range::surroundContents(PassRefPtrWillBeRawPtr<Node> passNewParent, Excepti
         return;
     }
 
-    if (newParent->contains(m_start.container())) {
+    if (newParent->containsIncludingShadowDOM(m_start.container())) {
         exceptionState.throwDOMException(HierarchyRequestError, "The node provided contains the insertion point; it may not be inserted into itself.");
         return;
     }
@@ -1433,14 +1341,14 @@ void Range::textRects(Vector<IntRect>& rects, bool useSelectionHeight, RangeInFi
 
     Node* stopNode = pastLastNode();
     for (Node* node = firstNode(); node != stopNode; node = NodeTraversal::next(*node)) {
-        RenderObject* r = node->renderer();
+        LayoutObject* r = node->layoutObject();
         if (!r || !r->isText())
             continue;
-        RenderText* renderText = toRenderText(r);
+        LayoutText* layoutText = toLayoutText(r);
         int startOffset = node == startContainer ? m_start.offset() : 0;
         int endOffset = node == endContainer ? m_end.offset() : std::numeric_limits<int>::max();
         bool isFixed = false;
-        renderText->absoluteRectsForRange(rects, startOffset, endOffset, useSelectionHeight, &isFixed);
+        layoutText->absoluteRectsForRange(rects, startOffset, endOffset, useSelectionHeight, &isFixed);
         allFixed &= isFixed;
         someFixed |= isFixed;
     }
@@ -1461,14 +1369,14 @@ void Range::textQuads(Vector<FloatQuad>& quads, bool useSelectionHeight, RangeIn
 
     Node* stopNode = pastLastNode();
     for (Node* node = firstNode(); node != stopNode; node = NodeTraversal::next(*node)) {
-        RenderObject* r = node->renderer();
+        LayoutObject* r = node->layoutObject();
         if (!r || !r->isText())
             continue;
-        RenderText* renderText = toRenderText(r);
+        LayoutText* layoutText = toLayoutText(r);
         int startOffset = node == startContainer ? m_start.offset() : 0;
         int endOffset = node == endContainer ? m_end.offset() : std::numeric_limits<int>::max();
         bool isFixed = false;
-        renderText->absoluteQuadsForRange(quads, startOffset, endOffset, useSelectionHeight, &isFixed);
+        layoutText->absoluteQuadsForRange(quads, startOffset, endOffset, useSelectionHeight, &isFixed);
         allFixed &= isFixed;
         someFixed |= isFixed;
     }
@@ -1506,14 +1414,6 @@ bool areRangesEqual(const Range* a, const Range* b)
     if (!a || !b)
         return false;
     return a->startPosition() == b->startPosition() && a->endPosition() == b->endPosition();
-}
-
-PassRefPtrWillBeRawPtr<Range> rangeOfContents(Node* node)
-{
-    ASSERT(node);
-    RefPtrWillBeRawPtr<Range> range = Range::create(node->document());
-    range->selectNodeContents(node, IGNORE_EXCEPTION);
-    return range.release();
 }
 
 static inline void boundaryNodeChildrenChanged(RangeBoundaryPoint& boundary, ContainerNode* container)
@@ -1693,13 +1593,14 @@ void Range::expand(const String& unit, ExceptionState& exceptionState)
     } else if (unit == "document") {
         start = startOfDocument(start);
         end = endOfDocument(end);
-    } else
+    } else {
         return;
+    }
     setStart(start.deepEquivalent().containerNode(), start.deepEquivalent().computeOffsetInContainerNode(), exceptionState);
     setEnd(end.deepEquivalent().containerNode(), end.deepEquivalent().computeOffsetInContainerNode(), exceptionState);
 }
 
-PassRefPtrWillBeRawPtr<ClientRectList> Range::getClientRects() const
+ClientRectList* Range::getClientRects() const
 {
     m_ownerDocument->updateLayoutIgnorePendingStylesheets();
 
@@ -1709,7 +1610,7 @@ PassRefPtrWillBeRawPtr<ClientRectList> Range::getClientRects() const
     return ClientRectList::create(quads);
 }
 
-PassRefPtrWillBeRawPtr<ClientRect> Range::getBoundingClientRect() const
+ClientRect* Range::getBoundingClientRect() const
 {
     return ClientRect::create(boundingRect());
 }
@@ -1729,22 +1630,22 @@ void Range::getBorderAndTextQuads(Vector<FloatQuad>& quads) const
     for (Node* node = firstNode(); node != stopNode; node = NodeTraversal::next(*node)) {
         if (node->isElementNode()) {
             if (!nodeSet.contains(node->parentNode())) {
-                if (RenderBoxModelObject* renderBoxModelObject = toElement(node)->renderBoxModelObject()) {
+                if (LayoutBoxModelObject* layoutBoxModelObject = toElement(node)->layoutBoxModelObject()) {
                     Vector<FloatQuad> elementQuads;
-                    renderBoxModelObject->absoluteQuads(elementQuads);
-                    m_ownerDocument->adjustFloatQuadsForScrollAndAbsoluteZoom(elementQuads, *renderBoxModelObject);
+                    layoutBoxModelObject->absoluteQuads(elementQuads);
+                    m_ownerDocument->adjustFloatQuadsForScrollAndAbsoluteZoom(elementQuads, *layoutBoxModelObject);
 
                     quads.appendVector(elementQuads);
                 }
             }
         } else if (node->isTextNode()) {
-            if (RenderText* renderText = toText(node)->renderer()) {
+            if (LayoutText* layoutText = toText(node)->layoutObject()) {
                 int startOffset = (node == startContainer) ? m_start.offset() : 0;
                 int endOffset = (node == endContainer) ? m_end.offset() : INT_MAX;
 
                 Vector<FloatQuad> textQuads;
-                renderText->absoluteQuadsForRange(textQuads, startOffset, endOffset);
-                m_ownerDocument->adjustFloatQuadsForScrollAndAbsoluteZoom(textQuads, *renderText);
+                layoutText->absoluteQuadsForRange(textQuads, startOffset, endOffset);
+                m_ownerDocument->adjustFloatQuadsForScrollAndAbsoluteZoom(textQuads, *layoutText);
 
                 quads.appendVector(textQuads);
             }
@@ -1766,7 +1667,7 @@ FloatRect Range::boundingRect() const
     return result;
 }
 
-void Range::trace(Visitor* visitor)
+DEFINE_TRACE(Range)
 {
     visitor->trace(m_ownerDocument);
     visitor->trace(m_start);
@@ -1782,6 +1683,8 @@ void showTree(const blink::Range* range)
     if (range && range->boundaryPointsValid()) {
         range->startContainer()->showTreeAndMark(range->startContainer(), "S", range->endContainer(), "E");
         fprintf(stderr, "start offset: %d, end offset: %d\n", range->startOffset(), range->endOffset());
+    } else {
+        fprintf(stderr, "Cannot show tree if range is null, or if boundary points are invalid.\n");
     }
 }
 

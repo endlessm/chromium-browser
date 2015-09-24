@@ -48,7 +48,7 @@ cr.define('cr.ui', function() {
 
     /**
      * Array of card elements.
-     * @type {!Array.<!Element>}
+     * @type {!Array<!Element>}
      * @private
      */
     this.cards_ = [];
@@ -175,7 +175,7 @@ cr.define('cr.ui', function() {
 
     /**
      * Sets the cards used. Can be called more than once to switch card sets.
-     * @param {!Array.<!Element>} cards The individual viewable cards.
+     * @param {!Array<!Element>} cards The individual viewable cards.
      * @param {number} index Index of the card to in the new set of cards to
      *     navigate to.
      */
@@ -335,10 +335,8 @@ cr.define('cr.ui', function() {
      */
     onWebkitTransitionEnd_: function(e) {
       // Ignore irrelevant transitions that might bubble up.
-      if (e.target !== this.container_ ||
-          e.propertyName != '-webkit-transform') {
+      if (e.target !== this.container_ || e.propertyName != 'transform')
         return;
-      }
       this.fireChangeEndedEvent_(true);
     },
 

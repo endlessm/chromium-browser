@@ -7,6 +7,13 @@
 #   http://www.gnu.org/software/make/manual/make.html
 #
 
+ifdef ASAN
+CLANG = 1
+endif
+
+ifdef TSAN
+CLANG = 1
+endif
 
 #
 # Macros for TOOLS
@@ -14,17 +21,20 @@
 # We use the C++ compiler for everything and then use the -Wl,-as-needed flag
 # in the linker to drop libc++ unless it's actually needed.
 #
-CC ?= $(NACL_COMPILER_PREFIX) gcc
-CXX ?= $(NACL_COMPILER_PREFIX) g++
-LINK ?= $(CXX)
-LIB ?= ar
-STRIP ?= strip
+ifdef CLANG
+CC = clang
+CXX = clang++
+endif
 
-# Adding -Wl,-Bsymbolic means that symbols defined within the module are always
-# used by the moulde, and not shadowed by symbols already loaded in, for
-# exmaple, libc.  Without this the libc symbols (or anything injected with
-# LD_PRELOAD will take precedence).
-HOST_LDFLAGS ?= -Wl,-Map,$(OUTDIR)/$(TARGET).map -Wl,-Bsymbolic
+ifdef NACL_COMPILER_PREFIX
+CC = $(NACL_COMPILER_PREFIX) $(CC)
+CXX = $(NACL_COMPILER_PREFIX) $(CXX)
+endif
+
+LINK ?= $(CXX)
+AR ?= ar
+ARFLAGS = -crs
+STRIP ?= strip
 
 ifeq (,$(findstring gcc,$(shell $(WHICH) gcc)))
 $(warning To skip the host build use:)
@@ -33,35 +43,58 @@ $(error Unable to find gcc in PATH while building Host build)
 endif
 
 HOST_WARNINGS ?= -Wno-long-long -Wall -Werror
-HOST_CFLAGS = -fPIC -pthread $(HOST_WARNINGS) -I$(NACL_SDK_ROOT)/include -I$(NACL_SDK_ROOT)/include/linux
+HOST_CFLAGS = -fPIC -pthread $(HOST_WARNINGS) -I$(NACL_SDK_ROOT)/include
 
+ifneq ($(OSNAME),mac)
+# Adding -Wl,-Bsymbolic means that symbols defined within the module are always
+# used by the module, and not shadowed by symbols already loaded in, for
+# exmaple, libc.  Without this the libc symbols (or anything injected with
+# LD_PRELOAD will take precedence).
+# -pthread is not needed on mac (libpthread is a symlink to libSystem) and
+# in fact generated a warning if passed at link time.
+HOST_LDFLAGS ?= -Wl,-Map,$(OUTDIR)/$(TARGET).map -Wl,-Bsymbolic -pthread
+HOST_CFLAGS += -I$(NACL_SDK_ROOT)/include/mac
+else
+HOST_LDFLAGS ?= -Wl,-map -Wl,$(OUTDIR)/$(TARGET).map
+HOST_CFLAGS += -I$(NACL_SDK_ROOT)/include/linux
+endif
+
+ifdef ASAN
+HOST_CFLAGS += -fsanitize=address
+HOST_LDFLAGS += -pie -fsanitize=address
+endif
+
+ifdef TSAN
+HOST_CFLAGS += -fsanitize=thread
+HOST_LDFLAGS += -pie -fsanitize=thread
+endif
 
 #
 # Individual Macros
 #
-# $1 = Source Name
-# $2 = Compile Flags
+# $1 = Source name
+# $2 = Compile flags
 #
 define C_COMPILER_RULE
 -include $(call SRC_TO_DEP,$(1))
 $(call SRC_TO_OBJ,$(1)): $(1) $(TOP_MAKE) | $(dir $(call SRC_TO_OBJ,$(1)))dir.stamp
-	$(call LOG,CC  ,$$@,$(CC) -o $$@ -c $$< -fPIC $(POSIX_FLAGS) $(HOST_CFLAGS) $(2))
+	$(call LOG,CC  ,$$@,$(CC) -o $$@ -c $$< $(POSIX_CFLAGS) $(HOST_CFLAGS) $(CFLAGS) $(2))
 	@$(FIXDEPS) $(call SRC_TO_DEP_PRE_FIXUP,$(1))
 endef
 
 define CXX_COMPILER_RULE
 -include $(call SRC_TO_DEP,$(1))
 $(call SRC_TO_OBJ,$(1)): $(1) $(TOP_MAKE) | $(dir $(call SRC_TO_OBJ,$(1)))dir.stamp
-	$(call LOG,CXX ,$$@,$(CXX) -o $$@ -c $$< -fPIC $(POSIX_FLAGS) $(HOST_CFLAGS) $(2))
+	$(call LOG,CXX ,$$@,$(CXX) -o $$@ -c $$< $(POSIX_CFLAGS) $(HOST_CFLAGS) $(CXXFLAGS) $(2))
 	@$(FIXDEPS) $(call SRC_TO_DEP_PRE_FIXUP,$(1))
 endef
 
 #
 # Compile Macro
 #
-# $1 = Source Name
-# $2 = POSIX Compile Flags
-# $3 = VC Flags (unused)
+# $1 = Source name
+# $2 = POSIX compiler flags
+# $3 = VC compiler flags (unused)
 #
 define COMPILE_RULE
 ifeq ($(suffix $(1)),.c)
@@ -75,9 +108,8 @@ endef
 #
 # SO Macro
 #
-# $1 = Target Name
-# $2 = List of Sources
-#
+# $1 = Target name
+# $2 = list of source files
 #
 define SO_RULE
 $(error 'Shared libraries not supported by Host')
@@ -87,43 +119,42 @@ endef
 #
 # LIB Macro
 #
-# $1 = Target Name
-# $2 = List of Sources
-#
+# $1 = Target name
+# $2 = List of source files
 #
 define LIB_RULE
-$(STAMPDIR)/$(1).stamp: $(LIBDIR)/$(OSNAME)_host/$(CONFIG)/lib$(1).a
+$(STAMPDIR)/$(1).stamp: $(LIBDIR)/$(OSNAME)_host/$(CONFIG_DIR)/lib$(1).a
 	@echo "TOUCHED $$@" > $(STAMPDIR)/$(1).stamp
 
-all: $(LIBDIR)/$(OSNAME)_host/$(CONFIG)/lib$(1).a
-$(LIBDIR)/$(OSNAME)_host/$(CONFIG)/lib$(1).a: $(foreach src,$(2),$(call SRC_TO_OBJ,$(src)))
+all: $(LIBDIR)/$(OSNAME)_host/$(CONFIG_DIR)/lib$(1).a
+$(LIBDIR)/$(OSNAME)_host/$(CONFIG_DIR)/lib$(1).a: $(foreach src,$(2),$(call SRC_TO_OBJ,$(src)))
 	$(MKDIR) -p $$(dir $$@)
 	$(RM) -f $$@
-	$(call LOG,LIB,$$@,$(LIB) -cr $$@ $$^)
+	$(call LOG,LIB,$$@,$(AR) $(ARFLAGS) $$@ $$^)
 endef
 
 
 #
 # Link Macro
 #
-# $1 = Target Name
+# $1 = Target name
 # $2 = List of inputs
 # $3 = List of libs
 # $4 = List of deps
 # $5 = List of lib dirs
-# $6 = Linker Args
+# $6 = Linker flags
 #
 ifdef STANDALONE
 define LINKER_RULE
 all: $(1)
 $(1): $(2) $(foreach dep,$(4),$(STAMPDIR)/$(dep).stamp)
-	$(call LOG,LINK,$$@,$(LINK) -o $(1) $(2) $(HOST_LDFLAGS) $(NACL_LDFLAGS) $(LDFLAGS) $(foreach path,$(5),-L$(path)/$(OSNAME)_host)/$(CONFIG) $(foreach lib,$(3),-l$(lib)) $(6))
+	$(call LOG,LINK,$$@,$(LINK) -o $(1) $(2) $(HOST_LDFLAGS) $(LDFLAGS) $(foreach path,$(5),-L$(path)/$(OSNAME)_host/$(CONFIG_DIR) -L$(path)/$(OSNAME)_host/$(CONFIG)) $(foreach lib,$(3),-l$(lib)) $(6))
 endef
 else
 define LINKER_RULE
 all: $(1)
 $(1): $(2) $(foreach dep,$(4),$(STAMPDIR)/$(dep).stamp)
-	$(call LOG,LINK,$$@,$(LINK) -shared -o $(1) $(2) $(HOST_LDFLAGS) $(NACL_LDFLAGS) $(LDFLAGS) $(foreach path,$(5),-L$(path)/$(OSNAME)_host)/$(CONFIG) $(foreach lib,$(3),-l$(lib)) $(6))
+	$(call LOG,LINK,$$@,$(LINK) -shared -o $(1) $(2) $(HOST_LDFLAGS) $(LDFLAGS) $(foreach path,$(5),-L$(path)/$(OSNAME)_host/$(CONFIG_DIR) -L$(path)/$(OSNAME)_host/$(CONFIG)) $(foreach lib,$(3),-l$(lib)) $(6))
 endef
 endif
 
@@ -132,11 +163,11 @@ endif
 # Link Macro
 #
 # $1 = Target Name
-# $2 = List of Sources
+# $2 = List of source files
 # $3 = List of LIBS
 # $4 = List of DEPS
-# $5 = POSIX Linker Switches
-# $6 = VC Linker Switches
+# $5 = POSIX linker flags
+# $6 = VC linker flags
 #
 define LINK_RULE
 $(call LINKER_RULE,$(OUTDIR)/$(1)$(HOST_EXT),$(foreach src,$(2),$(call SRC_TO_OBJ,$(src))),$(filter-out pthread,$(3)),$(4),$(LIB_PATHS),$(5))
@@ -147,16 +178,16 @@ all: $(LIB_LIST) $(DEPS_LIST)
 
 #
 # Strip Macro
-# The host build makes shared libraries, so the best we can do is strip-debug.
-# We cannot strip the symbol names.
+# The host build makes shared libraries, so the best we can do is -S, which
+# only strip debug symbols.  We don't strip the symbol names.
 #
-# $1 = Target Name
-# $2 = Input Name
+# $1 = Target name
+# $2 = Input name
 #
 define STRIP_RULE
 all: $(OUTDIR)/$(1)$(HOST_EXT)
 $(OUTDIR)/$(1)$(HOST_EXT): $(OUTDIR)/$(2)$(HOST_EXT)
-	$(call LOG,STRIP,$$@,$(STRIP) --strip-debug -o $$@ $$^)
+	$(call LOG,STRIP,$$@,$(STRIP) -S -o $$@ $$^)
 endef
 
 

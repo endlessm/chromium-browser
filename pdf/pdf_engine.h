@@ -24,12 +24,12 @@
 #include "ppapi/cpp/rect.h"
 #include "ppapi/cpp/size.h"
 #include "ppapi/cpp/url_loader.h"
+#include "ppapi/cpp/var_array.h"
 
 namespace pp {
 class InputEvent;
+class VarDictionary;
 }
-
-const uint32 kBackgroundColor = 0xFFCCCCCC;
 
 namespace chrome_pdf {
 
@@ -41,16 +41,14 @@ const uint32 kDefaultKeyModifier = PP_INPUTEVENT_MODIFIER_METAKEY;
 const uint32 kDefaultKeyModifier = PP_INPUTEVENT_MODIFIER_CONTROLKEY;
 #endif  // OS_MACOSX
 
-// Do one time initialization of the SDK.  data is platform specific, on Windows
-// it's the instance of the DLL and it's unused on other platforms.
-bool InitializeSDK(void* data);
+// Do one time initialization of the SDK.
+bool InitializeSDK();
 // Tells the SDK that we're shutting down.
 void ShutdownSDK();
 
 // This class encapsulates a PDF rendering engine.
 class PDFEngine {
  public:
-
   enum DocumentPermission {
     PERMISSION_COPY,
     PERMISSION_COPY_ACCESSIBLE,
@@ -174,17 +172,22 @@ class PDFEngine {
 
     // Returns true if the plugin has been opened within print preview.
     virtual bool IsPrintPreview() = 0;
+
+    // Get the background color of the PDF.
+    virtual uint32 GetBackgroundColor() = 0;
+
+    // Sets selection status.
+    virtual void IsSelectingChanged(bool is_selecting) {}
   };
 
   // Factory method to create an instance of the PDF Engine.
   static PDFEngine* Create(Client* client);
 
   virtual ~PDFEngine() {}
+
   // Most of these functions are similar to the Pepper functions of the same
   // name, so not repeating the description here unless it's different.
-  virtual bool New(const char* url) = 0;
-  virtual bool New(const char* url,
-                   const char* headers) = 0;
+  virtual bool New(const char* url, const char* headers) = 0;
   virtual void PageOffsetUpdated(const pp::Point& page_offset) = 0;
   virtual void PluginSizeUpdated(const pp::Size& size) = 0;
   virtual void ScrolledToXPosition(int position) = 0;
@@ -244,6 +247,20 @@ class PDFEngine {
   // Gets the PDF document's print scaling preference. True if the document can
   // be scaled to fit.
   virtual bool GetPrintScaling() = 0;
+  // Returns number of copies to be printed.
+  virtual int GetCopiesToPrint() = 0;
+  // Returns the duplex setting.
+  virtual int GetDuplexType() = 0;
+  // Returns true if all the pages are the same size.
+  virtual bool GetPageSizeAndUniformity(pp::Size* size) = 0;
+
+  // Returns a VarArray of Bookmarks, each a VarDictionary containing the
+  // following key/values:
+  // - "title" - a string Var.
+  // - "page" - an int Var.
+  // - "children" - a VarArray(), with each entry containing a VarDictionary of
+  //   the same structure.
+  virtual pp::VarArray GetBookmarks() = 0;
 
   // Append blank pages to make a 1-page document to a |num_pages| document.
   // Always retain the first page data.
@@ -265,15 +282,15 @@ class PDFEngine {
 class PDFEngineExports {
  public:
   struct RenderingSettings {
-   RenderingSettings(int dpi_x,
-                     int dpi_y,
-                     const pp::Rect& bounds,
-                     bool fit_to_bounds,
-                     bool stretch_to_bounds,
-                     bool keep_aspect_ratio,
-                     bool center_in_bounds,
-                     bool autorotate)
-      : dpi_x(dpi_x), dpi_y(dpi_y), bounds(bounds),
+    RenderingSettings(int dpi_x,
+                      int dpi_y,
+                      const pp::Rect& bounds,
+                      bool fit_to_bounds,
+                      bool stretch_to_bounds,
+                      bool keep_aspect_ratio,
+                      bool center_in_bounds,
+                      bool autorotate)
+        : dpi_x(dpi_x), dpi_y(dpi_y), bounds(bounds),
         fit_to_bounds(fit_to_bounds), stretch_to_bounds(stretch_to_bounds),
         keep_aspect_ratio(keep_aspect_ratio),
         center_in_bounds(center_in_bounds), autorotate(autorotate) {

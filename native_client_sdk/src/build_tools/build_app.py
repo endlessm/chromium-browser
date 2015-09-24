@@ -3,14 +3,14 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import argparse
 import json
-import optparse
 import os
 import re
 import sys
 
-if sys.version_info < (2, 6, 0):
-  sys.stderr.write("python 2.6 or later is required run this script\n")
+if sys.version_info < (2, 7, 0):
+  sys.stderr.write("python 2.7 or later is required run this script\n")
   sys.exit(1)
 
 import buildbot_common
@@ -77,8 +77,8 @@ def GetStrip(pepperdir, platform, arch, toolchain):
 
 
 def main(args):
-  parser = optparse.OptionParser()
-  parser.add_option('-c', '--channel',
+  parser = argparse.ArgumentParser()
+  parser.add_argument('-c', '--channel',
       help='Channel to display in the name of the package.')
 
   # To setup bash completion for this command first install optcomplete
@@ -90,7 +90,7 @@ def main(args):
   except ImportError:
     pass
 
-  options, args = parser.parse_args(args[1:])
+  options = parser.parse_args(args)
 
   if options.channel:
     if options.channel not in ('Dev', 'Beta'):
@@ -118,9 +118,8 @@ def main(args):
   filters['DISABLE_PACKAGE'] = False
   filters['EXPERIMENTAL'] = False
   filters['TOOLS'] = toolchains
-  filters['DEST'] = ['examples/api', 'examples/benchmarks',
-                     'examples/getting_started', 'examples/demo',
-                     'examples/tutorial']
+  filters['DEST'] = ['examples/api', 'examples/getting_started',
+                     'examples/demo', 'examples/tutorial']
   tree = parse_dsc.LoadProjectTree(SDK_SRC_DIR, include=filters)
   build_projects.UpdateHelpers(app_dir, clobber=True)
   build_projects.UpdateProjects(app_dir, tree, clobber=False,
@@ -132,14 +131,20 @@ def main(args):
     return list1 + [x for x in list2 if x not in list1]
   all_permissions = []
   all_socket_permissions = []
+  all_filesystem_permissions = []
   for _, project in parse_dsc.GenerateProjects(tree):
     permissions = project.get('PERMISSIONS', [])
     all_permissions = MergeLists(all_permissions, permissions)
     socket_permissions = project.get('SOCKET_PERMISSIONS', [])
     all_socket_permissions = MergeLists(all_socket_permissions,
                                         socket_permissions)
+    filesystem_permissions = project.get('FILESYSTEM_PERMISSIONS', [])
+    all_filesystem_permissions = MergeLists(all_filesystem_permissions,
+                                            filesystem_permissions)
   if all_socket_permissions:
     all_permissions.append({'socket': all_socket_permissions})
+  if all_filesystem_permissions:
+    all_permissions.append({'fileSystem': all_filesystem_permissions})
   pretty_permissions = json.dumps(all_permissions, sort_keys=True, indent=4)
 
   for filename in ['background.js', 'icon128.png']:
@@ -181,4 +186,4 @@ def main(args):
 
 
 if __name__ == '__main__':
-  sys.exit(main(sys.argv))
+  sys.exit(main(sys.argv[1:]))

@@ -4,17 +4,22 @@
 
 #include "ash/wm/overview/scoped_transform_overview_window.h"
 
+#include <algorithm>
+#include <vector>
+
 #include "ash/screen_util.h"
 #include "ash/shell_window_ids.h"
-#include "ash/wm/overview/scoped_window_copy.h"
+#include "ash/wm/overview/scoped_overview_animation_settings.h"
 #include "ash/wm/overview/window_selector_item.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
+#include "base/macros.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/screen_position_client.h"
 #include "ui/aura/window.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/animation/tween.h"
+#include "ui/gfx/transform_util.h"
 #include "ui/views/widget/widget.h"
 #include "ui/wm/core/window_animations.h"
 #include "ui/wm/core/window_util.h"
@@ -23,147 +28,226 @@ namespace ash {
 
 namespace {
 
-// The animation settings used for window selector animations.
-class WindowSelectorAnimationSettings
-    : public ui::ScopedLayerAnimationSettings {
- public:
-  WindowSelectorAnimationSettings(aura::Window* window) :
-      ui::ScopedLayerAnimationSettings(window->layer()->GetAnimator()) {
-    SetPreemptionStrategy(
-        ui::LayerAnimator::IMMEDIATELY_ANIMATE_TO_NEW_TARGET);
-    SetTransitionDuration(base::TimeDelta::FromMilliseconds(
-        ScopedTransformOverviewWindow::kTransitionMilliseconds));
-    SetTweenType(gfx::Tween::FAST_OUT_SLOW_IN);
-  }
+// The opacity level that windows will be set to when they are restored.
+const float kRestoreWindowOpacity = 1.0f;
 
-  ~WindowSelectorAnimationSettings() override {}
+aura::Window* GetTransientRoot(aura::Window* window) {
+  while (::wm::GetTransientParent(window))
+    window = ::wm::GetTransientParent(window);
+  return window;
+}
+
+// An iterator class that traverses an aura::Window and all of it's transient
+// descendants.
+class TransientDescendantIterator {
+ public:
+  // Creates an empty iterator.
+  TransientDescendantIterator();
+
+  // Copy constructor required for iterator purposes.
+  TransientDescendantIterator(
+      const TransientDescendantIterator& other) = default;
+
+  // Iterates over |root_window| and all of its transient descendants.
+  // Note |root_window| must not have a transient parent.
+  explicit TransientDescendantIterator(aura::Window* root_window);
+
+  // Prefix increment operator.  This assumes there are more items (i.e.
+  // *this != TransientDescendantIterator()).
+  const TransientDescendantIterator& operator++();
+
+  // Comparison for STL-based loops.
+  bool operator!=(const TransientDescendantIterator& other) const;
+
+  // Dereference operator for STL-compatible iterators.
+  aura::Window* operator*() const;
+
+ private:
+  // The current window that |this| refers to. A NULL |current_window_| denotes
+  // an empty iterator and is used as the last possible value in the traversal.
+  aura::Window* current_window_;
+
+  // Explicit assignment operator defined because an explicit copy constructor
+  // is needed and therefore the DISALLOW_COPY_AND_ASSIGN macro cannot be used.
+  TransientDescendantIterator& operator=(
+      const TransientDescendantIterator& other) = default;
 };
 
-void SetTransformOnWindow(aura::Window* window,
-                          const gfx::Transform& transform,
-                          bool animate) {
-  if (animate) {
-    WindowSelectorAnimationSettings animation_settings(window);
-    window->SetTransform(transform);
+// Provides a virtual container implementing begin() and end() for a sequence of
+// TransientDescendantIterators. This can be used in range-based for loops.
+class TransientDescendantIteratorRange {
+ public:
+  explicit TransientDescendantIteratorRange(
+      const TransientDescendantIterator& begin);
+
+  // Copy constructor required for iterator purposes.
+  TransientDescendantIteratorRange(
+      const TransientDescendantIteratorRange& other) = default;
+
+  const TransientDescendantIterator& begin() const { return begin_; }
+  const TransientDescendantIterator& end() const { return end_; }
+
+ private:
+  TransientDescendantIterator begin_;
+  TransientDescendantIterator end_;
+
+  // Explicit assignment operator defined because an explicit copy constructor
+  // is needed and therefore the DISALLOW_COPY_AND_ASSIGN macro cannot be used.
+  TransientDescendantIteratorRange& operator=(
+      const TransientDescendantIteratorRange& other) = default;
+};
+
+TransientDescendantIterator::TransientDescendantIterator()
+  : current_window_(nullptr) {
+}
+
+TransientDescendantIterator::TransientDescendantIterator(
+    aura::Window* root_window)
+    : current_window_(root_window) {
+  DCHECK(!::wm::GetTransientParent(root_window));
+}
+
+// Performs a pre-order traversal of the transient descendants.
+const TransientDescendantIterator&
+TransientDescendantIterator::operator++() {
+  DCHECK(current_window_);
+
+  const aura::Window::Windows& transient_children =
+      ::wm::GetTransientChildren(current_window_);
+
+  if (transient_children.size() > 0) {
+    current_window_ = transient_children.front();
   } else {
-    window->SetTransform(transform);
+    while (current_window_) {
+      aura::Window* parent = ::wm::GetTransientParent(current_window_);
+      if (!parent) {
+        current_window_ = nullptr;
+        break;
+      }
+      const aura::Window::Windows& transient_siblings =
+          ::wm::GetTransientChildren(parent);
+      aura::Window::Windows::const_iterator iter = std::find(
+          transient_siblings.begin(),
+          transient_siblings.end(),
+          current_window_);
+      ++iter;
+      if (iter != transient_siblings.end()) {
+        current_window_ = *iter;
+        break;
+      }
+      current_window_ = ::wm::GetTransientParent(current_window_);
+    }
   }
+  return *this;
 }
 
-gfx::Transform TranslateTransformOrigin(const gfx::Vector2d& new_origin,
-                                        const gfx::Transform& transform) {
-  gfx::Transform result;
-  result.Translate(-new_origin.x(), -new_origin.y());
-  result.PreconcatTransform(transform);
-  result.Translate(new_origin.x(), new_origin.y());
-  return result;
+bool TransientDescendantIterator::operator!=(
+    const TransientDescendantIterator& other) const {
+  return current_window_ != other.current_window_;
 }
 
-void SetTransformOnWindowAndAllTransientChildren(
-    aura::Window* window,
-    const gfx::Transform& transform,
-    bool animate) {
-  SetTransformOnWindow(window, transform, animate);
-
-  aura::Window::Windows transient_children =
-      ::wm::GetTransientChildren(window);
-  for (aura::Window::Windows::iterator iter = transient_children.begin();
-       iter != transient_children.end(); ++iter) {
-    aura::Window* transient_child = *iter;
-    gfx::Rect window_bounds = window->bounds();
-    gfx::Rect child_bounds = transient_child->bounds();
-    gfx::Transform transient_window_transform(
-        TranslateTransformOrigin(child_bounds.origin() - window_bounds.origin(),
-                                 transform));
-    SetTransformOnWindow(transient_child, transient_window_transform, animate);
-  }
+aura::Window* TransientDescendantIterator::operator*() const {
+  return current_window_;
 }
 
-aura::Window* GetModalTransientParent(aura::Window* window) {
-  if (window->GetProperty(aura::client::kModalKey) == ui::MODAL_TYPE_WINDOW)
-    return ::wm::GetTransientParent(window);
-  return NULL;
+TransientDescendantIteratorRange::TransientDescendantIteratorRange(
+    const TransientDescendantIterator& begin)
+    : begin_(begin) {
+}
+
+TransientDescendantIteratorRange GetTransientTreeIterator(
+    aura::Window* window) {
+  return TransientDescendantIteratorRange(
+      TransientDescendantIterator(GetTransientRoot(window)));
 }
 
 }  // namespace
-
-const int ScopedTransformOverviewWindow::kTransitionMilliseconds = 200;
 
 ScopedTransformOverviewWindow::ScopedTransformOverviewWindow(
         aura::Window* window)
     : window_(window),
       minimized_(window->GetProperty(aura::client::kShowStateKey) ==
                  ui::SHOW_STATE_MINIMIZED),
-      ignored_by_shelf_(ash::wm::GetWindowState(window)->ignored_by_shelf()),
+      ignored_by_shelf_(wm::GetWindowState(window)->ignored_by_shelf()),
       overview_started_(false),
       original_transform_(window->layer()->GetTargetTransform()),
-      opacity_(window->layer()->GetTargetOpacity()) {
+      original_opacity_(window->layer()->GetTargetOpacity()) {
+  DCHECK(window_);
 }
 
 ScopedTransformOverviewWindow::~ScopedTransformOverviewWindow() {
-  if (window_) {
-    WindowSelectorAnimationSettings animation_settings(window_);
-    gfx::Transform transform;
-    SetTransformOnWindowAndTransientChildren(original_transform_, true);
-    if (minimized_ && window_->GetProperty(aura::client::kShowStateKey) !=
-        ui::SHOW_STATE_MINIMIZED) {
-      // Setting opacity 0 and visible false ensures that the property change
-      // to SHOW_STATE_MINIMIZED will not animate the window from its original
-      // bounds to the minimized position.
-      // Hiding the window needs to be done before the target opacity is 0,
-      // otherwise the layer's visibility will not be updated
-      // (See VisibilityController::UpdateLayerVisibility).
-      window_->Hide();
-      window_->layer()->SetOpacity(0);
-      window_->SetProperty(aura::client::kShowStateKey,
-                           ui::SHOW_STATE_MINIMIZED);
-    }
-    ash::wm::GetWindowState(window_)->set_ignored_by_shelf(ignored_by_shelf_);
-    window_->layer()->SetOpacity(opacity_);
+}
+
+void ScopedTransformOverviewWindow::RestoreWindow() {
+  ScopedAnimationSettings animation_settings_list;
+  BeginScopedAnimation(
+      OverviewAnimationType::OVERVIEW_ANIMATION_RESTORE_WINDOW,
+      &animation_settings_list);
+  SetTransform(window()->GetRootWindow(), original_transform_);
+
+  ScopedOverviewAnimationSettings animation_settings(
+      OverviewAnimationType::OVERVIEW_ANIMATION_LAY_OUT_SELECTOR_ITEMS,
+      window_);
+  gfx::Transform transform;
+  if (minimized_ && window_->GetProperty(aura::client::kShowStateKey) !=
+      ui::SHOW_STATE_MINIMIZED) {
+    // Setting opacity 0 and visible false ensures that the property change
+    // to SHOW_STATE_MINIMIZED will not animate the window from its original
+    // bounds to the minimized position.
+    // Hiding the window needs to be done before the target opacity is 0,
+    // otherwise the layer's visibility will not be updated
+    // (See VisibilityController::UpdateLayerVisibility).
+    window_->Hide();
+    window_->layer()->SetOpacity(0);
+    window_->SetProperty(aura::client::kShowStateKey, ui::SHOW_STATE_MINIMIZED);
+  }
+  wm::GetWindowState(window_)->set_ignored_by_shelf(ignored_by_shelf_);
+  SetOpacity(original_opacity_);
+}
+
+void ScopedTransformOverviewWindow::BeginScopedAnimation(
+    OverviewAnimationType animation_type,
+    ScopedAnimationSettings* animation_settings) {
+  for (const auto& window : GetTransientTreeIterator(window_)) {
+    animation_settings->push_back(
+        new ScopedOverviewAnimationSettings(animation_type, window));
   }
 }
 
 bool ScopedTransformOverviewWindow::Contains(const aura::Window* target) const {
-  for (ScopedVector<ScopedWindowCopy>::const_iterator iter =
-      window_copies_.begin(); iter != window_copies_.end(); ++iter) {
-    if ((*iter)->GetWindow()->Contains(target))
-      return true;
-  }
-  aura::Window* window = window_;
-  while (window) {
+  for (const auto& window : GetTransientTreeIterator(window_)) {
     if (window->Contains(target))
       return true;
-    window = GetModalTransientParent(window);
   }
   return false;
 }
 
-gfx::Rect ScopedTransformOverviewWindow::GetBoundsInScreen() const {
+gfx::Rect ScopedTransformOverviewWindow::GetTargetBoundsInScreen() const {
   gfx::Rect bounds;
-  aura::Window* window = window_;
-  while (window) {
+  for (const auto& window : GetTransientTreeIterator(window_)) {
     bounds.Union(ScreenUtil::ConvertRectToScreen(window->parent(),
-                                                window->GetTargetBounds()));
-    window = GetModalTransientParent(window);
+                                                 window->GetTargetBounds()));
   }
   return bounds;
 }
 
-void ScopedTransformOverviewWindow::RestoreWindow() {
+void ScopedTransformOverviewWindow::ShowWindowIfMinimized() {
   if (minimized_ && window_->GetProperty(aura::client::kShowStateKey) ==
       ui::SHOW_STATE_MINIMIZED) {
     window_->Show();
   }
 }
 
-void ScopedTransformOverviewWindow::RestoreWindowOnExit() {
-  minimized_ = false;
-  original_transform_ = gfx::Transform();
-  opacity_ = 1;
+void ScopedTransformOverviewWindow::ShowWindowOnExit() {
+  if (minimized_) {
+    minimized_ = false;
+    original_transform_ = gfx::Transform();
+    original_opacity_ = kRestoreWindowOpacity;
+  }
 }
 
 void ScopedTransformOverviewWindow::OnWindowDestroyed() {
-  window_ = NULL;
+  window_ = nullptr;
 }
 
 gfx::Rect ScopedTransformOverviewWindow::ShrinkRectToFitPreservingAspectRatio(
@@ -195,79 +279,39 @@ gfx::Transform ScopedTransformOverviewWindow::GetTransformForRect(
 
 void ScopedTransformOverviewWindow::SetTransform(
     aura::Window* root_window,
-    const gfx::Transform& transform,
-    bool animate) {
+    const gfx::Transform& transform) {
   DCHECK(overview_started_);
 
-  if (root_window != window_->GetRootWindow()) {
-    if (!window_copies_.empty()) {
-      bool bounds_or_hierarchy_changed = false;
-      aura::Window* window = window_;
-      for (ScopedVector<ScopedWindowCopy>::reverse_iterator iter =
-               window_copies_.rbegin();
-           !bounds_or_hierarchy_changed && iter != window_copies_.rend();
-           ++iter, window = GetModalTransientParent(window)) {
-        if (!window) {
-          bounds_or_hierarchy_changed = true;
-        } else if ((*iter)->GetWindow()->GetBoundsInScreen() !=
-                window->GetBoundsInScreen()) {
-          bounds_or_hierarchy_changed = true;
-        }
-      }
-      // Clearing the window copies array will force it to be recreated.
-      // TODO(flackr): If only the position changed and not the size,
-      // update the existing window copy's position and continue to use it.
-      if (bounds_or_hierarchy_changed)
-        window_copies_.clear();
-    }
-    if (window_copies_.empty()) {
-      // TODO(flackr): Create copies of the transient children windows as well.
-      // Currently they will only be visible on the window's initial display.
-      CopyWindowAndTransientParents(root_window, window_);
-    }
+  gfx::Point target_origin(GetTargetBoundsInScreen().origin());
+
+  for (const auto& window : GetTransientTreeIterator(window_)) {
+    aura::Window* parent_window = window->parent();
+    gfx::Point original_origin = ScreenUtil::ConvertRectToScreen(
+        parent_window, window->GetTargetBounds()).origin();
+    gfx::Transform new_transform = TransformAboutPivot(
+        gfx::Point(target_origin.x() - original_origin.x(),
+                   target_origin.y() - original_origin.y()),
+        transform);
+    window->SetTransform(new_transform);
   }
-  SetTransformOnWindowAndTransientChildren(transform, animate);
 }
 
-void ScopedTransformOverviewWindow::CopyWindowAndTransientParents(
-    aura::Window* target_root,
-    aura::Window* window) {
-  aura::Window* modal_parent = GetModalTransientParent(window);
-  if (modal_parent)
-    CopyWindowAndTransientParents(target_root, modal_parent);
-  window_copies_.push_back(new ScopedWindowCopy(target_root, window));
+void ScopedTransformOverviewWindow::SetOpacity(float opacity) {
+  for (const auto& window : GetTransientTreeIterator(window_)) {
+    window->layer()->SetOpacity(opacity);
+  }
 }
 
-void ScopedTransformOverviewWindow::SetTransformOnWindowAndTransientChildren(
-    const gfx::Transform& transform,
-    bool animate) {
-  gfx::Point origin(GetBoundsInScreen().origin());
-  aura::Window* window = window_;
-  while (::wm::GetTransientParent(window))
-    window = ::wm::GetTransientParent(window);
-  for (ScopedVector<ScopedWindowCopy>::const_iterator iter =
-      window_copies_.begin(); iter != window_copies_.end(); ++iter) {
-    SetTransformOnWindow(
-        (*iter)->GetWindow(),
-        TranslateTransformOrigin(ScreenUtil::ConvertRectToScreen(
-            (*iter)->GetWindow()->parent(),
-            (*iter)->GetWindow()->GetTargetBounds()).origin() - origin,
-            transform),
-        animate);
-  }
-  SetTransformOnWindowAndAllTransientChildren(
-      window,
-      TranslateTransformOrigin(ScreenUtil::ConvertRectToScreen(
-          window->parent(), window->GetTargetBounds()).origin() - origin,
-          transform),
-      animate);
+void ScopedTransformOverviewWindow::Close() {
+  aura::Window* window = GetTransientRoot(window_);
+  views::Widget::GetWidgetForNativeView(window)->Close();
 }
 
 void ScopedTransformOverviewWindow::PrepareForOverview() {
   DCHECK(!overview_started_);
   overview_started_ = true;
-  ash::wm::GetWindowState(window_)->set_ignored_by_shelf(true);
-  RestoreWindow();
+  wm::GetWindowState(window_)->set_ignored_by_shelf(true);
+  ShowWindowIfMinimized();
 }
 
 }  // namespace ash

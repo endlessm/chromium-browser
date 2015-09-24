@@ -14,57 +14,57 @@ var remoting = remoting || {};
 
 /**
  * @constructor
- * @param {remoting.ClientPlugin} plugin
+ * @implements {remoting.ProtocolExtension}
  */
-remoting.VideoFrameRecorder = function(plugin) {
+remoting.VideoFrameRecorder = function() {
+  /** @private {?function(string,string)} */
+  this.sendMessageToHostCallback_ = null;
+
   this.fileWriter_ = null;
   this.isRecording_ = false;
-  this.plugin_ = plugin;
+};
+
+/** @private {string} */
+remoting.VideoFrameRecorder.EXTENSION_TYPE = 'video-recorder';
+
+/** @return {Array<string>} */
+remoting.VideoFrameRecorder.prototype.getExtensionTypes = function() {
+  return [remoting.VideoFrameRecorder.EXTENSION_TYPE];
 };
 
 /**
- * Starts or stops video recording.
+ * @param {function(string,string)} sendMessageToHost Callback to send a message
+ *     to the host.
  */
-remoting.VideoFrameRecorder.prototype.startStopRecording = function() {
-  var data = {};
-  if (this.isRecording_) {
-    this.isRecording_ = false;
-    data = { type: 'stop' }
-
-    chrome.fileSystem.chooseEntry(
-        {type: 'saveFile', suggestedName: 'videoRecording.pb'},
-        this.onFileChosen_.bind(this));
-  } else {
-    this.isRecording_ = true;
-    data = { type: 'start' }
-  }
-  this.plugin_.sendClientMessage('video-recorder', JSON.stringify(data));
-}
+remoting.VideoFrameRecorder.prototype.startExtension =
+    function(sendMessageToHost) {
+  this.sendMessageToHostCallback_ = sendMessageToHost;
+};
 
 /**
- * Returns true if the session is currently being recorded.
- * @return {boolean}
+ * @param {Object} data The data to send.
+ * @private
  */
-remoting.VideoFrameRecorder.prototype.isRecording = function() {
-  return this.isRecording_;
+remoting.VideoFrameRecorder.prototype.sendMessageToHost_ = function(data) {
+  this.sendMessageToHostCallback_(remoting.VideoFrameRecorder.EXTENSION_TYPE,
+                                  JSON.stringify(data));
 }
 
 /**
  * Handles 'video-recorder' extension messages and returns true. Returns
  * false for all other message types.
+ *
  * @param {string} type Type of extension message.
- * @param {string} data Content of the extension message.
+ * @param {Object} message The parsed extension message data.
  * @return {boolean}
  */
-remoting.VideoFrameRecorder.prototype.handleMessage =
-    function(type, data) {
-  if (type != 'video-recorder') {
-    return false;
-  }
+remoting.VideoFrameRecorder.prototype.onExtensionMessage =
+    function(type, message) {
+  console.assert(type == remoting.VideoFrameRecorder.EXTENSION_TYPE,
+                'Unexpected extension message type: ' + type + '.');
 
-  var message = getJsonObjectFromString(data);
-  var messageType = getStringAttr(message, 'type');
-  var messageData = getStringAttr(message, 'data');
+  var messageType = base.getStringAttr(message, 'type');
+  var messageData = base.getStringAttr(message, 'data');
 
   if (messageType == 'next-frame-reply') {
     if (!this.fileWriter_) {
@@ -78,8 +78,7 @@ remoting.VideoFrameRecorder.prototype.handleMessage =
     }
 
     console.log("Received frame");
-    /* jscompile gets confused if you refer to this as just atob(). */
-    var videoPacketString = /** @type {string?} */ window.atob(messageData);
+    var videoPacketString = window.atob(messageData);
 
     console.log("Converted from Base64 - length:" + videoPacketString.length);
     var byteArrays = [];
@@ -97,10 +96,6 @@ remoting.VideoFrameRecorder.prototype.handleMessage =
     console.log("Writing frame");
     videoPacketString = null;
     /**
-     * Our current compiler toolchain only understands the old (deprecated)
-     * Blob constructor, which does not accept any parameters.
-     * TODO(wez): Remove this when compiler is updated (see crbug.com/405298).
-     * @suppress {checkTypes}
      * @param {Array} parts
      * @return {Blob}
      */
@@ -119,16 +114,48 @@ remoting.VideoFrameRecorder.prototype.handleMessage =
   return true;
 }
 
-/** @param {FileEntry} fileEntry */
-remoting.VideoFrameRecorder.prototype.onFileChosen_ = function(fileEntry) {
-  if (!fileEntry) {
+/**
+ * Starts or stops video recording.
+ */
+remoting.VideoFrameRecorder.prototype.startStopRecording = function() {
+  var data = {};
+  if (this.isRecording_) {
+    this.isRecording_ = false;
+    data = { type: 'stop' }
+
+    chrome.fileSystem.chooseEntry(
+        {type: 'saveFile', suggestedName: 'videoRecording.pb'},
+        this.onFileChosen_.bind(this));
+  } else {
+    this.isRecording_ = true;
+    data = { type: 'start' }
+  }
+  this.sendMessageToHost_(data);
+}
+
+/**
+ * Returns true if the session is currently being recorded.
+ * @return {boolean}
+ */
+remoting.VideoFrameRecorder.prototype.isRecording = function() {
+  return this.isRecording_;
+}
+
+/**
+ * @param {Entry=} entry The single file entry if multiple files are not
+ *     allowed.
+ * @param {Array<!FileEntry>=} fileEntries List of file entries if multiple
+ *     files are allowed.
+ */
+remoting.VideoFrameRecorder.prototype.onFileChosen_ = function(
+    entry, fileEntries) {
+  if (!entry) {
     console.log("Cancelled save of video frames.");
   } else {
-    /** @type {function(string):void} */
-    chrome.fileSystem.getDisplayPath(fileEntry, function(path) {
+    chrome.fileSystem.getDisplayPath(entry, function(path) {
       console.log("Saving video frames to:" + path);
     });
-    fileEntry.createWriter(this.onFileWriter_.bind(this));
+    entry.createWriter(this.onFileWriter_.bind(this));
   }
 }
 
@@ -148,5 +175,5 @@ remoting.VideoFrameRecorder.prototype.onWriteComplete_ = function(e) {
 remoting.VideoFrameRecorder.prototype.fetchNextFrame_ = function() {
   console.log("Request next video frame");
   var data = { type: 'next-frame' }
-  this.plugin_.sendClientMessage('video-recorder', JSON.stringify(data));
+  this.sendMessageToHost_(data);
 }

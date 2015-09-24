@@ -6,6 +6,8 @@
 #define EXTENSIONS_BROWSER_API_BLUETOOTH_LOW_ENERGY_BLUETOOTH_LOW_ENERGY_API_H_
 
 #include "base/memory/scoped_ptr.h"
+#include "device/bluetooth/bluetooth_advertisement.h"
+#include "extensions/browser/api/api_resource_manager.h"
 #include "extensions/browser/api/bluetooth_low_energy/bluetooth_low_energy_event_router.h"
 #include "extensions/browser/browser_context_keyed_api_factory.h"
 #include "extensions/browser/extension_function.h"
@@ -13,6 +15,7 @@
 
 namespace extensions {
 
+class BluetoothApiAdvertisement;
 class BluetoothLowEnergyEventRouter;
 
 // The profile-keyed service that manages the bluetoothLowEnergy extension API.
@@ -43,8 +46,6 @@ class BluetoothLowEnergyAPI : public BrowserContextKeyedAPI {
   friend class BrowserContextKeyedAPIFactory<BluetoothLowEnergyAPI>;
 
   scoped_ptr<BluetoothLowEnergyEventRouter> event_router_;
-
-  content::BrowserContext* browser_context_;
 
   DISALLOW_COPY_AND_ASSIGN(BluetoothLowEnergyAPI);
 };
@@ -326,6 +327,71 @@ class BluetoothLowEnergyWriteDescriptorValueFunction
   // BluetoothLowEnergyEventRouter::WriteDescriptorValue.
   void SuccessCallback();
   void ErrorCallback(BluetoothLowEnergyEventRouter::Status status);
+
+  // The instance ID of the requested descriptor.
+  std::string instance_id_;
+};
+
+class BluetoothLowEnergyAdvertisementFunction
+    : public BluetoothLowEnergyExtensionFunction {
+ public:
+  BluetoothLowEnergyAdvertisementFunction();
+
+ protected:
+  ~BluetoothLowEnergyAdvertisementFunction() override;
+
+  // Takes ownership.
+  int AddAdvertisement(BluetoothApiAdvertisement* advertisement);
+  BluetoothApiAdvertisement* GetAdvertisement(int advertisement_id);
+  void RemoveAdvertisement(int advertisement_id);
+
+  // ExtensionFunction override.
+  bool RunAsync() override;
+
+ private:
+  void Initialize();
+
+  ApiResourceManager<BluetoothApiAdvertisement>* advertisements_manager_;
+
+  DISALLOW_COPY_AND_ASSIGN(BluetoothLowEnergyAdvertisementFunction);
+};
+
+class BluetoothLowEnergyRegisterAdvertisementFunction
+    : public BluetoothLowEnergyAdvertisementFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("bluetoothLowEnergy.registerAdvertisement",
+                             BLUETOOTHLOWENERGY_REGISTERADVERTISEMENT);
+
+ protected:
+  ~BluetoothLowEnergyRegisterAdvertisementFunction() override {}
+
+  // BluetoothLowEnergyExtensionFunction override.
+  bool DoWork() override;
+
+ private:
+  void SuccessCallback(scoped_refptr<device::BluetoothAdvertisement>);
+  void ErrorCallback(device::BluetoothAdvertisement::ErrorCode status);
+
+  // The instance ID of the requested descriptor.
+  std::string instance_id_;
+};
+
+class BluetoothLowEnergyUnregisterAdvertisementFunction
+    : public BluetoothLowEnergyAdvertisementFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("bluetoothLowEnergy.unregisterAdvertisement",
+                             BLUETOOTHLOWENERGY_UNREGISTERADVERTISEMENT);
+
+ protected:
+  ~BluetoothLowEnergyUnregisterAdvertisementFunction() override {}
+
+  // BluetoothLowEnergyExtensionFunction override.
+  bool DoWork() override;
+
+ private:
+  void SuccessCallback(int advertisement_id);
+  void ErrorCallback(int advertisement_id,
+                     device::BluetoothAdvertisement::ErrorCode status);
 
   // The instance ID of the requested descriptor.
   std::string instance_id_;

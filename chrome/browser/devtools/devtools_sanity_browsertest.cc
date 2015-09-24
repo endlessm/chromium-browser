@@ -6,14 +6,18 @@
 #include "base/cancelable_callback.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
+#include "base/location.h"
 #include "base/memory/ref_counted.h"
 #include "base/path_service.h"
 #include "base/prefs/pref_service.h"
+#include "base/single_thread_task_runner.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/test_timeouts.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/devtools/browser_list_tabcontents_provider.h"
+#include "chrome/browser/devtools/device/tcp_device_provider.h"
 #include "chrome/browser/devtools/devtools_window_testing.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
@@ -27,16 +31,16 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/test_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "components/app_modal_dialogs/javascript_app_modal_dialog.h"
-#include "components/app_modal_dialogs/native_app_modal_dialog.h"
+#include "components/app_modal/javascript_app_modal_dialog.h"
+#include "components/app_modal/native_app_modal_dialog.h"
 #include "content/public/browser/child_process_data.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/devtools_agent_host.h"
-#include "content/public/browser/devtools_http_handler.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_view_host.h"
@@ -45,12 +49,17 @@
 #include "content/public/browser/worker_service_observer.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/notification_types.h"
 #include "extensions/common/switches.h"
-#include "net/socket/tcp_listen_socket.h"
 #include "net/test/spawned_test_server/spawned_test_server.h"
+#include "ui/compositor/compositor_switches.h"
+#include "ui/gl/gl_switches.h"
 
+using app_modal::AppModalDialog;
+using app_modal::JavaScriptAppModalDialog;
+using app_modal::NativeAppModalDialog;
 using content::BrowserThread;
 using content::DevToolsAgentHost;
 using content::NavigationController;
@@ -188,7 +197,7 @@ void DevToolsWindowBeforeUnloadObserver::BeforeUnloadFired(
 
 class DevToolsBeforeUnloadTest: public DevToolsSanityTest {
  public:
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(
         switches::kDisableHangMonitor);
   }
@@ -285,7 +294,7 @@ class DevToolsBeforeUnloadTest: public DevToolsSanityTest {
 
 class DevToolsUnresponsiveBeforeUnloadTest: public DevToolsBeforeUnloadTest {
  public:
-  void SetUpCommandLine(CommandLine* command_line) override {}
+  void SetUpCommandLine(base::CommandLine* command_line) override {}
 };
 
 void TimeoutCallback(const std::string& timeout_message) {
@@ -315,7 +324,9 @@ class DevToolsExtensionTest : public DevToolsSanityTest,
   bool LoadExtensionFromPath(const base::FilePath& path) {
     ExtensionService* service = extensions::ExtensionSystem::Get(
         browser()->profile())->extension_service();
-    size_t num_before = service->extensions()->size();
+    extensions::ExtensionRegistry* registry =
+        extensions::ExtensionRegistry::Get(browser()->profile());
+    size_t num_before = registry->enabled_extensions().size();
     {
       content::NotificationRegistrar registrar;
       registrar.Add(this,
@@ -323,13 +334,13 @@ class DevToolsExtensionTest : public DevToolsSanityTest,
                     content::NotificationService::AllSources());
       base::CancelableClosure timeout(
           base::Bind(&TimeoutCallback, "Extension load timed out."));
-      base::MessageLoop::current()->PostDelayedTask(
+      base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
           FROM_HERE, timeout.callback(), TestTimeouts::action_timeout());
       extensions::UnpackedInstaller::Create(service)->Load(path);
       content::RunMessageLoop();
       timeout.Cancel();
     }
-    size_t num_after = service->extensions()->size();
+    size_t num_after = registry->enabled_extensions().size();
     if (num_after != (num_before + 1))
       return false;
 
@@ -343,20 +354,20 @@ class DevToolsExtensionTest : public DevToolsSanityTest,
 
     content::NotificationRegistrar registrar;
     registrar.Add(this,
-                  extensions::NOTIFICATION_EXTENSION_HOST_DID_STOP_LOADING,
+                  extensions::NOTIFICATION_EXTENSION_HOST_DID_STOP_FIRST_LOAD,
                   content::NotificationService::AllSources());
     base::CancelableClosure timeout(
         base::Bind(&TimeoutCallback, "Extension host load timed out."));
-    base::MessageLoop::current()->PostDelayedTask(
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE, timeout.callback(), TestTimeouts::action_timeout());
 
     extensions::ProcessManager* manager =
         extensions::ProcessManager::Get(browser()->profile());
-    extensions::ProcessManager::ViewSet all_views = manager->GetAllViews();
-    for (extensions::ProcessManager::ViewSet::const_iterator iter =
-             all_views.begin();
-         iter != all_views.end();) {
-      if (!(*iter)->IsLoading())
+    extensions::ProcessManager::FrameSet all_frames = manager->GetAllFrames();
+    for (extensions::ProcessManager::FrameSet::const_iterator iter =
+             all_frames.begin();
+         iter != all_frames.end();) {
+      if (!content::WebContents::FromRenderFrameHost(*iter)->IsLoading())
         ++iter;
       else
         content::RunMessageLoop();
@@ -371,7 +382,7 @@ class DevToolsExtensionTest : public DevToolsSanityTest,
                const content::NotificationDetails& details) override {
     switch (type) {
       case extensions::NOTIFICATION_EXTENSION_LOADED_DEPRECATED:
-      case extensions::NOTIFICATION_EXTENSION_HOST_DID_STOP_LOADING:
+      case extensions::NOTIFICATION_EXTENSION_HOST_DID_STOP_FIRST_LOAD:
         base::MessageLoopForUI::current()->Quit();
         break;
       default:
@@ -385,7 +396,7 @@ class DevToolsExtensionTest : public DevToolsSanityTest,
 
 class DevToolsExperimentalExtensionTest : public DevToolsExtensionTest {
  public:
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(
         extensions::switches::kEnableExperimentalExtensionApis);
   }
@@ -629,8 +640,9 @@ IN_PROC_BROWSER_TEST_F(DevToolsBeforeUnloadTest,
 
 // Tests that BeforeUnload event gets called on devtools that are opened
 // on another devtools.
+// Disabled because of http://crbug.com/497857
 IN_PROC_BROWSER_TEST_F(DevToolsBeforeUnloadTest,
-                       TestDevToolsOnDevTools) {
+                       DISABLED_TestDevToolsOnDevTools) {
   ASSERT_TRUE(test_server()->Start());
   LoadTestPage(kDebuggerTestPage);
 
@@ -806,6 +818,12 @@ IN_PROC_BROWSER_TEST_F(DevToolsSanityTest, DISABLED_TestDeviceEmulation) {
   RunTest("testDeviceMetricsOverrides", "about:blank");
 }
 
+// Tests that settings are stored in profile correctly.
+IN_PROC_BROWSER_TEST_F(DevToolsSanityTest, TestSettings) {
+  OpenDevToolsWindow("about:blank", true);
+  RunTestFunction(window_, "testSettings");
+  CloseDevToolsWindow();
+}
 
 // Tests that external navigation from inspector page is always handled by
 // DevToolsWindow and results in inspected page navigation.
@@ -849,7 +867,8 @@ IN_PROC_BROWSER_TEST_F(DevToolsSanityTest, TestToolboxNotLoadedDocked) {
 
 // Tests that inspector will reattach to inspected page when it is reloaded
 // after a crash. See http://crbug.com/101952
-IN_PROC_BROWSER_TEST_F(DevToolsSanityTest, TestReattachAfterCrash) {
+// Disabled. it doesn't check anything right now: http://crbug.com/461790
+IN_PROC_BROWSER_TEST_F(DevToolsSanityTest, DISABLED_TestReattachAfterCrash) {
   RunTest("testReattachAfterCrash", std::string());
 }
 
@@ -869,15 +888,17 @@ IN_PROC_BROWSER_TEST_F(DevToolsSanityTest, TestPageWithNoJavaScript) {
 IN_PROC_BROWSER_TEST_F(WorkerDevToolsSanityTest, InspectSharedWorker) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
   RunTest("testSharedWorker", kSharedWorkerTestPage, kSharedWorkerTestWorker);
 }
 
+// Disabled, crashes under Dr.Memory and ASan, http://crbug.com/432444.
 IN_PROC_BROWSER_TEST_F(WorkerDevToolsSanityTest,
-                       PauseInSharedWorkerInitialization) {
+                       DISABLED_PauseInSharedWorkerInitialization) {
   ASSERT_TRUE(test_server()->Start());
   GURL url = test_server()->GetURL(kReloadSharedWorkerTestPage);
   ui_test_utils::NavigateToURL(browser(), url);
@@ -917,8 +938,8 @@ IN_PROC_BROWSER_TEST_F(DevToolsAgentHostTest, TestAgentHostReleased) {
       << "DevToolsAgentHost is not released when the tab is closed";
 }
 
-class RemoteDebuggingTest: public ExtensionApiTest {
-  void SetUpCommandLine(CommandLine* command_line) override {
+class RemoteDebuggingTest : public ExtensionApiTest {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionApiTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII(switches::kRemoteDebuggingPort, "9222");
 
@@ -937,9 +958,44 @@ class RemoteDebuggingTest: public ExtensionApiTest {
 IN_PROC_BROWSER_TEST_F(RemoteDebuggingTest, MAYBE_RemoteDebugger) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
   ASSERT_TRUE(RunExtensionTest("target_list")) << message_;
+}
+
+using DevToolsPolicyTest = InProcessBrowserTest;
+IN_PROC_BROWSER_TEST_F(DevToolsPolicyTest, PolicyTrue) {
+  browser()->profile()->GetPrefs()->SetBoolean(prefs::kDevToolsDisabled, true);
+  ui_test_utils::NavigateToURL(browser(), GURL("about:blank"));
+  content::WebContents* web_contents =
+      browser()->tab_strip_model()->GetWebContentsAt(0);
+  scoped_refptr<content::DevToolsAgentHost> agent(
+      content::DevToolsAgentHost::GetOrCreateFor(web_contents));
+  DevToolsWindow::OpenDevToolsWindow(web_contents);
+  DevToolsWindow* window = DevToolsWindow::FindDevToolsWindow(agent.get());
+  ASSERT_FALSE(window);
+}
+
+class DevToolsPixelOutputTests : public DevToolsSanityTest {
+ public:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    command_line->AppendSwitch(switches::kEnablePixelOutputInTests);
+    command_line->AppendSwitch(switches::kUseGpuInTests);
+  }
+};
+
+// This test enables switches::kUseGpuInTests which causes false positives
+// with MemorySanitizer.
+#if defined(MEMORY_SANITIZER)
+#define MAYBE_TestScreenshotRecording DISABLED_TestScreenshotRecording
+#else
+#define MAYBE_TestScreenshotRecording TestScreenshotRecording
+#endif
+// Tests raw headers text.
+IN_PROC_BROWSER_TEST_F(DevToolsPixelOutputTests,
+                       MAYBE_TestScreenshotRecording) {
+  RunTest("testScreenshotRecording", std::string());
 }

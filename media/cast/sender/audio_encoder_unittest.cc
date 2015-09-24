@@ -27,8 +27,7 @@ namespace {
 
 class TestEncodedAudioFrameReceiver {
  public:
-  explicit TestEncodedAudioFrameReceiver(Codec codec)
-      : codec_(codec), frames_received_(0), rtp_lower_bound_(0) {}
+  TestEncodedAudioFrameReceiver() : frames_received_(0), rtp_lower_bound_(0) {}
   virtual ~TestEncodedAudioFrameReceiver() {}
 
   int frames_received() const { return frames_received_; }
@@ -43,7 +42,7 @@ class TestEncodedAudioFrameReceiver {
     samples_per_frame_ = samples_per_frame;
   }
 
-  void FrameEncoded(scoped_ptr<EncodedFrame> encoded_frame,
+  void FrameEncoded(scoped_ptr<SenderEncodedFrame> encoded_frame,
                     int samples_skipped) {
     EXPECT_EQ(encoded_frame->dependency, EncodedFrame::KEY);
     EXPECT_EQ(static_cast<uint8>(frames_received_ & 0xff),
@@ -60,11 +59,13 @@ class TestEncodedAudioFrameReceiver {
     lower_bound_ = encoded_frame->reference_time;
     EXPECT_GT(upper_bound_, encoded_frame->reference_time);
 
+    EXPECT_LE(0.0, encoded_frame->deadline_utilization);
+    EXPECT_EQ(-1.0, encoded_frame->lossy_utilization);
+
     ++frames_received_;
   }
 
  private:
-  const Codec codec_;
   int frames_received_;
   uint32 rtp_lower_bound_;
   int samples_per_frame_;
@@ -97,12 +98,12 @@ struct TestScenario {
 class AudioEncoderTest : public ::testing::TestWithParam<TestScenario> {
  public:
   AudioEncoderTest() {
-    InitializeMediaLibraryForTesting();
+    InitializeMediaLibrary();
     testing_clock_ = new base::SimpleTestTickClock();
     testing_clock_->Advance(base::TimeTicks::Now() - base::TimeTicks());
   }
 
-  void SetUp() override {
+  void SetUp() final {
     task_runner_ = new test::FakeSingleThreadTaskRunner(testing_clock_);
     cast_environment_ =
         new CastEnvironment(scoped_ptr<base::TickClock>(testing_clock_).Pass(),
@@ -151,7 +152,7 @@ class AudioEncoderTest : public ::testing::TestWithParam<TestScenario> {
                                 TestAudioBusFactory::kMiddleANoteFreq,
                                 0.5f));
 
-    receiver_.reset(new TestEncodedAudioFrameReceiver(codec));
+    receiver_.reset(new TestEncodedAudioFrameReceiver());
 
     audio_encoder_.reset(new AudioEncoder(
         cast_environment_,

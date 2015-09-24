@@ -64,6 +64,7 @@
           'conditions': [
             ['os_posix==1 and OS!="mac"', {
               'cflags!': ['-fvisibility=hidden'],
+              'libraries': ['-lm'],
             }],
             ['OS=="mac"', {
               'conditions': [
@@ -82,9 +83,16 @@
               'sources': [
                 'libexif.def',
               ],
+              'conditions': [
+                ['MSVS_VERSION < "2015"', {
+                  'defines': [
+                    # This seems like a hack, but this is what Safari Win does.
+                    # Luckily it is no longer needed/allowed with VS 2015.
+                    'snprintf=_snprintf',
+                  ],
+                }],
+              ],
               'defines': [
-                # This seems like a hack, but this is what WebKit Win does.
-                'snprintf=_snprintf',
                 'inline=__inline',
               ],
               'msvs_disabled_warnings': [
@@ -98,7 +106,7 @@
               # https://connect.microsoft.com/VisualStudio/feedback/details/1014689/internal-compiler-error
               'msvs_settings': {
                 'VCCLCompilerTool': {
-                  'AdditionalOptions!': [ '/analyze' ]
+                  'AdditionalOptions!': [ '/analyze:WX-' ]
                 },
               },
             }],
@@ -106,17 +114,6 @@
         },
       ],
     }, { # 'use_system_libexif!=0
-      'conditions': [
-        ['sysroot!=""', {
-          'variables': {
-            'pkg-config': '../../build/linux/pkg-config-wrapper "<(sysroot)" "<(target_arch)" "<(system_libdir)"',
-          },
-        }, {
-          'variables': {
-            'pkg-config': 'pkg-config'
-          },
-        }],
-      ],
       'targets': [
         {
           'target_name': 'libexif',

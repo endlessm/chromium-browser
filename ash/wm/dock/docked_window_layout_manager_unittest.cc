@@ -237,6 +237,23 @@ TEST_P(DockedWindowLayoutManagerTest, AddOneWindow) {
   EXPECT_EQ(kShellWindowId_DockedContainer, window->parent()->id());
 }
 
+// Tests that a docked window's bounds cannot be changed programmatically.
+TEST_P(DockedWindowLayoutManagerTest, DockedWindowBoundsDontChange) {
+  if (!SupportsHostWindowResize())
+    return;
+
+  gfx::Rect bounds(0, 0, 201, 201);
+  scoped_ptr<aura::Window> window(CreateTestWindow(bounds));
+  DragRelativeToEdge(DOCKED_EDGE_RIGHT, window.get(), 0);
+
+  // The window should be attached and docked at the right edge.
+  EXPECT_EQ(kShellWindowId_DockedContainer, window->parent()->id());
+
+  bounds = window->GetBoundsInScreen();
+  window->SetBounds(gfx::Rect(210, 210, 210, 210));
+  EXPECT_EQ(bounds.ToString(), window->GetBoundsInScreen().ToString());
+}
+
 // Tests that with a window docked on the left the auto-placing logic in
 // RearrangeVisibleWindowOnShow places windows flush with work area edges.
 TEST_P(DockedWindowLayoutManagerTest, AutoPlacingLeft) {
@@ -708,9 +725,15 @@ TEST_P(DockedWindowLayoutManagerTest, ThreeWindowsMinimize) {
             w3->GetBoundsInScreen().right());
   EXPECT_EQ(kShellWindowId_DockedContainer, w3->parent()->id());
 
-  // The first window should get minimized but parented by the dock container.
+  // The first window should get hidden but parented by the dock container.
   EXPECT_TRUE(wm::GetWindowState(w1.get())->IsMinimized());
   EXPECT_TRUE(wm::GetWindowState(w1.get())->IsDocked());
+  EXPECT_FALSE(w1->IsVisible());
+  EXPECT_EQ(ui::SHOW_STATE_MINIMIZED,
+            w1->GetProperty(aura::client::kShowStateKey));
+  EXPECT_EQ(ui::SHOW_STATE_DOCKED,
+            w1->GetProperty(aura::client::kRestoreShowStateKey));
+  // The other two windows should be still docked.
   EXPECT_FALSE(wm::GetWindowState(w2.get())->IsMinimized());
   EXPECT_TRUE(wm::GetWindowState(w2.get())->IsDocked());
   EXPECT_FALSE(wm::GetWindowState(w3.get())->IsMinimized());

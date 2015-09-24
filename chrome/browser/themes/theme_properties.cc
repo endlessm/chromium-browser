@@ -9,6 +9,7 @@
 #include "base/strings/string_util.h"
 #include "chrome/browser/themes/browser_theme_pack.h"
 #include "grit/theme_resources.h"
+#include "ui/base/resource/material_design/material_design_controller.h"
 #include "ui/resources/grit/ui_resources.h"
 
 namespace {
@@ -23,6 +24,9 @@ namespace {
 // Used for theme fallback colors.
 const SkColor kDefaultColorFrame = SkColorSetRGB(109, 109, 109);
 const SkColor kDefaultColorFrameInactive = SkColorSetRGB(176, 176, 176);
+#elif defined(OS_MACOSX)
+const SkColor kDefaultColorFrame = SkColorSetRGB(224, 224, 224);
+const SkColor kDefaultColorFrameInactive = SkColorSetRGB(246, 246, 246);
 #else
 const SkColor kDefaultColorFrame = SkColorSetRGB(66, 116, 201);
 const SkColor kDefaultColorFrameInactive = SkColorSetRGB(161, 182, 228);
@@ -93,19 +97,36 @@ const SkColor kDefaultColorToolbarStrokeInactive = SkColorSetRGB(163, 163, 163);
 #endif
 
 // ----------------------------------------------------------------------------
+// Defaults for layout properties which are not stored in the browser theme
+// pack. The array indices here are the values of
+// ui::MaterialDesignController::Mode, see
+// ui/base/resource/material_design/material_design_controller.h
+
+// The edge graphics have some built-in spacing/shadowing, so we have to adjust
+// our spacing to make it match.
+const int kToolbarViewLeftEdgeSpacing[] = {3, 4, 8};
+const int kToolbarViewRightEdgeSpacing[] = {2, 4, 8};
+
+// Ash doesn't use a rounded content area and its top edge has an extra shadow.
+const int kToolbarViewContentShadowHeightAsh[] = {2, 0, 0};
+
+// Non-ash uses a rounded content area with no shadow in the assets.
+const int kToolbarViewContentShadowHeight[] = {0, 0, 0};
+
+// ----------------------------------------------------------------------------
 
 // Strings used in alignment properties.
-const char* kAlignmentCenter = "center";
-const char* kAlignmentTop = "top";
-const char* kAlignmentBottom = "bottom";
-const char* kAlignmentLeft = "left";
-const char* kAlignmentRight = "right";
+const char kAlignmentCenter[] = "center";
+const char kAlignmentTop[] = "top";
+const char kAlignmentBottom[] = "bottom";
+const char kAlignmentLeft[] = "left";
+const char kAlignmentRight[] = "right";
 
 // Strings used in background tiling repetition properties.
-const char* kTilingNoRepeat = "no-repeat";
-const char* kTilingRepeatX = "repeat-x";
-const char* kTilingRepeatY = "repeat-y";
-const char* kTilingRepeat = "repeat";
+const char kTilingNoRepeat[] = "no-repeat";
+const char kTilingRepeatX[] = "repeat-x";
+const char kTilingRepeatY[] = "repeat-y";
+const char kTilingRepeat[] = "repeat";
 
 // The image resources that will be tinted by the 'button' tint value.
 // If you change this list, you must increment the version number in
@@ -125,7 +146,6 @@ const int kToolbarButtonIDs[] = {
   IDR_BROWSER_ACTIONS_OVERFLOW_P,
   IDR_TOOLS, IDR_TOOLS_H, IDR_TOOLS_P,
   IDR_MENU_DROPARROW,
-  IDR_THROBBER, IDR_THROBBER_WAITING, IDR_THROBBER_LIGHT,
   IDR_TOOLBAR_BEZEL_HOVER, IDR_TOOLBAR_BEZEL_PRESSED, IDR_TOOLS_BAR,
 };
 
@@ -143,13 +163,13 @@ int ThemeProperties::StringToAlignment(const std::string& alignment) {
   int alignment_mask = 0;
   for (std::vector<std::string>::iterator component(split.begin());
        component != split.end(); ++component) {
-    if (LowerCaseEqualsASCII(*component, kAlignmentTop))
+    if (base::LowerCaseEqualsASCII(*component, kAlignmentTop))
       alignment_mask |= ALIGN_TOP;
-    else if (LowerCaseEqualsASCII(*component, kAlignmentBottom))
+    else if (base::LowerCaseEqualsASCII(*component, kAlignmentBottom))
       alignment_mask |= ALIGN_BOTTOM;
-    else if (LowerCaseEqualsASCII(*component, kAlignmentLeft))
+    else if (base::LowerCaseEqualsASCII(*component, kAlignmentLeft))
       alignment_mask |= ALIGN_LEFT;
-    else if (LowerCaseEqualsASCII(*component, kAlignmentRight))
+    else if (base::LowerCaseEqualsASCII(*component, kAlignmentRight))
       alignment_mask |= ALIGN_RIGHT;
   }
   return alignment_mask;
@@ -157,13 +177,11 @@ int ThemeProperties::StringToAlignment(const std::string& alignment) {
 
 // static
 int ThemeProperties::StringToTiling(const std::string& tiling) {
-  const char* component = tiling.c_str();
-
-  if (base::strcasecmp(component, kTilingRepeatX) == 0)
+  if (base::LowerCaseEqualsASCII(tiling, kTilingRepeatX))
     return REPEAT_X;
-  if (base::strcasecmp(component, kTilingRepeatY) == 0)
+  if (base::LowerCaseEqualsASCII(tiling, kTilingRepeatY))
     return REPEAT_Y;
-  if (base::strcasecmp(component, kTilingRepeat) == 0)
+  if (base::LowerCaseEqualsASCII(tiling, kTilingRepeat))
     return REPEAT;
   // NO_REPEAT is the default choice.
   return NO_REPEAT;
@@ -198,14 +216,6 @@ std::string ThemeProperties::TilingToString(int tiling) {
   if (tiling == REPEAT)
     return kTilingRepeat;
   return kTilingNoRepeat;
-}
-
-// static
-bool ThemeProperties::IsThemeableImage(int id) {
-  // TODO(pkotwicz): Cache results to improve lookup speed.
-  std::set<int> themeable_idrs;
-  BrowserThemePack::GetThemeableImageIDRs(&themeable_idrs);
-  return themeable_idrs.find(id) != themeable_idrs.end();
 }
 
 // static
@@ -307,14 +317,23 @@ SkColor ThemeProperties::GetDefaultColor(int id) {
 
 // static
 int ThemeProperties::GetDefaultDisplayProperty(int id) {
+  int mode = ui::MaterialDesignController::GetMode();
   switch (id) {
-    case NTP_BACKGROUND_ALIGNMENT:
+    case ThemeProperties::NTP_BACKGROUND_ALIGNMENT:
       return kDefaultDisplayPropertyNTPAlignment;
-    case NTP_BACKGROUND_TILING:
+    case ThemeProperties::NTP_BACKGROUND_TILING:
       return kDefaultDisplayPropertyNTPTiling;
-    case NTP_LOGO_ALTERNATE:
+    case ThemeProperties::NTP_LOGO_ALTERNATE:
       return kDefaultDisplayPropertyNTPAlternateLogo;
+    case ThemeProperties::PROPERTY_TOOLBAR_VIEW_LEFT_EDGE_SPACING:
+      return kToolbarViewLeftEdgeSpacing[mode];
+    case ThemeProperties::PROPERTY_TOOLBAR_VIEW_RIGHT_EDGE_SPACING:
+      return kToolbarViewRightEdgeSpacing[mode];
+    case ThemeProperties::PROPERTY_TOOLBAR_VIEW_CONTENT_SHADOW_HEIGHT_ASH:
+      return kToolbarViewContentShadowHeightAsh[mode];
+    case ThemeProperties::PROPERTY_TOOLBAR_VIEW_CONTENT_SHADOW_HEIGHT:
+      return kToolbarViewContentShadowHeight[mode];
+    default:
+      return -1;
   }
-
-  return -1;
 }

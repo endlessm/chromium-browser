@@ -21,14 +21,16 @@
 #ifndef SVGURIReference_h
 #define SVGURIReference_h
 
+#include "core/CoreExport.h"
 #include "core/dom/Document.h"
 #include "core/svg/SVGAnimatedString.h"
+#include "platform/heap/Handle.h"
 
 namespace blink {
 
 class Element;
 
-class SVGURIReference {
+class CORE_EXPORT SVGURIReference : public WillBeGarbageCollectedMixin {
 public:
     virtual ~SVGURIReference() { }
 
@@ -54,11 +56,13 @@ public:
     // JS API
     SVGAnimatedString* href() const { return m_href.get(); }
 
+    DECLARE_VIRTUAL_TRACE();
+
 protected:
     explicit SVGURIReference(SVGElement*);
 
 private:
-    RefPtr<SVGAnimatedString> m_href;
+    RefPtrWillBeMember<SVGAnimatedString> m_href;
 };
 
 } // namespace blink

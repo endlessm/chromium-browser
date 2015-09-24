@@ -41,10 +41,10 @@ public:
     static MediaStreamTrackSourcesRequestImpl* create(ExecutionContext&, MediaStreamTrackSourcesCallback*);
     ~MediaStreamTrackSourcesRequestImpl();
 
-    virtual String origin() override;
-    virtual void requestSucceeded(const WebVector<WebSourceInfo>&) override;
+    String origin() override;
+    void requestSucceeded(const WebVector<WebSourceInfo>&) override;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     MediaStreamTrackSourcesRequestImpl(ExecutionContext&, MediaStreamTrackSourcesCallback*);

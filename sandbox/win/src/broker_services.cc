@@ -88,8 +88,8 @@ bool IsTokenCacheable(const sandbox::PolicyBase* policy) {
   const sandbox::AppContainerAttributes* app_container =
       policy->GetAppContainer();
 
-  // We cannot cache tokens with an app container.
-  if (app_container)
+  // We cannot cache tokens with an app container or lowbox.
+  if (app_container || policy->GetLowBoxSid())
     return false;
 
   return true;
@@ -125,8 +125,10 @@ uint32_t GenerateTokenCacheKey(const sandbox::PolicyBase* policy) {
 namespace sandbox {
 
 BrokerServicesBase::BrokerServicesBase()
-    : thread_pool_(NULL), job_port_(NULL), no_targets_(NULL),
-      job_thread_(NULL) {
+    : job_port_(NULL),
+      no_targets_(NULL),
+      job_thread_(NULL),
+      thread_pool_(NULL) {
 }
 
 // The broker uses a dedicated worker thread that services the job completion
@@ -279,7 +281,8 @@ DWORD WINAPI BrokerServicesBase::TargetEventsThread(PVOID param) {
         case JOB_OBJECT_MSG_ABNORMAL_EXIT_PROCESS: {
           {
             AutoLock lock(&broker->lock_);
-            broker->child_process_ids_.erase(reinterpret_cast<DWORD>(ovl));
+            broker->child_process_ids_.erase(
+                static_cast<DWORD>(reinterpret_cast<uintptr_t>(ovl)));
           }
           --target_counter;
           if (0 == target_counter)
@@ -308,8 +311,8 @@ DWORD WINAPI BrokerServicesBase::TargetEventsThread(PVOID param) {
     } else if (THREAD_CTRL_REMOVE_PEER == key) {
       // Remove a process from our list of peers.
       AutoLock lock(&broker->lock_);
-      PeerTrackerMap::iterator it =
-          broker->peer_map_.find(reinterpret_cast<DWORD>(ovl));
+      PeerTrackerMap::iterator it = broker->peer_map_.find(
+          static_cast<DWORD>(reinterpret_cast<uintptr_t>(ovl)));
       DeregisterPeerTracker(it->second);
       broker->peer_map_.erase(it);
     } else if (THREAD_CTRL_QUIT == key) {
@@ -349,10 +352,13 @@ ResultCode BrokerServicesBase::SpawnTarget(const wchar_t* exe_path,
   // This downcast is safe as long as we control CreatePolicy()
   PolicyBase* policy_base = static_cast<PolicyBase*>(policy);
 
+  if (policy_base->GetAppContainer() && policy_base->GetLowBoxSid())
+    return SBOX_ERROR_BAD_PARAMS;
+
   // Construct the tokens and the job object that we are going to associate
   // with the soon to be created target process.
-  HANDLE initial_token_temp;
-  HANDLE lockdown_token_temp;
+  base::win::ScopedHandle initial_token;
+  base::win::ScopedHandle lockdown_token;
   ResultCode result = SBOX_ALL_OK;
 
   if (IsTokenCacheable(policy_base)) {
@@ -361,36 +367,38 @@ ResultCode BrokerServicesBase::SpawnTarget(const wchar_t* exe_path,
     // process launch.
     uint32_t token_key = GenerateTokenCacheKey(policy_base);
     TokenCacheMap::iterator it = token_cache_.find(token_key);
+    HANDLE initial_token_temp;
+    HANDLE lockdown_token_temp;
     if (it != token_cache_.end()) {
       initial_token_temp = it->second.first;
       lockdown_token_temp = it->second.second;
     } else {
-      result =
-          policy_base->MakeTokens(&initial_token_temp, &lockdown_token_temp);
+      result = policy_base->MakeTokens(&initial_token, &lockdown_token);
       if (SBOX_ALL_OK != result)
         return result;
       token_cache_[token_key] =
-          std::pair<HANDLE, HANDLE>(initial_token_temp, lockdown_token_temp);
+          std::make_pair(initial_token.Get(), lockdown_token.Get());
+      initial_token_temp = initial_token.Take();
+      lockdown_token_temp = lockdown_token.Take();
     }
 
     if (!::DuplicateToken(initial_token_temp, SecurityImpersonation,
                           &initial_token_temp)) {
       return SBOX_ERROR_GENERIC;
     }
+    initial_token.Set(initial_token_temp);
 
     if (!::DuplicateTokenEx(lockdown_token_temp, TOKEN_ALL_ACCESS, 0,
                             SecurityIdentification, TokenPrimary,
                             &lockdown_token_temp)) {
       return SBOX_ERROR_GENERIC;
     }
+    lockdown_token.Set(lockdown_token_temp);
   } else {
-    result = policy_base->MakeTokens(&initial_token_temp, &lockdown_token_temp);
+    result = policy_base->MakeTokens(&initial_token, &lockdown_token);
     if (SBOX_ALL_OK != result)
       return result;
   }
-
-  base::win::ScopedHandle initial_token(initial_token_temp);
-  base::win::ScopedHandle lockdown_token(lockdown_token_temp);
 
   HANDLE job_temp;
   result = policy_base->MakeJobObject(&job_temp);
@@ -401,6 +409,14 @@ ResultCode BrokerServicesBase::SpawnTarget(const wchar_t* exe_path,
 
   // Initialize the startup information from the policy.
   base::win::StartupInformation startup_info;
+  // The liftime of |mitigations| and |inherit_handle_list| have to be at least
+  // as long as |startup_info| because |UpdateProcThreadAttribute| requires that
+  // its |lpValue| parameter persist until |DeleteProcThreadAttributeList| is
+  // called; StartupInformation's destructor makes such a call.
+  DWORD64 mitigations;
+
+  std::vector<HANDLE> inherited_handle_list;
+
   base::string16 desktop = policy_base->GetAlternateDesktop();
   if (!desktop.empty()) {
     startup_info.startup_info()->lpDesktop =
@@ -408,6 +424,7 @@ ResultCode BrokerServicesBase::SpawnTarget(const wchar_t* exe_path,
   }
 
   bool inherit_handles = false;
+
   if (base::win::GetVersion() >= base::win::VERSION_VISTA) {
     int attribute_count = 0;
     const AppContainerAttributes* app_container =
@@ -415,7 +432,6 @@ ResultCode BrokerServicesBase::SpawnTarget(const wchar_t* exe_path,
     if (app_container)
       ++attribute_count;
 
-    DWORD64 mitigations;
     size_t mitigations_size;
     ConvertProcessMitigationsToPolicy(policy->GetProcessMitigations(),
                                       &mitigations, &mitigations_size);
@@ -424,14 +440,20 @@ ResultCode BrokerServicesBase::SpawnTarget(const wchar_t* exe_path,
 
     HANDLE stdout_handle = policy_base->GetStdoutHandle();
     HANDLE stderr_handle = policy_base->GetStderrHandle();
-    HANDLE inherit_handle_list[2];
-    int inherit_handle_count = 0;
+
     if (stdout_handle != INVALID_HANDLE_VALUE)
-      inherit_handle_list[inherit_handle_count++] = stdout_handle;
+      inherited_handle_list.push_back(stdout_handle);
+
     // Handles in the list must be unique.
     if (stderr_handle != stdout_handle && stderr_handle != INVALID_HANDLE_VALUE)
-      inherit_handle_list[inherit_handle_count++] = stderr_handle;
-    if (inherit_handle_count)
+      inherited_handle_list.push_back(stderr_handle);
+
+    const HandleList& policy_handle_list = policy_base->GetHandlesBeingShared();
+
+    for (auto handle : policy_handle_list)
+      inherited_handle_list.push_back(handle->Get());
+
+    if (inherited_handle_list.size())
       ++attribute_count;
 
     if (!startup_info.InitializeProcThreadAttributeList(attribute_count))
@@ -451,11 +473,11 @@ ResultCode BrokerServicesBase::SpawnTarget(const wchar_t* exe_path,
       }
     }
 
-    if (inherit_handle_count) {
+    if (inherited_handle_list.size()) {
       if (!startup_info.UpdateProcThreadAttribute(
               PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
-              inherit_handle_list,
-              sizeof(inherit_handle_list[0]) * inherit_handle_count)) {
+              &inherited_handle_list[0],
+              sizeof(HANDLE) * inherited_handle_list.size())) {
         return SBOX_ERROR_PROC_THREAD_ATTRIBUTES;
       }
       startup_info.startup_info()->dwFlags |= STARTF_USESTDHANDLES;
@@ -476,15 +498,21 @@ ResultCode BrokerServicesBase::SpawnTarget(const wchar_t* exe_path,
   // Create the TargetProces object and spawn the target suspended. Note that
   // Brokerservices does not own the target object. It is owned by the Policy.
   base::win::ScopedProcessInformation process_info;
-  TargetProcess* target = new TargetProcess(initial_token.Take(),
-                                            lockdown_token.Take(),
+  TargetProcess* target = new TargetProcess(initial_token.Pass(),
+                                            lockdown_token.Pass(),
                                             job.Get(),
                                             thread_pool_);
 
   DWORD win_result = target->Create(exe_path, command_line, inherit_handles,
+                                    policy_base->GetLowBoxSid() ? true : false,
                                     startup_info, &process_info);
-  if (ERROR_SUCCESS != win_result)
-    return SpawnCleanup(target, win_result);
+
+  policy_base->ClearSharedHandles();
+
+  if (ERROR_SUCCESS != win_result) {
+    SpawnCleanup(target, win_result);
+    return SBOX_ERROR_CREATE_PROCESS;
+  }
 
   // Now the policy is the owner of the target.
   if (!policy_base->AddTarget(target)) {
@@ -496,8 +524,11 @@ ResultCode BrokerServicesBase::SpawnTarget(const wchar_t* exe_path,
   policy_base->AddRef();
   if (job.IsValid()) {
     scoped_ptr<JobTracker> tracker(new JobTracker(job.Take(), policy_base));
-    if (!AssociateCompletionPort(tracker->job, job_port_, tracker.get()))
-      return SpawnCleanup(target, 0);
+
+    // There is no obvious recovery after failure here. Previous version with
+    // SpawnCleanup() caused deletion of TargetProcess twice. crbug.com/480639
+    CHECK(AssociateCompletionPort(tracker->job, job_port_, tracker.get()));
+
     // Save the tracker because in cleanup we might need to force closing
     // the Jobs.
     tracker_list_.push_back(tracker.release());
@@ -511,6 +542,9 @@ ResultCode BrokerServicesBase::SpawnTarget(const wchar_t* exe_path,
     // We can not track the life time of such processes and it is responsibility
     // of the host application to make sure that spawned targets without jobs
     // are terminated when the main application don't need them anymore.
+    // Sandbox policy engine needs to know that these processes are valid
+    // targets for e.g. BrokerDuplicateHandle so track them as peer processes.
+    AddTargetPeer(process_info.process_handle());
   }
 
   *target_info = process_info.Take();
@@ -532,8 +566,9 @@ bool BrokerServicesBase::IsActiveTarget(DWORD process_id) {
 VOID CALLBACK BrokerServicesBase::RemovePeer(PVOID parameter, BOOLEAN timeout) {
   PeerTracker* peer = reinterpret_cast<PeerTracker*>(parameter);
   // Don't check the return code because we this may fail (safely) at shutdown.
-  ::PostQueuedCompletionStatus(peer->job_port, 0, THREAD_CTRL_REMOVE_PEER,
-                               reinterpret_cast<LPOVERLAPPED>(peer->id));
+  ::PostQueuedCompletionStatus(
+      peer->job_port, 0, THREAD_CTRL_REMOVE_PEER,
+      reinterpret_cast<LPOVERLAPPED>(static_cast<uintptr_t>(peer->id)));
 }
 
 ResultCode BrokerServicesBase::AddTargetPeer(HANDLE peer_process) {

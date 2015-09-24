@@ -12,6 +12,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "components/history/core/browser/history_types.h"
+#include "components/history/core/browser/top_sites_observer.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/search_engines/template_url_service_observer.h"
 #include "content/public/browser/notification_observer.h"
@@ -35,7 +36,8 @@ class RenderProcessHost;
 // Tracks render process host IDs that are associated with Instant.
 class InstantService : public KeyedService,
                        public content::NotificationObserver,
-                       public TemplateURLServiceObserver {
+                       public TemplateURLServiceObserver,
+                       public history::TopSitesObserver {
  public:
   explicit InstantService(Profile* profile);
   ~InstantService() override;
@@ -118,6 +120,11 @@ class InstantService : public KeyedService,
   // Search Provider.
   void OnTemplateURLServiceChanged() override;
 
+  // TopSitesObserver:
+  void TopSitesLoaded(history::TopSites* top_sites) override;
+  void TopSitesChanged(history::TopSites* top_sites,
+                       ChangeReason change_reason) override;
+
   // Called when a renderer process is terminated.
   void OnRendererProcessTerminated(int process_id);
 
@@ -129,8 +136,10 @@ class InstantService : public KeyedService,
   // Notifies the observer about the last known most visited items.
   void NotifyAboutMostVisitedItems();
 
+#if defined(ENABLE_THEMES)
   // Theme changed notification handler.
   void OnThemeChanged(ThemeService* theme_service);
+#endif
 
   void ResetInstantSearchPrerenderer();
 
@@ -153,7 +162,7 @@ class InstantService : public KeyedService,
   // text or assets properly with the omnibox.
   int omnibox_start_margin_;
 
-  ObserverList<InstantServiceObserver> observers_;
+  base::ObserverList<InstantServiceObserver> observers_;
 
   content::NotificationRegistrar registrar_;
 

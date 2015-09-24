@@ -63,7 +63,12 @@ class CHROMEOS_EXPORT SessionManagerClient : public DBusClient {
   // Adds and removes the observer.
   virtual void AddObserver(Observer* observer) = 0;
   virtual void RemoveObserver(Observer* observer) = 0;
-  virtual bool HasObserver(Observer* observer) = 0;
+  virtual bool HasObserver(const Observer* observer) const = 0;
+
+  // Returns the most recent screen-lock state received from session_manager.
+  // This mirrors the last Observer::ScreenIsLocked() or ScreenIsUnlocked()
+  // call.
+  virtual bool IsScreenLocked() const = 0;
 
   // Kicks off an attempt to emit the "login-prompt-visible" upstart signal.
   virtual void EmitLoginPromptVisible() = 0;
@@ -189,7 +194,7 @@ class CHROMEOS_EXPORT SessionManagerClient : public DBusClient {
   // Creates the instance.
   static SessionManagerClient* Create(DBusClientImplementationType type);
 
-  virtual ~SessionManagerClient();
+  ~SessionManagerClient() override;
 
  protected:
   // Create() should be used instead.

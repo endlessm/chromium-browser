@@ -8,29 +8,33 @@
 #include <string>
 #include <vector>
 
+#include "base/compiler_specific.h"
 #include "base/files/file_path.h"
+#include "base/memory/scoped_vector.h"
 #include "base/pickle.h"
 #include "base/strings/string16.h"
+#include "components/password_manager/core/browser/password_store.h"
 #include "components/password_manager/core/browser/password_store_change.h"
 #include "components/password_manager/core/browser/psl_matching_helper.h"
+#include "components/password_manager/core/browser/statistics_table.h"
 #include "sql/connection.h"
 #include "sql/meta_table.h"
 
 namespace password_manager {
 
-class PasswordManagerClient;
+extern const int kCurrentVersionNumber;
 
 // Interface to the database storage of login information, intended as a helper
 // for PasswordStore on platforms that need internal storage of some or all of
 // the login information.
 class LoginDatabase {
  public:
-  LoginDatabase();
+  LoginDatabase(const base::FilePath& db_path);
   virtual ~LoginDatabase();
 
-  // Initialize the database with an sqlite file at the given path.
-  // If false is returned, no other method should be called.
-  bool Init(const base::FilePath& db_path);
+  // Actually creates/opens the database. If false is returned, no other method
+  // should be called.
+  virtual bool Init();
 
   // Reports usage metrics to UMA.
   void ReportMetrics(const std::string& sync_username,
@@ -40,16 +44,19 @@ class LoginDatabase {
   // changes applied ({}, {ADD}, {REMOVE, ADD}). If it returns {REMOVE, ADD}
   // then the REMOVE is associated with the form that was added. Thus only the
   // primary key columns contain the values associated with the removed form.
-  PasswordStoreChangeList AddLogin(const autofill::PasswordForm& form);
+  PasswordStoreChangeList AddLogin(const autofill::PasswordForm& form)
+      WARN_UNUSED_RESULT;
 
   // Updates existing password form. Returns the list of applied changes
   // ({}, {UPDATE}). The password is looked up by the tuple {origin,
   // username_element, username_value, password_element, signon_realm}.
   // These columns stay intact.
-  PasswordStoreChangeList UpdateLogin(const autofill::PasswordForm& form);
+  PasswordStoreChangeList UpdateLogin(const autofill::PasswordForm& form)
+      WARN_UNUSED_RESULT;
 
-  // Removes |form| from the list of remembered password forms.
-  bool RemoveLogin(const autofill::PasswordForm& form);
+  // Removes |form| from the list of remembered password forms. Returns true if
+  // |form| was successfully removed from the database.
+  bool RemoveLogin(const autofill::PasswordForm& form) WARN_UNUSED_RESULT;
 
   // Removes all logins created from |delete_begin| onwards (inclusive) and
   // before |delete_end|. You may use a null Time value to do an unbounded
@@ -63,37 +70,37 @@ class LoginDatabase {
   bool RemoveLoginsSyncedBetween(base::Time delete_begin,
                                  base::Time delete_end);
 
-  // Loads a list of matching password forms into the specified vector |forms|.
-  // The list will contain all possibly relevant entries to the observed |form|,
-  // including blacklisted matches. The caller owns |forms| after the call.
-  bool GetLogins(const autofill::PasswordForm& form,
-                 std::vector<autofill::PasswordForm*>* forms) const;
+  // All Get* methods below overwrite |forms| with the returned credentials. On
+  // success, those methods return true.
 
-  // Loads all logins created from |begin| onwards (inclusive) and before |end|.
+  // Gets a list of credentials matching |form|, including blacklisted matches.
+  bool GetLogins(const autofill::PasswordForm& form,
+                 ScopedVector<autofill::PasswordForm>* forms) const
+      WARN_UNUSED_RESULT;
+
+  // Gets all logins created from |begin| onwards (inclusive) and before |end|.
   // You may use a null Time value to do an unbounded search in either
-  // direction. The caller owns |forms| after the call.
+  // direction.
   bool GetLoginsCreatedBetween(
       base::Time begin,
       base::Time end,
-      std::vector<autofill::PasswordForm*>* forms) const;
+      ScopedVector<autofill::PasswordForm>* forms) const WARN_UNUSED_RESULT;
 
-  // Loads all logins synced from |begin| onwards (inclusive) and before |end|.
+  // Gets all logins synced from |begin| onwards (inclusive) and before |end|.
   // You may use a null Time value to do an unbounded search in either
-  // direction. The caller owns |forms| after the call.
-  bool GetLoginsSyncedBetween(
-      base::Time begin,
-      base::Time end,
-      std::vector<autofill::PasswordForm*>* forms) const;
+  // direction.
+  bool GetLoginsSyncedBetween(base::Time begin,
+                              base::Time end,
+                              ScopedVector<autofill::PasswordForm>* forms) const
+      WARN_UNUSED_RESULT;
 
-  // Loads the complete list of autofillable password forms (i.e., not blacklist
-  // entries) into |forms|. The caller owns |forms| after the call.
-  bool GetAutofillableLogins(
-      std::vector<autofill::PasswordForm*>* forms) const;
+  // Gets the complete list of not blacklisted credentials.
+  bool GetAutofillableLogins(ScopedVector<autofill::PasswordForm>* forms) const
+      WARN_UNUSED_RESULT;
 
-  // Loads the complete list of blacklist forms into |forms|. The caller owns
-  // |forms| after the call.
-  bool GetBlacklistLogins(
-      std::vector<autofill::PasswordForm*>* forms) const;
+  // Gets the complete list of blacklisted credentials.
+  bool GetBlacklistLogins(ScopedVector<autofill::PasswordForm>* forms) const
+      WARN_UNUSED_RESULT;
 
   // Deletes the login database file on disk, and creates a new, empty database.
   // This can be used after migrating passwords to some other store, to ensure
@@ -101,6 +108,10 @@ class LoginDatabase {
   // Returns true on success; otherwise, whether the file was deleted and
   // whether further use of this login database will succeed is unspecified.
   bool DeleteAndRecreateDatabaseFile();
+
+  StatisticsTable& stats_table() { return stats_table_; }
+
+  void set_clear_password_values(bool val) { clear_password_values_ = val; }
 
  private:
   // Result values for encryption/decryption actions.
@@ -121,15 +132,15 @@ class LoginDatabase {
   // successful, or returning false and leaving cipher_text unchanged if
   // encryption fails (e.g., if the underlying OS encryption system is
   // temporarily unavailable).
-  EncryptionResult EncryptedString(const base::string16& plain_text,
-                                   std::string* cipher_text) const;
+  static EncryptionResult EncryptedString(const base::string16& plain_text,
+                                          std::string* cipher_text);
 
   // Decrypts cipher_text, setting the value of plain_text and returning true if
   // successful, or returning false and leaving plain_text unchanged if
   // decryption fails (e.g., if the underlying OS encryption system is
   // temporarily unavailable).
-  EncryptionResult DecryptedString(const std::string& cipher_text,
-                                   base::string16* plain_text) const;
+  static EncryptionResult DecryptedString(const std::string& cipher_text,
+                                          base::string16* plain_text);
 
   bool InitLoginsTable();
   bool MigrateOldVersionsAsNeeded();
@@ -138,17 +149,35 @@ class LoginDatabase {
   // be of the form used by the Get*Logins methods).
   // Returns the EncryptionResult from decrypting the password in |s|; if not
   // ENCRYPTION_RESULT_SUCCESS, |form| is not filled.
-  EncryptionResult InitPasswordFormFromStatement(autofill::PasswordForm* form,
-                                                 sql::Statement& s) const;
+  static EncryptionResult InitPasswordFormFromStatement(
+      autofill::PasswordForm* form,
+      sql::Statement& s);
 
-  // Loads all logins whose blacklist setting matches |blacklisted| into
-  // |forms|.
+  // Gets all blacklisted or all non-blacklisted (depending on |blacklisted|)
+  // credentials. On success returns true and overwrites |forms| with the
+  // result.
   bool GetAllLoginsWithBlacklistSetting(
-      bool blacklisted, std::vector<autofill::PasswordForm*>* forms) const;
+      bool blacklisted,
+      ScopedVector<autofill::PasswordForm>* forms) const;
+
+  // Overwrites |forms| with credentials retrieved from |statement|. If
+  // |psl_match| is not null, filters out all results but thos PSL-matching
+  // |*psl_match|. On success returns true.
+  static bool StatementToForms(sql::Statement* statement,
+                               const autofill::PasswordForm* psl_match,
+                               ScopedVector<autofill::PasswordForm>* forms);
 
   base::FilePath db_path_;
   mutable sql::Connection db_;
   sql::MetaTable meta_table_;
+  StatisticsTable stats_table_;
+
+  // If set to 'true', then the password values are cleared before encrypting
+  // and storing in the database. At the same time AddLogin/UpdateLogin return
+  // PasswordStoreChangeList containing the real password.
+  // This is a temporary measure for migration the Keychain on Mac.
+  // crbug.com/466638
+  bool clear_password_values_;
 
   DISALLOW_COPY_AND_ASSIGN(LoginDatabase);
 };

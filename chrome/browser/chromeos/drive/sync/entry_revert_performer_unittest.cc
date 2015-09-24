@@ -7,7 +7,7 @@
 #include "base/task_runner_util.h"
 #include "chrome/browser/chromeos/drive/file_change.h"
 #include "chrome/browser/chromeos/drive/file_system/operation_test_base.h"
-#include "chrome/browser/chromeos/drive/file_system_util.h"
+#include "chrome/browser/chromeos/drive/file_system_core_util.h"
 #include "chrome/browser/chromeos/drive/job_scheduler.h"
 #include "chrome/browser/chromeos/drive/resource_metadata.h"
 #include "chrome/browser/drive/fake_drive_service.h"
@@ -20,7 +20,7 @@ namespace internal {
 
 class EntryRevertPerformerTest : public file_system::OperationTestBase {
  protected:
-  virtual void SetUp() override {
+  void SetUp() override {
    OperationTestBase::SetUp();
    performer_.reset(new EntryRevertPerformer(blocking_task_runner(),
                                              delegate(),
@@ -123,7 +123,7 @@ TEST_F(EntryRevertPerformerTest, RevertEntry_TrashedOnServer) {
   EXPECT_EQ(FILE_ERROR_OK, GetLocalResourceEntry(path, &entry));
 
   // Trash the entry on the server.
-  google_apis::GDataErrorCode gdata_error = google_apis::GDATA_OTHER_ERROR;
+  google_apis::DriveApiErrorCode gdata_error = google_apis::DRIVE_OTHER_ERROR;
   fake_service()->TrashResource(
       entry.resource_id(),
       google_apis::test_util::CreateCopyResultCallback(&gdata_error));

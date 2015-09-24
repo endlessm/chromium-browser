@@ -6,10 +6,10 @@
     'includes': [ 'common_defines.gypi', ],
     'variables':
     {
-        'angle_build_tests%': '1',
-        'angle_build_samples%': '1',
+        'angle_path': '<(DEPTH)',
         'angle_build_winrt%': '0',
         'angle_build_winphone%': '0',
+        'angle_build_winrt_app_type_revision%': '8.1',
         # angle_code is set to 1 for the core ANGLE targets defined in src/build_angle.gyp.
         # angle_code is set to 0 for test code, sample code, and third party code.
         # When angle_code is 1, we build with additional warning flags on Mac and Linux.
@@ -23,7 +23,6 @@
             '-Wextra',
             '-Wformat=2',
             '-Winit-self',
-            '-Wno-sign-compare',
             '-Wno-unused-function',
             '-Wno-unused-parameter',
             '-Wno-unknown-pragmas',
@@ -31,7 +30,6 @@
             '-Wpointer-arith',
             '-Wundef',
             '-Wwrite-strings',
-            '-Wno-reorder',
             '-Wno-format-nonliteral',
         ],
     },
@@ -70,7 +68,13 @@
                 {
                     'VCCLCompilerTool':
                     {
-                        'AdditionalOptions': ['/MP'],
+                        # Control Flow Guard is a security feature in Windows
+                        # 8.1 and higher designed to prevent exploitation of
+                        # indirect calls in executables.
+                        # Control Flow Guard is enabled using the /d2guard4
+                        # compiler setting in combination with the /guard:cf
+                        # linker setting.
+                        'AdditionalOptions': ['/MP', '/d2guard4'],
                         'BufferSecurityCheck': 'true',
                         'DebugInformationFormat': '3',
                         'ExceptionHandling': '0',
@@ -81,6 +85,13 @@
                     },
                     'VCLinkerTool':
                     {
+                        # Control Flow Guard is a security feature in Windows
+                        # 8.1 and higher designed to prevent exploitation of
+                        # indirect calls in executables.
+                        # Control Flow Guard is enabled using the /d2guard4
+                        # compiler setting in combination with the /guard:cf
+                        # linker setting.
+                        'AdditionalOptions': ['/guard:cf'],
                         'FixedBaseAddress': '1',
                         'ImportLibrary': '$(OutDir)\\lib\\$(TargetName).lib',
                         'MapFileName': '$(OutDir)\\$(TargetName).map',
@@ -108,7 +119,28 @@
                     {
                         'Optimization': '0',    # /Od
                         'BasicRuntimeChecks': '3',
-                        'RuntimeLibrary': '3',  # /MDd (Debug Multithreaded DLL)
+                        'conditions':
+                        [
+                            ['angle_build_winrt==1',
+                            {
+                                # Use the dynamic C runtime to match
+                                # Windows Application Store requirements
+
+                                # The C runtime for Windows Store applications
+                                # is a framework package that is managed by
+                                # the Windows deployment model and can be
+                                # shared by multiple packages.
+
+                                'RuntimeLibrary': '3', # /MDd (debug dll)
+                            },
+                            {
+                                # Use the static C runtime to
+                                # match chromium and make sure
+                                # we don't depend on the dynamic
+                                # runtime's shared heaps
+                                'RuntimeLibrary': '1', # /MTd (debug static)
+                            }],
+                        ],
                     },
                     'VCLinkerTool':
                     {
@@ -128,6 +160,7 @@
                 },
                 'xcode_settings':
                 {
+                    'CLANG_CXX_LANGUAGE_STANDARD': 'c++11',
                     'COPY_PHASE_STRIP': 'NO',
                     'GCC_OPTIMIZATION_LEVEL': '0',
                 },
@@ -145,7 +178,26 @@
                     'VCCLCompilerTool':
                     {
                         'Optimization': '2',    # /Os
-                        'RuntimeLibrary': '2',  # /MD (Multithreaded DLL)
+                        'conditions':
+                        [
+                            ['angle_build_winrt==1',
+                            {
+                                # Use the dynamic C runtime to match
+                                # Windows Application Store requirements
+
+                                # The C runtime for Windows Store applications
+                                # is a framework package that is managed by
+                                # the Windows deployment model and can be
+                                # shared by multiple packages.
+                                'RuntimeLibrary': '2', # /MD (nondebug dll)
+                            },
+                            {
+                                # Use the static C runtime to
+                                # match chromium and make sure
+                                # we don't depend on the dynamic
+                                'RuntimeLibrary': '0', # /MT (nondebug static)
+                            }],
+                        ],
                     },
                     'VCLinkerTool':
                     {
@@ -278,6 +330,9 @@
                 'cflags':
                 [
                     '-fPIC',
+                ],
+                'cflags_cc':
+                [
                     '-std=c++0x',
                 ],
             },

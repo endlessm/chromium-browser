@@ -7,10 +7,12 @@
 #include "base/callback.h"
 #include "base/json/json_writer.h"
 #include "base/lazy_instance.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
 #include "base/metrics/histogram.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/api/processes/processes_api_constants.h"
@@ -467,7 +469,7 @@ void ProcessesEventRouter::DispatchEvent(
   EventRouter* event_router = EventRouter::Get(browser_context_);
   if (event_router) {
     scoped_ptr<extensions::Event> event(new extensions::Event(
-        event_name, event_args.Pass()));
+        extensions::events::UNKNOWN, event_name, event_args.Pass()));
     event_router->BroadcastEvent(event.Pass());
   }
 }
@@ -548,8 +550,9 @@ bool GetProcessIdForTabFunction::RunAsync() {
   if (ProcessesAPI::Get(GetProfile())
           ->processes_event_router()
           ->is_task_manager_listening()) {
-    base::MessageLoop::current()->PostTask(FROM_HERE, base::Bind(
-        &GetProcessIdForTabFunction::GetProcessIdForTab, this));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::Bind(&GetProcessIdForTabFunction::GetProcessIdForTab, this));
   } else {
     TaskManager::GetInstance()->model()->RegisterOnDataReadyCallback(
         base::Bind(&GetProcessIdForTabFunction::GetProcessIdForTab, this));
@@ -609,8 +612,8 @@ bool TerminateFunction::RunAsync() {
   if (ProcessesAPI::Get(GetProfile())
           ->processes_event_router()
           ->is_task_manager_listening()) {
-    base::MessageLoop::current()->PostTask(FROM_HERE, base::Bind(
-        &TerminateFunction::TerminateProcess, this));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(&TerminateFunction::TerminateProcess, this));
   } else {
     TaskManager::GetInstance()->model()->RegisterOnDataReadyCallback(
         base::Bind(&TerminateFunction::TerminateProcess, this));
@@ -640,8 +643,9 @@ void TerminateFunction::TerminateProcess() {
     if (model->IsResourceFirstInGroup(i)) {
       if (process_id_ == model->GetUniqueChildProcessId(i)) {
         found = true;
-        killed = base::KillProcess(model->GetProcess(i),
-            content::RESULT_CODE_KILLED, true);
+        base::Process process =
+            base::Process::DeprecatedGetProcessFromHandle(model->GetProcess(i));
+        killed = process.Terminate(content::RESULT_CODE_KILLED, true);
         UMA_HISTOGRAM_COUNTS("ChildProcess.KilledByExtensionAPI", 1);
         break;
       }
@@ -696,8 +700,9 @@ bool GetProcessInfoFunction::RunAsync() {
   if (ProcessesAPI::Get(GetProfile())
           ->processes_event_router()
           ->is_task_manager_listening()) {
-    base::MessageLoop::current()->PostTask(FROM_HERE, base::Bind(
-        &GetProcessInfoFunction::GatherProcessInfo, this));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::Bind(&GetProcessInfoFunction::GatherProcessInfo, this));
   } else {
     TaskManager::GetInstance()->model()->RegisterOnDataReadyCallback(
         base::Bind(&GetProcessInfoFunction::GatherProcessInfo, this));

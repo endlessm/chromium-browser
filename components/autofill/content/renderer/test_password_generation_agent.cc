@@ -7,8 +7,8 @@
 namespace autofill {
 
 TestPasswordGenerationAgent::TestPasswordGenerationAgent(
-    content::RenderView* render_view)
-    : PasswordGenerationAgent(render_view) {
+    content::RenderFrame* render_frame, PasswordAutofillAgent* password_agent)
+    : PasswordGenerationAgent(render_frame, password_agent) {
   // Always enable when testing.
   set_enabled(true);
 }
@@ -20,8 +20,7 @@ bool TestPasswordGenerationAgent::OnMessageReceived(
   return PasswordGenerationAgent::OnMessageReceived(message);
 }
 
-bool TestPasswordGenerationAgent::ShouldAnalyzeDocument(
-    const blink::WebDocument& document) const {
+bool TestPasswordGenerationAgent::ShouldAnalyzeDocument() const {
   return true;
 }
 

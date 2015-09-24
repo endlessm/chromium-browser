@@ -4,13 +4,14 @@
 
 #include "extensions/components/javascript_dialog_extensions_client/javascript_dialog_extension_client_impl.h"
 
-#include "components/app_modal_dialogs/javascript_dialog_extensions_client.h"
-#include "components/app_modal_dialogs/javascript_dialog_manager.h"
+#include "components/app_modal/javascript_dialog_extensions_client.h"
+#include "components/app_modal/javascript_dialog_manager.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/process_manager.h"
 #include "extensions/common/extension.h"
 #include "ui/gfx/native_widget_types.h"
 
+namespace javascript_dialog_extensions_client {
 namespace {
 
 using extensions::Extension;
@@ -25,12 +26,12 @@ extensions::ProcessManager* GetProcessManager(
 // associated extension (or extensions are not supported).
 const Extension* GetExtensionForWebContents(
     content::WebContents* web_contents) {
-  extensions::ProcessManager* pm = GetProcessManager(web_contents);
-  return pm->GetExtensionForRenderViewHost(web_contents->GetRenderViewHost());
+  return GetProcessManager(web_contents)->GetExtensionForWebContents(
+      web_contents);
 }
 
 class JavaScriptDialogExtensionsClientImpl
-    : public JavaScriptDialogExtensionsClient {
+    : public app_modal::JavaScriptDialogExtensionsClient {
  public:
   JavaScriptDialogExtensionsClientImpl() {}
   ~JavaScriptDialogExtensionsClientImpl() override {}
@@ -74,7 +75,10 @@ class JavaScriptDialogExtensionsClientImpl
 
 }  // namespace
 
-void InstallJavaScriptDialogExtensionsClient() {
-  SetJavaScriptDialogExtensionsClient(
-      make_scoped_ptr(new JavaScriptDialogExtensionsClientImpl));
+void InstallClient() {
+  app_modal::JavaScriptDialogManager::GetInstance()->
+      SetExtensionsClient(
+          make_scoped_ptr(new JavaScriptDialogExtensionsClientImpl));
 }
+
+}  // namespace javascript_dialog_extensions_client

@@ -75,7 +75,8 @@ class DesktopSessionProxy
       scoped_refptr<base::SingleThreadTaskRunner> video_capture_task_runner,
       base::WeakPtr<ClientSessionControl> client_session_control,
       base::WeakPtr<DesktopSessionConnector> desktop_session_connector,
-      bool virtual_terminal);
+      bool virtual_terminal,
+      bool supports_touch_events);
 
   // Mirrors DesktopEnvironment.
   scoped_ptr<AudioCapturer> CreateAudioCapturer();
@@ -92,7 +93,7 @@ class DesktopSessionProxy
   void OnChannelError() override;
 
   // Connects to the desktop session agent.
-  bool AttachToDesktop(base::ProcessHandle desktop_process,
+  bool AttachToDesktop(base::Process desktop_process,
                        IPC::PlatformFileForTransit desktop_pipe);
 
   // Closes the connection to the desktop session agent and cleans up
@@ -125,6 +126,7 @@ class DesktopSessionProxy
   void InjectKeyEvent(const protocol::KeyEvent& event);
   void InjectTextEvent(const protocol::TextEvent& event);
   void InjectMouseEvent(const protocol::MouseEvent& event);
+  void InjectTouchEvent(const protocol::TouchEvent& event);
   void StartInputInjector(scoped_ptr<protocol::ClipboardStub> client_clipboard);
 
   // API used to implement the SessionController interface.
@@ -209,7 +211,7 @@ class DesktopSessionProxy
   scoped_ptr<IPC::ChannelProxy> desktop_channel_;
 
   // Handle of the desktop process.
-  base::ProcessHandle desktop_process_;
+  base::Process desktop_process_;
 
   int pending_capture_frame_requests_;
 
@@ -225,6 +227,9 @@ class DesktopSessionProxy
   bool is_desktop_session_connected_;
 
   bool virtual_terminal_;
+
+  // True if touch events are supported by the desktop session.
+  bool supports_touch_events_;
 
   DISALLOW_COPY_AND_ASSIGN(DesktopSessionProxy);
 };

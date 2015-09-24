@@ -5,19 +5,33 @@
 #include "android_webview/browser/renderer_host/print_manager.h"
 
 #include "android_webview/browser/aw_browser_context.h"
-#include "android_webview/common/print_messages.h"
 #include "android_webview/common/render_view_messages.h"
 #include "base/android/scoped_java_ref.h"
 #include "base/callback.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "components/printing/common/print_messages.h"
 #include "content/public/browser/browser_thread.h"
 #include "printing/print_settings.h"
 
 using content::BrowserThread;
 using printing::PrintSettings;
 
+DEFINE_WEB_CONTENTS_USER_DATA_KEY(android_webview::PrintManager);
+
 namespace android_webview {
+
+// static
+PrintManager* PrintManager::CreateForWebContents(
+    content::WebContents* contents,
+    PrintSettings* settings,
+    int fd,
+    PrintManagerDelegate* delegate) {
+  PrintManager* print_manager =
+      new PrintManager(contents, settings, fd, delegate);
+  contents->SetUserData(UserDataKey(), print_manager);
+  return print_manager;
+}
 
 PrintManager::PrintManager(content::WebContents* contents,
                            PrintSettings* settings,
@@ -45,10 +59,6 @@ bool PrintManager::OnMessageReceived(const IPC::Message& message) {
     IPC_MESSAGE_HANDLER(PrintHostMsg_PrintingFailed, OnPrintingFailed)
     IPC_MESSAGE_HANDLER_DELAY_REPLY(PrintHostMsg_GetDefaultPrintSettings,
                                     OnGetDefaultPrintSettings)
-    IPC_MESSAGE_HANDLER(PrintHostMsg_AllocateTempFileForPrinting,
-                        OnAllocateTempFileForPrinting)
-    IPC_MESSAGE_HANDLER(PrintHostMsg_TempFileForPrintingWritten,
-                        OnTempFileForPrintingWritten)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
 
@@ -81,7 +91,7 @@ void PrintManager::OnDidGetDocumentCookie(int cookie) {
 
 void PrintManager::OnGetDefaultPrintSettings(IPC::Message* reply_msg) {
   // Unlike the printing_message_filter, we do process this in ui thread
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   OnGetDefaultPrintSettingsReply(reply_msg);
 }
 
@@ -132,7 +142,7 @@ void PrintManager::OnPrintingFailed(int cookie) {
 }
 
 bool PrintManager::PrintNow() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (printing_)
     return false;
 

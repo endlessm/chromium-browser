@@ -6,10 +6,12 @@ package org.chromium.chrome.browser;
 
 import android.os.Handler;
 import android.util.Log;
+import android.util.Pair;
 
+import org.chromium.base.StreamUtil;
 import org.chromium.base.VisibleForTesting;
-import org.chromium.chrome.browser.util.StreamUtil;
 import org.chromium.content.browser.crypto.CipherFactory;
+import org.chromium.content_public.browser.WebContents;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -33,6 +35,9 @@ import javax.crypto.CipherOutputStream;
 public class TabState {
     private static final String TAG = "TabState";
 
+    public static final String SAVED_TAB_STATE_FILE_PREFIX = "tab";
+    public static final String SAVED_TAB_STATE_FILE_PREFIX_INCOGNITO = "cryptonito";
+
     /**
      * Version number of the format used to save the WebContents navigation history, as returned by
      * nativeGetContentsStateAsByteBuffer(). Version labels:
@@ -49,8 +54,7 @@ public class TabState {
     private static final long KEY_CHECKER = 0;
 
     /** Overrides the Chrome channel/package name to test a variant channel-specific behaviour. */
-    @VisibleForTesting
-    static String sChannelNameOverrideForTest;
+    private static String sChannelNameOverrideForTest;
 
     /** Contains the state for a WebContents. */
     public static class WebContentsState {
@@ -76,10 +80,18 @@ public class TabState {
         /**
          * Creates a WebContents from the buffer.
          * @param isHidden Whether or not the tab initially starts hidden.
-         * @return Pointer to the native WebContents.
+         * @return Pointer A WebContents object.
          */
-        public long restoreContentsFromByteBuffer(boolean isHidden) {
+        public WebContents restoreContentsFromByteBuffer(boolean isHidden) {
             return nativeRestoreContentsFromByteBuffer(mBuffer, mVersion, isHidden);
+        }
+
+        /**
+         * Creates a WebContents for the ContentsState and adds it as an historical tab, then
+         * deletes the WebContents.
+         */
+        public void createHistoricalTab() {
+            nativeCreateHistoricalTab(mBuffer, mVersion);
         }
     }
 
@@ -104,18 +116,47 @@ public class TabState {
         }
     }
 
-    public long timestampMillis = TIMESTAMP_NOT_SET;
-    public WebContentsState contentsState;  // Navigation history of the WebContents.
+    /** Navigation history of the WebContents. */
+    public WebContentsState contentsState;
     public int parentId = Tab.INVALID_TAB_ID;
-    public String openerAppId;
-    public boolean isIncognito;
     public long syncId;
+
+    public long timestampMillis = TIMESTAMP_NOT_SET;
+    public String openerAppId;
     public boolean shouldPreserve;
+
+    /** Whether this TabState was created from a file containing info about an incognito Tab. */
+    protected boolean mIsIncognito;
 
     /** @return Whether a Stable channel build of Chrome is being used. */
     private static boolean isStableChannelBuild() {
         if ("stable".equals(sChannelNameOverrideForTest)) return true;
         return ChromeVersionInfo.isStableBuild();
+    }
+
+    /**
+     * Restore a TabState file for a particular Tab.  Checks if the Tab exists as a regular tab
+     * before searching for an encrypted version.
+     * @param stateFolder Folder containing the TabState files.
+     * @param id ID of the Tab to restore.
+     * @return TabState that has been restored, or null if it failed.
+     */
+    public static TabState restoreTabState(File stateFolder, int id) {
+        // First try finding an unencrypted file.
+        boolean encrypted = false;
+        File file = getTabStateFile(stateFolder, id, encrypted);
+
+        // If that fails, try finding the encrypted version.
+        if (!file.exists()) {
+            encrypted = true;
+            file = getTabStateFile(stateFolder, id, encrypted);
+        }
+
+        // If they both failed, there's nothing to read.
+        if (!file.exists()) return null;
+
+        // If one of them passed, open the file input stream and read the state contents.
+        return restoreTabState(file, encrypted);
     }
 
     /**
@@ -147,11 +188,6 @@ public class TabState {
      * @return TabState that has been restored, or null if it failed.
      */
     public static TabState readState(FileInputStream input, boolean encrypted) throws IOException {
-        return readStateInternal(input, encrypted);
-    }
-
-    private static TabState readStateInternal(FileInputStream input, boolean encrypted)
-            throws IOException {
         DataInputStream stream = null;
         if (encrypted) {
             Cipher cipher = CipherFactory.getInstance().getCipher(Cipher.DECRYPT_MODE);
@@ -223,7 +259,7 @@ public class TabState {
                 Log.w(TAG, "Failed to read shouldPreserve flag from tab state. "
                         + "Assuming shouldPreserve is false");
             }
-            tabState.isIncognito = encrypted;
+            tabState.mIsIncognito = encrypted;
             return tabState;
         } finally {
             stream.close();
@@ -232,20 +268,16 @@ public class TabState {
 
     /**
      * Writes the TabState to disk. This method may be called on either the UI or background thread.
-     * @param foutput Stream to write the tab's state to.
-     * @param state State object obtained from from {@link ChromeTab#getState()}.
+     * @param output Stream to write the tab's state to.
+     * @param state State object obtained from from {@link Tab#getState()}.
      * @param encrypted Whether or not the TabState should be encrypted.
      */
-    public static void saveState(FileOutputStream foutput, TabState state, boolean encrypted)
+    public static void saveState(FileOutputStream output, TabState state, boolean encrypted)
             throws IOException {
         if (state == null || state.contentsState == null) {
             return;
         }
-        saveStateInternal(foutput, state, encrypted);
-    }
 
-    private static void saveStateInternal(FileOutputStream output, TabState state,
-            boolean encrypted) throws IOException {
         DataOutputStream stream;
         if (encrypted) {
             Cipher cipher = CipherFactory.getInstance().getCipher(Cipher.ENCRYPT_MODE);
@@ -286,6 +318,28 @@ public class TabState {
         }
     }
 
+    /**
+     * Returns a File corresponding to the given TabState.
+     * @param directory Directory containing the TabState files.
+     * @param tabId ID of the TabState to delete.
+     * @param encrypted Whether the TabState is encrypted.
+     * @return File corresponding to the given TabState.
+     */
+    public static File getTabStateFile(File directory, int tabId, boolean encrypted) {
+        return new File(directory, getTabStateFilename(tabId, encrypted));
+    }
+
+    /**
+     * Deletes the TabState corresponding to the given Tab.
+     * @param directory Directory containing the TabState files.
+     * @param tabId ID of the TabState to delete.
+     * @param encrypted Whether the TabState is encrypted.
+     */
+    public static void deleteTabState(File directory, int tabId, boolean encrypted) {
+        File file = getTabStateFile(directory, tabId, encrypted);
+        if (file.exists() && !file.delete()) Log.e(TAG, "Failed to delete TabState: " + file);
+    }
+
     /** @return Title currently being displayed in the saved state's current entry. */
     public String getDisplayTitleFromState() {
         return nativeGetDisplayTitleFromByteBuffer(contentsState.buffer(), contentsState.version());
@@ -294,6 +348,11 @@ public class TabState {
     /** @return URL currently being displayed in the saved state's current entry. */
     public String getVirtualUrlFromState() {
         return nativeGetVirtualUrlFromByteBuffer(contentsState.buffer(), contentsState.version());
+    }
+
+    /** @return Whether an incognito TabState was loaded by {@link #readState}. */
+    public boolean isIncognito() {
+        return mIsIncognito;
     }
 
     /**
@@ -320,14 +379,49 @@ public class TabState {
     }
 
     /**
+     * Generates the name of the state file that should represent the Tab specified by {@code id}
+     * and {@code encrypted}.
+     * @param id        The id of the {@link Tab} to save.
+     * @param encrypted Whether or not the tab is incognito and should be encrypted.
+     * @return          The name of the file the Tab state should be saved to.
+     */
+    public static String getTabStateFilename(int id, boolean encrypted) {
+        return (encrypted ? SAVED_TAB_STATE_FILE_PREFIX_INCOGNITO : SAVED_TAB_STATE_FILE_PREFIX)
+                + id;
+    }
+
+    /**
+     * Parse the tab id and whether the tab is incognito from the tab state filename.
+     * @param name The given filename for the tab state file.
+     * @return A {@link Pair} with tab id and incognito state read from the filename.
+     */
+    public static Pair<Integer, Boolean> parseInfoFromFilename(String name) {
+        try {
+            if (name.startsWith(SAVED_TAB_STATE_FILE_PREFIX_INCOGNITO)) {
+                int id = Integer.parseInt(
+                        name.substring(SAVED_TAB_STATE_FILE_PREFIX_INCOGNITO.length()));
+                return Pair.create(id, true);
+            } else if (name.startsWith(SAVED_TAB_STATE_FILE_PREFIX)) {
+                int id = Integer.parseInt(
+                        name.substring(SAVED_TAB_STATE_FILE_PREFIX.length()));
+                return Pair.create(id, false);
+            }
+        } catch (NumberFormatException ex) {
+            // Expected for files not related to tab state.
+        }
+        return null;
+    }
+
+    /**
      * Overrides the channel name for testing.
      * @param name Channel to use.
      */
+    @VisibleForTesting
     public static void setChannelNameOverrideForTest(String name) {
         sChannelNameOverrideForTest = name;
     }
 
-    private static native long nativeRestoreContentsFromByteBuffer(
+    private static native WebContents nativeRestoreContentsFromByteBuffer(
             ByteBuffer buffer, int savedStateVersion, boolean initiallyHidden);
 
     private static native ByteBuffer nativeGetContentsStateAsByteBuffer(Tab tab);
@@ -342,4 +436,6 @@ public class TabState {
             ByteBuffer state, int savedStateVersion);
 
     private static native void nativeFreeWebContentsStateBuffer(ByteBuffer buffer);
+
+    private static native void nativeCreateHistoricalTab(ByteBuffer state, int savedStateVersion);
 }

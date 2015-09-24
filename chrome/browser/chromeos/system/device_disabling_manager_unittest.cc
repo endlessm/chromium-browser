@@ -12,7 +12,6 @@
 #include "base/prefs/testing_pref_service.h"
 #include "base/run_loop.h"
 #include "chrome/browser/browser_process_platform_part.h"
-#include "chrome/browser/chromeos/login/users/fake_user_manager.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/policy/device_cloud_policy_manager_chromeos.h"
 #include "chrome/browser/chromeos/policy/device_policy_builder.h"
@@ -25,6 +24,7 @@
 #include "chromeos/chromeos_switches.h"
 #include "components/ownership/mock_owner_key_util.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
+#include "components/user_manager/fake_user_manager.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "policy/proto/device_management_backend.pb.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -73,7 +73,7 @@ class DeviceDisablingManagerTestBase : public testing::Test,
   policy::ScopedStubEnterpriseInstallAttributes install_attributes_;
   chromeos::ScopedTestDeviceSettingsService test_device_settings_service_;
   chromeos::ScopedTestCrosSettings test_cros_settings_;
-  FakeUserManager fake_user_manager_;
+  user_manager::FakeUserManager fake_user_manager_;
   scoped_ptr<DeviceDisablingManager> device_disabling_manager_;
 
   DISALLOW_COPY_AND_ASSIGN(DeviceDisablingManagerTestBase);
@@ -136,6 +136,7 @@ class DeviceDisablingManagerOOBETest : public DeviceDisablingManagerTestBase {
 
   TestingPrefServiceSimple local_state_;
 
+  content::TestBrowserThreadBundle thread_bundle_;
   base::RunLoop run_loop_;
   bool device_disabled_;
 
@@ -202,7 +203,7 @@ TEST_F(DeviceDisablingManagerOOBETest, NotDisabledWhenExplicitlyNotDisabled) {
 // Verifies that the device is not considered disabled during OOBE when device
 // disabling is turned off by flag, even if the device is marked as disabled.
 TEST_F(DeviceDisablingManagerOOBETest, NotDisabledWhenTurnedOffByFlag) {
-  CommandLine::ForCurrentProcess()->AppendSwitch(
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kDisableDeviceDisabling);
   SetDeviceDisabled(true);
   CheckWhetherDeviceDisabledDuringOOBE();
@@ -375,7 +376,7 @@ TEST_F(DeviceDisablingManagerTest, NotDisabledWhenExplicitlyNotDisabled) {
 // Verifies that the device is not considered disabled when device disabling is
 // turned off by flag, even if the device is marked as disabled.
 TEST_F(DeviceDisablingManagerTest, NotDisabledWhenTurnedOffByFlag) {
-  CommandLine::ForCurrentProcess()->AppendSwitch(
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kDisableDeviceDisabling);
   SetEnterpriseOwned();
   MakeCrosSettingsTrusted();
@@ -500,7 +501,7 @@ TEST_F(DeviceDisablingManagerTest, HonorDeviceDisablingDuringNormalOperation) {
       DeviceDisablingManager::HonorDeviceDisablingDuringNormalOperation());
 
   // Enterprise owned, disabled by flag.
-  CommandLine::ForCurrentProcess()->AppendSwitch(
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kDisableDeviceDisabling);
   EXPECT_FALSE(
       DeviceDisablingManager::HonorDeviceDisablingDuringNormalOperation());

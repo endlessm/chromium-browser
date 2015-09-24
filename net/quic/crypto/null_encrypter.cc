@@ -21,27 +21,24 @@ bool NullEncrypter::SetNoncePrefix(StringPiece nonce_prefix) {
   return nonce_prefix.empty();
 }
 
-bool NullEncrypter::Encrypt(
-    StringPiece /*nonce*/,
-    StringPiece associated_data,
-    StringPiece plaintext,
-    unsigned char* output) {
-  string buffer = associated_data.as_string();
-  plaintext.AppendToString(&buffer);
-  uint128 hash = QuicUtils::FNV1a_128_Hash(buffer.data(), buffer.length());
-  QuicUtils::SerializeUint128Short(hash, output);
-  memcpy(output + GetHashLength(), plaintext.data(), plaintext.size());
-  return true;
-}
-
-QuicData* NullEncrypter::EncryptPacket(
-    QuicPacketSequenceNumber /*sequence_number*/,
-    StringPiece associated_data,
-    StringPiece plaintext) {
+bool NullEncrypter::EncryptPacket(QuicPacketSequenceNumber /*sequence_number*/,
+                                  StringPiece associated_data,
+                                  StringPiece plaintext,
+                                  char* output,
+                                  size_t* output_length,
+                                  size_t max_output_length) {
   const size_t len = plaintext.size() + GetHashLength();
-  uint8* buffer = new uint8[len];
-  Encrypt(StringPiece(), associated_data, plaintext, buffer);
-  return new QuicData(reinterpret_cast<char*>(buffer), len, true);
+  if (max_output_length < len) {
+    return false;
+  }
+  uint128 hash = QuicUtils::FNV1a_128_Hash_Two(
+      associated_data.data(), associated_data.size(), plaintext.data(),
+      plaintext.size());
+  QuicUtils::SerializeUint128Short(hash,
+                                   reinterpret_cast<unsigned char*>(output));
+  memcpy(output + GetHashLength(), plaintext.data(), plaintext.length());
+  *output_length = len;
+  return true;
 }
 
 size_t NullEncrypter::GetKeySize() const { return 0; }

@@ -6,11 +6,12 @@
 
 #include "base/values.h"
 #include "chrome/browser/chromeos/login/help_app_launcher.h"
-#include "chrome/browser/chromeos/login/login_utils.h"
 #include "chrome/browser/chromeos/login/screens/user_selection_screen.h"
-#include "chrome/browser/signin/screenlock_bridge.h"
+#include "chrome/browser/chromeos/login/session/user_session_manager.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
 #include "chrome/grit/generated_resources.h"
+#include "chromeos/login/auth/user_context.h"
+#include "components/proximity_auth/screenlock_bridge.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_ui.h"
@@ -85,9 +86,9 @@ void AppLaunchSigninScreen::CompleteLogin(const UserContext& user_context) {
 
 void AppLaunchSigninScreen::Login(const UserContext& user_context,
                                   const SigninSpecifics& specifics) {
-  // Note: LoginUtils::CreateAuthenticator doesn't necessarily create
+  // Note: CreateAuthenticator doesn't necessarily create
   // a new Authenticator object, and could reuse an existing one.
-  authenticator_ = LoginUtils::Get()->CreateAuthenticator(this);
+  authenticator_ = UserSessionManager::GetInstance()->CreateAuthenticator(this);
   content::BrowserThread::PostTask(
       content::BrowserThread::UI, FROM_HERE,
       base::Bind(&Authenticator::AuthenticateToUnlock,
@@ -117,6 +118,10 @@ void AppLaunchSigninScreen::ResyncUserData() {
 }
 
 void AppLaunchSigninScreen::ShowEnterpriseEnrollmentScreen() {
+  NOTREACHED();
+}
+
+void AppLaunchSigninScreen::ShowEnableDebuggingScreen() {
   NOTREACHED();
 }
 
@@ -179,10 +184,8 @@ void AppLaunchSigninScreen::OnAuthFailure(const AuthFailure& error) {
   LOG(ERROR) << "Unlock failure: " << error.reason();
   webui_handler_->ClearAndEnablePassword();
   webui_handler_->ShowError(
-     0,
-     l10n_util::GetStringUTF8(IDS_LOGIN_ERROR_AUTHENTICATING_KIOSK),
-     std::string(),
-     HelpAppLauncher::HELP_CANT_ACCESS_ACCOUNT_OFFLINE);
+      0, l10n_util::GetStringUTF8(IDS_LOGIN_ERROR_AUTHENTICATING_KIOSK),
+      std::string(), HelpAppLauncher::HELP_CANT_ACCESS_ACCOUNT);
 }
 
 void AppLaunchSigninScreen::OnAuthSuccess(const UserContext& user_context) {
@@ -196,10 +199,10 @@ void AppLaunchSigninScreen::HandleGetUsers() {
   for (user_manager::UserList::const_iterator it = users.begin();
        it != users.end();
        ++it) {
-    ScreenlockBridge::LockHandler::AuthType initial_auth_type =
+    proximity_auth::ScreenlockBridge::LockHandler::AuthType initial_auth_type =
         UserSelectionScreen::ShouldForceOnlineSignIn(*it)
-            ? ScreenlockBridge::LockHandler::ONLINE_SIGN_IN
-            : ScreenlockBridge::LockHandler::OFFLINE_PASSWORD;
+            ? proximity_auth::ScreenlockBridge::LockHandler::ONLINE_SIGN_IN
+            : proximity_auth::ScreenlockBridge::LockHandler::OFFLINE_PASSWORD;
     base::DictionaryValue* user_dict = new base::DictionaryValue();
     UserSelectionScreen::FillUserDictionary(
         *it,
@@ -214,15 +217,12 @@ void AppLaunchSigninScreen::HandleGetUsers() {
   webui_handler_->LoadUsers(users_list, false);
 }
 
-void AppLaunchSigninScreen::SetAuthType(
-    const std::string& username,
-    ScreenlockBridge::LockHandler::AuthType auth_type) {
-  return;
+void AppLaunchSigninScreen::CheckUserStatus(const std::string& user_id) {
 }
 
-ScreenlockBridge::LockHandler::AuthType AppLaunchSigninScreen::GetAuthType(
-    const std::string& username) const {
-  return ScreenlockBridge::LockHandler::OFFLINE_PASSWORD;
+bool AppLaunchSigninScreen::IsUserWhitelisted(const std::string& user_id) {
+  NOTREACHED();
+  return true;
 }
 
 }  // namespace chromeos

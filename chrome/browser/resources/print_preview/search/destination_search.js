@@ -66,6 +66,14 @@ cr.define('print_preview', function() {
     this.registerPromoShownMetricRecorded_ = false;
 
     /**
+     * Child overlay used for resolving a provisional destination. The overlay
+     * is shown when the user attempts to select a provisional destination.
+     * Set only when a destination is being resolved.
+     * @private {?print_preview.ProvisionalDestinationResolver}
+     */
+    this.provisionalDestinationResolver_ = null;
+
+    /**
      * Search box used to search through the destination lists.
      * @type {!print_preview.SearchBox}
      * @private
@@ -123,14 +131,6 @@ cr.define('print_preview', function() {
   };
 
   /**
-   * Padding at the bottom of a destination list in pixels.
-   * @type {number}
-   * @const
-   * @private
-   */
-  DestinationSearch.LIST_BOTTOM_PADDING_ = 18;
-
-  /**
    * Number of unregistered destinations that may be promoted to the top.
    * @type {number}
    * @const
@@ -161,6 +161,8 @@ cr.define('print_preview', function() {
         // Collapse all destination lists
         this.localList_.setIsShowAll(false);
         this.cloudList_.setIsShowAll(false);
+        if (this.provisionalDestinationResolver_)
+          this.provisionalDestinationResolver_.cancel();
         this.resetSearch_();
       }
     },
@@ -240,6 +242,11 @@ cr.define('print_preview', function() {
           this.destinationStore_,
           print_preview.DestinationStore.EventType.DESTINATION_SEARCH_DONE,
           this.onDestinationSearchDone_.bind(this));
+      this.tracker.add(
+          this.destinationStore_,
+          print_preview.DestinationStore.EventType
+              .PROVISIONAL_DESTINATION_RESOLVED,
+          this.onDestinationsInserted_.bind(this));
 
       this.tracker.add(
           this.invitationStore_,
@@ -263,6 +270,11 @@ cr.define('print_preview', function() {
           this.userInfo_,
           print_preview.UserInfo.EventType.USERS_CHANGED,
           this.onUsersChanged_.bind(this));
+
+      this.tracker.add(
+          this.getChildElement('.button-strip .cancel-button'),
+          'click',
+          this.cancel.bind(this));
 
       this.tracker.add(window, 'resize', this.onWindowResize_.bind(this));
 
@@ -297,7 +309,8 @@ cr.define('print_preview', function() {
           parseInt(elStyle.getPropertyValue('padding-bottom'), 10) -
           this.getChildElement('.lists').offsetTop -
           this.getChildElement('.invitation-container').offsetHeight -
-          this.getChildElement('.cloudprint-promo').offsetHeight;
+          this.getChildElement('.cloudprint-promo').offsetHeight -
+          this.getChildElement('.action-area').offsetHeight;
     },
 
     /**
@@ -384,8 +397,9 @@ cr.define('print_preview', function() {
 
       var getListsTotalHeight = function(lists, counts) {
         return lists.reduce(function(sum, list, index) {
+          var container = list.getContainerElement();
           return sum + list.getEstimatedHeightInPixels(counts[index]) +
-              DestinationSearch.LIST_BOTTOM_PADDING_;
+              parseInt(window.getComputedStyle(container).paddingBottom, 10);
         }, 0);
       };
       var getCounts = function(lists, count) {
@@ -482,14 +496,14 @@ cr.define('print_preview', function() {
       if (invitation.asGroupManager) {
         invitationText = loadTimeData.getStringF(
             'groupPrinterSharingInviteText',
-            invitation.sender,
-            invitation.destination.displayName,
-            invitation.receiver);
+            HTMLEscape(invitation.sender),
+            HTMLEscape(invitation.destination.displayName),
+            HTMLEscape(invitation.receiver));
       } else {
         invitationText = loadTimeData.getStringF(
             'printerSharingInviteText',
-            invitation.sender,
-            invitation.destination.displayName);
+            HTMLEscape(invitation.sender),
+            HTMLEscape(invitation.destination.displayName));
       }
       this.getChildElement('.invitation-text').innerHTML = invitationText;
 
@@ -545,14 +559,68 @@ cr.define('print_preview', function() {
     },
 
     /**
-     * Called when a destination is selected. Clears the search and hides the
-     * widget.
+     * Handler for {@code print_preview.DestinationListItem.EventType.SELECT}
+     * event, which is called when a destinationi list item is selected.
      * @param {Event} evt Contains the selected destination.
      * @private
      */
     onDestinationSelect_: function(evt) {
+      this.handleOnDestinationSelect_(evt.destination);
+    },
+
+    /**
+     * Called when a destination is selected. Clears the search and hides the
+     * widget. If The destination is provisional, it runs provisional
+     * destination resolver first.
+     * @param {!print_preview.Destination} destination The selected destination.
+     * @private
+     */
+    handleOnDestinationSelect_: function(destination) {
+      if (destination.isProvisional) {
+        assert(!this.provisionalDestinationResolver_,
+               'Provisional destination resolver already exists.');
+        this.provisionalDestinationResolver_ =
+            print_preview.ProvisionalDestinationResolver.create(
+                this.destinationStore_, destination);
+        assert(!!this.provisionalDestinationResolver_,
+               'Unable to create provisional destination resolver');
+
+        var lastFocusedElement = document.activeElement;
+        this.addChild(this.provisionalDestinationResolver_);
+        this.provisionalDestinationResolver_.run(this.getElement())
+            .then(
+                /**
+                 * @param {!print_preview.Destination} resolvedDestination
+                 *    Destination to which the provisional destination was
+                 *    resolved.
+                 */
+                function(resolvedDestination) {
+                  this.handleOnDestinationSelect_(resolvedDestination);
+                }.bind(this))
+            .catch(
+                function() {
+                  console.log('Failed to resolve provisional destination: ' +
+                              destination.id);
+                })
+            .then(
+                function() {
+                  this.removeChild(this.provisionalDestinationResolver_);
+                  this.provisionalDestinationResolver_ = null;
+
+                  // Restore focus to the previosly focused element if it's
+                  // still shown in the search.
+                  if (lastFocusedElement &&
+                      this.getIsVisible() &&
+                      getIsVisible(lastFocusedElement) &&
+                      this.getElement().contains(lastFocusedElement)) {
+                    lastFocusedElement.focus();
+                  }
+                }.bind(this));
+        return;
+      }
+
       this.setIsVisible(false);
-      this.destinationStore_.selectDestination(evt.destination);
+      this.destinationStore_.selectDestination(destination);
       this.metrics_.record(print_preview.Metrics.DestinationSearchBucket.
           DESTINATION_CLOSED_CHANGED);
     },
@@ -679,6 +747,7 @@ cr.define('print_preview', function() {
      */
     onCloudprintPromoCloseButtonClick_: function() {
       setIsVisible(this.getChildElement('.cloudprint-promo'), false);
+      this.reflowLists_();
     },
 
     /**

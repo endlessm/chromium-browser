@@ -48,7 +48,7 @@ public:
     SkBitmap    fDst[NUM_CONFIGS];
 
     BitmapCopyGM() {
-        this->setBGColor(0xFFDDDDDD);
+        this->setBGColor(sk_tool_utils::color_to_565(0xFFDDDDDD));
     }
 
 protected:
@@ -75,9 +75,9 @@ protected:
             src.copyTo(&fDst[i], gColorTypes[i]);
         }
 
-        canvas->clear(0xFFDDDDDD);
+        canvas->clear(sk_tool_utils::color_to_565(0xFFDDDDDD));
         paint.setAntiAlias(true);
-        sk_tool_utils::set_portable_typeface(&paint);
+        sk_tool_utils::set_portable_typeface_always(&paint);
         
         SkScalar width = SkIntToScalar(40);
         SkScalar height = SkIntToScalar(40);
@@ -113,9 +113,6 @@ protected:
             canvas->translate(horizOffset, 0);
         }
     }
-
-    virtual uint32_t onGetFlags() const { return kSkipPicture_Flag
-                                               | kSkipPipe_Flag; }
 
 private:
     typedef GM INHERITED;

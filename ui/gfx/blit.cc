@@ -7,9 +7,9 @@
 #include "base/logging.h"
 #include "build/build_config.h"
 #include "skia/ext/platform_canvas.h"
-#include "ui/gfx/point.h"
-#include "ui/gfx/rect.h"
-#include "ui/gfx/vector2d.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/vector2d.h"
 
 #if defined(USE_CAIRO)
 #if defined(OS_OPENBSD)
@@ -20,6 +20,12 @@
 #endif
 
 #if defined(OS_MACOSX)
+#if defined(OS_IOS)
+#include <CoreGraphics/CoreGraphics.h>
+#else
+#include <ApplicationServices/ApplicationServices.h>
+#endif
+
 #include "base/mac/scoped_cftyperef.h"
 #endif
 
@@ -102,26 +108,6 @@ void BlitContextToContext(NativeDrawingContext dst_context,
 #else
   NOTIMPLEMENTED();
 #endif
-}
-
-void BlitContextToCanvas(SkCanvas *dst_canvas,
-                         const Rect& dst_rect,
-                         NativeDrawingContext src_context,
-                         const Point& src_origin) {
-  DCHECK(skia::SupportsPlatformPaint(dst_canvas));
-  BlitContextToContext(skia::BeginPlatformPaint(dst_canvas), dst_rect,
-                       src_context, src_origin);
-  skia::EndPlatformPaint(dst_canvas);
-}
-
-void BlitCanvasToContext(NativeDrawingContext dst_context,
-                         const Rect& dst_rect,
-                         SkCanvas *src_canvas,
-                         const Point& src_origin) {
-  DCHECK(skia::SupportsPlatformPaint(src_canvas));
-  BlitContextToContext(dst_context, dst_rect,
-                       skia::BeginPlatformPaint(src_canvas), src_origin);
-  skia::EndPlatformPaint(src_canvas);
 }
 
 void BlitCanvasToCanvas(SkCanvas *dst_canvas,

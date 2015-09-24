@@ -11,7 +11,7 @@
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/aura/window_delegate.h"
 #include "ui/events/keycodes/keyboard_codes.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace aura {
 namespace test {
@@ -53,7 +53,7 @@ class TestWindowDelegate : public WindowDelegate {
       const gfx::Point& location) override;
   bool CanFocus() override;
   void OnCaptureLost() override;
-  void OnPaint(gfx::Canvas* canvas) override;
+  void OnPaint(const ui::PaintContext& context) override;
   void OnDeviceScaleFactorChanged(float device_scale_factor) override;
   void OnWindowDestroying(Window* window) override;
   void OnWindowDestroyed(Window* window) override;
@@ -81,13 +81,16 @@ class ColorTestWindowDelegate : public TestWindowDelegate {
   ui::KeyboardCode last_key_code() const { return last_key_code_; }
 
   // Overridden from TestWindowDelegate:
+  void OnBoundsChanged(const gfx::Rect& old_bounds,
+                       const gfx::Rect& new_bounds) override;
   void OnKeyEvent(ui::KeyEvent* event) override;
   void OnWindowDestroyed(Window* window) override;
-  void OnPaint(gfx::Canvas* canvas) override;
+  void OnPaint(const ui::PaintContext& context) override;
 
  private:
   SkColor color_;
   ui::KeyboardCode last_key_code_;
+  gfx::Size window_size_;
 
   DISALLOW_COPY_AND_ASSIGN(ColorTestWindowDelegate);
 };

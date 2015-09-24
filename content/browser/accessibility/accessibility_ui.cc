@@ -66,7 +66,7 @@ base::DictionaryValue* BuildTargetDescriptor(
 base::DictionaryValue* BuildTargetDescriptor(RenderViewHost* rvh) {
   WebContentsImpl* web_contents = static_cast<WebContentsImpl*>(
       WebContents::FromRenderViewHost(rvh));
-  AccessibilityMode accessibility_mode = web_contents->GetAccessibilityMode();
+  AccessibilityMode accessibility_mode = AccessibilityModeOff;
 
   std::string title;
   GURL url;
@@ -80,6 +80,7 @@ base::DictionaryValue* BuildTargetDescriptor(RenderViewHost* rvh) {
     NavigationEntry* entry = controller.GetVisibleEntry();
     if (entry != NULL && entry->GetURL().is_valid())
       favicon_url = entry->GetFavicon().url;
+    accessibility_mode = web_contents->GetAccessibilityMode();
   }
 
   return BuildTargetDescriptor(url,
@@ -115,14 +116,14 @@ bool HandleRequestCallback(BrowserContext* current_context,
     rvh_list->Append(BuildTargetDescriptor(rvh));
   }
 
-  scoped_ptr<base::DictionaryValue> data(new base::DictionaryValue());
-  data->Set("list", rvh_list.release());
-  data->SetInteger(
+  base::DictionaryValue data;
+  data.Set("list", rvh_list.release());
+  data.SetInteger(
       "global_a11y_mode",
       BrowserAccessibilityStateImpl::GetInstance()->accessibility_mode());
 
   std::string json_string;
-  base::JSONWriter::Write(data.get(), &json_string);
+  base::JSONWriter::Write(data, &json_string);
 
   callback.Run(base::RefCountedString::TakeString(&json_string));
   return true;

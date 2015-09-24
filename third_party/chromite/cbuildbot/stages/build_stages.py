@@ -10,14 +10,15 @@ import functools
 import glob
 import os
 
+from chromite.cbuildbot import chroot_lib
 from chromite.cbuildbot import commands
 from chromite.cbuildbot import constants
 from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot import repository
 from chromite.cbuildbot.stages import generic_stages
 from chromite.cbuildbot.stages import test_stages
-from chromite.lib import cidb
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import git
 from chromite.lib import osutils
 from chromite.lib import parallel
@@ -35,13 +36,20 @@ class CleanUpStage(generic_stages.BuilderStage):
   def _CleanChroot(self):
     commands.CleanupChromeKeywordsFile(self._boards,
                                        self._build_root)
-    chroot_tmpdir = os.path.join(self._build_root, constants.DEFAULT_CHROOT_DIR,
-                                 'tmp')
+    chroot_dir = os.path.join(self._build_root, constants.DEFAULT_CHROOT_DIR)
+    chroot_tmpdir = os.path.join(chroot_dir, 'tmp')
     if os.path.exists(chroot_tmpdir):
-      cros_build_lib.SudoRunCommand(['rm', '-rf', chroot_tmpdir],
-                                    print_cmd=False)
+      osutils.RmDir(chroot_tmpdir, ignore_missing=True, sudo=True)
       cros_build_lib.SudoRunCommand(['mkdir', '--mode', '1777', chroot_tmpdir],
                                     print_cmd=False)
+
+    # Clear out the incremental build cache between runs.
+    cache_dir = 'var/cache/portage'
+    d = os.path.join(chroot_dir, cache_dir)
+    osutils.RmDir(d, ignore_missing=True, sudo=True)
+    for board in self._boards:
+      d = os.path.join(chroot_dir, 'build', board, cache_dir)
+      osutils.RmDir(d, ignore_missing=True, sudo=True)
 
   def _DeleteChroot(self):
     chroot = os.path.join(self._build_root, constants.DEFAULT_CHROOT_DIR)
@@ -78,6 +86,26 @@ class CleanUpStage(generic_stages.BuilderStage):
     # builders.
     osutils.RmDir(site_packages_dir, ignore_missing=True)
 
+  def _AbortPreviousHWTestSuites(self):
+    """Abort any outstanding synchronous hwtest suites from this builder."""
+    # Only try to clean up previous HWTests if this is really running on one of
+    # our builders in a non-trybot build.
+    debug = (self._run.options.remote_trybot or
+             (not self._run.options.buildbot) or
+             self._run.options.debug)
+    build_id, db = self._run.GetCIDBHandle()
+    if db:
+      builds = db.GetBuildHistory(self._run.config.name, 2,
+                                  ignore_build_id=build_id)
+      for build in builds:
+        old_version = build['full_version']
+        if old_version is None:
+          continue
+        for suite_config in self._run.config.hw_tests:
+          if not suite_config.async:
+            commands.AbortHWTests(self._run.config.name, old_version,
+                                  debug, suite_config.suite)
+
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
     if (not (self._run.options.buildbot or self._run.options.remote_trybot)
@@ -99,8 +127,8 @@ class CleanUpStage(generic_stages.BuilderStage):
         # way, the checkout needs to be wiped since it's in an unknown
         # state.
         if os.path.exists(self._build_root):
-          cros_build_lib.Warning("ManifestCheckout at %s is unusable: %s",
-                                 self._build_root, e)
+          logging.warning("ManifestCheckout at %s is unusable: %s",
+                          self._build_root, e)
 
     # Clean mount points first to be safe about deleting.
     commands.CleanUpMountPoints(self._build_root)
@@ -115,7 +143,8 @@ class CleanUpStage(generic_stages.BuilderStage):
                functools.partial(commands.WipeOldOutput, self._build_root),
                self._DeleteArchivedTrybotImages,
                self._DeleteArchivedPerfResults,
-               self._DeleteAutotestSitePackages]
+               self._DeleteAutotestSitePackages,
+               self._AbortPreviousHWTestSuites]
       if self._run.options.chrome_root:
         tasks.append(self._DeleteChromeBuildOutput)
       if self._run.config.chroot_replace and self._run.options.build:
@@ -147,11 +176,16 @@ class InitSDKStage(generic_stages.BuilderStage):
     if os.path.isdir(self._build_root) and not replace:
       try:
         pre_ver = cros_build_lib.GetChrootVersion(chroot=chroot_path)
-        commands.RunChrootUpgradeHooks(self._build_root)
+        commands.RunChrootUpgradeHooks(
+            self._build_root, chrome_root=self._run.options.chrome_root,
+            extra_env=self._portage_extra_env)
       except failures_lib.BuildScriptFailure:
         cros_build_lib.PrintBuildbotStepText('Replacing broken chroot')
         cros_build_lib.PrintBuildbotStepWarnings()
-        replace = True
+      else:
+        # Clear the chroot manifest version as we are in the middle of building.
+        chroot_manager = chroot_lib.ChrootManager(self._build_root)
+        chroot_manager.ClearChrootVersion()
 
     if not os.path.isdir(chroot_path) or replace:
       use_sdk = (self._run.config.use_sdk and not self._run.options.nosdk)
@@ -194,7 +228,7 @@ class SetupBoardStage(generic_stages.BoardSpecificBuilderStage, InitSDKStage):
     # Only update the board if we need to do so.
     chroot_path = os.path.join(self._build_root, constants.DEFAULT_CHROOT_DIR)
     board_path = os.path.join(chroot_path, 'build', self._current_board)
-    if not os.path.isdir(board_path):
+    if not os.path.isdir(board_path) or self._run.config.board_replace:
       usepkg = self._run.config.usepkg_build_packages
       commands.SetupBoard(
           self._build_root, board=self._current_board, usepkg=usepkg,
@@ -209,42 +243,99 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
   """Build Chromium OS packages."""
 
   option_name = 'build'
-  def __init__(self, builder_run, board, afdo_generate_min=False,
+  def __init__(self, builder_run, board, suffix=None, afdo_generate_min=False,
                afdo_use=False, update_metadata=False, **kwargs):
-    super(BuildPackagesStage, self).__init__(builder_run, board, **kwargs)
+    if afdo_use:
+      suffix = self.UpdateSuffix(constants.USE_AFDO_USE, suffix)
+    super(BuildPackagesStage, self).__init__(builder_run, board, suffix=suffix,
+                                             **kwargs)
     self._afdo_generate_min = afdo_generate_min
     self._update_metadata = update_metadata
     assert not afdo_generate_min or not afdo_use
 
     useflags = self._portage_extra_env.get('USE', '').split()
     if afdo_use:
-      self.name += ' [%s]' % constants.USE_AFDO_USE
       useflags.append(constants.USE_AFDO_USE)
 
     if useflags:
       self._portage_extra_env['USE'] = ' '.join(useflags)
 
-  def VerifyChromeBinpkg(self):
-    # Sanity check: If we didn't check out Chrome, we should be building Chrome
-    # from a binary package.
-    if not self._run.options.managed_chrome:
+  def VerifyChromeBinpkg(self, packages):
+    # Sanity check: If we didn't check out Chrome (and we're running on ToT),
+    # we should be building Chrome from a binary package.
+    if (not self._run.options.managed_chrome and
+        self._run.manifest_branch == 'master'):
       commands.VerifyBinpkg(self._build_root,
                             self._current_board,
                             constants.CHROME_CP,
+                            packages,
                             extra_env=self._portage_extra_env)
+
+  def GetListOfPackagesToBuild(self):
+    """Returns a list of packages to build."""
+    if self._run.config.packages:
+      # If the list of packages is set in the config, use it.
+      return self._run.config.packages
+
+    # TODO: the logic below is duplicated from the build_packages
+    # script. Once we switch to `cros build`, we should consolidate
+    # the logic in a shared location.
+    packages = ['virtual/target-os']
+    # Build Dev packages by default.
+    packages += ['virtual/target-os-dev']
+    # Build test packages by default.
+    packages += ['virtual/target-os-test']
+    # Build factory packages if requested by config.
+    if self._run.config.factory:
+      packages += ['chromeos-base/chromeos-installshim',
+                   'chromeos-base/chromeos-factory',
+                   'chromeos-base/chromeos-hwid',
+                   'chromeos-base/autotest-factory-install']
+
+    if self._run.ShouldBuildAutotest():
+      packages += ['chromeos-base/autotest-all']
+
+    return packages
+
+  def RecordPackagesUnderTest(self, packages_to_build):
+    """Records all packages that may affect the board to BuilderRun."""
+    deps = dict()
+    # Include packages that are built in chroot because they can
+    # affect any board.
+    packages = ['virtual/target-sdk']
+    # Include chromite because we are running cbuildbot.
+    packages += ['chromeos-base/chromite']
+    try:
+      deps.update(commands.ExtractDependencies(self._build_root, packages))
+
+      # Include packages that will be built as part of the board.
+      deps.update(commands.ExtractDependencies(self._build_root,
+                                               packages_to_build,
+                                               board=self._current_board))
+    except Exception as e:
+      # Dependency extraction may fail due to bad ebuild changes. Let
+      # the build continues because we have logic to triage build
+      # packages failures separately. Note that we only categorize CLs
+      # on the package-level if dependencies are extracted
+      # successfully, so it is safe to ignore the exception.
+      logging.warning('Unable to gather packages under test: %s', e)
+    else:
+      logging.info('Recording packages under test')
+      self.board_runattrs.SetParallel('packages_under_test', set(deps.keys()))
 
   def PerformStage(self):
     # If we have rietveld patches, always compile Chrome from source.
     noworkon = not self._run.options.rietveld_patches
-
-    self.VerifyChromeBinpkg()
+    packages = self.GetListOfPackagesToBuild()
+    self.VerifyChromeBinpkg(packages)
+    self.RecordPackagesUnderTest(packages)
 
     commands.Build(self._build_root,
                    self._current_board,
                    build_autotest=self._run.ShouldBuildAutotest(),
                    usepkg=self._run.config.usepkg_build_packages,
                    chrome_binhost_only=self._run.config.chrome_binhost_only,
-                   packages=self._run.config.packages,
+                   packages=packages,
                    skip_chroot_upgrade=True,
                    chrome_root=self._run.options.chrome_root,
                    noworkon=noworkon,
@@ -262,12 +353,10 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
           self._current_board, update_dict)
 
       # Write board metadata update to cidb
-      if cidb.CIDBConnectionFactory.IsCIDBSetup():
-        db = cidb.CIDBConnectionFactory.GetCIDBConnectionForBuilder()
-        if db:
-          build_id = self._run.attrs.metadata.GetValue('build_id')
-          db.UpdateBoardPerBuildMetadata(build_id, self._current_board,
-                                         update_dict)
+      build_id, db = self._run.GetCIDBHandle()
+      if db:
+        db.UpdateBoardPerBuildMetadata(build_id, self._current_board,
+                                       update_dict)
 
 
 class BuildImageStage(BuildPackagesStage):
@@ -336,9 +425,7 @@ class BuildImageStage(BuildPackagesStage):
 
 
 class UprevStage(generic_stages.BuilderStage):
-  """Stage that uprevs Chromium OS packages that the builder intends to
-  validate.
-  """
+  """Uprevs Chromium OS packages that the builder intends to validate."""
 
   config_name = 'uprev'
   option_name = 'uprev'

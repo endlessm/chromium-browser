@@ -41,18 +41,18 @@ TEST_F(GetSessionNameTest, GetSessionNameSynchronously) {
 #if defined(OS_CHROMEOS)
 
 // Call GetSessionNameSynchronouslyForTesting on ChromeOS where the board type
-// is "lumpy-signed-mp-v2keys" and make sure the return value is "Chromebook".
+// is CHROMEBOOK and make sure the return value is "Chromebook".
 TEST_F(GetSessionNameTest, GetSessionNameSynchronouslyChromebook) {
-  const char* kLsbRelease = "CHROMEOS_RELEASE_BOARD=lumpy-signed-mp-v2keys\n";
+  const char* kLsbRelease = "DEVICETYPE=CHROMEBOOK\n";
   base::SysInfo::SetChromeOSVersionInfoForTest(kLsbRelease, base::Time());
   const std::string& session_name = GetSessionNameSynchronouslyForTesting();
   EXPECT_EQ("Chromebook", session_name);
 }
 
 // Call GetSessionNameSynchronouslyForTesting on ChromeOS where the board type
-// is "stumpy-signed-mp-v2keys" and make sure the return value is "Chromebox".
+// is a CHROMEBOX and make sure the return value is "Chromebox".
 TEST_F(GetSessionNameTest, GetSessionNameSynchronouslyChromebox) {
-  const char* kLsbRelease = "CHROMEOS_RELEASE_BOARD=stumpy-signed-mp-v2keys\n";
+  const char* kLsbRelease = "DEVICETYPE=CHROMEBOX\n";
   base::SysInfo::SetChromeOSVersionInfoForTest(kLsbRelease, base::Time());
   const std::string& session_name = GetSessionNameSynchronouslyForTesting();
   EXPECT_EQ("Chromebox", session_name);
@@ -64,7 +64,7 @@ TEST_F(GetSessionNameTest, GetSessionNameSynchronouslyChromebox) {
 // with a session name.  Makes sure the returned session name is equal
 // to the return value of GetSessionNameSynchronouslyForTesting().
 TEST_F(GetSessionNameTest, GetSessionName) {
-  GetSessionName(message_loop_.message_loop_proxy(),
+  GetSessionName(message_loop_.task_runner(),
                  base::Bind(&GetSessionNameTest::SetSessionNameAndQuit,
                             base::Unretained(this)));
   message_loop_.Run();

@@ -51,19 +51,24 @@ source_set("hunspell") {
     "src/parsers/textparser.hxx",
   ]
 
-  configs -= [ "//build/config/compiler:chromium_code" ]
-  configs += [ "//build/config/compiler:no_chromium_code" ]
-  direct_dependent_configs = [
-    ":hunspell_config",
-  ]
+  config("hunspell_warnings") {
+    if (is_clang) {
+      cflags = [ "-Wno-unused-private-field" ]
+    }
+  }
 
-  defines = [
-    "OPENOFFICEORG",
+  configs -= [ "//build/config/compiler:chromium_code" ]
+  configs += [
+    "//build/config/compiler:no_chromium_code",
+    ":hunspell_warnings",
   ]
+  public_configs = [ ":hunspell_config" ]
+
+  defines = [ "OPENOFFICEORG" ]
 
   deps = [
     "//base",
-    "//third_party/icu"
+    "//third_party/icu",
   ]
 
   cflags = []
@@ -95,6 +100,7 @@ source_set("hunspell") {
     cflags += [
       # affentry.cxx has one `while ((p = nextchar(p)));` parsing loop.
       "-Wno-empty-body",
+
       # affentry.hxx has NULL as default parameter for a FLAG in two
       # places.
       "-Wno-null-conversion",

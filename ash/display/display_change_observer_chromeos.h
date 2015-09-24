@@ -17,6 +17,7 @@ namespace ash {
 
 class DisplayInfo;
 struct DisplayMode;
+class DisplaySnapshot;
 
 // An object that observes changes in display configuration and
 // update DisplayManagers.
@@ -28,31 +29,33 @@ class DisplayChangeObserver : public ui::DisplayConfigurator::StateController,
   // Returns the mode list for internal display.
   ASH_EXPORT static std::vector<DisplayMode> GetInternalDisplayModeList(
       const DisplayInfo& display_info,
-      const ui::DisplayConfigurator::DisplayState& output);
+      const ui::DisplaySnapshot& output);
 
   // Returns the resolution list.
   ASH_EXPORT static std::vector<DisplayMode> GetExternalDisplayModeList(
-      const ui::DisplayConfigurator::DisplayState& output);
+      const ui::DisplaySnapshot& output);
 
   DisplayChangeObserver();
-  virtual ~DisplayChangeObserver();
+  ~DisplayChangeObserver() override;
 
   // ui::DisplayConfigurator::StateController overrides:
-  virtual ui::MultipleDisplayState GetStateForDisplayIds(
+  ui::MultipleDisplayState GetStateForDisplayIds(
       const std::vector<int64>& outputs) const override;
-  virtual bool GetResolutionForDisplayId(int64 display_id,
-                                         gfx::Size* size) const override;
+  bool GetResolutionForDisplayId(int64 display_id,
+                                 gfx::Size* size) const override;
 
   // Overriden from ui::DisplayConfigurator::Observer:
-  virtual void OnDisplayModeChanged(
+  void OnDisplayModeChanged(
       const ui::DisplayConfigurator::DisplayStateList& outputs) override;
+  void OnDisplayModeChangeFailed(
+      const ui::DisplayConfigurator::DisplayStateList& displays,
+      ui::MultipleDisplayState failed_new_state) override;
 
   // Overriden from ui::InputDeviceEventObserver:
-  virtual void OnTouchscreenDeviceConfigurationChanged() override;
-  virtual void OnKeyboardDeviceConfigurationChanged() override;
+  void OnTouchscreenDeviceConfigurationChanged() override;
 
   // Overriden from ShellObserver:
-  virtual void OnAppTerminating() override;
+  void OnAppTerminating() override;
 
   // Exposed for testing.
   ASH_EXPORT static float FindDeviceScaleFactor(float dpi);

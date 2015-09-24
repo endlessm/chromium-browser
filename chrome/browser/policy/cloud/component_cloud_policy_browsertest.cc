@@ -105,7 +105,7 @@ class ComponentCloudPolicyTest : public ExtensionBrowserTest {
   ComponentCloudPolicyTest() {}
   ~ComponentCloudPolicyTest() override {}
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionBrowserTest::SetUpCommandLine(command_line);
 #if defined(OS_CHROMEOS)
     // ExtensionBrowserTest sets the login users to a non-managed value;
@@ -123,7 +123,7 @@ class ComponentCloudPolicyTest : public ExtensionBrowserTest {
     ASSERT_TRUE(test_server_.Start());
 
     std::string url = test_server_.GetServiceURL().spec();
-    CommandLine* command_line = CommandLine::ForCurrentProcess();
+    base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
     command_line->AppendSwitchASCII(switches::kDeviceManagementUrl, url);
 
     ExtensionBrowserTest::SetUpInProcessBrowserTestFixture();
@@ -182,7 +182,7 @@ class ComponentCloudPolicyTest : public ExtensionBrowserTest {
     SigninManager* signin_manager =
         SigninManagerFactory::GetForProfile(browser()->profile());
     ASSERT_TRUE(signin_manager);
-    signin_manager->SetAuthenticatedUsername("user@example.com");
+    signin_manager->SetAuthenticatedAccountInfo("12345", "user@example.com");
 
     UserCloudPolicyManager* policy_manager =
         UserCloudPolicyManagerFactory::GetForBrowserContext(
@@ -220,7 +220,8 @@ class ComponentCloudPolicyTest : public ExtensionBrowserTest {
 
   void RefreshPolicies() {
     ProfilePolicyConnector* profile_connector =
-        ProfilePolicyConnectorFactory::GetForProfile(browser()->profile());
+        ProfilePolicyConnectorFactory::GetForBrowserContext(
+            browser()->profile());
     PolicyService* policy_service = profile_connector->policy_service();
     base::RunLoop run_loop;
     policy_service->RefreshPolicies(run_loop.QuitClosure());

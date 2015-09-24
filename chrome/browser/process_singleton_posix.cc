@@ -58,13 +58,15 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/location.h"
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/posix/eintr_wrapper.h"
+#include "base/posix/safe_strerror.h"
 #include "base/rand_util.h"
-#include "base/safe_strerror_posix.h"
 #include "base/sequenced_task_runner_helpers.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
@@ -135,7 +137,7 @@ int SetCloseOnExec(int fd) {
 // Close a socket and check return value.
 void CloseSocket(int fd) {
   int rv = IGNORE_EINTR(close(fd));
-  DCHECK_EQ(0, rv) << "Error closing socket: " << safe_strerror(errno);
+  DCHECK_EQ(0, rv) << "Error closing socket: " << base::safe_strerror(errno);
 }
 
 // Write a message to a socket fd.
@@ -622,7 +624,7 @@ void ProcessSingleton::LinuxWatcher::HandleMessage(
   DCHECK(ui_message_loop_ == base::MessageLoop::current());
   DCHECK(reader);
 
-  if (parent_->notification_callback_.Run(CommandLine(argv),
+  if (parent_->notification_callback_.Run(base::CommandLine(argv),
                                           base::FilePath(current_dir))) {
     // Send back "ACK" message to prevent the client process from starting up.
     reader->FinishWithACK(kACKToken, arraysize(kACKToken) - 1);
@@ -702,12 +704,9 @@ void ProcessSingleton::LinuxWatcher::SocketReader::OnFileCanReadWithoutBlocking(
   tokens.erase(tokens.begin());
 
   // Return to the UI thread to handle opening a new browser tab.
-  ui_message_loop_->PostTask(FROM_HERE, base::Bind(
-      &ProcessSingleton::LinuxWatcher::HandleMessage,
-      parent_,
-      current_dir,
-      tokens,
-      this));
+  ui_message_loop_->task_runner()->PostTask(
+      FROM_HERE, base::Bind(&ProcessSingleton::LinuxWatcher::HandleMessage,
+                            parent_, current_dir, tokens, this));
   fd_reader_.StopWatchingFileDescriptor();
 
   // LinuxWatcher::HandleMessage() is in charge of destroying this SocketReader
@@ -755,14 +754,12 @@ ProcessSingleton::~ProcessSingleton() {
 
 ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcess() {
   return NotifyOtherProcessWithTimeout(
-      *CommandLine::ForCurrentProcess(),
-      kRetryAttempts,
-      base::TimeDelta::FromSeconds(kTimeoutInSeconds),
-      true);
+      *base::CommandLine::ForCurrentProcess(), kRetryAttempts,
+      base::TimeDelta::FromSeconds(kTimeoutInSeconds), true);
 }
 
 ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcessWithTimeout(
-    const CommandLine& cmd_line,
+    const base::CommandLine& cmd_line,
     int retry_attempts,
     const base::TimeDelta& timeout,
     bool kill_unresponsive) {
@@ -897,14 +894,13 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcessWithTimeout(
 
 ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcessOrCreate() {
   return NotifyOtherProcessWithTimeoutOrCreate(
-      *CommandLine::ForCurrentProcess(),
-      kRetryAttempts,
+      *base::CommandLine::ForCurrentProcess(), kRetryAttempts,
       base::TimeDelta::FromSeconds(kTimeoutInSeconds));
 }
 
 ProcessSingleton::NotifyResult
 ProcessSingleton::NotifyOtherProcessWithTimeoutOrCreate(
-    const CommandLine& command_line,
+    const base::CommandLine& command_line,
     int retry_attempts,
     const base::TimeDelta& timeout) {
   NotifyResult result = NotifyOtherProcessWithTimeout(
@@ -1013,7 +1009,7 @@ bool ProcessSingleton::Create() {
   }
 
   if (listen(sock, 5) < 0)
-    NOTREACHED() << "listen failed: " << safe_strerror(errno);
+    NOTREACHED() << "listen failed: " << base::safe_strerror(errno);
 
   DCHECK(BrowserThread::IsMessageLoopValid(BrowserThread::IO));
   BrowserThread::PostTask(
@@ -1072,5 +1068,5 @@ void ProcessSingleton::KillProcess(int pid) {
   // ESRCH = No Such Process (can happen if the other process is already in
   // progress of shutting down and finishes before we try to kill it).
   DCHECK(rv == 0 || errno == ESRCH) << "Error killing process: "
-                                    << safe_strerror(errno);
+                                    << base::safe_strerror(errno);
 }

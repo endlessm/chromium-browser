@@ -12,14 +12,14 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
-#include "chrome/browser/history/history_service.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/prerender/prerender_field_trial.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/in_memory_database.h"
 #include "components/history/core/browser/url_database.h"
-#include "components/omnibox/autocomplete_match.h"
+#include "components/omnibox/browser/autocomplete_match.h"
 #include "content/public/test/test_browser_thread.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -97,7 +97,7 @@ class AutocompleteActionPredictorTest : public testing::Test {
   }
 
   void SetUp() override {
-    CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+    base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
         switches::kPrerenderFromOmnibox,
         switches::kPrerenderFromOmniboxSwitchValueEnabled);
 
@@ -127,9 +127,8 @@ class AutocompleteActionPredictorTest : public testing::Test {
   }
 
   history::URLID AddRowToHistory(const TestUrlInfo& test_row) {
-    HistoryService* history =
-        HistoryServiceFactory::GetForProfile(profile_.get(),
-                                             Profile::EXPLICIT_ACCESS);
+    history::HistoryService* history = HistoryServiceFactory::GetForProfile(
+        profile_.get(), ServiceAccessType::EXPLICIT_ACCESS);
     CHECK(history);
     history::URLDatabase* url_db = history->InMemoryDatabase();
     CHECK(url_db);
@@ -189,9 +188,9 @@ class AutocompleteActionPredictorTest : public testing::Test {
 
   void DeleteOldIdsFromCaches(
       std::vector<AutocompleteActionPredictorTable::Row::Id>* id_list) {
-    HistoryService* history_service =
-        HistoryServiceFactory::GetForProfile(profile_.get(),
-                                             Profile::EXPLICIT_ACCESS);
+    history::HistoryService* history_service =
+        HistoryServiceFactory::GetForProfile(
+            profile_.get(), ServiceAccessType::EXPLICIT_ACCESS);
     ASSERT_TRUE(history_service);
 
     history::URLDatabase* url_db = history_service->InMemoryDatabase();
@@ -322,7 +321,9 @@ TEST_F(AutocompleteActionPredictorTest, DeleteOldIdsFromCaches) {
     std::string row_id = AddRow(test_url_db[i]);
     all_ids.push_back(row_id);
 
-    bool exclude_url = StartsWithASCII(test_url_db[i].url.path(), "/d", true) ||
+    bool exclude_url =
+        base::StartsWith(test_url_db[i].url.path(), "/d",
+                         base::CompareCase::SENSITIVE) ||
         (test_url_db[i].days_from_now > maximum_days_to_keep_entry());
 
     if (exclude_url)

@@ -64,13 +64,15 @@ class AstString : public ZoneObject {
 
 class AstRawString : public AstString {
  public:
-  virtual int length() const OVERRIDE {
+  int length() const override {
     if (is_one_byte_)
       return literal_bytes_.length();
     return literal_bytes_.length() / 2;
   }
 
-  virtual void Internalize(Isolate* isolate) OVERRIDE;
+  int byte_length() const { return literal_bytes_.length(); }
+
+  void Internalize(Isolate* isolate) override;
 
   bool AsArrayIndex(uint32_t* index) const;
 
@@ -88,15 +90,10 @@ class AstRawString : public AstString {
     return *c;
   }
 
-  V8_INLINE bool IsArguments(AstValueFactory* ast_value_factory) const;
-
   // For storing AstRawStrings in a hash map.
   uint32_t hash() const {
     return hash_;
   }
-  static bool Compare(void* a, void* b);
-
-  bool operator==(const AstRawString& rhs) const;
 
  private:
   friend class AstValueFactory;
@@ -124,11 +121,9 @@ class AstConsString : public AstString {
       : left_(left),
         right_(right) {}
 
-  virtual int length() const OVERRIDE {
-    return left_->length() + right_->length();
-  }
+  int length() const override { return left_->length() + right_->length(); }
 
-  virtual void Internalize(Isolate* isolate) OVERRIDE;
+  void Internalize(Isolate* isolate) override;
 
  private:
   friend class AstValueFactory;
@@ -147,8 +142,10 @@ class AstValue : public ZoneObject {
   }
 
   bool IsNumber() const {
-    return type_ == NUMBER || type_ == SMI;
+    return type_ == NUMBER || type_ == NUMBER_WITH_DOT || type_ == SMI;
   }
+
+  bool ContainsDot() const { return type_ == NUMBER_WITH_DOT; }
 
   const AstRawString* AsString() const {
     if (type_ == STRING)
@@ -158,7 +155,7 @@ class AstValue : public ZoneObject {
   }
 
   double AsNumber() const {
-    if (type_ == NUMBER)
+    if (type_ == NUMBER || type_ == NUMBER_WITH_DOT)
       return number_;
     if (type_ == SMI)
       return smi_;
@@ -173,6 +170,8 @@ class AstValue : public ZoneObject {
   bool IsPropertyName() const;
 
   bool BooleanValue() const;
+
+  bool IsTheHole() const { return type_ == THE_HOLE; }
 
   void Internalize(Isolate* isolate);
 
@@ -192,6 +191,7 @@ class AstValue : public ZoneObject {
     STRING,
     SYMBOL,
     NUMBER,
+    NUMBER_WITH_DOT,
     SMI,
     BOOLEAN,
     NULL_TYPE,
@@ -203,7 +203,14 @@ class AstValue : public ZoneObject {
 
   explicit AstValue(const char* name) : type_(SYMBOL) { symbol_name_ = name; }
 
-  explicit AstValue(double n) : type_(NUMBER) { number_ = n; }
+  explicit AstValue(double n, bool with_dot) {
+    if (with_dot) {
+      type_ = NUMBER_WITH_DOT;
+    } else {
+      type_ = NUMBER;
+    }
+    number_ = n;
+  }
 
   AstValue(Type t, int i) : type_(t) {
     DCHECK(type_ == SMI);
@@ -234,33 +241,48 @@ class AstValue : public ZoneObject {
 
 
 // For generating constants.
-#define STRING_CONSTANTS(F)                             \
-  F(anonymous_function, "(anonymous function)")         \
-  F(arguments, "arguments")                             \
-  F(constructor, "constructor")                         \
-  F(done, "done")                                       \
-  F(dot, ".")                                           \
-  F(dot_for, ".for")                                    \
-  F(dot_generator, ".generator")                        \
-  F(dot_generator_object, ".generator_object")          \
-  F(dot_iterator, ".iterator")                          \
-  F(dot_module, ".module")                              \
-  F(dot_result, ".result")                              \
-  F(empty, "")                                          \
-  F(eval, "eval")                                       \
-  F(initialize_const_global, "initializeConstGlobal")   \
-  F(initialize_var_global, "initializeVarGlobal")       \
-  F(make_reference_error, "MakeReferenceErrorEmbedded") \
-  F(make_syntax_error, "MakeSyntaxErrorEmbedded")       \
-  F(make_type_error, "MakeTypeErrorEmbedded")           \
-  F(module, "module")                                   \
-  F(native, "native")                                   \
-  F(next, "next")                                       \
-  F(proto, "__proto__")                                 \
-  F(prototype, "prototype")                             \
-  F(this, "this")                                       \
-  F(use_asm, "use asm")                                 \
-  F(use_strict, "use strict")                           \
+#define STRING_CONSTANTS(F)                                                \
+  F(anonymous_function, "(anonymous function)")                            \
+  F(arguments, "arguments")                                                \
+  F(concat_iterable_to_array, "$concatIterableToArray")                    \
+  F(constructor, "constructor")                                            \
+  F(default, "default")                                                    \
+  F(done, "done")                                                          \
+  F(dot, ".")                                                              \
+  F(dot_for, ".for")                                                       \
+  F(dot_generator, ".generator")                                           \
+  F(dot_generator_object, ".generator_object")                             \
+  F(dot_iterator, ".iterator")                                             \
+  F(dot_module, ".module")                                                 \
+  F(dot_result, ".result")                                                 \
+  F(empty, "")                                                             \
+  F(eval, "eval")                                                          \
+  F(get_template_callsite, "$getTemplateCallSite")                         \
+  F(initialize_const_global, "initializeConstGlobal")                      \
+  F(initialize_var_global, "initializeVarGlobal")                          \
+  F(is_construct_call, "_IsConstructCall")                                 \
+  F(is_spec_object, "_IsSpecObject")                                       \
+  F(let, "let")                                                            \
+  F(make_reference_error, "MakeReferenceError")                            \
+  F(make_syntax_error, "MakeSyntaxError")                                  \
+  F(make_type_error, "MakeTypeError")                                      \
+  F(native, "native")                                                      \
+  F(new_target, "new.target")                                              \
+  F(next, "next")                                                          \
+  F(proto, "__proto__")                                                    \
+  F(prototype, "prototype")                                                \
+  F(reflect_apply, "$reflectApply")                                        \
+  F(reflect_construct, "$reflectConstruct")                                \
+  F(spread_arguments, "$spreadArguments")                                  \
+  F(spread_iterable, "$spreadIterable")                                    \
+  F(this, "this")                                                          \
+  F(this_function, ".this_function")                                       \
+  F(throw_iterator_result_not_an_object, "ThrowIteratorResultNotAnObject") \
+  F(to_string, "$toString")                                                \
+  F(undefined, "undefined")                                                \
+  F(use_asm, "use asm")                                                    \
+  F(use_strong, "use strong")                                              \
+  F(use_strict, "use strict")                                              \
   F(value, "value")
 
 #define OTHER_CONSTANTS(F) \
@@ -273,7 +295,7 @@ class AstValue : public ZoneObject {
 class AstValueFactory {
  public:
   AstValueFactory(Zone* zone, uint32_t hash_seed)
-      : string_table_(AstRawString::Compare),
+      : string_table_(AstRawStringCompare),
         zone_(zone),
         isolate_(NULL),
         hash_seed_(hash_seed) {
@@ -287,12 +309,16 @@ class AstValueFactory {
 
   Zone* zone() const { return zone_; }
 
-  const AstRawString* GetOneByteString(Vector<const uint8_t> literal);
+  const AstRawString* GetOneByteString(Vector<const uint8_t> literal) {
+    return GetOneByteStringInternal(literal);
+  }
   const AstRawString* GetOneByteString(const char* string) {
     return GetOneByteString(Vector<const uint8_t>(
         reinterpret_cast<const uint8_t*>(string), StrLength(string)));
   }
-  const AstRawString* GetTwoByteString(Vector<const uint16_t> literal);
+  const AstRawString* GetTwoByteString(Vector<const uint16_t> literal) {
+    return GetTwoByteStringInternal(literal);
+  }
   const AstRawString* GetString(Handle<String> literal);
   const AstConsString* NewConsString(const AstString* left,
                                      const AstString* right);
@@ -318,7 +344,7 @@ class AstValueFactory {
   const AstValue* NewString(const AstRawString* string);
   // A JavaScript symbol (ECMA-262 edition 6).
   const AstValue* NewSymbol(const char* name);
-  const AstValue* NewNumber(double number);
+  const AstValue* NewNumber(double number, bool with_dot = false);
   const AstValue* NewSmi(int number);
   const AstValue* NewBoolean(bool b);
   const AstValue* NewStringList(ZoneList<const AstRawString*>* strings);
@@ -327,8 +353,12 @@ class AstValueFactory {
   const AstValue* NewTheHole();
 
  private:
-  const AstRawString* GetString(uint32_t hash, bool is_one_byte,
-                                Vector<const byte> literal_bytes);
+  AstRawString* GetOneByteStringInternal(Vector<const uint8_t> literal);
+  AstRawString* GetTwoByteStringInternal(Vector<const uint16_t> literal);
+  AstRawString* GetString(uint32_t hash, bool is_one_byte,
+                          Vector<const byte> literal_bytes);
+
+  static bool AstRawStringCompare(void* a, void* b);
 
   // All strings are copied here, one after another (no NULLs inbetween).
   HashMap string_table_;
@@ -349,11 +379,6 @@ class AstValueFactory {
   OTHER_CONSTANTS(F)
 #undef F
 };
-
-
-bool AstRawString::IsArguments(AstValueFactory* ast_value_factory) const {
-  return ast_value_factory->arguments_string() == this;
-}
 } }  // namespace v8::internal
 
 #undef STRING_CONSTANTS

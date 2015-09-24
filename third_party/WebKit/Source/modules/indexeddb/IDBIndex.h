@@ -32,9 +32,9 @@
 #include "modules/indexeddb/IDBKeyRange.h"
 #include "modules/indexeddb/IDBMetadata.h"
 #include "modules/indexeddb/IDBRequest.h"
-#include "public/platform/WebIDBCursor.h"
-#include "public/platform/WebIDBDatabase.h"
-#include "public/platform/WebIDBTypes.h"
+#include "public/platform/modules/indexeddb/WebIDBCursor.h"
+#include "public/platform/modules/indexeddb/WebIDBDatabase.h"
+#include "public/platform/modules/indexeddb/WebIDBTypes.h"
 #include "wtf/Forward.h"
 #include "wtf/text/WTFString.h"
 
@@ -51,7 +51,7 @@ public:
         return new IDBIndex(metadata, objectStore, transaction);
     }
     ~IDBIndex();
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
     // Implement the IDL
     const String& name() const { return m_metadata.name; }
@@ -64,7 +64,11 @@ public:
     IDBRequest* openKeyCursor(ScriptState*, const ScriptValue& range, const String& direction, ExceptionState&);
     IDBRequest* count(ScriptState*, const ScriptValue& range, ExceptionState&);
     IDBRequest* get(ScriptState*, const ScriptValue& key, ExceptionState&);
+    IDBRequest* getAll(ScriptState*, const ScriptValue& range, ExceptionState&);
+    IDBRequest* getAll(ScriptState*, const ScriptValue& range, unsigned long maxCount, ExceptionState&);
     IDBRequest* getKey(ScriptState*, const ScriptValue& key, ExceptionState&);
+    IDBRequest* getAllKeys(ScriptState*, const ScriptValue& range, ExceptionState&);
+    IDBRequest* getAllKeys(ScriptState*, const ScriptValue& range, uint32_t maxCount, ExceptionState&);
 
     void markDeleted() { m_deleted = true; }
     bool isDeleted() const;
@@ -78,6 +82,7 @@ private:
     IDBIndex(const IDBIndexMetadata&, IDBObjectStore*, IDBTransaction*);
 
     IDBRequest* getInternal(ScriptState*, const ScriptValue& key, ExceptionState&, bool keyOnly);
+    IDBRequest* getAllInternal(ScriptState*, const ScriptValue& range, unsigned long maxCount, ExceptionState&, bool keyOnly);
 
     IDBIndexMetadata m_metadata;
     Member<IDBObjectStore> m_objectStore;

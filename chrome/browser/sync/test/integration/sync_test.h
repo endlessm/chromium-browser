@@ -12,6 +12,8 @@
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
+#include "base/process/process.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/http/http_status_code.h"
@@ -21,10 +23,10 @@
 #include "sync/test/fake_server/fake_server.h"
 #include "sync/test/local_sync_test_server.h"
 
-class Profile;
 class ProfileSyncService;
 class ProfileSyncServiceHarness;
 class P2PInvalidationForwarder;
+class P2PSyncRefresher;
 
 namespace base {
 class CommandLine;
@@ -175,6 +177,9 @@ class SyncTest : public InProcessBrowserTest {
   // Returns true if a quiescent state was successfully reached.
   bool AwaitQuiescence();
 
+  // Returns true if we are running tests against external servers.
+  bool UsingExternalServers();
+
   // Returns true if the server being used supports controlling
   // notifications.
   bool ServerSupportsNotificationControl() const;
@@ -217,6 +222,9 @@ class SyncTest : public InProcessBrowserTest {
   // not being used.
   fake_server::FakeServer* GetFakeServer() const;
 
+  // Triggers a sync for the given |model_types| for the Profile at |index|.
+  void TriggerSyncForModelTypes(int index, syncer::ModelTypeSet model_types);
+
  protected:
   // Add custom switches needed for running the test.
   virtual void AddTestSwitches(base::CommandLine* cl);
@@ -246,6 +254,10 @@ class SyncTest : public InProcessBrowserTest {
   void DisableNotificationsImpl();
   void EnableNotificationsImpl();
 
+  // If non-empty, |contents| will be written to a profile's Preferences file
+  // before the Profile object is created.
+  void SetPreexistingPreferencesFileContents(const std::string& contents);
+
   // GAIA account used by the test case.
   std::string username_;
 
@@ -259,8 +271,19 @@ class SyncTest : public InProcessBrowserTest {
   scoped_ptr<fake_server::FakeServer> fake_server_;
 
  private:
-  // Helper to ProfileManager::CreateProfile that handles path creation.
-  static Profile* MakeProfile(const base::FilePath::StringType name);
+  // Helper to ProfileManager::CreateProfileAsync that creates a new profile
+  // used for UI Signin. Blocks until profile is created.
+  static Profile* MakeProfileForUISignin(const base::FilePath::StringType name);
+
+  // Callback for CreateNewProfile() method. It runs the quit_closure once
+  // profile is created successfully.
+  static void CreateProfileCallback(const base::Closure& quit_closure,
+                                    Profile* profile,
+                                    Profile::CreateStatus status);
+
+  // Helper to Profile::CreateProfile that handles path creation. It creates
+  // a profile then registers it as a testing profile.
+  Profile* MakeProfile(const base::FilePath::StringType name);
 
   // Helper method used to read GAIA credentials from a local password file
   // specified via the "--password-file-for-test" command line switch.
@@ -353,6 +376,10 @@ class SyncTest : public InProcessBrowserTest {
   // of this activity to its peer sync clients.
   ScopedVector<P2PInvalidationForwarder> invalidation_forwarders_;
 
+  // A set of objects to listen for commit activity and broadcast refresh
+  // notifications of this activity to its peer sync clients.
+  ScopedVector<P2PSyncRefresher> sync_refreshers_;
+
   // Collection of pointers to FakeServerInvalidation objects for each profile.
   std::vector<fake_server::FakeServerInvalidationService*>
       fake_server_invalidation_services_;
@@ -376,13 +403,17 @@ class SyncTest : public InProcessBrowserTest {
   scoped_ptr<net::ScopedDefaultHostResolverProc> mock_host_resolver_override_;
 
   // Used to start and stop the local test server.
-  base::ProcessHandle test_server_handle_;
+  base::Process test_server_;
 
   // Fake URLFetcher factory used to mock out GAIA signin.
   scoped_ptr<net::FakeURLFetcherFactory> fake_factory_;
 
   // The URLFetcherImplFactory instance used to instantiate |fake_factory_|.
   scoped_ptr<net::URLFetcherImplFactory> factory_;
+
+  // The contents to be written to a profile's Preferences file before the
+  // Profile object is created. If empty, no preexisting file will be written.
+  std::string preexisting_preferences_file_contents_;
 
   DISALLOW_COPY_AND_ASSIGN(SyncTest);
 };

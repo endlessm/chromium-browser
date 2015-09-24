@@ -10,7 +10,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/glue/chrome_report_unrecoverable_error.h"
 #include "chrome/browser/sync/profile_sync_components_factory.h"
-#include "chrome/browser/webdata/web_data_service_factory.h"
+#include "chrome/browser/web_data_service_factory.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
 #include "content/public/browser/browser_thread.h"
@@ -43,18 +43,18 @@ syncer::ModelSafeGroup
 }
 
 void AutofillProfileDataTypeController::WebDatabaseLoaded() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   OnModelLoaded();
 }
 
 void AutofillProfileDataTypeController::OnPersonalDataChanged() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK_EQ(state(), MODEL_STARTING);
 
   personal_data_->RemoveObserver(this);
   autofill::AutofillWebDataService* web_data_service =
       WebDataServiceFactory::GetAutofillWebDataForProfile(
-          profile_, Profile::EXPLICIT_ACCESS).get();
+          profile_, ServiceAccessType::EXPLICIT_ACCESS).get();
 
   if (!web_data_service)
     return;
@@ -73,12 +73,12 @@ AutofillProfileDataTypeController::~AutofillProfileDataTypeController() {}
 bool AutofillProfileDataTypeController::PostTaskOnBackendThread(
     const tracked_objects::Location& from_here,
     const base::Closure& task) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   return BrowserThread::PostTask(BrowserThread::DB, from_here, task);
 }
 
 bool AutofillProfileDataTypeController::StartModels() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK_EQ(state(), MODEL_STARTING);
   // Waiting for the personal data is subtle:  we do this as the PDM resets
   // its cache of unique IDs once it gets loaded. If we were to proceed with
@@ -92,7 +92,7 @@ bool AutofillProfileDataTypeController::StartModels() {
 
   autofill::AutofillWebDataService* web_data_service =
       WebDataServiceFactory::GetAutofillWebDataForProfile(
-          profile_, Profile::EXPLICIT_ACCESS).get();
+          profile_, ServiceAccessType::EXPLICIT_ACCESS).get();
 
   if (!web_data_service)
     return false;
@@ -110,7 +110,7 @@ bool AutofillProfileDataTypeController::StartModels() {
 }
 
 void AutofillProfileDataTypeController::StopModels() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   personal_data_->RemoveObserver(this);
 }
 

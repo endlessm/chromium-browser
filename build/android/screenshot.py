@@ -11,8 +11,8 @@ import optparse
 import os
 import sys
 
-from pylib import android_commands
 from pylib import screenshot
+from pylib.device import device_errors
 from pylib.device import device_utils
 
 def _PrintMessage(heading, eol='\n'):
@@ -66,17 +66,26 @@ def main():
 
   (options, args) = parser.parse_args()
 
-  if options.verbose:
-    logging.getLogger().setLevel(logging.DEBUG)
-
-  if not options.device and len(android_commands.GetAttachedDevices()) > 1:
-    parser.error('Multiple devices are attached. '
-                 'Please specify device serial number with --device.')
-
   if len(args) > 1:
     parser.error('Too many positional arguments.')
   host_file = args[0] if args else options.file
-  device = device_utils.DeviceUtils(options.device)
+
+  if options.verbose:
+    logging.getLogger().setLevel(logging.DEBUG)
+
+  devices = device_utils.DeviceUtils.HealthyDevices()
+  if options.device:
+    device = next((d for d in devices if d == options.device), None)
+    if not device:
+      raise device_errors.DeviceUnreachableError(options.device)
+  else:
+    if len(devices) > 1:
+      parser.error('Multiple devices are attached. '
+                   'Please specify device serial number with --device.')
+    elif len(devices) == 1:
+      device = devices[0]
+    else:
+      raise device_errors.NoDevicesError()
 
   if options.video:
     _CaptureVideo(device, host_file, options)

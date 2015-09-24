@@ -11,6 +11,7 @@
 #include <map>
 
 #include "base/compiler_specific.h"
+#include "base/containers/scoped_ptr_map.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
 #include "sync/base/sync_export.h"
@@ -69,6 +70,10 @@ class SYNC_EXPORT_PRIVATE NudgeTracker {
 
   // Take note that an initial sync is pending for this type.
   void RecordInitialSyncRequired(syncer::ModelType type);
+
+  // Takes note that the conflict happended for this type, need to sync to
+  // resolve conflict locally.
+  void RecordCommitConflict(syncer::ModelType type);
 
   // These functions should be called to keep this class informed of the status
   // of the connection to the invalidations server.
@@ -154,14 +159,10 @@ class SYNC_EXPORT_PRIVATE NudgeTracker {
   void SetDefaultNudgeDelay(base::TimeDelta nudge_delay);
 
  private:
-  typedef std::map<ModelType, DataTypeTracker*> TypeTrackerMap;
+  typedef base::ScopedPtrMap<ModelType, scoped_ptr<DataTypeTracker>>
+      TypeTrackerMap;
 
   TypeTrackerMap type_trackers_;
-  STLValueDeleter<TypeTrackerMap> type_tracker_deleter_;
-
-  // Merged updates source.  This should be obsolete, but the server still
-  // relies on it for some heuristics.
-  sync_pb::GetUpdatesCallerInfo::GetUpdatesSource updates_source_;
 
   // Tracks whether or not invalidations are currently enabled.
   bool invalidations_enabled_;
@@ -176,8 +177,6 @@ class SYNC_EXPORT_PRIVATE NudgeTracker {
   // we restart.  The only way to get back into sync is to have invalidations
   // enabled, then complete a sync cycle to make sure we're fully up to date.
   bool invalidations_out_of_sync_;
-
-  size_t num_payloads_per_type_;
 
   base::TimeTicks last_successful_sync_time_;
 

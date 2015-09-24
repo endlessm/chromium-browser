@@ -11,10 +11,10 @@ cr.exportPath('print_preview');
  * @typedef {{
  *   version: string,
  *   printer: {
- *     vendor_capability: !Array.<{Object}>,
+ *     vendor_capability: !Array<{Object}>,
  *     collate: ({default: (boolean|undefined)}|undefined),
  *     color: ({
- *       option: !Array.<{
+ *       option: !Array<{
  *         type: (string|undefined),
  *         vendor_id: (string|undefined),
  *         custom_display_name: (string|undefined),
@@ -23,10 +23,10 @@ cr.exportPath('print_preview');
  *     }|undefined),
  *     copies: ({default: (number|undefined),
  *               max: (number|undefined)}|undefined),
- *     duplex: ({option: !Array.<{type: (string|undefined),
+ *     duplex: ({option: !Array<{type: (string|undefined),
  *                               is_default: (boolean|undefined)}>}|undefined),
  *     page_orientation: ({
- *       option: !Array.<{type: (string|undefined),
+ *       option: !Array<{type: (string|undefined),
  *                        is_default: (boolean|undefined)}>
  *     }|undefined)
  *   }
@@ -48,12 +48,16 @@ cr.define('print_preview', function() {
    * @param {boolean} isRecent Whether the destination has been used recently.
    * @param {!print_preview.Destination.ConnectionStatus} connectionStatus
    *     Connection status of the print destination.
-   * @param {{tags: (Array.<string>|undefined),
+   * @param {{tags: (Array<string>|undefined),
    *          isOwned: (boolean|undefined),
    *          account: (string|undefined),
    *          lastAccessTime: (number|undefined),
    *          isTosAccepted: (boolean|undefined),
    *          cloudID: (string|undefined),
+   *          provisionalType:
+   *              (print_preview.Destination.ProvisionalType|undefined),
+   *          extensionId: (string|undefined),
+   *          extensionName: (string|undefined),
    *          description: (string|undefined)}=} opt_params Optional parameters
    *     for the destination.
    * @constructor
@@ -92,7 +96,7 @@ cr.define('print_preview', function() {
 
     /**
      * Tags associated with the destination.
-     * @private {!Array.<string>}
+     * @private {!Array<string>}
      */
     this.tags_ = (opt_params && opt_params.tags) || [];
 
@@ -153,11 +157,40 @@ cr.define('print_preview', function() {
      * @private {string}
      */
     this.cloudID_ = (opt_params && opt_params.cloudID) || '';
+
+    /**
+     * Extension ID for extension managed printers.
+     * @private {string}
+     */
+    this.extensionId_ = (opt_params && opt_params.extensionId) || '';
+
+    /**
+     * Extension name for extension managed printers.
+     * @private {string}
+     */
+    this.extensionName_ = (opt_params && opt_params.extensionName) || '';
+
+    /**
+     * Different from {@code Destination.ProvisionalType.NONE} if the
+     * destination is provisional. Provisional destinations cannot be selected
+     * as they are, but have to be resolved first (i.e. extra steps have to be
+     * taken to get actual destination properties, which should replace the
+     * provisional ones). Provisional destination resolvment flow will be
+     * started when the user attempts to select the destination in search UI.
+     * @private {Destination.ProvisionalType}
+     */
+    this.provisionalType_ = (opt_params && opt_params.provisionalType) ||
+                            Destination.ProvisionalType.NONE;
+
+    assert(this.provisionalType_ !=
+               Destination.ProvisionalType.NEEDS_USB_PERMISSON ||
+           this.isExtension,
+           'Provisional USB destination only supprted with extension origin.');
   };
 
   /**
    * Prefix of the location destination tag.
-   * @type {!Array.<string>}
+   * @type {!Array<string>}
    * @const
    */
   Destination.LOCATION_TAG_PREFIXES = [
@@ -195,7 +228,8 @@ cr.define('print_preview', function() {
     COOKIES: 'cookies',
     PROFILE: 'profile',
     DEVICE: 'device',
-    PRIVET: 'privet'
+    PRIVET: 'privet',
+    EXTENSION: 'extension'
   };
 
   /**
@@ -208,6 +242,21 @@ cr.define('print_preview', function() {
     ONLINE: 'ONLINE',
     UNKNOWN: 'UNKNOWN',
     UNREGISTERED: 'UNREGISTERED'
+  };
+
+  /**
+   * Enumeration specifying whether a destination is provisional and the reason
+   * the destination is provisional.
+   * @enum {string
+   */
+  Destination.ProvisionalType = {
+    /** Destination is not provisional. */
+    NONE: 'NONE',
+    /**
+     * User has to grant USB access for the destination to its provider.
+     * Used for destinations with extension origin.
+     */
+    NEEDS_USB_PERMISSION: 'NEEDS_USB_PERMISSION'
   };
 
   /**
@@ -280,6 +329,7 @@ cr.define('print_preview', function() {
     /** @return {boolean} Whether the destination is local or cloud-based. */
     get isLocal() {
       return this.origin_ == Destination.Origin.LOCAL ||
+             this.origin_ == Destination.Origin.EXTENSION ||
              (this.origin_ == Destination.Origin.PRIVET &&
               this.connectionStatus_ !=
               Destination.ConnectionStatus.UNREGISTERED);
@@ -288,6 +338,14 @@ cr.define('print_preview', function() {
     /** @return {boolean} Whether the destination is a Privet local printer */
     get isPrivet() {
       return this.origin_ == Destination.Origin.PRIVET;
+    },
+
+    /**
+     * @return {boolean} Whether the destination is an extension managed
+     *     printer.
+     */
+    get isExtension() {
+      return this.origin_ == Destination.Origin.EXTENSION;
     },
 
     /**
@@ -326,10 +384,10 @@ cr.define('print_preview', function() {
           this.id_ == Destination.GooglePromotedId.FEDEX) {
         return this.account_;
       }
-      return this.location || this.description;
+      return this.location || this.extensionName || this.description;
     },
 
-    /** @return {!Array.<string>} Tags associated with the destination. */
+    /** @return {!Array<string>} Tags associated with the destination. */
     get tags() {
       return this.tags_.slice(0);
     },
@@ -337,6 +395,22 @@ cr.define('print_preview', function() {
     /** @return {string} Cloud ID associated with the destination */
     get cloudID() {
       return this.cloudID_;
+    },
+
+    /**
+     * @return {string} Extension ID associated with the destination. Non-empty
+     *     only for extension managed printers.
+     */
+    get extensionId() {
+      return this.extensionId_;
+    },
+
+    /**
+     * @return {string} Extension name associated with the destination.
+     *     Non-empty only for extension managed printers.
+     */
+    get extensionName() {
+      return this.extensionName_;
     },
 
     /** @return {?print_preview.Cdd} Print capabilities of the destination. */
@@ -442,7 +516,7 @@ cr.define('print_preview', function() {
     },
 
     /**
-     * @return {!Array.<string>} Properties (besides display name) to match
+     * @return {!Array<string>} Properties (besides display name) to match
      *     search queries against.
      */
     get extraPropertiesToMatch() {
@@ -457,9 +531,26 @@ cr.define('print_preview', function() {
      */
     matches: function(query) {
       return !!this.displayName_.match(query) ||
+          !!this.extensionName_.match(query) ||
           this.extraPropertiesToMatch.some(function(property) {
             return property.match(query);
           });
+    },
+
+    /**
+     * Gets the destination's provisional type.
+     * @return {Destination.ProvisionalType}
+     */
+    get provisionalType() {
+      return this.provisionalType_;
+    },
+
+    /**
+     * Whether the destinaion is provisional.
+     * @return {boolean}
+     */
+    get isProvisional() {
+      return this.provisionalType_ != Destination.ProvisionalType.NONE;
     }
   };
 

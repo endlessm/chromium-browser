@@ -50,8 +50,10 @@ const MockTransaction kGZip_Transaction = {
     "",
     TEST_MODE_NORMAL,
     &GZipServer,
+    nullptr,
     0,
-    OK
+    0,
+    OK,
 };
 
 const MockTransaction kRedirect_Transaction = {
@@ -67,9 +69,11 @@ const MockTransaction kRedirect_Transaction = {
     base::Time(),
     "hello",
     TEST_MODE_NORMAL,
-    NULL,
+    nullptr,
+    nullptr,
     0,
-    OK
+    0,
+    OK,
 };
 
 }  // namespace
@@ -80,8 +84,8 @@ TEST(URLRequestJob, TransactionNotifiedWhenDone) {
   context.set_http_transaction_factory(&network_layer);
 
   TestDelegate d;
-  scoped_ptr<URLRequest> req(context.CreateRequest(
-      GURL(kGZip_Transaction.url), DEFAULT_PRIORITY, &d, NULL));
+  scoped_ptr<URLRequest> req(
+      context.CreateRequest(GURL(kGZip_Transaction.url), DEFAULT_PRIORITY, &d));
   AddMockTransaction(&kGZip_Transaction);
 
   req->set_method("GET");
@@ -100,8 +104,8 @@ TEST(URLRequestJob, SyncTransactionNotifiedWhenDone) {
   context.set_http_transaction_factory(&network_layer);
 
   TestDelegate d;
-  scoped_ptr<URLRequest> req(context.CreateRequest(
-      GURL(kGZip_Transaction.url), DEFAULT_PRIORITY, &d, NULL));
+  scoped_ptr<URLRequest> req(
+      context.CreateRequest(GURL(kGZip_Transaction.url), DEFAULT_PRIORITY, &d));
   MockTransaction transaction(kGZip_Transaction);
   transaction.test_mode = TEST_MODE_SYNC_ALL;
   AddMockTransaction(&transaction);
@@ -123,8 +127,8 @@ TEST(URLRequestJob, SyncSlowTransaction) {
   context.set_http_transaction_factory(&network_layer);
 
   TestDelegate d;
-  scoped_ptr<URLRequest> req(context.CreateRequest(
-      GURL(kGZip_Transaction.url), DEFAULT_PRIORITY, &d, NULL));
+  scoped_ptr<URLRequest> req(
+      context.CreateRequest(GURL(kGZip_Transaction.url), DEFAULT_PRIORITY, &d));
   MockTransaction transaction(kGZip_Transaction);
   transaction.test_mode = TEST_MODE_SYNC_ALL | TEST_MODE_SLOW_READ;
   transaction.handler = &BigGZipServer;
@@ -147,7 +151,7 @@ TEST(URLRequestJob, RedirectTransactionNotifiedWhenDone) {
 
   TestDelegate d;
   scoped_ptr<URLRequest> req(context.CreateRequest(
-      GURL(kRedirect_Transaction.url), DEFAULT_PRIORITY, &d, NULL));
+      GURL(kRedirect_Transaction.url), DEFAULT_PRIORITY, &d));
   AddMockTransaction(&kRedirect_Transaction);
 
   req->set_method("GET");
@@ -169,8 +173,8 @@ TEST(URLRequestJob, TransactionNotCachedWhenNetworkDelegateRedirects) {
   context.set_network_delegate(&network_delegate);
 
   TestDelegate d;
-  scoped_ptr<URLRequest> req(context.CreateRequest(
-      GURL(kGZip_Transaction.url), DEFAULT_PRIORITY, &d, NULL));
+  scoped_ptr<URLRequest> req(
+      context.CreateRequest(GURL(kGZip_Transaction.url), DEFAULT_PRIORITY, &d));
   AddMockTransaction(&kGZip_Transaction);
 
   req->set_method("GET");

@@ -6,22 +6,32 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/callback.h"
 #include "base/command_line.h"
-#include "base/port.h"
+#include "base/logging.h"
 #include "base/prefs/pref_registry_simple.h"
 #include "base/prefs/pref_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/attestation/attestation_policy_observer.h"
 #include "chrome/browser/chromeos/login/enrollment/auto_enrollment_controller.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/policy/device_cloud_policy_store_chromeos.h"
+#include "chrome/browser/chromeos/policy/device_status_collector.h"
+#include "chrome/browser/chromeos/policy/enterprise_install_attributes.h"
+#include "chrome/browser/chromeos/policy/heartbeat_scheduler.h"
+#include "chrome/browser/chromeos/policy/remote_commands/device_commands_factory_chromeos.h"
 #include "chrome/browser/chromeos/policy/server_backed_state_keys_broker.h"
+#include "chrome/browser/chromeos/policy/status_uploader.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/chromeos_constants.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/system/statistics_provider.h"
+#include "components/policy/core/common/cloud/cloud_policy_core.h"
+#include "components/policy/core/common/cloud/cloud_policy_service.h"
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
+#include "components/policy/core/common/remote_commands/remote_commands_factory.h"
 #include "content/public/browser/browser_thread.h"
 #include "crypto/sha2.h"
 #include "policy/proto/device_management_backend.pb.h"
@@ -99,15 +109,16 @@ DeviceCloudPolicyManagerChromeOS::DeviceCloudPolicyManagerChromeOS(
     const scoped_refptr<base::SequencedTaskRunner>& task_runner,
     ServerBackedStateKeysBroker* state_keys_broker)
     : CloudPolicyManager(
-          PolicyNamespaceKey(dm_protocol::kChromeDevicePolicyType,
-                             std::string()),
+          dm_protocol::kChromeDevicePolicyType,
+          std::string(),
           store.get(),
           task_runner,
           BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE),
           BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO)),
       device_store_(store.Pass()),
       state_keys_broker_(state_keys_broker),
-      local_state_(NULL) {
+      task_runner_(task_runner),
+      local_state_(nullptr) {
 }
 
 DeviceCloudPolicyManagerChromeOS::~DeviceCloudPolicyManagerChromeOS() {}
@@ -122,6 +133,16 @@ void DeviceCloudPolicyManagerChromeOS::Initialize(PrefService* local_state) {
                  base::Unretained(this)));
 
   InitializeRequisition();
+}
+
+void DeviceCloudPolicyManagerChromeOS::AddDeviceCloudPolicyManagerObserver(
+    Observer* observer) {
+  observers_.AddObserver(observer);
+}
+
+void DeviceCloudPolicyManagerChromeOS::RemoveDeviceCloudPolicyManagerObserver(
+    Observer* observer) {
+  observers_.RemoveObserver(observer);
 }
 
 std::string DeviceCloudPolicyManagerChromeOS::GetDeviceRequisition() const {
@@ -167,6 +188,8 @@ bool DeviceCloudPolicyManagerChromeOS::IsSharkRequisition() const {
 }
 
 void DeviceCloudPolicyManagerChromeOS::Shutdown() {
+  status_uploader_.reset();
+  heartbeat_scheduler_.reset();
   state_keys_update_subscription_.reset();
   CloudPolicyManager::Shutdown();
 }
@@ -207,10 +230,8 @@ std::string DeviceCloudPolicyManagerChromeOS::GetMachineModel() {
 
 void DeviceCloudPolicyManagerChromeOS::StartConnection(
     scoped_ptr<CloudPolicyClient> client_to_connect,
-    scoped_ptr<CloudPolicyClient::StatusProvider> device_status_provider) {
+    EnterpriseInstallAttributes* install_attributes) {
   CHECK(!service());
-
-  device_status_provider_ = device_status_provider.Pass();
 
   // Set state keys here so the first policy fetch submits them to the server.
   if (ForcedReEnrollmentEnabled())
@@ -218,10 +239,48 @@ void DeviceCloudPolicyManagerChromeOS::StartConnection(
 
   core()->Connect(client_to_connect.Pass());
   core()->StartRefreshScheduler();
+  core()->StartRemoteCommandsService(
+      scoped_ptr<RemoteCommandsFactory>(new DeviceCommandsFactoryChromeOS()));
   core()->TrackRefreshDelayPref(local_state_,
                                 prefs::kDevicePolicyRefreshRate);
   attestation_policy_observer_.reset(
       new chromeos::attestation::AttestationPolicyObserver(client()));
+
+  // Enable device reporting and status monitoring for enterprise enrolled
+  // devices. We want to create these objects for enrolled devices, even if
+  // monitoring is currently inactive, in case monitoring is turned back on in
+  // a future policy fetch - the classes themselves track the current state of
+  // the monitoring settings and only perform monitoring if it is active.
+  if (install_attributes->IsEnterpriseDevice()) {
+    CreateStatusUploader();
+    heartbeat_scheduler_.reset(
+        new HeartbeatScheduler(g_browser_process->gcm_driver(),
+                               install_attributes->GetDomain(),
+                               install_attributes->GetDeviceId(),
+                               task_runner_));
+  }
+
+  NotifyConnected();
+}
+
+void DeviceCloudPolicyManagerChromeOS::Unregister(
+    const UnregisterCallback& callback) {
+  if (!service()) {
+    LOG(ERROR) << "Tried to unregister but DeviceCloudPolicyManagerChromeOS is "
+               << "not connected.";
+    callback.Run(false);
+    return;
+  }
+
+  service()->Unregister(callback);
+}
+
+void DeviceCloudPolicyManagerChromeOS::Disconnect() {
+  status_uploader_.reset();
+  heartbeat_scheduler_.reset();
+  core()->Disconnect();
+
+  NotifyDisconnected();
 }
 
 void DeviceCloudPolicyManagerChromeOS::OnStateKeysUpdated() {
@@ -259,6 +318,27 @@ void DeviceCloudPolicyManagerChromeOS::InitializeRequisition() {
       }
     }
   }
+}
+
+void DeviceCloudPolicyManagerChromeOS::NotifyConnected() {
+  FOR_EACH_OBSERVER(
+      Observer, observers_, OnDeviceCloudPolicyManagerConnected());
+}
+
+void DeviceCloudPolicyManagerChromeOS::NotifyDisconnected() {
+  FOR_EACH_OBSERVER(
+      Observer, observers_, OnDeviceCloudPolicyManagerDisconnected());
+}
+
+void DeviceCloudPolicyManagerChromeOS::CreateStatusUploader() {
+  status_uploader_.reset(new StatusUploader(
+      client(),
+      make_scoped_ptr(new DeviceStatusCollector(
+          local_state_, chromeos::system::StatisticsProvider::GetInstance(),
+          DeviceStatusCollector::LocationUpdateRequester(),
+          DeviceStatusCollector::VolumeInfoFetcher(),
+          DeviceStatusCollector::CPUStatisticsFetcher())),
+      task_runner_));
 }
 
 }  // namespace policy

@@ -24,6 +24,7 @@ class StubWebView : public WebView {
   Status HandleReceivedEvents() override;
   Status Load(const std::string& url) override;
   Status Reload() override;
+  Status TraverseHistory(int delta) override;
   Status EvaluateScript(const std::string& frame,
                         const std::string& function,
                         scoped_ptr<base::Value>* result) override;
@@ -59,6 +60,8 @@ class StubWebView : public WebView {
                              bool* is_pending) override;
   JavaScriptDialogManager* GetJavaScriptDialogManager() override;
   Status OverrideGeolocation(const Geoposition& geoposition) override;
+  Status OverrideNetworkConditions(
+      const NetworkConditions& network_conditions) override;
   Status CaptureScreenshot(std::string* screenshot) override;
   Status SetFileInputFiles(const std::string& frame,
                            const base::DictionaryValue& element,
@@ -66,6 +69,15 @@ class StubWebView : public WebView {
   Status TakeHeapSnapshot(scoped_ptr<base::Value>* snapshot) override;
   Status StartProfile() override;
   Status EndProfile(scoped_ptr<base::Value>* profile_data) override;
+  Status SynthesizeTapGesture(int x,
+                              int y,
+                              int tap_count,
+                              bool is_long_press) override;
+  Status SynthesizeScrollGesture(int x,
+                                 int y,
+                                 int xoffset,
+                                 int yoffset) override;
+  Status SynthesizePinchGesture(int x, int y, double scale_factor) override;
 
  private:
   std::string id_;

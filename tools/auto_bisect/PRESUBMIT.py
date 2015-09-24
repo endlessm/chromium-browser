@@ -18,6 +18,7 @@ CONFIG_FILES = [
     os.path.join(os.path.pardir, 'run-perf-test.cfg'),
 ]
 
+
 def CheckChangeOnUpload(input_api, output_api):
   return _CommonChecks(input_api, output_api)
 
@@ -91,7 +92,10 @@ def _RunPyLint(input_api, output_api):
   mock_path = os.path.join(
       input_api.PresubmitLocalPath(), os.path.pardir, os.path.pardir,
       'third_party', 'pymock')
+  disabled_warnings = [
+      'relative-import',
+  ]
   tests = input_api.canned_checks.GetPylint(
-      input_api, output_api, extra_paths_list=[telemetry_path, mock_path])
+      input_api, output_api, disabled_warnings=disabled_warnings,
+      extra_paths_list=[telemetry_path, mock_path])
   return input_api.RunTests(tests)
-

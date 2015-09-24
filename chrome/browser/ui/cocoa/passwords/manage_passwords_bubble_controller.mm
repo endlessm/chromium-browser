@@ -8,10 +8,14 @@
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/info_bubble_view.h"
 #import "chrome/browser/ui/cocoa/info_bubble_window.h"
-#import "chrome/browser/ui/cocoa/passwords/manage_passwords_bubble_manage_view_controller.h"
 #include "chrome/browser/ui/cocoa/location_bar/location_bar_view_mac.h"
+#import "chrome/browser/ui/cocoa/passwords/manage_passwords_bubble_account_chooser_view_controller.h"
+#import "chrome/browser/ui/cocoa/passwords/manage_passwords_bubble_auto_signin_view_controller.h"
 #import "chrome/browser/ui/cocoa/passwords/manage_passwords_bubble_blacklist_view_controller.h"
 #import "chrome/browser/ui/cocoa/passwords/manage_passwords_bubble_confirmation_view_controller.h"
+#import "chrome/browser/ui/cocoa/passwords/manage_passwords_bubble_manage_credentials_view_controller.h"
+#import "chrome/browser/ui/cocoa/passwords/manage_passwords_bubble_manage_view_controller.h"
+#import "chrome/browser/ui/cocoa/passwords/manage_passwords_bubble_save_view_controller.h"
 #include "ui/base/cocoa/window_size_constants.h"
 
 @interface ManagePasswordsBubbleController ()
@@ -37,6 +41,11 @@
   return self;
 }
 
+- (void)dealloc {
+  [currentController_ setDelegate:nil];
+  [super dealloc];
+}
+
 - (void)showWindow:(id)sender {
   [self performLayout];
   [super showWindow:sender];
@@ -50,23 +59,49 @@
 - (void)updateState {
   // Find the next view controller.
   currentController_.reset();
-  if (password_manager::ui::IsPendingState(model_->state())) {
-    currentController_.reset(
-        [[ManagePasswordsBubblePendingViewController alloc]
-            initWithModel:model_
-                 delegate:self]);
+  if (model_->state() == password_manager::ui::PENDING_PASSWORD_STATE) {
+    if (model_->IsNewUIActive()) {
+      currentController_.reset(
+          [[ManagePasswordsBubbleSaveViewController alloc]
+              initWithModel:model_
+                   delegate:self]);
+    } else {
+      currentController_.reset(
+          [[ManagePasswordsBubblePendingViewController alloc]
+              initWithModel:model_
+                   delegate:self]);
+    }
   } else if (model_->state() == password_manager::ui::CONFIRMATION_STATE) {
     currentController_.reset(
         [[ManagePasswordsBubbleConfirmationViewController alloc]
             initWithModel:model_
                  delegate:self]);
   } else if (model_->state() == password_manager::ui::MANAGE_STATE) {
-    currentController_.reset([[ManagePasswordsBubbleManageViewController alloc]
-        initWithModel:model_
-             delegate:self]);
+    if (model_->IsNewUIActive()) {
+      currentController_.reset(
+          [[ManagePasswordsBubbleManageCredentialsViewController alloc]
+              initWithModel:model_
+                   delegate:self]);
+    } else {
+      currentController_.reset(
+          [[ManagePasswordsBubbleManageViewController alloc]
+              initWithModel:model_
+                   delegate:self]);
+    }
   } else if (model_->state() == password_manager::ui::BLACKLIST_STATE) {
     currentController_.reset(
         [[ManagePasswordsBubbleBlacklistViewController alloc]
+            initWithModel:model_
+                 delegate:self]);
+  } else if (model_->state() == password_manager::ui::AUTO_SIGNIN_STATE) {
+    currentController_.reset(
+        [[ManagePasswordsBubbleAutoSigninViewController alloc]
+            initWithModel:model_
+                 delegate:self]);
+  } else if (model_->state() ==
+             password_manager::ui::CREDENTIAL_REQUEST_STATE) {
+    currentController_.reset(
+        [[ManagePasswordsBubbleAccountChooserViewController alloc]
             initWithModel:model_
                  delegate:self]);
   } else {

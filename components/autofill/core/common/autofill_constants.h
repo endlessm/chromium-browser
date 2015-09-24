@@ -11,6 +11,13 @@
 
 namespace autofill {
 
+// A bit field mask for form or form element requirements.
+// TODO(estade): remove after iOS no longer uses it. See crbug.com/459456
+enum RequirementsMask {
+  REQUIRE_NONE = 0,          // No requirements.
+  REQUIRE_AUTOCOMPLETE = 1,  // Require that autocomplete != off.
+};
+
 // Help URL for the Autofill dialog.
 extern const char kHelpURL[];
 
@@ -19,6 +26,12 @@ extern const char kHelpURL[];
 // label for each field is a costly operation and we can't spare the cycles if
 // it's not necessary.
 extern const size_t kRequiredAutofillFields;
+
+// Options bitmask values for AutofillHostMsg_ShowPasswordSuggestions IPC
+enum ShowPasswordSuggestionsOptions {
+  SHOW_ALL = 1 << 0 /* show all credentials, not just ones matching username */,
+  IS_PASSWORD_FIELD = 1 << 1 /* input field is a password field */
+};
 
 }  // namespace autofill
 

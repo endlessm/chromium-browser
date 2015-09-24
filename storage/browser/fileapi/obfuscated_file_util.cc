@@ -5,8 +5,6 @@
 #include "storage/browser/fileapi/obfuscated_file_util.h"
 
 #include <queue>
-#include <string>
-#include <vector>
 
 #include "base/files/file_util.h"
 #include "base/format_macros.h"
@@ -23,7 +21,6 @@
 #include "storage/browser/fileapi/file_observers.h"
 #include "storage/browser/fileapi/file_system_context.h"
 #include "storage/browser/fileapi/file_system_operation_context.h"
-#include "storage/browser/fileapi/file_system_url.h"
 #include "storage/browser/fileapi/native_file_util.h"
 #include "storage/browser/fileapi/sandbox_file_system_backend.h"
 #include "storage/browser/fileapi/sandbox_isolated_origin_database.h"
@@ -91,7 +88,7 @@ void UpdateUsage(
     const FileSystemURL& url,
     int64 growth) {
   context->update_observers()->Notify(
-      &FileUpdateObserver::OnUpdate, MakeTuple(url, growth));
+      &FileUpdateObserver::OnUpdate, base::MakeTuple(url, growth));
 }
 
 void TouchDirectory(SandboxDirectoryDatabase* db, FileId dir_id) {
@@ -322,7 +319,7 @@ base::File::Error ObfuscatedFileUtil::EnsureFileExists(
     *created = true;
     UpdateUsage(context, url, growth);
     context->change_observers()->Notify(
-        &FileChangeObserver::OnCreateFile, MakeTuple(url));
+        &FileChangeObserver::OnCreateFile, base::MakeTuple(url));
   }
   return error;
 }
@@ -381,7 +378,7 @@ base::File::Error ObfuscatedFileUtil::CreateDirectory(
       return error;
     UpdateUsage(context, url, growth);
     context->change_observers()->Notify(
-        &FileChangeObserver::OnCreateDirectory, MakeTuple(url));
+        &FileChangeObserver::OnCreateDirectory, base::MakeTuple(url));
     if (first) {
       first = false;
       TouchDirectory(db, file_info.parent_id);
@@ -482,7 +479,7 @@ base::File::Error ObfuscatedFileUtil::Truncate(
   if (error == base::File::FILE_OK) {
     UpdateUsage(context, url, growth);
     context->change_observers()->Notify(
-        &FileChangeObserver::OnModifyFile, MakeTuple(url));
+        &FileChangeObserver::OnModifyFile, base::MakeTuple(url));
   }
   return error;
 }
@@ -609,16 +606,16 @@ base::File::Error ObfuscatedFileUtil::CopyOrMoveFile(
   if (overwrite) {
     context->change_observers()->Notify(
         &FileChangeObserver::OnModifyFile,
-        MakeTuple(dest_url));
+        base::MakeTuple(dest_url));
   } else {
     context->change_observers()->Notify(
         &FileChangeObserver::OnCreateFileFrom,
-        MakeTuple(dest_url, src_url));
+        base::MakeTuple(dest_url, src_url));
   }
 
   if (!copy) {
     context->change_observers()->Notify(
-        &FileChangeObserver::OnRemoveFile, MakeTuple(src_url));
+        &FileChangeObserver::OnRemoveFile, base::MakeTuple(src_url));
     TouchDirectory(db, src_file_info.parent_id);
   }
 
@@ -697,10 +694,10 @@ base::File::Error ObfuscatedFileUtil::CopyInForeignFile(
 
   if (overwrite) {
     context->change_observers()->Notify(
-        &FileChangeObserver::OnModifyFile, MakeTuple(dest_url));
+        &FileChangeObserver::OnModifyFile, base::MakeTuple(dest_url));
   } else {
     context->change_observers()->Notify(
-        &FileChangeObserver::OnCreateFile, MakeTuple(dest_url));
+        &FileChangeObserver::OnCreateFile, base::MakeTuple(dest_url));
   }
 
   UpdateUsage(context, dest_url, growth);
@@ -740,7 +737,7 @@ base::File::Error ObfuscatedFileUtil::DeleteFile(
   TouchDirectory(db, file_info.parent_id);
 
   context->change_observers()->Notify(
-      &FileChangeObserver::OnRemoveFile, MakeTuple(url));
+      &FileChangeObserver::OnRemoveFile, base::MakeTuple(url));
 
   if (error == base::File::FILE_ERROR_NOT_FOUND)
     return base::File::FILE_OK;
@@ -775,7 +772,7 @@ base::File::Error ObfuscatedFileUtil::DeleteDirectory(
   UpdateUsage(context, url, growth);
   TouchDirectory(db, file_info.parent_id);
   context->change_observers()->Notify(
-      &FileChangeObserver::OnRemoveDirectory, MakeTuple(url));
+      &FileChangeObserver::OnRemoveDirectory, base::MakeTuple(url));
   return base::File::FILE_OK;
 }
 
@@ -898,6 +895,20 @@ bool ObfuscatedFileUtil::DeleteDirectoryForOriginAndType(
   return base::DeleteFile(origin_path, true /* recursive */);
 }
 
+void ObfuscatedFileUtil::CloseFileSystemForOriginAndType(
+    const GURL& origin,
+    const std::string& type_string) {
+  const std::string key_prefix = GetDirectoryDatabaseKey(origin, type_string);
+  for (DirectoryMap::iterator iter = directories_.lower_bound(key_prefix);
+       iter != directories_.end();) {
+    if (!base::StartsWithASCII(iter->first, key_prefix, true))
+      break;
+    DCHECK(type_string.empty() || iter->first == key_prefix);
+    scoped_ptr<SandboxDirectoryDatabase> database(iter->second);
+    directories_.erase(iter++);
+  }
+}
+
 ObfuscatedFileUtil::AbstractOriginEnumerator*
 ObfuscatedFileUtil::CreateOriginEnumerator() {
   std::vector<SandboxOriginDatabase::OriginRecord> origins;
@@ -914,7 +925,7 @@ void ObfuscatedFileUtil::DestroyDirectoryDatabase(
   const std::string key_prefix = GetDirectoryDatabaseKey(origin, type_string);
   for (DirectoryMap::iterator iter = directories_.lower_bound(key_prefix);
        iter != directories_.end();) {
-    if (!StartsWithASCII(iter->first, key_prefix, true))
+    if (!base::StartsWithASCII(iter->first, key_prefix, true))
       break;
     DCHECK(type_string.empty() || iter->first == key_prefix);
     scoped_ptr<SandboxDirectoryDatabase> database(iter->second);
@@ -1355,7 +1366,7 @@ base::File ObfuscatedFileUtil::CreateOrOpenInternal(
     if (file.IsValid()) {
       UpdateUsage(context, url, growth);
       context->change_observers()->Notify(
-          &FileChangeObserver::OnCreateFile, MakeTuple(url));
+          &FileChangeObserver::OnCreateFile, base::MakeTuple(url));
     }
     return file.Pass();
   }
@@ -1398,7 +1409,7 @@ base::File ObfuscatedFileUtil::CreateOrOpenInternal(
   if (delta) {
     UpdateUsage(context, url, delta);
     context->change_observers()->Notify(
-        &FileChangeObserver::OnModifyFile, MakeTuple(url));
+        &FileChangeObserver::OnModifyFile, base::MakeTuple(url));
   }
   return file.Pass();
 }

@@ -22,7 +22,7 @@
 namespace base {
 class BinaryValue;
 class DictionaryValue;
-class MessageLoopProxy;
+class SingleThreadTaskRunner;
 }  // namespace base
 
 namespace media {
@@ -39,11 +39,49 @@ class CastTransportSender;
 }  // namespace cast
 }  // namespace media
 
+// Breaks out functionality that is common between CastSessionDelegate and
+// CastReceiverSessionDelegate.
+class CastSessionDelegateBase {
+ public:
+  typedef base::Callback<void(const std::string&)> ErrorCallback;
+
+  CastSessionDelegateBase();
+  virtual ~CastSessionDelegateBase();
+
+  // This will start the session by configuring and creating the Cast transport
+  // and the Cast sender.
+  // Must be called before initialization of audio or video.
+  void StartUDP(const net::IPEndPoint& local_endpoint,
+                const net::IPEndPoint& remote_endpoint,
+                scoped_ptr<base::DictionaryValue> options,
+                const ErrorCallback& error_callback);
+
+ protected:
+  void StatusNotificationCB(
+      const ErrorCallback& error_callback,
+      media::cast::CastTransportStatus status);
+
+  virtual void ReceivePacket(scoped_ptr<media::cast::Packet> packet) = 0;
+  virtual void LogRawEvents(
+      const std::vector<media::cast::PacketEvent>& packet_events,
+      const std::vector<media::cast::FrameEvent>& frame_events) = 0;
+
+  base::ThreadChecker thread_checker_;
+  scoped_refptr<media::cast::CastEnvironment> cast_environment_;
+  scoped_ptr<media::cast::CastTransportSender> cast_transport_;
+
+  // Proxy to the IO message loop.
+  const scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
+  base::WeakPtrFactory<CastSessionDelegateBase> weak_factory_;
+
+  DISALLOW_COPY_AND_ASSIGN(CastSessionDelegateBase);
+};
+
 // This class hosts CastSender and connects it to audio/video frame input
 // and network socket.
 // This class is created on the render thread and destroyed on the IO
 // thread. All methods are accessible only on the IO thread.
-class CastSessionDelegate {
+class CastSessionDelegate : public CastSessionDelegateBase {
  public:
   typedef base::Callback<void(const scoped_refptr<
       media::cast::AudioFrameInput>&)> AudioFrameInputAvailableCallback;
@@ -51,16 +89,14 @@ class CastSessionDelegate {
       media::cast::VideoFrameInput>&)> VideoFrameInputAvailableCallback;
   typedef base::Callback<void(scoped_ptr<base::BinaryValue>)> EventLogsCallback;
   typedef base::Callback<void(scoped_ptr<base::DictionaryValue>)> StatsCallback;
-  typedef base::Callback<void(const std::string&)> ErrorCallback;
 
   CastSessionDelegate();
-  virtual ~CastSessionDelegate();
+  ~CastSessionDelegate() override;
 
-  // This will start the session by configuring and creating the Cast transport
-  // and the Cast sender.
-  // Must be called before initialization of audio or video.
-  void StartUDP(const net::IPEndPoint& remote_endpoint,
-                scoped_ptr<base::DictionaryValue> options);
+  void StartUDP(const net::IPEndPoint& local_endpoint,
+                const net::IPEndPoint& remote_endpoint,
+                scoped_ptr<base::DictionaryValue> options,
+                const ErrorCallback& error_callback);
 
   // After calling StartAudio() or StartVideo() encoding of that media will
   // begin as soon as data is delivered to its sink, if the second method is
@@ -86,33 +122,32 @@ class CastSessionDelegate {
   void GetStatsAndReset(bool is_audio, const StatsCallback& callback);
 
  protected:
-  // Callback with the result of the initialization.
-  // If this callback is called with STATUS_INITIALIZED it will report back
-  // to the sinks that it's ready to accept incoming audio / video frames.
-  void InitializationResultCB(
+  // Called to report back operational status changes.  The first time this is
+  // called with STATUS_INITIALIZED will result in running the "frame input
+  // available" callback, to indicate the session is ready to accept incoming
+  // audio/video frames.  If this is called with an error that has halted the
+  // session, the |error_callback| provided to StartXXX() will be run.  This
+  // method may be called multiple times during the session to indicate codec
+  // re-initializations are taking place and/or runtime errors have occurred.
+  void OnOperationalStatusChange(
+      bool is_for_audio,
       const ErrorCallback& error_callback,
-      media::cast::CastInitializationStatus result) const;
+      media::cast::OperationalStatus result);
 
  private:
-  void StatusNotificationCB(
-      media::cast::CastTransportStatus status);
-
+  void ReceivePacket(scoped_ptr<media::cast::Packet> packet) override;
   // Adds logs collected from transport on browser side.
   void LogRawEvents(const std::vector<media::cast::PacketEvent>& packet_events,
-                    const std::vector<media::cast::FrameEvent>& frame_events);
+                    const std::vector<media::cast::FrameEvent>& frame_events)
+      override;
 
-  base::ThreadChecker thread_checker_;
-  scoped_refptr<media::cast::CastEnvironment> cast_environment_;
   scoped_ptr<media::cast::CastSender> cast_sender_;
-  scoped_ptr<media::cast::CastTransportSender> cast_transport_;
 
   AudioFrameInputAvailableCallback audio_frame_input_available_callback_;
   VideoFrameInputAvailableCallback video_frame_input_available_callback_;
 
   scoped_ptr<media::cast::RawEventSubscriberBundle> event_subscribers_;
 
-  // Proxy to the IO message loop.
-  scoped_refptr<base::MessageLoopProxy> io_message_loop_proxy_;
   base::WeakPtrFactory<CastSessionDelegate> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(CastSessionDelegate);

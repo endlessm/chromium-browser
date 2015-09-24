@@ -23,8 +23,6 @@
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_observer.h"
-#include "ui/base/ime/input_method.h"
-#include "ui/base/ime/text_input_client.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/compositor/layer.h"
 #include "ui/events/event.h"
@@ -134,13 +132,7 @@ void WorkspaceLayoutManager::SetChildBounds(
 
 void WorkspaceLayoutManager::OnKeyboardBoundsChanging(
     const gfx::Rect& new_bounds) {
-  ui::InputMethod* input_method =
-      root_window_->GetProperty(aura::client::kRootWindowInputMethodKey);
-  ui::TextInputClient* text_input_client = input_method->GetTextInputClient();
-  if (!text_input_client)
-    return;
-  aura::Window *window =
-      text_input_client->GetAttachedWindow()->GetToplevelWindow();
+  aura::Window* window = wm::GetActiveWindow()->GetToplevelWindow();
   if (!window || !window_->Contains(window))
     return;
   wm::WindowState* window_state = wm::GetWindowState(window);
@@ -183,6 +175,33 @@ void WorkspaceLayoutManager::OnDisplayWorkAreaInsetsChanged() {
   }
   if (backdrop_delegate_)
     backdrop_delegate_->OnDisplayWorkAreaInsetsChanged();
+}
+
+void WorkspaceLayoutManager::OnFullscreenStateChanged(
+    bool is_fullscreen,
+    aura::Window* root_window) {
+  if (window_->GetRootWindow() != root_window ||
+      is_fullscreen_ == is_fullscreen) {
+    return;
+  }
+  is_fullscreen_ = is_fullscreen;
+  Window* fullscreen_window =
+      is_fullscreen
+          ? GetRootWindowController(window_->GetRootWindow())
+                ->GetWindowForFullscreenMode()
+          : NULL;
+  // Changing always on top state may change window's parent. Iterate on a copy
+  // of |windows_| to avoid invalidating an iterator. Since both workspace and
+  // always_on_top containers' layouts are managed by this class all the
+  // appropriate windows will be included in the iteration.
+  WindowSet windows(windows_);
+  for (auto window : windows) {
+    wm::WindowState* window_state = wm::GetWindowState(window);
+    if (is_fullscreen)
+      window_state->DisableAlwaysOnTop(fullscreen_window);
+    else
+      window_state->RestoreAlwaysOnTop();
+  }
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -245,8 +264,10 @@ void WorkspaceLayoutManager::OnWindowBoundsChanged(aura::Window* window,
 // WorkspaceLayoutManager,
 // aura::client::ActivationChangeObserver implementation:
 
-void WorkspaceLayoutManager::OnWindowActivated(aura::Window* gained_active,
-                                               aura::Window* lost_active) {
+void WorkspaceLayoutManager::OnWindowActivated(
+    aura::client::ActivationChangeObserver::ActivationReason reason,
+    aura::Window* gained_active,
+    aura::Window* lost_active) {
   wm::WindowState* window_state = wm::GetWindowState(gained_active);
   if (window_state && window_state->IsMinimized() &&
       !gained_active->IsVisible()) {

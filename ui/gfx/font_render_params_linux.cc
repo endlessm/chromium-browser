@@ -16,8 +16,10 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/lock.h"
+#include "ui/gfx/display.h"
 #include "ui/gfx/font.h"
 #include "ui/gfx/linux_font_delegate.h"
+#include "ui/gfx/screen.h"
 #include "ui/gfx/switches.h"
 
 namespace gfx {
@@ -61,14 +63,6 @@ struct SynchronizedCache {
 
 base::LazyInstance<SynchronizedCache>::Leaky g_synchronized_cache =
     LAZY_INSTANCE_INITIALIZER;
-
-bool IsBrowserTextSubpixelPositioningEnabled() {
-#if defined(OS_CHROMEOS)
-  return device_scale_factor_for_internal_display > 1.0f;
-#else
-  return false;
-#endif
-}
 
 // Converts Fontconfig FC_HINT_STYLE to FontRenderParams::Hinting.
 FontRenderParams::Hinting ConvertFontconfigHintStyle(int hint_style) {
@@ -127,12 +121,15 @@ bool QueryFontconfig(const FontRenderParamsQuery& query,
 
   ScopedFcPattern result_pattern;
   if (query.is_empty()) {
-    // If the query was empty, call FcConfigSubstituteWithPat() to get
-    // non-family-specific configuration so it can be used as the default.
+    // If the query was empty, call FcConfigSubstituteWithPat() to get a
+    // non-family- or size-specific configuration so it can be used as the
+    // default.
     result_pattern.reset(FcPatternDuplicate(query_pattern.get()));
     if (!result_pattern)
       return false;
     FcPatternDel(result_pattern.get(), FC_FAMILY);
+    FcPatternDel(result_pattern.get(), FC_PIXEL_SIZE);
+    FcPatternDel(result_pattern.get(), FC_SIZE);
     FcConfigSubstituteWithPat(NULL, result_pattern.get(), query_pattern.get(),
                               FcMatchFont);
   } else {
@@ -193,16 +190,30 @@ bool QueryFontconfig(const FontRenderParamsQuery& query,
 // Serialize |query| into a string and hash it to a value suitable for use as a
 // cache key.
 uint32 HashFontRenderParamsQuery(const FontRenderParamsQuery& query) {
-  return base::Hash(base::StringPrintf("%d|%d|%d|%d|%s",
-      query.for_web_contents, query.pixel_size, query.point_size, query.style,
-      JoinString(query.families, ',').c_str()));
+  return base::Hash(base::StringPrintf(
+      "%d|%d|%d|%s|%f", query.pixel_size, query.point_size, query.style,
+      JoinString(query.families, ',').c_str(), query.device_scale_factor));
 }
 
 }  // namespace
 
 FontRenderParams GetFontRenderParams(const FontRenderParamsQuery& query,
                                      std::string* family_out) {
-  const uint32 hash = HashFontRenderParamsQuery(query);
+  FontRenderParamsQuery actual_query(query);
+  if (actual_query.device_scale_factor == 0) {
+#if defined(OS_CHROMEOS)
+    actual_query.device_scale_factor = device_scale_factor_for_internal_display;
+#else
+    // Linux does not support per-display DPI, so we use a slightly simpler
+    // code path than on Chrome OS to figure out the device scale factor.
+    gfx::Screen* screen = gfx::Screen::GetScreenByType(gfx::SCREEN_TYPE_NATIVE);
+    if (screen) {
+      gfx::Display display = screen->GetPrimaryDisplay();
+      actual_query.device_scale_factor = display.device_scale_factor();
+    }
+#endif
+  }
+  const uint32 hash = HashFontRenderParamsQuery(actual_query);
   SynchronizedCache* synchronized_cache = g_synchronized_cache.Pointer();
 
   {
@@ -227,7 +238,7 @@ FontRenderParams GetFontRenderParams(const FontRenderParamsQuery& query,
   const LinuxFontDelegate* delegate = LinuxFontDelegate::instance();
   if (delegate)
     params = delegate->GetDefaultFontRenderParams();
-  QueryFontconfig(query, &params, family_out);
+  QueryFontconfig(actual_query, &params, family_out);
   if (!params.antialiasing) {
     // Cairo forces full hinting when antialiasing is disabled, since anything
     // less than that looks awful; do the same here. Requesting subpixel
@@ -236,13 +247,7 @@ FontRenderParams GetFontRenderParams(const FontRenderParamsQuery& query,
     params.subpixel_rendering = FontRenderParams::SUBPIXEL_RENDERING_NONE;
     params.subpixel_positioning = false;
   } else {
-    // Fontconfig doesn't support configuring subpixel positioning; check a
-    // flag.
-    params.subpixel_positioning =
-        query.for_web_contents ?
-        CommandLine::ForCurrentProcess()->HasSwitch(
-            switches::kEnableWebkitTextSubpixelPositioning) :
-        IsBrowserTextSubpixelPositioningEnabled();
+    params.subpixel_positioning = actual_query.device_scale_factor > 1.0f;
 
     // To enable subpixel positioning, we need to disable hinting.
     if (params.subpixel_positioning)
@@ -250,8 +255,8 @@ FontRenderParams GetFontRenderParams(const FontRenderParamsQuery& query,
   }
 
   // Use the first family from the list if Fontconfig didn't suggest a family.
-  if (family_out && family_out->empty() && !query.families.empty())
-    *family_out = query.families[0];
+  if (family_out && family_out->empty() && !actual_query.families.empty())
+    *family_out = actual_query.families[0];
 
   {
     // Store the result. It's fine if this overwrites a result that was cached
@@ -271,6 +276,10 @@ void ClearFontRenderParamsCacheForTest() {
 }
 
 #if defined(OS_CHROMEOS)
+float GetFontRenderParamsDeviceScaleFactor() {
+  return device_scale_factor_for_internal_display;
+}
+
 void SetFontRenderParamsDeviceScaleFactor(float device_scale_factor) {
   device_scale_factor_for_internal_display = device_scale_factor;
 }

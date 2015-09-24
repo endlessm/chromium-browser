@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -11,17 +10,12 @@ import os
 import shutil
 import subprocess
 
-import fixup_path
-fixup_path.FixupPath()
-
 from chromite.lib import cros_test_lib
-from chromite.lib import osutils
 from chromite.lib.paygen import filelib
-from chromite.lib.paygen import unittest_lib
 from chromite.lib.paygen import utils
 
 
-class TestFileManipulation(unittest_lib.TestCase):
+class TestFileManipulation(cros_test_lib.TestCase):
   """Test cases for filelib."""
 
   FILE1 = 'file1a'
@@ -116,7 +110,7 @@ class TestFileManipulation(unittest_lib.TestCase):
           shutil.rmtree(d)
 
 
-class TestFileLib(unittest_lib.MoxTestCase):
+class TestFileLib(cros_test_lib.MoxTempDirTestCase):
   """Test filelib module."""
 
   def _MD5Sum(self, file_path):
@@ -233,7 +227,7 @@ class TestFileLib(unittest_lib.MoxTestCase):
     # Set up the test replay script.
     # Run 1, success.
     filelib.os.path.isfile(path).AndReturn(True)
-    filelib.os.stat(path).AndReturn(unittest_lib.EasyAttr(st_size=size))
+    filelib.os.stat(path).AndReturn(cros_test_lib.EasyAttr(st_size=size))
     # Run 2, file not found.
     filelib.os.path.isfile(path).AndReturn(False)
     self.mox.ReplayAll()
@@ -268,9 +262,8 @@ class TestFileLib(unittest_lib.MoxTestCase):
       with open(path, 'w') as out:
         out.write(contents)
 
-  @osutils.TempDirDecorator
   def testRemove(self):
-    # pylint: disable-msg=E1101
+    # pylint: disable=E1101
     path1 = os.path.join(self.tempdir, 'file1')
     path2 = os.path.join(self.tempdir, 'file2')
     missing_path = os.path.join(self.tempdir, 'missing')
@@ -331,7 +324,3 @@ class TestFileLib(unittest_lib.MoxTestCase):
     self.assertFalse(filelib.Exists(path1))
     self.assertFalse(filelib.Exists(path2))
     self.assertFalse(filelib.Exists(subpath1))
-
-
-if __name__ == '__main__':
-  cros_test_lib.main()

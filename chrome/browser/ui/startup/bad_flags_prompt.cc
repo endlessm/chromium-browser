@@ -8,7 +8,6 @@
 #include "base/files/file_path.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/infobars/infobar_service.h"
-#include "chrome/browser/infobars/simple_alert_infobar_delegate.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/simple_message_box.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -17,7 +16,8 @@
 #include "chrome/common/switch_utils.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "components/invalidation/invalidation_switches.h"
+#include "components/infobars/core/simple_alert_infobar_delegate.h"
+#include "components/invalidation/impl/invalidation_switches.h"
 #include "components/nacl/common/nacl_switches.h"
 #include "components/startup_metric_utils/startup_metric_utils.h"
 #include "components/translate/core/common/translate_switches.h"
@@ -74,11 +74,27 @@ void ShowBadFlagsPrompt(Browser* browser) {
     // http://crbug.com/327295
     switches::kEnableSpeechDispatcher,
 #endif
+
+    // These flags control Blink feature state, which is not supported and is
+    // intended only for use by Chromium developers.
+    switches::kDisableBlinkFeatures,
+    switches::kEnableBlinkFeatures,
+
+    // This flag allows people to whitelist certain origins as secure, even
+    // if they are not.
+    switches::kUnsafelyTreatInsecureOriginAsSecure,
+
+    // This flag enables Web Bluetooth. Since the UI for Web Bluetooth is
+    // not yet implemented, websites could take control over paired devices
+    // without the users knowledge, so we need to show a warning for when
+    // the flag is enabled.
+    switches::kEnableWebBluetooth,
+
     NULL
   };
 
   for (const char** flag = kBadFlags; *flag; ++flag) {
-    if (CommandLine::ForCurrentProcess()->HasSwitch(*flag)) {
+    if (base::CommandLine::ForCurrentProcess()->HasSwitch(*flag)) {
       SimpleAlertInfoBarDelegate::Create(
           InfoBarService::FromWebContents(web_contents),
           infobars::InfoBarDelegate::kNoIconID,

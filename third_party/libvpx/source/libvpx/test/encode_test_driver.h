@@ -104,6 +104,8 @@ class Encoder {
     return CxDataIterator(&encoder_);
   }
 
+  void InitEncoder(VideoSource *video);
+
   const vpx_image_t *GetPreviewFrame() {
     return vpx_codec_get_preview_frame(&encoder_);
   }
@@ -131,12 +133,22 @@ class Encoder {
     ASSERT_EQ(VPX_CODEC_OK, res) << EncoderError();
   }
 
+  void Control(int ctrl_id, struct vpx_svc_parameters *arg) {
+    const vpx_codec_err_t res = vpx_codec_control_(&encoder_, ctrl_id, arg);
+    ASSERT_EQ(VPX_CODEC_OK, res) << EncoderError();
+  }
 #if CONFIG_VP8_ENCODER || CONFIG_VP9_ENCODER
   void Control(int ctrl_id, vpx_active_map_t *arg) {
     const vpx_codec_err_t res = vpx_codec_control_(&encoder_, ctrl_id, arg);
     ASSERT_EQ(VPX_CODEC_OK, res) << EncoderError();
   }
 #endif
+
+  void Config(const vpx_codec_enc_cfg_t *cfg) {
+    const vpx_codec_err_t res = vpx_codec_enc_config_set(&encoder_, cfg);
+    ASSERT_EQ(VPX_CODEC_OK, res) << EncoderError();
+    cfg_ = *cfg;
+  }
 
   void set_deadline(unsigned long deadline) {
     deadline_ = deadline;
@@ -175,7 +187,10 @@ class EncoderTest {
  protected:
   explicit EncoderTest(const CodecFactory *codec)
       : codec_(codec), abort_(false), init_flags_(0), frame_flags_(0),
-        last_pts_(0) {}
+        last_pts_(0) {
+    // Default to 1 thread.
+    cfg_.g_threads = 1;
+  }
 
   virtual ~EncoderTest() {}
 
@@ -184,6 +199,11 @@ class EncoderTest {
 
   // Map the TestMode enum to the deadline_ and passes_ variables.
   void SetMode(TestMode mode);
+
+  // Set encoder flag.
+  void set_init_flags(unsigned long flag) {  // NOLINT(runtime/int)
+    init_flags_ = flag;
+  }
 
   // Main loop
   virtual void RunLoop(VideoSource *video);
@@ -238,6 +258,7 @@ class EncoderTest {
 
   bool                 abort_;
   vpx_codec_enc_cfg_t  cfg_;
+  vpx_codec_dec_cfg_t  dec_cfg_;
   unsigned int         passes_;
   unsigned long        deadline_;
   TwopassStatsStore    stats_;

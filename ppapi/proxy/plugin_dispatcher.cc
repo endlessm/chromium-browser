@@ -7,9 +7,10 @@
 #include <map>
 
 #include "base/compiler_specific.h"
-#include "base/debug/trace_event.h"
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/trace_event/trace_event.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_sync_channel.h"
 #include "ipc/ipc_sync_message_filter.h"
@@ -60,6 +61,14 @@ InstanceData::~InstanceData() {
   // Run any pending mouse lock callback to prevent leaks.
   if (mouse_lock_callback.get())
     mouse_lock_callback->Abort();
+}
+
+InstanceData::FlushInfo::FlushInfo()
+    : flush_pending(false),
+      put_offset(0) {
+}
+
+InstanceData::FlushInfo::~FlushInfo() {
 }
 
 PluginDispatcher::PluginDispatcher(PP_GetInterface_Func get_interface,
@@ -206,8 +215,18 @@ bool PluginDispatcher::Send(IPC::Message* msg) {
   if (msg->is_sync()) {
     // Synchronous messages might be re-entrant, so we need to drop the lock.
     ProxyAutoUnlock unlock;
+    SCOPED_UMA_HISTOGRAM_TIMER("Plugin.PpapiSyncIPCTime");
     return SendMessage(msg);
   }
+  return SendMessage(msg);
+}
+
+bool PluginDispatcher::SendAndStayLocked(IPC::Message* msg) {
+  TRACE_EVENT2("ppapi proxy", "PluginDispatcher::SendAndStayLocked",
+               "Class", IPC_MESSAGE_ID_CLASS(msg->type()),
+               "Line", IPC_MESSAGE_ID_LINE(msg->type()));
+  if (!msg->is_reply())
+    msg->set_unblock(true);
   return SendMessage(msg);
 }
 

@@ -21,17 +21,19 @@
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search/search.h"
+#include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/app_list/app_list_util.h"
+#include "chrome/browser/ui/apps/app_info_dialog.h"
 #include "chrome/browser/ui/bookmarks/bookmark_bar_constants.h"
 #include "chrome/browser/ui/sync/sync_promo_ui.h"
+#include "chrome/browser/ui/webui/app_launcher_login_handler.h"
 #include "chrome/browser/ui/webui/ntp/new_tab_page_handler.h"
 #include "chrome/browser/ui/webui/ntp/new_tab_ui.h"
-#include "chrome/browser/ui/webui/ntp/ntp_login_handler.h"
 #include "chrome/browser/web_resource/notification_promo.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -40,6 +42,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/locale_settings.h"
 #include "components/google/core/browser/google_util.h"
+#include "components/signin/core/browser/signin_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_process_host.h"
@@ -55,7 +58,6 @@
 #include "ui/base/webui/web_ui_util.h"
 #include "ui/gfx/animation/animation.h"
 #include "ui/gfx/color_utils.h"
-#include "ui/gfx/sys_color_change_listener.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
@@ -73,15 +75,15 @@ namespace {
 // The URL for the the Learn More page shown on incognito new tab.
 const char kLearnMoreIncognitoUrl[] =
 #if defined(OS_CHROMEOS)
-    "https://www.google.com/support/chromeos/bin/answer.py?answer=95464";
+    "https://support.google.com/chromebook/?p=incognito";
 #else
-    "https://www.google.com/support/chrome/bin/answer.py?answer=95464";
+    "https://support.google.com/chrome/?p=incognito";
 #endif
 
 // The URL for the Learn More page shown on guest session new tab.
 const char kLearnMoreGuestSessionUrl[] =
 #if defined(OS_CHROMEOS)
-    "https://www.google.com/support/chromeos/bin/answer.py?answer=1057090";
+    "https://support.google.com/chromebook/answer/1057090";
 #else
     "https://support.google.com/chrome/?p=ui_guest";
 #endif
@@ -111,7 +113,7 @@ SkColor GetThemeColor(ui::ThemeProvider* tp, int id) {
   SkColor color = tp->GetColor(id);
   // If web contents are being inverted because the system is in high-contrast
   // mode, any system theme colors we use must be inverted too to cancel out.
-  return gfx::IsInvertedColorScheme() ?
+  return color_utils::IsInvertedColorScheme() ?
       color_utils::InvertColor(color) : color;
 }
 
@@ -162,14 +164,19 @@ std::string GetNewTabBackgroundTilingCSS(
 NTPResourceCache::NTPResourceCache(Profile* profile)
     : profile_(profile), is_swipe_tracking_from_scroll_events_enabled_(false),
       should_show_apps_page_(NewTabUI::ShouldShowApps()),
-      should_show_most_visited_page_(true),
-      should_show_other_devices_menu_(true),
-      should_show_recently_closed_menu_(true) {
+      should_show_other_devices_menu_(true) {
   registrar_.Add(this, chrome::NOTIFICATION_BROWSER_THEME_CHANGED,
                  content::Source<ThemeService>(
                      ThemeServiceFactory::GetForProfile(profile)));
   registrar_.Add(this, chrome::NOTIFICATION_PROMO_RESOURCE_STATE_CHANGED,
                  content::NotificationService::AllSources());
+
+  PromoResourceService* promo_service =
+      g_browser_process->promo_resource_service();
+  if (promo_service) {
+    promo_resource_subscription_ = promo_service->RegisterStateChangedCallback(
+        base::Bind(&NTPResourceCache::Invalidate, base::Unretained(this)));
+  }
 
   base::Closure callback = base::Bind(&NTPResourceCache::OnPreferenceChanged,
                                       base::Unretained(this));
@@ -272,10 +279,7 @@ void NTPResourceCache::Observe(int type,
   // Invalidate the cache.
   if (chrome::NOTIFICATION_BROWSER_THEME_CHANGED == type ||
       chrome::NOTIFICATION_PROMO_RESOURCE_STATE_CHANGED == type) {
-    new_tab_incognito_html_ = NULL;
-    new_tab_html_ = NULL;
-    new_tab_incognito_css_ = NULL;
-    new_tab_css_ = NULL;
+    Invalidate();
   } else {
     NOTREACHED();
   }
@@ -287,6 +291,14 @@ void NTPResourceCache::OnPreferenceChanged() {
   new_tab_incognito_html_ = NULL;
   new_tab_html_ = NULL;
   new_tab_css_ = NULL;
+}
+
+void NTPResourceCache::Invalidate() {
+  new_tab_incognito_html_ = nullptr;
+  new_tab_html_ = nullptr;
+  new_tab_incognito_css_ = nullptr;
+  // TODO(dbeam): Check if it is necessary to clear the CSS on promo changes.
+  new_tab_css_ = nullptr;
 }
 
 void NTPResourceCache::CreateNewTabIncognitoHTML() {
@@ -322,7 +334,8 @@ void NTPResourceCache::CreateNewTabIncognitoHTML() {
       profile_->GetPrefs()->GetBoolean(bookmarks::prefs::kShowBookmarkBar);
   localized_strings.SetBoolean("bookmarkbarattached", bookmark_bar_attached);
 
-  webui::SetFontAndTextDirection(&localized_strings);
+  const std::string& app_locale = g_browser_process->GetApplicationLocale();
+  webui::SetLoadTimeDataDefaults(app_locale, &localized_strings);
 
   static const base::StringPiece incognito_tab_html(
       ResourceBundle::GetSharedInstance().GetRawDataResource(
@@ -375,7 +388,8 @@ void NTPResourceCache::CreateNewTabGuestHTML() {
       l10n_util::GetStringUTF16(guest_tab_link_ids));
   localized_strings.SetString("learnMoreLink", guest_tab_link);
 
-  webui::SetFontAndTextDirection(&localized_strings);
+  const std::string& app_locale = g_browser_process->GetApplicationLocale();
+  webui::SetLoadTimeDataDefaults(app_locale, &localized_strings);
 
   static const base::StringPiece guest_tab_html(
       ResourceBundle::GetSharedInstance().GetRawDataResource(guest_tab_ids));
@@ -398,43 +412,24 @@ void NTPResourceCache::CreateNewTabHTML() {
   load_time_data.SetBoolean("hasattribution",
       ThemeServiceFactory::GetForProfile(profile_)->HasCustomImage(
           IDR_THEME_NTP_ATTRIBUTION));
-  load_time_data.SetBoolean("showMostvisited", should_show_most_visited_page_);
   load_time_data.SetBoolean("showAppLauncherPromo",
       ShouldShowAppLauncherPromo());
-  load_time_data.SetBoolean("showRecentlyClosed",
-      should_show_recently_closed_menu_);
   load_time_data.SetString("title",
       l10n_util::GetStringUTF16(IDS_NEW_TAB_TITLE));
-  load_time_data.SetString("mostvisited",
-      l10n_util::GetStringUTF16(IDS_NEW_TAB_MOST_VISITED));
-  load_time_data.SetString("suggestions",
-      l10n_util::GetStringUTF16(IDS_NEW_TAB_SUGGESTIONS));
-  load_time_data.SetString("restoreThumbnailsShort",
-      l10n_util::GetStringUTF16(IDS_NEW_TAB_RESTORE_THUMBNAILS_SHORT_LINK));
-  load_time_data.SetString("recentlyclosed",
-      l10n_util::GetStringUTF16(IDS_NEW_TAB_RECENTLY_CLOSED));
   load_time_data.SetString("webStoreTitle",
       l10n_util::GetStringUTF16(IDS_EXTENSION_WEB_STORE_TITLE));
   load_time_data.SetString("webStoreTitleShort",
       l10n_util::GetStringUTF16(IDS_EXTENSION_WEB_STORE_TITLE_SHORT));
-  load_time_data.SetString("closedwindowsingle",
-      l10n_util::GetStringUTF16(IDS_NEW_TAB_RECENTLY_CLOSED_WINDOW_SINGLE));
-  load_time_data.SetString("closedwindowmultiple",
-      l10n_util::GetStringUTF16(IDS_NEW_TAB_RECENTLY_CLOSED_WINDOW_MULTIPLE));
   load_time_data.SetString("attributionintro",
       l10n_util::GetStringUTF16(IDS_NEW_TAB_ATTRIBUTION_INTRO));
-  load_time_data.SetString("thumbnailremovednotification",
-      l10n_util::GetStringUTF16(IDS_NEW_TAB_THUMBNAIL_REMOVED_NOTIFICATION));
-  load_time_data.SetString("undothumbnailremove",
-      l10n_util::GetStringUTF16(IDS_NEW_TAB_UNDO_THUMBNAIL_REMOVE));
-  load_time_data.SetString("removethumbnailtooltip",
-      l10n_util::GetStringUTF16(IDS_NEW_TAB_REMOVE_THUMBNAIL_TOOLTIP));
   load_time_data.SetString("appuninstall",
       l10n_util::GetStringUTF16(IDS_EXTENSIONS_UNINSTALL));
   load_time_data.SetString("appoptions",
       l10n_util::GetStringUTF16(IDS_NEW_TAB_APP_OPTIONS));
   load_time_data.SetString("appdetails",
       l10n_util::GetStringUTF16(IDS_NEW_TAB_APP_DETAILS));
+  load_time_data.SetString("appinfodialog",
+      l10n_util::GetStringUTF16(IDS_APP_CONTEXT_MENU_SHOW_INFO));
   load_time_data.SetString("appcreateshortcut",
       l10n_util::GetStringUTF16(IDS_NEW_TAB_APP_CREATE_SHORTCUT));
   load_time_data.SetString("appDefaultPageName",
@@ -452,29 +447,15 @@ void NTPResourceCache::CreateNewTabHTML() {
   load_time_data.SetString("syncLinkText",
       l10n_util::GetStringUTF16(IDS_SYNC_ADVANCED_OPTIONS));
   load_time_data.SetBoolean("shouldShowSyncLogin",
-                            NTPLoginHandler::ShouldShow(profile_));
-  load_time_data.SetString("otherSessions",
-      l10n_util::GetStringUTF16(IDS_NEW_TAB_OTHER_SESSIONS_LABEL));
-  load_time_data.SetString("otherSessionsEmpty",
-      l10n_util::GetStringUTF16(IDS_NEW_TAB_OTHER_SESSIONS_EMPTY));
-  load_time_data.SetString("otherSessionsLearnMoreUrl",
-      l10n_util::GetStringUTF16(IDS_NEW_TAB_OTHER_SESSIONS_LEARN_MORE_URL));
+                            AppLauncherLoginHandler::ShouldShow(profile_));
   load_time_data.SetString("learnMore",
       l10n_util::GetStringUTF16(IDS_LEARN_MORE));
+  const std::string& app_locale = g_browser_process->GetApplicationLocale();
   load_time_data.SetString("webStoreLink",
       google_util::AppendGoogleLocaleParam(
-          GURL(extension_urls::GetWebstoreLaunchURL()),
-          g_browser_process->GetApplicationLocale()).spec());
+          GURL(extension_urls::GetWebstoreLaunchURL()), app_locale).spec());
   load_time_data.SetString("appInstallHintText",
       l10n_util::GetStringUTF16(IDS_NEW_TAB_APP_INSTALL_HINT_LABEL));
-  load_time_data.SetBoolean("isDiscoveryInNTPEnabled",
-      NewTabUI::IsDiscoveryInNTPEnabled());
-  load_time_data.SetString("collapseSessionMenuItemText",
-      l10n_util::GetStringUTF16(IDS_NEW_TAB_OTHER_SESSIONS_COLLAPSE_SESSION));
-  load_time_data.SetString("expandSessionMenuItemText",
-      l10n_util::GetStringUTF16(IDS_NEW_TAB_OTHER_SESSIONS_EXPAND_SESSION));
-  load_time_data.SetString("restoreSessionMenuItemText",
-      l10n_util::GetStringUTF16(IDS_NEW_TAB_OTHER_SESSIONS_OPEN_ALL));
   load_time_data.SetString("learn_more",
       l10n_util::GetStringUTF16(IDS_LEARN_MORE));
   load_time_data.SetString("tile_grid_screenreader_accessible_description",
@@ -495,16 +476,11 @@ void NTPResourceCache::CreateNewTabHTML() {
   load_time_data.SetBoolean("showWebStoreIcon",
                             !prefs->GetBoolean(prefs::kHideWebStoreIcon));
 
-  bool streamlined_hosted_apps =
-      extensions::util::IsStreamlinedHostedAppsEnabled();
-  load_time_data.SetBoolean("enableStreamlinedHostedApps",
-                            streamlined_hosted_apps);
-  // Use a different string for launching as a regular tab for streamlined
-  // hosted apps.
-  if (streamlined_hosted_apps) {
-    load_time_data.SetString("applaunchtypetab",
-        l10n_util::GetStringUTF16(IDS_APP_CONTEXT_MENU_OPEN_TAB));
-  }
+  bool bookmark_apps_enabled = extensions::util::IsNewBookmarkAppsEnabled();
+  load_time_data.SetBoolean("enableNewBookmarkApps", bookmark_apps_enabled);
+
+  load_time_data.SetBoolean("canShowAppInfoDialog",
+                            CanShowAppInfoDialog());
 
 #if defined(OS_CHROMEOS)
   load_time_data.SetString("expandMenu",
@@ -512,9 +488,9 @@ void NTPResourceCache::CreateNewTabHTML() {
 #endif
 
   NewTabPageHandler::GetLocalizedValues(profile_, &load_time_data);
-  NTPLoginHandler::GetLocalizedValues(profile_, &load_time_data);
+  AppLauncherLoginHandler::GetLocalizedValues(profile_, &load_time_data);
 
-  webui::SetFontAndTextDirection(&load_time_data);
+  webui::SetLoadTimeDataDefaults(app_locale, &load_time_data);
 
   // Control fade and resize animations.
   load_time_data.SetBoolean("anim",
@@ -548,13 +524,9 @@ void NTPResourceCache::CreateNewTabHTML() {
     }
   }
 
-  // Determine whether to show the menu for accessing tabs on other devices.
-  bool show_other_sessions_menu = should_show_other_devices_menu_ &&
-      !CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kDisableNTPOtherSessionsMenu);
-  load_time_data.SetBoolean("showOtherSessionsMenu", show_other_sessions_menu);
-  load_time_data.SetBoolean("isUserSignedIn",
-      !prefs->GetString(prefs::kGoogleServicesUsername).empty());
+  load_time_data.SetBoolean(
+      "isUserSignedIn",
+      SigninManagerFactory::GetForProfile(profile_)->IsAuthenticated());
 
   // Load the new tab page appropriate for this build.
   base::StringPiece new_tab_html(ResourceBundle::GetSharedInstance().
@@ -621,7 +593,7 @@ void NTPResourceCache::CreateNewTabGuestCSS() {
   // Get our template.
   static const base::StringPiece new_tab_theme_css(
       ResourceBundle::GetSharedInstance().GetRawDataResource(
-          IDR_NEW_GUEST_TAB_THEME_CSS));
+          IDR_NEW_INCOGNITO_TAB_THEME_CSS));
 
   // Create the string from our template and the replacements.
   std::string full_css = ReplaceStringPlaceholders(

@@ -26,31 +26,36 @@
 #ifndef ScriptResource_h
 #define ScriptResource_h
 
+#include "core/CoreExport.h"
 #include "core/fetch/ResourceClient.h"
 #include "core/fetch/TextResource.h"
 
 namespace blink {
 
+class FetchRequest;
 class ScriptResource;
 
-class ScriptResourceClient : public ResourceClient {
+class CORE_EXPORT ScriptResourceClient : public ResourceClient {
 public:
-    virtual ~ScriptResourceClient() { }
+    ~ScriptResourceClient() override {}
     static ResourceClientType expectedType() { return ScriptType; }
-    virtual ResourceClientType resourceClientType() const override final { return expectedType(); }
+    ResourceClientType resourceClientType() const final { return expectedType(); }
 
     virtual void notifyAppendData(ScriptResource* resource) { }
 };
 
-class ScriptResource final : public TextResource {
+class CORE_EXPORT ScriptResource final : public TextResource {
 public:
     typedef ScriptResourceClient ClientType;
+    static ResourcePtr<ScriptResource> fetch(FetchRequest&, ResourceFetcher*);
 
+    // Public for testing
     ScriptResource(const ResourceRequest&, const String& charset);
-    virtual ~ScriptResource();
 
-    virtual void didAddClient(ResourceClient*) override;
-    virtual void appendData(const char*, unsigned) override;
+    ~ScriptResource() override;
+
+    void didAddClient(ResourceClient*) override;
+    void appendData(const char*, unsigned) override;
 
     const String& script();
 
@@ -59,6 +64,17 @@ public:
     bool mimeTypeAllowedByNosniff() const;
 
 private:
+    class ScriptResourceFactory : public ResourceFactory {
+    public:
+        ScriptResourceFactory()
+            : ResourceFactory(Resource::Script) { }
+
+        Resource* create(const ResourceRequest& request, const String& charset) const override
+        {
+            return new ScriptResource(request, charset);
+        }
+    };
+
     AtomicString m_script;
 };
 

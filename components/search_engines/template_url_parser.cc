@@ -63,13 +63,13 @@ bool IsValidEncodingString(const std::string& input_encoding) {
   if (input_encoding.empty())
     return false;
 
-  if (!IsAsciiAlpha(input_encoding[0]))
+  if (!base::IsAsciiAlpha(input_encoding[0]))
     return false;
 
   for (size_t i = 1, max = input_encoding.size(); i < max; ++i) {
     char c = input_encoding[i];
-    if (!IsAsciiAlpha(c) && !IsAsciiDigit(c) && c != '.' && c != '_' &&
-        c != '-') {
+    if (!base::IsAsciiAlpha(c) && !base::IsAsciiDigit(c) &&
+        c != '.' && c != '_' && c != '-') {
       return false;
     }
   }
@@ -251,7 +251,7 @@ void TemplateURLParsingContext::EndElementImpl(void* ctx, const xmlChar* name) {
       context->ProcessURLParams();
       break;
     case TemplateURLParsingContext::SHORT_NAME:
-      context->data_.short_name = context->string_;
+      context->data_.SetShortName(context->string_);
       break;
     case TemplateURLParsingContext::IMAGE: {
       GURL image_url(base::UTF16ToUTF8(context->string_));
@@ -291,15 +291,17 @@ void TemplateURLParsingContext::CharactersImpl(void* ctx,
                                                const xmlChar* ch,
                                                int len) {
   reinterpret_cast<TemplateURLParsingContext*>(ctx)->string_ +=
-      base::UTF8ToUTF16(std::string(reinterpret_cast<const char*>(ch), len));
+      base::UTF8ToUTF16(
+          base::StringPiece(reinterpret_cast<const char*>(ch), len));
 }
 
 TemplateURL* TemplateURLParsingContext::GetTemplateURL(
     const SearchTermsData& search_terms_data,
     bool show_in_default_list) {
   // TODO(jcampan): Support engines that use POST; see http://crbug.com/18107
-  if (method_ == TemplateURLParsingContext::POST || data_.short_name.empty() ||
-      !IsHTTPRef(data_.url()) || !IsHTTPRef(data_.suggestions_url))
+  if (method_ == TemplateURLParsingContext::POST ||
+      data_.short_name().empty() || !IsHTTPRef(data_.url()) ||
+      !IsHTTPRef(data_.suggestions_url))
     return NULL;
   if (suggestion_method_ == TemplateURLParsingContext::POST)
     data_.suggestions_url.clear();
@@ -362,7 +364,7 @@ void TemplateURLParsingContext::ParseURL(const xmlChar** atts) {
     } else if (name == kURLTemplateAttribute) {
       template_url = XMLCharToString(value);
     } else if (name == kParamMethodAttribute) {
-      is_post = LowerCaseEqualsASCII(XMLCharToString(value), "post");
+      is_post = base::LowerCaseEqualsASCII(XMLCharToString(value), "post");
     }
   }
 

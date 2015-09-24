@@ -4,6 +4,7 @@
 
 #include "components/gcm_driver/gcm_account_mapper.h"
 
+#include "base/bind.h"
 #include "base/test/simple_test_clock.h"
 #include "base/time/time.h"
 #include "components/gcm_driver/fake_gcm_driver.h"
@@ -16,7 +17,15 @@ namespace gcm {
 namespace {
 
 const char kGCMAccountMapperSenderId[] = "745476177629";
+const char kGCMAccountMapperSendTo[] = "google.com";
 const char kRegistrationId[] = "reg_id";
+const char kEmbeddedAppIdKey[] = "gcmb";
+const char kTestAppId[] = "test_app_id";
+const char kTestDataKey[] = "data_key";
+const char kTestDataValue[] = "data_value";
+const char kTestCollapseKey[] = "test_collapse_key";
+const char kTestSenderId[] = "test_sender_id";
+
 
 AccountMapping MakeAccountMapping(const std::string& account_id,
                                   AccountMapping::MappingStatus status,
@@ -80,6 +89,7 @@ class CustomFakeGCMDriver : public FakeGCMDriver {
   CustomFakeGCMDriver();
   ~CustomFakeGCMDriver() override;
 
+  // GCMDriver implementation:
   void UpdateAccountMapping(const AccountMapping& account_mapping) override;
   void RemoveAccountMapping(const std::string& account_id) override;
   void AddAppHandler(const std::string& app_id,
@@ -96,7 +106,6 @@ class CustomFakeGCMDriver : public FakeGCMDriver {
 
   void CompleteSendAllMessages();
   void AcknowledgeSendAllMessages();
-
   void SetLastMessageAction(const std::string& message_id,
                             LastMessageAction action);
   void Clear();
@@ -194,7 +203,7 @@ void CustomFakeGCMDriver::SendImpl(const std::string& app_id,
                                    const std::string& receiver_id,
                                    const GCMClient::OutgoingMessage& message) {
   DCHECK_EQ(kGCMAccountMapperAppId, app_id);
-  DCHECK_EQ(kGCMAccountMapperSenderId, receiver_id);
+  DCHECK_EQ(kGCMAccountMapperSendTo, receiver_id);
 
   SetLastMessageAction(message.id, SEND_STARTED);
 }
@@ -243,20 +252,31 @@ class GCMAccountMapperTest : public testing::Test {
 
   void Restart();
 
+  void Initialize(const GCMAccountMapper::AccountMappings mappings);
   const GCMAccountMapper::AccountMappings& GetAccounts() const {
     return account_mapper_->accounts_;
   }
+  void MessageReceived(const std::string& app_id,
+                       const GCMClient::IncomingMessage& message);
 
   GCMAccountMapper* mapper() { return account_mapper_.get(); }
 
   CustomFakeGCMDriver& gcm_driver() { return gcm_driver_; }
 
   base::SimpleTestClock* clock() { return clock_; }
+  const std::string& last_received_app_id() const {
+    return last_received_app_id_;
+  }
+  const GCMClient::IncomingMessage& last_received_message() const {
+    return last_received_message_;
+  }
 
  private:
   CustomFakeGCMDriver gcm_driver_;
   scoped_ptr<GCMAccountMapper> account_mapper_;
   base::SimpleTestClock* clock_;
+  std::string last_received_app_id_;
+  GCMClient::IncomingMessage last_received_message_;
 };
 
 GCMAccountMapperTest::GCMAccountMapperTest() {
@@ -276,11 +296,25 @@ void GCMAccountMapperTest::Restart() {
   account_mapper_->SetClockForTesting(clock.Pass());
 }
 
+void GCMAccountMapperTest::Initialize(
+    const GCMAccountMapper::AccountMappings mappings) {
+  mapper()->Initialize(mappings,
+                       base::Bind(&GCMAccountMapperTest::MessageReceived,
+                                  base::Unretained(this)));
+}
+
+void GCMAccountMapperTest::MessageReceived(
+    const std::string& app_id,
+    const GCMClient::IncomingMessage& message) {
+  last_received_app_id_ = app_id;
+  last_received_message_ = message;
+}
+
 // Tests the initialization of account mappings (from the store) when empty.
 // It also checks that initialization triggers registration ID request.
 TEST_F(GCMAccountMapperTest, InitializeAccountMappingsEmpty) {
   EXPECT_FALSE(gcm_driver().registration_id_requested());
-  mapper()->Initialize(GCMAccountMapper::AccountMappings());
+  Initialize(GCMAccountMapper::AccountMappings());
   EXPECT_TRUE(GetAccounts().empty());
   EXPECT_TRUE(gcm_driver().registration_id_requested());
 }
@@ -288,7 +322,7 @@ TEST_F(GCMAccountMapperTest, InitializeAccountMappingsEmpty) {
 // Tests that registration is retried, when new tokens are delivered and in no
 // other circumstances.
 TEST_F(GCMAccountMapperTest, RegistrationRetryUponFailure) {
-  mapper()->Initialize(GCMAccountMapper::AccountMappings());
+  Initialize(GCMAccountMapper::AccountMappings());
   EXPECT_TRUE(gcm_driver().registration_id_requested());
   gcm_driver().Clear();
 
@@ -321,7 +355,7 @@ TEST_F(GCMAccountMapperTest, InitializeAccountMappings) {
   account_mappings.push_back(account_mapping1);
   account_mappings.push_back(account_mapping2);
 
-  mapper()->Initialize(account_mappings);
+  Initialize(account_mappings);
 
   GCMAccountMapper::AccountMappings mappings = GetAccounts();
   EXPECT_EQ(2UL, mappings.size());
@@ -349,7 +383,7 @@ TEST_F(GCMAccountMapperTest, InitializeAccountMappings) {
 // available.
 TEST_F(GCMAccountMapperTest, SetAccountTokensOnlyWorksWithRegisterationId) {
   // Start with empty list.
-  mapper()->Initialize(GCMAccountMapper::AccountMappings());
+  Initialize(GCMAccountMapper::AccountMappings());
 
   std::vector<GCMClient::AccountTokenInfo> account_tokens;
   account_tokens.push_back(MakeAccountTokenInfo("acc_id"));
@@ -375,7 +409,7 @@ TEST_F(GCMAccountMapperTest, SetAccountTokensOnlyWorksWithRegisterationId) {
 // Tests the part where a new account is added with a token, to the point when
 // GCM message is sent.
 TEST_F(GCMAccountMapperTest, AddMappingToMessageSent) {
-  mapper()->Initialize(GCMAccountMapper::AccountMappings());
+  Initialize(GCMAccountMapper::AccountMappings());
   gcm_driver().CompleteRegister(kRegistrationId, GCMClient::SUCCESS);
 
   std::vector<GCMClient::AccountTokenInfo> account_tokens;
@@ -397,7 +431,7 @@ TEST_F(GCMAccountMapperTest, AddMappingToMessageSent) {
 
 // Tests the part where GCM message is successfully queued.
 TEST_F(GCMAccountMapperTest, AddMappingMessageQueued) {
-  mapper()->Initialize(GCMAccountMapper::AccountMappings());
+  Initialize(GCMAccountMapper::AccountMappings());
   gcm_driver().CompleteRegister(kRegistrationId, GCMClient::SUCCESS);
 
   std::vector<GCMClient::AccountTokenInfo> account_tokens;
@@ -431,7 +465,7 @@ TEST_F(GCMAccountMapperTest, AddMappingMessageQueued) {
 
 // Tests status change from ADDING to MAPPED (Message is acknowledged).
 TEST_F(GCMAccountMapperTest, AddMappingMessageAcknowledged) {
-  mapper()->Initialize(GCMAccountMapper::AccountMappings());
+  Initialize(GCMAccountMapper::AccountMappings());
   gcm_driver().AddAppHandler(kGCMAccountMapperAppId, mapper());
   gcm_driver().CompleteRegister(kRegistrationId, GCMClient::SUCCESS);
 
@@ -468,7 +502,7 @@ TEST_F(GCMAccountMapperTest, AddMappingMessageAcknowledged) {
 // Tests status change form ADDING to MAPPED (When message was acknowledged,
 // after Chrome was restarted).
 TEST_F(GCMAccountMapperTest, AddMappingMessageAckedAfterRestart) {
-  mapper()->Initialize(GCMAccountMapper::AccountMappings());
+  Initialize(GCMAccountMapper::AccountMappings());
   gcm_driver().AddAppHandler(kGCMAccountMapperAppId, mapper());
   gcm_driver().CompleteRegister(kRegistrationId, GCMClient::SUCCESS);
 
@@ -483,7 +517,7 @@ TEST_F(GCMAccountMapperTest, AddMappingMessageAckedAfterRestart) {
   Restart();
   GCMAccountMapper::AccountMappings stored_mappings;
   stored_mappings.push_back(gcm_driver().last_account_mapping());
-  mapper()->Initialize(stored_mappings);
+  Initialize(stored_mappings);
   gcm_driver().AddAppHandler(kGCMAccountMapperAppId, mapper());
 
   clock()->SetNow(base::Time::Now());
@@ -511,7 +545,7 @@ TEST_F(GCMAccountMapperTest, AddMappingMessageAckedAfterRestart) {
 
 // Tests a case when ADD message times out for a new account.
 TEST_F(GCMAccountMapperTest, AddMappingMessageSendErrorForNewAccount) {
-  mapper()->Initialize(GCMAccountMapper::AccountMappings());
+  Initialize(GCMAccountMapper::AccountMappings());
   gcm_driver().AddAppHandler(kGCMAccountMapperAppId, mapper());
   gcm_driver().CompleteRegister(kRegistrationId, GCMClient::SUCCESS);
 
@@ -545,7 +579,7 @@ TEST_F(GCMAccountMapperTest, AddMappingMessageSendErrorForMappedAccount) {
 
   GCMAccountMapper::AccountMappings stored_mappings;
   stored_mappings.push_back(mapping);
-  mapper()->Initialize(stored_mappings);
+  Initialize(stored_mappings);
   gcm_driver().AddAppHandler(kGCMAccountMapperAppId, mapper());
   gcm_driver().CompleteRegister(kRegistrationId, GCMClient::SUCCESS);
 
@@ -577,7 +611,7 @@ TEST_F(GCMAccountMapperTest, RemoveMappingToMessageSent) {
 
   GCMAccountMapper::AccountMappings stored_mappings;
   stored_mappings.push_back(mapping);
-  mapper()->Initialize(stored_mappings);
+  Initialize(stored_mappings);
   gcm_driver().CompleteRegister(kRegistrationId, GCMClient::SUCCESS);
   clock()->SetNow(base::Time::Now());
 
@@ -612,7 +646,7 @@ TEST_F(GCMAccountMapperTest, RemoveMappingMessageQueued) {
 
   GCMAccountMapper::AccountMappings stored_mappings;
   stored_mappings.push_back(mapping);
-  mapper()->Initialize(stored_mappings);
+  Initialize(stored_mappings);
   gcm_driver().CompleteRegister(kRegistrationId, GCMClient::SUCCESS);
   clock()->SetNow(base::Time::Now());
   base::Time status_change_timestamp = clock()->Now();
@@ -653,7 +687,7 @@ TEST_F(GCMAccountMapperTest, RemoveMappingMessageAcknowledged) {
 
   GCMAccountMapper::AccountMappings stored_mappings;
   stored_mappings.push_back(mapping);
-  mapper()->Initialize(stored_mappings);
+  Initialize(stored_mappings);
   gcm_driver().AddAppHandler(kGCMAccountMapperAppId, mapper());
   gcm_driver().CompleteRegister(kRegistrationId, GCMClient::SUCCESS);
   clock()->SetNow(base::Time::Now());
@@ -679,7 +713,7 @@ TEST_F(GCMAccountMapperTest, RemoveMappingMessageAckedAfterRestart) {
 
   GCMAccountMapper::AccountMappings stored_mappings;
   stored_mappings.push_back(mapping);
-  mapper()->Initialize(stored_mappings);
+  Initialize(stored_mappings);
   gcm_driver().AddAppHandler(kGCMAccountMapperAppId, mapper());
 
   gcm_driver().AcknowledgeSend("remove_message_id");
@@ -702,7 +736,7 @@ TEST_F(GCMAccountMapperTest, RemoveMappingMessageSendError) {
 
   GCMAccountMapper::AccountMappings stored_mappings;
   stored_mappings.push_back(mapping);
-  mapper()->Initialize(stored_mappings);
+  Initialize(stored_mappings);
   gcm_driver().AddAppHandler(kGCMAccountMapperAppId, mapper());
 
   clock()->SetNow(base::Time::Now());
@@ -733,7 +767,7 @@ TEST_F(GCMAccountMapperTest, RemoveMappingMessageSendError) {
 // no new message is sent and account mapper still waits for the first one to
 // complete.
 TEST_F(GCMAccountMapperTest, TokenIsRefreshedWhenAdding) {
-  mapper()->Initialize(GCMAccountMapper::AccountMappings());
+  Initialize(GCMAccountMapper::AccountMappings());
   gcm_driver().CompleteRegister(kRegistrationId, GCMClient::SUCCESS);
 
   clock()->SetNow(base::Time::Now());
@@ -763,7 +797,7 @@ TEST_F(GCMAccountMapperTest, TokenIsRefreshedWhenRemoving) {
 
   GCMAccountMapper::AccountMappings stored_mappings;
   stored_mappings.push_back(mapping);
-  mapper()->Initialize(stored_mappings);
+  Initialize(stored_mappings);
   gcm_driver().CompleteRegister(kRegistrationId, GCMClient::SUCCESS);
   clock()->SetNow(base::Time::Now());
 
@@ -817,7 +851,7 @@ TEST_F(GCMAccountMapperTest, MultipleAccountMappings) {
   stored_mappings.push_back(MakeAccountMapping(
       "acc_id_2", AccountMapping::REMOVING, half_hour_ago, "acc_id_2_msg"));
 
-  mapper()->Initialize(stored_mappings);
+  Initialize(stored_mappings);
   gcm_driver().AddAppHandler(kGCMAccountMapperAppId, mapper());
   gcm_driver().CompleteRegister(kRegistrationId, GCMClient::SUCCESS);
 
@@ -908,6 +942,26 @@ TEST_F(GCMAccountMapperTest, MultipleAccountMappings) {
 
   VerifyMappings(
       expected_mappings, GetAccounts(), "Step 6, Three mapped accounts");
+}
+
+TEST_F(GCMAccountMapperTest, DispatchMessageSentToGaiaID) {
+  Initialize(GCMAccountMapper::AccountMappings());
+  gcm_driver().AddAppHandler(kGCMAccountMapperAppId, mapper());
+  GCMClient::IncomingMessage message;
+  message.data[kEmbeddedAppIdKey] = kTestAppId;
+  message.data[kTestDataKey] = kTestDataValue;
+  message.collapse_key = kTestCollapseKey;
+  message.sender_id = kTestSenderId;
+  mapper()->OnMessage(kGCMAccountMapperAppId, message);
+
+  EXPECT_EQ(kTestAppId, last_received_app_id());
+  EXPECT_EQ(1UL, last_received_message().data.size());
+  GCMClient::MessageData::const_iterator it =
+      last_received_message().data.find(kTestDataKey);
+  EXPECT_TRUE(it != last_received_message().data.end());
+  EXPECT_EQ(kTestDataValue, it->second);
+  EXPECT_EQ(kTestCollapseKey, last_received_message().collapse_key);
+  EXPECT_EQ(kTestSenderId, last_received_message().sender_id);
 }
 
 }  // namespace gcm

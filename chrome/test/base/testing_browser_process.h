@@ -43,10 +43,6 @@ class BrowserPolicyConnector;
 class PolicyService;
 }
 
-namespace prerender {
-class PrerenderTracker;
-}
-
 class TestingBrowserProcess : public BrowserProcess {
  public:
   // Initializes |g_browser_process| with a new TestingBrowserProcess.
@@ -58,6 +54,7 @@ class TestingBrowserProcess : public BrowserProcess {
   // Convenience method to get g_browser_process as a TestingBrowserProcess*.
   static TestingBrowserProcess* GetGlobal();
 
+  // BrowserProcess overrides:
   void ResourceDispatcherHostCreated() override;
   void EndSession() override;
   MetricsServicesManager* GetMetricsServicesManager() override;
@@ -68,6 +65,7 @@ class TestingBrowserProcess : public BrowserProcess {
   ProfileManager* profile_manager() override;
   PrefService* local_state() override;
   chrome_variations::VariationsService* variations_service() override;
+  PromoResourceService* promo_resource_service() override;
   policy::BrowserPolicyConnector* browser_policy_connector() override;
   policy::PolicyService* policy_service() override;
   IconManager* icon_manager() override;
@@ -90,7 +88,7 @@ class TestingBrowserProcess : public BrowserProcess {
   void CreateDevToolsHttpProtocolHandler(
       chrome::HostDesktopType host_desktop_type,
       const std::string& ip,
-      int port) override;
+      uint16 port) override;
   unsigned int AddRefModule() override;
   unsigned int ReleaseModule() override;
   bool IsShuttingDown() override;
@@ -108,11 +106,12 @@ class TestingBrowserProcess : public BrowserProcess {
 #endif
 
   ChromeNetLog* net_log() override;
-  prerender::PrerenderTracker* prerender_tracker() override;
   component_updater::ComponentUpdateService* component_updater() override;
   CRLSetFetcher* crl_set_fetcher() override;
   component_updater::PnaclComponentInstaller* pnacl_component_installer()
       override;
+  component_updater::SupervisedUserWhitelistInstaller*
+  supervised_user_whitelist_installer() override;
   MediaFileSystemRegistry* media_file_system_registry() override;
   bool created_local_state() const override;
 
@@ -123,6 +122,9 @@ class TestingBrowserProcess : public BrowserProcess {
   network_time::NetworkTimeTracker* network_time_tracker() override;
 
   gcm::GCMDriver* gcm_driver() override;
+  memory::OomPriorityManager* GetOomPriorityManager() override;
+  ShellIntegration::DefaultWebClientState CachedDefaultWebClientState()
+      override;
 
   // Set the local state for tests. Consumer is responsible for cleaning it up
   // afterwards (using ScopedTestingLocalState, for example).
@@ -132,6 +134,8 @@ class TestingBrowserProcess : public BrowserProcess {
   void SetBrowserPolicyConnector(policy::BrowserPolicyConnector* connector);
   void SetSafeBrowsingService(SafeBrowsingService* sb_service);
   void SetSystemRequestContext(net::URLRequestContextGetter* context_getter);
+  void SetNotificationUIManager(
+      scoped_ptr<NotificationUIManager> notification_ui_manager);
 
  private:
   // See CreateInstance() and DestoryInstance() above.
@@ -162,7 +166,6 @@ class TestingBrowserProcess : public BrowserProcess {
       print_preview_dialog_controller_;
 #endif
 
-  scoped_ptr<prerender::PrerenderTracker> prerender_tracker_;
   scoped_refptr<SafeBrowsingService> sb_service_;
 #endif  // !defined(OS_IOS)
 

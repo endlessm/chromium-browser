@@ -24,6 +24,7 @@
 #include "content/public/common/url_constants.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/error_utils.h"
+#include "extensions/common/feature_switch.h"
 #include "extensions/common/manifest.h"
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/manifest_handler.h"
@@ -153,7 +154,7 @@ GURL Extension::GetResourceURL(const GURL& extension_url,
     path = relative_path.substr(1);
 
   GURL ret_val = GURL(extension_url.spec() + path);
-  DCHECK(StartsWithASCII(ret_val.spec(), extension_url.spec(), false));
+  DCHECK(base::StartsWithASCII(ret_val.spec(), extension_url.spec(), false));
 
   return ret_val;
 }
@@ -204,7 +205,7 @@ bool Extension::ParsePEMKeyBytes(const std::string& input,
     return false;
 
   std::string working = input;
-  if (StartsWithASCII(working, kKeyBeginHeaderMarker, true)) {
+  if (base::StartsWithASCII(working, kKeyBeginHeaderMarker, true)) {
     working = base::CollapseWhitespaceASCII(working, true);
     size_t header_pos = working.find(kKeyInfoEndMarker,
       sizeof(kKeyBeginHeaderMarker) - 1);
@@ -271,12 +272,15 @@ GURL Extension::GetBaseURLFromExtensionId(const std::string& extension_id) {
 }
 
 bool Extension::ShowConfigureContextMenus() const {
-  // Don't show context menu for component extensions. We might want to show
-  // options for component extension button but now there is no component
-  // extension with options. All other menu items like uninstall have
-  // no sense for component extensions.
-  return location() != Manifest::COMPONENT &&
-         location() != Manifest::EXTERNAL_COMPONENT;
+  // Normally we don't show a context menu for component actions, but when
+  // re-design is enabled we show them in the toolbar (if they have an action),
+  // and it is weird to have a random button that has no context menu when the
+  // rest do.
+  if (location() == Manifest::COMPONENT ||
+      location() == Manifest::EXTERNAL_COMPONENT)
+    return FeatureSwitch::extension_action_redesign()->IsEnabled();
+
+  return true;
 }
 
 bool Extension::OverlapsWithOrigin(const GURL& origin) const {
@@ -341,7 +345,7 @@ bool Extension::ShouldNotBeVisible() const {
   // Don't show component extensions because they are only extensions as an
   // implementation detail of Chrome.
   if (extensions::Manifest::IsComponentLocation(location()) &&
-      !CommandLine::ForCurrentProcess()->HasSwitch(
+      !base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kShowComponentExtensionOptions)) {
     return true;
   }
@@ -382,6 +386,12 @@ const std::string& Extension::id() const {
 
 const std::string Extension::VersionString() const {
   return version()->GetString();
+}
+
+const std::string Extension::GetVersionForDisplay() const {
+  if (version_name_.size() > 0)
+    return version_name_;
+  return VersionString();
 }
 
 void Extension::AddInstallWarning(const InstallWarning& new_warning) {
@@ -569,6 +579,12 @@ bool Extension::LoadVersion(base::string16* error) {
     *error = base::ASCIIToUTF16(errors::kInvalidVersion);
     return false;
   }
+  if (manifest_->HasKey(keys::kVersionName)) {
+    if (!manifest_->GetString(keys::kVersionName, &version_name_)) {
+      *error = base::ASCIIToUTF16(errors::kInvalidVersionName);
+      return false;
+    }
+  }
   return true;
 }
 
@@ -702,7 +718,7 @@ bool Extension::LoadManifestVersion(base::string16* error) {
   manifest_version_ = manifest_->GetManifestVersion();
   if (manifest_version_ < kModernManifestVersion &&
       ((creation_flags_ & REQUIRE_MODERN_MANIFEST_VERSION &&
-        !CommandLine::ForCurrentProcess()->HasSwitch(
+        !base::CommandLine::ForCurrentProcess()->HasSwitch(
             switches::kAllowLegacyExtensionManifests)) ||
        GetType() == Manifest::TYPE_PLATFORM_APP)) {
     *error = ErrorUtils::FormatErrorMessageUTF16(

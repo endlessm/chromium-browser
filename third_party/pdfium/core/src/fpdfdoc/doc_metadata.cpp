@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/fpdfdoc/fpdf_doc.h"
@@ -13,7 +13,7 @@ typedef struct _PDFDOC_METADATA {
     CFX_CMapByteStringToPtr *m_pStringMap;
 } PDFDOC_METADATA, * PDFDOC_LPMETADATA;
 typedef PDFDOC_METADATA const * PDFDOC_LPCMETADATA;
-const FX_LPCSTR gs_FPDFDOC_Metadata_Titles[] = {
+const FX_CHAR* const gs_FPDFDOC_Metadata_Titles[] = {
     "Title", "title",
     "Subject", "description",
     "Author", "creator",
@@ -28,26 +28,23 @@ CPDF_Metadata::CPDF_Metadata()
 {
     m_pData = FX_Alloc(PDFDOC_METADATA, 1);
     CFX_CMapByteStringToPtr *&pStringMap = ((PDFDOC_LPMETADATA)m_pData)->m_pStringMap;
-    pStringMap = FX_NEW(CFX_CMapByteStringToPtr);
-    if (pStringMap != NULL) {
-        CFX_ByteString bstr;
-        for (int i = 0; i < 18; i += 2) {
-            bstr = gs_FPDFDOC_Metadata_Titles[i];
-            pStringMap->AddValue(bstr, (void*)gs_FPDFDOC_Metadata_Titles[i + 1]);
-        }
+    pStringMap = new CFX_CMapByteStringToPtr;
+    CFX_ByteString bstr;
+    for (int i = 0; i < 18; i += 2) {
+        bstr = gs_FPDFDOC_Metadata_Titles[i];
+        pStringMap->AddValue(bstr, (void*)gs_FPDFDOC_Metadata_Titles[i + 1]);
     }
+
 }
 CPDF_Metadata::~CPDF_Metadata()
 {
     FXSYS_assert(m_pData != NULL);
     CXML_Element *&p = ((PDFDOC_LPMETADATA)m_pData)->m_pXmlElmnt;
-    if (p) {
-        delete p;
-    }
+    delete p;
     CFX_CMapByteStringToPtr *pStringMap = ((PDFDOC_LPMETADATA)m_pData)->m_pStringMap;
     if (pStringMap) {
         pStringMap->RemoveAll();
-        FX_Free(pStringMap);
+        delete pStringMap;
     }
     FX_Free(m_pData);
 }
@@ -63,7 +60,7 @@ void CPDF_Metadata::LoadDoc(CPDF_Document *pDoc)
     CPDF_StreamAcc acc;
     acc.LoadAllData(pStream, FALSE);
     int size = acc.GetSize();
-    FX_LPCBYTE pBuf = acc.GetData();
+    const uint8_t* pBuf = acc.GetData();
     CXML_Element *&pXmlElmnt = ((PDFDOC_LPMETADATA)m_pData)->m_pXmlElmnt;
     pXmlElmnt = CXML_Element::Parse(pBuf, size);
     if (!pXmlElmnt) {
@@ -76,7 +73,7 @@ void CPDF_Metadata::LoadDoc(CPDF_Document *pDoc)
         pElmntRdf = pXmlElmnt->GetElement(NULL, FX_BSTRC("RDF"));
     }
 }
-FX_INT32 CPDF_Metadata::GetString(FX_BSTR bsItem, CFX_WideString &wsStr)
+int32_t CPDF_Metadata::GetString(const CFX_ByteStringC& bsItem, CFX_WideString &wsStr)
 {
     if (!((PDFDOC_LPMETADATA)m_pData)->m_pXmlElmnt) {
         return -1;
@@ -88,7 +85,7 @@ FX_INT32 CPDF_Metadata::GetString(FX_BSTR bsItem, CFX_WideString &wsStr)
     if (!((PDFDOC_LPMETADATA)m_pData)->m_pStringMap->Lookup(bsItem, szTag)) {
         return -1;
     }
-    CFX_ByteString bsTag = (FX_LPCSTR)szTag;
+    CFX_ByteString bsTag = (const FX_CHAR*)szTag;
     wsStr = L"";
     CXML_Element *pElmntRdf = ((PDFDOC_LPMETADATA)m_pData)->m_pElmntRdf;
     if (!pElmntRdf) {

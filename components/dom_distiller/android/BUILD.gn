@@ -4,29 +4,40 @@
 
 import("//build/config/android/rules.gni")
 
-
-# GYP: //components/dom_distiller.gypi:dom_distiller_core_java
 android_library("dom_distiller_core_java") {
   deps = [
     "//base:base_java",
+  ]
+  java_files = [
+    "java/src/org/chromium/components/dom_distiller/core/DomDistillerService.java",
+    "java/src/org/chromium/components/dom_distiller/core/DomDistillerUrlUtils.java",
+    "java/src/org/chromium/components/dom_distiller/core/DistilledPagePrefs.java",
   ]
 
   srcjar_deps = [
     ":dom_distiller_core_font_family_javagen",
     ":dom_distiller_core_theme_javagen",
   ]
+}
 
-  DEPRECATED_java_in_dir = "java/src"
+# GYP: //components/dom_distiller.gypi:dom_distiller_java
+android_library("dom_distiller_content_java") {
+  deps = [
+    ":dom_distiller_core_java",
+    "//base:base_java",
+    "//content/public/android:content_java",
+  ]
+  java_files = [ "java/src/org/chromium/components/dom_distiller/content/DistillablePageUtils.java" ]
 }
 
 # GYP: //components/dom_distiller.gypi:dom_distiller_core_font_family_java
 java_cpp_template("dom_distiller_core_font_family_javagen") {
   package_name = "org/chromium/components/dom_distiller/core"
   sources = [
-    "java/src/org/chromium/components/dom_distiller/core/FontFamily.template"
+    "java/src/org/chromium/components/dom_distiller/core/FontFamily.template",
   ]
   inputs = [
-    "../core/font_family_list.h"
+    "../core/font_family_list.h",
   ]
 }
 
@@ -34,9 +45,9 @@ java_cpp_template("dom_distiller_core_font_family_javagen") {
 java_cpp_template("dom_distiller_core_theme_javagen") {
   package_name = "org/chromium/components/dom_distiller/core"
   sources = [
-    "java/src/org/chromium/components/dom_distiller/core/Theme.template"
+    "java/src/org/chromium/components/dom_distiller/core/Theme.template",
   ]
   inputs = [
-    "../core/theme_list.h"
+    "../core/theme_list.h",
   ]
 }

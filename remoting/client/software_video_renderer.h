@@ -11,6 +11,7 @@
 #include "remoting/client/frame_consumer_proxy.h"
 #include "remoting/client/frame_producer.h"
 #include "remoting/client/video_renderer.h"
+#include "remoting/protocol/video_stub.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_geometry.h"
 
 namespace base {
@@ -27,6 +28,7 @@ class ChromotingStats;
 // called on the main thread. Owned must ensure that this class outlives
 // FrameConsumer (which calls FrameProducer interface).
 class SoftwareVideoRenderer : public VideoRenderer,
+                              public protocol::VideoStub,
                               public FrameProducer,
                               public base::NonThreadSafe {
  public:
@@ -41,9 +43,12 @@ class SoftwareVideoRenderer : public VideoRenderer,
       scoped_refptr<FrameConsumerProxy> consumer);
   ~SoftwareVideoRenderer() override;
 
-  // VideoRenderer implementation.
-  void Initialize(const protocol::SessionConfig& config) override;
+  // VideoRenderer interface.
+  void OnSessionConfig(const protocol::SessionConfig& config) override;
   ChromotingStats* GetStats() override;
+  protocol::VideoStub* GetVideoStub() override;
+
+  // protocol::VideoStub interface.
   void ProcessVideoPacket(scoped_ptr<VideoPacket> packet,
                           const base::Closure& done) override;
 
@@ -72,8 +77,8 @@ class SoftwareVideoRenderer : public VideoRenderer,
 
   ChromotingStats stats_;
 
-  // Keep track of the most recent sequence number bounced back from the host.
-  int64 latest_sequence_number_;
+  // Keep track of the latest event timestamp bounced back from the host.
+  int64 latest_event_timestamp_;
 
   base::WeakPtrFactory<SoftwareVideoRenderer> weak_factory_;
 

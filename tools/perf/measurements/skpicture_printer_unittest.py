@@ -5,24 +5,25 @@
 import shutil
 import tempfile
 
+from telemetry import decorators
+from telemetry.testing import options_for_unittests
+from telemetry.testing import page_test_test_case
+
 from measurements import skpicture_printer
-from telemetry.unittest import options_for_unittests
-from telemetry.unittest import page_test_test_case
-from telemetry.unittest import test
 
 
 class SkpicturePrinterUnitTest(page_test_test_case.PageTestTestCase):
   def setUp(self):
     self._options = options_for_unittests.GetCopy()
-    self._options.skp_outdir = tempfile.mkdtemp('_skp_test')
+    self._skp_outdir = tempfile.mkdtemp('_skp_test')
 
   def tearDown(self):
-    shutil.rmtree(self._options.skp_outdir)
+    shutil.rmtree(self._skp_outdir)
 
-  @test.Disabled('android')
+  @decorators.Disabled('android')
   def testSkpicturePrinter(self):
-    ps = self.CreatePageSetFromFileInUnittestDataDir('blank.html')
-    measurement = skpicture_printer.SkpicturePrinter()
+    ps = self.CreateStorySetFromFileInUnittestDataDir('blank.html')
+    measurement = skpicture_printer.SkpicturePrinter(self._skp_outdir)
     results = self.RunMeasurement(measurement, ps, options=self._options)
 
     # Picture printing is not supported on all platforms.

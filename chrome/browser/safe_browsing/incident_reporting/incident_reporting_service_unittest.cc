@@ -10,13 +10,17 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/lazy_instance.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/threading/thread_local.h"
 #include "chrome/browser/prefs/browser_prefs.h"
+#include "chrome/browser/safe_browsing/incident_reporting/incident.h"
+#include "chrome/browser/safe_browsing/incident_reporting/incident_receiver.h"
 #include "chrome/browser/safe_browsing/incident_reporting/incident_report_uploader.h"
 #include "chrome/browser/safe_browsing/incident_reporting/last_download_finder.h"
+#include "chrome/browser/safe_browsing/incident_reporting/tracked_preference_incident.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/safe_browsing/csd.pb.h"
 #include "chrome/test/base/testing_browser_process.h"
@@ -146,7 +150,6 @@ class IncidentReportingServiceTest : public testing::Test {
     ON_DELAYED_ANALYSIS_ADD_INCIDENT,  // Add an incident to the service.
   };
 
-  static const int64 kIncidentTimeMsec;
   static const char kFakeOsName[];
   static const char kFakeDownloadToken[];
   static const char kTestTrackedPrefPath[];
@@ -188,16 +191,20 @@ class IncidentReportingServiceTest : public testing::Test {
 
   // Creates and returns a profile (owned by the profile manager) with or
   // without safe browsing enabled. An incident will be created within
-  // PreProfileAdd if requested.
+  // PreProfileAdd if requested. |incidents_sent|, if provided, will be set
+  // in the profile's preference.
   TestingProfile* CreateProfile(const std::string& profile_name,
                                 SafeBrowsingDisposition safe_browsing_opt_in,
-                                OnProfileAdditionAction on_addition_action) {
+                                OnProfileAdditionAction on_addition_action,
+                                scoped_ptr<base::Value> incidents_sent) {
     // Create prefs for the profile with safe browsing enabled or not.
     scoped_ptr<TestingPrefServiceSyncable> prefs(
         new TestingPrefServiceSyncable);
     chrome::RegisterUserProfilePrefs(prefs->registry());
     prefs->SetBoolean(prefs::kSafeBrowsingEnabled,
                       safe_browsing_opt_in == SAFE_BROWSING_OPT_IN);
+    if (incidents_sent)
+      prefs->Set(prefs::kSafeBrowsingIncidentsSent, *incidents_sent);
 
     // Remember whether or not to create an incident.
     profile_properties_[profile_name].on_addition_action = on_addition_action;
@@ -224,20 +231,28 @@ class IncidentReportingServiceTest : public testing::Test {
   }
 
   // Returns an incident suitable for testing.
-  scoped_ptr<safe_browsing::ClientIncidentReport_IncidentData>
-  MakeTestIncident() {
-    scoped_ptr<safe_browsing::ClientIncidentReport_IncidentData> incident(
-        new safe_browsing::ClientIncidentReport_IncidentData());
-    incident->set_incident_time_msec(kIncidentTimeMsec);
-    safe_browsing::ClientIncidentReport_IncidentData_TrackedPreferenceIncident*
-        tp_incident = incident->mutable_tracked_preference();
-    tp_incident->set_path(kTestTrackedPrefPath);
-    return incident.Pass();
+  scoped_ptr<safe_browsing::Incident> MakeTestIncident(const char* value) {
+    scoped_ptr<safe_browsing::
+                   ClientIncidentReport_IncidentData_TrackedPreferenceIncident>
+        incident(
+            new safe_browsing::
+                ClientIncidentReport_IncidentData_TrackedPreferenceIncident());
+    incident->set_path(kTestTrackedPrefPath);
+    if (value)
+      incident->set_atomic_value(value);
+    return make_scoped_ptr(
+        new safe_browsing::TrackedPreferenceIncident(incident.Pass(),
+                                                     false /* is_personal */));
   }
 
   // Adds a test incident to the service.
   void AddTestIncident(Profile* profile) {
-    instance_->GetAddIncidentCallback(profile).Run(MakeTestIncident().Pass());
+    scoped_ptr<safe_browsing::IncidentReceiver> receiver(
+        instance_->GetIncidentReceiver());
+    if (profile)
+      receiver->AddIncidentForProfile(profile, MakeTestIncident(nullptr));
+    else
+      receiver->AddIncidentForProcess(MakeTestIncident(nullptr));
   }
 
   // Registers the callback to be run for delayed analysis.
@@ -255,8 +270,7 @@ class IncidentReportingServiceTest : public testing::Test {
     ASSERT_EQ(incident_count, uploaded_report_->incident_size());
     for (int i = 0; i < incident_count; ++i) {
       ASSERT_TRUE(uploaded_report_->incident(i).has_incident_time_msec());
-      ASSERT_EQ(kIncidentTimeMsec,
-                uploaded_report_->incident(i).incident_time_msec());
+      ASSERT_NE(0LL, uploaded_report_->incident(i).incident_time_msec());
       ASSERT_TRUE(uploaded_report_->incident(i).has_tracked_preference());
       ASSERT_TRUE(
           uploaded_report_->incident(i).tracked_preference().has_path());
@@ -372,7 +386,7 @@ class IncidentReportingServiceTest : public testing::Test {
         FROM_HERE,
         base::Bind(&TestingProfileManager::DeleteTestingProfile,
                    base::Unretained(&profile_manager_),
-                   profile->GetProfileName()));
+                   profile->GetProfileUserName()));
   }
 
   // A callback run by the test fixture when a profile is added. An incident
@@ -381,7 +395,9 @@ class IncidentReportingServiceTest : public testing::Test {
     // The instance must have already been created.
     ASSERT_TRUE(instance_);
     // Add a test incident to the service if requested.
-    switch (profile_properties_[profile->GetProfileName()].on_addition_action) {
+    OnProfileAdditionAction action =
+        profile_properties_[profile->GetProfileUserName()].on_addition_action;
+    switch (action) {
       case ON_PROFILE_ADDITION_ADD_INCIDENT:
         AddTestIncident(profile);
         break;
@@ -390,9 +406,7 @@ class IncidentReportingServiceTest : public testing::Test {
         AddTestIncident(profile);
         break;
       default:
-        ASSERT_EQ(
-            ON_PROFILE_ADDITION_NO_ACTION,
-            profile_properties_[profile->GetProfileName()].on_addition_action);
+        ASSERT_EQ(ON_PROFILE_ADDITION_NO_ACTION, action);
         break;
     }
   }
@@ -442,22 +456,19 @@ class IncidentReportingServiceTest : public testing::Test {
       on_start_upload_callback_.Run();
       on_start_upload_callback_ = base::Closure();
     }
-    return scoped_ptr<safe_browsing::IncidentReportUploader>(
-               new FakeUploader(
-                   base::Bind(
-                       &IncidentReportingServiceTest::OnUploaderDestroyed,
-                       base::Unretained(this)),
-                   callback,
-                   upload_result_)).Pass();
+    return make_scoped_ptr(new FakeUploader(
+        base::Bind(&IncidentReportingServiceTest::OnUploaderDestroyed,
+                   base::Unretained(this)),
+        callback, upload_result_));
   }
 
   void OnDownloadFinderDestroyed() { download_finder_destroyed_ = true; }
   void OnUploaderDestroyed() { uploader_destroyed_ = true; }
 
-  void OnDelayedAnalysis(const safe_browsing::AddIncidentCallback& callback) {
+  void OnDelayedAnalysis(scoped_ptr<safe_browsing::IncidentReceiver> receiver) {
     delayed_analysis_ran_ = true;
     if (on_delayed_analysis_action_ == ON_DELAYED_ANALYSIS_ADD_INCIDENT)
-      callback.Run(MakeTestIncident().Pass());
+      receiver->AddIncidentForProcess(MakeTestIncident(nullptr));
   }
 
   // A mapping of profile name to its corresponding properties.
@@ -470,7 +481,6 @@ base::LazyInstance<base::ThreadLocalPointer<
     IncidentReportingServiceTest::TestIncidentReportingService::test_instance_ =
         LAZY_INSTANCE_INITIALIZER;
 
-const int64 IncidentReportingServiceTest::kIncidentTimeMsec = 47LL;
 const char IncidentReportingServiceTest::kFakeOsName[] = "fakedows";
 const char IncidentReportingServiceTest::kFakeDownloadToken[] = "fakedlt";
 const char IncidentReportingServiceTest::kTestTrackedPrefPath[] = "some_pref";
@@ -478,8 +488,8 @@ const char IncidentReportingServiceTest::kTestTrackedPrefPath[] = "some_pref";
 // Tests that an incident added during profile initialization when safe browsing
 // is on is uploaded.
 TEST_F(IncidentReportingServiceTest, AddIncident) {
-  CreateProfile(
-      "profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_ADD_INCIDENT);
+  CreateProfile("profile1", SAFE_BROWSING_OPT_IN,
+                ON_PROFILE_ADDITION_ADD_INCIDENT, nullptr);
 
   // Let all tasks run.
   task_runner_->RunUntilIdle();
@@ -504,8 +514,8 @@ TEST_F(IncidentReportingServiceTest, AddIncident) {
 
 // Tests that multiple incidents are coalesced into the same report.
 TEST_F(IncidentReportingServiceTest, CoalesceIncidents) {
-  CreateProfile(
-      "profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_ADD_TWO_INCIDENTS);
+  CreateProfile("profile1", SAFE_BROWSING_OPT_IN,
+                ON_PROFILE_ADDITION_ADD_TWO_INCIDENTS, nullptr);
 
   // Let all tasks run.
   task_runner_->RunUntilIdle();
@@ -532,8 +542,8 @@ TEST_F(IncidentReportingServiceTest, CoalesceIncidents) {
 // is off is not uploaded.
 TEST_F(IncidentReportingServiceTest, NoSafeBrowsing) {
   // Create the profile, thereby causing the test to begin.
-  CreateProfile(
-      "profile1", SAFE_BROWSING_OPT_OUT, ON_PROFILE_ADDITION_ADD_INCIDENT);
+  CreateProfile("profile1", SAFE_BROWSING_OPT_OUT,
+                ON_PROFILE_ADDITION_ADD_INCIDENT, nullptr);
 
   // Let all tasks run.
   task_runner_->RunUntilIdle();
@@ -551,8 +561,8 @@ TEST_F(IncidentReportingServiceTest, NoDownloadNoUpload) {
   SetCreateDownloadFinderAction(ON_CREATE_DOWNLOAD_FINDER_NO_DOWNLOADS);
 
   // Create the profile, thereby causing the test to begin.
-  CreateProfile(
-      "profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_ADD_INCIDENT);
+  CreateProfile("profile1", SAFE_BROWSING_OPT_IN,
+                ON_PROFILE_ADDITION_ADD_INCIDENT, nullptr);
 
   // Let all tasks run.
   task_runner_->RunUntilIdle();
@@ -574,8 +584,8 @@ TEST_F(IncidentReportingServiceTest, NoProfilesNoUpload) {
   SetCreateDownloadFinderAction(ON_CREATE_DOWNLOAD_FINDER_NO_PROFILES);
 
   // Create the profile, thereby causing the test to begin.
-  CreateProfile(
-      "profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_ADD_INCIDENT);
+  CreateProfile("profile1", SAFE_BROWSING_OPT_IN,
+                ON_PROFILE_ADDITION_ADD_INCIDENT, nullptr);
 
   // Let all tasks run.
   task_runner_->RunUntilIdle();
@@ -595,8 +605,8 @@ TEST_F(IncidentReportingServiceTest, NoProfilesNoUpload) {
 // Tests that an identical incident added after upload is not uploaded again.
 TEST_F(IncidentReportingServiceTest, OneIncidentOneUpload) {
   // Create the profile, thereby causing the test to begin.
-  Profile* profile = CreateProfile(
-      "profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_ADD_INCIDENT);
+  Profile* profile = CreateProfile("profile1", SAFE_BROWSING_OPT_IN,
+                                   ON_PROFILE_ADDITION_ADD_INCIDENT, nullptr);
 
   // Let all tasks run.
   task_runner_->RunUntilIdle();
@@ -622,8 +632,8 @@ TEST_F(IncidentReportingServiceTest, OneIncidentOneUpload) {
 // uploads.
 TEST_F(IncidentReportingServiceTest, TwoIncidentsTwoUploads) {
   // Create the profile, thereby causing the test to begin.
-  Profile* profile = CreateProfile(
-      "profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_ADD_INCIDENT);
+  Profile* profile = CreateProfile("profile1", SAFE_BROWSING_OPT_IN,
+                                   ON_PROFILE_ADDITION_ADD_INCIDENT, nullptr);
 
   // Let all tasks run.
   task_runner_->RunUntilIdle();
@@ -633,10 +643,8 @@ TEST_F(IncidentReportingServiceTest, TwoIncidentsTwoUploads) {
   ExpectTestIncidentUploaded(1);
 
   // Add a variation on the incident to the service.
-  scoped_ptr<safe_browsing::ClientIncidentReport_IncidentData> incident(
-      MakeTestIncident());
-  incident->mutable_tracked_preference()->set_atomic_value("leeches");
-  instance_->GetAddIncidentCallback(profile).Run(incident.Pass());
+  instance_->GetIncidentReceiver()->AddIncidentForProfile(
+      profile, MakeTestIncident("leeches"));
 
   // Let all tasks run.
   task_runner_->RunUntilIdle();
@@ -652,8 +660,8 @@ TEST_F(IncidentReportingServiceTest, TwoIncidentsTwoUploads) {
 // results in two uploads.
 TEST_F(IncidentReportingServiceTest, TwoProfilesTwoUploads) {
   // Create the profile, thereby causing the test to begin.
-  CreateProfile(
-      "profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_ADD_INCIDENT);
+  CreateProfile("profile1", SAFE_BROWSING_OPT_IN,
+                ON_PROFILE_ADDITION_ADD_INCIDENT, nullptr);
 
   // Let all tasks run.
   task_runner_->RunUntilIdle();
@@ -663,8 +671,8 @@ TEST_F(IncidentReportingServiceTest, TwoProfilesTwoUploads) {
   ExpectTestIncidentUploaded(1);
 
   // Create a second profile with its own incident on addition.
-  CreateProfile(
-      "profile2", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_ADD_INCIDENT);
+  CreateProfile("profile2", SAFE_BROWSING_OPT_IN,
+                ON_PROFILE_ADDITION_ADD_INCIDENT, nullptr);
 
   // Let all tasks run.
   task_runner_->RunUntilIdle();
@@ -680,8 +688,8 @@ TEST_F(IncidentReportingServiceTest, TwoProfilesTwoUploads) {
 // pending.
 TEST_F(IncidentReportingServiceTest, ProfileDestroyedDuringUpload) {
   // Create a profile for which an incident will be added.
-  Profile* profile = CreateProfile(
-      "profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_ADD_INCIDENT);
+  Profile* profile = CreateProfile("profile1", SAFE_BROWSING_OPT_IN,
+                                   ON_PROFILE_ADDITION_ADD_INCIDENT, nullptr);
 
   // Hook up a callback to run when the upload is started that will post a task
   // to delete the profile. This task will run before the upload finishes.
@@ -699,40 +707,6 @@ TEST_F(IncidentReportingServiceTest, ProfileDestroyedDuringUpload) {
 
   // The lack of a crash indicates that the deleted profile was not accessed by
   // the service while handling the upload response.
-}
-
-// Tests that no upload takes place if the old pref was present.
-TEST_F(IncidentReportingServiceTest, MigrateOldPref) {
-  Profile* profile = CreateProfile(
-      "profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_NO_ACTION);
-
-  // This is a legacy profile.
-  profile->GetPrefs()->SetBoolean(prefs::kSafeBrowsingIncidentReportSent, true);
-
-  // Add the test incident.
-  AddTestIncident(profile);
-
-  // Let all tasks run.
-  task_runner_->RunUntilIdle();
-
-  // No upload should have taken place.
-  AssertNoUpload();
-
-  // The legacy pref should have been cleared.
-  ASSERT_FALSE(
-      profile->GetPrefs()->GetBoolean(prefs::kSafeBrowsingIncidentReportSent));
-
-  // Adding the same incident again should still result in no upload.
-  AddTestIncident(profile);
-
-  // Let all tasks run.
-  task_runner_->RunUntilIdle();
-
-  // No upload should have taken place.
-  AssertNoUpload();
-
-  // Ensure that no report processing remains.
-  ASSERT_FALSE(instance_->IsProcessingReport());
 }
 
 // Tests that no upload results from adding an incident that is not affiliated
@@ -755,8 +729,8 @@ TEST_F(IncidentReportingServiceTest, ProcessWideNoProfileNoUpload) {
 // incident and that pruning works.
 TEST_F(IncidentReportingServiceTest, ProcessWideOneUpload) {
   // Add a profile that participates in safe browsing.
-  CreateProfile(
-      "profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_NO_ACTION);
+  CreateProfile("profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_NO_ACTION,
+                nullptr);
 
   // Add the test incident.
   AddTestIncident(NULL);
@@ -784,13 +758,13 @@ TEST_F(IncidentReportingServiceTest, ProcessWideOneUpload) {
 // payloads added via the same callback lead to two uploads.
 TEST_F(IncidentReportingServiceTest, ProcessWideTwoUploads) {
   // Add a profile that participates in safe browsing.
-  CreateProfile(
-      "profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_NO_ACTION);
+  CreateProfile("profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_NO_ACTION,
+                nullptr);
 
   // Add the test incident.
-  safe_browsing::AddIncidentCallback add_incident(
-      instance_->GetAddIncidentCallback(NULL));
-  add_incident.Run(MakeTestIncident().Pass());
+  scoped_ptr<safe_browsing::IncidentReceiver> receiver(
+      instance_->GetIncidentReceiver());
+  receiver->AddIncidentForProcess(MakeTestIncident(nullptr));
 
   // Let all tasks run.
   task_runner_->RunUntilIdle();
@@ -799,10 +773,7 @@ TEST_F(IncidentReportingServiceTest, ProcessWideTwoUploads) {
   ExpectTestIncidentUploaded(1);
 
   // Add a variation on the incident to the service.
-  scoped_ptr<safe_browsing::ClientIncidentReport_IncidentData> incident(
-      MakeTestIncident());
-  incident->mutable_tracked_preference()->set_atomic_value("leeches");
-  add_incident.Run(incident.Pass());
+  receiver->AddIncidentForProcess(MakeTestIncident("leeches"));
 
   // Let all tasks run.
   task_runner_->RunUntilIdle();
@@ -827,8 +798,8 @@ TEST_F(IncidentReportingServiceTest, ProcessWideOneUploadAfterProfile) {
   AssertNoUpload();
 
   // Add a profile that participates in safe browsing.
-  CreateProfile(
-      "profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_NO_ACTION);
+  CreateProfile("profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_NO_ACTION,
+                nullptr);
 
   // Let all tasks run.
   task_runner_->RunUntilIdle();
@@ -854,8 +825,8 @@ TEST_F(IncidentReportingServiceTest, NoCollectionWithoutIncident) {
   ASSERT_FALSE(HasCollectedEnvironmentData());
 
   // Add a profile that participates in safe browsing.
-  CreateProfile(
-      "profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_NO_ACTION);
+  CreateProfile("profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_NO_ACTION,
+                nullptr);
 
   // Let all tasks run.
   task_runner_->RunUntilIdle();
@@ -883,8 +854,8 @@ TEST_F(IncidentReportingServiceTest, AnalysisAfterProfile) {
   ASSERT_FALSE(DelayedAnalysisRan());
 
   // Add a profile that participates in safe browsing.
-  CreateProfile(
-      "profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_NO_ACTION);
+  CreateProfile("profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_NO_ACTION,
+                nullptr);
 
   // Let all tasks run.
   task_runner_->RunUntilIdle();
@@ -900,8 +871,8 @@ TEST_F(IncidentReportingServiceTest, AnalysisAfterProfile) {
 // when a profile that participates in safe browsing is already present.
 TEST_F(IncidentReportingServiceTest, AnalysisWhenRegisteredWithProfile) {
   // Add a profile that participates in safe browsing.
-  CreateProfile(
-      "profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_NO_ACTION);
+  CreateProfile("profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_NO_ACTION,
+                nullptr);
 
   // Register a callback.
   RegisterAnalysis(ON_DELAYED_ANALYSIS_NO_ACTION);
@@ -923,8 +894,8 @@ TEST_F(IncidentReportingServiceTest, DelayedAnalysisNoProfileNoUpload) {
   RegisterAnalysis(ON_DELAYED_ANALYSIS_ADD_INCIDENT);
 
   // Add a profile that does not participate in safe browsing.
-  CreateProfile(
-      "profile1", SAFE_BROWSING_OPT_OUT, ON_PROFILE_ADDITION_NO_ACTION);
+  CreateProfile("profile1", SAFE_BROWSING_OPT_OUT,
+                ON_PROFILE_ADDITION_NO_ACTION, nullptr);
 
   // Let all tasks run.
   task_runner_->RunUntilIdle();
@@ -946,8 +917,8 @@ TEST_F(IncidentReportingServiceTest, DelayedAnalysisOneUpload) {
   RegisterAnalysis(ON_DELAYED_ANALYSIS_ADD_INCIDENT);
 
   // Add a profile that participates in safe browsing.
-  CreateProfile(
-      "profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_NO_ACTION);
+  CreateProfile("profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_NO_ACTION,
+                nullptr);
 
   // Let all tasks run.
   task_runner_->RunUntilIdle();
@@ -980,8 +951,8 @@ TEST_F(IncidentReportingServiceTest, NoDownloadNoWaiting) {
   RegisterAnalysis(ON_DELAYED_ANALYSIS_NO_ACTION);
 
   // Add a profile that participates in safe browsing.
-  Profile* profile = CreateProfile(
-      "profile1", SAFE_BROWSING_OPT_IN, ON_PROFILE_ADDITION_NO_ACTION);
+  Profile* profile = CreateProfile("profile1", SAFE_BROWSING_OPT_IN,
+                                   ON_PROFILE_ADDITION_NO_ACTION, nullptr);
 
   // Add an incident.
   AddTestIncident(profile);
@@ -997,6 +968,38 @@ TEST_F(IncidentReportingServiceTest, NoDownloadNoWaiting) {
 
   // Ensure that the report is dropped.
   ASSERT_FALSE(instance_->IsProcessingReport());
+}
+
+// Test that a profile's prune state is properly cleaned upon load.
+TEST_F(IncidentReportingServiceTest, CleanLegacyPruneState) {
+  const std::string omnibox_type(base::IntToString(
+      static_cast<int32_t>(safe_browsing::IncidentType::OMNIBOX_INTERACTION)));
+  const std::string preference_type(base::IntToString(
+      static_cast<int32_t>(safe_browsing::IncidentType::TRACKED_PREFERENCE)));
+
+  // Set up a prune state dict with data to be cleared (and not).
+  scoped_ptr<base::DictionaryValue> incidents_sent(new base::DictionaryValue());
+  base::DictionaryValue* type_dict = new base::DictionaryValue();
+  type_dict->SetStringWithoutPathExpansion("foo", "47");
+  incidents_sent->SetWithoutPathExpansion(omnibox_type, type_dict);
+  type_dict = new base::DictionaryValue();
+  type_dict->SetStringWithoutPathExpansion("bar", "43");
+  incidents_sent->SetWithoutPathExpansion(preference_type, type_dict);
+
+  // Add a profile.
+  Profile* profile =
+      CreateProfile("profile1", SAFE_BROWSING_OPT_IN,
+                    ON_PROFILE_ADDITION_NO_ACTION, incidents_sent.Pass());
+
+  // Let all tasks run.
+  task_runner_->RunUntilIdle();
+
+  const base::DictionaryValue* new_state =
+      profile->GetPrefs()->GetDictionary(prefs::kSafeBrowsingIncidentsSent);
+  // The legacy value must be gone.
+  ASSERT_FALSE(new_state->HasKey(omnibox_type));
+  // But other data must be untouched.
+  ASSERT_TRUE(new_state->HasKey(preference_type));
 }
 
 // Parallel uploads

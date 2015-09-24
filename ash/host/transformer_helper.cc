@@ -13,7 +13,7 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/geometry/size.h"
-#include "ui/gfx/size_conversions.h"
+#include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/transform.h"
 
 namespace ash {
@@ -58,10 +58,13 @@ class SimpleRootWindowTransformer : public RootWindowTransformer {
 
 TransformerHelper::TransformerHelper(AshWindowTreeHost* ash_host)
     : ash_host_(ash_host) {
-  SetTransform(gfx::Transform());
 }
 
 TransformerHelper::~TransformerHelper() {}
+
+void TransformerHelper::Init() {
+  SetTransform(gfx::Transform());
+}
 
 gfx::Insets TransformerHelper::GetHostInsets() const {
   return transformer_->GetHostInsets();

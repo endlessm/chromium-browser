@@ -20,9 +20,9 @@ namespace test {
 class TraySessionLengthLimitTest : public AshTestBase {
  public:
   TraySessionLengthLimitTest() {}
-  virtual ~TraySessionLengthLimitTest() {}
+  ~TraySessionLengthLimitTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     AshTestBase::SetUp();
     SystemTray* system_tray =
         Shell::GetPrimaryRootWindowController()->GetSystemTray();
@@ -30,7 +30,8 @@ class TraySessionLengthLimitTest : public AshTestBase {
     system_tray->AddTrayItem(tray_session_length_limit_);
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
+    ClearSessionLengthLimit();
     AshTestBase::TearDown();
   }
 
@@ -49,7 +50,7 @@ class TraySessionLengthLimitTest : public AshTestBase {
       if ((*iter)->id() == TraySessionLengthLimit::kNotificationId)
         return *iter;
     }
-    return NULL;
+    return nullptr;
   }
 
   void ClearSessionLengthLimit() {
@@ -122,8 +123,6 @@ TEST_F(TraySessionLengthLimitTest, Notification) {
 }
 
 TEST_F(TraySessionLengthLimitTest, RemoveNotification) {
-  message_center::Notification* notification;
-
   // Limit is 15 min.
   UpdateSessionLengthLimitInMin(15);
   EXPECT_TRUE(GetNotification());
@@ -139,7 +138,7 @@ TEST_F(TraySessionLengthLimitTest, RemoveNotification) {
   // Limit is 3 min. The notification should re-appear and should be re-read
   // because of state change.
   UpdateSessionLengthLimitInMin(3);
-  notification = GetNotification();
+  message_center::Notification* notification = GetNotification();
   EXPECT_TRUE(notification);
   EXPECT_TRUE(notification->rich_notification_data().
               should_make_spoken_feedback_for_popup_updates);

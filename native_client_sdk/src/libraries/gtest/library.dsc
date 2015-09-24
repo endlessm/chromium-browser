@@ -1,5 +1,4 @@
 {
-  'TOOLS': ['bionic', 'newlib', 'glibc', 'pnacl', 'win', 'linux'],
   'SEARCH': [
     '.',
     '../../../../testing/gtest/include/gtest',
@@ -14,7 +13,6 @@
         'gtest.cc',
         'gtest-death-test.cc',
         'gtest-filepath.cc',
-        'gtest_main.cc',
         'gtest-port.cc',
         'gtest-printers.cc',
         'gtest-test-part.cc',
@@ -24,7 +22,6 @@
         # See comment below about gtest-internal-inl.h
         '$(NACL_SDK_ROOT)/include/gtest/internal',
       ],
-      'CXXFLAGS': ['-Wno-unused-const-variable'],
     }
   ],
   'HEADERS': [

@@ -30,7 +30,7 @@ public:
 static SkData* new_test_data(size_t dataSize) {
     SkAutoTMalloc<uint8_t> testBuffer(dataSize);
     for (size_t i = 0; i < dataSize; ++i) {
-        testBuffer[i] = i % 64;
+        testBuffer[SkToInt(i)] = i % 64;
     }
     return SkData::NewFromMalloc(testBuffer.detach(), dataSize);
 }
@@ -104,16 +104,11 @@ static void TestFlate(skiatest::Reporter* reporter, SkMemoryStream* testStream,
 }
 
 DEF_TEST(Flate, reporter) {
-#ifdef SK_HAS_ZLIB
-    REPORTER_ASSERT(reporter, SkFlate::HaveFlate());
-#endif
-    if (SkFlate::HaveFlate()) {
-        SkMemoryStream memStream;
-        TestFlate(reporter, &memStream, 512);
-        TestFlate(reporter, &memStream, 10240);
+    SkMemoryStream memStream;
+    TestFlate(reporter, &memStream, 512);
+    TestFlate(reporter, &memStream, 10240);
 
-        SkZeroSizeMemStream fileStream;
-        TestFlate(reporter, &fileStream, 512);
-        TestFlate(reporter, &fileStream, 10240);
-    }
+    SkZeroSizeMemStream fileStream;
+    TestFlate(reporter, &fileStream, 512);
+    TestFlate(reporter, &fileStream, 10240);
 }

@@ -8,14 +8,11 @@ namespace sync_driver {
 
 namespace prefs {
 
-// Set to true when enhanced bookmarks experiment is enabled via Chrome sync.
-const char kEnhancedBookmarksExperimentEnabled[] = "enhanced_bookmarks_enabled";
-
-// Enhanced bookmarks extension id passed via Chrome sync.
-const char kEnhancedBookmarksExtensionId[] = "enhanced_bookmarks_extension_id";
-
 // 64-bit integer serialization of the base::Time when the last sync occurred.
 const char kSyncLastSyncedTime[] = "sync.last_synced_time";
+
+// 64-bit integer serialization of the base::Time of the last sync poll.
+const char kSyncLastPollTime[] = "sync.last_poll_time";
 
 // Boolean specifying whether the user finished setting up sync.
 const char kSyncHasSetupCompleted[] = "sync.has_setup_completed";
@@ -36,6 +33,8 @@ const char kSyncAppSettings[] = "sync.app_settings";
 const char kSyncApps[] = "sync.apps";
 const char kSyncArticles[] = "sync.articles";
 const char kSyncAutofillProfile[] = "sync.autofill_profile";
+const char kSyncAutofillWallet[] = "sync.autofill_wallet";
+const char kSyncAutofillWalletMetadata[] = "sync.autofill_wallet_metadata";
 const char kSyncAutofill[] = "sync.autofill";
 const char kSyncBookmarks[] = "sync.bookmarks";
 const char kSyncDeviceInfo[] = "sync.device_info";
@@ -53,6 +52,8 @@ const char kSyncSessions[] = "sync.sessions";
 const char kSyncSupervisedUserSettings[] = "sync.managed_user_settings";
 const char kSyncSupervisedUserSharedSettings[] =
     "sync.managed_user_shared_settings";
+const char kSyncSupervisedUserWhitelists[] =
+    "sync.managed_user_whitelists";
 const char kSyncSupervisedUsers[] = "sync.managed_users";
 const char kSyncSyncedNotificationAppInfo[] =
     "sync.synced_notification_app_info";
@@ -79,14 +80,6 @@ const char kSyncEncryptionBootstrapToken[] = "sync.encryption_bootstrap_token";
 const char kSyncKeystoreEncryptionBootstrapToken[] =
     "sync.keystore_encryption_bootstrap_token";
 
-// Boolean tracking whether the user chose to specify a secondary encryption
-// passphrase.
-const char kSyncUsingSecondaryPassphrase[] = "sync.using_secondary_passphrase";
-
-// List of the currently acknowledged set of sync types, used to figure out
-// if a new sync type has rolled out so we can notify the user.
-const char kSyncAcknowledgedSyncTypes[] = "sync.acknowledged_types";
-
 // The GUID session sync will use to identify this client, even across sync
 // disable/enable events.
 const char kSyncSessionsGUID[] = "sync.session_sync_guid";
@@ -102,6 +95,17 @@ const char kSyncRemainingRollbackTries[] = "sync.remaining_rollback_tries";
 
 // Stores the timestamp of first sync.
 const char kSyncFirstSyncTime[] = "sync.first_sync_time";
+
+// Stores whether a platform specific passphrase error prompt has been shown to
+// the user (e.g. an Android system notification). Used for out of band prompts
+// that we only want to use once.
+const char kSyncPassphrasePrompted[] = "sync.passphrase_prompted";
+
+// Stores how many times received MEMORY_PRESSURE_LEVEL_CRITICAL.
+const char kSyncMemoryPressureWarningCount[] = "sync.memory_warning_count";
+
+// Stores if sync shutdown cleanly.
+const char kSyncShutdownCleanly[] = "sync.shutdown_cleanly";
 
 }  // namespace prefs
 

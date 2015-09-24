@@ -19,8 +19,10 @@
 #include "base/time/time.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host_observer.h"
+#include "ui/base/ime/input_method.h"
+#include "ui/base/ime/input_method_delegate.h"
 #include "ui/gfx/display_observer.h"
-#include "ui/gfx/point.h"
+#include "ui/gfx/geometry/point.h"
 
 namespace aura {
 class Display;
@@ -44,6 +46,7 @@ class CursorWindowController;
 class DisplayInfo;
 class DisplayManager;
 class FocusActivationStore;
+class InputMethodEventHandler;
 class MirrorWindowController;
 class RootWindowController;
 
@@ -51,7 +54,8 @@ class RootWindowController;
 // display, keeping them in sync with display configuration changes.
 class ASH_EXPORT DisplayController : public gfx::DisplayObserver,
                                      public aura::WindowTreeHostObserver,
-                                     public DisplayManager::Delegate {
+                                     public DisplayManager::Delegate,
+                                     public ui::internal::InputMethodDelegate {
  public:
   class ASH_EXPORT Observer {
    public:
@@ -106,6 +110,10 @@ class ASH_EXPORT DisplayController : public gfx::DisplayObserver,
   // Returns the root window for |display_id|.
   aura::Window* GetRootWindowForDisplayId(int64 id);
 
+  // Returns AshWTH for given display |id|. Call results in CHECK failure
+  // if the WTH does not exist.
+  AshWindowTreeHost* GetAshWindowTreeHostForDisplayId(int64 id);
+
   // Toggle mirror mode.
   void ToggleMirrorMode();
 
@@ -138,11 +146,14 @@ class ASH_EXPORT DisplayController : public gfx::DisplayObserver,
 
   // Checks if the mouse pointer is on one of displays, and moves to
   // the center of the nearest display if it's outside of all displays.
-  void EnsurePointerInDisplays();
+  void UpdateMouseLocationAfterDisplayChange();
 
   // Sets the work area's |insets| to the display assigned to |window|.
   bool UpdateWorkAreaOfDisplayNearestWindow(const aura::Window* window,
                                             const gfx::Insets& insets);
+
+  ui::InputMethod* input_method() { return input_method_.get(); }
+
   // gfx::DisplayObserver overrides:
   void OnDisplayAdded(const gfx::Display& display) override;
   void OnDisplayRemoved(const gfx::Display& display) override;
@@ -153,10 +164,18 @@ class ASH_EXPORT DisplayController : public gfx::DisplayObserver,
   void OnHostResized(const aura::WindowTreeHost* host) override;
 
   // aura::DisplayManager::Delegate overrides:
-  void CreateOrUpdateNonDesktopDisplay(const DisplayInfo& info) override;
-  void CloseNonDesktopDisplay() override;
+  void CreateOrUpdateMirroringDisplay(
+      const DisplayInfoList& info_list) override;
+  void CloseMirroringDisplayIfNotNecessary() override;
   void PreDisplayConfigurationChange(bool clear_focus) override;
   void PostDisplayConfigurationChange() override;
+
+  // ui::internal::InputMethodDelegate overrides:
+  bool DispatchKeyEventPostIME(const ui::KeyEvent& event) override;
+
+  InputMethodEventHandler* input_method_event_handler() {
+    return input_method_event_handler_.get();
+  }
 
  private:
   FRIEND_TEST_ALL_PREFIXES(DisplayControllerTest, BoundsUpdated);
@@ -174,7 +193,9 @@ class ASH_EXPORT DisplayController : public gfx::DisplayObserver,
 
   void SetMirrorModeAfterAnimation(bool mirror);
 
-  void UpdateHostWindowNames();
+  // Delete the AsWindowTreeHost. This does not remove the entry from
+  // |window_tree_hosts_|. Caller has to explicitly remove it.
+  void DeleteHost(AshWindowTreeHost* host_to_delete);
 
   class DisplayChangeLimiter {
    public:
@@ -200,7 +221,7 @@ class ASH_EXPORT DisplayController : public gfx::DisplayObserver,
   // The mapping from display ID to its window tree host.
   WindowTreeHostMap window_tree_hosts_;
 
-  ObserverList<Observer> observers_;
+  base::ObserverList<Observer> observers_;
 
   // Store the primary window tree host temporarily while replacing
   // display.
@@ -211,10 +232,19 @@ class ASH_EXPORT DisplayController : public gfx::DisplayObserver,
   scoped_ptr<CursorWindowController> cursor_window_controller_;
   scoped_ptr<MirrorWindowController> mirror_window_controller_;
 
-  // Stores the curent cursor location (in native coordinates) used to
-  // restore the cursor location when display configuration
-  // changed.
+  scoped_ptr<ui::InputMethod> input_method_;
+  scoped_ptr<InputMethodEventHandler> input_method_event_handler_;
+
+  // Stores the current cursor location (in native coordinates and screen
+  // coordinates respectively). The locations are used to restore the cursor
+  // location when the display configuration changes and to determine whether
+  // the mouse should be moved after a display configuration change.
   gfx::Point cursor_location_in_native_coords_for_restore_;
+  gfx::Point cursor_location_in_screen_coords_for_restore_;
+
+  // Stores the cursor's display. The id is used to determine whether the mouse
+  // should be moved after a display configuration change.
+  int64 cursor_display_id_for_restore_;
 
   base::WeakPtrFactory<DisplayController> weak_ptr_factory_;
 

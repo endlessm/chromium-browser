@@ -9,16 +9,10 @@
 #include "chrome/browser/sync_file_system/drive_backend/drive_backend_util.h"
 #include "chrome/browser/sync_file_system/drive_backend/metadata_database.h"
 #include "google_apis/drive/drive_api_parser.h"
-#include "google_apis/drive/gdata_wapi_parser.h"
 
 namespace drive {
 class DriveServiceInterface;
 class DriveUploaderInterface;
-}
-
-namespace google_apis {
-class ResourceEntry;
-class ResourceList;
 }
 
 namespace sync_file_system {
@@ -40,18 +34,16 @@ FolderCreator::~FolderCreator() {
 
 void FolderCreator::Run(const FileIDCallback& callback) {
   drive_service_->AddNewDirectory(
-      parent_folder_id_,
-      title_,
-      drive::DriveServiceInterface::AddNewDirectoryOptions(),
+      parent_folder_id_, title_, drive::AddNewDirectoryOptions(),
       base::Bind(&FolderCreator::DidCreateFolder,
                  weak_ptr_factory_.GetWeakPtr(), callback));
 }
 
 void FolderCreator::DidCreateFolder(
     const FileIDCallback& callback,
-    google_apis::GDataErrorCode error,
+    google_apis::DriveApiErrorCode error,
     scoped_ptr<google_apis::FileResource> entry) {
-  SyncStatusCode status = GDataErrorCodeToSyncStatusCode(error);
+  SyncStatusCode status = DriveApiErrorCodeToSyncStatusCode(error);
   if (status != SYNC_STATUS_OK) {
     callback.Run(std::string(), status);
     return;
@@ -67,9 +59,9 @@ void FolderCreator::DidCreateFolder(
 void FolderCreator::DidListFolders(
     const FileIDCallback& callback,
     ScopedVector<google_apis::FileResource> candidates,
-    google_apis::GDataErrorCode error,
+    google_apis::DriveApiErrorCode error,
     scoped_ptr<google_apis::FileList> file_list) {
-  SyncStatusCode status = GDataErrorCodeToSyncStatusCode(error);
+  SyncStatusCode status = DriveApiErrorCodeToSyncStatusCode(error);
   if (status != SYNC_STATUS_OK) {
     callback.Run(std::string(), status);
     return;

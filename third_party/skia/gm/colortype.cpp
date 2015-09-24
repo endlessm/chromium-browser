@@ -12,7 +12,16 @@
 
 class ColorTypeGM : public skiagm::GM {
 public:
-    ColorTypeGM() {
+    ColorTypeGM()
+        : fColorType(NULL) {
+    }
+
+    virtual ~ColorTypeGM() {
+        SkSafeUnref(fColorType);
+    }
+
+protected:
+    void onOnceBeforeDraw() override {
         const SkColor colors[] = {
             SK_ColorRED, SK_ColorGREEN, SK_ColorBLUE,
             SK_ColorMAGENTA, SK_ColorCYAN, SK_ColorYELLOW
@@ -35,20 +44,15 @@ public:
         orig->unref();
     }
 
-    virtual ~ColorTypeGM() {
-        fColorType->unref();
-    }
-
-protected:
-    virtual SkString onShortName() SK_OVERRIDE {
+    SkString onShortName() override {
         return SkString("colortype");
     }
 
-    virtual SkISize onISize() SK_OVERRIDE {
+    SkISize onISize() override {
         return SkISize::Make(640, 480);
     }
 
-    virtual void onDraw(SkCanvas* canvas) SK_OVERRIDE {
+    void onDraw(SkCanvas* canvas) override {
         SkPaint paint;
         paint.setAntiAlias(true);
         paint.setTypeface(fColorType);
@@ -58,10 +62,6 @@ protected:
             canvas->translate(0, paint.getFontMetrics(NULL));
             canvas->drawText("Hamburgefons", 12, 10, 10, paint);
         }
-    }
-
-    virtual uint32_t onGetFlags() const {
-        return kSkipPipe_Flag | kSkipPicture_Flag;
     }
 
 private:

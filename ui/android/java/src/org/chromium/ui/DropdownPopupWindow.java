@@ -11,6 +11,7 @@ import android.view.View;
 import android.view.View.MeasureSpec;
 import android.view.View.OnLayoutChangeListener;
 import android.view.ViewGroup;
+import android.view.accessibility.AccessibilityEvent;
 import android.widget.LinearLayout;
 import android.widget.ListAdapter;
 import android.widget.ListPopupWindow;
@@ -36,6 +37,7 @@ public class DropdownPopupWindow extends ListPopupWindow {
     private boolean mRtl;
     private OnLayoutChangeListener mLayoutChangeListener;
     private PopupWindow.OnDismissListener mOnDismissListener;
+    private CharSequence mDescription;
     ListAdapter mAdapter;
 
     /**
@@ -116,7 +118,9 @@ public class DropdownPopupWindow extends ListPopupWindow {
         int contentWidth = measureContentWidth();
         float contentWidthInDip = contentWidth
                 / mContext.getResources().getDisplayMetrics().density;
-        if (contentWidthInDip > mAnchorWidth) {
+        Rect padding = new Rect();
+        getBackground().getPadding(padding);
+        if (contentWidthInDip + padding.left + padding.right > mAnchorWidth) {
             setContentWidth(contentWidth);
             final Rect displayFrame = new Rect();
             mAnchorView.getWindowVisibleDisplayFrame(displayFrame);
@@ -128,11 +132,35 @@ public class DropdownPopupWindow extends ListPopupWindow {
         }
         mViewAndroidDelegate.setAnchorViewPosition(mAnchorView, mAnchorX, mAnchorY, mAnchorWidth,
                 mAnchorHeight);
+        boolean wasShowing = isShowing();
         super.show();
         getListView().setDividerHeight(0);
         ApiCompatibilityUtils.setLayoutDirection(getListView(),
                 mRtl ? View.LAYOUT_DIRECTION_RTL : View.LAYOUT_DIRECTION_LTR);
+        if (!wasShowing) {
+            getListView().setContentDescription(mDescription);
+            getListView().sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
+        }
+    }
 
+    @Override
+    public void setOnDismissListener(PopupWindow.OnDismissListener listener) {
+        mOnDismissListener = listener;
+    }
+
+    /**
+     * Sets the text direction in the dropdown. Should be called before show().
+     * @param isRtl If true, then dropdown text direction is right to left.
+     */
+    public void setRtl(boolean isRtl) {
+        mRtl = isRtl;
+    }
+
+    /**
+     * Disable hiding on outside tap so that tapping on a text input field associated with the popup
+     * will not hide the popup.
+     */
+    public void disableHideOnOutsideTap() {
         // HACK: The ListPopupWindow's mPopup automatically dismisses on an outside tap. There's
         // no way to override it or prevent it, except reaching into ListPopupWindow's hidden
         // API. This allows the C++ controller to completely control showing/hiding the popup.
@@ -148,17 +176,13 @@ public class DropdownPopupWindow extends ListPopupWindow {
         }
     }
 
-    @Override
-    public void setOnDismissListener(PopupWindow.OnDismissListener listener) {
-        mOnDismissListener = listener;
-    }
-
     /**
-     * Sets the text direction in the dropdown. Should be called before show().
-     * @param isRtl If true, then dropdown text direciton is right to left.
+     * Sets the content description to be announced by accessibility services when the dropdown is
+     * shown.
+     * @param description The description of the content to be announced.
      */
-    public void setRtl(boolean isRtl) {
-        mRtl = isRtl;
+    public void setContentDescriptionForAccessibility(CharSequence description) {
+        mDescription = description;
     }
 
     /**

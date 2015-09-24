@@ -9,18 +9,15 @@
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/sequenced_task_runner.h"
 #include "base/task_runner_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/chromeos/drive/drive.pb.h"
 #include "chrome/browser/chromeos/drive/file_cache.h"
 #include "chrome/browser/chromeos/drive/file_errors.h"
 #include "chrome/browser/chromeos/drive/file_system/download_operation.h"
 #include "chrome/browser/chromeos/drive/file_system/operation_delegate.h"
 #include "chrome/browser/chromeos/drive/job_scheduler.h"
-#include "content/public/browser/browser_thread.h"
-
-using content::BrowserThread;
 
 namespace drive {
 namespace file_system {
@@ -80,11 +77,11 @@ TruncateOperation::~TruncateOperation() {
 void TruncateOperation::Truncate(const base::FilePath& file_path,
                                  int64 length,
                                  const FileOperationCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   if (length < 0) {
-    base::MessageLoopProxy::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(callback, FILE_ERROR_INVALID_OPERATION));
     return;
@@ -107,7 +104,7 @@ void TruncateOperation::TruncateAfterEnsureFileDownloadedByPath(
     FileError error,
     const base::FilePath& local_file_path,
     scoped_ptr<ResourceEntry> entry) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
   if (error != FILE_ERROR_OK) {
@@ -136,10 +133,10 @@ void TruncateOperation::TruncateAfterTruncateOnBlockingPool(
     const std::string& local_id,
     const FileOperationCallback& callback,
     FileError error) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!callback.is_null());
 
-  delegate_->OnEntryUpdatedByOperation(local_id);
+  delegate_->OnEntryUpdatedByOperation(ClientContext(USER_INITIATED), local_id);
 
   callback.Run(error);
 }

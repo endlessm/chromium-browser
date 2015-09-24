@@ -15,12 +15,12 @@
 #include "chrome/browser/ui/omnibox/omnibox_view.h"
 #include "chrome/browser/ui/search/instant_test_utils.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/common/omnibox_focus_state.h"
 #include "chrome/common/search_types.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/omnibox/common/omnibox_focus_state.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_service.h"
@@ -58,8 +58,10 @@ class InstantExtendedManualTest : public InProcessBrowserTest,
   void SetUpOnMainThread() override {
     const testing::TestInfo* const test_info =
         testing::UnitTest::GetInstance()->current_test_info();
-    ASSERT_TRUE(StartsWithASCII(test_info->name(), "MANUAL_", true) ||
-                StartsWithASCII(test_info->name(), "DISABLED_", true));
+    ASSERT_TRUE(base::StartsWith(test_info->name(), "MANUAL_",
+                                 base::CompareCase::SENSITIVE) ||
+                base::StartsWith(test_info->name(), "DISABLED_",
+                                 base::CompareCase::SENSITIVE));
     // Make IsOffline() return false so we don't try to use the local NTP.
     disable_network_change_notifier_.reset(
         new net::NetworkChangeNotifier::DisableForTest());

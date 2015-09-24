@@ -29,21 +29,29 @@ class AutofillPopupViewAndroid : public AutofillPopupView {
   // Called when an autofill item was selected.
   void SuggestionSelected(JNIEnv* env, jobject obj, jint list_index);
 
+  void DeletionRequested(JNIEnv* env, jobject obj, jint list_index);
+
+  void DeletionConfirmed(JNIEnv* env, jobject obj);
+
   void PopupDismissed(JNIEnv* env, jobject obj);
 
   static bool RegisterAutofillPopupViewAndroid(JNIEnv* env);
 
  protected:
   // AutofillPopupView implementation.
-  virtual void Show() override;
-  virtual void Hide() override;
-  virtual void InvalidateRow(size_t row) override;
-  virtual void UpdateBoundsAndRedrawPopup() override;
+  void Show() override;
+  void Hide() override;
+  void InvalidateRow(size_t row) override;
+  void UpdateBoundsAndRedrawPopup() override;
 
  private:
-  virtual ~AutofillPopupViewAndroid();
+  ~AutofillPopupViewAndroid() override;
 
   AutofillPopupController* controller_;  // weak.
+
+  // The index of the last item the user long-pressed (they will be shown a
+  // confirmation dialog).
+  int deleting_index_;
 
   // The corresponding java object.
   base::android::ScopedJavaGlobalRef<jobject> java_object_;

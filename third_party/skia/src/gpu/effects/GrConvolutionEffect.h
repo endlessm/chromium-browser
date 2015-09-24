@@ -9,8 +9,7 @@
 #define GrConvolutionEffect_DEFINED
 
 #include "Gr1DKernelEffect.h"
-
-class GrGLConvolutionEffect;
+#include "GrInvariantOutput.h"
 
 /**
  * A convolution effect. The kernel is specified as an array of 2 * half-width
@@ -22,13 +21,15 @@ class GrConvolutionEffect : public Gr1DKernelEffect {
 public:
 
     /// Convolve with an arbitrary user-specified kernel
-    static GrFragmentProcessor* Create(GrTexture* tex,
+    static GrFragmentProcessor* Create(GrProcessorDataManager* procDataManager,
+                                       GrTexture* tex,
                                        Direction dir,
                                        int halfWidth,
                                        const float* kernel,
                                        bool useBounds,
                                        float bounds[2]) {
-        return SkNEW_ARGS(GrConvolutionEffect, (tex,
+        return SkNEW_ARGS(GrConvolutionEffect, (procDataManager,
+                                                tex,
                                                 dir,
                                                 halfWidth,
                                                 kernel,
@@ -37,13 +38,15 @@ public:
     }
 
     /// Convolve with a Gaussian kernel
-    static GrFragmentProcessor* CreateGaussian(GrTexture* tex,
+    static GrFragmentProcessor* CreateGaussian(GrProcessorDataManager* procDataManager,
+                                               GrTexture* tex,
                                                Direction dir,
                                                int halfWidth,
                                                float gaussianSigma,
                                                bool useBounds,
                                                float bounds[2]) {
-        return SkNEW_ARGS(GrConvolutionEffect, (tex,
+        return SkNEW_ARGS(GrConvolutionEffect, (procDataManager,
+                                                tex,
                                                 dir,
                                                 halfWidth,
                                                 gaussianSigma,
@@ -58,11 +61,11 @@ public:
     const float* bounds() const { return fBounds; }
     bool useBounds() const { return fUseBounds; }
 
-    static const char* Name() { return "Convolution"; }
+    const char* name() const override { return "Convolution"; }
 
-    typedef GrGLConvolutionEffect GLProcessor;
+    void getGLProcessorKey(const GrGLSLCaps&, GrProcessorKeyBuilder*) const override;
 
-    virtual const GrBackendFragmentProcessorFactory& getFactory() const SK_OVERRIDE;
+    GrGLFragmentProcessor* createGLInstance() const override;
 
     enum {
         // This was decided based on the min allowed value for the max texture
@@ -82,25 +85,27 @@ protected:
     float fBounds[2];
 
 private:
-    GrConvolutionEffect(GrTexture*, Direction,
+    GrConvolutionEffect(GrProcessorDataManager*,
+                        GrTexture*, Direction,
                         int halfWidth,
                         const float* kernel,
                         bool useBounds,
                         float bounds[2]);
 
     /// Convolve with a Gaussian kernel
-    GrConvolutionEffect(GrTexture*, Direction,
+    GrConvolutionEffect(GrProcessorDataManager*,
+                        GrTexture*, Direction,
                         int halfWidth,
                         float gaussianSigma,
                         bool useBounds,
                         float bounds[2]);
 
-    virtual bool onIsEqual(const GrFragmentProcessor&) const SK_OVERRIDE;
+    bool onIsEqual(const GrFragmentProcessor&) const override;
 
-    virtual void onComputeInvariantOutput(InvariantOutput* inout) const {
+    void onComputeInvariantOutput(GrInvariantOutput* inout) const override {
         // If the texture was opaque we could know that the output color if we knew the sum of the
         // kernel values.
-        inout->mulByUnknownColor();
+        inout->mulByUnknownFourComponents();
     }
 
     GR_DECLARE_FRAGMENT_PROCESSOR_TEST;

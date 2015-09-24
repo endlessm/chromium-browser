@@ -15,8 +15,10 @@ import org.chromium.base.JNINamespace;
 
 /**
  * Provides context for the native HTTP operations.
+ * @deprecated Use {@link CronetUrlRequestContext} instead.
  */
 @JNINamespace("cronet")
+@Deprecated
 public class ChromiumUrlRequestContext {
     private static final int LOG_NONE = 3;  // LOG(FATAL), no VLOG.
     private static final int LOG_DEBUG = -1;  // LOG(FATAL...INFO), VLOG(1)
@@ -31,10 +33,11 @@ public class ChromiumUrlRequestContext {
     /**
      * Constructor.
      */
-    protected ChromiumUrlRequestContext(final Context context, String userAgent,
-            String config) {
-        mChromiumUrlRequestContextAdapter = nativeCreateRequestContextAdapter(
-                context, userAgent, getLoggingLevel(), config);
+    protected ChromiumUrlRequestContext(
+            final Context context, String userAgent, UrlRequestContextConfig config) {
+        CronetLibraryLoader.ensureInitialized(context, config);
+        mChromiumUrlRequestContextAdapter =
+                nativeCreateRequestContextAdapter(userAgent, getLoggingLevel(), config.toString());
         if (mChromiumUrlRequestContextAdapter == 0) {
             throw new NullPointerException("Context Adapter creation failed");
         }
@@ -44,12 +47,6 @@ public class ChromiumUrlRequestContext {
         // API to handle the case where we are already on main thread.
         Runnable task = new Runnable() {
             public void run() {
-                NetworkChangeNotifier.init(context);
-                // Registers to always receive network notifications. Note that
-                // this call is fine for Cronet because Cronet embedders do not
-                // have API access to create network change observers. Existing
-                // observers in the net stack do not perform expensive work.
-                NetworkChangeNotifier.registerToReceiveNotificationsAlways();
                 nativeInitRequestContextOnMainThread(
                         mChromiumUrlRequestContextAdapter);
             }
@@ -82,18 +79,25 @@ public class ChromiumUrlRequestContext {
     }
 
     /**
-     * Starts NetLog logging to a file named |fileName| in the
-     * application temporary directory. |fileName| must not be empty. Log level
-     * is LOG_ALL_BUT_BYTES. If the file exists it is truncated before starting.
-     * If actively logging the call is ignored.
+     * Starts NetLog logging to a file. The NetLog capture mode is either
+     * NetLogCaptureMode::Default() or NetLogCaptureMode::IncludeSocketBytes().
+     * The IncludeSocketBytes() mode includes basic events, user cookies,
+     * credentials and all transferred bytes in the log.
+     * @param fileName The complete file path. It must not be empty. If file
+     *            exists, it is truncated before starting. If actively logging,
+     *            this method is ignored.
+     * @param logAll {@code true} to use the
+     *            NetLogCaptureMode::IncludeSocketBytes() logging level. If
+     *            false, NetLogCaptureMode::Default() is used instead.
      */
-    public void startNetLogToFile(String fileName) {
-        nativeStartNetLogToFile(mChromiumUrlRequestContextAdapter, fileName);
+    public void startNetLogToFile(String fileName, boolean logAll) {
+        nativeStartNetLogToFile(mChromiumUrlRequestContextAdapter, fileName,
+                logAll);
     }
 
     /**
      * Stops NetLog logging and flushes file to disk. If a logging session is
-     * not in progress this call is ignored.
+     * not in progress, this call is ignored.
      */
     public void stopNetLog() {
         nativeStopNetLog(mChromiumUrlRequestContextAdapter);
@@ -111,7 +115,7 @@ public class ChromiumUrlRequestContext {
         super.finalize();
     }
 
-    protected long getChromiumUrlRequestContextAdapter() {
+    protected long getUrlRequestContextAdapter() {
         return mChromiumUrlRequestContextAdapter;
     }
 
@@ -133,7 +137,7 @@ public class ChromiumUrlRequestContext {
 
     // Returns an instance ChromiumUrlRequestContextAdapter to be stored in
     // mChromiumUrlRequestContextAdapter.
-    private native long nativeCreateRequestContextAdapter(Context context,
+    private native long nativeCreateRequestContextAdapter(
             String userAgent, int loggingLevel, String config);
 
     private native void nativeReleaseRequestContextAdapter(
@@ -144,7 +148,8 @@ public class ChromiumUrlRequestContext {
     private native String nativeGetStatisticsJSON(String filter);
 
     private native void nativeStartNetLogToFile(
-            long chromiumUrlRequestContextAdapter, String fileName);
+            long chromiumUrlRequestContextAdapter, String fileName,
+            boolean logAll);
 
     private native void nativeStopNetLog(long chromiumUrlRequestContextAdapter);
 

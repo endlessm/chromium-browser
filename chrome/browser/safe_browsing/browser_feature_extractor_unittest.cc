@@ -12,19 +12,21 @@
 #include "base/message_loop/message_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
-#include "chrome/browser/history/history_backend.h"
-#include "chrome/browser/history/history_service.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/browser_features.h"
 #include "chrome/browser/safe_browsing/client_side_detection_host.h"
 #include "chrome/browser/safe_browsing/database_manager.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
+#include "chrome/browser/safe_browsing/test_database_manager.h"
 #include "chrome/browser/safe_browsing/ui_manager.h"
 #include "chrome/common/safe_browsing/csd.pb.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/history/core/browser/history_backend.h"
+#include "components/history/core/browser/history_service.h"
 #include "content/public/browser/navigation_controller.h"
+#include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/referrer.h"
 #include "content/public/test/test_browser_thread.h"
@@ -46,11 +48,9 @@ namespace safe_browsing {
 
 namespace {
 
-class MockSafeBrowsingDatabaseManager : public SafeBrowsingDatabaseManager {
+class MockSafeBrowsingDatabaseManager : public TestSafeBrowsingDatabaseManager {
  public:
-  explicit MockSafeBrowsingDatabaseManager(
-      const scoped_refptr<SafeBrowsingService>& service)
-      : SafeBrowsingDatabaseManager(service) { }
+  MockSafeBrowsingDatabaseManager() {}
 
   MOCK_METHOD1(MatchMalwareIP, bool(const std::string& ip_address));
 
@@ -83,8 +83,7 @@ class BrowserFeatureExtractorTest : public ChromeRenderViewHostTestHarness {
     ASSERT_TRUE(profile()->CreateHistoryService(
         true /* delete_file */, false /* no_db */));
 
-    db_manager_ = new StrictMock<MockSafeBrowsingDatabaseManager>(
-        SafeBrowsingService::CreateSafeBrowsingService());
+    db_manager_ = new StrictMock<MockSafeBrowsingDatabaseManager>();
     host_.reset(new StrictMock<MockClientSideDetectionHost>(
         web_contents(), db_manager_.get()));
     extractor_.reset(
@@ -102,9 +101,9 @@ class BrowserFeatureExtractorTest : public ChromeRenderViewHostTestHarness {
     ASSERT_EQ(0, num_pending_);
   }
 
-  HistoryService* history_service() {
-    return HistoryServiceFactory::GetForProfile(profile(),
-                                                Profile::EXPLICIT_ACCESS);
+  history::HistoryService* history_service() {
+    return HistoryServiceFactory::GetForProfile(
+        profile(), ServiceAccessType::EXPLICIT_ACCESS);
   }
 
   void SetRedirectChain(const std::vector<GURL>& redirect_chain,
@@ -132,6 +131,8 @@ class BrowserFeatureExtractorTest : public ChromeRenderViewHostTestHarness {
     web_contents()->GetController().LoadURL(
         url, content::Referrer(referrer, blink::WebReferrerPolicyDefault),
         type, std::string());
+    int pending_id =
+        web_contents()->GetController().GetPendingEntry()->GetUniqueID();
 
     static int page_id = 0;
     content::RenderFrameHost* rfh =
@@ -141,7 +142,7 @@ class BrowserFeatureExtractorTest : public ChromeRenderViewHostTestHarness {
     }
     WebContentsTester::For(web_contents())->ProceedWithCrossSiteNavigation();
     WebContentsTester::For(web_contents())->TestDidNavigateWithReferrer(
-        rfh, ++page_id, url,
+        rfh, ++page_id, pending_id, true, url,
         content::Referrer(referrer, blink::WebReferrerPolicyDefault), type);
   }
 

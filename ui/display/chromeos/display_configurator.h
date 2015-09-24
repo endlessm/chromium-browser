@@ -8,14 +8,17 @@
 #include <stdint.h>
 
 #include <map>
+#include <queue>
 #include <string>
 #include <vector>
 
 #include "base/event_types.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/timer/timer.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
+#include "ui/display/chromeos/query_content_protection_task.h"
 #include "ui/display/display_export.h"
 #include "ui/display/types/display_constants.h"
 #include "ui/display/types/native_display_observer.h"
@@ -27,9 +30,13 @@ class Size;
 }
 
 namespace ui {
+struct DisplayConfigureRequest;
+struct GammaRampRGBEntry;
+class DisplayLayoutManager;
 class DisplayMode;
 class DisplaySnapshot;
 class NativeDisplayDelegate;
+class UpdateDisplayConfigurationTask;
 
 // This class interacts directly with the system display configurator.
 class DISPLAY_EXPORT DisplayConfigurator : public NativeDisplayObserver {
@@ -37,19 +44,32 @@ class DISPLAY_EXPORT DisplayConfigurator : public NativeDisplayObserver {
   typedef uint64_t ContentProtectionClientId;
   static const ContentProtectionClientId kInvalidClientId = 0;
 
-  struct DisplayState {
-    DisplayState();
+  typedef base::Callback<void(bool /* success */)> ConfigurationCallback;
 
-    DisplaySnapshot* display;  // Not owned.
+  typedef base::Callback<void(bool /* success */)> EnableProtectionCallback;
 
-    // User-selected mode for the display.
-    const DisplayMode* selected_mode;
+  struct QueryProtectionResponse {
+    // True if the query succeeded, false otherwise.
+    bool success = false;
 
-    // Mode used when displaying the same desktop on multiple displays.
-    const DisplayMode* mirror_mode;
+    // The type of connected display links, which is a bitmask of
+    // DisplayConnectionType values.
+    uint32_t link_mask = 0;
+
+    // The desired protection methods, which is a bitmask of the
+    // ContentProtectionMethod values.
+    uint32_t protection_mask = 0;
   };
 
-  typedef std::vector<DisplayState> DisplayStateList;
+  typedef base::Callback<void(const QueryProtectionResponse&)>
+      QueryProtectionCallback;
+
+  typedef base::Callback<void(bool /* success */)> DisplayControlCallback;
+
+  typedef std::vector<DisplaySnapshot*> DisplayStateList;
+
+  // Mapping a display_id to a protection request bitmask.
+  typedef std::map<int64_t, uint32_t> ContentProtections;
 
   class Observer {
    public:
@@ -60,11 +80,13 @@ class DISPLAY_EXPORT DisplayConfigurator : public NativeDisplayObserver {
     // when this method is called, so the actual configuration could've changed
     // already.
     virtual void OnDisplayModeChanged(
-        const std::vector<DisplayState>& displays) {}
+        const DisplayStateList& displays) {}
 
-    // Called after a display mode change attempt failed. |failed_new_state| is
-    // the new state which the system failed to enter.
+    // Called after a display mode change attempt failed. |displays| contains
+    // displays that are detected when failed.
+    // |failed_new_state| is the new state which the system failed to enter.
     virtual void OnDisplayModeChangeFailed(
+        const DisplayStateList& displays,
         MultipleDisplayState failed_new_state) {}
   };
 
@@ -134,24 +156,24 @@ class DISPLAY_EXPORT DisplayConfigurator : public NativeDisplayObserver {
       const gfx::Size& size);
 
   DisplayConfigurator();
-  virtual ~DisplayConfigurator();
+  ~DisplayConfigurator() override;
 
-  MultipleDisplayState display_state() const { return display_state_; }
+  MultipleDisplayState display_state() const { return current_display_state_; }
   chromeos::DisplayPowerState requested_power_state() const {
     return requested_power_state_;
   }
   const gfx::Size framebuffer_size() const { return framebuffer_size_; }
-  const std::vector<DisplayState>& cached_displays() const {
+  const std::vector<DisplaySnapshot*>& cached_displays() const {
     return cached_displays_;
   }
 
   // Called when an external process no longer needs to control the display
   // and Chrome can take control.
-  void TakeControl();
+  void TakeControl(const DisplayControlCallback& callback);
 
   // Called when an external process needs to control the display and thus
   // Chrome should relinquish it.
-  void RelinquishControl();
+  void RelinquishControl(const DisplayControlCallback& callback);
 
   void set_state_controller(StateController* controller) {
     state_controller_ = controller;
@@ -184,25 +206,29 @@ class DISPLAY_EXPORT DisplayConfigurator : public NativeDisplayObserver {
   // Called when powerd notifies us that some set of displays should be turned
   // on or off.  This requires enabling or disabling the CRTC associated with
   // the display(s) in question so that the low power state is engaged.
-  // |flags| contains bitwise-or-ed kSetDisplayPower* values. Returns true if
-  // the system successfully enters (or was already in) |power_state|.
-  bool SetDisplayPower(chromeos::DisplayPowerState power_state, int flags);
+  // |flags| contains bitwise-or-ed kSetDisplayPower* values. After the
+  // configuration finishes |callback| is called with the status of the
+  // operation.
+  void SetDisplayPower(chromeos::DisplayPowerState power_state,
+                       int flags,
+                       const ConfigurationCallback& callback);
 
   // Force switching the display mode to |new_state|. Returns false if
   // switching failed (possibly because |new_state| is invalid for the
   // current set of connected displays).
-  bool SetDisplayMode(MultipleDisplayState new_state);
+  void SetDisplayMode(MultipleDisplayState new_state);
 
   // NativeDisplayDelegate::Observer overrides:
-  virtual void OnConfigurationChanged() override;
+  void OnConfigurationChanged() override;
 
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
 
   // Sets all the displays into pre-suspend mode; usually this means
   // configure them for their resume state. This allows faster resume on
-  // machines where display configuration is slow.
-  void SuspendDisplays();
+  // machines where display configuration is slow. On completion of the display
+  // configuration |callback| is executed.
+  void SuspendDisplays(const ConfigurationCallback& callback);
 
   // Reprobes displays to handle changes made while the system was
   // suspended.
@@ -215,23 +241,20 @@ class DISPLAY_EXPORT DisplayConfigurator : public NativeDisplayObserver {
   // Unregisters the client.
   void UnregisterContentProtectionClient(ContentProtectionClientId client_id);
 
-  // Queries link status and protection status.
-  // |link_mask| is the type of connected display links, which is a bitmask of
-  // DisplayConnectionType values. |protection_mask| is the desired protection
-  // methods, which is a bitmask of the ContentProtectionMethod values.
-  // Returns true on success.
-  bool QueryContentProtectionStatus(ContentProtectionClientId client_id,
+  // Queries link status and protection status. |callback| is used to respond
+  // to the query.
+  void QueryContentProtectionStatus(ContentProtectionClientId client_id,
                                     int64_t display_id,
-                                    uint32_t* link_mask,
-                                    uint32_t* protection_mask);
+                                    const QueryProtectionCallback& callback);
 
   // Requests the desired protection methods.
   // |protection_mask| is the desired protection methods, which is a bitmask
   // of the ContentProtectionMethod values.
   // Returns true when the protection request has been made.
-  bool EnableContentProtection(ContentProtectionClientId client_id,
+  void EnableContentProtection(ContentProtectionClientId client_id,
                                int64_t display_id,
-                               uint32_t desired_protection_mask);
+                               uint32_t protection_mask,
+                               const EnableProtectionCallback& callback);
 
   // Checks the available color profiles for |display_id| and fills the result
   // into |profiles|.
@@ -242,38 +265,19 @@ class DISPLAY_EXPORT DisplayConfigurator : public NativeDisplayObserver {
   bool SetColorCalibrationProfile(int64_t display_id,
                                   ui::ColorCalibrationProfile new_profile);
 
+  // Sets the gamma ramp for |display_id| to the values in |lut|.
+  bool SetGammaRamp(int64_t display_id,
+                    const std::vector<GammaRampRGBEntry>& lut);
+
  private:
-  // Mapping a display_id to a protection request bitmask.
-  typedef std::map<int64_t, uint32_t> ContentProtections;
+  class DisplayLayoutManagerImpl;
+
   // Mapping a client to its protection request.
   typedef std::map<ContentProtectionClientId, ContentProtections>
       ProtectionRequests;
 
   // Performs platform specific delegate initialization.
   scoped_ptr<NativeDisplayDelegate> CreatePlatformNativeDisplayDelegate();
-
-  // Updates |cached_displays_| to contain currently-connected displays. Calls
-  // |delegate_->GetDisplays()| and then does additional work, like finding the
-  // mirror mode and setting user-preferred modes. Note that the server must be
-  // grabbed via |delegate_->GrabServer()| first.
-  void UpdateCachedDisplays();
-
-  // Helper method for UpdateCachedDisplays() that initializes the passed-in
-  // displays' |mirror_mode| fields by looking for a mode in |internal_display|
-  // and |external_display| having the same resolution. Returns false if a
-  // shared
-  // mode wasn't found or created.
-  //
-  // |try_panel_fitting| allows creating a panel-fitting mode for
-  // |internal_display| instead of only searching for a matching mode (note that
-  // it may lead to a crash if |internal_info| is not capable of panel fitting).
-  //
-  // |preserve_aspect| limits the search/creation only to the modes having the
-  // native aspect ratio of |external_display|.
-  bool FindMirrorMode(DisplayState* internal_display,
-                      DisplayState* external_display,
-                      bool try_panel_fitting,
-                      bool preserve_aspect);
 
   // Configures displays. Invoked by |configure_timer_|.
   void ConfigureDisplays();
@@ -285,36 +289,57 @@ class DISPLAY_EXPORT DisplayConfigurator : public NativeDisplayObserver {
   // Notifies observers about an attempted state change.
   void NotifyObservers(bool success, MultipleDisplayState attempted_state);
 
-  // Switches to the state specified in |display_state| and |power_state|.
-  // If the hardware mirroring failed and |mirroring_controller_| is set,
-  // it switches to |STATE_DUAL_EXTENDED| and calls |SetSoftwareMirroring()|
-  // to enable software based mirroring.
-  // On success, updates |display_state_|, |power_state_|, and
-  // |cached_displays_| and returns true.
-  bool EnterStateOrFallBackToSoftwareMirroring(
-      MultipleDisplayState display_state,
-      chromeos::DisplayPowerState power_state);
-
-  // Switches to the state specified in |display_state| and |power_state|.
-  // On success, updates |display_state_|, |power_state_|, and
-  // |cached_displays_| and returns true.
-  bool EnterState(MultipleDisplayState display_state,
-                  chromeos::DisplayPowerState power_state);
-
   // Returns the display state that should be used with |cached_displays_| while
   // in |power_state|.
   MultipleDisplayState ChooseDisplayState(
       chromeos::DisplayPowerState power_state) const;
 
-  // Returns the ratio between mirrored mode area and native mode area:
-  // (mirror_mode_width * mirrow_mode_height) / (native_width * native_height)
-  float GetMirroredDisplayAreaRatio(const DisplayState& display);
-
-  // Returns true if in either hardware or software mirroring mode.
-  bool IsMirroring() const;
-
   // Applies display protections according to requests.
   bool ApplyProtections(const ContentProtections& requests);
+
+  // If |configuration_task_| isn't initialized, initializes it and starts the
+  // configuration task.
+  void RunPendingConfiguration();
+
+  // Callback for |configuration_taks_|. When the configuration process finishes
+  // this is called with the result (|success|) and the updated display state.
+  void OnConfigured(bool success,
+                    const std::vector<DisplaySnapshot*>& displays,
+                    const gfx::Size& framebuffer_size,
+                    MultipleDisplayState new_display_state,
+                    chromeos::DisplayPowerState new_power_state);
+
+  // Helps in identifying if a configuration task needs to be scheduled.
+  // Return true if any of the |requested_*| parameters have been updated. False
+  // otherwise.
+  bool ShouldRunConfigurationTask() const;
+
+  // Helper functions which will call the callbacks in
+  // |in_progress_configuration_callbacks_| and
+  // |queued_configuration_callbacks_| and clear the lists after. |success| is
+  // the configuration status used when calling the callbacks.
+  void CallAndClearInProgressCallbacks(bool success);
+  void CallAndClearQueuedCallbacks(bool success);
+
+  // Content protection callbacks called by the tasks when they finish. These
+  // are responsible for destroying the task, replying to the caller that made
+  // the task and starting the a new content protection task if one is queued.
+  void OnContentProtectionQueried(
+      ContentProtectionClientId client_id,
+      int64_t display_id,
+      QueryContentProtectionTask::Response response);
+  void OnContentProtectionEnabled(ContentProtectionClientId client_id,
+                                  int64_t display_id,
+                                  uint32_t desired_method_mask,
+                                  bool success);
+  void OnContentProtectionClientUnregistered(bool success);
+
+  // Callbacks used to signal when the native platform has released/taken
+  // display control.
+  void OnDisplayControlTaken(const DisplayControlCallback& callback,
+                             bool success);
+  void OnDisplayControlRelinquished(const DisplayControlCallback& callback,
+                                    bool success);
 
   StateController* state_controller_;
   SoftwareMirroringController* mirroring_controller_;
@@ -324,28 +349,56 @@ class DISPLAY_EXPORT DisplayConfigurator : public NativeDisplayObserver {
   bool is_panel_fitting_enabled_;
 
   // This is detected by the constructor to determine whether or not we should
-  // be enabled.  If we aren't running on ChromeOS, we can't assume that the
-  // Xrandr X11 extension is supported.
+  // be enabled.  If we aren't running on Chrome OS, we can't assume that the
+  // Xrandr X11 extension or the Ozone underlying display hotplug system are
+  // supported.
   // If this flag is set to false, any attempts to change the display
   // configuration to immediately fail without changing the state.
   bool configure_display_;
 
-  // The current display state.
-  MultipleDisplayState display_state_;
-
-  gfx::Size framebuffer_size_;
-
-  // The last-requested and current power state. These may differ if
-  // configuration fails: SetDisplayMode() needs the last-requested state while
-  // SetDisplayPower() needs the current state.
-  chromeos::DisplayPowerState requested_power_state_;
+  // Current configuration state.
+  MultipleDisplayState current_display_state_;
   chromeos::DisplayPowerState current_power_state_;
+
+  // Pending requests. These values are used when triggering the next display
+  // configuration.
+  //
+  // Stores the user requested state or INVALID if nothing was requested.
+  MultipleDisplayState requested_display_state_;
+
+  // Stores the requested power state.
+  chromeos::DisplayPowerState requested_power_state_;
+
+  // True if |requested_power_state_| has been changed due to a user request.
+  bool requested_power_state_change_;
+
+  // Bitwise-or value of the |kSetDisplayPower*| flags defined above.
+  int requested_power_flags_;
+
+  // List of callbacks from callers waiting for the display configuration to
+  // start/finish. Note these callbacks belong to the pending request, not a
+  // request currently active.
+  std::vector<ConfigurationCallback> queued_configuration_callbacks_;
+
+  // List of callbacks belonging to the currently running display configuration
+  // task.
+  std::vector<ConfigurationCallback> in_progress_configuration_callbacks_;
+
+  std::queue<base::Closure> content_protection_tasks_;
+  std::queue<QueryProtectionCallback> query_protection_callbacks_;
+  std::queue<EnableProtectionCallback> enable_protection_callbacks_;
+
+  // True if the caller wants to force the display configuration process.
+  bool force_configure_;
 
   // Most-recently-used display configuration. Note that the actual
   // configuration changes asynchronously.
   DisplayStateList cached_displays_;
 
-  ObserverList<Observer> observers_;
+  // Most-recently-used framebuffer size.
+  gfx::Size framebuffer_size_;
+
+  base::ObserverList<Observer> observers_;
 
   // The timer to delay configuring displays. This is used to aggregate multiple
   // display configuration events when they are reported in short time spans.
@@ -360,6 +413,20 @@ class DISPLAY_EXPORT DisplayConfigurator : public NativeDisplayObserver {
 
   // Display controlled by an external entity.
   bool display_externally_controlled_;
+
+  // True if a TakeControl or RelinquishControl has been called but the response
+  // hasn't arrived yet.
+  bool display_control_changing_;
+
+  // Whether the displays are currently suspended.
+  bool displays_suspended_;
+
+  scoped_ptr<DisplayLayoutManager> layout_manager_;
+
+  scoped_ptr<UpdateDisplayConfigurationTask> configuration_task_;
+
+  // This must be the last variable.
+  base::WeakPtrFactory<DisplayConfigurator> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(DisplayConfigurator);
 };

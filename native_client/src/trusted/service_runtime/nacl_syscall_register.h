@@ -10,6 +10,7 @@
 #include "native_client/src/trusted/service_runtime/include/sys/errno.h"
 #include "native_client/src/trusted/service_runtime/nacl_app_thread.h"
 #include "native_client/src/trusted/service_runtime/nacl_copy.h"
+#include "native_client/src/trusted/service_runtime/nacl_syscall_common.h"
 
 /*
  * This file defines macros for defining and registering NaCl syscalls.
@@ -80,6 +81,7 @@
                           FUNC(natp, sys_args[0], sys_args[1], sys_args[2], \
                                      sys_args[3], sys_args[4], sys_args[5]))
 
-#define NACL_REGISTER_SYSCALL(FUNC, NUM) NaClAddSyscall((NUM), FUNC##Decoder)
+#define NACL_REGISTER_SYSCALL(NAP, FUNC, NUM) \
+    NaClAddSyscall((NAP), (NUM), FUNC##Decoder)
 
 #endif

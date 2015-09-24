@@ -28,16 +28,16 @@ TEST_F(ConfirmBubbleViewsTest, CreateAndClose) {
 
   // Bubble owns the model.
   bool model_deleted = false;
-  TestConfirmBubbleModel* model =
-      new TestConfirmBubbleModel(&model_deleted, NULL, NULL, NULL);
-  ConfirmBubbleViews* bubble = new ConfirmBubbleViews(model);
+  scoped_ptr<TestConfirmBubbleModel> model(
+      new TestConfirmBubbleModel(&model_deleted, NULL, NULL, NULL));
+  ConfirmBubbleViews* bubble = new ConfirmBubbleViews(model.Pass());
   gfx::NativeWindow parent = parent_widget->GetNativeWindow();
-  CreateBrowserModalDialogViews(bubble, parent)->Show();
+  constrained_window::CreateBrowserModalDialogViews(bubble, parent)->Show();
 
   // Clean up.
   bubble->GetWidget()->CloseNow();
   parent_widget->CloseNow();
   EXPECT_TRUE(model_deleted);
 
-  SetConstrainedWindowViewsClient(scoped_ptr<ConstrainedWindowViewsClient>());
+  constrained_window::SetConstrainedWindowViewsClient(nullptr);
 }

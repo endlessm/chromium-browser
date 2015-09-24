@@ -20,8 +20,10 @@ goog.require('goog.style');
 goog.require('goog.ui.Container');
 goog.require('i18n.input.chrome.inputview.ConditionName');
 goog.require('i18n.input.chrome.inputview.Css');
+goog.require('i18n.input.chrome.inputview.GlobalFlags');
 goog.require('i18n.input.chrome.inputview.SpecNodeName');
 goog.require('i18n.input.chrome.inputview.elements.ElementType');
+goog.require('i18n.input.chrome.inputview.elements.content.BackspaceKey');
 goog.require('i18n.input.chrome.inputview.elements.content.CandidateButton');
 goog.require('i18n.input.chrome.inputview.elements.content.CanvasView');
 goog.require('i18n.input.chrome.inputview.elements.content.CharacterKey');
@@ -29,6 +31,7 @@ goog.require('i18n.input.chrome.inputview.elements.content.CompactKey');
 goog.require('i18n.input.chrome.inputview.elements.content.CompactKeyModel');
 goog.require('i18n.input.chrome.inputview.elements.content.EmojiKey');
 goog.require('i18n.input.chrome.inputview.elements.content.EnSwitcherKey');
+goog.require('i18n.input.chrome.inputview.elements.content.EnterKey');
 goog.require('i18n.input.chrome.inputview.elements.content.FunctionalKey');
 goog.require('i18n.input.chrome.inputview.elements.content.KeyboardView');
 goog.require('i18n.input.chrome.inputview.elements.content.MenuKey');
@@ -37,6 +40,7 @@ goog.require('i18n.input.chrome.inputview.elements.content.PageIndicator');
 goog.require('i18n.input.chrome.inputview.elements.content.SpaceKey');
 goog.require('i18n.input.chrome.inputview.elements.content.SwitcherKey');
 goog.require('i18n.input.chrome.inputview.elements.content.TabBarKey');
+goog.require('i18n.input.chrome.inputview.elements.content.material.SpaceKey');
 goog.require('i18n.input.chrome.inputview.elements.layout.ExtendedLayout');
 goog.require('i18n.input.chrome.inputview.elements.layout.HandwritingLayout');
 goog.require('i18n.input.chrome.inputview.elements.layout.LinearLayout');
@@ -229,27 +233,41 @@ KeysetView.prototype.canvasView;
 /**
  * The space key.
  *
- * @type {!content.SpaceKey}
+ * @type {!content.SpaceKey | !content.material.SpaceKey}
  */
 KeysetView.prototype.spaceKey;
 
 
 /**
+ * The backspace key.
+ *
+ * @type {!content.BackspaceKey}
+ */
+KeysetView.prototype.backspaceKey;
+
+
+/**
  * The outer height of the view.
  *
- * @type {number}
- * @private
+ * @protected {number}
  */
-KeysetView.prototype.outerHeight_ = 0;
+KeysetView.prototype.outerHeight = 0;
 
 
 /**
  * The outer width of the view.
  *
- * @type {number}
- * @private
+ * @protected {number}
  */
-KeysetView.prototype.outerWidth_ = 0;
+KeysetView.prototype.outerWidth = 0;
+
+
+/**
+ * The width percentage.
+ *
+ * @private {number}
+ */
+KeysetView.prototype.widthPercent_ = 1;
 
 
 /** @override */
@@ -260,10 +278,6 @@ KeysetView.prototype.createDom = function() {
   var elem = this.getElement();
   elem.id = this.keyboardCode_.replace(/\./g, '-');
   goog.dom.classlist.add(elem, i18n.input.chrome.inputview.Css.VIEW);
-  if (this.disableCandidateView) {
-    goog.dom.classlist.add(
-      elem, i18n.input.chrome.inputview.Css.CANDIDATE_VIEW_DISABLED);
-  }
 
   var children = this.layoutData_['children'];
   for (var i = 0; i < children.length; i++) {
@@ -305,33 +319,63 @@ KeysetView.prototype.update = function() {
 
 
 /**
+ * @param {number} outerWidth .
+ * @param {number} outerHeight .
+ * @param {number} widthPercent .
+ * @param {boolean} force .
+ * @return {boolean} .
+ */
+KeysetView.prototype.shouldResize = function(outerWidth, outerHeight,
+    widthPercent, force) {
+  var needResize = force || (this.outerHeight != outerHeight ||
+      this.outerWidth != outerWidth || this.widthPercent_ != widthPercent);
+  return !!this.getElement() && needResize;
+};
+
+
+/**
  * Resizes the view.
  *
  * @param {number} outerWidth The width of the outer space.
  * @param {number} outerHeight The height of the outer space.
+ * @param {number} widthPercent The percentage of the width.
  * @param {boolean=} opt_force Forces to resize the view.
  */
-KeysetView.prototype.resize = function(outerWidth, outerHeight, opt_force) {
-  var needResize = !!opt_force || (this.outerHeight_ != outerHeight ||
-      this.outerWidth_ != outerWidth);
-  if (this.getElement() && needResize) {
-    this.outerHeight_ = outerHeight;
-    this.outerWidth_ = outerWidth;
+KeysetView.prototype.resize = function(outerWidth, outerHeight, widthPercent,
+    opt_force) {
+  if (this.shouldResize(outerWidth, outerHeight, widthPercent, !!opt_force)) {
+    this.outerHeight = outerHeight;
+    this.outerWidth = outerWidth;
+    this.widthPercent_ = widthPercent;
     var elem = this.getElement();
-    goog.style.setSize(elem, outerWidth, outerHeight);
+    var margin = Math.round((outerWidth - outerWidth * widthPercent) / 2);
+    var w = outerWidth - 2 * margin;
+    elem.style.marginLeft = elem.style.marginRight = margin + 'px';
+    goog.style.setSize(elem, w, outerHeight);
 
-    var weightArray = [];
-    for (var i = 0; i < this.rows_.length; i++) {
-      var row = this.rows_[i];
-      weightArray.push(row.getHeightInWeight());
-    }
+    this.resizeRows(w, outerHeight);
+  }
+};
 
-    var splitedHeight = i18n.input.chrome.inputview.util.splitValue(weightArray,
-        outerHeight);
-    for (var i = 0; i < this.rows_.length; i++) {
-      var row = this.rows_[i];
-      row.resize(outerWidth, splitedHeight[i]);
-    }
+
+/**
+ * Resizes the rows inside the keyset.
+ *
+ * @param {number} width .
+ * @param {number} height .
+ */
+KeysetView.prototype.resizeRows = function(width, height) {
+  var weightArray = [];
+  for (var i = 0; i < this.rows_.length; i++) {
+    var row = this.rows_[i];
+    weightArray.push(row.getHeightInWeight());
+  }
+
+  var splitedHeight = i18n.input.chrome.inputview.util.splitValue(weightArray,
+      height);
+  for (var i = 0; i < this.rows_.length; i++) {
+    var row = this.rows_[i];
+    row.resize(width, splitedHeight[i]);
   }
 };
 
@@ -402,13 +446,17 @@ KeysetView.prototype.applyConditions = function(conditions) {
  * @param {boolean} value .
  */
 KeysetView.prototype.updateCondition = function(name, value) {
+  if (this.conditions_[name] === value) {
+    // No need to update.
+    return;
+  }
   for (var id in this.softKeyViewMap_) {
     var skv = this.softKeyViewMap_[id];
     skv.dynamicaGrantedWeight = 0;
   }
   this.conditions_[name] = value;
   this.applyConditions(this.conditions_);
-  this.resize(this.outerWidth_, this.outerHeight_, true);
+  this.resize(this.outerWidth, this.outerHeight, this.widthPercent_, true);
   this.update();
 };
 
@@ -428,11 +476,6 @@ KeysetView.prototype.createElement_ = function(spec, opt_eventTarget) {
       SpecNodeName.WIDTH_IN_WEIGHT];
   var heightInWeight = spec[
       SpecNodeName.HEIGHT_IN_WEIGHT];
-  var width = spec[SpecNodeName.WIDTH];
-  var height = spec[SpecNodeName.HEIGHT];
-  var padding = spec[SpecNodeName.PADDING];
-  var widthPercent = spec[SpecNodeName.WIDTH_PERCENT];
-  var heightPercent = spec[SpecNodeName.HEIGHT_PERCENT];
   var elem = null;
   switch (type) {
     case ElementType.SOFT_KEY_VIEW:
@@ -512,7 +555,7 @@ KeysetView.prototype.createLayoutElement_ = function(spec,
  * Checks if there is altgr character.
  *
  * @param {!Array.<!Object>} keySpecs The list of key specs.
- * @return {[boolean, boolean]} A list with two boolean values, the first is
+ * @return {!Array<boolean>} A list with two boolean values, the first is
  *    for whether there is altgr character of letter keys, the second is for
  *    symbol keys.
  * @private
@@ -561,8 +604,14 @@ KeysetView.prototype.createKey_ = function(spec, hasAltGrCharacterInTheKeyset) {
           this.dataModel_.stateManager, supportSticky);
       break;
     case ElementType.SPACE_KEY:
-      this.spaceKey = new content.SpaceKey(id, this.dataModel_.stateManager,
-          this.title_, characters, undefined, iconCssClass);
+      if (this.adapter && this.adapter.isQPInputView) {
+        this.spaceKey = new content.material.SpaceKey(id,
+            this.dataModel_.stateManager, this.title_, characters,
+            undefined, iconCssClass);
+      } else {
+        this.spaceKey = new content.SpaceKey(id, this.dataModel_.stateManager,
+            this.title_, characters, undefined, iconCssClass);
+      }
       elem = this.spaceKey;
       break;
     case ElementType.EN_SWITCHER:
@@ -571,7 +620,12 @@ KeysetView.prototype.createKey_ = function(spec, hasAltGrCharacterInTheKeyset) {
           Css.EN_SWITCHER_ENGLISH);
       break;
     case ElementType.BACKSPACE_KEY:
+      elem = new content.BackspaceKey(id, type, name, iconCssClass);
+      this.backspaceKey = elem;
+      break;
     case ElementType.ENTER_KEY:
+      elem = new content.EnterKey(id, iconCssClass);
+      break;
     case ElementType.TAB_KEY:
     case ElementType.ARROW_UP:
     case ElementType.ARROW_DOWN:
@@ -579,6 +633,7 @@ KeysetView.prototype.createKey_ = function(spec, hasAltGrCharacterInTheKeyset) {
     case ElementType.ARROW_RIGHT:
     case ElementType.HIDE_KEYBOARD_KEY:
     case ElementType.GLOBE_KEY:
+    case ElementType.BACK_TO_KEYBOARD:
       elem = new content.FunctionalKey(id, type, name, iconCssClass);
       break;
     case ElementType.TAB_BAR_KEY:
@@ -612,25 +667,41 @@ KeysetView.prototype.createKey_ = function(spec, hasAltGrCharacterInTheKeyset) {
       var marginRightPercent = spec[SpecNodeName.MARGIN_RIGHT_PERCENT];
       var isGrey = spec[SpecNodeName.IS_GREY];
       var moreKeys = spec[SpecNodeName.MORE_KEYS];
+      var moreKeysCharacters =
+          moreKeys ? moreKeys[SpecNodeName.CHARACTERS] : undefined;
+      var fixedColumns =
+          moreKeys ? moreKeys[SpecNodeName.FIXED_COLUMN_NUMBER] : undefined;
       var contextMap = spec[SpecNodeName.ON_CONTEXT];
       var title = spec[SpecNodeName.TITLE];
       var onShift = spec[SpecNodeName.ON_SHIFT];
       var moreKeysShiftType = spec[SpecNodeName.MORE_KEYS_SHIFT_OPERATION];
       var compactKeyModel = new CompactKeyModel(marginLeftPercent,
-          marginRightPercent, isGrey, moreKeys, moreKeysShiftType, onShift,
-          contextMap, textCssClass, title);
+          marginRightPercent, isGrey, moreKeysCharacters, moreKeysShiftType,
+          onShift, contextMap, textCssClass, title, fixedColumns);
       elem = new content.CompactKey(
           id, text, hintText, this.dataModel_.stateManager, this.hasShift,
           compactKeyModel, undefined);
       break;
     case ElementType.CHARACTER_KEY:
+      if (characters.length == 1) {
+        // If there is no character for shift state, just make the character of
+        // default state to be that one.
+        characters.push(characters[0]);
+      }
       var isLetterKey = i18n.input.chrome.inputview.util.isLetterKey(
           characters);
+      var enableShiftRendering = false;
+      var isQpInputView = !!this.adapter && this.adapter.isQPInputView;
+      if (isQpInputView) {
+        enableShiftRendering = !!spec[SpecNodeName.ENABLE_SHIFT_RENDERING];
+      }
       elem = new content.CharacterKey(id, keyCode || 0,
           characters, isLetterKey, hasAltGrCharacterInTheKeyset[isLetterKey],
           this.dataModel_.settings.alwaysRenderAltGrCharacter,
           this.dataModel_.stateManager,
-          goog.i18n.bidi.isRtlLanguage(this.languageCode));
+          goog.i18n.bidi.isRtlLanguage(this.languageCode),
+          enableShiftRendering,
+          isQpInputView);
       break;
 
     case ElementType.BACK_BUTTON:
@@ -702,6 +773,17 @@ KeysetView.prototype.cleanStroke = function() {
  */
 KeysetView.prototype.isHandwriting = function() {
   return this.keyboardCode_ == 'hwt';
+};
+
+
+/**
+ * True if the keyset is tab style.
+ *
+ * @return {boolean} .
+ */
+KeysetView.prototype.isTabStyle = function() {
+  return !i18n.input.chrome.inputview.GlobalFlags.isQPInputView && (
+      this.keyboardCode_ == 'hwt' || this.keyboardCode_ == 'emoji');
 };
 
 

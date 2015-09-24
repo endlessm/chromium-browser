@@ -53,6 +53,7 @@ TEST_F(ShaderTranslatorTest, ValidVertexShader) {
 
   // A valid shader should be successfully translated.
   std::string info_log, translated_source;
+  int shader_version;
   AttributeMap attrib_map;
   UniformMap uniform_map;
   VaryingMap varying_map;
@@ -60,6 +61,7 @@ TEST_F(ShaderTranslatorTest, ValidVertexShader) {
   EXPECT_TRUE(vertex_translator_->Translate(shader,
                                             &info_log,
                                             &translated_source,
+                                            &shader_version,
                                             &attrib_map,
                                             &uniform_map,
                                             &varying_map,
@@ -86,6 +88,7 @@ TEST_F(ShaderTranslatorTest, InvalidVertexShader) {
 
   // An invalid shader should fail.
   std::string info_log, translated_source;
+  int shader_version;
   AttributeMap attrib_map;
   UniformMap uniform_map;
   VaryingMap varying_map;
@@ -93,6 +96,7 @@ TEST_F(ShaderTranslatorTest, InvalidVertexShader) {
   EXPECT_FALSE(vertex_translator_->Translate(bad_shader,
                                              &info_log,
                                              &translated_source,
+                                             &shader_version,
                                              &attrib_map,
                                              &uniform_map,
                                              &varying_map,
@@ -112,6 +116,7 @@ TEST_F(ShaderTranslatorTest, InvalidVertexShader) {
   EXPECT_TRUE(vertex_translator_->Translate(good_shader,
                                             &info_log,
                                             &translated_source,
+                                            &shader_version,
                                             &attrib_map,
                                             &uniform_map,
                                             &varying_map,
@@ -128,6 +133,7 @@ TEST_F(ShaderTranslatorTest, ValidFragmentShader) {
 
   // A valid shader should be successfully translated.
   std::string info_log, translated_source;
+  int shader_version;
   AttributeMap attrib_map;
   UniformMap uniform_map;
   VaryingMap varying_map;
@@ -135,6 +141,7 @@ TEST_F(ShaderTranslatorTest, ValidFragmentShader) {
   EXPECT_TRUE(fragment_translator_->Translate(shader,
                                               &info_log,
                                               &translated_source,
+                                              &shader_version,
                                               &attrib_map,
                                               &uniform_map,
                                               &varying_map,
@@ -154,6 +161,7 @@ TEST_F(ShaderTranslatorTest, InvalidFragmentShader) {
   const char* shader = "foo-bar";
 
   std::string info_log, translated_source;
+  int shader_version;
   AttributeMap attrib_map;
   UniformMap uniform_map;
   VaryingMap varying_map;
@@ -162,6 +170,7 @@ TEST_F(ShaderTranslatorTest, InvalidFragmentShader) {
   EXPECT_FALSE(fragment_translator_->Translate(shader,
                                                &info_log,
                                                &translated_source,
+                                               &shader_version,
                                                &attrib_map,
                                                &uniform_map,
                                                &varying_map,
@@ -185,6 +194,7 @@ TEST_F(ShaderTranslatorTest, GetAttributes) {
       "}";
 
   std::string info_log, translated_source;
+  int shader_version;
   AttributeMap attrib_map;
   UniformMap uniform_map;
   VaryingMap varying_map;
@@ -192,6 +202,7 @@ TEST_F(ShaderTranslatorTest, GetAttributes) {
   EXPECT_TRUE(vertex_translator_->Translate(shader,
                                             &info_log,
                                             &translated_source,
+                                            &shader_version,
                                             &attrib_map,
                                             &uniform_map,
                                             &varying_map,
@@ -227,6 +238,7 @@ TEST_F(ShaderTranslatorTest, GetUniforms) {
       "}";
 
   std::string info_log, translated_source;
+  int shader_version;
   AttributeMap attrib_map;
   UniformMap uniform_map;
   VaryingMap varying_map;
@@ -234,6 +246,7 @@ TEST_F(ShaderTranslatorTest, GetUniforms) {
   EXPECT_TRUE(fragment_translator_->Translate(shader,
                                               &info_log,
                                               &translated_source,
+                                              &shader_version,
                                               &attrib_map,
                                               &uniform_map,
                                               &varying_map,
@@ -268,37 +281,6 @@ TEST_F(ShaderTranslatorTest, GetUniforms) {
   EXPECT_STREQ("color", info->name.c_str());
   EXPECT_STREQ("bar[1].foo.color[0]", original_name.c_str());
 }
-
-#if defined(OS_MACOSX)
-TEST_F(ShaderTranslatorTest, BuiltInFunctionEmulation) {
-  // This test might become invalid in the future when ANGLE Translator is no
-  // longer emulate dot(float, float) in Mac, or the emulated function name is
-  // no longer webgl_dot_emu.
-  const char* shader =
-      "void main() {\n"
-      "  gl_Position = vec4(dot(1.0, 1.0), 1.0, 1.0, 1.0);\n"
-      "}";
-
-  std::string info_log, translated_source;
-  AttributeMap attrib_map;
-  UniformMap uniform_map;
-  VaryingMap varying_map;
-  NameMap name_map;
-  EXPECT_TRUE(vertex_translator_->Translate(shader,
-                                            &info_log,
-                                            &translated_source,
-                                            &attrib_map,
-                                            &uniform_map,
-                                            &varying_map,
-                                            &name_map));
-  // Info log must be NULL.
-  EXPECT_TRUE(info_log.empty());
-  // Translated shader must be valid and non-empty.
-  ASSERT_FALSE(translated_source.empty());
-  EXPECT_TRUE(strstr(translated_source.c_str(),
-                     "webgl_dot_emu") != NULL);
-}
-#endif
 
 TEST_F(ShaderTranslatorTest, OptionsString) {
   scoped_refptr<ShaderTranslator> translator_1 = new ShaderTranslator();

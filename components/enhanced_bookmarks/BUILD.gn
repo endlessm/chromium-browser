@@ -2,6 +2,11 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+if (is_android) {
+  import("//build/config/android/config.gni")
+  import("//build/config/android/rules.gni")
+}
+
 # GYP: //components/enhanced_bookmarks.gypi:enhanced_bookmarks
 source_set("enhanced_bookmarks") {
   sources = [
@@ -9,8 +14,6 @@ source_set("enhanced_bookmarks") {
     "bookmark_image_service.h",
     "bookmark_server_cluster_service.cc",
     "bookmark_server_cluster_service.h",
-    "bookmark_server_search_service.cc",
-    "bookmark_server_search_service.h",
     "bookmark_server_service.cc",
     "bookmark_server_service.h",
     "enhanced_bookmark_model.cc",
@@ -18,6 +21,8 @@ source_set("enhanced_bookmarks") {
     "enhanced_bookmark_model_observer.h",
     "enhanced_bookmark_utils.cc",
     "enhanced_bookmark_utils.h",
+    "image_record.cc",
+    "image_record.h",
     "image_store.cc",
     "image_store.h",
     "image_store_util.cc",
@@ -37,14 +42,28 @@ source_set("enhanced_bookmarks") {
     "//base",
     "//components/bookmarks/browser",
     "//components/enhanced_bookmarks/proto",
+    "//components/keyed_service/core",
+    "//components/signin/core/browser",
+    "//components/sync_driver",
+    "//skia",
     "//sql",
     "//ui/gfx",
     "//url",
   ]
 
   if (is_ios) {
-    sources -= [
-      "image_store_util.cc",
+    sources -= [ "image_store_util.cc" ]
+  }
+}
+
+if (is_android) {
+  # GYP: //components/enhanced_bookmarks.gypi:enhanced_bookmarks_java_enums_srcjar
+  java_cpp_enum("enhanced_bookmarks_java_enums_srcjar") {
+    sources = [
+      "enhanced_bookmark_utils.h",
+    ]
+    outputs = [
+      "org/chromium/chrome/browser/enhanced_bookmarks/LaunchLocation.java",
     ]
   }
 }

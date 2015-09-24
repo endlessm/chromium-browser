@@ -4,6 +4,7 @@
 
 #include "media/filters/source_buffer_stream.h"
 
+#include <stdint.h>
 #include <string>
 
 #include "base/bind.h"
@@ -50,7 +51,7 @@ class SourceBufferStreamTest : public testing::Test {
   void SetTextStream() {
     video_config_ = TestVideoConfig::Invalid();
     TextTrackConfig config(kTextSubtitles, "", "", "");
-    stream_.reset(new SourceBufferStream(config, LogCB(), true));
+    stream_.reset(new SourceBufferStream(config, log_cb(), true));
     SetStreamInfo(2, 2);
   }
 
@@ -66,7 +67,7 @@ class SourceBufferStreamTest : public testing::Test {
                              false,
                              base::TimeDelta(),
                              0);
-    stream_.reset(new SourceBufferStream(audio_config_, LogCB(), true));
+    stream_.reset(new SourceBufferStream(audio_config_, log_cb(), true));
 
     // Equivalent to 2ms per frame.
     SetStreamInfo(500, 500);
@@ -140,8 +141,8 @@ class SourceBufferStreamTest : public testing::Test {
     stream_->Seek(position * frame_duration_);
   }
 
-  void SeekToTimestamp(base::TimeDelta timestamp) {
-    stream_->Seek(timestamp);
+  void SeekToTimestampMs(int64_t timestamp_ms) {
+    stream_->Seek(base::TimeDelta::FromMilliseconds(timestamp_ms));
   }
 
   void RemoveInMs(int start, int end, int duration) {
@@ -232,7 +233,7 @@ class SourceBufferStreamTest : public testing::Test {
         break;
 
       if (expect_keyframe && current_position == starting_position)
-        EXPECT_TRUE(buffer->IsKeyframe());
+        EXPECT_TRUE(buffer->is_key_frame());
 
       if (expected_data) {
         const uint8* actual_data = buffer->data();
@@ -293,9 +294,20 @@ class SourceBufferStreamTest : public testing::Test {
         ss << "|" << buffer->GetDecodeTimestamp().InMilliseconds();
       }
 
+      // Check duration if expected timestamp contains it.
+      if (timestamps[i].find('D') != std::string::npos) {
+        ss << "D" << buffer->duration().InMilliseconds();
+      }
+
+      // Check duration estimation if expected timestamp contains it.
+      if (timestamps[i].find('E') != std::string::npos &&
+          buffer->is_duration_estimated()) {
+        ss << "E";
+      }
+
       // Handle preroll buffers.
-      if (EndsWith(timestamps[i], "P", true)) {
-        ASSERT_TRUE(buffer->IsKeyframe());
+      if (base::EndsWith(timestamps[i], "P", true)) {
+        ASSERT_TRUE(buffer->is_key_frame());
         scoped_refptr<StreamParserBuffer> preroll_buffer;
         preroll_buffer.swap(buffer);
 
@@ -312,10 +324,10 @@ class SourceBufferStreamTest : public testing::Test {
                   preroll_buffer->GetDecodeTimestamp());
         ASSERT_EQ(kInfiniteDuration(), preroll_buffer->discard_padding().first);
         ASSERT_EQ(base::TimeDelta(), preroll_buffer->discard_padding().second);
-        ASSERT_TRUE(buffer->IsKeyframe());
+        ASSERT_TRUE(buffer->is_key_frame());
 
         ss << "P";
-      } else if (buffer->IsKeyframe()) {
+      } else if (buffer->is_key_frame()) {
         ss << "K";
       }
 
@@ -338,6 +350,12 @@ class SourceBufferStreamTest : public testing::Test {
     EXPECT_EQ(SourceBufferStream::kNeedBuffer, stream_->GetNextBuffer(&buffer));
   }
 
+  void CheckEOSReached() {
+    scoped_refptr<StreamParserBuffer> buffer;
+    EXPECT_EQ(SourceBufferStream::kEndOfStream,
+              stream_->GetNextBuffer(&buffer));
+  }
+
   void CheckVideoConfig(const VideoDecoderConfig& config) {
     const VideoDecoderConfig& actual = stream_->GetCurrentVideoDecoderConfig();
     EXPECT_TRUE(actual.Matches(config))
@@ -352,10 +370,7 @@ class SourceBufferStreamTest : public testing::Test {
         << "\nActual: " << actual.AsHumanReadableString();
   }
 
-  const LogCB log_cb() {
-    return base::Bind(&SourceBufferStreamTest::DebugMediaLog,
-                      base::Unretained(this));
-  }
+  const LogCB log_cb() { return base::Bind(&AddLogEntryForTest); }
 
   base::TimeDelta frame_duration() const { return frame_duration_; }
 
@@ -430,9 +445,12 @@ class SourceBufferStreamTest : public testing::Test {
   }
 
   // StringToBufferQueue() allows for the generation of StreamParserBuffers from
-  // coded strings of timestamps separated by spaces.  Supported syntax:
+  // coded strings of timestamps separated by spaces.
   //
-  // xx:
+  // Supported syntax (options must be in this order):
+  // pp[|dd][Dzz][E][P][K]
+  //
+  // pp:
   // Generates a StreamParserBuffer with decode and presentation timestamp xx.
   // E.g., "0 1 2 3".
   //
@@ -440,19 +458,26 @@ class SourceBufferStreamTest : public testing::Test {
   // Generates a StreamParserBuffer with presentation timestamp pp and decode
   // timestamp dd. E.g., "0|0 3|1 1|2 2|3".
   //
-  // ##Dzz
-  // Specifies the duration for a buffer. ## represents one of the 2 timestamp
-  // formats above. zz specifies the duration of the buffer in milliseconds.
-  // If the duration isn't specified with this syntax then the buffer duration
-  // is determined by the difference between the decode timestamp in ## and
-  // the decode timestamp of the previous buffer in the string. If the string
-  // only contains 1 buffer then the duration must be explicitly specified with
-  // this format.
+  // Dzz
+  // Explicitly describe the duration of the buffer. zz specifies the duration
+  // in milliseconds. If the duration isn't specified with this syntax, the
+  // duration is derived using the timestamp delta between this buffer and the
+  // next buffer. If not specified, the final buffer will simply copy the
+  // duration of the previous buffer. If the queue only contains 1 buffer then
+  // the duration must be explicitly specified with this format.
+  // E.g. "0D10 10D20"
   //
-  // ##K:
-  // Indicates the buffer with timestamp ## reflects a keyframe. ##
-  // can be any of the 3 timestamp formats above.
-  // E.g., "0K 1|2K 2|4D2K".
+  // E:
+  // Indicates that the buffer should be marked as containing an *estimated*
+  // duration. E.g., "0D20E 20 25E 30"
+  //
+  // P:
+  // Indicates the buffer with will also have a preroll buffer
+  // associated with it. The preroll buffer will just be dummy data.
+  // E.g. "0P 5 10"
+  //
+  // K:
+  // Indicates the buffer is a keyframe. E.g., "0K 1|2K 2|4D2K 6 8".
   //
   // S(a# ... y# z#)
   // Indicates a splice frame buffer should be created with timestamp z#.  The
@@ -474,37 +499,45 @@ class SourceBufferStreamTest : public testing::Test {
       bool is_keyframe = false;
       bool has_preroll = false;
       bool last_splice_frame = false;
+      bool is_duration_estimated = false;
+
       // Handle splice frame starts.
-      if (StartsWithASCII(timestamps[i], "S(", true)) {
+      if (base::StartsWithASCII(timestamps[i], "S(", true)) {
         CHECK(!splice_frame);
         splice_frame = true;
         // Remove the "S(" off of the token.
         timestamps[i] = timestamps[i].substr(2, timestamps[i].length());
       }
-      if (splice_frame && EndsWith(timestamps[i], ")", true)) {
+      if (splice_frame && base::EndsWith(timestamps[i], ")", true)) {
         splice_frame = false;
         last_splice_frame = true;
         // Remove the ")" off of the token.
         timestamps[i] = timestamps[i].substr(0, timestamps[i].length() - 1);
       }
       // Handle config changes within the splice frame.
-      if (splice_frame && EndsWith(timestamps[i], "C", true)) {
+      if (splice_frame && base::EndsWith(timestamps[i], "C", true)) {
         splice_config_id++;
         CHECK(splice_config_id < stream_->audio_configs_.size() ||
               splice_config_id < stream_->video_configs_.size());
         // Remove the "C" off of the token.
         timestamps[i] = timestamps[i].substr(0, timestamps[i].length() - 1);
       }
-      if (EndsWith(timestamps[i], "K", true)) {
+      if (base::EndsWith(timestamps[i], "K", true)) {
         is_keyframe = true;
         // Remove the "K" off of the token.
         timestamps[i] = timestamps[i].substr(0, timestamps[i].length() - 1);
       }
       // Handle preroll buffers.
-      if (EndsWith(timestamps[i], "P", true)) {
+      if (base::EndsWith(timestamps[i], "P", true)) {
         is_keyframe = true;
         has_preroll = true;
         // Remove the "P" off of the token.
+        timestamps[i] = timestamps[i].substr(0, timestamps[i].length() - 1);
+      }
+
+      if (base::EndsWith(timestamps[i], "E", true)) {
+        is_duration_estimated = true;
+        // Remove the "E" off of the token.
         timestamps[i] = timestamps[i].substr(0, timestamps[i].length() - 1);
       }
 
@@ -534,6 +567,7 @@ class SourceBufferStreamTest : public testing::Test {
           StreamParserBuffer::CopyFrom(&kDataA, kDataSize, is_keyframe,
                                        DemuxerStream::AUDIO, 0);
       buffer->set_timestamp(base::TimeDelta::FromMilliseconds(pts_in_ms));
+      buffer->set_is_duration_estimated(is_duration_estimated);
 
       if (dts_in_ms != pts_in_ms) {
         buffer->SetDecodeTimestamp(
@@ -626,10 +660,6 @@ class SourceBufferStreamTest : public testing::Test {
       wrapper.push_back(buffers[i]);
       EXPECT_TRUE(stream_->Append(wrapper));
     }
-  }
-
-  void DebugMediaLog(const std::string& log) {
-    DVLOG(1) << log;
   }
 
   int frames_per_second_;
@@ -762,7 +792,7 @@ TEST_F(SourceBufferStreamTest,
   // Verify that the buffered ranges are updated properly and we don't crash.
   CheckExpectedRangesByTimestamp("{ [20,150) }");
 
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(20));
+  SeekToTimestampMs(20);
   CheckExpectedBuffers("20K 50K 80K 110K 120K");
 }
 
@@ -840,7 +870,7 @@ TEST_F(SourceBufferStreamTest, End_Overlap_Several) {
 // track:
 TEST_F(SourceBufferStreamTest, End_Overlap_SingleBuffer) {
   // Seek to start of stream.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(0));
+  SeekToTimestampMs(0);
 
   NewSegmentAppend("0K 30 60 90 120K 150");
   CheckExpectedRangesByTimestamp("{ [0,180) }");
@@ -1612,7 +1642,7 @@ TEST_F(SourceBufferStreamTest, Overlap_OneByOne_DeleteGroup) {
   CheckExpectedRangesByTimestamp("{ [10,160) }");
 
   // Seek to 130ms.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(130));
+  SeekToTimestampMs(130);
 
   // Overlap with a new segment from 0 to 130ms.
   NewSegmentAppendOneByOne("0K 120D10");
@@ -1621,7 +1651,7 @@ TEST_F(SourceBufferStreamTest, Overlap_OneByOne_DeleteGroup) {
   CheckExpectedBuffers("130K");
 
   // Check the final buffers is correct.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(0));
+  SeekToTimestampMs(0);
   CheckExpectedBuffers("0K 120 130K");
 }
 
@@ -1638,7 +1668,7 @@ TEST_F(SourceBufferStreamTest, Overlap_OneByOne_BetweenMediaSegments) {
 
   // Check the final buffers is correct; the keyframe at 110ms should be
   // deleted.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(0));
+  SeekToTimestampMs(0);
   CheckExpectedBuffers("0K 30 60 90 120K 150 180 210");
 }
 
@@ -1650,7 +1680,7 @@ TEST_F(SourceBufferStreamTest, Overlap_OneByOne_TrackBuffer) {
   CheckExpectedRangesByTimestamp("{ [10,160) }");
 
   // Seek to 70ms.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(70));
+  SeekToTimestampMs(70);
   CheckExpectedBuffers("10K 40");
 
   // Overlap with a new segment from 0 to 130ms.
@@ -1663,7 +1693,7 @@ TEST_F(SourceBufferStreamTest, Overlap_OneByOne_TrackBuffer) {
   CheckExpectedBuffers("70 120K 130K");
 
   // Check the final result: should not include data from the track buffer.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(0));
+  SeekToTimestampMs(0);
   CheckExpectedBuffers("0K 30 60 90 120K 130K");
 }
 
@@ -1680,7 +1710,7 @@ TEST_F(SourceBufferStreamTest, Overlap_OneByOne_TrackBuffer2) {
   CheckExpectedRangesByTimestamp("{ [10,160) }");
 
   // Seek to 70ms.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(70));
+  SeekToTimestampMs(70);
   CheckExpectedBuffers("10K 40");
 
   // Overlap with a new segment from 0 to 120ms; 70ms and 100ms go in track
@@ -1710,7 +1740,7 @@ TEST_F(SourceBufferStreamTest, Overlap_OneByOne_TrackBuffer3) {
   CheckExpectedRangesByTimestamp("{ [10,160) }");
 
   // Seek to 70ms.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(70));
+  SeekToTimestampMs(70);
   CheckExpectedBuffers("10K 40");
 
   // Overlap with a new segment from 0 to 120ms; 70ms goes in track buffer.
@@ -1745,7 +1775,7 @@ TEST_F(SourceBufferStreamTest, Overlap_OneByOne_TrackBuffer4) {
   CheckExpectedRangesByTimestamp("{ [10,160) }");
 
   // Seek to 70ms.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(70));
+  SeekToTimestampMs(70);
   CheckExpectedBuffers("10K 40");
 
   // Overlap with a new segment from 0 to 120ms; 70ms and 100ms go in track
@@ -1775,7 +1805,7 @@ TEST_F(SourceBufferStreamTest, Overlap_OneByOne_TrackBuffer5) {
   CheckExpectedRangesByTimestamp("{ [10,130) }");
 
   // Seek to 70ms.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(70));
+  SeekToTimestampMs(70);
   CheckExpectedBuffers("10K 40");
 
   // Overlap with a new segment from 0 to 120ms; 70ms goes in track
@@ -1806,7 +1836,7 @@ TEST_F(SourceBufferStreamTest, Overlap_OneByOne_TrackBuffer6) {
   CheckExpectedRangesByTimestamp("{ [10,160) [200,260) }");
 
   // Seek to 70ms.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(70));
+  SeekToTimestampMs(70);
   CheckExpectedBuffers("10K 40");
 
   // Overlap with a new segment from 0 to 120ms.
@@ -1824,7 +1854,7 @@ TEST_F(SourceBufferStreamTest, Overlap_OneByOne_TrackBuffer6) {
   CheckNoNextBuffer();
 
   // Check the final result: should not include data from the track buffer.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(0));
+  SeekToTimestampMs(0);
   CheckExpectedBuffers("0K 30 60 90 120K 130K");
   CheckNoNextBuffer();
 }
@@ -2301,7 +2331,7 @@ TEST_F(SourceBufferStreamTest, PresentationTimestampIndependence) {
     scoped_refptr<StreamParserBuffer> buffer;
     ASSERT_EQ(stream_->GetNextBuffer(&buffer), SourceBufferStream::kSuccess);
 
-    if (buffer->IsKeyframe()) {
+    if (buffer->is_key_frame()) {
       EXPECT_EQ(DecodeTimestamp::FromPresentationTime(buffer->timestamp()),
                 buffer->GetDecodeTimestamp());
       last_keyframe_idx = i;
@@ -2467,7 +2497,7 @@ TEST_F(SourceBufferStreamTest, GarbageCollection_DeleteAfterLastAppend) {
   CheckExpectedRangesByTimestamp("{ [310,400) [490,670) }");
 
   // Seek to the GOP at 580ms.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(580));
+  SeekToTimestampMs(580);
 
   // Append 2 GOPs before the existing ranges.
   // So the ranges before GC are "{ [100,280) [310,400) [490,670) }".
@@ -2485,7 +2515,7 @@ TEST_F(SourceBufferStreamTest, GarbageCollection_DeleteAfterLastAppendMerged) {
   NewSegmentAppend("400K 430 460 490K 520 550 580K 610 640");
 
   // Seek to the GOP at 580ms.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(580));
+  SeekToTimestampMs(580);
 
   // Append 2 GOPs starting at 220ms, and they will be merged with the existing
   // range.  So the range before GC is "{ [220,670) }".
@@ -2628,7 +2658,7 @@ TEST_F(SourceBufferStreamTest, GarbageCollection_SaveAppendGOP) {
   CheckExpectedRangesByTimestamp("{ [0,150) [200,380) }");
 
   // Seek to 290ms.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(290));
+  SeekToTimestampMs(290);
 
   // Now set memory limit to 3 and append a GOP in a separate range after the
   // selected range. Because it is after 290ms, this tests that the GOP is saved
@@ -2669,7 +2699,7 @@ TEST_F(SourceBufferStreamTest, GarbageCollection_SaveAppendGOP_Middle) {
   CheckExpectedRangesByTimestamp("{ [80,200) [400,670) }");
 
   // Seek to 80ms to make the first range the selected range.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(80));
+  SeekToTimestampMs(80);
 
   // Now set memory limit to 3 and append a GOP in the middle of the second
   // range. Because it is after the selected range, this tests that the GOP is
@@ -2694,7 +2724,7 @@ TEST_F(SourceBufferStreamTest, GarbageCollection_SaveAppendGOP_Selected1) {
   CheckExpectedRangesByTimestamp("{ [0,270) }");
 
   // Seek to the GOP at 90ms.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(90));
+  SeekToTimestampMs(90);
 
   // Set the memory limit to 1, then overlap the GOP at 0.
   SetMemoryLimit(1);
@@ -2704,12 +2734,12 @@ TEST_F(SourceBufferStreamTest, GarbageCollection_SaveAppendGOP_Selected1) {
   CheckExpectedRangesByTimestamp("{ [0,180) }");
 
   // Seek to 0 and check all buffers.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(0));
+  SeekToTimestampMs(0);
   CheckExpectedBuffers("0K 30 60 90K 120 150");
   CheckNoNextBuffer();
 
   // Now seek back to 90ms and append a GOP at 180ms.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(90));
+  SeekToTimestampMs(90);
   NewSegmentAppend("180K 210 240");
 
   // Should save the GOP at 90ms and the GOP at 180ms.
@@ -2727,7 +2757,7 @@ TEST_F(SourceBufferStreamTest, GarbageCollection_SaveAppendGOP_Selected2) {
   CheckExpectedRangesByTimestamp("{ [0,360) }");
 
   // Seek to the last GOP at 270ms.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(270));
+  SeekToTimestampMs(270);
 
   // Set the memory limit to 1, then overlap the GOP at 90ms.
   SetMemoryLimit(1);
@@ -2755,7 +2785,7 @@ TEST_F(SourceBufferStreamTest, GarbageCollection_SaveAppendGOP_Selected2) {
 // the next buffer.
 TEST_F(SourceBufferStreamTest, GarbageCollection_SaveAppendGOP_Selected3) {
   // Seek to start of stream.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(0));
+  SeekToTimestampMs(0);
 
   // Append 3 GOPs starting at 0ms, 90ms, 180ms.
   NewSegmentAppend("0K 30 60 90K 120 150 180K 210 240");
@@ -3176,7 +3206,7 @@ TEST_F(SourceBufferStreamTest, SetExplicitDuration_DeletePartialSelectedRange) {
 // accordingly so that successive append operations keep working.
 TEST_F(SourceBufferStreamTest, SetExplicitDuration_UpdateSelectedRange) {
   // Seek to start of stream.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(0));
+  SeekToTimestampMs(0);
 
   NewSegmentAppend("0K 30 60 90");
 
@@ -3216,12 +3246,61 @@ TEST_F(SourceBufferStreamTest,
   CheckExpectedRangesByTimestamp("{ [0,90) }");
 }
 
+TEST_F(SourceBufferStreamTest, SetExplicitDuration_MarkEOS) {
+  // Append 1 buffer at positions 0 through 8.
+  NewSegmentAppend(0, 9);
+
+  // Check expected ranges.
+  CheckExpectedRanges("{ [0,8) }");
+
+  // Seek to 5.
+  Seek(5);
+
+  // Set duration to be before the seeked to position.
+  // This will result in truncation of the selected range and a reset
+  // of NextBufferPosition.
+  stream_->OnSetDuration(frame_duration() * 4);
+
+  // Check the expected ranges.
+  CheckExpectedRanges("{ [0,3) }");
+
+  // Mark EOS reached.
+  stream_->MarkEndOfStream();
+
+  // Expect EOS to be reached.
+  CheckEOSReached();
+}
+
+TEST_F(SourceBufferStreamTest, SetExplicitDuration_MarkEOS_IsSeekPending) {
+  // Append 1 buffer at positions 0 through 8.
+  NewSegmentAppend(0, 9);
+
+  // Check expected ranges.
+  CheckExpectedRanges("{ [0,8) }");
+
+  // Seek to 9 which will result in a pending seek.
+  Seek(9);
+
+  // Set duration to be before the seeked to position.
+  // This will result in truncation of the selected range and a reset
+  // of NextBufferPosition.
+  stream_->OnSetDuration(frame_duration() * 4);
+
+  // Check the expected ranges.
+  CheckExpectedRanges("{ [0,3) }");
+
+  EXPECT_TRUE(stream_->IsSeekPending());
+  // Mark EOS reached.
+  stream_->MarkEndOfStream();
+  EXPECT_FALSE(stream_->IsSeekPending());
+}
+
 // Test the case were the current playback position is at the end of the
 // buffered data and several overlaps occur that causes the selected
 // range to get split and then merged back into a single range.
 TEST_F(SourceBufferStreamTest, OverlapSplitAndMergeWhileWaitingForMoreData) {
   // Seek to start of stream.
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(0));
+  SeekToTimestampMs(0);
 
   NewSegmentAppend("0K 30 60 90 120K 150");
   CheckExpectedRangesByTimestamp("{ [0,180) }");
@@ -3548,7 +3627,7 @@ TEST_F(SourceBufferStreamTest, Remove_MidSegment) {
   CheckExpectedRangesByTimestamp("{ [150,210) }");
 
 
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(150));
+  SeekToTimestampMs(150);
   CheckExpectedBuffers("150K 180");
   CheckNoNextBuffer();
 }
@@ -3575,40 +3654,40 @@ TEST_F(SourceBufferStreamTest, Remove_GOPBeingAppended) {
   // Verify the buffers in the ranges.
   CheckExpectedBuffers("0K 30 60 90");
   CheckNoNextBuffer();
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(240));
+  SeekToTimestampMs(240);
   CheckExpectedBuffers("240K 270 300");
 }
 
 TEST_F(SourceBufferStreamTest, Remove_WholeGOPBeingAppended) {
-  Seek(0);
-  NewSegmentAppend("0K 30 60 90");
-  CheckExpectedRangesByTimestamp("{ [0,120) }");
+  SeekToTimestampMs(1000);
+  NewSegmentAppend("1000K 1030 1060 1090");
+  CheckExpectedRangesByTimestamp("{ [1000,1120) }");
 
   // Remove the keyframe of the current GOP being appended.
-  RemoveInMs(0, 30, 120);
+  RemoveInMs(1000, 1030, 1120);
   CheckExpectedRangesByTimestamp("{ }");
 
   // Continue appending the current GOP.
-  AppendBuffers("210 240");
+  AppendBuffers("1210 1240");
 
   CheckExpectedRangesByTimestamp("{ }");
 
   // Append the beginning of the next GOP.
-  AppendBuffers("270K 300");
+  AppendBuffers("1270K 1300");
 
   // Verify that the new range is started at the
   // beginning of the next GOP.
-  CheckExpectedRangesByTimestamp("{ [270,330) }");
+  CheckExpectedRangesByTimestamp("{ [1270,1330) }");
 
   // Verify the buffers in the ranges.
   CheckNoNextBuffer();
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(270));
-  CheckExpectedBuffers("270K 300");
+  SeekToTimestampMs(1270);
+  CheckExpectedBuffers("1270K 1300");
 }
 
 TEST_F(SourceBufferStreamTest,
        Remove_PreviousAppendDestroyedAndOverwriteExistingRange) {
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(90));
+  SeekToTimestampMs(90);
 
   NewSegmentAppend("90K 120 150");
   CheckExpectedRangesByTimestamp("{ [90,180) }");
@@ -3738,7 +3817,7 @@ TEST_F(SourceBufferStreamTest, SpliceFrame_SeekClearsSplice) {
   NewSegmentAppend("0K S(3K 6 9D3 10D5) 15K 20");
   CheckExpectedBuffers("0K 3K 6");
 
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(15));
+  SeekToTimestampMs(15);
   CheckExpectedBuffers("15K 20");
   CheckNoNextBuffer();
 }
@@ -3752,7 +3831,7 @@ TEST_F(SourceBufferStreamTest, SpliceFrame_SeekClearsSpliceFromTrackBuffer) {
   NewSegmentAppend("5K 15K 20");
   CheckExpectedBuffers("3K 6");
 
-  SeekToTimestamp(base::TimeDelta::FromMilliseconds(15));
+  SeekToTimestampMs(15);
   CheckExpectedBuffers("15K 20");
   CheckNoNextBuffer();
 }
@@ -3916,6 +3995,33 @@ TEST_F(SourceBufferStreamTest, Audio_SpliceFrame_NoTinySplices) {
   CheckNoNextBuffer();
 }
 
+TEST_F(SourceBufferStreamTest, Audio_SpliceFrame_NoMillisecondSplices) {
+  video_config_ = TestVideoConfig::Invalid();
+  audio_config_.Initialize(kCodecVorbis, kSampleFormatPlanarF32,
+                           CHANNEL_LAYOUT_STEREO, 4000, NULL, 0, false, false,
+                           base::TimeDelta(), 0);
+  stream_.reset(new SourceBufferStream(audio_config_, log_cb(), true));
+  // Equivalent to 0.5ms per frame.
+  SetStreamInfo(2000, 2000);
+  Seek(0);
+
+  // Append four buffers with a 0.5ms duration each.
+  NewSegmentAppend(0, 4);
+  CheckExpectedRangesByTimestamp("{ [0,2) }");
+
+  // Overlap the range [0, 2) with [1.25, 2); this results in an overlap of
+  // 0.75ms between the ranges.
+  NewSegmentAppend_OffsetFirstBuffer(2, 2,
+                                     base::TimeDelta::FromMillisecondsD(0.25));
+  CheckExpectedRangesByTimestamp("{ [0,2) }");
+
+  // A splice frame should not be generated (indicated by the lack of a config
+  // change in the expected buffer string) since it requires at least 1ms of
+  // data to crossfade.
+  CheckExpectedBuffers("0K 0K 1K 1K 1K");
+  CheckNoNextBuffer();
+}
+
 TEST_F(SourceBufferStreamTest, Audio_SpliceFrame_Preroll) {
   SetAudioStream();
   Seek(0);
@@ -3939,6 +4045,244 @@ TEST_F(SourceBufferStreamTest, BFrames) {
 
   CheckExpectedBuffers("0K 120|30 30|60 60|90 90|120");
   CheckNoNextBuffer();
+}
+
+TEST_F(SourceBufferStreamTest, RemoveShouldAlwaysExcludeEnd) {
+  NewSegmentAppend("10D2K 12D2 14D2");
+  CheckExpectedRangesByTimestamp("{ [10,16) }");
+
+  // Start new segment, appending KF to abut the start of previous segment.
+  NewSegmentAppend("0D10K");
+  Seek(0);
+  CheckExpectedRangesByTimestamp("{ [0,16) }");
+  CheckExpectedBuffers("0K 10K 12 14");
+  CheckNoNextBuffer();
+
+  // Append another buffer with the same timestamp as the last KF. This triggers
+  // special logic that allows two buffers to have the same timestamp. When
+  // preparing for this new append, there is no reason to remove the later GOP
+  // starting at timestamp 10. This verifies the fix for http://crbug.com/469325
+  // where the decision *not* to remove the start of the overlapped range was
+  // erroneously triggering buffers with a timestamp matching the end
+  // of the append (and any later dependent frames) to be removed.
+  AppendBuffers("0D10");
+  Seek(0);
+  CheckExpectedRangesByTimestamp("{ [0,16) }");
+  CheckExpectedBuffers("0K 0 10K 12 14");
+  CheckNoNextBuffer();
+}
+
+TEST_F(SourceBufferStreamTest, RefinedDurationEstimates_BackOverlap) {
+  // Append a few buffers, the last one having estimated duration.
+  NewSegmentAppend("0K 5 10 20D10E");
+  CheckExpectedRangesByTimestamp("{ [0,30) }");
+  Seek(0);
+  CheckExpectedBuffers("0K 5 10 20D10E");
+  CheckNoNextBuffer();
+
+  // Append a buffer to the end that overlaps the *back* of the existing range.
+  // This should trigger the estimated duration to be recomputed as a timestamp
+  // delta.
+  AppendBuffers("25D10");
+  CheckExpectedRangesByTimestamp("{ [0,35) }");
+  Seek(0);
+  // The duration of the buffer at time 20 has changed from 10ms to 5ms.
+  CheckExpectedBuffers("0K 5 10 20D5E 25");
+  CheckNoNextBuffer();
+
+  // If the last buffer is removed, the adjusted duration should remain at 5ms.
+  RemoveInMs(25, 35, 35);
+  CheckExpectedRangesByTimestamp("{ [0,25) }");
+  Seek(0);
+  CheckExpectedBuffers("0K 5 10 20D5E");
+  CheckNoNextBuffer();
+}
+
+TEST_F(SourceBufferStreamTest, RefinedDurationEstimates_FrontOverlap) {
+  // Append a few buffers.
+  NewSegmentAppend("10K 15 20D5");
+  CheckExpectedRangesByTimestamp("{ [10,25) }");
+  SeekToTimestampMs(10);
+  CheckExpectedBuffers("10K 15 20");
+  CheckNoNextBuffer();
+
+  // Append new buffers, where the last has estimated duration that overlaps the
+  // *front* of the existing range. The overlap should trigger refinement of the
+  // estimated duration from 7ms to 5ms.
+  NewSegmentAppend("0K 5D7E");
+  CheckExpectedRangesByTimestamp("{ [0,25) }");
+  Seek(0);
+  CheckExpectedBuffers("0K 5D5E 10K 15 20");
+  CheckNoNextBuffer();
+
+  // If the overlapped buffer at timestamp 10 is removed, the adjusted duration
+  // should remain adjusted.
+  RemoveInMs(10, 20, 25);
+  CheckExpectedRangesByTimestamp("{ [0,10) }");
+  Seek(0);
+  CheckExpectedBuffers("0K 5D5E");
+  CheckNoNextBuffer();
+}
+
+TEST_F(SourceBufferStreamTest, SeekToStartSatisfiedUpToThreshold) {
+  NewSegmentAppend("999K 1010 1020D10");
+  CheckExpectedRangesByTimestamp("{ [999,1030) }");
+
+  SeekToTimestampMs(0);
+  CheckExpectedBuffers("999K 1010 1020D10");
+  CheckNoNextBuffer();
+}
+
+TEST_F(SourceBufferStreamTest, SeekToStartUnsatisfiedBeyondThreshold) {
+  NewSegmentAppend("1000K 1010 1020D10");
+  CheckExpectedRangesByTimestamp("{ [1000,1030) }");
+
+  SeekToTimestampMs(0);
+  CheckNoNextBuffer();
+}
+
+TEST_F(SourceBufferStreamTest,
+       ReSeekToStartSatisfiedUpToThreshold_SameTimestamps) {
+  // Append a few buffers.
+  NewSegmentAppend("999K 1010 1020D10");
+  CheckExpectedRangesByTimestamp("{ [999,1030) }");
+
+  // Don't read any buffers between Seek and Remove.
+  SeekToTimestampMs(0);
+  RemoveInMs(999, 1030, 1030);
+  CheckExpectedRangesByTimestamp("{ }");
+  CheckNoNextBuffer();
+
+  // Append buffers at the original timestamps and verify no stall.
+  NewSegmentAppend("999K 1010 1020D10");
+  CheckExpectedRangesByTimestamp("{ [999,1030) }");
+  CheckExpectedBuffers("999K 1010 1020D10");
+  CheckNoNextBuffer();
+}
+
+TEST_F(SourceBufferStreamTest,
+       ReSeekToStartSatisfiedUpToThreshold_EarlierTimestamps) {
+  // Append a few buffers.
+  NewSegmentAppend("999K 1010 1020D10");
+  CheckExpectedRangesByTimestamp("{ [999,1030) }");
+
+  // Don't read any buffers between Seek and Remove.
+  SeekToTimestampMs(0);
+  RemoveInMs(999, 1030, 1030);
+  CheckExpectedRangesByTimestamp("{ }");
+  CheckNoNextBuffer();
+
+  // Append buffers before the original timestamps and verify no stall (the
+  // re-seek to time 0 should still be satisfied with the new buffers).
+  NewSegmentAppend("500K 510 520D10");
+  CheckExpectedRangesByTimestamp("{ [500,530) }");
+  CheckExpectedBuffers("500K 510 520D10");
+  CheckNoNextBuffer();
+}
+
+TEST_F(SourceBufferStreamTest,
+       ReSeekToStartSatisfiedUpToThreshold_LaterTimestamps) {
+  // Append a few buffers.
+  NewSegmentAppend("500K 510 520D10");
+  CheckExpectedRangesByTimestamp("{ [500,530) }");
+
+  // Don't read any buffers between Seek and Remove.
+  SeekToTimestampMs(0);
+  RemoveInMs(500, 530, 530);
+  CheckExpectedRangesByTimestamp("{ }");
+  CheckNoNextBuffer();
+
+  // Append buffers beginning after original timestamps, but still below the
+  // start threshold, and verify no stall (the re-seek to time 0 should still be
+  // satisfied with the new buffers).
+  NewSegmentAppend("999K 1010 1020D10");
+  CheckExpectedRangesByTimestamp("{ [999,1030) }");
+  CheckExpectedBuffers("999K 1010 1020D10");
+  CheckNoNextBuffer();
+}
+
+TEST_F(SourceBufferStreamTest, ReSeekBeyondStartThreshold_SameTimestamps) {
+  // Append a few buffers.
+  NewSegmentAppend("1000K 1010 1020D10");
+  CheckExpectedRangesByTimestamp("{ [1000,1030) }");
+
+  // Don't read any buffers between Seek and Remove.
+  SeekToTimestampMs(1000);
+  RemoveInMs(1000, 1030, 1030);
+  CheckExpectedRangesByTimestamp("{ }");
+  CheckNoNextBuffer();
+
+  // Append buffers at the original timestamps and verify no stall.
+  NewSegmentAppend("1000K 1010 1020D10");
+  CheckExpectedRangesByTimestamp("{ [1000,1030) }");
+  CheckExpectedBuffers("1000K 1010 1020D10");
+  CheckNoNextBuffer();
+}
+
+TEST_F(SourceBufferStreamTest, ReSeekBeyondThreshold_EarlierTimestamps) {
+  // Append a few buffers.
+  NewSegmentAppend("2000K 2010 2020D10");
+  CheckExpectedRangesByTimestamp("{ [2000,2030) }");
+
+  // Don't read any buffers between Seek and Remove.
+  SeekToTimestampMs(2000);
+  RemoveInMs(2000, 2030, 2030);
+  CheckExpectedRangesByTimestamp("{ }");
+  CheckNoNextBuffer();
+
+  // Append buffers before the original timestamps and verify no stall (the
+  // re-seek to time 2 seconds should still be satisfied with the new buffers
+  // and should emit preroll from last keyframe).
+  NewSegmentAppend("1080K 1090 2000D10");
+  CheckExpectedRangesByTimestamp("{ [1080,2010) }");
+  CheckExpectedBuffers("1080K 1090 2000D10");
+  CheckNoNextBuffer();
+}
+
+TEST_F(SourceBufferStreamTest, ConfigChange_ReSeek) {
+  // Append a few buffers, with a config change in the middle.
+  VideoDecoderConfig new_config = TestVideoConfig::Large();
+  NewSegmentAppend("2000K 2010 2020D10");
+  stream_->UpdateVideoConfig(new_config);
+  NewSegmentAppend("2030K 2040 2050D10");
+  CheckExpectedRangesByTimestamp("{ [2000,2060) }");
+
+  // Read the config change, but don't read any non-config-change buffer between
+  // Seek and Remove.
+  scoped_refptr<StreamParserBuffer> buffer;
+  CheckVideoConfig(video_config_);
+  SeekToTimestampMs(2030);
+  CheckVideoConfig(video_config_);
+  EXPECT_EQ(stream_->GetNextBuffer(&buffer), SourceBufferStream::kConfigChange);
+  CheckVideoConfig(new_config);
+
+  // Trigger the re-seek.
+  RemoveInMs(2030, 2060, 2060);
+  CheckExpectedRangesByTimestamp("{ [2000,2030) }");
+  CheckNoNextBuffer();
+
+  // Append buffers at the original timestamps and verify no stall or redundant
+  // signalling of config change.
+  NewSegmentAppend("2030K 2040 2050D10");
+  CheckVideoConfig(new_config);
+  CheckExpectedRangesByTimestamp("{ [2000,2060) }");
+  CheckExpectedBuffers("2030K 2040 2050D10");
+  CheckNoNextBuffer();
+  CheckVideoConfig(new_config);
+
+  // Seek to the start of buffered and verify config changes and buffers.
+  SeekToTimestampMs(2000);
+  CheckVideoConfig(new_config);
+  ASSERT_FALSE(new_config.Matches(video_config_));
+  EXPECT_EQ(stream_->GetNextBuffer(&buffer), SourceBufferStream::kConfigChange);
+  CheckVideoConfig(video_config_);
+  CheckExpectedBuffers("2000K 2010 2020D10");
+  CheckVideoConfig(video_config_);
+  EXPECT_EQ(stream_->GetNextBuffer(&buffer), SourceBufferStream::kConfigChange);
+  CheckVideoConfig(new_config);
+  CheckExpectedBuffers("2030K 2040 2050D10");
+  CheckNoNextBuffer();
+  CheckVideoConfig(new_config);
 }
 
 // TODO(vrk): Add unit tests where keyframes are unaligned between streams.

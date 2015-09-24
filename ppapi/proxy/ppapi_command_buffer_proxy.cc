@@ -4,8 +4,8 @@
 
 #include "ppapi/proxy/ppapi_command_buffer_proxy.h"
 
+#include "base/numerics/safe_conversions.h"
 #include "ppapi/proxy/ppapi_messages.h"
-#include "ppapi/proxy/proxy_channel.h"
 #include "ppapi/shared_impl/api_id.h"
 #include "ppapi/shared_impl/host_resource.h"
 #include "ppapi/shared_impl/proxy_lock.h"
@@ -15,15 +15,17 @@ namespace proxy {
 
 PpapiCommandBufferProxy::PpapiCommandBufferProxy(
     const ppapi::HostResource& resource,
-    ProxyChannel* channel,
+    PluginDispatcher* dispatcher,
     const gpu::Capabilities& capabilities,
     const SerializedHandle& shared_state)
     : capabilities_(capabilities),
       resource_(resource),
-      channel_(channel) {
+      dispatcher_(dispatcher) {
   shared_state_shm_.reset(
       new base::SharedMemory(shared_state.shmem(), false));
   shared_state_shm_->Map(shared_state.size());
+  InstanceData* data = dispatcher->GetInstanceData(resource.instance());
+  flush_info_ = &data->flush_info_;
 }
 
 PpapiCommandBufferProxy::~PpapiCommandBufferProxy() {
@@ -50,14 +52,20 @@ void PpapiCommandBufferProxy::Flush(int32 put_offset) {
   if (last_state_.error != gpu::error::kNoError)
     return;
 
-  IPC::Message* message = new PpapiHostMsg_PPBGraphics3D_AsyncFlush(
-      ppapi::API_ID_PPB_GRAPHICS_3D, resource_, put_offset);
+  OrderingBarrier(put_offset);
+  FlushInternal();
+}
 
-  // Do not let a synchronous flush hold up this message. If this handler is
-  // deferred until after the synchronous flush completes, it will overwrite the
-  // cached last_state_ with out-of-date data.
-  message->set_unblock(true);
-  Send(message);
+void PpapiCommandBufferProxy::OrderingBarrier(int32 put_offset) {
+  if (last_state_.error != gpu::error::kNoError)
+    return;
+
+  if (flush_info_->flush_pending && flush_info_->resource != resource_)
+    FlushInternal();
+
+  flush_info_->flush_pending = true;
+  flush_info_->resource = resource_;
+  flush_info_->put_offset = put_offset;
 }
 
 void PpapiCommandBufferProxy::WaitForTokenInRange(int32 start, int32 end) {
@@ -118,7 +126,8 @@ scoped_refptr<gpu::Buffer> PpapiCommandBufferProxy::CreateTransferBuffer(
   ppapi::proxy::SerializedHandle handle(
       ppapi::proxy::SerializedHandle::SHARED_MEMORY);
   if (!Send(new PpapiHostMsg_PPBGraphics3D_CreateTransferBuffer(
-            ppapi::API_ID_PPB_GRAPHICS_3D, resource_, size, id, &handle))) {
+            ppapi::API_ID_PPB_GRAPHICS_3D, resource_,
+            base::checked_cast<uint32_t>(size), id, &handle))) {
     return NULL;
   }
 
@@ -150,6 +159,15 @@ void PpapiCommandBufferProxy::DestroyTransferBuffer(int32 id) {
 uint32 PpapiCommandBufferProxy::CreateStreamTexture(uint32 texture_id) {
   NOTREACHED();
   return 0;
+}
+
+void PpapiCommandBufferProxy::SetLock(base::Lock*) {
+  NOTIMPLEMENTED();
+}
+
+bool PpapiCommandBufferProxy::IsGpuChannelLost() {
+  NOTIMPLEMENTED();
+  return false;
 }
 
 uint32 PpapiCommandBufferProxy::InsertSyncPoint() {
@@ -219,7 +237,11 @@ int32 PpapiCommandBufferProxy::CreateGpuMemoryBufferImage(
 bool PpapiCommandBufferProxy::Send(IPC::Message* msg) {
   DCHECK(last_state_.error == gpu::error::kNoError);
 
-  if (channel_->Send(msg))
+  // We need to hold the Pepper proxy lock for sync IPC, because the GPU command
+  // buffer may use a sync IPC with another lock held which could lead to lock
+  // and deadlock if we dropped the proxy lock here.
+  // http://crbug.com/418651
+  if (dispatcher_->SendAndStayLocked(msg))
     return true;
 
   last_state_.error = gpu::error::kLostContext;
@@ -249,6 +271,25 @@ void PpapiCommandBufferProxy::TryUpdateState() {
 gpu::CommandBufferSharedState* PpapiCommandBufferProxy::shared_state() const {
   return reinterpret_cast<gpu::CommandBufferSharedState*>(
       shared_state_shm_->memory());
+}
+
+void PpapiCommandBufferProxy::FlushInternal() {
+  DCHECK(last_state_.error == gpu::error::kNoError);
+
+  DCHECK(flush_info_->flush_pending);
+
+  IPC::Message* message = new PpapiHostMsg_PPBGraphics3D_AsyncFlush(
+      ppapi::API_ID_PPB_GRAPHICS_3D, flush_info_->resource,
+      flush_info_->put_offset);
+
+  // Do not let a synchronous flush hold up this message. If this handler is
+  // deferred until after the synchronous flush completes, it will overwrite the
+  // cached last_state_ with out-of-date data.
+  message->set_unblock(true);
+  Send(message);
+
+  flush_info_->flush_pending = false;
+  flush_info_->resource.SetHostResource(0, 0);
 }
 
 }  // namespace proxy

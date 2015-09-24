@@ -8,8 +8,8 @@
 #include <string>
 
 #include "base/memory/ref_counted.h"
+#include "chrome/browser/extensions/webstore_standalone_installer.h"
 #include "content/public/browser/web_contents_observer.h"
-#include "webstore_standalone_installer.h"
 
 namespace content {
 class WebContents;
@@ -25,9 +25,8 @@ namespace extensions {
 //
 // Clients will be notified of success or failure via the |callback| argument
 // passed into the constructor.
-class WebstoreInlineInstaller
-    : public WebstoreStandaloneInstaller,
-      public content::WebContentsObserver {
+class WebstoreInlineInstaller : public WebstoreStandaloneInstaller,
+                                public content::WebContentsObserver {
  public:
   typedef WebstoreStandaloneInstaller::Callback Callback;
 
@@ -35,6 +34,12 @@ class WebstoreInlineInstaller
                           const std::string& webstore_item_id,
                           const GURL& requestor_url,
                           const Callback& callback);
+
+  // Returns true if given |requestor_url| is a verified site according to the
+  // given |webstore_data|.
+  static bool IsRequestorPermitted(const base::DictionaryValue& webstore_data,
+                                   const GURL& requestor_url,
+                                   std::string* error);
 
  protected:
   friend class base::RefCountedThreadSafe<WebstoreInlineInstaller>;

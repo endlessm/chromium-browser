@@ -4,7 +4,8 @@
 
 #include "chrome/browser/content_settings/content_settings_internal_extension_provider.h"
 
-#include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/pdf/pdf_extension_util.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_content_client.h"
 #include "chrome/common/extensions/api/plugins/plugins_handler.h"
 #include "components/content_settings/core/browser/content_settings_rule.h"
@@ -13,6 +14,7 @@
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
 #include "extensions/browser/extension_host.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/browser/notification_types.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
@@ -23,17 +25,31 @@ using extensions::UnloadedExtensionInfo;
 
 namespace content_settings {
 
-InternalExtensionProvider::InternalExtensionProvider(
-    ExtensionService* extension_service)
+namespace {
+
+// This is the set of extensions that are allowed to access the internal
+// remoting viewer plugin.
+const char* const kRemotingViewerWhitelist[] = {
+    "gbchcmhmhahfdphkhkmpfmihenigjmpp",  // Chrome Remote Desktop
+    "kgngmbheleoaphbjbaiobfdepmghbfah",  // Pre-release Chrome Remote Desktop
+    "odkaodonbgfohohmklejpjiejmcipmib",  // Dogfood Chrome Remote Desktop
+    "ojoimpklfciegopdfgeenehpalipignm",  // Chromoting canary
+};
+
+}  // namespace
+
+
+InternalExtensionProvider::InternalExtensionProvider(Profile* profile)
     : registrar_(new content::NotificationRegistrar) {
+  for (size_t i = 0; i < arraysize(kRemotingViewerWhitelist); ++i)
+    chrome_remote_desktop_.insert(kRemotingViewerWhitelist[i]);
+
   // Whitelist all extensions loaded so far.
-  const extensions::ExtensionSet* extensions = extension_service->extensions();
-  for (extensions::ExtensionSet::const_iterator it = extensions->begin();
-       it != extensions->end(); ++it) {
-    if (extensions::PluginInfo::HasPlugins(it->get()))
-      SetContentSettingForExtension(it->get(), CONTENT_SETTING_ALLOW);
+  for (const scoped_refptr<const extensions::Extension>& extension :
+       extensions::ExtensionRegistry::Get(profile)->enabled_extensions()) {
+    ApplyPluginContentSettingsForExtension(extension.get(),
+                                           CONTENT_SETTING_ALLOW);
   }
-  Profile* profile = extension_service->profile();
   registrar_->Add(this,
                   extensions::NOTIFICATION_EXTENSION_HOST_CREATED,
                   content::Source<Profile>(profile));
@@ -68,9 +84,10 @@ bool InternalExtensionProvider::SetWebsiteSetting(
 void InternalExtensionProvider::ClearAllContentSettingsRules(
     ContentSettingsType content_type) {}
 
-void InternalExtensionProvider::Observe(int type,
-                                  const content::NotificationSource& source,
-                                  const content::NotificationDetails& details) {
+void InternalExtensionProvider::Observe(
+    int type,
+    const content::NotificationSource& source,
+    const content::NotificationDetails& details) {
   switch (type) {
     case extensions::NOTIFICATION_EXTENSION_HOST_CREATED: {
       const extensions::ExtensionHost* host =
@@ -79,7 +96,7 @@ void InternalExtensionProvider::Observe(int type,
         SetContentSettingForExtension(host->extension(), CONTENT_SETTING_BLOCK);
 
         // White-list CRD's v2 app, until crbug.com/134216 is complete.
-        const char* kAppWhitelist[] = {
+        const char* const kAppWhitelist[] = {
           "2775E568AC98F9578791F1EAB65A1BF5F8CEF414",
           "4AA3C5D69A4AECBD236CAD7884502209F0F5C169",
           "97B23E01B2AA064E8332EE43A7A85C628AADC3F2",
@@ -121,10 +138,10 @@ void InternalExtensionProvider::Observe(int type,
           "48CA541313139786F056DBCB504A1025CFF5D2E3",
           "05106136AE7F08A3C181D4648E5438350B1D2B4F"
         };
-        if (extensions::SimpleFeature::IsIdInList(
+        if (extensions::SimpleFeature::IsIdInArray(
                 host->extension()->id(),
-                std::set<std::string>(
-                    kAppWhitelist, kAppWhitelist + arraysize(kAppWhitelist)))) {
+                kAppWhitelist,
+                arraysize(kAppWhitelist))) {
           SetContentSettingForExtensionAndResource(
               host->extension(),
               ChromeContentClient::kRemotingViewerPluginPath,
@@ -137,15 +154,14 @@ void InternalExtensionProvider::Observe(int type,
     case extensions::NOTIFICATION_EXTENSION_LOADED_DEPRECATED: {
       const extensions::Extension* extension =
           content::Details<extensions::Extension>(details).ptr();
-      if (extensions::PluginInfo::HasPlugins(extension))
-        SetContentSettingForExtension(extension, CONTENT_SETTING_ALLOW);
+      ApplyPluginContentSettingsForExtension(extension, CONTENT_SETTING_ALLOW);
       break;
     }
     case extensions::NOTIFICATION_EXTENSION_UNLOADED_DEPRECATED: {
       const UnloadedExtensionInfo& info =
           *(content::Details<UnloadedExtensionInfo>(details).ptr());
-      if (extensions::PluginInfo::HasPlugins(info.extension))
-        SetContentSettingForExtension(info.extension, CONTENT_SETTING_DEFAULT);
+      ApplyPluginContentSettingsForExtension(info.extension,
+                                             CONTENT_SETTING_DEFAULT);
       break;
     }
     default:
@@ -157,6 +173,27 @@ void InternalExtensionProvider::ShutdownOnUIThread() {
   DCHECK(CalledOnValidThread());
   RemoveAllObservers();
   registrar_.reset();
+}
+
+void InternalExtensionProvider::ApplyPluginContentSettingsForExtension(
+    const extensions::Extension* extension,
+    ContentSetting setting) {
+  if (extensions::PluginInfo::HasPlugins(extension))
+    SetContentSettingForExtension(extension, setting);
+
+  // Chrome Remove Desktop relies on the remoting viewer plugin. The
+  // above check does not catch this, as the plugin is a builtin plugin.
+  if (chrome_remote_desktop_.find(extension->id()) !=
+      chrome_remote_desktop_.end()) {
+    SetContentSettingForExtensionAndResource(
+        extension, ChromeContentClient::kRemotingViewerPluginPath, setting);
+  }
+
+  // The PDF viewer extension relies on the out of process PDF plugin.
+  if (extension->id() == extension_misc::kPdfExtensionId) {
+    SetContentSettingForExtensionAndResource(
+        extension, pdf_extension_util::kPdfResourceIdentifier, setting);
+  }
 }
 
 void InternalExtensionProvider::SetContentSettingForExtension(

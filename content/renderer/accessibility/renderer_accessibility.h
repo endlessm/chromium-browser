@@ -46,6 +46,11 @@ class RenderFrameImpl;
 // (e.g., change focus, or click on a button).
 class CONTENT_EXPORT RendererAccessibility : public RenderFrameObserver {
  public:
+  // Request a one-time snapshot of the accessibility tree without
+  // enabling accessibility if it wasn't already enabled.
+  static void SnapshotAccessibilityTree(RenderFrameImpl* render_frame,
+                                        ui::AXTreeUpdate* response);
+
   explicit RendererAccessibility(RenderFrameImpl* render_frame);
   ~RendererAccessibility() override;
 
@@ -65,7 +70,7 @@ class CONTENT_EXPORT RendererAccessibility : public RenderFrameObserver {
       const blink::WebAXObject& end_object,
       int end_offset);
 
-  void FocusedNodeChanged(const blink::WebNode& node);
+  void AccessibilityFocusedNodeChanged(const blink::WebNode& node);
 
   // This can be called before deleting a RendererAccessibility instance due
   // to the accessibility mode changing, as opposed to during frame destruction
@@ -100,9 +105,11 @@ class CONTENT_EXPORT RendererAccessibility : public RenderFrameObserver {
   void OnReset(int reset_token);
   void OnScrollToMakeVisible(int acc_obj_id, gfx::Rect subfocus);
   void OnScrollToPoint(int acc_obj_id, gfx::Point point);
+  void OnSetScrollOffset(int acc_obj_id, gfx::Point offset);
   void OnSetFocus(int acc_obj_id);
   void OnSetTextSelection(int acc_obj_id, int start_offset, int end_offset);
   void OnSetValue(int acc_obj_id, base::string16 value);
+  void OnShowContextMenu(int acc_obj_id);
 
   // Events from Blink are collected until they are ready to be
   // sent to the browser.

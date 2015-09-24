@@ -106,9 +106,7 @@
 
 namespace WTF {
 
-// MS_VC_EXCEPTION, THREADNAME_INFO, and setThreadNameInternal all come from <http://msdn.microsoft.com/en-us/library/xcb2z8hs.aspx>.
-static const DWORD MS_VC_EXCEPTION = 0x406D1388;
-
+// THREADNAME_INFO comes from <http://msdn.microsoft.com/en-us/library/xcb2z8hs.aspx>.
 #pragma pack(push, 8)
 typedef struct tagTHREADNAME_INFO {
     DWORD dwType; // must be 0x1000
@@ -390,6 +388,25 @@ DWORD absoluteTimeToWaitTimeoutInterval(double absoluteTime)
 
     return static_cast<DWORD>((absoluteTime - currentTime) * 1000.0);
 }
+
+#if ENABLE(ASSERT)
+static bool s_threadCreated = false;
+
+bool isAtomicallyInitializedStaticMutexLockHeld()
+{
+    return atomicallyInitializedStaticMutex && atomicallyInitializedStaticMutex->locked();
+}
+
+bool isBeforeThreadCreated()
+{
+    return !s_threadCreated;
+}
+
+void willCreateThread()
+{
+    s_threadCreated = true;
+}
+#endif
 
 } // namespace WTF
 

@@ -22,11 +22,6 @@ const int kLaunchFailure = 2;
 // Command-line switches.
 const char kChromeSxS[] = "chrome-sxs";
 
-base::FilePath GetChromeExePath(bool is_canary) {
-  return is_canary ? chrome_launcher_support::GetAnyChromeSxSPath()
-                   : chrome_launcher_support::GetAnyChromePath();
-}
-
 }  // namespace
 
 // This program runs chrome.exe, passing its arguments on to the Chrome binary.
@@ -47,7 +42,7 @@ int WINAPI wWinMain(HINSTANCE instance,
                     HINSTANCE prev_instance,
                     wchar_t* /*command_line*/,
                     int show_command) {
-  CommandLine::Init(0, nullptr);
+  base::CommandLine::Init(0, nullptr);
 
   // Log to stderr. Otherwise it will log to a file by default.
   logging::LoggingSettings logging_settings;
@@ -55,23 +50,23 @@ int WINAPI wWinMain(HINSTANCE instance,
   logging::InitLogging(logging_settings);
 
   // Get the command-line for the Chrome binary.
-  // --chrome-sxs on the command line means we should run the canary binary.
-  bool is_canary =
-      base::CommandLine::ForCurrentProcess()->HasSwitch(kChromeSxS);
-  base::FilePath chrome_path = GetChromeExePath(is_canary);
+  // --chrome-sxs on the command line means we should run the SxS binary.
+  bool is_sxs = base::CommandLine::ForCurrentProcess()->HasSwitch(kChromeSxS);
+  base::FilePath chrome_path =
+      chrome_launcher_support::GetAnyChromePath(is_sxs);
   if (chrome_path.empty()) {
     LOG(ERROR) << "Could not find chrome.exe path in the registry.";
     return kNoProgram;
   }
-  CommandLine command_line(chrome_path);
+  base::CommandLine command_line(chrome_path);
 
   // Get the command-line arguments for the subprocess, consisting of the
   // arguments (but not switches) to this binary. This gets everything after the
   // "--".
-  for (const auto& arg : CommandLine::ForCurrentProcess()->GetArgs())
+  for (const auto& arg : base::CommandLine::ForCurrentProcess()->GetArgs())
     command_line.AppendArgNative(arg);
 
-  if (!base::LaunchProcess(command_line, base::LaunchOptions(), nullptr)) {
+  if (!base::LaunchProcess(command_line, base::LaunchOptions()).IsValid()) {
     LOG(ERROR) << "Could not run chrome.exe.";
     return kLaunchFailure;
   }

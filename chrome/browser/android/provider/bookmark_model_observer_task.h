@@ -14,47 +14,47 @@
 // Must not be created from the UI thread.
 class BookmarkModelTask {
  public:
-  explicit BookmarkModelTask(BookmarkModel* model);
-  BookmarkModel* model() const;
+  explicit BookmarkModelTask(bookmarks::BookmarkModel* model);
+  bookmarks::BookmarkModel* model() const;
 
  private:
-  BookmarkModel* model_;
+  bookmarks::BookmarkModel* model_;
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkModelTask);
 };
 
 // Base class for bookmark model tasks that observe for model updates.
 class BookmarkModelObserverTask : public BookmarkModelTask,
-                                  public BookmarkModelObserver {
+                                  public bookmarks::BookmarkModelObserver {
  public:
-  explicit BookmarkModelObserverTask(BookmarkModel* bookmark_model);
-  virtual ~BookmarkModelObserverTask();
+  explicit BookmarkModelObserverTask(bookmarks::BookmarkModel* bookmark_model);
+  ~BookmarkModelObserverTask() override;
 
-  // BookmarkModelObserver:
-  virtual void BookmarkModelLoaded(BookmarkModel* model,
-                                   bool ids_reassigned) override;
-  virtual void BookmarkNodeMoved(BookmarkModel* model,
-                                 const BookmarkNode* old_parent,
-                                 int old_index,
-                                 const BookmarkNode* new_parent,
-                                 int new_index) override;
-  virtual void BookmarkNodeAdded(BookmarkModel* model,
-                                 const BookmarkNode* parent,
-                                 int index) override;
-  virtual void BookmarkNodeRemoved(BookmarkModel* model,
-                                   const BookmarkNode* parent,
-                                   int old_index,
-                                   const BookmarkNode* node,
+  // bookmarks::BookmarkModelObserver:
+  void BookmarkModelLoaded(bookmarks::BookmarkModel* model,
+                           bool ids_reassigned) override;
+  void BookmarkNodeMoved(bookmarks::BookmarkModel* model,
+                         const bookmarks::BookmarkNode* old_parent,
+                         int old_index,
+                         const bookmarks::BookmarkNode* new_parent,
+                         int new_index) override;
+  void BookmarkNodeAdded(bookmarks::BookmarkModel* model,
+                         const bookmarks::BookmarkNode* parent,
+                         int index) override;
+  void BookmarkNodeRemoved(bookmarks::BookmarkModel* model,
+                           const bookmarks::BookmarkNode* parent,
+                           int old_index,
+                           const bookmarks::BookmarkNode* node,
+                           const std::set<GURL>& removed_urls) override;
+  void BookmarkAllUserNodesRemoved(bookmarks::BookmarkModel* model,
                                    const std::set<GURL>& removed_urls) override;
-  virtual void BookmarkAllUserNodesRemoved(
-      BookmarkModel* model,
-      const std::set<GURL>& removed_urls) override;
-  virtual void BookmarkNodeChanged(BookmarkModel* model,
-                                   const BookmarkNode* node) override;
-  virtual void BookmarkNodeFaviconChanged(BookmarkModel* model,
-                                          const BookmarkNode* node) override;
-  virtual void BookmarkNodeChildrenReordered(BookmarkModel* model,
-                                             const BookmarkNode* node) override;
+  void BookmarkNodeChanged(bookmarks::BookmarkModel* model,
+                           const bookmarks::BookmarkNode* node) override;
+  void BookmarkNodeFaviconChanged(bookmarks::BookmarkModel* model,
+                                  const bookmarks::BookmarkNode* node) override;
+  void BookmarkNodeChildrenReordered(
+      bookmarks::BookmarkModel* model,
+      const bookmarks::BookmarkNode* node) override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(BookmarkModelObserverTask);

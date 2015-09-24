@@ -4,7 +4,10 @@
 
 #include "chrome/test/base/browser_with_test_window_test.h"
 
+#include "base/location.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/profiles/profile_destroyer.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_navigator.h"
@@ -117,12 +120,12 @@ void BrowserWithTestWindowTest::TearDown() {
 
   // A Task is leaked if we don't destroy everything, then run the message
   // loop.
-  base::MessageLoop::current()->PostTask(FROM_HERE,
-                                         base::MessageLoop::QuitClosure());
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::MessageLoop::QuitClosure());
   base::MessageLoop::current()->Run();
 
 #if defined(TOOLKIT_VIEWS)
-  SetConstrainedWindowViewsClient(scoped_ptr<ConstrainedWindowViewsClient>());
+  constrained_window::SetConstrainedWindowViewsClient(nullptr);
   views_delegate_.reset(NULL);
 #endif
 }
@@ -165,12 +168,16 @@ void BrowserWithTestWindowTest::CommitPendingLoad(
   if (controller->GetPendingEntryIndex() >= 0) {
     test_rfh_tester->SendNavigateWithTransition(
         controller->GetPendingEntry()->GetPageID(),
+        controller->GetPendingEntry()->GetUniqueID(),
+        false,
         controller->GetPendingEntry()->GetURL(),
         controller->GetPendingEntry()->GetTransitionType());
   } else {
     test_rfh_tester->SendNavigateWithTransition(
         controller->GetWebContents()->GetMaxPageIDForSiteInstance(
             test_rfh->GetSiteInstance()) + 1,
+        controller->GetPendingEntry()->GetUniqueID(),
+        true,
         controller->GetPendingEntry()->GetURL(),
         controller->GetPendingEntry()->GetTransitionType());
   }

@@ -9,7 +9,7 @@
 #include "base/memory/scoped_ptr.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/web_contents_observer.h"
-#include "third_party/WebKit/public/platform/WebScreenOrientationLockType.h"
+#include "third_party/WebKit/public/platform/modules/screen_orientation/WebScreenOrientationLockType.h"
 
 namespace content {
 
@@ -77,4 +77,4 @@ class CONTENT_EXPORT ScreenOrientationProvider : public WebContentsObserver {
 
 } // namespace content
 
-#endif // CONTENT_PUBLIC_BROWSER_SCREEN_ORIENTATION_PROVIDER_H_
+#endif  // CONTENT_PUBLIC_BROWSER_SCREEN_ORIENTATION_PROVIDER_H_

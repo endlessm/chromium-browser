@@ -4,13 +4,13 @@
 
 #include "chrome/browser/chromeos/input_method/mode_indicator_controller.h"
 
-#include "ash/ime/mode_indicator_view.h"
 #include "ash/shell.h"
 #include "ash/shell_window_ids.h"
 #include "ash/wm/window_util.h"
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
+#include "ui/chromeos/ime/mode_indicator_view.h"
 
 namespace chromeos {
 namespace input_method {
@@ -24,14 +24,14 @@ class ModeIndicatorObserver : public ModeIndicatorObserverInterface {
   ModeIndicatorObserver()
     : active_widget_(NULL) {}
 
-  virtual ~ModeIndicatorObserver() {
+  ~ModeIndicatorObserver() override {
     if (active_widget_)
       active_widget_->RemoveObserver(this);
   }
 
   // If other active mode indicator widget is shown, close it immedicately
   // without fading animation.  Then store this widget as the active widget.
-  virtual void AddModeIndicatorWidget(views::Widget* widget) override {
+  void AddModeIndicatorWidget(views::Widget* widget) override {
     DCHECK(widget);
     if (active_widget_)
       active_widget_->Close();
@@ -40,7 +40,7 @@ class ModeIndicatorObserver : public ModeIndicatorObserverInterface {
   }
 
   // views::WidgetObserver override:
-  virtual void OnWidgetDestroying(views::Widget* widget) override {
+  void OnWidgetDestroying(views::Widget* widget) override {
     if (widget == active_widget_)
       active_widget_ = NULL;
   }
@@ -84,6 +84,7 @@ ModeIndicatorController::GetModeIndicatorObserverForTesting() {
 }
 
 void ModeIndicatorController::InputMethodChanged(InputMethodManager* manager,
+                                                 Profile* /* profile */,
                                                  bool show_message) {
   if (!show_message)
     return;
@@ -108,7 +109,7 @@ void ModeIndicatorController::ShowModeIndicator() {
   aura::Window* parent =
       ash::Shell::GetContainer(ash::wm::GetActiveWindow()->GetRootWindow(),
                                ash::kShellWindowId_SettingBubbleContainer);
-  ash::ime::ModeIndicatorView* mi_view = new ash::ime::ModeIndicatorView(
+  ui::ime::ModeIndicatorView* mi_view = new ui::ime::ModeIndicatorView(
       parent, cursor_bounds_, short_name);
   views::BubbleDelegateView::CreateBubble(mi_view);
 

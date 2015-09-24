@@ -4,6 +4,7 @@
 
 #include "ash/wm/maximize_mode/maximize_mode_window_manager.h"
 
+#include "ash/ash_switches.h"
 #include "ash/root_window_controller.h"
 #include "ash/shell.h"
 #include "ash/shell_window_ids.h"
@@ -15,6 +16,8 @@
 #include "ash/wm/window_util.h"
 #include "ash/wm/wm_event.h"
 #include "ash/wm/workspace_controller.h"
+#include "base/command_line.h"
+#include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/gfx/screen.h"
 
@@ -85,7 +88,7 @@ void MaximizeModeWindowManager::OnOverviewModeStarting() {
   backdrops_hidden_ = true;
 }
 
-void MaximizeModeWindowManager::OnOverviewModeEnding() {
+void MaximizeModeWindowManager::OnOverviewModeEnded() {
   if (!backdrops_hidden_)
     return;
 
@@ -95,9 +98,15 @@ void MaximizeModeWindowManager::OnOverviewModeEnding() {
 }
 
 void MaximizeModeWindowManager::OnWindowDestroying(aura::Window* window) {
-  // If a known window gets destroyed we need to remove all knowledge about it.
-  if (!IsContainerWindow(window))
+  if (IsContainerWindow(window)) {
+    // container window can be removed on display destruction.
+    window->RemoveObserver(this);
+    observed_container_windows_.erase(window);
+  } else {
+    // If a known window gets destroyed we need to remove all knowledge about
+    // it.
     ForgetWindow(window);
+  }
 }
 
 void MaximizeModeWindowManager::OnWindowAdded(aura::Window* window) {
@@ -114,6 +123,16 @@ void MaximizeModeWindowManager::OnWindowAdded(aura::Window* window) {
   }
 }
 
+void MaximizeModeWindowManager::OnWindowPropertyChanged(aura::Window* window,
+                                                        const void* key,
+                                                        intptr_t old) {
+  // Stop managing |window| if the always-on-top property is added.
+  if (key == aura::client::kAlwaysOnTopKey &&
+      window->GetProperty(aura::client::kAlwaysOnTopKey)) {
+    ForgetWindow(window);
+  }
+}
+
 void MaximizeModeWindowManager::OnWindowBoundsChanged(
     aura::Window* window,
     const gfx::Rect& old_bounds,
@@ -124,7 +143,7 @@ void MaximizeModeWindowManager::OnWindowBoundsChanged(
   for (WindowToState::iterator it = window_state_map_.begin();
        it != window_state_map_.end();
        ++it) {
-    it->second->UpdateWindowPosition(wm::GetWindowState(it->first), false);
+    it->second->UpdateWindowPosition(wm::GetWindowState(it->first));
   }
 }
 
@@ -182,8 +201,8 @@ MaximizeModeWindowManager::MaximizeModeWindowManager()
 }
 
 void MaximizeModeWindowManager::MaximizeAllWindows() {
-  MruWindowTracker::WindowList windows =
-      MruWindowTracker::BuildWindowList(false);
+  MruWindowTracker::WindowList windows = ash::Shell::GetInstance()->
+      mru_window_tracker()->BuildWindowListIgnoreModal();
   // Add all existing Mru windows.
   for (MruWindowTracker::WindowList::iterator window = windows.begin();
       window != windows.end(); ++window) {
@@ -228,13 +247,23 @@ void MaximizeModeWindowManager::ForgetWindow(aura::Window* window) {
   window->RemoveObserver(this);
 
   // By telling the state object to revert, it will switch back the old
-  // State object and destroy itself, calling WindowStateDerstroyed().
+  // State object and destroy itself, calling WindowStateDestroyed().
   it->second->LeaveMaximizeMode(wm::GetWindowState(it->first));
   DCHECK(window_state_map_.find(window) == window_state_map_.end());
 }
 
 bool MaximizeModeWindowManager::ShouldHandleWindow(aura::Window* window) {
   DCHECK(window);
+
+  // Windows with the always-on-top property should be free-floating and thus
+  // not managed by us.
+  if (window->GetProperty(aura::client::kAlwaysOnTopKey))
+    return false;
+
+  // Windows in the dock should not be managed by us.
+  if (wm::GetWindowState(window)->IsDocked())
+    return false;
+
   return window->type() == ui::wm::WINDOW_TYPE_NORMAL;
 }
 
@@ -277,8 +306,15 @@ bool MaximizeModeWindowManager::IsContainerWindow(aura::Window* window) {
 
 void MaximizeModeWindowManager::EnableBackdropBehindTopWindowOnEachDisplay(
     bool enable) {
+  // This function should be a no-op if backdrops have been disabled.
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshDisableMaximizeModeWindowBackdrop)) {
+    return;
+  }
+
   if (backdrops_hidden_)
     return;
+
   // Inform the WorkspaceLayoutManager that we want to show a backdrop behind
   // the topmost window of its container.
   Shell::RootWindowControllerList controllers =

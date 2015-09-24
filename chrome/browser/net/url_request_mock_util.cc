@@ -10,9 +10,9 @@
 #include "base/threading/thread_restrictions.h"
 #include "chrome/common/chrome_paths.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/test/net/url_request_slow_download_job.h"
 #include "net/test/url_request/url_request_failed_job.h"
 #include "net/test/url_request/url_request_mock_http_job.h"
+#include "net/test/url_request/url_request_slow_download_job.h"
 #include "net/url_request/url_request_filter.h"
 
 using content::BrowserThread;
@@ -22,7 +22,7 @@ namespace chrome_browser_net {
 void SetUrlRequestMocksEnabled(bool enabled) {
   // Since this involves changing the net::URLRequest ProtocolFactory, we need
   // to run on the IO thread.
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   if (enabled) {
     // We have to look around for our helper files, but we only use
@@ -33,12 +33,12 @@ void SetUrlRequestMocksEnabled(bool enabled) {
     net::URLRequestFilter::GetInstance()->ClearHandlers();
 
     net::URLRequestFailedJob::AddUrlHandler();
-    content::URLRequestSlowDownloadJob::AddUrlHandler();
+    net::URLRequestSlowDownloadJob::AddUrlHandler();
 
     base::FilePath root_http;
     PathService::Get(chrome::DIR_TEST_DATA, &root_http);
-    net::URLRequestMockHTTPJob::AddUrlHandler(root_http,
-                                              BrowserThread::GetBlockingPool());
+    net::URLRequestMockHTTPJob::AddUrlHandlers(
+        root_http, BrowserThread::GetBlockingPool());
   } else {
     // Revert to the default handlers.
     net::URLRequestFilter::GetInstance()->ClearHandlers();

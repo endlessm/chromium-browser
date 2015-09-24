@@ -35,10 +35,13 @@
 #include "base/command_line.h"
 #include "base/hash.h"
 #include "base/json/json_writer.h"
+#include "base/location.h"
 #include "base/metrics/field_trial.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/browser/spellchecker/word_trimmer.h"
 #include "chrome/common/chrome_switches.h"
@@ -77,7 +80,7 @@ Misspelling BuildFeedback(const SpellCheckResult& result,
                           const base::string16& text) {
   size_t start = result.location;
   base::string16 context = TrimWords(&start,
-                               result.length,
+                               start + result.length,
                                text,
                                chrome::spellcheck_common::kContextWordCount);
   return Misspelling(context,
@@ -145,7 +148,7 @@ std::string GetApiVersion() {
   // TODO(rouslan): Remove the guard. http://crbug.com/247726
   if (base::FieldTrialList::FindFullName(kFeedbackFieldTrialName) ==
           kFeedbackFieldTrialEnabledGroupName &&
-      CommandLine::ForCurrentProcess()->HasSwitch(
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnableSpellingFeedbackFieldTrial)) {
     return "v2-internal";
   }
@@ -167,10 +170,10 @@ FeedbackSender::FeedbackSender(net::URLRequestContextGetter* request_context,
   // The command-line switch is for testing and temporary.
   // TODO(rouslan): Remove the command-line switch when testing is complete.
   // http://crbug.com/247726
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kSpellingServiceFeedbackUrl)) {
     feedback_service_url_ =
-        GURL(CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+        GURL(base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
             switches::kSpellingServiceFeedbackUrl));
   }
 }
@@ -314,11 +317,12 @@ void FeedbackSender::StartFeedbackCollection() {
   // This command-line switch is for testing and temporary.
   // TODO(rouslan): Remove the command-line switch when testing is complete.
   // http://crbug.com/247726
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kSpellingServiceFeedbackIntervalSeconds)) {
-    base::StringToInt(CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-                          switches::kSpellingServiceFeedbackIntervalSeconds),
-                      &interval_seconds);
+    base::StringToInt(
+        base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+            switches::kSpellingServiceFeedbackIntervalSeconds),
+        &interval_seconds);
     if (interval_seconds < kMinIntervalSeconds)
       interval_seconds = kMinIntervalSeconds;
     static const int kSessionSeconds =
@@ -373,12 +377,9 @@ void FeedbackSender::RequestDocumentMarkers() {
   for (std::vector<int>::const_iterator it = dead_renderers.begin();
        it != dead_renderers.end();
        ++it) {
-    base::MessageLoop::current()->PostTask(
-        FROM_HERE,
-        base::Bind(&FeedbackSender::OnReceiveDocumentMarkers,
-                   AsWeakPtr(),
-                   *it,
-                   std::vector<uint32>()));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(&FeedbackSender::OnReceiveDocumentMarkers,
+                              AsWeakPtr(), *it, std::vector<uint32>()));
   }
 }
 
@@ -402,12 +403,13 @@ void FeedbackSender::SendFeedback(const std::vector<Misspelling>& feedback_data,
                   country_),
       api_version_));
   std::string feedback;
-  base::JSONWriter::Write(feedback_value.get(), &feedback);
+  base::JSONWriter::Write(*feedback_value, &feedback);
 
   // The tests use this identifier to mock the URL fetcher.
   static const int kUrlFetcherId = 0;
-  net::URLFetcher* sender = net::URLFetcher::Create(
-      kUrlFetcherId, feedback_service_url_, net::URLFetcher::POST, this);
+  net::URLFetcher* sender =
+      net::URLFetcher::Create(kUrlFetcherId, feedback_service_url_,
+                              net::URLFetcher::POST, this).release();
   sender->SetLoadFlags(net::LOAD_DO_NOT_SEND_COOKIES |
                        net::LOAD_DO_NOT_SAVE_COOKIES);
   sender->SetUploadData("application/json", feedback);

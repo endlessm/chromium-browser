@@ -39,11 +39,11 @@ public:
         return adoptRefWillBeNoop(new ChildNodeList(rootNode));
     }
 
-    virtual ~ChildNodeList();
+    ~ChildNodeList() override;
 
     // DOM API.
-    virtual unsigned length() const override { return m_collectionIndexCache.nodeCount(*this); }
-    virtual Node* item(unsigned index) const override { return m_collectionIndexCache.nodeAt(*this, index); }
+    unsigned length() const override { return m_collectionIndexCache.nodeCount(*this); }
+    Node* item(unsigned index) const override { return m_collectionIndexCache.nodeAt(*this, index); }
 
     // Non-DOM API.
     void invalidateCache() { m_collectionIndexCache.invalidate(); }
@@ -58,13 +58,13 @@ public:
     Node* traverseForwardToOffset(unsigned offset, Node& currentNode, unsigned& currentOffset) const;
     Node* traverseBackwardToOffset(unsigned offset, Node& currentNode, unsigned& currentOffset) const;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     explicit ChildNodeList(ContainerNode& rootNode);
 
-    virtual bool isChildNodeList() const override { return true; }
-    virtual Node* virtualOwnerNode() const override;
+    bool isChildNodeList() const override { return true; }
+    Node* virtualOwnerNode() const override;
 
     RefPtrWillBeMember<ContainerNode> m_parent;
     mutable CollectionIndexCache<ChildNodeList, Node> m_collectionIndexCache;

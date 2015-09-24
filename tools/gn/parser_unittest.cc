@@ -204,7 +204,7 @@ TEST(Parser, List) {
       " LITERAL(3)\n"
       " LITERAL(4)\n");
 
-  DoExpressionErrorTest("[a, 2+,]", 1, 6);
+  DoExpressionErrorTest("[a, 2+,]", 1, 7);
   DoExpressionErrorTest("[,]", 1, 2);
   DoExpressionErrorTest("[a,,]", 1, 4);
 }
@@ -243,6 +243,9 @@ TEST(Parser, Accessor) {
                     "   LITERAL(2)\n");
   DoParserErrorTest("a = b.c.d", 1, 6);  // Can't nest accessors (currently).
   DoParserErrorTest("a.b = 5", 1, 1);  // Can't assign to accessors (currently).
+
+  // Error at the bad dot in the RHS, not the + operator (crbug.com/472038).
+  DoParserErrorTest("foo(a + b.c.d)", 1, 10);
 }
 
 TEST(Parser, Condition) {
@@ -361,25 +364,6 @@ TEST(Parser, FunctionWithConditional) {
       "       LIST\n"
       "        LITERAL(\"bar.cc\")\n";
   DoParserPrintTest(input, expected);
-}
-
-TEST(Parser, NestedBlocks) {
-  const char* input = "{cc_test(\"foo\") {{foo=1}\n{}}}";
-  const char* expected =
-      "BLOCK\n"
-      " BLOCK\n"
-      "  FUNCTION(cc_test)\n"
-      "   LIST\n"
-      "    LITERAL(\"foo\")\n"
-      "   BLOCK\n"
-      "    BLOCK\n"
-      "     BINARY(=)\n"
-      "      IDENTIFIER(foo)\n"
-      "      LITERAL(1)\n"
-      "    BLOCK\n";
-  DoParserPrintTest(input, expected);
-  const char* input_with_newline = "{cc_test(\"foo\") {{foo=1}\n{}}}";
-  DoParserPrintTest(input_with_newline, expected);
 }
 
 TEST(Parser, UnterminatedBlock) {
@@ -676,4 +660,47 @@ TEST(Parser, HangingIf) {
 
 TEST(Parser, NegatingList) {
   DoParserErrorTest("executable(\"wee\") { sources =- [ \"foo.cc\" ] }", 1, 30);
+}
+
+TEST(Parser, ConditionNoBracesIf) {
+  DoParserErrorTest(
+      "if (true)\n"
+      "  foreach(foo, []) {}\n"
+      "else {\n"
+      "  foreach(bar, []) {}\n"
+      "}\n",
+      2, 3);
+}
+
+TEST(Parser, ConditionNoBracesElse) {
+  DoParserErrorTest(
+      "if (true) {\n"
+      "  foreach(foo, []) {}\n"
+      "} else\n"
+      "  foreach(bar, []) {}\n",
+      4, 3);
+}
+
+TEST(Parser, ConditionNoBracesElseIf) {
+  DoParserErrorTest(
+      "if (true) {\n"
+      "  foreach(foo, []) {}\n"
+      "} else if (true)\n"
+      "  foreach(bar, []) {}\n",
+      4, 3);
+}
+
+// Disallow standalone {} for introducing new scopes. These are ambiguous with
+// target declarations (e.g. is:
+//   foo("bar") {}
+// a function with an associated block, or a standalone function with a
+// freestanding block.
+TEST(Parser, StandaloneBlock) {
+  DoParserErrorTest(
+      "if (true) {\n"
+      "}\n"
+      "{\n"
+      "  assert(false)\n"
+      "}\n",
+      3, 1);
 }

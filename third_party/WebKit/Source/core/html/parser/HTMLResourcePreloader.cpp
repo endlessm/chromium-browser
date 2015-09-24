@@ -29,37 +29,11 @@
 #include "core/dom/Document.h"
 #include "core/fetch/FetchInitiatorInfo.h"
 #include "core/fetch/ResourceFetcher.h"
-#include "core/html/imports/HTMLImport.h"
-#include "core/rendering/RenderObject.h"
+#include "core/loader/DocumentLoader.h"
+#include "platform/network/NetworkHints.h"
 #include "public/platform/Platform.h"
 
 namespace blink {
-
-bool PreloadRequest::isSafeToSendToAnotherThread() const
-{
-    return m_initiatorName.isSafeToSendToAnotherThread()
-        && m_charset.isSafeToSendToAnotherThread()
-        && m_resourceURL.isSafeToSendToAnotherThread()
-        && m_baseURL.isSafeToSendToAnotherThread();
-}
-
-KURL PreloadRequest::completeURL(Document* document)
-{
-    return document->completeURLWithOverride(m_resourceURL, m_baseURL.isEmpty() ? document->url() : m_baseURL);
-}
-
-FetchRequest PreloadRequest::resourceRequest(Document* document)
-{
-    ASSERT(isMainThread());
-    FetchInitiatorInfo initiatorInfo;
-    initiatorInfo.name = AtomicString(m_initiatorName);
-    initiatorInfo.position = m_initiatorPosition;
-    FetchRequest request(ResourceRequest(completeURL(document)), initiatorInfo);
-
-    if (m_isCORSEnabled)
-        request.setCrossOriginAccessControl(document->securityOrigin(), m_allowCredentials);
-    return request;
-}
 
 inline HTMLResourcePreloader::HTMLResourcePreloader(Document& document)
     : m_document(document)
@@ -71,26 +45,47 @@ PassOwnPtrWillBeRawPtr<HTMLResourcePreloader> HTMLResourcePreloader::create(Docu
     return adoptPtrWillBeNoop(new HTMLResourcePreloader(document));
 }
 
-void HTMLResourcePreloader::trace(Visitor* visitor)
+DEFINE_TRACE(HTMLResourcePreloader)
 {
     visitor->trace(m_document);
 }
 
-void HTMLResourcePreloader::takeAndPreload(PreloadRequestStream& r)
+static void preconnectHost(PreloadRequest* request)
 {
-    PreloadRequestStream requests;
-    requests.swap(r);
-
-    for (PreloadRequestStream::iterator it = requests.begin(); it != requests.end(); ++it)
-        preload(it->release());
+    ASSERT(request);
+    ASSERT(request->isPreconnect());
+    KURL host(request->baseURL(), request->resourceURL());
+    if (!host.isValid() || !host.protocolIsInHTTPFamily())
+        return;
+    CrossOriginAttributeValue crossOrigin = CrossOriginAttributeNotSet;
+    if (request->isCORS()) {
+        if (request->isAllowCredentials())
+            crossOrigin = CrossOriginAttributeUseCredentials;
+        else
+            crossOrigin = CrossOriginAttributeAnonymous;
+    }
+    preconnect(host, crossOrigin);
 }
 
 void HTMLResourcePreloader::preload(PassOwnPtr<PreloadRequest> preload)
 {
+    if (preload->isPreconnect()) {
+        preconnectHost(preload.get());
+        return;
+    }
+    // TODO(yoichio): Should preload if document is imported.
+    if (!m_document->loader())
+        return;
     FetchRequest request = preload->resourceRequest(m_document);
-    request.setDefer(preload->defer());
-    blink::Platform::current()->histogramCustomCounts("WebCore.PreloadDelayMs", static_cast<int>(1000 * (monotonicallyIncreasingTime() - preload->discoveryTime())), 0, 2000, 20);
-    m_document->fetcher()->preload(preload->resourceType(), request, preload->charset());
+    // TODO(dgozman): This check should go to HTMLPreloadScanner, but this requires
+    // making Document::completeURLWithOverride logic to be statically accessible.
+    if (request.url().protocolIsData())
+        return;
+    if (preload->resourceType() == Resource::Script || preload->resourceType() == Resource::CSSStyleSheet || preload->resourceType() == Resource::ImportResource)
+        request.setCharset(preload->charset().isEmpty() ? m_document->charset().string() : preload->charset());
+    request.setForPreload(true);
+    Platform::current()->histogramCustomCounts("WebCore.PreloadDelayMs", static_cast<int>(1000 * (monotonicallyIncreasingTime() - preload->discoveryTime())), 0, 2000, 20);
+    m_document->loader()->startPreload(preload->resourceType(), request);
 }
 
-}
+} // namespace blink

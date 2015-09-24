@@ -15,9 +15,8 @@
 #include "net/base/ip_endpoint.h"
 #include "remoting/host/host_status_monitor.h"
 #include "remoting/host/host_status_observer.h"
+#include "remoting/host/remoting_host_messages.h"
 #include "remoting/protocol/transport.h"
-
-#include "remoting_host_messages.h"
 
 namespace remoting {
 
@@ -28,19 +27,19 @@ class HostEventLoggerWin : public HostEventLogger, public HostStatusObserver {
   HostEventLoggerWin(base::WeakPtr<HostStatusMonitor> monitor,
                      const std::string& application_name);
 
-  virtual ~HostEventLoggerWin();
+  ~HostEventLoggerWin() override;
 
   // HostStatusObserver implementation.  These methods will be called from the
   // network thread.
-  virtual void OnClientAuthenticated(const std::string& jid) override;
-  virtual void OnClientDisconnected(const std::string& jid) override;
-  virtual void OnAccessDenied(const std::string& jid) override;
-  virtual void OnClientRouteChange(
+  void OnClientAuthenticated(const std::string& jid) override;
+  void OnClientDisconnected(const std::string& jid) override;
+  void OnAccessDenied(const std::string& jid) override;
+  void OnClientRouteChange(
       const std::string& jid,
       const std::string& channel_name,
       const protocol::TransportRoute& route) override;
-  virtual void OnStart(const std::string& xmpp_login) override;
-  virtual void OnShutdown() override;
+  void OnStart(const std::string& xmpp_login) override;
+  void OnShutdown() override;
 
  private:
   void LogString(WORD type, DWORD event_id, const std::string& string);
@@ -59,10 +58,10 @@ class HostEventLoggerWin : public HostEventLogger, public HostStatusObserver {
 HostEventLoggerWin::HostEventLoggerWin(base::WeakPtr<HostStatusMonitor> monitor,
                                        const std::string& application_name)
     : monitor_(monitor),
-      event_log_(NULL) {
+      event_log_(nullptr) {
   event_log_ = RegisterEventSourceW(
-      NULL, base::UTF8ToUTF16(application_name).c_str());
-  if (event_log_ != NULL) {
+      nullptr, base::UTF8ToUTF16(application_name).c_str());
+  if (event_log_ != nullptr) {
     monitor_->AddStatusObserver(this);
   } else {
     PLOG(ERROR) << "Failed to register the event source: " << application_name;
@@ -70,7 +69,7 @@ HostEventLoggerWin::HostEventLoggerWin(base::WeakPtr<HostStatusMonitor> monitor,
 }
 
 HostEventLoggerWin::~HostEventLoggerWin() {
-  if (event_log_ != NULL) {
+  if (event_log_ != nullptr) {
     if (monitor_)
       monitor_->RemoveStatusObserver(this);
     DeregisterEventSource(event_log_);
@@ -113,7 +112,7 @@ void HostEventLoggerWin::OnStart(const std::string& xmpp_login) {
 void HostEventLoggerWin::Log(WORD type,
                              DWORD event_id,
                              const std::vector<std::string>& strings) {
-  if (event_log_ == NULL)
+  if (event_log_ == nullptr)
     return;
 
   // ReportEventW() takes an array of raw string pointers. They should stay
@@ -129,11 +128,11 @@ void HostEventLoggerWin::Log(WORD type,
                     type,
                     HOST_CATEGORY,
                     event_id,
-                    NULL,
+                    nullptr,
                     static_cast<WORD>(raw_strings.size()),
                     0,
                     &raw_strings[0],
-                    NULL)) {
+                    nullptr)) {
     PLOG(ERROR) << "Failed to write an event to the event log";
   }
 }

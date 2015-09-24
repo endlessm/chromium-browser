@@ -19,7 +19,6 @@
 
 #include "webrtc/modules/audio_device/audio_device_config.h"
 #include "webrtc/modules/audio_device/audio_device_impl.h"
-#include "webrtc/modules/audio_device/audio_device_utility.h"
 #include "webrtc/system_wrappers/interface/sleep.h"
 
 // Helper functions
@@ -83,17 +82,16 @@ class AudioTransportAPI: public AudioTransport {
 
   ~AudioTransportAPI() {}
 
-  virtual int32_t RecordedDataIsAvailable(
-      const void* audioSamples,
-      const uint32_t nSamples,
-      const uint8_t nBytesPerSample,
-      const uint8_t nChannels,
-      const uint32_t sampleRate,
-      const uint32_t totalDelay,
-      const int32_t clockSkew,
-      const uint32_t currentMicLevel,
-      const bool keyPressed,
-      uint32_t& newMicLevel) {
+  int32_t RecordedDataIsAvailable(const void* audioSamples,
+                                  const uint32_t nSamples,
+                                  const uint8_t nBytesPerSample,
+                                  const uint8_t nChannels,
+                                  const uint32_t sampleRate,
+                                  const uint32_t totalDelay,
+                                  const int32_t clockSkew,
+                                  const uint32_t currentMicLevel,
+                                  const bool keyPressed,
+                                  uint32_t& newMicLevel) override {
     rec_count_++;
     if (rec_count_ % 100 == 0) {
       if (nChannels == 1) {
@@ -110,15 +108,14 @@ class AudioTransportAPI: public AudioTransport {
     return 0;
   }
 
-  virtual int32_t NeedMorePlayData(
-      const uint32_t nSamples,
-      const uint8_t nBytesPerSample,
-      const uint8_t nChannels,
-      const uint32_t sampleRate,
-      void* audioSamples,
-      uint32_t& nSamplesOut,
-      int64_t* elapsed_time_ms,
-      int64_t* ntp_time_ms) {
+  int32_t NeedMorePlayData(const uint32_t nSamples,
+                           const uint8_t nBytesPerSample,
+                           const uint8_t nChannels,
+                           const uint32_t sampleRate,
+                           void* audioSamples,
+                           uint32_t& nSamplesOut,
+                           int64_t* elapsed_time_ms,
+                           int64_t* ntp_time_ms) override {
     play_count_++;
     if (play_count_ % 100 == 0) {
       if (nChannels == 1) {
@@ -131,29 +128,29 @@ class AudioTransportAPI: public AudioTransport {
     return 0;
   }
 
-  virtual int OnDataAvailable(const int voe_channels[],
-                              int number_of_voe_channels,
-                              const int16_t* audio_data,
-                              int sample_rate,
-                              int number_of_channels,
-                              int number_of_frames,
-                              int audio_delay_milliseconds,
-                              int current_volume,
-                              bool key_pressed,
-                              bool need_audio_processing) {
+  int OnDataAvailable(const int voe_channels[],
+                      int number_of_voe_channels,
+                      const int16_t* audio_data,
+                      int sample_rate,
+                      int number_of_channels,
+                      int number_of_frames,
+                      int audio_delay_milliseconds,
+                      int current_volume,
+                      bool key_pressed,
+                      bool need_audio_processing) override {
     return 0;
   }
 
-  virtual void PushCaptureData(int voe_channel, const void* audio_data,
-                               int bits_per_sample, int sample_rate,
-                               int number_of_channels,
-                               int number_of_frames) {}
+  void PushCaptureData(int voe_channel, const void* audio_data,
+                       int bits_per_sample, int sample_rate,
+                       int number_of_channels,
+                       int number_of_frames) override {}
 
-  virtual void PullRenderData(int bits_per_sample, int sample_rate,
-                              int number_of_channels, int number_of_frames,
-                              void* audio_data,
-                              int64_t* elapsed_time_ms,
-                              int64_t* ntp_time_ms) {}
+  void PullRenderData(int bits_per_sample, int sample_rate,
+                      int number_of_channels, int number_of_frames,
+                      void* audio_data,
+                      int64_t* elapsed_time_ms,
+                      int64_t* ntp_time_ms) override {}
  private:
   uint32_t rec_count_;
   uint32_t play_count_;
@@ -166,7 +163,7 @@ class AudioDeviceAPITest: public testing::Test {
   virtual ~AudioDeviceAPITest() {}
 
   static void SetUpTestCase() {
-    process_thread_ = ProcessThread::CreateProcessThread();
+    process_thread_ = ProcessThread::Create();
     process_thread_->Start();
 
     // Windows:
@@ -274,7 +271,7 @@ class AudioDeviceAPITest: public testing::Test {
     if (process_thread_) {
       process_thread_->DeRegisterModule(audio_device_);
       process_thread_->Stop();
-      ProcessThread::DestroyProcessThread(process_thread_);
+      process_thread_.reset();
     }
     if (event_observer_) {
       delete event_observer_;
@@ -324,8 +321,9 @@ class AudioDeviceAPITest: public testing::Test {
     EXPECT_FALSE(audio_device_->MicrophoneIsInitialized());
   }
 
+  // TODO(henrika): Get rid of globals.
   static bool linux_alsa_;
-  static ProcessThread* process_thread_;
+  static rtc::scoped_ptr<ProcessThread> process_thread_;
   static AudioDeviceModule* audio_device_;
   static AudioTransportAPI* audio_transport_;
   static AudioEventObserverAPI* event_observer_;
@@ -333,7 +331,7 @@ class AudioDeviceAPITest: public testing::Test {
 
 // Must be initialized like this to handle static SetUpTestCase() above.
 bool AudioDeviceAPITest::linux_alsa_ = false;
-ProcessThread* AudioDeviceAPITest::process_thread_ = NULL;
+rtc::scoped_ptr<ProcessThread> AudioDeviceAPITest::process_thread_;
 AudioDeviceModule* AudioDeviceAPITest::audio_device_ = NULL;
 AudioTransportAPI* AudioDeviceAPITest::audio_transport_ = NULL;
 AudioEventObserverAPI* AudioDeviceAPITest::event_observer_ = NULL;

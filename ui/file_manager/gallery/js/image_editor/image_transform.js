@@ -7,9 +7,70 @@
  *
  * @extends {ImageEditor.Mode}
  * @constructor
+ * @struct
  */
 ImageEditor.Mode.Crop = function() {
   ImageEditor.Mode.call(this, 'crop', 'GALLERY_CROP');
+
+  /**
+   * @type {HTMLDivElement}
+   * @private
+   */
+  this.domOverlay_ = null;
+
+  /**
+   * @type {HTMLDivElement}
+   * @private
+   */
+  this.shadowTop_ = null;
+
+  /**
+   * @type {HTMLDivElement}
+   * @private
+   */
+  this.middleBox_ = null;
+
+  /**
+   * @type {HTMLDivElement}
+   * @private
+   */
+  this.shadowLeft_ = null;
+
+  /**
+   * @type {HTMLDivElement}
+   * @private
+   */
+  this.cropFrame_ = null;
+
+  /**
+   * @type {HTMLDivElement}
+   * @private
+   */
+  this.shadowRight_ = null;
+
+  /**
+   * @type {HTMLDivElement}
+   * @private
+   */
+  this.shadowBottom_ = null;
+
+  /**
+   * @type {ImageEditor.Toolbar}
+   * @private
+   */
+  this.toolbar_ = null;
+
+  /**
+   * @type {?function()}
+   * @private
+   */
+  this.onResizedBound_ = null;
+
+  /**
+   * @type {DraggableRect}
+   * @private
+   */
+  this.cropRect_ = null;
 };
 
 ImageEditor.Mode.Crop.prototype = {__proto__: ImageEditor.Mode.prototype};
@@ -52,8 +113,6 @@ ImageEditor.Mode.Crop.prototype.setUp = function() {
   this.shadowBottom_.className = 'shadow';
   this.domOverlay_.appendChild(this.shadowBottom_);
 
-  this.toolBar_ = null;
-
   var cropFrame = this.cropFrame_;
   function addCropFrame(className) {
     var div = doc.createElement('div');
@@ -86,8 +145,8 @@ ImageEditor.Mode.Crop.prototype.createTools = function(toolbar) {
     GALLERY_ASPECT_RATIO_7_5: 7 / 5,
     GALLERY_ASPECT_RATIO_16_9: 16 / 9
   };
-  for (name in aspects) {
-    toolbar.addButton(
+  for (var name in aspects) {
+    var button = toolbar.addButton(
         name,
         name,
         function(aspect, event) {
@@ -97,7 +156,7 @@ ImageEditor.Mode.Crop.prototype.createTools = function(toolbar) {
             this.cropRect_.fixedAspectRatio = null;
           } else {
             var selectedButtons =
-                toolbar.element.querySelectorAll('button.selected');
+                toolbar.getElement().querySelectorAll('button.selected');
             for (var i = 0; i < selectedButtons.length; i++) {
               selectedButtons[i].classList.remove('selected');
             }
@@ -108,10 +167,16 @@ ImageEditor.Mode.Crop.prototype.createTools = function(toolbar) {
             this.cropRect_.forceAspectRatio(aspect, clipRect);
             this.markUpdated();
             this.positionDOM();
-            this.toolbar_.element.classList.remove('dimmable');
-            this.toolbar_.element.removeAttribute('dimmed');
+            this.toolbar_.getElement().classList.remove('dimmable');
+            this.toolbar_.getElement().removeAttribute('dimmed');
           }
         }.bind(this, aspects[name]));
+    // Prevent from cropping by Enter key if the button is focused.
+    button.addEventListener('keydown', function(event) {
+      var key = util.getKeyModifiers(event) + event.keyIdentifier;
+      if (key === 'Enter')
+        event.stopPropagation();
+    });
   }
   this.toolbar_ = toolbar;
 };
@@ -131,7 +196,7 @@ ImageEditor.Mode.Crop.prototype.reset = function() {
   ImageEditor.Mode.prototype.reset.call(this);
   this.createDefaultCrop();
   if (this.toolbar_) {
-    this.toolbar_.element.classList.add('dimmable');
+    this.toolbar_.getElement().classList.add('dimmable');
     this.toolbar_ = null;
   }
 };
@@ -191,7 +256,7 @@ ImageEditor.Mode.Crop.TOUCH_GRAB_RADIUS = 20;
 /**
  * Gets command to do the crop depending on the current state.
  *
- * @return {Command.Crop} Crop command.
+ * @return {!Command.Crop} Crop command.
  */
 ImageEditor.Mode.Crop.prototype.getCommand = function() {
   var cropImageRect = this.cropRect_.getRect();
@@ -202,11 +267,16 @@ ImageEditor.Mode.Crop.prototype.getCommand = function() {
  * Creates default (initial) crop.
  */
 ImageEditor.Mode.Crop.prototype.createDefaultCrop = function() {
-  var rect = this.getViewport().screenToImageRect(
-      new ImageRect(this.getViewport().getImageBoundsOnScreenClipped()));
+  var viewport = this.getViewport();
+  assert(viewport);
+
+  var rect = viewport.screenToImageRect(
+      viewport.getImageBoundsOnScreenClipped());
   rect = rect.inflate(
       -Math.round(rect.width / 6), -Math.round(rect.height / 6));
-  this.cropRect_ = new DraggableRect(rect, this.getViewport());
+
+  this.cropRect_ = new DraggableRect(rect, viewport);
+
   this.positionDOM();
 };
 
@@ -228,7 +298,7 @@ ImageEditor.Mode.Crop.prototype.getCursorStyle = function(x, y, mouseDown) {
  * @param {number} x Event X coordinate.
  * @param {number} y Event Y coordinate.
  * @param {boolean} touch True if it's a touch event, false if mouse.
- * @return {function(number,number,boolean)} A function to be called on mouse
+ * @return {?function(number,number,boolean)} A function to be called on mouse
  *     drag. It takes x coordinate value, y coordinate value, and shift key
  *     flag.
  */
@@ -239,7 +309,7 @@ ImageEditor.Mode.Crop.prototype.getDragHandler = function(x, y, touch) {
 
   return function(x, y, shiftKey) {
     if (this.toolbar_)
-      this.toolbar_.element.classList.add('dimmable');
+      this.toolbar_.getElement().classList.add('dimmable');
     cropDragHandler(x, y, shiftKey);
     this.markUpdated();
     this.positionDOM();
@@ -251,7 +321,7 @@ ImageEditor.Mode.Crop.prototype.getDragHandler = function(x, y, touch) {
  *
  * @param {number} x X coordinate of the event.
  * @param {number} y Y coordinate of the event.
- * @return {ImageBuffer.DoubleTapAction} Action to perform as result.
+ * @return {!ImageBuffer.DoubleTapAction} Action to perform as result.
  */
 ImageEditor.Mode.Crop.prototype.getDoubleTapAction = function(x, y) {
   return this.cropRect_.getDoubleTapAction(x, y);
@@ -260,9 +330,10 @@ ImageEditor.Mode.Crop.prototype.getDoubleTapAction = function(x, y) {
 /**
  * A draggable rectangle over the image.
  *
- * @param {ImageRect} rect Initial size of the image.
- * @param {Viewport} viewport Viewport.
+ * @param {!ImageRect} rect Initial size of the image.
+ * @param {!Viewport} viewport Viewport.
  * @constructor
+ * @struct
  */
 function DraggableRect(rect, viewport) {
   /**
@@ -272,17 +343,19 @@ function DraggableRect(rect, viewport) {
    * @type {{left: number, right: number, top: number, bottom: number}}
    * @private
    */
-  this.bounds_ = {};
-  this.bounds_[DraggableRect.LEFT] = rect.left;
-  this.bounds_[DraggableRect.RIGHT] = rect.left + rect.width;
-  this.bounds_[DraggableRect.TOP] = rect.top;
-  this.bounds_[DraggableRect.BOTTOM] = rect.top + rect.height;
+  this.bounds_ = {
+    left: rect.left,
+    right: rect.left + rect.width,
+    top: rect.top,
+    bottom: rect.top + rect.height
+  };
 
   /**
    * Viewport.
    *
-   * @type {Viewport}
+   * @type {!Viewport}
    * @private
+   * @const
    */
   this.viewport_ = viewport;
 
@@ -300,8 +373,6 @@ function DraggableRect(rect, viewport) {
    * @type {?number}
    */
   this.fixedAspectRatio = null;
-
-  Object.seal(this);
 }
 
 // Static members to simplify reflective access to the bounds.
@@ -369,10 +440,10 @@ DraggableRect.prototype.getBottom = function() {
 
 /**
  * Obtains the geometry of the rectangle.
- * @return {ImageRect} Geometry of the rectangle.
+ * @return {!ImageRect} Geometry of the rectangle.
  */
 DraggableRect.prototype.getRect = function() {
-  return new ImageRect(this.bounds_);
+  return ImageRect.createFromBounds(this.bounds_);
 };
 
 /**
@@ -380,13 +451,18 @@ DraggableRect.prototype.getRect = function() {
  *
  * @param {number} x X coordinate for cursor.
  * @param {number} y Y coordinate for cursor.
- * @param {boolean} touch  Whether the operation is done by touch or not.
- * @return {Object} Drag mode.
+ * @param {boolean=} opt_touch  Whether the operation is done by touch or not.
+ * @return {{xSide: string, ySide:string, whole:boolean, newCrop:boolean}}
+ *     Drag mode.
  */
-DraggableRect.prototype.getDragMode = function(x, y, touch) {
+DraggableRect.prototype.getDragMode = function(x, y, opt_touch) {
+  var touch = opt_touch || false;
+
   var result = {
     xSide: DraggableRect.NONE,
-    ySide: DraggableRect.NONE
+    ySide: DraggableRect.NONE,
+    whole: false,
+    newCrop: false
   };
 
   var bounds = this.bounds_;
@@ -470,7 +546,7 @@ DraggableRect.prototype.getCursorStyle = function(x, y, mouseDown) {
  * @param {number} initialScreenX X coordinate for cursor in the screen.
  * @param {number} initialScreenY Y coordinate for cursor in the screen.
  * @param {boolean} touch Whether the operation is done by touch or not.
- * @return {function(number,number,boolean)} Drag handler that takes x
+ * @return {?function(number,number,boolean)} Drag handler that takes x
  *     coordinate value, y coordinate value, and shift key flag.
  */
 DraggableRect.prototype.getDragHandler = function(
@@ -569,10 +645,9 @@ DraggableRect.prototype.getDragHandler = function(
  *
  * @param {number} x X coordinate for cursor.
  * @param {number} y Y coordinate for cursor.
- * @param {boolean} touch Whether the operation is done by touch or not.
- * @return {ImageBuffer.DoubleTapAction} Double tap action.
+ * @return {!ImageBuffer.DoubleTapAction} Double tap action.
  */
-DraggableRect.prototype.getDoubleTapAction = function(x, y, touch) {
+DraggableRect.prototype.getDoubleTapAction = function(x, y) {
   var clipRect = this.viewport_.getImageBoundsOnScreenClipped();
   if (clipRect.inside(x, y))
     return ImageBuffer.DoubleTapAction.COMMIT;
@@ -584,7 +659,7 @@ DraggableRect.prototype.getDoubleTapAction = function(x, y, touch) {
  * Forces the aspect ratio.
  *
  * @param {number} aspectRatio Aspect ratio.
- * @param {Object} clipRect Clip rect.
+ * @param {!Object} clipRect Clip rect.
  */
 DraggableRect.prototype.forceAspectRatio = function(aspectRatio, clipRect) {
   // Get current rectangle scale.

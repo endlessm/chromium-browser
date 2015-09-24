@@ -5,9 +5,9 @@
 #include "ui/ozone/platform/caca/caca_window.h"
 
 #include "base/bind.h"
-#include "base/debug/trace_event.h"
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
+#include "base/trace_event/trace_event.h"
 #include "ui/events/ozone/events_ozone.h"
 #include "ui/events/platform/platform_event_source.h"
 #include "ui/ozone/platform/caca/caca_event_source.h"
@@ -36,7 +36,7 @@ CacaWindow::CacaWindow(PlatformWindowDelegate* delegate,
       weak_ptr_factory_(this) {
   widget_ = manager_->AddWindow(this);
   ui::PlatformEventSource::GetInstance()->AddPlatformEventDispatcher(this);
-  delegate_->OnAcceleratedWidgetAvailable(widget_);
+  delegate_->OnAcceleratedWidgetAvailable(widget_, 1.f);
 }
 
 CacaWindow::~CacaWindow() {
@@ -133,6 +133,8 @@ void CacaWindow::Restore() {}
 void CacaWindow::SetCursor(PlatformCursor cursor) {}
 
 void CacaWindow::MoveCursorTo(const gfx::Point& location) {}
+
+void CacaWindow::ConfineCursorToBounds(const gfx::Rect& bounds) {}
 
 bool CacaWindow::CanDispatchEvent(const PlatformEvent& event) { return true; }
 

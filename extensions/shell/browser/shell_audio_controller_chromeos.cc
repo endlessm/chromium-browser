@@ -12,14 +12,10 @@ namespace extensions {
 
 namespace {
 
-// Default output and input volume.
-const double kOutputVolumePercent = 100.0;
-const double kInputGainPercent = 100.0;
-
 // Returns a pointer to the device in |devices| with ID |node_id|, or NULL if it
 // isn't present.
 const chromeos::AudioDevice* GetDevice(const chromeos::AudioDeviceList& devices,
-                                       uint64 node_id) {
+                                       uint64_t node_id) {
   for (chromeos::AudioDeviceList::const_iterator it = devices.begin();
        it != devices.end(); ++it) {
     if (it->id == node_id)
@@ -30,50 +26,6 @@ const chromeos::AudioDevice* GetDevice(const chromeos::AudioDeviceList& devices,
 
 }  // namespace
 
-ShellAudioController::PrefHandler::PrefHandler() {}
-
-double ShellAudioController::PrefHandler::GetOutputVolumeValue(
-    const chromeos::AudioDevice* device) {
-  return kOutputVolumePercent;
-}
-
-double ShellAudioController::PrefHandler::GetInputGainValue(
-    const chromeos::AudioDevice* device) {
-  return kInputGainPercent;
-}
-
-void ShellAudioController::PrefHandler::SetVolumeGainValue(
-    const chromeos::AudioDevice& device,
-    double value) {
-  // TODO(derat): Shove volume and mute prefs into a map so we can at least
-  // honor changes that are made at runtime.
-}
-
-bool ShellAudioController::PrefHandler::GetMuteValue(
-    const chromeos::AudioDevice& device) {
-  return false;
-}
-
-void ShellAudioController::PrefHandler::SetMuteValue(
-    const chromeos::AudioDevice& device,
-    bool mute_on) {}
-
-bool ShellAudioController::PrefHandler::GetAudioCaptureAllowedValue() {
-  return true;
-}
-
-bool ShellAudioController::PrefHandler::GetAudioOutputAllowedValue() {
-  return true;
-}
-
-void ShellAudioController::PrefHandler::AddAudioPrefObserver(
-    chromeos::AudioPrefObserver* observer) {}
-
-void ShellAudioController::PrefHandler::RemoveAudioPrefObserver(
-    chromeos::AudioPrefObserver* observer) {}
-
-ShellAudioController::PrefHandler::~PrefHandler() {}
-
 ShellAudioController::ShellAudioController() {
   chromeos::CrasAudioHandler::Get()->AddAudioObserver(this);
   ActivateDevices();
@@ -83,13 +35,19 @@ ShellAudioController::~ShellAudioController() {
   chromeos::CrasAudioHandler::Get()->RemoveAudioObserver(this);
 }
 
-void ShellAudioController::OnOutputVolumeChanged() {}
+void ShellAudioController::OnOutputNodeVolumeChanged(uint64_t /* node_id */,
+                                                     int /* volume */) {
+}
 
-void ShellAudioController::OnOutputMuteChanged() {}
+void ShellAudioController::OnOutputMuteChanged(bool /* mute_on */,
+                                               bool /* system_adjust */) {}
 
-void ShellAudioController::OnInputGainChanged() {}
+void ShellAudioController::OnInputNodeGainChanged(uint64_t /* node_id */,
+                                                  int /* gain */) {
+}
 
-void ShellAudioController::OnInputMuteChanged() {}
+void ShellAudioController::OnInputMuteChanged(bool /* mute_on */) {
+}
 
 void ShellAudioController::OnAudioNodesChanged() {
   VLOG(1) << "Audio nodes changed";
@@ -106,7 +64,7 @@ void ShellAudioController::ActivateDevices() {
   handler->GetAudioDevices(&devices);
   sort(devices.begin(), devices.end(), chromeos::AudioDeviceCompare());
 
-  uint64 best_input = 0, best_output = 0;
+  uint64_t best_input = 0, best_output = 0;
   for (chromeos::AudioDeviceList::const_reverse_iterator it = devices.rbegin();
        it != devices.rend() && (!best_input || !best_output); ++it) {
     // TODO(derat): Need to check |plugged_time|?

@@ -152,8 +152,8 @@ const char CrashService::kDumpsDir[]          = "dumps-dir";
 const char CrashService::kPipeName[]          = "pipe-name";
 
 CrashService::CrashService()
-    : sender_(NULL),
-      dumper_(NULL),
+    : dumper_(NULL),
+      sender_(NULL),
       requests_handled_(0),
       requests_sent_(0),
       clients_connected_(0),
@@ -178,7 +178,7 @@ bool CrashService::Initialize(const base::FilePath& operating_dir,
   // reports per day quota. Does not seem to serve any other purpose.
   base::FilePath checkpoint_path = operating_dir.Append(kCheckPointFile);
 
-  CommandLine& cmd_line = *CommandLine::ForCurrentProcess();
+  base::CommandLine& cmd_line = *base::CommandLine::ForCurrentProcess();
 
   base::FilePath dumps_path_to_use = dumps_path;
 

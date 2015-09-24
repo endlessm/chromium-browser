@@ -25,6 +25,18 @@ class SESSIONS_EXPORT_PRIVATE SerializedNavigationDriver {
   // Returns the default referrer policy.
   virtual int GetDefaultReferrerPolicy() const = 0;
 
+  // Maps current referrer policies to old values to work around
+  // crbug.com/450589. Returns false if the referrer should be stripped.
+  virtual bool MapReferrerPolicyToOldValues(
+      int referrer_policy,
+      int* mapped_referrer_policy) const = 0;
+
+  // Sanitizes a referrer policy that might either be in the old or the new
+  // format. Returns false if the referrer should be stripped.
+  virtual bool MapReferrerPolicyToNewValues(
+      int referrer_policy,
+      int* mapped_referrer_policy) const = 0;
+
   // Returns a sanitized version of the given |navigation|'s encoded_page_state
   // suitable for writing to disk.
   virtual std::string GetSanitizedPageStateForPickle(
@@ -33,6 +45,10 @@ class SESSIONS_EXPORT_PRIVATE SerializedNavigationDriver {
   // Sanitizes the data in the given |navigation| to be more robust against
   // faulty data written by older versions.
   virtual void Sanitize(SerializedNavigationEntry* navigation) const = 0;
+
+  // Removes the referrer from the encoded page state.
+  virtual std::string StripReferrerFromPageState(
+      const std::string& page_state) const = 0;
 };
 
 }  // namespace sessions

@@ -10,6 +10,7 @@
 #include "base/bind.h"
 #include "base/file_version_info.h"
 #include "base/files/file_path.h"
+#include "base/path_service.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/scoped_handle.h"
@@ -24,7 +25,7 @@
 using content::BrowserThread;
 
 // Known browsers which we collect details for.
-enum {
+enum BrowserProcess {
   CHROME_BROWSER = 0,
   CHROME_NACL_PROCESS,
   IE_BROWSER,
@@ -34,18 +35,21 @@ enum {
   IE_64BIT_BROWSER,
   KONQUEROR_BROWSER,
   MAX_BROWSERS
-} BrowserProcess;
+};
 
-MemoryDetails::MemoryDetails()
-    : user_metrics_mode_(UPDATE_USER_METRICS),
-      memory_growth_tracker_(NULL) {
-  static const base::string16 google_browser_name =
+MemoryDetails::MemoryDetails() {
+  base::FilePath browser_process_path;
+  PathService::Get(base::FILE_EXE, &browser_process_path);
+  const base::string16 browser_process_name =
+      browser_process_path.BaseName().value();
+  const base::string16 google_browser_name =
       l10n_util::GetStringUTF16(IDS_PRODUCT_NAME);
+
   struct {
     const wchar_t* name;
     const wchar_t* process_name;
   } process_template[MAX_BROWSERS] = {
-    { google_browser_name.c_str(), L"chrome.exe", },
+    { google_browser_name.c_str(), browser_process_name.c_str(), },
     { google_browser_name.c_str(), L"nacl64.exe", },
     { L"IE", L"iexplore.exe", },
     { L"Firefox", L"firefox.exe", },
@@ -68,8 +72,9 @@ ProcessData* MemoryDetails::ChromeBrowser() {
 }
 
 void MemoryDetails::CollectProcessData(
+    CollectionMode mode,
     const std::vector<ProcessMemoryInformation>& child_info) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK(BrowserThread::GetBlockingPool()->RunsTasksOnCurrentThread());
 
   // Clear old data.
   for (unsigned int index = 0; index < process_data_.size(); index++)
@@ -100,7 +105,9 @@ void MemoryDetails::CollectProcessData(
          (windows_architecture == base::win::OSInfo::IA64_ARCHITECTURE)) &&
         (base::win::OSInfo::GetWOW64StatusForProcess(process_handle.Get()) ==
             base::win::OSInfo::WOW64_DISABLED);
-    for (unsigned int index2 = 0; index2 < process_data_.size(); index2++) {
+    const size_t browser_list_size =
+        (mode == FROM_CHROME_ONLY ? 1 : process_data_.size());
+    for (size_t index2 = 0; index2 < browser_list_size; ++index2) {
       if (_wcsicmp(process_data_[index2].process_name.c_str(),
                    process_entry.szExeFile) != 0)
         continue;
@@ -124,7 +131,7 @@ void MemoryDetails::CollectProcessData(
       TCHAR name[MAX_PATH];
       if (index2 == CHROME_BROWSER || index2 == CHROME_NACL_PROCESS) {
         chrome::VersionInfo version_info;
-        info.version = base::ASCIIToWide(version_info.Version());
+        info.version = base::ASCIIToUTF16(version_info.Version());
         // Check if this is one of the child processes whose data we collected
         // on the IO thread, and if so copy over that data.
         for (size_t child = 0; child < child_info.size(); child++) {

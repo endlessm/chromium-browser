@@ -57,9 +57,13 @@ class UdpSendWork : public UdpWork {
     if (node_->TestStreamFlags(SSF_SENDING))
       return false;
 
-    packet_ = emitter_->ReadTXPacket_Locked();
-    if (NULL == packet_)
-      return false;
+    // If this is a retry packet, packet_ will be already set
+    // and we don't need to dequeue from emitter_.
+    if (NULL == packet_) {
+      packet_ = emitter_->ReadTXPacket_Locked();
+      if (NULL == packet_)
+        return false;
+    }
 
     int err = UDPInterface()->SendTo(node_->socket_resource(),
                                      packet_->buffer(),
@@ -80,6 +84,12 @@ class UdpSendWork : public UdpWork {
     AUTO_LOCK(emitter_->GetLock());
 
     if (length_error < 0) {
+      if (length_error == PP_ERROR_INPROGRESS) {
+        // We need to retry this packet later.
+        node_->ClearStreamFlags(SSF_SENDING);
+        node_->stream()->EnqueueWork(this);
+        return;
+      }
       node_->SetError_Locked(length_error);
       return;
     }
@@ -217,7 +227,7 @@ Error UdpNode::SetSockOpt(int lvl,
                        PP_UDPSOCKET_OPTION_RECV_BUFFER_SIZE,
                        PP_MakeInt32(bufsize),
                        PP_BlockUntilComplete());
-    return PPErrorToErrno(error);
+    return PPERROR_TO_ERRNO(error);
   } else if (lvl == SOL_SOCKET && optname == SO_SNDBUF) {
     if (static_cast<size_t>(len) < sizeof(int))
       return EINVAL;
@@ -228,7 +238,18 @@ Error UdpNode::SetSockOpt(int lvl,
                 PP_UDPSOCKET_OPTION_SEND_BUFFER_SIZE,
                 PP_MakeInt32(bufsize),
                 PP_BlockUntilComplete());
-    return PPErrorToErrno(error);
+    return PPERROR_TO_ERRNO(error);
+  } else if (lvl == SOL_SOCKET && optname == SO_BROADCAST) {
+    if (static_cast<size_t>(len) < sizeof(int))
+      return EINVAL;
+    AUTO_LOCK(node_lock_);
+    int broadcast = *static_cast<const int*>(optval);
+    int32_t error =
+        UDPInterface()->SetOption(socket_resource_,
+                PP_UDPSOCKET_OPTION_BROADCAST,
+                PP_MakeBool(broadcast ? PP_TRUE : PP_FALSE),
+                PP_BlockUntilComplete());
+    return PPERROR_TO_ERRNO(error);
   }
 
   return SocketNode::SetSockOpt(lvl, optname, optval, len);
@@ -250,7 +271,7 @@ Error UdpNode::Bind(const struct sockaddr* addr, socklen_t len) {
       UDPInterface()->Bind(socket_resource_, out_addr, PP_BlockUntilComplete());
   filesystem_->ppapi()->ReleaseResource(out_addr);
   if (err != 0)
-    return PPErrorToErrno(err);
+    return PPERROR_TO_ERRNO(err);
 
   // Get the address that was actually bound (in case addr was 0.0.0.0:0).
   out_addr = UDPInterface()->GetBoundAddress(socket_resource_);

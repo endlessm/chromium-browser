@@ -14,9 +14,11 @@
 #include <algorithm>
 
 #include "base/command_line.h"
+#include "base/environment.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/path_service.h"
 #include "base/process/launch.h"
 #include "base/strings/string_util.h"
@@ -128,6 +130,13 @@ HWND CreateUACForegroundWindow() {
 
 }  // namespace
 
+bool InstallUtil::ShouldInstallMetroProperties() {
+  // Metro support in Chrome was dropped in Win10. Although Metro properties are
+  // only meaningful on Win8+, install them on earlier versions of the OS as
+  // well in order for easier transitions on OS upgrade to Win8+.
+  return base::win::GetVersion() < base::win::VERSION_WIN10;
+}
+
 base::string16 InstallUtil::GetActiveSetupPath(BrowserDistribution* dist) {
   static const wchar_t kInstalledComponentsPath[] =
       L"Software\\Microsoft\\Active Setup\\Installed Components\\";
@@ -148,7 +157,7 @@ void InstallUtil::TriggerActiveSetupCommand() {
     return;
   }
 
-  CommandLine cmd(CommandLine::FromString(cmd_str));
+  base::CommandLine cmd(base::CommandLine::FromString(cmd_str));
   // Force creation of shortcuts as the First Run beacon might land between now
   // and the time setup.exe checks for it.
   cmd.AppendSwitch(installer::switches::kForceConfigureUserSettings);
@@ -156,16 +165,19 @@ void InstallUtil::TriggerActiveSetupCommand() {
   base::LaunchOptions launch_options;
   if (base::win::IsMetroProcess())
     launch_options.force_breakaway_from_job_ = true;
-  if (!base::LaunchProcess(cmd.GetCommandLineString(), launch_options, NULL))
+  base::Process process =
+      base::LaunchProcess(cmd.GetCommandLineString(), launch_options);
+  if (!process.IsValid())
     PLOG(ERROR) << cmd.GetCommandLineString();
 }
 
-bool InstallUtil::ExecuteExeAsAdmin(const CommandLine& cmd, DWORD* exit_code) {
+bool InstallUtil::ExecuteExeAsAdmin(const base::CommandLine& cmd,
+                                    DWORD* exit_code) {
   base::FilePath::StringType program(cmd.GetProgram().value());
   DCHECK(!program.empty());
   DCHECK_NE(program[0], L'\"');
 
-  CommandLine::StringType params(cmd.GetCommandLineString());
+  base::CommandLine::StringType params(cmd.GetCommandLineString());
   if (params[0] == '"') {
     DCHECK_EQ('"', params[program.length() + 1]);
     DCHECK_EQ(program, params.substr(1, program.length()));
@@ -206,13 +218,14 @@ bool InstallUtil::ExecuteExeAsAdmin(const CommandLine& cmd, DWORD* exit_code) {
   return success;
 }
 
-CommandLine InstallUtil::GetChromeUninstallCmd(
-    bool system_install, BrowserDistribution::Type distribution_type) {
+base::CommandLine InstallUtil::GetChromeUninstallCmd(
+    bool system_install,
+    BrowserDistribution::Type distribution_type) {
   ProductState state;
   if (state.Initialize(system_install, distribution_type)) {
     return state.uninstall_command();
   }
-  return CommandLine(CommandLine::NO_PROGRAM);
+  return base::CommandLine(base::CommandLine::NO_PROGRAM);
 }
 
 void InstallUtil::GetChromeVersion(BrowserDistribution* dist,
@@ -361,15 +374,44 @@ void InstallUtil::UpdateInstallerStage(bool system_install,
   }
 }
 
-bool InstallUtil::IsPerUserInstall(const wchar_t* const exe_path) {
-  wchar_t program_files_path[MAX_PATH] = {0};
-  if (SUCCEEDED(SHGetFolderPath(NULL, CSIDL_PROGRAM_FILES, NULL,
-                                SHGFP_TYPE_CURRENT, program_files_path))) {
-    return !StartsWith(exe_path, program_files_path, false);
+bool InstallUtil::IsPerUserInstall(const base::FilePath& exe_path) {
+  scoped_ptr<base::Environment> env(base::Environment::Create());
+
+  static const char kEnvProgramFilesPath[] = "CHROME_PROBED_PROGRAM_FILES_PATH";
+  std::string env_program_files_path;
+  // Check environment variable to find program files path.
+  base::FilePath program_files_path;
+  if (env->GetVar(kEnvProgramFilesPath, &env_program_files_path) &&
+      !env_program_files_path.empty()) {
+    program_files_path =
+        base::FilePath(base::UTF8ToWide(env_program_files_path));
   } else {
-    NOTREACHED();
+    const int kProgramFilesKey =
+#if defined(_WIN64)
+        // TODO(wfh): Revise this when Chrome is/can be installed in the 64-bit
+        // program files directory.
+        base::DIR_PROGRAM_FILESX86;
+#else
+        base::DIR_PROGRAM_FILES;
+#endif
+    if (!PathService::Get(kProgramFilesKey, &program_files_path)) {
+      NOTREACHED();
+      return true;
+    }
+    env->SetVar(kEnvProgramFilesPath,
+                base::WideToUTF8(program_files_path.value()));
   }
-  return true;
+
+  // Return true if the program files path is not a case-insensitive prefix of
+  // the exe path.
+  if (exe_path.value().size() < program_files_path.value().size())
+    return true;
+  DWORD prefix_len =
+      base::saturated_cast<DWORD>(program_files_path.value().size());
+  return ::CompareString(LOCALE_USER_DEFAULT, NORM_IGNORECASE,
+                         exe_path.value().data(), prefix_len,
+                         program_files_path.value().data(), prefix_len) !=
+      CSTR_EQUAL;
 }
 
 bool InstallUtil::IsMultiInstall(BrowserDistribution* dist,
@@ -380,7 +422,7 @@ bool InstallUtil::IsMultiInstall(BrowserDistribution* dist,
 }
 
 bool CheckIsChromeSxSProcess() {
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   CHECK(command_line);
 
   if (command_line->HasSwitch(installer::switches::kChromeSxS))
@@ -554,10 +596,11 @@ int InstallUtil::GetInstallReturnCode(installer::InstallStatus status) {
 }
 
 // static
-void InstallUtil::MakeUninstallCommand(const base::string16& program,
-                                       const base::string16& arguments,
-                                       CommandLine* command_line) {
-  *command_line = CommandLine::FromString(L"\"" + program + L"\" " + arguments);
+void InstallUtil::ComposeCommandLine(const base::string16& program,
+                                     const base::string16& arguments,
+                                     base::CommandLine* command_line) {
+  *command_line =
+      base::CommandLine::FromString(L"\"" + program + L"\" " + arguments);
 }
 
 // static
@@ -615,7 +658,7 @@ bool InstallUtil::ProgramCompare::Evaluate(const base::string16& value) const {
   // Suss out the exe portion of the value, which is expected to be a command
   // line kinda (or exactly) like:
   // "c:\foo\bar\chrome.exe" -- "%1"
-  base::FilePath program(CommandLine::FromString(value).GetProgram());
+  base::FilePath program(base::CommandLine::FromString(value).GetProgram());
   if (program.empty()) {
     LOG(WARNING) << "Failed to parse an executable name from command line: \""
                  << value << "\"";

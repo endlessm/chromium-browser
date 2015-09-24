@@ -59,18 +59,12 @@ public class InvalidationIntentProtocol {
      * Create an Intent that will start the invalidation listener service and
      * register for the specified types.
      */
-    public static Intent createRegisterIntent(Account account,
-                                              boolean allTypes, Set<ModelType> types) {
+    public static Intent createRegisterIntent(Account account, Set<ModelType> types) {
         Intent registerIntent = new Intent(ACTION_REGISTER);
-        String[] selectedTypesArray;
-        if (allTypes) {
-            selectedTypesArray = new String[]{ModelType.ALL_TYPES_TYPE};
-        } else {
-            selectedTypesArray = new String[types.size()];
-            int pos = 0;
-            for (ModelType type : types) {
-                selectedTypesArray[pos++] = type.name();
-            }
+        String[] selectedTypesArray = new String[types.size()];
+        int pos = 0;
+        for (ModelType type : types) {
+            selectedTypesArray[pos++] = type.name();
         }
         registerIntent.putStringArrayListExtra(EXTRA_REGISTERED_TYPES,
                 CollectionUtil.newArrayList(selectedTypesArray));
@@ -115,8 +109,8 @@ public class InvalidationIntentProtocol {
 
     /** Returns whether {@code intent} is a registered types change intent. */
     public static boolean isRegisteredTypesChange(Intent intent) {
-        return intent.hasExtra(EXTRA_REGISTERED_TYPES) ||
-                intent.hasExtra(EXTRA_REGISTERED_OBJECT_SOURCES);
+        return intent.hasExtra(EXTRA_REGISTERED_TYPES)
+                || intent.hasExtra(EXTRA_REGISTERED_OBJECT_SOURCES);
     }
 
     /** Returns the object ids for which to register contained in the intent. */
@@ -125,8 +119,8 @@ public class InvalidationIntentProtocol {
                 intent.getIntegerArrayListExtra(EXTRA_REGISTERED_OBJECT_SOURCES);
         ArrayList<String> objectNames =
                 intent.getStringArrayListExtra(EXTRA_REGISTERED_OBJECT_NAMES);
-        if (objectSources == null || objectNames == null ||
-                objectSources.size() != objectNames.size()) {
+        if (objectSources == null || objectNames == null
+                || objectSources.size() != objectNames.size()) {
             return null;
         }
         Set<ObjectId> objectIds = new HashSet<ObjectId>(objectSources.size());

@@ -60,16 +60,22 @@ base::string16 GetConnectErrorString(const std::string& error_name) {
   return base::string16();
 }
 
+int GetErrorNotificationIconId(const std::string& network_type) {
+  if (network_type == shill::kTypeVPN)
+    return IDR_AURA_UBER_TRAY_NETWORK_VPN;
+  if (network_type == shill::kTypeCellular)
+    return IDR_AURA_UBER_TRAY_NETWORK_FAILED_CELLULAR;
+  return IDR_AURA_UBER_TRAY_NETWORK_FAILED;
+}
+
 void ShowErrorNotification(const std::string& notification_id,
                            const std::string& network_type,
                            const base::string16& title,
                            const base::string16& message,
                            const base::Closure& callback) {
-  int icon_id = (network_type == shill::kTypeCellular)
-                    ? IDR_AURA_UBER_TRAY_NETWORK_FAILED_CELLULAR
-                    : IDR_AURA_UBER_TRAY_NETWORK_FAILED;
   const gfx::Image& icon =
-      ui::ResourceBundle::GetSharedInstance().GetImageNamed(icon_id);
+      ui::ResourceBundle::GetSharedInstance().GetImageNamed(
+          GetErrorNotificationIconId(network_type));
   message_center::MessageCenter::Get()->AddNotification(
       message_center::Notification::CreateSystemNotification(
           notification_id, title, message, icon,
@@ -94,12 +100,14 @@ const char NetworkStateNotifier::kNetworkOutOfCreditsNotificationId[] =
 NetworkStateNotifier::NetworkStateNotifier(NetworkConnect* network_connect)
     : network_connect_(network_connect),
       did_show_out_of_credits_(false),
+      need_vpn_disconnection_notify_(false),
       weak_ptr_factory_(this) {
   if (!NetworkHandler::IsInitialized())
     return;
   NetworkStateHandler* handler = NetworkHandler::Get()->network_state_handler();
   handler->AddObserver(this, FROM_HERE);
   UpdateDefaultNetwork(handler->DefaultNetwork());
+  NetworkHandler::Get()->network_connection_handler()->AddObserver(this);
 }
 
 NetworkStateNotifier::~NetworkStateNotifier() {
@@ -107,6 +115,41 @@ NetworkStateNotifier::~NetworkStateNotifier() {
     return;
   NetworkHandler::Get()->network_state_handler()->RemoveObserver(this,
                                                                  FROM_HERE);
+  NetworkHandler::Get()->network_connection_handler()->RemoveObserver(this);
+}
+
+void NetworkStateNotifier::ConnectToNetworkRequested(
+    const std::string& service_path) {
+  RemoveConnectNotification();
+}
+
+void NetworkStateNotifier::ConnectSucceeded(const std::string& service_path) {
+  RemoveConnectNotification();
+}
+
+void NetworkStateNotifier::ConnectFailed(const std::string& service_path,
+                                         const std::string& error_name) {
+  // Only show a notification for certain errors. Other failures are expected
+  // to be handled by the UI that initiated the connect request.
+  // Note: kErrorConnectFailed may also cause the configure dialog to be
+  // displayed, but we rely on the notification system to show additional
+  // details if available.
+  if (error_name != NetworkConnectionHandler::kErrorConnectFailed &&
+      error_name != NetworkConnectionHandler::kErrorNotFound &&
+      error_name != NetworkConnectionHandler::kErrorConfigureFailed &&
+      error_name != NetworkConnectionHandler::kErrorCertLoadTimeout) {
+    return;
+  }
+  ShowNetworkConnectError(error_name, service_path);
+}
+
+void NetworkStateNotifier::DisconnectRequested(
+    const std::string& service_path) {
+  const NetworkState* network =
+      NetworkHandler::Get()->network_state_handler()->GetNetworkState(
+          service_path);
+  if (network && network->type() == shill::kTypeVPN)
+    need_vpn_disconnection_notify_ = false;
 }
 
 void NetworkStateNotifier::DefaultNetworkChanged(const NetworkState* network) {
@@ -117,6 +160,12 @@ void NetworkStateNotifier::DefaultNetworkChanged(const NetworkState* network) {
   // from being shown too frequently (see below).
   if (network)
     did_show_out_of_credits_ = false;
+}
+
+void NetworkStateNotifier::NetworkConnectionStateChanged(
+    const NetworkState* network) {
+  if (network->type() == shill::kTypeVPN)
+    UpdateVpnConnectionState(network);
 }
 
 void NetworkStateNotifier::NetworkPropertiesUpdated(
@@ -136,6 +185,12 @@ bool NetworkStateNotifier::UpdateDefaultNetwork(const NetworkState* network) {
     return true;
   }
   return false;
+}
+
+void NetworkStateNotifier::UpdateVpnConnectionState(const NetworkState* vpn) {
+  if (!vpn->IsConnectedState() && need_vpn_disconnection_notify_)
+    ShowVpnDisconnectedNotification(vpn);
+  need_vpn_disconnection_notify_ = vpn->IsConnectedState();
 }
 
 void NetworkStateNotifier::UpdateCellularOutOfCredits(
@@ -166,7 +221,7 @@ void NetworkStateNotifier::UpdateCellularOutOfCredits(
     ShowErrorNotification(
         kNetworkOutOfCreditsNotificationId, cellular->type(),
         l10n_util::GetStringUTF16(IDS_NETWORK_OUT_OF_CREDITS_TITLE), error_msg,
-        base::Bind(&NetworkStateNotifier::ShowNetworkSettings,
+        base::Bind(&NetworkStateNotifier::ShowNetworkSettingsForPath,
                    weak_ptr_factory_.GetWeakPtr(), cellular->path()));
   }
 }
@@ -200,7 +255,7 @@ void NetworkStateNotifier::UpdateCellularActivating(
           l10n_util::GetStringFUTF16(IDS_NETWORK_CELLULAR_ACTIVATED,
                                      base::UTF8ToUTF16((cellular->name()))),
           icon, kNotifierNetwork,
-          base::Bind(&NetworkStateNotifier::ShowNetworkSettings,
+          base::Bind(&NetworkStateNotifier::ShowNetworkSettingsForPath,
                      weak_ptr_factory_.GetWeakPtr(), cellular->path())));
 }
 
@@ -213,7 +268,7 @@ void NetworkStateNotifier::ShowNetworkConnectError(
     return;
   }
   // Get the up-to-date properties for the network and display the error.
-  NetworkHandler::Get()->network_configuration_handler()->GetProperties(
+  NetworkHandler::Get()->network_configuration_handler()->GetShillProperties(
       service_path,
       base::Bind(&NetworkStateNotifier::ConnectErrorPropertiesSucceeded,
                  weak_ptr_factory_.GetWeakPtr(), error_name),
@@ -240,7 +295,7 @@ void NetworkStateNotifier::ShowMobileActivationError(
           ui::ResourceBundle::GetSharedInstance().GetImageNamed(
               IDR_AURA_UBER_TRAY_NETWORK_FAILED_CELLULAR),
           kNotifierNetworkError,
-          base::Bind(&NetworkStateNotifier::ShowNetworkSettings,
+          base::Bind(&NetworkStateNotifier::ShowNetworkSettingsForPath,
                      weak_ptr_factory_.GetWeakPtr(), service_path)));
 }
 
@@ -316,7 +371,7 @@ void NetworkStateNotifier::ShowConnectErrorNotification(
       return;
     }
 
-    error = network_connect_->GetErrorString(shill_error, service_path);
+    error = network_connect_->GetShillErrorString(shill_error, service_path);
     if (error.empty())
       error = l10n_util::GetStringUTF16(IDS_CHROMEOS_NETWORK_ERROR_UNKNOWN);
   }
@@ -353,13 +408,24 @@ void NetworkStateNotifier::ShowConnectErrorNotification(
   ShowErrorNotification(
       kNetworkConnectNotificationId, network_type,
       l10n_util::GetStringUTF16(IDS_NETWORK_CONNECTION_ERROR_TITLE), error_msg,
-      base::Bind(&NetworkStateNotifier::ShowNetworkSettings,
+      base::Bind(&NetworkStateNotifier::ShowNetworkSettingsForPath,
                  weak_ptr_factory_.GetWeakPtr(), service_path));
 }
 
-void NetworkStateNotifier::ShowNetworkSettings(
+void NetworkStateNotifier::ShowVpnDisconnectedNotification(
+    const NetworkState* vpn) {
+  base::string16 error_msg = l10n_util::GetStringFUTF16(
+      IDS_NETWORK_VPN_CONNECTION_LOST_BODY, base::UTF8ToUTF16(vpn->name()));
+  ShowErrorNotification(
+      kNetworkConnectNotificationId, shill::kTypeVPN,
+      l10n_util::GetStringUTF16(IDS_NETWORK_VPN_CONNECTION_LOST_TITLE),
+      error_msg, base::Bind(&NetworkStateNotifier::ShowNetworkSettingsForPath,
+                            weak_ptr_factory_.GetWeakPtr(), vpn->path()));
+}
+
+void NetworkStateNotifier::ShowNetworkSettingsForPath(
     const std::string& service_path) {
-  network_connect_->ShowNetworkSettings(service_path);
+  network_connect_->ShowNetworkSettingsForPath(service_path);
 }
 
 }  // namespace ui

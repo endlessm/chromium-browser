@@ -1,11 +1,14 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _FXCRT_COORDINATES_
-#define _FXCRT_COORDINATES_
+#ifndef CORE_INCLUDE_FXCRT_FX_COORDINATES_H_
+#define CORE_INCLUDE_FXCRT_FX_COORDINATES_H_
+
+#include "fx_basic.h"
+
 template<class baseType> class CFX_PSVTemplate;
 template<class baseType> class CFX_VTemplate;
 template<class baseType> class CFX_PRLTemplate;
@@ -15,7 +18,7 @@ template<class baseType> class CFX_ATemplate;
 template<class baseType> class CFX_RRTemplate;
 class CFX_Matrix;
 template<class baseType>
-class CFX_PSVTemplate : public CFX_Object
+class CFX_PSVTemplate
 {
 public:
     typedef CFX_PSVTemplate<baseType>	FXT_PSV;
@@ -110,15 +113,15 @@ public:
     }
     baseType x, y;
 };
-typedef CFX_PSVTemplate<FX_INT32>			CFX_Point;
+typedef CFX_PSVTemplate<int32_t>			CFX_Point;
 typedef CFX_PSVTemplate<FX_FLOAT>			CFX_PointF;
-typedef CFX_PSVTemplate<FX_INT32>			CFX_Size;
+typedef CFX_PSVTemplate<int32_t>			CFX_Size;
 typedef CFX_PSVTemplate<FX_FLOAT>			CFX_SizeF;
 typedef CFX_ArrayTemplate<CFX_Point>		CFX_Points;
 typedef CFX_ArrayTemplate<CFX_PointF>		CFX_PointsF;
-typedef CFX_PSVTemplate<FX_INT32> *			FX_LPPOINT;
+typedef CFX_PSVTemplate<int32_t> *			FX_LPPOINT;
 typedef CFX_PSVTemplate<FX_FLOAT> *			FX_LPPOINTF;
-typedef CFX_PSVTemplate<FX_INT32> const *	FX_LPCPOINT;
+typedef CFX_PSVTemplate<int32_t> const *	FX_LPCPOINT;
 typedef CFX_PSVTemplate<FX_FLOAT> const *	FX_LPCPOINTF;
 #define CFX_FloatPoint	CFX_PointF
 template<class baseType>
@@ -129,9 +132,10 @@ public:
     typedef CFX_PSVTemplate<baseType>	FXT_POINT;
     typedef CFX_PSVTemplate<baseType>	FXT_SIZE;
     typedef CFX_VTemplate<baseType>		FXT_VECTOR;
-    void		Set(baseType x, baseType y)
+    void		Set(baseType newx, baseType newy)
     {
-        FXT_PSV::x = x, FXT_PSV::y = y;
+        FXT_PSV::x = newx;
+        FXT_PSV::y = newy;
     }
     void		Set(const FXT_PSV &psv)
     {
@@ -162,26 +166,26 @@ public:
         FXT_PSV::x = ((baseType)FXT_PSV::x) / fLen;
         FXT_PSV::y = ((baseType)FXT_PSV::y) / fLen;
     }
-    baseType	DotProduct(baseType x, baseType y) const
+    baseType	DotProduct(baseType otherx, baseType othery) const
     {
-        return FXT_PSV::x * x + FXT_PSV::y * y;
+        return FXT_PSV::x * otherx + FXT_PSV::y * othery;
     }
     baseType	DotProduct(const FXT_VECTOR &v) const
     {
         return FXT_PSV::x * v.x + FXT_PSV::y * v.y;
     }
-    FX_BOOL		IsParallel(baseType x, baseType y) const
+    FX_BOOL		IsParallel(baseType otherx, baseType othery) const
     {
-        baseType t = FXT_PSV::x * y - FXT_PSV::y * x;
+        baseType t = FXT_PSV::x * othery - FXT_PSV::y * otherx;
         return FXSYS_fabs(t) < 0x0001f;
     }
     FX_BOOL		IsParallel(const FXT_VECTOR &v) const
     {
         return IsParallel(v.x, v.y);
     }
-    FX_BOOL		IsPerpendicular(baseType x, baseType y) const
+    FX_BOOL		IsPerpendicular(baseType otherx, baseType othery) const
     {
-        baseType t = DotProduct(x, y);
+        baseType t = DotProduct(otherx, othery);
         return FXSYS_fabs(t) < 0x0001f;
     }
     FX_BOOL		IsPerpendicular(const FXT_VECTOR &v) const
@@ -223,10 +227,10 @@ public:
         return v.y < 0 ? -fSlope : fSlope;
     }
 };
-typedef CFX_VTemplate<FX_INT32> CFX_Vector;
+typedef CFX_VTemplate<int32_t> CFX_Vector;
 typedef CFX_VTemplate<FX_FLOAT> CFX_VectorF;
 template<class baseType>
-class CFX_RTemplate: public CFX_Object
+class CFX_RTemplate
 {
 public:
     typedef CFX_PSVTemplate<baseType>	FXT_POINT;
@@ -520,11 +524,11 @@ public:
     baseType left, top;
     baseType width, height;
 };
-typedef CFX_RTemplate<FX_INT32>			CFX_Rect;
+typedef CFX_RTemplate<int32_t>			CFX_Rect;
 typedef CFX_RTemplate<FX_FLOAT>			CFX_RectF;
-typedef CFX_RTemplate<FX_INT32> *		FX_LPRECT;
+typedef CFX_RTemplate<int32_t> *		FX_LPRECT;
 typedef CFX_RTemplate<FX_FLOAT> *		FX_LPRECTF;
-typedef CFX_RTemplate<FX_INT32> const *	FX_LPCRECT;
+typedef CFX_RTemplate<int32_t> const *	FX_LPCRECT;
 typedef CFX_RTemplate<FX_FLOAT> const *	FX_LPCRECTF;
 typedef CFX_ArrayTemplate<CFX_RectF>	CFX_RectFArray;
 struct FX_RECT {
@@ -537,7 +541,7 @@ struct FX_RECT {
 
     int			bottom;
 
-    FX_RECT() {}
+    FX_RECT(): left(0), top(0), right(0), bottom(0) { }
 
     FX_RECT(int left1, int top1, int right1, int bottom1)
     {
@@ -598,15 +602,15 @@ struct FX_RECT {
 };
 struct FX_SMALL_RECT {
 
-    FX_SHORT	Left;
+    int16_t	Left;
 
-    FX_SHORT	Top;
+    int16_t	Top;
 
-    FX_SHORT	Right;
+    int16_t	Right;
 
-    FX_SHORT	Bottom;
+    int16_t	Bottom;
 };
-class CFX_FloatRect : public CFX_Object
+class CFX_FloatRect
 {
 public:
 
@@ -690,21 +694,24 @@ public:
         top += y;
     }
 
-    void				Inflate(FX_FLOAT left, FX_FLOAT bottom, FX_FLOAT right, FX_FLOAT top)
+    void Inflate(FX_FLOAT other_left,
+                 FX_FLOAT other_bottom,
+                 FX_FLOAT other_right,
+                 FX_FLOAT other_top)
     {
         Normalize();
-        this->left -= left;
-        this->bottom -= bottom;
-        this->right += right;
-        this->top += top;
+        left -= other_left;
+        bottom -= other_bottom;
+        right += other_right;
+        top += other_top;
     }
 
-    void				Inflate(const CFX_FloatRect &rt)
+    void Inflate(const CFX_FloatRect &rt)
     {
         Inflate(rt.left, rt.bottom, rt.right, rt.top);
     }
 
-    void				Deflate(FX_FLOAT x, FX_FLOAT y)
+    void Deflate(FX_FLOAT x, FX_FLOAT y)
     {
         Normalize();
         left += x;
@@ -713,21 +720,24 @@ public:
         top -= y;
     }
 
-    void				Deflate(FX_FLOAT left, FX_FLOAT bottom, FX_FLOAT right, FX_FLOAT top)
+    void Deflate(FX_FLOAT other_left,
+                 FX_FLOAT other_bottom,
+                 FX_FLOAT other_right,
+                 FX_FLOAT other_top)
     {
         Normalize();
-        this->left += left;
-        this->bottom += bottom;
-        this->right -= right;
-        this->top -= top;
+        left += other_left;
+        bottom += other_bottom;
+        right -= other_right;
+        top -= other_top;
     }
 
-    void				Deflate(const CFX_FloatRect &rt)
+    void Deflate(const CFX_FloatRect &rt)
     {
         Deflate(rt.left, rt.bottom, rt.right, rt.top);
     }
 
-    void				Translate(FX_FLOAT e, FX_FLOAT f)
+    void Translate(FX_FLOAT e, FX_FLOAT f)
     {
         left += e;
         right += e;
@@ -745,7 +755,7 @@ public:
 
     FX_FLOAT			top;
 };
-class CFX_Matrix : public CFX_Object
+class CFX_Matrix
 {
 public:
 
@@ -803,7 +813,7 @@ public:
 
     void			Translate(FX_FLOAT x, FX_FLOAT y, FX_BOOL bPrepended = FALSE);
 
-    void			TranslateI(FX_INT32 x, FX_INT32 y, FX_BOOL bPrepended = FALSE)
+    void			TranslateI(int32_t x, int32_t y, FX_BOOL bPrepended = FALSE)
     {
         Translate((FX_FLOAT)x, (FX_FLOAT)y, bPrepended);
     }
@@ -827,17 +837,17 @@ public:
 
     FX_FLOAT		GetUnitArea() const;
     FX_FLOAT		TransformXDistance(FX_FLOAT dx) const;
-    FX_INT32		TransformXDistance(FX_INT32 dx) const;
+    int32_t		TransformXDistance(int32_t dx) const;
     FX_FLOAT		TransformYDistance(FX_FLOAT dy) const;
-    FX_INT32		TransformYDistance(FX_INT32 dy) const;
+    int32_t		TransformYDistance(int32_t dy) const;
     FX_FLOAT		TransformDistance(FX_FLOAT dx, FX_FLOAT dy) const;
-    FX_INT32		TransformDistance(FX_INT32 dx, FX_INT32 dy) const;
+    int32_t		TransformDistance(int32_t dx, int32_t dy) const;
 
     FX_FLOAT		TransformDistance(FX_FLOAT distance) const;
     void			TransformPoint(FX_FLOAT &x, FX_FLOAT &y) const;
-    void			TransformPoint(FX_INT32 &x, FX_INT32 &y) const;
-    void			TransformPoints(CFX_PointF *points, FX_INT32 iCount) const;
-    void			TransformPoints(CFX_Point *points, FX_INT32 iCount) const;
+    void			TransformPoint(int32_t &x, int32_t &y) const;
+    void			TransformPoints(CFX_PointF *points, int32_t iCount) const;
+    void			TransformPoints(CFX_Point *points, int32_t iCount) const;
 
     void			Transform(FX_FLOAT& x, FX_FLOAT& y) const
     {
@@ -899,4 +909,5 @@ public:
     FX_FLOAT f;
 };
 #define CFX_AffineMatrix	CFX_Matrix
-#endif
+
+#endif  // CORE_INCLUDE_FXCRT_FX_COORDINATES_H_

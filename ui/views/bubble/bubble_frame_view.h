@@ -8,7 +8,7 @@
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
-#include "ui/gfx/insets.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/window/non_client_view.h"
 
@@ -21,6 +21,7 @@ namespace views {
 class Label;
 class LabelButton;
 class BubbleBorder;
+class ImageView;
 
 // The non-client frame view of bubble-styled widgets.
 class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
@@ -58,6 +59,7 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
   gfx::Insets GetInsets() const override;
   gfx::Size GetPreferredSize() const override;
   gfx::Size GetMinimumSize() const override;
+  gfx::Size GetMaximumSize() const override;
   void Layout() override;
   const char* GetClassName() const override;
   void ChildPreferredSizeChanged(View* child) override;
@@ -87,7 +89,7 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
   virtual gfx::Rect GetAvailableScreenBounds(const gfx::Rect& rect);
 
   bool IsCloseButtonVisible() const;
-  gfx::Rect GetCloseButtonBounds() const;
+  gfx::Rect GetCloseButtonMirroredBounds() const;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(BubbleFrameViewTest, GetBoundsForClientView);
@@ -112,7 +114,8 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
   // Margins between the content and the inside of the border, in pixels.
   gfx::Insets content_margins_;
 
-  // The optional title and (x) close button.
+  // The optional title icon, title, and (x) close button.
+  views::ImageView* title_icon_;
   Label* title_;
   LabelButton* close_;
 

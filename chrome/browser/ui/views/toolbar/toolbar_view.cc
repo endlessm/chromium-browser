@@ -7,16 +7,17 @@
 #include <algorithm>
 
 #include "base/command_line.h"
-#include "base/debug/trace_event.h"
 #include "base/i18n/number_formatting.h"
 #include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/trace_event/trace_event.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/command_updater.h"
 #include "chrome/browser/extensions/extension_commands_global_registry.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_command_controller.h"
@@ -31,7 +32,6 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/toolbar/wrench_menu_model.h"
 #include "chrome/browser/ui/view_ids.h"
-#include "chrome/browser/ui/views/extensions/extension_message_bubble_view.h"
 #include "chrome/browser/ui/views/extensions/extension_popup.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/location_bar/page_action_image_view.h"
@@ -57,7 +57,6 @@
 #include "content/public/browser/web_contents.h"
 #include "grit/theme_resources.h"
 #include "ui/accessibility/ax_view_state.h"
-#include "ui/aura/window.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/theme_provider.h"
 #include "ui/base/window_open_disposition.h"
@@ -74,6 +73,7 @@
 #include "ui/views/window/non_client_view.h"
 
 #if defined(OS_WIN)
+#include "chrome/browser/recovery/recovery_install_global_error_factory.h"
 #include "chrome/browser/ui/views/conflicting_module_view_win.h"
 #include "chrome/browser/ui/views/critical_notification_bubble_view.h"
 #endif
@@ -91,17 +91,6 @@ using base::UserMetricsAction;
 using content::WebContents;
 
 namespace {
-
-// The edge graphics have some built-in spacing/shadowing, so we have to adjust
-// our spacing to make it match.
-const int kLeftEdgeSpacing = 3;
-const int kRightEdgeSpacing = 2;
-
-// Ash doesn't use a rounded content area and its top edge has an extra shadow.
-const int kContentShadowHeightAsh = 2;
-
-// Non-ash uses a rounded content area with no shadow in the assets.
-const int kContentShadowHeight = 0;
 
 #if !defined(OS_CHROMEOS)
 bool HasAshShell() {
@@ -130,10 +119,7 @@ ToolbarView::ToolbarView(Browser* browser)
       browser_actions_(NULL),
       app_menu_(NULL),
       browser_(browser),
-      badge_controller_(browser->profile(), this),
-      extension_message_bubble_factory_(
-          new extensions::ExtensionMessageBubbleFactory(browser->profile(),
-                                                        this)) {
+      badge_controller_(browser->profile(), this) {
   set_id(VIEW_ID_TOOLBAR);
 
   SetEventTargeter(
@@ -146,8 +132,7 @@ ToolbarView::ToolbarView(Browser* browser)
   chrome::AddCommandObserver(browser_, IDC_LOAD_NEW_TAB_PAGE, this);
 
   display_mode_ = DISPLAYMODE_LOCATION;
-  if (browser->SupportsWindowFeature(Browser::FEATURE_TABSTRIP) ||
-      (browser->is_app() && extensions::util::IsStreamlinedHostedAppsEnabled()))
+  if (browser->SupportsWindowFeature(Browser::FEATURE_TABSTRIP))
     display_mode_ = DISPLAYMODE_NORMAL;
 
   if (OutdatedUpgradeBubbleView::IsAvailable()) {
@@ -234,7 +219,7 @@ void ToolbarView::Init() {
 
   LoadImages();
 
-  // Start global error services now so we badge the menu correctly in non-Ash.
+  // Start global error services now so we badge the menu correctly.
 #if !defined(OS_CHROMEOS)
   if (!HasAshShell()) {
     SigninGlobalErrorFactory::GetForProfile(browser_->profile());
@@ -242,6 +227,10 @@ void ToolbarView::Init() {
     SyncGlobalErrorFactory::GetForProfile(browser_->profile());
 #endif
   }
+
+#if defined(OS_WIN)
+  RecoveryInstallGlobalErrorFactory::GetForProfile(browser_->profile());
+#endif
 #endif  // OS_CHROMEOS
 
   // Add any necessary badges to the menu item based on the system state.
@@ -268,26 +257,16 @@ void ToolbarView::Init() {
   }
 }
 
-void ToolbarView::OnWidgetVisibilityChanged(views::Widget* widget,
-                                            bool visible) {
-  if (visible) {
-    // Safe to call multiple times; the bubble will only appear once.
-    extension_message_bubble_factory_->MaybeShow(app_menu_);
-  }
-}
-
 void ToolbarView::OnWidgetActivationChanged(views::Widget* widget,
                                             bool active) {
   extensions::ExtensionCommandsGlobalRegistry* registry =
       extensions::ExtensionCommandsGlobalRegistry::Get(browser_->profile());
-  if (registry) {
-    if (active) {
-      registry->set_registry_for_active_window(
-          browser_actions_->extension_keybinding_registry());
-    } else if (registry->registry_for_active_window() ==
-               browser_actions_->extension_keybinding_registry()) {
-      registry->set_registry_for_active_window(NULL);
-    }
+  if (active) {
+    registry->set_registry_for_active_window(
+        browser_actions_->extension_keybinding_registry());
+  } else if (registry->registry_for_active_window() ==
+             browser_actions_->extension_keybinding_registry()) {
+    registry->set_registry_for_active_window(nullptr);
   }
 }
 
@@ -298,6 +277,11 @@ void ToolbarView::Update(WebContents* tab) {
     browser_actions_->RefreshToolbarActionViews();
   if (reload_)
     reload_->set_menu_enabled(chrome::IsDebuggerAttachedToCurrentTab(browser_));
+}
+
+void ToolbarView::ResetTabState(WebContents* tab) {
+  if (location_bar_)
+    location_bar_->ResetTabState(tab);
 }
 
 void ToolbarView::SetPaneFocusAndFocusAppMenu() {
@@ -337,11 +321,13 @@ void ToolbarView::ShowAppMenu(bool for_drop) {
   if (wrench_menu_.get() && wrench_menu_->IsShowing())
     return;
 
+#if defined(USE_AURA)
   if (keyboard::KeyboardController::GetInstance() &&
       keyboard::KeyboardController::GetInstance()->keyboard_visible()) {
     keyboard::KeyboardController::GetInstance()->HideKeyboard(
         keyboard::KeyboardController::HIDE_REASON_AUTOMATIC);
   }
+#endif
 
   wrench_menu_.reset(
       new WrenchMenu(browser_, for_drop ? WrenchMenu::FOR_DROP : 0));
@@ -353,8 +339,9 @@ void ToolbarView::ShowAppMenu(bool for_drop) {
   wrench_menu_->RunMenu(app_menu_);
 }
 
-views::MenuButton* ToolbarView::app_menu() const {
-  return app_menu_;
+void ToolbarView::CloseAppMenu() {
+  if (wrench_menu_)
+    wrench_menu_->CloseMenu();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -499,13 +486,19 @@ bool ToolbarView::GetAcceleratorForCommandId(int command_id,
 
 gfx::Size ToolbarView::GetPreferredSize() const {
   gfx::Size size(location_bar_->GetPreferredSize());
+  ui::ThemeProvider* theme_provider = GetThemeProvider();
   if (is_display_mode_normal()) {
-    int content_width = kLeftEdgeSpacing + back_->GetPreferredSize().width() +
+    int content_width =
+        theme_provider->GetDisplayProperty(
+            ThemeProperties::PROPERTY_TOOLBAR_VIEW_LEFT_EDGE_SPACING) +
+        back_->GetPreferredSize().width() +
         forward_->GetPreferredSize().width() +
         reload_->GetPreferredSize().width() +
         (show_home_button_.GetValue() ? home_->GetPreferredSize().width() : 0) +
         kStandardSpacing + browser_actions_->GetPreferredSize().width() +
-        app_menu_->GetPreferredSize().width() + kRightEdgeSpacing;
+        app_menu_->GetPreferredSize().width() +
+        theme_provider->GetDisplayProperty(
+            ThemeProperties::PROPERTY_TOOLBAR_VIEW_RIGHT_EDGE_SPACING);
     size.Enlarge(content_width, 0);
   }
   return SizeForContentSize(size);
@@ -513,12 +506,18 @@ gfx::Size ToolbarView::GetPreferredSize() const {
 
 gfx::Size ToolbarView::GetMinimumSize() const {
   gfx::Size size(location_bar_->GetMinimumSize());
+  ui::ThemeProvider* theme_provider = GetThemeProvider();
   if (is_display_mode_normal()) {
-    int content_width = kLeftEdgeSpacing + back_->GetMinimumSize().width() +
-        forward_->GetMinimumSize().width() + reload_->GetMinimumSize().width() +
+    int content_width =
+        theme_provider->GetDisplayProperty(
+            ThemeProperties::PROPERTY_TOOLBAR_VIEW_LEFT_EDGE_SPACING) +
+        back_->GetMinimumSize().width() + forward_->GetMinimumSize().width() +
+        reload_->GetMinimumSize().width() +
         (show_home_button_.GetValue() ? home_->GetMinimumSize().width() : 0) +
         kStandardSpacing + browser_actions_->GetMinimumSize().width() +
-        app_menu_->GetMinimumSize().width() + kRightEdgeSpacing;
+        app_menu_->GetMinimumSize().width() +
+        theme_provider->GetDisplayProperty(
+            ThemeProperties::PROPERTY_TOOLBAR_VIEW_RIGHT_EDGE_SPACING);
     size.Enlarge(content_width, 0);
   }
   return SizeForContentSize(size);
@@ -551,11 +550,14 @@ void ToolbarView::Layout() {
   //                http://crbug.com/5540
   bool maximized = browser_->window() && browser_->window()->IsMaximized();
   int back_width = back_->GetPreferredSize().width();
+  ui::ThemeProvider* theme_provider = GetThemeProvider();
+  const int left_edge_spacing = theme_provider->GetDisplayProperty(
+      ThemeProperties::PROPERTY_TOOLBAR_VIEW_LEFT_EDGE_SPACING);
   if (maximized) {
-    back_->SetBounds(0, child_y, back_width + kLeftEdgeSpacing, child_height);
-    back_->SetLeadingMargin(kLeftEdgeSpacing);
+    back_->SetBounds(0, child_y, back_width + left_edge_spacing, child_height);
+    back_->SetLeadingMargin(left_edge_spacing);
   } else {
-    back_->SetBounds(kLeftEdgeSpacing, child_y, back_width, child_height);
+    back_->SetBounds(left_edge_spacing, child_y, back_width, child_height);
     back_->SetLeadingMargin(0);
   }
   int next_element_x = back_->bounds().right();
@@ -569,8 +571,7 @@ void ToolbarView::Layout() {
   next_element_x = reload_->bounds().right();
 
   if (show_home_button_.GetValue() ||
-      (browser_->is_app() &&
-       extensions::util::IsStreamlinedHostedAppsEnabled())) {
+      (browser_->is_app() && extensions::util::IsNewBookmarkAppsEnabled())) {
     home_->SetVisible(true);
     home_->SetBounds(next_element_x, child_y,
                      home_->GetPreferredSize().width(), child_height);
@@ -582,8 +583,11 @@ void ToolbarView::Layout() {
 
   int browser_actions_width = browser_actions_->GetPreferredSize().width();
   int app_menu_width = app_menu_->GetPreferredSize().width();
-  int available_width = std::max(0, width() - kRightEdgeSpacing -
-      app_menu_width - browser_actions_width - next_element_x);
+  const int right_edge_spacing = theme_provider->GetDisplayProperty(
+      ThemeProperties::PROPERTY_TOOLBAR_VIEW_RIGHT_EDGE_SPACING);
+  int available_width =
+      std::max(0, width() - right_edge_spacing - app_menu_width -
+                      browser_actions_width - next_element_x);
 
   int location_height = location_bar_->GetPreferredSize().height();
   int location_y = (height() - location_height + 1) / 2;
@@ -607,7 +611,7 @@ void ToolbarView::Layout() {
   // Extend the app menu to the screen's right edge in maximized mode just like
   // we extend the back button to the left edge.
   if (maximized)
-    app_menu_width += kRightEdgeSpacing;
+    app_menu_width += right_edge_spacing;
   app_menu_->SetBounds(next_element_x, child_y, app_menu_width, child_height);
 }
 
@@ -735,6 +739,13 @@ gfx::Size ToolbarView::SizeForContentSize(gfx::Size size) const {
         GetThemeProvider()->GetImageSkiaNamed(IDR_CONTENT_TOP_CENTER);
     size.SetToMax(
         gfx::Size(0, normal_background->height() - content_shadow_height()));
+  } else if (size.height() == 0) {
+    // Location mode with a 0 height location bar. If on ash, expand by one
+    // pixel to show a border in the title bar, otherwise leave the size as zero
+    // height.
+    const int kAshBorderSpacing = 1;
+    if (browser_->host_desktop_type() == chrome::HOST_DESKTOP_TYPE_ASH)
+      size.Enlarge(0, kAshBorderSpacing);
   } else {
     const int kPopupBottomSpacingGlass = 1;
     const int kPopupBottomSpacingNonGlass = 2;
@@ -786,6 +797,9 @@ void ToolbarView::OnShowHomeButtonChanged() {
 }
 
 int ToolbarView::content_shadow_height() const {
-  return browser_->host_desktop_type() == chrome::HOST_DESKTOP_TYPE_ASH ?
-      kContentShadowHeightAsh : kContentShadowHeight;
+  ui::ThemeProvider* theme_provider = GetThemeProvider();
+  return theme_provider->GetDisplayProperty(
+      browser_->host_desktop_type() == chrome::HOST_DESKTOP_TYPE_ASH
+          ? ThemeProperties::PROPERTY_TOOLBAR_VIEW_CONTENT_SHADOW_HEIGHT_ASH
+          : ThemeProperties::PROPERTY_TOOLBAR_VIEW_CONTENT_SHADOW_HEIGHT);
 }

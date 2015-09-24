@@ -95,7 +95,8 @@ ShellWebContentsViewDelegate::~ShellWebContentsViewDelegate() {
 void ShellWebContentsViewDelegate::ShowContextMenu(
     RenderFrameHost* render_frame_host,
     const ContextMenuParams& params) {
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kDumpRenderTree))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kRunLayoutTest))
     return;
 
   params_ = params;
@@ -241,7 +242,6 @@ void ShellWebContentsViewDelegate::ActionPerformed(int tag) {
       Shell::CreateNewWindow(browser_context,
                              params_.link_url,
                              NULL,
-                             MSG_ROUTING_NONE,
                              gfx::Size());
       break;
     }

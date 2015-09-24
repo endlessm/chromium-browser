@@ -22,8 +22,7 @@
 #include "core/css/CSSProperty.h"
 
 #include "core/StylePropertyShorthand.h"
-#include "core/css/CSSValueList.h"
-#include "core/rendering/style/RenderStyleConstants.h"
+#include "core/style/ComputedStyleConstants.h"
 
 namespace blink {
 
@@ -32,7 +31,7 @@ struct SameSizeAsCSSProperty {
     void* value;
 };
 
-COMPILE_ASSERT(sizeof(CSSProperty) == sizeof(SameSizeAsCSSProperty), CSSProperty_should_stay_small);
+static_assert(sizeof(CSSProperty) == sizeof(SameSizeAsCSSProperty), "CSSProperty should stay small");
 
 CSSPropertyID StylePropertyMetadata::shorthandID() const
 {
@@ -43,13 +42,6 @@ CSSPropertyID StylePropertyMetadata::shorthandID() const
     getMatchingShorthandsForLonghand(static_cast<CSSPropertyID>(m_propertyID), &shorthands);
     ASSERT(shorthands.size() && m_indexInShorthandsVector >= 0 && m_indexInShorthandsVector < shorthands.size());
     return shorthands.at(m_indexInShorthandsVector).id();
-}
-
-void CSSProperty::wrapValueInCommaSeparatedList()
-{
-    RefPtrWillBeRawPtr<CSSValue> value = m_value.release();
-    m_value = CSSValueList::createCommaSeparated();
-    toCSSValueList(m_value.get())->append(value.release());
 }
 
 enum LogicalBoxSide { BeforeSide, EndSide, AfterSide, StartSide };
@@ -261,6 +253,9 @@ bool CSSProperty::isAffectedByAllProperty(CSSPropertyID propertyID)
     if (propertyID == CSSPropertyAll)
         return false;
 
+    if (!CSSPropertyMetadata::isEnabledProperty(propertyID))
+        return false;
+
     // all shorthand spec says:
     // The all property is a shorthand that resets all CSS properties except
     // direction and unicode-bidi. It only accepts the CSS-wide keywords.
@@ -268,6 +263,11 @@ bool CSSProperty::isAffectedByAllProperty(CSSPropertyID propertyID)
     // So CSSPropertyUnicodeBidi and CSSPropertyDirection are not
     // affected by all property.
     return propertyID != CSSPropertyUnicodeBidi && propertyID != CSSPropertyDirection;
+}
+
+bool CSSProperty::operator==(const CSSProperty& other) const
+{
+    return m_value->equals(*other.m_value) && isImportant() == other.isImportant();
 }
 
 } // namespace blink

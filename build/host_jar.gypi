@@ -3,7 +3,9 @@
 # found in the LICENSE file.
 
 # This file is meant to be included into a target to provide a rule to build
-# a JAR file for use on a host in a consistent manner.
+# a JAR file for use on a host in a consistent manner. If a main class is
+# specified, this file will also generate an executable to run the jar in the
+# output folder's /bin/ directory.
 #
 # To use this, create a gyp target with the following form:
 # {
@@ -51,6 +53,8 @@
     'jar_path': '<(jar_dir)/<(jar_name)',
     'main_class%': '',
     'stamp': '<(intermediate_dir)/jar.stamp',
+    'enable_errorprone%': '0',
+    'errorprone_exe_path': '<(PRODUCT_DIR)/bin.java/chromium_errorprone',
   },
   'all_dependent_settings': {
     'variables': {
@@ -62,18 +66,25 @@
       'action_name': 'javac_<(_target_name)',
       'message': 'Compiling <(_target_name) java sources',
       'variables': {
-        'extra_options': [],
+        'extra_args': [],
+        'extra_inputs': [],
         'java_sources': [ '<!@(find <@(src_paths) -name "*.java")' ],
         'conditions': [
           ['"<(excluded_src_paths)" != ""', {
             'java_sources!': ['<!@(find <@(excluded_src_paths) -name "*.java")']
           }],
           ['"<(jar_excluded_classes)" != ""', {
-            'extra_options': ['--excluded-classes=<(jar_excluded_classes)']
+            'extra_args': ['--jar-excluded-classes=<(jar_excluded_classes)']
           }],
-          ['">(main_class)" != ""', {
-            'extra_options': ['--main-class=>(main_class)']
-          }]
+          ['main_class != ""', {
+            'extra_args': ['--main-class=>(main_class)']
+          }],
+          ['enable_errorprone == 1', {
+            'extra_inputs': [
+              '<(errorprone_exe_path)',
+            ],
+            'extra_args': [ '--use-errorprone-path=<(errorprone_exe_path)' ],
+          }],
         ],
       },
       'inputs': [
@@ -81,6 +92,7 @@
         '<(DEPTH)/build/android/gyp/javac.py',
         '^@(java_sources)',
         '>@(input_jars_paths)',
+        '<@(extra_inputs)',
       ],
       'outputs': [
         '<(jar_path)',
@@ -93,10 +105,42 @@
         '--chromium-code=<(chromium_code)',
         '--stamp=<(stamp)',
         '--jar-path=<(jar_path)',
-        '<@(extra_options)',
+        '<@(extra_args)',
         '^@(java_sources)',
       ],
     },
+  ],
+  'conditions': [
+    ['main_class != ""', {
+      'actions': [
+        {
+          'action_name': 'create_java_binary_script_<(_target_name)',
+          'message': 'Creating java binary script <(_target_name)',
+          'variables': {
+            'output': '<(PRODUCT_DIR)/bin/<(_target_name)',
+          },
+          'inputs': [
+            '<(DEPTH)/build/android/gyp/create_java_binary_script.py',
+            '<(jar_path)',
+          ],
+          'outputs': [
+            '<(output)',
+          ],
+          'action': [
+            'python', '<(DEPTH)/build/android/gyp/create_java_binary_script.py',
+            '--classpath=>(input_jars_paths)',
+            '--jar-path=<(jar_path)',
+            '--output=<(output)',
+            '--main-class=>(main_class)',
+          ]
+        }
+      ]
+    }],
+    ['enable_errorprone == 1', {
+      'dependencies': [
+        '<(DEPTH)/third_party/errorprone/errorprone.gyp:chromium_errorprone',
+      ],
+    }],
   ]
 }
 

@@ -5,11 +5,13 @@
 #ifndef CHROME_BROWSER_CHROMEOS_DRIVE_JOB_SCHEDULER_H_
 #define CHROME_BROWSER_CHROMEOS_DRIVE_JOB_SCHEDULER_H_
 
+#include <string>
 #include <vector>
 
 #include "base/id_map.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
+#include "base/threading/thread_checker.h"
 #include "chrome/browser/chromeos/drive/job_list.h"
 #include "chrome/browser/chromeos/drive/job_queue.h"
 #include "chrome/browser/drive/drive_service_interface.h"
@@ -66,14 +68,14 @@ class JobScheduler
                EventLogger* logger,
                DriveServiceInterface* drive_service,
                base::SequencedTaskRunner* blocking_task_runner);
-  virtual ~JobScheduler();
+  ~JobScheduler() override;
 
   // JobListInterface overrides.
-  virtual std::vector<JobInfo> GetJobInfoList() override;
-  virtual void AddObserver(JobListObserver* observer) override;
-  virtual void RemoveObserver(JobListObserver* observer) override;
-  virtual void CancelJob(JobID job_id) override;
-  virtual void CancelAllJobs() override;
+  std::vector<JobInfo> GetJobInfoList() override;
+  void AddObserver(JobListObserver* observer) override;
+  void RemoveObserver(JobListObserver* observer) override;
+  void CancelJob(JobID job_id) override;
+  void CancelAllJobs() override;
 
   // Adds a GetAppList operation to the queue.
   // |callback| must not be null.
@@ -141,6 +143,7 @@ class JobScheduler
                       const std::string& new_title,
                       const base::Time& last_modified,
                       const base::Time& last_viewed_by_me,
+                      const google_apis::drive::Properties& properties,
                       const ClientContext& context,
                       const google_apis::FileResourceCallback& callback);
 
@@ -157,12 +160,11 @@ class JobScheduler
       const google_apis::EntryActionCallback& callback);
 
   // Adds a AddNewDirectory operation to the queue.
-  void AddNewDirectory(
-      const std::string& parent_resource_id,
-      const std::string& directory_title,
-      const DriveServiceInterface::AddNewDirectoryOptions& options,
-      const ClientContext& context,
-      const google_apis::FileResourceCallback& callback);
+  void AddNewDirectory(const std::string& parent_resource_id,
+                       const std::string& directory_title,
+                       const AddNewDirectoryOptions& options,
+                       const ClientContext& context,
+                       const google_apis::FileResourceCallback& callback);
 
   // Adds a DownloadFile operation to the queue.
   // The first two arguments |virtual_path| and |expected_file_size| are used
@@ -179,23 +181,24 @@ class JobScheduler
 
   // Adds an UploadNewFile operation to the queue.
   void UploadNewFile(const std::string& parent_resource_id,
+                     int64 expected_file_size,
                      const base::FilePath& drive_file_path,
                      const base::FilePath& local_file_path,
                      const std::string& title,
                      const std::string& content_type,
-                     const DriveUploader::UploadNewFileOptions& options,
+                     const UploadNewFileOptions& options,
                      const ClientContext& context,
                      const google_apis::FileResourceCallback& callback);
 
   // Adds an UploadExistingFile operation to the queue.
-  void UploadExistingFile(
-      const std::string& resource_id,
-      const base::FilePath& drive_file_path,
-      const base::FilePath& local_file_path,
-      const std::string& content_type,
-      const DriveUploader::UploadExistingFileOptions& options,
-      const ClientContext& context,
-      const google_apis::FileResourceCallback& callback);
+  void UploadExistingFile(const std::string& resource_id,
+                          int64 expected_file_size,
+                          const base::FilePath& drive_file_path,
+                          const base::FilePath& local_file_path,
+                          const std::string& content_type,
+                          const UploadExistingFileOptions& options,
+                          const ClientContext& context,
+                          const google_apis::FileResourceCallback& callback);
 
   // Adds AddPermission operation to the queue. |callback| must not be null.
   void AddPermission(const std::string& resource_id,
@@ -236,7 +239,9 @@ class JobScheduler
 
     // The callback to notify an error to the client of JobScheduler.
     // This is used to notify cancel of a job that is not running yet.
-    base::Callback<void(google_apis::GDataErrorCode)> abort_callback;
+    base::Callback<void(google_apis::DriveApiErrorCode)> abort_callback;
+
+    base::ThreadChecker thread_checker_;
   };
 
   // Parameters for DriveUploader::ResumeUploadFile.
@@ -263,60 +268,60 @@ class JobScheduler
   void UpdateWait();
 
   // Retries the job if needed and returns false. Otherwise returns true.
-  bool OnJobDone(JobID job_id, google_apis::GDataErrorCode error);
+  bool OnJobDone(JobID job_id, google_apis::DriveApiErrorCode error);
 
   // Callback for job finishing with a FileListCallback.
   void OnGetFileListJobDone(
       JobID job_id,
       const google_apis::FileListCallback& callback,
-      google_apis::GDataErrorCode error,
+      google_apis::DriveApiErrorCode error,
       scoped_ptr<google_apis::FileList> file_list);
 
   // Callback for job finishing with a ChangeListCallback.
   void OnGetChangeListJobDone(
       JobID job_id,
       const google_apis::ChangeListCallback& callback,
-      google_apis::GDataErrorCode error,
+      google_apis::DriveApiErrorCode error,
       scoped_ptr<google_apis::ChangeList> change_list);
 
   // Callback for job finishing with a FileResourceCallback.
   void OnGetFileResourceJobDone(
       JobID job_id,
       const google_apis::FileResourceCallback& callback,
-      google_apis::GDataErrorCode error,
+      google_apis::DriveApiErrorCode error,
       scoped_ptr<google_apis::FileResource> entry);
 
   // Callback for job finishing with a AboutResourceCallback.
   void OnGetAboutResourceJobDone(
       JobID job_id,
       const google_apis::AboutResourceCallback& callback,
-      google_apis::GDataErrorCode error,
+      google_apis::DriveApiErrorCode error,
       scoped_ptr<google_apis::AboutResource> about_resource);
 
   // Callback for job finishing with a GetShareUrlCallback.
   void OnGetShareUrlJobDone(
       JobID job_id,
       const google_apis::GetShareUrlCallback& callback,
-      google_apis::GDataErrorCode error,
+      google_apis::DriveApiErrorCode error,
       const GURL& share_url);
 
   // Callback for job finishing with a AppListCallback.
   void OnGetAppListJobDone(
       JobID job_id,
       const google_apis::AppListCallback& callback,
-      google_apis::GDataErrorCode error,
+      google_apis::DriveApiErrorCode error,
       scoped_ptr<google_apis::AppList> app_list);
 
   // Callback for job finishing with a EntryActionCallback.
   void OnEntryActionJobDone(JobID job_id,
                             const google_apis::EntryActionCallback& callback,
-                            google_apis::GDataErrorCode error);
+                            google_apis::DriveApiErrorCode error);
 
   // Callback for job finishing with a DownloadActionCallback.
   void OnDownloadActionJobDone(
       JobID job_id,
       const google_apis::DownloadActionCallback& callback,
-      google_apis::GDataErrorCode error,
+      google_apis::DriveApiErrorCode error,
       const base::FilePath& temp_file);
 
   // Callback for job finishing with a UploadCompletionCallback.
@@ -324,7 +329,7 @@ class JobScheduler
       JobID job_id,
       const ResumeUploadParams& resume_params,
       const google_apis::FileResourceCallback& callback,
-      google_apis::GDataErrorCode error,
+      google_apis::DriveApiErrorCode error,
       const GURL& upload_location,
       scoped_ptr<google_apis::FileResource> entry);
 
@@ -333,7 +338,7 @@ class JobScheduler
       JobID job_id,
       const base::Callback<google_apis::CancelCallback()>& original_task,
       const google_apis::FileResourceCallback& callback,
-      google_apis::GDataErrorCode error,
+      google_apis::DriveApiErrorCode error,
       const GURL& upload_location,
       scoped_ptr<google_apis::FileResource> entry);
 
@@ -341,7 +346,7 @@ class JobScheduler
   void UpdateProgress(JobID job_id, int64 progress, int64 total);
 
   // net::NetworkChangeNotifier::ConnectionTypeObserver override.
-  virtual void OnConnectionTypeChanged(
+  void OnConnectionTypeChanged(
       net::NetworkChangeNotifier::ConnectionType type) override;
 
   // Get the type of queue the specified job should be put in.
@@ -351,12 +356,12 @@ class JobScheduler
   void SetDisableThrottling(bool disable) { disable_throttling_ = disable; }
 
   // Aborts a job which is not in STATE_RUNNING.
-  void AbortNotRunningJob(JobEntry* job, google_apis::GDataErrorCode error);
+  void AbortNotRunningJob(JobEntry* job, google_apis::DriveApiErrorCode error);
 
   // Notifies updates to observers.
   void NotifyJobAdded(const JobInfo& job_info);
   void NotifyJobDone(const JobInfo& job_info,
-                     google_apis::GDataErrorCode error);
+                     google_apis::DriveApiErrorCode error);
   void NotifyJobUpdated(const JobInfo& job_info);
 
   // Gets information of the queue of the given type as string.
@@ -384,7 +389,7 @@ class JobScheduler
   JobIDMap job_map_;
 
   // The list of observers for the scheduler.
-  ObserverList<JobListObserver> observer_list_;
+  base::ObserverList<JobListObserver> observer_list_;
 
   EventLogger* logger_;
   DriveServiceInterface* drive_service_;
@@ -392,6 +397,8 @@ class JobScheduler
   scoped_ptr<DriveUploaderInterface> uploader_;
 
   PrefService* pref_service_;
+
+  base::ThreadChecker thread_checker_;
 
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate its weak pointers before any other members are destroyed.

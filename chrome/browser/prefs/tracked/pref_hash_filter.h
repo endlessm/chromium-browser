@@ -51,11 +51,18 @@ class PrefHashFilter : public InterceptablePrefFilter {
     TRACKING_STRATEGY_SPLIT,
   };
 
+  enum ValueType {
+    VALUE_IMPERSONAL,
+    // The preference value may contain personal information.
+    VALUE_PERSONAL,
+  };
+
   struct TrackedPreferenceMetadata {
     size_t reporting_id;
     const char* name;
     EnforcementLevel enforcement_level;
     PrefTrackingStrategy strategy;
+    ValueType value_type;
   };
 
   // Constructs a PrefHashFilter tracking the specified |tracked_preferences|
@@ -111,7 +118,7 @@ class PrefHashFilter : public InterceptablePrefFilter {
 
   // A map of paths to TrackedPreferences; this map owns this individual
   // TrackedPreference objects.
-  typedef base::ScopedPtrHashMap<std::string, TrackedPreference>
+  typedef base::ScopedPtrHashMap<std::string, scoped_ptr<TrackedPreference>>
       TrackedPreferencesMap;
   // A map from changed paths to their corresponding TrackedPreferences (which
   // aren't owned by this map).

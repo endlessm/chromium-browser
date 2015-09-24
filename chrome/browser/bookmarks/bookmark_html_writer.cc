@@ -17,10 +17,10 @@
 #include "base/values.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/favicon/favicon_service.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
 #include "components/bookmarks/browser/bookmark_codec.h"
 #include "components/bookmarks/browser/bookmark_model.h"
+#include "components/favicon/core/favicon_service.h"
 #include "components/favicon_base/favicon_types.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_source.h"
@@ -30,6 +30,7 @@
 #include "ui/gfx/favicon_size.h"
 
 using bookmarks::BookmarkCodec;
+using bookmarks::BookmarkNode;
 using content::BrowserThread;
 
 namespace {
@@ -213,7 +214,7 @@ class Writer : public base::RefCountedThreadSafe<Writer> {
       case ATTRIBUTE_VALUE:
         // Convert " to &quot;
         utf8_string = text;
-        ReplaceSubstringsAfterOffset(&utf8_string, 0, "\"", "&quot;");
+        base::ReplaceSubstringsAfterOffset(&utf8_string, 0, "\"", "&quot;");
         break;
 
       case CONTENT:
@@ -457,8 +458,9 @@ bool BookmarkFaviconFetcher::FetchNextFavicon() {
     // Filter out urls that we've already got favicon for.
     URLFaviconMap::const_iterator iter = favicons_map_->find(url);
     if (favicons_map_->end() == iter) {
-      FaviconService* favicon_service = FaviconServiceFactory::GetForProfile(
-          profile_, Profile::EXPLICIT_ACCESS);
+      favicon::FaviconService* favicon_service =
+          FaviconServiceFactory::GetForProfile(
+              profile_, ServiceAccessType::EXPLICIT_ACCESS);
       favicon_service->GetRawFaviconForPageURL(
           GURL(url),
           favicon_base::FAVICON,

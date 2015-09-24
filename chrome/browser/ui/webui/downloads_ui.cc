@@ -16,6 +16,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/downloads_dom_handler.h"
 #include "chrome/browser/ui/webui/theme_source.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
@@ -40,59 +41,75 @@ content::WebUIDataSource* CreateDownloadsUIHTMLSource(Profile* profile) {
       content::WebUIDataSource::Create(chrome::kChromeUIDownloadsHost);
 
   source->AddLocalizedString("title", IDS_DOWNLOAD_TITLE);
-  source->AddLocalizedString("searchbutton", IDS_DOWNLOAD_SEARCH_BUTTON);
-  source->AddLocalizedString("searchresultsfor", IDS_DOWNLOAD_SEARCHRESULTSFOR);
+  source->AddLocalizedString("searchButton", IDS_DOWNLOAD_SEARCH_BUTTON);
+  source->AddLocalizedString("searchResultsFor", IDS_DOWNLOAD_SEARCHRESULTSFOR);
   source->AddLocalizedString("downloads", IDS_DOWNLOAD_TITLE);
-  source->AddLocalizedString("clear_all", IDS_DOWNLOAD_LINK_CLEAR_ALL);
-  source->AddLocalizedString("open_downloads_folder",
+  source->AddLocalizedString("clearAll", IDS_DOWNLOAD_LINK_CLEAR_ALL);
+  source->AddLocalizedString("openDownloadsFolder",
                              IDS_DOWNLOAD_LINK_OPEN_DOWNLOADS_FOLDER);
 
   // No results/downloads messages that show instead of the downloads list.
-  source->AddLocalizedString("no_downloads", IDS_DOWNLOAD_NO_DOWNLOADS);
-  source->AddLocalizedString("no_search_results",
+  source->AddLocalizedString("noDownloads", IDS_DOWNLOAD_NO_DOWNLOADS);
+  source->AddLocalizedString("noSearchResults",
                              IDS_DOWNLOAD_NO_SEARCH_RESULTS);
 
   // Status.
-  source->AddLocalizedString("status_cancelled", IDS_DOWNLOAD_TAB_CANCELLED);
-  source->AddLocalizedString("status_removed", IDS_DOWNLOAD_FILE_REMOVED);
-  source->AddLocalizedString("status_paused", IDS_DOWNLOAD_PROGRESS_PAUSED);
+  source->AddLocalizedString("statusCancelled", IDS_DOWNLOAD_TAB_CANCELLED);
+  source->AddLocalizedString("statusRemoved", IDS_DOWNLOAD_FILE_REMOVED);
 
   // Dangerous file.
-  source->AddLocalizedString("danger_file_desc", IDS_PROMPT_DANGEROUS_DOWNLOAD);
-  source->AddLocalizedString("danger_url_desc",
+  source->AddLocalizedString("dangerFileDesc", IDS_PROMPT_DANGEROUS_DOWNLOAD);
+  source->AddLocalizedString("dangerUrlDesc",
                              IDS_PROMPT_MALICIOUS_DOWNLOAD_URL);
-  source->AddLocalizedString("danger_content_desc",
+  source->AddLocalizedString("dangerContentDesc",
                              IDS_PROMPT_MALICIOUS_DOWNLOAD_CONTENT);
-  source->AddLocalizedString("danger_uncommon_desc",
+  source->AddLocalizedString("dangerUncommonDesc",
                              IDS_PROMPT_UNCOMMON_DOWNLOAD_CONTENT);
-  source->AddLocalizedString("danger_settings_desc",
+  source->AddLocalizedString("dangerSettingsDesc",
                              IDS_PROMPT_DOWNLOAD_CHANGES_SETTINGS);
-  source->AddLocalizedString("danger_save", IDS_CONFIRM_DOWNLOAD);
-  source->AddLocalizedString("danger_restore", IDS_CONFIRM_DOWNLOAD_RESTORE);
-  source->AddLocalizedString("danger_discard", IDS_DISCARD_DOWNLOAD);
+  source->AddLocalizedString("dangerSave", IDS_CONFIRM_DOWNLOAD);
+  source->AddLocalizedString("dangerRestore", IDS_CONFIRM_DOWNLOAD_RESTORE);
+  source->AddLocalizedString("dangerDiscard", IDS_DISCARD_DOWNLOAD);
 
   // Controls.
-  source->AddLocalizedString("control_pause", IDS_DOWNLOAD_LINK_PAUSE);
-  if (browser_defaults::kDownloadPageHasShowInFolder) {
-    source->AddLocalizedString("control_showinfolder", IDS_DOWNLOAD_LINK_SHOW);
-  }
-  source->AddLocalizedString("control_retry", IDS_DOWNLOAD_LINK_RETRY);
-  source->AddLocalizedString("control_cancel", IDS_DOWNLOAD_LINK_CANCEL);
-  source->AddLocalizedString("control_resume", IDS_DOWNLOAD_LINK_RESUME);
-  source->AddLocalizedString("control_removefromlist",
+  source->AddLocalizedString("controlPause", IDS_DOWNLOAD_LINK_PAUSE);
+  if (browser_defaults::kDownloadPageHasShowInFolder)
+    source->AddLocalizedString("controlShowInFolder", IDS_DOWNLOAD_LINK_SHOW);
+  source->AddLocalizedString("controlRetry", IDS_DOWNLOAD_LINK_RETRY);
+  source->AddLocalizedString("controlCancel", IDS_DOWNLOAD_LINK_CANCEL);
+  source->AddLocalizedString("controlResume", IDS_DOWNLOAD_LINK_RESUME);
+  source->AddLocalizedString("controlRemoveFromList",
                              IDS_DOWNLOAD_LINK_REMOVE);
-  source->AddLocalizedString("control_by_extension",
+  source->AddLocalizedString("controlByExtension",
                              IDS_DOWNLOAD_BY_EXTENSION);
 
   PrefService* prefs = profile->GetPrefs();
-  source->AddBoolean("allow_deleting_history",
-                     prefs->GetBoolean(prefs::kAllowDeletingBrowserHistory));
-  source->AddBoolean("show_delete_history", !profile->IsSupervised());
+  source->AddBoolean("allowDeletingHistory",
+                     prefs->GetBoolean(prefs::kAllowDeletingBrowserHistory) &&
+                     !profile->IsSupervised());
 
   source->SetJsonPath("strings.js");
-  source->AddResourcePath("downloads.css", IDR_DOWNLOADS_CSS);
-  source->AddResourcePath("downloads.js", IDR_DOWNLOADS_JS);
-  source->SetDefaultResource(IDR_DOWNLOADS_HTML);
+  source->AddResourcePath("constants.html", IDR_DOWNLOADS_CONSTANTS_HTML);
+  source->AddResourcePath("constants.js", IDR_DOWNLOADS_CONSTANTS_JS);
+  source->AddResourcePath("throttled_icon_loader.html",
+                          IDR_DOWNLOADS_THROTTLED_ICON_LOADER_HTML);
+  source->AddResourcePath("throttled_icon_loader.js",
+                          IDR_DOWNLOADS_THROTTLED_ICON_LOADER_JS);
+
+  if (switches::MdDownloadsEnabled()) {
+    source->AddResourcePath("downloads.css", IDR_MD_DOWNLOADS_DOWNLOADS_CSS);
+    source->AddResourcePath("item_view.html", IDR_MD_DOWNLOADS_ITEM_VIEW_HTML);
+    source->AddResourcePath("item_view.js", IDR_MD_DOWNLOADS_ITEM_VIEW_JS);
+    source->AddResourcePath("manager.html", IDR_MD_DOWNLOADS_MANAGER_HTML);
+    source->AddResourcePath("manager.js", IDR_MD_DOWNLOADS_MANAGER_JS);
+    source->AddResourcePath("strings.html", IDR_MD_DOWNLOADS_STRINGS_HTML);
+    source->SetDefaultResource(IDR_MD_DOWNLOADS_DOWNLOADS_HTML);
+  } else {
+    source->AddResourcePath("item_view.js", IDR_DOWNLOADS_ITEM_VIEW_JS);
+    source->AddResourcePath("focus_row.js", IDR_DOWNLOADS_FOCUS_ROW_JS);
+    source->AddResourcePath("manager.js", IDR_DOWNLOADS_MANAGER_JS);
+    source->SetDefaultResource(IDR_DOWNLOADS_DOWNLOADS_HTML);
+  }
 
   return source;
 }

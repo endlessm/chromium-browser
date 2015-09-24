@@ -31,16 +31,17 @@
 // Test for interface extended attributes and special operations.
 // Also used as a target by TestObject
 
+enum TestEnumModules { "EnumModulesValue1", "EnumModulesValue2" };
+
 [
     ActiveDOMObject,
     Conditional=CONDITION,
-    Custom=(LegacyCallAsFunction,ToV8),
+    Custom=LegacyCallAsFunction,
     DoNotCheckConstants,
     ImplementedAs=TestInterface5Implementation,
-    Iterable,
     RuntimeEnabled=FeatureName,
     SetWrapperReferenceTo(TestInterface5 referencedName),
-    TypeChecking=(Interface,Unrestricted),
+    TypeChecking=Interface,
     Exposed=(Worker,Window),
 ] interface TestInterface5 : TestInterfaceEmpty {
     // members needed to test [ImplementedAs], as this affect attribute
@@ -88,5 +89,11 @@
     [Exposed=Window] attribute long windowExposedAttribute;
 
     [Exposed=(Window,ServiceWorker)] void windowAndServiceWorkerExposedMethod();
+
+    // Union types
+    void voidMethodBooleanOrDOMStringArg((boolean or DOMString) arg);
+    void voidMethodDoubleOrDOMStringArg((double or DOMString) arg);
+
+    iterable<any>;
 };
 

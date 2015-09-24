@@ -3,19 +3,33 @@
 // found in the LICENSE file.
 
 #include "base/command_line.h"
+#include "base/prefs/pref_service.h"
+#include "base/prefs/scoped_user_pref_update.h"
+#include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/content_settings/cookie_settings_factory.h"
+#include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/signin/signin_promo.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/webui/signin/inline_login_handler_impl.h"
 #include "chrome/browser/ui/webui/signin/inline_login_ui.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service_factory.h"
+#include "chrome/browser/ui/webui/signin/login_ui_test_utils.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/grit/chromium_strings.h"
+#include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/test_browser_window.h"
 #include "chrome/test/base/test_chrome_web_ui_controller_factory.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/content_settings/core/browser/cookie_settings.h"
+#include "components/guest_view/browser/guest_view_manager.h"
+#include "components/signin/core/browser/signin_manager.h"
+#include "components/signin/core/common/profile_management_switches.h"
+#include "components/signin/core/common/signin_pref_names.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/session_storage_namespace.h"
@@ -33,19 +47,30 @@
 #include "net/test/embedded_test_server/http_response.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/l10n/l10n_util.h"
 
 using ::testing::_;
+using ::testing::AtLeast;
 using ::testing::Invoke;
 using ::testing::InvokeWithoutArgs;
+using ::testing::Return;
+
+using guest_view::GuestViewManager;
+using login_ui_test_utils::ExecuteJsToSigninInSigninFrame;
+using login_ui_test_utils::WaitUntilUIReady;
 
 namespace {
 
 struct ContentInfo {
-  ContentInfo(int pid, content::StoragePartition* storage_partition) {
+  ContentInfo(content::WebContents* contents,
+              int pid,
+              content::StoragePartition* storage_partition) {
+    this->contents = contents;
     this->pid = pid;
     this->storage_partition = storage_partition;
   }
 
+  content::WebContents* contents;
   int pid;
   content::StoragePartition* storage_partition;
 };
@@ -60,7 +85,8 @@ ContentInfo NavigateAndGetInfo(
   content::WebContents* contents =
       browser->tab_strip_model()->GetActiveWebContents();
   content::RenderProcessHost* process = contents->GetRenderProcessHost();
-  return ContentInfo(process->GetID(), process->GetStoragePartition());
+  return ContentInfo(contents, process->GetID(),
+                     process->GetStoragePartition());
 }
 
 // Returns a new WebUI object for the WebContents from |arg0|.
@@ -84,40 +110,117 @@ class MockLoginUIObserver : public LoginUIService::Observer {
 
 const char kFooWebUIURL[] = "chrome://foo/";
 
+bool AddToSet(std::set<content::WebContents*>* set,
+              content::WebContents* web_contents) {
+  set->insert(web_contents);
+  return false;
+}
+
 }  // namespace
 
 class InlineLoginUIBrowserTest : public InProcessBrowserTest {
  public:
   InlineLoginUIBrowserTest() {}
+
+  void SetUpSigninManager(const std::string& username);
+  void EnableSigninAllowed(bool enable);
+  void EnableOneClick(bool enable);
+  void AddEmailToOneClickRejectedList(const std::string& email);
+  void AllowSigninCookies(bool enable);
+  void SetAllowedUsernamePattern(const std::string& pattern);
+
+ protected:
+  content::WebContents* web_contents() { return nullptr; }
 };
 
-#if defined(OS_LINUX)
+void InlineLoginUIBrowserTest::SetUpSigninManager(const std::string& username) {
+  if (username.empty())
+    return;
+
+  SigninManagerBase* signin_manager =
+      SigninManagerFactory::GetForProfile(browser()->profile());
+  signin_manager->SetAuthenticatedAccountInfo(username, username);
+}
+
+void InlineLoginUIBrowserTest::EnableSigninAllowed(bool enable) {
+  PrefService* pref_service = browser()->profile()->GetPrefs();
+  pref_service->SetBoolean(prefs::kSigninAllowed, enable);
+}
+
+void InlineLoginUIBrowserTest::EnableOneClick(bool enable) {
+  PrefService* pref_service = browser()->profile()->GetPrefs();
+  pref_service->SetBoolean(prefs::kReverseAutologinEnabled, enable);
+}
+
+void InlineLoginUIBrowserTest::AddEmailToOneClickRejectedList(
+    const std::string& email) {
+  PrefService* pref_service = browser()->profile()->GetPrefs();
+  ListPrefUpdate updater(pref_service,
+                         prefs::kReverseAutologinRejectedEmailList);
+  updater->AppendIfNotPresent(new base::StringValue(email));
+}
+
+void InlineLoginUIBrowserTest::AllowSigninCookies(bool enable) {
+  content_settings::CookieSettings* cookie_settings =
+      CookieSettingsFactory::GetForProfile(browser()->profile()).get();
+  cookie_settings->SetDefaultCookieSetting(enable ? CONTENT_SETTING_ALLOW
+                                                  : CONTENT_SETTING_BLOCK);
+}
+
+void InlineLoginUIBrowserTest::SetAllowedUsernamePattern(
+    const std::string& pattern) {
+  PrefService* local_state = g_browser_process->local_state();
+  local_state->SetString(prefs::kGoogleServicesUsernamePattern, pattern);
+}
+
+#if defined(OS_LINUX) || defined(OS_WIN)
 // crbug.com/422868
 #define MAYBE_DifferentStorageId DISABLED_DifferentStorageId
 #else
 #define MAYBE_DifferentStorageId DifferentStorageId
 #endif
 IN_PROC_BROWSER_TEST_F(InlineLoginUIBrowserTest, MAYBE_DifferentStorageId) {
-  GURL test_url = ui_test_utils::GetTestUrl(
-      base::FilePath(base::FilePath::kCurrentDirectory),
-      base::FilePath(FILE_PATH_LITERAL("title1.html")));
+  if (switches::IsEnableWebviewBasedSignin()) {
+    ContentInfo info = NavigateAndGetInfo(
+        browser(),
+        signin::GetPromoURL(signin_metrics::SOURCE_START_PAGE, false),
+        CURRENT_TAB);
+    WaitUntilUIReady(browser());
 
-  ContentInfo info1 =
-      NavigateAndGetInfo(browser(), test_url, CURRENT_TAB);
-  ContentInfo info2 =
-      NavigateAndGetInfo(browser(),
-                         signin::GetPromoURL(signin::SOURCE_START_PAGE, false),
-                         CURRENT_TAB);
-  NavigateAndGetInfo(browser(), test_url, CURRENT_TAB);
-  ContentInfo info3 =
-      NavigateAndGetInfo(browser(),
-                         signin::GetPromoURL( signin::SOURCE_START_PAGE, false),
-                         NEW_FOREGROUND_TAB);
+    // Make sure storage partition of embedded webview is different from
+    // parent.
+    std::set<content::WebContents*> set;
+    GuestViewManager* manager = GuestViewManager::FromBrowserContext(
+        info.contents->GetBrowserContext());
+    manager->ForEachGuest(info.contents, base::Bind(&AddToSet, &set));
+    ASSERT_EQ(1u, set.size());
+    content::WebContents* webview_contents = *set.begin();
+    content::RenderProcessHost* process =
+        webview_contents->GetRenderProcessHost();
+    ASSERT_NE(info.pid, process->GetID());
+    ASSERT_NE(info.storage_partition, process->GetStoragePartition());
+  } else {
+    GURL test_url = ui_test_utils::GetTestUrl(
+        base::FilePath(base::FilePath::kCurrentDirectory),
+        base::FilePath(FILE_PATH_LITERAL("title1.html")));
 
-  // The info for signin should be the same.
-  ASSERT_EQ(info2.storage_partition, info3.storage_partition);
-  // The info for test_url and signin should be different.
-  ASSERT_NE(info1.storage_partition, info2.storage_partition);
+    ContentInfo info1 =
+        NavigateAndGetInfo(browser(), test_url, CURRENT_TAB);
+    ContentInfo info2 = NavigateAndGetInfo(
+        browser(),
+        signin::GetPromoURL(signin_metrics::SOURCE_START_PAGE, false),
+        CURRENT_TAB);
+    NavigateAndGetInfo(browser(), test_url, CURRENT_TAB);
+    ContentInfo info3 = NavigateAndGetInfo(
+        browser(),
+        signin::GetPromoURL(signin_metrics::SOURCE_START_PAGE, false),
+        NEW_FOREGROUND_TAB);
+
+    // The info for signin should be the same.
+    ASSERT_EQ(info2.storage_partition, info3.storage_partition);
+    // The info for test_url and signin should be different.
+    ASSERT_NE(info1.storage_partition, info2.storage_partition);
+  }
 }
 
 IN_PROC_BROWSER_TEST_F(InlineLoginUIBrowserTest, OneProcessLimit) {
@@ -136,47 +239,102 @@ IN_PROC_BROWSER_TEST_F(InlineLoginUIBrowserTest, OneProcessLimit) {
       NavigateAndGetInfo(browser(), test_url_1, CURRENT_TAB);
   ContentInfo info2 =
       NavigateAndGetInfo(browser(), test_url_2, CURRENT_TAB);
-  ContentInfo info3 =
-      NavigateAndGetInfo(browser(),
-                         signin::GetPromoURL( signin::SOURCE_START_PAGE, false),
-                         CURRENT_TAB);
+  ContentInfo info3 = NavigateAndGetInfo(
+      browser(),
+      signin::GetPromoURL(signin_metrics::SOURCE_START_PAGE, false),
+      CURRENT_TAB);
 
   ASSERT_EQ(info1.pid, info2.pid);
   ASSERT_NE(info1.pid, info3.pid);
 }
 
+#if !defined(OS_CHROMEOS)
+
+IN_PROC_BROWSER_TEST_F(InlineLoginUIBrowserTest, CanOfferNoProfile) {
+  std::string error_message;
+  EXPECT_FALSE(InlineLoginHandlerImpl::CanOffer(
+      NULL, InlineLoginHandlerImpl::CAN_OFFER_FOR_ALL,
+      "12345", "user@gmail.com", &error_message));
+  EXPECT_EQ("", error_message);
+}
+
+IN_PROC_BROWSER_TEST_F(InlineLoginUIBrowserTest, CanOffer) {
+  EnableOneClick(true);
+  EXPECT_TRUE(InlineLoginHandlerImpl::CanOffer(
+      browser()->profile(), InlineLoginHandlerImpl::CAN_OFFER_FOR_ALL,
+      "12345", "user@gmail.com", NULL));
+
+  EnableOneClick(false);
+
+  std::string error_message;
+
+  EXPECT_TRUE(InlineLoginHandlerImpl::CanOffer(
+      browser()->profile(), InlineLoginHandlerImpl::CAN_OFFER_FOR_ALL,
+      "12345", "user@gmail.com", &error_message));
+}
+
+IN_PROC_BROWSER_TEST_F(InlineLoginUIBrowserTest, CanOfferProfileConnected) {
+  SetUpSigninManager("foo@gmail.com");
+  EnableSigninAllowed(true);
+
+  std::string error_message;
+
+  EXPECT_TRUE(InlineLoginHandlerImpl::CanOffer(
+      browser()->profile(), InlineLoginHandlerImpl::CAN_OFFER_FOR_ALL,
+      "12345", "foo@gmail.com", &error_message));
+  EXPECT_TRUE(InlineLoginHandlerImpl::CanOffer(
+      browser()->profile(), InlineLoginHandlerImpl::CAN_OFFER_FOR_ALL,
+      "12345", "foo", &error_message));
+  EXPECT_FALSE(InlineLoginHandlerImpl::CanOffer(
+      browser()->profile(), InlineLoginHandlerImpl::CAN_OFFER_FOR_ALL,
+      "12345", "user@gmail.com", &error_message));
+  EXPECT_EQ(l10n_util::GetStringFUTF8(IDS_SYNC_WRONG_EMAIL,
+                                      base::UTF8ToUTF16("foo@gmail.com")),
+            error_message);
+}
+
+IN_PROC_BROWSER_TEST_F(InlineLoginUIBrowserTest, CanOfferUsernameNotAllowed) {
+  SetAllowedUsernamePattern("*.google.com");
+
+  std::string error_message;
+  EXPECT_FALSE(InlineLoginHandlerImpl::CanOffer(
+      browser()->profile(), InlineLoginHandlerImpl::CAN_OFFER_FOR_ALL,
+      "12345", "foo@gmail.com", &error_message));
+  EXPECT_EQ(l10n_util::GetStringUTF8(IDS_SYNC_LOGIN_NAME_PROHIBITED),
+            error_message);
+}
+
+IN_PROC_BROWSER_TEST_F(InlineLoginUIBrowserTest, CanOfferWithRejectedEmail) {
+  EnableSigninAllowed(true);
+
+  AddEmailToOneClickRejectedList("foo@gmail.com");
+  AddEmailToOneClickRejectedList("user@gmail.com");
+
+  std::string error_message;
+  EXPECT_TRUE(InlineLoginHandlerImpl::CanOffer(
+      browser()->profile(), InlineLoginHandlerImpl::CAN_OFFER_FOR_ALL,
+      "12345", "foo@gmail.com", &error_message));
+  EXPECT_TRUE(InlineLoginHandlerImpl::CanOffer(
+      browser()->profile(), InlineLoginHandlerImpl::CAN_OFFER_FOR_ALL,
+      "12345", "user@gmail.com", &error_message));
+}
+
+IN_PROC_BROWSER_TEST_F(InlineLoginUIBrowserTest, CanOfferNoSigninCookies) {
+  AllowSigninCookies(false);
+  EnableSigninAllowed(true);
+
+  std::string error_message;
+  EXPECT_FALSE(InlineLoginHandlerImpl::CanOffer(
+      browser()->profile(), InlineLoginHandlerImpl::CAN_OFFER_FOR_ALL,
+      "12345", "user@gmail.com", &error_message));
+  EXPECT_EQ("", error_message);
+}
+
+#endif  // OS_CHROMEOS
+
 class InlineLoginUISafeIframeBrowserTest : public InProcessBrowserTest {
  public:
   FooWebUIProvider& foo_provider() { return foo_provider_; }
-
-  void WaitUntilUIReady() {
-    content::DOMMessageQueue message_queue;
-    ASSERT_TRUE(content::ExecuteScript(
-        browser()->tab_strip_model()->GetActiveWebContents(),
-        "if (!inline.login.getAuthExtHost())"
-        "  inline.login.initialize();"
-        "var handler = function() {"
-        "  window.domAutomationController.setAutomationId(0);"
-        "  window.domAutomationController.send('ready');"
-        "};"
-        "if (inline.login.isAuthReady())"
-        "  handler();"
-        "else"
-        "  inline.login.getAuthExtHost().addEventListener('ready', handler);"));
-
-    std::string message;
-    do {
-      ASSERT_TRUE(message_queue.WaitForMessage(&message));
-    } while (message != "\"ready\"");
-  }
-
- // Executes JavaScript code in the auth iframe hosted by gaia_auth extension.
-  void ExecuteJsInSigninFrame(const std::string& js) {
-    content::WebContents* web_contents =
-        browser()->tab_strip_model()->GetActiveWebContents();
-    ASSERT_TRUE(content::ExecuteScript(InlineLoginUI::GetAuthIframe(
-        web_contents, GURL(), "signin-frame"), js));
-  }
 
  private:
   void SetUp() override {
@@ -189,7 +347,7 @@ class InlineLoginUISafeIframeBrowserTest : public InProcessBrowserTest {
     InProcessBrowserTest::SetUp();
   }
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     const GURL& base_url = embedded_test_server()->base_url();
     command_line->AppendSwitchASCII(::switches::kGaiaUrl, base_url.spec());
     command_line->AppendSwitchASCII(::switches::kLsoUrl, base_url.spec());
@@ -232,7 +390,7 @@ IN_PROC_BROWSER_TEST_F(InlineLoginUISafeIframeBrowserTest, Basic) {
 // Make sure that the foo webui handler does not get created when we try to
 // load it inside the iframe of the login ui.
 IN_PROC_BROWSER_TEST_F(InlineLoginUISafeIframeBrowserTest, NoWebUIInIframe) {
-  GURL url = signin::GetPromoURL(signin::SOURCE_START_PAGE, false).
+  GURL url = signin::GetPromoURL(signin_metrics::SOURCE_START_PAGE, false).
       Resolve("?source=0&frameUrl=chrome://foo");
   EXPECT_CALL(foo_provider(), NewWebUI(_, _)).Times(0);
   ui_test_utils::NavigateToURL(browser(), url);
@@ -252,10 +410,10 @@ IN_PROC_BROWSER_TEST_F(InlineLoginUISafeIframeBrowserTest,
   // Loads into gaia iframe a web page that attempts to deframe on load.
   GURL deframe_url(embedded_test_server()->GetURL("/login/deframe.html"));
   GURL url(net::AppendOrReplaceQueryParameter(
-      signin::GetPromoURL(signin::SOURCE_START_PAGE, false),
+      signin::GetPromoURL(signin_metrics::SOURCE_START_PAGE, false),
       "frameUrl", deframe_url.spec()));
   ui_test_utils::NavigateToURL(browser(), url);
-  WaitUntilUIReady();
+  WaitUntilUIReady(browser());
 
   content::WebContents* contents =
       browser()->tab_strip_model()->GetActiveWebContents();
@@ -266,19 +424,13 @@ IN_PROC_BROWSER_TEST_F(InlineLoginUISafeIframeBrowserTest,
 }
 
 // Flaky on CrOS, http://crbug.com/364759.
-#if defined(OS_CHROMEOS)
-#define MAYBE_NavigationToOtherChromeURLDisallowed \
-    DISABLED_NavigationToOtherChromeURLDisallowed
-#else
-#define MAYBE_NavigationToOtherChromeURLDisallowed \
-    NavigationToOtherChromeURLDisallowed
-#endif
-
+// Also flaky on Mac, http://crbug.com/442674.
+// Also flaky on Linux which is just too flaky
 IN_PROC_BROWSER_TEST_F(InlineLoginUISafeIframeBrowserTest,
-    MAYBE_NavigationToOtherChromeURLDisallowed) {
+    DISABLED_NavigationToOtherChromeURLDisallowed) {
   ui_test_utils::NavigateToURL(
-      browser(), signin::GetPromoURL(signin::SOURCE_START_PAGE, false));
-  WaitUntilUIReady();
+      browser(), signin::GetPromoURL(signin_metrics::SOURCE_START_PAGE, false));
+  WaitUntilUIReady(browser());
 
   content::WebContents* contents =
       browser()->tab_strip_model()->GetActiveWebContents();
@@ -301,14 +453,14 @@ IN_PROC_BROWSER_TEST_F(InlineLoginUISafeIframeBrowserTest,
       base::Bind(&FakeGaia::HandleRequest,
                  base::Unretained(&fake_gaia)));
   fake_gaia.SetFakeMergeSessionParams(
-      "email", "fake-sid-cookie", "fake-lsid-cookie");
+      "email@gmail.com", "fake-sid-cookie", "fake-lsid-cookie");
 
   // Navigates to the Chrome signin page which loads the fake gaia auth page.
   // Since the fake gaia auth page is served over HTTP, thus expects to see an
   // untrusted signin confirmation dialog upon submitting credentials below.
   ui_test_utils::NavigateToURL(
-      browser(), signin::GetPromoURL(signin::SOURCE_START_PAGE, false));
-  WaitUntilUIReady();
+      browser(), signin::GetPromoURL(signin_metrics::SOURCE_START_PAGE, false));
+  WaitUntilUIReady(browser());
 
   MockLoginUIObserver observer;
   LoginUIServiceFactory::GetForProfile(browser()->profile())
@@ -317,12 +469,7 @@ IN_PROC_BROWSER_TEST_F(InlineLoginUISafeIframeBrowserTest,
   EXPECT_CALL(observer, OnUntrustedLoginUIShown())
       .WillOnce(InvokeWithoutArgs(&run_loop, &base::RunLoop::Quit));
 
-  std::string js =
-      "document.getElementById('Email').value = 'email';"
-      "document.getElementById('Passwd').value = 'password';"
-      "document.getElementById('signIn').click();";
-  ExecuteJsInSigninFrame(js);
-
+  ExecuteJsToSigninInSigninFrame(browser(), "email@gmail.com", "password");
   run_loop.Run();
   base::MessageLoop::current()->RunUntilIdle();
 }

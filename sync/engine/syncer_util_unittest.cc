@@ -17,14 +17,12 @@ namespace syncer {
 
 class GetUpdatePositionTest : public ::testing::Test {
  public:
-  virtual void SetUp() {
+  void SetUp() override {
     dir_maker_.SetUp();
     entry_factory_.reset(new TestEntryFactory(directory()));
   }
 
-  virtual void TearDown() {
-    dir_maker_.TearDown();
-  }
+  void TearDown() override { dir_maker_.TearDown(); }
 
   syncable::Directory* directory() {
     return dir_maker_.directory();
@@ -163,7 +161,7 @@ sync_pb::EntitySpecifics DefaultBookmarkSpecifics() {
 TEST_F(GetUpdatePositionTest, UpdateServerFieldsFromUpdateTest) {
   InitSuffixIngredients();  // Initialize update with valid data.
 
-  std::string root_server_id = syncable::GetNullId().GetServerId();
+  std::string root_server_id = syncable::Id::GetRoot().GetServerId();
   int64 handle = entry_factory()->CreateUnappliedNewBookmarkItemWithParent(
       "I", DefaultBookmarkSpecifics(), root_server_id);
 
@@ -186,7 +184,7 @@ TEST_F(GetUpdatePositionTest, UpdateServerFieldsFromUpdateTest) {
 TEST_F(GetUpdatePositionTest, UpdateServerFieldsFromInvalidUpdateTest) {
   // Do not initialize data in update, update is invalid.
 
-  std::string root_server_id = syncable::GetNullId().GetServerId();
+  std::string root_server_id = syncable::Id::GetRoot().GetServerId();
   int64 handle = entry_factory()->CreateUnappliedNewBookmarkItemWithParent(
       "I", DefaultBookmarkSpecifics(), root_server_id);
 

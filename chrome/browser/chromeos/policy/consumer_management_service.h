@@ -12,6 +12,7 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
+#include "chrome/browser/chromeos/policy/consumer_management_stage.h"
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
 #include "chromeos/dbus/dbus_method_call_status.h"
 
@@ -36,10 +37,10 @@ namespace policy {
 //    be notified even when the status is NOT changed. The observers need to
 //    check the status upon receiving the notification.
 //
-// 2. The consumer enrollment stage: The consumer enrollment stage is an enum
-//    value stored in local state to pass the information across reboots and
-//    between components, including settings page, sign-in screen, and user
-//    notification.
+// 2. The consumer management stage: The consumer management stage is a value
+//    indicating the enrollment or the unenrollment process, stored in local
+//    state to pass the information across reboots and between components,
+//    including settings page, sign-in screen, and user notification.
 //
 // 3. Boot lockbox owner ID: Unlike the owner ID in CrosSettings, the owner ID
 //    stored in the boot lockbox can only be modified after reboot and before
@@ -66,31 +67,6 @@ class ConsumerManagementService
     STATUS_LAST,
   };
 
-  // Indicating which stage the enrollment process is in.
-  enum EnrollmentStage {
-    // Not enrolled, or enrollment is completed.
-    ENROLLMENT_STAGE_NONE = 0,
-    // Enrollment is requested by the owner.
-    ENROLLMENT_STAGE_REQUESTED,
-    // The owner ID is stored in the boot lockbox.
-    ENROLLMENT_STAGE_OWNER_STORED,
-    // Success. The notification is not sent yet.
-    ENROLLMENT_STAGE_SUCCESS,
-
-    // Error stages.
-    // Canceled by the user.
-    ENROLLMENT_STAGE_CANCELED,
-    // Failed to write to the boot lockbox.
-    ENROLLMENT_STAGE_BOOT_LOCKBOX_FAILED,
-    // Failed to get the access token.
-    ENROLLMENT_STAGE_GET_TOKEN_FAILED,
-    // Failed to register the device.
-    ENROLLMENT_STAGE_DM_SERVER_FAILED,
-
-    // This should always be the last one.
-    ENROLLMENT_STAGE_LAST,
-  };
-
   class Observer {
    public:
     // Called when the status changes.
@@ -109,7 +85,7 @@ class ConsumerManagementService
       chromeos::CryptohomeClient* client,
       chromeos::DeviceSettingsService* device_settings_service);
 
-  virtual ~ConsumerManagementService();
+  ~ConsumerManagementService() override;
 
   // Registers prefs.
   static void RegisterPrefs(PrefRegistrySimple* registry);
@@ -118,20 +94,16 @@ class ConsumerManagementService
   void RemoveObserver(Observer* observer);
 
   // Returns the status.
-  Status GetStatus() const;
+  virtual Status GetStatus() const;
 
   // Returns the string value of the status.
   std::string GetStatusString() const;
 
-  // Returns true if there's an enrollment desktop notification that is not
-  // sent yet.
-  bool HasPendingEnrollmentNotification() const;
+  // Returns the stage.
+  virtual ConsumerManagementStage GetStage() const;
 
-  // Returns the enrollment stage.
-  EnrollmentStage GetEnrollmentStage() const;
-
-  // Sets the enrollment stage.
-  void SetEnrollmentStage(EnrollmentStage stage);
+  // Sets the stage.
+  virtual void SetStage(const ConsumerManagementStage& stage);
 
   // Returns the device owner stored in the boot lockbox via |callback|.
   void GetOwner(const GetOwnerCallback& callback);
@@ -141,9 +113,12 @@ class ConsumerManagementService
   void SetOwner(const std::string& user_id, const SetOwnerCallback& callback);
 
   // chromeos::DeviceSettingsService::Observer:
-  virtual void OwnershipStatusChanged() override;
-  virtual void DeviceSettingsUpdated() override;
-  virtual void OnDeviceSettingsServiceShutdown() override;
+  void OwnershipStatusChanged() override;
+  void DeviceSettingsUpdated() override;
+  void OnDeviceSettingsServiceShutdown() override;
+
+ protected:
+  void NotifyStatusChanged();
 
  private:
   void OnGetBootAttributeDone(
@@ -163,12 +138,10 @@ class ConsumerManagementService
       bool dbus_success,
       const cryptohome::BaseReply& reply);
 
-  void NotifyStatusChanged();
-
   chromeos::CryptohomeClient* client_;
   chromeos::DeviceSettingsService* device_settings_service_;
 
-  ObserverList<Observer, true> observers_;
+  base::ObserverList<Observer, true> observers_;
   base::WeakPtrFactory<ConsumerManagementService> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(ConsumerManagementService);

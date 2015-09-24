@@ -39,15 +39,15 @@
 
 namespace blink {
 
+class LayoutBoxModelObject;
 class Node;
-class RenderLayerModelObject;
 struct WebRect;
 class WebViewImpl;
 
-class LinkHighlight final : public WebContentLayerClient, public WebCompositorAnimationDelegate, blink::LinkHighlightClient {
+class LinkHighlight final : public WebContentLayerClient, public WebCompositorAnimationDelegate, LinkHighlightClient {
 public:
     static PassOwnPtr<LinkHighlight> create(Node*, WebViewImpl*);
-    virtual ~LinkHighlight();
+    ~LinkHighlight() override;
 
     WebContentLayer* contentLayer();
     WebLayer* clipLayer();
@@ -55,16 +55,17 @@ public:
     void updateGeometry();
 
     // WebContentLayerClient implementation.
-    virtual void paintContents(WebCanvas*, const WebRect& clipRect, bool canPaintLCDText, WebContentLayerClient::GraphicsContextStatus) override;
+    void paintContents(WebCanvas*, const WebRect& clipRect, WebContentLayerClient::PaintingControlSetting) override;
+    void paintContents(WebDisplayItemList*, const WebRect& clipRect, WebContentLayerClient::PaintingControlSetting) override;
 
     // WebCompositorAnimationDelegate implementation.
-    virtual void notifyAnimationStarted(double monotonicTime, int group) override;
-    virtual void notifyAnimationFinished(double monotonicTime, int group) override;
+    void notifyAnimationStarted(double monotonicTime, int group) override;
+    void notifyAnimationFinished(double monotonicTime, int group) override;
 
-    // LinkHighlightClient inplementation.
-    virtual void invalidate() override;
-    virtual WebLayer* layer() override;
-    virtual void clearCurrentGraphicsLayer() override;
+    // LinkHighlightClient implementation.
+    void invalidate() override;
+    WebLayer* layer() override;
+    void clearCurrentGraphicsLayer() override;
 
     GraphicsLayer* currentGraphicsLayerForTesting() const { return m_currentGraphicsLayer; }
 
@@ -74,11 +75,11 @@ private:
     void releaseResources();
     void computeQuads(const Node&, WTF::Vector<FloatQuad>&) const;
 
-    void attachLinkHighlightToCompositingLayer(const RenderLayerModelObject* paintInvalidationContainer);
+    void attachLinkHighlightToCompositingLayer(const LayoutBoxModelObject* paintInvalidationContainer);
     void clearGraphicsLayerLinkHighlightPointer();
     // This function computes the highlight path, and returns true if it has changed
     // size since the last call to this function.
-    bool computeHighlightLayerPathAndPosition(const RenderLayerModelObject*);
+    bool computeHighlightLayerPathAndPosition(const LayoutBoxModelObject*);
 
     OwnPtr<WebContentLayer> m_contentLayer;
     OwnPtr<WebLayer> m_clipLayer;

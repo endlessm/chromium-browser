@@ -36,66 +36,68 @@ void HttpStreamFactory::ProcessAlternateProtocol(
   AlternateProtocol protocol = UNINITIALIZED_ALTERNATE_PROTOCOL;
   int port = 0;
   double probability = 1;
+  bool is_valid = true;
   for (size_t i = 0; i < alternate_protocol_values.size(); ++i) {
-    const std::string& alternate_protocol_str = alternate_protocol_values[i];
-    if (StartsWithASCII(alternate_protocol_str, "p=", true)) {
-      if (!base::StringToDouble(alternate_protocol_str.substr(2),
+    base::StringPiece alternate_protocol_str = alternate_protocol_values[i];
+    if (base::StartsWith(alternate_protocol_str, "p=",
+                         base::CompareCase::SENSITIVE)) {
+      if (!base::StringToDouble(alternate_protocol_str.substr(2).as_string(),
                                 &probability) ||
           probability < 0 || probability > 1) {
         DVLOG(1) << kAlternateProtocolHeader
                  << " header has unrecognizable probability: "
                  << alternate_protocol_values[i];
-        return;
+        is_valid = false;
+        break;
       }
       continue;
     }
 
-    std::vector<std::string> port_protocol_vector;
-    base::SplitString(alternate_protocol_str, ':', &port_protocol_vector);
+    std::vector<base::StringPiece> port_protocol_vector =
+        base::SplitStringPiece(alternate_protocol_str, ":",
+                               base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
     if (port_protocol_vector.size() != 2) {
       DVLOG(1) << kAlternateProtocolHeader
                << " header has too many tokens: "
                << alternate_protocol_str;
-      return;
+      is_valid = false;
+      break;
     }
 
     if (!base::StringToInt(port_protocol_vector[0], &port) ||
-        port <= 0 || port >= 1 << 16) {
+        port == 0 || !IsPortValid(port)) {
       DVLOG(1) << kAlternateProtocolHeader
                << " header has unrecognizable port: "
                << port_protocol_vector[0];
-      return;
+      is_valid = false;
+      break;
     }
 
-    protocol = AlternateProtocolFromString(port_protocol_vector[1]);
+    protocol = AlternateProtocolFromString(port_protocol_vector[1].as_string());
 
     if (IsAlternateProtocolValid(protocol) &&
         !session.IsProtocolEnabled(protocol)) {
       DVLOG(1) << kAlternateProtocolHeader
                << " header has unrecognized protocol: "
                << port_protocol_vector[1];
-      return;
+      is_valid = false;
+      break;
     }
   }
 
-  if (protocol == UNINITIALIZED_ALTERNATE_PROTOCOL)
+  if (!is_valid || protocol == UNINITIALIZED_ALTERNATE_PROTOCOL) {
+    http_server_properties->ClearAlternativeServices(http_host_port_pair);
     return;
+  }
 
   HostPortPair host_port(http_host_port_pair);
   const HostMappingRules* mapping_rules = GetHostMappingRules();
   if (mapping_rules)
     mapping_rules->RewriteHost(&host_port);
 
-  if (http_server_properties->HasAlternateProtocol(host_port)) {
-    const AlternateProtocolInfo existing_alternate =
-        http_server_properties->GetAlternateProtocol(host_port);
-    // If we think the alternate protocol is broken, don't change it.
-    if (existing_alternate.is_broken)
-      return;
-  }
-
-  http_server_properties->SetAlternateProtocol(host_port, port, protocol,
-                                               probability);
+  http_server_properties->SetAlternativeService(
+      host_port, AlternativeService(protocol, "", static_cast<uint16>(port)),
+      probability);
 }
 
 GURL HttpStreamFactory::ApplyHostMappingRules(const GURL& url,
@@ -103,7 +105,7 @@ GURL HttpStreamFactory::ApplyHostMappingRules(const GURL& url,
   const HostMappingRules* mapping_rules = GetHostMappingRules();
   if (mapping_rules && mapping_rules->RewriteHost(endpoint)) {
     url::Replacements<char> replacements;
-    const std::string port_str = base::IntToString(endpoint->port());
+    const std::string port_str = base::UintToString(endpoint->port());
     replacements.SetPort(port_str.c_str(), url::Component(0, port_str.size()));
     replacements.SetHost(endpoint->host().c_str(),
                          url::Component(0, endpoint->host().size()));

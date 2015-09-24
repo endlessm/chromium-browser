@@ -133,7 +133,7 @@ SupervisedUserManagerImpl::SupervisedUserManagerImpl(
     ChromeUserManagerImpl* owner)
     : owner_(owner), cros_settings_(CrosSettings::Get()) {
   // SupervisedUserManager instance should be used only on UI thread.
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   authentication_.reset(new SupervisedUserAuthentication(this));
 }
 
@@ -357,7 +357,7 @@ void SupervisedUserManagerImpl::SetUserBooleanValue(const std::string& user_id,
 
 const user_manager::User* SupervisedUserManagerImpl::FindByDisplayName(
     const base::string16& display_name) const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   const user_manager::UserList& users = owner_->GetUsers();
   for (user_manager::UserList::const_iterator it = users.begin();
        it != users.end();
@@ -372,7 +372,7 @@ const user_manager::User* SupervisedUserManagerImpl::FindByDisplayName(
 
 const user_manager::User* SupervisedUserManagerImpl::FindBySyncId(
     const std::string& sync_id) const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   const user_manager::UserList& users = owner_->GetUsers();
   for (user_manager::UserList::const_iterator it = users.begin();
        it != users.end();
@@ -512,10 +512,11 @@ void SupervisedUserManagerImpl::LoadSupervisedUserToken(
   base::FilePath profile_dir = ProfileHelper::GetProfilePathByUserIdHash(
       ProfileHelper::Get()->GetUserByProfile(profile)->username_hash());
   PostTaskAndReplyWithResult(
-      content::BrowserThread::GetBlockingPool(),
-      FROM_HERE,
-      base::Bind(&LoadSyncToken, profile_dir),
-      callback);
+      content::BrowserThread::GetBlockingPool()
+          ->GetTaskRunnerWithShutdownBehavior(
+                base::SequencedWorkerPool::CONTINUE_ON_SHUTDOWN)
+          .get(),
+      FROM_HERE, base::Bind(&LoadSyncToken, profile_dir), callback);
 }
 
 void SupervisedUserManagerImpl::ConfigureSyncWithToken(

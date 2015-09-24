@@ -4,20 +4,15 @@
 
 #include "chrome/browser/extensions/extension_view_host_factory.h"
 
-#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/extension_view_host.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/url_constants.h"
-#include "extensions/browser/extension_system.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/browser/process_manager.h"
 #include "extensions/common/manifest_handlers/incognito_info.h"
 #include "extensions/common/view_type.h"
-
-#if defined(OS_MACOSX)
-#include "chrome/browser/extensions/extension_view_host_mac.h"
-#endif
 
 namespace extensions {
 
@@ -34,14 +29,10 @@ ExtensionViewHost* CreateViewHostForExtension(const Extension* extension,
   DCHECK(profile);
   // A NULL browser may only be given for dialogs.
   DCHECK(browser || view_type == VIEW_TYPE_EXTENSION_DIALOG);
-  content::SiteInstance* site_instance =
+  scoped_refptr<content::SiteInstance> site_instance =
       ProcessManager::Get(profile)->GetSiteInstanceForURL(url);
   ExtensionViewHost* host =
-#if defined(OS_MACOSX)
-      new ExtensionViewHostMac(extension, site_instance, url, view_type);
-#else
-      new ExtensionViewHost(extension, site_instance, url, view_type);
-#endif
+      new ExtensionViewHost(extension, site_instance.get(), url, view_type);
   host->CreateView(browser);
   return host;
 }
@@ -77,15 +68,11 @@ ExtensionViewHost* CreateViewHostForIncognito(const Extension* extension,
 // Returns the extension associated with |url| in |profile|. Returns NULL if
 // the extension does not exist.
 const Extension* GetExtensionForUrl(Profile* profile, const GURL& url) {
-  ExtensionService* service =
-      ExtensionSystem::Get(profile)->extension_service();
-  if (!service)
+  ExtensionRegistry* registry = ExtensionRegistry::Get(profile);
+  if (!registry)
     return NULL;
   std::string extension_id = url.host();
-  if (url.SchemeIs(content::kChromeUIScheme) &&
-      url.host() == chrome::kChromeUIExtensionInfoHost)
-    extension_id = url.path().substr(1);
-  return service->extensions()->GetByID(extension_id);
+  return registry->enabled_extensions().GetByID(extension_id);
 }
 
 // Creates and initializes an ExtensionViewHost for the extension with |url|.
@@ -116,15 +103,6 @@ ExtensionViewHost* ExtensionViewHostFactory::CreatePopupHost(const GURL& url,
   DCHECK(browser);
   return CreateViewHost(
       url, browser->profile(), browser, VIEW_TYPE_EXTENSION_POPUP);
-}
-
-// static
-ExtensionViewHost* ExtensionViewHostFactory::CreateInfobarHost(
-    const GURL& url,
-    Browser* browser) {
-  DCHECK(browser);
-  return CreateViewHost(
-      url, browser->profile(), browser, VIEW_TYPE_EXTENSION_INFOBAR);
 }
 
 // static

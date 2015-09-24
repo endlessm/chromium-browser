@@ -22,7 +22,7 @@ sel_main_chrome_test = trusted_env.ComponentProgram(
 env_vars = ['NACLVERBOSITY=1']
 # The check for no-execute page protection does not work under
 # qemu-arm (which does not implement no-execute page protection).
-if env.Bit('target_arm') and env.UsingEmulator():
+if env.Bit('build_arm') and env.UsingEmulator():
   env_vars.append('NACL_DANGEROUS_SKIP_QUALIFICATION_TEST=1')
 
 # This test runs the platform qualification test, which checks for DEP
@@ -42,17 +42,6 @@ env.AddNodeToTestSuite(node, ['small_tests', 'nonpexe_tests'],
                        'run_sel_main_chrome_test',
                        is_broken=not env.Bit('nacl_static_link'))
 
-# Test using a newer path for loading the nexe which doesn't use SRPC.
-node = env.CommandTest(
-    'sel_main_chrome_no_srpc_load_test.out',
-    env.AddBootstrap(sel_main_chrome_test,
-                     ['--no_srpc_load_module'] + test_command_args),
-    osenv=env_vars,
-    stdout_golden=env.File('sel_main_chrome_guest.stdout'))
-env.AddNodeToTestSuite(node, ['small_tests', 'nonpexe_tests'],
-                       'run_sel_main_chrome_no_srpc_load_test',
-                       is_broken=not env.Bit('nacl_static_link'))
-
 # Also test with validation cache and mmap info for main nexe.
 node = env.CommandTest(
     'sel_main_chrome_vcache_test.out',
@@ -66,22 +55,9 @@ env.AddNodeToTestSuite(node, ['small_tests', 'nonpexe_tests'],
                        'run_sel_main_chrome_vcache_test',
                        is_broken=not env.Bit('nacl_static_link'))
 
-node = env.CommandTest(
-    'sel_main_chrome_vcache_no_srpc_load_test.out',
-    env.AddBootstrap(sel_main_chrome_test,
-                     ['--no_srpc_load_module', '--test_validation_cache'] +
-                     test_command_args),
-    osenv=env_vars,
-    filter_regex='"(NaClElfFileMapSegment: EXERCISING MMAP LOAD PATH)"',
-    filter_group_only='true',
-    stderr_golden=env.File('../mmap_main_nexe/mmap_main_nexe_rpc.stderr'))
-env.AddNodeToTestSuite(node, ['small_tests', 'nonpexe_tests'],
-                       'run_sel_main_chrome_vcache_no_srpc_load_test',
-                       is_broken=not env.Bit('nacl_static_link'))
-
 # Disable the seg_gap tests for MIPS, since its SFI is based on data section
 # starting at 256 MB, so even nexes that do not use IRT have a gap.
-if env.Bit('target_mips32'):
+if env.Bit('build_mips32'):
   Return()
 
 # Test 'irt_load_optional' can help skip loading the IRT if a nexe is built

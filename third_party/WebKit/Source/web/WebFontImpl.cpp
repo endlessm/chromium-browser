@@ -34,13 +34,14 @@
 #include "platform/fonts/FontCache.h"
 #include "platform/fonts/FontDescription.h"
 #include "platform/graphics/GraphicsContext.h"
+#include "platform/graphics/paint/DrawingRecorder.h"
+#include "platform/graphics/paint/SkPictureBuilder.h"
 #include "platform/text/TextRun.h"
 #include "public/platform/WebFloatPoint.h"
 #include "public/platform/WebFloatRect.h"
 #include "public/platform/WebRect.h"
 #include "public/web/WebFontDescription.h"
 #include "public/web/WebTextRun.h"
-#include <skia/ext/platform_canvas.h>
 
 namespace blink {
 
@@ -86,41 +87,43 @@ float WebFontImpl::xHeight() const
 }
 
 void WebFontImpl::drawText(WebCanvas* canvas, const WebTextRun& run, const WebFloatPoint& leftBaseline,
-                           WebColor color, const WebRect& clip, bool canvasIsOpaque,
-                           int from, int to) const
+                           WebColor color, const WebRect& clip) const
 {
     FontCachePurgePreventer fontCachePurgePreventer;
     FloatRect textClipRect(clip);
     TextRun textRun(run);
     TextRunPaintInfo runInfo(textRun);
-    runInfo.from = from;
-    runInfo.to = to == -1 ? textRun.length() : to;
     runInfo.bounds = textClipRect;
-    GraphicsContext gc(canvas);
 
-    gc.save();
-    gc.setCertainlyOpaque(canvasIsOpaque);
-    gc.setFillColor(color);
-    gc.clip(textClipRect);
-    m_font.drawText(&gc, runInfo, leftBaseline);
-    gc.restore();
+    IntRect intRect(clip);
+    SkPictureBuilder pictureBuilder(intRect);
+    GraphicsContext* context = &pictureBuilder.context();
+
+    ASSERT(!DrawingRecorder::useCachedDrawingIfPossible(*context, *this, DisplayItem::WebFont));
+    {
+        DrawingRecorder drawingRecorder(*context, *this, DisplayItem::WebFont, intRect);
+        context->save();
+        context->setFillColor(color);
+        context->clip(textClipRect);
+        context->drawText(m_font, runInfo, leftBaseline);
+        context->restore();
+    }
+
+    pictureBuilder.endRecording()->playback(canvas);
 }
 
 int WebFontImpl::calculateWidth(const WebTextRun& run) const
 {
-    FontCachePurgePreventer fontCachePurgePreventer;
     return m_font.width(run, 0);
 }
 
 int WebFontImpl::offsetForPosition(const WebTextRun& run, float position) const
 {
-    FontCachePurgePreventer fontCachePurgePreventer;
     return m_font.offsetForPosition(run, position, true);
 }
 
 WebFloatRect WebFontImpl::selectionRectForText(const WebTextRun& run, const WebFloatPoint& leftBaseline, int height, int from, int to) const
 {
-    FontCachePurgePreventer fontCachePurgePreventer;
     return m_font.selectionRectForText(run, leftBaseline, height, from, to);
 }
 

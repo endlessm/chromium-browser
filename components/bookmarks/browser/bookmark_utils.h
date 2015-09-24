@@ -12,8 +12,6 @@
 #include "base/strings/utf_offset_string_conversions.h"
 #include "components/bookmarks/browser/bookmark_node_data.h"
 
-class BookmarkModel;
-class BookmarkNode;
 class GURL;
 
 namespace user_prefs {
@@ -26,6 +24,8 @@ class PrefRegistrySyncable;
 namespace bookmarks {
 
 class BookmarkClient;
+class BookmarkModel;
+class BookmarkNode;
 
 // Fields to use when finding matching bookmarks.
 struct QueryFields {
@@ -149,6 +149,13 @@ bool IsBookmarkedByUser(BookmarkModel* model, const GURL& url);
 
 // Returns the node with |id|, or NULL if there is no node with |id|.
 const BookmarkNode* GetBookmarkNodeByID(const BookmarkModel* model, int64 id);
+
+// Returns true if |node| is a descendant of |root|.
+bool IsDescendantOf(const BookmarkNode* node, const BookmarkNode* root);
+
+// Returns true if any node in |list| is a descendant of |root|.
+bool HasDescendantsOf(const std::vector<const BookmarkNode*>& list,
+                      const BookmarkNode* root);
 
 }  // namespace bookmarks
 

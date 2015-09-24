@@ -6,13 +6,12 @@
 
 #include "base/logging.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/history/history_service.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/glue/sync_start_util.h"
 #include "chrome/browser/sync/glue/synced_tab_delegate.h"
-#include "chrome/browser/sync/sessions/sessions_util.h"
 #include "chrome/browser/ui/browser.h"
+#include "components/history/core/browser/history_service.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_details.h"
@@ -20,7 +19,7 @@
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/web_contents.h"
 
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
 #include "chrome/browser/supervised_user/supervised_user_service.h"
 #include "chrome/browser/supervised_user/supervised_user_service_factory.h"
 #endif
@@ -58,14 +57,15 @@ NotificationServiceSessionsRouter::NotificationServiceSessionsRouter(
   registrar_.Add(this,
       content::NOTIFICATION_LOAD_COMPLETED_MAIN_FRAME,
       content::NotificationService::AllBrowserContextsAndSources());
-  HistoryService* history_service =
-      HistoryServiceFactory::GetForProfile(profile, Profile::EXPLICIT_ACCESS);
+  history::HistoryService* history_service =
+      HistoryServiceFactory::GetForProfile(profile,
+                                           ServiceAccessType::EXPLICIT_ACCESS);
   if (history_service) {
-    favicon_changed_subscription_ = history_service->AddFaviconChangedCallback(
-        base::Bind(&NotificationServiceSessionsRouter::OnFaviconChanged,
+    favicon_changed_subscription_ = history_service->AddFaviconsChangedCallback(
+        base::Bind(&NotificationServiceSessionsRouter::OnFaviconsChanged,
                    base::Unretained(this)));
   }
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
   if (profile_->IsSupervised()) {
     SupervisedUserService* supervised_user_service =
         SupervisedUserServiceFactory::GetForProfile(profile_);
@@ -94,7 +94,7 @@ void NotificationServiceSessionsRouter::Observe(
         return;
       if (handler_)
         handler_->OnLocalTabModified(tab);
-      if (!sessions_util::ShouldSyncTab(*tab))
+      if (!tab->ShouldSync())
         return;
       break;
     }
@@ -109,7 +109,7 @@ void NotificationServiceSessionsRouter::Observe(
         return;
       if (handler_)
         handler_->OnLocalTabModified(tab);
-      if (!sessions_util::ShouldSyncTab(*tab))
+      if (!tab->ShouldSync())
         return;
       break;
     }
@@ -155,10 +155,11 @@ void NotificationServiceSessionsRouter::OnNavigationBlocked(
   handler_->OnLocalTabModified(tab);
 }
 
-void NotificationServiceSessionsRouter::OnFaviconChanged(
-    const std::set<GURL>& changed_favicons) {
+void NotificationServiceSessionsRouter::OnFaviconsChanged(
+    const std::set<GURL>& page_urls,
+    const GURL& icon_url) {
   if (handler_)
-    handler_->OnFaviconPageUrlsUpdated(changed_favicons);
+    handler_->OnFaviconsChanged(page_urls, icon_url);
 }
 
 void NotificationServiceSessionsRouter::StartRoutingTo(

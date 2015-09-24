@@ -27,18 +27,13 @@
 #define SpeechRecognitionError_h
 
 #include "modules/EventModules.h"
+#include "modules/ModulesExport.h"
+#include "modules/speech/SpeechRecognitionErrorInit.h"
 #include "wtf/text/WTFString.h"
 
 namespace blink {
 
-struct SpeechRecognitionErrorInit : public EventInit {
-    SpeechRecognitionErrorInit();
-
-    String error;
-    String message;
-};
-
-class SpeechRecognitionError final : public Event {
+class MODULES_EXPORT SpeechRecognitionError final : public Event {
     DEFINE_WRAPPERTYPEINFO();
 public:
     enum ErrorCode {
@@ -62,9 +57,9 @@ public:
     const String& error() { return m_error; }
     const String& message() { return m_message; }
 
-    virtual const AtomicString& interfaceName() const override;
+    const AtomicString& interfaceName() const override;
 
-    virtual void trace(Visitor* visitor) override
+    DEFINE_INLINE_VIRTUAL_TRACE()
     {
         Event::trace(visitor);
     }

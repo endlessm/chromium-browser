@@ -217,7 +217,7 @@ class PackageInfo(object):
         arch_path = os.path.join(archive_dir, arch_file)
         if not os.path.isfile(arch_path):
           if not skip_missing:
-            raise package_version.Error(
+            raise error.Error(
                 'Package (%s) points to invalid archive file (%s).' %
                 (package_file, arch_path))
           archive_desc = archive_info.ArchiveInfo(name=archive)
@@ -225,7 +225,7 @@ class PackageInfo(object):
           archive_desc = archive_info.ArchiveInfo(archive_info_file=arch_path)
         self._archive_list.append(archive_desc)
     else:
-      raise package_version.Error('Invalid load package file type (%s): %s',
+      raise error.Error('Invalid load package file type (%s): %s.' %
                          (type(package_file), package_file))
 
   def SavePackageFile(self, package_file):
@@ -236,7 +236,8 @@ class PackageInfo(object):
     """
     package_name = GetLocalPackageName(package_file)
     archive_dir = os.path.join(os.path.dirname(package_file), package_name)
-    pynacl.file_tools.MakeDirectoryIfAbsent(archive_dir)
+    pynacl.file_tools.RemoveDirectoryIfPresent(archive_dir)
+    os.makedirs(archive_dir)
 
     archive_list = []
 

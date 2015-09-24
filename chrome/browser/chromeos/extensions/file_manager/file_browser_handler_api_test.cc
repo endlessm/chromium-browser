@@ -10,6 +10,7 @@
 
 #include "base/bind.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_function_test_utils.h"
@@ -18,6 +19,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/browser/browser_context.h"
+#include "extensions/browser/api_test_utils.h"
 #include "extensions/common/extension.h"
 #include "extensions/test/result_catcher.h"
 #include "storage/browser/fileapi/external_mount_points.h"
@@ -79,11 +81,11 @@ class MockFileSelector : public file_manager::FileSelector {
         success_(success),
         selected_path_(selected_path) {
   }
-  virtual ~MockFileSelector() {}
+  ~MockFileSelector() override {}
 
   // file_manager::FileSelector implementation.
   // |browser| is not used.
-  virtual void SelectFile(
+  void SelectFile(
       const base::FilePath& suggested_name,
       const std::vector<std::string>& allowed_extensions,
       Browser* browser,
@@ -100,10 +102,11 @@ class MockFileSelector : public file_manager::FileSelector {
 
     // Send response to the extension function.
     // The callback will take a reference to the function and keep it alive.
-    base::MessageLoopProxy::current()->PostTask(FROM_HERE,
-        base::Bind(&FileBrowserHandlerInternalSelectFileFunction::
-                       OnFilePathSelected,
-                   function, success_, selected_path_));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::Bind(
+            &FileBrowserHandlerInternalSelectFileFunction::OnFilePathSelected,
+            function, success_, selected_path_));
     delete this;
   }
 
@@ -133,10 +136,10 @@ class MockFileSelectorFactory : public file_manager::FileSelectorFactory {
         success_(test_case.success),
         selected_path_(test_case.selected_path) {
   }
-  virtual ~MockFileSelectorFactory() {}
+  ~MockFileSelectorFactory() override {}
 
   // file_manager::FileSelectorFactory implementation.
-  virtual file_manager::FileSelector* CreateFileSelector() const override {
+  file_manager::FileSelector* CreateFileSelector() const override {
     return new MockFileSelector(suggested_name_,
                                 allowed_extensions_,
                                 success_,
@@ -159,7 +162,7 @@ class MockFileSelectorFactory : public file_manager::FileSelectorFactory {
 // Extension api test for the fileBrowserHandler extension API.
 class FileBrowserHandlerExtensionTest : public ExtensionApiTest {
  protected:
-  virtual void SetUp() override {
+  void SetUp() override {
     // Create mount point directory that will be used in the test.
     // Mount point will be called "tmp", and it will be located in a tmp
     // directory with an unique name.
@@ -340,7 +343,7 @@ IN_PROC_BROWSER_TEST_F(FileBrowserHandlerExtensionTest, SelectionFailed) {
           "[{\"suggestedName\": \"some_file_name.txt\"}]",
           browser())));
 
-  EXPECT_FALSE(utils::GetBoolean(result.get(), "success"));
+  EXPECT_FALSE(extensions::api_test_utils::GetBoolean(result.get(), "success"));
   base::DictionaryValue* entry_info;
   EXPECT_FALSE(result->GetDictionary("entry", &entry_info));
 }
@@ -369,7 +372,7 @@ IN_PROC_BROWSER_TEST_F(FileBrowserHandlerExtensionTest, SuggestedFullPath) {
           "[{\"suggestedName\": \"/path_to_file/some_file_name.txt\"}]",
           browser())));
 
-  EXPECT_FALSE(utils::GetBoolean(result.get(), "success"));
+  EXPECT_FALSE(extensions::api_test_utils::GetBoolean(result.get(), "success"));
   base::DictionaryValue* entry_info;
   EXPECT_FALSE(result->GetDictionary("entry", &entry_info));
 }

@@ -13,13 +13,14 @@
 #include "base/memory/weak_ptr.h"
 #include "base/synchronization/lock.h"
 #include "content/common/content_export.h"
+#include "content/common/gpu/client/command_buffer_metrics.h"
 #include "content/common/gpu/client/command_buffer_proxy_impl.h"
+#include "gpu/blink/webgraphicscontext3d_impl.h"
 #include "third_party/WebKit/public/platform/WebGraphicsContext3D.h"
 #include "third_party/WebKit/public/platform/WebString.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gl/gpu_preference.h"
 #include "url/gurl.h"
-#include "webkit/common/gpu/webgraphicscontext3d_impl.h"
 
 namespace gpu {
 
@@ -42,7 +43,7 @@ const size_t kDefaultMinTransferBufferSize = 1 * 256 * 1024;
 const size_t kDefaultMaxTransferBufferSize = 16 * 1024 * 1024;
 
 class WebGraphicsContext3DCommandBufferImpl
-    : public webkit::gpu::WebGraphicsContext3DImpl {
+    : public gpu_blink::WebGraphicsContext3DImpl {
  public:
   enum MappedMemoryReclaimLimit {
     kNoLimit = 0,
@@ -144,12 +145,9 @@ class WebGraphicsContext3DCommandBufferImpl
 
   CONTENT_EXPORT bool InitializeOnCurrentThread();
 
-  //----------------------------------------------------------------------
-  // WebGraphicsContext3D methods
-  virtual bool isContextLost();
-
-  virtual WGC3Denum getGraphicsResetStatusARB();
-
+  void SetContextType(CommandBufferContextType type) {
+    context_type_ = type;
+  }
  private:
   // These are the same error codes as used by EGL.
   enum Error {
@@ -184,7 +182,7 @@ class WebGraphicsContext3DCommandBufferImpl
   // unnecessary complexity at the moment.
   bool CreateContext(bool onscreen);
 
-  virtual void OnGpuChannelLost();
+  virtual void OnContextLost();
 
   bool lose_context_when_out_of_memory_;
   blink::WebGraphicsContext3D::Attributes attributes_;
@@ -195,6 +193,7 @@ class WebGraphicsContext3DCommandBufferImpl
   scoped_refptr<GpuChannelHost> host_;
   int32 surface_id_;
   GURL active_url_;
+  CommandBufferContextType context_type_;
 
   gfx::GpuPreference gpu_preference_;
 

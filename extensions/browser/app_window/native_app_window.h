@@ -11,7 +11,7 @@
 #include "components/web_modal/web_contents_modal_dialog_host.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/base_window.h"
-#include "ui/gfx/insets.h"
+#include "ui/gfx/geometry/insets.h"
 
 namespace content {
 struct NativeWebKeyboardEvent;
@@ -40,9 +40,6 @@ class NativeAppWindow : public ui::BaseWindow,
   // Called when the title of the window changes.
   virtual void UpdateWindowTitle() = 0;
 
-  // Called to update the badge icon.
-  virtual void UpdateBadgeIcon() = 0;
-
   // Called when the draggable regions are changed.
   virtual void UpdateDraggableRegions(
       const std::vector<DraggableRegion>& regions) = 0;
@@ -53,6 +50,10 @@ class NativeAppWindow : public ui::BaseWindow,
   // Called when the window shape is changed. If |region| is NULL then the
   // window is restored to the default shape.
   virtual void UpdateShape(scoped_ptr<SkRegion> region) = 0;
+
+  // Set whether the window should receive all keyboard events including task
+  // switching keys.
+  virtual void SetInterceptAllKeys(bool want_all_keys) = 0;
 
   // Allows the window to handle unhandled keyboard messages coming back from
   // the renderer.
@@ -92,7 +93,7 @@ class NativeAppWindow : public ui::BaseWindow,
   virtual void SetContentSizeConstraints(const gfx::Size& min_size,
                                          const gfx::Size& max_size) = 0;
 
-  // Returns whether the window show be visible on all workspaces.
+  // Sets whether the window should be visible on all workspaces.
   virtual void SetVisibleOnAllWorkspaces(bool always_visible) = 0;
 
   // Returns false if the underlying native window ignores alpha transparency

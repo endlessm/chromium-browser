@@ -32,11 +32,11 @@
 #include "base/callback_helpers.h"
 #include "base/lazy_instance.h"
 #include "base/memory/ref_counted.h"
-#include "crypto/rsa_private_key.h"
 #include "crypto/nss_util_internal.h"
+#include "crypto/rsa_private_key.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_log.h"
+#include "net/log/net_log.h"
 #include "net/socket/nss_ssl_util.h"
 
 // SSL plaintext fragments are shorter than 16KB. Although the record layer
@@ -307,6 +307,10 @@ bool SSLServerSocketNSS::GetSSLInfo(SSLInfo* ssl_info) {
   return false;
 }
 
+void SSLServerSocketNSS::GetConnectionAttempts(ConnectionAttempts* out) const {
+  out->clear();
+}
+
 int SSLServerSocketNSS::InitializeSSLOptions() {
   // Transport connected, now hook it up to nss
   nss_fd_ = memio_CreateIOLayer(kRecvBufferSize, kSendBufferSize);
@@ -349,12 +353,11 @@ int SSLServerSocketNSS::InitializeSSLOptions() {
     return ERR_NO_SSL_VERSIONS_ENABLED;
   }
 
-  if (ssl_config_.require_forward_secrecy) {
+  if (ssl_config_.require_ecdhe) {
     const PRUint16* const ssl_ciphers = SSL_GetImplementedCiphers();
     const PRUint16 num_ciphers = SSL_GetNumImplementedCiphers();
 
-    // Require forward security by iterating over the cipher suites and
-    // disabling all those that don't use ECDHE.
+    // Iterate over the cipher suites and disable those that don't use ECDHE.
     for (unsigned i = 0; i < num_ciphers; i++) {
       SSLCipherSuiteInfo info;
       if (SSL_GetCipherSuiteInfo(ssl_ciphers[i], &info, sizeof(info)) ==
@@ -556,7 +559,7 @@ int SSLServerSocketNSS::BufferSend(void) {
     // The error code itself is ignored, so just return ERR_ABORTED.
     return ERR_ABORTED;
   }
-  const unsigned int len = len1 + len2;
+  const size_t len = len1 + len2;
 
   int rv = 0;
   if (len) {

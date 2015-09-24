@@ -5,11 +5,10 @@
 import("//build/config/features.gni")
 import("//tools/grit/grit_rule.gni")
 
-gypi_values = exec_script(
-    "//build/gypi_to_gn.py",
-    [ rebase_path("../chrome_renderer.gypi") ],
-    "scope",
-    [ "../chrome_renderer.gypi" ])
+gypi_values = exec_script("//build/gypi_to_gn.py",
+                          [ rebase_path("../chrome_renderer.gypi") ],
+                          "scope",
+                          [ "../chrome_renderer.gypi" ])
 
 # GYP version: chrome/chrome_resources.gyp:chrome_resources
 # (generate_renderer_resources action)
@@ -33,15 +32,22 @@ static_library("renderer") {
   deps = [
     "//base/allocator",
     "//chrome/common",
+    "//chrome/common:mojo_bindings",
     "//chrome/common/net",
     "//chrome:resources",
     "//chrome:strings",
     "//components/autofill/content/renderer",
+    "//components/content_settings/content/common",
     "//components/cdm/renderer",
+    "//components/data_reduction_proxy/content/common",
     "//components/data_reduction_proxy/core/common",
     "//components/error_page/renderer",
+    "//components/guest_view/renderer",
+    "//components/network_hints/renderer",
+    "//components/omnibox/common",
     "//components/password_manager/content/renderer",
     "//components/plugins/renderer",
+    "//components/printing/renderer:printing_renderer",
     "//components/startup_metric_utils",
     "//components/translate/content/renderer",
     "//components/translate/core/common",
@@ -51,16 +57,13 @@ static_library("renderer") {
     "//content/app/resources",
     "//content/app/strings",
     "//content/public/renderer",
-    "//media/cast:net",
-    "//media/cast:sender",
-    "//media/cast/logging/proto",
     "//net",
     "//skia",
     "//storage/common",
     "//third_party/WebKit/public:blink",
+    "//third_party/WebKit/public:image_resources",
     "//third_party/WebKit/public:resources",
     "//third_party/icu",
-    "//third_party/npapi",
     "//third_party/re2",
     "//third_party/widevine/cdm:version_h",
     "//ui/surface",
@@ -69,74 +72,86 @@ static_library("renderer") {
 
   if (enable_nacl) {
     deps += [
-      #'../components/nacl.gyp:nacl',  TODO(GYP)
-      #'../components/nacl.gyp:nacl_renderer',  TODO(GYP)
+      "//components/nacl",
+      "//components/nacl:nacl_renderer",
     ]
   }
 
   if (enable_plugins) {
-    sources += rebase_path(gypi_values.chrome_renderer_plugin_sources,
-                           ".", "..")
+    sources +=
+        rebase_path(gypi_values.chrome_renderer_plugin_sources, ".", "..")
     deps += [
       "//components/pdf/renderer",
-      "//ppapi:ppapi_host",
-      "//ppapi:ppapi_ipc",
-      "//ppapi:ppapi_proxy",
-      "//ppapi:ppapi_shared",
+      "//ppapi/host",
+      "//ppapi/proxy",
+      "//ppapi/proxy:ipc",
+      "//ppapi/shared_impl",
     ]
   }
 
-  if (safe_browsing_mode == 1) {
-    sources += rebase_path(gypi_values.chrome_renderer_safe_browsing_sources,
-                           ".", "..")
-    sources += rebase_path(
-        gypi_values.chrome_renderer_basic_safe_browsing_sources,
-        ".", "..")
-    defines += [ "FULL_SAFE_BROWSING" ]
-    deps += [
-      "//chrome/common/safe_browsing:proto",
-      "//third_party/smhasher:murmurhash3",
-    ]
-  }
-  if (safe_browsing_mode == 2) {
-    sources += rebase_path(
-        gypi_values.chrome_renderer_basic_safe_browsing_sources,
-        ".", "..")
-    defines += [ "MOBILE_SAFE_BROWSING" ]
+  if (safe_browsing_mode != 0) {
+    sources +=
+        rebase_path(gypi_values.chrome_renderer_basic_safe_browsing_sources,
+                    ".",
+                    "..")
+    if (safe_browsing_mode == 1) {
+      sources += rebase_path(gypi_values.chrome_renderer_safe_browsing_sources,
+                             ".",
+                             "..")
+      deps += [
+        "//chrome/common/safe_browsing:proto",
+        "//third_party/smhasher:murmurhash3",
+      ]
+    }
   }
 
   if (enable_extensions) {
-    sources += rebase_path(gypi_values.chrome_renderer_extensions_sources,
-                           ".", "..")
+    sources +=
+        rebase_path(gypi_values.chrome_renderer_extensions_sources, ".", "..")
     deps += [
       # TODO(hclam): See crbug.com/298380 for details.
       # We should isolate the APIs needed by the renderer.
       "//chrome/common/extensions/api",
       "//extensions:extensions_resources",
       "//extensions/renderer",
+      "//media/cast:net",
+      "//media/cast:receiver",
+      "//media/cast:sender",
+      "//media/cast/logging/proto",
     ]
+    if (!enable_webrtc) {
+      sources -= [
+        "media/cast_receiver_session.cc",
+        "media/cast_receiver_session.h",
+        "media/cast_rtp_stream.cc",
+        "media/cast_rtp_stream.h",
+      ]
+    }
   }
   if (enable_webrtc) {
-    sources += rebase_path(gypi_values.chrome_renderer_webrtc_sources,
-                           ".", "..")
+    sources +=
+        rebase_path(gypi_values.chrome_renderer_webrtc_sources, ".", "..")
   }
   if (enable_extensions && enable_webrtc) {
-    sources += rebase_path(
-        gypi_values.chrome_renderer_webrtc_extensions_sources, ".", "..")
+    sources +=
+        rebase_path(gypi_values.chrome_renderer_webrtc_extensions_sources,
+                    ".",
+                    "..")
   }
   if (enable_spellcheck) {
-    sources += rebase_path(gypi_values.chrome_renderer_spellchecker_sources,
-                           ".", "..")
+    sources +=
+        rebase_path(gypi_values.chrome_renderer_spellchecker_sources, ".", "..")
     deps += [ "//third_party/hunspell" ]
   }
 
   if (enable_basic_printing || enable_print_preview) {
     deps += [ "//printing" ]
-    sources += rebase_path(gypi_values.chrome_renderer_printing_sources,
-                           ".", "..")
+    sources +=
+        rebase_path(gypi_values.chrome_renderer_printing_sources, ".", "..")
     if (enable_print_preview) {
       sources += rebase_path(gypi_values.chrome_renderer_full_printing_sources,
-                             ".", "..")
+                             ".",
+                             "..")
     }
   }
 
@@ -144,20 +159,12 @@ static_library("renderer") {
     deps += [ "//third_party/mach_override" ]
   }
   if (is_win) {
-    deps += [
-      #'../chrome_elf/chrome_elf.gyp:chrome_elf',  TODO(GYP)
-      "//third_party/wtl",
-    ]
+    deps += [ "//third_party/wtl" ]
   }
   if (!is_android) {
-    sources += rebase_path(gypi_values.chrome_renderer_non_android_sources,
-                           ".", "..")
+    sources +=
+        rebase_path(gypi_values.chrome_renderer_non_android_sources, ".", "..")
   }
-
-  # TODO(GYP)
-  #       'sources': [
-  #         'renderer/printing/print_web_view_helper_pdf_win.cc',
-  #       ],
 }
 
 # In GYP this is part of test_support_common.
@@ -183,12 +190,6 @@ source_set("test_support") {
 
   if (enable_print_preview) {
     deps += [ "//chrome/service" ]
-  }
-  if (enable_basic_printing || enable_print_preview) {
-    sources += [
-      "printing/mock_printer.cc",
-      "printing/mock_printer.h",
-    ]
   }
 
   if (enable_webrtc) {

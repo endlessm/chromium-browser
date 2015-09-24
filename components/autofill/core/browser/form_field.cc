@@ -15,41 +15,49 @@
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/browser/address_field.h"
 #include "components/autofill/core/browser/autofill_field.h"
-#include "components/autofill/core/browser/autofill_regexes.h"
 #include "components/autofill/core/browser/autofill_scanner.h"
 #include "components/autofill/core/browser/credit_card_field.h"
 #include "components/autofill/core/browser/email_field.h"
 #include "components/autofill/core/browser/form_structure.h"
 #include "components/autofill/core/browser/name_field.h"
 #include "components/autofill/core/browser/phone_field.h"
-#include "ui/base/l10n/l10n_util.h"
+#include "components/autofill/core/common/autofill_regexes.h"
 
 namespace autofill {
 namespace {
 
-bool IsCheckable(const AutofillField* field) {
-  return field->is_checkable;
+bool ShouldBeIgnored(const AutofillField* field) {
+  // Ignore checkable fields as they interfere with parsers assuming context.
+  // Eg., while parsing address, "Is PO box" checkbox after ADDRESS_LINE1
+  // interferes with correctly understanding ADDRESS_LINE2.
+  // Ignore fields marked as presentational. See
+  // http://www.w3.org/TR/wai-aria/roles#presentation
+  return field->is_checkable ||
+         field->role == FormFieldData::ROLE_ATTRIBUTE_PRESENTATION;
 }
 
 }  // namespace
 
 // static
 void FormField::ParseFormFields(const std::vector<AutofillField*>& fields,
+                                bool is_form_tag,
                                 ServerFieldTypeMap* map) {
+  DCHECK(map->empty());
+
   // Set up a working copy of the fields to be processed.
   std::vector<AutofillField*> remaining_fields(fields.size());
   std::copy(fields.begin(), fields.end(), remaining_fields.begin());
 
-  // Ignore checkable fields as they interfere with parsers assuming context.
-  // Eg., while parsing address, "Is PO box" checkbox after ADDRESS_LINE1
-  // interferes with correctly understanding ADDRESS_LINE2.
   remaining_fields.erase(
       std::remove_if(remaining_fields.begin(), remaining_fields.end(),
-                     IsCheckable),
+                     ShouldBeIgnored),
       remaining_fields.end());
+
+  ServerFieldTypeMap saved_map = *map;
 
   // Email pass.
   ParseFormFieldsPass(EmailField::Parse, &remaining_fields, map);
+  size_t email_count = map->size();
 
   // Phone pass.
   ParseFormFieldsPass(PhoneField::Parse, &remaining_fields, map);
@@ -62,6 +70,16 @@ void FormField::ParseFormFields(const std::vector<AutofillField*>& fields,
 
   // Name pass.
   ParseFormFieldsPass(NameField::Parse, &remaining_fields, map);
+
+  // Do not autofill a form if there are less than 3 recognized fields.
+  // Otherwise it is very easy to have false positives. http://crbug.com/447332
+  // For <form> tags, make an exception for email fields, which are commonly the
+  // only recognized field on account registration sites.
+  size_t kThreshold = 3;
+  bool accept_parsing = (map->size() >= kThreshold ||
+                         (is_form_tag && email_count > 0));
+  if (!accept_parsing)
+    *map = saved_map;
 }
 
 // static
@@ -85,6 +103,40 @@ bool FormField::ParseFieldSpecifics(AutofillScanner* scanner,
     return false;
 
   return MatchAndAdvance(scanner, pattern, match_type, match);
+}
+
+// static
+FormField::ParseNameLabelResult FormField::ParseNameAndLabelSeparately(
+    AutofillScanner* scanner,
+    const base::string16& pattern,
+    int match_type,
+    AutofillField** match) {
+  if (scanner->IsEnd())
+    return RESULT_MATCH_NONE;
+
+  AutofillField* cur_match = nullptr;
+  size_t saved_cursor = scanner->SaveCursor();
+  bool parsed_name = ParseFieldSpecifics(scanner,
+                                         pattern,
+                                         match_type & ~MATCH_LABEL,
+                                         &cur_match);
+  scanner->RewindTo(saved_cursor);
+  bool parsed_label = ParseFieldSpecifics(scanner,
+                                          pattern,
+                                          match_type & ~MATCH_NAME,
+                                          &cur_match);
+  if (parsed_name && parsed_label) {
+    if (match)
+      *match = cur_match;
+    return RESULT_MATCH_NAME_LABEL;
+  }
+
+  scanner->RewindTo(saved_cursor);
+  if (parsed_name)
+    return RESULT_MATCH_NAME;
+  if (parsed_label)
+    return RESULT_MATCH_LABEL;
+  return RESULT_MATCH_NONE;
 }
 
 // static
@@ -128,17 +180,12 @@ bool FormField::Match(const AutofillField* field,
                       const base::string16& pattern,
                       int match_type) {
   if ((match_type & FormField::MATCH_LABEL) &&
-      autofill::MatchesPattern(field->label, pattern)) {
+      MatchesPattern(field->label, pattern)) {
     return true;
   }
 
   if ((match_type & FormField::MATCH_NAME) &&
-      autofill::MatchesPattern(field->name, pattern)) {
-    return true;
-  }
-
-  if ((match_type & FormField::MATCH_VALUE) &&
-      autofill::MatchesPattern(field->value, pattern)) {
+      MatchesPattern(field->name, pattern)) {
     return true;
   }
 
@@ -155,7 +202,7 @@ void FormField::ParseFormFieldsPass(ParseFunction parse,
   AutofillScanner scanner(*fields);
   while (!scanner.IsEnd()) {
     scoped_ptr<FormField> form_field(parse(&scanner));
-    if (!form_field.get()) {
+    if (!form_field) {
       remaining_fields.push_back(scanner.Cursor());
       scanner.Advance();
       continue;
@@ -187,6 +234,9 @@ bool FormField::MatchesFormControlType(const std::string& type,
     return true;
 
   if ((match_type & MATCH_PASSWORD) && type == "password")
+    return true;
+
+  if ((match_type & MATCH_NUMBER) && type == "number")
     return true;
 
   return false;

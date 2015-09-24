@@ -26,9 +26,13 @@ namespace chromeos {
 
 PowerPrefs::PowerPrefs(PowerPolicyController* power_policy_controller)
     : power_policy_controller_(power_policy_controller),
-      profile_(NULL) {
+      profile_(NULL),
+      screen_is_locked_(false) {
   notification_registrar_.Add(this,
                               chrome::NOTIFICATION_LOGIN_OR_LOCK_WEBUI_VISIBLE,
+                              content::NotificationService::AllSources());
+  notification_registrar_.Add(this,
+                              chrome::NOTIFICATION_SCREEN_LOCK_STATE_CHANGED,
                               content::NotificationService::AllSources());
   notification_registrar_.Add(this,
                               chrome::NOTIFICATION_SESSION_STARTED,
@@ -46,14 +50,10 @@ void PowerPrefs::RegisterUserProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
   RegisterProfilePrefs(registry);
 
-  registry->RegisterIntegerPref(
-      prefs::kPowerBatteryIdleAction,
-      PowerPolicyController::ACTION_SUSPEND,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterIntegerPref(
-      prefs::kPowerLidClosedAction,
-      PowerPolicyController::ACTION_SUSPEND,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterIntegerPref(prefs::kPowerBatteryIdleAction,
+                                PowerPolicyController::ACTION_SUSPEND);
+  registry->RegisterIntegerPref(prefs::kPowerLidClosedAction,
+                                PowerPolicyController::ACTION_SUSPEND);
 }
 
 // static
@@ -61,14 +61,10 @@ void PowerPrefs::RegisterLoginProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
   RegisterProfilePrefs(registry);
 
-  registry->RegisterIntegerPref(
-      prefs::kPowerBatteryIdleAction,
-      PowerPolicyController::ACTION_SHUT_DOWN,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterIntegerPref(
-      prefs::kPowerLidClosedAction,
-      PowerPolicyController::ACTION_SHUT_DOWN,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterIntegerPref(prefs::kPowerBatteryIdleAction,
+                                PowerPolicyController::ACTION_SHUT_DOWN);
+  registry->RegisterIntegerPref(prefs::kPowerLidClosedAction,
+                                PowerPolicyController::ACTION_SHUT_DOWN);
 }
 
 void PowerPrefs::Observe(int type,
@@ -82,6 +78,12 @@ void PowerPrefs::Observe(int type,
         SetProfile(ProfileHelper::GetSigninProfile());
       break;
     }
+    case chrome::NOTIFICATION_SCREEN_LOCK_STATE_CHANGED:
+      // Update the policy in case different delays have been set for the lock
+      // screen.
+      screen_is_locked_ = *content::Details<bool>(details).ptr();
+      UpdatePowerPolicyFromPrefs();
+      break;
     case chrome::NOTIFICATION_SESSION_STARTED:
       // Update |profile_| when entering a session.
       SetProfile(ProfileManager::GetPrimaryUserProfile());
@@ -108,9 +110,11 @@ void PowerPrefs::UpdatePowerPolicyFromPrefs() {
   const PrefService* prefs = pref_change_registrar_->prefs();
   PowerPolicyController::PrefValues values;
   values.ac_screen_dim_delay_ms =
-      prefs->GetInteger(prefs::kPowerAcScreenDimDelayMs);
+      prefs->GetInteger(screen_is_locked_ ? prefs::kPowerLockScreenDimDelayMs :
+          prefs::kPowerAcScreenDimDelayMs);
   values.ac_screen_off_delay_ms =
-      prefs->GetInteger(prefs::kPowerAcScreenOffDelayMs);
+      prefs->GetInteger(screen_is_locked_ ? prefs::kPowerLockScreenOffDelayMs :
+          prefs::kPowerAcScreenOffDelayMs);
   values.ac_screen_lock_delay_ms =
       prefs->GetInteger(prefs::kPowerAcScreenLockDelayMs);
   values.ac_idle_warning_delay_ms =
@@ -118,9 +122,11 @@ void PowerPrefs::UpdatePowerPolicyFromPrefs() {
   values.ac_idle_delay_ms =
       prefs->GetInteger(prefs::kPowerAcIdleDelayMs);
   values.battery_screen_dim_delay_ms =
-      prefs->GetInteger(prefs::kPowerBatteryScreenDimDelayMs);
+      prefs->GetInteger(screen_is_locked_ ? prefs::kPowerLockScreenDimDelayMs :
+          prefs::kPowerBatteryScreenDimDelayMs);
   values.battery_screen_off_delay_ms =
-      prefs->GetInteger(prefs::kPowerBatteryScreenOffDelayMs);
+      prefs->GetInteger(screen_is_locked_ ? prefs::kPowerLockScreenOffDelayMs :
+          prefs::kPowerBatteryScreenOffDelayMs);
   values.battery_screen_lock_delay_ms =
       prefs->GetInteger(prefs::kPowerBatteryScreenLockDelayMs);
   values.battery_idle_warning_delay_ms =
@@ -147,6 +153,8 @@ void PowerPrefs::UpdatePowerPolicyFromPrefs() {
       prefs->GetDouble(prefs::kPowerUserActivityScreenDimDelayFactor);
   values.wait_for_initial_user_activity =
       prefs->GetBoolean(prefs::kPowerWaitForInitialUserActivity);
+  values.force_nonzero_brightness_for_user_activity =
+      prefs->GetBoolean(prefs::kPowerForceNonzeroBrightnessForUserActivity);
 
   power_policy_controller_->ApplyPrefs(values);
 }
@@ -154,78 +162,34 @@ void PowerPrefs::UpdatePowerPolicyFromPrefs() {
 // static
 void PowerPrefs::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterIntegerPref(
-      prefs::kPowerAcScreenDimDelayMs,
-      420000,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterIntegerPref(
-      prefs::kPowerAcScreenOffDelayMs,
-      480000,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterIntegerPref(
-      prefs::kPowerAcScreenLockDelayMs,
-      0,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterIntegerPref(
-      prefs::kPowerAcIdleWarningDelayMs,
-      0,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterIntegerPref(
-      prefs::kPowerAcIdleDelayMs,
-      1800000,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterIntegerPref(
-      prefs::kPowerBatteryScreenDimDelayMs,
-      300000,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterIntegerPref(
-      prefs::kPowerBatteryScreenOffDelayMs,
-      360000,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterIntegerPref(
-      prefs::kPowerBatteryScreenLockDelayMs,
-      0,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterIntegerPref(
-      prefs::kPowerBatteryIdleWarningDelayMs,
-      0,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterIntegerPref(
-      prefs::kPowerBatteryIdleDelayMs,
-      600000,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterIntegerPref(
-      prefs::kPowerAcIdleAction,
-      PowerPolicyController::ACTION_SUSPEND,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kPowerUseAudioActivity,
-      true,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kPowerUseVideoActivity,
-      true,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kPowerAllowScreenWakeLocks,
-      true,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterIntegerPref(prefs::kPowerAcScreenDimDelayMs, 420000);
+  registry->RegisterIntegerPref(prefs::kPowerAcScreenOffDelayMs, 480000);
+  registry->RegisterIntegerPref(prefs::kPowerAcScreenLockDelayMs, 0);
+  registry->RegisterIntegerPref(prefs::kPowerAcIdleWarningDelayMs, 0);
+  registry->RegisterIntegerPref(prefs::kPowerAcIdleDelayMs, 1800000);
+  registry->RegisterIntegerPref(prefs::kPowerBatteryScreenDimDelayMs, 300000);
+  registry->RegisterIntegerPref(prefs::kPowerBatteryScreenOffDelayMs, 360000);
+  registry->RegisterIntegerPref(prefs::kPowerBatteryScreenLockDelayMs, 0);
+  registry->RegisterIntegerPref(prefs::kPowerBatteryIdleWarningDelayMs, 0);
+  registry->RegisterIntegerPref(prefs::kPowerBatteryIdleDelayMs, 600000);
+  registry->RegisterIntegerPref(prefs::kPowerLockScreenDimDelayMs, 30000);
+  registry->RegisterIntegerPref(prefs::kPowerLockScreenOffDelayMs, 40000);
+  registry->RegisterIntegerPref(prefs::kPowerAcIdleAction,
+                                PowerPolicyController::ACTION_SUSPEND);
+  registry->RegisterBooleanPref(prefs::kPowerUseAudioActivity, true);
+  registry->RegisterBooleanPref(prefs::kPowerUseVideoActivity, true);
+  registry->RegisterBooleanPref(prefs::kPowerAllowScreenWakeLocks, true);
   registry->RegisterBooleanPref(
       prefs::kEnableAutoScreenLock,
       false,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
-  registry->RegisterDoublePref(
-      prefs::kPowerPresentationScreenDimDelayFactor,
-      2.0,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterDoublePref(
-      prefs::kPowerUserActivityScreenDimDelayFactor,
-      2.0,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterDoublePref(prefs::kPowerPresentationScreenDimDelayFactor,
+                               2.0);
+  registry->RegisterDoublePref(prefs::kPowerUserActivityScreenDimDelayFactor,
+                               2.0);
+  registry->RegisterBooleanPref(prefs::kPowerWaitForInitialUserActivity, false);
   registry->RegisterBooleanPref(
-      prefs::kPowerWaitForInitialUserActivity,
-      false,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+      prefs::kPowerForceNonzeroBrightnessForUserActivity, true);
 }
 
 void PowerPrefs::SetProfile(Profile* profile) {
@@ -261,6 +225,10 @@ void PowerPrefs::SetProfile(Profile* profile) {
   pref_change_registrar_->Add(prefs::kPowerBatteryIdleWarningDelayMs,
                               update_callback);
   pref_change_registrar_->Add(prefs::kPowerBatteryIdleDelayMs, update_callback);
+  pref_change_registrar_->Add(prefs::kPowerLockScreenDimDelayMs,
+                              update_callback);
+  pref_change_registrar_->Add(prefs::kPowerLockScreenOffDelayMs,
+                              update_callback);
   pref_change_registrar_->Add(prefs::kPowerAcIdleAction, update_callback);
   pref_change_registrar_->Add(prefs::kPowerBatteryIdleAction, update_callback);
   pref_change_registrar_->Add(prefs::kPowerLidClosedAction, update_callback);
@@ -275,6 +243,8 @@ void PowerPrefs::SetProfile(Profile* profile) {
                               update_callback);
   pref_change_registrar_->Add(prefs::kPowerWaitForInitialUserActivity,
                               update_callback);
+  pref_change_registrar_->Add(
+      prefs::kPowerForceNonzeroBrightnessForUserActivity, update_callback);
 
   UpdatePowerPolicyFromPrefs();
 }

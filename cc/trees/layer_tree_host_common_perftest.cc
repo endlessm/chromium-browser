@@ -25,7 +25,6 @@
 #include "cc/test/layer_tree_json_parser.h"
 #include "cc/test/layer_tree_test.h"
 #include "cc/test/paths.h"
-#include "cc/trees/layer_sorter.h"
 #include "cc/trees/layer_tree_impl.h"
 #include "testing/perf/perf_test.h"
 
@@ -78,48 +77,9 @@ class LayerTreeHostCommonPerfTest : public LayerTreeTest {
   std::string json_;
 };
 
-class CalcDrawPropsMainTest : public LayerTreeHostCommonPerfTest {
+class CalcDrawPropsTest : public LayerTreeHostCommonPerfTest {
  public:
-  void RunCalcDrawProps() {
-    RunTest(false, false, false);
-  }
-
-  void BeginTest() override {
-    timer_.Reset();
-
-    do {
-      bool can_render_to_separate_surface = true;
-      int max_texture_size = 8096;
-      RenderSurfaceLayerList update_list;
-      LayerTreeHostCommon::CalcDrawPropsMainInputs inputs(
-          layer_tree_host()->root_layer(),
-          layer_tree_host()->device_viewport_size(),
-          gfx::Transform(),
-          layer_tree_host()->device_scale_factor(),
-          layer_tree_host()->page_scale_factor(),
-          layer_tree_host()->page_scale_layer(),
-          max_texture_size,
-          layer_tree_host()->settings().can_use_lcd_text,
-          can_render_to_separate_surface,
-          layer_tree_host()
-              ->settings()
-              .layer_transforms_should_scale_layer_contents,
-          &update_list,
-          0);
-      LayerTreeHostCommon::CalculateDrawProperties(&inputs);
-
-      timer_.NextLap();
-    } while (!timer_.HasTimeLimitExpired());
-
-    EndTest();
-  }
-};
-
-class CalcDrawPropsImplTest : public LayerTreeHostCommonPerfTest {
- public:
-  void RunCalcDrawProps() {
-    RunTestWithImplSidePainting();
-  }
+  void RunCalcDrawProps() { RunTest(false, false); }
 
   void BeginTest() override { PostSetNeedsCommitToMainThread(); }
 
@@ -146,74 +106,30 @@ class CalcDrawPropsImplTest : public LayerTreeHostCommonPerfTest {
                                 LayerTreeImpl* active_tree,
                                 LayerTreeHostImpl* host_impl) {
     LayerImplList update_list;
+    PropertyTrees property_trees;
+    bool verify_property_trees = false;
     LayerTreeHostCommon::CalcDrawPropsImplInputs inputs(
-        active_tree->root_layer(),
-        active_tree->DrawViewportSize(),
-        host_impl->DrawTransform(),
-        active_tree->device_scale_factor(),
-        active_tree->total_page_scale_factor(),
+        active_tree->root_layer(), active_tree->DrawViewportSize(),
+        host_impl->DrawTransform(), active_tree->device_scale_factor(),
+        active_tree->current_page_scale_factor(),
         active_tree->InnerViewportContainerLayer(),
-        max_texture_size,
+        active_tree->InnerViewportScrollLayer(),
+        active_tree->OuterViewportScrollLayer(),
+        active_tree->elastic_overscroll()->Current(active_tree->IsActiveTree()),
+        active_tree->overscroll_elasticity_layer(), max_texture_size,
         host_impl->settings().can_use_lcd_text,
+        host_impl->settings().layers_always_allowed_lcd_text,
         can_render_to_separate_surface,
         host_impl->settings().layer_transforms_should_scale_layer_contents,
-        &update_list,
-        0);
+        verify_property_trees, &update_list, 0, &property_trees);
     LayerTreeHostCommon::CalculateDrawProperties(&inputs);
   }
 };
 
-class LayerSorterMainTest : public CalcDrawPropsImplTest {
+class BspTreePerfTest : public CalcDrawPropsTest {
  public:
-  void RunSortLayers() { RunTest(false, false, false); }
-
-  void BeginTest() override { PostSetNeedsCommitToMainThread(); }
-
-  void DrawLayersOnThread(LayerTreeHostImpl* host_impl) override {
-    LayerTreeImpl* active_tree = host_impl->active_tree();
-    // First build the tree and then we'll start running tests on layersorter
-    // itself
-    bool can_render_to_separate_surface = true;
-    int max_texture_size = 8096;
-    DoCalcDrawPropertiesImpl(can_render_to_separate_surface,
-                             max_texture_size,
-                             active_tree,
-                             host_impl);
-
-    // Behaviour of this test is different from that of sorting in practice.
-    // In this case, all layers that exist in any 3D context are put into a list
-    // and are sorted as one big 3D context instead of several smaller ones.
-    BuildLayerImplList(active_tree->root_layer(), &base_list_);
-    timer_.Reset();
-    do {
-      // Here we'll move the layers into a LayerImpl list of their own to be
-      // sorted so we don't have a sorted list for every run after the first
-      LayerImplList test_list = base_list_;
-      layer_sorter_.Sort(test_list.begin(), test_list.end());
-      timer_.NextLap();
-    } while (!timer_.HasTimeLimitExpired());
-
-    EndTest();
-  }
-
-  void BuildLayerImplList(LayerImpl* layer, LayerImplList* list) {
-    if (layer->Is3dSorted()) {
-      list->push_back(layer);
-    }
-
-    for (size_t i = 0; i < layer->children().size(); i++) {
-      BuildLayerImplList(layer->children()[i], list);
-    }
-  }
-
- private:
-  LayerImplList base_list_;
-  LayerSorter layer_sorter_;
-};
-
-class BspTreePerfTest : public LayerSorterMainTest {
- public:
-  void RunSortLayers() { RunTest(false, false, false); }
+  BspTreePerfTest() : num_duplicates_(1) {}
+  void RunSortLayers() { RunTest(false, false); }
 
   void SetNumberOfDuplicates(int num_duplicates) {
     num_duplicates_ = num_duplicates;
@@ -240,10 +156,8 @@ class BspTreePerfTest : public LayerSorterMainTest {
     for (LayerImplList::iterator it = base_list.begin(); it != base_list.end();
          ++it) {
       DrawPolygon* draw_polygon =
-          new DrawPolygon(NULL,
-                          gfx::RectF((*it)->content_bounds()),
-                          (*it)->draw_transform(),
-                          polygon_counter++);
+          new DrawPolygon(NULL, gfx::RectF((*it)->bounds()),
+                          (*it)->draw_transform(), polygon_counter++);
       polygon_list.push_back(scoped_ptr<DrawPolygon>(draw_polygon));
     }
 
@@ -262,68 +176,60 @@ class BspTreePerfTest : public LayerSorterMainTest {
     EndTest();
   }
 
+  void BuildLayerImplList(LayerImpl* layer, LayerImplList* list) {
+    if (layer->Is3dSorted()) {
+      list->push_back(layer);
+    }
+
+    for (size_t i = 0; i < layer->children().size(); i++) {
+      BuildLayerImplList(layer->children()[i], list);
+    }
+  }
+
  private:
+  LayerImplList base_list_;
   int num_duplicates_;
 };
 
-TEST_F(CalcDrawPropsMainTest, TenTen) {
-  SetTestName("10_10_main_thread");
-  ReadTestFile("10_10_layer_tree");
-  RunCalcDrawProps();
-}
-
-TEST_F(CalcDrawPropsMainTest, HeavyPage) {
-  SetTestName("heavy_page_main_thread");
-  ReadTestFile("heavy_layer_tree");
-  RunCalcDrawProps();
-}
-
-TEST_F(CalcDrawPropsMainTest, TouchRegionLight) {
-  SetTestName("touch_region_light_main_thread");
-  ReadTestFile("touch_region_light");
-  RunCalcDrawProps();
-}
-
-TEST_F(CalcDrawPropsMainTest, TouchRegionHeavy) {
-  SetTestName("touch_region_heavy_main_thread");
-  ReadTestFile("touch_region_heavy");
-  RunCalcDrawProps();
-}
-
-TEST_F(CalcDrawPropsImplTest, TenTen) {
+TEST_F(CalcDrawPropsTest, TenTen) {
   SetTestName("10_10");
   ReadTestFile("10_10_layer_tree");
   RunCalcDrawProps();
 }
 
-TEST_F(CalcDrawPropsImplTest, HeavyPage) {
+TEST_F(CalcDrawPropsTest, HeavyPage) {
   SetTestName("heavy_page");
   ReadTestFile("heavy_layer_tree");
   RunCalcDrawProps();
 }
 
-TEST_F(CalcDrawPropsImplTest, TouchRegionLight) {
+TEST_F(CalcDrawPropsTest, TouchRegionLight) {
   SetTestName("touch_region_light");
   ReadTestFile("touch_region_light");
   RunCalcDrawProps();
 }
 
-TEST_F(CalcDrawPropsImplTest, TouchRegionHeavy) {
+TEST_F(CalcDrawPropsTest, TouchRegionHeavy) {
   SetTestName("touch_region_heavy");
   ReadTestFile("touch_region_heavy");
   RunCalcDrawProps();
 }
 
-TEST_F(LayerSorterMainTest, LayerSorterCubes) {
+TEST_F(BspTreePerfTest, LayerSorterCubes) {
   SetTestName("layer_sort_cubes");
   ReadTestFile("layer_sort_cubes");
   RunSortLayers();
 }
 
-TEST_F(LayerSorterMainTest, LayerSorterRubik) {
+TEST_F(BspTreePerfTest, LayerSorterRubik) {
   SetTestName("layer_sort_rubik");
   ReadTestFile("layer_sort_rubik");
+  // TODO(vollick): Remove verify_property_trees setting after
+  // crbug.com/444219 is fixed.
+  bool old_verify_property_trees = verify_property_trees();
+  set_verify_property_trees(false);
   RunSortLayers();
+  set_verify_property_trees(old_verify_property_trees);
 }
 
 TEST_F(BspTreePerfTest, BspTreeCubes) {
@@ -337,7 +243,12 @@ TEST_F(BspTreePerfTest, BspTreeRubik) {
   SetTestName("bsp_tree_rubik");
   SetNumberOfDuplicates(1);
   ReadTestFile("layer_sort_rubik");
+  // TODO(vollick): Remove verify_property_trees setting after
+  // crbug.com/444219 is fixed.
+  bool old_verify_property_trees = verify_property_trees();
+  set_verify_property_trees(false);
   RunSortLayers();
+  set_verify_property_trees(old_verify_property_trees);
 }
 
 TEST_F(BspTreePerfTest, BspTreeCubes_2) {

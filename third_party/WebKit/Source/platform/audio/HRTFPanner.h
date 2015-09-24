@@ -35,28 +35,26 @@ namespace blink {
 class PLATFORM_EXPORT HRTFPanner final : public Panner {
 public:
     HRTFPanner(float sampleRate, HRTFDatabaseLoader*);
-    virtual ~HRTFPanner();
+    ~HRTFPanner() override;
 
     // Panner
-    virtual void pan(double azimuth, double elevation, const AudioBus* inputBus, AudioBus* outputBus, size_t framesToProcess) override;
-    virtual void reset() override;
+    void pan(double azimuth, double elevation, const AudioBus* inputBus, AudioBus* outputBus, size_t framesToProcess) override;
+    void reset() override;
 
     size_t fftSize() const { return fftSizeForSampleRate(m_sampleRate); }
     static size_t fftSizeForSampleRate(float sampleRate);
 
     float sampleRate() const { return m_sampleRate; }
 
-    virtual double tailTime() const override;
-    virtual double latencyTime() const override;
-
-    virtual void trace(Visitor*) override;
+    double tailTime() const override;
+    double latencyTime() const override;
 
 private:
     // Given an azimuth angle in the range -180 -> +180, returns the corresponding azimuth index for the database,
     // and azimuthBlend which is an interpolation value from 0 -> 1.
     int calculateDesiredAzimuthIndexAndBlend(double azimuth, double& azimuthBlend);
 
-    Member<HRTFDatabaseLoader> m_databaseLoader;
+    RefPtr<HRTFDatabaseLoader> m_databaseLoader;
 
     float m_sampleRate;
 

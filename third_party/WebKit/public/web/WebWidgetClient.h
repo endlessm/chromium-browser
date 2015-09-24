@@ -34,6 +34,7 @@
 #include "WebNavigationPolicy.h"
 #include "public/platform/WebCommon.h"
 #include "public/platform/WebLayerTreeView.h"
+#include "public/platform/WebPoint.h"
 #include "public/platform/WebRect.h"
 #include "public/platform/WebScreenInfo.h"
 #include "public/web/WebTouchAction.h"
@@ -41,9 +42,12 @@
 namespace blink {
 
 class WebGestureEvent;
+class WebNode;
 class WebString;
 class WebWidget;
 struct WebCursorInfo;
+struct WebFloatPoint;
+struct WebFloatSize;
 struct WebSize;
 
 class WebWidgetClient {
@@ -53,6 +57,13 @@ public:
 
     // Called when the Widget has changed size as a result of an auto-resize.
     virtual void didAutoResize(const WebSize& newSize) { }
+
+    // Called when the Widget has a new layout size. As a result of
+    // setting the new layout size, the frame for this widget has possibly
+    // been marked as needing layout. Widgets must mark their containers
+    // for layout when the plguin container controls widget layout, otherwise
+    // the frame layout will not occur.
+    virtual void didUpdateLayoutSize(const WebSize& newSize) { }
 
     // Attempt to initialize compositing for this widget. If this is successful,
     // layerTreeView() will return a valid WebLayerTreeView.
@@ -70,26 +81,6 @@ public:
     // should suppress compositor scheduling temporarily.
     virtual void suppressCompositorScheduling(bool enable) { }
 
-    // Indicates to the embedder that the compositor is about to begin a
-    // frame. This is primarily to signal to flow control mechanisms that a
-    // frame is beginning, not to perform actual painting work.
-    virtual void willBeginCompositorFrame() { }
-
-    // Indicates to the embedder that the WebWidget is ready for additional
-    // input.
-    virtual void didBecomeReadyForAdditionalInput() { }
-
-    // Called for compositing mode when a frame commit operation has finished.
-    virtual void didCommitCompositorFrame() { }
-
-    // Called for compositing mode when the draw commands for a WebKit-side
-    // frame have been issued.
-    virtual void didCommitAndDrawCompositorFrame() { }
-
-    // Called for compositing mode when swapbuffers has been posted in the GPU
-    // process.
-    virtual void didCompleteSwapBuffers() { }
-
     // Called when a call to WebWidget::animate is required
     virtual void scheduleAnimation() { }
 
@@ -106,18 +97,6 @@ public:
 
     // Called to show the widget according to the given policy.
     virtual void show(WebNavigationPolicy) { }
-
-    // Called to block execution of the current thread until the widget is
-    // closed.
-    virtual void runModal() { }
-
-    // Called to enter/exit fullscreen mode. If enterFullScreen returns true,
-    // then WebWidget::{will,Did}EnterFullScreen should bound resizing the
-    // WebWidget into fullscreen mode. Similarly, when exitFullScreen is
-    // called, WebWidget::{will,Did}ExitFullScreen should bound resizing the
-    // WebWidget out of fullscreen mode.
-    virtual bool enterFullScreen() { return false; }
-    virtual void exitFullScreen() { }
 
     // Called to get/set the position of the widget in screen coordinates.
     virtual WebRect windowRect() { return WebRect(); }
@@ -162,6 +141,9 @@ public:
     // Called when a gesture event is handled.
     virtual void didHandleGestureEvent(const WebGestureEvent& event, bool eventCancelled) { }
 
+    // Called when overscrolled on main thread.
+    virtual void didOverscroll(const WebFloatSize& unusedDelta, const WebFloatSize& accumulatedRootOverScroll, const WebFloatPoint& position, const WebFloatSize& velocity) { }
+
     // Called to update if touch events should be sent.
     virtual void hasTouchEventHandlers(bool) { }
 
@@ -176,6 +158,25 @@ public:
     // Request the browser to show the IME for current input type.
     virtual void showImeIfNeeded() { }
 
+    // Request that the browser show a UI for an unhandled tap, if needed.
+    // Invoked during the handling of a GestureTap input event whenever the
+    // event is not consumed.
+    // |tappedPosition| is the point where the mouseDown occurred in client
+    // coordinates.
+    // |tappedNode| is the node that the mouseDown event hit, provided so the
+    // UI can be shown only on certain kinds of nodes in specific locations.
+    // |pageChanged| is true if and only if the DOM tree or style was
+    // modified during the dispatch of the mouse*, or click events associated
+    // with the tap.
+    // This provides a heuristic to help identify when a page is doing
+    // something as a result of a tap without explicitly consuming the event.
+    virtual void showUnhandledTapUIIfNeeded(const WebPoint& tappedPosition,
+        const WebNode& tappedNode, bool pageChanged) { }
+
+    // Called immediately after a mousedown event is dispatched due to a mouse
+    // press or gesture tap.
+    // Note: This is called even when the mouse down event is prevent default.
+    virtual void onMouseDown(const WebNode& mouseDownNode) { }
 protected:
     ~WebWidgetClient() { }
 };

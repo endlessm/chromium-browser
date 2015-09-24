@@ -15,14 +15,6 @@ var ExtensionCommand;
 cr.define('options', function() {
   'use strict';
 
-  /**
-   * Creates a new list of extension commands.
-   * @param {Object=} opt_propertyBag Optional properties.
-   * @constructor
-   * @extends {HTMLDivElement}
-   */
-  var ExtensionCommandList = cr.ui.define('div');
-
   /** @const */ var keyComma = 188;
   /** @const */ var keyDel = 46;
   /** @const */ var keyDown = 40;
@@ -39,6 +31,7 @@ cr.define('options', function() {
   /** @const */ var keyPageUp = 33;
   /** @const */ var keyPeriod = 190;
   /** @const */ var keyRight = 39;
+  /** @const */ var keySpace = 32;
   /** @const */ var keyTab = 9;
   /** @const */ var keyUp = 38;
 
@@ -74,6 +67,7 @@ cr.define('options', function() {
            keyCode == keyPageUp ||
            keyCode == keyPeriod ||
            keyCode == keyRight ||
+           keyCode == keySpace ||
            keyCode == keyTab ||
            keyCode == keyUp ||
            (keyCode >= 'A'.charCodeAt(0) && keyCode <= 'Z'.charCodeAt(0)) ||
@@ -87,62 +81,66 @@ cr.define('options', function() {
    * @return {string} The keystroke as a string.
    */
   function keystrokeToString(event) {
-    var output = '';
+    var output = [];
     if (cr.isMac && event.metaKey)
-      output = 'Command+';
+      output.push('Command');
+    if (cr.isChromeOS && event.metaKey)
+      output.push('Search');
     if (event.ctrlKey)
-      output = 'Ctrl+';
+      output.push('Ctrl');
     if (!event.ctrlKey && event.altKey)
-      output += 'Alt+';
+      output.push('Alt');
     if (event.shiftKey)
-      output += 'Shift+';
+      output.push('Shift');
 
     var keyCode = event.keyCode;
     if (validChar(keyCode)) {
       if ((keyCode >= 'A'.charCodeAt(0) && keyCode <= 'Z'.charCodeAt(0)) ||
           (keyCode >= '0'.charCodeAt(0) && keyCode <= '9'.charCodeAt(0))) {
-        output += String.fromCharCode('A'.charCodeAt(0) + keyCode - 65);
+        output.push(String.fromCharCode('A'.charCodeAt(0) + keyCode - 65));
       } else {
         switch (keyCode) {
           case keyComma:
-            output += 'Comma'; break;
+            output.push('Comma'); break;
           case keyDel:
-            output += 'Delete'; break;
+            output.push('Delete'); break;
           case keyDown:
-            output += 'Down'; break;
+            output.push('Down'); break;
           case keyEnd:
-            output += 'End'; break;
+            output.push('End'); break;
           case keyHome:
-            output += 'Home'; break;
+            output.push('Home'); break;
           case keyIns:
-            output += 'Insert'; break;
+            output.push('Insert'); break;
           case keyLeft:
-            output += 'Left'; break;
+            output.push('Left'); break;
           case keyMediaNextTrack:
-            output += 'MediaNextTrack'; break;
+            output.push('MediaNextTrack'); break;
           case keyMediaPlayPause:
-            output += 'MediaPlayPause'; break;
+            output.push('MediaPlayPause'); break;
           case keyMediaPrevTrack:
-            output += 'MediaPrevTrack'; break;
+            output.push('MediaPrevTrack'); break;
           case keyMediaStop:
-            output += 'MediaStop'; break;
+            output.push('MediaStop'); break;
           case keyPageDown:
-            output += 'PageDown'; break;
+            output.push('PageDown'); break;
           case keyPageUp:
-            output += 'PageUp'; break;
+            output.push('PageUp'); break;
           case keyPeriod:
-            output += 'Period'; break;
+            output.push('Period'); break;
           case keyRight:
-            output += 'Right'; break;
+            output.push('Right'); break;
+          case keySpace:
+            output.push('Space'); break;
           case keyTab:
-            output += 'Tab'; break;
+            output.push('Tab'); break;
           case keyUp:
-            output += 'Up'; break;
+            output.push('Up'); break;
         }
       }
     }
 
-    return output;
+    return output.join('+');
   }
 
   /**
@@ -174,7 +172,19 @@ cr.define('options', function() {
    */
   function hasModifier(event, countShiftAsModifier) {
     return event.ctrlKey || event.altKey || (cr.isMac && event.metaKey) ||
+           (cr.isChromeOS && event.metaKey) ||
            (countShiftAsModifier && event.shiftKey);
+  }
+
+  /**
+   * Creates a new list of extension commands.
+   * @param {HTMLDivElement} div
+   * @constructor
+   * @extends {HTMLDivElement}
+   */
+  function ExtensionCommandList(div) {
+    div.__proto__ = ExtensionCommandList.prototype;
+    return div;
   }
 
   ExtensionCommandList.prototype = {
@@ -205,21 +215,31 @@ cr.define('options', function() {
      */
     capturingElement_: null,
 
-    /** @override */
-    decorate: function() {
+    /**
+     * Updates the extensions data for the overlay.
+     * @param {!Array<ExtensionInfo>} data The extension data.
+     */
+    setData: function(data) {
+      /** @private {!Array<ExtensionInfo>} */
+      this.data_ = data;
+
       this.textContent = '';
 
       // Iterate over the extension data and add each item to the list.
-      this.data_.commands.forEach(this.createNodeForExtension_.bind(this));
+      this.data_.forEach(this.createNodeForExtension_.bind(this));
     },
 
     /**
      * Synthesizes and initializes an HTML element for the extension command
      * metadata given in |extension|.
-     * @param {Object} extension A dictionary of extension metadata.
+     * @param {ExtensionInfo} extension A dictionary of extension metadata.
      * @private
      */
     createNodeForExtension_: function(extension) {
+      if (extension.commands.length == 0 ||
+          extension.state == chrome.developerPrivate.ExtensionState.DISABLED)
+        return;
+
       var template = $('template-collection-extension-commands').querySelector(
           '.extension-command-list-extension-item-wrapper');
       var node = template.cloneNode(true);
@@ -231,22 +251,22 @@ cr.define('options', function() {
 
       // Iterate over the commands data within the extension and add each item
       // to the list.
-      extension.commands.forEach(this.createNodeForCommand_.bind(this));
+      extension.commands.forEach(
+          this.createNodeForCommand_.bind(this, extension.id));
     },
 
     /**
      * Synthesizes and initializes an HTML element for the extension command
      * metadata given in |command|.
-     * @param {ExtensionCommand} command A dictionary of extension command
-     *     metadata.
+     * @param {string} extensionId The associated extension's id.
+     * @param {Command} command A dictionary of extension command metadata.
      * @private
      */
-    createNodeForCommand_: function(command) {
+    createNodeForCommand_: function(extensionId, command) {
       var template = $('template-collection-extension-commands').querySelector(
           '.extension-command-list-command-item-wrapper');
       var node = template.cloneNode(true);
-      node.id = this.createElementId_(
-          'command', command.extension_id, command.command_name);
+      node.id = this.createElementId_('command', extensionId, command.name);
 
       var description = node.querySelector('.command-description');
       description.textContent = command.description;
@@ -258,7 +278,7 @@ cr.define('options', function() {
       shortcutNode.addEventListener('blur', this.handleBlur_.bind(this));
       shortcutNode.addEventListener('keydown', this.handleKeyDown_.bind(this));
       shortcutNode.addEventListener('keyup', this.handleKeyUp_.bind(this));
-      if (!command.active) {
+      if (!command.isActive) {
         shortcutNode.textContent =
             loadTimeData.getString('extensionCommandsInactive');
 
@@ -270,28 +290,31 @@ cr.define('options', function() {
 
       var commandClear = node.querySelector('.command-clear');
       commandClear.id = this.createElementId_(
-          'clear', command.extension_id, command.command_name);
+          'clear', extensionId, command.name);
       commandClear.title = loadTimeData.getString('extensionCommandsDelete');
       commandClear.addEventListener('click', this.handleClear_.bind(this));
 
       var select = node.querySelector('.command-scope');
       select.id = this.createElementId_(
-          'setCommandScope', command.extension_id, command.command_name);
+          'setCommandScope', extensionId, command.name);
       select.hidden = false;
       // Add the 'In Chrome' option.
       var option = document.createElement('option');
       option.textContent = loadTimeData.getString('extensionCommandsRegular');
       select.appendChild(option);
-      if (command.extension_action) {
+      if (command.isExtensionAction || !command.isActive) {
         // Extension actions cannot be global, so we might as well disable the
-        // combo box, to signify that.
+        // combo box, to signify that, and if the command is inactive, it
+        // doesn't make sense to allow the user to adjust the scope.
         select.disabled = true;
       } else {
         // Add the 'Global' option.
         option = document.createElement('option');
         option.textContent = loadTimeData.getString('extensionCommandsGlobal');
         select.appendChild(option);
-        select.selectedIndex = command.global ? 1 : 0;
+        select.selectedIndex =
+            command.scope == chrome.developerPrivate.CommandScope.GLOBAL ?
+                1 : 0;
 
         select.addEventListener(
             'change', this.handleSetCommandScope_.bind(this));
@@ -310,7 +333,7 @@ cr.define('options', function() {
       if (this.capturingElement_)
         return;  // Already capturing.
 
-      chrome.send('setShortcutHandlingSuspended', [true]);
+      chrome.developerPrivate.setShortcutHandlingSuspended(true);
 
       var shortcutNode = event.target;
       this.oldValue_ = shortcutNode.textContent;
@@ -335,7 +358,7 @@ cr.define('options', function() {
       if (!this.capturingElement_)
         return;  // Not capturing.
 
-      chrome.send('setShortcutHandlingSuspended', [false]);
+      chrome.developerPrivate.setShortcutHandlingSuspended(false);
 
       var shortcutNode = this.capturingElement_;
       var commandShortcut = shortcutNode.parentElement;
@@ -396,12 +419,20 @@ cr.define('options', function() {
     handleKeyDown_: function(event) {
       event = /** @type {KeyboardEvent} */(event);
       if (event.keyCode == keyEscape) {
-        // Escape cancels capturing.
+        if (!this.capturingElement_) {
+          // If we're not currently capturing, allow escape to propagate (so it
+          // can close the overflow).
+          return;
+        }
+        // Otherwise, escape cancels capturing.
         this.endCapture_(event);
         var parsed = this.parseElementId_('clear',
             event.target.parentElement.querySelector('.command-clear').id);
-        chrome.send('setExtensionCommandShortcut',
-            [parsed.extensionId, parsed.commandName, '']);
+        chrome.developerPrivate.updateExtensionCommand({
+          extensionId: parsed.extensionId,
+          commandName: parsed.commandName,
+          keybinding: ''
+        });
         event.preventDefault();
         event.stopPropagation();
         return;
@@ -424,8 +455,9 @@ cr.define('options', function() {
      */
     handleKeyUp_: function(event) {
       event = /** @type {KeyboardEvent} */(event);
-      if (event.keyCode == keyTab) {
-        // Allow tab propagation for keyboard navigation.
+      if (event.keyCode == keyTab || event.keyCode == keyEscape) {
+        // We need to allow tab propagation for keyboard navigation, and escapes
+        // are fully handled in handleKeyDown.
         return;
       }
 
@@ -437,7 +469,8 @@ cr.define('options', function() {
       // you have a valid combination, we won't change it until the next
       // KeyDown message arrives).
       if (!this.currentKeyEvent_ || !validChar(this.currentKeyEvent_.keyCode)) {
-        if (!event.ctrlKey && !event.altKey) {
+        if (!event.ctrlKey && !event.altKey ||
+            ((cr.isMac || cr.isChromeOS) && !event.metaKey)) {
           // If neither Ctrl nor Alt is pressed then it is not a valid shortcut.
           // That means we're back at the starting point so we should restart
           // capture.
@@ -489,8 +522,10 @@ cr.define('options', function() {
         // Ending the capture must occur before calling
         // setExtensionCommandShortcut to ensure the shortcut is set.
         this.endCapture_(event);
-        chrome.send('setExtensionCommandShortcut',
-                    [parsed.extensionId, parsed.commandName, keystroke]);
+        chrome.developerPrivate.updateExtensionCommand(
+            {extensionId: parsed.extensionId,
+             commandName: parsed.commandName,
+             keybinding: keystroke});
       }
     },
 
@@ -501,8 +536,10 @@ cr.define('options', function() {
      */
     handleClear_: function(event) {
       var parsed = this.parseElementId_('clear', event.target.id);
-      chrome.send('setExtensionCommandShortcut',
-          [parsed.extensionId, parsed.commandName, '']);
+      chrome.developerPrivate.updateExtensionCommand(
+          {extensionId: parsed.extensionId,
+           commandName: parsed.commandName,
+           keybinding: ''});
     },
 
     /**
@@ -514,8 +551,13 @@ cr.define('options', function() {
       var parsed = this.parseElementId_('setCommandScope', event.target.id);
       var element = document.getElementById(
           'setCommandScope-' + parsed.extensionId + '-' + parsed.commandName);
-      chrome.send('setCommandScope',
-          [parsed.extensionId, parsed.commandName, element.selectedIndex == 1]);
+      var scope = element.selectedIndex == 1 ?
+          chrome.developerPrivate.CommandScope.GLOBAL :
+          chrome.developerPrivate.CommandScope.CHROME;
+      chrome.developerPrivate.updateExtensionCommand(
+          {extensionId: parsed.extensionId,
+           commandName: parsed.commandName,
+           scope: scope});
     },
 
     /**

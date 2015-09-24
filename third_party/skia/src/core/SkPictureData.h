@@ -9,13 +9,13 @@
 #define SkPictureData_DEFINED
 
 #include "SkBitmap.h"
-#include "SkPathHeap.h"
 #include "SkPicture.h"
 #include "SkPictureContentInfo.h"
 #include "SkPictureFlat.h"
 
 class SkData;
 class SkPictureRecord;
+class SkPixelSerializer;
 class SkReader32;
 class SkStream;
 class SkWStream;
@@ -51,6 +51,7 @@ struct SkPictInfo {
 #define SK_PICT_PAINT_BUFFER_TAG    SkSetFourByteTag('p', 'n', 't', ' ')
 #define SK_PICT_PATH_BUFFER_TAG     SkSetFourByteTag('p', 't', 'h', ' ')
 #define SK_PICT_TEXTBLOB_BUFFER_TAG SkSetFourByteTag('b', 'l', 'o', 'b')
+#define SK_PICT_IMAGE_BUFFER_TAG    SkSetFourByteTag('i', 'm', 'a', 'g')
 
 // Always write this guy last (with no length field afterwards)
 #define SK_PICT_EOF_TAG     SkSetFourByteTag('e', 'o', 'f', ' ')
@@ -58,6 +59,7 @@ struct SkPictInfo {
 class SkPictureData {
 public:
     SkPictureData(const SkPictureRecord& record, const SkPictInfo&, bool deepCopyOps);
+    // Does not affect ownership of SkStream.
     static SkPictureData* CreateFromStream(SkStream*,
                                            const SkPictInfo&,
                                            SkPicture::InstallPixelRefProc);
@@ -65,7 +67,7 @@ public:
 
     virtual ~SkPictureData();
 
-    void serialize(SkWStream*, SkPicture::EncodeBitmap) const;
+    void serialize(SkWStream*, SkPixelSerializer*) const;
     void flatten(SkWriteBuffer&) const;
 
     bool containsBitmaps() const;
@@ -79,24 +81,24 @@ public:
 protected:
     explicit SkPictureData(const SkPictInfo& info);
 
+    // Does not affect ownership of SkStream.
     bool parseStream(SkStream*, SkPicture::InstallPixelRefProc);
     bool parseBuffer(SkReadBuffer& buffer);
 
 public:
     const SkBitmap& getBitmap(SkReader32* reader) const {
         const int index = reader->readInt();
-        if (SkBitmapHeap::INVALID_SLOT == index) {
-#ifdef SK_DEBUG
-            SkDebugf("An invalid bitmap was recorded!\n");
-#endif
-            return fBadBitmap;
-        }
-        return (*fBitmaps)[index];
+        return fBitmaps[index];
     }
 
+    const SkImage* getImage(SkReader32* reader) const {
+        const int index = reader->readInt();
+        return fImageRefs[index];
+    }
+    
     const SkPath& getPath(SkReader32* reader) const {
         int index = reader->readInt() - 1;
-        return (*fPathHeap.get())[index];
+        return fPaths[index];
     }
 
     const SkPicture* getPicture(SkReader32* reader) const {
@@ -110,7 +112,7 @@ public:
         if (index == 0) {
             return NULL;
         }
-        return &(*fPaints)[index - 1];
+        return &fPaints[index - 1];
     }
 
     const SkTextBlob* getTextBlob(SkReader32* reader) const {
@@ -141,6 +143,7 @@ private:
     void init();
 
     // these help us with reading/writing
+    // Does not affect ownership of SkStream.
     bool parseStreamTag(SkStream*, uint32_t tag, uint32_t size, SkPicture::InstallPixelRefProc);
     bool parseBufferTag(SkReadBuffer&, uint32_t tag, uint32_t size);
     void flattenToBuffer(SkWriteBuffer&) const;
@@ -149,19 +152,18 @@ private:
     // bitmap allows playback to draw nothing and move on.
     SkBitmap fBadBitmap;
 
-    SkAutoTUnref<SkBitmapHeap> fBitmapHeap;
-
-    SkTRefArray<SkBitmap>* fBitmaps;
-    SkTRefArray<SkPaint>* fPaints;
+    SkTArray<SkBitmap> fBitmaps;
+    SkTArray<SkPaint>  fPaints;
+    SkTArray<SkPath>   fPaths;
 
     SkData* fOpData;    // opcodes and parameters
-
-    SkAutoTUnref<const SkPathHeap> fPathHeap;  // reference counted
 
     const SkPicture** fPictureRefs;
     int fPictureCount;
     const SkTextBlob** fTextBlobRefs;
     int fTextBlobCount;
+    const SkImage** fImageRefs;
+    int fImageCount;
 
     SkPictureContentInfo fContentInfo;
 

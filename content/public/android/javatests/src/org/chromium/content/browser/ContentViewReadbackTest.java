@@ -20,6 +20,7 @@ import org.chromium.base.test.util.UrlUtils;
 import org.chromium.content.browser.ContentReadbackHandler.GetBitmapCallback;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
+import org.chromium.content_public.browser.readback_types.ReadbackResponse;
 import org.chromium.content_shell_apk.ContentShellTestBase;
 
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -37,8 +38,8 @@ public class ContentViewReadbackTest extends ContentShellTestBase {
     protected void setUp() throws Exception {
         super.setUp();
         launchContentShellWithUrl(UrlUtils.encodeHtmlDataUri(
-                "<html style=\"background: #00f;\"><head><style>body { height: 5000px; }</style>" +
-                "</head></html>"));
+                "<html style=\"background: #00f;\"><head><style>body { height: 5000px; }</style>"
+                        + "</head></html>"));
         assertTrue("Page failed to load", waitForActiveShellToBeDoneLoading());
     }
 
@@ -88,7 +89,7 @@ public class ContentViewReadbackTest extends ContentShellTestBase {
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                getContentViewCore().flingForTest(SystemClock.uptimeMillis(), 0, 0, 0, -100);
+                getContentViewCore().flingViewport(SystemClock.uptimeMillis(), 0, -100);
             }
         });
         assertWaitForYScroll(previousYScroll);
@@ -105,7 +106,8 @@ public class ContentViewReadbackTest extends ContentShellTestBase {
 
                 GetBitmapCallback callback = new GetBitmapCallback() {
                     @Override
-                    public void onFinishGetBitmap(Bitmap bitmap) {
+                    public void onFinishGetBitmap(Bitmap bitmap, int response) {
+                        assertEquals(ReadbackResponse.SUCCESS, response);
                         assertNotNull("Readback did not return valid bitmap", bitmap);
                         // Verify a pixel in the center of the screenshot.
                         color.set(bitmap.getPixel(bitmap.getWidth() / 2, bitmap.getHeight() / 2));
@@ -115,7 +117,7 @@ public class ContentViewReadbackTest extends ContentShellTestBase {
 
                 contentReadbackHandler.initNativeContentReadbackHandler();
                 contentReadbackHandler.getContentBitmapAsync(1.0f, new Rect(), getContentViewCore(),
-                        callback);
+                        Bitmap.Config.ARGB_8888, callback);
             }
         });
         assertWaitForReadback(readbackDone);

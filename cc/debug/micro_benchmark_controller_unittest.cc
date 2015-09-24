@@ -7,10 +7,10 @@
 #include "cc/debug/micro_benchmark.h"
 #include "cc/debug/micro_benchmark_controller.h"
 #include "cc/layers/layer.h"
-#include "cc/resources/resource_update_queue.h"
 #include "cc/test/fake_layer_tree_host.h"
 #include "cc/test/fake_layer_tree_host_impl.h"
 #include "cc/test/fake_proxy.h"
+#include "cc/test/test_task_graph_runner.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace cc {
@@ -21,26 +21,27 @@ class MicroBenchmarkControllerTest : public testing::Test {
   MicroBenchmarkControllerTest()
       : layer_tree_host_client_(FakeLayerTreeHostClient::DIRECT_3D) {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     impl_proxy_ = make_scoped_ptr(new FakeImplProxy);
-    shared_bitmap_manager_.reset(new TestSharedBitmapManager());
     layer_tree_host_impl_ = make_scoped_ptr(new FakeLayerTreeHostImpl(
-        impl_proxy_.get(), shared_bitmap_manager_.get()));
+        impl_proxy_.get(), &shared_bitmap_manager_, &task_graph_runner_));
 
-    layer_tree_host_ = FakeLayerTreeHost::Create(&layer_tree_host_client_);
-    layer_tree_host_->SetRootLayer(Layer::Create());
+    layer_tree_host_ = FakeLayerTreeHost::Create(&layer_tree_host_client_,
+                                                 &task_graph_runner_);
+    layer_tree_host_->SetRootLayer(Layer::Create(LayerSettings()));
     layer_tree_host_->InitializeForTesting(scoped_ptr<Proxy>(new FakeProxy));
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     layer_tree_host_impl_ = nullptr;
     layer_tree_host_ = nullptr;
     impl_proxy_ = nullptr;
   }
 
   FakeLayerTreeHostClient layer_tree_host_client_;
+  TestTaskGraphRunner task_graph_runner_;
+  TestSharedBitmapManager shared_bitmap_manager_;
   scoped_ptr<FakeLayerTreeHost> layer_tree_host_;
-  scoped_ptr<SharedBitmapManager> shared_bitmap_manager_;
   scoped_ptr<FakeLayerTreeHostImpl> layer_tree_host_impl_;
   scoped_ptr<FakeImplProxy> impl_proxy_;
 };
@@ -74,9 +75,8 @@ TEST_F(MicroBenchmarkControllerTest, BenchmarkRan) {
       base::Bind(&IncrementCallCount, base::Unretained(&run_count)));
   EXPECT_GT(id, 0);
 
-  scoped_ptr<ResourceUpdateQueue> queue(new ResourceUpdateQueue);
   layer_tree_host_->SetOutputSurfaceLostForTesting(false);
-  layer_tree_host_->UpdateLayers(queue.get());
+  layer_tree_host_->UpdateLayers();
 
   EXPECT_EQ(1, run_count);
 }
@@ -94,9 +94,8 @@ TEST_F(MicroBenchmarkControllerTest, MultipleBenchmarkRan) {
       base::Bind(&IncrementCallCount, base::Unretained(&run_count)));
   EXPECT_GT(id, 0);
 
-  scoped_ptr<ResourceUpdateQueue> queue(new ResourceUpdateQueue);
   layer_tree_host_->SetOutputSurfaceLostForTesting(false);
-  layer_tree_host_->UpdateLayers(queue.get());
+  layer_tree_host_->UpdateLayers();
 
   EXPECT_EQ(2, run_count);
 
@@ -111,10 +110,10 @@ TEST_F(MicroBenchmarkControllerTest, MultipleBenchmarkRan) {
       base::Bind(&IncrementCallCount, base::Unretained(&run_count)));
   EXPECT_GT(id, 0);
 
-  layer_tree_host_->UpdateLayers(queue.get());
+  layer_tree_host_->UpdateLayers();
   EXPECT_EQ(4, run_count);
 
-  layer_tree_host_->UpdateLayers(queue.get());
+  layer_tree_host_->UpdateLayers();
   EXPECT_EQ(4, run_count);
 }
 

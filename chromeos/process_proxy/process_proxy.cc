@@ -4,19 +4,20 @@
 
 #include "chromeos/process_proxy/process_proxy.h"
 
-#include <fcntl.h>
 #include <stdlib.h>
 #include <sys/ioctl.h>
 
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
+#include "base/location.h"
 #include "base/logging.h"
 #include "base/posix/eintr_wrapper.h"
-#include "base/process/kill.h"
 #include "base/process/launch.h"
+#include "base/process/process.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/thread.h"
-#include "chromeos/process_proxy/process_output_watcher.h"
 #include "third_party/cros_system_api/switches/chrome_switches.h"
 
 namespace {
@@ -72,19 +73,22 @@ bool ProcessProxy::StartWatchingOnThread(
   DCHECK(process_launched_);
   if (watcher_started_)
     return false;
-  if (pipe(shutdown_pipe_))
+  if (pipe(shutdown_pipe_) ||
+      !ProcessOutputWatcher::VerifyFileDescriptor(
+          shutdown_pipe_[PIPE_END_READ])) {
     return false;
+  }
 
   // We give ProcessOutputWatcher a copy of master to make life easier during
   // tear down.
   // TODO(tbarzic): improve fd managment.
   int master_copy = HANDLE_EINTR(dup(pt_pair_[PT_MASTER_FD]));
-  if (master_copy == -1)
+  if (!ProcessOutputWatcher::VerifyFileDescriptor(master_copy))
     return false;
 
   callback_set_ = true;
   callback_ = callback;
-  callback_runner_ = base::MessageLoopProxy::current();
+  callback_runner_ = base::ThreadTaskRunnerHandle::Get();
 
   // This object will delete itself once watching is stopped.
   // It also takes ownership of the passed fds.
@@ -98,9 +102,9 @@ bool ProcessProxy::StartWatchingOnThread(
   shutdown_pipe_[PIPE_END_READ] = -1;
 
   // |watch| thread is blocked by |output_watcher| from now on.
-  watch_thread->message_loop()->PostTask(FROM_HERE,
-      base::Bind(&ProcessOutputWatcher::Start,
-                 base::Unretained(output_watcher)));
+  watch_thread->task_runner()->PostTask(
+      FROM_HERE, base::Bind(&ProcessOutputWatcher::Start,
+                            base::Unretained(output_watcher)));
   watcher_started_ = true;
   return true;
 }
@@ -146,7 +150,8 @@ void ProcessProxy::Close() {
   callback_ = ProcessOutputCallback();
   callback_runner_ = NULL;
 
-  base::KillProcess(pid_, 0, true /* wait */);
+  base::Process process = base::Process::DeprecatedGetProcessFromHandle(pid_);
+  process.Terminate(0, true /* wait */);
 
   // TODO(tbarzic): What if this fails?
   StopWatching();
@@ -231,8 +236,14 @@ bool ProcessProxy::LaunchProcess(const std::string& command, int slave_fd,
   options.environ["TERM"] = "xterm";
 
   // Launch the process.
-  return base::LaunchProcess(CommandLine(base::FilePath(command)), options,
-                             pid);
+  base::Process process =
+      base::LaunchProcess(base::CommandLine(base::FilePath(command)), options);
+
+  // TODO(rvargas) crbug/417532: This is somewhat wrong but the interface of
+  // Open vends pid_t* so ownership is quite vague anyway, and Process::Close
+  // doesn't do much in POSIX.
+  *pid = process.Pid();
+  return process.IsValid();
 }
 
 void ProcessProxy::CloseAllFdPairs() {

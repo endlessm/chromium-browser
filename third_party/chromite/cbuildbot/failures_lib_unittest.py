@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright 2014 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,12 +6,10 @@
 
 from __future__ import print_function
 
-import os
-import sys
-
-sys.path.insert(0, os.path.abspath('%s/../..' % os.path.dirname(__file__)))
+from chromite.cbuildbot import constants
 from chromite.cbuildbot import failures_lib
 from chromite.lib import cros_test_lib
+from chromite.lib import fake_cidb
 
 
 class CompoundFailureTest(cros_test_lib.TestCase):
@@ -69,7 +66,7 @@ class CompoundFailureTest(cros_test_lib.TestCase):
     exc_infos = self._CreateExceptInfos(KeyError, message='bar1',
                                         traceback='foo1')
     exc_infos.extend(self._CreateExceptInfos(ValueError, message='bar2',
-                                        traceback='foo2'))
+                                             traceback='foo2'))
     exc = failures_lib.CompoundFailure(exc_infos=exc_infos)
     self.assertTrue('bar1' in str(exc))
     self.assertTrue('bar2' in str(exc))
@@ -77,6 +74,41 @@ class CompoundFailureTest(cros_test_lib.TestCase):
     self.assertTrue('ValueError' in str(exc))
     self.assertTrue('foo1' in str(exc))
     self.assertTrue('foo2' in str(exc))
+
+  def testReportStageFailureToCIDB(self):
+    """Tests that the reporting fuction reports all included exceptions."""
+    fake_db = fake_cidb.FakeCIDBConnection()
+    inner_exception_1 = failures_lib.TestLabFailure()
+    inner_exception_2 = TypeError()
+    exc_infos = failures_lib.CreateExceptInfo(inner_exception_1, None)
+    exc_infos += failures_lib.CreateExceptInfo(inner_exception_2, None)
+    outer_exception = failures_lib.GoBFailure(exc_infos=exc_infos)
+
+    mock_build_stage_id = 9345
+
+    failures_lib.ReportStageFailureToCIDB(fake_db,
+                                          mock_build_stage_id,
+                                          outer_exception)
+    self.assertEqual(3, len(fake_db.failureTable))
+    self.assertEqual(
+        set([mock_build_stage_id]),
+        set([x['build_stage_id'] for x in fake_db.failureTable.values()]))
+    self.assertEqual(
+        set([constants.EXCEPTION_CATEGORY_INFRA,
+             constants.EXCEPTION_CATEGORY_UNKNOWN,
+             constants.EXCEPTION_CATEGORY_LAB]),
+        set([x['exception_category'] for x in fake_db.failureTable.values()]))
+
+    # Find the outer failure id.
+    for failure_id, failure in fake_db.failureTable.iteritems():
+      if failure['outer_failure_id'] is None:
+        outer_failure_id = failure_id
+        break
+
+    # Now verify inner failures reference this failure.
+    for failure_id, failure in fake_db.failureTable.iteritems():
+      if failure_id != outer_failure_id:
+        self.assertEqual(outer_failure_id, failure['outer_failure_id'])
 
 
 class SetFailureTypeTest(cros_test_lib.TestCase):
@@ -201,7 +233,3 @@ class ExceptInfoTest(cros_test_lib.TestCase):
     self.assertEqual(except_infos[0].type, ValueError)
     self.assertEqual(except_infos[0].str, message)
     self.assertEqual(except_infos[0].traceback, traceback)
-
-
-if __name__ == '__main__':
-  cros_test_lib.main()

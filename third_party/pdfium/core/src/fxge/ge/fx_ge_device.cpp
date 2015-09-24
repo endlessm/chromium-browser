@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../../include/fxge/fx_ge.h"
@@ -12,15 +12,11 @@ CFX_RenderDevice::CFX_RenderDevice()
 }
 CFX_RenderDevice::~CFX_RenderDevice()
 {
-    if (m_pDeviceDriver) {
-        delete m_pDeviceDriver;
-    }
+    delete m_pDeviceDriver;
 }
 void CFX_RenderDevice::SetDeviceDriver(IFX_RenderDeviceDriver* pDriver)
 {
-    if (m_pDeviceDriver) {
-        delete m_pDeviceDriver;
-    }
+    delete m_pDeviceDriver;
     m_pDeviceDriver = pDriver;
     InitDeviceInfo();
 }
@@ -125,7 +121,7 @@ FX_BOOL CFX_RenderDevice::DrawPath(const CFX_PathData* pPathData,
                                    FX_DWORD fill_color, FX_DWORD stroke_color, int fill_mode,
                                    int alpha_flag, void* pIccTransform, int blend_type)
 {
-    FX_BYTE fill_alpha, stroke_alpha;
+    uint8_t fill_alpha, stroke_alpha;
     if (FXGETFLAG_COLORTYPE(alpha_flag)) {
         fill_alpha = FXGETFLAG_ALPHA_FILL(alpha_flag);
         stroke_alpha = FXGETFLAG_ALPHA_STROKE(alpha_flag);
@@ -390,16 +386,16 @@ FX_BOOL CFX_RenderDevice::StretchBitMask(const CFX_DIBSource* pBitmap, int left,
     return m_pDeviceDriver->StretchDIBits(pBitmap, argb, left, top, dest_width, dest_height, &clip_box, flags, alpha_flag, pIccTransform);
 }
 FX_BOOL CFX_RenderDevice::StartDIBits(const CFX_DIBSource* pBitmap, int bitmap_alpha, FX_DWORD argb,
-                                      const CFX_AffineMatrix* pMatrix, FX_DWORD flags, FX_LPVOID& handle,
+                                      const CFX_AffineMatrix* pMatrix, FX_DWORD flags, void*& handle,
                                       int alpha_flag, void* pIccTransform, int blend_mode)
 {
     return m_pDeviceDriver->StartDIBits(pBitmap, bitmap_alpha, argb, pMatrix, flags, handle, alpha_flag, pIccTransform, blend_mode);
 }
-FX_BOOL CFX_RenderDevice::ContinueDIBits(FX_LPVOID handle, IFX_Pause* pPause)
+FX_BOOL CFX_RenderDevice::ContinueDIBits(void* handle, IFX_Pause* pPause)
 {
     return m_pDeviceDriver->ContinueDIBits(handle, pPause);
 }
-void CFX_RenderDevice::CancelDIBits(FX_LPVOID handle)
+void CFX_RenderDevice::CancelDIBits(void* handle)
 {
     m_pDeviceDriver->CancelDIBits(handle);
 }

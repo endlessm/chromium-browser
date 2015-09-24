@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #import "chrome/browser/ui/cocoa/new_tab_button.h"
+
 #import "chrome/browser/ui/cocoa/image_button_cell.h"
 #include "grit/theme_resources.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -53,6 +54,16 @@
   if ([self pointIsOverButton:aPoint])
     return [super hitTest:aPoint];
   return nil;
+}
+
+// ThemedWindowDrawing implementation.
+
+- (void)windowDidChangeTheme {
+  [self setNeedsDisplay:YES];
+}
+
+- (void)windowDidChangeActive {
+  [self setNeedsDisplay:YES];
 }
 
 @end

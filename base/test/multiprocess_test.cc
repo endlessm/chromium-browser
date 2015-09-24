@@ -6,11 +6,13 @@
 
 #include "base/base_switches.h"
 #include "base/command_line.h"
+#include "base/files/file_path.h"
+#include "base/files/file_util.h"
 
 namespace base {
 
 #if !defined(OS_ANDROID)
-ProcessHandle SpawnMultiProcessTestChild(
+Process SpawnMultiProcessTestChild(
     const std::string& procname,
     const CommandLine& base_command_line,
     const LaunchOptions& options) {
@@ -21,14 +23,14 @@ ProcessHandle SpawnMultiProcessTestChild(
   if (!command_line.HasSwitch(switches::kTestChildProcess))
     command_line.AppendSwitchASCII(switches::kTestChildProcess, procname);
 
-  ProcessHandle handle = kNullProcessHandle;
-  LaunchProcess(command_line, options, &handle);
-  return handle;
+  return LaunchProcess(command_line, options);
 }
 #endif  // !defined(OS_ANDROID)
 
 CommandLine GetMultiProcessTestChildBaseCommandLine() {
-  return *CommandLine::ForCurrentProcess();
+  CommandLine cmd_line = *CommandLine::ForCurrentProcess();
+  cmd_line.SetProgram(MakeAbsoluteFilePath(cmd_line.GetProgram()));
+  return cmd_line;
 }
 
 // MultiProcessTest ------------------------------------------------------------
@@ -36,7 +38,7 @@ CommandLine GetMultiProcessTestChildBaseCommandLine() {
 MultiProcessTest::MultiProcessTest() {
 }
 
-ProcessHandle MultiProcessTest::SpawnChild(const std::string& procname) {
+Process MultiProcessTest::SpawnChild(const std::string& procname) {
   LaunchOptions options;
 #if defined(OS_WIN)
   options.start_hidden = true;
@@ -44,7 +46,7 @@ ProcessHandle MultiProcessTest::SpawnChild(const std::string& procname) {
   return SpawnChildWithOptions(procname, options);
 }
 
-ProcessHandle MultiProcessTest::SpawnChildWithOptions(
+Process MultiProcessTest::SpawnChildWithOptions(
     const std::string& procname,
     const LaunchOptions& options) {
   return SpawnMultiProcessTestChild(procname, MakeCmdLine(procname), options);

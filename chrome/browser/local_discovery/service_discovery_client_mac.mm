@@ -4,13 +4,16 @@
 
 #include "chrome/browser/local_discovery/service_discovery_client_mac.h"
 
-#import <Foundation/Foundation.h>
 #import <arpa/inet.h>
+#import <Foundation/Foundation.h>
 #import <net/if_dl.h>
 
 #include "base/memory/singleton.h"
 #include "base/metrics/histogram.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/thread.h"
+#include "net/base/ip_address_number.h"
 
 using local_discovery::ServiceWatcherImplMac;
 using local_discovery::ServiceResolverImplMac;
@@ -122,7 +125,7 @@ scoped_ptr<ServiceWatcher> ServiceDiscoveryClientMac::CreateServiceWatcher(
   StartThreadIfNotStarted();
   VLOG(1) << "CreateServiceWatcher: " << service_type;
   return scoped_ptr<ServiceWatcher>(new ServiceWatcherImplMac(
-      service_type, callback, service_discovery_thread_->message_loop_proxy()));
+      service_type, callback, service_discovery_thread_->task_runner()));
 }
 
 scoped_ptr<ServiceResolver> ServiceDiscoveryClientMac::CreateServiceResolver(
@@ -131,7 +134,7 @@ scoped_ptr<ServiceResolver> ServiceDiscoveryClientMac::CreateServiceResolver(
   StartThreadIfNotStarted();
   VLOG(1) << "CreateServiceResolver: " << service_name;
   return scoped_ptr<ServiceResolver>(new ServiceResolverImplMac(
-      service_name, callback, service_discovery_thread_->message_loop_proxy()));
+      service_name, callback, service_discovery_thread_->task_runner()));
 }
 
 scoped_ptr<LocalDomainResolver>
@@ -157,12 +160,13 @@ void ServiceDiscoveryClientMac::StartThreadIfNotStarted() {
 ServiceWatcherImplMac::NetServiceBrowserContainer::NetServiceBrowserContainer(
     const std::string& service_type,
     const ServiceWatcher::UpdatedCallback& callback,
-    scoped_refptr<base::MessageLoopProxy> service_discovery_runner)
+    scoped_refptr<base::SingleThreadTaskRunner> service_discovery_runner)
     : service_type_(service_type),
       callback_(callback),
-      callback_runner_(base::MessageLoopProxy::current()),
+      callback_runner_(base::ThreadTaskRunnerHandle::Get()),
       service_discovery_runner_(service_discovery_runner),
-      weak_factory_(this) {}
+      weak_factory_(this) {
+}
 
 ServiceWatcherImplMac::NetServiceBrowserContainer::
     ~NetServiceBrowserContainer() {
@@ -226,7 +230,7 @@ void ServiceWatcherImplMac::NetServiceBrowserContainer::DeleteSoon() {
 ServiceWatcherImplMac::ServiceWatcherImplMac(
     const std::string& service_type,
     const ServiceWatcher::UpdatedCallback& callback,
-    scoped_refptr<base::MessageLoopProxy> service_discovery_runner)
+    scoped_refptr<base::SingleThreadTaskRunner> service_discovery_runner)
     : service_type_(service_type),
       callback_(callback),
       started_(false),
@@ -273,12 +277,13 @@ void ServiceWatcherImplMac::OnServicesUpdate(ServiceWatcher::UpdateType update,
 ServiceResolverImplMac::NetServiceContainer::NetServiceContainer(
     const std::string& service_name,
     const ServiceResolver::ResolveCompleteCallback& callback,
-    scoped_refptr<base::MessageLoopProxy> service_discovery_runner)
+    scoped_refptr<base::SingleThreadTaskRunner> service_discovery_runner)
     : service_name_(service_name),
       callback_(callback),
-      callback_runner_(base::MessageLoopProxy::current()),
+      callback_runner_(base::ThreadTaskRunnerHandle::Get()),
       service_discovery_runner_(service_discovery_runner),
-      weak_factory_(this) {}
+      weak_factory_(this) {
+}
 
 ServiceResolverImplMac::NetServiceContainer::~NetServiceContainer() {
   DCHECK(IsOnServiceDiscoveryThread());
@@ -306,19 +311,20 @@ ServiceResolverImplMac::NetServiceContainer::StartResolvingOnDiscoveryThread() {
   if (service_)
     return;
 
-  if (ExtractServiceInfo(service_name_, true, &instance, &type, &domain)) {
-    VLOG(1) << "ServiceResolverImplMac::ServiceResolverImplMac::"
-            << "StartResolvingOnDiscoveryThread: Success";
-    delegate_.reset([[NetServiceDelegate alloc] initWithContainer:this]);
-    service_.reset(
-        [[NSNetService alloc]
-            initWithDomain:[[NSString alloc] initWithUTF8String:domain.c_str()]
-            type:[[NSString alloc] initWithUTF8String:type.c_str()]
-            name:[[NSString alloc] initWithUTF8String:instance.c_str()]]);
-    [service_ setDelegate:delegate_];
+  if (!ExtractServiceInfo(service_name_, true, &instance, &type, &domain))
+    return OnResolveUpdate(ServiceResolver::STATUS_KNOWN_NONEXISTENT);
 
-    [service_ resolveWithTimeout:kResolveTimeout];
-  }
+  VLOG(1) << "ServiceResolverImplMac::ServiceResolverImplMac::"
+          << "StartResolvingOnDiscoveryThread: Success";
+  delegate_.reset([[NetServiceDelegate alloc] initWithContainer:this]);
+  service_.reset(
+      [[NSNetService alloc]
+          initWithDomain:[[NSString alloc] initWithUTF8String:domain.c_str()]
+          type:[[NSString alloc] initWithUTF8String:type.c_str()]
+          name:[[NSString alloc] initWithUTF8String:instance.c_str()]]);
+  [service_ setDelegate:delegate_];
+
+  [service_ resolveWithTimeout:kResolveTimeout];
 
   VLOG(1) << "ServiceResolverImplMac::NetServiceContainer::"
           << "StartResolvingOnDiscoveryThread: " << service_name_
@@ -365,7 +371,7 @@ void ServiceResolverImplMac::NetServiceContainer::SetServiceForTesting(
 ServiceResolverImplMac::ServiceResolverImplMac(
     const std::string& service_name,
     const ServiceResolver::ResolveCompleteCallback& callback,
-    scoped_refptr<base::MessageLoopProxy> service_discovery_runner)
+    scoped_refptr<base::SingleThreadTaskRunner> service_discovery_runner)
     : service_name_(service_name),
       callback_(callback),
       has_resolved_(false),

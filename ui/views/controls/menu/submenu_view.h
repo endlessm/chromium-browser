@@ -52,6 +52,8 @@ class VIEWS_EXPORT SubmenuView : public PrefixDelegate,
   // Returns the MenuItemView at the specified index.
   MenuItemView* GetMenuItemAt(int index);
 
+  PrefixSelector* GetPrefixSelector();
+
   // Positions and sizes the child views. This tiles the views vertically,
   // giving each child the available width.
   void Layout() override;
@@ -59,11 +61,9 @@ class VIEWS_EXPORT SubmenuView : public PrefixDelegate,
 
   // Override from View.
   void GetAccessibleState(ui::AXViewState* state) override;
-  ui::TextInputClient* GetTextInputClient() override;
 
   // Painting.
-  void PaintChildren(gfx::Canvas* canvas,
-                     const views::CullSet& cull_view) override;
+  void PaintChildren(const ui::PaintContext& context) override;
 
   // Drag and drop methods. These are forwarded to the MenuController.
   bool GetDropFormats(
@@ -167,12 +167,6 @@ class VIEWS_EXPORT SubmenuView : public PrefixDelegate,
   void ChildPreferredSizeChanged(View* child) override;
 
  private:
-  // Paints the drop indicator. This is only invoked if item is non-NULL and
-  // position is not DROP_NONE.
-  void PaintDropIndicator(gfx::Canvas* canvas,
-                          MenuItemView* item,
-                          MenuDelegate::DropPosition position);
-
   void SchedulePaintForDropIndicator(MenuItemView* item,
                                      MenuDelegate::DropPosition position);
 

@@ -2,7 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 from telemetry.page import page as page_module
-from telemetry.page import page_set as page_set_module
+from telemetry.page import shared_page_state
+from telemetry import story
 
 
 def _GetCurrentLocation(action_runner):
@@ -19,9 +20,9 @@ class Top7StressPage(page_module.Page):
   def __init__(self, url, page_set, name=''):
     super(Top7StressPage, self).__init__(
         url=url, page_set=page_set, name=name,
+        shared_page_state_class=shared_page_state.SharedDesktopPageState,
         credentials_path = 'data/credentials.json')
-    self.user_agent_type = 'desktop'
-    self.archive_data_file = 'data/top_25.json'
+    self.archive_data_file = 'data/top_7_stress.json'
 
   def RunPageInteractions(self, action_runner):
     raise NotImplementedError()
@@ -37,62 +38,48 @@ class GoogleWebSearchPage(Top7StressPage):
       page_set=page_set)
 
   def RunNavigateSteps(self, action_runner):
-    action_runner.NavigateToPage(self)
+    super(GoogleWebSearchPage, self).RunNavigateSteps(action_runner)
     action_runner.WaitForElement(text='Next')
 
   def RunPageInteractions(self, action_runner):
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
     old_href = _GetCurrentLocation(action_runner)
     action_runner.ClickElement(text='Next')
     _WaitForLocationChange(action_runner, old_href)
     action_runner.WaitForElement(text='Next')
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
     old_href = _GetCurrentLocation(action_runner)
     action_runner.ClickElement(text='Next')
     _WaitForLocationChange(action_runner, old_href)
     action_runner.WaitForElement(text='Next')
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
     old_href = _GetCurrentLocation(action_runner)
     action_runner.ClickElement(text='Next')
     _WaitForLocationChange(action_runner, old_href)
     action_runner.WaitForElement(text='Previous')
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
     old_href = _GetCurrentLocation(action_runner)
     action_runner.ClickElement(text='Previous')
     _WaitForLocationChange(action_runner, old_href)
     action_runner.WaitForElement(text='Previous')
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
     old_href = _GetCurrentLocation(action_runner)
     action_runner.ClickElement(text='Previous')
     _WaitForLocationChange(action_runner, old_href)
     action_runner.WaitForElement(text='Previous')
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
     old_href = _GetCurrentLocation(action_runner)
     action_runner.ClickElement(text='Previous')
     _WaitForLocationChange(action_runner, old_href)
     action_runner.WaitForElement(text='Images')
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
     old_href = _GetCurrentLocation(action_runner)
     action_runner.ClickElement(text='Images')
     _WaitForLocationChange(action_runner, old_href)
@@ -111,7 +98,7 @@ class GmailPage(Top7StressPage):
     self.credentials = 'google'
 
   def RunNavigateSteps(self, action_runner):
-    action_runner.NavigateToPage(self)
+    super(GmailPage, self).RunNavigateSteps(action_runner)
     action_runner.WaitForJavaScriptCondition(
         'window.gmonkey !== undefined &&'
         'document.getElementById("gb") !== null')
@@ -139,7 +126,7 @@ class GoogleCalendarPage(Top7StressPage):
     self.credentials = 'google'
 
   def RunNavigateSteps(self, action_runner):
-    action_runner.NavigateToPage(self)
+    super(GoogleCalendarPage, self).RunNavigateSteps(action_runner)
     action_runner.Wait(2)
     action_runner.WaitForElement('div[class~="navForward"]')
     action_runner.ExecuteJavaScript('''
@@ -190,7 +177,7 @@ class GooglePlusPage(Top7StressPage):
     self.credentials = 'google'
 
   def RunNavigateSteps(self, action_runner):
-    action_runner.NavigateToPage(self)
+    super(GooglePlusPage, self).RunNavigateSteps(action_runner)
     action_runner.WaitForElement(text='Home')
 
   def RunPageInteractions(self, action_runner):
@@ -223,28 +210,27 @@ class BlogspotPage(Top7StressPage):
       name='Blogger')
 
   def RunNavigateSteps(self, action_runner):
-    action_runner.NavigateToPage(self)
+    super(BlogspotPage, self).RunNavigateSteps(action_runner)
     action_runner.WaitForElement(text='accessibility')
 
   def RunPageInteractions(self, action_runner):
     action_runner.ClickElement(text='accessibility')
     action_runner.WaitForNavigate()
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
+    # Insert 300ms wait to simulate user finger movement,
+    # and ensure scheduling of idle tasks.
+    action_runner.Wait(0.3)
     action_runner.ClickElement(text='advanced')
     action_runner.WaitForNavigate()
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
+    action_runner.Wait(0.3)
     action_runner.ClickElement(text='beginner')
     action_runner.WaitForNavigate()
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
+    action_runner.Wait(0.3)
     action_runner.ClickElement(text='Home')
     action_runner.WaitForNavigate()
 
@@ -261,36 +247,33 @@ class WordpressPage(Top7StressPage):
       name='Wordpress')
 
   def RunNavigateSteps(self, action_runner):
-    action_runner.NavigateToPage(self)
+    super(WordpressPage, self).RunNavigateSteps(action_runner)
     action_runner.WaitForElement(
         # pylint: disable=C0301
         'a[href="http://en.blog.wordpress.com/2012/08/30/new-themes-able-and-sight/"]')
 
   def RunPageInteractions(self, action_runner):
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
+    # Insert 300ms wait to simulate user finger movement,
+    # and ensure scheduling of idle tasks.
+    action_runner.Wait(0.3)
     action_runner.ClickElement(
         # pylint: disable=C0301
         'a[href="http://en.blog.wordpress.com/2012/08/30/new-themes-able-and-sight/"]')
     action_runner.WaitForNavigate()
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
+    action_runner.Wait(0.3)
     action_runner.ClickElement(text='Features')
     action_runner.WaitForNavigate()
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
+    action_runner.Wait(0.3)
     action_runner.ClickElement(text='News')
     action_runner.WaitForNavigate()
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
 
 
 class FacebookPage(Top7StressPage):
@@ -299,44 +282,43 @@ class FacebookPage(Top7StressPage):
 
   def __init__(self, page_set):
     super(FacebookPage, self).__init__(
-      url='http://www.facebook.com/barackobama',
+      url='https://www.facebook.com/barackobama',
       page_set=page_set,
       name='Facebook')
-    self.credentials = 'facebook'
+    self.credentials = 'facebook2'
 
   def RunNavigateSteps(self, action_runner):
-    action_runner.NavigateToPage(self)
+    super(FacebookPage, self).RunNavigateSteps(action_runner)
     action_runner.WaitForElement(text='About')
 
   def RunPageInteractions(self, action_runner):
-    action_runner.ClickElement(text='About')
-    action_runner.WaitForNavigate()
-    action_runner.ClickElement(text='The Audacity of Hope')
-    action_runner.WaitForNavigate()
-    action_runner.ClickElement(text='Back to Barack Obama\'s Timeline')
-    action_runner.WaitForNavigate()
-    action_runner.ClickElement(text='About')
-    action_runner.WaitForNavigate()
-    action_runner.ClickElement(text='Elected to U.S. Senate')
-    action_runner.WaitForNavigate()
-    action_runner.ClickElement(text='Home')
-    action_runner.WaitForNavigate()
+    # Scroll and wait for the next page to be loaded.
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
+    action_runner.WaitForJavaScriptCondition(
+        'document.documentElement.scrollHeight - window.innerHeight - '
+        'window.pageYOffset > 0')
 
+    # Scroll and wait again.
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
+    action_runner.WaitForJavaScriptCondition(
+        'document.documentElement.scrollHeight - window.innerHeight - '
+        'window.pageYOffset > 0')
 
-class Top7StressPageSet(page_set_module.PageSet):
+class Top7StressPageSet(story.StorySet):
 
   """ Pages hand-picked for stress testing. """
 
   def __init__(self):
     super(Top7StressPageSet, self).__init__(
-      user_agent_type='desktop',
-      archive_data_file='data/top_25.json',
-      bucket=page_set_module.PARTNER_BUCKET)
+      archive_data_file='data/top_7_stress.json',
+      cloud_storage_bucket=story.PARTNER_BUCKET)
 
-    self.AddPage(GoogleWebSearchPage(self))
-    self.AddPage(GmailPage(self))
-    self.AddPage(GoogleCalendarPage(self))
-    self.AddPage(GooglePlusPage(self))
-    self.AddPage(BlogspotPage(self))
-    self.AddPage(WordpressPage(self))
-    self.AddPage(FacebookPage(self))
+    self.AddStory(GoogleWebSearchPage(self))
+    self.AddStory(GmailPage(self))
+    self.AddStory(GoogleCalendarPage(self))
+    self.AddStory(GooglePlusPage(self))
+    self.AddStory(BlogspotPage(self))
+    self.AddStory(WordpressPage(self))
+    self.AddStory(FacebookPage(self))

@@ -11,11 +11,15 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/lazy_instance.h"
+#include "base/location.h"
 #include "base/path_service.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/test/test_file_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/non_thread_safe.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/net/net_error_tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
@@ -51,6 +55,7 @@
 
 #if defined(OS_MACOSX)
 #include "base/mac/scoped_nsautorelease_pool.h"
+#include "chrome/test/base/scoped_bundle_swizzler_mac.h"
 #endif
 
 #if defined(OS_WIN)
@@ -112,11 +117,50 @@ void SingleDesktopTestObserver::OnBrowserAdded(Browser* browser) {
 
 }  // namespace
 
+// Library used for testing accessibility.
+const base::FilePath::CharType kAXSTesting[] =
+    FILE_PATH_LITERAL("third_party/accessibility-audit/axs_testing.js");
+// JavaScript snippet to configure and run the accessibility audit.
+const char kAccessibilityTestString[] =
+    "var config = new axs.AuditConfiguration();"
+    "/* Disable warning about rules that cannot be checked. */"
+    "config.showUnsupportedRulesWarning = false;"
+    "config.auditRulesToIgnore = ["
+    "  /*"
+    "   * The 'elements with meaningful background image' accessibility"
+    "   * audit (AX_IMAGE_01) does not apply, since Chrome doesn't"
+    "   * disable background images in high-contrast mode like some"
+    "   * browsers do."
+    "   */"
+    "  'elementsWithMeaningfulBackgroundImage',"
+    "  /*"
+    "   * Most WebUI pages are inside an IFrame, so the 'web page should"
+    "   * have a title that describes topic or purpose' test (AX_TITLE_01)"
+    "   * generally does not apply."
+    "   */"
+    "  'pageWithoutTitle',"
+    "  /*"
+    "   * Enable when crbug.com/267035 is fixed."
+    "   * Until then it's just noise."
+    "   */"
+    "  'lowContrastElements'"
+    "];"
+    "var result = axs.Audit.run(config);"
+    "var error = '';"
+    "for (var i = 0; i < result.length; ++i) {"
+    "  if (result[i].result == axs.constants.AuditResult.FAIL) {"
+    "    error = axs.Audit.createReport(result);"
+    "    break;"
+    "  }"
+    "}"
+    "domAutomationController.send(error);";
+
 InProcessBrowserTest::InProcessBrowserTest()
     : browser_(NULL),
       exit_when_last_browser_closes_(true),
       open_about_blank_on_browser_launch_(true),
-      multi_desktop_test_(false)
+      multi_desktop_test_(false),
+      run_accessibility_checks_for_test_case_(false)
 #if defined(OS_MACOSX)
       , autorelease_pool_(NULL)
 #endif  // OS_MACOSX
@@ -144,6 +188,10 @@ InProcessBrowserTest::InProcessBrowserTest()
   // ContentMain. However that is after tests' constructors or SetUp methods,
   // which sometimes need it. So just override it.
   CHECK(PathService::Override(chrome::DIR_TEST_DATA, test_data_dir));
+
+#if defined(OS_MACOSX)
+  bundle_swizzler_.reset(new ScopedBundleSwizzlerMac);
+#endif
 }
 
 InProcessBrowserTest::~InProcessBrowserTest() {
@@ -153,7 +201,7 @@ void InProcessBrowserTest::SetUp() {
   // Browser tests will create their own g_browser_process later.
   DCHECK(!g_browser_process);
 
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
 
   // Auto-reload breaks many browser tests, which assume error pages won't be
   // reloaded out from under them. Tests that expect or desire this behavior can
@@ -205,7 +253,8 @@ void InProcessBrowserTest::SetUp() {
   // Although Ash officially is only supported for users on Win7+, we still run
   // ash_unittests on Vista builders, so we still need to initialize COM.
   if (version >= base::win::VERSION_VISTA &&
-      CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests)) {
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests)) {
     com_initializer_.reset(new base::win::ScopedCOMInitializer());
     ui::win::CreateATLModuleIfNeeded();
     if (version >= base::win::VERSION_WIN8)
@@ -216,7 +265,8 @@ void InProcessBrowserTest::SetUp() {
   BrowserTestBase::SetUp();
 }
 
-void InProcessBrowserTest::PrepareTestCommandLine(CommandLine* command_line) {
+void InProcessBrowserTest::PrepareTestCommandLine(
+    base::CommandLine* command_line) {
   // Propagate commandline settings from test_launcher_utils.
   test_launcher_utils::PrepareBrowserCommandLineForTests(command_line);
 
@@ -258,8 +308,58 @@ void InProcessBrowserTest::PrepareTestCommandLine(CommandLine* command_line) {
     command_line->AppendArg(url::kAboutBlankURL);
 }
 
+bool InProcessBrowserTest::RunAccessibilityChecks(std::string* error_message) {
+  if (!browser()) {
+    *error_message = "browser is NULL";
+    return false;
+  }
+  auto tab_strip = browser()->tab_strip_model();
+  if (!tab_strip) {
+    *error_message = "tab_strip is NULL";
+    return false;
+  }
+  auto web_contents = tab_strip->GetActiveWebContents();
+  if (!web_contents) {
+    *error_message = "web_contents is NULL";
+    return false;
+  }
+  auto focused_frame = web_contents->GetFocusedFrame();
+  if (!focused_frame) {
+    *error_message = "focused_frame is NULL";
+    return false;
+  }
+
+  // Load accessibility library.
+  base::FilePath src_dir;
+  if (!PathService::Get(base::DIR_SOURCE_ROOT, &src_dir)) {
+    *error_message = "PathService::Get failed";
+    return false;
+  }
+  base::FilePath script_path = src_dir.Append(kAXSTesting);
+  std::string script;
+  if (!base::ReadFileToString(script_path, &script)) {
+    *error_message = "Could not read accessibility library";
+    return false;
+  }
+  if (!content::ExecuteScript(web_contents, script)) {
+    *error_message = "Failed to load accessibility library";
+    return false;
+  }
+
+  // Run accessibility audit.
+  if (!content::ExecuteScriptAndExtractString(focused_frame,
+                                              kAccessibilityTestString,
+                                              error_message)) {
+    *error_message = "Failed to run accessibility audit";
+    return false;
+  }
+
+  // Test result should be empty if there are no errors.
+  return error_message->empty();
+}
+
 bool InProcessBrowserTest::CreateUserDataDirectory() {
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   base::FilePath user_data_dir =
       command_line->GetSwitchValuePath(switches::kUserDataDir);
   if (user_data_dir.empty()) {
@@ -283,24 +383,57 @@ void InProcessBrowserTest::TearDown() {
   BrowserTestBase::TearDown();
 }
 
+void InProcessBrowserTest::CloseBrowserSynchronously(Browser* browser) {
+  content::WindowedNotificationObserver observer(
+      chrome::NOTIFICATION_BROWSER_CLOSED,
+      content::Source<Browser>(browser));
+  CloseBrowserAsynchronously(browser);
+  observer.Wait();
+}
+
+void InProcessBrowserTest::CloseBrowserAsynchronously(Browser* browser) {
+  browser->window()->Close();
+#if defined(OS_MACOSX)
+  // BrowserWindowController depends on the auto release pool being recycled
+  // in the message loop to delete itself.
+  AutoreleasePool()->Recycle();
+#endif
+}
+
+void InProcessBrowserTest::CloseAllBrowsers() {
+  chrome::CloseAllBrowsers();
+#if defined(OS_MACOSX)
+  // BrowserWindowController depends on the auto release pool being recycled
+  // in the message loop to delete itself.
+  AutoreleasePool()->Recycle();
+#endif
+}
+
+// TODO(alexmos): This function should expose success of the underlying
+// navigation to tests, which should make sure navigations succeed when
+// appropriate. See https://crbug.com/425335
 void InProcessBrowserTest::AddTabAtIndexToBrowser(
     Browser* browser,
     int index,
     const GURL& url,
-    ui::PageTransition transition) {
+    ui::PageTransition transition,
+    bool check_navigation_success) {
   chrome::NavigateParams params(browser, url, transition);
   params.tabstrip_index = index;
   params.disposition = NEW_FOREGROUND_TAB;
   chrome::Navigate(&params);
 
-  content::WaitForLoadStop(params.target_contents);
+  if (check_navigation_success)
+    content::WaitForLoadStop(params.target_contents);
+  else
+    content::WaitForLoadStopWithoutSuccessCheck(params.target_contents);
 }
 
 void InProcessBrowserTest::AddTabAtIndex(
     int index,
     const GURL& url,
     ui::PageTransition transition) {
-  AddTabAtIndexToBrowser(browser(), index, url, transition);
+  AddTabAtIndexToBrowser(browser(), index, url, transition, true);
 }
 
 bool InProcessBrowserTest::SetUpUserDataDirectory() {
@@ -357,10 +490,11 @@ void InProcessBrowserTest::AddBlankTabAndShow(Browser* browser) {
 }
 
 #if !defined(OS_MACOSX)
-CommandLine InProcessBrowserTest::GetCommandLineForRelaunch() {
-  CommandLine new_command_line(CommandLine::ForCurrentProcess()->GetProgram());
-  CommandLine::SwitchMap switches =
-      CommandLine::ForCurrentProcess()->GetSwitches();
+base::CommandLine InProcessBrowserTest::GetCommandLineForRelaunch() {
+  base::CommandLine new_command_line(
+      base::CommandLine::ForCurrentProcess()->GetProgram());
+  base::CommandLine::SwitchMap switches =
+      base::CommandLine::ForCurrentProcess()->GetSwitches();
   switches.erase(switches::kUserDataDir);
   switches.erase(content::kSingleProcessTestsFlag);
   switches.erase(switches::kSingleProcess);
@@ -370,8 +504,8 @@ CommandLine InProcessBrowserTest::GetCommandLineForRelaunch() {
   PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
   new_command_line.AppendSwitchPath(switches::kUserDataDir, user_data_dir);
 
-  for (CommandLine::SwitchMap::const_iterator iter = switches.begin();
-        iter != switches.end(); ++iter) {
+  for (base::CommandLine::SwitchMap::const_iterator iter = switches.begin();
+       iter != switches.end(); ++iter) {
     new_command_line.AppendSwitchNative((*iter).first, (*iter).second);
   }
   return new_command_line;
@@ -424,6 +558,11 @@ void InProcessBrowserTest::RunTestOnMainThreadLoop() {
   // browser.
   content::RunAllPendingInMessageLoop();
 
+  // run_accessibility_checks_for_test_case_ must be set before calling
+  // SetUpOnMainThread or RunTestOnMainThread so that one or all tests can
+  // enable/disable the accessibility audit.
+  run_accessibility_checks_for_test_case_ = false;
+
   SetUpOnMainThread();
 #if defined(OS_MACOSX)
   autorelease_pool_->Recycle();
@@ -434,6 +573,12 @@ void InProcessBrowserTest::RunTestOnMainThreadLoop() {
 #if defined(OS_MACOSX)
   autorelease_pool_->Recycle();
 #endif
+
+  if (run_accessibility_checks_for_test_case_) {
+    std::string error_message;
+    EXPECT_TRUE(RunAccessibilityChecks(&error_message));
+    EXPECT_EQ("", error_message);
+  }
 
   // Invoke cleanup and quit even if there are failures. This is similar to
   // gtest in that it invokes TearDown even if Setup fails.
@@ -466,8 +611,8 @@ void InProcessBrowserTest::QuitBrowsers() {
   // Invoke AttemptExit on a running message loop.
   // AttemptExit exits the message loop after everything has been
   // shut down properly.
-  base::MessageLoopForUI::current()->PostTask(FROM_HERE,
-                                              base::Bind(&chrome::AttemptExit));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&chrome::AttemptExit));
   content::RunMessageLoop();
 
 #if defined(OS_MACOSX)

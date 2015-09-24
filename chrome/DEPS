@@ -2,6 +2,7 @@ include_rules = [
   "+crypto",
   "+gpu",
   "+net",
+  "+pdf",
   "+printing",
   "+sql",
   # Browser, renderer, common and tests access V8 for various purposes.
@@ -17,13 +18,13 @@ include_rules = [
   "+chrome/common",
   "+chrome/test",
   "+components/content_settings/core/common",
-  "+components/error_page",
+  "+components/error_page/common",
+  "+components/omnibox/common",
   "+components/url_fixer",
   "+components/variations",
   "+content/public/common",
   "+content/public/test",
   "+mojo/common",
-  "+mojo/public",
 
   # Don't allow inclusion of these other libs we shouldn't be calling directly.
   "-webkit",
@@ -38,6 +39,7 @@ include_rules = [
   # Allow inclusion of third-party code:
   "+third_party/hunspell",
   "+third_party/libxml",
+  "+third_party/mojo/src/mojo/public",
   "+third_party/skia",
 
   "+ui",

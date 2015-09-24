@@ -29,33 +29,21 @@
 
 namespace blink {
 
-CompositionEventInit::CompositionEventInit()
-{
-}
-
 CompositionEvent::CompositionEvent()
-    : m_activeSegmentStart(0)
-    , m_activeSegmentEnd(0)
 {
-    initializeSegments();
 }
 
-CompositionEvent::CompositionEvent(const AtomicString& type, PassRefPtrWillBeRawPtr<AbstractView> view, const String& data, const Vector<CompositionUnderline>& underlines)
+CompositionEvent::CompositionEvent(const AtomicString& type, PassRefPtrWillBeRawPtr<AbstractView> view, const String& data)
     : UIEvent(type, true, true, view, 0)
     , m_data(data)
-    , m_activeSegmentStart(0)
-    , m_activeSegmentEnd(0)
 {
-    initializeSegments(&underlines);
 }
 
 CompositionEvent::CompositionEvent(const AtomicString& type, const CompositionEventInit& initializer)
     : UIEvent(type, initializer)
-    , m_data(initializer.data)
-    , m_activeSegmentStart(0)
-    , m_activeSegmentEnd(0)
 {
-    initializeSegments();
+    if (initializer.hasData())
+        m_data = initializer.data();
 }
 
 CompositionEvent::~CompositionEvent()
@@ -70,29 +58,6 @@ void CompositionEvent::initCompositionEvent(const AtomicString& type, bool canBu
     initUIEvent(type, canBubble, cancelable, view, 0);
 
     m_data = data;
-    initializeSegments();
-}
-
-void CompositionEvent::initializeSegments(const Vector<CompositionUnderline>* underlines)
-{
-    m_activeSegmentStart = 0;
-    m_activeSegmentEnd = m_data.length();
-
-    if (!underlines || !underlines->size()) {
-        m_segments.append(0);
-        return;
-    }
-
-    for (const auto& underline : *underlines) {
-        if (underline.thick) {
-            m_activeSegmentStart = underline.startOffset;
-            m_activeSegmentEnd = underline.endOffset;
-            break;
-        }
-    }
-
-    for (const auto& underline : *underlines)
-        m_segments.append(underline.startOffset);
 }
 
 const AtomicString& CompositionEvent::interfaceName() const
@@ -100,7 +65,7 @@ const AtomicString& CompositionEvent::interfaceName() const
     return EventNames::CompositionEvent;
 }
 
-void CompositionEvent::trace(Visitor* visitor)
+DEFINE_TRACE(CompositionEvent)
 {
     UIEvent::trace(visitor);
 }

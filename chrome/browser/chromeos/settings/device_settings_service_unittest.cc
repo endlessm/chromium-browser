@@ -10,6 +10,8 @@
 #include "base/compiler_specific.h"
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos.h"
+#include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos.h"
+#include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos_factory.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos_factory.h"
 #include "chrome/browser/chromeos/policy/proto/chrome_device_policy.pb.h"
 #include "chrome/browser/chromeos/settings/device_settings_test_helper.h"
@@ -61,7 +63,7 @@ class DeviceSettingsServiceTest : public DeviceSettingsTestBase {
         is_owner_set_(false),
         ownership_status_(DeviceSettingsService::OWNERSHIP_UNKNOWN) {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     device_policy_.payload().mutable_device_policy_refresh_rate()->
         set_device_policy_refresh_rate(120);
     DeviceSettingsTestBase::SetUp();
@@ -140,238 +142,6 @@ TEST_F(DeviceSettingsServiceTest, LoadSuccess) {
   EXPECT_EQ(DeviceSettingsService::STORE_SUCCESS,
             device_settings_service_.status());
   CheckPolicy();
-}
-
-TEST_F(DeviceSettingsServiceTest, SignAndStoreNoKey) {
-  ReloadDeviceSettings();
-  EXPECT_EQ(DeviceSettingsService::STORE_SUCCESS,
-            device_settings_service_.status());
-
-  scoped_ptr<em::ChromeDeviceSettingsProto> new_device_settings(
-      new em::ChromeDeviceSettingsProto(device_policy_.payload()));
-  new_device_settings->mutable_device_policy_refresh_rate()->
-      set_device_policy_refresh_rate(300);
-  device_settings_service_.SignAndStore(
-      new_device_settings.Pass(),
-      base::Bind(&DeviceSettingsServiceTest::SetOperationCompleted,
-                 base::Unretained(this)));
-  FlushDeviceSettings();
-  EXPECT_TRUE(operation_completed_);
-  EXPECT_EQ(DeviceSettingsService::STORE_KEY_UNAVAILABLE,
-            device_settings_service_.status());
-  CheckPolicy();
-}
-
-TEST_F(DeviceSettingsServiceTest, SignAndStoreFailure) {
-  ReloadDeviceSettings();
-  EXPECT_EQ(DeviceSettingsService::STORE_SUCCESS,
-            device_settings_service_.status());
-
-  owner_key_util_->SetPrivateKey(device_policy_.GetSigningKey());
-  InitOwner(device_policy_.policy_data().username(), true);
-  FlushDeviceSettings();
-
-  scoped_ptr<em::ChromeDeviceSettingsProto> new_device_settings(
-      new em::ChromeDeviceSettingsProto(device_policy_.payload()));
-  new_device_settings->mutable_device_policy_refresh_rate()->
-      set_device_policy_refresh_rate(300);
-  device_settings_test_helper_.set_store_result(false);
-  device_settings_service_.SignAndStore(
-      new_device_settings.Pass(),
-      base::Bind(&DeviceSettingsServiceTest::SetOperationCompleted,
-                 base::Unretained(this)));
-  FlushDeviceSettings();
-  EXPECT_TRUE(operation_completed_);
-  EXPECT_EQ(DeviceSettingsService::STORE_OPERATION_FAILED,
-            device_settings_service_.status());
-  CheckPolicy();
-}
-
-TEST_F(DeviceSettingsServiceTest, SignAndStoreSuccess) {
-  const base::Time before(base::Time::Now());
-  ReloadDeviceSettings();
-  EXPECT_EQ(DeviceSettingsService::STORE_SUCCESS,
-            device_settings_service_.status());
-
-  owner_key_util_->SetPrivateKey(device_policy_.GetSigningKey());
-  InitOwner(device_policy_.policy_data().username(), true);
-  FlushDeviceSettings();
-
-  device_policy_.payload().mutable_device_policy_refresh_rate()->
-      set_device_policy_refresh_rate(300);
-  device_policy_.Build();
-  device_settings_service_.SignAndStore(
-      scoped_ptr<em::ChromeDeviceSettingsProto>(
-          new em::ChromeDeviceSettingsProto(device_policy_.payload())),
-      base::Bind(&DeviceSettingsServiceTest::SetOperationCompleted,
-                 base::Unretained(this)));
-  FlushDeviceSettings();
-  const base::Time after(base::Time::Now());
-
-  EXPECT_TRUE(operation_completed_);
-  EXPECT_EQ(DeviceSettingsService::STORE_SUCCESS,
-            device_settings_service_.status());
-  ASSERT_TRUE(device_settings_service_.device_settings());
-  EXPECT_EQ(device_policy_.payload().SerializeAsString(),
-            device_settings_service_.device_settings()->SerializeAsString());
-
-   // Check that the loaded policy_data contains the expected values.
-  const em::PolicyData* policy_data = device_settings_service_.policy_data();
-  EXPECT_EQ(policy::dm_protocol::kChromeDevicePolicyType,
-            policy_data->policy_type());
-  EXPECT_LE((before - base::Time::UnixEpoch()).InMilliseconds(),
-            policy_data->timestamp());
-  EXPECT_GE((after - base::Time::UnixEpoch()).InMilliseconds(),
-            policy_data->timestamp());
-  EXPECT_EQ(device_settings_service_.GetUsername(),
-            policy_data->username());
-}
-
-TEST_F(DeviceSettingsServiceTest, SetManagementSettingsModeTransition) {
-  ReloadDeviceSettings();
-  EXPECT_EQ(DeviceSettingsService::STORE_SUCCESS,
-            device_settings_service_.status());
-
-  owner_key_util_->SetPrivateKey(device_policy_.GetSigningKey());
-  InitOwner(device_policy_.policy_data().username(), true);
-  FlushDeviceSettings();
-
-  // The initial management mode should be NOT_MANAGED.
-  EXPECT_EQ(em::PolicyData::NOT_MANAGED,
-            device_settings_service_.policy_data()->management_mode());
-
-  // NOT_MANAGED -> CONSUMER_MANAGED: Okay.
-  device_settings_service_.SetManagementSettings(
-      em::PolicyData::CONSUMER_MANAGED,
-      "fake_request_token",
-      "fake_device_id",
-      base::Bind(&DeviceSettingsServiceTest::SetOperationCompleted,
-                 base::Unretained(this)));
-  FlushDeviceSettings();
-
-  EXPECT_TRUE(operation_completed_);
-  EXPECT_EQ(DeviceSettingsService::STORE_SUCCESS,
-            device_settings_service_.status());
-  EXPECT_EQ(em::PolicyData::CONSUMER_MANAGED,
-            device_settings_service_.policy_data()->management_mode());
-
-  // CONSUMER_MANAGED -> ENTERPRISE_MANAGED: Invalid.
-  device_settings_service_.SetManagementSettings(
-      em::PolicyData::ENTERPRISE_MANAGED,
-      "fake_request_token",
-      "fake_device_id",
-      base::Bind(&DeviceSettingsServiceTest::SetOperationCompleted,
-                 base::Unretained(this)));
-  FlushDeviceSettings();
-
-  EXPECT_TRUE(operation_completed_);
-  EXPECT_EQ(DeviceSettingsService::STORE_POLICY_ERROR,
-            device_settings_service_.status());
-  EXPECT_EQ(em::PolicyData::CONSUMER_MANAGED,
-            device_settings_service_.policy_data()->management_mode());
-
-  // CONSUMER_MANAGED -> NOT_MANAGED: Okay.
-  device_settings_service_.SetManagementSettings(
-      em::PolicyData::NOT_MANAGED,
-      "fake_request_token",
-      "fake_device_id",
-      base::Bind(&DeviceSettingsServiceTest::SetOperationCompleted,
-                 base::Unretained(this)));
-  FlushDeviceSettings();
-
-  EXPECT_TRUE(operation_completed_);
-  EXPECT_EQ(DeviceSettingsService::STORE_SUCCESS,
-            device_settings_service_.status());
-  EXPECT_EQ(em::PolicyData::NOT_MANAGED,
-            device_settings_service_.policy_data()->management_mode());
-
-  // NOT_MANAGED -> ENTERPRISE_MANAGED: Invalid.
-  device_settings_service_.SetManagementSettings(
-      em::PolicyData::ENTERPRISE_MANAGED,
-      "fake_request_token",
-      "fake_device_id",
-      base::Bind(&DeviceSettingsServiceTest::SetOperationCompleted,
-                 base::Unretained(this)));
-  FlushDeviceSettings();
-
-  EXPECT_TRUE(operation_completed_);
-  EXPECT_EQ(DeviceSettingsService::STORE_POLICY_ERROR,
-            device_settings_service_.status());
-  EXPECT_EQ(em::PolicyData::NOT_MANAGED,
-            device_settings_service_.policy_data()->management_mode());
-
-  // Inject a policy data with management mode set to ENTERPRISE_MANAGED.
-  device_policy_.policy_data().set_management_mode(
-      em::PolicyData::ENTERPRISE_MANAGED);
-  device_policy_.Build();
-  device_settings_test_helper_.set_policy_blob(device_policy_.GetBlob());
-  ReloadDeviceSettings();
-  EXPECT_EQ(em::PolicyData::ENTERPRISE_MANAGED,
-            device_settings_service_.policy_data()->management_mode());
-
-  // ENTERPRISE_MANAGED -> NOT_MANAGED: Invalid.
-  device_settings_service_.SetManagementSettings(
-      em::PolicyData::NOT_MANAGED,
-      "fake_request_token",
-      "fake_device_id",
-      base::Bind(&DeviceSettingsServiceTest::SetOperationCompleted,
-                 base::Unretained(this)));
-  FlushDeviceSettings();
-
-  EXPECT_TRUE(operation_completed_);
-  EXPECT_EQ(DeviceSettingsService::STORE_POLICY_ERROR,
-            device_settings_service_.status());
-  EXPECT_EQ(em::PolicyData::ENTERPRISE_MANAGED,
-            device_settings_service_.policy_data()->management_mode());
-
-  // ENTERPRISE_MANAGED -> CONSUMER_MANAGED: Invalid.
-  device_settings_service_.SetManagementSettings(
-      em::PolicyData::CONSUMER_MANAGED,
-      "fake_request_token",
-      "fake_device_id",
-      base::Bind(&DeviceSettingsServiceTest::SetOperationCompleted,
-                 base::Unretained(this)));
-  FlushDeviceSettings();
-
-  EXPECT_TRUE(operation_completed_);
-  EXPECT_EQ(DeviceSettingsService::STORE_POLICY_ERROR,
-            device_settings_service_.status());
-  EXPECT_EQ(em::PolicyData::ENTERPRISE_MANAGED,
-            device_settings_service_.policy_data()->management_mode());
-
-}
-
-TEST_F(DeviceSettingsServiceTest, SetManagementSettingsSuccess) {
-  ReloadDeviceSettings();
-  EXPECT_EQ(DeviceSettingsService::STORE_SUCCESS,
-            device_settings_service_.status());
-
-  owner_key_util_->SetPrivateKey(device_policy_.GetSigningKey());
-  InitOwner(device_policy_.policy_data().username(), true);
-  FlushDeviceSettings();
-
-  device_settings_service_.SetManagementSettings(
-      em::PolicyData::CONSUMER_MANAGED,
-      "fake_request_token",
-      "fake_device_id",
-      base::Bind(&DeviceSettingsServiceTest::SetOperationCompleted,
-                 base::Unretained(this)));
-  FlushDeviceSettings();
-
-  EXPECT_TRUE(operation_completed_);
-  EXPECT_EQ(DeviceSettingsService::STORE_SUCCESS,
-            device_settings_service_.status());
-  ASSERT_TRUE(device_settings_service_.device_settings());
-
-  // Check that the loaded policy_data contains the expected values.
-  const em::PolicyData* policy_data = device_settings_service_.policy_data();
-  EXPECT_EQ(policy::dm_protocol::kChromeDevicePolicyType,
-            policy_data->policy_type());
-  EXPECT_EQ(device_settings_service_.GetUsername(),
-            policy_data->username());
-  EXPECT_EQ(em::PolicyData::CONSUMER_MANAGED, policy_data->management_mode());
-  EXPECT_EQ("fake_request_token", policy_data->request_token());
-  EXPECT_EQ("fake_device_id", policy_data->device_id());
 }
 
 TEST_F(DeviceSettingsServiceTest, StoreFailure) {
@@ -499,7 +269,7 @@ TEST_F(DeviceSettingsServiceTest, OnTPMTokenReadyForNonOwner) {
   const std::string& user_id = device_policy_.policy_data().username();
   InitOwner(user_id, false);
   OwnerSettingsServiceChromeOS* service =
-      OwnerSettingsServiceChromeOSFactory::GetForProfile(profile_.get());
+      OwnerSettingsServiceChromeOSFactory::GetForBrowserContext(profile_.get());
   ASSERT_TRUE(service);
   service->IsOwnerAsync(base::Bind(&DeviceSettingsServiceTest::OnIsOwner,
                                    base::Unretained(this)));
@@ -544,7 +314,7 @@ TEST_F(DeviceSettingsServiceTest, OwnerPrivateKeyInTPMToken) {
   owner_key_util_->SetPublicKeyFromPrivateKey(*device_policy_.GetSigningKey());
   InitOwner(user_id, false);
   OwnerSettingsServiceChromeOS* service =
-      OwnerSettingsServiceChromeOSFactory::GetForProfile(profile_.get());
+      OwnerSettingsServiceChromeOSFactory::GetForBrowserContext(profile_.get());
   ASSERT_TRUE(service);
   ReloadDeviceSettings();
 
@@ -580,7 +350,7 @@ TEST_F(DeviceSettingsServiceTest, OnTPMTokenReadyForOwner) {
   owner_key_util_->SetPublicKeyFromPrivateKey(*device_policy_.GetSigningKey());
   InitOwner(user_id, false);
   OwnerSettingsServiceChromeOS* service =
-      OwnerSettingsServiceChromeOSFactory::GetForProfile(profile_.get());
+      OwnerSettingsServiceChromeOSFactory::GetForBrowserContext(profile_.get());
   ASSERT_TRUE(service);
   service->IsOwnerAsync(base::Bind(&DeviceSettingsServiceTest::OnIsOwner,
                                    base::Unretained(this)));
@@ -637,7 +407,7 @@ TEST_F(DeviceSettingsServiceTest, IsCurrentUserOwnerAsyncWithLoadedCerts) {
   EXPECT_FALSE(is_owner_set_);
 
   OwnerSettingsServiceChromeOS* service =
-      OwnerSettingsServiceChromeOSFactory::GetForProfile(profile_.get());
+      OwnerSettingsServiceChromeOSFactory::GetForBrowserContext(profile_.get());
   ASSERT_TRUE(service);
   service->IsOwnerAsync(base::Bind(&DeviceSettingsServiceTest::OnIsOwner,
                                    base::Unretained(this)));

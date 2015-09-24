@@ -29,6 +29,9 @@
 #elif V8_TARGET_ARCH_X87
 #include "src/x87/lithium-x87.h"  // NOLINT
 #include "src/x87/lithium-codegen-x87.h"  // NOLINT
+#elif V8_TARGET_ARCH_PPC
+#include "src/ppc/lithium-ppc.h"          // NOLINT
+#include "src/ppc/lithium-codegen-ppc.h"  // NOLINT
 #else
 #error Unsupported target architecture.
 #endif
@@ -42,8 +45,7 @@ HGraph* LCodeGenBase::graph() const {
 }
 
 
-LCodeGenBase::LCodeGenBase(LChunk* chunk,
-                           MacroAssembler* assembler,
+LCodeGenBase::LCodeGenBase(LChunk* chunk, MacroAssembler* assembler,
                            CompilationInfo* info)
     : chunk_(static_cast<LPlatformChunk*>(chunk)),
       masm_(assembler),
@@ -53,8 +55,8 @@ LCodeGenBase::LCodeGenBase(LChunk* chunk,
       current_block_(-1),
       current_instruction_(-1),
       instructions_(chunk->instructions()),
-      last_lazy_deopt_pc_(0) {
-}
+      deoptimization_literals_(8, info->zone()),
+      last_lazy_deopt_pc_(0) {}
 
 
 bool LCodeGenBase::GenerateBody() {
@@ -149,12 +151,8 @@ void LCodeGenBase::Comment(const char* format, ...) {
 }
 
 
-void LCodeGenBase::DeoptComment(const Deoptimizer::Reason& reason) {
-  std::ostringstream os;
-  os << ";;; deoptimize at " << HSourcePosition(reason.raw_position) << " "
-     << reason.mnemonic;
-  if (reason.detail != NULL) os << ": " << reason.detail;
-  Comment("%s", os.str().c_str());
+void LCodeGenBase::DeoptComment(const Deoptimizer::DeoptInfo& deopt_info) {
+  masm()->RecordDeoptReason(deopt_info.deopt_reason, deopt_info.position);
 }
 
 
@@ -164,66 +162,6 @@ int LCodeGenBase::GetNextEmittedBlock() const {
     if (!chunk_->GetLabel(i)->HasReplacement()) return i;
   }
   return -1;
-}
-
-
-static void AddWeakObjectToCodeDependency(Isolate* isolate,
-                                          Handle<Object> object,
-                                          Handle<Code> code) {
-  Heap* heap = isolate->heap();
-  heap->EnsureWeakObjectToCodeTable();
-  Handle<DependentCode> dep(heap->LookupWeakObjectToCodeDependency(object));
-  dep = DependentCode::Insert(dep, DependentCode::kWeakCodeGroup, code);
-  heap->AddWeakObjectToCodeDependency(object, dep);
-}
-
-
-void LCodeGenBase::RegisterWeakObjectsInOptimizedCode(Handle<Code> code) {
-  DCHECK(code->is_optimized_code());
-  ZoneList<Handle<Map> > maps(1, zone());
-  ZoneList<Handle<JSObject> > objects(1, zone());
-  ZoneList<Handle<Cell> > cells(1, zone());
-  int mode_mask = RelocInfo::ModeMask(RelocInfo::EMBEDDED_OBJECT) |
-                  RelocInfo::ModeMask(RelocInfo::CELL);
-  for (RelocIterator it(*code, mode_mask); !it.done(); it.next()) {
-    RelocInfo::Mode mode = it.rinfo()->rmode();
-    if (mode == RelocInfo::CELL &&
-        code->IsWeakObjectInOptimizedCode(it.rinfo()->target_cell())) {
-      Handle<Cell> cell(it.rinfo()->target_cell());
-      cells.Add(cell, zone());
-    } else if (mode == RelocInfo::EMBEDDED_OBJECT &&
-               code->IsWeakObjectInOptimizedCode(it.rinfo()->target_object())) {
-      if (it.rinfo()->target_object()->IsMap()) {
-        Handle<Map> map(Map::cast(it.rinfo()->target_object()));
-        maps.Add(map, zone());
-      } else if (it.rinfo()->target_object()->IsJSObject()) {
-        Handle<JSObject> object(JSObject::cast(it.rinfo()->target_object()));
-        objects.Add(object, zone());
-      } else if (it.rinfo()->target_object()->IsCell()) {
-        Handle<Cell> cell(Cell::cast(it.rinfo()->target_object()));
-        cells.Add(cell, zone());
-      }
-    }
-  }
-  if (FLAG_enable_ool_constant_pool) {
-    code->constant_pool()->set_weak_object_state(
-        ConstantPoolArray::WEAK_OBJECTS_IN_OPTIMIZED_CODE);
-  }
-#ifdef VERIFY_HEAP
-  // This disables verification of weak embedded objects after full GC.
-  // AddDependentCode can cause a GC, which would observe the state where
-  // this code is not yet in the depended code lists of the embedded maps.
-  NoWeakObjectVerificationScope disable_verification_of_embedded_objects;
-#endif
-  for (int i = 0; i < maps.length(); i++) {
-    Map::AddDependentCode(maps.at(i), DependentCode::kWeakCodeGroup, code);
-  }
-  for (int i = 0; i < objects.length(); i++) {
-    AddWeakObjectToCodeDependency(isolate(), objects.at(i), code);
-  }
-  for (int i = 0; i < cells.length(); i++) {
-    AddWeakObjectToCodeDependency(isolate(), cells.at(i), code);
-  }
 }
 
 
@@ -250,4 +188,107 @@ void LCodeGenBase::AddStabilityDependency(Handle<Map> map) {
   chunk_->AddStabilityDependency(map);
 }
 
-} }  // namespace v8::internal
+
+int LCodeGenBase::DefineDeoptimizationLiteral(Handle<Object> literal) {
+  int result = deoptimization_literals_.length();
+  for (int i = 0; i < deoptimization_literals_.length(); ++i) {
+    if (deoptimization_literals_[i].is_identical_to(literal)) return i;
+  }
+  deoptimization_literals_.Add(literal, zone());
+  return result;
+}
+
+
+void LCodeGenBase::WriteTranslationFrame(LEnvironment* environment,
+                                         Translation* translation) {
+  int translation_size = environment->translation_size();
+  // The output frame height does not include the parameters.
+  int height = translation_size - environment->parameter_count();
+
+  switch (environment->frame_type()) {
+    case JS_FUNCTION: {
+      int shared_id = DefineDeoptimizationLiteral(
+          environment->entry() ? environment->entry()->shared()
+                               : info()->shared_info());
+      translation->BeginJSFrame(environment->ast_id(), shared_id, height);
+      if (info()->closure().is_identical_to(environment->closure())) {
+        translation->StoreJSFrameFunction();
+      } else {
+        int closure_id = DefineDeoptimizationLiteral(environment->closure());
+        translation->StoreLiteral(closure_id);
+      }
+      break;
+    }
+    case JS_CONSTRUCT: {
+      int shared_id = DefineDeoptimizationLiteral(
+          environment->entry() ? environment->entry()->shared()
+                               : info()->shared_info());
+      translation->BeginConstructStubFrame(shared_id, translation_size);
+      if (info()->closure().is_identical_to(environment->closure())) {
+        translation->StoreJSFrameFunction();
+      } else {
+        int closure_id = DefineDeoptimizationLiteral(environment->closure());
+        translation->StoreLiteral(closure_id);
+      }
+      break;
+    }
+    case JS_GETTER: {
+      DCHECK(translation_size == 1);
+      DCHECK(height == 0);
+      int shared_id = DefineDeoptimizationLiteral(
+          environment->entry() ? environment->entry()->shared()
+                               : info()->shared_info());
+      translation->BeginGetterStubFrame(shared_id);
+      if (info()->closure().is_identical_to(environment->closure())) {
+        translation->StoreJSFrameFunction();
+      } else {
+        int closure_id = DefineDeoptimizationLiteral(environment->closure());
+        translation->StoreLiteral(closure_id);
+      }
+      break;
+    }
+    case JS_SETTER: {
+      DCHECK(translation_size == 2);
+      DCHECK(height == 0);
+      int shared_id = DefineDeoptimizationLiteral(
+          environment->entry() ? environment->entry()->shared()
+                               : info()->shared_info());
+      translation->BeginSetterStubFrame(shared_id);
+      if (info()->closure().is_identical_to(environment->closure())) {
+        translation->StoreJSFrameFunction();
+      } else {
+        int closure_id = DefineDeoptimizationLiteral(environment->closure());
+        translation->StoreLiteral(closure_id);
+      }
+      break;
+    }
+    case ARGUMENTS_ADAPTOR: {
+      int shared_id = DefineDeoptimizationLiteral(
+          environment->entry() ? environment->entry()->shared()
+                               : info()->shared_info());
+      translation->BeginArgumentsAdaptorFrame(shared_id, translation_size);
+      if (info()->closure().is_identical_to(environment->closure())) {
+        translation->StoreJSFrameFunction();
+      } else {
+        int closure_id = DefineDeoptimizationLiteral(environment->closure());
+        translation->StoreLiteral(closure_id);
+      }
+      break;
+    }
+    case STUB:
+      translation->BeginCompiledStubFrame(translation_size);
+      break;
+  }
+}
+
+
+Deoptimizer::DeoptInfo LCodeGenBase::MakeDeoptInfo(
+    LInstruction* instr, Deoptimizer::DeoptReason deopt_reason) {
+  Deoptimizer::DeoptInfo deopt_info(instr->hydrogen_value()->position(),
+                                    instr->Mnemonic(), deopt_reason);
+  HEnterInlined* enter_inlined = instr->environment()->entry();
+  deopt_info.inlining_id = enter_inlined ? enter_inlined->inlining_id() : 0;
+  return deopt_info;
+}
+}  // namespace internal
+}  // namespace v8

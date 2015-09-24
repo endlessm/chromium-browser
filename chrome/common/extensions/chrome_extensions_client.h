@@ -35,6 +35,9 @@ class ChromeExtensionsClient : public ExtensionsClient {
       const URLPatternSet& hosts,
       URLPatternSet* new_hosts,
       std::set<PermissionMessage>* messages) const override;
+  void FilterHostPermissions(const URLPatternSet& hosts,
+                             URLPatternSet* new_hosts,
+                             PermissionIDSet* permissions) const override;
   void SetScriptingWhitelist(const ScriptingWhitelist& whitelist) override;
   const ScriptingWhitelist& GetScriptingWhitelist() const override;
   URLPatternSet GetPermittedChromeSchemeHosts(
@@ -45,9 +48,12 @@ class ChromeExtensionsClient : public ExtensionsClient {
   base::StringPiece GetAPISchema(const std::string& name) const override;
   void RegisterAPISchemaResources(ExtensionAPI* api) const override;
   bool ShouldSuppressFatalErrors() const override;
+  void RecordDidSuppressFatalError() override;
   std::string GetWebstoreBaseURL() const override;
   std::string GetWebstoreUpdateURL() const override;
   bool IsBlacklistUpdateURL(const GURL& url) const override;
+  std::set<base::FilePath> GetBrowserImagePaths(
+      const Extension* extension) override;
 
   // Get the LazyInstance for ChromeExtensionsClient.
   static ChromeExtensionsClient* GetInstance();

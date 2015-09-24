@@ -39,14 +39,14 @@ public:
         return adoptRefWillBeNoop(new SplitTextNodeCommand(node, offset));
     }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     SplitTextNodeCommand(PassRefPtrWillBeRawPtr<Text>, int offset);
 
-    virtual void doApply() override;
-    virtual void doUnapply() override;
-    virtual void doReapply() override;
+    void doApply() override;
+    void doUnapply() override;
+    void doReapply() override;
     void insertText1AndTrimText2();
 
     RefPtrWillBeMember<Text> m_text1;

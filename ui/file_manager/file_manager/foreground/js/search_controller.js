@@ -4,11 +4,11 @@
 
 /**
  * Controller for searching.
- * @param {SearchBox} searchBox Search box UI element.
- * @param {LocationLine} locationLine Location line UI element.
- * @param {DirectoryModel} directoryModel Directory model.
- * @param {{doAction: function(FileEntry)}} taskController Task controller to
- *     execute the selected item.
+ * @param {!SearchBox} searchBox Search box UI element.
+ * @param {!LocationLine} locationLine Location line UI element.
+ * @param {!DirectoryModel} directoryModel Directory model.
+ * @param {!TaskController} taskController Task controller to execute the
+ *     selected item.
  * @constructor
  */
 function SearchController(
@@ -38,7 +38,7 @@ function SearchController(
   this.volumeManager_ = volumeManager;
 
   /**
-   * @type {{doAction: function(FileEntry)}}
+   * @type {!TaskController}
    * @private
    */
   this.taskController_ = taskController;
@@ -47,6 +47,7 @@ function SearchController(
       SearchBox.EventType.TEXT_CHANGE, this.onTextChange_.bind(this));
   searchBox.addEventListener(
       SearchBox.EventType.ITEM_SELECT, this.onItemSelect_.bind(this));
+  directoryModel.addEventListener('directory-changed', this.clear.bind(this));
 }
 
 SearchController.prototype = {
@@ -150,7 +151,7 @@ SearchController.prototype.requestAutocompleteSuggestions_ = function() {
         // Discard results for previous requests and fire a new search
         // for the most recent query.
         if (searchString != this.lastAutocompleteQuery_) {
-          this.requestAutocompleteSuggestions_(this.lastAutocompleteQuery_);
+          this.requestAutocompleteSuggestions_();
           return;
         }
 
@@ -207,7 +208,7 @@ SearchController.prototype.onItemSelect_ = function() {
     if (!locationInfo ||
         (locationInfo.isRootEntry &&
          locationInfo.rootType === VolumeManagerCommon.RootType.DRIVE_OTHER)) {
-      this.taskController_.doAction(entry);
+      this.taskController_.doEntryAction(entry);
       return;
     }
     // If the parent entry can be /drive/other.
@@ -215,7 +216,7 @@ SearchController.prototype.onItemSelect_ = function() {
         parentEntry,
         function() {
           this.directoryModel_.selectEntry(entry);
-          this.taskController_.doAction(entry);
+          this.taskController_.doEntryAction(entry);
         }.bind(this));
   }.bind(this));
 };

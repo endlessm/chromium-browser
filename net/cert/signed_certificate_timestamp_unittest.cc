@@ -31,10 +31,10 @@ class SignedCertificateTimestampTest : public ::testing::Test {
 };
 
 TEST_F(SignedCertificateTimestampTest, PicklesAndUnpickles) {
-  Pickle pickle;
+  base::Pickle pickle;
 
   sample_sct_->Persist(&pickle);
-  PickleIterator iter(pickle);
+  base::PickleIterator iter(pickle);
 
   scoped_refptr<SignedCertificateTimestamp> unpickled_sct(
       SignedCertificateTimestamp::CreateFromPickle(&iter));
@@ -45,6 +45,17 @@ TEST_F(SignedCertificateTimestampTest, PicklesAndUnpickles) {
   ASSERT_FALSE(less_than(unpickled_sct, sample_sct_));
   ASSERT_EQ(sample_sct_->origin, unpickled_sct->origin);
   ASSERT_EQ(sample_sct_->log_description, unpickled_sct->log_description);
+}
+
+TEST_F(SignedCertificateTimestampTest, SCTsWithDifferentOriginsNotEqual) {
+  scoped_refptr<SignedCertificateTimestamp> another_sct;
+  GetX509CertSCT(&another_sct);
+  another_sct->origin = SignedCertificateTimestamp::SCT_FROM_TLS_EXTENSION;
+
+  SignedCertificateTimestamp::LessThan less_than;
+
+  ASSERT_TRUE(less_than(sample_sct_, another_sct) ||
+              less_than(another_sct, sample_sct_));
 }
 
 }  // namespace

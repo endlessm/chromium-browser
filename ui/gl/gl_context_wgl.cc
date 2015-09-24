@@ -6,8 +6,8 @@
 
 #include "ui/gl/gl_context_wgl.h"
 
-#include "base/debug/trace_event.h"
 #include "base/logging.h"
+#include "base/trace_event/trace_event.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_implementation.h"
 #include "ui/gl/gl_surface_wgl.h"
@@ -15,25 +15,7 @@
 namespace gfx {
 
 GLContextWGL::GLContextWGL(GLShareGroup* share_group)
-    : GLContextReal(share_group),
-      context_(NULL) {
-}
-
-GLContextWGL::~GLContextWGL() {
-  Destroy();
-}
-
-std::string GLContextWGL::GetExtensions() {
-  const char* extensions = NULL;
-  if (g_driver_wgl.fn.wglGetExtensionsStringARBFn)
-    extensions = wglGetExtensionsStringARB(GLSurfaceWGL::GetDisplayDC());
-  else if (g_driver_wgl.fn.wglGetExtensionsStringEXTFn)
-    extensions = wglGetExtensionsStringEXT();
-
-  if (extensions)
-    return GLContext::GetExtensions() + " " + extensions;
-
-  return GLContext::GetExtensions();
+    : GLContextReal(share_group), context_(nullptr) {
 }
 
 bool GLContextWGL::Initialize(
@@ -65,7 +47,7 @@ bool GLContextWGL::Initialize(
 void GLContextWGL::Destroy() {
   if (context_) {
     wglDeleteContext(context_);
-    context_ = NULL;
+    context_ = nullptr;
   }
 }
 
@@ -103,8 +85,8 @@ void GLContextWGL::ReleaseCurrent(GLSurface* surface) {
   if (!IsCurrent(surface))
     return;
 
-  SetCurrent(NULL);
-  wglMakeCurrent(NULL, NULL);
+  SetCurrent(nullptr);
+  wglMakeCurrent(nullptr, nullptr);
 }
 
 bool GLContextWGL::IsCurrent(GLSurface* surface) {
@@ -131,8 +113,8 @@ void* GLContextWGL::GetHandle() {
   return context_;
 }
 
-void GLContextWGL::SetSwapInterval(int interval) {
-  DCHECK(IsCurrent(NULL));
+void GLContextWGL::OnSetSwapInterval(int interval) {
+  DCHECK(IsCurrent(nullptr));
   if (gfx::g_driver_wgl.ext.b_WGL_EXT_swap_control) {
     wglSwapIntervalEXT(interval);
   } else {
@@ -140,6 +122,23 @@ void GLContextWGL::SetSwapInterval(int interval) {
           "Could not disable vsync: driver does not "
           "support WGL_EXT_swap_control";
   }
+}
+
+std::string GLContextWGL::GetExtensions() {
+  const char* extensions = nullptr;
+  if (g_driver_wgl.fn.wglGetExtensionsStringARBFn)
+    extensions = wglGetExtensionsStringARB(GLSurfaceWGL::GetDisplayDC());
+  else if (g_driver_wgl.fn.wglGetExtensionsStringEXTFn)
+    extensions = wglGetExtensionsStringEXT();
+
+  if (extensions)
+    return GLContext::GetExtensions() + " " + extensions;
+
+  return GLContext::GetExtensions();
+}
+
+GLContextWGL::~GLContextWGL() {
+  Destroy();
 }
 
 }  // namespace gfx

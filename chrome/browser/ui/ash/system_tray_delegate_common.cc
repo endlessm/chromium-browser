@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/ash/system_tray_delegate_common.h"
 
+#include "ash/networking_config_delegate.h"
 #include "ash/shell.h"
 #include "ash/shell_delegate.h"
 #include "ash/system/tray/system_tray.h"
@@ -21,6 +22,14 @@
 #include "chrome/grit/locale_settings.h"
 #include "content/public/browser/notification_service.h"
 #include "ui/base/l10n/l10n_util.h"
+
+namespace {
+
+ash::SystemTrayNotifier* GetSystemTrayNotifier() {
+  return ash::Shell::GetInstance()->system_tray_notifier();
+}
+
+}  // namespace
 
 SystemTrayDelegateCommon::SystemTrayDelegateCommon()
     : clock_type_(base::GetHourClockType()) {
@@ -52,32 +61,11 @@ ash::user::LoginStatus SystemTrayDelegateCommon::GetUserLoginStatus() const {
   return ash::user::LOGGED_IN_OWNER;
 }
 
-void SystemTrayDelegateCommon::ChangeProfilePicture() {
-}
-
-const std::string SystemTrayDelegateCommon::GetEnterpriseDomain() const {
-  return std::string();
-}
-
-const base::string16 SystemTrayDelegateCommon::GetEnterpriseMessage() const {
-  return base::string16();
-}
-
-const std::string SystemTrayDelegateCommon::GetSupervisedUserManager() const {
-  return std::string();
-}
-
-const base::string16 SystemTrayDelegateCommon::GetSupervisedUserManagerName()
-    const {
-  return base::string16();
-}
-
-const base::string16 SystemTrayDelegateCommon::GetSupervisedUserMessage()
-    const {
-  return base::string16();
-}
-
 bool SystemTrayDelegateCommon::IsUserSupervised() const {
+  return false;
+}
+
+bool SystemTrayDelegateCommon::IsUserChild() const {
   return false;
 }
 
@@ -90,29 +78,6 @@ base::HourClockType SystemTrayDelegateCommon::GetHourClockType() const {
   return clock_type_;
 }
 
-void SystemTrayDelegateCommon::ShowSettings() {
-}
-
-bool SystemTrayDelegateCommon::ShouldShowSettings() {
-  return true;
-}
-
-void SystemTrayDelegateCommon::ShowDateSettings() {
-}
-
-void SystemTrayDelegateCommon::ShowSetTimeDialog() {
-}
-
-void SystemTrayDelegateCommon::ShowNetworkSettings(
-    const std::string& service_path) {
-}
-
-void SystemTrayDelegateCommon::ShowBluetoothSettings() {
-}
-
-void SystemTrayDelegateCommon::ShowDisplaySettings() {
-}
-
 void SystemTrayDelegateCommon::ShowChromeSlow() {
 #if defined(OS_LINUX)
   chrome::ScopedTabbedBrowserDisplayer displayer(
@@ -121,166 +86,19 @@ void SystemTrayDelegateCommon::ShowChromeSlow() {
 #endif  // defined(OS_LINUX)
 }
 
-bool SystemTrayDelegateCommon::ShouldShowDisplayNotification() {
-  return false;
-}
-
-void SystemTrayDelegateCommon::ShowIMESettings() {
-}
-
 void SystemTrayDelegateCommon::ShowHelp() {
   chrome::ShowHelpForProfile(ProfileManager::GetLastUsedProfile(),
                              chrome::HOST_DESKTOP_TYPE_ASH,
                              chrome::HELP_SOURCE_MENU);
 }
 
-void SystemTrayDelegateCommon::ShowAccessibilityHelp() {
-}
-
-void SystemTrayDelegateCommon::ShowAccessibilitySettings() {
-}
-
-void SystemTrayDelegateCommon::ShowPublicAccountInfo() {
-}
-
-void SystemTrayDelegateCommon::ShowSupervisedUserInfo() {
-}
-
-void SystemTrayDelegateCommon::ShowEnterpriseInfo() {
-}
-
-void SystemTrayDelegateCommon::ShowUserLogin() {
-}
-
-bool SystemTrayDelegateCommon::ShowSpringChargerReplacementDialog() {
-  return false;
-}
-
-bool SystemTrayDelegateCommon::IsSpringChargerReplacementDialogVisible() {
-  return false;
-}
-
-bool SystemTrayDelegateCommon::HasUserConfirmedSafeSpringCharger() {
-  return false;
-}
-
-void SystemTrayDelegateCommon::ShutDown() {
-}
-
-void SystemTrayDelegateCommon::SignOut() {
-}
-
-void SystemTrayDelegateCommon::RequestLockScreen() {
-}
-
 void SystemTrayDelegateCommon::RequestRestartForUpdate() {
   chrome::AttemptRestart();
-}
-
-void SystemTrayDelegateCommon::GetAvailableBluetoothDevices(
-    ash::BluetoothDeviceList* list) {
-}
-
-void SystemTrayDelegateCommon::BluetoothStartDiscovering() {
-}
-
-void SystemTrayDelegateCommon::BluetoothStopDiscovering() {
-}
-
-void SystemTrayDelegateCommon::ConnectToBluetoothDevice(
-    const std::string& address) {
-}
-
-bool SystemTrayDelegateCommon::IsBluetoothDiscovering() {
-  return false;
-}
-
-void SystemTrayDelegateCommon::GetCurrentIME(ash::IMEInfo* info) {
-}
-
-void SystemTrayDelegateCommon::GetAvailableIMEList(ash::IMEInfoList* list) {
-}
-
-void SystemTrayDelegateCommon::GetCurrentIMEProperties(
-    ash::IMEPropertyInfoList* list) {
-}
-
-void SystemTrayDelegateCommon::SwitchIME(const std::string& ime_id) {
-}
-
-void SystemTrayDelegateCommon::ActivateIMEProperty(const std::string& key) {
-}
-
-void SystemTrayDelegateCommon::ManageBluetoothDevices() {
-}
-
-void SystemTrayDelegateCommon::ToggleBluetooth() {
-}
-
-void SystemTrayDelegateCommon::ShowOtherNetworkDialog(const std::string& type) {
-}
-
-bool SystemTrayDelegateCommon::GetBluetoothAvailable() {
-  return false;
-}
-
-bool SystemTrayDelegateCommon::GetBluetoothEnabled() {
-  return false;
-}
-
-bool SystemTrayDelegateCommon::GetBluetoothDiscovering() {
-  return false;
-}
-
-void SystemTrayDelegateCommon::ChangeProxySettings() {
-}
-
-ash::VolumeControlDelegate* SystemTrayDelegateCommon::GetVolumeControlDelegate()
-    const {
-  return NULL;
-}
-
-void SystemTrayDelegateCommon::SetVolumeControlDelegate(
-    scoped_ptr<ash::VolumeControlDelegate> delegate) {
-}
-
-bool SystemTrayDelegateCommon::GetSessionStartTime(
-    base::TimeTicks* session_start_time) {
-  return false;
-}
-
-bool SystemTrayDelegateCommon::GetSessionLengthLimit(
-    base::TimeDelta* session_length_limit) {
-  return false;
 }
 
 int SystemTrayDelegateCommon::GetSystemTrayMenuWidth() {
   return l10n_util::GetLocalizedContentsWidthInPixels(
       IDS_SYSTEM_TRAY_MENU_BUBBLE_WIDTH_PIXELS);
-}
-
-void SystemTrayDelegateCommon::ActiveUserWasChanged() {
-}
-
-bool SystemTrayDelegateCommon::IsSearchKeyMappedToCapsLock() {
-  return false;
-}
-
-ash::tray::UserAccountsDelegate*
-SystemTrayDelegateCommon::GetUserAccountsDelegate(const std::string& user_id) {
-  return NULL;
-}
-
-void SystemTrayDelegateCommon::AddCustodianInfoTrayObserver(
-    ash::CustodianInfoTrayObserver* observer) {
-}
-
-void SystemTrayDelegateCommon::RemoveCustodianInfoTrayObserver(
-    ash::CustodianInfoTrayObserver* observer) {
-}
-
-ash::SystemTrayNotifier* SystemTrayDelegateCommon::GetSystemTrayNotifier() {
-  return ash::Shell::GetInstance()->system_tray_notifier();
 }
 
 void SystemTrayDelegateCommon::UpdateClockType() {

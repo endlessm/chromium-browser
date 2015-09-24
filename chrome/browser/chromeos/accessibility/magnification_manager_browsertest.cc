@@ -13,7 +13,6 @@
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/accessibility/magnification_manager.h"
 #include "chrome/browser/chromeos/login/helper.h"
-#include "chrome/browser/chromeos/login/login_utils.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_switches.h"
@@ -150,15 +149,15 @@ class MockMagnificationObserver {
 class MagnificationManagerTest : public InProcessBrowserTest {
  protected:
   MagnificationManagerTest() {}
-  virtual ~MagnificationManagerTest() {}
+  ~MagnificationManagerTest() override {}
 
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(switches::kLoginManager);
     command_line->AppendSwitchASCII(switches::kLoginProfile,
                                     TestingProfile::kTestUserProfileDir);
   }
 
-  virtual void SetUpOnMainThread() override {
+  void SetUpOnMainThread() override {
     // Set the login-screen profile.
     MagnificationManager::Get()->SetProfileForTest(
         ProfileManager::GetActiveUserProfile());

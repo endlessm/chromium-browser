@@ -103,6 +103,36 @@ bool ConvertToLongPath(const base::string16& short_path,
 
 }  // namespace
 
+ModuleEnumerator::Module::Module() {
+}
+
+ModuleEnumerator::Module::Module(const Module& rhs) = default;
+
+ModuleEnumerator::Module::Module(ModuleType type,
+                                 ModuleStatus status,
+                                 const base::string16& location,
+                                 const base::string16& name,
+                                 const base::string16& product_name,
+                                 const base::string16& description,
+                                 const base::string16& version,
+                                 const base::string16& digital_signer,
+                                 RecommendedAction recommended_action)
+    : type(type),
+      status(status),
+      location(location),
+      name(name),
+      product_name(product_name),
+      description(description),
+      version(version),
+      digital_signer(digital_signer),
+      recommended_action(recommended_action),
+      duplicate_count(0),
+      normalized(false) {
+}
+
+ModuleEnumerator::Module::~Module() {
+}
+
 // The browser process module blacklist. This lists modules that are known
 // to cause compatibility issues within the browser process. When adding to this
 // list, make sure that all paths are lower-case, in long pathname form, end
@@ -430,9 +460,6 @@ ModuleEnumerator::ModuleEnumerator(EnumerateModulesModel* observer)
       callback_thread_id_(BrowserThread::ID_COUNT) {
 }
 
-ModuleEnumerator::~ModuleEnumerator() {
-}
-
 void ModuleEnumerator::ScanNow(ModulesVector* list, bool limited_mode) {
   enumerated_modules_ = list;
 
@@ -446,6 +473,9 @@ void ModuleEnumerator::ScanNow(ModulesVector* list, bool limited_mode) {
     // Run it synchronously.
     ScanImpl();
   }
+}
+
+ModuleEnumerator::~ModuleEnumerator() {
 }
 
 void ModuleEnumerator::ScanImpl() {
@@ -659,8 +689,10 @@ void ModuleEnumerator::CollapsePath(Module* entry) {
   base::string16 location = entry->location;
   for (PathMapping::const_iterator mapping = path_mapping_.begin();
        mapping != path_mapping_.end(); ++mapping) {
-    base::string16 prefix = mapping->first;
-    if (StartsWith(location, prefix, false)) {
+    const base::string16& prefix = mapping->first;
+    if (base::StartsWith(base::i18n::ToLower(location),
+                         base::i18n::ToLower(prefix),
+                         base::CompareCase::SENSITIVE)) {
       base::string16 new_location = mapping->second +
                               location.substr(prefix.length() - 1);
       size_t length = new_location.length() - mapping->second.length();
@@ -704,8 +736,10 @@ void ModuleEnumerator::MatchAgainstBlacklist() {
     // for blacklisting individually. Mark them as suspicious if we haven't
     // classified them as bad yet.
     if (module->status == NOT_MATCHED || module->status == GOOD) {
-      if (StartsWith(module->location, L"%temp%", false) ||
-          StartsWith(module->location, L"%tmp%", false)) {
+      if (base::StartsWith(module->location, L"%temp%",
+                           base::CompareCase::INSENSITIVE_ASCII) ||
+          base::StartsWith(module->location, L"%tmp%",
+                           base::CompareCase::INSENSITIVE_ASCII)) {
         module->status = SUSPECTED_BAD;
       }
     }
@@ -838,7 +872,7 @@ void EnumerateModulesModel::ScanNow() {
 
   // Instruct the ModuleEnumerator class to load this on the File thread.
   // ScanNow does not block.
-  if (!module_enumerator_)
+  if (!module_enumerator_.get())
     module_enumerator_ = new ModuleEnumerator(this);
   module_enumerator_->ScanNow(&enumerated_modules_, limited_mode_);
 }
@@ -865,16 +899,16 @@ base::ListValue* EnumerateModulesModel::GetModuleList() const {
     if ((module->type & ModuleEnumerator::LOADED_MODULE) == 0) {
       // Module is not loaded, denote type of module.
       if (module->type & ModuleEnumerator::SHELL_EXTENSION)
-        type_string = base::ASCIIToWide("Shell Extension");
+        type_string = L"Shell Extension";
       if (module->type & ModuleEnumerator::WINSOCK_MODULE_REGISTRATION) {
         if (!type_string.empty())
-          type_string += base::ASCIIToWide(", ");
-        type_string += base::ASCIIToWide("Winsock");
+          type_string += L", ";
+        type_string += L"Winsock";
       }
       // Must be one of the above type.
       DCHECK(!type_string.empty());
       if (!limited_mode_) {
-        type_string += base::ASCIIToWide(" -- ");
+        type_string += L" -- ";
         type_string += l10n_util::GetStringUTF16(IDS_CONFLICTS_NOT_LOADED_YET);
       }
     }
@@ -890,10 +924,10 @@ base::ListValue* EnumerateModulesModel::GetModuleList() const {
     if (!limited_mode_) {
       // Figure out the possible resolution help string.
       base::string16 actions;
-      base::string16 separator = base::ASCIIToWide(" ") +
+      base::string16 separator = L" " +
           l10n_util::GetStringUTF16(
               IDS_CONFLICTS_CHECK_POSSIBLE_ACTION_SEPARATOR) +
-          base::ASCIIToWide(" ");
+          L" ";
 
       if (module->recommended_action & ModuleEnumerator::INVESTIGATING) {
         actions = l10n_util::GetStringUTF16(
@@ -918,12 +952,12 @@ base::ListValue* EnumerateModulesModel::GetModuleList() const {
               IDS_CONFLICTS_CHECK_POSSIBLE_ACTION_DISABLE);
         }
       }
-      base::string16 possible_resolution =
-          actions.empty() ? base::ASCIIToWide("")
-                          : l10n_util::GetStringUTF16(
-                                IDS_CONFLICTS_CHECK_POSSIBLE_ACTIONS) +
-          base::ASCIIToWide(" ") +
-          actions;
+      base::string16 possible_resolution;
+      if (!actions.empty()) {
+        possible_resolution =
+            l10n_util::GetStringUTF16(IDS_CONFLICTS_CHECK_POSSIBLE_ACTIONS) +
+            L" " + actions;
+      }
       data->SetString("possibleResolution", possible_resolution);
       data->SetString("help_url",
                       ConstructHelpCenterUrl(*module).spec().c_str());
@@ -960,14 +994,13 @@ GURL EnumerateModulesModel::GetFirstNotableConflict() {
   return url;
 }
 
-
 EnumerateModulesModel::EnumerateModulesModel()
     : limited_mode_(false),
       scanning_(false),
       conflict_notification_acknowledged_(false),
       confirmed_bad_modules_detected_(0),
-      suspected_bad_modules_detected_(0),
-      modules_to_notify_about_(0) {
+      modules_to_notify_about_(0),
+      suspected_bad_modules_detected_(0) {
   lock = new base::Lock();
 }
 
@@ -979,8 +1012,6 @@ void EnumerateModulesModel::MaybePostScanningTask() {
   static bool done = false;
   if (!done) {
     done = true;
-
-    const CommandLine& cmd_line = *CommandLine::ForCurrentProcess();
     if (base::win::GetVersion() == base::win::VERSION_XP) {
       check_modules_timer_.Start(FROM_HERE,
           base::TimeDelta::FromMilliseconds(kModuleCheckDelayMs),

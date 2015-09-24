@@ -11,16 +11,23 @@
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_vector.h"
 #include "base/values.h"
+#include "chrome/browser/safe_browsing/incident_reporting/incident.h"
+#include "chrome/browser/safe_browsing/incident_reporting/mock_incident_receiver.h"
 #include "chrome/common/safe_browsing/csd.pb.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+using ::testing::_;
+using ::testing::IsNull;
+using ::testing::NiceMock;
+using ::testing::WithArg;
 
 // A basic test harness that creates a delegate instance for which it stores all
 // incidents. Tests can push data to the delegate and verify that the test
 // instance was provided with the expected data.
 class PreferenceValidationDelegateTest : public testing::Test {
  protected:
-  typedef ScopedVector<safe_browsing::ClientIncidentReport_IncidentData>
-      IncidentVector;
+  typedef ScopedVector<safe_browsing::Incident> IncidentVector;
 
   PreferenceValidationDelegateTest()
       : kPrefPath_("atomic.pref"),
@@ -30,14 +37,12 @@ class PreferenceValidationDelegateTest : public testing::Test {
     testing::Test::SetUp();
     invalid_keys_.push_back(std::string("one"));
     invalid_keys_.push_back(std::string("two"));
+    scoped_ptr<safe_browsing::MockIncidentReceiver> receiver(
+        new NiceMock<safe_browsing::MockIncidentReceiver>());
+    ON_CALL(*receiver, DoAddIncidentForProfile(IsNull(), _))
+        .WillByDefault(WithArg<1>(TakeIncidentToVector(&incidents_)));
     instance_.reset(new safe_browsing::PreferenceValidationDelegate(
-        base::Bind(&PreferenceValidationDelegateTest::AddIncident,
-                   base::Unretained(this))));
-  }
-
-  void AddIncident(
-      scoped_ptr<safe_browsing::ClientIncidentReport_IncidentData> data) {
-    incidents_.push_back(data.release());
+        nullptr, receiver.Pass()));
   }
 
   static void ExpectValueStatesEquate(
@@ -85,9 +90,9 @@ TEST_F(PreferenceValidationDelegateTest, NullValue) {
   instance_->OnAtomicPreferenceValidation(kPrefPath_,
                                           NULL,
                                           PrefHashStoreTransaction::CLEARED,
-                                          TrackedPreferenceHelper::DONT_RESET);
-  safe_browsing::ClientIncidentReport_IncidentData* incident =
-      incidents_.back();
+                                          false /* is_personal */);
+  scoped_ptr<safe_browsing::ClientIncidentReport_IncidentData> incident(
+      incidents_.back()->TakePayload());
   EXPECT_FALSE(incident->tracked_preference().has_atomic_value());
   EXPECT_EQ(
       safe_browsing::
@@ -113,7 +118,7 @@ class PreferenceValidationDelegateValues
     using base::Value;
     switch (value_type) {
       case Value::TYPE_NULL:
-        return make_scoped_ptr(Value::CreateNullValue());
+        return Value::CreateNullValue();
       case Value::TYPE_BOOLEAN:
         return scoped_ptr<Value>(new base::FundamentalValue(false));
       case Value::TYPE_INTEGER:
@@ -148,10 +153,10 @@ TEST_P(PreferenceValidationDelegateValues, Value) {
   instance_->OnAtomicPreferenceValidation(kPrefPath_,
                                           MakeValue(value_type_).get(),
                                           PrefHashStoreTransaction::CLEARED,
-                                          TrackedPreferenceHelper::DONT_RESET);
+                                          false /* is_personal */);
   ASSERT_EQ(1U, incidents_.size());
-  safe_browsing::ClientIncidentReport_IncidentData* incident =
-      incidents_.back();
+  scoped_ptr<safe_browsing::ClientIncidentReport_IncidentData> incident(
+      incidents_.back()->TakePayload());
   EXPECT_EQ(std::string(expected_value_),
             incident->tracked_preference().atomic_value());
 }
@@ -195,7 +200,7 @@ TEST_P(PreferenceValidationDelegateNoIncident, Atomic) {
   instance_->OnAtomicPreferenceValidation(kPrefPath_,
                                           null_value_.get(),
                                           value_state_,
-                                          TrackedPreferenceHelper::DONT_RESET);
+                                          false /* is_personal */);
   EXPECT_EQ(0U, incidents_.size());
 }
 
@@ -204,7 +209,7 @@ TEST_P(PreferenceValidationDelegateNoIncident, Split) {
                                          &dict_value_,
                                          invalid_keys_,
                                          value_state_,
-                                         TrackedPreferenceHelper::DONT_RESET);
+                                         false /* is_personal */);
   EXPECT_EQ(0U, incidents_.size());
 }
 
@@ -216,54 +221,60 @@ INSTANTIATE_TEST_CASE_P(
                     PrefHashStoreTransaction::TRUSTED_UNKNOWN_VALUE));
 
 // Tests that incidents are reported for relevant combinations of ValueState and
-// ResetAction.
+// impersonal/personal.
 class PreferenceValidationDelegateWithIncident
     : public PreferenceValidationDelegateTest,
       public testing::WithParamInterface<
-          std::tr1::tuple<PrefHashStoreTransaction::ValueState,
-                          TrackedPreferenceHelper::ResetAction> > {
+          std::tr1::tuple<PrefHashStoreTransaction::ValueState, bool>> {
  protected:
   void SetUp() override {
     PreferenceValidationDelegateTest::SetUp();
     value_state_ = std::tr1::get<0>(GetParam());
-    reset_action_ = std::tr1::get<1>(GetParam());
+    is_personal_ = std::tr1::get<1>(GetParam());
   }
 
   PrefHashStoreTransaction::ValueState value_state_;
-  TrackedPreferenceHelper::ResetAction reset_action_;
+  bool is_personal_;
 };
 
 TEST_P(PreferenceValidationDelegateWithIncident, Atomic) {
   instance_->OnAtomicPreferenceValidation(
-      kPrefPath_, null_value_.get(), value_state_, reset_action_);
+      kPrefPath_, null_value_.get(), value_state_, is_personal_);
   ASSERT_EQ(1U, incidents_.size());
-  safe_browsing::ClientIncidentReport_IncidentData* incident =
-      incidents_.back();
+  scoped_ptr<safe_browsing::ClientIncidentReport_IncidentData> incident(
+      incidents_.back()->TakePayload());
   EXPECT_TRUE(incident->has_tracked_preference());
   const safe_browsing::
       ClientIncidentReport_IncidentData_TrackedPreferenceIncident& tp_incident =
           incident->tracked_preference();
   EXPECT_EQ(kPrefPath_, tp_incident.path());
   EXPECT_EQ(0, tp_incident.split_key_size());
-  EXPECT_TRUE(tp_incident.has_atomic_value());
-  EXPECT_EQ(std::string("null"), tp_incident.atomic_value());
+  if (!is_personal_) {
+    EXPECT_TRUE(tp_incident.has_atomic_value());
+    EXPECT_EQ(std::string("null"), tp_incident.atomic_value());
+  } else {
+    EXPECT_FALSE(tp_incident.has_atomic_value());
+  }
   EXPECT_TRUE(tp_incident.has_value_state());
   ExpectValueStatesEquate(value_state_, tp_incident.value_state());
 }
 
 TEST_P(PreferenceValidationDelegateWithIncident, Split) {
   instance_->OnSplitPreferenceValidation(
-      kPrefPath_, &dict_value_, invalid_keys_, value_state_, reset_action_);
+      kPrefPath_, &dict_value_, invalid_keys_, value_state_, is_personal_);
   ASSERT_EQ(1U, incidents_.size());
-  safe_browsing::ClientIncidentReport_IncidentData* incident =
-      incidents_.back();
+  scoped_ptr<safe_browsing::ClientIncidentReport_IncidentData> incident(
+      incidents_.back()->TakePayload());
   EXPECT_TRUE(incident->has_tracked_preference());
   const safe_browsing::
       ClientIncidentReport_IncidentData_TrackedPreferenceIncident& tp_incident =
           incident->tracked_preference();
   EXPECT_EQ(kPrefPath_, tp_incident.path());
   EXPECT_FALSE(tp_incident.has_atomic_value());
-  ExpectKeysEquate(invalid_keys_, tp_incident.split_key());
+  if (!is_personal_)
+    ExpectKeysEquate(invalid_keys_, tp_incident.split_key());
+  else
+    EXPECT_EQ(0, tp_incident.split_key_size());
   EXPECT_TRUE(tp_incident.has_value_state());
   ExpectValueStatesEquate(value_state_, tp_incident.value_state());
 }
@@ -275,5 +286,4 @@ INSTANTIATE_TEST_CASE_P(
         testing::Values(PrefHashStoreTransaction::CLEARED,
                         PrefHashStoreTransaction::CHANGED,
                         PrefHashStoreTransaction::UNTRUSTED_UNKNOWN_VALUE),
-        testing::Values(TrackedPreferenceHelper::WANTED_RESET,
-                        TrackedPreferenceHelper::DO_RESET)));
+        testing::Bool()));

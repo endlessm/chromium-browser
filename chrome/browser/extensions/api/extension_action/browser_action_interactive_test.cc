@@ -7,7 +7,7 @@
 #include "chrome/browser/extensions/extension_action_manager.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_service.h"
-#include "chrome/browser/extensions/extension_tab_util.h"
+#include "chrome/browser/extensions/extension_toolbar_model.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -80,7 +80,7 @@ IN_PROC_BROWSER_TEST_F(BrowserActionInteractiveTest, TestOpenPopup) {
   if (!ShouldRunPopupTest())
     return;
 
-  BrowserActionTestUtil browserActionBar = BrowserActionTestUtil(browser());
+  BrowserActionTestUtil browserActionBar(browser());
   // Setup extension message listener to wait for javascript to finish running.
   ExtensionTestMessageListener listener("ready", true);
   {
@@ -100,12 +100,9 @@ IN_PROC_BROWSER_TEST_F(BrowserActionInteractiveTest, TestOpenPopup) {
         browser()->OpenURL(content::OpenURLParams(
             GURL("about:"), content::Referrer(), NEW_WINDOW,
             ui::PAGE_TRANSITION_TYPED, false)));
-#if defined(OS_WIN)
-    // Hide all the buttons to test that it opens even when browser action is
-    // in the overflow bucket.
-    // TODO(justinlin): Implement for other platforms.
-    browserActionBar.SetIconVisibilityCount(0);
-#endif
+    // Hide all the buttons to test that it opens even when the browser action
+    // is in the overflow bucket.
+    extensions::ExtensionToolbarModel::Get(profile())->SetVisibleIconCount(0);
     frame_observer.Wait();
   }
 
@@ -149,6 +146,28 @@ IN_PROC_BROWSER_TEST_F(BrowserActionInteractiveTest, TestOpenPopupIncognito) {
   // Incognito window should have a popup.
   EXPECT_TRUE(BrowserActionTestUtil(BrowserList::GetInstance(
       chrome::GetActiveDesktop())->GetLastActive()).HasPopup());
+}
+
+// Tests that an extension can open a popup in the last active incognito window
+// even from a background page with a non-incognito profile.
+// (crbug.com/448853)
+IN_PROC_BROWSER_TEST_F(BrowserActionInteractiveTest,
+                       TestOpenPopupIncognitoFromBackground) {
+  if (!ShouldRunPopupTest())
+    return;
+
+  const Extension* extension =
+      LoadExtensionIncognito(test_data_dir_.AppendASCII("browser_action").
+          AppendASCII("open_popup_background"));
+  ASSERT_TRUE(extension);
+  ExtensionTestMessageListener listener(false);
+  listener.set_extension_id(extension->id());
+
+  Browser* incognito_browser =
+      ui_test_utils::OpenURLOffTheRecord(profile(), GURL("chrome://newtab/"));
+  listener.WaitUntilSatisfied();
+  EXPECT_EQ(std::string("opened"), listener.message());
+  EXPECT_TRUE(BrowserActionTestUtil(incognito_browser).HasPopup());
 }
 
 #if defined(OS_LINUX)
@@ -336,10 +355,9 @@ IN_PROC_BROWSER_TEST_F(BrowserActionInteractiveTest,
   EXPECT_EQ(TRUE, ::IsWindow(hwnd));
 
   // Create a new browser window to prevent the message loop from terminating.
-  Browser* new_browser = chrome::FindBrowserWithWebContents(
-      browser()->OpenURL(content::OpenURLParams(
-          GURL("about:"), content::Referrer(), NEW_WINDOW,
-          ui::PAGE_TRANSITION_TYPED, false)));
+  browser()->OpenURL(content::OpenURLParams(GURL("about:"), content::Referrer(),
+                                            NEW_WINDOW,
+                                            ui::PAGE_TRANSITION_TYPED, false));
 
   // Forcibly closing the browser HWND should not cause a crash.
   EXPECT_EQ(TRUE, ::CloseWindow(hwnd));

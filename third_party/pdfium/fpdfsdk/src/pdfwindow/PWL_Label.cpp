@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/pdfwindow/PDFWindow.h"
@@ -31,9 +31,9 @@ CFX_ByteString CPWL_Label::GetClassName() const
 void CPWL_Label::OnCreated()
 {
 	SetParamByFlag();
-	SetFontSize(this->GetCreationParam().fFontSize);
+	SetFontSize(GetCreationParam().fFontSize);
 
-	m_pEdit->SetFontMap(this->GetFontMap());
+	m_pEdit->SetFontMap(GetFontMap());
 	m_pEdit->Initialize();
 
 	if (HasFlag(PES_TEXTOVERFLOW))
@@ -43,7 +43,7 @@ void CPWL_Label::OnCreated()
 	}
 }
 
-void CPWL_Label::SetText(FX_LPCWSTR csText)
+void CPWL_Label::SetText(const FX_WCHAR* csText)
 {
 	m_pEdit->SetText(csText);
 }
@@ -64,7 +64,7 @@ FX_FLOAT CPWL_Label::GetFontSize() const
 }
 
 void CPWL_Label::SetParamByFlag()
-{	
+{
 	if (HasFlag(PES_LEFT))
 	{
 		m_pEdit->SetAlignmentH(0);
@@ -127,12 +127,12 @@ void CPWL_Label::DrawThisAppearance(CFX_RenderDevice* pDevice, CPDF_Matrix* pUse
 	}
 IFX_SystemHandler* pSysHandler = GetSystemHandler();
 	IFX_Edit::DrawEdit(pDevice, pUser2Device, m_pEdit,
-		CPWL_Utils::PWLColorToFXColor(GetTextColor(), this->GetTransparency()),
-		CPWL_Utils::PWLColorToFXColor(GetTextStrokeColor(), this->GetTransparency()),
+		CPWL_Utils::PWLColorToFXColor(GetTextColor(), GetTransparency()),
+		CPWL_Utils::PWLColorToFXColor(GetTextStrokeColor(), GetTransparency()),
 		rcClip, CPDF_Point(0.0f,0.0f), pRange,pSysHandler, NULL);
 }
 
-void CPWL_Label::SetHorzScale(FX_INT32 nHorzScale)
+void CPWL_Label::SetHorzScale(int32_t nHorzScale)
 {
 	m_pEdit->SetHorzScale(nHorzScale);
 }
@@ -158,7 +158,7 @@ CFX_ByteString CPWL_Label::GetTextAppearanceStream(const CPDF_Point & ptOffset) 
 {
 	CFX_ByteTextBuf sRet;
 	CFX_ByteString sEdit = CPWL_Utils::GetEditAppStream(m_pEdit,ptOffset);
-	
+
 	if (sEdit.GetLength() > 0)
 	{
 		sRet << "BT\n" << CPWL_Utils::GetColorAppStream(GetTextColor()) << sEdit << "ET\n";
@@ -172,12 +172,12 @@ CFX_WideString CPWL_Label::GetText() const
 	return m_pEdit->GetText();
 }
 
-void CPWL_Label::SetLimitChar(FX_INT32 nLimitChar)
+void CPWL_Label::SetLimitChar(int32_t nLimitChar)
 {
 	m_pEdit->SetLimitChar(nLimitChar);
 }
 
-FX_INT32 CPWL_Label::GetTotalWords()
+int32_t CPWL_Label::GetTotalWords()
 {
 	if (m_pEdit)
 		return m_pEdit->GetTotalWords();

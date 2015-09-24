@@ -4,7 +4,7 @@
 
 #include "content/browser/service_worker/service_worker_controllee_request_handler.h"
 
-#include "base/debug/trace_event.h"
+#include "base/trace_event/trace_event.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_metrics.h"
 #include "content/browser/service_worker/service_worker_provider_host.h"
@@ -15,6 +15,7 @@
 #include "content/common/service_worker/service_worker_types.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/common/content_client.h"
+#include "content/public/common/resource_response_info.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_util.h"
 #include "net/url_request/url_request.h"
@@ -42,8 +43,8 @@ ServiceWorkerControlleeRequestHandler::ServiceWorkerControlleeRequestHandler(
       request_context_type_(request_context_type),
       frame_type_(frame_type),
       body_(body),
-      weak_factory_(this) {
-}
+      skip_service_worker_(false),
+      weak_factory_(this) {}
 
 ServiceWorkerControlleeRequestHandler::
     ~ServiceWorkerControlleeRequestHandler() {
@@ -64,6 +65,12 @@ net::URLRequestJob* ServiceWorkerControlleeRequestHandler::MaybeCreateJob(
     net::URLRequest* request,
     net::NetworkDelegate* network_delegate,
     ResourceContext* resource_context) {
+  if (job_.get() && worker_start_time_.is_null()) {
+    // Save worker timings of the first job.
+    worker_start_time_ = job_->worker_start_time();
+    worker_ready_time_ = job_->worker_ready_time();
+  }
+
   if (!context_ || !provider_host_) {
     // We can't do anything other than to fall back to network.
     job_ = NULL;
@@ -79,23 +86,18 @@ net::URLRequestJob* ServiceWorkerControlleeRequestHandler::MaybeCreateJob(
 
   // We've come here by restart, we already have original request and it
   // tells we should fallback to network. (Case B-c)
-  if (job_.get() && job_->ShouldFallbackToNetwork()) {
-    job_ = NULL;
+  if ((job_.get() && job_->ShouldFallbackToNetwork()) || skip_service_worker_) {
+    FallbackToNetwork();
     return NULL;
   }
 
   // It's for original request (A) or redirect case (B-a or B-b).
   DCHECK(!job_.get() || job_->ShouldForwardToServiceWorker());
 
-  job_ = new ServiceWorkerURLRequestJob(request,
-                                        network_delegate,
-                                        provider_host_,
-                                        blob_storage_context_,
-                                        request_mode_,
-                                        credentials_mode_,
-                                        request_context_type_,
-                                        frame_type_,
-                                        body_);
+  job_ = new ServiceWorkerURLRequestJob(
+      request, network_delegate, provider_host_, blob_storage_context_,
+      resource_context, request_mode_, credentials_mode_,
+      is_main_resource_load_, request_context_type_, frame_type_, body_);
   resource_context_ = resource_context;
 
   if (is_main_resource_load_)
@@ -107,7 +109,7 @@ net::URLRequestJob* ServiceWorkerControlleeRequestHandler::MaybeCreateJob(
     // If we know we can fallback to network at this point (in case
     // the storage lookup returned immediately), just return NULL here to
     // fallback to network.
-    job_ = NULL;
+    FallbackToNetwork();
     return NULL;
   }
 
@@ -115,26 +117,21 @@ net::URLRequestJob* ServiceWorkerControlleeRequestHandler::MaybeCreateJob(
 }
 
 void ServiceWorkerControlleeRequestHandler::GetExtraResponseInfo(
-    bool* was_fetched_via_service_worker,
-    bool* was_fallback_required_by_service_worker,
-    GURL* original_url_via_service_worker,
-    blink::WebServiceWorkerResponseType* response_type_via_service_worker,
-    base::TimeTicks* fetch_start_time,
-    base::TimeTicks* fetch_ready_time,
-    base::TimeTicks* fetch_end_time) const {
+    ResourceResponseInfo* response_info) const {
   if (!job_.get()) {
-    *was_fetched_via_service_worker = false;
-    *was_fallback_required_by_service_worker = false;
-    *original_url_via_service_worker = GURL();
+    response_info->was_fetched_via_service_worker = false;
+    response_info->was_fallback_required_by_service_worker = false;
+    response_info->original_url_via_service_worker = GURL();
+    response_info->service_worker_start_time = worker_start_time_;
+    response_info->service_worker_ready_time = worker_ready_time_;
     return;
   }
-  job_->GetExtraResponseInfo(was_fetched_via_service_worker,
-                             was_fallback_required_by_service_worker,
-                             original_url_via_service_worker,
-                             response_type_via_service_worker,
-                             fetch_start_time,
-                             fetch_ready_time,
-                             fetch_end_time);
+  job_->GetExtraResponseInfo(response_info);
+  if (!worker_start_time_.is_null()) {
+    // If we have worker timings from previous job, use it.
+    response_info->service_worker_start_time = worker_start_time_;
+    response_info->service_worker_ready_time = worker_ready_time_;
+  }
 }
 
 void ServiceWorkerControlleeRequestHandler::PrepareForMainResource(
@@ -155,13 +152,12 @@ void ServiceWorkerControlleeRequestHandler::PrepareForMainResource(
   // registration while we're finding an existing registration.
   provider_host_->SetAllowAssociation(false);
 
-  GURL stripped_url = net::SimplifyUrlForRequest(request->url());
-  provider_host_->SetDocumentUrl(stripped_url);
+  stripped_url_ = net::SimplifyUrlForRequest(request->url());
+  provider_host_->SetDocumentUrl(stripped_url_);
   provider_host_->SetTopmostFrameUrl(request->first_party_for_cookies());
   context_->storage()->FindRegistrationForDocument(
-      stripped_url,
-      base::Bind(&self::DidLookupRegistrationForMainResource,
-                 weak_factory_.GetWeakPtr()));
+      stripped_url_, base::Bind(&self::DidLookupRegistrationForMainResource,
+                                weak_factory_.GetWeakPtr()));
 }
 
 void
@@ -183,9 +179,9 @@ ServiceWorkerControlleeRequestHandler::DidLookupRegistrationForMainResource(
   DCHECK(registration.get());
 
   if (!GetContentClient()->browser()->AllowServiceWorker(
-          registration->pattern(),
-          provider_host_->topmost_frame_url(),
-          resource_context_)) {
+          registration->pattern(), provider_host_->topmost_frame_url(),
+          resource_context_, provider_host_->process_id(),
+          provider_host_->frame_id())) {
     job_->FallbackToNetwork();
     TRACE_EVENT_ASYNC_END2(
         "ServiceWorker",
@@ -237,9 +233,10 @@ ServiceWorkerControlleeRequestHandler::DidLookupRegistrationForMainResource(
     return;
   }
 
-  ServiceWorkerMetrics::CountControlledPageLoad();
+  ServiceWorkerMetrics::CountControlledPageLoad(stripped_url_);
 
-  provider_host_->AssociateRegistration(registration.get());
+  provider_host_->AssociateRegistration(registration.get(),
+                                        false /* notify_controllerchange */);
   job_->ForwardToServiceWorker();
   TRACE_EVENT_ASYNC_END2(
       "ServiceWorker",
@@ -262,9 +259,10 @@ void ServiceWorkerControlleeRequestHandler::OnVersionStatusChanged(
     return;
   }
 
-  ServiceWorkerMetrics::CountControlledPageLoad();
+  ServiceWorkerMetrics::CountControlledPageLoad(stripped_url_);
 
-  provider_host_->AssociateRegistration(registration);
+  provider_host_->AssociateRegistration(registration,
+                                        false /* notify_controllerchange */);
   job_->ForwardToServiceWorker();
 }
 
@@ -273,6 +271,15 @@ void ServiceWorkerControlleeRequestHandler::PrepareForSubResource() {
   DCHECK(context_);
   DCHECK(provider_host_->active_version());
   job_->ForwardToServiceWorker();
+}
+
+void ServiceWorkerControlleeRequestHandler::FallbackToNetwork() {
+  // Once a subresource request was fallbacked to the network, we set
+  // |skip_service_worker_| because the request should not go to the service
+  // worker.
+  if (!is_main_resource_load_)
+    skip_service_worker_ = true;
+  job_ = NULL;
 }
 
 }  // namespace content

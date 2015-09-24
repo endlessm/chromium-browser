@@ -12,12 +12,18 @@ import android.util.Log;
 
 import com.google.ipc.invalidation.external.client.contrib.MultiplexingGcmListener;
 
-import org.chromium.base.CommandLine;
 import org.chromium.base.ObserverList;
 import org.chromium.base.VisibleForTesting;
-import org.chromium.sync.SyncSwitches;
+import org.chromium.sync.AndroidSyncSettings;
 
+/**
+ * Caches the signed-in username in the app prefs.
+ */
 public class ChromeSigninController {
+
+    /**
+     * Interface for listening to signin events from ChromeSigninController.
+     */
     public interface Listener {
         /**
          * Called when the user signs out of Chrome.
@@ -42,6 +48,7 @@ public class ChromeSigninController {
 
     private ChromeSigninController(Context context) {
         mApplicationContext = context.getApplicationContext();
+        AndroidSyncSettings.updateAccount(context, getSignedInUser());
     }
 
     /**
@@ -75,6 +82,8 @@ public class ChromeSigninController {
         PreferenceManager.getDefaultSharedPreferences(mApplicationContext).edit()
                 .putString(SIGNED_IN_ACCOUNT_KEY, accountName)
                 .apply();
+        // TODO(maxbogue): Move this to SigninManager.
+        AndroidSyncSettings.updateAccount(mApplicationContext, getSignedInUser());
     }
 
     public void clearSignedInUser() {
@@ -116,15 +125,9 @@ public class ChromeSigninController {
         new AsyncTask<Void, Void, Void>() {
             @Override
             protected Void doInBackground(Void... arg0) {
-                if (CommandLine.getInstance().hasSwitch(
-                        SyncSwitches.DISABLE_SYNC_GCM_IN_ORDER_TO_TRY_PUSH_API)) {
-                    Log.w(TAG, "Sync GCM notifications disabled in order to try Push API!");
-                    return null;
-                }
                 try {
                     String regId = MultiplexingGcmListener.initializeGcm(mApplicationContext);
-                    if (!regId.isEmpty())
-                        Log.d(TAG, "Already registered with GCM");
+                    if (!regId.isEmpty()) Log.d(TAG, "Already registered with GCM");
                 } catch (IllegalStateException exception) {
                     Log.w(TAG, "Application manifest does not correctly configure GCM; "
                             + "sync notifications will not work", exception);
@@ -135,5 +138,10 @@ public class ChromeSigninController {
                 return null;
             }
         }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    }
+
+    @VisibleForTesting
+    public boolean isGcmInitialized() {
+        return mGcmInitialized;
     }
 }

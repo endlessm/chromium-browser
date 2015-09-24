@@ -12,14 +12,10 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
+#include "net/cert/x509_certificate.h"
 
 namespace content {
 class BrowserContext;
-}
-
-namespace net {
-class X509Certificate;
-typedef std::vector<scoped_refptr<X509Certificate> > CertificateList;
 }
 
 namespace chromeos {
@@ -37,10 +33,24 @@ extern const char kTokenIdSystem[];
 
 // Supported hash algorithms.
 enum HashAlgorithm {
+  HASH_ALGORITHM_NONE,  // The value if no hash function is selected.
   HASH_ALGORITHM_SHA1,
   HASH_ALGORITHM_SHA256,
   HASH_ALGORITHM_SHA384,
   HASH_ALGORITHM_SHA512
+};
+
+struct ClientCertificateRequest {
+  ClientCertificateRequest();
+  ~ClientCertificateRequest();
+
+  // The list of the types of certificates requested, sorted in order of the
+  // server's preference.
+  std::vector<net::X509Certificate::PublicKeyType> certificate_key_types;
+
+  // List of distinguished names of certificate authorities allowed by the
+  // server. Each entry must be a DER-encoded X.509 DistinguishedName.
+  std::vector<std::string> certificate_authorities;
 };
 
 namespace subtle {
@@ -63,21 +73,63 @@ void GenerateRSAKey(const std::string& token_id,
 typedef base::Callback<void(const std::string& signature,
                             const std::string& error_message)> SignCallback;
 
-// Digests |data| with |hash_algorithm| and afterwards signs the digest with the
-// private key matching |public_key|, if that key is stored in the given token.
-// |token_id| is currently ignored, instead the user token associated with
-// |browser_context| is always used. |public_key| must be the DER encoding of a
-// SubjectPublicKeyInfo. |callback| will be invoked with the signature or an
-// error message.
-// Currently supports RSA keys only.
-void Sign(const std::string& token_id,
-          const std::string& public_key,
-          HashAlgorithm hash_algorithm,
-          const std::string& data,
-          const SignCallback& callback,
-          content::BrowserContext* browser_context);
+// Digests |data|, applies PKCS1 padding and afterwards signs the data with the
+// private key matching |params.public_key|. If a non empty token id is provided
+// and the key is not found in that token, the operation aborts. |callback| will
+// be invoked with the signature or an error message.
+void SignRSAPKCS1Digest(const std::string& token_id,
+                        const std::string& data,
+                        const std::string& public_key,
+                        HashAlgorithm hash_algorithm,
+                        const SignCallback& callback,
+                        content::BrowserContext* browser_context);
+
+// Applies PKCS1 padding and afterwards signs the data with the private key
+// matching |params.public_key|. |data| is not digested. If a non empty token id
+// is provided and the key is not found in that token, the operation aborts.
+// The size of |data| (number of octets) must be smaller than k - 11, where k
+// is the key size in octets.
+// |callback| will be invoked with the signature or an error message.
+void SignRSAPKCS1Raw(const std::string& token_id,
+                     const std::string& data,
+                     const std::string& public_key,
+                     const SignCallback& callback,
+                     content::BrowserContext* browser_context);
+
+// If the certificate request could be processed successfully, |matches| will
+// contain the list of matching certificates (which may be empty) and
+// |error_message| will be empty. If an error occurred, |matches| will be null
+// and |error_message| contain an error message.
+typedef base::Callback<void(scoped_ptr<net::CertificateList> matches,
+                            const std::string& error_message)>
+    SelectCertificatesCallback;
+
+// Returns the list of all certificates that were issued by one of the
+// |certificate_authorities|. If |certificate_authorities| is empty, all
+// certificates will be returned. |callback| will be invoked with the matches or
+// an error message.
+void SelectClientCertificates(
+    const std::vector<std::string>& certificate_authorities,
+    const SelectCertificatesCallback& callback,
+    content::BrowserContext* browser_context);
 
 }  // namespace subtle
+
+// Returns the DER encoding of the X.509 Subject Public Key Info of the public
+// key in |certificate|.
+std::string GetSubjectPublicKeyInfo(
+    const scoped_refptr<net::X509Certificate>& certificate);
+
+// Obtains information about the public key in |certificate|.
+// If |certificate| contains an RSA key, sets |key_size_bits| to the modulus
+// length, and |key_type| to type RSA and returns true.
+// If |certificate| contains any other key type, or if the public exponent of
+// the RSA key in |certificate| is not F4, returns false and does not update any
+// of the output parameters.
+// All pointer arguments must not be null.
+bool GetPublicKey(const scoped_refptr<net::X509Certificate>& certificate,
+                  net::X509Certificate::PublicKeyType* key_type,
+                  size_t* key_size_bits);
 
 // If the list of certificates could be successfully retrieved, |certs| will
 // contain the list of available certificates (maybe empty) and |error_message|
@@ -106,7 +158,7 @@ typedef base::Callback<void(const std::string& error_message)>
 // |browser_context| is always used. |callback| will be invoked when the import
 // is finished, possibly with an error message.
 void ImportCertificate(const std::string& token_id,
-                       scoped_refptr<net::X509Certificate> certificate,
+                       const scoped_refptr<net::X509Certificate>& certificate,
                        const ImportCertificateCallback& callback,
                        content::BrowserContext* browser_context);
 
@@ -120,7 +172,7 @@ typedef base::Callback<void(const std::string& error_message)>
 // user token associated with |browser_context| is always used. |callback| will
 // be invoked when the removal is finished, possibly with an error message.
 void RemoveCertificate(const std::string& token_id,
-                       scoped_refptr<net::X509Certificate> certificate,
+                       const scoped_refptr<net::X509Certificate>& certificate,
                        const RemoveCertificateCallback& callback,
                        content::BrowserContext* browser_context);
 

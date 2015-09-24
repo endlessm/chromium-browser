@@ -29,7 +29,7 @@ namespace blink {
 
 class PLATFORM_EXPORT FEOffset : public FilterEffect {
 public:
-    static PassRefPtr<FEOffset> create(Filter*, float dx, float dy);
+    static PassRefPtrWillBeRawPtr<FEOffset> create(Filter*, float dx, float dy);
 
     float dx() const;
     void setDx(float);
@@ -37,11 +37,11 @@ public:
     float dy() const;
     void setDy(float);
 
-    virtual FloatRect mapRect(const FloatRect&, bool forward = true) override final;
+    FloatRect mapRect(const FloatRect&, bool forward = true) final;
 
-    virtual TextStream& externalRepresentation(TextStream&, int indention) const override;
+    TextStream& externalRepresentation(TextStream&, int indention) const override;
 
-    virtual PassRefPtr<SkImageFilter> createImageFilter(SkiaImageFilterBuilder*) override;
+    PassRefPtr<SkImageFilter> createImageFilter(SkiaImageFilterBuilder*) override;
 
 private:
     FEOffset(Filter*, float dx, float dy);

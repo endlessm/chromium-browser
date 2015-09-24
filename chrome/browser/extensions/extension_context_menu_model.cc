@@ -12,7 +12,6 @@
 #include "chrome/browser/extensions/context_menu_matcher.h"
 #include "chrome/browser/extensions/extension_action.h"
 #include "chrome/browser/extensions/extension_action_manager.h"
-#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_tab_util.h"
 #include "chrome/browser/extensions/menu_manager.h"
 #include "chrome/browser/profiles/profile.h"
@@ -26,6 +25,7 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "chrome/grit/theme_resources.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/context_menu_params.h"
 #include "extensions/browser/extension_prefs.h"
@@ -38,6 +38,8 @@
 #include "extensions/common/manifest_handlers/options_page_info.h"
 #include "extensions/common/manifest_url_handlers.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/image/image.h"
 
 using content::OpenURLParams;
 using content::Referrer;
@@ -72,7 +74,10 @@ bool MenuItemMatchesAction(ExtensionContextMenuModel::ActionType type,
 
 // Returns the id for the visibility command for the given |extension|, or -1
 // if none should be shown.
-int GetVisibilityStringId(Profile* profile, const Extension* extension) {
+int GetVisibilityStringId(
+    Profile* profile,
+    const Extension* extension,
+    ExtensionContextMenuModel::ButtonVisibility button_visibility) {
   DCHECK(profile);
   int string_id = -1;
   if (!extensions::FeatureSwitch::extension_action_redesign()->IsEnabled()) {
@@ -84,31 +89,54 @@ int GetVisibilityStringId(Profile* profile, const Extension* extension) {
     }
   } else {
     // With the redesign, we display "show" or "hide" based on the icon's
-    // visibility.
-    bool visible = ExtensionActionAPI::GetBrowserActionVisibility(
-                       ExtensionPrefs::Get(profile), extension->id());
-    string_id =
-        visible ? IDS_EXTENSIONS_HIDE_BUTTON : IDS_EXTENSIONS_SHOW_BUTTON;
+    // visibility, and can have "transitively shown" buttons that are shown
+    // only while the button has a popup or menu visible.
+    switch (button_visibility) {
+      case (ExtensionContextMenuModel::VISIBLE):
+        string_id = IDS_EXTENSIONS_HIDE_BUTTON_IN_MENU;
+        break;
+      case (ExtensionContextMenuModel::TRANSITIVELY_VISIBLE):
+        string_id = IDS_EXTENSIONS_KEEP_BUTTON_IN_TOOLBAR;
+        break;
+      case (ExtensionContextMenuModel::OVERFLOWED):
+        string_id = IDS_EXTENSIONS_SHOW_BUTTON_IN_TOOLBAR;
+        break;
+    }
   }
   return string_id;
 }
 
+// Returns true if the given |extension| is required to remain installed by
+// policy.
+bool IsExtensionRequiredByPolicy(const Extension* extension,
+                                 Profile* profile) {
+  extensions::ManagementPolicy* policy =
+      extensions::ExtensionSystem::Get(profile)->management_policy();
+  return !policy->UserMayModifySettings(extension, nullptr) ||
+         policy->MustRemainInstalled(extension, nullptr);
+}
+
 }  // namespace
 
-ExtensionContextMenuModel::ExtensionContextMenuModel(const Extension* extension,
-                                                     Browser* browser,
-                                                     PopupDelegate* delegate)
+ExtensionContextMenuModel::ExtensionContextMenuModel(
+    const Extension* extension,
+    Browser* browser,
+    ButtonVisibility button_visibility,
+    PopupDelegate* delegate)
     : SimpleMenuModel(this),
       extension_id_(extension->id()),
+      is_component_(extensions::Manifest::IsComponentLocation(
+                        extension->location())),
       browser_(browser),
       profile_(browser->profile()),
       delegate_(delegate),
       action_type_(NO_ACTION),
       extension_items_count_(0) {
-  InitMenu(extension);
+  InitMenu(extension, button_visibility);
 
   if (profile_->GetPrefs()->GetBoolean(prefs::kExtensionsUIDeveloperMode) &&
-      delegate_) {
+      delegate_ &&
+      !is_component_) {
     AddSeparator(ui::NORMAL_SEPARATOR);
     AddItemWithStringId(INSPECT_POPUP, IDS_EXTENSION_ACTION_INSPECT_POPUP);
   }
@@ -116,14 +144,7 @@ ExtensionContextMenuModel::ExtensionContextMenuModel(const Extension* extension,
 
 ExtensionContextMenuModel::ExtensionContextMenuModel(const Extension* extension,
                                                      Browser* browser)
-    : SimpleMenuModel(this),
-      extension_id_(extension->id()),
-      browser_(browser),
-      profile_(browser->profile()),
-      delegate_(NULL),
-      action_type_(NO_ACTION),
-      extension_items_count_(0) {
-  InitMenu(extension);
+    : ExtensionContextMenuModel(extension, browser, VISIBLE, nullptr) {
 }
 
 bool ExtensionContextMenuModel::IsCommandIdChecked(int command_id) const {
@@ -145,8 +166,11 @@ bool ExtensionContextMenuModel::IsCommandIdEnabled(int command_id) const {
     return extensions::OptionsPageInfo::HasOptionsPage(extension);
   } else if (command_id == NAME) {
     // The NAME links to the Homepage URL. If the extension doesn't have a
-    // homepage, we just disable this menu item.
-    return extensions::ManifestURL::GetHomepageURL(extension).is_valid();
+    // homepage, we just disable this menu item. We also disable for component
+    // extensions, because it doesn't make sense to link to a webstore page or
+    // chrome://extensions.
+    return extensions::ManifestURL::GetHomepageURL(extension).is_valid() &&
+        !is_component_;
   } else if (command_id == INSPECT_POPUP) {
     WebContents* web_contents = GetActiveWebContents();
     if (!web_contents)
@@ -155,9 +179,7 @@ bool ExtensionContextMenuModel::IsCommandIdEnabled(int command_id) const {
     return extension_action_ &&
         extension_action_->HasPopup(SessionTabHelper::IdForTab(web_contents));
   } else if (command_id == UNINSTALL) {
-    // Some extension types can not be uninstalled.
-    return extensions::ExtensionSystem::Get(
-        profile_)->management_policy()->UserMayModifySettings(extension, NULL);
+    return !IsExtensionRequiredByPolicy(extension, profile_);
   }
   return true;
 }
@@ -204,19 +226,18 @@ void ExtensionContextMenuModel::ExecuteCommand(int command_id,
       extensions::ExtensionTabUtil::OpenOptionsPage(extension, browser_);
       break;
     case TOGGLE_VISIBILITY: {
-      ExtensionPrefs* prefs = ExtensionPrefs::Get(profile_);
-      bool visible = ExtensionActionAPI::GetBrowserActionVisibility(
-                         prefs, extension->id());
-      ExtensionActionAPI::SetBrowserActionVisibility(
-          prefs, extension->id(), !visible);
+      ExtensionActionAPI* api = ExtensionActionAPI::Get(profile_);
+      bool visible = api->GetBrowserActionVisibility(extension->id());
+      api->SetBrowserActionVisibility(extension->id(), !visible);
       break;
     }
     case UNINSTALL: {
-      AddRef();  // Balanced in Accepted() and Canceled()
+      AddRef();  // Balanced in OnExtensionUninstallDialogClosed().
       extension_uninstall_dialog_.reset(
           extensions::ExtensionUninstallDialog::Create(
               profile_, browser_->window()->GetNativeWindow(), this));
-      extension_uninstall_dialog_->ConfirmUninstall(extension);
+      extension_uninstall_dialog_->ConfirmUninstall(
+          extension, extensions::UNINSTALL_REASON_USER_INITIATED);
       break;
     }
     case MANAGE: {
@@ -233,25 +254,16 @@ void ExtensionContextMenuModel::ExecuteCommand(int command_id,
   }
 }
 
-void ExtensionContextMenuModel::ExtensionUninstallAccepted() {
-  if (GetExtension()) {
-    extensions::ExtensionSystem::Get(profile_)
-        ->extension_service()
-        ->UninstallExtension(extension_id_,
-                             extensions::UNINSTALL_REASON_USER_INITIATED,
-                             base::Bind(&base::DoNothing),
-                             NULL);
-  }
-  Release();
-}
-
-void ExtensionContextMenuModel::ExtensionUninstallCanceled() {
+void ExtensionContextMenuModel::OnExtensionUninstallDialogClosed(
+    bool did_start_uninstall,
+    const base::string16& error) {
   Release();
 }
 
 ExtensionContextMenuModel::~ExtensionContextMenuModel() {}
 
-void ExtensionContextMenuModel::InitMenu(const Extension* extension) {
+void ExtensionContextMenuModel::InitMenu(const Extension* extension,
+                                         ButtonVisibility button_visibility) {
   DCHECK(extension);
 
   extensions::ExtensionActionManager* extension_action_manager =
@@ -287,17 +299,34 @@ void ExtensionContextMenuModel::InitMenu(const Extension* extension) {
     AddItemWithStringId(ALWAYS_RUN, IDS_EXTENSIONS_ALWAYS_RUN);
   }
 
-  AddItemWithStringId(CONFIGURE, IDS_EXTENSIONS_OPTIONS_MENU_ITEM);
-  AddItem(UNINSTALL, l10n_util::GetStringUTF16(IDS_EXTENSIONS_UNINSTALL));
+  if (!is_component_ || extensions::OptionsPageInfo::HasOptionsPage(extension))
+    AddItemWithStringId(CONFIGURE, IDS_EXTENSIONS_OPTIONS_MENU_ITEM);
+
+  if (!is_component_) {
+    bool is_required_by_policy =
+        IsExtensionRequiredByPolicy(extension, profile_);
+    int message_id = is_required_by_policy ?
+        IDS_EXTENSIONS_INSTALLED_BY_ADMIN : IDS_EXTENSIONS_UNINSTALL;
+    AddItem(UNINSTALL, l10n_util::GetStringUTF16(message_id));
+    if (is_required_by_policy) {
+      int uninstall_index = GetIndexOfCommandId(UNINSTALL);
+      SetIcon(uninstall_index,
+              ui::ResourceBundle::GetSharedInstance().GetImageNamed(
+                  IDR_CONTROLLED_SETTING_MANDATORY));
+    }
+  }
 
   // Add a toggle visibility (show/hide) if the extension icon is shown on the
   // toolbar.
-  int visibility_string_id = GetVisibilityStringId(profile_, extension);
+  int visibility_string_id =
+      GetVisibilityStringId(profile_, extension, button_visibility);
   if (visibility_string_id != -1)
     AddItemWithStringId(TOGGLE_VISIBILITY, visibility_string_id);
 
-  AddSeparator(ui::NORMAL_SEPARATOR);
-  AddItemWithStringId(MANAGE, IDS_MANAGE_EXTENSION);
+  if (!is_component_) {
+    AddSeparator(ui::NORMAL_SEPARATOR);
+    AddItemWithStringId(MANAGE, IDS_MANAGE_EXTENSION);
+  }
 }
 
 const Extension* ExtensionContextMenuModel::GetExtension() const {

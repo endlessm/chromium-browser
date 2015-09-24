@@ -6,20 +6,20 @@
 // WebKit- and Chrome-specific properties and methods. It is used only with
 // JSCompiler to verify the type-correctness of our code.
 
+/** @type {Array<string>} */
+ClipboardData.prototype.types;
+
 /** @type {HTMLElement} */
 Document.prototype.activeElement;
 
-/** @type {Array.<HTMLElement>} */
+/** @type {Array<HTMLElement>} */
 Document.prototype.all;
 
 /** @type {boolean} */
 Document.prototype.hidden;
 
-/** @type {function(string): void} */
-Document.prototype.execCommand = function(command) {};
-
 /** @return {void} Nothing. */
-Document.prototype.webkitCancelFullScreen = function() {};
+Document.prototype.exitPointerLock = function() {};
 
 /** @type {boolean} */
 Document.prototype.webkitIsFullScreen;
@@ -30,55 +30,45 @@ Document.prototype.webkitHidden;
 /** @type {Element} */
 Document.prototype.firstElementChild;
 
-/** @type {number} */
-Element.ALLOW_KEYBOARD_INPUT;
-
-/** @param {number} flags
 /** @return {void} Nothing. */
-Element.prototype.webkitRequestFullScreen = function(flags) {};
+Element.prototype.requestPointerLock = function() {};
+
+/** @type {boolean} */
+Element.prototype.disabled;
 
 /** @type {boolean} */
 Element.prototype.hidden;
 
 /** @type {string} */
+Element.prototype.innerText;
+
+/** @type {string} */
 Element.prototype.localName;
+
+/** @type {number} */
+Element.prototype.offsetRight;
+
+/** @type {number} */
+Element.prototype.offsetBottom;
 
 /** @type {string} */
 Element.prototype.textContent;
 
+/** @type {DOMTokenList} */
+Element.prototype.classList;
 
-/** @constructor
-    @extends {HTMLElement} */
-var HTMLEmbedElement = function() { };
+/** @type {boolean} */
+Element.prototype.checked;
 
-/** @type {number} */
-HTMLEmbedElement.prototype.height;
-
-/** @type {number} */
-HTMLEmbedElement.prototype.width;
 
 /** @type {Window} */
 HTMLIFrameElement.prototype.contentWindow;
 
-
-/** @type {Object} */
-var JSON = {};
-
 /**
- * @param {string} jsonStr The string to parse.
- * @param {(function(string, *) : *)=} opt_reviver
- * @return {*} The JSON object.
+ * @param {string} selector
+ * @return {?HTMLElement}.
  */
-JSON.parse = function(jsonStr, opt_reviver) {};
-
-/**
- * @param {*} jsonObj Input object.
- * @param {(Array.<string>|(function(string, *) : *)|null)=} opt_replacer
- * @param {(number|string)=} opt_space
- * @return {string} json string which represents jsonObj.
- */
-JSON.stringify = function(jsonObj, opt_replacer, opt_space) {};
-
+HTMLElement.prototype.querySelector = function(selector) {};
 
 /**
  * @param {string} name
@@ -92,146 +82,28 @@ Node.prototype.value;
 /** @type {{top: string, left: string, bottom: string, right: string}} */
 Node.prototype.style;
 
-
-/**
- * @constructor
- * @param {function(Array.<MutationRecord>):void} callback
- */
-var MutationObserver = function(callback) {};
-
-/**
- * @param {Element} element
- * @param {Object} options
- */
-MutationObserver.prototype.observe = function(element, options) {};
+/** @type {boolean} */
+Node.prototype.hidden;
 
 
-/** @constructor */
-var MutationRecord = function() {};
-
-/** @type {string} */
-MutationRecord.prototype.attributeName;
-
-/** @type {Element} */
-MutationRecord.prototype.target;
-
-/** @type {string} */
-MutationRecord.prototype.type;
-
-
-/** @type {{getRandomValues: function((Uint16Array|Uint8Array)):void}} */
+/** @type {{getRandomValues: function(!ArrayBufferView):!ArrayBufferView}} */
 Window.prototype.crypto;
 
-
-/**
- * @constructor
- * @implements {EventTarget} */
-var EventTargetStub = function() {};
-
-/**
- * @param {string} type
- * @param {(EventListener|function(Event): (boolean|undefined|null))} listener
- * @param {boolean=} opt_useCapture
- */
-EventTargetStub.prototype.addEventListener =
-    function(type, listener, opt_useCapture) {}
-
-/**
- * @param {string} type
- * @param {(EventListener|function(Event): (boolean|undefined|null))} listener
- * @param {boolean=} opt_useCapture
- */
-EventTargetStub.prototype.removeEventListener =
-    function(type, listener, opt_useCapture) {}
-
-/**
- * @param {Event} event
- */
-EventTargetStub.prototype.dispatchEvent =
-    function(event) {}
-
-/**
- * @constructor
- * @extends {EventTargetStub}
- */
-var SourceBuffer = function() {}
-
-/** @type {boolean} */
-SourceBuffer.prototype.updating;
-
-/** @type {TimeRanges} */
-SourceBuffer.prototype.buffered;
-
-/**
- * @param {ArrayBuffer} buffer
- */
-SourceBuffer.prototype.appendBuffer = function(buffer) {}
-
-/**
- * @param {number} start
- * @param {number} end
- */
-SourceBuffer.prototype.remove = function(start, end) {}
-
-/**
- * @constructor
- * @extends {EventTargetStub}
- */
-var MediaSource = function() {}
-
-/**
- * @param {string} format
- * @return {SourceBuffer}
- */
-MediaSource.prototype.addSourceBuffer = function(format) {}
-
-/**
- * @constructor
- * @param {function(function(*), function(*)) : void} init
- */
-var Promise = function (init) {};
-
-/**
- * @param {function(?=) : (Promise|void)} onFulfill
- * @param {function(?=) : (Promise|void)=} onReject
- * @return {Promise}
- */
-Promise.prototype.then = function (onFulfill, onReject) {};
-
-/**
- * @param {function(*) : void} onReject
- * @return {Promise}
- */
-Promise.prototype['catch'] = function (onReject) {};
-
-/**
- * @param {Array.<Promise>} promises
- * @return {Promise}
- */
-Promise.prototype.race = function (promises) {}
-
-/**
- * @param {Array.<Promise>} promises
- * @return {Promise}
- */
-Promise.prototype.all = function (promises) {};
-
-/**
- * @param {*=} reason
- * @return {Promise}
- */
-Promise.reject = function (reason) {};
-
-/**
- * @param {*=} value
- * @return {Promise}
- */
-Promise.resolve = function (value) {};
 
 /**
  * @type {DataTransfer}
  */
 Event.prototype.dataTransfer = null;
+
+/**
+ * @type {number}
+ */
+Event.prototype.movementX = 0;
+
+/**
+ * @type {number}
+ */
+Event.prototype.movementY = 0;
 
 /**
  * @param {string} type
@@ -256,9 +128,15 @@ Event.prototype.initMouseEvent = function(
     ctrlKey, altKey, shiftKey, metaKey,
     button, relatedTarget) {};
 
+/** @type {Object} */
+Event.prototype.data = {};
+
 /**
- * @param {number} begin
- * @param {number=} end
- * @return {ArrayBuffer}
+ * @param {*} value
+ * @return {boolean} whether value is an integer or not.
  */
-ArrayBuffer.prototype.slice = function(begin, end) {};
+Number.isInteger = function(value) {};
+
+// Chrome implements XMLHttpRequest.responseURL starting from Chrome 37.
+/** @type {string} */
+XMLHttpRequest.prototype.responseURL = "";

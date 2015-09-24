@@ -25,10 +25,16 @@ namespace app.runtime {
     command_line,
     file_handler,
     url_handler,
-
     system_tray,
     about_page,
-    keyboard
+    keyboard,
+    extensions_page,
+    management_api,
+    ephemeral_app,
+    background,
+    kiosk,
+    chrome_internal,
+    test
   };
 
   // Optional data for the launch. Either <code>items</code>, or
@@ -90,7 +96,11 @@ namespace app.runtime {
     static void onLaunched(optional LaunchData launchData);
 
     // Fired at Chrome startup to apps that were running when Chrome last shut
-    // down.
+    // down, or when apps have been requested to restart from their previous
+    // state for other reasons (e.g. when the user revokes access to an app's
+    // retained files the runtime will restart the app). In these situations if
+    // apps do not have an <code>onRestarted</code> handler they will be sent
+    // an <code>onLaunched </code> event instead.
     static void onRestarted();
   };
 };

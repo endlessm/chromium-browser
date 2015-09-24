@@ -1,14 +1,12 @@
 vars = {
-  "libyuv_trunk" : "https://libyuv.googlecode.com/svn/trunk",
-
   # Override root_dir in your .gclient's custom_vars to specify a custom root
   # folder name.
-  "root_dir": "trunk",
+  "root_dir": "libyuv",
   "extra_gyp_flag": "-Dextra_gyp_flag=0",
 
   # Roll the Chromium Git hash to pick up newer versions of all the
   # dependencies and tools linked to in setup_links.py.
-  "chromium_revision": "2d714fae183152299b3cbf0056eab5fe8bb75e87",
+  'chromium_revision': '3ead4bc4ebb743b3771afb47dbfbd4eb2131ef1b',
 }
 
 hooks = [

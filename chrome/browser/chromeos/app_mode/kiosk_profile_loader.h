@@ -11,7 +11,7 @@
 #include "base/callback.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_launch_error.h"
-#include "chrome/browser/chromeos/login/login_utils.h"
+#include "chrome/browser/chromeos/login/session/user_session_manager.h"
 #include "chromeos/login/auth/login_performer.h"
 
 class Profile;
@@ -22,7 +22,7 @@ namespace chromeos {
 // attempts to login for the app's generated user id. If the login is
 // successful, it prepares app profile then calls the delegate.
 class KioskProfileLoader : public LoginPerformer::Delegate,
-                           public LoginUtils::Delegate {
+                           public UserSessionManagerDelegate {
  public:
   class Delegate {
    public:
@@ -37,7 +37,7 @@ class KioskProfileLoader : public LoginPerformer::Delegate,
                      bool use_guest_mount,
                      Delegate* delegate);
 
-  virtual ~KioskProfileLoader();
+  ~KioskProfileLoader() override;
 
   // Starts profile load. Calls delegate on success or failure.
   void Start();
@@ -48,17 +48,15 @@ class KioskProfileLoader : public LoginPerformer::Delegate,
   void LoginAsKioskAccount();
   void ReportLaunchResult(KioskAppLaunchError::Error error);
 
-  // LoginPerformer::Delegate overrides
-  virtual void OnAuthSuccess(const UserContext& user_context) override;
-  virtual void OnAuthFailure(const AuthFailure& error) override;
-  virtual void WhiteListCheckFailed(const std::string& email) override;
-  virtual void PolicyLoadFailed() override;
-  virtual void OnOnlineChecked(
-      const std::string& email, bool success) override;
+  // LoginPerformer::Delegate overrides:
+  void OnAuthSuccess(const UserContext& user_context) override;
+  void OnAuthFailure(const AuthFailure& error) override;
+  void WhiteListCheckFailed(const std::string& email) override;
+  void PolicyLoadFailed() override;
+  void OnOnlineChecked(const std::string& email, bool success) override;
 
-  // LoginUtils::Delegate implementation:
-  virtual void OnProfilePrepared(Profile* profile,
-                                 bool browser_launched) override;
+  // UserSessionManagerDelegate implementation:
+  void OnProfilePrepared(Profile* profile, bool browser_launched) override;
 
   std::string user_id_;
   bool use_guest_mount_;

@@ -8,8 +8,8 @@
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/public/browser/web_contents.h"
+#include "content/shell/browser/blink_test_controller.h"
 #include "content/shell/browser/shell_javascript_dialog.h"
-#include "content/shell/browser/webkit_test_controller.h"
 #include "content/shell/common/shell_switches.h"
 #include "net/base/net_util.h"
 
@@ -114,8 +114,7 @@ void ShellJavaScriptDialogManager::CancelActiveAndPendingDialogs(
 #endif
 }
 
-void ShellJavaScriptDialogManager::WebContentsDestroyed(
-    WebContents* web_contents) {
+void ShellJavaScriptDialogManager::ResetDialogState(WebContents* web_contents) {
 }
 
 void ShellJavaScriptDialogManager::DialogClosed(ShellJavaScriptDialog* dialog) {

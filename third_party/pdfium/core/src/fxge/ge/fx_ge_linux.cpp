@@ -1,41 +1,17 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../../include/fxge/fx_ge.h"
 #include "../agg/include/fx_agg_driver.h"
 #include "text_int.h"
-#if !defined(_FPDFAPI_MINI_) &&  _FXM_PLATFORM_ == _FXM_PLATFORM_LINUX_
-#if (_FXM_PLATFORM_  == _FXM_PLATFORM_APPLE_ && (!defined(_FPDFAPI_MINI_)))
-void CFX_AggDeviceDriver::InitPlatform()
-{
-}
-void CFX_AggDeviceDriver::DestroyPlatform()
-{
-}
-void CFX_FaceCache::InitPlatform()
-{
-}
-FX_BOOL CFX_AggDeviceDriver::DrawDeviceText(int nChars, const FXTEXT_CHARPOS* pCharPos, CFX_Font* pFont,
-        CFX_FontCache* pCache, const CFX_AffineMatrix* pObject2Device,
-        FX_FLOAT font_size, FX_DWORD argb)
-{
-    return FALSE;
-}
-CFX_GlyphBitmap* CFX_FaceCache::RenderGlyph_Nativetext(CFX_Font* pFont, FX_DWORD glyph_index, const CFX_AffineMatrix* pMatrix,
-        int dest_width, int anti_alias)
-{
-    return NULL;
-}
-void CFX_Font::ReleasePlatformResource()
-{
-}
-#endif
+
+#if _FXM_PLATFORM_ == _FXM_PLATFORM_LINUX_
 static const struct {
-    FX_LPCSTR	m_pName;
-    FX_LPCSTR	m_pSubstName;
+    const FX_CHAR*	m_pName;
+    const FX_CHAR*	m_pSubstName;
 }
 Base14Substs[] = {
     {"Courier", "Courier New"},
@@ -54,13 +30,13 @@ Base14Substs[] = {
 class CFX_LinuxFontInfo : public CFX_FolderFontInfo
 {
 public:
-    virtual void*		MapFont(int weight, FX_BOOL bItalic, int charset, int pitch_family, FX_LPCSTR family, FX_BOOL& bExact);
+    virtual void*		MapFont(int weight, FX_BOOL bItalic, int charset, int pitch_family, const FX_CHAR* family, FX_BOOL& bExact);
     FX_BOOL				ParseFontCfg();
-    void*				FindFont(int weight, FX_BOOL bItalic, int charset, int pitch_family, FX_LPCSTR family, FX_BOOL bMatchName);
+    void*				FindFont(int weight, FX_BOOL bItalic, int charset, int pitch_family, const FX_CHAR* family, FX_BOOL bMatchName);
 };
 #define LINUX_GPNAMESIZE	6
 static const struct {
-    FX_LPCSTR NameArr[LINUX_GPNAMESIZE];
+    const FX_CHAR* NameArr[LINUX_GPNAMESIZE];
 }
 LinuxGpFontList[] = {
     {{"TakaoPGothic", "VL PGothic", "IPAPGothic", "VL Gothic", "Kochi Gothic", "VL Gothic regular"}},
@@ -68,20 +44,20 @@ LinuxGpFontList[] = {
     {{"TakaoPMincho", "IPAPMincho", "VL Gothic", "Kochi Mincho", NULL, "VL Gothic regular"}},
     {{"TakaoMincho", "IPAMincho", "VL Gothic", "Kochi Mincho", NULL, "VL Gothic regular"}},
 };
-static const FX_LPCSTR g_LinuxGbFontList[] = {
+static const FX_CHAR* const g_LinuxGbFontList[] = {
     "AR PL UMing CN Light",
     "WenQuanYi Micro Hei",
     "AR PL UKai CN",
 };
-static const FX_LPCSTR g_LinuxB5FontList[] = {
+static const FX_CHAR* const g_LinuxB5FontList[] = {
     "AR PL UMing TW Light",
     "WenQuanYi Micro Hei",
     "AR PL UKai TW",
 };
-static const FX_LPCSTR g_LinuxHGFontList[] = {
+static const FX_CHAR* const g_LinuxHGFontList[] = {
     "UnDotum",
 };
-static FX_INT32 GetJapanesePreference(FX_LPCSTR facearr, int weight, int picth_family)
+static int32_t GetJapanesePreference(const FX_CHAR* facearr, int weight, int picth_family)
 {
     CFX_ByteString face = facearr;
     if (face.Find("Gothic") >= 0 || face.Find("\x83\x53\x83\x56\x83\x62\x83\x4e") >= 0) {
@@ -102,7 +78,7 @@ static FX_INT32 GetJapanesePreference(FX_LPCSTR facearr, int weight, int picth_f
     }
     return 2;
 }
-void* CFX_LinuxFontInfo::MapFont(int weight, FX_BOOL bItalic, int charset, int pitch_family, FX_LPCSTR cstr_face, FX_BOOL& bExact)
+void* CFX_LinuxFontInfo::MapFont(int weight, FX_BOOL bItalic, int charset, int pitch_family, const FX_CHAR* cstr_face, FX_BOOL& bExact)
 {
     CFX_ByteString face = cstr_face;
     int iBaseFont;
@@ -115,39 +91,39 @@ void* CFX_LinuxFontInfo::MapFont(int weight, FX_BOOL bItalic, int charset, int p
     if (iBaseFont < 12) {
         return GetFont(face);
     }
-    FX_LPVOID p = NULL;
+    void* p = NULL;
     FX_BOOL bCJK = TRUE;
     switch (charset) {
         case FXFONT_SHIFTJIS_CHARSET: {
-                FX_INT32 index = GetJapanesePreference(cstr_face, weight, pitch_family);
+                int32_t index = GetJapanesePreference(cstr_face, weight, pitch_family);
                 if (index < 0) {
                     break;
                 }
-                for (FX_INT32 i = 0; i < LINUX_GPNAMESIZE; i++)
+                for (int32_t i = 0; i < LINUX_GPNAMESIZE; i++)
                     if (m_FontList.Lookup(LinuxGpFontList[index].NameArr[i], p)) {
                         return p;
                     }
             }
             break;
         case FXFONT_GB2312_CHARSET: {
-                static FX_INT32 s_gbCount = sizeof(g_LinuxGbFontList) / sizeof(FX_LPCSTR);
-                for (FX_INT32 i = 0; i < s_gbCount; i++)
+                static int32_t s_gbCount = sizeof(g_LinuxGbFontList) / sizeof(const FX_CHAR*);
+                for (int32_t i = 0; i < s_gbCount; i++)
                     if (m_FontList.Lookup(g_LinuxGbFontList[i], p)) {
                         return p;
                     }
             }
             break;
         case FXFONT_CHINESEBIG5_CHARSET: {
-                static FX_INT32 s_b5Count = sizeof(g_LinuxB5FontList) / sizeof(FX_LPCSTR);
-                for (FX_INT32 i = 0; i < s_b5Count; i++)
+                static int32_t s_b5Count = sizeof(g_LinuxB5FontList) / sizeof(const FX_CHAR*);
+                for (int32_t i = 0; i < s_b5Count; i++)
                     if (m_FontList.Lookup(g_LinuxB5FontList[i], p)) {
                         return p;
                     }
             }
             break;
         case FXFONT_HANGEUL_CHARSET: {
-                static FX_INT32 s_hgCount = sizeof(g_LinuxHGFontList) / sizeof(FX_LPCSTR);
-                for (FX_INT32 i = 0; i < s_hgCount; i++)
+                static int32_t s_hgCount = sizeof(g_LinuxHGFontList) / sizeof(const FX_CHAR*);
+                for (int32_t i = 0; i < s_hgCount; i++)
                     if (m_FontList.Lookup(g_LinuxHGFontList[i], p)) {
                         return p;
                     }
@@ -182,9 +158,9 @@ static FX_DWORD _LinuxGetCharset(int charset)
     }
     return 0;
 }
-static FX_INT32 _LinuxGetSimilarValue(int weight, FX_BOOL bItalic, int pitch_family, FX_DWORD style)
+static int32_t _LinuxGetSimilarValue(int weight, FX_BOOL bItalic, int pitch_family, FX_DWORD style)
 {
-    FX_INT32 iSimilarValue = 0;
+    int32_t iSimilarValue = 0;
     if ((style & FXFONT_BOLD) == (weight > 400)) {
         iSimilarValue += 16;
     }
@@ -202,21 +178,21 @@ static FX_INT32 _LinuxGetSimilarValue(int weight, FX_BOOL bItalic, int pitch_fam
     }
     return iSimilarValue;
 }
-void* CFX_LinuxFontInfo::FindFont(int weight, FX_BOOL bItalic, int charset, int pitch_family, FX_LPCSTR family, FX_BOOL bMatchName)
+void* CFX_LinuxFontInfo::FindFont(int weight, FX_BOOL bItalic, int charset, int pitch_family, const FX_CHAR* family, FX_BOOL bMatchName)
 {
     CFontFaceInfo* pFind = NULL;
     FX_DWORD charset_flag = _LinuxGetCharset(charset);
-    FX_INT32 iBestSimilar = 0;
+    int32_t iBestSimilar = 0;
     FX_POSITION pos = m_FontList.GetStartPosition();
     while (pos) {
         CFX_ByteString bsName;
         CFontFaceInfo* pFont = NULL;
-        m_FontList.GetNextAssoc(pos, bsName, (FX_LPVOID&)pFont);
+        m_FontList.GetNextAssoc(pos, bsName, (void*&)pFont);
         if (!(pFont->m_Charsets & charset_flag) && charset != FXFONT_DEFAULT_CHARSET) {
             continue;
         }
-        FX_INT32 iSimilarValue = 0;
-        FX_INT32 index = bsName.Find(family);
+        int32_t iSimilarValue = 0;
+        int32_t index = bsName.Find(family);
         if (bMatchName && index < 0) {
             continue;
         }
@@ -233,10 +209,7 @@ void* CFX_LinuxFontInfo::FindFont(int weight, FX_BOOL bItalic, int charset, int 
 }
 IFX_SystemFontInfo* IFX_SystemFontInfo::CreateDefault()
 {
-    CFX_LinuxFontInfo* pInfo = FX_NEW CFX_LinuxFontInfo;
-    if (!pInfo) {
-        return NULL;
-    }
+    CFX_LinuxFontInfo* pInfo = new CFX_LinuxFontInfo;
     if (!pInfo->ParseFontCfg()) {
         pInfo->AddPath("/usr/share/fonts");
         pInfo->AddPath("/usr/share/X11/fonts/Type1");
@@ -256,4 +229,4 @@ void CFX_GEModule::InitPlatform()
 void CFX_GEModule::DestroyPlatform()
 {
 }
-#endif
+#endif  // _FXM_PLATFORM_ == _FXM_PLATFORM_LINUX_

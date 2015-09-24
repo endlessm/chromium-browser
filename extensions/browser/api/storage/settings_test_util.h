@@ -56,24 +56,6 @@ scoped_refptr<const Extension> AddExtensionWithIdAndPermissions(
     Manifest::Type type,
     const std::set<std::string>& permissions);
 
-// A MockExtensionSystem to serve an EventRouter.
-class MockExtensionSystemWithEventRouter : public MockExtensionSystem {
- public:
-  explicit MockExtensionSystemWithEventRouter(content::BrowserContext* context);
-  ~MockExtensionSystemWithEventRouter() override;
-
-  // Factory method for SetTestingFactoryAndUse.
-  static KeyedService* Build(content::BrowserContext* context);
-
-  // MockExtensionSystem overrides:
-  EventRouter* event_router() override;
-
- private:
-  scoped_ptr<EventRouter> event_router_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockExtensionSystemWithEventRouter);
-};
-
 // SettingsStorageFactory which acts as a wrapper for other factories.
 class ScopedSettingsStorageFactory : public SettingsStorageFactory {
  public:

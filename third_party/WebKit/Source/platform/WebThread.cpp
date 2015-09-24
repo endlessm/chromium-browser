@@ -5,7 +5,10 @@
 #include "config.h"
 #include "public/platform/WebThread.h"
 
+#include "platform/Task.h"
+#include "public/platform/WebTraceLocation.h"
 #include "wtf/Assertions.h"
+#include "wtf/OwnPtr.h"
 
 #if OS(WIN)
 #include <windows.h>
@@ -13,12 +16,24 @@
 #include <unistd.h>
 #endif
 
-namespace {
+namespace blink {
+
 #if OS(WIN)
-COMPILE_ASSERT(sizeof(blink::PlatformThreadId) >= sizeof(DWORD), Size_of_platform_thread_id_is_too_small);
+static_assert(sizeof(blink::PlatformThreadId) >= sizeof(DWORD), "size of platform thread id is too small");
 #elif OS(POSIX)
-COMPILE_ASSERT(sizeof(blink::PlatformThreadId) >= sizeof(pid_t), Size_of_platform_thread_id_is_too_small);
+static_assert(sizeof(blink::PlatformThreadId) >= sizeof(pid_t), "size of platform thread id is too small");
 #else
 #error Unexpected platform
 #endif
+
+void WebThread::postTask(const WebTraceLocation& location, PassOwnPtr<Function<void()>> function)
+{
+    postTask(location, new blink::Task(function));
 }
+
+void WebThread::postDelayedTask(const WebTraceLocation& location, PassOwnPtr<Function<void()>> function, long long delayMs)
+{
+    postDelayedTask(location, new blink::Task(function), delayMs);
+}
+
+} // namespace blink

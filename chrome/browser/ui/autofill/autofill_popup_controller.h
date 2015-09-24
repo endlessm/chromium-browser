@@ -19,6 +19,8 @@ class Rect;
 
 namespace autofill {
 
+struct Suggestion;
+
 // This interface provides data to an AutofillPopupView.
 class AutofillPopupController : public AutofillPopupViewDelegate {
  public:
@@ -32,9 +34,6 @@ class AutofillPopupController : public AutofillPopupViewDelegate {
   // resource isn't recognized.
   virtual int GetIconResourceID(const base::string16& resource_name) const = 0;
 
-  // Returns true if the given index refers to an element that can be deleted.
-  virtual bool CanDelete(size_t index) const = 0;
-
   // Returns true if the given index refers to an element that is a warning
   // rather than an Autofill suggestion.
   virtual bool IsWarning(size_t index) const = 0;
@@ -46,26 +45,28 @@ class AutofillPopupController : public AutofillPopupViewDelegate {
   // the top left of the popup.
   virtual gfx::Rect GetRowBounds(size_t index) = 0;
 
-  // TODO(csharp): The names, subtexts and icon getters can probably be adjusted
-  // to take in the row index and return a single element, instead of the
-  // whole vector.
-  // The main labels for each autofill item.
-  virtual const std::vector<base::string16>& names() const = 0;
+  // Returns the number of lines of data that there are.
+  virtual size_t GetLineCount() const = 0;
 
-  // Smaller labels for each autofill item.
-  virtual const std::vector<base::string16>& subtexts() const = 0;
+  // Returns the suggestion or pre-elided string at the given row index.
+  virtual const autofill::Suggestion& GetSuggestionAt(size_t row) const = 0;
+  virtual const base::string16& GetElidedValueAt(size_t row) const = 0;
+  virtual const base::string16& GetElidedLabelAt(size_t row) const = 0;
 
-  // A string which identifies the icon to be shown for each autofill item.
-  virtual const std::vector<base::string16>& icons() const = 0;
+  // Returns whether the item at |list_index| can be removed. If so, fills
+  // out |title| and |body| (when non-null) with relevant user-facing text.
+  virtual bool GetRemovalConfirmationText(int index,
+                                          base::string16* title,
+                                          base::string16* body) = 0;
 
-  // Identifier for the row.
-  virtual const std::vector<int>& identifiers() const = 0;
+  // Removes the suggestion at the given index.
+  virtual bool RemoveSuggestion(int index) = 0;
 
 #if !defined(OS_ANDROID)
   // The same font can vary based on the type of data it is showing,
   // so we need to know the row.
-  virtual const gfx::FontList& GetNameFontListForRow(size_t index) const = 0;
-  virtual const gfx::FontList& subtext_font_list() const = 0;
+  virtual const gfx::FontList& GetValueFontListForRow(size_t index) const = 0;
+  virtual const gfx::FontList& GetLabelFontList() const = 0;
 #endif
 
   // Returns the index of the selected line. A line is "selected" when it is

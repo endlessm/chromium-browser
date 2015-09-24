@@ -7,13 +7,13 @@
 from __future__ import print_function
 
 import json
-import logging
 import os
 
 from chromite.cbuildbot import commands
 from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot.stages import artifact_stages
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import gs
 from chromite.lib import osutils
 from chromite.lib import parallel
@@ -75,7 +75,7 @@ class PaygenStage(artifact_stages.ArchivingStage):
   """Stage that generates release payloads.
 
   If this stage is created with a 'channels' argument, it can run
-  independantly. Otherwise, it's dependent on values queued up by
+  independently. Otherwise, it's dependent on values queued up by
   the ArchiveStage (push_image).
   """
   option_name = 'paygen'
@@ -202,7 +202,12 @@ class PaygenStage(artifact_stages.ArchivingStage):
         if url in self.signing_results[channel]:
           continue
 
-        signer_json = self._JsonFromUrl(gs_ctx, url)
+        try:
+          signer_json = self._JsonFromUrl(gs_ctx, url)
+        except MalformedResultsException as e:
+          logging.warning('Received malformed json: %s', e)
+          continue
+
         if self._SigningStatusFromJson(signer_json) in COMPLETED_STATUS:
           # If we find a completed result, remember it.
           self.signing_results[channel][url] = signer_json
@@ -267,14 +272,14 @@ class PaygenStage(artifact_stages.ArchivingStage):
     gs_ctx = gs.GSContext(dry_run=self._run.debug)
 
     try:
-      cros_build_lib.Info('Waiting for signer results.')
+      logging.info('Waiting for signer results.')
       timeout_util.WaitForReturnTrue(
           self._CheckForResults,
           func_args=(gs_ctx, instruction_urls_per_channel, channel_notifier),
           timeout=self.SIGNING_TIMEOUT, period=self.SIGNING_PERIOD)
     except timeout_util.TimeoutError:
       msg = 'Image signing timed out.'
-      cros_build_lib.Error(msg)
+      logging.error(msg)
       cros_build_lib.PrintBuildbotStepText(msg)
       raise SignerResultsTimeout(msg)
 
@@ -284,19 +289,19 @@ class PaygenStage(artifact_stages.ArchivingStage):
       for url, signer_result in url_results.iteritems():
         result_description = os.path.basename(url)
         cros_build_lib.PrintBuildbotStepText(result_description)
-        cros_build_lib.Info('Received results for: %s', result_description)
-        cros_build_lib.Info(json.dumps(signer_result, indent=4))
+        logging.info('Received results for: %s', result_description)
+        logging.info(json.dumps(signer_result, indent=4))
 
         status = self._SigningStatusFromJson(signer_result)
         if status != 'passed':
           failures.append(result_description)
-          cros_build_lib.Error('Signing failed for: %s', result_description)
+          logging.error('Signing failed for: %s', result_description)
 
     if failures:
-      cros_build_lib.Error('Failure summary:')
+      logging.error('Failure summary:')
       for failure in failures:
-        cros_build_lib.Error('  %s', failure)
-      raise SignerFailure(failures)
+        logging.error('  %s', failure)
+      raise SignerFailure(', '.join([str(f) for f in failures]))
 
   def PerformStage(self):
     """Do the work of generating our release payloads."""
@@ -362,6 +367,7 @@ class PaygenStage(artifact_stages.ArchivingStage):
         self._PrintLoudly('Starting %s, %s, %s' % (channel, version, board))
         paygen_build_lib.CreatePayloads(build,
                                         work_dir=tempdir,
+                                        site_config=self._run.site_config,
                                         dry_run=debug,
                                         run_parallel=True,
                                         run_on_builder=True,
@@ -377,4 +383,4 @@ class PaygenStage(artifact_stages.ArchivingStage):
         # This means the build was finished by the other process, is already
         # being processed (so the build is locked), or that it's been marked
         # to skip (probably done manually).
-        cros_build_lib.Info('Paygen skipped because: %s', e)
+        logging.info('Paygen skipped because: %s', e)

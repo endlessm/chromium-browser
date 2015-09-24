@@ -27,9 +27,10 @@
         "AutoConnect": true,
         "Frequency": 2412,
         "FrequencyList": [2412, 5180],
+        "HexSSID": "4F70656E577274", // "OpenWrt"
         "HiddenSSID": false,
         "Passphrase": "some passphrase",
-        "SSID": "OpenWrt",
+        "RoamThreshold": 20,
         "Security": "WPA-PSK"
     }
 }

@@ -8,8 +8,8 @@
 #include "base/path_service.h"
 #include "base/strings/stringprintf.h"
 #include "content/public/browser/web_contents.h"
+#include "content/shell/browser/blink_test_controller.h"
 #include "content/shell/browser/shell.h"
-#include "content/shell/browser/webkit_test_controller.h"
 #include "net/base/filename_util.h"
 
 namespace content {
@@ -19,28 +19,16 @@ LayoutTestDevToolsFrontend* LayoutTestDevToolsFrontend::Show(
     WebContents* inspected_contents,
     const std::string& settings,
     const std::string& frontend_url) {
-  scoped_refptr<DevToolsAgentHost> agent(
-      DevToolsAgentHost::GetOrCreateFor(inspected_contents));
   Shell* shell = Shell::CreateNewWindow(inspected_contents->GetBrowserContext(),
                                         GURL(),
                                         NULL,
-                                        MSG_ROUTING_NONE,
                                         gfx::Size());
   LayoutTestDevToolsFrontend* devtools_frontend =
-      new LayoutTestDevToolsFrontend(shell, agent.get());
+      new LayoutTestDevToolsFrontend(shell, inspected_contents);
 
   shell->LoadURL(GetDevToolsPathAsURL(settings, frontend_url));
 
   return devtools_frontend;
-}
-
-LayoutTestDevToolsFrontend::LayoutTestDevToolsFrontend(
-    Shell* frontend_shell,
-    DevToolsAgentHost* agent_host)
-    : ShellDevToolsFrontend(frontend_shell, agent_host) {
-}
-
-LayoutTestDevToolsFrontend::~LayoutTestDevToolsFrontend() {
 }
 
 // static.
@@ -61,7 +49,7 @@ GURL LayoutTestDevToolsFrontend::GetDevToolsPathAsURL(
   dir_exe = dir_exe.AppendASCII("../../..");
 #endif
   base::FilePath dev_tools_path =
-      dir_exe.AppendASCII("resources/inspector/devtools.html");
+      dir_exe.AppendASCII("resources/inspector/inspector.html");
 
   GURL result = net::FilePathToFileURL(dev_tools_path);
   if (!settings.empty())
@@ -71,9 +59,30 @@ GURL LayoutTestDevToolsFrontend::GetDevToolsPathAsURL(
   return result;
 }
 
+void LayoutTestDevToolsFrontend::ReuseFrontend(const std::string& settings,
+                                               const std::string frontend_url) {
+  DisconnectFromTarget();
+  preferences()->Clear();
+  frontend_shell()->LoadURL(GetDevToolsPathAsURL(settings, frontend_url));
+}
+
+LayoutTestDevToolsFrontend::LayoutTestDevToolsFrontend(
+    Shell* frontend_shell,
+    WebContents* inspected_contents)
+    : ShellDevToolsFrontend(frontend_shell, inspected_contents) {
+}
+
+LayoutTestDevToolsFrontend::~LayoutTestDevToolsFrontend() {
+}
+
+void LayoutTestDevToolsFrontend::AgentHostClosed(
+    DevToolsAgentHost* agent_host, bool replaced) {
+  // Do not close the front-end shell.
+}
+
 void LayoutTestDevToolsFrontend::RenderProcessGone(
     base::TerminationStatus status) {
-  WebKitTestController::Get()->DevToolsProcessCrashed();
+  BlinkTestController::Get()->DevToolsProcessCrashed();
 }
 
 }  // namespace content

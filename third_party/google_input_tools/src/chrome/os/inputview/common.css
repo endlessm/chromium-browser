@@ -2,12 +2,6 @@
   position: relative;
   -webkit-user-select: none;
 }
-#emoji.candidate-view-disabled .inputview-layoutview {
-  margin-top: 22px;
-}
-.candidate-view-disabled .inputview-layoutview {
-  margin-top: 8px;
-}
 .inputview-canvasview,
 .inputview-skv {
   display: inline-block;
@@ -37,7 +31,7 @@
   display: inline-block;
 }
 .inputview-a11y .inputview-character {
-  font-size: 11px;
+  font-size: 13px;
 }
 .inputview-ch {
   color: #111111;
@@ -49,10 +43,10 @@
 .inputview-font-small.inputview-special-key-name,
 .inputview-font-small.inputview-compact-key,
 .inputview-a11y .inputview-digit-character.inputview-ch {
-  font-size: 16px;
+  font-size: 17px;
 }
 .inputview-a11y .inputview-ch {
-  font-size: 18px;
+  font-size: 21px;
 }
 .inputview-vertical {
   display: inline-block;
@@ -134,6 +128,9 @@
 }
 .inputview-emoji-font {
   font-family: Noto Color Emoji, Noto Sans Emoji, Droid Emoji;
+}
+.inputview-emoticon {
+  font-family: Noto Sans Emoji, Droid Emoji;
 }
 .inputview-modifier {
   display: table-cell;
@@ -222,12 +219,23 @@
   background: #f5f5f5;
   display: -webkit-box;
 }
+.inputview-gesture-canvas-view {
+  /* Overlap */
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  pointer-events: none;
+}
 .inputview-globe-icon {
   background: transparent url('images/globe.png') 0 0 / 21px 21px no-repeat;
   display: inline-block;
   width: 21px;
   height: 21px;
 }
+.inputview-swipe-view,
 .inputview-menu-view,
 .inputview-altdata-view {
   position: fixed;
@@ -240,11 +248,25 @@
                       0 0 6px rgba(204, 204, 204, 0.65);
   cursor: default;
 }
+.inputview-swipe-separator {
+  background-color: #ebebeb;
+  position: relative;
+  display: inline-block;
+}
 .inputview-altdata-separator {
   height: 20px;
   border-left: 1px solid #ddd;
   position: relative;
   display: inline-block;
+}
+.inputview-swipe-key {
+  background-color: #dddddd;
+  display: table-cell;
+  font-size: 23px;
+  color: black;
+  vertical-align: middle;
+  position: relative;
+  text-align: center;
 }
 .inputview-altdata-key {
   display: table-cell;
@@ -264,12 +286,20 @@
   color: #111111;
 }
 .inputview-candidate-view {
-  overflow: hidden;
   display: table-cell;
-  height: 32px;
+  overflow: hidden;
+  position: relative;
+}
+.inputview-toolbar-button {
+  float: right;
 }
 .inputview-candidate-button {
-  float: right;
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+.inputview-toolbar-button.float-left {
+  float: left;
 }
 .inputview-candidate {
   display: table-cell;
@@ -277,10 +307,12 @@
   color: #555555;
   vertical-align: middle;
   text-align: center;
+  text-overflow: ellipsis;
 }
 .inputview-a11y .inputview-candidate {
   font-size: 12px;
 }
+.inputview-toolbar-separator,
 .inputview-candidate-separator {
   border-left: 1px solid #ddd;
   position: relative;
@@ -313,6 +345,7 @@
   -webkit-box-shadow: 0 0 5px 1px #397FFB;
   opacity: 0.9;
 }
+.inputview-track-cover,
 .inputview-altdata-cover {
   position: fixed;
   bottom: 0;
@@ -320,6 +353,9 @@
   background-color: white;
   opacity: 0.5;
   z-index: 1;
+}
+.inputview-track-cover {
+  z-index: 998;
 }
 .inputview-arrow-key {
   display: inline-block;
@@ -332,6 +368,9 @@
 .inputview-down-key {
   background: transparent url('images/down.png') 0 0/16px 13.5px no-repeat;
   width: 16px;
+}
+.inputview-drawing-canvas {
+  pointer-events: none;
 }
 .inputview-left-key {
   background: transparent url('images/left.png') 0 0/9px 13.5px no-repeat;
@@ -371,12 +410,18 @@
   height: 14.5px;
 }
 .inputview-candidate.inputview-candidate-highlight,
+.inputview-toolbar-button.inputview-candidate-highlight,
 .inputview-element-highlight {
   background-color: #dddddd;
 }
 .inputview-menu-footer-item.inputview-element-highlight,
-.inputview-special-key-highlight {
+.inputview-view .inputview-special-key-highlight,
+.inputview-view .inputview-special-key-bg.inputview-special-key-highlight {
   background-color: #cccccc;
+}
+.inputview-swipe-separator.inputview-element-highlight,
+.inputview-swipe-key.inputview-element-highlight {
+  background-color: #bbbbbb;
 }
 .inputview-backspace-icon {
   background: transparent url('images/backspace.png');
@@ -391,6 +436,7 @@
   display: inline-block;
   width: 18px;
   height: 13px;
+  transition: '-webkit-filter 1s ease'
 }
 
 .inputview-space-icon {
@@ -485,7 +531,7 @@
   text-align: center;
   vertical-align: middle;
 }
-.inputview-candiate-ic {
+.inputview-candidate-ic {
   display: inline-block;
 }
 
@@ -497,6 +543,60 @@
 
 .inputview-expand-candidates-icon {
   background: transparent url('images/show_candidates.png') 0 0/17px 16.5px no-repeat;
+  height: 17px;
+  width: 16.5px;
+}
+
+.inputview-copy-icon {
+  background: transparent url('images/copy.png') 0 0/17px 16.5px no-repeat;
+  height: 17px;
+  width: 16.5px;
+}
+
+.inputview-cut-icon {
+  background: transparent url('images/cut.png') 0 0/17px 16.5px no-repeat;
+  height: 17px;
+  width: 16.5px;
+}
+
+.inputview-paste-icon {
+  background: transparent url('images/paste.png') 0 0/17px 16.5px no-repeat;
+  height: 17px;
+  width: 16.5px;
+}
+
+.inputview-bold-icon {
+  background: transparent url('images/bold.png') 0 0/17px 16.5px no-repeat;
+  height: 17px;
+  width: 16.5px;
+}
+
+.inputview-italics-icon {
+  background: transparent url('images/italic.png') 0 0/17px 16.5px no-repeat;
+  height: 17px;
+  width: 16.5px;
+}
+
+.inputview-underline-icon {
+  background: transparent url('images/underline.png') 0 0/17px 16.5px no-repeat;
+  height: 17px;
+  width: 16.5px;
+}
+
+.inputview-select-all-icon {
+  background: transparent url('images/select_all.png') 0 0/17px 16.5px no-repeat;
+  height: 17px;
+  width: 16.5px;
+}
+
+.inputview-redo-icon {
+  background: transparent url('images/redo.png') 0 0/17px 16.5px no-repeat;
+  height: 17px;
+  width: 16.5px;
+}
+
+.inputview-undo-icon {
+  background: transparent url('images/undo.png') 0 0/17px 16.5px no-repeat;
   height: 17px;
   width: 16.5px;
 }
@@ -537,16 +637,6 @@
 .inputview-canvas {
   cursor: url('images/pencil.png') 8 42, auto;
 }
-
-#leftSideColumn {
-  position: absolute;
-  left: 0;
-}
-
-#rightSideColumn {
-  position: absolute;
-  right: 0;
-}
 .inputview-handwriting .inputview-ch {
   bottom: 15px !important;
 }
@@ -563,10 +653,6 @@
   background-color: #E9E9E9;
 }
 
-.inputview-handwriting .inputview-special-key-highlight {
-  background-color: #cccccc;
-}
-
 .inputview-handwriting #candidateView {
   background-color: #ffffff;
   border-bottom: 1px #cfcfcf solid;
@@ -576,34 +662,31 @@
   background: no-repeat url('images/error.png');
   padding: 0 0 0 50px;
   position: absolute;
-  width: 600px;
-  height: 100px;
 }
 
 .inputview-handwriting-privacy-cover {
   position: relative;
   bottom: 0;
   left: 0;
-  background-color: white;
   opacity: 0.5;
   z-index: 1;
 }
 
 .inputview-handwriting-privacy-info {
   position: absolute;
-  width: 600px;
-  height: 100px;
   z-index: 2;
+}
+
+
+.inputview-handwriting-got-it {
+  color: #3974df;
+  margin-left: 10px;
 }
 
 .inputview-handwriting-privacy-info-hidden {
   visibility: hidden;
   opacity: 0;
   transition: all 2s ease;
-}
-
-.inputview-handwriting-privacy-info .inputview-sk {
-  margin-top: 10px;
 }
 
 .inputview-jp-ime-switch {
@@ -639,4 +722,56 @@
   background-size: 40px 16px;
   height: 16px;
   width: 40px;
+}
+.inputview-select-knob-left,
+.inputview-select-knob-right {
+  position: absolute;
+  top: 0;
+  margin: 0;
+  padding: 0;
+  z-index: 100;
+}
+.inputview-select-knob-left {
+  left: 0px;
+}
+.inputview-select-knob-right {
+
+}
+/* Anchor to the center of the column */
+.inputview-select-knob-right > div,
+.inputview-select-knob-left > div {
+  width: 100%;
+  position: relative;
+  height: 1px;
+  top: 50%;
+  left: 0;
+}
+/* Semi-circular knob */
+.inputview-select-knob-left > div > div,
+.inputview-select-knob-right > div > div {
+  width : 100%;
+  height: 50px;
+  background-color: #dddddd;
+  -webkit-transform: translateY(-25px);
+  line-height: 50px;
+  color: white;
+  text-align: center;
+  font-size: medium;
+  font-weight: bolder;
+}
+.inputview-select-knob-left > div > div {
+  -webkit-border-radius: 0 30px 30px 0;
+}
+.inputview-select-knob-right > div > div {
+  -webkit-border-radius: 30px 0 0 30px;
+}
+
+.inputview-candidate-internal-wrapper {
+  text-overflow: ellipsis;
+  overflow-x: hidden;
+  white-space: nowrap;
+  display: inline-block;
+}
+.inputview-three-candidates .inputview-candidate {
+  padding: 6px;
 }

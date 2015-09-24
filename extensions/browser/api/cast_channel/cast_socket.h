@@ -16,12 +16,15 @@
 #include "base/timer/timer.h"
 #include "extensions/browser/api/api_resource.h"
 #include "extensions/browser/api/api_resource_manager.h"
+#include "extensions/browser/api/cast_channel/cast_socket.h"
+#include "extensions/browser/api/cast_channel/cast_transport.h"
+#include "extensions/browser/api/cast_channel/logger_util.h"
 #include "extensions/common/api/cast_channel.h"
 #include "extensions/common/api/cast_channel/logging.pb.h"
 #include "net/base/completion_callback.h"
 #include "net/base/io_buffer.h"
 #include "net/base/ip_endpoint.h"
-#include "net/base/net_log.h"
+#include "net/log/net_log.h"
 
 namespace net {
 class AddressList;
@@ -35,105 +38,183 @@ class TransportSecurityState;
 namespace extensions {
 namespace core_api {
 namespace cast_channel {
-
 class CastMessage;
 class Logger;
 struct LastErrors;
 class MessageFramer;
 
-// This class implements a channel between Chrome and a Cast device using a TCP
-// socket with SSL.  The channel may authenticate that the receiver is a genuine
-// Cast device.  All CastSocket objects must be used only on the IO thread.
-//
-// NOTE: Not called "CastChannel" to reduce confusion with the generated API
-// code.
-// TODO(kmarshall): Inherit from CastSocket and rename to CastSocketImpl.
+// Cast device capabilities.
+enum CastDeviceCapability {
+  NONE = 0,
+  VIDEO_OUT = 1 << 0,
+  VIDEO_IN = 1 << 1,
+  AUDIO_OUT = 1 << 2,
+  AUDIO_IN = 1 << 3,
+  DEV_MODE = 1 << 4
+};
+
+// Public interface of the CastSocket class.
 class CastSocket : public ApiResource {
  public:
-  // Object to be informed of incoming messages and errors.  The CastSocket
-  // that owns the delegate must not be deleted by it, only by the
-  // ApiResourceManager or in the callback to Close().
-  class Delegate {
-   public:
-    // An error occurred on the channel. |last_errors| contains the last errors
-    // logged for the channel from the implementation.
-    virtual void OnError(const CastSocket* socket,
-                         ChannelError error_state,
-                         const LastErrors& last_errors) = 0;
-    // A message was received on the channel.
-    virtual void OnMessage(const CastSocket* socket,
-                           const MessageInfo& message) = 0;
+  explicit CastSocket(const std::string& owner_extension_id);
+  ~CastSocket() override {}
 
-   protected:
-    virtual ~Delegate() {}
-  };
-
-  // Creates a new CastSocket that connects to |ip_endpoint| with
-  // |channel_auth|. |owner_extension_id| is the id of the extension that opened
-  // the socket.  |channel_auth| must not be CHANNEL_AUTH_NONE.
-  CastSocket(const std::string& owner_extension_id,
-             const net::IPEndPoint& ip_endpoint,
-             ChannelAuthType channel_auth,
-             CastSocket::Delegate* delegate,
-             net::NetLog* net_log,
-             const base::TimeDelta& connect_timeout,
-             const scoped_refptr<Logger>& logger);
-
-  // Ensures that the socket is closed.
-  ~CastSocket() override;
-
-  // The IP endpoint for the destination of the channel.
-  const net::IPEndPoint& ip_endpoint() const { return ip_endpoint_; }
-
-  // The authentication level requested for the channel.
-  ChannelAuthType channel_auth() const { return channel_auth_; }
-
-  // Returns a cast:// or casts:// URL for the channel endpoint.
-  // For backwards compatibility.
-  std::string CastUrl() const;
-
-  // Channel id for the ApiResourceManager.
-  int id() const { return channel_id_; }
-
-  // Sets the channel id.
-  void set_id(int channel_id) { channel_id_ = channel_id; }
-
-  // Returns the state of the channel.  Virtual for testing.
-  virtual ReadyState ready_state() const;
-
-  // Returns the last error that occurred on this channel, or
-  // CHANNEL_ERROR_NONE if no error has occurred.  Virtual for testing.
-  virtual ChannelError error_state() const;
+  // Used by BrowserContextKeyedAPIFactory.
+  static const char* service_name() { return "CastSocketImplManager"; }
 
   // Connects the channel to the peer. If successful, the channel will be in
   // READY_STATE_OPEN.  DO NOT delete the CastSocket object in |callback|.
   // Instead use Close().
-  virtual void Connect(const net::CompletionCallback& callback);
-
-  // Sends a message over a connected channel. The channel must be in
-  // READY_STATE_OPEN.
-  //
-  // Note that if an error occurs the following happens:
-  // 1. Completion callbacks for all pending writes are invoked with error.
-  // 2. Delegate::OnError is called once.
-  // 3. CastSocket is closed.
-  //
-  // DO NOT delete the CastSocket object in |callback|. Instead use Close().
-  virtual void SendMessage(const MessageInfo& message,
-                           const net::CompletionCallback& callback);
+  // |callback| will be invoked with any ChannelError that occurred, or
+  // CHANNEL_ERROR_NONE if successful.
+  // |delegate| receives message receipt and error events.
+  // Ownership of |delegate| is transferred to this CastSocket.
+  virtual void Connect(scoped_ptr<CastTransport::Delegate> delegate,
+                       base::Callback<void(ChannelError)> callback) = 0;
 
   // Closes the channel if not already closed. On completion, the channel will
   // be in READY_STATE_CLOSED.
   //
-  // It is fine to delete the CastSocket object in |callback|.
-  virtual void Close(const net::CompletionCallback& callback);
+  // It is fine to delete this object in |callback|.
+  virtual void Close(const net::CompletionCallback& callback) = 0;
+
+  // The IP endpoint for the destination of the channel.
+  virtual const net::IPEndPoint& ip_endpoint() const = 0;
+
+  // Channel id generated by the ApiResourceManager.
+  virtual int id() const = 0;
+
+  // Sets the channel id generated by ApiResourceManager.
+  virtual void set_id(int id) = 0;
+
+  // The authentication level requested for the channel.
+  virtual ChannelAuthType channel_auth() const = 0;
+
+  // The ready state of the channel.
+  virtual ReadyState ready_state() const = 0;
+
+  // Returns the last error that occurred on this channel, or
+  // CHANNEL_ERROR_NONE if no error has occurred.
+  virtual ChannelError error_state() const = 0;
+
+  // True when keep-alive signaling is handled for this socket.
+  virtual bool keep_alive() const = 0;
+
+  // Marks a socket as invalid due to an error, and sends an OnError
+  // event to |delegate_|.
+  // The OnError event receipient is responsible for closing the socket in the
+  // event of an error.
+  // Setting the error state does not close the socket if it is open.
+  virtual void SetErrorState(ChannelError error_state) = 0;
+
+  // Returns a pointer to the socket's message transport layer. Can be used to
+  // send and receive CastMessages over the socket.
+  virtual CastTransport* transport() const = 0;
+
+  // Tells the ApiResourceManager to retain CastSocket objects even
+  // if their corresponding extension is suspended.
+  // (CastSockets are still deleted if the extension is removed entirely from
+  // the browser.)
+  bool IsPersistent() const override;
+};
+
+// This class implements a channel between Chrome and a Cast device using a TCP
+// socket with SSL.  The channel may authenticate that the receiver is a genuine
+// Cast device.  All CastSocketImpl objects must be used only on the IO thread.
+//
+// NOTE: Not called "CastChannel" to reduce confusion with the generated API
+// code.
+class CastSocketImpl : public CastSocket {
+ public:
+  // Creates a new CastSocket that connects to |ip_endpoint| with
+  // |channel_auth|. |owner_extension_id| is the id of the extension that opened
+  // the socket.  |channel_auth| must not be CHANNEL_AUTH_NONE.
+  // Parameters:
+  // |owner_extension_id|: ID of the extension calling the API.
+  // |ip_endpoint|: IP address of the remote host.
+  // |channel_auth|: Authentication method used for connecting to a Cast
+  //                 receiver.
+  // |net_log|: Log of socket events.
+  // |connect_timeout|: Connection timeout interval.
+  // |logger|: Log of cast channel events.
+  CastSocketImpl(const std::string& owner_extension_id,
+                 const net::IPEndPoint& ip_endpoint,
+                 ChannelAuthType channel_auth,
+                 net::NetLog* net_log,
+                 const base::TimeDelta& connect_timeout,
+                 bool keep_alive,
+                 const scoped_refptr<Logger>& logger,
+                 uint64 device_capabilities);
+
+  // Ensures that the socket is closed.
+  ~CastSocketImpl() override;
+
+  // CastSocket interface.
+  void Connect(scoped_ptr<CastTransport::Delegate> delegate,
+               base::Callback<void(ChannelError)> callback) override;
+  CastTransport* transport() const override;
+  void Close(const net::CompletionCallback& callback) override;
+  const net::IPEndPoint& ip_endpoint() const override;
+  int id() const override;
+  void set_id(int channel_id) override;
+  ChannelAuthType channel_auth() const override;
+  ReadyState ready_state() const override;
+  ChannelError error_state() const override;
+  bool keep_alive() const override;
+
+  // Required by ApiResourceManager.
+  static const char* service_name() { return "CastSocketManager"; }
+
+ protected:
+  // CastTransport::Delegate methods for receiving handshake messages.
+  class AuthTransportDelegate : public CastTransport::Delegate {
+   public:
+    explicit AuthTransportDelegate(CastSocketImpl* socket);
+
+    // Gets the error state of the channel.
+    // Returns CHANNEL_ERROR_NONE if no errors are present.
+    ChannelError error_state() const;
+
+    // Gets recorded error details.
+    LastErrors last_errors() const;
+
+    // CastTransport::Delegate interface.
+    void OnError(ChannelError error_state) override;
+    void OnMessage(const CastMessage& message) override;
+    void Start() override;
+
+   private:
+    CastSocketImpl* socket_;
+    ChannelError error_state_;
+    LastErrors last_errors_;
+  };
+
+  // Replaces the internally-constructed transport object with one provided
+  // by the caller (e.g. a mock).
+  void SetTransportForTesting(scoped_ptr<CastTransport> transport);
+
+  // Verifies whether the socket complies with cast channel policy.
+  // Audio only channel policy mandates that a device declaring a video out
+  // capability must not have a certificate with audio only policy.
+  bool VerifyChannelPolicy(const AuthResult& result);
 
  private:
-  friend class ApiResourceManager<CastSocket>;
+  FRIEND_TEST_ALL_PREFIXES(CastSocketTest, TestConnectAuthMessageCorrupted);
+  FRIEND_TEST_ALL_PREFIXES(CastSocketTest,
+                           TestConnectChallengeReplyReceiveError);
+  FRIEND_TEST_ALL_PREFIXES(CastSocketTest,
+                           TestConnectChallengeVerificationFails);
+  friend class AuthTransportDelegate;
+  friend class ApiResourceManager<CastSocketImpl>;
   friend class CastSocketTest;
   friend class TestCastSocket;
 
-  static const char* service_name() { return "CastSocketManager"; }
+  void SetErrorState(ChannelError error_state) override;
+
+  // Frees resources and cancels pending callbacks.  |ready_state_| will be set
+  // READY_STATE_CLOSED on completion.  A no-op if |ready_state_| is already
+  // READY_STATE_CLOSED.
+  void CloseInternal();
 
   // Creates an instance of TCPClientSocket.
   virtual scoped_ptr<net::TCPClientSocket> CreateTcpSocket();
@@ -175,58 +256,14 @@ class CastSocket : public ApiResource {
   int DoSslConnectComplete(int result);
   int DoAuthChallengeSend();
   int DoAuthChallengeSendComplete(int result);
-  void DoAuthChallengeSendWriteComplete(int result);
   int DoAuthChallengeReplyComplete(int result);
   /////////////////////////////////////////////////////////////////////////////
 
-  /////////////////////////////////////////////////////////////////////////////
-  // Following methods work together to implement write flow.
-  //
-  // Main method that performs write flow state transitions.
-  void DoWriteLoop(int result);
-  // Each of the below Do* method is executed in the corresponding
-  // write state. For example when write state is WRITE_STATE_WRITE_COMPLETE
-  // DowriteComplete is called, and so on.
-  int DoWrite();
-  int DoWriteComplete(int result);
-  int DoWriteCallback();
-  int DoWriteError(int result);
-  /////////////////////////////////////////////////////////////////////////////
-
-  /////////////////////////////////////////////////////////////////////////////
-  // Following methods work together to implement read flow.
-  //
-  // Main method that performs write flow state transitions.
-  void DoReadLoop(int result);
-  // Each of the below Do* method is executed in the corresponding
-  // write state. For example when write state is READ_STATE_READ_COMPLETE
-  // DoReadComplete is called, and so on.
-  int DoRead();
-  int DoReadComplete(int result);
-  int DoReadCallback();
-  int DoReadError(int result);
-  /////////////////////////////////////////////////////////////////////////////
+  // Schedules asynchrous connection loop processing in the MessageLoop.
+  void PostTaskToStartConnectLoop(int result);
 
   // Runs the external connection callback and resets it.
-  void DoConnectCallback(int result);
-  // Adds |message| to the write queue and starts the write loop if needed.
-  void SendCastMessageInternal(const CastMessage& message,
-                               const net::CompletionCallback& callback);
-  void PostTaskToStartConnectLoop(int result);
-  void PostTaskToStartReadLoop();
-  void StartReadLoop();
-  // Closes socket, signaling the delegate that |error| has occurred.
-  void CloseWithError();
-  // Frees resources and cancels pending callbacks.  |ready_state_| will be set
-  // READY_STATE_CLOSED on completion.  A no-op if |ready_state_| is already
-  // READY_STATE_CLOSED.
-  void CloseInternal();
-  // Runs pending callbacks that are passed into us to notify API clients that
-  // pending operations will fail because the socket has been closed.
-  void RunPendingCallbacksOnClose();
-  // Serializes the content of message_proto (with a header) to |message_data|.
-  static bool Serialize(const CastMessage& message_proto,
-                        std::string* message_data);
+  void DoConnectCallback();
 
   virtual bool CalledOnValidThread() const;
 
@@ -234,32 +271,24 @@ class CastSocket : public ApiResource {
 
   void SetConnectState(proto::ConnectionState connect_state);
   void SetReadyState(ReadyState ready_state);
-  void SetErrorState(ChannelError error_state);
-  void SetReadState(proto::ReadState read_state);
-  void SetWriteState(proto::WriteState write_state);
 
   base::ThreadChecker thread_checker_;
 
+  const std::string owner_extension_id_;
   // The id of the channel.
   int channel_id_;
-
   // The IP endpoint that the the channel is connected to.
   net::IPEndPoint ip_endpoint_;
   // Receiver authentication requested for the channel.
   ChannelAuthType channel_auth_;
-  // Delegate to inform of incoming messages and errors.
-  Delegate* delegate_;
-
-  // IOBuffer for reading the message header.
-  scoped_refptr<net::GrowableIOBuffer> read_buffer_;
-  scoped_ptr<MessageFramer> framer_;
-
   // The NetLog for this service.
   net::NetLog* net_log_;
   // The NetLog source for this service.
   net::NetLog::Source net_log_source_;
+  // True when keep-alive signaling should be handled for this socket.
+  bool keep_alive_;
 
-  // Logger used to track multiple CastSockets. Does NOT own this object.
+  // Shared logging object, used to log CastSocket events for diagnostics.
   scoped_refptr<Logger> logger_;
 
   // CertVerifier is owned by us but should be deleted AFTER SSLClientSocket
@@ -270,73 +299,70 @@ class CastSocket : public ApiResource {
 
   // Owned ptr to the underlying TCP socket.
   scoped_ptr<net::TCPClientSocket> tcp_socket_;
+
   // Owned ptr to the underlying SSL socket.
   scoped_ptr<net::SSLClientSocket> socket_;
+
   // Certificate of the peer. This field may be empty if the peer
   // certificate is not yet fetched.
   std::string peer_cert_;
+
   // Reply received from the receiver to a challenge request.
   scoped_ptr<CastMessage> challenge_reply_;
 
   // Callback invoked when the socket is connected or fails to connect.
-  net::CompletionCallback connect_callback_;
+  base::Callback<void(ChannelError)> connect_callback_;
 
   // Callback invoked by |connect_timeout_timer_| to cancel the connection.
   base::CancelableClosure connect_timeout_callback_;
+
   // Duration to wait before timing out.
   base::TimeDelta connect_timeout_;
+
   // Timer invoked when the connection has timed out.
   scoped_ptr<base::Timer> connect_timeout_timer_;
+
   // Set when a timeout is triggered and the connection process has
   // canceled.
   bool is_canceled_;
 
-  scoped_ptr<CastMessage> current_message_;
+  // Capabilities declared by the cast device.
+  uint64 device_capabilities_;
 
   // Connection flow state machine state.
   proto::ConnectionState connect_state_;
+
   // Write flow state machine state.
   proto::WriteState write_state_;
+
   // Read flow state machine state.
   proto::ReadState read_state_;
+
   // The last error encountered by the channel.
   ChannelError error_state_;
+
   // The current status of the channel.
   ReadyState ready_state_;
 
   // Task invoked to (re)start the connect loop.  Canceled on entry to the
   // connect loop.
   base::CancelableClosure connect_loop_callback_;
+
   // Task invoked to send the auth challenge.  Canceled when the auth challenge
   // has been sent.
   base::CancelableClosure send_auth_challenge_callback_;
-  // Callback invoked to (re)start the read loop.  Canceled on entry to the read
-  // loop.
-  base::CancelableClosure read_loop_callback_;
 
-  // Holds a message to be written to the socket. |callback| is invoked when the
-  // message is fully written or an error occurrs.
-  struct WriteRequest {
-    explicit WriteRequest(const net::CompletionCallback& callback);
-    ~WriteRequest();
-    // Sets the content of the request by serializing |message| into |io_buffer|
-    // and prepending the header.  Must only be called once.
-    bool SetContent(const CastMessage& message_proto);
+  // Cast message formatting and parsing layer.
+  scoped_ptr<CastTransport> transport_;
 
-    net::CompletionCallback callback;
-    std::string message_namespace;
-    scoped_refptr<net::DrainableIOBuffer> io_buffer;
-  };
-  // Queue of pending writes. The message at the front of the queue is the one
-  // being written.
-  std::queue<WriteRequest> write_queue_;
+  // Caller's message read and error handling delegate.
+  scoped_ptr<CastTransport::Delegate> delegate_;
 
-  FRIEND_TEST_ALL_PREFIXES(CastSocketTest, TestFullSecureConnectionFlowAsync);
-  FRIEND_TEST_ALL_PREFIXES(CastSocketTest, TestRead);
-  FRIEND_TEST_ALL_PREFIXES(CastSocketTest, TestReadHeaderParseError);
-  FRIEND_TEST_ALL_PREFIXES(CastSocketTest, TestReadMany);
-  FRIEND_TEST_ALL_PREFIXES(CastSocketTest, TestWriteErrorLargeMessage);
-  DISALLOW_COPY_AND_ASSIGN(CastSocket);
+  // Raw pointer to the auth handshake delegate. Used to get detailed error
+  // information.
+  AuthTransportDelegate* auth_delegate_;
+
+  DISALLOW_COPY_AND_ASSIGN(CastSocketImpl);
 };
 }  // namespace cast_channel
 }  // namespace core_api

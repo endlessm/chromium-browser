@@ -31,7 +31,6 @@
 
 class BrowsingDataChannelIDHelper;
 class BrowsingDataCookieHelper;
-class CookieSettings;
 class CookiesTreeModel;
 class CookieTreeAppCacheNode;
 class CookieTreeAppCachesNode;
@@ -55,6 +54,10 @@ class CookieTreeServiceWorkersNode;
 class CookieTreeSessionStorageNode;
 class CookieTreeSessionStoragesNode;
 class ExtensionSpecialStoragePolicy;
+
+namespace content_settings {
+class CookieSettings;
+}
 
 namespace extensions {
 class ExtensionSet;
@@ -217,7 +220,7 @@ class CookieTreeHostNode : public CookieTreeNode {
 
   // Creates an content exception for this origin of type
   // CONTENT_SETTINGS_TYPE_COOKIES.
-  void CreateContentException(CookieSettings* cookie_settings,
+  void CreateContentException(content_settings::CookieSettings* cookie_settings,
                               ContentSetting setting) const;
 
   // True if a content exception can be created for this origin.
@@ -636,6 +639,10 @@ class CookiesTreeModel : public ui::TreeNodeModel<CookieTreeNode> {
                    bool group_by_cookie_source);
   ~CookiesTreeModel() override;
 
+  // Given a CanonicalCookie, return the ID of the message which should be
+  // displayed in various ports' "Send for:" UI.
+  static int GetSendForMessageID(const net::CanonicalCookie& cookie);
+
   // Because non-cookie nodes are fetched in a background thread, they are not
   // present at the time the Model is created. The Model then notifies its
   // observers for every item added from databases, local storage, and
@@ -719,6 +726,12 @@ class CookiesTreeModel : public ui::TreeNodeModel<CookieTreeNode> {
     return data_container_.get();
   }
 
+  // Set the number of |batches_expected| this class should expect to receive.
+  // If |reset| is true, then this is a new set of batches, but if false, then
+  // this is a revised number (batches originally counted should no longer be
+  // expected).
+  void SetBatchExpectation(int batches_expected, bool reset);
+
  private:
   enum CookieIconIndex {
     ORIGIN = 0,
@@ -726,8 +739,23 @@ class CookiesTreeModel : public ui::TreeNodeModel<CookieTreeNode> {
     DATABASE = 2
   };
 
+  // Reset the counters for batches.
+  void ResetBatches();
+
+  // Record that one batch has been delivered.
+  void RecordBatchSeen();
+
+  // Record that one batch has begun processing. If this is the first batch then
+  // observers will be notified that batch processing has started.
   void NotifyObserverBeginBatch();
+
+  // Record that one batch has finished processing. If this is the last batch
+  // then observers will be notified that batch processing has ended.
   void NotifyObserverEndBatch();
+
+  // Notifies observers if expected batch count has been delievered and all
+  // batches have finished processing.
+  void MaybeNotifyBatchesEnded();
 
   void PopulateAppCacheInfoWithFilter(LocalDataContainer* container,
                                       ScopedBatchUpdateNotifier* notifier,
@@ -776,16 +804,25 @@ class CookiesTreeModel : public ui::TreeNodeModel<CookieTreeNode> {
 
   // The CookiesTreeModel maintains a separate list of observers that are
   // specifically of the type CookiesTreeModel::Observer.
-  ObserverList<Observer> cookies_observer_list_;
+  base::ObserverList<Observer> cookies_observer_list_;
 
   // If true, use the CanonicalCookie::Source attribute to group cookies.
   // Otherwise, use the CanonicalCookie::Domain attribute.
   bool group_by_cookie_source_;
 
-  // If this is non-zero, then this model is batching updates (there's a lot of
-  // notifications coming down the pipe). This is an integer is used to balance
-  // calls to Begin/EndBatch() if they're called in a nested manner.
-  int batch_update_;
+  // Keeps track of how many batches the consumer of this class says it is going
+  // to send.
+  int batches_expected_;
+
+  // Keeps track of how many batches we've seen.
+  int batches_seen_;
+
+  // Counts how many batches have started already. If this is non-zero and lower
+  // than batches_ended_, then this model is still batching updates.
+  int batches_started_;
+
+  // Counts how many batches have finished.
+  int batches_ended_;
 };
 
 #endif  // CHROME_BROWSER_BROWSING_DATA_COOKIES_TREE_MODEL_H_

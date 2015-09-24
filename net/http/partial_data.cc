@@ -8,7 +8,6 @@
 #include "base/bind_helpers.h"
 #include "base/format_macros.h"
 #include "base/logging.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -28,92 +27,21 @@ const int kDataStream = 1;
 
 }  // namespace
 
-// A core object that can be detached from the Partialdata object at destruction
-// so that asynchronous operations cleanup can be performed.
-class PartialData::Core {
- public:
-  // Build a new core object. Lifetime management is automatic.
-  static Core* CreateCore(PartialData* owner) {
-    return new Core(owner);
-  }
-
-  // Wrapper for Entry::GetAvailableRange. If this method returns ERR_IO_PENDING
-  // PartialData::GetAvailableRangeCompleted() will be invoked on the owner
-  // object when finished (unless Cancel() is called first).
-  int GetAvailableRange(disk_cache::Entry* entry, int64 offset, int len,
-                        int64* start);
-
-  // Cancels a pending operation. It is a mistake to call this method if there
-  // is no operation in progress; in fact, there will be no object to do so.
-  void Cancel();
-
- private:
-  explicit Core(PartialData* owner);
-  ~Core();
-
-  // Pending io completion routine.
-  void OnIOComplete(int result);
-
-  PartialData* owner_;
-  int64 start_;
-
-  DISALLOW_COPY_AND_ASSIGN(Core);
-};
-
-PartialData::Core::Core(PartialData* owner)
-    : owner_(owner), start_(0) {
-  DCHECK(!owner_->core_);
-  owner_->core_ = this;
-}
-
-PartialData::Core::~Core() {
-  if (owner_)
-    owner_->core_ = NULL;
-}
-
-void PartialData::Core::Cancel() {
-  DCHECK(owner_);
-  owner_ = NULL;
-}
-
-int PartialData::Core::GetAvailableRange(disk_cache::Entry* entry, int64 offset,
-                                         int len, int64* start) {
-  int rv = entry->GetAvailableRange(
-      offset, len, &start_, base::Bind(&PartialData::Core::OnIOComplete,
-                                       base::Unretained(this)));
-  if (rv != net::ERR_IO_PENDING) {
-    // The callback will not be invoked. Lets cleanup.
-    *start = start_;
-    delete this;
-  }
-  return rv;
-}
-
-void PartialData::Core::OnIOComplete(int result) {
-  // TODO(vadimt): Remove ScopedTracker below once crbug.com/422516 is fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "422516 PartialData::Core::OnIOComplete"));
-
-  if (owner_)
-    owner_->GetAvailableRangeCompleted(result, start_);
-  delete this;
-}
-
-// -----------------------------------------------------------------------------
-
 PartialData::PartialData()
-    : range_present_(false),
+    : current_range_start_(0),
+      current_range_end_(0),
+      cached_start_(0),
+      resource_size_(0),
+      cached_min_len_(0),
+      range_present_(false),
       final_range_(false),
       sparse_entry_(true),
       truncated_(false),
       initial_validation_(false),
-      core_(NULL) {
+      weak_factory_(this) {
 }
 
 PartialData::~PartialData() {
-  if (core_)
-    core_->Cancel();
 }
 
 bool PartialData::Init(const HttpRequestHeaders& headers) {
@@ -130,7 +58,6 @@ bool PartialData::Init(const HttpRequestHeaders& headers) {
   if (!byte_range_.IsValid())
     return false;
 
-  resource_size_ = 0;
   current_range_start_ = byte_range_.first_byte_position();
 
   DVLOG(1) << "Range start: " << current_range_start_ << " end: " <<
@@ -175,13 +102,20 @@ int PartialData::ShouldValidateCache(disk_cache::Entry* entry,
 
   if (sparse_entry_) {
     DCHECK(callback_.is_null());
-    Core* core = Core::CreateCore(this);
-    cached_min_len_ = core->GetAvailableRange(entry, current_range_start_, len,
-                                              &cached_start_);
+    int64* start = new int64;
+    // This callback now owns "start". We make sure to keep it
+    // in a local variable since we want to use it later.
+    CompletionCallback cb =
+        base::Bind(&PartialData::GetAvailableRangeCompleted,
+                   weak_factory_.GetWeakPtr(), base::Owned(start));
+    cached_min_len_ =
+        entry->GetAvailableRange(current_range_start_, len, start, cb);
 
     if (cached_min_len_ == ERR_IO_PENDING) {
       callback_ = callback;
       return ERR_IO_PENDING;
+    } else {
+      cached_start_ = *start;
     }
   } else if (!truncated_) {
     if (byte_range_.HasFirstBytePosition() &&
@@ -222,20 +156,17 @@ void PartialData::PrepareCacheValidation(disk_cache::Entry* entry,
   if (current_range_start_ == cached_start_) {
     // The data lives in the cache.
     range_present_ = true;
+    current_range_end_ = cached_start_ + cached_min_len_ - 1;
     if (len == cached_min_len_)
       final_range_ = true;
-    headers->SetHeader(
-        HttpRequestHeaders::kRange,
-        net::HttpByteRange::Bounded(
-            current_range_start_,
-            cached_start_ + cached_min_len_ - 1).GetHeaderValue());
   } else {
     // This range is not in the cache.
-    headers->SetHeader(
-        HttpRequestHeaders::kRange,
-        net::HttpByteRange::Bounded(
-            current_range_start_, cached_start_ - 1).GetHeaderValue());
+    current_range_end_ = cached_start_ - 1;
   }
+  headers->SetHeader(
+      HttpRequestHeaders::kRange,
+      HttpByteRange::Bounded(current_range_start_, current_range_end_)
+          .GetHeaderValue());
 }
 
 bool PartialData::IsCurrentRangeCached() const {
@@ -285,6 +216,9 @@ bool PartialData::UpdateFromStoredHeaders(const HttpResponseHeaders* headers,
     DVLOG(2) << "UpdateFromStoredHeaders size: " << resource_size_;
     return true;
   }
+
+  if (!headers->HasStrongValidators())
+    return false;
 
   int64 length_value = headers->GetContentLength();
   if (length_value <= 0)
@@ -371,7 +305,21 @@ bool PartialData::ResponseHeadersOK(const HttpResponseHeaders* headers) {
   if (start != current_range_start_)
     return false;
 
-  if (byte_range_.IsValid() && end > byte_range_.last_byte_position())
+  if (!current_range_end_) {
+    // There is nothing in the cache.
+    DCHECK(byte_range_.HasLastBytePosition());
+    current_range_end_ = byte_range_.last_byte_position();
+    if (current_range_end_ >= resource_size_) {
+      // We didn't know the real file size, and the server is saying that the
+      // requested range goes beyond the size. Fix it.
+      current_range_end_ = end;
+      byte_range_.set_last_byte_position(end);
+    }
+  }
+
+  // If we received a range, but it's not exactly the range we asked for, avoid
+  // trouble and signal an error.
+  if (end != current_range_end_)
     return false;
 
   return true;
@@ -413,9 +361,10 @@ void PartialData::FixContentLength(HttpResponseHeaders* headers) {
                                         resource_size_));
 }
 
-int PartialData::CacheRead(
-    disk_cache::Entry* entry, IOBuffer* data, int data_len,
-    const net::CompletionCallback& callback) {
+int PartialData::CacheRead(disk_cache::Entry* entry,
+                           IOBuffer* data,
+                           int data_len,
+                           const CompletionCallback& callback) {
   int read_len = std::min(data_len, cached_min_len_);
   if (!read_len)
     return 0;
@@ -434,9 +383,10 @@ int PartialData::CacheRead(
   return rv;
 }
 
-int PartialData::CacheWrite(
-    disk_cache::Entry* entry, IOBuffer* data, int data_len,
-    const net::CompletionCallback& callback) {
+int PartialData::CacheWrite(disk_cache::Entry* entry,
+                            IOBuffer* data,
+                            int data_len,
+                            const CompletionCallback& callback) {
   DVLOG(3) << "To write: " << data_len;
   if (sparse_entry_) {
     return entry->WriteSparseData(
@@ -474,11 +424,11 @@ int PartialData::GetNextRangeLen() {
   return static_cast<int32>(range_len);
 }
 
-void PartialData::GetAvailableRangeCompleted(int result, int64 start) {
+void PartialData::GetAvailableRangeCompleted(int64* start, int result) {
   DCHECK(!callback_.is_null());
   DCHECK_NE(ERR_IO_PENDING, result);
 
-  cached_start_ = start;
+  cached_start_ = *start;
   cached_min_len_ = result;
   if (result >= 0)
     result = 1;  // Return success, go ahead and validate the entry.

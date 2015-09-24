@@ -5,17 +5,21 @@
 #ifndef UI_GL_GL_GLX_API_IMPLEMENTATION_H_
 #define UI_GL_GL_GLX_API_IMPLEMENTATION_H_
 
+#include <vector>
+
 #include "base/compiler_specific.h"
 #include "gl_bindings.h"
 #include "ui/gl/gl_export.h"
 
+namespace base {
+class CommandLine;
+}
 namespace gfx {
 
 class GLContext;
 struct GLWindowSystemBindingInfo;
 
 void InitializeStaticGLBindingsGLX();
-void InitializeDynamicGLBindingsGLX(GLContext* context);
 void InitializeDebugGLBindingsGLX();
 void ClearGLBindingsGLX();
 bool GetGLWindowSystemBindingInfoGLX(GLWindowSystemBindingInfo* info);
@@ -40,6 +44,14 @@ class GL_EXPORT RealGLXApi : public GLXApiBase {
   RealGLXApi();
   ~RealGLXApi() override;
   void Initialize(DriverGLX* driver);
+  void InitializeWithCommandLine(DriverGLX* driver,
+                                 base::CommandLine* command_line);
+
+  const char* glXQueryExtensionsStringFn(Display* dpy, int screen) override;
+ private:
+
+  std::vector<std::string> disabled_exts_;
+  std::string filtered_exts_;
 };
 
 // Inserts a TRACE for every GLX call.

@@ -7,7 +7,7 @@
 
 #include <vector>
 
-#include "cc/resources/tile_manager.h"
+#include "cc/tiles/tile_manager.h"
 
 namespace cc {
 
@@ -17,16 +17,16 @@ class FakeTileManagerClient : public TileManagerClient {
   ~FakeTileManagerClient() override;
 
   // TileManagerClient implementation.
-  const std::vector<PictureLayerImpl*>& GetPictureLayers() const override;
   void NotifyReadyToActivate() override {}
+  void NotifyReadyToDraw() override {}
+  void NotifyAllTileTasksCompleted() override {}
   void NotifyTileStateChanged(const Tile* tile) override {}
-  void BuildRasterQueue(RasterTilePriorityQueue* queue,
-                        TreePriority tree_priority) override {}
-  void BuildEvictionQueue(EvictionTilePriorityQueue* queue,
-                          TreePriority tree_priority) override {}
-
- private:
-  std::vector<PictureLayerImpl*> picture_layers_;
+  scoped_ptr<RasterTilePriorityQueue> BuildRasterQueue(
+      TreePriority tree_priority,
+      RasterTilePriorityQueue::Type type) override;
+  scoped_ptr<EvictionTilePriorityQueue> BuildEvictionQueue(
+      TreePriority tree_priority) override;
+  void SetIsLikelyToRequireADraw(bool is_likely_to_require_a_draw) override {}
 };
 
 }  // namespace cc

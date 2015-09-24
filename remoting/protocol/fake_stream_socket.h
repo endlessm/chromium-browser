@@ -45,13 +45,16 @@ class FakeStreamSocket : public net::StreamSocket {
   // Enables asynchronous Write().
   void set_async_write(bool async_write) { async_write_ = async_write; }
 
-  // Set error codes for the next Read() and Write() calls. Once returned the
-  // values are automatically reset to net::OK .
-  void set_next_read_error(int error) { next_read_error_ = error; }
+  // Set error codes for the next Write() call. Once returned the
+  // value is automatically reset to net::OK .
   void set_next_write_error(int error) { next_write_error_ = error; }
 
   // Appends |data| to the read buffer.
   void AppendInputData(const std::string& data);
+
+  // Causes Read() to fail with |error| once the read buffer is exhausted. If
+  // there is a currently pending Read, it is interrupted.
+  void AppendReadError(int error);
 
   // Pairs the socket with |peer_socket|. Deleting either of the paired sockets
   // unpairs them.
@@ -90,6 +93,10 @@ class FakeStreamSocket : public net::StreamSocket {
   bool WasNpnNegotiated() const override;
   net::NextProto GetNegotiatedProtocol() const override;
   bool GetSSLInfo(net::SSLInfo* ssl_info) override;
+  void GetConnectionAttempts(net::ConnectionAttempts* out) const override;
+  void ClearConnectionAttempts() override {}
+  void AddConnectionAttempts(const net::ConnectionAttempts& attempts) override {
+  }
 
  private:
   void DoAsyncWrite(scoped_refptr<net::IOBuffer> buf, int buf_len,

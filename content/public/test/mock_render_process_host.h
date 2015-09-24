@@ -32,6 +32,9 @@ class MockRenderProcessHost : public RenderProcessHost {
   // Provides test access to how many times a bad message has been received.
   int bad_msg_count() const { return bad_msg_count_; }
 
+  // Provides tests a way to simulate this render process crashing.
+  void SimulateCrash();
+
   // RenderProcessHost implementation (public portion).
   void EnableSendQueue() override;
   bool Init() override;
@@ -40,16 +43,16 @@ class MockRenderProcessHost : public RenderProcessHost {
   void RemoveRoute(int32 routing_id) override;
   void AddObserver(RenderProcessHostObserver* observer) override;
   void RemoveObserver(RenderProcessHostObserver* observer) override;
-  void ReceivedBadMessage() override;
+  void ShutdownForBadMessage() override;
   void WidgetRestored() override;
   void WidgetHidden() override;
   int VisibleWidgetCount() const override;
-  bool IsIsolatedGuest() const override;
+  bool IsForGuestsOnly() const override;
   StoragePartition* GetStoragePartition() const override;
   virtual void AddWord(const base::string16& word);
+  bool Shutdown(int exit_code, bool wait) override;
   bool FastShutdownIfPossible() override;
   bool FastShutdownStarted() const override;
-  void DumpHandles() override;
   base::ProcessHandle GetHandle() const override;
   int GetID() const override;
   bool HasConnection() const override;
@@ -79,9 +82,18 @@ class MockRenderProcessHost : public RenderProcessHost {
       const WebRtcRtpPacketCallback& packet_callback) override;
 #endif
   void ResumeDeferredNavigation(const GlobalRequestID& request_id) override;
-  void NotifyTimezoneChange() override;
+  void NotifyTimezoneChange(const std::string& zone_id) override;
   ServiceRegistry* GetServiceRegistry() override;
   const base::TimeTicks& GetInitTimeForNavigationMetrics() const override;
+  bool SubscribeUniformEnabled() const override;
+  void OnAddSubscription(unsigned int target) override;
+  void OnRemoveSubscription(unsigned int target) override;
+  void SendUpdateValueState(
+      unsigned int target, const gpu::ValueState& state) override;
+#if defined(ENABLE_BROWSER_CDMS)
+  media::BrowserCdm* GetBrowserCdm(int render_frame_id,
+                                   int cdm_id) const override;
+#endif
 
   // IPC::Sender via RenderProcessHost.
   bool Send(IPC::Message* msg) override;
@@ -96,15 +108,16 @@ class MockRenderProcessHost : public RenderProcessHost {
     factory_ = factory;
   }
 
-  int GetActiveViewCount();
-
-  void set_is_isolated_guest(bool is_isolated_guest) {
-    is_isolated_guest_ = is_isolated_guest;
+  void set_is_for_guests_only(bool is_for_guests_only) {
+    is_for_guests_only_ = is_for_guests_only;
   }
 
   void SetProcessHandle(scoped_ptr<base::ProcessHandle> new_handle) {
     process_handle = new_handle.Pass();
   }
+
+  void GetAudioOutputControllers(
+      const GetAudioOutputControllersCallback& callback) const override {}
 
  private:
   // Stores IPC messages that would have been sent to the renderer.
@@ -112,15 +125,16 @@ class MockRenderProcessHost : public RenderProcessHost {
   int bad_msg_count_;
   const MockRenderProcessHostFactory* factory_;
   int id_;
+  bool has_connection_;
   BrowserContext* browser_context_;
-  ObserverList<RenderProcessHostObserver> observers_;
+  base::ObserverList<RenderProcessHostObserver> observers_;
 
   IDMap<RenderWidgetHost> render_widget_hosts_;
   int prev_routing_id_;
   IDMap<IPC::Listener> listeners_;
   bool fast_shutdown_started_;
   bool deletion_callback_called_;
-  bool is_isolated_guest_;
+  bool is_for_guests_only_;
   scoped_ptr<base::ProcessHandle> process_handle;
 
   DISALLOW_COPY_AND_ASSIGN(MockRenderProcessHost);

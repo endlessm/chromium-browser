@@ -1,11 +1,13 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _APP_H_
-#define _APP_H_
+#ifndef FPDFSDK_INCLUDE_JAVASCRIPT_APP_H_
+#define FPDFSDK_INCLUDE_JAVASCRIPT_APP_H_
+
+#include "JS_Define.h"
 
 class CJS_Runtime;
 
@@ -18,11 +20,11 @@ class TimerObj : public CJS_EmbedObj
 public:
 	TimerObj(CJS_Object* pJSObject);
 	virtual ~TimerObj();
-	
+
 public:
 	void			SetTimer(CJS_Timer* pTimer);
 	CJS_Timer*		GetTimer() const;
-	
+
 private:
 	CJS_Timer*		m_pTimer;
 };
@@ -32,13 +34,13 @@ class CJS_TimerObj : public CJS_Object
 public:
 	CJS_TimerObj(JSFXObject pObject) : CJS_Object(pObject) {}
 	virtual ~CJS_TimerObj(){}
-	
+
 	DECLARE_JS_CLASS(CJS_TimerObj);
 };
 
 
 // struct APP_MENUITEM_ARRAY;
-// 
+//
 // struct APP_MENUITEM
 // {
 // 	APP_MENUITEM() : oSubMenu(NULL), cName(L""), cReturn(L""), bMarked(false), bEnabled(true)
@@ -55,7 +57,7 @@ public:
 // {
 // 	APP_MENUITEM_ARRAY() : m_hMenu(NULL), pContents(NULL), nSize(0)
 // 	{
-// 
+//
 // 	}
 // 	APP_MENUITEM * pContents;
 // 	HMENU m_hMenu;
@@ -69,21 +71,21 @@ public:
 //     pContent(NULL)
 // 	{
 // 	}
-// 
+//
 // 	APP_MENU* pContent;
 // };
 
 // struct APP_MENU
 // {
-// 	APP_MENU():bSubMenu(false), 
+// 	APP_MENU():bSubMenu(false),
 // 	SubMenuItems(NULL),
 // 	cwMenuItemName(L""),
 // 	hMenu(NULL),
 // 	iSize(0)
 // 	{
-// 
+//
 // 	}
-// 
+//
 // 	APP_MENU(CFX_WideString &cwName):
 // 	cwMenuItemName(cwName),
 // 	bSubMenu(false),
@@ -91,11 +93,11 @@ public:
 // 	hMenu(NULL),
 // 	iSize(0)
 // 	{
-// 
+//
 // 	}
-// 	
+//
 // 	CFX_WideString cwMenuItemName;
-// 	bool bSubMenu;	
+// 	bool bSubMenu;
 // 	APP_MENU_ARRAY* SubMenuItems;
 // 	int iSize;
 // 	HMENU hMenu;
@@ -108,44 +110,44 @@ public:
 	virtual ~app();
 
 public:
-	FX_BOOL						activeDocs(OBJ_PROP_PARAMS);
-	FX_BOOL						calculate(OBJ_PROP_PARAMS);
-	FX_BOOL						formsVersion(OBJ_PROP_PARAMS);
-	FX_BOOL						fs(OBJ_PROP_PARAMS);
-	FX_BOOL						fullscreen(OBJ_PROP_PARAMS);
-	FX_BOOL						language(OBJ_PROP_PARAMS);
-	FX_BOOL						media(OBJ_PROP_PARAMS);
-	FX_BOOL						platform(OBJ_PROP_PARAMS);
-	FX_BOOL						runtimeHighlight(OBJ_PROP_PARAMS);
-	FX_BOOL						viewerType(OBJ_PROP_PARAMS);
-	FX_BOOL						viewerVariation(OBJ_PROP_PARAMS);
-	FX_BOOL						viewerVersion(OBJ_PROP_PARAMS);	
+	FX_BOOL						activeDocs(IFXJS_Context* cc, CJS_PropValue& vp, CFX_WideString& sError);
+	FX_BOOL						calculate(IFXJS_Context* cc, CJS_PropValue& vp, CFX_WideString& sError);
+	FX_BOOL						formsVersion(IFXJS_Context* cc, CJS_PropValue& vp, CFX_WideString& sError);
+	FX_BOOL						fs(IFXJS_Context* cc, CJS_PropValue& vp, CFX_WideString& sError);
+	FX_BOOL						fullscreen(IFXJS_Context* cc, CJS_PropValue& vp, CFX_WideString& sError);
+	FX_BOOL						language(IFXJS_Context* cc, CJS_PropValue& vp, CFX_WideString& sError);
+	FX_BOOL						media(IFXJS_Context* cc, CJS_PropValue& vp, CFX_WideString& sError);
+	FX_BOOL						platform(IFXJS_Context* cc, CJS_PropValue& vp, CFX_WideString& sError);
+	FX_BOOL						runtimeHighlight(IFXJS_Context* cc, CJS_PropValue& vp, CFX_WideString& sError);
+	FX_BOOL						viewerType(IFXJS_Context* cc, CJS_PropValue& vp, CFX_WideString& sError);
+	FX_BOOL						viewerVariation(IFXJS_Context* cc, CJS_PropValue& vp, CFX_WideString& sError);
+	FX_BOOL						viewerVersion(IFXJS_Context* cc, CJS_PropValue& vp, CFX_WideString& sError);
 
 
-	FX_BOOL						alert(OBJ_METHOD_PARAMS);
-	FX_BOOL						beep(OBJ_METHOD_PARAMS);
-	FX_BOOL						browseForDoc(OBJ_METHOD_PARAMS);
-	FX_BOOL						clearInterval(OBJ_METHOD_PARAMS);
-	FX_BOOL						clearTimeOut(OBJ_METHOD_PARAMS);
-	FX_BOOL						execDialog(OBJ_METHOD_PARAMS);
-	FX_BOOL						execMenuItem(OBJ_METHOD_PARAMS);
-	FX_BOOL						findComponent(OBJ_METHOD_PARAMS);
-	FX_BOOL						goBack(OBJ_METHOD_PARAMS);
-	FX_BOOL						goForward(OBJ_METHOD_PARAMS);
-	FX_BOOL						launchURL(OBJ_METHOD_PARAMS);
-	FX_BOOL						mailMsg(OBJ_METHOD_PARAMS);
-	FX_BOOL						newFDF(OBJ_METHOD_PARAMS);
-	FX_BOOL						newDoc(OBJ_METHOD_PARAMS);
-	FX_BOOL						openDoc(OBJ_METHOD_PARAMS);
-	FX_BOOL						openFDF(OBJ_METHOD_PARAMS);
-	FX_BOOL						popUpMenuEx(OBJ_METHOD_PARAMS);
-	FX_BOOL						popUpMenu(OBJ_METHOD_PARAMS);
-	FX_BOOL						response(OBJ_METHOD_PARAMS);
-	FX_BOOL						setInterval(OBJ_METHOD_PARAMS);
-	FX_BOOL						setTimeOut(OBJ_METHOD_PARAMS);
+	FX_BOOL						alert(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
+	FX_BOOL						beep(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
+	FX_BOOL						browseForDoc(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
+	FX_BOOL						clearInterval(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
+	FX_BOOL						clearTimeOut(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
+	FX_BOOL						execDialog(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
+	FX_BOOL						execMenuItem(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
+	FX_BOOL						findComponent(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
+	FX_BOOL						goBack(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
+	FX_BOOL						goForward(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
+	FX_BOOL						launchURL(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
+	FX_BOOL						mailMsg(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
+	FX_BOOL						newFDF(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
+	FX_BOOL						newDoc(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
+	FX_BOOL						openDoc(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
+	FX_BOOL						openFDF(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
+	FX_BOOL						popUpMenuEx(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
+	FX_BOOL						popUpMenu(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
+	FX_BOOL						response(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
+	FX_BOOL						setInterval(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
+	FX_BOOL						setTimeOut(IFXJS_Context* cc, const CJS_Parameters& params, CJS_Value& vRet, CFX_WideString& sError);
 
 private:
-//	FX_DWORD					AppGetTickCount(); 
+//	FX_DWORD					AppGetTickCount();
 	void						TimerProc(CJS_Timer* pTimer);
 	void						RunJsScript(CJS_Runtime * pRuntime,const CFX_WideString & wsScript);
 //	void						ParsePopupMenuObj(APP_MENUITEM * ppMenuItem,JSObject * pObj);
@@ -160,18 +162,15 @@ private:
 
 public:
 	static CFX_WideString		SysPathToPDFPath(const CFX_WideString& sOldPath);
-	static CFX_WideString		PDFPathToSysPath(const CFX_WideString& sOldPath);
-	static CFX_WideString		RelativePathToSysPath(const CFX_WideString& sOldPath, const CFX_WideString& sFilePath);
-
 
 private:
 
-	bool						m_bCalculate;	
+	bool						m_bCalculate;
 	bool						m_bRuntimeHighLight;
 
 	CFX_ArrayTemplate<CJS_Timer*>	m_aTimer;
 //	APP_MENU*					m_pMenuHead;
-	
+
 public:
 //	static CReader_App* s_App;
 };
@@ -195,7 +194,7 @@ public:
 	JS_STATIC_PROP(runtimeHighlight, app);
 	JS_STATIC_PROP(viewerType, app);
 	JS_STATIC_PROP(viewerVariation, app);
-	JS_STATIC_PROP(viewerVersion, app);	
+	JS_STATIC_PROP(viewerVersion, app);
 
 	JS_STATIC_METHOD(alert, app);
 	JS_STATIC_METHOD(beep, app);
@@ -221,4 +220,4 @@ public:
 
 };
 
-#endif //_APP_H_
+#endif  // FPDFSDK_INCLUDE_JAVASCRIPT_APP_H_

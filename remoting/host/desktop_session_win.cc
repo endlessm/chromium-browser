@@ -91,14 +91,14 @@ class ConsoleSession : public DesktopSessionWin {
     DaemonProcess* daemon_process,
     int id,
     WtsTerminalMonitor* monitor);
-  virtual ~ConsoleSession();
+  ~ConsoleSession() override;
 
  protected:
   // DesktopSession overrides.
-  virtual void SetScreenResolution(const ScreenResolution& resolution) override;
+  void SetScreenResolution(const ScreenResolution& resolution) override;
 
   // DesktopSessionWin overrides.
-  virtual void InjectSas() override;
+  void InjectSas() override;
 
  private:
   scoped_ptr<SasInjector> sas_injector_;
@@ -119,7 +119,7 @@ class RdpSession : public DesktopSessionWin {
     DaemonProcess* daemon_process,
     int id,
     WtsTerminalMonitor* monitor);
-  virtual ~RdpSession();
+  ~RdpSession() override;
 
   // Performs the part of initialization that can fail.
   bool Initialize(const ScreenResolution& resolution);
@@ -130,10 +130,10 @@ class RdpSession : public DesktopSessionWin {
 
  protected:
   // DesktopSession overrides.
-  virtual void SetScreenResolution(const ScreenResolution& resolution) override;
+  void SetScreenResolution(const ScreenResolution& resolution) override;
 
   // DesktopSessionWin overrides.
-  virtual void InjectSas() override;
+  void InjectSas() override;
 
  private:
   // An implementation of IRdpDesktopSessionEventHandler interface that forwards
@@ -256,10 +256,8 @@ bool RdpSession::Initialize(const ScreenResolution& resolution) {
       new EventHandler(weak_factory_.GetWeakPtr()));
   terminal_id_ = base::GenerateGUID();
   base::win::ScopedBstr terminal_id(base::UTF8ToUTF16(terminal_id_).c_str());
-  result = rdp_desktop_session_->Connect(host_size.width(),
-                                         host_size.height(),
-                                         terminal_id,
-                                         event_handler);
+  result = rdp_desktop_session_->Connect(host_size.width(), host_size.height(),
+                                         terminal_id, event_handler.get());
   if (FAILED(result)) {
     LOG(ERROR) << "RdpSession::Create() failed, 0x"
                << std::hex << result << std::dec << ".";
@@ -336,7 +334,7 @@ STDMETHODIMP RdpSession::EventHandler::QueryInterface(REFIID riid, void** ppv) {
     return S_OK;
   }
 
-  *ppv = NULL;
+  *ppv = nullptr;
   return E_NOINTERFACE;
 }
 
@@ -531,12 +529,11 @@ void DesktopSessionWin::OnSessionAttached(uint32 session_id) {
 
   session_attach_timer_.Stop();
 
-  scoped_ptr<CommandLine> target(new CommandLine(desktop_binary));
+  scoped_ptr<base::CommandLine> target(new base::CommandLine(desktop_binary));
   target->AppendSwitchASCII(kProcessTypeSwitchName, kProcessTypeDesktop);
   // Copy the command line switches enabling verbose logging.
-  target->CopySwitchesFrom(*CommandLine::ForCurrentProcess(),
-                           kCopiedSwitchNames,
-                           arraysize(kCopiedSwitchNames));
+  target->CopySwitchesFrom(*base::CommandLine::ForCurrentProcess(),
+                           kCopiedSwitchNames, arraysize(kCopiedSwitchNames));
 
   // Create a delegate capable of launching a process in a different session.
   scoped_ptr<WtsSessionProcessDelegate> delegate(

@@ -40,7 +40,8 @@ const char kCloudDevicesUrl[] = "https://www.googleapis.com/clouddevices/v1";
 // point at the Google Cloud Print service.  This can be overridden by the
 // command line or by the user preferences.
 GURL GetCloudPrintURL() {
-  const CommandLine* command_line = CommandLine::ForCurrentProcess();
+  const base::CommandLine* command_line =
+      base::CommandLine::ForCurrentProcess();
   GURL cloud_print_url(
       command_line->GetSwitchValueASCII(switches::kCloudPrintURL));
   if (cloud_print_url.is_empty())
@@ -80,6 +81,13 @@ GURL GetCloudPrintAddAccountURL() {
   return url;
 }
 
+bool IsCloudPrintURL(const GURL& url) {
+  GURL cloud_print_url = GetCloudPrintURL();
+  return url.host() == cloud_print_url.host() &&
+         url.scheme() == cloud_print_url.scheme() &&
+         base::StartsWithASCII(url.path(), cloud_print_url.path(), true);
+}
+
 GURL GetCloudPrintEnableURL(const std::string& proxy_id) {
   GURL url = GetCloudPrintRelativeURL("enable_chrome_connector/enable.html");
   url = net::AppendQueryParameter(url, "proxy", proxy_id);
@@ -102,7 +110,8 @@ GURL GetCloudPrintManageDeviceURL(const std::string& device_id) {
 }
 
 GURL GetCloudDevicesURL() {
-  const CommandLine* command_line = CommandLine::ForCurrentProcess();
+  const base::CommandLine* command_line =
+      base::CommandLine::ForCurrentProcess();
   GURL cloud_print_url(
       command_line->GetSwitchValueASCII(switches::kCloudDevicesURL));
   if (cloud_print_url.is_empty())

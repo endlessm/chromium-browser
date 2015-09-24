@@ -89,30 +89,20 @@ goog.require('i18n.input.chrome.inputview.layouts.util');
     'widthInWeight': 1,
     'heightInWeight': 1
   };
-  var indicatorKey = util.createKeySequence(keySpec, 1);
-  var indicator = util.createLinearLayout({
-    'id': 'indicatorlayout',
-    'children': [indicatorKey]
-  });
-
 
   var emojiSlider = util.createVerticalLayout({
     'id': 'emojiSlider',
-    'children': [emojiRows, indicator]
+    'children': [emojiRows]
   });
 
   keySpec = {
-    'widthInWeight': 42,
-    'heightInWeight': 14
-  };
-  baseSpec = {
-    'widthInWeight': 42,
+    'widthInWeight': 1.42,
     'heightInWeight': 14
   };
   var sideKeys = util.createVerticalLayout({
     'id': 'sideKeys',
     'children': [util.createKey(keySpec), util.createKey(keySpec),
-      util.createKey(baseSpec)]
+      util.createKey(keySpec)]
   });
 
   var rowsAndSideKeys = util.createLinearLayout({

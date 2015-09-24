@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,13 +13,12 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread.h"
+#include "base/trace_event/trace_event.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/favicon/favicon_service.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
-#include "chrome/browser/history/history_service.h"
-#include "chrome/browser/history/top_sites.h"
+#include "chrome/browser/history/top_sites_factory.h"
+#include "chrome/browser/metrics/jumplist_metrics_win.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/sessions/session_types.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
 #include "chrome/browser/shell_integration.h"
@@ -28,9 +27,14 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/favicon/core/favicon_service.h"
 #include "components/favicon_base/favicon_types.h"
+#include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/page_usage_data.h"
+#include "components/history/core/browser/top_sites.h"
+#include "components/sessions/session_types.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/notification_source.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/codec/png_codec.h"
@@ -43,10 +47,14 @@ using content::BrowserThread;
 
 namespace {
 
+// Delay jumplist updates to allow collapsing of redundant update requests.
+const int kDelayForJumplistUpdateInMS = 3500;
+
 // Append the common switches to each shell link.
 void AppendCommonSwitches(ShellLinkItem* shell_link) {
   const char* kSwitchNames[] = { switches::kUserDataDir };
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
   shell_link->GetCommandLine()->CopySwitchesFrom(command_line,
                                                  kSwitchNames,
                                                  arraysize(kSwitchNames));
@@ -100,7 +108,8 @@ bool UpdateTaskCategory(
   if (incognito_availability != IncognitoModePrefs::FORCED) {
     scoped_refptr<ShellLinkItem> chrome = CreateShellLink();
     base::string16 chrome_title = l10n_util::GetStringUTF16(IDS_NEW_WINDOW);
-    ReplaceSubstringsAfterOffset(&chrome_title, 0, L"&", L"");
+    base::ReplaceSubstringsAfterOffset(
+        &chrome_title, 0, L"&", base::StringPiece16());
     chrome->set_title(chrome_title);
     chrome->set_icon(chrome_path.value(), 0);
     items.push_back(chrome);
@@ -114,7 +123,8 @@ bool UpdateTaskCategory(
     incognito->GetCommandLine()->AppendSwitch(switches::kIncognito);
     base::string16 incognito_title =
         l10n_util::GetStringUTF16(IDS_NEW_INCOGNITO_WINDOW);
-    ReplaceSubstringsAfterOffset(&incognito_title, 0, L"&", L"");
+    base::ReplaceSubstringsAfterOffset(
+        &incognito_title, 0, L"&", base::StringPiece16());
     incognito->set_title(incognito_title);
     incognito->set_icon(chrome_path.value(), 0);
     items.push_back(incognito);
@@ -154,20 +164,18 @@ bool UpdateJumpList(const wchar_t* app_id,
     recently_closed_items = recently_closed_pages.size();
   }
 
-  // Update the "Most Visited" category of the JumpList.
+  // Update the "Most Visited" category of the JumpList if it exists.
   // This update request is applied into the JumpList when we commit this
   // transaction.
   if (!jumplist_updater.AddCustomCategory(
-          base::UTF16ToWide(
-              l10n_util::GetStringUTF16(IDS_NEW_TAB_MOST_VISITED)),
+          l10n_util::GetStringUTF16(IDS_NEW_TAB_MOST_VISITED),
           most_visited_pages, most_visited_items)) {
     return false;
   }
 
   // Update the "Recently Closed" category of the JumpList.
   if (!jumplist_updater.AddCustomCategory(
-          base::UTF16ToWide(
-              l10n_util::GetStringUTF16(IDS_NEW_TAB_RECENTLY_CLOSED)),
+          l10n_util::GetStringUTF16(IDS_RECENTLY_CLOSED),
           recently_closed_pages, recently_closed_items)) {
     return false;
   }
@@ -202,17 +210,18 @@ JumpList::JumpList(Profile* profile)
 
   app_id_ = ShellIntegration::GetChromiumModelIdForProfile(profile_->GetPath());
   icon_dir_ = profile_->GetPath().Append(chrome::kJumpListIconDirname);
-  history::TopSites* top_sites = profile_->GetTopSites();
+
+  scoped_refptr<history::TopSites> top_sites =
+      TopSitesFactory::GetForProfile(profile_);
   if (top_sites) {
     // TopSites updates itself after a delay. This is especially noticable when
     // your profile is empty. Ask TopSites to update itself when jumplist is
     // initialized.
     top_sites->SyncWithHistory();
     registrar_.reset(new content::NotificationRegistrar);
-    // Register for notification when TopSites changes so that we can update
-    // ourself.
-    registrar_->Add(this, chrome::NOTIFICATION_TOP_SITES_CHANGED,
-                    content::Source<history::TopSites>(top_sites));
+    // Register as TopSitesObserver so that we can update ourselves when the
+    // TopSites changes.
+    top_sites->AddObserver(this);
     // Register for notification when profile is destroyed to ensure that all
     // observers are detatched at that time.
     registrar_->Add(this, chrome::NOTIFICATION_PROFILE_DESTROYED,
@@ -238,25 +247,9 @@ bool JumpList::Enabled() {
 void JumpList::Observe(int type,
                        const content::NotificationSource& source,
                        const content::NotificationDetails& details) {
-  switch (type) {
-    case chrome::NOTIFICATION_TOP_SITES_CHANGED: {
-      // Most visited urls changed, query again.
-      history::TopSites* top_sites = profile_->GetTopSites();
-      if (top_sites) {
-        top_sites->GetMostVisitedURLs(
-            base::Bind(&JumpList::OnMostVisitedURLsAvailable,
-                       weak_ptr_factory_.GetWeakPtr()), false);
-      }
-      break;
-    }
-    case chrome::NOTIFICATION_PROFILE_DESTROYED: {
-      // Profile was destroyed, do clean-up.
-      Terminate();
-      break;
-    }
-    default:
-      NOTREACHED() << "Unexpected notification type.";
-  }
+  DCHECK_EQ(type, chrome::NOTIFICATION_PROFILE_DESTROYED);
+  // Profile was destroyed, do clean-up.
+  Terminate();
 }
 
 void JumpList::CancelPendingUpdate() {
@@ -273,6 +266,10 @@ void JumpList::Terminate() {
         TabRestoreServiceFactory::GetForProfile(profile_);
     if (tab_restore_service)
       tab_restore_service->RemoveObserver(this);
+    scoped_refptr<history::TopSites> top_sites =
+        TopSitesFactory::GetForProfile(profile_);
+    if (top_sites)
+      top_sites->RemoveObserver(this);
     registrar_.reset();
     pref_change_registrar_.reset();
   }
@@ -281,7 +278,6 @@ void JumpList::Terminate() {
 
 void JumpList::OnMostVisitedURLsAvailable(
     const history::MostVisitedURLList& data) {
-
   // If we have a pending favicon request, cancel it here (it is out of date).
   CancelPendingUpdate();
 
@@ -294,6 +290,8 @@ void JumpList::OnMostVisitedURLsAvailable(
       std::string url_string = url.url.spec();
       std::wstring url_string_wide = base::UTF8ToWide(url_string);
       link->GetCommandLine()->AppendArgNative(url_string_wide);
+      link->GetCommandLine()->AppendSwitchASCII(
+          switches::kWinJumplistAction, jumplist::kMostVisitedCategory);
       link->set_title(!url.title.empty()? url.title : url_string_wide);
       most_visited_pages_.push_back(link);
       icon_urls_.push_back(make_pair(url_string, link));
@@ -363,6 +361,8 @@ bool JumpList::AddTab(const TabRestoreService::Tab* tab,
       tab->navigations.at(tab->current_navigation_index);
   std::string url = current_navigation.virtual_url().spec();
   link->GetCommandLine()->AppendArgNative(base::UTF8ToWide(url));
+  link->GetCommandLine()->AppendSwitchASCII(
+      switches::kWinJumplistAction, jumplist::kRecentlyClosedCategory);
   link->set_title(current_navigation.title());
   list->push_back(link);
   icon_urls_.push_back(make_pair(url, link));
@@ -397,13 +397,14 @@ void JumpList::StartLoadingFavicon() {
 
   if (!waiting_for_icons) {
     // No more favicons are needed by the application JumpList. Schedule a
-    // RunUpdate call.
+    // RunUpdateOnFileThread call.
     PostRunUpdate();
     return;
   }
 
-  FaviconService* favicon_service =
-      FaviconServiceFactory::GetForProfile(profile_, Profile::EXPLICIT_ACCESS);
+  favicon::FaviconService* favicon_service =
+      FaviconServiceFactory::GetForProfile(profile_,
+                                           ServiceAccessType::EXPLICIT_ACCESS);
   task_id_ = favicon_service->GetFaviconImageForPageURL(
       url,
       base::Bind(&JumpList::OnFaviconDataAvailable, base::Unretained(this)),
@@ -415,13 +416,13 @@ void JumpList::OnFaviconDataAvailable(
   // If there is currently a favicon request in progress, it is now outdated,
   // as we have received another, so nullify the handle from the old request.
   task_id_ = base::CancelableTaskTracker::kBadTaskId;
-  // lock the list to set icon data and pop the url
+  // Lock the list to set icon data and pop the url.
   {
     base::AutoLock auto_lock(list_lock_);
     // Attach the received data to the ShellLinkItem object.
-    // This data will be decoded by the RunUpdate method.
+    // This data will be decoded by the RunUpdateOnFileThread method.
     if (!image_result.image.IsEmpty()) {
-      if (!icon_urls_.empty() && icon_urls_.front().second)
+      if (!icon_urls_.empty() && icon_urls_.front().second.get())
         icon_urls_.front().second->set_icon_data(image_result.image.AsBitmap());
     }
 
@@ -445,6 +446,23 @@ void JumpList::OnIncognitoAvailabilityChanged() {
 }
 
 void JumpList::PostRunUpdate() {
+  TRACE_EVENT0("browser", "JumpList::PostRunUpdate");
+  // Initialize the one-shot timer to update the jumplists in a while.
+  // If there is already a request queued then cancel it and post the new
+  // request. This ensures that JumpListUpdates won't happen until there has
+  // been a brief quiet period, thus avoiding update storms.
+  if (timer_.IsRunning()) {
+    timer_.Reset();
+  } else {
+    timer_.Start(FROM_HERE,
+                 base::TimeDelta::FromMilliseconds(kDelayForJumplistUpdateInMS),
+                 this,
+                 &JumpList::DeferredRunUpdate);
+  }
+}
+
+void JumpList::DeferredRunUpdate() {
+  TRACE_EVENT0("browser", "JumpList::DeferredRunUpdate");
   // Check if incognito windows (or normal windows) are disabled by policy.
   IncognitoModePrefs::Availability incognito_availability =
       profile_ ? IncognitoModePrefs::GetAvailability(profile_->GetPrefs())
@@ -452,10 +470,12 @@ void JumpList::PostRunUpdate() {
 
   BrowserThread::PostTask(
       BrowserThread::FILE, FROM_HERE,
-      base::Bind(&JumpList::RunUpdate, this, incognito_availability));
+      base::Bind(&JumpList::RunUpdateOnFileThread,
+                 this,
+                 incognito_availability));
 }
 
-void JumpList::RunUpdate(
+void JumpList::RunUpdateOnFileThread(
     IncognitoModePrefs::Availability incognito_availability) {
   ShellLinkItemList local_most_visited_pages;
   ShellLinkItemList local_recently_closed_pages;
@@ -491,8 +511,10 @@ void JumpList::RunUpdate(
   // We finished collecting all resources needed for updating an application
   // JumpList. So, create a new JumpList and replace the current JumpList
   // with it.
-  UpdateJumpList(app_id_.c_str(), local_most_visited_pages,
-                 local_recently_closed_pages, incognito_availability);
+  UpdateJumpList(app_id_.c_str(),
+                 local_most_visited_pages,
+                 local_recently_closed_pages,
+                 incognito_availability);
 }
 
 void JumpList::CreateIconFiles(const ShellLinkItemList& item_list) {
@@ -502,4 +524,15 @@ void JumpList::CreateIconFiles(const ShellLinkItemList& item_list) {
     if (CreateIconFile((*item)->icon_data(), icon_dir_, &icon_path))
       (*item)->set_icon(icon_path.value(), 0);
   }
+}
+
+void JumpList::TopSitesLoaded(history::TopSites* top_sites) {
+}
+
+void JumpList::TopSitesChanged(history::TopSites* top_sites,
+                               ChangeReason change_reason) {
+  top_sites->GetMostVisitedURLs(
+      base::Bind(&JumpList::OnMostVisitedURLsAvailable,
+                 weak_ptr_factory_.GetWeakPtr()),
+      false);
 }

@@ -11,6 +11,16 @@
 #include "base/basictypes.h"
 #include "ui/display/types/display_constants.h"
 
+namespace gfx {
+class Point;
+}
+
+namespace ui {
+namespace test {
+class EventGenerator;
+}
+}
+
 namespace ash {
 class DisplayManager;
 
@@ -18,6 +28,13 @@ namespace test {
 
 class DisplayManagerTestApi {
  public:
+  // Test if moving a mouse to |point_in_screen| warps it to another
+  // display.
+  static bool TestIfMouseWarpsAt(ui::test::EventGenerator& event_generator,
+                                 const gfx::Point& point_in_screen);
+
+  static void EnableUnifiedDesktopForTest();
+
   explicit DisplayManagerTestApi(DisplayManager* display_manager);
   virtual ~DisplayManagerTestApi();
 
@@ -30,6 +47,10 @@ class DisplayManagerTestApi {
   // Set the 1st display as an internal display and returns the display Id for
   // the internal display.
   int64 SetFirstDisplayAsInternalDisplay();
+
+  // Sets the display id for internal display and
+  // update the display mode list if necessary.
+  void SetInternalDisplayId(int64 id);
 
   // Don't update the display when the root window's size was changed.
   void DisableChangeDisplayUponHostResize();

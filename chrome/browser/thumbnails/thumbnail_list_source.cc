@@ -11,14 +11,18 @@
 #include "base/logging.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/strings/string_util.h"
-#include "chrome/browser/history/top_sites.h"
+#include "chrome/browser/history/top_sites_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search/instant_io_context.h"
 #include "chrome/browser/thumbnails/thumbnail_service.h"
 #include "chrome/browser/thumbnails/thumbnail_service_factory.h"
 #include "chrome/common/url_constants.h"
+#include "components/history/core/browser/top_sites.h"
+#include "content/public/browser/browser_thread.h"
 #include "net/base/escape.h"
 #include "net/url_request/url_request.h"
+
+using content::BrowserThread;
 
 namespace {
 
@@ -78,7 +82,7 @@ void RenderMostVisitedURLList(
 
 ThumbnailListSource::ThumbnailListSource(Profile* profile)
     : thumbnail_service_(ThumbnailServiceFactory::GetForProfile(profile)),
-      profile_(profile),
+      top_sites_(TopSitesFactory::GetForProfile(profile)),
       weak_ptr_factory_(this) {
 }
 
@@ -94,15 +98,16 @@ void ThumbnailListSource::StartDataRequest(
     int render_process_id,
     int render_frame_id,
     const content::URLDataSource::GotDataCallback& callback) {
-  if (!profile_->GetTopSites()) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  if (!top_sites_) {
     callback.Run(NULL);
     return;
   }
 
-  profile_->GetTopSites()->GetMostVisitedURLs(
+  top_sites_->GetMostVisitedURLs(
       base::Bind(&ThumbnailListSource::OnMostVisitedURLsAvailable,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 callback), true);
+                 weak_ptr_factory_.GetWeakPtr(), callback),
+      true);
 }
 
 std::string ThumbnailListSource::GetMimeType(const std::string& path) const {
@@ -130,6 +135,7 @@ bool ThumbnailListSource::ShouldReplaceExistingSource() const {
 void ThumbnailListSource::OnMostVisitedURLsAvailable(
     const content::URLDataSource::GotDataCallback& callback,
     const history::MostVisitedURLList& mvurl_list) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   const size_t num_mv = mvurl_list.size();
   size_t num_mv_with_thumb = 0;
 

@@ -3,12 +3,20 @@
 // found in the LICENSE file.
 
 /**
- * TODO(dzvorygin): Here we use this hack, since 'hidden' is standard
- * attribute and we can't use it's setter as usual.
+ * Sets 'hidden' property of a cr.ui.Command instance and dispatches
+ * 'hiddenChange' event manually so that associated cr.ui.MenuItem can handle
+ * the event.
+ * TODO(fukino): Remove this workaround when crbug.com/481941 is fixed.
+ *
  * @param {boolean} value New value of hidden property.
  */
 cr.ui.Command.prototype.setHidden = function(value) {
-  this.__lookupSetter__('hidden').call(this, value);
+  if (value === this.hidden)
+    return;
+
+  var oldValue = this.hidden;
+  this.hidden = value;
+  cr.dispatchPropertyChange(this, 'hidden', value, oldValue);
 };
 
 /**
@@ -16,6 +24,16 @@ cr.ui.Command.prototype.setHidden = function(value) {
  * @interface
  */
 var Command = function() {};
+
+/**
+ * Metadata property names used by Command.
+ * These metadata is expected to be cached.
+ * @const {!Array<string>}
+ */
+Command.METADATA_PREFETCH_PROPERTY_NAMES = [
+  'hosted',
+  'pinned'
+];
 
 /**
  * Handles the execute event.
@@ -43,21 +61,33 @@ var CommandUtil = {};
  * @return {Entry} Entry of the found node.
  */
 CommandUtil.getCommandEntry = function(element) {
+  var entries = CommandUtil.getCommandEntries(element);
+  return entries.length === 0 ? null : entries[0];
+};
+
+/**
+ * Extracts entries on which command event was dispatched.
+ *
+ * @param {EventTarget} element Element which is the command event's target.
+ * @return {!Array<!Entry>} Entries of the found node.
+ */
+CommandUtil.getCommandEntries = function(element) {
   if (element instanceof DirectoryTree) {
     // element is a DirectoryTree.
-    return element.selectedItem ? element.selectedItem.entry : null;
+    return element.selectedItem ? [element.selectedItem.entry] : [];
   } else if (element instanceof DirectoryItem ||
-             element instanceof VolumeItem ||
              element instanceof ShortcutItem) {
     // element are sub items in DirectoryTree.
-    return element.entry;
+    return [element.entry];
   } else if (element instanceof cr.ui.List) {
     // element is a normal List (eg. the file list on the right panel).
-    var entry = element.selectedItem;
+    var entries = element.selectedItems;
     // Check if it is Entry or not by checking for toURL().
-    return entry && 'toURL' in entry ? entry : null;
+    return entries ||
+        entries.some(function(entry) { return !('toURL' in entry); }) ?
+        entries : [];
   } else {
-    return null;
+    return [];
   }
 };
 
@@ -68,10 +98,13 @@ CommandUtil.getCommandEntry = function(element) {
  * @private
  */
 CommandUtil.getEntryFromNavigationModelItem_ = function(item) {
-  if (item.isVolume)
-    return item.volumeInfo.displayRoot;
-  if (item.isShortcut)
-    return item.entry;
+  switch (item.type) {
+    case NavigationModelItemType.VOLUME:
+      return /** @type {!NavigationModelVolumeItem} */ (
+          item).volumeInfo.displayRoot;
+    case NavigationModelItemType.SHORTCUT:
+      return /** @type {!NavigationModelShortcutItem} */ (item).entry;
+  }
   return null;
 };
 
@@ -107,38 +140,26 @@ CommandUtil.canExecuteAlways = function(event) {
 };
 
 /**
- * Returns a single selected/passed entry or null.
- * @param {!Event} event Command event.
- * @param {!FileManager} fileManager FileManager to use.
- * @return {FileEntry} The entry or null.
- */
-CommandUtil.getSingleEntry = function(event, fileManager) {
-  if (event.target.entry) {
-    return event.target.entry;
-  }
-  var selection = fileManager.getSelection();
-  if (selection.totalCount == 1) {
-    return selection.entries[0];
-  }
-  return null;
-};
-
-/**
  * Obtains target entries that can be pinned from the selection.
  * If directories are included in the selection, it just returns an empty
  * array to avoid confusing because pinning directory is not supported
  * currently.
  *
- * @return {Array.<Entry>} Target entries.
+ * @return {!Array<!Entry>} Target entries.
  */
 CommandUtil.getPinTargetEntries = function() {
+  // If current directory is not on drive, no entry can be pinned.
+  if (!fileManager.isOnDrive())
+    return [];
+
   var hasDirectory = false;
   var results = fileManager.getSelection().entries.filter(function(entry) {
     hasDirectory = hasDirectory || entry.isDirectory;
     if (!entry || hasDirectory)
       return false;
-    var metadata = fileManager.metadataCache_.getCached(entry, 'external');
-    if (!metadata || metadata.hosted)
+    var metadata = fileManager.getMetadataModel().getCache(
+        [entry], ['hosted', 'pinned'])[0];
+    if (metadata.hosted)
       return false;
     entry.pinned = metadata.pinned;
     return true;
@@ -210,7 +231,7 @@ CommandUtil.createVolumeSwitchCommand = function(index) {
      * @param {!FileManager} fileManager FileManager to use.
      */
     execute: function(event, fileManager) {
-      fileManager.directoryTree.selectByIndex(index - 1);
+      fileManager.directoryTree.activateByIndex(index - 1);
     },
     /**
      * @param {!Event} event Command event.
@@ -236,13 +257,14 @@ CommandUtil.getOnlyOneSelectedDirectory = function(selection) {
     return null;
   if (!selection.entries[0].isDirectory)
     return null;
-  return selection.entries[0];
+  return /** @type {!DirectoryEntry} */(selection.entries[0]);
 };
 
 /**
  * Handle of the command events.
  * @param {!FileManager} fileManager FileManager.
  * @constructor
+ * @struct
  */
 var CommandHandler = function(fileManager) {
   /**
@@ -254,12 +276,10 @@ var CommandHandler = function(fileManager) {
 
   /**
    * Command elements.
-   * @type {Object.<string, cr.ui.Command>}
+   * @type {Object<cr.ui.Command>}
    * @private
    */
   this.commands_ = {};
-
-  Object.seal(this);
 
   // Decorate command tags in the document.
   var commands = fileManager.document.querySelectorAll('command');
@@ -270,8 +290,12 @@ var CommandHandler = function(fileManager) {
 
   // Register events.
   fileManager.document.addEventListener('command', this.onCommand_.bind(this));
-  fileManager.document.addEventListener('canExecute',
-                                        this.onCanExecute_.bind(this));
+  fileManager.document.addEventListener(
+      'canExecute', this.onCanExecute_.bind(this));
+  fileManager.directoryModel.addEventListener(
+      'directory-change', this.updateAvailability.bind(this));
+  fileManager.volumeManager.addEventListener(
+      'drive-connection-changed', this.updateAvailability.bind(this));
 };
 
 /**
@@ -291,8 +315,11 @@ CommandHandler.prototype.updateAvailability = function() {
  * @private
  */
 CommandHandler.prototype.shouldIgnoreEvents_ = function() {
-  // Do not handle commands, when a dialog is shown.
-  if (this.fileManager_.document.querySelector('.cr-dialog-container.shown'))
+  // Do not handle commands, when a dialog is shown. Do not use querySelector
+  // as it's much slower, and this method is executed often.
+  var dialogs = this.fileManager_.document.getElementsByClassName(
+      'cr-dialog-container');
+  if (dialogs.length !== 0 && dialogs[0].classList.contains('shown'))
     return true;
 
   return false;  // Do not ignore.
@@ -307,7 +334,8 @@ CommandHandler.prototype.onCommand_ = function(event) {
   if (this.shouldIgnoreEvents_())
     return;
   var handler = CommandHandler.COMMANDS_[event.command.id];
-  handler.execute.call(/** @type {Command} */ (this), event, this.fileManager_);
+  handler.execute.call(/** @type {Command} */ (handler), event,
+                       this.fileManager_);
 };
 
 /**
@@ -319,13 +347,13 @@ CommandHandler.prototype.onCanExecute_ = function(event) {
   if (this.shouldIgnoreEvents_())
     return;
   var handler = CommandHandler.COMMANDS_[event.command.id];
-  handler.canExecute.call(/** @type {Command} */ (this), event,
+  handler.canExecute.call(/** @type {Command} */ (handler), event,
                           this.fileManager_);
 };
 
 /**
  * Commands.
- * @type {Object.<string, Command>}
+ * @type {Object<Command>}
  * @const
  * @private
  */
@@ -348,7 +376,8 @@ CommandHandler.COMMANDS_['unmount'] = /** @type {Command} */ ({
       return;
     }
     var errorCallback = function() {
-      fileManager.alert.showHtml('', str('UNMOUNT_FAILED'));
+      fileManager.ui.alertDialog.showHtml(
+          '', str('UNMOUNT_FAILED'), null, null, null);
     };
     var volumeInfo = fileManager.volumeManager.getVolumeInfo(root);
     if (!volumeInfo) {
@@ -368,7 +397,7 @@ CommandHandler.COMMANDS_['unmount'] = /** @type {Command} */ ({
     var root = CommandUtil.getCommandEntry(event.target);
     if (!root)
       return;
-    var locationInfo = this.fileManager_.volumeManager.getLocationInfo(root);
+    var locationInfo = fileManager.volumeManager.getLocationInfo(root);
     var rootType =
         locationInfo && locationInfo.isRootEntry && locationInfo.rootType;
 
@@ -409,10 +438,11 @@ CommandHandler.COMMANDS_['format'] = /** @type {Command} */ ({
 
     var volumeInfo = fileManager.volumeManager.getVolumeInfo(root);
     if (volumeInfo) {
-      fileManager.confirm.show(
+      fileManager.ui.confirmDialog.show(
           loadTimeData.getString('FORMATTING_WARNING'),
           chrome.fileManagerPrivate.formatVolume.bind(null,
-                                                      volumeInfo.volumeId));
+                                                      volumeInfo.volumeId),
+          null, null);
     }
   },
   /**
@@ -446,7 +476,67 @@ CommandHandler.COMMANDS_['new-folder'] = /** @type {Command} */ ({
    * @param {!FileManager} fileManager FileManager to use.
    */
   execute: function(event, fileManager) {
-    fileManager.createNewFolder();
+    var defaultName = str('DEFAULT_NEW_FOLDER_NAME');
+
+    // Find a name that doesn't exist in the data model.
+    var files = fileManager.directoryModel.getFileList();
+    var hash = {};
+    for (var i = 0; i < files.length; i++) {
+      var name = files.item(i).name;
+      // Filtering names prevents from conflicts with prototype's names
+      // and '__proto__'.
+      if (name.substring(0, defaultName.length) == defaultName)
+        hash[name] = 1;
+    }
+
+    var baseName = defaultName;
+    var separator = '';
+    var suffix = '';
+    var index = '';
+
+    var advance = function() {
+      separator = ' (';
+      suffix = ')';
+      index++;
+    };
+
+    var current = function() {
+      return baseName + separator + index + suffix;
+    };
+
+    // Accessing hasOwnProperty is safe since hash properties filtered.
+    while (hash.hasOwnProperty(current())) {
+      advance();
+    }
+
+    var list = fileManager.ui.listContainer.currentList;
+
+    var onSuccess = function(entry) {
+      metrics.recordUserAction('CreateNewFolder');
+      list.selectedItem = entry;
+
+      fileManager.ui.listContainer.endBatchUpdates();
+
+      fileManager.namingController.initiateRename();
+    };
+
+    var onError = function(error) {
+      fileManager.ui.listContainer.endBatchUpdates();
+
+      fileManager.ui.alertDialog.show(
+          strf('ERROR_CREATING_FOLDER',
+               current(),
+               util.getFileErrorString(error.name)),
+          null, null);
+    };
+
+    var onAbort = function() {
+      fileManager.ui.listContainer.endBatchUpdates();
+    };
+
+    fileManager.ui.listContainer.startBatchUpdates();
+    fileManager.directoryModel.createDirectory(
+        current(), onSuccess, onError, onAbort);
   },
   /**
    * @param {!Event} event Command event.
@@ -471,14 +561,10 @@ CommandHandler.COMMANDS_['new-window'] = /** @type {Command} */ ({
    * @param {!FileManager} fileManager FileManager to use.
    */
   execute: function(event, fileManager) {
-    chrome.fileManagerPrivate.getProfiles(
-        function(profiles, currentId, displayedId) {
-          fileManager.backgroundPage.launchFileManager({
-            currentDirectoryURL: fileManager.getCurrentDirectoryEntry() &&
-                fileManager.getCurrentDirectoryEntry().toURL(),
-            displayedId: currentId !== displayedId ? displayedId : undefined
-          });
-        });
+    fileManager.backgroundPage.launchFileManager({
+      currentDirectoryURL: fileManager.getCurrentDirectoryEntry() &&
+          fileManager.getCurrentDirectoryEntry().toURL()
+    });
   },
   /**
    * @param {!Event} event Command event.
@@ -491,6 +577,23 @@ CommandHandler.COMMANDS_['new-window'] = /** @type {Command} */ ({
   }
 });
 
+CommandHandler.COMMANDS_['toggle-hidden-files'] = /** @type {Command} */ ({
+  /**
+   * @param {!Event} event Command event.
+   * @param {!FileManager} fileManager FileManager to use.
+   */
+  execute: function(event, fileManager) {
+    var isFilterHiddenOn = !fileManager.fileFilter.isFilterHiddenOn();
+    fileManager.fileFilter.setFilterHidden(isFilterHiddenOn);
+    event.command.checked = /* is show hidden files */!isFilterHiddenOn;
+  },
+  /**
+   * @param {!Event} event Command event.
+   * @param {!FileManager} fileManager FileManager to use.
+   */
+  canExecute: CommandUtil.canExecuteAlways
+});
+
 /**
  * Toggles drive sync settings.
  * @type {Command}
@@ -501,7 +604,11 @@ CommandHandler.COMMANDS_['drive-sync-settings'] = /** @type {Command} */ ({
    * @param {!FileManager} fileManager FileManager to use.
    */
   execute: function(event, fileManager) {
-    fileManager.toggleDriveSyncSettings();
+    // If checked, the sync is disabled.
+    var nowCellularDisabled =
+        fileManager.ui.gearMenu.syncButton.hasAttribute('checked');
+    var changeInfo = {cellularDisabled: !nowCellularDisabled};
+    chrome.fileManagerPrivate.setPreferences(changeInfo);
   },
   /**
    * @param {!Event} event Command event.
@@ -525,7 +632,16 @@ CommandHandler.COMMANDS_['drive-hosted-settings'] = /** @type {Command} */ ({
    * @param {!FileManager} fileManager FileManager to use.
    */
   execute: function(event, fileManager) {
-    fileManager.toggleDriveHostedSettings();
+    // If checked, showing drive hosted files is enabled.
+    var nowHostedFilesEnabled =
+        fileManager.ui.gearMenu.hostedButton.hasAttribute('checked');
+    var nowHostedFilesDisabled = !nowHostedFilesEnabled;
+    /*
+    var changeInfo = {hostedFilesDisabled: !nowHostedFilesDisabled};
+    */
+    var changeInfo = {};
+    changeInfo['hostedFilesDisabled'] = !nowHostedFilesDisabled;
+    chrome.fileManagerPrivate.setPreferences(changeInfo);
   },
   /**
    * @param {!Event} event Command event.
@@ -547,23 +663,42 @@ CommandHandler.COMMANDS_['delete'] = /** @type {Command} */ ({
    * @param {!FileManager} fileManager FileManager to use.
    */
   execute: function(event, fileManager) {
-    var entries = fileManager.getSelection().entries;
-    var message = entries.length == 1 ?
+    var entries = CommandUtil.getCommandEntries(event.target);
+
+    var message = entries.length === 1 ?
         strf('GALLERY_CONFIRM_DELETE_ONE', entries[0].name) :
         strf('GALLERY_CONFIRM_DELETE_SOME', entries.length);
+
     fileManager.ui.deleteConfirmDialog.show(message, function() {
       fileManager.fileOperationManager.deleteEntries(entries);
-    });
+    }, null, null);
   },
   /**
    * @param {!Event} event Command event.
    * @param {!FileManager} fileManager FileManager to use.
    */
   canExecute: function(event, fileManager) {
-    var selection = fileManager.getSelection();
-    event.canExecute = !fileManager.isOnReadonlyDirectory() &&
-                       selection &&
-                       selection.totalCount > 0;
+    var entries = CommandUtil.getCommandEntries(event.target);
+
+    // If it contains a fake entry, hide command.
+    var containsFakeEntry = entries.some(function(entry) {
+      return util.isFakeEntry(entry);
+    });
+    if (containsFakeEntry) {
+      event.canExecute = false;
+      event.command.setHidden(true);
+      return;
+    }
+
+    // If it contains an entry which is on read only volume or no item is
+    // selected, disable command.
+    var containsReadOnlyEntry = entries.some(function(entry) {
+      var locationInfo = fileManager.volumeManager.getLocationInfo(entry);
+      return locationInfo && locationInfo.isReadOnly;
+    });
+
+    event.canExecute = !containsReadOnlyEntry && entries.length > 0;
+    event.command.setHidden(false);
   }
 });
 
@@ -732,7 +867,7 @@ CommandHandler.COMMANDS_['open-with'] = /** @type {Command} */ ({
   execute: function(event, fileManager) {
     var tasks = fileManager.getSelection().tasks;
     if (tasks) {
-      tasks.showTaskPicker(fileManager.defaultTaskPicker,
+      tasks.showTaskPicker(fileManager.ui.defaultTaskPicker,
           str('OPEN_WITH_BUTTON_LABEL'),
           '',
           function(task) {
@@ -761,6 +896,10 @@ CommandHandler.COMMANDS_['search'] = /** @type {Command} */ ({
    * @param {!FileManager} fileManager FileManager to use.
    */
   execute: function(event, fileManager) {
+    // Cancel item selection.
+    fileManager.directoryModel.clearSelection();
+
+    // Focus the search box.
     var element = fileManager.document.querySelector('#search-box input');
     element.focus();
     element.select();
@@ -814,6 +953,7 @@ CommandHandler.COMMANDS_['toggle-pinned'] = /** @type {Command} */ ({
       return;
     var currentEntry;
     var error = false;
+    var metadataModel = fileManager.getMetadataModel();
     var steps = {
       // Pick an entry and pin it.
       start: function() {
@@ -832,16 +972,18 @@ CommandHandler.COMMANDS_['toggle-pinned'] = /** @type {Command} */ ({
         // Convert to boolean.
         error = !!chrome.runtime.lastError;
         if (error && pin) {
-          fileManager.metadataCache_.getOne(
-              currentEntry, 'filesystem', steps.showError);
+          metadataModel.get([currentEntry], ['size']).then(
+              function(results) {
+                steps.showError(results[0].size);
+              });
+          return;
         }
-        fileManager.metadataCache_.clear(currentEntry, 'external');
-        fileManager.metadataCache_.getOne(
-            currentEntry, 'external', steps.updateUI.bind(this));
+        metadataModel.notifyEntriesChanged([currentEntry]);
+        metadataModel.get([currentEntry], ['pinned']).then(steps.updateUI);
       },
 
       // Update the user interface according to the cache state.
-      updateUI: function(drive /* not used */) {
+      updateUI: function() {
         fileManager.ui.listContainer.currentView.updateListItemsMetadata(
             'external', [currentEntry]);
         if (!error)
@@ -849,11 +991,13 @@ CommandHandler.COMMANDS_['toggle-pinned'] = /** @type {Command} */ ({
       },
 
       // Show the error
-      showError: function(filesystem) {
-        fileManager.alert.showHtml(str('DRIVE_OUT_OF_SPACE_HEADER'),
-                                   strf('DRIVE_OUT_OF_SPACE_MESSAGE',
-                                        unescape(currentEntry.name),
-                                        util.bytesToString(filesystem.size)));
+      showError: function(size) {
+        fileManager.ui.alertDialog.showHtml(
+            str('DRIVE_OUT_OF_SPACE_HEADER'),
+            strf('DRIVE_OUT_OF_SPACE_MESSAGE',
+                 unescape(currentEntry.name),
+                 util.bytesToString(size)),
+            null, null, null);
       }
     };
     steps.start();
@@ -900,7 +1044,7 @@ CommandHandler.COMMANDS_['zip-selection'] = /** @type {Command} */ ({
       return;
     var selectionEntries = fileManager.getSelection().entries;
     fileManager.fileOperationManager_.zipSelection(
-        dirEntry, selectionEntries);
+        /** @type {!DirectoryEntry} */ (dirEntry), selectionEntries);
   },
   /**
    * @param {!Event} event Command event.
@@ -913,6 +1057,7 @@ CommandHandler.COMMANDS_['zip-selection'] = /** @type {Command} */ ({
         dirEntry &&
         !fileManager.isOnReadonlyDirectory() &&
         !fileManager.isOnDrive() &&
+        !fileManager.isOnMTP() &&
         selection && selection.totalCount > 0;
   }
 });
@@ -927,7 +1072,17 @@ CommandHandler.COMMANDS_['share'] = /** @type {Command} */ ({
    * @param {!FileManager} fileManager FileManager to use.
    */
   execute: function(event, fileManager) {
-    fileManager.shareSelection();
+    var entries = fileManager.getSelection().entries;
+    if (entries.length != 1) {
+      console.warn('Unable to share multiple items at once.');
+      return;
+    }
+    // Add the overlapped class to prevent the applicaiton window from
+    // captureing mouse events.
+    fileManager.ui.shareDialog.showEntry(entries[0], function(result) {
+      if (result == ShareDialog.Result.NETWORK_ERROR)
+        fileManager.ui.errorDialog.show(str('SHARE_ERROR'), null, null, null);
+    }.bind(this));
   },
   /**
    * @param {!Event} event Command event.
@@ -961,7 +1116,9 @@ CommandHandler.COMMANDS_['create-folder-shortcut'] = /** @type {Command} */ ({
                    'which does not have corresponding entry.');
       return;
     }
-    fileManager.createFolderShortcut(entry);
+    if (fileManager.folderShortcutsModel.exists(entry))
+      return;
+    fileManager.folderShortcutsModel.add(entry);
   },
 
   /**
@@ -970,8 +1127,8 @@ CommandHandler.COMMANDS_['create-folder-shortcut'] = /** @type {Command} */ ({
    */
   canExecute: function(event, fileManager) {
     var entry = CommandUtil.getCommandEntry(event.target);
-    var folderShortcutExists = entry &&
-                               fileManager.folderShortcutExists(entry);
+    var folderShortcutExists =
+        entry && fileManager.folderShortcutsModel.exists(entry);
 
     var onlyOneFolderSelected = true;
     // Only on list, user can select multiple files. The command is enabled only
@@ -1005,7 +1162,7 @@ CommandHandler.COMMANDS_['remove-folder-shortcut'] = /** @type {Command} */ ({
                    'which does not have corresponding entry.');
       return;
     }
-    fileManager.removeFolderShortcut(entry);
+    fileManager.folderShortcutsModel.remove(entry);
   },
 
   /**
@@ -1017,7 +1174,7 @@ CommandHandler.COMMANDS_['remove-folder-shortcut'] = /** @type {Command} */ ({
     var location = entry && fileManager.volumeManager.getLocationInfo(entry);
 
     var eligible = location && location.isEligibleForFolderShortcut;
-    var isShortcut = entry && fileManager.folderShortcutExists(entry);
+    var isShortcut = entry && fileManager.folderShortcutsModel.exists(entry);
     event.canExecute = isShortcut && eligible;
     event.command.setHidden(!event.canExecute);
   }
@@ -1064,6 +1221,54 @@ CommandHandler.COMMANDS_['zoom-reset'] = /** @type {Command} */ ({
    */
   execute: function(event, fileManager) {
     chrome.fileManagerPrivate.zoom('reset');
+  },
+  canExecute: CommandUtil.canExecuteAlways
+});
+
+/**
+ * Sort the file list by name (in ascending order).
+ * @type {Command}
+ */
+CommandHandler.COMMANDS_['sort-by-name'] = /** @type {Command} */ ({
+  execute: function(event, fileManager) {
+    if (fileManager.directoryModel.getFileList())
+      fileManager.directoryModel.getFileList().sort('name', 'asc');
+  },
+  canExecute: CommandUtil.canExecuteAlways
+});
+
+/**
+ * Sort the file list by size (in descending order).
+ * @type {Command}
+ */
+CommandHandler.COMMANDS_['sort-by-size'] = /** @type {Command} */ ({
+  execute: function(event, fileManager) {
+    if (fileManager.directoryModel.getFileList())
+      fileManager.directoryModel.getFileList().sort('size', 'desc');
+  },
+  canExecute: CommandUtil.canExecuteAlways
+});
+
+/**
+ * Sort the file list by type (in ascending order).
+ * @type {Command}
+ */
+CommandHandler.COMMANDS_['sort-by-type'] = /** @type {Command} */ ({
+  execute: function(event, fileManager) {
+    if (fileManager.directoryModel.getFileList())
+      fileManager.directoryModel.getFileList().sort('type', 'asc');
+  },
+  canExecute: CommandUtil.canExecuteAlways
+});
+
+/**
+ * Sort the file list by date-modified (in descending order).
+ * @type {Command}
+ */
+CommandHandler.COMMANDS_['sort-by-date'] = /** @type {Command} */ ({
+  execute: function(event, fileManager) {
+    if (fileManager.directoryModel.getFileList())
+      fileManager.directoryModel.getFileList().sort('modificationTime', 'desc');
   },
   canExecute: CommandUtil.canExecuteAlways
 });
@@ -1126,4 +1331,117 @@ CommandHandler.COMMANDS_['inspect-background'] = /** @type {Command} */ ({
     chrome.fileManagerPrivate.openInspector('background');
   },
   canExecute: CommandUtil.canExecuteAlways
+});
+
+/**
+ * Shows a suggest dialog with new services to be added to the left nav.
+ * @type {Command}
+ */
+CommandHandler.COMMANDS_['install-new-extension'] = /** @type {Command} */ ({
+  /**
+   * @param {!Event} event Command event.
+   * @param {!FileManager} fileManager FileManager to use.
+   */
+  execute: function(event, fileManager) {
+    fileManager.ui.suggestAppsDialog.showProviders(
+        function(result, itemId) {
+          // If a new provider is installed, then launch it so the configuration
+          // dialog is shown (if it's available).
+          if (result === SuggestAppsDialog.Result.SUCCESS)
+            fileManager.providersModel.requestMount(assert(itemId));
+        });
+  },
+  canExecute: function(event, fileManager) {
+    event.canExecute = fileManager.dialogType === DialogType.FULL_PAGE;
+    event.command.setHidden(!event.canExecute);
+  }
+});
+
+/**
+ * Configures the currently selected volume.
+ */
+CommandHandler.COMMANDS_['configure'] = (function() {
+  /**
+   * @constructor
+   * @implements {Command}
+   */
+  var ConfigureCommand = function() {
+  };
+
+  ConfigureCommand.prototype = {
+    __proto__: Command.prototype,
+
+    /**
+     * @param {EventTarget} element
+     * @param {!FileManager} fileManager
+     * @return {VolumeInfo}
+     * @private
+     */
+    getElementVolumeInfo_: function(element, fileManager) {
+      if (element instanceof VolumeItem)
+        return element.volumeInfo;
+      if (element instanceof ShortcutItem) {
+        return element.entry && fileManager.volumeManager.getVolumeInfo(
+            element.entry);
+      }
+    },
+
+    /**
+     * If the command is executed on the navigation list, then use it's volume
+     * info, otherwise use the currently opened volume.
+     *
+     * @param {!Event} event
+     * @param {!FileManager} fileManager
+     * @return {VolumeInfo}
+     * @private
+     */
+    getCommandVolumeInfo_: function(event, fileManager) {
+      var currentDirEntry = fileManager.directoryModel.getCurrentDirEntry();
+      return this.getElementVolumeInfo_(event.target, fileManager) ||
+          currentDirEntry && fileManager.volumeManager.getVolumeInfo(
+              currentDirEntry);
+    },
+
+    /**
+     * @override
+     */
+    execute: function(event, fileManager) {
+      var volumeInfo = this.getCommandVolumeInfo_(event, fileManager);
+      if (volumeInfo && volumeInfo.configurable)
+        fileManager.volumeManager.configure(volumeInfo);
+    },
+
+    /**
+     * @override
+     */
+    canExecute: function(event, fileManager) {
+      var volumeInfo = this.getCommandVolumeInfo_(event, fileManager);
+      event.canExecute = volumeInfo && volumeInfo.configurable;
+      event.command.setHidden(!event.canExecute);
+    }
+  };
+
+  return new ConfigureCommand();
+})();
+
+/**
+ * Refreshes the currently selected directory.
+ */
+CommandHandler.COMMANDS_['refresh'] = /** @type {Command} */ ({
+  /**
+   * @param {!Event} event Command event.
+   * @param {!FileManager} fileManager FileManager to use.
+   */
+  execute: function(event, fileManager) {
+    fileManager.directoryModel.rescan(true /* refresh */);
+    fileManager.spinnerController.blink();
+  },
+  canExecute: function(event, fileManager) {
+    var currentDirEntry = fileManager.directoryModel.getCurrentDirEntry();
+    var volumeInfo = currentDirEntry &&
+        fileManager.volumeManager.getVolumeInfo(currentDirEntry);
+    event.canExecute = volumeInfo && !volumeInfo.watchable;
+    event.command.setHidden(!event.canExecute ||
+        fileManager.directoryModel.getFileListSelection().getCheckSelectMode());
+  }
 });

@@ -23,11 +23,10 @@ PepperFlashFontFileHost::PepperFlashFontFileHost(
     PP_Resource resource,
     const ppapi::proxy::SerializedFontDescription& description,
     PP_PrivateFontCharset charset)
-    : ResourceHost(host->GetPpapiHost(), instance, resource),
-      renderer_ppapi_host_(host) {
+    : ResourceHost(host->GetPpapiHost(), instance, resource) {
 #if defined(OS_LINUX) || defined(OS_OPENBSD)
   fd_.reset(content::MatchFontWithFallback(
-      description.face.c_str(),
+      description.face,
       description.weight >= PP_BROWSERFONT_TRUSTED_WEIGHT_BOLD,
       description.italic,
       charset,

@@ -73,6 +73,19 @@ class ModuleEnumerator : public base::RefCountedThreadSafe<ModuleEnumerator> {
 
   // The structure we populate when enumerating modules.
   struct Module {
+    Module();
+    Module(const Module& rhs);
+    Module(ModuleType type,
+           ModuleStatus status,
+           const base::string16& location,
+           const base::string16& name,
+           const base::string16& product_name,
+           const base::string16& description,
+           const base::string16& version,
+           const base::string16& digital_signer,
+           RecommendedAction recommended_action);
+    ~Module();
+
     // The type of module found
     ModuleType type;
     // The module status (benign/bad/etc).
@@ -126,7 +139,6 @@ class ModuleEnumerator : public base::RefCountedThreadSafe<ModuleEnumerator> {
                             const BlacklistEntry& blacklisted);
 
   explicit ModuleEnumerator(EnumerateModulesModel* observer);
-  ~ModuleEnumerator();
 
   // Start scanning the loaded module list (if a scan is not already in
   // progress). This function does not block while reading the module list
@@ -141,6 +153,9 @@ class ModuleEnumerator : public base::RefCountedThreadSafe<ModuleEnumerator> {
 
  private:
   FRIEND_TEST_ALL_PREFIXES(EnumerateModulesTest, CollapsePath);
+
+  friend class base::RefCountedThreadSafe<ModuleEnumerator>;
+  ~ModuleEnumerator();
 
   // The (currently) hard coded blacklist of known bad modules.
   static const BlacklistEntry kModuleBlacklist[];

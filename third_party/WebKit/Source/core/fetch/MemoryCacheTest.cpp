@@ -35,6 +35,7 @@
 #include "core/fetch/RawResource.h"
 #include "core/fetch/ResourcePtr.h"
 #include "platform/network/ResourceRequest.h"
+#include "platform/testing/UnitTestHelpers.h"
 #include "public/platform/Platform.h"
 #include "wtf/OwnPtr.h"
 
@@ -44,7 +45,7 @@ namespace blink {
 
 class MemoryCacheTest : public ::testing::Test {
 public:
-    class FakeDecodedResource : public blink::Resource {
+    class FakeDecodedResource : public Resource {
     public:
         FakeDecodedResource(const ResourceRequest& request, Type type)
             : Resource(request, type)
@@ -58,13 +59,13 @@ public:
         }
 
     protected:
-        virtual void destroyDecodedDataIfPossible() override
+        void destroyDecodedDataIfPossible() override
         {
             setDecodedSize(0);
         }
     };
 
-    class FakeResource : public blink::Resource {
+    class FakeResource : public Resource {
     public:
         FakeResource(const ResourceRequest& request, Type type)
             : Resource(request, type)
@@ -89,7 +90,7 @@ protected:
         replaceMemoryCacheForTesting(m_globalMemoryCache.release());
     }
 
-    OwnPtrWillBePersistent<MemoryCache> m_globalMemoryCache;
+    Persistent<MemoryCache> m_globalMemoryCache;
 };
 
 // Verifies that setters and getters for cache capacities work correcty.
@@ -204,14 +205,14 @@ static void TestLiveResourceEvictionAtEndOfTask(Resource* cachedDeadResource, co
     cachedLiveResource->addClient(&client);
     cachedLiveResource->appendData(data, 4u);
 
-    class Task1 : public blink::WebThread::Task {
+    class Task1 : public WebThread::Task {
     public:
         Task1(const ResourcePtr<Resource>& live, Resource* dead)
             : m_live(live)
             , m_dead(dead)
         { }
 
-        virtual void run() override
+        void run() override
         {
             // The resource size has to be nonzero for this test to be meaningful, but
             // we do not rely on it having any particular value.
@@ -239,17 +240,16 @@ static void TestLiveResourceEvictionAtEndOfTask(Resource* cachedDeadResource, co
         Resource* m_dead;
     };
 
-    class Task2 : public blink::WebThread::Task {
+    class Task2 : public WebThread::Task {
     public:
         Task2(unsigned liveSizeWithoutDecode)
             : m_liveSizeWithoutDecode(liveSizeWithoutDecode) { }
 
-        virtual void run() override
+        void run() override
         {
             // Next task: now, the live resource was evicted.
             ASSERT_EQ(0u, memoryCache()->deadSize());
             ASSERT_EQ(m_liveSizeWithoutDecode, memoryCache()->liveSize());
-            blink::Platform::current()->currentThread()->exitRunLoop();
         }
 
     private:
@@ -257,9 +257,9 @@ static void TestLiveResourceEvictionAtEndOfTask(Resource* cachedDeadResource, co
     };
 
 
-    blink::Platform::current()->currentThread()->postTask(new Task1(cachedLiveResource, cachedDeadResource));
-    blink::Platform::current()->currentThread()->postTask(new Task2(cachedLiveResource->encodedSize() + cachedLiveResource->overheadSize()));
-    blink::Platform::current()->currentThread()->enterRunLoop();
+    Platform::current()->currentThread()->postTask(FROM_HERE, new Task1(cachedLiveResource, cachedDeadResource));
+    Platform::current()->currentThread()->postTask(FROM_HERE, new Task2(cachedLiveResource->encodedSize() + cachedLiveResource->overheadSize()));
+    testing::runPendingTasks();
     cachedLiveResource->removeClient(&client);
 }
 
@@ -554,6 +554,7 @@ TEST_F(MemoryCacheTest, ResourceMapIsolation)
     EXPECT_EQ(resource1.get(), memoryCache()->resourceForURL(url));
     EXPECT_EQ(resource1.get(), memoryCache()->resourceForURL(url, memoryCache()->defaultCacheIdentifier()));
     EXPECT_EQ(resource2.get(), memoryCache()->resourceForURL(url, "foo"));
+    EXPECT_EQ(0, memoryCache()->resourceForURL(KURL()));
 
     ResourcePtr<FakeResource> resource3 = new FakeResource(ResourceRequest("http://test/resource"), Resource::Raw);
     resource3->setCacheIdentifier("foo");
@@ -570,7 +571,7 @@ TEST_F(MemoryCacheTest, ResourceMapIsolation)
     EXPECT_FALSE(memoryCache()->contains(resource3.get()));
     EXPECT_TRUE(memoryCache()->contains(resource4.get()));
 
-    WillBeHeapVector<Member<Resource>> resources = memoryCache()->resourcesForURL(url);
+    WillBeHeapVector<RawPtrWillBeMember<Resource>> resources = memoryCache()->resourcesForURL(url);
     EXPECT_EQ(2u, resources.size());
 
     memoryCache()->evictResources();

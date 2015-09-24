@@ -15,7 +15,6 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
-import android.widget.ImageButton;
 
 import org.chromium.chromoting.jni.JniInterface;
 
@@ -28,19 +27,15 @@ import java.util.TreeSet;
 public class Desktop extends ActionBarActivity implements View.OnSystemUiVisibilityChangeListener {
     /** Web page to be displayed in the Help screen when launched from this activity. */
     private static final String HELP_URL =
-            "http://support.google.com/chrome/?p=mobile_crd_connecthost";
+            "https://support.google.com/chrome/?p=mobile_crd_connecthost";
 
     /** The surface that displays the remote host's desktop feed. */
     private DesktopView mRemoteHostDesktop;
-
-    /** The button used to show the action bar. */
-    private ImageButton mOverlayButton;
 
     /** Set of pressed keys for which we've sent TextEvent. */
     private Set<Integer> mPressedTextKeys = new TreeSet<Integer>();
 
     private ActivityLifecycleListener mActivityLifecycleListener;
-
 
     /** Called when the activity is first created. */
     @Override
@@ -48,11 +43,11 @@ public class Desktop extends ActionBarActivity implements View.OnSystemUiVisibil
         super.onCreate(savedInstanceState);
         setContentView(R.layout.desktop);
         mRemoteHostDesktop = (DesktopView) findViewById(R.id.desktop_view);
-        mOverlayButton = (ImageButton) findViewById(R.id.desktop_overlay_button);
         mRemoteHostDesktop.setDesktop(this);
 
-        // Ensure the button is initially hidden.
-        showActionBar();
+        // For this Activity, the home button in the action bar acts as a Disconnect button, so
+        // set the description for accessibility/screen readers.
+        getSupportActionBar().setHomeActionContentDescription(R.string.disconnect_myself_button);
 
         View decorView = getWindow().getDecorView();
         decorView.setOnSystemUiVisibilityChangeListener(this);
@@ -66,24 +61,28 @@ public class Desktop extends ActionBarActivity implements View.OnSystemUiVisibil
     protected void onStart() {
         super.onStart();
         mActivityLifecycleListener.onActivityStarted(this);
+        JniInterface.enableVideoChannel(true);
     }
 
     @Override
     protected void onPause() {
         if (isFinishing()) mActivityLifecycleListener.onActivityPaused(this);
         super.onPause();
+        JniInterface.enableVideoChannel(false);
     }
 
     @Override
     public void onResume() {
         super.onResume();
         mActivityLifecycleListener.onActivityResumed(this);
+        JniInterface.enableVideoChannel(true);
     }
 
     @Override
     protected void onStop() {
         mActivityLifecycleListener.onActivityStopped(this);
         super.onStop();
+        JniInterface.enableVideoChannel(false);
     }
 
     /** Called when the activity is finally finished. */
@@ -123,9 +122,9 @@ public class Desktop extends ActionBarActivity implements View.OnSystemUiVisibil
         // the action-bar should remain hidden.
         int fullscreenFlags = getSystemUiFlags();
         if ((visibility & fullscreenFlags) != 0) {
-            hideActionBar();
+            hideActionBarWithoutSystemUi();
         } else {
-            showActionBar();
+            showActionBarWithoutSystemUi();
         }
     }
 
@@ -139,18 +138,26 @@ public class Desktop extends ActionBarActivity implements View.OnSystemUiVisibil
     }
 
     public void showActionBar() {
-        mOverlayButton.setVisibility(View.INVISIBLE);
-        getSupportActionBar().show();
-
+        // Request exit from any fullscreen mode. The action-bar controls will be shown in response
+        // to the SystemUiVisibility notification. The visibility of the action-bar should be tied
+        // to the fullscreen state of the system, so there's no need to explicitly show it here.
         View decorView = getWindow().getDecorView();
         decorView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
     }
 
+    /** Shows the action bar without changing SystemUiVisibility. */
+    private void showActionBarWithoutSystemUi() {
+        getSupportActionBar().show();
+    }
+
     @SuppressLint("InlinedApi")
     public void hideActionBar() {
-        mOverlayButton.setVisibility(View.VISIBLE);
-        getSupportActionBar().hide();
-
+        // Request the device to enter fullscreen mode. Don't hide the controls yet, because the
+        // system might not honor the fullscreen request immediately (for example, if the
+        // keyboard is visible, the system might delay fullscreen until the keyboard is hidden).
+        // The controls will be hidden in response to the SystemUiVisibility notification.
+        // This helps ensure that the visibility of the controls is synchronized with the
+        // fullscreen state.
         View decorView = getWindow().getDecorView();
 
         // LOW_PROFILE gives the status and navigation bars a "lights-out" appearance.
@@ -163,15 +170,15 @@ public class Desktop extends ActionBarActivity implements View.OnSystemUiVisibil
         // keeping the navigation controls hidden. This flag was introduced in 4.4, later than
         // HIDE_NAVIGATION, and so a runtime check is needed before setting either of these flags.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            flags |= (View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+            flags |= (View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE);
         }
 
         decorView.setSystemUiVisibility(flags);
     }
 
-    /** The overlay button's onClick handler. */
-    public void onOverlayButtonPressed(View view) {
-        showActionBar();
+    /** Hides the action bar without changing SystemUiVisibility. */
+    private void hideActionBarWithoutSystemUi() {
+        getSupportActionBar().hide();
     }
 
     /** Called whenever an action bar button is pressed. */
@@ -189,7 +196,7 @@ public class Desktop extends ActionBarActivity implements View.OnSystemUiVisibil
             hideActionBar();
             return true;
         }
-        if (id == R.id.actionbar_disconnect) {
+        if (id == R.id.actionbar_disconnect || id == android.R.id.home) {
             JniInterface.disconnectFromHost();
             return true;
         }
@@ -246,11 +253,11 @@ public class Desktop extends ActionBarActivity implements View.OnSystemUiVisibil
         // want to send it as KeyEvent.
         int unicode = keyCode != KeyEvent.KEYCODE_ENTER ? event.getUnicodeChar() : 0;
 
-        boolean no_modifiers = !event.isAltPressed() &&
-                               !event.isCtrlPressed() && !event.isMetaPressed();
+        boolean no_modifiers = !event.isAltPressed()
+                && !event.isCtrlPressed() && !event.isMetaPressed();
 
-        if (event.getDeviceId() == KeyCharacterMap.VIRTUAL_KEYBOARD &&
-                pressed && unicode != 0 && no_modifiers) {
+        if (event.getDeviceId() == KeyCharacterMap.VIRTUAL_KEYBOARD
+                && pressed && unicode != 0 && no_modifiers) {
             mPressedTextKeys.add(keyCode);
             int[] codePoints = { unicode };
             JniInterface.sendTextEvent(new String(codePoints, 0, 1));

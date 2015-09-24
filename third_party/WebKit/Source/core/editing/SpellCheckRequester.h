@@ -45,7 +45,7 @@ class TextCheckerClient;
 class SpellCheckRequest final : public TextCheckingRequest {
 public:
     static PassRefPtrWillBeRawPtr<SpellCheckRequest> create(TextCheckingTypeMask, TextCheckingProcessType, PassRefPtrWillBeRawPtr<Range> checkingRange, PassRefPtrWillBeRawPtr<Range> paragraphRange, int requestNumber = 0);
-    virtual ~SpellCheckRequest();
+    ~SpellCheckRequest() override;
 
     PassRefPtrWillBeRawPtr<Range> checkingRange() const { return m_checkingRange; }
     PassRefPtrWillBeRawPtr<Range> paragraphRange() const { return m_paragraphRange; }
@@ -56,13 +56,13 @@ public:
     void requesterDestroyed();
 #endif
 
-    virtual const TextCheckingRequestData& data() const override;
-    virtual void didSucceed(const Vector<TextCheckingResult>&) override;
-    virtual void didCancel() override;
+    const TextCheckingRequestData& data() const override;
+    void didSucceed(const Vector<TextCheckingResult>&) override;
+    void didCancel() override;
 
     int requestNumber() const { return m_requestNumber; }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     SpellCheckRequest(PassRefPtrWillBeRawPtr<Range> checkingRange, PassRefPtrWillBeRawPtr<Range> paragraphRange, const String&, TextCheckingTypeMask, TextCheckingProcessType, const Vector<uint32_t>& documentMarkersInRange, const Vector<unsigned>& documentMarkerOffsets, int requestNumber);
@@ -76,7 +76,7 @@ private:
 };
 
 class SpellCheckRequester final : public NoBaseWillBeGarbageCollectedFinalized<SpellCheckRequester> {
-    WTF_MAKE_NONCOPYABLE(SpellCheckRequester); WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
+    WTF_MAKE_NONCOPYABLE(SpellCheckRequester); WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(SpellCheckRequester);
 public:
     static PassOwnPtrWillBeRawPtr<SpellCheckRequester> create(LocalFrame& frame)
     {
@@ -84,7 +84,7 @@ public:
     }
 
     ~SpellCheckRequester();
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
     bool isAsynchronousEnabled() const;
     bool isCheckable(Range*) const;

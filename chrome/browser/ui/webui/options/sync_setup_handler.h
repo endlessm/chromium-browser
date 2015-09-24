@@ -13,7 +13,6 @@
 #include "chrome/browser/ui/webui/signin/login_ui_service.h"
 
 class LoginUIService;
-class ProfileManager;
 class ProfileSyncService;
 class SigninManagerBase;
 
@@ -25,8 +24,7 @@ class SyncSetupHandler : public options::OptionsPageUIHandler,
                          public SyncStartupTracker::Observer,
                          public LoginUIService::LoginUI {
  public:
-  // Constructs a new SyncSetupHandler. |profile_manager| may be NULL.
-  explicit SyncSetupHandler(ProfileManager* profile_manager);
+  SyncSetupHandler();
   ~SyncSetupHandler() override;
 
   // OptionsPageUIHandler implementation.
@@ -84,14 +82,6 @@ class SyncSetupHandler : public options::OptionsPageUIHandler,
 
   bool is_configuring_sync() const { return configuring_sync_; }
 
-  // Display the configure sync UI. If |show_advanced| is true, skip directly
-  // to the "advanced settings" dialog, otherwise give the user the simpler
-  // "Sync Everything" dialog. Overridden by subclasses to allow them to skip
-  // the sync setup dialog if desired.
-  // If |passphrase_failed| is true, then the user previously tried to enter an
-  // invalid passphrase.
-  virtual void DisplayConfigureSync(bool show_advanced, bool passphrase_failed);
-
   // Called when configuring sync is done to close the dialog and start syncing.
   void ConfigureSyncDone();
 
@@ -148,6 +138,10 @@ class SyncSetupHandler : public options::OptionsPageUIHandler,
   // If a wizard already exists, focus it and return true.
   bool FocusExistingWizardIfPresent();
 
+  // Display the configure sync UI. If |passphrase_failed| is true, the account
+  // requires a passphrase and one hasn't been provided or it was invalid.
+  void DisplayConfigureSync(bool passphrase_failed);
+
   // Helper object used to wait for the sync backend to startup.
   scoped_ptr<SyncStartupTracker> sync_startup_tracker_;
 
@@ -155,9 +149,6 @@ class SyncSetupHandler : public options::OptionsPageUIHandler,
   // what stage of the setup wizard the user was in and to update the UMA
   // histograms in the case that the user cancels out.
   bool configuring_sync_;
-
-  // Weak reference to the profile manager.
-  ProfileManager* const profile_manager_;
 
   // The OneShotTimer object used to timeout of starting the sync backend
   // service.

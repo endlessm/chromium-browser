@@ -19,7 +19,7 @@ gin::WrapperInfo NetErrorPageController::kWrapperInfo = {
 void NetErrorPageController::Install(content::RenderFrame* render_frame) {
   v8::Isolate* isolate = blink::mainThreadIsolate();
   v8::HandleScope handle_scope(isolate);
-  v8::Handle<v8::Context> context =
+  v8::Local<v8::Context> context =
       render_frame->GetWebFrame()->mainWorldScriptContext();
   if (context.IsEmpty())
     return;
@@ -31,45 +31,31 @@ void NetErrorPageController::Install(content::RenderFrame* render_frame) {
   if (controller.IsEmpty())
     return;
 
-  v8::Handle<v8::Object> global = context->Global();
+  v8::Local<v8::Object> global = context->Global();
   global->Set(gin::StringToV8(isolate, "errorPageController"),
               controller.ToV8());
 }
 
-bool NetErrorPageController::LoadStaleButtonClick() {
-  if (!render_frame())
-    return false;
-
-  NetErrorHelper* net_error_helper =
-      content::RenderFrameObserverTracker<NetErrorHelper>::Get(render_frame());
-  DCHECK(net_error_helper);
-  net_error_helper->LoadStaleButtonPressed();
-
-  return true;
+bool NetErrorPageController::ShowSavedCopyButtonClick() {
+  return ButtonClick(error_page::NetErrorHelperCore::SHOW_SAVED_COPY_BUTTON);
 }
 
 bool NetErrorPageController::ReloadButtonClick() {
-  if (!render_frame())
-    return false;
-
-  NetErrorHelper* net_error_helper =
-      content::RenderFrameObserverTracker<NetErrorHelper>::Get(render_frame());
-  DCHECK(net_error_helper);
-  net_error_helper->ReloadButtonPressed();
-
-  return true;
+  return ButtonClick(error_page::NetErrorHelperCore::RELOAD_BUTTON);
 }
 
 bool NetErrorPageController::DetailsButtonClick() {
-  if (!render_frame())
-    return false;
+  return ButtonClick(error_page::NetErrorHelperCore::MORE_BUTTON);
+}
 
-  NetErrorHelper* net_error_helper =
-      content::RenderFrameObserverTracker<NetErrorHelper>::Get(render_frame());
-  DCHECK(net_error_helper);
-  net_error_helper->MoreButtonPressed();
+bool NetErrorPageController::TrackEasterEgg() {
+  return ButtonClick(error_page::NetErrorHelperCore::EASTER_EGG);
+}
 
-  return true;
+bool NetErrorPageController::TrackCachedCopyButtonClick(bool is_default_label) {
+  return is_default_label ?
+      ButtonClick(error_page::NetErrorHelperCore::SHOW_CACHED_PAGE_BUTTON) :
+      ButtonClick(error_page::NetErrorHelperCore::SHOW_CACHED_COPY_BUTTON);
 }
 
 bool NetErrorPageController::TrackClick(const gin::Arguments& args) {
@@ -86,6 +72,20 @@ bool NetErrorPageController::TrackClick(const gin::Arguments& args) {
   return true;
 }
 
+bool NetErrorPageController::ButtonClick(
+    error_page::NetErrorHelperCore::Button button) {
+  if (!render_frame())
+    return false;
+
+  NetErrorHelper* net_error_helper =
+      content::RenderFrameObserverTracker<NetErrorHelper>::Get(render_frame());
+  DCHECK(net_error_helper);
+
+  net_error_helper->ButtonPressed(button);
+
+  return true;
+}
+
 NetErrorPageController::NetErrorPageController(
     content::RenderFrame* render_frame) : RenderFrameObserver(render_frame) {}
 
@@ -95,14 +95,18 @@ gin::ObjectTemplateBuilder NetErrorPageController::GetObjectTemplateBuilder(
     v8::Isolate* isolate) {
   return gin::Wrappable<NetErrorPageController>::GetObjectTemplateBuilder(
              isolate)
-      .SetMethod("loadStaleButtonClick",
-                 &NetErrorPageController::LoadStaleButtonClick)
+      .SetMethod("showSavedCopyButtonClick",
+                 &NetErrorPageController::ShowSavedCopyButtonClick)
       .SetMethod("reloadButtonClick",
                  &NetErrorPageController::ReloadButtonClick)
       .SetMethod("detailsButtonClick",
                  &NetErrorPageController::DetailsButtonClick)
       .SetMethod("trackClick",
-                 &NetErrorPageController::TrackClick);
+                 &NetErrorPageController::TrackClick)
+      .SetMethod("trackEasterEgg",
+                 &NetErrorPageController::TrackEasterEgg)
+      .SetMethod("trackCachedCopyButtonClick",
+                 &NetErrorPageController::TrackCachedCopyButtonClick);
 }
 
 void NetErrorPageController::OnDestruct() {}

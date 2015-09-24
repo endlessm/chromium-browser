@@ -13,12 +13,7 @@ namespace content {
 
 namespace {
 
-const char kDisallowedCharacterErrorMessage[] =
-    "The scope/script URL includes disallowed escaped character.";
-const char kPathRestrictionErrorMessage[] =
-    "The scope must be under the directory of the script URL.";
-
-bool ContainsDisallowedCharacter(const GURL& url) {
+bool PathContainsDisallowedCharacter(const GURL& url) {
   std::string path = url.path();
   DCHECK(base::IsStringUTF8(path));
 
@@ -35,27 +30,20 @@ bool ContainsDisallowedCharacter(const GURL& url) {
   return false;
 }
 
-std::string GetDirectoryPath(const GURL& url) {
-  std::string path = url.path();
-  std::string directory_path =
-      path.substr(0, path.size() - url.ExtractFileName().size());
-  DCHECK(EndsWith(directory_path, "/", true));
-  return directory_path;
-}
-
 }  // namespace
 
 // static
 bool ServiceWorkerUtils::ScopeMatches(const GURL& scope, const GURL& url) {
   DCHECK(!scope.has_ref());
   DCHECK(!url.has_ref());
-  return StartsWithASCII(url.spec(), scope.spec(), true);
+  return base::StartsWithASCII(url.spec(), scope.spec(), true);
 }
 
 // static
 bool ServiceWorkerUtils::IsPathRestrictionSatisfied(
     const GURL& scope,
     const GURL& script_url,
+    const std::string* service_worker_allowed_header_value,
     std::string* error_message) {
   DCHECK(scope.is_valid());
   DCHECK(!scope.has_ref());
@@ -63,18 +51,55 @@ bool ServiceWorkerUtils::IsPathRestrictionSatisfied(
   DCHECK(!script_url.has_ref());
   DCHECK(error_message);
 
-  if (ContainsDisallowedCharacter(scope) ||
-      ContainsDisallowedCharacter(script_url)) {
-    *error_message = kDisallowedCharacterErrorMessage;
+  if (ContainsDisallowedCharacter(scope, script_url, error_message))
     return false;
+
+  std::string max_scope_string;
+  if (service_worker_allowed_header_value) {
+    GURL max_scope = script_url.Resolve(*service_worker_allowed_header_value);
+    if (!max_scope.is_valid()) {
+      *error_message = "An invalid Service-Worker-Allowed header value ('";
+      error_message->append(*service_worker_allowed_header_value);
+      error_message->append("') was received when fetching the script.");
+      return false;
+    }
+    max_scope_string = max_scope.path();
+  } else {
+    max_scope_string = script_url.Resolve(".").path();
   }
 
-  // |scope|'s path should be under the |script_url|'s directory.
-  if (!StartsWithASCII(scope.path(), GetDirectoryPath(script_url), true)) {
-    *error_message = kPathRestrictionErrorMessage;
+  std::string scope_string = scope.path();
+  if (!base::StartsWithASCII(scope_string, max_scope_string, true)) {
+    *error_message = "The path of the provided scope ('";
+    error_message->append(scope_string);
+    error_message->append("') is not under the max scope allowed (");
+    if (service_worker_allowed_header_value)
+      error_message->append("set by Service-Worker-Allowed: ");
+    error_message->append("'");
+    error_message->append(max_scope_string);
+    error_message->append(
+        "'). Adjust the scope, move the Service Worker script, or use the "
+        "Service-Worker-Allowed HTTP header to allow the scope.");
     return false;
   }
   return true;
+}
+
+// static
+bool ServiceWorkerUtils::ContainsDisallowedCharacter(
+    const GURL& scope,
+    const GURL& script_url,
+    std::string* error_message) {
+  if (PathContainsDisallowedCharacter(scope) ||
+      PathContainsDisallowedCharacter(script_url)) {
+    *error_message = "The provided scope ('";
+    error_message->append(scope.spec());
+    error_message->append("') or scriptURL ('");
+    error_message->append(script_url.spec());
+    error_message->append("') includes a disallowed escape character.");
+    return true;
+  }
+  return false;
 }
 
 bool LongestScopeMatcher::MatchLongest(const GURL& scope) {

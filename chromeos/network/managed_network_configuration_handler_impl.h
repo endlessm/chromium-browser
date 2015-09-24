@@ -56,7 +56,7 @@ class CHROMEOS_EXPORT ManagedNetworkConfigurationHandlerImpl
       const std::string& service_path,
       const base::DictionaryValue& user_settings,
       const base::Closure& callback,
-      const network_handler::ErrorCallback& error_callback) const override;
+      const network_handler::ErrorCallback& error_callback) override;
 
   void CreateConfiguration(
       const std::string& userhash,
@@ -179,6 +179,12 @@ class CHROMEOS_EXPORT ManagedNetworkConfigurationHandlerImpl
       const std::string& error_name,
       scoped_ptr<base::DictionaryValue> error_data);
 
+  // Called from SetProperties, calls NCH::SetShillProperties.
+  void SetShillProperties(const std::string& service_path,
+                          scoped_ptr<base::DictionaryValue> shill_dictionary,
+                          const base::Closure& callback,
+                          const network_handler::ErrorCallback& error_callback);
+
   // Applies policies for |userhash|. |modified_policies| must be not null and
   // contain the GUIDs of the network configurations that changed since the last
   // policy application. Returns true if policy application was started and
@@ -205,7 +211,7 @@ class CHROMEOS_EXPORT ManagedNetworkConfigurationHandlerImpl
   // associated set of GUIDs is empty.
   UserToModifiedPoliciesMap queued_modified_policies_;
 
-  ObserverList<NetworkPolicyObserver> observers_;
+  base::ObserverList<NetworkPolicyObserver> observers_;
 
   // For Shill client callbacks
   base::WeakPtrFactory<ManagedNetworkConfigurationHandlerImpl>

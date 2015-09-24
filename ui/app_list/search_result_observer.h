@@ -14,6 +14,9 @@ class APP_LIST_EXPORT SearchResultObserver {
   // Invoked when the SearchResult's icon has changed.
   virtual void OnIconChanged() {}
 
+  // Invoked when the SearchResult's badge icon has changed.
+  virtual void OnBadgeIconChanged() {}
+
   // Invoked when the SearchResult's actions have changed.
   virtual void OnActionsChanged() {}
 
@@ -25,9 +28,6 @@ class APP_LIST_EXPORT SearchResultObserver {
 
   // Invoked when the item represented by the SearchResult is installed.
   virtual void OnItemInstalled() {}
-
-  // Invoked when the item represented by the SearchResult is uninstalled.
-  virtual void OnItemUninstalled() {}
 
   // Invoked just before the SearchResult is destroyed.
   virtual void OnResultDestroying() {}

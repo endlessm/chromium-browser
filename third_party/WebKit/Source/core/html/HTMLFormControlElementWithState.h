@@ -24,17 +24,18 @@
 #ifndef HTMLFormControlElementWithState_h
 #define HTMLFormControlElementWithState_h
 
+#include "core/CoreExport.h"
 #include "core/html/HTMLFormControlElement.h"
 
 namespace blink {
 
 class FormControlState;
 
-class HTMLFormControlElementWithState : public HTMLFormControlElement {
+class CORE_EXPORT HTMLFormControlElementWithState : public HTMLFormControlElement {
 public:
-    virtual ~HTMLFormControlElementWithState();
+    ~HTMLFormControlElementWithState() override;
 
-    virtual bool canContainRangeEndPoint() const override final { return false; }
+    bool canContainRangeEndPoint() const final { return false; }
 
     virtual bool shouldAutocomplete() const;
     virtual bool shouldSaveAndRestoreFormControlState() const;
@@ -46,10 +47,10 @@ public:
 protected:
     HTMLFormControlElementWithState(const QualifiedName& tagName, Document&, HTMLFormElement*);
 
-    virtual void finishParsingChildren() override;
-    virtual InsertionNotificationRequest insertedInto(ContainerNode*) override;
-    virtual void removedFrom(ContainerNode*) override;
-    virtual bool isFormControlElementWithState() const override final;
+    void finishParsingChildren() override;
+    InsertionNotificationRequest insertedInto(ContainerNode*) override;
+    void removedFrom(ContainerNode*) override;
+    bool isFormControlElementWithState() const final;
 };
 
 DEFINE_TYPE_CASTS(HTMLFormControlElementWithState, FormAssociatedElement, control, control->isFormControlElementWithState(), control.isFormControlElementWithState());

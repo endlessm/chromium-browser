@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -13,12 +12,9 @@ import mox
 import os
 import re
 import shutil
-import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                '..', '..'))
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_test_lib
 from chromite.lib import osutils
@@ -27,6 +23,7 @@ from chromite.scripts import cros_portage_upgrade as cpu
 from chromite.scripts import parallel_emerge
 
 from portage.package.ebuild import config as portcfg  # pylint: disable=F0401
+
 
 # This no longer gets installed by portage.  Stub it as None to avoid
 # `cros lint` errors.
@@ -46,192 +43,215 @@ DEFAULT_PORTDIR = '/usr/portage'
 # other architectures are irrelevant for now.
 DEFAULT_ARCH = 'x86'
 EBUILDS = {
-  'dev-libs/A-1': {'RDEPEND': 'dev-libs/B'},
-  'dev-libs/A-2': {'RDEPEND': 'dev-libs/B'},
-  'dev-libs/B-1': {'RDEPEND': 'dev-libs/C'},
-  'dev-libs/B-2': {'RDEPEND': 'dev-libs/C'},
-  'dev-libs/C-1': {},
-  'dev-libs/C-2': {},
-  'dev-libs/D-1': {'RDEPEND': '!dev-libs/E'},
-  'dev-libs/D-2': {},
-  'dev-libs/D-3': {},
-  'dev-libs/E-2': {'RDEPEND': '!dev-libs/D'},
-  'dev-libs/E-3': {},
+    'dev-libs/A-1': {'RDEPEND': 'dev-libs/B'},
+    'dev-libs/A-2': {'RDEPEND': 'dev-libs/B'},
+    'dev-libs/B-1': {'RDEPEND': 'dev-libs/C'},
+    'dev-libs/B-2': {'RDEPEND': 'dev-libs/C'},
+    'dev-libs/C-1': {},
+    'dev-libs/C-2': {},
+    'dev-libs/D-1': {'RDEPEND': '!dev-libs/E'},
+    'dev-libs/D-2': {},
+    'dev-libs/D-3': {},
+    'dev-libs/E-2': {'RDEPEND': '!dev-libs/D'},
+    'dev-libs/E-3': {},
 
-  'dev-libs/F-1': {'SLOT': '1'},
-  'dev-libs/F-2': {'SLOT': '2'},
-  'dev-libs/F-2-r1': {'SLOT': '2',
-                      'KEYWORDS': '~amd64 ~x86 ~arm',
-                      },
-
-  'dev-apps/X-1': {
-    'EAPI': '3',
-    'SLOT': '0',
-    'KEYWORDS': 'amd64 arm x86',
-    'RDEPEND': '=dev-libs/C-1',
-    },
-  'dev-apps/Y-2': {
-    'EAPI': '3',
-    'SLOT': '0',
-    'KEYWORDS': 'amd64 arm x86',
-    'RDEPEND': '=dev-libs/C-2',
+    'dev-libs/F-1': {'SLOT': '1'},
+    'dev-libs/F-2': {'SLOT': '2'},
+    'dev-libs/F-2-r1': {
+        'SLOT': '2',
+        'KEYWORDS': '~amd64 ~x86 ~arm',
     },
 
-  'chromeos-base/flimflam-0.0.1-r228': {
-    'EAPI': '2',
-    'SLOT': '0',
-    'KEYWORDS': 'amd64 x86 arm',
-    'RDEPEND': '>=dev-libs/D-2',
+    'dev-apps/X-1': {
+        'EAPI': '3',
+        'SLOT': '0',
+        'KEYWORDS': 'amd64 arm x86',
+        'RDEPEND': '=dev-libs/C-1',
     },
-  'chromeos-base/flimflam-0.0.2-r123': {
-    'EAPI': '2',
-    'SLOT': '0',
-    'KEYWORDS': '~amd64 ~x86 ~arm',
-    'RDEPEND': '>=dev-libs/D-3',
-    },
-  'chromeos-base/libchrome-57098-r4': {
-    'EAPI': '2',
-    'SLOT': '0',
-    'KEYWORDS': 'amd64 x86 arm',
-    'RDEPEND': '>=dev-libs/E-2',
-    },
-  'chromeos-base/libcros-1': {
-    'EAPI': '2',
-    'SLOT': '0',
-    'KEYWORDS': 'amd64 x86 arm',
-    'RDEPEND': 'dev-libs/B dev-libs/C chromeos-base/flimflam',
-    'DEPEND':
-    'dev-libs/B dev-libs/C chromeos-base/flimflam chromeos-base/libchrome',
+    'dev-apps/Y-2': {
+        'EAPI': '3',
+        'SLOT': '0',
+        'KEYWORDS': 'amd64 arm x86',
+        'RDEPEND': '=dev-libs/C-2',
     },
 
-  'virtual/libusb-0'         : {
-    'EAPI': '2', 'SLOT': '0',
-    'RDEPEND':
-    '|| ( >=dev-libs/libusb-0.1.12-r1:0 dev-libs/libusb-compat ' +
-    '>=sys-freebsd/freebsd-lib-8.0[usb] )'},
-  'virtual/libusb-1'         : {
-    'EAPI':'2', 'SLOT': '1',
-    'RDEPEND': '>=dev-libs/libusb-1.0.4:1'},
-  'dev-libs/libusb-0.1.13'   : {},
-  'dev-libs/libusb-1.0.5'    : {'SLOT':'1'},
-  'dev-libs/libusb-compat-1' : {},
-  'sys-freebsd/freebsd-lib-8': {'IUSE': '+usb'},
+    'chromeos-base/flimflam-0.0.1-r228': {
+        'EAPI': '2',
+        'SLOT': '0',
+        'KEYWORDS': 'amd64 x86 arm',
+        'RDEPEND': '>=dev-libs/D-2',
+    },
+    'chromeos-base/flimflam-0.0.2-r123': {
+        'EAPI': '2',
+        'SLOT': '0',
+        'KEYWORDS': '~amd64 ~x86 ~arm',
+        'RDEPEND': '>=dev-libs/D-3',
+    },
+    'chromeos-base/libchrome-57098-r4': {
+        'EAPI': '2',
+        'SLOT': '0',
+        'KEYWORDS': 'amd64 x86 arm',
+        'RDEPEND': '>=dev-libs/E-2',
+    },
+    'chromeos-base/libcros-1': {
+        'EAPI': '2',
+        'SLOT': '0',
+        'KEYWORDS': 'amd64 x86 arm',
+        'RDEPEND': 'dev-libs/B dev-libs/C chromeos-base/flimflam',
+        'DEPEND': ('dev-libs/B dev-libs/C chromeos-base/flimflam '
+                   'chromeos-base/libchrome'),
+    },
 
-  'sys-fs/udev-164'          : {'EAPI': '1', 'RDEPEND': 'virtual/libusb:0'},
+    'virtual/libusb-0': {
+        'EAPI': '2',
+        'SLOT': '0',
+        'RDEPEND': (
+            '|| ( >=dev-libs/libusb-0.1.12-r1:0 dev-libs/libusb-compat '
+            '>=sys-freebsd/freebsd-lib-8.0[usb] )'
+        ),
+    },
+    'virtual/libusb-1': {
+        'EAPI':'2', 'SLOT': '1',
+        'RDEPEND': '>=dev-libs/libusb-1.0.4:1',
+    },
+    'dev-libs/libusb-0.1.13': {},
+    'dev-libs/libusb-1.0.5': {'SLOT':'1'},
+    'dev-libs/libusb-compat-1': {},
+    'sys-freebsd/freebsd-lib-8': {'IUSE': '+usb'},
 
-  'virtual/jre-1.5.0'        : {
-    'SLOT': '1.5',
-    'RDEPEND': '|| ( =dev-java/sun-jre-bin-1.5.0* =virtual/jdk-1.5.0* )'},
-  'virtual/jre-1.5.0-r1'     : {
-    'SLOT': '1.5',
-    'RDEPEND': '|| ( =dev-java/sun-jre-bin-1.5.0* =virtual/jdk-1.5.0* )'},
-  'virtual/jre-1.6.0'        : {
-    'SLOT': '1.6',
-    'RDEPEND': '|| ( =dev-java/sun-jre-bin-1.6.0* =virtual/jdk-1.6.0* )'},
-  'virtual/jre-1.6.0-r1'     : {
-    'SLOT': '1.6',
-    'RDEPEND': '|| ( =dev-java/sun-jre-bin-1.6.0* =virtual/jdk-1.6.0* )'},
-  'virtual/jdk-1.5.0'        : {
-    'SLOT': '1.5',
-    'RDEPEND': '|| ( =dev-java/sun-jdk-1.5.0* dev-java/gcj-jdk )'},
-  'virtual/jdk-1.5.0-r1'     : {
-    'SLOT' : '1.5',
-    'RDEPEND': '|| ( =dev-java/sun-jdk-1.5.0* dev-java/gcj-jdk )'},
-  'virtual/jdk-1.6.0'        : {
-    'SLOT': '1.6',
-    'RDEPEND': '|| ( =dev-java/icedtea-6* =dev-java/sun-jdk-1.6.0* )'},
-  'virtual/jdk-1.6.0-r1'     : {
-    'SLOT': '1.6',
-    'RDEPEND': '|| ( =dev-java/icedtea-6* =dev-java/sun-jdk-1.6.0* )'},
-  'dev-java/gcj-jdk-4.5'     : {},
-  'dev-java/gcj-jdk-4.5-r1'  : {},
-  'dev-java/icedtea-6.1'     : {},
-  'dev-java/icedtea-6.1-r1'  : {},
-  'dev-java/sun-jdk-1.5'     : {'SLOT': '1.5'},
-  'dev-java/sun-jdk-1.6'     : {'SLOT': '1.6'},
-  'dev-java/sun-jre-bin-1.5' : {'SLOT': '1.5'},
-  'dev-java/sun-jre-bin-1.6' : {'SLOT': '1.6'},
+    'sys-fs/udev-164': {'EAPI': '1', 'RDEPEND': 'virtual/libusb:0'},
 
-  'dev-java/ant-core-1.8'   : {'DEPEND' : '>=virtual/jdk-1.4'},
-  'dev-db/hsqldb-1.8'       : {'RDEPEND': '>=virtual/jre-1.6'},
-  }
+    'virtual/jre-1.5.0': {
+        'SLOT': '1.5',
+        'RDEPEND': '|| ( =dev-java/sun-jre-bin-1.5.0* =virtual/jdk-1.5.0* )',
+    },
+    'virtual/jre-1.5.0-r1': {
+        'SLOT': '1.5',
+        'RDEPEND': '|| ( =dev-java/sun-jre-bin-1.5.0* =virtual/jdk-1.5.0* )',
+    },
+    'virtual/jre-1.6.0': {
+        'SLOT': '1.6',
+        'RDEPEND': '|| ( =dev-java/sun-jre-bin-1.6.0* =virtual/jdk-1.6.0* )',
+    },
+    'virtual/jre-1.6.0-r1': {
+        'SLOT': '1.6',
+        'RDEPEND': '|| ( =dev-java/sun-jre-bin-1.6.0* =virtual/jdk-1.6.0* )',
+    },
+    'virtual/jdk-1.5.0': {
+        'SLOT': '1.5',
+        'RDEPEND': '|| ( =dev-java/sun-jdk-1.5.0* dev-java/gcj-jdk )',
+    },
+    'virtual/jdk-1.5.0-r1': {
+        'SLOT': '1.5',
+        'RDEPEND': '|| ( =dev-java/sun-jdk-1.5.0* dev-java/gcj-jdk )',
+    },
+    'virtual/jdk-1.6.0': {
+        'SLOT': '1.6',
+        'RDEPEND': '|| ( =dev-java/icedtea-6* =dev-java/sun-jdk-1.6.0* )',
+    },
+    'virtual/jdk-1.6.0-r1': {
+        'SLOT': '1.6',
+        'RDEPEND': '|| ( =dev-java/icedtea-6* =dev-java/sun-jdk-1.6.0* )',
+    },
+    'dev-java/gcj-jdk-4.5': {},
+    'dev-java/gcj-jdk-4.5-r1': {},
+    'dev-java/icedtea-6.1': {},
+    'dev-java/icedtea-6.1-r1': {},
+    'dev-java/sun-jdk-1.5': {'SLOT': '1.5'},
+    'dev-java/sun-jdk-1.6': {'SLOT': '1.6'},
+    'dev-java/sun-jre-bin-1.5': {'SLOT': '1.5'},
+    'dev-java/sun-jre-bin-1.6': {'SLOT': '1.6'},
+
+    'dev-java/ant-core-1.8': {'DEPEND': '>=virtual/jdk-1.4'},
+    'dev-db/hsqldb-1.8': {'RDEPEND': '>=virtual/jre-1.6'},
+}
 
 WORLD = [
-  'dev-libs/A',
-  'dev-libs/D',
-  'virtual/jre',
-  ]
+    'dev-libs/A',
+    'dev-libs/D',
+    'virtual/jre',
+]
 
 INSTALLED = {
-  'dev-libs/A-1': {},
-  'dev-libs/B-1': {},
-  'dev-libs/C-1': {},
-  'dev-libs/D-1': {},
+    'dev-libs/A-1': {},
+    'dev-libs/B-1': {},
+    'dev-libs/C-1': {},
+    'dev-libs/D-1': {},
 
-  'virtual/jre-1.5.0'       : {
-    'SLOT': '1.5',
-    'RDEPEND': '|| ( =virtual/jdk-1.5.0* =dev-java/sun-jre-bin-1.5.0* )'},
-  'virtual/jre-1.6.0'       : {
-    'SLOT': '1.6',
-    'RDEPEND': '|| ( =virtual/jdk-1.6.0* =dev-java/sun-jre-bin-1.6.0* )'},
-  'virtual/jdk-1.5.0'       : {
-    'SLOT': '1.5',
-    'RDEPEND': '|| ( =dev-java/sun-jdk-1.5.0* dev-java/gcj-jdk )'},
-  'virtual/jdk-1.6.0'       : {
-    'SLOT': '1.6',
-    'RDEPEND': '|| ( =dev-java/icedtea-6* =dev-java/sun-jdk-1.6.0* )'},
-  'dev-java/gcj-jdk-4.5'    : {},
-  'dev-java/icedtea-6.1'    : {},
+    'virtual/jre-1.5.0': {
+        'SLOT': '1.5',
+        'RDEPEND': '|| ( =virtual/jdk-1.5.0* =dev-java/sun-jre-bin-1.5.0* )',
+    },
+    'virtual/jre-1.6.0': {
+        'SLOT': '1.6',
+        'RDEPEND': '|| ( =virtual/jdk-1.6.0* =dev-java/sun-jre-bin-1.6.0* )',
+    },
+    'virtual/jdk-1.5.0': {
+        'SLOT': '1.5',
+        'RDEPEND': '|| ( =dev-java/sun-jdk-1.5.0* dev-java/gcj-jdk )',
+    },
+    'virtual/jdk-1.6.0': {
+        'SLOT': '1.6',
+        'RDEPEND': '|| ( =dev-java/icedtea-6* =dev-java/sun-jdk-1.6.0* )',
+    },
+    'dev-java/gcj-jdk-4.5': {},
+    'dev-java/icedtea-6.1': {},
 
-  'virtual/libusb-0'        : {
-    'EAPI': '2', 'SLOT': '0',
-    'RDEPEND':
-    '|| ( >=dev-libs/libusb-0.1.12-r1:0 dev-libs/libusb-compat ' +
-    '>=sys-freebsd/freebsd-lib-8.0[usb] )'},
-  }
+    'virtual/libusb-0': {
+        'EAPI': '2',
+        'SLOT': '0',
+        'RDEPEND': (
+            '|| ( >=dev-libs/libusb-0.1.12-r1:0 dev-libs/libusb-compat '
+            '>=sys-freebsd/freebsd-lib-8.0[usb] )'
+        )
+    },
+}
 
 # For verifying dependency graph results
 GOLDEN_DEP_GRAPHS = {
-  'dev-libs/A-2': { 'needs': { 'dev-libs/B-2': 'runtime' },
-                     'action': 'merge' },
-  'dev-libs/B-2': { 'needs': { 'dev-libs/C-2': 'runtime' } },
-  'dev-libs/C-2': { 'needs': { } },
-  'dev-libs/D-3': { 'needs': { } },
-  # TODO(mtennant): Bug in parallel_emerge deps graph makes blocker show up for
-  # E-3, rather than in just E-2 where it belongs. See crosbug.com/22190.
-  # To repeat bug, swap the commented status of next two lines.
-  #'dev-libs/E-3': { 'needs': { } },
-  'dev-libs/E-3': { 'needs': { 'dev-libs/D-3': 'blocker' } },
-  'chromeos-base/libcros-1': { 'needs': {
-    'dev-libs/B-2': 'runtime/buildtime',
-    'dev-libs/C-2': 'runtime/buildtime',
-    'chromeos-base/libchrome-57098-r4': 'buildtime',
-    'chromeos-base/flimflam-0.0.1-r228': 'runtime/buildtime'
-    } },
-  'chromeos-base/flimflam-0.0.1-r228': { 'needs': {
-    'dev-libs/D-3': 'runtime'
-    } },
-  'chromeos-base/libchrome-57098-r4': { 'needs': {
-    'dev-libs/E-3': 'runtime'
-    } },
-  }
+    'dev-libs/A-2': {
+        'needs': {'dev-libs/B-2': 'runtime'},
+        'action': 'merge',
+    },
+    'dev-libs/B-2': {'needs': {'dev-libs/C-2': 'runtime'}},
+    'dev-libs/C-2': {'needs': {}},
+    'dev-libs/D-3': {'needs': {}},
+    # TODO(mtennant): Bug in parallel_emerge deps graph makes blocker show up
+    # for E-3, rather than in just E-2 where it belongs. See crosbug.com/22190.
+    # To repeat bug, swap the commented status of next two lines.
+    #'dev-libs/E-3': {'needs': {}},
+    'dev-libs/E-3': {'needs': {'dev-libs/D-3': 'blocker'}},
+    'chromeos-base/libcros-1': {
+        'needs': {
+            'dev-libs/B-2': 'runtime/buildtime',
+            'dev-libs/C-2': 'runtime/buildtime',
+            'chromeos-base/libchrome-57098-r4': 'buildtime',
+            'chromeos-base/flimflam-0.0.1-r228': 'runtime/buildtime'
+        }
+    },
+    'chromeos-base/flimflam-0.0.1-r228': {
+        'needs': {'dev-libs/D-3': 'runtime'},
+    },
+    'chromeos-base/libchrome-57098-r4': {
+        'needs': {'dev-libs/E-3': 'runtime'},
+    },
+}
 
 # For verifying dependency set results
 GOLDEN_DEP_SETS = {
-  'dev-libs/A': set(['dev-libs/A-2', 'dev-libs/B-2', 'dev-libs/C-2']),
-  'dev-libs/B': set(['dev-libs/B-2', 'dev-libs/C-2']),
-  'dev-libs/C': set(['dev-libs/C-2']),
-  'dev-libs/D': set(['dev-libs/D-3']),
-  'virtual/libusb': set(['virtual/libusb-1', 'dev-libs/libusb-1.0.5']),
-  'chromeos-base/libcros': set(['chromeos-base/libcros-1',
-                                'dev-libs/B-2',
-                                'chromeos-base/libchrome-57098-r4',
-                                'dev-libs/E-3',
-                                'chromeos-base/flimflam-0.0.1-r228',
-                                'dev-libs/D-3',
-                                'dev-libs/C-2',
-                                ])
-  }
+    'dev-libs/A': set(['dev-libs/A-2', 'dev-libs/B-2', 'dev-libs/C-2']),
+    'dev-libs/B': set(['dev-libs/B-2', 'dev-libs/C-2']),
+    'dev-libs/C': set(['dev-libs/C-2']),
+    'dev-libs/D': set(['dev-libs/D-3']),
+    'virtual/libusb': set(['virtual/libusb-1', 'dev-libs/libusb-1.0.5']),
+    'chromeos-base/libcros': set(['chromeos-base/libcros-1',
+                                  'dev-libs/B-2',
+                                  'chromeos-base/libchrome-57098-r4',
+                                  'dev-libs/E-3',
+                                  'chromeos-base/flimflam-0.0.1-r228',
+                                  'dev-libs/D-3',
+                                  'dev-libs/C-2',])
+}
 
 
 def _GetGoldenDepsSet(pkg):
@@ -335,7 +355,7 @@ class ManifestLine(object):
   def __str__(self):
     return ('%s %s %s RMD160 %s SHA1 %s SHA256 %s' %
             (self.type, self.file, self.size,
-            self.RMD160, self.SHA1, self.SHA256))
+             self.RMD160, self.SHA1, self.SHA256))
 
   def __eq__(self, other):
     """Equality support."""
@@ -404,13 +424,13 @@ class PInfoTest(cros_test_lib.OutputTestCase):
     self.assertTrue(pinfo1 != pinfo4)
 
 
-class CpuTestBase(cros_test_lib.MoxOutputTestCase):
+class CpuTestBase(cros_test_lib.MoxTempDirTestOutputCase):
   """Base class for all test classes in this file."""
 
   __slots__ = [
-    'playground',
-    'playground_envvars',
-    ]
+      'playground',
+      'playground_envvars',
+  ]
 
   def setUp(self):
     self.playground = None
@@ -453,12 +473,13 @@ class CpuTestBase(cros_test_lib.MoxOutputTestCase):
     # normally does that when --board is given.
     eroot = self._GetPlaygroundRoot(playground)
     portdir = self._GetPlaygroundPortdir(playground)
-    envvars = {'PORTAGE_CONFIGROOT': eroot,
-               'ROOT': eroot,
-               'PORTDIR': portdir,
-               # See _GenPortageEnvvars for more info on this setting.
-               'PORTDIR_OVERLAY': portdir,
-               }
+    envvars = {
+        'PORTAGE_CONFIGROOT': eroot,
+        'ROOT': eroot,
+        'PORTDIR': portdir,
+        # See _GenPortageEnvvars for more info on this setting.
+        'PORTDIR_OVERLAY': portdir,
+    }
 
     if active:
       for envvar in envvars:
@@ -491,13 +512,7 @@ class CpuTestBase(cros_test_lib.MoxOutputTestCase):
   def _TearDownPlayground(self):
     """Delete the temporary ebuild playground files."""
     if self.playground:
-      try:
-        self.playground.cleanup()
-      except OSError:
-        # The clever tmp cleanup code in osutils.TempDirDecorator
-        # will take care of the cleanup before this point if it
-        # is used in the current test.  Just move along.
-        pass
+      self.playground.cleanup()
 
       self.playground = None
       self.playground_envvars = None
@@ -505,10 +520,10 @@ class CpuTestBase(cros_test_lib.MoxOutputTestCase):
   def _MockUpgrader(self, cmdargs=None, **kwargs):
     """Set up a mocked Upgrader object with the given args."""
     upgrader_slot_defaults = {
-      '_curr_arch':   DEFAULT_ARCH,
-      '_curr_board':  'some_board',
-      '_unstable_ok': False,
-      '_verbose':     False,
+        '_curr_arch': DEFAULT_ARCH,
+        '_curr_board': 'some_board',
+        '_unstable_ok': False,
+        '_verbose': False,
     }
 
     upgrader = self.mox.CreateMock(cpu.Upgrader)
@@ -598,8 +613,7 @@ class CopyUpstreamTest(CpuTestBase):
     self._SetUpPlayground()
     portdir = self._GetPlaygroundPortdir()
     mocked_upgrader = self._MockUpgrader(cmdargs=[],
-                                         _stable_repo=portdir,
-                                         )
+                                         _stable_repo=portdir)
     self._AddEclassToPlayground(eclass,
                                 ebuilds=[ebuild],
                                 missing=not create_eclass)
@@ -612,7 +626,7 @@ class CopyUpstreamTest(CpuTestBase):
                                               unstable_ok=True)
     mocked_upgrader._GenPortageEnvvars(mocked_upgrader._curr_arch,
                                        unstable_ok=True,
-                                       ).AndReturn(envvars)
+                                      ).AndReturn(envvars)
     mocked_upgrader._GetBoardCmd('equery').AndReturn('equery')
     self.mox.ReplayAll()
 
@@ -641,7 +655,6 @@ class CopyUpstreamTest(CpuTestBase):
   # _CopyUpstreamEclass
   #
 
-  @osutils.TempDirDecorator
   def _TestCopyUpstreamEclass(self, eclass, do_copy,
                               local_copy_identical=None, error=None):
     """Test Upgrader._CopyUpstreamEclass"""
@@ -651,8 +664,7 @@ class CopyUpstreamTest(CpuTestBase):
     portage_stable = self.tempdir
     mocked_upgrader = self._MockUpgrader(_curr_board=None,
                                          _upstream=upstream_portdir,
-                                         _stable_repo=portage_stable,
-                                         )
+                                         _stable_repo=portage_stable)
 
     eclass_subpath = os.path.join('eclass', eclass + '.eclass')
     eclass_path = os.path.join(portage_stable, eclass_subpath)
@@ -722,7 +734,6 @@ class CopyUpstreamTest(CpuTestBase):
   # _CopyUpstreamPackage
   #
 
-  @osutils.TempDirDecorator
   def _TestCopyUpstreamPackage(self, catpkg, verrev, success,
                                existing_files, extra_upstream_files,
                                error=None):
@@ -754,7 +765,7 @@ class CopyUpstreamTest(CpuTestBase):
     mocked_upgrader = self._MockUpgrader(_curr_board=None,
                                          _upstream=upstream_portdir,
                                          _stable_repo=portage_stable,
-                                         )
+                                        )
 
     # Replay script
     if success:
@@ -783,7 +794,7 @@ class CopyUpstreamTest(CpuTestBase):
         mocked_upgrader._RunGit(mocked_upgrader._stable_repo,
                                 mox.Func(rm_cmd_verifier),
                                 redirect_stdout=True
-                                ).WithSideEffects(git_rm)
+                               ).WithSideEffects(git_rm)
 
       mocked_upgrader._CreateManifest(os.path.join(upstream_portdir, catpkg),
                                       pkgdir, ebuild)
@@ -884,7 +895,7 @@ class CopyUpstreamTest(CpuTestBase):
     cros_build_lib.RunCommand(['ebuild', ebuild_path, 'manifest'],
                               error_code_ok=True, print_cmd=False,
                               redirect_stdout=True, combine_stdout_stderr=True
-                              ).AndReturn(run_result)
+                             ).AndReturn(run_result)
     self.mox.ReplayAll()
 
     return (upstream_dir, current_dir)
@@ -902,7 +913,6 @@ class CopyUpstreamTest(CpuTestBase):
     self.assertTrue(manifest_lines == expected_manifest_lines, msg=msg)
     self.assertFalse(manifest_lines != expected_manifest_lines, msg=msg)
 
-  @osutils.TempDirDecorator
   def testCreateManifestNew(self):
     """Test case with upstream but no current Manifest."""
 
@@ -914,16 +924,13 @@ class CopyUpstreamTest(CpuTestBase):
                                 size='100',
                                 RMD160='abc',
                                 SHA1='123',
-                                SHA256='abc123'
-                                ),
+                                SHA256='abc123'),
                    ManifestLine(type='EBUILD',
                                 file=ebuild,
                                 size='254',
                                 RMD160='def',
                                 SHA1='456',
-                                SHA256='def456'
-                                ),
-                   ]
+                                SHA256='def456'),]
     upstream_dir, current_dir = self._SetupManifestTest(ebuild,
                                                         upst_mlines, None)
 
@@ -937,7 +944,6 @@ class CopyUpstreamTest(CpuTestBase):
     self.mox.VerifyAll()
     self.assertTrue(filecmp.cmp(upstream_manifest, current_manifest))
 
-  @osutils.TempDirDecorator
   def testCreateManifestMerge(self):
     """Test case with upstream but no current Manifest."""
 
@@ -949,30 +955,25 @@ class CopyUpstreamTest(CpuTestBase):
                                 size='101',
                                 RMD160='abc',
                                 SHA1='123',
-                                SHA256='abc123'
-                                ),
+                                SHA256='abc123'),
                    ManifestLine(type='DIST',
                                 file='fileC',
                                 size='321',
                                 RMD160='cde',
                                 SHA1='345',
-                                SHA256='cde345'
-                                ),
+                                SHA256='cde345'),
                    ManifestLine(type='EBUILD',
                                 file=ebuild,
                                 size='254',
                                 RMD160='def',
                                 SHA1='789',
-                                SHA256='def789'
-                                ),
-                   ]
+                                SHA256='def789'),]
     upst_mlines = [ManifestLine(type='DIST',
                                 file='fileA',
                                 size='100',
                                 RMD160='abc',
                                 SHA1='123',
-                                SHA256='abc123'
-                                ),
+                                SHA256='abc123'),
                    # This file is different from current manifest.
                    # It should be picked up by _CreateManifest.
                    ManifestLine(type='DIST',
@@ -980,16 +981,13 @@ class CopyUpstreamTest(CpuTestBase):
                                 size='345',
                                 RMD160='bcd',
                                 SHA1='234',
-                                SHA256='bcd234'
-                                ),
+                                SHA256='bcd234'),
                    ManifestLine(type='EBUILD',
                                 file=ebuild,
                                 size='254',
                                 RMD160='def',
                                 SHA1='789',
-                                SHA256='def789'
-                                ),
-                   ]
+                                SHA256='def789'),]
 
     upstream_dir, current_dir = self._SetupManifestTest(ebuild,
                                                         upst_mlines,
@@ -1011,9 +1009,7 @@ class GetPackageUpgradeStateTest(CpuTestBase):
   """Test Upgrader._GetPackageUpgradeState"""
 
   def _TestGetPackageUpgradeState(self, pinfo,
-                                  exists_upstream,
-                                  ):
-
+                                  exists_upstream):
     cmdargs = []
     mocked_upgrader = self._MockUpgrader(cmdargs=cmdargs)
 
@@ -1021,7 +1017,7 @@ class GetPackageUpgradeStateTest(CpuTestBase):
 
     # Replay script
     mocked_upgrader._FindUpstreamCPV(pinfo.cpv, unstable_ok=True,
-                                     ).AndReturn(exists_upstream)
+                                    ).AndReturn(exists_upstream)
     self.mox.ReplayAll()
 
     # Verify
@@ -1034,8 +1030,7 @@ class GetPackageUpgradeStateTest(CpuTestBase):
     pinfo = cpu.PInfo(cpv='foo/bar-2',
                       overlay='chromiumos-overlay',
                       cpv_cmp_upstream=None,
-                      latest_upstream_cpv=None,
-                      )
+                      latest_upstream_cpv=None)
     result = self._TestGetPackageUpgradeState(pinfo, exists_upstream=False)
     self.assertEquals(result, utable.UpgradeTable.STATE_LOCAL_ONLY)
 
@@ -1043,8 +1038,7 @@ class GetPackageUpgradeStateTest(CpuTestBase):
     pinfo = cpu.PInfo(cpv='foo/bar-2',
                       overlay='portage',
                       cpv_cmp_upstream=None,
-                      latest_upstream_cpv=None,
-                      )
+                      latest_upstream_cpv=None)
     result = self._TestGetPackageUpgradeState(pinfo, exists_upstream=False)
     self.assertEquals(result, utable.UpgradeTable.STATE_UNKNOWN)
 
@@ -1052,8 +1046,7 @@ class GetPackageUpgradeStateTest(CpuTestBase):
     pinfo = cpu.PInfo(cpv='foo/bar-2',
                       overlay='chromiumos-overlay',
                       cpv_cmp_upstream=1, # outdated
-                      latest_upstream_cpv='not important',
-                      )
+                      latest_upstream_cpv='not important')
     result = self._TestGetPackageUpgradeState(pinfo, exists_upstream=True)
     self.assertEquals(result,
                       utable.UpgradeTable.STATE_NEEDS_UPGRADE_AND_DUPLICATED)
@@ -1062,8 +1055,7 @@ class GetPackageUpgradeStateTest(CpuTestBase):
     pinfo = cpu.PInfo(cpv='foo/bar-2',
                       overlay='chromiumos-overlay',
                       cpv_cmp_upstream=1, # outdated
-                      latest_upstream_cpv='not important',
-                      )
+                      latest_upstream_cpv='not important')
     result = self._TestGetPackageUpgradeState(pinfo, exists_upstream=False)
     self.assertEquals(result,
                       utable.UpgradeTable.STATE_NEEDS_UPGRADE_AND_PATCHED)
@@ -1072,8 +1064,7 @@ class GetPackageUpgradeStateTest(CpuTestBase):
     pinfo = cpu.PInfo(cpv='foo/bar-2',
                       overlay='portage-stable',
                       cpv_cmp_upstream=1, # outdated
-                      latest_upstream_cpv='not important',
-                      )
+                      latest_upstream_cpv='not important')
     result = self._TestGetPackageUpgradeState(pinfo, exists_upstream=False)
     self.assertEquals(result, utable.UpgradeTable.STATE_NEEDS_UPGRADE)
 
@@ -1081,8 +1072,7 @@ class GetPackageUpgradeStateTest(CpuTestBase):
     pinfo = cpu.PInfo(cpv='foo/bar-2',
                       overlay='chromiumos-overlay',
                       cpv_cmp_upstream=0, # current
-                      latest_upstream_cpv='not important',
-                      )
+                      latest_upstream_cpv='not important')
     result = self._TestGetPackageUpgradeState(pinfo, exists_upstream=True)
     self.assertEquals(result, utable.UpgradeTable.STATE_DUPLICATED)
 
@@ -1090,8 +1080,7 @@ class GetPackageUpgradeStateTest(CpuTestBase):
     pinfo = cpu.PInfo(cpv='foo/bar-2',
                       overlay='chromiumos-overlay',
                       cpv_cmp_upstream=0, # current
-                      latest_upstream_cpv='not important',
-                      )
+                      latest_upstream_cpv='not important')
     result = self._TestGetPackageUpgradeState(pinfo, exists_upstream=False)
     self.assertEquals(result, utable.UpgradeTable.STATE_PATCHED)
 
@@ -1099,8 +1088,7 @@ class GetPackageUpgradeStateTest(CpuTestBase):
     pinfo = cpu.PInfo(cpv='foo/bar-2',
                       overlay='portage-stable',
                       cpv_cmp_upstream=0, # current
-                      latest_upstream_cpv='not important',
-                      )
+                      latest_upstream_cpv='not important')
     result = self._TestGetPackageUpgradeState(pinfo, exists_upstream=False)
     self.assertEquals(result, utable.UpgradeTable.STATE_CURRENT)
 
@@ -1217,8 +1205,7 @@ class CPVUtilTest(CpuTestBase):
     equal = [('foo/bar-1', 'foo/bar-1'),
              ('a-b-c/x-y-z-1.2.3-r1', 'a-b-c/x-y-z-1.2.3-r1'),
              ('foo/bar-1', 'foo/bar-1-r0'),
-             (None, None),
-             ]
+             (None, None)]
     for (cpv1, cpv2) in equal:
       self.assertEqual(0, self._TestCmpCpv(cpv1, cpv2))
 
@@ -1227,14 +1214,12 @@ class CPVUtilTest(CpuTestBase):
                 ('foo/bar-1', 'foo/bar-1-r1'),
                 ('foo/bar-1-r1', 'foo/bar-1-r2'),
                 ('foo/bar-1.2.3', 'foo/bar-1.2.4'),
-                ('foo/bar-5a', 'foo/bar-5b'),
-                ]
+                ('foo/bar-5a', 'foo/bar-5b')]
     for (cpv1, cpv2) in lessthan:
       self.assertTrue(self._TestCmpCpv(cpv1, cpv2) < 0)
       self.assertTrue(self._TestCmpCpv(cpv2, cpv1) > 0)
 
-    not_comparable = [('foo/bar-1', 'bar/foo-1'),
-                      ]
+    not_comparable = [('foo/bar-1', 'bar/foo-1')]
     for (cpv1, cpv2) in not_comparable:
       self.assertEquals(None, self._TestCmpCpv(cpv1, cpv2))
 
@@ -1257,8 +1242,7 @@ class CPVUtilTest(CpuTestBase):
             ('a-b-c/x-y-z-1', 'a-b-c/x-y-z'),
             ('a-b-c/x-y-z-1.2.3-r3', 'a-b-c/x-y-z'),
             ('bar-1', 'bar'),
-            ('bar', None),
-            ]
+            ('bar', None)]
 
     for (cpv, catpn) in data:
       result = self._TestGetCatPkgFromCpv(cpv)
@@ -1284,8 +1268,7 @@ class CPVUtilTest(CpuTestBase):
             ('a-b-c/x-y-z-1.2.3-r3', '1.2.3-r3'),
             ('foo/bar-3.222-r0', '3.222'),
             ('bar-1', '1'),
-            ('bar', None),
-            ]
+            ('bar', None)]
 
     for (cpv, verrev) in data:
       result = self._TestGetVerRevFromCpv(cpv)
@@ -1309,8 +1292,7 @@ class CPVUtilTest(CpuTestBase):
     data = [('foo/bar-1', 'foo/bar/bar-1.ebuild'),
             ('a-b-c/x-y-z-1', 'a-b-c/x-y-z/x-y-z-1.ebuild'),
             ('a-b-c/x-y-z-1.2.3-r3', 'a-b-c/x-y-z/x-y-z-1.2.3-r3.ebuild'),
-            ('foo/bar-3.222-r0', 'foo/bar/bar-3.222-r0.ebuild'),
-            ]
+            ('foo/bar-3.222-r0', 'foo/bar/bar-3.222-r0.ebuild'),]
 
     for (cpv, verrev) in data:
       result = self._TestGetEbuildPathFromCpv(cpv)
@@ -1325,11 +1307,9 @@ class PortageStableTest(CpuTestBase):
                 'a/b/.x/y~': 'D',
                 'foo/bar': 'C',
                 '/bar/foo': 'U',
-                'unknown/file': '??',
-                }
+                'unknown/file': '??',}
   STATUS_UNKNOWN = {'foo/bar': '??',
-                    'a/b/c': '??',
-                    }
+                    'a/b/c': '??',}
   STATUS_EMPTY = {}
 
   #
@@ -1346,7 +1326,7 @@ class PortageStableTest(CpuTestBase):
     # Replay script
     mocked_upgrader._RunGit(mocked_upgrader._stable_repo,
                             ['branch'], redirect_stdout=True,
-                            ).AndReturn(run_result)
+                           ).AndReturn(run_result)
     self.mox.ReplayAll()
 
     # Verify
@@ -1395,7 +1375,7 @@ class PortageStableTest(CpuTestBase):
     # Replay script
     mocked_upgrader._RunGit(mocked_upgrader._stable_repo,
                             ['status', '-s'], redirect_stdout=True,
-                            ).AndReturn(run_result)
+                           ).AndReturn(run_result)
     self.mox.ReplayAll()
 
     # Verify
@@ -1468,12 +1448,12 @@ class PortageStableTest(CpuTestBase):
   def testAnyChangesStagedUnknown(self):
     """Should return False, only files with '??' status"""
     self.assertFalse(self._TestAnyChangesStaged(self.STATUS_UNKNOWN),
-                    'Should not consider files with "??" status.')
+                     'Should not consider files with "??" status.')
 
   def testAnyChangesStagedEmpty(self):
     """Should return False, no file statuses"""
     self.assertFalse(self._TestAnyChangesStaged(self.STATUS_EMPTY),
-                    'No files should mean no changes staged.')
+                     'No files should mean no changes staged.')
 
   #
   # _StashChanges
@@ -1734,8 +1714,7 @@ class TreeInspectTest(CpuTestBase):
     self._SetUpPlayground()
     eroot = self._GetPlaygroundRoot()
     mocked_upgrader = self._MockUpgrader(_curr_board=None,
-                                         _upstream=eroot,
-                                         )
+                                         _upstream=eroot)
 
     # Add test-specific mocks/stubs
 
@@ -1750,7 +1729,7 @@ class TreeInspectTest(CpuTestBase):
                                        unstable_ok,
                                        portdir=mocked_upgrader._upstream,
                                        portage_configroot=portage_configroot,
-                                       ).AndReturn(envvars)
+                                      ).AndReturn(envvars)
 
     if ebuild_expect:
       ebuild_path = eroot + ebuild_expect
@@ -1953,7 +1932,7 @@ class RunBoardTest(CpuTestBase):
     mocked_upgrader._RunGit(
         '/tmp/portage', ['remote', 'update'])
     mocked_upgrader._RunGit(
-        '/tmp/portage', ['checkout', 'origin/gentoo'],
+        '/tmp/portage', ['checkout', '-f', 'origin/gentoo'],
         combine_stdout_stderr=True, redirect_stdout=True)
     self.mox.ReplayAll()
 
@@ -1962,7 +1941,6 @@ class RunBoardTest(CpuTestBase):
       cpu.Upgrader.PrepareToRun(mocked_upgrader)
     self.mox.VerifyAll()
 
-  @osutils.TempDirDecorator
   def testPrepareToRunUpstreamRepoNew(self):
     cmdargs = []
     mocked_upgrader = self._MockUpgrader(cmdargs=cmdargs,
@@ -2019,7 +1997,7 @@ class RunBoardTest(CpuTestBase):
     upgrade_mode = cpu.Upgrader._IsInUpgradeMode(mocked_upgrader)
     mocked_upgrader._IsInUpgradeMode().AndReturn(upgrade_mode)
     mocked_upgrader._AnyChangesStaged().AndReturn(staged_changes)
-    if (staged_changes):
+    if staged_changes:
       mocked_upgrader._StashChanges()
 
     mocked_upgrader._ResolveAndVerifyArgs(targetlist,
@@ -2032,7 +2010,7 @@ class RunBoardTest(CpuTestBase):
 
       if upgrade_mode:
         mocked_upgrader._FinalizeUpstreamPInfolist(
-          upstream_only_pinfolist).AndReturn([])
+            upstream_only_pinfolist).AndReturn([])
 
     mocked_upgrader._UnstashAnyChanges()
     mocked_upgrader._UpgradePackages([])
@@ -2049,25 +2027,19 @@ class RunBoardTest(CpuTestBase):
   def testRunBoard1(self):
     target_pinfolist = [cpu.PInfo(user_arg='dev-libs/A',
                                   cpv='dev-libs/A-1',
-                                  upstream_cpv='dev-libs/A-2',
-                                  ),
-                        ]
+                                  upstream_cpv='dev-libs/A-2')]
     return self._TestRunBoard(target_pinfolist)
 
   def testRunBoard2(self):
     target_pinfolist = [cpu.PInfo(user_arg='dev-libs/A',
                                   cpv='dev-libs/A-1',
-                                  upstream_cpv='dev-libs/A-2',
-                                  ),
-                        ]
+                                  upstream_cpv='dev-libs/A-2')]
     return self._TestRunBoard(target_pinfolist, upgrade=True)
 
   def testRunBoard3(self):
     target_pinfolist = [cpu.PInfo(user_arg='dev-libs/A',
                                   cpv='dev-libs/A-1',
-                                  upstream_cpv='dev-libs/A-2',
-                                  ),
-                        ]
+                                  upstream_cpv='dev-libs/A-2')]
     return self._TestRunBoard(target_pinfolist, upgrade=True,
                               staged_changes=True)
 
@@ -2076,9 +2048,7 @@ class RunBoardTest(CpuTestBase):
 
     pinfolist = [cpu.PInfo(user_arg='dev-libs/M',
                            cpv=None,
-                           upstream_cpv='dev-libs/M-2',
-                           ),
-                 ]
+                           upstream_cpv='dev-libs/M-2'),]
 
     targetlist = [pinfo.user_arg for pinfo in pinfolist]
 
@@ -2121,7 +2091,7 @@ class GiveEmergeResultsTest(CpuTestBase):
 
     # Replay script
     mocked_upgrader._AreEmergeable(mox.IgnoreArg(),
-                                   ).AndReturn((ok, None, None))
+                                  ).AndReturn((ok, None, None))
     self.mox.ReplayAll()
 
     # Verify
@@ -2138,14 +2108,12 @@ class GiveEmergeResultsTest(CpuTestBase):
 
   def testGiveEmergeResultsUnmaskedOK(self):
     pinfolist = [cpu.PInfo(upgraded_cpv='abc/def-4', upgraded_unmasked=True),
-                 cpu.PInfo(upgraded_cpv='bcd/efg-8', upgraded_unmasked=True),
-                 ]
+                 cpu.PInfo(upgraded_cpv='bcd/efg-8', upgraded_unmasked=True)]
     self._TestGiveEmergeResultsOK(pinfolist, True)
 
   def testGiveEmergeResultsUnmaskedNotOK(self):
     pinfolist = [cpu.PInfo(upgraded_cpv='abc/def-4', upgraded_unmasked=True),
-                 cpu.PInfo(upgraded_cpv='bcd/efg-8', upgraded_unmasked=True),
-                 ]
+                 cpu.PInfo(upgraded_cpv='bcd/efg-8', upgraded_unmasked=True)]
     self._TestGiveEmergeResultsOK(pinfolist, False, error=RuntimeError)
 
   def _TestGiveEmergeResultsMasked(self, pinfolist, ok, masked_cpvs,
@@ -2158,7 +2126,7 @@ class GiveEmergeResultsTest(CpuTestBase):
     # Replay script
     emergeable_tuple = (ok, 'some-cmd', 'some-output')
     mocked_upgrader._AreEmergeable(mox.IgnoreArg(),
-                                   ).AndReturn(emergeable_tuple)
+                                  ).AndReturn(emergeable_tuple)
     if not ok:
       for cpv in masked_cpvs:
         mocked_upgrader._GiveMaskedError(cpv, 'some-output').InAnyOrder()
@@ -2178,16 +2146,14 @@ class GiveEmergeResultsTest(CpuTestBase):
 
   def testGiveEmergeResultsMaskedOK(self):
     pinfolist = [cpu.PInfo(upgraded_cpv='abc/def-4', upgraded_unmasked=False),
-                 cpu.PInfo(upgraded_cpv='bcd/efg-8', upgraded_unmasked=False),
-                 ]
+                 cpu.PInfo(upgraded_cpv='bcd/efg-8', upgraded_unmasked=False)]
     masked_cpvs = ['abc/def-4', 'bcd/efg-8']
     self._TestGiveEmergeResultsMasked(pinfolist, True, masked_cpvs,
                                       error=RuntimeError)
 
   def testGiveEmergeResultsMaskedNotOK(self):
     pinfolist = [cpu.PInfo(upgraded_cpv='abc/def-4', upgraded_unmasked=False),
-                 cpu.PInfo(upgraded_cpv='bcd/efg-8', upgraded_unmasked=False),
-                ]
+                 cpu.PInfo(upgraded_cpv='bcd/efg-8', upgraded_unmasked=False)]
     masked_cpvs = ['abc/def-4', 'bcd/efg-8']
     self._TestGiveEmergeResultsMasked(pinfolist, False, masked_cpvs,
                                       error=RuntimeError)
@@ -2203,12 +2169,10 @@ class CheckStagedUpgradesTest(CpuTestBase):
     ebuild2 = 'x/y/bar/foo/foo-3.ebuild'
     repo_status = {ebuild1: 'A',
                    'a/b/foo/garbage': 'A',
-                   ebuild2: 'A',
-                   }
+                   ebuild2: 'A',}
 
     pinfolist = [cpu.PInfo(package='foo/bar'),
-                 cpu.PInfo(package='bar/foo'),
-                ]
+                 cpu.PInfo(package='bar/foo')]
 
     mocked_upgrader = self._MockUpgrader(cmdargs=cmdargs,
                                          _stable_repo_status=repo_status)
@@ -2233,8 +2197,7 @@ class CheckStagedUpgradesTest(CpuTestBase):
     ebuild2 = 'x/y/bar/foo/foo-3.ebuild'
     repo_status = {ebuild1: 'A',
                    'a/b/foo/garbage': 'A',
-                   ebuild2: 'A',
-                   }
+                   ebuild2: 'A',}
 
     # Without foo/bar in the pinfolist it should complain about that
     # package having staged changes.
@@ -2261,8 +2224,7 @@ class CheckStagedUpgradesTest(CpuTestBase):
     cmdargs = []
 
     pinfolist = [cpu.PInfo(package='foo/bar-1'),
-                 cpu.PInfo(package='bar/foo-3'),
-                ]
+                 cpu.PInfo(package='bar/foo-3')]
 
     mocked_upgrader = self._MockUpgrader(cmdargs=cmdargs,
                                          _stable_repo_status=None)
@@ -2294,8 +2256,8 @@ class UpgradePackagesTest(CpuTestBase):
     upgrades_this_run = False
     for pinfo in pinfolist:
       pkg_result = bool(pinfo.upgraded_cpv)
-      mocked_upgrader._UpgradePackage(pinfo).InAnyOrder('up'
-                                                        ).AndReturn(pkg_result)
+      mocked_upgrader._UpgradePackage(pinfo).InAnyOrder(
+          'up').AndReturn(pkg_result)
       if pkg_result:
         upgrades_this_run = True
 
@@ -2321,27 +2283,23 @@ class UpgradePackagesTest(CpuTestBase):
     pinfolist = [cpu.PInfo(upgraded_cpv='abc/def-4'),
                  cpu.PInfo(upgraded_cpv='bcd/efg-8'),
                  cpu.PInfo(upgraded_cpv=None),
-                 cpu.PInfo(upgraded_cpv=None)
-                 ]
+                 cpu.PInfo(upgraded_cpv=None)]
     self._TestUpgradePackages(pinfolist, True)
 
   def testUpgradePackagesUpgradeModeNoUpgrades(self):
     pinfolist = [cpu.PInfo(upgraded_cpv=None),
-                 cpu.PInfo(upgraded_cpv=None),
-                 ]
+                 cpu.PInfo(upgraded_cpv=None)]
     self._TestUpgradePackages(pinfolist, True)
 
   def testUpgradePackagesStatusModeNoUpgrades(self):
     pinfolist = [cpu.PInfo(upgraded_cpv=None),
-                 cpu.PInfo(upgraded_cpv=None),
-                 ]
+                 cpu.PInfo(upgraded_cpv=None)]
     self._TestUpgradePackages(pinfolist, False)
 
 
-class CategoriesRoundtripTest(cros_test_lib.MoxOutputTestCase):
+class CategoriesRoundtripTest(cros_test_lib.MoxTempDirTestOutputCase):
   """Tests for full "round trip" runs."""
 
-  @osutils.TempDirDecorator
   def _TestCategoriesRoundtrip(self, categories):
     stable_repo = self.tempdir
     cat_file = cpu.Upgrader.CATEGORIES_FILE
@@ -2405,12 +2363,12 @@ class UpgradePackageTest(CpuTestBase):
     if upstream_cpv:
       mocked_upgrader._PkgUpgradeRequested(pinfo).AndReturn(upgrade_requested)
       if upgrade_requested:
-        mocked_upgrader._PkgUpgradeStaged(upstream_cpv
-                                          ).AndReturn(upgrade_staged)
+        mocked_upgrader._PkgUpgradeStaged(
+            upstream_cpv).AndReturn(upgrade_staged)
         if (not upgrade_staged and
             (upstream_cmp > 0 or (upstream_cmp == 0 and force))):
-          mocked_upgrader._CopyUpstreamPackage(upstream_cpv
-                                               ).AndReturn(upstream_cpv)
+          mocked_upgrader._CopyUpstreamPackage(
+              upstream_cpv).AndReturn(upstream_cpv)
           upgrade_staged = True
 
 
@@ -2424,8 +2382,9 @@ class UpgradePackageTest(CpuTestBase):
                                   ['add', pinfo.package])
           mocked_upgrader._UpdateCategories(pinfo)
           cache_files = 'metadata/md5-cache/%s-[0-9]*' % pinfo.package
-          mocked_upgrader._RunGit(mocked_upgrader._stable_repo, ['rm',
-                                  '--ignore-unmatch', '-q', '-f', cache_files])
+          mocked_upgrader._RunGit(mocked_upgrader._stable_repo,
+                                  ['rm', '--ignore-unmatch', '-q', '-f',
+                                   cache_files])
           cmd = ['egencache', '--update', '--repo=portage-stable',
                  pinfo.package]
           run_result = RunCommandResult(returncode=0, output=None)
@@ -2467,8 +2426,7 @@ class UpgradePackageTest(CpuTestBase):
   def testUpgradePackageOutdatedRequestedStable(self):
     pinfo = cpu.PInfo(cpv='foo/bar-2',
                       package='foo/bar',
-                      upstream_cpv=None,
-                      )
+                      upstream_cpv=None)
     result = self._TestUpgradePackage(pinfo,
                                       upstream_cpv='foo/bar-3',
                                       upstream_cmp=1, # outdated
@@ -2477,15 +2435,13 @@ class UpgradePackageTest(CpuTestBase):
                                       upgrade_requested=True,
                                       upgrade_staged=False,
                                       unstable_ok=False,
-                                      force=False,
-                                      )
+                                      force=False)
     self.assertTrue(result)
 
   def testUpgradePackageOutdatedRequestedUnstable(self):
     pinfo = cpu.PInfo(cpv='foo/bar-2',
                       package='foo/bar',
-                      upstream_cpv=None,
-                      )
+                      upstream_cpv=None)
     result = self._TestUpgradePackage(pinfo,
                                       upstream_cpv='foo/bar-5',
                                       upstream_cmp=1, # outdated
@@ -2494,15 +2450,13 @@ class UpgradePackageTest(CpuTestBase):
                                       upgrade_requested=True,
                                       upgrade_staged=False,
                                       unstable_ok=True,
-                                      force=False,
-                                      )
+                                      force=False)
     self.assertTrue(result)
 
   def testUpgradePackageOutdatedRequestedStableSpecified(self):
     pinfo = cpu.PInfo(cpv='foo/bar-2',
                       package='foo/bar',
-                      upstream_cpv='foo/bar-4',
-                      )
+                      upstream_cpv='foo/bar-4')
     result = self._TestUpgradePackage(pinfo,
                                       upstream_cpv='foo/bar-4',
                                       upstream_cmp=1, # outdated
@@ -2511,15 +2465,13 @@ class UpgradePackageTest(CpuTestBase):
                                       upgrade_requested=True,
                                       upgrade_staged=False,
                                       unstable_ok=False, # not important
-                                      force=False,
-                                      )
+                                      force=False)
     self.assertTrue(result)
 
   def testUpgradePackageCurrentRequestedStable(self):
     pinfo = cpu.PInfo(cpv='foo/bar-3',
                       package='foo/bar',
-                      upstream_cpv=None,
-                      )
+                      upstream_cpv=None)
     result = self._TestUpgradePackage(pinfo,
                                       upstream_cpv='foo/bar-3',
                                       upstream_cmp=0, # current
@@ -2528,15 +2480,13 @@ class UpgradePackageTest(CpuTestBase):
                                       upgrade_requested=True,
                                       upgrade_staged=False,
                                       unstable_ok=False,
-                                      force=False,
-                                      )
+                                      force=False)
     self.assertFalse(result)
 
   def testUpgradePackageCurrentRequestedStableForce(self):
     pinfo = cpu.PInfo(cpv='foo/bar-3',
                       package='foo/bar',
-                      upstream_cpv='foo/bar-3',
-                      )
+                      upstream_cpv='foo/bar-3')
     result = self._TestUpgradePackage(pinfo,
                                       upstream_cpv='foo/bar-3',
                                       upstream_cmp=0, # current
@@ -2545,15 +2495,13 @@ class UpgradePackageTest(CpuTestBase):
                                       upgrade_requested=True,
                                       upgrade_staged=False,
                                       unstable_ok=False,
-                                      force=True,
-                                      )
+                                      force=True)
     self.assertTrue(result)
 
   def testUpgradePackageOutdatedStable(self):
     pinfo = cpu.PInfo(cpv='foo/bar-2',
                       package='foo/bar',
-                      upstream_cpv=None,
-                      )
+                      upstream_cpv=None)
     result = self._TestUpgradePackage(pinfo,
                                       upstream_cpv='foo/bar-3',
                                       upstream_cmp=1, # outdated
@@ -2562,15 +2510,13 @@ class UpgradePackageTest(CpuTestBase):
                                       upgrade_requested=False,
                                       upgrade_staged=False,
                                       unstable_ok=False,
-                                      force=False,
-                                      )
+                                      force=False)
     self.assertFalse(result)
 
   def testUpgradePackageOutdatedRequestedStableStaged(self):
     pinfo = cpu.PInfo(cpv='foo/bar-2',
                       package='foo/bar',
-                      upstream_cpv=None,
-                      )
+                      upstream_cpv=None)
     result = self._TestUpgradePackage(pinfo,
                                       upstream_cpv='foo/bar-3',
                                       upstream_cmp=1, # outdated
@@ -2579,15 +2525,13 @@ class UpgradePackageTest(CpuTestBase):
                                       upgrade_requested=True,
                                       upgrade_staged=True,
                                       unstable_ok=False,
-                                      force=False,
-                                      )
+                                      force=False)
     self.assertTrue(result)
 
   def testUpgradePackageOutdatedRequestedUnstableStaged(self):
     pinfo = cpu.PInfo(cpv='foo/bar-2',
                       package='foo/bar',
-                      upstream_cpv='foo/bar-5',
-                      )
+                      upstream_cpv='foo/bar-5')
     result = self._TestUpgradePackage(pinfo,
                                       upstream_cpv='foo/bar-5',
                                       upstream_cmp=1, # outdated
@@ -2596,8 +2540,7 @@ class UpgradePackageTest(CpuTestBase):
                                       upgrade_requested=True,
                                       upgrade_staged=True,
                                       unstable_ok=True,
-                                      force=False,
-                                      )
+                                      force=False)
     self.assertTrue(result)
 
 
@@ -2632,8 +2575,7 @@ class VerifyPackageTest(CpuTestBase):
     """Test Upgrader._VerifyEbuildOverlay"""
     cmdargs = []
     mocked_upgrader = self._MockUpgrader(cmdargs=cmdargs,
-                                         _curr_arch=DEFAULT_ARCH,
-                                         )
+                                         _curr_arch=DEFAULT_ARCH)
 
     # Add test-specific mocks/stubs
     self.mox.StubOutWithMock(cros_build_lib, 'RunCommand')
@@ -2651,7 +2593,7 @@ class VerifyPackageTest(CpuTestBase):
                                cpv], error_code_ok=True,
                               extra_env=envvars, print_cmd=False,
                               redirect_stdout=True, combine_stdout_stderr=True,
-                              ).AndReturn(run_result)
+                             ).AndReturn(run_result)
     split_ebuild = cpu.Upgrader._SplitEBuildPath(mocked_upgrader, ebuild_path)
     mocked_upgrader._SplitEBuildPath(ebuild_path).AndReturn(split_ebuild)
     self.mox.ReplayAll()
@@ -2690,8 +2632,7 @@ class VerifyPackageTest(CpuTestBase):
     cpv = pinfo.upgraded_cpv
     cmdargs = []
     mocked_upgrader = self._MockUpgrader(cmdargs=cmdargs,
-                                         _curr_arch=DEFAULT_ARCH,
-                                         )
+                                         _curr_arch=DEFAULT_ARCH)
 
     # Add test-specific mocks/stubs
     self.mox.StubOutWithMock(cros_build_lib, 'RunCommand')
@@ -2707,7 +2648,7 @@ class VerifyPackageTest(CpuTestBase):
                               error_code_ok=True,
                               extra_env='envvars', print_cmd=False,
                               redirect_stdout=True, combine_stdout_stderr=True,
-                              ).AndReturn(run_result)
+                             ).AndReturn(run_result)
     self.mox.ReplayAll()
 
     # Verify
@@ -2761,11 +2702,12 @@ class CommitTest(CpuTestBase):
     return result
 
   def testExtractUpgradedPkgs(self):
-    upgrade_lines = ['Upgraded abc/efg to version 1.2.3 on amd64, arm, x86',
-                     'Upgraded xyz/uvw to version 1.2.3 on amd64',
-                     'Upgraded xyz/uvw to version 3.2.1 on arm, x86',
-                     'Upgraded mno/pqr to version 12345 on x86',
-                     ]
+    upgrade_lines = [
+        'Upgraded abc/efg to version 1.2.3 on amd64, arm, x86',
+        'Upgraded xyz/uvw to version 1.2.3 on amd64',
+        'Upgraded xyz/uvw to version 3.2.1 on arm, x86',
+        'Upgraded mno/pqr to version 12345 on x86',
+    ]
     result = self._TestExtractUpgradedPkgs(upgrade_lines)
     self.assertEquals(result, ['efg', 'pqr', 'uvw'])
 
@@ -2790,7 +2732,7 @@ class CommitTest(CpuTestBase):
                                   output=git_show)
     mocked_upgrader._RunGit(mocked_upgrader._stable_repo,
                             mox.IgnoreArg(), redirect_stdout=True,
-                            ).AndReturn(git_result)
+                           ).AndReturn(git_result)
     mocked_upgrader._CreateCommitMessage(mox.Func(all_lines_verifier),
                                          remaining_lines)
     self.mox.ReplayAll()
@@ -2802,18 +2744,21 @@ class CommitTest(CpuTestBase):
     self.mox.VerifyAll()
 
   def testOldAndNew(self):
-    new_upgrade_lines = ['Upgraded abc/efg to version 1.2.3 on amd64, arm, x86',
-                         'Upgraded mno/pqr to version 4.5-r1 on x86',
-                         ]
-    old_upgrade_lines = ['Upgraded xyz/uvw to version 3.2.1 on arm, x86',
-                         'Upgraded mno/pqr to version 12345 on x86',
-                         ]
-    remaining_lines = ['Extraneous extra comments in commit body.',
-                       '',
-                       'BUG=chromium-os:12345',
-                       'TEST=test everything',
-                       'again and again',
-                       ]
+    new_upgrade_lines = [
+        'Upgraded abc/efg to version 1.2.3 on amd64, arm, x86',
+        'Upgraded mno/pqr to version 4.5-r1 on x86',
+    ]
+    old_upgrade_lines = [
+        'Upgraded xyz/uvw to version 3.2.1 on arm, x86',
+        'Upgraded mno/pqr to version 12345 on x86',
+    ]
+    remaining_lines = [
+        'Extraneous extra comments in commit body.',
+        '',
+        'BUG=chromium-os:12345',
+        'TEST=test everything',
+        'again and again',
+    ]
     git_show_output = ('\n'.join(old_upgrade_lines) + '\n'
                        + '\n'
                        + '\n'.join(remaining_lines))
@@ -2821,32 +2766,37 @@ class CommitTest(CpuTestBase):
                                  remaining_lines, git_show_output)
 
   def testOldOnly(self):
-    old_upgrade_lines = ['Upgraded xyz/uvw to version 3.2.1 on arm, x86',
-                         'Upgraded mno/pqr to version 12345 on x86',
-                         ]
+    old_upgrade_lines = [
+        'Upgraded xyz/uvw to version 3.2.1 on arm, x86',
+        'Upgraded mno/pqr to version 12345 on x86',
+    ]
     git_show_output = ('\n'.join(old_upgrade_lines))
     self._TestAmendCommitMessage([], old_upgrade_lines, [], git_show_output)
 
   def testNewOnly(self):
-    new_upgrade_lines = ['Upgraded abc/efg to version 1.2.3 on amd64, arm, x86',
-                         'Upgraded mno/pqr to version 4.5-r1 on x86',
-                         ]
+    new_upgrade_lines = [
+        'Upgraded abc/efg to version 1.2.3 on amd64, arm, x86',
+        'Upgraded mno/pqr to version 4.5-r1 on x86',
+    ]
     git_show_output = ''
     self._TestAmendCommitMessage(new_upgrade_lines, [], [], git_show_output)
 
   def testOldEditedAndNew(self):
-    new_upgrade_lines = ['Upgraded abc/efg to version 1.2.3 on amd64, arm, x86',
-                         'Upgraded mno/pqr to version 4.5-r1 on x86',
-                         ]
-    old_upgrade_lines = ['So I upgraded xyz/uvw to version 3.2.1 on arm, x86',
-                         'Then I Upgraded mno/pqr to version 12345 on x86',
-                         ]
-    remaining_lines = ['Extraneous extra comments in commit body.',
-                       '',
-                       'BUG=chromium-os:12345',
-                       'TEST=test everything',
-                       'again and again',
-                       ]
+    new_upgrade_lines = [
+        'Upgraded abc/efg to version 1.2.3 on amd64, arm, x86',
+        'Upgraded mno/pqr to version 4.5-r1 on x86',
+    ]
+    old_upgrade_lines = [
+        'So I upgraded xyz/uvw to version 3.2.1 on arm, x86',
+        'Then I Upgraded mno/pqr to version 12345 on x86',
+    ]
+    remaining_lines = [
+        'Extraneous extra comments in commit body.',
+        '',
+        'BUG=chromium-os:12345',
+        'TEST=test everything',
+        'again and again',
+    ]
     git_show_output = ('\n'.join(old_upgrade_lines) + '\n'
                        + '\n'
                        + '\n'.join(remaining_lines))
@@ -2884,8 +2834,7 @@ class CommitTest(CpuTestBase):
     return result
 
   def testCreateCommitMessageOnePkg(self):
-    upgrade_lines = ['Upgraded abc/efg to version 1.2.3 on amd64, arm, x86',
-                     ]
+    upgrade_lines = ['Upgraded abc/efg to version 1.2.3 on amd64, arm, x86']
     result = self._TestCreateCommitMessage(upgrade_lines)
 
     # Commit message should have:
@@ -2905,11 +2854,12 @@ class CommitTest(CpuTestBase):
     self.assertTrue(regexp.search(result))
 
   def testCreateCommitMessageThreePkgs(self):
-    upgrade_lines = ['Upgraded abc/efg to version 1.2.3 on amd64, arm, x86',
-                     'Upgraded xyz/uvw to version 1.2.3 on amd64',
-                     'Upgraded xyz/uvw to version 3.2.1 on arm, x86',
-                     'Upgraded mno/pqr to version 12345 on x86',
-                     ]
+    upgrade_lines = [
+        'Upgraded abc/efg to version 1.2.3 on amd64, arm, x86',
+        'Upgraded xyz/uvw to version 1.2.3 on amd64',
+        'Upgraded xyz/uvw to version 3.2.1 on arm, x86',
+        'Upgraded mno/pqr to version 12345 on x86',
+    ]
     result = self._TestCreateCommitMessage(upgrade_lines)
 
     # Commit message should have:
@@ -2929,17 +2879,18 @@ class CommitTest(CpuTestBase):
     self.assertTrue(regexp.search(result))
 
   def testCreateCommitMessageTenPkgs(self):
-    upgrade_lines = ['Upgraded abc/efg to version 1.2.3 on amd64, arm, x86',
-                     'Upgraded bcd/fgh to version 1.2.3 on amd64',
-                     'Upgraded cde/ghi to version 3.2.1 on arm, x86',
-                     'Upgraded def/hij to version 12345 on x86',
-                     'Upgraded efg/ijk to version 1.2.3 on amd64',
-                     'Upgraded fgh/jkl to version 3.2.1 on arm, x86',
-                     'Upgraded ghi/klm to version 12345 on x86',
-                     'Upgraded hij/lmn to version 1.2.3 on amd64',
-                     'Upgraded ijk/mno to version 3.2.1 on arm, x86',
-                     'Upgraded jkl/nop to version 12345 on x86',
-                     ]
+    upgrade_lines = [
+        'Upgraded abc/efg to version 1.2.3 on amd64, arm, x86',
+        'Upgraded bcd/fgh to version 1.2.3 on amd64',
+        'Upgraded cde/ghi to version 3.2.1 on arm, x86',
+        'Upgraded def/hij to version 12345 on x86',
+        'Upgraded efg/ijk to version 1.2.3 on amd64',
+        'Upgraded fgh/jkl to version 3.2.1 on arm, x86',
+        'Upgraded ghi/klm to version 12345 on x86',
+        'Upgraded hij/lmn to version 1.2.3 on amd64',
+        'Upgraded ijk/mno to version 3.2.1 on arm, x86',
+        'Upgraded jkl/nop to version 12345 on x86',
+    ]
     result = self._TestCreateCommitMessage(upgrade_lines)
 
     # Commit message should have:
@@ -2991,20 +2942,16 @@ class GetCurrentVersionsTest(CpuTestBase):
 
   def testGetCurrentVersionsTwoPkgs(self):
     target_pinfolist = [cpu.PInfo(package='dev-libs/A', cpv='dev-libs/A-2'),
-                        cpu.PInfo(package='dev-libs/D', cpv='dev-libs/D-3'),
-                        ]
+                        cpu.PInfo(package='dev-libs/D', cpv='dev-libs/D-3')]
     self._TestGetCurrentVersionsLocalCpv(target_pinfolist)
 
   def testGetCurrentVersionsOnePkgB(self):
-    target_pinfolist = [cpu.PInfo(package='dev-libs/B', cpv='dev-libs/B-2'),
-                        ]
+    target_pinfolist = [cpu.PInfo(package='dev-libs/B', cpv='dev-libs/B-2')]
     self._TestGetCurrentVersionsLocalCpv(target_pinfolist)
 
   def testGetCurrentVersionsOnePkgLibcros(self):
     target_pinfolist = [cpu.PInfo(package='chromeos-base/libcros',
-                                  cpv='chromeos-base/libcros-1',
-                                  ),
-                        ]
+                                  cpv='chromeos-base/libcros-1')]
     self._TestGetCurrentVersionsLocalCpv(target_pinfolist)
 
   def _TestGetCurrentVersionsPackageOnly(self, target_pinfolist):
@@ -3032,13 +2979,11 @@ class GetCurrentVersionsTest(CpuTestBase):
     return result
 
   def testGetCurrentVersionsWorld(self):
-    target_pinfolist = [cpu.PInfo(package='world', cpv='world'),
-                        ]
+    target_pinfolist = [cpu.PInfo(package='world', cpv='world')]
     self._TestGetCurrentVersionsPackageOnly(target_pinfolist)
 
   def testGetCurrentVersionsLocalOnlyB(self):
-    target_pinfolist = [cpu.PInfo(package='dev-libs/B', cpv=None),
-                        ]
+    target_pinfolist = [cpu.PInfo(package='dev-libs/B', cpv=None)]
     self._TestGetCurrentVersionsPackageOnly(target_pinfolist)
 
 
@@ -3066,8 +3011,7 @@ class ResolveAndVerifyArgsTest(CpuTestBase):
                                          package='world',
                                          package_name='world',
                                          category=None,
-                                         cpv='world',
-                                         )])
+                                         cpv='world')])
 
   def testResolveAndVerifyArgsWorldUpgradeMode(self):
     self._TestResolveAndVerifyArgsWorld(True)
@@ -3095,8 +3039,8 @@ class ResolveAndVerifyArgsTest(CpuTestBase):
       local_arg = catpkg if catpkg else arg
 
       mocked_upgrader._FindCurrentCPV(local_arg).AndReturn(local_cpv)
-      mocked_upgrader._FindUpstreamCPV(arg, mocked_upgrader._unstable_ok,
-                                       ).AndReturn(upstream_cpv)
+      mocked_upgrader._FindUpstreamCPV(
+          arg, mocked_upgrader._unstable_ok).AndReturn(upstream_cpv)
 
       if not upstream_cpv and upgrade_mode:
         # Real method raises an exception here.
@@ -3130,9 +3074,7 @@ class ResolveAndVerifyArgsTest(CpuTestBase):
   def testResolveAndVerifyArgsNonWorldUpgrade(self):
     pinfolist = [cpu.PInfo(user_arg='dev-libs/B',
                            cpv='dev-libs/B-1',
-                           upstream_cpv='dev-libs/B-2',
-                           ),
-                 ]
+                           upstream_cpv='dev-libs/B-2')]
     cmdargs = ['--upgrade', '--unstable-ok']
     result = self._TestResolveAndVerifyArgsNonWorld(pinfolist, cmdargs)
     self.assertEquals(result, pinfolist)
@@ -3140,18 +3082,14 @@ class ResolveAndVerifyArgsTest(CpuTestBase):
   def testResolveAndVerifyArgsNonWorldUpgradeSpecificVer(self):
     pinfolist = [cpu.PInfo(user_arg='dev-libs/B-2',
                            cpv='dev-libs/B-1',
-                           upstream_cpv='dev-libs/B-2',
-                           ),
-                 ]
+                           upstream_cpv='dev-libs/B-2')]
     cmdargs = ['--upgrade', '--unstable-ok']
     result = self._TestResolveAndVerifyArgsNonWorld(pinfolist, cmdargs)
     self.assertEquals(result, pinfolist)
 
   def testResolveAndVerifyArgsNonWorldUpgradeSpecificVerNotFoundStable(self):
     pinfolist = [cpu.PInfo(user_arg='dev-libs/B-2',
-                           cpv='dev-libs/B-1',
-                           ),
-                 ]
+                           cpv='dev-libs/B-1')]
     cmdargs = ['--upgrade']
 
     def _error_checker(exception):
@@ -3166,10 +3104,7 @@ class ResolveAndVerifyArgsTest(CpuTestBase):
                                            error_checker=_error_checker)
 
   def testResolveAndVerifyArgsNonWorldUpgradeSpecificVerNotFoundUnstable(self):
-    pinfolist = [cpu.PInfo(user_arg='dev-libs/B-2',
-                           cpv='dev-libs/B-1',
-                           ),
-                 ]
+    pinfolist = [cpu.PInfo(user_arg='dev-libs/B-2', cpv='dev-libs/B-1')]
     cmdargs = ['--upgrade', '--unstable-ok']
 
     def _error_checker(exception):
@@ -3184,10 +3119,7 @@ class ResolveAndVerifyArgsTest(CpuTestBase):
                                            error_checker=_error_checker)
 
   def testResolveAndVerifyArgsNonWorldLocalOny(self):
-    pinfolist = [cpu.PInfo(user_arg='dev-libs/B',
-                           cpv='dev-libs/B-1',
-                           ),
-                 ]
+    pinfolist = [cpu.PInfo(user_arg='dev-libs/B', cpv='dev-libs/B-1')]
     cmdargs = ['--upgrade', '--unstable-ok']
 
     def _error_checker(exception):
@@ -3203,16 +3135,13 @@ class ResolveAndVerifyArgsTest(CpuTestBase):
 
   def testResolveAndVerifyArgsNonWorldUpstreamOnly(self):
     pinfolist = [cpu.PInfo(user_arg='dev-libs/B',
-                           upstream_cpv='dev-libs/B-2',
-                           ),
-                 ]
+                           upstream_cpv='dev-libs/B-2')]
     cmdargs = ['--upgrade', '--unstable-ok']
     result = self._TestResolveAndVerifyArgsNonWorld(pinfolist, cmdargs)
     self.assertEquals(result, pinfolist)
 
   def testResolveAndVerifyArgsNonWorldNeither(self):
-    pinfolist = [cpu.PInfo(user_arg='dev-libs/B'),
-                 ]
+    pinfolist = [cpu.PInfo(user_arg='dev-libs/B')]
     cmdargs = ['--upgrade', '--unstable-ok']
     self._TestResolveAndVerifyArgsNonWorld(pinfolist, cmdargs,
                                            error=RuntimeError)
@@ -3240,12 +3169,14 @@ class ResolveAndVerifyArgsTest(CpuTestBase):
 class StabilizeEbuildTest(CpuTestBase):
   """Tests for _StabilizeEbuild()."""
 
-  PREFIX_LINES = ['Garbletygook nonsense unimportant',
-                  'Some other nonsense with KEYWORDS mention',
-                  ]
-  POSTFIX_LINES = ['Some mention of KEYWORDS in a line',
-                   'And other nonsense',
-                   ]
+  PREFIX_LINES = [
+      'Garbletygook nonsense unimportant',
+      'Some other nonsense with KEYWORDS mention',
+  ]
+  POSTFIX_LINES = [
+      'Some mention of KEYWORDS in a line',
+      'And other nonsense',
+  ]
 
   def _TestStabilizeEbuild(self, ebuild_path, arch):
 
@@ -3353,11 +3284,12 @@ class StabilizeEbuildTest(CpuTestBase):
   @osutils.TempFileDecorator
   def testMultilineKeywordsMiddle(self):
     arch = 'arm'
-    keyword_lines = ['KEYWORDS="amd64',
-                     '  ~arm',
-                     '  ~mips',
-                     '  x86"',
-                     ]
+    keyword_lines = [
+        'KEYWORDS="amd64',
+        '  ~arm',
+        '  ~mips',
+        '  x86"',
+    ]
     gold_keyword_lines = ['KEYWORDS="*"',]
     self._TestStabilizeEbuildWrapper(self.tempfile, arch,
                                      keyword_lines, gold_keyword_lines)
@@ -3365,11 +3297,12 @@ class StabilizeEbuildTest(CpuTestBase):
   @osutils.TempFileDecorator
   def testMultilineKeywordsStart(self):
     arch = 'amd64'
-    keyword_lines = ['KEYWORDS="~amd64',
-                     '  arm',
-                     '  ~mips',
-                     '  x86"',
-                     ]
+    keyword_lines = [
+        'KEYWORDS="~amd64',
+        '  arm',
+        '  ~mips',
+        '  x86"',
+    ]
     gold_keyword_lines = ['KEYWORDS="*"',]
     self._TestStabilizeEbuildWrapper(self.tempfile, arch,
                                      keyword_lines, gold_keyword_lines)
@@ -3377,11 +3310,12 @@ class StabilizeEbuildTest(CpuTestBase):
   @osutils.TempFileDecorator
   def testMultilineKeywordsEnd(self):
     arch = 'x86'
-    keyword_lines = ['KEYWORDS="amd64',
-                     '  arm',
-                     '  ~mips',
-                     '  ~x86"',
-                     ]
+    keyword_lines = [
+        'KEYWORDS="amd64',
+        '  arm',
+        '  ~mips',
+        '  ~x86"',
+    ]
     gold_keyword_lines = ['KEYWORDS="*"',]
     self._TestStabilizeEbuildWrapper(self.tempfile, arch,
                                      keyword_lines, gold_keyword_lines)
@@ -3389,9 +3323,10 @@ class StabilizeEbuildTest(CpuTestBase):
   @osutils.TempFileDecorator
   def testMultipleKeywordLinesOneChange(self):
     arch = 'arm'
-    keyword_lines = ['KEYWORDS="amd64 arm mips x86"',
-                     'KEYWORDS="~amd64 ~arm ~mips ~x86"',
-                     ]
+    keyword_lines = [
+        'KEYWORDS="amd64 arm mips x86"',
+        'KEYWORDS="~amd64 ~arm ~mips ~x86"',
+    ]
     gold_keyword_lines = ['KEYWORDS="*"',] * 2
     self._TestStabilizeEbuildWrapper(self.tempfile, arch,
                                      keyword_lines, gold_keyword_lines)
@@ -3399,9 +3334,10 @@ class StabilizeEbuildTest(CpuTestBase):
   @osutils.TempFileDecorator
   def testMultipleKeywordLinesMultipleChanges(self):
     arch = 'arm'
-    keyword_lines = ['KEYWORDS="amd64 ~arm mips x86"',
-                     'KEYWORDS="~amd64 ~arm ~mips ~x86"',
-                     ]
+    keyword_lines = [
+        'KEYWORDS="amd64 ~arm mips x86"',
+        'KEYWORDS="~amd64 ~arm ~mips ~x86"',
+    ]
     gold_keyword_lines = ['KEYWORDS="*"',] * 2
     self._TestStabilizeEbuildWrapper(self.tempfile, arch,
                                      keyword_lines, gold_keyword_lines)
@@ -3409,9 +3345,10 @@ class StabilizeEbuildTest(CpuTestBase):
   @osutils.TempFileDecorator
   def testMultipleKeywordLinesMultipleChangesSpacePrefix(self):
     arch = 'arm'
-    keyword_lines = ['     KEYWORDS="amd64 ~arm mips x86"',
-                     '     KEYWORDS="~amd64 ~arm ~mips ~x86"',
-                     ]
+    keyword_lines = [
+        '     KEYWORDS="amd64 ~arm mips x86"',
+        '     KEYWORDS="~amd64 ~arm ~mips ~x86"',
+    ]
     gold_keyword_lines = ['     KEYWORDS="*"',] * 2
     self._TestStabilizeEbuildWrapper(self.tempfile, arch,
                                      keyword_lines, gold_keyword_lines)
@@ -3532,7 +3469,7 @@ class MainTest(CpuTestBase):
     with self.OutputCapturer():
       # Expect exit with code!=0
       self._AssertCPUMain(['--host', '--upgrade', '--upgrade-deep',
-                          'any-package'], expect_zero=False)
+                           'any-package'], expect_zero=False)
 
     # Verify that an error message was printed.
     self.AssertOutputEndsInError()
@@ -3567,7 +3504,7 @@ class MainTest(CpuTestBase):
 
     with self.OutputCapturer():
       self._AssertCPUMain(['--board=any-board', '--to-csv=/dev/null',
-                          'any-package'], expect_zero=True)
+                           'any-package'], expect_zero=True)
     self.mox.VerifyAll()
 
   def testFlowStatusReportOneBoardNotSetUp(self):
@@ -3582,7 +3519,7 @@ class MainTest(CpuTestBase):
     # Running with a package not set up should exit with code!=0
     with self.OutputCapturer():
       self._AssertCPUMain(['--board=any-board', '--to-csv=/dev/null',
-                          'any-package'], expect_zero=False)
+                           'any-package'], expect_zero=False)
     self.mox.VerifyAll()
 
     # Verify that an error message was printed.
@@ -3659,7 +3596,7 @@ class MainTest(CpuTestBase):
 
     with self.OutputCapturer():
       self._AssertCPUMain(['--upgrade', '--board=board1:board2',
-                          '--to-csv=/dev/null', 'any-package'],
+                           '--to-csv=/dev/null', 'any-package'],
                           expect_zero=True)
     self.mox.VerifyAll()
 
@@ -3687,8 +3624,6 @@ class MainTest(CpuTestBase):
 
     with self.OutputCapturer():
       self._AssertCPUMain(['--upgrade', '--host', '--board=board1:host:board2',
-                        '--to-csv=/dev/null', 'any-package'], expect_zero=True)
+                           '--to-csv=/dev/null', 'any-package'],
+                          expect_zero=True)
     self.mox.VerifyAll()
-
-if __name__ == '__main__':
-  cros_test_lib.main()

@@ -2,10 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef SANDBOX_LINUX_TESTS_UNIT_TESTS_H__
-#define SANDBOX_LINUX_TESTS_UNIT_TESTS_H__
+#ifndef SANDBOX_LINUX_TESTS_UNIT_TESTS_H_
+#define SANDBOX_LINUX_TESTS_UNIT_TESTS_H_
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "build/build_config.h"
 #include "sandbox/linux/tests/sandbox_test_runner_function_pointer.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -37,6 +37,14 @@ bool IsRunningOnValgrind();
 #else
 #define DISABLE_ON_TSAN(test_name) test_name
 #endif  // defined(THREAD_SANITIZER)
+
+#if defined(ADDRESS_SANITIZER) || defined(MEMORY_SANITIZER) || \
+    defined(THREAD_SANITIZER) || defined(LEAK_SANITIZER) ||    \
+    defined(UNDEFINED_SANITIZER) || defined(SANITIZER_COVERAGE)
+#define DISABLE_ON_SANITIZERS(test_name) DISABLED_##test_name
+#else
+#define DISABLE_ON_SANITIZERS(test_name) test_name
+#endif
 
 #if defined(OS_ANDROID)
 #define DISABLE_ON_ANDROID(test_name) DISABLED_##test_name
@@ -98,6 +106,13 @@ bool IsRunningOnValgrind();
 #define SANDBOX_ASSERT(expr)                                             \
   ((expr) ? static_cast<void>(0) : sandbox::UnitTests::AssertionFailure( \
                                        SANDBOX_STR(expr), __FILE__, __LINE__))
+
+#define SANDBOX_ASSERT_EQ(x, y) SANDBOX_ASSERT((x) == (y))
+#define SANDBOX_ASSERT_NE(x, y) SANDBOX_ASSERT((x) != (y))
+#define SANDBOX_ASSERT_LT(x, y) SANDBOX_ASSERT((x) < (y))
+#define SANDBOX_ASSERT_GT(x, y) SANDBOX_ASSERT((x) > (y))
+#define SANDBOX_ASSERT_LE(x, y) SANDBOX_ASSERT((x) <= (y))
+#define SANDBOX_ASSERT_GE(x, y) SANDBOX_ASSERT((x) >= (y))
 
 // This class allows to run unittests in their own process. The main method is
 // RunTestInProcess().
@@ -183,4 +198,4 @@ class UnitTests {
 
 }  // namespace
 
-#endif  // SANDBOX_LINUX_TESTS_UNIT_TESTS_H__
+#endif  // SANDBOX_LINUX_TESTS_UNIT_TESTS_H_

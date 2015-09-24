@@ -16,8 +16,11 @@
 #include "ash/shell_window_ids.h"
 #include "ash/wm/session_state_animator.h"
 #include "ash/wm/session_state_animator_impl.h"
+#include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
+#include "base/location.h"
+#include "base/logging.h"
 #include "base/strings/string_util.h"
 #include "base/timer/timer.h"
 #include "ui/aura/window_tree_host.h"
@@ -85,7 +88,7 @@ void LockStateController::RemoveObserver(LockStateObserver* observer) {
   observers_.RemoveObserver(observer);
 }
 
-bool LockStateController::HasObserver(LockStateObserver* observer) {
+bool LockStateController::HasObserver(const LockStateObserver* observer) const {
   return observers_.HasObserver(observer);
 }
 
@@ -290,11 +293,12 @@ void LockStateController::StartRealShutdownTimer(bool with_animation_time) {
 #endif
 
   real_shutdown_timer_.Start(
-      FROM_HERE, duration, this, &LockStateController::OnRealShutdownTimeout);
+      FROM_HERE, duration, base::Bind(&LockStateController::OnRealPowerTimeout,
+                                      base::Unretained(this)));
 }
 
-void LockStateController::OnRealShutdownTimeout() {
-  VLOG(1) << "OnRealShutdownTimeout";
+void LockStateController::OnRealPowerTimeout() {
+  VLOG(1) << "OnRealPowerTimeout";
   DCHECK(shutting_down_);
 #if defined(OS_CHROMEOS)
   if (!base::SysInfo::IsRunningOnChromeOS()) {
@@ -489,11 +493,15 @@ void LockStateController::PreLockAnimationFinished(bool request_lock) {
   // Increase lock timeout for slower hardware, see http://crbug.com/350628
   const std::string board = base::SysInfo::GetLsbReleaseBoard();
   if (board == "x86-mario" ||
-      StartsWithASCII(board, "x86-alex", true /* case_sensitive */) ||
-      StartsWithASCII(board, "x86-zgb", true /* case_sensitive */) ||
-      StartsWithASCII(board, "daisy", true /* case_sensitive */)) {
+      base::StartsWithASCII(board, "x86-alex", true /* case_sensitive */) ||
+      base::StartsWithASCII(board, "x86-zgb", true /* case_sensitive */) ||
+      base::StartsWithASCII(board, "daisy", true /* case_sensitive */)) {
     timeout *= 2;
   }
+// Times out on ASAN bots.
+#if defined(MEMORY_SANITIZER) || defined(ADDRESS_SANITIZER)
+  timeout *= 2;
+#endif
 #endif
   lock_fail_timer_.Start(
       FROM_HERE, timeout, this, &LockStateController::OnLockFailTimeout);

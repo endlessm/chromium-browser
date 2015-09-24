@@ -18,7 +18,6 @@
 #include "content/public/browser/indexed_db_context.h"
 #include "content/public/browser/service_worker_context.h"
 #include "net/cookies/canonical_cookie.h"
-#include "net/ssl/ssl_client_cert_type.h"
 #include "storage/common/fileapi/file_system_types.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/text/bytes_formatting.h"
@@ -68,19 +67,6 @@ const char kKeyScopes[] = "scopes";
 
 const int64 kNegligibleUsage = 1024;  // 1KiB
 
-std::string ClientCertTypeToString(net::SSLClientCertType type) {
-  switch (type) {
-    case net::CLIENT_CERT_RSA_SIGN:
-      return l10n_util::GetStringUTF8(IDS_CLIENT_CERT_RSA_SIGN);
-    case net::CLIENT_CERT_DSS_SIGN:
-      return l10n_util::GetStringUTF8(IDS_CLIENT_CERT_DSS_SIGN);
-    case net::CLIENT_CERT_ECDSA_SIGN:
-      return l10n_util::GetStringUTF8(IDS_CLIENT_CERT_ECDSA_SIGN);
-    default:
-      return base::IntToString(type);
-  }
-}
-
 }  // namespace
 
 CookiesTreeModelUtil::CookiesTreeModelUtil() {
@@ -125,9 +111,9 @@ bool CookiesTreeModelUtil::GetCookieTreeNodeDictionary(
       dict->SetString(kKeyContent, cookie.Value());
       dict->SetString(kKeyDomain, cookie.Domain());
       dict->SetString(kKeyPath, cookie.Path());
-      dict->SetString(kKeySendFor, cookie.IsSecure() ?
-          l10n_util::GetStringUTF8(IDS_COOKIES_COOKIE_SENDFOR_SECURE) :
-          l10n_util::GetStringUTF8(IDS_COOKIES_COOKIE_SENDFOR_ANY));
+      dict->SetString(kKeySendFor,
+                      l10n_util::GetStringUTF16(
+                          CookiesTreeModel::GetSendForMessageID(cookie)));
       std::string accessible = cookie.IsHttpOnly() ?
           l10n_util::GetStringUTF8(IDS_COOKIES_COOKIE_ACCESSIBLE_TO_SCRIPT_NO) :
           l10n_util::GetStringUTF8(IDS_COOKIES_COOKIE_ACCESSIBLE_TO_SCRIPT_YES);
@@ -258,7 +244,7 @@ bool CookiesTreeModelUtil::GetCookieTreeNodeDictionary(
 
       dict->SetString(kKeyServerId, channel_id.server_identifier());
       dict->SetString(kKeyCertType,
-                      ClientCertTypeToString(net::CLIENT_CERT_ECDSA_SIGN));
+                      l10n_util::GetStringUTF8(IDS_CLIENT_CERT_ECDSA_SIGN));
       dict->SetString(kKeyCreated, base::UTF16ToUTF8(
           base::TimeFormatFriendlyDateAndTime(
               channel_id.creation_time())));
@@ -272,6 +258,8 @@ bool CookiesTreeModelUtil::GetCookieTreeNodeDictionary(
           *node.GetDetailedInfo().service_worker_info;
 
       dict->SetString(kKeyOrigin, service_worker_info.origin.spec());
+      dict->SetString(kKeySize,
+                      ui::FormatBytes(service_worker_info.total_size_bytes));
       base::ListValue* scopes = new base::ListValue;
       for (std::vector<GURL>::const_iterator it =
                service_worker_info.scopes.begin();

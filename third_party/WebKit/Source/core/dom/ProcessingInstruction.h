@@ -31,13 +31,14 @@ namespace blink {
 
 class StyleSheet;
 class CSSStyleSheet;
+class EventListener;
 
 class ProcessingInstruction final : public CharacterData, private ResourceOwner<StyleSheetResource> {
     DEFINE_WRAPPERTYPEINFO();
 public:
     static PassRefPtrWillBeRawPtr<ProcessingInstruction> create(Document&, const String& target, const String& data);
-    virtual ~ProcessingInstruction();
-    virtual void trace(Visitor*) override;
+    ~ProcessingInstruction() override;
+    DECLARE_VIRTUAL_TRACE();
 
     const String& target() const { return m_target; }
 
@@ -45,7 +46,6 @@ public:
 
     const String& localHref() const { return m_localHref; }
     StyleSheet* sheet() const { return m_sheet.get(); }
-    void setCSSStyleSheet(PassRefPtrWillBeRawPtr<CSSStyleSheet>);
 
     bool isCSS() const { return m_isCSS; }
     bool isXSL() const { return m_isXSL; }
@@ -53,23 +53,45 @@ public:
     void didAttributeChanged();
     bool isLoading() const;
 
+    // For XSLT
+    class DetachableEventListener {
+    public:
+        virtual ~DetachableEventListener() { }
+
+        void ref() { refDetachableEventListener(); }
+        void deref() { derefDetachableEventListener(); }
+
+        virtual EventListener* toEventListener() = 0;
+
+        // Detach event listener from its processing instruction.
+        virtual void detach() = 0;
+
+    private:
+        virtual void refDetachableEventListener() = 0;
+        virtual void derefDetachableEventListener() = 0;
+    };
+
+    void setEventListenerForXSLT(PassRefPtr<DetachableEventListener> listener) { m_listenerForXSLT = listener; }
+    EventListener* eventListenerForXSLT();
+    void clearEventListenerForXSLT();
+
 private:
     ProcessingInstruction(Document&, const String& target, const String& data);
 
-    virtual String nodeName() const override;
-    virtual NodeType nodeType() const override;
-    virtual PassRefPtrWillBeRawPtr<Node> cloneNode(bool deep = true) override;
+    String nodeName() const override;
+    NodeType nodeType() const override;
+    PassRefPtrWillBeRawPtr<Node> cloneNode(bool deep = true) override;
 
-    virtual InsertionNotificationRequest insertedInto(ContainerNode*) override;
-    virtual void removedFrom(ContainerNode*) override;
+    InsertionNotificationRequest insertedInto(ContainerNode*) override;
+    void removedFrom(ContainerNode*) override;
 
     bool checkStyleSheet(String& href, String& charset);
     void process(const String& href, const String& charset);
 
-    virtual void setCSSStyleSheet(const String& href, const KURL& baseURL, const String& charset, const CSSStyleSheetResource*) override;
-    virtual void setXSLStyleSheet(const String& href, const KURL& baseURL, const String& sheet) override;
+    void setCSSStyleSheet(const String& href, const KURL& baseURL, const String& charset, const CSSStyleSheetResource*) override;
+    void setXSLStyleSheet(const String& href, const KURL& baseURL, const String& sheet) override;
 
-    virtual bool sheetLoaded() override;
+    bool sheetLoaded() override;
 
     void parseStyleSheet(const String& sheet);
     void clearSheet();
@@ -84,6 +106,8 @@ private:
     bool m_createdByParser;
     bool m_isCSS;
     bool m_isXSL;
+
+    RefPtr<DetachableEventListener> m_listenerForXSLT;
 };
 
 DEFINE_NODE_TYPE_CASTS(ProcessingInstruction, nodeType() == Node::PROCESSING_INSTRUCTION_NODE);

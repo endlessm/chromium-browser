@@ -22,10 +22,11 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/ime/input_method_manager.h"
+#include "components/login/localized_values_builder.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/web_ui.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
 
 namespace {
 
@@ -57,7 +58,7 @@ void TermsOfServiceScreenHandler::RegisterMessages() {
 }
 
 void TermsOfServiceScreenHandler::DeclareLocalizedValues(
-    LocalizedValuesBuilder* builder) {
+    ::login::LocalizedValuesBuilder* builder) {
   builder->Add("termsOfServiceScreenHeading",
                IDS_TERMS_OF_SERVICE_SCREEN_HEADING);
   builder->Add("termsOfServiceScreenSubheading",
@@ -98,14 +99,13 @@ void TermsOfServiceScreenHandler::Show() {
   }
 
   // Switch to the user's UI locale before showing the screen.
-  scoped_ptr<locale_util::SwitchLanguageCallback> callback(
-      new locale_util::SwitchLanguageCallback(
-          base::Bind(&TermsOfServiceScreenHandler::OnLanguageChangedCallback,
-                     base::Unretained(this))));
+  locale_util::SwitchLanguageCallback callback(
+      base::Bind(&TermsOfServiceScreenHandler::OnLanguageChangedCallback,
+                 base::Unretained(this)));
   locale_util::SwitchLanguage(locale,
                               true,   // enable_locale_keyboard_layouts
                               false,  // login_layouts_only
-                              callback.Pass());
+                              callback, ProfileManager::GetActiveUserProfile());
 }
 
 void TermsOfServiceScreenHandler::Hide() {
@@ -137,9 +137,7 @@ void TermsOfServiceScreenHandler::Initialize() {
 }
 
 void TermsOfServiceScreenHandler::OnLanguageChangedCallback(
-    const std::string& requested_locale,
-    const std::string& loaded_locale,
-    const bool success) {
+    const locale_util::LanguageSwitchResult& result) {
   // Update the screen contents to the new locale.
   base::DictionaryValue localized_strings;
   static_cast<OobeUI*>(web_ui()->GetController())

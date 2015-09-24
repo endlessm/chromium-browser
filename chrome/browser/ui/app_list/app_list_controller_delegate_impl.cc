@@ -5,15 +5,15 @@
 #include "chrome/browser/ui/app_list/app_list_controller_delegate_impl.h"
 
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/app_list/app_list_service_impl.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
-#include "extensions/browser/extension_system.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "net/base/url_util.h"
@@ -63,10 +63,9 @@ void AppListControllerDelegateImpl::DoCreateShortcutsFlow(
     Profile* profile,
     const std::string& extension_id) {
   DCHECK(CanDoCreateShortcutsFlow());
-  ExtensionService* service =
-      extensions::ExtensionSystem::Get(profile)->extension_service();
-  DCHECK(service);
-  const extensions::Extension* extension = service->GetInstalledExtension(
+  extensions::ExtensionRegistry* registry =
+      extensions::ExtensionRegistry::Get(profile);
+  const extensions::Extension* extension = registry->GetInstalledExtension(
       extension_id);
   DCHECK(extension);
 
@@ -111,7 +110,8 @@ void AppListControllerDelegateImpl::LaunchApp(
     int event_flags) {
   AppListServiceImpl::RecordAppListAppLaunch();
 
-  AppLaunchParams params(profile, extension, NEW_FOREGROUND_TAB);
+  AppLaunchParams params(profile, extension, NEW_FOREGROUND_TAB,
+                         extensions::SOURCE_APP_LAUNCHER);
 
   if (source != LAUNCH_FROM_UNKNOWN &&
       extension->id() == extensions::kWebStoreAppId) {
@@ -122,7 +122,6 @@ void AppListControllerDelegateImpl::LaunchApp(
         extension_urls::kWebstoreSourceField,
         AppListSourceToString(source));
   }
-  params.source = extensions::SOURCE_APP_LAUNCHER;
 
   FillLaunchParams(&params);
   OpenApplication(params);

@@ -52,6 +52,7 @@ enum WebAXEvent {
     WebAXEventLoadComplete,
     WebAXEventLocationChanged,
     WebAXEventMenuListItemSelected,
+    WebAXEventMenuListItemUnselected,
     WebAXEventMenuListValueChanged,
     WebAXEventRowCollapsed,
     WebAXEventRowCountChanged,
@@ -71,17 +72,18 @@ enum WebAXEvent {
 // These values must match blink::AccessibilityRole values.
 // Enforced in AssertMatchingEnums.cpp.
 enum WebAXRole {
-    WebAXRoleAlertDialog = 1,
+    WebAXRoleUnknown = 0,
+    WebAXRoleAlertDialog,
     WebAXRoleAlert,
     WebAXRoleAnnotation,
     WebAXRoleApplication,
     WebAXRoleArticle,
     WebAXRoleBanner,
     WebAXRoleBlockquote,
-    WebAXRoleBrowser,
     WebAXRoleBusyIndicator,
     WebAXRoleButton,
     WebAXRoleCanvas,
+    WebAXRoleCaption,
     WebAXRoleCell,
     WebAXRoleCheckBox,
     WebAXRoleColorWell,
@@ -102,8 +104,6 @@ enum WebAXRole {
     WebAXRoleDisclosureTriangle,
     WebAXRoleDiv,
     WebAXRoleDocument,
-    WebAXRoleDrawer,
-    WebAXRoleEditableText,
     WebAXRoleEmbeddedObject,
     WebAXRoleFigcaption,
     WebAXRoleFigure,
@@ -111,17 +111,15 @@ enum WebAXRole {
     WebAXRoleForm,
     WebAXRoleGrid,
     WebAXRoleGroup,
-    WebAXRoleGrowArea,
     WebAXRoleHeading,
-    WebAXRoleHelpTag,
-    WebAXRoleHorizontalRule,
+    WebAXRoleIframePresentational,
     WebAXRoleIframe,
     WebAXRoleIgnored,
     WebAXRoleImageMapLink,
     WebAXRoleImageMap,
     WebAXRoleImage,
-    WebAXRoleIncrementor,
     WebAXRoleInlineTextBox,
+    WebAXRoleInputTime,
     WebAXRoleLabel,
     WebAXRoleLegend,
     WebAXRoleLink,
@@ -132,10 +130,9 @@ enum WebAXRole {
     WebAXRoleList,
     WebAXRoleLog,
     WebAXRoleMain,
+    WebAXRoleMark,
     WebAXRoleMarquee,
-    WebAXRoleMathElement,
     WebAXRoleMath,
-    WebAXRoleMatte,
     WebAXRoleMenuBar,
     WebAXRoleMenuButton,
     WebAXRoleMenuItem,
@@ -160,30 +157,28 @@ enum WebAXRole {
     WebAXRoleRootWebArea,
     WebAXRoleRowHeader,
     WebAXRoleRow,
-    WebAXRoleRulerMarker,
+    WebAXRoleRuby,
     WebAXRoleRuler,
     WebAXRoleSVGRoot,
     WebAXRoleScrollArea,
     WebAXRoleScrollBar,
     WebAXRoleSeamlessWebArea,
     WebAXRoleSearch,
-    WebAXRoleSheet,
+    WebAXRoleSearchBox,
     WebAXRoleSlider,
     WebAXRoleSliderThumb,
     WebAXRoleSpinButtonPart,
     WebAXRoleSpinButton,
-    WebAXRoleSplitGroup,
     WebAXRoleSplitter,
     WebAXRoleStaticText,
     WebAXRoleStatus,
-    WebAXRoleSystemWide,
+    WebAXRoleSwitch,
     WebAXRoleTabGroup,
     WebAXRoleTabList,
     WebAXRoleTabPanel,
     WebAXRoleTab,
     WebAXRoleTableHeaderContainer,
     WebAXRoleTable,
-    WebAXRoleTextArea,
     WebAXRoleTextField,
     WebAXRoleTime,
     WebAXRoleTimer,
@@ -192,10 +187,9 @@ enum WebAXRole {
     WebAXRoleTreeGrid,
     WebAXRoleTreeItem,
     WebAXRoleTree,
-    WebAXRoleUnknown,
     WebAXRoleUserInterfaceTooltip,
-    WebAXRoleValueIndicator,
     WebAXRoleWebArea,
+    WebAXRoleLineBreak,
     WebAXRoleWindow,
 };
 
@@ -212,6 +206,7 @@ enum WebAXState {
     WebAXStateIndeterminate,
     WebAXStateInvisible,
     WebAXStateLinked,
+    WebAXStateMultiline,
     WebAXStateMultiselectable,
     WebAXStateOffscreen,
     WebAXStatePressed,
@@ -224,12 +219,21 @@ enum WebAXState {
     WebAXStateVisited,
 };
 
-// Text direction, only used for role=WebAXRoleInlineTextBox.
 enum WebAXTextDirection {
     WebAXTextDirectionLR,
     WebAXTextDirectionRL,
     WebAXTextDirectionTB,
     WebAXTextDirectionBT
+};
+
+// Sort direction, only used for roles = WebAXRoleRowHeader and
+// WebAXRoleColumnHeader.
+enum WebAXSortDirection {
+    WebAXSortDirectionUndefined = 0,
+    WebAXSortDirectionNone,
+    WebAXSortDirectionAscending,
+    WebAXSortDirectionDescending,
+    WebAXSortDirectionOther
 };
 
 // Expanded State.
@@ -239,6 +243,52 @@ enum WebAXExpanded {
     WebAXExpandedUndefined = 0,
     WebAXExpandedCollapsed,
     WebAXExpandedExpanded
+};
+
+// These values must match blink::AccessibilityOrientation values.
+// Enforced in AssertMatchingEnums.cpp.
+enum WebAXOrientation {
+    WebAXOrientationUndefined = 0,
+    WebAXOrientationVertical,
+    WebAXOrientationHorizontal,
+};
+
+// Only used by HTML form controls and any other element that has
+// an aria-invalid attribute specified.
+enum WebAXInvalidState {
+    WebAXInvalidStateUndefined = 0,
+    WebAXInvalidStateFalse,
+    WebAXInvalidStateTrue,
+    WebAXInvalidStateSpelling,
+    WebAXInvalidStateGrammar,
+    WebAXInvalidStateOther
+};
+
+// Used for exposing text attributes.
+enum WebAXTextStyle {
+    WebAXTextStyleNone = 0,
+    WebAXTextStyleBold = 1 << 0,
+    WebAXTextStyleItalic = 1 << 1,
+    WebAXTextStyleUnderline = 1 << 2,
+    WebAXTextStyleLineThrough = 1 << 3
+};
+
+// The source of the accessible name of an element. This is needed
+// because on some platforms this determines how the accessible name
+// is exposed.
+enum WebAXNameFrom {
+    WebAXNameFromAttribute = 0,
+    WebAXNameFromContents,
+    WebAXNameFromPlaceholder,
+    WebAXNameFromRelatedElement,
+};
+
+// The source of the accessible description of an element. This is needed
+// because on some platforms this determines how the accessible description
+// is exposed.
+enum WebAXDescriptionFrom {
+    WebAXDescriptionFromPlaceholder,
+    WebAXDescriptionFromRelatedElement
 };
 
 } // namespace blink

@@ -11,22 +11,15 @@ class Browser;
 
 namespace extensions {
 
-// The interface between the SuspiciousExtensionBubble bubble and its
-// controller.
+// The interface between an extension message bubble's view and its
+// corresponding ExtensionMessageBubbleController.
 class ExtensionMessageBubble {
  public:
-  // Setup the callback for when the action button is clicked in the
-  // bubble.
-  virtual void OnActionButtonClicked(const base::Closure& callback) = 0;
-
-  // Setup the callback for when the dismiss button is clicked.
-  virtual void OnDismissButtonClicked(const base::Closure& callback) = 0;
-
-  // Setup the callback for when the link is clicked in the bubble.
-  virtual void OnLinkClicked(const base::Closure& callback) = 0;
-
   // Instruct the bubble to appear.
   virtual void Show() = 0;
+
+ protected:
+  virtual ~ExtensionMessageBubble() {}
 };
 
 }  // namespace extensions

@@ -13,6 +13,7 @@
 #include "cc/test/geometry_test_utils.h"
 #include "cc/test/mock_occlusion_tracker.h"
 #include "cc/test/test_shared_bitmap_manager.h"
+#include "cc/test/test_task_graph_runner.h"
 #include "cc/trees/single_thread_proxy.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -38,10 +39,12 @@ TEST(RenderSurfaceTest, VerifySurfaceChangesAreTrackedProperly) {
 
   FakeImplProxy proxy;
   TestSharedBitmapManager shared_bitmap_manager;
-  FakeLayerTreeHostImpl host_impl(&proxy, &shared_bitmap_manager);
+  TestTaskGraphRunner task_graph_runner;
+  FakeLayerTreeHostImpl host_impl(&proxy, &shared_bitmap_manager,
+                                  &task_graph_runner);
   scoped_ptr<LayerImpl> owning_layer =
       LayerImpl::Create(host_impl.active_tree(), 1);
-  owning_layer->CreateRenderSurface();
+  owning_layer->SetHasRenderSurface(true);
   ASSERT_TRUE(owning_layer->render_surface());
   RenderSurfaceImpl* render_surface = owning_layer->render_surface();
   gfx::Rect test_rect(3, 4, 5, 6);
@@ -83,15 +86,20 @@ TEST(RenderSurfaceTest, VerifySurfaceChangesAreTrackedProperly) {
 TEST(RenderSurfaceTest, SanityCheckSurfaceCreatesCorrectSharedQuadState) {
   FakeImplProxy proxy;
   TestSharedBitmapManager shared_bitmap_manager;
-  FakeLayerTreeHostImpl host_impl(&proxy, &shared_bitmap_manager);
+  TestTaskGraphRunner task_graph_runner;
+  FakeLayerTreeHostImpl host_impl(&proxy, &shared_bitmap_manager,
+                                  &task_graph_runner);
   scoped_ptr<LayerImpl> root_layer =
       LayerImpl::Create(host_impl.active_tree(), 1);
 
   scoped_ptr<LayerImpl> owning_layer =
       LayerImpl::Create(host_impl.active_tree(), 2);
-  owning_layer->CreateRenderSurface();
+  owning_layer->SetHasRenderSurface(true);
   ASSERT_TRUE(owning_layer->render_surface());
   owning_layer->draw_properties().render_target = owning_layer.get();
+
+  SkXfermode::Mode blend_mode = SkXfermode::kSoftLight_Mode;
+  owning_layer->SetBlendMode(blend_mode);
   RenderSurfaceImpl* render_surface = owning_layer->render_surface();
 
   root_layer->AddChild(owning_layer.Pass());
@@ -99,23 +107,17 @@ TEST(RenderSurfaceTest, SanityCheckSurfaceCreatesCorrectSharedQuadState) {
   gfx::Rect content_rect(0, 0, 50, 50);
   gfx::Rect clip_rect(5, 5, 40, 40);
   gfx::Transform origin;
-
   origin.Translate(30, 40);
 
-  render_surface->SetDrawTransform(origin);
   render_surface->SetContentRect(content_rect);
   render_surface->SetClipRect(clip_rect);
   render_surface->SetDrawOpacity(1.f);
 
-  MockOcclusionTracker<LayerImpl> occlusion_tracker;
   scoped_ptr<RenderPass> render_pass = RenderPass::Create();
   AppendQuadsData append_quads_data;
 
-  bool for_replica = false;
-  render_surface->AppendQuads(render_pass.get(),
-                              occlusion_tracker,
-                              &append_quads_data,
-                              for_replica,
+  render_surface->AppendQuads(render_pass.get(), origin, Occlusion(),
+                              SK_ColorBLACK, 1.f, nullptr, &append_quads_data,
                               RenderPassId(2, 0));
 
   ASSERT_EQ(1u, render_pass->shared_quad_state_list.size());
@@ -124,13 +126,14 @@ TEST(RenderSurfaceTest, SanityCheckSurfaceCreatesCorrectSharedQuadState) {
 
   EXPECT_EQ(
       30.0,
-      shared_quad_state->content_to_target_transform.matrix().getDouble(0, 3));
+      shared_quad_state->quad_to_target_transform.matrix().getDouble(0, 3));
   EXPECT_EQ(
       40.0,
-      shared_quad_state->content_to_target_transform.matrix().getDouble(1, 3));
-  EXPECT_RECT_EQ(content_rect,
-                 gfx::Rect(shared_quad_state->visible_content_rect));
+      shared_quad_state->quad_to_target_transform.matrix().getDouble(1, 3));
+  EXPECT_EQ(content_rect,
+            gfx::Rect(shared_quad_state->visible_quad_layer_rect));
   EXPECT_EQ(1.f, shared_quad_state->opacity);
+  EXPECT_EQ(blend_mode, shared_quad_state->blend_mode);
 }
 
 class TestRenderPassSink : public RenderPassSink {
@@ -150,13 +153,15 @@ class TestRenderPassSink : public RenderPassSink {
 TEST(RenderSurfaceTest, SanityCheckSurfaceCreatesCorrectRenderPass) {
   FakeImplProxy proxy;
   TestSharedBitmapManager shared_bitmap_manager;
-  FakeLayerTreeHostImpl host_impl(&proxy, &shared_bitmap_manager);
+  TestTaskGraphRunner task_graph_runner;
+  FakeLayerTreeHostImpl host_impl(&proxy, &shared_bitmap_manager,
+                                  &task_graph_runner);
   scoped_ptr<LayerImpl> root_layer =
       LayerImpl::Create(host_impl.active_tree(), 1);
 
   scoped_ptr<LayerImpl> owning_layer =
       LayerImpl::Create(host_impl.active_tree(), 2);
-  owning_layer->CreateRenderSurface();
+  owning_layer->SetHasRenderSurface(true);
   ASSERT_TRUE(owning_layer->render_surface());
   owning_layer->draw_properties().render_target = owning_layer.get();
   RenderSurfaceImpl* render_surface = owning_layer->render_surface();
@@ -178,7 +183,7 @@ TEST(RenderSurfaceTest, SanityCheckSurfaceCreatesCorrectRenderPass) {
   RenderPass* pass = pass_sink.RenderPasses()[0];
 
   EXPECT_EQ(RenderPassId(2, 0), pass->id);
-  EXPECT_RECT_EQ(content_rect, pass->output_rect);
+  EXPECT_EQ(content_rect, pass->output_rect);
   EXPECT_EQ(origin, pass->transform_to_root_target);
 }
 

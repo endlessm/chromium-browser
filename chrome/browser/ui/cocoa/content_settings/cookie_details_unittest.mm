@@ -145,11 +145,9 @@ TEST_F(CookiesDetailsTest, CreateForTreeIndexedDB) {
   GURL origin("http://moose.org/");
   int64 size = 1234;
   base::Time last_modified = base::Time::Now();
-  base::FilePath file_path;
   content::IndexedDBInfo info(origin,
                               size,
                               last_modified,
-                              file_path,
                               0);
 
   details.reset([[CocoaCookieDetails alloc] initWithIndexedDBInfo:&info]);
@@ -259,8 +257,8 @@ TEST_F(CookiesDetailsTest, CreateForTreeServiceWorker) {
   EXPECT_EQ([details.get() type], kCocoaCookieDetailsTypeTreeServiceWorker);
   EXPECT_NSEQ(@"https://example.com/", [details.get() domain]);
   EXPECT_NSEQ(@"https://example.com/app1/*,https://example.com/app2/*", [details.get() scopes]);
-  // TODO(jsbell): Plumb these through.
-  EXPECT_NSEQ(nil, [details.get() fileSize]);
+  EXPECT_NSEQ(@"0 B", [details.get() fileSize]);
+  // TODO(jsbell): Plumb this through.
   EXPECT_NSEQ(nil, [details.get() lastModified]);
 
   EXPECT_TRUE([details.get() shouldHideCookieDetailsView]);

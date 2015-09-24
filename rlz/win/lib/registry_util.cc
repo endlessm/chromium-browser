@@ -7,7 +7,7 @@
 
 #include "rlz/win/lib/registry_util.h"
 
-#include "base/process/process_handle.h"
+#include "base/process/process_info.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/registry.h"
 #include "base/win/windows_version.h"
@@ -16,7 +16,7 @@
 
 namespace rlz_lib {
 
-bool RegKeyReadValue(base::win::RegKey& key, const wchar_t* name,
+bool RegKeyReadValue(const base::win::RegKey& key, const wchar_t* name,
                      char* value, size_t* value_size) {
   value[0] = 0;
 
@@ -36,10 +36,10 @@ bool RegKeyReadValue(base::win::RegKey& key, const wchar_t* name,
   return true;
 }
 
-bool RegKeyWriteValue(base::win::RegKey& key, const wchar_t* name,
+bool RegKeyWriteValue(base::win::RegKey* key, const wchar_t* name,
                       const char* value) {
-  std::wstring value_string(base::ASCIIToWide(value));
-  return key.WriteValue(name, value_string.c_str()) == ERROR_SUCCESS;
+  base::string16 value_string(base::ASCIIToUTF16(value));
+  return key->WriteValue(name, value_string.c_str()) == ERROR_SUCCESS;
 }
 
 bool HasUserKeyAccess(bool write_access) {
@@ -58,15 +58,10 @@ bool HasUserKeyAccess(bool write_access) {
   }
 
   if (write_access) {
-    if (base::win::GetVersion() < base::win::VERSION_VISTA) return true;
-    base::ProcessHandle process_handle = base::GetCurrentProcessHandle();
-    base::IntegrityLevel level = base::INTEGRITY_UNKNOWN;
+    if (base::win::GetVersion() < base::win::VERSION_VISTA)
+      return true;
 
-    if (!base::GetProcessIntegrityLevel(process_handle, &level)) {
-      ASSERT_STRING("UserKey::HasAccess: Cannot determine Integrity Level.");
-      return false;
-    }
-    if (level <= base::LOW_INTEGRITY) {
+    if (base::GetCurrentProcessIntegrityLevel() <= base::LOW_INTEGRITY) {
       ASSERT_STRING("UserKey::HasAccess: Cannot write from Low Integrity.");
       return false;
     }

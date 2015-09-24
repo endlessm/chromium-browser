@@ -1,20 +1,16 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _FPDF_PAGE_
-#define _FPDF_PAGE_
-#ifndef _FPDF_PARSER_
-#include "fpdf_parser.h"
-#endif
-#ifndef _FPDF_RESOURCE_
-#include "fpdf_resource.h"
-#endif
-#ifndef _FX_DIB_H_
+#ifndef CORE_INCLUDE_FPDFAPI_FPDF_PAGE_H_
+#define CORE_INCLUDE_FPDFAPI_FPDF_PAGE_H_
+
 #include "../fxge/fx_dib.h"
-#endif
+#include "fpdf_parser.h"
+#include "fpdf_resource.h"
+
 class CPDF_PageObjects;
 class CPDF_Page;
 class CPDF_Form;
@@ -25,14 +21,13 @@ class CPDF_StreamFilter;
 class CPDF_AllStates;
 class CPDF_ContentParser;
 class CPDF_StreamContentParser;
-class CPDF_ResourceNaming;
 #define PDFTRANS_GROUP			0x0100
 #define PDFTRANS_ISOLATED		0x0200
 #define PDFTRANS_KNOCKOUT		0x0400
 #define PDF_CONTENT_NOT_PARSED	0
 #define PDF_CONTENT_PARSING		1
 #define PDF_CONTENT_PARSED		2
-class CPDF_PageObjects : public CFX_Object
+class CPDF_PageObjects
 {
 public:
 
@@ -177,7 +172,7 @@ public:
         return m_PageMatrix;
     }
 
-    CPDF_Object*		GetPageAttr(FX_BSTR name) const;
+    CPDF_Object*		GetPageAttr(const CFX_ByteStringC& name) const;
 
 
 
@@ -199,7 +194,7 @@ protected:
 
     CPDF_PageRenderCache*	m_pPageRender;
 };
-class CPDF_ParseOptions : public CFX_Object
+class CPDF_ParseOptions
 {
 public:
 
@@ -229,7 +224,7 @@ public:
 
     CPDF_Form*			Clone() const;
 };
-class CPDF_PageContentGenerate : public CFX_Object
+class CPDF_PageContentGenerate
 {
 public:
     CPDF_PageContentGenerate(CPDF_Page* pPage);
@@ -239,11 +234,12 @@ public:
     void TransformContent(CFX_Matrix& matrix);
 protected:
     void            ProcessImage(CFX_ByteTextBuf& buf, CPDF_ImageObject* pImageObj);
-    void            ProcessForm(CFX_ByteTextBuf& buf, FX_LPCBYTE data, FX_DWORD size, CFX_Matrix& matrix);
+    void            ProcessForm(CFX_ByteTextBuf& buf, const uint8_t* data, FX_DWORD size, CFX_Matrix& matrix);
     CFX_ByteString  RealizeResource(CPDF_Object* pResourceObj, const FX_CHAR* szType);
 private:
     CPDF_Page*      m_pPage;
     CPDF_Document*  m_pDocument;
     CFX_PtrArray    m_pageObjects;
 };
-#endif
+
+#endif  // CORE_INCLUDE_FPDFAPI_FPDF_PAGE_H_

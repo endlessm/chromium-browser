@@ -27,6 +27,9 @@
       'HAVE_DLOPEN=0',
       # Only build encoding coverters and detectors necessary for HTML5.
       'UCONFIG_NO_NON_HTML5_CONVERSION=1',
+      # No dependency on the default platform encoding.
+      # Will cut down the code size.
+      'U_CHARSET_IS_UTF8=1',
     ],
     'conditions': [
       ['component=="static_library"', {
@@ -134,10 +137,9 @@
               ],
             }],
             [ 'icu_use_data_file_flag==1', {
+              'type': 'none',
               # Remove any assembly data file.
               'sources/': [['exclude', 'icudtl_dat']],
-              # Compile in the stub data symbol.
-              'sources': ['source/stubdata/stubdata.c'],
 
               # Make sure any binary depending on this gets the data file.
               'conditions': [
@@ -196,8 +198,9 @@
               '-Wno-logical-op-parentheses',
               # ICU has some `unsigned < 0` checks.
               '-Wno-tautological-compare',
-              # Looks like a real issue, see http://crbug.com/114660
-              '-Wno-return-type-c-linkage',
+              # ICU has some code with the pattern:
+              #   if (found = uprv_getWindowsTimeZoneInfo(...))
+              '-Wno-parentheses',
             ],
           },
           # Since ICU wants to internally use its own deprecated APIs, don't
@@ -243,6 +246,8 @@
                     # See http://bugs.icu-project.org/trac/ticket/11122
                     '-Wno-inline-new-delete',
                     '-Wno-implicit-exception-spec-mismatch',
+                    # See http://bugs.icu-project.org/trac/ticket/11757.
+                    '-Wno-reorder',
                   ],
                 },
               },
@@ -287,6 +292,14 @@
               # enum (e.g. URES_TABLE32 which is in UResInternalType). This
               # is on purpose.
               '-Wno-switch',
+              # ICU has some code with the pattern:
+              #   if (found = uprv_getWindowsTimeZoneInfo(...))
+              '-Wno-parentheses',
+              # ICU generally has no unused variables, but there are a few
+              # places where this warning triggers.
+              # See https://codereview.chromium.org/1222643002/ and
+              # http://www.icu-project.org/trac/ticket/11759.
+              "-Wno-unused-const-variable",
             ],
           },
           'cflags': [
@@ -325,9 +338,12 @@
             [ 'use_system_icu==0 and want_separate_host_toolset==0', {
               'toolsets': ['target'],
             }],
-            [ 'OS == "win" and icu_use_data_file_flag==0', {
+            [ 'OS == "win" or icu_use_data_file_flag==1', {
               'sources': [
                 'source/stubdata/stubdata.c',
+              ],
+              'defines': [
+                'U_ICUDATAENTRY_IN_COMMON',
               ],
             }],
             [ 'OS == "win" and clang==1', {
@@ -389,9 +405,9 @@
             'headers_root_path': 'source/i18n',
             'header_filenames': [
               # This list can easily be updated using the command below:
-              # find third_party/icu/source/i18n/unicode -iname '*.h' \
-              # -printf "'%p',\n" | \
-              # sed -e 's|third_party/icu/source/i18n/||' | sort -u
+              # find source/i18n/unicode -iname '*.h' \
+              # -printf "              '%p',\n" | \
+              # sed -e 's|source/i18n/||' | sort -u
               'unicode/alphaindex.h',
               'unicode/basictz.h',
               'unicode/calendar.h',
@@ -411,6 +427,7 @@
               'unicode/dtptngen.h',
               'unicode/dtrule.h',
               'unicode/fieldpos.h',
+              'unicode/filteredbrk.h',
               'unicode/fmtable.h',
               'unicode/format.h',
               'unicode/fpositer.h',
@@ -429,6 +446,8 @@
               'unicode/rbtz.h',
               'unicode/regex.h',
               'unicode/region.h',
+              'unicode/reldatefmt.h',
+              'unicode/scientificformathelper.h',
               'unicode/search.h',
               'unicode/selfmt.h',
               'unicode/simpletz.h',
@@ -486,9 +505,9 @@
             'headers_root_path': 'source/common',
             'header_filenames': [
               # This list can easily be updated using the command below:
-              # find third_party/icu/source/common/unicode -iname '*.h' \
-              # -printf "'%p',\n" | \
-              # sed -e 's|third_party/icu/source/common/||' | sort -u
+              # find source/common/unicode -iname '*.h' \
+              # -printf "              '%p',\n" | \
+              # sed -e 's|source/common/||' | sort -u
               'unicode/appendable.h',
               'unicode/brkiter.h',
               'unicode/bytestream.h',

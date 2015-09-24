@@ -18,16 +18,11 @@
 #include "chrome/browser/ui/webui/ntp/app_launcher_handler.h"
 #include "chrome/browser/ui/webui/ntp/core_app_launcher_handler.h"
 #include "chrome/browser/ui/webui/ntp/favicon_webui_handler.h"
-#include "chrome/browser/ui/webui/ntp/foreign_session_handler.h"
-#include "chrome/browser/ui/webui/ntp/most_visited_handler.h"
 #include "chrome/browser/ui/webui/ntp/new_tab_page_handler.h"
 #include "chrome/browser/ui/webui/ntp/new_tab_page_sync_handler.h"
-#include "chrome/browser/ui/webui/ntp/ntp_login_handler.h"
 #include "chrome/browser/ui/webui/ntp/ntp_resource_cache.h"
 #include "chrome/browser/ui/webui/ntp/ntp_resource_cache_factory.h"
 #include "chrome/browser/ui/webui/ntp/ntp_user_data_logger.h"
-#include "chrome/browser/ui/webui/ntp/recently_closed_tabs_handler.h"
-#include "chrome/browser/ui/webui/ntp/suggestions_page_handler.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
@@ -42,6 +37,7 @@
 #include "extensions/browser/extension_system.h"
 #include "grit/browser_resources.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 #if defined(ENABLE_THEMES)
 #include "chrome/browser/ui/webui/theme_handler.h"
@@ -94,15 +90,10 @@ NewTabUI::NewTabUI(content::WebUI* web_ui)
 
   Profile* profile = GetProfile();
   if (!profile->IsOffTheRecord()) {
-    web_ui->AddMessageHandler(new browser_sync::ForeignSessionHandler());
     web_ui->AddMessageHandler(new MetricsHandler());
-    web_ui->AddMessageHandler(new MostVisitedHandler());
-    web_ui->AddMessageHandler(new RecentlyClosedTabsHandler());
     web_ui->AddMessageHandler(new FaviconWebUIHandler());
     web_ui->AddMessageHandler(new NewTabPageHandler());
     web_ui->AddMessageHandler(new CoreAppLauncherHandler());
-    if (NewTabUI::IsDiscoveryInNTPEnabled())
-      web_ui->AddMessageHandler(new SuggestionsHandler());
     web_ui->AddMessageHandler(new NewTabPageSyncHandler());
 
     ExtensionService* service =
@@ -112,9 +103,6 @@ NewTabUI::NewTabUI(content::WebUI* web_ui)
     if (service)
       web_ui->AddMessageHandler(new AppLauncherHandler(service));
   }
-
-  if (NTPLoginHandler::ShouldShow(profile))
-    web_ui->AddMessageHandler(new NTPLoginHandler());
 
 #if defined(ENABLE_THEMES)
   // The theme handler can require some CPU, so do it after hooking up the most
@@ -126,13 +114,6 @@ NewTabUI::NewTabUI(content::WebUI* web_ui)
   scoped_ptr<NewTabHTMLSource> html_source(
       new NewTabHTMLSource(profile->GetOriginalProfile()));
 
-  // These two resources should be loaded only if suggestions NTP is enabled.
-  html_source->AddResource("suggestions_page.css", "text/css",
-      NewTabUI::IsDiscoveryInNTPEnabled() ? IDR_SUGGESTIONS_PAGE_CSS : 0);
-  if (NewTabUI::IsDiscoveryInNTPEnabled()) {
-    html_source->AddResource("suggestions_page.js", "application/javascript",
-        IDR_SUGGESTIONS_PAGE_JS);
-  }
   // content::URLDataSource assumes the ownership of the html_source.
   content::URLDataSource::Add(profile, html_source.release());
 
@@ -226,10 +207,6 @@ void NewTabUI::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
   CoreAppLauncherHandler::RegisterProfilePrefs(registry);
   NewTabPageHandler::RegisterProfilePrefs(registry);
-  if (NewTabUI::IsDiscoveryInNTPEnabled())
-    SuggestionsHandler::RegisterProfilePrefs(registry);
-  MostVisitedHandler::RegisterProfilePrefs(registry);
-  browser_sync::ForeignSessionHandler::RegisterProfilePrefs(registry);
 }
 
 // static
@@ -240,13 +217,6 @@ bool NewTabUI::ShouldShowApps() {
 #else
   return true;
 #endif
-}
-
-// static
-bool NewTabUI::IsDiscoveryInNTPEnabled() {
-  // TODO(beaudoin): The flag was removed during a clean-up pass. We leave that
-  // here to easily enable it back when we will explore this option again.
-  return false;
 }
 
 // static

@@ -48,9 +48,8 @@ static const std::string kNotificationId =
 class ScreenTypeDelegateDesktop : public gfx::ScreenTypeDelegate {
  public:
   ScreenTypeDelegateDesktop() {}
-  virtual ~ScreenTypeDelegateDesktop() {}
-  virtual gfx::ScreenType GetScreenTypeForNativeView(
-      gfx::NativeView view) override {
+  ~ScreenTypeDelegateDesktop() override {}
+  gfx::ScreenType GetScreenTypeForNativeView(gfx::NativeView view) override {
     return chrome::IsNativeViewInAsh(view) ?
         gfx::SCREEN_TYPE_ALTERNATE :
         gfx::SCREEN_TYPE_NATIVE;
@@ -83,9 +82,9 @@ class FakeLoginUI : public LoginUIService::LoginUI {
   int focus_ui_call_count_;
 };
 
-KeyedService* BuildMockLoginUIService(
+scoped_ptr<KeyedService> BuildMockLoginUIService(
     content::BrowserContext* profile) {
-  return new FakeLoginUIService();
+  return make_scoped_ptr(new FakeLoginUIService());
 }
 
 class SyncErrorNotifierTest : public AshTestBase  {
@@ -108,7 +107,7 @@ class SyncErrorNotifierTest : public AshTestBase  {
 #if defined(OS_WIN)
     test_screen_.reset(aura::TestScreen::Create(gfx::Size()));
     gfx::Screen::SetScreenInstance(gfx::SCREEN_TYPE_NATIVE, test_screen_.get());
-    gfx::Screen::SetScreenTypeDelegate(new ScreenTypeDelegateDesktop);
+    gfx::Screen::SetScreenTypeDelegate(&screen_type_delegate_);
 #endif
 
     service_.reset(new NiceMock<ProfileSyncServiceMock>(profile_));
@@ -129,6 +128,8 @@ class SyncErrorNotifierTest : public AshTestBase  {
     error_notifier_->Shutdown();
     service_.reset();
 #if defined(OS_WIN)
+    gfx::Screen::SetScreenInstance(gfx::SCREEN_TYPE_NATIVE, nullptr);
+    gfx::Screen::SetScreenTypeDelegate(nullptr);
     test_screen_.reset();
 #endif
     profile_manager_.reset();
@@ -166,6 +167,7 @@ class SyncErrorNotifierTest : public AshTestBase  {
   }
 
 #if defined(OS_WIN)
+  ScreenTypeDelegateDesktop screen_type_delegate_;
   scoped_ptr<gfx::Screen> test_screen_;
 #endif
   scoped_ptr<TestingProfileManager> profile_manager_;

@@ -10,7 +10,7 @@
 
 #include "base/callback_forward.h"
 #include "cc/layers/texture_layer.h"
-#include "third_party/WebKit/public/platform/WebScreenOrientationType.h"
+#include "third_party/WebKit/public/platform/modules/screen_orientation/WebScreenOrientationType.h"
 
 class GURL;
 
@@ -26,13 +26,20 @@ class WebView;
 class WebURLResponse;
 }
 
+namespace device {
+class BluetoothAdapter;
+}
+
+namespace test_runner {
+class WebTestProxyBase;
+}
+
 namespace content {
 
 class PageState;
 class RenderFrame;
 class RendererGamepadProvider;
 class RenderView;
-class WebTestProxyBase;
 
 // Turn the browser process into layout test mode.
 void EnableBrowserLayoutTestMode();
@@ -47,7 +54,8 @@ void EnableRendererLayoutTestMode();
 // |callback| is invoked with a pointer to WebTestProxyBase for each created
 // WebTestProxy.
 void EnableWebTestProxyCreation(
-    const base::Callback<void(RenderView*, WebTestProxyBase*)>& callback);
+    const base::Callback<void(RenderView*, test_runner::WebTestProxyBase*)>&
+        callback);
 
 typedef base::Callback<void(const blink::WebURLResponse& response,
                             const std::string& data)> FetchManifestCallback;
@@ -93,8 +101,20 @@ void SetDeviceScaleFactor(RenderView* render_view, float factor);
 // Set the device color profile associated with the profile |name|.
 void SetDeviceColorProfile(RenderView* render_view, const std::string& name);
 
-// Change the bluetooth test data while running a layout test.
-void SetBluetoothMockDataSetForTesting(const std::string& name);
+// Change the bluetooth test adapter while running a layout test.
+void SetBluetoothAdapter(int render_process_id,
+                         scoped_refptr<device::BluetoothAdapter> adapter);
+
+// Enables mock geofencing service while running a layout test.
+// |service_available| indicates if the mock service should mock geofencing
+// being available or not.
+void SetGeofencingMockProvider(bool service_available);
+
+// Disables mock geofencing service while running a layout test.
+void ClearGeofencingMockProvider();
+
+// Set the mock geofencing position while running a layout test.
+void SetGeofencingMockPosition(double latitude, double longitude);
 
 // Enables or disables synchronous resize mode. When enabled, all window-sizing
 // machinery is short-circuited inside the renderer. This mode is necessary for
@@ -113,6 +133,10 @@ void DisableAutoResizeMode(RenderView* render_view,
 // Provides a text dump of the contents of the given page state.
 std::string DumpBackForwardList(std::vector<PageState>& page_state,
                                 size_t current_index);
+
+// Creates cc::TextureLayer for TestPlugin.
+scoped_refptr<cc::TextureLayer> CreateTextureLayerForMailbox(
+    cc::TextureLayerClient* client);
 
 // Instantiates WebLayerImpl for TestPlugin.
 blink::WebLayer* InstantiateWebLayer(scoped_refptr<cc::TextureLayer> layer);

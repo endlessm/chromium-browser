@@ -26,7 +26,7 @@
 #include "core/CSSPropertyNames.h"
 #include "core/CSSValueKeywords.h"
 #include "core/HTMLNames.h"
-#include "core/rendering/RenderListItem.h"
+#include "core/layout/LayoutListItem.h"
 
 namespace blink {
 
@@ -64,8 +64,9 @@ void HTMLOListElement::collectStyleForPresentationAttribute(const QualifiedName&
             addPropertyToPresentationAttributeStyle(style, CSSPropertyListStyleType, CSSValueUpperRoman);
         else if (value == "1")
             addPropertyToPresentationAttributeStyle(style, CSSPropertyListStyleType, CSSValueDecimal);
-    } else
+    } else {
         HTMLElement::collectStyleForPresentationAttribute(name, value, style);
+    }
 }
 
 void HTMLOListElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
@@ -85,8 +86,9 @@ void HTMLOListElement::parseAttribute(const QualifiedName& name, const AtomicStr
             return;
         m_isReversed = reversed;
         updateItemValues();
-    } else
+    } else {
         HTMLElement::parseAttribute(name, value);
+    }
 }
 
 void HTMLOListElement::setStart(int start)
@@ -96,15 +98,15 @@ void HTMLOListElement::setStart(int start)
 
 void HTMLOListElement::updateItemValues()
 {
-    if (!renderer())
+    if (!layoutObject())
         return;
-    document().updateDistributionForNodeIfNeeded(this);
-    RenderListItem::updateItemValuesForOrderedList(this);
+    updateDistribution();
+    LayoutListItem::updateItemValuesForOrderedList(this);
 }
 
 void HTMLOListElement::recalculateItemCount()
 {
-    m_itemCount = RenderListItem::itemCountForOrderedList(this);
+    m_itemCount = LayoutListItem::itemCountForOrderedList(this);
     m_shouldRecalculateItemCount = false;
 }
 

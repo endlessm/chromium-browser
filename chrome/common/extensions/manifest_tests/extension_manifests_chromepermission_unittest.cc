@@ -29,7 +29,7 @@ TEST_F(ChromePermissionManifestTest, ChromeURLPermissionInvalid) {
 TEST_F(ChromePermissionManifestTest, ChromeURLPermissionAllowedWithFlag) {
   // Ignore the policy delegate for this test.
   PermissionsData::SetPolicyDelegate(NULL);
-  CommandLine::ForCurrentProcess()->AppendSwitch(
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kExtensionsOnChromeURLs);
   std::string error;
   scoped_refptr<Extension> extension =
@@ -37,8 +37,7 @@ TEST_F(ChromePermissionManifestTest, ChromeURLPermissionAllowedWithFlag) {
   EXPECT_EQ("", error);
   const GURL newtab_url(chrome::kChromeUINewTabURL);
   EXPECT_TRUE(extension->permissions_data()->CanAccessPage(
-      extension.get(), newtab_url, newtab_url, 0, -1, &error))
-      << error;
+      extension.get(), newtab_url, 0, -1, &error)) << error;
 }
 
 TEST_F(ChromePermissionManifestTest,

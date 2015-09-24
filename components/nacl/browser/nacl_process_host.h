@@ -7,6 +7,8 @@
 
 #include "build/build_config.h"
 
+#include <vector>
+
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util_proxy.h"
@@ -19,7 +21,6 @@
 #include "content/public/browser/browser_child_process_host_delegate.h"
 #include "content/public/browser/browser_child_process_host_iterator.h"
 #include "ipc/ipc_channel_handle.h"
-#include "native_client/src/public/nacl_file_info.h"
 #include "net/socket/socket_descriptor.h"
 #include "ppapi/shared_impl/ppapi_permissions.h"
 #include "url/gurl.h"
@@ -34,6 +35,17 @@ class ChannelProxy;
 }
 
 namespace nacl {
+
+// NaClFileToken is a single-use nonce that the NaCl loader process can use
+// to query the browser process for trusted information about a file.  This
+// helps establish that the file is known by the browser to be immutable
+// and suitable for file-identity-based validation caching.  lo == 0 && hi
+// == 0 indicates the token is invalid and no additional information is
+// available.
+struct NaClFileToken {
+  uint64_t lo;
+  uint64_t hi;
+};
 
 class NaClHostMessageFilter;
 void* AllocateAddressSpaceASLR(base::ProcessHandle process, size_t size);
@@ -50,6 +62,7 @@ class NaClProcessHost : public content::BrowserChildProcessHostDelegate {
   // executed.
   // nexe_file: A file that corresponds to the nexe module to be loaded.
   // nexe_token: A cache validation token for nexe_file.
+  // prefetched_resource_files_info: An array of resource files prefetched.
   // permissions: PPAPI permissions, to control access to private APIs.
   // render_view_id: RenderView routing id, to control access to private APIs.
   // permission_bits: controls which interfaces the NaCl plugin can use.
@@ -57,16 +70,18 @@ class NaClProcessHost : public content::BrowserChildProcessHostDelegate {
   // off_the_record: was the process launched from an incognito renderer?
   // process_type: the type of NaCl process.
   // profile_directory: is the path of current profile directory.
-  NaClProcessHost(const GURL& manifest_url,
-                  base::File nexe_file,
-                  const NaClFileToken& nexe_token,
-                  ppapi::PpapiPermissions permissions,
-                  int render_view_id,
-                  uint32 permission_bits,
-                  bool uses_nonsfi_mode,
-                  bool off_the_record,
-                  NaClAppProcessType process_type,
-                  const base::FilePath& profile_directory);
+  NaClProcessHost(
+      const GURL& manifest_url,
+      base::File nexe_file,
+      const NaClFileToken& nexe_token,
+      const std::vector<NaClResourcePrefetchResult>& prefetched_resource_files,
+      ppapi::PpapiPermissions permissions,
+      int render_view_id,
+      uint32 permission_bits,
+      bool uses_nonsfi_mode,
+      bool off_the_record,
+      NaClAppProcessType process_type,
+      const base::FilePath& profile_directory);
   ~NaClProcessHost() override;
 
   void OnProcessCrashed(int exit_status) override;
@@ -96,7 +111,9 @@ class NaClProcessHost : public content::BrowserChildProcessHostDelegate {
   content::BrowserPpapiHost* browser_ppapi_host() { return ppapi_host_.get(); }
 
  private:
-  bool LaunchNaClGdb();
+  class ScopedChannelHandle;
+
+  void LaunchNaClGdb();
 
   // Mark the process as using a particular GDB debug stub port and notify
   // listeners (if the port is not kGdbDebugStubPortUnknown).
@@ -127,10 +144,10 @@ class NaClProcessHost : public content::BrowserChildProcessHostDelegate {
 
   // Sends the reply message to the renderer who is waiting for the plugin
   // to load. Returns true on success.
-  bool ReplyToRenderer(
-      const IPC::ChannelHandle& ppapi_channel_handle,
-      const IPC::ChannelHandle& trusted_channel_handle,
-      const IPC::ChannelHandle& manifest_service_channel_handle);
+  void ReplyToRenderer(
+      ScopedChannelHandle ppapi_channel_handle,
+      ScopedChannelHandle trusted_channel_handle,
+      ScopedChannelHandle manifest_service_channel_handle);
 
   // Sends the reply with error message to the renderer.
   void SendErrorToRenderer(const std::string& error_message);
@@ -144,6 +161,20 @@ class NaClProcessHost : public content::BrowserChildProcessHostDelegate {
   // on success.
   bool StartNaClExecution();
 
+  void StartNaClFileResolved(
+      NaClStartParams params,
+      const base::FilePath& file_path,
+      base::File nexe_file);
+
+#if defined(OS_LINUX)
+  // Creates a pair of IPC::ChannelHandle. Returns true on success.
+  static bool CreateChannelHandlePair(ScopedChannelHandle* channel_handle1,
+                                      ScopedChannelHandle* channel_handle2);
+#endif
+
+  // Starts browser PPAPI proxy. Returns true on success.
+  bool StartPPAPIProxy(ScopedChannelHandle channel_handle);
+
   // Does post-process-launching tasks for starting the NaCl process once
   // we have a connection.
   //
@@ -153,16 +184,11 @@ class NaClProcessHost : public content::BrowserChildProcessHostDelegate {
   // Message handlers for validation caching.
   void OnQueryKnownToValidate(const std::string& signature, bool* result);
   void OnSetKnownToValidate(const std::string& signature);
-  void OnResolveFileToken(uint64 file_token_lo, uint64 file_token_hi,
-                          IPC::Message* reply_msg);
-  void OnResolveFileTokenAsync(uint64 file_token_lo, uint64 file_token_hi);
-  void FileResolved(const base::FilePath& file_path,
-                    IPC::Message* reply_msg,
+  void OnResolveFileToken(uint64 file_token_lo, uint64 file_token_hi);
+  void FileResolved(uint64_t file_token_lo,
+                    uint64_t file_token_hi,
+                    const base::FilePath& file_path,
                     base::File file);
-  void FileResolvedAsync(uint64_t file_token_lo,
-                         uint64_t file_token_hi,
-                         const base::FilePath& file_path,
-                         base::File file);
 #if defined(OS_WIN)
   // Message handler for Windows hardware exception handling.
   void OnAttachDebugExceptionHandler(const std::string& info,
@@ -174,7 +200,7 @@ class NaClProcessHost : public content::BrowserChildProcessHostDelegate {
   // Called when the PPAPI IPC channels to the browser/renderer have been
   // created.
   void OnPpapiChannelsCreated(
-      const IPC::ChannelHandle& browser_channel_handle,
+      const IPC::ChannelHandle& ppapi_browser_channel_handle,
       const IPC::ChannelHandle& ppapi_renderer_channel_handle,
       const IPC::ChannelHandle& trusted_renderer_channel_handle,
       const IPC::ChannelHandle& manifest_service_channel_handle);
@@ -182,6 +208,7 @@ class NaClProcessHost : public content::BrowserChildProcessHostDelegate {
   GURL manifest_url_;
   base::File nexe_file_;
   NaClFileToken nexe_token_;
+  std::vector<NaClResourcePrefetchResult> prefetched_resource_files_;
 
   ppapi::PpapiPermissions permissions_;
 

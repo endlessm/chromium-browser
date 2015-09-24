@@ -1,11 +1,10 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "chrome/browser/ui/cocoa/download/download_item_controller.h"
 
 #include "base/mac/bundle_locations.h"
-#include "base/mac/mac_util.h"
 #include "base/metrics/histogram.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
@@ -30,9 +29,9 @@
 #include "third_party/google_toolbox_for_mac/src/AppKit/GTMUILocalizerAndLayoutTweaker.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 #include "ui/base/resource/resource_bundle.h"
-#include "ui/gfx/text_elider.h"
 #include "ui/gfx/font.h"
 #include "ui/gfx/image/image.h"
+#include "ui/gfx/text_elider.h"
 
 using content::DownloadItem;
 using extensions::ExperienceSamplingEvent;
@@ -76,7 +75,7 @@ class DownloadShelfContextMenuMac : public DownloadShelfContextMenu {
  public:
   DownloadShelfContextMenuMac(DownloadItem* downloadItem,
                               content::PageNavigator* navigator)
-      : DownloadShelfContextMenu(downloadItem, navigator) { }
+      : DownloadShelfContextMenu(downloadItem) { }
 
   // DownloadShelfContextMenu::GetMenuModel is protected.
   using DownloadShelfContextMenu::GetMenuModel;
@@ -371,13 +370,7 @@ class DownloadShelfContextMenuMac : public DownloadShelfContextMenu {
 }
 
 - (IBAction)showContextMenu:(id)sender {
-  base::scoped_nsobject<DownloadShelfContextMenuController> menuController(
-      [[DownloadShelfContextMenuController alloc]
-        initWithItemController:self
-                  withDelegate:nil]);
-  [NSMenu popUpContextMenu:[menuController menu]
-                 withEvent:[NSApp currentEvent]
-                   forView:[self view]];
+  [progressView_ showContextMenu];
 }
 
 @end

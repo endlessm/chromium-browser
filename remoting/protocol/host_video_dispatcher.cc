@@ -7,27 +7,34 @@
 #include "base/bind.h"
 #include "net/socket/stream_socket.h"
 #include "remoting/base/constants.h"
-#include "remoting/proto/video.pb.h"
 #include "remoting/protocol/message_serialization.h"
+#include "remoting/protocol/video_feedback_stub.h"
 
 namespace remoting {
 namespace protocol {
 
 HostVideoDispatcher::HostVideoDispatcher()
-    : ChannelDispatcherBase(kVideoChannelName) {
+    : ChannelDispatcherBase(kVideoChannelName),
+      parser_(
+          base::Bind(&HostVideoDispatcher::OnVideoAck, base::Unretained(this)),
+          reader()),
+      video_feedback_stub_(nullptr) {
 }
 
 HostVideoDispatcher::~HostVideoDispatcher() {
 }
 
-void HostVideoDispatcher::OnInitialized() {
-  // TODO(sergeyu): Provide WriteFailedCallback for the buffered writer.
-  writer_.Init(channel(), BufferedSocketWriter::WriteFailedCallback());
-}
-
 void HostVideoDispatcher::ProcessVideoPacket(scoped_ptr<VideoPacket> packet,
                                              const base::Closure& done) {
-  writer_.Write(SerializeAndFrameMessage(*packet), done);
+  writer()->Write(SerializeAndFrameMessage(*packet), done);
+}
+
+void HostVideoDispatcher::OnVideoAck(scoped_ptr<VideoAck> ack,
+                                     const base::Closure& done) {
+  if (video_feedback_stub_)
+    video_feedback_stub_->ProcessVideoAck(ack.Pass());
+
+  done.Run();
 }
 
 }  // namespace protocol

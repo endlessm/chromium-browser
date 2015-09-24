@@ -14,9 +14,11 @@ import os
 from chromite.cbuildbot import constants
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import osutils
 from chromite.lib import parallel
 from chromite.lib import toolchain
+from chromite.lib import workspace_lib
 
 # Needs to be after chromite imports.
 import lddtree
@@ -35,6 +37,7 @@ PACKAGE_NONE = '[none]'
 SRC_ROOT = os.path.realpath(constants.SOURCE_ROOT)
 
 CHROMIUMOS_OVERLAY = '/usr/local/portage/chromiumos'
+ECLASS_OVERLAY = '/usr/local/portage/eclass-overlay'
 STABLE_OVERLAY = '/usr/local/portage/stable'
 CROSSDEV_OVERLAY = '/usr/local/portage/crossdev'
 
@@ -46,16 +49,28 @@ DEFAULT_VERSION = PACKAGE_STABLE
 DEFAULT_TARGET_VERSION_MAP = {
 }
 TARGET_VERSION_MAP = {
-  'host' : {
-    'gdb' : PACKAGE_NONE,
-  },
+    'host' : {
+        'gdb' : PACKAGE_NONE,
+        'ex_go' : PACKAGE_NONE,
+    },
 }
+
+# Enable the Go compiler for these targets.
+TARGET_GO_ENABLED = (
+    'x86_64-cros-linux-gnu',
+    'i686-pc-linux-gnu',
+    'armv7a-cros-linux-gnueabi',
+)
+CROSSDEV_GO_ARGS = ['--ex-pkg', 'dev-lang/go']
+
 # Overrides for {gcc,binutils}-config, pick a package with particular suffix.
 CONFIG_TARGET_SUFFIXES = {
-  'binutils' : {
-    'i686-pc-linux-gnu' : '-gold',
-    'x86_64-cros-linux-gnu' : '-gold',
-  },
+    'binutils' : {
+        'armv6j-cros-linux-gnueabi': '-gold',
+        'armv7a-cros-linux-gnueabi': '-gold',
+        'i686-pc-linux-gnu' : '-gold',
+        'x86_64-cros-linux-gnu' : '-gold',
+    },
 }
 # Global per-run cache that will be filled ondemand in by GetPackageMap()
 # function as needed.
@@ -98,10 +113,14 @@ class Crossdev(object):
       target_tuple = target
       if target == 'host':
         target_tuple = toolchain.GetHostTuple()
+      # Build the crossdev command.
+      cmd = ['crossdev', '--show-target-cfg', '--ex-gdb']
+      if target in TARGET_GO_ENABLED:
+        cmd.extend(CROSSDEV_GO_ARGS)
+      cmd.extend(['-t', target_tuple])
       # Catch output of crossdev.
-      out = cros_build_lib.RunCommand(['crossdev', '--show-target-cfg',
-                                       '--ex-gdb', target_tuple],
-                print_cmd=False, redirect_stdout=True).output.splitlines()
+      out = cros_build_lib.RunCommand(cmd, print_cmd=False,
+                                      redirect_stdout=True).output.splitlines()
       # List of tuples split at the first '=', converted into dict.
       val[target] = dict([x.split('=', 1) for x in out])
     return val[target]
@@ -126,7 +145,7 @@ class Crossdev(object):
                       '-P', '--usepkgonly',
                       '--without-headers'])
 
-    overlays = '%s %s' % (CHROMIUMOS_OVERLAY, STABLE_OVERLAY)
+    overlays = ' '.join((CHROMIUMOS_OVERLAY, ECLASS_OVERLAY, STABLE_OVERLAY))
     cmdbase.extend(['--overlays', overlays])
     cmdbase.extend(['--ov-output', CROSSDEV_OVERLAY])
 
@@ -140,10 +159,13 @@ class Crossdev(object):
         if pkg == 'gdb':
           # Gdb does not have selectable versions.
           cmd.append('--ex-gdb')
-          continue
-        # The first of the desired versions is the "primary" one.
-        version = GetDesiredPackageVersions(target, pkg)[0]
-        cmd.extend(['--%s' % pkg, version])
+        elif pkg == 'ex_go':
+          # Go does not have selectable versions.
+          cmd.extend(CROSSDEV_GO_ARGS)
+        else:
+          # The first of the desired versions is the "primary" one.
+          version = GetDesiredPackageVersions(target, pkg)[0]
+          cmd.extend(['--%s' % pkg, version])
 
       cmd.extend(targets[target]['crossdev'].split())
       if config_only:
@@ -163,11 +185,12 @@ def GetPackageMap(target):
   since here everything is static data and the structuring is for ease of
   configurability only.
 
-  args:
-    target - the target for which to return a version map
+  Args:
+    target: The target for which to return a version map
 
-  returns a map between packages and desired versions in internal format
-  (using the PACKAGE_* constants)
+  Returns:
+    A map between packages and desired versions in internal format
+    (using the PACKAGE_* constants)
   """
   if target in target_version_map:
     return target_version_map[target]
@@ -205,8 +228,8 @@ def GetPortagePackage(target, package):
   # Portage package:
   pn = conf[package + '_pn']
   # Final package name:
-  assert(category)
-  assert(pn)
+  assert category
+  assert pn
   return '%s/%s' % (category, pn)
 
 
@@ -215,53 +238,72 @@ def IsPackageDisabled(target, package):
   return GetDesiredPackageVersions(target, package) == [PACKAGE_NONE]
 
 
-def GetInstalledPackageVersions(atom):
+def PortageTrees(root):
+  """Return the portage trees for a given root."""
+  if root == '/':
+    return portage.db['/']
+  # The portage logic requires the path always end in a slash.
+  root = root.rstrip('/') + '/'
+  return portage.create_trees(target_root=root, config_root=root)[root]
+
+
+def GetInstalledPackageVersions(atom, root='/'):
   """Extracts the list of current versions of a target, package pair.
 
-  args:
-    atom - the atom to operate on (e.g. sys-devel/gcc)
+  Args:
+    atom: The atom to operate on (e.g. sys-devel/gcc)
+    root: The root to check for installed packages.
 
-  returns the list of versions of the package currently installed.
+  Returns:
+    The list of versions of the package currently installed.
   """
   versions = []
   # pylint: disable=E1101
-  for pkg in portage.db['/']['vartree'].dbapi.match(atom, use_cache=0):
+  for pkg in PortageTrees(root)['vartree'].dbapi.match(atom, use_cache=0):
     version = portage.versions.cpv_getversion(pkg)
     versions.append(version)
   return versions
 
 
-def GetStablePackageVersion(atom, installed):
+def GetStablePackageVersion(atom, installed, root='/'):
   """Extracts the current stable version for a given package.
 
-  args:
-    target, package - the target/package to operate on eg. i686-pc-linux-gnu,gcc
-    installed - Whether we want installed packages or ebuilds
+  Args:
+    atom: The target/package to operate on eg. i686-pc-linux-gnu,gcc
+    installed: Whether we want installed packages or ebuilds
+    root: The root to use when querying packages.
 
-  returns a string containing the latest version.
+  Returns:
+    A string containing the latest version.
   """
   pkgtype = 'vartree' if installed else 'porttree'
   # pylint: disable=E1101
-  cpv = portage.best(portage.db['/'][pkgtype].dbapi.match(atom, use_cache=0))
+  cpv = portage.best(PortageTrees(root)[pkgtype].dbapi.match(atom, use_cache=0))
   return portage.versions.cpv_getversion(cpv) if cpv else None
 
 
-def VersionListToNumeric(target, package, versions, installed):
+def VersionListToNumeric(target, package, versions, installed, root='/'):
   """Resolves keywords in a given version list for a particular package.
 
   Resolving means replacing PACKAGE_STABLE with the actual number.
 
-  args:
-    target, package - the target/package to operate on eg. i686-pc-linux-gnu,gcc
-    versions - list of versions to resolve
+  Args:
+    target: The target to operate on (e.g. i686-pc-linux-gnu)
+    package: The target/package to operate on (e.g. gcc)
+    versions: List of versions to resolve
+    installed: Query installed packages
+    root: The install root to use; ignored if |installed| is False.
 
-  returns list of purely numeric versions equivalent to argument
+  Returns:
+    List of purely numeric versions equivalent to argument
   """
   resolved = []
   atom = GetPortagePackage(target, package)
+  if not installed:
+    root = '/'
   for version in versions:
     if version == PACKAGE_STABLE:
-      resolved.append(GetStablePackageVersion(atom, installed))
+      resolved.append(GetStablePackageVersion(atom, installed, root=root))
     elif version != PACKAGE_NONE:
       resolved.append(version)
   return resolved
@@ -278,10 +320,12 @@ def GetDesiredPackageVersions(target, package):
   Since crossdev unmasks all packages by default, this will actually
   mean 'unstable' in most cases.
 
-  args:
-    target, package - the target/package to operate on eg. i686-pc-linux-gnu,gcc
+  Args:
+    target: The target to operate on (e.g. i686-pc-linux-gnu)
+    package: The target/package to operate on (e.g. gcc)
 
-  returns a list composed of either a version string, PACKAGE_STABLE
+  Returns:
+    A list composed of either a version string, PACKAGE_STABLE
   """
   packagemap = GetPackageMap(target)
 
@@ -299,11 +343,11 @@ def TargetIsInitialized(target):
   toolchain packages or can do it using emerge. Emerge is naturally
   preferred, because all packages can be updated in a single pass.
 
-  args:
-    targets - list of individual cross targets which are checked
+  Args:
+    target: The target to operate on (e.g. i686-pc-linux-gnu)
 
-  returns True if target is completely initialized
-  returns False otherwise
+  Returns:
+    True if |target| is completely initialized, else False
   """
   # Check if packages for the given target all have a proper version.
   try:
@@ -325,23 +369,26 @@ def RemovePackageMask(target):
 
   The pre-existing package.mask files can mess with the keywords.
 
-  args:
-    target - the target for which to remove the file
+  Args:
+    target: The target to operate on (e.g. i686-pc-linux-gnu)
   """
   maskfile = os.path.join('/etc/portage/package.mask', 'cross-' + target)
   osutils.SafeUnlink(maskfile)
 
 
 # Main functions performing the actual update steps.
-def RebuildLibtool():
+def RebuildLibtool(root='/'):
   """Rebuild libtool as needed
 
   Libtool hardcodes full paths to internal gcc files, so whenever we upgrade
   gcc, libtool will break.  We can't use binary packages either as those will
   most likely be compiled against the previous version of gcc.
+
+  Args:
+    root: The install root where we want libtool rebuilt.
   """
   needs_update = False
-  with open('/usr/bin/libtool') as f:
+  with open(os.path.join(root, 'usr/bin/libtool')) as f:
     for line in f:
       # Look for a line like:
       #   sys_lib_search_path_spec="..."
@@ -349,7 +396,7 @@ def RebuildLibtool():
       if line.startswith('sys_lib_search_path_spec='):
         line = line.rstrip()
         for path in line.split('=', 1)[1].strip('"').split():
-          if not os.path.exists(path):
+          if not os.path.exists(os.path.join(root, path.lstrip(os.path.sep))):
             print('Rebuilding libtool after gcc upgrade')
             print(' %s' % line)
             print(' missing path: %s' % path)
@@ -360,16 +407,20 @@ def RebuildLibtool():
         break
 
   if needs_update:
-    cmd = [EMERGE_CMD, '--oneshot', 'sys-devel/libtool']
+    cmd = [EMERGE_CMD, '--oneshot']
+    if root != '/':
+      cmd.extend(['--sysroot=%s' % root, '--root=%s' % root])
+    cmd.append('sys-devel/libtool')
     cros_build_lib.RunCommand(cmd)
 
 
-def UpdateTargets(targets, usepkg):
+def UpdateTargets(targets, usepkg, root='/'):
   """Determines which packages need update/unmerge and defers to portage.
 
-  args:
-    targets - the list of targets to update
-    usepkg - copies the commandline option
+  Args:
+    targets: The list of targets to update
+    usepkg: Copies the commandline option
+    root: The install root in which we want packages updated.
   """
   # Remove keyword files created by old versions of cros_setup_toolchains.
   osutils.SafeUnlink('/etc/portage/package.keywords/cross-host')
@@ -387,7 +438,7 @@ def UpdateTargets(targets, usepkg):
       if IsPackageDisabled(target, package):
         continue
       pkg = GetPortagePackage(target, package)
-      current = GetInstalledPackageVersions(pkg)
+      current = GetInstalledPackageVersions(pkg, root=root)
       desired = GetDesiredPackageVersions(target, package)
       desired_num = VersionListToNumeric(target, package, desired, False)
       mergemap[pkg] = set(desired_num).difference(current)
@@ -408,25 +459,39 @@ def UpdateTargets(targets, usepkg):
   cmd = [EMERGE_CMD, '--oneshot', '--update']
   if usepkg:
     cmd.extend(['--getbinpkg', '--usepkgonly'])
+  if root != '/':
+    cmd.extend(['--sysroot=%s' % root, '--root=%s' % root])
 
   cmd.extend(packages)
   cros_build_lib.RunCommand(cmd)
   return True
 
 
-def CleanTargets(targets):
-  """Unmerges old packages that are assumed unnecessary."""
+def CleanTargets(targets, root='/'):
+  """Unmerges old packages that are assumed unnecessary.
+
+  Args:
+    targets: The list of targets to clean up.
+    root: The install root in which we want packages cleaned up.
+  """
   unmergemap = {}
   for target in targets:
     for package in GetTargetPackages(target):
       if IsPackageDisabled(target, package):
         continue
       pkg = GetPortagePackage(target, package)
-      current = GetInstalledPackageVersions(pkg)
+      current = GetInstalledPackageVersions(pkg, root=root)
       desired = GetDesiredPackageVersions(target, package)
+      # NOTE: This refers to installed packages (vartree) rather than the
+      # Portage version (porttree and/or bintree) when determining the current
+      # version. While this isn't the most accurate thing to do, it is probably
+      # a good simple compromise, which should have the desired result of
+      # uninstalling everything but the latest installed version. In
+      # particular, using the bintree (--usebinpkg) requires a non-trivial
+      # binhost sync and is probably more complex than useful.
       desired_num = VersionListToNumeric(target, package, desired, True)
       if not set(desired_num).issubset(current):
-        print('Some packages have been held back, skipping clean!')
+        print('Error detecting stable version for %s, skipping clean!' % pkg)
         return
       unmergemap[pkg] = set(current).difference(desired_num)
 
@@ -439,23 +504,28 @@ def CleanTargets(targets):
     print('Cleaning packages:')
     print(packages)
     cmd = [EMERGE_CMD, '--unmerge']
+    if root != '/':
+      cmd.extend(['--sysroot=%s' % root, '--root=%s' % root])
     cmd.extend(packages)
     cros_build_lib.RunCommand(cmd)
   else:
     print('Nothing to clean!')
 
 
-def SelectActiveToolchains(targets, suffixes):
+def SelectActiveToolchains(targets, suffixes, root='/'):
   """Runs gcc-config and binutils-config to select the desired.
 
-  args:
-    targets - the targets to select
+  Args:
+    targets: The targets to select
+    suffixes: Optional target-specific hacks
+    root: The root where we want to select toolchain versions.
   """
   for package in ['gcc', 'binutils']:
     for target in targets:
       # Pick the first version in the numbered list as the selected one.
       desired = GetDesiredPackageVersions(target, package)
-      desired_num = VersionListToNumeric(target, package, desired, True)
+      desired_num = VersionListToNumeric(target, package, desired, True,
+                                         root=root)
       desired = desired_num[0]
       # *-config does not play revisions, strip them, keep just PV.
       desired = portage.versions.pkgsplit('%s-%s' % (package, desired))[1]
@@ -473,13 +543,18 @@ def SelectActiveToolchains(targets, suffixes):
           desired += suffixes[package][target]
 
       extra_env = {'CHOST': target}
+      if root != '/':
+        extra_env['ROOT'] = root
       cmd = ['%s-config' % package, '-c', target]
-      current = cros_build_lib.RunCommand(cmd, print_cmd=False,
-          redirect_stdout=True, extra_env=extra_env).output.splitlines()[0]
-      # Do not gcc-config when the current is live or nothing needs to be done.
+      result = cros_build_lib.RunCommand(
+          cmd, print_cmd=False, redirect_stdout=True, extra_env=extra_env)
+      current = result.output.splitlines()[0]
+
+      # Do not reconfig when the current is live or nothing needs to be done.
+      extra_env = {'ROOT': root} if root != '/' else None
       if current != desired and current != '9999':
-        cmd = [ package + '-config', desired ]
-        cros_build_lib.RunCommand(cmd, print_cmd=False)
+        cmd = [package + '-config', desired]
+        cros_build_lib.RunCommand(cmd, print_cmd=False, extra_env=extra_env)
 
 
 def ExpandTargets(targets_wanted):
@@ -491,31 +566,41 @@ def ExpandTargets(targets_wanted):
     targets_wanted: The targets specified by the user.
 
   Returns:
-    Full list of tuples with pseudo targets removed.
+    Dictionary of concrete targets and their toolchain tuples.
   """
-  alltargets = toolchain.GetAllTargets()
   targets_wanted = set(targets_wanted)
+  if targets_wanted in (set(['boards']), set(['bricks'])):
+    # Only pull targets from the included boards/bricks.
+    return {}
+
+  all_targets = toolchain.GetAllTargets()
   if targets_wanted == set(['all']):
-    targets = alltargets
-  elif targets_wanted == set(['sdk']):
+    return all_targets
+  if targets_wanted == set(['sdk']):
     # Filter out all the non-sdk toolchains as we don't want to mess
     # with those in all of our builds.
-    targets = toolchain.FilterToolchains(alltargets, 'sdk', True)
-  else:
-    # Verify user input.
-    nonexistent = targets_wanted.difference(alltargets)
-    if nonexistent:
-      raise ValueError('Invalid targets: %s', ','.join(nonexistent))
-    targets = dict((t, alltargets[t]) for t in targets_wanted)
-  return targets
+    return toolchain.FilterToolchains(all_targets, 'sdk', True)
+
+  # Verify user input.
+  nonexistent = targets_wanted.difference(all_targets)
+  if nonexistent:
+    raise ValueError('Invalid targets: %s', ','.join(nonexistent))
+  return {t: all_targets[t] for t in targets_wanted}
 
 
 def UpdateToolchains(usepkg, deleteold, hostonly, reconfig,
-                     targets_wanted, boards_wanted):
+                     targets_wanted, boards_wanted, bricks_wanted, root='/'):
   """Performs all steps to create a synchronized toolchain enviroment.
 
-  args:
-    arguments correspond to the given commandline flags
+  Args:
+    usepkg: Use prebuilt packages
+    deleteold: Unmerge deprecated packages
+    hostonly: Only setup the host toolchain
+    reconfig: Reload crossdev config and reselect toolchains
+    targets_wanted: All the targets to update
+    boards_wanted: Load targets from these boards
+    bricks_wanted: Load targets from these bricks
+    root: The root in which to install the toolchains.
   """
   targets, crossdev_targets, reconfig_targets = {}, {}, {}
   if not hostonly:
@@ -523,10 +608,12 @@ def UpdateToolchains(usepkg, deleteold, hostonly, reconfig,
     # work on bare systems where this is useful.
     targets = ExpandTargets(targets_wanted)
 
-    # Now re-add any targets that might be from this board.  This is
-    # to allow unofficial boards to declare their own toolchains.
+    # Now re-add any targets that might be from this board/brick. This is to
+    # allow unofficial boards to declare their own toolchains.
     for board in boards_wanted:
       targets.update(toolchain.GetToolchainsForBoard(board))
+    for brick in bricks_wanted:
+      targets.update(toolchain.GetToolchainsForBrick(brick))
 
     # First check and initialize all cross targets that need to be.
     for target in targets:
@@ -545,24 +632,27 @@ def UpdateToolchains(usepkg, deleteold, hostonly, reconfig,
   targets['host'] = {}
 
   # Now update all packages.
-  if UpdateTargets(targets, usepkg) or crossdev_targets or reconfig:
-    SelectActiveToolchains(targets, CONFIG_TARGET_SUFFIXES)
+  if UpdateTargets(targets, usepkg, root=root) or crossdev_targets or reconfig:
+    SelectActiveToolchains(targets, CONFIG_TARGET_SUFFIXES, root=root)
 
   if deleteold:
-    CleanTargets(targets)
+    CleanTargets(targets, root=root)
 
   # Now that we've cleared out old versions, see if we need to rebuild
   # anything.  Can't do this earlier as it might not be broken.
-  RebuildLibtool()
+  RebuildLibtool(root=root)
 
 
-def ShowBoardConfig(board):
-  """Show the toolchain tuples used by |board|
+def ShowConfig(name):
+  """Show the toolchain tuples used by |name|
 
   Args:
-    board: The board to query.
+    name: The board name or brick locator to query.
   """
-  toolchains = toolchain.GetToolchainsForBoard(board)
+  if workspace_lib.IsLocator(name):
+    toolchains = toolchain.GetToolchainsForBrick(name)
+  else:
+    toolchains = toolchain.GetToolchainsForBoard(name)
   # Make sure we display the default toolchain first.
   print(','.join(
       toolchain.FilterToolchains(toolchains, 'default', True).keys() +
@@ -681,10 +771,24 @@ def _GetFilesForTarget(target, root='/'):
     if pkg in ('kernel', 'libc'):
       continue
 
+    # Skip Go compiler from redistributable packages.
+    # The "go" executable has GOROOT=/usr/lib/go/${CTARGET} hardcoded
+    # into it. Due to this, the toolchain cannot be unpacked anywhere
+    # else and be readily useful. To enable packaging Go, we need to:
+    # -) Tweak the wrappers/environment to override GOROOT
+    #    automatically based on the unpack location.
+    # -) Make sure the ELF dependency checking and wrapping logic
+    #    below skips the Go toolchain executables and libraries.
+    # -) Make sure the packaging process maintains the relative
+    #    timestamps of precompiled standard library packages.
+    #    (see dev-lang/go ebuild for details).
+    if pkg == 'ex_go':
+      continue
+
     atom = GetPortagePackage(target, pkg)
     cat, pn = atom.split('/')
-    ver = GetInstalledPackageVersions(atom)[0]
-    cros_build_lib.Info('packaging %s-%s', atom, ver)
+    ver = GetInstalledPackageVersions(atom, root=root)[0]
+    logging.info('packaging %s-%s', atom, ver)
 
     # pylint: disable=E1101
     dblink = portage.dblink(cat, pn + '-' + ver, myroot=root,
@@ -705,7 +809,7 @@ def _GetFilesForTarget(target, root='/'):
 
 
 def _BuildInitialPackageRoot(output_dir, paths, elfs, ldpaths,
-                             path_rewrite_func=lambda x:x, root='/'):
+                             path_rewrite_func=lambda x: x, root='/'):
   """Link in all packable files and their runtime dependencies
 
   This also wraps up executable ELFs with helper scripts.
@@ -769,7 +873,7 @@ def _BuildInitialPackageRoot(output_dir, paths, elfs, ldpaths,
 
       src = path = lib_data['path']
       if path is None:
-        cros_build_lib.Warning('%s: could not locate %s', elf, lib)
+        logging.warning('%s: could not locate %s', elf, lib)
         continue
       donelibs.add(lib)
 
@@ -803,11 +907,36 @@ def _EnvdGetVar(envd, var):
 def _ProcessBinutilsConfig(target, output_dir):
   """Do what binutils-config would have done"""
   binpath = os.path.join('/bin', target + '-')
-  globpath = os.path.join(output_dir, 'usr', toolchain.GetHostTuple(), target,
-                          'binutils-bin', '*-gold')
+
+  # Locate the bin dir holding the gold linker.
+  binutils_bin_path = os.path.join(output_dir, 'usr', toolchain.GetHostTuple(),
+                                   target, 'binutils-bin')
+  globpath = os.path.join(binutils_bin_path, '*-gold')
   srcpath = glob.glob(globpath)
-  assert len(srcpath) == 1, '%s: did not match 1 path' % globpath
-  srcpath = srcpath[0][len(output_dir):]
+  if not srcpath:
+    # Maybe this target doesn't support gold.
+    globpath = os.path.join(binutils_bin_path, '*')
+    srcpath = glob.glob(globpath)
+    assert len(srcpath) == 1, ('%s: matched more than one path (but not *-gold)'
+                               % globpath)
+    srcpath = srcpath[0]
+    ld_path = os.path.join(srcpath, 'ld')
+    assert os.path.exists(ld_path), '%s: linker is missing!' % ld_path
+    ld_path = os.path.join(srcpath, 'ld.bfd')
+    assert os.path.exists(ld_path), '%s: linker is missing!' % ld_path
+    ld_path = os.path.join(srcpath, 'ld.gold')
+    assert not os.path.exists(ld_path), ('%s: exists, but gold dir does not!'
+                                         % ld_path)
+
+    # Nope, no gold support to be found.
+    gold_supported = False
+    logging.warning('%s: binutils lacks support for the gold linker', target)
+  else:
+    assert len(srcpath) == 1, '%s: did not match exactly 1 path' % globpath
+    gold_supported = True
+    srcpath = srcpath[0]
+
+  srcpath = srcpath[len(output_dir):]
   gccpath = os.path.join('/usr', 'libexec', 'gcc')
   for prog in os.listdir(output_dir + srcpath):
     # Skip binaries already wrapped.
@@ -818,7 +947,9 @@ def _ProcessBinutilsConfig(target, output_dir):
                           os.path.join(srcpath, prog))
 
   libpath = os.path.join('/usr', toolchain.GetHostTuple(), target, 'lib')
-  envd = os.path.join(output_dir, 'etc', 'env.d', 'binutils', '*-gold')
+  envd = os.path.join(output_dir, 'etc', 'env.d', 'binutils', '*')
+  if gold_supported:
+    envd += '-gold'
   srcpath = _EnvdGetVar(envd, 'LIBPATH')
   os.symlink(os.path.relpath(srcpath, os.path.dirname(libpath)),
              output_dir + libpath)
@@ -839,20 +970,20 @@ def _ProcessGccConfig(target, output_dir):
   return srcpath
 
 
-def _ProcessSysrootWrapper(_target, output_dir, srcpath):
-  """Remove chroot-specific things from our sysroot wrapper"""
+def _ProcessSysrootWrappers(_target, output_dir, srcpath):
+  """Remove chroot-specific things from our sysroot wrappers"""
   # Disable ccache since we know it won't work outside of chroot.
-  sysroot_wrapper = glob.glob(os.path.join(
-      output_dir + srcpath, 'sysroot_wrapper*'))[0]
-  contents = osutils.ReadFile(sysroot_wrapper).splitlines()
-  for num in xrange(len(contents)):
-    if '@CCACHE_DEFAULT@' in contents[num]:
-      contents[num] = 'use_ccache = False'
-      break
-  # Can't update the wrapper in place since it's a hardlink to a file in /.
-  os.unlink(sysroot_wrapper)
-  osutils.WriteFile(sysroot_wrapper, '\n'.join(contents))
-  os.chmod(sysroot_wrapper, 0o755)
+  for sysroot_wrapper in glob.glob(os.path.join(
+      output_dir + srcpath, 'sysroot_wrapper*')):
+    contents = osutils.ReadFile(sysroot_wrapper).splitlines()
+    for num in xrange(len(contents)):
+      if '@CCACHE_DEFAULT@' in contents[num]:
+        contents[num] = 'use_ccache = False'
+        break
+    # Can't update the wrapper in place since it's a hardlink to a file in /.
+    os.unlink(sysroot_wrapper)
+    osutils.WriteFile(sysroot_wrapper, '\n'.join(contents))
+    os.chmod(sysroot_wrapper, 0o755)
 
 
 def _ProcessDistroCleanups(target, output_dir):
@@ -864,7 +995,7 @@ def _ProcessDistroCleanups(target, output_dir):
   """
   _ProcessBinutilsConfig(target, output_dir)
   gcc_path = _ProcessGccConfig(target, output_dir)
-  _ProcessSysrootWrapper(target, output_dir, gcc_path)
+  _ProcessSysrootWrappers(target, output_dir, gcc_path)
 
   osutils.RmDir(os.path.join(output_dir, 'etc'))
 
@@ -911,6 +1042,7 @@ def CreatePackages(targets_wanted, output_dir, root='/'):
     output_dir: The directory to put the packages in.
     root: The root path to pull all packages/files from.
   """
+  logging.info('Writing tarballs to %s', output_dir)
   osutils.SafeMakedirs(output_dir)
   ldpaths = lddtree.LoadLdpaths(root)
   targets = ExpandTargets(targets_wanted)
@@ -933,57 +1065,67 @@ def CreatePackages(targets_wanted, output_dir, root='/'):
 
 
 def main(argv):
-  usage = """usage: %prog [options]
+  parser = commandline.ArgumentParser(description=__doc__)
+  parser.add_argument('-u', '--nousepkg',
+                      action='store_false', dest='usepkg', default=True,
+                      help='Use prebuilt packages if possible')
+  parser.add_argument('-d', '--deleteold',
+                      action='store_true', dest='deleteold', default=False,
+                      help='Unmerge deprecated packages')
+  parser.add_argument('-t', '--targets',
+                      dest='targets', default='sdk',
+                      help="Comma separated list of tuples. Special keywords "
+                           "'host', 'sdk', 'boards', 'bricks' and 'all' are "
+                           "allowed. Defaults to 'sdk'.")
+  parser.add_argument('--include-boards', default='', metavar='BOARDS',
+                      help='Comma separated list of boards whose toolchains we '
+                           'will always include. Default: none')
+  parser.add_argument('--include-bricks', default='', metavar='BRICKS',
+                      help='Comma separated list of bricks whose toolchains we '
+                           'will always include. Default: none')
+  parser.add_argument('--hostonly',
+                      dest='hostonly', default=False, action='store_true',
+                      help='Only setup the host toolchain. '
+                           'Useful for bootstrapping chroot')
+  parser.add_argument('--show-board-cfg', '--show-cfg',
+                      dest='cfg_name', default=None,
+                      help='Board or brick to list toolchains tuples for')
+  parser.add_argument('--create-packages',
+                      action='store_true', default=False,
+                      help='Build redistributable packages')
+  parser.add_argument('--output-dir', default=os.getcwd(), type='path',
+                      help='Output directory')
+  parser.add_argument('--reconfig', default=False, action='store_true',
+                      help='Reload crossdev config and reselect toolchains')
+  parser.add_argument('--sysroot', type='path',
+                      help='The sysroot in which to install the toolchains')
 
-  The script installs and updates the toolchains in your chroot."""
-  parser = commandline.OptionParser(usage)
-  parser.add_option('-u', '--nousepkg',
-                    action='store_false', dest='usepkg', default=True,
-                    help='Use prebuilt packages if possible')
-  parser.add_option('-d', '--deleteold',
-                    action='store_true', dest='deleteold', default=False,
-                    help='Unmerge deprecated packages')
-  parser.add_option('-t', '--targets',
-                    dest='targets', default='sdk',
-                    help='Comma separated list of tuples. '
-                         'Special keyword \'host\' is allowed. Default: sdk')
-  parser.add_option('--include-boards',
-                    dest='include_boards', default='',
-                    help='Comma separated list of boards whose toolchains we'
-                         ' will always include. Default: none')
-  parser.add_option('--hostonly',
-                    dest='hostonly', default=False, action='store_true',
-                    help='Only setup the host toolchain. '
-                         'Useful for bootstrapping chroot')
-  parser.add_option('--show-board-cfg',
-                    dest='board_cfg', default=None,
-                    help='Board to list toolchain tuples for')
-  parser.add_option('--create-packages',
-                    action='store_true', default=False,
-                    help='Build redistributable packages')
-  parser.add_option('--output-dir', default=os.getcwd(), type='path',
-                    help='Output directory')
-  parser.add_option('--reconfig', default=False, action='store_true',
-                    help='Reload crossdev config and reselect toolchains')
-
-  (options, remaining_arguments) = parser.parse_args(argv)
-  if len(remaining_arguments):
-    parser.error('script does not take arguments: %s' % remaining_arguments)
+  options = parser.parse_args(argv)
+  options.Freeze()
 
   # Figure out what we're supposed to do and reject conflicting options.
-  if options.board_cfg and options.create_packages:
+  if options.cfg_name and options.create_packages:
     parser.error('conflicting options: create-packages & show-board-cfg')
 
-  targets = set(options.targets.split(','))
-  boards = set(options.include_boards.split(',')) if options.include_boards \
-      else set()
+  targets_wanted = set(options.targets.split(','))
+  boards_wanted = (set(options.include_boards.split(','))
+                   if options.include_boards else set())
+  bricks_wanted = (set(options.include_bricks.split(','))
+                   if options.include_bricks else set())
 
-  if options.board_cfg:
-    ShowBoardConfig(options.board_cfg)
+  # pylint: disable=global-statement
+  global TARGET_GO_ENABLED
+  if GetStablePackageVersion('sys-devel/crossdev', True) < '20150527':
+    # Crossdev --ex-pkg flag was added in version 20150527.
+    # Disable Go toolchain until the chroot gets a newer crossdev.
+    TARGET_GO_ENABLED = ()
+
+  if options.cfg_name:
+    ShowConfig(options.cfg_name)
   elif options.create_packages:
     cros_build_lib.AssertInsideChroot()
     Crossdev.Load(False)
-    CreatePackages(targets, options.output_dir)
+    CreatePackages(targets_wanted, options.output_dir)
   else:
     cros_build_lib.AssertInsideChroot()
     # This has to be always run as root.
@@ -991,8 +1133,10 @@ def main(argv):
       cros_build_lib.Die('this script must be run as root')
 
     Crossdev.Load(options.reconfig)
+    root = options.sysroot or '/'
     UpdateToolchains(options.usepkg, options.deleteold, options.hostonly,
-                     options.reconfig, targets, boards)
+                     options.reconfig, targets_wanted, boards_wanted,
+                     bricks_wanted, root=root)
     Crossdev.Save()
 
   return 0

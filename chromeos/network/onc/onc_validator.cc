@@ -5,7 +5,6 @@
 #include "chromeos/network/onc/onc_validator.h"
 
 #include <algorithm>
-#include <string>
 
 #include "base/json/json_writer.h"
 #include "base/logging.h"
@@ -13,12 +12,14 @@
 #include "base/strings/string_util.h"
 #include "base/values.h"
 #include "chromeos/network/onc/onc_signature.h"
-#include "components/onc/onc_constants.h"
 
 namespace chromeos {
 namespace onc {
 
 namespace {
+
+// According to the IEEE 802.11 standard the SSID is a series of 0 to 32 octets.
+const int kMaximumSSIDLengthInBytes = 32;
 
 template <typename T, size_t N>
 std::vector<T> toVector(T const (&array)[N]) {
@@ -121,6 +122,8 @@ scoped_ptr<base::DictionaryValue> Validator::MapObject(
       valid = ValidateIPsec(repaired.get());
     } else if (&signature == &kOpenVPNSignature) {
       valid = ValidateOpenVPN(repaired.get());
+    } else if (&signature == &kThirdPartyVPNSignature) {
+      valid = ValidateThirdPartyVPN(repaired.get());
     } else if (&signature == &kVerifyX509Signature) {
       valid = ValidateVerifyX509(repaired.get());
     } else if (&signature == &kCertificatePatternSignature) {
@@ -227,18 +230,16 @@ bool Validator::ValidateRecommendedField(
     base::DictionaryValue* result) {
   CHECK(result);
 
-  scoped_ptr<base::ListValue> recommended;
   scoped_ptr<base::Value> recommended_value;
   // This remove passes ownership to |recommended_value|.
   if (!result->RemoveWithoutPathExpansion(::onc::kRecommended,
                                           &recommended_value)) {
     return true;
   }
-  base::ListValue* recommended_list = NULL;
-  recommended_value.release()->GetAsList(&recommended_list);
-  CHECK(recommended_list);
 
-  recommended.reset(recommended_list);
+  base::ListValue* recommended_list = nullptr;
+  recommended_value->GetAsList(&recommended_list);
+  DCHECK(recommended_list);  // The types of field values are already verified.
 
   if (!managed_onc_) {
     error_or_warning_found_ = true;
@@ -249,11 +250,10 @@ bool Validator::ValidateRecommendedField(
   }
 
   scoped_ptr<base::ListValue> repaired_recommended(new base::ListValue);
-  for (base::ListValue::iterator it = recommended->begin();
-       it != recommended->end(); ++it) {
+  for (const base::Value* entry : *recommended_list) {
     std::string field_name;
-    if (!(*it)->GetAsString(&field_name)) {
-      NOTREACHED();
+    if (!entry->GetAsString(&field_name)) {
+      NOTREACHED();  // The types of field values are already verified.
       continue;
     }
 
@@ -286,7 +286,7 @@ bool Validator::ValidateRecommendedField(
       }
     }
 
-    repaired_recommended->Append((*it)->DeepCopy());
+    repaired_recommended->AppendString(field_name);
   }
 
   result->Set(::onc::kRecommended, repaired_recommended.release());
@@ -399,17 +399,77 @@ bool Validator::FieldExistsAndIsEmpty(const base::DictionaryValue& object,
   return true;
 }
 
+bool Validator::ValidateSSIDAndHexSSID(base::DictionaryValue* object) {
+  // Check SSID validity.
+  std::string ssid_string;
+  if (object->GetStringWithoutPathExpansion(::onc::wifi::kSSID, &ssid_string) &&
+      (ssid_string.size() <= 0 ||
+       ssid_string.size() > kMaximumSSIDLengthInBytes)) {
+    error_or_warning_found_ = true;
+    const std::string msg =
+        MessageHeader() + ::onc::wifi::kSSID + " has an invalid length.";
+    // If the HexSSID field is present, ignore errors in SSID because these
+    // might be caused by the usage of a non-UTF-8 encoding when the SSID
+    // field was automatically added (see FillInHexSSIDField).
+    if (object->HasKey(::onc::wifi::kHexSSID)) {
+      LOG(WARNING) << msg;
+    } else {
+      LOG(ERROR) << msg;
+      return false;
+    }
+  }
+
+  // Check HexSSID validity.
+  std::string hex_ssid_string;
+  if (object->GetStringWithoutPathExpansion(::onc::wifi::kHexSSID,
+                                            &hex_ssid_string)) {
+    std::vector<uint8> decoded_ssid;
+    if (!base::HexStringToBytes(hex_ssid_string, &decoded_ssid)) {
+      LOG(ERROR) << MessageHeader() << "Field " << ::onc::wifi::kHexSSID
+                 << " is not a valid hex representation: \"" << hex_ssid_string
+                 << "\"";
+      error_or_warning_found_ = true;
+      return false;
+    }
+    if (decoded_ssid.size() <= 0 ||
+        decoded_ssid.size() > kMaximumSSIDLengthInBytes) {
+      LOG(ERROR) << MessageHeader() << ::onc::wifi::kHexSSID
+                 << " has an invalid length.";
+      error_or_warning_found_ = true;
+      return false;
+    }
+
+    // If both SSID and HexSSID are set, check whether they are consistent, i.e.
+    // HexSSID contains the UTF-8 encoding of SSID. If not, remove the SSID
+    // field.
+    if (ssid_string.length() > 0) {
+      std::string decoded_ssid_string(
+          reinterpret_cast<const char*>(&decoded_ssid[0]), decoded_ssid.size());
+      if (ssid_string != decoded_ssid_string) {
+        LOG(WARNING) << MessageHeader() << "Fields " << ::onc::wifi::kSSID
+                     << " and " << ::onc::wifi::kHexSSID
+                     << " contain inconsistent values. Removing "
+                     << ::onc::wifi::kSSID << ".";
+        error_or_warning_found_ = true;
+        object->RemoveWithoutPathExpansion(::onc::wifi::kSSID, nullptr);
+      }
+    }
+  }
+  return true;
+}
+
 bool Validator::RequireField(const base::DictionaryValue& dict,
                              const std::string& field_name) {
   if (dict.HasKey(field_name))
     return true;
-  error_or_warning_found_ = true;
   std::string message = MessageHeader() + "The required field '" + field_name +
       "' is missing.";
-  if (error_on_missing_field_)
+  if (error_on_missing_field_) {
+    error_or_warning_found_ = true;
     LOG(ERROR) << message;
-  else
-    LOG(WARNING) << message;
+  } else {
+    VLOG(1) << message;
+  }
   return false;
 }
 
@@ -469,11 +529,21 @@ bool Validator::ValidateToplevelConfiguration(base::DictionaryValue* result) {
 bool Validator::ValidateNetworkConfiguration(base::DictionaryValue* result) {
   using namespace ::onc::network_config;
 
-  const char* const kValidTypes[] = {
-      ::onc::network_type::kEthernet, ::onc::network_type::kVPN,
-      ::onc::network_type::kWiFi, ::onc::network_type::kCellular};
+  const char* const kValidTypes[] = {::onc::network_type::kEthernet,
+                                     ::onc::network_type::kVPN,
+                                     ::onc::network_type::kWiFi,
+                                     ::onc::network_type::kCellular,
+                                     ::onc::network_type::kWimax};
   const std::vector<const char*> valid_types(toVector(kValidTypes));
+  const char* const kValidIPConfigTypes[] = {kIPConfigTypeDHCP,
+                                             kIPConfigTypeStatic};
+  const std::vector<const char*> valid_ipconfig_types(
+      toVector(kValidIPConfigTypes));
   if (FieldExistsAndHasNoValidValue(*result, kType, valid_types) ||
+      FieldExistsAndHasNoValidValue(*result, kIPAddressConfigType,
+                                    valid_ipconfig_types) ||
+      FieldExistsAndHasNoValidValue(*result, kNameServersConfigType,
+                                    valid_ipconfig_types) ||
       FieldExistsAndIsEmpty(*result, kGUID)) {
     return false;
   }
@@ -489,12 +559,24 @@ bool Validator::ValidateNetworkConfiguration(base::DictionaryValue* result) {
     all_required_exist &=
         RequireField(*result, kName) && RequireField(*result, kType);
 
+    std::string ip_address_config_type, name_servers_config_type;
+    result->GetStringWithoutPathExpansion(kIPAddressConfigType,
+                                          &ip_address_config_type);
+    result->GetStringWithoutPathExpansion(kNameServersConfigType,
+                                          &name_servers_config_type);
+    if (ip_address_config_type == kIPConfigTypeStatic ||
+        name_servers_config_type == kIPConfigTypeStatic) {
+      // TODO(pneubeck): Add ValidateStaticIPConfig and confirm that the
+      // correct properties are provided based on the config type.
+      all_required_exist &= RequireField(*result, kStaticIPConfig);
+    }
+
     std::string type;
     result->GetStringWithoutPathExpansion(kType, &type);
 
     // Prohibit anything but WiFi and Ethernet for device-level policy (which
     // corresponds to shared networks). See also http://crosbug.com/28741.
-    if (onc_source_ == ::onc::ONC_SOURCE_DEVICE_POLICY &&
+    if (onc_source_ == ::onc::ONC_SOURCE_DEVICE_POLICY && !type.empty() &&
         type != ::onc::network_type::kWiFi &&
         type != ::onc::network_type::kEthernet) {
       error_or_warning_found_ = true;
@@ -511,10 +593,11 @@ bool Validator::ValidateNetworkConfiguration(base::DictionaryValue* result) {
     } else if (type == ::onc::network_type::kCellular) {
       all_required_exist &=
           RequireField(*result, ::onc::network_config::kCellular);
+    } else if (type == ::onc::network_type::kWimax) {
+      all_required_exist &=
+          RequireField(*result, ::onc::network_config::kWimax);
     } else if (type == ::onc::network_type::kVPN) {
       all_required_exist &= RequireField(*result, ::onc::network_config::kVPN);
-    } else if (!type.empty()) {
-      NOTREACHED();
     }
   }
 
@@ -561,8 +644,10 @@ bool Validator::ValidateIPConfig(base::DictionaryValue* result) {
   }
 
   bool all_required_exist = RequireField(*result, kIPAddress) &&
-                            RequireField(*result, kRoutingPrefix) &&
                             RequireField(*result, ::onc::ipconfig::kType);
+  if (result->HasKey(kIPAddress))
+    all_required_exist &= RequireField(*result, kRoutingPrefix);
+
 
   return !error_on_missing_field_ || all_required_exist;
 }
@@ -576,8 +661,16 @@ bool Validator::ValidateWiFi(base::DictionaryValue* result) {
   if (FieldExistsAndHasNoValidValue(*result, kSecurity, valid_securities))
     return false;
 
-  bool all_required_exist =
-      RequireField(*result, kSecurity) && RequireField(*result, kSSID);
+  if (!ValidateSSIDAndHexSSID(result))
+    return false;
+
+  bool all_required_exist = RequireField(*result, kSecurity);
+
+  // One of {kSSID, kHexSSID} must be present.
+  if (!result->HasKey(kSSID))
+    all_required_exist &= RequireField(*result, kHexSSID);
+  if (!result->HasKey(kHexSSID))
+    all_required_exist &= RequireField(*result, kSSID);
 
   std::string security;
   result->GetStringWithoutPathExpansion(kSecurity, &security);
@@ -592,7 +685,8 @@ bool Validator::ValidateWiFi(base::DictionaryValue* result) {
 bool Validator::ValidateVPN(base::DictionaryValue* result) {
   using namespace ::onc::vpn;
 
-  const char* const kValidTypes[] = {kIPsec, kTypeL2TP_IPsec, kOpenVPN};
+  const char* const kValidTypes[] = {
+      kIPsec, kTypeL2TP_IPsec, kOpenVPN, kThirdPartyVpn};
   const std::vector<const char*> valid_types(toVector(kValidTypes));
   if (FieldExistsAndHasNoValidValue(*result, ::onc::vpn::kType, valid_types))
     return false;
@@ -607,6 +701,8 @@ bool Validator::ValidateVPN(base::DictionaryValue* result) {
   } else if (type == kTypeL2TP_IPsec) {
     all_required_exist &=
         RequireField(*result, kIPsec) && RequireField(*result, kL2TP);
+  } else if (type == kThirdPartyVpn) {
+    all_required_exist &= RequireField(*result, kThirdPartyVpn);
   }
 
   return !error_on_missing_field_ || all_required_exist;
@@ -711,6 +807,13 @@ bool Validator::ValidateOpenVPN(base::DictionaryValue* result) {
   return !error_on_missing_field_ || all_required_exist;
 }
 
+bool Validator::ValidateThirdPartyVPN(base::DictionaryValue* result) {
+  const bool all_required_exist =
+      RequireField(*result, ::onc::third_party_vpn::kExtensionID);
+
+  return !error_on_missing_field_ || all_required_exist;
+}
+
 bool Validator::ValidateVerifyX509(base::DictionaryValue* result) {
   using namespace ::onc::verify_x509;
 
@@ -777,7 +880,8 @@ bool Validator::ValidateProxyLocation(base::DictionaryValue* result) {
 bool Validator::ValidateEAP(base::DictionaryValue* result) {
   using namespace ::onc::eap;
 
-  const char* const kValidInnerValues[] = {kAutomatic, kMD5, kMSCHAPv2, kPAP};
+  const char* const kValidInnerValues[] = {
+      kAutomatic, kGTC, kMD5, kMSCHAPv2, kPAP};
   const std::vector<const char*> valid_inner_values(
       toVector(kValidInnerValues));
   const char* const kValidOuterValues[] = {

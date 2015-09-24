@@ -68,6 +68,12 @@ GFX_EXPORT SkColor HSLShift(SkColor color, const HSL& shift);
 // this image.
 GFX_EXPORT void BuildLumaHistogram(const SkBitmap& bitmap, int histogram[256]);
 
+// Calculates how "boring" an image is. The boring score is the
+// 0,1 ranged percentage of pixels that are the most common
+// luma. Higher boring scores indicate that a higher percentage of a
+// bitmap are all the same brightness.
+GFX_EXPORT double CalculateBoringScore(const SkBitmap& bitmap);
+
 // Returns a blend of the supplied colors, ranging from |background| (for
 // |alpha| == 0) to |foreground| (for |alpha| == 255). The alpha channels of
 // the supplied colors are also taken into account, so the returned color may
@@ -96,6 +102,11 @@ GFX_EXPORT SkColor InvertColor(SkColor color);
 
 // Gets a Windows system color as a SkColor
 GFX_EXPORT SkColor GetSysSkColor(int which);
+
+// Returns true only if Chrome should use an inverted color scheme - which is
+// only true if the system has high-contrast mode enabled and and is using a
+// light-on-dark color scheme.
+GFX_EXPORT bool IsInvertedColorScheme();
 
 }  // namespace color_utils
 

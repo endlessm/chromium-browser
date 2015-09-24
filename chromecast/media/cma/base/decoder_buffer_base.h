@@ -9,6 +9,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/time/time.h"
+#include "chromecast/public/media/stream_id.h"
 
 namespace media {
 class DecryptConfig;
@@ -25,15 +26,22 @@ class DecoderBufferBase
  public:
   DecoderBufferBase();
 
+  // Returns the stream id of this decoder buffer belonging to. it's optional
+  // and default value is kPrimary.
+  virtual StreamId stream_id() const = 0;
+
   // Returns the PTS of the frame.
   virtual base::TimeDelta timestamp() const = 0;
+
+  // Sets the PTS of the frame.
+  virtual void set_timestamp(const base::TimeDelta& timestamp) = 0;
 
   // Gets the frame data.
   virtual const uint8* data() const = 0;
   virtual uint8* writable_data() const = 0;
 
   // Returns the size of the frame in bytes.
-  virtual int data_size() const = 0;
+  virtual size_t data_size() const = 0;
 
   // Returns the decrypt configuration.
   // Returns NULL if the buffer has no decrypt info.

@@ -80,7 +80,7 @@ class WebRequestRulesRegistry : public RulesRegistry {
   // storage functionality suspended.
   WebRequestRulesRegistry(content::BrowserContext* browser_context,
                           RulesCacheDelegate* cache_delegate,
-                          const WebViewKey& webview_key);
+                          int rules_registry_id);
 
   // TODO(battre): This will become an implementation detail, because we need
   // a way to also execute the actions of the rules.
@@ -129,9 +129,9 @@ class WebRequestRulesRegistry : public RulesRegistry {
   FRIEND_TEST_ALL_PREFIXES(WebRequestRulesRegistrySimpleTest,
                            HostPermissionsChecker);
 
-  typedef std::map<url_matcher::URLMatcherConditionSet::ID, WebRequestRule*>
-      RuleTriggers;
-  typedef std::map<WebRequestRule::RuleId, linked_ptr<WebRequestRule> >
+  typedef std::map<url_matcher::URLMatcherConditionSet::ID,
+                   const WebRequestRule*> RuleTriggers;
+  typedef std::map<WebRequestRule::RuleId, linked_ptr<const WebRequestRule>>
       RulesMap;
   typedef std::set<url_matcher::URLMatcherConditionSet::ID> URLMatches;
   typedef std::set<const WebRequestRule*> RuleSet;

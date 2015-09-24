@@ -50,8 +50,6 @@ class MenuDelegate;
   NSRect originalIconFrame_;  // frame of iconView_ as loaded from nib
   BOOL isIconShowing_;  // last state of iconView_ in updateVisibility
 
-  BOOL app_;
-  BOOL mini_;
   BOOL pinned_;
   BOOL active_;
   BOOL selected_;
@@ -67,8 +65,6 @@ class MenuDelegate;
 @property(assign, nonatomic) TabLoadingState loadingState;
 
 @property(assign, nonatomic) SEL action;
-@property(assign, nonatomic) BOOL app;
-@property(assign, nonatomic) BOOL mini;
 @property(assign, nonatomic) BOOL pinned;
 @property(assign, nonatomic) NSString* toolTip;
 // Note that |-selected| will return YES if the controller is |-active|, too.
@@ -82,14 +78,16 @@ class MenuDelegate;
 @property(readonly, nonatomic) MediaIndicatorButton* mediaIndicatorButton;
 @property(readonly, nonatomic) HoverCloseButton* closeButton;
 
+// Default height for tabs.
++ (CGFloat)defaultTabHeight;
+
 // Minimum and maximum allowable tab width. The minimum width does not show
 // the icon or the close button. The active tab always has at least a close
 // button so it has a different minimum width.
 + (CGFloat)minTabWidth;
 + (CGFloat)maxTabWidth;
 + (CGFloat)minActiveTabWidth;
-+ (CGFloat)miniTabWidth;
-+ (CGFloat)appTabWidth;
++ (CGFloat)pinnedTabWidth;
 
 // The view associated with this controller, pre-casted as a TabView
 - (TabView*)tabView;

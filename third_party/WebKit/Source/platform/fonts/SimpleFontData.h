@@ -47,8 +47,7 @@ namespace blink {
 
 class FontDescription;
 
-enum FontDataVariant { AutoVariant, NormalVariant, SmallCapsVariant, EmphasisMarkVariant, BrokenIdeographVariant };
-enum Pitch { UnknownPitch, FixedPitch, VariablePitch };
+enum FontDataVariant { AutoVariant, NormalVariant, SmallCapsVariant, EmphasisMarkVariant };
 
 class PLATFORM_EXPORT SimpleFontData : public FontData {
 public:
@@ -58,16 +57,13 @@ public:
         return adoptRef(new SimpleFontData(platformData, customData, isTextOrientationFallback));
     }
 
-    virtual ~SimpleFontData();
+    ~SimpleFontData() override;
 
     const FontPlatformData& platformData() const { return m_platformData; }
-#if ENABLE(OPENTYPE_VERTICAL)
     const OpenTypeVerticalData* verticalData() const { return m_verticalData.get(); }
-#endif
 
     PassRefPtr<SimpleFontData> smallCapsFontData(const FontDescription&) const;
     PassRefPtr<SimpleFontData> emphasisMarkFontData(const FontDescription&) const;
-    PassRefPtr<SimpleFontData> brokenIdeographFontData() const;
 
     PassRefPtr<SimpleFontData> variantFontData(const FontDescription& description, FontDataVariant variant) const
     {
@@ -76,8 +72,6 @@ public:
             return smallCapsFontData(description);
         case EmphasisMarkVariant:
             return emphasisMarkFontData(description);
-        case BrokenIdeographVariant:
-            return brokenIdeographFontData();
         case AutoVariant:
         case NormalVariant:
             break;
@@ -118,25 +112,18 @@ public:
     Glyph zeroGlyph() const { return m_zeroGlyph; }
     void setZeroGlyph(Glyph zeroGlyph) { m_zeroGlyph = zeroGlyph; }
 
-    virtual const SimpleFontData* fontDataForCharacter(UChar32) const override;
+    const SimpleFontData* fontDataForCharacter(UChar32) const override;
 
     Glyph glyphForCharacter(UChar32) const;
 
-    void determinePitch();
-    Pitch pitch() const { return m_treatAsFixedPitch ? FixedPitch : VariablePitch; }
-
-    virtual bool isCustomFont() const override { return m_customFontData; }
-    virtual bool isLoading() const override { return m_customFontData ? m_customFontData->isLoading() : false; }
-    virtual bool isLoadingFallback() const override { return m_customFontData ? m_customFontData->isLoadingFallback() : false; }
-    virtual bool isSegmented() const override;
-    virtual bool shouldSkipDrawing() const override { return m_customFontData && m_customFontData->shouldSkipDrawing(); }
+    bool isCustomFont() const override { return m_customFontData; }
+    bool isLoading() const override { return m_customFontData ? m_customFontData->isLoading() : false; }
+    bool isLoadingFallback() const override { return m_customFontData ? m_customFontData->isLoadingFallback() : false; }
+    bool isSegmented() const override;
+    bool shouldSkipDrawing() const override { return m_customFontData && m_customFontData->shouldSkipDrawing(); }
 
     const GlyphData& missingGlyphData() const { return m_missingGlyphData; }
     void setMissingGlyphData(const GlyphData& glyphData) { m_missingGlyphData = glyphData; }
-
-#if OS(MACOSX)
-    NSFont* getNSFont() const { return m_platformData.font(); }
-#endif
 
     bool canRenderCombiningCharacterSequence(const UChar*, size_t) const;
 
@@ -163,16 +150,11 @@ private:
 
     FontPlatformData m_platformData;
 
-    mutable OwnPtr<GlyphMetricsMap<FloatRect> > m_glyphToBoundsMap;
+    mutable OwnPtr<GlyphMetricsMap<FloatRect>> m_glyphToBoundsMap;
     mutable GlyphMetricsMap<float> m_glyphToWidthMap;
 
-    bool m_treatAsFixedPitch;
-
     bool m_isTextOrientationFallback;
-    bool m_isBrokenIdeographFallback;
-#if ENABLE(OPENTYPE_VERTICAL)
     RefPtr<OpenTypeVerticalData> m_verticalData;
-#endif
     bool m_hasVerticalGlyphs;
 
     Glyph m_spaceGlyph;
@@ -190,7 +172,6 @@ private:
         bool forCustomFont;
         RefPtr<SimpleFontData> smallCaps;
         RefPtr<SimpleFontData> emphasisMark;
-        RefPtr<SimpleFontData> brokenIdeograph;
         RefPtr<SimpleFontData> verticalRightOrientation;
         RefPtr<SimpleFontData> uprightOrientation;
 
@@ -204,7 +185,7 @@ private:
     mutable OwnPtr<DerivedFontData> m_derivedFontData;
 
     RefPtr<CustomFontData> m_customFontData;
-    mutable OwnPtr<HashMap<String, bool> > m_combiningCharacterSequenceSupport;
+    mutable OwnPtr<HashMap<String, bool>> m_combiningCharacterSequenceSupport;
 };
 
 ALWAYS_INLINE FloatRect SimpleFontData::boundsForGlyph(Glyph glyph) const
@@ -235,12 +216,7 @@ ALWAYS_INLINE float SimpleFontData::widthForGlyph(Glyph glyph) const
     if (width != cGlyphSizeUnknown)
         return width;
 
-#if ENABLE(OPENTYPE_VERTICAL)
-    if (m_verticalData)
-        width = m_verticalData->advanceHeight(this, glyph);
-    else
-#endif
-        width = platformWidthForGlyph(glyph);
+    width = platformWidthForGlyph(glyph);
 
     m_glyphToWidthMap.setMetricsForGlyph(glyph, width);
     return width;

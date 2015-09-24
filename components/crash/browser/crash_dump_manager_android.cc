@@ -29,12 +29,13 @@ CrashDumpManager* CrashDumpManager::instance_ = NULL;
 
 // static
 CrashDumpManager* CrashDumpManager::GetInstance() {
+  CHECK(instance_);
   return instance_;
 }
 
 CrashDumpManager::CrashDumpManager(const base::FilePath& crash_dump_dir)
     : crash_dump_dir_(crash_dump_dir) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(!instance_);
 
   instance_ = this;
@@ -56,7 +57,7 @@ CrashDumpManager::~CrashDumpManager() {
 }
 
 base::File CrashDumpManager::CreateMinidumpFile(int child_process_id) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::PROCESS_LAUNCHER));
+  DCHECK_CURRENTLY_ON(BrowserThread::PROCESS_LAUNCHER);
   base::FilePath minidump_path;
   if (!base::CreateTemporaryFile(&minidump_path))
     return base::File();
@@ -82,7 +83,8 @@ base::File CrashDumpManager::CreateMinidumpFile(int child_process_id) {
 // static
 void CrashDumpManager::ProcessMinidump(const base::FilePath& minidump_path,
                                        base::ProcessHandle pid) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+  CHECK(instance_);
   int64 file_size = 0;
   int r = base::GetFileSize(minidump_path, &file_size);
   DCHECK(r) << "Failed to retrieve size for minidump "
@@ -124,7 +126,8 @@ void CrashDumpManager::BrowserChildProcessHostDisconnected(
 }
 
 void CrashDumpManager::BrowserChildProcessCrashed(
-    const content::ChildProcessData& data) {
+    const content::ChildProcessData& data,
+    int exit_code) {
   OnChildExit(data.id, data.handle);
 }
 

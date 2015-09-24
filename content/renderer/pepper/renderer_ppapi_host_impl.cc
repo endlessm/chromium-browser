@@ -6,9 +6,11 @@
 
 #include "base/bind.h"
 #include "base/files/file_path.h"
+#include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
 #include "base/process/process_handle.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/common/sandbox_util.h"
 #include "content/renderer/pepper/fullscreen_container.h"
 #include "content/renderer/pepper/host_globals.h"
@@ -27,7 +29,7 @@
 #include "third_party/WebKit/public/web/WebDocument.h"
 #include "third_party/WebKit/public/web/WebElement.h"
 #include "third_party/WebKit/public/web/WebPluginContainer.h"
-#include "ui/gfx/point.h"
+#include "ui/gfx/geometry/point.h"
 
 namespace content {
 // static
@@ -229,6 +231,16 @@ IPC::PlatformFileForTransit RendererPpapiHostImpl::ShareHandleWithRemote(
   return dispatcher_->ShareHandleWithRemote(handle, should_close_source);
 }
 
+base::SharedMemoryHandle
+RendererPpapiHostImpl::ShareSharedMemoryHandleWithRemote(
+    const base::SharedMemoryHandle& handle) {
+  if (!dispatcher_) {
+    DCHECK(is_running_in_process_);
+    return base::SharedMemory::DuplicateHandle(handle);
+  }
+  return dispatcher_->ShareSharedMemoryHandleWithRemote(handle);
+}
+
 bool RendererPpapiHostImpl::IsRunningInProcess() const {
   return is_running_in_process_;
 }
@@ -249,7 +261,7 @@ void RendererPpapiHostImpl::CreateBrowserResourceHosts(
   PepperBrowserConnection* browser_connection =
       PepperBrowserConnection::Get(render_frame);
   if (!browser_connection) {
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(callback, std::vector<int>(nested_msgs.size(), 0)));
   } else {
@@ -258,12 +270,11 @@ void RendererPpapiHostImpl::CreateBrowserResourceHosts(
   }
 }
 
-GURL RendererPpapiHostImpl::GetDocumentURL(PP_Instance instance) const {
-  PepperPluginInstanceImpl* instance_object = GetAndValidateInstance(instance);
-  if (!instance_object)
+GURL RendererPpapiHostImpl::GetDocumentURL(PP_Instance pp_instance) const {
+  PepperPluginInstanceImpl* instance = GetAndValidateInstance(pp_instance);
+  if (!instance)
     return GURL();
-
-  return instance_object->container()->element().document().url();
+  return instance->document_url();
 }
 
 PepperPluginInstanceImpl* RendererPpapiHostImpl::GetAndValidateInstance(

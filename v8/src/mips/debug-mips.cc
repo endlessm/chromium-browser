@@ -14,12 +14,7 @@
 namespace v8 {
 namespace internal {
 
-bool BreakLocationIterator::IsDebugBreakAtReturn() {
-  return Debug::IsDebugBreakAtReturn(rinfo());
-}
-
-
-void BreakLocationIterator::SetDebugBreakAtReturn() {
+void BreakLocation::SetDebugBreakAtReturn() {
   // Mips return sequence:
   // mov sp, fp
   // lw fp, sp(0)
@@ -31,7 +26,7 @@ void BreakLocationIterator::SetDebugBreakAtReturn() {
 
   // Make sure this constant matches the number if instrucntions we emit.
   DCHECK(Assembler::kJSReturnSequenceInstructions == 7);
-  CodePatcher patcher(rinfo()->pc(), Assembler::kJSReturnSequenceInstructions);
+  CodePatcher patcher(pc(), Assembler::kJSReturnSequenceInstructions);
   // li and Call pseudo-instructions emit two instructions each.
   patcher.masm()->li(v8::internal::t9, Operand(reinterpret_cast<int32_t>(
       debug_info_->GetIsolate()->builtins()->Return_DebugBreak()->entry())));
@@ -45,29 +40,7 @@ void BreakLocationIterator::SetDebugBreakAtReturn() {
 }
 
 
-// Restore the JS frame exit code.
-void BreakLocationIterator::ClearDebugBreakAtReturn() {
-  rinfo()->PatchCode(original_rinfo()->pc(),
-                     Assembler::kJSReturnSequenceInstructions);
-}
-
-
-// A debug break in the exit code is identified by the JS frame exit code
-// having been patched with li/call psuedo-instrunction (liu/ori/jalr).
-bool Debug::IsDebugBreakAtReturn(RelocInfo* rinfo) {
-  DCHECK(RelocInfo::IsJSReturn(rinfo->rmode()));
-  return rinfo->IsPatchedReturnSequence();
-}
-
-
-bool BreakLocationIterator::IsDebugBreakAtSlot() {
-  DCHECK(IsDebugBreakSlot());
-  // Check whether the debug break slot instructions have been patched.
-  return rinfo()->IsPatchedDebugBreakSlotSequence();
-}
-
-
-void BreakLocationIterator::SetDebugBreakAtSlot() {
+void BreakLocation::SetDebugBreakAtSlot() {
   DCHECK(IsDebugBreakSlot());
   // Patch the code changing the debug break slot code from:
   //   nop(DEBUG_BREAK_NOP) - nop(1) is sll(zero_reg, zero_reg, 1)
@@ -77,17 +50,10 @@ void BreakLocationIterator::SetDebugBreakAtSlot() {
   // to a call to the debug break slot code.
   //   li t9, address   (lui t9 / ori t9 instruction pair)
   //   call t9          (jalr t9 / nop instruction pair)
-  CodePatcher patcher(rinfo()->pc(), Assembler::kDebugBreakSlotInstructions);
+  CodePatcher patcher(pc(), Assembler::kDebugBreakSlotInstructions);
   patcher.masm()->li(v8::internal::t9, Operand(reinterpret_cast<int32_t>(
       debug_info_->GetIsolate()->builtins()->Slot_DebugBreak()->entry())));
   patcher.masm()->Call(v8::internal::t9);
-}
-
-
-void BreakLocationIterator::ClearDebugBreakAtSlot() {
-  DCHECK(IsDebugBreakSlot());
-  rinfo()->PatchCode(original_rinfo()->pc(),
-                     Assembler::kDebugBreakSlotInstructions);
 }
 
 
@@ -181,52 +147,6 @@ void DebugCodegen::GenerateCallICStubDebugBreak(MacroAssembler* masm) {
   //  -- a3 : slot in feedback array (smi)
   // -----------------------------------
   Generate_DebugBreakCallHelper(masm, a1.bit() | a3.bit(), 0);
-}
-
-
-void DebugCodegen::GenerateLoadICDebugBreak(MacroAssembler* masm) {
-  Register receiver = LoadDescriptor::ReceiverRegister();
-  Register name = LoadDescriptor::NameRegister();
-  RegList regs = receiver.bit() | name.bit();
-  if (FLAG_vector_ics) {
-    regs |= VectorLoadICTrampolineDescriptor::SlotRegister().bit();
-  }
-  Generate_DebugBreakCallHelper(masm, regs, 0);
-}
-
-
-void DebugCodegen::GenerateStoreICDebugBreak(MacroAssembler* masm) {
-  // Calling convention for IC store (from ic-mips.cc).
-  Register receiver = StoreDescriptor::ReceiverRegister();
-  Register name = StoreDescriptor::NameRegister();
-  Register value = StoreDescriptor::ValueRegister();
-  Generate_DebugBreakCallHelper(
-      masm, receiver.bit() | name.bit() | value.bit(), 0);
-}
-
-
-void DebugCodegen::GenerateKeyedLoadICDebugBreak(MacroAssembler* masm) {
-  // Calling convention for keyed IC load (from ic-mips.cc).
-  GenerateLoadICDebugBreak(masm);
-}
-
-
-void DebugCodegen::GenerateKeyedStoreICDebugBreak(MacroAssembler* masm) {
-  // Calling convention for IC keyed store call (from ic-mips.cc).
-  Register receiver = StoreDescriptor::ReceiverRegister();
-  Register name = StoreDescriptor::NameRegister();
-  Register value = StoreDescriptor::ValueRegister();
-  Generate_DebugBreakCallHelper(
-      masm, receiver.bit() | name.bit() | value.bit(), 0);
-}
-
-
-void DebugCodegen::GenerateCompareNilICDebugBreak(MacroAssembler* masm) {
-  // Register state for CompareNil IC
-  // ----------- S t a t e -------------
-  //  -- a0    : value
-  // -----------------------------------
-  Generate_DebugBreakCallHelper(masm, a0.bit(), 0);
 }
 
 
@@ -326,6 +246,7 @@ const bool LiveEdit::kFrameDropperSupported = true;
 
 #undef __
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_TARGET_ARCH_MIPS

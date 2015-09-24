@@ -63,6 +63,130 @@
       </availableFormats>
     </territory>
 
+    <!-- Argentina (AR) -->
+    <territory countryCode="54">
+      <availableFormats>
+        <numberFormat pattern="(9)(\d{4})(\d{3})(\d{3})">
+          <leadingDigits>9[23]</leadingDigits>
+          <format>$1 $2 $3 $4</format>
+        </numberFormat>
+        <numberFormat pattern="(\d{4})(\d{3})(\d{3})">
+          <leadingDigits>[23]</leadingDigits>
+          <format>$1 $2 $3</format>
+        </numberFormat>
+      </availableFormats>
+    </territory>
+
+    <!-- Austria (AT) -->
+    <territory countryCode="43">
+      <availableFormats>
+        <numberFormat pattern="(1)(\d{3})(\d{2})(\d{2,3})">
+          <leadingDigits>1</leadingDigits>
+          <format>$1 $2 $3 $4</format>
+        </numberFormat>
+        <numberFormat pattern="(5)(\d{3,12})">
+         <leadingDigits>5[079]</leadingDigits>
+         <format>$1 $2</format>
+        </numberFormat>
+        <numberFormat pattern="(50)(\d{2})(\d{2})(\d{2,4})">
+          <leadingDigits>50</leadingDigits>
+          <format>$1 $2 $3 $4</format>
+        </numberFormat>
+        <numberFormat pattern="(5\d)(\d{2})(\d{2})(\d{2})(\d{2,4})">
+          <leadingDigits>5[079]</leadingDigits>
+          <format>$1 $2 $3 $4 $5</format>
+        </numberFormat>
+        <numberFormat pattern="(5\d)(\d{5})(\d{4,6})">
+          <leadingDigits>5[079]</leadingDigits>
+          <format>$1 $2 $3</format>
+        </numberFormat>
+        <numberFormat pattern="(5\d)(\d{6,7})">
+          <leadingDigits>5[079]</leadingDigits>
+          <format>$1 $2</format>
+        </numberFormat>
+        <numberFormat pattern="(\d{3})(\d{3})(\d{3})(\d{3,4})">
+          <leadingDigits>
+            316|
+            46|
+            51|
+            732|
+            6(?:
+              44|
+              5[0-3579]|
+              [6-9]
+            )|
+            7(?:
+              1|
+              [28]0
+            )|
+            [89]
+          </leadingDigits>
+          <format>$1 $2 $3 $4</format>
+        </numberFormat>
+        <numberFormat pattern="(\d{3})(\d{3})(\d{2})(\d{2,3})">
+          <leadingDigits>
+            316|
+            46|
+            51|
+            732|
+            6(?:
+              44|
+              5[0-3579]|
+              [6-9]
+            )|
+            7(?:
+              1|
+              [28]0
+            )|
+            [89]
+          </leadingDigits>
+          <format>$1 $2 $3 $4</format>
+        </numberFormat>
+        <numberFormat pattern="(\d{4})(\d{3})(\d{3,4})">
+          <leadingDigits>
+            2|
+            3(?:
+              1[1-578]|
+              [3-8]
+            )|
+            4[2378]|
+            5[2-6]|
+            6(?:
+              [12]|
+              4[1-35-9]|
+              5[468]
+            )|
+            7(?:
+              2[1-8]|
+              35|
+              4[1-8]|
+              [5-79]
+            )
+          </leadingDigits>
+          <format>$1 $2 $3</format>
+          </numberFormat>
+        <numberFormat pattern="(\d{3})(\d{2})(\d{2})(\d{2,3})">
+          <leadingDigits>
+            316|
+            46|
+            51|
+            732|
+            6(?:
+              44|
+              5[0-3579]|
+              [6-9]
+            )|
+            7(?:
+              1|
+              [28]0
+            )|
+            [89]
+          </leadingDigits>
+          <format>$1 $2 $3 $4</format>
+        </numberFormat>
+      </availableFormats>
+    </territory>
+
     <!-- Australia (AU) -->
     <territory countryCode="61">
       <availableFormats>
@@ -96,51 +220,6 @@
         <numberFormat pattern="([2378])(\d{8})">
           <leadingDigits>[2378]</leadingDigits>
           <format>$1 $2</format>
-        </numberFormat>
-      </availableFormats>
-    </territory>
-
-    <!-- Austria (AT) -->
-    <territory countryCode="43">
-      <availableFormats>
-        <numberFormat pattern="(5)(\d{3,12})">
-         <leadingDigits>5[079]</leadingDigits>
-           <format>$1 $2</format>
-        </numberFormat>
-        <numberFormat pattern="(50)(\d{2})(\d{2})(\d{2,4})">
-          <leadingDigits>50</leadingDigits>
-          <format>$1 $2 $3 $4</format>
-        </numberFormat>
-        <numberFormat pattern="(5\d)(\d{2})(\d{2})(\d{2})(\d{2,4})">
-          <leadingDigits>5[079]</leadingDigits>
-          <format>$1 $2 $3 $4 $5</format>
-        </numberFormat>
-        <numberFormat pattern="(5\d)(\d{5})(\d{4,6})">
-          <leadingDigits>5[079]</leadingDigits>
-          <format>$1 $2 $3</format>
-        </numberFormat>
-        <numberFormat pattern="(5\d)(\d{6,7})">
-          <leadingDigits>5[079]</leadingDigits>
-          <format>$1 $2</format>
-        </numberFormat>
-        <numberFormat pattern="(\d{3})(\d{2})(\d{2})(\d{2,3})">
-          <leadingDigits>
-            316|
-            46|
-            51|
-            732|
-            6(?:
-              44|
-              5[0-3579]|
-              [6-9]
-            )|
-            7(?:
-              1|
-              [28]0
-            )|
-            [89]
-          </leadingDigits>
-          <format>$1 $2 $3 $4</format>
         </numberFormat>
       </availableFormats>
     </territory>
@@ -181,12 +260,15 @@
       </availableFormats>
     </territory>
 
-    <!-- Belarus (BY) -->
-    <territory countryCode="375">
+    <!-- Costa Rica (CR) -->
+    <territory countryCode="506">
       <availableFormats>
-        <numberFormat pattern="(\d{2})(\d{3})(\d{2})(\d{2})">
-          <leadingDigits>[1-4]</leadingDigits>
-          <format>$1 $2 $3 $4</format>
+        <numberFormat pattern="(\d{4})(\d{2})(\d{2})">
+          <leadingDigits>
+            [24-7]|
+            8[3-9]
+          </leadingDigits>
+          <format>$1 $2 $3</format>
         </numberFormat>
       </availableFormats>
     </territory>
@@ -999,6 +1081,16 @@
       </availableFormats>
     </territory>
 
+    <!-- Fiji (FJ) -->
+    <territory countryCode="679">
+      <availableFormats>
+        <numberFormat pattern="(7\d)(\d{3})(\d{2})">
+          <leadingDigits>7</leadingDigits>
+          <format>$1 $2 $3</format>
+        </numberFormat>
+      </availableFormats>
+    </territory>
+
     <!-- Great Britain (GB) -->
     <territory countryCode="44" >
       <availableFormats>
@@ -1126,6 +1218,235 @@
       </availableFormats>
     </territory>
 
+    <!-- India (IN) -->
+    <territory countryCode="91">
+      <availableFormats>
+        <!-- Mobile numbers. -->
+        <numberFormat nationalPrefixFormattingRule="($NP$FG)"
+          pattern="(\d{2})(\d{2})(\d{6})">
+           <leadingDigits>
+             7(?:
+               0[2-8]|
+               2[0579]|
+               3[057-9]|
+               4[0-389]|
+               6[0-35-9]|
+               [57]|
+               8[0-79]
+             )|
+             8(?:
+               0[015689]|
+               1[0-57-9]|
+               2[2356-9]|
+               3[0-57-9]|
+               [45]|
+               6[02457-9]|
+               7[1-69]|
+               8[0124-9]|
+               9[02-9]
+             )|
+             9
+           </leadingDigits>
+           <leadingDigits>
+             7(?:
+               0(?:
+                 2[2-9]|
+                 [3-7]|
+                 8[0-7]
+               )|
+               2(?:
+                 0[04-9]|
+                 5[09]|
+                 7[5-8]|
+                 9[389]
+               )|
+               3(?:
+                 0[1-9]|
+                 [58]|
+                 7[3679]|
+                 9[689]
+               )|
+               4(?:
+                 0[1-9]|
+                 1[15-9]|
+                 [29][89]|
+                 39|
+                 8[389]
+               )|
+               5(?:
+                 [034678]|
+                 2[03-9]|
+                 5[017-9]|
+                 9[7-9]
+               )|
+               6(?:
+                 0[0-27]|
+                 1[0-257-9]|
+                 2[0-4]|
+                 3[19]|
+                 5[4589]|
+                 [6-9]
+               )|
+               7(?:
+                 0[2-9]|
+                 [1-79]|
+                 8[1-9]
+               )|
+               8(?:
+                 [0-7]|
+                 9[013-9]
+               )
+             )|
+             8(?:
+               0(?:
+                 [01589]|
+                 6[67]
+               )|
+               1(?:
+                 [02-589]|
+                 1[0135-9]|
+                 7[0-79]
+               )|
+               2(?:
+                 [236-9]|
+                 5[1-9]
+               )|
+               3(?:
+                 [0357-9]|
+                 4[1-9]
+               )|
+               [45]|
+               6[02457-9]|
+               7[1-69]|
+               8(?:
+                 [0-26-9]|
+                 44|
+                 5[2-9]
+               )|
+               9(?:
+                 [035-9]|
+                 2[2-9]|
+                 4[0-8]
+               )
+             )|
+             9
+           </leadingDigits>
+          <format>$1 $2 $3</format>
+        </numberFormat>
+        <numberFormat nationalPrefixFormattingRule="($NP$FG)"
+          pattern="(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})">
+           <leadingDigits>
+             7(?:
+               0[2-8]|
+               2[0579]|
+               3[057-9]|
+               4[0-389]|
+               6[0-35-9]|
+               [57]|
+               8[0-79]
+             )|
+             8(?:
+               0[015689]|
+               1[0-57-9]|
+               2[2356-9]|
+               3[0-57-9]|
+               [45]|
+               6[02457-9]|
+               7[1-69]|
+               8[0124-9]|
+               9[02-9]
+             )|
+             9
+           </leadingDigits>
+           <leadingDigits>
+             7(?:
+               0(?:
+                 2[2-9]|
+                 [3-7]|
+                 8[0-7]
+               )|
+               2(?:
+                 0[04-9]|
+                 5[09]|
+                 7[5-8]|
+                 9[389]
+               )|
+               3(?:
+                 0[1-9]|
+                 [58]|
+                 7[3679]|
+                 9[689]
+               )|
+               4(?:
+                 0[1-9]|
+                 1[15-9]|
+                 [29][89]|
+                 39|
+                 8[389]
+               )|
+               5(?:
+                 [034678]|
+                 2[03-9]|
+                 5[017-9]|
+                 9[7-9]
+               )|
+               6(?:
+                 0[0-27]|
+                 1[0-257-9]|
+                 2[0-4]|
+                 3[19]|
+                 5[4589]|
+                 [6-9]
+               )|
+               7(?:
+                 0[2-9]|
+                 [1-79]|
+                 8[1-9]
+               )|
+               8(?:
+                 [0-7]|
+                 9[013-9]
+               )
+             )|
+             8(?:
+               0(?:
+                 [01589]|
+                 6[67]
+               )|
+               1(?:
+                 [02-589]|
+                 1[0135-9]|
+                 7[0-79]
+               )|
+               2(?:
+                 [236-9]|
+                 5[1-9]
+               )|
+               3(?:
+                 [0357-9]|
+                 4[1-9]
+               )|
+               [45]|
+               6[02457-9]|
+               7[1-69]|
+               8(?:
+                 [0-26-9]|
+                 44|
+                 5[2-9]
+               )|
+               9(?:
+                 [035-9]|
+                 2[2-9]|
+                 4[0-8]
+               )
+             )|
+             9
+           </leadingDigits>
+          <format>$1 $2 $3 $4 $5</format>
+        </numberFormat>
+      </availableFormats>
+    </territory>
+
     <!-- Japan (JP) -->
     <territory countryCode="81" >
       <availableFormats>
@@ -1203,6 +1524,26 @@
         </numberFormat>
         <numberFormat pattern="(\d{2})(\d{3})(\d{3})">
           <leadingDigits>[67]</leadingDigits>
+          <format>$1 $2 $3</format>
+        </numberFormat>
+      </availableFormats>
+    </territory>
+
+    <!-- Myanmar (MM) -->
+    <territory countryCode="95">
+      <availableFormats>
+        <numberFormat pattern="(9)(\d{4})(\d{5})">
+          <leadingDigits>925</leadingDigits>
+          <format>$1 $2 $3</format>
+        </numberFormat>
+      </availableFormats>
+    </territory>
+
+    <!-- Nicaragua (NI) -->
+    <territory  countryCode="505">
+      <availableFormats>
+        <numberFormat pattern="(\d)(\d{3})(\d{4})">
+          <leadingDigits>2</leadingDigits>
           <format>$1 $2 $3</format>
         </numberFormat>
       </availableFormats>
@@ -1298,6 +1639,57 @@
       </availableFormats>
     </territory>
 
+    <!-- Serbia (RS )-->
+    <territory countryCode="381">
+      <availableFormats>
+        <numberFormat pattern="([23]\d{2})(\d{4,9})">
+          <leadingDigits>
+            (?:
+              2[389]|
+              39
+            )0
+          </leadingDigits>
+          <format>$1 $2</format>
+        </numberFormat>
+        <numberFormat pattern="([1-3]\d)(\d{3})(\d{3})">
+          <leadingDigits>
+            1|
+            2(?:
+              [0-24-7]|
+              [389][1-9]
+            )|
+            3(?:
+              [0-8]|
+              9[1-9]
+            )
+          </leadingDigits>
+          <format>$1 $2 $3</format>
+        </numberFormat>
+        <numberFormat pattern="([1-3]\d)(\d{2})(\d{2})(\d{3})">
+          <leadingDigits>
+            1|
+            2(?:
+              [0-24-7]|
+              [389][1-9]
+            )|
+            3(?:
+              [0-8]|
+              9[1-9]
+            )
+          </leadingDigits>
+          <format>$1 $2 $3 $4</format>
+        </numberFormat>
+        <numberFormat pattern="(6\d)(\d{3})(\d{2})(\d{2})">
+          <leadingDigits>6</leadingDigits>
+          <format>$1 $2 $3 $4</format>
+        </numberFormat>
+        <numberFormat pattern="(6\d)(\d{3})(\d{3})">
+          <leadingDigits>6</leadingDigits>
+          <format>$1 $2 $3</format>
+        </numberFormat>
+      </availableFormats>
+    </territory>
+
     <!-- Russian Federation (RU) -->
     <territory countryCode="7">
       <availableFormats>
@@ -1347,6 +1739,20 @@
             )
           </leadingDigits>
           <format>$1 $2 $3 $4</format>
+        </numberFormat>
+      </availableFormats>
+    </territory>
+
+    <!-- Tanzania (TZ) -->
+    <territory countryCode="255">
+      <availableFormats>
+        <numberFormat pattern="([67]\d)(\d{3})(\d{4})">
+          <leadingDigits>[67]</leadingDigits>
+          <format>$1 $2 $3</format>
+        </numberFormat>
+        <numberFormat pattern="([67]\d)(\d{4})(\d{3})">
+          <leadingDigits>[67]</leadingDigits>
+          <format>$1 $2 $3</format>
         </numberFormat>
       </availableFormats>
     </territory>
@@ -1417,6 +1823,16 @@
         <numberFormat pattern="([48])(\d{2})(\d{3})(\d{3})">
           <leadingDigits>[48]</leadingDigits>
           <format>$1 $2 $3 $4</format>
+        </numberFormat>
+      </availableFormats>
+    </territory>
+
+    <!-- South Africa (ZA) -->
+    <territory countryCode="27">
+      <availableFormats>
+        <numberFormat pattern="(86\d)(\d{3})(\d{3})">
+          <leadingDigits>86[1-9]</leadingDigits>
+          <format>$1 $2 $3</format>
         </numberFormat>
       </availableFormats>
     </territory>

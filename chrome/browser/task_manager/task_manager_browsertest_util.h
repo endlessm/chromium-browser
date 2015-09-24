@@ -21,6 +21,27 @@ namespace browsertest_util {
 void WaitForTaskManagerRows(int resource_count,
                             const base::string16& title_pattern);
 
+// Specifies some integer-valued column of numeric data reported by the task
+// manager model. Please add more here as needed by tests.
+enum ColumnSpecifier {
+  V8_MEMORY,
+  V8_MEMORY_USED,
+  SQLITE_MEMORY_USED,
+
+  COLUMN_NONE,  // Default value.
+};
+
+// Waits for the row identified by |title_pattern| to be showing a numeric data
+// value of at least |min_column_value| in the task manager column identified by
+// |column_specifier|. As with WaitForTaskManagerRows(), |title_pattern| is
+// meant to be a string returned by MatchTab() or similar.
+//
+// To get meaningful errors, tests should wrap invocations of this function with
+// ASSERT_NO_FATAL_FAILURE().
+void WaitForTaskManagerStatToExceed(const base::string16& title_pattern,
+                                    ColumnSpecifier column_specifier,
+                                    size_t min_column_value);
+
 // ASCII matcher convenience functions for use with WaitForTaskManagerRows()
 base::string16 MatchTab(const char* title);         // "Tab: " + title
 base::string16 MatchAnyTab();                       // "Tab: *"
@@ -35,6 +56,11 @@ base::string16 MatchBackground(const char* title);  // "Background: " + title
 base::string16 MatchAnyBackground();                // "Background: *"
 base::string16 MatchPrint(const char* title);       // "Print: " + title
 base::string16 MatchAnyPrint();                     // "Print: *"
+base::string16 MatchSubframe(const char* title);    // "Subframe: " + title
+base::string16 MatchAnySubframe();                  // "Subframe: *"
+// "Utility: " + title
+base::string16 MatchUtility(const base::string16& title);
+base::string16 MatchAnyUtility();                   // "Utility: *"
 
 }  // namespace browsertest_util
 }  // namespace task_manager

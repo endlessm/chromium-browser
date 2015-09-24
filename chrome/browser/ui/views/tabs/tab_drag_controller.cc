@@ -71,11 +71,17 @@ const int kMoveAttachedInitialDelay = 600;
 // Delay for moving tabs after the initial delay has passed.
 const int kMoveAttachedSubsequentDelay = 300;
 
-const int kHorizontalMoveThreshold = 16;  // Pixels.
+const int kHorizontalMoveThreshold = 16;  // DIPs.
 
 // Distance from the next/previous stacked before before we consider the tab
 // close enough to trigger moving.
 const int kStackedDistance = 36;
+
+// A dragged window is forced to be a bit smaller than maximized bounds during a
+// drag. This prevents the dragged browser widget from getting maximized at
+// creation and makes it easier to drag tabs out of a restored window that had
+// maximized size.
+const int kMaximizedWindowInset = 10;  // DIPs.
 
 #if defined(USE_ASH)
 void SetWindowPositionManaged(gfx::NativeWindow window, bool value) {
@@ -147,7 +153,7 @@ class EscapeTracker : public ui::EventHandler {
  public:
   explicit EscapeTracker(const base::Closure& callback)
       : escape_callback_(callback),
-        event_monitor_(views::EventMonitor::Create(this)) {
+        event_monitor_(views::EventMonitor::CreateApplicationMonitor(this)) {
   }
 
  private:
@@ -586,6 +592,14 @@ TabDragController::DragBrowserToNewTabStrip(
     DetachIntoNewBrowserAndRunMoveLoop(point_in_screen);
     return DRAG_BROWSER_RESULT_STOP;
   }
+
+#if defined(USE_AURA)
+  // Only Aura windows are gesture consumers.
+  ui::GestureRecognizer::Get()->TransferEventsTo(
+      GetAttachedBrowserWidget()->GetNativeView(),
+      target_tabstrip->GetWidget()->GetNativeView());
+#endif
+
   if (is_dragging_window_) {
     // ReleaseCapture() is going to result in calling back to us (because it
     // results in a move). That'll cause all sorts of problems.  Reset the
@@ -605,17 +619,6 @@ TabDragController::DragBrowserToNewTabStrip(
       browser_widget->ReleaseCapture();
     else
       target_tabstrip->GetWidget()->SetCapture(attached_tabstrip_);
-#if defined(OS_WIN)
-    // The Gesture recognizer does not work well currently when capture changes
-    // while a touch gesture is in progress. So we need to manually transfer
-    // gesture sequence and the GR's touch events queue to the new window. This
-    // should really be done somewhere in capture change code and or inside the
-    // GR. But we currently do not have a consistent way for doing it that would
-    // work in all cases. Hence this hack.
-    ui::GestureRecognizer::Get()->TransferEventsTo(
-        browser_widget->GetNativeView(),
-        target_tabstrip->GetWidget()->GetNativeView());
-#endif
 
     // The window is going away. Since the drag is still on going we don't want
     // that to effect the position of any windows.
@@ -679,7 +682,7 @@ void TabDragController::MoveAttachedToNextStackedIndex(
 void TabDragController::MoveAttachedToPreviousStackedIndex(
     const gfx::Point& point_in_screen) {
   int index = attached_tabstrip_->touch_layout_->active_index();
-  if (index <= attached_tabstrip_->GetMiniTabCount())
+  if (index <= attached_tabstrip_->GetPinnedTabCount())
     return;
 
   GetModel(attached_tabstrip_)->MoveSelectedTabsTo(index - 1);
@@ -1028,25 +1031,21 @@ void TabDragController::DetachIntoNewBrowserAndRunMoveLoop(
   gfx::Vector2d drag_offset;
   Browser* browser = CreateBrowserForDrag(
       attached_tabstrip_, point_in_screen, &drag_offset, &drag_bounds);
-#if defined(OS_WIN)
-  gfx::NativeView attached_native_view =
-    attached_tabstrip_->GetWidget()->GetNativeView();
-#endif
-  Detach(can_release_capture_ ? RELEASE_CAPTURE : DONT_RELEASE_CAPTURE);
+
   BrowserView* dragged_browser_view =
       BrowserView::GetBrowserViewForBrowser(browser);
   views::Widget* dragged_widget = dragged_browser_view->GetWidget();
-#if defined(OS_WIN)
-    // The Gesture recognizer does not work well currently when capture changes
-    // while a touch gesture is in progress. So we need to manually transfer
-    // gesture sequence and the GR's touch events queue to the new window. This
-    // should really be done somewhere in capture change code and or inside the
-    // GR. But we currently do not have a consistent way for doing it that would
-    // work in all cases. Hence this hack.
-    ui::GestureRecognizer::Get()->TransferEventsTo(
-        attached_native_view,
-        dragged_widget->GetNativeView());
+
+#if defined(USE_AURA)
+  // Only Aura windows are gesture consumers.
+  gfx::NativeView attached_native_view =
+      attached_tabstrip_->GetWidget()->GetNativeView();
+  ui::GestureRecognizer::Get()->TransferEventsTo(
+      attached_native_view, dragged_widget->GetNativeView());
 #endif
+
+  Detach(can_release_capture_ ? RELEASE_CAPTURE : DONT_RELEASE_CAPTURE);
+
   dragged_widget->SetVisibilityChangedAnimationsEnabled(false);
   Attach(dragged_browser_view->tabstrip(), gfx::Point());
   AdjustBrowserAndTabBoundsForDrag(last_tabstrip_width,
@@ -1237,7 +1236,7 @@ bool TabDragController::ShouldDragToNextStackedTab(
 bool TabDragController::ShouldDragToPreviousStackedTab(
     const gfx::Rect& dragged_bounds,
     int index) const {
-  if (index - 1 < attached_tabstrip_->GetMiniTabCount() ||
+  if (index - 1 < attached_tabstrip_->GetPinnedTabCount() ||
       !attached_tabstrip_->touch_layout_->IsStacked(index - 1) ||
       (mouse_move_direction_ & kMovedMouseLeft) == 0)
     return false;
@@ -1647,6 +1646,20 @@ gfx::Rect TabDragController::CalculateDraggedBrowserBounds(
   gfx::Point center(0, source->height() / 2);
   views::View::ConvertPointToWidget(source, &center);
   gfx::Rect new_bounds(source->GetWidget()->GetRestoredBounds());
+
+  gfx::Rect work_area =
+      screen_->GetDisplayNearestPoint(last_point_in_screen_).work_area();
+  if (new_bounds.size().width() >= work_area.size().width() &&
+      new_bounds.size().height() >= work_area.size().height()) {
+    new_bounds = work_area;
+    new_bounds.Inset(kMaximizedWindowInset, kMaximizedWindowInset,
+                     kMaximizedWindowInset, kMaximizedWindowInset);
+    // Behave as if the |source| was maximized at the start of a drag since this
+    // is consistent with a browser window creation logic in case of windows
+    // that are as large as the |work_area|.
+    was_source_maximized_ = true;
+  }
+
   if (source->GetWidget()->IsMaximized()) {
     // If the restore bounds is really small, we don't want to honor it
     // (dragging a really small window looks wrong), instead make sure the new

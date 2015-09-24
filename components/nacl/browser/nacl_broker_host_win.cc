@@ -25,9 +25,9 @@ class NaClBrokerSandboxedProcessLauncherDelegate
     : public content::SandboxedProcessLauncherDelegate {
  public:
   NaClBrokerSandboxedProcessLauncherDelegate() {}
-  virtual ~NaClBrokerSandboxedProcessLauncherDelegate() {}
+  ~NaClBrokerSandboxedProcessLauncherDelegate() override {}
 
-  virtual bool ShouldSandbox() override {
+  bool ShouldSandbox() override {
     return false;
   }
 
@@ -40,7 +40,7 @@ namespace nacl {
 
 NaClBrokerHost::NaClBrokerHost() : is_terminating_(false) {
   process_.reset(content::BrowserChildProcessHost::Create(
-      PROCESS_TYPE_NACL_BROKER, this));
+      static_cast<content::ProcessType>(PROCESS_TYPE_NACL_BROKER), this));
 }
 
 NaClBrokerHost::~NaClBrokerHost() {
@@ -57,7 +57,7 @@ bool NaClBrokerHost::Init() {
   if (!NaClBrowser::GetInstance()->GetNaCl64ExePath(&nacl_path))
     return false;
 
-  CommandLine* cmd_line = new CommandLine(nacl_path);
+  base::CommandLine* cmd_line = new base::CommandLine(nacl_path);
   CopyNaClCommandLineArguments(cmd_line);
 
   cmd_line->AppendSwitchASCII(switches::kProcessType,
@@ -67,7 +67,8 @@ bool NaClBrokerHost::Init() {
     cmd_line->AppendSwitch(switches::kNoErrorDialogs);
 
   process_->Launch(new NaClBrokerSandboxedProcessLauncherDelegate,
-                   cmd_line);
+                   cmd_line,
+                   true);
   return true;
 }
 

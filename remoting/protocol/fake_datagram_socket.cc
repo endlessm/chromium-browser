@@ -5,6 +5,7 @@
 #include "remoting/protocol/fake_datagram_socket.h"
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
 #include "net/base/address_list.h"
@@ -34,11 +35,9 @@ void FakeDatagramSocket::AppendInputPacket(const std::string& data) {
   if (!read_callback_.is_null()) {
     DCHECK_EQ(input_pos_, static_cast<int>(input_packets_.size()) - 1);
     int result = CopyReadData(read_buffer_.get(), read_buffer_size_);
-    read_buffer_ = NULL;
+    read_buffer_ = nullptr;
 
-    net::CompletionCallback callback = read_callback_;
-    read_callback_.Reset();
-    callback.Run(result);
+    base::ResetAndReturn(&read_callback_).Run(result);
   }
 }
 
@@ -110,7 +109,7 @@ FakeDatagramChannelFactory::FakeDatagramChannelFactory()
 FakeDatagramChannelFactory::~FakeDatagramChannelFactory() {
   for (ChannelsMap::iterator it = channels_.begin(); it != channels_.end();
        ++it) {
-    EXPECT_TRUE(it->second == NULL);
+    EXPECT_TRUE(it->second == nullptr);
   }
 }
 
@@ -128,7 +127,7 @@ FakeDatagramSocket* FakeDatagramChannelFactory::GetFakeChannel(
 void FakeDatagramChannelFactory::CreateChannel(
     const std::string& name,
     const ChannelCreatedCallback& callback) {
-  EXPECT_TRUE(channels_[name] == NULL);
+  EXPECT_TRUE(channels_[name] == nullptr);
 
   scoped_ptr<FakeDatagramSocket> channel(new FakeDatagramSocket());
   channels_[name] = channel->GetWeakPtr();

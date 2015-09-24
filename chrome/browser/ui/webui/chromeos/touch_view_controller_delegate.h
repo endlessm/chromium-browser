@@ -26,7 +26,7 @@ class TouchViewControllerDelegate : public ash::ShellObserver {
   };
 
   TouchViewControllerDelegate();
-  virtual ~TouchViewControllerDelegate();
+  ~TouchViewControllerDelegate() override;
 
   // Add/Remove observers.
   void AddObserver(Observer* observer);
@@ -38,11 +38,11 @@ class TouchViewControllerDelegate : public ash::ShellObserver {
 
  private:
   // ash::ShellObserver implementation:
-  virtual void OnMaximizeModeStarted() override;
-  virtual void OnMaximizeModeEnded() override;
+  void OnMaximizeModeStarted() override;
+  void OnMaximizeModeEnded() override;
 
   // Mode state change observers.
-  ObserverList<Observer> observers_;
+  base::ObserverList<Observer> observers_;
 
   DISALLOW_COPY_AND_ASSIGN(TouchViewControllerDelegate);
 };

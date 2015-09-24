@@ -12,7 +12,10 @@
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 
 class KeyedService;
-class Profile;
+
+namespace content {
+class BrowserContext;
+}
 
 namespace ownership {
 class OwnerKeyUtil;
@@ -26,7 +29,8 @@ class OwnerSettingsServiceChromeOS;
 class OwnerSettingsServiceChromeOSFactory
     : public BrowserContextKeyedServiceFactory {
  public:
-  static OwnerSettingsServiceChromeOS* GetForProfile(Profile* profile);
+  static OwnerSettingsServiceChromeOS* GetForBrowserContext(
+      content::BrowserContext* context);
 
   static OwnerSettingsServiceChromeOSFactory* GetInstance();
 
@@ -42,15 +46,15 @@ class OwnerSettingsServiceChromeOSFactory
   friend struct DefaultSingletonTraits<OwnerSettingsServiceChromeOSFactory>;
 
   OwnerSettingsServiceChromeOSFactory();
-  virtual ~OwnerSettingsServiceChromeOSFactory();
+  ~OwnerSettingsServiceChromeOSFactory() override;
 
   static KeyedService* BuildInstanceFor(content::BrowserContext* context);
 
   // BrowserContextKeyedBaseFactory overrides:
-  virtual bool ServiceIsCreatedWithBrowserContext() const override;
+  bool ServiceIsCreatedWithBrowserContext() const override;
 
   // BrowserContextKeyedServiceFactory implementation:
-  virtual KeyedService* BuildServiceInstanceFor(
+  KeyedService* BuildServiceInstanceFor(
       content::BrowserContext* browser_context) const override;
 
   scoped_refptr<ownership::OwnerKeyUtil> owner_key_util_;

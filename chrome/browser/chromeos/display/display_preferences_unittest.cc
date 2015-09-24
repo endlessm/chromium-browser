@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "ash/content/display/screen_orientation_controller_chromeos.h"
 #include "ash/display/display_controller.h"
 #include "ash/display/display_layout_store.h"
 #include "ash/display/display_manager.h"
@@ -16,6 +17,7 @@
 #include "ash/test/ash_test_base.h"
 #include "ash/test/display_manager_test_api.h"
 #include "ash/wm/maximize_mode/maximize_mode_controller.h"
+#include "base/memory/ref_counted.h"
 #include "base/prefs/scoped_user_pref_update.h"
 #include "base/prefs/testing_pref_service.h"
 #include "base/strings/string_number_conversions.h"
@@ -41,6 +43,17 @@ const char kOffsetKey[] = "offset";
 // The mean acceleration due to gravity on Earth in m/s^2.
 const float kMeanGravity = 9.80665f;
 
+bool IsRotationLocked() {
+  return ash::Shell::GetInstance()
+      ->screen_orientation_controller()
+      ->rotation_locked();
+}
+
+std::string ToPairString(const ash::DisplayIdPair& pair) {
+  return base::Int64ToString(pair.first) + "," +
+         base::Int64ToString(pair.second);
+}
+
 class DisplayPreferencesTest : public ash::test::AshTestBase {
  protected:
   DisplayPreferencesTest()
@@ -48,9 +61,9 @@ class DisplayPreferencesTest : public ash::test::AshTestBase {
         user_manager_enabler_(mock_user_manager_) {
   }
 
-  virtual ~DisplayPreferencesTest() {}
+  ~DisplayPreferencesTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     EXPECT_CALL(*mock_user_manager_, IsUserLoggedIn())
         .WillRepeatedly(testing::Return(false));
     EXPECT_CALL(*mock_user_manager_, Shutdown());
@@ -60,7 +73,7 @@ class DisplayPreferencesTest : public ash::test::AshTestBase {
     observer_.reset(new DisplayConfigurationObserver());
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     observer_.reset();
     TestingBrowserProcess::GetGlobal()->SetLocalState(NULL);
     ash::test::AshTestBase::TearDown();
@@ -69,14 +82,14 @@ class DisplayPreferencesTest : public ash::test::AshTestBase {
   void LoggedInAsUser() {
     EXPECT_CALL(*mock_user_manager_, IsUserLoggedIn())
         .WillRepeatedly(testing::Return(true));
-    EXPECT_CALL(*mock_user_manager_, IsLoggedInAsRegularUser())
+    EXPECT_CALL(*mock_user_manager_, IsLoggedInAsUserWithGaiaAccount())
         .WillRepeatedly(testing::Return(true));
   }
 
   void LoggedInAsGuest() {
     EXPECT_CALL(*mock_user_manager_, IsUserLoggedIn())
         .WillRepeatedly(testing::Return(true));
-    EXPECT_CALL(*mock_user_manager_, IsLoggedInAsRegularUser())
+    EXPECT_CALL(*mock_user_manager_, IsLoggedInAsUserWithGaiaAccount())
         .WillRepeatedly(testing::Return(false));
     EXPECT_CALL(*mock_user_manager_, IsLoggedInAsSupervisedUser())
         .WillRepeatedly(testing::Return(false));
@@ -84,10 +97,11 @@ class DisplayPreferencesTest : public ash::test::AshTestBase {
 
   // Do not use the implementation of display_preferences.cc directly to avoid
   // notifying the update to the system.
-  void StoreDisplayLayoutPrefForName(const std::string& name,
+  void StoreDisplayLayoutPrefForPair(const ash::DisplayIdPair& pair,
                                      ash::DisplayLayout::Position layout,
                                      int offset,
                                      int64 primary_id) {
+    std::string name = ToPairString(pair);
     DictionaryPrefUpdate update(&local_state_, prefs::kSecondaryDisplays);
     ash::DisplayLayout display_layout(layout, offset);
     display_layout.primary_id = primary_id;
@@ -105,21 +119,39 @@ class DisplayPreferencesTest : public ash::test::AshTestBase {
       pref_data->Set(name, layout_value.release());
   }
 
-  void StoreDisplayLayoutPrefForPair(int64 id1,
-                                     int64 id2,
-                                     ash::DisplayLayout::Position layout,
-                                     int offset) {
-    StoreDisplayLayoutPrefForName(
-        base::Int64ToString(id1) + "," + base::Int64ToString(id2),
-        layout, offset, id1);
+  void StoreDisplayPropertyForPair(const ash::DisplayIdPair& pair,
+                                   std::string key,
+                                   scoped_ptr<base::Value> value) {
+    std::string name = ToPairString(pair);
+
+    DictionaryPrefUpdate update(&local_state_, prefs::kSecondaryDisplays);
+    base::DictionaryValue* pref_data = update.Get();
+
+    if (pref_data->HasKey(name)) {
+      base::Value* layout_value = NULL;
+      pref_data->Get(name, &layout_value);
+      if (layout_value)
+        static_cast<base::DictionaryValue*>(layout_value)
+            ->Set(key, value.Pass());
+    } else {
+      scoped_ptr<base::DictionaryValue> layout_value(
+          new base::DictionaryValue());
+      layout_value->SetBoolean(key, value);
+      pref_data->Set(name, layout_value.release());
+    }
   }
 
-  void StoreDisplayLayoutPrefForSecondary(int64 id,
-                                          ash::DisplayLayout::Position layout,
-                                          int offset,
-                                          int64 primary_id) {
-    StoreDisplayLayoutPrefForName(
-        base::Int64ToString(id), layout, offset, primary_id);
+  void StoreDisplayBoolPropertyForPair(const ash::DisplayIdPair& pair,
+                                       const std::string& key,
+                                       bool value) {
+    StoreDisplayPropertyForPair(
+        pair, key, make_scoped_ptr(new base::FundamentalValue(value)));
+  }
+
+  void StoreDisplayLayoutPrefForPair(const ash::DisplayIdPair& pair,
+                                     ash::DisplayLayout::Position layout,
+                                     int offset) {
+    StoreDisplayLayoutPrefForPair(pair, layout, offset, pair.first);
   }
 
   void StoreDisplayOverscan(int64 id, const gfx::Insets& insets) {
@@ -153,10 +185,7 @@ class DisplayPreferencesTest : public ash::test::AshTestBase {
     pref_data->SetInteger("orientation", static_cast<int>(rotation));
   }
 
-  std::string GetRegisteredDisplayLayoutStr(int64 id1, int64 id2) {
-    ash::DisplayIdPair pair;
-    pair.first = id1;
-    pair.second = id2;
+  std::string GetRegisteredDisplayLayoutStr(const ash::DisplayIdPair& pair) {
     return ash::Shell::GetInstance()->display_manager()->layout_store()->
         GetRegisteredDisplayLayout(pair).ToString();
   }
@@ -176,13 +205,15 @@ class DisplayPreferencesTest : public ash::test::AshTestBase {
 
 TEST_F(DisplayPreferencesTest, PairedLayoutOverrides) {
   UpdateDisplay("100x100,200x200");
-  int64 id1 = gfx::Screen::GetNativeScreen()->GetPrimaryDisplay().id();
-  int64 id2 = ash::ScreenUtil::GetSecondaryDisplay().id();
-  int64 dummy_id = id2 + 1;
-  ASSERT_NE(id1, dummy_id);
+  ash::DisplayManager* display_manager =
+      ash::Shell::GetInstance()->display_manager();
 
-  StoreDisplayLayoutPrefForPair(id1, id2, ash::DisplayLayout::TOP, 20);
-  StoreDisplayLayoutPrefForPair(id1, dummy_id, ash::DisplayLayout::LEFT, 30);
+  ash::DisplayIdPair pair = display_manager->GetCurrentDisplayIdPair();
+  ash::DisplayIdPair dummy_pair = std::make_pair(pair.first, pair.second + 1);
+  ASSERT_NE(pair.first, dummy_pair.second);
+
+  StoreDisplayLayoutPrefForPair(pair, ash::DisplayLayout::TOP, 20);
+  StoreDisplayLayoutPrefForPair(dummy_pair, ash::DisplayLayout::LEFT, 30);
   StoreDisplayPowerStateForTest(
       chromeos::DISPLAY_POWER_INTERNAL_OFF_EXTERNAL_ON);
 
@@ -200,8 +231,8 @@ TEST_F(DisplayPreferencesTest, PairedLayoutOverrides) {
   // (id1, dummy_id) since dummy_id is not connected right now.
   EXPECT_EQ("top, 20",
             shell->display_manager()->GetCurrentDisplayLayout().ToString());
-  EXPECT_EQ("top, 20", GetRegisteredDisplayLayoutStr(id1, id2));
-  EXPECT_EQ("left, 30", GetRegisteredDisplayLayoutStr(id1, dummy_id));
+  EXPECT_EQ("top, 20", GetRegisteredDisplayLayoutStr(pair));
+  EXPECT_EQ("left, 30", GetRegisteredDisplayLayoutStr(dummy_pair));
 }
 
 TEST_F(DisplayPreferencesTest, BasicStores) {
@@ -212,7 +243,8 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
 
   UpdateDisplay("200x200*2, 400x300#400x400|300x200*1.25");
   int64 id1 = gfx::Screen::GetNativeScreen()->GetPrimaryDisplay().id();
-  gfx::Display::SetInternalDisplayId(id1);
+  ash::test::DisplayManagerTestApi test_api(display_manager);
+  test_api.SetInternalDisplayId(id1);
   int64 id2 = ash::ScreenUtil::GetSecondaryDisplay().id();
   int64 dummy_id = id2 + 1;
   ASSERT_NE(id1, dummy_id);
@@ -221,7 +253,6 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
   profiles.push_back(ui::COLOR_PROFILE_DYNAMIC);
   profiles.push_back(ui::COLOR_PROFILE_MOVIE);
   profiles.push_back(ui::COLOR_PROFILE_READING);
-  ash::test::DisplayManagerTestApi test_api(display_manager);
   // Allows only |id1|.
   test_api.SetAvailableColorProfiles(id1, profiles);
   display_manager->SetColorCalibrationProfile(id1, ui::COLOR_PROFILE_DYNAMIC);
@@ -237,9 +268,10 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
   EXPECT_NE(dummy_id, ash::Shell::GetScreen()->GetPrimaryDisplay().id());
 
   display_controller->SetOverscanInsets(id1, gfx::Insets(10, 11, 12, 13));
-  display_manager->SetDisplayRotation(id1, gfx::Display::ROTATE_90);
-  display_manager->SetDisplayUIScale(id1, 1.25f);
-  display_manager->SetDisplayUIScale(id2, 1.25f);
+  display_manager->SetDisplayRotation(id1, gfx::Display::ROTATE_90,
+                                      gfx::Display::ROTATION_SOURCE_USER);
+  EXPECT_TRUE(display_manager->SetDisplayUIScale(id1, 1.25f));
+  EXPECT_FALSE(display_manager->SetDisplayUIScale(id2, 1.25f));
 
   const base::DictionaryValue* displays =
       local_state()->GetDictionary(prefs::kSecondaryDisplays);
@@ -557,7 +589,8 @@ TEST_F(DisplayPreferencesTest, DontStoreInGuestMode) {
 
   LoggedInAsGuest();
   int64 id1 = ash::Shell::GetScreen()->GetPrimaryDisplay().id();
-  gfx::Display::SetInternalDisplayId(id1);
+  ash::test::DisplayManagerTestApi(display_manager)
+      .SetInternalDisplayId(id1);
   int64 id2 = ash::ScreenUtil::GetSecondaryDisplay().id();
   ash::DisplayLayout layout(ash::DisplayLayout::TOP, 10);
   SetCurrentDisplayLayout(layout);
@@ -567,7 +600,8 @@ TEST_F(DisplayPreferencesTest, DontStoreInGuestMode) {
   display_controller->SetOverscanInsets(
       new_primary,
       gfx::Insets(10, 11, 12, 13));
-  display_manager->SetDisplayRotation(new_primary, gfx::Display::ROTATE_90);
+  display_manager->SetDisplayRotation(new_primary, gfx::Display::ROTATE_90,
+                                      gfx::Display::ROTATION_SOURCE_USER);
 
   // Does not store the preferences locally.
   EXPECT_FALSE(local_state()->FindPreference(
@@ -590,7 +624,7 @@ TEST_F(DisplayPreferencesTest, DontStoreInGuestMode) {
 
   const ash::DisplayInfo& info_primary =
       display_manager->GetDisplayInfo(new_primary);
-  EXPECT_EQ(gfx::Display::ROTATE_90, info_primary.rotation());
+  EXPECT_EQ(gfx::Display::ROTATE_90, info_primary.GetActiveRotation());
   EXPECT_EQ(1.0f, info_primary.configured_ui_scale());
 }
 
@@ -654,35 +688,36 @@ TEST_F(DisplayPreferencesTest, DontSaveAndRestoreAllOff) {
 // are not saved.
 TEST_F(DisplayPreferencesTest, DontSaveMaximizeModeControllerRotations) {
   ash::Shell* shell = ash::Shell::GetInstance();
-  ash::MaximizeModeController* controller = shell->maximize_mode_controller();
   gfx::Display::SetInternalDisplayId(
       gfx::Screen::GetNativeScreen()->GetPrimaryDisplay().id());
   ash::DisplayManager* display_manager = shell->display_manager();
   LoggedInAsUser();
   // Populate the properties.
   display_manager->SetDisplayRotation(gfx::Display::InternalDisplayId(),
-                                      gfx::Display::ROTATE_180);
+                                      gfx::Display::ROTATE_180,
+                                      gfx::Display::ROTATION_SOURCE_USER);
   // Reset property to avoid rotation lock
   display_manager->SetDisplayRotation(gfx::Display::InternalDisplayId(),
-                                      gfx::Display::ROTATE_0);
+                                      gfx::Display::ROTATE_0,
+                                      gfx::Display::ROTATION_SOURCE_USER);
 
   // Open up 270 degrees to trigger maximize mode
-  ui::AccelerometerUpdate update;
-  update.Set(ui::ACCELEROMETER_SOURCE_ATTACHED_KEYBOARD,
-             0.0f, 0.0f, kMeanGravity);
-  update.Set(ui::ACCELEROMETER_SOURCE_SCREEN,
-             0.0f, -kMeanGravity, 0.0f);
+  scoped_refptr<chromeos::AccelerometerUpdate> update(
+      new chromeos::AccelerometerUpdate());
+  update->Set(chromeos::ACCELEROMETER_SOURCE_ATTACHED_KEYBOARD, 0.0f, 0.0f,
+             kMeanGravity);
+  update->Set(chromeos::ACCELEROMETER_SOURCE_SCREEN, 0.0f, -kMeanGravity, 0.0f);
+  ash::MaximizeModeController* controller = shell->maximize_mode_controller();
   controller->OnAccelerometerUpdated(update);
   EXPECT_TRUE(controller->IsMaximizeModeWindowManagerEnabled());
 
   // Trigger 90 degree rotation
-  update.Set(ui::ACCELEROMETER_SOURCE_ATTACHED_KEYBOARD,
-             -kMeanGravity, 0.0f, 0.0f);
-  update.Set(ui::ACCELEROMETER_SOURCE_SCREEN,
-             -kMeanGravity, 0.0f, 0.0f);
+  update->Set(chromeos::ACCELEROMETER_SOURCE_ATTACHED_KEYBOARD, -kMeanGravity,
+             0.0f, 0.0f);
+  update->Set(chromeos::ACCELEROMETER_SOURCE_SCREEN, -kMeanGravity, 0.0f, 0.0f);
   controller->OnAccelerometerUpdated(update);
-  EXPECT_EQ(gfx::Display::ROTATE_90, display_manager->
-                GetDisplayInfo(gfx::Display::InternalDisplayId()).rotation());
+  shell->screen_orientation_controller()->OnAccelerometerUpdated(update);
+  EXPECT_EQ(gfx::Display::ROTATE_90, GetCurrentInternalDisplayRotation());
 
   const base::DictionaryValue* properties =
       local_state()->GetDictionary(prefs::kDisplayProperties);
@@ -690,6 +725,17 @@ TEST_F(DisplayPreferencesTest, DontSaveMaximizeModeControllerRotations) {
   EXPECT_TRUE(properties->GetDictionary(
       base::Int64ToString(gfx::Display::InternalDisplayId()), &property));
   int rotation = -1;
+  EXPECT_TRUE(property->GetInteger("rotation", &rotation));
+  EXPECT_EQ(gfx::Display::ROTATE_0, rotation);
+
+  // Trigger a save, the acceleration rotation should not be saved as the user
+  // rotation.
+  StoreDisplayPrefs();
+  properties = local_state()->GetDictionary(prefs::kDisplayProperties);
+  property = NULL;
+  EXPECT_TRUE(properties->GetDictionary(
+      base::Int64ToString(gfx::Display::InternalDisplayId()), &property));
+  rotation = -1;
   EXPECT_TRUE(property->GetInteger("rotation", &rotation));
   EXPECT_EQ(gfx::Display::ROTATE_0, rotation);
 }
@@ -700,8 +746,7 @@ TEST_F(DisplayPreferencesTest, StoreRotationStateNoLogin) {
             gfx::Screen::GetNativeScreen()->GetPrimaryDisplay().id());
   EXPECT_FALSE(local_state()->HasPrefPath(prefs::kDisplayRotationLock));
 
-  bool current_rotation_lock =
-      ash::Shell::GetInstance()->maximize_mode_controller()->rotation_locked();
+  bool current_rotation_lock = IsRotationLocked();
   StoreDisplayRotationPrefs(current_rotation_lock);
   EXPECT_TRUE(local_state()->HasPrefPath(prefs::kDisplayRotationLock));
 
@@ -712,9 +757,7 @@ TEST_F(DisplayPreferencesTest, StoreRotationStateNoLogin) {
   EXPECT_EQ(current_rotation_lock, rotation_lock);
 
   int orientation;
-  gfx::Display::Rotation current_rotation = ash::Shell::GetInstance()->
-      display_manager()->
-          GetDisplayInfo(gfx::Display::InternalDisplayId()).rotation();
+  gfx::Display::Rotation current_rotation = GetCurrentInternalDisplayRotation();
   EXPECT_TRUE(properties->GetInteger("orientation", &orientation));
   EXPECT_EQ(current_rotation, orientation);
 }
@@ -726,8 +769,7 @@ TEST_F(DisplayPreferencesTest, StoreRotationStateGuest) {
   EXPECT_FALSE(local_state()->HasPrefPath(prefs::kDisplayRotationLock));
   LoggedInAsGuest();
 
-  bool current_rotation_lock =
-      ash::Shell::GetInstance()->maximize_mode_controller()->rotation_locked();
+  bool current_rotation_lock = IsRotationLocked();
   StoreDisplayRotationPrefs(current_rotation_lock);
   EXPECT_TRUE(local_state()->HasPrefPath(prefs::kDisplayRotationLock));
 
@@ -738,9 +780,7 @@ TEST_F(DisplayPreferencesTest, StoreRotationStateGuest) {
   EXPECT_EQ(current_rotation_lock, rotation_lock);
 
   int orientation;
-  gfx::Display::Rotation current_rotation = ash::Shell::GetInstance()->
-      display_manager()->
-          GetDisplayInfo(gfx::Display::InternalDisplayId()).rotation();
+  gfx::Display::Rotation current_rotation = GetCurrentInternalDisplayRotation();
   EXPECT_TRUE(properties->GetInteger("orientation", &orientation));
   EXPECT_EQ(current_rotation, orientation);
 }
@@ -752,8 +792,7 @@ TEST_F(DisplayPreferencesTest, StoreRotationStateNormalUser) {
   EXPECT_FALSE(local_state()->HasPrefPath(prefs::kDisplayRotationLock));
   LoggedInAsGuest();
 
-  bool current_rotation_lock =
-      ash::Shell::GetInstance()->maximize_mode_controller()->rotation_locked();
+  bool current_rotation_lock = IsRotationLocked();
   StoreDisplayRotationPrefs(current_rotation_lock);
   EXPECT_TRUE(local_state()->HasPrefPath(prefs::kDisplayRotationLock));
 
@@ -764,9 +803,7 @@ TEST_F(DisplayPreferencesTest, StoreRotationStateNormalUser) {
   EXPECT_EQ(current_rotation_lock, rotation_lock);
 
   int orientation;
-  gfx::Display::Rotation current_rotation = ash::Shell::GetInstance()->
-      display_manager()->
-          GetDisplayInfo(gfx::Display::InternalDisplayId()).rotation();
+  gfx::Display::Rotation current_rotation = GetCurrentInternalDisplayRotation();
   EXPECT_TRUE(properties->GetInteger("orientation", &orientation));
   EXPECT_EQ(current_rotation, orientation);
 }
@@ -779,13 +816,10 @@ TEST_F(DisplayPreferencesTest, LoadRotationNoLogin) {
   ASSERT_FALSE(local_state()->HasPrefPath(prefs::kDisplayRotationLock));
 
   ash::Shell* shell = ash::Shell::GetInstance();
-  ash::MaximizeModeController* maximize_mode_controller =
-      shell->maximize_mode_controller();
-  bool initial_rotation_lock = maximize_mode_controller->rotation_locked();
+  bool initial_rotation_lock = IsRotationLocked();
   ASSERT_FALSE(initial_rotation_lock);
   ash::DisplayManager* display_manager = shell->display_manager();
-  gfx::Display::Rotation initial_rotation = display_manager->
-      GetDisplayInfo(gfx::Display::InternalDisplayId()).rotation();
+  gfx::Display::Rotation initial_rotation = GetCurrentInternalDisplayRotation();
   ASSERT_EQ(gfx::Display::ROTATE_0, initial_rotation);
 
   StoreDisplayRotationPrefs(initial_rotation_lock);
@@ -801,62 +835,29 @@ TEST_F(DisplayPreferencesTest, LoadRotationNoLogin) {
   EXPECT_TRUE(display_rotation_lock);
   EXPECT_EQ(gfx::Display::ROTATE_90, display_rotation);
 
-  bool rotation_lock = maximize_mode_controller->rotation_locked();
-  gfx::Display::Rotation before_maximize_mode_rotation = display_manager->
-      GetDisplayInfo(gfx::Display::InternalDisplayId()).rotation();
+  bool rotation_lock = IsRotationLocked();
+  gfx::Display::Rotation before_maximize_mode_rotation =
+      GetCurrentInternalDisplayRotation();
 
   // Settings should not be applied until maximize mode activates
   EXPECT_FALSE(rotation_lock);
   EXPECT_EQ(gfx::Display::ROTATE_0, before_maximize_mode_rotation);
 
   // Open up 270 degrees to trigger maximize mode
-  ui::AccelerometerUpdate update;
-  update.Set(ui::ACCELEROMETER_SOURCE_ATTACHED_KEYBOARD,
-             0.0f, 0.0f, kMeanGravity);
-  update.Set(ui::ACCELEROMETER_SOURCE_SCREEN,
-             0.0f, -kMeanGravity, 0.0f);
-  maximize_mode_controller->OnAccelerometerUpdated(update);
-  EXPECT_TRUE(maximize_mode_controller->IsMaximizeModeWindowManagerEnabled());
-  bool maximize_mode_rotation_lock =
-      maximize_mode_controller->rotation_locked();
-  gfx::Display::Rotation maximize_mode_rotation = display_manager->
-      GetDisplayInfo(gfx::Display::InternalDisplayId()).rotation();
-  EXPECT_TRUE(maximize_mode_rotation_lock);
-  EXPECT_EQ(gfx::Display::ROTATE_90, maximize_mode_rotation);
-}
-
-// Tests that loaded rotation state is ignored if the device starts in normal
-// mode, and that they are not applied upon first entering maximize mode.
-TEST_F(DisplayPreferencesTest, LoadRotationIgnoredInNormalMode) {
-  gfx::Display::SetInternalDisplayId(
-      gfx::Screen::GetNativeScreen()->GetPrimaryDisplay().id());
-  ASSERT_FALSE(local_state()->HasPrefPath(prefs::kDisplayRotationLock));
-  StoreDisplayRotationPrefs(false /* rotation_lock*/);
-  ASSERT_TRUE(local_state()->HasPrefPath(prefs::kDisplayRotationLock));
-
-  StoreDisplayRotationPrefsForTest(true, gfx::Display::ROTATE_90);
-  LoadDisplayPreferences(false);
-
+  scoped_refptr<chromeos::AccelerometerUpdate> update(
+      new chromeos::AccelerometerUpdate());
+  update->Set(chromeos::ACCELEROMETER_SOURCE_ATTACHED_KEYBOARD, 0.0f, 0.0f,
+             kMeanGravity);
+  update->Set(chromeos::ACCELEROMETER_SOURCE_SCREEN, 0.0f, -kMeanGravity, 0.0f);
   ash::MaximizeModeController* maximize_mode_controller =
-      ash::Shell::GetInstance()->maximize_mode_controller();
-  // Lid open to 90 degrees
-  ui::AccelerometerUpdate update;
-  update.Set(ui::ACCELEROMETER_SOURCE_ATTACHED_KEYBOARD,
-             -kMeanGravity, 0.0f, 0.0f);
-  update.Set(ui::ACCELEROMETER_SOURCE_SCREEN,
-             -kMeanGravity, 0.0f, 0.0f);
-  maximize_mode_controller->OnAccelerometerUpdated(update);
-  EXPECT_FALSE(maximize_mode_controller->IsMaximizeModeWindowManagerEnabled());
-  EXPECT_FALSE(maximize_mode_controller->rotation_locked());
-
-  // Open up 270 degrees to trigger maximize mode
-  update.Set(ui::ACCELEROMETER_SOURCE_ATTACHED_KEYBOARD,
-             0.0f, 0.0f, kMeanGravity);
-  update.Set(ui::ACCELEROMETER_SOURCE_SCREEN,
-             0.0f, -kMeanGravity, 0.0f);
+      shell->maximize_mode_controller();
   maximize_mode_controller->OnAccelerometerUpdated(update);
   EXPECT_TRUE(maximize_mode_controller->IsMaximizeModeWindowManagerEnabled());
-  EXPECT_FALSE(maximize_mode_controller->rotation_locked());
+  bool screen_orientation_rotation_lock = IsRotationLocked();
+  gfx::Display::Rotation maximize_mode_rotation =
+      GetCurrentInternalDisplayRotation();
+  EXPECT_TRUE(screen_orientation_rotation_lock);
+  EXPECT_EQ(gfx::Display::ROTATE_90, maximize_mode_rotation);
 }
 
 // Tests that rotation lock being set causes the rotation state to be saved.
@@ -865,9 +866,8 @@ TEST_F(DisplayPreferencesTest, RotationLockTriggersStore) {
     gfx::Screen::GetNativeScreen()->GetPrimaryDisplay().id());
   ASSERT_FALSE(local_state()->HasPrefPath(prefs::kDisplayRotationLock));
 
-  ash::MaximizeModeController* maximize_mode_controller =
-      ash::Shell::GetInstance()->maximize_mode_controller();
-  maximize_mode_controller->SetRotationLocked(true);
+  ash::Shell::GetInstance()->screen_orientation_controller()->SetRotationLocked(
+      true);
 
   EXPECT_TRUE(local_state()->HasPrefPath(prefs::kDisplayRotationLock));
 
@@ -875,6 +875,91 @@ TEST_F(DisplayPreferencesTest, RotationLockTriggersStore) {
       local_state()->GetDictionary(prefs::kDisplayRotationLock);
   bool rotation_lock;
   EXPECT_TRUE(properties->GetBoolean("lock", &rotation_lock));
+}
+
+TEST_F(DisplayPreferencesTest, SaveUnifiedMode) {
+  UpdateDisplay("100x100,200x200");
+  LoggedInAsUser();
+  ash::DisplayManager* display_manager =
+      ash::Shell::GetInstance()->display_manager();
+  ash::DisplayIdPair pair = display_manager->GetCurrentDisplayIdPair();
+  std::string pair_key = ToPairString(pair);
+
+  // Unified mode should be recorded.
+  display_manager->SetDefaultMultiDisplayMode(ash::DisplayManager::UNIFIED);
+  display_manager->ReconfigureDisplays();
+
+  const base::DictionaryValue* displays =
+      local_state()->GetDictionary(prefs::kSecondaryDisplays);
+  const base::DictionaryValue* new_value = NULL;
+  EXPECT_TRUE(displays->GetDictionary(ToPairString(pair), &new_value));
+
+  ash::DisplayLayout stored_layout;
+  EXPECT_TRUE(ash::DisplayLayout::ConvertFromValue(*new_value, &stored_layout));
+  EXPECT_TRUE(stored_layout.default_unified);
+  EXPECT_FALSE(stored_layout.mirrored);
+
+  // Mirror mode should remember if the default mode was unified.
+  display_manager->SetMirrorMode(true);
+  EXPECT_TRUE(displays->GetDictionary(ToPairString(pair), &new_value));
+  EXPECT_TRUE(ash::DisplayLayout::ConvertFromValue(*new_value, &stored_layout));
+  EXPECT_TRUE(stored_layout.default_unified);
+  EXPECT_TRUE(stored_layout.mirrored);
+
+  display_manager->SetMirrorMode(false);
+  EXPECT_TRUE(displays->GetDictionary(ToPairString(pair), &new_value));
+  EXPECT_TRUE(ash::DisplayLayout::ConvertFromValue(*new_value, &stored_layout));
+  EXPECT_TRUE(stored_layout.default_unified);
+  EXPECT_FALSE(stored_layout.mirrored);
+
+  // Exit unified mode.
+  display_manager->SetDefaultMultiDisplayMode(ash::DisplayManager::EXTENDED);
+  display_manager->ReconfigureDisplays();
+  EXPECT_TRUE(displays->GetDictionary(ToPairString(pair), &new_value));
+  EXPECT_TRUE(ash::DisplayLayout::ConvertFromValue(*new_value, &stored_layout));
+  EXPECT_FALSE(stored_layout.default_unified);
+  EXPECT_FALSE(stored_layout.mirrored);
+}
+
+TEST_F(DisplayPreferencesTest, RestoreUnifiedMode) {
+  int64 id1 = gfx::Screen::GetNativeScreen()->GetPrimaryDisplay().id();
+  ash::DisplayIdPair pair = std::make_pair(id1, id1 + 1);
+  StoreDisplayBoolPropertyForPair(pair, "default_unified", true);
+  StoreDisplayPropertyForPair(
+      pair, "primary-id",
+      make_scoped_ptr(new base::StringValue(base::Int64ToString(id1))));
+  LoadDisplayPreferences(false);
+
+  // Should not restore to unified unless unified desktop is enabled.
+  UpdateDisplay("100x100,200x200");
+  ash::DisplayManager* display_manager =
+      ash::Shell::GetInstance()->display_manager();
+  EXPECT_FALSE(display_manager->IsInUnifiedMode());
+
+  // Restored to unified.
+  ash::test::DisplayManagerTestApi::EnableUnifiedDesktopForTest();
+  StoreDisplayBoolPropertyForPair(pair, "default_unified", true);
+  LoadDisplayPreferences(false);
+  UpdateDisplay("100x100,200x200");
+  EXPECT_TRUE(display_manager->IsInUnifiedMode());
+
+  // Restored to mirror, then unified.
+  StoreDisplayBoolPropertyForPair(pair, "mirrored", true);
+  StoreDisplayBoolPropertyForPair(pair, "default_unified", true);
+  LoadDisplayPreferences(false);
+  UpdateDisplay("100x100,200x200");
+  EXPECT_TRUE(display_manager->IsInMirrorMode());
+
+  display_manager->SetMirrorMode(false);
+  EXPECT_TRUE(display_manager->IsInUnifiedMode());
+
+  // Sanity check. Restore to extended.
+  StoreDisplayBoolPropertyForPair(pair, "default_unified", false);
+  StoreDisplayBoolPropertyForPair(pair, "mirrored", false);
+  LoadDisplayPreferences(false);
+  UpdateDisplay("100x100,200x200");
+  EXPECT_FALSE(display_manager->IsInMirrorMode());
+  EXPECT_FALSE(display_manager->IsInUnifiedMode());
 }
 
 }  // namespace chromeos

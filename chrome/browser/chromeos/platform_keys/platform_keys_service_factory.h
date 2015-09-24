@@ -5,15 +5,11 @@
 #ifndef CHROME_BROWSER_CHROMEOS_PLATFORM_KEYS_PLATFORM_KEYS_SERVICE_FACTORY_H_
 #define CHROME_BROWSER_CHROMEOS_PLATFORM_KEYS_PLATFORM_KEYS_SERVICE_FACTORY_H_
 
-#include "base/basictypes.h"
-#include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 
 template <typename T>
 struct DefaultSingletonTraits;
-
-class Profile;
 
 namespace chromeos {
 
@@ -31,12 +27,12 @@ class PlatformKeysServiceFactory : public BrowserContextKeyedServiceFactory {
   friend struct DefaultSingletonTraits<PlatformKeysServiceFactory>;
 
   PlatformKeysServiceFactory();
-  virtual ~PlatformKeysServiceFactory();
+  ~PlatformKeysServiceFactory() override;
 
   // BrowserContextKeyedServiceFactory:
-  virtual content::BrowserContext* GetBrowserContextToUse(
+  content::BrowserContext* GetBrowserContextToUse(
       content::BrowserContext* context) const override;
-  virtual KeyedService* BuildServiceInstanceFor(
+  KeyedService* BuildServiceInstanceFor(
       content::BrowserContext* context) const override;
 
   DISALLOW_COPY_AND_ASSIGN(PlatformKeysServiceFactory);

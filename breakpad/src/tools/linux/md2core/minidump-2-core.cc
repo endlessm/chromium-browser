@@ -35,6 +35,7 @@
 
 #include <elf.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <link.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,6 +48,7 @@
 #include <vector>
 
 #include "common/linux/memory_mapped_file.h"
+#include "common/minidump_type_helper.h"
 #include "common/scoped_ptr.h"
 #include "google_breakpad/common/minidump_format.h"
 #include "third_party/lss/linux_syscall_support.h"
@@ -79,10 +81,17 @@
 // containing core registers, while they use 'user_regs_struct' on other
 // architectures. This file-local typedef simplifies the source code.
 typedef user_regs user_regs_struct;
+#elif defined (__mips__)
+// This file-local typedef simplifies the source code.
+typedef gregset_t user_regs_struct;
 #endif
 
+using google_breakpad::MDTypeHelper;
 using google_breakpad::MemoryMappedFile;
 using google_breakpad::MinidumpMemoryRange;
+
+typedef MDTypeHelper<sizeof(ElfW(Addr))>::MDRawDebug MDRawDebug;
+typedef MDTypeHelper<sizeof(ElfW(Addr))>::MDRawLinkMap MDRawLinkMap;
 
 static const MDRVA kInvalidMDRVA = static_cast<MDRVA>(-1);
 static bool verbose;
@@ -202,13 +211,17 @@ struct CrashedProcess {
 
   struct Thread {
     pid_t tid;
+#if defined(__mips__)
+    mcontext_t mcontext;
+#else  // __mips__
     user_regs_struct regs;
-#if defined(__i386__) || defined(__x86_64__) || defined(__mips__)
+#if defined(__i386__) || defined(__x86_64__)
     user_fpregs_struct fpregs;
-#endif
+#endif  // __i386__ || __x86_64__
 #if defined(__i386__)
     user_fpxregs_struct fpxregs;
-#endif
+#endif  // __i386__
+#endif  // __mips__
     uintptr_t stack_addr;
     const uint8_t* stack;
     size_t stack_length;
@@ -365,20 +378,29 @@ ParseThreadRegisters(CrashedProcess::Thread* thread,
   const MDRawContextMIPS* rawregs = range.GetData<MDRawContextMIPS>(0);
 
   for (int i = 0; i < MD_CONTEXT_MIPS_GPR_COUNT; ++i)
-    thread->regs.regs[i] = rawregs->iregs[i];
+    thread->mcontext.gregs[i] = rawregs->iregs[i];
 
-  thread->regs.lo = rawregs->mdlo;
-  thread->regs.hi = rawregs->mdhi;
-  thread->regs.epc = rawregs->epc;
-  thread->regs.badvaddr = rawregs->badvaddr;
-  thread->regs.status = rawregs->status;
-  thread->regs.cause = rawregs->cause;
+  thread->mcontext.pc = rawregs->epc;
 
-  for (int i = 0; i < MD_FLOATINGSAVEAREA_MIPS_FPR_COUNT; ++i)
-    thread->fpregs.regs[i] = rawregs->float_save.regs[i];
+  thread->mcontext.mdlo = rawregs->mdlo;
+  thread->mcontext.mdhi = rawregs->mdhi;
 
-  thread->fpregs.fpcsr = rawregs->float_save.fpcsr;
-  thread->fpregs.fir = rawregs->float_save.fir;
+  thread->mcontext.hi1 = rawregs->hi[0];
+  thread->mcontext.lo1 = rawregs->lo[0];
+  thread->mcontext.hi2 = rawregs->hi[1];
+  thread->mcontext.lo2 = rawregs->lo[1];
+  thread->mcontext.hi3 = rawregs->hi[2];
+  thread->mcontext.lo3 = rawregs->lo[2];
+
+  for (int i = 0; i < MD_FLOATINGSAVEAREA_MIPS_FPR_COUNT; ++i) {
+    thread->mcontext.fpregs.fp_r.fp_fregs[i]._fp_fregs =
+        rawregs->float_save.regs[i];
+  }
+
+  thread->mcontext.fpc_csr = rawregs->float_save.fpcsr;
+#if _MIPS_SIM == _ABIO32
+  thread->mcontext.fpc_eir = rawregs->float_save.fir;
+#endif
 }
 #else
 #error "This code has not been ported to your platform yet"
@@ -691,14 +713,14 @@ ParseDSODebugInfo(CrashedProcess* crashinfo, const MinidumpMemoryRange& range,
             "MD_LINUX_DSO_DEBUG:\n"
             "Version: %d\n"
             "Number of DSOs: %d\n"
-            "Brk handler: %p\n"
-            "Dynamic loader at: %p\n"
-            "_DYNAMIC: %p\n",
+            "Brk handler: 0x%" PRIx64 "\n"
+            "Dynamic loader at: 0x%" PRIx64 "\n"
+            "_DYNAMIC: 0x%" PRIx64 "\n",
             debug->version,
             debug->dso_count,
-            debug->brk,
-            debug->ldbase,
-            debug->dynamic);
+            static_cast<uint64_t>(debug->brk),
+            static_cast<uint64_t>(debug->ldbase),
+            static_cast<uint64_t>(debug->dynamic));
   }
   crashinfo->debug = *debug;
   if (range.length() > sizeof(MDRawDebug)) {
@@ -713,8 +735,9 @@ ParseDSODebugInfo(CrashedProcess* crashinfo, const MinidumpMemoryRange& range,
       if (link_map) {
         if (verbose) {
           fprintf(stderr,
-                  "#%03d: %p, %p, \"%s\"\n",
-                  i, link_map->addr, link_map->ld,
+                  "#%03d: %" PRIx64 ", %" PRIx64 ", \"%s\"\n",
+                  i, static_cast<uint64_t>(link_map->addr),
+                  static_cast<uint64_t>(link_map->ld),
                   full_file.GetAsciiMDString(link_map->name).c_str());
         }
         crashinfo->link_map.push_back(*link_map);
@@ -742,7 +765,11 @@ WriteThread(const CrashedProcess::Thread& thread, int fatal_signal) {
   pr.pr_info.si_signo = fatal_signal;
   pr.pr_cursig = fatal_signal;
   pr.pr_pid = thread.tid;
+#if defined(__mips__)
+  memcpy(&pr.pr_reg, &thread.mcontext.gregs, sizeof(user_regs_struct));
+#else
   memcpy(&pr.pr_reg, &thread.regs, sizeof(user_regs_struct));
+#endif
 
   Nhdr nhdr;
   memset(&nhdr, 0, sizeof(nhdr));

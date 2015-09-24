@@ -1,15 +1,16 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../include/fxcrt/fx_ext.h"
+#include "../../include/fxcrt/fx_ucd.h"
 #include "fx_arabic.h"
+
 extern const FX_DWORD gs_FX_TextLayout_CodeProperties[65536];
 IFX_BidiChar* IFX_BidiChar::Create()
 {
-    return FX_NEW CFX_BidiChar;
+    return new CFX_BidiChar;
 }
 CFX_BidiChar::CFX_BidiChar()
     : m_bSeparateNeutral(TRUE)
@@ -21,11 +22,16 @@ CFX_BidiChar::CFX_BidiChar()
     , m_iLastCount(0)
 {
 }
+void CFX_BidiChar::SetPolicy(FX_BOOL bSeparateNeutral)
+{
+    m_bSeparateNeutral = bSeparateNeutral;
+}
+
 FX_BOOL CFX_BidiChar::AppendChar(FX_WCHAR wch)
 {
     FX_DWORD dwProps = gs_FX_TextLayout_CodeProperties[(FX_WORD)wch];
-    FX_INT32 iBidiCls = (dwProps & FX_BIDICLASSBITSMASK) >> FX_BIDICLASSBITS;
-    FX_INT32 iContext = 0;
+    int32_t iBidiCls = (dwProps & FX_BIDICLASSBITSMASK) >> FX_BIDICLASSBITS;
+    int32_t iContext = 0;
     switch (iBidiCls) {
         case FX_BIDICLASS_L:
         case FX_BIDICLASS_AN:
@@ -69,7 +75,7 @@ FX_BOOL CFX_BidiChar::EndChar()
     m_iLastCount = m_iCurCount - m_iLastStart;
     return m_iLastCount > 0;
 }
-FX_INT32 CFX_BidiChar::GetBidiInfo(FX_INT32 &iStart, FX_INT32 &iCount)
+int32_t CFX_BidiChar::GetBidiInfo(int32_t &iStart, int32_t &iCount)
 {
     iStart = m_iLastStart;
     iCount = m_iLastCount;

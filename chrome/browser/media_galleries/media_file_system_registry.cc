@@ -12,7 +12,6 @@
 #include "base/files/file_path.h"
 #include "base/prefs/pref_service.h"
 #include "base/stl_util.h"
-#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/media_galleries/fileapi/media_file_system_backend.h"
 #include "chrome/browser/media_galleries/fileapi/mtp_device_map_service.h"
 #include "chrome/browser/media_galleries/gallery_watch_manager.h"
@@ -25,6 +24,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension_constants.h"
+#include "components/keyed_service/content/browser_context_keyed_service_shutdown_notifier_factory.h"
 #include "components/storage_monitor/media_storage_util.h"
 #include "components/storage_monitor/storage_monitor.h"
 #include "content/public/browser/browser_thread.h"
@@ -34,7 +34,7 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
-#include "extensions/browser/extension_system.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_set.h"
 #include "storage/browser/fileapi/external_mount_points.h"
@@ -52,6 +52,26 @@ using storage_monitor::StorageMonitor;
 
 namespace {
 
+class ShutdownNotifierFactory
+    : public BrowserContextKeyedServiceShutdownNotifierFactory {
+ public:
+  static ShutdownNotifierFactory* GetInstance() {
+    return Singleton<ShutdownNotifierFactory>::get();
+  }
+
+ private:
+  friend struct DefaultSingletonTraits<ShutdownNotifierFactory>;
+
+  ShutdownNotifierFactory()
+      : BrowserContextKeyedServiceShutdownNotifierFactory(
+            "MediaFileSystemRegistry") {
+    DependsOn(MediaGalleriesPreferencesFactory::GetInstance());
+  }
+  ~ShutdownNotifierFactory() override {}
+
+  DISALLOW_COPY_AND_ASSIGN(ShutdownNotifierFactory);
+};
+
 struct InvalidatedGalleriesInfo {
   std::set<ExtensionGalleriesHost*> extension_hosts;
   std::set<MediaGalleryPrefId> pref_ids;
@@ -62,8 +82,9 @@ struct InvalidatedGalleriesInfo {
 // back informs the caller.
 class RPHReferenceManager {
  public:
-  // |no_references_callback| is called when the last RenderViewHost reference
-  // goes away. RenderViewHost references are added through ReferenceFromRVH().
+  // |no_references_callback| is called when the last WebContents reference
+  // goes away. WebContents references are added through
+  // ReferenceFromWebContents().
   explicit RPHReferenceManager(const base::Closure& no_references_callback);
   virtual ~RPHReferenceManager();
 
@@ -73,9 +94,9 @@ class RPHReferenceManager {
   // Returns true if there are no references;
   bool empty() const { return observer_map_.empty(); }
 
-  // Adds a reference to the passed |rvh|. Calling this multiple times with
-  // the same |rvh| is a no-op.
-  void ReferenceFromRVH(const content::RenderViewHost* rvh);
+  // Adds a reference to the passed |contents|. Calling this multiple times with
+  // the same |contents| is a no-op.
+  void ReferenceFromWebContents(content::WebContents* contents);
 
  private:
   class RPHWebContentsObserver : public content::WebContentsObserver {
@@ -134,8 +155,8 @@ RPHReferenceManager::~RPHReferenceManager() {
   Reset();
 }
 
-void RPHReferenceManager::ReferenceFromRVH(const content::RenderViewHost* rvh) {
-  WebContents* contents = WebContents::FromRenderViewHost(rvh);
+void RPHReferenceManager::ReferenceFromWebContents(
+    content::WebContents* contents) {
   RenderProcessHost* rph = contents->GetRenderProcessHost();
   RPHObserver* state = NULL;
   if (!ContainsKey(observer_map_, rph)) {
@@ -259,8 +280,9 @@ MediaFileSystemInfo::~MediaFileSystemInfo() {}
 class ExtensionGalleriesHost
     : public base::RefCountedThreadSafe<ExtensionGalleriesHost> {
  public:
-  // |no_references_callback| is called when the last RenderViewHost reference
-  // goes away. RenderViewHost references are added through ReferenceFromRVH().
+  // |no_references_callback| is called when the last WebContents reference
+  // goes away. WebContents references are added through
+  // ReferenceFromWebContents().
   ExtensionGalleriesHost(MediaFileSystemContext* file_system_context,
                          const base::FilePath& profile_path,
                          const std::string& extension_id,
@@ -324,10 +346,11 @@ class ExtensionGalleriesHost
     }
   }
 
-  // Indicate that the passed |rvh| will reference the file system ids created
+  // Indicate that the passed |contents| will reference the file system ids
+  // created
   // by this class.
-  void ReferenceFromRVH(const content::RenderViewHost* rvh) {
-    rph_refs_.ReferenceFromRVH(rvh);
+  void ReferenceFromWebContents(content::WebContents* web_contents) {
+    rph_refs_.ReferenceFromWebContents(web_contents);
   }
 
  private:
@@ -473,7 +496,7 @@ class ExtensionGalleriesHost
   // Id of the extension this host belongs to.
   const std::string extension_id_;
 
-  // A callback to call when the last RVH reference goes away.
+  // A callback to call when the last WebContents reference goes away.
   base::Closure no_references_callback_;
 
   // A map from the gallery preferences id to the file system information.
@@ -491,14 +514,13 @@ class ExtensionGalleriesHost
  ******************/
 
 void MediaFileSystemRegistry::GetMediaFileSystemsForExtension(
-    const content::RenderViewHost* rvh,
+    content::WebContents* contents,
     const extensions::Extension* extension,
     const MediaFileSystemsCallback& callback) {
   // TODO(tommycli): Change to DCHECK after fixing http://crbug.com/374330.
   CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
-  Profile* profile =
-      Profile::FromBrowserContext(rvh->GetProcess()->GetBrowserContext());
+  Profile* profile = Profile::FromBrowserContext(contents->GetBrowserContext());
   MediaGalleriesPreferences* preferences = GetPreferences(profile);
   MediaGalleryPrefIdSet galleries =
       preferences->GalleriesForExtension(*extension);
@@ -512,23 +534,22 @@ void MediaFileSystemRegistry::GetMediaFileSystemsForExtension(
       GetExtensionGalleryHost(profile, preferences, extension->id());
 
   // This must come before the GetMediaFileSystems call to make sure the
-  // RVH of the context is referenced before the filesystems are retrieved.
-  extension_host->ReferenceFromRVH(rvh);
+  // contents of the context is referenced before the filesystems are retrieved.
+  extension_host->ReferenceFromWebContents(contents);
 
   extension_host->GetMediaFileSystems(galleries, preferences->known_galleries(),
                                       callback);
 }
 
 void MediaFileSystemRegistry::RegisterMediaFileSystemForExtension(
-    const content::RenderViewHost* rvh,
+    content::WebContents* contents,
     const extensions::Extension* extension,
     MediaGalleryPrefId pref_id,
     const base::Callback<void(base::File::Error result)>& callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK_NE(kInvalidMediaGalleryPrefId, pref_id);
 
-  Profile* profile =
-      Profile::FromBrowserContext(rvh->GetProcess()->GetBrowserContext());
+  Profile* profile = Profile::FromBrowserContext(contents->GetBrowserContext());
   MediaGalleriesPreferences* preferences = GetPreferences(profile);
   MediaGalleriesPrefInfoMap::const_iterator gallery =
       preferences->known_galleries().find(pref_id);
@@ -547,8 +568,8 @@ void MediaFileSystemRegistry::RegisterMediaFileSystemForExtension(
       GetExtensionGalleryHost(profile, preferences, extension->id());
 
   // This must come before the GetMediaFileSystems call to make sure the
-  // RVH of the context is referenced before the filesystems are retrieved.
-  extension_host->ReferenceFromRVH(rvh);
+  // contents of the context is referenced before the filesystems are retrieved.
+  extension_host->ReferenceFromWebContents(contents);
 
   extension_host->RegisterMediaFileSystem(gallery->second, callback);
 }
@@ -558,6 +579,12 @@ MediaGalleriesPreferences* MediaFileSystemRegistry::GetPreferences(
   // Create an empty ExtensionHostMap for this profile on first initialization.
   if (!ContainsKey(extension_hosts_map_, profile)) {
     extension_hosts_map_[profile] = ExtensionHostMap();
+    DCHECK(!ContainsKey(profile_subscription_map_, profile));
+    profile_subscription_map_.set(
+        profile,
+        ShutdownNotifierFactory::GetInstance()->Get(profile)->Subscribe(
+            base::Bind(&MediaFileSystemRegistry::OnProfileShutdown,
+                       base::Unretained(this), profile)));
     media_galleries::UsageCount(media_galleries::PROFILES_WITH_USAGE);
   }
 
@@ -723,10 +750,11 @@ class MediaFileSystemRegistry::MediaFileSystemContextImpl
         storage::FileSystemMountOption(),
         path);
     CHECK(result);
-    BrowserThread::PostTask(BrowserThread::IO, FROM_HERE, base::Bind(
-        &MTPDeviceMapService::RegisterMTPFileSystem,
-        base::Unretained(MTPDeviceMapService::GetInstance()),
-        path.value(), fs_name));
+    BrowserThread::PostTask(
+        BrowserThread::IO, FROM_HERE,
+        base::Bind(&MTPDeviceMapService::RegisterMTPFileSystem,
+                   base::Unretained(MTPDeviceMapService::GetInstance()),
+                   path.value(), fs_name, true /* read only */));
     return result;
   }
 
@@ -769,10 +797,8 @@ void MediaFileSystemRegistry::OnGalleryRemoved(
   Profile* profile = prefs->profile();
   // Get the Extensions, MediaGalleriesPreferences and ExtensionHostMap for
   // |profile|.
-  const ExtensionService* extension_service =
-      extensions::ExtensionSystem::Get(profile)->extension_service();
-  const extensions::ExtensionSet* extensions_set =
-      extension_service->extensions();
+  const extensions::ExtensionRegistry* extension_registry =
+      extensions::ExtensionRegistry::Get(profile);
   ExtensionGalleriesHostMap::const_iterator host_map_it =
       extension_hosts_map_.find(profile);
   DCHECK(host_map_it != extension_hosts_map_.end());
@@ -786,7 +812,8 @@ void MediaFileSystemRegistry::OnGalleryRemoved(
   for (ExtensionHostMap::const_iterator it = extension_host_map.begin();
        it != extension_host_map.end();
        ++it) {
-    extensions.push_back(extensions_set->GetByID(it->first));
+    extensions.push_back(
+        extension_registry->enabled_extensions().GetByID(it->first));
   }
   for (size_t i = 0; i < extensions.size(); ++i) {
     if (!ContainsKey(extension_hosts_map_, profile))
@@ -844,4 +871,16 @@ void MediaFileSystemRegistry::OnExtensionGalleriesHostEmpty(
     MediaGalleriesPreferences* preferences = GetPreferences(profile);
     preferences->RemoveGalleryChangeObserver(this);
   }
+}
+
+void MediaFileSystemRegistry::OnProfileShutdown(Profile* profile) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  auto extension_hosts_it = extension_hosts_map_.find(profile);
+  DCHECK(extension_hosts_it != extension_hosts_map_.end());
+  extension_hosts_map_.erase(extension_hosts_it);
+
+  auto profile_subscription_it = profile_subscription_map_.find(profile);
+  DCHECK(profile_subscription_it != profile_subscription_map_.end());
+  profile_subscription_map_.erase(profile_subscription_it);
 }

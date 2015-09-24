@@ -9,6 +9,7 @@ is running and thus it caches results of functions that depend on FS state.
 """
 
 import ctypes
+import getpass
 import logging
 import os
 import posixpath
@@ -256,7 +257,7 @@ if sys.platform == 'win32':
   def filter_processes_tree_win(processes):
     """Returns all the processes under the current process."""
     # Convert to dict.
-    processes = {p.ProcessId: p for p in processes}
+    processes = dict((p.ProcessId, p) for p in processes)
     root_pid = os.getpid()
     out = {root_pid: processes[root_pid]}
     while True:
@@ -489,7 +490,6 @@ if sys.platform != 'win32':  # All non-Windows OSes.
 
 
 @tools.profile
-@tools.cached
 def listdir(abspath):
   """Lists a directory given an absolute path to it."""
   if not isabs(abspath):
@@ -640,6 +640,8 @@ def hardlink(source, link_name):
 
   Add support for os.link() on Windows.
   """
+  assert isinstance(source, unicode), source
+  assert isinstance(link_name, unicode), link_name
   if sys.platform == 'win32':
     if not ctypes.windll.kernel32.CreateHardLinkW(
         unicode(link_name), unicode(source), 0):
@@ -650,6 +652,8 @@ def hardlink(source, link_name):
 
 def readable_copy(outfile, infile):
   """Makes a copy of the file that is readable by everyone."""
+  assert isinstance(outfile, unicode), outfile
+  assert isinstance(infile, unicode), infile
   shutil.copy2(infile, outfile)
   read_enabled_mode = (os.stat(outfile).st_mode | stat.S_IRUSR |
                        stat.S_IRGRP | stat.S_IROTH)
@@ -661,6 +665,7 @@ def set_read_only(path, read_only):
 
   Zaps out access to 'group' and 'others'.
   """
+  assert isinstance(path, unicode), path
   assert isinstance(read_only, bool), read_only
   mode = os.lstat(path).st_mode
   # TODO(maruel): Stop removing GO bits.
@@ -684,6 +689,7 @@ def set_read_only(path, read_only):
 
 def try_remove(filepath):
   """Removes a file without crashing even if it doesn't exist."""
+  assert isinstance(filepath, unicode), filepath
   try:
     # TODO(maruel): Not do it unless necessary since it slows this function
     # down.
@@ -700,6 +706,8 @@ def try_remove(filepath):
 
 def link_file(outfile, infile, action):
   """Links a file. The type of link depends on |action|."""
+  assert isinstance(outfile, unicode), outfile
+  assert isinstance(infile, unicode), infile
   if action not in (HARDLINK, HARDLINK_WITH_FALLBACK, SYMLINK, COPY):
     raise ValueError('Unknown mapping action %s' % action)
   if not os.path.isfile(infile):
@@ -739,6 +747,7 @@ def make_tree_read_only(root):
   This means no file can be created or deleted.
   """
   logging.debug('make_tree_read_only(%s)', root)
+  assert isinstance(root, unicode), root
   assert os.path.isabs(root), root
   for dirpath, dirnames, filenames in os.walk(root, topdown=True):
     for filename in filenames:
@@ -758,6 +767,7 @@ def make_tree_files_read_only(root):
   This means files can be created or deleted.
   """
   logging.debug('make_tree_files_read_only(%s)', root)
+  assert isinstance(root, unicode), root
   assert os.path.isabs(root), root
   if sys.platform != 'win32':
     set_read_only(root, False)
@@ -779,6 +789,7 @@ def make_tree_writeable(root):
   the files.
   """
   logging.debug('make_tree_writeable(%s)', root)
+  assert isinstance(root, unicode), root
   assert os.path.isabs(root), root
   if sys.platform != 'win32':
     set_read_only(root, False)
@@ -803,6 +814,7 @@ def make_tree_deleteable(root):
   file node has its file permission modified.
   """
   logging.debug('make_tree_deleteable(%s)', root)
+  assert isinstance(root, unicode), root
   assert os.path.isabs(root), root
   if sys.platform != 'win32':
     set_read_only(root, False)
@@ -815,6 +827,33 @@ def make_tree_deleteable(root):
         set_read_only(os.path.join(dirpath, dirname), False)
 
 
+def change_acl_for_delete_win(path):
+  """Zaps the SECURITY_DESCRIPTOR's DACL on a directory entry that is tedious to
+  delete.
+
+  This function is a heavy hammer. It discards the SECURITY_DESCRIPTOR and
+  creates a new one with only one DACL set to user:FILE_ALL_ACCESS.
+
+  Used as last resort.
+  """
+  assert isinstance(path, unicode), path
+  STANDARD_RIGHTS_REQUIRED = 0xf0000
+  SYNCHRONIZE = 0x100000
+  FILE_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED | SYNCHRONIZE | 0x3ff
+
+  import win32security
+  user, _domain, _type = win32security.LookupAccountName('', getpass.getuser())
+  sd = win32security.SECURITY_DESCRIPTOR()
+  sd.Initialize()
+  sd.SetSecurityDescriptorOwner(user, False)
+  dacl = win32security.ACL()
+  dacl.Initialize()
+  dacl.AddAccessAllowedAce(win32security.ACL_REVISION_DS, FILE_ALL_ACCESS, user)
+  sd.SetSecurityDescriptorDacl(1, dacl, 0)
+  win32security.SetFileSecurity(
+      path, win32security.DACL_SECURITY_INFORMATION, sd)
+
+
 def rmtree(root):
   """Wrapper around shutil.rmtree() to retry automatically on Windows.
 
@@ -825,6 +864,8 @@ def rmtree(root):
     True on normal execution, False if berserk techniques (like killing
     processes) had to be used.
   """
+  # Do not assert here yet because this would break too much code.
+  root = unicode(root)
   make_tree_deleteable(root)
   logging.info('rmtree(%s)', root)
   if sys.platform != 'win32':
@@ -840,6 +881,13 @@ def rmtree(root):
     shutil.rmtree(root, onerror=lambda *args: errors.append(args))
     if not errors:
       return True
+    if not i:
+      for _, path, _ in errors:
+        try:
+          change_acl_for_delete_win(path)
+        except Exception as e:
+          sys.stderr.write('- %s (failed to update ACL: %s)\n' % (path, e))
+
     if i == max_tries - 1:
       sys.stderr.write(
           'Failed to delete %s. The following files remain:\n' % root)
@@ -865,7 +913,7 @@ def rmtree(root):
     tree_processes = filter_processes_tree_win(processes)
     dir_processes = filter_processes_dir_win(processes, root)
     # Convert to dict to remove duplicates.
-    processes = {p.ProcessId: p for p in tree_processes}
+    processes = dict((p.ProcessId, p) for p in tree_processes)
     processes.update((p.ProcessId, p) for p in dir_processes)
     processes.pop(os.getpid())
     return processes

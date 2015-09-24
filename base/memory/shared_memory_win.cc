@@ -29,40 +29,37 @@ namespace base {
 
 SharedMemory::SharedMemory()
     : mapped_file_(NULL),
+      mapped_size_(0),
       memory_(NULL),
       read_only_(false),
-      mapped_size_(0),
-      requested_size_(0),
-      lock_(NULL) {
+      requested_size_(0) {
 }
 
 SharedMemory::SharedMemory(const std::wstring& name)
-    : mapped_file_(NULL),
+    : name_(name),
+      mapped_file_(NULL),
+      mapped_size_(0),
       memory_(NULL),
       read_only_(false),
-      requested_size_(0),
-      mapped_size_(0),
-      lock_(NULL),
-      name_(name) {
+      requested_size_(0) {
 }
 
-SharedMemory::SharedMemory(SharedMemoryHandle handle, bool read_only)
+SharedMemory::SharedMemory(const SharedMemoryHandle& handle, bool read_only)
     : mapped_file_(handle),
+      mapped_size_(0),
       memory_(NULL),
       read_only_(read_only),
-      requested_size_(0),
-      mapped_size_(0),
-      lock_(NULL) {
+      requested_size_(0) {
 }
 
-SharedMemory::SharedMemory(SharedMemoryHandle handle, bool read_only,
+SharedMemory::SharedMemory(const SharedMemoryHandle& handle,
+                           bool read_only,
                            ProcessHandle process)
     : mapped_file_(NULL),
+      mapped_size_(0),
       memory_(NULL),
       read_only_(read_only),
-      requested_size_(0),
-      mapped_size_(0),
-      lock_(NULL) {
+      requested_size_(0) {
   ::DuplicateHandle(process, handle,
                     GetCurrentProcess(), &mapped_file_,
                     read_only_ ? FILE_MAP_READ : FILE_MAP_READ |
@@ -71,9 +68,8 @@ SharedMemory::SharedMemory(SharedMemoryHandle handle, bool read_only,
 }
 
 SharedMemory::~SharedMemory() {
+  Unmap();
   Close();
-  if (lock_ != NULL)
-    CloseHandle(lock_);
 }
 
 // static
@@ -99,6 +95,18 @@ size_t SharedMemory::GetHandleLimit() {
   return static_cast<size_t>(1 << 23);
 }
 
+// static
+SharedMemoryHandle SharedMemory::DuplicateHandle(
+    const SharedMemoryHandle& handle) {
+  ProcessHandle process = GetCurrentProcess();
+  SharedMemoryHandle duped_handle;
+  BOOL success = ::DuplicateHandle(process, handle, process, &duped_handle, 0,
+                                   FALSE, DUPLICATE_SAME_ACCESS);
+  if (success)
+    return duped_handle;
+  return NULLHandle();
+}
+
 bool SharedMemory::CreateAndMapAnonymous(size_t size) {
   return CreateAnonymous(size) && Map(size);
 }
@@ -118,8 +126,8 @@ bool SharedMemory::Create(const SharedMemoryCreateOptions& options) {
     return false;
 
   size_t rounded_size = (options.size + kSectionMask) & ~kSectionMask;
-  name_ = ASCIIToWide(options.name_deprecated == NULL ? "" :
-                      *options.name_deprecated);
+  name_ = options.name_deprecated ?
+      ASCIIToUTF16(*options.name_deprecated) : L"";
   SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, FALSE };
   SECURITY_DESCRIPTOR sd;
   ACL dacl;
@@ -137,13 +145,14 @@ bool SharedMemory::Create(const SharedMemoryCreateOptions& options) {
     // Windows ignores DACLs on certain unnamed objects (like shared sections).
     // So, we generate a random name when we need to enforce read-only.
     uint64_t rand_values[4];
-    base::RandBytes(&rand_values, sizeof(rand_values));
-    name_ = base::StringPrintf(L"CrSharedMem_%016x%016x%016x%016x",
-                               rand_values[0], rand_values[1],
-                               rand_values[2], rand_values[3]);
+    RandBytes(&rand_values, sizeof(rand_values));
+    name_ = StringPrintf(L"CrSharedMem_%016x%016x%016x%016x",
+                         rand_values[0], rand_values[1],
+                         rand_values[2], rand_values[3]);
   }
   mapped_file_ = CreateFileMapping(INVALID_HANDLE_VALUE, &sa,
-      PAGE_READWRITE, 0, static_cast<DWORD>(rounded_size), name_.c_str());
+      PAGE_READWRITE, 0, static_cast<DWORD>(rounded_size),
+      name_.empty() ? nullptr : name_.c_str());
   if (!mapped_file_)
     return false;
 
@@ -171,7 +180,7 @@ bool SharedMemory::Delete(const std::string& name) {
 bool SharedMemory::Open(const std::string& name, bool read_only) {
   DCHECK(!mapped_file_);
 
-  name_ = ASCIIToWide(name);
+  name_ = ASCIIToUTF16(name);
   read_only_ = read_only;
   mapped_file_ = OpenFileMapping(
       read_only_ ? FILE_MAP_READ : FILE_MAP_READ | FILE_MAP_WRITE,
@@ -218,7 +227,7 @@ bool SharedMemory::Unmap() {
 }
 
 bool SharedMemory::ShareToProcessCommon(ProcessHandle process,
-                                        SharedMemoryHandle *new_handle,
+                                        SharedMemoryHandle* new_handle,
                                         bool close_self,
                                         ShareMode share_mode) {
   *new_handle = 0;
@@ -240,44 +249,20 @@ bool SharedMemory::ShareToProcessCommon(ProcessHandle process,
     return true;
   }
 
-  if (!DuplicateHandle(GetCurrentProcess(), mapped_file, process,
-      &result, access, FALSE, options))
+  if (!::DuplicateHandle(GetCurrentProcess(), mapped_file, process, &result,
+                         access, FALSE, options)) {
     return false;
+  }
   *new_handle = result;
   return true;
 }
 
 
 void SharedMemory::Close() {
-  if (memory_ != NULL) {
-    UnmapViewOfFile(memory_);
-    memory_ = NULL;
-  }
-
   if (mapped_file_ != NULL) {
     CloseHandle(mapped_file_);
     mapped_file_ = NULL;
   }
-}
-
-void SharedMemory::LockDeprecated() {
-  if (lock_ == NULL) {
-    std::wstring name = name_;
-    name.append(L"lock");
-    lock_ = CreateMutex(NULL, FALSE, name.c_str());
-    if (lock_ == NULL) {
-      DPLOG(ERROR) << "Could not create mutex.";
-      NOTREACHED();
-      return;  // There is nothing good we can do here.
-    }
-  }
-  DWORD result = WaitForSingleObject(lock_, INFINITE);
-  DCHECK_EQ(result, WAIT_OBJECT_0);
-}
-
-void SharedMemory::UnlockDeprecated() {
-  DCHECK(lock_ != NULL);
-  ReleaseMutex(lock_);
 }
 
 SharedMemoryHandle SharedMemory::handle() const {

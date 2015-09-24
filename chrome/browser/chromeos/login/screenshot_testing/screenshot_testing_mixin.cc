@@ -13,7 +13,8 @@
 
 namespace chromeos {
 
-ScreenshotTestingMixin::ScreenshotTestingMixin() {
+ScreenshotTestingMixin::ScreenshotTestingMixin()
+    : enable_test_screenshots_(false) {
 }
 
 ScreenshotTestingMixin::~ScreenshotTestingMixin() {
@@ -26,7 +27,6 @@ void ScreenshotTestingMixin::SetUpInProcessBrowserTestFixture() {
 void ScreenshotTestingMixin::SetUpCommandLine(base::CommandLine* command_line) {
   if (enable_test_screenshots_) {
     command_line->AppendSwitch(switches::kEnablePixelOutputInTests);
-    command_line->AppendSwitch(switches::kUIEnableImplSidePainting);
   }
 }
 

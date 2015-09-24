@@ -10,15 +10,17 @@
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/location.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "base/test/test_timeouts.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/platform_thread.h"
-#include "chrome/browser/history/history_service.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -26,6 +28,7 @@
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/history/core/browser/history_service.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
@@ -38,9 +41,9 @@ class RedirectTest : public InProcessBrowserTest {
   RedirectTest() {}
 
   std::vector<GURL> GetRedirects(const GURL& url) {
-    HistoryService* history_service =
-        HistoryServiceFactory::GetForProfile(browser()->profile(),
-                                             Profile::EXPLICIT_ACCESS);
+    history::HistoryService* history_service =
+        HistoryServiceFactory::GetForProfile(
+            browser()->profile(), ServiceAccessType::EXPLICIT_ACCESS);
 
     // Schedule a history query for redirects. The response will be sent
     // asynchronously from the callback the history system uses to notify us
@@ -60,8 +63,8 @@ class RedirectTest : public InProcessBrowserTest {
   void OnRedirectQueryComplete(std::vector<GURL>* rv,
                                const history::RedirectList* redirects) {
     rv->insert(rv->end(), redirects->begin(), redirects->end());
-    base::MessageLoop::current()->PostTask(FROM_HERE,
-                                           base::MessageLoop::QuitClosure());
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::MessageLoop::QuitClosure());
   }
 
   // Tracker for asynchronous history queries.

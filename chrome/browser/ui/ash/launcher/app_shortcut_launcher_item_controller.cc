@@ -7,6 +7,7 @@
 #include "ash/shelf/shelf_model.h"
 #include "ash/shell.h"
 #include "ash/wm/window_util.h"
+#include "chrome/browser/extensions/launch_util.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_app_menu_item.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_app_menu_item_tab.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
@@ -101,7 +102,8 @@ void AppShortcutLauncherItemController::Launch(ash::LaunchSource source,
   launcher_controller()->LaunchApp(app_id(), source, event_flags);
 }
 
-bool AppShortcutLauncherItemController::Activate(ash::LaunchSource source) {
+ash::ShelfItemDelegate::PerformedAction
+AppShortcutLauncherItemController::Activate(ash::LaunchSource source) {
   content::WebContents* content = GetLRUApplication();
   if (!content) {
     if (IsV2App()) {
@@ -112,13 +114,12 @@ bool AppShortcutLauncherItemController::Activate(ash::LaunchSource source) {
       // detect if an app was started we suppress any further clicks within a
       // special time out.
       if (!AllowNextLaunchAttempt())
-        return false;
+        return kNoAction;
     }
     Launch(source, ui::EF_NONE);
-    return true;
+    return kNewWindowCreated;
   }
-  ActivateContent(content);
-  return false;
+  return ActivateContent(content);
 }
 
 void AppShortcutLauncherItemController::Close() {
@@ -192,12 +193,13 @@ AppShortcutLauncherItemController::GetRunningApplications() {
   return items;
 }
 
-bool AppShortcutLauncherItemController::ItemSelected(const ui::Event& event) {
+ash::ShelfItemDelegate::PerformedAction
+AppShortcutLauncherItemController::ItemSelected(const ui::Event& event) {
   // In case of a keyboard event, we were called by a hotkey. In that case we
   // activate the next item in line if an item of our list is already active.
   if (event.type() == ui::ET_KEY_RELEASED) {
     if (AdvanceToNextApp())
-      return false;
+      return kExistingWindowActivated;
   }
   return Activate(ash::LAUNCH_FROM_UNKNOWN);
 }
@@ -285,7 +287,8 @@ bool AppShortcutLauncherItemController::WebContentMatchesApp(
     const URLPattern& refocus_pattern,
     content::WebContents* web_contents,
     Browser* browser) {
-  // If the browser is an app window and the app name matches the extension.
+  // If the browser is an app window, and the app name matches the extension,
+  // then the contents match the app.
   if (browser->is_app()) {
     const extensions::Extension* browser_extension =
         ExtensionRegistry::Get(browser->profile())->GetExtensionById(
@@ -293,6 +296,11 @@ bool AppShortcutLauncherItemController::WebContentMatchesApp(
             ExtensionRegistry::EVERYTHING);
     return browser_extension == extension;
   }
+
+  // Apps set to launch in app windows should not match contents running in
+  // tabs.
+  if (extensions::LaunchesInWindow(browser->profile(), extension))
+    return false;
 
   // There are three ways to identify the association of a URL with this
   // extension:
@@ -308,7 +316,8 @@ bool AppShortcutLauncherItemController::WebContentMatchesApp(
                                                                   app_id()));
 }
 
-void AppShortcutLauncherItemController::ActivateContent(
+ash::ShelfItemDelegate::PerformedAction
+AppShortcutLauncherItemController::ActivateContent(
     content::WebContents* content) {
   Browser* browser = chrome::FindBrowserWithWebContents(content);
   TabStripModel* tab_strip = browser->tab_strip_model();
@@ -318,7 +327,7 @@ void AppShortcutLauncherItemController::ActivateContent(
   int old_index = tab_strip->active_index();
   if (index != old_index)
     tab_strip->ActivateTabAt(index, false);
-  launcher_controller()->ActivateWindowOrMinimizeIfActive(
+  return launcher_controller()->ActivateWindowOrMinimizeIfActive(
       browser->window(),
       index == old_index && GetRunningApplications().size() == 1);
 }

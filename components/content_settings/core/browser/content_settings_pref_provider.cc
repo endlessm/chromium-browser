@@ -10,14 +10,16 @@
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
-#include "base/command_line.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/metrics/histogram.h"
+#include "base/memory/scoped_vector.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/prefs/pref_registry.h"
 #include "base/prefs/pref_service.h"
 #include "base/prefs/scoped_user_pref_update.h"
 #include "base/strings/string_split.h"
 #include "base/time/clock.h"
 #include "base/time/default_clock.h"
+#include "components/content_settings/core/browser/content_settings_pref.h"
 #include "components/content_settings/core/browser/content_settings_rule.h"
 #include "components/content_settings/core/browser/content_settings_utils.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
@@ -25,18 +27,24 @@
 #include "components/content_settings/core/common/content_settings_pattern.h"
 #include "components/content_settings/core/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
-#include "url/gurl.h"
 
 namespace {
 
-typedef std::pair<std::string, std::string> StringPair;
-typedef std::map<std::string, std::string> StringMap;
-
 const char kPerPluginPrefName[] = "per_plugin";
-const char kAudioKey[] = "audio";
-const char kVideoKey[] = "video";
-const char kLastUsed[] = "last_used";
 
+// Returns true and sets |pref_key| to the key in the content settings
+// dictionary under which per-resource content settings are stored,
+// if the given content type supports resource identifiers in user preferences.
+bool GetResourceTypeName(ContentSettingsType content_type,
+                         std::string* pref_key) {
+  if (content_type == CONTENT_SETTINGS_TYPE_PLUGINS) {
+    *pref_key = kPerPluginPrefName;
+    return true;
+  }
+  return false;
+}
+
+// TODO(msramek): Check if we still need this migration code. If not, remove it.
 ContentSetting FixObsoleteCookiePromptMode(ContentSettingsType content_type,
                                            ContentSetting setting) {
   if (content_type == CONTENT_SETTINGS_TYPE_COOKIES &&
@@ -46,18 +54,53 @@ ContentSetting FixObsoleteCookiePromptMode(ContentSettingsType content_type,
   return setting;
 }
 
-// If the given content type supports resource identifiers in user preferences,
-// returns true and sets |pref_key| to the key in the content settings
-// dictionary under which per-resource content settings are stored.
-// Otherwise, returns false.
-bool GetResourceTypeName(ContentSettingsType content_type,
-                         std::string* pref_key) {
-  if (content_type == CONTENT_SETTINGS_TYPE_PLUGINS) {
-    *pref_key = kPerPluginPrefName;
-    return true;
-  }
-  return false;
+// A helper function to duplicate |ContentSettingsPattern|, so that
+// |ReadContentSettingsFromOldPref| can export them in a vector. We cannot pass
+// them by pointer, because the original values will go out of scope when
+// the vector is used in |WriteSettingsToNewPreferences|.
+ContentSettingsPattern CopyPattern(const ContentSettingsPattern& pattern) {
+  return ContentSettingsPattern::FromString(pattern.ToString());
 }
+
+const char kAudioKey[] = "audio";
+const char kVideoKey[] = "video";
+
+// A list of exception preferences corresponding to individual content settings
+// types. Must be kept in sync with the enum |ContentSettingsType|.
+const char* kContentSettingsExceptionsPrefs[] = {
+    prefs::kContentSettingsCookiesPatternPairs,
+    prefs::kContentSettingsImagesPatternPairs,
+    prefs::kContentSettingsJavaScriptPatternPairs,
+    prefs::kContentSettingsPluginsPatternPairs,
+    prefs::kContentSettingsPopupsPatternPairs,
+    prefs::kContentSettingsGeolocationPatternPairs,
+    prefs::kContentSettingsNotificationsPatternPairs,
+    prefs::kContentSettingsAutoSelectCertificatePatternPairs,
+    prefs::kContentSettingsFullScreenPatternPairs,
+    prefs::kContentSettingsMouseLockPatternPairs,
+    prefs::kContentSettingsMixedScriptPatternPairs,
+    prefs::kContentSettingsMediaStreamPatternPairs,
+    prefs::kContentSettingsMediaStreamMicPatternPairs,
+    prefs::kContentSettingsMediaStreamCameraPatternPairs,
+    prefs::kContentSettingsProtocolHandlersPatternPairs,
+    prefs::kContentSettingsPpapiBrokerPatternPairs,
+    prefs::kContentSettingsAutomaticDownloadsPatternPairs,
+    prefs::kContentSettingsMidiSysexPatternPairs,
+    prefs::kContentSettingsPushMessagingPatternPairs,
+    prefs::kContentSettingsSSLCertDecisionsPatternPairs,
+#if defined(OS_WIN)
+    prefs::kContentSettingsMetroSwitchToDesktopPatternPairs,
+#elif defined(OS_ANDROID) || defined(OS_CHROMEOS)
+    prefs::kContentSettingsProtectedMediaIdentifierPatternPairs,
+#endif
+    prefs::kContentSettingsAppBannerPatternPairs,
+    prefs::kContentSettingsSiteEngagementPatternPairs,
+    prefs::kContentSettingsDurableStoragePatternPairs,
+};
+static_assert(arraysize(kContentSettingsExceptionsPrefs)
+              == CONTENT_SETTINGS_NUM_TYPES,
+              "kContentSettingsExceptionsPrefs should have "
+              "CONTENT_SETTINGS_NUM_TYPES elements");
 
 }  // namespace
 
@@ -72,18 +115,25 @@ void PrefProvider::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterIntegerPref(
       prefs::kContentSettingsVersion,
-      ContentSettingsPattern::kContentSettingsPatternVersion,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+      ContentSettingsPattern::kContentSettingsPatternVersion);
   registry->RegisterDictionaryPref(
       prefs::kContentSettingsPatternPairs,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+  registry->RegisterBooleanPref(prefs::kMigratedContentSettingsPatternPairs,
+                                false);
+
+  for (int i = 0; i < CONTENT_SETTINGS_NUM_TYPES; ++i) {
+    registry->RegisterDictionaryPref(
+        kContentSettingsExceptionsPrefs[i],
+        PrefRegistrationFlagsForType(ContentSettingsType(i)));
+  }
 }
 
 PrefProvider::PrefProvider(PrefService* prefs, bool incognito)
     : prefs_(prefs),
       clock_(new base::DefaultClock()),
       is_incognito_(incognito),
-      updating_preferences_(false) {
+      updating_old_preferences_(false) {
   DCHECK(prefs_);
   // Verify preferences version.
   if (!prefs_->HasPrefPath(prefs::kContentSettingsVersion)) {
@@ -95,24 +145,57 @@ PrefProvider::PrefProvider(PrefService* prefs, bool incognito)
     return;
   }
 
-  // Read content settings exceptions.
-  ReadContentSettingsFromPref(false);
+  pref_change_registrar_.Init(prefs_);
 
-  if (!is_incognito_) {
-    UMA_HISTOGRAM_COUNTS("ContentSettings.NumberOfExceptions",
-                         value_map_.size());
+  pref_change_registrar_.Add(prefs::kContentSettingsPatternPairs, base::Bind(
+      &PrefProvider::OnOldContentSettingsPatternPairsChanged,
+      base::Unretained(this)));
+
+  for (size_t i = 0; i < CONTENT_SETTINGS_NUM_TYPES; ++i) {
+    content_settings_prefs_.push_back(new ContentSettingsPref(
+        ContentSettingsType(i), prefs_, &pref_change_registrar_,
+        kContentSettingsExceptionsPrefs[i], is_incognito_,
+        &updating_old_preferences_, base::Bind(&PrefProvider::Notify,
+                                               base::Unretained(this))));
   }
 
-  // Migrate the obsolete media content setting exceptions to the new settings.
-  // This needs to be done after ReadContentSettingsFromPref().
-  if (!is_incognito_)
-    MigrateObsoleteMediaContentSetting();
+  // Migrate all the exceptions from the aggregate dictionary preference
+  // to the separate dictionaries, if this hasn't been done before.
+  if (!prefs_->GetBoolean(prefs::kMigratedContentSettingsPatternPairs)) {
+    WriteSettingsToNewPreferences(false);
+    prefs_->SetBoolean(prefs::kMigratedContentSettingsPatternPairs, true);
+  } else {
+    // Trigger the update of old preference, and as a result,
+    // the new preferences as well.
+    OnOldContentSettingsPatternPairsChanged();
+  }
 
-  pref_change_registrar_.Init(prefs_);
-  pref_change_registrar_.Add(
-      prefs::kContentSettingsPatternPairs,
-      base::Bind(&PrefProvider::OnContentSettingsPatternPairsChanged,
-                 base::Unretained(this)));
+  if (!is_incognito_) {
+    size_t num_exceptions = 0;
+    for (size_t i = 0; i < CONTENT_SETTINGS_NUM_TYPES; ++i)
+      num_exceptions += content_settings_prefs_[i]->GetNumExceptions();
+
+    UMA_HISTOGRAM_COUNTS("ContentSettings.NumberOfExceptions",
+                         num_exceptions);
+
+    // Migrate the obsolete media content setting exceptions to the new
+    // settings.
+    MigrateObsoleteMediaContentSetting();
+  }
+
+}
+
+PrefProvider::~PrefProvider() {
+  DCHECK(!prefs_);
+}
+
+RuleIterator* PrefProvider::GetRuleIterator(
+    ContentSettingsType content_type,
+    const ResourceIdentifier& resource_identifier,
+    bool incognito) const {
+  return content_settings_prefs_[content_type]->GetRuleIterator(
+      resource_identifier,
+      incognito);
 }
 
 bool PrefProvider::SetWebsiteSetting(
@@ -123,6 +206,7 @@ bool PrefProvider::SetWebsiteSetting(
     base::Value* in_value) {
   DCHECK(CalledOnValidThread());
   DCHECK(prefs_);
+
   // Default settings are set using a wildcard pattern for both
   // |primary_pattern| and |secondary_pattern|. Don't store default settings in
   // the |PrefProvider|. The |PrefProvider| handles settings for specific
@@ -134,43 +218,11 @@ bool PrefProvider::SetWebsiteSetting(
     return false;
   }
 
-  // At this point take the ownership of the |in_value|.
-  scoped_ptr<base::Value> value(in_value);
-  // Update in memory value map.
-  OriginIdentifierValueMap* map_to_modify = &incognito_value_map_;
-  if (!is_incognito_)
-    map_to_modify = &value_map_;
-
-  {
-    base::AutoLock auto_lock(lock_);
-    if (value.get()) {
-      map_to_modify->SetValue(
-          primary_pattern,
-          secondary_pattern,
-          content_type,
-          resource_identifier,
-          value->DeepCopy());
-    } else {
-      map_to_modify->DeleteValue(
-          primary_pattern,
-          secondary_pattern,
-          content_type,
-          resource_identifier);
-    }
-  }
-  // Update the content settings preference.
-  if (!is_incognito_) {
-    UpdatePref(primary_pattern,
-               secondary_pattern,
-               content_type,
-               resource_identifier,
-               value.get());
-  }
-
-  NotifyObservers(
-      primary_pattern, secondary_pattern, content_type, resource_identifier);
-
-  return true;
+  return content_settings_prefs_[content_type]->SetWebsiteSetting(
+      primary_pattern,
+      secondary_pattern,
+      resource_identifier,
+      in_value);
 }
 
 void PrefProvider::ClearAllContentSettingsRules(
@@ -178,135 +230,74 @@ void PrefProvider::ClearAllContentSettingsRules(
   DCHECK(CalledOnValidThread());
   DCHECK(prefs_);
 
-  OriginIdentifierValueMap* map_to_modify = &incognito_value_map_;
-  if (!is_incognito_)
-    map_to_modify = &value_map_;
-
-  std::vector<Rule> rules_to_delete;
-  {
-    base::AutoLock auto_lock(lock_);
-    scoped_ptr<RuleIterator> rule_iterator(
-        map_to_modify->GetRuleIterator(content_type, std::string(), NULL));
-    // Copy the rules; we cannot call |UpdatePref| while holding |lock_|.
-    while (rule_iterator->HasNext())
-      rules_to_delete.push_back(rule_iterator->Next());
-
-    map_to_modify->DeleteValues(content_type, std::string());
-  }
-
-  for (std::vector<Rule>::const_iterator it = rules_to_delete.begin();
-       it != rules_to_delete.end(); ++it) {
-    UpdatePref(it->primary_pattern,
-               it->secondary_pattern,
-               content_type,
-               std::string(),
-               NULL);
-  }
-  NotifyObservers(ContentSettingsPattern(),
-                  ContentSettingsPattern(),
-                  content_type,
-                  std::string());
+  content_settings_prefs_[content_type]->ClearAllContentSettingsRules();
 }
 
-PrefProvider::~PrefProvider() {
-  DCHECK(!prefs_);
+void PrefProvider::ShutdownOnUIThread() {
+  DCHECK(CalledOnValidThread());
+  DCHECK(prefs_);
+  RemoveAllObservers();
+  pref_change_registrar_.RemoveAll();
+  prefs_ = NULL;
 }
 
-RuleIterator* PrefProvider::GetRuleIterator(
-    ContentSettingsType content_type,
-    const ResourceIdentifier& resource_identifier,
-    bool incognito) const {
-  if (incognito)
-    return incognito_value_map_.GetRuleIterator(content_type,
-                                                resource_identifier,
-                                                &lock_);
-  return value_map_.GetRuleIterator(content_type, resource_identifier, &lock_);
+void PrefProvider::UpdateLastUsage(
+    const ContentSettingsPattern& primary_pattern,
+    const ContentSettingsPattern& secondary_pattern,
+    ContentSettingsType content_type) {
+  content_settings_prefs_[content_type]->UpdateLastUsage(primary_pattern,
+                                                         secondary_pattern,
+                                                         clock_.get());
+}
+
+base::Time PrefProvider::GetLastUsage(
+    const ContentSettingsPattern& primary_pattern,
+    const ContentSettingsPattern& secondary_pattern,
+    ContentSettingsType content_type) {
+  return content_settings_prefs_[content_type]->GetLastUsage(primary_pattern,
+                                                             secondary_pattern);
 }
 
 // ////////////////////////////////////////////////////////////////////////////
 // Private
 
-void PrefProvider::UpdatePref(
-    const ContentSettingsPattern& primary_pattern,
-    const ContentSettingsPattern& secondary_pattern,
-    ContentSettingsType content_type,
-    const ResourceIdentifier& resource_identifier,
-    const base::Value* value) {
-  // Ensure that |lock_| is not held by this thread, since this function will
-  // send out notifications (by |~DictionaryPrefUpdate|).
-  AssertLockNotHeld();
-
-  base::AutoReset<bool> auto_reset(&updating_preferences_, true);
-  {
-    DictionaryPrefUpdate update(prefs_,
-                                prefs::kContentSettingsPatternPairs);
-    base::DictionaryValue* pattern_pairs_settings = update.Get();
-
-    // Get settings dictionary for the given patterns.
-    std::string pattern_str(CreatePatternString(primary_pattern,
-                                                secondary_pattern));
-    base::DictionaryValue* settings_dictionary = NULL;
-    bool found = pattern_pairs_settings->GetDictionaryWithoutPathExpansion(
-        pattern_str, &settings_dictionary);
-
-    if (!found && value) {
-      settings_dictionary = new base::DictionaryValue;
-      pattern_pairs_settings->SetWithoutPathExpansion(
-          pattern_str, settings_dictionary);
-    }
-
-    if (settings_dictionary) {
-      std::string res_dictionary_path;
-      if (GetResourceTypeName(content_type, &res_dictionary_path) &&
-          !resource_identifier.empty()) {
-        base::DictionaryValue* resource_dictionary = NULL;
-        found = settings_dictionary->GetDictionary(
-            res_dictionary_path, &resource_dictionary);
-        if (!found) {
-          if (value == NULL)
-            return;  // Nothing to remove. Exit early.
-          resource_dictionary = new base::DictionaryValue;
-          settings_dictionary->Set(res_dictionary_path, resource_dictionary);
-        }
-        // Update resource dictionary.
-        if (value == NULL) {
-          resource_dictionary->RemoveWithoutPathExpansion(resource_identifier,
-                                                          NULL);
-          if (resource_dictionary->empty()) {
-            settings_dictionary->RemoveWithoutPathExpansion(
-                res_dictionary_path, NULL);
-          }
-        } else {
-          resource_dictionary->SetWithoutPathExpansion(
-              resource_identifier, value->DeepCopy());
-        }
-      } else {
-        // Update settings dictionary.
-        std::string setting_path = GetTypeName(content_type);
-        if (value == NULL) {
-          settings_dictionary->RemoveWithoutPathExpansion(setting_path,
-                                                          NULL);
-          settings_dictionary->RemoveWithoutPathExpansion(kLastUsed, NULL);
-        } else {
-          settings_dictionary->SetWithoutPathExpansion(
-              setting_path, value->DeepCopy());
-        }
-      }
-      // Remove the settings dictionary if it is empty.
-      if (settings_dictionary->empty()) {
-        pattern_pairs_settings->RemoveWithoutPathExpansion(
-            pattern_str, NULL);
-      }
-    }
-  }
+PrefProvider::ContentSettingsPrefEntry::ContentSettingsPrefEntry(
+    const ContentSettingsPattern primary_pattern,
+    const ContentSettingsPattern secondary_pattern,
+    const ResourceIdentifier resource_identifier,
+    base::Value* value)
+    : primary_pattern(CopyPattern(primary_pattern)),
+      secondary_pattern(CopyPattern(secondary_pattern)),
+      resource_identifier(resource_identifier),
+      value(value) {
 }
 
+PrefProvider::ContentSettingsPrefEntry::ContentSettingsPrefEntry(
+    const ContentSettingsPrefEntry& entry)
+    : primary_pattern(CopyPattern(entry.primary_pattern)),
+      secondary_pattern(CopyPattern(entry.secondary_pattern)),
+      resource_identifier(entry.resource_identifier),
+      value(entry.value->DeepCopy()) {
+}
+
+PrefProvider::ContentSettingsPrefEntry&
+    PrefProvider::ContentSettingsPrefEntry::operator=(
+        const ContentSettingsPrefEntry& entry) {
+  this->primary_pattern = CopyPattern(entry.primary_pattern);
+  this->secondary_pattern = CopyPattern(entry.secondary_pattern);
+  this->resource_identifier = entry.resource_identifier;
+  this->value.reset(entry.value->DeepCopy());
+
+  return *this;
+}
+
+PrefProvider::ContentSettingsPrefEntry::~ContentSettingsPrefEntry() {}
 
 void PrefProvider::MigrateObsoleteMediaContentSetting() {
   std::vector<Rule> rules_to_delete;
   {
     scoped_ptr<RuleIterator> rule_iterator(GetRuleIterator(
-        CONTENT_SETTINGS_TYPE_MEDIASTREAM, std::string(), false));
+        CONTENT_SETTINGS_TYPE_MEDIASTREAM, ResourceIdentifier(), false));
     while (rule_iterator->HasNext()) {
       // Skip default setting and rules without a value.
       const content_settings::Rule& rule = rule_iterator->Next();
@@ -331,7 +322,7 @@ void PrefProvider::MigrateObsoleteMediaContentSetting() {
       SetWebsiteSetting(it->primary_pattern,
                         it->secondary_pattern,
                         CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC,
-                        std::string(),
+                        ResourceIdentifier(),
                         new base::FundamentalValue(CONTENT_SETTING_ALLOW));
     }
     // Add the exception to the new camera content setting.
@@ -339,7 +330,7 @@ void PrefProvider::MigrateObsoleteMediaContentSetting() {
       SetWebsiteSetting(it->primary_pattern,
                         it->secondary_pattern,
                         CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA,
-                        std::string(),
+                        ResourceIdentifier(),
                         new base::FundamentalValue(CONTENT_SETTING_ALLOW));
     }
 
@@ -347,26 +338,35 @@ void PrefProvider::MigrateObsoleteMediaContentSetting() {
     SetWebsiteSetting(it->primary_pattern,
                       it->secondary_pattern,
                       CONTENT_SETTINGS_TYPE_MEDIASTREAM,
-                      std::string(),
+                      ResourceIdentifier(),
                       NULL);
   }
 }
 
-void PrefProvider::ReadContentSettingsFromPref(bool overwrite) {
+void PrefProvider::Notify(
+    const ContentSettingsPattern& primary_pattern,
+    const ContentSettingsPattern& secondary_pattern,
+    ContentSettingsType content_type,
+    const std::string& resource_identifier) {
+  NotifyObservers(primary_pattern,
+                  secondary_pattern,
+                  content_type,
+                  resource_identifier);
+}
+
+void PrefProvider::ReadContentSettingsFromOldPref() {
   // |DictionaryPrefUpdate| sends out notifications when destructed. This
-  // construction order ensures |AutoLock| gets destroyed first and |lock_| is
-  // not held when the notifications are sent. Also, |auto_reset| must be still
-  // valid when the notifications are sent, so that |Observe| skips the
+  // construction order ensures |AutoLock| gets destroyed first and |old_lock_|
+  // is not held when the notifications are sent. Also, |auto_reset| must be
+  // still valid when the notifications are sent, so that |Observe| skips the
   // notification.
-  base::AutoReset<bool> auto_reset(&updating_preferences_, true);
+  base::AutoReset<bool> auto_reset(&updating_old_preferences_, true);
   DictionaryPrefUpdate update(prefs_, prefs::kContentSettingsPatternPairs);
-  base::AutoLock auto_lock(lock_);
+
+  ClearPrefEntryMap();
 
   const base::DictionaryValue* all_settings_dictionary =
       prefs_->GetDictionary(prefs::kContentSettingsPatternPairs);
-
-  if (overwrite)
-    value_map_.clear();
 
   // Careful: The returned value could be NULL if the pref has never been set.
   if (!all_settings_dictionary)
@@ -383,11 +383,8 @@ void PrefProvider::ReadContentSettingsFromPref(bool overwrite) {
     mutable_settings_scope.reset(mutable_settings);
   }
   // Convert all Unicode patterns into punycode form, then read.
-  CanonicalizeContentSettingsExceptions(mutable_settings);
+  ContentSettingsPref::CanonicalizeContentSettingsExceptions(mutable_settings);
 
-  size_t cookies_block_exception_count = 0;
-  size_t cookies_allow_exception_count = 0;
-  size_t cookies_session_only_exception_count = 0;
   for (base::DictionaryValue::Iterator i(*mutable_settings); !i.IsAtEnd();
        i.Advance()) {
     const std::string& pattern_str(i.key());
@@ -406,8 +403,8 @@ void PrefProvider::ReadContentSettingsFromPref(bool overwrite) {
     bool is_dictionary = i.value().GetAsDictionary(&settings_dictionary);
     DCHECK(is_dictionary);
 
-    for (size_t i = 0; i < CONTENT_SETTINGS_NUM_TYPES; ++i) {
-      ContentSettingsType content_type = static_cast<ContentSettingsType>(i);
+    for (size_t k = 0; k < CONTENT_SETTINGS_NUM_TYPES; ++k) {
+      ContentSettingsType content_type = static_cast<ContentSettingsType>(k);
 
       std::string res_dictionary_path;
       if (GetResourceTypeName(content_type, &res_dictionary_path)) {
@@ -422,11 +419,13 @@ void PrefProvider::ReadContentSettingsFromPref(bool overwrite) {
             bool is_integer = j.value().GetAsInteger(&setting);
             DCHECK(is_integer);
             DCHECK_NE(CONTENT_SETTING_DEFAULT, setting);
-            value_map_.SetValue(pattern_pair.first,
-                                pattern_pair.second,
-                                content_type,
-                                resource_identifier,
-                                new base::FundamentalValue(setting));
+
+            pref_entry_map_[content_type].push_back(
+                new ContentSettingsPrefEntry(
+                    pattern_pair.first,
+                    pattern_pair.second,
+                    resource_identifier,
+                    new base::FundamentalValue(setting)));
           }
         }
       }
@@ -435,14 +434,14 @@ void PrefProvider::ReadContentSettingsFromPref(bool overwrite) {
         const base::DictionaryValue* setting = NULL;
         // TODO(xians): Handle the non-dictionary types.
         if (settings_dictionary->GetDictionaryWithoutPathExpansion(
-            GetTypeName(ContentSettingsType(i)), &setting)) {
+            GetTypeName(content_type), &setting)) {
           DCHECK(!setting->empty());
           value = setting->DeepCopy();
         }
       } else {
         int setting = CONTENT_SETTING_DEFAULT;
         if (settings_dictionary->GetIntegerWithoutPathExpansion(
-                GetTypeName(ContentSettingsType(i)), &setting)) {
+                GetTypeName(content_type), &setting)) {
           DCHECK_NE(CONTENT_SETTING_DEFAULT, setting);
           setting = FixObsoleteCookiePromptMode(content_type,
                                                 ContentSetting(setting));
@@ -450,208 +449,85 @@ void PrefProvider::ReadContentSettingsFromPref(bool overwrite) {
         }
       }
 
-      // |value_map_| will take the ownership of |value|.
+      // |pref_entry_map_| will take the ownership of |value|.
       if (value != NULL) {
-        value_map_.SetValue(pattern_pair.first,
-                            pattern_pair.second,
-                            content_type,
-                            ResourceIdentifier(),
-                            value);
-        if (content_type == CONTENT_SETTINGS_TYPE_COOKIES) {
-          ContentSetting s = ValueToContentSetting(value);
-          switch (s) {
-            case CONTENT_SETTING_ALLOW :
-              ++cookies_allow_exception_count;
-              break;
-            case CONTENT_SETTING_BLOCK :
-              ++cookies_block_exception_count;
-              break;
-            case CONTENT_SETTING_SESSION_ONLY :
-              ++cookies_session_only_exception_count;
-              break;
-            default:
-              NOTREACHED();
-              break;
-          }
-        }
+        pref_entry_map_[content_type].push_back(
+            new ContentSettingsPrefEntry(
+                pattern_pair.first,
+                pattern_pair.second,
+                ResourceIdentifier(),
+                value));
       }
     }
   }
-  UMA_HISTOGRAM_COUNTS("ContentSettings.NumberOfBlockCookiesExceptions",
-                       cookies_block_exception_count);
-  UMA_HISTOGRAM_COUNTS("ContentSettings.NumberOfAllowCookiesExceptions",
-                       cookies_allow_exception_count);
-  UMA_HISTOGRAM_COUNTS("ContentSettings.NumberOfSessionOnlyCookiesExceptions",
-                       cookies_session_only_exception_count);
 }
 
-void PrefProvider::OnContentSettingsPatternPairsChanged() {
-  DCHECK(CalledOnValidThread());
-
-  if (updating_preferences_)
+void PrefProvider::WriteSettingsToNewPreferences(bool syncable_only) {
+  // The incognito provider cannot write the settings to avoid echo effect:
+  // New preference -> PrefProvider -> Old preference ->
+  // -> Incognito PrefProvider -> New preference -> etc.
+  if (is_incognito_)
     return;
 
-  ReadContentSettingsFromPref(true);
-
-  NotifyObservers(ContentSettingsPattern(),
-                  ContentSettingsPattern(),
-                  CONTENT_SETTINGS_TYPE_DEFAULT,
-                  std::string());
-}
-
-// static
-void PrefProvider::CanonicalizeContentSettingsExceptions(
-    base::DictionaryValue* all_settings_dictionary) {
-  DCHECK(all_settings_dictionary);
-
-  std::vector<std::string> remove_items;
-  base::StringPairs move_items;
-  for (base::DictionaryValue::Iterator i(*all_settings_dictionary);
-       !i.IsAtEnd();
-       i.Advance()) {
-    const std::string& pattern_str(i.key());
-    std::pair<ContentSettingsPattern, ContentSettingsPattern> pattern_pair =
-         ParsePatternString(pattern_str);
-    if (!pattern_pair.first.IsValid() ||
-        !pattern_pair.second.IsValid()) {
-      LOG(ERROR) << "Invalid pattern strings: " << pattern_str;
-      continue;
-    }
-
-    const std::string canonicalized_pattern_str = CreatePatternString(
-        pattern_pair.first, pattern_pair.second);
-
-    if (canonicalized_pattern_str.empty() ||
-        canonicalized_pattern_str == pattern_str) {
-      continue;
-    }
-
-    // Clear old pattern if prefs already have canonicalized pattern.
-    const base::DictionaryValue* new_pattern_settings_dictionary = NULL;
-    if (all_settings_dictionary->GetDictionaryWithoutPathExpansion(
-            canonicalized_pattern_str, &new_pattern_settings_dictionary)) {
-      remove_items.push_back(pattern_str);
-      continue;
-    }
-
-    // Move old pattern to canonicalized pattern.
-    const base::DictionaryValue* old_pattern_settings_dictionary = NULL;
-    if (i.value().GetAsDictionary(&old_pattern_settings_dictionary)) {
-      move_items.push_back(
-          std::make_pair(pattern_str, canonicalized_pattern_str));
-    }
-  }
-
-  for (size_t i = 0; i < remove_items.size(); ++i) {
-    all_settings_dictionary->RemoveWithoutPathExpansion(remove_items[i], NULL);
-  }
-
-  for (size_t i = 0; i < move_items.size(); ++i) {
-    scoped_ptr<base::Value> pattern_settings_dictionary;
-    all_settings_dictionary->RemoveWithoutPathExpansion(
-        move_items[i].first, &pattern_settings_dictionary);
-    all_settings_dictionary->SetWithoutPathExpansion(
-        move_items[i].second, pattern_settings_dictionary.release());
-  }
-}
-
-void PrefProvider::ShutdownOnUIThread() {
-  DCHECK(CalledOnValidThread());
-  DCHECK(prefs_);
-  RemoveAllObservers();
-  pref_change_registrar_.RemoveAll();
-  prefs_ = NULL;
-}
-
-void PrefProvider::UpdateLastUsage(
-    const ContentSettingsPattern& primary_pattern,
-    const ContentSettingsPattern& secondary_pattern,
-    ContentSettingsType content_type) {
-  // Don't write if in incognito.
-  if (is_incognito_) {
+  if (updating_old_preferences_)
     return;
-  }
 
-  // Ensure that |lock_| is not held by this thread, since this function will
-  // send out notifications (by |~DictionaryPrefUpdate|).
-  AssertLockNotHeld();
+  base::AutoReset<bool> auto_reset(&updating_old_preferences_, true);
+  base::AutoLock auto_lock(old_lock_);
 
-  base::AutoReset<bool> auto_reset(&updating_preferences_, true);
-  {
-    DictionaryPrefUpdate update(prefs_, prefs::kContentSettingsPatternPairs);
-    base::DictionaryValue* pattern_pairs_settings = update.Get();
+  ReadContentSettingsFromOldPref();
 
-    std::string pattern_str(
-        CreatePatternString(primary_pattern, secondary_pattern));
-    base::DictionaryValue* settings_dictionary = NULL;
-    bool found = pattern_pairs_settings->GetDictionaryWithoutPathExpansion(
-        pattern_str, &settings_dictionary);
+  for (int k = 0; k < CONTENT_SETTINGS_NUM_TYPES; ++k) {
+    ContentSettingsType content_type = ContentSettingsType(k);
 
-    if (!found) {
-      settings_dictionary = new base::DictionaryValue;
-      pattern_pairs_settings->SetWithoutPathExpansion(pattern_str,
-                                                      settings_dictionary);
-    }
+    if (syncable_only && !IsContentSettingsTypeSyncable(content_type))
+      continue;
 
-    base::DictionaryValue* last_used_dictionary = NULL;
-    found = settings_dictionary->GetDictionaryWithoutPathExpansion(
-        kLastUsed, &last_used_dictionary);
+    content_settings_prefs_[content_type]->ClearAllContentSettingsRules();
 
-    if (!found) {
-      last_used_dictionary = new base::DictionaryValue;
-      settings_dictionary->SetWithoutPathExpansion(kLastUsed,
-                                                   last_used_dictionary);
-    }
-
-    std::string settings_path = GetTypeName(content_type);
-    last_used_dictionary->Set(
-        settings_path, new base::FundamentalValue(clock_->Now().ToDoubleT()));
-  }
-}
-
-base::Time PrefProvider::GetLastUsage(
-    const ContentSettingsPattern& primary_pattern,
-    const ContentSettingsPattern& secondary_pattern,
-    ContentSettingsType content_type) {
-  const base::DictionaryValue* pattern_pairs_settings =
-      prefs_->GetDictionary(prefs::kContentSettingsPatternPairs);
-  std::string pattern_str(
-      CreatePatternString(primary_pattern, secondary_pattern));
-
-  const base::DictionaryValue* settings_dictionary = NULL;
-  bool found = pattern_pairs_settings->GetDictionaryWithoutPathExpansion(
-      pattern_str, &settings_dictionary);
-
-  if (!found)
-    return base::Time();
-
-  const base::DictionaryValue* last_used_dictionary = NULL;
-  found = settings_dictionary->GetDictionaryWithoutPathExpansion(
-      kLastUsed, &last_used_dictionary);
-
-  if (!found)
-    return base::Time();
-
-  double last_used_time;
-  found = last_used_dictionary->GetDoubleWithoutPathExpansion(
-      GetTypeName(content_type), &last_used_time);
-
-  if (!found)
-    return base::Time();
-
-  return base::Time::FromDoubleT(last_used_time);
-}
-
-void PrefProvider::AssertLockNotHeld() const {
-#if !defined(NDEBUG)
-  // |Lock::Acquire()| will assert if the lock is held by this thread.
-  lock_.Acquire();
-  lock_.Release();
+    for (size_t i = 0; i < pref_entry_map_[content_type].size(); ++i) {
+#if defined(OS_CHROMEOS) || defined(OS_ANDROID)
+      // Protected Media Identifier "Allow" exceptions can not be migrated.
+      const base::FundamentalValue allow_value(CONTENT_SETTING_ALLOW);
+      if (content_type == CONTENT_SETTINGS_TYPE_PROTECTED_MEDIA_IDENTIFIER &&
+          pref_entry_map_[content_type][i]->value->Equals(&allow_value)) {
+        continue;
+      }
 #endif
+
+      content_settings_prefs_[content_type]->SetWebsiteSetting(
+          pref_entry_map_[content_type][i]->primary_pattern,
+          pref_entry_map_[content_type][i]->secondary_pattern,
+          pref_entry_map_[content_type][i]->resource_identifier,
+          pref_entry_map_[content_type][i]->value.release());
+    }
+  }
+
+  ClearPrefEntryMap();
+}
+
+void PrefProvider::ClearPrefEntryMap() {
+  for (int i = 0; i < CONTENT_SETTINGS_NUM_TYPES; ++i)
+    pref_entry_map_[i].clear();
+}
+
+void PrefProvider::OnOldContentSettingsPatternPairsChanged() {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  WriteSettingsToNewPreferences(true);
 }
 
 void PrefProvider::SetClockForTesting(scoped_ptr<base::Clock> clock) {
   clock_ = clock.Pass();
+}
+
+bool PrefProvider::TestAllLocks() const {
+  for (size_t i = 0; i < CONTENT_SETTINGS_NUM_TYPES; ++i) {
+    if (!content_settings_prefs_[i]->lock_.Try())
+      return false;
+    content_settings_prefs_[i]->lock_.Release();
+  }
+  return true;
 }
 
 }  // namespace content_settings

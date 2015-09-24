@@ -11,6 +11,7 @@
 #include "ui/views/controls/button/button.h"
 
 class Browser;
+class ElevationIconSetter;
 class GlobalErrorWithStandardBubble;
 
 class GlobalErrorBubbleView : public views::ButtonListener,
@@ -28,7 +29,13 @@ class GlobalErrorBubbleView : public views::ButtonListener,
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
   // views::WidgetDelegate implementation.
+  base::string16 GetWindowTitle() const override;
+  gfx::ImageSkia GetWindowIcon() override;
+  bool ShouldShowWindowIcon() const override;
   void WindowClosing() override;
+
+  // views::BubbleDelegateView implementation.
+  bool ShouldShowCloseButton() const override;
 
   // GlobalErrorBubbleViewBase implementation.
   void CloseBubbleView() override;
@@ -36,6 +43,8 @@ class GlobalErrorBubbleView : public views::ButtonListener,
  private:
   Browser* browser_;
   base::WeakPtr<GlobalErrorWithStandardBubble> error_;
+
+  scoped_ptr<ElevationIconSetter> elevation_icon_setter_;
 
   DISALLOW_COPY_AND_ASSIGN(GlobalErrorBubbleView);
 };

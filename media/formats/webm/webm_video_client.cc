@@ -44,7 +44,7 @@ bool WebMVideoClient::InitializeConfig(
     video_codec = kCodecVP9;
     profile = VP9PROFILE_ANY;
   } else {
-    MEDIA_LOG(log_cb_) << "Unsupported video codec_id " << codec_id;
+    MEDIA_LOG(ERROR, log_cb_) << "Unsupported video codec_id " << codec_id;
     return false;
   }
 
@@ -83,7 +83,8 @@ bool WebMVideoClient::InitializeConfig(
     if (display_width_ <= 0 || display_height_ <= 0)
       return false;
   } else {
-    MEDIA_LOG(log_cb_) << "Unsupported display unit type " << display_unit_;
+    MEDIA_LOG(ERROR, log_cb_) << "Unsupported display unit type "
+                              << display_unit_;
     return false;
   }
   gfx::Size natural_size = gfx::Size(display_width_, display_height_);
@@ -94,9 +95,10 @@ bool WebMVideoClient::InitializeConfig(
     extra_data_size = codec_private.size();
   }
 
-  config->Initialize(
-      video_codec, profile, format, coded_size, visible_rect, natural_size,
-      extra_data, extra_data_size, is_encrypted, true);
+  config->Initialize(video_codec, profile, format,
+                     VideoFrame::COLOR_SPACE_UNSPECIFIED, coded_size,
+                     visible_rect, natural_size, extra_data, extra_data_size,
+                     is_encrypted, true);
   return config->IsValidConfig();
 }
 
@@ -139,8 +141,9 @@ bool WebMVideoClient::OnUInt(int id, int64 val) {
   }
 
   if (*dst != -1) {
-    MEDIA_LOG(log_cb_) << "Multiple values for id " << std::hex << id
-                       << " specified (" << *dst << " and " << val << ")";
+    MEDIA_LOG(ERROR, log_cb_) << "Multiple values for id " << std::hex << id
+                              << " specified (" << *dst << " and " << val
+                              << ")";
     return false;
   }
 

@@ -9,6 +9,7 @@
 
 #include "base/logging.h"
 #include "cc/animation/timing_function.h"
+#include "cc/base/time_util.h"
 #include "ui/gfx/animation/tween.h"
 
 const double kDurationDivisor = 60.0;
@@ -17,11 +18,11 @@ namespace cc {
 
 namespace {
 
-static float MaximumDimension(gfx::Vector2dF delta) {
+static float MaximumDimension(const gfx::Vector2dF& delta) {
   return std::max(std::abs(delta.x()), std::abs(delta.y()));
 }
 
-static base::TimeDelta DurationFromDelta(gfx::Vector2dF delta) {
+static base::TimeDelta DurationFromDelta(const gfx::Vector2dF& delta) {
   // The duration of a scroll animation depends on the size of the scroll.
   // The exact relationship between the size and the duration isn't specified
   // by the CSSOM View smooth scroll spec and is instead left up to user agents
@@ -34,11 +35,18 @@ static base::TimeDelta DurationFromDelta(gfx::Vector2dF delta) {
 
 static scoped_ptr<TimingFunction> EaseOutWithInitialVelocity(double velocity) {
   // Based on EaseInOutTimingFunction::Create with first control point rotated.
-  const double r2 = 0.42 * 0.42;
-  const double v2 = velocity * velocity;
-  const double x1 = std::sqrt(r2 / (v2 + 1));
-  const double y1 = std::sqrt(r2 * v2 / (v2 + 1));
-  return CubicBezierTimingFunction::Create(x1, y1, 0.58, 1);
+  if (std::abs(velocity) < 1000.0) {
+    const double r2 = 0.42 * 0.42;
+    const double v2 = velocity * velocity;
+    const double x1 = std::sqrt(r2 / (v2 + 1));
+    const double y1 = std::sqrt(r2 * v2 / (v2 + 1));
+    return CubicBezierTimingFunction::Create(x1, y1, 0.58, 1);
+  }
+
+  // For large |velocity|, x1 approaches 0 and y1 approaches 0.42. To avoid the
+  // risk of floating point arithmetic involving infinity and NaN, use those
+  // values directly rather than computing them above.
+  return CubicBezierTimingFunction::Create(0, 0.42, 0.58, 1);
 }
 
 }  // namespace
@@ -65,17 +73,18 @@ void ScrollOffsetAnimationCurve::SetInitialValue(
       target_value_.DeltaFrom(initial_value_));
 }
 
-gfx::ScrollOffset ScrollOffsetAnimationCurve::GetValue(double t) const {
-  double duration = (total_animation_duration_ - last_retarget_).InSecondsF();
-  t -= last_retarget_.InSecondsF();
+gfx::ScrollOffset ScrollOffsetAnimationCurve::GetValue(
+    base::TimeDelta t) const {
+  base::TimeDelta duration = total_animation_duration_ - last_retarget_;
+  t -= last_retarget_;
 
-  if (t <= 0)
+  if (t <= base::TimeDelta())
     return initial_value_;
 
   if (t >= duration)
     return target_value_;
 
-  double progress = (timing_function_->GetValue(t / duration));
+  double progress = timing_function_->GetValue(TimeUtil::Divide(t, duration));
   return gfx::ScrollOffset(
       gfx::Tween::FloatValueBetween(
           progress, initial_value_.x(), target_value_.x()),
@@ -83,12 +92,12 @@ gfx::ScrollOffset ScrollOffsetAnimationCurve::GetValue(double t) const {
           progress, initial_value_.y(), target_value_.y()));
 }
 
-double ScrollOffsetAnimationCurve::Duration() const {
-  return total_animation_duration_.InSecondsF();
+base::TimeDelta ScrollOffsetAnimationCurve::Duration() const {
+  return total_animation_duration_;
 }
 
 AnimationCurve::CurveType ScrollOffsetAnimationCurve::Type() const {
-  return ScrollOffset;
+  return SCROLL_OFFSET;
 }
 
 scoped_ptr<AnimationCurve> ScrollOffsetAnimationCurve::Clone() const {
@@ -105,7 +114,8 @@ scoped_ptr<AnimationCurve> ScrollOffsetAnimationCurve::Clone() const {
 void ScrollOffsetAnimationCurve::UpdateTarget(
     double t,
     const gfx::ScrollOffset& new_target) {
-  gfx::ScrollOffset current_position = GetValue(t);
+  gfx::ScrollOffset current_position =
+      GetValue(base::TimeDelta::FromSecondsD(t));
   gfx::Vector2dF old_delta = target_value_.DeltaFrom(initial_value_);
   gfx::Vector2dF new_delta = new_target.DeltaFrom(current_position);
 

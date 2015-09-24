@@ -10,7 +10,7 @@
 #include "chrome/browser/apps/scoped_keep_alive.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/chrome_extension_web_contents_observer.h"
-#include "chrome/browser/favicon/favicon_tab_helper.h"
+#include "chrome/browser/favicon/favicon_helper.h"
 #include "chrome/browser/file_select_helper.h"
 #include "chrome/browser/media/media_capture_devices_dispatcher.h"
 #include "chrome/browser/platform_util.h"
@@ -22,9 +22,11 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
 #include "chrome/browser/ui/web_contents_sizer.h"
-#include "chrome/browser/ui/zoom/zoom_controller.h"
 #include "chrome/common/extensions/chrome_extension_messages.h"
+#include "components/ui/zoom/zoom_controller.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_thread.h"
+#include "content/public/browser/host_zoom_map.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
@@ -45,6 +47,9 @@
 #endif  // defined(ENABLE_PRINTING)
 
 namespace {
+
+// Time to wait for an app window to show before allowing Chrome to quit.
+int kAppWindowFirstShowTimeoutSeconds = 10;
 
 bool disable_external_open_for_testing_ = false;
 
@@ -110,6 +115,16 @@ class OpenURLFromTabBasedOnBrowserDefault
 
 }  // namespace
 
+// static
+void ChromeAppDelegate::RelinquishKeepAliveAfterTimeout(
+    const base::WeakPtr<ChromeAppDelegate>& chrome_app_delegate) {
+  // Resetting the ScopedKeepAlive may cause nested destruction of the
+  // ChromeAppDelegate which also resets the ScopedKeepAlive. To avoid this,
+  // move the ScopedKeepAlive out to here and let it fall out of scope.
+  if (chrome_app_delegate.get() && chrome_app_delegate->is_hidden_)
+    scoped_ptr<ScopedKeepAlive>(chrome_app_delegate->keep_alive_.Pass());
+}
+
 class ChromeAppDelegate::NewWindowContentsDelegate
     : public content::WebContentsDelegate {
  public:
@@ -150,8 +165,11 @@ ChromeAppDelegate::NewWindowContentsDelegate::OpenURLFromTab(
 }
 
 ChromeAppDelegate::ChromeAppDelegate(scoped_ptr<ScopedKeepAlive> keep_alive)
-    : keep_alive_(keep_alive.Pass()),
-      new_window_contents_delegate_(new NewWindowContentsDelegate()) {
+    : has_been_shown_(false),
+      is_hidden_(true),
+      keep_alive_(keep_alive.Pass()),
+      new_window_contents_delegate_(new NewWindowContentsDelegate()),
+      weak_factory_(this) {
   registrar_.Add(this,
                  chrome::NOTIFICATION_APP_TERMINATING,
                  content::NotificationService::AllSources());
@@ -167,7 +185,7 @@ void ChromeAppDelegate::DisableExternalOpenForTesting() {
 }
 
 void ChromeAppDelegate::InitWebContents(content::WebContents* web_contents) {
-  FaviconTabHelper::CreateForWebContents(web_contents);
+  favicon::CreateContentFaviconDriverForWebContents(web_contents);
 
 #if defined(ENABLE_PRINTING)
 #if defined(ENABLE_PRINT_PREVIEW)
@@ -182,7 +200,25 @@ void ChromeAppDelegate::InitWebContents(content::WebContents* web_contents) {
 
   // Kiosk app supports zooming.
   if (chrome::IsRunningInForcedAppMode())
-    ZoomController::CreateForWebContents(web_contents);
+    ui_zoom::ZoomController::CreateForWebContents(web_contents);
+}
+
+void ChromeAppDelegate::RenderViewCreated(
+    content::RenderViewHost* render_view_host) {
+  if (!chrome::IsRunningInForcedAppMode()) {
+    // Due to a bug in the way apps reacted to default zoom changes, some apps
+    // can incorrectly have host level zoom settings. These aren't wanted as
+    // apps cannot be zoomed, so are removed. This should be removed if apps
+    // can be made to zoom again.
+    // See http://crbug.com/446759 for more details.
+    content::WebContents* web_contents =
+        content::WebContents::FromRenderViewHost(render_view_host);
+    DCHECK(web_contents);
+    content::HostZoomMap* zoom_map =
+        content::HostZoomMap::GetForWebContents(web_contents);
+    DCHECK(zoom_map);
+    zoom_map->SetZoomLevelForHost(web_contents->GetURL().host(), 0);
+  }
 }
 
 void ChromeAppDelegate::ResizeWebContents(content::WebContents* web_contents,
@@ -200,7 +236,7 @@ content::WebContents* ChromeAppDelegate::OpenURLFromTab(
 void ChromeAppDelegate::AddNewContents(content::BrowserContext* context,
                                        content::WebContents* new_contents,
                                        WindowOpenDisposition disposition,
-                                       const gfx::Rect& initial_pos,
+                                       const gfx::Rect& initial_rect,
                                        bool user_gesture,
                                        bool* was_blocked) {
   if (!disable_external_open_for_testing_) {
@@ -221,7 +257,7 @@ void ChromeAppDelegate::AddNewContents(content::BrowserContext* context,
                          NULL,
                          new_contents,
                          disposition,
-                         initial_pos,
+                         initial_rect,
                          user_gesture,
                          was_blocked);
 }
@@ -283,6 +319,28 @@ bool ChromeAppDelegate::IsWebContentsVisible(
 
 void ChromeAppDelegate::SetTerminatingCallback(const base::Closure& callback) {
   terminating_callback_ = callback;
+}
+
+void ChromeAppDelegate::OnHide() {
+  is_hidden_ = true;
+  if (has_been_shown_) {
+    keep_alive_.reset();
+    return;
+  }
+
+  // Hold on to the keep alive for some time to give the app a chance to show
+  // the window.
+  content::BrowserThread::PostDelayedTask(
+      content::BrowserThread::UI, FROM_HERE,
+      base::Bind(&ChromeAppDelegate::RelinquishKeepAliveAfterTimeout,
+                 weak_factory_.GetWeakPtr()),
+      base::TimeDelta::FromSeconds(kAppWindowFirstShowTimeoutSeconds));
+}
+
+void ChromeAppDelegate::OnShow() {
+  has_been_shown_ = true;
+  is_hidden_ = false;
+  keep_alive_.reset(new ScopedKeepAlive);
 }
 
 void ChromeAppDelegate::Observe(int type,

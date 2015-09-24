@@ -6,8 +6,10 @@
 #define CONTENT_PUBLIC_BROWSER_ANDROID_SYNCHRONOUS_COMPOSITOR_CLIENT_H_
 
 #include "base/basictypes.h"
+#include "base/callback_forward.h"
+#include "base/time/time.h"
 #include "ui/gfx/geometry/size_f.h"
-#include "ui/gfx/vector2d_f.h"
+#include "ui/gfx/geometry/vector2d_f.h"
 
 namespace content {
 
@@ -22,7 +24,7 @@ class SynchronousCompositorClient {
   // Indication to the client that |compositor| is going out of scope, and
   // must not be accessed within or after this call.
   // NOTE if the client goes away before the compositor it must call
-  // SynchronousCompositor::SetClient(NULL) to release the back pointer.
+  // SynchronousCompositor::SetClient(nullptr) to release the back pointer.
   virtual void DidDestroyCompositor(SynchronousCompositor* compositor) = 0;
 
   // See LayerScrollOffsetDelegate for details.
@@ -33,16 +35,16 @@ class SynchronousCompositorClient {
                                     float page_scale_factor,
                                     float min_page_scale_factor,
                                     float max_page_scale_factor) = 0;
-  virtual bool IsExternalFlingActive() const = 0;
+  virtual bool IsExternalScrollActive() const = 0;
+
+  typedef base::Callback<void(base::TimeTicks)> AnimationCallback;
+  virtual void SetNeedsAnimateScroll(const AnimationCallback& animation) = 0;
 
   virtual void DidOverscroll(gfx::Vector2dF accumulated_overscroll,
                              gfx::Vector2dF latest_overscroll_delta,
                              gfx::Vector2dF current_fling_velocity) = 0;
 
-  // When true, should periodically call
-  // SynchronousCompositorOutputSurface::DemandDrawHw. Note that this value
-  // can change inside DemandDrawHw call.
-  virtual void SetContinuousInvalidate(bool invalidate) = 0;
+  virtual void PostInvalidate() = 0;
 
   virtual void DidUpdateContent() = 0;
 

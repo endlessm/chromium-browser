@@ -9,7 +9,10 @@
 #include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/api/virtual_keyboard_private/virtual_keyboard_delegate.h"
 #include "extensions/browser/extension_function_registry.h"
+#include "extensions/common/api/virtual_keyboard_private.h"
 #include "ui/events/event.h"
+
+namespace SetMode = extensions::core_api::virtual_keyboard_private::SetMode;
 
 namespace extensions {
 
@@ -17,6 +20,8 @@ namespace {
 
 const char kNotYetImplementedError[] =
     "API is not implemented on this platform.";
+const char kVirtualKeyboardNotEnabled[] =
+    "The virtual keyboard is not enabled.";
 
 typedef BrowserContextKeyedAPIFactory<VirtualKeyboardAPI> factory;
 
@@ -34,19 +39,6 @@ bool VirtualKeyboardPrivateInsertTextFunction::RunSync() {
     base::string16 text;
     EXTENSION_FUNCTION_VALIDATE(args_->GetString(0, &text));
     return delegate->InsertText(text);
-  }
-  error_ = kNotYetImplementedError;
-  return false;
-}
-
-bool VirtualKeyboardPrivateMoveCursorFunction::RunSync() {
-  VirtualKeyboardDelegate* delegate = GetDelegate(this);
-  if (delegate) {
-    int swipe_direction;
-    int modifier_flags;
-    EXTENSION_FUNCTION_VALIDATE(args_->GetInteger(0, &swipe_direction));
-    EXTENSION_FUNCTION_VALIDATE(args_->GetInteger(1, &modifier_flags));
-    return delegate->MoveCursor(swipe_direction, modifier_flags);
   }
   error_ = kNotYetImplementedError;
   return false;
@@ -122,6 +114,22 @@ bool VirtualKeyboardPrivateOpenSettingsFunction::RunSync() {
     if (delegate->IsLanguageSettingsEnabled())
       return delegate->ShowLanguageSettings();
     return false;
+  }
+  error_ = kNotYetImplementedError;
+  return false;
+}
+
+bool VirtualKeyboardPrivateSetModeFunction::RunSync() {
+  VirtualKeyboardDelegate* delegate = GetDelegate(this);
+  if (delegate) {
+    scoped_ptr<SetMode::Params> params = SetMode::Params::Create(*args_);
+    EXTENSION_FUNCTION_VALIDATE(params);
+    if (!delegate->SetVirtualKeyboardMode(params->mode)) {
+      error_ = kVirtualKeyboardNotEnabled;
+      return false;
+    } else {
+      return true;
+    }
   }
   error_ = kNotYetImplementedError;
   return false;

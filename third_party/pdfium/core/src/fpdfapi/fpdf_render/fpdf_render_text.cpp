@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../../include/fxge/fx_ge.h"
@@ -29,21 +29,21 @@ CFX_GlyphBitmap* CPDF_Type3Cache::LoadGlyph(FX_DWORD charcode, const CFX_AffineM
     CFX_ByteStringC FaceGlyphsKey(keygen.m_Key, keygen.m_KeyLen);
     CPDF_Type3Glyphs* pSizeCache = NULL;
     if(!m_SizeMap.Lookup(FaceGlyphsKey, (void*&)pSizeCache)) {
-        pSizeCache = FX_NEW CPDF_Type3Glyphs;
+        pSizeCache = new CPDF_Type3Glyphs;
         m_SizeMap.SetAt(FaceGlyphsKey, pSizeCache);
     }
     CFX_GlyphBitmap* pGlyphBitmap;
-    if(pSizeCache->m_GlyphMap.Lookup((FX_LPVOID)(FX_UINTPTR)charcode, (void*&)pGlyphBitmap)) {
+    if(pSizeCache->m_GlyphMap.Lookup((void*)(uintptr_t)charcode, (void*&)pGlyphBitmap)) {
         return pGlyphBitmap;
     }
     pGlyphBitmap = RenderGlyph(pSizeCache, charcode, pMatrix, retinaScaleX, retinaScaleY);
-    pSizeCache->m_GlyphMap.SetAt((FX_LPVOID)(FX_UINTPTR)charcode, pGlyphBitmap);
+    pSizeCache->m_GlyphMap.SetAt((void*)(uintptr_t)charcode, pGlyphBitmap);
     return pGlyphBitmap;
 }
 CPDF_Type3Glyphs::~CPDF_Type3Glyphs()
 {
     FX_POSITION pos = m_GlyphMap.GetStartPosition();
-    FX_LPVOID Key;
+    void* Key;
     CFX_GlyphBitmap* pGlyphBitmap;
     while(pos) {
         m_GlyphMap.GetNextAssoc(pos, Key, (void*&)pGlyphBitmap);
@@ -76,7 +76,7 @@ void CPDF_Type3Glyphs::AdjustBlue(FX_FLOAT top, FX_FLOAT bottom, int& top_line, 
     top_line = _AdjustBlue(top, m_TopBlueCount, m_TopBlue);
     bottom_line = _AdjustBlue(bottom, m_BottomBlueCount, m_BottomBlue);
 }
-static FX_BOOL _IsScanLine1bpp(FX_LPBYTE pBuf, int width)
+static FX_BOOL _IsScanLine1bpp(uint8_t* pBuf, int width)
 {
     int size = width / 8;
     for (int i = 0; i < size; i ++)
@@ -89,7 +89,7 @@ static FX_BOOL _IsScanLine1bpp(FX_LPBYTE pBuf, int width)
         }
     return FALSE;
 }
-static FX_BOOL _IsScanLine8bpp(FX_LPBYTE pBuf, int width)
+static FX_BOOL _IsScanLine8bpp(uint8_t* pBuf, int width)
 {
     for (int i = 0; i < width; i ++)
         if (pBuf[i] > 0x40) {
@@ -104,7 +104,7 @@ static int _DetectFirstLastScan(const CFX_DIBitmap* pBitmap, FX_BOOL bFirst)
     if (bpp > 8) {
         width *= bpp / 8;
     }
-    FX_LPBYTE pBuf = pBitmap->GetBuffer();
+    uint8_t* pBuf = pBitmap->GetBuffer();
     int line = bFirst ? 0 : height - 1;
     int line_step = bFirst ? 1 : -1;
     int line_end = bFirst ? height : -1;
@@ -167,7 +167,7 @@ CFX_GlyphBitmap* CPDF_Type3Cache::RenderGlyph(CPDF_Type3Glyphs* pSize, FX_DWORD 
     if (pResBitmap == NULL) {
         return NULL;
     }
-    CFX_GlyphBitmap* pGlyph = FX_NEW CFX_GlyphBitmap;
+    CFX_GlyphBitmap* pGlyph = new CFX_GlyphBitmap;
     pGlyph->m_Left = left;
     pGlyph->m_Top = -top;
     pGlyph->m_Bitmap.TakeOver(pResBitmap);
@@ -256,16 +256,6 @@ FX_BOOL CPDF_RenderStatus::ProcessText(const CPDF_TextObject* textobj, const CFX
         DrawTextPathWithPattern(textobj, pObj2Device, pFont, font_size, &text_matrix, bFill, bStroke);
         return TRUE;
     }
-#if defined(_FPDFAPI_MINI_)
-    if (bFill) {
-        bStroke = FALSE;
-    }
-    if (bStroke) {
-        if (font_size * text_matrix.GetXUnit() * pObj2Device->GetXUnit() < 6) {
-            bStroke = FALSE;
-        }
-    }
-#endif
     if (bClip || bStroke) {
         const CFX_AffineMatrix* pDeviceMatrix = pObj2Device;
         CFX_AffineMatrix device_matrix;
@@ -284,12 +274,10 @@ FX_BOOL CPDF_RenderStatus::ProcessText(const CPDF_TextObject* textobj, const CFX
             flag |= FX_FILL_STROKE;
             flag |= FX_STROKE_TEXT_MODE;
         }
-#if !defined(_FPDFAPI_MINI_) || defined(_FXCORE_FEATURE_ALL_)
         const CPDF_GeneralStateData* pGeneralData = ((CPDF_PageObject*)textobj)->m_GeneralState;
         if (pGeneralData && pGeneralData->m_StrokeAdjust) {
             flag |= FX_STROKE_ADJUST;
         }
-#endif
         if (m_Options.m_Flags & RENDER_NOTEXTSMOOTH) {
             flag |= FXFILL_NOPATHSMOOTH;
         }
@@ -334,20 +322,6 @@ FX_BOOL CPDF_Type3Char::LoadBitmap(CPDF_RenderContext* pContext)
             delete m_pForm;
             m_pForm = NULL;
             return TRUE;
-        }
-        if (pPageObj->m_Type == PDFPAGE_INLINES) {
-            CPDF_InlineImages *pInlines = (CPDF_InlineImages *)pPageObj;
-            if (pInlines->m_pStream) {
-                m_ImageMatrix = pInlines->m_Matrices[0];
-                CPDF_DIBSource dibsrc;
-                if (!dibsrc.Load(pContext->m_pDocument, pInlines->m_pStream, NULL, NULL, NULL, NULL)) {
-                    return FALSE;
-                }
-                m_pBitmap = dibsrc.Clone();
-                delete m_pForm;
-                m_pForm = NULL;
-                return TRUE;
-            }
         }
     }
     return FALSE;
@@ -435,7 +409,7 @@ FX_BOOL CPDF_RenderStatus::ProcessType3Text(const CPDF_TextObject* textobj, cons
             }
             if (fill_alpha == 255) {
                 CPDF_RenderStatus status;
-                status.Initialize(m_Level + 1, m_pContext, m_pDevice, NULL, NULL, this, pStates, &Options,
+                status.Initialize(m_pContext, m_pDevice, NULL, NULL, this, pStates, &Options,
                                   pType3Char->m_pForm->m_Transparency, m_bDropObjects, pFormResource, FALSE, pType3Char, fill_argb);
                 status.m_Type3FontCache.Append(m_Type3FontCache);
                 status.m_Type3FontCache.Add(pType3Font);
@@ -452,7 +426,7 @@ FX_BOOL CPDF_RenderStatus::ProcessType3Text(const CPDF_TextObject* textobj, cons
                 }
                 bitmap_device.GetBitmap()->Clear(0);
                 CPDF_RenderStatus status;
-                status.Initialize(m_Level + 1, m_pContext, &bitmap_device, NULL, NULL, this, pStates, &Options,
+                status.Initialize(m_pContext, &bitmap_device, NULL, NULL, this, pStates, &Options,
                                   pType3Char->m_pForm->m_Transparency, m_bDropObjects, pFormResource, FALSE, pType3Char, fill_argb);
                 status.m_Type3FontCache.Append(m_Type3FontCache);
                 status.m_Type3FontCache.Add(pType3Font);
@@ -524,7 +498,7 @@ public:
     FXTEXT_CHARPOS*		m_pCharPos;
     FX_DWORD			m_nChars;
 };
-FX_FLOAT _CIDTransformToFloat(FX_BYTE ch);
+FX_FLOAT _CIDTransformToFloat(uint8_t ch);
 CPDF_CharPosList::CPDF_CharPosList()
 {
     m_pCharPos = NULL;
@@ -543,7 +517,7 @@ void CPDF_CharPosList::Load(int nChars, FX_DWORD* pCharCodes, FX_FLOAT* pCharPos
     CPDF_CIDFont* pCIDFont = pFont->GetCIDFont();
     FX_BOOL bVertWriting = pCIDFont && pCIDFont->IsVertWriting();
     for (int iChar = 0; iChar < nChars; iChar ++) {
-        FX_DWORD CharCode = nChars == 1 ? (FX_DWORD)(FX_UINTPTR)pCharCodes : pCharCodes[iChar];
+        FX_DWORD CharCode = nChars == 1 ? (FX_DWORD)(uintptr_t)pCharCodes : pCharCodes[iChar];
         if (CharCode == (FX_DWORD) - 1) {
             continue;
         }
@@ -576,7 +550,7 @@ void CPDF_CharPosList::Load(int nChars, FX_DWORD* pCharCodes, FX_FLOAT* pCharPos
             charpos.m_OriginX -= FontSize * vx / 1000;
             charpos.m_OriginY -= FontSize * vy / 1000;
         }
-        FX_LPCBYTE pTransform = pCIDFont->GetCIDTransform(CID);
+        const uint8_t* pTransform = pCIDFont->GetCIDTransform(CID);
         if (pTransform && !bVert) {
             charpos.m_AdjustMatrix[0] = _CIDTransformToFloat(pTransform[0]);
             charpos.m_AdjustMatrix[2] = _CIDTransformToFloat(pTransform[2]);
@@ -625,15 +599,15 @@ void CPDF_TextRenderer::DrawTextString(CFX_RenderDevice* pDevice, FX_FLOAT origi
     FX_DWORD* pCharCodes;
     FX_FLOAT* pCharPos;
     if (nChars == 1) {
-        charcode = pFont->GetNextChar(str, offset);
-        pCharCodes = (FX_DWORD*)(FX_UINTPTR)charcode;
+        charcode = pFont->GetNextChar(str, str.GetLength(), offset);
+        pCharCodes = (FX_DWORD*)(uintptr_t)charcode;
         pCharPos = NULL;
     } else {
         pCharCodes = FX_Alloc(FX_DWORD, nChars);
         pCharPos = FX_Alloc(FX_FLOAT, nChars - 1);
         FX_FLOAT cur_pos = 0;
         for (int i = 0; i < nChars; i ++) {
-            pCharCodes[i] = pFont->GetNextChar(str, offset);
+            pCharCodes[i] = pFont->GetNextChar(str, str.GetLength(), offset);
             if (i) {
                 pCharPos[i - 1] = cur_pos;
             }
@@ -701,7 +675,7 @@ void CPDF_RenderStatus::DrawTextPathWithPattern(const CPDF_TextObject* textobj, 
 {
     if (!bStroke) {
         CPDF_PathObject path;
-        CPDF_TextObject* pCopy = FX_NEW CPDF_TextObject;
+        CPDF_TextObject* pCopy = new CPDF_TextObject;
         pCopy->Copy(textobj);
         path.m_bStroke = FALSE;
         path.m_FillType = FXFILL_WINDING;

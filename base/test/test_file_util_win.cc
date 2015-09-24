@@ -175,7 +175,7 @@ bool EvictFileFromSystemCache(const FilePath& file) {
     // Move back to the position we just read from.
     // Note that SetFilePointer will also fail if total_bytes isn't sector
     // aligned, but that shouldn't happen here.
-    DCHECK((total_bytes % kOneMB) == 0);
+    DCHECK_EQ(total_bytes % kOneMB, 0);
     SetFilePointer(file_handle.Get(), total_bytes, NULL, FILE_BEGIN);
     if (!::WriteFile(file_handle.Get(), buffer, kOneMB, &bytes_written, NULL) ||
         bytes_written != kOneMB) {
@@ -249,7 +249,7 @@ bool HasInternetZoneIdentifier(const FilePath& full_path) {
   switch (lines.size()) {
     case 3:
       // optional empty line at end of file:
-      if (lines[2] != "")
+      if (!lines[2].empty())
         return false;
       // fall through:
     case 2:

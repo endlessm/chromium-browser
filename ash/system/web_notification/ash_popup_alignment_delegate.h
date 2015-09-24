@@ -66,10 +66,17 @@ class ASH_EXPORT AshPopupAlignmentDelegate
   // that point.
   void UpdateShelf();
 
+  // Utility function to get the display which should be care about.
+  gfx::Display GetCurrentDisplay() const;
+
+  // Compute the new work area.
+  void UpdateWorkArea();
+
   // Overridden from ShellObserver:
   void OnDisplayWorkAreaInsetsChanged() override;
 
   // Overridden from ShelfLayoutManagerObserver:
+  void WillChangeVisibilityState(ShelfVisibilityState new_state) override;
   void OnAutoHideStateChanged(ShelfAutoHideState new_state) override;
 
   // Overridden from gfx::DisplayObserver:
@@ -78,7 +85,6 @@ class ASH_EXPORT AshPopupAlignmentDelegate
   void OnDisplayMetricsChanged(const gfx::Display& display,
                                uint32_t metrics) override;
 
-  int64_t display_id_;
   gfx::Screen* screen_;
   gfx::Rect work_area_;
   aura::Window* root_window_;

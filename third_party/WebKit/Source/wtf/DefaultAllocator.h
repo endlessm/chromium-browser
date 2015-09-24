@@ -38,7 +38,7 @@
 #include "wtf/Assertions.h"
 #include "wtf/FastAllocBase.h"
 #include "wtf/PartitionAlloc.h"
-#include "wtf/WTF.h"
+#include "wtf/Partitions.h"
 
 #include <string.h>
 
@@ -46,48 +46,68 @@ namespace WTF {
 
 class DefaultAllocatorDummyVisitor;
 
-class DefaultAllocatorQuantizer {
+class WTF_EXPORT DefaultAllocator {
 public:
+    typedef DefaultAllocatorDummyVisitor Visitor;
+    static const bool isGarbageCollected = false;
+
     template<typename T>
     static size_t quantizedSize(size_t count)
     {
-        RELEASE_ASSERT(count <= kMaxUnquantizedAllocation / sizeof(T));
-        return partitionAllocActualSize(Partitions::getBufferPartition(), count * sizeof(T));
+        RELEASE_ASSERT(count <= kGenericMaxDirectMapped / sizeof(T));
+        return partitionAllocActualSize(Partitions::bufferPartition(), count * sizeof(T));
     }
-    static const size_t kMaxUnquantizedAllocation = kGenericMaxDirectMapped;
-};
+    template <typename T>
+    static T* allocateVectorBacking(size_t size)
+    {
+        return reinterpret_cast<T*>(allocateBacking(size));
+    }
+    template <typename T>
+    static T* allocateExpandedVectorBacking(size_t size)
+    {
+        return reinterpret_cast<T*>(allocateBacking(size));
+    }
+    static void freeVectorBacking(void* address);
+    static inline bool expandVectorBacking(void*, size_t)
+    {
+        return false;
+    }
+    static inline bool shrinkVectorBacking(void* address, size_t quantizedCurrentSize, size_t quantizedShrunkSize)
+    {
+        // Optimization: if we're downsizing inside the same allocator bucket,
+        // we can skip reallocation.
+        return quantizedCurrentSize == quantizedShrunkSize;
+    }
+    template <typename T>
+    static T* allocateInlineVectorBacking(size_t size) { return allocateVectorBacking<T>(size); }
+    static inline void freeInlineVectorBacking(void* address) { freeVectorBacking(address); }
+    static inline bool expandInlineVectorBacking(void*, size_t) { return false; }
+    static inline bool shrinkInlineVectorBacking(void* address, size_t quantizedCurrentSize, size_t quantizedShrunkSize) { return shrinkVectorBacking(address, quantizedCurrentSize, quantizedShrunkSize); }
 
-class DefaultAllocator {
-public:
-    typedef DefaultAllocatorQuantizer Quantizer;
-    typedef DefaultAllocatorDummyVisitor Visitor;
-    static const bool isGarbageCollected = false;
-    template<typename T, typename Traits>
-    struct VectorBackingHelper {
-        typedef void Type;
-    };
-    template<typename T>
-    struct HashTableBackingHelper {
-        typedef void Type;
-    };
-    template <typename Return, typename Metadata>
-    static Return backingMalloc(size_t size)
+    template <typename T, typename HashTable>
+    static T* allocateHashTableBacking(size_t size)
     {
-        return reinterpret_cast<Return>(backingAllocate(size));
+        return reinterpret_cast<T*>(allocateBacking(size));
     }
-    template <typename Return, typename Metadata>
-    static Return zeroedBackingMalloc(size_t size)
+    template <typename T, typename HashTable>
+    static T* allocateZeroedHashTableBacking(size_t size)
     {
-        void* result = backingAllocate(size);
+        void* result = allocateBacking(size);
         memset(result, 0, size);
-        return reinterpret_cast<Return>(result);
+        return reinterpret_cast<T*>(result);
     }
+    static void freeHashTableBacking(void* address);
+
     template <typename Return, typename Metadata>
     static Return malloc(size_t size)
     {
         return reinterpret_cast<Return>(fastMalloc(size));
     }
-    WTF_EXPORT static void backingFree(void* address);
+
+    static inline bool expandHashTableBacking(void*, size_t)
+    {
+        return false;
+    }
     static void free(void* address)
     {
         fastFree(address);
@@ -104,6 +124,12 @@ public:
     }
 
     static bool isAllocationAllowed() { return true; }
+    template<typename T>
+    static bool isHeapObjectAlive(T* object)
+    {
+        ASSERT_NOT_REACHED();
+        return false;
+    }
 
     static void markNoTracing(...)
     {
@@ -152,16 +178,18 @@ public:
 
     static void enterNoAllocationScope() { }
     static void leaveNoAllocationScope() { }
+    static void enterGCForbiddenScope() { }
+    static void leaveGCForbiddenScope() { }
 
 private:
-    WTF_EXPORT static void* backingAllocate(size_t);
+    static void* allocateBacking(size_t);
 };
 
 // The Windows compiler seems to be very eager to instantiate things it won't
 // need, so unless we have this class we get compile errors.
 class DefaultAllocatorDummyVisitor {
 public:
-    template<typename T> inline bool isAlive(T obj)
+    template<typename T> inline bool isHeapObjectAlive(T obj)
     {
         ASSERT_NOT_REACHED();
         return false;

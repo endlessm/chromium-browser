@@ -13,11 +13,13 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser_window_state.h"
-#include "chrome/browser/ui/views/accessibility/accessibility_event_router_views.h"
+#include "chrome/common/chrome_version_info.h"
+#include "content/public/browser/browser_thread.h"
+#include "content/public/browser/context_factory.h"
 #include "grit/chrome_unscaled_resources.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/ui_base_switches.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/screen.h"
 #include "ui/views/widget/native_widget.h"
 #include "ui/views/widget/widget.h"
@@ -25,6 +27,7 @@
 #if defined(OS_WIN)
 #include <dwmapi.h>
 #include <shellapi.h>
+#include "base/profiler/scoped_tracker.h"
 #include "base/task_runner_util.h"
 #include "base/win/windows_version.h"
 #include "chrome/browser/app_icon_win.h"
@@ -33,7 +36,7 @@
 #endif
 
 #if defined(USE_AURA)
-#include "content/public/browser/context_factory.h"
+#include "chrome/browser/ui/aura/accessibility/automation_manager_aura.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher.h"
 #endif
@@ -51,7 +54,6 @@
 #if defined(USE_ASH)
 #include "ash/shell.h"
 #include "ash/wm/window_state.h"
-#include "chrome/browser/ui/ash/accessibility/automation_manager_ash.h"
 #include "chrome/browser/ui/ash/ash_init.h"
 #include "chrome/browser/ui/ash/ash_util.h"
 #endif
@@ -86,6 +88,12 @@ PrefService* GetPrefsForWindow(const views::Widget* window) {
 #if defined(OS_WIN)
 bool MonitorHasTopmostAutohideTaskbarForEdge(UINT edge, HMONITOR monitor) {
   APPBARDATA taskbar_data = { sizeof(APPBARDATA), NULL, 0, edge };
+
+  // TODO(robliao): Remove ScopedTracker below once crbug.com/462368 is fixed.
+  tracked_objects::ScopedTracker tracking_profile(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "462368 MonitorHasTopmostAutohideTaskbarForEdge"));
+
   // MSDN documents an ABM_GETAUTOHIDEBAREX, which supposedly takes a monitor
   // rect and returns autohide bars on that monitor.  This sounds like a good
   // idea for multi-monitor systems.  Unfortunately, it appears to not work at
@@ -152,6 +160,7 @@ void ChromeViewsDelegate::SaveWindowPlacement(const views::Widget* window,
   window_preferences->SetInteger("bottom", bounds.bottom());
   window_preferences->SetBoolean("maximized",
                                  show_state == ui::SHOW_STATE_MAXIMIZED);
+  window_preferences->SetBoolean("docked", show_state == ui::SHOW_STATE_DOCKED);
   gfx::Rect work_area(gfx::Screen::GetScreenFor(window->GetNativeView())->
       GetDisplayNearestWindow(window->GetNativeView()).work_area());
   window_preferences->SetInteger("work_area_left", work_area.x());
@@ -206,28 +215,19 @@ bool ChromeViewsDelegate::GetSavedWindowPlacement(
 
 void ChromeViewsDelegate::NotifyAccessibilityEvent(
     views::View* view, ui::AXEvent event_type) {
-  AccessibilityEventRouterViews::GetInstance()->HandleAccessibilityEvent(
-      view, event_type);
-
-#if defined(USE_ASH)
-  AutomationManagerAsh::GetInstance()->HandleEvent(
+#if defined(USE_AURA)
+  AutomationManagerAura::GetInstance()->HandleEvent(
       GetProfileForWindow(view->GetWidget()), view, event_type);
 #endif
-}
-
-void ChromeViewsDelegate::NotifyMenuItemFocused(
-    const base::string16& menu_name,
-    const base::string16& menu_item_name,
-    int item_index,
-    int item_count,
-    bool has_submenu) {
-  AccessibilityEventRouterViews::GetInstance()->HandleMenuItemFocused(
-      menu_name, menu_item_name, item_index, item_count, has_submenu);
 }
 
 #if defined(OS_WIN)
 HICON ChromeViewsDelegate::GetDefaultWindowIcon() const {
   return GetAppIcon();
+}
+
+HICON ChromeViewsDelegate::GetSmallWindowIcon() const {
+  return GetSmallAppIcon();
 }
 
 bool ChromeViewsDelegate::IsWindowInMetro(gfx::NativeWindow window) const {
@@ -382,11 +382,13 @@ bool ChromeViewsDelegate::WindowManagerProvidesTitleBar(bool maximized) {
 }
 #endif
 
-#if defined(USE_AURA)
 ui::ContextFactory* ChromeViewsDelegate::GetContextFactory() {
   return content::GetContextFactory();
 }
-#endif
+
+std::string ChromeViewsDelegate::GetApplicationName() {
+  return chrome::VersionInfo().Name();
+}
 
 #if defined(OS_WIN)
 int ChromeViewsDelegate::GetAppbarAutohideEdges(HMONITOR monitor,
@@ -427,6 +429,11 @@ void ChromeViewsDelegate::OnGotAppbarAutohideEdges(
   callback.Run();
 }
 #endif
+
+scoped_refptr<base::TaskRunner>
+ChromeViewsDelegate::GetBlockingPoolTaskRunner() {
+  return content::BrowserThread::GetBlockingPool();
+}
 
 #if !defined(USE_AURA) && !defined(USE_CHROMEOS)
 views::Widget::InitParams::WindowOpacity

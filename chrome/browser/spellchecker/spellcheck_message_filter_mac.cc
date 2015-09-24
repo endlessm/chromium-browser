@@ -9,6 +9,7 @@
 
 #include "base/barrier_closure.h"
 #include "base/bind.h"
+#include "chrome/browser/spellchecker/feedback_sender.h"
 #include "chrome/browser/spellchecker/spellcheck_factory.h"
 #include "chrome/browser/spellchecker/spellcheck_platform_mac.h"
 #include "chrome/browser/spellchecker/spellcheck_service.h"
@@ -96,7 +97,7 @@ void SpellingRequest::RequestCheck(
     int document_tag,
     const std::vector<SpellCheckMarker>& markers) {
   DCHECK(!text.empty());
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   route_id_ = route_id;
   identifier_ = identifier;
@@ -163,7 +164,7 @@ void SpellingRequest::OnRemoteCheckCompleted(
     bool success,
     const base::string16& text,
     const std::vector<SpellCheckResult>& results) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   remote_success_ = success;
   remote_results_ = results;
 
@@ -275,7 +276,14 @@ void SpellCheckMessageFilterMac::OnRequestTextCheck(
     const base::string16& text,
     std::vector<SpellCheckMarker> markers) {
   DCHECK(!text.empty());
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  // Initialize the spellcheck service if needed. The service will send the
+  // language code for text breaking to the renderer. (Text breaking is required
+  // for the context menu to show spelling suggestions.) Initialization must
+  // happen on UI thread.
+  SpellcheckServiceFactory::GetForRenderProcessId(render_process_id_);
+
   // Erase invalid markers (with offsets out of boundaries of text length).
   markers.erase(
       std::remove_if(
@@ -303,4 +311,3 @@ void SpellCheckMessageFilterMac::RetireDocumentTag(int route_id) {
   spellcheck_mac::CloseDocumentWithTag(ToDocumentTag(route_id));
   tag_map_.erase(route_id);
 }
-

@@ -48,13 +48,13 @@ public:
     static MediaSourceRegistry& registry();
 
     // Registers a blob URL referring to the specified media source.
-    virtual void registerURL(SecurityOrigin*, const KURL&, URLRegistrable*) override;
-    virtual void unregisterURL(const KURL&) override;
-    virtual URLRegistrable* lookup(const String&) override;
+    void registerURL(SecurityOrigin*, const KURL&, URLRegistrable*) override;
+    void unregisterURL(const KURL&) override;
+    URLRegistrable* lookup(const String&) override;
 
 private:
     MediaSourceRegistry();
-    PersistentHeapHashMap<String, Member<MediaSource> > m_mediaSources;
+    PersistentHeapHashMap<String, Member<MediaSource>> m_mediaSources;
 };
 
 } // namespace blink

@@ -14,6 +14,7 @@
 goog.provide('i18n.input.chrome.inputview.elements.content.HandwritingView');
 
 goog.require('goog.dom.classlist');
+goog.require('goog.i18n.bidi');
 goog.require('i18n.input.chrome.inputview.Css');
 goog.require('i18n.input.chrome.inputview.elements.content.KeysetView');
 
@@ -51,19 +52,8 @@ var HandwritingView = i18n.input.chrome.inputview.elements.content.
 goog.inherits(HandwritingView, KeysetView);
 
 
-/**
- * The handwriting input tool code suffix.
- *
- * @const {string}
- * @private
- */
-HandwritingView.HANDWRITING_CODE_SUFFIX_ = '-t-i0-handwrit';
-
-
 /** @override */
 HandwritingView.prototype.activate = function(rawKeyset) {
-  this.adapter.setInputToolCode(this.languageCode.split(/_|-/)[0] +
-      HandwritingView.HANDWRITING_CODE_SUFFIX_);
   goog.dom.classlist.add(this.getElement().parentElement.parentElement,
       Css.HANDWRITING);
   // Clears stroke when switches keyboard.
@@ -75,7 +65,7 @@ HandwritingView.prototype.activate = function(rawKeyset) {
 
 /** @override */
 HandwritingView.prototype.deactivate = function(rawKeyset) {
-  this.adapter.unsetInputToolCode();
+  this.adapter.unsetController();
   goog.dom.classlist.remove(this.getElement().parentElement.parentElement,
       Css.HANDWRITING);
 };
@@ -88,5 +78,8 @@ HandwritingView.prototype.deactivate = function(rawKeyset) {
  */
 HandwritingView.prototype.setLanguagecode = function(languageCode) {
   this.languageCode = languageCode;
+  this.adapter.setController('hwt', this.languageCode);
+  this.canvasView.setPrivacyInfoDirection(
+      goog.i18n.bidi.isRtlLanguage(languageCode) ? 'rtl' : 'ltr');
 };
 });  // goog.scope

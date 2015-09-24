@@ -17,46 +17,30 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/image/image_skia.h"
 
-#if defined(OS_MACOSX)
-#include "ui/gfx/image/image_skia_util_mac.h"
-#endif  // defined(OS_MACOSX)
-
-#if defined(OS_WIN)
-#include "chrome/browser/app_icon_win.h"
-#include "ui/gfx/icon_util.h"
-#endif  // defined(OS_WIN)
-
 namespace task_manager {
 
-gfx::ImageSkia* BrowserProcessResource::default_icon_ = NULL;
+namespace {
+
+gfx::ImageSkia* g_default_icon = nullptr;
+
+gfx::ImageSkia* GetDefaultIcon() {
+  if (!g_default_icon && ResourceBundle::HasSharedInstance()) {
+      g_default_icon = ResourceBundle::GetSharedInstance().
+          GetImageSkiaNamed(IDR_PRODUCT_LOGO_16);
+    if (g_default_icon)
+      g_default_icon->MakeThreadSafe();
+  }
+
+  return g_default_icon;
+}
+
+}  // namespace
 
 BrowserProcessResource::BrowserProcessResource()
     : title_() {
-  int pid = base::GetCurrentProcId();
-  bool success = base::OpenPrivilegedProcessHandle(pid, &process_);
-  DCHECK(success);
-#if defined(OS_WIN)
-  if (!default_icon_) {
-    HICON icon = GetAppIcon();
-    if (icon) {
-      scoped_ptr<SkBitmap> bitmap(IconUtil::CreateSkBitmapFromHICON(icon));
-      default_icon_ = new gfx::ImageSkia(gfx::ImageSkiaRep(*bitmap, 1.0f));
-    }
-  }
-#elif defined(OS_POSIX)
-  if (!default_icon_) {
-    ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-    default_icon_ = rb.GetImageSkiaNamed(IDR_PRODUCT_LOGO_16);
-  }
-#else
-  // TODO(port): Port icon code.
-  NOTIMPLEMENTED();
-#endif  // defined(OS_WIN)
-  default_icon_->MakeThreadSafe();
 }
 
 BrowserProcessResource::~BrowserProcessResource() {
-  base::CloseProcessHandle(process_);
 }
 
 // Resource methods:
@@ -72,7 +56,8 @@ base::string16 BrowserProcessResource::GetProfileName() const {
 }
 
 gfx::ImageSkia BrowserProcessResource::GetIcon() const {
-  return *default_icon_;
+  gfx::ImageSkia* image = GetDefaultIcon();
+  return image? *image : gfx::ImageSkia();
 }
 
 size_t BrowserProcessResource::SqliteMemoryUsedBytes() const {
@@ -80,7 +65,7 @@ size_t BrowserProcessResource::SqliteMemoryUsedBytes() const {
 }
 
 base::ProcessHandle BrowserProcessResource::GetProcess() const {
-  return base::GetCurrentProcessHandle();  // process_;
+  return base::GetCurrentProcessHandle();
 }
 
 int BrowserProcessResource::GetUniqueChildProcessId() const {
@@ -105,7 +90,8 @@ bool BrowserProcessResource::ReportsSqliteMemoryUsed() const {
 
 // BrowserProcess uses v8 for proxy resolver in certain cases.
 bool BrowserProcessResource::ReportsV8MemoryStats() const {
-  const CommandLine* command_line = CommandLine::ForCurrentProcess();
+  const base::CommandLine* command_line =
+      base::CommandLine::ForCurrentProcess();
   bool using_v8 = !command_line->HasSwitch(switches::kWinHttpProxyResolver);
   if (using_v8 && command_line->HasSwitch(switches::kSingleProcess)) {
     using_v8 = false;

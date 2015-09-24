@@ -9,11 +9,12 @@
 #include "base/message_loop/message_loop.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/chromeos/login/screens/network_error.h"
 #include "chrome/browser/chromeos/net/proxy_config_handler.h"
-#include "chrome/browser/prefs/proxy_config_dictionary.h"
-#include "chrome/browser/prefs/proxy_prefs.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
+#include "components/proxy_config/proxy_config_dictionary.h"
+#include "components/proxy_config/proxy_prefs.h"
 #include "net/proxy/proxy_config.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
@@ -70,14 +71,14 @@ NetworkStateInformer::State GetStateForDefaultNetwork() {
     }
     if (status == NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_PORTAL ||
         (status == NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_UNKNOWN &&
-         network->connection_state() == shill::kStatePortal))
+         network->is_captive_portal()))
       return NetworkStateInformer::CAPTIVE_PORTAL;
   } else {
     if (NetworkState::StateIsConnecting(network->connection_state()))
       return NetworkStateInformer::CONNECTING;
     if (network->connection_state() == shill::kStateOnline)
       return NetworkStateInformer::ONLINE;
-    if (network->connection_state() == shill::kStatePortal)
+    if (network->is_captive_portal())
       return NetworkStateInformer::CAPTIVE_PORTAL;
   }
   return NetworkStateInformer::OFFLINE;
@@ -140,16 +141,14 @@ void NetworkStateInformer::Observe(
   if (type == chrome::NOTIFICATION_SESSION_STARTED)
     registrar_.RemoveAll();
   else if (type == chrome::NOTIFICATION_LOGIN_PROXY_CHANGED)
-    SendStateToObservers(ErrorScreenActor::ERROR_REASON_PROXY_CONFIG_CHANGED);
+    SendStateToObservers(NetworkError::ERROR_REASON_PROXY_CONFIG_CHANGED);
   else
     NOTREACHED() << "Unknown notification: " << type;
 }
 
-#if !defined(USE_ATHENA)
 void NetworkStateInformer::OnPortalDetected() {
   UpdateStateAndNotify();
 }
-#endif
 
 // static
 const char* NetworkStateInformer::StatusString(State state) {
@@ -198,13 +197,13 @@ bool NetworkStateInformer::UpdateState() {
 
 void NetworkStateInformer::UpdateStateAndNotify() {
   if (UpdateState())
-    SendStateToObservers(ErrorScreenActor::ERROR_REASON_NETWORK_STATE_CHANGED);
+    SendStateToObservers(NetworkError::ERROR_REASON_NETWORK_STATE_CHANGED);
   else
-    SendStateToObservers(ErrorScreenActor::ERROR_REASON_UPDATE);
+    SendStateToObservers(NetworkError::ERROR_REASON_UPDATE);
 }
 
 void NetworkStateInformer::SendStateToObservers(
-    ErrorScreenActor::ErrorReason reason) {
+    NetworkError::ErrorReason reason) {
   FOR_EACH_OBSERVER(NetworkStateInformerObserver, observers_,
       UpdateState(reason));
 }

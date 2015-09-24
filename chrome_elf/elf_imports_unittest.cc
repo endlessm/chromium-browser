@@ -14,6 +14,7 @@
 #include "base/files/file_path.h"
 #include "base/files/memory_mapped_file.h"
 #include "base/path_service.h"
+#include "base/strings/pattern.h"
 #include "base/strings/string_util.h"
 #include "base/win/pe_image.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -66,6 +67,9 @@ TEST_F(ELFImportsTest, ChromeElfSanityCheck) {
 #if defined(SYZYASAN)
     "syzyasan_rtl.dll",
 #endif
+#if defined(ADDRESS_SANITIZER) && defined(COMPONENT_BUILD)
+    "clang_rt.asan_dynamic-i386.dll",
+#endif
     "ADVAPI32.dll"
   };
 
@@ -73,10 +77,10 @@ TEST_F(ELFImportsTest, ChromeElfSanityCheck) {
   for (; it != elf_imports.end(); it++) {
     bool match = false;
     for (int i = 0; i < arraysize(kValidFilePatterns); ++i) {
-      if (MatchPattern(*it, kValidFilePatterns[i]))
+      if (base::MatchPattern(*it, kValidFilePatterns[i]))
         match = true;
     }
-    ASSERT_TRUE(match) << "Illegal import in chrome_elf.dll.";
+    ASSERT_TRUE(match) << "Illegal import in chrome_elf.dll: " << *it;
   }
 }
 

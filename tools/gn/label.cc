@@ -5,7 +5,9 @@
 #include "tools/gn/label.h"
 
 #include "base/logging.h"
+#include "base/strings/string_util.h"
 #include "tools/gn/err.h"
+#include "tools/gn/filesystem_utils.h"
 #include "tools/gn/parse_tree.h"
 #include "tools/gn/value.h"
 
@@ -29,22 +31,13 @@ bool ComputeBuildLocationFromDep(const Value& input_value,
                                  const base::StringPiece& input,
                                  SourceDir* result,
                                  Err* err) {
-  // No rule, use the current locaton.
+  // No rule, use the current location.
   if (input.empty()) {
     *result = current_dir;
     return true;
   }
 
-  // Don't allow directories to start with a single slash. All labels must be
-  // in the source root.
-  if (input[0] == '/' && (input.size() == 1 || input[1] != '/')) {
-    *err = Err(input_value, "Label can't start with a single slash",
-        "Labels must be either relative (no slash at the beginning) or be "
-        "absolute\ninside the source root (two slashes at the beginning).");
-    return false;
-  }
-
-  *result = current_dir.ResolveRelativeDir(input);
+  *result = current_dir.ResolveRelativeDir(input_value, input, err);
   return true;
 }
 
@@ -102,8 +95,23 @@ bool Resolve(const SourceDir& current_dir,
              Err* err) {
   // To workaround the problem that StringPiece operator[] doesn't return a ref.
   const char* input_str = input.data();
-
-  size_t path_separator = input.find_first_of(":(");
+  size_t offset = 0;
+#if defined(OS_WIN)
+  if (IsPathAbsolute(input)) {
+    if (input[0] != '/') {
+      *err = Err(original_value, "Bad absolute path.",
+                 "Absolute paths must be of the form /C:\\ but this is \"" +
+                     input.as_string() + "\".");
+      return false;
+    }
+    if (input.size() > 3 && input[2] == ':' && IsSlash(input[3]) &&
+        base::IsAsciiAlpha(input[1])) {
+      // Skip over the drive letter colon.
+      offset = 3;
+    }
+  }
+#endif
+  size_t path_separator = input.find_first_of(":(", offset);
   base::StringPiece location_piece;
   base::StringPiece name_piece;
   base::StringPiece toolchain_piece;
@@ -177,9 +185,9 @@ bool Resolve(const SourceDir& current_dir,
       *out_toolchain_name = current_toolchain.name();
       return true;
     } else {
-      return Resolve(current_dir, current_toolchain,
-                     original_value, toolchain_piece,
-                     out_toolchain_dir, out_toolchain_name, NULL, NULL, err);
+      return Resolve(current_dir, current_toolchain, original_value,
+                     toolchain_piece, out_toolchain_dir, out_toolchain_name,
+                     nullptr, nullptr, err);
     }
   }
   return true;

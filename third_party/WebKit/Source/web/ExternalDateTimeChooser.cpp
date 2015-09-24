@@ -45,19 +45,19 @@ public:
     }
 
 private:
-    virtual void didChooseValue(const WebString& value) override
+    void didChooseValue(const WebString& value) override
     {
         m_chooser->didChooseValue(value);
         delete this;
     }
 
-    virtual void didChooseValue(double value) override
+    void didChooseValue(double value) override
     {
         m_chooser->didChooseValue(value);
         delete this;
     }
 
-    virtual void didCancelChooser() override
+    void didCancelChooser() override
     {
         m_chooser->didCancelChooser();
         delete this;
@@ -110,7 +110,7 @@ bool ExternalDateTimeChooser::openDateTimeChooser(ChromeClientImpl* chromeClient
 
     WebDateTimeChooserParams webParams;
     webParams.type = toWebDateTimeInputType(parameters.type);
-    webParams.anchorRectInScreen = chromeClient->rootViewToScreen(parameters.anchorRectInRootView);
+    webParams.anchorRectInScreen = parameters.anchorRectInScreen;
     webParams.currentValue = parameters.currentValue;
     webParams.doubleValue = parameters.doubleValue;
     webParams.suggestions = parameters.suggestions;

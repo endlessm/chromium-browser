@@ -6,7 +6,6 @@
 
 #include "base/bind.h"
 #include "base/location.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "net/base/io_buffer.h"
 #include "remoting/protocol/clipboard_stub.h"
 #include "remoting/protocol/host_control_dispatcher.h"
@@ -19,10 +18,7 @@ namespace remoting {
 namespace protocol {
 
 ConnectionToClient::ConnectionToClient(protocol::Session* session)
-    : handler_(NULL),
-      clipboard_stub_(NULL),
-      host_stub_(NULL),
-      input_stub_(NULL),
+    : handler_(nullptr),
       session_(session) {
   session_->SetEventHandler(this);
 }
@@ -50,9 +46,9 @@ void ConnectionToClient::Disconnect() {
   session_->Close();
 }
 
-void ConnectionToClient::UpdateSequenceNumber(int64 sequence_number) {
+void ConnectionToClient::OnEventTimestamp(int64 sequence_number) {
   DCHECK(CalledOnValidThread());
-  handler_->OnSequenceNumberUpdated(this, sequence_number);
+  handler_->OnEventTimestamp(this, sequence_number);
 }
 
 VideoStub* ConnectionToClient::video_stub() {
@@ -74,32 +70,23 @@ ClientStub* ConnectionToClient::client_stub() {
 void ConnectionToClient::set_clipboard_stub(
     protocol::ClipboardStub* clipboard_stub) {
   DCHECK(CalledOnValidThread());
-  clipboard_stub_ = clipboard_stub;
-}
-
-ClipboardStub* ConnectionToClient::clipboard_stub() {
-  DCHECK(CalledOnValidThread());
-  return clipboard_stub_;
+  control_dispatcher_->set_clipboard_stub(clipboard_stub);
 }
 
 void ConnectionToClient::set_host_stub(protocol::HostStub* host_stub) {
   DCHECK(CalledOnValidThread());
-  host_stub_ = host_stub;
-}
-
-HostStub* ConnectionToClient::host_stub() {
-  DCHECK(CalledOnValidThread());
-  return host_stub_;
+  control_dispatcher_->set_host_stub(host_stub);
 }
 
 void ConnectionToClient::set_input_stub(protocol::InputStub* input_stub) {
   DCHECK(CalledOnValidThread());
-  input_stub_ = input_stub;
+  event_dispatcher_->set_input_stub(input_stub);
 }
 
-InputStub* ConnectionToClient::input_stub() {
+void ConnectionToClient::set_video_feedback_stub(
+    VideoFeedbackStub* video_feedback_stub) {
   DCHECK(CalledOnValidThread());
-  return input_stub_;
+  video_dispatcher_->set_video_feedback_stub(video_feedback_stub);
 }
 
 void ConnectionToClient::OnSessionStateChange(Session::State state) {
@@ -119,34 +106,23 @@ void ConnectionToClient::OnSessionStateChange(Session::State state) {
     case Session::AUTHENTICATED:
       // Initialize channels.
       control_dispatcher_.reset(new HostControlDispatcher());
-      control_dispatcher_->Init(
-          session_.get(), session_->config().control_config(),
-          base::Bind(&ConnectionToClient::OnChannelInitialized,
-                     base::Unretained(this)));
-      control_dispatcher_->set_clipboard_stub(clipboard_stub_);
-      control_dispatcher_->set_host_stub(host_stub_);
+      control_dispatcher_->Init(session_.get(),
+                                session_->config().control_config(), this);
 
       event_dispatcher_.reset(new HostEventDispatcher());
-      event_dispatcher_->Init(
-          session_.get(), session_->config().event_config(),
-          base::Bind(&ConnectionToClient::OnChannelInitialized,
-                     base::Unretained(this)));
-      event_dispatcher_->set_input_stub(input_stub_);
-      event_dispatcher_->set_sequence_number_callback(base::Bind(
-          &ConnectionToClient::UpdateSequenceNumber, base::Unretained(this)));
+      event_dispatcher_->Init(session_.get(), session_->config().event_config(),
+                              this);
+      event_dispatcher_->set_event_timestamp_callback(base::Bind(
+          &ConnectionToClient::OnEventTimestamp, base::Unretained(this)));
 
       video_dispatcher_.reset(new HostVideoDispatcher());
-      video_dispatcher_->Init(
-          session_.get(), session_->config().video_config(),
-          base::Bind(&ConnectionToClient::OnChannelInitialized,
-                     base::Unretained(this)));
+      video_dispatcher_->Init(session_.get(), session_->config().video_config(),
+                              this);
 
       audio_writer_ = AudioWriter::Create(session_->config());
       if (audio_writer_.get()) {
-        audio_writer_->Init(
-            session_.get(), session_->config().audio_config(),
-            base::Bind(&ConnectionToClient::OnChannelInitialized,
-                       base::Unretained(this)));
+        audio_writer_->Init(session_.get(), session_->config().audio_config(),
+                            this);
       }
 
       // Notify the handler after initializing the channels, so that
@@ -170,28 +146,33 @@ void ConnectionToClient::OnSessionRouteChange(
   handler_->OnRouteChange(this, channel_name, route);
 }
 
-void ConnectionToClient::OnChannelInitialized(bool successful) {
+void ConnectionToClient::OnChannelInitialized(
+    ChannelDispatcherBase* channel_dispatcher) {
   DCHECK(CalledOnValidThread());
 
-  if (!successful) {
-    LOG(ERROR) << "Failed to connect a channel";
-    Close(CHANNEL_CONNECTION_ERROR);
-    return;
-  }
-
   NotifyIfChannelsReady();
+}
+
+void ConnectionToClient::OnChannelError(
+    ChannelDispatcherBase* channel_dispatcher,
+    ErrorCode error) {
+  DCHECK(CalledOnValidThread());
+
+  LOG(ERROR) << "Failed to connect channel "
+             << channel_dispatcher->channel_name();
+  Close(CHANNEL_CONNECTION_ERROR);
 }
 
 void ConnectionToClient::NotifyIfChannelsReady() {
   DCHECK(CalledOnValidThread());
 
-  if (!control_dispatcher_.get() || !control_dispatcher_->is_connected())
+  if (!control_dispatcher_ || !control_dispatcher_->is_connected())
     return;
-  if (!event_dispatcher_.get() || !event_dispatcher_->is_connected())
+  if (!event_dispatcher_ || !event_dispatcher_->is_connected())
     return;
-  if (!video_dispatcher_.get() || !video_dispatcher_->is_connected())
+  if (!video_dispatcher_ || !video_dispatcher_->is_connected())
     return;
-  if ((!audio_writer_.get() || !audio_writer_->is_connected()) &&
+  if ((!audio_writer_ || !audio_writer_->is_connected()) &&
       session_->config().is_audio_enabled()) {
     return;
   }

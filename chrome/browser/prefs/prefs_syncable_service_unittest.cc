@@ -23,6 +23,7 @@
 #include "sync/protocol/preference_specifics.pb.h"
 #include "sync/protocol/sync.pb.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/l10n/l10n_util.h"
 
 using syncer::SyncChange;
 using syncer::SyncData;
@@ -74,10 +75,8 @@ class PrefsSyncableServiceTest : public testing::Test {
       next_pref_remote_sync_node_id_(0) {}
 
   void SetUp() override {
-    prefs_.registry()->RegisterStringPref(
-        kUnsyncedPreferenceName,
-        kUnsyncedPreferenceDefaultValue,
-        user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+    prefs_.registry()->RegisterStringPref(kUnsyncedPreferenceName,
+                                          kUnsyncedPreferenceDefaultValue);
     prefs_.registry()->RegisterStringPref(
         prefs::kHomePage,
         std::string(),
@@ -85,12 +84,10 @@ class PrefsSyncableServiceTest : public testing::Test {
     prefs_.registry()->RegisterListPref(
         prefs::kURLsToRestoreOnStartup,
         user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
-    prefs_.registry()->RegisterListPref(
-        prefs::kURLsToRestoreOnStartupOld,
-        user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-    prefs_.registry()->RegisterLocalizedStringPref(
+    prefs_.registry()->RegisterListPref(prefs::kURLsToRestoreOnStartupOld);
+    prefs_.registry()->RegisterStringPref(
         prefs::kDefaultCharset,
-        IDS_DEFAULT_ENCODING,
+        l10n_util::GetStringUTF8(IDS_DEFAULT_ENCODING),
         user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
 
     pref_sync_service_ = reinterpret_cast<PrefModelAssociator*>(
@@ -167,7 +164,7 @@ class PrefsSyncableServiceTest : public testing::Test {
     syncer::SyncChangeList::const_iterator it = list.begin();
     for (; it != list.end(); ++it) {
       if (syncer::SyncDataLocal(it->sync_data()).GetTag() == name) {
-        return make_scoped_ptr(base::JSONReader::Read(
+        return make_scoped_ptr(base::JSONReader::DeprecatedRead(
             it->sync_data().GetSpecifics().preference().value()));
       }
     }
@@ -220,7 +217,7 @@ TEST_F(PrefsSyncableServiceTest, CreatePrefSyncData) {
       preference());
   EXPECT_EQ(std::string(prefs::kHomePage), specifics.name());
 
-  scoped_ptr<base::Value> value(base::JSONReader::Read(specifics.value()));
+  scoped_ptr<base::Value> value = base::JSONReader::Read(specifics.value());
   EXPECT_TRUE(pref->GetValue()->Equals(value.get()));
 }
 
@@ -714,7 +711,7 @@ TEST_F(PrefsSyncableServiceTest, DeletePreference) {
 
   InitWithNoSyncData();
 
-  scoped_ptr<base::Value> null_value(base::Value::CreateNullValue());
+  scoped_ptr<base::Value> null_value = base::Value::CreateNullValue();
   syncer::SyncChangeList list;
   list.push_back(MakeRemoteChange(
       1, prefs::kHomePage, *null_value, SyncChange::ACTION_DELETE));

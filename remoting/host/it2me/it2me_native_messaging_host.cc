@@ -12,13 +12,13 @@
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_util.h"
 #include "base/strings/stringize_macros.h"
 #include "base/threading/thread.h"
 #include "base/values.h"
 #include "media/base/media.h"
 #include "net/base/net_util.h"
 #include "net/url_request/url_request_context_getter.h"
-#include "remoting/base/auth_token_util.h"
 #include "remoting/base/service_urls.h"
 #include "remoting/host/chromoting_host_context.h"
 #include "remoting/host/host_exit_codes.h"
@@ -44,14 +44,14 @@ const remoting::protocol::NameMapElement<It2MeHostState> kIt2MeHostStates[] = {
 It2MeNativeMessagingHost::It2MeNativeMessagingHost(
     scoped_ptr<ChromotingHostContext> context,
     scoped_ptr<It2MeHostFactory> factory)
-    : client_(NULL),
+    : client_(nullptr),
       host_context_(context.Pass()),
       factory_(factory.Pass()),
       weak_factory_(this) {
   weak_ptr_ = weak_factory_.GetWeakPtr();
 
-  // Ensures runtime specific CPU features are initialized.
-  media::InitializeCPUSpecificMediaFeatures();
+  // Ensures that media library and specific CPU features are initialized.
+  media::InitializeMediaLibrary();
 
   const ServiceUrls* service_urls = ServiceUrls::GetInstance();
   const bool xmpp_server_valid =
@@ -69,7 +69,7 @@ It2MeNativeMessagingHost::~It2MeNativeMessagingHost() {
 
   if (it2me_host_.get()) {
     it2me_host_->Disconnect();
-    it2me_host_ = NULL;
+    it2me_host_ = nullptr;
   }
 }
 
@@ -77,7 +77,7 @@ void It2MeNativeMessagingHost::OnMessage(const std::string& message) {
   DCHECK(task_runner()->BelongsToCurrentThread());
 
   scoped_ptr<base::DictionaryValue> response(new base::DictionaryValue());
-  scoped_ptr<base::Value> message_value(base::JSONReader::Read(message));
+  scoped_ptr<base::Value> message_value = base::JSONReader::Read(message);
   if (!message_value->IsType(base::Value::TYPE_DICTIONARY)) {
     LOG(ERROR) << "Received a message that's not a dictionary.";
     client_->CloseChannel(std::string());
@@ -121,7 +121,7 @@ void It2MeNativeMessagingHost::SendMessageToClient(
     scoped_ptr<base::DictionaryValue> message) const {
   DCHECK(task_runner()->BelongsToCurrentThread());
   std::string message_json;
-  base::JSONWriter::Write(message.get(), &message_json);
+  base::JSONWriter::Write(*message, &message_json);
   client_->PostMessageFromNativeHost(message_json);
 }
 
@@ -164,15 +164,19 @@ void It2MeNativeMessagingHost::ProcessConnect(
     return;
   }
 
-  ParseAuthTokenWithService(auth_service_with_token,
-                            &xmpp_config.auth_token,
-                            &xmpp_config.auth_service);
-  if (xmpp_config.auth_token.empty()) {
-    SendErrorAndExit(
-        response.Pass(),
-        "Invalid 'authServiceWithToken': " + auth_service_with_token);
+  // For backward compatibility the webapp still passes OAuth service as part of
+  // the authServiceWithToken field. But auth service part is always expected to
+  // be set to oauth2.
+  const char kOAuth2ServicePrefix[] = "oauth2:";
+  if (!base::StartsWithASCII(auth_service_with_token, kOAuth2ServicePrefix,
+                             true)) {
+    SendErrorAndExit(response.Pass(), "Invalid 'authServiceWithToken': " +
+                                          auth_service_with_token);
     return;
   }
+
+  xmpp_config.auth_token =
+      auth_service_with_token.substr(strlen(kOAuth2ServicePrefix));
 
 #if !defined(NDEBUG)
   std::string address;
@@ -219,7 +223,7 @@ void It2MeNativeMessagingHost::ProcessDisconnect(
 
   if (it2me_host_.get()) {
     it2me_host_->Disconnect();
-    it2me_host_ = NULL;
+    it2me_host_ = nullptr;
   }
   SendMessageToClient(response.Pass());
 }
@@ -239,7 +243,9 @@ void It2MeNativeMessagingHost::SendErrorAndExit(
   client_->CloseChannel(std::string());
 }
 
-void It2MeNativeMessagingHost::OnStateChanged(It2MeHostState state) {
+void It2MeNativeMessagingHost::OnStateChanged(
+    It2MeHostState state,
+    const std::string& error_message) {
   DCHECK(task_runner()->BelongsToCurrentThread());
 
   state_ = state;
@@ -263,6 +269,14 @@ void It2MeNativeMessagingHost::OnStateChanged(It2MeHostState state) {
 
     case kDisconnected:
       client_username_.clear();
+      break;
+
+    case kError:
+      // kError is an internal-only state, sent to the web-app by a separate
+      // "error" message so that errors that occur before the "connect" message
+      // is sent can be communicated.
+      message->SetString("type", "error");
+      message->SetString("description", error_message);
       break;
 
     default:
@@ -312,4 +326,3 @@ std::string It2MeNativeMessagingHost::HostStateToString(
 }
 
 }  // namespace remoting
-

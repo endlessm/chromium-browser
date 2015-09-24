@@ -25,6 +25,7 @@ class ManagementGenerateAppForLinkFunction;
 class ManagementGetPermissionWarningsByManifestFunction;
 class ManagementSetEnabledFunction;
 class ManagementUninstallFunctionBase;
+class RequirementsChecker;
 
 // Manages the lifetime of the install prompt.
 class InstallPromptDelegate {
@@ -53,9 +54,9 @@ class ManagementAPIDelegate {
       const Extension* extension,
       content::BrowserContext* context) const = 0;
 
-  // Forwards the call to extensions::util::IsStreamlinedHostedAppsEnabled in
+  // Forwards the call to extensions::util::IsNewBookmarkAppsEnabled in
   // chrome.
-  virtual bool IsStreamlinedHostedAppsEnabled() const = 0;
+  virtual bool IsNewBookmarkAppsEnabled() const = 0;
 
   // Forwards the call to AppLaunchInfo::GetFullLaunchURL in chrome.
   virtual GURL GetFullLaunchURL(const Extension* extension) const = 0;
@@ -76,6 +77,9 @@ class ManagementAPIDelegate {
       ManagementSetEnabledFunction* function,
       const Extension* extension) const = 0;
 
+  // Returns a new RequirementsChecker.
+  virtual scoped_ptr<RequirementsChecker> CreateRequirementsChecker() const = 0;
+
   // Enables the extension identified by |extension_id|.
   virtual void EnableExtension(content::BrowserContext* context,
                                const std::string& extension_id) const = 0;
@@ -86,10 +90,11 @@ class ManagementAPIDelegate {
       const std::string& extension_id,
       Extension::DisableReason disable_reason) const = 0;
 
-  // Used to show a confirmation dialog when uninstalling |target_extension_id|.
+  // Used to show a confirmation dialog when uninstalling |target_extension|.
   virtual scoped_ptr<UninstallDialogDelegate> UninstallFunctionDelegate(
       ManagementUninstallFunctionBase* function,
-      const std::string& target_extension_id) const = 0;
+      const Extension* target_extension,
+      bool show_programmatic_uninstall_ui) const = 0;
 
   // Uninstalls the extension.
   virtual bool UninstallExtension(content::BrowserContext* context,

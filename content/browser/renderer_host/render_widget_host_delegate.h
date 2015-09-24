@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CONTENT_BROWSER_RENDER_WIDGET_HOST_DELEGATE_H_
-#define CONTENT_BROWSER_RENDER_WIDGET_HOST_DELEGATE_H_
+#ifndef CONTENT_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_DELEGATE_H_
+#define CONTENT_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_DELEGATE_H_
 
 #include "base/basictypes.h"
 #include "build/build_config.h"
@@ -13,6 +13,10 @@
 namespace blink {
 class WebMouseWheelEvent;
 class WebGestureEvent;
+}
+
+namespace gfx {
+class Point;
 }
 
 namespace content {
@@ -33,6 +37,13 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
 
   // The RenderWidgetHost got the focus.
   virtual void RenderWidgetGotFocus(RenderWidgetHostImpl* render_widget_host) {}
+
+  // The RenderWidget was resized.
+  virtual void RenderWidgetWasResized(RenderWidgetHostImpl* render_widget_host,
+                                      bool width_changed) {}
+
+  // The screen info has changed.
+  virtual void ScreenInfoChanged() {}
 
   // Callback to give the browser a chance to handle the specified keyboard
   // event before sending it to the renderer.
@@ -57,10 +68,6 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
   // Returns true if the |event| was handled.
   virtual bool PreHandleGestureEvent(const blink::WebGestureEvent& event);
 
-  // Callback to inform the browser that the renderer did not process the
-  // specified gesture event.  Returns true if the |event| was handled.
-  virtual bool HandleGestureEvent(const blink::WebGestureEvent& event);
-
   // Notifies that screen rects were sent to renderer process.
   virtual void DidSendScreenRects(RenderWidgetHostImpl* rwh) {}
 
@@ -72,6 +79,19 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
   virtual BrowserAccessibilityManager*
       GetOrCreateRootBrowserAccessibilityManager();
 
+  // Send OS Cut/Copy/Paste actions to the focused frame.
+  virtual void Cut() = 0;
+  virtual void Copy() = 0;
+  virtual void Paste() = 0;
+  virtual void SelectAll() = 0;
+
+  // Requests the renderer to move the selection extent to a new position.
+  virtual void MoveRangeSelectionExtent(const gfx::Point& extent) {}
+
+  // Requests the renderer to select the region between two points in the
+  // currently focused frame.
+  virtual void SelectRange(const gfx::Point& base, const gfx::Point& extent) {}
+
 #if defined(OS_WIN)
   virtual gfx::NativeViewAccessible GetParentNativeViewAccessible();
 #endif
@@ -82,4 +102,4 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
 
 }  // namespace content
 
-#endif  // CONTENT_BROWSER_RENDER_WIDGET_HOST_DELEGATE_H_
+#endif  // CONTENT_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_DELEGATE_H_

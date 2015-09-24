@@ -8,14 +8,14 @@
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
 #include "chrome/browser/chromeos/input_method/mode_indicator_controller.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "chromeos/ime/component_extension_ime_manager.h"
-#include "chromeos/ime/extension_ime_util.h"
-#include "chromeos/ime/input_method_manager.h"
-#include "chromeos/ime/input_method_whitelist.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/ime/chromeos/component_extension_ime_manager.h"
+#include "ui/base/ime/chromeos/extension_ime_util.h"
 #include "ui/base/ime/chromeos/ime_bridge.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
+#include "ui/base/ime/chromeos/input_method_whitelist.h"
 #include "ui/base/ime/input_method_factory.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
@@ -31,7 +31,7 @@ class ScopedModeIndicatorObserverForTesting :
     ModeIndicatorController::SetModeIndicatorObserverForTesting(this);
   }
 
-  virtual ~ScopedModeIndicatorObserverForTesting() {
+  ~ScopedModeIndicatorObserverForTesting() override {
     for (size_t i = 0; i < widget_list_.size(); ++i) {
       widget_list_[i]->RemoveObserver(this);
     }
@@ -59,7 +59,7 @@ class ScopedModeIndicatorObserverForTesting :
   }
 
   // ModeIndicatorObserverInterface override:
-  virtual void AddModeIndicatorWidget(views::Widget* widget) override {
+  void AddModeIndicatorWidget(views::Widget* widget) override {
     widget_list_.push_back(widget);
     max_widget_list_size_ =
         std::max(max_widget_list_size_, widget_list_.size());
@@ -67,7 +67,7 @@ class ScopedModeIndicatorObserverForTesting :
   }
 
   // views::WidgetObserver override:
-  virtual void OnWidgetDestroying(views::Widget* widget) override {
+  void OnWidgetDestroying(views::Widget* widget) override {
     std::vector<views::Widget*>::iterator it =
       std::find(widget_list_.begin(), widget_list_.end(), widget);
     if (it != widget_list_.end())
@@ -75,8 +75,7 @@ class ScopedModeIndicatorObserverForTesting :
   }
 
   // views::WidgetObserver override:
-  virtual void OnWidgetVisibilityChanged(views::Widget* widget,
-                                         bool visible) override {
+  void OnWidgetVisibilityChanged(views::Widget* widget, bool visible) override {
     last_bounds_ = widget->GetWindowBoundsInScreen();
     is_displayed_ |= visible;
   }
@@ -92,9 +91,9 @@ class ModeIndicatorBrowserTest : public InProcessBrowserTest {
  public:
   ModeIndicatorBrowserTest()
       : InProcessBrowserTest() {}
-  virtual ~ModeIndicatorBrowserTest() {}
+  ~ModeIndicatorBrowserTest() override {}
 
-  virtual void SetUpInProcessBrowserTestFixture() override {
+  void SetUpInProcessBrowserTestFixture() override {
     ui::SetUpInputMethodFactoryForTesting();
   }
 
@@ -128,6 +127,7 @@ IN_PROC_BROWSER_TEST_F(ModeIndicatorBrowserTest, Bounds) {
   // Add keyboard layouts to enable the mode indicator.
   imm->GetActiveIMEState()->EnableLoginLayouts("fr", keyboard_layouts);
   ASSERT_LT(1UL, imm->GetActiveIMEState()->GetNumActiveInputMethods());
+  EXPECT_TRUE(imm->GetActiveIMEState()->CanCycleInputMethod());
 
   chromeos::IMECandidateWindowHandlerInterface* candidate_window =
       chromeos::IMEBridge::Get()->GetCandidateWindowHandler();
@@ -139,7 +139,7 @@ IN_PROC_BROWSER_TEST_F(ModeIndicatorBrowserTest, Bounds) {
   {
     ScopedModeIndicatorObserverForTesting observer;
     candidate_window->SetCursorBounds(cursor1_bounds, cursor1_bounds);
-    EXPECT_TRUE(imm->GetActiveIMEState()->SwitchToNextInputMethod());
+    imm->GetActiveIMEState()->SwitchToNextInputMethod();
     mi1_bounds = observer.last_bounds();
     // The bounds should be bigger than the inner size.
     EXPECT_LE(kInnerSize, mi1_bounds.width());
@@ -154,7 +154,7 @@ IN_PROC_BROWSER_TEST_F(ModeIndicatorBrowserTest, Bounds) {
   {
     ScopedModeIndicatorObserverForTesting observer;
     candidate_window->SetCursorBounds(cursor2_bounds, cursor2_bounds);
-    EXPECT_TRUE(imm->GetActiveIMEState()->SwitchToNextInputMethod());
+    imm->GetActiveIMEState()->SwitchToNextInputMethod();
     mi2_bounds = observer.last_bounds();
     EXPECT_TRUE(observer.is_displayed());
   }
@@ -176,7 +176,7 @@ IN_PROC_BROWSER_TEST_F(ModeIndicatorBrowserTest, Bounds) {
   {
     ScopedModeIndicatorObserverForTesting observer;
     candidate_window->SetCursorBounds(cursor3_bounds, cursor3_bounds);
-    EXPECT_TRUE(imm->GetActiveIMEState()->SwitchToNextInputMethod());
+    imm->GetActiveIMEState()->SwitchToNextInputMethod();
     mi3_bounds = observer.last_bounds();
     EXPECT_TRUE(observer.is_displayed());
     EXPECT_LT(mi3_bounds.bottom(), screen_bounds.bottom());
@@ -196,6 +196,7 @@ IN_PROC_BROWSER_TEST_F(ModeIndicatorBrowserTest, NumOfWidgets) {
   // Add keyboard layouts to enable the mode indicator.
   imm->GetActiveIMEState()->EnableLoginLayouts("fr", keyboard_layouts);
   ASSERT_LT(1UL, imm->GetActiveIMEState()->GetNumActiveInputMethods());
+  EXPECT_TRUE(imm->GetActiveIMEState()->CanCycleInputMethod());
 
   chromeos::IMECandidateWindowHandlerInterface* candidate_window =
       chromeos::IMEBridge::Get()->GetCandidateWindowHandler();
@@ -204,11 +205,11 @@ IN_PROC_BROWSER_TEST_F(ModeIndicatorBrowserTest, NumOfWidgets) {
   {
     ScopedModeIndicatorObserverForTesting observer;
 
-    EXPECT_TRUE(imm->GetActiveIMEState()->SwitchToNextInputMethod());
+    imm->GetActiveIMEState()->SwitchToNextInputMethod();
     EXPECT_EQ(1UL, observer.max_widget_list_size());
     const views::Widget* widget1 = observer.widget_list()[0];
 
-    EXPECT_TRUE(imm->GetActiveIMEState()->SwitchToNextInputMethod());
+    imm->GetActiveIMEState()->SwitchToNextInputMethod();
     EXPECT_EQ(2UL, observer.max_widget_list_size());
 
     // When a new mode indicator is displayed, the previous one should be

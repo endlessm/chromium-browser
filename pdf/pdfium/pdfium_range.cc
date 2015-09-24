@@ -6,6 +6,7 @@
 
 #include "base/logging.h"
 #include "base/strings/string_util.h"
+#include "pdf/pdfium/pdfium_api_string_buffer_adapter.h"
 
 namespace chrome_pdf {
 
@@ -59,20 +60,22 @@ std::vector<pp::Rect> PDFiumRange::GetScreenRects(const pp::Point& offset,
 base::string16 PDFiumRange::GetText() {
   int index = char_index_;
   int count = char_count_;
-  if (!count)
-    return base::string16();
+  base::string16 rv;
   if (count < 0) {
     count *= -1;
     index -= count - 1;
   }
 
-  base::string16 rv;
-  unsigned short* data =
-      reinterpret_cast<unsigned short*>(WriteInto(&rv, count + 1));
-  if (data) {
+  if (count > 0) {
+    PDFiumAPIStringBufferAdapter<base::string16> api_string_adapter(&rv,
+                                                                    count,
+                                                                    false);
+    unsigned short* data =
+        reinterpret_cast<unsigned short*>(api_string_adapter.GetData());
     int written = FPDFText_GetText(page_->GetTextPage(), index, count, data);
-    rv.reserve(written);
+    api_string_adapter.Close(written);
   }
+
   return rv;
 }
 

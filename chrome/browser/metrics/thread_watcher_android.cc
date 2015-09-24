@@ -24,7 +24,7 @@ bool g_application_has_stopped = false;
 
 void OnApplicationStateChange(
     base::android::ApplicationState application_state) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (application_state ==
       base::android::APPLICATION_STATE_HAS_STOPPED_ACTIVITIES) {
     g_application_has_stopped = true;
@@ -33,7 +33,8 @@ void OnApplicationStateChange(
              base::android::APPLICATION_STATE_HAS_RUNNING_ACTIVITIES &&
              g_application_has_stopped) {
     g_application_has_stopped = false;
-    ThreadWatcherList::StartWatchingAll(*CommandLine::ForCurrentProcess());
+    ThreadWatcherList::StartWatchingAll(
+        *base::CommandLine::ForCurrentProcess());
   }
 }
 

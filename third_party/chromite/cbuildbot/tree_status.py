@@ -8,7 +8,6 @@ from __future__ import print_function
 
 import httplib
 import json
-import logging
 import os
 import re
 import socket
@@ -16,6 +15,8 @@ import urllib
 import urllib2
 
 from chromite.cbuildbot import constants
+from chromite.lib import alerts
+from chromite.lib import cros_logging as logging
 from chromite.lib import osutils
 from chromite.lib import timeout_util
 
@@ -137,9 +138,8 @@ def WaitForTreeStatus(status_url=None, period=1, timeout=1, throttled_ok=False):
 
   timeout = max(timeout, 1)
 
-  def _LogMessage(minutes_left):
-    logging.info('Waiting for the tree to %s (%d minutes left)...', verb,
-                 minutes_left)
+  def _LogMessage(remaining):
+    logging.info('Waiting for the tree to %s (%s left)...', verb, remaining)
 
   def _get_status():
     return _GetStatus(status_url)
@@ -329,8 +329,6 @@ def GetSheriffEmailAddresses(sheriff_type):
     sheriff_type: Type of the sheriff to look for. See the keys in
     constants.SHERIFF_TYPE_TO_URL.
       - 'tree': tree sheriffs
-      - 'build': build deputy
-      - 'lab' : lab sheriff
       - 'chrome': chrome gardener
 
   Returns:
@@ -364,3 +362,47 @@ def GetHealthAlertRecipients(builder_run):
       recipients.extend(GetSheriffEmailAddresses(entry))
 
   return recipients
+
+
+def SendHealthAlert(builder_run, subject, body, extra_fields=None):
+  """Send a health alert.
+
+  Health alerts are only sent for regular buildbots and Pre-CQ buildbots.
+
+  Args:
+    builder_run: BuilderRun for the main cbuildbot run.
+    subject: The subject of the health alert email.
+    body: The body of the health alert email.
+    extra_fields: (optional) A dictionary of additional message header fields
+                  to be added to the message. Custom field names should begin
+                  with the prefix 'X-'.
+  """
+  if builder_run.InProduction():
+    server = alerts.GmailServer(
+        token_cache_file=constants.GMAIL_TOKEN_CACHE_FILE,
+        token_json_file=constants.GMAIL_TOKEN_JSON_FILE)
+    alerts.SendEmail(subject,
+                     GetHealthAlertRecipients(builder_run),
+                     server=server,
+                     message=body,
+                     extra_fields=extra_fields)
+
+
+def ConstructDashboardURL(waterfall, builder_name, build_number, stage=None):
+  """Return the dashboard (buildbot) URL for this run
+
+  Args:
+    waterfall: One of constants.ALL_WATERFALLS
+    builder_name: Builder name on buildbot dashboard.
+    build_number: Build number for this validation attempt.
+    stage: Link directly to a stage log, else use the general landing page.
+
+  Returns:
+    The fully formed URL.
+  """
+  build_dashboard = constants.WATERFALL_TO_DASHBOARD[waterfall]
+  url_suffix = 'builders/%s/builds/%s' % (builder_name, str(build_number))
+  if stage:
+    url_suffix += '/steps/%s/logs/stdio' % (stage,)
+  url_suffix = urllib.quote(url_suffix)
+  return os.path.join(build_dashboard, url_suffix)

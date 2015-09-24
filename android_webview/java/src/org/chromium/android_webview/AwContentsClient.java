@@ -4,12 +4,19 @@
 
 package org.chromium.android_webview;
 
-import android.content.pm.ActivityInfo;
+import android.annotation.SuppressLint;
+import android.app.Activity;
+import android.content.ActivityNotFoundException;
+import android.content.Context;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Picture;
+import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Looper;
 import android.os.Message;
+import android.provider.Browser;
+import android.text.TextUtils;
 import android.view.KeyEvent;
 import android.view.View;
 import android.webkit.ConsoleMessage;
@@ -18,6 +25,11 @@ import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 
 import org.chromium.android_webview.permission.AwPermissionRequest;
+import org.chromium.base.Log;
+import org.chromium.base.annotations.SuppressFBWarnings;
+import org.chromium.content.browser.ContentViewCore;
+import org.chromium.content.browser.SelectActionMode;
+import org.chromium.content.browser.SelectActionModeCallback.ActionHandler;
 
 import java.security.Principal;
 import java.util.HashMap;
@@ -32,12 +44,18 @@ import java.util.HashMap;
  * i.e.: all methods in this class should either be final, or abstract.
  */
 public abstract class AwContentsClient {
-
+    private static final String TAG = "cr.AwContentsClient";
     private final AwContentsClientCallbackHelper mCallbackHelper;
 
     // Last background color reported from the renderer. Holds the sentinal value INVALID_COLOR
     // if not valid.
     private int mCachedRendererBackgroundColor = INVALID_COLOR;
+    // Holds the last known page title. {@link ContentViewClient#onUpdateTitle} is unreliable,
+    // particularly for navigating backwards and forwards in the history stack. Instead, the last
+    // known document title is kept here, and the clients gets updated whenever the value has
+    // actually changed. Blink also only sends updates when the document title have changed,
+    // so behaviours are consistent.
+    private String mTitle = "";
 
     private static final int INVALID_COLOR = 0;
 
@@ -74,20 +92,10 @@ public abstract class AwContentsClient {
     //--------------------------------------------------------------------------------------------
 
     /**
-     * Parameters for the {@link AwContentsClient#showFileChooser} method.
-     */
-    public static class FileChooserParams {
-        public int mode;
-        public String acceptTypes;
-        public String title;
-        public String defaultFilename;
-        public boolean capture;
-    }
-
-    /**
      * Parameters for the {@link AwContentsClient#shouldInterceptRequest} method.
      */
-    public static class ShouldInterceptRequestParams {
+    @SuppressFBWarnings("URF_UNREAD_PUBLIC_OR_PROTECTED_FIELD")
+    public static class AwWebResourceRequest {
         // Url of the request.
         public String url;
         // Is this for the main frame or a child iframe?
@@ -100,6 +108,19 @@ public abstract class AwContentsClient {
         public HashMap<String, String> requestHeaders;
     }
 
+    /**
+     * Parameters for {@link AwContentsClient#onReceivedError} method.
+     */
+    public static class AwWebResourceError {
+        public int errorCode = ErrorCodeConversionHelper.ERROR_UNKNOWN;
+        public String description;
+    }
+
+    /**
+     * Allow default implementations in chromium code.
+     */
+    public abstract boolean hasWebViewClient();
+
     public abstract void getVisitedHistory(ValueCallback<String[]> callback);
 
     public abstract void doUpdateVisitedHistory(String url, boolean isReload);
@@ -107,7 +128,7 @@ public abstract class AwContentsClient {
     public abstract void onProgressChanged(int progress);
 
     public abstract AwWebResourceResponse shouldInterceptRequest(
-            ShouldInterceptRequestParams params);
+            AwWebResourceRequest request);
 
     public abstract boolean shouldOverrideKeyEvent(KeyEvent event);
 
@@ -124,11 +145,10 @@ public abstract class AwContentsClient {
 
     public abstract void onReceivedSslError(ValueCallback<Boolean> callback, SslError error);
 
-    // TODO(sgurun): Make abstract once this has rolled in downstream.
-    public void onReceivedClientCertRequest(
+    public abstract void onReceivedClientCertRequest(
             final AwContentsClientBridge.ClientCertificateRequestCallback callback,
             final String[] keyTypes, final Principal[] principals, final String host,
-            final int port) { }
+            final int port);
 
     public abstract void onReceivedLoginRequest(String realm, String account, String args);
 
@@ -137,21 +157,139 @@ public abstract class AwContentsClient {
     public abstract void onDownloadStart(String url, String userAgent, String contentDisposition,
             String mimeType, long contentLength);
 
-    // TODO(joth): Make abstract once this has rolled in downstream.
-    public /*abstract*/ void showFileChooser(ValueCallback<String[]> uploadFilePathsCallback,
-            FileChooserParams fileChooserParams) { }
+    public static boolean sendBrowsingIntent(Context context, String url, boolean hasUserGesture,
+            boolean isRedirect) {
+        if (!hasUserGesture && !isRedirect) {
+            Log.w(TAG, "Denied starting an intent without a user gesture, URI " + url);
+            return true;
+        }
+        Intent intent;
+        // Perform generic parsing of the URI to turn it into an Intent.
+        try {
+            intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
+        } catch (Exception ex) {
+            Log.w(TAG, "Bad URI " + url, ex);
+            return false;
+        }
+        // Sanitize the Intent, ensuring web pages can not bypass browser
+        // security (only access to BROWSABLE activities).
+        intent.addCategory(Intent.CATEGORY_BROWSABLE);
+        intent.setComponent(null);
+        Intent selector = intent.getSelector();
+        if (selector != null) {
+            selector.addCategory(Intent.CATEGORY_BROWSABLE);
+            selector.setComponent(null);
+        }
+
+        // Pass the package name as application ID so that the intent from the
+        // same application can be opened in the same tab.
+        intent.putExtra(Browser.EXTRA_APPLICATION_ID, context.getPackageName());
+        if (ContentViewCore.activityFromContext(context) == null) {
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        }
+
+        try {
+            context.startActivity(intent);
+        } catch (ActivityNotFoundException ex) {
+            Log.w(TAG, "No application can handle " + url);
+            return false;
+        }
+
+        return true;
+    }
+
+    public static Uri[] parseFileChooserResult(int resultCode, Intent intent) {
+        if (resultCode == Activity.RESULT_CANCELED) {
+            return null;
+        }
+        Uri result =
+                intent == null || resultCode != Activity.RESULT_OK ? null : intent.getData();
+
+        Uri[] uris = null;
+        if (result != null) {
+            uris = new Uri[1];
+            uris[0] = result;
+        }
+        return uris;
+    }
+
+    /**
+     * Type adaptation class for FileChooserParams.
+     */
+    @SuppressLint("NewApi")  // WebChromeClient.FileChooserParams requires API level 21.
+    public static class FileChooserParamsImpl extends WebChromeClient.FileChooserParams {
+        private int mMode;
+        private String mAcceptTypes;
+        private String mTitle;
+        private String mDefaultFilename;
+        private boolean mCapture;
+
+        public FileChooserParamsImpl(int mode, String acceptTypes, String title,
+                String defaultFilename, boolean capture) {
+            mMode = mode;
+            mAcceptTypes = acceptTypes;
+            mTitle = title;
+            mDefaultFilename = defaultFilename;
+            mCapture = capture;
+        }
+
+        public String getAcceptTypesString() {
+            return mAcceptTypes;
+        }
+
+        @Override
+        public int getMode() {
+            return mMode;
+        }
+
+        @Override
+        public String[] getAcceptTypes() {
+            if (mAcceptTypes == null) {
+                return new String[0];
+            }
+            return mAcceptTypes.split(";");
+        }
+
+        @Override
+        public boolean isCaptureEnabled() {
+            return mCapture;
+        }
+
+        @Override
+        public CharSequence getTitle() {
+            return mTitle;
+        }
+
+        @Override
+        public String getFilenameHint() {
+            return mDefaultFilename;
+        }
+
+        @Override
+        public Intent createIntent() {
+            String mimeType = "*/*";
+            if (mAcceptTypes != null && !mAcceptTypes.trim().isEmpty()) {
+                mimeType = mAcceptTypes.split(";")[0];
+            }
+
+            Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType(mimeType);
+            return i;
+        }
+    }
+
+    public abstract void showFileChooser(ValueCallback<String[]> uploadFilePathsCallback,
+            FileChooserParamsImpl fileChooserParams);
 
     public abstract void onGeolocationPermissionsShowPrompt(String origin,
             GeolocationPermissions.Callback callback);
 
     public abstract void onGeolocationPermissionsHidePrompt();
 
-    // TODO(michaelbai): Change the abstract once merged
-    public /*abstract*/ void onPermissionRequest(AwPermissionRequest awPermissionRequest) {}
+    public abstract void onPermissionRequest(AwPermissionRequest awPermissionRequest);
 
-    // TODO(michaelbai): Change the abstract once merged
-    public /*abstract*/ void onPermissionRequestCanceled(
-            AwPermissionRequest awPermissionRequest) {}
+    public abstract void onPermissionRequestCanceled(AwPermissionRequest awPermissionRequest);
 
     public abstract void onScaleChangedScaled(float oldScale, float newScale);
 
@@ -183,19 +321,40 @@ public abstract class AwContentsClient {
 
     public abstract void onPageFinished(String url);
 
-    public abstract void onReceivedError(int errorCode, String description, String failingUrl);
+    public abstract void onPageCommitVisible(String url);
 
-    // TODO (michaelbai): Remove this method once the same method remove from
-    // WebViewContentsClientAdapter.
-    public void onShowCustomView(View view, int requestedOrientation,
-            WebChromeClient.CustomViewCallback callback) {
+    public final void onReceivedError(AwWebResourceRequest request, AwWebResourceError error) {
+        // Only one of these callbacks actually reaches out the client code. The first callback
+        // is used on API versions up to and including L, the second on subsequent releases.
+        // Below is the calls diagram:
+        //
+        //                           Old (<= L) glue              Old (<= L) android.webkit API
+        //                             onReceivedError --------->   onReceivedError
+        //  AwContentsClient           onReceivedError2 ->X   /
+        //   abs. onReceivedError                            /
+        //   abs. onReceivedError2                          /
+        //                           New (M+) glue         /      New (M+) android.webkit API
+        //                             onReceivedError    /     ->  onReceviedError <new>
+        //   "->X" = "do nothing"        if (!<M API>) ---     /      if (isMainFrame) -\
+        //                               else ->X             /       else ->X          |
+        //                             onReceivedError2      /                          V
+        //                               if (<M API>) -------       onReceivedError <old>
+        //                               else ->X
+        if (request.isMainFrame) {
+            onReceivedError(error.errorCode, error.description, request.url);
+        }
+        onReceivedError2(request, error);
     }
 
-    // TODO (michaelbai): This method should be abstract, having empty body here
-    // makes the merge to the Android easy.
-    public void onShowCustomView(View view, WebChromeClient.CustomViewCallback callback) {
-        onShowCustomView(view, ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED, callback);
-    }
+    protected abstract void onReceivedError(int errorCode, String description, String failingUrl);
+
+    protected abstract void onReceivedError2(
+            AwWebResourceRequest request, AwWebResourceError error);
+
+    public abstract void onReceivedHttpError(AwWebResourceRequest request,
+            AwWebResourceResponse response);
+
+    public abstract void onShowCustomView(View view, WebChromeClient.CustomViewCallback callback);
 
     public abstract void onHideCustomView();
 
@@ -214,4 +373,14 @@ public abstract class AwContentsClient {
      */
     public abstract void onNewPicture(Picture picture);
 
+    public abstract SelectActionMode startActionMode(
+            View view, ActionHandler actionHandler, boolean floating);
+
+    public abstract boolean supportsFloatingActionMode();
+
+    public void updateTitle(String title, boolean forceNotification) {
+        if (!forceNotification && TextUtils.equals(mTitle, title)) return;
+        mTitle = title;
+        mCallbackHelper.postOnReceivedTitle(mTitle);
+    }
 }

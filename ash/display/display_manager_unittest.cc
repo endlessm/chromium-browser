@@ -8,15 +8,19 @@
 #include "ash/display/display_controller.h"
 #include "ash/display/display_info.h"
 #include "ash/display/display_layout_store.h"
+#include "ash/display/display_util.h"
+#include "ash/display/mirror_window_controller.h"
 #include "ash/screen_util.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/test/display_manager_test_api.h"
 #include "ash/test/mirror_window_test_api.h"
+#include "ash/wm/window_state.h"
 #include "base/command_line.h"
 #include "base/format_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
+#include "ui/aura/client/aura_constants.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window_observer.h"
 #include "ui/aura/window_tree_host.h"
@@ -48,7 +52,8 @@ class DisplayManagerTest : public test::AshTestBase,
  public:
   DisplayManagerTest()
       : removed_count_(0U),
-        root_window_destroyed_(false) {
+        root_window_destroyed_(false),
+        changed_metrics_(0U) {
   }
   ~DisplayManagerTest() override {}
 
@@ -68,6 +73,7 @@ class DisplayManagerTest : public test::AshTestBase,
   }
   const vector<gfx::Display>& changed() const { return changed_; }
   const vector<gfx::Display>& added() const { return added_; }
+  uint32_t changed_metrics() const { return changed_metrics_; }
 
   string GetCountSummary() const {
     return StringPrintf("%" PRIuS " %" PRIuS " %" PRIuS,
@@ -78,6 +84,7 @@ class DisplayManagerTest : public test::AshTestBase,
     changed_.clear();
     added_.clear();
     removed_count_ = 0U;
+    changed_metrics_ = 0U;
     root_window_destroyed_ = false;
   }
 
@@ -102,8 +109,10 @@ class DisplayManagerTest : public test::AshTestBase,
   }
 
   // aura::DisplayObserver overrides:
-  void OnDisplayMetricsChanged(const gfx::Display& display, uint32_t) override {
+  void OnDisplayMetricsChanged(const gfx::Display& display,
+                               uint32_t changed_metrics) override {
     changed_.push_back(display);
+    changed_metrics_ |= changed_metrics;
   }
   void OnDisplayAdded(const gfx::Display& new_display) override {
     added_.push_back(new_display);
@@ -123,6 +132,7 @@ class DisplayManagerTest : public test::AshTestBase,
   vector<gfx::Display> added_;
   size_t removed_count_;
   bool root_window_destroyed_;
+  uint32_t changed_metrics_;
 
   DISALLOW_COPY_AND_ASSIGN(DisplayManagerTest);
 };
@@ -229,6 +239,15 @@ TEST_F(DisplayManagerTest, UpdateDisplayTest) {
             display_manager()->GetDisplayAt(1).bounds().ToString());
 }
 
+TEST_F(DisplayManagerTest, ScaleOnlyChange) {
+  if (!SupportsMultipleDisplays())
+    return;
+  display_manager()->ToggleDisplayScaleFactor();
+  EXPECT_TRUE(changed_metrics() & gfx::DisplayObserver::DISPLAY_METRIC_BOUNDS);
+  EXPECT_TRUE(changed_metrics() &
+              gfx::DisplayObserver::DISPLAY_METRIC_WORK_AREA);
+}
+
 // Test in emulation mode (use_fullscreen_host_window=false)
 TEST_F(DisplayManagerTest, EmulatorTest) {
   if (!SupportsMultipleDisplays())
@@ -250,6 +269,38 @@ TEST_F(DisplayManagerTest, EmulatorTest) {
   display_manager()->AddRemoveDisplay();
   EXPECT_EQ(2U, display_manager()->GetNumDisplays());
   EXPECT_EQ("0 1 0", GetCountSummary());
+  reset();
+}
+
+// Tests support for 3 displays.
+TEST_F(DisplayManagerTest, UpdateThreeDisplaysTest) {
+  if (!SupportsMultipleDisplays())
+    return;
+
+  EXPECT_EQ(1U, display_manager()->GetNumDisplays());
+
+  // Test with three displays.
+  UpdateDisplay("0+0-640x480,640+0-320x200,960+0-400x300");
+  EXPECT_EQ(3U, display_manager()->GetNumDisplays());
+  EXPECT_EQ("0,0 640x480",
+            display_manager()->GetDisplayAt(0).bounds().ToString());
+  EXPECT_EQ("640,0 320x200",
+            display_manager()->GetDisplayAt(1).bounds().ToString());
+  EXPECT_EQ("960,0 400x300",
+            display_manager()->GetDisplayAt(2).bounds().ToString());
+
+  EXPECT_EQ("1 2 0", GetCountSummary());
+  EXPECT_EQ(display_manager()->GetDisplayAt(0).id(), changed()[0].id());
+  EXPECT_EQ(display_manager()->GetDisplayAt(1).id(), added()[0].id());
+  EXPECT_EQ(display_manager()->GetDisplayAt(2).id(), added()[1].id());
+  EXPECT_EQ("0,0 640x480", changed()[0].bounds().ToString());
+  // Secondary and terniary displays are on right.
+  EXPECT_EQ("640,0 320x200", added()[0].bounds().ToString());
+  EXPECT_EQ("640,0 320x200",
+            GetDisplayInfo(added()[0]).bounds_in_native().ToString());
+  EXPECT_EQ("960,0 400x300", added()[1].bounds().ToString());
+  EXPECT_EQ("960,0 400x300",
+            GetDisplayInfo(added()[1]).bounds_in_native().ToString());
   reset();
 }
 
@@ -356,6 +407,27 @@ TEST_F(DisplayManagerTest, OverscanInsetsTest) {
             bounds_in_native().ToString());
   EXPECT_EQ("0,0 188x190",
             Shell::GetScreen()->GetPrimaryDisplay().bounds().ToString());
+
+  // Make sure just moving the overscan area should property notify observers.
+  UpdateDisplay("0+0-500x500");
+  int64 primary_id = Shell::GetScreen()->GetPrimaryDisplay().id();
+  display_manager()->SetOverscanInsets(primary_id, gfx::Insets(0, 0, 20, 20));
+  EXPECT_EQ("0,0 480x480",
+            Shell::GetScreen()->GetPrimaryDisplay().bounds().ToString());
+  reset();
+  display_manager()->SetOverscanInsets(primary_id, gfx::Insets(10, 10, 10, 10));
+  EXPECT_TRUE(changed_metrics() & gfx::DisplayObserver::DISPLAY_METRIC_BOUNDS);
+  EXPECT_TRUE(
+      changed_metrics() & gfx::DisplayObserver::DISPLAY_METRIC_WORK_AREA);
+  EXPECT_EQ("0,0 480x480",
+            Shell::GetScreen()->GetPrimaryDisplay().bounds().ToString());
+  reset();
+  display_manager()->SetOverscanInsets(primary_id, gfx::Insets(0, 0, 0, 0));
+  EXPECT_TRUE(changed_metrics() & gfx::DisplayObserver::DISPLAY_METRIC_BOUNDS);
+  EXPECT_TRUE(
+      changed_metrics() & gfx::DisplayObserver::DISPLAY_METRIC_WORK_AREA);
+  EXPECT_EQ("0,0 500x500",
+            Shell::GetScreen()->GetPrimaryDisplay().bounds().ToString());
 }
 
 TEST_F(DisplayManagerTest, ZeroOverscanInsets) {
@@ -417,7 +489,7 @@ TEST_F(DisplayManagerTest, TestNativeDisplaysChanged) {
       CreateDisplayInfo(internal_display_id, gfx::Rect(0, 0, 500, 500));
   const DisplayInfo external_display_info =
       CreateDisplayInfo(external_id, gfx::Rect(1, 1, 100, 100));
-  const DisplayInfo mirrored_display_info =
+  const DisplayInfo mirroring_display_info =
       CreateDisplayInfo(mirror_id, gfx::Rect(0, 0, 500, 500));
 
   EXPECT_EQ(1U, display_manager()->GetNumDisplays());
@@ -432,7 +504,7 @@ TEST_F(DisplayManagerTest, TestNativeDisplaysChanged) {
   EXPECT_EQ(default_bounds,
             display_manager()->GetDisplayAt(0).bounds().ToString());
   EXPECT_EQ(1U, display_manager()->num_connected_displays());
-  EXPECT_FALSE(display_manager()->IsMirrored());
+  EXPECT_FALSE(display_manager()->IsInMirrorMode());
 
   if (!SupportsMultipleDisplays())
     return;
@@ -446,7 +518,7 @@ TEST_F(DisplayManagerTest, TestNativeDisplaysChanged) {
   EXPECT_EQ("1,1 100x100",
             GetDisplayInfoForId(external_id).bounds_in_native().ToString());
   EXPECT_EQ(1U, display_manager()->num_connected_displays());
-  EXPECT_FALSE(display_manager()->IsMirrored());
+  EXPECT_FALSE(display_manager()->IsInMirrorMode());
   EXPECT_EQ(external_id, Shell::GetScreen()->GetPrimaryDisplay().id());
 
   EXPECT_EQ(internal_display_id, gfx::Display::InternalDisplayId());
@@ -465,7 +537,7 @@ TEST_F(DisplayManagerTest, TestNativeDisplaysChanged) {
   EXPECT_EQ("1,1 100x100",
             GetDisplayInfoForId(10).bounds_in_native().ToString());
   EXPECT_EQ(2U, display_manager()->num_connected_displays());
-  EXPECT_FALSE(display_manager()->IsMirrored());
+  EXPECT_FALSE(display_manager()->IsInMirrorMode());
   EXPECT_EQ(ToDisplayName(internal_display_id),
             display_manager()->GetDisplayNameForId(internal_display_id));
 
@@ -478,7 +550,7 @@ TEST_F(DisplayManagerTest, TestNativeDisplaysChanged) {
   EXPECT_EQ("1,1 100x100",
             GetDisplayInfoForId(10).bounds_in_native().ToString());
   EXPECT_EQ(2U, display_manager()->num_connected_displays());
-  EXPECT_FALSE(display_manager()->IsMirrored());
+  EXPECT_FALSE(display_manager()->IsInMirrorMode());
   EXPECT_EQ(ToDisplayName(internal_display_id),
             display_manager()->GetDisplayNameForId(internal_display_id));
 
@@ -489,21 +561,21 @@ TEST_F(DisplayManagerTest, TestNativeDisplaysChanged) {
   EXPECT_EQ("0,0 500x500",
             GetDisplayForId(internal_display_id).bounds().ToString());
   EXPECT_EQ(1U, display_manager()->num_connected_displays());
-  EXPECT_FALSE(display_manager()->IsMirrored());
+  EXPECT_FALSE(display_manager()->IsInMirrorMode());
 
   // External display was changed during suspend.
   display_info_list.push_back(external_display_info);
   display_manager()->OnNativeDisplaysChanged(display_info_list);
   EXPECT_EQ(2U, display_manager()->GetNumDisplays());
   EXPECT_EQ(2U, display_manager()->num_connected_displays());
-  EXPECT_FALSE(display_manager()->IsMirrored());
+  EXPECT_FALSE(display_manager()->IsInMirrorMode());
 
   // suspend...
   display_info_list.clear();
   display_manager()->OnNativeDisplaysChanged(display_info_list);
   EXPECT_EQ(2U, display_manager()->GetNumDisplays());
   EXPECT_EQ(2U, display_manager()->num_connected_displays());
-  EXPECT_FALSE(display_manager()->IsMirrored());
+  EXPECT_FALSE(display_manager()->IsInMirrorMode());
 
   // and resume with different external display.
   display_info_list.push_back(internal_display_info);
@@ -511,20 +583,20 @@ TEST_F(DisplayManagerTest, TestNativeDisplaysChanged) {
   display_manager()->OnNativeDisplaysChanged(display_info_list);
   EXPECT_EQ(2U, display_manager()->GetNumDisplays());
   EXPECT_EQ(2U, display_manager()->num_connected_displays());
-  EXPECT_FALSE(display_manager()->IsMirrored());
-  EXPECT_FALSE(display_manager()->IsMirrored());
+  EXPECT_FALSE(display_manager()->IsInMirrorMode());
+  EXPECT_FALSE(display_manager()->IsInMirrorMode());
 
   // mirrored...
   display_info_list.clear();
   display_info_list.push_back(internal_display_info);
-  display_info_list.push_back(mirrored_display_info);
+  display_info_list.push_back(mirroring_display_info);
   display_manager()->OnNativeDisplaysChanged(display_info_list);
   EXPECT_EQ(1U, display_manager()->GetNumDisplays());
   EXPECT_EQ("0,0 500x500",
             GetDisplayForId(internal_display_id).bounds().ToString());
   EXPECT_EQ(2U, display_manager()->num_connected_displays());
-  EXPECT_EQ(11U, display_manager()->mirrored_display_id());
-  EXPECT_TRUE(display_manager()->IsMirrored());
+  EXPECT_EQ(11U, display_manager()->mirroring_display_id());
+  EXPECT_TRUE(display_manager()->IsInMirrorMode());
 
   // Test display name.
   EXPECT_EQ(ToDisplayName(internal_display_id),
@@ -542,7 +614,7 @@ TEST_F(DisplayManagerTest, TestNativeDisplaysChanged) {
   display_manager()->OnNativeDisplaysChanged(display_info_list);
   EXPECT_EQ(2U, display_manager()->GetNumDisplays());
   EXPECT_EQ(2U, display_manager()->num_connected_displays());
-  EXPECT_FALSE(display_manager()->IsMirrored());
+  EXPECT_FALSE(display_manager()->IsInMirrorMode());
   EXPECT_EQ("0,0 500x500",
             GetDisplayForId(internal_display_id).bounds().ToString());
   EXPECT_EQ("500,0 100x100",
@@ -557,7 +629,7 @@ TEST_F(DisplayManagerTest, TestNativeDisplaysChanged) {
   EXPECT_EQ("1,1 100x100",
             GetDisplayInfoForId(external_id).bounds_in_native().ToString());
   EXPECT_EQ(1U, display_manager()->num_connected_displays());
-  EXPECT_FALSE(display_manager()->IsMirrored());
+  EXPECT_FALSE(display_manager()->IsInMirrorMode());
 
   // Switched to another display
   display_info_list.clear();
@@ -568,7 +640,7 @@ TEST_F(DisplayManagerTest, TestNativeDisplaysChanged) {
       "0,0 500x500",
       GetDisplayInfoForId(internal_display_id).bounds_in_native().ToString());
   EXPECT_EQ(1U, display_manager()->num_connected_displays());
-  EXPECT_FALSE(display_manager()->IsMirrored());
+  EXPECT_FALSE(display_manager()->IsInMirrorMode());
 }
 
 // Make sure crash does not happen if add and remove happens at the same time.
@@ -631,90 +703,6 @@ TEST_F(DisplayManagerTest, MAYBE_TestNativeDisplaysChangedNoInternal) {
       GetBounds().size().ToString());
 }
 
-#if defined(OS_WIN)
-// Tests that rely on the actual host size/location does not work on windows.
-#define MAYBE_EnsurePointerInDisplays DISABLED_EnsurePointerInDisplays
-#define MAYBE_EnsurePointerInDisplays_2ndOnLeft DISABLED_EnsurePointerInDisplays_2ndOnLeft
-#else
-#define MAYBE_EnsurePointerInDisplays EnsurePointerInDisplays
-#define MAYBE_EnsurePointerInDisplays_2ndOnLeft EnsurePointerInDisplays_2ndOnLeft
-#endif
-
-TEST_F(DisplayManagerTest, MAYBE_EnsurePointerInDisplays) {
-  UpdateDisplay("200x200,300x300");
-  aura::Window::Windows root_windows = Shell::GetAllRootWindows();
-
-  aura::Env* env = aura::Env::GetInstance();
-
-  ui::test::EventGenerator generator(root_windows[0]);
-
-  // Set the initial position.
-  generator.MoveMouseToInHost(350, 150);
-  EXPECT_EQ("350,150", env->last_mouse_location().ToString());
-
-  // A mouse pointer will stay in the 2nd display.
-  UpdateDisplay("300x300,200x200");
-  EXPECT_EQ("450,50", env->last_mouse_location().ToString());
-
-  // A mouse pointer will be outside of displays and move to the
-  // center of 2nd display.
-  UpdateDisplay("300x300,100x100");
-  EXPECT_EQ("350,50", env->last_mouse_location().ToString());
-
-  // 2nd display was disconnected, and the cursor is
-  // now in the 1st display.
-  UpdateDisplay("400x400");
-  EXPECT_EQ("50,350", env->last_mouse_location().ToString());
-
-  // 1st display's resolution has changed, and the mouse pointer is
-  // now outside. Move the mouse pointer to the center of 1st display.
-  UpdateDisplay("300x300");
-  EXPECT_EQ("150,150", env->last_mouse_location().ToString());
-
-  // Move the mouse pointer to the bottom of 1st display.
-  generator.MoveMouseToInHost(150, 290);
-  EXPECT_EQ("150,290", env->last_mouse_location().ToString());
-
-  // The mouse pointer is now on 2nd display.
-  UpdateDisplay("300x280,200x200");
-  EXPECT_EQ("450,10", env->last_mouse_location().ToString());
-}
-
-TEST_F(DisplayManagerTest, MAYBE_EnsurePointerInDisplays_2ndOnLeft) {
-  // Set the 2nd display on the left.
-  DisplayLayoutStore* layout_store =
-      Shell::GetInstance()->display_manager()->layout_store();
-  DisplayLayout layout = layout_store->default_display_layout();
-  layout.position = DisplayLayout::LEFT;
-  layout_store->SetDefaultDisplayLayout(layout);
-
-  UpdateDisplay("200x200,300x300");
-  aura::Window::Windows root_windows = Shell::GetAllRootWindows();
-
-  EXPECT_EQ("-300,0 300x300",
-            ScreenUtil::GetSecondaryDisplay().bounds().ToString());
-
-  aura::Env* env = aura::Env::GetInstance();
-
-  // Set the initial position.
-  root_windows[0]->MoveCursorTo(gfx::Point(-150, 250));
-  EXPECT_EQ("-150,250", env->last_mouse_location().ToString());
-
-  // A mouse pointer will stay in 2nd display.
-  UpdateDisplay("300x300,200x300");
-  EXPECT_EQ("-50,150", env->last_mouse_location().ToString());
-
-  // A mouse pointer will be outside of displays and move to the
-  // center of 2nd display.
-  UpdateDisplay("300x300,200x100");
-  EXPECT_EQ("-100,50", env->last_mouse_location().ToString());
-
-  // 2nd display was disconnected. Mouse pointer should move to
-  // 1st display.
-  UpdateDisplay("300x300");
-  EXPECT_EQ("150,150", env->last_mouse_location().ToString());
-}
-
 TEST_F(DisplayManagerTest, NativeDisplaysChangedAfterPrimaryChange) {
   if (!SupportsMultipleDisplays())
     return;
@@ -762,7 +750,7 @@ TEST_F(DisplayManagerTest, DontRememberBestResolution) {
   display_modes.push_back(
       DisplayMode(gfx::Size(400, 500), 60.0f, false, false));
 
-  native_display_info.set_display_modes(display_modes);
+  native_display_info.SetDisplayModes(display_modes);
 
   std::vector<DisplayInfo> display_info_list;
   display_info_list.push_back(native_display_info);
@@ -819,7 +807,7 @@ TEST_F(DisplayManagerTest, ResolutionFallback) {
       DisplayMode(gfx::Size(400, 500), 60.0f, false, false));
 
   std::vector<DisplayMode> copy = display_modes;
-  native_display_info.set_display_modes(copy);
+  native_display_info.SetDisplayModes(copy);
 
   std::vector<DisplayInfo> display_info_list;
   display_info_list.push_back(native_display_info);
@@ -829,7 +817,7 @@ TEST_F(DisplayManagerTest, ResolutionFallback) {
     DisplayInfo new_native_display_info =
         CreateDisplayInfo(display_id, gfx::Rect(0, 0, 400, 500));
     copy = display_modes;
-    new_native_display_info.set_display_modes(copy);
+    new_native_display_info.SetDisplayModes(copy);
     std::vector<DisplayInfo> new_display_info_list;
     new_display_info_list.push_back(new_native_display_info);
     display_manager()->OnNativeDisplaysChanged(new_display_info_list);
@@ -847,7 +835,7 @@ TEST_F(DisplayManagerTest, ResolutionFallback) {
     DisplayInfo new_native_display_info =
         CreateDisplayInfo(display_id, gfx::Rect(0, 0, 1000, 500));
     std::vector<DisplayMode> copy = display_modes;
-    new_native_display_info.set_display_modes(copy);
+    new_native_display_info.SetDisplayModes(copy);
     std::vector<DisplayInfo> new_display_info_list;
     new_display_info_list.push_back(new_native_display_info);
     display_manager()->OnNativeDisplaysChanged(new_display_info_list);
@@ -916,6 +904,41 @@ TEST_F(DisplayManagerTest, Rotate) {
 
   UpdateDisplay("200x200/l");
   EXPECT_EQ("1 0 0", GetCountSummary());
+
+  // Having the internal display deactivated should restore user rotation. Newly
+  // set rotations should be applied.
+  UpdateDisplay("200x200, 200x200");
+  const int64 internal_display_id =
+      test::DisplayManagerTestApi(display_manager())
+          .SetFirstDisplayAsInternalDisplay();
+
+  display_manager()->SetDisplayRotation(internal_display_id,
+                                        gfx::Display::ROTATE_90,
+                                        gfx::Display::ROTATION_SOURCE_USER);
+  display_manager()->SetDisplayRotation(internal_display_id,
+                                        gfx::Display::ROTATE_0,
+                                        gfx::Display::ROTATION_SOURCE_ACTIVE);
+
+  const DisplayInfo info = GetDisplayInfoForId(internal_display_id);
+  EXPECT_EQ(gfx::Display::ROTATE_0, info.GetActiveRotation());
+
+  // Deactivate internal display to simulate Docked Mode.
+  vector<DisplayInfo> secondary_only;
+  secondary_only.push_back(GetDisplayInfoAt(1));
+  display_manager()->OnNativeDisplaysChanged(secondary_only);
+
+  const DisplayInfo post_removal_info =
+      display_manager()->display_info_[internal_display_id];
+  EXPECT_NE(info.GetActiveRotation(), post_removal_info.GetActiveRotation());
+  EXPECT_EQ(gfx::Display::ROTATE_90, post_removal_info.GetActiveRotation());
+
+  display_manager()->SetDisplayRotation(internal_display_id,
+                                        gfx::Display::ROTATE_180,
+                                        gfx::Display::ROTATION_SOURCE_ACTIVE);
+  const DisplayInfo post_rotation_info =
+      display_manager()->display_info_[internal_display_id];
+  EXPECT_NE(info.GetActiveRotation(), post_rotation_info.GetActiveRotation());
+  EXPECT_EQ(gfx::Display::ROTATE_180, post_rotation_info.GetActiveRotation());
 }
 
 TEST_F(DisplayManagerTest, UIScale) {
@@ -932,7 +955,8 @@ TEST_F(DisplayManagerTest, UIScale) {
   display_manager()->SetDisplayUIScale(display_id, 0.625f);
   EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
 
-  gfx::Display::SetInternalDisplayId(display_id);
+  test::DisplayManagerTestApi(display_manager())
+      .SetInternalDisplayId(display_id);
 
   display_manager()->SetDisplayUIScale(display_id, 1.5f);
   EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
@@ -1020,15 +1044,9 @@ TEST_F(DisplayManagerTest, UIScaleWithDisplayMode) {
       CreateDisplayInfo(display_id, gfx::Rect(0, 0, 1280, 800));
   std::vector<DisplayMode> display_modes;
   const DisplayMode base_mode(gfx::Size(1280, 800), 60.0f, false, false);
-  std::vector<float> scales =
-      DisplayManager::GetScalesForDisplay(native_display_info);
-  for (size_t i = 0; i < scales.size(); i++) {
-    DisplayMode mode = base_mode;
-    mode.ui_scale = scales[i];
-    mode.native = (scales[i] == 1.0f);
-    display_modes.push_back(mode);
-  }
-  native_display_info.set_display_modes(display_modes);
+  std::vector<DisplayMode> mode_list = CreateInternalDisplayModeList(base_mode);
+  native_display_info.SetDisplayModes(mode_list);
+
   std::vector<DisplayInfo> display_info_list;
   display_info_list.push_back(native_display_info);
   display_manager()->OnNativeDisplaysChanged(display_info_list);
@@ -1054,7 +1072,8 @@ TEST_F(DisplayManagerTest, UIScaleWithDisplayMode) {
   EXPECT_TRUE(expected_mode.IsEquivalent(
       display_manager()->GetActiveModeForDisplayId(display_id)));
 
-  gfx::Display::SetInternalDisplayId(display_id);
+  test::DisplayManagerTestApi(display_manager())
+      .SetInternalDisplayId(display_id);
 
   display_manager()->SetDisplayUIScale(display_id, 1.5f);
   EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
@@ -1094,11 +1113,12 @@ TEST_F(DisplayManagerTest, UIScaleWithDisplayMode) {
       display_manager()->GetActiveModeForDisplayId(display_id)));
 }
 
-
 TEST_F(DisplayManagerTest, Use125DSFRorUIScaling) {
-  int64 display_id = Shell::GetScreen()->GetPrimaryDisplay().id();
-  gfx::Display::SetInternalDisplayId(display_id);
   DisplayInfo::SetUse125DSFForUIScaling(true);
+
+  int64 display_id = Shell::GetScreen()->GetPrimaryDisplay().id();
+  test::DisplayManagerTestApi(display_manager())
+      .SetInternalDisplayId(display_id);
 
   UpdateDisplay("1920x1080*1.25");
   EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveDeviceScaleFactor());
@@ -1224,8 +1244,9 @@ TEST_F(DisplayManagerTest, SoftwareMirroring) {
   Shell::GetScreen()->AddObserver(&display_observer);
 
   DisplayManager* display_manager = Shell::GetInstance()->display_manager();
-  display_manager->SetSecondDisplayMode(DisplayManager::MIRRORING);
+  display_manager->SetMultiDisplayMode(DisplayManager::MIRRORING);
   display_manager->UpdateDisplays();
+  RunAllPendingInMessageLoop();
   EXPECT_TRUE(display_observer.changed_and_reset());
   EXPECT_EQ(1U, display_manager->GetNumDisplays());
   EXPECT_EQ("0,0 300x400",
@@ -1233,13 +1254,13 @@ TEST_F(DisplayManagerTest, SoftwareMirroring) {
   EXPECT_EQ("400x500", test_api.GetHost()->GetBounds().size().ToString());
   EXPECT_EQ("300x400",
             test_api.GetHost()->window()->bounds().size().ToString());
-  EXPECT_TRUE(display_manager->IsMirrored());
+  EXPECT_TRUE(display_manager->IsInMirrorMode());
 
   display_manager->SetMirrorMode(false);
   EXPECT_TRUE(display_observer.changed_and_reset());
   EXPECT_EQ(NULL, test_api.GetHost());
   EXPECT_EQ(2U, display_manager->GetNumDisplays());
-  EXPECT_FALSE(display_manager->IsMirrored());
+  EXPECT_FALSE(display_manager->IsInMirrorMode());
 
   // Make sure the mirror window has the pixel size of the
   // source display.
@@ -1273,6 +1294,27 @@ TEST_F(DisplayManagerTest, SoftwareMirroring) {
             test_api.GetHost()->window()->bounds().size().ToString());
 
   Shell::GetScreen()->RemoveObserver(&display_observer);
+}
+
+TEST_F(DisplayManagerTest, SingleDisplayToSoftwareMirroring) {
+  if (!SupportsMultipleDisplays())
+    return;
+  UpdateDisplay("600x400");
+
+  DisplayManager* display_manager = Shell::GetInstance()->display_manager();
+  display_manager->SetMultiDisplayMode(DisplayManager::MIRRORING);
+  UpdateDisplay("600x400,600x400");
+
+  EXPECT_TRUE(display_manager->IsInMirrorMode());
+  EXPECT_EQ(1U, display_manager->GetNumDisplays());
+  DisplayController* display_controller =
+      ash::Shell::GetInstance()->display_controller();
+  EXPECT_TRUE(display_controller->mirror_window_controller()->GetWindow());
+
+  UpdateDisplay("600x400");
+  EXPECT_FALSE(display_manager->IsInMirrorMode());
+  EXPECT_EQ(1U, display_manager->GetNumDisplays());
+  EXPECT_FALSE(display_controller->mirror_window_controller()->GetWindow());
 }
 
 #if defined(OS_CHROMEOS)
@@ -1366,6 +1408,48 @@ TEST_F(DisplayManagerTest, InvertLayout) {
             DisplayLayout(DisplayLayout::BOTTOM, -80).Invert().ToString());
 }
 
+TEST_F(DisplayManagerTest, NotifyPrimaryChange) {
+  if (!SupportsMultipleDisplays())
+    return;
+  UpdateDisplay("500x500,500x500");
+  ash::Shell::GetInstance()->display_controller()->SwapPrimaryDisplay();
+  reset();
+  UpdateDisplay("500x500");
+  EXPECT_FALSE(changed_metrics() & gfx::DisplayObserver::DISPLAY_METRIC_BOUNDS);
+  EXPECT_FALSE(changed_metrics() &
+               gfx::DisplayObserver::DISPLAY_METRIC_WORK_AREA);
+  EXPECT_TRUE(changed_metrics() &
+              gfx::DisplayObserver::DISPLAY_METRIC_PRIMARY);
+
+  UpdateDisplay("500x500,500x500");
+  ash::Shell::GetInstance()->display_controller()->SwapPrimaryDisplay();
+  reset();
+  UpdateDisplay("500x400");
+  EXPECT_TRUE(changed_metrics() & gfx::DisplayObserver::DISPLAY_METRIC_BOUNDS);
+  EXPECT_TRUE(changed_metrics() &
+              gfx::DisplayObserver::DISPLAY_METRIC_WORK_AREA);
+  EXPECT_TRUE(changed_metrics() &
+              gfx::DisplayObserver::DISPLAY_METRIC_PRIMARY);
+}
+
+TEST_F(DisplayManagerTest, NotifyPrimaryChangeUndock) {
+  if (!SupportsMultipleDisplays())
+    return;
+  // Assume the default display is an external display, and
+  // emulates undocking by switching to another display.
+  DisplayInfo another_display_info =
+      CreateDisplayInfo(1, gfx::Rect(0, 0, 1280, 800));
+  std::vector<DisplayInfo> info_list;
+  info_list.push_back(another_display_info);
+  reset();
+  display_manager()->OnNativeDisplaysChanged(info_list);
+  EXPECT_TRUE(changed_metrics() & gfx::DisplayObserver::DISPLAY_METRIC_BOUNDS);
+  EXPECT_TRUE(changed_metrics() &
+              gfx::DisplayObserver::DISPLAY_METRIC_WORK_AREA);
+  EXPECT_TRUE(changed_metrics() &
+              gfx::DisplayObserver::DISPLAY_METRIC_PRIMARY);
+}
+
 #if defined(OS_WIN)
 // TODO(scottmg): RootWindow doesn't get resized on Windows
 // Ash. http://crbug.com/247916.
@@ -1411,6 +1495,106 @@ TEST_F(DisplayManagerTest, MAYBE_UpdateDisplayWithHostOrigin) {
   EXPECT_EQ("200x300", host1->GetBounds().size().ToString());
 }
 
+TEST_F(DisplayManagerTest, UnifiedDesktopBasic) {
+  if (!SupportsMultipleDisplays())
+    return;
+  test::DisplayManagerTestApi::EnableUnifiedDesktopForTest();
+
+  // Don't check root window destruction in unified mode.
+  Shell::GetPrimaryRootWindow()->RemoveObserver(this);
+
+  UpdateDisplay("300x200,400x500");
+
+  // Defaults to the unified desktop.
+  gfx::Screen* screen =
+      gfx::Screen::GetScreenByType(gfx::SCREEN_TYPE_ALTERNATE);
+  EXPECT_EQ("700x500", screen->GetPrimaryDisplay().size().ToString());
+
+  display_manager()->SetMirrorMode(true);
+  EXPECT_EQ("300x200", screen->GetPrimaryDisplay().size().ToString());
+
+  display_manager()->SetMirrorMode(false);
+  EXPECT_EQ("700x500", screen->GetPrimaryDisplay().size().ToString());
+
+  // Switch to single desktop.
+  UpdateDisplay("500x300");
+  EXPECT_EQ("500x300", screen->GetPrimaryDisplay().size().ToString());
+
+  // Switch to unified desktop.
+  UpdateDisplay("500x300,400x500");
+  EXPECT_EQ("900x500", screen->GetPrimaryDisplay().size().ToString());
+
+  // Switch back to extended desktop.
+  display_manager()->SetDefaultMultiDisplayMode(DisplayManager::EXTENDED);
+  display_manager()->ReconfigureDisplays();
+  EXPECT_EQ("500x300", screen->GetPrimaryDisplay().size().ToString());
+  EXPECT_EQ("400x500", ScreenUtil::GetSecondaryDisplay().size().ToString());
+}
+
+// Updating displays again in unified desktop mode should not crash.
+// crbug.com/491094.
+TEST_F(DisplayManagerTest, ConfigureUnifiedTwice) {
+  if (!SupportsMultipleDisplays())
+    return;
+  // Don't check root window destruction in unified mode.
+  Shell::GetPrimaryRootWindow()->RemoveObserver(this);
+
+  UpdateDisplay("300x200,400x500");
+  // Mirror windows are created in a posted task.
+  RunAllPendingInMessageLoop();
+
+  UpdateDisplay("300x250,400x550");
+  RunAllPendingInMessageLoop();
+}
+
+TEST_F(DisplayManagerTest, RotateUnifiedDesktop) {
+  if (!SupportsMultipleDisplays())
+    return;
+  test::DisplayManagerTestApi::EnableUnifiedDesktopForTest();
+
+  // Don't check root window destruction in unified mode.
+  Shell::GetPrimaryRootWindow()->RemoveObserver(this);
+
+  UpdateDisplay("300x200,400x500");
+
+  gfx::Screen* screen =
+      gfx::Screen::GetScreenByType(gfx::SCREEN_TYPE_ALTERNATE);
+  const gfx::Display& display = screen->GetPrimaryDisplay();
+  EXPECT_EQ("700x500", display.size().ToString());
+  display_manager()->SetDisplayRotation(display.id(), gfx::Display::ROTATE_90,
+                                        gfx::Display::ROTATION_SOURCE_ACTIVE);
+  EXPECT_EQ("500x700", screen->GetPrimaryDisplay().size().ToString());
+  display_manager()->SetDisplayRotation(display.id(), gfx::Display::ROTATE_0,
+                                        gfx::Display::ROTATION_SOURCE_ACTIVE);
+  EXPECT_EQ("700x500", screen->GetPrimaryDisplay().size().ToString());
+
+  UpdateDisplay("300x200");
+  EXPECT_EQ("300x200", screen->GetPrimaryDisplay().size().ToString());
+}
+
+// Makes sure the transition from unified to single won't crash
+// with docked windows.
+TEST_F(DisplayManagerTest, UnifiedWithDockWindows) {
+  if (!SupportsMultipleDisplays())
+    return;
+  test::DisplayManagerTestApi::EnableUnifiedDesktopForTest();
+
+  // Don't check root window destruction in unified mode.
+  Shell::GetPrimaryRootWindow()->RemoveObserver(this);
+
+  UpdateDisplay("300x200,400x500");
+
+  scoped_ptr<aura::Window> docked(
+      CreateTestWindowInShellWithBounds(gfx::Rect(10, 10, 50, 50)));
+  docked->SetProperty(aura::client::kShowStateKey, ui::SHOW_STATE_DOCKED);
+  ASSERT_TRUE(wm::GetWindowState(docked.get())->IsDocked());
+  // 47 pixels reserved for launcher shelf height.
+  EXPECT_EQ("0,0 250x453", docked->bounds().ToString());
+  UpdateDisplay("300x300");
+  // Make sure the window is still docked.
+  EXPECT_TRUE(wm::GetWindowState(docked.get())->IsDocked());
+  EXPECT_EQ("0,0 250x253", docked->bounds().ToString());
+}
 
 class ScreenShutdownTest : public test::AshTestBase {
  public:
@@ -1468,14 +1652,10 @@ class FontTestHelper : public test::AshTestBase {
     SetUp();
   }
 
-  virtual ~FontTestHelper() {
-    TearDown();
-  }
+  ~FontTestHelper() override { TearDown(); }
 
   // test::AshTestBase:
-  virtual void TestBody() override {
-    NOTREACHED();
-  }
+  void TestBody() override { NOTREACHED(); }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(FontTestHelper);
@@ -1484,8 +1664,14 @@ class FontTestHelper : public test::AshTestBase {
 
 bool IsTextSubpixelPositioningEnabled() {
   gfx::FontRenderParams params =
-      gfx::GetFontRenderParams(gfx::FontRenderParamsQuery(false), NULL);
+      gfx::GetFontRenderParams(gfx::FontRenderParamsQuery(), NULL);
   return params.subpixel_positioning;
+}
+
+gfx::FontRenderParams::Hinting GetFontHintingParams() {
+  gfx::FontRenderParams params =
+      gfx::GetFontRenderParams(gfx::FontRenderParamsQuery(), NULL);
+  return params.hinting;
 }
 
 }  // namespace
@@ -1497,6 +1683,7 @@ TEST_F(DisplayManagerFontTest, TextSubpixelPositioningWithDsf100Internal) {
   ASSERT_DOUBLE_EQ(
       1.0f, Shell::GetScreen()->GetPrimaryDisplay().device_scale_factor());
   EXPECT_FALSE(IsTextSubpixelPositioningEnabled());
+  EXPECT_NE(gfx::FontRenderParams::HINTING_NONE, GetFontHintingParams());
 }
 
 TEST_F(DisplayManagerFontTest, TextSubpixelPositioningWithDsf125Internal) {
@@ -1504,6 +1691,7 @@ TEST_F(DisplayManagerFontTest, TextSubpixelPositioningWithDsf125Internal) {
   ASSERT_DOUBLE_EQ(
       1.25f, Shell::GetScreen()->GetPrimaryDisplay().device_scale_factor());
   EXPECT_TRUE(IsTextSubpixelPositioningEnabled());
+  EXPECT_EQ(gfx::FontRenderParams::HINTING_NONE, GetFontHintingParams());
 }
 
 TEST_F(DisplayManagerFontTest, TextSubpixelPositioningWithDsf200Internal) {
@@ -1511,6 +1699,15 @@ TEST_F(DisplayManagerFontTest, TextSubpixelPositioningWithDsf200Internal) {
   ASSERT_DOUBLE_EQ(
       2.0f, Shell::GetScreen()->GetPrimaryDisplay().device_scale_factor());
   EXPECT_TRUE(IsTextSubpixelPositioningEnabled());
+  EXPECT_EQ(gfx::FontRenderParams::HINTING_NONE, GetFontHintingParams());
+
+  Shell::GetInstance()->display_manager()->SetDisplayUIScale(
+      Shell::GetScreen()->GetPrimaryDisplay().id(), 2.0f);
+
+  ASSERT_DOUBLE_EQ(
+      1.0f, Shell::GetScreen()->GetPrimaryDisplay().device_scale_factor());
+  EXPECT_FALSE(IsTextSubpixelPositioningEnabled());
+  EXPECT_NE(gfx::FontRenderParams::HINTING_NONE, GetFontHintingParams());
 }
 
 TEST_F(DisplayManagerFontTest, TextSubpixelPositioningWithDsf100External) {
@@ -1518,20 +1715,23 @@ TEST_F(DisplayManagerFontTest, TextSubpixelPositioningWithDsf100External) {
   ASSERT_DOUBLE_EQ(
       1.0f, Shell::GetScreen()->GetPrimaryDisplay().device_scale_factor());
   EXPECT_FALSE(IsTextSubpixelPositioningEnabled());
+  EXPECT_NE(gfx::FontRenderParams::HINTING_NONE, GetFontHintingParams());
 }
 
 TEST_F(DisplayManagerFontTest, TextSubpixelPositioningWithDsf125External) {
   FontTestHelper helper(1.25f, FontTestHelper::EXTERNAL);
   ASSERT_DOUBLE_EQ(
       1.25f, Shell::GetScreen()->GetPrimaryDisplay().device_scale_factor());
-  EXPECT_FALSE(IsTextSubpixelPositioningEnabled());
+  EXPECT_TRUE(IsTextSubpixelPositioningEnabled());
+  EXPECT_EQ(gfx::FontRenderParams::HINTING_NONE, GetFontHintingParams());
 }
 
 TEST_F(DisplayManagerFontTest, TextSubpixelPositioningWithDsf200External) {
   FontTestHelper helper(2.0f, FontTestHelper::EXTERNAL);
   ASSERT_DOUBLE_EQ(
       2.0f, Shell::GetScreen()->GetPrimaryDisplay().device_scale_factor());
-  EXPECT_FALSE(IsTextSubpixelPositioningEnabled());
+  EXPECT_TRUE(IsTextSubpixelPositioningEnabled());
+  EXPECT_EQ(gfx::FontRenderParams::HINTING_NONE, GetFontHintingParams());
 }
 
 TEST_F(DisplayManagerFontTest,
@@ -1541,7 +1741,31 @@ TEST_F(DisplayManagerFontTest,
   ASSERT_DOUBLE_EQ(
       1.0f, Shell::GetScreen()->GetPrimaryDisplay().device_scale_factor());
   EXPECT_FALSE(IsTextSubpixelPositioningEnabled());
+  EXPECT_NE(gfx::FontRenderParams::HINTING_NONE, GetFontHintingParams());
+
+  Shell::GetInstance()->display_manager()->SetDisplayUIScale(
+      Shell::GetScreen()->GetPrimaryDisplay().id(), 0.8f);
+
+  ASSERT_DOUBLE_EQ(
+      1.25f, Shell::GetScreen()->GetPrimaryDisplay().device_scale_factor());
+  EXPECT_TRUE(IsTextSubpixelPositioningEnabled());
+  EXPECT_EQ(gfx::FontRenderParams::HINTING_NONE, GetFontHintingParams());
+
   DisplayInfo::SetUse125DSFForUIScaling(false);
+}
+
+TEST_F(DisplayManagerTest, CheckInitializationOfRotationProperty) {
+  int64_t id = display_manager()->GetDisplayAt(0).id();
+  display_manager()->RegisterDisplayProperty(id, gfx::Display::ROTATE_90, 1.0f,
+                                             nullptr, gfx::Size(), 1.0f,
+                                             ui::COLOR_PROFILE_STANDARD);
+
+  const DisplayInfo& info = display_manager()->GetDisplayInfo(id);
+
+  EXPECT_EQ(gfx::Display::ROTATE_90,
+            info.GetRotation(gfx::Display::ROTATION_SOURCE_USER));
+  EXPECT_EQ(gfx::Display::ROTATE_90,
+            info.GetRotation(gfx::Display::ROTATION_SOURCE_ACTIVE));
 }
 
 #endif  // OS_CHROMEOS

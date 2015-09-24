@@ -95,7 +95,7 @@ class VirtualAudioInputStreamTest : public testing::TestWithParam<bool> {
         stream_(NULL),
         closed_stream_(false, false) {
     audio_thread_->Start();
-    audio_task_runner_ = audio_thread_->message_loop_proxy();
+    audio_task_runner_ = audio_thread_->task_runner();
   }
 
   virtual ~VirtualAudioInputStreamTest() {
@@ -116,12 +116,12 @@ class VirtualAudioInputStreamTest : public testing::TestWithParam<bool> {
   void Start() {
     EXPECT_CALL(input_callback_, OnData(_, NotNull(), _, _)).Times(AtLeast(1));
 
-    ASSERT_TRUE(!!stream_);
+    ASSERT_TRUE(stream_);
     stream_->Start(&input_callback_);
   }
 
   void CreateAndStartOneOutputStream() {
-    ASSERT_TRUE(!!stream_);
+    ASSERT_TRUE(stream_);
     AudioOutputStream* const output_stream = new VirtualAudioOutputStream(
         kParams,
         stream_,
@@ -133,12 +133,12 @@ class VirtualAudioInputStreamTest : public testing::TestWithParam<bool> {
   }
 
   void Stop() {
-    ASSERT_TRUE(!!stream_);
+    ASSERT_TRUE(stream_);
     stream_->Stop();
   }
 
   void Close() {
-    ASSERT_TRUE(!!stream_);
+    ASSERT_TRUE(stream_);
     stream_->Close();
     stream_ = NULL;
     closed_stream_.Signal();
@@ -163,7 +163,7 @@ class VirtualAudioInputStreamTest : public testing::TestWithParam<bool> {
   void StopAndCloseOneOutputStream() {
     ASSERT_TRUE(!output_streams_.empty());
     AudioOutputStream* const output_stream = output_streams_.front();
-    ASSERT_TRUE(!!output_stream);
+    ASSERT_TRUE(output_stream);
     output_streams_.pop_front();
 
     output_stream->Stop();
@@ -173,7 +173,7 @@ class VirtualAudioInputStreamTest : public testing::TestWithParam<bool> {
   void StopFirstOutputStream() {
     ASSERT_TRUE(!output_streams_.empty());
     AudioOutputStream* const output_stream = output_streams_.front();
-    ASSERT_TRUE(!!output_stream);
+    ASSERT_TRUE(output_stream);
     output_streams_.pop_front();
     output_stream->Stop();
     stopped_output_streams_.push_back(output_stream);
@@ -206,7 +206,7 @@ class VirtualAudioInputStreamTest : public testing::TestWithParam<bool> {
     if (worker_is_separate_thread) {
       if (!worker_thread_->IsRunning()) {
         worker_thread_->Start();
-        worker_task_runner_ = worker_thread_->message_loop_proxy();
+        worker_task_runner_ = worker_thread_->task_runner();
       }
       return worker_task_runner_;
     } else {

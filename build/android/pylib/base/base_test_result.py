@@ -23,18 +23,20 @@ class ResultType(object):
 class BaseTestResult(object):
   """Base class for a single test result."""
 
-  def __init__(self, name, test_type, log=''):
+  def __init__(self, name, test_type, duration=0, log=''):
     """Construct a BaseTestResult.
 
     Args:
       name: Name of the test which defines uniqueness.
       test_type: Type of the test result as defined in ResultType.
+      duration: Time it took for the test to run in milliseconds.
       log: An optional string listing any errors.
     """
     assert name
     assert test_type in ResultType.GetTypes()
     self._name = name
     self._test_type = test_type
+    self._duration = duration
     self._log = log
 
   def __str__(self):
@@ -62,9 +64,22 @@ class BaseTestResult(object):
     """Get the test name."""
     return self._name
 
+  def SetType(self, test_type):
+    """Set the test result type."""
+    assert test_type in ResultType.GetTypes()
+    self._test_type = test_type
+
   def GetType(self):
     """Get the test result type."""
     return self._test_type
+
+  def GetDuration(self):
+    """Get the test duration."""
+    return self._duration
+
+  def SetLog(self, log):
+    """Set the test log."""
+    self._log = log
 
   def GetLog(self):
     """Get the test log."""
@@ -197,5 +212,5 @@ class TestRunResults(object):
 
   def DidRunPass(self):
     """Return whether the test run was successful."""
-    return not (self.GetNotPass() - self.GetSkip())
+    return not self.GetNotPass() - self.GetSkip()
 

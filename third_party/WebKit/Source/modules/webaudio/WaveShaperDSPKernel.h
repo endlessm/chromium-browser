@@ -25,11 +25,11 @@
 #ifndef WaveShaperDSPKernel_h
 #define WaveShaperDSPKernel_h
 
+#include "modules/webaudio/WaveShaperProcessor.h"
 #include "platform/audio/AudioArray.h"
 #include "platform/audio/AudioDSPKernel.h"
 #include "platform/audio/DownSampler.h"
 #include "platform/audio/UpSampler.h"
-#include "modules/webaudio/WaveShaperProcessor.h"
 #include "wtf/OwnPtr.h"
 
 namespace blink {
@@ -43,10 +43,10 @@ public:
     explicit WaveShaperDSPKernel(WaveShaperProcessor*);
 
     // AudioDSPKernel
-    virtual void process(const float* source, float* dest, size_t framesToProcess) override;
-    virtual void reset() override;
-    virtual double tailTime() const override { return 0; }
-    virtual double latencyTime() const override;
+    void process(const float* source, float* dest, size_t framesToProcess) override;
+    void reset() override;
+    double tailTime() const override { return 0; }
+    double latencyTime() const override;
 
     // Oversampling requires more resources, so let's only allocate them if needed.
     void lazyInitializeOversampling();

@@ -86,6 +86,7 @@ class CC_EXPORT TextureLayer : public Layer {
 
   // Used when mailbox names are specified instead of texture IDs.
   static scoped_refptr<TextureLayer> CreateForMailbox(
+      const LayerSettings& settings,
       TextureLayerClient* client);
 
   // Resets the client, which also resets the texture.
@@ -99,6 +100,11 @@ class CC_EXPORT TextureLayer : public Layer {
   // Sets whether this texture should be Y-flipped at draw time. Defaults to
   // true.
   void SetFlipped(bool flipped);
+  bool flipped() const { return flipped_; }
+
+  // Sets whether this texture should use nearest neighbor interpolation as
+  // opposed to bilinear. Defaults to false.
+  void SetNearestNeighbor(bool nearest_neighbor);
 
   // Sets a UV transform to be used at draw time. Defaults to (0, 0) and (1, 1).
   void SetUV(const gfx::PointF& top_left, const gfx::PointF& bottom_right);
@@ -136,13 +142,11 @@ class CC_EXPORT TextureLayer : public Layer {
   void SetNeedsDisplayRect(const gfx::Rect& dirty_rect) override;
 
   void SetLayerTreeHost(LayerTreeHost* layer_tree_host) override;
-  bool Update(ResourceUpdateQueue* queue,
-              const OcclusionTracker<Layer>* occlusion) override;
+  bool Update() override;
   void PushPropertiesTo(LayerImpl* layer) override;
-  SimpleEnclosedRegion VisibleContentOpaqueRegion() const override;
 
  protected:
-  explicit TextureLayer(TextureLayerClient* client);
+  TextureLayer(const LayerSettings& settings, TextureLayerClient* client);
   ~TextureLayer() override;
   bool HasDrawableContent() const override;
 
@@ -156,6 +160,7 @@ class CC_EXPORT TextureLayer : public Layer {
   TextureLayerClient* client_;
 
   bool flipped_;
+  bool nearest_neighbor_;
   gfx::PointF uv_top_left_;
   gfx::PointF uv_bottom_right_;
   // [bottom left, top left, top right, bottom right]

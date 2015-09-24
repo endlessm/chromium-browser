@@ -19,7 +19,6 @@
 class ChromeAppCacheService;
 class DevToolsNetworkController;
 class ExtensionSpecialStoragePolicy;
-class FaviconService;
 class HostContentSettingsMap;
 class PrefProxyConfigTracker;
 class PrefService;
@@ -57,10 +56,6 @@ namespace storage {
 class FileSystemContext;
 }
 
-namespace history {
-class TopSites;
-}
-
 namespace net {
 class SSLConfigService;
 }
@@ -74,31 +69,6 @@ class PrefRegistrySyncable;
 // http://dev.chromium.org/developers/design-documents/profile-architecture
 class Profile : public content::BrowserContext {
  public:
-  // Profile services are accessed with the following parameter. This parameter
-  // defines what the caller plans to do with the service.
-  // The caller is responsible for not performing any operation that would
-  // result in persistent implicit records while using an OffTheRecord profile.
-  // This flag allows the profile to perform an additional check.
-  //
-  // It also gives us an opportunity to perform further checks in the future. We
-  // could, for example, return an history service that only allow some specific
-  // methods.
-  enum ServiceAccessType {
-    // The caller plans to perform a read or write that takes place as a result
-    // of the user input. Use this flag when the operation you are doing can be
-    // performed while incognito. (ex: creating a bookmark)
-    //
-    // Since EXPLICIT_ACCESS means "as a result of a user action", this request
-    // always succeeds.
-    EXPLICIT_ACCESS,
-
-    // The caller plans to call a method that will permanently change some data
-    // in the profile, as part of Chrome's implicit data logging. Use this flag
-    // when you are about to perform an operation which is incompatible with the
-    // incognito mode.
-    IMPLICIT_ACCESS
-  };
-
   enum CreateStatus {
     // Profile services were not created due to a local error (e.g., disk full).
     CREATE_STATUS_LOCAL_FAIL,
@@ -180,9 +150,9 @@ class Profile : public content::BrowserContext {
   // operations should be performed.
   virtual scoped_refptr<base::SequencedTaskRunner> GetIOTaskRunner() = 0;
 
-  // Returns the name associated with this profile. This name is displayed in
-  // the browser frame.
-  virtual std::string GetProfileName() = 0;
+  // Returns the username associated with this profile, if any. In non-test
+  // implementations, this is usually the Google-services email address.
+  virtual std::string GetProfileUserName() const = 0;
 
   // Returns the profile type.
   virtual ProfileType GetProfileType() const = 0;
@@ -206,15 +176,13 @@ class Profile : public content::BrowserContext {
   // profile is not incognito.
   virtual Profile* GetOriginalProfile() = 0;
 
-  // Returns whether the profile is supervised (see SupervisedUserService).
+  // Returns whether the profile is supervised (either a legacy supervised
+  // user or a child account; see SupervisedUserService).
   virtual bool IsSupervised() = 0;
-
-  // Returns a pointer to the TopSites (thumbnail manager) instance
-  // for this profile.
-  virtual history::TopSites* GetTopSites() = 0;
-
-  // Variant of GetTopSites that doesn't force creation.
-  virtual history::TopSites* GetTopSitesWithoutCreating() = 0;
+  // Returns whether the profile is associated with a child account.
+  virtual bool IsChild() = 0;
+  // Returns whether the profile is a legacy supervised user profile.
+  virtual bool IsLegacySupervised() = 0;
 
   // Accessor. The instance is created upon first access.
   virtual ExtensionSpecialStoragePolicy*
@@ -223,6 +191,7 @@ class Profile : public content::BrowserContext {
   // Retrieves a pointer to the PrefService that manages the
   // preferences for this user profile.
   virtual PrefService* GetPrefs() = 0;
+  virtual const PrefService* GetPrefs() const = 0;
 
   // Retrieves a pointer to the PrefService that manages the default zoom
   // level and the per-host zoom levels for this user profile.
@@ -235,7 +204,7 @@ class Profile : public content::BrowserContext {
   virtual PrefService* GetOffTheRecordPrefs() = 0;
 
   // Returns the main request context.
-  virtual net::URLRequestContextGetter* GetRequestContext() override = 0;
+  net::URLRequestContextGetter* GetRequestContext() override = 0;
 
   // Returns the request context used for extension-related requests.  This
   // is only used for a separate cookie store currently.
@@ -342,6 +311,9 @@ class Profile : public content::BrowserContext {
   // Returns whether it is a guest session.
   virtual bool IsGuestSession() const;
 
+  // Returns whether it is a system profile.
+  virtual bool IsSystemProfile() const;
+
   // Did the user restore the last session? This is set by SessionRestore.
   void set_restored_last_session(bool restored_last_session) {
     restored_last_session_ = restored_last_session;
@@ -384,8 +356,8 @@ class Profile : public content::BrowserContext {
   bool IsNewProfile();
 
   // Checks whether sync is configurable by the user. Returns false if sync is
-  // disabled or controlled by configuration management.
-  bool IsSyncAccessible();
+  // disallowed by the command line or controlled by configuration management.
+  bool IsSyncAllowed();
 
   // Send NOTIFICATION_PROFILE_DESTROYED for this Profile, if it has not
   // already been sent. It is necessary because most Profiles are destroyed by
@@ -394,6 +366,19 @@ class Profile : public content::BrowserContext {
 
   // Creates an OffTheRecordProfile which points to this Profile.
   Profile* CreateOffTheRecordProfile();
+
+  // Convenience method to retrieve the default zoom level for the default
+  // storage partition.
+  double GetDefaultZoomLevelForProfile();
+
+ protected:
+  void set_is_guest_profile(bool is_guest_profile) {
+    is_guest_profile_ = is_guest_profile;
+  }
+
+  void set_is_system_profile(bool is_system_profile) {
+    is_system_profile_ = is_system_profile;
+  }
 
  private:
   bool restored_last_session_;
@@ -407,6 +392,11 @@ class Profile : public content::BrowserContext {
   // increment and decrement the level, respectively, rather than set it to
   // true or false, so that calls can be nested.
   int accessibility_pause_level_;
+
+  bool is_guest_profile_;
+
+  // A non-browsing profile not associated to a user. Sample use: User-Manager.
+  bool is_system_profile_;
 
   DISALLOW_COPY_AND_ASSIGN(Profile);
 };

@@ -22,9 +22,8 @@ using namespace password_manager::mac::ui;
 
 - (id)initWithModel:(ManagePasswordsBubbleModel*)model
            delegate:(id<ManagePasswordsBubbleContentViewDelegate>)delegate {
-  if ((self = [super initWithNibName:nil bundle:nil])) {
+  if (([super initWithDelegate:delegate])) {
     model_ = model;
-    delegate_ = delegate;
   }
   return self;
 }
@@ -40,7 +39,7 @@ using namespace password_manager::mac::ui;
 }
 
 - (void)loadView {
-  self.view = [[[NSView alloc] initWithFrame:NSZeroRect] autorelease];
+  base::scoped_nsobject<NSView> view([[NSView alloc] initWithFrame:NSZeroRect]);
 
   // -----------------------------------
   // |  Title                          |
@@ -54,20 +53,24 @@ using namespace password_manager::mac::ui;
 
   // Title.
   NSTextField* titleLabel =
-      [self addTitleLabel:base::SysUTF16ToNSString(model_->title())];
+      [self addTitleLabel:base::SysUTF16ToNSString(model_->title())
+                   toView:view];
 
   // Blacklist explanation.
   NSTextField* explanationLabel =
-      [self addLabel:l10n_util::GetNSString(IDS_MANAGE_PASSWORDS_BLACKLISTED)];
+      [self addLabel:l10n_util::GetNSString(IDS_MANAGE_PASSWORDS_BLACKLISTED)
+              toView:view];
 
   // Done button.
   doneButton_.reset([[self addButton:l10n_util::GetNSString(IDS_DONE)
+                              toView:view
                               target:self
                               action:@selector(onDoneClicked:)] retain]);
 
   // Undo button.
   undoBlacklistButton_.reset([[self
       addButton:l10n_util::GetNSString(IDS_PASSWORD_MANAGER_UNBLACKLIST_BUTTON)
+         toView:view
          target:self
          action:@selector(onUndoBlacklistClicked:)] retain]);
 
@@ -106,7 +109,9 @@ using namespace password_manager::mac::ui;
   // Update the bubble size.
   const CGFloat height =
       NSMaxY([titleLabel frame]) + kFramePadding;
-  [self.view setFrame:NSMakeRect(0, 0, width, height)];
+  [view setFrame:NSMakeRect(0, 0, width, height)];
+
+  [self setView:view];
 }
 
 @end

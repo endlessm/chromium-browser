@@ -4,10 +4,10 @@
 
 #include "chrome/browser/profiles/avatar_menu.h"
 
-#include "ash/ash_switches.h"
 #include "base/bind.h"
 #include "base/i18n/case_conversion.h"
 #include "base/metrics/field_trial.h"
+#include "base/profiler/scoped_tracker.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -18,7 +18,6 @@
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/profiles/profile_window.h"
 #include "chrome/browser/profiles/profiles_state.h"
-#include "chrome/browser/ui/ash/chrome_shell_delegate.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/host_desktop.h"
@@ -33,7 +32,7 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
 #include "chrome/browser/supervised_user/supervised_user_service.h"
 #include "chrome/browser/supervised_user/supervised_user_service_factory.h"
 #endif
@@ -53,7 +52,7 @@ AvatarMenu::AvatarMenu(ProfileInfoInterface* profile_cache,
                        Browser* browser)
     : profile_list_(ProfileList::Create(profile_cache)),
       menu_actions_(AvatarMenuActions::Create()),
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
       supervised_user_observer_(this),
 #endif
       profile_info_(profile_cache),
@@ -65,10 +64,9 @@ AvatarMenu::AvatarMenu(ProfileInfoInterface* profile_cache,
   ActiveBrowserChanged(browser_);
 
   // Register this as an observer of the info cache.
-  registrar_.Add(this, chrome::NOTIFICATION_PROFILE_CACHED_INFO_CHANGED,
-      content::NotificationService::AllSources());
+  g_browser_process->profile_manager()->GetProfileInfoCache().AddObserver(this);
 
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
   // Register this as an observer of the SupervisedUserService to be notified
   // of changes to the custodian info.
   if (browser_) {
@@ -79,6 +77,8 @@ AvatarMenu::AvatarMenu(ProfileInfoInterface* profile_cache,
 }
 
 AvatarMenu::~AvatarMenu() {
+  g_browser_process->profile_manager()->
+      GetProfileInfoCache().RemoveObserver(this);
 }
 
 AvatarMenu::Item::Item(size_t menu_index,
@@ -203,20 +203,34 @@ size_t AvatarMenu::GetActiveProfileIndex() {
 base::string16 AvatarMenu::GetSupervisedUserInformation() const {
   // |browser_| can be NULL in unit_tests.
   if (browser_ && browser_->profile()->IsSupervised()) {
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
     SupervisedUserService* service =
         SupervisedUserServiceFactory::GetForProfile(browser_->profile());
     base::string16 custodian =
         base::UTF8ToUTF16(service->GetCustodianEmailAddress());
-    return l10n_util::GetStringFUTF16(IDS_SUPERVISED_USER_INFO, custodian);
+    if (browser_->profile()->IsLegacySupervised())
+      return l10n_util::GetStringFUTF16(IDS_SUPERVISED_USER_INFO, custodian);
+    base::string16 second_custodian =
+        base::UTF8ToUTF16(service->GetSecondCustodianEmailAddress());
+    if (second_custodian.empty()) {
+      return l10n_util::GetStringFUTF16(IDS_CHILD_INFO_ONE_CUSTODIAN,
+                                        custodian);
+    } else {
+      return l10n_util::GetStringFUTF16(IDS_CHILD_INFO_TWO_CUSTODIANS,
+                                        custodian, second_custodian);
+    }
 #endif
   }
   return base::string16();
 }
 
 const gfx::Image& AvatarMenu::GetSupervisedUserIcon() const {
+  if (browser_ && browser_->profile()->IsChild()) {
+    return ResourceBundle::GetSharedInstance().GetNativeImageNamed(
+        IDR_CHILD_USER_ICON);
+  }
   return ResourceBundle::GetSharedInstance().GetNativeImageNamed(
-      IDR_SUPERVISED_USER_ICON);
+      IDR_LEGACY_SUPERVISED_USER_ICON);
 }
 
 void AvatarMenu::ActiveBrowserChanged(Browser* browser) {
@@ -238,19 +252,57 @@ bool AvatarMenu::ShouldShowEditProfileLink() const {
   return menu_actions_->ShouldShowEditProfileLink();
 }
 
-void AvatarMenu::Observe(int type,
-                         const content::NotificationSource& source,
-                         const content::NotificationDetails& details) {
-  DCHECK_EQ(chrome::NOTIFICATION_PROFILE_CACHED_INFO_CHANGED, type);
-  RebuildMenu();
-  if (observer_)
-    observer_->OnAvatarMenuChanged(this);
+void AvatarMenu::OnProfileAdded(const base::FilePath& profile_path) {
+  Update();
 }
 
-#if defined(ENABLE_MANAGED_USERS)
+void AvatarMenu::OnProfileWasRemoved(const base::FilePath& profile_path,
+                                     const base::string16& profile_name) {
+  Update();
+}
+
+void AvatarMenu::OnProfileNameChanged(const base::FilePath& profile_path,
+                                      const base::string16& old_profile_name) {
+  Update();
+}
+
+void AvatarMenu::OnProfileAuthInfoChanged(const base::FilePath& profile_path) {
+  Update();
+}
+
+void AvatarMenu::OnProfileAvatarChanged(const base::FilePath& profile_path) {
+  Update();
+}
+
+void AvatarMenu::OnProfileHighResAvatarLoaded(
+    const base::FilePath& profile_path) {
+  // TODO(erikchen): Remove ScopedTracker below once http://crbug.com/461175
+  // is fixed.
+  tracked_objects::ScopedTracker tracking_profile(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "461175 AvatarMenu::OnProfileHighResAvatarLoaded"));
+  Update();
+}
+
+void AvatarMenu::OnProfileSigninRequiredChanged(
+    const base::FilePath& profile_path) {
+  Update();
+}
+
+void AvatarMenu::OnProfileIsOmittedChanged(const base::FilePath& profile_path) {
+  Update();
+}
+
+#if defined(ENABLE_SUPERVISED_USERS)
 void AvatarMenu::OnCustodianInfoChanged() {
   RebuildMenu();
   if (observer_)
     observer_->OnAvatarMenuChanged(this);
 }
 #endif
+
+void AvatarMenu::Update() {
+  RebuildMenu();
+  if (observer_)
+    observer_->OnAvatarMenuChanged(this);
+}

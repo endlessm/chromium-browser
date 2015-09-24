@@ -13,6 +13,7 @@
 #include "grit/theme_resources.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
+#include "ui/gfx/geometry/vector2d.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/label_button_border.h"
 #include "ui/views/painter.h"
@@ -49,6 +50,8 @@ NewAvatarButton::NewAvatarButton(views::ButtonListener* listener,
       browser_(browser),
       has_auth_error_(false),
       suppress_mouse_released_action_(false) {
+  set_triggerable_event_flags(
+      ui::EF_LEFT_MOUSE_BUTTON | ui::EF_RIGHT_MOUSE_BUTTON);
   set_animate_on_state_change(false);
   SetTextColor(views::Button::STATE_NORMAL, SK_ColorWHITE);
   SetTextColor(views::Button::STATE_HOVERED, SK_ColorWHITE);
@@ -58,8 +61,8 @@ NewAvatarButton::NewAvatarButton(views::ButtonListener* listener,
 
   // The largest text height that fits in the button. If the font list height
   // is larger than this, it will be shrunk to match it.
-  // TODO(noms): Calculate this constant algorithmically.
-  const int kDisplayFontHeight = 15;
+  // TODO(noms): Calculate this constant algorithmically from the button's size.
+  const int kDisplayFontHeight = 16;
   SetFontList(GetFontList().DeriveWithHeightUpperBound(kDisplayFontHeight));
 
   ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
@@ -100,10 +103,9 @@ NewAvatarButton::NewAvatarButton(views::ButtonListener* listener,
       profiles::GetSigninErrorController(browser_->profile());
   if (error) {
     error->AddObserver(this);
-    // This calls UpdateAvatarButtonAndRelayoutParent().
-    OnErrorChanged();
+    OnErrorChanged();  // This calls Update().
   } else {
-    UpdateAvatarButtonAndRelayoutParent();
+    Update();
   }
   SchedulePaint();
 }
@@ -131,7 +133,7 @@ void NewAvatarButton::OnMouseReleased(const ui::MouseEvent& event) {
 }
 
 void NewAvatarButton::OnProfileAdded(const base::FilePath& profile_path) {
-  UpdateAvatarButtonAndRelayoutParent();
+  Update();
 }
 
 void NewAvatarButton::OnProfileWasRemoved(
@@ -140,26 +142,20 @@ void NewAvatarButton::OnProfileWasRemoved(
   // If deleting the active profile, don't bother updating the avatar
   // button, as the browser window is being closed anyway.
   if (browser_->profile()->GetPath() != profile_path)
-    UpdateAvatarButtonAndRelayoutParent();
+    Update();
 }
 
 void NewAvatarButton::OnProfileNameChanged(
       const base::FilePath& profile_path,
       const base::string16& old_profile_name) {
   if (browser_->profile()->GetPath() == profile_path)
-    UpdateAvatarButtonAndRelayoutParent();
-}
-
-void NewAvatarButton::OnProfileAvatarChanged(
-      const base::FilePath& profile_path) {
-  if (browser_->profile()->GetPath() == profile_path)
-    UpdateAvatarButtonAndRelayoutParent();
+    Update();
 }
 
 void NewAvatarButton::OnProfileSupervisedUserIdChanged(
       const base::FilePath& profile_path) {
   if (browser_->profile()->GetPath() == profile_path)
-    UpdateAvatarButtonAndRelayoutParent();
+    Update();
 }
 
 void NewAvatarButton::OnErrorChanged() {
@@ -168,10 +164,10 @@ void NewAvatarButton::OnErrorChanged() {
       profiles::GetSigninErrorController(browser_->profile());
   has_auth_error_ = error && error->HasError();
 
-  UpdateAvatarButtonAndRelayoutParent();
+  Update();
 }
 
-void NewAvatarButton::UpdateAvatarButtonAndRelayoutParent() {
+void NewAvatarButton::Update() {
   const ProfileInfoCache& cache =
       g_browser_process->profile_manager()->GetProfileInfoCache();
 
@@ -180,15 +176,18 @@ void NewAvatarButton::UpdateAvatarButtonAndRelayoutParent() {
   // the active profile is Guest.
   bool use_generic_button = (!browser_->profile()->IsGuestSession() &&
                              cache.GetNumberOfProfiles() == 1 &&
-                             cache.GetUserNameOfProfileAtIndex(0).empty());
+                             !cache.ProfileIsAuthenticatedAtIndex(0));
 
   SetText(use_generic_button ? base::string16() :
       profiles::GetAvatarButtonTextForProfile(browser_->profile()));
 
   // If the button has no text, clear the text shadows to make sure the
   // image is centered correctly.
-  SetTextShadows(use_generic_button ? gfx::ShadowValues() : gfx::ShadowValues(
-      10, gfx::ShadowValue(gfx::Point(), 1.0f, SK_ColorDKGRAY)));
+  SetTextShadows(
+      use_generic_button
+          ? gfx::ShadowValues()
+          : gfx::ShadowValues(
+                10, gfx::ShadowValue(gfx::Vector2d(), 1.0f, SK_ColorDKGRAY)));
 
   // We want the button to resize if the new text is shorter.
   SetMinSize(gfx::Size());
@@ -208,10 +207,5 @@ void NewAvatarButton::UpdateAvatarButtonAndRelayoutParent() {
   const int kDefaultImageTextSpacing = 5;
   SetImageLabelSpacing(use_generic_button ? 0 : kDefaultImageTextSpacing);
 
-  InvalidateLayout();
-
-  // Because the width of the button might have changed, the parent browser
-  // frame needs to recalculate the button bounds and redraw it.
-  if (parent())
-    parent()->Layout();
+  PreferredSizeChanged();
 }

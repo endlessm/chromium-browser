@@ -5,9 +5,9 @@ import os
 import sys
 import unittest
 
-from telemetry import benchmark
 from telemetry.core import platform as platform_module
 from telemetry.core.platform import posix_platform_backend
+from telemetry import decorators
 
 
 class TestBackend(posix_platform_backend.PosixPlatformBackend):
@@ -51,7 +51,32 @@ class PosixPlatformBackendTest(unittest.TestCase):
     result = backend.GetChildPids(1)
     self.assertEquals(set(result), set([2, 3]))
 
-  @benchmark.Enabled('linux', 'mac')
+  def testSudoersFileParsing(self):
+    binary_path = '/usr/bin/pkill'
+    self.assertFalse(
+        posix_platform_backend._BinaryExistsInSudoersFiles(binary_path, ''))
+    self.assertFalse(
+        posix_platform_backend._BinaryExistsInSudoersFiles(
+            binary_path, '    (ALL) ALL'))
+    self.assertFalse(
+        posix_platform_backend._BinaryExistsInSudoersFiles(
+            binary_path, '     (root) NOPASSWD: /usr/bin/pkill_DUMMY'))
+    self.assertFalse(
+        posix_platform_backend._BinaryExistsInSudoersFiles(
+            binary_path, '     (root) NOPASSWD: pkill'))
+
+
+    self.assertTrue(
+        posix_platform_backend._BinaryExistsInSudoersFiles(
+            binary_path, '(root) NOPASSWD: /usr/bin/pkill'))
+    self.assertTrue(
+        posix_platform_backend._BinaryExistsInSudoersFiles(
+            binary_path, '     (root) NOPASSWD: /usr/bin/pkill'))
+    self.assertTrue(
+        posix_platform_backend._BinaryExistsInSudoersFiles(
+            binary_path, '     (root) NOPASSWD: /usr/bin/pkill arg1 arg2'))
+
+  @decorators.Enabled('linux', 'mac')
   def testIsApplicationRunning(self):
     platform = platform_module.GetHostPlatform()
 

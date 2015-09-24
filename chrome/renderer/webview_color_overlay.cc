@@ -4,13 +4,13 @@
 
 #include "chrome/renderer/webview_color_overlay.h"
 
-#include "base/logging.h"
 #include "content/public/renderer/render_view.h"
+#include "third_party/WebKit/public/web/WebGraphicsContext.h"
+#include "third_party/WebKit/public/web/WebView.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkPaint.h"
 #include "third_party/skia/include/core/SkRect.h"
-#include "third_party/WebKit/public/web/WebView.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/skia_util.h"
 
 WebViewColorOverlay::WebViewColorOverlay(content::RenderView* render_view,
@@ -25,10 +25,13 @@ WebViewColorOverlay::~WebViewColorOverlay() {
     render_view_->GetWebView()->removePageOverlay(this);
 }
 
-void WebViewColorOverlay::paintPageOverlay(blink::WebCanvas* canvas) {
-  SkRect rect = gfx::RectToSkRect(gfx::Rect(render_view_->GetSize()));
+void WebViewColorOverlay::paintPageOverlay(blink::WebGraphicsContext* context,
+                                           const blink::WebSize& webViewSize) {
+  gfx::Rect rect(webViewSize);
+  SkCanvas* canvas = context->beginDrawing(gfx::RectF(rect));
   SkPaint paint;
   paint.setColor(color_);
   paint.setStyle(SkPaint::kFill_Style);
-  canvas->drawRect(rect, paint);
+  canvas->drawRect(gfx::RectToSkRect(rect), paint);
+  context->endDrawing();
 }

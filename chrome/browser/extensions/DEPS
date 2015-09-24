@@ -5,10 +5,16 @@ include_rules = [
   # to depend on apps will be lifted.
   "-apps",
   "-chrome/browser/apps",
+  "+components/chrome_apps",
   "+components/crx_file",
   "+components/user_manager",
   "+extensions/strings/grit/extensions_strings.h",
+  "+grit",  # For generated headers
 
   # For access to testing command line switches.
   "+ppapi/shared_impl",
+
+  # For safe_json
+  "+components/safe_json",
+  "+ui/base",
 ]

@@ -35,16 +35,15 @@ class CrosSettingsTest : public testing::Test {
         settings_(DeviceSettingsService::Get()),
         weak_factory_(this) {}
 
-  virtual ~CrosSettingsTest() {}
+  ~CrosSettingsTest() override {}
 
-  virtual void TearDown() override {
+  void TearDown() override {
     ASSERT_TRUE(expected_props_.empty());
     STLDeleteValues(&expected_props_);
-    expected_props_.clear();
   }
 
   void FetchPref(const std::string& pref) {
-    DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
     if (expected_props_.find(pref) == expected_props_.end())
       return;
 
@@ -66,7 +65,7 @@ class CrosSettingsTest : public testing::Test {
   }
 
   void SetPref(const std::string& pref_name, const base::Value* value) {
-    DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
     settings_.Set(pref_name, *value);
   }
 
@@ -99,9 +98,9 @@ class CrosSettingsTest : public testing::Test {
   ScopedDeviceSettingsTestHelper device_settings_test_helper_;
   CrosSettings settings_;
 
-  base::WeakPtrFactory<CrosSettingsTest> weak_factory_;
-
   std::map<std::string, base::Value*> expected_props_;
+
+  base::WeakPtrFactory<CrosSettingsTest> weak_factory_;
 };
 
 TEST_F(CrosSettingsTest, SetPref) {

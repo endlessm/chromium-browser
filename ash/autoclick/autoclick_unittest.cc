@@ -11,6 +11,7 @@
 #include "ui/events/event.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/event_handler.h"
+#include "ui/events/event_utils.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/events/test/event_generator.h"
 
@@ -19,13 +20,13 @@ namespace ash {
 class MouseEventCapturer : public ui::EventHandler {
  public:
   MouseEventCapturer() { Reset(); }
-  virtual ~MouseEventCapturer() {}
+  ~MouseEventCapturer() override {}
 
   void Reset() {
     events_.clear();
   }
 
-  virtual void OnMouseEvent(ui::MouseEvent* event) override {
+  void OnMouseEvent(ui::MouseEvent* event) override {
     if (!(event->flags() & ui::EF_LEFT_MOUSE_BUTTON))
       return;
     // Filter out extraneous mouse events like mouse entered, exited,
@@ -33,12 +34,10 @@ class MouseEventCapturer : public ui::EventHandler {
     ui::EventType type = event->type();
     if (type == ui::ET_MOUSE_MOVED || type == ui::ET_MOUSE_PRESSED ||
         type == ui::ET_MOUSE_RELEASED) {
-      events_.push_back(ui::MouseEvent(
-          event->type(),
-          event->location(),
-          event->root_location(),
-          event->flags(),
-          event->changed_button_flags()));
+      events_.push_back(ui::MouseEvent(event->type(), event->location(),
+                                       event->root_location(),
+                                       ui::EventTimeForNow(), event->flags(),
+                                       event->changed_button_flags()));
       // Stop event propagation so we don't click on random stuff that
       // might break test assumptions.
       event->StopPropagation();
@@ -62,9 +61,9 @@ class MouseEventCapturer : public ui::EventHandler {
 class AutoclickTest : public test::AshTestBase {
  public:
   AutoclickTest() {}
-  virtual ~AutoclickTest() {}
+  ~AutoclickTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     test::AshTestBase::SetUp();
     Shell::GetInstance()->AddPreTargetHandler(&mouse_event_capturer_);
     GetAutoclickController()->SetAutoclickDelay(0);
@@ -73,7 +72,7 @@ class AutoclickTest : public test::AshTestBase {
     GetEventGenerator().MoveMouseTo(100, 100);
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     Shell::GetInstance()->RemovePreTargetHandler(&mouse_event_capturer_);
     test::AshTestBase::TearDown();
   }
@@ -160,21 +159,31 @@ TEST_F(AutoclickTest, MouseMovement) {
 }
 
 TEST_F(AutoclickTest, MovementThreshold) {
-  GetAutoclickController()->SetEnabled(true);
-  GetEventGenerator().MoveMouseTo(0, 0);
-  EXPECT_EQ(2u, WaitForMouseEvents().size());
+  UpdateDisplay("1280x1024,800x600");
+  RunAllPendingInMessageLoop();
+  aura::Window::Windows root_windows = Shell::GetAllRootWindows();
+  EXPECT_EQ(2u, root_windows.size());
 
-  // Small mouse movements should not trigger an autoclick.
-  GetEventGenerator().MoveMouseTo(1, 1);
-  EXPECT_EQ(0u, WaitForMouseEvents().size());
-  GetEventGenerator().MoveMouseTo(2, 2);
-  EXPECT_EQ(0u, WaitForMouseEvents().size());
-  GetEventGenerator().MoveMouseTo(0, 0);
-  EXPECT_EQ(0u, WaitForMouseEvents().size());
+  // Run test for the secondary display too to test fix for crbug.com/449870.
+  for (const auto& root_window : root_windows) {
+    gfx::Point center = root_window->GetBoundsInScreen().CenterPoint();
 
-  // A large mouse movement should trigger an autoclick.
-  GetEventGenerator().MoveMouseTo(100, 100);
-  EXPECT_EQ(2u, WaitForMouseEvents().size());
+    GetAutoclickController()->SetEnabled(true);
+    GetEventGenerator().MoveMouseTo(center);
+    EXPECT_EQ(2u, WaitForMouseEvents().size());
+
+    // Small mouse movements should not trigger an autoclick.
+    GetEventGenerator().MoveMouseTo(center + gfx::Vector2d(1, 1));
+    EXPECT_EQ(0u, WaitForMouseEvents().size());
+    GetEventGenerator().MoveMouseTo(center + gfx::Vector2d(2, 2));
+    EXPECT_EQ(0u, WaitForMouseEvents().size());
+    GetEventGenerator().MoveMouseTo(center);
+    EXPECT_EQ(0u, WaitForMouseEvents().size());
+
+    // A large mouse movement should trigger an autoclick.
+    GetEventGenerator().MoveMouseTo(center + gfx::Vector2d(100, 100));
+    EXPECT_EQ(2u, WaitForMouseEvents().size());
+  }
 }
 
 TEST_F(AutoclickTest, SingleKeyModifier) {
@@ -215,34 +224,6 @@ TEST_F(AutoclickTest, KeyModifiersReleased) {
   EXPECT_EQ(0, events[0].flags() & ui::EF_CONTROL_DOWN);
   EXPECT_EQ(0, events[0].flags() & ui::EF_SHIFT_DOWN);
   EXPECT_EQ(ui::EF_ALT_DOWN, events[0].flags() & ui::EF_ALT_DOWN);
-}
-
-TEST_F(AutoclickTest, ExtendedDisplay) {
-  UpdateDisplay("1280x1024,800x600");
-  RunAllPendingInMessageLoop();
-  aura::Window::Windows root_windows = Shell::GetAllRootWindows();
-  EXPECT_EQ(2u, root_windows.size());
-
-  GetAutoclickController()->SetEnabled(true);
-  std::vector<ui::MouseEvent> events;
-
-  // Test first root window.
-  ui::test::EventGenerator generator1(root_windows[0]);
-  generator1.MoveMouseTo(100, 200);
-  events = WaitForMouseEvents();
-  EXPECT_EQ(2u, events.size());
-  EXPECT_EQ(100, events[0].root_location().x());
-  EXPECT_EQ(200, events[0].root_location().y());
-
-  // Test second root window.
-  ui::test::EventGenerator generator2(root_windows[1]);
-  generator2.MoveMouseTo(300, 400);
-  events = WaitForMouseEvents();
-  EXPECT_EQ(2u, events.size());
-  EXPECT_EQ(300, events[0].root_location().x());
-  EXPECT_EQ(400, events[0].root_location().y());
-
-  // Test movement threshold between displays.
 }
 
 TEST_F(AutoclickTest, UserInputCancelsAutoclick) {
@@ -288,7 +269,13 @@ TEST_F(AutoclickTest, UserInputCancelsAutoclick) {
   EXPECT_EQ(0u, events.size());
 }
 
-TEST_F(AutoclickTest, SynthesizedMouseMovesIgnored) {
+// Fails on official cros trunk build. See crbug.com/489896.
+#if defined(OFFICIAL_BUILD)
+#define MAYBE_SynthesizedMouseMovesIgnored DISABLED_SynthesizedMouseMovesIgnored
+#else
+#define MAYBE_SynthesizedMouseMovesIgnored SynthesizedMouseMovesIgnored
+#endif
+TEST_F(AutoclickTest, MAYBE_SynthesizedMouseMovesIgnored) {
   GetAutoclickController()->SetEnabled(true);
   std::vector<ui::MouseEvent> events;
   GetEventGenerator().MoveMouseTo(100, 100);

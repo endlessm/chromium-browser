@@ -7,32 +7,66 @@
 /** @suppress {duplicate} */
 var remoting = remoting || {};
 
+/** @constructor */
+remoting.MessageWindowOptions = function() {
+  /** @type {string} */
+  this.title = '';
+
+  /** @type {string} */
+  this.message = '';
+
+  /** @type {string} */
+  this.buttonLabel = '';
+
+  /** @type {string} */
+  this.cancelButtonLabel = '';
+
+  /** @type {function(number):void} */
+  this.onResult = function() {};
+
+  /** @type {number} */
+  this.duration = 0;
+
+  /** @type {string} */
+  this.infobox = '';
+
+  /** @type {?function():void} */
+  this.onTimeout = function() {};
+
+  /** @type {string} */
+  this.htmlFile = '';
+
+  /** @type {string} */
+  this.frame = '';
+
+  /** @type {number} */
+  this.minimumWidth = 0;
+};
+
 /**
  * Create a new message window.
  *
- * @param {Object} options Message window create options
+ * @param {remoting.MessageWindowOptions} options Message window create options
  * @constructor
  */
 remoting.MessageWindow = function(options) {
-  var title = /** @type {string} */ (options.title);
-  var message = /** @type {string} */ (options.message);
-  var okButtonLabel = /** @type {string} */ (options.buttonLabel);
-  var cancelButtonLabel = /** @type {string} */ (options.cancelButtonLabel);
-  var onResult = /** @type {function(number):void} */(options.onResult);
-  /** @type {number} */
+  var title = options.title;
+  var message = options.message;
+  var okButtonLabel = options.buttonLabel;
+  var cancelButtonLabel = options.cancelButtonLabel;
+  var onResult = options.onResult;
   var duration = 0;
-  if (/** @type {number?} */(options.duration)) {
-    duration = /** @type {number} */(options.duration);
+  if (options.duration) {
+    duration = options.duration;
   }
-  /** @type {string} */
   var infobox = '';
-  if (/** @type {string?} */(options.infobox)) {
-    infobox = /** @type {string} */(options.infobox);
+  if (options.infobox) {
+    infobox = options.infobox;
   }
-  var onTimeout = /** @type {?function():void} */ (options.onTimeout);
+  var onTimeout = options.onTimeout;
 
   /** @type {number} */
-  this.id_ = remoting.MessageWindowManager.addMessageWindow(this);
+  this.id_ = remoting.messageWindowManager.addMessageWindow(this);
 
   /** @type {?function(number):void} */
   this.onResult_ = onResult;
@@ -43,7 +77,7 @@ remoting.MessageWindow = function(options) {
   /** @type {number} */
   this.timer_ = 0;
 
-  /** @type {Array.<function():void>} */
+  /** @type {Array<function():void>} */
   this.pendingWindowOperations_ = [];
 
   /**
@@ -65,16 +99,19 @@ remoting.MessageWindow = function(options) {
 
   var windowAttributes = {
     bounds: {
-      width: 400,
-      height: 100
+      width: options.minimumWidth || 400,
+      height: 100,
+      top: undefined,
+      left: undefined
     },
-    resizable: false
+    resizable: false,
+    frame: options.frame || 'chrome'
   };
 
   /** @type {remoting.MessageWindow} */
   var that = this;
 
-  /** @param {AppWindow} appWindow */
+  /** @param {chrome.app.window.AppWindow} appWindow */
   var onCreate = function(appWindow) {
     that.setWindow_(/** @type {Window} */(appWindow.contentWindow));
     var onLoad = function() {
@@ -83,13 +120,25 @@ remoting.MessageWindow = function(options) {
     appWindow.contentWindow.addEventListener('load', onLoad, false);
   };
 
-  chrome.app.window.create('message_window.html', windowAttributes, onCreate);
+  var htmlFile = options.htmlFile || 'message_window.html';
+  chrome.app.window.create(
+      remoting.MessageWindow.htmlFilePrefix + htmlFile,
+      windowAttributes, onCreate);
 
   if (duration != 0) {
     this.timer_ = window.setTimeout(this.onTimeoutHandler_.bind(this),
                                     duration);
   }
 };
+
+/**
+ * This string is prepended to the htmlFile when message windows are created.
+ * Normally, this should be left empty, but the shared module needs to specify
+ * this so that the shared HTML files can be found when running in the
+ * context of the app stub.
+ * @type {string}
+ */
+remoting.MessageWindow.htmlFilePrefix = "";
 
 /**
  * Called when the timer runs out. This in turn calls the window's
@@ -138,7 +187,7 @@ remoting.MessageWindow.prototype.close = function() {
   // Unregister the window with the window manager.
   // After this call, events sent to this window will no longer trigger the
   // onResult callback.
-  remoting.MessageWindowManager.deleteMessageWindow(this.id_);
+  remoting.messageWindowManager.deleteMessageWindow(this.id_);
   this.window_.close();
   this.window_ = null;
 };
@@ -161,7 +210,7 @@ remoting.MessageWindow.prototype.handleResult = function(result) {
  * @private
  */
 remoting.MessageWindow.prototype.setWindow_ = function(window) {
-  base.debug.assert(this.window_ == null);
+  console.assert(this.window_ == null, 'Duplicate call to setWindow_().');
   this.window_ = window;
   for (var i = 0; i < this.pendingWindowOperations_.length; ++i) {
     var pendingOperation = this.pendingWindowOperations_[i];
@@ -183,13 +232,13 @@ remoting.MessageWindow.prototype.setWindow_ = function(window) {
  */
 remoting.MessageWindow.showConfirmWindow = function(
     title, message, okButtonLabel, cancelButtonLabel, onResult) {
-  var options = {
+  var options = /** @type {remoting.MessageWindowOptions} */ ({
     title: title,
     message: message,
     buttonLabel: okButtonLabel,
     cancelButtonLabel: cancelButtonLabel,
     onResult: onResult
-  };
+  });
   return new remoting.MessageWindow(options);
 };
 
@@ -205,12 +254,12 @@ remoting.MessageWindow.showConfirmWindow = function(
  */
 remoting.MessageWindow.showMessageWindow = function(
     title, message, buttonLabel, onResult) {
-  var options = {
+  var options = /** @type {remoting.MessageWindowOptions} */ ({
     title: title,
     message: message,
     buttonLabel: buttonLabel,
     onResult: onResult
-  };
+  });
   return new remoting.MessageWindow(options);
 };
 
@@ -223,40 +272,12 @@ remoting.MessageWindow.showMessageWindow = function(
  * @return {remoting.MessageWindow}
  */
 remoting.MessageWindow.showErrorMessage = function(title, message) {
-  var options = {
+  var options = /** @type {remoting.MessageWindowOptions} */ ({
     title: title,
     message: message,
-    buttonLabel: chrome.i18n.getMessage(/**i18n-content*/'OK'),
+    buttonLabel: chrome.i18n.getMessage(/*i18n-content*/'OK'),
     onResult: remoting.MessageWindow.quitApp
-  };
-  return new remoting.MessageWindow(options);
-};
-
-/**
- * Static method to create and show a timed message box.
- *
- * @param {string} title The title of the message box.
- * @param {string} message The message.
- * @param {string} infobox Additional information to be displayed in an infobox,
- *     or the empty string if there is no additional information.
- * @param {string} buttonLabel The text for the primary button.
- * @param {function(number):void} onResult The callback to invoke when the
- *     user closes the message window.
- * @param {number} duration Time for wait before calling onTime
- * @param {?function():void} onTimeout Callback function.
- * @return {remoting.MessageWindow}
- */
-remoting.MessageWindow.showTimedMessageWindow = function(
-    title, message, infobox, buttonLabel, onResult, duration, onTimeout) {
-  var options = {
-    title: title,
-    message: message,
-    infobox: infobox,
-    buttonLabel: buttonLabel,
-    onResult: onResult,
-    duration: duration,
-    onTimeout: onTimeout
-  };
+  });
   return new remoting.MessageWindow(options);
 };
 
@@ -266,6 +287,6 @@ remoting.MessageWindow.showTimedMessageWindow = function(
  * @param {number} result The dialog result.
  */
 remoting.MessageWindow.quitApp = function(result) {
-  remoting.MessageWindowManager.closeAllMessageWindows();
+  remoting.messageWindowManager.closeAllMessageWindows();
   window.close();
 };

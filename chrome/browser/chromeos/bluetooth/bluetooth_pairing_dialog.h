@@ -23,30 +23,34 @@ class BluetoothPairingDialog : public ui::WebDialogDelegate {
  public:
   BluetoothPairingDialog(gfx::NativeWindow parent_window,
                          const device::BluetoothDevice* device);
-  virtual ~BluetoothPairingDialog();
+  ~BluetoothPairingDialog() override;
 
   void Show();
 
+  content::WebUI* GetWebUIForTest() { return webui_; }
+
  protected:
   // ui::WebDialogDelegate implementation.
-  virtual ui::ModalType GetDialogModalType() const override;
-  virtual base::string16 GetDialogTitle() const override;
-  virtual GURL GetDialogContentURL() const override;
-  virtual void GetWebUIMessageHandlers(
+  ui::ModalType GetDialogModalType() const override;
+  base::string16 GetDialogTitle() const override;
+  GURL GetDialogContentURL() const override;
+  void GetWebUIMessageHandlers(
       std::vector<content::WebUIMessageHandler*>* handlers) const override;
-  virtual void GetDialogSize(gfx::Size* size) const override;
-  virtual std::string GetDialogArgs() const override;
+  void GetDialogSize(gfx::Size* size) const override;
+  std::string GetDialogArgs() const override;
+  void OnDialogShown(content::WebUI* webui,
+                     content::RenderViewHost* render_view_host) override;
   // NOTE: This function deletes this object at the end.
-  virtual void OnDialogClosed(const std::string& json_retval) override;
-  virtual void OnCloseContents(
-      content::WebContents* source, bool* out_close_dialog) override;
-  virtual bool ShouldShowDialogTitle() const override;
-  virtual bool HandleContextMenu(
-      const content::ContextMenuParams& params) override;
+  void OnDialogClosed(const std::string& json_retval) override;
+  void OnCloseContents(content::WebContents* source,
+                       bool* out_close_dialog) override;
+  bool ShouldShowDialogTitle() const override;
+  bool HandleContextMenu(const content::ContextMenuParams& params) override;
 
  private:
   gfx::NativeWindow parent_window_;
   base::DictionaryValue device_data_;
+  content::WebUI* webui_;
 
   DISALLOW_COPY_AND_ASSIGN(BluetoothPairingDialog);
 };

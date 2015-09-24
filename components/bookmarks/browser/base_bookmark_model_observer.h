@@ -5,9 +5,10 @@
 #ifndef COMPONENTS_BOOKMARKS_BROWSER_BASE_BOOKMARK_MODEL_OBSERVER_H_
 #define COMPONENTS_BOOKMARKS_BROWSER_BASE_BOOKMARK_MODEL_OBSERVER_H_
 
-#include "base/basictypes.h"
-#include "base/compiler_specific.h"
+#include "base/macros.h"
 #include "components/bookmarks/browser/bookmark_model_observer.h"
+
+namespace bookmarks {
 
 // Base class for a BookmarkModelObserver implementation. All mutations of the
 // model funnel into the method BookmarkModelChanged.
@@ -48,5 +49,7 @@ class BaseBookmarkModelObserver : public BookmarkModelObserver {
  private:
   DISALLOW_COPY_AND_ASSIGN(BaseBookmarkModelObserver);
 };
+
+}  // namespace bookmarks
 
 #endif  // COMPONENTS_BOOKMARKS_BROWSER_BASE_BOOKMARK_MODEL_OBSERVER_H_

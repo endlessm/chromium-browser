@@ -14,7 +14,7 @@
 #include "base/process/process.h"
 #include "base/scoped_native_library.h"
 #include "build/build_config.h"
-#include "content/child/child_thread.h"
+#include "content/child/child_thread_impl.h"
 #include "content/public/common/pepper_plugin_info.h"
 #include "ppapi/c/pp_module.h"
 #include "ppapi/c/trusted/ppp_broker.h"
@@ -40,7 +40,13 @@ namespace content {
 
 class PpapiBlinkPlatformImpl;
 
-class PpapiThread : public ChildThread,
+#if defined(COMPILER_MSVC)
+// See explanation for other RenderViewHostImpl which is the same issue.
+#pragma warning(push)
+#pragma warning(disable: 4250)
+#endif
+
+class PpapiThread : public ChildThreadImpl,
                     public ppapi::proxy::PluginDispatcher::PluginDelegate,
                     public ppapi::proxy::PluginProxyDelegate {
  public:
@@ -68,12 +74,15 @@ class PpapiThread : public ChildThread,
 
   // PluginDispatcher::PluginDelegate implementation.
   std::set<PP_Instance>* GetGloballySeenInstanceIDSet() override;
-  base::MessageLoopProxy* GetIPCMessageLoop() override;
+  base::SingleThreadTaskRunner* GetIPCTaskRunner() override;
   base::WaitableEvent* GetShutdownEvent() override;
   IPC::PlatformFileForTransit ShareHandleWithRemote(
       base::PlatformFile handle,
       base::ProcessId peer_pid,
       bool should_close_source) override;
+  base::SharedMemoryHandle ShareSharedMemoryHandleWithRemote(
+      const base::SharedMemoryHandle& handle,
+      base::ProcessId remote_pid) override;
   uint32 Register(ppapi::proxy::PluginDispatcher* plugin_dispatcher) override;
   void Unregister(uint32 plugin_dispatcher_id) override;
 
@@ -82,7 +91,7 @@ class PpapiThread : public ChildThread,
   // long as the main PpapiThread outlives it.
   IPC::Sender* GetBrowserSender() override;
   std::string GetUILanguage() override;
-  void PreCacheFont(const void* logfontw) override;
+  void PreCacheFontForFlash(const void* logfontw) override;
   void SetActiveURL(const std::string& url) override;
   PP_Resource CreateBrowserFont(ppapi::proxy::Connection connection,
                                 PP_Instance instance,
@@ -157,6 +166,10 @@ class PpapiThread : public ChildThread,
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(PpapiThread);
 };
+
+#if defined(COMPILER_MSVC)
+#pragma warning(pop)
+#endif
 
 }  // namespace content
 

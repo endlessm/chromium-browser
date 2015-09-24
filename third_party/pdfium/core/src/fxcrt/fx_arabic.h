@@ -1,34 +1,34 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _FX_ARABIC_IMP
-#define _FX_ARABIC_IMP
-class CFX_BidiChar FX_FINAL : public IFX_BidiChar, public CFX_Object
+#ifndef CORE_SRC_FXCRT_FX_ARABIC_H_
+#define CORE_SRC_FXCRT_FX_ARABIC_H_
+
+#include "../../include/fxcrt/fx_arb.h"
+
+class CFX_BidiChar final : public IFX_BidiChar
 {
 public:
     CFX_BidiChar();
-    virtual void		Release() FX_OVERRIDE
-    {
-        delete this;
-    }
-    virtual void		SetPolicy(FX_BOOL bSeparateNeutral = TRUE) FX_OVERRIDE
-    {
-        m_bSeparateNeutral = bSeparateNeutral;
-    }
-    virtual FX_BOOL		AppendChar(FX_WCHAR wch) FX_OVERRIDE;
-    virtual FX_BOOL		EndChar() FX_OVERRIDE;
-    virtual FX_INT32	GetBidiInfo(FX_INT32 &iStart, FX_INT32 &iCount) FX_OVERRIDE;
-    virtual void		Reset() FX_OVERRIDE;
-protected:
-    FX_BOOL		m_bSeparateNeutral;
-    FX_INT32	m_iCurStart;
-    FX_INT32	m_iCurCount;
-    FX_INT32	m_iCurBidi;
-    FX_INT32	m_iLastBidi;
-    FX_INT32	m_iLastStart;
-    FX_INT32	m_iLastCount;
+    ~CFX_BidiChar() override {}
+
+    void SetPolicy(FX_BOOL bSeparateNeutral = TRUE) override;
+    FX_BOOL AppendChar(FX_WCHAR wch) override;
+    FX_BOOL EndChar() override;
+    int32_t GetBidiInfo(int32_t &iStart, int32_t &iCount) override;
+    void Reset() override;
+
+private:
+    FX_BOOL	m_bSeparateNeutral;
+    int32_t	m_iCurStart;
+    int32_t	m_iCurCount;
+    int32_t	m_iCurBidi;
+    int32_t	m_iLastBidi;
+    int32_t	m_iLastStart;
+    int32_t	m_iLastCount;
 };
-#endif
+
+#endif  // CORE_SRC_FXCRT_FX_ARABIC_H_

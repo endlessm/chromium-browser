@@ -13,6 +13,7 @@
 #include "chrome/common/pref_names.h"
 #include "chromeos/dbus/cryptohome/rpc.pb.h"
 #include "chromeos/dbus/cryptohome_client.h"
+#include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "policy/proto/device_management_backend.pb.h"
 
 namespace em = enterprise_management;
@@ -31,9 +32,9 @@ const char* const kStatusString[] = {
   "StatusUnenrolling",
 };
 
-COMPILE_ASSERT(
+static_assert(
     arraysize(kStatusString) == policy::ConsumerManagementService::STATUS_LAST,
-    "invalid kStatusString array size.");
+    "invalid kStatusString array size");
 
 }  // namespace
 
@@ -58,7 +59,8 @@ ConsumerManagementService::~ConsumerManagementService() {
 // static
 void ConsumerManagementService::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterIntegerPref(
-      prefs::kConsumerManagementEnrollmentStage, ENROLLMENT_STAGE_NONE);
+      prefs::kConsumerManagementStage,
+      ConsumerManagementStage::None().ToInternalValue());
 }
 
 void ConsumerManagementService::AddObserver(Observer* observer) {
@@ -78,14 +80,14 @@ ConsumerManagementService::GetStatus() const {
   if (!policy_data)
     return STATUS_UNKNOWN;
 
-  if (policy_data->management_mode() == em::PolicyData::CONSUMER_MANAGED) {
-    // TODO(davidyu): Check if unenrollment is in progress.
-    // http://crbug.com/353050.
+  const ConsumerManagementStage stage = GetStage();
+  if (GetManagementMode(*policy_data) == MANAGEMENT_MODE_CONSUMER_MANAGED) {
+    if (stage.IsUnenrolling())
+      return STATUS_UNENROLLING;
     return STATUS_ENROLLED;
   }
 
-  EnrollmentStage stage = GetEnrollmentStage();
-  if (stage > ENROLLMENT_STAGE_NONE && stage < ENROLLMENT_STAGE_SUCCESS)
+  if (stage.IsEnrolling())
     return STATUS_ENROLLING;
 
   return STATUS_UNENROLLED;
@@ -95,25 +97,16 @@ std::string ConsumerManagementService::GetStatusString() const {
   return kStatusString[GetStatus()];
 }
 
-bool ConsumerManagementService::HasPendingEnrollmentNotification() const {
-  EnrollmentStage stage = GetEnrollmentStage();
-  return stage >= ENROLLMENT_STAGE_SUCCESS && stage < ENROLLMENT_STAGE_LAST;
-}
-
-ConsumerManagementService::EnrollmentStage
-ConsumerManagementService::GetEnrollmentStage() const {
+ConsumerManagementStage ConsumerManagementService::GetStage() const {
   const PrefService* prefs = g_browser_process->local_state();
-  int stage = prefs->GetInteger(prefs::kConsumerManagementEnrollmentStage);
-  if (stage < 0 || stage >= ENROLLMENT_STAGE_LAST) {
-    LOG(ERROR) << "Unknown enrollment stage: " << stage;
-    stage = 0;
-  }
-  return static_cast<EnrollmentStage>(stage);
+  const int stage = prefs->GetInteger(prefs::kConsumerManagementStage);
+  return ConsumerManagementStage::FromInternalValue(stage);
 }
 
-void ConsumerManagementService::SetEnrollmentStage(EnrollmentStage stage) {
+void ConsumerManagementService::SetStage(
+    const ConsumerManagementStage& stage) {
   PrefService* prefs = g_browser_process->local_state();
-  prefs->SetInteger(prefs::kConsumerManagementEnrollmentStage, stage);
+  prefs->SetInteger(prefs::kConsumerManagementStage, stage.ToInternalValue());
 
   NotifyStatusChanged();
 }
@@ -149,6 +142,10 @@ void ConsumerManagementService::DeviceSettingsUpdated() {
 
 void ConsumerManagementService::OnDeviceSettingsServiceShutdown() {
   device_settings_service_ = nullptr;
+}
+
+void ConsumerManagementService::NotifyStatusChanged() {
+  FOR_EACH_OBSERVER(Observer, observers_, OnConsumerManagementStatusChanged());
 }
 
 void ConsumerManagementService::OnGetBootAttributeDone(
@@ -197,10 +194,6 @@ void ConsumerManagementService::OnFlushAndSignBootAttributesDone(
   }
 
   callback.Run(true);
-}
-
-void ConsumerManagementService::NotifyStatusChanged() {
-  FOR_EACH_OBSERVER(Observer, observers_, OnConsumerManagementStatusChanged());
 }
 
 }  // namespace policy

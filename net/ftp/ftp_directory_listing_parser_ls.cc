@@ -14,6 +14,8 @@
 #include "net/ftp/ftp_directory_listing_parser.h"
 #include "net/ftp/ftp_util.h"
 
+namespace net {
+
 namespace {
 
 bool TwoColumnDateListingToTime(const base::string16& date,
@@ -22,8 +24,9 @@ bool TwoColumnDateListingToTime(const base::string16& date,
   base::Time::Exploded time_exploded = { 0 };
 
   // Date should be in format YYYY-MM-DD.
-  std::vector<base::string16> date_parts;
-  base::SplitString(date, '-', &date_parts);
+  std::vector<base::string16> date_parts =
+      base::SplitString(date, base::ASCIIToUTF16("-"), base::TRIM_WHITESPACE,
+                        base::SPLIT_WANT_ALL);
   if (date_parts.size() != 3)
     return false;
   if (!base::StringToInt(date_parts[0], &time_exploded.year))
@@ -37,8 +40,9 @@ bool TwoColumnDateListingToTime(const base::string16& date,
   if (time.length() != 5)
     return false;
 
-  std::vector<base::string16> time_parts;
-  base::SplitString(time, ':', &time_parts);
+  std::vector<base::string16> time_parts =
+      base::SplitString(time, base::ASCIIToUTF16(":"), base::TRIM_WHITESPACE,
+                        base::SPLIT_WANT_ALL);
   if (time_parts.size() != 2)
     return false;
   if (!base::StringToInt(time_parts[0], &time_exploded.hour))
@@ -78,11 +82,8 @@ bool DetectColumnOffsetSizeAndModificationTime(
   //  * 8. year or time <-- column_offset will be the index of this column
   //    9. file name (optional, may contain spaces)
   for (size_t i = 5U; i < columns.size(); i++) {
-    if (net::FtpUtil::LsDateListingToTime(columns[i - 2],
-                                          columns[i - 1],
-                                          columns[i],
-                                          current_time,
-                                          modification_time)) {
+    if (FtpUtil::LsDateListingToTime(columns[i - 2], columns[i - 1], columns[i],
+                                     current_time, modification_time)) {
       *size = columns[i - 3];
       *offset = i;
       return true;
@@ -93,11 +94,8 @@ bool DetectColumnOffsetSizeAndModificationTime(
   // (for example Russian listings). We try to recognize them only after making
   // sure no column offset works above (this is a more strict way).
   for (size_t i = 5U; i < columns.size(); i++) {
-    if (net::FtpUtil::LsDateListingToTime(columns[i - 1],
-                                          columns[i - 2],
-                                          columns[i],
-                                          current_time,
-                                          modification_time)) {
+    if (FtpUtil::LsDateListingToTime(columns[i - 1], columns[i - 2], columns[i],
+                                     current_time, modification_time)) {
       *size = columns[i - 3];
       *offset = i;
       return true;
@@ -120,8 +118,6 @@ bool DetectColumnOffsetSizeAndModificationTime(
 
 }  // namespace
 
-namespace net {
-
 bool ParseFtpDirectoryListingLs(
     const std::vector<base::string16>& lines,
     const base::Time& current_time,
@@ -134,8 +130,9 @@ bool ParseFtpDirectoryListingLs(
     if (lines[i].empty())
       continue;
 
-    std::vector<base::string16> columns;
-    base::SplitString(base::CollapseWhitespace(lines[i], false), ' ', &columns);
+    std::vector<base::string16> columns = base::SplitString(
+        base::CollapseWhitespace(lines[i], false), base::ASCIIToUTF16(" "),
+        base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
 
     // Some FTP servers put a "total n" line at the beginning of the listing
     // (n is an integer). Allow such a line, but only once, and only if it's

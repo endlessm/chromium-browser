@@ -3,10 +3,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-"""Wrapper script for running ncval.
+"""Wrapper script for running the Native Client validator (ncval).
 """
 
-import optparse
+import argparse
 import os
 import subprocess
 import sys
@@ -16,8 +16,8 @@ import getos
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 NACL_SDK_ROOT = os.path.dirname(SCRIPT_DIR)
 
-if sys.version_info < (2, 6, 0):
-  sys.stderr.write("python 2.6 or later is required run this script\n")
+if sys.version_info < (2, 7, 0):
+  sys.stderr.write("python 2.7 or later is required run this script\n")
   sys.exit(1)
 
 class Error(Exception):
@@ -28,12 +28,11 @@ def Log(msg):
     sys.stderr.write(str(msg) + '\n')
 Log.verbose = False
 
-def main(argv):
-  usage = 'Usage: %prog [options] <.nexe | .so>'
-  epilog = 'Example: ncval.py my_nexe.nexe'
-  parser = optparse.OptionParser(usage, description=__doc__, epilog=epilog)
-  parser.add_option('-v', '--verbose', action='store_true',
-                    help='Verbose output')
+def main(args):
+  parser = argparse.ArgumentParser(description=__doc__)
+  parser.add_argument('-v', '--verbose', action='store_true',
+                      help='Verbose output')
+  parser.add_argument('nexe', metavar="EXE", help='Executable to validate')
 
   # To enable bash completion for this command first install optcomplete
   # and then add this line to your .bashrc:
@@ -44,11 +43,9 @@ def main(argv):
   except ImportError:
     pass
 
-  options, args = parser.parse_args(argv)
-  if not args:
-    parser.error('No executable file specified')
+  options = parser.parse_args(args)
+  nexe = options.nexe
 
-  nexe = args[0]
   if options.verbose:
     Log.verbose = True
 

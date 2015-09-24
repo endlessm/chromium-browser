@@ -19,8 +19,8 @@
 #include "ui/base/theme_provider.h"
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/gfx/canvas.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/image/image_skia.h"
-#include "ui/gfx/rect.h"
 #include "ui/gfx/skia_util.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
@@ -66,7 +66,7 @@ void PaintFrameImagesInRoundRect(gfx::Canvas* canvas,
                                  int corner_radius,
                                  int image_inset_x) {
   SkXfermode::Mode normal_mode;
-  SkXfermode::AsMode(NULL, &normal_mode);
+  SkXfermode::AsMode(nullptr, &normal_mode);
 
   // If |paint| is using an unusual SkXfermode::Mode (this is the case while
   // crossfading), we must create a new canvas to overlay |frame_image| and
@@ -109,13 +109,13 @@ void PaintFrameImagesInRoundRect(gfx::Canvas* canvas,
 // BrowserHeaderPainterAsh, public:
 
 BrowserHeaderPainterAsh::BrowserHeaderPainterAsh()
-    : frame_(NULL),
+    : frame_(nullptr),
       is_tabbed_(false),
       is_incognito_(false),
-      view_(NULL),
-      window_icon_(NULL),
+      view_(nullptr),
+      window_icon_(nullptr),
       window_icon_x_inset_(ash::HeaderPainterUtil::GetDefaultLeftViewXInset()),
-      caption_button_container_(NULL),
+      caption_button_container_(nullptr),
       painted_height_(0),
       initial_paint_(true),
       mode_(MODE_INACTIVE),
@@ -134,7 +134,7 @@ void BrowserHeaderPainterAsh::Init(
   DCHECK(frame);
   DCHECK(browser_view);
   DCHECK(header_view);
-  // window_icon may be NULL.
+  // window_icon may be null.
   DCHECK(caption_button_container);
   frame_ = frame;
 
@@ -254,6 +254,10 @@ void BrowserHeaderPainterAsh::LayoutHeader() {
                             icon_size.width(),
                             icon_size.height());
   }
+}
+
+int BrowserHeaderPainterAsh::GetHeaderHeight() const {
+  return caption_button_container_->height();
 }
 
 int BrowserHeaderPainterAsh::GetHeaderHeightForPainting() const {
@@ -406,7 +410,6 @@ void BrowserHeaderPainterAsh::UpdateCaptionButtonImages() {
   caption_button_container_->SetButtonImages(
       ash::CAPTION_BUTTON_ICON_MINIMIZE,
       IDR_ASH_BROWSER_WINDOW_CONTROL_ICON_MINIMIZE,
-      IDR_ASH_BROWSER_WINDOW_CONTROL_ICON_MINIMIZE,
       hover_background_id,
       pressed_background_id);
 
@@ -418,25 +421,21 @@ void BrowserHeaderPainterAsh::UpdateCaptionButtonImages() {
   caption_button_container_->SetButtonImages(
       ash::CAPTION_BUTTON_ICON_MAXIMIZE_RESTORE,
       size_icon_id,
-      size_icon_id,
       hover_background_id,
       pressed_background_id);
 
   caption_button_container_->SetButtonImages(
       ash::CAPTION_BUTTON_ICON_CLOSE,
       IDR_ASH_BROWSER_WINDOW_CONTROL_ICON_CLOSE,
-      IDR_ASH_BROWSER_WINDOW_CONTROL_ICON_CLOSE,
       hover_background_id,
       pressed_background_id);
   caption_button_container_->SetButtonImages(
       ash::CAPTION_BUTTON_ICON_LEFT_SNAPPED,
       IDR_ASH_BROWSER_WINDOW_CONTROL_ICON_LEFT_SNAPPED,
-      IDR_ASH_BROWSER_WINDOW_CONTROL_ICON_LEFT_SNAPPED,
       hover_background_id,
       pressed_background_id);
   caption_button_container_->SetButtonImages(
       ash::CAPTION_BUTTON_ICON_RIGHT_SNAPPED,
-      IDR_ASH_BROWSER_WINDOW_CONTROL_ICON_RIGHT_SNAPPED,
       IDR_ASH_BROWSER_WINDOW_CONTROL_ICON_RIGHT_SNAPPED,
       hover_background_id,
       pressed_background_id);

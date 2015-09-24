@@ -10,12 +10,13 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/timer/timer.h"
 #include "chromeos/dbus/power_manager_client.h"
-#include "ui/wm/core/user_activity_observer.h"
+#include "ui/base/user_activity/user_activity_observer.h"
 
 namespace chromeos {
+
 class IdleAppNameNotificationView;
 
-class KioskModeIdleAppNameNotification : public wm::UserActivityObserver,
+class KioskModeIdleAppNameNotification : public ui::UserActivityObserver,
                                          public PowerManagerClient::Observer {
  public:
   static void Initialize();
@@ -23,17 +24,17 @@ class KioskModeIdleAppNameNotification : public wm::UserActivityObserver,
   static void Shutdown();
 
   KioskModeIdleAppNameNotification();
-  virtual ~KioskModeIdleAppNameNotification();
+  ~KioskModeIdleAppNameNotification() override;
 
  private:
   // Initialize idle app message when KioskModeHelper is initialized.
   void Setup();
 
-  // wm::UserActivityObserver overrides:
-  virtual void OnUserActivity(const ui::Event* event) override;
+  // ui::UserActivityObserver overrides:
+  void OnUserActivity(const ui::Event* event) override;
 
   // PowerManagerClient::Observer overrides:
-  virtual void SuspendDone(const base::TimeDelta& sleep_duration) override;
+  void SuspendDone(const base::TimeDelta& sleep_duration) override;
 
   // Begins listening for user activity and calls ResetTimer().
   void Start();

@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifndef BASE_TEST_NULL_TASK_RUNNER_H_
+#define BASE_TEST_NULL_TASK_RUNNER_H_
+
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/single_thread_task_runner.h"
@@ -30,4 +33,6 @@ class NullTaskRunner : public base::SingleThreadTaskRunner {
   DISALLOW_COPY_AND_ASSIGN(NullTaskRunner);
 };
 
-}  // namespace
+}  // namespace base
+
+#endif  // BASE_TEST_NULL_TASK_RUNNER_H_

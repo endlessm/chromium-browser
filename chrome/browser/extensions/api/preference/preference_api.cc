@@ -22,6 +22,7 @@
 #include "chrome/browser/net/prediction_options.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
+#include "components/content_settings/core/common/pref_names.h"
 #include "components/translate/core/common/translate_pref_names.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_source.h"
@@ -69,11 +70,22 @@ const char kConversionErrorMessage[] =
     "properly.";
 
 PrefMappingEntry kPrefMapping[] = {
+    {"spdy_proxy.enabled",
+     data_reduction_proxy::prefs::kDataReductionProxyEnabled,
+     APIPermission::kDataReductionProxy, APIPermission::kDataReductionProxy},
+    {"data_reduction.daily_original_length",
+     data_reduction_proxy::prefs::kDailyHttpOriginalContentLength,
+     APIPermission::kDataReductionProxy, APIPermission::kDataReductionProxy},
+    {"data_reduction.daily_received_length",
+     data_reduction_proxy::prefs::kDailyHttpReceivedContentLength,
+     APIPermission::kDataReductionProxy, APIPermission::kDataReductionProxy},
     {"alternateErrorPagesEnabled", prefs::kAlternateErrorPagesEnabled,
      APIPermission::kPrivacy, APIPermission::kPrivacy},
     {"autofillEnabled", autofill::prefs::kAutofillEnabled,
      APIPermission::kPrivacy, APIPermission::kPrivacy},
     {"hyperlinkAuditingEnabled", prefs::kEnableHyperlinkAuditing,
+     APIPermission::kPrivacy, APIPermission::kPrivacy},
+    {"hotwordSearchEnabled", prefs::kHotwordSearchEnabled,
      APIPermission::kPrivacy, APIPermission::kPrivacy},
     {"networkPredictionEnabled", prefs::kNetworkPredictionOptions,
      APIPermission::kPrivacy, APIPermission::kPrivacy},
@@ -87,6 +99,9 @@ PrefMappingEntry kPrefMapping[] = {
      APIPermission::kPrivacy},
     {"safeBrowsingEnabled", prefs::kSafeBrowsingEnabled,
      APIPermission::kPrivacy, APIPermission::kPrivacy},
+    {"safeBrowsingExtendedReportingEnabled",
+     prefs::kSafeBrowsingExtendedReportingEnabled, APIPermission::kPrivacy,
+     APIPermission::kPrivacy},
     {"searchSuggestEnabled", prefs::kSearchSuggestEnabled,
      APIPermission::kPrivacy, APIPermission::kPrivacy},
     {"spellingServiceEnabled", prefs::kSpellCheckUseSpellingService,
@@ -95,6 +110,16 @@ PrefMappingEntry kPrefMapping[] = {
      APIPermission::kPrivacy, APIPermission::kPrivacy},
     {"translationServiceEnabled", prefs::kEnableTranslate,
      APIPermission::kPrivacy, APIPermission::kPrivacy},
+#if defined(ENABLE_WEBRTC)
+    {"webRTCMultipleRoutesEnabled", prefs::kWebRTCMultipleRoutesEnabled,
+     APIPermission::kPrivacy, APIPermission::kPrivacy},
+#endif
+    // accessibilityFeatures.animationPolicy is available for
+    // all platforms but the others from accessibilityFeatures
+    // is only available for OS_CHROMEOS.
+    {"animationPolicy", prefs::kAnimationPolicy,
+     APIPermission::kAccessibilityFeaturesRead,
+     APIPermission::kAccessibilityFeaturesModify},
 #if defined(OS_CHROMEOS)
     {"autoclick", prefs::kAccessibilityAutoclickEnabled,
      APIPermission::kAccessibilityFeaturesRead,
@@ -158,9 +183,9 @@ class InvertBooleanTransformer : public PrefTransformerInterface {
 
 class NetworkPredictionTransformer : public PrefTransformerInterface {
  public:
-  virtual base::Value* ExtensionToBrowserPref(const base::Value* extension_pref,
-                                              std::string* error,
-                                              bool* bad_message) override {
+  base::Value* ExtensionToBrowserPref(const base::Value* extension_pref,
+                                      std::string* error,
+                                      bool* bad_message) override {
     bool bool_value = false;
     const bool pref_found = extension_pref->GetAsBoolean(&bool_value);
     DCHECK(pref_found) << "Preference not found.";
@@ -173,7 +198,7 @@ class NetworkPredictionTransformer : public PrefTransformerInterface {
     }
   }
 
-  virtual base::Value* BrowserToExtensionPref(
+  base::Value* BrowserToExtensionPref(
       const base::Value* browser_pref) override {
     int int_value = chrome_browser_net::NETWORK_PREDICTION_DEFAULT;
     const bool pref_found = browser_pref->GetAsInteger(&int_value);

@@ -17,14 +17,14 @@ static void SI8_D16_nofilter_DX_mips_dsp(const SkBitmapProcState& s,
                                          int count, uint16_t* SK_RESTRICT colors) {
     SkASSERT(count > 0 && colors != NULL);
     SkASSERT(s.fInvType <= (SkMatrix::kTranslate_Mask | SkMatrix::kScale_Mask));
-    SkASSERT(SkPaint::kNone_FilterLevel == s.fFilterLevel);
-    const uint16_t* SK_RESTRICT table = s.fBitmap->getColorTable()->lock16BitCache();
-    const uint8_t* SK_RESTRICT srcAddr = (const uint8_t*)s.fBitmap->getPixels();
-    SkASSERT((unsigned)xy[0] < (unsigned)s.fBitmap->height());
-    srcAddr = (const uint8_t*)((const char*)srcAddr + xy[0] * s.fBitmap->rowBytes());
+    SkASSERT(kNone_SkFilterQuality == s.fFilterLevel);
+    const uint16_t* SK_RESTRICT table = s.fPixmap.ctable()->read16BitCache();
+    const uint8_t* SK_RESTRICT srcAddr = (const uint8_t*)s.fPixmap.addr();
+    SkASSERT((unsigned)xy[0] < (unsigned)s.fPixmap.height());
+    srcAddr = (const uint8_t*)((const char*)srcAddr + xy[0] * s.fPixmap.rowBytes());
     uint8_t src;
 
-    if (1 == s.fBitmap->width()) {
+    if (1 == s.fPixmap.width()) {
         src = srcAddr[0];
         uint16_t dstValue = table[src];
         sk_memset16(colors, dstValue, count);
@@ -142,7 +142,6 @@ static void SI8_D16_nofilter_DX_mips_dsp(const SkBitmapProcState& s,
             src = srcAddr[*xx++]; *colors++ = table[src];
         }
     }
-    s.fBitmap->getColorTable()->unlock16BitCache();
 }
 
 static void SI8_opaque_D32_nofilter_DX_mips_dsp(const SkBitmapProcState& s,
@@ -150,12 +149,12 @@ static void SI8_opaque_D32_nofilter_DX_mips_dsp(const SkBitmapProcState& s,
                                                 int count, SkPMColor* SK_RESTRICT colors) {
     SkASSERT(count > 0 && colors != NULL);
     SkASSERT(s.fInvType <= (SkMatrix::kTranslate_Mask | SkMatrix::kScale_Mask));
-    SkASSERT(SkPaint::kNone_FilterLevel == s.fFilterLevel);
-    const SkPMColor* SK_RESTRICT table = s.fBitmap->getColorTable()->lockColors();
-    const uint8_t* SK_RESTRICT srcAddr = (const uint8_t*)s.fBitmap->getPixels();
-    srcAddr = (const uint8_t*)((const char*)srcAddr + xy[0] * s.fBitmap->rowBytes());
+    SkASSERT(kNone_SkFilterQuality == s.fFilterLevel);
+    const SkPMColor* SK_RESTRICT table = s.fPixmap.ctable()->readColors();
+    const uint8_t* SK_RESTRICT srcAddr = (const uint8_t*)s.fPixmap.addr();
+    srcAddr = (const uint8_t*)((const char*)srcAddr + xy[0] * s.fPixmap.rowBytes());
 
-    if (1 == s.fBitmap->width()) {
+    if (1 == s.fPixmap.width()) {
         uint8_t src = srcAddr[0];
         SkPMColor dstValue = table[src];
         sk_memset32(colors, dstValue, count);
@@ -363,7 +362,6 @@ static void SI8_opaque_D32_nofilter_DX_mips_dsp(const SkBitmapProcState& s,
               "t4", "t5", "t6", "t7", "t8"
         );
     }
-    s.fBitmap->getColorTable()->unlockColors();
 }
 
 /*  If we replace a sampleproc, then we null-out the associated shaderproc,
@@ -378,9 +376,9 @@ void SkBitmapProcState::platformProcs() {
         justDx = true;
     }
 
-    switch (fBitmap->colorType()) {
+    switch (fPixmap.colorType()) {
         case kIndex_8_SkColorType:
-            if (justDx && SkPaint::kNone_FilterLevel == fFilterLevel) {
+            if (justDx && kNone_SkFilterQuality == fFilterLevel) {
                 fSampleProc16 = SI8_D16_nofilter_DX_mips_dsp;
                 fShaderProc16 = NULL;
                 if (isOpaque) {

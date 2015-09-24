@@ -4,6 +4,7 @@
 
 #include "ppapi/proxy/ppb_graphics_3d_proxy.h"
 
+#include "base/numerics/safe_conversions.h"
 #include "gpu/command_buffer/client/gles2_implementation.h"
 #include "gpu/command_buffer/common/command_buffer.h"
 #include "ppapi/c/pp_errors.h"
@@ -28,13 +29,14 @@ namespace {
 const int32 kCommandBufferSize = 1024 * 1024;
 const int32 kTransferBufferSize = 1024 * 1024;
 
+#if !defined(OS_NACL)
 base::SharedMemoryHandle TransportSHMHandle(
     Dispatcher* dispatcher,
     const base::SharedMemoryHandle& handle) {
-  base::PlatformFile source = IPC::PlatformFileForTransitToPlatformFile(handle);
   // Don't close the handle, it doesn't belong to us.
-  return dispatcher->ShareHandleWithRemote(source, false);
+  return dispatcher->ShareSharedMemoryHandleWithRemote(handle);
 }
+#endif  // !defined(OS_NACL)
 
 gpu::CommandBuffer::State GetErrorState() {
   gpu::CommandBuffer::State error_state;
@@ -237,7 +239,7 @@ void PPB_Graphics3D_Proxy::OnMsgCreate(PP_Instance instance,
   if (!enter.succeeded())
     return;
 
-  base::SharedMemoryHandle handle = IPC::InvalidPlatformFileForTransit();
+  base::SharedMemoryHandle handle = base::SharedMemory::NULLHandle();
   result->SetHostResource(
       instance,
       enter.functions()->CreateGraphics3DRaw(instance,
@@ -313,7 +315,7 @@ void PPB_Graphics3D_Proxy::OnMsgCreateTransferBuffer(
     DCHECK(backing && backing->shared_memory());
     transfer_buffer->set_shmem(
         TransportSHMHandle(dispatcher(), backing->shared_memory()->handle()),
-        buffer->size());
+        base::checked_cast<uint32_t>(buffer->size()));
   } else {
     *id = -1;
   }
@@ -378,4 +380,3 @@ void PPB_Graphics3D_Proxy::SendSwapBuffersACKToPlugin(
 
 }  // namespace proxy
 }  // namespace ppapi
-

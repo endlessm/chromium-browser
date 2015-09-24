@@ -1,9 +1,6 @@
-/* crypto/objects/obj_mac.h */
-
 /* THIS FILE IS GENERATED FROM objects.txt by objects.pl via the
  * following command:
- * perl objects.pl objects.txt obj_mac.num obj_mac.h
- */
+ * perl objects.pl objects.txt obj_mac.num ../../include/openssl/obj_mac.h */
 
 /* Copyright (C) 1995-1997 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
@@ -2354,7 +2351,7 @@
 #define OBJ_delta_crl		OBJ_id_ce,27L
 
 #define SN_issuing_distribution_point		"issuingDistributionPoint"
-#define LN_issuing_distribution_point		"X509v3 Issuing Distrubution Point"
+#define LN_issuing_distribution_point		"X509v3 Issuing Distribution Point"
 #define NID_issuing_distribution_point		770
 #define OBJ_issuing_distribution_point		OBJ_id_ce,28L
 
@@ -2578,11 +2575,6 @@
 #define LN_id_hex_multipart_message		"id-hex-multipart-message"
 #define NID_id_hex_multipart_message		508
 #define OBJ_id_hex_multipart_message		OBJ_mime_mhs_headings,2L
-
-#define SN_rle_compression		"RLE"
-#define LN_rle_compression		"run length compression"
-#define NID_rle_compression		124
-#define OBJ_rle_compression		1L,1L,1L,1L,666L,1L
 
 #define SN_zlib_compression		"ZLIB"
 #define LN_zlib_compression		"zlib compression"
@@ -4101,48 +4093,48 @@
 #define OBJ_secg_scheme		OBJ_certicom_arc,1L
 
 #define SN_dhSinglePass_stdDH_sha1kdf_scheme		"dhSinglePass-stdDH-sha1kdf-scheme"
-#define NID_dhSinglePass_stdDH_sha1kdf_scheme		939
+#define NID_dhSinglePass_stdDH_sha1kdf_scheme		936
 #define OBJ_dhSinglePass_stdDH_sha1kdf_scheme		OBJ_x9_63_scheme,2L
 
 #define SN_dhSinglePass_stdDH_sha224kdf_scheme		"dhSinglePass-stdDH-sha224kdf-scheme"
-#define NID_dhSinglePass_stdDH_sha224kdf_scheme		940
+#define NID_dhSinglePass_stdDH_sha224kdf_scheme		937
 #define OBJ_dhSinglePass_stdDH_sha224kdf_scheme		OBJ_secg_scheme,11L,0L
 
 #define SN_dhSinglePass_stdDH_sha256kdf_scheme		"dhSinglePass-stdDH-sha256kdf-scheme"
-#define NID_dhSinglePass_stdDH_sha256kdf_scheme		941
+#define NID_dhSinglePass_stdDH_sha256kdf_scheme		938
 #define OBJ_dhSinglePass_stdDH_sha256kdf_scheme		OBJ_secg_scheme,11L,1L
 
 #define SN_dhSinglePass_stdDH_sha384kdf_scheme		"dhSinglePass-stdDH-sha384kdf-scheme"
-#define NID_dhSinglePass_stdDH_sha384kdf_scheme		942
+#define NID_dhSinglePass_stdDH_sha384kdf_scheme		939
 #define OBJ_dhSinglePass_stdDH_sha384kdf_scheme		OBJ_secg_scheme,11L,2L
 
 #define SN_dhSinglePass_stdDH_sha512kdf_scheme		"dhSinglePass-stdDH-sha512kdf-scheme"
-#define NID_dhSinglePass_stdDH_sha512kdf_scheme		943
+#define NID_dhSinglePass_stdDH_sha512kdf_scheme		940
 #define OBJ_dhSinglePass_stdDH_sha512kdf_scheme		OBJ_secg_scheme,11L,3L
 
 #define SN_dhSinglePass_cofactorDH_sha1kdf_scheme		"dhSinglePass-cofactorDH-sha1kdf-scheme"
-#define NID_dhSinglePass_cofactorDH_sha1kdf_scheme		944
+#define NID_dhSinglePass_cofactorDH_sha1kdf_scheme		941
 #define OBJ_dhSinglePass_cofactorDH_sha1kdf_scheme		OBJ_x9_63_scheme,3L
 
 #define SN_dhSinglePass_cofactorDH_sha224kdf_scheme		"dhSinglePass-cofactorDH-sha224kdf-scheme"
-#define NID_dhSinglePass_cofactorDH_sha224kdf_scheme		945
+#define NID_dhSinglePass_cofactorDH_sha224kdf_scheme		942
 #define OBJ_dhSinglePass_cofactorDH_sha224kdf_scheme		OBJ_secg_scheme,14L,0L
 
 #define SN_dhSinglePass_cofactorDH_sha256kdf_scheme		"dhSinglePass-cofactorDH-sha256kdf-scheme"
-#define NID_dhSinglePass_cofactorDH_sha256kdf_scheme		946
+#define NID_dhSinglePass_cofactorDH_sha256kdf_scheme		943
 #define OBJ_dhSinglePass_cofactorDH_sha256kdf_scheme		OBJ_secg_scheme,14L,1L
 
 #define SN_dhSinglePass_cofactorDH_sha384kdf_scheme		"dhSinglePass-cofactorDH-sha384kdf-scheme"
-#define NID_dhSinglePass_cofactorDH_sha384kdf_scheme		947
+#define NID_dhSinglePass_cofactorDH_sha384kdf_scheme		944
 #define OBJ_dhSinglePass_cofactorDH_sha384kdf_scheme		OBJ_secg_scheme,14L,2L
 
 #define SN_dhSinglePass_cofactorDH_sha512kdf_scheme		"dhSinglePass-cofactorDH-sha512kdf-scheme"
-#define NID_dhSinglePass_cofactorDH_sha512kdf_scheme		948
+#define NID_dhSinglePass_cofactorDH_sha512kdf_scheme		945
 #define OBJ_dhSinglePass_cofactorDH_sha512kdf_scheme		OBJ_secg_scheme,14L,3L
 
 #define SN_dh_std_kdf		"dh-std-kdf"
-#define NID_dh_std_kdf		949
+#define NID_dh_std_kdf		946
 
 #define SN_dh_cofactor_kdf		"dh-cofactor-kdf"
-#define NID_dh_cofactor_kdf		950
+#define NID_dh_cofactor_kdf		947
 

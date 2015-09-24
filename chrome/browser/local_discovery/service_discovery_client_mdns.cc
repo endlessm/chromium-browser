@@ -4,8 +4,11 @@
 
 #include "chrome/browser/local_discovery/service_discovery_client_mdns.h"
 
+#include "base/location.h"
 #include "base/memory/scoped_vector.h"
 #include "base/metrics/histogram.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/common/local_discovery/service_discovery_client_impl.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/dns/mdns_client.h"
@@ -24,12 +27,12 @@ class ServiceDiscoveryClientMdns::Proxy {
   explicit Proxy(ServiceDiscoveryClientMdns* client)
       : client_(client),
         weak_ptr_factory_(this) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     client_->proxies_.AddObserver(this);
   }
 
   virtual ~Proxy() {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     client_->proxies_.RemoveObserver(this);
   }
 
@@ -52,7 +55,7 @@ class ServiceDiscoveryClientMdns::Proxy {
   // Runs callback using this method to abort callback if instance of |Proxy|
   // is deleted.
   void RunCallback(const base::Closure& callback) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     callback.Run();
   }
 
@@ -92,9 +95,9 @@ class ServiceDiscoveryClientMdns::Proxy {
 
  private:
   scoped_refptr<ServiceDiscoveryClientMdns> client_;
-  base::WeakPtrFactory<Proxy> weak_ptr_factory_;
   // Delayed |mdns_runner_| tasks.
   std::vector<base::Closure> delayed_tasks_;
+  base::WeakPtrFactory<Proxy> weak_ptr_factory_;
   DISALLOW_COPY_AND_ASSIGN(Proxy);
 };
 
@@ -145,15 +148,15 @@ class ProxyBase : public ServiceDiscoveryClientMdns::Proxy, public T {
       : Proxy(client) {
   }
 
-  virtual ~ProxyBase() {
+  ~ProxyBase() override {
     DeleteOnMdnsThread(implementation_.release());
   }
 
-  virtual bool IsValid() override {
+  bool IsValid() override {
     return !!implementation();
   }
 
-  virtual void OnMdnsDestroy() override {
+  void OnMdnsDestroy() override {
     DeleteOnMdnsThread(implementation_.release());
   };
 
@@ -318,7 +321,7 @@ ServiceDiscoveryClientMdns::ServiceDiscoveryClientMdns()
       restart_attempts_(0),
       need_dalay_mdns_tasks_(true),
       weak_ptr_factory_(this) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   net::NetworkChangeNotifier::AddNetworkChangeObserver(this);
   StartNewClient();
 }
@@ -326,7 +329,7 @@ ServiceDiscoveryClientMdns::ServiceDiscoveryClientMdns()
 scoped_ptr<ServiceWatcher> ServiceDiscoveryClientMdns::CreateServiceWatcher(
     const std::string& service_type,
     const ServiceWatcher::UpdatedCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   return scoped_ptr<ServiceWatcher>(
       new ServiceWatcherProxy(this, service_type, callback));
 }
@@ -334,7 +337,7 @@ scoped_ptr<ServiceWatcher> ServiceDiscoveryClientMdns::CreateServiceWatcher(
 scoped_ptr<ServiceResolver> ServiceDiscoveryClientMdns::CreateServiceResolver(
     const std::string& service_name,
     const ServiceResolver::ResolveCompleteCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   return scoped_ptr<ServiceResolver>(
       new ServiceResolverProxy(this, service_name, callback));
 }
@@ -344,42 +347,41 @@ ServiceDiscoveryClientMdns::CreateLocalDomainResolver(
     const std::string& domain,
     net::AddressFamily address_family,
     const LocalDomainResolver::IPAddressCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   return scoped_ptr<LocalDomainResolver>(
       new LocalDomainResolverProxy(this, domain, address_family, callback));
 }
 
 ServiceDiscoveryClientMdns::~ServiceDiscoveryClientMdns() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   net::NetworkChangeNotifier::RemoveNetworkChangeObserver(this);
   DestroyMdns();
 }
 
 void ServiceDiscoveryClientMdns::OnNetworkChanged(
     net::NetworkChangeNotifier::ConnectionType type) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   // Only network changes resets counter.
   restart_attempts_ = 0;
   ScheduleStartNewClient();
 }
 
 void ServiceDiscoveryClientMdns::ScheduleStartNewClient() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   OnBeforeMdnsDestroy();
   if (restart_attempts_ < kMaxRestartAttempts) {
-    base::MessageLoop::current()->PostDelayedTask(
-        FROM_HERE,
-        base::Bind(&ServiceDiscoveryClientMdns::StartNewClient,
-                   weak_ptr_factory_.GetWeakPtr()),
-        base::TimeDelta::FromSeconds(
-            kRestartDelayOnNetworkChangeSeconds * (1 << restart_attempts_)));
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE, base::Bind(&ServiceDiscoveryClientMdns::StartNewClient,
+                              weak_ptr_factory_.GetWeakPtr()),
+        base::TimeDelta::FromSeconds(kRestartDelayOnNetworkChangeSeconds *
+                                     (1 << restart_attempts_)));
   } else {
     ReportSuccess();
   }
 }
 
 void ServiceDiscoveryClientMdns::StartNewClient() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   ++restart_attempts_;
   DestroyMdns();
   mdns_.reset(net::MDnsClient::CreateDefault().release());
@@ -404,7 +406,7 @@ void ServiceDiscoveryClientMdns::OnInterfaceListReady(
 }
 
 void ServiceDiscoveryClientMdns::OnMdnsInitialized(bool success) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (!success) {
     ScheduleStartNewClient();
     return;
@@ -417,7 +419,7 @@ void ServiceDiscoveryClientMdns::OnMdnsInitialized(bool success) {
 }
 
 void ServiceDiscoveryClientMdns::ReportSuccess() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   UMA_HISTOGRAM_COUNTS_100("LocalDiscovery.ClientRestartAttempts",
                            restart_attempts_);
 }

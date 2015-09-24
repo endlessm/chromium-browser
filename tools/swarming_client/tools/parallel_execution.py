@@ -4,11 +4,12 @@
 
 """Toolset to run multiple Swarming tasks in parallel."""
 
-import datetime
 import getpass
+import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -22,10 +23,6 @@ from utils import threading_utils
 from utils import tools
 
 
-def timestamp():
-  return datetime.datetime.utcnow().isoformat().split('.', 1)[0]
-
-
 def task_to_name(name, dimensions, isolated_hash):
   """Returns a task name the same way swarming.py generates them."""
   return '%s/%s/%s' % (
@@ -34,16 +31,8 @@ def task_to_name(name, dimensions, isolated_hash):
       isolated_hash)
 
 
-def unique_task_to_name(name, dimensions, isolated_hash, now):
-  """Returns a task name that is guaranteed to be unique."""
-  return '%s/%s/%s' % (
-      getpass.getuser(),
-      task_to_name(name, dimensions, isolated_hash),
-      now)
-
-
 def capture(cmd):
-  assert all(isinstance(i, str) for i in cmd), cmd
+  assert all(isinstance(i, basestring) for i in cmd), cmd
   start = time.time()
   p = subprocess.Popen(
       [sys.executable] + cmd, cwd=ROOT_DIR, stdout=subprocess.PIPE)
@@ -53,19 +42,29 @@ def capture(cmd):
 
 def trigger(swarming_server, isolate_server, task_name, isolated_hash, args):
   """Triggers a specified .isolated file."""
-  cmd = [
-    'swarming.py', 'trigger',
-    '--swarming', swarming_server,
-    '--isolate-server', isolate_server,
-    '--task-name', task_name,
-    isolated_hash,
-  ]
-  return capture(cmd + args)
+  fd, jsonfile = tempfile.mkstemp(prefix=u'swarming')
+  os.close(fd)
+  try:
+    cmd = [
+      'swarming.py', 'trigger',
+      '--swarming', swarming_server,
+      '--isolate-server', isolate_server,
+      '--task-name', task_name,
+      '--dump-json', jsonfile,
+      isolated_hash,
+    ]
+    returncode, out, duration = capture(cmd + args)
+    with open(jsonfile) as f:
+      data = json.load(f)
+    task_id = str(data['tasks'][task_name]['task_id'])
+    return returncode, out, duration, task_id
+  finally:
+    os.remove(jsonfile)
 
 
-def collect(swarming_server, task_name):
+def collect(swarming_server, task_id):
   """Collects results of a swarming task."""
-  cmd = ['swarming.py', 'collect', '--swarming', swarming_server, task_name]
+  cmd = ['swarming.py', 'collect', '--swarming', swarming_server, task_id]
   return capture(cmd)
 
 
@@ -82,7 +81,7 @@ class Runner(object):
 
   def trigger(self, task_name, isolated_hash, dimensions):
     args = sum((['--dimension', k, v] for k, v in dimensions.iteritems()), [])
-    returncode, stdout, duration = trigger(
+    returncode, stdout, duration, task_id = trigger(
         self.swarming_server,
         self.isolate_server,
         task_name,
@@ -94,10 +93,10 @@ class Runner(object):
       self.progress.update_item(line, index=1)
       return
     self.progress.update_item('Triggered %s' % step_name, index=1)
-    self.add_task(0, self.collect, task_name, dimensions)
+    self.add_task(0, self.collect, task_name, task_id, dimensions)
 
-  def collect(self, task_name, dimensions):
-    returncode, stdout, duration = collect(self.swarming_server, task_name)
+  def collect(self, task_name, task_id, dimensions):
+    returncode, stdout, duration = collect(self.swarming_server, task_id)
     step_name = '%s (%3.2fs)' % (task_name, duration)
     if returncode:
       # Only print the output for failures, successes are unexciting.
@@ -160,7 +159,7 @@ class OptionParser(tools.OptionParserWithLogging):
         '-S', '--swarming',
         metavar='URL', default=os.environ.get('SWARMING_SERVER', ''),
         help='Swarming server to use')
-    isolateserver.add_isolate_server_options(self.server_group, False)
+    isolateserver.add_isolate_server_options(self.server_group)
     self.add_option_group(self.server_group)
     auth.add_auth_options(self)
     self.add_option(
@@ -171,7 +170,7 @@ class OptionParser(tools.OptionParserWithLogging):
         '--priority', type='int',
         help='The lower value, the more important the task is. It may be '
             'important to specify a higher priority since the default value '
-            'will make the task to be triggered only when the slaves are idle.')
+            'will make the task to be triggered only when the bots are idle.')
     self.add_option(
         '--deadline', type='int', default=6*60*60,
         help='Seconds to allow the task to be pending for a bot to run before '
@@ -184,7 +183,7 @@ class OptionParser(tools.OptionParserWithLogging):
     if not options.swarming:
       self.error('--swarming is required.')
     auth.process_auth_options(self, options)
-    isolateserver.process_isolate_server_options(self, options)
+    isolateserver.process_isolate_server_options(self, options, False)
     options.dimensions = dict(options.dimensions)
     return options, args
 

@@ -9,6 +9,7 @@
 
 #include "ash/ash_switches.h"
 #include "ash/display/display_controller.h"
+#include "ash/ime/input_method_event_handler.h"
 #include "ash/shell.h"
 #include "ash/shell/toplevel_window.h"
 #include "ash/test/ash_test_helper.h"
@@ -29,7 +30,7 @@
 #include "ui/base/ime/input_method_initializer.h"
 #include "ui/events/gesture_detection/gesture_configuration.h"
 #include "ui/gfx/display.h"
-#include "ui/gfx/point.h"
+#include "ui/gfx/geometry/point.h"
 #include "ui/gfx/screen.h"
 #include "ui/wm/core/coordinate_conversion.h"
 
@@ -134,9 +135,14 @@ void AshTestBase::SetUp() {
   Shell::GetPrimaryRootWindow()->MoveCursorTo(gfx::Point(-1000, -1000));
   ash::Shell::GetInstance()->cursor_manager()->EnableMouseEvents();
 
-  // Changing GestureConfiguration shouldn't make tests fail.
-  ui::GestureConfiguration::GetInstance()
-      ->set_max_touch_move_in_pixels_for_click(5);
+  // Changing GestureConfiguration shouldn't make tests fail. These values
+  // prevent unexpected events from being generated during tests. Such as
+  // delayed events which create race conditions on slower tests.
+  ui::GestureConfiguration* gesture_config =
+      ui::GestureConfiguration::GetInstance();
+  gesture_config->set_max_touch_down_duration_for_click_in_ms(800);
+  gesture_config->set_long_press_time_in_ms(1000);
+  gesture_config->set_max_touch_move_in_pixels_for_click(5);
 
 #if defined(OS_WIN)
   if (!command_line->HasSwitch(ash::switches::kForceAshToDesktop)) {
@@ -146,7 +152,7 @@ void AshTestBase::SetUp() {
       options.message_loop_type = base::MessageLoop::TYPE_IO;
       ipc_thread_->StartWithOptions(options);
       metro_viewer_host_.reset(
-          new TestMetroViewerProcessHost(ipc_thread_->message_loop_proxy()));
+          new TestMetroViewerProcessHost(ipc_thread_->task_runner()));
       CHECK(metro_viewer_host_->LaunchViewerAndWaitForConnection(
           win8::test::kDefaultTestAppUserModelId));
       aura::RemoteWindowTreeHostWin* window_tree_host =
@@ -160,6 +166,7 @@ void AshTestBase::SetUp() {
 
 void AshTestBase::TearDown() {
   teardown_called_ = true;
+  Shell::GetInstance()->OnAppTerminating();
   // Flush the message loop to finish pending release tasks.
   RunAllPendingInMessageLoop();
 
@@ -196,6 +203,17 @@ ui::test::EventGenerator& AshTestBase::GetEventGenerator() {
   return *event_generator_.get();
 }
 
+gfx::Display::Rotation AshTestBase::GetActiveDisplayRotation(int64 id) {
+  return Shell::GetInstance()
+      ->display_manager()
+      ->GetDisplayInfo(id)
+      .GetActiveRotation();
+}
+
+gfx::Display::Rotation AshTestBase::GetCurrentInternalDisplayRotation() {
+  return GetActiveDisplayRotation(gfx::Display::InternalDisplayId());
+}
+
 bool AshTestBase::SupportsMultipleDisplays() {
   return AshTestHelper::SupportsMultipleDisplays();
 }
@@ -205,9 +223,10 @@ bool AshTestBase::SupportsHostWindowResize() {
 }
 
 void AshTestBase::UpdateDisplay(const std::string& display_specs) {
-  DisplayManagerTestApi display_manager_test_api(
-      Shell::GetInstance()->display_manager());
+  DisplayManager* display_manager = Shell::GetInstance()->display_manager();
+  DisplayManagerTestApi display_manager_test_api(display_manager);
   display_manager_test_api.UpdateDisplay(display_specs);
+  display_manager->RunPendingTasksForTest();
 }
 
 aura::Window* AshTestBase::CurrentContext() {
@@ -246,7 +265,7 @@ aura::Window* AshTestBase::CreateTestWindowInShellWithDelegateAndType(
   aura::Window* window = new aura::Window(delegate);
   window->set_id(id);
   window->SetType(type);
-  window->Init(aura::WINDOW_LAYER_TEXTURED);
+  window->Init(ui::LAYER_TEXTURED);
   window->Show();
 
   if (bounds.IsEmpty()) {
@@ -285,28 +304,33 @@ TestSystemTrayDelegate* AshTestBase::GetSystemTrayDelegate() {
 }
 
 void AshTestBase::SetSessionStarted(bool session_started) {
-  ash_test_helper_->test_shell_delegate()->test_session_state_delegate()->
-      SetActiveUserSessionStarted(session_started);
+  AshTestHelper::GetTestSessionStateDelegate()->SetActiveUserSessionStarted(
+      session_started);
+}
+
+void AshTestBase::SetSessionStarting() {
+  AshTestHelper::GetTestSessionStateDelegate()->set_session_state(
+      SessionStateDelegate::SESSION_STATE_ACTIVE);
 }
 
 void AshTestBase::SetUserLoggedIn(bool user_logged_in) {
-  ash_test_helper_->test_shell_delegate()->test_session_state_delegate()->
-      SetHasActiveUser(user_logged_in);
+  AshTestHelper::GetTestSessionStateDelegate()->SetHasActiveUser(
+      user_logged_in);
 }
 
 void AshTestBase::SetCanLockScreen(bool can_lock_screen) {
-  ash_test_helper_->test_shell_delegate()->test_session_state_delegate()->
-      SetCanLockScreen(can_lock_screen);
+  AshTestHelper::GetTestSessionStateDelegate()->SetCanLockScreen(
+      can_lock_screen);
 }
 
 void AshTestBase::SetShouldLockScreenBeforeSuspending(bool should_lock) {
-  ash_test_helper_->test_shell_delegate()->test_session_state_delegate()->
-      SetShouldLockScreenBeforeSuspending(should_lock);
+  AshTestHelper::GetTestSessionStateDelegate()
+      ->SetShouldLockScreenBeforeSuspending(should_lock);
 }
 
 void AshTestBase::SetUserAddingScreenRunning(bool user_adding_screen_running) {
-  ash_test_helper_->test_shell_delegate()->test_session_state_delegate()->
-      SetUserAddingScreenRunning(user_adding_screen_running);
+  AshTestHelper::GetTestSessionStateDelegate()->SetUserAddingScreenRunning(
+      user_adding_screen_running);
 }
 
 void AshTestBase::BlockUserSession(UserSessionBlockReason block_reason) {
@@ -315,6 +339,7 @@ void AshTestBase::BlockUserSession(UserSessionBlockReason block_reason) {
       SetSessionStarted(true);
       SetUserAddingScreenRunning(false);
       Shell::GetInstance()->session_state_delegate()->LockScreen();
+      Shell::GetInstance()->OnLockStateChanged(true);
       break;
     case BLOCKED_BY_LOGIN_SCREEN:
       SetUserAddingScreenRunning(false);
@@ -336,6 +361,10 @@ void AshTestBase::UnblockUserSession() {
   SetUserAddingScreenRunning(false);
 }
 
+void AshTestBase::DisableIME() {
+  Shell::GetInstance()->RemovePreTargetHandler(
+      Shell::GetInstance()->display_controller()->input_method_event_handler());
+}
 
 }  // namespace test
 }  // namespace ash

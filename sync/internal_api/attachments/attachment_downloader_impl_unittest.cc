@@ -8,6 +8,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/test/histogram_tester.h"
 #include "base/thread_task_runner_handle.h"
 #include "google_apis/gaia/fake_oauth2_token_service.h"
 #include "google_apis/gaia/gaia_constants.h"
@@ -16,7 +17,10 @@
 #include "net/url_request/url_request_test_util.h"
 #include "sync/api/attachments/attachment.h"
 #include "sync/internal_api/public/attachments/attachment_uploader_impl.h"
+#include "sync/internal_api/public/attachments/attachment_util.h"
+#include "sync/internal_api/public/base/model_type.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/leveldatabase/src/util/crc32c.h"
 
 namespace syncer {
 
@@ -26,6 +30,8 @@ const char kAccountId[] = "attachments@gmail.com";
 const char kAccessToken[] = "access.token";
 const char kAttachmentServerUrl[] = "http://attachments.com/";
 const char kAttachmentContent[] = "attachment.content";
+const char kStoreBirthday[] = "z00000000-0000-007b-0000-0000000004d2";
+const syncer::ModelType kModelType = syncer::ModelType::ARTICLES;
 
 // MockOAuth2TokenService remembers last request for access token and verifies
 // that only one request is active at a time.
@@ -48,10 +54,10 @@ class MockOAuth2TokenService : public FakeOAuth2TokenService {
                         const std::string& client_secret,
                         const ScopeSet& scopes) override;
 
-  void InvalidateOAuth2Token(const std::string& account_id,
-                             const std::string& client_id,
-                             const ScopeSet& scopes,
-                             const std::string& access_token) override;
+  void InvalidateAccessTokenImpl(const std::string& account_id,
+                                 const std::string& client_id,
+                                 const ScopeSet& scopes,
+                                 const std::string& access_token) override;
 
  private:
   base::WeakPtr<RequestImpl> last_request_;
@@ -88,7 +94,7 @@ void MockOAuth2TokenService::FetchOAuth2Token(
   last_request_ = request->AsWeakPtr();
 }
 
-void MockOAuth2TokenService::InvalidateOAuth2Token(
+void MockOAuth2TokenService::InvalidateAccessTokenImpl(
     const std::string& account_id,
     const std::string& client_id,
     const ScopeSet& scopes,
@@ -146,16 +152,23 @@ class AttachmentDownloaderImplTest : public testing::Test {
     HASH_HEADER_INVALID
   };
 
-  AttachmentDownloaderImplTest() : num_completed_downloads_(0) {}
+  AttachmentDownloaderImplTest()
+      : num_completed_downloads_(0),
+        attachment_id_(
+            Attachment::Create(new base::RefCountedStaticMemory(
+                                   kAttachmentContent,
+                                   strlen(kAttachmentContent))).GetId()) {}
 
-  virtual void SetUp() override;
-  virtual void TearDown() override;
+  void SetUp() override;
+  void TearDown() override;
 
   AttachmentDownloader* downloader() { return attachment_downloader_.get(); }
 
   MockOAuth2TokenService* token_service() { return token_service_.get(); }
 
   int num_completed_downloads() { return num_completed_downloads_; }
+
+  const AttachmentId attachment_id() const { return attachment_id_; }
 
   AttachmentDownloader::DownloadCallback download_callback(
       const AttachmentId& id) {
@@ -187,11 +200,12 @@ class AttachmentDownloaderImplTest : public testing::Test {
   scoped_ptr<AttachmentDownloader> attachment_downloader_;
   ResultsMap download_results_;
   int num_completed_downloads_;
+  const AttachmentId attachment_id_;
 };
 
 void AttachmentDownloaderImplTest::SetUp() {
   url_request_context_getter_ =
-      new net::TestURLRequestContextGetter(message_loop_.message_loop_proxy());
+      new net::TestURLRequestContextGetter(message_loop_.task_runner());
   url_fetcher_factory_.set_remove_fetcher_on_delete(true);
   token_service_.reset(new MockOAuth2TokenService());
   token_service_->AddAccount(kAccountId);
@@ -200,12 +214,9 @@ void AttachmentDownloaderImplTest::SetUp() {
 
   OAuth2TokenService::ScopeSet scopes;
   scopes.insert(GaiaConstants::kChromeSyncOAuth2Scope);
-  attachment_downloader_ =
-      AttachmentDownloader::Create(GURL(kAttachmentServerUrl),
-                                   url_request_context_getter_,
-                                   kAccountId,
-                                   scopes,
-                                   token_service_provider);
+  attachment_downloader_ = AttachmentDownloader::Create(
+      GURL(kAttachmentServerUrl), url_request_context_getter_, kAccountId,
+      scopes, token_service_provider, std::string(kStoreBirthday), kModelType);
 }
 
 void AttachmentDownloaderImplTest::TearDown() {
@@ -278,8 +289,8 @@ void AttachmentDownloaderImplTest::AddHashHeader(
     case HASH_HEADER_NONE:
       break;
     case HASH_HEADER_VALID:
-      header += AttachmentUploaderImpl::ComputeCrc32cHash(
-          kAttachmentContent, strlen(kAttachmentContent));
+      header += AttachmentUploaderImpl::FormatCrc32cHash(leveldb::crc32c::Value(
+          kAttachmentContent, strlen(kAttachmentContent)));
       headers->AddHeader(header);
       break;
     case HASH_HEADER_INVALID:
@@ -291,7 +302,7 @@ void AttachmentDownloaderImplTest::AddHashHeader(
 }
 
 TEST_F(AttachmentDownloaderImplTest, HappyCase) {
-  AttachmentId id1 = AttachmentId::Create();
+  AttachmentId id1 = attachment_id();
   // DownloadAttachment should trigger RequestAccessToken.
   downloader()->DownloadAttachment(id1, download_callback(id1));
   RunMessageLoop();
@@ -299,14 +310,20 @@ TEST_F(AttachmentDownloaderImplTest, HappyCase) {
   token_service()->RespondToAccessTokenRequest(
       GoogleServiceAuthError::AuthErrorNone());
   RunMessageLoop();
+  // Catch histogram entries.
+  base::HistogramTester histogram_tester;
   // Check that there is outstanding URLFetcher request and complete it.
   CompleteDownload(net::HTTP_OK, HASH_HEADER_VALID);
+  // Verify that the response code was logged properly.
+  histogram_tester.ExpectUniqueSample("Sync.Attachments.DownloadResponseCode",
+                                      net::HTTP_OK, 1);
   // Verify that callback was called for the right id with the right result.
   VerifyDownloadResult(id1, AttachmentDownloader::DOWNLOAD_SUCCESS);
 }
 
 TEST_F(AttachmentDownloaderImplTest, SameIdMultipleDownloads) {
-  AttachmentId id1 = AttachmentId::Create();
+  AttachmentId id1 = attachment_id();
+  base::HistogramTester histogram_tester;
   // Call DownloadAttachment two times for the same id.
   downloader()->DownloadAttachment(id1, download_callback(id1));
   downloader()->DownloadAttachment(id1, download_callback(id1));
@@ -337,11 +354,13 @@ TEST_F(AttachmentDownloaderImplTest, SameIdMultipleDownloads) {
   // Verify that all download requests completed.
   VerifyDownloadResult(id1, AttachmentDownloader::DOWNLOAD_SUCCESS);
   EXPECT_EQ(4, num_completed_downloads());
+  histogram_tester.ExpectUniqueSample("Sync.Attachments.DownloadResponseCode",
+                                      net::HTTP_OK, 2);
 }
 
 TEST_F(AttachmentDownloaderImplTest, RequestAccessTokenFails) {
-  AttachmentId id1 = AttachmentId::Create();
-  AttachmentId id2 = AttachmentId::Create();
+  AttachmentId id1 = attachment_id();
+  AttachmentId id2 = AttachmentId::Create(id1.GetSize(), id1.GetCrc32c());
   // Trigger first RequestAccessToken.
   downloader()->DownloadAttachment(id1, download_callback(id1));
   RunMessageLoop();
@@ -364,7 +383,7 @@ TEST_F(AttachmentDownloaderImplTest, RequestAccessTokenFails) {
 }
 
 TEST_F(AttachmentDownloaderImplTest, URLFetcher_BadToken) {
-  AttachmentId id1 = AttachmentId::Create();
+  AttachmentId id1 = attachment_id();
   downloader()->DownloadAttachment(id1, download_callback(id1));
   RunMessageLoop();
   // Return valid access token.
@@ -373,13 +392,16 @@ TEST_F(AttachmentDownloaderImplTest, URLFetcher_BadToken) {
   RunMessageLoop();
   // Fail URLFetcher. This should trigger download failure and access token
   // invalidation.
+  base::HistogramTester histogram_tester;
   CompleteDownload(net::HTTP_UNAUTHORIZED, HASH_HEADER_VALID);
   EXPECT_EQ(1, token_service()->num_invalidate_token());
   VerifyDownloadResult(id1, AttachmentDownloader::DOWNLOAD_TRANSIENT_ERROR);
+  histogram_tester.ExpectUniqueSample("Sync.Attachments.DownloadResponseCode",
+                                      net::HTTP_UNAUTHORIZED, 1);
 }
 
 TEST_F(AttachmentDownloaderImplTest, URLFetcher_ServiceUnavailable) {
-  AttachmentId id1 = AttachmentId::Create();
+  AttachmentId id1 = attachment_id();
   downloader()->DownloadAttachment(id1, download_callback(id1));
   RunMessageLoop();
   // Return valid access token.
@@ -388,15 +410,18 @@ TEST_F(AttachmentDownloaderImplTest, URLFetcher_ServiceUnavailable) {
   RunMessageLoop();
   // Fail URLFetcher. This should trigger download failure. Access token
   // shouldn't be invalidated.
+  base::HistogramTester histogram_tester;
   CompleteDownload(net::HTTP_SERVICE_UNAVAILABLE, HASH_HEADER_VALID);
   EXPECT_EQ(0, token_service()->num_invalidate_token());
   VerifyDownloadResult(id1, AttachmentDownloader::DOWNLOAD_TRANSIENT_ERROR);
+  histogram_tester.ExpectUniqueSample("Sync.Attachments.DownloadResponseCode",
+                                      net::HTTP_SERVICE_UNAVAILABLE, 1);
 }
 
 // Verify that if no hash is present on the response the downloader accepts the
 // received attachment.
 TEST_F(AttachmentDownloaderImplTest, NoHash) {
-  AttachmentId id1 = AttachmentId::Create();
+  AttachmentId id1 = attachment_id();
   downloader()->DownloadAttachment(id1, download_callback(id1));
   RunMessageLoop();
   token_service()->RespondToAccessTokenRequest(
@@ -409,7 +434,7 @@ TEST_F(AttachmentDownloaderImplTest, NoHash) {
 // Verify that if an invalid hash is present on the response the downloader
 // treats it as a transient error.
 TEST_F(AttachmentDownloaderImplTest, InvalidHash) {
-  AttachmentId id1 = AttachmentId::Create();
+  AttachmentId id1 = attachment_id();
   downloader()->DownloadAttachment(id1, download_callback(id1));
   RunMessageLoop();
   token_service()->RespondToAccessTokenRequest(
@@ -419,6 +444,26 @@ TEST_F(AttachmentDownloaderImplTest, InvalidHash) {
   VerifyDownloadResult(id1, AttachmentDownloader::DOWNLOAD_TRANSIENT_ERROR);
 }
 
+// Verify that when the hash from the attachment id does not match the one on
+// the response the result is an unspecified error.
+TEST_F(AttachmentDownloaderImplTest, IdHashDoesNotMatch) {
+  // id1 has the wrong crc32c.
+  AttachmentId id1 = AttachmentId::Create(attachment_id().GetSize(), 12345);
+  downloader()->DownloadAttachment(id1, download_callback(id1));
+  RunMessageLoop();
+  token_service()->RespondToAccessTokenRequest(
+      GoogleServiceAuthError::AuthErrorNone());
+  RunMessageLoop();
+  CompleteDownload(net::HTTP_OK, HASH_HEADER_VALID);
+  VerifyDownloadResult(id1, AttachmentDownloader::DOWNLOAD_UNSPECIFIED_ERROR);
+}
+
+
+// Verify that extract fails when there is no headers object.
+TEST_F(AttachmentDownloaderImplTest, ExtractCrc32c_NoHeaders) {
+  uint32_t extracted;
+  ASSERT_FALSE(AttachmentDownloaderImpl::ExtractCrc32c(nullptr, &extracted));
+}
 
 // Verify that extract fails when there is no crc32c value.
 TEST_F(AttachmentDownloaderImplTest, ExtractCrc32c_Empty) {
@@ -430,29 +475,48 @@ TEST_F(AttachmentDownloaderImplTest, ExtractCrc32c_Empty) {
   std::replace(raw.begin(), raw.end(), '\n', '\0');
   scoped_refptr<net::HttpResponseHeaders> headers(
       new net::HttpResponseHeaders(raw));
-  std::string extracted;
-  ASSERT_FALSE(AttachmentDownloaderImpl::ExtractCrc32c(*headers, &extracted));
+  uint32_t extracted;
+  ASSERT_FALSE(
+      AttachmentDownloaderImpl::ExtractCrc32c(headers.get(), &extracted));
 }
 
 // Verify that extract finds the first crc32c and ignores others.
 TEST_F(AttachmentDownloaderImplTest, ExtractCrc32c_First) {
-  const std::string expected = "z8SuHQ==";
+  const std::string expected_encoded = "z8SuHQ==";
+  const uint32_t expected = 3485773341;
   std::string raw;
   raw += "HTTP/1.1 200 OK\n";
   raw += "Foo: bar\n";
   // Ignored because it's the wrong header.
   raw += "X-Goog-Hashes: crc32c=AAAAAA==\n";
   // Header name matches.  The md5 item is ignored.
-  raw += "X-Goog-HASH: md5=rL0Y20zC+Fzt72VPzMSk2A==,crc32c=" + expected + "\n";
+  raw += "X-Goog-HASH: md5=rL0Y20zC+Fzt72VPzMSk2A==,crc32c=" +
+         expected_encoded + "\n";
   // Ignored because we already found a crc32c in the one above.
   raw += "X-Goog-HASH: crc32c=AAAAAA==\n";
   raw += "\n";
   std::replace(raw.begin(), raw.end(), '\n', '\0');
   scoped_refptr<net::HttpResponseHeaders> headers(
       new net::HttpResponseHeaders(raw));
-  std::string extracted;
-  ASSERT_TRUE(AttachmentDownloaderImpl::ExtractCrc32c(*headers, &extracted));
+  uint32_t extracted;
+  ASSERT_TRUE(
+      AttachmentDownloaderImpl::ExtractCrc32c(headers.get(), &extracted));
   ASSERT_EQ(expected, extracted);
+}
+
+// Verify that extract fails when encoded value is too long.
+TEST_F(AttachmentDownloaderImplTest, ExtractCrc32c_TooLong) {
+  std::string raw;
+  raw += "HTTP/1.1 200 OK\n";
+  raw += "Foo: bar\n";
+  raw += "X-Goog-HASH: crc32c=AAAAAAAA\n";
+  raw += "\n";
+  std::replace(raw.begin(), raw.end(), '\n', '\0');
+  scoped_refptr<net::HttpResponseHeaders> headers(
+      new net::HttpResponseHeaders(raw));
+  uint32_t extracted;
+  ASSERT_FALSE(
+      AttachmentDownloaderImpl::ExtractCrc32c(headers.get(), &extracted));
 }
 
 // Verify that extract fails if there is no crc32c.
@@ -465,8 +529,9 @@ TEST_F(AttachmentDownloaderImplTest, ExtractCrc32c_None) {
   std::replace(raw.begin(), raw.end(), '\n', '\0');
   scoped_refptr<net::HttpResponseHeaders> headers(
       new net::HttpResponseHeaders(raw));
-  std::string extracted;
-  ASSERT_FALSE(AttachmentDownloaderImpl::ExtractCrc32c(*headers, &extracted));
+  uint32_t extracted;
+  ASSERT_FALSE(
+      AttachmentDownloaderImpl::ExtractCrc32c(headers.get(), &extracted));
 }
 
 }  // namespace syncer

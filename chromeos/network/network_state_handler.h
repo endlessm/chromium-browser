@@ -77,7 +77,7 @@ class CHROMEOS_EXPORT NetworkStateHandler
     TECHNOLOGY_ENABLED
   };
 
-  virtual ~NetworkStateHandler();
+  ~NetworkStateHandler() override;
 
   // Add/remove observers.
   void AddObserver(NetworkStateHandlerObserver* observer,
@@ -191,14 +191,6 @@ class CHROMEOS_EXPORT NetworkStateHandler
   // list, which will trigger the appropriate observer calls.
   void RequestScan() const;
 
-  // Requests a scan if not scanning and runs |callback| when the Scanning state
-  // for any Device of network type |type| completes.
-  void WaitForScan(const std::string& type, const base::Closure& callback);
-
-  // Requests a network scan then signals Shill to connect to the best available
-  // wifi network when completed.
-  void ConnectToBestWifiNetwork();
-
   // Requests an update for an existing NetworkState, e.g. after configuring
   // a network. This is a no-op if an update request is already pending. To
   // ensure that a change is picked up, this must be called after Shill
@@ -232,6 +224,10 @@ class CHROMEOS_EXPORT NetworkStateHandler
     return default_network_path_;
   }
 
+  // Sets the |last_error_| property of the matching NetworkState for tests.
+  void SetLastErrorForTest(const std::string& service_path,
+                           const std::string& error);
+
   // Constructs and initializes an instance for testing.
   static NetworkStateHandler* InitializeForTest();
 
@@ -247,35 +243,33 @@ class CHROMEOS_EXPORT NetworkStateHandler
 
   // This adds new entries to |network_list_| or |device_list_| and deletes any
   // entries that are no longer in the list.
-  virtual void UpdateManagedList(ManagedState::ManagedType type,
-                                 const base::ListValue& entries) override;
+  void UpdateManagedList(ManagedState::ManagedType type,
+                         const base::ListValue& entries) override;
 
   // The list of profiles changed (i.e. a user has logged in). Re-request
   // properties for all services since they may have changed.
-  virtual void ProfileListChanged() override;
+  void ProfileListChanged() override;
 
   // Parses the properties for the network service or device. Mostly calls
   // managed->PropertyChanged(key, value) for each dictionary entry.
-  virtual void UpdateManagedStateProperties(
+  void UpdateManagedStateProperties(
       ManagedState::ManagedType type,
       const std::string& path,
       const base::DictionaryValue& properties) override;
 
   // Called by ShillPropertyHandler when a watched service property changes.
-  virtual void UpdateNetworkServiceProperty(
-      const std::string& service_path,
-      const std::string& key,
-      const base::Value& value) override;
+  void UpdateNetworkServiceProperty(const std::string& service_path,
+                                    const std::string& key,
+                                    const base::Value& value) override;
 
   // Called by ShillPropertyHandler when a watched device property changes.
-  virtual void UpdateDeviceProperty(
-      const std::string& device_path,
-      const std::string& key,
-      const base::Value& value) override;
+  void UpdateDeviceProperty(const std::string& device_path,
+                            const std::string& key,
+                            const base::Value& value) override;
 
   // Called by ShillPropertyHandler when a watched network or device
   // IPConfig property changes.
-  virtual void UpdateIPConfigProperties(
+  void UpdateIPConfigProperties(
       ManagedState::ManagedType type,
       const std::string& path,
       const std::string& ip_config_path,
@@ -283,30 +277,25 @@ class CHROMEOS_EXPORT NetworkStateHandler
 
   // Called by ShillPropertyHandler when the portal check list manager property
   // changes.
-  virtual void CheckPortalListChanged(
-      const std::string& check_portal_list) override;
+  void CheckPortalListChanged(const std::string& check_portal_list) override;
 
   // Called by ShillPropertyHandler when a technology list changes.
-  virtual void TechnologyListChanged() override;
+  void TechnologyListChanged() override;
 
   // Called by |shill_property_handler_| when the service or device list has
   // changed and all entries have been updated. This updates the list and
   // notifies observers.
-  virtual void ManagedStateListChanged(
-      ManagedState::ManagedType type) override;
+  void ManagedStateListChanged(ManagedState::ManagedType type) override;
 
   // Called when the default network service changes. Sets default_network_path_
   // and notifies listeners.
-  virtual void DefaultNetworkServiceChanged(
-      const std::string& service_path) override;
+  void DefaultNetworkServiceChanged(const std::string& service_path) override;
 
   // Called after construction. Called explicitly by tests after adding
   // test observers.
   void InitShillPropertyHandler();
 
  private:
-  typedef std::list<base::Closure> ScanCallbackList;
-  typedef std::map<std::string, ScanCallbackList> ScanCompleteCallbackMap;
   typedef std::map<std::string, std::string> SpecifierGuidMap;
   friend class NetworkStateHandlerTest;
   FRIEND_TEST_ALL_PREFIXES(NetworkStateHandlerTest, NetworkStateHandlerStub);
@@ -359,7 +348,7 @@ class CHROMEOS_EXPORT NetworkStateHandler
   void NotifyDevicePropertiesUpdated(const DeviceState* device);
 
   // Called whenever Device.Scanning state transitions to false.
-  void ScanCompleted(const std::string& type);
+  void NotifyScanCompleted(const DeviceState* device);
 
   // Returns one technology type for |type|. This technology will be the
   // highest priority technology in the type pattern.
@@ -373,7 +362,7 @@ class CHROMEOS_EXPORT NetworkStateHandler
   scoped_ptr<internal::ShillPropertyHandler> shill_property_handler_;
 
   // Observer list
-  ObserverList<NetworkStateHandlerObserver> observers_;
+  base::ObserverList<NetworkStateHandlerObserver> observers_;
 
   // List of managed network states
   ManagedStateList network_list_;
@@ -390,9 +379,6 @@ class CHROMEOS_EXPORT NetworkStateHandler
 
   // List of interfaces on which portal check is enabled.
   std::string check_portal_list_;
-
-  // Callbacks to run when a scan for the technology type completes.
-  ScanCompleteCallbackMap scan_complete_callbacks_;
 
   // Map of network specifiers to guids. Contains an entry for each
   // NetworkState that is not saved in a profile.

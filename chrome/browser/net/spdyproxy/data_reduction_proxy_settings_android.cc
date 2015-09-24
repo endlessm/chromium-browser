@@ -6,21 +6,20 @@
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
-#include "chrome/browser/net/spdyproxy/data_reduction_proxy_chrome_configurator.h"
 #include "chrome/browser/net/spdyproxy/data_reduction_proxy_chrome_settings.h"
 #include "chrome/browser/net/spdyproxy/data_reduction_proxy_chrome_settings_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/pref_names.h"
+#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_metrics.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_settings.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_usage_stats.h"
-#include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
 #include "jni/DataReductionProxySettings_jni.h"
+#include "net/proxy/proxy_server.h"
+#include "url/gurl.h"
 
 
 using base::android::ConvertUTF8ToJavaString;
 using base::android::ScopedJavaLocalRef;
-using data_reduction_proxy::DataReductionProxyParams;
 using data_reduction_proxy::DataReductionProxySettings;
 
 DataReductionProxySettingsAndroid::DataReductionProxySettingsAndroid() {
@@ -31,23 +30,17 @@ DataReductionProxySettingsAndroid::~DataReductionProxySettingsAndroid() {
 
 jboolean DataReductionProxySettingsAndroid::IsDataReductionProxyAllowed(
     JNIEnv* env, jobject obj) {
-  return Settings()->params()->allowed();
+  return Settings()->Allowed();
 }
 
 jboolean DataReductionProxySettingsAndroid::IsDataReductionProxyPromoAllowed(
     JNIEnv* env, jobject obj) {
-  return Settings()->params()->promo_allowed();
+  return Settings()->PromoAllowed();
 }
 
 jboolean DataReductionProxySettingsAndroid::IsIncludedInAltFieldTrial(
     JNIEnv* env, jobject obj) {
-  return DataReductionProxyParams::IsIncludedInAlternativeFieldTrial();
-}
-
-ScopedJavaLocalRef<jstring>
-DataReductionProxySettingsAndroid::GetDataReductionProxyOrigin(
-    JNIEnv* env, jobject obj) {
-  return ConvertUTF8ToJavaString(env, Settings()->params()->origin().spec());
+  return false;
 }
 
 jboolean DataReductionProxySettingsAndroid::IsDataReductionProxyEnabled(
@@ -55,9 +48,35 @@ jboolean DataReductionProxySettingsAndroid::IsDataReductionProxyEnabled(
   return Settings()->IsDataReductionProxyEnabled();
 }
 
+jboolean DataReductionProxySettingsAndroid::CanUseDataReductionProxy(
+    JNIEnv* env, jobject obj, jstring url) {
+  return Settings()->CanUseDataReductionProxy(
+      GURL(base::android::ConvertJavaStringToUTF16(env, url)));
+}
+
+jboolean DataReductionProxySettingsAndroid::WasLoFiModeActiveOnMainFrame(
+    JNIEnv* env, jobject obj) {
+  return Settings()->WasLoFiModeActiveOnMainFrame();
+}
+
+jboolean DataReductionProxySettingsAndroid::WasLoFiLoadImageRequestedBefore(
+    JNIEnv* env, jobject obj) {
+  return Settings()->WasLoFiLoadImageRequestedBefore();
+}
+
+void DataReductionProxySettingsAndroid::SetLoFiLoadImageRequested(
+    JNIEnv* env, jobject obj) {
+  Settings()->SetLoFiLoadImageRequested();
+}
+
 jboolean DataReductionProxySettingsAndroid::IsDataReductionProxyManaged(
     JNIEnv* env, jobject obj) {
   return Settings()->IsDataReductionProxyManaged();
+}
+
+void DataReductionProxySettingsAndroid::IncrementLoFiUserRequestsForImages(
+    JNIEnv* env, jobject obj) {
+  Settings()->IncrementLoFiUserRequestsForImages();
 }
 
 void DataReductionProxySettingsAndroid::SetDataReductionProxyEnabled(
@@ -110,8 +129,7 @@ jboolean DataReductionProxySettingsAndroid::IsDataReductionProxyUnreachable(
 
 // static
 bool DataReductionProxySettingsAndroid::Register(JNIEnv* env) {
-  bool register_natives_impl_result = RegisterNativesImpl(env);
-  return register_natives_impl_result;
+  return RegisterNativesImpl(env);
 }
 
 ScopedJavaLocalRef<jlongArray>
@@ -120,7 +138,7 @@ DataReductionProxySettingsAndroid::GetDailyContentLengths(
   jlongArray result = env->NewLongArray(
       data_reduction_proxy::kNumDaysInHistory);
 
-  DataReductionProxySettings::ContentLengthList lengths  =
+ data_reduction_proxy::ContentLengthList lengths  =
       Settings()->GetDailyContentLengths(pref_name);
 
   if (!lengths.empty()) {

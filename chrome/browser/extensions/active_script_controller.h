@@ -68,6 +68,8 @@ class ActiveScriptController : public content::WebContentsObserver,
   // run.
   bool WantsToRun(const Extension* extension);
 
+  int num_page_requests() const { return num_page_requests_; }
+
 #if defined(UNIT_TEST)
   // Only used in tests.
   PermissionsData::AccessType RequiresUserConsentForScriptInjectionForTesting(
@@ -117,7 +119,8 @@ class ActiveScriptController : public content::WebContentsObserver,
   void LogUMA() const;
 
   // content::WebContentsObserver implementation.
-  bool OnMessageReceived(const IPC::Message& message) override;
+  bool OnMessageReceived(const IPC::Message& message,
+                         content::RenderFrameHost* render_frame_host) override;
   void DidNavigateMainFrame(
       const content::LoadCommittedDetails& details,
       const content::FrameNavigateParams& params) override;
@@ -127,13 +130,17 @@ class ActiveScriptController : public content::WebContentsObserver,
                            const Extension* extension,
                            UnloadedExtensionInfo::Reason reason) override;
 
+  // The total number of requests from the renderer on the current page,
+  // including any that are pending or were immediately granted.
+  // Right now, used only in tests.
+  int num_page_requests_;
+
   // The associated browser context.
   content::BrowserContext* browser_context_;
 
-  // Whether or not the ActiveScriptController is enabled (corresponding to the
-  // kActiveScriptEnforcement switch). If it is not, it acts as an empty shell,
-  // always allowing scripts to run and never displaying actions.
-  bool enabled_;
+  // Whether or not the feature was used for any extensions. This may not be the
+  // case if the user never enabled the scripts-require-action flag.
+  bool was_used_on_page_;
 
   // The map of extension_id:pending_request of all pending requests.
   PendingRequestMap pending_requests_;

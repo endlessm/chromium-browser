@@ -8,10 +8,12 @@ import android.content.Context;
 import android.os.IBinder;
 import android.os.ResultReceiver;
 import android.test.suitebuilder.annotation.MediumTest;
+import android.test.suitebuilder.annotation.SmallTest;
 import android.text.Editable;
 import android.text.Selection;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
 
 import org.chromium.base.test.util.Feature;
@@ -43,6 +45,23 @@ public class AdapterInputConnectionTest extends ContentShellTestBase {
         mEditable = Editable.Factory.getInstance().newEditable("");
         mConnection = new AdapterInputConnection(
                 getContentViewCore().getContainerView(), mImeAdapter, mEditable, info);
+    }
+
+    @SmallTest
+    @Feature({"TextInput", "Main"})
+    public void testAdjustLengthBeforeAndAfterSelection() throws Throwable {
+        final String ga = "\uAC00";
+        final String smiley = "\uD83D\uDE0A"; // multi character codepoint
+
+        // No need to adjust length.
+        assertFalse(AdapterInputConnection.isIndexBetweenUtf16SurrogatePair("a", 0));
+        assertFalse(AdapterInputConnection.isIndexBetweenUtf16SurrogatePair(ga, 0));
+        assertFalse(AdapterInputConnection.isIndexBetweenUtf16SurrogatePair("aa", 1));
+        assertFalse(AdapterInputConnection.isIndexBetweenUtf16SurrogatePair("a" + smiley + "a", 1));
+
+        // Needs to adjust length.
+        assertTrue(AdapterInputConnection.isIndexBetweenUtf16SurrogatePair(smiley, 1));
+        assertTrue(AdapterInputConnection.isIndexBetweenUtf16SurrogatePair(smiley + "a", 1));
     }
 
     @MediumTest
@@ -112,9 +131,25 @@ public class AdapterInputConnectionTest extends ContentShellTestBase {
         assertEquals(2, mImeAdapter.getKeyEvents().length);
     }
 
+    @MediumTest
+    @Feature({"TextInput", "Main"})
+    public void testNewConnectionFinishesComposingText() throws Throwable {
+        mConnection.setComposingText("abc", 1);
+        assertEquals(0, BaseInputConnection.getComposingSpanStart(mEditable));
+        assertEquals(3, BaseInputConnection.getComposingSpanEnd(mEditable));
+
+        mConnection = new AdapterInputConnection(
+                getContentViewCore().getContainerView(), mImeAdapter, mEditable, new EditorInfo());
+
+        assertEquals(1, mImeAdapter.mFinishComposingTextCounter);
+        assertEquals(-1, BaseInputConnection.getComposingSpanStart(mEditable));
+        assertEquals(-1, BaseInputConnection.getComposingSpanEnd(mEditable));
+    }
+
     private static class TestImeAdapter extends ImeAdapter {
         private final ArrayList<Integer> mKeyEventQueue = new ArrayList<Integer>();
         private int mDeleteSurroundingTextCounter;
+        private int mFinishComposingTextCounter;
 
         public TestImeAdapter(InputMethodManagerWrapper wrapper, ImeAdapterDelegate embedder) {
             super(wrapper, embedder);
@@ -129,6 +164,12 @@ public class AdapterInputConnectionTest extends ContentShellTestBase {
         @Override
         public void sendKeyEventWithKeyCode(int keyCode, int flags) {
             mKeyEventQueue.add(keyCode);
+        }
+
+        @Override
+        protected void finishComposingText() {
+            ++mFinishComposingTextCounter;
+            super.finishComposingText();
         }
 
         public int getDeleteSurroundingTextCallCount() {
@@ -190,7 +231,12 @@ public class AdapterInputConnectionTest extends ContentShellTestBase {
         public void onImeEvent() {}
 
         @Override
-        public void onDismissInput() {}
+        public void onKeyboardBoundsUnchanged() {}
+
+        @Override
+        public boolean performContextMenuAction(int id) {
+            return false;
+        }
 
         @Override
         public View getAttachedView() {

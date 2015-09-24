@@ -47,31 +47,30 @@ class VPNConfigView : public ChildNetworkConfigView,
                       public CertLibrary::Observer {
  public:
   VPNConfigView(NetworkConfigView* parent, const std::string& service_path);
-  virtual ~VPNConfigView();
+  ~VPNConfigView() override;
 
   // views::TextfieldController:
-  virtual void ContentsChanged(views::Textfield* sender,
-                               const base::string16& new_contents) override;
-  virtual bool HandleKeyEvent(views::Textfield* sender,
-                              const ui::KeyEvent& key_event) override;
+  void ContentsChanged(views::Textfield* sender,
+                       const base::string16& new_contents) override;
+  bool HandleKeyEvent(views::Textfield* sender,
+                      const ui::KeyEvent& key_event) override;
 
   // views::ButtonListener:
-  virtual void ButtonPressed(views::Button* sender,
-                             const ui::Event& event) override;
+  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
   // views::ComboboxListener:
-  virtual void OnPerformAction(views::Combobox* combobox) override;
+  void OnPerformAction(views::Combobox* combobox) override;
 
   // CertLibrary::Observer:
-  virtual void OnCertificatesLoaded(bool initial_load) override;
+  void OnCertificatesLoaded(bool initial_load) override;
 
   // ChildNetworkConfigView:
-  virtual base::string16 GetTitle() const override;
-  virtual views::View* GetInitiallyFocusedView() override;
-  virtual bool CanLogin() override;
-  virtual bool Login() override;
-  virtual void Cancel() override;
-  virtual void InitFocus() override;
+  base::string16 GetTitle() const override;
+  views::View* GetInitiallyFocusedView() override;
+  bool CanLogin() override;
+  bool Login() override;
+  void Cancel() override;
+  void InitFocus() override;
 
  private:
   // Initializes data members and create UI controls.
@@ -147,6 +146,7 @@ class VPNConfigView : public ChildNetworkConfigView,
   bool enable_server_ca_cert_;
   bool enable_otp_;
   bool enable_group_name_;
+  bool user_passphrase_required_;
 
   NetworkPropertyUIData ca_cert_ui_data_;
   NetworkPropertyUIData psk_passphrase_ui_data_;

@@ -240,7 +240,16 @@ struct nacl_irt_thread {
   int (*thread_nice)(const int nice);
 };
 
-/* The irt_futex interface is based on Linux's futex() system call. */
+/*
+ * The irt_futex interface is based on Linux's futex() system call.
+ *
+ * irt_futex provides process-private futexes, so futex wait queues are
+ * associated with numeric virtual addresses only.  This is equivalent to
+ * Linux's FUTEX_PRIVATE_FLAG.  If a page is mmap()'d twice, futex_wake()
+ * on one mapping will *not* wake a thread that is waiting on the other
+ * mapping with futex_wait_abs() -- futex wait queues are not associated
+ * with pages' identities.
+ */
 #define NACL_IRT_FUTEX_v0_1        "nacl-irt-futex-0.1"
 struct nacl_irt_futex {
   /*
@@ -339,7 +348,8 @@ struct nacl_irt_blockhook {
  * supported under PNaCl.  Also, open_resource() returns a file
  * descriptor, but it is the only interface in NaCl to do so inside
  * Chromium.  This is inconsistent with PPAPI, which does not expose
- * file descriptors (except in private/dev interfaces).
+ * file descriptors (except in private/dev interfaces).  See:
+ * https://code.google.com/p/nativeclient/issues/detail?id=3574
  */
 #define NACL_IRT_RESOURCE_OPEN_v0_1 "nacl-irt-resource-open-0.1"
 struct nacl_irt_resource_open {
@@ -412,6 +422,18 @@ struct nacl_irt_code_data_alloc {
                             uintptr_t data_offset,
                             size_t data_size,
                             uintptr_t *begin);
+};
+
+/*
+ * This interface is only available on ARM, only for Non-SFI Mode.
+ */
+#define NACL_IRT_ICACHE_v0_1 "nacl-irt-icache-0.1"
+struct nacl_irt_icache {
+  /*
+   * clear_cache() makes instruction cache and data cache for the address
+   * range from |addr| to |(intptr_t)addr + size| (exclusive) coherent.
+   */
+  int (*clear_cache)(void *addr, size_t size);
 };
 
 #if defined(__cplusplus)

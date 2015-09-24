@@ -5,7 +5,10 @@
 #include "components/webdata/common/web_data_request_manager.h"
 
 #include "base/bind.h"
+#include "base/location.h"
 #include "base/message_loop/message_loop.h"
+#include "base/profiler/scoped_tracker.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -110,16 +113,21 @@ void WebDataRequestManager::CancelRequest(WebDataServiceBase::Handle h) {
 void WebDataRequestManager::RequestCompleted(
     scoped_ptr<WebDataRequest> request) {
   base::MessageLoop* loop = request->GetMessageLoop();
-  loop->PostTask(FROM_HERE,
-                 base::Bind(&WebDataRequestManager::RequestCompletedOnThread,
-                            this,
-                            base::Passed(&request)));
+  loop->task_runner()->PostTask(
+      FROM_HERE, base::Bind(&WebDataRequestManager::RequestCompletedOnThread,
+                            this, base::Passed(&request)));
 }
 
 void WebDataRequestManager::RequestCompletedOnThread(
     scoped_ptr<WebDataRequest> request) {
   if (request->IsCancelled())
     return;
+
+  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/422460 is
+  // fixed.
+  tracked_objects::ScopedTracker tracking_profile1(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "422460 WebDataRequestManager::RequestCompletedOnThread::UpdateMap"));
   {
     base::AutoLock l(pending_lock_);
     RequestMap::iterator i = pending_requests_.find(request->GetHandle());
@@ -131,6 +139,13 @@ void WebDataRequestManager::RequestCompletedOnThread(
     // Take ownership of the request object and remove it from the map.
     pending_requests_.erase(i);
   }
+
+  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/422460 is
+  // fixed.
+  tracked_objects::ScopedTracker tracking_profile2(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "422460 "
+          "WebDataRequestManager::RequestCompletedOnThread::NotifyConsumer"));
 
   // Notify the consumer if needed.
   if (!request->IsCancelled()) {

@@ -101,7 +101,7 @@ public:
     {
     }
 
-    virtual void ConvertFromUTF16(const url::UTF16Char* input, int inputLength, url::CanonOutput* output) override
+    void ConvertFromUTF16(const url::UTF16Char* input, int inputLength, url::CanonOutput* output) override
     {
         CString encoded = m_encoding->normalizeAndEncode(String(input, inputLength), WTF::URLEncodedEntitiesForUnencodables);
         output->Append(encoded.data(), static_cast<int>(encoded.length()));
@@ -128,17 +128,35 @@ bool isValidProtocol(const String& protocol)
     return true;
 }
 
+void KURL::initialize()
+{
+    // This must be called before we create other threads to
+    // avoid racy static local initialization.
+    blankURL();
+}
+
 String KURL::strippedForUseAsReferrer() const
 {
-    if (protocolIsAbout() || protocolIs("data") || protocolIs("javascript"))
+    if (!protocolIsInHTTPFamily())
         return String();
 
-    if (m_parsed.username.is_nonempty() || m_parsed.password.is_nonempty() || m_parsed.ref.is_nonempty()) {
+    if (m_parsed.username.is_nonempty() || m_parsed.password.is_nonempty() || m_parsed.ref.is_valid()) {
         KURL referrer(*this);
         referrer.setUser(String());
         referrer.setPass(String());
         referrer.removeFragmentIdentifier();
         return referrer.string();
+    }
+    return string();
+}
+
+String KURL::strippedForUseAsHref() const
+{
+    if (m_parsed.username.is_nonempty() || m_parsed.password.is_nonempty()) {
+        KURL href(*this);
+        href.setUser(String());
+        href.setPass(String());
+        return href.string();
     }
     return string();
 }
@@ -246,6 +264,10 @@ KURL::KURL(const KURL& other)
 {
     if (other.m_innerURL.get())
         m_innerURL = adoptPtr(new KURL(other.m_innerURL->copy()));
+}
+
+KURL::~KURL()
+{
 }
 
 KURL& KURL::operator=(const KURL& other)
@@ -672,13 +694,6 @@ bool KURL::isHierarchical() const
         url::IsStandard(asURLChar8Subtle(m_string), m_parsed.scheme) :
         url::IsStandard(m_string.characters16(), m_parsed.scheme);
 }
-
-#ifndef NDEBUG
-void KURL::print() const
-{
-    printf("%s\n", m_string.utf8().data());
-}
-#endif
 
 bool equalIgnoringFragmentIdentifier(const KURL& a, const KURL& b)
 {

@@ -18,7 +18,7 @@
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_controller.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bubble_controller.h"
 #import "chrome/browser/ui/cocoa/browser_command_executor.h"
-#import "chrome/browser/ui/cocoa/fullscreen_exit_bubble_controller.h"
+#import "chrome/browser/ui/cocoa/exclusive_access_bubble_window_controller.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_strip_controller.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_window_controller.h"
 #import "chrome/browser/ui/cocoa/themed_window.h"
@@ -26,12 +26,13 @@
 #import "chrome/browser/ui/cocoa/view_resizer.h"
 #include "components/translate/core/common/translate_errors.h"
 #include "ui/base/accelerators/accelerator_manager.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
 @class AvatarBaseController;
 class Browser;
 class BrowserWindow;
 class BrowserWindowCocoa;
+@class BrowserWindowEnterFullscreenTransition;
 @class DevToolsController;
 @class DownloadShelfController;
 class ExtensionKeybindingRegistryCocoa;
@@ -81,8 +82,10 @@ class Command;
   base::scoped_nsobject<OverlayableContentsController>
       overlayableContentsController_;
   base::scoped_nsobject<PresentationModeController> presentationModeController_;
-  base::scoped_nsobject<FullscreenExitBubbleController>
-      fullscreenExitBubbleController_;
+  base::scoped_nsobject<ExclusiveAccessBubbleWindowController>
+      exclusiveAccessBubbleWindowController_;
+  base::scoped_nsobject<BrowserWindowEnterFullscreenTransition>
+      enterFullscreenTransition_;
 
   // Strong. StatusBubble is a special case of a strong reference that
   // we don't wrap in a scoped_ptr because it is acting the same
@@ -126,18 +129,10 @@ class Command;
   // Fullscreen API is not being used (or not available, before OS 10.7).
   base::scoped_nsobject<NSWindow> fullscreenWindow_;
 
-  // The Cocoa implementation of the PermissionBubbleView.
-  scoped_ptr<PermissionBubbleCocoa> permissionBubbleCocoa_;
-
   // True between |-windowWillEnterFullScreen:| and |-windowDidEnterFullScreen:|
   // to indicate that the window is in the process of transitioning into
   // AppKit fullscreen mode.
   BOOL enteringAppKitFullscreen_;
-
-  // Only adjust the tab strip once while entering fullscreen. See the
-  // implementation of -[BrowserWindowController updateSubviewZOrder:] for more
-  // details.
-  BOOL hasAdjustedTabStripWhileEnteringAppKitFullscreen_;
 
   // True between |enterImmersiveFullscreen| and |-windowDidEnterFullScreen:|
   // to indicate that the window is in the process of transitioning into
@@ -177,7 +172,7 @@ class Command;
   // fullscreen type, since we can't show the bubble until
   // -windowDidEnterFullScreen: gets called.
   GURL fullscreenUrl_;
-  FullscreenExitBubbleType fullscreenBubbleType_;
+  ExclusiveAccessBubbleType exclusiveAccessBubbleType_;
 
   // The Extension Command Registry used to determine which keyboard events to
   // handle.
@@ -196,13 +191,6 @@ class Command;
 // is a BWC, or the first controller in the parent-window chain that is a
 // BWC. This method returns nil if no window in the chain has a BWC.
 + (BrowserWindowController*)browserWindowControllerForView:(NSView*)view;
-
-// Helper method used to update the "Signin" menu item to reflect the current
-// signed in state. Class-level function as it's still required even when there
-// are no open browser windows.
-+ (void)updateSigninItem:(id)signinItem
-              shouldShow:(BOOL)showSigninMenuItem
-          currentProfile:(Profile*)profile;
 
 // Load the browser window nib and do any Cocoa-specific initialization.
 // Takes ownership of |browser|.
@@ -253,11 +241,19 @@ class Command;
 // restore any previous location bar state (such as user editing) as well.
 - (void)updateToolbarWithContents:(content::WebContents*)tab;
 
+// Resets the toolbar's tab state for |tab|.
+- (void)resetTabState:(content::WebContents*)tab;
+
 // Sets whether or not the current page in the frontmost tab is bookmarked.
 - (void)setStarredState:(BOOL)isStarred;
 
 // Sets whether or not the current page is translated.
 - (void)setCurrentPageIsTranslated:(BOOL)on;
+
+// Invoked via BrowserWindowCocoa::OnActiveTabChanged, happens whenever a
+// new tab becomes active.
+- (void)onActiveTabChanged:(content::WebContents*)oldContents
+                        to:(content::WebContents*)newContents;
 
 // Happens when the zoom level is changed in the active tab, the active tab is
 // changed, or a new browser window or tab is created. |canShowBubble| denotes
@@ -343,6 +339,9 @@ class Command;
                                 errorType:
                                     (translate::TranslateErrors::Type)errorType;
 
+// Dismiss the permission bubble
+- (void)dismissPermissionBubble;
+
 // Shows or hides the docked web inspector depending on |contents|'s state.
 - (void)updateDevToolsForContents:(content::WebContents*)contents;
 
@@ -352,11 +351,10 @@ class Command;
 // Gets the window style.
 - (ThemedWindowStyle)themedWindowStyle;
 
-// Returns the position in the coordinates of the root view
-// ([[self contentView] superview]) that the top left of a theme image with
-// |alignment| should be painted at. If the window does not have a tab strip,
-// the offset for THEME_IMAGE_ALIGN_WITH_FRAME is always returned. The result of
-// this method can be used in conjunction with
+// Returns the position in window coordinates that the top left of a theme
+// image with |alignment| should be painted at. If the window does not have a
+// tab strip, the offset for THEME_IMAGE_ALIGN_WITH_FRAME is always returned.
+// The result of this method can be used in conjunction with
 // [NSGraphicsContext cr_setPatternPhase:] to set the offset of pattern colors.
 - (NSPoint)themeImagePositionForAlignment:(ThemeImageAlignment)alignment;
 
@@ -501,13 +499,19 @@ class Command;
 // or exit Lion fullscreen mode.  Must not be called on Snow Leopard or earlier.
 - (void)handleLionToggleFullscreen;
 
-// Enters Canonical Fullscreen.
-- (void)enterFullscreenWithChrome;
+// Enters Browser/Appkit Fullscreen.
+// If |withToolbar| is NO, the tab strip and toolbar are hidden
+// (aka Presentation Mode).
+- (void)enterBrowserFullscreenWithToolbar:(BOOL)withToolbar;
+
+// Adds or removes the tab strip and toolbar from the current window. The
+// window must be in immersive or AppKit Fullscreen.
+- (void)updateFullscreenWithToolbar:(BOOL)withToolbar;
 
 // Updates the contents of the fullscreen exit bubble with |url| and
 // |bubbleType|.
 - (void)updateFullscreenExitBubbleURL:(const GURL&)url
-                           bubbleType:(FullscreenExitBubbleType)bubbleType;
+                           bubbleType:(ExclusiveAccessBubbleType)bubbleType;
 
 // Returns YES if the browser window is in or entering any fullscreen mode.
 - (BOOL)isInAnyFullscreenMode;
@@ -520,16 +524,13 @@ class Command;
 // the AppKit Fullscreen API.
 - (BOOL)isInAppKitFullscreen;
 
-// Enters presentation mode.
-- (void)enterPresentationMode;
-
 // Enter fullscreen for an extension.
 - (void)enterExtensionFullscreenForURL:(const GURL&)url
-                            bubbleType:(FullscreenExitBubbleType)bubbleType;
+                            bubbleType:(ExclusiveAccessBubbleType)bubbleType;
 
 // Enters Immersive Fullscreen for the given URL.
 - (void)enterWebContentFullscreenForURL:(const GURL&)url
-                             bubbleType:(FullscreenExitBubbleType)bubbleType;
+                             bubbleType:(ExclusiveAccessBubbleType)bubbleType;
 
 // Exits the current fullscreen mode.
 - (void)exitAnyFullscreen;
@@ -601,14 +602,11 @@ class Command;
                     to:(NSRect)target;
 
 // The fullscreen exit bubble controller, or nil if the bubble isn't showing.
-- (FullscreenExitBubbleController*)fullscreenExitBubbleController;
+- (ExclusiveAccessBubbleWindowController*)exclusiveAccessBubbleWindowController;
 
 // Gets the rect, in window base coordinates, that the omnibox popup should be
 // positioned relative to.
 - (NSRect)omniboxPopupAnchorRect;
-
-// Force a layout of info bars.
-- (void)layoutInfoBars;
 
 @end  // @interface BrowserWindowController (TestingAPI)
 

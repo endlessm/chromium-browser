@@ -15,12 +15,15 @@ class Rect;
 namespace ui {
 
 class CursorFactoryOzone;
-class NativeDisplayDelegate;
-class SurfaceFactoryOzone;
+class InputController;
 class GpuPlatformSupport;
 class GpuPlatformSupportHost;
+class NativeDisplayDelegate;
+class OverlayManagerOzone;
 class PlatformWindow;
 class PlatformWindowDelegate;
+class SurfaceFactoryOzone;
+class SystemInputInjector;
 
 // Base class for Ozone platform implementations.
 //
@@ -54,9 +57,12 @@ class OZONE_EXPORT OzonePlatform {
   // injected into the appropriate layer at startup. Subclasses should not
   // inject these objects themselves. Ownership is retained by OzonePlatform.
   virtual ui::SurfaceFactoryOzone* GetSurfaceFactoryOzone() = 0;
+  virtual ui::OverlayManagerOzone* GetOverlayManager() = 0;
   virtual ui::CursorFactoryOzone* GetCursorFactoryOzone() = 0;
+  virtual ui::InputController* GetInputController() = 0;
   virtual ui::GpuPlatformSupport* GetGpuPlatformSupport() = 0;
   virtual ui::GpuPlatformSupportHost* GetGpuPlatformSupportHost() = 0;
+  virtual scoped_ptr<SystemInputInjector> CreateSystemInputInjector() = 0;
   virtual scoped_ptr<PlatformWindow> CreatePlatformWindow(
       PlatformWindowDelegate* delegate,
       const gfx::Rect& bounds) = 0;

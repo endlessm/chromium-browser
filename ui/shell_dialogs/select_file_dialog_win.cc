@@ -14,8 +14,6 @@
 #include "base/files/file_util.h"
 #include "base/i18n/case_conversion.h"
 #include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
-#include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread.h"
 #include "base/tuple.h"
 #include "base/win/registry.h"
@@ -134,10 +132,9 @@ std::wstring FormatFilterForExtensions(
         // based on the unknown extension type (i.e. if the extension is .qqq,
         // the we create a description "QQQ File (.qqq)").
         include_all_files = true;
-        desc = l10n_util::GetStringFUTF16(
-            IDS_APP_SAVEAS_EXTENSION_FORMAT,
-            base::i18n::ToUpper(base::WideToUTF16(ext_name)),
-            ext_name);
+        desc = l10n_util::GetStringFUTF16(IDS_APP_SAVEAS_EXTENSION_FORMAT,
+                                          base::i18n::ToUpper(ext_name),
+                                          ext_name);
       }
       if (desc.empty())
         desc = L"*." + ext_name;
@@ -168,12 +165,12 @@ class SelectFileDialogImpl : public ui::SelectFileDialog,
       const base::Callback<bool(OPENFILENAME*)>& get_save_file_name_impl);
 
   // BaseShellDialog implementation:
-  virtual bool IsRunning(gfx::NativeWindow owning_window) const override;
-  virtual void ListenerDestroyed() override;
+  bool IsRunning(gfx::NativeWindow owning_window) const override;
+  void ListenerDestroyed() override;
 
  protected:
   // SelectFileDialog implementation:
-  virtual void SelectFileImpl(
+  void SelectFileImpl(
       Type type,
       const base::string16& title,
       const base::FilePath& default_path,
@@ -184,7 +181,7 @@ class SelectFileDialogImpl : public ui::SelectFileDialog,
       void* params) override;
 
  private:
-  virtual ~SelectFileDialogImpl();
+  ~SelectFileDialogImpl() override;
 
   // A struct for holding all the state necessary for displaying a Save dialog.
   struct ExecuteSelectParams {
@@ -203,7 +200,7 @@ class SelectFileDialogImpl : public ui::SelectFileDialog,
           file_type_index(file_type_index),
           default_extension(default_extension),
           run_state(run_state),
-          ui_proxy(base::MessageLoopForUI::current()->message_loop_proxy()),
+          ui_task_runner(base::MessageLoopForUI::current()->task_runner()),
           owner(owner),
           params(params) {
       if (file_types)
@@ -216,7 +213,7 @@ class SelectFileDialogImpl : public ui::SelectFileDialog,
     int file_type_index;
     std::wstring default_extension;
     RunState run_state;
-    scoped_refptr<base::MessageLoopProxy> ui_proxy;
+    scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner;
     HWND owner;
     void* params;
   };
@@ -289,7 +286,7 @@ class SelectFileDialogImpl : public ui::SelectFileDialog,
                                          LPARAM parameter,
                                          LPARAM data);
 
-  virtual bool HasMultipleFileTypeChoicesImpl() override;
+  bool HasMultipleFileTypeChoicesImpl() override;
 
   // Returns the filter to be used while displaying the open/save file dialog.
   // This is computed from the extensions for the file types being opened.
@@ -444,24 +441,21 @@ void SelectFileDialogImpl::ExecuteSelectFile(
     std::vector<base::FilePath> paths;
     if (RunOpenMultiFileDialog(params.title, filter,
                                params.run_state.owner, &paths)) {
-      params.ui_proxy->PostTask(
-          FROM_HERE,
-          base::Bind(&SelectFileDialogImpl::MultiFilesSelected, this, paths,
-                     params.params, params.run_state));
+      params.ui_task_runner->PostTask(
+          FROM_HERE, base::Bind(&SelectFileDialogImpl::MultiFilesSelected, this,
+                                paths, params.params, params.run_state));
       return;
     }
   }
 
   if (success) {
-      params.ui_proxy->PostTask(
-        FROM_HERE,
-        base::Bind(&SelectFileDialogImpl::FileSelected, this, path,
-                   filter_index, params.params, params.run_state));
+    params.ui_task_runner->PostTask(
+        FROM_HERE, base::Bind(&SelectFileDialogImpl::FileSelected, this, path,
+                              filter_index, params.params, params.run_state));
   } else {
-      params.ui_proxy->PostTask(
-        FROM_HERE,
-        base::Bind(&SelectFileDialogImpl::FileNotSelected, this, params.params,
-                   params.run_state));
+    params.ui_task_runner->PostTask(
+        FROM_HERE, base::Bind(&SelectFileDialogImpl::FileNotSelected, this,
+                              params.params, params.run_state));
   }
 }
 
@@ -516,12 +510,12 @@ bool SelectFileDialogImpl::SaveFileAsWithFilter(
   // Figure out what filter got selected. The filter index is 1-based.
   std::wstring filter_selected;
   if (*index > 0) {
-    std::vector<Tuple2<base::string16, base::string16> > filters =
+    std::vector<base::Tuple<base::string16, base::string16>> filters =
         ui::win::OpenFileName::GetFilters(save_as.GetOPENFILENAME());
     if (*index > filters.size())
       NOTREACHED() << "Invalid filter index.";
     else
-      filter_selected = filters[*index - 1].b;
+      filter_selected = base::get<1>(filters[*index - 1]);
   }
 
   // Get the extension that was suggested to the user (when the Save As dialog

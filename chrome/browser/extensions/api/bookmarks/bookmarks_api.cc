@@ -51,6 +51,9 @@
 #include "ui/aura/remote_window_tree_host_win.h"
 #endif
 
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
+
 namespace extensions {
 
 namespace keys = bookmark_api_constants;
@@ -177,16 +180,15 @@ const BookmarkNode* BookmarksFunction::CreateBookmarkNode(
   }
 
   const BookmarkNode* node;
-  if (url_string.length())
+  if (url_string.length()) {
     node = model->AddURLWithCreationTimeAndMetaInfo(
         parent, index, title, url, base::Time::Now(), meta_info);
-  else
+  } else {
     node = model->AddFolderWithMetaInfo(parent, index, title, meta_info);
-  DCHECK(node);
-  if (!node) {
-    error_ = keys::kNoNodeError;
-    return NULL;
+    model->SetDateFolderModified(parent, base::Time::Now());
   }
+
+  DCHECK(node);
 
   return node;
 }
@@ -209,7 +211,8 @@ bool BookmarksFunction::CanBeModified(const BookmarkNode* node) {
     return false;
   }
   ChromeBookmarkClient* client = GetChromeBookmarkClient();
-  if (client->IsDescendantOfManagedNode(node)) {
+  if (::bookmarks::IsDescendantOf(node, client->managed_node()) ||
+      ::bookmarks::IsDescendantOf(node, client->supervised_node())) {
     error_ = keys::kModifyManagedError;
     return false;
   }
@@ -255,8 +258,8 @@ void BookmarkEventRouter::DispatchEvent(
     scoped_ptr<base::ListValue> event_args) {
   EventRouter* event_router = EventRouter::Get(browser_context_);
   if (event_router) {
-    event_router->BroadcastEvent(
-        make_scoped_ptr(new extensions::Event(event_name, event_args.Pass())));
+    event_router->BroadcastEvent(make_scoped_ptr(new extensions::Event(
+        extensions::events::UNKNOWN, event_name, event_args.Pass())));
   }
 }
 
@@ -771,8 +774,7 @@ void BookmarksIOFunction::ShowSelectFileDialog(
   // either FileSelectionCanceled, MultiFilesSelected, or FileSelected
   AddRef();
 
-  WebContents* web_contents = dispatcher()->delegate()->
-      GetAssociatedWebContents();
+  WebContents* web_contents = GetAssociatedWebContents();
 
   select_file_dialog_ = ui::SelectFileDialog::Create(
       this, new ChromeSelectFilePolicy(web_contents));

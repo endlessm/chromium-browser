@@ -29,7 +29,7 @@ static const uint8 kFakeKeyId[] = { 0x4b, 0x65, 0x79, 0x20, 0x49, 0x44 };
 static const uint8 kFakeIv[DecryptConfig::kDecryptionKeySize] = { 0 };
 
 // Create a fake non-empty buffer in an encrypted stream. When |is_clear| is
-// ture, the buffer is not encrypted (signaled by an empty IV).
+// true, the buffer is not encrypted (signaled by an empty IV).
 static scoped_refptr<DecoderBuffer> CreateFakeEncryptedStreamBuffer(
     bool is_clear) {
   scoped_refptr<DecoderBuffer> buffer(new DecoderBuffer(kFakeBufferSize));
@@ -74,10 +74,13 @@ class DecryptingDemuxerStreamTest : public testing::Test {
  public:
   DecryptingDemuxerStreamTest()
       : demuxer_stream_(new DecryptingDemuxerStream(
-            message_loop_.message_loop_proxy(),
+            message_loop_.task_runner(),
+            new MediaLog(),
             base::Bind(
                 &DecryptingDemuxerStreamTest::RequestDecryptorNotification,
-                base::Unretained(this)))),
+                base::Unretained(this)),
+            base::Bind(&DecryptingDemuxerStreamTest::OnWaitingForDecryptionKey,
+                       base::Unretained(this)))),
         decryptor_(new StrictMock<MockDecryptor>()),
         is_decryptor_set_(false),
         input_audio_stream_(
@@ -86,8 +89,7 @@ class DecryptingDemuxerStreamTest : public testing::Test {
             new StrictMock<MockDemuxerStream>(DemuxerStream::VIDEO)),
         clear_buffer_(CreateFakeEncryptedStreamBuffer(true)),
         encrypted_buffer_(CreateFakeEncryptedStreamBuffer(false)),
-        decrypted_buffer_(new DecoderBuffer(kFakeBufferSize)) {
-  }
+        decrypted_buffer_(new DecoderBuffer(kFakeBufferSize)) {}
 
   virtual ~DecryptingDemuxerStreamTest() {
     if (is_decryptor_set_)
@@ -225,6 +227,7 @@ class DecryptingDemuxerStreamTest : public testing::Test {
     EXPECT_CALL(*decryptor_, Decrypt(_, encrypted_buffer_, _))
         .WillRepeatedly(RunCallback<2>(Decryptor::kNoKey,
                                        scoped_refptr<DecoderBuffer>()));
+    EXPECT_CALL(*this, OnWaitingForDecryptionKey());
     demuxer_stream_->Read(base::Bind(&DecryptingDemuxerStreamTest::BufferReady,
                                      base::Unretained(this)));
     message_loop_.RunUntilIdle();
@@ -259,6 +262,8 @@ class DecryptingDemuxerStreamTest : public testing::Test {
                                  const scoped_refptr<DecoderBuffer>&));
 
   MOCK_METHOD1(DecryptorSet, void(bool));
+
+  MOCK_METHOD0(OnWaitingForDecryptionKey, void(void));
 
   base::MessageLoop message_loop_;
   scoped_ptr<DecryptingDemuxerStream> demuxer_stream_;

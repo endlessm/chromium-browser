@@ -11,18 +11,9 @@
 #include "SkColor.h"
 #include "SkColorTable.h"
 #include "SkImageInfo.h"
+#include "SkPixmap.h"
 #include "SkPoint.h"
 #include "SkRefCnt.h"
-
-#ifdef SK_SUPPORT_LEGACY_ALLOCPIXELS_BOOL
-    #define SK_ALLOCPIXELS_RETURN_TYPE  bool
-    #define SK_ALLOCPIXELS_RETURN_TRUE  return true
-    #define SK_ALLOCPIXELS_RETURN_FAIL  return false
-#else
-    #define SK_ALLOCPIXELS_RETURN_TYPE  void
-    #define SK_ALLOCPIXELS_RETURN_TRUE  return
-    #define SK_ALLOCPIXELS_RETURN_FAIL  sk_throw()
-#endif
 
 struct SkMask;
 struct SkIRect;
@@ -82,6 +73,7 @@ public:
     int height() const { return fInfo.height(); }
     SkColorType colorType() const { return fInfo.colorType(); }
     SkAlphaType alphaType() const { return fInfo.alphaType(); }
+    SkColorProfileType profileType() const { return fInfo.profileType(); }
 
     /**
      *  Return the number of bytes per pixel based on the colortype. If the colortype is
@@ -233,12 +225,10 @@ public:
      */
     bool SK_WARN_UNUSED_RESULT tryAllocPixels(const SkImageInfo&, SkPixelRefFactory*, SkColorTable*);
 
-    SK_ALLOCPIXELS_RETURN_TYPE allocPixels(const SkImageInfo& info, SkPixelRefFactory* factory,
-                                           SkColorTable* ctable) {
+    void allocPixels(const SkImageInfo& info, SkPixelRefFactory* factory, SkColorTable* ctable) {
         if (!this->tryAllocPixels(info, factory, ctable)) {
-            SK_ALLOCPIXELS_RETURN_FAIL;
+            sk_throw();
         }
-        SK_ALLOCPIXELS_RETURN_TRUE;
     }
 
     /**
@@ -251,19 +241,18 @@ public:
      */
     bool SK_WARN_UNUSED_RESULT tryAllocPixels(const SkImageInfo& info, size_t rowBytes);
 
-    SK_ALLOCPIXELS_RETURN_TYPE allocPixels(const SkImageInfo& info, size_t rowBytes) {
+    void allocPixels(const SkImageInfo& info, size_t rowBytes) {
         if (!this->tryAllocPixels(info, rowBytes)) {
-            SK_ALLOCPIXELS_RETURN_FAIL;
+            sk_throw();
         }
-        SK_ALLOCPIXELS_RETURN_TRUE;
     }
 
     bool SK_WARN_UNUSED_RESULT tryAllocPixels(const SkImageInfo& info) {
         return this->tryAllocPixels(info, info.minRowBytes());
     }
 
-    SK_ALLOCPIXELS_RETURN_TYPE allocPixels(const SkImageInfo& info) {
-        return this->allocPixels(info, info.minRowBytes());
+    void allocPixels(const SkImageInfo& info) {
+        this->allocPixels(info, info.minRowBytes());
     }
 
     bool SK_WARN_UNUSED_RESULT tryAllocN32Pixels(int width, int height, bool isOpaque = false) {
@@ -271,19 +260,22 @@ public:
                                             isOpaque ? kOpaque_SkAlphaType : kPremul_SkAlphaType);
         return this->tryAllocPixels(info);
     }
-    
-    SK_ALLOCPIXELS_RETURN_TYPE allocN32Pixels(int width, int height, bool isOpaque = false) {
+
+    void allocN32Pixels(int width, int height, bool isOpaque = false) {
         SkImageInfo info = SkImageInfo::MakeN32(width, height,
                                             isOpaque ? kOpaque_SkAlphaType : kPremul_SkAlphaType);
-        return this->allocPixels(info);
+        this->allocPixels(info);
     }
-    
+
     /**
      *  Install a pixelref that wraps the specified pixels and rowBytes, and
      *  optional ReleaseProc and context. When the pixels are no longer
      *  referenced, if releaseProc is not null, it will be called with the
      *  pixels and context as parameters.
      *  On failure, the bitmap will be set to empty and return false.
+     *
+     *  If specified, the releaseProc will always be called, even on failure. It is also possible
+     *  for success but the releaseProc is immediately called (e.g. valid Info but NULL pixels).
      */
     bool installPixels(const SkImageInfo&, void* pixels, size_t rowBytes, SkColorTable*,
                        void (*releaseProc)(void* addr, void* context), void* context);
@@ -354,8 +346,8 @@ public:
         return this->tryAllocPixels(NULL, ctable);
     }
 
-    SK_ALLOCPIXELS_RETURN_TYPE allocPixels(SkColorTable* ctable = NULL) {
-        return this->allocPixels(NULL, ctable);
+    void allocPixels(SkColorTable* ctable = NULL) {
+        this->allocPixels(NULL, ctable);
     }
 
     /** Use the specified Allocator to create the pixelref that manages the
@@ -378,11 +370,10 @@ public:
     */
     bool SK_WARN_UNUSED_RESULT tryAllocPixels(Allocator* allocator, SkColorTable* ctable);
 
-    SK_ALLOCPIXELS_RETURN_TYPE allocPixels(Allocator* allocator, SkColorTable* ctable) {
+    void allocPixels(Allocator* allocator, SkColorTable* ctable) {
         if (!this->tryAllocPixels(allocator, ctable)) {
-            SK_ALLOCPIXELS_RETURN_FAIL;
+            sk_throw();
         }
-        SK_ALLOCPIXELS_RETURN_TRUE;
     }
 
     /**
@@ -441,6 +432,8 @@ public:
      */
     bool lockPixelsAreWritable() const;
 
+    bool requestLock(SkAutoPixmapUnlock* result) const;
+
     /** Call this to be sure that the bitmap is valid enough to be drawn (i.e.
         it has non-null pixels, and if required by its colortype, it has a
         non-null colortable. Returns true if all of the above are met.
@@ -480,10 +473,7 @@ public:
      *  of the color is ignored (treated as opaque). If the colortype only supports
      *  alpha (e.g. A1 or A8) then the color's r,g,b components are ignored.
      */
-    void eraseColor(SkColor c) const {
-        this->eraseARGB(SkColorGetA(c), SkColorGetR(c), SkColorGetG(c),
-                        SkColorGetB(c));
-    }
+    void eraseColor(SkColor c) const;
 
     /**
      *  Fill the entire bitmap with the specified color.
@@ -491,7 +481,9 @@ public:
      *  of the color is ignored (treated as opaque). If the colortype only supports
      *  alpha (e.g. A1 or A8) then the color's r,g,b components are ignored.
      */
-    void eraseARGB(U8CPU a, U8CPU r, U8CPU g, U8CPU b) const;
+    void eraseARGB(U8CPU a, U8CPU r, U8CPU g, U8CPU b) const {
+        this->eraseColor(SkColorSetARGB(a, r, g, b));
+    }
 
     SK_ATTR_DEPRECATED("use eraseARGB or eraseColor")
     void eraseRGB(U8CPU r, U8CPU g, U8CPU b) const {
@@ -504,29 +496,12 @@ public:
      *  of the color is ignored (treated as opaque). If the colortype only supports
      *  alpha (e.g. A1 or A8) then the color's r,g,b components are ignored.
      */
-    void eraseArea(const SkIRect& area, SkColor c) const;
+    void erase(SkColor c, const SkIRect& area) const;
 
-    /** Scroll (a subset of) the contents of this bitmap by dx/dy. If there are
-        no pixels allocated (i.e. getPixels() returns null) the method will
-        still update the inval region (if present). If the bitmap is immutable,
-        do nothing and return false.
-
-        @param subset The subset of the bitmap to scroll/move. To scroll the
-                      entire contents, specify [0, 0, width, height] or just
-                      pass null.
-        @param dx The amount to scroll in X
-        @param dy The amount to scroll in Y
-        @param inval Optional (may be null). Returns the area of the bitmap that
-                     was scrolled away. E.g. if dx = dy = 0, then inval would
-                     be set to empty. If dx >= width or dy >= height, then
-                     inval would be set to the entire bounds of the bitmap.
-        @return true if the scroll was doable. Will return false if the colortype is kUnkown or
-                     if the bitmap is immutable.
-                     If no pixels are present (i.e. getPixels() returns false)
-                     inval will still be updated, and true will be returned.
-    */
-    bool scrollRect(const SkIRect* subset, int dx, int dy,
-                    SkRegion* inval = NULL) const;
+    // DEPRECATED
+    void eraseArea(const SkIRect& area, SkColor c) const {
+        this->erase(c, area);
+    }
 
     /**
      *  Return the SkColor of the specified pixel.  In most cases this will
@@ -683,12 +658,21 @@ public:
     bool extractAlpha(SkBitmap* dst, const SkPaint* paint, Allocator* allocator,
                       SkIPoint* offset) const;
 
+    /**
+     *  If the pixels are available from this bitmap (w/o locking) return true, and fill out the
+     *  specified pixmap (if not null). If the pixels are not available (either because there are
+     *  none, or becuase accessing them would require locking or other machinary) return false and
+     *  ignore the pixmap parameter.
+     *
+     *  Note: if this returns true, the results (in the pixmap) are only valid until the bitmap
+     *  is changed in anyway, in which case the results are invalid.
+     */
+    bool peekPixels(SkPixmap*) const;
+
     SkDEBUGCODE(void validate() const;)
 
     class Allocator : public SkRefCnt {
     public:
-        SK_DECLARE_INST_COUNT(Allocator)
-
         /** Allocate the pixel memory for the bitmap, given its dimensions and
             colortype. Return true on success, where success means either setPixels
             or setPixelRef was called. The pixels need not be locked when this
@@ -707,7 +691,7 @@ public:
     */
     class HeapAllocator : public Allocator {
     public:
-        virtual bool allocPixelRef(SkBitmap*, SkColorTable*) SK_OVERRIDE;
+        bool allocPixelRef(SkBitmap*, SkColorTable*) override;
     };
 
     class RLEPixels {
@@ -754,19 +738,13 @@ private:
     };
 
     SkImageInfo fInfo;
-
     uint32_t    fRowBytes;
-
     uint8_t     fFlags;
-
-    void internalErase(const SkIRect&, U8CPU a, U8CPU r, U8CPU g, U8CPU b)const;
 
     /*  Unreference any pixelrefs or colortables
     */
     void freePixels();
     void updatePixelsFromRef() const;
-
-    void legacyUnflatten(SkReadBuffer&);
 
     static void WriteRawPixels(SkWriteBuffer*, const SkBitmap&);
     static bool ReadRawPixels(SkReadBuffer*, SkBitmap*);
@@ -797,60 +775,6 @@ private:
 };
 //TODO(mtklein): uncomment when 71713004 lands and Chromium's fixed.
 //#define SkAutoLockPixels(...) SK_REQUIRE_LOCAL_VAR(SkAutoLockPixels)
-
-/** Helper class that performs the lock/unlockColors calls on a colortable.
-    The destructor will call unlockColors(false) if it has a bitmap's colortable
-*/
-class SkAutoLockColors : SkNoncopyable {
-public:
-    /** Initialize with no bitmap. Call lockColors(bitmap) to lock bitmap's
-        colortable
-     */
-    SkAutoLockColors() : fCTable(NULL), fColors(NULL) {}
-    /** Initialize with bitmap, locking its colortable if present
-     */
-    explicit SkAutoLockColors(const SkBitmap& bm) {
-        fCTable = bm.getColorTable();
-        fColors = fCTable ? fCTable->lockColors() : NULL;
-    }
-    /** Initialize with a colortable (may be null)
-     */
-    explicit SkAutoLockColors(SkColorTable* ctable) {
-        fCTable = ctable;
-        fColors = ctable ? ctable->lockColors() : NULL;
-    }
-    ~SkAutoLockColors() {
-        if (fCTable) {
-            fCTable->unlockColors();
-        }
-    }
-
-    /** Return the currently locked colors, or NULL if no bitmap's colortable
-        is currently locked.
-    */
-    const SkPMColor* colors() const { return fColors; }
-
-    /** Locks the table and returns is colors (assuming ctable is not null) and
-        unlocks the previous table if one was present
-     */
-    const SkPMColor* lockColors(SkColorTable* ctable) {
-        if (fCTable) {
-            fCTable->unlockColors();
-        }
-        fCTable = ctable;
-        fColors = ctable ? ctable->lockColors() : NULL;
-        return fColors;
-    }
-
-    const SkPMColor* lockColors(const SkBitmap& bm) {
-        return this->lockColors(bm.getColorTable());
-    }
-
-private:
-    SkColorTable*    fCTable;
-    const SkPMColor* fColors;
-};
-#define SkAutoLockColors(...) SK_REQUIRE_LOCAL_VAR(SkAutoLockColors)
 
 ///////////////////////////////////////////////////////////////////////////////
 

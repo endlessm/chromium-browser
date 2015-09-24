@@ -31,17 +31,16 @@ extern const char kUserAvatarImage2RelativePath[];
 // Returns |true| if the two given images are pixel-for-pixel identical.
 bool AreImagesEqual(const gfx::ImageSkia& first, const gfx::ImageSkia& second);
 
-class ImageLoader : public ImageDecoder::Delegate {
+class ImageLoader : public ImageDecoder::ImageRequest {
  public:
   explicit ImageLoader(const base::FilePath& path);
-  virtual ~ImageLoader();
+  ~ImageLoader() override;
 
   scoped_ptr<gfx::ImageSkia> Load();
 
-  // ImageDecoder::Delegate:
-  virtual void OnImageDecoded(const ImageDecoder* decoder,
-                              const SkBitmap& decoded_image) override;
-  virtual void OnDecodeImageFailed(const ImageDecoder* decoder) override;
+  // ImageDecoder::ImageRequest:
+  void OnImageDecoded(const SkBitmap& decoded_image) override;
+  void OnDecodeImageFailed() override;
 
  private:
   base::FilePath path_;

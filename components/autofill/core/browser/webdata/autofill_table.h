@@ -34,7 +34,9 @@ struct FormFieldData;
 //
 // Note: The database stores time in seconds, UTC.
 //
-// autofill
+// autofill             This table contains autocomplete history data (not
+//                      structured information).
+//
 //   name               The name of the input as specified in the html.
 //   value              The literal contents of the text field.
 //   value_lower        The contents of the text field made lower_case.
@@ -65,8 +67,12 @@ struct FormFieldData;
 //                      contiguous.  The canonical example is CEDEX in France.
 //                      Added in version 54.
 //   country_code
-//   date_modified      The date on which this profile was last modified.
-//                      Added in version 30.
+//   use_count          The number of times this profile has been used to fill
+//                      a form. Added in version 61.
+//   use_date           The date this profile was last used to fill a form,
+//                      in time_t. Added in version 61.
+//   date_modified      The date on which this profile was last modified, in
+//                      time_t. Added in version 30.
 //   origin             The domain of origin for this profile.
 //                      Added in version 50.
 //   language_code      The BCP 47 language code used to format the address for
@@ -120,11 +126,99 @@ struct FormFieldData;
 //   expiration_year
 //   card_number_encrypted
 //                      Stores encrypted credit card number.
-//   date_modified      The date on which this entry was last modified.
-//                      Added in version 30.
+//   use_count          The number of times this card has been used to fill
+//                      a form. Added in version 61.
+//   use_date           The date this card was last used to fill a form,
+//                      in time_t. Added in version 61.
+//   date_modified      The date on which this entry was last modified, in
+//                      time_t. Added in version 30.
 //   origin             The domain of origin for this profile.
 //                      Added in version 50.
 //
+// masked_credit_cards
+//                      This table contains "masked" credit card information
+//                      about credit cards stored on the server. It consists
+//                      of a short description and an ID, but not full payment
+//                      information. Writing to this table is only done by sync.
+//                      When a server card is unmasked, it will stay here and
+//                      will additionally be added in unmasked_credit_cards.
+//
+//   id                 String assigned by the server to identify this card.
+//                      This is opaque to the client.
+//   status             Server's status of this card.
+//                      TODO(brettw) define constants for this.
+//   name_on_card
+//   type               Type of the credit card. This is one of the
+//                      kSyncCardType* strings.
+//   last_four          Last four digits of the card number. For de-duping
+//                      with locally stored cards and generating descriptions.
+//   exp_month          Expiration month: 1-12
+//   exp_year           Four-digit year: 2017
+//
+// unmasked_credit_cards
+//                      When a masked credit credit card is unmasked and the
+//                      full number is downloaded, it will be stored here.
+//
+//   id                 Server ID. This can be joined with the id in the
+//                      masked_credit_cards table to get the rest of the data.
+//   card_number_encrypted
+//                      Full card number, encrypted.
+//   use_count          DEPRECATED in version 65. See server_card_metadata.
+//   use_date           DEPRECATED in version 65. See server_card_metadata.
+//   unmask_date        The date this card was unmasked in units of
+//                      Time::ToInternalValue. Added in version 64.
+//
+// server_card_metadata
+//                      Metadata (currently, usage data) about server credit
+//                      cards. This will be synced.
+//
+//   id                 The server ID, which matches an ID from the
+//                      masked_credit_cards table.
+//   use_count          The number of times this card has been used to fill
+//                      a form.
+//   use_date           The date this card was last used to fill a form,
+//                      in internal t.
+//
+// server_addresses     This table contains Autofill address data synced from
+//                      the wallet server. It's basically the same as the
+//                      autofill_profiles table but locally immutable.
+//
+//   id                 String assigned by the server to identify this address.
+//                      This is opaque to the client.
+//   recipient_name     Added in v63.
+//   company_name
+//   street_address     The combined lines of the street address.
+//   address_1          Also known as "administrative area". This is normally
+//                      the state or province in most countries.
+//   address_2          Also known as "locality". In the US this is the city.
+//   address_3          A sub-classification beneath the city, e.g. an
+//                      inner-city district or suburb. Also known as
+//                      "dependent_locality".
+//   address_4          Used in certain countries. Also known as
+//                      "sub_dependent_locality".
+//   postal_code
+//   sorting_code       Similar to the zipcode column, but used for businesses
+//                      or organizations that might not be geographically
+//                      contiguous. The canonical example is CEDEX in France.
+//   country_code
+//   language_code      The BCP 47 language code used to format the address for
+//                      display. For example, a JP address with "ja" language
+//                      code starts with the postal code, but a JP address with
+//                      "ja-latn" language code starts with the recipient name.
+//   phone_number       Phone number. This is a string and has no formatting
+//                      constraints. Added in version 64.
+//
+// server_address_metadata
+//                      Metadata (currently, usage data) about server addresses.
+//                      This will be synced.
+//
+//   id                 The server ID, which matches an ID from the
+//                      server_addresses table.
+//   use_count          The number of times this address has been used to fill
+//                      a form.
+//   use_date           The date this address was last used to fill a form,
+//                      in internal t.
+
 class AutofillTable : public WebDatabaseTable {
  public:
   explicit AutofillTable(const std::string& app_locale);
@@ -208,8 +302,14 @@ class AutofillTable : public WebDatabaseTable {
   // Retrieves a profile with guid |guid|.  The caller owns |profile|.
   bool GetAutofillProfile(const std::string& guid, AutofillProfile** profile);
 
-  // Retrieves all profiles in the database.  Caller owns the returned profiles.
+  // Retrieves local/server profiles in the database. Caller owns the returned
+  // profiles.
   virtual bool GetAutofillProfiles(std::vector<AutofillProfile*>* profiles);
+  virtual bool GetServerProfiles(std::vector<AutofillProfile*>* profiles);
+
+  // Sets the server profiles. All old profiles are deleted and replaced with
+  // the given ones.
+  void SetServerProfiles(const std::vector<AutofillProfile>& profiles);
 
   // Records a single credit card in the credit_cards table.
   bool AddCreditCard(const CreditCard& credit_card);
@@ -225,9 +325,29 @@ class AutofillTable : public WebDatabaseTable {
   // |credit_card_id|.
   bool GetCreditCard(const std::string& guid, CreditCard** credit_card);
 
-  // Retrieves all credit cards in the database.  Caller owns the returned
-  // credit cards.
+  // Retrieves the local/server credit cards in the database. Caller owns the
+  // returned credit cards.
   virtual bool GetCreditCards(std::vector<CreditCard*>* credit_cards);
+  virtual bool GetServerCreditCards(std::vector<CreditCard*>* credit_cards);
+
+  // Replaces all server credit cards with the given vector. Unmasked cards
+  // present in the new list will be preserved (even if the input is MASKED).
+  void SetServerCreditCards(const std::vector<CreditCard>& credit_cards);
+
+  // Cards synced from the server may be "masked" (only last 4 digits
+  // available) or "unmasked" (everything is available). These functions set
+  // that state.
+  bool UnmaskServerCreditCard(const CreditCard& masked,
+                              const base::string16& full_number);
+  bool MaskServerCreditCard(const std::string& id);
+
+  bool UpdateServerCardUsageStats(const CreditCard& credit_card);
+  bool UpdateServerAddressUsageStats(const AutofillProfile& profile);
+
+  // Deletes all data from the server card and profile tables. Returns true if
+  // any data was deleted, false if not (so false means "commit not needed"
+  // rather than "error").
+  bool ClearAllServerData();
 
   // Removes rows from autofill_profiles and credit_cards if they were created
   // on or after |delete_begin| and strictly before |delete_end|.  Returns the
@@ -266,25 +386,20 @@ class AutofillTable : public WebDatabaseTable {
   // Clear all profiles.
   bool ClearAutofillProfiles();
 
-  // Table migration functions.
-  // Removes empty values for autofill that were incorrectly stored in the DB
-  // See bug http://crbug.com/6111
-  bool MigrateToVersion22ClearAutofillEmptyValueElements();
-  bool MigrateToVersion23AddCardNumberEncryptedColumn();
-  bool MigrateToVersion24CleanupOversizedStringFields();
-  bool MigrateToVersion27UpdateLegacyCreditCards();
-  bool MigrateToVersion30AddDateModifed();
-  bool MigrateToVersion31AddGUIDToCreditCardsAndProfiles();
-  bool MigrateToVersion32UpdateProfilesAndCreditCards();
-  bool MigrateToVersion33ProfilesBasedOnFirstName();
-  bool MigrateToVersion34ProfilesBasedOnCountryCode();
-  bool MigrateToVersion35GreatBritainCountryCodes();
-  bool MigrateToVersion37MergeAndCullOlderProfiles();
-  bool MigrateToVersion51AddOriginColumn();
+  // Table migration functions. NB: These do not and should not rely on other
+  // functions in this class. The implementation of a function such as
+  // GetCreditCard may change over time, but MigrateToVersionXX should never
+  // change.
   bool MigrateToVersion54AddI18nFieldsAndRemoveDeprecatedFields();
   bool MigrateToVersion55MergeAutofillDatesTable();
   bool MigrateToVersion56AddProfileLanguageCodeForFormatting();
   bool MigrateToVersion57AddFullNameField();
+  bool MigrateToVersion60AddServerCards();
+  bool MigrateToVersion61AddUsageStats();
+  bool MigrateToVersion62AddUsageStatsForUnmaskedCards();
+  bool MigrateToVersion63AddServerRecipientName();
+  bool MigrateToVersion64AddUnmaskDate();
+  bool MigrateToVersion65AddServerMetadataTables();
 
   // Max data length saved in the table;
   static const size_t kMaxDataLength;
@@ -352,6 +467,11 @@ class AutofillTable : public WebDatabaseTable {
   bool InitProfileEmailsTable();
   bool InitProfilePhonesTable();
   bool InitProfileTrashTable();
+  bool InitMaskedCreditCardsTable();
+  bool InitUnmaskedCreditCardsTable();
+  bool InitServerCardMetadataTable();
+  bool InitServerAddressesTable();
+  bool InitServerAddressMetadataTable();
 
   // The application locale.  The locale is needed for the migration to version
   // 35. Since it must be read on the UI thread, it is set when the table is

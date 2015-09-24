@@ -8,17 +8,12 @@
 #include "base/metrics/histogram.h"
 #include "base/time/time.h"
 #include "chrome/browser/prerender/prerender_histograms.h"
-#include "chrome/browser/prerender/prerender_local_predictor.h"
 #include "chrome/browser/prerender/prerender_manager.h"
 #include "chrome/browser/prerender/prerender_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "components/password_manager/core/browser/password_manager.h"
-#include "content/public/browser/navigation_details.h"
-#include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/resource_request_details.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/frame_navigate_params.h"
 
 using content::WebContents;
 
@@ -26,49 +21,12 @@ DEFINE_WEB_CONTENTS_USER_DATA_KEY(prerender::PrerenderTabHelper);
 
 namespace prerender {
 
-namespace {
-
-void ReportTabHelperURLSeenToLocalPredictor(
-    PrerenderManager* prerender_manager,
-    const GURL& url,
-    WebContents* web_contents) {
-  if (!prerender_manager)
-    return;
-  PrerenderLocalPredictor* local_predictor =
-      prerender_manager->local_predictor();
-  if (!local_predictor)
-    return;
-  local_predictor->OnTabHelperURLSeen(url, web_contents);
-}
-
-}  // namespace
-
-// static
-void PrerenderTabHelper::CreateForWebContentsWithPasswordManager(
-    content::WebContents* web_contents,
-    password_manager::PasswordManager* password_manager) {
-  if (!FromWebContents(web_contents)) {
-    web_contents->SetUserData(UserDataKey(),
-                              new PrerenderTabHelper(web_contents,
-                                                     password_manager));
-  }
-}
-
-PrerenderTabHelper::PrerenderTabHelper(
-    content::WebContents* web_contents,
-    password_manager::PasswordManager* password_manager)
+PrerenderTabHelper::PrerenderTabHelper(content::WebContents* web_contents)
     : content::WebContentsObserver(web_contents),
       origin_(ORIGIN_NONE),
       next_load_is_control_prerender_(false),
       next_load_origin_(ORIGIN_NONE),
       weak_factory_(this) {
-  if (password_manager) {
-    // May be NULL in testing.
-    password_manager->AddSubmissionCallback(
-        base::Bind(&PrerenderTabHelper::PasswordSubmitted,
-                   weak_factory_.GetWeakPtr()));
-  }
-
   // Determine if this is a prerender.
   PrerenderManager* prerender_manager = MaybeGetPrerenderManager();
   if (prerender_manager &&
@@ -83,7 +41,7 @@ PrerenderTabHelper::~PrerenderTabHelper() {
 }
 
 void PrerenderTabHelper::DidGetRedirectForResourceRequest(
-    content::RenderViewHost* render_view_host,
+    content::RenderFrameHost* render_frame_host,
     const content::ResourceRedirectDetails& details) {
   if (details.resource_type != content::RESOURCE_TYPE_MAIN_FRAME)
     return;
@@ -97,9 +55,6 @@ void PrerenderTabHelper::DidCommitProvisionalLoadForFrame(
     ui::PageTransition transition_type) {
   if (render_frame_host->GetParent())
     return;
-  RecordEvent(EVENT_MAINFRAME_COMMIT);
-  RecordEventIfLoggedInURL(EVENT_MAINFRAME_COMMIT_DOMAIN_LOGGED_IN,
-                           validated_url);
   url_ = validated_url;
   PrerenderManager* prerender_manager = MaybeGetPrerenderManager();
   if (!prerender_manager)
@@ -107,12 +62,9 @@ void PrerenderTabHelper::DidCommitProvisionalLoadForFrame(
   if (prerender_manager->IsWebContentsPrerendering(web_contents(), NULL))
     return;
   prerender_manager->RecordNavigation(validated_url);
-  ReportTabHelperURLSeenToLocalPredictor(prerender_manager, validated_url,
-                                         web_contents());
 }
 
-void PrerenderTabHelper::DidStopLoading(
-    content::RenderViewHost* render_view_host) {
+void PrerenderTabHelper::DidStopLoading() {
   // Compute the PPLT metric and report it in a histogram, if needed. If the
   // page is still prerendering, record the not swapped in page load time
   // instead.
@@ -175,25 +127,6 @@ void PrerenderTabHelper::DidStartProvisionalLoadForFrame(
 
 void PrerenderTabHelper::MainFrameUrlDidChange(const GURL& url) {
   url_ = url;
-  RecordEvent(EVENT_MAINFRAME_CHANGE);
-  RecordEventIfLoggedInURL(EVENT_MAINFRAME_CHANGE_DOMAIN_LOGGED_IN, url);
-  PrerenderManager* prerender_manager = MaybeGetPrerenderManager();
-  if (!prerender_manager)
-    return;
-  if (prerender_manager->IsWebContentsPrerendering(web_contents(), NULL))
-    return;
-  ReportTabHelperURLSeenToLocalPredictor(prerender_manager, url,
-                                         web_contents());
-}
-
-void PrerenderTabHelper::PasswordSubmitted(const autofill::PasswordForm& form) {
-  PrerenderManager* prerender_manager = MaybeGetPrerenderManager();
-  if (prerender_manager) {
-    prerender_manager->RecordLikelyLoginOnURL(form.origin);
-    RecordEvent(EVENT_LOGIN_ACTION_ADDED);
-    if (form.password_value.empty())
-      RecordEvent(EVENT_LOGIN_ACTION_ADDED_PW_EMPTY);
-  }
 }
 
 PrerenderManager* PrerenderTabHelper::MaybeGetPrerenderManager() const {
@@ -227,39 +160,6 @@ void PrerenderTabHelper::PrerenderSwappedIn() {
 void PrerenderTabHelper::WouldHavePrerenderedNextLoad(Origin origin) {
   next_load_is_control_prerender_ = true;
   next_load_origin_ = origin;
-}
-
-void PrerenderTabHelper::RecordEvent(PrerenderTabHelper::Event event) const {
-  UMA_HISTOGRAM_ENUMERATION("Prerender.TabHelperEvent",
-                            event, PrerenderTabHelper::EVENT_MAX_VALUE);
-}
-
-void PrerenderTabHelper::RecordEventIfLoggedInURL(
-    PrerenderTabHelper::Event event, const GURL& url) {
-  PrerenderManager* prerender_manager = MaybeGetPrerenderManager();
-  if (!prerender_manager)
-    return;
-  scoped_ptr<bool> is_present(new bool);
-  scoped_ptr<bool> lookup_succeeded(new bool);
-  bool* is_present_ptr = is_present.get();
-  bool* lookup_succeeded_ptr = lookup_succeeded.get();
-  prerender_manager->CheckIfLikelyLoggedInOnURL(
-      url,
-      is_present_ptr,
-      lookup_succeeded_ptr,
-      base::Bind(&PrerenderTabHelper::RecordEventIfLoggedInURLResult,
-                 weak_factory_.GetWeakPtr(),
-                 event,
-                 base::Passed(&is_present),
-                 base::Passed(&lookup_succeeded)));
-}
-
-void PrerenderTabHelper::RecordEventIfLoggedInURLResult(
-    PrerenderTabHelper::Event event,
-    scoped_ptr<bool> is_present,
-    scoped_ptr<bool> lookup_succeeded) {
-  if (*lookup_succeeded && *is_present)
-    RecordEvent(event);
 }
 
 void PrerenderTabHelper::RecordPerceivedPageLoadTime(

@@ -20,6 +20,7 @@
 
 
 #include "webrtc/common_audio/signal_processing/include/signal_processing_library.h"
+#include "webrtc/modules/audio_coding/codecs/isac/bandwidth_info.h"
 #include "webrtc/modules/audio_coding/codecs/isac/fix/source/settings.h"
 #include "webrtc/typedefs.h"
 
@@ -245,9 +246,7 @@ typedef struct {
      bwe will assume the connection is over broadband network */
   int16_t   highSpeedSend;
 
-
-
-
+  IsacBandwidthInfo external_bw_info;
 } BwEstimatorstr;
 
 
@@ -299,7 +298,7 @@ typedef struct {
   /* Used in adaptive mode only */
   int     minBytes;
 
-} ISAC_SaveEncData_t;
+} IsacSaveEncoderData;
 
 typedef struct {
 
@@ -327,14 +326,14 @@ typedef struct {
   PostFiltBankstr     interpolatorstr_obj;
 #endif
 
-  ISAC_SaveEncData_t *SaveEnc_ptr;
+  IsacSaveEncoderData *SaveEnc_ptr;
   int16_t         payloadLimitBytes30; /* Maximum allowed number of bits for a 30 msec packet */
   int16_t         payloadLimitBytes60; /* Maximum allowed number of bits for a 30 msec packet */
   int16_t         maxPayloadBytes;     /* Maximum allowed number of bits for both 30 and 60 msec packet */
   int16_t         maxRateInBytes;      /* Maximum allowed rate in bytes per 30 msec packet */
   int16_t         enforceFrameSize;    /* If set iSAC will never change packet size */
 
-} ISACFIX_EncInst_t;
+} IsacFixEncoderInstance;
 
 
 typedef struct {
@@ -349,14 +348,14 @@ typedef struct {
   PreFiltBankstr      decimatorstr_obj;
 #endif
 
-} ISACFIX_DecInst_t;
+} IsacFixDecoderInstance;
 
 
 
 typedef struct {
 
-  ISACFIX_EncInst_t ISACenc_obj;
-  ISACFIX_DecInst_t ISACdec_obj;
+  IsacFixEncoderInstance ISACenc_obj;
+  IsacFixDecoderInstance ISACdec_obj;
   BwEstimatorstr     bwestimator_obj;
   int16_t         CodingMode;       /* 0 = adaptive; 1 = instantaneous */
   int16_t   errorcode;

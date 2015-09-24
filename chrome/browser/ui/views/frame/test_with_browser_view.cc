@@ -4,9 +4,8 @@
 
 #include "chrome/browser/ui/views/frame/test_with_browser_view.h"
 
-#include "chrome/browser/autocomplete/autocomplete_classifier.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier_factory.h"
-#include "chrome/browser/autocomplete/autocomplete_controller.h"
+#include "chrome/browser/autocomplete/chrome_autocomplete_provider_client.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/predictors/predictor_database.h"
 #include "chrome/browser/search_engines/chrome_template_url_service_client.h"
@@ -14,12 +13,14 @@
 #include "chrome/browser/search_engines/ui_thread_search_terms_data.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "chrome/browser/webdata/web_data_service_factory.h"
+#include "chrome/browser/web_data_service_factory.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/scoped_testing_local_state.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_io_thread_state.h"
-#include "components/omnibox/test_scheme_classifier.h"
+#include "components/omnibox/browser/autocomplete_classifier.h"
+#include "components/omnibox/browser/autocomplete_controller.h"
+#include "components/omnibox/browser/test_scheme_classifier.h"
 #include "components/search_engines/search_terms_data.h"
 #include "components/search_engines/template_url_service.h"
 #include "content/public/test/test_utils.h"
@@ -31,28 +32,29 @@
 
 namespace {
 
-// Caller owns the returned service.
-KeyedService* CreateTemplateURLService(content::BrowserContext* context) {
+scoped_ptr<KeyedService> CreateTemplateURLService(
+    content::BrowserContext* context) {
   Profile* profile = static_cast<Profile*>(context);
-  return new TemplateURLService(
+  return make_scoped_ptr(new TemplateURLService(
       profile->GetPrefs(),
       scoped_ptr<SearchTermsData>(new UIThreadSearchTermsData(profile)),
       WebDataServiceFactory::GetKeywordWebDataForProfile(
-          profile, Profile::EXPLICIT_ACCESS),
-      scoped_ptr<TemplateURLServiceClient>(
-          new ChromeTemplateURLServiceClient(
-              HistoryServiceFactory::GetForProfile(profile,
-                                                   Profile::EXPLICIT_ACCESS))),
-      NULL, NULL, base::Closure());
+          profile, ServiceAccessType::EXPLICIT_ACCESS),
+      scoped_ptr<TemplateURLServiceClient>(new ChromeTemplateURLServiceClient(
+          HistoryServiceFactory::GetForProfile(
+              profile, ServiceAccessType::EXPLICIT_ACCESS))),
+      nullptr, nullptr, base::Closure()));
 }
 
-KeyedService* CreateAutocompleteClassifier(content::BrowserContext* context) {
+scoped_ptr<KeyedService> CreateAutocompleteClassifier(
+    content::BrowserContext* context) {
   Profile* profile = static_cast<Profile*>(context);
-  return new AutocompleteClassifier(
+  return make_scoped_ptr(new AutocompleteClassifier(
       make_scoped_ptr(new AutocompleteController(
-          profile, TemplateURLServiceFactory::GetForProfile(profile), NULL,
-          AutocompleteClassifier::kDefaultOmniboxProviders)),
-      scoped_ptr<AutocompleteSchemeClassifier>(new TestSchemeClassifier()));
+          make_scoped_ptr(new ChromeAutocompleteProviderClient(profile)),
+
+          nullptr, AutocompleteClassifier::kDefaultOmniboxProviders)),
+      scoped_ptr<AutocompleteSchemeClassifier>(new TestSchemeClassifier())));
 }
 
 }  // namespace
@@ -95,7 +97,7 @@ void TestWithBrowserView::TearDown() {
   // Ensure the Browser is reset before BrowserWithTestWindowTest cleans up
   // the Profile.
   browser_view_->GetWidget()->CloseNow();
-  browser_view_ = NULL;
+  browser_view_ = nullptr;
   content::RunAllPendingInMessageLoop(content::BrowserThread::DB);
   BrowserWithTestWindowTest::TearDown();
   testing_io_thread_state_.reset();
@@ -103,12 +105,12 @@ void TestWithBrowserView::TearDown() {
 #if defined(OS_CHROMEOS)
   chromeos::input_method::Shutdown();
 #endif
-  local_state_.reset(NULL);
+  local_state_.reset(nullptr);
 }
 
 TestingProfile* TestWithBrowserView::CreateProfile() {
   TestingProfile* profile = BrowserWithTestWindowTest::CreateProfile();
-  // TemplateURLService is normally NULL during testing. Instant extended
+  // TemplateURLService is normally null during testing. Instant extended
   // needs this service so set a custom factory function.
   TemplateURLServiceFactory::GetInstance()->SetTestingFactory(
       profile, &CreateTemplateURLService);
@@ -122,5 +124,5 @@ TestingProfile* TestWithBrowserView::CreateProfile() {
 BrowserWindow* TestWithBrowserView::CreateBrowserWindow() {
   // Allow BrowserWithTestWindowTest to use Browser to create the default
   // BrowserView and BrowserFrame.
-  return NULL;
+  return nullptr;
 }

@@ -11,7 +11,9 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/media_galleries/fileapi/itunes_data_provider.h"
 #include "chrome/browser/media_galleries/fileapi/itunes_file_util.h"
@@ -135,7 +137,6 @@ class ItunesFileUtilTest : public testing::Test {
   ItunesFileUtilTest()
       : io_thread_(content::BrowserThread::IO, &message_loop_) {
   }
-  virtual ~ItunesFileUtilTest() {}
 
   void SetUpDataProvider() {
     ASSERT_TRUE(fake_library_dir_.CreateUniqueTempDir());
@@ -150,7 +151,7 @@ class ItunesFileUtilTest : public testing::Test {
         new TestITunesDataProvider(fake_library_dir_.path()));
   }
 
-  virtual void SetUp() override {
+  void SetUp() override {
     ASSERT_TRUE(profile_dir_.CreateUniqueTempDir());
     ImportedMediaGalleryRegistry::GetInstance()->Initialize();
 
@@ -176,8 +177,8 @@ class ItunesFileUtilTest : public testing::Test {
                                itunes_data_provider_.get())));
 
     file_system_context_ = new storage::FileSystemContext(
-        base::MessageLoopProxy::current().get(),
-        base::MessageLoopProxy::current().get(),
+        base::ThreadTaskRunnerHandle::Get().get(),
+        base::ThreadTaskRunnerHandle::Get().get(),
         storage::ExternalMountPoints::CreateRefCounted().get(),
         storage_policy.get(),
         NULL,

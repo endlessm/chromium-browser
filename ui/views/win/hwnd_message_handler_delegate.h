@@ -74,10 +74,6 @@ class VIEWS_EXPORT HWNDMessageHandlerDelegate {
 
   virtual void ResetWindowControls() = 0;
 
-  virtual void PaintLayeredWindow(gfx::Canvas* canvas) = 0;
-
-  virtual InputMethod* GetInputMethod() = 0;
-
   virtual gfx::NativeViewAccessible GetNativeViewAccessible() = 0;
 
   // Returns true if the window should handle standard system commands, such as
@@ -193,12 +189,8 @@ class VIEWS_EXPORT HWNDMessageHandlerDelegate {
   virtual void HandleInputLanguageChange(DWORD character_set,
                                          HKL input_language_id) = 0;
 
-  // Called to compel the delegate to paint |invalid_rect| accelerated. Returns
-  // true if accelerated painting was performed.
-  virtual bool HandlePaintAccelerated(const gfx::Rect& invalid_rect) = 0;
-
-  // Called to compel the delegate to paint using the software path.
-  virtual void HandlePaint(gfx::Canvas* canvas) = 0;
+  // Called to compel the delegate to paint |invalid_rect| accelerated.
+  virtual void HandlePaintAccelerated(const gfx::Rect& invalid_rect) = 0;
 
   // Called to forward a WM_NOTIFY message to the tooltip manager.
   virtual bool HandleTooltipNotify(int w_param,

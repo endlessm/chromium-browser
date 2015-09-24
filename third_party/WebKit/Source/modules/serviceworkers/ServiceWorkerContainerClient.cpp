@@ -35,17 +35,18 @@ ServiceWorkerContainerClient* ServiceWorkerContainerClient::from(ExecutionContex
         if (!document->frame())
             return 0;
 
-        ServiceWorkerContainerClient* client = static_cast<ServiceWorkerContainerClient*>(DocumentSupplement::from(document, supplementName()));
+        ServiceWorkerContainerClient* client = static_cast<ServiceWorkerContainerClient*>(WillBeHeapSupplement<Document>::from(document, supplementName()));
         if (client)
             return client;
 
         // If it's not provided yet, create it lazily.
-        document->DocumentSupplementable::provideSupplement(ServiceWorkerContainerClient::supplementName(), ServiceWorkerContainerClient::create(document->frame()->loader().client()->createServiceWorkerProvider()));
-        return static_cast<ServiceWorkerContainerClient*>(DocumentSupplement::from(document, supplementName()));
+        document->WillBeHeapSupplementable<Document>::provideSupplement(ServiceWorkerContainerClient::supplementName(), ServiceWorkerContainerClient::create(document->frame()->loader().client()->createServiceWorkerProvider()));
+        return static_cast<ServiceWorkerContainerClient*>(WillBeHeapSupplement<Document>::from(document, supplementName()));
     }
 
-    ASSERT(context->isWorkerGlobalScope());
-    return static_cast<ServiceWorkerContainerClient*>(WillBeHeapSupplement<WorkerClients>::from(toWorkerGlobalScope(context)->clients(), supplementName()));
+    WorkerClients* clients = toWorkerGlobalScope(context)->clients();
+    ASSERT(clients);
+    return static_cast<ServiceWorkerContainerClient*>(WillBeHeapSupplement<WorkerClients>::from(clients, supplementName()));
 }
 
 ServiceWorkerContainerClient::ServiceWorkerContainerClient(PassOwnPtr<WebServiceWorkerProvider> provider)

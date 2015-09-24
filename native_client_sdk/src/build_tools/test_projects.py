@@ -3,7 +3,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import optparse
+import argparse
 import os
 import subprocess
 import sys
@@ -25,6 +25,10 @@ sys.path.append(os.path.join(SRC_DIR, 'chrome', 'test', 'nacl_test_injection'))
 import find_chrome
 browser_path = find_chrome.FindChrome(SRC_DIR, ['Debug', 'Release'])
 
+# Fall back to using CHROME_PATH (same as in common.mk)
+if not browser_path:
+  browser_path = os.environ.get('CHROME_PATH')
+
 
 pepper_ver = str(int(build_version.ChromeMajorVersion()))
 pepperdir = os.path.join(OUT_DIR, 'pepper_' + pepper_ver)
@@ -34,7 +38,15 @@ browser_tester_py = os.path.join(SRC_DIR, 'ppapi', 'native_client', 'tools',
 
 
 ALL_CONFIGS = ['Debug', 'Release']
-ALL_TOOLCHAINS = ['newlib', 'glibc', 'pnacl', 'win', 'linux', 'mac']
+ALL_TOOLCHAINS = [
+  'newlib',
+  'glibc',
+  'pnacl',
+  'win',
+  'linux',
+  'mac',
+  'clang-newlib',
+]
 
 # Values you can filter by:
 #   name: The name of the test. (e.g. "pi_generator")
@@ -61,6 +73,10 @@ DISABLED_TESTS = [
     # http://crbug.com/262379.
     {'name': 'graphics_3d', 'platform': ('win', 'linux', 'mac')},
     {'name': 'video_decode', 'platform': ('win', 'linux', 'mac')},
+    {'name': 'video_encode', 'platform': ('win', 'linux', 'mac')},
+    # TODO(sbc): Disable pi_generator on linux/win/mac. See
+    # http://crbug.com/475255.
+    {'name': 'pi_generator', 'platform': ('win', 'linux', 'mac')},
     # media_stream_audio uses audio input devices which are not supported.
     {'name': 'media_stream_audio', 'platform': ('win', 'linux', 'mac')},
     # media_stream_video uses 3D and webcam which are not supported.
@@ -309,25 +325,25 @@ def GetProjectTree(include):
 
 
 def main(args):
-  parser = optparse.OptionParser()
-  parser.add_option('-c', '--config',
+  parser = argparse.ArgumentParser(description=__doc__)
+  parser.add_argument('-c', '--config',
       help='Choose configuration to run (Debug or Release).  Runs both '
            'by default', action='append')
-  parser.add_option('-x', '--experimental',
+  parser.add_argument('-x', '--experimental',
       help='Run experimental projects', action='store_true')
-  parser.add_option('-t', '--toolchain',
+  parser.add_argument('-t', '--toolchain',
       help='Run using toolchain. Can be passed more than once.',
       action='append', default=[])
-  parser.add_option('-d', '--dest',
+  parser.add_argument('-d', '--dest',
       help='Select which destinations (project types) are valid.',
       action='append')
-  parser.add_option('-b', '--build',
+  parser.add_argument('-b', '--build',
       help='Build each project before testing.', action='store_true')
-  parser.add_option('--retry-times',
-      help='Number of types to retry on failure (Default: %default)',
-          type='int', default=1)
+  parser.add_argument('--retry-times',
+      help='Number of types to retry on failure', type=int, default=1)
+  parser.add_argument('projects', nargs='*')
 
-  options, args = parser.parse_args(args[1:])
+  options = parser.parse_args(args)
 
   if not options.toolchain:
     options.toolchain = ['newlib', 'glibc', 'pnacl', 'host']
@@ -348,9 +364,9 @@ def main(args):
   if options.dest:
     include['DEST'] = options.dest
     print 'Filter by type: ' + str(options.dest)
-  if args:
-    include['NAME'] = args
-    print 'Filter by name: ' + str(args)
+  if options.projects:
+    include['NAME'] = options.projects
+    print 'Filter by name: ' + str(options.projects)
   if not options.config:
     options.config = ALL_CONFIGS
 
@@ -365,7 +381,7 @@ def main(args):
 if __name__ == '__main__':
   script_name = os.path.basename(sys.argv[0])
   try:
-    sys.exit(main(sys.argv))
+    sys.exit(main(sys.argv[1:]))
   except parse_dsc.ValidationError as e:
     buildbot_common.ErrorExit('%s: %s' % (script_name, e))
   except KeyboardInterrupt:

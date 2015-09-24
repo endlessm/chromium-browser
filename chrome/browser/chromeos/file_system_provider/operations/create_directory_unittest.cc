@@ -14,6 +14,7 @@
 #include "chrome/browser/chromeos/file_system_provider/operations/test_util.h"
 #include "chrome/browser/chromeos/file_system_provider/provided_file_system_interface.h"
 #include "chrome/common/extensions/api/file_system_provider.h"
+#include "chrome/common/extensions/api/file_system_provider_capabilities/file_system_provider_capabilities_handler.h"
 #include "chrome/common/extensions/api/file_system_provider_internal.h"
 #include "extensions/browser/event_router.h"
 #include "storage/browser/fileapi/async_file_util.h"
@@ -27,20 +28,22 @@ namespace {
 const char kExtensionId[] = "mbflcebpggnecokmikipoihdbecnjfoj";
 const char kFileSystemId[] = "testing-file-system";
 const int kRequestId = 2;
-const base::FilePath::CharType kDirectoryPath[] = "/kitty/and/puppy/happy";
+const base::FilePath::CharType kDirectoryPath[] =
+    FILE_PATH_LITERAL("/kitty/and/puppy/happy");
 
 }  // namespace
 
 class FileSystemProviderOperationsCreateDirectoryTest : public testing::Test {
  protected:
   FileSystemProviderOperationsCreateDirectoryTest() {}
-  virtual ~FileSystemProviderOperationsCreateDirectoryTest() {}
+  ~FileSystemProviderOperationsCreateDirectoryTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     MountOptions mount_options(kFileSystemId, "" /* display_name */);
     mount_options.writable = true;
-    file_system_info_ =
-        ProvidedFileSystemInfo(kExtensionId, mount_options, base::FilePath());
+    file_system_info_ = ProvidedFileSystemInfo(
+        kExtensionId, mount_options, base::FilePath(), false /* configurable */,
+        true /* watchable */, extensions::SOURCE_FILE);
   }
 
   ProvidedFileSystemInfo file_system_info_;
@@ -53,9 +56,7 @@ TEST_F(FileSystemProviderOperationsCreateDirectoryTest, Execute) {
   util::StatusCallbackLog callback_log;
 
   CreateDirectory create_directory(
-      NULL,
-      file_system_info_,
-      base::FilePath::FromUTF8Unsafe(kDirectoryPath),
+      NULL, file_system_info_, base::FilePath(kDirectoryPath),
       true /* recursive */,
       base::Bind(&util::LogStatusCallback, &callback_log));
   create_directory.SetDispatchEventImplForTesting(
@@ -89,9 +90,7 @@ TEST_F(FileSystemProviderOperationsCreateDirectoryTest, Execute_NoListener) {
   util::StatusCallbackLog callback_log;
 
   CreateDirectory create_directory(
-      NULL,
-      file_system_info_,
-      base::FilePath::FromUTF8Unsafe(kDirectoryPath),
+      NULL, file_system_info_, base::FilePath(kDirectoryPath),
       true /* recursive */,
       base::Bind(&util::LogStatusCallback, &callback_log));
   create_directory.SetDispatchEventImplForTesting(
@@ -106,14 +105,12 @@ TEST_F(FileSystemProviderOperationsCreateDirectoryTest, Execute_ReadOnly) {
   util::StatusCallbackLog callback_log;
 
   const ProvidedFileSystemInfo read_only_file_system_info(
-      kExtensionId,
-      MountOptions(kFileSystemId, "" /* display_name */),
-      base::FilePath() /* mount_path */);
+      kExtensionId, MountOptions(kFileSystemId, "" /* display_name */),
+      base::FilePath() /* mount_path */, false /* configurable */,
+      true /* watchable */, extensions::SOURCE_FILE);
 
   CreateDirectory create_directory(
-      NULL,
-      read_only_file_system_info,
-      base::FilePath::FromUTF8Unsafe(kDirectoryPath),
+      NULL, read_only_file_system_info, base::FilePath(kDirectoryPath),
       true /* recursive */,
       base::Bind(&util::LogStatusCallback, &callback_log));
   create_directory.SetDispatchEventImplForTesting(
@@ -128,9 +125,7 @@ TEST_F(FileSystemProviderOperationsCreateDirectoryTest, OnSuccess) {
   util::StatusCallbackLog callback_log;
 
   CreateDirectory create_directory(
-      NULL,
-      file_system_info_,
-      base::FilePath::FromUTF8Unsafe(kDirectoryPath),
+      NULL, file_system_info_, base::FilePath(kDirectoryPath),
       true /* recursive */,
       base::Bind(&util::LogStatusCallback, &callback_log));
   create_directory.SetDispatchEventImplForTesting(
@@ -151,9 +146,7 @@ TEST_F(FileSystemProviderOperationsCreateDirectoryTest, OnError) {
   util::StatusCallbackLog callback_log;
 
   CreateDirectory create_directory(
-      NULL,
-      file_system_info_,
-      base::FilePath::FromUTF8Unsafe(kDirectoryPath),
+      NULL, file_system_info_, base::FilePath(kDirectoryPath),
       true /* recursive */,
       base::Bind(&util::LogStatusCallback, &callback_log));
   create_directory.SetDispatchEventImplForTesting(

@@ -5,17 +5,15 @@
 package org.chromium.chrome.browser;
 
 import android.accessibilityservice.AccessibilityServiceInfo;
-import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
-import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
 import android.net.Uri;
-import android.os.Build;
+import android.support.v7.app.AlertDialog;
 import android.view.accessibility.AccessibilityManager;
 
 import org.chromium.base.CalledByNative;
+import org.chromium.base.PackageUtils;
 import org.chromium.chrome.R;
 
 import java.util.List;
@@ -78,17 +76,10 @@ public class AccessibilityUtil {
         }
         if (!isTalkbackRunning) return false;
 
-        try {
-            PackageInfo talkbackInfo = context.getPackageManager().getPackageInfo(
-                    TALKBACK_PACKAGE_NAME, 0);
-            if (talkbackInfo != null && talkbackInfo.versionCode < MIN_TALKBACK_VERSION &&
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN &&
-                    !sOldTalkBackVersionAlertShown) {
-                showOldTalkbackVersionAlertOnce(context);
-                return true;
-            }
-        } catch (PackageManager.NameNotFoundException e) {
-            // Do nothing, default to false.
+        if (PackageUtils.getPackageVersion(context, TALKBACK_PACKAGE_NAME) < MIN_TALKBACK_VERSION
+                && !sOldTalkBackVersionAlertShown) {
+            showOldTalkbackVersionAlertOnce(context);
+            return true;
         }
 
         return false;
@@ -98,7 +89,7 @@ public class AccessibilityUtil {
         if (sOldTalkBackVersionAlertShown) return;
         sOldTalkBackVersionAlertShown = true;
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(context)
+        AlertDialog.Builder builder = new AlertDialog.Builder(context, R.style.AlertDialogTheme)
                 .setTitle(R.string.old_talkback_title)
                 .setPositiveButton(R.string.update_from_market,
                         new DialogInterface.OnClickListener() {

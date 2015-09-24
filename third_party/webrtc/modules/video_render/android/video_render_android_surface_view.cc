@@ -409,13 +409,11 @@ int32_t AndroidSurfaceViewChannel::Init(
   return 0;
 }
 
-
-int32_t AndroidSurfaceViewChannel::RenderFrame(
-    const uint32_t /*streamId*/,
-    I420VideoFrame& videoFrame) {
+int32_t AndroidSurfaceViewChannel::RenderFrame(const uint32_t /*streamId*/,
+                                               const VideoFrame& videoFrame) {
   // WEBRTC_TRACE(kTraceInfo, kTraceVideoRenderer,_id, "%s:" ,__FUNCTION__);
   _renderCritSect.Enter();
-  _bufferToRender.SwapFrame(&videoFrame);
+  _bufferToRender = videoFrame;
   _renderCritSect.Leave();
   _renderer.ReDraw();
   return 0;

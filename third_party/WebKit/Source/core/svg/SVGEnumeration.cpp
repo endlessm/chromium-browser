@@ -39,9 +39,9 @@
 
 namespace blink {
 
-inline PassRefPtr<SVGEnumerationBase> toSVGEnumerationBase(PassRefPtr<SVGPropertyBase> passBase)
+inline PassRefPtrWillBeRawPtr<SVGEnumerationBase> toSVGEnumerationBase(PassRefPtrWillBeRawPtr<SVGPropertyBase> passBase)
 {
-    RefPtr<SVGPropertyBase> base = passBase;
+    RefPtrWillBeRawPtr<SVGPropertyBase> base = passBase;
     ASSERT(base->type() == SVGEnumerationBase::classType());
     return static_pointer_cast<SVGEnumerationBase>(base.release());
 }
@@ -50,20 +50,18 @@ SVGEnumerationBase::~SVGEnumerationBase()
 {
 }
 
-PassRefPtr<SVGPropertyBase> SVGEnumerationBase::cloneForAnimation(const String& value) const
+PassRefPtrWillBeRawPtr<SVGPropertyBase> SVGEnumerationBase::cloneForAnimation(const String& value) const
 {
-    RefPtr<SVGEnumerationBase> svgEnumeration = clone();
+    RefPtrWillBeRawPtr<SVGEnumerationBase> svgEnumeration = clone();
     svgEnumeration->setValueAsString(value, IGNORE_EXCEPTION);
     return svgEnumeration.release();
 }
 
 String SVGEnumerationBase::valueAsString() const
 {
-    StringEntries::const_iterator it = m_entries.begin();
-    StringEntries::const_iterator itEnd = m_entries.end();
-    for (; it != itEnd; ++it) {
-        if (m_value == it->first)
-            return it->second;
+    for (const auto& entry : m_entries) {
+        if (m_value == entry.first)
+            return entry.second;
     }
 
     ASSERT(m_value < maxInternalEnumValue());
@@ -88,13 +86,11 @@ void SVGEnumerationBase::setValue(unsigned short value, ExceptionState& exceptio
 
 void SVGEnumerationBase::setValueAsString(const String& string, ExceptionState& exceptionState)
 {
-    StringEntries::const_iterator it = m_entries.begin();
-    StringEntries::const_iterator itEnd = m_entries.end();
-    for (; it != itEnd; ++it) {
-        if (string == it->second) {
+    for (const auto& entry : m_entries) {
+        if (string == entry.second) {
             // 0 corresponds to _UNKNOWN enumeration values, and should not be settable.
-            ASSERT(it->first);
-            m_value = it->first;
+            ASSERT(entry.first);
+            m_value = entry.first;
             notifyChange();
             return;
         }
@@ -109,7 +105,7 @@ void SVGEnumerationBase::add(PassRefPtrWillBeRawPtr<SVGPropertyBase>, SVGElement
     ASSERT_NOT_REACHED();
 }
 
-void SVGEnumerationBase::calculateAnimatedValue(SVGAnimationElement* animationElement, float percentage, unsigned repeatCount, PassRefPtr<SVGPropertyBase> from, PassRefPtr<SVGPropertyBase> to, PassRefPtr<SVGPropertyBase>, SVGElement*)
+void SVGEnumerationBase::calculateAnimatedValue(SVGAnimationElement* animationElement, float percentage, unsigned repeatCount, PassRefPtrWillBeRawPtr<SVGPropertyBase> from, PassRefPtrWillBeRawPtr<SVGPropertyBase> to, PassRefPtrWillBeRawPtr<SVGPropertyBase>, SVGElement*)
 {
     ASSERT(animationElement);
     unsigned short fromEnumeration = animationElement->animationMode() == ToAnimation ? m_value : toSVGEnumerationBase(from)->value();
@@ -118,7 +114,7 @@ void SVGEnumerationBase::calculateAnimatedValue(SVGAnimationElement* animationEl
     animationElement->animateDiscreteType<unsigned short>(percentage, fromEnumeration, toEnumeration, m_value);
 }
 
-float SVGEnumerationBase::calculateDistance(PassRefPtr<SVGPropertyBase>, SVGElement*)
+float SVGEnumerationBase::calculateDistance(PassRefPtrWillBeRawPtr<SVGPropertyBase>, SVGElement*)
 {
     // No paced animations for boolean.
     return -1;

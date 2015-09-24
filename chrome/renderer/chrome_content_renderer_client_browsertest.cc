@@ -9,6 +9,7 @@
 
 #include "base/command_line.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/grit/generated_resources.h"
@@ -37,7 +38,8 @@ typedef ChromeRenderViewTest InstantProcessNavigationTest;
 // bounced back to the browser to be rebucketed into a non-Instant renderer if
 // necessary.
 TEST_F(InstantProcessNavigationTest, ForkForNavigationsFromInstantProcess) {
-  CommandLine::ForCurrentProcess()->AppendSwitch(switches::kInstantProcess);
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      switches::kInstantProcess);
   bool unused;
   ChromeContentRendererClient* client =
       static_cast<ChromeContentRendererClient*>(content_renderer_client_.get());
@@ -52,7 +54,7 @@ TEST_F(InstantProcessNavigationTest, ForkForNavigationsToSearchURLs) {
   ChromeContentRendererClient* client =
       static_cast<ChromeContentRendererClient*>(content_renderer_client_.get());
   chrome_render_thread_->set_io_message_loop_proxy(
-      base::MessageLoopProxy::current());
+      base::ThreadTaskRunnerHandle::Get());
   client->RenderThreadStarted();
   std::vector<GURL> search_urls;
   search_urls.push_back(GURL("http://example.com/search"));
@@ -132,7 +134,7 @@ TEST_F(CreatePluginPlaceholderTest, MissingPlugin) {
   params.mimeType = base::ASCIIToUTF16(mime_type);
 
   ChromeViewHostMsg_GetPluginInfo_Output output;
-  output.status.value = ChromeViewHostMsg_GetPluginInfo_Status::kNotFound;
+  output.status = ChromeViewHostMsg_GetPluginInfo_Status::kNotFound;
 
   ScopedMockPluginInfoFilter filter(render_thread_.get());
 #if defined(ENABLE_PLUGINS)
@@ -157,7 +159,7 @@ TEST_F(CreatePluginPlaceholderTest, PluginFound) {
   params.mimeType = base::ASCIIToUTF16(mime_type);
 
   ChromeViewHostMsg_GetPluginInfo_Output output;
-  output.status.value = ChromeViewHostMsg_GetPluginInfo_Status::kAllowed;
+  output.status = ChromeViewHostMsg_GetPluginInfo_Status::kAllowed;
 
   ScopedMockPluginInfoFilter filter(render_thread_.get());
 #if defined(ENABLE_PLUGINS)

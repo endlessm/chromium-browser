@@ -8,13 +8,14 @@
 #include "chrome/browser/ui/views/toolbar/toolbar_action_view_delegate_views.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
+#include "ui/views/context_menu_controller.h"
 #include "ui/views/controls/button/menu_button.h"
 #include "ui/views/controls/button/menu_button_listener.h"
 #include "ui/views/drag_controller.h"
 #include "ui/views/view.h"
 
-class Browser;
 class ExtensionAction;
+class Profile;
 
 namespace extensions {
 class Extension;
@@ -24,6 +25,10 @@ namespace gfx {
 class Image;
 }
 
+namespace views {
+class MenuRunner;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // ToolbarActionView
 // A wrapper around a ToolbarActionViewController to display a toolbar action
@@ -31,6 +36,7 @@ class Image;
 class ToolbarActionView : public views::MenuButton,
                           public ToolbarActionViewDelegateViews,
                           public views::ButtonListener,
+                          public views::ContextMenuController,
                           public content::NotificationObserver {
  public:
   // Need DragController here because ToolbarActionView could be
@@ -50,33 +56,22 @@ class ToolbarActionView : public views::MenuButton,
     // reference point for a popup when this view isn't visible.
     virtual views::MenuButton* GetOverflowReferenceView() = 0;
 
-    // Sets the delegate's active popup owner to be |popup_owner|.
-    virtual void SetPopupOwner(ToolbarActionView* popup_owner) = 0;
-
-    // Hides the active popup of the delegate, if one exists.
-    virtual void HideActivePopup() = 0;
-
-    // Returns the primary ToolbarActionView associated with the given
-    // |extension|.
-    virtual ToolbarActionView* GetMainViewForAction(
-        ToolbarActionView* view) = 0;
-
    protected:
     ~Delegate() override {}
   };
 
-  ToolbarActionView(scoped_ptr<ToolbarActionViewController> view_controller,
-                    Browser* browser,
+  ToolbarActionView(ToolbarActionViewController* view_controller,
+                    Profile* profile,
                     Delegate* delegate);
   ~ToolbarActionView() override;
 
-  // Overridden from views::View:
+  // views::MenuButton:
   void GetAccessibleState(ui::AXViewState* state) override;
 
-  // Overridden from views::ButtonListener:
+  // views::ButtonListener:
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
-  // Overridden from content::NotificationObserver:
+  // content::NotificationObserver:
   void Observe(int type,
                const content::NotificationSource& source,
                const content::NotificationDetails& details) override;
@@ -86,6 +81,10 @@ class ToolbarActionView : public views::MenuButton,
   // behavior.  MenuButton has the notion of a child popup being shown where the
   // button will stay in the pushed state until the "menu" (a popup in this
   // case) is dismissed.
+  // TODO(devlin): This is a good idea, but it has some funny UI side-effects,
+  // like the fact that label buttons enter a pressed state immediately, but
+  // menu buttons only enter a pressed state on release (if they're draggable).
+  // We should probably just pick a behavior, and stick to it.
   bool Activate() override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
   void OnMouseReleased(const ui::MouseEvent& event) override;
@@ -93,51 +92,64 @@ class ToolbarActionView : public views::MenuButton,
   bool OnKeyReleased(const ui::KeyEvent& event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
   scoped_ptr<views::LabelButtonBorder> CreateDefaultBorder() const override;
+  bool ShouldEnterPushedState(const ui::Event& event) override;
 
   // ToolbarActionViewDelegate: (public because called by others).
   void UpdateState() override;
   content::WebContents* GetCurrentWebContents() const override;
 
   ToolbarActionViewController* view_controller() {
-    return view_controller_.get();
+    return view_controller_;
   }
-  Browser* browser() { return browser_; }
 
   // Returns button icon so it can be accessed during tests.
   gfx::ImageSkia GetIconForTest();
 
+  bool wants_to_run_for_testing() const { return wants_to_run_; }
+
  private:
-  // Overridden from views::View:
+  // views::MenuButton:
+  gfx::Size GetPreferredSize() const override;
+  void OnDragDone() override;
   void ViewHierarchyChanged(
       const ViewHierarchyChangedDetails& details) override;
-  void OnDragDone() override;
-  gfx::Size GetPreferredSize() const override;
-  void PaintChildren(gfx::Canvas* canvas,
-                     const views::CullSet& cull_set) override;
 
   // ToolbarActionViewDelegateViews:
   views::View* GetAsView() override;
-  bool IsShownInMenu() override;
   views::FocusManager* GetFocusManagerForAccelerator() override;
-  views::Widget* GetParentForContextMenu() override;
-  ToolbarActionViewController* GetPreferredPopupViewController() override;
   views::View* GetReferenceViewForPopup() override;
-  views::MenuButton* GetContextMenuButton() override;
-  void HideActivePopup() override;
-  void OnPopupShown(bool grant_tab_permissions) override;
-  void CleanupPopup() override;
+  bool IsMenuRunning() const override;
+  void OnPopupShown(bool by_user) override;
+  void OnPopupClosed() override;
+
+  // views::ContextMenuController:
+  void ShowContextMenuForView(views::View* source,
+                              const gfx::Point& point,
+                              ui::MenuSourceType source_type) override;
+
+  // Shows the context menu (if one exists) for the toolbar action.
+  void DoShowContextMenu(ui::MenuSourceType source_type);
+
+  // Closes the currently-active menu, if needed. This is the case when there
+  // is an active menu that wouldn't close automatically when a new one is
+  // opened.
+  // Returns true if a menu was closed, false otherwise.
+  bool CloseActiveMenuIfNeeded();
+
+  // Unfortunately, due to the dual-nature of a ToolbarActionView as both a
+  // label button and a menu button, activation can happen as part of either
+  // ButtonPressed() or Activate(). Handle both in this function.
+  void HandleActivation(const gfx::Point& menu_point,
+                        ui::MenuSourceType source_type);
 
   // A lock to keep the MenuButton pressed when a menu or popup is visible.
-  // This needs to be destroyed after |view_controller_|, because
-  // |view_controller_|'s destructor can call CleanupPopup(), which uses this
-  // object.
   scoped_ptr<views::MenuButton::PressedLock> pressed_lock_;
 
   // The controller for this toolbar action view.
-  scoped_ptr<ToolbarActionViewController> view_controller_;
+  ToolbarActionViewController* view_controller_;
 
-  // The associated browser.
-  Browser* browser_;
+  // The associated profile.
+  Profile* profile_;
 
   // Delegate that usually represents a container for ToolbarActionView.
   Delegate* delegate_;
@@ -145,7 +157,20 @@ class ToolbarActionView : public views::MenuButton,
   // Used to make sure we only register the command once.
   bool called_register_command_;
 
+  // The cached value of whether or not the action wants to run on the current
+  // tab.
+  bool wants_to_run_;
+
+  // Responsible for running the menu.
+  scoped_ptr<views::MenuRunner> menu_runner_;
+
+  // If non-null, this is the next toolbar action context menu that wants to run
+  // once the current owner (this one) is done.
+  base::Closure followup_context_menu_task_;
+
   content::NotificationRegistrar registrar_;
+
+  base::WeakPtrFactory<ToolbarActionView> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(ToolbarActionView);
 };

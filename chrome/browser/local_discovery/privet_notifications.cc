@@ -6,11 +6,13 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
 #include "base/metrics/histogram.h"
 #include "base/prefs/pref_service.h"
 #include "base/rand_util.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/local_discovery/privet_device_lister_impl.h"
 #include "chrome/browser/local_discovery/privet_http_asynchronous_factory.h"
@@ -105,13 +107,11 @@ void PrivetNotificationsListener::DeviceChanged(
 
   if (!device_context->registered) {
     device_context->privet_http_resolution =
-        privet_http_factory_->CreatePrivetHTTP(
-            name,
-            description.address,
-            base::Bind(&PrivetNotificationsListener::CreateInfoOperation,
-                       base::Unretained(this)));
-
-    device_context->privet_http_resolution->Start();
+        privet_http_factory_->CreatePrivetHTTP(name);
+    device_context->privet_http_resolution->Start(
+        description.address,
+        base::Bind(&PrivetNotificationsListener::CreateInfoOperation,
+                   base::Unretained(this)));
   }
 }
 
@@ -124,7 +124,8 @@ void PrivetNotificationsListener::CreateInfoOperation(
 
   std::string name = http_client->GetName();
   DeviceContextMap::iterator device_iter = devices_seen_.find(name);
-  DCHECK(device_iter != devices_seen_.end());
+  if (device_iter == devices_seen_.end())
+    return;
   DeviceContext* device = device_iter->second.get();
   device->privet_http.swap(http_client);
   device->info_operation = device->privet_http->CreateInfoOperation(
@@ -148,13 +149,13 @@ void PrivetNotificationsListener::OnPrivetInfoDone(
   DCHECK(!device->notification_may_be_active);
   device->notification_may_be_active = true;
   devices_active_++;
-  delegate_->PrivetNotify(devices_active_ > 1, true);
+  delegate_->PrivetNotify(devices_active_, true);
 }
 
 void PrivetNotificationsListener::DeviceRemoved(const std::string& name) {
-  DCHECK_EQ(1u, devices_seen_.count(name));
   DeviceContextMap::iterator device_iter = devices_seen_.find(name);
-  DCHECK(device_iter != devices_seen_.end());
+  if (device_iter == devices_seen_.end())
+    return;
   DeviceContext* device = device_iter->second.get();
 
   device->info_operation.reset();
@@ -184,7 +185,7 @@ void PrivetNotificationsListener::NotifyDeviceRemoved() {
   if (devices_active_ == 0) {
     delegate_->PrivetRemoveNotification();
   } else {
-    delegate_->PrivetNotify(devices_active_ > 1, false);
+    delegate_->PrivetNotify(devices_active_, false);
   }
 }
 
@@ -197,11 +198,10 @@ PrivetNotificationsListener::DeviceContext::~DeviceContext() {
 PrivetNotificationService::PrivetNotificationService(
     content::BrowserContext* profile)
     : profile_(profile) {
-  base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::Bind(&PrivetNotificationService::Start, AsWeakPtr()),
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, base::Bind(&PrivetNotificationService::Start, AsWeakPtr()),
       base::TimeDelta::FromSeconds(kStartDelaySeconds +
-                                   base::RandInt(0, kStartDelaySeconds/4)));
+                                   base::RandInt(0, kStartDelaySeconds / 4)));
 }
 
 PrivetNotificationService::~PrivetNotificationService() {
@@ -224,39 +224,33 @@ void PrivetNotificationService::DeviceCacheFlushed() {
 
 // static
 bool PrivetNotificationService::IsEnabled() {
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   return !command_line->HasSwitch(
       switches::kDisableDeviceDiscoveryNotifications);
 }
 
 // static
 bool PrivetNotificationService::IsForced() {
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   return command_line->HasSwitch(switches::kEnableDeviceDiscoveryNotifications);
 }
 
-void PrivetNotificationService::PrivetNotify(bool has_multiple,
+void PrivetNotificationService::PrivetNotify(int devices_active,
                                              bool added) {
   base::string16 product_name = l10n_util::GetStringUTF16(
-      IDS_LOCAL_DISOCVERY_SERVICE_NAME_PRINTER);
+      IDS_LOCAL_DISCOVERY_SERVICE_NAME_PRINTER);
 
-  int title_resource = has_multiple ?
-      IDS_LOCAL_DISOCVERY_NOTIFICATION_TITLE_PRINTER_MULTIPLE :
-      IDS_LOCAL_DISOCVERY_NOTIFICATION_TITLE_PRINTER;
-
-  int body_resource = has_multiple ?
-      IDS_LOCAL_DISOCVERY_NOTIFICATION_CONTENTS_PRINTER_MULTIPLE :
-      IDS_LOCAL_DISOCVERY_NOTIFICATION_CONTENTS_PRINTER;
-
-  base::string16 title = l10n_util::GetStringUTF16(title_resource);
-  base::string16 body = l10n_util::GetStringUTF16(body_resource);
+  base::string16 title = l10n_util::GetPluralStringFUTF16(
+      IDS_LOCAL_DISCOVERY_NOTIFICATION_TITLE_PRINTER, devices_active);
+  base::string16 body = l10n_util::GetPluralStringFUTF16(
+      IDS_LOCAL_DISCOVERY_NOTIFICATION_CONTENTS_PRINTER, devices_active);
 
   Profile* profile_object = Profile::FromBrowserContext(profile_);
   message_center::RichNotificationData rich_notification_data;
 
   rich_notification_data.buttons.push_back(
       message_center::ButtonInfo(l10n_util::GetStringUTF16(
-          IDS_LOCAL_DISOCVERY_NOTIFICATION_BUTTON_PRINTER)));
+          IDS_LOCAL_DISCOVERY_NOTIFICATION_BUTTON_PRINTER)));
 
   rich_notification_data.buttons.push_back(
       message_center::ButtonInfo(l10n_util::GetStringUTF16(
@@ -269,10 +263,9 @@ void PrivetNotificationService::PrivetNotify(bool has_multiple,
       body,
       ui::ResourceBundle::GetSharedInstance().GetImageNamed(
           IDR_LOCAL_DISCOVERY_CLOUDPRINT_ICON),
-      blink::WebTextDirectionDefault,
       message_center::NotifierId(GURL(kPrivetNotificationOriginUrl)),
       product_name,
-      base::UTF8ToUTF16(kPrivetNotificationID),
+      kPrivetNotificationID,
       rich_notification_data,
       new PrivetNotificationDelegate(profile_));
 
@@ -352,7 +345,7 @@ void PrivetNotificationService::StartLister() {
 
   scoped_ptr<PrivetHTTPAsynchronousFactory> http_factory(
       PrivetHTTPAsynchronousFactory::CreateInstance(
-          service_discovery_client_.get(), profile_->GetRequestContext()));
+          profile_->GetRequestContext()));
 
   privet_notifications_listener_.reset(new PrivetNotificationsListener(
       http_factory.Pass(), this));

@@ -7,13 +7,13 @@
 #include "base/mac/foundation_util.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/profiles/profile_info_cache_observer.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
+#include "chrome/browser/profiles/profile_info_cache_observer.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_metrics.h"
-#include "chrome/browser/signin/signin_header_helper.h"
-#include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/profiles/profile_window.h"
+#include "chrome/browser/profiles/profiles_state.h"
+#include "chrome/browser/signin/signin_header_helper.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -33,6 +33,7 @@ const CGFloat kMenuXOffsetAdjust = 2.0;
 @interface AvatarBaseController (Private)
 // Shows the avatar bubble.
 - (IBAction)buttonClicked:(id)sender;
+- (IBAction)buttonRightClicked:(id)sender;
 
 - (void)bubbleWillClose:(NSNotification*)notif;
 
@@ -93,7 +94,7 @@ class ProfileInfoUpdateObserver : public ProfileInfoCacheObserver,
   }
 
   void OnProfileAvatarChanged(const base::FilePath& profile_path) override {
-    if (profile_->GetPath() == profile_path)
+    if (!switches::IsNewAvatarMenu() && profile_->GetPath() == profile_path)
       [avatarController_ updateAvatarButtonAndLayoutParent:YES];
   }
 
@@ -130,11 +131,16 @@ class ProfileInfoUpdateObserver : public ProfileInfoCacheObserver,
 }
 
 - (void)dealloc {
+  [self browserWillBeDestroyed];
+  [super dealloc];
+}
+
+- (void)browserWillBeDestroyed {
   [[NSNotificationCenter defaultCenter]
       removeObserver:self
                 name:NSWindowWillCloseNotification
               object:[menuController_ window]];
-  [super dealloc];
+  browser_ = nullptr;
 }
 
 - (NSButton*)buttonView {
@@ -177,7 +183,7 @@ class ProfileInfoUpdateObserver : public ProfileInfoCacheObserver,
       NSMaxX([anchor bounds]) - kMenuXOffsetAdjust :
       NSMidX([anchor bounds]);
   NSPoint point = NSMakePoint(anchorX,
-                              NSMaxY([anchor bounds]) - kMenuYOffsetAdjust);
+                              NSMaxY([anchor bounds]) + kMenuYOffsetAdjust);
   point = [anchor convertPoint:point toView:nil];
   point = [[anchor window] convertBaseToScreen:point];
 
@@ -187,6 +193,14 @@ class ProfileInfoUpdateObserver : public ProfileInfoCacheObserver,
     profiles::TutorialMode tutorialMode;
     profiles::BubbleViewModeFromAvatarBubbleMode(
         mode, &viewMode, &tutorialMode);
+    // Don't start creating the view if it would be an empty fast user switcher.
+    // It has to happen here to prevent the view system from creating an empty
+    // container.
+    if (viewMode == profiles::BUBBLE_VIEW_MODE_FAST_PROFILE_CHOOSER &&
+        !profiles::HasProfileSwitchTargets(browser_->profile())) {
+      return;
+    }
+
     menuController_ =
         [[ProfileChooserController alloc] initWithBrowser:browser_
                                                anchoredAt:point
@@ -210,8 +224,20 @@ class ProfileInfoUpdateObserver : public ProfileInfoCacheObserver,
 }
 
 - (IBAction)buttonClicked:(id)sender {
+  BrowserWindow::AvatarBubbleMode mode =
+      BrowserWindow::AVATAR_BUBBLE_MODE_DEFAULT;
+
   [self showAvatarBubbleAnchoredAt:button_
-                          withMode:BrowserWindow::AVATAR_BUBBLE_MODE_DEFAULT
+                          withMode:mode
+                   withServiceType:signin::GAIA_SERVICE_TYPE_NONE];
+}
+
+- (IBAction)buttonRightClicked:(id)sender {
+  BrowserWindow::AvatarBubbleMode mode =
+      BrowserWindow::AVATAR_BUBBLE_MODE_FAST_USER_SWITCH;
+
+  [self showAvatarBubbleAnchoredAt:button_
+                          withMode:mode
                    withServiceType:signin::GAIA_SERVICE_TYPE_NONE];
 }
 

@@ -94,7 +94,7 @@ class BrowserThemePackTest : public ::testing::Test {
   }
 
   void LoadColorJSON(const std::string& json) {
-    scoped_ptr<base::Value> value(base::JSONReader::Read(json));
+    scoped_ptr<base::Value> value = base::JSONReader::Read(json);
     ASSERT_TRUE(value->IsType(base::Value::TYPE_DICTIONARY));
     LoadColorDictionary(static_cast<base::DictionaryValue*>(value.get()));
   }
@@ -104,7 +104,7 @@ class BrowserThemePackTest : public ::testing::Test {
   }
 
   void LoadTintJSON(const std::string& json) {
-    scoped_ptr<base::Value> value(base::JSONReader::Read(json));
+    scoped_ptr<base::Value> value = base::JSONReader::Read(json);
     ASSERT_TRUE(value->IsType(base::Value::TYPE_DICTIONARY));
     LoadTintDictionary(static_cast<base::DictionaryValue*>(value.get()));
   }
@@ -114,7 +114,7 @@ class BrowserThemePackTest : public ::testing::Test {
   }
 
   void LoadDisplayPropertiesJSON(const std::string& json) {
-    scoped_ptr<base::Value> value(base::JSONReader::Read(json));
+    scoped_ptr<base::Value> value = base::JSONReader::Read(json);
     ASSERT_TRUE(value->IsType(base::Value::TYPE_DICTIONARY));
     LoadDisplayPropertiesDictionary(
         static_cast<base::DictionaryValue*>(value.get()));
@@ -126,7 +126,7 @@ class BrowserThemePackTest : public ::testing::Test {
 
   void ParseImageNamesJSON(const std::string& json,
                            TestFilePathMap* out_file_paths) {
-    scoped_ptr<base::Value> value(base::JSONReader::Read(json));
+    scoped_ptr<base::Value> value = base::JSONReader::Read(json);
     ASSERT_TRUE(value->IsType(base::Value::TYPE_DICTIONARY));
     ParseImageNamesDictionary(static_cast<base::DictionaryValue*>(value.get()),
                               out_file_paths);
@@ -154,10 +154,10 @@ class BrowserThemePackTest : public ::testing::Test {
     base::FilePath manifest_path =
         extension_path.AppendASCII("manifest.json");
     std::string error;
-    JSONFileValueSerializer serializer(manifest_path);
+    JSONFileValueDeserializer deserializer(manifest_path);
     scoped_ptr<base::DictionaryValue> valid_value(
         static_cast<base::DictionaryValue*>(
-            serializer.Deserialize(NULL, &error)));
+            deserializer.Deserialize(NULL, &error)));
     EXPECT_EQ("", error);
     ASSERT_TRUE(valid_value.get());
     scoped_refptr<Extension> extension(

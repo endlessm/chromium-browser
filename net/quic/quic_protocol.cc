@@ -73,20 +73,20 @@ QuicPacketPublicHeader::QuicPacketPublicHeader(
 QuicPacketPublicHeader::~QuicPacketPublicHeader() {}
 
 QuicPacketHeader::QuicPacketHeader()
-    : fec_flag(false),
+    : packet_sequence_number(0),
+      fec_flag(false),
       entropy_flag(false),
       entropy_hash(0),
-      packet_sequence_number(0),
       is_in_fec_group(NOT_IN_FEC_GROUP),
       fec_group(0) {
 }
 
 QuicPacketHeader::QuicPacketHeader(const QuicPacketPublicHeader& header)
     : public_header(header),
+      packet_sequence_number(0),
       fec_flag(false),
       entropy_flag(false),
       entropy_hash(0),
-      packet_sequence_number(0),
       is_in_fec_group(NOT_IN_FEC_GROUP),
       fec_group(0) {
 }
@@ -101,39 +101,21 @@ QuicPublicResetPacket::QuicPublicResetPacket(
       nonce_proof(0),
       rejected_sequence_number(0) {}
 
-QuicStreamFrame::QuicStreamFrame()
-    : stream_id(0),
-      fin(false),
-      offset(0),
-      notifier(nullptr) {}
+QuicStreamFrame::QuicStreamFrame() : stream_id(0), fin(false), offset(0) {
+}
 
 QuicStreamFrame::QuicStreamFrame(const QuicStreamFrame& frame)
     : stream_id(frame.stream_id),
       fin(frame.fin),
       offset(frame.offset),
-      data(frame.data),
-      notifier(frame.notifier) {
+      data(frame.data) {
 }
 
 QuicStreamFrame::QuicStreamFrame(QuicStreamId stream_id,
                                  bool fin,
                                  QuicStreamOffset offset,
-                                 IOVector data)
-    : stream_id(stream_id),
-      fin(fin),
-      offset(offset),
-      data(data),
-      notifier(nullptr) {}
-
-string* QuicStreamFrame::GetDataAsString() const {
-  string* data_string = new string();
-  data_string->reserve(data.TotalBufferSize());
-  for (size_t i = 0; i < data.Size(); ++i) {
-    data_string->append(static_cast<char*>(data.iovec()[i].iov_base),
-                        data.iovec()[i].iov_len);
-  }
-  DCHECK_EQ(data_string->size(), data.TotalBufferSize());
-  return data_string;
+                                 StringPiece data)
+    : stream_id(stream_id), fin(fin), offset(offset), data(data) {
 }
 
 uint32 MakeQuicTag(char a, char b, char c, char d) {
@@ -158,14 +140,10 @@ QuicVersionVector QuicSupportedVersions() {
 
 QuicTag QuicVersionToQuicTag(const QuicVersion version) {
   switch (version) {
-    case QUIC_VERSION_19:
-      return MakeQuicTag('Q', '0', '1', '9');
-    case QUIC_VERSION_21:
-      return MakeQuicTag('Q', '0', '2', '1');
-    case QUIC_VERSION_22:
-      return MakeQuicTag('Q', '0', '2', '2');
-    case QUIC_VERSION_23:
-      return MakeQuicTag('Q', '0', '2', '3');
+    case QUIC_VERSION_24:
+      return MakeQuicTag('Q', '0', '2', '4');
+    case QUIC_VERSION_25:
+      return MakeQuicTag('Q', '0', '2', '5');
     default:
       // This shold be an ERROR because we should never attempt to convert an
       // invalid QuicVersion to be written to the wire.
@@ -192,10 +170,8 @@ return #x
 
 string QuicVersionToString(const QuicVersion version) {
   switch (version) {
-    RETURN_STRING_LITERAL(QUIC_VERSION_19);
-    RETURN_STRING_LITERAL(QUIC_VERSION_21);
-    RETURN_STRING_LITERAL(QUIC_VERSION_22);
-    RETURN_STRING_LITERAL(QUIC_VERSION_23);
+    RETURN_STRING_LITERAL(QUIC_VERSION_24);
+    RETURN_STRING_LITERAL(QUIC_VERSION_25);
     default:
       return "QUIC_VERSION_UNSUPPORTED";
   }
@@ -212,6 +188,15 @@ string QuicVersionVectorToString(const QuicVersionVector& versions) {
   return result;
 }
 
+ostream& operator<<(ostream& os, const Perspective& s) {
+  if (s == Perspective::IS_SERVER) {
+    os << "IS_SERVER";
+  } else {
+    os << "IS_CLIENT";
+  }
+  return os;
+}
+
 ostream& operator<<(ostream& os, const QuicPacketHeader& header) {
   os << "{ connection_id: " << header.public_header.connection_id
      << ", connection_id_length:" << header.public_header.connection_id_length
@@ -222,7 +207,7 @@ ostream& operator<<(ostream& os, const QuicPacketHeader& header) {
   if (header.public_header.version_flag) {
     os << " version: ";
     for (size_t i = 0; i < header.public_header.versions.size(); ++i) {
-      os << header.public_header.versions[0] << " ";
+      os << header.public_header.versions[i] << " ";
     }
   }
   os << ", fec_flag: " << header.fec_flag
@@ -262,14 +247,6 @@ QuicAckFrame::QuicAckFrame()
       is_truncated(false) {}
 
 QuicAckFrame::~QuicAckFrame() {}
-
-CongestionFeedbackMessageTCP::CongestionFeedbackMessageTCP()
-    : receive_window(0) {
-}
-
-QuicCongestionFeedbackFrame::QuicCongestionFeedbackFrame() : type(kTCP) {}
-
-QuicCongestionFeedbackFrame::~QuicCongestionFeedbackFrame() {}
 
 QuicRstStreamErrorCode AdjustErrorForVersion(
     QuicRstStreamErrorCode error_code,
@@ -312,9 +289,8 @@ QuicFrame::QuicFrame(QuicAckFrame* frame)
       ack_frame(frame) {
 }
 
-QuicFrame::QuicFrame(QuicCongestionFeedbackFrame* frame)
-    : type(CONGESTION_FEEDBACK_FRAME),
-      congestion_feedback_frame(frame) {
+QuicFrame::QuicFrame(QuicMtuDiscoveryFrame* frame)
+    : type(MTU_DISCOVERY_FRAME), mtu_discovery_frame(frame) {
 }
 
 QuicFrame::QuicFrame(QuicStopWaitingFrame* frame)
@@ -393,7 +369,7 @@ ostream& operator<<(ostream& os, const QuicFrame& frame) {
       break;
     }
     case RST_STREAM_FRAME: {
-      os << "type { " << RST_STREAM_FRAME << " } " << *(frame.rst_stream_frame);
+      os << "type { RST_STREAM_FRAME } " << *(frame.rst_stream_frame);
       break;
     }
     case CONNECTION_CLOSE_FRAME: {
@@ -421,17 +397,16 @@ ostream& operator<<(ostream& os, const QuicFrame& frame) {
       os << "type { ACK_FRAME } " << *(frame.ack_frame);
       break;
     }
-    case CONGESTION_FEEDBACK_FRAME: {
-      os << "type { CONGESTION_FEEDBACK_FRAME } "
-         << *(frame.congestion_feedback_frame);
-      break;
-    }
     case STOP_WAITING_FRAME: {
       os << "type { STOP_WAITING_FRAME } " << *(frame.stop_waiting_frame);
       break;
     }
     case PING_FRAME: {
       os << "type { PING_FRAME } ";
+      break;
+    }
+    case MTU_DISCOVERY_FRAME: {
+      os << "type { MTU_DISCOVERY_FRAME } ";
       break;
     }
     default: {
@@ -479,22 +454,8 @@ ostream& operator<<(ostream& os, const QuicStreamFrame& stream_frame) {
   os << "stream_id { " << stream_frame.stream_id << " } "
      << "fin { " << stream_frame.fin << " } "
      << "offset { " << stream_frame.offset << " } "
-     << "data { "
-     << QuicUtils::StringToHexASCIIDump(*(stream_frame.GetDataAsString()))
+     << "data { " << QuicUtils::StringToHexASCIIDump(stream_frame.data)
      << " }\n";
-  return os;
-}
-
-ostream& operator<<(ostream& os,
-                    const QuicCongestionFeedbackFrame& congestion_frame) {
-  os << "type: " << congestion_frame.type;
-  switch (congestion_frame.type) {
-    case kTCP: {
-      const CongestionFeedbackMessageTCP& tcp = congestion_frame.tcp;
-      os << " receive_window: " << tcp.receive_window;
-      break;
-    }
-  }
   return os;
 }
 
@@ -546,11 +507,9 @@ QuicPacket::QuicPacket(char* buffer,
                        bool owns_buffer,
                        QuicConnectionIdLength connection_id_length,
                        bool includes_version,
-                       QuicSequenceNumberLength sequence_number_length,
-                       bool is_fec_packet)
+                       QuicSequenceNumberLength sequence_number_length)
     : QuicData(buffer, length, owns_buffer),
       buffer_(buffer),
-      is_fec_packet_(is_fec_packet),
       connection_id_length_(connection_id_length),
       includes_version_(includes_version),
       sequence_number_length_(sequence_number_length) {
@@ -595,9 +554,10 @@ StringPiece QuicPacket::Plaintext() const {
                      length() - start_of_encrypted_data);
 }
 
-RetransmittableFrames::RetransmittableFrames()
-    : encryption_level_(NUM_ENCRYPTION_LEVELS),
-      has_crypto_handshake_(NOT_HANDSHAKE) {
+RetransmittableFrames::RetransmittableFrames(EncryptionLevel level)
+    : encryption_level_(level),
+      has_crypto_handshake_(NOT_HANDSHAKE),
+      needs_padding_(false) {
 }
 
 RetransmittableFrames::~RetransmittableFrames() {
@@ -612,8 +572,8 @@ RetransmittableFrames::~RetransmittableFrames() {
       case ACK_FRAME:
         delete it->ack_frame;
         break;
-      case CONGESTION_FEEDBACK_FRAME:
-        delete it->congestion_feedback_frame;
+      case MTU_DISCOVERY_FRAME:
+        delete it->mtu_discovery_frame;
         break;
       case STOP_WAITING_FRAME:
         delete it->stop_waiting_frame;
@@ -640,46 +600,52 @@ RetransmittableFrames::~RetransmittableFrames() {
         DCHECK(false) << "Cannot delete type: " << it->type;
     }
   }
-  STLDeleteElements(&stream_data_);
+  for (const char* buffer : stream_data_) {
+    delete[] buffer;
+  }
 }
 
-const QuicFrame& RetransmittableFrames::AddStreamFrame(
-    QuicStreamFrame* stream_frame) {
-  // Make an owned copy of the stream frame's data.
-  stream_data_.push_back(stream_frame->GetDataAsString());
-  // Ensure the stream frame's IOVector points to the owned copy of the data.
-  stream_frame->data.Clear();
-  stream_frame->data.Append(const_cast<char*>(stream_data_.back()->data()),
-                            stream_data_.back()->size());
-  frames_.push_back(QuicFrame(stream_frame));
-  if (stream_frame->stream_id == kCryptoStreamId) {
+const QuicFrame& RetransmittableFrames::AddFrame(const QuicFrame& frame) {
+  return AddFrame(frame, nullptr);
+}
+
+const QuicFrame& RetransmittableFrames::AddFrame(const QuicFrame& frame,
+                                                 char* buffer) {
+  if (frame.type == STREAM_FRAME &&
+      frame.stream_frame->stream_id == kCryptoStreamId) {
     has_crypto_handshake_ = IS_HANDSHAKE;
   }
-  return frames_.back();
-}
-
-const QuicFrame& RetransmittableFrames::AddNonStreamFrame(
-    const QuicFrame& frame) {
-  DCHECK_NE(frame.type, STREAM_FRAME);
+  if (buffer != nullptr) {
+    stream_data_.push_back(buffer);
+  }
   frames_.push_back(frame);
   return frames_.back();
 }
 
-void RetransmittableFrames::set_encryption_level(EncryptionLevel level) {
-  encryption_level_ = level;
+void RetransmittableFrames::RemoveFramesForStream(QuicStreamId stream_id) {
+  QuicFrames::iterator it = frames_.begin();
+  while (it != frames_.end()) {
+    if (it->type != STREAM_FRAME || it->stream_frame->stream_id != stream_id) {
+      ++it;
+      continue;
+    }
+    delete it->stream_frame;
+    it = frames_.erase(it);
+  }
 }
 
 SerializedPacket::SerializedPacket(
     QuicPacketSequenceNumber sequence_number,
     QuicSequenceNumberLength sequence_number_length,
-    QuicPacket* packet,
+    QuicEncryptedPacket* packet,
     QuicPacketEntropyHash entropy_hash,
     RetransmittableFrames* retransmittable_frames)
-    : sequence_number(sequence_number),
+    : packet(packet),
+      retransmittable_frames(retransmittable_frames),
+      sequence_number(sequence_number),
       sequence_number_length(sequence_number_length),
-      packet(packet),
       entropy_hash(entropy_hash),
-      retransmittable_frames(retransmittable_frames) {
+      is_fec_packet(false) {
 }
 
 SerializedPacket::~SerializedPacket() {}
@@ -704,21 +670,27 @@ TransmissionInfo::TransmissionInfo()
       transmission_type(NOT_RETRANSMISSION),
       all_transmissions(nullptr),
       in_flight(false),
-      is_unackable(false) {}
+      is_unackable(false),
+      is_fec_packet(false) {
+}
 
 TransmissionInfo::TransmissionInfo(
     RetransmittableFrames* retransmittable_frames,
     QuicSequenceNumberLength sequence_number_length,
     TransmissionType transmission_type,
-    QuicTime sent_time)
+    QuicTime sent_time,
+    QuicByteCount bytes_sent,
+    bool is_fec_packet)
     : retransmittable_frames(retransmittable_frames),
       sequence_number_length(sequence_number_length),
       sent_time(sent_time),
-      bytes_sent(0),
+      bytes_sent(bytes_sent),
       nack_count(0),
       transmission_type(transmission_type),
       all_transmissions(nullptr),
       in_flight(false),
-      is_unackable(false) {}
+      is_unackable(false),
+      is_fec_packet(is_fec_packet) {
+}
 
 }  // namespace net

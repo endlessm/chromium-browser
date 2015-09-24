@@ -6,20 +6,22 @@
 
 #include <cmath>
 
+#include "ash/ash_switches.h"
 #include "ash/display/display_info.h"
 #include "ash/display/display_manager.h"
 #include "ash/host/root_window_transformer.h"
 #include "ash/magnifier/magnification_controller.h"
 #include "ash/shell.h"
 #include "base/basictypes.h"
+#include "base/command_line.h"
 #include "base/memory/scoped_ptr.h"
 #include "third_party/skia/include/utils/SkMatrix44.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/aura/window_property.h"
 #include "ui/compositor/dip_util.h"
 #include "ui/gfx/display.h"
-#include "ui/gfx/insets.h"
-#include "ui/gfx/size_conversions.h"
+#include "ui/gfx/geometry/insets.h"
+#include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/transform.h"
 #include "ui/gfx/transform.h"
 
@@ -60,16 +62,18 @@ gfx::Transform CreateRotationTransform(aura::Window* root_window,
   // updating the transform results in incorrectly resizing
   // the root window. Don't apply the transform unless
   // necessary so that unit tests pass on win8 bots.
-  if (info.rotation() == root_window->GetProperty(kRotationPropertyKey))
+  if (info.GetActiveRotation() ==
+      root_window->GetProperty(kRotationPropertyKey)) {
     return gfx::Transform();
-  root_window->SetProperty(kRotationPropertyKey, info.rotation());
+  }
+  root_window->SetProperty(kRotationPropertyKey, info.GetActiveRotation());
 #endif
 
   gfx::Transform rotate;
   // The origin is (0, 0), so the translate width/height must be reduced by
   // 1 pixel.
   float one_pixel = 1.0f / display.device_scale_factor();
-  switch (info.rotation()) {
+  switch (info.GetActiveRotation()) {
     case gfx::Display::ROTATE_0:
       break;
     case gfx::Display::ROTATE_90:
@@ -122,6 +126,15 @@ gfx::Transform CreateInsetsAndScaleTransform(const gfx::Insets& insets,
   return transform;
 }
 
+gfx::Transform CreateMirrorTransform(const gfx::Display& display) {
+  gfx::Transform transform;
+  transform.matrix().set3x3(-1, 0, 0,
+                            0, 1, 0,
+                            0, 0, 1);
+  transform.Translate(-display.size().width(), 0);
+  return transform;
+}
+
 // RootWindowTransformer for ash environment.
 class AshRootWindowTransformer : public RootWindowTransformer {
  public:
@@ -137,7 +150,15 @@ class AshRootWindowTransformer : public RootWindowTransformer {
                                       display.device_scale_factor(),
                                       root_window_ui_scale_) *
         CreateRotationTransform(root, display);
+    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+            switches::kAshEnableMirroredScreen)) {
+      // Apply the tranform that flips the screen image horizontally so that
+      // the screen looks normal when reflected on a mirror.
+      root_window_bounds_transform_ =
+          root_window_bounds_transform_ * CreateMirrorTransform(display);
+    }
     transform_ = root_window_bounds_transform_ * CreateMagnifierTransform(root);
+
     CHECK(transform_.GetInverse(&invert_transform_));
   }
 
@@ -254,6 +275,37 @@ class MirrorRootWindowTransformer : public RootWindowTransformer {
   DISALLOW_COPY_AND_ASSIGN(MirrorRootWindowTransformer);
 };
 
+class PartialBoundsRootWindowTransformer : public RootWindowTransformer {
+ public:
+  PartialBoundsRootWindowTransformer(const gfx::Rect& screen_bounds,
+                                     const gfx::Display& display) {
+    gfx::SizeF root_size(display.bounds().size());
+    root_size.Scale(display.device_scale_factor());
+    root_bounds_ = gfx::Rect(gfx::ToFlooredSize(root_size));
+
+    transform_.Translate(-SkIntToMScalar(display.bounds().x()),
+                         -SkIntToMScalar(display.bounds().y()));
+  }
+
+  // RootWindowTransformer:
+  gfx::Transform GetTransform() const override { return transform_; }
+  gfx::Transform GetInverseTransform() const override {
+    gfx::Transform invert;
+    CHECK(transform_.GetInverse(&invert));
+    return invert;
+  }
+  gfx::Rect GetRootWindowBounds(const gfx::Size& host_size) const override {
+    return root_bounds_;
+  }
+  gfx::Insets GetHostInsets() const override { return gfx::Insets(); }
+
+ private:
+  gfx::Transform transform_;
+  gfx::Rect root_bounds_;
+
+  DISALLOW_COPY_AND_ASSIGN(PartialBoundsRootWindowTransformer);
+};
+
 }  // namespace
 
 RootWindowTransformer* CreateRootWindowTransformerForDisplay(
@@ -267,6 +319,12 @@ RootWindowTransformer* CreateRootWindowTransformerForMirroredDisplay(
     const DisplayInfo& mirror_display_info) {
   return new MirrorRootWindowTransformer(source_display_info,
                                          mirror_display_info);
+}
+
+RootWindowTransformer* CreateRootWindowTransformerForUnifiedDesktop(
+    const gfx::Rect& screen_bounds,
+    const gfx::Display& display) {
+  return new PartialBoundsRootWindowTransformer(screen_bounds, display);
 }
 
 }  // namespace ash

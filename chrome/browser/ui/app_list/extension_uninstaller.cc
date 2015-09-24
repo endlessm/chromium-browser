@@ -4,10 +4,9 @@
 
 #include "chrome/browser/ui/app_list/extension_uninstaller.h"
 
-#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
-#include "extensions/browser/extension_system.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/browser/uninstall_reason.h"
 #include "extensions/common/extension.h"
 
@@ -25,8 +24,8 @@ ExtensionUninstaller::~ExtensionUninstaller() {
 
 void ExtensionUninstaller::Run() {
   const extensions::Extension* extension =
-      extensions::ExtensionSystem::Get(profile_)->extension_service()->
-          GetInstalledExtension(app_id_);
+      extensions::ExtensionRegistry::Get(profile_)->GetInstalledExtension(
+          app_id_);
   if (!extension) {
     CleanUp();
     return;
@@ -34,25 +33,13 @@ void ExtensionUninstaller::Run() {
   controller_->OnShowChildDialog();
   dialog_.reset(extensions::ExtensionUninstallDialog::Create(
       profile_, controller_->GetAppListWindow(), this));
-  dialog_->ConfirmUninstall(extension);
+  dialog_->ConfirmUninstall(extension,
+                            extensions::UNINSTALL_REASON_USER_INITIATED);
 }
 
-void ExtensionUninstaller::ExtensionUninstallAccepted() {
-  ExtensionService* service =
-      extensions::ExtensionSystem::Get(profile_)->extension_service();
-  const extensions::Extension* extension =
-      service->GetInstalledExtension(app_id_);
-  if (extension) {
-    service->UninstallExtension(app_id_,
-                                extensions::UNINSTALL_REASON_USER_INITIATED,
-                                base::Bind(&base::DoNothing),
-                                NULL);
-  }
-  controller_->OnCloseChildDialog();
-  CleanUp();
-}
-
-void ExtensionUninstaller::ExtensionUninstallCanceled() {
+void ExtensionUninstaller::OnExtensionUninstallDialogClosed(
+    bool did_start_uninstall,
+    const base::string16& error) {
   controller_->OnCloseChildDialog();
   CleanUp();
 }

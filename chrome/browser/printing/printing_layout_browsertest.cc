@@ -8,7 +8,7 @@
 #include "base/files/file_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
-#include "base/process/process.h"
+#include "base/process/process_handle.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/test_file_util.h"
@@ -45,18 +45,18 @@ class PrintingLayoutTest : public PrintingTest<InProcessBrowserTest>,
     emf_path_ = browser_directory.AppendASCII("metafile_dumps");
   }
 
-  virtual void SetUp() override {
+  void SetUp() override {
     // Make sure there is no left overs.
     CleanupDumpDirectory();
     InProcessBrowserTest::SetUp();
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     InProcessBrowserTest::TearDown();
     base::DeleteFile(emf_path_, true);
   }
 
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitchPath(switches::kDebugPrint, emf_path_);
   }
 
@@ -236,7 +236,7 @@ class PrintingLayoutTest : public PrintingTest<InProcessBrowserTest>,
   }
 
   static bool GenerateFiles() {
-    return CommandLine::ForCurrentProcess()->HasSwitch(kGenerateSwitch);
+    return base::CommandLine::ForCurrentProcess()->HasSwitch(kGenerateSwitch);
   }
 
   base::FilePath emf_path_;
@@ -296,7 +296,7 @@ bool CloseDialogWindow(HWND dialog_window) {
 class DismissTheWindow : public base::DelegateSimpleThread::Delegate {
  public:
   DismissTheWindow()
-      : owner_process_(base::Process::Current().pid()) {
+      : owner_process_(base::GetCurrentProcId()) {
   }
 
   virtual void Run() {

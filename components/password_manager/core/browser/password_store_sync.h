@@ -5,8 +5,8 @@
 #ifndef COMPONENTS_PASSWORD_MANAGER_CORE_BROWSER_PASSWORD_SYNC_INTERFACE_H_
 #define COMPONENTS_PASSWORD_MANAGER_CORE_BROWSER_PASSWORD_SYNC_INTERFACE_H_
 
-#include <vector>
-
+#include "base/compiler_specific.h"
+#include "base/memory/scoped_vector.h"
 #include "components/password_manager/core/browser/password_store_change.h"
 
 namespace password_manager {
@@ -17,24 +17,26 @@ namespace password_manager {
 // thread only.
 class PasswordStoreSync {
  public:
-  // Finds all non-blacklist PasswordForms, and fills the vector.
+  // Overwrites |forms| with all stored non-blacklisted credentials. Returns
+  // true on success.
   virtual bool FillAutofillableLogins(
-      std::vector<autofill::PasswordForm*>* forms) = 0;
+      ScopedVector<autofill::PasswordForm>* forms) WARN_UNUSED_RESULT = 0;
 
-  // Finds all blacklist PasswordForms, and fills the vector.
-  virtual bool FillBlacklistLogins(
-      std::vector<autofill::PasswordForm*>* forms) = 0;
+  // Overwrites |forms| with all stored blacklisted credentials. Returns true on
+  // success.
+  virtual bool FillBlacklistLogins(ScopedVector<autofill::PasswordForm>* forms)
+      WARN_UNUSED_RESULT = 0;
 
   // Synchronous implementation to add the given login.
-  virtual PasswordStoreChangeList AddLoginImpl(
+  virtual PasswordStoreChangeList AddLoginSync(
       const autofill::PasswordForm& form) = 0;
 
   // Synchronous implementation to update the given login.
-  virtual PasswordStoreChangeList UpdateLoginImpl(
+  virtual PasswordStoreChangeList UpdateLoginSync(
       const autofill::PasswordForm& form) = 0;
 
   // Synchronous implementation to remove the given login.
-  virtual PasswordStoreChangeList RemoveLoginImpl(
+  virtual PasswordStoreChangeList RemoveLoginSync(
       const autofill::PasswordForm& form) = 0;
 
   // Notifies observers that password store data may have been changed.

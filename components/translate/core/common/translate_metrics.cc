@@ -5,7 +5,8 @@
 #include "components/translate/core/common/translate_metrics.h"
 
 #include "base/basictypes.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
+#include "url/url_constants.h"
 
 namespace translate {
 
@@ -23,9 +24,6 @@ const char kTranslateTimeToTranslate[] = "Translate.TimeToTranslate";
 const char kTranslateUserActionDuration[] = "Translate.UserActionDuration";
 const char kTranslatePageScheme[] = "Translate.PageScheme";
 const char kTranslateSimilarLanguageMatch[] = "Translate.SimilarLanguageMatch";
-
-const char kSchemeHttp[] = "http";
-const char kSchemeHttps[] = "https";
 
 struct MetricsEntry {
   MetricsNameIndex index;
@@ -45,8 +43,8 @@ const MetricsEntry kMetricsEntries[] = {
     {UMA_PAGE_SCHEME, kTranslatePageScheme},
     {UMA_SIMILAR_LANGUAGE_MATCH, kTranslateSimilarLanguageMatch}, };
 
-COMPILE_ASSERT(arraysize(kMetricsEntries) == UMA_MAX,
-               arraysize_of_kMetricsEntries_should_be_UMA_MAX);
+static_assert(arraysize(kMetricsEntries) == UMA_MAX,
+              "kMetricsEntries should have UMA_MAX elements");
 
 LanguageCheckType GetLanguageCheckMetric(const std::string& provided_code,
                                          const std::string& revised_code) {
@@ -106,9 +104,9 @@ void ReportUserActionDuration(base::TimeTicks begin, base::TimeTicks end) {
 
 void ReportPageScheme(const std::string& scheme) {
   SchemeType type = SCHEME_OTHERS;
-  if (scheme == kSchemeHttp)
+  if (scheme == url::kHttpScheme)
     type = SCHEME_HTTP;
-  else if (scheme == kSchemeHttps)
+  else if (scheme == url::kHttpsScheme)
     type = SCHEME_HTTPS;
   UMA_HISTOGRAM_ENUMERATION(kTranslatePageScheme, type, SCHEME_MAX);
 }

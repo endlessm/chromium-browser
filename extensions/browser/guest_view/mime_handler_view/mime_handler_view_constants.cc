@@ -6,7 +6,6 @@
 
 namespace mime_handler_view {
 
-const char kMimeType[] = "mimeType";
-const char kSrc[] = "src";
+const char kViewId[] = "viewId";
 
 }  // namespace mime_handler_view

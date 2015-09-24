@@ -26,6 +26,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/shell_integration.h"
+#include "chrome/browser/ui/app_list/app_list_util.h"
 #include "chrome/browser/ui/ash/app_list/app_list_service_ash.h"
 #include "chrome/browser/ui/views/app_list/win/activation_tracker_win.h"
 #include "chrome/browser/ui/views/app_list/win/app_list_controller_delegate_win.h"
@@ -51,7 +52,7 @@
 // static
 AppListService* AppListService::Get(chrome::HostDesktopType desktop_type) {
   if (desktop_type == chrome::HOST_DESKTOP_TYPE_ASH) {
-    DCHECK(CommandLine::ForCurrentProcess()->HasSwitch(
+    DCHECK(base::CommandLine::ForCurrentProcess()->HasSwitch(
         switches::kViewerConnect));
     return AppListServiceAsh::GetInstance();
   }
@@ -60,8 +61,10 @@ AppListService* AppListService::Get(chrome::HostDesktopType desktop_type) {
 }
 
 // static
-void AppListService::InitAll(Profile* initial_profile) {
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kViewerConnect))
+void AppListService::InitAll(Profile* initial_profile,
+                             const base::FilePath& profile_path) {
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kViewerConnect))
     AppListServiceAsh::GetInstance()->Init(initial_profile);
 
   AppListServiceWin::GetInstance()->Init(initial_profile);
@@ -69,16 +72,7 @@ void AppListService::InitAll(Profile* initial_profile) {
 
 namespace {
 
-// Migrate chrome::kAppLauncherIsEnabled pref to
-// chrome::kAppLauncherHasBeenEnabled pref.
-void MigrateAppLauncherEnabledPref() {
-  PrefService* prefs = g_browser_process->local_state();
-  if (prefs->HasPrefPath(prefs::kAppLauncherIsEnabled)) {
-    prefs->SetBoolean(prefs::kAppLauncherHasBeenEnabled,
-                      prefs->GetBoolean(prefs::kAppLauncherIsEnabled));
-    prefs->ClearPref(prefs::kAppLauncherIsEnabled);
-  }
-}
+const int kUnusedAppListNoWarmupDays = 28;
 
 int GetAppListIconIndex() {
   BrowserDistribution* dist = BrowserDistribution::GetDistribution();
@@ -104,15 +98,15 @@ base::string16 GetAppListShortcutName() {
   return dist->GetShortcutName(BrowserDistribution::SHORTCUT_APP_LAUNCHER);
 }
 
-CommandLine GetAppListCommandLine() {
+base::CommandLine GetAppListCommandLine() {
   const char* const kSwitchesToCopy[] = { switches::kUserDataDir };
-  CommandLine* current = CommandLine::ForCurrentProcess();
+  base::CommandLine* current = base::CommandLine::ForCurrentProcess();
   base::FilePath chrome_exe;
   if (!PathService::Get(base::FILE_EXE, &chrome_exe)) {
      NOTREACHED();
-     return CommandLine(CommandLine::NO_PROGRAM);
+     return base::CommandLine(base::CommandLine::NO_PROGRAM);
   }
-  CommandLine command_line(chrome_exe);
+  base::CommandLine command_line(chrome_exe);
   command_line.CopySwitchesFrom(*current, kSwitchesToCopy,
                                 arraysize(kSwitchesToCopy));
   command_line.AppendSwitch(switches::kShowAppList);
@@ -124,7 +118,7 @@ base::string16 GetAppModelId() {
   // but different for different user data directories, so base it on the
   // initial profile in the current user data directory.
   base::FilePath initial_profile_path;
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kUserDataDir)) {
     initial_profile_path =
         command_line->GetSwitchValuePath(switches::kUserDataDir).AppendASCII(
@@ -141,8 +135,7 @@ void SetDidRunForNDayActiveStats() {
     NOTREACHED();
     return;
   }
-  bool system_install =
-      !InstallUtil::IsPerUserInstall(exe_path.value().c_str());
+  bool system_install = !InstallUtil::IsPerUserInstall(exe_path);
   // Using Chrome Binary dist: Chrome dist may not exist for the legacy
   // App Launcher, and App Launcher dist may be "shadow", which does not
   // contain the information needed to determine multi-install.
@@ -223,8 +216,7 @@ void CreateAppListShortcuts(
     base::FilePath shortcut_to_pin =
         user_data_dir.Append(app_list_shortcut_name).
             AddExtension(installer::kLnkExt);
-    success = base::win::TaskbarPinShortcutLink(
-        shortcut_to_pin.value().c_str()) && success;
+    success = base::win::TaskbarPinShortcutLink(shortcut_to_pin) && success;
   }
 }
 
@@ -243,7 +235,7 @@ void SetWindowAttributes(HWND hwnd) {
   }
 
   ui::win::SetAppIdForWindow(GetAppModelId(), hwnd);
-  CommandLine relaunch = GetAppListCommandLine();
+  base::CommandLine relaunch = GetAppListCommandLine();
   base::string16 app_name(GetAppListShortcutName());
   ui::win::SetRelaunchDetailsForWindow(
       relaunch.GetCommandLineString(), app_name, hwnd);
@@ -262,8 +254,7 @@ AppListServiceWin* AppListServiceWin::GetInstance() {
 
 AppListServiceWin::AppListServiceWin()
     : AppListServiceViews(scoped_ptr<AppListControllerDelegate>(
-          new AppListControllerDelegateWin(this))),
-      enable_app_list_on_next_init_(false) {
+          new AppListControllerDelegateWin(this))) {
 }
 
 AppListServiceWin::~AppListServiceWin() {
@@ -279,6 +270,12 @@ void AppListServiceWin::ShowForProfile(Profile* requested_profile) {
 }
 
 void AppListServiceWin::OnLoadProfileForWarmup(Profile* initial_profile) {
+  // App list profiles should not be off-the-record. It is currently possible to
+  // get here in an off-the-record profile via the Web Store
+  // (http://crbug.com/416380).
+  // TODO(mgiuca): DCHECK that requested_profile->IsOffTheRecord() and
+  // requested_profile->IsGuestSession() are false, once that is resolved.
+
   if (!IsWarmupNeeded())
     return;
 
@@ -295,27 +292,8 @@ void AppListServiceWin::SetAppListNextPaintCallback(void (*callback)()) {
     next_paint_callback_ = base::Bind(callback);
 }
 
-void AppListServiceWin::HandleFirstRun() {
-  PrefService* local_state = g_browser_process->local_state();
-  // If the app list is already enabled during first run, then the user had
-  // opted in to the app launcher before uninstalling, so we re-enable to
-  // restore shortcuts to the app list.
-  // Note we can't directly create the shortcuts here because the IO thread
-  // hasn't been created yet.
-  enable_app_list_on_next_init_ = local_state->GetBoolean(
-      prefs::kAppLauncherHasBeenEnabled);
-}
-
 void AppListServiceWin::Init(Profile* initial_profile) {
-  if (enable_app_list_on_next_init_) {
-    enable_app_list_on_next_init_ = false;
-    EnableAppList(initial_profile, ENABLE_ON_REINSTALL);
-    CreateShortcut();
-  }
-
   ScheduleWarmup();
-
-  MigrateAppLauncherEnabledPref();
   AppListServiceViews::Init(initial_profile);
 }
 
@@ -342,7 +320,34 @@ void AppListServiceWin::CreateShortcut() {
 void AppListServiceWin::ScheduleWarmup() {
   // Post a task to create the app list. This is posted to not impact startup
   // time.
-  const int kInitWindowDelay = 30;
+  /* const */ int kInitWindowDelay = 30;
+
+  // TODO(vadimt): Make kInitWindowDelay const and remove the below switch once
+  // crbug.com/431326 is fixed.
+
+  // Profiler UMA data is reported only for first 30 sec after browser startup.
+  // To make all invocations of AppListServiceWin::LoadProfileForWarmup visible
+  // to the server-side analysis tool, reducing this period to 10 sec in Dev
+  // builds and Canary, where profiler instrumentations are enabled.
+  switch (chrome::VersionInfo::GetChannel()) {
+    case chrome::VersionInfo::CHANNEL_UNKNOWN:
+    case chrome::VersionInfo::CHANNEL_CANARY:
+      kInitWindowDelay = 10;
+      break;
+
+    case chrome::VersionInfo::CHANNEL_DEV:
+    case chrome::VersionInfo::CHANNEL_BETA:
+    case chrome::VersionInfo::CHANNEL_STABLE:
+      // Except on Canary, don't bother scheduling an app launcher warmup when
+      // it's not already enabled. Always schedule on Canary while collecting
+      // profiler data (see comment above).
+      if (!IsAppLauncherEnabled())
+        return;
+
+      // Profiler instrumentations are not enabled.
+      break;
+  }
+
   base::MessageLoop::current()->PostDelayedTask(
       FROM_HERE,
       base::Bind(&AppListServiceWin::LoadProfileForWarmup,
@@ -351,8 +356,25 @@ void AppListServiceWin::ScheduleWarmup() {
 }
 
 bool AppListServiceWin::IsWarmupNeeded() {
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (!g_browser_process || g_browser_process->IsShuttingDown() ||
-      browser_shutdown::IsTryingToQuit()) {
+      browser_shutdown::IsTryingToQuit() ||
+      command_line->HasSwitch(switches::kTestType)) {
+    return false;
+  }
+
+  // Don't warm up the app list if it hasn't been used for a while. If the last
+  // launch is unknown, record it as "used" on the first warmup.
+  PrefService* local_state = g_browser_process->local_state();
+  int64 last_launch_time_pref =
+      local_state->GetInt64(prefs::kAppListLastLaunchTime);
+  if (last_launch_time_pref == 0)
+    RecordAppListLastLaunch();
+
+  base::Time last_launch_time =
+      base::Time::FromInternalValue(last_launch_time_pref);
+  if (base::Time::Now() - last_launch_time >
+      base::TimeDelta::FromDays(kUnusedAppListNoWarmupDays)) {
     return false;
   }
 

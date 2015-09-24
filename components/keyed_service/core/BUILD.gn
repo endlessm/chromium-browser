@@ -17,20 +17,22 @@ component("core") {
     "keyed_service_export.h",
     "keyed_service_factory.cc",
     "keyed_service_factory.h",
+    "keyed_service_shutdown_notifier.cc",
+    "keyed_service_shutdown_notifier.h",
     "refcounted_keyed_service.cc",
     "refcounted_keyed_service.h",
     "refcounted_keyed_service_factory.cc",
     "refcounted_keyed_service_factory.h",
+    "service_access_types.h",
   ]
+
+  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 
   defines = [ "KEYED_SERVICE_IMPLEMENTATION" ]
 
   deps = [
     "//base",
+    "//base:prefs",
+    "//components/user_prefs",
   ]
-
-  if (is_win) {
-    # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-    cflags = [ "/wd4267" ]
-  }
 }

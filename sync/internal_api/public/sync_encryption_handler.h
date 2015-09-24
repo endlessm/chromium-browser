@@ -10,10 +10,7 @@
 #include "base/time/time.h"
 #include "sync/base/sync_export.h"
 #include "sync/internal_api/public/base/model_type.h"
-
-namespace sync_pb {
-class EncryptedData;
-}
+#include "sync/protocol/sync.pb.h"
 
 namespace syncer {
 
@@ -33,17 +30,26 @@ enum PassphraseRequiredReason {
 
 // The different states for the encryption passphrase. These control if and how
 // the user should be prompted for a decryption passphrase.
+// Do not re-order or delete these entries; they are used in a UMA histogram.
+// Please edit SyncPassphraseType in histograms.xml if a value is added.
 enum PassphraseType {
   IMPLICIT_PASSPHRASE = 0,             // GAIA-based passphrase (deprecated).
   KEYSTORE_PASSPHRASE = 1,             // Keystore passphrase.
   FROZEN_IMPLICIT_PASSPHRASE = 2,      // Frozen GAIA passphrase.
   CUSTOM_PASSPHRASE = 3,               // User-provided passphrase.
+  PASSPHRASE_TYPE_SIZE,                // The size of this enum; keep last.
 };
 
 // Enum used to distinguish which bootstrap encryption token is being updated.
 enum BootstrapTokenType {
   PASSPHRASE_BOOTSTRAP_TOKEN,
   KEYSTORE_BOOTSTRAP_TOKEN
+};
+
+// Whether we clear server data when a user enables passphrase encryption.
+enum PassphraseTransitionClearDataOption {
+  PASSPHRASE_TRANSITION_DO_NOT_CLEAR_DATA,
+  PASSPHRASE_TRANSITION_CLEAR_DATA
 };
 
 // Sync's encryption handler. Handles tracking encrypted types, ensuring the
@@ -53,6 +59,8 @@ enum BootstrapTokenType {
 // methods must be invoked on the sync thread.
 class SYNC_EXPORT SyncEncryptionHandler {
  public:
+  class NigoriState;
+
   // All Observer methods are done synchronously from within a transaction and
   // on the sync thread.
   class SYNC_EXPORT Observer {
@@ -120,8 +128,22 @@ class SYNC_EXPORT SyncEncryptionHandler {
     virtual void OnPassphraseTypeChanged(PassphraseType type,
                                          base::Time passphrase_time) = 0;
 
+    // The user has set a passphrase using this device.
+    //
+    // |nigori_state| can be used to restore nigori state across
+    // SyncEncryptionHandlerImpl lifetimes. See also SyncEncryptionHandlerImpl's
+    // RestoredNigori method.
+    virtual void OnLocalSetPassphraseEncryption(
+        const NigoriState& nigori_state) = 0;
+
    protected:
     virtual ~Observer();
+  };
+
+  class SYNC_EXPORT NigoriState {
+   public:
+    NigoriState() {}
+    sync_pb::NigoriSpecifics nigori_specifics;
   };
 
   SyncEncryptionHandler();

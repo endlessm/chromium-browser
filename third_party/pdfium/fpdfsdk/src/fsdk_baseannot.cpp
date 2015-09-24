@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../include/fsdk_define.h"
@@ -10,26 +10,26 @@
 
 
 //---------------------------------------------------------------------------
-//								CPDFSDK_DateTime	
+//								CPDFSDK_DateTime
 //---------------------------------------------------------------------------
-int _gAfxGetTimeZoneInSeconds(FX_CHAR tzhour, FX_BYTE tzminute)
+int _gAfxGetTimeZoneInSeconds(FX_CHAR tzhour, uint8_t tzminute)
 {
 	return (int)tzhour * 3600 + (int)tzminute * (tzhour >= 0 ? 60 : -60);
 }
 
-FX_BOOL _gAfxIsLeapYear(FX_SHORT year)
+FX_BOOL _gAfxIsLeapYear(int16_t year)
 {
 	return ((year % 400 == 0) || ((year % 4 == 0) && (year % 100 != 0)));
 }
 
-FX_WORD _gAfxGetYearDays(FX_SHORT year)
+FX_WORD _gAfxGetYearDays(int16_t year)
 {
 	return (_gAfxIsLeapYear(year) == TRUE ? 366 : 365);
 }
 
-FX_BYTE _gAfxGetMonthDays(FX_SHORT year, FX_BYTE month)
+uint8_t _gAfxGetMonthDays(int16_t year, uint8_t month)
 {
-	FX_BYTE	mDays;
+	uint8_t	mDays;
 	switch (month)
 	{
 	case 1:
@@ -117,12 +117,12 @@ CPDFSDK_DateTime& CPDFSDK_DateTime::operator = (const FX_SYSTEMTIME& st)
 {
 	tzset();
 
-	dt.year = (FX_SHORT)st.wYear;
-	dt.month = (FX_BYTE)st.wMonth;
-	dt.day = (FX_BYTE)st.wDay;
-	dt.hour = (FX_BYTE)st.wHour;
-	dt.minute = (FX_BYTE)st.wMinute;
-	dt.second = (FX_BYTE)st.wSecond;
+	dt.year = (int16_t)st.wYear;
+	dt.month = (uint8_t)st.wMonth;
+	dt.day = (uint8_t)st.wDay;
+	dt.hour = (uint8_t)st.wHour;
+	dt.minute = (uint8_t)st.wMinute;
+	dt.second = (uint8_t)st.wSecond;
 // 	dt.tzHour = _timezone / 3600 * -1;
 // 	dt.tzMinute = (abs(_timezone) % 3600) / 60;
 	return *this;
@@ -234,7 +234,7 @@ CPDFSDK_DateTime& CPDFSDK_DateTime::FromPDFDateTimeString(const CFX_ByteString& 
 			if (ch < '0' || ch > '9') break;
 			i ++;
 		}
-		dt.year = (FX_SHORT)k;
+		dt.year = (int16_t)k;
 		if (i >= strLength || j < 4) return *this;
 
 		j = 0;
@@ -247,7 +247,7 @@ CPDFSDK_DateTime& CPDFSDK_DateTime::FromPDFDateTimeString(const CFX_ByteString& 
 			if (ch < '0' || ch > '9') break;
 			i ++;
 		}
-		dt.month = (FX_BYTE)k;
+		dt.month = (uint8_t)k;
 		if (i >= strLength || j < 2) return *this;
 
 		j = 0;
@@ -260,7 +260,7 @@ CPDFSDK_DateTime& CPDFSDK_DateTime::FromPDFDateTimeString(const CFX_ByteString& 
 			if (ch < '0' || ch > '9') break;
 			i ++;
 		}
-		dt.day = (FX_BYTE)k;
+		dt.day = (uint8_t)k;
 		if (i >= strLength || j < 2) return *this;
 
 		j = 0;
@@ -273,7 +273,7 @@ CPDFSDK_DateTime& CPDFSDK_DateTime::FromPDFDateTimeString(const CFX_ByteString& 
 			if (ch < '0' || ch > '9') break;
 			i ++;
 		}
-		dt.hour = (FX_BYTE)k;
+		dt.hour = (uint8_t)k;
 		if (i >= strLength || j < 2) return *this;
 
 		j = 0;
@@ -286,7 +286,7 @@ CPDFSDK_DateTime& CPDFSDK_DateTime::FromPDFDateTimeString(const CFX_ByteString& 
 			if (ch < '0' || ch > '9') break;
 			i ++;
 		}
-		dt.minute = (FX_BYTE)k;
+		dt.minute = (uint8_t)k;
 		if (i >= strLength || j < 2) return *this;
 
 		j = 0;
@@ -299,7 +299,7 @@ CPDFSDK_DateTime& CPDFSDK_DateTime::FromPDFDateTimeString(const CFX_ByteString& 
 			if (ch < '0' || ch > '9') break;
 			i ++;
 		}
-		dt.second = (FX_BYTE)k;
+		dt.second = (uint8_t)k;
 		if (i >= strLength || j < 2) return *this;
 
 		ch = dtStr[i ++];
@@ -333,7 +333,7 @@ CPDFSDK_DateTime& CPDFSDK_DateTime::FromPDFDateTimeString(const CFX_ByteString& 
 			if (ch < '0' || ch > '9') break;
 			i ++;
 		}
-		dt.tzMinute = (FX_BYTE)k;
+		dt.tzMinute = (uint8_t)k;
 		if (i >= strLength || j < 2) return *this;
 	}
 
@@ -357,13 +357,16 @@ CFX_ByteString CPDFSDK_DateTime::ToPDFDateTimeString()
 {
 	CFX_ByteString dtStr;
 	char tempStr[32];
-	sprintf(tempStr, "D:%04d%02d%02d%02d%02d%02d", dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
+	memset(tempStr, 0, sizeof(tempStr));
+	FXSYS_snprintf(tempStr, sizeof(tempStr) - 1, "D:%04d%02d%02d%02d%02d%02d",
+                   dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
 	dtStr = CFX_ByteString(tempStr);
 	if (dt.tzHour < 0)
 		dtStr += CFX_ByteString("-");
 	else
 		dtStr += CFX_ByteString("+");
-	sprintf(tempStr, "%02d'%02d'", abs(dt.tzHour), dt.tzMinute);
+	memset(tempStr, 0, sizeof(tempStr));
+	FXSYS_snprintf(tempStr, sizeof(tempStr) - 1, "%02d'%02d'", abs(dt.tzHour), dt.tzMinute);
 	dtStr += CFX_ByteString(tempStr);
 	return dtStr;
 }
@@ -373,7 +376,7 @@ void CPDFSDK_DateTime::ToSystemTime(FX_SYSTEMTIME& st)
 	CPDFSDK_DateTime dt = *this;
 	time_t t = (time_t)dt;
 	struct tm* pTime = localtime(&t);
-	if(pTime){ 
+	if(pTime){
 		st.wYear = (FX_WORD)pTime->tm_year + 1900;
 		st.wMonth = (FX_WORD)pTime->tm_mon + 1;
 		st.wDay = (FX_WORD)pTime->tm_mday;
@@ -398,9 +401,9 @@ CPDFSDK_DateTime& CPDFSDK_DateTime::AddDays(short days)
 {
 	if (days == 0) return *this;
 
-	FX_SHORT	y = dt.year, yy;
-	FX_BYTE		m = dt.month;
-	FX_BYTE		d = dt.day;
+	int16_t	y = dt.year, yy;
+	uint8_t		m = dt.month;
+	uint8_t		d = dt.day;
 	int			mdays, ydays, ldays;
 
 	ldays = days;
@@ -486,11 +489,11 @@ CPDFSDK_DateTime& CPDFSDK_DateTime::AddSeconds(int seconds)
 		days = n / 86400;
 		n %= 86400;
 	}
-	dt.hour = (FX_BYTE)(n / 3600);
+	dt.hour = (uint8_t)(n / 3600);
 	dt.hour %= 24;
 	n %= 3600;
-	dt.minute = (FX_BYTE)(n / 60);
-	dt.second = (FX_BYTE)(n % 60);
+	dt.minute = (uint8_t)(n / 60);
+	dt.second = (uint8_t)(n % 60);
 	if (days != 0) AddDays(days);
 
 	return *this;
@@ -498,7 +501,7 @@ CPDFSDK_DateTime& CPDFSDK_DateTime::AddSeconds(int seconds)
 
 
 //---------------------------------------------------------------------------
-//								CPDFSDK_Annot	
+//								CPDFSDK_Annot
 //---------------------------------------------------------------------------
 CPDFSDK_Annot::CPDFSDK_Annot(CPDF_Annot* pAnnot, CPDFSDK_PageView* pPageView) :
 m_pAnnot(pAnnot),
@@ -522,7 +525,7 @@ CPDF_Annot*	CPDFSDK_Annot::GetPDFAnnot()
 FX_DWORD CPDFSDK_Annot::GetFlags()
 {
 	ASSERT(m_pAnnot != NULL);
-	
+
 	return m_pAnnot->GetFlags();
 }
 
@@ -546,7 +549,7 @@ void CPDFSDK_Annot::SetSelected(FX_BOOL bSelected)
 	m_bSelected = bSelected;
 }
 
-// Tab Order	
+// Tab Order
 int CPDFSDK_Annot::GetTabOrder()
 {
 	return m_nTabOrder;
@@ -560,34 +563,32 @@ void CPDFSDK_Annot::SetTabOrder(int iTabOrder)
 CPDF_Dictionary* CPDFSDK_Annot::GetAnnotDict() const
 {
 	ASSERT(m_pAnnot != NULL);
-	
-	return m_pAnnot->m_pAnnotDict;
+
+	return m_pAnnot->GetAnnotDict();
 }
 
 void CPDFSDK_Annot::SetRect(const CPDF_Rect& rect)
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
 	ASSERT(rect.right - rect.left >= GetMinWidth());
 	ASSERT(rect.top - rect.bottom >= GetMinHeight());
-	
-	m_pAnnot->m_pAnnotDict->SetAtRect("Rect", rect);
+
+	m_pAnnot->GetAnnotDict()->SetAtRect("Rect", rect);
 }
 
 CPDF_Rect CPDFSDK_Annot::GetRect() const
 {
 	ASSERT(m_pAnnot != NULL);
-	
+
 	CPDF_Rect rect;
 	m_pAnnot->GetRect(rect);
-	
+
 	return rect;
 }
 
 CFX_ByteString CPDFSDK_Annot::GetType() const
 {
 	ASSERT(m_pAnnot != NULL);
-	
+
 	return m_pAnnot->GetSubType();
 }
 
@@ -597,30 +598,24 @@ CFX_ByteString CPDFSDK_Annot::GetSubType() const
 }
 
 void CPDFSDK_Annot::DrawAppearance(CFX_RenderDevice* pDevice, const CPDF_Matrix* pUser2Device,
-								   CPDF_Annot::AppearanceMode mode, const CPDF_RenderOptions* pOptions)	
+								   CPDF_Annot::AppearanceMode mode, const CPDF_RenderOptions* pOptions)
 {
 	ASSERT(m_pPageView != NULL);
 	ASSERT(m_pAnnot != NULL);
-	
+
 	m_pAnnot->DrawAppearance(m_pPageView->GetPDFPage(), pDevice, pUser2Device, mode, pOptions);
 }
 
 FX_BOOL	CPDFSDK_Annot::IsAppearanceValid()
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-	
-	return m_pAnnot->m_pAnnotDict->GetDict("AP") != NULL;
+	return m_pAnnot->GetAnnotDict()->GetDict("AP") != NULL;
 }
 
 FX_BOOL	CPDFSDK_Annot::IsAppearanceValid(CPDF_Annot::AppearanceMode mode)
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-	
-	CPDF_Dictionary* pAP = m_pAnnot->m_pAnnotDict->GetDict("AP");
+	CPDF_Dictionary* pAP = m_pAnnot->GetAnnotDict()->GetDict("AP");
 	if (pAP == NULL) return FALSE;
-	
+
 	// Choose the right sub-ap
 	const FX_CHAR* ap_entry = "N";
 	if (mode == CPDF_Annot::Down)
@@ -629,11 +624,11 @@ FX_BOOL	CPDFSDK_Annot::IsAppearanceValid(CPDF_Annot::AppearanceMode mode)
 		ap_entry = "R";
 	if (!pAP->KeyExist(ap_entry))
 		ap_entry = "N";
-	
+
 	// Get the AP stream or subdirectory
 	CPDF_Object* psub = pAP->GetElementValue(ap_entry);
 	if (psub == NULL) return FALSE;
-	
+
 	return TRUE;
 }
 
@@ -641,152 +636,113 @@ void CPDFSDK_Annot::DrawBorder(CFX_RenderDevice* pDevice, const CPDF_Matrix* pUs
 						   const CPDF_RenderOptions* pOptions)
 {
 	ASSERT(m_pAnnot != NULL);
-	m_pAnnot->DrawBorder(pDevice, pUser2Device, pOptions); 
+	m_pAnnot->DrawBorder(pDevice, pUser2Device, pOptions);
 }
 
 void CPDFSDK_Annot::ClearCachedAP()
 {
 	ASSERT(m_pAnnot != NULL);
 	m_pAnnot->ClearCachedAP();
-}    
+}
 
 void CPDFSDK_Annot::SetContents(const CFX_WideString& sContents)
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-	
 	if (sContents.IsEmpty())
-		m_pAnnot->m_pAnnotDict->RemoveAt("Contents");
+		m_pAnnot->GetAnnotDict()->RemoveAt("Contents");
 	else
-		m_pAnnot->m_pAnnotDict->SetAtString("Contents", PDF_EncodeText(sContents));
+		m_pAnnot->GetAnnotDict()->SetAtString("Contents", PDF_EncodeText(sContents));
 }
 
 CFX_WideString CPDFSDK_Annot::GetContents() const
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-	
-	return m_pAnnot->m_pAnnotDict->GetUnicodeText("Contents");
+	return m_pAnnot->GetAnnotDict()->GetUnicodeText("Contents");
 }
 
 void CPDFSDK_Annot::SetAnnotName(const CFX_WideString& sName)
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-	
 	if (sName.IsEmpty())
-		m_pAnnot->m_pAnnotDict->RemoveAt("NM");
+		m_pAnnot->GetAnnotDict()->RemoveAt("NM");
 	else
-		m_pAnnot->m_pAnnotDict->SetAtString("NM", PDF_EncodeText(sName));
+		m_pAnnot->GetAnnotDict()->SetAtString("NM", PDF_EncodeText(sName));
 }
 
 CFX_WideString CPDFSDK_Annot::GetAnnotName() const
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-	
-	return m_pAnnot->m_pAnnotDict->GetUnicodeText("NM");
+	return m_pAnnot->GetAnnotDict()->GetUnicodeText("NM");
 }
 
 void CPDFSDK_Annot::SetModifiedDate(const FX_SYSTEMTIME& st)
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-	
 	CPDFSDK_DateTime dt(st);
 	CFX_ByteString str = dt.ToPDFDateTimeString();
-	
+
 	if (str.IsEmpty())
-		m_pAnnot->m_pAnnotDict->RemoveAt("M");
+		m_pAnnot->GetAnnotDict()->RemoveAt("M");
 	else
-		m_pAnnot->m_pAnnotDict->SetAtString("M", str);
+		m_pAnnot->GetAnnotDict()->SetAtString("M", str);
 }
 
 FX_SYSTEMTIME CPDFSDK_Annot::GetModifiedDate() const
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-	
-	FX_SYSTEMTIME systime;	
-	CFX_ByteString str = m_pAnnot->m_pAnnotDict->GetString("M");
-	
+	FX_SYSTEMTIME systime;
+	CFX_ByteString str = m_pAnnot->GetAnnotDict()->GetString("M");
+
  	CPDFSDK_DateTime dt(str);
  	dt.ToSystemTime(systime);
-	
+
 	return systime;
 }
 
 void CPDFSDK_Annot::SetFlags(int nFlags)
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-	
-	m_pAnnot->m_pAnnotDict->SetAtInteger("F", nFlags);
+	m_pAnnot->GetAnnotDict()->SetAtInteger("F", nFlags);
 }
 
 int CPDFSDK_Annot::GetFlags() const
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-	
-	return m_pAnnot->m_pAnnotDict->GetInteger("F");
+	return m_pAnnot->GetAnnotDict()->GetInteger("F");
 }
 
 void CPDFSDK_Annot::SetAppState(const CFX_ByteString& str)
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-
 	if (str.IsEmpty())
-		m_pAnnot->m_pAnnotDict->RemoveAt("AS");
+		m_pAnnot->GetAnnotDict()->RemoveAt("AS");
 	else
-		m_pAnnot->m_pAnnotDict->SetAtString("AS", str);
+		m_pAnnot->GetAnnotDict()->SetAtString("AS", str);
 }
 
 CFX_ByteString CPDFSDK_Annot::GetAppState() const
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-
-	return m_pAnnot->m_pAnnotDict->GetString("AS");
+	return m_pAnnot->GetAnnotDict()->GetString("AS");
 }
 
 void CPDFSDK_Annot::SetStructParent(int key)
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-	
-	m_pAnnot->m_pAnnotDict->SetAtInteger("StructParent", key);
+	m_pAnnot->GetAnnotDict()->SetAtInteger("StructParent", key);
 }
 
 int	CPDFSDK_Annot::GetStructParent() const
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-	
-	return m_pAnnot->m_pAnnotDict->GetInteger("StructParent");
+	return m_pAnnot->GetAnnotDict()->GetInteger("StructParent");
 }
 
 //border
 void CPDFSDK_Annot::SetBorderWidth(int nWidth)
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-
-	CPDF_Array* pBorder = m_pAnnot->m_pAnnotDict->GetArray("Border");
+	CPDF_Array* pBorder = m_pAnnot->GetAnnotDict()->GetArray("Border");
 
 	if (pBorder)
 	{
-		pBorder->SetAt(2, FX_NEW CPDF_Number(nWidth));
+		pBorder->SetAt(2, new CPDF_Number(nWidth));
 	}
 	else
 	{
-		CPDF_Dictionary* pBSDict = m_pAnnot->m_pAnnotDict->GetDict("BS");
+		CPDF_Dictionary* pBSDict = m_pAnnot->GetAnnotDict()->GetDict("BS");
 
 		if (!pBSDict)
 		{
-			pBSDict = FX_NEW CPDF_Dictionary;
-			m_pAnnot->m_pAnnotDict->SetAt("BS", pBSDict);
+			pBSDict = new CPDF_Dictionary;
+			m_pAnnot->GetAnnotDict()->SetAt("BS", pBSDict);
 		}
 
 		pBSDict->SetAtInteger("W", nWidth);
@@ -795,10 +751,7 @@ void CPDFSDK_Annot::SetBorderWidth(int nWidth)
 
 int	CPDFSDK_Annot::GetBorderWidth() const
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-
-	CPDF_Array* pBorder = m_pAnnot->m_pAnnotDict->GetArray("Border");
+	CPDF_Array* pBorder = m_pAnnot->GetAnnotDict()->GetArray("Border");
 
 	if (pBorder)
 	{
@@ -806,7 +759,7 @@ int	CPDFSDK_Annot::GetBorderWidth() const
 	}
 	else
 	{
-		CPDF_Dictionary* pBSDict = m_pAnnot->m_pAnnotDict->GetDict("BS");
+		CPDF_Dictionary* pBSDict = m_pAnnot->GetAnnotDict()->GetDict("BS");
 
 		if (pBSDict)
 		{
@@ -818,14 +771,11 @@ int	CPDFSDK_Annot::GetBorderWidth() const
 
 void CPDFSDK_Annot::SetBorderStyle(int nStyle)
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-
-	CPDF_Dictionary* pBSDict = m_pAnnot->m_pAnnotDict->GetDict("BS");
+	CPDF_Dictionary* pBSDict = m_pAnnot->GetAnnotDict()->GetDict("BS");
 	if (!pBSDict)
 	{
-		pBSDict = FX_NEW CPDF_Dictionary;
-		m_pAnnot->m_pAnnotDict->SetAt("BS", pBSDict);
+		pBSDict = new CPDF_Dictionary;
+		m_pAnnot->GetAnnotDict()->SetAt("BS", pBSDict);
 	}
 
 	switch (nStyle)
@@ -850,10 +800,7 @@ void CPDFSDK_Annot::SetBorderStyle(int nStyle)
 
 int	CPDFSDK_Annot::GetBorderStyle() const
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-
-	CPDF_Dictionary* pBSDict = m_pAnnot->m_pAnnotDict->GetDict("BS");
+	CPDF_Dictionary* pBSDict = m_pAnnot->GetAnnotDict()->GetDict("BS");
 	if (pBSDict)
 	{
 		CFX_ByteString sBorderStyle = pBSDict->GetString("S", "S");
@@ -864,11 +811,11 @@ int	CPDFSDK_Annot::GetBorderStyle() const
 		if (sBorderStyle == "U") return BBS_UNDERLINE;
 	}
 
-	CPDF_Array* pBorder = m_pAnnot->m_pAnnotDict->GetArray("Border");
+	CPDF_Array* pBorder = m_pAnnot->GetAnnotDict()->GetArray("Border");
 	if (pBorder)
 	{
-		if (pBorder->GetCount() >= 4) 
-		{ 
+		if (pBorder->GetCount() >= 4)
+		{
 			CPDF_Array *pDP = pBorder->GetArray(3);
 			if (pDP && pDP->GetCount() > 0)
 				return BBS_DASH;
@@ -880,17 +827,14 @@ int	CPDFSDK_Annot::GetBorderStyle() const
 
 void CPDFSDK_Annot::SetBorderDash(const CFX_IntArray& array)
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-
-	CPDF_Dictionary* pBSDict = m_pAnnot->m_pAnnotDict->GetDict("BS");
+	CPDF_Dictionary* pBSDict = m_pAnnot->GetAnnotDict()->GetDict("BS");
 	if (!pBSDict)
 	{
-		pBSDict = FX_NEW CPDF_Dictionary;
-		m_pAnnot->m_pAnnotDict->SetAt("BS", pBSDict);
+		pBSDict = new CPDF_Dictionary;
+		m_pAnnot->GetAnnotDict()->SetAt("BS", pBSDict);
 	}
 
-	CPDF_Array* pArray = FX_NEW CPDF_Array;
+	CPDF_Array* pArray = new CPDF_Array;
 	for (int i=0,sz=array.GetSize(); i<sz; i++)
 	{
 		pArray->AddInteger(array[i]);
@@ -901,19 +845,16 @@ void CPDFSDK_Annot::SetBorderDash(const CFX_IntArray& array)
 
 void CPDFSDK_Annot::GetBorderDash(CFX_IntArray& array) const
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-
 	CPDF_Array* pDash = NULL;
 
-	CPDF_Array* pBorder = m_pAnnot->m_pAnnotDict->GetArray("Border");
+	CPDF_Array* pBorder = m_pAnnot->GetAnnotDict()->GetArray("Border");
 	if (pBorder)
 	{
 		pDash = pBorder->GetArray(3);
 	}
 	else
 	{
-		CPDF_Dictionary* pBSDict = m_pAnnot->m_pAnnotDict->GetDict("BS");
+		CPDF_Dictionary* pBSDict = m_pAnnot->GetAnnotDict()->GetDict("BS");
 		if (pBSDict)
 		{
 			pDash = pBSDict->GetArray("D");
@@ -931,30 +872,21 @@ void CPDFSDK_Annot::GetBorderDash(CFX_IntArray& array) const
 
 void CPDFSDK_Annot::SetColor(FX_COLORREF color)
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-
-	CPDF_Array* pArray = FX_NEW CPDF_Array;
+	CPDF_Array* pArray = new CPDF_Array;
 	pArray->AddNumber((FX_FLOAT)FXSYS_GetRValue(color) / 255.0f);
 	pArray->AddNumber((FX_FLOAT)FXSYS_GetGValue(color) / 255.0f);
 	pArray->AddNumber((FX_FLOAT)FXSYS_GetBValue(color) / 255.0f);
-	m_pAnnot->m_pAnnotDict->SetAt("C", pArray);
+	m_pAnnot->GetAnnotDict()->SetAt("C", pArray);
 }
 
 void CPDFSDK_Annot::RemoveColor()
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-
-	m_pAnnot->m_pAnnotDict->RemoveAt("C") ; 
+	m_pAnnot->GetAnnotDict()->RemoveAt("C");
 }
 
 FX_BOOL CPDFSDK_Annot::GetColor(FX_COLORREF& color) const
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-
-	if (CPDF_Array* pEntry = m_pAnnot->m_pAnnotDict->GetArray("C"))		
+	if (CPDF_Array* pEntry = m_pAnnot->GetAnnotDict()->GetArray("C"))
 	{
 		int nCount = pEntry->GetCount();
 		if (nCount == 1)
@@ -996,24 +928,21 @@ FX_BOOL CPDFSDK_Annot::GetColor(FX_COLORREF& color) const
 }
 
 
-void CPDFSDK_Annot::WriteAppearance(const CFX_ByteString& sAPType, const CPDF_Rect& rcBBox, 
+void CPDFSDK_Annot::WriteAppearance(const CFX_ByteString& sAPType, const CPDF_Rect& rcBBox,
 								const CPDF_Matrix& matrix, const CFX_ByteString& sContents,
 								const CFX_ByteString& sAPState)
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-	
-	CPDF_Dictionary* pAPDict = m_pAnnot->m_pAnnotDict->GetDict("AP");
-	
-	if (!pAPDict) 
+	CPDF_Dictionary* pAPDict = m_pAnnot->GetAnnotDict()->GetDict("AP");
+
+	if (!pAPDict)
 	{
-		pAPDict = FX_NEW CPDF_Dictionary;
-		m_pAnnot->m_pAnnotDict->SetAt("AP", pAPDict);
+		pAPDict = new CPDF_Dictionary;
+		m_pAnnot->GetAnnotDict()->SetAt("AP", pAPDict);
 	}
-	
+
 	CPDF_Stream* pStream = NULL;
 	CPDF_Dictionary* pParentDict = NULL;
-	
+
 	if (sAPState.IsEmpty())
 	{
 		pParentDict = pAPDict;
@@ -1024,45 +953,39 @@ void CPDFSDK_Annot::WriteAppearance(const CFX_ByteString& sAPType, const CPDF_Re
 		CPDF_Dictionary* pAPTypeDict = pAPDict->GetDict(sAPType);
 		if (!pAPTypeDict)
 		{
-			pAPTypeDict = FX_NEW CPDF_Dictionary;
+			pAPTypeDict = new CPDF_Dictionary;
 			pAPDict->SetAt(sAPType, pAPTypeDict);
 		}
-		
+
 		pParentDict = pAPTypeDict;
 		pStream = pAPTypeDict->GetStream(sAPState);
 	}
-	
-	if (!pStream) 
+
+	if (!pStream)
 	{
-		ASSERT(m_pPageView != NULL);
 		CPDF_Document* pDoc = m_pPageView->GetPDFDocument();
-		ASSERT(pDoc != NULL);
-		
-		pStream = FX_NEW CPDF_Stream(NULL, 0, NULL);
-		FX_INT32 objnum = pDoc->AddIndirectObject(pStream);
-		//pAPDict->SetAtReference(sAPType, pDoc, objnum);
-		ASSERT(pParentDict != NULL);
+		pStream = new CPDF_Stream(NULL, 0, NULL);
+		int32_t objnum = pDoc->AddIndirectObject(pStream);
 		pParentDict->SetAtReference(sAPType, pDoc, objnum);
 	}
-	
-	CPDF_Dictionary * pStreamDict = pStream->GetDict();
-	
+
+	CPDF_Dictionary *pStreamDict = pStream->GetDict();
 	if (!pStreamDict)
 	{
-		pStreamDict = FX_NEW CPDF_Dictionary;
+		pStreamDict = new CPDF_Dictionary;
 		pStreamDict->SetAtName("Type", "XObject");
 		pStreamDict->SetAtName("Subtype", "Form");
 		pStreamDict->SetAtInteger("FormType", 1);
 		pStream->InitStream(NULL,0,pStreamDict);
 	}
-	
+
 	if (pStreamDict)
 	{
-		pStreamDict->SetAtMatrix("Matrix",matrix);	
-		pStreamDict->SetAtRect("BBox", rcBBox);		
+		pStreamDict->SetAtMatrix("Matrix",matrix);
+		pStreamDict->SetAtRect("BBox", rcBBox);
 	}
-	
-	pStream->SetData((FX_BYTE*)(FX_LPCSTR)sContents, sContents.GetLength(), FALSE, FALSE);
+
+	pStream->SetData((uint8_t*)sContents.c_str(), sContents.GetLength(), FALSE, FALSE);
 }
 
 #define BA_ANNOT_MINWIDTH			1
@@ -1090,83 +1013,62 @@ FX_BOOL	CPDFSDK_Annot::IsVisible() const
 
 CPDF_Action CPDFSDK_Annot::GetAction() const
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-	
-	return m_pAnnot->m_pAnnotDict->GetDict("A");
+	return CPDF_Action(m_pAnnot->GetAnnotDict()->GetDict("A"));
 }
 
 void CPDFSDK_Annot::SetAction(const CPDF_Action& action)
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-	
-	ASSERT(action != NULL);
-	
-	if ((CPDF_Action&)action != m_pAnnot->m_pAnnotDict->GetDict("A"))
+	ASSERT(action);
+	if ((CPDF_Action&)action != CPDF_Action(m_pAnnot->GetAnnotDict()->GetDict("A")))
 	{
 		CPDF_Document* pDoc = m_pPageView->GetPDFDocument();
-		ASSERT(pDoc != NULL);
-		
-		if (action.m_pDict && (action.m_pDict->GetObjNum() == 0))
-			pDoc->AddIndirectObject(action.m_pDict); 
-		m_pAnnot->m_pAnnotDict->SetAtReference("A", pDoc, action.m_pDict->GetObjNum());
+		CPDF_Dictionary* pDict = action.GetDict();
+		if (pDict && pDict->GetObjNum() == 0) {
+			pDoc->AddIndirectObject(pDict);
+		}
+		m_pAnnot->GetAnnotDict()->SetAtReference("A", pDoc, pDict->GetObjNum());
 	}
 }
 
 void CPDFSDK_Annot::RemoveAction()
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-	
-	m_pAnnot->m_pAnnotDict->RemoveAt("A");
+	m_pAnnot->GetAnnotDict()->RemoveAt("A");
 }
 
 CPDF_AAction CPDFSDK_Annot::GetAAction() const
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-	
-	return m_pAnnot->m_pAnnotDict->GetDict("AA");
+	return m_pAnnot->GetAnnotDict()->GetDict("AA");
 }
 
 void CPDFSDK_Annot::SetAAction(const CPDF_AAction& aa)
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
 	ASSERT(aa != NULL);
-	
-	if ((CPDF_AAction&)aa != m_pAnnot->m_pAnnotDict->GetDict("AA"))
-		m_pAnnot->m_pAnnotDict->SetAt("AA", (CPDF_AAction&)aa);
+
+	if ((CPDF_AAction&)aa != m_pAnnot->GetAnnotDict()->GetDict("AA"))
+		m_pAnnot->GetAnnotDict()->SetAt("AA", (CPDF_AAction&)aa);
 }
 
 void CPDFSDK_Annot::RemoveAAction()
 {
-	ASSERT(m_pAnnot != NULL);
-	ASSERT(m_pAnnot->m_pAnnotDict != NULL);
-	
-	m_pAnnot->m_pAnnotDict->RemoveAt("AA");
+	m_pAnnot->GetAnnotDict()->RemoveAt("AA");
 }
 
 CPDF_Action	CPDFSDK_Annot::GetAAction(CPDF_AAction::AActionType eAAT)
 {
 	CPDF_AAction AAction = GetAAction();
-	
+
 	if (AAction.ActionExist(eAAT))
-	{
 		return AAction.GetAction(eAAT);
-	}
-	else if (eAAT == CPDF_AAction::ButtonUp)
-	{
+
+	if (eAAT == CPDF_AAction::ButtonUp)
 		return GetAction();
-	}
-	
-	return NULL;
+
+	return CPDF_Action();
 }
 
 void  CPDFSDK_Annot::Annot_OnDraw(CFX_RenderDevice* pDevice, CPDF_Matrix* pUser2Device, CPDF_RenderOptions* pOptions)
 {
-	
+
 	m_pAnnot->GetAPForm(m_pPageView->GetPDFPage(), CPDF_Annot::Normal);
 	m_pAnnot->DrawAppearance(m_pPageView->GetPDFPage(), pDevice, pUser2Device, CPDF_Annot::Normal, NULL);
 

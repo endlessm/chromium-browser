@@ -6,20 +6,25 @@
 
 from __future__ import print_function
 
-import logging
+import errno
 import os
 import shutil
+import tempfile
 import urlparse
 
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import locking
 from chromite.lib import osutils
 from chromite.lib import retry_util
 
-# pylint: disable=W0212
+
+# pylint: disable=protected-access
+
 
 def EntryLock(f):
   """Decorator that provides monitor access control."""
+
   def new_f(self, *args, **kwargs):
     # Ensure we don't have a read lock before potentially blocking while trying
     # to access the monitor.
@@ -35,6 +40,7 @@ def EntryLock(f):
 
 def WriteLock(f):
   """Decorator that takes a write lock."""
+
   def new_f(self, *args, **kwargs):
     with self._lock.write_lock():
       return f(self, *args, **kwargs)
@@ -119,8 +125,8 @@ class CacheReference(object):
     self._cache._InsertText(self.key, text)
 
   @WriteLock
-  def _Remove(self, key):
-    self._cache._Remove(key)
+  def _Remove(self):
+    self._cache._Remove(self.key)
 
   def _Exists(self):
     return self._cache._KeyExists(self.key)
@@ -140,9 +146,9 @@ class CacheReference(object):
     self._AssignText(text)
 
   @EntryLock
-  def Remove(self, key):
-    """Removes the key entry from the cache."""
-    self._Remove(key)
+  def Remove(self):
+    """Removes the entry from the cache."""
+    self._Remove()
 
   @EntryLock
   def Exists(self, lock=False):
@@ -169,10 +175,6 @@ class CacheReference(object):
       self._Assign(default_path)
     if lock:
       self._ReadLock()
-
-  def Unlock(self):
-    """Release read lock on the reference."""
-    self._lock.unlock()
 
 
 class DiskCache(object):
@@ -236,17 +238,8 @@ class DiskCache(object):
     return CacheReference(self, key)
 
 
-def Untar(path, cwd, sudo=False):
-  """Untar a tarball."""
-  functor = cros_build_lib.SudoRunCommand if sudo else cros_build_lib.RunCommand
-  functor(['tar', '-xpf', path], cwd=cwd, debug_level=logging.DEBUG)
-
-
-class TarballCache(DiskCache):
-  """Supports caching of extracted tarball contents."""
-
-  def __init__(self, cache_dir):
-    DiskCache.__init__(self, cache_dir)
+class RemoteCache(DiskCache):
+  """Supports caching of remote objects via URI."""
 
   def _Fetch(self, url, local_path):
     """Fetch a remote file."""
@@ -255,11 +248,34 @@ class TarballCache(DiskCache):
     # only fetches files via non-gs URIs.
     from chromite.lib import gs
 
-    if url.startswith(gs.BASE_GS_URL):
+    if gs.PathIsGs(url):
       ctx = gs.GSContext()
       ctx.Copy(url, local_path)
     else:
+      # Note: unittests assume local_path is at the end.
       retry_util.RunCurl([url, '-o', local_path], debug_level=logging.DEBUG)
+
+  def _Insert(self, key, url):
+    """Insert a remote file into the cache."""
+    o = urlparse.urlparse(url)
+    if o.scheme in ('file', ''):
+      DiskCache._Insert(self, key, o.path)
+      return
+
+    with tempfile.NamedTemporaryFile(dir=self.staging_dir,
+                                     delete=False) as local_path:
+      self._Fetch(url, local_path.name)
+      DiskCache._Insert(self, key, local_path.name)
+
+
+def Untar(path, cwd, sudo=False):
+  """Untar a tarball."""
+  functor = cros_build_lib.SudoRunCommand if sudo else cros_build_lib.RunCommand
+  functor(['tar', '-xpf', path], cwd=cwd, debug_level=logging.DEBUG)
+
+
+class TarballCache(RemoteCache):
+  """Supports caching of extracted tarball contents."""
 
   def _Insert(self, key, tarball_path):
     """Insert a tarball and its extracted contents into the cache.
@@ -270,7 +286,9 @@ class TarballCache(DiskCache):
                          base_dir=self.staging_dir) as tempdir:
 
       o = urlparse.urlsplit(tarball_path)
-      if o.scheme:
+      if o.scheme == 'file':
+        tarball_path = o.path
+      elif o.scheme:
         url = tarball_path
         tarball_path = os.path.join(tempdir, os.path.basename(o.path))
         self._Fetch(url, tarball_path)
@@ -279,3 +297,24 @@ class TarballCache(DiskCache):
       os.mkdir(extract_path)
       Untar(tarball_path, extract_path)
       DiskCache._Insert(self, key, extract_path)
+
+  def _KeyExists(self, key):
+    """Specialized DiskCache._KeyExits that ignores empty directories.
+
+    The normal _KeyExists just checks to see if the key path exists in the cache
+    directory. Many tests mock out RunCommand then fetch a tarball. The mock
+    blocks untarring into it. This leaves behind an empty dir which blocks
+    future untarring in non-test scripts.
+
+    See crbug.com/468838
+    """
+    # Wipe out empty directories before testing for existence.
+    key_path = self._GetKeyPath(key)
+
+    try:
+      os.rmdir(key_path)
+    except OSError as ex:
+      if ex.errno not in (errno.ENOTEMPTY, errno.ENOENT):
+        raise
+
+    return os.path.exists(key_path)

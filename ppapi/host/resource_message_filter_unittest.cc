@@ -4,9 +4,9 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/location.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread.h"
 #include "ipc/ipc_message.h"
@@ -59,9 +59,8 @@ class MyResourceHost : public ResourceHost {
     AddFilter(filter);
   }
 
-  virtual int32_t OnResourceMessageReceived(
-      const IPC::Message& msg,
-      HostMessageContext* context) override {
+  int32_t OnResourceMessageReceived(const IPC::Message& msg,
+                                    HostMessageContext* context) override {
     last_handled_msg_ = msg;
     if (msg.type() == msg_type_) {
       context->reply_msg = IPC::Message(0, reply_msg_type_,
@@ -71,8 +70,8 @@ class MyResourceHost : public ResourceHost {
     return PP_ERROR_FAILED;
   }
 
-  virtual void SendReply(const ReplyMessageContext& context,
-                         const IPC::Message& msg) override {
+  void SendReply(const ReplyMessageContext& context,
+                 const IPC::Message& msg) override {
     last_reply_msg_ = msg;
     last_reply_message_loop_ = base::MessageLoop::current();
     g_handler_completion.Signal();
@@ -100,24 +99,23 @@ class MyResourceFilter : public ResourceMessageFilter {
                    const base::Thread& bg_thread,
                    uint32 msg_type,
                    uint32 reply_msg_type)
-      : ResourceMessageFilter(io_thread.message_loop_proxy()),
-        message_loop_proxy_(bg_thread.message_loop_proxy()),
+      : ResourceMessageFilter(io_thread.task_runner()),
+        task_runner_(bg_thread.task_runner()),
         msg_type_(msg_type),
         reply_msg_type_(reply_msg_type),
-        last_message_loop_(NULL) {
-  }
+        last_message_loop_(NULL) {}
 
   const IPC::Message& last_handled_msg() const { return last_handled_msg_; }
   base::MessageLoop* last_message_loop() const { return last_message_loop_; }
 
-  virtual scoped_refptr<base::TaskRunner> OverrideTaskRunnerForMessage(
+  scoped_refptr<base::TaskRunner> OverrideTaskRunnerForMessage(
       const IPC::Message& msg) override {
     if (msg.type() == msg_type_)
-      return message_loop_proxy_;
+      return task_runner_;
     return NULL;
   }
 
-  virtual int32_t OnResourceMessageReceived(
+  int32_t OnResourceMessageReceived(
       const IPC::Message& msg,
       HostMessageContext* context) override {
     last_handled_msg_ = msg;
@@ -131,7 +129,7 @@ class MyResourceFilter : public ResourceMessageFilter {
   }
 
  private:
-  scoped_refptr<base::MessageLoopProxy> message_loop_proxy_;
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   uint32 msg_type_;
   uint32 reply_msg_type_;
 
@@ -212,10 +210,9 @@ TEST_F(ResourceMessageFilterTest, TestHandleMessage) {
 
   // It should be safe to use base::Unretained() because the object won't be
   // destroyed before the task is run.
-  main_message_loop.PostTask(
-      FROM_HERE,
-      base::Bind(&ResourceMessageFilterTest::TestHandleMessageImpl,
-                 base::Unretained(this)));
+  main_message_loop.task_runner()->PostTask(
+      FROM_HERE, base::Bind(&ResourceMessageFilterTest::TestHandleMessageImpl,
+                            base::Unretained(this)));
 
   base::RunLoop().RunUntilIdle();
 }

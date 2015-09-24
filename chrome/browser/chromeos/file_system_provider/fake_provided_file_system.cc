@@ -4,8 +4,7 @@
 
 #include "chrome/browser/chromeos/file_system_provider/fake_provided_file_system.h"
 
-#include "base/files/file.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/thread_task_runner_handle.h"
 #include "net/base/io_buffer.h"
 
 namespace chromeos {
@@ -21,7 +20,8 @@ const char kFakeFileMimeType[] = "text/plain";
 
 }  // namespace
 
-const char kFakeFilePath[] = "/hello.txt";
+const base::FilePath::CharType kFakeFilePath[] =
+    FILE_PATH_LITERAL("/hello.txt");
 
 FakeEntry::FakeEntry() {
 }
@@ -39,18 +39,13 @@ FakeProvidedFileSystem::FakeProvidedFileSystem(
     : file_system_info_(file_system_info),
       last_file_handle_(0),
       weak_ptr_factory_(this) {
-  AddEntry(
-      base::FilePath::FromUTF8Unsafe("/"), true, "", 0, base::Time(), "", "");
+  AddEntry(base::FilePath(FILE_PATH_LITERAL("/")), true, "", 0, base::Time(),
+           "", "");
 
   base::Time modification_time;
   DCHECK(base::Time::FromString(kFakeFileModificationTime, &modification_time));
-  AddEntry(base::FilePath::FromUTF8Unsafe(kFakeFilePath),
-           false,
-           kFakeFileName,
-           kFakeFileSize,
-           modification_time,
-           kFakeFileMimeType,
-           kFakeFileText);
+  AddEntry(base::FilePath(kFakeFilePath), false, kFakeFileName, kFakeFileSize,
+           modification_time, kFakeFileMimeType, kFakeFileText);
 }
 
 FakeProvidedFileSystem::~FakeProvidedFileSystem() {}
@@ -84,13 +79,12 @@ const FakeEntry* FakeProvidedFileSystem::GetEntry(
   return entry_it->second.get();
 }
 
-ProvidedFileSystemInterface::AbortCallback
-FakeProvidedFileSystem::RequestUnmount(
+AbortCallback FakeProvidedFileSystem::RequestUnmount(
     const storage::AsyncFileUtil::StatusCallback& callback) {
   return PostAbortableTask(base::Bind(callback, base::File::FILE_OK));
 }
 
-ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::GetMetadata(
+AbortCallback FakeProvidedFileSystem::GetMetadata(
     const base::FilePath& entry_path,
     ProvidedFileSystemInterface::MetadataFieldMask fields,
     const ProvidedFileSystemInterface::GetMetadataCallback& callback) {
@@ -115,8 +109,23 @@ ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::GetMetadata(
       base::Bind(callback, base::Passed(&metadata), base::File::FILE_OK));
 }
 
-ProvidedFileSystemInterface::AbortCallback
-FakeProvidedFileSystem::ReadDirectory(
+AbortCallback FakeProvidedFileSystem::GetActions(
+    const base::FilePath& entry_path,
+    const ProvidedFileSystemInterface::GetActionsCallback& callback) {
+  // TODO(mtomasz): Implement it once needed.
+  const std::vector<Action> actions;
+  return PostAbortableTask(base::Bind(callback, actions, base::File::FILE_OK));
+}
+
+AbortCallback FakeProvidedFileSystem::ExecuteAction(
+    const base::FilePath& entry_path,
+    const std::string& action_id,
+    const storage::AsyncFileUtil::StatusCallback& callback) {
+  // TODO(mtomasz): Implement it once needed.
+  return PostAbortableTask(base::Bind(callback, base::File::FILE_OK));
+}
+
+AbortCallback FakeProvidedFileSystem::ReadDirectory(
     const base::FilePath& directory_path,
     const storage::AsyncFileUtil::ReadDirectoryCallback& callback) {
   storage::AsyncFileUtil::EntryList entry_list;
@@ -139,7 +148,7 @@ FakeProvidedFileSystem::ReadDirectory(
       callback, base::File::FILE_OK, entry_list, false /* has_more */));
 }
 
-ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::OpenFile(
+AbortCallback FakeProvidedFileSystem::OpenFile(
     const base::FilePath& entry_path,
     OpenFileMode mode,
     const OpenFileCallback& callback) {
@@ -151,16 +160,15 @@ ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::OpenFile(
   }
 
   const int file_handle = ++last_file_handle_;
-  opened_files_[file_handle] = entry_path;
+  opened_files_[file_handle] = OpenedFile(entry_path, mode);
   return PostAbortableTask(
       base::Bind(callback, file_handle, base::File::FILE_OK));
 }
 
-ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::CloseFile(
+AbortCallback FakeProvidedFileSystem::CloseFile(
     int file_handle,
     const storage::AsyncFileUtil::StatusCallback& callback) {
-  const OpenedFilesMap::iterator opened_file_it =
-      opened_files_.find(file_handle);
+  const auto opened_file_it = opened_files_.find(file_handle);
 
   if (opened_file_it == opened_files_.end()) {
     return PostAbortableTask(
@@ -171,17 +179,16 @@ ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::CloseFile(
   return PostAbortableTask(base::Bind(callback, base::File::FILE_OK));
 }
 
-ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::ReadFile(
+AbortCallback FakeProvidedFileSystem::ReadFile(
     int file_handle,
     net::IOBuffer* buffer,
     int64 offset,
     int length,
     const ProvidedFileSystemInterface::ReadChunkReceivedCallback& callback) {
-  const OpenedFilesMap::iterator opened_file_it =
-      opened_files_.find(file_handle);
+  const auto opened_file_it = opened_files_.find(file_handle);
 
   if (opened_file_it == opened_files_.end() ||
-      opened_file_it->second.AsUTF8Unsafe() != kFakeFilePath) {
+      opened_file_it->second.file_path.AsUTF8Unsafe() != kFakeFilePath) {
     return PostAbortableTask(
         base::Bind(callback,
                    0 /* chunk_length */,
@@ -190,7 +197,7 @@ ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::ReadFile(
   }
 
   const Entries::const_iterator entry_it =
-      entries_.find(opened_file_it->second);
+      entries_.find(opened_file_it->second.file_path);
   if (entry_it == entries_.end()) {
     return PostAbortableTask(
         base::Bind(callback,
@@ -217,11 +224,10 @@ ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::ReadFile(
     buffer->data()[current_offset - offset] = entry->contents[current_offset];
     const bool has_more =
         (current_offset + 1 < entry->metadata->size) && (current_length - 1);
-    const int task_id = tracker_.PostTask(
-        base::MessageLoopProxy::current().get(),
-        FROM_HERE,
-        base::Bind(
-            callback, 1 /* chunk_length */, has_more, base::File::FILE_OK));
+    const int task_id =
+        tracker_.PostTask(base::ThreadTaskRunnerHandle::Get().get(), FROM_HERE,
+                          base::Bind(callback, 1 /* chunk_length */, has_more,
+                                     base::File::FILE_OK));
     task_ids.push_back(task_id);
     current_offset++;
     current_length--;
@@ -232,8 +238,7 @@ ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::ReadFile(
                     task_ids);
 }
 
-ProvidedFileSystemInterface::AbortCallback
-FakeProvidedFileSystem::CreateDirectory(
+AbortCallback FakeProvidedFileSystem::CreateDirectory(
     const base::FilePath& directory_path,
     bool recursive,
     const storage::AsyncFileUtil::StatusCallback& callback) {
@@ -241,7 +246,7 @@ FakeProvidedFileSystem::CreateDirectory(
   return PostAbortableTask(base::Bind(callback, base::File::FILE_OK));
 }
 
-ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::DeleteEntry(
+AbortCallback FakeProvidedFileSystem::DeleteEntry(
     const base::FilePath& entry_path,
     bool recursive,
     const storage::AsyncFileUtil::StatusCallback& callback) {
@@ -249,7 +254,7 @@ ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::DeleteEntry(
   return PostAbortableTask(base::Bind(callback, base::File::FILE_OK));
 }
 
-ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::CreateFile(
+AbortCallback FakeProvidedFileSystem::CreateFile(
     const base::FilePath& file_path,
     const storage::AsyncFileUtil::StatusCallback& callback) {
   const base::File::Error result = file_path.AsUTF8Unsafe() != kFakeFilePath
@@ -259,7 +264,7 @@ ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::CreateFile(
   return PostAbortableTask(base::Bind(callback, result));
 }
 
-ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::CopyEntry(
+AbortCallback FakeProvidedFileSystem::CopyEntry(
     const base::FilePath& source_path,
     const base::FilePath& target_path,
     const storage::AsyncFileUtil::StatusCallback& callback) {
@@ -267,7 +272,7 @@ ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::CopyEntry(
   return PostAbortableTask(base::Bind(callback, base::File::FILE_OK));
 }
 
-ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::MoveEntry(
+AbortCallback FakeProvidedFileSystem::MoveEntry(
     const base::FilePath& source_path,
     const base::FilePath& target_path,
     const storage::AsyncFileUtil::StatusCallback& callback) {
@@ -275,7 +280,7 @@ ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::MoveEntry(
   return PostAbortableTask(base::Bind(callback, base::File::FILE_OK));
 }
 
-ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::Truncate(
+AbortCallback FakeProvidedFileSystem::Truncate(
     const base::FilePath& file_path,
     int64 length,
     const storage::AsyncFileUtil::StatusCallback& callback) {
@@ -283,22 +288,22 @@ ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::Truncate(
   return PostAbortableTask(base::Bind(callback, base::File::FILE_OK));
 }
 
-ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::WriteFile(
+AbortCallback FakeProvidedFileSystem::WriteFile(
     int file_handle,
     net::IOBuffer* buffer,
     int64 offset,
     int length,
     const storage::AsyncFileUtil::StatusCallback& callback) {
-  const OpenedFilesMap::iterator opened_file_it =
-      opened_files_.find(file_handle);
+  const auto opened_file_it = opened_files_.find(file_handle);
 
   if (opened_file_it == opened_files_.end() ||
-      opened_file_it->second.AsUTF8Unsafe() != kFakeFilePath) {
+      opened_file_it->second.file_path.AsUTF8Unsafe() != kFakeFilePath) {
     return PostAbortableTask(
         base::Bind(callback, base::File::FILE_ERROR_INVALID_OPERATION));
   }
 
-  const Entries::iterator entry_it = entries_.find(opened_file_it->second);
+  const Entries::iterator entry_it =
+      entries_.find(opened_file_it->second.file_path);
   if (entry_it == entries_.end()) {
     return PostAbortableTask(
         base::Bind(callback, base::File::FILE_ERROR_INVALID_OPERATION));
@@ -321,7 +326,7 @@ ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::WriteFile(
   return PostAbortableTask(base::Bind(callback, base::File::FILE_OK));
 }
 
-ProvidedFileSystemInterface::AbortCallback FakeProvidedFileSystem::AddWatcher(
+AbortCallback FakeProvidedFileSystem::AddWatcher(
     const GURL& origin,
     const base::FilePath& entry_watcher,
     bool recursive,
@@ -356,6 +361,10 @@ Watchers* FakeProvidedFileSystem::GetWatchers() {
   return &watchers_;
 }
 
+const OpenedFiles& FakeProvidedFileSystem::GetOpenedFiles() const {
+  return opened_files_;
+}
+
 void FakeProvidedFileSystem::AddObserver(ProvidedFileSystemObserver* observer) {
   DCHECK(observer);
   observers_.AddObserver(observer);
@@ -367,14 +376,21 @@ void FakeProvidedFileSystem::RemoveObserver(
   observers_.RemoveObserver(observer);
 }
 
-bool FakeProvidedFileSystem::Notify(
+void FakeProvidedFileSystem::Notify(
     const base::FilePath& entry_path,
     bool recursive,
     storage::WatcherManager::ChangeType change_type,
     scoped_ptr<ProvidedFileSystemObserver::Changes> changes,
-    const std::string& tag) {
+    const std::string& tag,
+    const storage::AsyncFileUtil::StatusCallback& callback) {
   NOTREACHED();
-  return false;
+  callback.Run(base::File::FILE_ERROR_SECURITY);
+}
+
+void FakeProvidedFileSystem::Configure(
+    const storage::AsyncFileUtil::StatusCallback& callback) {
+  NOTREACHED();
+  callback.Run(base::File::FILE_ERROR_SECURITY);
 }
 
 ProvidedFileSystemInterface* FakeProvidedFileSystem::Create(
@@ -388,28 +404,22 @@ FakeProvidedFileSystem::GetWeakPtr() {
   return weak_ptr_factory_.GetWeakPtr();
 }
 
-ProvidedFileSystemInterface::AbortCallback
-FakeProvidedFileSystem::PostAbortableTask(const base::Closure& callback) {
+AbortCallback FakeProvidedFileSystem::PostAbortableTask(
+    const base::Closure& callback) {
   const int task_id = tracker_.PostTask(
-      base::MessageLoopProxy::current().get(), FROM_HERE, callback);
+      base::ThreadTaskRunnerHandle::Get().get(), FROM_HERE, callback);
   return base::Bind(
       &FakeProvidedFileSystem::Abort, weak_ptr_factory_.GetWeakPtr(), task_id);
 }
 
-void FakeProvidedFileSystem::Abort(
-    int task_id,
-    const storage::AsyncFileUtil::StatusCallback& callback) {
+void FakeProvidedFileSystem::Abort(int task_id) {
   tracker_.TryCancel(task_id);
-  callback.Run(base::File::FILE_OK);
 }
 
-void FakeProvidedFileSystem::AbortMany(
-    const std::vector<int>& task_ids,
-    const storage::AsyncFileUtil::StatusCallback& callback) {
+void FakeProvidedFileSystem::AbortMany(const std::vector<int>& task_ids) {
   for (size_t i = 0; i < task_ids.size(); ++i) {
     tracker_.TryCancel(task_ids[i]);
   }
-  callback.Run(base::File::FILE_OK);
 }
 
 }  // namespace file_system_provider

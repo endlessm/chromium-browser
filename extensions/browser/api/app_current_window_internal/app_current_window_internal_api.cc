@@ -23,12 +23,12 @@ namespace Show = app_current_window_internal::Show;
 namespace SetBounds = app_current_window_internal::SetBounds;
 namespace SetSizeConstraints = app_current_window_internal::SetSizeConstraints;
 namespace SetIcon = app_current_window_internal::SetIcon;
-namespace SetBadgeIcon = app_current_window_internal::SetBadgeIcon;
 namespace SetShape = app_current_window_internal::SetShape;
 namespace SetAlwaysOnTop = app_current_window_internal::SetAlwaysOnTop;
 namespace SetVisibleOnAllWorkspaces =
     app_current_window_internal::SetVisibleOnAllWorkspaces;
-
+namespace SetInterceptAllKeys =
+    app_current_window_internal::SetInterceptAllKeys;
 using app_current_window_internal::Bounds;
 using app_current_window_internal::Region;
 using app_current_window_internal::RegionRect;
@@ -50,6 +50,11 @@ const char kRequiresFramelessWindow[] =
 
 const char kAlwaysOnTopPermission[] =
     "The \"app.window.alwaysOnTop\" permission is required.";
+
+const char kInterceptAllKeysPermission[] = "app.window.interceptAllKeys";
+
+const char kInterceptAllKeysPermissionError[] =
+    "The \"app.window.interceptAllKeys\" permission is required.";
 
 const char kInvalidParameters[] = "Invalid parameters.";
 
@@ -120,12 +125,12 @@ BoundsType GetBoundsType(const std::string& type_as_string) {
 bool AppCurrentWindowInternalExtensionFunction::RunSync() {
   AppWindowRegistry* registry = AppWindowRegistry::Get(browser_context());
   DCHECK(registry);
-  content::RenderViewHost* rvh = render_view_host();
-  if (!rvh)
+  content::WebContents* web_contents = GetSenderWebContents();
+  if (!web_contents)
     // No need to set an error, since we won't return to the caller anyway if
     // there's no RVH.
     return false;
-  AppWindow* window = registry->GetAppWindowForRenderViewHost(rvh);
+  AppWindow* window = registry->GetAppWindowForWebContents(web_contents);
   if (!window) {
     error_ = kNoAssociatedAppWindow;
     return false;
@@ -312,36 +317,6 @@ bool AppCurrentWindowInternalSetIconFunction::RunWithWindow(AppWindow* window) {
   return true;
 }
 
-bool AppCurrentWindowInternalSetBadgeIconFunction::RunWithWindow(
-    AppWindow* window) {
-  if (AppWindowClient::Get()->IsCurrentChannelOlderThanDev()) {
-    error_ = kDevChannelOnly;
-    return false;
-  }
-
-  scoped_ptr<SetBadgeIcon::Params> params(SetBadgeIcon::Params::Create(*args_));
-  CHECK(params.get());
-  // The |icon_url| parameter may be a blob url (e.g. an image fetched with an
-  // XMLHttpRequest) or a resource url.
-  GURL url(params->icon_url);
-  if (!url.is_valid() && !params->icon_url.empty())
-    url = extension()->GetResourceURL(params->icon_url);
-
-  window->SetBadgeIconUrl(url);
-  return true;
-}
-
-bool AppCurrentWindowInternalClearBadgeFunction::RunWithWindow(
-    AppWindow* window) {
-  if (AppWindowClient::Get()->IsCurrentChannelOlderThanDev()) {
-    error_ = kDevChannelOnly;
-    return false;
-  }
-
-  window->ClearBadge();
-  return true;
-}
-
 bool AppCurrentWindowInternalSetShapeFunction::RunWithWindow(
     AppWindow* window) {
 
@@ -400,15 +375,25 @@ bool AppCurrentWindowInternalSetAlwaysOnTopFunction::RunWithWindow(
 
 bool AppCurrentWindowInternalSetVisibleOnAllWorkspacesFunction::RunWithWindow(
     AppWindow* window) {
-  if (AppWindowClient::Get()->IsCurrentChannelOlderThanDev()) {
-    error_ = kDevChannelOnly;
-    return false;
-  }
-
   scoped_ptr<SetVisibleOnAllWorkspaces::Params> params(
       SetVisibleOnAllWorkspaces::Params::Create(*args_));
   CHECK(params.get());
   window->GetBaseWindow()->SetVisibleOnAllWorkspaces(params->always_visible);
+  return true;
+}
+
+bool AppCurrentWindowInternalSetInterceptAllKeysFunction::RunWithWindow(
+    AppWindow* window) {
+  if (!extension()->permissions_data()->HasAPIPermission(
+          kInterceptAllKeysPermission)) {
+    error_ = kInterceptAllKeysPermissionError;
+    return false;
+  }
+
+  scoped_ptr<SetInterceptAllKeys::Params> params(
+      SetInterceptAllKeys::Params::Create(*args_));
+  CHECK(params.get());
+  window->SetInterceptAllKeys(params->want_all_keys);
   return true;
 }
 

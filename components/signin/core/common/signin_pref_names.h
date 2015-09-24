@@ -9,16 +9,20 @@ namespace prefs {
 
 extern const char kAccountIdMigrationState[];
 extern const char kAutologinEnabled[];
+extern const char kGoogleServicesAccountId[];
 extern const char kGoogleServicesHostedDomain[];
 extern const char kGoogleServicesLastUsername[];
+extern const char kGoogleServicesRefreshTokenAnnotateScheduledTime[];
+extern const char kGoogleServicesSigninScopedDeviceId[];
 extern const char kGoogleServicesUserAccountId[];
 extern const char kGoogleServicesUsername[];
 extern const char kGoogleServicesUsernamePattern[];
-extern const char kGoogleServicesSigninScopedDeviceId[];
 extern const char kReverseAutologinEnabled[];
 extern const char kReverseAutologinRejectedEmailList[];
 extern const char kSignedInTime[];
 extern const char kSigninAllowed[];
+extern const char kTokenServiceExcludeAllSecondaryAccounts[];
+extern const char kTokenServiceExcludedSecondaryAccounts[];
 
 }  // namespace prefs
 

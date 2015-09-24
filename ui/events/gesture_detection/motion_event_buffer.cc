@@ -4,7 +4,7 @@
 
 #include "ui/events/gesture_detection/motion_event_buffer.h"
 
-#include "base/debug/trace_event.h"
+#include "base/trace_event/trace_event.h"
 #include "ui/events/gesture_detection/motion_event_generic.h"
 
 namespace ui {
@@ -146,8 +146,6 @@ scoped_ptr<MotionEventGeneric> ResampleMotionEvent(
   }
 
   DCHECK(event);
-  event->set_id(event0.GetId());
-  event->set_action_index(event0.GetActionIndex());
   event->set_button_state(event0.GetButtonState());
   return event.Pass();
 }
@@ -263,7 +261,7 @@ void MotionEventBuffer::OnMotionEvent(const MotionEvent& event) {
 
   scoped_ptr<MotionEventGeneric> clone = MotionEventGeneric::CloneEvent(event);
   if (buffered_events_.empty()) {
-    buffered_events_.push_back(clone.release());
+    buffered_events_.push_back(clone.Pass());
     client_->SetNeedsFlush();
     return;
   }
@@ -274,7 +272,7 @@ void MotionEventBuffer::OnMotionEvent(const MotionEvent& event) {
     FlushWithoutResampling(buffered_events_.Pass());
   }
 
-  buffered_events_.push_back(clone.release());
+  buffered_events_.push_back(clone.Pass());
   // No need to request another flush as the first event will have requested it.
 }
 

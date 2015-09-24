@@ -9,6 +9,8 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/files/scoped_file.h"
+#include "base/prefs/pref_service.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -23,18 +25,19 @@
 #include "chrome/browser/ui/webui/net_internals/net_internals_ui.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/data_reduction_proxy/core/common/data_reduction_proxy_pref_names.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui_message_handler.h"
 #include "net/base/address_list.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_log.h"
-#include "net/base/net_log_logger.h"
 #include "net/dns/host_cache.h"
 #include "net/dns/host_resolver.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_transaction_factory.h"
+#include "net/log/net_log.h"
+#include "net/log/write_to_file_net_log_observer.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -123,9 +126,13 @@ class NetInternalsTest::MessageHandler : public content::WebUIMessageHandler {
   // Closes an incognito browser created with CreateIncognitoBrowser.
   void CloseIncognitoBrowser(const base::ListValue* list_value);
 
-  // Creates a simple log with a NetLogLogger, and returns it to the
-  // Javascript callback.
-  void GetNetLogLoggerLog(const base::ListValue* list_value);
+  // Creates a simple log using WriteToFileNetLogObserver, and returns it to
+  // the Javascript callback.
+  void GetNetLogFileContents(const base::ListValue* list_value);
+
+  // Changes the data reduction proxy mode. A boolean is assumed to exist at
+  // index 0 which enables the proxy is set to true.
+  void EnableDataReductionProxy(const base::ListValue* list_value);
 
   Browser* browser() { return net_internals_test_->browser(); }
 
@@ -163,9 +170,13 @@ void NetInternalsTest::MessageHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback("closeIncognitoBrowser",
       base::Bind(&NetInternalsTest::MessageHandler::CloseIncognitoBrowser,
                  base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("getNetLogLoggerLog",
+  web_ui()->RegisterMessageCallback("getNetLogFileContents",
       base::Bind(
-          &NetInternalsTest::MessageHandler::GetNetLogLoggerLog,
+          &NetInternalsTest::MessageHandler::GetNetLogFileContents,
+          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback("enableDataReductionProxy",
+      base::Bind(
+          &NetInternalsTest::MessageHandler::EnableDataReductionProxy,
           base::Unretained(this)));
 }
 
@@ -260,27 +271,29 @@ void NetInternalsTest::MessageHandler::CloseIncognitoBrowser(
   incognito_browser_ = NULL;
 }
 
-void NetInternalsTest::MessageHandler::GetNetLogLoggerLog(
+void NetInternalsTest::MessageHandler::GetNetLogFileContents(
     const base::ListValue* list_value) {
   base::ScopedTempDir temp_directory;
   ASSERT_TRUE(temp_directory.CreateUniqueTempDir());
   base::FilePath temp_file;
   ASSERT_TRUE(base::CreateTemporaryFileInDir(temp_directory.path(),
                                              &temp_file));
-  FILE* temp_file_handle = base::OpenFile(temp_file, "w");
+  base::ScopedFILE temp_file_handle(base::OpenFile(temp_file, "w"));
   ASSERT_TRUE(temp_file_handle);
 
   scoped_ptr<base::Value> constants(NetInternalsUI::GetConstants());
-  scoped_ptr<net::NetLogLogger> net_log_logger(new net::NetLogLogger(
-      temp_file_handle, *constants));
-  net_log_logger->StartObserving(g_browser_process->net_log());
+  scoped_ptr<net::WriteToFileNetLogObserver> net_log_logger(
+      new net::WriteToFileNetLogObserver());
+  net_log_logger->StartObserving(
+      g_browser_process->net_log(), temp_file_handle.Pass(), constants.get(),
+      nullptr);
   g_browser_process->net_log()->AddGlobalEntry(
       net::NetLog::TYPE_NETWORK_IP_ADDRESSES_CHANGED);
   net::BoundNetLog bound_net_log = net::BoundNetLog::Make(
       g_browser_process->net_log(),
       net::NetLog::SOURCE_URL_REQUEST);
   bound_net_log.BeginEvent(net::NetLog::TYPE_REQUEST_ALIVE);
-  net_log_logger->StopObserving();
+  net_log_logger->StopObserving(nullptr);
   net_log_logger.reset();
 
   std::string log_contents;
@@ -290,6 +303,14 @@ void NetInternalsTest::MessageHandler::GetNetLogLoggerLog(
   scoped_ptr<base::Value> log_contents_value(
       new base::StringValue(log_contents));
   RunJavascriptCallback(log_contents_value.get());
+}
+
+void NetInternalsTest::MessageHandler::EnableDataReductionProxy(
+    const base::ListValue* list_value) {
+  bool enable;
+  ASSERT_TRUE(list_value->GetBoolean(0, &enable));
+  browser()->profile()->GetPrefs()->SetBoolean(
+      data_reduction_proxy::prefs::kDataReductionProxyEnabled, enable);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -304,7 +325,7 @@ NetInternalsTest::NetInternalsTest()
 NetInternalsTest::~NetInternalsTest() {
 }
 
-void NetInternalsTest::SetUpCommandLine(CommandLine* command_line) {
+void NetInternalsTest::SetUpCommandLine(base::CommandLine* command_line) {
   WebUIBrowserTest::SetUpCommandLine(command_line);
   // Needed to test the prerender view.
   command_line->AppendSwitchASCII(switches::kPrerenderMode,
@@ -319,12 +340,6 @@ void NetInternalsTest::SetUpOnMainThread() {
   prerender::PrerenderManager* prerender_manager =
       prerender::PrerenderManagerFactory::GetForProfile(profile);
   prerender_manager->mutable_config().max_bytes = 1000 * 1024 * 1024;
-  if (!prerender_manager->cookie_store_loaded()) {
-    base::RunLoop loop;
-    prerender_manager->set_on_cookie_store_loaded_cb_for_testing(
-        loop.QuitClosure());
-    loop.Run();
-  }
 }
 
 content::WebUIMessageHandler* NetInternalsTest::GetMockMessageHandler() {
@@ -350,5 +365,10 @@ bool NetInternalsTest::StartTestServer() {
   if (test_server_started_)
     return true;
   test_server_started_ = test_server()->Start();
+
+  // Sample domain for SDCH-view test. Dictionaries for localhost/127.0.0.1
+  // are forbidden.
+  host_resolver()->AddRule("testdomain.com", "127.0.0.1");
+  host_resolver()->AddRule("sub.testdomain.com", "127.0.0.1");
   return test_server_started_;
 }

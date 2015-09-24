@@ -5,8 +5,10 @@
 #include "chromeos/dbus/fake_bluetooth_gatt_characteristic_client.h"
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
 #include "base/rand_util.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/fake_bluetooth_gatt_descriptor_client.h"
@@ -176,14 +178,16 @@ void FakeBluetoothGattCharacteristicClient::ReadValue(
     }
     return;
   }
+
   base::Closure completed_callback;
   if (!IsHeartRateVisible()) {
     completed_callback =
         base::Bind(error_callback, kUnknownCharacteristicError, "");
   } else {
-    std::vector<uint8> value;
-    value.push_back(0x06);  // Location is "foot".
-    completed_callback = base::Bind(callback, value);
+    std::vector<uint8> value = {0x06};  // Location is "foot".
+    completed_callback = base::Bind(
+        &FakeBluetoothGattCharacteristicClient::DelayedReadValueCallback,
+        weak_ptr_factory_.GetWeakPtr(), object_path, callback, value);
   }
 
   if (extra_requests_ > 0) {
@@ -191,6 +195,7 @@ void FakeBluetoothGattCharacteristicClient::ReadValue(
         new DelayedCallback(completed_callback, extra_requests_);
     return;
   }
+
   completed_callback.Run();
 }
 
@@ -288,9 +293,8 @@ void FakeBluetoothGattCharacteristicClient::StartNotify(
   ScheduleHeartRateMeasurementValueChange();
 
   // Respond asynchronously.
-  base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      callback,
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, callback,
       base::TimeDelta::FromMilliseconds(kStartNotifyResponseIntervalMs));
 }
 
@@ -488,20 +492,25 @@ void FakeBluetoothGattCharacteristicClient::
 
   VLOG(2) << "Updating heart rate value.";
   std::vector<uint8> measurement = GetHeartRateMeasurementValue();
+  heart_rate_measurement_properties_->value.ReplaceValue(measurement);
 
-  FOR_EACH_OBSERVER(
-      BluetoothGattCharacteristicClient::Observer,
-      observers_,
-      GattCharacteristicValueUpdated(
-          dbus::ObjectPath(heart_rate_measurement_path_), measurement));
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, base::Bind(&FakeBluetoothGattCharacteristicClient::
+                                ScheduleHeartRateMeasurementValueChange,
+                            weak_ptr_factory_.GetWeakPtr()),
+      base::TimeDelta::FromMilliseconds(
+          kHeartRateMeasurementNotificationIntervalMs));
+}
 
-  base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::Bind(&FakeBluetoothGattCharacteristicClient::
-                     ScheduleHeartRateMeasurementValueChange,
-                 weak_ptr_factory_.GetWeakPtr()),
-                 base::TimeDelta::FromMilliseconds(
-                     kHeartRateMeasurementNotificationIntervalMs));
+void FakeBluetoothGattCharacteristicClient::DelayedReadValueCallback(
+    const dbus::ObjectPath& object_path,
+    const ValueCallback& callback,
+    const std::vector<uint8_t>& value) {
+  Properties* properties = GetProperties(object_path);
+  DCHECK(properties);
+
+  properties->value.ReplaceValue(value);
+  callback.Run(value);
 }
 
 std::vector<uint8>

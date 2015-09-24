@@ -9,6 +9,7 @@
 #include "SkCanvas.h"
 #include "SkColorShader.h"
 #include "SkPaint.h"
+#include "SkRandom.h"
 #include "SkSurface.h"
 
 #if SK_SUPPORT_GPU
@@ -25,18 +26,16 @@ public:
     DiscardGM() {
     }
 
-    virtual uint32_t onGetFlags() const SK_OVERRIDE { return kGPUOnly_Flag; }
-
 protected:
-    virtual SkString onShortName() SK_OVERRIDE {
+    SkString onShortName() override {
         return SkString("discard");
     }
 
-    virtual SkISize onISize() SK_OVERRIDE {
+    SkISize onISize() override {
         return SkISize::Make(100, 100);
     }
 
-    virtual void onDraw(SkCanvas* canvas) SK_OVERRIDE {
+    void onDraw(SkCanvas* canvas) override {
         GrContext* context = canvas->getGrContext();
         if (NULL == context) {
             return;
@@ -46,7 +45,7 @@ protected:
         size.fWidth /= 10;
         size.fHeight /= 10;
         SkImageInfo info = SkImageInfo::MakeN32Premul(size);
-        SkSurface* surface = SkSurface::NewRenderTarget(context, info);
+        SkSurface* surface = SkSurface::NewRenderTarget(context, SkSurface::kNo_Budgeted, info);
 
         if (NULL == surface) {
             return;

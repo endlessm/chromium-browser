@@ -4,6 +4,7 @@
 
 package org.chromium.android_webview.test;
 
+import android.os.Build;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.util.Pair;
 
@@ -13,7 +14,9 @@ import org.chromium.android_webview.AwContents;
 import org.chromium.android_webview.AwSettings;
 import org.chromium.android_webview.test.util.CommonResources;
 import org.chromium.android_webview.test.util.JSUtils;
+import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.content.browser.test.util.HistoryUtils;
 import org.chromium.content_public.browser.LoadUrlParams;
@@ -29,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * Test suite for loadUrl().
  */
+@MinAndroidSdkLevel(Build.VERSION_CODES.KITKAT)
 public class LoadUrlTest extends AwTestBase {
     @SmallTest
     @Feature({"AndroidWebView"})
@@ -50,8 +54,8 @@ public class LoadUrlTest extends AwTestBase {
     @Feature({"AndroidWebView"})
     public void testDataUrlBase64() throws Throwable {
         final String expectedTitle = "dataUrlTestBase64";
-        final String data = "PGh0bWw+PGhlYWQ+PHRpdGxlPmRhdGFVcmxUZXN0QmFzZTY0PC90aXRsZT48" +
-                "L2hlYWQ+PC9odG1sPg==";
+        final String data = "PGh0bWw+PGhlYWQ+PHRpdGxlPmRhdGFVcmxUZXN0QmFzZTY0PC90aXRsZT48"
+                + "L2hlYWQ+PC9odG1sPg==";
 
         final TestAwContentsClient contentsClient = new TestAwContentsClient();
         final AwTestContainerView testContainerView =
@@ -102,8 +106,9 @@ public class LoadUrlTest extends AwTestBase {
 
     private static List<Pair<String, String>> createHeadersList(String[] namesAndValues) {
         List<Pair<String, String>> result = new ArrayList<Pair<String, String>>();
-        for (int i = 0; i < namesAndValues.length; i += 2)
+        for (int i = 0; i < namesAndValues.length; i += 2) {
             result.add(Pair.create(namesAndValues[i], namesAndValues[i + 1]));
+        }
         return result;
     }
 
@@ -237,6 +242,7 @@ public class LoadUrlTest extends AwTestBase {
         }
     }
 
+    @SuppressFBWarnings("DLS_DEAD_LOCAL_STORE")
     @SmallTest
     @Feature({"AndroidWebView"})
     public void testRedirectAndReloadWithExtraHeaders() throws Throwable {
@@ -275,6 +281,7 @@ public class LoadUrlTest extends AwTestBase {
         }
     }
 
+    @SuppressFBWarnings("DLS_DEAD_LOCAL_STORE")
     @SmallTest
     @Feature({"AndroidWebView"})
     public void testRendererNavigationAndGoBackWithExtraHeaders() throws Throwable {
@@ -321,6 +328,86 @@ public class LoadUrlTest extends AwTestBase {
                                     contentsClient.getOnPageFinishedHelper());
             assertEquals(2, webServer.getRequestCount(path));
             validateRequestHeaders(extraHeaders, webServer.getLastRequest(path));
+        } finally {
+            webServer.shutdown();
+        }
+    }
+
+    private static class OnReceivedTitleClient extends TestAwContentsClient {
+        void setOnReceivedTitleCallback(Runnable onReceivedTitleCallback) {
+            mOnReceivedTitleCallback = onReceivedTitleCallback;
+        }
+        @Override
+        public void onReceivedTitle(String title) {
+            super.onReceivedTitle(title);
+            mOnReceivedTitleCallback.run();
+        }
+        private Runnable mOnReceivedTitleCallback;
+    }
+
+    // See crbug.com/494929. Need to make sure that loading a javascript: URL
+    // from inside onReceivedTitle works.
+    @SmallTest
+    @Feature({"AndroidWebView"})
+    public void testLoadUrlFromOnReceivedTitle() throws Throwable {
+        final OnReceivedTitleClient contentsClient = new OnReceivedTitleClient();
+        final AwTestContainerView testContainerView =
+                createAwTestContainerViewOnMainSync(contentsClient);
+        final AwContents awContents = testContainerView.getAwContents();
+        final AwSettings settings = getAwSettingsOnUiThread(awContents);
+        settings.setJavaScriptEnabled(true);
+
+        contentsClient.setOnReceivedTitleCallback(new Runnable() {
+            @Override
+            public void run() {
+                awContents.loadUrl("javascript:testProperty=42;void(0);");
+            }
+        });
+
+        TestWebServer webServer = TestWebServer.start();
+        try {
+            // We need to have a navigation entry, but with an empty title. Note that
+            // trying to load a page with no title makes the received title to be
+            // the URL of the page so instead we use a "204 No Content" response.
+            final String url = webServer.setResponseWithNoContentStatus("/page.html");
+            loadUrlSync(awContents, contentsClient.getOnPageFinishedHelper(), url);
+            TestAwContentsClient.OnReceivedTitleHelper onReceivedTitleHelper =
+                    contentsClient.getOnReceivedTitleHelper();
+            final String pageTitle = "Hello, World!";
+            int onReceivedTitleCallCount = onReceivedTitleHelper.getCallCount();
+            loadUrlAsync(awContents, "javascript:document.title=\"" + pageTitle + "\";void(0);");
+            onReceivedTitleHelper.waitForCallback(onReceivedTitleCallCount);
+            assertEquals(pageTitle, onReceivedTitleHelper.getTitle());
+        } finally {
+            webServer.shutdown();
+        }
+    }
+
+    public void testOnReceivedTitleForUnchangingTitle() throws Throwable {
+        final TestAwContentsClient contentsClient = new TestAwContentsClient();
+        final AwTestContainerView testContainerView =
+                createAwTestContainerViewOnMainSync(contentsClient);
+        final AwContents awContents = testContainerView.getAwContents();
+
+        TestWebServer webServer = TestWebServer.start();
+        try {
+            final String title = "Title";
+            final String url1 = webServer.setResponse("/page1.html",
+                    "<html><head><title>" + title + "</title></head>Page 1</html>", null);
+            final String url2 = webServer.setResponse("/page2.html",
+                    "<html><head><title>" + title + "</title></head>Page 2</html>", null);
+            TestAwContentsClient.OnReceivedTitleHelper onReceivedTitleHelper =
+                    contentsClient.getOnReceivedTitleHelper();
+            int onReceivedTitleCallCount = onReceivedTitleHelper.getCallCount();
+            loadUrlSync(awContents, contentsClient.getOnPageFinishedHelper(), url1);
+            onReceivedTitleHelper.waitForCallback(onReceivedTitleCallCount);
+            assertEquals(title, onReceivedTitleHelper.getTitle());
+            // Verify that even if we load another page with the same title,
+            // onReceivedTitle is still being called.
+            onReceivedTitleCallCount = onReceivedTitleHelper.getCallCount();
+            loadUrlSync(awContents, contentsClient.getOnPageFinishedHelper(), url2);
+            onReceivedTitleHelper.waitForCallback(onReceivedTitleCallCount);
+            assertEquals(title, onReceivedTitleHelper.getTitle());
         } finally {
             webServer.shutdown();
         }

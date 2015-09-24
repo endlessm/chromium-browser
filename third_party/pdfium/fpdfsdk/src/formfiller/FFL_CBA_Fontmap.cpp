@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/formfiller/FormFiller.h"
@@ -19,10 +19,10 @@ CBA_FontMap::CBA_FontMap(CPDFSDK_Annot* pAnnot, IFX_SystemHandler* pSystemHandle
 	CPDF_Page* pPage = pAnnot->GetPDFPage();
 
 	m_pDocument = pPage->m_pDocument;
-	m_pAnnotDict = pAnnot->GetPDFAnnot()->m_pAnnotDict;
+	m_pAnnotDict = pAnnot->GetPDFAnnot()->GetAnnotDict();
 }
 
-CBA_FontMap::CBA_FontMap(CPDF_Document* pDocument, CPDF_Dictionary* pAnnotDict, 
+CBA_FontMap::CBA_FontMap(CPDF_Document* pDocument, CPDF_Dictionary* pAnnotDict,
 						 IFX_SystemHandler* pSystemHandler) :
 	CPWL_FontMap(pSystemHandler),
 	m_pDocument(pDocument),
@@ -43,13 +43,13 @@ void CBA_FontMap::Reset()
 	m_sDefaultFontName = "";
 }
 
-void CBA_FontMap::Initial(FX_LPCSTR fontname)
+void CBA_FontMap::Initial(const FX_CHAR* fontname)
 {
-	FX_INT32 nCharset = DEFAULT_CHARSET;
+	int32_t nCharset = DEFAULT_CHARSET;
 
 	if (!m_pDefaultFont)
 	{
-		m_pDefaultFont = GetAnnotDefaultFont(m_sDefaultFontName);	
+		m_pDefaultFont = GetAnnotDefaultFont(m_sDefaultFontName);
 		if (m_pDefaultFont)
 		{
 			if (const CFX_SubstFont* pSubstFont = m_pDefaultFont->GetSubstFont())
@@ -83,13 +83,13 @@ void CBA_FontMap::SetDefaultFont(CPDF_Font * pFont, const CFX_ByteString & sFont
 //	if (m_sDefaultFontName.IsEmpty())
 //		m_sDefaultFontName = pFont->GetFontTypeName();
 
-	FX_INT32 nCharset = DEFAULT_CHARSET;
+	int32_t nCharset = DEFAULT_CHARSET;
 	if (const CFX_SubstFont* pSubstFont = m_pDefaultFont->GetSubstFont())
 		nCharset = pSubstFont->m_Charset;
 	AddFontData(m_pDefaultFont, m_sDefaultFontName, nCharset);
 }
 
-CPDF_Font* CBA_FontMap::FindFontSameCharset(CFX_ByteString& sFontAlias, FX_INT32 nCharset)
+CPDF_Font* CBA_FontMap::FindFontSameCharset(CFX_ByteString& sFontAlias, int32_t nCharset)
 {
 	ASSERT(m_pAnnotDict != NULL);
 
@@ -118,8 +118,8 @@ CPDF_Document* CBA_FontMap::GetDocument()
 	return m_pDocument;
 }
 
-CPDF_Font* CBA_FontMap::FindResFontSameCharset(CPDF_Dictionary* pResDict, CFX_ByteString& sFontAlias, 
-													FX_INT32 nCharset)
+CPDF_Font* CBA_FontMap::FindResFontSameCharset(CPDF_Dictionary* pResDict, CFX_ByteString& sFontAlias,
+													int32_t nCharset)
 {
 	if (!pResDict) return NULL;
 
@@ -172,9 +172,9 @@ void CBA_FontMap::AddFontToAnnotDict(CPDF_Font* pFont, const CFX_ByteString& sAl
 
 	CPDF_Dictionary* pAPDict = m_pAnnotDict->GetDict("AP");
 
-	if (pAPDict == NULL) 
+	if (pAPDict == NULL)
 	{
-		pAPDict = FX_NEW CPDF_Dictionary;
+		pAPDict = new CPDF_Dictionary;
 		m_pAnnotDict->SetAt("AP", pAPDict);
 	}
 
@@ -184,10 +184,10 @@ void CBA_FontMap::AddFontToAnnotDict(CPDF_Font* pFont, const CFX_ByteString& sAl
 		return;
 
 	CPDF_Stream* pStream = pAPDict->GetStream(m_sAPType);
-	if (pStream == NULL) 
+	if (pStream == NULL)
 	{
-		pStream = FX_NEW CPDF_Stream(NULL, 0, NULL);
-		FX_INT32 objnum = m_pDocument->AddIndirectObject(pStream);
+		pStream = new CPDF_Stream(NULL, 0, NULL);
+		int32_t objnum = m_pDocument->AddIndirectObject(pStream);
 		pAPDict->SetAtReference(m_sAPType, m_pDocument, objnum);
 	}
 
@@ -195,7 +195,7 @@ void CBA_FontMap::AddFontToAnnotDict(CPDF_Font* pFont, const CFX_ByteString& sAl
 
 	if (!pStreamDict)
 	{
-		pStreamDict = FX_NEW CPDF_Dictionary;
+		pStreamDict = new CPDF_Dictionary;
 		pStream->InitStream(NULL, 0, pStreamDict);
 	}
 
@@ -204,17 +204,17 @@ void CBA_FontMap::AddFontToAnnotDict(CPDF_Font* pFont, const CFX_ByteString& sAl
 		CPDF_Dictionary* pStreamResList = pStreamDict->GetDict("Resources");
 		if (!pStreamResList)
 		{
-			pStreamResList = FX_NEW CPDF_Dictionary();
+			pStreamResList = new CPDF_Dictionary();
 			pStreamDict->SetAt("Resources", pStreamResList);
 		}
 
-		if (pStreamResList) 
+		if (pStreamResList)
 		{
 			CPDF_Dictionary* pStreamResFontList = pStreamResList->GetDict("Font");
-			if (!pStreamResFontList) 
+			if (!pStreamResFontList)
 			{
-				pStreamResFontList = FX_NEW CPDF_Dictionary;
-				FX_INT32 objnum = m_pDocument->AddIndirectObject(pStreamResFontList);
+				pStreamResFontList = new CPDF_Dictionary;
+				int32_t objnum = m_pDocument->AddIndirectObject(pStreamResFontList);
 				pStreamResList->SetAtReference("Font", m_pDocument, objnum);
 			}
 			if (!pStreamResFontList->KeyExist(sAlias))
@@ -237,7 +237,7 @@ CPDF_Font* CBA_FontMap::GetAnnotDefaultFont(CFX_ByteString &sAlias)
 		if (CPDF_Dictionary * pRootDict = m_pDocument->GetRoot())
 			pAcroFormDict = pRootDict->GetDict("AcroForm");
 	}
-	
+
 	CFX_ByteString sDA;
 	CPDF_Object* pObj;
 	if ((pObj = FPDF_GetFieldAttr(m_pAnnotDict, "DA")))
@@ -251,8 +251,8 @@ CPDF_Font* CBA_FontMap::GetAnnotDefaultFont(CFX_ByteString &sAlias)
 			sDA = pObj ? pObj->GetString() : CFX_ByteString();
 		}
 	}
-	
-	CPDF_Dictionary * pFontDict = NULL;	
+
+	CPDF_Dictionary * pFontDict = NULL;
 
 	if (!sDA.IsEmpty())
 	{
@@ -273,7 +273,7 @@ CPDF_Font* CBA_FontMap::GetAnnotDefaultFont(CFX_ByteString &sAlias)
 							pFontDict = pResFontDict->GetDict(sAlias);
 
 		if (bWidget)
-		{			
+		{
 			if (!pFontDict)
 			{
 				if (pAcroFormDict)
@@ -286,10 +286,7 @@ CPDF_Font* CBA_FontMap::GetAnnotDefaultFont(CFX_ByteString &sAlias)
 		}
 	}
 
-	if (pFontDict)
-		return m_pDocument->LoadFont(pFontDict);
-	else
-		return NULL;
+    return pFontDict ? m_pDocument->LoadFont(pFontDict) : nullptr;
 }
 
 void CBA_FontMap::SetAPType(const CFX_ByteString& sAPType)

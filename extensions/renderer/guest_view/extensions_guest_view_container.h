@@ -7,80 +7,39 @@
 
 #include <queue>
 
-#include "base/memory/linked_ptr.h"
-#include "base/memory/scoped_ptr.h"
-#include "base/values.h"
-#include "extensions/renderer/guest_view/guest_view_container.h"
-#include "extensions/renderer/scoped_persistent.h"
+#include "components/guest_view/renderer/guest_view_container.h"
+#include "v8/include/v8.h"
+
+namespace gfx {
+class Size;
+}
 
 namespace extensions {
 
-class ExtensionsGuestViewContainer : public GuestViewContainer {
+class ExtensionsGuestViewContainer : public guest_view::GuestViewContainer {
  public:
-  // This class represents an AttachGuest request from Javascript. It includes
-  // the input parameters and the callback function. The Attach operation may
-  // not execute immediately, if the container is not ready or if there are
-  // other attach operations in flight.
-  class AttachRequest {
-   public:
-    AttachRequest(int element_instance_id,
-                  int guest_instance_id,
-                  scoped_ptr<base::DictionaryValue> params,
-                  v8::Handle<v8::Function> callback,
-                  v8::Isolate* isolate);
-    ~AttachRequest();
-
-    int element_instance_id() const { return element_instance_id_; }
-
-    int guest_instance_id() const { return guest_instance_id_; }
-
-    base::DictionaryValue* attach_params() const {
-      return params_.get();
-    }
-
-    bool HasCallback() const;
-
-    v8::Handle<v8::Function> GetCallback() const;
-
-    v8::Isolate* isolate() const { return isolate_; }
-
-   private:
-    const int element_instance_id_;
-    const int guest_instance_id_;
-    scoped_ptr<base::DictionaryValue> params_;
-    ScopedPersistent<v8::Function> callback_;
-    v8::Isolate* const isolate_;
-  };
-
   explicit ExtensionsGuestViewContainer(content::RenderFrame* render_frame);
-  ~ExtensionsGuestViewContainer() override;
 
-  static ExtensionsGuestViewContainer* FromID(int render_view_routing_id,
-                                              int element_instance_id);
-
-  void AttachGuest(linked_ptr<AttachRequest> request);
+  void RegisterElementResizeCallback(v8::Local<v8::Function> callback,
+                                     v8::Isolate* isolate);
 
   // BrowserPluginDelegate implementation.
-  void SetElementInstanceID(int element_instance_id) override;
-  void Ready() override;
+  void DidResizeElement(const gfx::Size& new_size) override;
 
-  // GuestViewContainer override.
-  bool HandlesMessage(const IPC::Message& message) override;
-  bool OnMessage(const IPC::Message& message) override;
+ protected:
+  ~ExtensionsGuestViewContainer() override;
 
  private:
-  void OnGuestAttached(int element_instance_id,
-                       int guest_proxy_routing_id);
+  void CallElementResizeCallback(const gfx::Size& new_size);
 
-  void AttachGuestInternal(linked_ptr<AttachRequest> request);
-  void EnqueueAttachRequest(linked_ptr<AttachRequest> request);
-  void PerformPendingAttachRequest();
-  void HandlePendingResponseCallback(int guest_proxy_routing_id);
+  // GuestViewContainer implementation.
+  void OnDestroy(bool embedder_frame_destroyed) override;
 
-  bool ready_;
+  v8::Global<v8::Function> element_resize_callback_;
+  v8::Isolate* element_resize_isolate_;
 
-  std::deque<linked_ptr<AttachRequest> > pending_requests_;
-  linked_ptr<AttachRequest> pending_response_;
+  // Weak pointer factory used for calling the element resize callback.
+  base::WeakPtrFactory<ExtensionsGuestViewContainer> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionsGuestViewContainer);
 };

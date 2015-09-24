@@ -139,7 +139,7 @@ bool IsComponentCoveredByLang(const icu::UnicodeSet& component_characters,
                               const std::string& lang) {
   CR_DEFINE_STATIC_LOCAL(
       const icu::UnicodeSet, kASCIILetters, ('a', 'z'));
-  icu::UnicodeSet* lang_set = NULL;
+  icu::UnicodeSet* lang_set = nullptr;
   // We're called from both the UI thread and the history thread.
   {
     base::AutoLock lock(g_lang_set_lock.Get());
@@ -154,15 +154,17 @@ bool IsComponentCoveredByLang(const icu::UnicodeSet& component_characters,
       // (issue 2078)
       // DCHECK(U_SUCCESS(status) && status != U_USING_DEFAULT_WARNING);
       if (U_SUCCESS(status) && status != U_USING_DEFAULT_WARNING) {
-        lang_set = reinterpret_cast<icu::UnicodeSet *>(
-            ulocdata_getExemplarSet(uld, NULL, 0,
-                                    ULOCDATA_ES_STANDARD, &status));
-        // If |lang| is compatible with ASCII Latin letters, add them.
-        if (IsCompatibleWithASCIILetters(lang))
+        lang_set = reinterpret_cast<icu::UnicodeSet*>(ulocdata_getExemplarSet(
+            uld, nullptr, 0, ULOCDATA_ES_STANDARD, &status));
+        // On success, if |lang| is compatible with ASCII Latin letters, add
+        // them.
+        if (lang_set && IsCompatibleWithASCIILetters(lang))
           lang_set->addAll(kASCIILetters);
-      } else {
-        lang_set = new icu::UnicodeSet(1, 0);
       }
+
+      if (!lang_set)
+        lang_set = new icu::UnicodeSet(1, 0);
+
       lang_set->freeze();
       SetExemplarSetForLang(lang, lang_set);
       ulocdata_close(uld);
@@ -192,15 +194,17 @@ bool IsIDNComponentSafe(const base::char16* str,
 
   UErrorCode status = U_ZERO_ERROR;
 #ifdef U_WCHAR_IS_UTF16
-  icu::UnicodeSet dangerous_characters(icu::UnicodeString(
-      L"[[\\ \u00ad\u00bc\u00bd\u01c3\u0337\u0338"
-      L"\u05c3\u05f4\u06d4\u0702\u115f\u1160][\u2000-\u200b]"
-      L"[\u2024\u2027\u2028\u2029\u2039\u203a\u2044\u205f]"
-      L"[\u2154-\u2156][\u2159-\u215b][\u215f\u2215\u23ae"
-      L"\u29f6\u29f8\u2afb\u2afd][\u2ff0-\u2ffb][\u3014"
-      L"\u3015\u3033\u3164\u321d\u321e\u33ae\u33af\u33c6\u33df\ufe14"
-      L"\ufe15\ufe3f\ufe5d\ufe5e\ufeff\uff0e\uff06\uff61\uffa0\ufff9]"
-      L"[\ufffa-\ufffd]]"), status);
+  icu::UnicodeSet dangerous_characters(
+      icu::UnicodeString(
+          L"[[\\ \u00ad\u00bc\u00bd\u01c3\u0337\u0338"
+          L"\u05c3\u05f4\u06d4\u0702\u115f\u1160][\u2000-\u200b]"
+          L"[\u2024\u2027\u2028\u2029\u2039\u203a\u2044\u205f]"
+          L"[\u2154-\u2156][\u2159-\u215b][\u215f\u2215\u23ae"
+          L"\u29f6\u29f8\u2afb\u2afd][\u2ff0-\u2ffb][\u3014"
+          L"\u3015\u3033\u3164\u321d\u321e\u33ae\u33af\u33c6\u33df\ufe14"
+          L"\ufe15\ufe3f\ufe5d\ufe5e\ufeff\uff0e\uff06\uff61\uffa0\ufff9]"
+          L"[\ufffa-\ufffd]\U0001f50f\U0001f510\U0001f512\U0001f513]"),
+      status);
   DCHECK(U_SUCCESS(status));
   icu::RegexMatcher dangerous_patterns(icu::UnicodeString(
       // Lone katakana no, so, or n
@@ -217,11 +221,12 @@ bool IsIDNComponentSafe(const base::char16* str,
       "\\u29f6\\u29f8\\u2afb\\u2afd][\\u2ff0-\\u2ffb][\\u3014"
       "\\u3015\\u3033\\u3164\\u321d\\u321e\\u33ae\\u33af\\u33c6\\u33df\\ufe14"
       "\\ufe15\\ufe3f\\ufe5d\\ufe5e\\ufeff\\uff0e\\uff06\\uff61\\uffa0\\ufff9]"
-      "[\\ufffa-\\ufffd]]", -1, US_INV), status);
+      "[\\ufffa-\\ufffd]\\U0001f50f\\U0001f510\\U0001f512\\U0001f513]", -1,
+      US_INV), status);
   DCHECK(U_SUCCESS(status));
   icu::RegexMatcher dangerous_patterns(icu::UnicodeString(
       // Lone katakana no, so, or n
-      "[^\\p{Katakana}][\\u30ce\\u30f3\u30bd][^\\p{Katakana}]"
+      "[^\\p{Katakana}][\\u30ce\\u30f3\\u30bd][^\\p{Katakana}]"
       // Repeating Japanese accent characters
       "|[\\u3099\\u309a\\u309b\\u309c][\\u3099\\u309a\\u309b\\u309c]"),
       0, status);
@@ -585,7 +590,7 @@ base::string16 IDNToUnicode(const std::string& host,
 std::string GetDirectoryListingEntry(const base::string16& name,
                                      const std::string& raw_bytes,
                                      bool is_dir,
-                                     int64 size,
+                                     int64_t size,
                                      Time modified) {
   std::string result;
   result.append("<script>addRow(");
@@ -605,7 +610,7 @@ std::string GetDirectoryListingEntry(const base::string16& name,
   // Negative size means unknown or not applicable (e.g. directory).
   base::string16 size_string;
   if (size >= 0)
-    size_string = FormatBytesUnlocalized(size);
+    size_string = base::FormatBytesUnlocalized(size);
   base::EscapeJSONString(size_string, true, &result);
 
   result.append(",");
@@ -670,11 +675,12 @@ base::string16 FormatUrlWithAdjustments(
 
   // Special handling for view-source:.  Don't use content::kViewSourceScheme
   // because this library shouldn't depend on chrome.
-  const char* const kViewSource = "view-source";
+  const char kViewSource[] = "view-source";
   // Reject "view-source:view-source:..." to avoid deep recursion.
-  const char* const kViewSourceTwice = "view-source:view-source:";
+  const char kViewSourceTwice[] = "view-source:view-source:";
   if (url.SchemeIs(kViewSource) &&
-      !StartsWithASCII(url.possibly_invalid_spec(), kViewSourceTwice, false)) {
+      !base::StartsWith(url.possibly_invalid_spec(), kViewSourceTwice,
+                        base::CompareCase::INSENSITIVE_ASCII)) {
     return FormatViewSourceUrl(url, languages, format_types,
                                unescape_rules, new_parsed, prefix_end,
                                adjustments);
@@ -698,9 +704,10 @@ base::string16 FormatUrlWithAdjustments(
   // all input fields), the meaning would be changed.  (In fact, often the
   // formatted URL is directly pre-filled into an input field.)  For this reason
   // we avoid stripping "http://" in this case.
-  bool omit_http = (format_types & kFormatUrlOmitHTTP) &&
-      EqualsASCII(url_string, kHTTP) &&
-      !StartsWithASCII(url.host(), kFTP, true);
+  bool omit_http =
+      (format_types & kFormatUrlOmitHTTP) &&
+      base::EqualsASCII(url_string, kHTTP) &&
+      !base::StartsWith(url.host(), kFTP, base::CompareCase::SENSITIVE);
   new_parsed->scheme = parsed.scheme;
 
   // Username & password.
@@ -787,7 +794,9 @@ base::string16 FormatUrlWithAdjustments(
                            &url_string, &new_parsed->ref, adjustments);
 
   // If we need to strip out http do it after the fact.
-  if (omit_http && StartsWith(url_string, base::ASCIIToUTF16(kHTTP), true)) {
+  if (omit_http &&
+      base::StartsWith(url_string, base::ASCIIToUTF16(kHTTP),
+                       base::CompareCase::SENSITIVE)) {
     const size_t kHTTPSize = arraysize(kHTTP) - 1;
     url_string = url_string.substr(kHTTPSize);
     // Because offsets in the |adjustments| are already calculated with respect

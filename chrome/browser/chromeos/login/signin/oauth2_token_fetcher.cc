@@ -42,7 +42,7 @@ OAuth2TokenFetcher::~OAuth2TokenFetcher() {
 void OAuth2TokenFetcher::StartExchangeFromCookies(
     const std::string& session_index,
     const std::string& signin_scoped_device_id) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   session_index_ = session_index;
   signin_scoped_device_id_ = signin_scoped_device_id;
   // Delay the verification if the network is not connected or on a captive
@@ -68,31 +68,18 @@ void OAuth2TokenFetcher::StartExchangeFromCookies(
 }
 
 void OAuth2TokenFetcher::StartExchangeFromAuthCode(
-    const std::string& auth_code) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    const std::string& auth_code,
+    const std::string& signin_scoped_device_id) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   auth_code_ = auth_code;
-  // Delay the verification if the network is not connected or on a captive
-  // portal.
-  const NetworkState* default_network =
-      NetworkHandler::Get()->network_state_handler()->DefaultNetwork();
-  if (!default_network ||
-      default_network->connection_state() == shill::kStatePortal) {
-    // If network is offline, defer the token fetching until online.
-    VLOG(1) << "Network is offline.  Deferring OAuth2 token fetch.";
-    BrowserThread::PostDelayedTask(
-        BrowserThread::UI, FROM_HERE,
-        base::Bind(&OAuth2TokenFetcher::StartExchangeFromAuthCode,
-                   AsWeakPtr(),
-                   auth_code),
-        base::TimeDelta::FromMilliseconds(kRequestRestartDelay));
-    return;
-  }
-  auth_fetcher_.StartAuthCodeForOAuth2TokenExchange(auth_code);
+  signin_scoped_device_id_ = signin_scoped_device_id;
+  auth_fetcher_.StartAuthCodeForOAuth2TokenExchangeWithDeviceId(
+      auth_code, signin_scoped_device_id);
 }
 
 void OAuth2TokenFetcher::OnClientOAuthSuccess(
     const GaiaAuthConsumer::ClientOAuthResult& oauth_tokens) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   VLOG(1) << "Got OAuth2 tokens!";
   retry_count_ = 0;
   oauth_tokens_ = oauth_tokens;
@@ -101,28 +88,23 @@ void OAuth2TokenFetcher::OnClientOAuthSuccess(
 
 void OAuth2TokenFetcher::OnClientOAuthFailure(
     const GoogleServiceAuthError& error) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  RetryOnError(error,
-               auth_code_.empty()
-                   ? base::Bind(&OAuth2TokenFetcher::StartExchangeFromCookies,
-                                AsWeakPtr(),
-                                session_index_,
-                                signin_scoped_device_id_)
-                   : base::Bind(&OAuth2TokenFetcher::StartExchangeFromAuthCode,
-                                AsWeakPtr(),
-                                auth_code_),
-               base::Bind(&Delegate::OnOAuth2TokensFetchFailed,
-                          base::Unretained(delegate_)));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  RetryOnError(
+      error,
+      auth_code_.empty()
+          ? base::Bind(&OAuth2TokenFetcher::StartExchangeFromCookies,
+                       AsWeakPtr(), session_index_, signin_scoped_device_id_)
+          : base::Bind(&OAuth2TokenFetcher::StartExchangeFromAuthCode,
+                       AsWeakPtr(), auth_code_, signin_scoped_device_id_),
+      base::Bind(&Delegate::OnOAuth2TokensFetchFailed,
+                 base::Unretained(delegate_)));
 }
 
 void OAuth2TokenFetcher::RetryOnError(const GoogleServiceAuthError& error,
                                       const base::Closure& task,
                                       const base::Closure& error_handler) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  if ((error.state() == GoogleServiceAuthError::CONNECTION_FAILED ||
-       error.state() == GoogleServiceAuthError::SERVICE_UNAVAILABLE ||
-       error.state() == GoogleServiceAuthError::REQUEST_CANCELED) &&
-      retry_count_ < kMaxRequestAttemptCount) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  if (error.IsTransientError() && retry_count_ < kMaxRequestAttemptCount) {
     retry_count_++;
     BrowserThread::PostDelayedTask(
         BrowserThread::UI, FROM_HERE, task,

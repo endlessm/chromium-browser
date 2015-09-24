@@ -10,6 +10,7 @@ from chromite.cbuildbot import afdo
 from chromite.cbuildbot import constants
 from chromite.lib import alerts
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import gs
 from chromite.lib import portage_util
 from chromite.cbuildbot.stages import generic_stages
@@ -24,14 +25,16 @@ class AFDODataGenerateStage(generic_stages.BoardSpecificBuilderStage,
     return self._GetPortageEnvVar('ARCH', self._current_board)
 
   def PerformStage(self):
-    """After collecting a 'perf' profile, generate the profile in AFDO format.
-    """
+    """Collect a 'perf' profile and convert it into the AFDO format."""
     super(AFDODataGenerateStage, self).PerformStage()
+
+    if not self._run.attrs.metadata.GetValue('chrome_was_uprevved'):
+      logging.info('Chrome was not uprevved. Nothing to do in this stage')
+      return
 
     board = self._current_board
     if not afdo.CanGenerateAFDOData(board):
-      cros_build_lib.Warning('Board %s cannot generate its own AFDO profile.',
-                             board)
+      logging.warning('Board %s cannot generate its own AFDO profile.', board)
       return
 
     arch = self._GetCurrentArch()
@@ -49,8 +52,7 @@ class AFDODataGenerateStage(generic_stages.BoardSpecificBuilderStage,
         afdo_file = afdo.GenerateAFDOData(cpv, arch, board,
                                           buildroot, gs_context)
         assert afdo_file
-        cros_build_lib.Info('Generated %s AFDO profile %s',
-                            arch, afdo_file)
+        logging.info('Generated %s AFDO profile %s', arch, afdo_file)
       else:
         raise afdo.MissingAFDOData('Could not find current "perf" profile. '
                                    'Master PFQ builder will try to use stale '
@@ -58,8 +60,8 @@ class AFDODataGenerateStage(generic_stages.BoardSpecificBuilderStage,
     # Will let system-exiting exceptions through.
     except Exception:
       cros_build_lib.PrintBuildbotStepWarnings()
-      cros_build_lib.Warning('AFDO profile generation failed with exception ',
-                             exc_info=True)
+      logging.warning('AFDO profile generation failed with exception ',
+                      exc_info=True)
 
       alert_msg = ('Please triage. This will become a fatal error.\n\n'
                    'arch=%s buildroot=%s\n\nURL=%s' %
@@ -68,7 +70,7 @@ class AFDODataGenerateStage(generic_stages.BoardSpecificBuilderStage,
                      self._run.config.name)
       alerts.SendEmailLog(subject_msg,
                           afdo.AFDO_ALERT_RECIPIENTS,
-                          smtp_server=constants.GOLO_SMTP_SERVER,
+                          server=alerts.SmtpServer(constants.GOLO_SMTP_SERVER),
                           message=alert_msg)
       # Re-raise whatever exception we got here. This stage will only
       # generate a warning but we want to make sure the warning is
@@ -97,8 +99,7 @@ class AFDOUpdateEbuildStage(generic_stages.BuilderStage):
       if not afdo_file:
         raise afdo.MissingAFDOData('Could not find appropriate AFDO profile')
       state = 'current' if version_number in afdo_file else 'previous'
-      cros_build_lib.Info('Found %s %s AFDO profile %s',
-                          state, arch, afdo_file)
+      logging.info('Found %s %s AFDO profile %s', state, arch, afdo_file)
       arch_profiles[arch] = afdo_file
 
     # Now update the Chrome ebuild file with the AFDO profiles we found

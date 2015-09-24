@@ -33,6 +33,7 @@
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/database_manager.h"
+#include "chrome/browser/safe_browsing/local_database_manager.h"
 #include "chrome/browser/safe_browsing/local_safebrowsing_test_server.h"
 #include "chrome/browser/safe_browsing/protocol_manager.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
@@ -44,8 +45,8 @@
 #include "content/public/test/test_browser_thread.h"
 #include "content/public/test/test_utils.h"
 #include "net/base/load_flags.h"
-#include "net/base/net_log.h"
 #include "net/dns/host_resolver.h"
+#include "net/log/net_log.h"
 #include "net/test/python_utils.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_fetcher_delegate.h"
@@ -53,6 +54,10 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 using content::BrowserThread;
+
+#ifndef SAFE_BROWSING_DB_LOCAL
+#error This test requires the SAFE_BROWSING_DB_LOCAL implementation.
+#endif
 
 namespace {
 
@@ -187,9 +192,11 @@ class SafeBrowsingServerTest : public InProcessBrowserTest {
         base::TimeDelta::FromSeconds(0));
   }
 
+
   void CheckIsDatabaseReady() {
     base::AutoLock lock(update_status_mutex_);
-    is_database_ready_ = !database_manager()->database_update_in_progress_;
+    is_database_ready_ =
+        !local_database_manager()->database_update_in_progress_;
   }
 
   void CheckUrl(SafeBrowsingDatabaseManager::Client* helper, const GURL& url) {
@@ -209,6 +216,13 @@ class SafeBrowsingServerTest : public InProcessBrowserTest {
   SafeBrowsingDatabaseManager* database_manager() {
     return safe_browsing_service_->database_manager().get();
   }
+
+  // TODO(nparker): Remove the need for this by wiring in our own
+  // SafeBrowsingDatabaseManager factory and keep a ptr to the subclass.
+  LocalSafeBrowsingDatabaseManager* local_database_manager() {
+    return static_cast<LocalSafeBrowsingDatabaseManager*>(database_manager());
+  }
+
 
   bool is_checked_url_in_db() {
     base::AutoLock l(update_status_mutex_);
@@ -240,8 +254,8 @@ class SafeBrowsingServerTest : public InProcessBrowserTest {
     return is_update_scheduled_;
   }
 
-  base::MessageLoop* SafeBrowsingMessageLoop() {
-    return database_manager()->safe_browsing_thread_->message_loop();
+  scoped_refptr<base::SequencedTaskRunner> SafeBrowsingTaskRunner() {
+    return local_database_manager()->safe_browsing_task_runner_;
   }
 
   const net::SpawnedTestServer& test_server() const {
@@ -280,12 +294,7 @@ class SafeBrowsingServerTest : public InProcessBrowserTest {
     SafeBrowsingService::RegisterFactory(NULL);
   }
 
-  void SetUpCommandLine(CommandLine* command_line) override {
-    // This test uses loopback. No need to use IPv6 especially it makes
-    // local requests slow on Windows trybot when ipv6 local address [::1]
-    // is not setup.
-    command_line->AppendSwitch(switches::kDisableIPv6);
-
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     // TODO(lzheng): The test server does not understand download related
     // requests. We need to fix the server.
     command_line->AppendSwitch(switches::kSbDisableDownloadProtection);
@@ -298,10 +307,6 @@ class SafeBrowsingServerTest : public InProcessBrowserTest {
     // TODO(kalman): Generate new testing data that includes the extension
     // blacklist.
     command_line->AppendSwitch(switches::kSbDisableExtensionBlacklist);
-
-    // TODO(tburkard): Generate new testing data that includes the side-effect
-    // free whitelist.
-    command_line->AppendSwitch(switches::kSbDisableSideEffectFreeWhitelist);
   }
 
   void SetTestStep(int step) {
@@ -391,14 +396,15 @@ class SafeBrowsingServerTestHelper
   void CheckStatusOnIOThread() {
     EXPECT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::IO));
     safe_browsing_test_->UpdateSafeBrowsingStatus();
-    safe_browsing_test_->SafeBrowsingMessageLoop()->PostTask(FROM_HERE,
+    safe_browsing_test_->SafeBrowsingTaskRunner()->PostTask(
+        FROM_HERE,
         base::Bind(&SafeBrowsingServerTestHelper::CheckIsDatabaseReady, this));
   }
 
   // Checks status in SafeBrowsing Thread.
   void CheckIsDatabaseReady() {
-    EXPECT_EQ(base::MessageLoop::current(),
-              safe_browsing_test_->SafeBrowsingMessageLoop());
+    EXPECT_TRUE(safe_browsing_test_->SafeBrowsingTaskRunner()
+                    ->RunsTasksOnCurrentThread());
     safe_browsing_test_->CheckIsDatabaseReady();
     BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
         base::Bind(&SafeBrowsingServerTestHelper::OnWaitForStatusUpdateDone,
@@ -475,8 +481,7 @@ class SafeBrowsingServerTestHelper
   // Fetch a URL. If message_loop_started is true, starts the message loop
   // so the caller could wait till OnURLFetchComplete is called.
   net::URLRequestStatus::Status FetchUrl(const GURL& url) {
-    url_fetcher_.reset(net::URLFetcher::Create(
-        url, net::URLFetcher::GET, this));
+    url_fetcher_ = net::URLFetcher::Create(url, net::URLFetcher::GET, this);
     url_fetcher_->SetLoadFlags(net::LOAD_DISABLE_CACHE);
     url_fetcher_->SetRequestContext(request_context_);
     url_fetcher_->Start();

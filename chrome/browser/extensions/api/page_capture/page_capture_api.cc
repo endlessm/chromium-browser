@@ -15,8 +15,8 @@
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/notification_types.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
-#include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/common/extension_messages.h"
 
@@ -73,8 +73,8 @@ bool PageCaptureSaveAsMHTMLFunction::OnMessageReceived(
     return false;
 
   int message_request_id;
-  PickleIterator iter(message);
-  if (!message.ReadInt(&iter, &message_request_id)) {
+  base::PickleIterator iter(message);
+  if (!iter.ReadInt(&message_request_id)) {
     NOTREACHED() << "malformed extension message";
     return true;
   }
@@ -165,12 +165,12 @@ void PageCaptureSaveAsMHTMLFunction::ReturnSuccess(int64 file_size) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   WebContents* web_contents = GetWebContents();
-  if (!web_contents || !render_view_host()) {
+  if (!web_contents || !render_frame_host()) {
     ReturnFailure(kTabClosedError);
     return;
   }
 
-  int child_id = render_view_host()->GetProcess()->GetID();
+  int child_id = render_frame_host()->GetProcess()->GetID();
   ChildProcessSecurityPolicy::GetInstance()->GrantReadFile(
       child_id, mhtml_path_);
 

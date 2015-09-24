@@ -64,16 +64,8 @@ class ProfileChooserView : public content::WebContentsDelegate,
   static bool IsShowing();
   static void Hide();
 
-  // We normally close the bubble any time it becomes inactive but this can lead
-  // to flaky tests where unexpected UI events are triggering this behavior.
-  // Tests should call this with "false" for more consistent operation.
-  static void clear_close_on_deactivate_for_testing() {
-    close_on_deactivate_for_testing_ = false;
-  }
-
  private:
-  friend class NewAvatarMenuButtonTest;
-  FRIEND_TEST_ALL_PREFIXES(NewAvatarMenuButtonTest, SignOut);
+  friend class ProfileChooserViewExtensionsTest;
 
   typedef std::vector<size_t> Indexes;
   typedef std::map<views::Button*, int> ButtonIndexes;
@@ -117,6 +109,10 @@ class ProfileChooserView : public content::WebContentsDelegate,
   void OnRefreshTokenRevoked(const std::string& account_id) override;
 
   static ProfileChooserView* profile_bubble_;
+
+  // We normally close the bubble any time it becomes inactive but this can lead
+  // to flaky tests where unexpected UI events are triggering this behavior.
+  // Tests set this to "false" for more consistent operation.
   static bool close_on_deactivate_for_testing_;
 
   void ResetView();
@@ -127,6 +123,16 @@ class ProfileChooserView : public content::WebContentsDelegate,
 
   // Creates the profile chooser view.
   views::View* CreateProfileChooserView(AvatarMenu* avatar_menu);
+
+  // Populates |layout| with only a list of the profiles available to
+  // switch to.
+  void PopulateMinimalProfileChooserView(views::GridLayout* layout,
+                                         AvatarMenu* avatar_menu);
+
+  // Populates |layout| with all the elements of the Avatar Menu (current user
+  // bubble, options buttons, tutorials).
+  void PopulateCompleteProfileChooserView(views::GridLayout* layout,
+                                          AvatarMenu* avatar_menu);
 
   // Creates the main profile card for the profile |avatar_item|. |is_guest|
   // is used to determine whether to show any Sign in/Sign out/Manage accounts
@@ -149,7 +155,7 @@ class ProfileChooserView : public content::WebContentsDelegate,
                            int width);
 
   // Creates a webview showing the gaia signin page.
-  views::View* CreateGaiaSigninView();
+  views::View* CreateGaiaSigninView(views::View** signin_content_view);
 
   // Creates a view to confirm account removal for |account_id_to_remove_|.
   views::View* CreateAccountRemovalView();
@@ -161,19 +167,22 @@ class ProfileChooserView : public content::WebContentsDelegate,
   void DismissTutorial();
 
   // Creates a tutorial card to introduce an upgrade user to the new avatar
-  // menu if needed. |tutorial_shown| indicates if the tutorial has already been
-  // shown in the previous active view. |avatar_item| refers to the current
-  // profile.
-  views::View* CreateWelcomeUpgradeTutorialViewIfNeeded(
-      bool tutorial_shown, const AvatarMenu::Item& avatar_item);
+  // menu. |avatar_item| refers to the current profile.
+  views::View* CreateWelcomeUpgradeTutorialView(
+      const AvatarMenu::Item& avatar_item);
 
   // Creates a tutorial card to have the user confirm the last Chrome signin,
   // Chrome sync will be delayed until the user either dismisses the tutorial,
   // or configures sync through the "Settings" link.
   views::View* CreateSigninConfirmationView();
 
-  // Creates a a tutorial card to show the errors in the last Chrome signin.
+  // Creates a tutorial card to show the errors in the last Chrome signin.
   views::View* CreateSigninErrorView();
+
+  // Creates a tutorial card telling the user about right-click user switching.
+  views::View* CreateRightClickTutorialView();
+
+  views::View* CreateTutorialViewIfNeeded(const AvatarMenu::Item& item);
 
   // Creates a tutorial card. If |stack_button| is true, places the button above
   // the link otherwise places both on the same row with the link left aligned

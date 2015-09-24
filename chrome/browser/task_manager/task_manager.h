@@ -21,6 +21,7 @@
 #include "third_party/WebKit/public/web/WebCache.h"
 
 class PrefRegistrySimple;
+class PrivateWorkingSetSnapshot;
 class TaskManagerModel;
 class TaskManagerModelGpuDataManagerObserver;
 
@@ -281,19 +282,15 @@ class TaskManagerModel : public base::RefCountedThreadSafe<TaskManagerModel> {
   // changes to the model.
   void ModelChanged();
 
-   // Updates the values for all rows.
+  // Updates the values for all rows.
   void Refresh();
 
-  void NotifyResourceTypeStats(
-        base::ProcessId renderer_id,
-        const blink::WebCache::ResourceTypeStats& stats);
+  // Do a bulk repopulation of the physical_memory data on platforms where that
+  // is faster.
+  void RefreshPhysicalMemoryFromWorkingSetSnapshot();
 
   void NotifyVideoMemoryUsageStats(
       const content::GPUVideoMemoryUsageStats& video_memory_usage_stats);
-
-  void NotifyV8HeapStats(base::ProcessId renderer_id,
-                         size_t v8_memory_allocated,
-                         size_t v8_memory_used);
 
   void NotifyBytesRead(const net::URLRequest& request, int bytes_read);
 
@@ -514,7 +511,7 @@ class TaskManagerModel : public base::RefCountedThreadSafe<TaskManagerModel> {
   scoped_ptr<TaskManagerModelGpuDataManagerObserver>
       video_memory_usage_stats_observer_;
 
-  ObserverList<TaskManagerModelObserver> observer_list_;
+  base::ObserverList<TaskManagerModelObserver> observer_list_;
 
   // How many calls to StartUpdating have been made without matching calls to
   // StopUpdating.
@@ -536,6 +533,10 @@ class TaskManagerModel : public base::RefCountedThreadSafe<TaskManagerModel> {
   std::vector<BytesReadParam> bytes_read_buffer_;
 
   std::vector<base::Closure> on_data_ready_callbacks_;
+
+#if defined(OS_WIN)
+  scoped_ptr<PrivateWorkingSetSnapshot> working_set_snapshot_;
+#endif
 
   // All per-Resource values are stored here.
   mutable PerResourceCache per_resource_cache_;

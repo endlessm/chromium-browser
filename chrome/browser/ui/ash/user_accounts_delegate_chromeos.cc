@@ -12,7 +12,6 @@
 #include "chrome/browser/chromeos/ui/inline_login_dialog.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
-#include "components/signin/core/browser/mutable_profile_oauth2_token_service.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/user_manager/user.h"
@@ -54,7 +53,7 @@ UserAccountsDelegateChromeOS::GetSecondaryAccountIds() {
 
 std::string UserAccountsDelegateChromeOS::GetAccountDisplayName(
     const std::string& account_id) {
-  user_manager::User* user =
+  const user_manager::User* user =
       ProfileHelper::Get()->GetUserByProfile(user_profile_);
   if (gaia::AreEmailsSame(user->email(), account_id) &&
       !user->display_email().empty())
@@ -64,9 +63,8 @@ std::string UserAccountsDelegateChromeOS::GetAccountDisplayName(
 
 void UserAccountsDelegateChromeOS::DeleteAccount(
     const std::string& account_id) {
-  MutableProfileOAuth2TokenService* oauth2_token_service =
-      ProfileOAuth2TokenServiceFactory::GetPlatformSpecificForProfile(
-          user_profile_);
+  ProfileOAuth2TokenService* oauth2_token_service =
+      ProfileOAuth2TokenServiceFactory::GetForProfile(user_profile_);
   oauth2_token_service->RevokeCredentials(account_id);
 }
 

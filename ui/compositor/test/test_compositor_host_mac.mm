@@ -15,7 +15,7 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/thread_task_runner_handle.h"
 #include "ui/compositor/compositor.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
 // AcceleratedTestView provides an NSView class that delegates drawing to a
 // ui::Compositor delegate, setting up the NSOpenGLContext as required.
@@ -40,7 +40,7 @@
 
 - (void)drawRect:(NSRect)rect {
   DCHECK(compositor_) << "Drawing with no compositor set.";
-  compositor_->Draw();
+  compositor_->ScheduleFullRedraw();
 }
 @end
 

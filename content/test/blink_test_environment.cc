@@ -10,6 +10,7 @@
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/strings/string_tokenizer.h"
+#include "base/test/test_discardable_memory_allocator.h"
 #include "base/third_party/dynamic_annotations/dynamic_annotations.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/user_agent.h"
@@ -46,7 +47,8 @@ void EnableBlinkPlatformLogChannels(const std::string& channels) {
 }
 
 void ParseBlinkCommandLineArgumentsForUnitTests() {
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
   EnableBlinkPlatformLogChannels(
       command_line.GetSwitchValueASCII(switches::kBlinkPlatformLogChannels));
 }
@@ -66,6 +68,9 @@ class TestEnvironment {
     // TestBlinkWebUnitTestSupport must be instantiated after MessageLoopType.
     blink_test_support_.reset(new TestBlinkWebUnitTestSupport);
     content_initializer_.reset(new content::TestContentClientInitializer());
+
+    base::DiscardableMemoryAllocator::SetInstance(
+        &discardable_memory_allocator_);
   }
 
   ~TestEnvironment() {
@@ -79,6 +84,7 @@ class TestEnvironment {
   scoped_ptr<MessageLoopType> main_message_loop_;
   scoped_ptr<TestBlinkWebUnitTestSupport> blink_test_support_;
   scoped_ptr<TestContentClientInitializer> content_initializer_;
+  base::TestDiscardableMemoryAllocator discardable_memory_allocator_;
 };
 
 TestEnvironment* test_environment;

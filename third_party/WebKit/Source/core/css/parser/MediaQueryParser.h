@@ -5,11 +5,12 @@
 #ifndef MediaQueryParser_h
 #define MediaQueryParser_h
 
+#include "core/CoreExport.h"
 #include "core/css/MediaList.h"
 #include "core/css/MediaQuery.h"
 #include "core/css/MediaQueryExp.h"
 #include "core/css/parser/CSSParserToken.h"
-#include "core/css/parser/CSSParserValues.h"
+#include "core/css/parser/CSSParserTokenRange.h"
 #include "core/css/parser/MediaQueryBlockWatcher.h"
 #include "wtf/text/WTFString.h"
 
@@ -24,14 +25,14 @@ private:
     String m_mediaType;
     OwnPtrWillBeMember<ExpressionHeapVector> m_expressions;
     String m_mediaFeature;
-    CSSParserValueList m_valueList;
+    Vector<CSSParserToken, 4> m_valueList;
     bool m_mediaTypeSet;
 
 public:
     MediaQueryData();
     void clear();
     bool addExpression();
-    void addParserValue(CSSParserTokenType, const CSSParserToken&);
+    bool tryAddParserToken(CSSParserTokenType, const CSSParserToken&);
     void setMediaType(const String&);
     PassOwnPtrWillBeRawPtr<MediaQuery> takeMediaQuery();
 
@@ -39,17 +40,19 @@ public:
     {
         return (m_restrictor != MediaQuery::None || m_mediaTypeSet || m_expressions->size() > 0);
     }
+    inline MediaQuery::Restrictor restrictor() { return m_restrictor; }
 
     inline void setRestrictor(MediaQuery::Restrictor restrictor) { m_restrictor = restrictor; }
 
     inline void setMediaFeature(const String& str) { m_mediaFeature = str; }
 };
 
-class MediaQueryParser {
+class CORE_EXPORT MediaQueryParser {
     STACK_ALLOCATED();
 public:
     static PassRefPtrWillBeRawPtr<MediaQuerySet> parseMediaQuerySet(const String&);
-    static PassRefPtrWillBeRawPtr<MediaQuerySet> parseMediaCondition(CSSParserTokenIterator, CSSParserTokenIterator endToken);
+    static PassRefPtrWillBeRawPtr<MediaQuerySet> parseMediaQuerySet(CSSParserTokenRange);
+    static PassRefPtrWillBeRawPtr<MediaQuerySet> parseMediaCondition(CSSParserTokenRange);
 
 private:
     enum ParserType {
@@ -60,7 +63,7 @@ private:
     MediaQueryParser(ParserType);
     virtual ~MediaQueryParser();
 
-    PassRefPtrWillBeRawPtr<MediaQuerySet> parseImpl(CSSParserTokenIterator, CSSParserTokenIterator endToken);
+    PassRefPtrWillBeRawPtr<MediaQuerySet> parseImpl(CSSParserTokenRange);
 
     void processToken(const CSSParserToken&);
 

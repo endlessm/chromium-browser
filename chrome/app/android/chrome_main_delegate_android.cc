@@ -5,12 +5,25 @@
 #include "chrome/app/android/chrome_main_delegate_android.h"
 
 #include "base/android/jni_android.h"
-#include "base/debug/trace_event.h"
-#include "chrome/browser/android/chrome_jni_registrar.h"
+#include "base/trace_event/trace_event.h"
 #include "chrome/browser/android/chrome_startup_flags.h"
-#include "chrome/browser/android/uma_utils.h"
+#include "chrome/browser/android/metrics/uma_utils.h"
+#include "chrome/browser/android/metrics/uma_utils.h"
+#include "chrome/browser/media/android/remote/remote_media_player_manager.h"
 #include "components/startup_metric_utils/startup_metric_utils.h"
+#include "content/browser/media/android/browser_media_player_manager.h"
 #include "content/public/browser/browser_main_runner.h"
+
+namespace {
+
+content::BrowserMediaPlayerManager* CreateRemoteMediaPlayerManager(
+    content::RenderFrameHost* render_frame_host,
+    content::MediaPlayersObserver* audio_monitor) {
+  return new remote_media::RemoteMediaPlayerManager(render_frame_host,
+                                                    audio_monitor);
+}
+
+} // namespace
 
 // ChromeMainDelegateAndroid is created when the library is loaded. It is always
 // done in the process's main Java thread. But for non browser process, e.g.
@@ -20,7 +33,6 @@ ChromeMainDelegateAndroid::ChromeMainDelegateAndroid() {
 
 ChromeMainDelegateAndroid::~ChromeMainDelegateAndroid() {
 }
-
 void ChromeMainDelegateAndroid::SandboxInitialized(
     const std::string& process_type) {
   ChromeMainDelegate::SandboxInitialized(process_type);
@@ -31,9 +43,6 @@ int ChromeMainDelegateAndroid::RunProcess(
     const content::MainFunctionParams& main_function_params) {
   TRACE_EVENT0("startup", "ChromeMainDelegateAndroid::RunProcess")
   if (process_type.empty()) {
-    JNIEnv* env = base::android::AttachCurrentThread();
-    RegisterApplicationNativeMethods(env);
-
     // Because the browser process can be started asynchronously as a series of
     // UI thread tasks a second request to start it can come in while the
     // first request is still being processed. Chrome must keep the same
@@ -53,9 +62,9 @@ int ChromeMainDelegateAndroid::RunProcess(
 
 bool ChromeMainDelegateAndroid::BasicStartupComplete(int* exit_code) {
   SetChromeSpecificCommandLineFlags();
-  return ChromeMainDelegate::BasicStartupComplete(exit_code);
-}
 
-bool ChromeMainDelegateAndroid::RegisterApplicationNativeMethods(JNIEnv* env) {
-  return chrome::android::RegisterJni(env);
+  content::BrowserMediaPlayerManager::RegisterFactory(
+      &CreateRemoteMediaPlayerManager);
+
+  return ChromeMainDelegate::BasicStartupComplete(exit_code);
 }

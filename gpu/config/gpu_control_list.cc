@@ -428,6 +428,20 @@ GpuControlList::GpuControlListEntry::GetEntryFromValue(
     dictionary_entry_count++;
   }
 
+  const base::ListValue* disabled_extensions;
+  if (value->GetList("disabled_extensions", &disabled_extensions)) {
+    for (size_t i = 0; i < disabled_extensions->GetSize(); ++i) {
+      std::string disabled_extension;
+      if (disabled_extensions->GetString(i, &disabled_extension)) {
+        entry->disabled_extensions_.push_back(disabled_extension);
+      } else {
+        LOG(WARNING) << "Malformed disabled_extensions entry " << entry->id();
+        return NULL;
+      }
+    }
+    dictionary_entry_count++;
+  }
+
   const base::DictionaryValue* os_value = NULL;
   if (value->GetDictionary("os", &os_value)) {
     std::string os_type;
@@ -1010,10 +1024,12 @@ bool GpuControlList::GpuControlListEntry::GLVersionInfoMismatch(
   GLType gl_type = kGLTypeNone;
   if (segments.size() > 2 &&
       segments[0] == "OpenGL" && segments[1] == "ES") {
-    number = segments[2];
+    bool full_match = RE2::FullMatch(segments[2], "([\\d.]+).*", &number);
+    DCHECK(full_match);
+
     gl_type = kGLTypeGLES;
     if (segments.size() > 3 &&
-        StartsWithASCII(segments[3], "(ANGLE", false)) {
+        base::StartsWithASCII(segments[3], "(ANGLE", false)) {
       gl_type = kGLTypeANGLE;
     }
   } else {
@@ -1202,18 +1218,6 @@ bool GpuControlList::GpuControlListEntry::Contains(
       !gl_reset_notification_strategy_info_->Contains(
           gpu_info.gl_reset_notification_strategy))
     return false;
-  if (perf_graphics_info_.get() != NULL &&
-      (gpu_info.performance_stats.graphics == 0.0 ||
-       !perf_graphics_info_->Contains(gpu_info.performance_stats.graphics)))
-    return false;
-  if (perf_gaming_info_.get() != NULL &&
-      (gpu_info.performance_stats.gaming == 0.0 ||
-       !perf_gaming_info_->Contains(gpu_info.performance_stats.gaming)))
-    return false;
-  if (perf_overall_info_.get() != NULL &&
-      (gpu_info.performance_stats.overall == 0.0 ||
-       !perf_overall_info_->Contains(gpu_info.performance_stats.overall)))
-    return false;
   if (!machine_model_name_list_.empty()) {
     if (gpu_info.machine_model_name.empty())
       return false;
@@ -1246,14 +1250,15 @@ bool GpuControlList::GpuControlListEntry::Contains(
 
   for (size_t i = 0; i < exceptions_.size(); ++i) {
     if (exceptions_[i]->Contains(os_type, os_version, gpu_info) &&
-        !exceptions_[i]->NeedsMoreInfo(gpu_info))
+        !exceptions_[i]->NeedsMoreInfo(gpu_info, true))
       return false;
   }
   return true;
 }
 
 bool GpuControlList::GpuControlListEntry::NeedsMoreInfo(
-    const GPUInfo& gpu_info) const {
+    const GPUInfo& gpu_info,
+    bool consider_exceptions) const {
   // We only check for missing info that might be collected with a gl context.
   // If certain info is missing due to some error, say, we fail to collect
   // vendor_id/device_id, then even if we launch GPU process and create a gl
@@ -1266,10 +1271,14 @@ bool GpuControlList::GpuControlListEntry::NeedsMoreInfo(
     return true;
   if (!gl_renderer_info_.empty() && gpu_info.gl_renderer.empty())
     return true;
-  for (size_t i = 0; i < exceptions_.size(); ++i) {
-    if (exceptions_[i]->NeedsMoreInfo(gpu_info))
-      return true;
+
+  if (consider_exceptions) {
+    for (size_t i = 0; i < exceptions_.size(); ++i) {
+      if (exceptions_[i]->NeedsMoreInfo(gpu_info, consider_exceptions))
+        return true;
+    }
   }
+
   return false;
 }
 
@@ -1333,8 +1342,7 @@ GpuControlList::~GpuControlList() {
 bool GpuControlList::LoadList(
     const std::string& json_context,
     GpuControlList::OsFilter os_filter) {
-  scoped_ptr<base::Value> root;
-  root.reset(base::JSONReader::Read(json_context));
+  scoped_ptr<base::Value> root = base::JSONReader::Read(json_context);
   if (root.get() == NULL || !root->IsType(base::Value::TYPE_DICTIONARY))
     return false;
 
@@ -1392,7 +1400,12 @@ std::set<int> GpuControlList::MakeDecision(
   std::set<int> features;
 
   needs_more_info_ = false;
-  std::set<int> possible_features;
+  // Has all features permanently in the list without any possibility of
+  // removal in the future (subset of "features" set).
+  std::set<int> permanent_features;
+  // Has all features absent from "features" set that could potentially be
+  // included later with more information.
+  std::set<int> potential_features;
 
   if (os == kOsAny)
     os = GetOsType();
@@ -1400,23 +1413,38 @@ std::set<int> GpuControlList::MakeDecision(
     os_version = base::SysInfo::OperatingSystemVersion();
 
   for (size_t i = 0; i < entries_.size(); ++i) {
-    if (entries_[i]->Contains(os, os_version, gpu_info)) {
-      bool needs_more_info = entries_[i]->NeedsMoreInfo(gpu_info);
-      if (!entries_[i]->disabled()) {
+    ScopedGpuControlListEntry entry = entries_[i];
+    if (entry->Contains(os, os_version, gpu_info)) {
+      bool needs_more_info_main = entry->NeedsMoreInfo(gpu_info, false);
+      bool needs_more_info_exception = entry->NeedsMoreInfo(gpu_info, true);
+
+      if (!entry->disabled()) {
         if (control_list_logging_enabled_)
-          entries_[i]->LogControlListMatch(control_list_logging_name_);
-        MergeFeatureSets(&possible_features, entries_[i]->features());
-        if (!needs_more_info)
-          MergeFeatureSets(&features, entries_[i]->features());
+          entry->LogControlListMatch(control_list_logging_name_);
+        // Only look at main entry info when deciding what to add to "features"
+        // set. If we don't have enough info for an exception, it's safer if we
+        // just ignore the exception and assume the exception doesn't apply.
+        for (std::set<int>::const_iterator iter = entry->features().begin();
+             iter != entry->features().end(); ++iter) {
+          if (needs_more_info_main) {
+            if (!features.count(*iter))
+              potential_features.insert(*iter);
+          } else {
+            features.insert(*iter);
+            potential_features.erase(*iter);
+            if (!needs_more_info_exception)
+              permanent_features.insert(*iter);
+          }
+        }
       }
-      if (!needs_more_info)
-        active_entries_.push_back(entries_[i]);
+
+      if (!needs_more_info_main)
+        active_entries_.push_back(entry);
     }
   }
 
-  if (possible_features.size() > features.size())
-    needs_more_info_ = true;
-
+  needs_more_info_ = permanent_features.size() < features.size() ||
+                     !potential_features.empty();
   return features;
 }
 
@@ -1428,6 +1456,21 @@ void GpuControlList::GetDecisionEntries(
     if (disabled == active_entries_[i]->disabled())
       entry_ids->push_back(active_entries_[i]->id());
   }
+}
+
+std::vector<std::string> GpuControlList::GetDisabledExtensions() {
+  std::set<std::string> disabled_extensions;
+  for (size_t i = 0; i < active_entries_.size(); ++i) {
+    GpuControlListEntry* entry = active_entries_[i].get();
+
+    if (entry->disabled())
+      continue;
+
+    disabled_extensions.insert(entry->disabled_extensions().begin(),
+                               entry->disabled_extensions().end());
+  }
+  return std::vector<std::string>(disabled_extensions.begin(),
+                                  disabled_extensions.end());
 }
 
 void GpuControlList::GetReasons(base::ListValue* problem_list,

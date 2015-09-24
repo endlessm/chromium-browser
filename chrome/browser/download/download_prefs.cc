@@ -162,15 +162,30 @@ DownloadPrefs::DownloadPrefs(Profile* profile) : profile_(profile) {
   std::vector<std::string> extensions;
   base::SplitString(extensions_to_open, ':', &extensions);
 
-  for (size_t i = 0; i < extensions.size(); ++i) {
+  for (const auto& extension_string : extensions) {
 #if defined(OS_POSIX)
-    base::FilePath path(extensions[i]);
+    base::FilePath::StringType extension = extension_string;
 #elif defined(OS_WIN)
-    base::FilePath path(base::UTF8ToWide(extensions[i]));
+    base::FilePath::StringType extension = base::UTF8ToWide(extension_string);
 #endif
-    if (!extensions[i].empty() &&
-        download_util::GetFileDangerLevel(path) == download_util::NOT_DANGEROUS)
-      auto_open_.insert(path.value());
+    // If it's empty or malformed or not allowed to open automatically, then
+    // skip the entry. Any such entries will be dropped from preferences the
+    // next time SaveAutoOpenState() is called.
+    if (extension.empty() ||
+        *extension.begin() == base::FilePath::kExtensionSeparator)
+      continue;
+    // Construct something like ".<extension>", since
+    // IsAllowedToOpenAutomatically() needs a filename.
+    base::FilePath filename_with_extension = base::FilePath(
+        base::FilePath::StringType(1, base::FilePath::kExtensionSeparator) +
+        extension);
+
+    // Note that the list of file types that are not allowed to open
+    // automatically can change in the future. When the list is tightened, it is
+    // expected that some entries in the users' auto open list will get dropped
+    // permanently as a result.
+    if (download_util::IsAllowedToOpenAutomatically(filename_with_extension))
+      auto_open_.insert(extension);
   }
 }
 
@@ -183,34 +198,19 @@ void DownloadPrefs::RegisterProfilePrefs(
       prefs::kPromptForDownload,
       false,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
-  registry->RegisterStringPref(
-      prefs::kDownloadExtensionsToOpen,
-      std::string(),
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kDownloadDirUpgraded,
-      false,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterIntegerPref(
-      prefs::kSaveFileType,
-      content::SAVE_PAGE_TYPE_AS_COMPLETE_HTML,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterStringPref(prefs::kDownloadExtensionsToOpen, std::string());
+  registry->RegisterBooleanPref(prefs::kDownloadDirUpgraded, false);
+  registry->RegisterIntegerPref(prefs::kSaveFileType,
+                                content::SAVE_PAGE_TYPE_AS_COMPLETE_HTML);
 
   const base::FilePath& default_download_path = GetDefaultDownloadDirectory();
-  registry->RegisterFilePathPref(
-      prefs::kDownloadDefaultDirectory,
-      default_download_path,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterFilePathPref(
-      prefs::kSaveFileDefaultDirectory,
-      default_download_path,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterFilePathPref(prefs::kDownloadDefaultDirectory,
+                                 default_download_path);
+  registry->RegisterFilePathPref(prefs::kSaveFileDefaultDirectory,
+                                 default_download_path);
 #if defined(OS_WIN) || defined(OS_LINUX) || \
     (defined(OS_MACOSX) && !defined(OS_IOS))
-  registry->RegisterBooleanPref(
-      prefs::kOpenPdfDownloadInSystemReader,
-      false,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterBooleanPref(prefs::kOpenPdfDownloadInSystemReader, false);
 #endif
 }
 
@@ -306,14 +306,16 @@ bool DownloadPrefs::IsAutoOpenEnabledBasedOnExtension(
   if (extension == FILE_PATH_LITERAL("pdf") && ShouldOpenPdfInSystemReader())
     return true;
 #endif
+
   return auto_open_.find(extension) != auto_open_.end();
 }
 
 bool DownloadPrefs::EnableAutoOpenBasedOnExtension(
     const base::FilePath& file_name) {
   base::FilePath::StringType extension = file_name.Extension();
-  if (extension.empty())
+  if (!download_util::IsAllowedToOpenAutomatically(file_name))
     return false;
+
   DCHECK(extension[0] == base::FilePath::kExtensionSeparator);
   extension.erase(0, 1);
 

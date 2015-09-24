@@ -16,6 +16,7 @@
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_state.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_toolbar_view.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_button.h"
+#import "chrome/browser/ui/cocoa/has_weak_browser_pointer.h"
 #include "chrome/browser/ui/cocoa/tabs/tab_strip_model_observer_bridge.h"
 #include "ui/base/window_open_disposition.h"
 
@@ -25,8 +26,6 @@
 @class BookmarkButtonCell;
 @class BookmarkFolderTarget;
 @class BookmarkContextMenuCocoaController;
-class BookmarkModel;
-class BookmarkNode;
 class Browser;
 class ChromeBookmarkClient;
 class GURL;
@@ -35,6 +34,9 @@ class ThemeProvider;
 }
 
 namespace bookmarks {
+
+class BookmarkModel;
+class BookmarkNode;
 
 // Magic numbers from Cole
 // TODO(jrg): create an objc-friendly version of bookmark_bar_constants.h?
@@ -152,12 +154,13 @@ willAnimateFromState:(BookmarkBar::State)oldState
 
 // A controller for the bookmark bar in the browser window. Handles showing
 // and hiding based on the preference in the given profile.
-@interface BookmarkBarController :
-    NSViewController<BookmarkBarState,
-                     BookmarkBarToolbarViewController,
-                     BookmarkButtonDelegate,
-                     BookmarkButtonControllerProtocol,
-                     NSDraggingDestination> {
+@interface BookmarkBarController
+    : NSViewController<BookmarkBarState,
+                       BookmarkBarToolbarViewController,
+                       BookmarkButtonDelegate,
+                       BookmarkButtonControllerProtocol,
+                       NSDraggingDestination,
+                       HasWeakBrowserPointer> {
  @private
   // The state of the bookmark bar. If an animation is running, this is set to
   // the "destination" and |lastState_| is set to the "original" state.
@@ -170,8 +173,8 @@ willAnimateFromState:(BookmarkBar::State)oldState
   BOOL isAnimationRunning_;
 
   Browser* browser_;              // weak; owned by its window
-  BookmarkModel* bookmarkModel_;  // weak; part of the profile owned by the
-                                  // top-level Browser object.
+  bookmarks::BookmarkModel* bookmarkModel_;  // weak; part of the profile owned
+                                             // by the top-level Browser object.
   ChromeBookmarkClient* bookmarkClient_;
 
   // Our initial view width, which is applied in awakeFromNib.
@@ -230,6 +233,9 @@ willAnimateFromState:(BookmarkBar::State)oldState
 
   // "Managed bookmarks" button on the left side, next to the apps button.
   base::scoped_nsobject<BookmarkButton> managedBookmarksButton_;
+
+  // "Supervised bookmarks" button on the left side, next to the apps button.
+  base::scoped_nsobject<BookmarkButton> supervisedBookmarksButton_;
 
   // "Other bookmarks" button on the right side.
   base::scoped_nsobject<BookmarkButton> otherBookmarksButton_;
@@ -310,8 +316,9 @@ willAnimateFromState:(BookmarkBar::State)oldState
 // Update the visible state of the bookmark bar.
 - (void)updateVisibility;
 
-// Update the visible state of the extra butons on the bookmark bar: the
-// apps shortcut and the managed bookmarks folder.
+// Update the visible state of the extra buttons on the bookmark bar: the
+// apps shortcut, the managed bookmarks folder, and the supervised bookmarks
+// folder.
 - (void)updateExtraButtonsVisibility;
 
 // Hides or shows the bookmark bar depending on the current state.
@@ -338,7 +345,7 @@ willAnimateFromState:(BookmarkBar::State)oldState
 - (void)viewDidMoveToWindow;
 
 // Provide a favicon for a bookmark node.  May return nil.
-- (NSImage*)faviconForNode:(const BookmarkNode*)node;
+- (NSImage*)faviconForNode:(const bookmarks::BookmarkNode*)node;
 
 // Used for situations where the bookmark bar folder menus should no longer
 // be actively popping up. Called when the window loses focus, a click has
@@ -351,7 +358,7 @@ willAnimateFromState:(BookmarkBar::State)oldState
 - (void)closeFolderAndStopTrackingMenus;
 
 // Checks if operations such as edit or delete are allowed.
-- (BOOL)canEditBookmark:(const BookmarkNode*)node;
+- (BOOL)canEditBookmark:(const bookmarks::BookmarkNode*)node;
 
 // Checks if bookmark editing is enabled at all.
 - (BOOL)canEditBookmarks;
@@ -369,21 +376,24 @@ willAnimateFromState:(BookmarkBar::State)oldState
 // Redirects from BookmarkBarBridge, the C++ object which glues us to
 // the rest of Chromium.  Internal to BookmarkBarController.
 @interface BookmarkBarController(BridgeRedirect)
-- (void)loaded:(BookmarkModel*)model;
-- (void)beingDeleted:(BookmarkModel*)model;
-- (void)nodeAdded:(BookmarkModel*)model
-           parent:(const BookmarkNode*)oldParent index:(int)index;
-- (void)nodeChanged:(BookmarkModel*)model
-               node:(const BookmarkNode*)node;
-- (void)nodeMoved:(BookmarkModel*)model
-        oldParent:(const BookmarkNode*)oldParent oldIndex:(int)oldIndex
-        newParent:(const BookmarkNode*)newParent newIndex:(int)newIndex;
-- (void)nodeRemoved:(BookmarkModel*)model
-             parent:(const BookmarkNode*)oldParent index:(int)index;
-- (void)nodeFaviconLoaded:(BookmarkModel*)model
-                     node:(const BookmarkNode*)node;
-- (void)nodeChildrenReordered:(BookmarkModel*)model
-                         node:(const BookmarkNode*)node;
+- (void)loaded:(bookmarks::BookmarkModel*)model;
+- (void)beingDeleted:(bookmarks::BookmarkModel*)model;
+- (void)nodeAdded:(bookmarks::BookmarkModel*)model
+           parent:(const bookmarks::BookmarkNode*)oldParent index:(int)index;
+- (void)nodeChanged:(bookmarks::BookmarkModel*)model
+               node:(const bookmarks::BookmarkNode*)node;
+- (void)nodeMoved:(bookmarks::BookmarkModel*)model
+        oldParent:(const bookmarks::BookmarkNode*)oldParent
+         oldIndex:(int)oldIndex
+        newParent:(const bookmarks::BookmarkNode*)newParent
+         newIndex:(int)newIndex;
+- (void)nodeRemoved:(bookmarks::BookmarkModel*)model
+             parent:(const bookmarks::BookmarkNode*)oldParent
+              index:(int)index;
+- (void)nodeFaviconLoaded:(bookmarks::BookmarkModel*)model
+                     node:(const bookmarks::BookmarkNode*)node;
+- (void)nodeChildrenReordered:(bookmarks::BookmarkModel*)model
+                         node:(const bookmarks::BookmarkNode*)node;
 @end
 
 // These APIs should only be used by unit tests (or used internally).
@@ -402,7 +412,7 @@ willAnimateFromState:(BookmarkBar::State)oldState
 - (int)displayedButtonCount;
 - (void)openURL:(GURL)url disposition:(WindowOpenDisposition)disposition;
 - (void)clearBookmarkBar;
-- (BookmarkButtonCell*)cellForBookmarkNode:(const BookmarkNode*)node;
+- (BookmarkButtonCell*)cellForBookmarkNode:(const bookmarks::BookmarkNode*)node;
 - (BookmarkButtonCell*)cellForCustomButtonWithText:(NSString*)text
                                              image:(NSImage*)image;
 - (NSRect)frameForBookmarkButtonFromCell:(NSCell*)cell xOffset:(int*)xOffset;
@@ -414,10 +424,10 @@ willAnimateFromState:(BookmarkBar::State)oldState
 - (BookmarkButton*)buttonForDroppingOnAtPoint:(NSPoint)point;
 - (BOOL)isEventAnExitEvent:(NSEvent*)event;
 - (BOOL)shrinkOrHideView:(NSView*)view forMaxX:(CGFloat)maxViewX;
-- (void)unhighlightBookmark:(const BookmarkNode*)node;
+- (void)unhighlightBookmark:(const bookmarks::BookmarkNode*)node;
 
 // The following are for testing purposes only and are not used internally.
-- (NSMenu *)menuForFolderNode:(const BookmarkNode*)node;
+- (NSMenu *)menuForFolderNode:(const bookmarks::BookmarkNode*)node;
 @end
 
 #endif  // CHROME_BROWSER_UI_COCOA_BOOKMARKS_BOOKMARK_BAR_CONTROLLER_H_

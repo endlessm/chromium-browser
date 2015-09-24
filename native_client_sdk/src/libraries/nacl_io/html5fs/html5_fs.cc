@@ -45,9 +45,8 @@ ino_t Html5Fs::HashPath(const Path& path) {
 
   // Apply a running DJB2a to each part of the path
   for (size_t segment = 0; segment < path.Size(); segment++) {
-    const char *ptr = path.Part(segment).c_str();
-    size_t len = path.Part(segment).length();
-    hash = HashPathSegment(hash, ptr, len);
+    const std::string& part = path.Part(segment);
+    hash = HashPathSegment(hash, part.c_str(), part.length());
   }
   return hash;
 }
@@ -90,8 +89,13 @@ Error Html5Fs::OpenWithMode(const Path& path, int open_flags, mode_t mode,
 }
 
 Path Html5Fs::GetFullPath(const Path& path) {
-  Path full_path(path);
-  full_path.Prepend(prefix_);
+  if (prefix_.empty())
+    return path;
+
+  Path rel_path(path);
+  rel_path.MakeRelative();
+  Path full_path(prefix_);
+  full_path.Append(rel_path);
   return full_path;
 }
 
@@ -119,7 +123,7 @@ Error Html5Fs::Mkdir(const Path& path, int permissions) {
   int32_t result = file_ref_iface_->MakeDirectory(
       fileref_resource.pp_resource(), PP_FALSE, PP_BlockUntilComplete());
   if (result != PP_OK)
-    return PPErrorToErrno(result);
+    return PPERROR_TO_ERRNO(result);
 
   return 0;
 }
@@ -150,6 +154,9 @@ Error Html5Fs::RemoveInternal(const Path& path, int remove_type) {
     int32_t query_result = file_ref_iface_->Query(
         fileref_resource.pp_resource(), &file_info, PP_BlockUntilComplete());
     if (query_result != PP_OK) {
+      if (query_result == PP_ERROR_FILENOTFOUND) {
+        return ENOENT;
+      }
       LOG_ERROR("Error querying file type");
       return EINVAL;
     }
@@ -171,7 +178,7 @@ Error Html5Fs::RemoveInternal(const Path& path, int remove_type) {
   int32_t result = file_ref_iface_->Delete(fileref_resource.pp_resource(),
                                            PP_BlockUntilComplete());
   if (result != PP_OK)
-    return PPErrorToErrno(result);
+    return PPERROR_TO_ERRNO(result);
 
   return 0;
 }
@@ -199,7 +206,7 @@ Error Html5Fs::Rename(const Path& path, const Path& newpath) {
                                            new_fileref_resource.pp_resource(),
                                            PP_BlockUntilComplete());
   if (result != PP_OK)
-    return PPErrorToErrno(result);
+    return PPERROR_TO_ERRNO(result);
 
   return 0;
 }
@@ -251,7 +258,7 @@ Error Html5Fs::Init(const FsInitArgs& args) {
         filesystem_type = PP_FILESYSTEMTYPE_LOCALPERSISTENT;
       } else if (iter->second == "TEMPORARY") {
         filesystem_type = PP_FILESYSTEMTYPE_LOCALTEMPORARY;
-      } else if (iter->second == "") {
+      } else if (iter->second.empty()) {
         filesystem_type = PP_FILESYSTEMTYPE_LOCALPERSISTENT;
       } else {
         LOG_ERROR("Unknown filesystem type: '%s'", iter->second.c_str());
@@ -300,7 +307,7 @@ Error Html5Fs::Init(const FsInitArgs& args) {
 
   if (!main_thread) {
     filesystem_open_has_result_ = true;
-    filesystem_open_error_ = PPErrorToErrno(result);
+    filesystem_open_error_ = PPERROR_TO_ERRNO(result);
 
     return filesystem_open_error_;
   }
@@ -333,7 +340,7 @@ void Html5Fs::FilesystemOpenCallbackThunk(void* user_data, int32_t result) {
 void Html5Fs::FilesystemOpenCallback(int32_t result) {
   AUTO_LOCK(filesysem_open_lock_);
   filesystem_open_has_result_ = true;
-  filesystem_open_error_ = PPErrorToErrno(result);
+  filesystem_open_error_ = PPERROR_TO_ERRNO(result);
   pthread_cond_signal(&filesystem_open_cond_);
 }
 

@@ -20,10 +20,30 @@ static_library("browser") {
 
   deps = [
     "//base",
+    "//base:prefs",
     "//components/keyed_service/core",
+    "//components/pref_registry",
     "//components/strings",
     "//components/url_fixer",
     "//net",
     "//url",
+  ]
+}
+
+source_set("unit_tests") {
+  testonly = true
+
+  sources = [
+    "google_url_tracker_unittest.cc",
+    "google_util_unittest.cc",
+  ]
+
+  deps = [
+    ":browser",
+    "//base",
+    "//base:prefs",
+    "//base:prefs_test_support",
+    "//net:test_support",
+    "//testing/gtest",
   ]
 }

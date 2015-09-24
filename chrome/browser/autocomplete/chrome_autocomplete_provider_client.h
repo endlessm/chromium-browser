@@ -6,7 +6,8 @@
 #define CHROME_BROWSER_AUTOCOMPLETE_CHROME_AUTOCOMPLETE_PROVIDER_CLIENT_H_
 
 #include "chrome/browser/autocomplete/chrome_autocomplete_scheme_classifier.h"
-#include "components/omnibox/autocomplete_provider_client.h"
+#include "chrome/browser/search_engines/ui_thread_search_terms_data.h"
+#include "components/omnibox/browser/autocomplete_provider_client.h"
 
 class Profile;
 
@@ -16,12 +17,30 @@ class ChromeAutocompleteProviderClient : public AutocompleteProviderClient {
   ~ChromeAutocompleteProviderClient() override;
 
   // AutocompleteProviderClient:
-  net::URLRequestContextGetter* RequestContext() override;
-  bool IsOffTheRecord() override;
-  std::string AcceptLanguages() override;
-  bool SearchSuggestEnabled() override;
-  bool ShowBookmarkBar() override;
-  const AutocompleteSchemeClassifier& SchemeClassifier() override;
+  net::URLRequestContextGetter* GetRequestContext() override;
+  PrefService* GetPrefs() override;
+  const AutocompleteSchemeClassifier& GetSchemeClassifier() const override;
+  AutocompleteClassifier* GetAutocompleteClassifier() override;
+  history::HistoryService* GetHistoryService() override;
+  scoped_refptr<history::TopSites> GetTopSites() override;
+  bookmarks::BookmarkModel* GetBookmarkModel() override;
+  history::URLDatabase* GetInMemoryDatabase() override;
+  InMemoryURLIndex* GetInMemoryURLIndex() override;
+  TemplateURLService* GetTemplateURLService() override;
+  const TemplateURLService* GetTemplateURLService() const override;
+  const SearchTermsData& GetSearchTermsData() const override;
+  scoped_refptr<ShortcutsBackend> GetShortcutsBackend() override;
+  scoped_refptr<ShortcutsBackend> GetShortcutsBackendIfExists() override;
+  scoped_ptr<KeywordExtensionsDelegate> GetKeywordExtensionsDelegate(
+      KeywordProvider* keyword_provider) override;
+  std::string GetAcceptLanguages() const override;
+  std::string GetEmbedderRepresentationOfAboutScheme() override;
+  std::vector<base::string16> GetBuiltinURLs() override;
+  std::vector<base::string16> GetBuiltinsToProvideAsUserTypes() override;
+  bool IsOffTheRecord() const override;
+  bool SearchSuggestEnabled() const override;
+  bool BookmarkBarIsVisible() const override;
+  bool TabSyncEnabledAndUnencrypted() const override;
   void Classify(
       const base::string16& text,
       bool prefer_keyword,
@@ -29,16 +48,17 @@ class ChromeAutocompleteProviderClient : public AutocompleteProviderClient {
       metrics::OmniboxEventProto::PageClassification page_classification,
       AutocompleteMatch* match,
       GURL* alternate_nav_url) override;
-  history::URLDatabase* InMemoryDatabase() override;
   void DeleteMatchingURLsForKeywordFromHistory(
       history::KeywordID keyword_id,
       const base::string16& term) override;
-  bool TabSyncEnabledAndUnencrypted() override;
   void PrefetchImage(const GURL& url) override;
+  void OnAutocompleteControllerResultReady(
+      AutocompleteController* controller) override;
 
  private:
   Profile* profile_;
   ChromeAutocompleteSchemeClassifier scheme_classifier_;
+  UIThreadSearchTermsData search_terms_data_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeAutocompleteProviderClient);
 };

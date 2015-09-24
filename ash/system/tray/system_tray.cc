@@ -11,8 +11,8 @@
 #include "ash/shell_window_ids.h"
 #include "ash/system/audio/tray_audio.h"
 #include "ash/system/bluetooth/tray_bluetooth.h"
+#include "ash/system/cast/tray_cast.h"
 #include "ash/system/date/tray_date.h"
-#include "ash/system/ime/tray_ime.h"
 #include "ash/system/status_area_widget.h"
 #include "ash/system/tray/system_tray_delegate.h"
 #include "ash/system/tray/system_tray_item.h"
@@ -59,7 +59,7 @@
 #include "ash/system/chromeos/tray_caps_lock.h"
 #include "ash/system/chromeos/tray_display.h"
 #include "ash/system/chromeos/tray_tracing.h"
-#include "ash/system/chromeos/virtual_keyboard/tray_keyboard_lock.h"
+#include "ash/system/ime/tray_ime_chromeos.h"
 #include "ash/system/tray/media_security/multi_profile_media_tray_item.h"
 #include "ui/message_center/message_center.h"
 #elif defined(OS_WIN)
@@ -182,19 +182,19 @@ void SystemTray::CreateItems(SystemTrayDelegate* delegate) {
   AddTrayItem(new TrayVPN(this));
   AddTrayItem(new TraySms(this));
   AddTrayItem(new TrayBluetooth(this));
+  AddTrayItem(new TrayCast(this));
   AddTrayItem(new TrayDisplay(this));
   screen_capture_tray_item_ = new ScreenCaptureTrayItem(this);
   AddTrayItem(screen_capture_tray_item_);
   screen_share_tray_item_ = new ScreenShareTrayItem(this);
   AddTrayItem(screen_share_tray_item_);
-  AddTrayItem(new TrayKeyboardLock(this));
   AddTrayItem(new MultiProfileMediaTrayItem(this));
   AddTrayItem(new TrayAudioChromeOs(this));
   AddTrayItem(new TrayBrightness(this));
   AddTrayItem(new TrayCapsLock(this));
+  AddTrayItem(new TrayRotationLock(this));
   AddTrayItem(new TraySettings(this));
   AddTrayItem(new TrayUpdate(this));
-  AddTrayItem(new TrayRotationLock(this));
   AddTrayItem(tray_date_);
 #elif defined(OS_WIN)
   AddTrayItem(tray_accessibility_);
@@ -203,9 +203,9 @@ void SystemTray::CreateItems(SystemTrayDelegate* delegate) {
   AddTrayItem(new TrayUpdate(this));
   AddTrayItem(tray_date_);
 #elif defined(OS_LINUX)
-  AddTrayItem(new TrayIME(this));
   AddTrayItem(tray_accessibility_);
   AddTrayItem(new TrayBluetooth(this));
+  AddTrayItem(new TrayCast(this));
   AddTrayItem(new TrayUpdate(this));
   AddTrayItem(tray_date_);
 #endif

@@ -7,9 +7,8 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/location.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/time/time.h"
-#include "cc/test/fake_content_layer.h"
+#include "cc/layers/solid_color_layer.h"
 #include "cc/test/fake_content_layer_client.h"
 #include "cc/test/fake_painted_scrollbar_layer.h"
 #include "cc/test/fake_picture_layer.h"
@@ -28,7 +27,8 @@ class LayerTreeHostDamageTestSetNeedsRedraw
     : public LayerTreeHostDamageTest {
   void SetupTree() override {
     // Viewport is 10x10.
-    scoped_refptr<FakeContentLayer> root = FakeContentLayer::Create(&client_);
+    scoped_refptr<FakePictureLayer> root =
+        FakePictureLayer::Create(layer_settings(), &client_);
     root->SetBounds(gfx::Size(10, 10));
 
     layer_tree_host()->SetRootLayer(root);
@@ -89,7 +89,8 @@ class LayerTreeHostDamageTestSetViewportSize
     : public LayerTreeHostDamageTest {
   void SetupTree() override {
     // Viewport is 10x10.
-    scoped_refptr<FakeContentLayer> root = FakeContentLayer::Create(&client_);
+    scoped_refptr<FakePictureLayer> root =
+        FakePictureLayer::Create(layer_settings(), &client_);
     root->SetBounds(gfx::Size(10, 10));
 
     layer_tree_host()->SetRootLayer(root);
@@ -155,11 +156,12 @@ class LayerTreeHostDamageTestNoDamageDoesNotSwap
   }
 
   void SetupTree() override {
-    scoped_refptr<FakeContentLayer> root = FakeContentLayer::Create(&client_);
+    scoped_refptr<FakePictureLayer> root =
+        FakePictureLayer::Create(layer_settings(), &client_);
     root->SetBounds(gfx::Size(10, 10));
 
     // Most of the layer isn't visible.
-    content_ = FakeContentLayer::Create(&client_);
+    content_ = FakePictureLayer::Create(layer_settings(), &client_);
     content_->SetBounds(gfx::Size(2000, 100));
     root->AddChild(content_);
 
@@ -227,21 +229,20 @@ class LayerTreeHostDamageTestNoDamageDoesNotSwap
   }
 
   FakeContentLayerClient client_;
-  scoped_refptr<FakeContentLayer> content_;
+  scoped_refptr<FakePictureLayer> content_;
   int expect_swap_and_succeed_;
   int did_swaps_;
   int did_swap_and_succeed_;
 };
 
-SINGLE_AND_MULTI_THREAD_NOIMPL_TEST_F(
-    LayerTreeHostDamageTestNoDamageDoesNotSwap);
+SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostDamageTestNoDamageDoesNotSwap);
 
 class LayerTreeHostDamageTestForcedFullDamage : public LayerTreeHostDamageTest {
   void BeginTest() override { PostSetNeedsCommitToMainThread(); }
 
   void SetupTree() override {
-    root_ = FakeContentLayer::Create(&client_);
-    child_ = FakeContentLayer::Create(&client_);
+    root_ = FakePictureLayer::Create(layer_settings(), &client_);
+    child_ = FakePictureLayer::Create(layer_settings(), &client_);
 
     root_->SetBounds(gfx::Size(500, 500));
     child_->SetPosition(gfx::Point(100, 100));
@@ -293,21 +294,6 @@ class LayerTreeHostDamageTestForcedFullDamage : public LayerTreeHostDamageTest {
         // should match the invalidation.
         EXPECT_EQ(gfx::RectF(100+10, 100+11, 12, 13).ToString(),
                   root_damage.ToString());
-
-        // TODO(danakj): Remove this when impl side painting is always on.
-        if (delegating_renderer() ||
-            host_impl->settings().impl_side_painting) {
-          // When using a delegating renderer, or using impl side painting, the
-          // entire child is considered damaged as we need to replace its
-          // resources with newly created ones. The damaged area is kept as it
-          // is, but entire child is painted.
-
-          // The paint rect should match the layer bounds.
-          gfx::RectF paint_rect = child_->LastPaintRect();
-          paint_rect.set_origin(child_->position());
-          EXPECT_EQ(gfx::RectF(100, 100, 30, 30).ToString(),
-                    paint_rect.ToString());
-        }
         EXPECT_FALSE(frame_data->has_no_damage);
 
         // If we damage part of the frame, but also damage the full
@@ -340,33 +326,35 @@ class LayerTreeHostDamageTestForcedFullDamage : public LayerTreeHostDamageTest {
   void AfterTest() override {}
 
   FakeContentLayerClient client_;
-  scoped_refptr<FakeContentLayer> root_;
-  scoped_refptr<FakeContentLayer> child_;
+  scoped_refptr<FakePictureLayer> root_;
+  scoped_refptr<FakePictureLayer> child_;
   gfx::Rect child_damage_rect_;
 };
 
-SINGLE_AND_MULTI_THREAD_NOIMPL_TEST_F(LayerTreeHostDamageTestForcedFullDamage);
+SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostDamageTestForcedFullDamage);
 
 class LayerTreeHostScrollbarDamageTest : public LayerTreeHostDamageTest {
   void SetupTree() override {
-    scoped_refptr<Layer> root_layer = Layer::Create();
+    scoped_refptr<Layer> root_layer = Layer::Create(layer_settings());
     root_layer->SetBounds(gfx::Size(400, 400));
     root_layer->SetMasksToBounds(true);
     layer_tree_host()->SetRootLayer(root_layer);
 
-    scoped_refptr<Layer> scroll_clip_layer = Layer::Create();
-    scoped_refptr<Layer> content_layer = FakeContentLayer::Create(&client_);
+    scoped_refptr<Layer> scroll_clip_layer = Layer::Create(layer_settings());
+    scoped_refptr<Layer> content_layer =
+        FakePictureLayer::Create(layer_settings(), &client_);
     content_layer->SetScrollClipLayerId(scroll_clip_layer->id());
     content_layer->SetScrollOffset(gfx::ScrollOffset(10, 20));
     content_layer->SetBounds(gfx::Size(100, 200));
+    content_layer->SetIsDrawable(true);
     scroll_clip_layer->SetBounds(
         gfx::Size(content_layer->bounds().width() - 30,
                   content_layer->bounds().height() - 50));
     scroll_clip_layer->AddChild(content_layer);
     root_layer->AddChild(scroll_clip_layer);
 
-    scoped_refptr<Layer> scrollbar_layer =
-        FakePaintedScrollbarLayer::Create(false, true, content_layer->id());
+    scoped_refptr<Layer> scrollbar_layer = FakePaintedScrollbarLayer::Create(
+        layer_settings(), false, true, content_layer->id());
     scrollbar_layer->SetPosition(gfx::Point(300, 300));
     scrollbar_layer->SetBounds(gfx::Size(10, 100));
     scrollbar_layer->ToScrollbarLayer()->SetClipLayer(scroll_clip_layer->id());
@@ -434,7 +422,8 @@ class LayerTreeHostDamageTestScrollbarDoesDamage
         // Test that modifying the position of the content layer (not
         // scrolling) won't damage the scrollbar.
         scroll_layer->SetPosition(gfx::Point(1, 1));
-        scroll_layer->SetScrollOffset(scroll_layer->scroll_offset());
+        scroll_layer->PushScrollOffsetFromMainThread(
+            scroll_layer->BaseScrollOffset());
         host_impl->SetNeedsRedraw();
         break;
       case 2:
@@ -442,11 +431,23 @@ class LayerTreeHostDamageTestScrollbarDoesDamage
         host_impl->SetNeedsRedraw();
         break;
       case 3:
-        scroll_layer->SetBounds(gfx::Size(root->bounds().width() + 60,
-                                          root->bounds().height() + 100));
-        host_impl->SetNeedsRedraw();
+        // We will resize the content layer, on the main thread.
+        MainThreadTaskRunner()->PostTask(
+            FROM_HERE,
+            base::Bind(
+                &LayerTreeHostDamageTestScrollbarDoesDamage::ResizeScrollLayer,
+                base::Unretained(this)));
         break;
     }
+  }
+
+  void ResizeScrollLayer() {
+    EXPECT_EQ(3, did_swaps_);
+    Layer* root = layer_tree_host()->root_layer();
+    Layer* scroll_clip_layer = root->child_at(0);
+    Layer* scroll_layer = scroll_clip_layer->child_at(0);
+    scroll_layer->SetBounds(
+        gfx::Size(root->bounds().width() + 60, root->bounds().height() + 100));
   }
 
   void AfterTest() override { EXPECT_EQ(4, did_swaps_); }
@@ -528,99 +529,6 @@ class LayerTreeHostDamageTestScrollbarCommitDoesNoDamage
 };
 
 MULTI_THREAD_TEST_F(LayerTreeHostDamageTestScrollbarCommitDoesNoDamage);
-
-class LayerTreeHostDamageTestVisibleTilesStillTriggerDraws
-    : public LayerTreeHostDamageTest {
-  void InitializeSettings(LayerTreeSettings* settings) override {
-    settings->impl_side_painting = true;
-  }
-
-  void BeginTest() override { PostSetNeedsCommitToMainThread(); }
-
-  void SetupTree() override {
-    scoped_refptr<FakePictureLayer> root = FakePictureLayer::Create(&client_);
-    root->SetBounds(gfx::Size(500, 500));
-    layer_tree_host()->SetRootLayer(root);
-    LayerTreeHostDamageTest::SetupTree();
-
-    swap_count_ = 0;
-    prepare_to_draw_count_ = 0;
-    update_visible_tile_count_ = 0;
-  }
-
-  DrawResult PrepareToDrawOnThread(LayerTreeHostImpl* host_impl,
-                                   LayerTreeHostImpl::FrameData* frame_data,
-                                   DrawResult draw_result) override {
-    EXPECT_EQ(DRAW_SUCCESS, draw_result);
-    prepare_to_draw_count_++;
-    switch (prepare_to_draw_count_) {
-      case 1:
-        // Detect that we have an incomplete tile, during the first frame.
-        // The first frame should have damage.
-        frame_data->contains_incomplete_tile = true;
-        DCHECK(!frame_data->has_no_damage);
-        break;
-      case 2:
-        // Make a no-damage frame. We early out and can't detect
-        // incomplete tiles, even if they still exist.
-        frame_data->contains_incomplete_tile = false;
-        frame_data->has_no_damage = true;
-        break;
-      case 3:
-        // Trigger the last swap for the completed tile.
-        frame_data->contains_incomplete_tile = false;
-        frame_data->has_no_damage = false;
-        EndTest();
-        break;
-      default:
-        NOTREACHED();
-        break;
-    }
-
-    return draw_result;
-  }
-
-  void UpdateVisibleTilesOnThread(LayerTreeHostImpl* host_impl) override {
-    // Simulate creating some visible tiles (that trigger prepare-to-draws).
-    // The first we make into a no-damage-frame during prepare-to-draw (see
-    // above). This is to ensure we still get UpdateVisibleTiles calls after
-    // a no-damage or aborted frame.
-    update_visible_tile_count_++;
-    switch (update_visible_tile_count_) {
-      case 3:
-      case 6:
-        host_impl->DidInitializeVisibleTileForTesting();
-        break;
-      case 7:
-        NOTREACHED();
-        break;
-    }
-  }
-
-  void SwapBuffersOnThread(LayerTreeHostImpl* host_impl,
-                           bool didSwap) override {
-    if (!didSwap)
-      return;
-    ++swap_count_;
-  }
-
-  void AfterTest() override {
-    // We should keep getting update-visible-tiles calls
-    // until we report there are no more incomplete-tiles.
-    EXPECT_EQ(update_visible_tile_count_, 6);
-    // First frame, plus two triggered by DidInitializeVisibleTile()
-    EXPECT_EQ(prepare_to_draw_count_, 3);
-    // First swap, plus final swap (contained damage).
-    EXPECT_EQ(swap_count_, 2);
-  }
-
-  FakeContentLayerClient client_;
-  int swap_count_;
-  int prepare_to_draw_count_;
-  int update_visible_tile_count_;
-};
-
-MULTI_THREAD_TEST_F(LayerTreeHostDamageTestVisibleTilesStillTriggerDraws);
 
 }  // namespace
 }  // namespace cc

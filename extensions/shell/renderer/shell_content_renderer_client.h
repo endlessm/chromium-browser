@@ -14,7 +14,8 @@ namespace extensions {
 
 class Dispatcher;
 class DispatcherDelegate;
-class ShellExtensionsClient;
+class ExtensionsClient;
+class ExtensionsGuestViewContainerDispatcher;
 class ShellExtensionsRendererClient;
 class ShellRendererMainDelegate;
 
@@ -40,23 +41,26 @@ class ShellContentRendererClient : public content::ContentRendererClient {
                        const GURL& url,
                        const GURL& first_party_for_cookies,
                        GURL* new_url) override;
-  void DidCreateScriptContext(blink::WebFrame* frame,
-                              v8::Handle<v8::Context> context,
-                              int extension_group,
-                              int world_id) override;
   const void* CreatePPAPIInterface(const std::string& interface_name) override;
   bool IsExternalPepperPlugin(const std::string& module_name) override;
-  bool ShouldEnableSiteIsolationPolicy() const override;
+  bool ShouldGatherSiteIsolationStats() const override;
   content::BrowserPluginDelegate* CreateBrowserPluginDelegate(
       content::RenderFrame* render_frame,
       const std::string& mime_type,
       const GURL& original_url) override;
 
+ protected:
+  // app_shell embedders may need custom extensions client interfaces.
+  // This class takes ownership of the returned object.
+  virtual ExtensionsClient* CreateExtensionsClient();
+
  private:
-  scoped_ptr<ShellExtensionsClient> extensions_client_;
+  scoped_ptr<ExtensionsClient> extensions_client_;
   scoped_ptr<ShellExtensionsRendererClient> extensions_renderer_client_;
   scoped_ptr<DispatcherDelegate> extension_dispatcher_delegate_;
   scoped_ptr<Dispatcher> extension_dispatcher_;
+  scoped_ptr<ExtensionsGuestViewContainerDispatcher>
+      guest_view_container_dispatcher_;
 
   DISALLOW_COPY_AND_ASSIGN(ShellContentRendererClient);
 };

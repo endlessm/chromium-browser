@@ -57,6 +57,7 @@
 #include <openssl/bn.h>
 
 #include <assert.h>
+#include <string.h>
 
 #include "internal.h"
 
@@ -149,8 +150,9 @@ static BN_ULONG bn_sub_part_words(BN_ULONG *r, const BN_ULONG *a,
   assert(cl >= 0);
   c = bn_sub_words(r, a, b, cl);
 
-  if (dl == 0)
+  if (dl == 0) {
     return c;
+  }
 
   r += cl;
   a += cl;
@@ -329,8 +331,9 @@ static void bn_mul_recursive(BN_ULONG *r, BN_ULONG *a, BN_ULONG *b, int n2,
   /* Else do normal multiply */
   if (n2 < BN_MUL_RECURSIVE_SIZE_NORMAL) {
     bn_mul_normal(r, a, n2 + dna, b, n2 + dnb);
-    if ((dna + dnb) < 0)
+    if ((dna + dnb) < 0) {
       memset(&r[2 * n2 + dna + dnb], 0, sizeof(BN_ULONG) * -(dna + dnb));
+    }
     return;
   }
 
@@ -663,8 +666,8 @@ int BN_mul(BIGNUM *r, const BIGNUM *a, const BIGNUM *b, BN_CTX *ctx) {
 
 end:
   bn_correct_top(rr);
-  if (r != rr) {
-    BN_copy(r, rr);
+  if (r != rr && !BN_copy(r, rr)) {
+    goto err;
   }
   ret = 1;
 
@@ -874,8 +877,8 @@ int BN_sqr(BIGNUM *r, const BIGNUM *a, BN_CTX *ctx) {
     rr->top = max;
   }
 
-  if (rr != r) {
-    BN_copy(r, rr);
+  if (rr != r && !BN_copy(r, rr)) {
+    goto err;
   }
   ret = 1;
 

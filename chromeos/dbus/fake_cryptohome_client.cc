@@ -23,7 +23,6 @@ namespace chromeos {
 FakeCryptohomeClient::FakeCryptohomeClient()
     : service_is_available_(true),
       async_call_id_(1),
-      tpm_is_ready_counter_(0),
       unmount_result_(true),
       system_salt_(GetStubSystemSalt()),
       weak_ptr_factory_(this) {
@@ -263,7 +262,7 @@ bool FakeCryptohomeClient::InstallAttributesFinalize(bool* successful) {
   // The cryptohome::SerializedInstallAttributes protobuf lives in
   // chrome/browser/chromeos, so it can't be used directly here; use the
   // low-level protobuf API instead to just write the name-value pairs.
-  // The cache file is read by EnterpriseInstallAttributes::ReadCacheFile.
+  // The cache file is read by EnterpriseInstallAttributes::Init.
   base::FilePath cache_path;
   if (!PathService::Get(chromeos::FILE_INSTALL_ATTRIBUTES, &cache_path))
     return false;

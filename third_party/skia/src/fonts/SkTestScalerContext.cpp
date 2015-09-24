@@ -5,6 +5,7 @@
  * found in the LICENSE file.
  */
 
+#include "SkAdvancedTypefaceMetrics.h"
 #include "SkBitmap.h"
 #include "SkCanvas.h"
 #include "SkDescriptor.h"
@@ -41,7 +42,7 @@ SkTestFont::~SkTestFont() {
 
 #ifdef SK_DEBUG
 
-#include "SkThread.h"
+#include "SkMutex.h"
 SK_DECLARE_STATIC_MUTEX(gUsedCharsMutex);
 
 #endif
@@ -117,7 +118,7 @@ SkTestTypeface::SkTestTypeface(SkTestFont* testFont, const SkFontStyle& style)
 }
 
 void SkTestTypeface::getAdvance(SkGlyph* glyph) {
-    glyph->fAdvanceX = fTestFont->fWidths[SkGlyph::ID2Code(glyph->fID)];
+    glyph->fAdvanceX = fTestFont->fWidths[glyph->getGlyphID()];
     glyph->fAdvanceY = 0;
 }
 
@@ -126,42 +127,31 @@ void SkTestTypeface::getFontMetrics(SkPaint::FontMetrics* metrics) {
 }
 
 void SkTestTypeface::getMetrics(SkGlyph* glyph) {
-    glyph->fAdvanceX = fTestFont->fWidths[SkGlyph::ID2Code(glyph->fID)];
+    glyph->fAdvanceX = fTestFont->fWidths[glyph->getGlyphID()];
     glyph->fAdvanceY = 0;
 }
 
 void SkTestTypeface::getPath(const SkGlyph& glyph, SkPath* path) {
-    *path = *fTestFont->fPaths[SkGlyph::ID2Code(glyph.fID)];
+    *path = *fTestFont->fPaths[glyph.getGlyphID()];
 }
 
 void SkTestTypeface::onFilterRec(SkScalerContextRec* rec) const {
     rec->setHinting(SkPaint::kNo_Hinting);
-    rec->fMaskFormat = SkMask::kA8_Format;
 }
 
 SkAdvancedTypefaceMetrics* SkTestTypeface::onGetAdvancedTypefaceMetrics(
-                                SkAdvancedTypefaceMetrics::PerGlyphInfo ,
+                                PerGlyphInfo ,
                                 const uint32_t* glyphIDs,
                                 uint32_t glyphIDsCount) const {
 // pdf only
     SkAdvancedTypefaceMetrics* info = new SkAdvancedTypefaceMetrics;
-    info->fEmSize = 0;
-    info->fLastGlyphID = SkToU16(onCountGlyphs() - 1);
-    info->fStyle = 0;
     info->fFontName.set(fTestFont->fName);
-    info->fType = SkAdvancedTypefaceMetrics::kOther_Font;
-    info->fItalicAngle = 0;
-    info->fAscent = 0;
-    info->fDescent = 0;
-    info->fStemV = 0;
-    info->fCapHeight = 0;
-    info->fBBox = SkIRect::MakeEmpty();
+    info->fLastGlyphID = SkToU16(onCountGlyphs() - 1);
     return info;
 }
 
 void SkTestTypeface::onGetFontDescriptor(SkFontDescriptor* desc, bool* isLocal) const {
     desc->setFamilyName(fTestFont->fName);
-    desc->setFontFileName(fTestFont->fName);
     *isLocal = false;
 }
 
@@ -201,32 +191,30 @@ public:
     }
 
 protected:
-    virtual unsigned generateGlyphCount() SK_OVERRIDE {
+    unsigned generateGlyphCount() override {
         return fFace->onCountGlyphs();
     }
 
-    virtual uint16_t generateCharToGlyph(SkUnichar uni) SK_OVERRIDE {
+    uint16_t generateCharToGlyph(SkUnichar uni) override {
         uint16_t glyph;
         (void) fFace->onCharsToGlyphs((const void *) &uni, SkTypeface::kUTF16_Encoding, &glyph, 1);
         return glyph;
     }
 
-    virtual void generateAdvance(SkGlyph* glyph) SK_OVERRIDE {
+    void generateAdvance(SkGlyph* glyph) override {
         fFace->getAdvance(glyph);
 
-        SkVector advance;
-        fMatrix.mapXY(SkFixedToScalar(glyph->fAdvanceX),
-                      SkFixedToScalar(glyph->fAdvanceY), &advance);
+        const SkVector advance = fMatrix.mapXY(SkFixedToScalar(glyph->fAdvanceX),
+                                               SkFixedToScalar(glyph->fAdvanceY));
         glyph->fAdvanceX = SkScalarToFixed(advance.fX);
         glyph->fAdvanceY = SkScalarToFixed(advance.fY);
     }
 
-    virtual void generateMetrics(SkGlyph* glyph) SK_OVERRIDE {
+    void generateMetrics(SkGlyph* glyph) override {
         fFace->getMetrics(glyph);
 
-        SkVector advance;
-        fMatrix.mapXY(SkFixedToScalar(glyph->fAdvanceX),
-                      SkFixedToScalar(glyph->fAdvanceY), &advance);
+        const SkVector advance = fMatrix.mapXY(SkFixedToScalar(glyph->fAdvanceX),
+                                               SkFixedToScalar(glyph->fAdvanceY));
         glyph->fAdvanceX = SkScalarToFixed(advance.fX);
         glyph->fAdvanceY = SkScalarToFixed(advance.fY);
 
@@ -245,10 +233,9 @@ protected:
         glyph->fTop = ibounds.fTop;
         glyph->fWidth = ibounds.width();
         glyph->fHeight = ibounds.height();
-        glyph->fMaskFormat = SkMask::kARGB32_Format;
     }
 
-    virtual void generateImage(const SkGlyph& glyph) SK_OVERRIDE {
+    void generateImage(const SkGlyph& glyph) override {
         SkPath path;
         fFace->getPath(glyph, &path);
 
@@ -266,12 +253,12 @@ protected:
         canvas.drawPath(path, paint);
     }
 
-    virtual void generatePath(const SkGlyph& glyph, SkPath* path) SK_OVERRIDE {
+    void generatePath(const SkGlyph& glyph, SkPath* path) override {
         fFace->getPath(glyph, path);
         path->transform(fMatrix);
     }
 
-    virtual void generateFontMetrics(SkPaint::FontMetrics* metrics) SK_OVERRIDE {
+    void generateFontMetrics(SkPaint::FontMetrics* metrics) override {
         fFace->getFontMetrics(metrics);
         if (metrics) {
             SkScalar scale = fMatrix.getScaleY();

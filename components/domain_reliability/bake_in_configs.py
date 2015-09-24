@@ -289,6 +289,7 @@ DOMAIN_WHITELIST = (
   'google.vu',
   'google.ws',
   'googleadservices.com',
+  'googleadsserving.cn',
   'googlealumni.com',
   'googleapis.com',
   'googleapps.com',
@@ -460,7 +461,7 @@ const char* const kBakedInJsonConfigs[] = {
 """
 
 
-CC_FOOTER = """  NULL
+CC_FOOTER = """  nullptr
 };
 
 }  // namespace domain_reliability

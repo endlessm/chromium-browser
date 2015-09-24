@@ -4,6 +4,19 @@
 
 package org.chromium.chrome.browser.infobar;
 
+import android.content.Context;
+import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.os.Process;
+
+import org.chromium.chrome.browser.ContentSettingsType;
+import org.chromium.chrome.browser.preferences.PrefServiceBridge;
+import org.chromium.ui.base.WindowAndroid;
+import org.chromium.ui.base.WindowAndroid.PermissionCallback;
+
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * An infobar that presents the user with several buttons.
  *
@@ -22,15 +35,39 @@ public class ConfirmInfoBar extends InfoBar {
     /** Notified when one of the buttons is clicked. */
     private final InfoBarListeners.Confirm mConfirmListener;
 
-    public ConfirmInfoBar(long nativeInfoBar, InfoBarListeners.Confirm confirmListener,
-            int iconDrawableId, String message, String linkText, String primaryButtonText,
+    private WindowAndroid mWindowAndroid;
+
+    /**
+     * The list of {@link ContentSettingsType}s being requested by this infobar.  Can be null or
+     * empty if none apply.
+     */
+    private int[] mContentSettings;
+
+    public ConfirmInfoBar(InfoBarListeners.Confirm confirmListener, int iconDrawableId,
+            Bitmap iconBitmap, String message, String linkText, String primaryButtonText,
             String secondaryButtonText) {
-        super(confirmListener, iconDrawableId, message);
+        super(confirmListener, iconDrawableId, iconBitmap, message);
         mPrimaryButtonText = primaryButtonText;
         mSecondaryButtonText = secondaryButtonText;
         mTertiaryButtonText = linkText;
         mConfirmListener = confirmListener;
-        setNativeInfoBar(nativeInfoBar);
+    }
+
+    /**
+     * Specifies the {@link ContentSettingsType}s that are controlled by this InfoBar.
+     *
+     * @param windowAndroid The WindowAndroid that will be used to check for the necessary
+     *                      permissions.
+     * @param contentSettings The list of {@link ContentSettingsType}s whose access is guarded
+     *                        by this InfoBar.
+     */
+    protected void setContentSettings(
+            WindowAndroid windowAndroid, int[] contentSettings) {
+        mWindowAndroid = windowAndroid;
+        mContentSettings = contentSettings;
+
+        assert windowAndroid != null
+                : "A WindowAndroid must be specified to request access to content settings";
     }
 
     @Override
@@ -38,24 +75,69 @@ public class ConfirmInfoBar extends InfoBar {
         layout.setButtons(mPrimaryButtonText, mSecondaryButtonText, mTertiaryButtonText);
     }
 
+    private static boolean hasPermission(Context context, String permission) {
+        return context.checkPermission(permission, Process.myPid(), Process.myUid())
+                != PackageManager.PERMISSION_DENIED;
+    }
+
+    private List<String> getPermissionsToRequest() {
+        Context context = getContext();
+        List<String> permissionsToRequest = new ArrayList<String>();
+        for (int i = 0; i < mContentSettings.length; i++) {
+            String permission = PrefServiceBridge.getAndroidPermissionForContentSetting(
+                    mContentSettings[i]);
+            if (permission != null) {
+                if (!hasPermission(context, permission)) permissionsToRequest.add(permission);
+            }
+        }
+        return permissionsToRequest;
+    }
+
     @Override
-    public void onButtonClicked(boolean isPrimaryButton) {
+    public void onButtonClicked(final boolean isPrimaryButton) {
+        if (mWindowAndroid == null || mContentSettings == null
+                || !isPrimaryButton || getContext() == null) {
+            onButtonClickedInternal(isPrimaryButton);
+            return;
+        }
+
+        List<String> permissionsToRequest = getPermissionsToRequest();
+        if (permissionsToRequest.isEmpty()) {
+            onButtonClickedInternal(isPrimaryButton);
+            return;
+        }
+
+        PermissionCallback callback = new PermissionCallback() {
+            @Override
+            public void onRequestPermissionsResult(
+                    String[] permissions, int[] grantResults) {
+                boolean grantedAllPermissions = true;
+                for (int i = 0; i < grantResults.length; i++) {
+                    if (grantResults[i] == PackageManager.PERMISSION_DENIED) {
+                        grantedAllPermissions = false;
+                        break;
+                    }
+                }
+
+                if (!grantedAllPermissions) {
+                    onCloseButtonClicked();
+                } else {
+                    onButtonClickedInternal(true);
+                }
+            }
+        };
+
+        mWindowAndroid.requestPermissions(
+                permissionsToRequest.toArray(new String[permissionsToRequest.size()]),
+                callback);
+    }
+
+    private void onButtonClickedInternal(boolean isPrimaryButton) {
         if (mConfirmListener != null) {
             mConfirmListener.onConfirmInfoBarButtonClicked(this, isPrimaryButton);
         }
 
-        if (mNativeInfoBarPtr != 0) {
-            int action = isPrimaryButton ? InfoBar.ACTION_TYPE_OK : InfoBar.ACTION_TYPE_CANCEL;
-            nativeOnButtonClicked(mNativeInfoBarPtr, action, "");
-        }
-    }
-
-    @Override
-    public void onCloseButtonClicked() {
-        if (mNativeInfoBarPtr != 0) {
-            nativeOnCloseButtonClicked(mNativeInfoBarPtr);
-        } else {
-            super.dismissJavaOnlyInfoBar();
-        }
+        int action = isPrimaryButton ? InfoBar.ACTION_TYPE_OK : InfoBar.ACTION_TYPE_CANCEL;
+        onButtonClicked(action, "");
     }
 }

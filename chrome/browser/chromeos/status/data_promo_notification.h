@@ -25,21 +25,23 @@ namespace chromeos {
 class DataPromoNotification : public NetworkStateHandlerObserver {
  public:
   DataPromoNotification();
-  virtual ~DataPromoNotification();
+  ~DataPromoNotification() override;
 
   static void RegisterPrefs(PrefRegistrySimple* registry);
 
  private:
   // NetworkStateHandlerObserver
-  virtual void NetworkPropertiesUpdated(const NetworkState* network) override;
-  virtual void DefaultNetworkChanged(const NetworkState* network) override;
+  void NetworkPropertiesUpdated(const NetworkState* network) override;
+  void DefaultNetworkChanged(const NetworkState* network) override;
 
   // Shows 3G promo notification if needed.
   void ShowOptionalMobileDataPromoNotification();
 
-  // True if check for promo needs to be done, otherwise ignore it for the
-  // current session.
-  bool check_for_promo_;
+  // Show notification prompting user to install Data Saver extension.
+  bool ShowDataSaverNotification();
+
+  // True if we've shown notifications during this session, or won't need to.
+  bool notifications_shown_;
 
   // Factory for delaying showing promo notification.
   base::WeakPtrFactory<DataPromoNotification> weak_ptr_factory_;

@@ -20,19 +20,6 @@
 
 namespace blink {
 
-class BooleanValue {
-public:
-    typedef bool WebType;
-    static bool take(ScriptPromiseResolver* resolver, WebType* boolean)
-    {
-        return *boolean;
-    }
-    static void dispose(WebType* boolean) { }
-
-private:
-    BooleanValue();
-};
-
 static void deleteIfNoExistingOwner(WebServiceWorker* serviceWorker)
 {
     if (serviceWorker && !serviceWorker->proxy())
@@ -99,25 +86,26 @@ String ServiceWorkerRegistration::scope() const
     return m_outerRegistration->scope().string();
 }
 
+void ServiceWorkerRegistration::update(ScriptState* scriptState, ExceptionState& exceptionState)
+{
+    if (!m_provider) {
+        exceptionState.throwDOMException(InvalidStateError, "Failed to update a ServiceWorkerRegistration: No associated provider is available.");
+        return;
+    }
+    m_outerRegistration->update(m_provider);
+}
+
 ScriptPromise ServiceWorkerRegistration::unregister(ScriptState* scriptState)
 {
-    RefPtr<ScriptPromiseResolver> resolver = ScriptPromiseResolver::create(scriptState);
+    RefPtrWillBeRawPtr<ScriptPromiseResolver> resolver = ScriptPromiseResolver::create(scriptState);
     ScriptPromise promise = resolver->promise();
 
     if (!m_provider) {
-        resolver->reject(DOMException::create(InvalidStateError, "No associated provider is available"));
+        resolver->reject(DOMException::create(InvalidStateError, "Failed to unregister a ServiceWorkerRegistration: No associated provider is available."));
         return promise;
     }
 
-    RefPtr<SecurityOrigin> documentOrigin = scriptState->executionContext()->securityOrigin();
-    KURL scopeURL = scriptState->executionContext()->completeURL(scope());
-    scopeURL.removeFragmentIdentifier();
-    if (!scope().isEmpty() && !documentOrigin->canRequest(scopeURL)) {
-        resolver->reject(DOMException::create(SecurityError, "Can only unregister for scopes in the document's origin."));
-        return promise;
-    }
-
-    m_provider->unregisterServiceWorker(scopeURL, new CallbackPromiseAdapter<BooleanValue, ServiceWorkerError>(resolver));
+    m_outerRegistration->unregister(m_provider, new CallbackPromiseAdapter<bool, ServiceWorkerError>(resolver));
     return promise;
 }
 
@@ -152,13 +140,18 @@ ServiceWorkerRegistration::ServiceWorkerRegistration(ExecutionContext* execution
     m_outerRegistration->setProxy(this);
 }
 
-void ServiceWorkerRegistration::trace(Visitor* visitor)
+ServiceWorkerRegistration::~ServiceWorkerRegistration()
+{
+}
+
+DEFINE_TRACE(ServiceWorkerRegistration)
 {
     visitor->trace(m_installing);
     visitor->trace(m_waiting);
     visitor->trace(m_active);
-    EventTargetWithInlineData::trace(visitor);
+    RefCountedGarbageCollectedEventTargetWithInlineData<ServiceWorkerRegistration>::trace(visitor);
     HeapSupplementable<ServiceWorkerRegistration>::trace(visitor);
+    ActiveDOMObject::trace(visitor);
 }
 
 bool ServiceWorkerRegistration::hasPendingActivity() const

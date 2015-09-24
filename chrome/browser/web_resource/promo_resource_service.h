@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,10 @@
 
 #include <string>
 
+#include "base/callback_forward.h"
+#include "base/callback_list.h"
 #include "base/memory/weak_ptr.h"
-#include "chrome/browser/web_resource/web_resource_service.h"
+#include "chrome/browser/web_resource/chrome_web_resource_service.h"
 
 class NotificationPromo;
 class PrefRegistrySimple;
@@ -26,17 +28,24 @@ class PrefRegistrySyncable;
 // dynamically change the appearance of the New Tab Page. For example, it has
 // been used to fetch "tips" to be displayed on the NTP, or to display
 // promotional messages to certain groups of Chrome users.
-class PromoResourceService : public WebResourceService {
+class PromoResourceService : public ChromeWebResourceService {
  public:
+  using StateChangedCallbackList = base::CallbackList<void()>;
+  using StateChangedSubscription = StateChangedCallbackList::Subscription;
+
   static void RegisterPrefs(PrefRegistrySimple* registry);
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
   static void MigrateUserPrefs(PrefService* user_prefs);
 
   PromoResourceService();
-
- private:
   ~PromoResourceService() override;
 
+  // Registers a callback called when the state of a web resource has been
+  // changed. A resource may have been added, removed, or altered.
+  scoped_ptr<StateChangedSubscription> RegisterStateChangedCallback(
+      const base::Closure& closure);
+
+ private:
   // Schedule a notification that a web resource is either going to become
   // available or be no longer valid.
   void ScheduleNotification(const NotificationPromo& notification_promo);
@@ -57,6 +66,9 @@ class PromoResourceService : public WebResourceService {
 
   // WebResourceService override to process the parsed information.
   void Unpack(const base::DictionaryValue& parsed_json) override;
+
+  // List of callbacks called when the state of a web resource has changed.
+  StateChangedCallbackList callback_list_;
 
   // Allows the creation of tasks to send a notification.
   // This allows the PromoResourceService to notify the New Tab Page immediately

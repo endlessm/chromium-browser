@@ -40,9 +40,8 @@
 
 namespace blink {
 
-void Microtask::performCheckpoint()
+void Microtask::performCheckpoint(v8::Isolate* isolate)
 {
-    v8::Isolate* isolate = v8::Isolate::GetCurrent();
     V8PerIsolateData* isolateData = V8PerIsolateData::from(isolate);
     ASSERT(isolateData);
     if (isolateData->recursionLevel() || isolateData->performingMicrotaskCheckpoint() || isolateData->destructionPending() || ScriptForbiddenScope::isScriptForbidden())
@@ -73,7 +72,7 @@ void Microtask::enqueueMicrotask(PassOwnPtr<WebThread::Task> callback)
     isolate->EnqueueMicrotask(&microtaskFunctionCallback, callback.leakPtr());
 }
 
-void Microtask::enqueueMicrotask(const Closure& callback)
+void Microtask::enqueueMicrotask(PassOwnPtr<Closure> callback)
 {
     enqueueMicrotask(adoptPtr(new Task(callback)));
 }

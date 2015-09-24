@@ -12,6 +12,7 @@
 #include "ash/shell.h"
 #include "ash/shell_delegate.h"
 #include "ash/shell_window_ids.h"
+#include "ash/wm/maximize_mode/maximize_mode_controller.h"
 #include "base/command_line.h"
 #include "ui/app_list/app_list_constants.h"
 #include "ui/app_list/app_list_switches.h"
@@ -123,8 +124,8 @@ gfx::Vector2d GetAnchorPositionOffsetToShelf(
 // that height (so that the app list never starts above the top of the screen).
 gfx::Point GetCenterOfDisplayForView(const views::View* view,
                                      int minimum_height) {
-  gfx::Rect bounds = Shell::GetScreen()->GetDisplayNearestWindow(
-      view->GetWidget()->GetNativeView()).bounds();
+  aura::Window* window = view->GetWidget()->GetNativeView();
+  gfx::Rect bounds = ScreenUtil::GetShelfDisplayBoundsInScreen(window);
 
   // If the virtual keyboard is active, subtract it from the display bounds, so
   // that the app list is centered in the non-keyboard area of the display.
@@ -197,7 +198,20 @@ void AppListController::Show(aura::Window* window) {
     views::View* applist_button =
         Shelf::ForWindow(container)->GetAppListButtonView();
     is_centered_ = view->ShouldCenterWindow();
-    if (is_centered_) {
+    bool is_fullscreen = false;
+#if defined(OS_CHROMEOS)
+    is_fullscreen = base::CommandLine::ForCurrentProcess()->HasSwitch(
+                        switches::kAshEnableFullscreenAppList) &&
+                    app_list::switches::IsExperimentalAppListEnabled() &&
+                    Shell::GetInstance()
+                        ->maximize_mode_controller()
+                        ->IsMaximizeModeWindowManagerEnabled();
+#endif
+    if (is_fullscreen) {
+      view->InitAsFramelessWindow(
+          container, current_apps_page_,
+          ScreenUtil::GetDisplayWorkAreaBoundsInParent(container));
+    } else if (is_centered_) {
       // Note: We can't center the app list until we have its dimensions, so we
       // init at (0, 0) and then reset its anchor point.
       view->InitAsBubbleAtFixedLocation(container,
@@ -375,8 +389,10 @@ void AppListController::ProcessLocatedEvent(ui::LocatedEvent* event) {
   }
 
   aura::Window* window = view_->GetWidget()->GetNativeView()->parent();
-  if (!window->Contains(target))
+  if (!window->Contains(target) &&
+      !app_list::switches::ShouldNotDismissOnBlur()) {
     Dismiss();
+  }
 }
 
 void AppListController::UpdateBounds() {
@@ -413,7 +429,8 @@ void AppListController::OnWindowFocused(aura::Window* gained_focus,
     aura::Window* applist_container = applist_window->parent();
 
     if (applist_container->Contains(lost_focus) &&
-        (!gained_focus || !applist_container->Contains(gained_focus))) {
+        (!gained_focus || !applist_container->Contains(gained_focus)) &&
+        !app_list::switches::ShouldNotDismissOnBlur()) {
       Dismiss();
     }
   }
@@ -509,13 +526,10 @@ void AppListController::TransitionChanged() {
     const int shift = kMaxOverScrollShift * progress * dir;
 
     gfx::Rect shifted(view_bounds_);
-    // Experimental app list scrolls vertically, so make the overscroll
-    // vertical.
-    if (app_list::switches::IsExperimentalAppListEnabled())
-      shifted.set_y(shifted.y() + shift);
-    else
-      shifted.set_x(shifted.x() + shift);
+    shifted.set_x(shifted.x() + shift);
+
     widget->SetBounds(shifted);
+
     should_snap_back_ = true;
   } else if (should_snap_back_) {
     should_snap_back_ = false;

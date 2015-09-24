@@ -13,6 +13,9 @@
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "url/gurl.h"
 
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
+
 @implementation BookmarkFolderAppleScript
 
 - (NSArray*)bookmarkFolders {
@@ -83,7 +86,7 @@
   if (!model)
     return;
 
-  model->Remove(bookmarkNode_, position);
+  model->Remove(bookmarkNode_->GetChild(position));
 }
 
 - (NSArray*)bookmarkItems {
@@ -170,7 +173,7 @@
   if (!model)
     return;
 
-  model->Remove(bookmarkNode_, position);
+  model->Remove(bookmarkNode_->GetChild(position));
 }
 
 - (int)calculatePositionOfBookmarkFolderAt:(int)index {

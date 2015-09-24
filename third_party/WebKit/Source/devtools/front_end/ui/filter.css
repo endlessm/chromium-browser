@@ -28,16 +28,21 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-.filter-text-filter {
-    display: flex;
-    margin-left: 1px;
-    margin-right: 2px;
-    flex: 0 1 120px;
-    min-width: 40px;
+.filter-bar {
+    background-color: #f3f3f3;
+    padding: 4px 0 2px 0;
+    flex: none;
+    border-bottom: 1px solid #dadada;
 }
 
-.filter-text-filter.supports-regex {
-    flex: 0 0 155px;
+.filter-text-filter {
+    display: inline-flex;
+    margin-left: 1px;
+    margin-right: 2px;
+    min-width: 40px;
+    max-width: 200px;
+    height: 24px;
+    align-items: center;
 }
 
 .filter-text-filter label {
@@ -45,18 +50,23 @@
 }
 
 .filter-bitset-filter {
-    padding: 0 10px !important;
+    padding: 2px;
+    display: inline-flex;
     overflow: hidden;
-    display: flex !important;
+    height: 24px;
+    position: relative;
+    top: -1px;
 }
 
 .filter-bitset-filter li {
     display: inline-block;
+    flex: none;
     margin: auto 2px;
-    padding: 4px 6px 3px 6px;
+    padding: 3px 6px 3px 3px;
     background: transparent;
     text-shadow: rgba(255, 255, 255, 0.5) 0 1px 0;
     border-radius: 8px;
+    overflow: hidden;
 }
 
 .filter-bitset-filter-divider {
@@ -90,6 +100,7 @@
     margin-left: 5px;
     margin-right: 2px;
     flex: 0 0 auto;
+    display: inline-block;
 }
 
 .filter-checkbox-filter {
@@ -98,7 +109,11 @@
     white-space: nowrap;
     text-overflow: ellipsis;
     overflow: hidden;
-    display: flex;
+    display: inline-flex;
+    vertical-align: middle;
+    height: 24px;
+    position: relative;
+    top: -2px;
 }
 
 .filter-checkbox-filter > label {
@@ -123,29 +138,14 @@
     flex-shrink: 0;
 }
 
-
-.filter-checkbox-filter .checkbox-filter-checkbox-check {
+.filter-input-field {
     -webkit-appearance: none;
-    width: 11px;
-    height: 11px;
-    margin-top: -2px;
-    margin-left: 1px;
-}
-
-.filter-checkbox-filter .checkbox-filter-checkbox-checked {
-    background-image: url(Images/statusbarButtonGlyphs.png);
-    background-size: 320px 144px;
-    background-position: -129px -110px;
-}
-
-.filters-toggle > .glyph {
-    -webkit-mask-position: -32px -48px;
-}
-
-.filters-toggle.toggled-shown .glyph {
-    background-color: rgb(66, 129, 235);
-}
-
-.filters-toggle.toggled-active .glyph {
-    background-color: rgb(216, 0, 0);
+    border: 1px solid rgb(163, 163, 163);
+    border-radius: 2px;
+    padding: 1px 3px 0;
+    margin: 0 0 0 1px;
+    width: 253px;
+    height: 20px;
+    line-height: 17px;
+    flex: 1;
 }

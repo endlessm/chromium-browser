@@ -16,7 +16,7 @@
 
 // main() routine for the NaCl loader process.
 int NaClMain(const content::MainFunctionParams& parameters) {
-  const CommandLine& parsed_command_line = parameters.command_line;
+  const base::CommandLine& parsed_command_line = parameters.command_line;
 
   // The main thread of the plugin services IO.
   base::MessageLoopForIO main_message_loop;
@@ -29,7 +29,7 @@ int NaClMain(const content::MainFunctionParams& parameters) {
 
 #if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX) || \
     defined(OS_ANDROID)
-  NaClMainPlatformDelegate platform(parameters);
+  NaClMainPlatformDelegate platform;
   bool no_sandbox = parsed_command_line.HasSwitch(switches::kNoSandbox);
 
 #if defined(OS_POSIX)
@@ -39,7 +39,7 @@ int NaClMain(const content::MainFunctionParams& parameters) {
 #endif
 
   if (!no_sandbox) {
-    platform.EnableSandbox();
+    platform.EnableSandbox(parameters);
   }
   NaClListener listener;
 #if defined(OS_POSIX)

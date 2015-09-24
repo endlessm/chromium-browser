@@ -16,6 +16,7 @@ class SingleThreadTaskRunner;
 
 namespace remoting {
 
+// TODO(sergeyu): Move ClipboardStub implementation to Clipboard.
 class InputInjector : public protocol::ClipboardStub,
                       public protocol::InputStub {
  public:
@@ -26,6 +27,10 @@ class InputInjector : public protocol::ClipboardStub,
   static scoped_ptr<InputInjector> Create(
       scoped_refptr<base::SingleThreadTaskRunner> main_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner);
+
+  // Returns true if the InputInjector returned by Create() supports
+  // InjectTouchEvent() on this platform.
+  static bool SupportsTouchEvents();
 
   // Initialises any objects needed to execute events.
   virtual void Start(

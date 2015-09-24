@@ -34,6 +34,7 @@
 #include "bindings/core/v8/ScopedPersistent.h"
 #include "bindings/core/v8/ScriptState.h"
 #include "core/dom/ContextLifecycleObserver.h"
+#include "core/dom/custom/CustomElementDefinition.h"
 #include "core/dom/custom/CustomElementLifecycleCallbacks.h"
 #include "wtf/PassOwnPtr.h"
 #include "wtf/PassRefPtr.h"
@@ -45,21 +46,24 @@ class CustomElementLifecycleCallbacks;
 class Element;
 class V8PerContextData;
 
-class V8CustomElementLifecycleCallbacks final : public CustomElementLifecycleCallbacks, ContextLifecycleObserver {
+class V8CustomElementLifecycleCallbacks final : public CustomElementLifecycleCallbacks, public ContextLifecycleObserver {
+    WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(V8CustomElementLifecycleCallbacks);
 public:
-    static PassRefPtr<V8CustomElementLifecycleCallbacks> create(ScriptState*, v8::Handle<v8::Object> prototype, v8::Handle<v8::Function> created, v8::Handle<v8::Function> attached, v8::Handle<v8::Function> detached, v8::Handle<v8::Function> attributeChanged);
+    static PassRefPtrWillBeRawPtr<V8CustomElementLifecycleCallbacks> create(ScriptState*, v8::Local<v8::Object> prototype, v8::MaybeLocal<v8::Function> created, v8::MaybeLocal<v8::Function> attached, v8::MaybeLocal<v8::Function> detached, v8::MaybeLocal<v8::Function> attributeChanged);
 
-    virtual ~V8CustomElementLifecycleCallbacks();
+    ~V8CustomElementLifecycleCallbacks() override;
 
     bool setBinding(CustomElementDefinition* owner, PassOwnPtr<CustomElementBinding>);
 
-private:
-    V8CustomElementLifecycleCallbacks(ScriptState*, v8::Handle<v8::Object> prototype, v8::Handle<v8::Function> created, v8::Handle<v8::Function> attached, v8::Handle<v8::Function> detached, v8::Handle<v8::Function> attributeChanged);
+    DECLARE_VIRTUAL_TRACE();
 
-    virtual void created(Element*) override;
-    virtual void attached(Element*) override;
-    virtual void detached(Element*) override;
-    virtual void attributeChanged(Element*, const AtomicString& name, const AtomicString& oldValue, const AtomicString& newValue) override;
+private:
+    V8CustomElementLifecycleCallbacks(ScriptState*, v8::Local<v8::Object> prototype, v8::MaybeLocal<v8::Function> created, v8::MaybeLocal<v8::Function> attached, v8::MaybeLocal<v8::Function> detached, v8::MaybeLocal<v8::Function> attributeChanged);
+
+    void created(Element*) override;
+    void attached(Element*) override;
+    void detached(Element*) override;
+    void attributeChanged(Element*, const AtomicString& name, const AtomicString& oldValue, const AtomicString& newValue) override;
 
     void call(const ScopedPersistent<v8::Function>& weakCallback, Element*);
 

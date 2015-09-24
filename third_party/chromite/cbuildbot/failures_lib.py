@@ -10,8 +10,8 @@ import collections
 import sys
 import traceback
 
+from chromite.cbuildbot import constants
 from chromite.lib import cros_build_lib
-from chromite.lib import portage_util
 
 
 class StepFailure(Exception):
@@ -25,6 +25,12 @@ class StepFailure(Exception):
     3) __str__() should be brief enough to include in a Commit Queue
        failure message.
   """
+
+  # The constants.EXCEPTION_CATEGORY_ALL_CATEGORIES values that this exception
+  # maps to. Subclasses should redefine this class constant to map to a
+  # different category.
+  EXCEPTION_CATEGORY = constants.EXCEPTION_CATEGORY_UNKNOWN
+
   def __init__(self, message=''):
     """Constructor.
 
@@ -59,7 +65,7 @@ def CreateExceptInfo(exception, tb):
   Returns:
     A list of ExceptInfo objects.
   """
-  if issubclass(exception.__class__, CompoundFailure) and exception.exc_infos:
+  if isinstance(exception, CompoundFailure) and exception.exc_infos:
     return exception.exc_infos
 
   return [ExceptInfo(exception.__class__, str(exception), tb)]
@@ -180,6 +186,8 @@ class BuildScriptFailure(StepFailure):
   commands (e.g. build_packages) fail.
   """
 
+  EXCEPTION_CATEGORY = constants.EXCEPTION_CATEGORY_BUILD
+
   def __init__(self, exception, shortname):
     """Construct a BuildScriptFailure object.
 
@@ -225,10 +233,22 @@ class PackageBuildFailure(BuildScriptFailure):
 class InfrastructureFailure(CompoundFailure):
   """Raised if a stage fails due to infrastructure issues."""
 
+  EXCEPTION_CATEGORY = constants.EXCEPTION_CATEGORY_INFRA
+
 
 # Chrome OS Test Lab failures.
 class TestLabFailure(InfrastructureFailure):
   """Raised if a stage fails due to hardware lab infrastructure issues."""
+
+  EXCEPTION_CATEGORY = constants.EXCEPTION_CATEGORY_LAB
+
+
+class SuiteTimedOut(TestLabFailure):
+  """Raised if a test suite timed out with no test failures."""
+
+
+class BoardNotAvailable(TestLabFailure):
+  """Raised if the board is not available in the lab."""
 
 
 # Gerrit-on-Borg failures.
@@ -266,9 +286,22 @@ class BuilderFailure(InfrastructureFailure):
   """Raised if a stage fails due to builder issues."""
 
 
+class MasterSlaveVersionMismatchFailure(BuilderFailure):
+  """Raised if a slave build has a different full_version than its master."""
+
 # Crash collection service failures.
 class CrashCollectionFailure(InfrastructureFailure):
   """Raised if a stage fails due to crash collection services."""
+
+
+class TestFailure(StepFailure):
+  """Raised if a test stage (e.g. VMTest) fails."""
+
+  EXCEPTION_CATEGORY = constants.EXCEPTION_CATEGORY_TEST
+
+
+class TestWarning(StepFailure):
+  """Raised if a test stage (e.g. VMTest) returns a warning code."""
 
 
 class BuildFailureMessage(object):
@@ -294,6 +327,17 @@ class BuildFailureMessage(object):
 
   def __str__(self):
     return self.message
+
+  def GetFailingStages(self):
+    """Get a list of the failing stage prefixes from tracebacks.
+
+    Returns:
+      A list of failing stage prefixes if there are tracebacks; None otherwise.
+    """
+    failing_stages = None
+    if self.tracebacks:
+      failing_stages = set(x.failed_prefix for x in self.tracebacks)
+    return failing_stages
 
   def MatchesFailureType(self, cls):
     """Check if all of the tracebacks match the specified failure type."""
@@ -327,7 +371,7 @@ class BuildFailureMessage(object):
     """Check if all of the failures are package build failures."""
     return self.MatchesFailureType(PackageBuildFailure)
 
-  def FindPackageBuildFailureSuspects(self, changes):
+  def FindPackageBuildFailureSuspects(self, changes, sanity):
     """Figure out what changes probably caused our failures.
 
     We use a fairly simplistic algorithm to calculate breakage: If you changed
@@ -351,14 +395,25 @@ class BuildFailureMessage(object):
 
     Args:
       changes: List of changes to examine.
+      sanity: The sanity checker builder passed and the tree was open when
+              the build started.
 
     Returns:
       Set of changes that likely caused the failure.
     """
+    # Import portage_util here to avoid circular imports.
+    from chromite.lib import portage_util
     blame_everything = False
     suspects = set()
     for tb in self.tracebacks:
-      for package in tb.exception.failed_packages:
+      # Only look at PackageBuildFailure objects.
+      failed_packages = []
+      if isinstance(tb.exception, PackageBuildFailure):
+        failed_packages = tb.exception.failed_packages
+      else:
+        blame_everything = True
+
+      for package in failed_packages:
         failed_projects = portage_util.FindWorkonProjects([package])
         blame_assigned = False
         for change in changes:
@@ -368,10 +423,45 @@ class BuildFailureMessage(object):
         if not blame_assigned:
           blame_everything = True
 
-    if blame_everything or not suspects:
-      suspects = changes[:]
-    else:
-      # Never treat changes to overlays as innocent.
-      suspects.update(change for change in changes
-                      if '/overlays/' in change.project)
+    # Only do broad-brush blaming if the tree is sane.
+    if sanity:
+      if blame_everything or not suspects:
+        suspects = changes[:]
+      else:
+        # Never treat changes to overlays as innocent.
+        suspects.update(change for change in changes
+                        if '/overlays/' in change.project)
+
     return suspects
+
+
+def ReportStageFailureToCIDB(db, build_stage_id, exception):
+  """Reports stage failure to cidb along with inner exceptions.
+
+  Args:
+    db: A valid cidb handle.
+    build_stage_id: The cidb id for the build stage that failed.
+    exception: The failure exception to report.
+  """
+  outer_failure_id = db.InsertFailure(build_stage_id,
+                                      type(exception).__name__,
+                                      str(exception),
+                                      _GetExceptionCategory(type(exception)))
+
+  # This assumes that CompoundFailure can't be nested.
+  if isinstance(exception, CompoundFailure):
+    for exc_class, exc_str, _ in exception.exc_infos:
+      db.InsertFailure(build_stage_id,
+                       exc_class.__name__,
+                       exc_str,
+                       _GetExceptionCategory(exc_class),
+                       outer_failure_id)
+
+
+def _GetExceptionCategory(exception_class):
+  # Do not use try/catch. If a subclass of StepFailure does not have a valid
+  # EXCEPTION_CATEGORY, it is a programming error, not a runtime error.
+  if issubclass(exception_class, StepFailure):
+    return exception_class.EXCEPTION_CATEGORY
+  else:
+    return constants.EXCEPTION_CATEGORY_UNKNOWN

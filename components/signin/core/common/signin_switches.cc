@@ -25,25 +25,22 @@ const char kDisableSigninScopedDeviceId[] = "disable-signin-scoped-device-id";
 // Enables consistent identity features.
 const char kEnableAccountConsistency[] = "enable-account-consistency";
 
+// Enables the old iframe-based flow for sign in.  When not enabled, uses the
+// webview-based flow.
+const char kEnableIframeBasedSignin[] = "enable-iframe-based-signin";
+
 // Enable the new avatar menu and the User Manager.
 const char kEnableNewAvatarMenu[] = "enable-new-avatar-menu";
 
 // Enables new profile management system, including lock mode.
 const char kEnableNewProfileManagement[] = "new-profile-management";
 
-// Enables the pure web-based flow for sign in on first run/NTP/wrench menu/
-// settings page.
-const char kEnableWebBasedSignin[] = "enable-web-based-signin";
-
-// Enables the webview-based flow for sign in.
-const char kEnableWebviewBasedSignin[] = "enable-webview-based-signin";
+// Enable sending EnableRefreshTokenAnnotationRequest.
+extern const char kEnableRefreshTokenAnnotationRequest[] =
+    "enable-refresh-token-annotation-request";
 
 // Enables multiple account versions of chrome.identity APIs.
 const char kExtensionsMultiAccount[] = "extensions-multi-account";
-
-// Allows displaying the list of existing profiles in the avatar bubble for
-// fast switching between profiles.
-const char kFastUserSwitching[] = "fast-user-switching";
 
 // Enables using GAIA information to populate profile name and icon.
 const char kGoogleProfileInfo[] = "google-profile-info";

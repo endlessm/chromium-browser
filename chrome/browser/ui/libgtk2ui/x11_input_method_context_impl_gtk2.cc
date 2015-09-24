@@ -25,44 +25,34 @@
 namespace libgtk2ui {
 
 X11InputMethodContextImplGtk2::X11InputMethodContextImplGtk2(
-    ui::LinuxInputMethodContextDelegate* delegate)
+    ui::LinuxInputMethodContextDelegate* delegate,
+    bool is_simple)
     : delegate_(delegate),
-      gtk_context_simple_(NULL),
-      gtk_multicontext_(NULL),
       gtk_context_(NULL),
       gdk_last_set_client_window_(NULL) {
   CHECK(delegate_);
 
   ResetXModifierKeycodesCache();
 
-  gtk_context_simple_ = gtk_im_context_simple_new();
-  gtk_multicontext_ = gtk_im_multicontext_new();
+  gtk_context_ =
+      is_simple ? gtk_im_context_simple_new() : gtk_im_multicontext_new();
 
-  GtkIMContext* contexts[] = {gtk_context_simple_, gtk_multicontext_};
-  for (size_t i = 0; i < arraysize(contexts); ++i) {
-    g_signal_connect(contexts[i], "commit",
-                     G_CALLBACK(OnCommitThunk), this);
-    g_signal_connect(contexts[i], "preedit-changed",
-                     G_CALLBACK(OnPreeditChangedThunk), this);
-    g_signal_connect(contexts[i], "preedit-end",
-                     G_CALLBACK(OnPreeditEndThunk), this);
-    g_signal_connect(contexts[i], "preedit-start",
-                     G_CALLBACK(OnPreeditStartThunk), this);
-    // TODO(yukishiino): Handle operations on surrounding text.
-    // "delete-surrounding" and "retrieve-surrounding" signals should be
-    // handled.
-  }
+  g_signal_connect(gtk_context_, "commit", G_CALLBACK(OnCommitThunk), this);
+  g_signal_connect(gtk_context_, "preedit-changed",
+                   G_CALLBACK(OnPreeditChangedThunk), this);
+  g_signal_connect(gtk_context_, "preedit-end", G_CALLBACK(OnPreeditEndThunk),
+                   this);
+  g_signal_connect(gtk_context_, "preedit-start",
+                   G_CALLBACK(OnPreeditStartThunk), this);
+  // TODO(shuchen): Handle operations on surrounding text.
+  // "delete-surrounding" and "retrieve-surrounding" signals should be
+  // handled.
 }
 
 X11InputMethodContextImplGtk2::~X11InputMethodContextImplGtk2() {
-  gtk_context_ = NULL;
-  if (gtk_context_simple_) {
-    g_object_unref(gtk_context_simple_);
-    gtk_context_simple_ = NULL;
-  }
-  if (gtk_multicontext_) {
-    g_object_unref(gtk_multicontext_);
-    gtk_multicontext_ = NULL;
+  if (gtk_context_) {
+    g_object_unref(gtk_context_);
+    gtk_context_ = NULL;
   }
 }
 
@@ -70,11 +60,7 @@ X11InputMethodContextImplGtk2::~X11InputMethodContextImplGtk2() {
 
 bool X11InputMethodContextImplGtk2::DispatchKeyEvent(
     const ui::KeyEvent& key_event) {
-  if (!key_event.HasNativeEvent())
-    return false;
-
-  // The caller must call Focus() first.
-  if (!gtk_context_)
+  if (!key_event.HasNativeEvent() || !gtk_context_)
     return false;
 
   // Translate a XKeyEvent to a GdkEventKey.
@@ -84,11 +70,11 @@ bool X11InputMethodContextImplGtk2::DispatchKeyEvent(
     return false;
   }
 
-  // Set the client window and cursor location.
   if (event->key.window != gdk_last_set_client_window_) {
     gtk_im_context_set_client_window(gtk_context_, event->key.window);
     gdk_last_set_client_window_ = event->key.window;
   }
+
   // Convert the last known caret bounds relative to the screen coordinates
   // to a GdkRectangle relative to the client window.
   gint x = 0;
@@ -100,48 +86,31 @@ bool X11InputMethodContextImplGtk2::DispatchKeyEvent(
                        last_caret_bounds_.height()};
   gtk_im_context_set_cursor_location(gtk_context_, &rect);
 
-  // Let an IME handle the key event.
-  commit_signal_trap_.StartTrap(event->key.keyval);
-  const gboolean handled = gtk_im_context_filter_keypress(gtk_context_,
-                                                          &event->key);
-  commit_signal_trap_.StopTrap();
+  const bool handled =
+      gtk_im_context_filter_keypress(gtk_context_, &event->key);
   gdk_event_free(event);
-
-  return handled && !commit_signal_trap_.IsSignalCaught();
+  return handled;
 }
 
 void X11InputMethodContextImplGtk2::Reset() {
-  // Reset all the states of the context, not only preedit, caret but also
-  // focus.
-  gtk_context_ = NULL;
-  gtk_im_context_reset(gtk_context_simple_);
-  gtk_im_context_reset(gtk_multicontext_);
-  gtk_im_context_focus_out(gtk_context_simple_);
-  gtk_im_context_focus_out(gtk_multicontext_);
-  gdk_last_set_client_window_ = NULL;
+  gtk_im_context_reset(gtk_context_);
 }
 
-void X11InputMethodContextImplGtk2::OnTextInputTypeChanged(
-    ui::TextInputType text_input_type) {
-  switch (text_input_type) {
-    case ui::TEXT_INPUT_TYPE_NONE:
-    case ui::TEXT_INPUT_TYPE_PASSWORD:
-      gtk_context_ = gtk_context_simple_;
-      break;
-    default:
-      gtk_context_ = gtk_multicontext_;
-  }
+void X11InputMethodContextImplGtk2::Focus() {
   gtk_im_context_focus_in(gtk_context_);
 }
 
-void X11InputMethodContextImplGtk2::OnCaretBoundsChanged(
-    const gfx::Rect& caret_bounds) {
+void X11InputMethodContextImplGtk2::Blur() {
+  gtk_im_context_focus_out(gtk_context_);
+}
+
+void X11InputMethodContextImplGtk2::SetCursorLocation(const gfx::Rect& rect) {
   // Remember the caret bounds so that we can set the cursor location later.
   // gtk_im_context_set_cursor_location() takes the location relative to the
   // client window, which is unknown at this point.  So we'll call
   // gtk_im_context_set_cursor_location() later in ProcessKeyEvent() where
   // (and only where) we know the client window.
-  last_caret_bounds_ = caret_bounds;
+  last_caret_bounds_ = rect;
 }
 
 // private:
@@ -153,14 +122,16 @@ void X11InputMethodContextImplGtk2::ResetXModifierKeycodesCache() {
   hyper_keycodes_.clear();
 
   Display* display = gfx::GetXDisplay();
-  const XModifierKeymap* modmap = XGetModifierMapping(display);
+  gfx::XScopedPtr<XModifierKeymap,
+                  gfx::XObjectDeleter<XModifierKeymap, int, XFreeModifiermap>>
+      modmap(XGetModifierMapping(display));
   int min_keycode = 0;
   int max_keycode = 0;
   int keysyms_per_keycode = 1;
   XDisplayKeycodes(display, &min_keycode, &max_keycode);
-  const KeySym* keysyms = XGetKeyboardMapping(
-      display, min_keycode, max_keycode - min_keycode + 1,
-      &keysyms_per_keycode);
+  gfx::XScopedPtr<KeySym[]> keysyms(
+      XGetKeyboardMapping(display, min_keycode, max_keycode - min_keycode + 1,
+                          &keysyms_per_keycode));
   for (int i = 0; i < 8 * modmap->max_keypermod; ++i) {
     const int keycode = modmap->modifiermap[i];
     if (!keycode)
@@ -186,8 +157,6 @@ void X11InputMethodContextImplGtk2::ResetXModifierKeycodesCache() {
       }
     }
   }
-  XFree(const_cast<KeySym*>(keysyms));
-  XFreeModifiermap(const_cast<XModifierKeymap*>(modmap));
 }
 
 GdkEvent* X11InputMethodContextImplGtk2::GdkEventFromNativeEvent(
@@ -236,11 +205,19 @@ GdkEvent* X11InputMethodContextImplGtk2::GdkEventFromNativeEvent(
   g_free(keyvals);
   keyvals = NULL;
   // Get a GdkWindow.
+#if GTK_CHECK_VERSION(2,24,0)
   GdkWindow* window = gdk_x11_window_lookup_for_display(display, xkey.window);
+#else
+  GdkWindow* window = gdk_window_lookup_for_display(display, xkey.window);
+#endif
   if (window)
     g_object_ref(window);
   else
+#if GTK_CHECK_VERSION(2,24,0)
     window = gdk_x11_window_foreign_new_for_display(display, xkey.window);
+#else
+    window = gdk_window_foreign_new_for_display(display, xkey.window);
+#endif
   if (!window) {
     LOG(ERROR) << "Cannot get a GdkWindow for a key event.";
     return NULL;
@@ -301,16 +278,7 @@ void X11InputMethodContextImplGtk2::OnCommit(GtkIMContext* context,
   if (context != gtk_context_)
     return;
 
-  const base::string16& text_in_utf16 = base::UTF8ToUTF16(text);
-  // If an underlying IME is emitting the "commit" signal to insert a character
-  // for a direct input key event, ignores the insertion of the character at
-  // this point, because we have to call DispatchKeyEventPostIME() for direct
-  // input key events.  DispatchKeyEvent() takes care of the trapped character
-  // and calls DispatchKeyEventPostIME().
-  if (commit_signal_trap_.Trap(text_in_utf16))
-    return;
-
-  delegate_->OnCommit(text_in_utf16);
+  delegate_->OnCommit(base::UTF8ToUTF16(text));
 }
 
 void X11InputMethodContextImplGtk2::OnPreeditChanged(GtkIMContext* context) {
@@ -342,37 +310,6 @@ void X11InputMethodContextImplGtk2::OnPreeditStart(GtkIMContext* context) {
     return;
 
   delegate_->OnPreeditStart();
-}
-
-// GtkCommitSignalTrap
-
-X11InputMethodContextImplGtk2::GtkCommitSignalTrap::GtkCommitSignalTrap()
-    : is_trap_enabled_(false),
-      gdk_event_key_keyval_(GDK_KEY_VoidSymbol),
-      is_signal_caught_(false) {}
-
-void X11InputMethodContextImplGtk2::GtkCommitSignalTrap::StartTrap(
-    guint keyval) {
-  is_signal_caught_ = false;
-  gdk_event_key_keyval_ = keyval;
-  is_trap_enabled_ = true;
-}
-
-void X11InputMethodContextImplGtk2::GtkCommitSignalTrap::StopTrap() {
-  is_trap_enabled_ = false;
-}
-
-bool X11InputMethodContextImplGtk2::GtkCommitSignalTrap::Trap(
-    const base::string16& text) {
-  DCHECK(!is_signal_caught_);
-  if (is_trap_enabled_ &&
-      text.length() == 1 &&
-      text[0] == gdk_keyval_to_unicode(gdk_event_key_keyval_)) {
-    is_signal_caught_ = true;
-    return true;
-  } else {
-    return false;
-  }
 }
 
 }  // namespace libgtk2ui

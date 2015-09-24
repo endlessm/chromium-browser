@@ -31,7 +31,7 @@
 #include "core/css/CSSImageValue.h"
 #include "core/css/StylePropertySet.h"
 #include "core/dom/Document.h"
-#include "core/dom/NodeRenderingTraversal.h"
+#include "core/dom/shadow/ComposedTreeTraversal.h"
 #include "core/html/HTMLTableElement.h"
 #include "core/html/parser/HTMLParserIdioms.h"
 #include "platform/weborigin/Referrer.h"
@@ -49,9 +49,9 @@ bool HTMLTablePartElement::isPresentationAttribute(const QualifiedName& name) co
 
 void HTMLTablePartElement::collectStyleForPresentationAttribute(const QualifiedName& name, const AtomicString& value, MutableStylePropertySet* style)
 {
-    if (name == bgcolorAttr)
+    if (name == bgcolorAttr) {
         addHTMLColorToStyle(style, CSSPropertyBackgroundColor, value);
-    else if (name == backgroundAttr) {
+    } else if (name == backgroundAttr) {
         String url = stripLeadingAndTrailingHTMLSpaces(value);
         if (!url.isEmpty()) {
             RefPtrWillBeRawPtr<CSSImageValue> imageValue = CSSImageValue::create(url, document().completeURL(url));
@@ -83,15 +83,16 @@ void HTMLTablePartElement::collectStyleForPresentationAttribute(const QualifiedN
     } else if (name == heightAttr) {
         if (!value.isEmpty())
             addHTMLLengthToStyle(style, CSSPropertyHeight, value);
-    } else
+    } else {
         HTMLElement::collectStyleForPresentationAttribute(name, value, style);
+    }
 }
 
 HTMLTableElement* HTMLTablePartElement::findParentTable() const
 {
-    ContainerNode* parent = NodeRenderingTraversal::parent(this);
+    ContainerNode* parent = ComposedTreeTraversal::parent(*this);
     while (parent && !isHTMLTableElement(*parent))
-        parent = NodeRenderingTraversal::parent(parent);
+        parent = ComposedTreeTraversal::parent(*parent);
     return toHTMLTableElement(parent);
 }
 

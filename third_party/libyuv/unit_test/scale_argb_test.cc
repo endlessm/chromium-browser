@@ -18,30 +18,42 @@
 
 namespace libyuv {
 
+#define STRINGIZE(line) #line
+#define FILELINESTR(file, line) file ":" STRINGIZE(line)
+
 // Test scaling with C vs Opt and return maximum pixel difference. 0 = exact.
 static int ARGBTestFilter(int src_width, int src_height,
                           int dst_width, int dst_height,
-                          FilterMode f, int benchmark_iterations) {
+                          FilterMode f, int benchmark_iterations,
+                          int disable_cpu_flags) {
   int i, j;
   const int b = 0;  // 128 to test for padding/stride.
-  int src_argb_plane_size = (Abs(src_width) + b * 2) *
-      (Abs(src_height) + b * 2) * 4;
+  int64 src_argb_plane_size = (Abs(src_width) + b * 2) *
+      (Abs(src_height) + b * 2) * 4LL;
   int src_stride_argb = (b * 2 + Abs(src_width)) * 4;
 
   align_buffer_page_end(src_argb, src_argb_plane_size);
+  if (!src_argb) {
+    printf("Skipped.  Alloc failed " FILELINESTR(__FILE__, __LINE__) "\n");
+    return 0;
+  }
   srandom(time(NULL));
   MemRandomize(src_argb, src_argb_plane_size);
 
-  int dst_argb_plane_size = (dst_width + b * 2) * (dst_height + b * 2) * 4;
+  int64 dst_argb_plane_size = (dst_width + b * 2) * (dst_height + b * 2) * 4LL;
   int dst_stride_argb = (b * 2 + dst_width) * 4;
 
   align_buffer_page_end(dst_argb_c, dst_argb_plane_size);
   align_buffer_page_end(dst_argb_opt, dst_argb_plane_size);
+  if (!dst_argb_c || !dst_argb_opt) {
+    printf("Skipped.  Alloc failed " FILELINESTR(__FILE__, __LINE__) "\n");
+    return 0;
+  }
   memset(dst_argb_c, 2, dst_argb_plane_size);
   memset(dst_argb_opt, 3, dst_argb_plane_size);
 
   // Warm up both versions for consistent benchmarks.
-  MaskCpuFlags(0);  // Disable all CPU optimization.
+  MaskCpuFlags(disable_cpu_flags);  // Disable all CPU optimization.
   ARGBScale(src_argb + (src_stride_argb * b) + b * 4, src_stride_argb,
             src_width, src_height,
             dst_argb_c + (dst_stride_argb * b) + b * 4, dst_stride_argb,
@@ -52,7 +64,7 @@ static int ARGBTestFilter(int src_width, int src_height,
             dst_argb_opt + (dst_stride_argb * b) + b * 4, dst_stride_argb,
             dst_width, dst_height, f);
 
-  MaskCpuFlags(0);  // Disable all CPU optimization.
+  MaskCpuFlags(disable_cpu_flags);  // Disable all CPU optimization.
   double c_time = get_time();
   ARGBScale(src_argb + (src_stride_argb * b) + b * 4, src_stride_argb,
             src_width, src_height,
@@ -131,14 +143,18 @@ static int ARGBClipTestFilter(int src_width, int src_height,
                               int dst_width, int dst_height,
                               FilterMode f, int benchmark_iterations) {
   const int b = 128;
-  int src_argb_plane_size = (Abs(src_width) + b * 2) *
+  int64 src_argb_plane_size = (Abs(src_width) + b * 2) *
       (Abs(src_height) + b * 2) * 4;
   int src_stride_argb = (b * 2 + Abs(src_width)) * 4;
 
   align_buffer_64(src_argb, src_argb_plane_size);
+  if (!src_argb) {
+    printf("Skipped.  Alloc failed " FILELINESTR(__FILE__, __LINE__) "\n");
+    return 0;
+  }
   memset(src_argb, 1, src_argb_plane_size);
 
-  int dst_argb_plane_size = (dst_width + b * 2) * (dst_height + b * 2) * 4;
+  int64 dst_argb_plane_size = (dst_width + b * 2) * (dst_height + b * 2) * 4;
   int dst_stride_argb = (b * 2 + dst_width) * 4;
 
   srandom(time(NULL));
@@ -152,6 +168,10 @@ static int ARGBClipTestFilter(int src_width, int src_height,
 
   align_buffer_64(dst_argb_c, dst_argb_plane_size);
   align_buffer_64(dst_argb_opt, dst_argb_plane_size);
+  if (!dst_argb_c || !dst_argb_opt) {
+    printf("Skipped.  Alloc failed " FILELINESTR(__FILE__, __LINE__) "\n");
+    return 0;
+  }
   memset(dst_argb_c, 2, dst_argb_plane_size);
   memset(dst_argb_opt, 3, dst_argb_plane_size);
 
@@ -195,61 +215,75 @@ static int ARGBClipTestFilter(int src_width, int src_height,
   return max_diff;
 }
 
-#define TEST_FACTOR1(name, filter, hfactor, vfactor, max_diff)                 \
+// The following adjustments in dimensions ensure the scale factor will be
+// exactly achieved.
+#define DX(x, nom, denom) ((int)(Abs(x) / nom) * nom)
+#define SX(x, nom, denom) ((int)(x / nom) * denom)
+
+#define TEST_FACTOR1(name, filter, nom, denom, max_diff)                       \
     TEST_F(libyuvTest, ARGBScaleDownBy##name##_##filter) {                     \
-      int diff = ARGBTestFilter(benchmark_width_, benchmark_height_,           \
-                                Abs(benchmark_width_) * hfactor,               \
-                                Abs(benchmark_height_) * vfactor,              \
-                                kFilter##filter, benchmark_iterations_);       \
+      int diff = ARGBTestFilter(SX(benchmark_width_, nom, denom),              \
+                                SX(benchmark_height_, nom, denom),             \
+                                DX(benchmark_width_, nom, denom),              \
+                                DX(benchmark_height_, nom, denom),             \
+                                kFilter##filter, benchmark_iterations_,        \
+                                disable_cpu_flags_);                           \
       EXPECT_LE(diff, max_diff);                                               \
     }                                                                          \
     TEST_F(libyuvTest, ARGBScaleDownClipBy##name##_##filter) {                 \
-      int diff = ARGBClipTestFilter(benchmark_width_, benchmark_height_,       \
-                                Abs(benchmark_width_) * hfactor,               \
-                                Abs(benchmark_height_) * vfactor,              \
-                                kFilter##filter, benchmark_iterations_);       \
+      int diff = ARGBClipTestFilter(SX(benchmark_width_, nom, denom),          \
+                                    SX(benchmark_height_, nom, denom),         \
+                                    DX(benchmark_width_, nom, denom),          \
+                                    DX(benchmark_height_, nom, denom),         \
+                                    kFilter##filter, benchmark_iterations_);   \
       EXPECT_LE(diff, max_diff);                                               \
     }
 
-// Test a scale factor with 2 filters.  Expect unfiltered to be exact, but
+// Test a scale factor with all 4 filters.  Expect unfiltered to be exact, but
 // filtering is different fixed point implementations for SSSE3, Neon and C.
-#define TEST_FACTOR(name, hfactor, vfactor)                                    \
-    TEST_FACTOR1(name, None, hfactor, vfactor, 2)                              \
-    TEST_FACTOR1(name, Linear, hfactor, vfactor, 2)                            \
-    TEST_FACTOR1(name, Bilinear, hfactor, vfactor, 2)                          \
-    TEST_FACTOR1(name, Box, hfactor, vfactor, 2)
+#define TEST_FACTOR(name, nom, denom)                                          \
+    TEST_FACTOR1(name, None, nom, denom, 0)                                    \
+    TEST_FACTOR1(name, Linear, nom, denom, 3)                                  \
+    TEST_FACTOR1(name, Bilinear, nom, denom, 3)                                \
+    TEST_FACTOR1(name, Box, nom, denom, 3)
 
-TEST_FACTOR(2, 1 / 2, 1 / 2)
-TEST_FACTOR(4, 1 / 4, 1 / 4)
-TEST_FACTOR(8, 1 / 8, 1 / 8)
-TEST_FACTOR(3by4, 3 / 4, 3 / 4)
-TEST_FACTOR(3by8, 3 / 8, 3 / 8)
+TEST_FACTOR(2, 1, 2)
+TEST_FACTOR(4, 1, 4)
+TEST_FACTOR(8, 1, 8)
+TEST_FACTOR(3by4, 3, 4)
+TEST_FACTOR(3by8, 3, 8)
+TEST_FACTOR(3, 1, 3)
 #undef TEST_FACTOR1
 #undef TEST_FACTOR
+#undef SX
+#undef DX
 
 #define TEST_SCALETO1(name, width, height, filter, max_diff)                   \
     TEST_F(libyuvTest, name##To##width##x##height##_##filter) {                \
       int diff = ARGBTestFilter(benchmark_width_, benchmark_height_,           \
                                 width, height,                                 \
-                                kFilter##filter, benchmark_iterations_);       \
+                                kFilter##filter, benchmark_iterations_,        \
+                                disable_cpu_flags_);                           \
       EXPECT_LE(diff, max_diff);                                               \
     }                                                                          \
     TEST_F(libyuvTest, name##From##width##x##height##_##filter) {              \
       int diff = ARGBTestFilter(width, height,                                 \
                                 Abs(benchmark_width_), Abs(benchmark_height_), \
-                                kFilter##filter, benchmark_iterations_);       \
+                                kFilter##filter, benchmark_iterations_,        \
+                                disable_cpu_flags_);                           \
       EXPECT_LE(diff, max_diff);                                               \
     }                                                                          \
     TEST_F(libyuvTest, name##ClipTo##width##x##height##_##filter) {            \
       int diff = ARGBClipTestFilter(benchmark_width_, benchmark_height_,       \
-                                width, height,                                 \
-                                kFilter##filter, benchmark_iterations_);       \
+                                    width, height,                             \
+                                    kFilter##filter, benchmark_iterations_);   \
       EXPECT_LE(diff, max_diff);                                               \
     }                                                                          \
     TEST_F(libyuvTest, name##ClipFrom##width##x##height##_##filter) {          \
       int diff = ARGBClipTestFilter(width, height,                             \
-                                Abs(benchmark_width_), Abs(benchmark_height_), \
-                                kFilter##filter, benchmark_iterations_);       \
+                                    Abs(benchmark_width_),                     \
+                                    Abs(benchmark_height_),                    \
+                                    kFilter##filter, benchmark_iterations_);   \
       EXPECT_LE(diff, max_diff);                                               \
     }
 
@@ -257,8 +291,7 @@ TEST_FACTOR(3by8, 3 / 8, 3 / 8)
 #define TEST_SCALETO(name, width, height)                                      \
     TEST_SCALETO1(name, width, height, None, 0)                                \
     TEST_SCALETO1(name, width, height, Linear, 3)                              \
-    TEST_SCALETO1(name, width, height, Bilinear, 3)                            \
-    TEST_SCALETO1(name, width, height, Box, 3)
+    TEST_SCALETO1(name, width, height, Bilinear, 3)
 
 TEST_SCALETO(ARGBScale, 1, 1)
 TEST_SCALETO(ARGBScale, 320, 240)

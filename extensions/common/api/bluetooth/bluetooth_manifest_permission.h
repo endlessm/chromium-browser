@@ -37,12 +37,14 @@ class BluetoothManifestPermission : public ManifestPermission {
                     const BluetoothPermissionRequest& request) const;
   bool CheckSocketPermitted(const Extension* extension) const;
   bool CheckLowEnergyPermitted(const Extension* extension) const;
+  bool CheckPeripheralPermitted(const Extension* extension) const;
 
   void AddPermission(const std::string& uuid);
 
   // extensions::ManifestPermission overrides.
   std::string name() const override;
   std::string id() const override;
+  PermissionIDSet GetPermissions() const override;
   bool HasMessages() const override;
   PermissionMessages GetMessages() const override;
   bool FromValue(const base::Value* value) override;
@@ -59,6 +61,7 @@ class BluetoothManifestPermission : public ManifestPermission {
   BluetoothUuidSet uuids_;
   bool socket_;
   bool low_energy_;
+  bool peripheral_;
 };
 
 }  // namespace extensions

@@ -30,7 +30,7 @@
 
 #include "config.h"
 
-#include "core/testing/URLTestHelpers.h"
+#include "platform/testing/URLTestHelpers.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebUnitTestSupport.h"
 #include "public/web/WebView.h"
@@ -39,9 +39,7 @@
 #include <v8/include/v8-profiler.h>
 #include <v8/include/v8.h>
 
-using namespace blink;
-
-namespace {
+namespace blink {
 
 const v8::HeapGraphNode* GetProperty(const v8::HeapGraphNode* node, v8::HeapGraphEdge::Type type, const char* name)
 {
@@ -53,7 +51,7 @@ const v8::HeapGraphNode* GetProperty(const v8::HeapGraphNode* node, v8::HeapGrap
                 return prop->GetToNode();
         }
     }
-    return 0;
+    return nullptr;
 }
 
 int GetNumObjects(const char* constructor)
@@ -61,7 +59,7 @@ int GetNumObjects(const char* constructor)
     v8::Isolate* isolate = v8::Isolate::GetCurrent();
     v8::HandleScope scope(isolate);
     v8::HeapProfiler* profiler = isolate->GetHeapProfiler();
-    const v8::HeapSnapshot* snapshot = profiler->TakeHeapSnapshot(v8::String::NewFromUtf8(isolate, ""));
+    const v8::HeapSnapshot* snapshot = profiler->TakeHeapSnapshot();
     if (!snapshot)
         return -1;
     int count = 0;
@@ -96,7 +94,7 @@ public:
         webViewHelper.initializeAndLoad(baseURL + fileName, executeScript);
     }
 
-    virtual void TearDown() override
+    void TearDown() override
     {
         Platform::current()->unitTestSupport()->unregisterAllMockedURLs();
     }
@@ -122,4 +120,4 @@ TEST_F(ListenerLeakTest, HiddenReferences)
     ASSERT_EQ(1, GetNumObjects("EventListenerLeakTestObject2"));
 }
 
-} // namespace
+} // namespace blink

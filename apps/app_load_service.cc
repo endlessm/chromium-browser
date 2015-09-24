@@ -35,7 +35,7 @@ AppLoadService::PostReloadAction::PostReloadAction()
 AppLoadService::AppLoadService(Profile* profile)
     : profile_(profile) {
   registrar_.Add(this,
-                 extensions::NOTIFICATION_EXTENSION_HOST_DID_STOP_LOADING,
+                 extensions::NOTIFICATION_EXTENSION_HOST_DID_STOP_FIRST_LOAD,
                  content::NotificationService::AllSources());
   extensions::ExtensionRegistry::Get(profile_)->AddObserver(this);
 }
@@ -77,6 +77,14 @@ bool AppLoadService::LoadAndLaunch(const base::FilePath& extension_path,
   return true;
 }
 
+bool AppLoadService::Load(const base::FilePath& extension_path) {
+  ExtensionService* extension_service =
+      ExtensionSystem::Get(profile_)->extension_service();
+  std::string extension_id;
+  return extensions::UnpackedInstaller::Create(extension_service)->
+      LoadFromCommandLine(base::FilePath(extension_path), &extension_id);
+}
+
 // static
 AppLoadService* AppLoadService::Get(Profile* profile) {
   return apps::AppLoadServiceFactory::GetForProfile(profile);
@@ -85,7 +93,7 @@ AppLoadService* AppLoadService::Get(Profile* profile) {
 void AppLoadService::Observe(int type,
                              const content::NotificationSource& source,
                              const content::NotificationDetails& details) {
-  DCHECK_EQ(type, extensions::NOTIFICATION_EXTENSION_HOST_DID_STOP_LOADING);
+  DCHECK_EQ(type, extensions::NOTIFICATION_EXTENSION_HOST_DID_STOP_FIRST_LOAD);
   extensions::ExtensionHost* host =
       content::Details<extensions::ExtensionHost>(details).ptr();
   const Extension* extension = host->extension();

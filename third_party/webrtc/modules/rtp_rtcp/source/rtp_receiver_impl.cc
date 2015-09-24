@@ -114,7 +114,7 @@ int32_t RtpReceiverImpl::RegisterReceivePayload(
     if (rtp_media_receiver_->OnNewPayloadTypeCreated(payload_name, payload_type,
                                                      frequency) != 0) {
       LOG(LS_ERROR) << "Failed to register payload: " << payload_name << "/"
-                 << payload_type;
+                    << static_cast<int>(payload_type);
       return -1;
     }
   }
@@ -163,24 +163,17 @@ int32_t RtpReceiverImpl::Energy(
 bool RtpReceiverImpl::IncomingRtpPacket(
   const RTPHeader& rtp_header,
   const uint8_t* payload,
-  int payload_length,
+  size_t payload_length,
   PayloadUnion payload_specific,
   bool in_order) {
-  // Sanity check.
-  assert(payload_length >= 0);
-
   // Trigger our callbacks.
   CheckSSRCChanged(rtp_header);
 
   int8_t first_payload_byte = payload_length > 0 ? payload[0] : 0;
   bool is_red = false;
-  bool should_reset_statistics = false;
 
-  if (CheckPayloadChanged(rtp_header,
-                          first_payload_byte,
-                          is_red,
-                          &payload_specific,
-                          &should_reset_statistics) == -1) {
+  if (CheckPayloadChanged(rtp_header, first_payload_byte, is_red,
+                          &payload_specific) == -1) {
     if (payload_length == 0) {
       // OK, keep-alive packet.
       return true;
@@ -189,16 +182,12 @@ bool RtpReceiverImpl::IncomingRtpPacket(
     return false;
   }
 
-  if (should_reset_statistics) {
-    cb_rtp_feedback_->ResetStatistics(ssrc_);
-  }
-
   WebRtcRTPHeader webrtc_rtp_header;
   memset(&webrtc_rtp_header, 0, sizeof(webrtc_rtp_header));
   webrtc_rtp_header.header = rtp_header;
   CheckCSRC(webrtc_rtp_header);
 
-  uint16_t payload_data_length = payload_length - rtp_header.paddingLength;
+  size_t payload_data_length = payload_length - rtp_header.paddingLength;
 
   bool is_first_packet_in_frame = false;
   {
@@ -279,8 +268,6 @@ void RtpReceiverImpl::CheckSSRCChanged(const RTPHeader& rtp_header) {
       // We need the payload_type_ to make the call if the remote SSRC is 0.
       new_ssrc = true;
 
-      cb_rtp_feedback_->ResetStatistics(ssrc_);
-
       last_received_timestamp_ = 0;
       last_received_sequence_number_ = 0;
       last_received_frame_time_ms_ = -1;
@@ -321,7 +308,7 @@ void RtpReceiverImpl::CheckSSRCChanged(const RTPHeader& rtp_header) {
         rtp_header.payload_type_frequency, channels, rate)) {
       // New stream, same codec.
       LOG(LS_ERROR) << "Failed to create decoder for payload type: "
-                    << rtp_header.payloadType;
+                    << static_cast<int>(rtp_header.payloadType);
     }
   }
 }
@@ -333,12 +320,10 @@ void RtpReceiverImpl::CheckSSRCChanged(const RTPHeader& rtp_header) {
 // this code path moves we can get rid of some of the rtp_receiver ->
 // media_specific interface (such as CheckPayloadChange, possibly get/set
 // last known payload).
-int32_t RtpReceiverImpl::CheckPayloadChanged(
-  const RTPHeader& rtp_header,
-  const int8_t first_payload_byte,
-  bool& is_red,
-  PayloadUnion* specific_payload,
-  bool* should_reset_statistics) {
+int32_t RtpReceiverImpl::CheckPayloadChanged(const RTPHeader& rtp_header,
+                                             const int8_t first_payload_byte,
+                                             bool& is_red,
+                                             PayloadUnion* specific_payload) {
   bool re_initialize_decoder = false;
 
   char payload_name[RTP_PAYLOAD_NAME_SIZE];
@@ -370,11 +355,10 @@ int32_t RtpReceiverImpl::CheckPayloadChanged(
           return 0;
         }
       }
-      *should_reset_statistics = false;
       bool should_discard_changes = false;
 
       rtp_media_receiver_->CheckPayloadChanged(
-        payload_type, specific_payload, should_reset_statistics,
+        payload_type, specific_payload,
         &should_discard_changes);
 
       if (should_discard_changes) {
@@ -405,9 +389,6 @@ int32_t RtpReceiverImpl::CheckPayloadChanged(
           // Only reset the decoder if the media codec type has changed.
           re_initialize_decoder = false;
         }
-      }
-      if (re_initialize_decoder) {
-        *should_reset_statistics = true;
       }
     } else {
       rtp_media_receiver_->GetLastMediaSpecificPayload(specific_payload);

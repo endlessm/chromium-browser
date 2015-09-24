@@ -32,8 +32,8 @@
 #include "ui/events/gesture_detection/gesture_configuration.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/events/test/test_event_handler.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/screen.h"
-#include "ui/gfx/size.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/views/window/non_client_view.h"
@@ -210,24 +210,13 @@ TEST_F(SystemGestureEventFilterTest, LongPressAffordanceStateOnCaptureLoss) {
   timer->Stop();
   EXPECT_TRUE(GetLongPressAffordance()->is_animating());
 
-  // Change capture.
+  // Change capture, cancelling the active touch sequence.
   window2->SetCapture();
   EXPECT_TRUE(window2->HasCapture());
 
-  EXPECT_TRUE(GetLongPressAffordance()->is_animating());
-  EXPECT_EQ(window1, GetLongPressAffordanceTarget());
-
-  // Animate to completion.
-  GetLongPressAffordance()->End();  // end grow animation.
-  // Force timeout to start shrink animation.
-  EXPECT_TRUE(timer->IsRunning());
-  timer->user_task().Run();
-  timer->Stop();
-  EXPECT_TRUE(GetLongPressAffordance()->is_animating());
-  GetLongPressAffordance()->End();  // end shrink animation.
-
-  // Check if state has reset.
+  EXPECT_FALSE(GetLongPressAffordance()->is_animating());
   EXPECT_EQ(NULL, GetLongPressAffordanceTarget());
+  EXPECT_FALSE(timer->IsRunning());
   EXPECT_EQ(NULL, GetLongPressAffordanceView());
 }
 
@@ -286,41 +275,6 @@ TEST_F(SystemGestureEventFilterTest, TwoFingerDrag) {
   gfx::Rect current_bounds = toplevel->GetWindowBoundsInScreen();
   EXPECT_NE(current_bounds.ToString(), left_tile_bounds.ToString());
   EXPECT_EQ(current_bounds.ToString(), right_tile_bounds.ToString());
-}
-
-TEST_F(SystemGestureEventFilterTest, TwoFingerDragTwoWindows) {
-  aura::Window* root_window = Shell::GetPrimaryRootWindow();
-  ui::GestureConfiguration::GetInstance()
-      ->set_max_separation_for_gesture_touches_in_pixels(0);
-  views::Widget* first = views::Widget::CreateWindowWithContextAndBounds(
-      new ResizableWidgetDelegate, root_window, gfx::Rect(10, 0, 50, 100));
-  first->Show();
-  views::Widget* second = views::Widget::CreateWindowWithContextAndBounds(
-      new ResizableWidgetDelegate, root_window, gfx::Rect(100, 0, 100, 100));
-  second->Show();
-
-  // Start a two-finger drag on |first|, and then try to use another two-finger
-  // drag to move |second|. The attempt to move |second| should fail.
-  const gfx::Rect& first_bounds = first->GetWindowBoundsInScreen();
-  const gfx::Rect& second_bounds = second->GetWindowBoundsInScreen();
-  const int kSteps = 15;
-  const int kTouchPoints = 4;
-  gfx::Point points[kTouchPoints] = {
-    first_bounds.origin() + gfx::Vector2d(5, 5),
-    first_bounds.origin() + gfx::Vector2d(30, 10),
-    second_bounds.origin() + gfx::Vector2d(5, 5),
-    second_bounds.origin() + gfx::Vector2d(40, 20)
-  };
-
-  ui::test::EventGenerator generator(root_window);
-  // Do not drag too fast to avoid fling.
-  generator.GestureMultiFingerScroll(kTouchPoints, points,
-      50, kSteps, 0, 150);
-
-  EXPECT_NE(first_bounds.ToString(),
-            first->GetWindowBoundsInScreen().ToString());
-  EXPECT_EQ(second_bounds.ToString(),
-            second->GetWindowBoundsInScreen().ToString());
 }
 
 TEST_F(SystemGestureEventFilterTest, WindowsWithMaxSizeDontSnap) {
@@ -577,7 +531,7 @@ TEST_F(SystemGestureEventFilterTest,
   delegate.set_window_component(HTCLIENT);
   scoped_ptr<aura::Window> child(new aura::Window(&delegate));
   child->SetType(ui::wm::WINDOW_TYPE_CONTROL);
-  child->Init(aura::WINDOW_LAYER_TEXTURED);
+  child->Init(ui::LAYER_TEXTURED);
   parent->AddChild(child.get());
   child->SetBounds(gfx::Rect(100, 100));
   child->Show();

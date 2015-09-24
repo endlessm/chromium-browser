@@ -55,6 +55,10 @@ class VariationsSeedStore {
   // Registers Local State prefs used by this class.
   static void RegisterPrefs(PrefRegistrySimple* registry);
 
+  // Returns the invalid signature in base64 format, or an empty string if the
+  // signature was valid, missing, or if signature verification is disabled.
+  std::string GetInvalidSignature() const;
+
  protected:
   // Note: UMA histogram enum - don't re-order or remove entries.
   enum VerifySignatureResult {
@@ -82,11 +86,17 @@ class VariationsSeedStore {
   // Clears all prefs related to variations seed storage.
   void ClearPrefs();
 
+  // Reads the variations seed data from prefs; returns true on success.
+  bool ReadSeedData(std::string* seed_data);
+
   // The pref service used to persist the variations seed.
   PrefService* local_state_;
 
   // Cached serial number from the most recently fetched variations seed.
   std::string variations_serial_number_;
+
+  // Keeps track of an invalid signature.
+  std::string invalid_base64_signature_;
 
   DISALLOW_COPY_AND_ASSIGN(VariationsSeedStore);
 };

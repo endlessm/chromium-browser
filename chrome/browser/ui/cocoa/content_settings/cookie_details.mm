@@ -147,13 +147,8 @@
     created_.reset([base::SysUTF16ToNSString(
         base::TimeFormatFriendlyDateAndTime(cookie->CreationDate())) retain]);
 
-    if (cookie->IsSecure()) {
-      sendFor_.reset([l10n_util::GetNSStringWithFixup(
-          IDS_COOKIES_COOKIE_SENDFOR_SECURE) retain]);
-    } else {
-      sendFor_.reset([l10n_util::GetNSStringWithFixup(
-          IDS_COOKIES_COOKIE_SENDFOR_ANY) retain]);
-    }
+    sendFor_.reset([l10n_util::GetNSStringWithFixup(
+        CookiesTreeModel::GetSendForMessageID(*cookie)) retain]);
   }
   return self;
 }
@@ -270,6 +265,8 @@
     canEditExpiration_ = NO;
     domain_.reset([base::SysUTF8ToNSString(
         serviceWorkerInfo->origin.spec()) retain]);
+    fileSize_.reset([base::SysUTF16ToNSString(
+        ui::FormatBytes(serviceWorkerInfo->total_size_bytes)) retain]);
 
     NSMutableArray *scopes = [[NSMutableArray alloc]
                          initWithCapacity:serviceWorkerInfo->scopes.size()];

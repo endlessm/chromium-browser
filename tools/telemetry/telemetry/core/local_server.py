@@ -2,6 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+# TODO(aiolos): this should be moved to catapult/base after the repo move.
+# It is used by tracing in tvcm/browser_controller.
 import collections
 import json
 import os
@@ -9,8 +11,8 @@ import re
 import subprocess
 import sys
 
-from telemetry.core import forwarders
 from telemetry.core import util
+from telemetry.internal import forwarders
 
 NamedPort = collections.namedtuple('NamedPort', ['name', 'port'])
 
@@ -131,17 +133,17 @@ class LocalServer(object):
     raise NotImplementedError()
 
 
-class LocalServerController():
+class LocalServerController(object):
   """Manages the list of running servers
 
   This class manages the running servers, but also provides an isolation layer
   to prevent LocalServer subclasses from accessing the browser backend directly.
 
   """
-  def __init__(self, browser_backend):
-    self._browser_backend = browser_backend
+  def __init__(self, platform_backend):
+    self._platform_backend = platform_backend
     self._local_servers_by_class = {}
-    self.host_ip = self._browser_backend.forwarder_factory.host_ip
+    self.host_ip = self._platform_backend.forwarder_factory.host_ip
 
   def StartServer(self, server):
     assert not server.is_running, 'Server already started'
@@ -171,10 +173,10 @@ class LocalServerController():
         traceback.print_exc()
 
   def CreateForwarder(self, port_pairs):
-    return self._browser_backend.forwarder_factory.Create(port_pairs)
+    return self._platform_backend.forwarder_factory.Create(port_pairs)
 
   def GetRemotePort(self, port):
-    return self._browser_backend.GetRemotePort(port)
+    return self._platform_backend.GetRemotePort(port)
 
   def ServerDidClose(self, server):
     del self._local_servers_by_class[server.__class__]

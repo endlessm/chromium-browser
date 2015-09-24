@@ -11,9 +11,52 @@
 namespace v8 {
 namespace internal {
 
+
+Handle<ScriptContextTable> ScriptContextTable::Extend(
+    Handle<ScriptContextTable> table, Handle<Context> script_context) {
+  Handle<ScriptContextTable> result;
+  int used = table->used();
+  int length = table->length();
+  CHECK(used >= 0 && length > 0 && used < length);
+  if (used + 1 == length) {
+    CHECK(length < Smi::kMaxValue / 2);
+    result = Handle<ScriptContextTable>::cast(
+        FixedArray::CopySize(table, length * 2));
+  } else {
+    result = table;
+  }
+  result->set_used(used + 1);
+
+  DCHECK(script_context->IsScriptContext());
+  result->set(used + 1, *script_context);
+  return result;
+}
+
+
+bool ScriptContextTable::Lookup(Handle<ScriptContextTable> table,
+                                Handle<String> name, LookupResult* result) {
+  for (int i = 0; i < table->used(); i++) {
+    Handle<Context> context = GetContext(table, i);
+    DCHECK(context->IsScriptContext());
+    Handle<ScopeInfo> scope_info(ScopeInfo::cast(context->extension()));
+    int slot_index = ScopeInfo::ContextSlotIndex(
+        scope_info, name, &result->mode, &result->location, &result->init_flag,
+        &result->maybe_assigned_flag);
+
+    if (slot_index >= 0 && result->location == VariableLocation::CONTEXT) {
+      result->context_index = i;
+      result->slot_index = slot_index;
+      return true;
+    }
+  }
+  return false;
+}
+
+
 Context* Context::declaration_context() {
   Context* current = this;
-  while (!current->IsFunctionContext() && !current->IsNativeContext()) {
+  while (!current->IsFunctionContext() && !current->IsNativeContext() &&
+         !current->IsScriptContext()) {
     current = current->previous();
     DCHECK(current->closure() == closure());
   }
@@ -32,9 +75,9 @@ JSBuiltinsObject* Context::builtins() {
 }
 
 
-Context* Context::global_context() {
+Context* Context::script_context() {
   Context* current = this;
-  while (!current->IsGlobalContext()) {
+  while (!current->IsScriptContext()) {
     current = current->previous();
   }
   return current;
@@ -42,22 +85,13 @@ Context* Context::global_context() {
 
 
 Context* Context::native_context() {
-  // Fast case: the global object for this context has been set.  In
-  // that case, the global object has a direct pointer to the global
-  // context.
-  if (global_object()->IsGlobalObject()) {
-    return global_object()->native_context();
-  }
-
-  // During bootstrapping, the global object might not be set and we
-  // have to search the context chain to find the native context.
-  DCHECK(this->GetIsolate()->bootstrapper()->IsActive());
-  Context* current = this;
-  while (!current->IsNativeContext()) {
-    JSFunction* closure = JSFunction::cast(current->closure());
-    current = Context::cast(closure->context());
-  }
-  return current;
+  // Fast case: the receiver context is already a native context.
+  if (IsNativeContext()) return this;
+  // The global object has a direct pointer to the native context. If the
+  // following DCHECK fails, the native context is probably being accessed
+  // indirectly during bootstrapping. This is unsupported.
+  DCHECK(global_object()->IsGlobalObject());
+  return global_object()->native_context();
 }
 
 
@@ -79,27 +113,73 @@ static Maybe<PropertyAttributes> UnscopableLookup(LookupIterator* it) {
   Isolate* isolate = it->isolate();
 
   Maybe<PropertyAttributes> attrs = JSReceiver::GetPropertyAttributes(it);
-  DCHECK(attrs.has_value || isolate->has_pending_exception());
-  if (!attrs.has_value || attrs.value == ABSENT) return attrs;
+  DCHECK(attrs.IsJust() || isolate->has_pending_exception());
+  if (!attrs.IsJust() || attrs.FromJust() == ABSENT) return attrs;
 
-  Handle<Symbol> unscopables_symbol(
-      isolate->native_context()->unscopables_symbol(), isolate);
+  Handle<Symbol> unscopables_symbol = isolate->factory()->unscopables_symbol();
   Handle<Object> receiver = it->GetReceiver();
   Handle<Object> unscopables;
   MaybeHandle<Object> maybe_unscopables =
       Object::GetProperty(receiver, unscopables_symbol);
   if (!maybe_unscopables.ToHandle(&unscopables)) {
-    return Maybe<PropertyAttributes>();
+    return Nothing<PropertyAttributes>();
   }
   if (!unscopables->IsSpecObject()) return attrs;
-  Maybe<bool> blacklist = JSReceiver::HasProperty(
-      Handle<JSReceiver>::cast(unscopables), it->name());
-  if (!blacklist.has_value) {
+  Handle<Object> blacklist;
+  MaybeHandle<Object> maybe_blacklist =
+      Object::GetProperty(unscopables, it->name());
+  if (!maybe_blacklist.ToHandle(&blacklist)) {
     DCHECK(isolate->has_pending_exception());
-    return Maybe<PropertyAttributes>();
+    return Nothing<PropertyAttributes>();
   }
-  if (blacklist.value) return maybe(ABSENT);
-  return attrs;
+  return blacklist->BooleanValue() ? Just(ABSENT) : attrs;
+}
+
+static void GetAttributesAndBindingFlags(VariableMode mode,
+                                         InitializationFlag init_flag,
+                                         PropertyAttributes* attributes,
+                                         BindingFlags* binding_flags) {
+  switch (mode) {
+    case INTERNAL:  // Fall through.
+    case VAR:
+      *attributes = NONE;
+      *binding_flags = MUTABLE_IS_INITIALIZED;
+      break;
+    case LET:
+      *attributes = NONE;
+      *binding_flags = (init_flag == kNeedsInitialization)
+                           ? MUTABLE_CHECK_INITIALIZED
+                           : MUTABLE_IS_INITIALIZED;
+      break;
+    case CONST_LEGACY:
+      *attributes = READ_ONLY;
+      *binding_flags = (init_flag == kNeedsInitialization)
+                           ? IMMUTABLE_CHECK_INITIALIZED
+                           : IMMUTABLE_IS_INITIALIZED;
+      break;
+    case CONST:
+      *attributes = READ_ONLY;
+      *binding_flags = (init_flag == kNeedsInitialization)
+                           ? IMMUTABLE_CHECK_INITIALIZED_HARMONY
+                           : IMMUTABLE_IS_INITIALIZED_HARMONY;
+      break;
+    case IMPORT:
+      // TODO(ES6)
+      UNREACHABLE();
+      break;
+    case DYNAMIC:
+    case DYNAMIC_GLOBAL:
+    case DYNAMIC_LOCAL:
+    case TEMPORARY:
+      // Note: Fixed context slots are statically allocated by the compiler.
+      // Statically allocated variables always have a statically known mode,
+      // which is the mode with which they were declared when added to the
+      // scope. Thus, the DYNAMIC mode (which corresponds to dynamically
+      // declared variables that were introduced through declaration nodes)
+      // must not appear here.
+      UNREACHABLE();
+      break;
+  }
 }
 
 
@@ -122,29 +202,14 @@ Handle<Object> Context::Lookup(Handle<String> name,
     PrintF(")\n");
   }
 
-  bool visited_global_context = false;
-
   do {
     if (FLAG_trace_contexts) {
       PrintF(" - looking in context %p", reinterpret_cast<void*>(*context));
-      if (context->IsGlobalContext()) PrintF(" (global context)");
+      if (context->IsScriptContext()) PrintF(" (script context)");
       if (context->IsNativeContext()) PrintF(" (native context)");
       PrintF("\n");
     }
 
-    if (follow_context_chain && FLAG_harmony_scoping &&
-        !visited_global_context &&
-        (context->IsGlobalContext() || context->IsNativeContext())) {
-      // For lexical scoping, on a top level, we might resolve to the
-      // lexical bindings introduced by later scrips. Therefore we need to
-      // switch to the the last added global context during lookup here.
-      context = Handle<Context>(context->global_object()->global_context());
-      visited_global_context = true;
-      if (FLAG_trace_contexts) {
-        PrintF("   - switching to current global context %p\n",
-               reinterpret_cast<void*>(*context));
-      }
-    }
 
     // 1. Check global objects, subjects of with, and extension objects.
     if (context->IsNativeContext() ||
@@ -152,25 +217,54 @@ Handle<Object> Context::Lookup(Handle<String> name,
         (context->IsFunctionContext() && context->has_extension())) {
       Handle<JSReceiver> object(
           JSReceiver::cast(context->extension()), isolate);
+
+      if (context->IsNativeContext()) {
+        if (FLAG_trace_contexts) {
+          PrintF(" - trying other script contexts\n");
+        }
+        // Try other script contexts.
+        Handle<ScriptContextTable> script_contexts(
+            context->global_object()->native_context()->script_context_table());
+        ScriptContextTable::LookupResult r;
+        if (ScriptContextTable::Lookup(script_contexts, name, &r)) {
+          if (FLAG_trace_contexts) {
+            Handle<Context> c = ScriptContextTable::GetContext(script_contexts,
+                                                               r.context_index);
+            PrintF("=> found property in script context %d: %p\n",
+                   r.context_index, reinterpret_cast<void*>(*c));
+          }
+          *index = r.slot_index;
+          GetAttributesAndBindingFlags(r.mode, r.init_flag, attributes,
+                                       binding_flags);
+          return ScriptContextTable::GetContext(script_contexts,
+                                                r.context_index);
+        }
+      }
+
       // Context extension objects needs to behave as if they have no
       // prototype.  So even if we want to follow prototype chains, we need
       // to only do a local lookup for context extension objects.
-      Maybe<PropertyAttributes> maybe;
+      Maybe<PropertyAttributes> maybe = Nothing<PropertyAttributes>();
       if ((flags & FOLLOW_PROTOTYPE_CHAIN) == 0 ||
           object->IsJSContextExtensionObject()) {
         maybe = JSReceiver::GetOwnPropertyAttributes(object, name);
       } else if (context->IsWithContext()) {
-        LookupIterator it(object, name);
-        maybe = UnscopableLookup(&it);
+        // A with context will never bind "this".
+        if (name->Equals(*isolate->factory()->this_string())) {
+          maybe = Just(ABSENT);
+        } else {
+          LookupIterator it(object, name);
+          maybe = UnscopableLookup(&it);
+        }
       } else {
         maybe = JSReceiver::GetPropertyAttributes(object, name);
       }
 
-      if (!maybe.has_value) return Handle<Object>();
+      if (!maybe.IsJust()) return Handle<Object>();
       DCHECK(!isolate->has_pending_exception());
-      *attributes = maybe.value;
+      *attributes = maybe.FromJust();
 
-      if (maybe.value != ABSENT) {
+      if (maybe.FromJust() != ABSENT) {
         if (FLAG_trace_contexts) {
           PrintF("=> found property in context object %p\n",
                  reinterpret_cast<void*>(*object));
@@ -181,7 +275,7 @@ Handle<Object> Context::Lookup(Handle<String> name,
 
     // 2. Check the context proper if it has slots.
     if (context->IsFunctionContext() || context->IsBlockContext() ||
-        (FLAG_harmony_scoping && context->IsGlobalContext())) {
+        context->IsScriptContext()) {
       // Use serialized scope information of functions and blocks to search
       // for the context index.
       Handle<ScopeInfo> scope_info;
@@ -193,58 +287,22 @@ Handle<Object> Context::Lookup(Handle<String> name,
             ScopeInfo::cast(context->extension()), isolate);
       }
       VariableMode mode;
+      VariableLocation location;
       InitializationFlag init_flag;
       // TODO(sigurds) Figure out whether maybe_assigned_flag should
       // be used to compute binding_flags.
       MaybeAssignedFlag maybe_assigned_flag;
       int slot_index = ScopeInfo::ContextSlotIndex(
-          scope_info, name, &mode, &init_flag, &maybe_assigned_flag);
+          scope_info, name, &mode, &location, &init_flag, &maybe_assigned_flag);
       DCHECK(slot_index < 0 || slot_index >= MIN_CONTEXT_SLOTS);
-      if (slot_index >= 0) {
+      if (slot_index >= 0 && location == VariableLocation::CONTEXT) {
         if (FLAG_trace_contexts) {
           PrintF("=> found local in context slot %d (mode = %d)\n",
                  slot_index, mode);
         }
         *index = slot_index;
-        // Note: Fixed context slots are statically allocated by the compiler.
-        // Statically allocated variables always have a statically known mode,
-        // which is the mode with which they were declared when added to the
-        // scope. Thus, the DYNAMIC mode (which corresponds to dynamically
-        // declared variables that were introduced through declaration nodes)
-        // must not appear here.
-        switch (mode) {
-          case INTERNAL:  // Fall through.
-          case VAR:
-            *attributes = NONE;
-            *binding_flags = MUTABLE_IS_INITIALIZED;
-            break;
-          case LET:
-            *attributes = NONE;
-            *binding_flags = (init_flag == kNeedsInitialization)
-                ? MUTABLE_CHECK_INITIALIZED : MUTABLE_IS_INITIALIZED;
-            break;
-          case CONST_LEGACY:
-            *attributes = READ_ONLY;
-            *binding_flags = (init_flag == kNeedsInitialization)
-                ? IMMUTABLE_CHECK_INITIALIZED : IMMUTABLE_IS_INITIALIZED;
-            break;
-          case CONST:
-            *attributes = READ_ONLY;
-            *binding_flags = (init_flag == kNeedsInitialization)
-                ? IMMUTABLE_CHECK_INITIALIZED_HARMONY :
-                IMMUTABLE_IS_INITIALIZED_HARMONY;
-            break;
-          case MODULE:
-            *attributes = READ_ONLY;
-            *binding_flags = IMMUTABLE_IS_INITIALIZED_HARMONY;
-            break;
-          case DYNAMIC:
-          case DYNAMIC_GLOBAL:
-          case DYNAMIC_LOCAL:
-          case TEMPORARY:
-            UNREACHABLE();
-            break;
-        }
+        GetAttributesAndBindingFlags(mode, init_flag, attributes,
+                                     binding_flags);
         return context;
       }
 
@@ -295,6 +353,27 @@ Handle<Object> Context::Lookup(Handle<String> name,
 }
 
 
+void Context::InitializeGlobalSlots() {
+  DCHECK(IsScriptContext());
+  DisallowHeapAllocation no_gc;
+
+  ScopeInfo* scope_info = ScopeInfo::cast(extension());
+
+  int context_globals = scope_info->ContextGlobalCount();
+  if (context_globals > 0) {
+    PropertyCell* empty_cell = GetHeap()->empty_property_cell();
+
+    int context_locals = scope_info->ContextLocalCount();
+    int index = Context::MIN_CONTEXT_SLOTS + context_locals;
+    for (int i = 0; i < context_globals; i++) {
+      // Clear both read and write slots.
+      set(index++, empty_cell);
+      set(index++, empty_cell);
+    }
+  }
+}
+
+
 void Context::AddOptimizedFunction(JSFunction* function) {
   DCHECK(IsNativeContext());
 #ifdef ENABLE_SLOW_DCHECKS
@@ -328,8 +407,9 @@ void Context::AddOptimizedFunction(JSFunction* function) {
 
   DCHECK(function->next_function_link()->IsUndefined());
 
-  function->set_next_function_link(get(OPTIMIZED_FUNCTIONS_LIST));
-  set(OPTIMIZED_FUNCTIONS_LIST, function);
+  function->set_next_function_link(get(OPTIMIZED_FUNCTIONS_LIST),
+                                   UPDATE_WEAK_WRITE_BARRIER);
+  set(OPTIMIZED_FUNCTIONS_LIST, function, UPDATE_WEAK_WRITE_BARRIER);
 }
 
 
@@ -343,11 +423,14 @@ void Context::RemoveOptimizedFunction(JSFunction* function) {
            element_function->next_function_link()->IsJSFunction());
     if (element_function == function) {
       if (prev == NULL) {
-        set(OPTIMIZED_FUNCTIONS_LIST, element_function->next_function_link());
+        set(OPTIMIZED_FUNCTIONS_LIST, element_function->next_function_link(),
+            UPDATE_WEAK_WRITE_BARRIER);
       } else {
-        prev->set_next_function_link(element_function->next_function_link());
+        prev->set_next_function_link(element_function->next_function_link(),
+                                     UPDATE_WEAK_WRITE_BARRIER);
       }
-      element_function->set_next_function_link(GetHeap()->undefined_value());
+      element_function->set_next_function_link(GetHeap()->undefined_value(),
+                                               UPDATE_WEAK_WRITE_BARRIER);
       return;
     }
     prev = element_function;
@@ -359,7 +442,7 @@ void Context::RemoveOptimizedFunction(JSFunction* function) {
 
 void Context::SetOptimizedFunctionsListHead(Object* head) {
   DCHECK(IsNativeContext());
-  set(OPTIMIZED_FUNCTIONS_LIST, head);
+  set(OPTIMIZED_FUNCTIONS_LIST, head, UPDATE_WEAK_WRITE_BARRIER);
 }
 
 
@@ -374,13 +457,13 @@ void Context::AddOptimizedCode(Code* code) {
   DCHECK(code->kind() == Code::OPTIMIZED_FUNCTION);
   DCHECK(code->next_code_link()->IsUndefined());
   code->set_next_code_link(get(OPTIMIZED_CODE_LIST));
-  set(OPTIMIZED_CODE_LIST, code);
+  set(OPTIMIZED_CODE_LIST, code, UPDATE_WEAK_WRITE_BARRIER);
 }
 
 
 void Context::SetOptimizedCodeListHead(Object* head) {
   DCHECK(IsNativeContext());
-  set(OPTIMIZED_CODE_LIST, head);
+  set(OPTIMIZED_CODE_LIST, head, UPDATE_WEAK_WRITE_BARRIER);
 }
 
 
@@ -392,7 +475,7 @@ Object* Context::OptimizedCodeListHead() {
 
 void Context::SetDeoptimizedCodeListHead(Object* head) {
   DCHECK(IsNativeContext());
-  set(DEOPTIMIZED_CODE_LIST, head);
+  set(DEOPTIMIZED_CODE_LIST, head, UPDATE_WEAK_WRITE_BARRIER);
 }
 
 
@@ -419,7 +502,7 @@ bool Context::IsBootstrappingOrValidParentContext(
   if (child->GetIsolate()->bootstrapper()->IsActive()) return true;
   if (!object->IsContext()) return false;
   Context* context = Context::cast(object);
-  return context->IsNativeContext() || context->IsGlobalContext() ||
+  return context->IsNativeContext() || context->IsScriptContext() ||
          context->IsModuleContext() || !child->IsModuleContext();
 }
 
@@ -433,4 +516,5 @@ bool Context::IsBootstrappingOrGlobalObject(Isolate* isolate, Object* object) {
 }
 #endif
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

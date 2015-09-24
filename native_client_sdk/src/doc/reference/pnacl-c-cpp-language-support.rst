@@ -50,8 +50,8 @@ Memory Model for Concurrent Operations
 
 The memory model offered by PNaCl relies on the same coding guidelines
 as the C11/C++11 one: concurrent accesses must always occur through
-atomic primitives (offered by `atomic intrinsics
-<PNaClLangRef.html#atomicintrinsics>`_), and these accesses must always
+atomic primitives (offered by :ref:`atomic intrinsics 
+<bitcode_atomicintrinsics>`), and these accesses must always
 occur with the same size for the same memory location. Visibility of
 stores is provided on a happens-before basis that relates memory
 locations to each other as the C11/C++11 standards do.
@@ -176,12 +176,19 @@ C++ Exception Handling
 ======================
 
 PNaCl currently supports C++ exception handling through ``setjmp()`` and
-``longjmp()``, which can be enabled with the ``--pnacl-exceptions=sjlj``
-linker flag. Exceptions are disabled by default so that faster and
-smaller code is generated, and ``throw`` statements are replaced with
-calls to ``abort()``. The usual ``-fno-exceptions`` flag is also
-supported. PNaCl will support full zero-cost exception handling in the
-future.
+``longjmp()``, which can be enabled with the ``--pnacl-exceptions=sjlj`` linker
+flag (set with ``LDFLAGS`` when using Make). Exceptions are disabled by default
+so that faster and smaller code is generated, and ``throw`` statements are
+replaced with calls to ``abort()``. The usual ``-fno-exceptions`` flag is also
+supported, though the default is ``-fexceptions``. PNaCl will support full
+zero-cost exception handling in the future.
+
+.. note:: When using naclports_ or other prebuilt static libraries, you don't
+          need to recompile because the exception handling support is
+          implemented at link time (when all the static libraries are put
+          together with your application).
+
+.. _naclports: https://code.google.com/p/naclports
 
 NaCl supports full zero-cost C++ exception handling.
 
@@ -390,6 +397,8 @@ Undefined Behavior
 
 The C and C++ languages expose some undefined behavior which is
 discussed in :ref:`PNaCl Undefined Behavior <undefined_behavior>`.
+
+.. _c_cpp_floating_point:
 
 Floating-Point
 ==============

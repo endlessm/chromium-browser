@@ -37,14 +37,14 @@ typedef crypto::ScopedCAPIHandle<
 
 void ExplodedTimeToSystemTime(const base::Time::Exploded& exploded,
                               SYSTEMTIME* system_time) {
-  system_time->wYear = exploded.year;
-  system_time->wMonth = exploded.month;
-  system_time->wDayOfWeek = exploded.day_of_week;
-  system_time->wDay = exploded.day_of_month;
-  system_time->wHour = exploded.hour;
-  system_time->wMinute = exploded.minute;
-  system_time->wSecond = exploded.second;
-  system_time->wMilliseconds = exploded.millisecond;
+  system_time->wYear = static_cast<WORD>(exploded.year);
+  system_time->wMonth = static_cast<WORD>(exploded.month);
+  system_time->wDayOfWeek = static_cast<WORD>(exploded.day_of_week);
+  system_time->wDay = static_cast<WORD>(exploded.day_of_month);
+  system_time->wHour = static_cast<WORD>(exploded.hour);
+  system_time->wMinute = static_cast<WORD>(exploded.minute);
+  system_time->wSecond = static_cast<WORD>(exploded.second);
+  system_time->wMilliseconds = static_cast<WORD>(exploded.millisecond);
 }
 
 //-----------------------------------------------------------------------------
@@ -164,7 +164,7 @@ void X509Certificate::Initialize() {
   ca_fingerprint_ = CalculateCAFingerprint(intermediate_ca_certs_);
 
   const CRYPT_INTEGER_BLOB* serial = &cert_handle_->pCertInfo->SerialNumber;
-  scoped_ptr<uint8[]> serial_bytes(new uint8[serial->cbData]);
+  scoped_ptr<uint8_t[]> serial_bytes(new uint8_t[serial->cbData]);
   for (unsigned i = 0; i < serial->cbData; i++)
     serial_bytes[i] = serial->pbData[serial->cbData - i - 1];
   serial_number_ = std::string(
@@ -372,8 +372,8 @@ SHA1HashValue X509Certificate::CalculateCAFingerprint(
 }
 
 // static
-X509Certificate::OSCertHandle
-X509Certificate::ReadOSCertHandleFromPickle(PickleIterator* pickle_iter) {
+X509Certificate::OSCertHandle X509Certificate::ReadOSCertHandleFromPickle(
+    base::PickleIterator* pickle_iter) {
   const char* data;
   int length;
   if (!pickle_iter->ReadData(&data, &length))
@@ -411,7 +411,7 @@ X509Certificate::ReadOSCertHandleFromPickle(PickleIterator* pickle_iter) {
 
 // static
 bool X509Certificate::WriteOSCertHandleToPickle(OSCertHandle cert_handle,
-                                                Pickle* pickle) {
+                                                base::Pickle* pickle) {
   return pickle->WriteData(
       reinterpret_cast<char*>(cert_handle->pbCertEncoded),
       cert_handle->cbCertEncoded);

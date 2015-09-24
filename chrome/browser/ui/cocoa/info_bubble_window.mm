@@ -4,6 +4,8 @@
 
 #import "chrome/browser/ui/cocoa/info_bubble_window.h"
 
+#include <Carbon/Carbon.h>
+
 #include "base/basictypes.h"
 #include "base/logging.h"
 #include "base/mac/scoped_nsobject.h"
@@ -94,7 +96,7 @@ class AppNotificationBridge : public content::NotificationObserver {
 @implementation InfoBubbleWindow
 
 @synthesize allowedAnimations = allowedAnimations_;
-@synthesize canBecomeKeyWindow = canBecomeKeyWindow_;
+@synthesize infoBubbleCanBecomeKeyWindow = infoBubbleCanBecomeKeyWindow_;
 @synthesize allowShareParentKeyState = allowShareParentKeyState_;
 
 - (id)initWithContentRect:(NSRect)contentRect
@@ -110,7 +112,7 @@ class AppNotificationBridge : public content::NotificationObserver {
     [self setAllowShareParentKeyState:YES];
     [self setOpaque:NO];
     [self setHasShadow:YES];
-    canBecomeKeyWindow_ = YES;
+    infoBubbleCanBecomeKeyWindow_ = YES;
     allowedAnimations_ = info_bubble::kAnimateOrderIn |
                          info_bubble::kAnimateOrderOut;
     notificationBridge_.reset(new AppNotificationBridge(self));
@@ -135,13 +137,23 @@ class AppNotificationBridge : public content::NotificationObserver {
   return self;
 }
 
+- (BOOL)performKeyEquivalent:(NSEvent*)event {
+  if (([event keyCode] == kVK_Escape) ||
+      (([event keyCode] == kVK_ANSI_Period) &&
+       (([event modifierFlags] & NSCommandKeyMask) != 0))) {
+    [[self windowController] cancel:self];
+    return YES;
+  }
+  return [super performKeyEquivalent:event];
+}
+
 // According to
 // http://www.cocoabuilder.com/archive/message/cocoa/2006/6/19/165953,
 // NSBorderlessWindowMask windows cannot become key or main. In this
 // case, this is not necessarily a desired behavior. As an example, the
 // bubble could have buttons.
 - (BOOL)canBecomeKeyWindow {
-  return canBecomeKeyWindow_;
+  return infoBubbleCanBecomeKeyWindow_;
 }
 
 // Lets the traffic light buttons on the browser window keep their "active"
@@ -185,8 +197,10 @@ class AppNotificationBridge : public content::NotificationObserver {
 // Called by InfoBubbleWindowCloser when the window is to be really closed
 // after the fading animation is complete.
 - (void)finishCloseAfterAnimation {
-  if (closing_)
+  if (closing_) {
+    [[self parentWindow] removeChildWindow:self];
     [super close];
+  }
 }
 
 // Adds animation for info bubbles being ordered to the front.
@@ -231,6 +245,14 @@ class AppNotificationBridge : public content::NotificationObserver {
 
 - (BOOL)isClosing {
   return closing_;
+}
+
+// Override -[NSWindow addChildWindow] to prevent ShareKit bugs propagating
+// to the browser window. See http://crbug.com/475855.
+- (void)addChildWindow:(NSWindow*)childWindow
+               ordered:(NSWindowOrderingMode)orderingMode {
+  [[self parentWindow] removeChildWindow:self];
+  [super addChildWindow:childWindow ordered:orderingMode];
 }
 
 @end

@@ -7,7 +7,7 @@
 #include "base/bind.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/ref_counted_memory.h"
-#include "base/message_loop/message_loop.h"
+#include "base/run_loop.h"
 #include "sync/api/attachments/attachment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -21,7 +21,7 @@ const char kAttachmentData[] = "some data";
 
 class FakeAttachmentUploaderTest : public testing::Test {
  protected:
-  virtual void SetUp() {
+  void SetUp() override {
     upload_callback_count = 0;
     upload_callback = base::Bind(&FakeAttachmentUploaderTest::Increment,
                                  base::Unretained(this),
@@ -53,7 +53,7 @@ TEST_F(FakeAttachmentUploaderTest, UploadAttachment) {
   uploader.UploadAttachment(attachment1, upload_callback);
   uploader.UploadAttachment(attachment2, upload_callback);
   uploader.UploadAttachment(attachment3, upload_callback);
-  message_loop.RunUntilIdle();
+  base::RunLoop().RunUntilIdle();
   EXPECT_EQ(upload_callback_count, 3);
 }
 

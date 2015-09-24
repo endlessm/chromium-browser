@@ -4,9 +4,11 @@
 
 #include "ui/views/test/views_test_helper_aura.h"
 
+#include "ui/aura/client/screen_position_client.h"
 #include "ui/aura/test/aura_test_helper.h"
 #include "ui/wm/core/capture_controller.h"
 #include "ui/wm/core/default_activation_client.h"
+#include "ui/wm/core/default_screen_position_client.h"
 #include "ui/wm/core/wm_state.h"
 
 namespace views {
@@ -28,11 +30,31 @@ ViewsTestHelperAura::~ViewsTestHelperAura() {
 
 void ViewsTestHelperAura::SetUp() {
   aura_test_helper_->SetUp(context_factory_);
-  new wm::DefaultActivationClient(aura_test_helper_->root_window());
+  gfx::NativeWindow root_window = GetContext();
+  new wm::DefaultActivationClient(root_window);
   wm_state_.reset(new wm::WMState);
+
+  if (!aura::client::GetScreenPositionClient(root_window)) {
+    screen_position_client_.reset(new wm::DefaultScreenPositionClient);
+    aura::client::SetScreenPositionClient(root_window,
+                                          screen_position_client_.get());
+  }
 }
 
 void ViewsTestHelperAura::TearDown() {
+  // Ensure all Widgets (and windows) are closed in unit tests. This is done
+  // automatically when the RootWindow is torn down, but is an error on
+  // platforms that must ensure no Compositors are alive when the ContextFactory
+  // is torn down.
+  // So, although it's optional, check the root window to detect failures before
+  // they hit the CQ on other platforms.
+  DCHECK(aura_test_helper_->root_window()->children().empty())
+      << "Not all windows were closed.";
+
+  if (screen_position_client_.get() ==
+      aura::client::GetScreenPositionClient(GetContext()))
+    aura::client::SetScreenPositionClient(GetContext(), nullptr);
+
   aura_test_helper_->TearDown();
   wm_state_.reset();
   CHECK(!wm::ScopedCaptureClient::IsActive());

@@ -23,10 +23,13 @@
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/bookmarks/browser/bookmark_model.h"
+#include "components/bookmarks/browser/bookmark_node_data.h"
 #include "components/search/search.h"
 #include "components/user_prefs/user_prefs.h"
 #include "content/public/browser/web_contents.h"
 #include "net/base/net_util.h"
+#include "ui/base/dragdrop/drag_drop_types.h"
+#include "ui/base/dragdrop/drop_target_event.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if defined(ENABLE_EXTENSIONS)
@@ -34,6 +37,9 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension_set.h"
 #endif
+
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
 
 namespace chrome {
 
@@ -45,7 +51,7 @@ namespace {
 enum BookmarkShortcutDisposition {
   BOOKMARK_SHORTCUT_DISPOSITION_UNCHANGED,
   BOOKMARK_SHORTCUT_DISPOSITION_REMOVED,
-  BOOKMARK_SHORTCUT_DISPOSITION_OVERRIDDEN
+  BOOKMARK_SHORTCUT_DISPOSITION_OVERRIDE_REQUESTED
 };
 
 // Iterator that iterates through a set of BookmarkNodes returning the URLs
@@ -176,8 +182,8 @@ BookmarkShortcutDisposition GetBookmarkShortcutDisposition(Profile* profile) {
        i != extension_set.end();
        ++i) {
     // Use the overridden disposition if any extension wants it.
-    if (command_service->OverridesBookmarkShortcut(i->get()))
-      return BOOKMARK_SHORTCUT_DISPOSITION_OVERRIDDEN;
+    if (command_service->RequestsBookmarkShortcutOverride(i->get()))
+      return BOOKMARK_SHORTCUT_DISPOSITION_OVERRIDE_REQUESTED;
 
     if (!removed &&
         extensions::CommandService::RemovesBookmarkShortcut(i->get())) {
@@ -327,9 +333,9 @@ base::string16 FormatBookmarkURLForDisplay(const GURL& url,
 
 bool IsAppsShortcutEnabled(Profile* profile,
                            chrome::HostDesktopType host_desktop_type) {
-  // Supervised users can not have apps installed currently so there's no need
-  // to show the apps shortcut.
-  if (profile->IsSupervised())
+  // Legacy supervised users can not have apps installed currently so there's no
+  // need to show the apps shortcut.
+  if (profile->IsLegacySupervised())
     return false;
 
   // Don't show the apps shortcut in ash since the app launcher is enabled.
@@ -371,6 +377,108 @@ bool ShouldRemoveBookmarkOpenPagesUI(Profile* profile) {
 #endif
 
   return false;
+}
+
+int GetBookmarkDragOperation(content::BrowserContext* browser_context,
+                             const BookmarkNode* node) {
+  PrefService* prefs = user_prefs::UserPrefs::Get(browser_context);
+  Profile* profile = Profile::FromBrowserContext(browser_context);
+  BookmarkModel* model = BookmarkModelFactory::GetForProfile(profile);
+
+  int move = ui::DragDropTypes::DRAG_MOVE;
+  if (!prefs->GetBoolean(bookmarks::prefs::kEditBookmarksEnabled) ||
+      !model->client()->CanBeEditedByUser(node)) {
+    move = ui::DragDropTypes::DRAG_NONE;
+  }
+  if (node->is_url())
+    return ui::DragDropTypes::DRAG_COPY | ui::DragDropTypes::DRAG_LINK | move;
+  return ui::DragDropTypes::DRAG_COPY | move;
+}
+
+int GetPreferredBookmarkDropOperation(int source_operations, int operations) {
+  int common_ops = (source_operations & operations);
+  if (!common_ops)
+    return ui::DragDropTypes::DRAG_NONE;
+  if (ui::DragDropTypes::DRAG_COPY & common_ops)
+    return ui::DragDropTypes::DRAG_COPY;
+  if (ui::DragDropTypes::DRAG_LINK & common_ops)
+    return ui::DragDropTypes::DRAG_LINK;
+  if (ui::DragDropTypes::DRAG_MOVE & common_ops)
+    return ui::DragDropTypes::DRAG_MOVE;
+  return ui::DragDropTypes::DRAG_NONE;
+}
+
+int GetBookmarkDropOperation(Profile* profile,
+                             const ui::DropTargetEvent& event,
+                             const bookmarks::BookmarkNodeData& data,
+                             const BookmarkNode* parent,
+                             int index) {
+  const base::FilePath& profile_path = profile->GetPath();
+
+  if (data.IsFromProfilePath(profile_path) && data.size() > 1)
+    // Currently only accept one dragged node at a time.
+    return ui::DragDropTypes::DRAG_NONE;
+
+  if (!IsValidBookmarkDropLocation(profile, data, parent, index))
+    return ui::DragDropTypes::DRAG_NONE;
+
+  BookmarkModel* model = BookmarkModelFactory::GetForProfile(profile);
+  if (!model->client()->CanBeEditedByUser(parent))
+    return ui::DragDropTypes::DRAG_NONE;
+
+  const BookmarkNode* dragged_node =
+      data.GetFirstNode(model, profile->GetPath());
+  if (dragged_node) {
+    // User is dragging from this profile.
+    if (!model->client()->CanBeEditedByUser(dragged_node)) {
+      // Do a copy instead of a move when dragging bookmarks that the user can't
+      // modify.
+      return ui::DragDropTypes::DRAG_COPY;
+    }
+    return ui::DragDropTypes::DRAG_MOVE;
+  }
+
+  // User is dragging from another app, copy.
+  return GetPreferredBookmarkDropOperation(event.source_operations(),
+      ui::DragDropTypes::DRAG_COPY | ui::DragDropTypes::DRAG_LINK);
+}
+
+bool IsValidBookmarkDropLocation(Profile* profile,
+                                 const bookmarks::BookmarkNodeData& data,
+                                 const BookmarkNode* drop_parent,
+                                 int index) {
+  if (!drop_parent->is_folder()) {
+    NOTREACHED();
+    return false;
+  }
+
+  if (!data.is_valid())
+    return false;
+
+  BookmarkModel* model = BookmarkModelFactory::GetForProfile(profile);
+  if (!model->client()->CanBeEditedByUser(drop_parent))
+    return false;
+
+  const base::FilePath& profile_path = profile->GetPath();
+  if (data.IsFromProfilePath(profile_path)) {
+    std::vector<const BookmarkNode*> nodes = data.GetNodes(model, profile_path);
+    for (size_t i = 0; i < nodes.size(); ++i) {
+      // Don't allow the drop if the user is attempting to drop on one of the
+      // nodes being dragged.
+      const BookmarkNode* node = nodes[i];
+      int node_index = (drop_parent == node->parent()) ?
+          drop_parent->GetIndexOf(nodes[i]) : -1;
+      if (node_index != -1 && (index == node_index || index == node_index + 1))
+        return false;
+
+      // drop_parent can't accept a child that is an ancestor.
+      if (drop_parent->HasAncestor(node))
+        return false;
+    }
+    return true;
+  }
+  // From another profile, always accept.
+  return true;
 }
 
 }  // namespace chrome

@@ -37,15 +37,21 @@ class ExtensionLocalizationPeer : public content::RequestPeer {
                           const content::ResourceResponseInfo& info) override;
   void OnReceivedResponse(const content::ResourceResponseInfo& info) override;
   void OnDownloadedData(int len, int encoded_data_length) override {}
-  void OnReceivedData(const char* data,
-                      int data_length,
-                      int encoded_data_length) override;
+  void OnReceivedData(scoped_ptr<ReceivedData> data) override;
   void OnCompletedRequest(int error_code,
                           bool was_ignored_by_handler,
                           bool stale_copy_in_cache,
                           const std::string& security_info,
                           const base::TimeTicks& completion_time,
                           int64 total_transfer_size) override;
+  void OnReceivedCompletedResponse(const content::ResourceResponseInfo& info,
+                                   scoped_ptr<ReceivedData> data,
+                                   int error_code,
+                                   bool was_ignored_by_handler,
+                                   bool stale_copy_in_cache,
+                                   const std::string& security_info,
+                                   const base::TimeTicks& completion_time,
+                                   int64 total_transfer_size) override;
 
  private:
   friend class ExtensionLocalizationPeerTest;

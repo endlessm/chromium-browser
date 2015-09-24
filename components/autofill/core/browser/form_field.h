@@ -9,6 +9,7 @@
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "components/autofill/core/browser/field_types.h"
 
@@ -28,6 +29,7 @@ class FormField {
   // The association is stored into |map|.  Each field has a derived unique name
   // that is used as the key into the |map|.
   static void ParseFormFields(const std::vector<AutofillField*>& fields,
+                              bool is_form_tag,
                               ServerFieldTypeMap* map);
 
  protected:
@@ -36,21 +38,29 @@ class FormField {
     // Attributes.
     MATCH_LABEL      = 1 << 0,
     MATCH_NAME       = 1 << 1,
-    MATCH_VALUE      = 1 << 2,
 
     // Input types.
-    MATCH_TEXT       = 1 << 3,
-    MATCH_EMAIL      = 1 << 4,
-    MATCH_TELEPHONE  = 1 << 5,
-    MATCH_SELECT     = 1 << 6,
-    MATCH_TEXT_AREA  = 1 << 7,
-    MATCH_PASSWORD   = 1 << 8,
+    MATCH_TEXT       = 1 << 2,
+    MATCH_EMAIL      = 1 << 3,
+    MATCH_TELEPHONE  = 1 << 4,
+    MATCH_SELECT     = 1 << 5,
+    MATCH_TEXT_AREA  = 1 << 6,
+    MATCH_PASSWORD   = 1 << 7,
+    MATCH_NUMBER     = 1 << 8,
     MATCH_ALL_INPUTS =
         MATCH_TEXT | MATCH_EMAIL | MATCH_TELEPHONE | MATCH_SELECT |
-        MATCH_TEXT_AREA | MATCH_PASSWORD,
+        MATCH_TEXT_AREA | MATCH_PASSWORD | MATCH_NUMBER,
 
     // By default match label and name for input/text types.
-    MATCH_DEFAULT    = MATCH_LABEL | MATCH_NAME | MATCH_VALUE | MATCH_TEXT,
+    MATCH_DEFAULT    = MATCH_LABEL | MATCH_NAME | MATCH_TEXT,
+  };
+
+  // When parsing a field's label and name separately with a given pattern:
+  enum ParseNameLabelResult {
+    RESULT_MATCH_NONE,       // No match with the label or name.
+    RESULT_MATCH_LABEL,      // Only the label matches the pattern.
+    RESULT_MATCH_NAME,       // Only the name matches the pattern.
+    RESULT_MATCH_NAME_LABEL  // Name and label both match the pattern.
   };
 
   // Only derived classes may instantiate.
@@ -72,6 +82,17 @@ class FormField {
                                   int match_type,
                                   AutofillField** match);
 
+  // Like ParseFieldSpecifics(), but applies |pattern| against the name and
+  // label of the current field separately. If the return value is
+  // RESULT_MATCH_NAME_LABEL, then |scanner| advances and |match| is filled if
+  // it is non-NULL. Otherwise |scanner| does not advance and |match| does not
+  // change.
+  static ParseNameLabelResult ParseNameAndLabelSeparately(
+      AutofillScanner* scanner,
+      const base::string16& pattern,
+      int match_type,
+      AutofillField** match);
+
   // Attempts to parse a field with an empty label.  Returns true
   // on success and fills |match| with a pointer to the field.
   static bool ParseEmptyLabel(AutofillScanner* scanner, AutofillField** match);
@@ -80,6 +101,9 @@ class FormField {
   static bool AddClassification(const AutofillField* field,
                                 ServerFieldType type,
                                 ServerFieldTypeMap* map);
+
+  // Returns true iff |type| matches |match_type|.
+  static bool MatchesFormControlType(const std::string& type, int match_type);
 
   // Derived classes must implement this interface to supply field type
   // information.  |ParseFormFields| coordinates the parsing and extraction
@@ -92,7 +116,7 @@ class FormField {
 
   // Function pointer type for the parsing function that should be passed to the
   // ParseFormFieldsPass() helper function.
-  typedef FormField* ParseFunction(AutofillScanner* scanner);
+  typedef scoped_ptr<FormField> ParseFunction(AutofillScanner* scanner);
 
   // Matches |pattern| to the contents of the field at the head of the
   // |scanner|.
@@ -117,9 +141,6 @@ class FormField {
   static void ParseFormFieldsPass(ParseFunction parse,
                                   std::vector<AutofillField*>* fields,
                                   ServerFieldTypeMap* map);
-
-  // Returns true iff |type| matches |match_type|.
-  static bool MatchesFormControlType(const std::string& type, int match_type);
 
   DISALLOW_COPY_AND_ASSIGN(FormField);
 };

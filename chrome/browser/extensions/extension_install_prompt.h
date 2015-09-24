@@ -15,7 +15,7 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
-#include "chrome/browser/extensions/extension_install_prompt_experiment.h"
+#include "extensions/common/permissions/permission_message_provider.h"
 #include "extensions/common/url_pattern.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/image/image.h"
@@ -36,7 +36,7 @@ class WebContents;
 
 namespace extensions {
 class BundleInstaller;
-class CrxInstallerError;
+class CrxInstallError;
 class Extension;
 class ExtensionInstallUI;
 class ExtensionWebstorePrivateApiTest;
@@ -52,15 +52,6 @@ class InfoBarDelegate;
 class ExtensionInstallPrompt
     : public base::SupportsWeakPtr<ExtensionInstallPrompt> {
  public:
-  // A setting to cause extension/app installs from the webstore skip the normal
-  // confirmation dialog. This should only be used in tests.
-  enum AutoConfirmForTests {
-    NONE,    // The prompt will show normally.
-    ACCEPT,  // The prompt will always accept.
-    CANCEL,  // The prompt will always cancel.
-  };
-  static AutoConfirmForTests g_auto_confirm_for_tests;
-
   // This enum is associated with Extensions.InstallPrompt_Type UMA histogram.
   // Do not modify existing values and add new values only to the end.
   enum PromptType {
@@ -75,8 +66,13 @@ class ExtensionInstallPrompt
     LAUNCH_PROMPT,
     REMOTE_INSTALL_PROMPT,
     REPAIR_PROMPT,
+    DELEGATED_PERMISSIONS_PROMPT,
+    DELEGATED_BUNDLE_PERMISSIONS_PROMPT,
     NUM_PROMPT_TYPES
   };
+
+  // The last prompt type to display; only used for testing.
+  static PromptType g_last_prompt_type_for_tests;
 
   // Enumeration for permissions and retained files details.
   enum DetailsType {
@@ -106,12 +102,8 @@ class ExtensionInstallPrompt
    public:
     explicit Prompt(PromptType type);
 
-    // Sets the permission list for this prompt.
-    void SetPermissions(const std::vector<base::string16>& permissions,
+    void SetPermissions(const extensions::PermissionMessageStrings& permissions,
                         PermissionsType permissions_type);
-    // Sets the permission list details for this prompt.
-    void SetPermissionsDetails(const std::vector<base::string16>& details,
-                               PermissionsType permissions_type);
     void SetIsShowingDetails(DetailsType type,
                              size_t index,
                              bool is_showing_details);
@@ -119,18 +111,15 @@ class ExtensionInstallPrompt
                          bool show_user_count,
                          double average_rating,
                          int rating_count);
-    void SetUserNameFromProfile(Profile* profile);
 
     PromptType type() const { return type_; }
     void set_type(PromptType type) { type_ = type; }
 
     // Getters for UI element labels.
     base::string16 GetDialogTitle() const;
-    base::string16 GetHeading() const;
     int GetDialogButtons() const;
-    bool HasAcceptButtonLabel() const;
+    // Returns the empty string when there should be no "accept" button.
     base::string16 GetAcceptButtonLabel() const;
-    bool HasAbortButtonLabel() const;
     base::string16 GetAbortButtonLabel() const;
     base::string16 GetPermissionsHeading(
         PermissionsType permissions_type) const;
@@ -138,10 +127,9 @@ class ExtensionInstallPrompt
     base::string16 GetRetainedDevicesHeading() const;
 
     bool ShouldShowPermissions() const;
-    bool ShouldShowExplanationText() const;
 
     // Getters for webstore metadata. Only populated when the type is
-    // INLINE_INSTALL_PROMPT.
+    // INLINE_INSTALL_PROMPT, EXTERNAL_INSTALL_PROMPT, or REPAIR_PROMPT.
 
     // The star display logic replicates the one used by the webstore (from
     // components.ratingutils.setFractionalYellowStars). Callers pass in an
@@ -164,7 +152,8 @@ class ExtensionInstallPrompt
     size_t GetRetainedDeviceCount() const;
     base::string16 GetRetainedDeviceMessageString(size_t index) const;
 
-    // Populated for BUNDLE_INSTALL_PROMPT.
+    // Populated for BUNDLE_INSTALL_PROMPT and
+    // DELEGATED_BUNDLE_PERMISSIONS_PROMPT.
     const extensions::BundleInstaller* bundle() const { return bundle_; }
     void set_bundle(const extensions::BundleInstaller* bundle) {
       bundle_ = bundle;
@@ -185,17 +174,17 @@ class ExtensionInstallPrompt
       retained_device_messages_ = retained_device_messages;
     }
 
+    const std::string& delegated_username() const {
+      return delegated_username_;
+    }
+    void set_delegated_username(const std::string& delegated_username) {
+      delegated_username_ = delegated_username;
+    }
+
     const gfx::Image& icon() const { return icon_; }
     void set_icon(const gfx::Image& icon) { icon_ = icon; }
 
     bool has_webstore_data() const { return has_webstore_data_; }
-
-    const ExtensionInstallPromptExperiment* experiment() const {
-      return experiment_.get();
-    }
-    void set_experiment(ExtensionInstallPromptExperiment* experiment) {
-      experiment_ = experiment;
-    }
 
    private:
     friend class base::RefCountedThreadSafe<Prompt>;
@@ -237,6 +226,8 @@ class ExtensionInstallPrompt
     const extensions::Extension* extension_;
     const extensions::BundleInstaller* bundle_;
 
+    std::string delegated_username_;
+
     // The icon to be displayed.
     gfx::Image icon_;
 
@@ -258,8 +249,6 @@ class ExtensionInstallPrompt
 
     std::vector<base::FilePath> retained_files_;
     std::vector<base::string16> retained_device_messages_;
-
-    scoped_refptr<ExtensionInstallPromptExperiment> experiment_;
 
     DISALLOW_COPY_AND_ASSIGN(Prompt);
   };
@@ -316,9 +305,20 @@ class ExtensionInstallPrompt
   // This is called by the bundle installer to verify whether the bundle
   // should be installed.
   //
-  // We *MUST* eventually call either Proceed() or Abort() on |delegate|.
+  // We *MUST* eventually call either Proceed() or Abort() on |bundle|.
   virtual void ConfirmBundleInstall(
       extensions::BundleInstaller* bundle,
+      const SkBitmap* icon,
+      const extensions::PermissionSet* permissions);
+
+  // This is called by the bundle installer to verify the permissions for a
+  // delegated bundle install.
+  //
+  // We *MUST* eventually call either Proceed() or Abort() on |bundle|.
+  virtual void ConfirmPermissionsForDelegatedBundleInstall(
+      extensions::BundleInstaller* bundle,
+      const std::string& delegated_username,
+      const SkBitmap* icon,
       const extensions::PermissionSet* permissions);
 
   // This is called by the standalone installer to verify whether the install
@@ -349,6 +349,16 @@ class ExtensionInstallPrompt
   virtual void ConfirmInstall(Delegate* delegate,
                               const extensions::Extension* extension,
                               const ShowDialogCallback& show_dialog_callback);
+
+  // This is called by the webstore API to verify the permissions for a
+  // delegated install.
+  //
+  // We *MUST* eventually call either Proceed() or Abort() on |delegate|.
+  virtual void ConfirmPermissionsForDelegatedInstall(
+      Delegate* delegate,
+      const extensions::Extension* extension,
+      const std::string& delegated_username,
+      const SkBitmap* icon);
 
   // This is called by the app handler launcher to verify whether the app
   // should be re-enabled. This is declared virtual for testing.
@@ -390,7 +400,7 @@ class ExtensionInstallPrompt
                                 SkBitmap* icon);
 
   // Installation failed. This is declared virtual for testing.
-  virtual void OnInstallFailure(const extensions::CrxInstallerError& error);
+  virtual void OnInstallFailure(const extensions::CrxInstallError& error);
 
   void set_callback_for_test(const ShowDialogCallback& show_dialog_callback) {
     show_dialog_callback_ = show_dialog_callback;
@@ -429,11 +439,16 @@ class ExtensionInstallPrompt
   SkBitmap icon_;
 
   // The extension we are showing the UI for, if type is not
-  // BUNDLE_INSTALL_PROMPT.
+  // BUNDLE_INSTALL_PROMPT or DELEGATED_BUNDLE_PERMISSIONS_PROMPT.
   const extensions::Extension* extension_;
 
-  // The bundle we are showing the UI for, if type BUNDLE_INSTALL_PROMPT.
+  // The bundle we are showing the UI for, if type BUNDLE_INSTALL_PROMPT or
+  // DELEGATED_BUNDLE_PERMISSIONS_PROMPT.
   const extensions::BundleInstaller* bundle_;
+
+  // The name of the user we are asking about, if type
+  // DELEGATED_PERMISSIONS_PROMPT or DELEGATED_BUNDLE_PERMISSIONS_PROMPT.
+  std::string delegated_username_;
 
   // A custom set of permissions to show in the install prompt instead of the
   // extension's active permissions.

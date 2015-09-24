@@ -15,8 +15,8 @@
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
-#include "content/public/browser/render_view_host.h"
 #include "extensions/browser/api/runtime/runtime_api_delegate.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_host.h"
@@ -46,6 +46,7 @@ namespace {
 
 const char kNoBackgroundPageError[] = "You do not have a background page.";
 const char kPageLoadError[] = "Background page failed to load.";
+const char kFailedToCreateOptionsPage[] = "Could not create an options page.";
 const char kInstallId[] = "id";
 const char kInstallReason[] = "reason";
 const char kInstallReasonChromeUpdate[] = "chrome_update";
@@ -53,7 +54,7 @@ const char kInstallReasonUpdate[] = "update";
 const char kInstallReasonInstall[] = "install";
 const char kInstallReasonSharedModuleUpdate[] = "shared_module_update";
 const char kInstallPreviousVersion[] = "previousVersion";
-const char kInvalidUrlError[] = "Invalid URL.";
+const char kInvalidUrlError[] = "Invalid URL: \"*\".";
 const char kPlatformInfoUnavailable[] = "Platform information unavailable.";
 
 const char kUpdatesDisabledError[] = "Autoupdate is not enabled.";
@@ -94,20 +95,20 @@ void DispatchOnStartupEventImpl(BrowserContext* browser_context,
           extension_id);
   if (extension && BackgroundInfo::HasPersistentBackgroundPage(extension) &&
       first_call &&
-      system->lazy_background_task_queue()->ShouldEnqueueTask(browser_context,
-                                                              extension)) {
-    system->lazy_background_task_queue()->AddPendingTask(
-        browser_context,
-        extension_id,
-        base::Bind(
-            &DispatchOnStartupEventImpl, browser_context, extension_id, false));
+      LazyBackgroundTaskQueue::Get(browser_context)
+          ->ShouldEnqueueTask(browser_context, extension)) {
+    LazyBackgroundTaskQueue::Get(browser_context)
+        ->AddPendingTask(browser_context, extension_id,
+                         base::Bind(&DispatchOnStartupEventImpl,
+                                    browser_context, extension_id, false));
     return;
   }
 
   scoped_ptr<base::ListValue> event_args(new base::ListValue());
-  scoped_ptr<Event> event(
-      new Event(runtime::OnStartup::kEventName, event_args.Pass()));
-  system->event_router()->DispatchEventToExtension(extension_id, event.Pass());
+  scoped_ptr<Event> event(new Event(
+      events::UNKNOWN, runtime::OnStartup::kEventName, event_args.Pass()));
+  EventRouter::Get(browser_context)
+      ->DispatchEventToExtension(extension_id, event.Pass());
 }
 
 void SetUninstallURL(ExtensionPrefs* prefs,
@@ -268,6 +269,10 @@ bool RuntimeAPI::RestartDevice(std::string* error_message) {
   return delegate_->RestartDevice(error_message);
 }
 
+bool RuntimeAPI::OpenOptionsPage(const Extension* extension) {
+  return delegate_->OpenOptionsPage(extension);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 // static
@@ -300,11 +305,11 @@ void RuntimeEventRouter::DispatchOnInstalledEvent(
   } else {
     info->SetString(kInstallReason, kInstallReasonInstall);
   }
-  DCHECK(system->event_router());
-  scoped_ptr<Event> event(
-      new Event(runtime::OnInstalled::kEventName, event_args.Pass()));
-  system->event_router()->DispatchEventWithLazyListener(extension_id,
-                                                        event.Pass());
+  EventRouter* event_router = EventRouter::Get(context);
+  DCHECK(event_router);
+  scoped_ptr<Event> event(new Event(
+      events::UNKNOWN, runtime::OnInstalled::kEventName, event_args.Pass()));
+  event_router->DispatchEventWithLazyListener(extension_id, event.Pass());
 
   if (old_version.IsValid()) {
     const Extension* extension =
@@ -322,10 +327,11 @@ void RuntimeEventRouter::DispatchOnInstalledEvent(
         sm_info->SetString(kInstallReason, kInstallReasonSharedModuleUpdate);
         sm_info->SetString(kInstallPreviousVersion, old_version.GetString());
         sm_info->SetString(kInstallId, extension_id);
-        scoped_ptr<Event> sm_event(
-            new Event(runtime::OnInstalled::kEventName, sm_event_args.Pass()));
-        system->event_router()->DispatchEventWithLazyListener((*i)->id(),
-                                                              sm_event.Pass());
+        scoped_ptr<Event> sm_event(new Event(events::UNKNOWN,
+                                             runtime::OnInstalled::kEventName,
+                                             sm_event_args.Pass()));
+        event_router->DispatchEventWithLazyListener((*i)->id(),
+                                                    sm_event.Pass());
       }
     }
   }
@@ -342,10 +348,11 @@ void RuntimeEventRouter::DispatchOnUpdateAvailableEvent(
 
   scoped_ptr<base::ListValue> args(new base::ListValue);
   args->Append(manifest->DeepCopy());
-  DCHECK(system->event_router());
-  scoped_ptr<Event> event(
-      new Event(runtime::OnUpdateAvailable::kEventName, args.Pass()));
-  system->event_router()->DispatchEventToExtension(extension_id, event.Pass());
+  EventRouter* event_router = EventRouter::Get(context);
+  DCHECK(event_router);
+  scoped_ptr<Event> event(new Event(
+      events::UNKNOWN, runtime::OnUpdateAvailable::kEventName, args.Pass()));
+  event_router->DispatchEventToExtension(extension_id, event.Pass());
 }
 
 // static
@@ -356,27 +363,29 @@ void RuntimeEventRouter::DispatchOnBrowserUpdateAvailableEvent(
     return;
 
   scoped_ptr<base::ListValue> args(new base::ListValue);
-  DCHECK(system->event_router());
+  EventRouter* event_router = EventRouter::Get(context);
+  DCHECK(event_router);
   scoped_ptr<Event> event(
-      new Event(runtime::OnBrowserUpdateAvailable::kEventName, args.Pass()));
-  system->event_router()->BroadcastEvent(event.Pass());
+      new Event(events::UNKNOWN, runtime::OnBrowserUpdateAvailable::kEventName,
+                args.Pass()));
+  event_router->BroadcastEvent(event.Pass());
 }
 
 // static
 void RuntimeEventRouter::DispatchOnRestartRequiredEvent(
     content::BrowserContext* context,
     const std::string& app_id,
-    core_api::runtime::OnRestartRequired::Reason reason) {
+    core_api::runtime::OnRestartRequiredReason reason) {
   ExtensionSystem* system = ExtensionSystem::Get(context);
   if (!system)
     return;
 
   scoped_ptr<Event> event(
-      new Event(runtime::OnRestartRequired::kEventName,
+      new Event(events::UNKNOWN, runtime::OnRestartRequired::kEventName,
                 core_api::runtime::OnRestartRequired::Create(reason)));
-
-  DCHECK(system->event_router());
-  system->event_router()->DispatchEventToExtension(app_id, event.Pass());
+  EventRouter* event_router = EventRouter::Get(context);
+  DCHECK(event_router);
+  event_router->DispatchEventToExtension(app_id, event.Pass());
 }
 
 // static
@@ -392,22 +401,24 @@ void RuntimeEventRouter::OnExtensionUninstalled(
   GURL uninstall_url(
       GetUninstallURL(ExtensionPrefs::Get(context), extension_id));
 
-  if (uninstall_url.is_empty())
+  if (!uninstall_url.SchemeIsHTTPOrHTTPS()) {
+    // Previous versions of Chrome allowed non-http(s) URLs to be stored in the
+    // prefs. Now they're disallowed, but the old data may still exist.
     return;
+  }
 
   RuntimeAPI::GetFactoryInstance()->Get(context)->OpenURL(uninstall_url);
 }
 
 ExtensionFunction::ResponseAction RuntimeGetBackgroundPageFunction::Run() {
-  ExtensionSystem* system = ExtensionSystem::Get(browser_context());
   ExtensionHost* host = ProcessManager::Get(browser_context())
                             ->GetBackgroundHostForExtension(extension_id());
-  if (system->lazy_background_task_queue()->ShouldEnqueueTask(browser_context(),
-                                                              extension())) {
-    system->lazy_background_task_queue()->AddPendingTask(
-        browser_context(),
-        extension_id(),
-        base::Bind(&RuntimeGetBackgroundPageFunction::OnPageLoaded, this));
+  if (LazyBackgroundTaskQueue::Get(browser_context())
+          ->ShouldEnqueueTask(browser_context(), extension())) {
+    LazyBackgroundTaskQueue::Get(browser_context())
+        ->AddPendingTask(
+            browser_context(), extension_id(),
+            base::Bind(&RuntimeGetBackgroundPageFunction::OnPageLoaded, this));
   } else if (host) {
     OnPageLoaded(host);
   } else {
@@ -425,14 +436,19 @@ void RuntimeGetBackgroundPageFunction::OnPageLoaded(ExtensionHost* host) {
   }
 }
 
+ExtensionFunction::ResponseAction RuntimeOpenOptionsPageFunction::Run() {
+  RuntimeAPI* api = RuntimeAPI::GetFactoryInstance()->Get(browser_context());
+  return RespondNow(api->OpenOptionsPage(extension())
+                        ? NoArguments()
+                        : Error(kFailedToCreateOptionsPage));
+}
+
 ExtensionFunction::ResponseAction RuntimeSetUninstallURLFunction::Run() {
   std::string url_string;
   EXTENSION_FUNCTION_VALIDATE(args_->GetString(0, &url_string));
 
-  GURL url(url_string);
-  if (!url.is_valid()) {
-    return RespondNow(
-        Error(ErrorUtils::FormatErrorMessage(kInvalidUrlError, url_string)));
+  if (!url_string.empty() && !GURL(url_string).SchemeIsHTTPOrHTTPS()) {
+    return RespondNow(Error(kInvalidUrlError, url_string));
   }
   SetUninstallURL(
       ExtensionPrefs::Get(browser_context()), extension_id(), url_string);
@@ -502,7 +518,7 @@ RuntimeGetPackageDirectoryEntryFunction::Run() {
   std::string filesystem_id = isolated_context->RegisterFileSystemForPath(
       storage::kFileSystemTypeNativeLocal, std::string(), path, &relative_path);
 
-  int renderer_id = render_view_host_->GetProcess()->GetID();
+  int renderer_id = render_frame_host()->GetProcess()->GetID();
   content::ChildProcessSecurityPolicy* policy =
       content::ChildProcessSecurityPolicy::GetInstance();
   policy->GrantReadFileSystem(renderer_id, filesystem_id);

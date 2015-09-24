@@ -7,13 +7,15 @@
 
 #include <string>
 
+#include "base/md5.h"
 #include "base/memory/scoped_ptr.h"
+#include "google_apis/drive/drive_api_error_codes.h"
 #include "google_apis/drive/drive_common_callbacks.h"
-#include "google_apis/drive/gdata_errorcode.h"
 
 class GURL;
 
 namespace base {
+class CancellationFlag;
 class FilePath;
 class Value;
 }  // namespace base
@@ -24,8 +26,15 @@ class ChangeResource;
 class FileList;
 class FileResource;
 class ResourceEntry;
-class ResourceList;
 }  // namespace google_apis
+
+namespace net {
+class IOBuffer;
+}  // namespace net
+
+namespace storage {
+class FileStreamReader;
+}  // namespace storage
 
 namespace drive {
 namespace util {
@@ -57,34 +66,45 @@ std::string EscapeQueryStringValue(const std::string& str);
 // See also: https://developers.google.com/drive/search-parameters
 std::string TranslateQuery(const std::string& original_query);
 
-// Extracts resource_id out of edit url.
-std::string ExtractResourceIdFromUrl(const GURL& url);
-
 // If |resource_id| is in the old resource ID format used by WAPI, converts it
 // into the new format.
 std::string CanonicalizeResourceId(const std::string& resource_id);
 
-// Converts FileResource to ResourceEntry.
-scoped_ptr<google_apis::ResourceEntry>
-ConvertFileResourceToResourceEntry(
-    const google_apis::FileResource& file_resource);
-
-// Converts ChangeResource to ResourceEntry.
-scoped_ptr<google_apis::ResourceEntry>
-ConvertChangeResourceToResourceEntry(
-    const google_apis::ChangeResource& change_resource);
-
-// Converts FileList to ResourceList.
-scoped_ptr<google_apis::ResourceList>
-ConvertFileListToResourceList(const google_apis::FileList& file_list);
-
-// Converts ChangeList to ResourceList.
-scoped_ptr<google_apis::ResourceList>
-ConvertChangeListToResourceList(const google_apis::ChangeList& change_list);
-
 // Returns the (base-16 encoded) MD5 digest of the file content at |file_path|,
 // or an empty string if an error is found.
-std::string GetMd5Digest(const base::FilePath& file_path);
+std::string GetMd5Digest(const base::FilePath& file_path,
+                         const base::CancellationFlag* cancellation_flag);
+
+// Computes the (base-16 encoded) MD5 digest of data extracted from a file
+// stream.
+class FileStreamMd5Digester {
+ public:
+  typedef base::Callback<void(const std::string&)> ResultCallback;
+
+  FileStreamMd5Digester();
+  ~FileStreamMd5Digester();
+
+  // Computes an MD5 digest of data read from the given |streamReader|.  The
+  // work occurs asynchronously, and the resulting hash is returned via the
+  // |callback|.  If an error occurs, |callback| is called with an empty string.
+  // Only one stream can be processed at a time by each digester.  Do not call
+  // GetMd5Digest before the results of a previous call have been returned.
+  void GetMd5Digest(scoped_ptr<storage::FileStreamReader> stream_reader,
+                    const ResultCallback& callback);
+
+ private:
+  // Kicks off a read of the next chunk from the stream.
+  void ReadNextChunk(const ResultCallback& callback);
+  // Handles the incoming chunk of data from a stream read.
+  void OnChunkRead(const ResultCallback& callback, int bytes_read);
+
+  // Maximum chunk size for read operations.
+  scoped_ptr<storage::FileStreamReader> reader_;
+  scoped_refptr<net::IOBuffer> buffer_;
+  base::MD5Context md5_context_;
+
+  DISALLOW_COPY_AND_ASSIGN(FileStreamMd5Digester);
+};
 
 // Returns preferred file extension for hosted documents which have given mime
 // type.

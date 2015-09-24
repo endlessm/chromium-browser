@@ -18,8 +18,6 @@
 #include "content/common/input/input_event_stream_validator.h"
 #include "content/public/browser/native_web_keyboard_event.h"
 
-struct InputHostMsg_HandleInputEvent_ACK_Params;
-
 namespace IPC {
 class Sender;
 }
@@ -34,6 +32,7 @@ class InputAckHandler;
 class InputRouterClient;
 class OverscrollController;
 struct DidOverscrollParams;
+struct InputEventAck;
 
 // A default implementation for browser input event routing.
 class CONTENT_EXPORT InputRouterImpl
@@ -56,7 +55,6 @@ class CONTENT_EXPORT InputRouterImpl
   ~InputRouterImpl() override;
 
   // InputRouter
-  void Flush() override;
   bool SendInput(scoped_ptr<IPC::Message> message) override;
   void SendMouseEvent(const MouseEventWithLatencyInfo& mouse_event) override;
   void SendWheelEvent(
@@ -68,8 +66,8 @@ class CONTENT_EXPORT InputRouterImpl
       const GestureEventWithLatencyInfo& gesture_event) override;
   void SendTouchEvent(const TouchEventWithLatencyInfo& touch_event) override;
   const NativeWebKeyboardEvent* GetLastKeyboardEvent() const override;
-  bool ShouldForwardTouchEvent() const override;
-  void OnViewUpdated(int view_flags) override;
+  void NotifySiteIsMobileOptimized(bool is_mobile_optimized) override;
+  void RequestNotificationWhenFlushed() override;
   bool HasPendingEvents() const override;
 
   // IPC::Listener
@@ -124,33 +122,14 @@ private:
                        const ui::LatencyInfo& latency_info,
                        bool is_keyboard_shortcut);
 
-  // A data structure that attaches some metadata to a WebMouseWheelEvent
-  // and its latency info.
-  struct QueuedWheelEvent {
-    QueuedWheelEvent();
-    QueuedWheelEvent(const MouseWheelEventWithLatencyInfo& event,
-                     bool synthesized_from_pinch);
-    ~QueuedWheelEvent();
-
-    MouseWheelEventWithLatencyInfo event;
-    bool synthesized_from_pinch;
-  };
-
-  // Enqueue or send a mouse wheel event.
-  void SendWheelEvent(const QueuedWheelEvent& wheel_event);
-
-  // Given a Touchpad GesturePinchUpdate event, create and send a synthetic
-  // wheel event for it.
-  void SendSyntheticWheelEventForPinch(
-      const GestureEventWithLatencyInfo& pinch_event);
-
   // IPC message handlers
-  void OnInputEventAck(const InputHostMsg_HandleInputEvent_ACK_Params& ack);
+  void OnInputEventAck(const InputEventAck& ack);
   void OnDidOverscroll(const DidOverscrollParams& params);
   void OnMsgMoveCaretAck();
   void OnSelectMessageAck();
   void OnHasTouchEventHandlers(bool has_handlers);
   void OnSetTouchAction(TouchAction touch_action);
+  void OnDidStopFlinging();
 
   // Indicates the source of an ack provided to |ProcessInputEventAck()|.
   // The source is tracked by |current_ack_source_|, which aids in ack routing.
@@ -165,6 +144,7 @@ private:
   void ProcessInputEventAck(blink::WebInputEvent::Type event_type,
                             InputEventAckState ack_result,
                             const ui::LatencyInfo& latency_info,
+                            uint32 unique_touch_event_id,
                             AckSource ack_source);
 
   // Dispatches the ack'ed event to |ack_handler_|.
@@ -189,7 +169,8 @@ private:
   // Forwards the event ack to |touch_event_queue_|, potentially triggering
   // dispatch of queued touch events, or the creation of gesture events.
   void ProcessTouchAck(InputEventAckState ack_result,
-                       const ui::LatencyInfo& latency);
+                       const ui::LatencyInfo& latency,
+                       uint32 unique_touch_event_id);
 
   // Called when a touch timeout-affecting bit has changed, in turn toggling the
   // touch ack timeout feature of the |touch_event_queue_| as appropriate. Input
@@ -201,8 +182,6 @@ private:
   // If a flush has been requested, signals a completed flush to the client if
   // all events have been dispatched (i.e., |HasPendingEvents()| is false).
   void SignalFlushedIfNecessary();
-
-  bool IsInOverscrollGesture() const;
 
   int routing_id() const { return routing_id_; }
 
@@ -237,7 +216,7 @@ private:
   // (Similar to |mouse_move_pending_|.) True if a mouse wheel event was sent
   // and we are waiting for a corresponding ack.
   bool mouse_wheel_pending_;
-  QueuedWheelEvent current_wheel_event_;
+  MouseWheelEventWithLatencyInfo current_wheel_event_;
 
   // (Similar to |next_mouse_move_|.) The next mouse wheel events to send.
   // Unlike mouse moves, mouse wheel events received while one is pending are
@@ -246,7 +225,7 @@ private:
   // high rate; not waiting for the ack results in jankiness, and using the same
   // mechanism as for mouse moves (just dropping old events when multiple ones
   // would be queued) results in very slow scrolling.
-  typedef std::deque<QueuedWheelEvent> WheelEventQueue;
+  typedef std::deque<MouseWheelEventWithLatencyInfo> WheelEventQueue;
   WheelEventQueue coalesced_mouse_wheel_events_;
 
   // A queue of keyboard events. We can't trust data from the renderer so we
@@ -258,9 +237,6 @@ private:
   // The time when an input event was sent to the client.
   base::TimeTicks input_event_start_time_;
 
-  // Cached flags from |OnViewUpdated()|, defaults to 0.
-  int current_view_flags_;
-
   // The source of the ack within the scope of |ProcessInputEventAck()|.
   // Defaults to ACK_SOURCE_NONE.
   AckSource current_ack_source_;
@@ -268,6 +244,11 @@ private:
   // Whether a call to |Flush()| has yet been accompanied by a |DidFlush()| call
   // to the client_ after all events have been dispatched/acked.
   bool flush_requested_;
+
+  // Whether there are any active flings in the renderer. As the fling
+  // end notification is asynchronous, we use a count rather than a boolean
+  // to avoid races in bookkeeping when starting a new fling.
+  int active_renderer_fling_count_;
 
   TouchEventQueue touch_event_queue_;
   GestureEventQueue gesture_event_queue_;
@@ -280,4 +261,4 @@ private:
 
 }  // namespace content
 
-#endif // CONTENT_BROWSER_RENDERER_HOST_INPUT_INPUT_ROUTER_IMPL_H_
+#endif  // CONTENT_BROWSER_RENDERER_HOST_INPUT_INPUT_ROUTER_IMPL_H_

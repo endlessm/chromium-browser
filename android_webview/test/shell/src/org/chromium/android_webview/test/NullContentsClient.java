@@ -25,6 +25,8 @@ import org.chromium.android_webview.JsPromptResultReceiver;
 import org.chromium.android_webview.JsResultReceiver;
 import org.chromium.android_webview.permission.AwPermissionRequest;
 import org.chromium.base.ThreadUtils;
+import org.chromium.content.browser.SelectActionMode;
+import org.chromium.content.browser.SelectActionModeCallback.ActionHandler;
 
 import java.security.Principal;
 
@@ -42,6 +44,11 @@ public class NullContentsClient extends AwContentsClient {
 
     public NullContentsClient(Looper looper) {
         super(looper);  // "...beams are gonna blind me".
+    }
+
+    @Override
+    public boolean hasWebViewClient() {
+        return true;
     }
 
     @Override
@@ -67,12 +74,23 @@ public class NullContentsClient extends AwContentsClient {
 
     @Override
     public AwWebResourceResponse shouldInterceptRequest(
-            AwContentsClient.ShouldInterceptRequestParams params) {
+            AwContentsClient.AwWebResourceRequest request) {
         return null;
     }
 
     @Override
     public boolean shouldOverrideKeyEvent(KeyEvent event) {
+        return false;
+    }
+
+    @Override
+    public SelectActionMode startActionMode(
+            View view, ActionHandler actionHandler, boolean floating) {
+        return null;
+    }
+
+    @Override
+    public boolean supportsFloatingActionMode() {
         return false;
     }
 
@@ -105,6 +123,11 @@ public class NullContentsClient extends AwContentsClient {
 
     @Override
     public void onReceivedLoginRequest(String realm, String account, String args) {
+    }
+
+    @Override
+    public void showFileChooser(ValueCallback<String[]> uploadFilePathsCallback,
+            FileChooserParamsImpl fileChooserParams) {
     }
 
     @Override
@@ -159,7 +182,19 @@ public class NullContentsClient extends AwContentsClient {
     }
 
     @Override
+    public void onPageCommitVisible(String url) {
+    }
+
+    @Override
     public void onReceivedError(int errorCode, String description, String failingUrl) {
+    }
+
+    @Override
+    public void onReceivedError2(AwWebResourceRequest request, AwWebResourceError error) {
+    }
+
+    @Override
+    public void onReceivedHttpError(AwWebResourceRequest request, AwWebResourceResponse response) {
     }
 
     @Override

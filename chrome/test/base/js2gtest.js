@@ -36,13 +36,6 @@ var jsFile = arguments[1];
 var jsFileBase = arguments[2];
 
 /**
- * The cwd, as determined by the paths of |jsFile| and |jsFileBase|.
- * This is usually relative to the root source directory and points to the
- * directory where the GYP rule processing the js file lives.
- */
-var jsDirBase = jsFileBase.replace(jsFile, '');
-
-/**
  * Path to Closure library style deps.js file.
  * @type {string?}
  */
@@ -75,14 +68,14 @@ var testF;
 /**
  * Keeps track of whether a typedef has been generated for each test
  * fixture.
- * @type {Object.<string, string>}
+ * @type {Object<string>}
  */
 var typedeffedCppFixtures = {};
 
 /**
  * Maintains a list of relative file paths to add to each gtest body
  * for inclusion at runtime before running each JavaScript test.
- * @type {Array.<string>}
+ * @type {Array<string>}
  */
 var genIncludes = [];
 
@@ -146,10 +139,21 @@ function maybeGenHeader(testFixture) {
   }
   print('#include "url/gurl.h"');
   print('#include "testing/gtest/include/gtest/gtest.h"');
-  if (testFixture && this[testFixture].prototype.testGenCppIncludes)
-    this[testFixture].prototype.testGenCppIncludes();
+  // Add includes specified by test fixture.
+  if (testFixture) {
+    if (this[testFixture].prototype.testGenCppIncludes)
+      this[testFixture].prototype.testGenCppIncludes();
+    if (this[testFixture].prototype.commandLineSwitches)
+      print('#include "base/command_line.h"');
+  }
   print();
 }
+
+
+/**
+ * @type {Array<{path: string, base: string>}
+ */
+var pathStack = [];
 
 
 /**
@@ -158,22 +162,13 @@ function maybeGenHeader(testFixture) {
  * @param {string} includeFile The file to include.
  * @return {{path: string, base: string}} Object describing the paths
  *     for |includeFile|. |path| is relative to cwd; |base| is relative to
- * source root.
+ *     source root.
  */
 function includeFileToPaths(includeFile) {
-  if (includeFile.indexOf(jsDirBase) == 0) {
-    // The caller supplied a path relative to root source.
-    var relPath = includeFile.replace(jsDirBase, '');
-    return {
-      path: relPath,
-      base: jsDirBase + relPath
-    };
-  }
-
-  // The caller supplied a path relative to the input js file's directory (cwd).
+  paths = pathStack[pathStack.length - 1];
   return {
-    path: jsFile.replace(/[^\/\\]+$/, includeFile),
-    base: jsFileBase.replace(/[^\/\\]+$/, includeFile),
+    path: paths.path.replace(/[^\/\\]+$/, includeFile),
+    base: paths.base.replace(/[^\/\\]+$/, includeFile),
   };
 }
 
@@ -181,14 +176,14 @@ function includeFileToPaths(includeFile) {
 /**
  * Maps object names to the path to the file that provides them.
  * Populated from the |depsFile| if any.
- * @type {Object.<string, string>}
+ * @type {Object<string>}
  */
 var dependencyProvidesToPaths = {};
 
 /**
  * Maps dependency path names to object names required by the file.
  * Populated from the |depsFile| if any.
- * @type {Object.<string, Array.<string>>}
+ * @type {Object<Array<string>>}
  */
 var dependencyPathsToRequires = {};
 
@@ -198,8 +193,8 @@ if (depsFile) {
    * Called by the javascript in the deps file to add modules and their
    * dependencies.
    * @param {string} path Relative path to the file.
-   * @param Array.<string> provides Objects provided by this file.
-   * @param Array.<string> requires Objects required by this file.
+   * @param Array<string> provides Objects provided by this file.
+   * @param Array<string> requires Objects required by this file.
    */
   goog.addDependency = function(path, provides, requires) {
     provides.forEach(function(provide) {
@@ -219,8 +214,8 @@ if (depsFile) {
  * by the deps file.  Dependencies will be resolved and included in the
  * correct order, meaning that the returned array may contain more entries
  * than the input.
- * @param {Array.<string>} deps List of dependencies.
- * @return {Array.<string>} List of paths to load.
+ * @param {Array<string>} deps List of dependencies.
+ * @return {Array<string>} List of paths to load.
  */
 function resolveClosureModuleDeps(deps) {
   if (!depsFile && deps.length > 0) {
@@ -299,17 +294,17 @@ function GEN_BLOCK(commentEncodedCode) {
 /**
  * Generate includes for the current |jsFile| by including them
  * immediately and at runtime.
- * The paths are allowed to be:
- *   1. relative to the root src directory (i.e. similar to #include's).
- *   2. relative to the directory specified in the GYP rule for the file.
- * @param {Array.<string>} includes Paths to JavaScript files to
+ * The paths must be relative to the directory of the current file.
+ * @param {Array<string>} includes Paths to JavaScript files to
  *     include immediately and at runtime.
  */
 function GEN_INCLUDE(includes) {
   for (var i = 0; i < includes.length; i++) {
     var includePaths = includeFileToPaths(includes[i]);
     var js = read(includePaths.path);
+    pathStack.push(includePaths);
     ('global', eval)(js);
+    pathStack.pop();
     genIncludes.push(includePaths.base);
   }
 }
@@ -340,7 +335,24 @@ function TEST_F(testFixture, testFunction, testBody) {
       resolveClosureModuleDeps(this[testFixture].prototype.closureModuleDeps));
 
   if (typedefCppFixture && !(testFixture in typedeffedCppFixtures)) {
-    print('typedef ' + typedefCppFixture + ' ' + testFixture + ';');
+    var switches = this[testFixture].prototype.commandLineSwitches;
+    if (!switches || !switches.length || typedefCppFixture == 'V8UnitTest') {
+      print('typedef ' + typedefCppFixture + ' ' + testFixture + ';');
+    } else {
+      // Make the testFixture a class inheriting from the base fixture.
+      print('class ' + testFixture + ' : public ' + typedefCppFixture + ' {');
+      print(' private:');
+      // Override SetUpCommandLine and add each switch.
+      print('  void');
+      print('  SetUpCommandLine(base::CommandLine* command_line) override {');
+      for (var i = 0; i < switches.length; i++) {
+        print('    command_line->AppendSwitchASCII(');
+        print('        "' + switches[i].switchName + '",');
+        print('        "' + (switches[i].switchValue || '') + '");');
+      }
+      print('  }');
+      print('};');
+    }
     typedeffedCppFixtures[testFixture] = typedefCppFixture;
   }
 
@@ -374,4 +386,6 @@ function TEST_F(testFixture, testFunction, testBody) {
 
 // Now that generation functions are defined, load in |jsFile|.
 var js = read(jsFile);
+pathStack.push({path: jsFile, base: jsFileBase});
 eval(js);
+pathStack.pop();

@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 #include "content/test/ppapi/ppapi_test.h"
-#include "ppapi/shared_impl/test_harness_utils.h"
+#include "ppapi/shared_impl/test_utils.h"
 
 // This file lists tests for Pepper APIs (without NaCl) against content_shell.
 // TODO(teravest): Move more tests here. http://crbug.com/371873
@@ -17,24 +17,25 @@ namespace {
 // This macro finesses macro expansion to do what we want.
 #define STRIP_PREFIXES(test_name) ppapi::StripTestPrefixes(#test_name)
 
+#if defined(THREAD_SANITIZER)
+#define DISABLE_IF_TSAN(test_name) DISABLED_##test_name
+#else
+#define DISABLE_IF_TSAN(test_name) test_name
+#endif
+
 #define TEST_PPAPI_IN_PROCESS(test_name) \
   IN_PROC_BROWSER_TEST_F(PPAPITest, test_name) { \
     RunTest(STRIP_PREFIXES(test_name)); \
   }
 
+// OutOfProcessPPAPITest tests time out under ThreadSanitizer,
+// see https://crbug.com/448323.
 #define TEST_PPAPI_OUT_OF_PROCESS(test_name) \
-  IN_PROC_BROWSER_TEST_F(OutOfProcessPPAPITest, test_name) { \
+  IN_PROC_BROWSER_TEST_F(OutOfProcessPPAPITest, DISABLE_IF_TSAN(test_name)) { \
     RunTest(STRIP_PREFIXES(test_name)); \
   }
 
-TEST_PPAPI_IN_PROCESS(BrowserFont)
-// crbug.com/308949
-#if defined(OS_WIN)
-#define MAYBE_OUT_BrowserFont DISABLED_BrowserFont
-#else
-#define MAYBE_OUT_BrowserFont BrowserFont
-#endif
-TEST_PPAPI_OUT_OF_PROCESS(MAYBE_OUT_BrowserFont)
+TEST_PPAPI_OUT_OF_PROCESS(BrowserFont)
 
 TEST_PPAPI_IN_PROCESS(Buffer)
 TEST_PPAPI_OUT_OF_PROCESS(Buffer)
@@ -80,7 +81,7 @@ IN_PROC_BROWSER_TEST_F(PPAPITest,
   RunTest("Instance_ExecuteScriptAtInstanceShutdown");
 }
 IN_PROC_BROWSER_TEST_F(OutOfProcessPPAPITest,
-                       Instance_ExecuteScriptAtInstanceShutdown) {
+    DISABLE_IF_TSAN(Instance_ExecuteScriptAtInstanceShutdown)) {
   // (See the comment for the in-process version of this test above)
   RunTest("Instance_SetupExecuteScriptAtInstanceShutdown");
   RunTest("Instance_ExecuteScriptAtInstanceShutdown");
@@ -101,7 +102,13 @@ IN_PROC_BROWSER_TEST_F(OutOfProcessPPAPITest,
   RunTestAndReload("Instance_RecursiveObjects");
 }
 
-TEST_PPAPI_OUT_OF_PROCESS(MediaStreamAudioTrack)
+#if defined(OS_WIN)
+// Flaky on Windows (crbug.com/438729)
+#define MAYBE_MediaStreamAudioTrack DISABLED_MediaStreamAudioTrack
+#else
+#define MAYBE_MediaStreamAudioTrack MediaStreamAudioTrack
+#endif
+TEST_PPAPI_OUT_OF_PROCESS(MAYBE_MediaStreamAudioTrack)
 
 TEST_PPAPI_OUT_OF_PROCESS(MediaStreamVideoTrack)
 
@@ -147,6 +154,8 @@ TEST_PPAPI_OUT_OF_PROCESS(VideoDecoder)
 
 TEST_PPAPI_IN_PROCESS(VideoDecoderDev)
 TEST_PPAPI_OUT_OF_PROCESS(VideoDecoderDev)
+
+TEST_PPAPI_OUT_OF_PROCESS(VideoEncoder)
 
 }  // namespace
 }  // namespace content

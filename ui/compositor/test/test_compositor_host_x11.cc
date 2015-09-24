@@ -14,7 +14,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/thread_task_runner_handle.h"
 #include "ui/compositor/compositor.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/x/x11_types.h"
 
 namespace ui {
@@ -29,8 +29,6 @@ class TestCompositorHostX11 : public TestCompositorHost {
   // Overridden from TestCompositorHost:
   void Show() override;
   ui::Compositor* GetCompositor() override;
-
-  void Draw();
 
   gfx::Rect bounds_;
 
@@ -83,11 +81,6 @@ void TestCompositorHostX11::Show() {
 
 ui::Compositor* TestCompositorHostX11::GetCompositor() {
   return compositor_.get();
-}
-
-void TestCompositorHostX11::Draw() {
-  if (compositor_.get())
-    compositor_->Draw();
 }
 
 // static

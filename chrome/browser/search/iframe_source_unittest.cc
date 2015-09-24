@@ -98,7 +98,6 @@ class IframeSourceTest : public testing::Test {
         resource_context_.GetRequestContext()->CreateRequest(
             GURL(url),
             net::DEFAULT_PRIORITY,
-            NULL,
             NULL));
     if (allocate_info) {
       content::ResourceRequestInfo::AllocateForTesting(
@@ -108,7 +107,10 @@ class IframeSourceTest : public testing::Test {
           render_process_id,
           render_frame_id,
           MSG_ROUTING_NONE,
-          false);
+          false,   // is_main_frame
+          false,   // parent_is_main_frame
+          true,    // allow_download
+          false);  // is_async
     }
     return request.Pass();
   }

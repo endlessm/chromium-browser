@@ -12,9 +12,9 @@ TestSearchResult::TestSearchResult() {
 TestSearchResult::~TestSearchResult() {
 }
 
-scoped_ptr<SearchResult> TestSearchResult::Duplicate() {
+scoped_ptr<SearchResult> TestSearchResult::Duplicate() const {
   NOTREACHED();
-  return scoped_ptr<SearchResult>();
+  return nullptr;
 }
 
 }  // namespace app_list

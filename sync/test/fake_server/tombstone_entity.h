@@ -20,13 +20,12 @@ class TombstoneEntity : public FakeServerEntity {
   ~TombstoneEntity() override;
 
   // Factory function for TombstoneEntity.
-  static FakeServerEntity* Create(const std::string& id);
+  static scoped_ptr<FakeServerEntity> Create(const std::string& id);
 
   // FakeServerEntity implementation.
   std::string GetParentId() const override;
-  void SerializeAsProto(sync_pb::SyncEntity* proto) override;
+  void SerializeAsProto(sync_pb::SyncEntity* proto) const override;
   bool IsDeleted() const override;
-  bool IsFolder() const override;
 
  private:
   TombstoneEntity(const std::string& id, const syncer::ModelType& model_type);

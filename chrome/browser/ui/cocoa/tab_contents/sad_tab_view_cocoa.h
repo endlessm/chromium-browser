@@ -6,35 +6,22 @@
 #define CHROME_BROWSER_UI_COCOA_TAB_CONTENTS_SAD_TAB_VIEW_COCOA_H_
 
 #include "base/mac/scoped_nsobject.h"
-#include "ui/base/cocoa/base_view.h"
 
 #import <Cocoa/Cocoa.h>
 
-@class SadTabController;
-@class HyperlinkTextView;
-
-// A view that displays the "sad tab" (aka crash page).
-@interface SadTabView : BaseView<NSTextViewDelegate> {
- @private
-  IBOutlet NSImageView* image_;
-  base::scoped_nsobject<NSTextField> title_;
-  base::scoped_nsobject<NSTextField> message_;
-  base::scoped_nsobject<HyperlinkTextView> help_;
-
-  base::scoped_nsobject<NSColor> backgroundColor_;
-  NSSize messageSize_;
-
-  // A weak reference to the parent controller.
-  IBOutlet SadTabController* controller_;
+namespace content {
+class WebContents;
 }
 
-// Designated initializer is -initWithFrame: .
+@class SadTabContainerView;
 
-// Called by SadTabController to remove the help text and link.
-- (void)removeHelpText;
+// A view that displays the "sad tab" (aka crash page).
+@interface SadTabView : NSView {
+ @private
+  base::scoped_nsobject<SadTabContainerView> container_;
+}
 
-// Sets |help_| based on |helpPlaceholder_|, sets |helpPlaceholder_| to nil.
-- (void)initializeHelpText;
+@property(readonly,nonatomic) NSButton* reloadButton;
 
 @end
 

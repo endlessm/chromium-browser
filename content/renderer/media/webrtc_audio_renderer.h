@@ -5,11 +5,13 @@
 #ifndef CONTENT_RENDERER_MEDIA_WEBRTC_AUDIO_RENDERER_H_
 #define CONTENT_RENDERER_MEDIA_WEBRTC_AUDIO_RENDERER_H_
 
+#include <string>
+
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/non_thread_safe.h"
 #include "base/threading/thread_checker.h"
-#include "content/renderer/media/media_stream_audio_renderer.h"
+#include "content/public/renderer/media_stream_audio_renderer.h"
 #include "content/renderer/media/webrtc_audio_device_impl.h"
 #include "media/base/audio_decoder.h"
 #include "media/base/audio_pull_fifo.h"
@@ -76,7 +78,6 @@ class CONTENT_EXPORT WebRtcAudioRenderer
   WebRtcAudioRenderer(
       const scoped_refptr<base::SingleThreadTaskRunner>& signaling_thread,
       const scoped_refptr<webrtc::MediaStreamInterface>& media_stream,
-      int source_render_view_id,
       int source_render_frame_id,
       int session_id,
       int sample_rate,
@@ -115,6 +116,9 @@ class CONTENT_EXPORT WebRtcAudioRenderer
   void Pause() override;
   void Stop() override;
   void SetVolume(float volume) override;
+  void SwitchOutputDevice(const std::string& device_id,
+                          const GURL& security_origin,
+                          const media::SwitchOutputDeviceCB& callback) override;
   base::TimeDelta GetCurrentRenderTime() const override;
   bool IsLocalRenderer() const override;
 
@@ -185,8 +189,7 @@ class CONTENT_EXPORT WebRtcAudioRenderer
       const scoped_refptr<webrtc::MediaStreamInterface>& media_stream,
       PlayingState* state);
 
-  // The render view and frame in which the audio is rendered into |sink_|.
-  const int source_render_view_id_;
+  // The RenderFrame in which the audio is rendered into |sink_|.
   const int source_render_frame_id_;
   const int session_id_;
 

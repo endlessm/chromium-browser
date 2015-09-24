@@ -11,6 +11,7 @@
 #include "base/memory/scoped_vector.h"
 #include "base/time/time.h"
 #include "components/domain_reliability/domain_reliability_export.h"
+#include "components/domain_reliability/uploader.h"
 #include "net/base/backoff_entry.h"
 
 namespace base {
@@ -67,15 +68,26 @@ class DOMAIN_RELIABILITY_EXPORT DomainReliabilityScheduler {
   size_t OnUploadStart();
 
   // Updates the scheduler state based on the result of an upload. Must be
-  // called exactly once after |OnUploadStart|. |success| should be true if the
-  // upload was successful, and false otherwise.
-  void OnUploadComplete(bool success);
+  // called exactly once after |OnUploadStart|. |result| should be the result
+  // passed to the upload callback by the Uploader.
+  void OnUploadComplete(const DomainReliabilityUploader::UploadResult& result);
 
-  base::Value* GetWebUIData() const;
+  scoped_ptr<base::Value> GetWebUIData() const;
 
   // Disables jitter in BackoffEntries to make scheduling deterministic for
   // unit tests.
   void MakeDeterministicForTesting();
+
+  // Gets the time of the first beacon that has not yet been successfully
+  // uploaded.
+  base::TimeTicks first_beacon_time() const { return first_beacon_time_; }
+
+  // Gets the time until the next upload attempt on the last collector used.
+  // This will be 0 if the upload was a success; it does not take into account
+  // minimum_upload_delay and maximum_upload_delay.
+  base::TimeDelta last_collector_retry_delay() const {
+    return last_collector_retry_delay_;
+  }
 
  private:
   void MaybeScheduleUpload();
@@ -113,6 +125,10 @@ class DOMAIN_RELIABILITY_EXPORT DomainReliabilityScheduler {
 
   // first_beacon_time_ saved during uploads.  Restored if upload fails.
   base::TimeTicks old_first_beacon_time_;
+
+  // Time until the next upload attempt on the last collector used. (Saved for
+  // histograms in Context.)
+  base::TimeDelta last_collector_retry_delay_;
 
   // Extra bits to return in GetWebUIData.
   base::TimeTicks scheduled_min_time_;

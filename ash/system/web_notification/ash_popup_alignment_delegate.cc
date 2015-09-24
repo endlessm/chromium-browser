@@ -5,6 +5,7 @@
 #include "ash/system/web_notification/ash_popup_alignment_delegate.h"
 
 #include "ash/display/display_controller.h"
+#include "ash/screen_util.h"
 #include "ash/shelf/shelf_constants.h"
 #include "ash/shelf/shelf_layout_manager.h"
 #include "ash/shelf/shelf_types.h"
@@ -32,11 +33,7 @@ const int kNoToastMarginBorderAndShadowOffset = 2;
 }
 
 AshPopupAlignmentDelegate::AshPopupAlignmentDelegate()
-    : display_id_(gfx::Display::kInvalidDisplayID),
-      screen_(NULL),
-      root_window_(NULL),
-      shelf_(NULL),
-      system_tray_height_(0) {
+    : screen_(NULL), root_window_(NULL), shelf_(NULL), system_tray_height_(0) {
 }
 
 AshPopupAlignmentDelegate::~AshPopupAlignmentDelegate() {
@@ -50,15 +47,15 @@ AshPopupAlignmentDelegate::~AshPopupAlignmentDelegate() {
 void AshPopupAlignmentDelegate::StartObserving(gfx::Screen* screen,
                                                const gfx::Display& display) {
   screen_ = screen;
-  display_id_ = display.id();
   work_area_ = display.work_area();
-  root_window_ = ash::Shell::GetInstance()->display_controller()->
-      GetRootWindowForDisplayId(display_id_);
+  root_window_ = ash::Shell::GetInstance()
+                     ->display_controller()
+                     ->GetRootWindowForDisplayId(display.id());
   UpdateShelf();
   screen->AddObserver(this);
   Shell::GetInstance()->AddShellObserver(this);
   if (system_tray_height_ > 0)
-    OnAutoHideStateChanged(shelf_->auto_hide_state());
+    UpdateWorkArea();
 }
 
 void AshPopupAlignmentDelegate::SetSystemTrayHeight(int height) {
@@ -132,31 +129,29 @@ void AshPopupAlignmentDelegate::UpdateShelf() {
     shelf_->AddObserver(this);
 }
 
+gfx::Display AshPopupAlignmentDelegate::GetCurrentDisplay() const {
+  return Shell::GetScreen()->GetDisplayNearestWindow(
+      shelf_->shelf_widget()->GetNativeView());
+}
+
+void AshPopupAlignmentDelegate::UpdateWorkArea() {
+  work_area_ = shelf_->user_work_area_bounds();
+  DoUpdateIfPossible();
+}
+
 void AshPopupAlignmentDelegate::OnDisplayWorkAreaInsetsChanged() {
   UpdateShelf();
+  UpdateWorkArea();
+}
 
-  work_area_ = Shell::GetScreen()->GetDisplayNearestWindow(
-      shelf_->shelf_widget()->GetNativeView()).work_area();
+void AshPopupAlignmentDelegate::WillChangeVisibilityState(
+    ShelfVisibilityState new_state) {
+  UpdateWorkArea();
 }
 
 void AshPopupAlignmentDelegate::OnAutoHideStateChanged(
     ShelfAutoHideState new_state) {
-  work_area_ = Shell::GetScreen()->GetDisplayNearestWindow(
-      shelf_->shelf_widget()->GetNativeView()).work_area();
-  int width = 0;
-  if ((shelf_->visibility_state() == SHELF_AUTO_HIDE) &&
-      new_state == SHELF_AUTO_HIDE_SHOWN) {
-    // Since the work_area is already reduced by kAutoHideSize, the inset width
-    // should be just the difference.
-    width = kShelfSize - ShelfLayoutManager::kAutoHideSize;
-  }
-  work_area_.Inset(shelf_->SelectValueForShelfAlignment(
-      gfx::Insets(0, 0, width, 0),
-      gfx::Insets(0, width, 0, 0),
-      gfx::Insets(0, 0, 0, width),
-      gfx::Insets(width, 0, 0, 0)));
-
-  DoUpdateIfPossible();
+  UpdateWorkArea();
 }
 
 void AshPopupAlignmentDelegate::OnDisplayAdded(
@@ -170,8 +165,9 @@ void AshPopupAlignmentDelegate::OnDisplayRemoved(
 void AshPopupAlignmentDelegate::OnDisplayMetricsChanged(
     const gfx::Display& display,
     uint32_t metrics) {
-  if (display.id() == display_id_ && shelf_)
-    OnAutoHideStateChanged(shelf_->auto_hide_state());
+  UpdateShelf();
+  if (shelf_ && GetCurrentDisplay().id() == display.id())
+    UpdateWorkArea();
 }
 
 }  // namespace ash

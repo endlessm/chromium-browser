@@ -31,7 +31,6 @@ const char kGoogleRestrictedPrefix[] = "google";
 const char kInvalidParameter[] =
     "Function was called with invalid parameters.";
 const char kGCMDisabled[] = "GCM is currently disabled.";
-const char kNotSignedIn[] = "Profile was not signed in.";
 const char kAsyncOperationPending[] =
     "Asynchronous operation is pending.";
 const char kNetworkError[] = "Network error occurred.";
@@ -47,8 +46,6 @@ const char* GcmResultToError(gcm::GCMClient::Result result) {
       return kInvalidParameter;
     case gcm::GCMClient::GCM_DISABLED:
       return kGCMDisabled;
-    case gcm::GCMClient::NOT_SIGNED_IN:
-      return kNotSignedIn;
     case gcm::GCMClient::ASYNC_OPERATION_PENDING:
       return kAsyncOperationPending;
     case gcm::GCMClient::NETWORK_ERROR:
@@ -213,21 +210,21 @@ void GcmJsEventRouter::OnMessage(
     const gcm::GCMClient::IncomingMessage& message) {
   api::gcm::OnMessage::Message message_arg;
   message_arg.data.additional_properties = message.data;
+  if (!message.sender_id.empty())
+    message_arg.from.reset(new std::string(message.sender_id));
   if (!message.collapse_key.empty())
     message_arg.collapse_key.reset(new std::string(message.collapse_key));
 
-  scoped_ptr<Event> event(new Event(
-      api::gcm::OnMessage::kEventName,
-      api::gcm::OnMessage::Create(message_arg).Pass(),
-      profile_));
+  scoped_ptr<Event> event(
+      new Event(events::UNKNOWN, api::gcm::OnMessage::kEventName,
+                api::gcm::OnMessage::Create(message_arg).Pass(), profile_));
   EventRouter::Get(profile_)->DispatchEventToExtension(app_id, event.Pass());
 }
 
 void GcmJsEventRouter::OnMessagesDeleted(const std::string& app_id) {
-  scoped_ptr<Event> event(new Event(
-      api::gcm::OnMessagesDeleted::kEventName,
-      api::gcm::OnMessagesDeleted::Create().Pass(),
-      profile_));
+  scoped_ptr<Event> event(
+      new Event(events::UNKNOWN, api::gcm::OnMessagesDeleted::kEventName,
+                api::gcm::OnMessagesDeleted::Create().Pass(), profile_));
   EventRouter::Get(profile_)->DispatchEventToExtension(app_id, event.Pass());
 }
 
@@ -239,10 +236,9 @@ void GcmJsEventRouter::OnSendError(
   error.error_message = GcmResultToError(send_error_details.result);
   error.details.additional_properties = send_error_details.additional_data;
 
-  scoped_ptr<Event> event(new Event(
-      api::gcm::OnSendError::kEventName,
-      api::gcm::OnSendError::Create(error).Pass(),
-      profile_));
+  scoped_ptr<Event> event(
+      new Event(events::UNKNOWN, api::gcm::OnSendError::kEventName,
+                api::gcm::OnSendError::Create(error).Pass(), profile_));
   EventRouter::Get(profile_)->DispatchEventToExtension(app_id, event.Pass());
 }
 

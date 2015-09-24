@@ -9,14 +9,15 @@ import android.accounts.AccountManager;
 import android.accounts.AccountManagerCallback;
 import android.accounts.AccountManagerFuture;
 import android.accounts.AuthenticatorDescription;
-import android.accounts.AuthenticatorException;
-import android.accounts.OperationCanceledException;
-import android.app.Activity;
 import android.content.Context;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.SystemClock;
 
-import java.io.IOException;
+import org.chromium.base.library_loader.LibraryLoader;
+import org.chromium.base.metrics.RecordHistogram;
+
+import java.util.concurrent.TimeUnit;
 
 /**
  * Default implementation of {@link AccountManagerDelegate} which delegates all calls to the
@@ -25,14 +26,23 @@ import java.io.IOException;
 public class SystemAccountManagerDelegate implements AccountManagerDelegate {
 
     private final AccountManager mAccountManager;
+    private final Context mApplicationContext;
 
     public SystemAccountManagerDelegate(Context context) {
+        mApplicationContext = context.getApplicationContext();
         mAccountManager = AccountManager.get(context.getApplicationContext());
     }
 
     @Override
     public Account[] getAccountsByType(String type) {
-        return mAccountManager.getAccountsByType(type);
+        if (!AccountManagerHelper.get(mApplicationContext).hasGetAccountsPermission()) {
+            return new Account[]{};
+        }
+        long now = SystemClock.elapsedRealtime();
+        Account[] accounts = mAccountManager.getAccountsByType(type);
+        long elapsed = SystemClock.elapsedRealtime() - now;
+        recordElapsedTimeHistogram("Signin.AndroidGetAccountsTime_AccountManager", elapsed);
+        return accounts;
     }
 
     @Override
@@ -43,69 +53,31 @@ public class SystemAccountManagerDelegate implements AccountManagerDelegate {
     }
 
     @Override
-    public AccountManagerFuture<Bundle> getAuthToken(Account account, String authTokenType,
-            Bundle options, Activity activity, AccountManagerCallback<Bundle> callback,
-            Handler handler) {
-        return mAccountManager.getAuthToken(account, authTokenType, options, activity, callback,
-                handler);
-    }
-
-    @Override
     public void invalidateAuthToken(String accountType, String authToken) {
         mAccountManager.invalidateAuthToken(accountType, authToken);
     }
 
     @Override
-    public String blockingGetAuthToken(Account account, String authTokenType,
-                                       boolean notifyAuthFailure)
-            throws OperationCanceledException, IOException, AuthenticatorException {
-        return mAccountManager.blockingGetAuthToken(account, authTokenType, notifyAuthFailure);
-    }
-
-    @Override
-    public Account[] getAccounts() {
-        return mAccountManager.getAccounts();
-    }
-
-    @Override
-    public boolean addAccountExplicitly(Account account, String password, Bundle userdata) {
-        return mAccountManager.addAccountExplicitly(account, password, userdata);
-    }
-
-    @Override
-    public AccountManagerFuture<Boolean> removeAccount(Account account,
-            AccountManagerCallback<Boolean> callback, Handler handler) {
-        return mAccountManager.removeAccount(account, callback, handler);
-    }
-
-    @Override
-    public String getPassword(Account account) {
-        return mAccountManager.getPassword(account);
-    }
-
-    @Override
-    public void setPassword(Account account, String password) {
-        mAccountManager.setPassword(account, password);
-    }
-
-    @Override
-    public void clearPassword(Account account) {
-        mAccountManager.clearPassword(account);
-    }
-
-    @Override
-    public AccountManagerFuture<Bundle> confirmCredentials(Account account, Bundle bundle,
-            Activity activity, AccountManagerCallback<Bundle> callback, Handler handler) {
-        return mAccountManager.confirmCredentials(account, bundle, activity, callback, handler);
-    }
-
-    @Override
-    public String peekAuthToken(Account account, String authTokenType) {
-        return mAccountManager.peekAuthToken(account, authTokenType);
-    }
-
-    @Override
     public AuthenticatorDescription[] getAuthenticatorTypes() {
         return mAccountManager.getAuthenticatorTypes();
+    }
+
+    @Override
+    public AccountManagerFuture<Boolean> hasFeatures(Account account, String[] features,
+            AccountManagerCallback<Boolean> callback, Handler handler) {
+        return mAccountManager.hasFeatures(account, features, callback, handler);
+    }
+
+    /**
+     * Records a histogram value for how long time an action has taken using
+     * {@link RecordHistogram#recordTimesHistogram(String, long, TimeUnit))} iff the browser
+     * process has been initialized.
+     *
+     * @param histogramName the name of the histogram.
+     * @param elapsedMs the elapsed time in milliseconds.
+     */
+    protected static void recordElapsedTimeHistogram(String histogramName, long elapsedMs) {
+        if (!LibraryLoader.isInitialized()) return;
+        RecordHistogram.recordTimesHistogram(histogramName, elapsedMs, TimeUnit.MILLISECONDS);
     }
 }

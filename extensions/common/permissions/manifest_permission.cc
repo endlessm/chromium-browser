@@ -34,7 +34,8 @@ void ManifestPermission::Write(IPC::Message* m) const {
   IPC::WriteParam(m, singleton);
 }
 
-bool ManifestPermission::Read(const IPC::Message* m, PickleIterator* iter) {
+bool ManifestPermission::Read(const IPC::Message* m,
+                              base::PickleIterator* iter) {
   base::ListValue singleton;
   if (!IPC::ReadParam(m, iter, &singleton))
     return false;
@@ -48,7 +49,7 @@ bool ManifestPermission::Read(const IPC::Message* m, PickleIterator* iter) {
 
 void ManifestPermission::Log(std::string* log) const {
   base::JSONWriter::WriteWithOptions(
-      ToValue().get(), base::JSONWriter::OPTIONS_PRETTY_PRINT, log);
+      *ToValue(), base::JSONWriter::OPTIONS_PRETTY_PRINT, log);
 }
 
 }  // namespace extensions

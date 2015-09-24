@@ -15,6 +15,7 @@
 #include "chrome/browser/chromeos/settings/stub_cros_settings_provider.h"
 #include "chrome/browser/chromeos/settings/system_settings_provider.h"
 #include "chromeos/chromeos_switches.h"
+#include "chromeos/settings/cros_settings_names.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 
 namespace chromeos {
@@ -45,12 +46,30 @@ CrosSettings* CrosSettings::Get() {
   return g_cros_settings;
 }
 
+// static
+bool CrosSettings::IsWhitelisted(const std::string& username,
+                                 bool* wildcard_match) {
+  // Skip whitelist check for tests.
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          chromeos::switches::kOobeSkipPostLogin)) {
+    return true;
+  }
+
+  CrosSettings* cros_settings = CrosSettings::Get();
+  bool allow_new_user = false;
+  cros_settings->GetBoolean(kAccountsPrefAllowNewUser, &allow_new_user);
+  if (allow_new_user)
+    return true;
+  return cros_settings->FindEmailInList(kAccountsPrefUsers, username,
+                                        wildcard_match);
+}
+
 CrosSettings::CrosSettings(DeviceSettingsService* device_settings_service) {
   CrosSettingsProvider::NotifyObserversCallback notify_cb(
       base::Bind(&CrosSettings::FireObservers,
                  // This is safe since |this| is never deleted.
                  base::Unretained(this)));
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kStubCrosSettings)) {
     AddSettingsProvider(new StubCrosSettingsProvider(notify_cb));
   } else {
@@ -67,7 +86,8 @@ CrosSettings::~CrosSettings() {
 }
 
 bool CrosSettings::IsCrosSettings(const std::string& path) {
-  return StartsWithASCII(path, kCrosSettingsPrefix, true);
+  return base::StartsWith(path, kCrosSettingsPrefix,
+                          base::CompareCase::SENSITIVE);
 }
 
 void CrosSettings::Set(const std::string& path, const base::Value& in_value) {

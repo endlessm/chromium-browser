@@ -5,18 +5,16 @@
 
 Import('env')
 
-if not env.AllowInlineAssembly() or env.Bit('nacl_clang'):
-  # This file has asm that nacl_clang doesn't support properly. See
-  # https://code.google.com/p/nativeclient/issues/detail?id=3969
+if not env.AllowInlineAssembly():
   Return()
 
 test_args = {'sel_ldr_flags': ['-e', '-E', 'OUTSIDE_BROWSER=1'],
              'declares_exit_status': True}
-if env.Bit('target_arm') and env.UsingEmulator():
+if env.Bit('build_arm') and env.UsingEmulator():
   test_args['sel_ldr_flags'].extend(['-E', 'UNDER_QEMU_ARM=1'])
 
 helper_files = []
-if env.Bit('target_x86'):
+if env.Bit('build_x86'):
   helper_files.append('direction_flag_x86.S')
 exception_test = env.ComponentProgram(
     env.ProgramNameForNmf('exception_test'),
@@ -43,12 +41,9 @@ for subtest in ('test_bad_handler',
   node = env.CommandSelLdrTestNacl(
       'exception_%s.out' % subtest,
       exception_crash_test, [subtest], **test_args)
-  # test_bad_handler hangs on non-whole-machine QEMU.
-  subtest_is_broken = (subtest == 'test_bad_handler' and env.UsingEmulator())
   env.AddNodeToTestSuite(
       node, ['small_tests', 'exception_tests'],
-      'run_exception_%s' % subtest,
-      is_broken=subtest_is_broken)
+      'run_exception_%s' % subtest)
 
 
 exceptions_disabled_test = env.ComponentProgram(

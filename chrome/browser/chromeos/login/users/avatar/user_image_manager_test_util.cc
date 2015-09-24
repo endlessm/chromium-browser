@@ -8,7 +8,7 @@
 
 #include "base/files/file_util.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/thread_task_runner_handle.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_rep.h"
@@ -53,23 +53,19 @@ ImageLoader::~ImageLoader() {
 scoped_ptr<gfx::ImageSkia> ImageLoader::Load() {
   std::string image_data;
   ReadFileToString(path_, &image_data);
-  scoped_refptr<ImageDecoder> image_decoder = new ImageDecoder(
-      this,
-      image_data,
-      ImageDecoder::ROBUST_JPEG_CODEC);
-  image_decoder->Start(base::MessageLoopProxy::current());
+  ImageDecoder::StartWithOptions(this, image_data,
+                                 ImageDecoder::ROBUST_JPEG_CODEC, false);
   run_loop_.Run();
   return decoded_image_.Pass();
 }
 
-void ImageLoader::OnImageDecoded(const ImageDecoder* decoder,
-                                 const SkBitmap& decoded_image) {
+void ImageLoader::OnImageDecoded(const SkBitmap& decoded_image) {
   decoded_image_.reset(
       new gfx::ImageSkia(gfx::ImageSkiaRep(decoded_image, 1.0f)));
   run_loop_.Quit();
 }
 
-void ImageLoader::OnDecodeImageFailed(const ImageDecoder* decoder) {
+void ImageLoader::OnDecodeImageFailed() {
   run_loop_.Quit();
 }
 

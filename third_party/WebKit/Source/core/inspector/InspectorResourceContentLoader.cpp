@@ -5,10 +5,11 @@
 #include "config.h"
 #include "core/inspector/InspectorResourceContentLoader.h"
 
-#include "core/FetchInitiatorTypeNames.h"
 #include "core/css/CSSStyleSheet.h"
 #include "core/css/StyleSheetContents.h"
+#include "core/dom/Document.h"
 #include "core/fetch/CSSStyleSheetResource.h"
+#include "core/fetch/FetchInitiatorTypeNames.h"
 #include "core/fetch/RawResource.h"
 #include "core/fetch/Resource.h"
 #include "core/fetch/ResourceFetcher.h"
@@ -73,10 +74,10 @@ void InspectorResourceContentLoader::ResourceClient::notifyFinished(Resource* re
     resourceFinished(resource);
 }
 
-InspectorResourceContentLoader::InspectorResourceContentLoader(Page* page)
+InspectorResourceContentLoader::InspectorResourceContentLoader(LocalFrame* inspectedFrame)
     : m_allRequestsStarted(false)
     , m_started(false)
-    , m_page(page)
+    , m_inspectedFrame(inspectedFrame)
 {
 }
 
@@ -84,31 +85,31 @@ void InspectorResourceContentLoader::start()
 {
     m_started = true;
     Vector<Document*> documents;
-    for (Frame* frame = m_page->mainFrame(); frame; frame = frame->tree().traverseNext()) {
+    for (Frame* frame = m_inspectedFrame; frame; frame = frame->tree().traverseNext(m_inspectedFrame)) {
         if (!frame->isLocalFrame())
             continue;
         LocalFrame* localFrame = toLocalFrame(frame);
         documents.append(localFrame->document());
         documents.appendVector(InspectorPageAgent::importsForFrame(localFrame));
     }
-    for (Vector<Document*>::const_iterator documentIt = documents.begin(); documentIt != documents.end(); ++documentIt) {
-        Document* document = *documentIt;
+    for (Document* document : documents) {
         HashSet<String> urlsToFetch;
 
         ResourceRequest resourceRequest;
-        HistoryItem* item = document->frame() ? document->frame()->loader().currentItem() : 0;
+        HistoryItem* item = document->frame() ? document->frame()->loader().currentItem() : nullptr;
         if (item) {
-            resourceRequest = FrameLoader::requestFromHistoryItem(item, ReturnCacheDataDontLoad);
+            resourceRequest =
+                FrameLoader::resourceRequestFromHistoryItem(item, ReturnCacheDataDontLoad);
         } else {
             resourceRequest = document->url();
             resourceRequest.setCachePolicy(ReturnCacheDataDontLoad);
         }
-        resourceRequest.setRequestContext(blink::WebURLRequest::RequestContextInternal);
+        resourceRequest.setRequestContext(WebURLRequest::RequestContextInternal);
 
         if (!resourceRequest.url().string().isEmpty()) {
             urlsToFetch.add(resourceRequest.url().string());
             FetchRequest request(resourceRequest, FetchInitiatorTypeNames::internal);
-            ResourcePtr<Resource> resource = document->fetcher()->fetchRawResource(request);
+            ResourcePtr<Resource> resource = RawResource::fetch(request, document->fetcher());
             if (resource) {
                 // Prevent garbage collection by holding a reference to this resource.
                 m_resources.append(resource.get());
@@ -120,8 +121,7 @@ void InspectorResourceContentLoader::start()
 
         WillBeHeapVector<RawPtrWillBeMember<CSSStyleSheet> > styleSheets;
         InspectorCSSAgent::collectAllDocumentStyleSheets(document, styleSheets);
-        for (WillBeHeapVector<RawPtrWillBeMember<CSSStyleSheet> >::const_iterator stylesheetIt = styleSheets.begin(); stylesheetIt != styleSheets.end(); ++stylesheetIt) {
-            CSSStyleSheet* styleSheet = *stylesheetIt;
+        for (CSSStyleSheet* styleSheet : styleSheets) {
             if (styleSheet->isInline() || !styleSheet->contents()->loadCompleted())
                 continue;
             String url = styleSheet->baseURL().string();
@@ -129,8 +129,8 @@ void InspectorResourceContentLoader::start()
                 continue;
             urlsToFetch.add(url);
             FetchRequest request(ResourceRequest(url), FetchInitiatorTypeNames::internal);
-            request.mutableResourceRequest().setRequestContext(blink::WebURLRequest::RequestContextInternal);
-            ResourcePtr<Resource> resource = document->fetcher()->fetchCSSStyleSheet(request);
+            request.mutableResourceRequest().setRequestContext(WebURLRequest::RequestContextInternal);
+            ResourcePtr<Resource> resource = CSSStyleSheetResource::fetch(request, document->fetcher());
             if (!resource)
                 continue;
             // Prevent garbage collection by holding a reference to this resource.
@@ -158,26 +158,29 @@ InspectorResourceContentLoader::~InspectorResourceContentLoader()
     ASSERT(m_resources.isEmpty());
 }
 
-void InspectorResourceContentLoader::trace(Visitor* visitor)
+DEFINE_TRACE(InspectorResourceContentLoader)
 {
     visitor->trace(m_callbacks);
-    visitor->trace(m_page);
+    visitor->trace(m_inspectedFrame);
 }
 
-void InspectorResourceContentLoader::dispose()
+void InspectorResourceContentLoader::didCommitLoadForLocalFrame(LocalFrame* frame)
 {
-    stop();
+    if (frame == m_inspectedFrame)
+        stop();
 }
 
 void InspectorResourceContentLoader::stop()
 {
     HashSet<ResourceClient*> pendingResourceClients;
     m_pendingResourceClients.swap(pendingResourceClients);
-    for (HashSet<ResourceClient*>::const_iterator it = pendingResourceClients.begin(); it != pendingResourceClients.end(); ++it)
-        (*it)->m_loader = 0;
+    for (const auto& client : pendingResourceClients)
+        client->m_loader = nullptr;
     m_resources.clear();
     // Make sure all callbacks are called to prevent infinite waiting time.
     checkDone();
+    m_allRequestsStarted = false;
+    m_started = false;
 }
 
 bool InspectorResourceContentLoader::hasFinished()
@@ -191,8 +194,8 @@ void InspectorResourceContentLoader::checkDone()
         return;
     PersistentHeapVectorWillBeHeapVector<Member<VoidCallback> > callbacks;
     callbacks.swap(m_callbacks);
-    for (PersistentHeapVectorWillBeHeapVector<Member<VoidCallback> >::const_iterator it = callbacks.begin(); it != callbacks.end(); ++it)
-        (*it)->handleEvent();
+    for (const auto& callback : callbacks)
+        callback->handleEvent();
 }
 
 void InspectorResourceContentLoader::resourceFinished(ResourceClient* client)

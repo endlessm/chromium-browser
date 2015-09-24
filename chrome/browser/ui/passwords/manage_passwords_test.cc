@@ -4,13 +4,13 @@
 
 #include "chrome/browser/ui/passwords/manage_passwords_test.h"
 
+#include "base/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_command_controller.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "chrome/browser/ui/passwords/manage_passwords_icon.h"
-#include "chrome/browser/ui/passwords/manage_passwords_ui_controller_mock.h"
+#include "chrome/browser/ui/passwords/manage_passwords_ui_controller.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
@@ -21,18 +21,14 @@
 #include "components/password_manager/core/browser/stub_password_manager_driver.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-void ManagePasswordsTest::SetUpOnMainThread() {
-  AddTabAtIndex(0, GURL("http://example.com/"), ui::PAGE_TRANSITION_TYPED);
-  // Create the test UIController here so that it's bound to the currently
-  // active WebContents.
-  new ManagePasswordsUIControllerMock(
-      browser()->tab_strip_model()->GetActiveWebContents());
+ManagePasswordsTest::ManagePasswordsTest() {
 }
 
-ManagePasswordsUIControllerMock* ManagePasswordsTest::controller() {
-  return static_cast<ManagePasswordsUIControllerMock*>(
-      ManagePasswordsUIController::FromWebContents(
-          browser()->tab_strip_model()->GetActiveWebContents()));
+ManagePasswordsTest::~ManagePasswordsTest() {
+}
+
+void ManagePasswordsTest::SetUpOnMainThread() {
+  AddTabAtIndex(0, GURL("http://example.com/"), ui::PAGE_TRANSITION_TYPED);
 }
 
 void ManagePasswordsTest::ExecuteManagePasswordsCommand() {
@@ -50,9 +46,9 @@ void ManagePasswordsTest::ExecuteManagePasswordsCommand() {
 void ManagePasswordsTest::SetupManagingPasswords() {
   base::string16 kTestUsername = base::ASCIIToUTF16("test_username");
   autofill::PasswordFormMap map;
-  map[kTestUsername] = test_form();
-  controller()->OnPasswordAutofilled(map);
-  controller()->UpdateIconAndBubbleState(view());
+  map.insert(kTestUsername,
+             make_scoped_ptr(new autofill::PasswordForm(*test_form())));
+  GetController()->OnPasswordAutofilled(map);
 }
 
 void ManagePasswordsTest::SetupPendingPassword() {
@@ -60,13 +56,8 @@ void ManagePasswordsTest::SetupPendingPassword() {
   password_manager::StubPasswordManagerDriver driver;
   scoped_ptr<password_manager::PasswordFormManager> test_form_manager(
       new password_manager::PasswordFormManager(
-          NULL, &client, &driver, *test_form(), false));
-  controller()->OnPasswordSubmitted(test_form_manager.Pass());
-
-  // Wait for the command execution triggered by the automatic popup to pop up
-  // the bubble.
-  content::RunAllPendingInMessageLoop();
-  controller()->UpdateIconAndBubbleState(view());
+          NULL, &client, driver.AsWeakPtr(), *test_form(), false));
+  GetController()->OnPasswordSubmitted(test_form_manager.Pass());
 }
 
 void ManagePasswordsTest::SetupAutomaticPassword() {
@@ -74,21 +65,35 @@ void ManagePasswordsTest::SetupAutomaticPassword() {
   password_manager::StubPasswordManagerDriver driver;
   scoped_ptr<password_manager::PasswordFormManager> test_form_manager(
       new password_manager::PasswordFormManager(
-          NULL, &client, &driver, *test_form(), false));
-  controller()->OnAutomaticPasswordSave(test_form_manager.Pass());
-
-  // Wait for the command execution triggered by the automatic popup to pop up
-  // the bubble.
-  content::RunAllPendingInMessageLoop();
-  controller()->UpdateIconAndBubbleState(view());
+          NULL, &client, driver.AsWeakPtr(), *test_form(), false));
+  GetController()->OnAutomaticPasswordSave(test_form_manager.Pass());
 }
 
 void ManagePasswordsTest::SetupBlackistedPassword() {
+  test_form()->blacklisted_by_user = true;
+  test_form()->username_value.clear();
+  autofill::PasswordFormMap map;
+  map.insert(test_form()->username_value,
+             make_scoped_ptr(new autofill::PasswordForm(*test_form())));
+  GetController()->OnBlacklistBlockedAutofill(map);
+}
+
+void ManagePasswordsTest::SetupChooseCredentials(
+    ScopedVector<autofill::PasswordForm> local_credentials,
+    ScopedVector<autofill::PasswordForm> federated_credentials,
+    const GURL& origin) {
   base::string16 kTestUsername = base::ASCIIToUTF16("test_username");
   autofill::PasswordFormMap map;
-  map[kTestUsername] = test_form();
-  controller()->OnBlacklistBlockedAutofill(map);
-  controller()->UpdateIconAndBubbleState(view());
+  map.insert(kTestUsername,
+             make_scoped_ptr(new autofill::PasswordForm(*test_form())));
+  GetController()->OnChooseCredentials(
+      local_credentials.Pass(), federated_credentials.Pass(), origin,
+      base::Bind(&ManagePasswordsTest::OnChooseCredential, this));
+}
+
+void ManagePasswordsTest::SetupAutoSignin(
+    ScopedVector<autofill::PasswordForm> local_credentials) {
+  GetController()->OnAutoSignin(local_credentials.Pass());
 }
 
 base::HistogramSamples* ManagePasswordsTest::GetSamples(
@@ -97,4 +102,9 @@ base::HistogramSamples* ManagePasswordsTest::GetSamples(
   content::RunAllPendingInMessageLoop();
   return histogram_tester_.GetHistogramSamplesSinceCreation(histogram)
       .release();
+}
+
+ManagePasswordsUIController* ManagePasswordsTest::GetController() {
+  return ManagePasswordsUIController::FromWebContents(
+      browser()->tab_strip_model()->GetActiveWebContents());
 }

@@ -24,7 +24,6 @@ using content::BrowserThread;
 using password_manager::PasswordStoreChange;
 using password_manager::PasswordStoreChangeList;
 using password_manager::PasswordStoreDefault;
-using std::vector;
 
 namespace {
 
@@ -41,12 +40,15 @@ bool AddLoginToBackend(const scoped_ptr<PasswordStoreX::NativeBackend>& backend,
 PasswordStoreX::PasswordStoreX(
     scoped_refptr<base::SingleThreadTaskRunner> main_thread_runner,
     scoped_refptr<base::SingleThreadTaskRunner> db_thread_runner,
-    password_manager::LoginDatabase* login_db,
+    scoped_ptr<password_manager::LoginDatabase> login_db,
     NativeBackend* backend)
-    : PasswordStoreDefault(main_thread_runner, db_thread_runner, login_db),
+    : PasswordStoreDefault(main_thread_runner,
+                           db_thread_runner,
+                           login_db.Pass()),
       backend_(backend),
       migration_checked_(!backend),
-      allow_fallback_(false) {}
+      allow_fallback_(false) {
+}
 
 PasswordStoreX::~PasswordStoreX() {}
 
@@ -110,6 +112,7 @@ PasswordStoreChangeList PasswordStoreX::RemoveLoginsSyncedBetweenImpl(
   PasswordStoreChangeList changes;
   if (use_native_backend() &&
       backend_->RemoveLoginsSyncedBetween(delete_begin, delete_end, &changes)) {
+    LogStatsForBulkDeletionDuringRollback(changes.size());
     allow_fallback_ = false;
   } else if (allow_default_store()) {
     changes = PasswordStoreDefault::RemoveLoginsSyncedBetweenImpl(delete_begin,
@@ -119,77 +122,46 @@ PasswordStoreChangeList PasswordStoreX::RemoveLoginsSyncedBetweenImpl(
 }
 
 namespace {
+
 struct LoginLessThan {
   bool operator()(const PasswordForm* a, const PasswordForm* b) {
     return a->origin < b->origin;
   }
 };
-}  // anonymous namespace
 
-void PasswordStoreX::SortLoginsByOrigin(NativeBackend::PasswordFormList* list) {
-  // In login_database.cc, the query has ORDER BY origin_url. Simulate that.
+// Sorts |list| by origin, like the ORDER BY clause in login_database.cc.
+void SortLoginsByOrigin(std::vector<autofill::PasswordForm*>* list) {
   std::sort(list->begin(), list->end(), LoginLessThan());
 }
 
-void PasswordStoreX::GetLoginsImpl(
+}  // anonymous namespace
+
+ScopedVector<autofill::PasswordForm> PasswordStoreX::FillMatchingLogins(
     const autofill::PasswordForm& form,
-    AuthorizationPromptPolicy prompt_policy,
-    const ConsumerCallbackRunner& callback_runner) {
+    AuthorizationPromptPolicy prompt_policy) {
   CheckMigration();
-  std::vector<autofill::PasswordForm*> matched_forms;
+  ScopedVector<autofill::PasswordForm> matched_forms;
   if (use_native_backend() && backend_->GetLogins(form, &matched_forms)) {
-    SortLoginsByOrigin(&matched_forms);
+    SortLoginsByOrigin(&matched_forms.get());
     // The native backend may succeed and return no data even while locked, if
     // the query did not match anything stored. So we continue to allow fallback
     // until we perform a write operation, or until a read returns actual data.
-    if (matched_forms.size() > 0)
+    if (!matched_forms.empty())
       allow_fallback_ = false;
-  } else if (allow_default_store()) {
-    DCHECK(matched_forms.empty());
-    PasswordStoreDefault::GetLoginsImpl(form, prompt_policy, callback_runner);
-    return;
+    return matched_forms.Pass();
   }
-  // The consumer will be left hanging unless we reply.
-  callback_runner.Run(matched_forms);
+  if (allow_default_store())
+    return PasswordStoreDefault::FillMatchingLogins(form, prompt_policy);
+  return ScopedVector<autofill::PasswordForm>();
 }
 
-void PasswordStoreX::GetAutofillableLoginsImpl(GetLoginsRequest* request) {
-  CheckMigration();
-  if (use_native_backend() &&
-      backend_->GetAutofillableLogins(request->result())) {
-    SortLoginsByOrigin(request->result());
-    // See GetLoginsImpl() for why we disallow fallback conditionally here.
-    if (request->result()->size() > 0)
-      allow_fallback_ = false;
-  } else if (allow_default_store()) {
-    PasswordStoreDefault::GetAutofillableLoginsImpl(request);
-    return;
-  }
-  // The consumer will be left hanging unless we reply.
-  ForwardLoginsResult(request);
-}
-
-void PasswordStoreX::GetBlacklistLoginsImpl(GetLoginsRequest* request) {
-  CheckMigration();
-  if (use_native_backend() &&
-      backend_->GetBlacklistLogins(request->result())) {
-    SortLoginsByOrigin(request->result());
-    // See GetLoginsImpl() for why we disallow fallback conditionally here.
-    if (request->result()->size() > 0)
-      allow_fallback_ = false;
-  } else if (allow_default_store()) {
-    PasswordStoreDefault::GetBlacklistLoginsImpl(request);
-    return;
-  }
-  // The consumer will be left hanging unless we reply.
-  ForwardLoginsResult(request);
-}
-
-bool PasswordStoreX::FillAutofillableLogins(vector<PasswordForm*>* forms) {
+bool PasswordStoreX::FillAutofillableLogins(
+    ScopedVector<autofill::PasswordForm>* forms) {
   CheckMigration();
   if (use_native_backend() && backend_->GetAutofillableLogins(forms)) {
+    SortLoginsByOrigin(&forms->get());
     // See GetLoginsImpl() for why we disallow fallback conditionally here.
-    if (forms->size() > 0)
+    if (!forms->empty())
       allow_fallback_ = false;
     return true;
   }
@@ -198,11 +170,13 @@ bool PasswordStoreX::FillAutofillableLogins(vector<PasswordForm*>* forms) {
   return false;
 }
 
-bool PasswordStoreX::FillBlacklistLogins(vector<PasswordForm*>* forms) {
+bool PasswordStoreX::FillBlacklistLogins(
+    ScopedVector<autofill::PasswordForm>* forms) {
   CheckMigration();
   if (use_native_backend() && backend_->GetBlacklistLogins(forms)) {
     // See GetLoginsImpl() for why we disallow fallback conditionally here.
-    if (forms->size() > 0)
+    SortLoginsByOrigin(&forms->get());
+    if (!forms->empty())
       allow_fallback_ = false;
     return true;
   }
@@ -212,7 +186,7 @@ bool PasswordStoreX::FillBlacklistLogins(vector<PasswordForm*>* forms) {
 }
 
 void PasswordStoreX::CheckMigration() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
+  DCHECK_CURRENTLY_ON(BrowserThread::DB);
   if (migration_checked_ || !backend_.get())
     return;
   migration_checked_ = true;
@@ -229,7 +203,7 @@ void PasswordStoreX::CheckMigration() {
   } else {
     LOG(WARNING) << "Native password store migration failed! " <<
                  "Falling back on default (unencrypted) store.";
-    backend_.reset(NULL);
+    backend_.reset();
   }
 }
 
@@ -237,7 +211,7 @@ bool PasswordStoreX::allow_default_store() {
   if (allow_fallback_) {
     LOG(WARNING) << "Native password store failed! " <<
                  "Falling back on default (unencrypted) store.";
-    backend_.reset(NULL);
+    backend_.reset();
     // Don't warn again. We'll use the default store because backend_ is NULL.
     allow_fallback_ = false;
   }
@@ -246,9 +220,13 @@ bool PasswordStoreX::allow_default_store() {
 
 ssize_t PasswordStoreX::MigrateLogins() {
   DCHECK(backend_.get());
-  vector<PasswordForm*> forms;
+  ScopedVector<autofill::PasswordForm> forms;
+  ScopedVector<autofill::PasswordForm> blacklist_forms;
   bool ok = PasswordStoreDefault::FillAutofillableLogins(&forms) &&
-      PasswordStoreDefault::FillBlacklistLogins(&forms);
+            PasswordStoreDefault::FillBlacklistLogins(&blacklist_forms);
+  forms.reserve(forms.size() + blacklist_forms.size());
+  forms.insert(forms.end(), blacklist_forms.begin(), blacklist_forms.end());
+  blacklist_forms.weak_clear();
   if (ok) {
     // We add all the passwords (and blacklist entries) to the native backend
     // before attempting to remove any from the login database, to make sure we
@@ -279,6 +257,5 @@ ssize_t PasswordStoreX::MigrateLogins() {
     }
   }
   ssize_t result = ok ? forms.size() : -1;
-  STLDeleteElements(&forms);
   return result;
 }

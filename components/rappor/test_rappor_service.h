@@ -5,8 +5,12 @@
 #ifndef COMPONENTS_RAPPOR_TEST_RAPPOR_SERVICE_H_
 #define COMPONENTS_RAPPOR_TEST_RAPPOR_SERVICE_H_
 
+#include <map>
+#include <string>
+
 #include "base/prefs/testing_pref_service.h"
 #include "components/rappor/rappor_service.h"
+#include "components/rappor/test_log_uploader.h"
 
 namespace rappor {
 
@@ -19,14 +23,62 @@ class TestRapporService : public RapporService {
 
   ~TestRapporService() override;
 
-  // Get the number of reports that would be uploaded by this service.
+  // Intercepts the sample being recorded and saves it in a test structure.
+  void RecordSample(const std::string& metric_name,
+                    RapporType type,
+                    const std::string& sample) override;
+
+  // Gets the number of reports that would be uploaded by this service.
   // This also clears the internal map of metrics as a biproduct, so if
   // comparing numbers of reports, the comparison should be from the last time
   // GetReportsCount() was called (not from the beginning of the test).
   int GetReportsCount();
 
+  // Gets the reports proto that would be uploaded.
+  // This clears the internal map of metrics.
+  void GetReports(RapporReports* reports);
+
+  // Gets the recorded sample/type for a |metric_name|, and returns whether the
+  // recorded metric was found. Limitation: if the metric was logged more than
+  // once, this will return the latest sample that was logged.
+  bool GetRecordedSampleForMetric(const std::string& metric_name,
+                                  std::string* sample,
+                                  RapporType* type);
+
+  void set_is_incognito(bool is_incognito) { is_incognito_ = is_incognito; }
+
+  TestingPrefServiceSimple* test_prefs() { return &test_prefs_; }
+
+  TestLogUploader* test_uploader() { return test_uploader_; }
+
+  base::TimeDelta next_rotation() { return next_rotation_; }
+
+ protected:
+  // Cancels the next call to OnLogInterval.
+  void CancelNextLogRotation() override;
+
+  // Schedules the next call to OnLogInterval.
+  void ScheduleNextLogRotation(base::TimeDelta interval) override;
+
  private:
-  TestingPrefServiceSimple prefs_;
+  // Used to keep track of recorded RAPPOR samples.
+  struct RapporSample {
+    RapporType type;
+    std::string value;
+  };
+  typedef std::map<std::string, RapporSample> SamplesMap;
+  SamplesMap samples_;
+
+  TestingPrefServiceSimple test_prefs_;
+
+  // Holds a weak ref to the uploader_ object.
+  TestLogUploader* test_uploader_;
+
+  // The last scheduled log rotation.
+  base::TimeDelta next_rotation_;
+
+  // Sets this to true to mock incognito state.
+  bool is_incognito_;
 
   DISALLOW_COPY_AND_ASSIGN(TestRapporService);
 };

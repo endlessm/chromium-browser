@@ -19,12 +19,10 @@ namespace {
 
 // We rely on the priority enum values being sequential having starting at 0,
 // and increasing for higher priorities.
-COMPILE_ASSERT(MINIMUM_PRIORITY == 0u &&
-               MINIMUM_PRIORITY == IDLE &&
-               IDLE < LOWEST &&
-               LOWEST < HIGHEST &&
-               HIGHEST <= MAXIMUM_PRIORITY,
-               priority_indexes_incompatible);
+static_assert(MINIMUM_PRIORITY == 0u && MINIMUM_PRIORITY == IDLE &&
+                  IDLE < LOWEST && LOWEST < HIGHEST &&
+                  HIGHEST <= MAXIMUM_PRIORITY,
+              "priority indexes incompatible");
 
 class PrioritizedDispatcherTest : public testing::Test {
  public:
@@ -543,23 +541,6 @@ TEST_F(PrioritizedDispatcherTest, CancelMissing) {
   PrioritizedDispatcher::Handle handle = job_b->handle();
   ASSERT_FALSE(handle.is_null());
   dispatcher_->Cancel(handle);
-  EXPECT_DEBUG_DEATH(dispatcher_->Cancel(handle), "");
-}
-
-// TODO(szym): Fix the PriorityQueue::Pointer check to die here.
-// http://crbug.com/130846
-TEST_F(PrioritizedDispatcherTest, DISABLED_CancelIncompatible) {
-  PrioritizedDispatcher::Limits limits(NUM_PRIORITIES, 1);
-  Prepare(limits);
-  AddJob('a', IDLE);
-  TestJob* job_b = AddJob('b', IDLE);
-  PrioritizedDispatcher::Handle handle = job_b->handle();
-  ASSERT_FALSE(handle.is_null());
-
-  // New dispatcher.
-  Prepare(limits);
-  AddJob('a', IDLE);
-  AddJob('b', IDLE);
   EXPECT_DEBUG_DEATH(dispatcher_->Cancel(handle), "");
 }
 #endif  // GTEST_HAS_DEATH_TEST && !defined(NDEBUG)

@@ -25,7 +25,6 @@
 #include "config.h"
 #include "core/dom/TreeScopeAdopter.h"
 
-#include "core/accessibility/AXObjectCache.h"
 #include "core/dom/Attr.h"
 #include "core/dom/NodeRareData.h"
 #include "core/dom/NodeTraversal.h"
@@ -49,7 +48,6 @@ void TreeScopeAdopter::moveTreeToNewScope(Node& root) const
     Document& oldDocument = oldScope().document();
     Document& newDocument = newScope().document();
     bool willMoveToNewDocument = oldDocument != newDocument;
-    AXObjectCache* axObjectCache = oldDocument.existingAXObjectCache();
     if (willMoveToNewDocument)
         oldDocument.incDOMTreeVersion();
 
@@ -57,8 +55,6 @@ void TreeScopeAdopter::moveTreeToNewScope(Node& root) const
         updateTreeScope(node);
 
         if (willMoveToNewDocument) {
-            if (axObjectCache)
-                axObjectCache->remove(&node);
             moveNodeToNewDocument(node, oldDocument, newDocument);
         } else if (node.hasRareData()) {
             NodeRareData* rareData = node.rareData();
@@ -68,14 +64,14 @@ void TreeScopeAdopter::moveTreeToNewScope(Node& root) const
 
         if (!node.isElementNode())
             continue;
+        Element& element = toElement(node);
 
-        if (node.hasSyntheticAttrChildNodes()) {
-            WillBeHeapVector<RefPtrWillBeMember<Attr> >& attrs = *toElement(node).attrNodeList();
-            for (unsigned i = 0; i < attrs.size(); ++i)
-                moveTreeToNewScope(*attrs[i]);
+        if (WillBeHeapVector<RefPtrWillBeMember<Attr>>* attrs = element.attrNodeList()) {
+            for (const auto& attr : *attrs)
+                moveTreeToNewScope(*attr);
         }
 
-        for (ShadowRoot* shadow = node.youngestShadowRoot(); shadow; shadow = shadow->olderShadowRoot()) {
+        for (ShadowRoot* shadow = element.youngestShadowRoot(); shadow; shadow = shadow->olderShadowRoot()) {
             shadow->setParentTreeScope(newScope());
             if (willMoveToNewDocument)
                 moveTreeToNewDocument(*shadow, oldDocument, newDocument);
@@ -93,13 +89,16 @@ void TreeScopeAdopter::moveTreeToNewDocument(Node& root, Document& oldDocument, 
     for (Node& node : NodeTraversal::inclusiveDescendantsOf(root)) {
         moveNodeToNewDocument(node, oldDocument, newDocument);
 
-        if (node.hasSyntheticAttrChildNodes()) {
-            WillBeHeapVector<RefPtrWillBeMember<Attr> >& attrs = *toElement(node).attrNodeList();
-            for (unsigned i = 0; i < attrs.size(); ++i)
-                moveTreeToNewDocument(*attrs[i], oldDocument, newDocument);
+        if (!node.isElementNode())
+            continue;
+        Element& element = toElement(node);
+
+        if (WillBeHeapVector<RefPtrWillBeMember<Attr>>* attrs = element.attrNodeList()) {
+            for (const auto& attr : *attrs)
+                moveTreeToNewDocument(*attr, oldDocument, newDocument);
         }
 
-        for (ShadowRoot* shadow = node.youngestShadowRoot(); shadow; shadow = shadow->olderShadowRoot())
+        for (ShadowRoot* shadow = element.youngestShadowRoot(); shadow; shadow = shadow->olderShadowRoot())
             moveTreeToNewDocument(*shadow, oldDocument, newDocument);
     }
 }

@@ -9,18 +9,6 @@ namespace extensionoptions {
 // API namespace.
 extern const char kAPINamespace[] = "extensionOptionsInternal";
 
-// Attributes.
-const char kAttributeAutoSize[] = "autosize";
-const char kAttributeMaxHeight[] = "maxheight";
-const char kAttributeMaxWidth[] = "maxwidth";
-const char kAttributeMinHeight[] = "minheight";
-const char kAttributeMinWidth[] = "minwidth";
-
-const char kExtensionId[] = "extensionId";
-
-const char kNewHeight[] = "newHeight";
-const char kNewWidth[] = "newWidth";
-const char kOldHeight[] = "oldHeight";
-const char kOldWidth[] = "oldWidth";
+const char kExtensionId[] = "extension";
 
 }  // namespace extensionoptions

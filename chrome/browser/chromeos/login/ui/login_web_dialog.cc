@@ -10,13 +10,14 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/ui/browser_finder.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/web_contents.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/native_widget_types.h"
-#include "ui/gfx/rect.h"
-#include "ui/gfx/size.h"
 #include "ui/views/widget/widget.h"
 
 using content::WebContents;
@@ -136,8 +137,7 @@ void LoginWebDialog::OnDialogClosed(const std::string& json_retval) {
 
 void LoginWebDialog::OnCloseContents(WebContents* source,
                                      bool* out_close_dialog) {
-  if (out_close_dialog)
-    *out_close_dialog = true;
+  *out_close_dialog = true;
 
   if (g_web_contents_stack.Pointer()->size() &&
       source == g_web_contents_stack.Pointer()->front()) {
@@ -155,6 +155,23 @@ bool LoginWebDialog::HandleContextMenu(
     const content::ContextMenuParams& params) {
   // Disable context menu.
   return true;
+}
+
+bool LoginWebDialog::HandleOpenURLFromTab(
+    content::WebContents* source,
+    const content::OpenURLParams& params,
+    content::WebContents** out_new_contents) {
+  // On a login screen, if a missing extension is trying to show in a web
+  // dialog, a NetErrorHelper is displayed instead (hence we have a |source|),
+  // but there is no browser window associated with it. A helper screen will
+  // fire an auto-reload, which in turn leads to opening a new browser window,
+  // so we must suppress it.
+  // http://crbug.com/443096
+  return (source && !chrome::FindBrowserWithWebContents(source));
+}
+
+bool LoginWebDialog::HandleShouldCreateWebContents() {
+  return false;
 }
 
 void LoginWebDialog::Observe(int type,

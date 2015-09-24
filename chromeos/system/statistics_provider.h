@@ -17,11 +17,26 @@ class TaskRunner;
 namespace chromeos {
 namespace system {
 
-// Developer switch value.
-CHROMEOS_EXPORT extern const char kDevSwitchBootMode[];
+// Activation date key.
+CHROMEOS_EXPORT extern const char kActivateDateKey[];
 
 // Customization ID key.
 CHROMEOS_EXPORT extern const char kCustomizationIdKey[];
+
+// Developer switch value.
+CHROMEOS_EXPORT extern const char kDevSwitchBootKey[];
+CHROMEOS_EXPORT extern const char kDevSwitchBootValueVerified[];
+CHROMEOS_EXPORT extern const char kDevSwitchBootValueDev[];
+
+// Firmware type and associated values. The values are from crossystem output
+// for the mainfw_type key. Normal and developer correspond to Chrome OS
+// firmware with MP and developer keys respectively, nonchrome indicates the
+// machine doesn't run on Chrome OS firmware. See crossystem source for more
+// details.
+CHROMEOS_EXPORT extern const char kFirmwareTypeKey[];
+CHROMEOS_EXPORT extern const char kFirmwareTypeValueDeveloper[];
+CHROMEOS_EXPORT extern const char kFirmwareTypeValueNonchrome[];
+CHROMEOS_EXPORT extern const char kFirmwareTypeValueNormal[];
 
 // HWID key.
 CHROMEOS_EXPORT extern const char kHardwareClassKey[];
@@ -49,8 +64,10 @@ CHROMEOS_EXPORT extern const char kOffersGroupCodeKey[];
 // Release Brand Code key.
 CHROMEOS_EXPORT extern const char kRlzBrandCodeKey[];
 
-// Activation date key.
-CHROMEOS_EXPORT extern const char kActivateDateKey[];
+// Write protect switch value.
+CHROMEOS_EXPORT extern const char kWriteProtectSwitchBootKey[];
+CHROMEOS_EXPORT extern const char kWriteProtectSwitchBootValueOff[];
+CHROMEOS_EXPORT extern const char kWriteProtectSwitchBootValueOn[];
 
 // This interface provides access to Chrome OS statistics.
 class CHROMEOS_EXPORT StatisticsProvider {

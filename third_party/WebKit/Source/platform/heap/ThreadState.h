@@ -32,16 +32,17 @@
 #define ThreadState_h
 
 #include "platform/PlatformExport.h"
-#include "platform/heap/AddressSanitizer.h"
+#include "platform/heap/ThreadingTraits.h"
 #include "public/platform/WebThread.h"
+#include "wtf/AddressSanitizer.h"
+#include "wtf/Forward.h"
 #include "wtf/HashMap.h"
 #include "wtf/HashSet.h"
-#include "wtf/OwnPtr.h"
 #include "wtf/PassOwnPtr.h"
 #include "wtf/ThreadSpecific.h"
 #include "wtf/Threading.h"
 #include "wtf/ThreadingPrimitives.h"
-#include "wtf/Vector.h"
+#include "wtf/text/WTFString.h"
 
 namespace v8 {
 class Isolate;
@@ -49,78 +50,43 @@ class Isolate;
 
 namespace blink {
 
-class BaseHeap;
-class BaseHeapPage;
-class FinalizedHeapObjectHeader;
-struct GCInfo;
-class HeapObjectHeader;
-class PageMemory;
-class PersistentNode;
-class Visitor;
-class SafePointBarrier;
-class SafePointAwareMutexLocker;
-template<typename Header> class ThreadHeap;
+class BasePage;
 class CallbackStack;
+class CrossThreadPersistentRegion;
+struct GCInfo;
+class GarbageCollectedMixinConstructorMarker;
+class HeapObjectHeader;
 class PageMemoryRegion;
+class PageMemory;
+class PersistentRegion;
+class BaseHeap;
+class SafePointAwareMutexLocker;
+class SafePointBarrier;
+class ThreadState;
+class Visitor;
 
-typedef uint8_t* Address;
+using Address = uint8_t*;
 
-typedef void (*FinalizationCallback)(void*);
-typedef void (*VisitorCallback)(Visitor*, void* self);
-typedef VisitorCallback TraceCallback;
-typedef VisitorCallback WeakPointerCallback;
-typedef VisitorCallback EphemeronCallback;
+using FinalizationCallback = void (*)(void*);
+using VisitorCallback = void (*)(Visitor*, void* self);
+using TraceCallback = VisitorCallback;
+using WeakCallback = VisitorCallback;
+using EphemeronCallback = VisitorCallback;
+using PreFinalizerCallback = bool(*)(void*);
 
-// ThreadAffinity indicates which threads objects can be used on. We
-// distinguish between objects that can be used on the main thread
-// only and objects that can be used on any thread.
+// Declare that a class has a pre-finalizer. The pre-finalizer is called
+// before any object gets swept, so it is safe to touch on-heap objects
+// that may be collected in the same GC cycle. If you cannot avoid touching
+// on-heap objects in a destructor (which is not allowed), you can consider
+// using the pre-finalizer. The only restriction is that the pre-finalizer
+// must not resurrect dead objects (e.g., store unmarked objects into
+// Members etc). The pre-finalizer is called on the thread that registered
+// the pre-finalizer.
 //
-// For objects that can only be used on the main thread we avoid going
-// through thread-local storage to get to the thread state.
+// Since a pre-finalizer adds pressure on GC performance, you should use it
+// only if necessary.
 //
-// FIXME: We should evaluate the performance gain. Having
-// ThreadAffinity is complicating the implementation and we should get
-// rid of it if it is fast enough to go through thread-local storage
-// always.
-enum ThreadAffinity {
-    AnyThread,
-    MainThreadOnly,
-};
-
-// FIXME: These forward declarations violate dependency rules. Remove them.
-// Ideally we want to provide a USED_IN_MAIN_THREAD_ONLY(T) macro, which
-// indicates that classes in T's hierarchy are used only by the main thread.
-class Node;
-class NodeList;
-
-template<typename T,
-    bool mainThreadOnly = WTF::IsSubclass<typename WTF::RemoveConst<T>::Type, Node>::value
-        || WTF::IsSubclass<typename WTF::RemoveConst<T>::Type, NodeList>::value> struct DefaultThreadingTrait;
-
-template<typename T>
-struct DefaultThreadingTrait<T, false> {
-    static const ThreadAffinity Affinity = AnyThread;
-};
-
-template<typename T>
-struct DefaultThreadingTrait<T, true> {
-    static const ThreadAffinity Affinity = MainThreadOnly;
-};
-
-template<typename T>
-struct ThreadingTrait {
-    static const ThreadAffinity Affinity = DefaultThreadingTrait<T>::Affinity;
-};
-
-template<typename U> class ThreadingTrait<const U> : public ThreadingTrait<U> { };
-
-// Declare that a class has a pre-finalizer function.  The function is called in
-// the object's owner thread, and can access Member<>s to other
-// garbage-collected objects allocated in the thread.  However we must not
-// allocate new garbage-collected objects, nor update Member<> and Persistent<>
-// pointers.
-//
-// This feature is similar to the HeapHashMap<WeakMember<Foo>, OwnPtr<Disposer>>
+// A pre-finalizer is similar to the HeapHashMap<WeakMember<Foo>, OwnPtr<Disposer>>
 // idiom.  The difference between this and the idiom is that pre-finalizer
 // function is called whenever an object is destructed with this feature.  The
 // HeapHashMap<WeakMember<Foo>, OwnPtr<Disposer>> idiom requires an assumption
@@ -129,8 +95,6 @@ template<typename U> class ThreadingTrait<const U> : public ThreadingTrait<U> { 
 // idiom usages with the pre-finalizer if the replacement won't cause
 // performance regressions.
 //
-// See ThreadState::registerPreFinalizer.
-//
 // Usage:
 //
 // class Foo : GarbageCollected<Foo> {
@@ -138,222 +102,60 @@ template<typename U> class ThreadingTrait<const U> : public ThreadingTrait<U> { 
 // public:
 //     Foo()
 //     {
-//         ThreadState::current()->registerPreFinalizer(*this);
+//         ThreadState::current()->registerPreFinalizer(this, dispose);
 //     }
 // private:
-//     void dispose();
+//     void dispose()
+//     {
+//         m_bar->...; // It is safe to touch other on-heap objects.
+//     }
 //     Member<Bar> m_bar;
 // };
-//
-// void Foo::dispose()
-// {
-//     m_bar->...
-// }
-#define USING_PRE_FINALIZER(Class, method)   \
-    public: \
-        static bool invokePreFinalizer(void* object, Visitor& visitor)   \
-        { \
-            Class* self = reinterpret_cast<Class*>(object); \
-            if (visitor.isAlive(self)) \
-                return false; \
-            self->method(); \
-            return true; \
-        } \
-        typedef char UsingPreFinazlizerMacroNeedsTrailingSemiColon
+#define USING_PRE_FINALIZER(Class, preFinalizer)    \
+public:                                             \
+static bool invokePreFinalizer(void* object)        \
+{                                                   \
+    Class* self = reinterpret_cast<Class*>(object); \
+    if (Heap::isHeapObjectAlive(self))              \
+        return false;                               \
+    self->Class::preFinalizer();                    \
+    return true;                                    \
+}                                                   \
+using UsingPreFinazlizerMacroNeedsTrailingSemiColon = char
+
+#if ENABLE(OILPAN)
+#define WILL_BE_USING_PRE_FINALIZER(Class, method) USING_PRE_FINALIZER(Class, method)
+#else
+#define WILL_BE_USING_PRE_FINALIZER(Class, method)
+#endif
 
 // List of typed heaps. The list is used to generate the implementation
 // of typed heap related methods.
 //
 // To create a new typed heap add a H(<ClassName>) to the
 // FOR_EACH_TYPED_HEAP macro below.
-#define FOR_EACH_TYPED_HEAP(H)  \
-    H(Node) \
-    H(RenderObject) \
+#define FOR_EACH_TYPED_HEAP(H)              \
+    H(Node)                                 \
     H(CSSValue)
 
+#define TypedHeapEnumName(Type) Type##HeapIndex,
 
-#define TypedHeapEnumName(Type) Type##Heap,
-#define TypedHeapEnumNameNonFinalized(Type) Type##HeapNonFinalized,
+#if ENABLE(GC_PROFILING)
+const size_t numberOfGenerationsToTrack = 8;
+const size_t maxHeapObjectAge = numberOfGenerationsToTrack - 1;
 
-enum TypedHeaps {
-    General1Heap = 0,
-    General2Heap,
-    General3Heap,
-    General4Heap,
-    CollectionBackingHeap,
-    FOR_EACH_TYPED_HEAP(TypedHeapEnumName)
-    General1HeapNonFinalized,
-    General2HeapNonFinalized,
-    General3HeapNonFinalized,
-    General4HeapNonFinalized,
-    CollectionBackingHeapNonFinalized,
-    FOR_EACH_TYPED_HEAP(TypedHeapEnumNameNonFinalized)
-    // Values used for iteration of heap segments.
-    NumberOfHeaps,
-    FirstFinalizedHeap = General1Heap,
-    FirstNonFinalizedHeap = General1HeapNonFinalized,
-    NumberOfFinalizedHeaps = General1HeapNonFinalized,
-    NumberOfNonFinalizedHeaps = NumberOfHeaps - NumberOfFinalizedHeaps,
-    NonFinalizedHeapOffset = FirstNonFinalizedHeap
+struct AgeCounts {
+    int ages[numberOfGenerationsToTrack];
+    AgeCounts() { std::fill(ages, ages + numberOfGenerationsToTrack, 0); }
 };
-
-// Base implementation for HeapIndexTrait found below.
-template<int heapIndex>
-struct HeapIndexTraitBase {
-    typedef FinalizedHeapObjectHeader HeaderType;
-    typedef ThreadHeap<HeaderType> HeapType;
-    static const int finalizedIndex = heapIndex;
-    static const int nonFinalizedIndex = heapIndex + static_cast<int>(NonFinalizedHeapOffset);
-    static int index(bool isFinalized, size_t)
-    {
-        return isFinalized ? finalizedIndex : nonFinalizedIndex;
-    }
-};
-
-class ThreadState;
-
-// We use four heaps for general type objects depending on their object sizes.
-// Objects whose size is 1 - 3 words go to the first general type heap.
-// Objects whose size is 4 - 7 words go to the second general type heap.
-// Objects whose size is 8 - 15 words go to the third general type heap.
-// Objects whose size is more than 15 words go to the fourth general type heap.
-template<int heapIndex>
-struct GeneralHeapIndexTraitBase {
-    typedef FinalizedHeapObjectHeader HeaderType;
-    typedef ThreadHeap<HeaderType> HeapType;
-    static const int finalizedIndex = heapIndex;
-    static const int nonFinalizedIndex = heapIndex + static_cast<int>(NonFinalizedHeapOffset);
-    static int index(bool isFinalized, size_t size)
-    {
-        static const int wordSize = sizeof(void*);
-        int generalHeapOffset = 0;
-        if (size < 8 * wordSize) {
-            if (size < 4 * wordSize)
-                generalHeapOffset = 0;
-            else
-                generalHeapOffset = 1;
-        } else {
-            if (size < 16 * wordSize)
-                generalHeapOffset = 2;
-            else
-                generalHeapOffset = 3;
-        }
-        return generalHeapOffset + (isFinalized ? finalizedIndex : nonFinalizedIndex);
-    }
-};
-
-// HeapIndexTrait defines properties for each heap in the TypesHeaps enum.
-template<int index>
-struct HeapIndexTrait;
-
-template<>
-struct HeapIndexTrait<General1Heap> : public GeneralHeapIndexTraitBase<General1Heap> { };
-template<>
-struct HeapIndexTrait<General1HeapNonFinalized> : public HeapIndexTrait<General1Heap> { };
-template<>
-struct HeapIndexTrait<General2Heap> : public GeneralHeapIndexTraitBase<General2Heap> { };
-template<>
-struct HeapIndexTrait<General2HeapNonFinalized> : public HeapIndexTrait<General2Heap> { };
-template<>
-struct HeapIndexTrait<General3Heap> : public GeneralHeapIndexTraitBase<General3Heap> { };
-template<>
-struct HeapIndexTrait<General3HeapNonFinalized> : public HeapIndexTrait<General3Heap> { };
-template<>
-struct HeapIndexTrait<General4Heap> : public GeneralHeapIndexTraitBase<General4Heap> { };
-template<>
-struct HeapIndexTrait<General4HeapNonFinalized> : public HeapIndexTrait<General4Heap> { };
-
-template<>
-struct HeapIndexTrait<CollectionBackingHeap> : public HeapIndexTraitBase<CollectionBackingHeap> { };
-template<>
-struct HeapIndexTrait<CollectionBackingHeapNonFinalized> : public HeapIndexTrait<CollectionBackingHeap> { };
-
-#define DEFINE_TYPED_HEAP_INDEX_TRAIT(Type)                                     \
-    template<>                                                                  \
-    struct HeapIndexTrait<Type##Heap> : public HeapIndexTraitBase<Type##Heap> { \
-        typedef HeapObjectHeader HeaderType;                                    \
-        typedef ThreadHeap<HeaderType> HeapType;                                \
-    };                                                                          \
-    template<>                                                                  \
-    struct HeapIndexTrait<Type##HeapNonFinalized> : public HeapIndexTrait<Type##Heap> { };
-FOR_EACH_TYPED_HEAP(DEFINE_TYPED_HEAP_INDEX_TRAIT)
-#undef DEFINE_TYPED_HEAP_INDEX_TRAIT
-
-// HeapTypeTrait defines which heap to use for particular types.
-// By default objects are allocated in one of the general heaps
-// depending on object size.
-template<typename T>
-struct HeapTypeTrait : public HeapIndexTrait<General1Heap> { };
-
-// We don't have any type-based mappings to the CollectionBackingHeap.
-
-// Each typed-heap maps the respective type to its heap.
-#define DEFINE_TYPED_HEAP_TRAIT(Type)                                   \
-    class Type;                                                         \
-    template<>                                                          \
-    struct HeapTypeTrait<class Type> : public HeapIndexTrait<Type##Heap> { };
-FOR_EACH_TYPED_HEAP(DEFINE_TYPED_HEAP_TRAIT)
-#undef DEFINE_TYPED_HEAP_TRAIT
-
-// A HeapStats structure keeps track of the amount of memory allocated
-// for a Blink heap and how much of that memory is used for actual
-// Blink objects. These stats are used in the heuristics to determine
-// when to perform garbage collections.
-class HeapStats {
-public:
-    HeapStats() : m_totalObjectSpace(0), m_totalAllocatedSpace(0) { }
-
-    size_t totalObjectSpace() const { return m_totalObjectSpace; }
-    size_t totalAllocatedSpace() const { return m_totalAllocatedSpace; }
-
-    void add(HeapStats* other)
-    {
-        m_totalObjectSpace += other->m_totalObjectSpace;
-        m_totalAllocatedSpace += other->m_totalAllocatedSpace;
-    }
-
-    void inline increaseObjectSpace(size_t newObjectSpace)
-    {
-        m_totalObjectSpace += newObjectSpace;
-    }
-
-    void inline decreaseObjectSpace(size_t deadObjectSpace)
-    {
-        m_totalObjectSpace -= deadObjectSpace;
-    }
-
-    void inline increaseAllocatedSpace(size_t newAllocatedSpace)
-    {
-        m_totalAllocatedSpace += newAllocatedSpace;
-    }
-
-    void inline decreaseAllocatedSpace(size_t deadAllocatedSpace)
-    {
-        m_totalAllocatedSpace -= deadAllocatedSpace;
-    }
-
-    void clear()
-    {
-        m_totalObjectSpace = 0;
-        m_totalAllocatedSpace = 0;
-    }
-
-    bool operator==(const HeapStats& other)
-    {
-        return m_totalAllocatedSpace == other.m_totalAllocatedSpace
-            && m_totalObjectSpace == other.m_totalObjectSpace;
-    }
-
-private:
-    size_t m_totalObjectSpace; // Actually contains objects that may be live, not including headers.
-    size_t m_totalAllocatedSpace; // Allocated from the OS.
-
-    friend class HeapTester;
-};
+typedef HashMap<String, AgeCounts> ClassAgeCountsMap;
+#endif
 
 class PLATFORM_EXPORT ThreadState {
     WTF_MAKE_NONCOPYABLE(ThreadState);
 public:
+    typedef std::pair<void*, PreFinalizerCallback> PreFinalizer;
+
     // When garbage collecting we need to know whether or not there
     // can be pointers to Blink GC managed objects on the stack for
     // each thread. When threads reach a safe point they record
@@ -363,23 +165,95 @@ public:
         HeapPointersOnStack
     };
 
-    // When profiling we would like to identify forced GC requests.
-    enum CauseOfGC {
-        NormalGC,
-        ForcedGC
+    enum GCType {
+        // Both of the marking task and the sweeping task run in
+        // Heap::collectGarbage().
+        GCWithSweep,
+        // Only the marking task runs in Heap::collectGarbage().
+        // The sweeping task is split into chunks and scheduled lazily.
+        GCWithoutSweep,
+        // Only the marking task runs just to take a heap snapshot.
+        // The sweeping task doesn't run. The marks added in the marking task
+        // are just cleared.
+        TakeSnapshot,
+        // The marking task does not mark objects outside the heap of the GCing
+        // thread.
+        ThreadTerminationGC,
     };
 
-    class NoSweepScope {
+    // See setGCState() for possible state transitions.
+    enum GCState {
+        NoGCScheduled,
+        IdleGCScheduled,
+        PreciseGCScheduled,
+        FullGCScheduled,
+        GCRunning,
+        EagerSweepScheduled,
+        LazySweepScheduled,
+        Sweeping,
+        SweepingAndIdleGCScheduled,
+        SweepingAndPreciseGCScheduled,
+    };
+
+    enum HeapIndices {
+        EagerSweepHeapIndex = 0,
+        NormalPage1HeapIndex,
+        NormalPage2HeapIndex,
+        NormalPage3HeapIndex,
+        NormalPage4HeapIndex,
+        Vector1HeapIndex,
+        Vector2HeapIndex,
+        Vector3HeapIndex,
+        Vector4HeapIndex,
+        InlineVectorHeapIndex,
+        HashTableHeapIndex,
+        FOR_EACH_TYPED_HEAP(TypedHeapEnumName)
+        LargeObjectHeapIndex,
+        // Values used for iteration of heap segments.
+        NumberOfHeaps,
+    };
+
+#if defined(ADDRESS_SANITIZER)
+    // Heaps can have their object payloads be poisoned, or cleared
+    // of their poisoning.
+    enum Poisoning {
+        SetPoison,
+        ClearPoison,
+    };
+
+    enum ObjectsToPoison {
+        UnmarkedOnly,
+        MarkedAndUnmarked,
+    };
+#endif
+
+    // The NoAllocationScope class is used in debug mode to catch unwanted
+    // allocations. E.g. allocations during GC.
+    class NoAllocationScope final {
     public:
-        explicit NoSweepScope(ThreadState* state) : m_state(state)
+        explicit NoAllocationScope(ThreadState* state) : m_state(state)
         {
-            ASSERT(!m_state->m_sweepInProgress);
-            m_state->m_sweepInProgress = true;
+            m_state->enterNoAllocationScope();
         }
-        ~NoSweepScope()
+        ~NoAllocationScope()
         {
-            ASSERT(m_state->m_sweepInProgress);
-            m_state->m_sweepInProgress = false;
+            m_state->leaveNoAllocationScope();
+        }
+    private:
+        ThreadState* m_state;
+    };
+
+    class SweepForbiddenScope final {
+    public:
+        explicit SweepForbiddenScope(ThreadState* state) : m_state(state)
+        {
+            ASSERT(!m_state->m_sweepForbidden);
+            m_state->m_sweepForbidden = true;
+        }
+        ~SweepForbiddenScope()
+        {
+            ASSERT(m_state->m_sweepForbidden);
+            m_state->m_sweepForbidden = false;
         }
     private:
         ThreadState* m_state;
@@ -387,8 +261,11 @@ public:
 
     // The set of ThreadStates for all threads attached to the Blink
     // garbage collector.
-    typedef HashSet<ThreadState*> AttachedThreadStateSet;
+    using AttachedThreadStateSet = HashSet<ThreadState*>;
     static AttachedThreadStateSet& attachedThreads();
+    static RecursiveMutex& threadAttachMutex();
+    static void lockThreadAttachMutex();
+    static void unlockThreadAttachMutex();
 
     // Initialize threading infrastructure. Should be called from the main
     // thread.
@@ -442,86 +319,76 @@ public:
     }
 
     bool isMainThread() const { return this == mainThreadState(); }
-    inline bool checkThread() const
+#if ENABLE(ASSERT)
+    bool checkThread() const { return m_thread == currentThread(); }
+#endif
+
+    void didV8MajorGC();
+
+    void performIdleGC(double deadlineSeconds);
+    void performIdleLazySweep(double deadlineSeconds);
+
+    void scheduleIdleGC();
+    void scheduleIdleLazySweep();
+    void schedulePreciseGC();
+    void scheduleGCIfNeeded();
+    void setGCState(GCState);
+    GCState gcState() const;
+    bool isInGC() const { return gcState() == GCRunning; }
+    bool isSweepingInProgress() const
     {
-        ASSERT(m_thread == currentThread());
-        return true;
+        return gcState() == Sweeping || gcState() == SweepingAndPreciseGCScheduled || gcState() == SweepingAndIdleGCScheduled;
     }
 
-    // shouldGC and shouldForceConservativeGC implement the heuristics
-    // that are used to determine when to collect garbage. If
-    // shouldForceConservativeGC returns true, we force the garbage
-    // collection immediately. Otherwise, if shouldGC returns true, we
-    // record that we should garbage collect the next time we return
-    // to the event loop. If both return false, we don't need to
-    // collect garbage at this point.
-    bool shouldGC();
-    bool shouldForceConservativeGC();
-    bool increasedEnoughToGC(size_t, size_t);
-    bool increasedEnoughToForceConservativeGC(size_t, size_t);
-
-    // If gcRequested returns true when a thread returns to its event
-    // loop the thread will initiate a garbage collection.
-    bool gcRequested();
-    void setGCRequested();
-    void clearGCRequested();
-
-    // Was the last GC forced for testing? This is set when garbage collection
-    // is forced for testing and there are pointers on the stack. It remains
-    // set until a garbage collection is triggered with no pointers on the stack.
-    // This is used for layout tests that trigger GCs and check if objects are
-    // dead at a given point in time. That only reliably works when we get
-    // precise GCs with no conservative stack scanning.
-    void setForcePreciseGCForTesting(bool);
-    bool forcePreciseGCForTesting();
-
-    bool sweepRequested();
-    void setSweepRequested();
-    void clearSweepRequested();
-    void performPendingSweep();
+    // A GC runs in the following sequence.
+    //
+    // 1) All threads park at safe points.
+    // 2) The GCing thread calls preGC() for all ThreadStates.
+    // 3) The GCing thread calls Heap::collectGarbage().
+    //    This does marking but doesn't do sweeping.
+    // 4) The GCing thread calls postGC() for all ThreadStates.
+    // 5) The GCing thread resume all threads.
+    // 6) Each thread calls preSweep().
+    // 7) Each thread runs lazy sweeping (concurrently with sweepings
+    //    in other threads) and eventually calls completeSweep().
+    // 8) Each thread calls postSweep().
+    //
+    // Notes:
+    // - We stop the world between 1) and 5).
+    // - isInGC() returns true between 2) and 4).
+    // - isSweepingInProgress() returns true between 6) and 7).
+    // - It is valid that the next GC is scheduled while some thread
+    //   has not yet completed its lazy sweeping of the last GC.
+    //   In this case, the next GC just cancels the remaining lazy sweeping.
+    //   Specifically, preGC() of the next GC calls makeConsistentForGC()
+    //   and it marks all not-yet-swept objets as dead.
+    void makeConsistentForGC();
+    void preGC();
+    void postGC(GCType);
+    void preSweep();
+    void completeSweep();
+    void postSweep();
+    // makeConsistentForMutator() drops marks from marked objects and rebuild
+    // free lists. This is called after taking a snapshot and before resuming
+    // the executions of mutators.
+    void makeConsistentForMutator();
 
     // Support for disallowing allocation. Mainly used for sanity
     // checks asserts.
     bool isAllocationAllowed() const { return !isAtSafePoint() && !m_noAllocationCount; }
     void enterNoAllocationScope() { m_noAllocationCount++; }
     void leaveNoAllocationScope() { m_noAllocationCount--; }
-
-    // Before performing GC the thread-specific heap state should be
-    // made consistent for sweeping.
-    void makeConsistentForSweeping();
-#if ENABLE(ASSERT)
-    bool isConsistentForSweeping();
-#endif
-
-    // Is the thread corresponding to this thread state currently
-    // performing GC?
-    bool isInGC() const { return m_inGC; }
-
-    // Is any of the threads registered with the blink garbage collection
-    // infrastructure currently performing GC?
-    static bool isAnyThreadInGC() { return s_inGC; }
-
-    void enterGC()
+    bool isGCForbidden() const { return m_gcForbiddenCount; }
+    void enterGCForbiddenScope() { m_gcForbiddenCount++; }
+    void leaveGCForbiddenScope()
     {
-        ASSERT(!m_inGC);
-        ASSERT(!s_inGC);
-        m_inGC = true;
-        s_inGC = true;
+        ASSERT(m_gcForbiddenCount > 0);
+        m_gcForbiddenCount--;
     }
-
-    void leaveGC()
-    {
-        m_inGC = false;
-        s_inGC = false;
-    }
-
-    // Is the thread corresponding to this thread state currently
-    // sweeping?
-    bool isSweepInProgress() const { return m_sweepInProgress; }
+    bool sweepForbidden() const { return m_sweepForbidden; }
 
     void prepareRegionTree();
     void flushHeapDoesNotContainCacheIfNeeded();
-    void prepareForGC();
 
     // Safepoint related functionality.
     //
@@ -555,40 +422,9 @@ public:
     void safePoint(StackState);
 
     // Mark current thread as running inside safepoint.
-    void enterSafePointWithoutPointers() { enterSafePoint(NoHeapPointersOnStack, 0); }
-    void enterSafePointWithPointers(void* scopeMarker) { enterSafePoint(HeapPointersOnStack, scopeMarker); }
-    void leaveSafePoint(SafePointAwareMutexLocker* = 0);
+    void enterSafePoint(StackState, void*);
+    void leaveSafePoint(SafePointAwareMutexLocker* = nullptr);
     bool isAtSafePoint() const { return m_atSafePoint; }
-
-    class SafePointScope {
-    public:
-        enum ScopeNesting {
-            NoNesting,
-            AllowNesting
-        };
-
-        explicit SafePointScope(StackState stackState, ScopeNesting nesting = NoNesting)
-            : m_state(ThreadState::current())
-        {
-            if (m_state->isAtSafePoint()) {
-                RELEASE_ASSERT(nesting == AllowNesting);
-                // We can ignore stackState because there should be no heap object
-                // pointers manipulation after outermost safepoint was entered.
-                m_state = 0;
-            } else {
-                m_state->enterSafePoint(stackState, this);
-            }
-        }
-
-        ~SafePointScope()
-        {
-            if (m_state)
-                m_state->leaveSafePoint();
-        }
-
-    private:
-        ThreadState* m_state;
-    };
 
     // If attached thread enters long running loop that can call back
     // into Blink and leaving and reentering safepoint at every
@@ -606,9 +442,6 @@ public:
         // succeeds.
         virtual void requestInterrupt() = 0;
 
-        // Clear previous interrupt request.
-        virtual void clearInterrupt() = 0;
-
     protected:
         // This method is called on the interrupted thread to
         // create a safepoint for a GC.
@@ -617,24 +450,6 @@ public:
 
     void addInterruptor(Interruptor*);
     void removeInterruptor(Interruptor*);
-
-    // CleanupTasks are executed when ThreadState performs
-    // cleanup before detaching.
-    class CleanupTask {
-    public:
-        virtual ~CleanupTask() { }
-
-        // Executed before the final GC.
-        virtual void preCleanup() { }
-
-        // Executed after the final GC. Thread heap is empty at this point.
-        virtual void postCleanup() { }
-    };
-
-    void addCleanupTask(PassOwnPtr<CleanupTask> cleanupTask)
-    {
-        m_cleanupTasks.append(cleanupTask);
-    }
 
     // Should only be called under protection of threadAttachMutex().
     const Vector<Interruptor*>& interruptors() const { return m_interruptors; }
@@ -645,26 +460,28 @@ public:
     }
 
     // Get one of the heap structures for this thread.
-    //
-    // The heap is split into multiple heap parts based on object
-    // types. To get the index for a given type, use
-    // HeapTypeTrait<Type>::index.
-    BaseHeap* heap(int index) const { return m_heaps[index]; }
+    // The thread heap is split into multiple heap parts based on object types
+    // and object sizes.
+    BaseHeap* heap(int heapIndex) const
+    {
+        ASSERT(0 <= heapIndex);
+        ASSERT(heapIndex < NumberOfHeaps);
+        return m_heaps[heapIndex];
+    }
 
+#if ENABLE(ASSERT) || ENABLE(GC_PROFILING)
     // Infrastructure to determine if an address is within one of the
     // address ranges for the Blink heap. If the address is in the Blink
     // heap the containing heap page is returned.
-    BaseHeapPage* contains(Address address) { return heapPageFromAddress(address); }
-    BaseHeapPage* contains(void* pointer) { return contains(reinterpret_cast<Address>(pointer)); }
-    BaseHeapPage* contains(const void* pointer) { return contains(const_cast<void*>(pointer)); }
+    BasePage* findPageFromAddress(Address);
+    BasePage* findPageFromAddress(const void* pointer) { return findPageFromAddress(reinterpret_cast<Address>(const_cast<void*>(pointer))); }
+#endif
 
-    // List of persistent roots allocated on the given thread.
-    PersistentNode* roots() const { return m_persistents.get(); }
+    // A region of PersistentNodes allocated on the given thread.
+    PersistentRegion* persistentRegion() const { return m_persistentRegion.get(); }
 
-    // List of global persistent roots not owned by any particular thread.
-    // globalRootsMutex must be acquired before any modifications.
-    static PersistentNode* globalRoots();
-    static Mutex& globalRootsMutex();
+    // A region of PersistentNodes not owned by any particular thread.
+    static CrossThreadPersistentRegion& crossThreadPersistentRegion();
 
     // Visit local thread stack and trace all pointers conservatively.
     void visitStack(Visitor*);
@@ -676,12 +493,10 @@ public:
     // Visit all persistents allocated on this thread.
     void visitPersistents(Visitor*);
 
-#if ENABLE(GC_PROFILE_MARKING)
+#if ENABLE(GC_PROFILING)
     const GCInfo* findGCInfo(Address);
     static const GCInfo* findGCInfoFromAllThreads(Address);
-#endif
 
-#if ENABLE(GC_PROFILE_HEAP)
     struct SnapshotInfo {
         ThreadState* state;
 
@@ -689,7 +504,8 @@ public:
         size_t pageCount;
 
         // Map from base-classes to a snapshot class-ids (used as index below).
-        HashMap<const GCInfo*, size_t> classTags;
+        using ClassTagMap = HashMap<const GCInfo*, size_t>;
+        ClassTagMap classTags;
 
         // Map from class-id (index) to count/size.
         Vector<int> liveCount;
@@ -700,7 +516,8 @@ public:
         // Map from class-id (index) to a vector of generation counts.
         // For i < 7, the count is the number of objects that died after surviving |i| GCs.
         // For i == 7, the count is the number of objects that survived at least 7 GCs.
-        Vector<Vector<int, 8> > generations;
+        using GenerationCountsVector = Vector<int, numberOfGenerationsToTrack>;
+        Vector<GenerationCountsVector> generations;
 
         explicit SnapshotInfo(ThreadState* state) : state(state), freeSize(0), pageCount(0) { }
 
@@ -708,44 +525,46 @@ public:
     };
 
     void snapshot();
+    void incrementMarkedObjectsAge();
+
+    void snapshotFreeListIfNecessary();
+
+    void collectAndReportMarkSweepStats() const;
+    void reportMarkSweepStats(const char* statsName, const ClassAgeCountsMap&) const;
 #endif
 
-    void pushWeakObjectPointerCallback(void*, WeakPointerCallback);
-    bool popAndInvokeWeakPointerCallback(Visitor*);
+    void pushThreadLocalWeakCallback(void*, WeakCallback);
+    bool popAndInvokeThreadLocalWeakCallback(Visitor*);
+    void threadLocalWeakProcessing();
 
-    void getStats(HeapStats&);
-    void getStatsForTesting(HeapStats&);
-    HeapStats& stats() { return m_stats; }
+    size_t objectPayloadSizeForTesting();
+    void prepareHeapForTermination();
 
-    void setupHeapsForTermination();
-
-    void registerSweepingTask();
-    void unregisterSweepingTask();
-
-    // Request to call a pref-finalizer of the target object before the object
-    // is destructed.  The class T must have USING_PRE_FINALIZER().  The
-    // argument should be |*this|.  Registering a lot of objects affects GC
-    // performance.  We should register an object only if the object really
-    // requires pre-finalizer, and we should unregister the object if
-    // pre-finalizer is unnecessary.
+    // Register the pre-finalizer for the |self| object. This method is normally
+    // called in the constructor of the |self| object. The class T must have
+    // USING_PRE_FINALIZER().
     template<typename T>
-    void registerPreFinalizer(T& target)
+    void registerPreFinalizer(T* self)
     {
-        ASSERT(!m_preFinalizers.contains(&target));
-        ASSERT(!isSweepInProgress());
-        m_preFinalizers.add(&target, &T::invokePreFinalizer);
+        static_assert(sizeof(&T::invokePreFinalizer) > 0, "USING_PRE_FINALIZER(T) must be defined.");
+        ASSERT(checkThread());
+        ASSERT(!sweepForbidden());
+        ASSERT(!m_orderedPreFinalizers.contains(PreFinalizer(self, T::invokePreFinalizer)));
+        m_orderedPreFinalizers.add(PreFinalizer(self, T::invokePreFinalizer));
     }
 
-    // Cancel above requests.  The argument should be |*this|.  This function is
-    // ignored if it is called in pre-finalizer functions.
+    // Unregister the pre-finalizer for the |self| object.
     template<typename T>
-    void unregisterPreFinalizer(T& target)
+    void unregisterPreFinalizer(T* self)
     {
-        ASSERT(&T::invokePreFinalizer);
-        unregisterPreFinalizerInternal(&target);
+        static_assert(sizeof(&T::invokePreFinalizer) > 0, "USING_PRE_FINALIZER(T) must be defined.");
+        ASSERT(checkThread());
+        // Ignore pre-finalizers called during pre-finalizers or destructors.
+        if (sweepForbidden())
+            return;
+        ASSERT(m_orderedPreFinalizers.contains(PreFinalizer(self, T::invokePreFinalizer)));
+        m_orderedPreFinalizers.remove(PreFinalizer(self, &T::invokePreFinalizer));
     }
-
-    Mutex& sweepMutex() { return m_sweepMutex; }
 
     Vector<PageMemoryRegion*>& allocatedRegionsSinceLastGC() { return m_allocatedRegionsSinceLastGC; }
 
@@ -757,28 +576,118 @@ public:
         m_traceDOMWrappers = traceDOMWrappers;
     }
 
+    // By entering a gc-forbidden scope, conservative GCs will not
+    // be allowed while handling an out-of-line allocation request.
+    // Intended used when constructing subclasses of GC mixins, where
+    // the object being constructed cannot be safely traced & marked
+    // fully should a GC be allowed while its subclasses are being
+    // constructed.
+    void enterGCForbiddenScopeIfNeeded(GarbageCollectedMixinConstructorMarker* gcMixinMarker)
+    {
+        ASSERT(checkThread());
+        if (!m_gcMixinMarker) {
+            enterGCForbiddenScope();
+            m_gcMixinMarker = gcMixinMarker;
+        }
+    }
+    void leaveGCForbiddenScopeIfNeeded(GarbageCollectedMixinConstructorMarker* gcMixinMarker)
+    {
+        ASSERT(checkThread());
+        if (m_gcMixinMarker == gcMixinMarker) {
+            leaveGCForbiddenScope();
+            m_gcMixinMarker = nullptr;
+        }
+    }
+
+    // vectorBackingHeap() returns a heap that the vector allocation should use.
+    // We have four vector heaps and want to choose the best heap here.
+    //
+    // The goal is to improve the succession rate where expand and
+    // promptlyFree happen at an allocation point. This is a key for reusing
+    // the same memory as much as possible and thus improves performance.
+    // To achieve the goal, we use the following heuristics:
+    //
+    // - A vector that has been expanded recently is likely to be expanded
+    //   again soon.
+    // - A vector is likely to be promptly freed if the same type of vector
+    //   has been frequently promptly freed in the past.
+    // - Given the above, when allocating a new vector, look at the four vectors
+    //   that are placed immediately prior to the allocation point of each heap.
+    //   Choose the heap where the vector is least likely to be expanded
+    //   nor promptly freed.
+    //
+    // To implement the heuristics, we add a heapAge to each heap. The heapAge
+    // is updated if:
+    //
+    // - a vector on the heap is expanded; or
+    // - a vector that meets the condition (*) is allocated on the heap
+    //
+    //   (*) More than 33% of the same type of vectors have been promptly
+    //       freed since the last GC.
+    //
+    BaseHeap* vectorBackingHeap(size_t gcInfoIndex)
+    {
+        ASSERT(checkThread());
+        size_t entryIndex = gcInfoIndex & likelyToBePromptlyFreedArrayMask;
+        --m_likelyToBePromptlyFreed[entryIndex];
+        int heapIndex = m_vectorBackingHeapIndex;
+        // If m_likelyToBePromptlyFreed[entryIndex] > 0, that means that
+        // more than 33% of vectors of the type have been promptly freed
+        // since the last GC.
+        if (m_likelyToBePromptlyFreed[entryIndex] > 0) {
+            m_heapAges[heapIndex] = ++m_currentHeapAges;
+            m_vectorBackingHeapIndex = heapIndexOfVectorHeapLeastRecentlyExpanded(Vector1HeapIndex, Vector4HeapIndex);
+        }
+        ASSERT(isVectorHeapIndex(heapIndex));
+        return m_heaps[heapIndex];
+    }
+    BaseHeap* expandedVectorBackingHeap(size_t gcInfoIndex);
+    static bool isVectorHeapIndex(int heapIndex)
+    {
+        return Vector1HeapIndex <= heapIndex && heapIndex <= Vector4HeapIndex;
+    }
+    void allocationPointAdjusted(int heapIndex);
+    void promptlyFreed(size_t gcInfoIndex);
+
 private:
-    explicit ThreadState();
+    enum SnapshotType {
+        HeapSnapshot,
+        FreelistSnapshot
+    };
+
+    ThreadState();
     ~ThreadState();
 
-    friend class SafePointBarrier;
-    friend class SafePointAwareMutexLocker;
-
-    void enterSafePoint(StackState, void*);
     NO_SANITIZE_ADDRESS void copyStackUntilSafePointScope();
     void clearSafePointScopeMarker()
     {
         m_safePointStackCopy.clear();
-        m_safePointScopeMarker = 0;
+        m_safePointScopeMarker = nullptr;
     }
 
-    void performPendingGC(StackState);
+    // shouldSchedule{Precise,Idle}GC and shouldForceConservativeGC
+    // implement the heuristics that are used to determine when to collect garbage.
+    // If shouldForceConservativeGC returns true, we force the garbage
+    // collection immediately. Otherwise, if should*GC returns true, we
+    // record that we should garbage collect the next time we return
+    // to the event loop. If both return false, we don't need to
+    // collect garbage at this point.
+    bool shouldScheduleIdleGC();
+    bool shouldSchedulePreciseGC();
+    bool shouldForceConservativeGC();
 
-    // Finds the Blink HeapPage in this thread-specific heap
-    // corresponding to a given address. Return 0 if the address is
-    // not contained in any of the pages. This does not consider
-    // large objects.
-    BaseHeapPage* heapPageFromAddress(Address);
+    // Internal helper for GC policy handling code. Returns true if
+    // an urgent conservative GC is now needed due to memory pressure.
+    bool shouldForceMemoryPressureGC();
+
+    void runScheduledGC(StackState);
+
+    void eagerSweep();
+
+#if defined(ADDRESS_SANITIZER)
+    void poisonEagerHeap(Poisoning);
+    void poisonAllHeaps();
+#endif
 
     // When ThreadState is detaching from non-main thread its
     // heap is expected to be empty (because it is going away).
@@ -790,21 +699,23 @@ private:
     void cleanup();
     void cleanupPages();
 
-    void setLowCollectionRate(bool value) { m_lowCollectionRate = value; }
+    void invokePreFinalizers();
 
-    void performPendingSweepInParallel();
-    void waitUntilSweepersDone();
-    void unregisterPreFinalizerInternal(void*);
-    void invokePreFinalizers(Visitor&);
+    void takeSnapshot(SnapshotType);
+#if ENABLE(GC_PROFILING)
+    void snapshotFreeList();
+#endif
+    void clearHeapAges();
+    int heapIndexOfVectorHeapLeastRecentlyExpanded(int beginHeapIndex, int endHeapIndex);
+
+    friend class SafePointAwareMutexLocker;
+    friend class SafePointBarrier;
+    friend class SafePointScope;
 
     static WTF::ThreadSpecific<ThreadState*>* s_threadSpecific;
     static uintptr_t s_mainThreadStackStart;
     static uintptr_t s_mainThreadUnderestimatedStackSize;
     static SafePointBarrier* s_safePointBarrier;
-
-    // This variable is flipped to true after all threads are stoped
-    // and outermost GC has started.
-    static bool s_inGC;
 
     // We can't create a static member of type ThreadState here
     // because it will introduce global constructor and destructor.
@@ -816,7 +727,7 @@ private:
     static uint8_t s_mainThreadStateStorage[];
 
     ThreadIdentifier m_thread;
-    OwnPtr<PersistentNode> m_persistents;
+    OwnPtr<PersistentRegion> m_persistentRegion;
     StackState m_stackState;
     intptr_t* m_startOfStack;
     intptr_t* m_endOfStack;
@@ -824,29 +735,27 @@ private:
     Vector<Address> m_safePointStackCopy;
     bool m_atSafePoint;
     Vector<Interruptor*> m_interruptors;
-    bool m_gcRequested;
-    bool m_forcePreciseGCForTesting;
-    volatile int m_sweepRequested;
-    bool m_sweepInProgress;
+    bool m_sweepForbidden;
     size_t m_noAllocationCount;
-    bool m_inGC;
+    size_t m_gcForbiddenCount;
     BaseHeap* m_heaps[NumberOfHeaps];
-    HeapStats m_stats;
-    HeapStats m_statsAfterLastGC;
 
-    Vector<OwnPtr<CleanupTask> > m_cleanupTasks;
+    int m_vectorBackingHeapIndex;
+    size_t m_heapAges[NumberOfHeaps];
+    size_t m_currentHeapAges;
+
     bool m_isTerminating;
+    GarbageCollectedMixinConstructorMarker* m_gcMixinMarker;
 
     bool m_shouldFlushHeapDoesNotContainCache;
-    bool m_lowCollectionRate;
+    GCState m_gcState;
 
-    OwnPtr<WebThread> m_sweeperThread;
-    int m_numberOfSweeperTasks;
-    Mutex m_sweepMutex;
-    ThreadCondition m_sweepThreadCondition;
+    CallbackStack* m_threadLocalWeakCallbackStack;
 
-    CallbackStack* m_weakCallbackStack;
-    HashMap<void*, bool (*)(void*, Visitor&)> m_preFinalizers;
+    // Pre-finalizers are called in the reverse order in which they are
+    // registered by the constructors (including constructors of Mixin objects)
+    // for an object, by processing the m_orderedPreFinalizers back-to-front.
+    ListHashSet<PreFinalizer> m_orderedPreFinalizers;
 
     v8::Isolate* m_isolate;
     void (*m_traceDOMWrappers)(v8::Isolate*, Visitor*);
@@ -856,6 +765,17 @@ private:
 #endif
 
     Vector<PageMemoryRegion*> m_allocatedRegionsSinceLastGC;
+
+#if ENABLE(GC_PROFILING)
+    double m_nextFreeListSnapshotTime;
+#endif
+    // Ideally we want to allocate an array of size |gcInfoTableMax| but it will
+    // waste memory. Thus we limit the array size to 2^8 and share one entry
+    // with multiple types of vectors. This won't be an issue in practice,
+    // since there will be less than 2^8 types of objects in common cases.
+    static const int likelyToBePromptlyFreedArraySize = (1 << 8);
+    static const int likelyToBePromptlyFreedArrayMask = likelyToBePromptlyFreedArraySize - 1;
+    OwnPtr<int[]> m_likelyToBePromptlyFreed;
 };
 
 template<ThreadAffinity affinity> class ThreadStateFor;
@@ -873,110 +793,6 @@ public:
 template<> class ThreadStateFor<AnyThread> {
 public:
     static ThreadState* state() { return ThreadState::current(); }
-};
-
-// The SafePointAwareMutexLocker is used to enter a safepoint while waiting for
-// a mutex lock. It also ensures that the lock is not held while waiting for a GC
-// to complete in the leaveSafePoint method, by releasing the lock if the
-// leaveSafePoint method cannot complete without blocking, see
-// SafePointBarrier::checkAndPark.
-class SafePointAwareMutexLocker {
-    WTF_MAKE_NONCOPYABLE(SafePointAwareMutexLocker);
-public:
-    explicit SafePointAwareMutexLocker(MutexBase& mutex, ThreadState::StackState stackState = ThreadState::HeapPointersOnStack)
-        : m_mutex(mutex)
-        , m_locked(false)
-    {
-        ThreadState* state = ThreadState::current();
-        do {
-            bool leaveSafePoint = false;
-            // We cannot enter a safepoint if we are currently sweeping. In that
-            // case we just try to acquire the lock without being at a safepoint.
-            // If another thread tries to do a GC at that time it might time out
-            // due to this thread not being at a safepoint and waiting on the lock.
-            if (!state->isSweepInProgress() && !state->isAtSafePoint()) {
-                state->enterSafePoint(stackState, this);
-                leaveSafePoint = true;
-            }
-            m_mutex.lock();
-            m_locked = true;
-            if (leaveSafePoint) {
-                // When leaving the safepoint we might end up release the mutex
-                // if another thread is requesting a GC, see
-                // SafePointBarrier::checkAndPark. This is the case where we
-                // loop around to reacquire the lock.
-                state->leaveSafePoint(this);
-            }
-        } while (!m_locked);
-    }
-
-    ~SafePointAwareMutexLocker()
-    {
-        ASSERT(m_locked);
-        m_mutex.unlock();
-    }
-
-private:
-    friend class SafePointBarrier;
-
-    void reset()
-    {
-        ASSERT(m_locked);
-        m_mutex.unlock();
-        m_locked = false;
-    }
-
-    MutexBase& m_mutex;
-    bool m_locked;
-};
-
-// Common header for heap pages. Needs to be defined before class Visitor.
-class BaseHeapPage {
-public:
-    BaseHeapPage(PageMemory*, const GCInfo*, ThreadState*);
-    virtual ~BaseHeapPage() { }
-
-    // Check if the given address points to an object in this
-    // heap page. If so, find the start of that object and mark it
-    // using the given Visitor. Otherwise do nothing. The pointer must
-    // be within the same aligned blinkPageSize as the this-pointer.
-    //
-    // This is used during conservative stack scanning to
-    // conservatively mark all objects that could be referenced from
-    // the stack.
-    virtual void checkAndMarkPointer(Visitor*, Address) = 0;
-    virtual bool contains(Address) = 0;
-
-#if ENABLE(GC_PROFILE_MARKING)
-    virtual const GCInfo* findGCInfo(Address) = 0;
-#endif
-
-    Address address() { return reinterpret_cast<Address>(this); }
-    PageMemory* storage() const { return m_storage; }
-    ThreadState* threadState() const { return m_threadState; }
-    const GCInfo* gcInfo() { return m_gcInfo; }
-    virtual bool isLargeObject() { return false; }
-    virtual void markOrphaned();
-    bool orphaned() { return !m_threadState; }
-    bool terminating() { return m_terminating; }
-    void setTerminating() { m_terminating = true; }
-    bool tracedAfterOrphaned() { return m_tracedAfterOrphaned; }
-    void setTracedAfterOrphaned() { m_tracedAfterOrphaned = true; }
-    size_t promptlyFreedSize() { return m_promptlyFreedSize; }
-    void resetPromptlyFreedSize() { m_promptlyFreedSize = 0; }
-    void addToPromptlyFreedSize(size_t size) { m_promptlyFreedSize += size; }
-
-private:
-    PageMemory* m_storage;
-    const GCInfo* m_gcInfo;
-    ThreadState* m_threadState;
-    // Pointer sized integer to ensure proper alignment of the
-    // HeapPage header. We use some of the bits to determine
-    // whether the page is part of a terminting thread or
-    // if the page is traced after being terminated (orphaned).
-    uintptr_t m_terminating : 1;
-    uintptr_t m_tracedAfterOrphaned : 1;
-    uintptr_t m_promptlyFreedSize : 17; // == blinkPageSizeLog2
 };
 
 } // namespace blink

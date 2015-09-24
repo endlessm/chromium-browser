@@ -4,10 +4,10 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _DIB_INT_H_
-#define _DIB_INT_H_
+#ifndef CORE_SRC_FXGE_DIB_DIB_INT_H_
+#define CORE_SRC_FXGE_DIB_DIB_INT_H_
 
-class CPDF_FixedMatrix : public CFX_Object
+class CPDF_FixedMatrix
 {
 public:
     CPDF_FixedMatrix(const CFX_AffineMatrix& src, int bits)
@@ -34,7 +34,7 @@ struct PixelWeight {
     int		m_SrcEnd;
     int		m_Weights[1];
 };
-class CWeightTable : public CFX_Object
+class CWeightTable
 {
 public:
     CWeightTable()
@@ -54,9 +54,9 @@ public:
         return (PixelWeight*)(m_pWeightTables + (pixel - m_DestMin) * m_ItemSize);
     }
     int				m_DestMin, m_ItemSize;
-    FX_LPBYTE		m_pWeightTables;
+    uint8_t*		m_pWeightTables;
 };
-class CStretchEngine : public CFX_Object
+class CStretchEngine
 {
 public:
     CStretchEngine(IFX_ScanlineComposer* pDestBitmap, FXDIB_Format dest_format,
@@ -70,8 +70,8 @@ public:
     IFX_ScanlineComposer*	m_pDestBitmap;
     int		m_DestWidth, m_DestHeight;
     FX_RECT	m_DestClip;
-    FX_LPBYTE	m_pDestScanline;
-    FX_LPBYTE   m_pDestMaskScanline;
+    uint8_t*	m_pDestScanline;
+    uint8_t*   m_pDestMaskScanline;
     FX_RECT	m_SrcClip;
     const CFX_DIBSource*	m_pSource;
     FX_DWORD*	m_pSrcPalette;
@@ -90,4 +90,4 @@ public:
     int		m_State;
 };
 
-#endif  // _DIB_INT_H_
+#endif  // CORE_SRC_FXGE_DIB_DIB_INT_H_

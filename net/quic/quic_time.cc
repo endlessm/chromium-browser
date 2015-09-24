@@ -4,12 +4,14 @@
 
 #include "net/quic/quic_time.h"
 
+#include <stdint.h>
+
 #include "base/logging.h"
 
 namespace net {
 
 // Highest number of microseconds that DateTimeOffset can hold.
-const int64 kQuicInfiniteTimeUs = GG_INT64_C(0x7fffffffffffffff) / 10;
+const int64 kQuicInfiniteTimeUs = INT64_C(0x7fffffffffffffff) / 10;
 
 QuicTime::Delta::Delta(base::TimeDelta delta)
     : delta_(delta) {
@@ -67,7 +69,8 @@ QuicTime::Delta QuicTime::Delta::Multiply(int i) const {
 }
 
 QuicTime::Delta QuicTime::Delta::Multiply(double d) const {
-  return QuicTime::Delta::FromMicroseconds(ToMicroseconds() * d);
+  return QuicTime::Delta::FromMicroseconds(
+      static_cast<int64>(ToMicroseconds() * d));
 }
 
 // static
@@ -172,6 +175,7 @@ QuicWallTime QuicWallTime::Add(QuicTime::Delta delta) const {
   return QuicWallTime(seconds);
 }
 
+// TODO(ianswett) Test this.
 QuicWallTime QuicWallTime::Subtract(QuicTime::Delta delta) const {
   uint64 seconds = seconds_ - delta.ToSeconds();
   if (seconds > seconds_) {

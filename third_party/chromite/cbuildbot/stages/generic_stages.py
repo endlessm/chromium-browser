@@ -18,19 +18,17 @@ import traceback
 # We import mox so that we can identify mox exceptions and pass them through
 # in our exception handling code.
 try:
-  # pylint: disable=F0401
   import mox
 except ImportError:
   mox = None
 
-from chromite.cbuildbot import cbuildbot_config
 from chromite.cbuildbot import commands
 from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot import results_lib
 from chromite.cbuildbot import constants
 from chromite.cbuildbot import repository
-from chromite.lib import cidb
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import gs
 from chromite.lib import osutils
 from chromite.lib import parallel
@@ -82,6 +80,7 @@ class BuilderStage(object):
 
     self._attempt = attempt
     self._max_retry = max_retry
+    self._build_stage_id = None
 
     # Construct self.name, the name string for this stage instance.
     self.name = self._prefix = self.StageNamePrefix()
@@ -126,9 +125,40 @@ class BuilderStage(object):
     if useflags:
       self._portage_extra_env['USE'] = ' '.join(useflags)
 
+    if self._run.config.separate_debug_symbols:
+      self._portage_extra_env['FEATURES'] = 'separatedebug'
+
+    # Note: BuildStartStage is a special case: Since it is created before we
+    # have a valid |build_id|, it is not logged in cidb.
+    self._InsertBuildStageInCIDB(name=self.name)
+
   def GetStageNames(self):
     """Get a list of the places where this stage has recorded results."""
     return [self.name]
+
+  def GetBuildStageIDs(self):
+    """Get a list of build stage ids in cidb corresponding to this stage."""
+    return [self._build_stage_id] if self._build_stage_id is not None else []
+
+  def UpdateSuffix(self, tag, child_suffix):
+    """Update the suffix arg for the init call.
+
+    Use this function to concatenate the tag for the current class with the
+    suffix passed in by a child class.
+    This function is expected to be called before __init__, and as such should
+    not use any object attributes.
+
+    Args:
+      tag: The tag for this class. Should not be None.
+      child_suffix: The suffix passed up by the child class. May be None.
+
+    Returns:
+      Extended suffix that incoroporates the tag, to be passed up to the parent
+      class's __init__.
+    """
+    if child_suffix is None:
+      child_suffix = ''
+    return ' [%s]%s' % (tag, child_suffix)
 
   # TODO(akeshet): Eliminate this method and update the callers to use
   # builder run directly.
@@ -144,6 +174,46 @@ class BuilderStage(object):
       The fully formed URL
     """
     return self._run.ConstructDashboardURL(stage=stage)
+
+  def _InsertBuildStageInCIDB(self, **kwargs):
+    """Insert a build stage in cidb.
+
+      Expected arguments are the same as cidb.InsertBuildStage, except
+      |build_id|, which is populated here.
+    """
+    build_id, db = self._run.GetCIDBHandle()
+    if db:
+      kwargs['build_id'] = build_id
+      self._build_stage_id = db.InsertBuildStage(**kwargs)
+
+  def _FinishBuildStageInCIDB(self, status):
+    """Mark the stage as finished in cidb.
+
+    Args:
+      status: The finish status of the build. Enum type
+          constants.BUILDER_COMPLETED_STATUSES
+    """
+    _, db = self._run.GetCIDBHandle()
+    if self._build_stage_id is not None and db is not None:
+      db.FinishBuildStage(self._build_stage_id, status)
+
+  def _TranslateResultToCIDBStatus(self, result):
+    """Translates the different result_lib.Result results to builder statuses.
+
+    Args:
+      result: Same as the result passed to results_lib.Result.Record()
+
+    Returns:
+      A value in the enum constants.BUILDER_ALL_STATUSES.
+    """
+    if result == results_lib.Results.SUCCESS:
+      return constants.BUILDER_STATUS_PASSED
+    elif result == results_lib.Results.FORGIVEN:
+      return constants.BUILDER_STATUS_FORGIVEN
+    elif result == results_lib.Results.SKIPPED:
+      return constants.BUILDER_STATUS_SKIPPED
+    else:
+      return constants.BUILDER_STATUS_FAILED
 
   def _ExtractOverlays(self):
     """Extracts list of overlays into class."""
@@ -230,9 +300,10 @@ class BuilderStage(object):
         build config at self._run.config.
 
     Raises:
-      See cbuildbot_config.GetSlavesForMaster for details.
+      See config_lib.Config.GetSlavesForMaster for details.
     """
-    return cbuildbot_config.GetSlavesForMaster(self._run.config)
+    return self._run.site_config.GetSlavesForMaster(
+        self._run.config, self._run.options)
 
   def _Begin(self):
     """Can be overridden.  Called before a stage is performed."""
@@ -249,8 +320,9 @@ class BuilderStage(object):
                       (self.name, cros_build_lib.UserDateTimeFormat()))
 
   def PerformStage(self):
-    """Subclassed stages must override this function to perform what they want
-    to be done.
+    """Run the actual commands needed for this stage.
+
+    Subclassed stages must override this function.
     """
 
   def _HandleExceptionAsSuccess(self, _exc_info):
@@ -282,7 +354,7 @@ class BuilderStage(object):
     """
     description = cls._StringifyException(exc_info)
     cros_build_lib.PrintBuildbotStepWarnings()
-    cros_build_lib.Warning(description)
+    logging.warning(description)
     return (results_lib.Results.FORGIVEN, description, retrying)
 
   @classmethod
@@ -301,7 +373,7 @@ class BuilderStage(object):
     retrying = False
     description = cls._StringifyException(exc_info)
     cros_build_lib.PrintBuildbotStepFailure()
-    cros_build_lib.Error(description)
+    logging.error(description)
     return (exc_info[1], description, retrying)
 
   def _HandleStageException(self, exc_info):
@@ -329,10 +401,10 @@ class BuilderStage(object):
     try:
       return self._HandleStageException(exc_info)
     except Exception:
-      cros_build_lib.Error(
+      logging.error(
           'An exception was thrown while running _HandleStageException')
-      cros_build_lib.Error('The original exception was:', exc_info=exc_info)
-      cros_build_lib.Error('The new exception is:', exc_info=True)
+      logging.error('The original exception was:', exc_info=exc_info)
+      logging.error('The new exception is:', exc_info=True)
       return self._HandleExceptionAsError(exc_info)
 
   def HandleSkip(self):
@@ -345,6 +417,10 @@ class BuilderStage(object):
 
   def Run(self):
     """Have the builder execute the stage."""
+    _, db = self._run.GetCIDBHandle()
+    if self._build_stage_id is not None and db is not None:
+      db.StartBuildStage(self._build_stage_id)
+
     # See if this stage should be skipped.
     if (self.option_name and not getattr(self._run.options, self.option_name) or
         self.config_name and not getattr(self._run.config, self.config_name)):
@@ -352,6 +428,7 @@ class BuilderStage(object):
       self.HandleSkip()
       self._RecordResult(self.name, results_lib.Results.SKIPPED,
                          prefix=self._prefix)
+      self._FinishBuildStageInCIDB(constants.BUILDER_STATUS_SKIPPED)
       return
 
     record = results_lib.Results.PreviouslyCompletedRecord(self.name)
@@ -363,6 +440,7 @@ class BuilderStage(object):
       self._RecordResult(self.name, results_lib.Results.SUCCESS,
                          prefix=self._prefix, board=record.board,
                          time=float(record.time))
+      self._FinishBuildStageInCIDB(constants.BUILDER_STATUS_SKIPPED)
       return
 
     start_time = time.time()
@@ -401,6 +479,13 @@ class BuilderStage(object):
       elapsed_time = time.time() - start_time
       self._RecordResult(self.name, result, description, prefix=self._prefix,
                          time=elapsed_time)
+      self._FinishBuildStageInCIDB(self._TranslateResultToCIDBStatus(result))
+      if isinstance(result, BaseException) and self._build_stage_id is not None:
+        _, db = self._run.GetCIDBHandle()
+        if db:
+          failures_lib.ReportStageFailureToCIDB(db,
+                                                self._build_stage_id,
+                                                result)
       self._Finish()
       sys.stdout.flush()
       sys.stderr.flush()
@@ -414,7 +499,7 @@ class NonHaltingBuilderStage(BuilderStage):
       super(NonHaltingBuilderStage, self).Run()
     except failures_lib.StepFailure:
       name = self.__class__.__name__
-      cros_build_lib.Error('Ignoring StepFailure in %s', name)
+      logging.error('Ignoring StepFailure in %s', name)
 
 
 class ForgivingBuilderStage(BuilderStage):
@@ -444,11 +529,16 @@ class RetryStage(object):
     self.args = (builder_run,) + args
     self.kwargs = kwargs
     self.names = []
+    self._build_stage_ids = []
     self.attempt = None
 
   def GetStageNames(self):
     """Get a list of the places where this stage has recorded results."""
     return self.names[:]
+
+  def GetBuildStageIDs(self):
+    """Get a list of build stage ids in cidb corresponding to this stage."""
+    return self._build_stage_ids[:]
 
   def _PerformStage(self):
     """Run the stage once, incrementing the attempt number as needed."""
@@ -457,6 +547,7 @@ class RetryStage(object):
         *self.args, attempt=self.attempt, max_retry=self.max_retry,
         suffix=suffix, **self.kwargs)
     self.names.extend(stage_obj.GetStageNames())
+    self._build_stage_ids.extend(stage_obj.GetBuildStageIDs())
     self.attempt += 1
     stage_obj.Run()
 
@@ -486,11 +577,16 @@ class RepeatStage(object):
     self.args = (builder_run,) + args
     self.kwargs = kwargs
     self.names = []
+    self._build_stage_ids = []
     self.attempt = None
 
   def GetStageNames(self):
     """Get a list of the places where this stage has recorded results."""
     return self.names[:]
+
+  def GetBuildStageIDs(self):
+    """Get a list of build stage ids in cidb corresponding to this stage."""
+    return self._build_stage_ids[:]
 
   def _PerformStage(self):
     """Run the stage once."""
@@ -498,6 +594,7 @@ class RepeatStage(object):
     stage_obj = self.stage(
         *self.args, attempt=self.attempt, suffix=suffix, **self.kwargs)
     self.names.extend(stage_obj.GetStageNames())
+    self._build_stage_ids.extend(stage_obj.GetBuildStageIDs())
     stage_obj.Run()
 
   def Run(self):
@@ -515,24 +612,31 @@ class BoardSpecificBuilderStage(BuilderStage):
     board_runattrs: BoardRunAttributes object for this stage.
   """
 
-  def __init__(self, builder_run, board, **kwargs):
-    super(BoardSpecificBuilderStage, self).__init__(builder_run, **kwargs)
+  def __init__(self, builder_run, board, suffix=None, **kwargs):
+    if not isinstance(board, basestring):
+      raise TypeError('Expected string, got %r' % (board,))
+
     self._current_board = board
 
     self.board_runattrs = builder_run.GetBoardRunAttrs(board)
 
-    if not isinstance(board, basestring):
-      raise TypeError('Expected string, got %r' % (board,))
-
     # Add a board name suffix to differentiate between various boards (in case
     # more than one board is built on a single builder.)
-    if len(self._boards) > 1 or self._run.config.grouped:
-      self.name = '%s [%s]' % (self.name, board)
+    if len(builder_run.config.boards) > 1 or builder_run.config.grouped:
+      suffix = self.UpdateSuffix(board, suffix)
+
+    super(BoardSpecificBuilderStage, self).__init__(builder_run, suffix=suffix,
+                                                    **kwargs)
 
   def _RecordResult(self, *args, **kwargs):
     """Record a successful or failed result."""
     kwargs.setdefault('board', self._current_board)
     super(BoardSpecificBuilderStage, self)._RecordResult(*args, **kwargs)
+
+  def _InsertBuildStageInCIDB(self, **kwargs):
+    """Insert a build stage in cidb."""
+    kwargs.setdefault('board', self._current_board)
+    super(BoardSpecificBuilderStage, self)._InsertBuildStageInCIDB(**kwargs)
 
   def GetParallel(self, board_attr, timeout=None, pretty_name=None):
     """Wait for given |board_attr| to show up.
@@ -556,7 +660,7 @@ class BoardSpecificBuilderStage(BuilderStage):
     if pretty_name is None:
       pretty_name = board_attr
 
-    cros_build_lib.Info('Waiting up to %s for %s ...', timeout_str, pretty_name)
+    logging.info('Waiting up to %s for %s ...', timeout_str, pretty_name)
     return self.board_runattrs.GetParallel(board_attr, timeout=timeout)
 
   def GetImageDirSymlink(self, pointer='latest-cbuildbot'):
@@ -620,11 +724,6 @@ class ArchivingStageMixin(object):
   def upload_url(self):
     """The GS location where artifacts should be uploaded for this run."""
     return self.archive.upload_url
-
-  @property
-  def base_upload_url(self):
-    """The GS path one level up from self.upload_url."""
-    return os.path.dirname(self.upload_url)
 
   @property
   def download_url(self):
@@ -699,6 +798,11 @@ class ArchivingStageMixin(object):
         board = builder_run.config['boards'][0]
     if (not self._IsInUploadBlacklist(filename) and
         (hasattr(self, '_current_board') or board)):
+      if self._run.config.pre_cq:
+        # Do not load artifacts.json for pre-cq configs. This is a
+        # workaround for crbug.com/440167.
+        return urls
+
       board = board or self._current_board
       custom_artifacts_file = portage_util.ReadOverlayFile(
           'scripts/artifacts.json', board=board)
@@ -761,24 +865,21 @@ class ArchivingStageMixin(object):
     metadata_json = os.path.join(self.archive_path, filename)
 
     # Stages may run in parallel, so we have to do atomic updates on this.
-    cros_build_lib.Info('Writing metadata to %s.', metadata_json)
+    logging.info('Writing metadata to %s.', metadata_json)
     osutils.WriteFile(metadata_json, self._run.attrs.metadata.GetJSON(),
                       atomic=True, makedirs=True)
 
     if upload_queue is not None:
-      cros_build_lib.Info('Adding metadata file %s to upload queue.',
-                          metadata_json)
+      logging.info('Adding metadata file %s to upload queue.', metadata_json)
       upload_queue.put([filename])
     else:
-      cros_build_lib.Info('Uploading metadata file %s now.', metadata_json)
+      logging.info('Uploading metadata file %s now.', metadata_json)
       self.UploadArtifact(filename, archive=False)
 
-    if cidb.CIDBConnectionFactory.IsCIDBSetup():
-      db = cidb.CIDBConnectionFactory.GetCIDBConnectionForBuilder()
-      if db:
-        build_id = self._run.attrs.metadata.GetValue('build_id')
-        cros_build_lib.Info('Writing updated metadata to database for build_id '
-                            '%s.', build_id)
-        db.UpdateMetadata(build_id, self._run.attrs.metadata)
-      else:
-        cros_build_lib.Info('Skipping database update.')
+    build_id, db = self._run.GetCIDBHandle()
+    if db:
+      logging.info('Writing updated metadata to database for build_id %s.',
+                   build_id)
+      db.UpdateMetadata(build_id, self._run.attrs.metadata)
+    else:
+      logging.info('Skipping database update, no database or build_id.')

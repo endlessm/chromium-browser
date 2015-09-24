@@ -7,11 +7,11 @@
 #include <string>
 #include <vector>
 
+#include "base/strings/stringprintf.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/render_process_host.h"
-#include "content/public/browser/render_view_host.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/app_window/app_window.h"
@@ -20,32 +20,6 @@
 #include "extensions/common/extension.h"
 
 namespace extensions {
-
-namespace {
-
-// Create a key that identifies a AppWindow in a RenderViewHost across App
-// reloads. If the window was given an id in CreateParams, the key is the
-// extension id, a colon separator, and the AppWindow's |id|. If there is no
-// |id|, the chrome-extension://extension-id/page.html URL will be used. If the
-// RenderViewHost is not for a AppWindow, return an empty string.
-std::string GetWindowKeyForRenderViewHost(
-    const AppWindowRegistry* registry,
-    content::RenderViewHost* render_view_host) {
-  AppWindow* app_window =
-      registry->GetAppWindowForRenderViewHost(render_view_host);
-  if (!app_window)
-    return std::string();  // Not a AppWindow.
-
-  if (app_window->window_key().empty())
-    return app_window->web_contents()->GetURL().possibly_invalid_spec();
-
-  std::string key = app_window->extension_id();
-  key += ':';
-  key += app_window->window_key();
-  return key;
-}
-
-}  // namespace
 
 void AppWindowRegistry::Observer::OnAppWindowAdded(AppWindow* app_window) {
 }
@@ -62,6 +36,9 @@ void AppWindowRegistry::Observer::OnAppWindowHidden(AppWindow* app_window) {
 
 void AppWindowRegistry::Observer::OnAppWindowShown(AppWindow* app_window,
                                                    bool was_shown) {
+}
+
+void AppWindowRegistry::Observer::OnAppWindowActivated(AppWindow* app_window) {
 }
 
 AppWindowRegistry::Observer::~Observer() {
@@ -95,6 +72,7 @@ void AppWindowRegistry::AppWindowIconChanged(AppWindow* app_window) {
 
 void AppWindowRegistry::AppWindowActivated(AppWindow* app_window) {
   BringToFront(app_window);
+  FOR_EACH_OBSERVER(Observer, observers_, OnAppWindowActivated(app_window));
 }
 
 void AppWindowRegistry::AppWindowHidden(AppWindow* app_window) {
@@ -143,16 +121,13 @@ void AppWindowRegistry::CloseAllAppWindowsForApp(const std::string& app_id) {
   }
 }
 
-AppWindow* AppWindowRegistry::GetAppWindowForRenderViewHost(
-    content::RenderViewHost* render_view_host) const {
-  for (AppWindowList::const_iterator i = app_windows_.begin();
-       i != app_windows_.end();
-       ++i) {
-    if ((*i)->web_contents()->GetRenderViewHost() == render_view_host)
-      return *i;
+AppWindow* AppWindowRegistry::GetAppWindowForWebContents(
+    const content::WebContents* web_contents) const {
+  for (AppWindow* window : app_windows_) {
+    if (window->web_contents() == web_contents)
+      return window;
   }
-
-  return NULL;
+  return nullptr;
 }
 
 AppWindow* AppWindowRegistry::GetAppWindowForNativeWindow(
@@ -200,8 +175,8 @@ AppWindow* AppWindowRegistry::GetAppWindowForAppAndKey(
 }
 
 bool AppWindowRegistry::HadDevToolsAttached(
-    content::RenderViewHost* render_view_host) const {
-  std::string key = GetWindowKeyForRenderViewHost(this, render_view_host);
+    content::WebContents* web_contents) const {
+  std::string key = GetWindowKeyForWebContents(web_contents);
   return key.empty() ? false : inspected_windows_.count(key) != 0;
 }
 
@@ -213,8 +188,7 @@ void AppWindowRegistry::OnDevToolsStateChanged(
   if (!web_contents || web_contents->GetBrowserContext() != context_)
     return;
 
-  std::string key =
-      GetWindowKeyForRenderViewHost(this, web_contents->GetRenderViewHost());
+  std::string key = GetWindowKeyForWebContents(web_contents);
   if (key.empty())
     return;
 
@@ -238,6 +212,19 @@ void AppWindowRegistry::BringToFront(AppWindow* app_window) {
   if (it != app_windows_.end())
     app_windows_.erase(it);
   app_windows_.push_front(app_window);
+}
+
+std::string AppWindowRegistry::GetWindowKeyForWebContents(
+    content::WebContents* web_contents) const {
+  AppWindow* app_window = GetAppWindowForWebContents(web_contents);
+  if (!app_window)
+    return std::string();  // Not an AppWindow.
+
+  if (app_window->window_key().empty())
+    return web_contents->GetURL().possibly_invalid_spec();
+
+  return base::StringPrintf("%s:%s", app_window->extension_id().c_str(),
+                            app_window->window_key().c_str());
 }
 
 ///////////////////////////////////////////////////////////////////////////////

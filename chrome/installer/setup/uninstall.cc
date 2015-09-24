@@ -26,6 +26,7 @@
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_result_codes.h"
+#include "chrome/installer/setup/app_launcher_installer.h"
 #include "chrome/installer/setup/install.h"
 #include "chrome/installer/setup/install_worker.h"
 #include "chrome/installer/setup/setup_constants.h"
@@ -185,20 +186,14 @@ void ClearRlzProductState() {
   }
 }
 
-// Decides whether setup.exe and the installer archive should be removed based
-// on the original and installer states:
-// * non-multi product being uninstalled: remove both
-// * any multi product left besides App Host: keep both
-// * only App Host left: keep setup.exe
-void CheckShouldRemoveSetupAndArchive(const InstallationState& original_state,
-                                      const InstallerState& installer_state,
-                                      bool* remove_setup,
-                                      bool* remove_archive) {
-  *remove_setup = true;
-  *remove_archive = true;
-
-  // If any multi-install product is left (other than App Host) we must leave
-  // the installer and archive. For the App Host, we only leave the installer.
+// Returns whether setup.exe should be removed based on the original and
+// installer states:
+// * non-multi product being uninstalled: remove setup.exe
+// * any multi product left: keep setup.exe
+bool CheckShouldRemoveSetup(const InstallationState& original_state,
+                            const InstallerState& installer_state) {
+  // If any multi-install product is left we must leave the installer and
+  // archive.
   if (!installer_state.is_multi_install()) {
     VLOG(1) << "Removing all installer files for a non-multi installation.";
   } else {
@@ -214,23 +209,14 @@ void CheckShouldRemoveSetupAndArchive(const InstallationState& original_state,
           !installer_state.FindProduct(dist_type)) {
         // setup.exe will not be removed as there is a remaining multi-install
         // product.
-        *remove_setup = false;
-        // As a special case, we can still remove the actual archive if the
-        // only remaining product is the App Host.
-        if (dist_type != BrowserDistribution::CHROME_APP_HOST) {
-          VLOG(1) << "Keeping all installer files due to a remaining "
-                  << "multi-install product.";
-          *remove_archive = false;
-          return;
-        }
-        VLOG(1) << "Keeping setup.exe due to a remaining "
-                << "app-host installation.";
+        VLOG(1) << "Keeping all installer files due to a remaining "
+                << "multi-install product.";
+        return false;
       }
     }
-    VLOG(1) << "Removing the installer archive.";
-    if (remove_setup)
-      VLOG(1) << "Removing setup.exe.";
+    VLOG(1) << "Removing all installer files.";
   }
+  return true;
 }
 
 // Removes all files from the installer directory, leaving setup.exe iff
@@ -513,28 +499,6 @@ bool MoveSetupOutOfInstallFolder(const InstallerState& installer_state,
   return true;
 }
 
-DeleteResult DeleteAppHostFilesAndFolders(const InstallerState& installer_state,
-                                          const Version& installed_version) {
-  const base::FilePath& target_path = installer_state.target_path();
-  if (target_path.empty()) {
-    LOG(ERROR) << "DeleteAppHostFilesAndFolders: no installation destination "
-               << "path.";
-    return DELETE_FAILED;  // Nothing else we can do to uninstall, so we return.
-  }
-
-  DeleteInstallTempDir(target_path);
-
-  DeleteResult result = DELETE_SUCCEEDED;
-
-  base::FilePath app_host_exe(target_path.Append(installer::kChromeAppHostExe));
-  if (!base::DeleteFile(app_host_exe, false)) {
-    result = DELETE_FAILED;
-    LOG(ERROR) << "Failed to delete path: " << app_host_exe.value();
-  }
-
-  return result;
-}
-
 DeleteResult DeleteChromeFilesAndFolders(const InstallerState& installer_state,
                                          const base::FilePath& setup_exe) {
   const base::FilePath& target_path = installer_state.target_path();
@@ -561,8 +525,6 @@ DeleteResult DeleteChromeFilesAndFolders(const InstallerState& installer_state,
       base::FileEnumerator::FILES | base::FileEnumerator::DIRECTORIES);
   for (base::FilePath to_delete = file_enumerator.Next(); !to_delete.empty();
        to_delete = file_enumerator.Next()) {
-    if (to_delete.BaseName().value() == installer::kChromeAppHostExe)
-      continue;
     if (!installer_directory.empty() &&
         (to_delete == installer_directory ||
          installer_directory.IsParent(to_delete) ||
@@ -607,7 +569,7 @@ InstallStatus IsChromeActiveOrUserCancelled(
     const InstallerState& installer_state,
     const Product& product) {
   int32 exit_code = content::RESULT_CODE_NORMAL_EXIT;
-  CommandLine options(CommandLine::NO_PROGRAM);
+  base::CommandLine options(base::CommandLine::NO_PROGRAM);
   options.AppendSwitch(installer::switches::kUninstall);
 
   // Here we want to save user from frustration (in case of Chrome crashes)
@@ -638,7 +600,8 @@ InstallStatus IsChromeActiveOrUserCancelled(
 }
 
 bool ShouldDeleteProfile(const InstallerState& installer_state,
-                         const CommandLine& cmd_line, InstallStatus status,
+                         const base::CommandLine& cmd_line,
+                         InstallStatus status,
                          const Product& product) {
   bool should_delete = false;
 
@@ -1046,7 +1009,7 @@ bool DeleteChromeRegistrationKeys(const InstallerState& installer_state,
 }
 
 void RemoveChromeLegacyRegistryKeys(BrowserDistribution* dist,
-                                    const base::string16& chrome_exe) {
+                                    const base::FilePath& chrome_exe) {
   // We used to register Chrome to handle crx files, but this turned out
   // to be not worth the hassle. Remove these old registry entries if
   // they exist. See: http://codereview.chromium.org/210007
@@ -1094,11 +1057,11 @@ InstallStatus UninstallProduct(const InstallationState& original_state,
                                const Product& product,
                                bool remove_all,
                                bool force_uninstall,
-                               const CommandLine& cmd_line) {
+                               const base::CommandLine& cmd_line) {
   InstallStatus status = installer::UNINSTALL_CONFIRMED;
   BrowserDistribution* browser_dist = product.distribution();
-  const base::string16 chrome_exe(
-      installer_state.target_path().Append(installer::kChromeExe).value());
+  const base::FilePath chrome_exe(
+      installer_state.target_path().Append(installer::kChromeExe));
 
   bool is_chrome = product.is_chrome();
 
@@ -1132,7 +1095,7 @@ InstallStatus UninstallProduct(const InstallationState& original_state,
         !::IsUserAnAdmin() &&
         base::win::GetVersion() >= base::win::VERSION_VISTA &&
         !cmd_line.HasSwitch(installer::switches::kRunAsAdmin)) {
-      CommandLine new_cmd(CommandLine::NO_PROGRAM);
+      base::CommandLine new_cmd(base::CommandLine::NO_PROGRAM);
       new_cmd.AppendArguments(cmd_line, true);
       // Append --run-as-admin flag to let the new instance of setup.exe know
       // that we already tried to launch ourselves as admin.
@@ -1173,15 +1136,14 @@ InstallStatus UninstallProduct(const InstallationState& original_state,
               Append(installer::kChromeExe));
       VLOG(1) << "Retargeting user-generated Chrome shortcuts.";
       if (base::PathExists(system_chrome_path)) {
-        RetargetUserShortcutsWithArgs(installer_state, product,
-                                      base::FilePath(chrome_exe),
+        RetargetUserShortcutsWithArgs(installer_state, product, chrome_exe,
                                       system_chrome_path);
       } else {
         LOG(ERROR) << "Retarget failed: system-level Chrome not found.";
       }
     }
 
-    DeleteShortcuts(installer_state, product, base::FilePath(chrome_exe));
+    DeleteShortcuts(installer_state, product, chrome_exe);
   }
 
   // Delete the registry keys (Uninstall key and Version key).
@@ -1218,6 +1180,11 @@ InstallStatus UninstallProduct(const InstallationState& original_state,
     // installs.
     DeleteChromeRegistrationKeys(installer_state, browser_dist,
                                  HKEY_CURRENT_USER, suffix, &ret);
+
+#if defined(GOOGLE_CHROME_BUILD)
+    if (!InstallUtil::IsChromeSxSProcess())
+      RemoveAppLauncherVersionKey(reg_root);
+#endif  // GOOGLE_CHROME_BUILD
 
     // If the user's Chrome is registered with a suffix: it is possible that old
     // unsuffixed registrations were left in HKCU (e.g. if this install was
@@ -1270,29 +1237,13 @@ InstallStatus UninstallProduct(const InstallationState& original_state,
 
     UninstallActiveSetupEntries(installer_state, product);
 
-    UninstallFirewallRules(browser_dist, base::FilePath(chrome_exe));
+    UninstallFirewallRules(browser_dist, chrome_exe);
 
     RemoveBlacklistState();
 
     // Notify the shell that associations have changed since Chrome was likely
     // unregistered.
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
-
-    // TODO(huangs): Implement actual migration code and remove the hack below.
-    // Remove the "shadow" App Launcher registry keys.
-    // TODO(hunags): Management of this key should not be conditional on
-    // multi-install since the app list feature is available regardless of how
-    // chrome is installed.
-    if (installer_state.is_multi_install()) {
-      // Delete the "shadow" keys.
-      BrowserDistribution* shadow_app_launcher_dist =
-          BrowserDistribution::GetSpecificDistribution(
-              BrowserDistribution::CHROME_APP_HOST);
-      InstallUtil::DeleteRegistryKey(
-          reg_root,
-          shadow_app_launcher_dist->GetVersionKey(),
-          KEY_WOW64_32KEY);
-    }
   }
 
   if (installer_state.is_multi_install())
@@ -1369,10 +1320,7 @@ InstallStatus UninstallProduct(const InstallationState& original_state,
     delete_profile = false;
   }
 
-  if (product.is_chrome_app_host()) {
-    DeleteAppHostFilesAndFolders(installer_state, product_state->version());
-  } else if (!installer_state.is_multi_install() ||
-             product.is_chrome_binaries()) {
+  if (!installer_state.is_multi_install() || product.is_chrome_binaries()) {
     DeleteResult delete_result = DeleteChromeFilesAndFolders(
         installer_state, base::MakeAbsoluteFilePath(setup_exe));
     if (delete_result == DELETE_FAILED) {
@@ -1420,12 +1368,7 @@ void CleanUpInstallationDirectoryAfterUninstall(
   }
   base::FilePath install_directory(setup_exe.DirName());
 
-  bool remove_setup = true;
-  bool remove_archive = true;
-  CheckShouldRemoveSetupAndArchive(original_state, installer_state,
-                                   &remove_setup, &remove_archive);
-  if (!remove_archive)
-    return;
+  bool remove_setup = CheckShouldRemoveSetup(original_state, installer_state);
 
   if (remove_setup) {
     // In order to be able to remove the folder in which we're running, we

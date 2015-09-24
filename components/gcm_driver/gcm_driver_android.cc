@@ -98,9 +98,6 @@ void GCMDriverAndroid::OnSignedIn() {
 void GCMDriverAndroid::OnSignedOut() {
 }
 
-void GCMDriverAndroid::Purge() {
-}
-
 void GCMDriverAndroid::AddConnectionObserver(GCMConnectionObserver* observer) {
 }
 
@@ -162,26 +159,48 @@ void GCMDriverAndroid::SetLastTokenFetchTime(const base::Time& time) {
   NOTIMPLEMENTED();
 }
 
-GCMClient::Result GCMDriverAndroid::EnsureStarted() {
+void GCMDriverAndroid::WakeFromSuspendForHeartbeat(bool wake) {
+}
+
+InstanceIDHandler* GCMDriverAndroid::GetInstanceIDHandler() {
+  // Not supported for Android.
+  return NULL;
+}
+
+void GCMDriverAndroid::AddHeartbeatInterval(const std::string& scope,
+                                            int interval_ms) {
+}
+
+void GCMDriverAndroid::RemoveHeartbeatInterval(const std::string& scope) {
+}
+
+GCMClient::Result GCMDriverAndroid::EnsureStarted(
+    GCMClient::StartMode start_mode) {
   // TODO(johnme): Maybe we should check if GMS is available?
   return GCMClient::SUCCESS;
 }
 
 void GCMDriverAndroid::RegisterImpl(
-    const std::string& app_id,
-    const std::vector<std::string>& sender_ids) {
+    const std::string& app_id, const std::vector<std::string>& sender_ids) {
+  DCHECK_EQ(1u, sender_ids.size());
   JNIEnv* env = AttachCurrentThread();
   Java_GCMDriver_register(
       env, java_ref_.obj(),
       ConvertUTF8ToJavaString(env, app_id).Release(),
-      ToJavaArrayOfStrings(env, sender_ids).obj());
+      ConvertUTF8ToJavaString(env, sender_ids[0]).Release());
 }
 
 void GCMDriverAndroid::UnregisterImpl(const std::string& app_id) {
+  NOTREACHED();
+}
+
+void GCMDriverAndroid::UnregisterWithSenderIdImpl(
+    const std::string& app_id, const std::string& sender_id) {
   JNIEnv* env = AttachCurrentThread();
   Java_GCMDriver_unregister(
       env, java_ref_.obj(),
-      ConvertUTF8ToJavaString(env, app_id).Release());
+      ConvertUTF8ToJavaString(env, app_id).Release(),
+      ConvertUTF8ToJavaString(env, sender_id).Release());
 }
 
 void GCMDriverAndroid::SendImpl(const std::string& app_id,

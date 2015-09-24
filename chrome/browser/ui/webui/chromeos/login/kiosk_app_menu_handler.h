@@ -12,6 +12,7 @@
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager_observer.h"
+#include "chrome/browser/chromeos/login/screens/network_error.h"
 #include "chrome/browser/ui/webui/chromeos/login/network_state_informer.h"
 #include "content/public/browser/web_ui_message_handler.h"
 
@@ -27,12 +28,12 @@ class KioskAppMenuHandler
  public:
   explicit KioskAppMenuHandler(
       const scoped_refptr<NetworkStateInformer>& network_state_informer);
-  virtual ~KioskAppMenuHandler();
+  ~KioskAppMenuHandler() override;
 
   void GetLocalizedStrings(base::DictionaryValue* localized_strings);
 
   // content::WebUIMessageHandler overrides:
-  virtual void RegisterMessages() override;
+  void RegisterMessages() override;
 
   // Returns true if new kiosk UI is enabled.
   static bool EnableNewKioskUI();
@@ -47,11 +48,11 @@ class KioskAppMenuHandler
   void HandleCheckKioskAppLaunchError(const base::ListValue* args);
 
   // KioskAppManagerObserver overrides:
-  virtual void OnKioskAppsSettingsChanged() override;
-  virtual void OnKioskAppDataChanged(const std::string& app_id) override;
+  void OnKioskAppsSettingsChanged() override;
+  void OnKioskAppDataChanged(const std::string& app_id) override;
 
   // NetworkStateInformer::NetworkStateInformerObserver overrides:
-  virtual void UpdateState(ErrorScreenActor::ErrorReason reason) override;
+  void UpdateState(NetworkError::ErrorReason reason) override;
 
   // True when WebUI is initialized. Otherwise don't allow calling JS functions.
   bool is_webui_initialized_;

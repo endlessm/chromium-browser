@@ -6,17 +6,19 @@
 
 from __future__ import print_function
 
-import optparse
 import os
-import sys
 
 from chromite.cbuildbot import constants
+from chromite.lib import commandline
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import git
 from chromite.lib import osutils
 from chromite.lib import parallel
 from chromite.lib import portage_util
 
+# Commit message subject for uprevving Portage packages.
+GIT_COMMIT_SUBJECT = 'Marking set of ebuilds as stable'
 
 # Commit message for uprevving Portage packages.
 _GIT_COMMIT_MESSAGE = 'Marking 9999 ebuild for %s as stable.'
@@ -39,7 +41,7 @@ def CleanStalePackages(boards, package_atoms):
     package_atoms: A list of package atoms to unmerge.
   """
   if package_atoms:
-    cros_build_lib.Info('Cleaning up stale packages %s.' % package_atoms)
+    logging.info('Cleaning up stale packages %s.' % package_atoms)
 
   # First unmerge all the packages for a board, then eclean it.
   # We need these two steps to run in order (unmerge/eclean),
@@ -83,35 +85,6 @@ def _DoWeHaveLocalCommits(stable_branch, tracking_branch, cwd):
   return output[0] != output[1]
 
 
-def _CheckSaneArguments(command, options):
-  """Checks to make sure the flags are sane.  Dies if arguments are not sane."""
-  if not command in COMMAND_DICTIONARY.keys():
-    _PrintUsageAndDie('%s is not a valid command' % command)
-  if not options.packages and command == 'commit' and not options.all:
-    _PrintUsageAndDie('Please specify at least one package')
-  if options.boards:
-    cros_build_lib.AssertInsideChroot()
-  if not os.path.isdir(options.srcroot):
-    _PrintUsageAndDie('srcroot is not a valid path')
-  options.srcroot = os.path.abspath(options.srcroot)
-
-
-def _PrintUsageAndDie(error_message=''):
-  """Prints optional error_message the usage and returns an error exit code."""
-  command_usage = 'Commands: \n'
-  # Add keys and usage information from dictionary.
-  commands = sorted(COMMAND_DICTIONARY.keys())
-  for command in commands:
-    command_usage += '  %s: %s\n' % (command, COMMAND_DICTIONARY[command])
-  commands_str = '|'.join(commands)
-  cros_build_lib.Warning('Usage: %s FLAGS [%s]\n\n%s' % (
-      sys.argv[0], commands_str, command_usage))
-  if error_message:
-    cros_build_lib.Die(error_message)
-  else:
-    sys.exit(1)
-
-
 # ======================= End Global Helper Functions ========================
 
 
@@ -133,18 +106,18 @@ def PushChange(stable_branch, tracking_branch, dryrun, cwd):
     OSError: Error occurred while pushing.
   """
   if not _DoWeHaveLocalCommits(stable_branch, tracking_branch, cwd):
-    cros_build_lib.Info('No work found to push in %s.  Exiting', cwd)
+    logging.info('No work found to push in %s.  Exiting', cwd)
     return
 
   # For the commit queue, our local branch may contain commits that were
   # just tested and pushed during the CommitQueueCompletion stage. Sync
   # and rebase our local branch on top of the remote commits.
-  remote, push_branch = git.GetTrackingBranch(cwd, for_push=True)
-  git.SyncPushBranch(cwd, remote, push_branch)
+  remote_ref = git.GetTrackingBranch(cwd, for_push=True)
+  git.SyncPushBranch(cwd, remote_ref.remote, remote_ref.ref)
 
   # Check whether any local changes remain after the sync.
-  if not _DoWeHaveLocalCommits(stable_branch, push_branch, cwd):
-    cros_build_lib.Info('All changes already pushed for %s. Exiting', cwd)
+  if not _DoWeHaveLocalCommits(stable_branch, remote_ref.ref, cwd):
+    logging.info('All changes already pushed for %s. Exiting', cwd)
     return
 
   # Add a failsafe check here.  Only CLs from the 'chrome-bot' user should
@@ -152,18 +125,19 @@ def PushChange(stable_branch, tracking_branch, dryrun, cwd):
   # In dryruns extra CLs are normal, though, and can be ignored.
   bad_cl_cmd = ['log', '--format=short', '--perl-regexp',
                 '--author', '^(?!chrome-bot)', '%s..%s' % (
-                    push_branch, stable_branch)]
+                    remote_ref.ref, stable_branch)]
   bad_cls = git.RunGit(cwd, bad_cl_cmd).output
   if bad_cls.strip() and not dryrun:
-    cros_build_lib.Error('The Uprev stage found changes from users other'
-                         ' than chrome-bot:\n\n%s', bad_cls)
+    logging.error('The Uprev stage found changes from users other than '
+                  'chrome-bot:\n\n%s', bad_cls)
     raise AssertionError('Unexpected CLs found during uprev stage.')
 
-  description = git.RunGit(cwd,
-      ['log', '--format=format:%s%n%n%b', '%s..%s' % (
-       push_branch, stable_branch)]).output
-  description = 'Marking set of ebuilds as stable\n\n%s' % description
-  cros_build_lib.Info('For %s, using description %s', cwd, description)
+  description = git.RunGit(
+      cwd,
+      ['log', '--format=format:%s%n%n%b',
+       '%s..%s' % (remote_ref.ref, stable_branch)]).output
+  description = '%s\n\n%s' % (GIT_COMMIT_SUBJECT, description)
+  logging.info('For %s, using description %s', cwd, description)
   git.CreatePushBranch(constants.MERGE_BRANCH, cwd)
   git.RunGit(cwd, ['merge', '--squash', stable_branch])
   git.RunGit(cwd, ['commit', '-m', description])
@@ -208,38 +182,50 @@ class GitBranch(object):
     return branch in branches.split()
 
 
-def main(_argv):
-  parser = optparse.OptionParser('cros_mark_as_stable OPTIONS packages')
-  parser.add_option('--all', action='store_true',
-                    help='Mark all packages as stable.')
-  parser.add_option('-b', '--boards', default='',
-                    help='Colon-separated list of boards')
-  parser.add_option('--drop_file',
-                    help='File to list packages that were revved.')
-  parser.add_option('--dryrun', action='store_true',
-                    help='Passes dry-run to git push if pushing a change.')
-  parser.add_option('-o', '--overlays',
-                    help='Colon-separated list of overlays to modify.')
-  parser.add_option('-p', '--packages',
-                    help='Colon separated list of packages to rev.')
-  parser.add_option('-r', '--srcroot',
-                    default=os.path.join(constants.SOURCE_ROOT, 'src'),
-                    help='Path to root src directory.')
-  parser.add_option('--verbose', action='store_true',
-                    help='Prints out debug info.')
-  (options, args) = parser.parse_args()
+def GetParser():
+  """Creates the argparse parser."""
+  parser = commandline.ArgumentParser()
+  parser.add_argument('--all', action='store_true',
+                      help='Mark all packages as stable.')
+  parser.add_argument('-b', '--boards', default='',
+                      help='Colon-separated list of boards.')
+  parser.add_argument('--drop_file',
+                      help='File to list packages that were revved.')
+  parser.add_argument('--dryrun', action='store_true',
+                      help='Passes dry-run to git push if pushing a change.')
+  parser.add_argument('-o', '--overlays',
+                      help='Colon-separated list of overlays to modify.')
+  parser.add_argument('-p', '--packages',
+                      help='Colon separated list of packages to rev.')
+  parser.add_argument('-r', '--srcroot', type='path',
+                      default=os.path.join(constants.SOURCE_ROOT, 'src'),
+                      help='Path to root src directory.')
+  parser.add_argument('--verbose', action='store_true',
+                      help='Prints out debug info.')
+  parser.add_argument('command', choices=COMMAND_DICTIONARY.keys(),
+                      help='Command to run.')
+  return parser
+
+
+def main(argv):
+  parser = GetParser()
+  options = parser.parse_args(argv)
+
+  if not options.packages and options.command == 'commit' and not options.all:
+    parser.error('Please specify at least one package (--packages)')
+  if not os.path.isdir(options.srcroot):
+    parser.error('srcroot is not a valid path: %s' % options.srcroot)
+  if options.boards:
+    cros_build_lib.AssertInsideChroot()
+
+  options.Freeze()
 
   portage_util.EBuild.VERBOSE = options.verbose
 
-  if len(args) != 1:
-    _PrintUsageAndDie('Must specify a valid command [commit, push]')
-
-  command = args[0]
   package_list = None
   if options.packages:
     package_list = options.packages.split(':')
 
-  _CheckSaneArguments(command, options)
   if options.overlays:
     overlays = {}
     for path in options.overlays.split(':'):
@@ -247,15 +233,15 @@ def main(_argv):
         cros_build_lib.Die('Cannot find overlay: %s' % path)
       overlays[path] = []
   else:
-    cros_build_lib.Warning('Missing --overlays argument')
+    logging.warning('Missing --overlays argument')
     overlays = {
-      '%s/private-overlays/chromeos-overlay' % options.srcroot: [],
-      '%s/third_party/chromiumos-overlay' % options.srcroot: []
+        '%s/private-overlays/chromeos-overlay' % options.srcroot: [],
+        '%s/third_party/chromiumos-overlay' % options.srcroot: [],
     }
 
   manifest = git.ManifestCheckout.Cached(options.srcroot)
 
-  if command == 'commit':
+  if options.command == 'commit':
     portage_util.BuildEBuildDictionary(overlays, options.all, package_list)
 
   # Contains the array of packages we actually revved.
@@ -286,7 +272,7 @@ def main(_argv):
     for overlay in keys:
       ebuilds = overlays[overlay]
       if not os.path.isdir(overlay):
-        cros_build_lib.Warning('Skipping %s' % overlay)
+        logging.warning('Skipping %s' % overlay)
         continue
 
       # Note we intentionally work from the non push tracking branch;
@@ -294,12 +280,12 @@ def main(_argv):
       # thus we should honor that.  During the actual push, the code switches
       # to the correct urls, and does an appropriate rebasing.
       tracking_branch = git.GetTrackingBranchViaManifest(
-          overlay, manifest=manifest)[1]
+          overlay, manifest=manifest).ref
 
-      if command == 'push':
+      if options.command == 'push':
         PushChange(constants.STABLE_EBUILD_BRANCH, tracking_branch,
                    options.dryrun, cwd=overlay)
-      elif command == 'commit':
+      elif options.command == 'commit':
         existing_commit = git.GetGitRepoRevision(overlay)
         work_branch = GitBranch(constants.STABLE_EBUILD_BRANCH, tracking_branch,
                                 cwd=overlay)
@@ -315,7 +301,7 @@ def main(_argv):
         messages = []
         for ebuild in ebuilds:
           if options.verbose:
-            cros_build_lib.Info('Working on %s', ebuild.package)
+            logging.info('Working on %s', ebuild.package)
           try:
             new_package = ebuild.RevWorkOnEBuild(options.srcroot, manifest)
             if new_package:
@@ -323,7 +309,7 @@ def main(_argv):
               new_package_atoms.append('=%s' % new_package)
               messages.append(_GIT_COMMIT_MESSAGE % ebuild.package)
           except (OSError, IOError):
-            cros_build_lib.Warning(
+            logging.warning(
                 'Cannot rev %s\n'
                 'Note you will have to go into %s '
                 'and reset the git repo yourself.' % (ebuild.package, overlay))
@@ -337,7 +323,7 @@ def main(_argv):
           # catch when users make changes without updating cache files.
           queue.put([overlay])
 
-  if command == 'commit':
+  if options.command == 'commit':
     if cros_build_lib.IsInsideChroot():
       CleanStalePackages(options.boards.split(':'), new_package_atoms)
     if options.drop_file:

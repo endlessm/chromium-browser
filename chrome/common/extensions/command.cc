@@ -139,6 +139,7 @@ ui::Accelerator ParseImpl(const std::string& accelerator,
                tokens[i] == values::kKeyEnd ||
                tokens[i] == values::kKeyPgUp ||
                tokens[i] == values::kKeyPgDwn ||
+               tokens[i] == values::kKeySpace ||
                tokens[i] == values::kKeyTab ||
                tokens[i] == values::kKeyMediaNextTrack ||
                tokens[i] == values::kKeyMediaPlayPause ||
@@ -174,6 +175,8 @@ ui::Accelerator ParseImpl(const std::string& accelerator,
         key = ui::VKEY_PRIOR;
       } else if (tokens[i] == values::kKeyPgDwn) {
         key = ui::VKEY_NEXT;
+      } else if (tokens[i] == values::kKeySpace) {
+        key = ui::VKEY_SPACE;
       } else if (tokens[i] == values::kKeyTab) {
         key = ui::VKEY_TAB;
       } else if (tokens[i] == values::kKeyMediaNextTrack &&
@@ -386,6 +389,9 @@ std::string Command::AcceleratorToString(const ui::Accelerator& accelerator) {
       case ui::VKEY_NEXT:
         shortcut += values::kKeyPgDwn;
         break;
+      case ui::VKEY_SPACE:
+        shortcut += values::kKeySpace;
+        break;
       case ui::VKEY_TAB:
         shortcut += values::kKeyTab;
         break;
@@ -544,30 +550,6 @@ bool Command::Parse(const base::DictionaryValue* command,
     }
   }
   return true;
-}
-
-base::DictionaryValue* Command::ToValue(const Extension* extension,
-                                        bool active) const {
-  base::DictionaryValue* extension_data = new base::DictionaryValue();
-
-  base::string16 command_description;
-  bool extension_action = false;
-  if (command_name() == values::kBrowserActionCommandEvent ||
-      command_name() == values::kPageActionCommandEvent) {
-    command_description =
-        l10n_util::GetStringUTF16(IDS_EXTENSION_COMMANDS_GENERIC_ACTIVATE);
-    extension_action = true;
-  } else {
-    command_description = description();
-  }
-  extension_data->SetString("description", command_description);
-  extension_data->SetBoolean("active", active);
-  extension_data->SetString("keybinding", accelerator().GetShortcutText());
-  extension_data->SetString("command_name", command_name());
-  extension_data->SetString("extension_id", extension->id());
-  extension_data->SetBoolean("global", global());
-  extension_data->SetBoolean("extension_action", extension_action);
-  return extension_data;
 }
 
 }  // namespace extensions

@@ -5,9 +5,11 @@
 #include "chrome/browser/ui/views/frame/immersive_mode_controller_ash.h"
 
 #include "ash/shell.h"
+#include "ash/wm/immersive_revealed_lock.h"
 #include "ash/wm/window_state.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/ui/fullscreen/fullscreen_controller.h"
+#include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
+#include "chrome/browser/ui/exclusive_access/fullscreen_controller.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/top_container_view.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
@@ -40,12 +42,23 @@ ToImmersiveFullscreenControllerAnimateReveal(
   return ash::ImmersiveFullscreenController::ANIMATE_REVEAL_NO;
 }
 
+class ImmersiveRevealedLockAsh : public ImmersiveRevealedLock {
+ public:
+  explicit ImmersiveRevealedLockAsh(ash::ImmersiveRevealedLock* lock)
+      : lock_(lock) {}
+
+ private:
+  scoped_ptr<ash::ImmersiveRevealedLock> lock_;
+
+  DISALLOW_COPY_AND_ASSIGN(ImmersiveRevealedLockAsh);
+};
+
 }  // namespace
 
 ImmersiveModeControllerAsh::ImmersiveModeControllerAsh()
     : controller_(new ash::ImmersiveFullscreenController),
-      browser_view_(NULL),
-      native_window_(NULL),
+      browser_view_(nullptr),
+      native_window_(nullptr),
       observers_enabled_(false),
       use_tab_indicators_(false),
       visible_fraction_(1) {
@@ -108,8 +121,8 @@ int ImmersiveModeControllerAsh::GetTopContainerVerticalOffset(
 
 ImmersiveRevealedLock* ImmersiveModeControllerAsh::GetRevealedLock(
     AnimateReveal animate_reveal) {
-  return controller_->GetRevealedLock(
-      ToImmersiveFullscreenControllerAnimateReveal(animate_reveal));
+  return new ImmersiveRevealedLockAsh(controller_->GetRevealedLock(
+      ToImmersiveFullscreenControllerAnimateReveal(animate_reveal)));
 }
 
 void ImmersiveModeControllerAsh::OnFindBarVisibleBoundsChanged(
@@ -126,8 +139,9 @@ void ImmersiveModeControllerAsh::EnableWindowObservers(bool enable) {
     return;
   observers_enabled_ = enable;
 
-  content::Source<FullscreenController> source(
-      browser_view_->browser()->fullscreen_controller());
+  content::Source<FullscreenController> source(browser_view_->browser()
+                                                   ->exclusive_access_manager()
+                                                   ->fullscreen_controller());
   if (enable) {
     ash::wm::GetWindowState(native_window_)->AddObserver(this);
     registrar_.Add(this, chrome::NOTIFICATION_FULLSCREEN_CHANGED, source);
@@ -151,8 +165,10 @@ bool ImmersiveModeControllerAsh::UpdateTabIndicators() {
   if (!IsEnabled() || !has_tabstrip) {
     use_tab_indicators_ = false;
   } else {
-    bool in_tab_fullscreen = browser_view_->browser()->fullscreen_controller()->
-        IsWindowFullscreenForTabOrPending();
+    bool in_tab_fullscreen = browser_view_->browser()
+                                 ->exclusive_access_manager()
+                                 ->fullscreen_controller()
+                                 ->IsWindowFullscreenForTabOrPending();
     use_tab_indicators_ = !in_tab_fullscreen;
   }
 

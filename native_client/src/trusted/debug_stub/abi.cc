@@ -9,6 +9,7 @@
 #include <map>
 #include <string>
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/arm_sandbox.h"
 #include "native_client/src/shared/platform/nacl_log.h"
 #include "native_client/src/trusted/debug_stub/abi.h"
@@ -39,12 +40,12 @@ static Abi::RegDef RegsX86_64[] = {
   MINIDEF(uint64_t, r15, READ_ONLY),
   MINIDEF(uint64_t, rip, X86_64_TRUSTED_PTR),
   MINIDEF(uint32_t, eflags, GENERAL),
-  MINIDEF(uint32_t, cs, READ_ONLY),
-  MINIDEF(uint32_t, ss, READ_ONLY),
-  MINIDEF(uint32_t, ds, READ_ONLY),
-  MINIDEF(uint32_t, es, READ_ONLY),
-  MINIDEF(uint32_t, fs, READ_ONLY),
-  MINIDEF(uint32_t, gs, READ_ONLY),
+  MINIDEF(uint32_t, cs, READ_ONLY_ZERO),
+  MINIDEF(uint32_t, ss, READ_ONLY_ZERO),
+  MINIDEF(uint32_t, ds, READ_ONLY_ZERO),
+  MINIDEF(uint32_t, es, READ_ONLY_ZERO),
+  MINIDEF(uint32_t, fs, READ_ONLY_ZERO),
+  MINIDEF(uint32_t, gs, READ_ONLY_ZERO),
 };
 
 static Abi::RegDef RegsX86_32[] = {
@@ -58,12 +59,12 @@ static Abi::RegDef RegsX86_32[] = {
   MINIDEF(uint32_t, edi, GENERAL),
   MINIDEF(uint32_t, eip, GENERAL),
   MINIDEF(uint32_t, eflags, GENERAL),
-  MINIDEF(uint32_t, cs, READ_ONLY),
-  MINIDEF(uint32_t, ss, READ_ONLY),
-  MINIDEF(uint32_t, ds, READ_ONLY),
-  MINIDEF(uint32_t, es, READ_ONLY),
-  MINIDEF(uint32_t, fs, READ_ONLY),
-  MINIDEF(uint32_t, gs, READ_ONLY),
+  MINIDEF(uint32_t, cs, READ_ONLY_ZERO),
+  MINIDEF(uint32_t, ss, READ_ONLY_ZERO),
+  MINIDEF(uint32_t, ds, READ_ONLY_ZERO),
+  MINIDEF(uint32_t, es, READ_ONLY_ZERO),
+  MINIDEF(uint32_t, fs, READ_ONLY_ZERO),
+  MINIDEF(uint32_t, gs, READ_ONLY_ZERO),
 };
 
 static Abi::RegDef RegsArm[] = {
@@ -318,7 +319,7 @@ void Abi::Register(const char *name, RegDef *regs,
 
   abi->name_ = name;
   abi->regCnt_ = cnt;
-  abi->regDefs_= regs;
+  abi->regDefs_ = regs;
   abi->ctxSize_ = offs;
   abi->bpDef_ = bp;
   abi->ipIndex_ = ip;

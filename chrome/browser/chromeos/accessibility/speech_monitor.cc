@@ -30,7 +30,18 @@ std::string SpeechMonitor::GetNextUtterance() {
 }
 
 bool SpeechMonitor::SkipChromeVoxEnabledMessage() {
-  return GetNextUtterance() == kChromeVoxEnabledMessage;
+  while (true) {
+    if (utterance_queue_.empty()) {
+      loop_runner_ = new content::MessageLoopRunner();
+      loop_runner_->Run();
+      loop_runner_ = NULL;
+    }
+    std::string result = utterance_queue_.front();
+    utterance_queue_.pop_front();
+    if (result == kChromeVoxEnabledMessage)
+      return true;
+  }
+  return false;
 }
 
 bool SpeechMonitor::PlatformImplAvailable() {
@@ -73,6 +84,7 @@ std::string SpeechMonitor::error() {
 
 void SpeechMonitor::WillSpeakUtteranceWithVoice(const Utterance* utterance,
                                                 const VoiceData& voice_data) {
+  VLOG(0) << "Speaking " << utterance->text();
   utterance_queue_.push_back(utterance->text());
   if (loop_runner_.get())
     loop_runner_->Quit();

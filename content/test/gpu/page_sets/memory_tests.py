@@ -2,29 +2,27 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 from telemetry.page import page as page_module
-from telemetry.page import page_set as page_set_module
+from telemetry.story import story_set as story_set_module
 
 
 class MemoryTestsPage(page_module.Page):
 
-  def __init__(self, page_set):
+  def __init__(self, story_set):
     super(MemoryTestsPage, self).__init__(
-      url='file://../../data/gpu/mem_css3d.html', page_set=page_set,
+      url='file://../../data/gpu/mem_css3d.html', page_set=story_set,
       name='Memory.CSS3D')
-    self.user_agent_type = 'desktop'
 
   def RunNavigateSteps(self, action_runner):
-    action_runner.NavigateToPage(self)
+    super(MemoryTestsPage, self).RunNavigateSteps(action_runner)
     action_runner.WaitForJavaScriptCondition(
         'domAutomationController._finished', timeout_in_seconds=60)
 
 
-class MemoryTestsPageSet(page_set_module.PageSet):
+class MemoryTestsStorySet(story_set_module.StorySet):
 
   """ Tests that validate GPU memory management """
 
   def __init__(self):
-    super(MemoryTestsPageSet, self).__init__(
-      user_agent_type='desktop')
+    super(MemoryTestsStorySet, self).__init__()
 
-    self.AddPage(MemoryTestsPage(self))
+    self.AddStory(MemoryTestsPage(self))

@@ -37,6 +37,7 @@ G*     * Redistributions in binary form must reproduce the above
 #include "core/svg/SVGParsingError.h"
 #include "core/svg/properties/SVGPropertyInfo.h"
 #include "core/svg/properties/SVGPropertyTearOff.h"
+#include "platform/heap/Handle.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/PassRefPtr.h"
 #include "wtf/RefCounted.h"
@@ -45,15 +46,17 @@ namespace blink {
 
 class SVGElement;
 
-class SVGAnimatedPropertyBase : public RefCounted<SVGAnimatedPropertyBase>, public ScriptWrappableBase {
+class SVGAnimatedPropertyBase : public RefCountedWillBeGarbageCollectedFinalized<SVGAnimatedPropertyBase>, public ScriptWrappable {
+    DEFINE_WRAPPERTYPEINFO_NOT_REACHED();
+    WTF_MAKE_NONCOPYABLE(SVGAnimatedPropertyBase);
 public:
     virtual ~SVGAnimatedPropertyBase();
 
     virtual SVGPropertyBase* currentValueBase() = 0;
     virtual bool isAnimating() const = 0;
 
-    virtual PassRefPtr<SVGPropertyBase> createAnimatedValue() = 0;
-    virtual void setAnimatedValue(PassRefPtr<SVGPropertyBase>) = 0;
+    virtual PassRefPtrWillBeRawPtr<SVGPropertyBase> createAnimatedValue() = 0;
+    virtual void setAnimatedValue(PassRefPtrWillBeRawPtr<SVGPropertyBase>) = 0;
     virtual void animationEnded();
 
     virtual void setBaseValueAsString(const String& value, SVGParsingError& parseError) = 0;
@@ -87,6 +90,11 @@ public:
 
     bool isSpecified() const;
 
+    DEFINE_INLINE_VIRTUAL_TRACE()
+    {
+        visitor->trace(m_contextElement);
+    }
+
 protected:
     SVGAnimatedPropertyBase(AnimatedPropertyType, SVGElement*, const QualifiedName& attributeName);
 
@@ -95,11 +103,9 @@ private:
     bool m_isReadOnly;
 
     // This reference is kept alive from V8 wrapper
-    SVGElement* m_contextElement;
+    RawPtrWillBeMember<SVGElement> m_contextElement;
 
     const QualifiedName& m_attributeName;
-
-    WTF_MAKE_NONCOPYABLE(SVGAnimatedPropertyBase);
 };
 
 template <typename Property>
@@ -120,12 +126,12 @@ public:
         return const_cast<SVGAnimatedPropertyCommon*>(this)->currentValue();
     }
 
-    virtual SVGPropertyBase* currentValueBase() override
+    SVGPropertyBase* currentValueBase() override
     {
         return currentValue();
     }
 
-    virtual bool isAnimating() const override
+    bool isAnimating() const override
     {
         return m_currentValue;
     }
@@ -140,35 +146,42 @@ public:
             parseError = ParsingAttributeFailedError;
     }
 
-    virtual PassRefPtr<SVGPropertyBase> createAnimatedValue() override
+    PassRefPtrWillBeRawPtr<SVGPropertyBase> createAnimatedValue() override
     {
         return m_baseValue->clone();
     }
 
-    virtual void setAnimatedValue(PassRefPtr<SVGPropertyBase> passValue) override
+    void setAnimatedValue(PassRefPtrWillBeRawPtr<SVGPropertyBase> passValue) override
     {
-        RefPtr<SVGPropertyBase> value = passValue;
+        RefPtrWillBeRawPtr<SVGPropertyBase> value = passValue;
         ASSERT(value->type() == Property::classType());
         m_currentValue = static_pointer_cast<Property>(value.release());
     }
 
-    virtual void animationEnded() override
+    void animationEnded() override
     {
         m_currentValue.clear();
 
         SVGAnimatedPropertyBase::animationEnded();
     }
 
+    DEFINE_INLINE_VIRTUAL_TRACE()
+    {
+        visitor->trace(m_baseValue);
+        visitor->trace(m_currentValue);
+        SVGAnimatedPropertyBase::trace(visitor);
+    }
+
 protected:
-    SVGAnimatedPropertyCommon(SVGElement* contextElement, const QualifiedName& attributeName, PassRefPtr<Property> initialValue)
+    SVGAnimatedPropertyCommon(SVGElement* contextElement, const QualifiedName& attributeName, PassRefPtrWillBeRawPtr<Property> initialValue)
         : SVGAnimatedPropertyBase(Property::classType(), contextElement, attributeName)
         , m_baseValue(initialValue)
     {
     }
 
 private:
-    RefPtr<Property> m_baseValue;
-    RefPtr<Property> m_currentValue;
+    RefPtrWillBeMember<Property> m_baseValue;
+    RefPtrWillBeMember<Property> m_currentValue;
 };
 
 // Implementation of SVGAnimatedProperty which uses primitive types.
@@ -177,14 +190,14 @@ private:
 template <typename Property, typename TearOffType = typename Property::TearOffType, typename PrimitiveType = typename Property::PrimitiveType>
 class SVGAnimatedProperty : public SVGAnimatedPropertyCommon<Property> {
 public:
-    virtual bool needsSynchronizeAttribute() override
+    bool needsSynchronizeAttribute() override
     {
         // DOM attribute synchronization is only needed if tear-off is being touched from javascript or the property is being animated.
         // This prevents unnecessary attribute creation on target element.
         return m_baseValueUpdated || this->isAnimating();
     }
 
-    virtual void synchronizeAttribute() override
+    void synchronizeAttribute() override
     {
         SVGAnimatedPropertyBase::synchronizeAttribute();
         m_baseValueUpdated = false;
@@ -199,7 +212,7 @@ public:
         return this->baseValue()->value();
     }
 
-    void setBaseVal(PrimitiveType value, blink::ExceptionState& exceptionState)
+    void setBaseVal(PrimitiveType value, ExceptionState& exceptionState)
     {
         if (this->isReadOnly()) {
             exceptionState.throwDOMException(NoModificationAllowedError, "The attribute is read-only.");
@@ -220,7 +233,7 @@ public:
     }
 
 protected:
-    SVGAnimatedProperty(SVGElement* contextElement, const QualifiedName& attributeName, PassRefPtr<Property> initialValue)
+    SVGAnimatedProperty(SVGElement* contextElement, const QualifiedName& attributeName, PassRefPtrWillBeRawPtr<Property> initialValue)
         : SVGAnimatedPropertyCommon<Property>(contextElement, attributeName, initialValue)
         , m_baseValueUpdated(false)
     {
@@ -236,24 +249,24 @@ protected:
 template <typename Property, typename TearOffType>
 class SVGAnimatedProperty<Property, TearOffType, void> : public SVGAnimatedPropertyCommon<Property> {
 public:
-    static PassRefPtr<SVGAnimatedProperty<Property> > create(SVGElement* contextElement, const QualifiedName& attributeName, PassRefPtr<Property> initialValue)
+    static PassRefPtrWillBeRawPtr<SVGAnimatedProperty<Property>> create(SVGElement* contextElement, const QualifiedName& attributeName, PassRefPtrWillBeRawPtr<Property> initialValue)
     {
-        return adoptRef(new SVGAnimatedProperty<Property>(contextElement, attributeName, initialValue));
+        return adoptRefWillBeNoop(new SVGAnimatedProperty<Property>(contextElement, attributeName, initialValue));
     }
 
-    virtual void setAnimatedValue(PassRefPtr<SVGPropertyBase> value) override
+    void setAnimatedValue(PassRefPtrWillBeRawPtr<SVGPropertyBase> value) override
     {
         SVGAnimatedPropertyCommon<Property>::setAnimatedValue(value);
         updateAnimValTearOffIfNeeded();
     }
 
-    virtual void animationEnded() override
+    void animationEnded() override
     {
         SVGAnimatedPropertyCommon<Property>::animationEnded();
         updateAnimValTearOffIfNeeded();
     }
 
-    virtual bool needsSynchronizeAttribute() override
+    bool needsSynchronizeAttribute() override
     {
         // DOM attribute synchronization is only needed if tear-off is being touched from javascript or the property is being animated.
         // This prevents unnecessary attribute creation on target element.
@@ -283,8 +296,15 @@ public:
         return m_animValTearOff.get();
     }
 
+    DEFINE_INLINE_VIRTUAL_TRACE()
+    {
+        visitor->trace(m_baseValTearOff);
+        visitor->trace(m_animValTearOff);
+        SVGAnimatedPropertyCommon<Property>::trace(visitor);
+    }
+
 protected:
-    SVGAnimatedProperty(SVGElement* contextElement, const QualifiedName& attributeName, PassRefPtr<Property> initialValue)
+    SVGAnimatedProperty(SVGElement* contextElement, const QualifiedName& attributeName, PassRefPtrWillBeRawPtr<Property> initialValue)
         : SVGAnimatedPropertyCommon<Property>(contextElement, attributeName, initialValue)
     {
     }
@@ -301,10 +321,10 @@ private:
     // When animated:
     //     m_animValTearOff targets m_currentValue.
     //     m_baseValTearOff targets m_baseValue.
-    RefPtr<TearOffType> m_baseValTearOff;
-    RefPtr<TearOffType> m_animValTearOff;
+    RefPtrWillBeMember<TearOffType> m_baseValTearOff;
+    RefPtrWillBeMember<TearOffType> m_animValTearOff;
 };
 
-}
+} // namespace blink
 
 #endif // SVGAnimatedProperty_h

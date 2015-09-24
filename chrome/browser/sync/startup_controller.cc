@@ -5,9 +5,11 @@
 #include "chrome/browser/sync/startup_controller.h"
 
 #include "base/command_line.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
 #include "base/metrics/histogram.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/sync/supervised_user_signin_manager_wrapper.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
@@ -51,12 +53,13 @@ StartupController::StartupController(
           base::TimeDelta::FromSeconds(kDeferredInitFallbackSeconds)),
       first_start_(true),
       weak_factory_(this) {
-
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kSyncDeferredStartupTimeoutSeconds)) {
     int timeout = kDeferredInitFallbackSeconds;
-    if (base::StringToInt(CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-            switches::kSyncDeferredStartupTimeoutSeconds), &timeout)) {
+    if (base::StringToInt(
+            base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+                switches::kSyncDeferredStartupTimeoutSeconds),
+            &timeout)) {
       DCHECK_GE(timeout, 0);
       DVLOG(2) << "Sync StartupController overriding startup timeout to "
                << timeout << " seconds.";
@@ -86,15 +89,16 @@ bool StartupController::StartUp(StartUpDeferredOption deferred_option) {
     start_up_time_ = base::Time::Now();
 
   if (deferred_option == STARTUP_BACKEND_DEFERRED &&
-      !CommandLine::ForCurrentProcess()->HasSwitch(
+      !base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kSyncDisableDeferredStartup) &&
       sync_prefs_->GetPreferredDataTypes(registered_types_)
           .Has(syncer::SESSIONS)) {
     if (first_start) {
-      base::MessageLoop::current()->PostDelayedTask(
+      base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
           FROM_HERE,
           base::Bind(&StartupController::OnFallbackStartupTimerExpired,
-                     weak_factory_.GetWeakPtr()), fallback_timeout_);
+                     weak_factory_.GetWeakPtr()),
+          fallback_timeout_);
     }
     return false;
   }
@@ -117,7 +121,7 @@ bool StartupController::TryStart() {
   if (sync_prefs_->IsManaged())
     return false;
 
-  if (sync_prefs_->IsStartSuppressed())
+  if (!sync_prefs_->IsSyncRequested())
     return false;
 
   if (signin_->GetEffectiveUsername().empty())
@@ -182,7 +186,7 @@ void StartupController::RecordTimeDeferred() {
 }
 
 void StartupController::OnFallbackStartupTimerExpired() {
-  DCHECK(!CommandLine::ForCurrentProcess()->HasSwitch(
+  DCHECK(!base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kSyncDisableDeferredStartup));
 
   if (!start_backend_time_.is_null())
@@ -207,7 +211,7 @@ std::string StartupController::GetBackendInitializationStateString() const {
 }
 
 void StartupController::OnDataTypeRequestsSyncStartup(syncer::ModelType type) {
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kSyncDisableDeferredStartup)) {
     DVLOG(2) << "Ignoring data type request for sync startup: "
              << syncer::ModelTypeToString(type);

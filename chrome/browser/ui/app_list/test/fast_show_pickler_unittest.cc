@@ -45,7 +45,7 @@ class AppListModelPicklerUnitTest : public testing::Test {
   }
 
   scoped_ptr<AppListModel> CopyViaPickle(AppListModel* model) {
-    scoped_ptr<Pickle> pickle(
+    scoped_ptr<base::Pickle> pickle(
         FastShowPickler::PickleAppListModelForFastShow(model));
     return FastShowPickler::UnpickleAppListModelForFastShow(pickle.get());
   }
@@ -98,7 +98,7 @@ TEST_F(AppListModelPicklerUnitTest, Images) {
   AppListItem* app1 =
       model.AddItem(make_scoped_ptr(new AppListItem("abc")).Pass());
   model.SetItemName(app1, "hello, there");
-  app1->SetIcon(MakeImage(), true);
+  app1->SetIcon(MakeImage());
   AppListItem* app2 =
       model.AddItem(make_scoped_ptr(new AppListItem("abc2")).Pass());
   model.SetItemName(app2, "hello, there 2");
@@ -111,7 +111,7 @@ TEST_F(AppListModelPicklerUnitTest, EmptyImage) {
   AppListItem* app1 =
       model.AddItem(make_scoped_ptr(new AppListItem("abc")).Pass());
   model.SetItemName(app1, "hello, there");
-  app1->SetIcon(gfx::ImageSkia(), true);
+  app1->SetIcon(gfx::ImageSkia());
 
   DoConsistencyChecks(&model);
 }

@@ -36,13 +36,13 @@
 #include "talk/media/base/cryptoparams.h"
 #include "webrtc/p2p/base/sessiondescription.h"
 #include "webrtc/base/basictypes.h"
+#include "webrtc/base/criticalsection.h"
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/base/sigslotrepeater.h"
 
 // Forward declaration to avoid pulling in libsrtp headers here
 struct srtp_event_data_t;
 struct srtp_ctx_t;
-typedef srtp_ctx_t* srtp_t;
 struct srtp_policy_t;
 
 namespace cricket {
@@ -238,11 +238,12 @@ class SrtpSession {
 
   static std::list<SrtpSession*>* sessions();
 
-  srtp_t session_;
+  srtp_ctx_t* session_;
   int rtp_auth_tag_len_;
   int rtcp_auth_tag_len_;
   rtc::scoped_ptr<SrtpStat> srtp_stat_;
   static bool inited_;
+  static rtc::GlobalLockPod lock_;
   int last_send_seq_num_;
   DISALLOW_COPY_AND_ASSIGN(SrtpSession);
 };

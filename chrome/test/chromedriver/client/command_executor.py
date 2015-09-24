@@ -15,6 +15,7 @@ class _Method(object):
 class Command(object):
   NEW_SESSION = (_Method.POST, '/session')
   GET_SESSION_CAPABILITIES = (_Method.GET, '/session/:sessionId')
+  GET_SESSIONS = (_Method.GET, '/sessions')
   QUIT = (_Method.DELETE, '/session/:sessionId')
   GET_CURRENT_WINDOW_HANDLE = (_Method.GET, '/session/:sessionId/window_handle')
   GET_WINDOW_HANDLES = (_Method.GET, '/session/:sessionId/window_handles')
@@ -94,6 +95,12 @@ class Command(object):
   EXECUTE_SQL = (_Method.POST, '/session/:sessionId/execute_sql')
   GET_LOCATION = (_Method.GET, '/session/:sessionId/location')
   SET_LOCATION = (_Method.POST, '/session/:sessionId/location')
+  GET_NETWORK_CONDITIONS = (
+      _Method.GET, '/session/:sessionId/chromium/network_conditions')
+  SET_NETWORK_CONDITIONS = (
+      _Method.POST, '/session/:sessionId/chromium/network_conditions')
+  DELETE_NETWORK_CONDITIONS = (
+      _Method.DELETE, '/session/:sessionId/chromium/network_conditions')
   GET_STATUS = (_Method.GET, '/session/:sessionId/application_cache/status')
   IS_BROWSER_ONLINE = (_Method.GET, '/session/:sessionId/browser_connection')
   SET_BROWSER_ONLINE = (_Method.POST, '/session/:sessionId/browser_connection')
@@ -142,6 +149,7 @@ class Command(object):
 
   # Custom Chrome commands.
   IS_LOADING = (_Method.GET, '/session/:sessionId/is_loading')
+  TOUCH_PINCH = (_Method.POST, '/session/:sessionId/touch/pinch')
 
 
 class CommandExecutor(object):

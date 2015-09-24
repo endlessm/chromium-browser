@@ -9,7 +9,6 @@
 #include "base/files/file_path.h"
 #include "base/memory/weak_ptr.h"
 #include "base/path_service.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -59,62 +58,27 @@ class URLRequestResourceBundleJob : public net::URLRequestSimpleJob {
   }
 
   // Overridden from URLRequestSimpleJob:
-  int GetData(std::string* mime_type,
-              std::string* charset,
-              std::string* data,
-              const net::CompletionCallback& callback) const override {
-    // TODO(vadimt): Remove ScopedTracker below once crbug.com/422489 is fixed.
-    tracked_objects::ScopedTracker tracking_profile(
-        FROM_HERE_WITH_EXPLICIT_FUNCTION(
-            "422489 URLRequestResourceBundleJob::GetData"));
-
+  int GetRefCountedData(
+      std::string* mime_type,
+      std::string* charset,
+      scoped_refptr<base::RefCountedMemory>* data,
+      const net::CompletionCallback& callback) const override {
     const ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-
-    // TODO(vadimt): Remove ScopedTracker below once crbug.com/422489 is fixed.
-    tracked_objects::ScopedTracker tracking_profile1(
-        FROM_HERE_WITH_EXPLICIT_FUNCTION(
-            "422489 URLRequestResourceBundleJob::GetData 1"));
-
-    const base::StringPiece resource_as_string_piece =
-        rb.GetRawDataResource(resource_id_);
-
-    // TODO(vadimt): Remove ScopedTracker below once crbug.com/422489 is fixed.
-    tracked_objects::ScopedTracker tracking_profile15(
-        FROM_HERE_WITH_EXPLICIT_FUNCTION(
-            "422489 URLRequestResourceBundleJob::GetData 1.5"));
-
-    *data = resource_as_string_piece.as_string();
-
-    // TODO(vadimt): Remove ScopedTracker below once crbug.com/422489 is fixed.
-    tracked_objects::ScopedTracker tracking_profile2(
-        FROM_HERE_WITH_EXPLICIT_FUNCTION(
-            "422489 URLRequestResourceBundleJob::GetData 2"));
+    *data = rb.LoadDataResourceBytes(resource_id_);
 
     // Add the Content-Length header now that we know the resource length.
     response_info_.headers->AddHeader(
-        base::StringPrintf("%s: %s",
-                           net::HttpRequestHeaders::kContentLength,
-                           base::UintToString(data->size()).c_str()));
-
-    // TODO(vadimt): Remove ScopedTracker below once crbug.com/422489 is fixed.
-    tracked_objects::ScopedTracker tracking_profile3(
-        FROM_HERE_WITH_EXPLICIT_FUNCTION(
-            "422489 URLRequestResourceBundleJob::GetData 3"));
+        base::StringPrintf("%s: %s", net::HttpRequestHeaders::kContentLength,
+                           base::UintToString((*data)->size()).c_str()));
 
     std::string* read_mime_type = new std::string;
     bool posted = base::PostTaskAndReplyWithResult(
-        BrowserThread::GetBlockingPool(),
-        FROM_HERE,
-        base::Bind(&net::GetMimeTypeFromFile,
-                   filename_,
+        BrowserThread::GetBlockingPool(), FROM_HERE,
+        base::Bind(&net::GetMimeTypeFromFile, filename_,
                    base::Unretained(read_mime_type)),
         base::Bind(&URLRequestResourceBundleJob::OnMimeTypeRead,
-                   weak_factory_.GetWeakPtr(),
-                   mime_type,
-                   charset,
-                   data,
-                   base::Owned(read_mime_type),
-                   callback));
+                   weak_factory_.GetWeakPtr(), mime_type, charset, *data,
+                   base::Owned(read_mime_type), callback));
     DCHECK(posted);
 
     return net::ERR_IO_PENDING;
@@ -129,15 +93,17 @@ class URLRequestResourceBundleJob : public net::URLRequestSimpleJob {
 
   void OnMimeTypeRead(std::string* out_mime_type,
                       std::string* charset,
-                      std::string* data,
+                      scoped_refptr<base::RefCountedMemory> data,
                       std::string* read_mime_type,
                       const net::CompletionCallback& callback,
                       bool read_result) {
     *out_mime_type = *read_mime_type;
-    if (StartsWithASCII(*read_mime_type, "text/", false)) {
+    if (base::StartsWith(*read_mime_type, "text/",
+                         base::CompareCase::INSENSITIVE_ASCII)) {
       // All of our HTML files should be UTF-8 and for other resource types
       // (like images), charset doesn't matter.
-      DCHECK(base::IsStringUTF8(*data));
+      DCHECK(base::IsStringUTF8(base::StringPiece(
+          reinterpret_cast<const char*>(data->front()), data->size())));
       *charset = "utf-8";
     }
     int result = read_result ? net::OK : net::ERR_INVALID_URL;

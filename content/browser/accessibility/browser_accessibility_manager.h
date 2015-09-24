@@ -54,11 +54,13 @@ class CONTENT_EXPORT BrowserAccessibilityDelegate {
   virtual ~BrowserAccessibilityDelegate() {}
   virtual void AccessibilitySetFocus(int acc_obj_id) = 0;
   virtual void AccessibilityDoDefaultAction(int acc_obj_id) = 0;
-  virtual void AccessibilityShowMenu(const gfx::Point& global_point) = 0;
+  virtual void AccessibilityShowContextMenu(int acc_obj_id) = 0;
   virtual void AccessibilityScrollToMakeVisible(
       int acc_obj_id, const gfx::Rect& subfocus) = 0;
   virtual void AccessibilityScrollToPoint(
       int acc_obj_id, const gfx::Point& point) = 0;
+  virtual void AccessibilitySetScrollOffset(
+      int acc_obj_id, const gfx::Point& offset) = 0;
   virtual void AccessibilitySetTextSelection(
       int acc_obj_id, int start_offset, int end_offset) = 0;
   virtual void AccessibilitySetValue(
@@ -75,6 +77,8 @@ class CONTENT_EXPORT BrowserAccessibilityDelegate {
   virtual gfx::NativeViewAccessible AccessibilityGetNativeViewAccessible() = 0;
   virtual BrowserAccessibilityManager* AccessibilityGetChildFrame(
       int accessibility_node_id) = 0;
+  virtual void AccessibilityGetAllChildFrames(
+      std::vector<BrowserAccessibilityManager*>* child_frames) = 0;
   virtual BrowserAccessibility* AccessibilityGetParentFrame() = 0;
 };
 
@@ -144,6 +148,12 @@ class CONTENT_EXPORT BrowserAccessibilityManager : public ui::AXTreeDelegate {
   // view lost focus.
   virtual void OnWindowBlurred();
 
+  // Notify the accessibility manager about page navigation.
+  void UserIsNavigatingAway();
+  virtual void UserIsReloading();
+  void NavigationSucceeded();
+  void NavigationFailed();
+
   // Called to notify the accessibility manager that a mouse down event
   // occurred in the tab.
   void GotMouseDown();
@@ -168,6 +178,10 @@ class CONTENT_EXPORT BrowserAccessibilityManager : public ui::AXTreeDelegate {
   // where |point| is in global coordinates of the WebContents.
   void ScrollToPoint(
       const BrowserAccessibility& node, gfx::Point point);
+
+  // If |node| is itself a scrollable container, set its scroll
+  // offset to |offset|.
+  void SetScrollOffset(const BrowserAccessibility& node, gfx::Point offset);
 
   // Tell the renderer to set the value of an editable text node.
   void SetValue(
@@ -232,17 +246,24 @@ class CONTENT_EXPORT BrowserAccessibilityManager : public ui::AXTreeDelegate {
   BrowserAccessibility* PreviousInTreeOrder(BrowserAccessibility* node);
 
   // AXTreeDelegate implementation.
-  void OnNodeWillBeDeleted(ui::AXNode* node) override;
-  void OnNodeCreated(ui::AXNode* node) override;
-  void OnNodeChanged(ui::AXNode* node) override;
-  void OnNodeCreationFinished(ui::AXNode* node) override;
-  void OnNodeChangeFinished(ui::AXNode* node) override;
-  void OnRootChanged(ui::AXNode* new_root) override {}
+  void OnNodeWillBeDeleted(ui::AXTree* tree, ui::AXNode* node) override;
+  void OnSubtreeWillBeDeleted(ui::AXTree* tree, ui::AXNode* node) override;
+  void OnNodeCreated(ui::AXTree* tree, ui::AXNode* node) override;
+  void OnNodeChanged(ui::AXTree* tree, ui::AXNode* node) override;
+  void OnAtomicUpdateFinished(
+      ui::AXTree* tree,
+      bool root_changed,
+      const std::vector<ui::AXTreeDelegate::Change>& changes) override;
 
   BrowserAccessibilityDelegate* delegate() const { return delegate_; }
   void set_delegate(BrowserAccessibilityDelegate* delegate) {
     delegate_ = delegate;
   }
+
+  // If this BrowserAccessibilityManager is a child frame or guest frame,
+  // return the BrowserAccessibilityDelegate from the highest ancestor frame
+  // in the frame tree.
+  BrowserAccessibilityDelegate* GetDelegateFromRootManager();
 
   // Get a snapshot of the current tree as an AXTreeUpdate.
   ui::AXTreeUpdate SnapshotAXTreeForTesting();
@@ -256,9 +277,6 @@ class CONTENT_EXPORT BrowserAccessibilityManager : public ui::AXTreeDelegate {
       const ui::AXTreeUpdate& initial_tree,
       BrowserAccessibilityDelegate* delegate,
       BrowserAccessibilityFactory* factory);
-
-  // Called at the end of updating the tree.
-  virtual void OnTreeUpdateFinished() {}
 
  private:
   // The following states keep track of whether or not the
@@ -298,6 +316,9 @@ class CONTENT_EXPORT BrowserAccessibilityManager : public ui::AXTreeDelegate {
 
   // A mapping from a node id to its wrapper of type BrowserAccessibility.
   base::hash_map<int32, BrowserAccessibility*> id_wrapper_map_;
+
+  // True if the user has initiated a navigation to another page.
+  bool user_is_navigating_away_;
 
   // The on-screen keyboard state.
   OnScreenKeyboardState osk_state_;

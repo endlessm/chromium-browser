@@ -5,13 +5,14 @@
 #ifndef CHROME_BROWSER_TRANSLATE_TRANSLATE_SERVICE_H_
 #define CHROME_BROWSER_TRANSLATE_TRANSLATE_SERVICE_H_
 
-#include "chrome/browser/web_resource/resource_request_allowed_notifier.h"
+#include "components/web_resource/resource_request_allowed_notifier.h"
 
 class GURL;
 class PrefService;
 
 // Singleton managing the resources required for Translate.
-class TranslateService : public ResourceRequestAllowedNotifier::Observer {
+class TranslateService
+    : public web_resource::ResourceRequestAllowedNotifier::Observer {
  public:
    // Must be called before the Translate feature can be used.
   static void Initialize();
@@ -55,7 +56,8 @@ class TranslateService : public ResourceRequestAllowedNotifier::Observer {
   void OnResourceRequestsAllowed() override;
 
   // Helper class to know if it's allowed to make network resource requests.
-  ResourceRequestAllowedNotifier resource_request_allowed_notifier_;
+  web_resource::ResourceRequestAllowedNotifier
+      resource_request_allowed_notifier_;
 };
 
 #endif  // CHROME_BROWSER_TRANSLATE_TRANSLATE_SERVICE_H_

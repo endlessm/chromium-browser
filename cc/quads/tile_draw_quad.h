@@ -19,9 +19,13 @@ class CC_EXPORT TileDrawQuad : public ContentDrawQuadBase {
               const gfx::Rect& opaque_rect,
               const gfx::Rect& visible_rect,
               unsigned resource_id,
+              // |tex_coord_rect| contains non-normalized coordinates.
+              // TODO(reveman): Make the use of normalized vs non-normalized
+              // coordinates consistent across all quad types: crbug.com/487370
               const gfx::RectF& tex_coord_rect,
               const gfx::Size& texture_size,
-              bool swizzle_contents);
+              bool swizzle_contents,
+              bool nearest_neighbor);
 
   void SetAll(const SharedQuadState* shared_quad_state,
               const gfx::Rect& rect,
@@ -29,18 +33,22 @@ class CC_EXPORT TileDrawQuad : public ContentDrawQuadBase {
               const gfx::Rect& visible_rect,
               bool needs_blending,
               unsigned resource_id,
+              // |tex_coord_rect| contains non-normalized coordinates.
+              // TODO(reveman): Make the use of normalized vs non-normalized
+              // coordinates consistent across all quad types: crbug.com/487370
               const gfx::RectF& tex_coord_rect,
               const gfx::Size& texture_size,
-              bool swizzle_contents);
-
-  unsigned resource_id;
-
-  void IterateResources(const ResourceIteratorCallback& callback) override;
+              bool swizzle_contents,
+              bool nearest_neighbor);
 
   static const TileDrawQuad* MaterialCast(const DrawQuad*);
 
+  ResourceId resource_id() const { return resources.ids[kResourceIdIndex]; }
+
  private:
-  void ExtendValue(base::debug::TracedValue* value) const override;
+  static const size_t kResourceIdIndex = 0;
+
+  void ExtendValue(base::trace_event::TracedValue* value) const override;
 };
 
 }  // namespace cc

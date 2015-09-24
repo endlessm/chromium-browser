@@ -21,16 +21,6 @@ const int kSampleBytesPerSecond = AudioPipeReader::kSamplingRate *
                                   AudioPipeReader::kChannels *
                                   AudioPipeReader::kBytesPerSample;
 
-// Read data from the pipe every 40ms.
-const int kCapturingPeriodMs = 40;
-
-// Size of the pipe buffer in milliseconds.
-const int kPipeBufferSizeMs = kCapturingPeriodMs * 2;
-
-// Size of the pipe buffer in bytes.
-const int kPipeBufferSizeBytes = kPipeBufferSizeMs * kSampleBytesPerSecond /
-    base::Time::kMillisecondsPerSecond;
-
 #if !defined(F_SETPIPE_SZ)
 // F_SETPIPE_SZ is supported only starting linux 2.6.35, but we want to be able
 // to compile this code on machines with older kernel.
@@ -58,7 +48,7 @@ AudioPipeReader::AudioPipeReader(
     const base::FilePath& pipe_path)
     : task_runner_(task_runner),
       pipe_path_(pipe_path),
-      observers_(new ObserverListThreadSafe<StreamObserver>()) {
+      observers_(new base::ObserverListThreadSafe<StreamObserver>()) {
 }
 
 AudioPipeReader::~AudioPipeReader() {}
@@ -107,10 +97,8 @@ void AudioPipeReader::OnDirectoryChanged(const base::FilePath& path,
 void AudioPipeReader::TryOpenPipe() {
   DCHECK(task_runner_->BelongsToCurrentThread());
 
-  base::File new_pipe;
-  new_pipe.Initialize(
-      pipe_path_,
-      base::File::FLAG_OPEN | base::File::FLAG_READ | base::File::FLAG_ASYNC);
+  base::File new_pipe(
+      HANDLE_EINTR(open(pipe_path_.value().c_str(), O_RDONLY | O_NONBLOCK)));
 
   // If both |pipe_| and |new_pipe| are valid then compare inodes for the two
   // file descriptors. Don't need to do anything if inode hasn't changed.
@@ -130,18 +118,16 @@ void AudioPipeReader::TryOpenPipe() {
   pipe_ = new_pipe.Pass();
 
   if (pipe_.IsValid()) {
-    // Set O_NONBLOCK flag.
-    if (HANDLE_EINTR(fcntl(pipe_.GetPlatformFile(), F_SETFL, O_NONBLOCK)) < 0) {
-      PLOG(ERROR) << "fcntl";
-      pipe_.Close();
-      return;
+    // Get buffer size for the pipe.
+    pipe_buffer_size_ = fpathconf(pipe_.GetPlatformFile(), _PC_PIPE_BUF);
+    if (pipe_buffer_size_ < 0) {
+      PLOG(ERROR) << "fpathconf(_PC_PIPE_BUF)";
+      pipe_buffer_size_ = 4096;
     }
 
-    // Set buffer size for the pipe.
-    if (HANDLE_EINTR(fcntl(
-            pipe_.GetPlatformFile(), F_SETPIPE_SZ, kPipeBufferSizeBytes)) < 0) {
-      PLOG(ERROR) << "fcntl";
-    }
+    // Read from the pipe twice per buffer length, to avoid starving the stream.
+    capture_period_ = base::TimeDelta::FromSeconds(1) * pipe_buffer_size_ /
+                      kSampleBytesPerSecond / 2;
 
     WaitForPipeReadable();
   }
@@ -151,8 +137,7 @@ void AudioPipeReader::StartTimer() {
   DCHECK(task_runner_->BelongsToCurrentThread());
   started_time_ = base::TimeTicks::Now();
   last_capture_position_ = 0;
-  timer_.Start(FROM_HERE, base::TimeDelta::FromMilliseconds(kCapturingPeriodMs),
-               this, &AudioPipeReader::DoCapture);
+  timer_.Start(FROM_HERE, capture_period_, this, &AudioPipeReader::DoCapture);
 }
 
 void AudioPipeReader::DoCapture() {
@@ -201,14 +186,14 @@ void AudioPipeReader::DoCapture() {
   // to read |bytes_to_read| bytes, but in case it's misbehaving we need to make
   // sure that |stream_position_bytes| doesn't go out of sync with the current
   // stream position.
-  if (stream_position_bytes - last_capture_position_ > kPipeBufferSizeBytes)
-    last_capture_position_ = stream_position_bytes - kPipeBufferSizeBytes;
+  if (stream_position_bytes - last_capture_position_ > pipe_buffer_size_)
+    last_capture_position_ = stream_position_bytes - pipe_buffer_size_;
   DCHECK_LE(last_capture_position_, stream_position_bytes);
 
   // Dispatch asynchronous notification to the stream observers.
   scoped_refptr<base::RefCountedString> data_ref =
       base::RefCountedString::TakeString(&data);
-  observers_->Notify(&StreamObserver::OnDataRead, data_ref);
+  observers_->Notify(FROM_HERE, &StreamObserver::OnDataRead, data_ref);
 }
 
 void AudioPipeReader::WaitForPipeReadable() {

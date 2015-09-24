@@ -16,8 +16,9 @@
 #include "chrome/browser/browsing_data/browsing_data_channel_id_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_cookie_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_flash_lso_helper.h"
-#include "chrome/browser/content_settings/cookie_settings.h"
+#include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/content_settings/core/browser/cookie_settings.h"
 #include "content/public/common/url_constants.h"
 #include "grit/theme_resources.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
@@ -732,7 +733,8 @@ CookieTreeFlashLSONode* CookieTreeHostNode::GetOrCreateFlashLSONode(
 }
 
 void CookieTreeHostNode::CreateContentException(
-    CookieSettings* cookie_settings, ContentSetting setting) const {
+    content_settings::CookieSettings* cookie_settings,
+    ContentSetting setting) const {
   DCHECK(setting == CONTENT_SETTING_ALLOW ||
          setting == CONTENT_SETTING_BLOCK ||
          setting == CONTENT_SETTING_SESSION_ONLY);
@@ -910,12 +912,17 @@ CookieTreeNode::DetailedInfo CookieTreeFlashLSONode::GetDetailedInfo() const {
 CookiesTreeModel::ScopedBatchUpdateNotifier::ScopedBatchUpdateNotifier(
   CookiesTreeModel* model, CookieTreeNode* node)
       : model_(model), node_(node), batch_in_progress_(false) {
+  model_->RecordBatchSeen();
 }
 
 CookiesTreeModel::ScopedBatchUpdateNotifier::~ScopedBatchUpdateNotifier() {
   if (batch_in_progress_) {
     model_->NotifyObserverTreeNodeChanged(node_);
     model_->NotifyObserverEndBatch();
+  } else {
+    // If no batch started, and this is the last batch, give the model a chance
+    // to send out a final notification.
+    model_->MaybeNotifyBatchesEnded();
   }
 }
 
@@ -938,11 +945,26 @@ CookiesTreeModel::CookiesTreeModel(
       special_storage_policy_(special_storage_policy),
 #endif
       group_by_cookie_source_(group_by_cookie_source),
-      batch_update_(0) {
+      batches_expected_(0),
+      batches_seen_(0),
+      batches_started_(0),
+      batches_ended_(0) {
   data_container_->Init(this);
 }
 
 CookiesTreeModel::~CookiesTreeModel() {
+}
+
+// static
+int CookiesTreeModel::GetSendForMessageID(const net::CanonicalCookie& cookie) {
+  if (cookie.IsSecure()) {
+    if (cookie.IsFirstPartyOnly())
+      return IDS_COOKIES_COOKIE_SENDFOR_SECURE_FIRSTPARTY;
+    return IDS_COOKIES_COOKIE_SENDFOR_SECURE;
+  }
+  if (cookie.IsFirstPartyOnly())
+    return IDS_COOKIES_COOKIE_SENDFOR_FIRSTPARTY;
+  return IDS_COOKIES_COOKIE_SENDFOR_ANY;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1017,6 +1039,7 @@ void CookiesTreeModel::DeleteCookieNode(CookieTreeNode* cookie_node) {
 
 void CookiesTreeModel::UpdateSearchResults(const base::string16& filter) {
   CookieTreeNode* root = GetRoot();
+  SetBatchExpectation(1, true);
   ScopedBatchUpdateNotifier notifier(this, root);
   int num_children = root->child_count();
   notifier.StartBatchUpdate();
@@ -1425,9 +1448,24 @@ void CookiesTreeModel::PopulateFlashLSOInfoWithFilter(
   }
 }
 
+void CookiesTreeModel::SetBatchExpectation(int batches_expected, bool reset) {
+  batches_expected_ = batches_expected;
+  if (reset) {
+    batches_seen_ = 0;
+    batches_started_ = 0;
+    batches_ended_ = 0;
+  } else {
+    MaybeNotifyBatchesEnded();
+  }
+}
+
+void CookiesTreeModel::RecordBatchSeen() {
+  batches_seen_++;
+}
+
 void CookiesTreeModel::NotifyObserverBeginBatch() {
   // Only notify the model once if we're batching in a nested manner.
-  if (batch_update_++ == 0) {
+  if (batches_started_++ == 0) {
     FOR_EACH_OBSERVER(Observer,
                       cookies_observer_list_,
                       TreeModelBeginBatch(this));
@@ -1435,9 +1473,15 @@ void CookiesTreeModel::NotifyObserverBeginBatch() {
 }
 
 void CookiesTreeModel::NotifyObserverEndBatch() {
+  batches_ended_++;
+  MaybeNotifyBatchesEnded();
+}
+
+void CookiesTreeModel::MaybeNotifyBatchesEnded() {
   // Only notify the observers if this is the outermost call to EndBatch() if
   // called in a nested manner.
-  if (--batch_update_ == 0) {
+  if (batches_ended_ == batches_started_ &&
+      batches_seen_ == batches_expected_) {
     FOR_EACH_OBSERVER(Observer,
                       cookies_observer_list_,
                       TreeModelEndBatch(this));

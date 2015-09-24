@@ -1,3 +1,10 @@
+/*
+ * Copyright 2011 Google Inc.
+ *
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
+
 #ifndef _SkTestImageFilters_h
 #define _SkTestImageFilters_h
 
@@ -18,18 +25,16 @@ public:
         return SkNEW_ARGS(SkDownSampleImageFilter, (scale, input));
     }
 
+    SK_TO_STRING_OVERRIDE()
     SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkDownSampleImageFilter)
 
 protected:
     SkDownSampleImageFilter(SkScalar scale, SkImageFilter* input)
       : INHERITED(1, &input), fScale(scale) {}
-#ifdef SK_SUPPORT_LEGACY_DEEPFLATTENING
-    SkDownSampleImageFilter(SkReadBuffer& buffer);
-#endif
-    virtual void flatten(SkWriteBuffer&) const SK_OVERRIDE;
+    void flatten(SkWriteBuffer&) const override;
 
     virtual bool onFilterImage(Proxy*, const SkBitmap& src, const Context&,
-                               SkBitmap* result, SkIPoint* loc) const SK_OVERRIDE;
+                               SkBitmap* result, SkIPoint* loc) const override;
 
 private:
     SkScalar fScale;

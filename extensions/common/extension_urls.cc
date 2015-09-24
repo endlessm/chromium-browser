@@ -5,6 +5,7 @@
 #include "extensions/common/extension_urls.h"
 
 #include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extensions_client.h"
@@ -20,9 +21,8 @@ const char kSchemaUtils[] = "schemaUtils";
 
 bool IsSourceFromAnExtension(const base::string16& source) {
   return GURL(source).SchemeIs(kExtensionScheme) ||
-         StartsWith(source,
-                    base::ASCIIToUTF16("extensions::"),
-                    true /* case-sensitive */);
+         base::StartsWith(source, base::ASCIIToUTF16("extensions::"),
+                          base::CompareCase::SENSITIVE);
 }
 
 }  // namespace extensions
@@ -70,6 +70,13 @@ GURL GetWebstoreUpdateUrl() {
   if (client)
     return GURL(client->GetWebstoreUpdateURL());
   return GURL(kChromeWebstoreUpdateURL);
+}
+
+GURL GetWebstoreReportAbuseUrl(const std::string& extension_id,
+                               const std::string& referrer_id) {
+  return GURL(base::StringPrintf("%s/report/%s?utm_source=%s",
+                                 GetWebstoreLaunchURL().c_str(),
+                                 extension_id.c_str(), referrer_id.c_str()));
 }
 
 bool IsWebstoreUpdateUrl(const GURL& update_url) {

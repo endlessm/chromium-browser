@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python2
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -36,7 +36,7 @@ class ChromiteImporter(object):
   # so make sure to disable our logic to avoid an infinite loop.
   _loading = False
 
-  def find_module(self, fullname, _path):
+  def find_module(self, fullname, _path=None):
     """Handle the 'chromite' module"""
     if fullname == 'chromite' and not self._loading:
       return self
@@ -73,6 +73,7 @@ class ChromiteImporter(object):
 sys.meta_path.insert(0, ChromiteImporter())
 
 from chromite.lib import commandline
+from chromite.lib import cros_import
 
 
 def FindTarget(target):
@@ -88,13 +89,13 @@ def FindTarget(target):
   # Loaded via ~/bin in $PATH to chromite bin/ subdir.
   $ ln -s $PWD/bin/cros ~/bin; cros --help
   # No $PATH needed.
-  $ ./buildbot/cbuildbot_config --help
+  $ ./cbuildbot/cbuildbot --help
   # No $PATH needed, but symlink inside of chromite dir.
-  $ ln -s ./buildbot/cbuildbot_config; ./cbuildbot_config --help
+  $ ln -s ./cbuildbot/cbuildbot; ./cbuildbot --help
   # Loaded via ~/bin in $PATH to non-chromite bin/ subdir.
-  $ ln -s $PWD/buildbot/cbuildbot_config ~/bin/; cbuildbot_config --help
+  $ ln -s $PWD/cbuildbot/cbuildbot ~/bin/; cbuildbot --help
   # No $PATH needed, but a relative symlink to a symlink to the chromite dir.
-  $ cd ~; ln -s bin/cbuildbot_config ./; ./cbuildbot_config --help
+  $ cd ~; ln -s bin/cbuildbot ./; ./cbuildbot --help
 
   Args:
     target: Path to the script we're trying to run.
@@ -116,16 +117,25 @@ def FindTarget(target):
       '\tCHROMITE_PATH: %s' % (parent, CHROMITE_PATH))
   parent = parent[len(CHROMITE_PATH):].split(os.sep)
   target = ['chromite'] + parent + [target]
-  # Our bin dir is just scripts stuff.
-  if target[1] == 'bin':
-    target[1] = 'scripts'
 
-  module = __import__('.'.join(target))
-  # __import__ gets us the root of the namespace import; walk our way up.
-  for attr in target[1:]:
-    module = getattr(module, attr)
+  if target[-2] == 'bin':
+    # Convert <path>/bin/foo -> <path>/scripts/foo.
+    target[-2] = 'scripts'
+  elif target[1] == 'bootstrap' and len(target) == 3:
+    # Convert <git_repo>/bootstrap/foo -> <git_repo>/bootstrap/scripts/foo.
+    target.insert(2, 'scripts')
 
-  return getattr(module, 'main', None)
+  module = cros_import.ImportModule(target)
+
+  # Run the module's main func if it has one.
+  main = getattr(module, 'main', None)
+  if main:
+    return main
+
+  # Is this a unittest?
+  if target[-1].rsplit('_', 1)[-1] in ('test', 'unittest'):
+    from chromite.lib import cros_test_lib
+    return lambda _argv: cros_test_lib.main(module=module)
 
 
 if __name__ == '__main__':

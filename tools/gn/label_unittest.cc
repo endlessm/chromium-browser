@@ -30,10 +30,14 @@ TEST(Label, Resolve) {
       { "//chrome/", "/:",                        false, "",                   "",     "",       "" },
       { "//chrome/", "blah",                      true,  "//chrome/blah/",     "blah", "//t/",   "d" },
       { "//chrome/", "blah:bar",                  true,  "//chrome/blah/",     "bar",  "//t/",   "d" },
-      // No single-leading slash.
-      { "//chrome/", "/chrome:bar",               false, "",                   "",     "",       "" },
-      // No trailing slash.
-      { "//chrome/", "/chrome/:bar",              false, "",                   "",     "",       "" },
+      // Absolute paths.
+      { "//chrome/", "/chrome:bar",               true , "/chrome/",           "bar",  "//t/",   "d" },
+      { "//chrome/", "/chrome/:bar",              true,  "/chrome/",           "bar",  "//t/",   "d" },
+#if defined(OS_WIN)
+      { "//chrome/", "/C:/chrome:bar",            true , "/C:/chrome/",        "bar",  "//t/",   "d" },
+      { "//chrome/", "/C:/chrome/:bar",           true,  "/C:/chrome/",        "bar",  "//t/",   "d" },
+      { "//chrome/", "C:/chrome:bar",             false, "",                   "",     "",       "" },
+#endif
       // Refers to root dir.
       { "//chrome/", "//:bar",                    true,  "//",                 "bar",  "//t/",   "d" },
       // Implicit directory
@@ -57,7 +61,7 @@ TEST(Label, Resolve) {
       { "//chrome/", "//chrome:bar(()",           false, "",                   "",     "",       "" },
       { "//chrome/", "(t:b)",                     false, "",                   "",     "",       "" },
       { "//chrome/", ":bar(//t/b)",               true,  "//chrome/",          "bar",  "//t/b/", "b" },
-      { "//chrome/", ":bar(/t/b)",                false, "",                   "",     "",       "" },
+      { "//chrome/", ":bar(/t/b)",                true,  "//chrome/",          "bar",  "/t/b/",  "b" },
       { "//chrome/", ":bar(t/b)",                 true,  "//chrome/",          "bar",  "//chrome/t/b/", "b" },
   };
 
@@ -68,7 +72,7 @@ TEST(Label, Resolve) {
 
     std::string location, name;
     Err err;
-    Value v(NULL, Value::STRING);
+    Value v(nullptr, Value::STRING);
     v.string_value() = cur.str;
     Label result =
         Label::Resolve(SourceDir(cur.cur_dir), default_toolchain, v, &err);

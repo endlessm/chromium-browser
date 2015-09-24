@@ -6,7 +6,7 @@
 #define REMOTING_PROTOCOL_HOST_EVENT_DISPATCHER_H_
 
 #include "remoting/protocol/channel_dispatcher_base.h"
-#include "remoting/protocol/message_reader.h"
+#include "remoting/protocol/protobuf_message_parser.h"
 
 namespace remoting {
 namespace protocol {
@@ -18,7 +18,7 @@ class InputStub;
 // channel to InputStub.
 class HostEventDispatcher : public ChannelDispatcherBase {
  public:
-  typedef base::Callback<void(int64)> SequenceNumberCallback;
+  typedef base::Callback<void(int64)> EventTimestampCallback;
 
   HostEventDispatcher();
   ~HostEventDispatcher() override;
@@ -30,22 +30,18 @@ class HostEventDispatcher : public ChannelDispatcherBase {
 
   // Set callback to notify of each message's sequence number. The
   // callback cannot tear down this object.
-  void set_sequence_number_callback(const SequenceNumberCallback& value) {
-    sequence_number_callback_ = value;
+  void set_event_timestamp_callback(const EventTimestampCallback& value) {
+    event_timestamp_callback_ = value;
   }
-
- protected:
-  // ChannelDispatcherBase overrides.
-  void OnInitialized() override;
 
  private:
   void OnMessageReceived(scoped_ptr<EventMessage> message,
                          const base::Closure& done_task);
 
   InputStub* input_stub_;
-  SequenceNumberCallback sequence_number_callback_;
+  EventTimestampCallback event_timestamp_callback_;
 
-  ProtobufMessageReader<EventMessage> reader_;
+  ProtobufMessageParser<EventMessage> parser_;
 
   DISALLOW_COPY_AND_ASSIGN(HostEventDispatcher);
 };

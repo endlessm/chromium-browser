@@ -3,13 +3,17 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/apps/app_browsertest_util.h"
+#include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/ui/browser_iterator.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "extensions/browser/app_window/native_app_window.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "extensions/test/result_catcher.h"
 
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MACOSX)
 #include "base/mac/mac_util.h"
+#include "ui/base/test/scoped_fake_nswindow_fullscreen.h"
 #endif
 
 #if defined(OS_WIN)
@@ -86,10 +90,12 @@ class AppWindowInteractiveTest : public extensions::PlatformAppBrowserTest {
 };
 
 IN_PROC_BROWSER_TEST_F(AppWindowInteractiveTest, ESCLeavesFullscreenWindow) {
-// This test is flaky on MacOS 10.6 and 10.9.
-#if defined(OS_MACOSX) && !defined(OS_IOS)
-  if (base::mac::IsOSSnowLeopard() || base::mac::IsOSMavericks())
+// This test is flaky on MacOS 10.6.
+#if defined(OS_MACOSX)
+  if (base::mac::IsOSSnowLeopard())
     return;
+
+  ui::test::ScopedFakeNSWindowFullscreen fake_fullscreen;
 #endif
 
   ExtensionTestMessageListener launched_listener("Launched", true);
@@ -128,17 +134,13 @@ IN_PROC_BROWSER_TEST_F(AppWindowInteractiveTest, ESCLeavesFullscreenWindow) {
   }
 }
 
-#if defined(OS_MACOSX)
-// http://crbug.com/406009
-#define MAYBE_ESCLeavesFullscreenDOM DISABLED_ESCLeavesFullscreenDOM
-#else
-#define MAYBE_ESCLeavesFullscreenDOM ESCLeavesFullscreenDOM
-#endif
-IN_PROC_BROWSER_TEST_F(AppWindowInteractiveTest, MAYBE_ESCLeavesFullscreenDOM) {
+IN_PROC_BROWSER_TEST_F(AppWindowInteractiveTest, ESCLeavesFullscreenDOM) {
 // This test is flaky on MacOS 10.6.
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MACOSX)
   if (base::mac::IsOSSnowLeopard())
     return;
+
+  ui::test::ScopedFakeNSWindowFullscreen fake_fullscreen;
 #endif
 
   ExtensionTestMessageListener launched_listener("Launched", true);
@@ -184,18 +186,14 @@ IN_PROC_BROWSER_TEST_F(AppWindowInteractiveTest, MAYBE_ESCLeavesFullscreenDOM) {
   }
 }
 
-#if defined(OS_MACOSX)
-// http://crbug.com/406009
-#define MAYBE_ESCDoesNotLeaveFullscreenWindow DISABLED_ESCDoesNotLeaveFullscreenWindow
-#else
-#define MAYBE_ESCDoesNotLeaveFullscreenWindow ESCDoesNotLeaveFullscreenWindow
-#endif
 IN_PROC_BROWSER_TEST_F(AppWindowInteractiveTest,
-                       MAYBE_ESCDoesNotLeaveFullscreenWindow) {
+                       ESCDoesNotLeaveFullscreenWindow) {
 // This test is flaky on MacOS 10.6.
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MACOSX)
   if (base::mac::IsOSSnowLeopard())
     return;
+
+  ui::test::ScopedFakeNSWindowFullscreen fake_fullscreen;
 #endif
 
   ExtensionTestMessageListener launched_listener("Launched", true);
@@ -240,10 +238,12 @@ IN_PROC_BROWSER_TEST_F(AppWindowInteractiveTest,
 
 IN_PROC_BROWSER_TEST_F(AppWindowInteractiveTest,
                        ESCDoesNotLeaveFullscreenDOM) {
-// This test is flaky on MacOS 10.6 and 10.9.
-#if defined(OS_MACOSX) && !defined(OS_IOS)
-  if (base::mac::IsOSSnowLeopard() || base::mac::IsOSMavericks())
+// This test is flaky on MacOS 10.6.
+#if defined(OS_MACOSX)
+  if (base::mac::IsOSSnowLeopard())
     return;
+
+  ui::test::ScopedFakeNSWindowFullscreen fake_fullscreen;
 #endif
 
   ExtensionTestMessageListener launched_listener("Launched", true);
@@ -298,10 +298,12 @@ IN_PROC_BROWSER_TEST_F(AppWindowInteractiveTest,
 // and 'overrideEscFullscreen'.
 IN_PROC_BROWSER_TEST_F(AppWindowInteractiveTest,
                        ESCDoesNotLeaveFullscreenOldPermission) {
-// This test is flaky on MacOS 10.6 and 10.9.
-#if defined(OS_MACOSX) && !defined(OS_IOS)
-  if (base::mac::IsOSSnowLeopard() || base::mac::IsOSMavericks())
+// This test is flaky on MacOS 10.6.
+#if defined(OS_MACOSX)
+  if (base::mac::IsOSSnowLeopard())
     return;
+
+  ui::test::ScopedFakeNSWindowFullscreen fake_fullscreen;
 #endif
 
   ExtensionTestMessageListener launched_listener("Launched", true);
@@ -457,3 +459,124 @@ IN_PROC_BROWSER_TEST_F(AppWindowInteractiveTest, MAYBE_TestShow) {
 IN_PROC_BROWSER_TEST_F(AppWindowInteractiveTest, TestDrawAttention) {
   ASSERT_TRUE(RunAppWindowInteractiveTest("testDrawAttention")) << message_;
 }
+
+IN_PROC_BROWSER_TEST_F(AppWindowInteractiveTest, TestCreateHidden) {
+  // Created hidden both times.
+  {
+    ExtensionTestMessageListener launched_listener("Launched", true);
+    LoadAndLaunchPlatformApp("hidden_with_id", &launched_listener);
+    EXPECT_TRUE(launched_listener.WaitUntilSatisfied());
+    ExtensionTestMessageListener create_listener_1("Launched", true);
+    launched_listener.Reply("createHidden");
+    EXPECT_TRUE(create_listener_1.WaitUntilSatisfied());
+    AppWindow* app_window = GetFirstAppWindow();
+    EXPECT_TRUE(app_window->is_hidden());
+    ExtensionTestMessageListener create_listener_2("Launched", false);
+    create_listener_1.Reply("createHidden");
+    EXPECT_TRUE(create_listener_2.WaitUntilSatisfied());
+    EXPECT_TRUE(app_window->is_hidden());
+    app_window->GetBaseWindow()->Close();
+  }
+
+  // Created hidden, then visible. The second create should show the window.
+  {
+    ExtensionTestMessageListener launched_listener("Launched", true);
+    LoadAndLaunchPlatformApp("hidden_with_id", &launched_listener);
+    EXPECT_TRUE(launched_listener.WaitUntilSatisfied());
+    ExtensionTestMessageListener create_listener_1("Launched", true);
+    launched_listener.Reply("createHidden");
+    EXPECT_TRUE(create_listener_1.WaitUntilSatisfied());
+    AppWindow* app_window = GetFirstAppWindow();
+    EXPECT_TRUE(app_window->is_hidden());
+    ExtensionTestMessageListener create_listener_2("Launched", false);
+    create_listener_1.Reply("createVisible");
+    EXPECT_TRUE(create_listener_2.WaitUntilSatisfied());
+    EXPECT_FALSE(app_window->is_hidden());
+    app_window->GetBaseWindow()->Close();
+  }
+}
+
+#if defined(OS_MACOSX)
+// http://crbug.com/502516
+#define MAYBE_TestFullscreen DISABLED_TestFullscreen
+#else
+#define MAYBE_TestFullscreen TestFullscreen
+#endif
+IN_PROC_BROWSER_TEST_F(AppWindowInteractiveTest, MAYBE_TestFullscreen) {
+  ASSERT_TRUE(RunAppWindowInteractiveTest("testFullscreen")) << message_;
+}
+
+// Only Linux and Windows use keep-alive to determine when to shut down.
+#if defined(OS_LINUX) || defined(OS_WIN)
+
+// In general, hidden windows should not keep Chrome alive. The exception is
+// when windows are created hidden, we allow the app some time to show the
+// the window.
+class AppWindowHiddenKeepAliveTest : public extensions::PlatformAppBrowserTest {
+ protected:
+  AppWindowHiddenKeepAliveTest() {}
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(AppWindowHiddenKeepAliveTest);
+};
+
+// A window that becomes hidden should not keep Chrome alive.
+IN_PROC_BROWSER_TEST_F(AppWindowHiddenKeepAliveTest, ShownThenHidden) {
+  LoadAndLaunchPlatformApp("minimal", "Launched");
+  for (chrome::BrowserIterator it; !it.done(); it.Next())
+    it->window()->Close();
+
+  EXPECT_TRUE(chrome::WillKeepAlive());
+  GetFirstAppWindow()->Hide();
+  EXPECT_FALSE(chrome::WillKeepAlive());
+}
+
+// A window that is hidden but re-shown should still keep Chrome alive.
+IN_PROC_BROWSER_TEST_F(AppWindowHiddenKeepAliveTest, ShownThenHiddenThenShown) {
+  LoadAndLaunchPlatformApp("minimal", "Launched");
+  AppWindow* app_window = GetFirstAppWindow();
+  app_window->Hide();
+  app_window->Show(AppWindow::SHOW_ACTIVE);
+
+  EXPECT_TRUE(chrome::WillKeepAlive());
+  for (chrome::BrowserIterator it; !it.done(); it.Next())
+    it->window()->Close();
+  EXPECT_TRUE(chrome::WillKeepAlive());
+  app_window->GetBaseWindow()->Close();
+}
+
+// A window that is created hidden and stays hidden should not keep Chrome
+// alive.
+IN_PROC_BROWSER_TEST_F(AppWindowHiddenKeepAliveTest, StaysHidden) {
+  LoadAndLaunchPlatformApp("hidden", "Launched");
+  AppWindow* app_window = GetFirstAppWindow();
+  EXPECT_TRUE(app_window->is_hidden());
+
+  for (chrome::BrowserIterator it; !it.done(); it.Next())
+    it->window()->Close();
+  // This will time out if the command above does not terminate Chrome.
+  content::RunMessageLoop();
+}
+
+// A window that is created hidden but shown soon after should keep Chrome
+// alive.
+IN_PROC_BROWSER_TEST_F(AppWindowHiddenKeepAliveTest, HiddenThenShown) {
+  ExtensionTestMessageListener launched_listener("Launched", true);
+  LoadAndLaunchPlatformApp("hidden_then_shown", &launched_listener);
+  AppWindow* app_window = GetFirstAppWindow();
+  EXPECT_TRUE(app_window->is_hidden());
+
+  // Close all browser windows.
+  for (chrome::BrowserIterator it; !it.done(); it.Next())
+    it->window()->Close();
+
+  // The app window will show after 3 seconds.
+  ExtensionTestMessageListener shown_listener("Shown", false);
+  launched_listener.Reply("");
+  EXPECT_TRUE(shown_listener.WaitUntilSatisfied());
+  EXPECT_FALSE(app_window->is_hidden());
+  EXPECT_TRUE(chrome::WillKeepAlive());
+  app_window->GetBaseWindow()->Close();
+}
+
+#endif

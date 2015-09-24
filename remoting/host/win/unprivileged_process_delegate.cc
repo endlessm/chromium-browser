@@ -58,7 +58,7 @@ const char kLowIntegrityMandatoryLabel[] = "S:(ML;CIOI;NW;;;LW)";
 // containers and objects inherit ACE giving SYSTEM and the logon SID full
 // access to them as well.
 const char kWindowStationSdFormat[] = "O:SYG:SYD:(A;CIOIIO;GA;;;SY)"
-    "(A;CIOIIO;GA;;;%1$s)(A;NP;0xf037f;;;SY)(A;NP;0xf037f;;;%1$s)";
+    "(A;CIOIIO;GA;;;%s)(A;NP;0xf037f;;;SY)(A;NP;0xf037f;;;%s)";
 
 // Security descriptor of the worker process. It gives access SYSTEM full access
 // to the process. It gives READ_CONTROL, SYNCHRONIZE, PROCESS_QUERY_INFORMATION
@@ -76,8 +76,9 @@ const char kWorkerThreadSd[] = "O:SYG:SYD:(A;;GA;;;SY)(A;;0x120801;;;BA)";
 bool CreateRestrictedToken(ScopedHandle* token_out) {
   // Create a token representing LocalService account.
   HANDLE temp_handle;
-  if (!LogonUser(L"LocalService", L"NT AUTHORITY", NULL, LOGON32_LOGON_SERVICE,
-                 LOGON32_PROVIDER_DEFAULT, &temp_handle)) {
+  if (!LogonUser(L"LocalService", L"NT AUTHORITY", nullptr,
+                 LOGON32_LOGON_SERVICE, LOGON32_PROVIDER_DEFAULT,
+                 &temp_handle)) {
     return false;
   }
   ScopedHandle token(temp_handle);
@@ -87,7 +88,7 @@ bool CreateRestrictedToken(ScopedHandle* token_out) {
     return false;
 
   // Remove all privileges in the token.
-  if (restricted_token.DeleteAllPrivileges(NULL) != ERROR_SUCCESS)
+  if (restricted_token.DeleteAllPrivileges(nullptr) != ERROR_SUCCESS)
     return false;
 
   // Set low integrity level if supported by the OS.
@@ -122,7 +123,8 @@ bool CreateWindowStationAndDesktop(ScopedSid logon_sid,
   std::string desktop_sddl =
       base::StringPrintf(kDesktopSdFormat, logon_sid_string.c_str());
   std::string window_station_sddl =
-      base::StringPrintf(kWindowStationSdFormat, logon_sid_string.c_str());
+      base::StringPrintf(kWindowStationSdFormat, logon_sid_string.c_str(),
+                         logon_sid_string.c_str());
 
   // The worker runs at low integrity level. Make sure it will be able to attach
   // to the window station and desktop.
@@ -192,8 +194,8 @@ bool CreateWindowStationAndDesktop(ScopedSid logon_sid,
   // The default desktop of the interactive window station is called "Default".
   // Name the created desktop the same way in case any code relies on that.
   // The desktop name should not make any difference though.
-  handles.SetDesktop(CreateDesktop(L"Default", NULL, NULL, 0, desired_access,
-                                   &security_attributes));
+  handles.SetDesktop(CreateDesktop(L"Default", nullptr, nullptr, 0,
+                                   desired_access, &security_attributes));
 
   // Switch back to the original window station.
   if (!SetProcessWindowStation(current_window_station)) {
@@ -214,10 +216,10 @@ bool CreateWindowStationAndDesktop(ScopedSid logon_sid,
 
 UnprivilegedProcessDelegate::UnprivilegedProcessDelegate(
     scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
-    scoped_ptr<CommandLine> target_command)
+    scoped_ptr<base::CommandLine> target_command)
     : io_task_runner_(io_task_runner),
-      event_handler_(NULL),
-      target_command_(target_command.Pass()) {
+      target_command_(target_command.Pass()),
+      event_handler_(nullptr) {
 }
 
 UnprivilegedProcessDelegate::~UnprivilegedProcessDelegate() {
@@ -311,7 +313,7 @@ void UnprivilegedProcessDelegate::LaunchProcess(
                                 &thread_attributes,
                                 true,
                                 0,
-                                NULL,
+                                nullptr,
                                 &worker_process,
                                 &worker_thread)) {
       ReportFatalError();
@@ -343,7 +345,7 @@ void UnprivilegedProcessDelegate::KillProcess() {
   DCHECK(CalledOnValidThread());
 
   channel_.reset();
-  event_handler_ = NULL;
+  event_handler_ = nullptr;
 
   if (worker_process_.IsValid()) {
     TerminateProcess(worker_process_.Get(), CONTROL_C_EXIT);
@@ -385,7 +387,7 @@ void UnprivilegedProcessDelegate::ReportFatalError() {
   channel_.reset();
 
   WorkerProcessLauncher* event_handler = event_handler_;
-  event_handler_ = NULL;
+  event_handler_ = nullptr;
   event_handler->OnFatalError();
 }
 

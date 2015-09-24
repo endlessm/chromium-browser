@@ -29,7 +29,6 @@
  */
 
 #include "config.h"
-
 #include "platform/image-decoders/jpeg/JPEGImageDecoder.h"
 
 #include "platform/SharedBuffer.h"
@@ -40,10 +39,9 @@
 #include "wtf/OwnPtr.h"
 #include "wtf/PassOwnPtr.h"
 #include "wtf/StringHasher.h"
-
 #include <gtest/gtest.h>
 
-using namespace blink;
+namespace blink {
 
 static const size_t LargeEnoughSize = 1000 * 1000;
 
@@ -62,7 +60,7 @@ PassOwnPtr<JPEGImageDecoder> createDecoder(size_t maxDecodedBytes)
     return adoptPtr(new JPEGImageDecoder(ImageSource::AlphaNotPremultiplied, ImageSource::GammaAndColorProfileApplied, maxDecodedBytes));
 }
 
-} // namespace
+} // anonymous namespace
 
 void downsample(size_t maxDecodedBytes, unsigned* outputWidth, unsigned* outputHeight, const char* imageFilePath)
 {
@@ -222,4 +220,19 @@ TEST(JPEGImageDecoderTest, yuv)
     EXPECT_EQ(256u, outputYHeight);
     EXPECT_EQ(128u, outputUVWidth);
     EXPECT_EQ(128u, outputUVHeight);
+
+    // Make sure we revert to RGBA decoding when we're about to downscale,
+    // which can occur on memory-constrained android devices.
+    RefPtr<SharedBuffer> data = readFile(jpegFile);
+    ASSERT_TRUE(data.get());
+
+    OwnPtr<JPEGImageDecoder> decoder = createDecoder(230 * 230 * 4);
+    decoder->setData(data.get(), true);
+
+    OwnPtr<ImagePlanes> imagePlanes = adoptPtr(new ImagePlanes());
+    decoder->setImagePlanes(imagePlanes.release());
+    ASSERT_TRUE(decoder->isSizeAvailable());
+    ASSERT_FALSE(decoder->canDecodeToYUV());
 }
+
+} // namespace blink

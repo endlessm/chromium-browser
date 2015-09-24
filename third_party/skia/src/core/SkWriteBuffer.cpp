@@ -8,6 +8,7 @@
 
 #include "SkWriteBuffer.h"
 #include "SkBitmap.h"
+#include "SkBitmapHeap.h"
 #include "SkData.h"
 #include "SkPixelRef.h"
 #include "SkPtrRecorder.h"
@@ -19,8 +20,7 @@ SkWriteBuffer::SkWriteBuffer(uint32_t flags)
     , fFactorySet(NULL)
     , fNamedFactorySet(NULL)
     , fBitmapHeap(NULL)
-    , fTFSet(NULL)
-    , fBitmapEncoder(NULL) {
+    , fTFSet(NULL) {
 }
 
 SkWriteBuffer::SkWriteBuffer(void* storage, size_t storageSize, uint32_t flags)
@@ -29,8 +29,7 @@ SkWriteBuffer::SkWriteBuffer(void* storage, size_t storageSize, uint32_t flags)
     , fNamedFactorySet(NULL)
     , fWriter(storage, storageSize)
     , fBitmapHeap(NULL)
-    , fTFSet(NULL)
-    , fBitmapEncoder(NULL) {
+    , fTFSet(NULL) {
 }
 
 SkWriteBuffer::~SkWriteBuffer() {
@@ -171,7 +170,7 @@ void SkWriteBuffer::writeBitmap(const SkBitmap& bitmap) {
     // SkBitmapHeapReader to read the SkBitmap. False if the bitmap was serialized another way.
     this->writeBool(useBitmapHeap);
     if (useBitmapHeap) {
-        SkASSERT(NULL == fBitmapEncoder);
+        SkASSERT(NULL == fPixelSerializer);
         int32_t slot = fBitmapHeap->insert(bitmap);
         fWriter.write32(slot);
         // crbug.com/155875
@@ -184,30 +183,67 @@ void SkWriteBuffer::writeBitmap(const SkBitmap& bitmap) {
         return;
     }
 
-    // see if the pixelref already has an encoded version
-    if (bitmap.pixelRef()) {
-        SkAutoDataUnref data(bitmap.pixelRef()->refEncodedData());
-        if (data.get() != NULL) {
-            write_encoded_bitmap(this, data, bitmap.pixelRefOrigin());
-            return;
+    SkPixelRef* pixelRef = bitmap.pixelRef();
+    if (pixelRef) {
+        // see if the pixelref already has an encoded version
+        SkAutoDataUnref existingData(pixelRef->refEncodedData());
+        if (existingData.get() != NULL) {
+            // Assumes that if the client did not set a serializer, they are
+            // happy to get the encoded data.
+            if (!fPixelSerializer || fPixelSerializer->useEncodedData(existingData->data(),
+                                                                      existingData->size())) {
+                write_encoded_bitmap(this, existingData, bitmap.pixelRefOrigin());
+                return;
+            }
         }
-    }
 
-    // see if the caller wants to manually encode
-    if (fBitmapEncoder != NULL) {
-        SkASSERT(NULL == fBitmapHeap);
-        size_t offset = 0;  // this parameter is deprecated/ignored
-        // if we have to "encode" the bitmap, then we assume there is no
-        // offset to share, since we are effectively creating a new pixelref
-        SkAutoDataUnref data(fBitmapEncoder(&offset, bitmap));
-        if (data.get() != NULL) {
-            write_encoded_bitmap(this, data, SkIPoint::Make(0, 0));
-            return;
+        // see if the caller wants to manually encode
+        SkAutoPixmapUnlock result;
+        if (fPixelSerializer && bitmap.requestLock(&result)) {
+            const SkPixmap& pmap = result.pixmap();
+            SkASSERT(NULL == fBitmapHeap);
+            SkAutoDataUnref data(fPixelSerializer->encodePixels(pmap.info(),
+                                                                pmap.addr(),
+                                                                pmap.rowBytes()));
+            if (data.get() != NULL) {
+                // if we have to "encode" the bitmap, then we assume there is no
+                // offset to share, since we are effectively creating a new pixelref
+                write_encoded_bitmap(this, data, SkIPoint::Make(0, 0));
+                return;
+            }
         }
     }
 
     this->writeUInt(0); // signal raw pixels
     SkBitmap::WriteRawPixels(this, bitmap);
+}
+
+static bool try_write_encoded(SkWriteBuffer* buffer, SkData* encoded) {
+    SkPixelSerializer* ps = buffer->getPixelSerializer();
+    // Assumes that if the client did not set a serializer, they are
+    // happy to get the encoded data.
+    if (!ps || ps->useEncodedData(encoded->data(), encoded->size())) {
+        write_encoded_bitmap(buffer, encoded, SkIPoint::Make(0, 0));
+        return true;
+    }
+    return false;
+}
+
+void SkWriteBuffer::writeImage(const SkImage* image) {
+    this->writeInt(image->width());
+    this->writeInt(image->height());
+
+    SkAutoTUnref<SkData> encoded(image->refEncoded());
+    if (encoded && try_write_encoded(this, encoded)) {
+        return;
+    }
+
+    encoded.reset(image->encode(SkImageEncoder::kPNG_Type, 100));
+    if (encoded && try_write_encoded(this, encoded)) {
+        return;
+    }
+    
+    this->writeUInt(0); // signal no pixels (in place of the size of the encoded data)
 }
 
 void SkWriteBuffer::writeTypeface(SkTypeface* obj) {
@@ -244,14 +280,15 @@ SkRefCntSet* SkWriteBuffer::setTypefaceRecorder(SkRefCntSet* rec) {
 void SkWriteBuffer::setBitmapHeap(SkBitmapHeap* bitmapHeap) {
     SkRefCnt_SafeAssign(fBitmapHeap, bitmapHeap);
     if (bitmapHeap != NULL) {
-        SkASSERT(NULL == fBitmapEncoder);
-        fBitmapEncoder = NULL;
+        SkASSERT(NULL == fPixelSerializer);
+        fPixelSerializer.reset(NULL);
     }
 }
 
-void SkWriteBuffer::setBitmapEncoder(SkPicture::EncodeBitmap bitmapEncoder) {
-    fBitmapEncoder = bitmapEncoder;
-    if (bitmapEncoder != NULL) {
+void SkWriteBuffer::setPixelSerializer(SkPixelSerializer* serializer) {
+    fPixelSerializer.reset(serializer);
+    if (serializer) {
+        serializer->ref();
         SkASSERT(NULL == fBitmapHeap);
         SkSafeUnref(fBitmapHeap);
         fBitmapHeap = NULL;

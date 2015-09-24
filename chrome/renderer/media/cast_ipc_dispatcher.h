@@ -7,6 +7,7 @@
 
 #include "base/callback.h"
 #include "base/id_map.h"
+#include "base/thread_task_runner_handle.h"
 #include "ipc/ipc_channel_proxy.h"
 #include "ipc/message_filter.h"
 #include "media/cast/cast_sender.h"
@@ -20,7 +21,7 @@ class CastTransportSenderIPC;
 class CastIPCDispatcher : public IPC::MessageFilter {
  public:
   explicit CastIPCDispatcher(
-      const scoped_refptr<base::MessageLoopProxy>& io_message_loop);
+      const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner);
 
   static CastIPCDispatcher* Get();
   void Send(IPC::Message* message);
@@ -53,14 +54,15 @@ class CastIPCDispatcher : public IPC::MessageFilter {
   void OnRtcpCastMessage(int32 channel_id,
                          uint32 ssrc,
                          const media::cast::RtcpCastMessage& cast_message);
+  void OnReceivedPacket(int32 channel_id, const media::cast::Packet& packet);
 
   static CastIPCDispatcher* global_instance_;
 
   // For IPC Send(); must only be accesed on |io_message_loop_|.
   IPC::Sender* sender_;
 
-  // Message loop on which IPC calls are driven.
-  const scoped_refptr<base::MessageLoopProxy> io_message_loop_;
+  // Task runner on which IPC calls are driven.
+  const scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
 
   // A map of stream ids to delegates; must only be accessed on
   // |io_message_loop_|.

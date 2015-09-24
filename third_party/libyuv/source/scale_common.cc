@@ -621,39 +621,31 @@ void ScaleRowDown38_2_Box_16_C(const uint16* src_ptr, ptrdiff_t src_stride,
   }
 }
 
-void ScaleAddRows_C(const uint8* src_ptr, ptrdiff_t src_stride,
-                    uint16* dst_ptr, int src_width, int src_height) {
+void ScaleAddRow_C(const uint8* src_ptr, uint16* dst_ptr, int src_width) {
   int x;
   assert(src_width > 0);
-  assert(src_height > 0);
-  for (x = 0; x < src_width; ++x) {
-    const uint8* s = src_ptr + x;
-    unsigned int sum = 0u;
-    int y;
-    for (y = 0; y < src_height; ++y) {
-      sum += s[0];
-      s += src_stride;
-    }
-    // TODO(fbarchard): Consider limitting height to 256 to avoid overflow.
-    dst_ptr[x] = sum < 65535u ? sum : 65535u;
+  for (x = 0; x < src_width - 1; x += 2) {
+    dst_ptr[0] += src_ptr[0];
+    dst_ptr[1] += src_ptr[1];
+    src_ptr += 2;
+    dst_ptr += 2;
+  }
+  if (src_width & 1) {
+    dst_ptr[0] += src_ptr[0];
   }
 }
 
-void ScaleAddRows_16_C(const uint16* src_ptr, ptrdiff_t src_stride,
-                       uint32* dst_ptr, int src_width, int src_height) {
+void ScaleAddRow_16_C(const uint16* src_ptr, uint32* dst_ptr, int src_width) {
   int x;
   assert(src_width > 0);
-  assert(src_height > 0);
-  for (x = 0; x < src_width; ++x) {
-    const uint16* s = src_ptr + x;
-    unsigned int sum = 0u;
-    int y;
-    for (y = 0; y < src_height; ++y) {
-      sum += s[0];
-      s += src_stride;
-    }
-    // No risk of overflow here now
-    dst_ptr[x] = sum;
+  for (x = 0; x < src_width - 1; x += 2) {
+    dst_ptr[0] += src_ptr[0];
+    dst_ptr[1] += src_ptr[1];
+    src_ptr += 2;
+    dst_ptr += 2;
+  }
+  if (src_width & 1) {
+    dst_ptr[0] += src_ptr[0];
   }
 }
 
@@ -885,7 +877,7 @@ void ScalePlaneVertical(int src_height,
   assert(dst_height > 0);
   src_argb += (x >> 16) * bpp;
 #if defined(HAS_INTERPOLATEROW_SSE2)
-  if (TestCpuFlag(kCpuHasSSE2) && dst_width_bytes >= 16) {
+  if (TestCpuFlag(kCpuHasSSE2)) {
     InterpolateRow = InterpolateRow_Any_SSE2;
     if (IS_ALIGNED(dst_width_bytes, 16)) {
       InterpolateRow = InterpolateRow_SSE2;
@@ -893,7 +885,7 @@ void ScalePlaneVertical(int src_height,
   }
 #endif
 #if defined(HAS_INTERPOLATEROW_SSSE3)
-  if (TestCpuFlag(kCpuHasSSSE3) && dst_width_bytes >= 16) {
+  if (TestCpuFlag(kCpuHasSSSE3)) {
     InterpolateRow = InterpolateRow_Any_SSSE3;
     if (IS_ALIGNED(dst_width_bytes, 16)) {
       InterpolateRow = InterpolateRow_SSSE3;
@@ -901,7 +893,7 @@ void ScalePlaneVertical(int src_height,
   }
 #endif
 #if defined(HAS_INTERPOLATEROW_AVX2)
-  if (TestCpuFlag(kCpuHasAVX2) && dst_width_bytes >= 32) {
+  if (TestCpuFlag(kCpuHasAVX2)) {
     InterpolateRow = InterpolateRow_Any_AVX2;
     if (IS_ALIGNED(dst_width_bytes, 32)) {
       InterpolateRow = InterpolateRow_AVX2;
@@ -909,15 +901,15 @@ void ScalePlaneVertical(int src_height,
   }
 #endif
 #if defined(HAS_INTERPOLATEROW_NEON)
-  if (TestCpuFlag(kCpuHasNEON) && dst_width_bytes >= 16) {
+  if (TestCpuFlag(kCpuHasNEON)) {
     InterpolateRow = InterpolateRow_Any_NEON;
     if (IS_ALIGNED(dst_width_bytes, 16)) {
       InterpolateRow = InterpolateRow_NEON;
     }
   }
 #endif
-#if defined(HAS_INTERPOLATEROWS_MIPS_DSPR2)
-  if (TestCpuFlag(kCpuHasMIPS_DSPR2) && dst_width_bytes >= 4 &&
+#if defined(HAS_INTERPOLATEROW_MIPS_DSPR2)
+  if (TestCpuFlag(kCpuHasMIPS_DSPR2) &&
       IS_ALIGNED(src_argb, 4) && IS_ALIGNED(src_stride, 4) &&
       IS_ALIGNED(dst_argb, 4) && IS_ALIGNED(dst_stride, 4)) {
     InterpolateRow = InterpolateRow_Any_MIPS_DSPR2;
@@ -959,7 +951,7 @@ void ScalePlaneVertical_16(int src_height,
   assert(dst_height > 0);
   src_argb += (x >> 16) * wpp;
 #if defined(HAS_INTERPOLATEROW_16_SSE2)
-  if (TestCpuFlag(kCpuHasSSE2) && dst_width_bytes >= 16) {
+  if (TestCpuFlag(kCpuHasSSE2)) {
     InterpolateRow = InterpolateRow_Any_16_SSE2;
     if (IS_ALIGNED(dst_width_bytes, 16)) {
       InterpolateRow = InterpolateRow_16_SSE2;
@@ -967,7 +959,7 @@ void ScalePlaneVertical_16(int src_height,
   }
 #endif
 #if defined(HAS_INTERPOLATEROW_16_SSSE3)
-  if (TestCpuFlag(kCpuHasSSSE3) && dst_width_bytes >= 16) {
+  if (TestCpuFlag(kCpuHasSSSE3)) {
     InterpolateRow = InterpolateRow_Any_16_SSSE3;
     if (IS_ALIGNED(dst_width_bytes, 16)) {
       InterpolateRow = InterpolateRow_16_SSSE3;
@@ -975,7 +967,7 @@ void ScalePlaneVertical_16(int src_height,
   }
 #endif
 #if defined(HAS_INTERPOLATEROW_16_AVX2)
-  if (TestCpuFlag(kCpuHasAVX2) && dst_width_bytes >= 32) {
+  if (TestCpuFlag(kCpuHasAVX2)) {
     InterpolateRow = InterpolateRow_Any_16_AVX2;
     if (IS_ALIGNED(dst_width_bytes, 32)) {
       InterpolateRow = InterpolateRow_16_AVX2;
@@ -983,15 +975,15 @@ void ScalePlaneVertical_16(int src_height,
   }
 #endif
 #if defined(HAS_INTERPOLATEROW_16_NEON)
-  if (TestCpuFlag(kCpuHasNEON) && dst_width_bytes >= 16) {
+  if (TestCpuFlag(kCpuHasNEON)) {
     InterpolateRow = InterpolateRow_Any_16_NEON;
     if (IS_ALIGNED(dst_width_bytes, 16)) {
       InterpolateRow = InterpolateRow_16_NEON;
     }
   }
 #endif
-#if defined(HAS_INTERPOLATEROWS_16_MIPS_DSPR2)
-  if (TestCpuFlag(kCpuHasMIPS_DSPR2) && dst_width_bytes >= 4 &&
+#if defined(HAS_INTERPOLATEROW_16_MIPS_DSPR2)
+  if (TestCpuFlag(kCpuHasMIPS_DSPR2) &&
       IS_ALIGNED(src_argb, 4) && IS_ALIGNED(src_stride, 4) &&
       IS_ALIGNED(dst_argb, 4) && IS_ALIGNED(dst_stride, 4)) {
     InterpolateRow = InterpolateRow_Any_16_MIPS_DSPR2;
@@ -1028,10 +1020,6 @@ enum FilterMode ScaleFilterReduce(int src_width, int src_height,
   if (filtering == kFilterBox) {
     // If scaling both axis to 0.5 or larger, switch from Box to Bilinear.
     if (dst_width * 2 >= src_width && dst_height * 2 >= src_height) {
-      filtering = kFilterBilinear;
-    }
-    // If scaling to larger, switch from Box to Bilinear.
-    if (dst_width >= src_width || dst_height >= src_height) {
       filtering = kFilterBilinear;
     }
   }

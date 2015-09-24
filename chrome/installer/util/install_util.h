@@ -32,6 +32,10 @@ class Version;
 // independently.
 class InstallUtil {
  public:
+  // Returns true if properties that enable Metro mode on Win8+ should be
+  // installed.
+  static bool ShouldInstallMetroProperties();
+
   // Get the path to this distribution's Active Setup registry entries.
   // e.g. Software\Microsoft\Active Setup\Installed Components\<dist_guid>
   static base::string16 GetActiveSetupPath(BrowserDistribution* dist);
@@ -91,10 +95,10 @@ class InstallUtil {
                                    const base::string16& state_key_path,
                                    installer::InstallerStage stage);
 
-  // Returns true if this installation path is per user, otherwise returns
-  // false (per machine install, meaning: the exe_path contains path to
-  // Program Files).
-  static bool IsPerUserInstall(const wchar_t* const exe_path);
+  // Returns true if this installation path is per user, otherwise returns false
+  // (per machine install, meaning: the exe_path contains the path to Program
+  // Files).
+  static bool IsPerUserInstall(const base::FilePath& exe_path);
 
   // Returns true if the installation represented by the pair of |dist| and
   // |system_level| is a multi install.
@@ -165,7 +169,7 @@ class InstallUtil {
    public:
     explicit ValueEquals(const base::string16& value_to_match)
         : value_to_match_(value_to_match) { }
-    virtual bool Evaluate(const base::string16& value) const override;
+    bool Evaluate(const base::string16& value) const override;
    protected:
     base::string16 value_to_match_;
    private:
@@ -176,9 +180,9 @@ class InstallUtil {
   static int GetInstallReturnCode(installer::InstallStatus install_status);
 
   // Composes |program| and |arguments| into |command_line|.
-  static void MakeUninstallCommand(const base::string16& program,
-                                   const base::string16& arguments,
-                                   base::CommandLine* command_line);
+  static void ComposeCommandLine(const base::string16& program,
+                                 const base::string16& arguments,
+                                 base::CommandLine* command_line);
 
   // Returns a string in the form YYYYMMDD of the current date.
   static base::string16 GetCurrentDate();
@@ -190,8 +194,8 @@ class InstallUtil {
   class ProgramCompare : public RegistryValuePredicate {
    public:
     explicit ProgramCompare(const base::FilePath& path_to_match);
-    virtual ~ProgramCompare();
-    virtual bool Evaluate(const base::string16& value) const override;
+    ~ProgramCompare() override;
+    bool Evaluate(const base::string16& value) const override;
     bool EvaluatePath(const base::FilePath& path) const;
 
    protected:

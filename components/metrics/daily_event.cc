@@ -58,7 +58,7 @@ void DailyEvent::RegisterPref(PrefRegistrySimple* registry,
 void DailyEvent::AddObserver(scoped_ptr<DailyEvent::Observer> observer) {
   DVLOG(2) << "DailyEvent observer added.";
   DCHECK(last_fired_.is_null());
-  observers_.push_back(observer.release());
+  observers_.push_back(observer.Pass());
 }
 
 void DailyEvent::CheckInterval() {
@@ -71,7 +71,7 @@ void DailyEvent::CheckInterval() {
              << base::TimeFormatShortDateAndTime(last_fired_);
     if (last_fired_.is_null()) {
       DVLOG(1) << "DailyEvent first run.";
-      RecordIntervalTypeHistogram(pref_name_, FIRST_RUN);
+      RecordIntervalTypeHistogram(histogram_name_, FIRST_RUN);
       OnInterval(now);
       return;
     }
@@ -79,13 +79,13 @@ void DailyEvent::CheckInterval() {
   int days_elapsed = (now - last_fired_).InDays();
   if (days_elapsed >= 1) {
     DVLOG(1) << "DailyEvent day elapsed.";
-    RecordIntervalTypeHistogram(pref_name_, DAY_ELAPSED);
+    RecordIntervalTypeHistogram(histogram_name_, DAY_ELAPSED);
     OnInterval(now);
   } else if (days_elapsed <= -1) {
     // The "last fired" time is more than a day in the future, so the clock
     // must have been changed.
     DVLOG(1) << "DailyEvent clock change detected.";
-    RecordIntervalTypeHistogram(pref_name_, CLOCK_CHANGED);
+    RecordIntervalTypeHistogram(histogram_name_, CLOCK_CHANGED);
     OnInterval(now);
   }
 }

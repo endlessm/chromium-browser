@@ -4,7 +4,6 @@
 
 #include "android_webview/native/aw_pdf_exporter.h"
 
-#include "android_webview/browser/renderer_host/print_manager.h"
 #include "base/android/jni_android.h"
 #include "base/logging.h"
 #include "content/public/browser/browser_thread.h"
@@ -46,11 +45,12 @@ void AwPdfExporter::ExportToPdf(JNIEnv* env,
                                 jobject obj,
                                 int fd,
                                 jobject cancel_signal) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   CreatePdfSettings(env, obj);
-  print_manager_.reset(
-      new PrintManager(web_contents_, print_settings_.get(), fd, this));
-  if (!print_manager_->PrintNow())
+  PrintManager* print_manager =
+      PrintManager::CreateForWebContents(
+          web_contents_, print_settings_.get(), fd, this);
+  if (!print_manager->PrintNow())
     DidExportPdf(false);
 }
 

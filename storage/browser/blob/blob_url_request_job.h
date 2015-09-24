@@ -6,21 +6,18 @@
 #define STORAGE_BROWSER_BLOB_BLOB_URL_REQUEST_JOB_H_
 
 #include <map>
+#include <vector>
 
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "net/http/http_byte_range.h"
 #include "net/http/http_status_code.h"
 #include "net/url_request/url_request_job.h"
+#include "storage/browser/blob/blob_data_snapshot.h"
 #include "storage/browser/storage_browser_export.h"
-#include "storage/common/blob/blob_data.h"
 
 namespace base {
-class MessageLoopProxy;
-}
-
-namespace storage {
-class FileSystemContext;
+class SingleThreadTaskRunner;
 }
 
 namespace net {
@@ -31,6 +28,7 @@ class IOBuffer;
 namespace storage {
 
 class FileStreamReader;
+class FileSystemContext;
 
 // A request job that handles reading blob URLs.
 class STORAGE_EXPORT BlobURLRequestJob
@@ -38,9 +36,9 @@ class STORAGE_EXPORT BlobURLRequestJob
  public:
   BlobURLRequestJob(net::URLRequest* request,
                     net::NetworkDelegate* network_delegate,
-                    const scoped_refptr<BlobData>& blob_data,
+                    scoped_ptr<BlobDataSnapshot> blob_data,
                     storage::FileSystemContext* file_system_context,
-                    base::MessageLoopProxy* resolving_message_loop_proxy);
+                    base::SingleThreadTaskRunner* resolving_thread_task_runner);
 
   // net::URLRequestJob methods.
   void Start() override;
@@ -60,7 +58,7 @@ class STORAGE_EXPORT BlobURLRequestJob
   // For preparing for read: get the size, apply the range and perform seek.
   void DidStart();
   bool AddItemLength(size_t index, int64 item_length);
-  void CountSize();
+  bool CountSize();
   void DidCountSize(int error);
   void DidGetFileItemLength(size_t index, int64 result);
   void Seek(int64 offset);
@@ -70,11 +68,14 @@ class STORAGE_EXPORT BlobURLRequestJob
   bool ReadItem();
   void AdvanceItem();
   void AdvanceBytesRead(int result);
-  bool ReadBytesItem(const BlobData::Item& item, int bytes_to_read);
-  bool ReadFileItem(FileStreamReader* reader, int bytes_to_read);
+  bool ReadBytesItem(const BlobDataItem& item, int bytes_to_read);
 
-  void DidReadFile(int result);
+  bool ReadFileItem(FileStreamReader* reader, int bytes_to_read);
+  void DidReadFile(int chunk_number, int result);
   void DeleteCurrentFileReader();
+
+  bool ReadDiskCacheEntryItem(const BlobDataItem& item, int bytes_to_read);
+  void DidReadDiskCacheEntry(int result);
 
   int ComputeBytesToRead() const;
   int BytesReadCompleted();
@@ -90,13 +91,14 @@ class STORAGE_EXPORT BlobURLRequestJob
   FileStreamReader* GetFileStreamReader(size_t index);
 
   // Creates a FileStreamReader for the item at |index| with additional_offset.
-  void CreateFileStreamReader(size_t index, int64 additional_offset);
+  // If failed, then returns false.
+  bool CreateFileStreamReader(size_t index, int64 additional_offset);
 
-  scoped_refptr<BlobData> blob_data_;
+  scoped_ptr<BlobDataSnapshot> blob_data_;
 
   // Variables for controlling read from |blob_data_|.
   scoped_refptr<storage::FileSystemContext> file_system_context_;
-  scoped_refptr<base::MessageLoopProxy> file_thread_proxy_;
+  scoped_refptr<base::SingleThreadTaskRunner> file_task_runner_;
   std::vector<int64> item_length_list_;
   int64 total_size_;
   int64 remaining_bytes_;
@@ -113,6 +115,9 @@ class STORAGE_EXPORT BlobURLRequestJob
 
   bool byte_range_set_;
   net::HttpByteRange byte_range_;
+
+  // Used to create unique id's for tracing.
+  int current_file_chunk_number_;
 
   scoped_ptr<net::HttpResponseInfo> response_info_;
 

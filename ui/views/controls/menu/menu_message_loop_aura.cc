@@ -29,7 +29,7 @@
 #include "ui/views/controls/menu/menu_message_pump_dispatcher_win.h"
 #include "ui/views/win/hwnd_util.h"
 #else
-#include "ui/views/controls/menu/menu_event_dispatcher_linux.h"
+#include "ui/views/controls/menu/menu_event_dispatcher.h"
 #endif
 
 using aura::client::ScreenPositionClient;
@@ -60,8 +60,10 @@ class ActivationChangeObserverImpl
   ~ActivationChangeObserverImpl() override { Cleanup(); }
 
   // aura::client::ActivationChangeObserver:
-  void OnWindowActivated(aura::Window* gained_active,
-                         aura::Window* lost_active) override {
+  void OnWindowActivated(
+      aura::client::ActivationChangeObserver::ActivationReason reason,
+      aura::Window* gained_active,
+      aura::Window* lost_active) override {
     if (!controller_->drag_in_progress())
       controller_->CancelAll();
   }
@@ -156,10 +158,9 @@ void MenuMessageLoopAura::Run(MenuController* controller,
   }
 #else
   internal::MenuEventDispatcher event_dispatcher(controller);
-  scoped_ptr<ui::ScopedEventDispatcher> old_dispatcher =
-      nested_dispatcher_.Pass();
+  scoped_ptr<ui::ScopedEventDispatcher> dispatcher_override;
   if (ui::PlatformEventSource::GetInstance()) {
-    nested_dispatcher_ =
+    dispatcher_override =
         ui::PlatformEventSource::GetInstance()->OverrideDispatcher(
             &event_dispatcher);
   }
@@ -178,21 +179,19 @@ void MenuMessageLoopAura::Run(MenuController* controller,
     message_loop_quit_ = run_loop.QuitClosure();
     run_loop.Run();
   }
-  nested_dispatcher_ = old_dispatcher.Pass();
 #endif
-}
-
-bool MenuMessageLoopAura::ShouldQuitNow() const {
-  aura::Window* root = GetOwnerRootWindow(owner_);
-  return !aura::client::GetDragDropClient(root) ||
-         !aura::client::GetDragDropClient(root)->IsDragDropInProgress();
 }
 
 void MenuMessageLoopAura::QuitNow() {
   CHECK(!message_loop_quit_.is_null());
   message_loop_quit_.Run();
-  // Restore the previous dispatcher.
-  nested_dispatcher_.reset();
+
+#if !defined(OS_WIN)
+  // Ask PlatformEventSource to stop dispatching events in this message loop
+  // iteration. We want our menu's loop to return before the next event.
+  if (ui::PlatformEventSource::GetInstance())
+    ui::PlatformEventSource::GetInstance()->StopCurrentEventStream();
+#endif
 }
 
 void MenuMessageLoopAura::ClearOwner() {

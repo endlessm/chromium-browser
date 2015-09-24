@@ -18,6 +18,7 @@ using protocol::ClipboardEvent;
 using protocol::KeyEvent;
 using protocol::TextEvent;
 using protocol::MouseEvent;
+using protocol::TouchEvent;
 
 class SingleWindowInputInjectorMac : public SingleWindowInputInjector {
  public:
@@ -31,6 +32,7 @@ class SingleWindowInputInjectorMac : public SingleWindowInputInjector {
   void InjectKeyEvent(const KeyEvent& event) override;
   void InjectTextEvent(const TextEvent& event) override;
   void InjectMouseEvent(const MouseEvent& event) override;
+  void InjectTouchEvent(const TouchEvent& event) override;
   void InjectClipboardEvent(const ClipboardEvent& event) override;
 
  private:
@@ -107,6 +109,10 @@ void SingleWindowInputInjectorMac::InjectMouseEvent(const MouseEvent& event) {
   }
 }
 
+void SingleWindowInputInjectorMac::InjectTouchEvent(const TouchEvent& event) {
+  NOTIMPLEMENTED();
+}
+
 void SingleWindowInputInjectorMac::InjectClipboardEvent(
     const ClipboardEvent& event) {
   input_injector_->InjectClipboardEvent(event);
@@ -120,12 +126,12 @@ CGRect SingleWindowInputInjectorMac::FindCGRectOfWindow() {
   CGRect rect;
   CGWindowID ids[1] = {window_id_};
   base::ScopedCFTypeRef<CFArrayRef> window_id_array(
-      CFArrayCreate(NULL, reinterpret_cast<const void **>(&ids), 1, NULL));
+      CFArrayCreate(nullptr, reinterpret_cast<const void**>(&ids), 1, nullptr));
 
   base::ScopedCFTypeRef<CFArrayRef> window_array(
       CGWindowListCreateDescriptionFromArray(window_id_array));
 
-  if (window_array == NULL || CFArrayGetCount(window_array) == 0) {
+  if (window_array == nullptr || CFArrayGetCount(window_array) == 0) {
     // Could not find the window. It might have been closed.
     LOG(ERROR) << "Specified window to stream not found for id: "
                << window_id_;

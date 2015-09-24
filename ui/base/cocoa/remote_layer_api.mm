@@ -17,8 +17,8 @@ bool RemoteLayerAPISupported() {
   if (!base::mac::IsOSMavericksOrLater())
     return false;
 
-  bool disabled_at_command_line =
-      CommandLine::ForCurrentProcess()->HasSwitch(
+  static bool disabled_at_command_line =
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kDisableRemoteCoreAnimation);
   if (disabled_at_command_line)
     return false;

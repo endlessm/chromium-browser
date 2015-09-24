@@ -14,6 +14,7 @@
 #include "url/gurl.h"
 
 #include "base/logging.h"
+#include "base/strings/string_util.h"
 #include "url/url_canon_stdstring.h"
 #include "url/url_util.h"
 
@@ -177,6 +178,22 @@ const std::string& GURL::spec() const {
   return EmptyStringForGURL();
 }
 
+bool GURL::operator==(const GURL& other) const {
+  return spec_ == other.spec_;
+}
+
+bool GURL::operator!=(const GURL& other) const {
+  return spec_ != other.spec_;
+}
+
+bool GURL::operator<(const GURL& other) const {
+  return spec_ < other.spec_;
+}
+
+bool GURL::operator>(const GURL& other) const {
+  return spec_ > other.spec_;
+}
+
 GURL GURL::Resolve(const std::string& relative) const {
   return ResolveWithCharsetConverter(relative, NULL);
 }
@@ -322,8 +339,10 @@ GURL GURL::GetOrigin() const {
 }
 
 GURL GURL::GetAsReferrer() const {
-  if (!is_valid_ ||
-      (!has_ref() && !has_username() && !has_password()))
+  if (!is_valid_ || !SchemeIsHTTPOrHTTPS())
+    return GURL();
+
+  if (!has_ref() && !has_username() && !has_password())
     return GURL(*this);
 
   url::Replacements<char> replacements;
@@ -364,9 +383,9 @@ bool GURL::IsStandard() const {
 bool GURL::SchemeIs(const char* lower_ascii_scheme) const {
   if (parsed_.scheme.len <= 0)
     return lower_ascii_scheme == NULL;
-  return url::LowerCaseEqualsASCII(spec_.data() + parsed_.scheme.begin,
-                                   spec_.data() + parsed_.scheme.end(),
-                                   lower_ascii_scheme);
+  return base::LowerCaseEqualsASCII(spec_.data() + parsed_.scheme.begin,
+                                    spec_.data() + parsed_.scheme.end(),
+                                    lower_ascii_scheme);
 }
 
 bool GURL::SchemeIsHTTPOrHTTPS() const {
@@ -503,10 +522,10 @@ bool GURL::DomainIs(const char* lower_ascii_domain,
   const char* start_pos = spec_.data() + parsed_.host.begin +
                           host_len - domain_len;
 
-  if (!url::LowerCaseEqualsASCII(start_pos,
-                                 last_pos + 1,
-                                 lower_ascii_domain,
-                                 lower_ascii_domain + domain_len))
+  if (!base::LowerCaseEqualsASCII(start_pos,
+                                  last_pos + 1,
+                                  lower_ascii_domain,
+                                  lower_ascii_domain + domain_len))
     return false;
 
   // Check whether host has right domain start with dot, make sure we got

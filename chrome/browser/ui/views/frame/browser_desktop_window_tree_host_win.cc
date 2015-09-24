@@ -6,6 +6,8 @@
 
 #include <dwmapi.h>
 
+#include "base/process/process_handle.h"
+#include "base/win/windows_version.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
@@ -16,6 +18,8 @@
 #include "chrome/browser/ui/views/frame/system_menu_insertion_delegate_win.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/browser/ui/views/theme_image_mapper.h"
+#include "chrome/common/chrome_constants.h"
+#include "components/browser_watcher/exit_funnel_win.h"
 #include "ui/base/theme_provider.h"
 #include "ui/gfx/win/dpi.h"
 #include "ui/views/controls/menu/native_menu_win.h"
@@ -38,27 +42,27 @@ class DesktopThemeProvider : public ui::ThemeProvider {
       : delegate_(delegate) {
   }
 
-  virtual bool UsingSystemTheme() const override {
+  bool UsingSystemTheme() const override {
     return delegate_->UsingSystemTheme();
   }
-  virtual gfx::ImageSkia* GetImageSkiaNamed(int id) const override {
+  gfx::ImageSkia* GetImageSkiaNamed(int id) const override {
     return delegate_->GetImageSkiaNamed(
         chrome::MapThemeImage(chrome::HOST_DESKTOP_TYPE_NATIVE, id));
   }
-  virtual SkColor GetColor(int id) const override {
+  SkColor GetColor(int id) const override {
     return delegate_->GetColor(id);
   }
-  virtual int GetDisplayProperty(int id) const override {
+  int GetDisplayProperty(int id) const override {
     return delegate_->GetDisplayProperty(id);
   }
-  virtual bool ShouldUseNativeFrame() const override {
+  bool ShouldUseNativeFrame() const override {
     return delegate_->ShouldUseNativeFrame();
   }
-  virtual bool HasCustomImage(int id) const override {
+  bool HasCustomImage(int id) const override {
     return delegate_->HasCustomImage(
         chrome::MapThemeImage(chrome::HOST_DESKTOP_TYPE_NATIVE, id));
   }
-  virtual base::RefCountedMemory* GetRawData(
+  base::RefCountedMemory* GetRawData(
       int id,
       ui::ScaleFactor scale_factor) const override {
     return delegate_->GetRawData(id, scale_factor);
@@ -69,6 +73,31 @@ class DesktopThemeProvider : public ui::ThemeProvider {
 
   DISALLOW_COPY_AND_ASSIGN(DesktopThemeProvider);
 };
+
+// See http://crbug.com/412384.
+void TraceSessionEnding(LPARAM lparam) {
+  browser_watcher::ExitFunnel funnel;
+  if (!funnel.Init(chrome::kBrowserExitCodesRegistryPath,
+                   base::GetCurrentProcessHandle())) {
+    return;
+  }
+
+  // This exit path is the prime suspect for most our unclean shutdowns.
+  // Trace all the possible options to WM_ENDSESSION. This may result in
+  // multiple events for a single shutdown, but that's fine.
+  funnel.RecordEvent(L"WM_ENDSESSION");
+
+  if (lparam & ENDSESSION_CLOSEAPP)
+    funnel.RecordEvent(L"ES_CloseApp");
+  if (lparam & ENDSESSION_CRITICAL)
+    funnel.RecordEvent(L"ES_Critical");
+  if (lparam & ENDSESSION_LOGOFF)
+    funnel.RecordEvent(L"ES_Logoff");
+  const LPARAM kKnownBits =
+      ENDSESSION_CLOSEAPP | ENDSESSION_CRITICAL | ENDSESSION_LOGOFF;
+  if (lparam & ~kKnownBits)
+    funnel.RecordEvent(L"ES_Other");
+}
 
 }  // namespace
 
@@ -182,6 +211,7 @@ bool BrowserDesktopWindowTreeHostWin::PreHandleMSG(UINT message,
         minimize_button_metrics_.OnHWNDActivated();
       return false;
     case WM_ENDSESSION:
+      TraceSessionEnding(l_param);
       chrome::SessionEnding();
       return true;
     case WM_INITMENUPOPUP:
@@ -301,10 +331,19 @@ MARGINS BrowserDesktopWindowTreeHostWin::GetDWMFrameMargins() const {
     // because the GDI-drawn text in the web content composited over it will
     // become semi-transparent over any glass area.
     if (!IsMaximized() && !GetWidget()->IsFullscreen()) {
-      margins.cxLeftWidth = kClientEdgeThickness + 1;
-      margins.cxRightWidth = kClientEdgeThickness + 1;
-      margins.cyBottomHeight = kClientEdgeThickness + 1;
       margins.cyTopHeight = kClientEdgeThickness + 1;
+      // On Windows 10, we don't draw our own window border, so don't extend the
+      // nonclient area in for it. The top is extended so that the MARGINS isn't
+      // treated as an empty (ignored) extension.
+      if (base::win::GetVersion() >= base::win::VERSION_WIN10) {
+        margins.cxLeftWidth = 0;
+        margins.cxRightWidth = 0;
+        margins.cyBottomHeight = 0;
+      } else {
+        margins.cxLeftWidth = kClientEdgeThickness + 1;
+        margins.cxRightWidth = kClientEdgeThickness + 1;
+        margins.cyBottomHeight = kClientEdgeThickness + 1;
+      }
     }
     // In maximized mode, we only have a titlebar strip of glass, no side/bottom
     // borders.

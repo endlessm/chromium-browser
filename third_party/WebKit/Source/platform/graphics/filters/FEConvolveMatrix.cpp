@@ -49,11 +49,11 @@ FEConvolveMatrix::FEConvolveMatrix(Filter* filter, const IntSize& kernelSize,
     ASSERT(m_kernelSize.height() > 0);
 }
 
-PassRefPtr<FEConvolveMatrix> FEConvolveMatrix::create(Filter* filter, const IntSize& kernelSize,
+PassRefPtrWillBeRawPtr<FEConvolveMatrix> FEConvolveMatrix::create(Filter* filter, const IntSize& kernelSize,
     float divisor, float bias, const IntPoint& targetOffset, EdgeModeType edgeMode,
     const FloatPoint& kernelUnitLength, bool preserveAlpha, const Vector<float>& kernelMatrix)
 {
-    return adoptRef(new FEConvolveMatrix(filter, kernelSize, divisor, bias, targetOffset, edgeMode, kernelUnitLength,
+    return adoptRefWillBeNoop(new FEConvolveMatrix(filter, kernelSize, divisor, bias, targetOffset, edgeMode, kernelUnitLength,
         preserveAlpha, kernelMatrix));
 }
 
@@ -237,4 +237,4 @@ TextStream& FEConvolveMatrix::externalRepresentation(TextStream& ts, int indent)
     return ts;
 }
 
-}; // namespace blink
+} // namespace blink

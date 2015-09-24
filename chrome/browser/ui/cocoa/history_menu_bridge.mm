@@ -10,15 +10,12 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"  // IDC_HISTORY_MENU
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
 #import "chrome/browser/ui/cocoa/history_menu_cocoa_controller.h"
 #include "chrome/grit/generated_resources.h"
-#include "content/public/browser/notification_registrar.h"
-#include "content/public/browser/notification_source.h"
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -65,18 +62,22 @@ HistoryMenuBridge::HistoryMenuBridge(Profile* profile)
       history_service_(NULL),
       tab_restore_service_(NULL),
       create_in_progress_(false),
-      need_recreate_(false) {
+      need_recreate_(false),
+      history_service_observer_(this) {
   // If we don't have a profile, do not bother initializing our data sources.
   // This shouldn't happen except in unit tests.
   if (profile_) {
     // Check to see if the history service is ready. Because it loads async, it
     // may not be ready when the Bridge is created. If this happens, register
     // for a notification that tells us the HistoryService is ready.
-    HistoryService* hs = HistoryServiceFactory::GetForProfile(
-        profile_, Profile::EXPLICIT_ACCESS);
-    if (hs != NULL && hs->BackendLoaded()) {
-      history_service_ = hs;
-      Init();
+    history::HistoryService* hs = HistoryServiceFactory::GetForProfile(
+        profile_, ServiceAccessType::EXPLICIT_ACCESS);
+    if (hs) {
+      history_service_observer_.Add(hs);
+      if (hs->BackendLoaded()) {
+        history_service_ = hs;
+        Init();
+      }
     }
 
     tab_restore_service_ = TabRestoreServiceFactory::GetForProfile(profile_);
@@ -100,12 +101,6 @@ HistoryMenuBridge::HistoryMenuBridge(Profile* profile)
   NSMenuItem* item = [HistoryMenu() itemWithTag:IDC_SHOW_HISTORY];
   [item setImage:rb.GetNativeImageNamed(IDR_HISTORY_FAVICON).ToNSImage()];
 
-  // The service is not ready for use yet, so become notified when it does.
-  if (!history_service_) {
-    registrar_.Add(
-        this, chrome::NOTIFICATION_HISTORY_LOADED,
-        content::Source<Profile>(profile_));
-  }
 }
 
 // Note that all requests sent to either the history service or the favicon
@@ -114,16 +109,6 @@ HistoryMenuBridge::HistoryMenuBridge(Profile* profile)
 HistoryMenuBridge::~HistoryMenuBridge() {
   // Unregister ourselves as observers and notifications.
   DCHECK(profile_);
-  if (history_service_) {
-    registrar_.Remove(this, chrome::NOTIFICATION_HISTORY_URLS_MODIFIED,
-                      content::Source<Profile>(profile_));
-    registrar_.Remove(this, chrome::NOTIFICATION_HISTORY_URLS_DELETED,
-                      content::Source<Profile>(profile_));
-    history_service_->RemoveObserver(this);
-  } else {
-    registrar_.Remove(this, chrome::NOTIFICATION_HISTORY_LOADED,
-                      content::Source<Profile>(profile_));
-  }
 
   if (tab_restore_service_)
     tab_restore_service_->RemoveObserver(this);
@@ -135,30 +120,6 @@ HistoryMenuBridge::~HistoryMenuBridge() {
     menu_item_map_.erase(it++);
     delete item;
   }
-}
-
-void HistoryMenuBridge::Observe(int type,
-                                const content::NotificationSource& source,
-                                const content::NotificationDetails& details) {
-  // A history service is now ready. Check to see if it's the one for the main
-  // profile. If so, perform final initialization.
-  if (type == chrome::NOTIFICATION_HISTORY_LOADED) {
-    HistoryService* hs = HistoryServiceFactory::GetForProfile(
-        profile_, Profile::EXPLICIT_ACCESS);
-    if (hs != NULL && hs->BackendLoaded()) {
-      history_service_ = hs;
-      Init();
-
-      // Found our HistoryService, so stop listening for this notification.
-      registrar_.Remove(this,
-                        chrome::NOTIFICATION_HISTORY_LOADED,
-                        content::Source<Profile>(profile_));
-    }
-  }
-
-  // All other notification types that we observe indicate that the history has
-  // changed.
-  OnHistoryChanged();
 }
 
 void HistoryMenuBridge::TabRestoreServiceChanged(TabRestoreService* service) {
@@ -224,14 +185,8 @@ void HistoryMenuBridge::TabRestoreServiceChanged(TabRestoreService* service) {
 
       // Now that the number of tabs that has been added is known, set the title
       // of the parent menu item.
-      if (item->tabs.size() == 1) {
-        item->title = l10n_util::GetStringUTF16(
-            IDS_NEW_TAB_RECENTLY_CLOSED_WINDOW_SINGLE);
-      } else {
-        item->title =l10n_util::GetStringFUTF16(
-            IDS_NEW_TAB_RECENTLY_CLOSED_WINDOW_MULTIPLE,
-                base::IntToString16(item->tabs.size()));
-      }
+      item->title = l10n_util::GetPluralStringFUTF16(
+          IDS_RECENTLY_CLOSED_WINDOW, item->tabs.size());
 
       // Sometimes it is possible for there to not be any subitems for a given
       // window; if that is the case, do not add the entry to the main menu.
@@ -272,14 +227,6 @@ void HistoryMenuBridge::BuildMenu() {
     CreateMenu();
 }
 
-void HistoryMenuBridge::OnURLVisited(HistoryService* history_service,
-                                     ui::PageTransition transition,
-                                     const history::URLRow& row,
-                                     const history::RedirectList& redirects,
-                                     base::Time visit_time) {
-  OnHistoryChanged();
-}
-
 HistoryMenuBridge::HistoryItem* HistoryMenuBridge::HistoryItemForMenuItem(
     NSMenuItem* item) {
   std::map<NSMenuItem*, HistoryItem*>::iterator it = menu_item_map_.find(item);
@@ -289,7 +236,7 @@ HistoryMenuBridge::HistoryItem* HistoryMenuBridge::HistoryItemForMenuItem(
   return NULL;
 }
 
-HistoryService* HistoryMenuBridge::service() {
+history::HistoryService* HistoryMenuBridge::service() {
   return history_service_;
 }
 
@@ -367,11 +314,6 @@ NSMenuItem* HistoryMenuBridge::AddItemToMenu(HistoryItem* item,
 
 void HistoryMenuBridge::Init() {
   DCHECK(history_service_);
-  registrar_.Add(this, chrome::NOTIFICATION_HISTORY_URLS_MODIFIED,
-                 content::Source<Profile>(profile_));
-  registrar_.Add(this, chrome::NOTIFICATION_HISTORY_URLS_DELETED,
-                 content::Source<Profile>(profile_));
-  history_service_->AddObserver(this);
 }
 
 void HistoryMenuBridge::CreateMenu() {
@@ -447,8 +389,8 @@ HistoryMenuBridge::HistoryItem* HistoryMenuBridge::HistoryItemForTab(
 }
 
 void HistoryMenuBridge::GetFaviconForHistoryItem(HistoryItem* item) {
-  FaviconService* service =
-      FaviconServiceFactory::GetForProfile(profile_, Profile::EXPLICIT_ACCESS);
+  favicon::FaviconService* service = FaviconServiceFactory::GetForProfile(
+      profile_, ServiceAccessType::EXPLICIT_ACCESS);
   base::CancelableTaskTracker::TaskId task_id =
       service->GetFaviconImageForPageURL(
           item->url,
@@ -483,4 +425,31 @@ void HistoryMenuBridge::CancelFaviconRequest(HistoryItem* item) {
     item->icon_requested = false;
     item->icon_task_id = base::CancelableTaskTracker::kBadTaskId;
   }
+}
+
+void HistoryMenuBridge::OnURLVisited(history::HistoryService* history_service,
+                                     ui::PageTransition transition,
+                                     const history::URLRow& row,
+                                     const history::RedirectList& redirects,
+                                     base::Time visit_time) {
+  OnHistoryChanged();
+}
+
+void HistoryMenuBridge::OnURLsModified(history::HistoryService* history_service,
+                                       const history::URLRows& changed_urls) {
+  OnHistoryChanged();
+}
+
+void HistoryMenuBridge::OnURLsDeleted(history::HistoryService* history_service,
+                                      bool all_history,
+                                      bool expired,
+                                      const history::URLRows& deleted_rows,
+                                      const std::set<GURL>& favicon_urls) {
+  OnHistoryChanged();
+}
+
+void HistoryMenuBridge::OnHistoryServiceLoaded(
+    history::HistoryService* history_service) {
+  history_service_ = history_service;
+  Init();
 }

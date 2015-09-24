@@ -29,7 +29,6 @@
  */
 
 #include "config.h"
-
 #include "platform/graphics/gpu/DrawingBuffer.h"
 
 #include "platform/RuntimeEnabledFeatures.h"
@@ -40,21 +39,13 @@
 #include "public/platform/Platform.h"
 #include "public/platform/WebExternalTextureMailbox.h"
 #include "wtf/RefPtr.h"
-
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-using namespace blink;
 using testing::Test;
 using testing::_;
 
-namespace {
-
-class FakeContextEvictionManager : public ContextEvictionManager {
-public:
-    void forciblyLoseOldestContext(const String& reason) { }
-    IntSize oldestContextSize() { return IntSize(); }
-};
+namespace blink {
 
 class WebGraphicsContext3DForTests : public MockWebGraphicsContext3D {
 public:
@@ -65,28 +56,28 @@ public:
         , m_mostRecentlyWaitedSyncPoint(0)
         , m_currentImageId(1) { }
 
-    virtual void bindTexture(WGC3Denum target, WebGLId texture)
+    void bindTexture(WGC3Denum target, WebGLId texture) override
     {
         if (target == GL_TEXTURE_2D) {
             m_boundTexture = texture;
         }
     }
 
-    virtual void texImage2D(WGC3Denum target, WGC3Dint level, WGC3Denum internalformat, WGC3Dsizei width, WGC3Dsizei height, WGC3Dint border, WGC3Denum format, WGC3Denum type, const void* pixels)
+    void texImage2D(WGC3Denum target, WGC3Dint level, WGC3Denum internalformat, WGC3Dsizei width, WGC3Dsizei height, WGC3Dint border, WGC3Denum format, WGC3Denum type, const void* pixels) override
     {
         if (target == GL_TEXTURE_2D && !level) {
             m_textureSizes.set(m_boundTexture, IntSize(width, height));
         }
     }
 
-    virtual void genMailboxCHROMIUM(WGC3Dbyte* mailbox)
+    void genMailboxCHROMIUM(WGC3Dbyte* mailbox) override
     {
         ++m_currentMailboxByte;
         WebExternalTextureMailbox temp;
         memset(mailbox, m_currentMailboxByte, sizeof(temp.name));
     }
 
-    virtual void produceTextureDirectCHROMIUM(WebGLId texture, WGC3Denum target, const WGC3Dbyte* mailbox)
+    void produceTextureDirectCHROMIUM(WebGLId texture, WGC3Denum target, const WGC3Dbyte* mailbox) override
     {
         ASSERT_EQ(target, static_cast<WGC3Denum>(GL_TEXTURE_2D));
         ASSERT_TRUE(m_textureSizes.contains(texture));
@@ -98,18 +89,18 @@ public:
         return m_mostRecentlyProducedSize;
     }
 
-    virtual unsigned insertSyncPoint()
+    unsigned insertSyncPoint() override
     {
         static unsigned syncPointGenerator = 0;
         return ++syncPointGenerator;
     }
 
-    virtual void waitSyncPoint(unsigned syncPoint)
+    void waitSyncPoint(unsigned syncPoint) override
     {
         m_mostRecentlyWaitedSyncPoint = syncPoint;
     }
 
-    virtual WGC3Duint createGpuMemoryBufferImageCHROMIUM(WGC3Dsizei width, WGC3Dsizei height, WGC3Denum internalformat, WGC3Denum usage)
+    WGC3Duint createGpuMemoryBufferImageCHROMIUM(WGC3Dsizei width, WGC3Dsizei height, WGC3Denum internalformat, WGC3Denum usage) override
     {
         m_imageSizes.set(m_currentImageId, IntSize(width, height));
         return m_currentImageId++;
@@ -173,11 +164,11 @@ static const int alternateHeight = 50;
 class DrawingBufferForTests : public DrawingBuffer {
 public:
     static PassRefPtr<DrawingBufferForTests> create(PassOwnPtr<WebGraphicsContext3D> context,
-        const IntSize& size, PreserveDrawingBuffer preserve, PassRefPtr<ContextEvictionManager> contextEvictionManager)
+        const IntSize& size, PreserveDrawingBuffer preserve)
     {
         OwnPtr<Extensions3DUtil> extensionsUtil = Extensions3DUtil::create(context.get());
         RefPtr<DrawingBufferForTests> drawingBuffer =
-            adoptRef(new DrawingBufferForTests(context, extensionsUtil.release(), preserve, contextEvictionManager));
+            adoptRef(new DrawingBufferForTests(context, extensionsUtil.release(), preserve));
         if (!drawingBuffer->initialize(size)) {
             drawingBuffer->beginDestruction();
             return PassRefPtr<DrawingBufferForTests>();
@@ -187,14 +178,13 @@ public:
 
     DrawingBufferForTests(PassOwnPtr<WebGraphicsContext3D> context,
         PassOwnPtr<Extensions3DUtil> extensionsUtil,
-        PreserveDrawingBuffer preserve,
-        PassRefPtr<ContextEvictionManager> contextEvictionManager)
+        PreserveDrawingBuffer preserve)
         : DrawingBuffer(context, extensionsUtil, false /* multisampleExtensionSupported */,
-            false /* packedDepthStencilExtensionSupported */, false /* discardFramebufferSupported */, preserve, WebGraphicsContext3D::Attributes(), contextEvictionManager)
+            false /* packedDepthStencilExtensionSupported */, false /* discardFramebufferSupported */, preserve, WebGraphicsContext3D::Attributes())
         , m_live(0)
     { }
 
-    virtual ~DrawingBufferForTests()
+    ~DrawingBufferForTests() override
     {
         if (m_live)
             *m_live = false;
@@ -205,13 +195,12 @@ public:
 
 class DrawingBufferTest : public Test {
 protected:
-    virtual void SetUp()
+    void SetUp() override
     {
-        RefPtr<FakeContextEvictionManager> contextEvictionManager = adoptRef(new FakeContextEvictionManager());
         OwnPtr<WebGraphicsContext3DForTests> context = adoptPtr(new WebGraphicsContext3DForTests);
         m_context = context.get();
         m_drawingBuffer = DrawingBufferForTests::create(context.release(),
-            IntSize(initialWidth, initialHeight), DrawingBuffer::Preserve, contextEvictionManager.release());
+            IntSize(initialWidth, initialHeight), DrawingBuffer::Preserve);
     }
 
     WebGraphicsContext3DForTests* webContext()
@@ -445,14 +434,13 @@ class DrawingBufferImageChromiumTest : public DrawingBufferTest {
 protected:
     virtual void SetUp()
     {
-        RefPtr<FakeContextEvictionManager> contextEvictionManager = adoptRef(new FakeContextEvictionManager());
         OwnPtr<WebGraphicsContext3DForTests> context = adoptPtr(new WebGraphicsContext3DForTests);
         m_context = context.get();
         RuntimeEnabledFeatures::setWebGLImageChromiumEnabled(true);
         m_imageId0 = webContext()->nextImageIdToBeCreated();
         EXPECT_CALL(*webContext(), bindTexImage2DMock(m_imageId0)).Times(1);
         m_drawingBuffer = DrawingBufferForTests::create(context.release(),
-            IntSize(initialWidth, initialHeight), DrawingBuffer::Preserve, contextEvictionManager.release());
+            IntSize(initialWidth, initialHeight), DrawingBuffer::Preserve);
         testing::Mock::VerifyAndClearExpectations(webContext());
     }
 
@@ -540,14 +528,14 @@ public:
     DepthStencilTrackingContext()
         : m_nextRenderBufferId(1)
         , m_stencilAttachment(0)
-        , m_depthAttachment(0) { }
-    virtual ~DepthStencilTrackingContext() { }
+        , m_depthAttachment(0) {}
+    ~DepthStencilTrackingContext() override {}
 
     int numAllocatedRenderBuffer() const { return m_nextRenderBufferId - 1; }
     WebGLId stencilAttachment() const { return m_stencilAttachment; }
     WebGLId depthAttachment() const { return m_depthAttachment; }
 
-    virtual WebString getString(WGC3Denum type) override
+    WebString getString(WGC3Denum type) override
     {
         if (type == GL_EXTENSIONS) {
             return WebString::fromUTF8("GL_OES_packed_depth_stencil");
@@ -555,12 +543,12 @@ public:
         return WebString();
     }
 
-    virtual WebGLId createRenderbuffer() override
+    WebGLId createRenderbuffer() override
     {
         return ++m_nextRenderBufferId;
     }
 
-    virtual void framebufferRenderbuffer(WGC3Denum target, WGC3Denum attachment, WGC3Denum renderbuffertarget, WebGLId renderbuffer) override
+    void framebufferRenderbuffer(WGC3Denum target, WGC3Denum attachment, WGC3Denum renderbuffertarget, WebGLId renderbuffer) override
     {
         if (attachment == GL_STENCIL_ATTACHMENT) {
             m_stencilAttachment = renderbuffer;
@@ -569,7 +557,7 @@ public:
         }
     }
 
-    virtual void getIntegerv(WGC3Denum ptype, WGC3Dint* value) override
+    void getIntegerv(WGC3Denum ptype, WGC3Dint* value) override
     {
         switch (ptype) {
         case GL_DEPTH_BITS:
@@ -622,12 +610,11 @@ TEST(DrawingBufferDepthStencilTest, packedDepthStencilSupported)
         OwnPtr<DepthStencilTrackingContext> context = adoptPtr(new DepthStencilTrackingContext);
         DepthStencilTrackingContext* trackingContext = context.get();
         DrawingBuffer::PreserveDrawingBuffer preserve = DrawingBuffer::Preserve;
-        RefPtr<ContextEvictionManager> contextEvictionManager = adoptRef(new FakeContextEvictionManager);
 
         WebGraphicsContext3D::Attributes requestedAttributes;
         requestedAttributes.stencil = cases[i].requestStencil;
         requestedAttributes.depth = cases[i].requestDepth;
-        RefPtr<DrawingBuffer> drawingBuffer = DrawingBuffer::create(context.release(), IntSize(10, 10), preserve, requestedAttributes, contextEvictionManager);
+        RefPtr<DrawingBuffer> drawingBuffer = DrawingBuffer::create(context.release(), IntSize(10, 10), preserve, requestedAttributes);
 
         EXPECT_EQ(cases[i].requestDepth, drawingBuffer->getActualAttributes().depth);
         EXPECT_EQ(cases[i].requestStencil, drawingBuffer->getActualAttributes().stencil);
@@ -676,4 +663,4 @@ TEST_F(DrawingBufferTest, verifySetIsHiddenProperlyAffectsMailboxes)
     m_drawingBuffer->beginDestruction();
 }
 
-} // namespace
+} // namespace blink

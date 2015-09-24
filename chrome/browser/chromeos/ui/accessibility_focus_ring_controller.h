@@ -13,7 +13,7 @@
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/ui/accessibility_focus_ring_layer.h"
 #include "ui/compositor/compositor_animation_observer.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace ui {
 class Compositor;
@@ -36,7 +36,7 @@ class AccessibilityFocusRingController
 
  protected:
   AccessibilityFocusRingController();
-  virtual ~AccessibilityFocusRingController();
+  ~AccessibilityFocusRingController() override;
 
   // Given an unordered vector of bounding rectangles that cover everything
   // that currently has focus, populate a vector of one or more
@@ -50,10 +50,11 @@ class AccessibilityFocusRingController
 
  private:
   // FocusRingLayerDelegate.
-  virtual void OnDeviceScaleFactorChanged() override;
+  void OnDeviceScaleFactorChanged() override;
 
   // CompositorAnimationObserver.
-  virtual void OnAnimationStep(base::TimeTicks timestamp) override;
+  void OnAnimationStep(base::TimeTicks timestamp) override;
+  void OnCompositingShuttingDown(ui::Compositor* compositor) override;
 
   void Update();
 

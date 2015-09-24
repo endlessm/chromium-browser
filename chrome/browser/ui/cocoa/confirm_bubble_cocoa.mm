@@ -10,8 +10,8 @@
 #include "chrome/browser/ui/confirm_bubble.h"
 #include "chrome/browser/ui/confirm_bubble_model.h"
 #import "third_party/google_toolbox_for_mac/src/AppKit/GTMNSBezierPath+RoundRect.h"
+#include "ui/gfx/geometry/point.h"
 #include "ui/gfx/image/image.h"
-#include "ui/gfx/point.h"
 
 // The width for the message text. We break lines so the specified message fits
 // into this width.
@@ -47,14 +47,14 @@ namespace chrome {
 void ShowConfirmBubble(gfx::NativeWindow window,
                        gfx::NativeView anchor_view,
                        const gfx::Point& origin,
-                       ConfirmBubbleModel* model) {
+                       scoped_ptr<ConfirmBubbleModel> model) {
   // Create a custom NSViewController that manages a bubble view, and add it to
   // a child to the specified |anchor_view|. This controller will be
   // automatically deleted when it loses first-responder status.
   ConfirmBubbleController* controller =
       [[ConfirmBubbleController alloc] initWithParent:anchor_view
                                                origin:origin.ToCGPoint()
-                                                model:model];
+                                                model:model.Pass()];
   [anchor_view addSubview:[controller view]
                positioned:NSWindowAbove
                relativeTo:nil];

@@ -10,15 +10,19 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted_memory.h"
-#include "base/message_loop/message_loop.h"
 #include "base/prefs/pref_service.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
+#include "base/strings/pattern.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/apps/scoped_keep_alive.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/api/tabs/tabs_constants.h"
@@ -43,11 +47,10 @@
 #include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/panels/panel_manager.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/tabs/tab_utils.h"
 #include "chrome/browser/ui/window_sizer/window_sizer.h"
-#include "chrome/browser/ui/zoom/zoom_controller.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/extensions/api/i18n/default_locale_handler.h"
 #include "chrome/common/extensions/api/tabs.h"
 #include "chrome/common/extensions/api/windows.h"
 #include "chrome/common/extensions/extension_constants.h"
@@ -56,12 +59,12 @@
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/translate/core/browser/language_state.h"
 #include "components/translate/core/common/language_detection_details.h"
+#include "components/ui/zoom/zoom_controller.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/render_process_host.h"
-#include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/url_constants.h"
@@ -69,13 +72,16 @@
 #include "extensions/browser/extension_function_dispatcher.h"
 #include "extensions/browser/extension_function_util.h"
 #include "extensions/browser/extension_host.h"
+#include "extensions/browser/extension_zoom_request_client.h"
 #include "extensions/browser/file_reader.h"
 #include "extensions/browser/script_executor.h"
 #include "extensions/common/api/extension_types.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/error_utils.h"
 #include "extensions/common/extension.h"
+#include "extensions/common/host_id.h"
 #include "extensions/common/manifest_constants.h"
+#include "extensions/common/manifest_handlers/default_locale_handler.h"
 #include "extensions/common/message_bundle.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "extensions/common/user_script.h"
@@ -97,6 +103,7 @@ using content::NavigationEntry;
 using content::OpenURLParams;
 using content::Referrer;
 using content::WebContents;
+using ui_zoom::ZoomController;
 
 namespace extensions {
 
@@ -178,6 +185,54 @@ void AssignOptionalValue(const scoped_ptr<T>& source,
   }
 }
 
+ui::WindowShowState ConvertToWindowShowState(windows::WindowState state) {
+  switch (state) {
+    case windows::WINDOW_STATE_NORMAL:
+    case windows::WINDOW_STATE_DOCKED:
+      return ui::SHOW_STATE_NORMAL;
+    case windows::WINDOW_STATE_MINIMIZED:
+      return ui::SHOW_STATE_MINIMIZED;
+    case windows::WINDOW_STATE_MAXIMIZED:
+      return ui::SHOW_STATE_MAXIMIZED;
+    case windows::WINDOW_STATE_FULLSCREEN:
+      return ui::SHOW_STATE_FULLSCREEN;
+    case windows::WINDOW_STATE_NONE:
+      return ui::SHOW_STATE_DEFAULT;
+  }
+  NOTREACHED();
+  return ui::SHOW_STATE_DEFAULT;
+}
+
+bool IsValidStateForWindowsCreateFunction(
+    const windows::Create::Params::CreateData* create_data) {
+  if (!create_data)
+    return true;
+
+  bool has_bound = create_data->left || create_data->top ||
+                   create_data->width || create_data->height;
+  bool is_panel =
+      create_data->type == windows::CreateType::CREATE_TYPE_PANEL ||
+      create_data->type == windows::CreateType::CREATE_TYPE_DETACHED_PANEL;
+
+  switch (create_data->state) {
+    case windows::WINDOW_STATE_MINIMIZED:
+      // If minimised, default focused state should be unfocused.
+      return !(create_data->focused && *create_data->focused) && !has_bound &&
+             !is_panel;
+    case windows::WINDOW_STATE_MAXIMIZED:
+    case windows::WINDOW_STATE_FULLSCREEN:
+      // If maximised/fullscreen, default focused state should be focused.
+      return !(create_data->focused && !*create_data->focused) && !has_bound &&
+             !is_panel;
+    case windows::WINDOW_STATE_NORMAL:
+    case windows::WINDOW_STATE_DOCKED:
+    case windows::WINDOW_STATE_NONE:
+      return true;
+  }
+  NOTREACHED();
+  return true;
+}
+
 }  // namespace
 
 void ZoomModeToZoomSettings(ZoomController::ZoomMode zoom_mode,
@@ -185,20 +240,20 @@ void ZoomModeToZoomSettings(ZoomController::ZoomMode zoom_mode,
   DCHECK(zoom_settings);
   switch (zoom_mode) {
     case ZoomController::ZOOM_MODE_DEFAULT:
-      zoom_settings->mode = api::tabs::ZoomSettings::MODE_AUTOMATIC;
-      zoom_settings->scope = api::tabs::ZoomSettings::SCOPE_PER_ORIGIN;
+      zoom_settings->mode = api::tabs::ZOOM_SETTINGS_MODE_AUTOMATIC;
+      zoom_settings->scope = api::tabs::ZOOM_SETTINGS_SCOPE_PER_ORIGIN;
       break;
     case ZoomController::ZOOM_MODE_ISOLATED:
-      zoom_settings->mode = api::tabs::ZoomSettings::MODE_AUTOMATIC;
-      zoom_settings->scope = api::tabs::ZoomSettings::SCOPE_PER_TAB;
+      zoom_settings->mode = api::tabs::ZOOM_SETTINGS_MODE_AUTOMATIC;
+      zoom_settings->scope = api::tabs::ZOOM_SETTINGS_SCOPE_PER_TAB;
       break;
     case ZoomController::ZOOM_MODE_MANUAL:
-      zoom_settings->mode = api::tabs::ZoomSettings::MODE_MANUAL;
-      zoom_settings->scope = api::tabs::ZoomSettings::SCOPE_PER_TAB;
+      zoom_settings->mode = api::tabs::ZOOM_SETTINGS_MODE_MANUAL;
+      zoom_settings->scope = api::tabs::ZOOM_SETTINGS_SCOPE_PER_TAB;
       break;
     case ZoomController::ZOOM_MODE_DISABLED:
-      zoom_settings->mode = api::tabs::ZoomSettings::MODE_DISABLED;
-      zoom_settings->scope = api::tabs::ZoomSettings::SCOPE_PER_TAB;
+      zoom_settings->mode = api::tabs::ZOOM_SETTINGS_MODE_DISABLED;
+      zoom_settings->scope = api::tabs::ZOOM_SETTINGS_SCOPE_PER_TAB;
       break;
   }
 }
@@ -291,7 +346,7 @@ bool WindowsGetAllFunction::RunSync() {
   for (WindowControllerList::ControllerList::const_iterator iter =
            windows.begin();
        iter != windows.end(); ++iter) {
-    if (!this->CanOperateOnWindow(*iter))
+    if (!windows_util::CanOperateOnWindow(this, *iter))
       continue;
     if (populate_tabs)
       window_list->Append((*iter)->CreateWindowValueWithTabs(extension()));
@@ -401,6 +456,11 @@ bool WindowsCreateFunction::RunSync() {
       return false;
   }
 
+  if (!IsValidStateForWindowsCreateFunction(create_data)) {
+    error_ = keys::kInvalidWindowStateError;
+    return false;
+  }
+
   Profile* window_profile = GetProfile();
   Browser::Type window_type = Browser::TYPE_TABBED;
   bool create_panel = false;
@@ -429,20 +489,19 @@ bool WindowsCreateFunction::RunSync() {
     // Figure out window type before figuring out bounds so that default
     // bounds can be set according to the window type.
     switch (create_data->type) {
-      case windows::Create::Params::CreateData::TYPE_POPUP:
+      case windows::CREATE_TYPE_POPUP:
         window_type = Browser::TYPE_POPUP;
         extension_id = extension()->id();
         break;
-      case windows::Create::Params::CreateData::TYPE_PANEL:
-      case windows::Create::Params::CreateData::TYPE_DETACHED_PANEL: {
+      case windows::CREATE_TYPE_PANEL:
+      case windows::CREATE_TYPE_DETACHED_PANEL: {
         extension_id = extension()->id();
         bool use_panels = PanelManager::ShouldUsePanels(extension_id);
         if (use_panels) {
           create_panel = true;
           // Non-ash supports both docked and detached panel types.
           if (chrome::GetActiveDesktop() != chrome::HOST_DESKTOP_TYPE_ASH &&
-              create_data->type ==
-              windows::Create::Params::CreateData::TYPE_DETACHED_PANEL) {
+              create_data->type == windows::CREATE_TYPE_DETACHED_PANEL) {
             panel_create_mode = PanelManager::CREATE_AS_DETACHED;
           }
         } else {
@@ -450,8 +509,8 @@ bool WindowsCreateFunction::RunSync() {
         }
         break;
       }
-      case windows::Create::Params::CreateData::TYPE_NONE:
-      case windows::Create::Params::CreateData::TYPE_NORMAL:
+      case windows::CREATE_TYPE_NONE:
+      case windows::CREATE_TYPE_NORMAL:
         break;
       default:
         error_ = keys::kInvalidWindowTypeError;
@@ -509,6 +568,7 @@ bool WindowsCreateFunction::RunSync() {
     if (chrome::GetActiveDesktop() == chrome::HOST_DESKTOP_TYPE_ASH) {
       AppWindow::CreateParams create_params;
       create_params.window_type = AppWindow::WINDOW_TYPE_V1_PANEL;
+      create_params.window_key = extension_id;
       create_params.window_spec.bounds = window_bounds;
       create_params.focused = saw_focus_key && focused;
       AppWindow* app_window = new AppWindow(
@@ -517,7 +577,7 @@ bool WindowsCreateFunction::RunSync() {
           extension());
       AshPanelContents* ash_panel_contents = new AshPanelContents(app_window);
       app_window->Init(urls[0], ash_panel_contents, create_params);
-      SetResult(ash_panel_contents->GetExtensionWindowController()
+      SetResult(ash_panel_contents->GetWindowController()
                     ->CreateWindowValueWithTabs(extension()));
       return true;
     }
@@ -556,6 +616,10 @@ bool WindowsCreateFunction::RunSync() {
         host_desktop_type);
   }
   create_params.initial_show_state = ui::SHOW_STATE_NORMAL;
+  if (create_data && create_data->state) {
+    create_params.initial_show_state =
+        ConvertToWindowShowState(create_data->state);
+  }
   create_params.host_desktop_type = chrome::GetActiveDesktop();
 
   Browser* new_window = new Browser(create_params);
@@ -597,15 +661,22 @@ bool WindowsCreateFunction::RunSync() {
   else
     new_window->window()->ShowInactive();
 
+  WindowController* controller = new_window->extension_window_controller();
+
+#if defined(OS_CHROMEOS)
+  // For ChromeOS, manually Minimize(). Because minimzied window is not
+  // considered to create new window. See http://crbug.com/473228.
+  if (create_params.initial_show_state == ui::SHOW_STATE_MINIMIZED)
+    new_window->window()->Minimize();
+#endif
+
   if (new_window->profile()->IsOffTheRecord() &&
       !GetProfile()->IsOffTheRecord() && !include_incognito()) {
     // Don't expose incognito windows if extension itself works in non-incognito
     // profile and CanCrossIncognito isn't allowed.
     SetResult(base::Value::CreateNullValue());
   } else {
-    SetResult(
-        new_window->extension_window_controller()->CreateWindowValueWithTabs(
-            extension()));
+    SetResult(controller->CreateWindowValueWithTabs(extension()));
   }
 
   return true;
@@ -621,26 +692,8 @@ bool WindowsUpdateFunction::RunSync() {
                                             &controller))
     return false;
 
-  ui::WindowShowState show_state = ui::SHOW_STATE_DEFAULT;  // No change.
-  switch (params->update_info.state) {
-    case windows::Update::Params::UpdateInfo::STATE_NORMAL:
-      show_state = ui::SHOW_STATE_NORMAL;
-      break;
-    case windows::Update::Params::UpdateInfo::STATE_MINIMIZED:
-      show_state = ui::SHOW_STATE_MINIMIZED;
-      break;
-    case windows::Update::Params::UpdateInfo::STATE_MAXIMIZED:
-      show_state = ui::SHOW_STATE_MAXIMIZED;
-      break;
-    case windows::Update::Params::UpdateInfo::STATE_FULLSCREEN:
-      show_state = ui::SHOW_STATE_FULLSCREEN;
-      break;
-    case windows::Update::Params::UpdateInfo::STATE_NONE:
-      break;
-    default:
-      error_ = keys::kInvalidWindowStateError;
-      return false;
-  }
+  ui::WindowShowState show_state =
+      ConvertToWindowShowState(params->update_info.state);
 
   if (show_state != ui::SHOW_STATE_FULLSCREEN &&
       show_state != ui::SHOW_STATE_DEFAULT)
@@ -800,10 +853,8 @@ bool TabsQueryFunction::RunSync() {
   scoped_ptr<tabs::Query::Params> params(tabs::Query::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
-  bool loading_status_set = params->query_info.status !=
-      tabs::Query::Params::QueryInfo::STATUS_NONE;
-  bool loading = params->query_info.status ==
-      tabs::Query::Params::QueryInfo::STATUS_LOADING;
+  bool loading_status_set = params->query_info.status != tabs::TAB_STATUS_NONE;
+  bool loading = params->query_info.status == tabs::TAB_STATUS_LOADING;
 
   URLPatternSet url_patterns;
   if (params->query_info.url.get()) {
@@ -834,11 +885,8 @@ bool TabsQueryFunction::RunSync() {
     index = *params->query_info.index;
 
   std::string window_type;
-  if (params->query_info.window_type !=
-      tabs::Query::Params::QueryInfo::WINDOW_TYPE_NONE) {
-    window_type = tabs::Query::Params::QueryInfo::ToString(
-        params->query_info.window_type);
-  }
+  if (params->query_info.window_type != tabs::WINDOW_TYPE_NONE)
+    window_type = tabs::ToString(params->query_info.window_type);
 
   base::ListValue* result = new base::ListValue();
   Browser* last_active_browser = chrome::FindAnyBrowser(
@@ -854,6 +902,11 @@ bool TabsQueryFunction::RunSync() {
 
     if (!include_incognito() && GetProfile() != browser->profile())
       continue;
+
+    if (!browser->extension_window_controller()->IsVisibleToExtension(
+            extension())) {
+      continue;
+    }
 
     if (window_id >= 0 && window_id != ExtensionTabUtil::GetWindowId(browser))
       continue;
@@ -901,8 +954,18 @@ bool TabsQueryFunction::RunSync() {
         continue;
       }
 
-      if (!title.empty() && !MatchPattern(web_contents->GetTitle(),
-                                          base::UTF8ToUTF16(title)))
+      if (!MatchesBool(params->query_info.audible.get(),
+                       chrome::IsPlayingAudio(web_contents))) {
+        continue;
+      }
+
+      if (!MatchesBool(params->query_info.muted.get(),
+                       chrome::IsTabAudioMuted(web_contents))) {
+        continue;
+      }
+
+      if (!title.empty() && !base::MatchPattern(web_contents->GetTitle(),
+                                                base::UTF8ToUTF16(title)))
         continue;
 
       if (!url_patterns.is_empty() &&
@@ -1021,8 +1084,7 @@ bool TabsGetCurrentFunction::RunSync() {
 
   // Return the caller, if it's a tab. If not the result isn't an error but an
   // empty tab (hence returning true).
-  WebContents* caller_contents =
-      WebContents::FromRenderViewHost(render_view_host());
+  WebContents* caller_contents = GetSenderWebContents();
   if (caller_contents && ExtensionTabUtil::GetTabId(caller_contents) >= 0)
     SetResult(ExtensionTabUtil::CreateTabValue(caller_contents, extension()));
 
@@ -1178,6 +1240,27 @@ bool TabsUpdateFunction::RunAsync() {
     tab_index = tab_strip->GetIndexOfWebContents(contents);
   }
 
+  if (params->update_properties.muted.get()) {
+    if (chrome::IsTabAudioMutingFeatureEnabled()) {
+      if (!chrome::CanToggleAudioMute(contents)) {
+        WriteToConsole(
+            content::CONSOLE_MESSAGE_LEVEL_WARNING,
+            base::StringPrintf(
+                "Cannot update mute state for tab %d, tab has audio or video "
+                "currently being captured",
+                tab_id));
+      } else {
+        chrome::SetTabAudioMuted(contents, *params->update_properties.muted,
+                                 extension()->id());
+      }
+    } else {
+      WriteToConsole(content::CONSOLE_MESSAGE_LEVEL_WARNING,
+                     base::StringPrintf(
+                         "Failed to update mute state, --%s must be enabled",
+                         switches::kEnableTabAudioMuting));
+    }
+  }
+
   if (params->update_properties.opener_tab_id.get()) {
     int opener_id = *params->update_properties.opener_tab_id;
 
@@ -1226,7 +1309,6 @@ bool TabsUpdateFunction::UpdateURL(const std::string &url_string,
     if (!extension()->permissions_data()->CanAccessPage(
             extension(),
             web_contents_->GetURL(),
-            web_contents_->GetURL(),
             tab_id,
             process ? process->GetID() : -1,
             &error_)) {
@@ -1234,7 +1316,7 @@ bool TabsUpdateFunction::UpdateURL(const std::string &url_string,
     }
 
     TabHelper::FromWebContents(web_contents_)->script_executor()->ExecuteScript(
-        extension_id(),
+        HostID(HostID::EXTENSIONS, extension_id()),
         ScriptExecutor::JAVASCRIPT,
         url.GetContent(),
         ScriptExecutor::TOP_FRAME,
@@ -1468,7 +1550,8 @@ bool TabsReloadFunction::RunSync() {
   if (web_contents->ShowingInterstitialPage()) {
     // This does as same as Browser::ReloadInternal.
     NavigationEntry* entry = web_contents->GetController().GetVisibleEntry();
-    OpenURLParams params(entry->GetURL(), Referrer(), CURRENT_TAB,
+    GURL reload_url = entry ? entry->GetURL() : GURL(url::kAboutBlankURL);
+    OpenURLParams params(reload_url, Referrer(), CURRENT_TAB,
                          ui::PAGE_TRANSITION_RELOAD, false);
     GetCurrentBrowser()->OpenURL(params);
   } else if (bypass_cache) {
@@ -1576,10 +1659,7 @@ void TabsCaptureVisibleTabFunction::OnCaptureFailure(FailureReason reason) {
 
 void TabsCaptureVisibleTabFunction::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterBooleanPref(
-      prefs::kDisableScreenshots,
-      false,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterBooleanPref(prefs::kDisableScreenshots, false);
 }
 
 bool TabsDetectLanguageFunction::RunAsync() {
@@ -1631,11 +1711,10 @@ bool TabsDetectLanguageFunction::RunAsync() {
            .empty()) {
     // Delay the callback invocation until after the current JS call has
     // returned.
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(
-            &TabsDetectLanguageFunction::GotLanguage,
-            this,
+            &TabsDetectLanguageFunction::GotLanguage, this,
             chrome_translate_client->GetLanguageState().original_language()));
     return true;
   }
@@ -1723,6 +1802,7 @@ bool ExecuteCodeInTabFunction::Init() {
 
   execute_tab_id_ = tab_id;
   details_ = details.Pass();
+  set_host_id(HostID(HostID::EXTENSIONS, extension()->id()));
   return true;
 }
 
@@ -1750,7 +1830,6 @@ bool ExecuteCodeInTabFunction::CanExecuteScriptOnPage() {
   content::RenderProcessHost* process = contents->GetRenderProcessHost();
   if (!extension()->permissions_data()->CanAccessPage(
           extension(),
-          contents->GetURL(),
           contents->GetURL(),
           execute_tab_id_,
           process ? process->GetID() : -1,
@@ -1839,14 +1918,18 @@ bool TabsSetZoomFunction::RunAsync() {
     return false;
 
   GURL url(web_contents->GetVisibleURL());
-  if (PermissionsData::IsRestrictedUrl(url, url, extension(), &error_))
+  if (PermissionsData::IsRestrictedUrl(url, extension(), &error_))
     return false;
 
   ZoomController* zoom_controller =
       ZoomController::FromWebContents(web_contents);
-  double zoom_level = content::ZoomFactorToZoomLevel(params->zoom_factor);
+  double zoom_level = params->zoom_factor > 0
+                          ? content::ZoomFactorToZoomLevel(params->zoom_factor)
+                          : zoom_controller->GetDefaultZoomLevel();
 
-  if (!zoom_controller->SetZoomLevelByExtension(zoom_level, extension())) {
+  scoped_refptr<ExtensionZoomRequestClient> client(
+      new ExtensionZoomRequestClient(extension()));
+  if (!zoom_controller->SetZoomLevelByClient(zoom_level, client)) {
     // Tried to zoom a tab in disabled mode.
     error_ = keys::kCannotZoomDisabledTabError;
     return false;
@@ -1887,13 +1970,13 @@ bool TabsSetZoomSettingsFunction::RunAsync() {
     return false;
 
   GURL url(web_contents->GetVisibleURL());
-  if (PermissionsData::IsRestrictedUrl(url, url, extension(), &error_))
+  if (PermissionsData::IsRestrictedUrl(url, extension(), &error_))
     return false;
 
   // "per-origin" scope is only available in "automatic" mode.
-  if (params->zoom_settings.scope == ZoomSettings::SCOPE_PER_ORIGIN &&
-      params->zoom_settings.mode != ZoomSettings::MODE_AUTOMATIC &&
-      params->zoom_settings.mode != ZoomSettings::MODE_NONE) {
+  if (params->zoom_settings.scope == tabs::ZOOM_SETTINGS_SCOPE_PER_ORIGIN &&
+      params->zoom_settings.mode != tabs::ZOOM_SETTINGS_MODE_AUTOMATIC &&
+      params->zoom_settings.mode != tabs::ZOOM_SETTINGS_MODE_NONE) {
     error_ = keys::kPerOriginOnlyInAutomaticError;
     return false;
   }
@@ -1902,21 +1985,21 @@ bool TabsSetZoomSettingsFunction::RunAsync() {
   // user-specified |zoom_settings|.
   ZoomController::ZoomMode zoom_mode = ZoomController::ZOOM_MODE_DEFAULT;
   switch (params->zoom_settings.mode) {
-    case ZoomSettings::MODE_NONE:
-    case ZoomSettings::MODE_AUTOMATIC:
+    case tabs::ZOOM_SETTINGS_MODE_NONE:
+    case tabs::ZOOM_SETTINGS_MODE_AUTOMATIC:
       switch (params->zoom_settings.scope) {
-        case ZoomSettings::SCOPE_NONE:
-        case ZoomSettings::SCOPE_PER_ORIGIN:
+        case tabs::ZOOM_SETTINGS_SCOPE_NONE:
+        case tabs::ZOOM_SETTINGS_SCOPE_PER_ORIGIN:
           zoom_mode = ZoomController::ZOOM_MODE_DEFAULT;
           break;
-        case ZoomSettings::SCOPE_PER_TAB:
+        case tabs::ZOOM_SETTINGS_SCOPE_PER_TAB:
           zoom_mode = ZoomController::ZOOM_MODE_ISOLATED;
       }
       break;
-    case ZoomSettings::MODE_MANUAL:
+    case tabs::ZOOM_SETTINGS_MODE_MANUAL:
       zoom_mode = ZoomController::ZOOM_MODE_MANUAL;
       break;
-    case ZoomSettings::MODE_DISABLED:
+    case tabs::ZOOM_SETTINGS_MODE_DISABLED:
       zoom_mode = ZoomController::ZOOM_MODE_DISABLED;
   }
 
@@ -1941,6 +2024,8 @@ bool TabsGetZoomSettingsFunction::RunAsync() {
   ZoomController::ZoomMode zoom_mode = zoom_controller->zoom_mode();
   api::tabs::ZoomSettings zoom_settings;
   ZoomModeToZoomSettings(zoom_mode, &zoom_settings);
+  zoom_settings.default_zoom_factor.reset(new double(
+      content::ZoomLevelToZoomFactor(zoom_controller->GetDefaultZoomLevel())));
 
   results_ = api::tabs::GetZoomSettings::Results::Create(zoom_settings);
   SendResponse(true);

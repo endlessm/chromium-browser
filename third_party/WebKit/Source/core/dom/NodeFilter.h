@@ -77,14 +77,14 @@ public:
         return adoptRefWillBeNoop(new NodeFilter());
     }
 
-    short acceptNode(Node*, ExceptionState&) const;
+    unsigned acceptNode(Node*, ExceptionState&) const;
 
     void setCondition(PassRefPtrWillBeRawPtr<NodeFilterCondition> condition)
     {
         m_condition = condition;
     }
 
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
 private:
     explicit NodeFilter(PassRefPtrWillBeRawPtr<NodeFilterCondition> condition) : m_condition(condition) { }

@@ -11,8 +11,9 @@
 #include "base/callback_forward.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/threading/thread_checker.h"
 #include "chrome/browser/drive/drive_service_interface.h"
-#include "google_apis/drive/gdata_errorcode.h"
+#include "google_apis/drive/drive_api_error_codes.h"
 
 class GURL;
 
@@ -33,19 +34,24 @@ class DriveServiceInterface;
 // terminated before the completion due to some errors. It can be used to
 // resume it.
 typedef base::Callback<void(
-    google_apis::GDataErrorCode error,
+    google_apis::DriveApiErrorCode error,
     const GURL& upload_location,
     scoped_ptr<google_apis::FileResource> resource_entry)>
     UploadCompletionCallback;
 
 class DriveUploaderInterface {
  public:
-  typedef DriveServiceInterface::InitiateUploadNewFileOptions
-      UploadNewFileOptions;
-  typedef DriveServiceInterface::InitiateUploadExistingFileOptions
-      UploadExistingFileOptions;
-
   virtual ~DriveUploaderInterface() {}
+
+  // Starts batch processing for upload requests. All requests which upload
+  // small files (less than kMaxMultipartUploadSize) between
+  // |StartBatchProcessing| and |StopBatchProcessing| are sent as a single batch
+  // request.
+  virtual void StartBatchProcessing() = 0;
+
+  // Stops batch processing. Must be called after calling |StartBatchProcessing|
+  // to commit requests.
+  virtual void StopBatchProcessing() = 0;
 
   // Uploads a new file to a directory specified by |upload_location|.
   // Returns a callback for cancelling the uploading job.
@@ -118,6 +124,8 @@ class DriveUploader : public DriveUploaderInterface {
   ~DriveUploader() override;
 
   // DriveUploaderInterface overrides.
+  void StartBatchProcessing() override;
+  void StopBatchProcessing() override;
   google_apis::CancelCallback UploadNewFile(
       const std::string& parent_resource_id,
       const base::FilePath& local_file_path,
@@ -141,6 +149,7 @@ class DriveUploader : public DriveUploaderInterface {
       const google_apis::ProgressCallback& progress_callback) override;
 
  private:
+  class RefCountedBatchRequest;
   struct UploadFileInfo;
   typedef base::Callback<void(scoped_ptr<UploadFileInfo> upload_file_info)>
       StartInitiateUploadCallback;
@@ -154,24 +163,33 @@ class DriveUploader : public DriveUploaderInterface {
       const StartInitiateUploadCallback& start_initiate_upload_callback,
       bool get_file_size_result);
 
-  // Starts to initiate the new file uploading.
-  // Upon completion, OnUploadLocationReceived should be called.
-  void StartInitiateUploadNewFile(
+  // Checks file size and call InitiateUploadNewFile or MultipartUploadNewFile
+  // API.  Upon completion, OnUploadLocationReceived (for InitiateUploadNewFile)
+  // or OnMultipartUploadComplete (for MultipartUploadNewFile) should be called.
+  // If |batch_request| is non-null, it calls the API function on the batch
+  // request.
+  void CallUploadServiceAPINewFile(
       const std::string& parent_resource_id,
       const std::string& title,
       const UploadNewFileOptions& options,
+      const scoped_refptr<RefCountedBatchRequest>& batch_request,
       scoped_ptr<UploadFileInfo> upload_file_info);
 
-  // Starts to initiate the existing file uploading.
-  // Upon completion, OnUploadLocationReceived should be called.
-  void StartInitiateUploadExistingFile(
+  // Checks file size and call InitiateUploadExistingFile or
+  // MultipartUploadExistingFile API.  Upon completion, OnUploadLocationReceived
+  // (for InitiateUploadExistingFile) or OnMultipartUploadComplete (for
+  // MultipartUploadExistingFile) should be called.
+  // If |batch_request| is non-null, it calls the API function on the batch
+  // request.
+  void CallUploadServiceAPIExistingFile(
       const std::string& resource_id,
       const UploadExistingFileOptions& options,
+      const scoped_refptr<RefCountedBatchRequest>& batch_request,
       scoped_ptr<UploadFileInfo> upload_file_info);
 
   // DriveService callback for InitiateUpload.
   void OnUploadLocationReceived(scoped_ptr<UploadFileInfo> upload_file_info,
-                                google_apis::GDataErrorCode code,
+                                google_apis::DriveApiErrorCode code,
                                 const GURL& upload_location);
 
   // Starts to get the current upload status for the file uploading.
@@ -192,15 +210,24 @@ class DriveUploader : public DriveUploaderInterface {
                         int64 progress_of_chunk,
                         int64 total_of_chunk);
 
-  // Handle failed uploads.
+  // Handles failed uploads.
   void UploadFailed(scoped_ptr<UploadFileInfo> upload_file_info,
-                    google_apis::GDataErrorCode error);
+                    google_apis::DriveApiErrorCode error);
+
+  // Handles completion/error of multipart uploading.
+  void OnMultipartUploadComplete(scoped_ptr<UploadFileInfo> upload_file_info,
+                                 google_apis::DriveApiErrorCode error,
+                                 scoped_ptr<google_apis::FileResource> entry);
+
+  // The class is expected to run on UI thread.
+  base::ThreadChecker thread_checker_;
 
   // The lifetime of this object should be guaranteed to exceed that of the
   // DriveUploader instance.
   DriveServiceInterface* drive_service_;  // Not owned by this class.
 
   scoped_refptr<base::TaskRunner> blocking_task_runner_;
+  scoped_refptr<RefCountedBatchRequest> current_batch_request_;
 
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate its weak pointers before any other members are destroyed.

@@ -11,19 +11,18 @@ namespace v8 {
 namespace internal {
 namespace compiler {
 
-RawMachineAssembler::RawMachineAssembler(Graph* graph,
-                                         MachineSignature* machine_sig,
+RawMachineAssembler::RawMachineAssembler(Isolate* isolate, Graph* graph,
+                                         const MachineSignature* machine_sig,
                                          MachineType word,
                                          MachineOperatorBuilder::Flags flags)
-    : GraphBuilder(graph),
+    : GraphBuilder(isolate, graph),
       schedule_(new (zone()) Schedule(zone())),
-      machine_(word, flags),
+      machine_(zone(), word, flags),
       common_(zone()),
       machine_sig_(machine_sig),
       call_descriptor_(
           Linkage::GetSimplifiedCDescriptor(graph->zone(), machine_sig)),
       parameters_(NULL),
-      exit_label_(schedule()->end()),
       current_block_(schedule()->start()) {
   int param_count = static_cast<int>(parameter_count());
   Node* s = graph->NewNode(common_.Start(param_count));
@@ -40,8 +39,7 @@ RawMachineAssembler::RawMachineAssembler(Graph* graph,
 Schedule* RawMachineAssembler::Export() {
   // Compute the correct codegen order.
   DCHECK(schedule_->rpo_order()->empty());
-  ZonePool zone_pool(isolate());
-  Scheduler::ComputeSpecialRPO(&zone_pool, schedule_);
+  Scheduler::ComputeSpecialRPO(zone(), schedule_);
   // Invalidate MachineAssembler.
   Schedule* schedule = schedule_;
   schedule_ = NULL;
@@ -52,12 +50,6 @@ Schedule* RawMachineAssembler::Export() {
 Node* RawMachineAssembler::Parameter(size_t index) {
   DCHECK(index < parameter_count());
   return parameters_[index];
-}
-
-
-RawMachineAssembler::Label* RawMachineAssembler::Exit() {
-  exit_label_.used_ = true;
-  return &exit_label_;
 }
 
 
@@ -77,8 +69,33 @@ void RawMachineAssembler::Branch(Node* condition, Label* true_val,
 }
 
 
+void RawMachineAssembler::Switch(Node* index, Label* default_label,
+                                 int32_t* case_values, Label** case_labels,
+                                 size_t case_count) {
+  DCHECK_NE(schedule()->end(), current_block_);
+  size_t succ_count = case_count + 1;
+  Node* switch_node = NewNode(common()->Switch(succ_count), index);
+  BasicBlock** succ_blocks = zone()->NewArray<BasicBlock*>(succ_count);
+  for (size_t index = 0; index < case_count; ++index) {
+    int32_t case_value = case_values[index];
+    BasicBlock* case_block = Use(case_labels[index]);
+    Node* case_node =
+        graph()->NewNode(common()->IfValue(case_value), switch_node);
+    schedule()->AddNode(case_block, case_node);
+    succ_blocks[index] = case_block;
+  }
+  BasicBlock* default_block = Use(default_label);
+  Node* default_node = graph()->NewNode(common()->IfDefault(), switch_node);
+  schedule()->AddNode(default_block, default_node);
+  succ_blocks[case_count] = default_block;
+  schedule()->AddSwitch(CurrentBlock(), switch_node, succ_blocks, succ_count);
+  current_block_ = nullptr;
+}
+
+
 void RawMachineAssembler::Return(Node* value) {
-  schedule()->AddReturn(CurrentBlock(), value);
+  Node* ret = NewNode(common()->Return(), value);
+  schedule()->AddReturn(CurrentBlock(), ret);
   current_block_ = NULL;
 }
 
@@ -88,7 +105,8 @@ Node* RawMachineAssembler::CallFunctionStub0(Node* function, Node* receiver,
                                              CallFunctionFlags flags) {
   Callable callable = CodeFactory::CallFunction(isolate(), 0, flags);
   CallDescriptor* desc = Linkage::GetStubCallDescriptor(
-      callable.descriptor(), 1, CallDescriptor::kNeedsFrameState, zone());
+      isolate(), zone(), callable.descriptor(), 1,
+      CallDescriptor::kNeedsFrameState, Operator::kNoProperties);
   Node* stub_code = HeapConstant(callable.code());
   Node* call = graph()->NewNode(common()->Call(desc), stub_code, function,
                                 receiver, context, frame_state);
@@ -99,8 +117,8 @@ Node* RawMachineAssembler::CallFunctionStub0(Node* function, Node* receiver,
 
 Node* RawMachineAssembler::CallJS0(Node* function, Node* receiver,
                                    Node* context, Node* frame_state) {
-  CallDescriptor* descriptor =
-      Linkage::GetJSCallDescriptor(1, zone(), CallDescriptor::kNeedsFrameState);
+  CallDescriptor* descriptor = Linkage::GetJSCallDescriptor(
+      zone(), false, 1, CallDescriptor::kNeedsFrameState);
   Node* call = graph()->NewNode(common()->Call(descriptor), function, receiver,
                                 context, frame_state);
   schedule()->AddNode(CurrentBlock(), call);
@@ -112,7 +130,7 @@ Node* RawMachineAssembler::CallRuntime1(Runtime::FunctionId function,
                                         Node* arg0, Node* context,
                                         Node* frame_state) {
   CallDescriptor* descriptor = Linkage::GetRuntimeCallDescriptor(
-      function, 1, Operator::kNoProperties, zone());
+      zone(), function, 1, Operator::kNoProperties);
 
   Node* centry = HeapConstant(CEntryStub(isolate(), 1).GetCode());
   Node* ref = NewNode(
@@ -121,6 +139,78 @@ Node* RawMachineAssembler::CallRuntime1(Runtime::FunctionId function,
 
   Node* call = graph()->NewNode(common()->Call(descriptor), centry, arg0, ref,
                                 arity, context, frame_state);
+  schedule()->AddNode(CurrentBlock(), call);
+  return call;
+}
+
+
+Node* RawMachineAssembler::CallCFunction0(MachineType return_type,
+                                          Node* function) {
+  MachineSignature::Builder builder(zone(), 1, 0);
+  builder.AddReturn(return_type);
+  const CallDescriptor* descriptor =
+      Linkage::GetSimplifiedCDescriptor(zone(), builder.Build());
+
+  Node* call = graph()->NewNode(common()->Call(descriptor), function);
+  schedule()->AddNode(CurrentBlock(), call);
+  return call;
+}
+
+
+Node* RawMachineAssembler::CallCFunction1(MachineType return_type,
+                                          MachineType arg0_type, Node* function,
+                                          Node* arg0) {
+  MachineSignature::Builder builder(zone(), 1, 1);
+  builder.AddReturn(return_type);
+  builder.AddParam(arg0_type);
+  const CallDescriptor* descriptor =
+      Linkage::GetSimplifiedCDescriptor(zone(), builder.Build());
+
+  Node* call = graph()->NewNode(common()->Call(descriptor), function, arg0);
+  schedule()->AddNode(CurrentBlock(), call);
+  return call;
+}
+
+
+Node* RawMachineAssembler::CallCFunction2(MachineType return_type,
+                                          MachineType arg0_type,
+                                          MachineType arg1_type, Node* function,
+                                          Node* arg0, Node* arg1) {
+  MachineSignature::Builder builder(zone(), 1, 2);
+  builder.AddReturn(return_type);
+  builder.AddParam(arg0_type);
+  builder.AddParam(arg1_type);
+  const CallDescriptor* descriptor =
+      Linkage::GetSimplifiedCDescriptor(zone(), builder.Build());
+
+  Node* call =
+      graph()->NewNode(common()->Call(descriptor), function, arg0, arg1);
+  schedule()->AddNode(CurrentBlock(), call);
+  return call;
+}
+
+
+Node* RawMachineAssembler::CallCFunction8(
+    MachineType return_type, MachineType arg0_type, MachineType arg1_type,
+    MachineType arg2_type, MachineType arg3_type, MachineType arg4_type,
+    MachineType arg5_type, MachineType arg6_type, MachineType arg7_type,
+    Node* function, Node* arg0, Node* arg1, Node* arg2, Node* arg3, Node* arg4,
+    Node* arg5, Node* arg6, Node* arg7) {
+  MachineSignature::Builder builder(zone(), 1, 8);
+  builder.AddReturn(return_type);
+  builder.AddParam(arg0_type);
+  builder.AddParam(arg1_type);
+  builder.AddParam(arg2_type);
+  builder.AddParam(arg3_type);
+  builder.AddParam(arg4_type);
+  builder.AddParam(arg5_type);
+  builder.AddParam(arg6_type);
+  builder.AddParam(arg7_type);
+  const CallDescriptor* descriptor =
+      Linkage::GetSimplifiedCDescriptor(zone(), builder.Build());
+
+  Node* call = graph()->NewNode(common()->Call(descriptor), function, arg0,
+                                arg1, arg2, arg3, arg4, arg5, arg6, arg7);
   schedule()->AddNode(CurrentBlock(), call);
   return call;
 }
@@ -159,7 +249,9 @@ Node* RawMachineAssembler::MakeNode(const Operator* op, int input_count,
   Node* node = graph()->NewNode(op, input_count, inputs, incomplete);
   BasicBlock* block = op->opcode() == IrOpcode::kParameter ? schedule()->start()
                                                            : CurrentBlock();
-  schedule()->AddNode(block, node);
+  if (op->opcode() != IrOpcode::kReturn) {
+    schedule()->AddNode(block, node);
+  }
   return node;
 }
 

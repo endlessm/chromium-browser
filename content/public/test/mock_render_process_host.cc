@@ -4,6 +4,10 @@
 
 #include "content/public/test/mock_render_process_host.h"
 
+#include <algorithm>
+#include <utility>
+#include <vector>
+
 #include "base/lazy_instance.h"
 #include "base/message_loop/message_loop.h"
 #include "base/process/process_handle.h"
@@ -13,7 +17,13 @@
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/common/child_process_host_impl.h"
+#include "content/common/frame_messages.h"
+#include "content/public/browser/browser_context.h"
 #include "content/public/browser/global_request_id.h"
+#include "content/public/browser/notification_details.h"
+#include "content/public/browser/notification_service.h"
+#include "content/public/browser/notification_source.h"
+#include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_widget_host_iterator.h"
 #include "content/public/browser/storage_partition.h"
 
@@ -23,11 +33,12 @@ MockRenderProcessHost::MockRenderProcessHost(BrowserContext* browser_context)
     : bad_msg_count_(0),
       factory_(NULL),
       id_(ChildProcessHostImpl::GenerateChildProcessUniqueId()),
+      has_connection_(false),
       browser_context_(browser_context),
       prev_routing_id_(0),
       fast_shutdown_started_(false),
       deletion_callback_called_(false),
-      is_isolated_guest_(false) {
+      is_for_guests_only_(false) {
   // Child process security operations can't be unit tested unless we add
   // ourselves as an existing child process.
   ChildProcessSecurityPolicyImpl::GetInstance()->Add(GetID());
@@ -49,10 +60,42 @@ MockRenderProcessHost::~MockRenderProcessHost() {
   }
 }
 
+void MockRenderProcessHost::SimulateCrash() {
+  has_connection_ = false;
+  RenderProcessHost::RendererClosedDetails details(
+      base::TERMINATION_STATUS_PROCESS_CRASHED, 0);
+  NotificationService::current()->Notify(
+      NOTIFICATION_RENDERER_PROCESS_CLOSED, Source<RenderProcessHost>(this),
+      Details<RenderProcessHost::RendererClosedDetails>(&details));
+
+  FOR_EACH_OBSERVER(
+      RenderProcessHostObserver, observers_,
+      RenderProcessExited(this, details.status, details.exit_code));
+
+  // Send every routing ID a FrameHostMsg_RenderProcessGone message. To ensure a
+  // predictable order for unittests which may assert against the order, we sort
+  // the listeners by descending routing ID, instead of using the arbitrary
+  // hash-map order like RenderProcessHostImpl.
+  std::vector<std::pair<int32, IPC::Listener*>> sorted_listeners_;
+  IDMap<IPC::Listener>::iterator iter(&listeners_);
+  while (!iter.IsAtEnd()) {
+    sorted_listeners_.push_back(
+        std::make_pair(iter.GetCurrentKey(), iter.GetCurrentValue()));
+    iter.Advance();
+  }
+  std::sort(sorted_listeners_.rbegin(), sorted_listeners_.rend());
+
+  for (auto& entry_pair : sorted_listeners_) {
+    entry_pair.second->OnMessageReceived(FrameHostMsg_RenderProcessGone(
+        entry_pair.first, static_cast<int>(details.status), details.exit_code));
+  }
+}
+
 void MockRenderProcessHost::EnableSendQueue() {
 }
 
 bool MockRenderProcessHost::Init() {
+  has_connection_ = true;
   return true;
 }
 
@@ -81,7 +124,7 @@ void MockRenderProcessHost::RemoveObserver(
   observers_.RemoveObserver(observer);
 }
 
-void MockRenderProcessHost::ReceivedBadMessage() {
+void MockRenderProcessHost::ShutdownForBadMessage() {
   ++bad_msg_count_;
 }
 
@@ -95,15 +138,19 @@ int MockRenderProcessHost::VisibleWidgetCount() const {
   return 1;
 }
 
-bool MockRenderProcessHost::IsIsolatedGuest() const {
-  return is_isolated_guest_;
+bool MockRenderProcessHost::IsForGuestsOnly() const {
+  return is_for_guests_only_;
 }
 
 StoragePartition* MockRenderProcessHost::GetStoragePartition() const {
-  return NULL;
+  return BrowserContext::GetDefaultStoragePartition(browser_context_);
 }
 
 void MockRenderProcessHost::AddWord(const base::string16& word) {
+}
+
+bool MockRenderProcessHost::Shutdown(int exit_code, bool wait) {
+  return true;
 }
 
 bool MockRenderProcessHost::FastShutdownIfPossible() {
@@ -115,9 +162,6 @@ bool MockRenderProcessHost::FastShutdownIfPossible() {
 
 bool MockRenderProcessHost::FastShutdownStarted() const {
   return fast_shutdown_started_;
-}
-
-void MockRenderProcessHost::DumpHandles() {
 }
 
 base::ProcessHandle MockRenderProcessHost::GetHandle() const {
@@ -140,7 +184,7 @@ int MockRenderProcessHost::GetID() const {
 }
 
 bool MockRenderProcessHost::HasConnection() const {
-  return true;
+  return has_connection_;
 }
 
 void MockRenderProcessHost::SetIgnoreInputEvents(bool ignore_input_events) {
@@ -191,18 +235,6 @@ IPC::ChannelProxy* MockRenderProcessHost::GetChannel() {
 void MockRenderProcessHost::AddFilter(BrowserMessageFilter* filter) {
 }
 
-int MockRenderProcessHost::GetActiveViewCount() {
-  int num_active_views = 0;
-  scoped_ptr<RenderWidgetHostIterator> widgets(
-      RenderWidgetHost::GetRenderWidgetHosts());
-  while (RenderWidgetHost* widget = widgets->GetNextHost()) {
-    // Count only RenderWidgetHosts in this process.
-    if (widget->GetProcess()->GetID() == GetID())
-      num_active_views++;
-  }
-  return num_active_views;
-}
-
 bool MockRenderProcessHost::FastShutdownForPageCount(size_t count) {
   if (static_cast<size_t>(GetActiveViewCount()) == count)
     return FastShutdownIfPossible();
@@ -216,7 +248,7 @@ base::TimeDelta MockRenderProcessHost::GetChildProcessIdleTime() const {
 void MockRenderProcessHost::ResumeRequestsForView(int route_id) {
 }
 
-void MockRenderProcessHost::NotifyTimezoneChange() {
+void MockRenderProcessHost::NotifyTimezoneChange(const std::string& zone_id) {
 }
 
 ServiceRegistry* MockRenderProcessHost::GetServiceRegistry() {
@@ -228,6 +260,27 @@ const base::TimeTicks& MockRenderProcessHost::GetInitTimeForNavigationMetrics()
   static base::TimeTicks dummy_time = base::TimeTicks::Now();
   return dummy_time;
 }
+
+bool MockRenderProcessHost::SubscribeUniformEnabled() const {
+  return false;
+}
+
+void MockRenderProcessHost::OnAddSubscription(unsigned int target) {
+}
+
+void MockRenderProcessHost::OnRemoveSubscription(unsigned int target) {
+}
+
+void MockRenderProcessHost::SendUpdateValueState(
+    unsigned int target, const gpu::ValueState& state) {
+}
+
+#if defined(ENABLE_BROWSER_CDMS)
+media::BrowserCdm* MockRenderProcessHost::GetBrowserCdm(int render_frame_id,
+                                                        int cdm_id) const {
+  return nullptr;
+}
+#endif
 
 void MockRenderProcessHost::FilterURL(bool empty_allowed, GURL* url) {
   RenderProcessHostImpl::FilterURL(this, empty_allowed, url);

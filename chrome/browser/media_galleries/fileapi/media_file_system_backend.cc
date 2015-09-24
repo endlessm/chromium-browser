@@ -10,11 +10,11 @@
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -28,10 +28,11 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/resource_request_info.h"
+#include "content/public/browser/web_contents.h"
 #include "extensions/browser/extension_system.h"
 #include "net/url_request/url_request.h"
-#include "storage/browser/blob/file_stream_reader.h"
 #include "storage/browser/fileapi/copy_or_move_file_validator.h"
+#include "storage/browser/fileapi/file_stream_reader.h"
 #include "storage/browser/fileapi/file_stream_writer.h"
 #include "storage/browser/fileapi/file_system_context.h"
 #include "storage/browser/fileapi/file_system_operation.h"
@@ -64,8 +65,9 @@ void OnPreferencesInit(
     const base::Callback<void(base::File::Error result)>& callback) {
   MediaFileSystemRegistry* registry =
       g_browser_process->media_file_system_registry();
-  registry->RegisterMediaFileSystemForExtension(rvh, extension, pref_id,
-                                                callback);
+  registry->RegisterMediaFileSystemForExtension(
+      content::WebContents::FromRenderViewHost(rvh), extension, pref_id,
+      callback);
 }
 
 void AttemptAutoMountOnUIThread(
@@ -91,9 +93,9 @@ void AttemptAutoMountOnUIThread(
         MediaFileSystemBackend::ConstructMountName(
             profile->GetPath(), storage_domain, kInvalidMediaGalleryPrefId);
     MediaGalleryPrefId pref_id = kInvalidMediaGalleryPrefId;
-    if (extension &&
-        extension->id() == storage_domain &&
-        StartsWithASCII(mount_point, expected_mount_prefix, true) &&
+    if (extension && extension->id() == storage_domain &&
+        base::StartsWith(mount_point, expected_mount_prefix,
+                         base::CompareCase::SENSITIVE) &&
         base::StringToUint64(mount_point.substr(expected_mount_prefix.size()),
                              &pref_id) &&
         pref_id != kInvalidMediaGalleryPrefId) {
@@ -197,7 +199,8 @@ bool MediaFileSystemBackend::AttemptAutoMountForURLRequest(
   if (components.empty())
     return false;
   std::string mount_point = base::FilePath(components[0]).AsUTF8Unsafe();
-  if (!StartsWithASCII(mount_point, kMediaGalleryMountPrefix, true))
+  if (!base::StartsWith(mount_point, kMediaGalleryMountPrefix,
+                        base::CompareCase::SENSITIVE))
     return false;
 
   const content::ResourceRequestInfo* request_info =
@@ -239,7 +242,7 @@ void MediaFileSystemBackend::ResolveURL(
     storage::OpenFileSystemMode mode,
     const OpenFileSystemCallback& callback) {
   // We never allow opening a new FileSystem via usual ResolveURL.
-  base::MessageLoopProxy::current()->PostTask(
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::Bind(callback,
                  GURL(),

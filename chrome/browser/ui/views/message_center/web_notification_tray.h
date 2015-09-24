@@ -13,7 +13,7 @@
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "ui/base/models/simple_menu_model.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/message_center/message_center_tray.h"
 #include "ui/message_center/message_center_tray_delegate.h"
 #include "ui/views/widget/widget_observer.h"
@@ -67,11 +67,11 @@ class WebNotificationTray : public message_center::MessageCenterTrayDelegate,
   // StatusIconObserver implementation.
   void OnStatusIconClicked() override;
 #if defined(OS_WIN)
-  virtual void OnBalloonClicked() override;
+  void OnBalloonClicked() override;
 
   // This shows a platform-specific balloon informing the user of the existence
   // of the message center in the status tray area.
-  void DisplayFirstRunBalloon();
+  void DisplayFirstRunBalloon() override;
 
   void EnforceStatusIconVisible();
 #endif

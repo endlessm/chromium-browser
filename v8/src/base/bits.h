@@ -44,6 +44,17 @@ inline unsigned CountPopulation64(uint64_t value) {
 }
 
 
+// Overloaded versions of CountPopulation32/64.
+inline unsigned CountPopulation(uint32_t value) {
+  return CountPopulation32(value);
+}
+
+
+inline unsigned CountPopulation(uint64_t value) {
+  return CountPopulation64(value);
+}
+
+
 // CountLeadingZeros32(value) returns the number of zero bits following the most
 // significant 1 bit in |value| if |value| is non-zero, otherwise it returns 32.
 inline unsigned CountLeadingZeros32(uint32_t value) {
@@ -148,15 +159,28 @@ inline uint32_t RoundDownToPowerOfTwo32(uint32_t value) {
 }
 
 
+// Precondition: 0 <= shift < 32
 inline uint32_t RotateRight32(uint32_t value, uint32_t shift) {
   if (shift == 0) return value;
   return (value >> shift) | (value << (32 - shift));
 }
 
+// Precondition: 0 <= shift < 32
+inline uint32_t RotateLeft32(uint32_t value, uint32_t shift) {
+  if (shift == 0) return value;
+  return (value << shift) | (value >> (32 - shift));
+}
 
+// Precondition: 0 <= shift < 64
 inline uint64_t RotateRight64(uint64_t value, uint64_t shift) {
   if (shift == 0) return value;
   return (value >> shift) | (value << (64 - shift));
+}
+
+// Precondition: 0 <= shift < 64
+inline uint64_t RotateLeft64(uint64_t value, uint64_t shift) {
+  if (shift == 0) return value;
+  return (value << shift) | (value >> (64 - shift));
 }
 
 
@@ -210,6 +234,19 @@ int32_t SignedDiv32(int32_t lhs, int32_t rhs);
 // truncated to int32. If either |rhs| is zero or |lhs| is minint and |rhs|
 // is -1, it returns zero.
 int32_t SignedMod32(int32_t lhs, int32_t rhs);
+
+
+// UnsignedAddOverflow32(lhs,rhs,val) performs an unsigned summation of |lhs|
+// and |rhs| and stores the result into the variable pointed to by |val| and
+// returns true if the unsigned summation resulted in an overflow.
+inline bool UnsignedAddOverflow32(uint32_t lhs, uint32_t rhs, uint32_t* val) {
+#if V8_HAS_BUILTIN_SADD_OVERFLOW
+  return __builtin_uadd_overflow(lhs, rhs, val);
+#else
+  *val = lhs + rhs;
+  return *val < (lhs | rhs);
+#endif
+}
 
 
 // UnsignedDiv32(lhs, rhs) divides |lhs| by |rhs| and returns the quotient

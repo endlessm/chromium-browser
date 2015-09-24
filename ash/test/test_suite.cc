@@ -25,7 +25,11 @@ namespace ash {
 namespace test {
 
 AuraShellTestSuite::AuraShellTestSuite(int argc, char** argv)
-    : TestSuite(argc, argv) {}
+    : TestSuite(argc, argv) {
+}
+
+AuraShellTestSuite::~AuraShellTestSuite() {
+}
 
 void AuraShellTestSuite::Initialize() {
   base::TestSuite::Initialize();
@@ -52,6 +56,8 @@ void AuraShellTestSuite::Initialize() {
   // output, it'll pass regardless of the system language.
   ui::ResourceBundle::InitSharedInstanceWithLocale(
       "en-US", NULL, ui::ResourceBundle::LOAD_COMMON_RESOURCES);
+
+  base::DiscardableMemoryAllocator::SetInstance(&discardable_memory_allocator_);
 }
 
 void AuraShellTestSuite::Shutdown() {

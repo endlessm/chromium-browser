@@ -42,9 +42,16 @@ class ScopedPersistent {
 public:
     ScopedPersistent() { }
 
-    ScopedPersistent(v8::Isolate* isolate, v8::Handle<T> handle)
+    ScopedPersistent(v8::Isolate* isolate, v8::Local<T> handle)
         : m_handle(isolate, handle)
     {
+    }
+
+    ScopedPersistent(v8::Isolate* isolate, v8::MaybeLocal<T> maybe)
+    {
+        v8::Local<T> local;
+        if (maybe.ToLocal(&local))
+            m_handle.Reset(isolate, local);
     }
 
     ~ScopedPersistent()
@@ -58,15 +65,15 @@ public:
     }
 
     template<typename P>
-    void setWeak(P* parameters, void (*callback)(const v8::WeakCallbackData<T, P>&))
+    void setWeak(P* parameters, void (*callback)(const v8::WeakCallbackInfo<P>&), v8::WeakCallbackType type = v8::WeakCallbackType::kParameter)
     {
-        m_handle.SetWeak(parameters, callback);
+        m_handle.SetWeak(parameters, callback, type);
     }
 
     bool isEmpty() const { return m_handle.IsEmpty(); }
     bool isWeak() const { return m_handle.IsWeak(); }
 
-    void set(v8::Isolate* isolate, v8::Handle<T> handle)
+    void set(v8::Isolate* isolate, v8::Local<T> handle)
     {
         m_handle.Reset(isolate, handle);
     }
@@ -77,13 +84,18 @@ public:
         m_handle.Reset();
     }
 
+    void setReference(const v8::Persistent<v8::Object>& parent, v8::Isolate* isolate)
+    {
+        isolate->SetReference(parent, m_handle);
+    }
+
     bool operator==(const ScopedPersistent<T>& other)
     {
         return m_handle == other.m_handle;
     }
 
     template <class S>
-    bool operator==(const v8::Handle<S> other) const
+    bool operator==(const v8::Local<S> other) const
     {
         return m_handle == other;
     }

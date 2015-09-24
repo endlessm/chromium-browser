@@ -99,7 +99,9 @@ TEST_F(StatsEventSubscriberTest, CaptureEncode) {
           frame_id,
           1024,
           true,
-          5678);
+          5678,
+          9.10,
+          11.12);
     } else if (i < extra_frames) {
       dropped_frames++;
     }
@@ -159,7 +161,9 @@ TEST_F(StatsEventSubscriberTest, Encode) {
         frame_id,
         size,
         true,
-        5678);
+        5678,
+        9.10,
+        11.12);
     last_event_time = sender_clock_->NowTicks();
 
     AdvanceClocks(base::TimeDelta::FromMicroseconds(35678));
@@ -289,7 +293,7 @@ TEST_F(StatsEventSubscriberTest, E2ELatency) {
 
     int delay_micros = base::RandInt(-50000, 50000);
     base::TimeDelta delay = base::TimeDelta::FromMilliseconds(delay_micros);
-    total_latency += latency + delay;
+    total_latency += latency;
 
     cast_environment_->Logging()->InsertFrameEventWithDelay(
         receiver_clock_.NowTicks(),
@@ -553,7 +557,9 @@ TEST_F(StatsEventSubscriberTest, Histograms) {
         frame_id,
         1024,
         true,
-        5678);
+        5678,
+        9.10,
+        11.12);
   }
 
   // Send 3 packets for the last frame.
@@ -584,6 +590,14 @@ TEST_F(StatsEventSubscriberTest, Histograms) {
                                                     2,
                                                     123);
   }
+
+  cast_environment_->Logging()->InsertFrameEventWithDelay(
+      receiver_clock_.NowTicks(),
+      FRAME_PLAYOUT,
+      VIDEO_EVENT,
+      rtp_timestamp,
+      frame_id,
+      base::TimeDelta::FromMilliseconds(100));
 
   StatsEventSubscriber::SimpleHistogram* histogram;
   scoped_ptr<base::ListValue> values;
@@ -621,6 +635,12 @@ TEST_F(StatsEventSubscriberTest, Histograms) {
   ASSERT_TRUE(histogram);
   values = histogram->GetHistogram().Pass();
   EXPECT_TRUE(CheckHistogramHasValue(values.get(), "400-419", 3));
+
+  histogram = subscriber_->GetHistogramForTesting(
+      StatsEventSubscriber::LATE_FRAME_MS_HISTO);
+  ASSERT_TRUE(histogram);
+  values = histogram->GetHistogram().Pass();
+  EXPECT_TRUE(CheckHistogramHasValue(values.get(), "100-119", 1));
 }
 
 }  // namespace cast

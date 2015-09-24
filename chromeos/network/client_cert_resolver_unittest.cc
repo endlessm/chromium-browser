@@ -11,7 +11,6 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
@@ -63,8 +62,7 @@ class ClientCertResolverTest : public testing::Test,
     test_nsscertdb_.reset(new net::NSSCertDatabaseChromeOS(
         crypto::ScopedPK11Slot(PK11_ReferenceSlot(test_nssdb_.slot())),
         crypto::ScopedPK11Slot(PK11_ReferenceSlot(test_nssdb_.slot()))));
-    test_nsscertdb_->SetSlowTaskRunnerForTest(
-        message_loop_.message_loop_proxy());
+    test_nsscertdb_->SetSlowTaskRunnerForTest(message_loop_.task_runner());
 
     DBusThreadManager::Initialize();
     service_test_ =
@@ -139,7 +137,8 @@ class ClientCertResolverTest : public testing::Test,
     client_cert_resolver_.reset(new ClientCertResolver());
 
     network_profile_handler_->Init();
-    network_config_handler_->Init(network_state_handler_.get());
+    network_config_handler_->Init(network_state_handler_.get(),
+                                  NULL /* network_device_handler */);
     managed_config_handler_->Init(network_state_handler_.get(),
                                   network_profile_handler_.get(),
                                   network_config_handler_.get(),
@@ -151,7 +150,7 @@ class ClientCertResolverTest : public testing::Test,
                                 managed_config_handler_.get());
     client_cert_resolver_->AddObserver(this);
     client_cert_resolver_->SetSlowTaskRunnerForTest(
-        message_loop_.message_loop_proxy());
+        message_loop_.task_runner());
   }
 
   void SetupWifi() {
@@ -197,8 +196,9 @@ class ClientCertResolverTest : public testing::Test,
         base::StringPrintf(kTestPolicyTemplate, test_ca_cert_pem_.c_str());
 
     std::string error;
-    scoped_ptr<base::Value> policy_value(base::JSONReader::ReadAndReturnError(
-        policy_json, base::JSON_ALLOW_TRAILING_COMMAS, NULL, &error));
+    scoped_ptr<base::Value> policy_value(
+        base::JSONReader::DeprecatedReadAndReturnError(
+            policy_json, base::JSON_ALLOW_TRAILING_COMMAS, NULL, &error));
     ASSERT_TRUE(policy_value) << error;
 
     base::ListValue* policy = NULL;

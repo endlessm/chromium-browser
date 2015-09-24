@@ -31,15 +31,15 @@ class InputConversionTest : public testing::Test {
 TEST_F(InputConversionTest, String) {
   Err err;
   std::string input("\nfoo bar  \n");
-  Value result = ConvertInputToValue(settings(), input, NULL,
-                                     Value(NULL, "string"), &err);
+  Value result = ConvertInputToValue(settings(), input, nullptr,
+                                     Value(nullptr, "string"), &err);
   EXPECT_FALSE(err.has_error());
   EXPECT_EQ(Value::STRING, result.type());
   EXPECT_EQ(input, result.string_value());
 
   // Test with trimming.
-  result = ConvertInputToValue(settings(), input, NULL,
-                               Value(NULL, "trim string"), &err);
+  result = ConvertInputToValue(settings(), input, nullptr,
+                               Value(nullptr, "trim string"), &err);
   EXPECT_FALSE(err.has_error());
   EXPECT_EQ(Value::STRING, result.type());
   EXPECT_EQ("foo bar", result.string_value());
@@ -48,8 +48,8 @@ TEST_F(InputConversionTest, String) {
 TEST_F(InputConversionTest, ListLines) {
   Err err;
   std::string input("\nfoo\nbar  \n\n");
-  Value result = ConvertInputToValue(settings(), input, NULL,
-                                     Value(NULL, "list lines"), &err);
+  Value result = ConvertInputToValue(settings(), input, nullptr,
+                                     Value(nullptr, "list lines"), &err);
   EXPECT_FALSE(err.has_error());
   EXPECT_EQ(Value::LIST, result.type());
   ASSERT_EQ(4u, result.list_value().size());
@@ -59,8 +59,8 @@ TEST_F(InputConversionTest, ListLines) {
   EXPECT_EQ("",    result.list_value()[3].string_value());
 
   // Test with trimming.
-  result = ConvertInputToValue(settings(), input, NULL,
-                               Value(NULL, "trim list lines"), &err);
+  result = ConvertInputToValue(settings(), input, nullptr,
+                               Value(nullptr, "trim list lines"), &err);
   EXPECT_FALSE(err.has_error());
   EXPECT_EQ(Value::LIST, result.type());
   ASSERT_EQ(2u, result.list_value().size());
@@ -71,8 +71,8 @@ TEST_F(InputConversionTest, ListLines) {
 TEST_F(InputConversionTest, ValueString) {
   Err err;
   std::string input("\"str\"");
-  Value result = ConvertInputToValue(settings(), input, NULL,
-                                     Value(NULL, "value"), &err);
+  Value result = ConvertInputToValue(settings(), input, nullptr,
+                                     Value(nullptr, "value"), &err);
   EXPECT_FALSE(err.has_error());
   EXPECT_EQ(Value::STRING, result.type());
   EXPECT_EQ("str", result.string_value());
@@ -81,8 +81,8 @@ TEST_F(InputConversionTest, ValueString) {
 TEST_F(InputConversionTest, ValueInt) {
   Err err;
   std::string input("\n\n  6 \n ");
-  Value result = ConvertInputToValue(settings(), input, NULL,
-                                     Value(NULL, "value"), &err);
+  Value result = ConvertInputToValue(settings(), input, nullptr,
+                                     Value(nullptr, "value"), &err);
   EXPECT_FALSE(err.has_error());
   EXPECT_EQ(Value::INTEGER, result.type());
   EXPECT_EQ(6, result.int_value());
@@ -91,8 +91,8 @@ TEST_F(InputConversionTest, ValueInt) {
 TEST_F(InputConversionTest, ValueList) {
   Err err;
   std::string input("\n [ \"a\", 5]");
-  Value result = ConvertInputToValue(settings(), input, NULL,
-                                     Value(NULL, "value"), &err);
+  Value result = ConvertInputToValue(settings(), input, nullptr,
+                                     Value(nullptr, "value"), &err);
   EXPECT_FALSE(err.has_error());
   ASSERT_EQ(Value::LIST, result.type());
   ASSERT_EQ(2u, result.list_value().size());
@@ -103,8 +103,8 @@ TEST_F(InputConversionTest, ValueList) {
 TEST_F(InputConversionTest, ValueDict) {
   Err err;
   std::string input("\n a = 5 b = \"foo\" c = a + 2");
-  Value result = ConvertInputToValue(settings(), input, NULL,
-                                     Value(NULL, "scope"), &err);
+  Value result = ConvertInputToValue(settings(), input, nullptr,
+                                     Value(nullptr, "scope"), &err);
   EXPECT_FALSE(err.has_error());
   ASSERT_EQ(Value::SCOPE, result.type());
 
@@ -134,41 +134,49 @@ TEST_F(InputConversionTest, ValueDict) {
 
 TEST_F(InputConversionTest, ValueEmpty) {
   Err err;
-  Value result = ConvertInputToValue(settings(), "", NULL,
-                                     Value(NULL, "value"), &err);
+  Value result = ConvertInputToValue(settings(), "", nullptr,
+                                     Value(nullptr, "value"), &err);
   EXPECT_FALSE(err.has_error());
   EXPECT_EQ(Value::NONE, result.type());
 }
 
 TEST_F(InputConversionTest, ValueError) {
-  Err err;
-  std::string input("\n [ \"a\", 5\nfoo bar");
-  Value result = ConvertInputToValue(settings(), input, NULL,
-                                     Value(NULL, "value"), &err);
-  EXPECT_TRUE(err.has_error());
+  static const char* const kTests[] = {
+      "\n [ \"a\", 5\nfoo bar",
 
-  // Blocks not allowed.
-  input = "{ foo = 5 }";
-  result = ConvertInputToValue(settings(), input, NULL,
-                               Value(NULL, "value"), &err);
-  EXPECT_TRUE(err.has_error());
+      // Blocks not allowed.
+      "{ foo = 5 }",
 
-  // Function calls not allowed.
-  input = "print(5)";
-  result = ConvertInputToValue(settings(), input, NULL,
-                               Value(NULL, "value"), &err);
-  EXPECT_TRUE(err.has_error());
+      // Function calls not allowed.
+      "print(5)",
+
+      // Trailing junk not allowed.
+      "233105-1",
+
+      // Non-literals hidden in arrays are not allowed.
+      "[233105 - 1]",
+      "[rebase_path(\"//\")]",
+  };
+
+  for (auto test : kTests) {
+    Err err;
+    std::string input(test);
+    Value result = ConvertInputToValue(settings(), input, nullptr,
+                                       Value(nullptr, "value"), &err);
+    EXPECT_TRUE(err.has_error()) << test;
+  }
 }
 
 // Passing none or the empty string for input conversion should ignore the
 // result.
 TEST_F(InputConversionTest, Ignore) {
   Err err;
-  Value result = ConvertInputToValue(settings(), "foo", NULL, Value(), &err);
+  Value result = ConvertInputToValue(settings(), "foo", nullptr, Value(), &err);
   EXPECT_FALSE(err.has_error());
   EXPECT_EQ(Value::NONE, result.type());
 
-  result = ConvertInputToValue(settings(), "foo", NULL, Value(NULL, ""), &err);
+  result =
+      ConvertInputToValue(settings(), "foo", nullptr, Value(nullptr, ""), &err);
   EXPECT_FALSE(err.has_error());
   EXPECT_EQ(Value::NONE, result.type());
 }

@@ -8,20 +8,22 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.File;
+
 /**
  * A config for UrlRequestContext, which allows runtime configuration of
  * UrlRequestContext.
  */
 public class UrlRequestContextConfig {
-
     /**
-     * Default config enables SPDY, QUIC, in memory http cache.
+     * Default config enables SPDY, disables QUIC, SDCH and http cache.
      */
     public UrlRequestContextConfig() {
         enableLegacyMode(false);
         enableQUIC(false);
         enableSPDY(true);
-        enableHttpCache(HttpCache.IN_MEMORY, 100 * 1024);
+        enableSDCH(false);
+        enableHttpCache(HttpCache.DISABLED, 0);
     }
 
     /**
@@ -43,10 +45,19 @@ public class UrlRequestContextConfig {
     }
 
     /**
-     * String, path to directory for HTTP Cache and Cookie Storage.
+     * String, path to existing directory for HTTP Cache and Cookie Storage.
      */
     public UrlRequestContextConfig setStoragePath(String value) {
+        if (!new File(value).isDirectory()) {
+            throw new IllegalArgumentException(
+                    "Storage path must be set to existing directory");
+        }
+
         return putString(UrlRequestContextConfigList.STORAGE_PATH, value);
+    }
+
+    String storagePath() {
+        return mConfig.optString(UrlRequestContextConfigList.STORAGE_PATH);
     }
 
     /**
@@ -91,24 +102,107 @@ public class UrlRequestContextConfig {
     }
 
     /**
-     * Enumeration, Disable or Enable Disk or Memory Cache and specify its
-     * maximum size in bytes.
+     * Boolean, enable SDCH compression if true.
      */
-    public enum HttpCache { DISABLED, IN_MEMORY, DISK };
-    public UrlRequestContextConfig enableHttpCache(HttpCache value,
+    public UrlRequestContextConfig enableSDCH(boolean value) {
+        return putBoolean(UrlRequestContextConfigList.ENABLE_SDCH, value);
+    }
+
+    /**
+     * String, key to use when authenticating with the proxy.
+     */
+    public UrlRequestContextConfig enableDataReductionProxy(String key) {
+        return (putString(
+                UrlRequestContextConfigList.DATA_REDUCTION_PROXY_KEY, key));
+    }
+
+    /**
+     * Overrides Data Reduction Proxy configuration parameters with a primary
+     * proxy name, fallback proxy name, and a secure proxy check url. Proxies
+     * are specified as [scheme://]host[:port]. Used for testing.
+     * @param primaryProxy The primary data reduction proxy to use.
+     * @param fallbackProxy A fallback data reduction proxy to use.
+     * @param secureProxyCheckUrl A url to fetch to determine if using a secure
+     * proxy is allowed.
+     */
+    public UrlRequestContextConfig setDataReductionProxyOptions(
+            String primaryProxy,
+            String fallbackProxy,
+            String secureProxyCheckUrl) {
+        if (primaryProxy.isEmpty() || fallbackProxy.isEmpty()
+                || secureProxyCheckUrl.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Primary and fallback proxies and check url must be set");
+        }
+        putString(UrlRequestContextConfigList.DATA_REDUCTION_PRIMARY_PROXY,
+                primaryProxy);
+        putString(UrlRequestContextConfigList.DATA_REDUCTION_FALLBACK_PROXY,
+                fallbackProxy);
+        putString(UrlRequestContextConfigList
+                .DATA_REDUCTION_SECURE_PROXY_CHECK_URL, secureProxyCheckUrl);
+        return this;
+    }
+
+    /**
+     * Enumeration, disable or enable cache in memory or on disk.
+     */
+    public enum HttpCache {
+        /**
+         * Disable cache, some data may still be temporarily stored in memory.
+         */
+        DISABLED,
+
+        /**
+         * Enable in memory cache, including HTTP data.
+         */
+        IN_MEMORY,
+
+        /**
+         * Enable disk cache, excluding HTTP data.
+         */
+        DISK_NO_HTTP,
+
+        /**
+         * Enable on disk cache, including HTTP data.
+         */
+        DISK
+    };
+
+    /**
+     * Enable or disable caching of http data and other information like QUIC
+     * server information.
+     * @param cacheMode control location and type of cached data.
+     * @param maxSize maximum size used to cache data (advisory and maybe
+     * exceeded at times).
+     */
+    public UrlRequestContextConfig enableHttpCache(HttpCache cacheMode,
             long maxSize) {
-        switch(value) {
+        if (cacheMode == HttpCache.DISK
+                || cacheMode == HttpCache.DISK_NO_HTTP) {
+            if (storagePath().isEmpty()) {
+                throw new IllegalArgumentException("Storage path must be set");
+            }
+        } else {
+            if (!storagePath().isEmpty()) {
+                throw new IllegalArgumentException(
+                        "Storage path must be empty");
+            }
+        }
+        putBoolean(UrlRequestContextConfigList.LOAD_DISABLE_CACHE,
+                cacheMode == HttpCache.DISABLED
+                || cacheMode == HttpCache.DISK_NO_HTTP);
+        putLong(UrlRequestContextConfigList.HTTP_CACHE_MAX_SIZE, maxSize);
+
+        switch (cacheMode) {
             case DISABLED:
                 return putString(UrlRequestContextConfigList.HTTP_CACHE,
                         UrlRequestContextConfigList.HTTP_CACHE_DISABLED);
+            case DISK_NO_HTTP:
             case DISK:
-                putLong(UrlRequestContextConfigList.HTTP_CACHE_MAX_SIZE,
-                        maxSize);
                 return putString(UrlRequestContextConfigList.HTTP_CACHE,
                         UrlRequestContextConfigList.HTTP_CACHE_DISK);
+
             case IN_MEMORY:
-                putLong(UrlRequestContextConfigList.HTTP_CACHE_MAX_SIZE,
-                        maxSize);
                 return putString(UrlRequestContextConfigList.HTTP_CACHE,
                         UrlRequestContextConfigList.HTTP_CACHE_MEMORY);
         }
@@ -149,6 +243,19 @@ public class UrlRequestContextConfig {
             // Intentionally do nothing.
         }
         return this;
+    }
+
+    /**
+     * Sets experimental QUIC connection options, overwriting any pre-existing
+     * options. List of options is subject to change.
+     *
+     * @param quicConnectionOptions comma-separated QUIC options (for example
+     * "PACE,IW10") to use if QUIC is enabled.
+     */
+    public UrlRequestContextConfig setExperimentalQuicConnectionOptions(
+            String quicConnectionOptions) {
+        return putString(UrlRequestContextConfigList.QUIC_OPTIONS,
+                         quicConnectionOptions);
     }
 
     /**

@@ -22,7 +22,8 @@
 
 // Following code requires wchar_t to be same as char16. It should always be
 // true on Windows.
-COMPILE_ASSERT(sizeof(wchar_t) == sizeof(base::char16), wchar_t__char16_diff);
+static_assert(sizeof(wchar_t) == sizeof(base::char16),
+              "wchar_t should be the same size as char16");
 
 ///////////////////////////////////////////////////////////////////////////////
 // IMM32Manager
@@ -116,9 +117,9 @@ bool IsRTLPrimaryLangID(LANGID lang) {
 namespace ui {
 
 IMM32Manager::IMM32Manager()
-    : ime_status_(false),
+    : is_composing_(false),
+      ime_status_(false),
       input_language_id_(LANG_USER_DEFAULT),
-      is_composing_(false),
       system_caret_(false),
       caret_rect_(-1, -1, 0, 0),
       use_composition_window_(false) {
@@ -133,7 +134,8 @@ bool IMM32Manager::SetInputLanguage() {
   // Also save its input language for language-specific operations required
   // while composing a text.
   HKL keyboard_layout = ::GetKeyboardLayout(0);
-  input_language_id_ = reinterpret_cast<LANGID>(keyboard_layout);
+  input_language_id_ =
+      static_cast<LANGID>(reinterpret_cast<uintptr_t>(keyboard_layout));
 
   // Check TSF Input Processor first.
   // If the active profile is TSF INPUTPROCESSOR, this is IME.
@@ -376,7 +378,8 @@ bool IMM32Manager::GetString(HIMC imm_context,
     return false;
   DCHECK_EQ(0u, string_size % sizeof(wchar_t));
   ::ImmGetCompositionString(imm_context, type,
-      WriteInto(result, (string_size / sizeof(wchar_t)) + 1), string_size);
+      base::WriteInto(result, (string_size / sizeof(wchar_t)) + 1),
+      string_size);
   return true;
 }
 
@@ -553,7 +556,8 @@ bool IMM32Manager::IsRTLKeyboardLayoutInstalled() {
   scoped_ptr<HKL[]> layouts(new HKL[size]);
   ::GetKeyboardLayoutList(size, layouts.get());
   for (int i = 0; i < size; ++i) {
-    if (IsRTLPrimaryLangID(PRIMARYLANGID(layouts[i]))) {
+    if (IsRTLPrimaryLangID(
+            PRIMARYLANGID(reinterpret_cast<uintptr_t>(layouts[i])))) {
       layout = RTL_KEYBOARD_LAYOUT_INSTALLED;
       return true;
     }

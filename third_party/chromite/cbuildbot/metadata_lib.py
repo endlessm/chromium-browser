@@ -9,20 +9,19 @@ from __future__ import print_function
 import collections
 import datetime
 import json
-import logging
 import math
 import multiprocessing
 import os
 import re
-import time
 
-from chromite.cbuildbot import archive_lib
-from chromite.cbuildbot import cbuildbot_config
 from chromite.cbuildbot import results_lib
 from chromite.cbuildbot import constants
+from chromite.lib import clactions
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import gs
 from chromite.lib import parallel
+
 
 # Number of parallel processes used when uploading/downloading GS files.
 MAX_PARALLEL = 40
@@ -35,49 +34,14 @@ METADATA_URL_GLOB = os.path.join(ARCHIVE_ROOT,
 LATEST_URL = os.path.join(ARCHIVE_ROOT, 'LATEST-master')
 
 
-GerritPatchTuple = collections.namedtuple('GerritPatchTuple',
-                                          ['gerrit_number', 'patch_number',
-                                           'internal'])
-GerritChangeTuple = collections.namedtuple('GerritChangeTuple',
-                                           ['gerrit_number', 'internal'])
+GerritPatchTuple = clactions.GerritPatchTuple
+GerritChangeTuple = clactions.GerritChangeTuple
 CLActionTuple = collections.namedtuple('CLActionTuple',
                                        ['change', 'action', 'timestamp',
                                         'reason'])
-CLActionWithBuildTuple = collections.namedtuple('CLActionWithBuildTuple',
+CLActionWithBuildTuple = collections.namedtuple(
+    'CLActionWithBuildTuple',
     ['change', 'action', 'timestamp', 'reason', 'bot_type', 'build'])
-
-
-def GetChangeAsSmallDictionary(change):
-  """Returns a small dictionary representation of a gerrit change.
-
-  Args:
-    change: A GerritPatch or GerritPatchTuple object.
-
-  Returns:
-    A dictionary of the form {'gerrit_number': change.gerrit_number,
-                              'patch_number': change.patch_number,
-                              'internal': change.internal}
-  """
-  return  {'gerrit_number': change.gerrit_number,
-           'patch_number': change.patch_number,
-           'internal': change.internal}
-
-
-def GetCLActionTuple(change, action, timestamp=None, reason=None):
-  """Returns a CLActionTuple suitable for recording in metadata or cidb.
-
-  Args:
-    change: A GerritPatch or GerritPatchTuple object.
-    action: The action taken, should be one of constants.CL_ACTIONS
-    timestamp: An integer timestamp such as int(time.time()) at which
-               the action was taken. Default: Now.
-    reason: Description of the reason the action was taken. Default: ''
-  """
-  return CLActionTuple(
-      GetChangeAsSmallDictionary(change),
-      action,
-      timestamp or int(time.time()),
-      reason)
 
 
 class _DummyLock(object):
@@ -86,6 +50,12 @@ class _DummyLock(object):
     pass
 
   def release(self):
+    pass
+
+  def __exit__(self, exc_type, exc_value, traceback):
+    pass
+
+  def __enter__(self):
     pass
 
 class CBuildbotMetadata(object):
@@ -266,15 +236,16 @@ class CBuildbotMetadata(object):
     Returns:
       self
     """
-    self._cl_action_list.append(
-        GetCLActionTuple(change, action, timestamp, reason))
+    cl_action = clactions.CLAction.FromGerritPatchAndAction(change, action,
+                                                            reason, timestamp)
+    self._cl_action_list.append(cl_action.AsMetadataEntry())
     return self
 
   @staticmethod
   def GetReportMetadataDict(builder_run, get_changes_from_pool,
                             get_statuses_from_slaves, config=None, stage=None,
                             final_status=None, sync_instance=None,
-                            completion_instance=None):
+                            completion_instance=None, child_configs_list=None):
     """Return a metadata dictionary summarizing a build.
 
     This method replaces code that used to exist in the ArchivingStageMixin
@@ -303,6 +274,8 @@ class CBuildbotMetadata(object):
                            information will be included. It not None, this
                            should be a derivative of
                            MasterSlaveSyncCompletionStage.
+      child_configs_list: The list of child config metadata.  If specified it
+                          should be added to the metadata.
 
     Returns:
        A metadata dictionary suitable to be json-serialized.
@@ -344,6 +317,9 @@ class CBuildbotMetadata(object):
           'description': entry.description,
           'log': builder_run.ConstructDashboardURL(stage=entry.name),
       })
+
+    if child_configs_list:
+      metadata['child-configs'] = child_configs_list
 
     if get_changes_from_pool:
       changes = []
@@ -387,6 +363,7 @@ class BuildData(object):
   and get() on a BuildData object.  Some values from metadata_dict are
   also surfaced through the following list of supported properties:
 
+  build_id
   build_number
   stages
   slaves
@@ -411,7 +388,7 @@ class BuildData(object):
   """
 
   __slots__ = (
-      'gathered_dict',  # Dict with gathered data (sheets/carbon version).
+      'gathered_dict',  # Dict with gathered data (sheets version).
       'gathered_url',   # URL to metadata.json.gathered location in GS.
       'metadata_dict',  # Dict representing metadata data from JSON.
       'metadata_url',   # URL to metadata.json location in GS.
@@ -422,7 +399,6 @@ class BuildData(object):
   DATETIME_RE = re.compile(r'^(.+)\s-\d\d\d\d\s\(P\wT\)$')
 
   SHEETS_VER_KEY = 'sheets_version'
-  CARBON_VER_KEY = 'carbon_version'
 
   @staticmethod
   def ReadMetadataURLs(urls, gs_ctx=None, exclude_running=True,
@@ -436,16 +412,16 @@ class BuildData(object):
       exclude_running: If True the metadata for builds that are still running
         will be skipped.
       get_sheets_version: Whether to try to figure out the last sheets version
-        and the last carbon version that was gathered. This requires an extra
-        gsutil request and is only needed if you are writing the metadata to
-        to the Google Sheets spreadsheet.
+        that was gathered. This requires an extra gsutil request and is only
+        needed if you are writing the metadata to the Google Sheets
+        spreadsheet.
 
     Returns:
       List of BuildData objects.
     """
     gs_ctx = gs_ctx or gs.GSContext()
-    cros_build_lib.Info('Reading %d metadata URLs using %d processes now.',
-                        len(urls), MAX_PARALLEL)
+    logging.info('Reading %d metadata URLs using %d processes now.', len(urls),
+                 MAX_PARALLEL)
 
     build_data_per_url = {}
     def _ReadMetadataURL(url):
@@ -462,29 +438,25 @@ class BuildData(object):
                                                 print_cmd=False))
 
         sheets_version = gathered_dict.get(BuildData.SHEETS_VER_KEY)
-        carbon_version = gathered_dict.get(BuildData.CARBON_VER_KEY)
       else:
-        sheets_version, carbon_version = None, None
+        sheets_version = None
 
-      bd = BuildData(url, metadata_dict, sheets_version=sheets_version,
-                     carbon_version=carbon_version)
+      bd = BuildData(url, metadata_dict, sheets_version=sheets_version)
 
       if bd.build_number is None:
-        cros_build_lib.Warning('Metadata at %s was missing build number.',
-                               url)
+        logging.warning('Metadata at %s was missing build number.', url)
         m = re.match(r'.*-b([0-9]*)/.*', url)
         if m:
           inferred_number = int(m.groups()[0])
-          cros_build_lib.Warning('Inferred build number %d from metadata url.',
-                                 inferred_number)
+          logging.warning('Inferred build number %d from metadata url.',
+                          inferred_number)
           bd.metadata_dict['build-number'] = inferred_number
-      if not (sheets_version is None and carbon_version is None):
-        cros_build_lib.Debug('Read %s:\n'
-                             '  build_number=%d, sheets v%d, carbon v%d', url,
-                             bd.build_number, sheets_version, carbon_version)
+      if sheets_version is not None:
+        logging.debug('Read %s:\n  build_number=%d, sheets v%d', url,
+                      bd.build_number, sheets_version)
       else:
-        cros_build_lib.Debug('Read %s:\n  build_number=%d, ungathered',
-                             url, bd.build_number)
+        logging.debug('Read %s:\n  build_number=%d, ungathered', url,
+                      bd.build_number)
 
       build_data_per_url[url] = bd
 
@@ -499,42 +471,36 @@ class BuildData(object):
     return builds
 
   @staticmethod
-  def MarkBuildsGathered(builds, sheets_version, carbon_version, gs_ctx=None):
+  def MarkBuildsGathered(builds, sheets_version, gs_ctx=None):
     """Mark specified |builds| as processed for the given stats versions.
 
     Args:
       builds: List of BuildData objects.
       sheets_version: The Google Sheets version these builds are now processed
         for.
-      carbon_version: The Carbon/Graphite version these builds are now
-        processed for.
       gs_ctx: A GSContext object to use, if set.
     """
     gs_ctx = gs_ctx or gs.GSContext()
 
     # Filter for builds that were not already on these versions.
-    builds = [b for b in builds
-              if b.sheets_version != sheets_version or
-              b.carbon_version != carbon_version]
+    builds = [b for b in builds if b.sheets_version != sheets_version]
     if builds:
-      log_ver_str = 'Sheets v%d, Carbon v%d' % (sheets_version, carbon_version)
-      cros_build_lib.Info('Marking %d builds gathered (for %s) using %d'
-                          ' processes now.', len(builds), log_ver_str,
-                          MAX_PARALLEL)
+      log_ver_str = 'Sheets v%d' % sheets_version
+      logging.info('Marking %d builds gathered (for %s) using %d processes'
+                   ' now.', len(builds), log_ver_str, MAX_PARALLEL)
 
       def _MarkGathered(build):
-        build.MarkGathered(sheets_version, carbon_version)
+        build.MarkGathered(sheets_version)
         json_text = json.dumps(build.gathered_dict.copy())
         gs_ctx.Copy('-', build.gathered_url, input=json_text, print_cmd=False)
-        cros_build_lib.Debug('Marked build_number %d processed for %s.',
-                             build.build_number, log_ver_str)
+        logging.debug('Marked build_number %d processed for %s.',
+                      build.build_number, log_ver_str)
 
       inputs = [[build] for build in builds]
       parallel.RunTasksInProcessPool(_MarkGathered, inputs,
                                      processes=MAX_PARALLEL)
 
-  def __init__(self, metadata_url, metadata_dict, carbon_version=None,
-               sheets_version=None):
+  def __init__(self, metadata_url, metadata_dict, sheets_version=None):
     self.metadata_url = metadata_url
     self.metadata_dict = metadata_dict
 
@@ -542,14 +508,12 @@ class BuildData(object):
     # version (version 0) will be considered "newer".
     self.gathered_url = metadata_url + '.gathered'
     self.gathered_dict = {
-        self.CARBON_VER_KEY: -1 if carbon_version is None else carbon_version,
         self.SHEETS_VER_KEY: -1 if sheets_version is None else sheets_version,
     }
 
-  def MarkGathered(self, sheets_version, carbon_version):
+  def MarkGathered(self, sheets_version):
     """Mark this build as processed for the given stats versions."""
     self.gathered_dict[self.SHEETS_VER_KEY] = sheets_version
-    self.gathered_dict[self.CARBON_VER_KEY] = carbon_version
 
   def __getitem__(self, key):
     """Relay dict-like access to self.metadata_dict."""
@@ -562,10 +526,6 @@ class BuildData(object):
   @property
   def sheets_version(self):
     return self.gathered_dict[self.SHEETS_VER_KEY]
-
-  @property
-  def carbon_version(self):
-    return self.gathered_dict[self.CARBON_VER_KEY]
 
   @property
   def build_number(self):
@@ -646,13 +606,19 @@ class BuildData(object):
 
   @property
   def failure_message(self):
+    message_list = []
+    # First collect failures in the master stages.
+    failed_stages = [s for s in self.stages if s['status'] == 'failed']
+    for stage in failed_stages:
+      if stage['summary']:
+        message_list.append('master: %s' % stage['summary'])
+
     mapping = {}
     # Dedup the messages from the slaves.
     for slave in self.GetFailedSlaves():
       message = self.slaves[slave]['reason']
       mapping[message] = mapping.get(message, []) + [slave]
 
-    message_list = []
     for message, slaves in mapping.iteritems():
       if len(slaves) >= 6:
         # Do not print all the names when there are more than 6 (an
@@ -662,15 +628,6 @@ class BuildData(object):
         message_list.append('%s: %s' % (','.join(slaves), message))
 
     return ' | '.join(message_list)
-
-  def GetChangelistsStr(self):
-    cl_strs = []
-    for cl_dict in self.metadata_dict['changes']:
-      cl_strs.append('%s%s:%s' %
-                     ('*' if cl_dict['internal'] == 'true' else '',
-                      cl_dict['gerrit_number'], cl_dict['patch_number']))
-
-    return ' '.join(cl_strs)
 
   def GetFailedStages(self, with_urls=False):
     """Get names of all failed stages, optionally with URLs for each.
@@ -722,8 +679,8 @@ class BuildData(object):
 
   @property
   def patches(self):
-    return [GerritPatchTuple(gerrit_number=change['gerrit_number'],
-                             patch_number=change['patch_number'],
+    return [GerritPatchTuple(gerrit_number=int(change['gerrit_number']),
+                             patch_number=int(change['patch_number']),
                              internal=change['internal'])
             for change in self.metadata_dict.get('changes', [])]
 
@@ -735,60 +692,16 @@ class BuildData(object):
     return len(self.metadata_dict['changes'])
 
   @property
+  def build_id(self):
+    return self.metadata_dict['build_id']
+
+  @property
   def run_date(self):
     return self.finish_datetime.strftime('%d.%m.%Y')
 
   def Passed(self):
     """Return True if this represents a successful run."""
     return 'passed' == self.metadata_dict['status']['status'].strip()
-
-
-
-def FindLatestFullVersion(builder, version):
-  """Find the latest full version number built by |builder| on |version|.
-
-  Args:
-    builder: Builder to load information from. E.g. daisy-release
-    version: Version that we are interested in. E.g. 5602.0.0
-
-  Returns:
-    The latest corresponding full version number, including milestone prefix.
-    E.g. R35-5602.0.0. For some builders, this may also include a -rcN or
-    -bNNNN suffix.
-  """
-  gs_ctx = gs.GSContext()
-  config = cbuildbot_config.config[builder]
-  base_url = archive_lib.GetBaseUploadURI(config)
-  latest_file_url = os.path.join(base_url, 'LATEST-%s' % version)
-  try:
-    return gs_ctx.Cat(latest_file_url).strip()
-  except gs.GSNoSuchKey:
-    return None
-
-
-def GetBuildMetadata(builder, full_version):
-  """Fetch the metadata.json object for |builder| and |full_version|.
-
-  Args:
-    builder: Builder to load information from. E.g. daisy-release
-    full_version: Version that we are interested in, including milestone
-        prefix. E.g. R35-5602.0.0. For some builders, this may also include a
-        -rcN or -bNNNN suffix.
-
-  Returns:
-    A newly created CBuildbotMetadata object with the metadata from the given
-    |builder| and |full_version|.
-  """
-  gs_ctx = gs.GSContext()
-  config = cbuildbot_config.config[builder]
-  base_url = archive_lib.GetBaseUploadURI(config)
-  try:
-    archive_url = os.path.join(base_url, full_version)
-    metadata_url = os.path.join(archive_url, constants.METADATA_JSON)
-    output = gs_ctx.Cat(metadata_url)
-    return CBuildbotMetadata(json.loads(output))
-  except gs.GSNoSuchKey:
-    return None
 
 
 class MetadataException(Exception):
@@ -805,29 +718,30 @@ def GetLatestMilestone():
   latest_url = LATEST_URL % {'target': constants.CQ_MASTER}
   gs_ctx = gs.GSContext()
 
-  cros_build_lib.Info('Getting latest milestone from %s', latest_url)
+  logging.info('Getting latest milestone from %s', latest_url)
   try:
     content = gs_ctx.Cat(latest_url).strip()
 
     # Expected syntax is like the following: "R35-1234.5.6-rc7".
     assert content.startswith('R')
     milestone = content.split('-')[0][1:]
-    cros_build_lib.Info('Latest milestone determined to be: %s', milestone)
+    logging.info('Latest milestone determined to be: %s', milestone)
     return int(milestone)
 
   except gs.GSNoSuchKey:
     raise GetMilestoneError('LATEST file missing: %s' % latest_url)
 
 
-def GetMetadataURLsSince(target, start_date):
-  """Get metadata.json URLs for |target| since |start_date|.
+def GetMetadataURLsSince(target, start_date, end_date):
+  """Get metadata.json URLs for |target| from |start_date| until |end_date|.
 
   The modified time of the GS files is used to compare with start_date, so
   the completion date of the builder run is what is important here.
 
   Args:
     target: Builder target name.
-    start_date: datetime.date object.
+    start_date: datetime.date object of starting date.
+    end_date: datetime.date object of ending date.
 
   Returns:
     Metadata urls for runs found.
@@ -837,8 +751,8 @@ def GetMetadataURLsSince(target, start_date):
   gs_ctx = gs.GSContext()
   while True:
     base_url = METADATA_URL_GLOB % {'target': target, 'milestone': milestone}
-    cros_build_lib.Info('Getting %s builds for R%d from "%s"',
-                        target, milestone, base_url)
+    logging.info('Getting %s builds for R%d from "%s"', target, milestone,
+                 base_url)
 
     try:
       # Get GS URLs.  We want the datetimes to quickly know when we are done
@@ -846,24 +760,24 @@ def GetMetadataURLsSince(target, start_date):
       urls = gs_ctx.List(base_url, details=True)
     except gs.GSNoSuchKey:
       # We ran out of metadata to collect.  Stop searching back in time.
-      cros_build_lib.Info('No %s builds found for $%d.  I will not continue'
-                          ' search to older milestones.', target, milestone)
+      logging.info('No %s builds found for $%d.  I will not continue search'
+                   ' to older milestones.', target, milestone)
       break
 
     # Sort by timestamp.
     urls = sorted(urls, key=lambda x: x.creation_time, reverse=True)
 
+    # Add relevant URLs to our list.
+    ret.extend([x.url for x in urls
+                if (x.creation_time.date() >= start_date and
+                    x.creation_time.date() <= end_date)])
+
     # See if we have gone far enough back by checking datetime of oldest URL
     # in the current batch.
     if urls[-1].creation_time.date() < start_date:
-      # We want a subset of these URLs, then we are done.
-      ret.extend([x.url for x in urls if x.creation_time.date() >= start_date])
       break
-
     else:
-      # Accept all these URLs, then continue on to the next milestone.
-      ret.extend([x.url for x in urls])
       milestone -= 1
-      cros_build_lib.Info('Continuing on to R%d.', milestone)
+      logging.info('Continuing on to R%d.', milestone)
 
   return ret

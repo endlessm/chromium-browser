@@ -7,6 +7,7 @@
 #include "chrome/browser/ui/views/frame/browser_frame.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/immersive_mode_controller.h"
+#include "ui/compositor/paint_context.h"
 
 TopContainerView::TopContainerView(BrowserView* browser_view)
     : browser_view_(browser_view) {
@@ -19,12 +20,17 @@ const char* TopContainerView::GetClassName() const {
   return "TopContainerView";
 }
 
-void TopContainerView::OnPaintBackground(gfx::Canvas* canvas) {
+void TopContainerView::PaintChildren(const ui::PaintContext& context) {
   if (browser_view_->immersive_mode_controller()->IsRevealed()) {
     // Top-views depend on parts of the frame (themes, window title,
     // window controls) being painted underneath them. Clip rect has already
     // been set to the bounds of this view, so just paint the frame.
     views::View* frame = browser_view_->frame()->GetFrameView();
-    frame->Paint(canvas, views::CullSet());
+    // Use a clone without invalidation info, as we're painting something
+    // outside of the normal parent-child relationship, so invalidations are
+    // no longer in the correct space to compare.
+    frame->Paint(ui::PaintContext(
+        context, ui::PaintContext::CLONE_WITHOUT_INVALIDATION));
   }
+  View::PaintChildren(context);
 }

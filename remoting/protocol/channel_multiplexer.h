@@ -6,9 +6,10 @@
 #define REMOTING_PROTOCOL_CHANNEL_MULTIPLEXER_H_
 
 #include "base/memory/weak_ptr.h"
+#include "remoting/base/buffered_socket_writer.h"
 #include "remoting/proto/mux.pb.h"
-#include "remoting/protocol/buffered_socket_writer.h"
 #include "remoting/protocol/message_reader.h"
+#include "remoting/protocol/protobuf_message_parser.h"
 #include "remoting/protocol/stream_channel_factory.h"
 
 namespace remoting {
@@ -43,11 +44,12 @@ class ChannelMultiplexer : public StreamChannelFactory {
   // Helper method used to create channels.
   MuxChannel* GetOrCreateChannel(const std::string& name);
 
-  // Error handling callback for |writer_|.
-  void OnWriteFailed(int error);
+  // Error handling callback for |reader_| and |writer_|.
+  void OnBaseChannelError(int error);
 
-  // Failed write notifier, queued asynchronously by OnWriteFailed().
-  void NotifyWriteFailed(const std::string& name);
+  // Propagates base channel error to channel |name|, queued asynchronously by
+  // OnBaseChannelError().
+  void NotifyBaseChannelError(const std::string& name, int error);
 
   // Callback for |reader_;
   void OnIncomingPacket(scoped_ptr<MultiplexPacket> packet,
@@ -57,7 +59,7 @@ class ChannelMultiplexer : public StreamChannelFactory {
   bool DoWrite(scoped_ptr<MultiplexPacket> packet,
                const base::Closure& done_task);
 
-  // Factory used to create |base_channel_|. Set to NULL once creation is
+  // Factory used to create |base_channel_|. Set to nullptr once creation is
   // finished or failed.
   StreamChannelFactory* base_channel_factory_;
 
@@ -78,7 +80,8 @@ class ChannelMultiplexer : public StreamChannelFactory {
   std::map<int, MuxChannel*> channels_by_receive_id_;
 
   BufferedSocketWriter writer_;
-  ProtobufMessageReader<MultiplexPacket> reader_;
+  MessageReader reader_;
+  ProtobufMessageParser<MultiplexPacket> parser_;
 
   base::WeakPtrFactory<ChannelMultiplexer> weak_factory_;
 

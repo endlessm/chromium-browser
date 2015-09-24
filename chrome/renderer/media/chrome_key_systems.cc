@@ -72,14 +72,26 @@ static void AddExternalClearKey(
     return;
   }
 
-  KeySystemInfo info(kExternalClearKeyKeySystem);
+  KeySystemInfo info;
+  info.key_system = kExternalClearKeyKeySystem;
 
+  info.supported_init_data_types =
+    media::kInitDataTypeMaskWebM | media::kInitDataTypeMaskKeyIds;
   info.supported_codecs = media::EME_CODEC_WEBM_ALL;
-  info.supported_init_data_types = media::EME_INIT_DATA_TYPE_WEBM;
 #if defined(USE_PROPRIETARY_CODECS)
+  info.supported_init_data_types |= media::kInitDataTypeMaskCenc;
   info.supported_codecs |= media::EME_CODEC_MP4_ALL;
-  info.supported_init_data_types |= media::EME_INIT_DATA_TYPE_CENC;
 #endif  // defined(USE_PROPRIETARY_CODECS)
+
+  info.max_audio_robustness = media::EmeRobustness::EMPTY;
+  info.max_video_robustness = media::EmeRobustness::EMPTY;
+
+  // Persistent sessions are faked.
+  info.persistent_license_support = media::EmeSessionTypeSupport::SUPPORTED;
+  info.persistent_release_message_support =
+      media::EmeSessionTypeSupport::NOT_SUPPORTED;
+  info.persistent_state_support = media::EmeFeatureSupport::REQUESTABLE;
+  info.distinctive_identifier_support = media::EmeFeatureSupport::NOT_SUPPORTED;
 
   info.pepper_type = kExternalClearKeyPepperType;
 
@@ -157,24 +169,48 @@ static void AddPepperBasedWidevine(
                                  &codecs);
 
   SupportedCodecs supported_codecs = media::EME_CODEC_NONE;
+
+  // Audio codecs are always supported.
+  // TODO(sandersd): Distinguish these from those that are directly supported,
+  // as those may offer a higher level of protection.
+  supported_codecs |= media::EME_CODEC_WEBM_OPUS;
+  supported_codecs |= media::EME_CODEC_WEBM_VORBIS;
+#if defined(USE_PROPRIETARY_CODECS)
+  supported_codecs |= media::EME_CODEC_MP4_AAC;
+#endif  // defined(USE_PROPRIETARY_CODECS)
+
   for (size_t i = 0; i < codecs.size(); ++i) {
-    if (codecs[i] == kCdmSupportedCodecVorbis)
-      supported_codecs |= media::EME_CODEC_WEBM_VORBIS;
     if (codecs[i] == kCdmSupportedCodecVp8)
       supported_codecs |= media::EME_CODEC_WEBM_VP8;
     if (codecs[i] == kCdmSupportedCodecVp9)
       supported_codecs |= media::EME_CODEC_WEBM_VP9;
 #if defined(USE_PROPRIETARY_CODECS)
-    if (codecs[i] == kCdmSupportedCodecAac)
-      supported_codecs |= media::EME_CODEC_MP4_AAC;
     if (codecs[i] == kCdmSupportedCodecAvc1)
       supported_codecs |= media::EME_CODEC_MP4_AVC1;
 #endif  // defined(USE_PROPRIETARY_CODECS)
   }
 
-  cdm::AddWidevineWithCodecs(cdm::WIDEVINE,
-                             supported_codecs,
-                             concrete_key_systems);
+  cdm::AddWidevineWithCodecs(
+      cdm::WIDEVINE, supported_codecs,
+#if defined(OS_CHROMEOS)
+      media::EmeRobustness::HW_SECURE_ALL,  // Maximum audio robustness.
+      media::EmeRobustness::HW_SECURE_ALL,  // Maximim video robustness.
+      media::EmeSessionTypeSupport::
+          SUPPORTED_WITH_IDENTIFIER,  // Persistent-license.
+      media::EmeSessionTypeSupport::
+          NOT_SUPPORTED,                      // Persistent-release-message.
+      media::EmeFeatureSupport::REQUESTABLE,  // Persistent state.
+      media::EmeFeatureSupport::REQUESTABLE,  // Distinctive identifier.
+#else   // (Desktop)
+      media::EmeRobustness::SW_SECURE_CRYPTO,       // Maximum audio robustness.
+      media::EmeRobustness::SW_SECURE_DECODE,       // Maximum video robustness.
+      media::EmeSessionTypeSupport::NOT_SUPPORTED,  // persistent-license.
+      media::EmeSessionTypeSupport::
+          NOT_SUPPORTED,                        // persistent-release-message.
+      media::EmeFeatureSupport::REQUESTABLE,    // Persistent state.
+      media::EmeFeatureSupport::NOT_SUPPORTED,  // Distinctive identifier.
+#endif  // defined(OS_CHROMEOS)
+      concrete_key_systems);
 }
 #endif  // defined(WIDEVINE_CDM_AVAILABLE)
 #endif  // defined(ENABLE_PEPPER_CDMS)

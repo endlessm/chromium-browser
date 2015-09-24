@@ -25,73 +25,71 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
   static AwBrowserContext* GetAwBrowserContext();
 
   AwContentBrowserClient(JniDependencyFactory* native_factory);
-  virtual ~AwContentBrowserClient();
+  ~AwContentBrowserClient() override;
 
   // Overriden methods from ContentBrowserClient.
-  virtual void AddCertificate(net::CertificateMimeType cert_type,
-                              const void* cert_data,
-                              size_t cert_size,
-                              int render_process_id,
-                              int render_frame_id) override;
-  virtual content::BrowserMainParts* CreateBrowserMainParts(
+  void AddCertificate(net::CertificateMimeType cert_type,
+                      const void* cert_data,
+                      size_t cert_size,
+                      int render_process_id,
+                      int render_frame_id) override;
+  content::BrowserMainParts* CreateBrowserMainParts(
       const content::MainFunctionParams& parameters) override;
-  virtual content::WebContentsViewDelegate* GetWebContentsViewDelegate(
+  content::WebContentsViewDelegate* GetWebContentsViewDelegate(
       content::WebContents* web_contents) override;
-  virtual void RenderProcessWillLaunch(
-      content::RenderProcessHost* host) override;
-  virtual net::URLRequestContextGetter* CreateRequestContext(
+  void RenderProcessWillLaunch(content::RenderProcessHost* host) override;
+  net::URLRequestContextGetter* CreateRequestContext(
       content::BrowserContext* browser_context,
       content::ProtocolHandlerMap* protocol_handlers,
       content::URLRequestInterceptorScopedVector request_interceptors) override;
-  virtual net::URLRequestContextGetter* CreateRequestContextForStoragePartition(
+  net::URLRequestContextGetter* CreateRequestContextForStoragePartition(
       content::BrowserContext* browser_context,
       const base::FilePath& partition_path,
       bool in_memory,
       content::ProtocolHandlerMap* protocol_handlers,
       content::URLRequestInterceptorScopedVector request_interceptors) override;
-  virtual std::string GetCanonicalEncodingNameByAliasName(
+  std::string GetCanonicalEncodingNameByAliasName(
       const std::string& alias_name) override;
-  virtual void AppendExtraCommandLineSwitches(base::CommandLine* command_line,
-                                              int child_process_id) override;
-  virtual std::string GetApplicationLocale() override;
-  virtual std::string GetAcceptLangs(content::BrowserContext* context) override;
-  virtual const gfx::ImageSkia* GetDefaultFavicon() override;
-  virtual bool AllowAppCache(const GURL& manifest_url,
-                             const GURL& first_party,
-                             content::ResourceContext* context) override;
-  virtual bool AllowGetCookie(const GURL& url,
-                              const GURL& first_party,
-                              const net::CookieList& cookie_list,
-                              content::ResourceContext* context,
-                              int render_process_id,
-                              int render_frame_id) override;
-  virtual bool AllowSetCookie(const GURL& url,
-                              const GURL& first_party,
-                              const std::string& cookie_line,
-                              content::ResourceContext* context,
-                              int render_process_id,
-                              int render_frame_id,
-                              net::CookieOptions* options) override;
-  virtual bool AllowWorkerDatabase(
+  void AppendExtraCommandLineSwitches(base::CommandLine* command_line,
+                                      int child_process_id) override;
+  std::string GetApplicationLocale() override;
+  std::string GetAcceptLangs(content::BrowserContext* context) override;
+  const gfx::ImageSkia* GetDefaultFavicon() override;
+  bool AllowAppCache(const GURL& manifest_url,
+                     const GURL& first_party,
+                     content::ResourceContext* context) override;
+  bool AllowGetCookie(const GURL& url,
+                      const GURL& first_party,
+                      const net::CookieList& cookie_list,
+                      content::ResourceContext* context,
+                      int render_process_id,
+                      int render_frame_id) override;
+  bool AllowSetCookie(const GURL& url,
+                      const GURL& first_party,
+                      const std::string& cookie_line,
+                      content::ResourceContext* context,
+                      int render_process_id,
+                      int render_frame_id,
+                      net::CookieOptions* options) override;
+  bool AllowWorkerDatabase(
       const GURL& url,
       const base::string16& name,
       const base::string16& display_name,
       unsigned long estimated_size,
       content::ResourceContext* context,
-      const std::vector<std::pair<int, int> >& render_frames) override;
-  virtual void AllowWorkerFileSystem(
+      const std::vector<std::pair<int, int>>& render_frames) override;
+  void AllowWorkerFileSystem(
       const GURL& url,
       content::ResourceContext* context,
-      const std::vector<std::pair<int, int> >& render_frames,
+      const std::vector<std::pair<int, int>>& render_frames,
       base::Callback<void(bool)> callback) override;
-  virtual bool AllowWorkerIndexedDB(
+  bool AllowWorkerIndexedDB(
       const GURL& url,
       const base::string16& name,
       content::ResourceContext* context,
-      const std::vector<std::pair<int, int> >& render_frames) override;
-  virtual content::QuotaPermissionContext*
-      CreateQuotaPermissionContext() override;
-  virtual void AllowCertificateError(
+      const std::vector<std::pair<int, int>>& render_frames) override;
+  content::QuotaPermissionContext* CreateQuotaPermissionContext() override;
+  void AllowCertificateError(
       int render_process_id,
       int render_frame_id,
       int cert_error,
@@ -103,73 +101,46 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
       bool expired_previous_decision,
       const base::Callback<void(bool)>& callback,
       content::CertificateRequestResultType* result) override;
-  virtual void SelectClientCertificate(
-      int render_process_id,
-      int render_frame_id,
-      const net::HttpNetworkSession* network_session,
-      net::SSLCertRequestInfo* cert_request_info,
-      const base::Callback<void(net::X509Certificate*)>& callback) override;
-  virtual blink::WebNotificationPermission
-      CheckDesktopNotificationPermission(
-          const GURL& source_url,
-          content::ResourceContext* context,
-          int render_process_id) override;
-  virtual void ShowDesktopNotification(
-      const content::ShowDesktopNotificationHostMsgParams& params,
-      content::BrowserContext* browser_context,
-      int render_process_id,
-      scoped_ptr<content::DesktopNotificationDelegate> delegate,
-      base::Closure* cancel_callback) override;
-  virtual void RequestPermission(
-      content::PermissionType permission,
+  void SelectClientCertificate(
       content::WebContents* web_contents,
-      int bridge_id,
-      const GURL& requesting_frame,
-      bool user_gesture,
-      const base::Callback<void(bool)>& result_callback) override;
-  virtual void CancelPermissionRequest(content::PermissionType permission,
-                                       content::WebContents* web_contents,
-                                       int bridge_id,
-                                       const GURL& origin) override;
-  virtual bool CanCreateWindow(const GURL& opener_url,
-                               const GURL& opener_top_level_frame_url,
-                               const GURL& source_origin,
-                               WindowContainerType container_type,
-                               const GURL& target_url,
-                               const content::Referrer& referrer,
-                               WindowOpenDisposition disposition,
-                               const blink::WebWindowFeatures& features,
-                               bool user_gesture,
-                               bool opener_suppressed,
-                               content::ResourceContext* context,
-                               int render_process_id,
-                               int opener_id,
-                               bool* no_javascript_access) override;
-  virtual void ResourceDispatcherHostCreated() override;
-  virtual net::NetLog* GetNetLog() override;
-  virtual content::AccessTokenStore* CreateAccessTokenStore() override;
-  virtual bool IsFastShutdownPossible() override;
-  virtual void ClearCache(content::RenderViewHost* rvh) override;
-  virtual void ClearCookies(content::RenderViewHost* rvh) override;
-  virtual base::FilePath GetDefaultDownloadDirectory() override;
-  virtual std::string GetDefaultDownloadName() override;
-  virtual void DidCreatePpapiPlugin(
-      content::BrowserPpapiHost* browser_host) override;
-  virtual bool AllowPepperSocketAPI(
+      net::SSLCertRequestInfo* cert_request_info,
+      scoped_ptr<content::ClientCertificateDelegate> delegate) override;
+  bool CanCreateWindow(const GURL& opener_url,
+                       const GURL& opener_top_level_frame_url,
+                       const GURL& source_origin,
+                       WindowContainerType container_type,
+                       const GURL& target_url,
+                       const content::Referrer& referrer,
+                       WindowOpenDisposition disposition,
+                       const blink::WebWindowFeatures& features,
+                       bool user_gesture,
+                       bool opener_suppressed,
+                       content::ResourceContext* context,
+                       int render_process_id,
+                       int opener_render_view_id,
+                       int opener_render_frame_id,
+                       bool* no_javascript_access) override;
+  void ResourceDispatcherHostCreated() override;
+  net::NetLog* GetNetLog() override;
+  content::AccessTokenStore* CreateAccessTokenStore() override;
+  bool IsFastShutdownPossible() override;
+  void ClearCache(content::RenderFrameHost* rfh) override;
+  void ClearCookies(content::RenderFrameHost* rfh) override;
+  base::FilePath GetDefaultDownloadDirectory() override;
+  std::string GetDefaultDownloadName() override;
+  void DidCreatePpapiPlugin(content::BrowserPpapiHost* browser_host) override;
+  bool AllowPepperSocketAPI(
       content::BrowserContext* browser_context,
       const GURL& url,
       bool private_api,
       const content::SocketPermissionRequest* params) override;
-  virtual void OverrideWebkitPrefs(content::RenderViewHost* rvh,
-                                   const GURL& url,
-                                   content::WebPreferences* web_prefs) override;
+  void OverrideWebkitPrefs(content::RenderViewHost* rvh,
+                           content::WebPreferences* web_prefs) override;
 #if defined(VIDEO_HOLE)
-  virtual content::ExternalVideoSurfaceContainer*
-      OverrideCreateExternalVideoSurfaceContainer(
-          content::WebContents* web_contents) override;
+  content::ExternalVideoSurfaceContainer*
+  OverrideCreateExternalVideoSurfaceContainer(
+      content::WebContents* web_contents) override;
 #endif
-  virtual content::DevToolsManagerDelegate*
-      GetDevToolsManagerDelegate() override;
 
  private:
   // Android WebView currently has a single global (non-off-the-record) browser

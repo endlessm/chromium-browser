@@ -7,15 +7,15 @@
 #include <string>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/i18n/time_formatting.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/browsing_data/browsing_data_channel_id_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_cookie_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_database_helper.h"
@@ -35,7 +35,9 @@
 #include "components/content_settings/core/browser/content_settings_utils.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/browser/local_shared_objects_counter.h"
+#include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
+#include "components/rappor/rappor_utils.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/cert_store.h"
 #include "content/public/browser/user_metrics.h"
@@ -68,21 +70,24 @@ enum SSLCertificateDecisionsDidRevoke {
   END_OF_SSL_CERTIFICATE_DECISIONS_DID_REVOKE_ENUM
 };
 
-// The list of content settings types to display on the Website Settings UI.
+// The list of content settings types to display on the Website Settings UI. THE
+// ORDER OF THESE ITEMS IS IMPORTANT. To propose changing it, email
+// security-dev@chromium.org.
 ContentSettingsType kPermissionType[] = {
-  CONTENT_SETTINGS_TYPE_IMAGES,
-  CONTENT_SETTINGS_TYPE_JAVASCRIPT,
-  CONTENT_SETTINGS_TYPE_PLUGINS,
-  CONTENT_SETTINGS_TYPE_POPUPS,
-  CONTENT_SETTINGS_TYPE_GEOLOCATION,
-  CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
-  CONTENT_SETTINGS_TYPE_FULLSCREEN,
-  CONTENT_SETTINGS_TYPE_MOUSELOCK,
-  CONTENT_SETTINGS_TYPE_MEDIASTREAM,
-  CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS,
-  CONTENT_SETTINGS_TYPE_MIDI_SYSEX,
+    CONTENT_SETTINGS_TYPE_GEOLOCATION,
+    CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA,
+    CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC,
+    CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
+    CONTENT_SETTINGS_TYPE_IMAGES,
+    CONTENT_SETTINGS_TYPE_JAVASCRIPT,
+    CONTENT_SETTINGS_TYPE_POPUPS,
+    CONTENT_SETTINGS_TYPE_FULLSCREEN,
+    CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS,
+    CONTENT_SETTINGS_TYPE_PLUGINS,
+    CONTENT_SETTINGS_TYPE_MOUSELOCK,
+    CONTENT_SETTINGS_TYPE_MIDI_SYSEX,
 #if defined(OS_ANDROID)
-  CONTENT_SETTINGS_TYPE_PUSH_MESSAGING,
+    CONTENT_SETTINGS_TYPE_PUSH_MESSAGING,
 #endif
 };
 
@@ -135,33 +140,6 @@ WebsiteSettings::SiteIdentityStatus GetSiteIdentityStatusByCTInfo(
                : WebsiteSettings::SITE_IDENTITY_STATUS_CERT;
 }
 
-const char kRememberCertificateErrorDecisionsFieldTrialName[] =
-    "RememberCertificateErrorDecisions";
-const char kRememberCertificateErrorDecisionsFieldTrialDefaultGroup[] =
-    "Default";
-const char kRememberCertificateErrorDecisionsFieldTrialDisableGroup[] =
-    "Disable";
-// Returns true if the user is in the experimental group or has the flag enabled
-// for remembering SSL error decisions, otherwise false.
-//
-// TODO(jww): The field trial is scheduled to end 2015/02/28. This should be
-// removed at that point unless the field trial or flag continues.
-bool InRememberCertificateErrorDecisionsGroup() {
-  std::string group_name = base::FieldTrialList::FindFullName(
-      kRememberCertificateErrorDecisionsFieldTrialName);
-
-  // The Default and Disable groups are the "old-style" forget-at-session
-  // restart groups, so they do not get the button.
-  bool in_experimental_group = !group_name.empty() &&
-      group_name.compare(
-          kRememberCertificateErrorDecisionsFieldTrialDefaultGroup) != 0 &&
-      group_name.compare(
-          kRememberCertificateErrorDecisionsFieldTrialDisableGroup) != 0;
-  bool has_command_line_switch = CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kRememberCertErrorDecisions);
-  return in_experimental_group || has_command_line_switch;
-}
-
 }  // namespace
 
 WebsiteSettings::WebsiteSettings(
@@ -188,20 +166,9 @@ WebsiteSettings::WebsiteSettings(
       did_revoke_user_ssl_decisions_(false) {
   Init(profile, url, ssl);
 
-  HistoryService* history_service = HistoryServiceFactory::GetForProfile(
-      profile, Profile::EXPLICIT_ACCESS);
-  if (history_service) {
-    history_service->GetVisibleVisitCountToHost(
-        site_url_,
-        base::Bind(&WebsiteSettings::OnGotVisitCountToHost,
-                   base::Unretained(this)),
-        &visit_count_task_tracker_);
-  }
-
   PresentSitePermissions();
   PresentSiteData();
   PresentSiteIdentity();
-  PresentHistoryInfo(base::Time());
 
   // Every time the Website Settings UI is opened a |WebsiteSettings| object is
   // created. So this counts how ofter the Website Settings UI is opened.
@@ -219,6 +186,14 @@ void WebsiteSettings::RecordWebsiteSettingsAction(
 
   // Use a separate histogram to record actions if they are done on a page with
   // an HTTPS URL. Note that this *disregards* security status.
+  //
+
+  // TODO(palmer): Consider adding a new histogram for
+  // GURL::SchemeIsCryptographic. (We don't want to replace this call with a
+  // call to that function because we don't want to change the meanings of
+  // existing metrics.) This would inform the decision to mark non-secure
+  // origins as Dubious or Non-Secure; the overall bug for that is
+  // crbug.com/454579.
   if (site_url_.SchemeIs(url::kHttpsScheme)) {
     UMA_HISTOGRAM_ENUMERATION("WebsiteSettings.Action.HttpsUrl",
                               action,
@@ -226,12 +201,57 @@ void WebsiteSettings::RecordWebsiteSettingsAction(
   }
 }
 
+// Get corresponding Rappor Metric.
+const std::string GetRapporMetric(ContentSettingsType permission) {
+  std::string permission_str;
+  switch (permission) {
+    case CONTENT_SETTINGS_TYPE_GEOLOCATION:
+      permission_str = "Geolocation";
+      break;
+    case CONTENT_SETTINGS_TYPE_NOTIFICATIONS:
+      permission_str = "Notifications";
+      break;
+    case CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC:
+      permission_str = "Mic";
+      break;
+    case CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA:
+      permission_str = "Camera";
+      break;
+    default:
+      return "";
+  }
+
+  return base::StringPrintf("ContentSettings.PermissionActions_%s.Revoked.Url",
+                            permission_str.c_str());
+}
 
 void WebsiteSettings::OnSitePermissionChanged(ContentSettingsType type,
                                               ContentSetting setting) {
   // Count how often a permission for a specific content type is changed using
   // the Website Settings UI.
-  UMA_HISTOGRAM_COUNTS("WebsiteSettings.PermissionChanged", type);
+  ContentSettingsTypeHistogram histogram_value =
+      ContentSettingTypeToHistogramValue(type);
+  DCHECK_NE(histogram_value, CONTENT_SETTINGS_TYPE_HISTOGRAM_INVALID)
+      << "Invalid content setting type specified.";
+  UMA_HISTOGRAM_ENUMERATION("WebsiteSettings.OriginInfo.PermissionChanged",
+                            histogram_value,
+                            CONTENT_SETTINGS_HISTOGRAM_NUM_TYPES);
+
+  if (setting == ContentSetting::CONTENT_SETTING_ALLOW) {
+    UMA_HISTOGRAM_ENUMERATION(
+        "WebsiteSettings.OriginInfo.PermissionChanged.Allowed", histogram_value,
+        CONTENT_SETTINGS_HISTOGRAM_NUM_TYPES);
+  } else if (setting == ContentSetting::CONTENT_SETTING_BLOCK) {
+    UMA_HISTOGRAM_ENUMERATION(
+        "WebsiteSettings.OriginInfo.PermissionChanged.Blocked", histogram_value,
+        CONTENT_SETTINGS_HISTOGRAM_NUM_TYPES);
+    // Trigger Rappor sampling if it is a permission revoke action.
+    const std::string& rappor_metric = GetRapporMetric(type);
+    if (!rappor_metric.empty()) {
+      rappor::SampleDomainAndRegistryFromGURL(
+          g_browser_process->rappor_service(), rappor_metric, this->site_url_);
+    }
+  }
 
   // This is technically redundant given the histogram above, but putting the
   // total count of permission changes in another histogram makes it easier to
@@ -243,6 +263,7 @@ void WebsiteSettings::OnSitePermissionChanged(ContentSettingsType type,
   switch (type) {
     case CONTENT_SETTINGS_TYPE_GEOLOCATION:
     case CONTENT_SETTINGS_TYPE_MIDI_SYSEX:
+    case CONTENT_SETTINGS_TYPE_FULLSCREEN:
       // TODO(markusheintz): The rule we create here should also change the
       // location permission for iframed content.
       primary_pattern = ContentSettingsPattern::FromURLNoWildcard(site_url_);
@@ -256,61 +277,34 @@ void WebsiteSettings::OnSitePermissionChanged(ContentSettingsType type,
     case CONTENT_SETTINGS_TYPE_JAVASCRIPT:
     case CONTENT_SETTINGS_TYPE_PLUGINS:
     case CONTENT_SETTINGS_TYPE_POPUPS:
-    case CONTENT_SETTINGS_TYPE_FULLSCREEN:
     case CONTENT_SETTINGS_TYPE_MOUSELOCK:
     case CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS:
     case CONTENT_SETTINGS_TYPE_PUSH_MESSAGING:
       primary_pattern = ContentSettingsPattern::FromURL(site_url_);
       secondary_pattern = ContentSettingsPattern::Wildcard();
       break;
-    case CONTENT_SETTINGS_TYPE_MEDIASTREAM: {
-      // We need to use the same same patterns as other places like infobar code
-      // to override the existing rule instead of creating the new one.
+    case CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC:
+    case CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA:
       primary_pattern = ContentSettingsPattern::FromURLNoWildcard(site_url_);
       secondary_pattern = ContentSettingsPattern::Wildcard();
-      // Set permission for both microphone and camera.
-      content_settings_->SetContentSetting(
-          primary_pattern,
-          secondary_pattern,
-          CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC,
-          std::string(),
-          setting);
-
-      content_settings_->SetContentSetting(
-          primary_pattern,
-          secondary_pattern,
-          CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA,
-          std::string(),
-          setting);
       break;
-    }
     default:
       NOTREACHED() << "ContentSettingsType " << type << "is not supported.";
       break;
   }
 
-  if (type != CONTENT_SETTINGS_TYPE_MEDIASTREAM) {
-    // Permission settings are specified via rules. There exists always at least
-    // one rule for the default setting. Get the rule that currently defines
-    // the permission for the given permission |type|. Then test whether the
-    // existing rule is more specific than the rule we are about to create. If
-    // the existing rule is more specific, than change the existing rule instead
-    // of creating a new rule that would be hidden behind the existing rule.
-    // This is not a concern for CONTENT_SETTINGS_TYPE_MEDIASTREAM since users
-    // can not create media settings exceptions by hand.
-    content_settings::SettingInfo info;
-    scoped_ptr<base::Value> v =
-        content_settings_->GetWebsiteSettingWithoutOverride(
-            site_url_, site_url_, type, std::string(), &info);
-    content_settings_->SetNarrowestWebsiteSetting(
-        primary_pattern, secondary_pattern, type, std::string(), setting, info);
-  } else {
-    base::Value* value = NULL;
-    if (setting != CONTENT_SETTING_DEFAULT)
-      value = new base::FundamentalValue(setting);
-    content_settings_->SetWebsiteSetting(
-        primary_pattern, secondary_pattern, type, std::string(), value);
-  }
+  // Permission settings are specified via rules. There exists always at least
+  // one rule for the default setting. Get the rule that currently defines
+  // the permission for the given permission |type|. Then test whether the
+  // existing rule is more specific than the rule we are about to create. If
+  // the existing rule is more specific, than change the existing rule instead
+  // of creating a new rule that would be hidden behind the existing rule.
+  content_settings::SettingInfo info;
+  scoped_ptr<base::Value> v =
+      content_settings_->GetWebsiteSettingWithoutOverride(
+          site_url_, site_url_, type, std::string(), &info);
+  content_settings_->SetNarrowestWebsiteSetting(
+      primary_pattern, secondary_pattern, type, std::string(), setting, info);
 
   show_info_bar_ = true;
 
@@ -320,19 +314,6 @@ void WebsiteSettings::OnSitePermissionChanged(ContentSettingsType type,
   // Refresh the UI to reflect the new setting.
   PresentSitePermissions();
 #endif
-}
-
-void WebsiteSettings::OnGotVisitCountToHost(bool found_visits,
-                                            int visit_count,
-                                            base::Time first_visit) {
-  if (!found_visits) {
-    // This indicates an error, such as the page's URL scheme wasn't
-    // http/https.
-    first_visit = base::Time();
-  } else if (visit_count == 0) {
-    first_visit = base::Time::Now();
-  }
-  PresentHistoryInfo(first_visit);
 }
 
 void WebsiteSettings::OnSiteDataAccessed() {
@@ -386,12 +367,6 @@ void WebsiteSettings::Init(Profile* profile,
   }
 
   cert_id_ = ssl.cert_id;
-
-  if (ssl.cert_id && !ssl.signed_certificate_timestamp_ids.empty()) {
-    signed_certificate_timestamp_ids_.assign(
-        ssl.signed_certificate_timestamp_ids.begin(),
-        ssl.signed_certificate_timestamp_ids.end());
-  }
 
   if (ssl.cert_id &&
       cert_store_->RetrieveCert(ssl.cert_id, &cert) &&
@@ -484,9 +459,7 @@ void WebsiteSettings::Init(Profile* profile,
       static const int64_t kSHA1LastIssuanceDate = INT64_C(13096080000000000);
       if ((ssl.cert_status & net::CERT_STATUS_SHA1_SIGNATURE_PRESENT) &&
           cert->valid_expiry() >
-              base::Time::FromInternalValue(kSHA1LastIssuanceDate) &&
-          base::FieldTrialList::FindFullName("SHA1IdentityUIWarning") ==
-              "Enabled") {
+              base::Time::FromInternalValue(kSHA1LastIssuanceDate)) {
         site_identity_status_ =
             SITE_IDENTITY_STATUS_DEPRECATED_SIGNATURE_ALGORITHM;
         site_identity_details_ +=
@@ -551,17 +524,22 @@ void WebsiteSettings::Init(Profile* profile,
     site_connection_details_.assign(l10n_util::GetStringFUTF16(
         IDS_PAGE_INFO_SECURITY_TAB_NOT_ENCRYPTED_CONNECTION_TEXT,
         subject_name));
-  } else if (ssl.security_bits < 80) {
-    site_connection_status_ = SITE_CONNECTION_STATUS_ENCRYPTED_ERROR;
-    site_connection_details_.assign(l10n_util::GetStringFUTF16(
-        IDS_PAGE_INFO_SECURITY_TAB_WEAK_ENCRYPTION_CONNECTION_TEXT,
-        subject_name));
   } else {
     site_connection_status_ = SITE_CONNECTION_STATUS_ENCRYPTED;
-    site_connection_details_.assign(l10n_util::GetStringFUTF16(
-        IDS_PAGE_INFO_SECURITY_TAB_ENCRYPTED_CONNECTION_TEXT,
-        subject_name,
-        base::IntToString16(ssl.security_bits)));
+
+    if (net::SSLConnectionStatusToVersion(ssl.connection_status) >=
+            net::SSL_CONNECTION_VERSION_TLS1_2 &&
+        net::IsSecureTLSCipherSuite(
+            net::SSLConnectionStatusToCipherSuite(ssl.connection_status))) {
+      site_connection_details_.assign(l10n_util::GetStringFUTF16(
+          IDS_PAGE_INFO_SECURITY_TAB_ENCRYPTED_CONNECTION_TEXT,
+          subject_name));
+    } else {
+      site_connection_details_.assign(l10n_util::GetStringFUTF16(
+          IDS_PAGE_INFO_SECURITY_TAB_WEAK_ENCRYPTION_CONNECTION_TEXT,
+          subject_name));
+    }
+
     if (ssl.content_status) {
       bool ran_insecure_content =
           !!(ssl.content_status & content::SSLStatus::RAN_INSECURE_CONTENT);
@@ -633,11 +611,9 @@ void WebsiteSettings::Init(Profile* profile,
   ChromeSSLHostStateDelegate* delegate =
       ChromeSSLHostStateDelegateFactory::GetForProfile(profile);
   DCHECK(delegate);
-  // Only show an SSL decision revoke button if both the user has chosen to
-  // bypass SSL host errors for this host in the past and the user is not using
-  // the traditional "forget-at-session-restart" error decision memory.
-  show_ssl_decision_revoke_button_ = delegate->HasAllowException(url.host()) &&
-                                     InRememberCertificateErrorDecisionsGroup();
+  // Only show an SSL decision revoke button if the user has chosen to bypass
+  // SSL host errors for this host in the past.
+  show_ssl_decision_revoke_button_ = delegate->HasAllowException(url.host());
 
   // By default select the permissions tab that displays all the site
   // permissions. In case of a connection error or an issue with the
@@ -666,56 +642,23 @@ void WebsiteSettings::PresentSitePermissions() {
   WebsiteSettingsUI::PermissionInfo permission_info;
   for (size_t i = 0; i < arraysize(kPermissionType); ++i) {
     permission_info.type = kPermissionType[i];
-    if (permission_info.type == CONTENT_SETTINGS_TYPE_MIDI_SYSEX) {
-      const CommandLine* command_line = CommandLine::ForCurrentProcess();
-      if (!command_line->HasSwitch(switches::kEnableWebMIDI))
-        continue;
-    }
 
     content_settings::SettingInfo info;
-    if (permission_info.type == CONTENT_SETTINGS_TYPE_MEDIASTREAM) {
-      scoped_ptr<base::Value> mic_value =
-          content_settings_->GetWebsiteSettingWithoutOverride(
-              site_url_,
-              site_url_,
-              CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC,
-              std::string(),
-              &info);
-      ContentSetting mic_setting =
-          content_settings::ValueToContentSetting(mic_value.get());
-
-      scoped_ptr<base::Value> camera_value =
-          content_settings_->GetWebsiteSettingWithoutOverride(
-              site_url_,
-              site_url_,
-              CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA,
-              std::string(),
-              &info);
-      ContentSetting camera_setting =
-          content_settings::ValueToContentSetting(camera_value.get());
-
-      if (mic_setting != camera_setting || mic_setting == CONTENT_SETTING_ASK)
-        permission_info.setting = CONTENT_SETTING_DEFAULT;
-      else
-        permission_info.setting = mic_setting;
+    scoped_ptr<base::Value> value =
+        content_settings_->GetWebsiteSettingWithoutOverride(
+            site_url_, site_url_, permission_info.type, std::string(), &info);
+    DCHECK(value.get());
+    if (value->GetType() == base::Value::TYPE_INTEGER) {
+      permission_info.setting =
+          content_settings::ValueToContentSetting(value.get());
     } else {
-      scoped_ptr<base::Value> value =
-          content_settings_->GetWebsiteSettingWithoutOverride(
-              site_url_, site_url_, permission_info.type, std::string(), &info);
-      DCHECK(value.get());
-      if (value->GetType() == base::Value::TYPE_INTEGER) {
-        permission_info.setting =
-            content_settings::ValueToContentSetting(value.get());
-      } else {
-        NOTREACHED();
-      }
+      NOTREACHED();
     }
 
     permission_info.source = info.source;
 
     if (info.primary_pattern == ContentSettingsPattern::Wildcard() &&
-        info.secondary_pattern == ContentSettingsPattern::Wildcard() &&
-        permission_info.type != CONTENT_SETTINGS_TYPE_MEDIASTREAM) {
+        info.secondary_pattern == ContentSettingsPattern::Wildcard()) {
       permission_info.default_setting = permission_info.setting;
       permission_info.setting = CONTENT_SETTING_DEFAULT;
     } else {
@@ -723,7 +666,11 @@ void WebsiteSettings::PresentSitePermissions() {
           content_settings_->GetDefaultContentSetting(permission_info.type,
                                                       NULL);
     }
-    permission_info_list.push_back(permission_info);
+
+    if (permission_info.setting != CONTENT_SETTING_DEFAULT &&
+        permission_info.setting != permission_info.default_setting) {
+      permission_info_list.push_back(permission_info);
+    }
   }
 
   ui_->SetPermissionInfo(permission_info_list);
@@ -760,8 +707,8 @@ void WebsiteSettings::PresentSiteData() {
 }
 
 void WebsiteSettings::PresentSiteIdentity() {
-  // After initialization the status about the site's connection
-  // and it's identity must be available.
+  // After initialization the status about the site's connection and its
+  // identity must be available.
   DCHECK_NE(site_identity_status_, SITE_IDENTITY_STATUS_UNKNOWN);
   DCHECK_NE(site_connection_status_, SITE_CONNECTION_STATUS_UNKNOWN);
   WebsiteSettingsUI::IdentityInfo info;
@@ -777,32 +724,6 @@ void WebsiteSettings::PresentSiteIdentity() {
   info.identity_status_description =
       UTF16ToUTF8(site_identity_details_);
   info.cert_id = cert_id_;
-  info.signed_certificate_timestamp_ids.assign(
-      signed_certificate_timestamp_ids_.begin(),
-      signed_certificate_timestamp_ids_.end());
   info.show_ssl_decision_revoke_button = show_ssl_decision_revoke_button_;
   ui_->SetIdentityInfo(info);
-}
-
-void WebsiteSettings::PresentHistoryInfo(base::Time first_visit) {
-  if (first_visit == base::Time()) {
-    ui_->SetFirstVisit(base::string16());
-    return;
-  }
-
-  bool visited_before_today = false;
-  base::Time today = base::Time::Now().LocalMidnight();
-  base::Time first_visit_midnight = first_visit.LocalMidnight();
-  visited_before_today = (first_visit_midnight < today);
-
-  base::string16 first_visit_text;
-  if (visited_before_today) {
-    first_visit_text = l10n_util::GetStringFUTF16(
-        IDS_PAGE_INFO_SECURITY_TAB_VISITED_BEFORE_TODAY,
-        base::TimeFormatShortDate(first_visit));
-  } else {
-    first_visit_text = l10n_util::GetStringUTF16(
-        IDS_PAGE_INFO_SECURITY_TAB_FIRST_VISITED_TODAY);
-  }
-  ui_->SetFirstVisit(first_visit_text);
 }

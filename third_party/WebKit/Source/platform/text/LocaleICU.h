@@ -47,39 +47,40 @@ namespace blink {
 class PLATFORM_EXPORT LocaleICU : public Locale {
 public:
     static PassOwnPtr<LocaleICU> create(const char* localeString);
-    virtual ~LocaleICU();
+    ~LocaleICU() override;
 
-    virtual const Vector<String>& weekDayShortLabels() override;
-    virtual unsigned firstDayOfWeek() override;
-    virtual bool isRTL() override;
-    virtual String dateFormat() override;
-    virtual String monthFormat() override;
-    virtual String shortMonthFormat() override;
-    virtual String timeFormat() override;
-    virtual String shortTimeFormat() override;
-    virtual String dateTimeFormatWithSeconds() override;
-    virtual String dateTimeFormatWithoutSeconds() override;
-    virtual const Vector<String>& monthLabels() override;
-    virtual const Vector<String>& shortMonthLabels() override;
-    virtual const Vector<String>& standAloneMonthLabels() override;
-    virtual const Vector<String>& shortStandAloneMonthLabels() override;
-    virtual const Vector<String>& timeAMPMLabels() override;
+    const Vector<String>& weekDayShortLabels() override;
+    unsigned firstDayOfWeek() override;
+    bool isRTL() override;
+    String dateFormat() override;
+    String monthFormat() override;
+    String shortMonthFormat() override;
+    String timeFormat() override;
+    String shortTimeFormat() override;
+    String dateTimeFormatWithSeconds() override;
+    String dateTimeFormatWithoutSeconds() override;
+    const Vector<String>& monthLabels() override;
+    const Vector<String>& shortMonthLabels() override;
+    const Vector<String>& standAloneMonthLabels() override;
+    const Vector<String>& shortStandAloneMonthLabels() override;
+    const Vector<String>& timeAMPMLabels() override;
 
 private:
     explicit LocaleICU(const char*);
     String decimalSymbol(UNumberFormatSymbol);
     String decimalTextAttribute(UNumberFormatTextAttribute);
-    virtual void initializeLocaleData() override;
+    void initializeLocaleData() override;
 
     bool detectSignAndGetDigitRange(const String& input, bool& isNegative, unsigned& startIndex, unsigned& endIndex);
     unsigned matchedDecimalSymbolIndex(const String& input, unsigned& position);
 
     bool initializeShortDateFormat();
     UDateFormat* openDateFormat(UDateFormatStyle timeStyle, UDateFormatStyle dateStyle) const;
+    UDateFormat* openDateFormatForStandAloneMonthLabels(bool isShort) const;
 
     void initializeCalendar();
 
-    PassOwnPtr<Vector<String> > createLabelVector(const UDateFormat*, UDateFormatSymbolType, int32_t startIndex, int32_t size);
+    PassOwnPtr<Vector<String>> createLabelVector(const UDateFormat*, UDateFormatSymbolType, int32_t startIndex, int32_t size);
     void initializeDateTimeFormat();
 
     CString m_locale;
@@ -88,9 +89,9 @@ private:
     bool m_didCreateDecimalFormat;
     bool m_didCreateShortDateFormat;
 
-    OwnPtr<Vector<String> > m_weekDayShortLabels;
+    OwnPtr<Vector<String>> m_weekDayShortLabels;
     unsigned m_firstDayOfWeek;
-    OwnPtr<Vector<String> > m_monthLabels;
+    OwnPtr<Vector<String>> m_monthLabels;
     String m_dateFormat;
     String m_monthFormat;
     String m_shortMonthFormat;

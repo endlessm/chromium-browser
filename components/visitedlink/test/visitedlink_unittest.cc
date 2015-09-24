@@ -7,11 +7,13 @@
 #include <vector>
 
 #include "base/files/file_util.h"
+#include "base/location.h"
 #include "base/memory/shared_memory.h"
-#include "base/message_loop/message_loop.h"
 #include "base/process/process_handle.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "components/visitedlink/browser/visitedlink_delegate.h"
 #include "components/visitedlink/browser/visitedlink_event_listener.h"
@@ -549,7 +551,7 @@ class VisitRelayingRenderProcessHost : public MockRenderProcessHost {
             GetBrowserContext());
 
     if (msg->type() == ChromeViewMsg_VisitedLink_Add::ID) {
-      PickleIterator iter(*msg);
+      base::PickleIterator iter(*msg);
       std::vector<uint64> fingerprints;
       CHECK(IPC::ReadParam(msg, &iter, &fingerprints));
       counting_context->CountAddEvent(fingerprints.size());
@@ -611,9 +613,8 @@ class VisitedLinkEventsTest : public content::RenderViewHostTestHarness {
     //
     // TODO(ajwong): This is horrid! What is the right synchronization method?
     base::RunLoop run_loop;
-    base::MessageLoop::current()->PostDelayedTask(
-        FROM_HERE,
-        run_loop.QuitClosure(),
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE, run_loop.QuitClosure(),
         base::TimeDelta::FromMilliseconds(110));
     run_loop.Run();
   }
@@ -679,7 +680,7 @@ TEST_F(VisitedLinkEventsTest, Coalescense) {
 }
 
 TEST_F(VisitedLinkEventsTest, Basics) {
-  RenderViewHostTester::For(rvh())->CreateRenderView(
+  RenderViewHostTester::For(rvh())->CreateTestRenderView(
       base::string16(), MSG_ROUTING_NONE, MSG_ROUTING_NONE, -1, false);
 
   // Add a few URLs.
@@ -703,7 +704,7 @@ TEST_F(VisitedLinkEventsTest, Basics) {
 }
 
 TEST_F(VisitedLinkEventsTest, TabVisibility) {
-  RenderViewHostTester::For(rvh())->CreateRenderView(
+  RenderViewHostTester::For(rvh())->CreateTestRenderView(
       base::string16(), MSG_ROUTING_NONE, MSG_ROUTING_NONE, -1, false);
 
   // Simulate tab becoming inactive.

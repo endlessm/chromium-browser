@@ -28,14 +28,14 @@
 #include "chrome/browser/sync/supervised_user_signin_manager_wrapper.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/global_error/global_error_service_factory.h"
-#include "chrome/browser/webdata/web_data_service_factory.h"
+#include "chrome/browser/web_data_service_factory.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_manager.h"
+#include "components/variations/variations_associated_data.h"
 #include "url/gurl.h"
 
 #if defined(ENABLE_EXTENSIONS)
-#include "chrome/browser/notifications/sync_notifier/chrome_notifier_service_factory.h"
 #include "extensions/browser/extension_system_provider.h"
 #include "extensions/browser/extensions_browser_client.h"
 #endif
@@ -48,11 +48,27 @@ ProfileSyncServiceFactory* ProfileSyncServiceFactory::GetInstance() {
 // static
 ProfileSyncService* ProfileSyncServiceFactory::GetForProfile(
     Profile* profile) {
-  if (!ProfileSyncService::IsSyncEnabled())
+  if (!ProfileSyncService::IsSyncAllowedByFlag())
     return NULL;
+
+  // Disable sync experimentally to measure impact on startup time. Supervised
+  // users are unaffected, since supervised users rely completely on sync.
+  // TODO(mlerman): Remove this after the experiment. crbug.com/454788
+  if (!profile->IsSupervised() &&
+      !variations::GetVariationParamValue("LightSpeed", "DisableSync")
+           .empty()) {
+    return NULL;
+  }
 
   return static_cast<ProfileSyncService*>(
       GetInstance()->GetServiceForBrowserContext(profile, true));
+}
+
+// static
+sync_driver::SyncService*
+ProfileSyncServiceFactory::GetSyncServiceForBrowserContext(
+    content::BrowserContext* context) {
+  return GetForProfile(Profile::FromBrowserContext(context));
 }
 
 ProfileSyncServiceFactory::ProfileSyncServiceFactory()
@@ -80,7 +96,6 @@ ProfileSyncServiceFactory::ProfileSyncServiceFactory()
 #if defined(ENABLE_EXTENSIONS)
   DependsOn(
       extensions::ExtensionsBrowserClient::Get()->GetExtensionSystemFactory());
-  DependsOn(notifier::ChromeNotifierServiceFactory::GetInstance());
 #endif
 
   // The following have not been converted to KeyedServices yet,
@@ -109,8 +124,8 @@ KeyedService* ProfileSyncServiceFactory::BuildServiceInstanceFor(
   // once http://crbug.com/171406 has been fixed.
   AboutSigninInternalsFactory::GetForProfile(profile);
 
-  const GURL sync_service_url =
-      ProfileSyncService::GetSyncServiceURL(*CommandLine::ForCurrentProcess());
+  const GURL sync_service_url = ProfileSyncService::GetSyncServiceURL(
+      *base::CommandLine::ForCurrentProcess());
 
   scoped_ptr<SupervisedUserSigninManagerWrapper> signin_wrapper(
       new SupervisedUserSigninManagerWrapper(profile, signin));
@@ -134,15 +149,9 @@ KeyedService* ProfileSyncServiceFactory::BuildServiceInstanceFor(
   ProfileSyncService* pss = new ProfileSyncService(
       scoped_ptr<ProfileSyncComponentsFactory>(
           new ProfileSyncComponentsFactoryImpl(
-              profile,
-              CommandLine::ForCurrentProcess(),
-              sync_service_url,
-              token_service,
-              url_request_context_getter)),
-      profile,
-      signin_wrapper.Pass(),
-      token_service,
-      behavior);
+              profile, base::CommandLine::ForCurrentProcess(), sync_service_url,
+              token_service, url_request_context_getter)),
+      profile, signin_wrapper.Pass(), token_service, behavior);
 
   pss->factory()->RegisterDataTypes(pss);
   pss->Initialize();

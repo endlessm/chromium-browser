@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/strings/string16.h"
+#include "base/time/time.h"
 #include "chrome/common/ntp_logging_events.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
@@ -41,9 +42,10 @@ class NTPUserDataLogger
   // the tab/shutting down Chrome), or when the user navigates to a URL.
   void EmitNtpStatistics();
 
-  // Called each time an event occurs on the NTP that requires a counter to be
-  // incremented.
-  void LogEvent(NTPLoggingEventType event);
+  // Called when an event occurs on the NTP that requires a counter to be
+  // incremented. |time| is the delta time in ms from navigation start until
+  // this event happened.
+  void LogEvent(NTPLoggingEventType event, base::TimeDelta time);
 
   // Logs an impression on one of the Most Visited tiles by a given provider.
   void LogMostVisitedImpression(int position, const base::string16& provider);
@@ -61,9 +63,11 @@ class NTPUserDataLogger
  private:
   friend class content::WebContentsUserData<NTPUserDataLogger>;
 
-  // True if at least one iframe came from a server-side suggestion. In
-  // practice, either all the iframes are server-side suggestions or none are.
+  // True if at least one iframe came from a server-side suggestion.
   bool has_server_side_suggestions_;
+
+  // True if at least one iframe came from a client-side suggestion.
+  bool has_client_side_suggestions_;
 
   // Total number of tiles rendered, no matter if it's a thumbnail, a gray tile
   // or an external tile.
@@ -95,6 +99,15 @@ class NTPUserDataLogger
 
   // Total number of mouseovers for this NTP session.
   size_t number_of_mouseovers_;
+
+  // Time from navigation start it took to load the NTP in milliseconds.
+  base::TimeDelta load_time_;
+
+  // Whether we have already emitted NTP stats for this web contents.
+  bool has_emitted_;
+
+  // Are stats being logged during Chrome startup?
+  bool during_startup_;
 
   // The URL of this New Tab Page - varies based on NTP version.
   GURL ntp_url_;

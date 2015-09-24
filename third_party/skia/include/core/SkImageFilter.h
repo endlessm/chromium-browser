@@ -8,17 +8,20 @@
 #ifndef SkImageFilter_DEFINED
 #define SkImageFilter_DEFINED
 
+#include "SkFilterQuality.h"
 #include "SkFlattenable.h"
 #include "SkMatrix.h"
 #include "SkRect.h"
+#include "SkSurfaceProps.h"
 #include "SkTemplates.h"
 
+class GrFragmentProcessor;
+class GrProcessorDataManager;
+class GrTexture;
+class SkBaseDevice;
 class SkBitmap;
 class SkColorFilter;
-class SkBaseDevice;
 struct SkIPoint;
-class GrFragmentProcessor;
-class GrTexture;
 
 /**
  *  Base class for image filters. If one is installed in the paint, then
@@ -29,8 +32,6 @@ class GrTexture;
  */
 class SK_API SkImageFilter : public SkFlattenable {
 public:
-    SK_DECLARE_INST_COUNT(SkImageFilter)
-
     class CropRect {
     public:
         enum CropEdge {
@@ -59,6 +60,7 @@ public:
         static Cache* Get();
         virtual bool get(const Key& key, SkBitmap* result, SkIPoint* offset) const = 0;
         virtual void set(const Key& key, const SkBitmap& result, const SkIPoint& offset) = 0;
+        virtual void purge() {}
     };
 
     class Context {
@@ -72,22 +74,24 @@ public:
     private:
         SkMatrix fCTM;
         SkIRect  fClipBounds;
-        Cache* fCache;
+        Cache*   fCache;
     };
 
     class Proxy {
     public:
-        virtual ~Proxy() {};
+        Proxy(SkBaseDevice* device) : fDevice(device) { }
 
-        virtual SkBaseDevice* createDevice(int width, int height) = 0;
-        // returns true if the proxy can handle this filter natively
-        virtual bool canHandleImageFilter(const SkImageFilter*) = 0;
-        // returns true if the proxy handled the filter itself. if this returns
+        SkBaseDevice* createDevice(int width, int height);
+
+        // Returns true if the proxy handled the filter itself. If this returns
         // false then the filter's code will be called.
-        virtual bool filterImage(const SkImageFilter*, const SkBitmap& src,
-                                 const Context&,
-                                 SkBitmap* result, SkIPoint* offset) = 0;
+        bool filterImage(const SkImageFilter*, const SkBitmap& src, const SkImageFilter::Context&,
+                         SkBitmap* result, SkIPoint* offset);
+
+    private:
+        SkBaseDevice* fDevice;
     };
+
 
     /**
      *  Request a new (result) image to be created from the src image.
@@ -140,7 +144,25 @@ public:
      *  If this returns true, then if filterPtr is not null, it must be set to a ref'd colorfitler
      *  (i.e. it may not be set to NULL).
      */
-    virtual bool asColorFilter(SkColorFilter** filterPtr) const;
+    bool isColorFilterNode(SkColorFilter** filterPtr) const {
+        return this->onIsColorFilterNode(filterPtr);
+    }
+
+    // DEPRECATED : use isColorFilterNode() instead
+    bool asColorFilter(SkColorFilter** filterPtr) const {
+        return this->isColorFilterNode(filterPtr);
+    }
+
+    /**
+     *  Returns true (and optionally returns a ref'd filter) if this imagefilter can be completely
+     *  replaced by the returned colorfilter. i.e. the two effects will affect drawing in the
+     *  same way.
+     */
+    bool asAColorFilter(SkColorFilter** filterPtr) const {
+        return this->countInputs() > 0 &&
+               NULL == this->getInput(0) &&
+               this->isColorFilterNode(filterPtr);
+    }
 
     /**
      *  Returns the number of inputs this filter will accept (some inputs can
@@ -169,8 +191,17 @@ public:
      */
     bool cropRectIsSet() const { return fCropRect.flags() != 0x0; }
 
+    CropRect getCropRect() const { return fCropRect; }
+
     // Default impl returns union of all input bounds.
     virtual void computeFastBounds(const SkRect&, SkRect*) const;
+
+    /**
+     * Create an SkMatrixImageFilter, which transforms its input by the given matrix.
+     */
+    static SkImageFilter* CreateMatrixFilter(const SkMatrix& matrix,
+                                             SkFilterQuality,
+                                             SkImageFilter* input = NULL);
 
 #if SK_SUPPORT_GPU
     /**
@@ -186,6 +217,7 @@ public:
                            SkBitmap* result, SkIPoint* offset) const;
 #endif
 
+    SK_TO_STRING_PUREVIRT()
     SK_DEFINE_FLATTENABLE_TYPE(SkImageFilter)
 
 protected:
@@ -207,7 +239,6 @@ protected:
         const CropRect& cropRect() const { return fCropRect; }
         int             inputCount() const { return fInputs.count(); }
         SkImageFilter** inputs() const { return fInputs.get(); }
-        uint32_t        uniqueID() const { return fUniqueID; }
 
         SkImageFilter*  getInput(int index) const { return fInputs[index]; }
 
@@ -221,12 +252,11 @@ protected:
         CropRect fCropRect;
         // most filters accept at most 2 input-filters
         SkAutoSTArray<2, SkImageFilter*> fInputs;
-        uint32_t fUniqueID;
 
         void allocInputs(int count);
     };
 
-    SkImageFilter(int inputCount, SkImageFilter** inputs, const CropRect* cropRect = NULL, uint32_t uniqueID = 0);
+    SkImageFilter(int inputCount, SkImageFilter** inputs, const CropRect* cropRect = NULL);
 
     virtual ~SkImageFilter();
 
@@ -239,7 +269,7 @@ protected:
      */
     explicit SkImageFilter(int inputCount, SkReadBuffer& rb);
 
-    virtual void flatten(SkWriteBuffer&) const SK_OVERRIDE;
+    void flatten(SkWriteBuffer&) const override;
 
     /**
      *  This is the virtual which should be overridden by the derived class
@@ -267,6 +297,14 @@ protected:
     // implementation recursively unions all input bounds, or returns false if
     // no inputs.
     virtual bool onFilterBounds(const SkIRect&, const SkMatrix&, SkIRect*) const;
+
+    /**
+     *  Return true (and return a ref'd colorfilter) if this node in the DAG is just a
+     *  colorfilter w/o CropRect constraints.
+     */
+    virtual bool onIsColorFilterNode(SkColorFilter** /*filterPtr*/) const {
+        return false;
+    }
 
     /** Computes source bounds as the src bitmap bounds offset by srcOffset.
      *  Apply the transformed crop rect to the bounds if any of the
@@ -303,10 +341,13 @@ protected:
      *  will be called with (NULL, NULL, SkMatrix::I()) to query for support,
      *  so returning "true" indicates support for all possible matrices.
      */
-    virtual bool asFragmentProcessor(GrFragmentProcessor**, GrTexture*, const SkMatrix&,
-                                     const SkIRect& bounds) const;
+    virtual bool asFragmentProcessor(GrFragmentProcessor**, GrProcessorDataManager*, GrTexture*,
+                                     const SkMatrix&, const SkIRect& bounds) const;
 
 private:
+    friend class SkGraphics;
+    static void PurgeCache();
+
     bool usesSrcInput() const { return fUsesSrcInput; }
 
     typedef SkFlattenable INHERITED;

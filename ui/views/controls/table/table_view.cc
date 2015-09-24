@@ -8,10 +8,13 @@
 
 #include "base/auto_reset.h"
 #include "base/i18n/rtl.h"
+#include "base/strings/string_util.h"
+#include "base/strings/utf_string_conversions.h"
+#include "ui/accessibility/ax_view_state.h"
 #include "ui/events/event.h"
 #include "ui/gfx/canvas.h"
+#include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/image/image_skia.h"
-#include "ui/gfx/rect_conversions.h"
 #include "ui/gfx/skia_util.h"
 #include "ui/gfx/text_utils.h"
 #include "ui/native_theme/native_theme.h"
@@ -114,6 +117,9 @@ TableView::PaintRegion::PaintRegion()
 }
 
 TableView::PaintRegion::~PaintRegion() {}
+
+// static
+const char TableView::kViewClassName[] = "TableView";
 
 TableView::TableView(ui::TableModel* model,
                      const std::vector<ui::TableColumn>& columns,
@@ -229,7 +235,8 @@ void TableView::ToggleSortOrder(int visible_column_index) {
   if (!sort.empty() && sort[0].column_id == column_id) {
     sort[0].ascending = !sort[0].ascending;
   } else {
-    SortDescriptor descriptor(column_id, true);
+    SortDescriptor descriptor(column_id, visible_columns_[
+        visible_column_index].column.initial_sort_is_ascending);
     sort.insert(sort.begin(), descriptor);
     // Only persist two sort descriptors.
     if (sort.size() > 2)
@@ -316,6 +323,10 @@ void TableView::Layout() {
     height = std::max(parent()->height(), height);
   }
   SetBounds(x(), y(), width, height);
+}
+
+const char* TableView::GetClassName() const {
+  return kViewClassName;
 }
 
 gfx::Size TableView::GetPreferredSize() const {
@@ -414,6 +425,33 @@ bool TableView::GetTooltipTextOrigin(const gfx::Point& p,
   return GetTooltipImpl(p, NULL, loc);
 }
 
+void TableView::GetAccessibleState(ui::AXViewState* state) {
+  state->role = ui::AX_ROLE_TABLE;
+  state->AddStateFlag(ui::AX_STATE_READ_ONLY);
+  state->count = RowCount();
+
+  if (selection_model_.active() != ui::ListSelectionModel::kUnselectedIndex) {
+    // Get information about the active item, this is not the same as the set
+    // of selected items (of which there could be more than one).
+    state->role = ui::AX_ROLE_ROW;
+    state->index = selection_model_.active();
+    if (selection_model_.IsSelected(selection_model_.active())) {
+      state->AddStateFlag(ui::AX_STATE_SELECTED);
+    }
+
+    std::vector<base::string16> name_parts;
+    for (const VisibleColumn& visible_column : visible_columns_) {
+      base::string16 value = model_->GetText(
+          selection_model_.active(), visible_column.column.id);
+      if (!value.empty()) {
+        name_parts.push_back(visible_column.column.title);
+        name_parts.push_back(value);
+      }
+    }
+    state->name = JoinString(name_parts, base::ASCIIToUTF16(", "));
+  }
+}
+
 void TableView::OnModelChanged() {
   selection_model_.Clear();
   NumRowsChanged();
@@ -448,6 +486,10 @@ void TableView::OnItemsRemoved(int start, int length) {
     selection_model_.SetSelectedIndex(
         ViewToModel(std::min(RowCount() - 1, previously_selected_view_index)));
   }
+  if (!selection_model_.empty() && selection_model_.active() == -1)
+    selection_model_.set_active(FirstSelectedRow());
+  if (!selection_model_.empty() && selection_model_.anchor() == -1)
+    selection_model_.set_anchor(FirstSelectedRow());
   if (table_view_observer_)
     table_view_observer_->OnSelectionChanged();
 }
@@ -579,6 +621,7 @@ void TableView::OnPaint(gfx::Canvas* canvas) {
 
 void TableView::OnFocus() {
   SchedulePaintForSelection();
+  NotifyAccessibilityEvent(ui::AX_EVENT_FOCUS, true);
 }
 
 void TableView::OnBlur() {
@@ -791,6 +834,8 @@ void TableView::SetSelectionModel(const ui::ListSelectionModel& new_selection) {
 
   if (table_view_observer_)
     table_view_observer_->OnSelectionChanged();
+
+  NotifyAccessibilityEvent(ui::AX_EVENT_FOCUS, true);
 }
 
 void TableView::AdvanceSelection(AdvanceDirection direction) {

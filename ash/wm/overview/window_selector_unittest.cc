@@ -3,8 +3,11 @@
 // found in the LICENSE file.
 
 #include <algorithm>
+#include <vector>
 
 #include "ash/accessibility_delegate.h"
+#include "ash/ash_switches.h"
+#include "ash/display/display_layout.h"
 #include "ash/drag_drop/drag_drop_controller.h"
 #include "ash/root_window_controller.h"
 #include "ash/screen_util.h"
@@ -28,11 +31,13 @@
 #include "ash/wm/window_util.h"
 #include "ash/wm/wm_event.h"
 #include "base/basictypes.h"
+#include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_vector.h"
 #include "base/run_loop.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/user_action_tester.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/cursor_client.h"
 #include "ui/aura/client/focus_client.h"
@@ -41,10 +46,13 @@
 #include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
+#include "ui/events/event_utils.h"
 #include "ui/events/test/event_generator.h"
-#include "ui/gfx/rect_conversions.h"
+#include "ui/gfx/geometry/point_conversions.h"
+#include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/transform.h"
-#include "ui/views/controls/label.h"
+#include "ui/gfx/transform_util.h"
+#include "ui/views/controls/button/label_button.h"
 #include "ui/views/widget/native_widget_aura.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/wm/core/window_util.h"
@@ -52,6 +60,9 @@
 
 namespace ash {
 namespace {
+
+const char kActiveWindowChangedFromOverview[] =
+    "WindowSelector_ActiveWindowChanged";
 
 class NonActivatableActivationDelegate
     : public aura::client::ActivationDelegate {
@@ -68,12 +79,16 @@ void CancelDrag(DragDropController* controller, bool* canceled) {
 
 }  // namespace
 
+// TODO(bruthig): Move all non-simple method definitions out of class
+// declaration.
 class WindowSelectorTest : public test::AshTestBase {
  public:
   WindowSelectorTest() {}
   ~WindowSelectorTest() override {}
 
   void SetUp() override {
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
+        switches::kAshEnableStableOverviewOrder);
     test::AshTestBase::SetUp();
     ASSERT_TRUE(test::TestShelfDelegate::instance());
 
@@ -97,24 +112,28 @@ class WindowSelectorTest : public test::AshTestBase {
     return window;
   }
 
-  aura::Window* CreatePanelWindow(const gfx::Rect& bounds) {
-    aura::Window* window = CreateTestWindowInShellWithDelegateAndType(
-        NULL, ui::wm::WINDOW_TYPE_PANEL, 0, bounds);
-    test::TestShelfDelegate::instance()->AddShelfItem(window);
-    shelf_view_test()->RunMessageLoopUntilAnimationsDone();
-    return window;
-  }
-
-  views::Widget* CreatePanelWindowWidget(const gfx::Rect& bounds) {
-    views::Widget* widget = new views::Widget;
+  // Creates a Widget containing a Window with the given |bounds|. This should
+  // be used when the test requires a Widget. For example any test that will
+  // cause a window to be closed via
+  // views::Widget::GetWidgetForNativeView(window)->Close().
+  scoped_ptr<views::Widget> CreateWindowWidget(const gfx::Rect& bounds) {
+    scoped_ptr<views::Widget> widget(new views::Widget);
     views::Widget::InitParams params;
     params.bounds = bounds;
-    params.type = views::Widget::InitParams::TYPE_PANEL;
+    params.type = views::Widget::InitParams::TYPE_WINDOW;
     params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
     widget->Init(params);
     widget->Show();
     ParentWindowInPrimaryRootWindow(widget->GetNativeWindow());
-    return widget;
+    return widget.Pass();
+  }
+
+  aura::Window* CreatePanelWindow(const gfx::Rect& bounds) {
+    aura::Window* window = CreateTestWindowInShellWithDelegateAndType(
+        nullptr, ui::wm::WINDOW_TYPE_PANEL, 0, bounds);
+    test::TestShelfDelegate::instance()->AddShelfItem(window);
+    shelf_view_test()->RunMessageLoopUntilAnimationsDone();
+    return window;
   }
 
   bool WindowsOverlapping(aura::Window* window1, aura::Window* window2) {
@@ -127,19 +146,11 @@ class WindowSelectorTest : public test::AshTestBase {
     ash::Shell::GetInstance()->window_selector_controller()->ToggleOverview();
   }
 
-  gfx::Transform GetTransformRelativeTo(gfx::PointF origin,
-                                        const gfx::Transform& transform) {
-    gfx::Transform t;
-    t.Translate(origin.x(), origin.y());
-    t.PreconcatTransform(transform);
-    t.Translate(-origin.x(), -origin.y());
-    return t;
-  }
-
   gfx::RectF GetTransformedBounds(aura::Window* window) {
     gfx::RectF bounds(ScreenUtil::ConvertRectToScreen(
         window->parent(), window->layer()->bounds()));
-    gfx::Transform transform(GetTransformRelativeTo(bounds.origin(),
+    gfx::Transform transform(gfx::TransformAboutPivot(
+        gfx::ToFlooredPoint(bounds.origin()),
         window->layer()->transform()));
     transform.TransformRect(&bounds);
     return bounds;
@@ -148,7 +159,8 @@ class WindowSelectorTest : public test::AshTestBase {
   gfx::RectF GetTransformedTargetBounds(aura::Window* window) {
     gfx::RectF bounds(ScreenUtil::ConvertRectToScreen(
         window->parent(), window->layer()->GetTargetBounds()));
-    gfx::Transform transform(GetTransformRelativeTo(bounds.origin(),
+    gfx::Transform transform(gfx::TransformAboutPivot(
+        gfx::ToFlooredPoint(bounds.origin()),
         window->layer()->GetTargetTransform()));
     transform.TransformRect(&bounds);
     return bounds;
@@ -193,13 +205,45 @@ class WindowSelectorTest : public test::AshTestBase {
   const std::vector<WindowSelectorItem*>& GetWindowItemsForRoot(int index) {
     return ash::Shell::GetInstance()->window_selector_controller()->
         window_selector_->grid_list_[index]->window_list_.get();
-    }
+  }
+
+  WindowSelectorItem* GetWindowItemForWindow(int grid_index,
+                                             aura::Window* window) {
+    const std::vector<WindowSelectorItem*>& windows =
+        GetWindowItemsForRoot(grid_index);
+    auto iter = std::find_if(windows.cbegin(), windows.cend(),
+                             [window](const WindowSelectorItem* item) {
+                               return item->Contains(window);
+                             });
+    if (iter == windows.end())
+      return nullptr;
+    return *iter;
+  }
+
+  // Selects |window| in the active overview session by cycling through all
+  // windows in overview until it is found. Returns true if |window| was found,
+  // false otherwise.
+  bool SelectWindow(const aura::Window* window) {
+    if (GetSelectedWindow() == nullptr)
+      SendKey(ui::VKEY_TAB);
+    const aura::Window* start_window = GetSelectedWindow();
+    if (start_window == window)
+      return true;
+    do {
+      SendKey(ui::VKEY_TAB);
+    } while (GetSelectedWindow() != window &&
+             GetSelectedWindow() != start_window);
+    return GetSelectedWindow() == window;
+  }
 
   const aura::Window* GetSelectedWindow() {
     WindowSelector* ws = ash::Shell::GetInstance()->
         window_selector_controller()->window_selector_.get();
-    return ws->grid_list_[ws->selected_grid_index_]->
-        SelectedWindow()->SelectionWindow();
+    WindowSelectorItem* item =
+        ws->grid_list_[ws->selected_grid_index_]->SelectedWindow();
+    if (!item)
+      return nullptr;
+    return item->GetWindow();
   }
 
   bool selection_widget_active() {
@@ -216,11 +260,11 @@ class WindowSelectorTest : public test::AshTestBase {
   }
 
   views::Widget* GetCloseButton(ash::WindowSelectorItem* window) {
-    return window->close_button_.get();
+    return &(window->close_button_widget_);
   }
 
-  views::Label* GetLabelView(ash::WindowSelectorItem* window) {
-    return window->window_label_view_;
+  views::LabelButton* GetLabelButtonView(ash::WindowSelectorItem* window) {
+    return window->window_label_button_view_;
   }
 
   // Tests that a window is contained within a given WindowSelectorItem, and
@@ -228,7 +272,7 @@ class WindowSelectorTest : public test::AshTestBase {
   // screen.
   void IsWindowAndCloseButtonInScreen(aura::Window* window,
                                       WindowSelectorItem* window_item) {
-    aura::Window* root_window = window_item->GetRootWindow();
+    aura::Window* root_window = window_item->root_window();
     EXPECT_TRUE(window_item->Contains(window));
     EXPECT_TRUE(root_window->GetBoundsInScreen().Contains(
         ToEnclosingRect(GetTransformedTargetBounds(window))));
@@ -240,7 +284,7 @@ class WindowSelectorTest : public test::AshTestBase {
   void FilterItems(const base::StringPiece& pattern) {
     ash::Shell::GetInstance()->
         window_selector_controller()->window_selector_.get()->
-            ContentsChanged(NULL, base::UTF8ToUTF16(pattern));
+            ContentsChanged(nullptr, base::UTF8ToUTF16(pattern));
   }
 
   test::ShelfViewTestAPI* shelf_view_test() {
@@ -282,6 +326,7 @@ TEST_F(WindowSelectorTest, Basic) {
   scoped_ptr<aura::Window> window2(CreateWindow(bounds));
   scoped_ptr<aura::Window> panel1(CreatePanelWindow(bounds));
   scoped_ptr<aura::Window> panel2(CreatePanelWindow(bounds));
+
   EXPECT_TRUE(WindowsOverlapping(window1.get(), window2.get()));
   EXPECT_TRUE(WindowsOverlapping(panel1.get(), panel2.get()));
   wm::ActivateWindow(window2.get());
@@ -297,9 +342,7 @@ TEST_F(WindowSelectorTest, Basic) {
   EXPECT_EQ(text_filter_widget()->GetNativeWindow(), GetFocusedWindow());
   EXPECT_FALSE(WindowsOverlapping(window1.get(), window2.get()));
   EXPECT_FALSE(WindowsOverlapping(window1.get(), panel1.get()));
-  // Panels 1 and 2 should still be overlapping being in a single selector
-  // item.
-  EXPECT_TRUE(WindowsOverlapping(panel1.get(), panel2.get()));
+  EXPECT_FALSE(WindowsOverlapping(panel1.get(), panel2.get()));
 
   // Clicking window 1 should activate it.
   ClickWindow(window1.get());
@@ -309,6 +352,146 @@ TEST_F(WindowSelectorTest, Basic) {
 
   // Cursor should have been unlocked.
   EXPECT_FALSE(aura::client::GetCursorClient(root_window)->IsCursorLocked());
+}
+
+// Tests that the ordering of windows is near the windows' original positions.
+TEST_F(WindowSelectorTest, MinimizeMovement) {
+  aura::Window* root_window = Shell::GetPrimaryRootWindow();
+  gfx::Rect left_bounds(0, 0, root_window->bounds().width() / 2,
+                        root_window->bounds().height());
+  gfx::Rect right_bounds(root_window->bounds().width() / 2, 0,
+                         root_window->bounds().width() / 2,
+                         root_window->bounds().height());
+  scoped_ptr<aura::Window> left_window(CreateWindow(left_bounds));
+  scoped_ptr<aura::Window> right_window(CreateWindow(right_bounds));
+
+  // The window should stay on the same side of the screen regardless of which
+  // one was active on entering overview mode.
+  wm::GetWindowState(left_window.get())->Activate();
+  ToggleOverview();
+  const std::vector<WindowSelectorItem*>& overview1(GetWindowItemsForRoot(0));
+  EXPECT_EQ(overview1[0]->GetWindow(), left_window.get());
+  EXPECT_EQ(overview1[1]->GetWindow(), right_window.get());
+  ToggleOverview();
+
+  // Active the right window, the order should be the same.
+  wm::GetWindowState(right_window.get())->Activate();
+  ToggleOverview();
+  const std::vector<WindowSelectorItem*>& overview2(GetWindowItemsForRoot(0));
+  EXPECT_EQ(overview2[0]->GetWindow(), left_window.get());
+  EXPECT_EQ(overview2[1]->GetWindow(), right_window.get());
+  ToggleOverview();
+
+  // Switch the window positions, and the order should be switched.
+  left_window->SetBounds(right_bounds);
+  right_window->SetBounds(left_bounds);
+  ToggleOverview();
+  const std::vector<WindowSelectorItem*>& overview3(GetWindowItemsForRoot(0));
+  EXPECT_EQ(overview3[0]->GetWindow(), right_window.get());
+  EXPECT_EQ(overview3[1]->GetWindow(), left_window.get());
+  ToggleOverview();
+}
+
+// Tests that the ordering of windows is near the windows' original positions
+// on a second display.
+TEST_F(WindowSelectorTest, MinimizeMovementSecondDisplay) {
+  if (!SupportsMultipleDisplays())
+    return;
+
+  // Verify the same works on the second display
+  UpdateDisplay("400x400,400x400");
+  gfx::Rect left_bounds(400, 0, 200, 400);
+  gfx::Rect right_bounds(600, 0, 200, 400);
+  scoped_ptr<aura::Window> left_window(CreateWindow(left_bounds));
+  scoped_ptr<aura::Window> right_window(CreateWindow(right_bounds));
+
+  aura::Window::Windows root_windows = Shell::GetAllRootWindows();
+  EXPECT_EQ(root_windows[1], left_window->GetRootWindow());
+  EXPECT_EQ(root_windows[1], right_window->GetRootWindow());
+
+  wm::GetWindowState(left_window.get())->Activate();
+  ToggleOverview();
+  const std::vector<WindowSelectorItem*>& overview1(GetWindowItemsForRoot(0));
+  EXPECT_EQ(overview1[0]->GetWindow(), left_window.get());
+  EXPECT_EQ(overview1[1]->GetWindow(), right_window.get());
+  ToggleOverview();
+
+  // Active the right window, the order should be the same.
+  wm::GetWindowState(right_window.get())->Activate();
+  ToggleOverview();
+  const std::vector<WindowSelectorItem*>& overview2(GetWindowItemsForRoot(0));
+  EXPECT_EQ(overview2[0]->GetWindow(), left_window.get());
+  EXPECT_EQ(overview2[1]->GetWindow(), right_window.get());
+  ToggleOverview();
+}
+
+// Tests that the ordering of windows is stable across different overview
+// sessions even when the windows have the same bounds.
+TEST_F(WindowSelectorTest, StableOrder) {
+  gfx::Rect bounds(0, 0, 400, 400);
+  scoped_ptr<aura::Window> window1(CreateWindowWithId(bounds, 1));
+  scoped_ptr<aura::Window> window2(CreateWindowWithId(bounds, 2));
+
+  // The initial ordering is not defined, but should remain consistent the next
+  // time overview is started.
+  wm::GetWindowState(window1.get())->Activate();
+  ToggleOverview();
+  const std::vector<WindowSelectorItem*>& overview1(GetWindowItemsForRoot(0));
+  int initial_order[2] = {overview1[0]->GetWindow()->id(),
+                          overview1[1]->GetWindow()->id()};
+  ToggleOverview();
+
+  // Activate the other window, the order should be the same.
+  wm::GetWindowState(window2.get())->Activate();
+  ToggleOverview();
+  const std::vector<WindowSelectorItem*>& overview2(GetWindowItemsForRoot(0));
+  EXPECT_EQ(initial_order[0], overview2[0]->GetWindow()->id());
+  EXPECT_EQ(initial_order[1], overview2[1]->GetWindow()->id());
+  ToggleOverview();
+}
+
+// Tests entering overview mode with docked windows
+TEST_F(WindowSelectorTest, BasicWithDocked) {
+  // aura::Window* root_window = Shell::GetPrimaryRootWindow();
+  gfx::Rect bounds(300, 0, 200, 200);
+  scoped_ptr<aura::Window> window1(CreateWindow(bounds));
+  scoped_ptr<aura::Window> window2(CreateWindow(bounds));
+  scoped_ptr<aura::Window> docked1(CreateWindow(bounds));
+  scoped_ptr<aura::Window> docked2(CreateWindow(bounds));
+
+  wm::WMEvent dock_event(wm::WM_EVENT_DOCK);
+  wm::GetWindowState(docked1.get())->OnWMEvent(&dock_event);
+
+  wm::WindowState* docked_state2 = wm::GetWindowState(docked2.get());
+  docked_state2->OnWMEvent(&dock_event);
+  wm::WMEvent minimize_event(wm::WM_EVENT_MINIMIZE);
+  docked_state2->OnWMEvent(&minimize_event);
+
+  EXPECT_TRUE(WindowsOverlapping(window1.get(), window2.get()));
+  gfx::Rect docked_bounds = docked1->GetBoundsInScreen();
+
+  EXPECT_NE(bounds.ToString(), docked_bounds.ToString());
+  EXPECT_FALSE(WindowsOverlapping(window1.get(), docked1.get()));
+  EXPECT_FALSE(WindowsOverlapping(window1.get(), docked2.get()));
+  EXPECT_FALSE(docked2->IsVisible());
+
+  EXPECT_EQ(wm::WINDOW_STATE_TYPE_DOCKED,
+            wm::GetWindowState(docked1.get())->GetStateType());
+  EXPECT_EQ(wm::WINDOW_STATE_TYPE_DOCKED_MINIMIZED,
+            wm::GetWindowState(docked2.get())->GetStateType());
+
+  ToggleOverview();
+
+  EXPECT_FALSE(WindowsOverlapping(window1.get(), window2.get()));
+  // Docked windows stays the same.
+  EXPECT_EQ(docked_bounds.ToString(), docked1->GetBoundsInScreen().ToString());
+  EXPECT_FALSE(docked2->IsVisible());
+
+  // Docked window can still be activated, which will exit the overview mode.
+  ClickWindow(docked1.get());
+  EXPECT_TRUE(wm::IsActiveWindow(docked1.get()));
+  EXPECT_FALSE(
+      ash::Shell::GetInstance()->window_selector_controller()->IsSelecting());
 }
 
 // Tests selecting a window by tapping on it.
@@ -327,19 +510,114 @@ TEST_F(WindowSelectorTest, BasicGesture) {
   EXPECT_EQ(window2.get(), GetFocusedWindow());
 }
 
+// Tests that the user action WindowSelector_ActiveWindowChanged is
+// recorded when the mouse/touchscreen/keyboard are used to select a window
+// in overview mode which is different from the previously-active window.
+TEST_F(WindowSelectorTest, ActiveWindowChangedUserActionRecorded) {
+  base::UserActionTester user_action_tester;
+  gfx::Rect bounds(0, 0, 400, 400);
+  scoped_ptr<aura::Window> window1(CreateWindow(bounds));
+  scoped_ptr<aura::Window> window2(CreateWindow(bounds));
+
+  // Tap on |window2| to activate it and exit overview.
+  wm::ActivateWindow(window1.get());
+  ToggleOverview();
+  ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow(),
+                                     window2.get());
+  generator.GestureTapAt(
+      gfx::ToEnclosingRect(GetTransformedTargetBounds(window2.get()))
+          .CenterPoint());
+  EXPECT_EQ(
+      1, user_action_tester.GetActionCount(kActiveWindowChangedFromOverview));
+
+  // Click on |window2| to activate it and exit overview.
+  wm::ActivateWindow(window1.get());
+  ToggleOverview();
+  ClickWindow(window2.get());
+  EXPECT_EQ(
+      2, user_action_tester.GetActionCount(kActiveWindowChangedFromOverview));
+
+  // Select |window2| using the arrow keys. Activate it (and exit overview) by
+  // pressing the return key.
+  wm::ActivateWindow(window1.get());
+  ToggleOverview();
+  ASSERT_TRUE(SelectWindow(window2.get()));
+  SendKey(ui::VKEY_RETURN);
+  EXPECT_EQ(
+      3, user_action_tester.GetActionCount(kActiveWindowChangedFromOverview));
+}
+
+// Tests that the user action WindowSelector_ActiveWindowChanged is not
+// recorded when the mouse/touchscreen/keyboard are used to select the
+// already-active window from overview mode. Also verifies that entering and
+// exiting overview without selecting a window does not record the action.
+TEST_F(WindowSelectorTest, ActiveWindowChangedUserActionNotRecorded) {
+  base::UserActionTester user_action_tester;
+  gfx::Rect bounds(0, 0, 400, 400);
+  scoped_ptr<aura::Window> window1(CreateWindow(bounds));
+  scoped_ptr<aura::Window> window2(CreateWindow(bounds));
+
+  // Set |window1| to be initially active.
+  wm::ActivateWindow(window1.get());
+  ToggleOverview();
+
+  // Tap on |window1| to exit overview.
+  ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow(),
+                                     window1.get());
+  generator.GestureTapAt(
+      gfx::ToEnclosingRect(GetTransformedTargetBounds(window1.get()))
+          .CenterPoint());
+  EXPECT_EQ(
+      0, user_action_tester.GetActionCount(kActiveWindowChangedFromOverview));
+
+  // |window1| remains active. Click on it to exit overview.
+  ASSERT_EQ(window1.get(), GetFocusedWindow());
+  ToggleOverview();
+  ClickWindow(window1.get());
+  EXPECT_EQ(
+      0, user_action_tester.GetActionCount(kActiveWindowChangedFromOverview));
+
+  // |window1| remains active. Select using the keyboard.
+  ASSERT_EQ(window1.get(), GetFocusedWindow());
+  ToggleOverview();
+  ASSERT_TRUE(SelectWindow(window1.get()));
+  SendKey(ui::VKEY_RETURN);
+  EXPECT_EQ(
+      0, user_action_tester.GetActionCount(kActiveWindowChangedFromOverview));
+
+  // Entering and exiting overview without user input should not record
+  // the action.
+  ToggleOverview();
+  ToggleOverview();
+  EXPECT_EQ(
+      0, user_action_tester.GetActionCount(kActiveWindowChangedFromOverview));
+}
+
+// Tests that the user action WindowSelector_ActiveWindowChanged is not
+// recorded when overview mode exits as a result of closing its only window.
+TEST_F(WindowSelectorTest, ActiveWindowChangedUserActionWindowClose) {
+  base::UserActionTester user_action_tester;
+  scoped_ptr<views::Widget> widget =
+      CreateWindowWidget(gfx::Rect(0, 0, 400, 400));
+
+  ToggleOverview();
+
+  aura::Window* window = widget->GetNativeWindow();
+  gfx::RectF bounds = GetTransformedBoundsInRootWindow(window);
+  gfx::Point point(bounds.top_right().x() - 1, bounds.top_right().y() - 1);
+  ui::test::EventGenerator event_generator(window->GetRootWindow(), point);
+
+  ASSERT_FALSE(widget->IsClosed());
+  event_generator.ClickLeftButton();
+  ASSERT_TRUE(widget->IsClosed());
+  EXPECT_EQ(
+      0, user_action_tester.GetActionCount(kActiveWindowChangedFromOverview));
+}
+
 // Tests that we do not crash and overview mode remains engaged if the desktop
 // is tapped while a finger is already down over a window.
 TEST_F(WindowSelectorTest, NoCrashWithDesktopTap) {
   scoped_ptr<aura::Window> window(CreateWindow(gfx::Rect(200, 300, 250, 450)));
-
-  // We need a widget for the close button to work, a bare window will crash.
-  scoped_ptr<views::Widget> widget(new views::Widget);
-  views::Widget::InitParams params;
-  params.bounds = gfx::Rect(0, 0, 400, 400);
-  params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  params.parent = window->parent();
-  widget->Init(params);
-  widget->Show();
 
   ToggleOverview();
 
@@ -353,10 +631,51 @@ TEST_F(WindowSelectorTest, NoCrashWithDesktopTap) {
   event_generator.PressTouchId(kTouchId);
 
   // Tap on the desktop, which should not cause a crash. Overview mode should
-  // remain engaged because the transparent widget over the window has capture.
+  // be disengaged.
   event_generator.GestureTapAt(gfx::Point(0, 0));
-  EXPECT_TRUE(IsSelecting());
+  EXPECT_FALSE(IsSelecting());
 
+  event_generator.ReleaseTouchId(kTouchId);
+}
+
+// Tests that we do not crash and a window is selected when appropriate when
+// we click on a window during touch.
+TEST_F(WindowSelectorTest, ClickOnWindowDuringTouch) {
+  gfx::Rect bounds(0, 0, 400, 400);
+  scoped_ptr<aura::Window> window1(CreateWindow(bounds));
+  scoped_ptr<aura::Window> window2(CreateWindow(bounds));
+  wm::ActivateWindow(window2.get());
+  EXPECT_FALSE(wm::IsActiveWindow(window1.get()));
+  EXPECT_TRUE(wm::IsActiveWindow(window2.get()));
+
+  ToggleOverview();
+
+  gfx::Rect window1_bounds =
+      gfx::ToEnclosingRect(GetTransformedBoundsInRootWindow(window1.get()));
+  ui::test::EventGenerator event_generator(window1->GetRootWindow(),
+                                           window1_bounds.CenterPoint());
+
+  // Clicking on |window2| while touching on |window1| should not cause a
+  // crash, overview mode should be disengaged and |window2| should be active.
+  const int kTouchId = 19;
+  event_generator.PressTouchId(kTouchId);
+  event_generator.MoveMouseToCenterOf(window2.get());
+  event_generator.ClickLeftButton();
+  EXPECT_FALSE(IsSelecting());
+  EXPECT_TRUE(wm::IsActiveWindow(window2.get()));
+  event_generator.ReleaseTouchId(kTouchId);
+
+  ToggleOverview();
+
+  // Clicking on |window1| while touching on |window1| should not cause
+  // a crash, overview mode should be disengaged, and |window1| should
+  // be active.
+  event_generator.MoveMouseToCenterOf(window1.get());
+  event_generator.PressTouchId(kTouchId);
+  event_generator.ClickLeftButton();
+  EXPECT_FALSE(IsSelecting());
+  EXPECT_TRUE(wm::IsActiveWindow(window1.get()));
+  EXPECT_FALSE(wm::IsActiveWindow(window2.get()));
   event_generator.ReleaseTouchId(kTouchId);
 }
 
@@ -369,7 +688,7 @@ TEST_F(WindowSelectorTest, WindowDoesNotReceiveEvents) {
   gfx::Point point1(window_bounds.x() + 10, window_bounds.y() + 10);
 
   ui::MouseEvent event1(ui::ET_MOUSE_PRESSED, point1, point1,
-                        ui::EF_NONE, ui::EF_NONE);
+                        ui::EventTimeForNow(), ui::EF_NONE, ui::EF_NONE);
 
   ui::EventTarget* root_target = root_window;
   ui::EventTargeter* targeter = root_target->GetEventTargeter();
@@ -385,7 +704,7 @@ TEST_F(WindowSelectorTest, WindowDoesNotReceiveEvents) {
   gfx::RectF bounds = GetTransformedBoundsInRootWindow(window.get());
   gfx::Point point2(bounds.x() + 10, bounds.y() + 10);
   ui::MouseEvent event2(ui::ET_MOUSE_PRESSED, point2, point2,
-                        ui::EF_NONE, ui::EF_NONE);
+                        ui::EventTimeForNow(), ui::EF_NONE, ui::EF_NONE);
 
   // Now the transparent window should be intercepting this event.
   EXPECT_NE(window, static_cast<aura::Window*>(
@@ -394,16 +713,46 @@ TEST_F(WindowSelectorTest, WindowDoesNotReceiveEvents) {
 
 // Tests that clicking on the close button effectively closes the window.
 TEST_F(WindowSelectorTest, CloseButton) {
-  scoped_ptr<aura::Window> window1(CreateWindow(gfx::Rect(200, 300, 250, 450)));
+  scoped_ptr<views::Widget> widget =
+      CreateWindowWidget(gfx::Rect(0, 0, 400, 400));
 
-  // We need a widget for the close button to work, a bare window will crash.
+  ToggleOverview();
+
+  aura::Window* window = widget->GetNativeWindow();
+  gfx::RectF bounds = GetTransformedBoundsInRootWindow(window);
+  gfx::Point point(bounds.top_right().x() - 1, bounds.top_right().y() - 1);
+  ui::test::EventGenerator event_generator(window->GetRootWindow(), point);
+
+  EXPECT_FALSE(widget->IsClosed());
+  event_generator.ClickLeftButton();
+  EXPECT_TRUE(widget->IsClosed());
+}
+
+// Tests that clicking on the close button on a secondary display effectively
+// closes the window.
+TEST_F(WindowSelectorTest, CloseButtonOnMultipleDisplay) {
+  if (!SupportsMultipleDisplays())
+    return;
+
+  UpdateDisplay("600x400,600x400");
+  aura::Window::Windows root_windows = Shell::GetAllRootWindows();
+
+  scoped_ptr<aura::Window> window1(CreateWindow(gfx::Rect(650, 300, 250, 450)));
+
+  // We need a widget for the close button to work because windows are closed
+  // via the widget. We also use the widget to determine if the window has been
+  // closed or not. We explicity create the widget so that the window can be
+  // parented to a non-primary root window.
   scoped_ptr<views::Widget> widget(new views::Widget);
   views::Widget::InitParams params;
-  params.bounds = gfx::Rect(0, 0, 400, 400);
+  params.bounds = gfx::Rect(650, 0, 400, 400);
   params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   params.parent = window1->parent();
   widget->Init(params);
   widget->Show();
+
+  ASSERT_EQ(root_windows[1], window1->GetRootWindow());
+
   ToggleOverview();
 
   aura::Window* window2 = widget->GetNativeWindow();
@@ -511,7 +860,7 @@ TEST_F(WindowSelectorTest, SelectingHidesAppList) {
   gfx::Rect bounds(0, 0, 400, 400);
   scoped_ptr<aura::Window> window1(CreateWindow(bounds));
   scoped_ptr<aura::Window> window2(CreateWindow(bounds));
-  Shell::GetInstance()->ShowAppList(NULL);
+  Shell::GetInstance()->ShowAppList(nullptr);
   EXPECT_TRUE(Shell::GetInstance()->GetAppListTargetVisibility());
   ToggleOverview();
   EXPECT_FALSE(Shell::GetInstance()->GetAppListTargetVisibility());
@@ -646,29 +995,6 @@ TEST_F(WindowSelectorTest, QuickReentryRestoresInitialTransform) {
       GetTransformedTargetBounds(window.get())));
 }
 
-// Tests that non-activatable windows are hidden when entering overview mode.
-TEST_F(WindowSelectorTest, NonActivatableWindowsHidden) {
-  gfx::Rect bounds(0, 0, 400, 400);
-  scoped_ptr<aura::Window> window1(CreateWindow(bounds));
-  scoped_ptr<aura::Window> window2(CreateWindow(bounds));
-  scoped_ptr<aura::Window> non_activatable_window(
-      CreateNonActivatableWindow(Shell::GetPrimaryRootWindow()->bounds()));
-  EXPECT_TRUE(non_activatable_window->IsVisible());
-  ToggleOverview();
-  EXPECT_FALSE(non_activatable_window->IsVisible());
-  ToggleOverview();
-  EXPECT_TRUE(non_activatable_window->IsVisible());
-
-  // Test that a window behind the fullscreen non-activatable window can be
-  // clicked.
-  non_activatable_window->parent()->StackChildAtTop(
-      non_activatable_window.get());
-  ToggleOverview();
-  ClickWindow(window1.get());
-  EXPECT_FALSE(IsSelecting());
-  EXPECT_TRUE(wm::IsActiveWindow(window1.get()));
-}
-
 // Tests that windows with modal child windows are transformed with the modal
 // child even though not activatable themselves.
 TEST_F(WindowSelectorTest, ModalChild) {
@@ -746,25 +1072,24 @@ TEST_F(WindowSelectorTest, MultipleDisplays) {
   EXPECT_EQ(root_windows[1], panel3->GetRootWindow());
   EXPECT_EQ(root_windows[1], panel4->GetRootWindow());
 
-  const std::vector<WindowSelectorItem*>& primary_window_items =
-      GetWindowItemsForRoot(0);
-  const std::vector<WindowSelectorItem*>& secondary_window_items =
-      GetWindowItemsForRoot(1);
-
   // Window indices are based on top-down order. The reverse of our creation.
-  IsWindowAndCloseButtonInScreen(window1.get(), primary_window_items[2]);
-  IsWindowAndCloseButtonInScreen(window2.get(), primary_window_items[1]);
-  IsWindowAndCloseButtonInScreen(window3.get(), secondary_window_items[2]);
-  IsWindowAndCloseButtonInScreen(window4.get(), secondary_window_items[1]);
+  IsWindowAndCloseButtonInScreen(window1.get(),
+                                 GetWindowItemForWindow(0, window1.get()));
+  IsWindowAndCloseButtonInScreen(window2.get(),
+                                 GetWindowItemForWindow(0, window2.get()));
+  IsWindowAndCloseButtonInScreen(window3.get(),
+                                 GetWindowItemForWindow(1, window3.get()));
+  IsWindowAndCloseButtonInScreen(window4.get(),
+                                 GetWindowItemForWindow(1, window4.get()));
 
-  IsWindowAndCloseButtonInScreen(panel1.get(), primary_window_items[0]);
-  IsWindowAndCloseButtonInScreen(panel2.get(), primary_window_items[0]);
-  IsWindowAndCloseButtonInScreen(panel3.get(), secondary_window_items[0]);
-  IsWindowAndCloseButtonInScreen(panel4.get(), secondary_window_items[0]);
-
-  EXPECT_TRUE(WindowsOverlapping(panel1.get(), panel2.get()));
-  EXPECT_TRUE(WindowsOverlapping(panel3.get(), panel4.get()));
-  EXPECT_FALSE(WindowsOverlapping(panel1.get(), panel3.get()));
+  IsWindowAndCloseButtonInScreen(panel1.get(),
+                                 GetWindowItemForWindow(0, panel1.get()));
+  IsWindowAndCloseButtonInScreen(panel2.get(),
+                                 GetWindowItemForWindow(0, panel2.get()));
+  IsWindowAndCloseButtonInScreen(panel3.get(),
+                                 GetWindowItemForWindow(1, panel3.get()));
+  IsWindowAndCloseButtonInScreen(panel4.get(),
+                                 GetWindowItemForWindow(1, panel4.get()));
 }
 
 // Tests shutting down during overview.
@@ -848,60 +1173,22 @@ TEST_F(WindowSelectorTest, CreateLabelUnderWindow) {
   window->SetTitle(window_title);
   ToggleOverview();
   WindowSelectorItem* window_item = GetWindowItemsForRoot(0).back();
-  views::Label* label = GetLabelView(window_item);
+  views::LabelButton* label = GetLabelButtonView(window_item);
   // Has the label view been created?
   ASSERT_TRUE(label);
 
   // Verify the label matches the window title.
-  EXPECT_EQ(label->text(), window_title);
+  EXPECT_EQ(label->GetText(), window_title);
 
   // Update the window title and check that the label is updated, too.
   base::string16 updated_title = base::UTF8ToUTF16("Updated title");
   window->SetTitle(updated_title);
-  EXPECT_EQ(label->text(), updated_title);
+  EXPECT_EQ(label->GetText(), updated_title);
 
   // Labels are located based on target_bounds, not the actual window item
   // bounds.
-  gfx::Rect target_bounds(window_item->target_bounds());
-  gfx::Rect expected_label_bounds(target_bounds.x(),
-                                  target_bounds.bottom() - label->
-                                      GetPreferredSize().height(),
-                                  target_bounds.width(),
-                                  label->GetPreferredSize().height());
-  gfx::Rect real_label_bounds = label->GetWidget()->GetNativeWindow()->bounds();
-  EXPECT_EQ(real_label_bounds, expected_label_bounds);
-}
-
-// Tests that a label is created for the active panel in a group of panels in
-// overview mode.
-TEST_F(WindowSelectorTest, CreateLabelUnderPanel) {
-  scoped_ptr<aura::Window> panel1(CreatePanelWindow(gfx::Rect(0, 0, 100, 100)));
-  scoped_ptr<aura::Window> panel2(CreatePanelWindow(gfx::Rect(0, 0, 100, 100)));
-  base::string16 panel1_title = base::UTF8ToUTF16("My panel");
-  base::string16 panel2_title = base::UTF8ToUTF16("Another panel");
-  base::string16 updated_panel1_title = base::UTF8ToUTF16("WebDriver Torso");
-  base::string16 updated_panel2_title = base::UTF8ToUTF16("Da panel");
-  panel1->SetTitle(panel1_title);
-  panel2->SetTitle(panel2_title);
-  wm::ActivateWindow(panel1.get());
-  ToggleOverview();
-  WindowSelectorItem* window_item = GetWindowItemsForRoot(0).back();
-  views::Label* label = GetLabelView(window_item);
-  // Has the label view been created?
-  ASSERT_TRUE(label);
-
-  // Verify the label matches the active window title.
-  EXPECT_EQ(label->text(), panel1_title);
-  // Verify that updating the title also updates the label.
-  panel1->SetTitle(updated_panel1_title);
-  EXPECT_EQ(label->text(), updated_panel1_title);
-  // After destroying the first panel, the label should match the second panel.
-  panel1.reset();
-  label = GetLabelView(window_item);
-  EXPECT_EQ(label->text(), panel2_title);
-  // Also test updating the title on the second panel.
-  panel2->SetTitle(updated_panel2_title);
-  EXPECT_EQ(label->text(), updated_panel2_title);
+  gfx::Rect label_bounds = label->GetWidget()->GetNativeWindow()->bounds();
+  EXPECT_EQ(label_bounds, window_item->target_bounds());
 }
 
 // Tests that overview updates the window positions if the display orientation
@@ -944,12 +1231,14 @@ TEST_F(WindowSelectorTest, BasicTabKeyNavigation) {
   scoped_ptr<aura::Window> window1(CreateWindow(bounds));
   ToggleOverview();
 
+  const std::vector<WindowSelectorItem*>& overview_windows =
+      GetWindowItemsForRoot(0);
   SendKey(ui::VKEY_TAB);
-  EXPECT_EQ(GetSelectedWindow(), window1.get());
+  EXPECT_EQ(GetSelectedWindow(), overview_windows[0]->GetWindow());
   SendKey(ui::VKEY_TAB);
-  EXPECT_EQ(GetSelectedWindow(), window2.get());
+  EXPECT_EQ(GetSelectedWindow(), overview_windows[1]->GetWindow());
   SendKey(ui::VKEY_TAB);
-  EXPECT_EQ(GetSelectedWindow(), window1.get());
+  EXPECT_EQ(GetSelectedWindow(), overview_windows[0]->GetWindow());
 }
 
 // Tests traversing some windows in overview mode with the arrow keys in every
@@ -991,12 +1280,16 @@ TEST_F(WindowSelectorTest, BasicArrowKeyNavigation) {
 
   for (size_t key_index = 0; key_index < arraysize(arrow_keys); key_index++) {
     ToggleOverview();
+    const std::vector<WindowSelectorItem*>& overview_windows =
+        GetWindowItemsForRoot(0);
     for (size_t i = 0; i < test_windows + 1; i++) {
       SendKey(arrow_keys[key_index]);
       // TODO(flackr): Add a more readable error message by constructing a
       // string from the window IDs.
       EXPECT_EQ(GetSelectedWindow()->id(),
-                index_path_for_direction[key_index][i]);
+                overview_windows[index_path_for_direction[key_index][i] - 1]
+                    ->GetWindow()
+                    ->id());
     }
     ToggleOverview();
   }
@@ -1018,14 +1311,94 @@ TEST_F(WindowSelectorTest, BasicMultiMonitorArrowKeyNavigation) {
 
   ToggleOverview();
 
+  const std::vector<WindowSelectorItem*>& overview_root1 =
+      GetWindowItemsForRoot(0);
+  const std::vector<WindowSelectorItem*>& overview_root2 =
+      GetWindowItemsForRoot(1);
+  SendKey(ui::VKEY_RIGHT);
+  EXPECT_EQ(GetSelectedWindow(), overview_root1[0]->GetWindow());
+  SendKey(ui::VKEY_RIGHT);
+  EXPECT_EQ(GetSelectedWindow(), overview_root1[1]->GetWindow());
+  SendKey(ui::VKEY_RIGHT);
+  EXPECT_EQ(GetSelectedWindow(), overview_root2[0]->GetWindow());
+  SendKey(ui::VKEY_RIGHT);
+  EXPECT_EQ(GetSelectedWindow(), overview_root2[1]->GetWindow());
+}
+
+// Tests first monitor when display order doesn't match left to right screen
+// positions.
+TEST_F(WindowSelectorTest, MultiMonitorReversedOrder) {
+  if (!SupportsMultipleDisplays())
+    return;
+
+  UpdateDisplay("400x400,400x400");
+  DisplayLayout layout(DisplayLayout::LEFT, 0);
+  Shell::GetInstance()->display_manager()->SetLayoutForCurrentDisplays(layout);
+  aura::Window::Windows root_windows = Shell::GetAllRootWindows();
+  gfx::Rect bounds1(-350, 0, 100, 100);
+  gfx::Rect bounds2(0, 0, 100, 100);
+  scoped_ptr<aura::Window> window2(CreateWindow(bounds2));
+  scoped_ptr<aura::Window> window1(CreateWindow(bounds1));
+  EXPECT_EQ(root_windows[1], window1->GetRootWindow());
+  EXPECT_EQ(root_windows[0], window2->GetRootWindow());
+
+  ToggleOverview();
+
+  // Coming from the left to right, we should select window1 first being on the
+  // display to the left.
   SendKey(ui::VKEY_RIGHT);
   EXPECT_EQ(GetSelectedWindow(), window1.get());
-  SendKey(ui::VKEY_RIGHT);
+
+  ToggleOverview();
+  ToggleOverview();
+
+  // Coming from right to left, we should select window2 first being on the
+  // display on the right.
+  SendKey(ui::VKEY_LEFT);
   EXPECT_EQ(GetSelectedWindow(), window2.get());
+}
+
+// Tests three monitors where the grid becomes empty on one of the monitors.
+TEST_F(WindowSelectorTest, ThreeMonitor) {
+  if (!SupportsMultipleDisplays())
+    return;
+
+  UpdateDisplay("400x400,400x400,400x400");
+  aura::Window::Windows root_windows = Shell::GetAllRootWindows();
+  gfx::Rect bounds1(0, 0, 100, 100);
+  gfx::Rect bounds2(400, 0, 100, 100);
+  gfx::Rect bounds3(800, 0, 100, 100);
+  scoped_ptr<aura::Window> window3(CreateWindow(bounds3));
+  scoped_ptr<aura::Window> window2(CreateWindow(bounds2));
+  scoped_ptr<aura::Window> window1(CreateWindow(bounds1));
+  EXPECT_EQ(root_windows[0], window1->GetRootWindow());
+  EXPECT_EQ(root_windows[1], window2->GetRootWindow());
+  EXPECT_EQ(root_windows[2], window3->GetRootWindow());
+
+  ToggleOverview();
+
+  SendKey(ui::VKEY_RIGHT);
+  SendKey(ui::VKEY_RIGHT);
   SendKey(ui::VKEY_RIGHT);
   EXPECT_EQ(GetSelectedWindow(), window3.get());
+
+  // If the last window on a display closes it should select the previous
+  // display's window.
+  window3.reset();
+  EXPECT_EQ(GetSelectedWindow(), window2.get());
+  ToggleOverview();
+
+  window3.reset(CreateWindow(bounds3));
+  ToggleOverview();
   SendKey(ui::VKEY_RIGHT);
-  EXPECT_EQ(GetSelectedWindow(), window4.get());
+  SendKey(ui::VKEY_RIGHT);
+  SendKey(ui::VKEY_RIGHT);
+
+  // If the window on the second display is removed, the selected window should
+  // remain window3.
+  EXPECT_EQ(GetSelectedWindow(), window3.get());
+  window2.reset();
+  EXPECT_EQ(GetSelectedWindow(), window3.get());
 }
 
 // Tests selecting a window in overview mode with the return key.
@@ -1040,15 +1413,14 @@ TEST_F(WindowSelectorTest, SelectWindowWithReturnKey) {
   EXPECT_TRUE(IsSelecting());
 
   // Select the first window.
-  SendKey(ui::VKEY_RIGHT);
+  ASSERT_TRUE(SelectWindow(window1.get()));
   SendKey(ui::VKEY_RETURN);
   ASSERT_FALSE(IsSelecting());
   EXPECT_TRUE(wm::IsActiveWindow(window1.get()));
 
   // Select the second window.
   ToggleOverview();
-  SendKey(ui::VKEY_RIGHT);
-  SendKey(ui::VKEY_RIGHT);
+  ASSERT_TRUE(SelectWindow(window2.get()));
   SendKey(ui::VKEY_RETURN);
   EXPECT_FALSE(IsSelecting());
   EXPECT_TRUE(wm::IsActiveWindow(window2.get()));
@@ -1082,53 +1454,6 @@ TEST_F(WindowSelectorTest, WindowOverviewHidesCalloutWidgets) {
       panel_manager->GetCalloutWidgetForPanel(panel2.get())->IsVisible());
 }
 
-// Tests that when panels are grouped that the close button only closes the
-// currently active panel. After the removal window selection should still be
-// active, and the label should have changed. Removing the last panel should
-// cause selection to end.
-TEST_F(WindowSelectorTest, CloseButtonOnPanels) {
-  scoped_ptr<views::Widget> widget1(CreatePanelWindowWidget(
-      gfx::Rect(0, 0, 300, 100)));
-  scoped_ptr<views::Widget> widget2(CreatePanelWindowWidget(
-      gfx::Rect(100, 0, 100, 100)));
-  aura::Window* window1 = widget1->GetNativeWindow();
-  aura::Window* window2 = widget2->GetNativeWindow();
-  base::string16 panel1_title = base::UTF8ToUTF16("Panel 1");
-  base::string16 panel2_title = base::UTF8ToUTF16("Panel 2");
-  window1->SetTitle(panel1_title);
-  window2->SetTitle(panel2_title);
-  wm::ActivateWindow(window1);
-  ToggleOverview();
-
-  gfx::RectF bounds1 = GetTransformedBoundsInRootWindow(window1);
-  gfx::Point point1(bounds1.top_right().x() - 1, bounds1.top_right().y() - 1);
-  ui::test::EventGenerator event_generator1(window1->GetRootWindow(), point1);
-
-  EXPECT_FALSE(widget1->IsClosed());
-  event_generator1.ClickLeftButton();
-  EXPECT_TRUE(widget1->IsClosed());
-  RunAllPendingInMessageLoop();
-  EXPECT_TRUE(IsSelecting());
-  WindowSelectorItem* window_item = GetWindowItemsForRoot(0).front();
-  EXPECT_FALSE(window_item->empty());
-  EXPECT_TRUE(window_item->Contains(window2));
-  EXPECT_TRUE(GetCloseButton(window_item)->IsVisible());
-
-
-  views::Label* label = GetLabelView(window_item);
-  EXPECT_EQ(label->text(), panel2_title);
-
-  gfx::RectF bounds2 = GetTransformedBoundsInRootWindow(window2);
-  gfx::Point point2(bounds2.top_right().x() - 1, bounds2.top_right().y() - 1);
-  ui::test::EventGenerator event_generator2(window2->GetRootWindow(), point2);
-
-  EXPECT_FALSE(widget2->IsClosed());
-  event_generator2.ClickLeftButton();
-  EXPECT_TRUE(widget2->IsClosed());
-  RunAllPendingInMessageLoop();
-  EXPECT_FALSE(IsSelecting());
-}
-
 // Creates three windows and tests filtering them by title.
 TEST_F(WindowSelectorTest, BasicTextFiltering) {
   gfx::Rect bounds(0, 0, 100, 100);
@@ -1142,72 +1467,71 @@ TEST_F(WindowSelectorTest, BasicTextFiltering) {
   window1->SetTitle(window1_title);
   window2->SetTitle(window2_title);
   ToggleOverview();
+
   EXPECT_FALSE(selection_widget_active());
   EXPECT_FALSE(showing_filter_widget());
   FilterItems("Test");
 
   // The selection widget should appear when filtering starts, and should be
-  // selecting the first matching window.
+  // selecting one of the matching windows above.
   EXPECT_TRUE(selection_widget_active());
   EXPECT_TRUE(showing_filter_widget());
-  EXPECT_EQ(GetSelectedWindow(), window1.get());
+  // window0 does not contain the text "test".
+  EXPECT_NE(GetSelectedWindow(), window0.get());
 
   // Window 0 has no "test" on it so it should be the only dimmed item.
+  const int grid_index = 0;
   std::vector<WindowSelectorItem*> items = GetWindowItemsForRoot(0);
-  EXPECT_TRUE(items[0]->dimmed());
-  EXPECT_FALSE(items[1]->dimmed());
-  EXPECT_FALSE(items[2]->dimmed());
+  EXPECT_TRUE(GetWindowItemForWindow(grid_index, window0.get())->dimmed());
+  EXPECT_FALSE(GetWindowItemForWindow(grid_index, window1.get())->dimmed());
+  EXPECT_FALSE(GetWindowItemForWindow(grid_index, window2.get())->dimmed());
 
   // No items match the search.
   FilterItems("I'm testing 'n testing");
-  EXPECT_TRUE(items[0]->dimmed());
-  EXPECT_TRUE(items[1]->dimmed());
-  EXPECT_TRUE(items[2]->dimmed());
+  EXPECT_TRUE(GetWindowItemForWindow(grid_index, window0.get())->dimmed());
+  EXPECT_TRUE(GetWindowItemForWindow(grid_index, window1.get())->dimmed());
+  EXPECT_TRUE(GetWindowItemForWindow(grid_index, window2.get())->dimmed());
 
   // All the items should match the empty string. The filter widget should also
   // disappear.
   FilterItems("");
   EXPECT_FALSE(showing_filter_widget());
-  EXPECT_FALSE(items[0]->dimmed());
-  EXPECT_FALSE(items[1]->dimmed());
-  EXPECT_FALSE(items[2]->dimmed());
+  EXPECT_FALSE(GetWindowItemForWindow(grid_index, window0.get())->dimmed());
+  EXPECT_FALSE(GetWindowItemForWindow(grid_index, window1.get())->dimmed());
+  EXPECT_FALSE(GetWindowItemForWindow(grid_index, window2.get())->dimmed());
 }
 
 // Tests selecting in the overview with dimmed and undimmed items.
 TEST_F(WindowSelectorTest, TextFilteringSelection) {
   gfx::Rect bounds(0, 0, 100, 100);
-   scoped_ptr<aura::Window> window2(CreateWindow(bounds));
-   scoped_ptr<aura::Window> window1(CreateWindow(bounds));
-   scoped_ptr<aura::Window> window0(CreateWindow(bounds));
-   base::string16 window2_title = base::UTF8ToUTF16("Rock and roll");
-   base::string16 window1_title = base::UTF8ToUTF16("Rock and");
-   base::string16 window0_title = base::UTF8ToUTF16("Rock");
-   window0->SetTitle(window0_title);
-   window1->SetTitle(window1_title);
-   window2->SetTitle(window2_title);
-   ToggleOverview();
-   SendKey(ui::VKEY_RIGHT);
-   EXPECT_TRUE(selection_widget_active());
-   EXPECT_EQ(GetSelectedWindow(), window0.get());
+  scoped_ptr<aura::Window> window2(CreateWindow(bounds));
+  scoped_ptr<aura::Window> window1(CreateWindow(bounds));
+  scoped_ptr<aura::Window> window0(CreateWindow(bounds));
+  base::string16 window2_title = base::UTF8ToUTF16("Rock and roll");
+  base::string16 window1_title = base::UTF8ToUTF16("Rock and");
+  base::string16 window0_title = base::UTF8ToUTF16("Rock");
+  window0->SetTitle(window0_title);
+  window1->SetTitle(window1_title);
+  window2->SetTitle(window2_title);
+  ToggleOverview();
+  EXPECT_TRUE(SelectWindow(window0.get()));
+  EXPECT_TRUE(selection_widget_active());
 
-   // Dim the first item, the selection should jump to the next item.
-   std::vector<WindowSelectorItem*> items = GetWindowItemsForRoot(0);
-   FilterItems("Rock and");
-   EXPECT_EQ(GetSelectedWindow(), window1.get());
+  // Dim the first item, the selection should jump to the next item.
+  std::vector<WindowSelectorItem*> items = GetWindowItemsForRoot(0);
+  FilterItems("Rock and");
+  EXPECT_NE(GetSelectedWindow(), window0.get());
 
-   // Cycle the selection, the dimmed window should not be selected.
-   SendKey(ui::VKEY_RIGHT);
-   EXPECT_EQ(GetSelectedWindow(), window2.get());
-   SendKey(ui::VKEY_RIGHT);
-   EXPECT_EQ(GetSelectedWindow(), window1.get());
+  // Cycle the selection, the dimmed window should not be selected.
+  EXPECT_FALSE(SelectWindow(window0.get()));
 
-   // Dimming all the items should hide the selection widget.
-   FilterItems("Pop");
-   EXPECT_FALSE(selection_widget_active());
+  // Dimming all the items should hide the selection widget.
+  FilterItems("Pop");
+  EXPECT_FALSE(selection_widget_active());
 
-   // Undimming one window should automatically select it.
-   FilterItems("Rock and roll");
-   EXPECT_EQ(GetSelectedWindow(), window2.get());
+  // Undimming one window should automatically select it.
+  FilterItems("Rock and roll");
+  EXPECT_EQ(GetSelectedWindow(), window2.get());
 }
 
 // Tests clicking on the desktop itself to cancel overview mode.

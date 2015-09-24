@@ -36,11 +36,25 @@ SerializedNavigationEntry SerializedNavigationEntry::FromSyncData(
   SerializedNavigationEntry navigation;
   navigation.index_ = index;
   navigation.unique_id_ = sync_data.unique_id();
-  navigation.referrer_url_ = GURL(sync_data.referrer());
-  navigation.referrer_policy_ = sync_data.referrer_policy();
+  navigation.encoded_page_state_ = sync_data.state();
+  if (sync_data.has_correct_referrer_policy()) {
+    navigation.referrer_url_ = GURL(sync_data.referrer());
+    navigation.referrer_policy_ = sync_data.correct_referrer_policy();
+  } else {
+    int mapped_referrer_policy;
+    if (SerializedNavigationDriver::Get()->MapReferrerPolicyToNewValues(
+            sync_data.obsolete_referrer_policy(), &mapped_referrer_policy)) {
+      navigation.referrer_url_ = GURL(sync_data.referrer());
+    } else {
+      navigation.referrer_url_ = GURL();
+    }
+    navigation.referrer_policy_ = mapped_referrer_policy;
+    navigation.encoded_page_state_ =
+        SerializedNavigationDriver::Get()->StripReferrerFromPageState(
+            navigation.encoded_page_state_);
+  }
   navigation.virtual_url_ = GURL(sync_data.virtual_url());
   navigation.title_ = base::UTF8ToUTF16(sync_data.title());
-  navigation.encoded_page_state_ = sync_data.state();
 
   uint32 transition = 0;
   if (sync_data.has_page_transition()) {
@@ -130,7 +144,7 @@ namespace {
 //
 // TODO(akalin): Unify this with the same function in
 // base_session_service.cc.
-void WriteStringToPickle(Pickle* pickle,
+void WriteStringToPickle(base::Pickle* pickle,
                          int* bytes_written,
                          int max_bytes,
                          const std::string& str) {
@@ -146,7 +160,7 @@ void WriteStringToPickle(Pickle* pickle,
 // base::string16 version of WriteStringToPickle.
 //
 // TODO(akalin): Unify this, too.
-void WriteString16ToPickle(Pickle* pickle,
+void WriteString16ToPickle(base::Pickle* pickle,
                            int* bytes_written,
                            int max_bytes,
                            const base::string16& str) {
@@ -183,15 +197,16 @@ enum TypeMask {
 //
 // type_mask (has_post_data_)
 // referrer_url_
-// referrer_policy_
+// referrer_policy_ (broken, crbug.com/450589)
 // original_request_url_
 // is_overriding_user_agent_
 // timestamp_
 // search_terms_
 // http_status_code_
+// referrer_policy_
 
 void SerializedNavigationEntry::WriteToPickle(int max_size,
-                                              Pickle* pickle) const {
+                                              base::Pickle* pickle) const {
   pickle->WriteInt(index_);
 
   int bytes_written = 0;
@@ -210,11 +225,15 @@ void SerializedNavigationEntry::WriteToPickle(int max_size,
   const int type_mask = has_post_data_ ? HAS_POST_DATA : 0;
   pickle->WriteInt(type_mask);
 
-  WriteStringToPickle(
-      pickle, &bytes_written, max_size,
-      referrer_url_.is_valid() ? referrer_url_.spec() : std::string());
-
-  pickle->WriteInt(referrer_policy_);
+  int mapped_referrer_policy;
+  if (SerializedNavigationDriver::Get()->MapReferrerPolicyToOldValues(
+          referrer_policy_, &mapped_referrer_policy) &&
+      referrer_url_.is_valid()) {
+    WriteStringToPickle(pickle, &bytes_written, max_size, referrer_url_.spec());
+  } else {
+    WriteStringToPickle(pickle, &bytes_written, max_size, std::string());
+  }
+  pickle->WriteInt(mapped_referrer_policy);
 
   // Save info required to override the user agent.
   WriteStringToPickle(
@@ -227,9 +246,11 @@ void SerializedNavigationEntry::WriteToPickle(int max_size,
   WriteString16ToPickle(pickle, &bytes_written, max_size, search_terms_);
 
   pickle->WriteInt(http_status_code_);
+
+  pickle->WriteInt(referrer_policy_);
 }
 
-bool SerializedNavigationEntry::ReadFromPickle(PickleIterator* iterator) {
+bool SerializedNavigationEntry::ReadFromPickle(base::PickleIterator* iterator) {
   *this = SerializedNavigationEntry();
   std::string virtual_url_spec;
   int transition_type_int = 0;
@@ -258,9 +279,13 @@ bool SerializedNavigationEntry::ReadFromPickle(PickleIterator* iterator) {
 
     // The "referrer policy" property was added even later, so we fall back to
     // the default policy if the property is not present.
-    if (!iterator->ReadInt(&referrer_policy_))
+    //
+    // Note: due to crbug.com/450589 this value might be incorrect, and a
+    // corrected version is stored later in the pickle.
+    if (!iterator->ReadInt(&referrer_policy_)) {
       referrer_policy_ =
           SerializedNavigationDriver::Get()->GetDefaultReferrerPolicy();
+    }
 
     // If the original URL can't be found, leave it empty.
     std::string original_request_url_spec;
@@ -285,6 +310,22 @@ bool SerializedNavigationEntry::ReadFromPickle(PickleIterator* iterator) {
 
     if (!iterator->ReadInt(&http_status_code_))
       http_status_code_ = 0;
+
+    // Correct referrer policy (if present).
+    int correct_referrer_policy;
+    if (iterator->ReadInt(&correct_referrer_policy)) {
+      referrer_policy_ = correct_referrer_policy;
+    } else {
+      int mapped_referrer_policy;
+      if (!SerializedNavigationDriver::Get()->MapReferrerPolicyToNewValues(
+              referrer_policy_, &mapped_referrer_policy)) {
+        referrer_url_ = GURL();
+      }
+      referrer_policy_ = mapped_referrer_policy;
+      encoded_page_state_ =
+          SerializedNavigationDriver::Get()->StripReferrerFromPageState(
+              encoded_page_state_);
+    }
   }
 
   SerializedNavigationDriver::Get()->Sanitize(this);
@@ -299,14 +340,22 @@ bool SerializedNavigationEntry::ReadFromPickle(PickleIterator* iterator) {
 sync_pb::TabNavigation SerializedNavigationEntry::ToSyncData() const {
   sync_pb::TabNavigation sync_data;
   sync_data.set_virtual_url(virtual_url_.spec());
-  sync_data.set_referrer(referrer_url_.spec());
-  sync_data.set_referrer_policy(referrer_policy_);
+  int mapped_referrer_policy;
+  if (SerializedNavigationDriver::Get()->MapReferrerPolicyToOldValues(
+          referrer_policy_, &mapped_referrer_policy)) {
+    sync_data.set_referrer(referrer_url_.spec());
+  } else {
+    sync_data.set_referrer(std::string());
+  }
+  sync_data.set_obsolete_referrer_policy(mapped_referrer_policy);
+  sync_data.set_correct_referrer_policy(referrer_policy_);
   sync_data.set_title(base::UTF16ToUTF8(title_));
 
   // Page transition core.
-  COMPILE_ASSERT(ui::PAGE_TRANSITION_LAST_CORE ==
-                 ui::PAGE_TRANSITION_KEYWORD_GENERATED,
-                 PageTransitionCoreBounds);
+  static_assert(ui::PAGE_TRANSITION_LAST_CORE ==
+                ui::PAGE_TRANSITION_KEYWORD_GENERATED,
+                "PAGE_TRANSITION_LAST_CORE must equal "
+                "PAGE_TRANSITION_KEYWORD_GENERATED");
   switch (ui::PageTransitionStripQualifier(transition_type_)) {
     case ui::PAGE_TRANSITION_LINK:
       sync_data.set_page_transition(

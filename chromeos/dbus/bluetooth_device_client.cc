@@ -10,11 +10,17 @@
 #include "dbus/bus.h"
 #include "dbus/message.h"
 #include "dbus/object_manager.h"
-#include "dbus/object_path.h"
 #include "dbus/object_proxy.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
 namespace chromeos {
+
+namespace {
+
+// Value returned for the the RSSI or TX power if it cannot be read.
+const int kUnknownPower = 127;
+
+}  // namespace
 
 const char BluetoothDeviceClient::kNoResponseError[] =
     "org.chromium.Error.NoResponse";
@@ -41,10 +47,7 @@ BluetoothDeviceClient::Properties::Properties(
   RegisterProperty(bluetooth_device::kLegacyPairingProperty, &legacy_pairing);
   RegisterProperty(bluetooth_device::kModaliasProperty, &modalias);
   RegisterProperty(bluetooth_device::kRSSIProperty, &rssi);
-  RegisterProperty(bluetooth_device::kConnectionRSSI, &connection_rssi);
-  RegisterProperty(bluetooth_device::kConnectionTXPower, &connection_tx_power);
-  RegisterProperty(bluetooth_device::kConnectionTXPowerMax,
-                   &connection_tx_power_max);
+  RegisterProperty(bluetooth_device::kTxPowerProperty, &tx_power);
 }
 
 BluetoothDeviceClient::Properties::~Properties() {
@@ -59,27 +62,25 @@ class BluetoothDeviceClientImpl
   BluetoothDeviceClientImpl()
       : object_manager_(NULL), weak_ptr_factory_(this) {}
 
-  virtual ~BluetoothDeviceClientImpl() {
+  ~BluetoothDeviceClientImpl() override {
     object_manager_->UnregisterInterface(
         bluetooth_device::kBluetoothDeviceInterface);
   }
 
   // BluetoothDeviceClient override.
-  virtual void AddObserver(BluetoothDeviceClient::Observer* observer)
-      override {
+  void AddObserver(BluetoothDeviceClient::Observer* observer) override {
     DCHECK(observer);
     observers_.AddObserver(observer);
   }
 
   // BluetoothDeviceClient override.
-  virtual void RemoveObserver(BluetoothDeviceClient::Observer* observer)
-      override {
+  void RemoveObserver(BluetoothDeviceClient::Observer* observer) override {
     DCHECK(observer);
     observers_.RemoveObserver(observer);
   }
 
   // dbus::ObjectManager::Interface override.
-  virtual dbus::PropertySet* CreateProperties(
+  dbus::PropertySet* CreateProperties(
       dbus::ObjectProxy* object_proxy,
       const dbus::ObjectPath& object_path,
       const std::string& interface_name) override {
@@ -93,7 +94,7 @@ class BluetoothDeviceClientImpl
   }
 
   // BluetoothDeviceClient override.
-  virtual std::vector<dbus::ObjectPath> GetDevicesForAdapter(
+  std::vector<dbus::ObjectPath> GetDevicesForAdapter(
       const dbus::ObjectPath& adapter_path) override {
     std::vector<dbus::ObjectPath> object_paths, device_paths;
     device_paths = object_manager_->GetObjectsWithInterface(
@@ -108,8 +109,7 @@ class BluetoothDeviceClientImpl
   }
 
   // BluetoothDeviceClient override.
-  virtual Properties* GetProperties(const dbus::ObjectPath& object_path)
-      override {
+  Properties* GetProperties(const dbus::ObjectPath& object_path) override {
     return static_cast<Properties*>(
         object_manager_->GetProperties(
             object_path,
@@ -117,9 +117,9 @@ class BluetoothDeviceClientImpl
   }
 
   // BluetoothDeviceClient override.
-  virtual void Connect(const dbus::ObjectPath& object_path,
-                       const base::Closure& callback,
-                       const ErrorCallback& error_callback) override {
+  void Connect(const dbus::ObjectPath& object_path,
+               const base::Closure& callback,
+               const ErrorCallback& error_callback) override {
     dbus::MethodCall method_call(
         bluetooth_device::kBluetoothDeviceInterface,
         bluetooth_device::kConnect);
@@ -142,9 +142,9 @@ class BluetoothDeviceClientImpl
   }
 
   // BluetoothDeviceClient override.
-  virtual void Disconnect(const dbus::ObjectPath& object_path,
-                          const base::Closure& callback,
-                          const ErrorCallback& error_callback) override {
+  void Disconnect(const dbus::ObjectPath& object_path,
+                  const base::Closure& callback,
+                  const ErrorCallback& error_callback) override {
     dbus::MethodCall method_call(
         bluetooth_device::kBluetoothDeviceInterface,
         bluetooth_device::kDisconnect);
@@ -166,10 +166,10 @@ class BluetoothDeviceClientImpl
   }
 
   // BluetoothDeviceClient override.
-  virtual void ConnectProfile(const dbus::ObjectPath& object_path,
-                              const std::string& uuid,
-                              const base::Closure& callback,
-                              const ErrorCallback& error_callback) override {
+  void ConnectProfile(const dbus::ObjectPath& object_path,
+                      const std::string& uuid,
+                      const base::Closure& callback,
+                      const ErrorCallback& error_callback) override {
     dbus::MethodCall method_call(
         bluetooth_device::kBluetoothDeviceInterface,
         bluetooth_device::kConnectProfile);
@@ -195,11 +195,10 @@ class BluetoothDeviceClientImpl
   }
 
   // BluetoothDeviceClient override.
-  virtual void DisconnectProfile(const dbus::ObjectPath& object_path,
-                                 const std::string& uuid,
-                                 const base::Closure& callback,
-                                 const ErrorCallback& error_callback)
-        override {
+  void DisconnectProfile(const dbus::ObjectPath& object_path,
+                         const std::string& uuid,
+                         const base::Closure& callback,
+                         const ErrorCallback& error_callback) override {
     dbus::MethodCall method_call(
         bluetooth_device::kBluetoothDeviceInterface,
         bluetooth_device::kDisconnectProfile);
@@ -224,9 +223,9 @@ class BluetoothDeviceClientImpl
   }
 
   // BluetoothDeviceClient override.
-  virtual void Pair(const dbus::ObjectPath& object_path,
-                    const base::Closure& callback,
-                    const ErrorCallback& error_callback) override {
+  void Pair(const dbus::ObjectPath& object_path,
+            const base::Closure& callback,
+            const ErrorCallback& error_callback) override {
     dbus::MethodCall method_call(
         bluetooth_device::kBluetoothDeviceInterface,
         bluetooth_device::kPair);
@@ -249,10 +248,9 @@ class BluetoothDeviceClientImpl
   }
 
   // BluetoothDeviceClient override.
-  virtual void CancelPairing(const dbus::ObjectPath& object_path,
-                             const base::Closure& callback,
-                             const ErrorCallback& error_callback)
-        override {
+  void CancelPairing(const dbus::ObjectPath& object_path,
+                     const base::Closure& callback,
+                     const ErrorCallback& error_callback) override {
     dbus::MethodCall method_call(
         bluetooth_device::kBluetoothDeviceInterface,
         bluetooth_device::kCancelPairing);
@@ -273,12 +271,12 @@ class BluetoothDeviceClientImpl
   }
 
   // BluetoothDeviceClient override.
-  virtual void StartConnectionMonitor(
-      const dbus::ObjectPath& object_path,
-      const base::Closure& callback,
-      const ErrorCallback& error_callback) override {
-    dbus::MethodCall method_call(bluetooth_device::kBluetoothDeviceInterface,
-                                 bluetooth_device::kStartConnectionMonitor);
+  void GetConnInfo(const dbus::ObjectPath& object_path,
+                   const ConnInfoCallback& callback,
+                   const ErrorCallback& error_callback) override {
+    dbus::MethodCall method_call(
+        bluetooth_plugin_device::kBluetoothPluginInterface,
+        bluetooth_plugin_device::kGetConnInfo);
 
     dbus::ObjectProxy* object_proxy =
         object_manager_->GetObjectProxy(object_path);
@@ -287,43 +285,15 @@ class BluetoothDeviceClientImpl
       return;
     }
     object_proxy->CallMethodWithErrorCallback(
-        &method_call,
-        dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::Bind(&BluetoothDeviceClientImpl::OnSuccess,
-                   weak_ptr_factory_.GetWeakPtr(),
-                   callback),
+        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+        base::Bind(&BluetoothDeviceClientImpl::OnGetConnInfoSuccess,
+                   weak_ptr_factory_.GetWeakPtr(), callback),
         base::Bind(&BluetoothDeviceClientImpl::OnError,
-                   weak_ptr_factory_.GetWeakPtr(),
-                   error_callback));
-  }
-
-  // BluetoothDeviceClient override.
-  virtual void StopConnectionMonitor(
-      const dbus::ObjectPath& object_path,
-      const base::Closure& callback,
-      const ErrorCallback& error_callback) override {
-    dbus::MethodCall method_call(bluetooth_device::kBluetoothDeviceInterface,
-                                 bluetooth_device::kStopConnectionMonitor);
-
-    dbus::ObjectProxy* object_proxy =
-        object_manager_->GetObjectProxy(object_path);
-    if (!object_proxy) {
-      error_callback.Run(kUnknownDeviceError, "");
-      return;
-    }
-    object_proxy->CallMethodWithErrorCallback(
-        &method_call,
-        dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::Bind(&BluetoothDeviceClientImpl::OnSuccess,
-                   weak_ptr_factory_.GetWeakPtr(),
-                   callback),
-        base::Bind(&BluetoothDeviceClientImpl::OnError,
-                   weak_ptr_factory_.GetWeakPtr(),
-                   error_callback));
+                   weak_ptr_factory_.GetWeakPtr(), error_callback));
   }
 
  protected:
-  virtual void Init(dbus::Bus* bus) override {
+  void Init(dbus::Bus* bus) override {
     object_manager_ = bus->GetObjectManager(
         bluetooth_object_manager::kBluetoothObjectManagerServiceName,
         dbus::ObjectPath(
@@ -335,16 +305,16 @@ class BluetoothDeviceClientImpl
  private:
   // Called by dbus::ObjectManager when an object with the device interface
   // is created. Informs observers.
-  virtual void ObjectAdded(const dbus::ObjectPath& object_path,
-                           const std::string& interface_name) override {
+  void ObjectAdded(const dbus::ObjectPath& object_path,
+                   const std::string& interface_name) override {
     FOR_EACH_OBSERVER(BluetoothDeviceClient::Observer, observers_,
                       DeviceAdded(object_path));
   }
 
   // Called by dbus::ObjectManager when an object with the device interface
   // is removed. Informs observers.
-  virtual void ObjectRemoved(const dbus::ObjectPath& object_path,
-                             const std::string& interface_name) override {
+  void ObjectRemoved(const dbus::ObjectPath& object_path,
+                     const std::string& interface_name) override {
     FOR_EACH_OBSERVER(BluetoothDeviceClient::Observer, observers_,
                       DeviceRemoved(object_path));
   }
@@ -363,6 +333,27 @@ class BluetoothDeviceClientImpl
                  dbus::Response* response) {
     DCHECK(response);
     callback.Run();
+  }
+
+  // Called when a response for the GetConnInfo method is received.
+  void OnGetConnInfoSuccess(const ConnInfoCallback& callback,
+                            dbus::Response* response) {
+    int16 rssi = kUnknownPower;
+    int16 transmit_power = kUnknownPower;
+    int16 max_transmit_power = kUnknownPower;
+
+    if (!response) {
+      LOG(ERROR) << "GetConnInfo succeeded, but no response received.";
+      callback.Run(rssi, transmit_power, max_transmit_power);
+      return;
+    }
+
+    dbus::MessageReader reader(response);
+    if (!reader.PopInt16(&rssi) || !reader.PopInt16(&transmit_power) ||
+        !reader.PopInt16(&max_transmit_power)) {
+      LOG(ERROR) << "Arguments for GetConnInfo invalid.";
+    }
+    callback.Run(rssi, transmit_power, max_transmit_power);
   }
 
   // Called when a response for a failed method call is received.
@@ -385,7 +376,7 @@ class BluetoothDeviceClientImpl
   dbus::ObjectManager* object_manager_;
 
   // List of observers interested in event notifications from us.
-  ObserverList<BluetoothDeviceClient::Observer> observers_;
+  base::ObserverList<BluetoothDeviceClient::Observer> observers_;
 
   // Weak pointer factory for generating 'this' pointers that might live longer
   // than we do.

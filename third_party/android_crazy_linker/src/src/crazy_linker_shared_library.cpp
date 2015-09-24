@@ -58,18 +58,6 @@
 #define DT_PREINIT_ARRAYSZ 33
 #endif
 
-#ifndef DT_LOOS
-#define DT_LOOS 0x6000000d
-#endif
-
-// Extension dynamic tags for packed relocations.
-#if defined(__arm__) || defined(__aarch64__)
-
-#define DT_ANDROID_REL_OFFSET (DT_LOOS)
-#define DT_ANDROID_REL_SIZE (DT_LOOS + 1)
-
-#endif  // __arm__ || __aarch64__
-
 namespace crazy {
 
 namespace {
@@ -98,12 +86,12 @@ class SharedLibraryResolver : public ElfRelocations::SymbolResolver {
  public:
   SharedLibraryResolver(SharedLibrary* lib,
                         LibraryList* lib_list,
+                        Vector<LibraryView*>* preloads,
                         Vector<LibraryView*>* dependencies)
-      : lib_(lib), dependencies_(dependencies) {}
+      : main_program_handle_(::dlopen(NULL, RTLD_NOW)),
+        lib_(lib), preloads_(preloads), dependencies_(dependencies) {}
 
   virtual void* Lookup(const char* symbol_name) {
-    // TODO(digit): Add the ability to lookup inside the main executable.
-
     // First, look inside the current library.
     const ELF::Sym* entry = lib_->LookupSymbolEntry(symbol_name);
     if (entry)
@@ -116,39 +104,38 @@ class SharedLibraryResolver : public ElfRelocations::SymbolResolver {
     if (address)
       return address;
 
+    // Then look inside the preloads.
+    //
+    // Note that searching preloads *before* the main executable is opposite
+    // to the search ordering used by the system linker, but it is required
+    // to work round a dlsym() bug in some Android releases (on releases
+    // without this dlsym() bug preloads_ will be empty, making this preloads
+    // search a no-op).
+    //
+    // For more, see commentary in LibraryList(), and
+    //   https://code.google.com/p/android/issues/detail?id=74255
+    for (size_t n = 0; n < preloads_->GetCount(); ++n) {
+      LibraryView* wrap = (*preloads_)[n];
+      // LOG("%s: Looking into preload %p (%s)\n", __FUNCTION__, wrap,
+      // wrap->GetName());
+      address = LookupInWrap(symbol_name, wrap);
+      if (address)
+        return address;
+    }
+
+    // Then lookup inside the main executable.
+    address = ::dlsym(main_program_handle_, symbol_name);
+    if (address)
+      return address;
+
     // Then look inside the dependencies.
     for (size_t n = 0; n < dependencies_->GetCount(); ++n) {
       LibraryView* wrap = (*dependencies_)[n];
       // LOG("%s: Looking into dependency %p (%s)\n", __FUNCTION__, wrap,
       // wrap->GetName());
-      if (wrap->IsSystem()) {
-        address = ::dlsym(wrap->GetSystem(), symbol_name);
-#ifdef __arm__
-        // Android libm.so defines isnanf as weak. This means that its
-        // address cannot be found by dlsym(), which always returns NULL
-        // for weak symbols. However, libm.so contains the real isnanf
-        // as __isnanf. If we encounter isnanf and fail to resolve it in
-        // libm.so, retry with __isnanf.
-        //
-        // This occurs only in clang, which lacks __builtin_isnanf. The
-        // gcc compiler implements isnanf as a builtin, so the symbol
-        // isnanf never need be resolved in gcc builds.
-        //
-        // http://code.google.com/p/chromium/issues/detail?id=376828
-        if (!address &&
-            !strcmp(symbol_name, "isnanf") &&
-            !strcmp(wrap->GetName(), "libm.so"))
-          address = ::dlsym(wrap->GetSystem(), "__isnanf");
-#endif
-        if (address)
-          return address;
-      }
-      if (wrap->IsCrazy()) {
-        SharedLibrary* dep = wrap->GetCrazy();
-        entry = dep->LookupSymbolEntry(symbol_name);
-        if (entry)
-          return reinterpret_cast<void*>(dep->load_bias() + entry->st_value);
-      }
+      address = LookupInWrap(symbol_name, wrap);
+      if (address)
+        return address;
     }
 
     // Nothing found here.
@@ -156,60 +143,44 @@ class SharedLibraryResolver : public ElfRelocations::SymbolResolver {
   }
 
  private:
+  virtual void* LookupInWrap(const char* symbol_name, LibraryView* wrap) {
+    if (wrap->IsSystem()) {
+      void* address = ::dlsym(wrap->GetSystem(), symbol_name);
+#ifdef __arm__
+      // Android libm.so defines isnanf as weak. This means that its
+      // address cannot be found by dlsym(), which returns NULL for weak
+      // symbols prior to Android 5.0. However, libm.so contains the real
+      // isnanf as __isnanf. If we encounter isnanf and fail to resolve
+      // it in libm.so, retry with __isnanf.
+      //
+      // This occurs only in clang, which lacks __builtin_isnanf. The
+      // gcc compiler implements isnanf as a builtin, so the symbol
+      // isnanf never need be resolved in gcc builds.
+      //
+      // http://code.google.com/p/chromium/issues/detail?id=376828
+      if (!address &&
+          !strcmp(symbol_name, "isnanf") &&
+          !strcmp(wrap->GetName(), "libm.so"))
+        address = ::dlsym(wrap->GetSystem(), "__isnanf");
+#endif
+      return address;
+    }
+
+    if (wrap->IsCrazy()) {
+      SharedLibrary* crazy = wrap->GetCrazy();
+      const ELF::Sym* entry = crazy->LookupSymbolEntry(symbol_name);
+      if (entry)
+        return reinterpret_cast<void*>(crazy->load_bias() + entry->st_value);
+    }
+
+    return NULL;
+  }
+
+  void* main_program_handle_;
   SharedLibrary* lib_;
+  Vector<LibraryView*>* preloads_;
   Vector<LibraryView*>* dependencies_;
 };
-
-#if defined(__arm__) || defined(__aarch64__)
-
-// Helper class to provide a simple scoped buffer.  ScopedPtr is not
-// usable here because it calls delete, not delete [].
-class ScopedBuffer {
- public:
-  explicit ScopedBuffer(size_t bytes) : buffer_(new uint8_t[bytes]) { }
-  ~ScopedBuffer() { delete [] buffer_; }
-
-  uint8_t* Get() { return buffer_; }
-
-  uint8_t* Release() {
-    uint8_t* ptr = buffer_;
-    buffer_ = NULL;
-    return ptr;
-  }
-
- private:
-  uint8_t* buffer_;
-};
-
-// Read an .android.rel.dyn packed relocations section.
-// Returns an allocated buffer holding the data, or NULL on error.
-uint8_t* ReadPackedRelocations(const char* full_path,
-                               off_t offset,
-                               size_t bytes,
-                               Error* error) {
-  FileDescriptor fd;
-  if (!fd.OpenReadOnly(full_path)) {
-    error->Format("Error opening file '%s'", full_path);
-    return NULL;
-  }
-  if (fd.SeekTo(offset) == -1) {
-    error->Format("Error seeking to %d in file '%s'", offset, full_path);
-    return NULL;
-  }
-
-  ScopedBuffer buffer(bytes);
-  const ssize_t bytes_read = fd.Read(buffer.Get(), bytes);
-  if (static_cast<size_t>(bytes_read) != bytes) {
-    error->Format("Error reading %d bytes from file '%s'", bytes, full_path);
-    return NULL;
-  }
-  fd.Close();
-
-  uint8_t* packed_data = buffer.Release();
-  return packed_data;
-}
-
-#endif  // __arm__ || __aarch64__
 
 }  // namespace
 
@@ -219,16 +190,11 @@ SharedLibrary::~SharedLibrary() {
   // Ensure the library is unmapped on destruction.
   if (view_.load_address())
     munmap(reinterpret_cast<void*>(view_.load_address()), view_.load_size());
-
-#if defined(__arm__) || defined(__aarch64__)
-  delete [] packed_relocations_;
-#endif
 }
 
 bool SharedLibrary::Load(const char* full_path,
                          size_t load_address,
                          size_t file_offset,
-                         bool no_map_exec_support_fallback_enabled,
                          Error* error) {
   // First, record the path.
   LOG("%s: full path '%s'\n", __FUNCTION__, full_path);
@@ -246,7 +212,7 @@ bool SharedLibrary::Load(const char* full_path,
   LOG("%s: Loading ELF segments for %s\n", __FUNCTION__, base_name_);
 
   {
-    ElfLoader loader(no_map_exec_support_fallback_enabled);
+    ElfLoader loader;
     if (!loader.LoadAt(full_path_, file_offset, load_address, error)) {
       return false;
     }
@@ -277,11 +243,6 @@ bool SharedLibrary::Load(const char* full_path,
   LOG("%s: Extracting ARM.exidx table for %s\n", __FUNCTION__, base_name_);
   (void)phdr_table_get_arm_exidx(
       phdr(), phdr_count(), load_bias(), &arm_exidx_, &arm_exidx_count_);
-#endif
-
-#if defined(__arm__) || defined(__aarch64__)
-  off_t packed_relocations_offset = 0;
-  size_t packed_relocations_size = 0;
 #endif
 
   LOG("%s: Parsing dynamic table for %s\n", __FUNCTION__, base_name_);
@@ -342,16 +303,6 @@ bool SharedLibrary::Load(const char* full_path,
         if (dyn_value & DF_SYMBOLIC)
           has_DT_SYMBOLIC_ = true;
         break;
-#if defined(__arm__) || defined(__aarch64__)
-      case DT_ANDROID_REL_OFFSET:
-        packed_relocations_offset = dyn.GetOffset();
-        LOG("  DT_ANDROID_REL_OFFSET addr=%p\n", packed_relocations_offset);
-        break;
-      case DT_ANDROID_REL_SIZE:
-        packed_relocations_size = dyn.GetValue();
-        LOG("  DT_ANDROID_REL_SIZE=%d\n", packed_relocations_size);
-        break;
-#endif
 #if defined(__mips__)
       case DT_MIPS_RLD_MAP:
         *dyn.GetValuePointer() =
@@ -363,34 +314,12 @@ bool SharedLibrary::Load(const char* full_path,
     }
   }
 
-#if defined(__arm__) || defined(__aarch64__)
-  // If packed relocations are present in the target library, read the
-  // section data and save it in packed_relocations_.
-  if (packed_relocations_offset && packed_relocations_size) {
-    LOG("%s: Packed relocations found at offset %d, %d bytes\n",
-        __FUNCTION__,
-        packed_relocations_offset,
-        packed_relocations_size);
-
-    packed_relocations_ =
-        ReadPackedRelocations(full_path,
-                              packed_relocations_offset + file_offset,
-                              packed_relocations_size,
-                              error);
-    if (!packed_relocations_)
-      return false;
-
-    LOG("%s: Packed relocations stored at %p\n",
-        __FUNCTION__,
-        packed_relocations_);
-  }
-#endif
-
   LOG("%s: Load complete for %s\n", __FUNCTION__, base_name_);
   return true;
 }
 
 bool SharedLibrary::Relocate(LibraryList* lib_list,
+                             Vector<LibraryView*>* preloads,
                              Vector<LibraryView*>* dependencies,
                              Error* error) {
   // Apply relocations.
@@ -401,11 +330,7 @@ bool SharedLibrary::Relocate(LibraryList* lib_list,
   if (!relocations.Init(&view_, error))
     return false;
 
-#if defined(__arm__) || defined(__aarch64__)
-  relocations.RegisterPackedRelocations(packed_relocations_);
-#endif
-
-  SharedLibraryResolver resolver(this, lib_list, dependencies);
+  SharedLibraryResolver resolver(this, lib_list, preloads, dependencies);
   if (!relocations.ApplyAll(&symbols_, &resolver, error))
     return false;
 

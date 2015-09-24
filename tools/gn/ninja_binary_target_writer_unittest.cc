@@ -6,6 +6,7 @@
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "tools/gn/ninja_binary_target_writer.h"
+#include "tools/gn/scheduler.h"
 #include "tools/gn/target.h"
 #include "tools/gn/test_with_scope.h"
 
@@ -38,10 +39,7 @@ TEST(NinjaBinaryTargetWriter, SourceSet) {
         "defines =\n"
         "include_dirs =\n"
         "cflags =\n"
-        "cflags_c =\n"
         "cflags_cc =\n"
-        "cflags_objc =\n"
-        "cflags_objcc =\n"
         "root_out_dir = .\n"
         "target_out_dir = obj/foo\n"
         "target_output_name = bar\n"
@@ -70,11 +68,6 @@ TEST(NinjaBinaryTargetWriter, SourceSet) {
     const char expected[] =
         "defines =\n"
         "include_dirs =\n"
-        "cflags =\n"
-        "cflags_c =\n"
-        "cflags_cc =\n"
-        "cflags_objc =\n"
-        "cflags_objcc =\n"
         "root_out_dir = .\n"
         "target_out_dir = obj/foo\n"
         "target_output_name = libshlib\n"
@@ -84,7 +77,8 @@ TEST(NinjaBinaryTargetWriter, SourceSet) {
         // specified, with the target's first, followed by the source set's, in
         // order.
         "build ./libshlib.so: solink obj/foo/bar.input1.o "
-            "obj/foo/bar.input2.o ../../foo/input3.o ../../foo/input4.obj\n"
+            "obj/foo/bar.input2.o ../../foo/input3.o ../../foo/input4.obj "
+            "|| obj/foo/bar.stamp\n"
         "  ldflags =\n"
         "  libs =\n"
         "  output_extension = .so\n";
@@ -107,11 +101,6 @@ TEST(NinjaBinaryTargetWriter, SourceSet) {
     const char expected[] =
         "defines =\n"
         "include_dirs =\n"
-        "cflags =\n"
-        "cflags_c =\n"
-        "cflags_cc =\n"
-        "cflags_objc =\n"
-        "cflags_objcc =\n"
         "root_out_dir = .\n"
         "target_out_dir = obj/foo\n"
         "target_output_name = libstlib\n"
@@ -119,7 +108,7 @@ TEST(NinjaBinaryTargetWriter, SourceSet) {
         "\n"
         // There are no sources so there are no params to alink. (In practice
         // this will probably fail in the archive tool.)
-        "build obj/foo/libstlib.a: alink\n"
+        "build obj/foo/libstlib.a: alink || obj/foo/bar.stamp\n"
         "  ldflags =\n"
         "  libs =\n"
         "  output_extension = \n";
@@ -137,11 +126,6 @@ TEST(NinjaBinaryTargetWriter, SourceSet) {
     const char expected[] =
         "defines =\n"
         "include_dirs =\n"
-        "cflags =\n"
-        "cflags_c =\n"
-        "cflags_cc =\n"
-        "cflags_objc =\n"
-        "cflags_objcc =\n"
         "root_out_dir = .\n"
         "target_out_dir = obj/foo\n"
         "target_output_name = libstlib\n"
@@ -151,7 +135,8 @@ TEST(NinjaBinaryTargetWriter, SourceSet) {
         // specified, with the target's first, followed by the source set's, in
         // order.
         "build obj/foo/libstlib.a: alink obj/foo/bar.input1.o "
-            "obj/foo/bar.input2.o ../../foo/input3.o ../../foo/input4.obj\n"
+            "obj/foo/bar.input2.o ../../foo/input3.o ../../foo/input4.obj "
+            "|| obj/foo/bar.stamp\n"
         "  ldflags =\n"
         "  libs =\n"
         "  output_extension = \n";
@@ -194,10 +179,7 @@ TEST(NinjaBinaryTargetWriter, ProductExtensionAndInputDeps) {
       "defines =\n"
       "include_dirs =\n"
       "cflags =\n"
-      "cflags_c =\n"
       "cflags_cc =\n"
-      "cflags_objc =\n"
-      "cflags_objcc =\n"
       "root_out_dir = .\n"
       "target_out_dir = obj/foo\n"
       "target_output_name = libshlib\n"
@@ -247,10 +229,7 @@ TEST(NinjaBinaryTargetWriter, EmptyProductExtension) {
       "defines =\n"
       "include_dirs =\n"
       "cflags =\n"
-      "cflags_c =\n"
       "cflags_cc =\n"
-      "cflags_objc =\n"
-      "cflags_objcc =\n"
       "root_out_dir = .\n"
       "target_out_dir = obj/foo\n"
       "target_output_name = libshlib\n"
@@ -266,4 +245,238 @@ TEST(NinjaBinaryTargetWriter, EmptyProductExtension) {
 
   std::string out_str = out.str();
   EXPECT_EQ(expected, out_str);
+}
+
+TEST(NinjaBinaryTargetWriter, SourceSetDataDeps) {
+  TestWithScope setup;
+  setup.build_settings()->SetBuildDir(SourceDir("//out/Debug/"));
+  setup.settings()->set_target_os(Settings::LINUX);
+
+  Err err;
+
+  // This target is a data (runtime) dependency of the intermediate target.
+  Target data(setup.settings(), Label(SourceDir("//foo/"), "data_target"));
+  data.set_output_type(Target::EXECUTABLE);
+  data.visibility().SetPublic();
+  data.SetToolchain(setup.toolchain());
+  ASSERT_TRUE(data.OnResolved(&err));
+
+  // Intermediate source set target.
+  Target inter(setup.settings(), Label(SourceDir("//foo/"), "inter"));
+  inter.set_output_type(Target::SOURCE_SET);
+  inter.visibility().SetPublic();
+  inter.data_deps().push_back(LabelTargetPair(&data));
+  inter.SetToolchain(setup.toolchain());
+  inter.sources().push_back(SourceFile("//foo/inter.cc"));
+  ASSERT_TRUE(inter.OnResolved(&err)) << err.message();
+
+  // Write out the intermediate target.
+  std::ostringstream inter_out;
+  NinjaBinaryTargetWriter inter_writer(&inter, inter_out);
+  inter_writer.Run();
+
+  // The intermediate source set will be a stamp file that depends on the
+  // object files, and will have an order-only dependency on its data dep and
+  // data file.
+  const char inter_expected[] =
+      "defines =\n"
+      "include_dirs =\n"
+      "cflags =\n"
+      "cflags_cc =\n"
+      "root_out_dir = .\n"
+      "target_out_dir = obj/foo\n"
+      "target_output_name = inter\n"
+      "\n"
+      "build obj/foo/inter.inter.o: cxx ../../foo/inter.cc\n"
+      "\n"
+      "build obj/foo/inter.stamp: stamp obj/foo/inter.inter.o || "
+          "./data_target\n";
+  EXPECT_EQ(inter_expected, inter_out.str());
+
+  // Final target.
+  Target exe(setup.settings(), Label(SourceDir("//foo/"), "exe"));
+  exe.set_output_type(Target::EXECUTABLE);
+  exe.public_deps().push_back(LabelTargetPair(&inter));
+  exe.SetToolchain(setup.toolchain());
+  exe.sources().push_back(SourceFile("//foo/final.cc"));
+  ASSERT_TRUE(exe.OnResolved(&err));
+
+  std::ostringstream final_out;
+  NinjaBinaryTargetWriter final_writer(&exe, final_out);
+  final_writer.Run();
+
+  // The final output depends on both object files (one from the final target,
+  // one from the source set) and has an order-only dependency on the source
+  // set's stamp file and the final target's data file. The source set stamp
+  // dependency will create an implicit order-only dependency on the data
+  // target.
+  const char final_expected[] =
+      "defines =\n"
+      "include_dirs =\n"
+      "cflags =\n"
+      "cflags_cc =\n"
+      "root_out_dir = .\n"
+      "target_out_dir = obj/foo\n"
+      "target_output_name = exe\n"
+      "\n"
+      "build obj/foo/exe.final.o: cxx ../../foo/final.cc\n"
+      "\n"
+      "build ./exe: link obj/foo/exe.final.o obj/foo/inter.inter.o || "
+          "obj/foo/inter.stamp\n"
+      "  ldflags =\n"
+      "  libs =\n"
+      "  output_extension = \n";
+  EXPECT_EQ(final_expected, final_out.str());
+}
+
+TEST(NinjaBinaryTargetWriter, SharedLibraryModuleDefinitionFile) {
+  TestWithScope setup;
+  setup.build_settings()->SetBuildDir(SourceDir("//out/Debug/"));
+  setup.settings()->set_target_os(Settings::WIN);
+
+  Target shared_lib(setup.settings(), Label(SourceDir("//foo/"), "bar"));
+  shared_lib.set_output_type(Target::SHARED_LIBRARY);
+  shared_lib.SetToolchain(setup.toolchain());
+  shared_lib.sources().push_back(SourceFile("//foo/sources.cc"));
+  shared_lib.sources().push_back(SourceFile("//foo/bar.def"));
+
+  Err err;
+  ASSERT_TRUE(shared_lib.OnResolved(&err));
+
+  std::ostringstream out;
+  NinjaBinaryTargetWriter writer(&shared_lib, out);
+  writer.Run();
+
+  const char expected[] =
+      "defines =\n"
+      "include_dirs =\n"
+      "cflags =\n"
+      "cflags_cc =\n"
+      "root_out_dir = .\n"
+      "target_out_dir = obj/foo\n"
+      "target_output_name = libbar\n"
+      "\n"
+      "build obj/foo/libbar.sources.o: cxx ../../foo/sources.cc\n"
+      "\n"
+      "build ./libbar.so: solink obj/foo/libbar.sources.o | ../../foo/bar.def\n"
+      "  ldflags = /DEF:../../foo/bar.def\n"
+      "  libs =\n"
+      "  output_extension = .so\n";
+  EXPECT_EQ(expected, out.str());
+}
+
+TEST(NinjaBinaryTargetWriter, WinPrecompiledHeaders) {
+  Err err;
+
+  // This setup's toolchain does not have precompiled headers defined.
+  TestWithScope setup;
+
+  // A precompiled header toolchain.
+  Settings pch_settings(setup.build_settings(), "withpch/");
+  Toolchain pch_toolchain(&pch_settings,
+                          Label(SourceDir("//toolchain/"), "withpch"));
+
+  // Declare a C++ compiler that supports PCH.
+  scoped_ptr<Tool> cxx_tool(new Tool);
+  TestWithScope::SetCommandForTool(
+      "c++ {{source}} {{cflags}} {{cflags_cc}} {{defines}} {{include_dirs}} "
+      "-o {{output}}",
+      cxx_tool.get());
+  cxx_tool->set_outputs(SubstitutionList::MakeForTest(
+      "{{source_out_dir}}/{{target_output_name}}.{{source_name_part}}.o"));
+  cxx_tool->set_precompiled_header_type(Tool::PCH_MSVC);
+  pch_toolchain.SetTool(Toolchain::TYPE_CXX, cxx_tool.Pass());
+  pch_toolchain.ToolchainSetupComplete();
+
+  // This target doesn't specify precompiled headers.
+  {
+    Target no_pch_target(&pch_settings,
+                         Label(SourceDir("//foo/"), "no_pch_target"));
+    no_pch_target.set_output_type(Target::SOURCE_SET);
+    no_pch_target.visibility().SetPublic();
+    no_pch_target.sources().push_back(SourceFile("//foo/input1.cc"));
+    no_pch_target.SetToolchain(&pch_toolchain);
+    ASSERT_TRUE(no_pch_target.OnResolved(&err));
+
+    std::ostringstream out;
+    NinjaBinaryTargetWriter writer(&no_pch_target, out);
+    writer.Run();
+
+    const char no_pch_expected[] =
+        "defines =\n"
+        "include_dirs =\n"
+        "cflags =\n"
+        "cflags_cc =\n"
+        "target_output_name = no_pch_target\n"
+        "\n"
+        "build withpch/obj/foo/no_pch_target.input1.o: "
+               "cxx ../../foo/input1.cc\n"
+        "\n"
+        "build withpch/obj/foo/no_pch_target.stamp: "
+               "stamp withpch/obj/foo/no_pch_target.input1.o\n";
+    EXPECT_EQ(no_pch_expected, out.str());
+  }
+
+  // This target specifies PCH.
+  {
+    Target pch_target(&pch_settings,
+                      Label(SourceDir("//foo/"), "pch_target"));
+    pch_target.config_values().set_precompiled_header("build/precompile.h");
+    pch_target.config_values().set_precompiled_source(
+        SourceFile("//build/precompile.cc"));
+    pch_target.set_output_type(Target::SOURCE_SET);
+    pch_target.visibility().SetPublic();
+    pch_target.sources().push_back(SourceFile("//foo/input1.cc"));
+    pch_target.SetToolchain(&pch_toolchain);
+    ASSERT_TRUE(pch_target.OnResolved(&err));
+
+    std::ostringstream out;
+    NinjaBinaryTargetWriter writer(&pch_target, out);
+    writer.Run();
+
+    const char pch_win_expected[] =
+        "defines =\n"
+        "include_dirs =\n"
+        "cflags =\n"
+        // There should only be one .pch file created, for C++ files.
+        "cflags_cc = /Fpwithpch/obj/foo/pch_target_cc.pch "
+                     "/Yubuild/precompile.h\n"
+        "target_output_name = pch_target\n"
+        "\n"
+        // Compile the precompiled source file with /Yc.
+        "build withpch/obj/build/pch_target.precompile.cc.o: "
+               "cxx ../../build/precompile.cc\n"
+        "  cflags_cc = ${cflags_cc} /Ycbuild/precompile.h\n"
+        "\n"
+        "build withpch/obj/foo/pch_target.input1.o: "
+               "cxx ../../foo/input1.cc | "
+               // Explicit dependency on the PCH build step.
+               "withpch/obj/build/pch_target.precompile.cc.o\n"
+        "\n"
+        "build withpch/obj/foo/pch_target.stamp: "
+               "stamp withpch/obj/foo/pch_target.input1.o "
+               // The precompiled object file was added to the outputs.
+               "withpch/obj/build/pch_target.precompile.cc.o\n";
+    EXPECT_EQ(pch_win_expected, out.str());
+  }
+}
+
+// Should throw an error with the scheduler if a duplicate object file exists.
+// This is dependent on the toolchain's object file mapping.
+TEST(NinjaBinaryTargetWriter, DupeObjFileError) {
+  Scheduler scheduler;
+
+  TestWithScope setup;
+  TestTarget target(setup, "//foo:bar", Target::EXECUTABLE);
+  target.sources().push_back(SourceFile("//a.cc"));
+  target.sources().push_back(SourceFile("//a.cc"));
+
+  EXPECT_FALSE(scheduler.is_failed());
+
+  std::ostringstream out;
+  NinjaBinaryTargetWriter writer(&target, out);
+  writer.Run();
+
+  // Should have issued an error.
+  EXPECT_TRUE(scheduler.is_failed());
 }

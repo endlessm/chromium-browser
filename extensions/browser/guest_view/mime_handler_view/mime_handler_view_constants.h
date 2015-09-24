@@ -9,8 +9,7 @@
 
 namespace mime_handler_view {
 
-extern const char kMimeType[];
-extern const char kSrc[];
+extern const char kViewId[];
 
 }  // namespace mime_handler_view
 

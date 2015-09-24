@@ -68,8 +68,8 @@ bool SafeStrCopy(wchar_t* dest, size_t dest_size, const wchar_t* src) {
   // failed concatenation.  For example:
   //
   // wchar_t buf[5] = {0};
-  // if (!SafeStrCat(buf, arraysize(buf), kLongName))
-  //   SafeStrCat(buf, arraysize(buf), kShortName);
+  // if (!SafeStrCat(buf, _countof(buf), kLongName))
+  //   SafeStrCat(buf, _countof(buf), kShortName);
   //
   // If we were to return false in the first call to SafeStrCat but still
   // mutate the buffer, the buffer will be in an unexpected state.
@@ -148,15 +148,22 @@ bool FindTagInStr(const wchar_t* str,
   return false;
 }
 
-wchar_t* GetNameFromPathExt(wchar_t* path, size_t size) {
-  if (size <= 1)
-    return NULL;
+const wchar_t* GetNameFromPathExt(const wchar_t* path, size_t size) {
+  if (!size)
+    return path;
 
-  wchar_t* current = &path[size - 1];
+  const wchar_t* current = &path[size - 1];
   while (current != path && L'\\' != *current)
     --current;
 
-  return (current == path) ? NULL : (current + 1);
+  // If no path separator found, just return |path|.
+  // Otherwise, return a pointer right after the separator.
+  return ((current == path) && (L'\\' != *current)) ? current : (current + 1);
+}
+
+wchar_t* GetNameFromPathExt(wchar_t* path, size_t size) {
+  return const_cast<wchar_t*>(GetNameFromPathExt(
+    const_cast<const wchar_t*>(path), size));
 }
 
 }  // namespace mini_installer

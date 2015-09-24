@@ -9,7 +9,7 @@
 #define GrPathUtils_DEFINED
 
 #include "SkRect.h"
-#include "SkPath.h"
+#include "SkPathPriv.h"
 #include "SkTArray.h"
 
 class SkMatrix;
@@ -121,7 +121,7 @@ namespace GrPathUtils {
     void convertCubicToQuads(const SkPoint p[4],
                              SkScalar tolScale,
                              bool constrainWithinTangents,
-                             SkPath::Direction dir,
+                             SkPathPriv::FirstDirection dir,
                              SkTArray<SkPoint, true>* quads);
 
     // Chops the cubic bezier passed in by src, at the double point (intersection point)
@@ -168,5 +168,12 @@ namespace GrPathUtils {
     // If you transform the points the lines will also need to be transformed. This can be done
     // by mapping the lines with the inverse-transpose of the matrix used to map the points.
     void getCubicKLM(const SkPoint p[4], SkScalar klm[9]);
+
+    // When tessellating curved paths into linear segments, this defines the maximum distance
+    // in screen space which a segment may deviate from the mathmatically correct value.
+    // Above this value, the segment will be subdivided.
+    // This value was chosen to approximate the supersampling accuracy of the raster path (16
+    // samples, or one quarter pixel).
+    static const SkScalar kDefaultTolerance = SkDoubleToScalar(0.25);
 };
 #endif

@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -8,10 +7,7 @@
 from __future__ import print_function
 
 import os
-import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                '..', '..'))
 from chromite.lib import cros_test_lib
 from chromite.lib import chrome_util
 
@@ -19,6 +15,7 @@ from chromite.lib import chrome_util
 
 # Convenience alias
 Dir = cros_test_lib.Directory
+
 
 class CopyTest(cros_test_lib.TempDirTestCase):
   """Unittests for chrome_util Copy."""
@@ -219,22 +216,19 @@ class DirCopyTest(FileCopyTest):
   ELEMENT_SRC = Dir(ELEMENT_SRC_NAME, FILES)
   ELEMENTS_SRC = [
       # Add .svn directory to test black list functionality.
-      Dir('monkey1', FILES + [Dir('.svn', FILES)]) , Dir('monkey2', FILES),
+      Dir('monkey1', FILES + [Dir('.svn', FILES)]), Dir('monkey2', FILES),
       Dir('monkey3', FILES),
-      Dir('foon1', []), Dir('foon2', []), Dir('foon3', [])]
+      Dir('foon1', []), Dir('foon2', []), Dir('foon3', [])
+  ]
   ELEMENTS_GLOB = 'monkey*'
   DIR_SRC_NAME = 'dir_src'
 
   ELEMENT_DEST_NAME = 'monkey_dest'
   ELEMENT_DEST = Dir(ELEMENT_DEST_NAME, FILES)
   ELEMENTS_DEST = [
-      Dir('monkey1', FILES) , Dir('monkey2', FILES), Dir('monkey3', FILES)]
+      Dir('monkey1', FILES), Dir('monkey2', FILES), Dir('monkey3', FILES)]
   DIR_DEST_NAME = 'dir_dest'
 
 
 class SloppyDirCopyTest(SloppyFileCopyTest, DirCopyTest):
   """Test directory copies with sloppy=True"""
-
-
-if __name__ == '__main__':
-  cros_test_lib.main()

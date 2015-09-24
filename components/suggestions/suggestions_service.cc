@@ -4,21 +4,21 @@
 
 #include "components/suggestions/suggestions_service.h"
 
-#include <sstream>
 #include <string>
 
+#include "base/location.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/message_loop/message_loop_proxy.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/suggestions/blacklist_store.h"
 #include "components/suggestions/suggestions_store.h"
 #include "components/variations/net/variations_http_header_provider.h"
-#include "components/variations/variations_associated_data.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
@@ -31,6 +31,8 @@
 #include "url/gurl.h"
 
 using base::CancelableClosure;
+using base::TimeDelta;
+using base::TimeTicks;
 
 namespace suggestions {
 
@@ -50,12 +52,6 @@ void LogResponseState(SuggestionsResponseState state) {
                             RESPONSE_STATE_SIZE);
 }
 
-// Obtains the experiment parameter under the supplied |key|, or empty string
-// if the parameter does not exist.
-std::string GetExperimentParam(const std::string& key) {
-  return variations::GetVariationParamValue(kSuggestionsFieldTrialName, key);
-}
-
 GURL BuildBlacklistRequestURL(const std::string& blacklist_url_prefix,
                               const GURL& candidate_url) {
   return GURL(blacklist_url_prefix +
@@ -67,124 +63,72 @@ GURL BuildBlacklistRequestURL(const std::string& blacklist_url_prefix,
 void DispatchRequestsAndClear(
     const SuggestionsProfile& suggestions,
     std::vector<SuggestionsService::ResponseCallback>* requestors) {
+  std::vector<SuggestionsService::ResponseCallback> temp_requestors;
+  temp_requestors.swap(*requestors);
   std::vector<SuggestionsService::ResponseCallback>::iterator it;
-  for (it = requestors->begin(); it != requestors->end(); ++it) {
+  for (it = temp_requestors.begin(); it != temp_requestors.end(); ++it) {
     if (!it->is_null()) it->Run(suggestions);
   }
-  std::vector<SuggestionsService::ResponseCallback>().swap(*requestors);
 }
 
-const int kDefaultRequestTimeoutMs = 200;
+// Default delay used when scheduling a request.
+const int kDefaultSchedulingDelaySec = 1;
 
-// Default delay used when scheduling a blacklist request.
-const int kBlacklistDefaultDelaySec = 1;
-
-// Multiplier on the delay used when scheduling a blacklist request, in case the
-// last observed request was unsuccessful.
-const int kBlacklistBackoffMultiplier = 2;
+// Multiplier on the delay used when re-scheduling a failed request.
+const int kSchedulingBackoffMultiplier = 2;
 
 // Maximum valid delay for scheduling a request. Candidate delays larger than
-// this are rejected. This means the maximum backoff is at least 300 / 2, i.e.
-// 2.5 minutes.
-const int kBlacklistMaxDelaySec = 300;  // 5 minutes
+// this are rejected. This means the maximum backoff is at least 5 / 2 minutes.
+const int kSchedulingMaxDelaySec = 5 * 60;
 
 }  // namespace
 
-const char kSuggestionsFieldTrialName[] = "ChromeSuggestions";
-const char kSuggestionsFieldTrialURLParam[] = "url";
-const char kSuggestionsFieldTrialCommonParamsParam[] = "common_params";
-const char kSuggestionsFieldTrialBlacklistPathParam[] = "blacklist_path";
-const char kSuggestionsFieldTrialBlacklistUrlParam[] = "blacklist_url_param";
-const char kSuggestionsFieldTrialStateParam[] = "state";
-const char kSuggestionsFieldTrialControlParam[] = "control";
-const char kSuggestionsFieldTrialStateEnabled[] = "enabled";
-const char kSuggestionsFieldTrialTimeoutMs[] = "timeout_ms";
+// TODO(mathp): Put this in TemplateURL.
+const char kSuggestionsURL[] = "https://www.google.com/chromesuggestions?t=2";
+const char kSuggestionsBlacklistURLPrefix[] =
+    "https://www.google.com/chromesuggestions/blacklist?t=2&url=";
+const char kSuggestionsBlacklistURLParam[] = "url";
 
 // The default expiry timeout is 72 hours.
 const int64 kDefaultExpiryUsec = 72 * base::Time::kMicrosecondsPerHour;
-
-namespace {
-
-std::string GetBlacklistUrlPrefix() {
-  std::stringstream blacklist_url_prefix_stream;
-  blacklist_url_prefix_stream
-      << GetExperimentParam(kSuggestionsFieldTrialURLParam)
-      << GetExperimentParam(kSuggestionsFieldTrialBlacklistPathParam) << "?"
-      << GetExperimentParam(kSuggestionsFieldTrialCommonParamsParam) << "&"
-      << GetExperimentParam(kSuggestionsFieldTrialBlacklistUrlParam) << "=";
-  return blacklist_url_prefix_stream.str();
-}
-
-}  // namespace
 
 SuggestionsService::SuggestionsService(
     net::URLRequestContextGetter* url_request_context,
     scoped_ptr<SuggestionsStore> suggestions_store,
     scoped_ptr<ImageManager> thumbnail_manager,
     scoped_ptr<BlacklistStore> blacklist_store)
-    : suggestions_store_(suggestions_store.Pass()),
-      blacklist_store_(blacklist_store.Pass()),
+    : url_request_context_(url_request_context),
+      suggestions_store_(suggestions_store.Pass()),
       thumbnail_manager_(thumbnail_manager.Pass()),
-      url_request_context_(url_request_context),
-      blacklist_delay_sec_(kBlacklistDefaultDelaySec),
-      request_timeout_ms_(kDefaultRequestTimeoutMs),
-      weak_ptr_factory_(this) {
-  // Obtain various parameters from Variations.
-  suggestions_url_ =
-      GURL(GetExperimentParam(kSuggestionsFieldTrialURLParam) + "?" +
-           GetExperimentParam(kSuggestionsFieldTrialCommonParamsParam));
-  blacklist_url_prefix_ = GetBlacklistUrlPrefix();
-  std::string timeout = GetExperimentParam(kSuggestionsFieldTrialTimeoutMs);
-  int temp_timeout;
-  if (!timeout.empty() && base::StringToInt(timeout, &temp_timeout)) {
-    request_timeout_ms_ = temp_timeout;
-  }
-}
+      blacklist_store_(blacklist_store.Pass()),
+      scheduling_delay_(TimeDelta::FromSeconds(kDefaultSchedulingDelaySec)),
+      suggestions_url_(kSuggestionsURL),
+      blacklist_url_prefix_(kSuggestionsBlacklistURLPrefix),
+      weak_ptr_factory_(this) {}
 
 SuggestionsService::~SuggestionsService() {}
-
-// static
-bool SuggestionsService::IsEnabled() {
-  return GetExperimentParam(kSuggestionsFieldTrialStateParam) ==
-         kSuggestionsFieldTrialStateEnabled;
-}
-
-// static
-bool SuggestionsService::IsControlGroup() {
-  return GetExperimentParam(kSuggestionsFieldTrialControlParam) ==
-         kSuggestionsFieldTrialStateEnabled;
-}
 
 void SuggestionsService::FetchSuggestionsData(
     SyncState sync_state,
     SuggestionsService::ResponseCallback callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  if (sync_state == NOT_INITIALIZED_ENABLED) {
-    // Sync is not initialized yet, but enabled. Serve previously cached
-    // suggestions if available.
-    waiting_requestors_.push_back(callback);
-    ServeFromCache();
-    return;
-  } else if (sync_state == SYNC_OR_HISTORY_SYNC_DISABLED) {
-    // Cancel any ongoing request (and the timeout closure). We must no longer
-    // interact with the server.
+  waiting_requestors_.push_back(callback);
+  if (sync_state == SYNC_OR_HISTORY_SYNC_DISABLED) {
+    // Cancel any ongoing request, to stop interacting with the server.
     pending_request_.reset(NULL);
-    pending_timeout_closure_.reset(NULL);
     suggestions_store_->ClearSuggestions();
-    callback.Run(SuggestionsProfile());
     DispatchRequestsAndClear(SuggestionsProfile(), &waiting_requestors_);
-    return;
+  } else if (sync_state == INITIALIZED_ENABLED_HISTORY ||
+             sync_state == NOT_INITIALIZED_ENABLED) {
+    // Sync is enabled. Serve previously cached suggestions if available, else
+    // an empty set of suggestions.
+    ServeFromCache();
+
+    // Issue a network request to refresh the suggestions in the cache.
+    IssueRequestIfNoneOngoing(suggestions_url_);
+  } else {
+    NOTREACHED();
   }
-
-  FetchSuggestionsDataNoTimeout(callback);
-
-  // Post a task to serve the cached suggestions if the request hasn't completed
-  // after some time. Cancels the previous such task, if one existed.
-  pending_timeout_closure_.reset(new CancelableClosure(base::Bind(
-      &SuggestionsService::OnRequestTimeout, weak_ptr_factory_.GetWeakPtr())));
-  base::MessageLoopProxy::current()->PostDelayedTask(
-      FROM_HERE, pending_timeout_closure_->callback(),
-      base::TimeDelta::FromMilliseconds(request_timeout_ms_));
 }
 
 void SuggestionsService::GetPageThumbnail(
@@ -195,35 +139,57 @@ void SuggestionsService::GetPageThumbnail(
 
 void SuggestionsService::BlacklistURL(
     const GURL& candidate_url,
-    const SuggestionsService::ResponseCallback& callback) {
+    const SuggestionsService::ResponseCallback& callback,
+    const base::Closure& fail_callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  waiting_requestors_.push_back(callback);
 
-  // Blacklist locally, for immediate effect.
   if (!blacklist_store_->BlacklistUrl(candidate_url)) {
-    DVLOG(1) << "Failed blacklisting attempt.";
+    fail_callback.Run();
     return;
   }
 
-  // If there's an ongoing request, let it complete.
-  if (pending_request_.get()) return;
-  IssueRequest(BuildBlacklistRequestURL(blacklist_url_prefix_, candidate_url));
+  waiting_requestors_.push_back(callback);
+  ServeFromCache();
+  // Blacklist uploads are scheduled on any request completion, so only schedule
+  // an upload if there is no ongoing request.
+  if (!pending_request_.get()) {
+    ScheduleBlacklistUpload();
+  }
+}
+
+void SuggestionsService::UndoBlacklistURL(
+    const GURL& url,
+    const SuggestionsService::ResponseCallback& callback,
+    const base::Closure& fail_callback) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  TimeDelta time_delta;
+  if (blacklist_store_->GetTimeUntilURLReadyForUpload(url, &time_delta) &&
+      time_delta > TimeDelta::FromSeconds(0) &&
+      blacklist_store_->RemoveUrl(url)) {
+    // The URL was not yet candidate for upload to the server and could be
+    // removed from the blacklist.
+    waiting_requestors_.push_back(callback);
+    ServeFromCache();
+    return;
+  }
+  fail_callback.Run();
 }
 
 // static
 bool SuggestionsService::GetBlacklistedUrl(const net::URLFetcher& request,
                                            GURL* url) {
-  bool is_blacklist_request = StartsWithASCII(request.GetOriginalURL().spec(),
-                                              GetBlacklistUrlPrefix(), true);
+  bool is_blacklist_request = base::StartsWithASCII(
+      request.GetOriginalURL().spec(), kSuggestionsBlacklistURLPrefix, true);
   if (!is_blacklist_request) return false;
 
   // Extract the blacklisted URL from the blacklist request.
   std::string blacklisted;
   if (!net::GetValueForKeyInQuery(
           request.GetOriginalURL(),
-          GetExperimentParam(kSuggestionsFieldTrialBlacklistUrlParam),
-          &blacklisted))
+          kSuggestionsBlacklistURLParam,
+          &blacklisted)) {
     return false;
+  }
 
   GURL blacklisted_url(blacklisted);
   blacklisted_url.Swap(url);
@@ -249,29 +215,19 @@ void SuggestionsService::SetDefaultExpiryTimestamp(
   }
 }
 
-void SuggestionsService::FetchSuggestionsDataNoTimeout(
-    SuggestionsService::ResponseCallback callback) {
-  DCHECK(thread_checker_.CalledOnValidThread());
+void SuggestionsService::IssueRequestIfNoneOngoing(const GURL& url) {
+  // If there is an ongoing request, let it complete.
   if (pending_request_.get()) {
-    // Request already exists, so just add requestor to queue.
-    waiting_requestors_.push_back(callback);
     return;
   }
-
-  // Form new request.
-  DCHECK(waiting_requestors_.empty());
-  waiting_requestors_.push_back(callback);
-  IssueRequest(suggestions_url_);
-}
-
-void SuggestionsService::IssueRequest(const GURL& url) {
-  pending_request_.reset(CreateSuggestionsRequest(url));
+  pending_request_ = CreateSuggestionsRequest(url);
   pending_request_->Start();
-  last_request_started_time_ = base::TimeTicks::Now();
+  last_request_started_time_ = TimeTicks::Now();
 }
 
-net::URLFetcher* SuggestionsService::CreateSuggestionsRequest(const GURL& url) {
-  net::URLFetcher* request =
+scoped_ptr<net::URLFetcher> SuggestionsService::CreateSuggestionsRequest(
+    const GURL& url) {
+  scoped_ptr<net::URLFetcher> request =
       net::URLFetcher::Create(0, url, net::URLFetcher::GET, this);
   request->SetLoadFlags(net::LOAD_DISABLE_CACHE);
   request->SetRequestContext(url_request_context_);
@@ -283,46 +239,39 @@ net::URLFetcher* SuggestionsService::CreateSuggestionsRequest(const GURL& url) {
   return request;
 }
 
-void SuggestionsService::OnRequestTimeout() {
-  DCHECK(thread_checker_.CalledOnValidThread());
-  ServeFromCache();
-}
-
 void SuggestionsService::OnURLFetchComplete(const net::URLFetcher* source) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK_EQ(pending_request_.get(), source);
-  // We no longer need the timeout closure. Delete it whether or not it has run.
-  // If it hasn't, this cancels it.
-  pending_timeout_closure_.reset();
 
   // The fetcher will be deleted when the request is handled.
   scoped_ptr<const net::URLFetcher> request(pending_request_.release());
+
   const net::URLRequestStatus& request_status = request->GetStatus();
   if (request_status.status() != net::URLRequestStatus::SUCCESS) {
+    // This represents network errors (i.e. the server did not provide a
+    // response).
     UMA_HISTOGRAM_SPARSE_SLOWLY("Suggestions.FailedRequestErrorCode",
                                 -request_status.error());
     DVLOG(1) << "Suggestions server request failed with error: "
              << request_status.error() << ": "
              << net::ErrorToString(request_status.error());
-    // Dispatch the cached profile on error.
-    ServeFromCache();
-    ScheduleBlacklistUpload(false);
+    UpdateBlacklistDelay(false);
+    ScheduleBlacklistUpload();
     return;
   }
 
-  // Log the response code.
   const int response_code = request->GetResponseCode();
   UMA_HISTOGRAM_SPARSE_SLOWLY("Suggestions.FetchResponseCode", response_code);
   if (response_code != net::HTTP_OK) {
-    // Aggressively clear the store.
+    // A non-200 response code means that server has no (longer) suggestions for
+    // this user. Aggressively clear the cache.
     suggestions_store_->ClearSuggestions();
-    DispatchRequestsAndClear(SuggestionsProfile(), &waiting_requestors_);
-    ScheduleBlacklistUpload(false);
+    UpdateBlacklistDelay(false);
+    ScheduleBlacklistUpload();
     return;
   }
 
-  const base::TimeDelta latency =
-      base::TimeTicks::Now() - last_request_started_time_;
+  const TimeDelta latency = TimeTicks::Now() - last_request_started_time_;
   UMA_HISTOGRAM_MEDIUM_TIMES("Suggestions.FetchSuccessLatency", latency);
 
   // Handle a successful blacklisting.
@@ -335,40 +284,35 @@ void SuggestionsService::OnURLFetchComplete(const net::URLFetcher* source) {
   bool success = request->GetResponseAsString(&suggestions_data);
   DCHECK(success);
 
-  // Compute suggestions, and dispatch them to requestors. On error still
-  // dispatch empty suggestions.
+  // Parse the received suggestions and update the cache, or take proper action
+  // in the case of invalid response.
   SuggestionsProfile suggestions;
   if (suggestions_data.empty()) {
     LogResponseState(RESPONSE_EMPTY);
     suggestions_store_->ClearSuggestions();
   } else if (suggestions.ParseFromString(suggestions_data)) {
     LogResponseState(RESPONSE_VALID);
-    thumbnail_manager_->Initialize(suggestions);
-
     int64 now_usec = (base::Time::NowFromSystemTime() - base::Time::UnixEpoch())
         .ToInternalValue();
     SetDefaultExpiryTimestamp(&suggestions, now_usec + kDefaultExpiryUsec);
     suggestions_store_->StoreSuggestions(suggestions);
   } else {
     LogResponseState(RESPONSE_INVALID);
-    suggestions_store_->LoadSuggestions(&suggestions);
-    thumbnail_manager_->Initialize(suggestions);
   }
 
-  FilterAndServe(&suggestions);
-  ScheduleBlacklistUpload(true);
+  UpdateBlacklistDelay(true);
+  ScheduleBlacklistUpload();
 }
 
 void SuggestionsService::Shutdown() {
-  // Cancel pending request and timeout closure, then serve existing requestors
-  // from cache.
+  // Cancel pending request, then serve existing requestors from cache.
   pending_request_.reset(NULL);
-  pending_timeout_closure_.reset(NULL);
   ServeFromCache();
 }
 
 void SuggestionsService::ServeFromCache() {
   SuggestionsProfile suggestions;
+  // In case of empty cache or error, |suggestions| stays empty.
   suggestions_store_->LoadSuggestions(&suggestions);
   thumbnail_manager_->Initialize(suggestions);
   FilterAndServe(&suggestions);
@@ -379,46 +323,46 @@ void SuggestionsService::FilterAndServe(SuggestionsProfile* suggestions) {
   DispatchRequestsAndClear(*suggestions, &waiting_requestors_);
 }
 
-void SuggestionsService::ScheduleBlacklistUpload(bool last_request_successful) {
+void SuggestionsService::ScheduleBlacklistUpload() {
   DCHECK(thread_checker_.CalledOnValidThread());
-
-  UpdateBlacklistDelay(last_request_successful);
-
-  // Schedule a blacklist upload task.
-  GURL blacklist_url;
-  if (blacklist_store_->GetFirstUrlFromBlacklist(&blacklist_url)) {
+  TimeDelta time_delta;
+  if (blacklist_store_->GetTimeUntilReadyForUpload(&time_delta)) {
+    // Blacklist cache is not empty: schedule.
     base::Closure blacklist_cb =
         base::Bind(&SuggestionsService::UploadOneFromBlacklist,
                    weak_ptr_factory_.GetWeakPtr());
-    base::MessageLoopProxy::current()->PostDelayedTask(
-        FROM_HERE, blacklist_cb,
-        base::TimeDelta::FromSeconds(blacklist_delay_sec_));
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE, blacklist_cb, time_delta + scheduling_delay_);
   }
 }
 
 void SuggestionsService::UploadOneFromBlacklist() {
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  // If there's an ongoing request, let it complete.
-  if (pending_request_.get()) return;
-
   GURL blacklist_url;
-  if (!blacklist_store_->GetFirstUrlFromBlacklist(&blacklist_url))
-    return;  // Local blacklist is empty.
+  if (blacklist_store_->GetCandidateForUpload(&blacklist_url)) {
+    // Issue a blacklisting request. Even if this request ends up not being sent
+    // because of an ongoing request, a blacklist request is later scheduled.
+    IssueRequestIfNoneOngoing(
+        BuildBlacklistRequestURL(blacklist_url_prefix_, blacklist_url));
+    return;
+  }
 
-  // Send blacklisting request.
-  IssueRequest(BuildBlacklistRequestURL(blacklist_url_prefix_, blacklist_url));
+  // Even though there's no candidate for upload, the blacklist might not be
+  // empty.
+  ScheduleBlacklistUpload();
 }
 
 void SuggestionsService::UpdateBlacklistDelay(bool last_request_successful) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
   if (last_request_successful) {
-    blacklist_delay_sec_ = kBlacklistDefaultDelaySec;
+    scheduling_delay_ = TimeDelta::FromSeconds(kDefaultSchedulingDelaySec);
   } else {
-    int candidate_delay = blacklist_delay_sec_ * kBlacklistBackoffMultiplier;
-    if (candidate_delay < kBlacklistMaxDelaySec)
-      blacklist_delay_sec_ = candidate_delay;
+    TimeDelta candidate_delay =
+        scheduling_delay_ * kSchedulingBackoffMultiplier;
+    if (candidate_delay < TimeDelta::FromSeconds(kSchedulingMaxDelaySec))
+      scheduling_delay_ = candidate_delay;
   }
 }
 

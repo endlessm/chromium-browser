@@ -29,16 +29,14 @@
 
 #include "platform/Timer.h"
 #include "platform/heap/Handle.h"
+#include "wtf/Forward.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/PassRefPtr.h"
-#include "wtf/Vector.h"
-#include "wtf/text/AtomicString.h"
 
 namespace blink {
 
 class Event;
-class EventTarget;
-class XMLHttpRequestProgressEvent;
+class XMLHttpRequest;
 
 // This class implements the XHR2 ProgressEvent dispatching:
 //   "dispatch a progress event named progress about every 50ms or for every
@@ -51,17 +49,19 @@ class XMLHttpRequestProgressEvent;
 // - "progress" event means an event named "progress"
 // - ProgressEvent means an event using the ProgressEvent interface defined in
 //   the spec.
-class XMLHttpRequestProgressEventThrottle final : public TimerBase {
-    DISALLOW_ALLOCATION();
+class XMLHttpRequestProgressEventThrottle final : public GarbageCollectedFinalized<XMLHttpRequestProgressEventThrottle>, public TimerBase {
 public:
+    static XMLHttpRequestProgressEventThrottle* create(XMLHttpRequest* eventTarget)
+    {
+        return new XMLHttpRequestProgressEventThrottle(eventTarget);
+    }
+    ~XMLHttpRequestProgressEventThrottle() override;
+
     enum DeferredEventAction {
         Ignore,
         Clear,
         Flush,
     };
-
-    explicit XMLHttpRequestProgressEventThrottle(EventTarget*);
-    virtual ~XMLHttpRequestProgressEventThrottle();
 
     // Dispatches a ProgressEvent.
     //
@@ -79,23 +79,27 @@ public:
     void suspend();
     void resume();
 
-    void trace(Visitor*);
+    // Need to promptly stop this timer when it is deemed finalizable.
+    EAGERLY_FINALIZE();
+    DECLARE_TRACE();
 
 private:
+    explicit XMLHttpRequestProgressEventThrottle(XMLHttpRequest*);
+
     // The main purpose of this class is to throttle the "progress"
     // ProgressEvent dispatching. This class represents such a deferred
     // "progress" ProgressEvent.
     class DeferredEvent;
     static const double minimumProgressEventDispatchingIntervalInSeconds;
 
-    virtual void fired() override;
+    void fired() override;
     void dispatchDeferredEvent();
 
     // Non-Oilpan, keep a weak pointer to our XMLHttpRequest object as it is
     // the one holding us. With Oilpan, a simple strong Member can be used -
     // this XMLHttpRequestProgressEventThrottle (part) object dies together
     // with the XMLHttpRequest object.
-    RawPtrWillBeMember<EventTarget> m_target;
+    Member<XMLHttpRequest> m_target;
 
     // A slot for the deferred "progress" ProgressEvent. When multiple events
     // arrive, only the last one is stored and others are discarded.

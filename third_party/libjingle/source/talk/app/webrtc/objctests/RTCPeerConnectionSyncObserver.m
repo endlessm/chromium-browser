@@ -1,6 +1,6 @@
 /*
  * libjingle
- * Copyright 2013, Google Inc.
+ * Copyright 2013 Google Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -228,6 +228,12 @@
            @"Unexpected state change");
   int expectedState = [self popFirstElementAsInt:_expectedStateChanges];
   NSAssert(expectedState == channel.state, @"Channel state should match");
+}
+
+- (void)channel:(RTCDataChannel*)channel
+    didChangeBufferedAmount:(NSUInteger)previousAmount {
+  NSAssert(channel.bufferedAmount != previousAmount,
+           @"Invalid bufferedAmount change");
 }
 
 - (void)channel:(RTCDataChannel*)channel

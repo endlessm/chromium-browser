@@ -64,19 +64,19 @@ void DictionaryDataStore::ScheduleWrite() {
 scoped_ptr<base::DictionaryValue> DictionaryDataStore::LoadOnBlockingPool() {
   DCHECK(worker_pool_->RunsTasksOnCurrentThread());
 
-  int error_code = JSONFileValueSerializer::JSON_NO_ERROR;
+  int error_code = JSONFileValueDeserializer::JSON_NO_ERROR;
   std::string error_message;
-  JSONFileValueSerializer serializer(data_file_);
-  base::Value* value = serializer.Deserialize(&error_code, &error_message);
+  JSONFileValueDeserializer deserializer(data_file_);
+  base::Value* value = deserializer.Deserialize(&error_code, &error_message);
   base::DictionaryValue* dict_value = NULL;
-  if (error_code != JSONFileValueSerializer::JSON_NO_ERROR || !value ||
+  if (error_code != JSONFileValueDeserializer::JSON_NO_ERROR || !value ||
       !value->GetAsDictionary(&dict_value) || !dict_value) {
-    return scoped_ptr<base::DictionaryValue>();
+    return nullptr;
   }
 
   base::DictionaryValue* return_dict = dict_value->DeepCopy();
   cached_dict_.reset(dict_value);
-  return make_scoped_ptr(return_dict).Pass();
+  return make_scoped_ptr(return_dict);
 }
 
 bool DictionaryDataStore::SerializeData(std::string* data) {

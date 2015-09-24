@@ -6,7 +6,6 @@
 
 #include "base/bind.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "content/renderer/media/video_capture_impl_manager.h"
 #include "content/renderer/pepper/pepper_media_device_manager.h"
 #include "content/renderer/pepper/pepper_video_capture_host.h"
@@ -142,10 +141,9 @@ void PepperPlatformVideoCapture::OnStateUpdate(VideoCaptureState state) {
 
 void PepperPlatformVideoCapture::OnFrameReady(
     const scoped_refptr<media::VideoFrame>& frame,
-    const media::VideoCaptureFormat& format,
     const base::TimeTicks& estimated_capture_time) {
   if (handler_ && !stop_capture_cb_.is_null())
-    handler_->OnFrameReady(frame, format);
+    handler_->OnFrameReady(frame);
 }
 
 PepperMediaDeviceManager* PepperPlatformVideoCapture::GetMediaDeviceManager() {

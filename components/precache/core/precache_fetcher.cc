@@ -5,18 +5,24 @@
 #include "components/precache/core/precache_fetcher.h"
 
 #include <string>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/containers/hash_tables.h"
+#include "base/metrics/histogram_macros.h"
 #include "components/precache/core/precache_switches.h"
 #include "components/precache/core/proto/precache.pb.h"
+#include "net/base/completion_callback.h"
 #include "net/base/escape.h"
+#include "net/base/io_buffer.h"
 #include "net/base/load_flags.h"
+#include "net/base/net_errors.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_fetcher_delegate.h"
+#include "net/url_request/url_fetcher_response_writer.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "net/url_request/url_request_status.h"
 
@@ -26,8 +32,14 @@ namespace precache {
 
 namespace {
 
+// The maximum for the Precache.Fetch.ResponseBytes histogram. We set this to a
+// number we expect to be in the 99th percentile for the histogram, give or
+// take.
+const int kMaxResponseBytes = 100 * 1024 * 1024;
+
 GURL GetConfigURL() {
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
   if (command_line.HasSwitch(switches::kPrecacheConfigSettingsURL)) {
     return GURL(
         command_line.GetSwitchValueASCII(switches::kPrecacheConfigSettingsURL));
@@ -42,8 +54,9 @@ GURL GetConfigURL() {
 #endif
 }
 
-std::string GetManifestURLPrefix() {
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+std::string GetDefaultManifestURLPrefix() {
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
   if (command_line.HasSwitch(switches::kPrecacheManifestURLPrefix)) {
     return command_line.GetSwitchValueASCII(
         switches::kPrecacheManifestURLPrefix);
@@ -58,14 +71,13 @@ std::string GetManifestURLPrefix() {
 #endif
 }
 
-// Construct the URL of the precache manifest for the given starting URL.
-// The server is expecting a request for a URL consisting of the manifest URL
-// prefix followed by the doubly escaped starting URL.
-GURL ConstructManifestURL(const GURL& starting_url) {
-  return GURL(
-      GetManifestURLPrefix() +
-      net::EscapeQueryParamValue(
-          net::EscapeQueryParamValue(starting_url.spec(), false), false));
+// Construct the URL of the precache manifest for the given name (either host or
+// URL). The server is expecting a request for a URL consisting of the manifest
+// URL prefix followed by the doubly escaped name.
+std::string ConstructManifestURL(const std::string& prefix,
+                                 const std::string& name) {
+  return prefix + net::EscapeQueryParamValue(
+                      net::EscapeQueryParamValue(name, false), false);
 }
 
 // Attempts to parse a protobuf message from the response string of a
@@ -92,6 +104,27 @@ bool ParseProtoFromFetchResponse(const URLFetcher& source,
   return true;
 }
 
+// URLFetcherResponseWriter that ignores the response body, in order to avoid
+// the unnecessary memory usage. Use it rather than the default if you don't
+// care about parsing the response body. We use it below as a means to populate
+// the cache with requested resource URLs.
+class URLFetcherNullWriter : public net::URLFetcherResponseWriter {
+ public:
+  int Initialize(const net::CompletionCallback& callback) override {
+    return net::OK;
+  }
+
+  int Write(net::IOBuffer* buffer,
+            int num_bytes,
+            const net::CompletionCallback& callback) override {
+    return num_bytes;
+  }
+
+  int Finish(const net::CompletionCallback& callback) override {
+    return net::OK;
+  }
+};
+
 }  // namespace
 
 // Class that fetches a URL, and runs the specified callback when the fetch is
@@ -103,26 +136,47 @@ class PrecacheFetcher::Fetcher : public net::URLFetcherDelegate {
  public:
   // Construct a new Fetcher. This will create and start a new URLFetcher for
   // the specified URL using the specified request context.
-  Fetcher(net::URLRequestContextGetter* request_context, const GURL& url,
-          const base::Callback<void(const URLFetcher&)>& callback);
+  Fetcher(net::URLRequestContextGetter* request_context,
+          const GURL& url,
+          const base::Callback<void(const URLFetcher&)>& callback,
+          bool ignore_response_body);
   ~Fetcher() override {}
+  void OnURLFetchDownloadProgress(const URLFetcher* source,
+                                  int64 current,
+                                  int64 total) override;
   void OnURLFetchComplete(const URLFetcher* source) override;
+  int response_bytes() { return response_bytes_; }
 
  private:
   const base::Callback<void(const URLFetcher&)> callback_;
   scoped_ptr<URLFetcher> url_fetcher_;
+  int response_bytes_;
 
   DISALLOW_COPY_AND_ASSIGN(Fetcher);
 };
 
 PrecacheFetcher::Fetcher::Fetcher(
-    net::URLRequestContextGetter* request_context, const GURL& url,
-    const base::Callback<void(const URLFetcher&)>& callback)
-    : callback_(callback) {
-  url_fetcher_.reset(URLFetcher::Create(url, URLFetcher::GET, this));
+    net::URLRequestContextGetter* request_context,
+    const GURL& url,
+    const base::Callback<void(const URLFetcher&)>& callback,
+    bool ignore_response_body)
+    : callback_(callback), response_bytes_(0) {
+  url_fetcher_ = URLFetcher::Create(url, URLFetcher::GET, this);
   url_fetcher_->SetRequestContext(request_context);
-  url_fetcher_->SetLoadFlags(net::LOAD_DO_NOT_PROMPT_FOR_LOGIN);
+  url_fetcher_->SetLoadFlags(net::LOAD_DO_NOT_SAVE_COOKIES |
+                             net::LOAD_DO_NOT_SEND_COOKIES);
+  if (ignore_response_body) {
+    scoped_ptr<URLFetcherNullWriter> null_writer(new URLFetcherNullWriter);
+    url_fetcher_->SaveResponseWithWriter(null_writer.Pass());
+  }
   url_fetcher_->Start();
+}
+
+void PrecacheFetcher::Fetcher::OnURLFetchDownloadProgress(
+    const URLFetcher* source,
+    int64 current,
+    int64 total) {
+  response_bytes_ = current;
 }
 
 void PrecacheFetcher::Fetcher::OnURLFetchComplete(const URLFetcher* source) {
@@ -130,22 +184,44 @@ void PrecacheFetcher::Fetcher::OnURLFetchComplete(const URLFetcher* source) {
 }
 
 PrecacheFetcher::PrecacheFetcher(
-    const std::list<GURL>& starting_urls,
+    const std::vector<std::string>& starting_hosts,
     net::URLRequestContextGetter* request_context,
+    const std::string& manifest_url_prefix,
     PrecacheFetcher::PrecacheDelegate* precache_delegate)
-    : starting_urls_(starting_urls),
+    : starting_hosts_(starting_hosts),
       request_context_(request_context),
-      precache_delegate_(precache_delegate) {
+      manifest_url_prefix_(manifest_url_prefix),
+      precache_delegate_(precache_delegate),
+      total_response_bytes_(0),
+      num_manifest_urls_to_fetch_(0) {
   DCHECK(request_context_.get());  // Request context must be non-NULL.
   DCHECK(precache_delegate_);  // Precache delegate must be non-NULL.
 
   DCHECK_NE(GURL(), GetConfigURL())
       << "Could not determine the precache config settings URL.";
-  DCHECK_NE(std::string(), GetManifestURLPrefix())
-      << "Could not determine the precache manifest URL prefix.";
+  DCHECK_NE(std::string(), GetDefaultManifestURLPrefix())
+      << "Could not determine the default precache manifest URL prefix.";
 }
 
 PrecacheFetcher::~PrecacheFetcher() {
+  // Number of manifests for which we have downloaded all resources.
+  int manifests_completed =
+      num_manifest_urls_to_fetch_ - manifest_urls_to_fetch_.size();
+
+  // If there are resource URLs left to fetch, the last manifest is not yet
+  // completed.
+  if (!resource_urls_to_fetch_.empty())
+    --manifests_completed;
+
+  DCHECK_GE(manifests_completed, 0);
+  int percent_completed = num_manifest_urls_to_fetch_ == 0
+                              ? 0
+                              : (static_cast<double>(manifests_completed) /
+                                 num_manifest_urls_to_fetch_ * 100);
+  UMA_HISTOGRAM_PERCENTAGE("Precache.Fetch.PercentCompleted",
+                           percent_completed);
+  UMA_HISTOGRAM_CUSTOM_COUNTS("Precache.Fetch.ResponseBytes",
+                              total_response_bytes_, 1, kMaxResponseBytes, 50);
 }
 
 void PrecacheFetcher::Start() {
@@ -155,20 +231,22 @@ void PrecacheFetcher::Start() {
   DCHECK(config_url.is_valid());
 
   // Fetch the precache configuration settings from the server.
-  fetcher_.reset(new Fetcher(request_context_.get(),
-                             config_url,
+  fetcher_.reset(new Fetcher(request_context_.get(), config_url,
                              base::Bind(&PrecacheFetcher::OnConfigFetchComplete,
-                                        base::Unretained(this))));
+                                        base::Unretained(this)),
+                             false /* ignore_response_body */));
 }
 
 void PrecacheFetcher::StartNextFetch() {
+  total_response_bytes_ += fetcher_->response_bytes();
+
   if (!resource_urls_to_fetch_.empty()) {
     // Fetch the next resource URL.
     fetcher_.reset(
-        new Fetcher(request_context_.get(),
-                    resource_urls_to_fetch_.front(),
+        new Fetcher(request_context_.get(), resource_urls_to_fetch_.front(),
                     base::Bind(&PrecacheFetcher::OnResourceFetchComplete,
-                               base::Unretained(this))));
+                               base::Unretained(this)),
+                    true /* ignore_response_body */));
 
     resource_urls_to_fetch_.pop_front();
     return;
@@ -177,10 +255,10 @@ void PrecacheFetcher::StartNextFetch() {
   if (!manifest_urls_to_fetch_.empty()) {
     // Fetch the next manifest URL.
     fetcher_.reset(
-        new Fetcher(request_context_.get(),
-                    manifest_urls_to_fetch_.front(),
+        new Fetcher(request_context_.get(), manifest_urls_to_fetch_.front(),
                     base::Bind(&PrecacheFetcher::OnManifestFetchComplete,
-                               base::Unretained(this))));
+                               base::Unretained(this)),
+                    false /* ignore_response_body */));
 
     manifest_urls_to_fetch_.pop_front();
     return;
@@ -193,41 +271,38 @@ void PrecacheFetcher::StartNextFetch() {
 }
 
 void PrecacheFetcher::OnConfigFetchComplete(const URLFetcher& source) {
+  // Attempt to parse the config proto. On failure, continue on with the default
+  // configuration.
   PrecacheConfigurationSettings config;
+  ParseProtoFromFetchResponse(source, &config);
 
-  if (ParseProtoFromFetchResponse(source, &config)) {
-    // Keep track of starting URLs that manifests are being fetched for, in
-    // order to remove duplicates. This is a hash set on strings, and not GURLs,
-    // because there is no hash function defined for GURL.
-    base::hash_set<std::string> unique_starting_urls;
+  std::string prefix = manifest_url_prefix_.empty()
+                           ? GetDefaultManifestURLPrefix()
+                           : manifest_url_prefix_;
+  DCHECK_NE(std::string(), prefix)
+      << "Could not determine the precache manifest URL prefix.";
 
-    // Attempt to fetch manifests for starting URLs up to the maximum top sites
-    // count. If a manifest does not exist for a particular starting URL, then
-    // the fetch will fail, and that starting URL will be ignored.
-    int64 rank = 0;
-    for (std::list<GURL>::const_iterator it = starting_urls_.begin();
-         it != starting_urls_.end() && rank < config.top_sites_count();
-         ++it, ++rank) {
-      if (unique_starting_urls.find(it->spec()) == unique_starting_urls.end()) {
-        // Only add a fetch for the manifest URL if this manifest isn't already
-        // going to be fetched.
-        manifest_urls_to_fetch_.push_back(ConstructManifestURL(*it));
-        unique_starting_urls.insert(it->spec());
-      }
-    }
+  // Keep track of manifest URLs that are being fetched, in order to remove
+  // duplicates.
+  base::hash_set<std::string> unique_manifest_urls;
 
-    for (int i = 0; i < config.forced_starting_url_size(); ++i) {
-      // Convert the string URL into a GURL and take the spec() of it so that
-      // the URL string gets canonicalized.
-      GURL url(config.forced_starting_url(i));
-      if (unique_starting_urls.find(url.spec()) == unique_starting_urls.end()) {
-        // Only add a fetch for the manifest URL if this manifest isn't already
-        // going to be fetched.
-        manifest_urls_to_fetch_.push_back(ConstructManifestURL(url));
-        unique_starting_urls.insert(url.spec());
-      }
-    }
+  // Attempt to fetch manifests for starting hosts up to the maximum top sites
+  // count. If a manifest does not exist for a particular starting host, then
+  // the fetch will fail, and that starting host will be ignored.
+  int64 rank = 0;
+  for (const std::string& host : starting_hosts_) {
+    ++rank;
+    if (rank > config.top_sites_count())
+      break;
+    unique_manifest_urls.insert(ConstructManifestURL(prefix, host));
   }
+
+  for (const std::string& url : config.forced_site())
+    unique_manifest_urls.insert(ConstructManifestURL(prefix, url));
+
+  for (const std::string& manifest_url : unique_manifest_urls)
+    manifest_urls_to_fetch_.push_back(GURL(manifest_url));
+  num_manifest_urls_to_fetch_ = manifest_urls_to_fetch_.size();
 
   StartNextFetch();
 }

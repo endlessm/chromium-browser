@@ -10,10 +10,10 @@
 #include "base/command_line.h"
 #include "base/metrics/histogram.h"
 #include "base/strings/utf_string_conversions.h"
+#include "gin/v8_initializer.h"
 #include "ppapi/c/pp_errors.h"
 #include "ppapi/c/private/ppb_pdf.h"
 #include "ppapi/proxy/ppapi_messages.h"
-#include "ppapi/proxy/ppb_image_data_proxy.h"
 #include "ppapi/shared_impl/var.h"
 #include "third_party/icu/source/i18n/unicode/usearch.h"
 
@@ -27,7 +27,8 @@ namespace {
 std::string GetLocale() {
   // The browser process should have passed the locale to the plugin via the
   // --lang command line flag.
-  const CommandLine& parsed_command_line = *CommandLine::ForCurrentProcess();
+  const base::CommandLine& parsed_command_line =
+      *base::CommandLine::ForCurrentProcess();
   const std::string& lang = parsed_command_line.GetSwitchValueASCII("lang");
   DCHECK(!lang.empty());
   return lang;
@@ -87,7 +88,7 @@ void PDFResource::SearchString(const unsigned short* input_string,
 
   std::vector<PP_PrivateFindResult> pp_results;
   while (match_start != USEARCH_DONE) {
-    size_t matched_length = usearch_getMatchedLength(searcher);
+    int32_t matched_length = usearch_getMatchedLength(searcher);
     PP_PrivateFindResult result;
     result.start_index = match_start;
     result.length = matched_length;
@@ -96,13 +97,16 @@ void PDFResource::SearchString(const unsigned short* input_string,
     DCHECK(status == U_ZERO_ERROR);
   }
 
-  *count = pp_results.size();
-  if (*count) {
-    *results = reinterpret_cast<PP_PrivateFindResult*>(malloc(
-        *count * sizeof(PP_PrivateFindResult)));
-    memcpy(*results, &pp_results[0], *count * sizeof(PP_PrivateFindResult));
+  if (pp_results.empty() ||
+      pp_results.size() > std::numeric_limits<uint32_t>::max() ||
+      pp_results.size() > SIZE_MAX / sizeof(PP_PrivateFindResult)) {
+    *count = 0;
+    *results = nullptr;
   } else {
-    *results = NULL;
+    *count = static_cast<uint32_t>(pp_results.size());
+    const size_t result_size = pp_results.size() * sizeof(PP_PrivateFindResult);
+    *results = reinterpret_cast<PP_PrivateFindResult*>(malloc(result_size));
+    memcpy(*results, &pp_results[0], result_size);
   }
 
   usearch_close(searcher);
@@ -118,10 +122,6 @@ void PDFResource::DidStopLoading() {
 
 void PDFResource::SetContentRestriction(int restrictions) {
   Post(RENDERER, PpapiHostMsg_PDF_SetContentRestriction(restrictions));
-}
-
-void PDFResource::HistogramPDFPageCount(int count) {
-  UMA_HISTOGRAM_COUNTS_10000("PDF.PageCount", count);
 }
 
 void PDFResource::UserMetricsRecordAction(const PP_Var& action) {
@@ -159,42 +159,6 @@ PP_Bool PDFResource::IsFeatureEnabled(PP_PDFFeature feature) {
   return result;
 }
 
-PP_Resource PDFResource::GetResourceImageForScale(PP_ResourceImage image_id,
-                                                  float scale) {
-  IPC::Message reply;
-  ResourceMessageReplyParams reply_params;
-  int32_t result = GenericSyncCall(
-      RENDERER, PpapiHostMsg_PDF_GetResourceImage(image_id, scale), &reply,
-      &reply_params);
-  if (result != PP_OK)
-    return 0;
-
-  HostResource resource;
-  PP_ImageDataDesc image_desc;
-  if (!UnpackMessage<PpapiPluginMsg_PDF_GetResourceImageReply>(
-      reply, &resource, &image_desc)) {
-    return 0;
-  }
-
-  if (resource.is_null())
-    return 0;
-  if (!PPB_ImageData_Shared::IsImageDataDescValid(image_desc))
-    return 0;
-
-  base::SharedMemoryHandle handle;
-  if (!reply_params.TakeSharedMemoryHandleAtIndex(0, &handle))
-    return 0;
-  return (new SimpleImageData(resource, image_desc, handle))->GetReference();
-}
-
-PP_Resource PDFResource::GetResourceImage(PP_ResourceImage image_id) {
-  return GetResourceImageForScale(image_id, 1.0f);
-}
-
-PP_Bool PDFResource::IsOutOfProcess() {
-  return PP_TRUE;
-}
-
 void PDFResource::SetSelectedText(const char* selected_text) {
   Post(RENDERER,
        PpapiHostMsg_PDF_SetSelectedText(base::UTF8ToUTF16(selected_text)));
@@ -202,6 +166,14 @@ void PDFResource::SetSelectedText(const char* selected_text) {
 
 void PDFResource::SetLinkUnderCursor(const char* url) {
   Post(RENDERER, PpapiHostMsg_PDF_SetLinkUnderCursor(url));
+}
+
+void PDFResource::GetV8ExternalSnapshotData(const char** natives_data_out,
+                                            int* natives_size_out,
+                                            const char** snapshot_data_out,
+                                            int* snapshot_size_out) {
+  gin::V8Initializer::GetV8ExternalSnapshotData(
+      natives_data_out, natives_size_out, snapshot_data_out, snapshot_size_out);
 }
 
 }  // namespace proxy

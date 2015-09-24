@@ -10,16 +10,21 @@ https://gerrit-review.googlesource.com/Documentation/rest-api.html
 from __future__ import print_function
 
 import base64
+import cookielib
+import datetime
 import httplib
 import json
-import logging
 import netrc
 import os
 import socket
+import sys
 import urllib
 import urlparse
 from cStringIO import StringIO
 
+from chromite.cbuildbot import constants
+from chromite.lib import cros_logging as logging
+from chromite.lib import git
 from chromite.lib import retry_util
 
 
@@ -27,7 +32,6 @@ try:
   NETRC = netrc.netrc()
 except (IOError, netrc.NetrcParseError):
   NETRC = netrc.netrc(os.devnull)
-LOGGER = logging.getLogger()
 TRY_LIMIT = 10
 SLEEP = 0.5
 
@@ -58,21 +62,35 @@ def _QueryString(param_dict, first_param=None):
   return '+'.join(q)
 
 
-def GetCookies(_host, _path):
+def GetCookies(host, path, cookie_paths=None):
   """Returns cookies that should be set on a request.
 
   Used by CreateHttpConn for any requests that do not already specify a Cookie
   header. All requests made by this library are HTTPS.
 
   Args:
-    _host: The hostname of the Gerrit service.
-    _path: The path on the Gerrit service, already including /a/ if applicable.
+    host: The hostname of the Gerrit service.
+    path: The path on the Gerrit service, already including /a/ if applicable.
+    cookie_paths: Files to look in for cookies. Defaults to looking in the
+      standard places where GoB places cookies.
 
   Returns:
     A dict of cookie name to value, with no URL encoding applied.
   """
-  # Default implementation does not use cookies but may be stubbed out in tests.
-  return {}
+  cookies = {}
+  if cookie_paths is None:
+    cookie_paths = (constants.GOB_COOKIE_PATH, constants.GITCOOKIES_PATH)
+  for cookie_path in cookie_paths:
+    if os.path.isfile(cookie_path):
+      with open(cookie_path) as f:
+        for line in f:
+          fields = line.strip().split('\t')
+          if line.strip().startswith('#') or len(fields) != 7:
+            continue
+          domain, xpath, key, value = fields[0], fields[2], fields[5], fields[6]
+          if cookielib.domain_match(host, domain) and path.startswith(xpath):
+            cookies[key] = value
+  return cookies
 
 
 def CreateHttpConn(host, path, reqtype='GET', headers=None, body=None):
@@ -84,24 +102,30 @@ def CreateHttpConn(host, path, reqtype='GET', headers=None, body=None):
     headers.setdefault('Authorization', 'Basic %s' % (
         base64.b64encode('%s:%s' % (auth[0], auth[2]))))
   else:
-    LOGGER.debug('No authorization found')
+    logging.debug('No netrc file found')
 
   if 'Cookie' not in headers:
-    cookies = GetCookies(host, path)
-    headers['Cookie'] = '; '.join('%s=%s' % (urllib.quote(n), urllib.quote(v))
-                                  for n, v in cookies.iteritems())
+    cookies = GetCookies(host, '/a/%s' % path)
+    headers['Cookie'] = '; '.join('%s=%s' % (n, v) for n, v in cookies.items())
+
+  if 'User-Agent' not in headers:
+    headers['User-Agent'] = ' '.join((
+        'chromite.lib.gob_util',
+        os.path.basename(sys.argv[0]),
+        git.GetGitRepoRevision(os.path.dirname(os.path.realpath(__file__))),
+    ))
 
   if body:
     body = json.JSONEncoder().encode(body)
     headers.setdefault('Content-Type', 'application/json')
-  if LOGGER.isEnabledFor(logging.DEBUG):
-    LOGGER.debug('%s https://%s/a/%s' % (reqtype, host, path))
+  if logging.getLogger().isEnabledFor(logging.DEBUG):
+    logging.debug('%s https://%s/a/%s', reqtype, host, path)
     for key, val in headers.iteritems():
       if key.lower() in ('authorization', 'cookie'):
         val = 'HIDDEN'
-      LOGGER.debug('%s: %s' % (key, val))
+      logging.debug('%s: %s', key, val)
     if body:
-      LOGGER.debug(body)
+      logging.debug(body)
   conn = httplib.HTTPSConnection(host)
   conn.req_host = host
   conn.req_params = {
@@ -115,7 +139,7 @@ def CreateHttpConn(host, path, reqtype='GET', headers=None, body=None):
 
 
 def FetchUrl(host, path, reqtype='GET', headers=None, body=None,
-             ignore_404=True):
+             ignore_204=False, ignore_404=True):
   """Fetches the http response from the specified URL into a string buffer.
 
   Args:
@@ -125,6 +149,9 @@ def FetchUrl(host, path, reqtype='GET', headers=None, body=None,
     reqtype: The request type. Can be GET or POST.
     headers: A mapping of extra HTTP headers to pass in with the request.
     body: A string of data to send after the headers are finished.
+    ignore_204: for some requests gerrit-on-borg will return 204 to confirm
+                proper processing of the request. When processing responses to
+                these requests we should expect this status.
     ignore_404: For many requests, gerrit-on-borg will return 404 if the request
                 doesn't match the database contents.  In most such cases, we
                 want the API to return None rather than raise an Exception.
@@ -139,27 +166,31 @@ def FetchUrl(host, path, reqtype='GET', headers=None, body=None,
                             body=body)
       response = conn.getresponse()
     except socket.error as ex:
-      LOGGER.warn('%s%s', err_prefix, str(ex))
+      logging.warning('%s%s', err_prefix, str(ex))
       raise
 
     # Normal/good responses.
+    response_body = response.read()
+    if response.status == 204 and ignore_204:
+      # This exception is used to confirm expected response status.
+      raise GOBError(response.status, response.reason)
     if response.status == 404 and ignore_404:
       return StringIO()
     elif response.status == 200:
-      return StringIO(response.read())
+      return StringIO(response_body)
 
     # Bad responses.
-    LOGGER.debug('response msg:\n%s', response.msg)
+    logging.debug('response msg:\n%s', response.msg)
     http_version = 'HTTP/%s' % ('1.1' if response.version == 11 else '1.0')
-    msg = ('%s %s %s\n%s %d %s\nResponse body: %s' %
+    msg = ('%s %s %s\n%s %d %s\nResponse body: %r' %
            (reqtype, conn.req_params['url'], http_version,
             http_version, response.status, response.reason,
-            response.read()))
+            response_body))
 
     # Ones we can retry.
     if response.status >= 500:
       # A status >=500 is assumed to be a possible transient error; retry.
-      LOGGER.warn('%s%s', err_prefix, msg)
+      logging.warning('%s%s', err_prefix, msg)
       raise InternalGOBError(response.status, response.reason)
 
     # Ones we cannot retry.
@@ -178,15 +209,15 @@ def FetchUrl(host, path, reqtype='GET', headers=None, body=None,
 
     if response.status >= 400:
       # The 'X-ErrorId' header is set only on >= 400 response code.
-      LOGGER.warn('%s\n%s\nX-ErrorId: %s', err_prefix, msg,
-                  response.getheader('X-ErrorId'))
+      logging.warning('%s\n%s\nX-ErrorId: %s', err_prefix, msg,
+                      response.getheader('X-ErrorId'))
     else:
-      LOGGER.warn('%s\n%s', err_prefix, msg)
+      logging.warning('%s\n%s', err_prefix, msg)
 
     try:
-      LOGGER.warn('conn.sock.getpeername(): %s', conn.sock.getpeername())
+      logging.warning('conn.sock.getpeername(): %s', conn.sock.getpeername())
     except AttributeError:
-      LOGGER.warn('peer name unavailable')
+      logging.warning('peer name unavailable')
     raise GOBError(response.status, response.reason)
 
   return retry_util.RetryException((socket.error, InternalGOBError), TRY_LIMIT,
@@ -336,12 +367,11 @@ def RestoreChange(host, change, msg=''):
   return FetchUrlJson(host, path, reqtype='POST', body=body, ignore_404=False)
 
 
-def DeleteDraft(host, change, msg=''):
+def DeleteDraft(host, change):
   """Delete a gerrit draft patch set."""
   path = _GetChangePath(change)
-  body = {'message': msg}
   try:
-    FetchUrl(host, path, reqtype='DELETE', body=body, ignore_404=False)
+    FetchUrl(host, path, reqtype='DELETE', ignore_204=True, ignore_404=False)
   except GOBError as e:
     # On success, gerrit returns status 204; anything else is an error.
     if e.http_status != 204:
@@ -422,6 +452,13 @@ def SetReview(host, change, revision='current', msg=None, labels=None,
             key, change))
 
 
+def SetTopic(host, change, topic):
+  """Set |topic| for a change. If |topic| is empty, it will be deleted"""
+  path = '%s/topic' % _GetChangePath(change)
+  body = {'topic': topic}
+  return FetchUrlJson(host, path, reqtype='PUT', body=body, ignore_404=False)
+
+
 def ResetReviewLabels(host, change, label, value='0', revision='current',
                       message=None, notify=None):
   """Reset the value of a given label for all reviewers on a change."""
@@ -478,3 +515,41 @@ def GetTipOfTrunkRevision(git_url):
     msg = ('The json returned by https://%s%s has an unfamiliar structure:\n'
            '%s\n' % (parsed_url[1], path, j))
     raise GOBError(msg)
+
+
+def GetCommitDate(git_url, commit):
+  """Returns the date of a particular git commit.
+
+  The returned object is naive in the sense that it doesn't carry any timezone
+  information - you should assume UTC.
+
+  Args:
+    git_url: URL for the repository to get the commit date from.
+    commit: A git commit identifier (e.g. a sha1).
+
+  Returns:
+     A datetime object.
+  """
+  parsed_url = urlparse.urlparse(git_url)
+  path = '%s/+log/%s?n=1&format=JSON' % (parsed_url.path.rstrip('/'), commit)
+  j = FetchUrlJson(parsed_url.netloc, path, ignore_404=False)
+  if not j:
+    raise GOBError(
+        'Could not find revision information from %s' % git_url)
+  try:
+    commit_timestr = j['log'][0]['committer']['time']
+  except (IndexError, KeyError, TypeError):
+    msg = ('The json returned by https://%s%s has an unfamiliar structure:\n'
+           '%s\n' % (parsed_url.netloc, path, j))
+    raise GOBError(msg)
+  try:
+    # We're parsing a string of the form 'Tue Dec 02 17:48:06 2014'.
+    return datetime.datetime.strptime(commit_timestr,
+                                      constants.GOB_COMMIT_TIME_FORMAT)
+  except ValueError:
+    raise GOBError('Failed parsing commit time "%s"' % commit_timestr)
+
+
+def GetAccount(host):
+  """Get information about the user account."""
+  return FetchUrlJson(host, 'accounts/self')

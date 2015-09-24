@@ -4,9 +4,11 @@
 
 #include "chrome/browser/ui/views/renderer_context_menu/render_view_context_menu_views.h"
 
+#include "base/command_line.h"
 #include "base/logging.h"
 #include "base/strings/string16.h"
 #include "chrome/app/chrome_command_ids.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/renderer_context_menu/views/toolkit_delegate_views.h"
 #include "content/public/browser/render_view_host.h"
@@ -59,6 +61,10 @@ bool RenderViewContextMenuViews::GetAcceleratorForCommandId(
   // There are no formally defined accelerators we can query so we assume
   // that Ctrl+C, Ctrl+V, Ctrl+X, Ctrl-A, etc do what they normally do.
   switch (command_id) {
+    case IDC_BACK:
+      *accel = ui::Accelerator(ui::VKEY_LEFT, ui::EF_ALT_DOWN);
+      return true;
+
     case IDC_CONTENT_CONTEXT_UNDO:
       *accel = ui::Accelerator(ui::VKEY_Z, ui::EF_CONTROL_DOWN);
       return true;
@@ -77,6 +83,11 @@ bool RenderViewContextMenuViews::GetAcceleratorForCommandId(
       *accel = ui::Accelerator(ui::VKEY_C, ui::EF_CONTROL_DOWN);
       return true;
 
+    case IDC_CONTENT_CONTEXT_INSPECTELEMENT:
+      *accel = ui::Accelerator(ui::VKEY_I,
+                               ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN);
+      return true;
+
     case IDC_CONTENT_CONTEXT_PASTE:
       *accel = ui::Accelerator(ui::VKEY_V, ui::EF_CONTROL_DOWN);
       return true;
@@ -88,6 +99,35 @@ bool RenderViewContextMenuViews::GetAcceleratorForCommandId(
 
     case IDC_CONTENT_CONTEXT_SELECTALL:
       *accel = ui::Accelerator(ui::VKEY_A, ui::EF_CONTROL_DOWN);
+      return true;
+
+    case IDC_CONTENT_CONTEXT_ROTATECCW:
+      *accel = ui::Accelerator(ui::VKEY_OEM_4, ui::EF_CONTROL_DOWN);
+      return true;
+
+    case IDC_CONTENT_CONTEXT_ROTATECW:
+      *accel = ui::Accelerator(ui::VKEY_OEM_6, ui::EF_CONTROL_DOWN);
+      return true;
+
+    case IDC_FORWARD:
+      *accel = ui::Accelerator(ui::VKEY_RIGHT, ui::EF_ALT_DOWN);
+      return true;
+
+    case IDC_PRINT:
+      *accel = ui::Accelerator(ui::VKEY_P, ui::EF_CONTROL_DOWN);
+      return true;
+
+    case IDC_RELOAD:
+      *accel = ui::Accelerator(ui::VKEY_R, ui::EF_CONTROL_DOWN);
+      return true;
+
+    case IDC_CONTENT_CONTEXT_SAVEAVAS:
+    case IDC_SAVE_PAGE:
+      *accel = ui::Accelerator(ui::VKEY_S, ui::EF_CONTROL_DOWN);
+      return true;
+
+    case IDC_VIEW_SOURCE:
+      *accel = ui::Accelerator(ui::VKEY_U, ui::EF_CONTROL_DOWN);
       return true;
 
     default:
@@ -173,6 +213,9 @@ void RenderViewContextMenuViews::AppendPlatformEditableItems() {
 }
 
 void RenderViewContextMenuViews::Show() {
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kKioskMode))
+    return;
+
   // Menus need a Widget to work. If we're not the active tab we won't
   // necessarily be in a widget.
   views::Widget* top_level_widget = GetTopLevelWidget();
@@ -184,6 +227,7 @@ void RenderViewContextMenuViews::Show() {
     return;
 
   gfx::Point screen_point(params().x, params().y);
+  screen_point += RenderViewContextMenuViews::GetOffset(GetRenderFrameHost());
 
   // Convert from target window coordinates to root window coordinates.
   aura::Window* target_window = GetActiveNativeView();

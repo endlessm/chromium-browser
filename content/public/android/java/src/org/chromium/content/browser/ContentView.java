@@ -8,21 +8,21 @@ import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Rect;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
-import android.util.Log;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.accessibility.AccessibilityEvent;
-import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.ViewStructure;
+import android.view.accessibility.AccessibilityNodeProvider;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.FrameLayout;
 
+import org.chromium.base.Log;
 import org.chromium.base.TraceEvent;
+import org.chromium.base.VisibleForTesting;
 
 /**
  * The containing view for {@link ContentViewCore} that exists in the Android UI hierarchy and
@@ -31,7 +31,7 @@ import org.chromium.base.TraceEvent;
 public class ContentView extends FrameLayout
         implements ContentViewCore.InternalAccessDelegate, SmartClipProvider {
 
-    private static final String TAG = "ContentView";
+    private static final String TAG = "cr.ContentView";
 
     protected final ContentViewCore mContentViewCore;
 
@@ -40,17 +40,8 @@ public class ContentView extends FrameLayout
      * @param context The Context the view is running in, through which it can
      *                access the current theme, resources, etc.
      * @param cvc A pointer to the content view core managing this content view.
-     * @return A ContentView instance.
      */
-    public static ContentView newInstance(Context context, ContentViewCore cvc) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN) {
-            return new ContentView(context, cvc);
-        } else {
-            return new JellyBeanContentView(context, cvc);
-        }
-    }
-
-    protected ContentView(Context context, ContentViewCore cvc) {
+    public ContentView(Context context, ContentViewCore cvc) {
         super(context, null, android.R.attr.webViewStyle);
 
         if (getScrollBarStyle() == View.SCROLLBARS_INSIDE_OVERLAY) {
@@ -62,6 +53,31 @@ public class ContentView extends FrameLayout
         setFocusableInTouchMode(true);
 
         mContentViewCore = cvc;
+    }
+
+    @Override
+    public boolean performAccessibilityAction(int action, Bundle arguments) {
+        if (mContentViewCore.supportsAccessibilityAction(action)) {
+            return mContentViewCore.performAccessibilityAction(action, arguments);
+        }
+
+        return super.performAccessibilityAction(action, arguments);
+    }
+
+    @Override
+    public AccessibilityNodeProvider getAccessibilityNodeProvider() {
+        AccessibilityNodeProvider provider = mContentViewCore.getAccessibilityNodeProvider();
+        if (provider != null) {
+            return provider;
+        } else {
+            return super.getAccessibilityNodeProvider();
+        }
+    }
+
+    // @Override[ANDROID-M] TODO(sgurun) override and also remove VisibleForTesting. crbug/512264
+    @VisibleForTesting
+    public void onProvideVirtualStructure(final ViewStructure structure) {
+        mContentViewCore.onProvideVirtualStructure(structure);
     }
 
     // Needed by ContentViewCore.InternalAccessDelegate
@@ -78,10 +94,13 @@ public class ContentView extends FrameLayout
 
     @Override
     protected void onSizeChanged(int w, int h, int ow, int oh) {
-        TraceEvent.begin();
-        super.onSizeChanged(w, h, ow, oh);
-        mContentViewCore.onSizeChanged(w, h, ow, oh);
-        TraceEvent.end();
+        try {
+            TraceEvent.begin("ContentView.onSizeChanged");
+            super.onSizeChanged(w, h, ow, oh);
+            mContentViewCore.onSizeChanged(w, h, ow, oh);
+        } finally {
+            TraceEvent.end("ContentView.onSizeChanged");
+        }
     }
 
     @Override
@@ -96,10 +115,13 @@ public class ContentView extends FrameLayout
 
     @Override
     protected void onFocusChanged(boolean gainFocus, int direction, Rect previouslyFocusedRect) {
-        TraceEvent.begin();
-        super.onFocusChanged(gainFocus, direction, previouslyFocusedRect);
-        mContentViewCore.onFocusChanged(gainFocus);
-        TraceEvent.end();
+        try {
+            TraceEvent.begin("ContentView.onFocusChanged");
+            super.onFocusChanged(gainFocus, direction, previouslyFocusedRect);
+            mContentViewCore.onFocusChanged(gainFocus);
+        } finally {
+            TraceEvent.end("ContentView.onFocusChanged");
+        }
     }
 
     @Override
@@ -220,22 +242,6 @@ public class ContentView extends FrameLayout
     }
 
     @Override
-    public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
-        super.onInitializeAccessibilityNodeInfo(info);
-        mContentViewCore.onInitializeAccessibilityNodeInfo(info);
-    }
-
-    /**
-     * Fills in scrolling values for AccessibilityEvents.
-     * @param event Event being fired.
-     */
-    @Override
-    public void onInitializeAccessibilityEvent(AccessibilityEvent event) {
-        super.onInitializeAccessibilityEvent(event);
-        mContentViewCore.onInitializeAccessibilityEvent(event);
-    }
-
-    @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
         mContentViewCore.onAttachedToWindow();
@@ -267,6 +273,7 @@ public class ContentView extends FrameLayout
             return;
         }
         mContentViewCore.setSmartClipDataListener(new ContentViewCore.SmartClipDataListener() {
+            @Override
             public void onSmartClipDataExtracted(String text, String html, Rect clipRect) {
                 Bundle bundle = new Bundle();
                 bundle.putString("url", mContentViewCore.getWebContents().getVisibleUrl());

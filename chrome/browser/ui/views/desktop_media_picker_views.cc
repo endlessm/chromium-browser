@@ -322,7 +322,7 @@ void DesktopMediaListView::OnSourceAdded(int index) {
     parent_->OnMediaListRowsChanged();
 
   std::string autoselect_source =
-      CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
           switches::kAutoSelectDesktopCaptureSource);
   if (!autoselect_source.empty() &&
       base::ASCIIToUTF16(autoselect_source) == source.name) {
@@ -415,9 +415,11 @@ DesktopMediaPickerDialogView::DesktopMediaPickerDialogView(
       parent_web_contents &&
       !parent_web_contents->GetDelegate()->IsNeverVisible(parent_web_contents);
   if (modal_dialog) {
-    widget = CreateWebModalDialogViews(this, parent_web_contents);
+    widget = constrained_window::ShowWebModalDialogViews(this,
+                                                         parent_web_contents);
   } else {
     widget = DialogDelegate::CreateDialogWidget(this, context, NULL);
+    widget->Show();
   }
 
   // If the picker is not modal to the calling web contents then it is displayed
@@ -441,15 +443,6 @@ DesktopMediaPickerDialogView::DesktopMediaPickerDialogView(
   }
 
   list_view_->StartUpdating(dialog_window_id);
-
-  if (modal_dialog) {
-    web_modal::PopupManager* popup_manager =
-        web_modal::PopupManager::FromWebContents(parent_web_contents);
-    popup_manager->ShowModalDialog(GetWidget()->GetNativeView(),
-                                   parent_web_contents);
-  } else {
-    widget->Show();
-  }
 }
 
 DesktopMediaPickerDialogView::~DesktopMediaPickerDialogView() {}

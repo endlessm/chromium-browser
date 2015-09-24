@@ -188,7 +188,7 @@ void Tokenizer::AdvanceToNextToken() {
 Token::Type Tokenizer::ClassifyCurrent() const {
   DCHECK(!at_end());
   char next_char = cur_char();
-  if (IsAsciiDigit(next_char))
+  if (base::IsAsciiDigit(next_char))
     return Token::INTEGER;
   if (next_char == '"')
     return Token::STRING;
@@ -228,7 +228,7 @@ Token::Type Tokenizer::ClassifyCurrent() const {
       return Token::UNCLASSIFIED_OPERATOR;  // Just the minus before end of
                                             // file.
     char following_char = input_[cur_ + 1];
-    if (IsAsciiDigit(following_char))
+    if (base::IsAsciiDigit(following_char))
       return Token::INTEGER;
     return Token::UNCLASSIFIED_OPERATOR;
   }
@@ -242,7 +242,7 @@ void Tokenizer::AdvanceToEndOfToken(const Location& location,
     case Token::INTEGER:
       do {
         Advance();
-      } while (!at_end() && IsAsciiDigit(cur_char()));
+      } while (!at_end() && base::IsAsciiDigit(cur_char()));
       if (!at_end()) {
         // Require the char after a number to be some kind of space, scope,
         // or operator.
@@ -271,7 +271,7 @@ void Tokenizer::AdvanceToEndOfToken(const Location& location,
         if (IsCurrentStringTerminator(initial)) {
           Advance();  // Skip past last "
           break;
-        } else if (cur_char() == '\n') {
+        } else if (IsCurrentNewline()) {
           *err_ = Err(LocationRange(location, GetCurrentLocation()),
                       "Newline in string constant.");
         }
@@ -388,6 +388,8 @@ Err Tokenizer::GetErrorForInvalidToken(const Location& location) const {
       (input_[cur_ + 1] == '/' || input_[cur_ + 1] == '*')) {
     // Different types of comments.
     help = "Comments should start with # instead";
+  } else if (cur_char() == '\'') {
+    help = "Strings are delimited by \" characters, not apostrophes.";
   } else {
     help = "I have no idea what this is.";
   }

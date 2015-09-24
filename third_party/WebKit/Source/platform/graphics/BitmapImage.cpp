@@ -27,25 +27,35 @@
 #include "config.h"
 #include "platform/graphics/BitmapImage.h"
 
+#include "platform/PlatformInstrumentation.h"
 #include "platform/Timer.h"
 #include "platform/TraceEvent.h"
 #include "platform/geometry/FloatRect.h"
-#include "platform/graphics/GraphicsContextStateSaver.h"
+#include "platform/graphics/DeferredImageDecoder.h"
 #include "platform/graphics/ImageObserver.h"
-#include "platform/graphics/skia/NativeImageSkia.h"
 #include "platform/graphics/skia/SkiaUtils.h"
+#include "third_party/skia/include/core/SkCanvas.h"
 #include "wtf/PassRefPtr.h"
 #include "wtf/text/WTFString.h"
 
 namespace blink {
 
-PassRefPtr<BitmapImage> BitmapImage::create(PassRefPtr<NativeImageSkia> nativeImage, ImageObserver* observer)
+PassRefPtr<BitmapImage> BitmapImage::create(const SkBitmap& bitmap, ImageObserver* observer)
 {
-    if (!nativeImage) {
+    if (bitmap.isNull()) {
         return BitmapImage::create(observer);
     }
 
-    return adoptRef(new BitmapImage(nativeImage, observer));
+    return adoptRef(new BitmapImage(bitmap, observer));
+}
+
+PassRefPtr<BitmapImage> BitmapImage::createWithOrientationForTesting(const SkBitmap& bitmap, ImageOrientation orientation)
+{
+    RefPtr<BitmapImage> result = create(bitmap);
+    result->m_frames[0].m_orientation = orientation;
+    if (orientation.usesWidthAsHeight())
+        result->m_sizeRespectingOrientation = IntSize(result->m_size.height(), result->m_size.width());
+    return result.release();
 }
 
 BitmapImage::BitmapImage(ImageObserver* observer)
@@ -58,6 +68,7 @@ BitmapImage::BitmapImage(ImageObserver* observer)
     , m_repetitionsComplete(0)
     , m_desiredFrameStartTime(0)
     , m_frameCount(0)
+    , m_animationPolicy(ImageAnimationPolicyAllowed)
     , m_isSolidColor(false)
     , m_checkedForSolidColor(false)
     , m_animationFinished(false)
@@ -69,9 +80,9 @@ BitmapImage::BitmapImage(ImageObserver* observer)
 {
 }
 
-BitmapImage::BitmapImage(PassRefPtr<NativeImageSkia> nativeImage, ImageObserver* observer)
+BitmapImage::BitmapImage(const SkBitmap& bitmap, ImageObserver* observer)
     : Image(observer)
-    , m_size(nativeImage->bitmap().width(), nativeImage->bitmap().height())
+    , m_size(bitmap.width(), bitmap.height())
     , m_currentFrame(0)
     , m_frames(0)
     , m_frameTimer(0)
@@ -79,6 +90,7 @@ BitmapImage::BitmapImage(PassRefPtr<NativeImageSkia> nativeImage, ImageObserver*
     , m_repetitionCountStatus(Unknown)
     , m_repetitionsComplete(0)
     , m_frameCount(1)
+    , m_animationPolicy(ImageAnimationPolicyAllowed)
     , m_isSolidColor(false)
     , m_checkedForSolidColor(false)
     , m_animationFinished(true)
@@ -92,8 +104,8 @@ BitmapImage::BitmapImage(PassRefPtr<NativeImageSkia> nativeImage, ImageObserver*
     m_sizeRespectingOrientation = m_size;
 
     m_frames.grow(1);
-    m_frames[0].m_hasAlpha = !nativeImage->bitmap().isOpaque();
-    m_frames[0].m_frame = nativeImage;
+    m_frames[0].m_hasAlpha = !bitmap.isOpaque();
+    m_frames[0].m_frame = bitmap;
     m_frames[0].m_haveMetadata = true;
 
     checkForSolidColor();
@@ -112,6 +124,15 @@ bool BitmapImage::isBitmapImage() const
 bool BitmapImage::currentFrameHasSingleSecurityOrigin() const
 {
     return true;
+}
+
+int BitmapImage::totalFrameBytes()
+{
+    const size_t numFrames = frameCount();
+    size_t totalBytes = 0;
+    for (size_t i = 0; i < numFrames; ++i)
+        totalBytes += m_source.frameBytesAtIndex(i);
+    return safeCast<int>(totalBytes);
 }
 
 void BitmapImage::destroyDecodedData(bool destroyAll)
@@ -135,8 +156,9 @@ void BitmapImage::destroyDecodedDataIfNecessary()
     for (size_t i = 0; i < m_frames.size(); ++i)
         allFrameBytes += m_frames[i].m_frameBytes;
 
-    if (allFrameBytes > cLargeAnimationCutoff)
+    if (allFrameBytes > cLargeAnimationCutoff) {
         destroyDecodedData(false);
+    }
 }
 
 void BitmapImage::destroyMetadataAndNotify(size_t frameBytesCleared)
@@ -154,8 +176,8 @@ void BitmapImage::cacheFrame(size_t index)
     if (m_frames.size() < numFrames)
         m_frames.grow(numFrames);
 
-    m_frames[index].m_frame = m_source.createFrameAtIndex(index);
-    if (numFrames == 1 && m_frames[index].m_frame)
+    int deltaBytes = totalFrameBytes();
+    if (m_source.createFrameAtIndex(index, &m_frames[index].m_frame) && numFrames == 1)
         checkForSolidColor();
 
     m_frames[index].m_orientation = m_source.orientationAtIndex(index);
@@ -170,13 +192,12 @@ void BitmapImage::cacheFrame(size_t index)
     if (frameSize != m_size)
         m_hasUniformFrameSize = false;
 
-    if (m_frames[index].m_frame) {
-        int deltaBytes = safeCast<int>(m_frames[index].m_frameBytes);
-        // The fully-decoded frame will subsume the partially decoded data used
-        // to determine image properties.
-        if (imageObserver())
-            imageObserver()->decodedSizeChanged(this, deltaBytes);
-    }
+    // We need to check the total bytes before and after the decode call, not
+    // just the current frame size, because some multi-frame images may require
+    // decoding multiple frames to decode the current frame.
+    deltaBytes = totalFrameBytes() - deltaBytes;
+    if (deltaBytes && imageObserver())
+        imageObserver()->decodedSizeChanged(this, deltaBytes);
 }
 
 void BitmapImage::updateSize() const
@@ -227,12 +248,12 @@ bool BitmapImage::dataChanged(bool allDataReceived)
     // start of the frame data), and any or none of them might be the particular
     // frame affected by appending new data here. Thus we have to clear all the
     // incomplete frames to be safe.
-    unsigned frameBytesCleared = 0;
+    size_t frameBytesCleared = 0;
     for (size_t i = 0; i < m_frames.size(); ++i) {
         // NOTE: Don't call frameIsCompleteAtIndex() here, that will try to
         // decode any uncached (i.e. never-decoded or
         // cleared-on-a-previous-pass) frames!
-        unsigned frameBytes = m_frames[i].m_frameBytes;
+        size_t frameBytes = m_frames[i].m_frameBytes;
         if (m_frames[i].m_haveMetadata && !m_frames[i].m_isComplete)
             frameBytesCleared += (m_frames[i].clear(true) ? frameBytes : 0);
     }
@@ -258,61 +279,71 @@ String BitmapImage::filenameExtension() const
     return m_source.filenameExtension();
 }
 
-void BitmapImage::draw(GraphicsContext* ctxt, const FloatRect& dstRect, const FloatRect& srcRect, CompositeOperator compositeOp, WebBlendMode blendMode)
+bool BitmapImage::isLazyDecodedBitmap()
 {
-    draw(ctxt, dstRect, srcRect, compositeOp, blendMode, DoNotRespectImageOrientation);
+    SkBitmap bitmap;
+    if (!bitmapForCurrentFrame(&bitmap))
+        return false;
+    return DeferredImageDecoder::isLazyDecoded(bitmap);
 }
 
-void BitmapImage::draw(GraphicsContext* ctxt, const FloatRect& dstRect, const FloatRect& srcRect, CompositeOperator compositeOp, WebBlendMode blendMode, RespectImageOrientationEnum shouldRespectImageOrientation)
+bool BitmapImage::isImmutableBitmap()
 {
-    // Spin the animation to the correct frame before we try to draw it, so we
-    // don't draw an old frame and then immediately need to draw a newer one,
-    // causing flicker and wasting CPU.
-    startAnimation();
+    SkBitmap bitmap;
+    if (!bitmapForCurrentFrame(&bitmap))
+        return false;
+    return bitmap.isImmutable();
+}
 
-    RefPtr<NativeImageSkia> image = nativeImageForCurrentFrame();
-    if (!image)
+void BitmapImage::draw(SkCanvas* canvas, const SkPaint& paint, const FloatRect& dstRect, const FloatRect& srcRect, RespectImageOrientationEnum shouldRespectImageOrientation, ImageClampingMode clampMode)
+{
+    TRACE_EVENT0("skia", "BitmapImage::draw");
+
+    SkBitmap bitmap;
+    if (!bitmapForCurrentFrame(&bitmap))
         return; // It's too early and we don't have an image yet.
 
-    FloatRect normDstRect = adjustForNegativeSize(dstRect);
-    FloatRect normSrcRect = adjustForNegativeSize(srcRect);
-    normSrcRect.intersect(FloatRect(0, 0, image->bitmap().width(), image->bitmap().height()));
+    FloatRect adjustedSrcRect = srcRect;
+    adjustedSrcRect.intersect(FloatRect(0, 0, bitmap.width(), bitmap.height()));
 
-    if (normSrcRect.isEmpty() || normDstRect.isEmpty())
+    if (adjustedSrcRect.isEmpty() || dstRect.isEmpty())
         return; // Nothing to draw.
 
     ImageOrientation orientation = DefaultImageOrientation;
     if (shouldRespectImageOrientation == RespectImageOrientation)
         orientation = frameOrientationAtIndex(m_currentFrame);
 
-    GraphicsContextStateSaver saveContext(*ctxt, false);
+    int initialSaveCount = canvas->getSaveCount();
+    FloatRect adjustedDstRect = dstRect;
     if (orientation != DefaultImageOrientation) {
-        saveContext.save();
+        canvas->save();
 
         // ImageOrientation expects the origin to be at (0, 0)
-        ctxt->translate(normDstRect.x(), normDstRect.y());
-        normDstRect.setLocation(FloatPoint());
+        canvas->translate(adjustedDstRect.x(), adjustedDstRect.y());
+        adjustedDstRect.setLocation(FloatPoint());
 
-        ctxt->concatCTM(orientation.transformFromDefault(normDstRect.size()));
+        canvas->concat(affineTransformToSkMatrix(orientation.transformFromDefault(adjustedDstRect.size())));
 
         if (orientation.usesWidthAsHeight()) {
             // The destination rect will have it's width and height already reversed for the orientation of
             // the image, as it was needed for page layout, so we need to reverse it back here.
-            normDstRect = FloatRect(normDstRect.x(), normDstRect.y(), normDstRect.height(), normDstRect.width());
+            adjustedDstRect = FloatRect(adjustedDstRect.x(), adjustedDstRect.y(), adjustedDstRect.height(), adjustedDstRect.width());
         }
     }
 
-    image->draw(ctxt, normSrcRect, normDstRect, compositeOp, blendMode);
+    SkRect skSrcRect = adjustedSrcRect;
+    SkCanvas::DrawBitmapRectFlags flags =
+        clampMode == ClampImageToSourceRect ? SkCanvas::kNone_DrawBitmapRectFlag : SkCanvas::kBleed_DrawBitmapRectFlag;
+    canvas->drawBitmapRectToRect(bitmap, &skSrcRect, adjustedDstRect, &paint, flags);
+    canvas->restoreToCount(initialSaveCount);
+
+    if (DeferredImageDecoder::isLazyDecoded(bitmap))
+        PlatformInstrumentation::didDrawLazyPixelRef(bitmap.getGenerationID());
 
     if (ImageObserver* observer = imageObserver())
         observer->didDraw(this);
-}
 
-void BitmapImage::resetDecoder()
-{
-    ASSERT(isMainThread());
-
-    m_source.resetDecoder();
+    startAnimation();
 }
 
 size_t BitmapImage::frameCount()
@@ -342,18 +373,19 @@ bool BitmapImage::ensureFrameIsCached(size_t index)
     if (index >= frameCount())
         return false;
 
-    if (index >= m_frames.size() || !m_frames[index].m_frame)
+    if (index >= m_frames.size() || m_frames[index].m_frame.isNull())
         cacheFrame(index);
 
     return true;
 }
 
-PassRefPtr<NativeImageSkia> BitmapImage::frameAtIndex(size_t index)
+bool BitmapImage::frameAtIndex(size_t index, SkBitmap* bitmap)
 {
     if (!ensureFrameIsCached(index))
-        return nullptr;
+        return false;
 
-    return m_frames[index].m_frame;
+    *bitmap = m_frames[index].m_frame;
+    return true;
 }
 
 bool BitmapImage::frameIsCompleteAtIndex(size_t index)
@@ -372,15 +404,16 @@ float BitmapImage::frameDurationAtIndex(size_t index)
     return m_source.frameDurationAtIndex(index);
 }
 
-PassRefPtr<NativeImageSkia> BitmapImage::nativeImageForCurrentFrame()
+bool BitmapImage::bitmapForCurrentFrame(SkBitmap* bitmap)
 {
-    return frameAtIndex(currentFrame());
+    return frameAtIndex(currentFrame(), bitmap);
 }
 
 PassRefPtr<Image> BitmapImage::imageForDefaultFrame()
 {
-    if (frameCount() > 1 && frameAtIndex(0))
-        return BitmapImage::create(frameAtIndex(0));
+    SkBitmap bitmap;
+    if (frameCount() > 1 && frameAtIndex(0, &bitmap))
+        return BitmapImage::create(bitmap);
 
     return Image::imageForDefaultFrame();
 }
@@ -439,7 +472,10 @@ int BitmapImage::repetitionCount(bool imageKnownToBeComplete)
 
 bool BitmapImage::shouldAnimate()
 {
-    return (repetitionCount(false) != cAnimationNone && !m_animationFinished && imageObserver());
+    bool animated = repetitionCount(false) != cAnimationNone && !m_animationFinished && imageObserver();
+    if (animated && m_animationPolicy == ImageAnimationPolicyNoAnimation)
+        animated = false;
+    return animated;
 }
 
 void BitmapImage::startAnimation(CatchUpAnimation catchUpIfNecessary)
@@ -461,7 +497,9 @@ void BitmapImage::startAnimation(CatchUpAnimation catchUpIfNecessary)
     // yet and our repetition count is potentially unset.  The repetition count
     // in a GIF can potentially come after all the rest of the image data, so
     // wait on it.
-    if (!m_allDataReceived && repetitionCount(false) == cAnimationLoopOnce && m_currentFrame >= (frameCount() - 1))
+    if (!m_allDataReceived
+        && (repetitionCount(false) == cAnimationLoopOnce || m_animationPolicy == ImageAnimationPolicyAnimateOnce)
+        && m_currentFrame >= (frameCount() - 1))
         return;
 
     // Determine time for next frame to start.  By ignoring paint and timer lag
@@ -568,6 +606,14 @@ bool BitmapImage::maybeAnimated()
     return m_source.repetitionCount() != cAnimationNone;
 }
 
+void BitmapImage::advanceTime(double deltaTimeInSeconds)
+{
+    if (m_desiredFrameStartTime)
+        m_desiredFrameStartTime -= deltaTimeInSeconds;
+    else
+        m_desiredFrameStartTime = monotonicallyIncreasingTime() - deltaTimeInSeconds;
+}
+
 void BitmapImage::advanceAnimation(Timer<BitmapImage>*)
 {
     internalAdvanceAnimation(false);
@@ -595,8 +641,9 @@ bool BitmapImage::internalAdvanceAnimation(bool skippingFrames)
         // repetition count before, we should have decoded the whole image by
         // now, so it should now be available.
         // Note that we don't need to special-case cAnimationLoopOnce here
-        // because it is 0 (see comments on its declaration in ImageSource.h).
-        if (repetitionCount(true) != cAnimationLoopInfinite && m_repetitionsComplete > m_repetitionCount) {
+        // because it is 0 (see comments on its declaration in ImageAnimation.h).
+        if ((repetitionCount(true) != cAnimationLoopInfinite && m_repetitionsComplete > m_repetitionCount)
+            || (m_animationPolicy == ImageAnimationPolicyAnimateOnce && m_repetitionsComplete > 0)) {
             m_animationFinished = true;
             m_desiredFrameStartTime = 0;
             --m_currentFrame;
@@ -621,15 +668,14 @@ void BitmapImage::checkForSolidColor()
     if (frameCount() > 1)
         return;
 
-    RefPtr<NativeImageSkia> frame = frameAtIndex(0);
-
-    if (frame && size().width() == 1 && size().height() == 1) {
-        SkAutoLockPixels lock(frame->bitmap());
-        if (!frame->bitmap().getPixels())
+    SkBitmap bitmap;
+    if (frameAtIndex(0, &bitmap) && size().width() == 1 && size().height() == 1) {
+        SkAutoLockPixels lock(bitmap);
+        if (!bitmap.getPixels())
             return;
 
         m_isSolidColor = true;
-        m_solidColor = Color(frame->bitmap().getColor(0, 0));
+        m_solidColor = Color(bitmap.getColor(0, 0));
     }
 }
 

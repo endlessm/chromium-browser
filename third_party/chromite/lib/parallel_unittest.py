@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -9,7 +8,7 @@ from __future__ import print_function
 
 import contextlib
 import cPickle
-import logging
+import mock
 import multiprocessing
 import os
 import signal
@@ -25,20 +24,18 @@ except ImportError:
   # pylint: disable=F0401
   import queue as Queue
 
-sys.path.insert(0, os.path.abspath('%s/../../..' % __file__))
-from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import cros_test_lib
 from chromite.lib import osutils
 from chromite.lib import parallel
 from chromite.lib import partial_mock
 from chromite.lib import timeout_util
 
-# TODO(build): Finish test wrapper (http://crosbug.com/37517).
-# Until then, this has to be after the chromite imports.
-import mock
 
-# pylint: disable=W0212
-_BUFSIZE = 10**4
+# pylint: disable=protected-access
+
+
+_BUFSIZE = 10 ** 4
 _EXIT_TIMEOUT = 30
 _NUM_WRITES = 100
 _NUM_THREADS = 50
@@ -148,6 +145,18 @@ class BackgroundTaskVerifier(partial_mock.PartialMock):
         pass
       else:
         raise AssertionError('Expected empty queue after BackgroundTaskRunner')
+
+
+class TestManager(cros_test_lib.TestCase):
+  """Test parallel.Manager()."""
+
+  def testSigint(self):
+    """Tests that parallel.Manager() ignores SIGINT."""
+    with parallel.Manager() as manager:
+      queue = manager.Queue()
+      os.kill(manager._process.pid, signal.SIGINT)
+      with self.assertRaises(Queue.Empty):
+        queue.get(block=False)
 
 
 class TestBackgroundWrapper(cros_test_lib.TestCase):
@@ -319,7 +328,7 @@ class TestRunParallelSteps(cros_test_lib.TestCase):
     def f1():
       return ret_value
 
-    ret_value = ""
+    ret_value = ''
     for _ in xrange(10000):
       ret_value += 'This will be repeated many times.\n'
 
@@ -335,6 +344,7 @@ class TestParallelMock(TestBackgroundWrapper):
 
   def _Callback(self):
     self._calls += 1
+    return self._calls
 
   def testRunParallelSteps(self):
     """Make sure RunParallelSteps is mocked out."""
@@ -347,11 +357,15 @@ class TestParallelMock(TestBackgroundWrapper):
     with ParallelMock():
       parallel.RunTasksInProcessPool(self._Callback, [])
       self.assertEqual(0, self._calls)
-      parallel.RunTasksInProcessPool(self._Callback, [[]])
+      result = parallel.RunTasksInProcessPool(self._Callback, [[]])
       self.assertEqual(1, self._calls)
-      parallel.RunTasksInProcessPool(self._Callback, [], processes=9,
-                                     onexit=self._Callback)
+      self.assertEqual([1], result)
+      result = parallel.RunTasksInProcessPool(self._Callback, [], processes=9,
+                                              onexit=self._Callback)
       self.assertEqual(10, self._calls)
+      self.assertEqual([], result)
+      result = parallel.RunTasksInProcessPool(self._Callback, [[]] * 10)
+      self.assertEqual(range(11, 21), result)
 
 
 class TestExceptions(cros_test_lib.MockOutputTestCase):
@@ -368,20 +382,21 @@ class TestExceptions(cros_test_lib.MockOutputTestCase):
   def _BadPickler(self):
     return self._BadPickler
 
+  class _TestException(Exception):
+    """Custom exception for testing."""
+
   def _VerifyExceptionRaised(self, fn, exc_type):
     """A helper function to verify the correct |exc_type| is raised."""
-    # pylint: disable=E1101
     for task in (lambda: parallel.RunTasksInProcessPool(fn, [[]]),
                  lambda: parallel.RunParallelSteps([fn])):
       output_str = ex_str = ex = None
       with self.OutputCapturer() as capture:
-        try:
+        with self.assertRaises(parallel.BackgroundFailure) as ex:
           task()
-        except parallel.BackgroundFailure as ex:
-          output_str = capture.GetStdout()
-          ex_str = str(ex)
+        output_str = capture.GetStdout()
+        ex_str = str(ex.exception)
 
-      self.assertTrue(exc_type in [x.type for x in ex.exc_infos])
+      self.assertTrue(exc_type in [x.type for x in ex.exception.exc_infos])
       self.assertEqual(output_str, _GREETING)
       self.assertTrue(str(exc_type) in ex_str)
 
@@ -391,15 +406,28 @@ class TestExceptions(cros_test_lib.MockOutputTestCase):
     self._VerifyExceptionRaised(self._KeyboardInterrupt, KeyboardInterrupt)
     self._VerifyExceptionRaised(self._SystemExit, SystemExit)
 
+  def testExceptionPriority(self):
+    """Tests that foreground exceptions take priority over background."""
+    self.StartPatcher(BackgroundTaskVerifier())
+    with self.assertRaises(self._TestException):
+      with parallel.BackgroundTaskRunner(self._KeyboardInterrupt,
+                                         processes=1) as queue:
+        queue.put([])
+        raise self._TestException()
+
   def testFailedPickle(self):
     """PicklingError should be thrown when an argument fails to pickle."""
     with self.assertRaises(cPickle.PicklingError):
-      parallel.RunTasksInProcessPool(self._SystemExit, [self._SystemExit])
+      parallel.RunTasksInProcessPool(self._SystemExit, [[self._SystemExit]])
 
   def testFailedPickleOnReturn(self):
     """PicklingError should be thrown when a return value fails to pickle."""
     with self.assertRaises(parallel.BackgroundFailure):
       parallel.RunParallelSteps([self._BadPickler], return_values=True)
+
+
+class _TestForegroundException(Exception):
+  """An exception to be raised by the foreground process."""
 
 
 class TestHalting(cros_test_lib.MockOutputTestCase, TestBackgroundWrapper):
@@ -408,6 +436,16 @@ class TestHalting(cros_test_lib.MockOutputTestCase, TestBackgroundWrapper):
   def setUp(self):
     self.failed = multiprocessing.Event()
     self.passed = multiprocessing.Event()
+
+  def _GetKillChildrenTimeout(self):
+    """Return a timeout that is long enough for _BackgroundTask._KillChildren.
+
+    This unittest is not meant to restrict which signal succeeds in killing the
+    background process, so use a long enough timeout whenever asserting that the
+    background process is killed, keeping buffer for slow builders.
+    """
+    return (parallel._BackgroundTask.SIGTERM_TIMEOUT +
+            parallel._BackgroundTask.SIGKILL_TIMEOUT) + 30
 
   def _Pass(self):
     self.passed.set()
@@ -419,8 +457,12 @@ class TestHalting(cros_test_lib.MockOutputTestCase, TestBackgroundWrapper):
     sys.exit(1)
 
   def _Fail(self):
-    self.failed.wait(60)
+    self.failed.wait(self._GetKillChildrenTimeout())
     self.failed.set()
+
+  def _PassEventually(self):
+    self.passed.wait(self._GetKillChildrenTimeout())
+    self.passed.set()
 
   @unittest.skipIf(_SKIP_FLAKY_TESTS, 'Occasionally fails.')
   def testExceptionRaising(self):
@@ -439,6 +481,16 @@ class TestHalting(cros_test_lib.MockOutputTestCase, TestBackgroundWrapper):
     self.assertEqual(output_str, _GREETING)
     self.assertFalse(self.failed.is_set())
 
+  def testForegroundExceptionRaising(self):
+    """Test that BackgroundTaskRunner halts tasks on a foreground exception."""
+    with self.assertRaises(_TestForegroundException):
+      with parallel.BackgroundTaskRunner(self._PassEventually,
+                                         processes=1,
+                                         halt_on_error=True) as queue:
+        queue.put([])
+        raise _TestForegroundException()
+    self.assertFalse(self.passed.is_set())
+
   @unittest.skipIf(_SKIP_FLAKY_TESTS, 'Occasionally fails.')
   def testTempFileCleanup(self):
     """Test that all temp files are cleaned up."""
@@ -450,20 +502,20 @@ class TestHalting(cros_test_lib.MockOutputTestCase, TestBackgroundWrapper):
   def testKillQuiet(self, steps=None, **kwargs):
     """Test that processes do get killed if they're silent for too long."""
     if steps is None:
-      steps = [self._Fail] * 10
+      steps = [self._Fail] * 2
     kwargs.setdefault('SILENT_TIMEOUT', 0.1)
     kwargs.setdefault('MINIMUM_SILENT_TIMEOUT', 0.01)
     kwargs.setdefault('SILENT_TIMEOUT_STEP', 0)
     kwargs.setdefault('SIGTERM_TIMEOUT', 0.1)
     kwargs.setdefault('PRINT_INTERVAL', 0.01)
+    kwargs.setdefault('GDB_COMMANDS', ('detach',))
 
     ex_str = None
     with mock.patch.multiple(parallel._BackgroundTask, **kwargs):
       with self.OutputCapturer() as capture:
         try:
-          with cros_test_lib.LoggingCapturer(cros_build_lib.logger.name):
-            with cros_test_lib.LoggingCapturer(parallel.logger.name):
-              parallel.RunParallelSteps(steps)
+          with cros_test_lib.LoggingCapturer():
+            parallel.RunParallelSteps(steps)
         except parallel.BackgroundFailure as ex:
           ex_str = str(ex)
           error_str = capture.GetStderr()
@@ -479,12 +531,12 @@ class TestConstants(cros_test_lib.TestCase):
     # Enforce that the default timeout is less than 9000, the default timeout
     # set in build/scripts/master/factory/chromeos_factory.py:ChromiteFactory
     # in the Chrome buildbot source code.
-    self.assertLess(parallel._BackgroundTask.SILENT_TIMEOUT, 9000,
+    self.assertLess(
+        parallel._BackgroundTask.SILENT_TIMEOUT, 9000,
         'Do not increase this timeout. Instead, print regular progress '
         'updates, so that buildbot (and cbuildbot) will will know that your '
         'program has not hung.')
 
 
-if __name__ == '__main__':
-  # Run the tests.
-  cros_test_lib.main(level=logging.INFO)
+def main(_argv):
+  cros_test_lib.main(level='info', module=__name__)

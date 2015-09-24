@@ -132,7 +132,7 @@ class ASH_EXPORT LockStateController : public aura::WindowTreeHostObserver,
       controller_->pre_shutdown_timer_.Stop();
     }
     void trigger_real_shutdown_timeout() {
-      controller_->OnRealShutdownTimeout();
+      controller_->OnRealPowerTimeout();
       controller_->real_shutdown_timer_.Stop();
     }
 
@@ -149,7 +149,7 @@ class ASH_EXPORT LockStateController : public aura::WindowTreeHostObserver,
 
   void AddObserver(LockStateObserver* observer);
   void RemoveObserver(LockStateObserver* observer);
-  bool HasObserver(LockStateObserver* observer);
+  bool HasObserver(const LockStateObserver* observer) const;
 
   // Starts locking (with slow animation) that can be cancelled.
   // After locking and |kLockToShutdownTimeoutMs| StartShutdownAnimation()
@@ -187,7 +187,8 @@ class ASH_EXPORT LockStateController : public aura::WindowTreeHostObserver,
   // Called when Chrome gets a request to display the lock screen.
   void OnStartingLock();
 
-  // Displays the shutdown animation and requests shutdown when it's done.
+  // Displays the shutdown animation and requests a system shutdown or system
+  // restart depending on the the state of the |RebootOnShutdown| device policy.
   void RequestShutdown();
 
   // Called when ScreenLocker is ready to close, but not yet destroyed.
@@ -239,8 +240,8 @@ class ASH_EXPORT LockStateController : public aura::WindowTreeHostObserver,
   // white" shutdown animation.
   void StartRealShutdownTimer(bool with_animation_time);
 
-  // Requests that the machine be shut down.
-  void OnRealShutdownTimeout();
+  // Request that the machine be shut down.
+  void OnRealPowerTimeout();
 
   // Starts shutdown animation that can be cancelled and starts pre-shutdown
   // timer.
@@ -282,7 +283,7 @@ class ASH_EXPORT LockStateController : public aura::WindowTreeHostObserver,
 
   scoped_ptr<LockStateControllerDelegate> delegate_;
 
-  ObserverList<LockStateObserver> observers_;
+  base::ObserverList<LockStateObserver> observers_;
 
   // The current login status, or original login status from before we locked.
   user::LoginStatus login_status_;

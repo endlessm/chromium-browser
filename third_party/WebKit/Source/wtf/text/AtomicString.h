@@ -65,8 +65,8 @@ public:
     ALWAYS_INLINE AtomicString(const char (&characters)[charactersCount], ConstructFromLiteralTag)
         : m_string(addFromLiteralData(characters, charactersCount - 1))
     {
-        COMPILE_ASSERT(charactersCount > 1, AtomicStringFromLiteralNotEmpty);
-        COMPILE_ASSERT((charactersCount - 1 <= ((unsigned(~0) - sizeof(StringImpl)) / sizeof(LChar))), AtomicStringFromLiteralCannotOverflow);
+        static_assert(charactersCount > 1, "AtomicString FromLiteralData should not be empty");
+        static_assert((charactersCount - 1 <= ((unsigned(~0) - sizeof(StringImpl)) / sizeof(LChar))), "AtomicString FromLiteralData cannot overflow");
     }
 
     // Hash table deleted values, which are only constructed and never copied or destroyed.
@@ -76,7 +76,7 @@ public:
     static StringImpl* find(const StringImpl*);
 
     operator const String&() const { return m_string; }
-    const String& string() const { return m_string; };
+    const String& string() const { return m_string; }
 
     StringImpl* impl() const { return m_string.impl(); }
 
@@ -88,32 +88,32 @@ public:
     UChar operator[](unsigned i) const { return m_string[i]; }
 
     bool contains(UChar c) const { return m_string.contains(c); }
-    bool contains(const LChar* s, bool caseSensitive = true) const
-        { return m_string.contains(s, caseSensitive); }
-    bool contains(const String& s, bool caseSensitive = true) const
-        { return m_string.contains(s, caseSensitive); }
+    bool contains(const LChar* s, TextCaseSensitivity caseSensitivity = TextCaseSensitive) const
+        { return m_string.contains(s, caseSensitivity); }
+    bool contains(const String& s, TextCaseSensitivity caseSensitivity = TextCaseSensitive) const
+        { return m_string.contains(s, caseSensitivity); }
 
     size_t find(UChar c, size_t start = 0) const { return m_string.find(c, start); }
-    size_t find(const LChar* s, size_t start = 0, bool caseSentitive = true) const
-        { return m_string.find(s, start, caseSentitive); }
-    size_t find(const String& s, size_t start = 0, bool caseSentitive = true) const
-        { return m_string.find(s, start, caseSentitive); }
+    size_t find(const LChar* s, size_t start = 0, TextCaseSensitivity caseSensitivity = TextCaseSensitive) const
+        { return m_string.find(s, start, caseSensitivity); }
+    size_t find(const String& s, size_t start = 0, TextCaseSensitivity caseSensitivity = TextCaseSensitive) const
+        { return m_string.find(s, start, caseSensitivity); }
 
-    bool startsWith(const String& s, bool caseSensitive = true) const
-        { return m_string.startsWith(s, caseSensitive); }
+    bool startsWith(const String& s, TextCaseSensitivity caseSensitivity = TextCaseSensitive) const
+        { return m_string.startsWith(s, caseSensitivity); }
     bool startsWith(UChar character) const
         { return m_string.startsWith(character); }
     template<unsigned matchLength>
-    bool startsWith(const char (&prefix)[matchLength], bool caseSensitive = true) const
-        { return m_string.startsWith<matchLength>(prefix, caseSensitive); }
+    bool startsWith(const char (&prefix)[matchLength], TextCaseSensitivity caseSensitivity = TextCaseSensitive) const
+        { return m_string.startsWith<matchLength>(prefix, caseSensitivity); }
 
-    bool endsWith(const String& s, bool caseSensitive = true) const
-        { return m_string.endsWith(s, caseSensitive); }
+    bool endsWith(const String& s, TextCaseSensitivity caseSensitivity = TextCaseSensitive) const
+        { return m_string.endsWith(s, caseSensitivity); }
     bool endsWith(UChar character) const
         { return m_string.endsWith(character); }
     template<unsigned matchLength>
-    bool endsWith(const char (&prefix)[matchLength], bool caseSensitive = true) const
-        { return m_string.endsWith<matchLength>(prefix, caseSensitive); }
+    bool endsWith(const char (&prefix)[matchLength], TextCaseSensitivity caseSensitivity = TextCaseSensitive) const
+        { return m_string.endsWith<matchLength>(prefix, caseSensitivity); }
 
     AtomicString lower() const;
     AtomicString upper() const { return AtomicString(impl()->upper()); }
@@ -160,10 +160,10 @@ private:
     String m_string;
 
     static PassRefPtr<StringImpl> add(const LChar*);
-    ALWAYS_INLINE static PassRefPtr<StringImpl> add(const char* s) { return add(reinterpret_cast<const LChar*>(s)); };
+    ALWAYS_INLINE static PassRefPtr<StringImpl> add(const char* s) { return add(reinterpret_cast<const LChar*>(s)); }
     static PassRefPtr<StringImpl> add(const LChar*, unsigned length);
     static PassRefPtr<StringImpl> add(const UChar*, unsigned length);
-    ALWAYS_INLINE static PassRefPtr<StringImpl> add(const char* s, unsigned length) { return add(reinterpret_cast<const LChar*>(s), length); };
+    ALWAYS_INLINE static PassRefPtr<StringImpl> add(const char* s, unsigned length) { return add(reinterpret_cast<const LChar*>(s), length); }
     static PassRefPtr<StringImpl> add(const UChar*, unsigned length, unsigned existingHash);
     static PassRefPtr<StringImpl> add(const UChar*);
     static PassRefPtr<StringImpl> add(StringImpl*, unsigned offset, unsigned length);
@@ -188,6 +188,7 @@ inline bool operator==(const AtomicString& a, const char* b) { return WTF::equal
 inline bool operator==(const AtomicString& a, const Vector<UChar>& b) { return a.impl() && equal(a.impl(), b.data(), b.size()); }
 inline bool operator==(const AtomicString& a, const String& b) { return equal(a.impl(), b.impl()); }
 inline bool operator==(const LChar* a, const AtomicString& b) { return b == a; }
+inline bool operator==(const char* a, const AtomicString& b) { return b == a; }
 inline bool operator==(const String& a, const AtomicString& b) { return equal(a.impl(), b.impl()); }
 inline bool operator==(const Vector<UChar>& a, const AtomicString& b) { return b == a; }
 
@@ -197,6 +198,7 @@ inline bool operator!=(const AtomicString& a, const char* b) { return !(a == b);
 inline bool operator!=(const AtomicString& a, const String& b) { return !equal(a.impl(), b.impl()); }
 inline bool operator!=(const AtomicString& a, const Vector<UChar>& b) { return !(a == b); }
 inline bool operator!=(const LChar* a, const AtomicString& b) { return !(b == a); }
+inline bool operator!=(const char* a, const AtomicString& b) { return !(b == a); }
 inline bool operator!=(const String& a, const AtomicString& b) { return !equal(a.impl(), b.impl()); }
 inline bool operator!=(const Vector<UChar>& a, const AtomicString& b) { return !(a == b); }
 

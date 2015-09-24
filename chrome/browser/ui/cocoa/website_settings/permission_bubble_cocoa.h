@@ -5,31 +5,33 @@
 #ifndef CHROME_BROWSER_UI_COCOA_PERMISSION_BUBBLE_COCOA_H_
 #define CHROME_BROWSER_UI_COCOA_PERMISSION_BUBBLE_COCOA_H_
 
+#import <Foundation/Foundation.h>
+
+#include "base/gtest_prod_util.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "chrome/browser/ui/cocoa/info_bubble_view.h"
 #include "chrome/browser/ui/website_settings/permission_bubble_view.h"
 #include "content/public/browser/web_contents.h"
 
-#ifdef __OBJC__
+class Browser;
 @class PermissionBubbleController;
-#else
-class PermissionBubbleController;
-#endif
 
 class PermissionBubbleCocoa : public PermissionBubbleView {
  public:
-  explicit PermissionBubbleCocoa(NSWindow* parent_window);
+  explicit PermissionBubbleCocoa(Browser* browser);
   ~PermissionBubbleCocoa() override;
 
   // PermissionBubbleView interface.
   void Show(const std::vector<PermissionBubbleRequest*>& requests,
-            const std::vector<bool>& accept_state,
-            bool customization_mode) override;
+            const std::vector<bool>& accept_state) override;
   void Hide() override;
   bool IsVisible() override;
   void SetDelegate(Delegate* delegate) override;
   bool CanAcceptRequestUpdate() override;
+  void UpdateAnchorPosition() override;
+  gfx::NativeWindow GetNativeWindow() override;
 
   // Called when |bubbleController_| is closing.
   void OnBubbleClosing();
@@ -38,15 +40,26 @@ class PermissionBubbleCocoa : public PermissionBubbleView {
   // should point.
   NSPoint GetAnchorPoint();
 
-  // Returns the NSWindow containing the bubble.
-  NSWindow* window();
+  info_bubble::BubbleArrowLocation GetArrowLocation();
 
-private:
-  NSWindow* parent_window_;  // Weak.
+ private:
+  FRIEND_TEST_ALL_PREFIXES(PermissionBubbleBrowserTest,
+                           HasLocationBarByDefault);
+  FRIEND_TEST_ALL_PREFIXES(PermissionBubbleBrowserTest,
+                           FullscreenHasLocationBar);
+  FRIEND_TEST_ALL_PREFIXES(PermissionBubbleAppBrowserTest, AppHasNoLocationBar);
+  FRIEND_TEST_ALL_PREFIXES(PermissionBubbleKioskBrowserTest,
+                           KioskHasNoLocationBar);
+
+  Browser* browser_;    // Weak.
   Delegate* delegate_;  // Weak.
 
   // Cocoa-side UI controller for the bubble.  Weak, as it will close itself.
   PermissionBubbleController* bubbleController_;
+  virtual bool HasLocationBar();
+
+  // Will get the intended parent window for the bubble and will not be NULL.
+  NSWindow* GetParentWindow();
 
   DISALLOW_COPY_AND_ASSIGN(PermissionBubbleCocoa);
 };

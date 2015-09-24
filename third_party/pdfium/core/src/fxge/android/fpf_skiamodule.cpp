@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "fx_fpf.h"
@@ -12,15 +12,13 @@ static IFPF_DeviceModule *gs_pPFModule = NULL;
 IFPF_DeviceModule* FPF_GetDeviceModule()
 {
     if (!gs_pPFModule) {
-        gs_pPFModule = FX_NEW CFPF_SkiaDeviceModule;
+        gs_pPFModule = new CFPF_SkiaDeviceModule;
     }
     return gs_pPFModule;
 }
 CFPF_SkiaDeviceModule::~CFPF_SkiaDeviceModule()
 {
-    if (m_pFontMgr) {
-        delete m_pFontMgr;
-    }
+    delete m_pFontMgr;
 }
 void CFPF_SkiaDeviceModule::Destroy()
 {
@@ -32,10 +30,7 @@ void CFPF_SkiaDeviceModule::Destroy()
 IFPF_FontMgr* CFPF_SkiaDeviceModule::GetFontMgr()
 {
     if (!m_pFontMgr) {
-        m_pFontMgr = FX_NEW CFPF_SkiaFontMgr;
-        if (!m_pFontMgr) {
-            return NULL;
-        }
+        m_pFontMgr = new CFPF_SkiaFontMgr;
         if (!m_pFontMgr->InitFTLibrary()) {
             delete m_pFontMgr;
             return NULL;

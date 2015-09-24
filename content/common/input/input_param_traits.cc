@@ -6,17 +6,17 @@
 
 #include "content/common/content_param_traits.h"
 #include "content/common/input/synthetic_pinch_gesture_params.h"
+#include "content/common/input/synthetic_smooth_drag_gesture_params.h"
 #include "content/common/input/synthetic_smooth_scroll_gesture_params.h"
 #include "content/common/input/web_input_event_traits.h"
 #include "content/common/input_messages.h"
 
 namespace IPC {
 namespace {
-template<typename GestureType>
+template <typename GestureType>
 scoped_ptr<content::SyntheticGestureParams> ReadGestureParams(
     const Message* m,
-    PickleIterator* iter)
-{
+    base::PickleIterator* iter) {
   scoped_ptr<GestureType> gesture_params(new GestureType);
   if (!ReadParam(m, iter, gesture_params.get()))
     return scoped_ptr<content::SyntheticGestureParams>();
@@ -34,7 +34,7 @@ void ParamTraits<content::ScopedWebInputEvent>::Write(Message* m,
 }
 
 bool ParamTraits<content::ScopedWebInputEvent>::Read(const Message* m,
-                                                     PickleIterator* iter,
+                                                     base::PickleIterator* iter,
                                                      param_type* p) {
   bool valid_web_event = false;
   WebInputEventPointer web_event_pointer = NULL;
@@ -62,6 +62,10 @@ void ParamTraits<content::SyntheticGesturePacket>::Write(Message* m,
       WriteParam(m, *content::SyntheticSmoothScrollGestureParams::Cast(
           p.gesture_params()));
       break;
+    case content::SyntheticGestureParams::SMOOTH_DRAG_GESTURE:
+      WriteParam(m, *content::SyntheticSmoothDragGestureParams::Cast(
+                 p.gesture_params()));
+      break;
     case content::SyntheticGestureParams::PINCH_GESTURE:
       WriteParam(m, *content::SyntheticPinchGestureParams::Cast(
           p.gesture_params()));
@@ -73,9 +77,10 @@ void ParamTraits<content::SyntheticGesturePacket>::Write(Message* m,
   }
 }
 
-bool ParamTraits<content::SyntheticGesturePacket>::Read(const Message* m,
-                                                        PickleIterator* iter,
-                                                        param_type* p) {
+bool ParamTraits<content::SyntheticGesturePacket>::Read(
+    const Message* m,
+    base::PickleIterator* iter,
+    param_type* p) {
   content::SyntheticGestureParams::GestureType gesture_type;
   if (!ReadParam(m, iter, &gesture_type))
     return false;
@@ -85,6 +90,10 @@ bool ParamTraits<content::SyntheticGesturePacket>::Read(const Message* m,
       gesture_params =
           ReadGestureParams<content::SyntheticSmoothScrollGestureParams>(m,
                                                                          iter);
+      break;
+    case content::SyntheticGestureParams::SMOOTH_DRAG_GESTURE:
+      gesture_params =
+          ReadGestureParams<content::SyntheticSmoothDragGestureParams>(m, iter);
       break;
     case content::SyntheticGestureParams::PINCH_GESTURE:
       gesture_params =
@@ -110,6 +119,11 @@ void ParamTraits<content::SyntheticGesturePacket>::Log(const param_type& p,
       LogParam(
           *content::SyntheticSmoothScrollGestureParams::Cast(
               p.gesture_params()),
+          l);
+      break;
+    case content::SyntheticGestureParams::SMOOTH_DRAG_GESTURE:
+      LogParam(
+          *content::SyntheticSmoothDragGestureParams::Cast(p.gesture_params()),
           l);
       break;
     case content::SyntheticGestureParams::PINCH_GESTURE:

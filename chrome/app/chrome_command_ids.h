@@ -94,40 +94,40 @@
 #define IDC_ENCODING_AUTO_DETECT        35500
 #define IDC_ENCODING_UTF8               35501
 #define IDC_ENCODING_UTF16LE            35502
-#define IDC_ENCODING_WINDOWS1252        35504
-#define IDC_ENCODING_GBK                35505
-#define IDC_ENCODING_GB18030            35506
-#define IDC_ENCODING_BIG5               35507
-#define IDC_ENCODING_BIG5HKSCS          35508
-#define IDC_ENCODING_KOREAN             35509
-#define IDC_ENCODING_SHIFTJIS           35510
-#define IDC_ENCODING_ISO2022JP          35511
-#define IDC_ENCODING_EUCJP              35512
-#define IDC_ENCODING_THAI               35513
-#define IDC_ENCODING_ISO885915          35514
-#define IDC_ENCODING_MACINTOSH          35515
-#define IDC_ENCODING_ISO88592           35516
-#define IDC_ENCODING_WINDOWS1250        35517
-#define IDC_ENCODING_ISO88595           35518
-#define IDC_ENCODING_WINDOWS1251        35519
-#define IDC_ENCODING_KOI8R              35520
-#define IDC_ENCODING_KOI8U              35521
-#define IDC_ENCODING_ISO88597           35522
-#define IDC_ENCODING_WINDOWS1253        35523
-#define IDC_ENCODING_ISO88594           35524
-#define IDC_ENCODING_ISO885913          35525
-#define IDC_ENCODING_WINDOWS1257        35526
-#define IDC_ENCODING_ISO88593           35527
-#define IDC_ENCODING_ISO885910          35528
-#define IDC_ENCODING_ISO885914          35529
-#define IDC_ENCODING_ISO885916          35530
-#define IDC_ENCODING_WINDOWS1254        35531
-#define IDC_ENCODING_ISO88596           35532
-#define IDC_ENCODING_WINDOWS1256        35533
-#define IDC_ENCODING_ISO88598           35534
-#define IDC_ENCODING_WINDOWS1255        35535
-#define IDC_ENCODING_WINDOWS1258        35536
-#define IDC_ENCODING_ISO88598I          35537
+#define IDC_ENCODING_WINDOWS1252        35503
+#define IDC_ENCODING_GBK                35504
+#define IDC_ENCODING_GB18030            35505
+#define IDC_ENCODING_BIG5               35506
+#define IDC_ENCODING_KOREAN             35507
+#define IDC_ENCODING_SHIFTJIS           35508
+#define IDC_ENCODING_ISO2022JP          35509
+#define IDC_ENCODING_EUCJP              35510
+#define IDC_ENCODING_THAI               35511
+#define IDC_ENCODING_ISO885915          35512
+#define IDC_ENCODING_MACINTOSH          35513
+#define IDC_ENCODING_ISO88592           35514
+#define IDC_ENCODING_WINDOWS1250        35515
+#define IDC_ENCODING_ISO88595           35516
+#define IDC_ENCODING_WINDOWS1251        35517
+#define IDC_ENCODING_KOI8R              35518
+#define IDC_ENCODING_KOI8U              35519
+#define IDC_ENCODING_ISO88597           35520
+#define IDC_ENCODING_WINDOWS1253        35521
+#define IDC_ENCODING_ISO88594           35522
+#define IDC_ENCODING_ISO885913          35523
+#define IDC_ENCODING_WINDOWS1257        35524
+#define IDC_ENCODING_ISO88593           35525
+#define IDC_ENCODING_ISO885910          35526
+#define IDC_ENCODING_ISO885914          35527
+#define IDC_ENCODING_ISO885916          35528
+#define IDC_ENCODING_WINDOWS1254        35529
+#define IDC_ENCODING_ISO88596           35530
+#define IDC_ENCODING_WINDOWS1256        35531
+#define IDC_ENCODING_ISO88598           35532
+#define IDC_ENCODING_WINDOWS1255        35533
+#define IDC_ENCODING_WINDOWS1258        35534
+#define IDC_ENCODING_ISO88598I          35535
+#define IDC_ENCODING_IBM866             35536
 
 // Clipboard commands
 #define IDC_CUT                         36000
@@ -207,12 +207,15 @@
 #define IDC_RECENT_TABS_MENU            40239
 #define IDC_RECENT_TABS_NO_DEVICE_TABS  40240
 #define IDC_SHOW_SETTINGS_RESET_BUBBLE  40241
-#define IDC_TAKE_SCREENSHOT             40242
-#define IDC_SHOW_SYNC_ERROR             40243
-#define IDC_DISTILL_PAGE                40244
-#define IDC_HELP_MENU                   40245
-#define IDC_EXTENSIONS_OVERFLOW_MENU    40246
-#define IDC_SHOW_SRT_BUBBLE             40247
+#define IDC_SHOW_SYNC_ERROR             40242
+#define IDC_DISTILL_PAGE                40243
+#define IDC_HELP_MENU                   40244
+#define IDC_EXTENSIONS_OVERFLOW_MENU    40245
+#define IDC_SHOW_SRT_BUBBLE             40246
+#define IDC_ELEVATED_RECOVERY_DIALOG    40247
+#define IDC_TAKE_SCREENSHOT             40248
+#define IDC_MORE_TOOLS_MENU             40249
+#define IDC_SHOW_FAST_USER_SWITCHER     40250
 
 // Spell-check
 // Insert any additional suggestions before _LAST; these have to be consecutive.
@@ -278,6 +281,8 @@
 #define IDC_CONTENT_CONTEXT_COPYIMAGE 50112
 #define IDC_CONTENT_CONTEXT_OPENIMAGENEWTAB 50113
 #define IDC_CONTENT_CONTEXT_SEARCHWEBFORIMAGE 50114
+#define IDC_CONTENT_CONTEXT_OPEN_ORIGINAL_IMAGE_NEW_TAB 50115
+#define IDC_CONTENT_CONTEXT_LOAD_ORIGINAL_IMAGE 50116
 // Audio/video items.
 #define IDC_CONTENT_CONTEXT_SAVEAVAS 50120
 #define IDC_CONTENT_CONTEXT_COPYAVLOCATION 50121
@@ -314,6 +319,7 @@
 #define IDC_CONTENT_CONTEXT_RELOAD_PACKAGED_APP 50162
 #define IDC_CONTENT_CONTEXT_RESTART_PACKAGED_APP 50163
 #define IDC_CONTENT_CONTEXT_AUTOCORRECT_SPELLING_TOGGLE 50164
+#define IDC_CONTENT_CONTEXT_FORCESAVEPASSWORD 50165
 // Frame items.
 #define IDC_CONTENT_CONTEXT_RELOADFRAME 50170
 #define IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE 50171
@@ -356,5 +362,12 @@
 
 // NOTE: The last valid command value is 57343 (0xDFFF)
 // See http://msdn.microsoft.com/en-us/library/t2zechd4(VS.71).aspx
+
+// Starting command id for menus showing bookmarks (such as the wrench menu).
+// While command ids passed to Windows functions must not be higher than 0xDFFF,
+// these IDs are not exposed to the native system and thus can be in this
+// otherwise-reserved range. No command used in a menu (such as the wrench menu)
+// should be higher than this, otherwise it'll conflict.
+#define IDC_FIRST_BOOKMARK_MENU 0xE000
 
 #endif  // CHROME_APP_CHROME_COMMAND_IDS_H_

@@ -11,6 +11,7 @@
 #include "chrome/browser/profiles/off_the_record_profile_io_data.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/zoom/chrome_zoom_level_prefs.h"
 #include "components/domain_reliability/clear_mode.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/host_zoom_map.h"
@@ -36,15 +37,18 @@ class OffTheRecordProfileImpl : public Profile {
   void Init();
 
   // Profile implementation.
-  std::string GetProfileName() override;
+  std::string GetProfileUserName() const override;
   ProfileType GetProfileType() const override;
   Profile* GetOffTheRecordProfile() override;
   void DestroyOffTheRecordProfile() override;
   bool HasOffTheRecordProfile() override;
   Profile* GetOriginalProfile() override;
   bool IsSupervised() override;
+  bool IsChild() override;
+  bool IsLegacySupervised() override;
   ExtensionSpecialStoragePolicy* GetExtensionSpecialStoragePolicy() override;
   PrefService* GetPrefs() override;
+  const PrefService* GetPrefs() const override;
   PrefService* GetOffTheRecordPrefs() override;
   net::URLRequestContextGetter* GetRequestContextForExtensions() override;
   net::URLRequestContextGetter* CreateRequestContext(
@@ -59,8 +63,6 @@ class OffTheRecordProfileImpl : public Profile {
   HostContentSettingsMap* GetHostContentSettingsMap() override;
   bool IsSameProfile(Profile* profile) override;
   Time GetStartTime() const override;
-  history::TopSites* GetTopSitesWithoutCreating() override;
-  history::TopSites* GetTopSites() override;
   base::FilePath last_selected_directory() override;
   void set_last_selected_directory(const base::FilePath& path) override;
   bool WasCreatedByVersionOrLater(const std::string& version) override;
@@ -68,10 +70,9 @@ class OffTheRecordProfileImpl : public Profile {
   ExitType GetLastSessionExitType() override;
 
 #if defined(OS_CHROMEOS)
-  virtual void ChangeAppLocale(const std::string& locale,
-                               AppLocaleChangedVia) override;
-  virtual void OnLogin() override;
-  virtual void InitChromeOSPreferences() override;
+  void ChangeAppLocale(const std::string& locale, AppLocaleChangedVia) override;
+  void OnLogin() override;
+  void InitChromeOSPreferences() override;
 #endif  // defined(OS_CHROMEOS)
 
   PrefProxyConfigTracker* GetProxyConfigTracker() override;
@@ -84,6 +85,8 @@ class OffTheRecordProfileImpl : public Profile {
 
   // content::BrowserContext implementation:
   base::FilePath GetPath() const override;
+  scoped_ptr<content::ZoomLevelDelegate> CreateZoomLevelDelegate(
+      const base::FilePath& partition_path) override;
   scoped_refptr<base::SequencedTaskRunner> GetIOTaskRunner() override;
   bool IsOffTheRecord() const override;
   content::DownloadManagerDelegate* GetDownloadManagerDelegate() override;
@@ -101,18 +104,23 @@ class OffTheRecordProfileImpl : public Profile {
   storage::SpecialStoragePolicy* GetSpecialStoragePolicy() override;
   content::PushMessagingService* GetPushMessagingService() override;
   content::SSLHostStateDelegate* GetSSLHostStateDelegate() override;
+  content::PermissionManager* GetPermissionManager() override;
 
  private:
-  FRIEND_TEST_ALL_PREFIXES(OffTheRecordProfileImplTest, GetHostZoomMap);
   void InitIoData();
-  void InitHostZoomMap();
+
+  // Allows a profile to track changes in zoom levels in its parent profile.
+  void TrackZoomLevelsFromParent();
 
 #if defined(OS_ANDROID) || defined(OS_IOS)
   void UseSystemProxy();
 #endif  // defined(OS_ANDROID) || defined(OS_IOS)
 
-  void OnZoomLevelChanged(const content::HostZoomMap::ZoomLevelChange& change);
   PrefProxyConfigTracker* CreateProxyConfigTracker();
+  // Callback function for tracking parent's zoom level changes.
+  void OnParentZoomLevelChanged(
+      const content::HostZoomMap::ZoomLevelChange& change);
+  void UpdateDefaultZoomLevel();
 
   // The real underlying profile.
   Profile* profile_;
@@ -120,6 +128,9 @@ class OffTheRecordProfileImpl : public Profile {
   // Weak pointer owned by |profile_|.
   PrefServiceSyncable* prefs_;
 
+  scoped_ptr<content::HostZoomMap::Subscription> track_zoom_subscription_;
+  scoped_ptr<chrome::ChromeZoomLevelPrefs::DefaultZoomLevelSubscription>
+      parent_default_zoom_level_subscription_;
   scoped_ptr<OffTheRecordProfileIOData::Handle> io_data_;
 
   // We use a non-persistent content settings map for OTR.
@@ -131,8 +142,6 @@ class OffTheRecordProfileImpl : public Profile {
   base::FilePath last_selected_directory_;
 
   scoped_ptr<PrefProxyConfigTracker> pref_proxy_config_tracker_;
-
-  scoped_ptr<content::HostZoomMap::Subscription> zoom_subscription_;
 
   DISALLOW_COPY_AND_ASSIGN(OffTheRecordProfileImpl);
 };

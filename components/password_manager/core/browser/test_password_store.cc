@@ -4,16 +4,18 @@
 
 #include "components/password_manager/core/browser/test_password_store.h"
 
+#include "base/thread_task_runner_handle.h"
 #include "components/autofill/core/common/password_form.h"
 
 namespace password_manager {
 
 TestPasswordStore::TestPasswordStore()
-    : PasswordStore(base::MessageLoopProxy::current(),
-                    base::MessageLoopProxy::current()) {
+    : PasswordStore(base::ThreadTaskRunnerHandle::Get(),
+                    base::ThreadTaskRunnerHandle::Get()) {
 }
 
-TestPasswordStore::~TestPasswordStore() {}
+TestPasswordStore::~TestPasswordStore() {
+}
 
 const TestPasswordStore::PasswordMap& TestPasswordStore::stored_passwords()
     const {
@@ -29,8 +31,7 @@ bool TestPasswordStore::IsEmpty() const {
   // in |stored_passwords_| is 0.
   size_t number_of_passwords = 0u;
   for (PasswordMap::const_iterator it = stored_passwords_.begin();
-       !number_of_passwords && it != stored_passwords_.end();
-       ++it) {
+       !number_of_passwords && it != stored_passwords_.end(); ++it) {
     number_of_passwords += it->second.size();
   }
   return number_of_passwords == 0u;
@@ -43,10 +44,6 @@ bool TestPasswordStore::FormsAreEquivalent(const autofill::PasswordForm& lhs,
       lhs.username_value == rhs.username_value &&
       lhs.password_element == rhs.password_element &&
       lhs.signon_realm == rhs.signon_realm;
-}
-
-void TestPasswordStore::WrapModificationTask(ModificationTask task) {
-  task.Run();
 }
 
 PasswordStoreChangeList TestPasswordStore::AddLoginImpl(
@@ -63,11 +60,10 @@ PasswordStoreChangeList TestPasswordStore::UpdateLoginImpl(
   std::vector<autofill::PasswordForm>& forms =
       stored_passwords_[form.signon_realm];
   for (std::vector<autofill::PasswordForm>::iterator it = forms.begin();
-         it != forms.end(); ++it) {
+       it != forms.end(); ++it) {
     if (FormsAreEquivalent(form, *it)) {
       *it = form;
-      changes.push_back(
-          PasswordStoreChange(PasswordStoreChange::UPDATE, form));
+      changes.push_back(PasswordStoreChange(PasswordStoreChange::UPDATE, form));
     }
   }
   return changes;
@@ -82,8 +78,7 @@ PasswordStoreChangeList TestPasswordStore::RemoveLoginImpl(
   while (it != forms.end()) {
     if (FormsAreEquivalent(form, *it)) {
       it = forms.erase(it);
-      changes.push_back(
-          PasswordStoreChange(PasswordStoreChange::REMOVE, form));
+      changes.push_back(PasswordStoreChange(PasswordStoreChange::REMOVE, form));
     } else {
       ++it;
     }
@@ -91,18 +86,20 @@ PasswordStoreChangeList TestPasswordStore::RemoveLoginImpl(
   return changes;
 }
 
-void TestPasswordStore::GetLoginsImpl(
+ScopedVector<autofill::PasswordForm> TestPasswordStore::FillMatchingLogins(
     const autofill::PasswordForm& form,
-    PasswordStore::AuthorizationPromptPolicy prompt_policy,
-    const PasswordStore::ConsumerCallbackRunner& runner) {
-  std::vector<autofill::PasswordForm*> matched_forms;
+    PasswordStore::AuthorizationPromptPolicy prompt_policy) {
+  ScopedVector<autofill::PasswordForm> matched_forms;
   std::vector<autofill::PasswordForm> forms =
       stored_passwords_[form.signon_realm];
-  for (std::vector<autofill::PasswordForm>::iterator it = forms.begin();
-       it != forms.end(); ++it) {
-    matched_forms.push_back(new autofill::PasswordForm(*it));
+  for (const auto& stored_form : forms) {
+    matched_forms.push_back(new autofill::PasswordForm(stored_form));
   }
-  runner.Run(matched_forms);
+  return matched_forms.Pass();
+}
+
+void TestPasswordStore::ReportMetricsImpl(const std::string& sync_username,
+                                          bool custom_passphrase_sync_enabled) {
 }
 
 PasswordStoreChangeList TestPasswordStore::RemoveLoginsCreatedBetweenImpl(
@@ -120,13 +117,28 @@ PasswordStoreChangeList TestPasswordStore::RemoveLoginsSyncedBetweenImpl(
 }
 
 bool TestPasswordStore::FillAutofillableLogins(
-    std::vector<autofill::PasswordForm*>* forms) {
+    ScopedVector<autofill::PasswordForm>* forms) {
+  for (const auto& forms_for_realm : stored_passwords_) {
+    for (const autofill::PasswordForm& form : forms_for_realm.second)
+      forms->push_back(new autofill::PasswordForm(form));
+  }
   return true;
 }
 
 bool TestPasswordStore::FillBlacklistLogins(
-    std::vector<autofill::PasswordForm*>* forms) {
+    ScopedVector<autofill::PasswordForm>* forms) {
   return true;
+}
+
+void TestPasswordStore::AddSiteStatsImpl(const InteractionsStats& stats) {
+}
+
+void TestPasswordStore::RemoveSiteStatsImpl(const GURL& origin_domain) {
+}
+
+scoped_ptr<InteractionsStats> TestPasswordStore::GetSiteStatsImpl(
+    const GURL& origin_domain) {
+  return scoped_ptr<InteractionsStats>();
 }
 
 }  // namespace password_manager

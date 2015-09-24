@@ -85,9 +85,9 @@ void TranslateBubbleView::ShowBubble(
     translate::TranslateStep step,
     translate::TranslateErrors::Type error_type,
     bool is_user_gesture) {
-  if (IsShowing()) {
+  if (translate_bubble_view_) {
     // When the user reads the advanced setting panel, the bubble should not be
-    // changed because he/she is focusing on the bubble.
+    // changed because they are focusing on the bubble.
     if (translate_bubble_view_->web_contents() == web_contents &&
         translate_bubble_view_->model()->GetViewState() ==
         TranslateBubbleModel::VIEW_STATE_ADVANCED) {
@@ -133,15 +133,10 @@ void TranslateBubbleView::ShowBubble(
 
 // static
 void TranslateBubbleView::CloseBubble() {
-  if (!IsShowing())
+  if (!translate_bubble_view_)
     return;
 
   translate_bubble_view_->GetWidget()->Close();
-}
-
-// static
-bool TranslateBubbleView::IsShowing() {
-  return translate_bubble_view_ != NULL;
 }
 
 // static
@@ -258,7 +253,7 @@ TranslateBubbleView::TranslateBubbleView(
     scoped_ptr<TranslateBubbleModel> model,
     translate::TranslateErrors::Type error_type,
     content::WebContents* web_contents)
-    : BubbleDelegateView(anchor_view, views::BubbleBorder::TOP_RIGHT),
+    : ManagedFullScreenBubbleDelegateView(anchor_view, web_contents),
       WebContentsObserver(web_contents),
       before_translate_view_(NULL),
       translating_view_(NULL),
@@ -767,4 +762,7 @@ void TranslateBubbleView::UpdateAdvancedView() {
   else
     label = l10n_util::GetStringUTF16(IDS_TRANSLATE_BUBBLE_ACCEPT);
   advanced_done_button_->SetText(label);
+  advanced_done_button_->SizeToPreferredSize();
+  if (advanced_view_)
+    advanced_view_->Layout();
 }

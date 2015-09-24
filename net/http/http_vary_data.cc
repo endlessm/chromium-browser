@@ -64,17 +64,17 @@ bool HttpVaryData::Init(const HttpRequestInfo& request_info,
   return is_valid_ = true;
 }
 
-bool HttpVaryData::InitFromPickle(const Pickle& pickle, PickleIterator* iter) {
+bool HttpVaryData::InitFromPickle(base::PickleIterator* iter) {
   is_valid_ = false;
   const char* data;
-  if (pickle.ReadBytes(iter, &data, sizeof(request_digest_))) {
+  if (iter->ReadBytes(&data, sizeof(request_digest_))) {
     memcpy(&request_digest_, data, sizeof(request_digest_));
     return is_valid_ = true;
   }
   return false;
 }
 
-void HttpVaryData::Persist(Pickle* pickle) const {
+void HttpVaryData::Persist(base::Pickle* pickle) const {
   DCHECK(is_valid());
   pickle->WriteBytes(&request_digest_, sizeof(request_digest_));
 }

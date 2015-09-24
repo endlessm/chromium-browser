@@ -48,10 +48,6 @@ RenderWidgetHelper::~RenderWidgetHelper() {
   WidgetHelperMap::iterator it = widget_map.find(render_process_id_);
   if (it != widget_map.end() && it->second == this)
     widget_map.erase(it);
-
-#if defined(OS_POSIX) && !defined(OS_ANDROID)
-  ClearAllocatedDIBs();
-#endif
 }
 
 void RenderWidgetHelper::Init(
@@ -88,16 +84,6 @@ void RenderWidgetHelper::ResumeDeferredNavigation(
                  request_id));
 }
 
-void RenderWidgetHelper::ResumeResponseDeferredAtStart(
-    const GlobalRequestID& request_id) {
-  BrowserThread::PostTask(
-      BrowserThread::IO,
-      FROM_HERE,
-      base::Bind(&RenderWidgetHelper::OnResumeResponseDeferredAtStart,
-                 this,
-                 request_id));
-}
-
 void RenderWidgetHelper::ResumeRequestsForView(int route_id) {
   // We only need to resume blocked requests if we used a valid route_id.
   // See CreateNewWindow.
@@ -112,11 +98,6 @@ void RenderWidgetHelper::ResumeRequestsForView(int route_id) {
 void RenderWidgetHelper::OnResumeDeferredNavigation(
     const GlobalRequestID& request_id) {
   resource_dispatcher_host_->ResumeDeferredNavigation(request_id);
-}
-
-void RenderWidgetHelper::OnResumeResponseDeferredAtStart(
-    const GlobalRequestID& request_id) {
-  resource_dispatcher_host_->ResumeResponseDeferredAtStart(request_id);
 }
 
 void RenderWidgetHelper::CreateNewWindow(
@@ -215,51 +196,5 @@ void RenderWidgetHelper::OnCreateFullscreenWidgetOnUI(int opener_id,
   if (host)
     host->CreateNewFullscreenWidget(route_id);
 }
-
-#if defined(OS_POSIX) && !defined(OS_ANDROID)
-void RenderWidgetHelper::AllocTransportDIB(uint32 size,
-                                           bool cache_in_browser,
-                                           TransportDIB::Handle* result) {
-  scoped_ptr<base::SharedMemory> shared_memory(new base::SharedMemory());
-  if (!shared_memory->CreateAnonymous(size)) {
-    result->fd = -1;
-    result->auto_close = false;
-    return;
-  }
-
-  shared_memory->GiveToProcess(0 /* pid, not needed */, result);
-
-  if (cache_in_browser) {
-    // Keep a copy of the file descriptor around
-    base::AutoLock locked(allocated_dibs_lock_);
-    allocated_dibs_[shared_memory->id()] = dup(result->fd);
-  }
-}
-
-void RenderWidgetHelper::FreeTransportDIB(TransportDIB::Id dib_id) {
-  base::AutoLock locked(allocated_dibs_lock_);
-
-  const std::map<TransportDIB::Id, int>::iterator
-    i = allocated_dibs_.find(dib_id);
-
-  if (i != allocated_dibs_.end()) {
-    if (IGNORE_EINTR(close(i->second)) < 0)
-      PLOG(ERROR) << "close";
-    allocated_dibs_.erase(i);
-  } else {
-    DLOG(WARNING) << "Renderer asked us to free unknown transport DIB";
-  }
-}
-
-void RenderWidgetHelper::ClearAllocatedDIBs() {
-  for (std::map<TransportDIB::Id, int>::iterator
-       i = allocated_dibs_.begin(); i != allocated_dibs_.end(); ++i) {
-    if (IGNORE_EINTR(close(i->second)) < 0)
-      PLOG(ERROR) << "close: " << i->first;
-  }
-
-  allocated_dibs_.clear();
-}
-#endif
 
 }  // namespace content

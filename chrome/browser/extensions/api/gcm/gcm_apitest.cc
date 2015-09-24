@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
 #include "chrome/browser/extensions/api/gcm/gcm_api.h"
 #include "chrome/browser/extensions/extension_apitest.h"
@@ -11,7 +10,6 @@
 #include "chrome/browser/services/gcm/fake_gcm_profile_service.h"
 #include "chrome/browser/services/gcm/gcm_profile_service_factory.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "extensions/test/result_catcher.h"
 
@@ -61,7 +59,7 @@ class GcmApiTest : public ExtensionApiTest {
   GcmApiTest() : fake_gcm_profile_service_(NULL) {}
 
  protected:
-  void SetUpCommandLine(CommandLine* command_line) override;
+  void SetUpCommandLine(base::CommandLine* command_line) override;
   void SetUpOnMainThread() override;
 
   void StartCollecting();
@@ -74,7 +72,7 @@ class GcmApiTest : public ExtensionApiTest {
   gcm::FakeGCMProfileService* fake_gcm_profile_service_;
 };
 
-void GcmApiTest::SetUpCommandLine(CommandLine* command_line) {
+void GcmApiTest::SetUpCommandLine(base::CommandLine* command_line) {
   // We now always create the GCMProfileService instance in
   // ProfileSyncServiceFactory that is called when a profile is being
   // initialized. In order to prevent it from being created, we add the switch
@@ -85,9 +83,6 @@ void GcmApiTest::SetUpCommandLine(CommandLine* command_line) {
 }
 
 void GcmApiTest::SetUpOnMainThread() {
-  // Enable GCM such that tests could be run on all channels.
-  browser()->profile()->GetPrefs()->SetBoolean(prefs::kGCMChannelEnabled, true);
-
   gcm::GCMProfileServiceFactory::GetInstance()->SetTestingFactory(
       browser()->profile(), &gcm::FakeGCMProfileService::Build);
   fake_gcm_profile_service_ = static_cast<gcm::FakeGCMProfileService*>(
@@ -200,11 +195,20 @@ IN_PROC_BROWSER_TEST_F(GcmApiTest, OnMessage) {
   gcm::GCMClient::IncomingMessage message;
   message.data["property1"] = "value1";
   message.data["property2"] = "value2";
-  // First message is sent without a collapse key.
+  // First message is sent without from and collapse key.
   app_handler.OnMessage(extension->id(), message);
 
-  // Second message carries the same data and a collapse key.
+  // Second message is send with from.
+  message.sender_id = "12345678";
+  app_handler.OnMessage(extension->id(), message);
+
+  // Third message is send with a collapse key.
+  message.sender_id.clear();
   message.collapse_key = "collapseKeyValue";
+  app_handler.OnMessage(extension->id(), message);
+
+  // Fourth message carries the same data, from and collapse key.
+  message.sender_id = "12345678";
   app_handler.OnMessage(extension->id(), message);
 
   EXPECT_TRUE(catcher.GetNextResult()) << catcher.message();

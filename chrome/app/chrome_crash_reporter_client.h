@@ -7,7 +7,12 @@
 
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/memory/scoped_ptr.h"
 #include "components/crash/app/crash_reporter_client.h"
+
+namespace browser_watcher {
+class CrashReportingMetrics;
+}  // namespace browser_watcher
 
 namespace chrome {
 
@@ -17,26 +22,29 @@ class ChromeCrashReporterClient : public crash_reporter::CrashReporterClient {
   ~ChromeCrashReporterClient() override;
 
   // crash_reporter::CrashReporterClient implementation.
+#if !defined(OS_MACOSX)
   void SetCrashReporterClientIdFromGUID(
       const std::string& client_guid) override;
+#endif
 #if defined(OS_WIN)
-  virtual bool GetAlternativeCrashDumpLocation(base::FilePath* crash_dir)
-      override;
-  virtual void GetProductNameAndVersion(const base::FilePath& exe_path,
-                                        base::string16* product_name,
-                                        base::string16* version,
-                                        base::string16* special_build,
-                                        base::string16* channel_name) override;
-  virtual bool ShouldShowRestartDialog(base::string16* title,
-                                       base::string16* message,
-                                       bool* is_rtl_locale) override;
-  virtual bool AboutToRestart() override;
-  virtual bool GetDeferredUploadsSupported(bool is_per_user_install) override;
-  virtual bool GetIsPerUserInstall(const base::FilePath& exe_path) override;
-  virtual bool GetShouldDumpLargerDumps(bool is_per_user_install) override;
-  virtual int GetResultCodeRespawnFailed() override;
-  virtual void InitBrowserCrashDumpsRegKey() override;
-  virtual void RecordCrashDumpAttempt(bool is_real_crash) override;
+  bool GetAlternativeCrashDumpLocation(base::FilePath* crash_dir) override;
+  void GetProductNameAndVersion(const base::FilePath& exe_path,
+                                base::string16* product_name,
+                                base::string16* version,
+                                base::string16* special_build,
+                                base::string16* channel_name) override;
+  bool ShouldShowRestartDialog(base::string16* title,
+                               base::string16* message,
+                               bool* is_rtl_locale) override;
+  bool AboutToRestart() override;
+  bool GetDeferredUploadsSupported(bool is_per_user_install) override;
+  bool GetIsPerUserInstall(const base::FilePath& exe_path) override;
+  bool GetShouldDumpLargerDumps(bool is_per_user_install) override;
+  int GetResultCodeRespawnFailed() override;
+  void InitBrowserCrashDumpsRegKey() override;
+  void RecordCrashDumpAttempt(bool is_real_crash) override;
+  void RecordCrashDumpAttemptResult(bool is_real_crash,
+                                    bool succeeded) override;
 #endif
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_IOS)
@@ -58,16 +66,16 @@ class ChromeCrashReporterClient : public crash_reporter::CrashReporterClient {
 #endif
 
 #if defined(OS_ANDROID)
-  virtual int GetAndroidMinidumpDescriptor() override;
-#endif
-
-#if defined(OS_MACOSX)
-  void InstallAdditionalFilters(BreakpadRef breakpad) override;
+  int GetAndroidMinidumpDescriptor() override;
 #endif
 
   bool EnableBreakpadForProcess(const std::string& process_type) override;
 
  private:
+#if defined(OS_WIN)
+  scoped_ptr<browser_watcher::CrashReportingMetrics> crash_reporting_metrics_;
+#endif
+
   DISALLOW_COPY_AND_ASSIGN(ChromeCrashReporterClient);
 };
 

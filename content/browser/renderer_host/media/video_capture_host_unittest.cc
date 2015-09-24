@@ -9,11 +9,13 @@
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
+#include "base/location.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/browser/browser_thread_impl.h"
 #include "content/browser/renderer_host/media/media_stream_manager.h"
 #include "content/browser/renderer_host/media/media_stream_requester.h"
@@ -28,8 +30,8 @@
 #include "content/test/test_content_browser_client.h"
 #include "media/audio/audio_manager.h"
 #include "media/base/media_switches.h"
+#include "media/base/video_capture_types.h"
 #include "media/base/video_frame.h"
-#include "media/video/capture/video_capture_types.h"
 #include "net/url_request/url_request_context.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -64,23 +66,27 @@ static const int kDeviceId = 555;
 // verifying the output.
 class DumpVideo {
  public:
-  DumpVideo() : expected_size_(0) {}
-  void StartDump(int width, int height) {
+  DumpVideo() {}
+  const gfx::Size& coded_size() const { return coded_size_; }
+  void StartDump(const gfx::Size& coded_size) {
     base::FilePath file_name = base::FilePath(base::StringPrintf(
-        FILE_PATH_LITERAL("dump_w%d_h%d.yuv"), width, height));
+        FILE_PATH_LITERAL("dump_w%d_h%d.yuv"),
+        coded_size.width(),
+        coded_size.height()));
     file_.reset(base::OpenFile(file_name, "wb"));
-    expected_size_ = media::VideoFrame::AllocationSize(
-        media::VideoFrame::I420, gfx::Size(width, height));
+    coded_size_ = coded_size;
   }
   void NewVideoFrame(const void* buffer) {
     if (file_.get() != NULL) {
-      ASSERT_EQ(1U, fwrite(buffer, expected_size_, 1, file_.get()));
+      const int size = media::VideoFrame::AllocationSize(
+          media::VideoFrame::I420, coded_size_);
+      ASSERT_EQ(1U, fwrite(buffer, size, 1, file_.get()));
     }
   }
 
  private:
   base::ScopedFILE file_;
-  int expected_size_;
+  gfx::Size coded_size_;
 };
 
 class MockMediaStreamRequester : public MediaStreamRequester {
@@ -128,20 +134,8 @@ class MockVideoCaptureHost : public VideoCaptureHost {
                     base::SharedMemoryHandle handle,
                     int length,
                     int buffer_id));
-  MOCK_METHOD2(OnBufferFreed,
-               void(int device_id, int buffer_id));
-  MOCK_METHOD5(OnBufferFilled,
-               void(int device_id,
-                    int buffer_id,
-                    const media::VideoCaptureFormat& format,
-                    const gfx::Rect& visible_rect,
-                    base::TimeTicks timestamp));
-  MOCK_METHOD5(OnMailboxBufferFilled,
-               void(int device_id,
-                    int buffer_id,
-                    const gpu::MailboxHolder& mailbox_holder,
-                    const media::VideoCaptureFormat& format,
-                    base::TimeTicks timestamp));
+  MOCK_METHOD2(OnBufferFreed, void(int device_id, int buffer_id));
+  MOCK_METHOD1(OnBufferFilled, void(int device_id));
   MOCK_METHOD2(OnStateChanged, void(int device_id, VideoCaptureState state));
 
   // Use class DumpVideo to write I420 video to file.
@@ -157,7 +151,7 @@ class MockVideoCaptureHost : public VideoCaptureHost {
   void ReturnReceivedDibs(int device_id)  {
     int handle = GetReceivedDib();
     while (handle) {
-      this->OnReceiveEmptyBuffer(device_id, handle, 0);
+      this->OnRendererFinishedWithBuffer(device_id, handle, 0, -1.0);
       handle = GetReceivedDib();
     }
   }
@@ -174,7 +168,7 @@ class MockVideoCaptureHost : public VideoCaptureHost {
   }
 
  private:
-  virtual ~MockVideoCaptureHost() {
+  ~MockVideoCaptureHost() override {
     STLDeleteContainerPairSecondPointers(filled_dib_.begin(),
                                          filled_dib_.end());
   }
@@ -182,7 +176,7 @@ class MockVideoCaptureHost : public VideoCaptureHost {
   // This method is used to dispatch IPC messages to the renderer. We intercept
   // these messages here and dispatch to our mock methods to verify the
   // conversation between this object and the renderer.
-  virtual bool Send(IPC::Message* message) override {
+  bool Send(IPC::Message* message) override {
     CHECK(message);
 
     // In this method we dispatch the messages to the according handlers as if
@@ -192,8 +186,6 @@ class MockVideoCaptureHost : public VideoCaptureHost {
       IPC_MESSAGE_HANDLER(VideoCaptureMsg_NewBuffer, OnNewBufferCreatedDispatch)
       IPC_MESSAGE_HANDLER(VideoCaptureMsg_FreeBuffer, OnBufferFreedDispatch)
       IPC_MESSAGE_HANDLER(VideoCaptureMsg_BufferReady, OnBufferFilledDispatch)
-      IPC_MESSAGE_HANDLER(VideoCaptureMsg_MailboxBufferReady,
-                          OnMailboxBufferFilledDispatch)
       IPC_MESSAGE_HANDLER(VideoCaptureMsg_StateChanged, OnStateChangedDispatch)
       IPC_MESSAGE_UNHANDLED(handled = false)
     IPC_END_MESSAGE_MAP()
@@ -224,41 +216,22 @@ class MockVideoCaptureHost : public VideoCaptureHost {
     filled_dib_.erase(it);
   }
 
-  void OnBufferFilledDispatch(int device_id,
-                              int buffer_id,
-                              const media::VideoCaptureFormat& frame_format,
-                              const gfx::Rect& visible_rect,
-                              base::TimeTicks timestamp) {
-    base::SharedMemory* dib = filled_dib_[buffer_id];
+  void OnBufferFilledDispatch(
+      const VideoCaptureMsg_BufferReady_Params& params) {
+    base::SharedMemory* dib = filled_dib_[params.buffer_id];
     ASSERT_TRUE(dib != NULL);
     if (dump_video_) {
-      if (!format_.IsValid()) {
-        dumper_.StartDump(frame_format.frame_size.width(),
-                          frame_format.frame_size.height());
-        format_ = frame_format;
-      }
-      ASSERT_EQ(format_.frame_size.width(), frame_format.frame_size.width())
-          << "Dump format does not handle variable resolution.";
-      ASSERT_EQ(format_.frame_size.height(), frame_format.frame_size.height())
+      if (dumper_.coded_size().IsEmpty())
+        dumper_.StartDump(params.coded_size);
+      ASSERT_TRUE(dumper_.coded_size() == params.coded_size)
           << "Dump format does not handle variable resolution.";
       dumper_.NewVideoFrame(dib->memory());
     }
 
-    OnBufferFilled(device_id, buffer_id, frame_format, visible_rect, timestamp);
+    OnBufferFilled(params.device_id);
     if (return_buffers_) {
-      VideoCaptureHost::OnReceiveEmptyBuffer(device_id, buffer_id, 0);
-    }
-  }
-
-  void OnMailboxBufferFilledDispatch(int device_id,
-                                     int buffer_id,
-                                     const gpu::MailboxHolder& mailbox_holder,
-                                     const media::VideoCaptureFormat& format,
-                                     base::TimeTicks timestamp) {
-    OnMailboxBufferFilled(
-        device_id, buffer_id, mailbox_holder, format, timestamp);
-    if (return_buffers_) {
-      VideoCaptureHost::OnReceiveEmptyBuffer(device_id, buffer_id, 0);
+      VideoCaptureHost::OnRendererFinishedWithBuffer(
+          params.device_id, params.buffer_id, 0, -1.0);
     }
   }
 
@@ -273,8 +246,8 @@ class MockVideoCaptureHost : public VideoCaptureHost {
   DumpVideo dumper_;
 };
 
-ACTION_P2(ExitMessageLoop, message_loop, quit_closure) {
-  message_loop->PostTask(FROM_HERE, quit_closure);
+ACTION_P2(ExitMessageLoop, task_runner, quit_closure) {
+  task_runner->PostTask(FROM_HERE, quit_closure);
 }
 
 // This is an integration test of VideoCaptureHost in conjunction with
@@ -284,10 +257,10 @@ class VideoCaptureHostTest : public testing::Test {
  public:
   VideoCaptureHostTest()
       : thread_bundle_(content::TestBrowserThreadBundle::IO_MAINLOOP),
-        message_loop_(base::MessageLoopProxy::current()),
+        task_runner_(base::ThreadTaskRunnerHandle::Get()),
         opened_session_id_(kInvalidMediaCaptureSessionId) {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     SetBrowserClientForTesting(&browser_client_);
 
 #if defined(OS_CHROMEOS)
@@ -310,7 +283,7 @@ class VideoCaptureHostTest : public testing::Test {
     OpenSession();
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     // Verifies and removes the expectations on host_ and
     // returns true iff successful.
     Mock::VerifyAndClearExpectations(host_.get());
@@ -350,13 +323,11 @@ class VideoCaptureHostTest : public testing::Test {
           page_request_id,
           MEDIA_DEVICE_VIDEO_CAPTURE,
           security_origin);
-      EXPECT_CALL(stream_requester_, DevicesEnumerated(render_frame_id,
-                                                       page_request_id,
-                                                       label,
-                                                       _))
-          .Times(1).WillOnce(
-              DoAll(ExitMessageLoop(message_loop_, run_loop.QuitClosure()),
-                    SaveArg<3>(&devices)));
+      EXPECT_CALL(stream_requester_,
+                  DevicesEnumerated(render_frame_id, page_request_id, label, _))
+          .Times(1)
+          .WillOnce(DoAll(ExitMessageLoop(task_runner_, run_loop.QuitClosure()),
+                          SaveArg<3>(&devices)));
       run_loop.Run();
       Mock::VerifyAndClearExpectations(&stream_requester_);
       media_stream_manager_->CancelRequest(label);
@@ -377,14 +348,12 @@ class VideoCaptureHostTest : public testing::Test {
           devices[0].device.id,
           MEDIA_DEVICE_VIDEO_CAPTURE,
           security_origin);
-      EXPECT_CALL(stream_requester_, DeviceOpened(render_frame_id,
-                                                  page_request_id,
-                                                  _,
-                                                  _))
-          .Times(1).WillOnce(
-              DoAll(ExitMessageLoop(message_loop_, run_loop.QuitClosure()),
-                    SaveArg<2>(&opened_device_label_),
-                    SaveArg<3>(&opened_device)));
+      EXPECT_CALL(stream_requester_,
+                  DeviceOpened(render_frame_id, page_request_id, _, _))
+          .Times(1)
+          .WillOnce(DoAll(ExitMessageLoop(task_runner_, run_loop.QuitClosure()),
+                          SaveArg<2>(&opened_device_label_),
+                          SaveArg<3>(&opened_device)));
       run_loop.Run();
       Mock::VerifyAndClearExpectations(&stream_requester_);
       ASSERT_NE(StreamDeviceInfo::kNoId, opened_device.session_id);
@@ -407,9 +376,9 @@ class VideoCaptureHostTest : public testing::Test {
         .WillRepeatedly(Return());
 
     base::RunLoop run_loop;
-    EXPECT_CALL(*host_.get(), OnBufferFilled(kDeviceId, _, _, _, _))
+    EXPECT_CALL(*host_.get(), OnBufferFilled(kDeviceId))
         .Times(AnyNumber())
-        .WillOnce(ExitMessageLoop(message_loop_, run_loop.QuitClosure()));
+        .WillOnce(ExitMessageLoop(task_runner_, run_loop.QuitClosure()));
 
     media::VideoCaptureParams params;
     params.requested_format = media::VideoCaptureFormat(
@@ -431,6 +400,7 @@ class VideoCaptureHostTest : public testing::Test {
     host_->OnStartCapture(kDeviceId, opened_session_id_, params);
     host_->OnStopCapture(kDeviceId);
     run_loop.RunUntilIdle();
+    WaitForVideoDeviceThread();
   }
 
 #ifdef DUMP_VIDEO
@@ -440,7 +410,7 @@ class VideoCaptureHostTest : public testing::Test {
         .Times(AnyNumber()).WillRepeatedly(Return());
 
     base::RunLoop run_loop;
-    EXPECT_CALL(*host_, OnBufferFilled(kDeviceId, _, _, _, _))
+    EXPECT_CALL(*host_, OnBufferFilled(kDeviceId, _, _, _, _, _, _, _, _, _))
         .Times(AnyNumber())
         .WillOnce(ExitMessageLoop(message_loop_, run_loop.QuitClosure()));
 
@@ -457,7 +427,7 @@ class VideoCaptureHostTest : public testing::Test {
     base::RunLoop run_loop;
     EXPECT_CALL(*host_.get(),
                 OnStateChanged(kDeviceId, VIDEO_CAPTURE_STATE_STOPPED))
-        .WillOnce(ExitMessageLoop(message_loop_, run_loop.QuitClosure()));
+        .WillOnce(ExitMessageLoop(task_runner_, run_loop.QuitClosure()));
 
     host_->OnStopCapture(kDeviceId);
     host_->SetReturnReceivedDibs(true);
@@ -472,9 +442,9 @@ class VideoCaptureHostTest : public testing::Test {
 
   void NotifyPacketReady() {
     base::RunLoop run_loop;
-    EXPECT_CALL(*host_.get(), OnBufferFilled(kDeviceId, _, _, _, _))
+    EXPECT_CALL(*host_.get(), OnBufferFilled(kDeviceId))
         .Times(AnyNumber())
-        .WillOnce(ExitMessageLoop(message_loop_, run_loop.QuitClosure()))
+        .WillOnce(ExitMessageLoop(task_runner_, run_loop.QuitClosure()))
         .RetiresOnSaturation();
     run_loop.Run();
   }
@@ -493,6 +463,16 @@ class VideoCaptureHostTest : public testing::Test {
     base::RunLoop().RunUntilIdle();
   }
 
+  void WaitForVideoDeviceThread() {
+    base::RunLoop run_loop;
+    media_stream_manager_->video_capture_manager()->device_task_runner()
+        ->PostTaskAndReply(
+            FROM_HERE,
+            base::Bind(&base::DoNothing),
+            run_loop.QuitClosure());
+    run_loop.Run();
+  }
+
   scoped_refptr<MockVideoCaptureHost> host_;
 
  private:
@@ -502,7 +482,7 @@ class VideoCaptureHostTest : public testing::Test {
   content::TestBrowserThreadBundle thread_bundle_;
   content::TestBrowserContext browser_context_;
   content::TestContentBrowserClient browser_client_;
-  scoped_refptr<base::MessageLoopProxy> message_loop_;
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   int opened_session_id_;
   std::string opened_device_label_;
 

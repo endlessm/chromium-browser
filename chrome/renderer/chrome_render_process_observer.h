@@ -10,10 +10,11 @@
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/memory/weak_ptr.h"
+#include "base/metrics/field_trial.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "content/public/renderer/render_process_observer.h"
 
-class ChromeContentRendererClient;
 class GURL;
 struct ContentSettings;
 
@@ -25,13 +26,15 @@ class ResourceDispatcherDelegate;
 // a RenderView) for Chrome specific messages that the content layer doesn't
 // happen.  If a few messages are related, they should probably have their own
 // observer.
-class ChromeRenderProcessObserver : public content::RenderProcessObserver {
+class ChromeRenderProcessObserver : public content::RenderProcessObserver,
+                                    public base::FieldTrialList::Observer {
  public:
-  explicit ChromeRenderProcessObserver(
-      ChromeContentRendererClient* client);
+  ChromeRenderProcessObserver();
   ~ChromeRenderProcessObserver() override;
 
   static bool is_incognito_process() { return is_incognito_process_; }
+
+  bool webkit_initialized() const { return webkit_initialized_; }
 
   // Returns a pointer to the content setting rules owned by
   // |ChromeRenderProcessObserver|.
@@ -43,6 +46,10 @@ class ChromeRenderProcessObserver : public content::RenderProcessObserver {
   void WebKitInitialized() override;
   void OnRenderProcessShutdown() override;
 
+  // Observer implementation.
+  void OnFieldTrialGroupFinalized(const std::string& trial_name,
+                                  const std::string& group_name) override;
+
   void OnSetIsIncognitoProcess(bool is_incognito_process);
   void OnSetContentSettingsForCurrentURL(
       const GURL& url, const ContentSettings& content_settings);
@@ -50,16 +57,14 @@ class ChromeRenderProcessObserver : public content::RenderProcessObserver {
   void OnGetCacheResourceStats();
   void OnSetFieldTrialGroup(const std::string& fiel_trial_name,
                             const std::string& group_name);
-  void OnGetV8HeapStats();
 
   static bool is_incognito_process_;
   scoped_ptr<content::ResourceDispatcherDelegate> resource_delegate_;
-  ChromeContentRendererClient* client_;
-  // If true, the web cache shall be cleared before the next navigation event.
-  bool clear_cache_pending_;
   RendererContentSettingRules content_setting_rules_;
 
   bool webkit_initialized_;
+
+  base::WeakPtrFactory<ChromeRenderProcessObserver> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeRenderProcessObserver);
 };

@@ -2,12 +2,26 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-#  Generated from GYP
-
 static_library("validators") {
   sources = [
     "validator_init.c",
   ]
+  deps = [
+    "//native_client/build/config/nacl:nacl_base",
+  ]
+
+  if (current_cpu == "arm") {
+    deps += [ "//native_client/src/trusted/validator_arm:ncvalidate_arm_v2" ]
+  }
+  if (current_cpu == "mips") {
+    deps += [ "//native_client/src/trusted/validator_mips:ncvalidate_mips" ]
+  }
+  if (current_cpu == "x86") {
+    deps += [ "//native_client/src/trusted/validator_ragel:dfa_validate" ]
+  }
+  if (current_cpu == "x64") {
+    deps += [ "//native_client/src/trusted/validator_ragel:dfa_validate" ]
+  }
 }
 
 static_library("validation_cache") {
@@ -15,6 +29,7 @@ static_library("validation_cache") {
     "validation_cache.c",
   ]
   deps = [
+    "//native_client/build/config/nacl:nacl_base",
     "//native_client/src/shared/platform:platform",
   ]
 }

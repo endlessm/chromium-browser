@@ -2,65 +2,97 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from core import perf_benchmark
+
 from measurements import startup
 import page_sets
 from telemetry import benchmark
 
 
+class _StartupCold(perf_benchmark.PerfBenchmark):
+  """Measures cold startup time with a clean profile."""
+  options = {'pageset_repeat': 5}
+
+  @classmethod
+  def Name(cls):
+    return 'startup'
+
+  def CreatePageTest(self, options):
+    return startup.Startup(cold=True)
+
+
+class _StartupWarm(perf_benchmark.PerfBenchmark):
+  """Measures warm startup time with a clean profile."""
+  options = {'pageset_repeat': 20}
+
+  @classmethod
+  def Name(cls):
+    return 'startup'
+
+  @classmethod
+  def ValueCanBeAddedPredicate(cls, _, is_first_result):
+    return not is_first_result
+
+  def CreatePageTest(self, options):
+    return startup.Startup(cold=False)
+
+
 @benchmark.Enabled('has tabs')
 @benchmark.Disabled('snowleopard') # crbug.com/336913
-class StartupColdBlankPage(benchmark.Benchmark):
+class StartupColdBlankPage(_StartupCold):
+  """Measures cold startup time with a clean profile."""
   tag = 'cold'
-  test = startup.Startup
   page_set = page_sets.BlankPageSet
-  options = {'cold': True,
-             'pageset_repeat': 5}
+
+  @classmethod
+  def Name(cls):
+    return 'startup.cold.blank_page'
 
 
 @benchmark.Enabled('has tabs')
-class StartupWarmBlankPage(benchmark.Benchmark):
+class StartupWarmBlankPage(_StartupWarm):
+  """Measures warm startup time with a clean profile."""
   tag = 'warm'
-  test = startup.Startup
   page_set = page_sets.BlankPageSet
-  options = {'warm': True,
-             'pageset_repeat': 20}
 
+  @classmethod
+  def Name(cls):
+    return 'startup.warm.blank_page'
 
-@benchmark.Disabled  # crbug.com/336913
-class StartupColdTheme(benchmark.Benchmark):
-  tag = 'theme_cold'
-  test = startup.Startup
-  page_set = page_sets.BlankPageSet
-  generated_profile_archive = 'theme_profile.zip'
-  options = {'cold': True,
-             'pageset_repeat': 5}
+@benchmark.Enabled('has tabs')
+@benchmark.Enabled('win', 'linux', 'mac')
+@benchmark.Disabled('reference', 'android')  # http://crbug.com/481919
+class StartupLargeProfileColdBlankPage(_StartupCold):
+  """Measures cold startup time with a large profile."""
+  tag = 'cold'
+  page_set = page_sets.BlankPageSetWithLargeProfile
+  options = {'pageset_repeat': 1}
 
+  def __init__(self, max_failures=None):
+    super(StartupLargeProfileColdBlankPage, self).__init__(max_failures)
 
-@benchmark.Disabled
-class StartupWarmTheme(benchmark.Benchmark):
-  tag = 'theme_warm'
-  test = startup.Startup
-  page_set = page_sets.BlankPageSet
-  generated_profile_archive = 'theme_profile.zip'
-  options = {'warm': True,
-             'pageset_repeat': 20}
+  def SetExtraBrowserOptions(self, options):
+    options.browser_startup_timeout = 10 * 60
 
+  @classmethod
+  def Name(cls):
+    return 'startup.large_profile.cold.blank_page'
 
-@benchmark.Disabled  # crbug.com/336913
-class StartupColdManyExtensions(benchmark.Benchmark):
-  tag = 'many_extensions_cold'
-  test = startup.Startup
-  page_set = page_sets.BlankPageSet
-  generated_profile_archive = 'many_extensions_profile.zip'
-  options = {'cold': True,
-             'pageset_repeat': 5}
+@benchmark.Enabled('has tabs')
+@benchmark.Enabled('win', 'linux', 'mac')
+@benchmark.Disabled('reference', 'android')  # http://crbug.com/481919
+class StartupLargeProfileWarmBlankPage(_StartupWarm):
+  """Measures warm startup time with a large profile."""
+  tag = 'warm'
+  page_set = page_sets.BlankPageSetWithLargeProfile
+  options = {'pageset_repeat': 1}
 
+  def __init__(self, max_failures=None):
+    super(StartupLargeProfileWarmBlankPage, self).__init__(max_failures)
 
-@benchmark.Disabled
-class StartupWarmManyExtensions(benchmark.Benchmark):
-  tag = 'many_extensions_warm'
-  test = startup.Startup
-  page_set = page_sets.BlankPageSet
-  generated_profile_archive = 'many_extensions_profile.zip'
-  options = {'warm': True,
-             'pageset_repeat': 20}
+  def SetExtraBrowserOptions(self, options):
+    options.browser_startup_timeout = 10 * 60
+
+  @classmethod
+  def Name(cls):
+    return 'startup.large_profile.warm.blank_page'

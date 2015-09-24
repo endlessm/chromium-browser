@@ -4,14 +4,22 @@
 
 #include "sync/internal_api/public/attachments/attachment_downloader_impl.h"
 
+#include "base/base64.h"
 #include "base/bind.h"
 #include "base/message_loop/message_loop.h"
+#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/metrics/sparse_histogram.h"
+#include "base/sys_byteorder.h"
+#include "base/time/time.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_status_code.h"
 #include "net/http/http_util.h"
 #include "net/url_request/url_fetcher.h"
+#include "net/url_request/url_request_status.h"
 #include "sync/internal_api/public/attachments/attachment_uploader_impl.h"
+#include "sync/internal_api/public/attachments/attachment_util.h"
 #include "sync/protocol/sync.pb.h"
 #include "url/gurl.h"
 
@@ -29,6 +37,7 @@ struct AttachmentDownloaderImpl::DownloadState {
   std::string access_token;
   scoped_ptr<net::URLFetcher> url_fetcher;
   std::vector<DownloadCallback> user_callbacks;
+  base::TimeTicks start_time;
 };
 
 AttachmentDownloaderImpl::DownloadState::DownloadState(
@@ -44,17 +53,22 @@ AttachmentDownloaderImpl::AttachmentDownloaderImpl(
     const std::string& account_id,
     const OAuth2TokenService::ScopeSet& scopes,
     const scoped_refptr<OAuth2TokenServiceRequest::TokenServiceProvider>&
-        token_service_provider)
+        token_service_provider,
+    const std::string& store_birthday,
+    ModelType model_type)
     : OAuth2TokenService::Consumer("attachment-downloader-impl"),
       sync_service_url_(sync_service_url),
       url_request_context_getter_(url_request_context_getter),
       account_id_(account_id),
       oauth2_scopes_(scopes),
-      token_service_provider_(token_service_provider) {
+      token_service_provider_(token_service_provider),
+      raw_store_birthday_(store_birthday),
+      model_type_(model_type) {
+  DCHECK(url_request_context_getter_.get());
   DCHECK(!account_id.empty());
   DCHECK(!scopes.empty());
   DCHECK(token_service_provider_.get());
-  DCHECK(url_request_context_getter_.get());
+  DCHECK(!raw_store_birthday_.empty());
 }
 
 AttachmentDownloaderImpl::~AttachmentDownloaderImpl() {
@@ -98,6 +112,7 @@ void AttachmentDownloaderImpl::OnGetTokenSuccess(
     download_state->access_token = access_token;
     download_state->url_fetcher =
         CreateFetcher(download_state->attachment_url, access_token).Pass();
+    download_state->start_time = base::TimeTicks::Now();
     download_state->url_fetcher->Start();
   }
   requests_waiting_for_access_token_.clear();
@@ -116,8 +131,8 @@ void AttachmentDownloaderImpl::OnGetTokenFailure(
        ++iter) {
     DownloadState* download_state = *iter;
     scoped_refptr<base::RefCountedString> null_attachment_data;
-    ReportResult(
-        *download_state, DOWNLOAD_TRANSIENT_ERROR, null_attachment_data);
+    ReportResult(*download_state, DOWNLOAD_TRANSIENT_ERROR,
+                 null_attachment_data);
     DCHECK(state_map_.find(download_state->attachment_url) != state_map_.end());
     state_map_.erase(download_state->attachment_url);
   }
@@ -137,18 +152,39 @@ void AttachmentDownloaderImpl::OnURLFetchComplete(
 
   DownloadResult result = DOWNLOAD_TRANSIENT_ERROR;
   scoped_refptr<base::RefCountedString> attachment_data;
+  uint32_t attachment_crc32c = 0;
 
+  net::URLRequestStatus status = source->GetStatus();
   const int response_code = source->GetResponseCode();
+  UMA_HISTOGRAM_SPARSE_SLOWLY("Sync.Attachments.DownloadResponseCode",
+      status.is_success() ? response_code : status.error());
   if (response_code == net::HTTP_OK) {
     std::string data_as_string;
     source->GetResponseAsString(&data_as_string);
-    if (VerifyHashIfPresent(*source, data_as_string)) {
-      result = DOWNLOAD_SUCCESS;
-      attachment_data = base::RefCountedString::TakeString(&data_as_string);
-    } else {
-      // TODO(maniscalco): Test me!
+    attachment_data = base::RefCountedString::TakeString(&data_as_string);
+
+    UMA_HISTOGRAM_LONG_TIMES("Sync.Attachments.DownloadTotalTime",
+        base::TimeTicks::Now() - download_state.start_time);
+
+    attachment_crc32c = ComputeCrc32c(attachment_data);
+    uint32_t crc32c_from_headers = 0;
+    if (ExtractCrc32c(source->GetResponseHeaders(), &crc32c_from_headers) &&
+        attachment_crc32c != crc32c_from_headers) {
+      // Fail download only if there is useful crc32c in header and it doesn't
+      // match data. All other cases are fine. When crc32c is not in headers
+      // locally calculated one will be stored and used for further checks.
       result = DOWNLOAD_TRANSIENT_ERROR;
+    } else {
+      // If the id's crc32c doesn't match that of the downloaded attachment,
+      // then we're stuck and retrying is unlikely to help.
+      if (attachment_crc32c != download_state.attachment_id.GetCrc32c()) {
+        result = DOWNLOAD_UNSPECIFIED_ERROR;
+      } else {
+        result = DOWNLOAD_SUCCESS;
+      }
     }
+    UMA_HISTOGRAM_BOOLEAN("Sync.Attachments.DownloadChecksumResult",
+                          result == DOWNLOAD_SUCCESS);
   } else if (response_code == net::HTTP_UNAUTHORIZED) {
     // Server tells us we've got a bad token so invalidate it.
     OAuth2TokenServiceRequest::InvalidateToken(token_service_provider_.get(),
@@ -170,17 +206,11 @@ void AttachmentDownloaderImpl::OnURLFetchComplete(
 scoped_ptr<net::URLFetcher> AttachmentDownloaderImpl::CreateFetcher(
     const AttachmentUrl& url,
     const std::string& access_token) {
-  scoped_ptr<net::URLFetcher> url_fetcher(
-      net::URLFetcher::Create(GURL(url), net::URLFetcher::GET, this));
-  url_fetcher->SetAutomaticallyRetryOn5xx(false);
-  const std::string auth_header("Authorization: Bearer " + access_token);
-  url_fetcher->AddExtraRequestHeader(auth_header);
-  url_fetcher->SetRequestContext(url_request_context_getter_.get());
-  url_fetcher->SetLoadFlags(net::LOAD_DO_NOT_SAVE_COOKIES |
-                            net::LOAD_DO_NOT_SEND_COOKIES |
-                            net::LOAD_DISABLE_CACHE);
-  // TODO(maniscalco): Set an appropriate headers (User-Agent, what else?) on
-  // the request (bug 371521).
+  scoped_ptr<net::URLFetcher> url_fetcher =
+      net::URLFetcher::Create(GURL(url), net::URLFetcher::GET, this);
+  AttachmentUploaderImpl::ConfigureURLFetcherCommon(
+      url_fetcher.get(), access_token, raw_store_birthday_, model_type_,
+      url_request_context_getter_.get());
   return url_fetcher.Pass();
 }
 
@@ -204,7 +234,7 @@ void AttachmentDownloaderImpl::ReportResult(
        ++iter) {
     scoped_ptr<Attachment> attachment;
     if (result == DOWNLOAD_SUCCESS) {
-      attachment.reset(new Attachment(Attachment::CreateWithId(
+      attachment.reset(new Attachment(Attachment::CreateFromParts(
           download_state.attachment_id, attachment_data)));
     }
 
@@ -213,51 +243,44 @@ void AttachmentDownloaderImpl::ReportResult(
   }
 }
 
-bool AttachmentDownloaderImpl::VerifyHashIfPresent(
-    const net::URLFetcher& fetcher,
-    const std::string& data) {
-  const net::HttpResponseHeaders* headers = fetcher.GetResponseHeaders();
+bool AttachmentDownloaderImpl::ExtractCrc32c(
+    const net::HttpResponseHeaders* headers,
+    uint32_t* crc32c) {
+  DCHECK(crc32c);
   if (!headers) {
-    // No headers?  It passes.
-    return true;
-  }
-
-  std::string value;
-  if (!ExtractCrc32c(*headers, &value)) {
-    // No crc32c?  It passes.
-    return true;
-  }
-
-  if (value ==
-      AttachmentUploaderImpl::ComputeCrc32cHash(data.data(), data.size())) {
-    return true;
-  } else {
     return false;
   }
-}
 
-bool AttachmentDownloaderImpl::ExtractCrc32c(
-    const net::HttpResponseHeaders& headers,
-    std::string* crc32c) {
-  DCHECK(crc32c);
+  std::string crc32c_encoded;
   std::string header_value;
   void* iter = NULL;
   // Iterate over all matching headers.
-  while (headers.EnumerateHeader(&iter, "x-goog-hash", &header_value)) {
+  while (headers->EnumerateHeader(&iter, "x-goog-hash", &header_value)) {
     // Because EnumerateHeader is smart about list values, header_value will
     // either be empty or a single name=value pair.
     net::HttpUtil::NameValuePairsIterator pair_iter(
         header_value.begin(), header_value.end(), ',');
     if (pair_iter.GetNext()) {
       if (pair_iter.name() == "crc32c") {
-        *crc32c = pair_iter.value();
+        crc32c_encoded = pair_iter.value();
         DCHECK(!pair_iter.GetNext());
-        return true;
+        break;
       }
     }
   }
+  // Check if header was found
+  if (crc32c_encoded.empty())
+    return false;
+  std::string crc32c_raw;
+  if (!base::Base64Decode(crc32c_encoded, &crc32c_raw))
+    return false;
 
-  return false;
+  if (crc32c_raw.size() != sizeof(*crc32c))
+    return false;
+
+  *crc32c =
+      base::NetToHost32(*reinterpret_cast<const uint32_t*>(crc32c_raw.c_str()));
+  return true;
 }
 
 }  // namespace syncer

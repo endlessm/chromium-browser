@@ -11,7 +11,9 @@
 #include "base/callback_forward.h"
 #include "base/threading/non_thread_safe.h"
 #include "third_party/skia/include/core/SkColor.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/point_f.h"
+#include "ui/gfx/geometry/size.h"
+#include "ui/gfx/geometry/size_f.h"
 
 class GURL;
 
@@ -43,7 +45,7 @@ class AwRenderViewHostExt : public content::WebContentsObserver,
   // as it internally handles RenderViewHost instances changing underneath us.
   AwRenderViewHostExt(
       AwRenderViewHostExtClient* client, content::WebContents* contents);
-  virtual ~AwRenderViewHostExt();
+  ~AwRenderViewHostExt() override;
 
   // |result| will be invoked with the outcome of the request.
   typedef base::Callback<void(bool)> DocumentHasImagesResult;
@@ -53,9 +55,10 @@ class AwRenderViewHostExt : public content::WebContentsObserver,
   void ClearCache();
 
   // Do a hit test at the view port coordinates and asynchronously update
-  // |last_hit_test_data_|. |view_x| and |view_y| are in density independent
-  // pixels used by blink::WebView.
-  void RequestNewHitTestDataAt(int view_x, int view_y);
+  // |last_hit_test_data_|. Width and height in |touch_area| are in density
+  // independent pixels used by blink::WebView.
+  void RequestNewHitTestDataAt(const gfx::PointF& touch_center,
+                               const gfx::SizeF& touch_area);
 
   // Optimization to avoid unnecessary Java object creation on hit test.
   bool HasNewHitTestData() const;
@@ -79,13 +82,12 @@ class AwRenderViewHostExt : public content::WebContentsObserver,
 
  private:
   // content::WebContentsObserver implementation.
-  virtual void RenderViewCreated(content::RenderViewHost* view_host) override;
-  virtual void RenderProcessGone(base::TerminationStatus status) override;
-  virtual void DidNavigateAnyFrame(
-      content::RenderFrameHost* render_frame_host,
-      const content::LoadCommittedDetails& details,
-      const content::FrameNavigateParams& params) override;
-  virtual bool OnMessageReceived(const IPC::Message& message) override;
+  void RenderViewCreated(content::RenderViewHost* view_host) override;
+  void RenderProcessGone(base::TerminationStatus status) override;
+  void DidNavigateAnyFrame(content::RenderFrameHost* render_frame_host,
+                           const content::LoadCommittedDetails& details,
+                           const content::FrameNavigateParams& params) override;
+  bool OnMessageReceived(const IPC::Message& message) override;
 
   void OnDocumentHasImagesResponse(int msg_id, bool has_images);
   void OnUpdateHitTestData(const AwHitTestData& hit_test_data);

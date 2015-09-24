@@ -5,10 +5,11 @@
 #include "net/cert/crl_set_storage.h"
 
 #include "base/base64.h"
-#include "base/debug/trace_event.h"
 #include "base/format_macros.h"
 #include "base/json/json_reader.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/strings/stringprintf.h"
+#include "base/trace_event/trace_event.h"
 #include "base/values.h"
 #include "crypto/sha2.h"
 #include "third_party/zlib/zlib.h"
@@ -18,7 +19,7 @@ namespace net {
 // Decompress zlib decompressed |in| into |out|. |out_len| is the number of
 // bytes at |out| and must be exactly equal to the size of the decompressed
 // data.
-static bool DecompressZlib(uint8* out, int out_len, base::StringPiece in) {
+static bool DecompressZlib(uint8_t* out, int out_len, base::StringPiece in) {
   z_stream z;
   memset(&z, 0, sizeof(z));
 
@@ -50,16 +51,16 @@ static bool DecompressZlib(uint8* out, int out_len, base::StringPiece in) {
 //   byte[32] parent_spki_sha256
 //   uint32le num_serials
 //   [num_serials] {
-//     uint8 serial_length;
+//     uint8_t serial_length;
 //     byte[serial_length] serial;
 //   }
 //
 // header_bytes consists of a JSON dictionary with the following keys:
 //   Version (int): currently 0
 //   ContentType (string): "CRLSet" or "CRLSetDelta" (magic value)
-//   DeltaFrom (int32): if this is a delta update (see below), then this
+//   DeltaFrom (int32_t): if this is a delta update (see below), then this
 //       contains the sequence number of the base CRLSet.
-//   Sequence (int32): the monotonic sequence number of this CRL set.
+//   Sequence (int32_t): the monotonic sequence number of this CRL set.
 //
 // A delta CRLSet is similar to a CRLSet:
 //
@@ -90,7 +91,7 @@ static bool DecompressZlib(uint8* out, int out_len, base::StringPiece in) {
 //         // the serial is the same
 //       case 1:
 //         // serial inserted
-//         uint8 serial_length
+//         uint8_t serial_length
 //         byte[serial_length] serial
 //       case 2:
 //         // serial deleted
@@ -111,11 +112,12 @@ static bool DecompressZlib(uint8* out, int out_len, base::StringPiece in) {
 // updates |data| to remove the header on return. Caller takes ownership of the
 // returned pointer.
 static base::DictionaryValue* ReadHeader(base::StringPiece* data) {
-  if (data->size() < 2)
+  uint16_t header_len;
+  if (data->size() < sizeof(header_len))
     return NULL;
-  uint16 header_len;
-  memcpy(&header_len, data->data(), 2);  // assumes little-endian.
-  data->remove_prefix(2);
+  // Assumes little-endian.
+  memcpy(&header_len, data->data(), sizeof(header_len));
+  data->remove_prefix(sizeof(header_len));
 
   if (data->size() < header_len)
     return NULL;
@@ -123,7 +125,7 @@ static base::DictionaryValue* ReadHeader(base::StringPiece* data) {
   const base::StringPiece header_bytes(data->data(), header_len);
   data->remove_prefix(header_len);
 
-  scoped_ptr<base::Value> header(base::JSONReader::Read(
+  scoped_ptr<base::Value> header(base::JSONReader::DeprecatedRead(
       header_bytes, base::JSON_ALLOW_TRAILING_COMMAS));
   if (header.get() == NULL)
     return NULL;
@@ -144,22 +146,24 @@ static bool ReadCRL(base::StringPiece* data, std::string* out_parent_spki_hash,
   out_parent_spki_hash->assign(data->data(), crypto::kSHA256Length);
   data->remove_prefix(crypto::kSHA256Length);
 
-  if (data->size() < sizeof(uint32))
+  uint32_t num_serials;
+  if (data->size() < sizeof(num_serials))
     return false;
-  uint32 num_serials;
-  memcpy(&num_serials, data->data(), sizeof(uint32));  // assumes little endian
+  // Assumes little endian.
+  memcpy(&num_serials, data->data(), sizeof(num_serials));
+  data->remove_prefix(sizeof(num_serials));
+
   if (num_serials > 32 * 1024 * 1024)  // Sanity check.
     return false;
 
   out_serials->reserve(num_serials);
-  data->remove_prefix(sizeof(uint32));
 
-  for (uint32 i = 0; i < num_serials; ++i) {
-    if (data->size() < sizeof(uint8))
+  for (uint32_t i = 0; i < num_serials; ++i) {
+    if (data->size() < sizeof(uint8_t))
       return false;
 
-    uint8 serial_length = data->data()[0];
-    data->remove_prefix(sizeof(uint8));
+    uint8_t serial_length = data->data()[0];
+    data->remove_prefix(sizeof(uint8_t));
 
     if (data->size() < serial_length)
       return false;
@@ -210,15 +214,15 @@ bool CRLSetStorage::CopyBlockedSPKIsFromHeader(
 static const unsigned kMaxUncompressedChangesLength = 1024 * 1024;
 
 static bool ReadChanges(base::StringPiece* data,
-                        std::vector<uint8>* out_changes) {
-  uint32 uncompressed_size, compressed_size;
-  if (data->size() < 2 * sizeof(uint32))
+                        std::vector<uint8_t>* out_changes) {
+  uint32_t uncompressed_size, compressed_size;
+  if (data->size() < sizeof(uncompressed_size) + sizeof(compressed_size))
     return false;
-  // assumes little endian.
-  memcpy(&uncompressed_size, data->data(), sizeof(uint32));
-  data->remove_prefix(4);
-  memcpy(&compressed_size, data->data(), sizeof(uint32));
-  data->remove_prefix(4);
+  // Assumes little endian.
+  memcpy(&uncompressed_size, data->data(), sizeof(uncompressed_size));
+  data->remove_prefix(sizeof(uncompressed_size));
+  memcpy(&compressed_size, data->data(), sizeof(compressed_size));
+  data->remove_prefix(sizeof(compressed_size));
 
   if (uncompressed_size > kMaxUncompressedChangesLength)
     return false;
@@ -246,12 +250,12 @@ enum {
 static bool ReadDeltaCRL(base::StringPiece* data,
                          const std::vector<std::string>& old_serials,
                          std::vector<std::string>* out_serials) {
-  std::vector<uint8> changes;
+  std::vector<uint8_t> changes;
   if (!ReadChanges(data, &changes))
     return false;
 
   size_t i = 0;
-  for (std::vector<uint8>::const_iterator k = changes.begin();
+  for (std::vector<uint8_t>::const_iterator k = changes.begin();
        k != changes.end(); ++k) {
     if (*k == SYMBOL_SAME) {
       if (i >= old_serials.size())
@@ -259,11 +263,10 @@ static bool ReadDeltaCRL(base::StringPiece* data,
       out_serials->push_back(old_serials[i]);
       i++;
     } else if (*k == SYMBOL_INSERT) {
-      uint8 serial_length;
-      if (data->size() < sizeof(uint8))
+      if (data->size() < sizeof(uint8_t))
         return false;
-      memcpy(&serial_length, data->data(), sizeof(uint8));
-      data->remove_prefix(sizeof(uint8));
+      uint8_t serial_length = data->data()[0];
+      data->remove_prefix(sizeof(uint8_t));
 
       if (data->size() < serial_length)
         return false;
@@ -294,7 +297,7 @@ bool CRLSetStorage::Parse(base::StringPiece data,
   // anything by doing this.
 #if defined(__BYTE_ORDER)
   // Linux check
-  COMPILE_ASSERT(__BYTE_ORDER == __LITTLE_ENDIAN, assumes_little_endian);
+  static_assert(__BYTE_ORDER == __LITTLE_ENDIAN, "assumes little endian");
 #elif defined(__BIG_ENDIAN__)
   // Mac check
   #error assumes little endian
@@ -329,8 +332,8 @@ bool CRLSetStorage::Parse(base::StringPiece data,
     return false;
 
   scoped_refptr<CRLSet> crl_set(new CRLSet());
-  crl_set->sequence_ = static_cast<uint32>(sequence);
-  crl_set->not_after_ = static_cast<uint64>(not_after);
+  crl_set->sequence_ = static_cast<uint32_t>(sequence);
+  crl_set->not_after_ = static_cast<uint64_t>(not_after);
   crl_set->crls_.reserve(64);  // Value observed experimentally.
 
   for (size_t crl_index = 0; !data.empty(); crl_index++) {
@@ -380,9 +383,8 @@ bool CRLSetStorage::ApplyDelta(const CRLSet* in_crl_set,
 
   int sequence, delta_from;
   if (!header_dict->GetInteger("Sequence", &sequence) ||
-      !header_dict->GetInteger("DeltaFrom", &delta_from) ||
-      delta_from < 0 ||
-      static_cast<uint32>(delta_from) != in_crl_set->sequence_) {
+      !header_dict->GetInteger("DeltaFrom", &delta_from) || delta_from < 0 ||
+      static_cast<uint32_t>(delta_from) != in_crl_set->sequence_) {
     return false;
   }
 
@@ -395,19 +397,19 @@ bool CRLSetStorage::ApplyDelta(const CRLSet* in_crl_set,
     return false;
 
   scoped_refptr<CRLSet> crl_set(new CRLSet);
-  crl_set->sequence_ = static_cast<uint32>(sequence);
-  crl_set->not_after_ = static_cast<uint64>(not_after);
+  crl_set->sequence_ = static_cast<uint32_t>(sequence);
+  crl_set->not_after_ = static_cast<uint64_t>(not_after);
 
   if (!CopyBlockedSPKIsFromHeader(crl_set.get(), header_dict.get()))
     return false;
 
-  std::vector<uint8> crl_changes;
+  std::vector<uint8_t> crl_changes;
 
   if (!ReadChanges(&data, &crl_changes))
     return false;
 
   size_t i = 0, j = 0;
-  for (std::vector<uint8>::const_iterator k = crl_changes.begin();
+  for (std::vector<uint8_t>::const_iterator k = crl_changes.begin();
        k != crl_changes.end(); ++k) {
     if (*k == SYMBOL_SAME) {
       if (i >= in_crl_set->crls_.size())
@@ -517,10 +519,12 @@ std::string CRLSetStorage::Serialize(const CRLSet* crl_set) {
   }
 
   std::string ret;
-  char* out = WriteInto(&ret, len + 1 /* to include final NUL */);
+  uint8_t* out = reinterpret_cast<uint8_t*>(
+      base::WriteInto(&ret, len + 1 /* to include final NUL */));
   size_t off = 0;
-  out[off++] = header.size();
-  out[off++] = header.size() >> 8;
+  CHECK(base::IsValueInRangeForNumericType<uint16_t>(header.size()));
+  out[off++] = static_cast<uint8_t>(header.size());
+  out[off++] = static_cast<uint8_t>(header.size() >> 8);
   memcpy(out + off, header.data(), header.size());
   off += header.size();
 
@@ -528,13 +532,14 @@ std::string CRLSetStorage::Serialize(const CRLSet* crl_set) {
        i != crl_set->crls_.end(); ++i) {
     memcpy(out + off, i->first.data(), i->first.size());
     off += i->first.size();
-    const uint32 num_serials = i->second.size();
+    const uint32_t num_serials = i->second.size();
     memcpy(out + off, &num_serials, sizeof(num_serials));
     off += sizeof(num_serials);
 
     for (std::vector<std::string>::const_iterator j = i->second.begin();
          j != i->second.end(); ++j) {
-      out[off++] = j->size();
+      CHECK(base::IsValueInRangeForNumericType<uint8_t>(j->size()));
+      out[off++] = static_cast<uint8_t>(j->size());
       memcpy(out + off, j->data(), j->size());
       off += j->size();
     }

@@ -126,7 +126,7 @@ ExtendedLayout.prototype.resize = function(width, height) {
         this.getChildAt(i));
     child.resize(width, height);
   }
-  this.getElement().style.width = width * this.getChildCount();
+  this.getElement().style.width = width * this.getChildCount() + 'px';
   goog.base(this, 'resize', width * this.getChildCount(), height);
 };
 
@@ -143,7 +143,7 @@ ExtendedLayout.prototype.calculate_ = function() {
     if (this.heightInWeight_ < child.getHeightInWeight()) {
       this.heightInWeight_ = child.getHeightInWeight();
     }
-    this.widthInWeight_ += child.getWidthInWeight();
+    this.widthInWeight_ = child.getWidthInWeight();
   }
 };
 
@@ -152,12 +152,11 @@ ExtendedLayout.prototype.calculate_ = function() {
  * Switch to a page of the emojiSlider.
  *
  * @param {number} pageNum The page to switch to.
- * @private
  */
-ExtendedLayout.prototype.gotoPage_ = function(pageNum) {
+ExtendedLayout.prototype.gotoPage = function(pageNum) {
   var width = goog.style.getSize(this.getElement()).width;
   var childNum = this.getChildCount();
-  this.elem.style.marginLeft = 0 - width / childNum * pageNum;
+  this.elem.style.marginLeft = 0 - width / childNum * pageNum + 'px';
 };
 
 
@@ -212,7 +211,7 @@ ExtendedLayout.prototype.adjustMarginLeft = function(opt_distance) {
     this.elem.style.transition = 'margin-left ' +
         transitionDuration + 's ease-in';
   }
-  this.gotoPage_(pageNum);
+  this.gotoPage(pageNum);
   return pageNum;
 };
 
@@ -224,6 +223,6 @@ ExtendedLayout.prototype.adjustMarginLeft = function(opt_distance) {
  */
 ExtendedLayout.prototype.updateCategory = function(pageNum) {
   this.elem.style.transition = '';
-  this.gotoPage_(pageNum);
+  this.gotoPage(pageNum);
 };
 });  // goog.scope

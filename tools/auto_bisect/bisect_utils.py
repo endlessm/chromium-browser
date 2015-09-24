@@ -79,10 +79,6 @@ HIGH_CONFIDENCE = 95
 # Each depot information dictionary may contain:
 #   src: Path to the working directory.
 #   recurse: True if this repository will get bisected.
-#   depends: A list of other repositories that are actually part of the same
-#       repository in svn. If the repository has any dependent repositories
-#       (e.g. skia/src needs skia/include and skia/gyp to be updated), then
-#       they are specified here.
 #   svn: URL of SVN repository. Needed for git workflow to resolve hashes to
 #       SVN revisions.
 #   from: Parent depot that must be bisected before this is bisected.
@@ -92,74 +88,48 @@ DEPOT_DEPS_NAME = {
     'chromium': {
         'src': 'src',
         'recurse': True,
-        'depends': None,
         'from': ['android-chrome'],
-        'viewvc':
-            'http://src.chromium.org/viewvc/chrome?view=revision&revision=',
+        'viewvc': 'https://chromium.googlesource.com/chromium/src/+/',
         'deps_var': 'chromium_rev'
     },
     'webkit': {
         'src': 'src/third_party/WebKit',
         'recurse': True,
-        'depends': None,
         'from': ['chromium'],
-        'viewvc':
-            'http://src.chromium.org/viewvc/blink?view=revision&revision=',
+        'viewvc': 'https://chromium.googlesource.com/chromium/blink/+/',
         'deps_var': 'webkit_revision'
     },
     'angle': {
         'src': 'src/third_party/angle',
         'src_old': 'src/third_party/angle_dx11',
         'recurse': True,
-        'depends': None,
         'from': ['chromium'],
         'platform': 'nt',
+        'viewvc': 'https://chromium.googlesource.com/angle/angle/+/',
         'deps_var': 'angle_revision'
     },
     'v8': {
         'src': 'src/v8',
         'recurse': True,
-        'depends': None,
         'from': ['chromium'],
         'custom_deps': GCLIENT_CUSTOM_DEPS_V8,
-        'viewvc': 'https://code.google.com/p/v8/source/detail?r=',
+        'viewvc': 'https://chromium.googlesource.com/v8/v8.git/+/',
         'deps_var': 'v8_revision'
     },
     'v8_bleeding_edge': {
         'src': 'src/v8_bleeding_edge',
         'recurse': True,
-        'depends': None,
         'svn': 'https://v8.googlecode.com/svn/branches/bleeding_edge',
         'from': ['v8'],
-        'viewvc': 'https://code.google.com/p/v8/source/detail?r=',
+        'viewvc': 'https://chromium.googlesource.com/v8/v8.git/+/',
         'deps_var': 'v8_revision'
     },
     'skia/src': {
         'src': 'src/third_party/skia/src',
         'recurse': True,
-        'svn': 'http://skia.googlecode.com/svn/trunk/src',
-        'depends': ['skia/include', 'skia/gyp'],
         'from': ['chromium'],
-        'viewvc': 'https://code.google.com/p/skia/source/detail?r=',
+        'viewvc': 'https://chromium.googlesource.com/skia/+/',
         'deps_var': 'skia_revision'
-    },
-    'skia/include': {
-        'src': 'src/third_party/skia/include',
-        'recurse': False,
-        'svn': 'http://skia.googlecode.com/svn/trunk/include',
-        'depends': None,
-        'from': ['chromium'],
-        'viewvc': 'https://code.google.com/p/skia/source/detail?r=',
-        'deps_var': 'None'
-    },
-    'skia/gyp': {
-        'src': 'src/third_party/skia/gyp',
-        'recurse': False,
-        'svn': 'http://skia.googlecode.com/svn/trunk/gyp',
-        'depends': None,
-        'from': ['chromium'],
-        'viewvc': 'https://code.google.com/p/skia/source/detail?r=',
-        'deps_var': 'None'
     }
 }
 
@@ -200,6 +170,32 @@ def OutputAnnotationStepClosed():
   print '@@@STEP_CLOSED@@@'
   print
   sys.stdout.flush()
+
+
+def OutputAnnotationStepText(text):
+  """Outputs appropriate annotation to print text.
+
+  Args:
+    name: The text to print.
+  """
+  print
+  print '@@@STEP_TEXT@%s@@@' % text
+  print
+  sys.stdout.flush()
+
+
+def OutputAnnotationStepWarning():
+  """Outputs appropriate annotation to signal a warning."""
+  print
+  print '@@@STEP_WARNINGS@@@'
+  print
+
+
+def OutputAnnotationStepFailure():
+  """Outputs appropriate annotation to signal a warning."""
+  print
+  print '@@@STEP_FAILURE@@@'
+  print
 
 
 def OutputAnnotationStepLink(label, url):
@@ -329,7 +325,6 @@ def RunGClientAndCreateConfig(opts, custom_deps=None, cwd=None):
   return return_code
 
 
-
 def OnAccessError(func, path, _):
   """Error handler for shutil.rmtree.
 
@@ -363,17 +358,23 @@ def _CleanupPreviousGitRuns(cwd=os.getcwd()):
         os.remove(path_to_file)
 
 
-def RunGClientAndSync(cwd=None):
+def RunGClientAndSync(revisions=None, cwd=None):
   """Runs gclient and does a normal sync.
 
   Args:
+    revisions: List of revisions that need to be synced.
+        E.g., "src@2ae43f...", "src/third_party/webkit@asr1234" etc.
     cwd: Working directory to run from.
 
   Returns:
     The return code of the call.
   """
-  params = ['sync', '--verbose', '--nohooks', '--reset', '--force',
+  params = ['sync', '--verbose', '--nohooks', '--force',
             '--delete_unversioned_trees']
+  if revisions is not None:
+    for revision in revisions:
+      if revision is not None:
+        params.extend(['--revision', revision])
   return RunGClient(params, cwd=cwd)
 
 
@@ -429,7 +430,7 @@ def CheckRunGit(command, cwd=None):
   Returns:
     A tuple of the output and return code.
   """
-  (output, return_code) = RunGit(command, cwd=cwd)
+  output, return_code = RunGit(command, cwd=cwd)
 
   assert not return_code, 'An error occurred while running'\
                           ' "git %s"' % ' '.join(command)
@@ -461,8 +462,7 @@ def CreateBisectDirectoryAndSetupDepot(opts, custom_deps):
   if CheckIfBisectDepotExists(opts):
     path_to_dir = os.path.join(os.path.abspath(opts.working_directory),
                                BISECT_DIR, 'src')
-    (output, _) = RunGit(['rev-parse', '--is-inside-work-tree'],
-                         cwd=path_to_dir)
+    output, _ = RunGit(['rev-parse', '--is-inside-work-tree'], cwd=path_to_dir)
     if output.strip() == 'true':
       # Before checking out master, cleanup up any leftover index.lock files.
       _CleanupPreviousGitRuns(path_to_dir)
@@ -475,7 +475,7 @@ def CreateBisectDirectoryAndSetupDepot(opts, custom_deps):
     raise RuntimeError('Failed to grab source.')
 
 
-def RunProcess(command):
+def RunProcess(command, cwd=None, shell=False):
   """Runs an arbitrary command.
 
   If output from the call is needed, use RunProcessAndRetrieveOutput instead.
@@ -487,8 +487,8 @@ def RunProcess(command):
     The return code of the call.
   """
   # On Windows, use shell=True to get PATH interpretation.
-  shell = IsWindowsHost()
-  return subprocess.call(command, shell=shell)
+  shell = shell or IsWindowsHost()
+  return subprocess.call(command, cwd=cwd, shell=shell)
 
 
 def RunProcessAndRetrieveOutput(command, cwd=None):
@@ -513,8 +513,10 @@ def RunProcessAndRetrieveOutput(command, cwd=None):
 
   # On Windows, use shell=True to get PATH interpretation.
   shell = IsWindowsHost()
-  proc = subprocess.Popen(command, shell=shell, stdout=subprocess.PIPE)
-  (output, _) = proc.communicate()
+  proc = subprocess.Popen(
+      command, shell=shell, stdout=subprocess.PIPE,
+      stderr=subprocess.STDOUT)
+  output, _ = proc.communicate()
 
   if cwd:
     os.chdir(original_cwd)

@@ -10,22 +10,24 @@
 #include "chrome/browser/ui/chrome_style.h"
 #import "chrome/browser/ui/cocoa/passwords/manage_passwords_bubble_content_view_controller.h"
 #include "chrome/browser/ui/passwords/manage_passwords_bubble_model.h"
+#include "grit/components_strings.h"
 #include "grit/generated_resources.h"
 #include "skia/ext/skia_utils_mac.h"
 #import "ui/base/cocoa/controls/hyperlink_button_cell.h"
 #import "ui/base/cocoa/hover_image_button.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/image/image.h"
-#include "ui/native_theme/common_theme.h"
 #include "ui/resources/grit/ui_resources.h"
-#include "ui/views/layout/layout_constants.h"
 
 using namespace password_manager::mac::ui;
 
 namespace {
 
-const CGFloat kBorderWidth = 1;
 const SkColor kHoverColor = SkColorSetARGBInline(0xFF, 0xEB, 0xEB, 0xEB);
+
+// Constants shared with toolkit-views layout_constants.h.
+const CGFloat kItemLabelSpacing = 10;
+const CGFloat kRelatedControlVerticalSpacing = 8;
 
 NSColor* HoverColor() {
   return gfx::SkColorToCalibratedNSColor(kHoverColor);
@@ -60,13 +62,11 @@ CGFloat SecondFieldWidth() {
 
 CGFloat ItemWidth() {
   const CGFloat width =
-      kFramePadding +
       FirstFieldWidth() +
-      views::kItemLabelSpacing +
+      kItemLabelSpacing +
       SecondFieldWidth() +
-      views::kItemLabelSpacing +
-      chrome_style::GetCloseButtonSize() +
-      kFramePadding;
+      kItemLabelSpacing +
+      chrome_style::GetCloseButtonSize();
   return width;
 }
 
@@ -129,8 +129,8 @@ base::string16 GetDisplayUsername(const autofill::PasswordForm& form) {
     [undoButton_ setAction:action];
 
     const CGFloat width = ItemWidth();
-    CGFloat curX = kFramePadding;
-    CGFloat curY = views::kRelatedControlVerticalSpacing;
+    CGFloat curX = 0;
+    CGFloat curY = kRelatedControlVerticalSpacing;
 
     // Add the explanation text.
     NSTextField* label =
@@ -139,13 +139,13 @@ base::string16 GetDisplayUsername(const autofill::PasswordForm& form) {
     [self addSubview:label];
 
     // The undo button should be right-aligned.
-    curX = width - kFramePadding - NSWidth([undoButton_ frame]);
+    curX = width - NSWidth([undoButton_ frame]);
     [undoButton_ setFrameOrigin:NSMakePoint(curX, curY)];
     [self addSubview:undoButton_ ];
 
     // Move to the top-right of the delete button.
-    curX = NSMaxX([undoButton_ frame]) + kFramePadding;
-    curY = NSMaxY([undoButton_ frame]) + views::kRelatedControlVerticalSpacing;
+    curX = NSMaxX([undoButton_ frame]);
+    curY = NSMaxY([undoButton_ frame]) + kRelatedControlVerticalSpacing;
 
     // Update the frame.
     DCHECK_EQ(width, curX);
@@ -182,8 +182,8 @@ base::string16 GetDisplayUsername(const autofill::PasswordForm& form) {
     [deleteButton_ setAction:action];
 
     const CGFloat width = ItemWidth();
-    CGFloat curX = kFramePadding;
-    CGFloat curY = views::kRelatedControlVerticalSpacing;
+    CGFloat curX = 0;
+    CGFloat curY = kRelatedControlVerticalSpacing;
 
     // Add the username.
     usernameField_.reset([UsernameLabel(GetDisplayUsername(form)) retain]);
@@ -191,20 +191,19 @@ base::string16 GetDisplayUsername(const autofill::PasswordForm& form) {
     [self addSubview:usernameField_];
 
     // Move to the right of the username and add the password.
-    curX = NSMaxX([usernameField_ frame]) + views::kItemLabelSpacing;
+    curX = NSMaxX([usernameField_ frame]) + kItemLabelSpacing;
     passwordField_.reset([PasswordLabel(form.password_value) retain]);
     [passwordField_ setFrameOrigin:NSMakePoint(curX, curY)];
     [self addSubview:passwordField_];
 
     // The delete button should be right-aligned.
-    curX = width - kFramePadding - NSWidth([deleteButton_ frame]);
+    curX = width - NSWidth([deleteButton_ frame]);
     [deleteButton_ setFrameOrigin:NSMakePoint(curX, curY)];
     [self addSubview:deleteButton_];
 
     // Move to the top-right of the delete button.
-    curX = NSMaxX([deleteButton_ frame]) + kFramePadding;
-    curY =
-        NSMaxY([deleteButton_ frame]) + views::kRelatedControlVerticalSpacing;
+    curX = NSMaxX([deleteButton_ frame]);
+    curY = NSMaxY([deleteButton_ frame]) + kRelatedControlVerticalSpacing;
 
     // Update the frame.
     DCHECK_EQ(width, curX);
@@ -230,8 +229,8 @@ base::string16 GetDisplayUsername(const autofill::PasswordForm& form) {
 
 - (id)initWithForm:(const autofill::PasswordForm&)form {
   if ((self = [super initWithFrame:NSZeroRect])) {
-    CGFloat curX = kFramePadding;
-    CGFloat curY = views::kRelatedControlVerticalSpacing;
+    CGFloat curX = 0;
+    CGFloat curY = kRelatedControlVerticalSpacing;
 
     // Add the username.
     usernameField_.reset([UsernameLabel(GetDisplayUsername(form)) retain]);
@@ -239,14 +238,13 @@ base::string16 GetDisplayUsername(const autofill::PasswordForm& form) {
     [self addSubview:usernameField_];
 
     // Move to the right of the username and add the password.
-    curX = NSMaxX([usernameField_ frame]) + views::kItemLabelSpacing;
+    curX = NSMaxX([usernameField_ frame]) + kItemLabelSpacing;
     passwordField_.reset([PasswordLabel(form.password_value) retain]);
     [passwordField_ setFrameOrigin:NSMakePoint(curX, curY)];
     [self addSubview:passwordField_];
 
     // Move to the top-right of the password.
-    curY =
-        NSMaxY([passwordField_ frame]) + views::kRelatedControlVerticalSpacing;
+    curY = NSMaxY([passwordField_ frame]) + kRelatedControlVerticalSpacing;
 
     // Update the frame.
     [self setFrameSize:NSMakeSize(ItemWidth(), curY)];
@@ -291,7 +289,7 @@ base::string16 GetDisplayUsername(const autofill::PasswordForm& form) {
     model_ = model;
     position_ = position;
     passwordForm_ = passwordForm;
-    state_ = password_manager::ui::IsPendingState(model_->state())
+    state_ = model_->state() == password_manager::ui::PENDING_PASSWORD_STATE
         ? MANAGE_PASSWORD_ITEM_STATE_PENDING
         : MANAGE_PASSWORD_ITEM_STATE_MANAGE;
     [self updateContent];
@@ -349,35 +347,6 @@ base::string16 GetDisplayUsername(const autofill::PasswordForm& form) {
 
   // Add the content.
   [self.view setSubviews:@[ contentView_ ]];
-
-  // Add the borders, which go along the entire view.
-  SkColor borderSkColor;
-  ui::CommonThemeGetSystemColor(
-      ui::NativeTheme::kColorId_EnabledMenuButtonBorderColor, &borderSkColor);
-  CGColorRef borderColor = gfx::CGColorCreateFromSkColor(borderSkColor);
-
-  // Mac views don't have backing layers by default.
-  base::scoped_nsobject<CALayer> rootLayer([[CALayer alloc] init]);
-  [rootLayer setFrame:NSRectToCGRect(self.view.frame)];
-  [self.view setLayer:rootLayer];
-  [self.view setWantsLayer:YES];
-
-  // The top border is only present for the first item.
-  if (position_ == password_manager::ui::FIRST_ITEM) {
-    base::scoped_nsobject<CALayer> topBorder([[CALayer alloc] init]);
-    [topBorder setBackgroundColor:borderColor];
-    [topBorder setFrame:CGRectMake(0,
-                                   contentSize.height - kBorderWidth,
-                                   contentSize.width,
-                                   kBorderWidth)];
-    [self.view.layer addSublayer:topBorder];
-  }
-
-  // The bottom border is always present.
-  base::scoped_nsobject<CALayer> bottomBorder([[CALayer alloc] init]);
-  [bottomBorder setBackgroundColor:borderColor];
-  [bottomBorder setFrame:CGRectMake(0, 0, contentSize.width, kBorderWidth)];
-  [self.view.layer addSublayer:bottomBorder];
 }
 
 - (void)loadView {

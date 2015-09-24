@@ -5,9 +5,12 @@
 // This file contains a set of histogram support functions for logging behavior
 // seen while loading NaCl plugins.
 
+#ifndef COMPONENTS_NACL_RENDERER_HISTOGRAM_H_
+#define COMPONENTS_NACL_RENDERER_HISTOGRAM_H_
+
 #include <string>
 #include "base/time/time.h"
-#include "ppapi/c/private/ppb_nacl_private.h"
+#include "components/nacl/renderer/ppb_nacl_private.h"
 
 namespace nacl {
 
@@ -45,5 +48,10 @@ void HistogramSizeKB(const std::string& name, int32_t sample);
 void HistogramHTTPStatusCode(const std::string& name, int32_t status);
 void HistogramEnumerateManifestIsDataURI(bool is_data_uri);
 void HistogramKBPerSec(const std::string& name, int64_t kb, int64_t us);
+void HistogramRatio(const std::string& name,
+                    int64_t numerator,
+                    int64_t denominator);
 
 }  // namespace nacl
+
+#endif  // COMPONENTS_NACL_RENDERER_HISTOGRAM_H_

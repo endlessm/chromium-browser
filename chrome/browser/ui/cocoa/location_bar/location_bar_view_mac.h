@@ -19,6 +19,7 @@
 #include "chrome/browser/ui/omnibox/omnibox_edit_controller.h"
 #include "chrome/browser/ui/search/search_model_observer.h"
 #include "components/content_settings/core/common/content_settings_types.h"
+#include "components/ui/zoom/zoom_event_manager_observer.h"
 
 @class AutocompleteTextField;
 class CommandUpdater;
@@ -30,10 +31,8 @@ class LocationBarDecoration;
 class LocationIconDecoration;
 class ManagePasswordsDecoration;
 class MicSearchDecoration;
-class OriginChipDecoration;
 class PageActionDecoration;
 class Profile;
-class SearchButtonDecoration;
 class SelectedKeywordDecoration;
 class StarDecoration;
 class TranslateDecoration;
@@ -47,7 +46,8 @@ class ZoomDecorationTest;
 class LocationBarViewMac : public LocationBar,
                            public LocationBarTesting,
                            public OmniboxEditController,
-                           public SearchModelObserver {
+                           public SearchModelObserver,
+                           public ui_zoom::ZoomEventManagerObserver {
  public:
   LocationBarViewMac(AutocompleteTextField* field,
                      CommandUpdater* command_updater,
@@ -67,6 +67,7 @@ class LocationBarViewMac : public LocationBar,
   void UpdateManagePasswordsIconAndBubble() override;
   void UpdatePageActions() override;
   void UpdateBookmarkStarVisibility() override;
+  void UpdateLocationBarVisibility(bool visible, bool animate) override;
   bool ShowPageActionPopup(const extensions::Extension* extension,
                            bool grant_active_tab) override;
   void UpdateOpenPDFInReaderPrompt() override;
@@ -152,12 +153,14 @@ class LocationBarViewMac : public LocationBar,
   // is called and this function returns |NSZeroPoint|.
   NSPoint GetPageActionBubblePoint(ExtensionAction* page_action);
 
+  // Clears any location bar state stored for |contents|.
+  void ResetTabState(content::WebContents* contents);
+
   // OmniboxEditController:
   void Update(const content::WebContents* contents) override;
   void OnChanged() override;
   void OnSetFocus() override;
   void ShowURL() override;
-  void EndOriginChipAnimations(bool cancel_fade) override;
   InstantController* GetInstant() override;
   content::WebContents* GetWebContents() override;
   ToolbarModel* GetToolbarModel() override;
@@ -177,9 +180,9 @@ class LocationBarViewMac : public LocationBar,
 
   Browser* browser() const { return browser_; }
 
- protected:
-  // OmniboxEditController:
-  void HideURL() override;
+  // ZoomManagerObserver:
+  // Updates the view for the zoom icon when default zoom levels change.
+  void OnDefaultZoomLevelChanged() override;
 
  private:
   friend ZoomDecorationTest;
@@ -216,7 +219,7 @@ class LocationBarViewMac : public LocationBar,
 
   // Updates the zoom decoration in the omnibox with the current zoom level.
   // Returns whether any updates were made.
-  bool UpdateZoomDecoration();
+  bool UpdateZoomDecoration(bool default_zoom_changed);
 
   // Updates the voice search decoration. Returns true if the visible state was
   // changed.
@@ -261,22 +264,16 @@ class LocationBarViewMac : public LocationBar,
   // Generated CC hint decoration.
   scoped_ptr<GeneratedCreditCardDecoration> generated_credit_card_decoration_;
 
-  // The right-hand-side search button that is shown on search result pages.
-  scoped_ptr<SearchButtonDecoration> search_button_decoration_;
-
-  // The left-hand-side origin chip.
-  scoped_ptr<OriginChipDecoration> origin_chip_decoration_;
-
   // The right-hand-side button to manage passwords associated with a page.
   scoped_ptr<ManagePasswordsDecoration> manage_passwords_decoration_;
 
   Browser* browser_;
 
-  // Used to schedule a task for the first run info bubble.
-  base::WeakPtrFactory<LocationBarViewMac> weak_ptr_factory_;
-
   // Used to change the visibility of the star decoration.
   BooleanPrefMember edit_bookmarks_enabled_;
+
+  // Used to schedule a task for the first run info bubble.
+  base::WeakPtrFactory<LocationBarViewMac> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(LocationBarViewMac);
 };

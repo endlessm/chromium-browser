@@ -30,10 +30,9 @@ class GpuControlListEntryTest : public testing::Test {
 
   static ScopedEntry GetEntryFromString(
       const std::string& json, bool supports_feature_type_all) {
-    scoped_ptr<base::Value> root;
-    root.reset(base::JSONReader::Read(json));
+    scoped_ptr<base::Value> root = base::JSONReader::Read(json);
     base::DictionaryValue* value = NULL;
-    if (root.get() == NULL || !root->GetAsDictionary(&value))
+    if (!root || !root->GetAsDictionary(&value))
       return NULL;
 
     GpuControlList::FeatureMap feature_map;
@@ -59,9 +58,6 @@ class GpuControlListEntryTest : public testing::Test {
     gpu_info_.gl_version = "2.1 NVIDIA-8.24.11 310.90.9b01";
     gpu_info_.gl_vendor = "NVIDIA Corporation";
     gpu_info_.gl_renderer = "NVIDIA GeForce GT 120 OpenGL Engine";
-    gpu_info_.performance_stats.graphics = 5.0;
-    gpu_info_.performance_stats.gaming = 5.0;
-    gpu_info_.performance_stats.overall = 5.0;
   }
 
  protected:
@@ -90,6 +86,10 @@ TEST_F(GpuControlListEntryTest, DetailedEntry) {
         },
         "features": [
           "test_feature_0"
+        ],
+        "disabled_extensions": [
+          "test_extension1",
+          "test_extension2"
         ]
       }
   );
@@ -107,9 +107,11 @@ TEST_F(GpuControlListEntryTest, DetailedEntry) {
   EXPECT_EQ(1950, entry->webkit_bugs()[0]);
   EXPECT_EQ(1u, entry->features().size());
   EXPECT_EQ(1u, entry->features().count(TEST_FEATURE_0));
-  EXPECT_FALSE(entry->NeedsMoreInfo(gpu_info()));
+  EXPECT_FALSE(entry->NeedsMoreInfo(gpu_info(), true));
   EXPECT_TRUE(entry->Contains(
       GpuControlList::kOsMacosx, "10.6.4", gpu_info()));
+  EXPECT_STREQ("test_extension1", entry->disabled_extensions()[0].c_str());
+  EXPECT_STREQ("test_extension2", entry->disabled_extensions()[1].c_str());
 }
 
 TEST_F(GpuControlListEntryTest, VendorOnAllOsEntry) {
@@ -398,6 +400,9 @@ TEST_F(GpuControlListEntryTest, GlVersionGLESEntry) {
   gpu_info.gl_version = "OpenGL ES 3.0 V@66.0 AU@ (CL@)";
   EXPECT_TRUE(entry->Contains(GpuControlList::kOsAndroid, "4.4.2", gpu_info));
 
+  gpu_info.gl_version = "OpenGL ES 3.0V@66.0 AU@ (CL@)";
+  EXPECT_TRUE(entry->Contains(GpuControlList::kOsAndroid, "4.4.2", gpu_info));
+
   gpu_info.gl_version = "OpenGL ES 3.1 V@66.0 AU@ (CL@)";
   EXPECT_FALSE(entry->Contains(GpuControlList::kOsAndroid, "4.4.2", gpu_info));
 
@@ -607,61 +612,6 @@ TEST_F(GpuControlListEntryTest, GlExtensionsEndWith) {
       GpuControlList::kOsMacosx, "10.9", gpu_info));
 }
 
-TEST_F(GpuControlListEntryTest, PerfGraphicsEntry) {
-  const std::string json = LONG_STRING_CONST(
-      {
-        "id": 1,
-        "perf_graphics": {
-          "op": "<",
-          "value": "6.0"
-        },
-        "features": [
-          "test_feature_0"
-        ]
-      }
-  );
-  ScopedEntry entry(GetEntryFromString(json));
-  EXPECT_TRUE(entry.get() != NULL);
-  EXPECT_TRUE(entry->Contains(GpuControlList::kOsWin, "10.6", gpu_info()));
-}
-
-TEST_F(GpuControlListEntryTest, PerfGamingEntry) {
-  const std::string json = LONG_STRING_CONST(
-      {
-        "id": 1,
-        "perf_graphics": {
-          "op": "<=",
-          "value": "4.0"
-        },
-        "features": [
-          "test_feature_0"
-        ]
-      }
-  );
-  ScopedEntry entry(GetEntryFromString(json));
-  EXPECT_TRUE(entry.get() != NULL);
-  EXPECT_FALSE(entry->Contains(GpuControlList::kOsWin, "10.6", gpu_info()));
-}
-
-TEST_F(GpuControlListEntryTest, PerfOverallEntry) {
-  const std::string json = LONG_STRING_CONST(
-      {
-        "id": 1,
-        "perf_overall": {
-          "op": "between",
-          "value": "1.0",
-          "value2": "9.0"
-        },
-        "features": [
-          "test_feature_0"
-        ]
-      }
-  );
-  ScopedEntry entry(GetEntryFromString(json));
-  EXPECT_TRUE(entry.get() != NULL);
-  EXPECT_TRUE(entry->Contains(GpuControlList::kOsWin, "10.6", gpu_info()));
-}
-
 TEST_F(GpuControlListEntryTest, DisabledEntry) {
   const std::string json = LONG_STRING_CONST(
       {
@@ -812,10 +762,10 @@ TEST_F(GpuControlListEntryTest, NeedsMoreInfoEntry) {
 
   GPUInfo gpu_info;
   gpu_info.gpu.vendor_id = 0x8086;
-  EXPECT_TRUE(entry->NeedsMoreInfo(gpu_info));
+  EXPECT_TRUE(entry->NeedsMoreInfo(gpu_info, true));
 
   gpu_info.driver_version = "10.6";
-  EXPECT_FALSE(entry->NeedsMoreInfo(gpu_info));
+  EXPECT_FALSE(entry->NeedsMoreInfo(gpu_info, true));
 }
 
 TEST_F(GpuControlListEntryTest, NeedsMoreInfoForExceptionsEntry) {
@@ -838,10 +788,11 @@ TEST_F(GpuControlListEntryTest, NeedsMoreInfoForExceptionsEntry) {
 
   GPUInfo gpu_info;
   gpu_info.gpu.vendor_id = 0x8086;
-  EXPECT_TRUE(entry->NeedsMoreInfo(gpu_info));
+  EXPECT_TRUE(entry->NeedsMoreInfo(gpu_info, true));
+  EXPECT_FALSE(entry->NeedsMoreInfo(gpu_info, false));
 
   gpu_info.gl_renderer = "mesa";
-  EXPECT_FALSE(entry->NeedsMoreInfo(gpu_info));
+  EXPECT_FALSE(entry->NeedsMoreInfo(gpu_info, true));
 }
 
 TEST_F(GpuControlListEntryTest, FeatureTypeAllEntry) {

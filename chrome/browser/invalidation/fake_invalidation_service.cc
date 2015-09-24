@@ -6,8 +6,8 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
-#include "components/invalidation/invalidation_service_util.h"
-#include "components/invalidation/object_id_invalidation_map.h"
+#include "components/invalidation/impl/invalidation_service_util.h"
+#include "components/invalidation/public/object_id_invalidation_map.h"
 
 namespace invalidation {
 
@@ -26,10 +26,10 @@ void FakeInvalidationService::RegisterInvalidationHandler(
   invalidator_registrar_.RegisterHandler(handler);
 }
 
-void FakeInvalidationService::UpdateRegisteredInvalidationIds(
-      syncer::InvalidationHandler* handler,
-      const syncer::ObjectIdSet& ids) {
-  invalidator_registrar_.UpdateRegisteredIds(handler, ids);
+bool FakeInvalidationService::UpdateRegisteredInvalidationIds(
+    syncer::InvalidationHandler* handler,
+    const syncer::ObjectIdSet& ids) {
+  return invalidator_registrar_.UpdateRegisteredIds(handler, ids);
 }
 
 void FakeInvalidationService::UnregisterInvalidationHandler(

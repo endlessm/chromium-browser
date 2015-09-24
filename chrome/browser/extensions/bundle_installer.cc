@@ -26,6 +26,7 @@
 #include "extensions/common/permissions/permission_set.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/image/image_skia.h"
 
 namespace extensions {
 
@@ -39,11 +40,9 @@ enum AutoApproveForTest {
 
 AutoApproveForTest g_auto_approve_for_test = DO_NOT_SKIP;
 
-// Creates a dummy extension and sets the manifest's name to the item's
-// localized name.
 scoped_refptr<Extension> CreateDummyExtension(
     const BundleInstaller::Item& item,
-    base::DictionaryValue* manifest,
+    const base::DictionaryValue& manifest,
     content::BrowserContext* browser_context) {
   // We require localized names so we can have nice error messages when we can't
   // parse an extension manifest.
@@ -52,7 +51,7 @@ scoped_refptr<Extension> CreateDummyExtension(
   std::string error;
   scoped_refptr<Extension> extension = Extension::Create(base::FilePath(),
                                                          Manifest::INTERNAL,
-                                                         *manifest,
+                                                         manifest,
                                                          Extension::NO_FLAGS,
                                                          item.id,
                                                          &error);
@@ -63,57 +62,56 @@ scoped_refptr<Extension> CreateDummyExtension(
   return extension;
 }
 
-bool IsAppPredicate(scoped_refptr<const Extension> extension) {
-  return extension->is_app();
-}
-
-struct MatchIdFunctor {
-  explicit MatchIdFunctor(const std::string& id) : id(id) {}
-  bool operator()(scoped_refptr<const Extension> extension) {
-    return extension->id() == id;
-  }
-  std::string id;
+const int kHeadingIdsInstallPrompt[] = {
+  IDS_EXTENSION_BUNDLE_INSTALL_PROMPT_TITLE_EXTENSIONS,
+  IDS_EXTENSION_BUNDLE_INSTALL_PROMPT_TITLE_APPS,
+  IDS_EXTENSION_BUNDLE_INSTALL_PROMPT_TITLE_EXTENSION_APPS
 };
 
-// Holds the message IDs for BundleInstaller::GetHeadingTextFor.
-const int kHeadingIds[3][4] = {
-  {
-    0,
-    IDS_EXTENSION_BUNDLE_INSTALL_PROMPT_HEADING_EXTENSIONS,
-    IDS_EXTENSION_BUNDLE_INSTALL_PROMPT_HEADING_APPS,
-    IDS_EXTENSION_BUNDLE_INSTALL_PROMPT_HEADING_EXTENSION_APPS
-  },
-  {
-    0,
-    IDS_EXTENSION_BUNDLE_INSTALLED_HEADING_EXTENSIONS,
-    IDS_EXTENSION_BUNDLE_INSTALLED_HEADING_APPS,
-    IDS_EXTENSION_BUNDLE_INSTALLED_HEADING_EXTENSION_APPS
-  }
+const int kHeadingIdsDelegatedInstallPrompt[] = {
+  IDS_EXTENSION_BUNDLE_DELEGATED_INSTALL_PROMPT_TITLE_EXTENSIONS,
+  IDS_EXTENSION_BUNDLE_DELEGATED_INSTALL_PROMPT_TITLE_APPS,
+  IDS_EXTENSION_BUNDLE_DELEGATED_INSTALL_PROMPT_TITLE_EXTENSION_APPS
+};
+
+const int kHeadingIdsInstalledBubble[] = {
+  IDS_EXTENSION_BUNDLE_INSTALLED_HEADING_EXTENSIONS,
+  IDS_EXTENSION_BUNDLE_INSTALLED_HEADING_APPS,
+  IDS_EXTENSION_BUNDLE_INSTALLED_HEADING_EXTENSION_APPS
 };
 
 }  // namespace
 
 // static
 void BundleInstaller::SetAutoApproveForTesting(bool auto_approve) {
-  CHECK(CommandLine::ForCurrentProcess()->HasSwitch(switches::kTestType));
+  CHECK(base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kTestType));
   g_auto_approve_for_test = auto_approve ? PROCEED : ABORT;
 }
 
 BundleInstaller::Item::Item() : state(STATE_PENDING) {}
 
-base::string16 BundleInstaller::Item::GetNameForDisplay() {
+BundleInstaller::Item::~Item() {}
+
+base::string16 BundleInstaller::Item::GetNameForDisplay() const {
   base::string16 name = base::UTF8ToUTF16(localized_name);
   base::i18n::AdjustStringForLocaleDirection(&name);
-  return l10n_util::GetStringFUTF16(IDS_EXTENSION_PERMISSION_LINE, name);
+  return name;
 }
 
 BundleInstaller::BundleInstaller(Browser* browser,
+                                 const std::string& name,
+                                 const SkBitmap& icon,
+                                 const std::string& authuser,
+                                 const std::string& delegated_username,
                                  const BundleInstaller::ItemList& items)
     : approved_(false),
       browser_(browser),
+      name_(name),
+      icon_(icon),
+      authuser_(authuser),
+      delegated_username_(delegated_username),
       host_desktop_type_(browser->host_desktop_type()),
-      profile_(browser->profile()),
-      delegate_(NULL) {
+      profile_(browser->profile()) {
   BrowserList::AddObserver(this);
   for (size_t i = 0; i < items.size(); ++i) {
     items_[items[i].id] = items[i];
@@ -121,42 +119,54 @@ BundleInstaller::BundleInstaller(Browser* browser,
   }
 }
 
+BundleInstaller::~BundleInstaller() {
+  BrowserList::RemoveObserver(this);
+}
+
 BundleInstaller::ItemList BundleInstaller::GetItemsWithState(
     Item::State state) const {
   ItemList list;
 
-  for (ItemMap::const_iterator i = items_.begin(); i != items_.end(); ++i) {
-    if (i->second.state == state)
-      list.push_back(i->second);
+  for (const std::pair<std::string, Item>& entry : items_) {
+    if (entry.second.state == state)
+      list.push_back(entry.second);
   }
 
   return list;
 }
 
-void BundleInstaller::PromptForApproval(Delegate* delegate) {
-  delegate_ = delegate;
+bool BundleInstaller::HasItemWithState(Item::State state) const {
+  return CountItemsWithState(state) > 0;
+}
 
-  AddRef();  // Balanced in ReportApproved() and ReportCanceled().
+size_t BundleInstaller::CountItemsWithState(Item::State state) const {
+  return std::count_if(items_.begin(), items_.end(),
+                       [state] (const std::pair<std::string, Item>& entry) {
+                         return entry.second.state == state;
+                       });
+}
+
+void BundleInstaller::PromptForApproval(const ApprovalCallback& callback) {
+  approval_callback_ = callback;
 
   ParseManifests();
 }
 
 void BundleInstaller::CompleteInstall(content::WebContents* web_contents,
-                                      Delegate* delegate) {
+                                      const base::Closure& callback) {
+  DCHECK(web_contents);
   CHECK(approved_);
 
-  delegate_ = delegate;
+  install_callback_ = callback;
 
-  AddRef();  // Balanced in ReportComplete();
-
-  if (GetItemsWithState(Item::STATE_PENDING).empty()) {
-    ReportComplete();
+  if (!HasItemWithState(Item::STATE_PENDING)) {
+    install_callback_.Run();
     return;
   }
 
   // Start each WebstoreInstaller.
-  for (ItemMap::iterator i = items_.begin(); i != items_.end(); ++i) {
-    if (i->second.state != Item::STATE_PENDING)
+  for (const std::pair<std::string, Item>& entry : items_) {
+    if (entry.second.state != Item::STATE_PENDING)
       continue;
 
     // Since we've already confirmed the permissions, create an approval that
@@ -164,17 +174,20 @@ void BundleInstaller::CompleteInstall(content::WebContents* web_contents,
     scoped_ptr<WebstoreInstaller::Approval> approval(
         WebstoreInstaller::Approval::CreateWithNoInstallPrompt(
             profile_,
-            i->first,
-            scoped_ptr<base::DictionaryValue>(
-                parsed_manifests_[i->first]->DeepCopy()), true));
+            entry.first,
+            make_scoped_ptr(parsed_manifests_[entry.first]->DeepCopy()),
+            true));
     approval->use_app_installed_bubble = false;
     approval->skip_post_install_ui = true;
+    approval->authuser = authuser_;
+    approval->installing_icon =
+        gfx::ImageSkia::CreateFrom1xBitmap(entry.second.icon);
 
     scoped_refptr<WebstoreInstaller> installer = new WebstoreInstaller(
         profile_,
         this,
         web_contents,
-        i->first,
+        entry.first,
         approval.Pass(),
         WebstoreInstaller::INSTALL_SOURCE_OTHER);
     installer->Start();
@@ -185,71 +198,57 @@ base::string16 BundleInstaller::GetHeadingTextFor(Item::State state) const {
   // For STATE_FAILED, we can't tell if the items were apps or extensions
   // so we always show the same message.
   if (state == Item::STATE_FAILED) {
-    if (GetItemsWithState(state).size())
+    if (HasItemWithState(state))
       return l10n_util::GetStringUTF16(IDS_EXTENSION_BUNDLE_ERROR_HEADING);
     return base::string16();
   }
 
-  size_t total = GetItemsWithState(state).size();
+  size_t total = CountItemsWithState(state);
+  if (total == 0)
+    return base::string16();
+
   size_t apps = std::count_if(
-      dummy_extensions_.begin(), dummy_extensions_.end(), &IsAppPredicate);
+      dummy_extensions_.begin(), dummy_extensions_.end(),
+      [] (const scoped_refptr<const Extension>& ext) { return ext->is_app(); });
 
   bool has_apps = apps > 0;
   bool has_extensions = apps < total;
-  size_t index = (has_extensions << 0) + (has_apps << 1);
+  size_t index = (has_extensions << 0) + (has_apps << 1) - 1;
 
-  CHECK_LT(static_cast<size_t>(state), arraysize(kHeadingIds));
-  CHECK_LT(index, arraysize(kHeadingIds[state]));
-
-  int msg_id = kHeadingIds[state][index];
-  if (!msg_id)
-    return base::string16();
-
-  return l10n_util::GetStringUTF16(msg_id);
-}
-
-BundleInstaller::~BundleInstaller() {
-  BrowserList::RemoveObserver(this);
+  if (state == Item::STATE_PENDING) {
+    if (!delegated_username_.empty()) {
+      return l10n_util::GetStringFUTF16(
+          kHeadingIdsDelegatedInstallPrompt[index], base::UTF8ToUTF16(name_),
+          base::UTF8ToUTF16(delegated_username_));
+    } else {
+      return l10n_util::GetStringFUTF16(kHeadingIdsInstallPrompt[index],
+                                        base::UTF8ToUTF16(name_));
+    }
+  } else {
+    return l10n_util::GetStringUTF16(kHeadingIdsInstalledBubble[index]);
+  }
 }
 
 void BundleInstaller::ParseManifests() {
   if (items_.empty()) {
-    ReportCanceled(false);
+    approval_callback_.Run(APPROVAL_ERROR);
     return;
   }
 
-  for (ItemMap::iterator i = items_.begin(); i != items_.end(); ++i) {
+  net::URLRequestContextGetter* context_getter =
+      browser_ ? browser_->profile()->GetRequestContext() : nullptr;
+
+  for (const std::pair<std::string, Item>& entry : items_) {
     scoped_refptr<WebstoreInstallHelper> helper = new WebstoreInstallHelper(
-        this, i->first, i->second.manifest, std::string(), GURL(), NULL);
+        this, entry.first, entry.second.manifest, entry.second.icon_url,
+        context_getter);
     helper->Start();
   }
 }
 
-void BundleInstaller::ReportApproved() {
-  if (delegate_)
-    delegate_->OnBundleInstallApproved();
-
-  Release();  // Balanced in PromptForApproval().
-}
-
-void BundleInstaller::ReportCanceled(bool user_initiated) {
-  if (delegate_)
-    delegate_->OnBundleInstallCanceled(user_initiated);
-
-  Release();  // Balanced in PromptForApproval().
-}
-
-void BundleInstaller::ReportComplete() {
-  if (delegate_)
-    delegate_->OnBundleInstallCompleted();
-
-  Release();  // Balanced in CompleteInstall().
-}
-
 void BundleInstaller::ShowPromptIfDoneParsing() {
   // We don't prompt until all the manifests have been parsed.
-  ItemList pending_items = GetItemsWithState(Item::STATE_PENDING);
-  if (pending_items.size() != dummy_extensions_.size())
+  if (CountItemsWithState(Item::STATE_PENDING) != dummy_extensions_.size())
     return;
 
   ShowPrompt();
@@ -258,7 +257,7 @@ void BundleInstaller::ShowPromptIfDoneParsing() {
 void BundleInstaller::ShowPrompt() {
   // Abort if we couldn't create any Extensions out of the manifests.
   if (dummy_extensions_.empty()) {
-    ReportCanceled(false);
+    approval_callback_.Run(APPROVAL_ERROR);
     return;
   }
 
@@ -284,27 +283,33 @@ void BundleInstaller::ShowPrompt() {
     if (browser)
       web_contents = browser->tab_strip_model()->GetActiveWebContents();
     install_ui_.reset(new ExtensionInstallPrompt(web_contents));
-    install_ui_->ConfirmBundleInstall(this, permissions.get());
+    if (delegated_username_.empty()) {
+      install_ui_->ConfirmBundleInstall(this, &icon_, permissions.get());
+    } else {
+      install_ui_->ConfirmPermissionsForDelegatedBundleInstall(
+          this, delegated_username_, &icon_, permissions.get());
+    }
   }
 }
 
 void BundleInstaller::ShowInstalledBubbleIfDone() {
   // We're ready to show the installed bubble when no items are pending.
-  if (!GetItemsWithState(Item::STATE_PENDING).empty())
+  if (HasItemWithState(Item::STATE_PENDING))
     return;
 
   if (browser_)
     ShowInstalledBubble(this, browser_);
 
-  ReportComplete();
+  install_callback_.Run();
 }
 
 void BundleInstaller::OnWebstoreParseSuccess(
     const std::string& id,
     const SkBitmap& icon,
     base::DictionaryValue* manifest) {
+  items_[id].icon = icon;
   dummy_extensions_.push_back(
-      CreateDummyExtension(items_[id], manifest, profile_));
+      CreateDummyExtension(items_[id], *manifest, profile_));
   parsed_manifests_[id] = linked_ptr<base::DictionaryValue>(manifest);
 
   ShowPromptIfDoneParsing();
@@ -321,14 +326,14 @@ void BundleInstaller::OnWebstoreParseFailure(
 
 void BundleInstaller::InstallUIProceed() {
   approved_ = true;
-  ReportApproved();
+  approval_callback_.Run(APPROVED);
 }
 
 void BundleInstaller::InstallUIAbort(bool user_initiated) {
-  for (ItemMap::iterator i = items_.begin(); i != items_.end(); ++i)
-    i->second.state = Item::STATE_FAILED;
+  for (std::pair<const std::string, Item>& entry : items_)
+    entry.second.state = Item::STATE_FAILED;
 
-  ReportCanceled(user_initiated);
+  approval_callback_.Run(user_initiated ? USER_CANCELED : APPROVAL_ERROR);
 }
 
 void BundleInstaller::OnExtensionInstallSuccess(const std::string& id) {
@@ -344,20 +349,19 @@ void BundleInstaller::OnExtensionInstallFailure(
   items_[id].state = Item::STATE_FAILED;
 
   ExtensionList::iterator i = std::find_if(
-      dummy_extensions_.begin(), dummy_extensions_.end(), MatchIdFunctor(id));
+      dummy_extensions_.begin(), dummy_extensions_.end(),
+      [&id] (const scoped_refptr<const Extension>& ext) {
+        return ext->id() == id;
+      });
   CHECK(dummy_extensions_.end() != i);
   dummy_extensions_.erase(i);
 
   ShowInstalledBubbleIfDone();
 }
 
-void BundleInstaller::OnBrowserAdded(Browser* browser) {}
-
 void BundleInstaller::OnBrowserRemoved(Browser* browser) {
   if (browser_ == browser)
-    browser_ = NULL;
+    browser_ = nullptr;
 }
-
-void BundleInstaller::OnBrowserSetLastActive(Browser* browser) {}
 
 }  // namespace extensions

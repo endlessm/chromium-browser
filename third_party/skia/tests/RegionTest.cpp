@@ -5,6 +5,7 @@
  * found in the LICENSE file.
  */
 
+#include "SkPath.h"
 #include "SkRandom.h"
 #include "SkRegion.h"
 #include "Test.h"
@@ -91,6 +92,13 @@ static void test_empties(skiatest::Reporter* reporter) {
     REPORTER_ASSERT(reporter, !empty.contains(empty2));
     REPORTER_ASSERT(reporter, !valid.contains(empty));
     REPORTER_ASSERT(reporter, !empty.contains(valid));
+
+    SkPath emptyPath;
+    emptyPath.moveTo(1, 5);
+    emptyPath.close();
+    SkRegion openClip;
+    openClip.setRect(-16000, -16000, 16000, 16000);
+    empty.setPath(emptyPath, openClip);  // should not assert
 }
 
 enum {
@@ -253,4 +261,32 @@ DEF_TEST(Region, reporter) {
     test_proc(reporter, intersects_proc);
     test_empties(reporter);
     test_fromchrome(reporter);
+}
+
+// Test that writeToMemory reports the same number of bytes whether there was a
+// buffer to write to or not.
+static void test_write(const SkRegion& region, skiatest::Reporter* r) {
+    const size_t bytesNeeded = region.writeToMemory(NULL);
+    SkAutoMalloc storage(bytesNeeded);
+    const size_t bytesWritten = region.writeToMemory(storage.get());
+    REPORTER_ASSERT(r, bytesWritten == bytesNeeded);
+}
+
+DEF_TEST(Region_writeToMemory, r) {
+    // Test an empty region.
+    SkRegion region;
+    REPORTER_ASSERT(r, region.isEmpty());
+    test_write(region, r);
+
+    // Test a rectangular region
+    bool nonEmpty = region.setRect(0, 0, 50, 50);
+    REPORTER_ASSERT(r, nonEmpty);
+    REPORTER_ASSERT(r, region.isRect());
+    test_write(region, r);
+
+    // Test a complex region
+    nonEmpty = region.op(50, 50, 100, 100, SkRegion::kUnion_Op);
+    REPORTER_ASSERT(r, nonEmpty);
+    REPORTER_ASSERT(r, region.isComplex());
+    test_write(region, r);
 }

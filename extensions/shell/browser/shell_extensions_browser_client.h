@@ -19,7 +19,9 @@ class ExtensionsAPIClient;
 class ShellExtensionsBrowserClient : public ExtensionsBrowserClient {
  public:
   // |context| is the single BrowserContext used for IsValidContext() below.
-  explicit ShellExtensionsBrowserClient(content::BrowserContext* context);
+  // |pref_service| is used for GetPrefServiceForContext() below.
+  ShellExtensionsBrowserClient(content::BrowserContext* context,
+                               PrefService* pref_service);
   ~ShellExtensionsBrowserClient() override;
 
   // ExtensionsBrowserClient overrides:
@@ -34,6 +36,10 @@ class ShellExtensionsBrowserClient : public ExtensionsBrowserClient {
       content::BrowserContext* context) override;
   content::BrowserContext* GetOriginalContext(
       content::BrowserContext* context) override;
+#if defined(OS_CHROMEOS)
+  std::string GetUserIdHashFromContext(
+      content::BrowserContext* context) override;
+#endif
   bool IsGuestSession(content::BrowserContext* context) const override;
   bool IsExtensionIncognitoEnabled(
       const std::string& extension_id,
@@ -67,26 +73,33 @@ class ShellExtensionsBrowserClient : public ExtensionsBrowserClient {
   ExtensionSystemProvider* GetExtensionSystemFactory() override;
   void RegisterExtensionFunctions(
       ExtensionFunctionRegistry* registry) const override;
+  void RegisterMojoServices(content::RenderFrameHost* render_frame_host,
+                            const Extension* extension) const override;
   scoped_ptr<RuntimeAPIDelegate> CreateRuntimeAPIDelegate(
       content::BrowserContext* context) const override;
-  ComponentExtensionResourceManager* GetComponentExtensionResourceManager()
-      override;
+  const ComponentExtensionResourceManager*
+  GetComponentExtensionResourceManager() override;
   void BroadcastEventToRenderers(const std::string& event_name,
                                  scoped_ptr<base::ListValue> args) override;
   net::NetLog* GetNetLog() override;
   ExtensionCache* GetExtensionCache() override;
   bool IsBackgroundUpdateAllowed() override;
   bool IsMinBrowserVersionSupported(const std::string& min_version) override;
+  ExtensionWebContentsObserver* GetExtensionWebContentsObserver(
+      content::WebContents* web_contents) override;
+
+  // Sets the API client.
+  void SetAPIClientForTest(ExtensionsAPIClient* api_client);
 
  private:
   // The single BrowserContext for app_shell. Not owned.
   content::BrowserContext* browser_context_;
 
+  // The PrefService for |browser_context_|. Not owned.
+  PrefService* pref_service_;
+
   // Support for extension APIs.
   scoped_ptr<ExtensionsAPIClient> api_client_;
-
-  // The PrefService for |browser_context_|.
-  scoped_ptr<PrefService> prefs_;
 
   // The extension cache used for download and installation.
   scoped_ptr<ExtensionCache> extension_cache_;

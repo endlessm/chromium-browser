@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,69 +6,71 @@
 
 from __future__ import print_function
 
-import mox
-import os
+import itertools
+import mock
 import sys
 
-sys.path.insert(0, os.path.abspath('%s/../../..' % os.path.dirname(__file__)))
+from chromite.cbuildbot import cbuildbot_run
 from chromite.cbuildbot import commands
+from chromite.cbuildbot import config_lib
 from chromite.cbuildbot import constants
 from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import results_lib
-from chromite.cbuildbot import validation_pool
 from chromite.cbuildbot.stages import completion_stages
 from chromite.cbuildbot.stages import generic_stages_unittest
 from chromite.cbuildbot.stages import sync_stages_unittest
 from chromite.cbuildbot.stages import sync_stages
 from chromite.lib import alerts
-from chromite.lib import cros_test_lib
+from chromite.lib import cidb
+from chromite.lib import clactions
+from chromite.lib import patch_unittest
 
 
-# pylint: disable=R0901,W0212
+# pylint: disable=protected-access
+
+
 class ManifestVersionedSyncCompletionStageTest(
     sync_stages_unittest.ManifestVersionedSyncStageTest):
   """Tests the ManifestVersionedSyncCompletion stage."""
-  # pylint: disable=W0223
+
+  # pylint: disable=abstract-method
+
   BOT_ID = 'x86-mario-release'
 
   def testManifestVersionedSyncCompletedSuccess(self):
     """Tests basic ManifestVersionedSyncStageCompleted on success"""
-    self.mox.StubOutWithMock(manifest_version.BuildSpecsManager, 'UpdateStatus')
-
     board_runattrs = self._run.GetBoardRunAttrs('x86-mario')
     board_runattrs.SetParallel('success', True)
-    self.manager.UpdateStatus(message=None, success_map={self.BOT_ID: True},
-                              dashboard_url=mox.IgnoreArg())
+    update_status_mock = self.PatchObject(
+        manifest_version.BuildSpecsManager, 'UpdateStatus')
 
-    self.mox.ReplayAll()
     stage = completion_stages.ManifestVersionedSyncCompletionStage(
         self._run, self.sync_stage, success=True)
+
     stage.Run()
-    self.mox.VerifyAll()
+    update_status_mock.assert_called_once_with(
+        message=None, success_map={self.BOT_ID: True}, dashboard_url=mock.ANY)
 
   def testManifestVersionedSyncCompletedFailure(self):
     """Tests basic ManifestVersionedSyncStageCompleted on failure"""
     stage = completion_stages.ManifestVersionedSyncCompletionStage(
         self._run, self.sync_stage, success=False)
-    self.mox.StubOutWithMock(manifest_version.BuildSpecsManager, 'UpdateStatus')
-    self.mox.StubOutWithMock(stage, 'GetBuildFailureMessage')
+    message = 'foo'
+    self.PatchObject(stage, 'GetBuildFailureMessage', return_value=message)
+    update_status_mock = self.PatchObject(
+        manifest_version.BuildSpecsManager, 'UpdateStatus')
 
-    self.manager.UpdateStatus(message=None, success_map={self.BOT_ID: False},
-                              dashboard_url=mox.IgnoreArg())
-    stage.GetBuildFailureMessage()
-
-    self.mox.ReplayAll()
     stage.Run()
-    self.mox.VerifyAll()
+    update_status_mock.assert_called_once_with(
+        message='foo', success_map={self.BOT_ID: False},
+        dashboard_url=mock.ANY)
 
   def testManifestVersionedSyncCompletedIncomplete(self):
     """Tests basic ManifestVersionedSyncStageCompleted on incomplete build."""
-    self.mox.ReplayAll()
     stage = completion_stages.ManifestVersionedSyncCompletionStage(
         self._run, self.sync_stage, success=False)
     stage.Run()
-    self.mox.VerifyAll()
 
   def testMeaningfulMessage(self):
     """Tests that all essential components are in the message."""
@@ -91,9 +92,117 @@ class ManifestVersionedSyncCompletionStageTest(
     self.assertTrue('TacoStage' in msg.reason)
     self.assertTrue(str(exception) in msg.reason)
 
+  def testGetBuilderSuccessMap(self):
+    """Tests that the builder success map is properly created."""
+    board_runattrs = self._run.GetBoardRunAttrs('x86-mario')
+    board_runattrs.SetParallel('success', True)
+    builder_success_map = completion_stages.GetBuilderSuccessMap(
+        self._run, True)
+    expected_map = {self.BOT_ID: True}
+    self.assertEqual(expected_map, builder_success_map)
+
+
+class MasterSlaveSyncCompletionStageMockConfigTest(
+    generic_stages_unittest.AbstractStageTestCase):
+  """Tests MasterSlaveSyncCompletionStage with ManifestVersionedSyncStage."""
+  BOT_ID = 'master'
+
+  def setUp(self):
+    self.source_repo = 'ssh://source/repo'
+    self.manifest_version_url = 'fake manifest url'
+    self.branch = 'master'
+    self.build_type = constants.PFQ_TYPE
+
+    # Use our mocked out SiteConfig for all tests.
+    self.test_config = self._GetTestConfig()
+    self._Prepare(site_config=self.test_config)
+
+  def ConstructStage(self):
+    sync_stage = sync_stages.ManifestVersionedSyncStage(self._run)
+    return completion_stages.MasterSlaveSyncCompletionStage(
+        self._run, sync_stage, success=True)
+
+  def _GetTestConfig(self):
+    test_config = config_lib.SiteConfig()
+    test_config.AddConfigWithoutTemplate(
+        'master',
+        boards=[],
+        build_type=self.build_type,
+        master=True,
+        manifest_version=True,
+    )
+    test_config.AddConfigWithoutTemplate(
+        'test1',
+        boards=['x86-generic'],
+        manifest_version=True,
+        build_type=constants.PFQ_TYPE,
+        overlays='public',
+        important=False,
+        chrome_rev=None,
+        branch=False,
+        internal=False,
+        master=False,
+    )
+    test_config.AddConfigWithoutTemplate(
+        'test2',
+        boards=['x86-generic'],
+        manifest_version=False,
+        build_type=constants.PFQ_TYPE,
+        overlays='public',
+        important=True,
+        chrome_rev=None,
+        branch=False,
+        internal=False,
+        master=False,
+    )
+    test_config.AddConfigWithoutTemplate(
+        'test3',
+        boards=['x86-generic'],
+        manifest_version=True,
+        build_type=constants.PFQ_TYPE,
+        overlays='both',
+        important=True,
+        chrome_rev=None,
+        branch=False,
+        internal=True,
+        master=False,
+    )
+    test_config.AddConfigWithoutTemplate(
+        'test4',
+        boards=['x86-generic'],
+        manifest_version=True,
+        build_type=constants.PFQ_TYPE,
+        overlays='both',
+        important=True,
+        chrome_rev=None,
+        branch=True,
+        internal=True,
+        master=False,
+    )
+    test_config.AddConfigWithoutTemplate(
+        'test5',
+        boards=['x86-generic'],
+        manifest_version=True,
+        build_type=constants.PFQ_TYPE,
+        overlays='public',
+        important=True,
+        chrome_rev=None,
+        branch=False,
+        internal=False,
+        master=False,
+    )
+    return test_config
+
+  def testGetSlavesForMaster(self):
+    """Tests that we get the slaves for a fake unified master configuration."""
+    self.maxDiff = None
+    stage = self.ConstructStage()
+    p = stage._GetSlaveConfigs()
+    self.assertEqual([self.test_config['test3'], self.test_config['test5']], p)
+
 
 class MasterSlaveSyncCompletionStageTest(
-    generic_stages_unittest.AbstractStageTest):
+    generic_stages_unittest.AbstractStageTestCase):
   """Tests MasterSlaveSyncCompletionStage with ManifestVersionedSyncStage."""
   BOT_ID = 'x86-generic-paladin'
 
@@ -116,82 +225,6 @@ class MasterSlaveSyncCompletionStageTest(
     sync_stage = sync_stages.ManifestVersionedSyncStage(self._run)
     return completion_stages.MasterSlaveSyncCompletionStage(
         self._run, sync_stage, success=True)
-
-  def _GetTestConfig(self):
-    test_config = {}
-    test_config['test1'] = {
-        'manifest_version': True,
-        'build_type': constants.PFQ_TYPE,
-        'overlays': 'public',
-        'important': False,
-        'chrome_rev': None,
-        'branch': False,
-        'internal': False,
-        'master': False,
-    }
-    test_config['test2'] = {
-        'manifest_version': False,
-        'build_type': constants.PFQ_TYPE,
-        'overlays': 'public',
-        'important': True,
-        'chrome_rev': None,
-        'branch': False,
-        'internal': False,
-        'master': False,
-    }
-    test_config['test3'] = {
-        'manifest_version': True,
-        'build_type': constants.PFQ_TYPE,
-        'overlays': 'both',
-        'important': True,
-        'chrome_rev': None,
-        'branch': False,
-        'internal': True,
-        'master': False,
-    }
-    test_config['test4'] = {
-        'manifest_version': True,
-        'build_type': constants.PFQ_TYPE,
-        'overlays': 'both',
-        'important': True,
-        'chrome_rev': None,
-        'branch': True,
-        'internal': True,
-        'master': False,
-    }
-    test_config['test5'] = {
-        'manifest_version': True,
-        'build_type': constants.PFQ_TYPE,
-        'overlays': 'public',
-        'important': True,
-        'chrome_rev': None,
-        'branch': False,
-        'internal': False,
-        'master': False,
-    }
-    return test_config
-
-  def testGetSlavesForMaster(self):
-    """Tests that we get the slaves for a fake unified master configuration."""
-    orig_config = completion_stages.cbuildbot_config.config
-    try:
-      test_config = self._GetTestConfig()
-      completion_stages.cbuildbot_config.config = test_config
-
-      self.mox.ReplayAll()
-
-      stage = self.ConstructStage()
-      p = stage._GetSlaveConfigs()
-      self.mox.VerifyAll()
-
-      self.assertTrue(test_config['test3'] in p)
-      self.assertTrue(test_config['test5'] in p)
-      self.assertFalse(test_config['test1'] in p)
-      self.assertFalse(test_config['test2'] in p)
-      self.assertFalse(test_config['test4'] in p)
-
-    finally:
-      completion_stages.cbuildbot_config.config = orig_config
 
   def testIsFailureFatal(self):
     """Tests the correctness of the _IsFailureFatal method"""
@@ -252,11 +285,10 @@ class MasterSlaveSyncCompletionStageTestWithLKGMSync(
 
 
 class CanaryCompletionStageTest(
-    generic_stages_unittest.AbstractStageTest):
+    generic_stages_unittest.AbstractStageTestCase):
   """Tests how canary master handles failures in CanaryCompletionStage."""
   BOT_ID = 'master-release'
 
-  # pylint: disable=E1120
   def _Prepare(self, bot_id=BOT_ID, **kwargs):
     super(CanaryCompletionStageTest, self)._Prepare(bot_id, **kwargs)
 
@@ -281,15 +313,10 @@ class CanaryCompletionStageTest(
         'bar timed out; foo1,foo2 and 3 others failed')
 
 
-class CommitQueueCompletionStageTest(
-    generic_stages_unittest.AbstractStageTest):
-  """Tests how CQ master handles changes in CommitQueueCompletionStage."""
-  BOT_ID = 'master-paladin'
-
-  # pylint: disable=E1120
-  def _Prepare(self, bot_id=BOT_ID, **kwargs):
-    super(CommitQueueCompletionStageTest, self)._Prepare(bot_id, **kwargs)
-    self.assertTrue(self._run.config['master'])
+class BaseCommitQueueCompletionStageTest(
+    generic_stages_unittest.AbstractStageTestCase,
+    patch_unittest.MockPatchBase):
+  """Tests how CQ handles changes in CommitQueueCompletionStage."""
 
   def setUp(self):
     self.build_type = constants.PFQ_TYPE
@@ -298,81 +325,169 @@ class CommitQueueCompletionStageTest(
     self.partial_submit_changes = ['C', 'D']
     self.other_changes = ['A', 'B']
     self.changes = self.other_changes + self.partial_submit_changes
+    self.tot_sanity_mock = self.PatchObject(
+        completion_stages.CommitQueueCompletionStage,
+        '_ToTSanity',
+        return_value=True)
 
-    self.mox.StubOutWithMock(completion_stages.MasterSlaveSyncCompletionStage,
-                             'HandleFailure')
-    self.mox.StubOutWithMock(completion_stages.CommitQueueCompletionStage,
-                             'SubmitPartialPool')
-    self.mox.StubOutWithMock(completion_stages.CommitQueueCompletionStage,
-                             '_ToTSanity')
-    self.mox.StubOutWithMock(alerts, '_SendEmailHelper')
-
+    self.alert_email_mock = self.PatchObject(alerts, 'SendEmail')
+    self.PatchObject(cbuildbot_run._BuilderRunBase,
+                     'InProduction', return_value=True)
+    self.PatchObject(completion_stages.MasterSlaveSyncCompletionStage,
+                     'HandleFailure')
     self.PatchObject(completion_stages.CommitQueueCompletionStage,
                      '_GetFailedMessages')
     self.PatchObject(completion_stages.CommitQueueCompletionStage,
-                     'ShouldDisableAlerts', return_value=False)
+                     '_GetSlaveMappingAndCLActions',
+                     return_value=(dict(), []))
+    self.PatchObject(clactions, 'GetRelevantChangesForBuilds')
+    self.PatchObject(completion_stages.CommitQueueCompletionStage,
+                     '_RecordIrrelevantChanges')
 
-  def ConstructStage(self):
-    """Returns a CommitQueueCompletionStage object."""
+  # pylint: disable=W0221
+  def ConstructStage(self, tree_was_open=True):
+    """Returns a CommitQueueCompletionStage object.
+
+    Args:
+      tree_was_open: If not true, tree was not open when we acquired changes.
+    """
     sync_stage = sync_stages.CommitQueueSyncStage(self._run)
-    sync_stage.pool = mox.MockObject(validation_pool.ValidationPool)
+    sync_stage.pool = mock.MagicMock()
     sync_stage.pool.changes = self.changes
-    self.mox.StubOutWithMock(sync_stage.pool,
-                             'HandleValidationFailure')
-    self.mox.StubOutWithMock(sync_stage.pool,
-                             'HandleValidationTimeout')
+    sync_stage.pool.tree_was_open = tree_was_open
 
+    sync_stage.pool.handle_failure_mock = self.PatchObject(
+        sync_stage.pool, 'HandleValidationFailure')
+    sync_stage.pool.handle_timeout_mock = self.PatchObject(
+        sync_stage.pool, 'HandleValidationTimeout')
     return completion_stages.CommitQueueCompletionStage(
         self._run, sync_stage, success=True)
 
   def VerifyStage(self, failing, inflight, handle_failure=True,
-                  handle_timeout=False, submit_partial=False, alert=False):
-    """Runs and Verifies CQMasterHandleFailure.
+                  handle_timeout=False, sane_tot=True, submit_partial=False,
+                  alert=False, stage=None, all_slaves=None, slave_stages=None,
+                  do_submit_partial=True, build_passed=False):
+    """Runs and Verifies PerformStage.
 
     Args:
       failing: The names of the builders that failed.
       inflight: The names of the buiders that timed out.
       handle_failure: If True, calls HandleValidationFailure.
       handle_timeout: If True, calls HandleValidationTimeout.
-      submit_partial: If True, submit parital pool.
+      sane_tot: If not true, assumes TOT is not sane.
+      submit_partial: If True, submit partial pool will submit some changes.
       alert: If True, sends out an alert email for infra failures.
+      stage: If set, use this constructed stage, otherwise create own.
+      all_slaves: Optional set of all slave configs.
+      slave_stages: Optional list of slave stages.
+      do_submit_partial: If True, assert that there was no call to
+                         SubmitPartialPool.
+      build_passed: Whether the build passed or failed.
     """
-    stage = self.ConstructStage()
+    if not stage:
+      stage = self.ConstructStage()
 
+    # Setup the stage to look at the specified configs.
+    all_slaves = list(all_slaves or set(failing + inflight))
+    configs = [config_lib.BuildConfig(name=x) for x in all_slaves]
+    self.PatchObject(stage, '_GetSlaveConfigs', return_value=configs)
+
+    # Setup builder statuses.
+    stage._run.attrs.manifest_manager = mock.MagicMock()
+    statuses = {}
+    for x in failing:
+      statuses[x] = manifest_version.BuilderStatus(
+          constants.BUILDER_STATUS_FAILED, message=None)
+    for x in inflight:
+      statuses[x] = manifest_version.BuilderStatus(
+          constants.BUILDER_STATUS_INFLIGHT, message=None)
+    if self._run.config.master:
+      self.PatchObject(stage._run.attrs.manifest_manager, 'GetBuildersStatus',
+                       return_value=statuses)
+    else:
+      self.PatchObject(stage, '_GetLocalBuildStatus', return_value=statuses)
+
+    # Setup DB and provide list of slave stages.
+    mock_cidb = mock.MagicMock()
+    cidb.CIDBConnectionFactory.SetupMockCidb(mock_cidb)
+    if slave_stages is None:
+      slave_stages = []
+      critical_stages = (
+          completion_stages.CommitQueueCompletionStage._CRITICAL_STAGES)
+      for stage_name, slave in itertools.product(critical_stages, all_slaves):
+        slave_stages.append({'name': stage_name,
+                             'build_config': slave,
+                             'status': constants.BUILDER_STATUS_PASSED})
+    self.PatchObject(mock_cidb, 'GetSlaveStages', return_value=slave_stages)
+
+
+    # Set up SubmitPartialPool to provide a list of changes to look at.
     if submit_partial:
-      completion_stages.CommitQueueCompletionStage.SubmitPartialPool(
-          mox.IgnoreArg()).AndReturn(self.other_changes)
+      spmock = self.PatchObject(stage.sync_stage.pool, 'SubmitPartialPool',
+                                return_value=self.other_changes)
+      handlefailure_changes = self.other_changes
+    else:
+      spmock = self.PatchObject(stage.sync_stage.pool, 'SubmitPartialPool',
+                                return_value=self.changes)
+      handlefailure_changes = self.changes
 
-    if alert:
-      alerts._SendEmailHelper(mox.IgnoreArg(), mox.IgnoreArg(), mox.IgnoreArg(),
-                              mox.IgnoreArg())
+    # Track whether 'HandleSuccess' is called.
+    success_mock = self.PatchObject(stage, 'HandleSuccess')
 
-    completion_stages.CommitQueueCompletionStage._ToTSanity(
-        mox.IgnoreArg(), mox.IgnoreArg())
+    # Actually run the stage.
+    if build_passed:
+      stage.PerformStage()
+    else:
+      with self.assertRaises(completion_stages.ImportantBuilderFailedException):
+        stage.PerformStage()
 
-    if handle_failure:
-      stage.sync_stage.pool.HandleValidationFailure(
-        mox.IgnoreArg(), no_stat=[], sanity=mox.IgnoreArg(),
-        changes=self.other_changes)
+    # Verify the calls.
+    self.assertEqual(success_mock.called, build_passed)
 
-    if handle_timeout:
-      stage.sync_stage.pool.HandleValidationTimeout(
-          sanity=mox.IgnoreArg(), changes=self.changes)
+    if not build_passed and self._run.config.master:
+      self.tot_sanity_mock.assert_called_once_with(mock.ANY, mock.ANY)
 
-    self.mox.ReplayAll()
-    stage.CQMasterHandleFailure(failing, inflight, [])
-    self.mox.VerifyAll()
+      if alert:
+        self.alert_email_mock.called_once_with(
+            mock.ANY, mock.ANY, mock.ANY, mock.ANY)
 
-  def testNoInflightBuildersNoInfraFail(self):
-    """Test case where there are no inflight builders and no infra failures."""
-    failing = ['foo']
-    inflight = []
+      self.assertEqual(do_submit_partial, spmock.called)
 
-    self.PatchObject(completion_stages.CommitQueueCompletionStage,
-                     '_GetInfraFailMessages', return_value=[])
-    self.PatchObject(completion_stages.CommitQueueCompletionStage,
-                     '_GetBuildersWithNoneMessages', return_value=[])
-    self.VerifyStage(failing, inflight, submit_partial=True)
+      if handle_failure:
+        stage.sync_stage.pool.handle_failure_mock.assert_called_once_with(
+            mock.ANY, no_stat=set([]), sanity=sane_tot,
+            changes=handlefailure_changes)
+
+      if handle_timeout:
+        stage.sync_stage.pool.handle_timeout_mock.assert_called_once_with(
+            sanity=mock.ANY, changes=self.changes)
+
+
+# pylint: disable=too-many-ancestors
+class SlaveCommitQueueCompletionStageTest(BaseCommitQueueCompletionStageTest):
+  """Tests how CQ a slave handles changes in CommitQueueCompletionStage."""
+  BOT_ID = 'x86-mario-paladin'
+
+  def testSuccess(self):
+    """Test the slave succeeding."""
+    self.VerifyStage([], [], build_passed=True)
+
+  def testFail(self):
+    """Test the slave failing."""
+    self.VerifyStage(['foo'], [], build_passed=False)
+
+  def testTimeout(self):
+    """Test the slave timing out."""
+    self.VerifyStage([], ['foo'], build_passed=False)
+
+
+class MasterCommitQueueCompletionStageTest(BaseCommitQueueCompletionStageTest):
+  """Tests how CQ master handles changes in CommitQueueCompletionStage."""
+  BOT_ID = 'master-paladin'
+
+  def _Prepare(self, bot_id=BOT_ID, **kwargs):
+    super(MasterCommitQueueCompletionStageTest, self)._Prepare(bot_id, **kwargs)
+    self.assertTrue(self._run.config['master'])
 
   def testNoInflightBuildersWithInfraFail(self):
     """Test case where there are no inflight builders but are infra failures."""
@@ -385,6 +500,37 @@ class CommitQueueCompletionStageTest(
                      '_GetBuildersWithNoneMessages', return_value=[])
     # An alert is sent, since there are infra failures.
     self.VerifyStage(failing, inflight, submit_partial=True, alert=True)
+
+  def testMissingCriticalStage(self):
+    """Test case where a slave failed to run a critical stage."""
+    self.VerifyStage(['foo'], [], slave_stages=[],
+                     do_submit_partial=False)
+
+  def testFailedCriticalStage(self):
+    """Test case where a slave failed a critical stage."""
+    fake_stages = [{'name': 'CommitQueueSync', 'build_config': 'foo',
+                    'status': constants.BUILDER_STATUS_FAILED}]
+    self.VerifyStage(['foo'], [],
+                     slave_stages=fake_stages, do_submit_partial=False)
+
+  def testMissingCriticalStageOnSanitySlave(self):
+    """Test case where a sanity slave failed to run a critical stage."""
+    stage = self.ConstructStage()
+    fake_stages = [{'name': 'CommitQueueSync', 'build_config': 'foo',
+                    'status': constants.BUILDER_STATUS_PASSED}]
+    stage._run.config.sanity_check_slaves = ['sanity']
+    self.VerifyStage(['sanity', 'foo'], [], slave_stages=fake_stages,
+                     do_submit_partial=True, stage=stage)
+
+  def testMissingCriticalStageOnTimedOutSanitySlave(self):
+    """Test case where a sanity slave failed to run a critical stage."""
+    stage = self.ConstructStage()
+    fake_stages = [{'name': 'CommitQueueSync', 'build_config': 'foo',
+                    'status': constants.BUILDER_STATUS_PASSED}]
+    stage._run.config.sanity_check_slaves = ['sanity']
+    self.VerifyStage(['foo'], ['sanity'], slave_stages=fake_stages,
+                     do_submit_partial=True, stage=stage,
+                     handle_failure=False, handle_timeout=True)
 
   def testNoInflightBuildersWithNoneFailureMessages(self):
     """Test case where failed builders reported NoneType messages."""
@@ -412,19 +558,70 @@ class CommitQueueCompletionStageTest(
     self.VerifyStage(failing, inflight, handle_failure=False,
                      handle_timeout=True, alert=True)
 
+  def testSanityFailed(self):
+    """Test case where the sanity builder failed."""
+    stage = self.ConstructStage()
+    stage._run.config.sanity_check_slaves = ['sanity']
+    self.VerifyStage(['sanity'], [], build_passed=True)
 
-class PublishUprevChangesStageTest(generic_stages_unittest.AbstractStageTest):
+  def testSanityTimeout(self):
+    """Test case where the sanity builder timed out."""
+    stage = self.ConstructStage()
+    stage._run.config.sanity_check_slaves = ['sanity']
+    self.VerifyStage([], ['sanity'], build_passed=True)
+
+  def testGetRelevantChangesForSlave(self):
+    """Tests the logic of GetRelevantChangesForSlaves()."""
+    change_set1 = set(self.GetPatches(how_many=2))
+    change_set2 = set(self.GetPatches(how_many=3))
+    changes = set.union(change_set1, change_set2)
+    no_stat = ['no_stat-paladin']
+    config_map = {'123': 'foo-paladin',
+                  '124': 'bar-paladin',
+                  '125': 'no_stat-paladin'}
+    changes_by_build_id = {'123': change_set1,
+                           '124': change_set2}
+    # If a slave did not report status (no_stat), assume all changes
+    # are relevant.
+    expected = {'foo-paladin': change_set1,
+                'bar-paladin': change_set2,
+                'no_stat-paladin': changes}
+    self.PatchObject(completion_stages.CommitQueueCompletionStage,
+                     '_GetSlaveMappingAndCLActions',
+                     return_value=(config_map, []))
+    self.PatchObject(clactions, 'GetRelevantChangesForBuilds',
+                     return_value=changes_by_build_id)
+
+    stage = self.ConstructStage()
+    results = stage.GetRelevantChangesForSlaves(changes, no_stat)
+    self.assertEqual(results, expected)
+
+  def testWithExponentialFallbackApplied(self):
+    """Tests that we don't treat TOT as sane when it isn't."""
+    failing = ['foo', 'bar']
+    inflight = ['inflight']
+    stage = self.ConstructStage(tree_was_open=False)
+    self.PatchObject(completion_stages.CommitQueueCompletionStage,
+                     '_GetInfraFailMessages', return_value=[])
+    self.PatchObject(completion_stages.CommitQueueCompletionStage,
+                     '_GetBuildersWithNoneMessages', return_value=['foo'])
+
+    # An alert is sent, since we have an inflight build still.
+    self.VerifyStage(failing, inflight, handle_failure=False,
+                     handle_timeout=False, sane_tot=False, alert=True,
+                     stage=stage)
+
+
+class PublishUprevChangesStageTest(
+    generic_stages_unittest.AbstractStageTestCase):
   """Tests for the PublishUprevChanges stage."""
 
   def setUp(self):
-    # pylint: disable=E1120
-    self.mox.StubOutWithMock(completion_stages.PublishUprevChangesStage,
-                             '_GetPortageEnvVar')
-    self.mox.StubOutWithMock(commands, 'UprevPush')
-    self.mox.StubOutWithMock(completion_stages.PublishUprevChangesStage,
-                             '_ExtractOverlays')
-    completion_stages.PublishUprevChangesStage._ExtractOverlays().AndReturn(
-        [['foo'], ['bar']])
+    self.PatchObject(completion_stages.PublishUprevChangesStage,
+                     '_GetPortageEnvVar')
+    self.PatchObject(completion_stages.PublishUprevChangesStage,
+                     '_ExtractOverlays', return_value=[['foo'], ['bar']])
+    self.push_mock = self.PatchObject(commands, 'UprevPush')
 
   def ConstructStage(self):
     return completion_stages.PublishUprevChangesStage(self._run, success=True)
@@ -436,12 +633,5 @@ class PublishUprevChangesStageTest(generic_stages_unittest.AbstractStageTest):
                                 'master': True},
                   extra_cmd_args=['--chrome_rev', constants.CHROME_REV_TOT])
     self._run.options.prebuilts = True
-    completion_stages.commands.UprevPush(self.build_root, ['bar'], False)
-
-    self.mox.ReplayAll()
     self.RunStage()
-    self.mox.VerifyAll()
-
-
-if __name__ == '__main__':
-  cros_test_lib.main()
+    self.push_mock.assert_called_once_with(self.build_root, ['bar'], False)

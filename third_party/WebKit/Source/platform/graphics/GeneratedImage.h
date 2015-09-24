@@ -34,28 +34,30 @@ namespace blink {
 
 class PLATFORM_EXPORT GeneratedImage : public Image {
 public:
-    virtual bool currentFrameHasSingleSecurityOrigin() const override { return true; }
+    bool currentFrameHasSingleSecurityOrigin() const override { return true; }
 
-    virtual void setContainerSize(const IntSize& size) override { m_size = size; }
-    virtual bool usesContainerSize() const override { return true; }
-    virtual bool hasRelativeWidth() const override { return true; }
-    virtual bool hasRelativeHeight() const override { return true; }
-    virtual void computeIntrinsicDimensions(Length& intrinsicWidth, Length& intrinsicHeight, FloatSize& intrinsicRatio) override;
+    void setContainerSize(const IntSize& size) override { m_size = size; }
+    bool usesContainerSize() const override { return true; }
+    bool hasRelativeWidth() const override { return true; }
+    bool hasRelativeHeight() const override { return true; }
+    void computeIntrinsicDimensions(Length& intrinsicWidth, Length& intrinsicHeight, FloatSize& intrinsicRatio) override;
 
-    virtual IntSize size() const override { return m_size; }
+    IntSize size() const override { return m_size; }
 
     // Assume that generated content has no decoded data we need to worry about
-    virtual void destroyDecodedData(bool) override { }
+    void destroyDecodedData(bool) override { }
 
 protected:
-    virtual void drawPattern(GraphicsContext*, const FloatRect&,
-        const FloatSize&, const FloatPoint&, CompositeOperator,
-        const FloatRect&, WebBlendMode, const IntSize& repeatSpacing) override = 0;
+    void drawPattern(GraphicsContext*, const FloatRect&,
+        const FloatSize&, const FloatPoint&, SkXfermode::Mode,
+        const FloatRect&, const IntSize& repeatSpacing) final;
 
     // FIXME: Implement this to be less conservative.
-    virtual bool currentFrameKnownToBeOpaque() override { return false; }
+    bool currentFrameKnownToBeOpaque() override { return false; }
 
-    GeneratedImage() { }
+    GeneratedImage(const IntSize& size) : m_size(size) { }
+
+    virtual void drawTile(GraphicsContext*, const FloatRect&) = 0;
 
     IntSize m_size;
 };

@@ -31,16 +31,11 @@ class SignalingConnector
       public net::NetworkChangeNotifier::IPAddressObserver {
  public:
   // The |auth_failed_callback| is called when authentication fails.
-  SignalingConnector(
-      XmppSignalStrategy* signal_strategy,
-      scoped_ptr<DnsBlackholeChecker> dns_blackhole_checker,
-      const base::Closure& auth_failed_callback);
+  SignalingConnector(XmppSignalStrategy* signal_strategy,
+                     scoped_ptr<DnsBlackholeChecker> dns_blackhole_checker,
+                     OAuthTokenGetter* oauth_token_getter,
+                     const base::Closure& auth_failed_callback);
   ~SignalingConnector() override;
-
-  // May be called immediately after the constructor to enable OAuth
-  // access token updating.
-  // |oauth_token_getter| must outlive SignalingConnector.
-  void EnableOAuth(OAuthTokenGetter* oauth_token_getter);
 
   // OAuthTokenGetter callback.
   void OnAccessToken(OAuthTokenGetter::Status status,

@@ -19,7 +19,7 @@ using namespace webrtc;
 
 @implementation VideoRenderIosView {
   EAGLContext* _context;
-  webrtc::scoped_ptr<webrtc::OpenGles20> _gles_renderer20;
+  rtc::scoped_ptr<webrtc::OpenGles20> _gles_renderer20;
   int _frameBufferWidth;
   int _frameBufferHeight;
   unsigned int _defaultFrameBuffer;
@@ -142,7 +142,7 @@ using namespace webrtc;
   return YES;
 }
 
-- (BOOL)renderFrame:(I420VideoFrame*)frameToRender {
+- (BOOL)renderFrame:(VideoFrame*)frameToRender {
   if (![EAGLContext setCurrentContext:_context]) {
     return NO;
   }

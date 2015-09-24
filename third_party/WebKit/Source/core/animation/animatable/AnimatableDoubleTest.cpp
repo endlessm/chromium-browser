@@ -33,9 +33,7 @@
 
 #include <gtest/gtest.h>
 
-using namespace blink;
-
-namespace {
+namespace blink {
 
 TEST(AnimationAnimatableDoubleTest, Create)
 {
@@ -69,15 +67,4 @@ TEST(AnimationAnimatableDoubleTest, Interpolate)
     EXPECT_EQ(25, toAnimatableDouble(AnimatableValue::interpolate(from10.get(), to20.get(), 1.5).get())->toDouble());
 }
 
-TEST(AnimationAnimatableDoubleTest, Distance)
-{
-    RefPtrWillBeRawPtr<AnimatableDouble> first = AnimatableDouble::create(-1.5);
-    RefPtrWillBeRawPtr<AnimatableDouble> second = AnimatableDouble::create(2.25);
-    RefPtrWillBeRawPtr<AnimatableDouble> third = AnimatableDouble::create(3);
-
-    EXPECT_DOUBLE_EQ(3.75, AnimatableValue::distance(first.get(), second.get()));
-    EXPECT_DOUBLE_EQ(0.75, AnimatableValue::distance(second.get(), third.get()));
-    EXPECT_DOUBLE_EQ(4.5, AnimatableValue::distance(third.get(), first.get()));
-}
-
-}
+} // namespace blink

@@ -9,23 +9,24 @@
 #include "base/test/histogram_tester.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "components/autofill/core/common/password_form.h"
+#include "components/password_manager/core/common/credential_manager_types.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-class ManagePasswordsUIControllerMock;
+class ManagePasswordsUIController;
 class ManagePasswordsIcon;
+class GURL;
 
 // Test class for the various password management view bits and pieces. Sets
 // up a ManagePasswordsUIControllerMock, and provides some helper methods
 // to poke at the bubble, icon, and controller's state.
 class ManagePasswordsTest : public InProcessBrowserTest {
  public:
-  ManagePasswordsTest() {}
+  ManagePasswordsTest();
+  ~ManagePasswordsTest();
 
   // InProcessBrowserTest:
   void SetUpOnMainThread() override;
-
-  // Get the mock UI controller for the current WebContents.
-  ManagePasswordsUIControllerMock* controller();
 
   // Get the icon view for the current WebContents.
   virtual ManagePasswordsIcon* view() = 0;
@@ -45,10 +46,26 @@ class ManagePasswordsTest : public InProcessBrowserTest {
   // Put the controller, icon, and bubble into a blacklisted state.
   void SetupBlackistedPassword();
 
+  // Put the controller, icon, and bubble into a choosing credential state.
+  void SetupChooseCredentials(
+      ScopedVector<autofill::PasswordForm> local_credentials,
+      ScopedVector<autofill::PasswordForm> federated_credentials,
+      const GURL& origin);
+
+  // Put the controller, icon, and bubble into an auto sign-in state.
+  void SetupAutoSignin(
+      ScopedVector<autofill::PasswordForm> local_credentials);
+
   // Get samples for |histogram|.
   base::HistogramSamples* GetSamples(const char* histogram);
 
   autofill::PasswordForm* test_form() { return &test_form_; }
+
+  // Get the UI controller for the current WebContents.
+  ManagePasswordsUIController* GetController();
+
+  MOCK_METHOD1(OnChooseCredential,
+               void(const password_manager::CredentialInfo&));
 
  private:
   autofill::PasswordForm test_form_;

@@ -1,11 +1,11 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
+#include "../../public/fpdf_dataavail.h"
 #include "../include/fsdk_define.h"
-#include "../include/fpdf_dataavail.h"
 
 extern void ProcessParseError(FX_DWORD err_code);
 class CFPDF_FileAvailWrap : public IFX_FileAvail
@@ -28,7 +28,7 @@ public:
 
 private:
 	FX_FILEAVAIL* m_pfileAvail;
-};  
+};
 
 class CFPDF_FileAccessWrap : public IFX_FileRead
 {
@@ -45,12 +45,12 @@ public:
 
 	virtual FX_FILESIZE		GetSize()
 	{
-		return m_pFileAccess->m_FileLen; 
+		return m_pFileAccess->m_FileLen;
 	}
 
 	virtual FX_BOOL			ReadBlock(void* buffer, FX_FILESIZE offset, size_t size)
 	{
-		return m_pFileAccess->m_GetBlock(m_pFileAccess->m_Param, offset, (FX_LPBYTE)buffer, size);
+		return m_pFileAccess->m_GetBlock(m_pFileAccess->m_Param, offset, (uint8_t*)buffer, size);
 	}
 
 	virtual void			Release()
@@ -69,15 +69,15 @@ public:
 		m_pDownloadHints = pDownloadHints;
 	}
 public:
-	virtual void			AddSegment(FX_FILESIZE offset, FX_DWORD size) 
+	virtual void			AddSegment(FX_FILESIZE offset, FX_DWORD size)
 	{
 		m_pDownloadHints->AddSegment(m_pDownloadHints, offset, size);
-	}	
+	}
 private:
 	FX_DOWNLOADHINTS* m_pDownloadHints;
 };
 
-class CFPDF_DataAvail : public CFX_Object
+class CFPDF_DataAvail
 {
 public:
 	CFPDF_DataAvail()
@@ -87,27 +87,26 @@ public:
 
 	~CFPDF_DataAvail()
 	{
-		if (m_pDataAvail) delete m_pDataAvail;
+            delete m_pDataAvail;
 	}
 
-	CPDF_DataAvail*			m_pDataAvail;
+	IPDF_DataAvail*			m_pDataAvail;
 	CFPDF_FileAvailWrap		m_FileAvail;
 	CFPDF_FileAccessWrap	m_FileRead;
 };
 
 DLLEXPORT FPDF_AVAIL STDCALL FPDFAvail_Create(FX_FILEAVAIL* file_avail, FPDF_FILEACCESS* file)
 {
-	CFPDF_DataAvail* pAvail = FX_NEW CFPDF_DataAvail;
+	CFPDF_DataAvail* pAvail = new CFPDF_DataAvail;
 	pAvail->m_FileAvail.Set(file_avail);
 	pAvail->m_FileRead.Set(file);
-	pAvail->m_pDataAvail = FX_NEW CPDF_DataAvail(&pAvail->m_FileAvail, &pAvail->m_FileRead);
+	pAvail->m_pDataAvail = IPDF_DataAvail::Create(&pAvail->m_FileAvail, &pAvail->m_FileRead);
 	return pAvail;
 }
 
 DLLEXPORT void STDCALL FPDFAvail_Destroy(FPDF_AVAIL avail)
 {
-	if (avail == NULL) return;
-	delete (CFPDF_DataAvail*)avail;
+    delete (CFPDF_DataAvail*)avail;
 }
 
 DLLEXPORT int STDCALL FPDFAvail_IsDocAvail(FPDF_AVAIL avail, FX_DOWNLOADHINTS* hints)
@@ -122,7 +121,7 @@ extern void CheckUnSupportError(CPDF_Document * pDoc, FX_DWORD err_code);
 DLLEXPORT FPDF_DOCUMENT STDCALL FPDFAvail_GetDocument(FPDF_AVAIL avail,	FPDF_BYTESTRING password)
 {
 	if (avail == NULL) return NULL;
-	CPDF_Parser* pParser = FX_NEW CPDF_Parser;
+	CPDF_Parser* pParser = new CPDF_Parser;
 	pParser->SetPassword(password);
 
 	FX_DWORD err_code = pParser->StartAsynParse(((CFPDF_DataAvail*)avail)->m_pDataAvail->GetFileRead());

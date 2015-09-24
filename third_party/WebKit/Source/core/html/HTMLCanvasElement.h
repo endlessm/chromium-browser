@@ -28,36 +28,36 @@
 #ifndef HTMLCanvasElement_h
 #define HTMLCanvasElement_h
 
+#include "bindings/core/v8/ScriptValue.h"
+#include "bindings/core/v8/UnionTypesCore.h"
+#include "core/CoreExport.h"
 #include "core/dom/Document.h"
+#include "core/dom/DocumentVisibilityObserver.h"
 #include "core/html/HTMLElement.h"
 #include "core/html/canvas/CanvasImageSource.h"
 #include "platform/geometry/FloatRect.h"
 #include "platform/geometry/IntSize.h"
-#include "platform/graphics/Canvas2DLayerBridge.h"
 #include "platform/graphics/GraphicsTypes.h"
+#include "platform/graphics/GraphicsTypes3D.h"
 #include "platform/graphics/ImageBufferClient.h"
 #include "platform/heap/Handle.h"
-#include "public/platform/WebThread.h"
-#include "wtf/Forward.h"
 
 #define CanvasDefaultInterpolationQuality InterpolationLow
 
 namespace blink {
 
 class AffineTransform;
-class CanvasContextAttributes;
+class CanvasContextCreationAttributes;
 class CanvasRenderingContext;
+class CanvasRenderingContextFactory;
 class GraphicsContext;
-class GraphicsContextStateSaver;
 class HTMLCanvasElement;
 class Image;
-class ImageData;
 class ImageBuffer;
 class ImageBufferSurface;
 class IntSize;
-class RecordingImageBufferFallbackSurfaceFactory;
 
-class CanvasObserver : public WillBeGarbageCollectedMixin {
+class CORE_EXPORT CanvasObserver : public WillBeGarbageCollectedMixin {
     DECLARE_EMPTY_VIRTUAL_DESTRUCTOR_WILL_BE_REMOVED(CanvasObserver);
 public:
     virtual void canvasChanged(HTMLCanvasElement*, const FloatRect& changedRect) = 0;
@@ -66,15 +66,15 @@ public:
     virtual void canvasDestroyed(HTMLCanvasElement*) = 0;
 #endif
 
-    virtual void trace(Visitor*) { }
+    DEFINE_INLINE_VIRTUAL_TRACE() { }
 };
 
-class HTMLCanvasElement final : public HTMLElement, public DocumentVisibilityObserver, public CanvasImageSource, public ImageBufferClient, public blink::WebThread::TaskObserver {
+class CORE_EXPORT HTMLCanvasElement final : public HTMLElement, public DocumentVisibilityObserver, public CanvasImageSource, public ImageBufferClient {
     DEFINE_WRAPPERTYPEINFO();
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(HTMLCanvasElement);
 public:
     DECLARE_NODE_FACTORY(HTMLCanvasElement);
-    virtual ~HTMLCanvasElement();
+    ~HTMLCanvasElement() override;
 
     void addObserver(CanvasObserver*);
     void removeObserver(CanvasObserver*);
@@ -101,11 +101,16 @@ public:
         reset();
     }
 
-    CanvasRenderingContext* getContext(const String&, CanvasContextAttributes* attributes = 0);
+    // Called by HTMLCanvasElement's V8 bindings.
+    ScriptValue getContext(ScriptState*, const String&, const CanvasContextCreationAttributes&);
+    // Called by Document::getCSSCanvasContext as well as above getContext().
+    CanvasRenderingContext* getCanvasRenderingContext(const String&, const CanvasContextCreationAttributes&);
+
+    bool isPaintable() const;
 
     static String toEncodingMimeType(const String& mimeType);
-    String toDataURL(const String& mimeType, const double* quality, ExceptionState&) const;
-    String toDataURL(const String& mimeType, ExceptionState& exceptionState) const { return toDataURL(mimeType, 0, exceptionState); }
+    String toDataURL(const String& mimeType, const ScriptValue& qualityArgument, ExceptionState&) const;
+    String toDataURL(const String& mimeType, ExceptionState& exceptionState) const { return toDataURL(mimeType, ScriptValue(), exceptionState); }
 
     // Used for rendering
     void didDraw(const FloatRect&);
@@ -113,19 +118,19 @@ public:
 
     void paint(GraphicsContext*, const LayoutRect&);
 
-    GraphicsContext* drawingContext() const;
-    GraphicsContext* existingDrawingContext() const;
+    SkCanvas* drawingCanvas() const;
+    SkCanvas* existingDrawingCanvas() const;
 
+    void setRenderingContext(PassOwnPtrWillBeRawPtr<CanvasRenderingContext>);
     CanvasRenderingContext* renderingContext() const { return m_context.get(); }
 
     void ensureUnacceleratedImageBuffer();
     ImageBuffer* buffer() const;
-    Image* copiedImage() const;
+    PassRefPtr<Image> copiedImage(SourceDrawingBuffer) const;
     void clearCopiedImage();
-    PassRefPtrWillBeRawPtr<ImageData> getImageData() const;
 
     SecurityOrigin* securityOrigin() const;
-    bool originClean() const { return m_originClean; }
+    bool originClean() const;
     void setOriginTainted() { m_originClean = false; }
 
     AffineTransform baseTransform() const;
@@ -133,62 +138,68 @@ public:
     bool is3D() const;
 
     bool hasImageBuffer() const { return m_imageBuffer; }
-    bool hasValidImageBuffer() const;
     void discardImageBuffer();
 
     bool shouldAccelerate(const IntSize&) const;
 
-    virtual const AtomicString imageSourceURL() const override;
+    bool shouldBeDirectComposited() const;
 
-    virtual InsertionNotificationRequest insertedInto(ContainerNode*) override;
+    const AtomicString imageSourceURL() const override;
+
+    InsertionNotificationRequest insertedInto(ContainerNode*) override;
 
     // DocumentVisibilityObserver implementation
-    virtual void didChangeVisibilityState(PageVisibilityState) override;
+    void didChangeVisibilityState(PageVisibilityState) override;
 
     // CanvasImageSource implementation
-    virtual PassRefPtr<Image> getSourceImageForCanvas(SourceImageMode, SourceImageStatus*) const override;
-    virtual bool wouldTaintOrigin(SecurityOrigin*) const override;
-    virtual FloatSize sourceSize() const override;
+    PassRefPtr<Image> getSourceImageForCanvas(SourceImageMode, SourceImageStatus*) const override;
+    bool wouldTaintOrigin(SecurityOrigin*) const override;
+    FloatSize elementSize() const override;
+    bool isCanvasElement() const override { return true; }
+    bool isOpaque() const override;
 
     // ImageBufferClient implementation
-    virtual void notifySurfaceInvalid() override;
-    virtual bool isDirty() override { return !m_dirtyRect.isEmpty(); }
-    virtual void didFinalizeFrame() override;
+    void notifySurfaceInvalid() override;
+    bool isDirty() override { return !m_dirtyRect.isEmpty(); }
+    void didFinalizeFrame() override;
+    void restoreCanvasMatrixClipStack() override;
 
-    // Implementation of WebThread::TaskObserver methods
-    virtual void willProcessTask() override;
-    virtual void didProcessTask() override;
+    void doDeferredPaintInvalidation();
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
+
+    void createImageBufferUsingSurfaceForTesting(PassOwnPtr<ImageBufferSurface>);
+
+    static void registerRenderingContextFactory(PassOwnPtr<CanvasRenderingContextFactory>);
+    void updateExternallyAllocatedMemory() const;
 
 protected:
-    virtual void didMoveToNewDocument(Document& oldDocument) override;
+    void didMoveToNewDocument(Document& oldDocument) override;
 
 private:
     explicit HTMLCanvasElement(Document&);
 
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual RenderObject* createRenderer(RenderStyle*) override;
-    virtual bool areAuthorShadowsAllowed() const override { return false; }
+    using ContextFactoryVector = Vector<OwnPtr<CanvasRenderingContextFactory>>;
+    static ContextFactoryVector& renderingContextFactories();
+    static CanvasRenderingContextFactory* getRenderingContextFactory(int);
+
+    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    LayoutObject* createLayoutObject(const ComputedStyle&) override;
+    void didRecalcStyle(StyleRecalcChange) override;
+    bool areAuthorShadowsAllowed() const override { return false; }
 
     void reset();
 
-    PassOwnPtr<RecordingImageBufferFallbackSurfaceFactory> createSurfaceFactory(const IntSize& deviceSize, int* msaaSampleCount) const;
     PassOwnPtr<ImageBufferSurface> createImageBufferSurface(const IntSize& deviceSize, int* msaaSampleCount);
     void createImageBuffer();
-    void createImageBufferInternal();
-    void clearImageBuffer();
+    void createImageBufferInternal(PassOwnPtr<ImageBufferSurface> externalSurface);
     bool shouldUseDisplayList(const IntSize& deviceSize);
-
-    void resetDirtyRect();
 
     void setSurfaceSize(const IntSize&);
 
     bool paintsIntoCanvasBuffer() const;
 
-    void updateExternallyAllocatedMemory() const;
-
-    String toDataURLInternal(const String& mimeType, const double* quality, bool isSaving = false) const;
+    String toDataURLInternal(const String& mimeType, const double* quality, SourceDrawingBuffer) const;
 
     WillBeHeapHashSet<RawPtrWillBeWeakMember<CanvasObserver>> m_observers;
 
@@ -207,9 +218,8 @@ private:
     // It prevents HTMLCanvasElement::buffer() from continuously re-attempting to allocate an imageBuffer
     // after the first attempt failed.
     mutable bool m_didFailToCreateImageBuffer;
-    mutable bool m_didClearImageBuffer;
+    bool m_imageBufferIsClear;
     OwnPtr<ImageBuffer> m_imageBuffer;
-    mutable OwnPtr<GraphicsContextStateSaver> m_contextStateSaver;
 
     mutable RefPtr<Image> m_copiedImage; // FIXME: This is temporary for platforms that have to copy the image buffer to render (and for CSSCanvasValue).
 };

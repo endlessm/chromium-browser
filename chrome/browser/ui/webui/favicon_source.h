@@ -11,7 +11,7 @@
 #include "base/basictypes.h"
 #include "base/memory/ref_counted.h"
 #include "base/task/cancelable_task_tracker.h"
-#include "chrome/browser/favicon/favicon_service.h"
+#include "components/favicon/core/favicon_service.h"
 #include "content/public/browser/url_data_source.h"
 #include "ui/gfx/favicon_size.h"
 
@@ -41,7 +41,7 @@ class Profile;
 //      If the parameter is unspecified, the requested favicon's size defaults
 //      to 16 and the requested scale factor defaults to 1x.
 //      Example: chrome://favicon/size/16@2x/http://www.google.com/
-//  'urlmodifier'      Optional
+//  'urlmodifier'       Optional
 //    Values: ['iconurl', 'origin']
 //    'iconurl': Specifies that the url parameter refers to the URL of
 //    the favicon image as opposed to the URL of the page that the favicon is

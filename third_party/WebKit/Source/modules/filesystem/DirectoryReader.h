@@ -50,13 +50,13 @@ public:
         return new DirectoryReader(fileSystem, fullPath);
     }
 
-    virtual ~DirectoryReader();
+    ~DirectoryReader() override;
 
     void readEntries(EntriesCallback*, ErrorCallback* = nullptr);
 
     DOMFileSystem* filesystem() const { return static_cast<DOMFileSystem*>(m_fileSystem.get()); }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     class EntriesCallbackHelper;

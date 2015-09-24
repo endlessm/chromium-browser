@@ -9,7 +9,8 @@
 #include "base/command_line.h"
 #include "base/debug/profiler.h"
 #include "base/lazy_instance.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/threading/thread.h"
 #include "chrome/common/chrome_switches.h"
@@ -47,7 +48,8 @@ std::string GetProfileName() {
   CR_DEFINE_STATIC_LOCAL(std::string, profile_name, ());
 
   if (profile_name.empty()) {
-    const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+    const base::CommandLine& command_line =
+        *base::CommandLine::ForCurrentProcess();
     if (command_line.HasSwitch(switches::kProfilingFile))
       profile_name = command_line.GetSwitchValueASCII(switches::kProfilingFile);
     else
@@ -56,7 +58,7 @@ std::string GetProfileName() {
         command_line.GetSwitchValueASCII(switches::kProcessType);
     std::string type = process_type.empty() ?
         std::string("browser") : std::string(process_type);
-    ReplaceSubstringsAfterOffset(&profile_name, 0, "{type}", type.c_str());
+    base::ReplaceSubstringsAfterOffset(&profile_name, 0, "{type}", type);
   }
   return profile_name;
 }
@@ -70,7 +72,8 @@ void FlushProfilingData(base::Thread* thread) {
   base::debug::FlushProfiling();
   static int flush_seconds;
   if (!flush_seconds) {
-    const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+    const base::CommandLine& command_line =
+        *base::CommandLine::ForCurrentProcess();
     std::string profiling_flush =
         command_line.GetSwitchValueASCII(switches::kProfilingFlush);
     if (!profiling_flush.empty()) {
@@ -80,9 +83,8 @@ void FlushProfilingData(base::Thread* thread) {
       flush_seconds = kProfilingFlushSeconds;
     }
   }
-  thread->message_loop()->PostDelayedTask(
-      FROM_HERE,
-      base::Bind(&FlushProfilingData, thread),
+  thread->task_runner()->PostDelayedTask(
+      FROM_HERE, base::Bind(&FlushProfilingData, thread),
       base::TimeDelta::FromSeconds(flush_seconds));
 }
 
@@ -97,8 +99,8 @@ class ProfilingThreadControl {
       return;
     thread_ = new base::Thread("Profiling_Flush");
     thread_->Start();
-    thread_->message_loop()->PostTask(
-        FROM_HERE, base::Bind(&FlushProfilingData, thread_));
+    thread_->task_runner()->PostTask(FROM_HERE,
+                                     base::Bind(&FlushProfilingData, thread_));
   }
 
   void Stop() {
@@ -125,7 +127,8 @@ base::LazyInstance<ProfilingThreadControl>::Leaky
 
 // static
 void Profiling::ProcessStarted() {
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
   std::string process_type =
       command_line.GetSwitchValueASCII(switches::kProcessType);
 
@@ -165,7 +168,8 @@ void Profiling::ProcessStarted() {
 
 // static
 void Profiling::Start() {
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
   bool flush = command_line.HasSwitch(switches::kProfilingFlush);
   base::debug::StartProfiling(GetProfileName());
 

@@ -170,6 +170,12 @@ This file contains the strings for ash.
       <message name="IDS_ASH_SHELF_APP_LIST_SYNCING_TITLE" desc="The title used for the Ash App List in the Shelf to indicate loading/syncing apps.">
         Syncing apps...
       </message>
+      <message name="IDS_ASH_SHELF_APP_LIST_LAUNCHER_TITLE" desc="The title used for the Ash Launcher in the Shelf (not mentioning 'Apps' since this is a general launcher).">
+        Launcher
+      </message>
+      <message name="IDS_ASH_SHELF_APP_LIST_LAUNCHER_SYNCING_TITLE" desc="The title used for the Ash Launcher in the Shelf to indicate loading/syncinc apps.">
+        Launcher (syncing apps...)
+      </message>
       <message name="IDS_ASH_SHELF_OVERFLOW_NAME" desc="The title used for the Ash overflow button in the shelf">
         Overflow Button
       </message>
@@ -226,12 +232,6 @@ Press Ctrl+Alt+Z to disable.
       <message name="IDS_ASH_STATUS_TRAY_EXIT_GUEST" desc="The label used for the button in the status tray to terminate a guest session.">
         Exit guest
       </message>
-      <message name="IDS_ASH_STATUS_TRAY_KIOSK_LABEL" desc="The label used in the system tray's user card to indicate that the current session is running in demo mode.">
-        Demo mode
-      </message>
-      <message name="IDS_ASH_STATUS_TRAY_EXIT_KIOSK" desc="The label used for the button in the status tray to terminate a session kiosk mode.">
-        Exit session
-      </message>
       <message name="IDS_ASH_STATUS_TRAY_EXIT_PUBLIC" desc="The label used for the button in the status tray to terminate a public account session. If the label is long, indicate where it may be broken into two lines by inserting \n instead of a whitespace.">
         Exit session
       </message>
@@ -255,6 +255,31 @@ Press Ctrl+Alt+Z to disable.
       </message>
       <message name="IDS_ASH_STATUS_TRAY_MESSAGE_OUT_OF_USERS" desc="The error message when all the users are added into multi-profile session.">
         All available users have already been added to this session.
+      </message>
+
+      <message name="IDS_ASH_STATUS_TRAY_CAST" desc="The label used as the header in the cast popup.">
+        Cast screen
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_CAST_CAST_DESKTOP" desc="The label used in the tray popup to tell the user we are casting the desktop.">
+        Casting screen to $1
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_CAST_CAST_TAB" desc="The title label used in the tray popup to tell the user we are casting a tab.">
+        Casting $1 to $2
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_CAST_CAST_UNKNOWN" desc="The label used when we have detected we are casting but do not know what we are casting or who we are casting to.">
+        Casting to an unknown receiver
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_CAST_DESKTOP" desc="The label used in the tray popup to notify that desktop may be cast.">
+        Cast devices available
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_CAST_NO_DEVICE" desc="The label used in the tray popup to notify that no cast devices are available.">
+        No cast devices
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_CAST_OPTIONS" desc="The label used in the tray popup to manage cast options.">
+        Options
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_CAST_STOP" desc="The label used in the tray popup to stop casting.">
+        Stop
       </message>
 
       <message name="IDS_ASH_STATUS_TRAY_BLUETOOTH" desc="The label used as the header in the bluetooth popup.">
@@ -296,9 +321,6 @@ Press Ctrl+Alt+Z to disable.
 
       <message name="IDS_ASH_STATUS_TRAY_UNKNOWN_DISPLAY_NAME" desc="Label shown in tray for a display whose name is unknown.">
         Unknown Display
-      </message>
-      <message name="IDS_ASH_STATUS_TRAY_DRIVE_SYNCING" desc="The label in the tray to indicate onoing file sync operations.">
-        Syncing <ph name="count">$1<ex>3</ex></ph> file(s)
       </message>
       <message name="IDS_ASH_STATUS_TRAY_DRIVE" desc="The label used for Google Drive tray details header.">
         Google Drive
@@ -358,6 +380,9 @@ Press Ctrl+Alt+Z to disable.
       <message name="IDS_ASH_STATUS_TRAY_DATE" desc="The date displayed on ash system bubble, Depending on launguage, please choose the best separator(eg ',') between abbreviated weekday and date">
         <ph name="short_weekday">$1<ex>Fri</ex></ph>, <ph name="date">$2<ex>Aug 31, 2012</ex></ph>
       </message>
+      <message name="IDS_ASH_STATUS_TRAY_REBOOT" desc="The accessible text for the reboot button.">
+        Restart
+      </message>
       <message name="IDS_ASH_STATUS_TRAY_SHUTDOWN" desc="The accessible text for the shutdown button.">
         Shut down
       </message>
@@ -381,10 +406,6 @@ Press Ctrl+Alt+Z to disable.
       </message>
       <message name="IDS_ASH_EXIT_WARNING_POPUP_TEXT_ACCESSIBLE" desc="The message used by accessibility to indicate the content of the popup when the user preses the exit shortcut.">
         Press Control Shift Q twice to quit.
-      </message>
-
-      <message name="IDS_ASH_IME_INFOLIST_WINDOW_TITLE" desc="The title of the infolist window where the meanings and the usages of words are displayed.">
-        Information
       </message>
 
       <message name="IDS_ASH_CONTROL_KEY" desc="Name of [Ctrl] key name. Shouldn't be translated in many languages actually. This name should be lower case.">
@@ -421,6 +442,9 @@ Press Ctrl+Alt+Z to disable.
       <!-- Overview Mode -->
       <message name="IDS_ASH_OVERVIEW_BUTTON_ACCESSIBLE_NAME" desc="The accessible name for the Overview button in the system tray.">
         Toggle window overview
+      </message>
+      <message name="IDS_ASH_OVERVIEW_CLOSE_ITEM_BUTTON_ACCESSIBLE_NAME" desc="The accessible name for the close button on windows while in Overview mode.">
+        Close <ph name="WINDOW_TITLE">$1</ph>
       </message>
 
       <!-- ChromeOS-specific strings -->

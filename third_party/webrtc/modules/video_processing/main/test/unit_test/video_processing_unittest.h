@@ -33,13 +33,13 @@ class VideoProcessingModuleTest : public ::testing::Test {
   }
   VideoProcessingModule* vpm_;
   FILE* source_file_;
-  I420VideoFrame video_frame_;
+  VideoFrame video_frame_;
   const int width_;
   const int half_width_;
   const int height_;
   const int size_y_;
   const int size_uv_;
-  const unsigned int frame_length_;
+  const size_t frame_length_;
 };
 
 }  // namespace webrtc

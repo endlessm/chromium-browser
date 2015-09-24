@@ -5,9 +5,13 @@
 #include "chrome/browser/sync/test/integration/sync_extension_installer.h"
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/sync/test/integration/sync_datatype_helper.h"
 #include "chrome/browser/sync/test/integration/sync_extension_helper.h"
+#include "chrome/browser/sync/test/integration/sync_test.h"
 #include "content/public/browser/notification_source.h"
 
 SyncedExtensionInstaller::SyncedExtensionInstaller(Profile* profile)
@@ -34,12 +38,18 @@ void SyncedExtensionInstaller::Observe(
   // a signal that it's time to asynchronously fake the installation of these
   // extensions.
 
-  base::MessageLoop::current()->PostTask(
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::Bind(&SyncedExtensionInstaller::DoInstallSyncedExtensions,
                  weak_ptr_factory_.GetWeakPtr()));
 }
 
 void SyncedExtensionInstaller::DoInstallSyncedExtensions() {
-  SyncExtensionHelper::GetInstance()->InstallExtensionsPendingForSync(profile_);
+  // Do not try to install any extensions when running against real servers.
+  // We can not assume that we have a clean slate of extensions installed per
+  // profile before running the test cases.
+  if (!sync_datatype_helper::test()->UsingExternalServers()) {
+    SyncExtensionHelper::GetInstance()->
+        InstallExtensionsPendingForSync(profile_);
+  }
 }

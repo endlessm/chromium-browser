@@ -10,7 +10,7 @@
 
 int main(int argc, char** argv) {
   base::AtExitManager exit_manager;
-  CommandLine::Init(argc, argv);
+  base::CommandLine::Init(argc, argv);
   TestTimeouts::Initialize();
 
   base::Thread* dbus_thread = new base::Thread("D-Bus Thread");
@@ -19,7 +19,7 @@ int main(int argc, char** argv) {
   CHECK(dbus_thread->StartWithOptions(thread_options));
 
   dbus::TestService::Options options;
-  options.dbus_task_runner = dbus_thread->message_loop_proxy();
+  options.dbus_task_runner = dbus_thread->task_runner();
   dbus::TestService* test_service = new dbus::TestService(options);
   CHECK(test_service->StartService());
   CHECK(test_service->WaitUntilServiceIsStarted());

@@ -25,7 +25,6 @@
 #include "chrome/browser/sync_file_system/syncable_file_system_util.h"
 #include "extensions/common/extension.h"
 #include "google_apis/drive/drive_api_parser.h"
-#include "google_apis/drive/gdata_wapi_parser.h"
 #include "storage/common/fileapi/file_system_util.h"
 
 namespace sync_file_system {
@@ -401,11 +400,11 @@ void RemoteToLocalSyncer::HandleMissingRemoteMetadata(
 
 void RemoteToLocalSyncer::DidGetRemoteMetadata(
     scoped_ptr<SyncTaskToken> token,
-    google_apis::GDataErrorCode error,
+    google_apis::DriveApiErrorCode error,
     scoped_ptr<google_apis::FileResource> entry) {
   DCHECK(sync_context_->GetWorkerTaskRunner()->RunsTasksOnCurrentThread());
 
-  SyncStatusCode status = GDataErrorCodeToSyncStatusCode(error);
+  SyncStatusCode status = DriveApiErrorCodeToSyncStatusCode(error);
   if (status != SYNC_STATUS_OK &&
       error != google_apis::HTTP_NOT_FOUND) {
     SyncCompleted(token.Pass(), status);
@@ -657,9 +656,9 @@ void RemoteToLocalSyncer::ListFolderContent(
 void RemoteToLocalSyncer::DidListFolderContent(
     scoped_ptr<SyncTaskToken> token,
     scoped_ptr<FileIDList> children,
-    google_apis::GDataErrorCode error,
+    google_apis::DriveApiErrorCode error,
     scoped_ptr<google_apis::FileList> file_list) {
-  SyncStatusCode status = GDataErrorCodeToSyncStatusCode(error);
+  SyncStatusCode status = DriveApiErrorCodeToSyncStatusCode(error);
   if (status != SYNC_STATUS_OK) {
     SyncCompleted(token.Pass(), status);
     return;
@@ -801,18 +800,18 @@ void RemoteToLocalSyncer::DownloadFile(scoped_ptr<SyncTaskToken> token) {
 
 void RemoteToLocalSyncer::DidDownloadFile(scoped_ptr<SyncTaskToken> token,
                                           storage::ScopedFile file,
-                                          google_apis::GDataErrorCode error,
+                                          google_apis::DriveApiErrorCode error,
                                           const base::FilePath&) {
   DCHECK(sync_context_->GetWorkerTaskRunner()->RunsTasksOnCurrentThread());
 
-  SyncStatusCode status = GDataErrorCodeToSyncStatusCode(error);
+  SyncStatusCode status = DriveApiErrorCodeToSyncStatusCode(error);
   if (status != SYNC_STATUS_OK) {
     SyncCompleted(token.Pass(), status);
     return;
   }
 
   base::FilePath path = file.path();
-  const std::string md5 = drive::util::GetMd5Digest(path);
+  const std::string md5 = drive::util::GetMd5Digest(path, nullptr);
   if (md5.empty()) {
     SyncCompleted(token.Pass(), SYNC_FILE_ERROR_NOT_FOUND);
     return;

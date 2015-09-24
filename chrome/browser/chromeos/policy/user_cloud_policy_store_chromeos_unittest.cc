@@ -54,7 +54,7 @@ class UserCloudPolicyStoreChromeOSTest : public testing::Test {
  protected:
   UserCloudPolicyStoreChromeOSTest() {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     EXPECT_CALL(cryptohome_client_,
                 GetSanitizedUsername(PolicyBuilder::kFakeUsername, _))
         .Times(AnyNumber())
@@ -63,13 +63,10 @@ class UserCloudPolicyStoreChromeOSTest : public testing::Test {
                                   kSanitizedUsername));
 
     ASSERT_TRUE(tmp_dir_.CreateUniqueTempDir());
-    store_.reset(new UserCloudPolicyStoreChromeOS(&cryptohome_client_,
-                                                  &session_manager_client_,
-                                                  loop_.message_loop_proxy(),
-                                                  PolicyBuilder::kFakeUsername,
-                                                  user_policy_dir(),
-                                                  token_file(),
-                                                  policy_file()));
+    store_.reset(new UserCloudPolicyStoreChromeOS(
+        &cryptohome_client_, &session_manager_client_, loop_.task_runner(),
+        PolicyBuilder::kFakeUsername, user_policy_dir(), token_file(),
+        policy_file()));
     store_->AddObserver(&observer_);
 
     // Install the initial public key, so that by default the validation of
@@ -82,7 +79,7 @@ class UserCloudPolicyStoreChromeOSTest : public testing::Test {
     policy_.Build();
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     store_->RemoveObserver(&observer_);
     store_.reset();
     RunUntilIdle();

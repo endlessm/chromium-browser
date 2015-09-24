@@ -37,12 +37,12 @@ public:
         return adoptRefWillBeNoop(new SimplifyMarkupCommand(document, firstNode, nodeAfterLast));
     }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     SimplifyMarkupCommand(Document&, Node* firstNode, Node* nodeAfterLast);
 
-    virtual void doApply() override;
+    void doApply() override;
     int pruneSubsequentAncestorsToRemove(WillBeHeapVector<RefPtrWillBeMember<ContainerNode>>& nodesToRemove, size_t startNodeIndex);
 
     RefPtrWillBeMember<Node> m_firstNode;

@@ -10,7 +10,6 @@
 #include "bindings/core/v8/ExceptionState.h"
 #include "bindings/core/v8/V8ArrayBuffer.h"
 #include "bindings/core/v8/V8DOMConfiguration.h"
-#include "bindings/core/v8/V8HiddenValue.h"
 #include "bindings/core/v8/V8ObjectConstructor.h"
 #include "core/dom/ContextFeatures.h"
 #include "core/dom/Document.h"
@@ -21,51 +20,55 @@
 
 namespace blink {
 
-const WrapperTypeInfo V8DataView::wrapperTypeInfo = { gin::kEmbedderBlink, 0, V8DataView::refObject, V8DataView::derefObject, V8DataView::trace, 0, 0, 0, V8DataView::installConditionallyEnabledMethods, V8DataView::installConditionallyEnabledProperties, &V8ArrayBufferView::wrapperTypeInfo, WrapperTypeInfo::WrapperTypeObjectPrototype, WrapperTypeInfo::ObjectClassId, WrapperTypeInfo::Independent, WrapperTypeInfo::RefCountedObject };
+// Suppress warning: global constructors, because struct WrapperTypeInfo is trivial
+// and does not depend on another global objects.
+#if defined(COMPONENT_BUILD) && defined(WIN32) && COMPILER(CLANG)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wglobal-constructors"
+#endif
+const WrapperTypeInfo V8DataView::wrapperTypeInfo = { gin::kEmbedderBlink, 0, V8DataView::refObject, V8DataView::derefObject, V8DataView::trace, 0, 0, V8DataView::preparePrototypeObject, V8DataView::installConditionallyEnabledProperties, "DataView", &V8ArrayBufferView::wrapperTypeInfo, WrapperTypeInfo::WrapperTypeObjectPrototype, WrapperTypeInfo::ObjectClassId, WrapperTypeInfo::NotInheritFromEventTarget, WrapperTypeInfo::Independent, WrapperTypeInfo::RefCountedObject };
+#if defined(COMPONENT_BUILD) && defined(WIN32) && COMPILER(CLANG)
+#pragma clang diagnostic pop
+#endif
 
 // This static member must be declared by DEFINE_WRAPPERTYPEINFO in TestDataView.h.
 // For details, see the comment of DEFINE_WRAPPERTYPEINFO in
 // bindings/core/v8/ScriptWrappable.h.
 const WrapperTypeInfo& TestDataView::s_wrapperTypeInfo = V8DataView::wrapperTypeInfo;
 
-bool V8DataView::hasInstance(v8::Handle<v8::Value> v8Value, v8::Isolate* isolate)
+bool V8DataView::hasInstance(v8::Local<v8::Value> v8Value, v8::Isolate* isolate)
 {
     return v8Value->IsDataView();
 }
 
-TestDataView* V8DataView::toImpl(v8::Handle<v8::Object> object)
+TestDataView* V8DataView::toImpl(v8::Local<v8::Object> object)
 {
     ASSERT(object->IsDataView());
-    ScriptWrappableBase* scriptWrappableBase = blink::toScriptWrappableBase(object);
-    if (scriptWrappableBase)
-        return scriptWrappableBase->toImpl<TestDataView>();
+    ScriptWrappable* scriptWrappable = toScriptWrappable(object);
+    if (scriptWrappable)
+        return scriptWrappable->toImpl<TestDataView>();
 
-    v8::Handle<v8::DataView> v8View = object.As<v8::DataView>();
+    v8::Local<v8::DataView> v8View = object.As<v8::DataView>();
     RefPtr<TestDataView> typedArray = TestDataView::create(V8ArrayBuffer::toImpl(v8View->Buffer()), v8View->ByteOffset(), v8View->ByteLength());
-    typedArray->associateWithWrapper(typedArray->wrapperTypeInfo(), object, v8::Isolate::GetCurrent());
+    v8::Local<v8::Object> associatedWrapper = typedArray->associateWithWrapper(v8::Isolate::GetCurrent(), typedArray->wrapperTypeInfo(), object);
+    ASSERT_UNUSED(associatedWrapper, associatedWrapper == object);
 
     return typedArray->toImpl<TestDataView>();
 }
 
-TestDataView* V8DataView::toImplWithTypeCheck(v8::Isolate* isolate, v8::Handle<v8::Value> value)
+TestDataView* V8DataView::toImplWithTypeCheck(v8::Isolate* isolate, v8::Local<v8::Value> value)
 {
-    return hasInstance(value, isolate) ? toImpl(v8::Handle<v8::Object>::Cast(value)) : 0;
+    return hasInstance(value, isolate) ? toImpl(v8::Local<v8::Object>::Cast(value)) : 0;
 }
 
-void V8DataView::refObject(ScriptWrappableBase* scriptWrappableBase)
+void V8DataView::refObject(ScriptWrappable* scriptWrappable)
 {
-    scriptWrappableBase->toImpl<TestDataView>()->ref();
+    scriptWrappable->toImpl<TestDataView>()->ref();
 }
 
-void V8DataView::derefObject(ScriptWrappableBase* scriptWrappableBase)
+void V8DataView::derefObject(ScriptWrappable* scriptWrappable)
 {
-    scriptWrappableBase->toImpl<TestDataView>()->deref();
-}
-
-template<>
-v8::Handle<v8::Value> toV8NoInline(TestDataView* impl, v8::Handle<v8::Object> creationContext, v8::Isolate* isolate)
-{
-    return toV8(impl, creationContext, isolate);
+    scriptWrappable->toImpl<TestDataView>()->deref();
 }
 
 } // namespace blink

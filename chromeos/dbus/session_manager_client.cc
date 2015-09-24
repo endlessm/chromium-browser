@@ -4,6 +4,8 @@
 
 #include "chromeos/dbus/session_manager_client.h"
 
+#include <sys/socket.h>
+
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/files/file_path.h"
@@ -59,6 +61,23 @@ void StoreFile(const base::FilePath& path, const std::string& data) {
   }
 }
 
+// Creates a pair of file descriptors that form a conduit for trustworthy
+// transfer of credentials between Chrome and the session_manager
+void CreateValidCredConduit(dbus::FileDescriptor* local_auth_fd,
+                            dbus::FileDescriptor* remote_auth_fd) {
+  int sockets[2] = {-1, -1};
+  if (socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) < 0) {
+    PLOG(ERROR) << "Failed to create a unix domain socketpair";
+    return;
+  }
+
+  local_auth_fd->PutValue(sockets[0]);
+  local_auth_fd->CheckValidity();
+
+  remote_auth_fd->PutValue(sockets[1]);
+  remote_auth_fd->CheckValidity();
+}
+
 }  // namespace
 
 // The SessionManagerClient implementation used in production.
@@ -66,48 +85,72 @@ class SessionManagerClientImpl : public SessionManagerClient {
  public:
   SessionManagerClientImpl()
       : session_manager_proxy_(NULL),
+        screen_is_locked_(false),
         weak_ptr_factory_(this) {}
 
-  virtual ~SessionManagerClientImpl() {
-  }
+  ~SessionManagerClientImpl() override {}
 
   // SessionManagerClient overrides:
-  virtual void SetStubDelegate(StubDelegate* delegate) override {
+  void SetStubDelegate(StubDelegate* delegate) override {
     // Do nothing; this isn't a stub implementation.
   }
 
-  virtual void AddObserver(Observer* observer) override {
+  void AddObserver(Observer* observer) override {
     observers_.AddObserver(observer);
   }
 
-  virtual void RemoveObserver(Observer* observer) override {
+  void RemoveObserver(Observer* observer) override {
     observers_.RemoveObserver(observer);
   }
 
-  virtual bool HasObserver(Observer* observer) override {
+  bool HasObserver(const Observer* observer) const override {
     return observers_.HasObserver(observer);
   }
 
-  virtual void EmitLoginPromptVisible() override {
+  bool IsScreenLocked() const override { return screen_is_locked_; }
+
+  void EmitLoginPromptVisible() override {
     SimpleMethodCallToSessionManager(
         login_manager::kSessionManagerEmitLoginPromptVisible);
     FOR_EACH_OBSERVER(Observer, observers_, EmitLoginPromptVisibleCalled());
   }
 
-  virtual void RestartJob(int pid, const std::string& command_line) override {
-    dbus::MethodCall method_call(login_manager::kSessionManagerInterface,
-                                 login_manager::kSessionManagerRestartJob);
-    dbus::MessageWriter writer(&method_call);
-    writer.AppendInt32(pid);
-    writer.AppendString(command_line);
-    session_manager_proxy_->CallMethod(
-        &method_call,
-        dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::Bind(&SessionManagerClientImpl::OnRestartJob,
-                   weak_ptr_factory_.GetWeakPtr()));
+  void RestartJob(int pid, const std::string& command_line) override {
+    dbus::ScopedFileDescriptor local_auth_fd(new dbus::FileDescriptor);
+    dbus::ScopedFileDescriptor remote_auth_fd(new dbus::FileDescriptor);
+
+    // The session_manager provides a new method to replace RestartJob, called
+    // RestartJobWithAuth, that is able to be used correctly within a PID
+    // namespace. To use it, the caller must create a unix domain socket pair
+    // and pass one end over dbus while holding the local end open for the
+    // duration of the call.
+    // Here, we call CreateValidCredConduit() to create the socket pair,
+    // and then pass both ends along to CallRestartJobWithValidFd(), which
+    // takes care of them from there.
+    // NB: PostTaskAndReply ensures that the second callback (which owns the
+    //     ScopedFileDescriptor objects) outlives the first, so passing the
+    //     bare pointers to CreateValidCredConduit is safe...
+    //     -- BUT --
+    //     you have to grab pointers to the contents of {local,remote}_auth_fd
+    //     _before_ they're acted on by base::Passed() below. Passing ownership
+    //     of the ScopedFileDescriptor objects to the callback actually nulls
+    //     out the storage inside the local instances. Since there are
+    //     no guarantees about the order of evaluation of arguments in a
+    //     function call, merely having them appear earlier among the args
+    //     to PostTaskAndReply() is not enough. Relying on this crashed on
+    //     some platforms.
+    base::Closure create_credentials_conduit_closure = base::Bind(
+        &CreateValidCredConduit, local_auth_fd.get(), remote_auth_fd.get());
+
+    base::WorkerPool::PostTaskAndReply(
+        FROM_HERE, create_credentials_conduit_closure,
+        base::Bind(&SessionManagerClientImpl::CallRestartJobWithValidFd,
+                   weak_ptr_factory_.GetWeakPtr(), base::Passed(&local_auth_fd),
+                   base::Passed(&remote_auth_fd), command_line),
+        false);
   }
 
-  virtual void StartSession(const std::string& user_email) override {
+  void StartSession(const std::string& user_email) override {
     dbus::MethodCall method_call(login_manager::kSessionManagerInterface,
                                  login_manager::kSessionManagerStartSession);
     dbus::MessageWriter writer(&method_call);
@@ -120,7 +163,7 @@ class SessionManagerClientImpl : public SessionManagerClient {
                    weak_ptr_factory_.GetWeakPtr()));
   }
 
-  virtual void StopSession() override {
+  void StopSession() override {
     dbus::MethodCall method_call(login_manager::kSessionManagerInterface,
                                  login_manager::kSessionManagerStopSession);
     dbus::MessageWriter writer(&method_call);
@@ -132,7 +175,7 @@ class SessionManagerClientImpl : public SessionManagerClient {
                    weak_ptr_factory_.GetWeakPtr()));
   }
 
-  virtual void StartDeviceWipe() override {
+  void StartDeviceWipe() override {
     dbus::MethodCall method_call(login_manager::kSessionManagerInterface,
                                  login_manager::kSessionManagerStartDeviceWipe);
     session_manager_proxy_->CallMethod(
@@ -142,32 +185,31 @@ class SessionManagerClientImpl : public SessionManagerClient {
                    weak_ptr_factory_.GetWeakPtr()));
   }
 
-  virtual void RequestLockScreen() override {
+  void RequestLockScreen() override {
     SimpleMethodCallToSessionManager(login_manager::kSessionManagerLockScreen);
   }
 
-  virtual void NotifyLockScreenShown() override {
+  void NotifyLockScreenShown() override {
     SimpleMethodCallToSessionManager(
         login_manager::kSessionManagerHandleLockScreenShown);
   }
 
-  virtual void NotifyLockScreenDismissed() override {
+  void NotifyLockScreenDismissed() override {
     SimpleMethodCallToSessionManager(
         login_manager::kSessionManagerHandleLockScreenDismissed);
   }
 
-  virtual void NotifySupervisedUserCreationStarted() override {
+  void NotifySupervisedUserCreationStarted() override {
     SimpleMethodCallToSessionManager(
         login_manager::kSessionManagerHandleSupervisedUserCreationStarting);
   }
 
-  virtual void NotifySupervisedUserCreationFinished() override {
+  void NotifySupervisedUserCreationFinished() override {
     SimpleMethodCallToSessionManager(
         login_manager::kSessionManagerHandleSupervisedUserCreationFinished);
   }
 
-  virtual void RetrieveActiveSessions(
-      const ActiveSessionsCallback& callback) override {
+  void RetrieveActiveSessions(const ActiveSessionsCallback& callback) override {
     dbus::MethodCall method_call(
         login_manager::kSessionManagerInterface,
         login_manager::kSessionManagerRetrieveActiveSessions);
@@ -181,8 +223,7 @@ class SessionManagerClientImpl : public SessionManagerClient {
                    callback));
   }
 
-  virtual void RetrieveDevicePolicy(
-      const RetrievePolicyCallback& callback) override {
+  void RetrieveDevicePolicy(const RetrievePolicyCallback& callback) override {
     dbus::MethodCall method_call(login_manager::kSessionManagerInterface,
                                  login_manager::kSessionManagerRetrievePolicy);
     session_manager_proxy_->CallMethod(
@@ -194,16 +235,15 @@ class SessionManagerClientImpl : public SessionManagerClient {
                    callback));
   }
 
-  virtual void RetrievePolicyForUser(
-      const std::string& username,
-      const RetrievePolicyCallback& callback) override {
+  void RetrievePolicyForUser(const std::string& username,
+                             const RetrievePolicyCallback& callback) override {
     CallRetrievePolicyByUsername(
         login_manager::kSessionManagerRetrievePolicyForUser,
         username,
         callback);
   }
 
-  virtual std::string BlockingRetrievePolicyForUser(
+  std::string BlockingRetrievePolicyForUser(
       const std::string& username) override {
     dbus::MethodCall method_call(
         login_manager::kSessionManagerInterface,
@@ -219,7 +259,7 @@ class SessionManagerClientImpl : public SessionManagerClient {
     return policy;
   }
 
-  virtual void RetrieveDeviceLocalAccountPolicy(
+  void RetrieveDeviceLocalAccountPolicy(
       const std::string& account_name,
       const RetrievePolicyCallback& callback) override {
     CallRetrievePolicyByUsername(
@@ -228,8 +268,8 @@ class SessionManagerClientImpl : public SessionManagerClient {
         callback);
   }
 
-  virtual void StoreDevicePolicy(const std::string& policy_blob,
-                                 const StorePolicyCallback& callback) override {
+  void StoreDevicePolicy(const std::string& policy_blob,
+                         const StorePolicyCallback& callback) override {
     dbus::MethodCall method_call(login_manager::kSessionManagerInterface,
                                  login_manager::kSessionManagerStorePolicy);
     dbus::MessageWriter writer(&method_call);
@@ -245,17 +285,16 @@ class SessionManagerClientImpl : public SessionManagerClient {
                    callback));
   }
 
-  virtual void StorePolicyForUser(
-      const std::string& username,
-      const std::string& policy_blob,
-      const StorePolicyCallback& callback) override {
+  void StorePolicyForUser(const std::string& username,
+                          const std::string& policy_blob,
+                          const StorePolicyCallback& callback) override {
     CallStorePolicyByUsername(login_manager::kSessionManagerStorePolicyForUser,
                               username,
                               policy_blob,
                               callback);
   }
 
-  virtual void StoreDeviceLocalAccountPolicy(
+  void StoreDeviceLocalAccountPolicy(
       const std::string& account_name,
       const std::string& policy_blob,
       const StorePolicyCallback& callback) override {
@@ -266,8 +305,8 @@ class SessionManagerClientImpl : public SessionManagerClient {
         callback);
   }
 
-  virtual void SetFlagsForUser(const std::string& username,
-                               const std::vector<std::string>& flags) override {
+  void SetFlagsForUser(const std::string& username,
+                       const std::vector<std::string>& flags) override {
     dbus::MethodCall method_call(login_manager::kSessionManagerInterface,
                                  login_manager::kSessionManagerSetFlagsForUser);
     dbus::MessageWriter writer(&method_call);
@@ -279,8 +318,7 @@ class SessionManagerClientImpl : public SessionManagerClient {
         dbus::ObjectProxy::EmptyResponseCallback());
   }
 
-  virtual void GetServerBackedStateKeys(const StateKeysCallback& callback)
-      override {
+  void GetServerBackedStateKeys(const StateKeysCallback& callback) override {
     dbus::MethodCall method_call(
         login_manager::kSessionManagerInterface,
         login_manager::kSessionManagerGetServerBackedStateKeys);
@@ -294,7 +332,7 @@ class SessionManagerClientImpl : public SessionManagerClient {
   }
 
  protected:
-  virtual void Init(dbus::Bus* bus) override {
+  void Init(dbus::Bus* bus) override {
     session_manager_proxy_ = bus->GetObjectProxy(
         login_manager::kSessionManagerServiceName,
         dbus::ObjectPath(login_manager::kSessionManagerServicePath));
@@ -383,8 +421,35 @@ class SessionManagerClientImpl : public SessionManagerClient {
             callback));
   }
 
+  // Calls RestartJobWithAuth to tell the session manager to restart the
+  // browser using the contents of command_line, authorizing the call
+  // using credentials acquired via remote_auth_fd.
+  // Ownership of local_auth_fd is held for the duration of the dbus call.
+  void CallRestartJobWithValidFd(dbus::ScopedFileDescriptor local_auth_fd,
+                                 dbus::ScopedFileDescriptor remote_auth_fd,
+                                 const std::string& command_line) {
+    dbus::MethodCall method_call(
+        login_manager::kSessionManagerInterface,
+        login_manager::kSessionManagerRestartJobWithAuth);
+    dbus::MessageWriter writer(&method_call);
+    writer.AppendFileDescriptor(*remote_auth_fd);
+    writer.AppendString(command_line);
+
+    // Ownership of local_auth_fd is passed to the callback that is to be
+    // called on completion of this method call. This keeps the browser end
+    // of the socket-pair alive for the duration of the RPC.
+    session_manager_proxy_->CallMethod(
+        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+        base::Bind(&SessionManagerClientImpl::OnRestartJob,
+                   weak_ptr_factory_.GetWeakPtr(),
+                   base::Passed(&local_auth_fd)));
+  }
+
   // Called when kSessionManagerRestartJob method is complete.
-  void OnRestartJob(dbus::Response* response) {
+  // Now that the call is complete, local_auth_fd can be closed and discarded,
+  // which will happen automatically when it goes out of scope.
+  void OnRestartJob(dbus::ScopedFileDescriptor local_auth_fd,
+                    dbus::Response* response) {
     LOG_IF(ERROR, !response)
         << "Failed to call "
         << login_manager::kSessionManagerRestartJob;
@@ -500,7 +565,7 @@ class SessionManagerClientImpl : public SessionManagerClient {
       LOG(ERROR) << "Invalid signal: " << signal->ToString();
       return;
     }
-    const bool success = StartsWithASCII(result_string, "success", false);
+    const bool success = base::StartsWithASCII(result_string, "success", false);
     FOR_EACH_OBSERVER(Observer, observers_, OwnerKeySet(success));
   }
 
@@ -512,15 +577,17 @@ class SessionManagerClientImpl : public SessionManagerClient {
       LOG(ERROR) << "Invalid signal: " << signal->ToString();
       return;
     }
-    const bool success = StartsWithASCII(result_string, "success", false);
+    const bool success = base::StartsWithASCII(result_string, "success", false);
     FOR_EACH_OBSERVER(Observer, observers_, PropertyChangeComplete(success));
   }
 
   void ScreenIsLockedReceived(dbus::Signal* signal) {
+    screen_is_locked_ = true;
     FOR_EACH_OBSERVER(Observer, observers_, ScreenIsLocked());
   }
 
   void ScreenIsUnlockedReceived(dbus::Signal* signal) {
+    screen_is_locked_ = false;
     FOR_EACH_OBSERVER(Observer, observers_, ScreenIsUnlocked());
   }
 
@@ -537,7 +604,7 @@ class SessionManagerClientImpl : public SessionManagerClient {
     std::vector<std::string> state_keys;
     if (!response) {
       LOG(ERROR) << "Failed to call "
-                 << login_manager::kSessionManagerStartSession;
+                 << login_manager::kSessionManagerGetServerBackedStateKeys;
     } else {
       dbus::MessageReader reader(response);
       dbus::MessageReader array_reader(NULL);
@@ -566,7 +633,10 @@ class SessionManagerClientImpl : public SessionManagerClient {
 
   dbus::ObjectProxy* session_manager_proxy_;
   scoped_ptr<BlockingMethodCaller> blocking_method_caller_;
-  ObserverList<Observer> observers_;
+  base::ObserverList<Observer> observers_;
+
+  // Most recent screen-lock state received from session_manager.
+  bool screen_is_locked_;
 
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate its weak pointers before any other members are destroyed.
@@ -579,44 +649,46 @@ class SessionManagerClientImpl : public SessionManagerClient {
 // which does nothing.
 class SessionManagerClientStubImpl : public SessionManagerClient {
  public:
-  SessionManagerClientStubImpl() : delegate_(NULL) {}
-  virtual ~SessionManagerClientStubImpl() {}
+  SessionManagerClientStubImpl() : delegate_(NULL), screen_is_locked_(false) {}
+  ~SessionManagerClientStubImpl() override {}
 
   // SessionManagerClient overrides
-  virtual void Init(dbus::Bus* bus) override {}
-  virtual void SetStubDelegate(StubDelegate* delegate) override {
+  void Init(dbus::Bus* bus) override {}
+  void SetStubDelegate(StubDelegate* delegate) override {
     delegate_ = delegate;
   }
-  virtual void AddObserver(Observer* observer) override {
+  void AddObserver(Observer* observer) override {
     observers_.AddObserver(observer);
   }
-  virtual void RemoveObserver(Observer* observer) override {
+  void RemoveObserver(Observer* observer) override {
     observers_.RemoveObserver(observer);
   }
-  virtual bool HasObserver(Observer* observer) override {
+  bool HasObserver(const Observer* observer) const override {
     return observers_.HasObserver(observer);
   }
-  virtual void EmitLoginPromptVisible() override {}
-  virtual void RestartJob(int pid, const std::string& command_line) override {}
-  virtual void StartSession(const std::string& user_email) override {}
-  virtual void StopSession() override {}
-  virtual void NotifySupervisedUserCreationStarted() override {}
-  virtual void NotifySupervisedUserCreationFinished() override {}
-  virtual void StartDeviceWipe() override {}
-  virtual void RequestLockScreen() override {
+  bool IsScreenLocked() const override { return screen_is_locked_; }
+  void EmitLoginPromptVisible() override {}
+  void RestartJob(int pid, const std::string& command_line) override {}
+  void StartSession(const std::string& user_email) override {}
+  void StopSession() override {}
+  void NotifySupervisedUserCreationStarted() override {}
+  void NotifySupervisedUserCreationFinished() override {}
+  void StartDeviceWipe() override {}
+  void RequestLockScreen() override {
     if (delegate_)
       delegate_->LockScreenForStub();
   }
-  virtual void NotifyLockScreenShown() override {
+  void NotifyLockScreenShown() override {
+    screen_is_locked_ = true;
     FOR_EACH_OBSERVER(Observer, observers_, ScreenIsLocked());
   }
-  virtual void NotifyLockScreenDismissed() override {
+  void NotifyLockScreenDismissed() override {
+    screen_is_locked_ = false;
     FOR_EACH_OBSERVER(Observer, observers_, ScreenIsUnlocked());
   }
-  virtual void RetrieveActiveSessions(
-      const ActiveSessionsCallback& callback) override {}
-  virtual void RetrieveDevicePolicy(
-      const RetrievePolicyCallback& callback) override {
+  void RetrieveActiveSessions(const ActiveSessionsCallback& callback) override {
+  }
+  void RetrieveDevicePolicy(const RetrievePolicyCallback& callback) override {
     base::FilePath owner_key_path;
     if (!PathService::Get(chromeos::FILE_OWNER_KEY, &owner_key_path)) {
       callback.Run("");
@@ -630,26 +702,25 @@ class SessionManagerClientStubImpl : public SessionManagerClient {
         base::Bind(&GetFileContent, device_policy_path),
         callback);
   }
-  virtual void RetrievePolicyForUser(
-      const std::string& username,
-      const RetrievePolicyCallback& callback) override {
+  void RetrievePolicyForUser(const std::string& username,
+                             const RetrievePolicyCallback& callback) override {
     base::PostTaskAndReplyWithResult(
         base::WorkerPool::GetTaskRunner(false).get(),
         FROM_HERE,
         base::Bind(&GetFileContent, GetUserFilePath(username, "stub_policy")),
         callback);
   }
-  virtual std::string BlockingRetrievePolicyForUser(
+  std::string BlockingRetrievePolicyForUser(
       const std::string& username) override {
     return GetFileContent(GetUserFilePath(username, "stub_policy"));
   }
-  virtual void RetrieveDeviceLocalAccountPolicy(
+  void RetrieveDeviceLocalAccountPolicy(
       const std::string& account_name,
       const RetrievePolicyCallback& callback) override {
     RetrievePolicyForUser(account_name, callback);
   }
-  virtual void StoreDevicePolicy(const std::string& policy_blob,
-                                 const StorePolicyCallback& callback) override {
+  void StoreDevicePolicy(const std::string& policy_blob,
+                         const StorePolicyCallback& callback) override {
     enterprise_management::PolicyFetchResponse response;
     base::FilePath owner_key_path;
     if (!response.ParseFromString(policy_blob) ||
@@ -678,10 +749,9 @@ class SessionManagerClientStubImpl : public SessionManagerClient {
         base::Bind(callback, true),
         false);
   }
-  virtual void StorePolicyForUser(
-      const std::string& username,
-      const std::string& policy_blob,
-      const StorePolicyCallback& callback) override {
+  void StorePolicyForUser(const std::string& username,
+                          const std::string& policy_blob,
+                          const StorePolicyCallback& callback) override {
     // The session manager writes the user policy key to a well-known
     // location. Do the same with the stub impl, so that user policy works and
     // can be tested on desktop builds.
@@ -708,18 +778,16 @@ class SessionManagerClientStubImpl : public SessionManagerClient {
         base::Bind(callback, true),
         false);
   }
-  virtual void StoreDeviceLocalAccountPolicy(
+  void StoreDeviceLocalAccountPolicy(
       const std::string& account_name,
       const std::string& policy_blob,
       const StorePolicyCallback& callback) override {
     StorePolicyForUser(account_name, policy_blob, callback);
   }
-  virtual void SetFlagsForUser(const std::string& username,
-                               const std::vector<std::string>& flags) override {
-  }
+  void SetFlagsForUser(const std::string& username,
+                       const std::vector<std::string>& flags) override {}
 
-  virtual void GetServerBackedStateKeys(const StateKeysCallback& callback)
-      override {
+  void GetServerBackedStateKeys(const StateKeysCallback& callback) override {
     std::vector<std::string> state_keys;
     for (int i = 0; i < 5; ++i)
       state_keys.push_back(crypto::SHA256HashString(base::IntToString(i)));
@@ -730,8 +798,9 @@ class SessionManagerClientStubImpl : public SessionManagerClient {
 
  private:
   StubDelegate* delegate_;  // Weak pointer; may be NULL.
-  ObserverList<Observer> observers_;
+  base::ObserverList<Observer> observers_;
   std::string device_policy_;
+  bool screen_is_locked_;
 
   DISALLOW_COPY_AND_ASSIGN(SessionManagerClientStubImpl);
 };

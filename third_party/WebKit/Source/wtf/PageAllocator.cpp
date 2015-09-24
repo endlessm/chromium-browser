@@ -58,44 +58,22 @@
 
 namespace WTF {
 
-#if OS(WIN)
-
-static bool shouldUseAddressHint()
-{
-#if CPU(32BIT)
-    // When running 32-bit processes under 32-bit Windows, the userspace is
-    // limited to 2 GB, and we risk fragmenting it badly if we allow further
-    // randomization via our address hint. On the other hand, if the process
-    // is running under WOW64, then it has at least 3 GB available (and likely
-    // 4 GB depending upon the OS version), and we want use the additional
-    // randomness.
-    static BOOL bIsWow64 = -1;
-    if (bIsWow64 == -1) {
-        IsWow64Process(GetCurrentProcess(), &bIsWow64);
-    }
-    return !!bIsWow64;
-#else // CPU(32BIT)
-    return true;
-#endif // CPU(32BIT)
-}
-
-#endif // OS(WIN)
-
 // This simple internal function wraps the OS-specific page allocation call so
 // that it behaves consistently: the address is a hint and if it cannot be used,
 // the allocation will be placed elsewhere.
-static void* systemAllocPages(void* addr, size_t len)
+static void* systemAllocPages(void* addr, size_t len, PageAccessibilityConfiguration pageAccessibility)
 {
     ASSERT(!(len & kPageAllocationGranularityOffsetMask));
     ASSERT(!(reinterpret_cast<uintptr_t>(addr) & kPageAllocationGranularityOffsetMask));
-    void* ret = 0;
+    void* ret;
 #if OS(WIN)
-    if (shouldUseAddressHint())
-        ret = VirtualAlloc(addr, len, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    int accessFlag = pageAccessibility == PageAccessible ? PAGE_READWRITE : PAGE_NOACCESS;
+    ret = VirtualAlloc(addr, len, MEM_RESERVE | MEM_COMMIT, accessFlag);
     if (!ret)
-        ret = VirtualAlloc(0, len, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+        ret = VirtualAlloc(0, len, MEM_RESERVE | MEM_COMMIT, accessFlag);
 #else
-    ret = mmap(addr, len, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    int accessFlag = pageAccessibility == PageAccessible ? (PROT_READ | PROT_WRITE) : PROT_NONE;
+    ret = mmap(addr, len, accessFlag, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     if (ret == MAP_FAILED)
         ret = 0;
 #endif
@@ -125,7 +103,7 @@ static bool trimMapping(void* baseAddr, size_t baseLen, void* trimAddr, size_t t
 #endif
 }
 
-void* allocPages(void* addr, size_t len, size_t align)
+void* allocPages(void* addr, size_t len, size_t align, PageAccessibilityConfiguration pageAccessibility)
 {
     ASSERT(len >= kPageAllocationGranularity);
     ASSERT(!(len & kPageAllocationGranularityOffsetMask));
@@ -143,7 +121,7 @@ void* allocPages(void* addr, size_t len, size_t align)
 
     // The common case, which is also the least work we can do, is that the
     // address and length are suitable. Just try it.
-    void* ret = systemAllocPages(addr, len);
+    void* ret = systemAllocPages(addr, len, pageAccessibility);
     // If the alignment is to our liking, we're done.
     if (!ret || !(reinterpret_cast<uintptr_t>(ret) & alignOffsetMask))
         return ret;
@@ -159,7 +137,7 @@ void* allocPages(void* addr, size_t len, size_t align)
     // of the aligned location we choose.
     int count = 0;
     while (count++ < 100) {
-        ret = systemAllocPages(addr, tryLen);
+        ret = systemAllocPages(addr, tryLen, pageAccessibility);
         if (!ret)
             return 0;
         // We can now try and trim out a subset of the mapping.
@@ -174,7 +152,7 @@ void* allocPages(void* addr, size_t len, size_t align)
         // a subset. We used to do for all platforms, but OSX 10.8 has a
         // broken mmap() that ignores address hints for valid, unused addresses.
         freePages(ret, tryLen);
-        ret = systemAllocPages(addr, len);
+        ret = systemAllocPages(addr, len, pageAccessibility);
         if (ret == addr || !ret)
             return ret;
 
@@ -212,15 +190,13 @@ void setSystemPagesInaccessible(void* addr, size_t len)
 #endif
 }
 
-void setSystemPagesAccessible(void* addr, size_t len)
+bool setSystemPagesAccessible(void* addr, size_t len)
 {
     ASSERT(!(len & kSystemPageOffsetMask));
 #if OS(POSIX)
-    int ret = mprotect(addr, len, PROT_READ | PROT_WRITE);
-    RELEASE_ASSERT(!ret);
+    return !mprotect(addr, len, PROT_READ | PROT_WRITE);
 #else
-    void* ret = VirtualAlloc(addr, len, MEM_COMMIT, PAGE_READWRITE);
-    RELEASE_ASSERT(ret);
+    return !!VirtualAlloc(addr, len, MEM_COMMIT, PAGE_READWRITE);
 #endif
 }
 
@@ -241,7 +217,24 @@ void recommitSystemPages(void* addr, size_t len)
 #if OS(POSIX)
     (void) addr;
 #else
-    setSystemPagesAccessible(addr, len);
+    RELEASE_ASSERT(setSystemPagesAccessible(addr, len));
+#endif
+}
+
+void discardSystemPages(void* addr, size_t len)
+{
+    ASSERT(!(len & kSystemPageOffsetMask));
+#if OS(POSIX)
+    // On POSIX, the implementation detail is that discard and decommit are the
+    // same, and lead to pages that are returned to the system immediately and
+    // get replaced with zeroed pages when touched. So we just call
+    // decommitSystemPages() here to avoid code duplication.
+    decommitSystemPages(addr, len);
+#else
+    (void) addr;
+    (void) len;
+    // TODO(cevans): implement this using MEM_RESET for Windows, once we've
+    // decided that the semantics are a match.
 #endif
 }
 

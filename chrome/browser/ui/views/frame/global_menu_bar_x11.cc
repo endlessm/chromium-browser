@@ -16,11 +16,11 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/history/top_sites.h"
+#include "chrome/browser/history/top_sites_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_info_cache.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/profiles/profile_window.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
 #include "chrome/browser/ui/browser.h"
@@ -32,7 +32,7 @@
 #include "chrome/browser/ui/views/frame/global_menu_bar_registrar_x11.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
-#include "content/public/browser/notification_source.h"
+#include "components/history/core/browser/top_sites.h"
 #include "ui/base/accelerators/menu_label_accelerator_util_linux.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/events/keycodes/keyboard_code_conversion_x.h"
@@ -87,20 +87,20 @@ namespace {
 // Retrieved functions from libdbusmenu-glib.
 
 // DbusmenuMenuItem methods:
-dbusmenu_menuitem_new_func menuitem_new = NULL;
-dbusmenu_menuitem_get_children_func menuitem_get_children = NULL;
-dbusmenu_menuitem_child_add_position_func menuitem_child_add_position = NULL;
-dbusmenu_menuitem_child_append_func menuitem_child_append = NULL;
-dbusmenu_menuitem_child_delete_func menuitem_child_delete = NULL;
-dbusmenu_menuitem_property_set_func menuitem_property_set = NULL;
+dbusmenu_menuitem_new_func menuitem_new = nullptr;
+dbusmenu_menuitem_get_children_func menuitem_get_children = nullptr;
+dbusmenu_menuitem_child_add_position_func menuitem_child_add_position = nullptr;
+dbusmenu_menuitem_child_append_func menuitem_child_append = nullptr;
+dbusmenu_menuitem_child_delete_func menuitem_child_delete = nullptr;
+dbusmenu_menuitem_property_set_func menuitem_property_set = nullptr;
 dbusmenu_menuitem_property_set_variant_func menuitem_property_set_variant =
-    NULL;
-dbusmenu_menuitem_property_set_bool_func menuitem_property_set_bool = NULL;
-dbusmenu_menuitem_property_set_int_func menuitem_property_set_int = NULL;
+    nullptr;
+dbusmenu_menuitem_property_set_bool_func menuitem_property_set_bool = nullptr;
+dbusmenu_menuitem_property_set_int_func menuitem_property_set_int = nullptr;
 
 // DbusmenuServer methods:
-dbusmenu_server_new_func server_new = NULL;
-dbusmenu_server_set_root_func server_set_root = NULL;
+dbusmenu_server_new_func server_new = nullptr;
+dbusmenu_server_set_root_func server_set_root = nullptr;
 
 // Properties that we set on menu items:
 const char kPropertyEnabled[] = "enabled";
@@ -328,12 +328,13 @@ GlobalMenuBarX11::GlobalMenuBarX11(BrowserView* browser_view,
       profile_(browser_->profile()),
       browser_view_(browser_view),
       host_(host),
-      server_(NULL),
-      root_item_(NULL),
-      history_menu_(NULL),
-      profiles_menu_(NULL),
-      top_sites_(NULL),
-      tab_restore_service_(NULL),
+      server_(nullptr),
+      root_item_(nullptr),
+      history_menu_(nullptr),
+      profiles_menu_(nullptr),
+      top_sites_(nullptr),
+      tab_restore_service_(nullptr),
+      scoped_observer_(this),
       weak_ptr_factory_(this) {
   EnsureMethodsLoaded();
 
@@ -426,20 +427,19 @@ void GlobalMenuBarX11::InitServer(unsigned long xid) {
                  base::Unretained(this)));
   OnBookmarkBarVisibilityChanged();
 
-  top_sites_ = profile_->GetTopSites();
+  top_sites_ = TopSitesFactory::GetForProfile(profile_);
   if (top_sites_) {
     GetTopSitesData();
 
-    // Register for notification when TopSites changes so that we can update
-    // ourself.
-    registrar_.Add(this, chrome::NOTIFICATION_TOP_SITES_CHANGED,
-                   content::Source<history::TopSites>(top_sites_));
+    // Register as TopSitesObserver so that we can update ourselves when the
+    // TopSites changes.
+    scoped_observer_.Add(top_sites_.get());
   }
 
   ProfileManager* profile_manager = g_browser_process->profile_manager();
   DCHECK(profile_manager);
   avatar_menu_.reset(new AvatarMenu(
-      &profile_manager->GetProfileInfoCache(), this, NULL));
+      &profile_manager->GetProfileInfoCache(), this, nullptr));
   avatar_menu_->RebuildMenu();
   BrowserList::AddObserver(this);
 
@@ -470,7 +470,7 @@ DbusmenuMenuitem* GlobalMenuBarX11::BuildStaticMenu(
   menuitem_property_set_bool(top, kPropertyVisible, true);
 
   for (int i = 0; commands[i].str_id != MENU_END; ++i) {
-    DbusmenuMenuitem* menu_item = NULL;
+    DbusmenuMenuitem* menu_item = nullptr;
     int command_id = commands[i].command;
     if (commands[i].str_id == MENU_SEPARATOR) {
       menu_item = BuildSeparator();
@@ -672,7 +672,7 @@ int GlobalMenuBarX11::GetIndexOfMenuItemWithTag(DbusmenuMenuitem* menu,
                                                 int tag_id) {
   GList* childs = menuitem_get_children(menu);
   int i = 0;
-  for (; childs != NULL; childs = childs->next, i++) {
+  for (; childs != nullptr; childs = childs->next, i++) {
     int tag =
         GPOINTER_TO_INT(g_object_get_data(G_OBJECT(childs->data), kTypeTag));
     if (tag == tag_id)
@@ -687,7 +687,7 @@ void GlobalMenuBarX11::ClearMenuSection(DbusmenuMenuitem* menu, int tag_id) {
   std::vector<DbusmenuMenuitem*> menuitems_to_delete;
 
   GList* childs = menuitem_get_children(menu);
-  for (; childs != NULL; childs = childs->next) {
+  for (; childs != nullptr; childs = childs->next) {
     DbusmenuMenuitem* current_item = reinterpret_cast<DbusmenuMenuitem*>(
         childs->data);
     ClearMenuSection(current_item, tag_id);
@@ -728,14 +728,12 @@ void GlobalMenuBarX11::EnabledStateChangedForCommand(int id, bool enabled) {
     menuitem_property_set_bool(it->second, kPropertyEnabled, enabled);
 }
 
-void GlobalMenuBarX11::Observe(int type,
-                               const content::NotificationSource& source,
-                               const content::NotificationDetails& details) {
-  if (type == chrome::NOTIFICATION_TOP_SITES_CHANGED) {
+void GlobalMenuBarX11::TopSitesLoaded(history::TopSites* top_sites) {
+}
+
+void GlobalMenuBarX11::TopSitesChanged(history::TopSites* top_sites,
+                                       ChangeReason change_reason) {
     GetTopSitesData();
-  } else {
-    NOTREACHED();
-  }
 }
 
 void GlobalMenuBarX11::TabRestoreServiceChanged(TabRestoreService* service) {
@@ -764,12 +762,8 @@ void GlobalMenuBarX11::TabRestoreServiceChanged(TabRestoreService* service) {
       HistoryItem* item = new HistoryItem();
       item->session_id = entry_win->id;
 
-      std::string title = tabs.size() == 1 ?
-          l10n_util::GetStringUTF8(
-              IDS_NEW_TAB_RECENTLY_CLOSED_WINDOW_SINGLE) :
-          l10n_util::GetStringFUTF8(
-              IDS_NEW_TAB_RECENTLY_CLOSED_WINDOW_MULTIPLE,
-              base::IntToString16(tabs.size()));
+      std::string title = l10n_util::GetPluralStringFUTF8(
+          IDS_RECENTLY_CLOSED_WINDOW, tabs.size());
       DbusmenuMenuitem* parent_item = BuildMenuItem(
           title, TAG_RECENTLY_CLOSED);
       menuitem_child_add_position(history_menu_, parent_item, index++);
@@ -822,7 +816,7 @@ void GlobalMenuBarX11::TabRestoreServiceChanged(TabRestoreService* service) {
 
 void GlobalMenuBarX11::TabRestoreServiceDestroyed(
     TabRestoreService* service) {
-  tab_restore_service_ = NULL;
+  tab_restore_service_ = nullptr;
 }
 
 void GlobalMenuBarX11::OnWindowMapped(unsigned long xid) {
@@ -897,5 +891,7 @@ void GlobalMenuBarX11::OnEditProfileItemActivated(DbusmenuMenuitem* sender,
 
 void GlobalMenuBarX11::OnCreateProfileItemActivated(DbusmenuMenuitem* sender,
                                                     unsigned int timestamp) {
-  avatar_menu_->AddNewProfile(ProfileMetrics::ADD_NEW_USER_MENU);
+  profiles::CreateAndSwitchToNewProfile(chrome::HOST_DESKTOP_TYPE_NATIVE,
+                                        ProfileManager::CreateCallback(),
+                                        ProfileMetrics::ADD_NEW_USER_MENU);
 }

@@ -58,8 +58,8 @@ static inline double get_time() {
 }
 #endif
 
-static inline void MemRandomize(uint8* dst, int len) {
-  int i;
+static inline void MemRandomize(uint8* dst, int64 len) {
+  int64 i;
   for (i = 0; i < len - 1; i += 2) {
     *reinterpret_cast<uint16*>(dst) = random();
     dst += 2;
@@ -81,6 +81,7 @@ class libyuvTest : public ::testing::Test {
   int benchmark_height_;  // Default 720.  Use 360 for benchmarking VGA.
   int benchmark_pixels_div256_;  // Total pixels to benchmark / 256.
   int benchmark_pixels_div1280_;  // Total pixels to benchmark / 1280.
+  int disable_cpu_flags_;  // Default 0.  Use -1 for benchmarking.
 };
 
 #endif  // UNIT_TEST_UNIT_TEST_H_  NOLINT

@@ -23,6 +23,8 @@ class VideoFrameProviderClientImpl;
 
 class CC_EXPORT VideoLayerImpl : public LayerImpl {
  public:
+  // Must be called on the impl thread while the main thread is blocked. This is
+  // so that |provider| stays alive while this is being created.
   static scoped_ptr<VideoLayerImpl> Create(LayerTreeImpl* tree_impl,
                                            int id,
                                            VideoFrameProvider* provider,
@@ -31,27 +33,24 @@ class CC_EXPORT VideoLayerImpl : public LayerImpl {
 
   // LayerImpl implementation.
   scoped_ptr<LayerImpl> CreateLayerImpl(LayerTreeImpl* tree_impl) override;
-  void PushPropertiesTo(LayerImpl* layer) override;
   bool WillDraw(DrawMode draw_mode,
                 ResourceProvider* resource_provider) override;
   void AppendQuads(RenderPass* render_pass,
-                   const Occlusion& occlusion_in_content_space,
                    AppendQuadsData* append_quads_data) override;
   void DidDraw(ResourceProvider* resource_provider) override;
+  SimpleEnclosedRegion VisibleOpaqueRegion() const override;
   void DidBecomeActive() override;
   void ReleaseResources() override;
 
   void SetNeedsRedraw();
-
-  void SetProviderClientImpl(
-      scoped_refptr<VideoFrameProviderClientImpl> provider_client_impl);
-
   media::VideoRotation video_rotation() const { return video_rotation_; }
 
  private:
-  VideoLayerImpl(LayerTreeImpl* tree_impl,
-                 int id,
-                 media::VideoRotation video_rotation);
+  VideoLayerImpl(
+      LayerTreeImpl* tree_impl,
+      int id,
+      const scoped_refptr<VideoFrameProviderClientImpl>& provider_client_impl,
+      media::VideoRotation video_rotation);
 
   const char* LayerTypeAsString() const override;
 
@@ -63,7 +62,16 @@ class CC_EXPORT VideoLayerImpl : public LayerImpl {
 
   scoped_ptr<VideoResourceUpdater> updater_;
   VideoFrameExternalResources::ResourceType frame_resource_type_;
-  std::vector<ResourceProvider::ResourceId> frame_resources_;
+  struct FrameResource {
+    FrameResource(ResourceId id, gfx::Size size_in_pixels, bool allow_overlay)
+        : id(id),
+          size_in_pixels(size_in_pixels),
+          allow_overlay(allow_overlay) {}
+    ResourceId id;
+    gfx::Size size_in_pixels;
+    bool allow_overlay;
+  };
+  std::vector<FrameResource> frame_resources_;
 
   // TODO(danakj): Remove these, hide software path inside ResourceProvider and
   // ExternalResource (aka TextureMailbox) classes.

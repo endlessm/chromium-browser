@@ -22,8 +22,10 @@
 #ifndef StyleRule_h
 #define StyleRule_h
 
+#include "core/CoreExport.h"
 #include "core/css/CSSSelectorList.h"
 #include "core/css/MediaList.h"
+#include "core/css/StylePropertySet.h"
 #include "platform/heap/Handle.h"
 #include "wtf/RefPtr.h"
 
@@ -31,25 +33,22 @@ namespace blink {
 
 class CSSRule;
 class CSSStyleSheet;
-class MutableStylePropertySet;
-class StylePropertySet;
 
-class StyleRuleBase : public RefCountedWillBeGarbageCollectedFinalized<StyleRuleBase> {
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
+class CORE_EXPORT StyleRuleBase : public RefCountedWillBeGarbageCollectedFinalized<StyleRuleBase> {
+    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(StyleRuleBase);
 public:
     enum Type {
-        Unknown, // Not used.
+        Charset,
         Style,
-        Charset, // Not used. These are internally strings owned by the style sheet.
         Import,
         Media,
         FontFace,
         Page,
         Keyframes,
-        Keyframe, // Not used. These are internally non-rule StyleKeyframe objects.
-        Supports = 12,
-        Viewport = 15,
-        Filter = 17
+        Keyframe,
+        Namespace,
+        Supports,
+        Viewport,
     };
 
     Type type() const { return static_cast<Type>(m_type); }
@@ -57,13 +56,14 @@ public:
     bool isCharsetRule() const { return type() == Charset; }
     bool isFontFaceRule() const { return type() == FontFace; }
     bool isKeyframesRule() const { return type() == Keyframes; }
+    bool isKeyframeRule() const { return type() == Keyframe; }
+    bool isNamespaceRule() const { return type() == Namespace; }
     bool isMediaRule() const { return type() == Media; }
     bool isPageRule() const { return type() == Page; }
     bool isStyleRule() const { return type() == Style; }
     bool isSupportsRule() const { return type() == Supports; }
     bool isViewportRule() const { return type() == Viewport; }
     bool isImportRule() const { return type() == Import; }
-    bool isFilterRule() const { return type() == Filter; }
 
     PassRefPtrWillBeRawPtr<StyleRuleBase> copy() const;
 
@@ -79,15 +79,19 @@ public:
     PassRefPtrWillBeRawPtr<CSSRule> createCSSOMWrapper(CSSStyleSheet* parentSheet = 0) const;
     PassRefPtrWillBeRawPtr<CSSRule> createCSSOMWrapper(CSSRule* parentRule) const;
 
-    void trace(Visitor*);
-    void traceAfterDispatch(Visitor*) { };
+    DECLARE_TRACE();
+    DEFINE_INLINE_TRACE_AFTER_DISPATCH() { }
     void finalizeGarbageCollectedObject();
+
+    // ~StyleRuleBase should be public, because non-public ~StyleRuleBase
+    // causes C2248 error : 'blink::StyleRuleBase::~StyleRuleBase' : cannot
+    // access protected member declared in class 'blink::StyleRuleBase' when
+    // compiling 'source\wtf\refcounted.h' by using msvc.
+    ~StyleRuleBase() { }
 
 protected:
     StyleRuleBase(Type type) : m_type(type) { }
     StyleRuleBase(const StyleRuleBase& o) : m_type(o.m_type) { }
-
-    ~StyleRuleBase() { }
 
 private:
     void destroy();
@@ -98,9 +102,13 @@ private:
 };
 
 class StyleRule : public StyleRuleBase {
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
+    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(StyleRule);
 public:
-    static PassRefPtrWillBeRawPtr<StyleRule> create() { return adoptRefWillBeNoop(new StyleRule()); }
+    // Adopts the selector list
+    static PassRefPtrWillBeRawPtr<StyleRule> create(CSSSelectorList& selectorList, PassRefPtrWillBeRawPtr<StylePropertySet> properties)
+    {
+        return adoptRefWillBeNoop(new StyleRule(selectorList, properties));
+    }
 
     ~StyleRule();
 
@@ -108,18 +116,16 @@ public:
     const StylePropertySet& properties() const { return *m_properties; }
     MutableStylePropertySet& mutableProperties();
 
-    void parserAdoptSelectorVector(Vector<OwnPtr<CSSParserSelector> >& selectors) { m_selectorList.adoptSelectorVector(selectors); }
     void wrapperAdoptSelectorList(CSSSelectorList& selectors) { m_selectorList.adopt(selectors); }
-    void setProperties(PassRefPtrWillBeRawPtr<StylePropertySet>);
 
     PassRefPtrWillBeRawPtr<StyleRule> copy() const { return adoptRefWillBeNoop(new StyleRule(*this)); }
 
     static unsigned averageSizeInBytes();
 
-    void traceAfterDispatch(Visitor*);
+    DECLARE_TRACE_AFTER_DISPATCH();
 
 private:
-    StyleRule();
+    StyleRule(CSSSelectorList&, PassRefPtrWillBeRawPtr<StylePropertySet>);
     StyleRule(const StyleRule&);
 
     RefPtrWillBeMember<StylePropertySet> m_properties; // Cannot be null.
@@ -128,21 +134,22 @@ private:
 
 class StyleRuleFontFace : public StyleRuleBase {
 public:
-    static PassRefPtrWillBeRawPtr<StyleRuleFontFace> create() { return adoptRefWillBeNoop(new StyleRuleFontFace); }
+    static PassRefPtrWillBeRawPtr<StyleRuleFontFace> create(PassRefPtrWillBeRawPtr<StylePropertySet> properties)
+    {
+        return adoptRefWillBeNoop(new StyleRuleFontFace(properties));
+    }
 
     ~StyleRuleFontFace();
 
     const StylePropertySet& properties() const { return *m_properties; }
     MutableStylePropertySet& mutableProperties();
 
-    void setProperties(PassRefPtrWillBeRawPtr<StylePropertySet>);
-
     PassRefPtrWillBeRawPtr<StyleRuleFontFace> copy() const { return adoptRefWillBeNoop(new StyleRuleFontFace(*this)); }
 
-    void traceAfterDispatch(Visitor*);
+    DECLARE_TRACE_AFTER_DISPATCH();
 
 private:
-    StyleRuleFontFace();
+    StyleRuleFontFace(PassRefPtrWillBeRawPtr<StylePropertySet>);
     StyleRuleFontFace(const StyleRuleFontFace&);
 
     RefPtrWillBeMember<StylePropertySet> m_properties; // Cannot be null.
@@ -150,7 +157,11 @@ private:
 
 class StyleRulePage : public StyleRuleBase {
 public:
-    static PassRefPtrWillBeRawPtr<StyleRulePage> create() { return adoptRefWillBeNoop(new StyleRulePage); }
+    // Adopts the selector list
+    static PassRefPtrWillBeRawPtr<StyleRulePage> create(CSSSelectorList& selectorList, PassRefPtrWillBeRawPtr<StylePropertySet> properties)
+    {
+        return adoptRefWillBeNoop(new StyleRulePage(selectorList, properties));
+    }
 
     ~StyleRulePage();
 
@@ -158,16 +169,14 @@ public:
     const StylePropertySet& properties() const { return *m_properties; }
     MutableStylePropertySet& mutableProperties();
 
-    void parserAdoptSelectorVector(Vector<OwnPtr<CSSParserSelector> >& selectors) { m_selectorList.adoptSelectorVector(selectors); }
     void wrapperAdoptSelectorList(CSSSelectorList& selectors) { m_selectorList.adopt(selectors); }
-    void setProperties(PassRefPtrWillBeRawPtr<StylePropertySet>);
 
     PassRefPtrWillBeRawPtr<StyleRulePage> copy() const { return adoptRefWillBeNoop(new StyleRulePage(*this)); }
 
-    void traceAfterDispatch(Visitor*);
+    DECLARE_TRACE_AFTER_DISPATCH();
 
 private:
-    StyleRulePage();
+    StyleRulePage(CSSSelectorList&, PassRefPtrWillBeRawPtr<StylePropertySet>);
     StyleRulePage(const StyleRulePage&);
 
     RefPtrWillBeMember<StylePropertySet> m_properties; // Cannot be null.
@@ -176,24 +185,24 @@ private:
 
 class StyleRuleGroup : public StyleRuleBase {
 public:
-    const WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase> >& childRules() const { return m_childRules; }
+    const WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase>>& childRules() const { return m_childRules; }
 
     void wrapperInsertRule(unsigned, PassRefPtrWillBeRawPtr<StyleRuleBase>);
     void wrapperRemoveRule(unsigned);
 
-    void traceAfterDispatch(Visitor*);
+    DECLARE_TRACE_AFTER_DISPATCH();
 
 protected:
-    StyleRuleGroup(Type, WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase> >& adoptRule);
+    StyleRuleGroup(Type, WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase>>& adoptRule);
     StyleRuleGroup(const StyleRuleGroup&);
 
 private:
-    WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase> > m_childRules;
+    WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase>> m_childRules;
 };
 
 class StyleRuleMedia : public StyleRuleGroup {
 public:
-    static PassRefPtrWillBeRawPtr<StyleRuleMedia> create(PassRefPtrWillBeRawPtr<MediaQuerySet> media, WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase> >& adoptRules)
+    static PassRefPtrWillBeRawPtr<StyleRuleMedia> create(PassRefPtrWillBeRawPtr<MediaQuerySet> media, WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase>>& adoptRules)
     {
         return adoptRefWillBeNoop(new StyleRuleMedia(media, adoptRules));
     }
@@ -202,10 +211,10 @@ public:
 
     PassRefPtrWillBeRawPtr<StyleRuleMedia> copy() const { return adoptRefWillBeNoop(new StyleRuleMedia(*this)); }
 
-    void traceAfterDispatch(Visitor*);
+    DECLARE_TRACE_AFTER_DISPATCH();
 
 private:
-    StyleRuleMedia(PassRefPtrWillBeRawPtr<MediaQuerySet>, WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase> >& adoptRules);
+    StyleRuleMedia(PassRefPtrWillBeRawPtr<MediaQuerySet>, WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase>>& adoptRules);
     StyleRuleMedia(const StyleRuleMedia&);
 
     RefPtrWillBeMember<MediaQuerySet> m_mediaQueries;
@@ -213,7 +222,7 @@ private:
 
 class StyleRuleSupports : public StyleRuleGroup {
 public:
-    static PassRefPtrWillBeRawPtr<StyleRuleSupports> create(const String& conditionText, bool conditionIsSupported, WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase> >& adoptRules)
+    static PassRefPtrWillBeRawPtr<StyleRuleSupports> create(const String& conditionText, bool conditionIsSupported, WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase>>& adoptRules)
     {
         return adoptRefWillBeNoop(new StyleRuleSupports(conditionText, conditionIsSupported, adoptRules));
     }
@@ -222,10 +231,10 @@ public:
     bool conditionIsSupported() const { return m_conditionIsSupported; }
     PassRefPtrWillBeRawPtr<StyleRuleSupports> copy() const { return adoptRefWillBeNoop(new StyleRuleSupports(*this)); }
 
-    void traceAfterDispatch(Visitor* visitor) { StyleRuleGroup::traceAfterDispatch(visitor); }
+    DEFINE_INLINE_TRACE_AFTER_DISPATCH() { StyleRuleGroup::traceAfterDispatch(visitor); }
 
 private:
-    StyleRuleSupports(const String& conditionText, bool conditionIsSupported, WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase> >& adoptRules);
+    StyleRuleSupports(const String& conditionText, bool conditionIsSupported, WillBeHeapVector<RefPtrWillBeMember<StyleRuleBase>>& adoptRules);
     StyleRuleSupports(const StyleRuleSupports&);
 
     String m_conditionText;
@@ -234,50 +243,38 @@ private:
 
 class StyleRuleViewport : public StyleRuleBase {
 public:
-    static PassRefPtrWillBeRawPtr<StyleRuleViewport> create() { return adoptRefWillBeNoop(new StyleRuleViewport); }
+    static PassRefPtrWillBeRawPtr<StyleRuleViewport> create(PassRefPtrWillBeRawPtr<StylePropertySet> properties)
+    {
+        return adoptRefWillBeNoop(new StyleRuleViewport(properties));
+    }
 
     ~StyleRuleViewport();
 
     const StylePropertySet& properties() const { return *m_properties; }
     MutableStylePropertySet& mutableProperties();
 
-    void setProperties(PassRefPtrWillBeRawPtr<StylePropertySet>);
-
     PassRefPtrWillBeRawPtr<StyleRuleViewport> copy() const { return adoptRefWillBeNoop(new StyleRuleViewport(*this)); }
 
-    void traceAfterDispatch(Visitor*);
+    DECLARE_TRACE_AFTER_DISPATCH();
 
 private:
-    StyleRuleViewport();
+    StyleRuleViewport(PassRefPtrWillBeRawPtr<StylePropertySet>);
     StyleRuleViewport(const StyleRuleViewport&);
 
     RefPtrWillBeMember<StylePropertySet> m_properties; // Cannot be null
 };
 
-class StyleRuleFilter : public StyleRuleBase {
+// This should only be used within the CSS Parser
+class StyleRuleCharset : public StyleRuleBase {
+    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(StyleRuleCharset);
 public:
-    static PassRefPtrWillBeRawPtr<StyleRuleFilter> create(const String& filterName) { return adoptRefWillBeNoop(new StyleRuleFilter(filterName)); }
-
-    ~StyleRuleFilter();
-
-    const String& filterName() const { return m_filterName; }
-
-    const StylePropertySet& properties() const { return *m_properties; }
-    MutableStylePropertySet& mutableProperties();
-
-    void setProperties(PassRefPtrWillBeRawPtr<StylePropertySet>);
-
-    PassRefPtrWillBeRawPtr<StyleRuleFilter> copy() const { return adoptRefWillBeNoop(new StyleRuleFilter(*this)); }
-
-    void traceAfterDispatch(Visitor*);
+    static PassRefPtrWillBeRawPtr<StyleRuleCharset> create() { return adoptRefWillBeNoop(new StyleRuleCharset()); }
+    DEFINE_INLINE_TRACE_AFTER_DISPATCH() { StyleRuleBase::traceAfterDispatch(visitor); }
 
 private:
-    StyleRuleFilter(const String&);
-    StyleRuleFilter(const StyleRuleFilter&);
-
-    String m_filterName;
-    RefPtrWillBeMember<StylePropertySet> m_properties;
+    StyleRuleCharset() : StyleRuleBase(Charset) { }
 };
+
 
 #define DEFINE_STYLE_RULE_TYPE_CASTS(Type) \
     DEFINE_TYPE_CASTS(StyleRule##Type, StyleRuleBase, rule, rule->is##Type##Rule(), rule.is##Type##Rule())
@@ -288,7 +285,7 @@ DEFINE_STYLE_RULE_TYPE_CASTS(Page);
 DEFINE_STYLE_RULE_TYPE_CASTS(Media);
 DEFINE_STYLE_RULE_TYPE_CASTS(Supports);
 DEFINE_STYLE_RULE_TYPE_CASTS(Viewport);
-DEFINE_STYLE_RULE_TYPE_CASTS(Filter);
+DEFINE_STYLE_RULE_TYPE_CASTS(Charset);
 
 } // namespace blink
 

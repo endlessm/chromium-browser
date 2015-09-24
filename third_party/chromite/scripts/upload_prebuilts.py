@@ -19,8 +19,10 @@ upload_prebuilts -b x86-dogfood -p /b/cbuild/build/ -u gs://chromeos-prebuilt -g
 
 from __future__ import print_function
 
+import argparse
 import datetime
 import functools
+import glob
 import multiprocessing
 import os
 import sys
@@ -31,6 +33,7 @@ from chromite.cbuildbot import commands
 from chromite.lib import binpkg
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import git
 from chromite.lib import gs
 from chromite.lib import osutils
@@ -45,6 +48,11 @@ _RETRIES = 10
 # (1*sleep) the first time, then (2*sleep), continuing via attempt * sleep.
 _SLEEP_TIME = 60
 
+# The length of time (in seconds) that Portage should wait before refetching
+# binpkgs from the same binhost. We don't ever modify binhosts, so this should
+# be something big.
+_BINPKG_TTL = 60 * 60 * 24 * 365
+
 _HOST_PACKAGES_PATH = 'chroot/var/lib/portage/pkgs'
 _CATEGORIES_PATH = 'chroot/etc/portage/categories'
 _PYM_PATH = 'chroot/usr/lib/portage/pym'
@@ -55,7 +63,6 @@ _REL_HOST_PATH = 'host/%(host_arch)s/%(target)s/%(version)s'
 # Private overlays to look at for builds to filter
 # relative to build path
 _PRIVATE_OVERLAY_DIR = 'src/private-overlays'
-_GOOGLESTORAGE_ACL_FILE = 'googlestorage_acl.xml'
 _GOOGLESTORAGE_GSUTIL_FILE = 'googlestorage_acl.txt'
 _BINHOST_BASE_URL = 'gs://chromeos-prebuilt'
 _PREBUILT_BASE_DIR = 'src/third_party/chromiumos-overlay/chromeos/config/'
@@ -96,6 +103,9 @@ def UpdateLocalFile(filename, value, key='PORTAGE_BINHOST'):
     filename: Name of file to modify.
     value: Value to write with the key.
     key: The variable key to update. (Default: PORTAGE_BINHOST)
+
+  Returns:
+    True if changes were made to the file.
   """
   if os.path.exists(filename):
     file_fh = open(filename)
@@ -103,6 +113,7 @@ def UpdateLocalFile(filename, value, key='PORTAGE_BINHOST'):
     file_fh = open(filename, 'w+')
   file_lines = []
   found = False
+  made_changes = False
   keyval_str = '%(key)s=%(value)s'
   for line in file_fh:
     # Strip newlines from end of line. We already add newlines below.
@@ -118,17 +129,20 @@ def UpdateLocalFile(filename, value, key='PORTAGE_BINHOST'):
       found = True
       print('Updating %s=%s to %s="%s"' % (file_var, file_val, key, value))
       value = '"%s"' % value
+      made_changes |= (file_val != value)
       file_lines.append(keyval_str % {'key': key, 'value': value})
     else:
       file_lines.append(keyval_str % {'key': file_var, 'value': file_val})
 
   if not found:
     value = '"%s"' % value
+    made_changes = True
     file_lines.append(keyval_str % {'key': key, 'value': value})
 
   file_fh.close()
   # write out new file
   osutils.WriteFile(filename, '\n'.join(file_lines) + '\n')
+  return made_changes
 
 
 def RevGitFile(filename, data, retries=5, dryrun=False):
@@ -172,9 +186,6 @@ def _GsUpload(gs_context, acl, local_file, remote_file):
     acl: The ACL to use for uploading the file.
     local_file: The local file to be uploaded.
     remote_file: The remote location to upload to.
-
-  Returns:
-    Return the arg tuple of two if the upload failed
   """
   CANNED_ACLS = ['public-read', 'private', 'bucket-owner-read',
                  'authenticated-read', 'bucket-owner-full-control',
@@ -184,7 +195,17 @@ def _GsUpload(gs_context, acl, local_file, remote_file):
   else:
     # For private uploads we assume that the overlay board is set up properly
     # and a googlestore_acl.xml is present. Otherwise, this script errors.
-    gs_context.Copy(local_file, remote_file, acl='private')
+    # We set version=0 here to ensure that the ACL is set only once (see
+    # http://b/15883752#comment54).
+    try:
+      gs_context.Copy(local_file, remote_file, version=0)
+    except gs.GSContextPreconditionFailed as ex:
+      # If we received a GSContextPreconditionFailed error, we know that the
+      # file exists now, but we don't know whether our specific update
+      # succeeded. See http://b/15883752#comment62
+      logging.warning(
+          'Assuming upload succeeded despite PreconditionFailed errors: %s', ex)
+
     if acl.endswith('.xml'):
       # Apply the passed in ACL xml file to the uploaded object.
       gs_context.SetACL(remote_file, acl=acl)
@@ -228,9 +249,14 @@ def GenerateUploadDict(base_local_path, base_remote_path, pkgs):
   for pkg in pkgs:
     suffix = pkg['CPV'] + '.tbz2'
     local_path = os.path.join(base_local_path, suffix)
-    assert os.path.exists(local_path)
-    remote_path = '%s/%s' % (base_remote_path.rstrip('/'), suffix)
-    upload_files[local_path] = remote_path
+    assert os.path.exists(local_path), '%s does not exist' % local_path
+    upload_files[local_path] = os.path.join(base_remote_path, suffix)
+
+    if pkg.get('DEBUG_SYMBOLS') == 'yes':
+      debugsuffix = pkg['CPV'] + '.debug.tbz2'
+      local_path = os.path.join(base_local_path, debugsuffix)
+      assert os.path.exists(local_path)
+      upload_files[local_path] = os.path.join(base_remote_path, debugsuffix)
 
   return upload_files
 
@@ -238,12 +264,12 @@ def GenerateUploadDict(base_local_path, base_remote_path, pkgs):
 def GetBoardOverlay(build_path, target):
   """Get the path to the board variant.
 
-   Args:
-     build_path: The path to the root of the build directory
-     target: The target board as a BuildTarget object.
+  Args:
+    build_path: The path to the root of the build directory
+    target: The target board as a BuildTarget object.
 
-   Returns:
-     The last overlay configured for the given board as a string.
+  Returns:
+    The last overlay configured for the given board as a string.
   """
   board = target.board_variant
   overlays = portage_util.FindOverlays(constants.BOTH_OVERLAYS, board,
@@ -285,17 +311,15 @@ def UpdateBinhostConfFile(path, key, value):
     key: Key to update.
     value: New value for key.
   """
-  cwd = os.path.dirname(os.path.abspath(path))
-  filename = os.path.basename(path)
+  cwd, filename = os.path.split(os.path.abspath(path))
   osutils.SafeMakedirs(cwd)
   if not git.GetCurrentBranch(cwd):
     git.CreatePushBranch(constants.STABLE_EBUILD_BRANCH, cwd, sync=False)
   osutils.WriteFile(path, '', mode='a')
-  UpdateLocalFile(path, value, key)
-  git.RunGit(cwd, ['add', filename])
-  description = '%s: updating %s' % (os.path.basename(filename), key)
-  git.RunGit(cwd, ['commit', '-m', description])
-
+  if UpdateLocalFile(path, value, key):
+    desc = '%s: %s %s' % (filename, 'updating' if value else 'clearing', key)
+    git.AddPath(path)
+    git.Commit(cwd, desc)
 
 def GenerateHtmlIndex(files, index, board, version):
   """Given the list of |files|, generate an index.html at |index|.
@@ -418,15 +442,21 @@ class PrebuiltUploader(object):
     uploads = pkg_index.ResolveDuplicateUploads(self._pkg_indexes)
     unmatched_pkgs = self._packages - self._found_packages
     if unmatched_pkgs:
-      cros_build_lib.Warning('unable to match packages: %r' % unmatched_pkgs)
+      logging.warning('unable to match packages: %r' % unmatched_pkgs)
 
     # Write Packages file.
+    pkg_index.header['TTL'] = _BINPKG_TTL
     tmp_packages_file = pkg_index.WriteToNamedTemporaryFile()
 
     remote_location = '%s/%s' % (self._upload_location.rstrip('/'), url_suffix)
     assert remote_location.startswith('gs://')
 
-    # Build list of files to upload.
+    # Build list of files to upload. Manually include the dev-only files but
+    # skip them if not present.
+    # TODO(deymo): Upload dev-only-extras.tbz2 as dev-only-extras.tar.bz2
+    # outside packages/ directory. See crbug.com/448178 for details.
+    if os.path.exists(os.path.join(package_path, 'dev-only-extras.tbz2')):
+      uploads.append({'CPV': 'dev-only-extras'})
     upload_files = GenerateUploadDict(package_path, remote_location, uploads)
     remote_file = '%s/Packages' % remote_location.rstrip('/')
     upload_files[tmp_packages_file.name] = remote_file
@@ -446,6 +476,8 @@ class PrebuiltUploader(object):
       cros_build_lib.PrintBuildbotLink(link_name, url)
 
   def _UploadSdkTarball(self, board_path, url_suffix, prepackaged,
+                        toolchains_overlay_tarballs,
+                        toolchains_overlay_upload_path,
                         toolchain_tarballs, toolchain_upload_path):
     """Upload a tarball of the sdk at the specified path to Google Storage.
 
@@ -454,6 +486,11 @@ class PrebuiltUploader(object):
       url_suffix: The remote subdirectory where we should upload the packages.
       prepackaged: If given, a tarball that has been packaged outside of this
                    script and should be used.
+      toolchains_overlay_tarballs: List of toolchains overlay tarball
+          specifications to upload. Items take the form
+          "toolchains_spec:/path/to/tarball".
+      toolchains_overlay_upload_path: Path template under the bucket to place
+          toolchains overlay tarballs.
       toolchain_tarballs: List of toolchain tarballs to upload.
       toolchain_upload_path: Path under the bucket to place toolchain tarballs.
     """
@@ -472,12 +509,16 @@ class PrebuiltUploader(object):
     self._Upload(prepackaged + '.Manifest', remote_tarfile + '.Manifest')
     self._Upload(prepackaged, remote_tarfile)
 
-    # Post the toolchain tarballs too.
-    for tarball in toolchain_tarballs:
-      target, local_path = tarball.split(':')
-      suburl = toolchain_upload_path % {'target': target}
-      remote_path = toolchain.GetSdkURL(for_gsutil=True, suburl=suburl)
-      self._Upload(local_path, remote_path)
+    # Upload SDK toolchains overlays and toolchain tarballs, if given.
+    for tarball_list, upload_path, qualifier_name in (
+        (toolchains_overlay_tarballs, toolchains_overlay_upload_path,
+         'toolchains'),
+        (toolchain_tarballs, toolchain_upload_path, 'target')):
+      for tarball_spec in tarball_list:
+        qualifier_val, local_path = tarball_spec.split(':')
+        suburl = upload_path % {qualifier_name: qualifier_val}
+        remote_path = toolchain.GetSdkURL(for_gsutil=True, suburl=suburl)
+        self._Upload(local_path, remote_path)
 
     # Finally, also update the pointer to the latest SDK on which polling
     # scripts rely.
@@ -535,16 +576,17 @@ class PrebuiltUploader(object):
 
     binhost = ' '.join(binhost_urls)
     if git_sync:
-      git_file = os.path.join(self._build_path,
-          _PREBUILT_MAKE_CONF[_HOST_ARCH])
+      git_file = os.path.join(self._build_path, _PREBUILT_MAKE_CONF[_HOST_ARCH])
       RevGitFile(git_file, {key: binhost}, dryrun=self._dryrun)
     if sync_binhost_conf:
-      binhost_conf = os.path.join(self._build_path, self._binhost_conf_dir,
-          'host', '%s-%s.conf' % (_HOST_ARCH, key))
+      binhost_conf = os.path.join(
+          self._binhost_conf_dir, 'host', '%s-%s.conf' % (_HOST_ARCH, key))
       UpdateBinhostConfFile(binhost_conf, key, binhost)
 
   def SyncBoardPrebuilts(self, key, git_sync, sync_binhost_conf,
                          upload_board_tarball, prepackaged_board,
+                         toolchains_overlay_tarballs,
+                         toolchains_overlay_upload_path,
                          toolchain_tarballs, toolchain_upload_path):
     """Synchronize board prebuilt files.
 
@@ -556,9 +598,15 @@ class PrebuiltUploader(object):
           chromiumos-overlay for the current board.
       upload_board_tarball: Include a tarball of the board in our upload.
       prepackaged_board: A tarball of the board built outside of this script.
+      toolchains_overlay_tarballs: List of toolchains overlay tarball
+          specifications to upload. Items take the form
+          "toolchains_spec:/path/to/tarball".
+      toolchains_overlay_upload_path: Path template under the bucket to place
+          toolchains overlay tarballs.
       toolchain_tarballs: A list of toolchain tarballs to upload.
       toolchain_upload_path: Path under the bucket to place toolchain tarballs.
     """
+    updated_binhosts = set()
     for target in self._GetTargets():
       board_path = os.path.join(self._build_path,
                                 _BOARD_PATH % {'board': target.board_variant})
@@ -578,10 +626,14 @@ class PrebuiltUploader(object):
         if upload_board_tarball:
           if toolchain_upload_path:
             toolchain_upload_path %= {'version': version_str}
+          if toolchains_overlay_upload_path:
+            toolchains_overlay_upload_path %= {'version': version_str}
           tar_process = multiprocessing.Process(
               target=self._UploadSdkTarball,
               args=(board_path, url_suffix, prepackaged_board,
-                    toolchain_tarballs, toolchain_upload_path))
+                    toolchains_overlay_tarballs,
+                    toolchains_overlay_upload_path, toolchain_tarballs,
+                    toolchain_upload_path))
           tar_process.start()
 
         # Upload prebuilts.
@@ -593,7 +645,7 @@ class PrebuiltUploader(object):
           assert tar_process.exitcode == 0
           # TODO(zbehan): This should be done cleaner.
           if target.board == constants.CHROOT_BUILDER_BOARD:
-            sdk_conf = os.path.join(self._build_path, self._binhost_conf_dir,
+            sdk_conf = os.path.join(self._binhost_conf_dir,
                                     'host/sdk_version.conf')
             sdk_settings = {
                 'SDK_LATEST_VERSION': version_str,
@@ -611,23 +663,34 @@ class PrebuiltUploader(object):
 
       if sync_binhost_conf:
         # Update the binhost configuration file in git.
-        binhost_conf = os.path.join(self._build_path, self._binhost_conf_dir,
-            'target', '%s-%s.conf' % (target, key))
+        binhost_conf = os.path.join(
+            self._binhost_conf_dir, 'target', '%s-%s.conf' % (target, key))
+        updated_binhosts.add(binhost_conf)
         UpdateBinhostConfFile(binhost_conf, key, url_value)
 
+    if sync_binhost_conf:
+      # Clear all old binhosts. The files must be left empty in case anybody
+      # is referring to them.
+      all_binhosts = set(glob.glob(os.path.join(
+          self._binhost_conf_dir, 'target', '*-%s.conf' % key)))
+      for binhost_conf in all_binhosts - updated_binhosts:
+        UpdateBinhostConfFile(binhost_conf, key, '')
 
-def _AddSlaveBoard(_option, _opt_str, value, parser):
+
+class _AddSlaveBoardAction(argparse.Action):
   """Callback that adds a slave board to the list of slave targets."""
-  parser.values.slave_targets.append(BuildTarget(value))
+  def __call__(self, parser, namespace, values, option_string=None):
+    getattr(namespace, self.dest).append(BuildTarget(values))
 
 
-def _AddSlaveProfile(_option, _opt_str, value, parser):
+class _AddSlaveProfileAction(argparse.Action):
   """Callback that adds a slave profile to the list of slave targets."""
-  if not parser.values.slave_targets:
-    parser.error('Must specify --slave-board before --slave-profile')
-  if parser.values.slave_targets[-1].profile is not None:
-    parser.error('Cannot specify --slave-profile twice for same board')
-  parser.values.slave_targets[-1].profile = value
+  def __call__(self, parser, namespace, values, option_string=None):
+    if not namespace.slave_targets:
+      parser.error('Must specify --slave-board before --slave-profile')
+    if namespace.slave_targets[-1].profile is not None:
+      parser.error('Cannot specify --slave-profile twice for same board')
+    namespace.slave_targets[-1].profile = values
 
 
 def ParseOptions(argv):
@@ -640,93 +703,82 @@ def ParseOptions(argv):
     A tuple containing a parsed options object and BuildTarget.
     The target instance is None if no board is specified.
   """
-  parser = commandline.OptionParser()
-  parser.add_option('-H', '--binhost-base-url', dest='binhost_base_url',
-                    default=_BINHOST_BASE_URL,
-                    help='Base URL to use for binhost in make.conf updates')
-  parser.add_option('', '--previous-binhost-url', action='append',
-                    default=[], dest='previous_binhost_url',
-                    help='Previous binhost URL')
-  parser.add_option('-b', '--board', dest='board', default=None,
-                    help='Board type that was built on this machine')
-  parser.add_option('-B', '--prepackaged-tarball', dest='prepackaged_tarball',
-                    default=None,
-                    help='Board tarball prebuilt outside of this script.')
-  parser.add_option('--toolchain-tarball', dest='toolchain_tarballs',
-                    action='append', default=[],
-                    help='Redistributable toolchain tarball.')
-  parser.add_option('--toolchain-upload-path', default='',
-                    help='Path to place toolchain tarballs in the sdk tree.')
-  parser.add_option('', '--profile', dest='profile', default=None,
-                    help='Profile that was built on this machine')
-  parser.add_option('', '--slave-board', default=[], action='callback',
-                    dest='slave_targets', type='string',
-                    callback=_AddSlaveBoard,
-                    help='Board type that was built on a slave machine. To '
-                         'add a profile to this board, use --slave-profile.')
-  parser.add_option('', '--slave-profile', action='callback', type='string',
-                    callback=_AddSlaveProfile,
-                    help='Board profile that was built on a slave machine. '
-                         'Applies to previous slave board.')
-  parser.add_option('-p', '--build-path', dest='build_path',
-                    help='Path to the directory containing the chroot')
-  parser.add_option('', '--packages', action='append',
-                    default=[], dest='packages',
-                    help='Only include the specified packages. '
-                         '(Default is to include all packages.)')
-  parser.add_option('-s', '--sync-host', dest='sync_host',
-                    default=False, action='store_true',
-                    help='Sync host prebuilts')
-  parser.add_option('-g', '--git-sync', dest='git_sync',
-                    default=False, action='store_true',
-                    help='Enable git version sync (This commits to a repo.) '
-                         'This is used by full builders to commit directly '
-                         'to board overlays.')
-  parser.add_option('-u', '--upload', dest='upload',
-                    default=None,
-                    help='Upload location')
-  parser.add_option('-V', '--prepend-version', dest='prepend_version',
-                    default=None,
-                    help='Add an identifier to the front of the version')
-  parser.add_option('-f', '--filters', dest='filters', action='store_true',
-                    default=False,
-                    help='Turn on filtering of private ebuild packages')
-  parser.add_option('-k', '--key', dest='key',
-                    default='PORTAGE_BINHOST',
-                    help='Key to update in make.conf / binhost.conf')
-  parser.add_option('', '--set-version', dest='set_version',
-                    default=None,
-                    help='Specify the version string')
-  parser.add_option('', '--sync-binhost-conf', dest='sync_binhost_conf',
-                    default=False, action='store_true',
-                    help='Update binhost.conf in chromiumos-overlay or '
-                         'chromeos-overlay. Commit the changes, but don\'t '
-                         'push them. This is used for preflight binhosts.')
-  parser.add_option('', '--binhost-conf-dir', dest='binhost_conf_dir',
-                    help='Directory to commit binhost config with '
-                         '--sync-binhost-conf.')
-  parser.add_option('-P', '--private', dest='private', action='store_true',
-                    default=False, help='Mark gs:// uploads as private.')
-  parser.add_option('', '--skip-upload', dest='skip_upload',
-                    action='store_true', default=False,
-                    help='Skip upload step.')
-  parser.add_option('', '--upload-board-tarball', dest='upload_board_tarball',
-                    action='store_true', default=False,
-                    help='Upload board tarball to Google Storage.')
-  parser.add_option('-n', '--dry-run', dest='dryrun',
-                    action='store_true', default=False,
-                    help='Don\'t push or upload prebuilts.')
+  parser = commandline.ArgumentParser()
+  parser.add_argument('-H', '--binhost-base-url', default=_BINHOST_BASE_URL,
+                      help='Base URL to use for binhost in make.conf updates')
+  parser.add_argument('--previous-binhost-url', action='append', default=[],
+                      help='Previous binhost URL')
+  parser.add_argument('-b', '--board',
+                      help='Board type that was built on this machine')
+  parser.add_argument('-B', '--prepackaged-tarball', type='path',
+                      help='Board tarball prebuilt outside of this script.')
+  parser.add_argument('--toolchains-overlay-tarball',
+                      dest='toolchains_overlay_tarballs',
+                      action='append', default=[],
+                      help='Toolchains overlay tarball specification to '
+                           'upload. Takes the form '
+                           '"toolchains_spec:/path/to/tarball".')
+  parser.add_argument('--toolchains-overlay-upload-path', default='',
+                      help='Path template for uploading toolchains overlays.')
+  parser.add_argument('--toolchain-tarball', dest='toolchain_tarballs',
+                      action='append', default=[],
+                      help='Redistributable toolchain tarball.')
+  parser.add_argument('--toolchain-upload-path', default='',
+                      help='Path to place toolchain tarballs in the sdk tree.')
+  parser.add_argument('--profile',
+                      help='Profile that was built on this machine')
+  parser.add_argument('--slave-board', default=[], action=_AddSlaveBoardAction,
+                      dest='slave_targets',
+                      help='Board type that was built on a slave machine. To '
+                           'add a profile to this board, use --slave-profile.')
+  parser.add_argument('--slave-profile', action=_AddSlaveProfileAction,
+                      help='Board profile that was built on a slave machine. '
+                           'Applies to previous slave board.')
+  parser.add_argument('-p', '--build-path', required=True,
+                      help='Path to the directory containing the chroot')
+  parser.add_argument('--packages', action='append', default=[],
+                      help='Only include the specified packages. '
+                           '(Default is to include all packages.)')
+  parser.add_argument('-s', '--sync-host', default=False, action='store_true',
+                      help='Sync host prebuilts')
+  parser.add_argument('-g', '--git-sync', default=False, action='store_true',
+                      help='Enable git version sync (This commits to a repo.) '
+                           'This is used by full builders to commit directly '
+                           'to board overlays.')
+  parser.add_argument('-u', '--upload',
+                      help='Upload location')
+  parser.add_argument('-V', '--prepend-version',
+                      help='Add an identifier to the front of the version')
+  parser.add_argument('-f', '--filters', action='store_true', default=False,
+                      help='Turn on filtering of private ebuild packages')
+  parser.add_argument('-k', '--key', default='PORTAGE_BINHOST',
+                      help='Key to update in make.conf / binhost.conf')
+  parser.add_argument('--set-version',
+                      help='Specify the version string')
+  parser.add_argument('--sync-binhost-conf', default=False, action='store_true',
+                      help='Update binhost.conf in chromiumos-overlay or '
+                           'chromeos-overlay. Commit the changes, but don\'t '
+                           'push them. This is used for preflight binhosts.')
+  parser.add_argument('--binhost-conf-dir',
+                      help='Directory to commit binhost config with '
+                           '--sync-binhost-conf.')
+  parser.add_argument('-P', '--private', action='store_true', default=False,
+                      help='Mark gs:// uploads as private.')
+  parser.add_argument('--skip-upload', action='store_true', default=False,
+                      help='Skip upload step.')
+  parser.add_argument('--upload-board-tarball', action='store_true',
+                      default=False,
+                      help='Upload board tarball to Google Storage.')
+  parser.add_argument('-n', '--dry-run', dest='dryrun',
+                      action='store_true', default=False,
+                      help='Don\'t push or upload prebuilts.')
 
-  options, args = parser.parse_args(argv)
-  if not options.build_path:
-    parser.error('you need provide a chroot path')
+  options = parser.parse_args(argv)
   if not options.upload and not options.skip_upload:
     parser.error('you need to provide an upload location using -u')
   if not options.set_version and options.skip_upload:
     parser.error('If you are using --skip-upload, you must specify a '
                  'version number using --set-version.')
-  if args:
-    parser.error('invalid arguments passed to upload_prebuilts: %r' % args)
 
   target = None
   if options.board:
@@ -770,6 +822,11 @@ def ParseOptions(argv):
   if options.sync_binhost_conf and not options.binhost_conf_dir:
     parser.error('--sync-binhost-conf requires --binhost-conf-dir')
 
+  if (options.toolchains_overlay_tarballs and
+      not options.toolchains_overlay_upload_path):
+    parser.error('--toolchains-overlay-tarball requires '
+                 '--toolchains-overlay-upload-path')
+
   return options, target
 
 
@@ -799,17 +856,22 @@ def main(argv):
   if options.private:
     binhost_base_url = options.upload
     if target:
-      board_path = GetBoardOverlay(options.build_path, target)
-      # Use the gsutil acl ch argument file if it exists, or fall back to the
-      # XML acl file.
-      acl = os.path.join(board_path, _GOOGLESTORAGE_GSUTIL_FILE)
-      if not os.path.isfile(acl):
-        acl = os.path.join(board_path, _GOOGLESTORAGE_ACL_FILE)
+      acl = portage_util.FindOverlayFile(_GOOGLESTORAGE_GSUTIL_FILE,
+                                         board=target.board_variant,
+                                         buildroot=options.build_path)
+      if acl is None:
+        cros_build_lib.Die('No Google Storage ACL file %s found in %s overlay.',
+                           _GOOGLESTORAGE_GSUTIL_FILE, target.board_variant)
+
+  binhost_conf_dir = None
+  if options.binhost_conf_dir:
+    binhost_conf_dir = os.path.join(options.build_path,
+                                    options.binhost_conf_dir)
 
   uploader = PrebuiltUploader(options.upload, acl, binhost_base_url,
                               pkg_indexes, options.build_path,
                               options.packages, options.skip_upload,
-                              options.binhost_conf_dir, options.dryrun,
+                              binhost_conf_dir, options.dryrun,
                               target, options.slave_targets, version)
 
   if options.sync_host:
@@ -821,5 +883,7 @@ def main(argv):
                                 options.sync_binhost_conf,
                                 options.upload_board_tarball,
                                 options.prepackaged_tarball,
+                                options.toolchains_overlay_tarballs,
+                                options.toolchains_overlay_upload_path,
                                 options.toolchain_tarballs,
                                 options.toolchain_upload_path)

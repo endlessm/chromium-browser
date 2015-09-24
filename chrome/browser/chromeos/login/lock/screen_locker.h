@@ -16,11 +16,11 @@
 #include "chrome/browser/chromeos/login/help_app_launcher.h"
 #include "chrome/browser/chromeos/login/lock/screen_locker_delegate.h"
 #include "chrome/browser/chromeos/login/ui/login_display.h"
-#include "chromeos/ime/input_method_manager.h"
 #include "chromeos/login/auth/auth_status_consumer.h"
 #include "chromeos/login/auth/user_context.h"
 #include "components/user_manager/user.h"
 #include "ui/base/accelerators/accelerator.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
 
 namespace content {
 class WebUI;
@@ -61,8 +61,8 @@ class ScreenLocker : public AuthStatusConsumer {
   void Init();
 
   // AuthStatusConsumer:
-  virtual void OnAuthFailure(const chromeos::AuthFailure& error) override;
-  virtual void OnAuthSuccess(const UserContext& user_context) override;
+  void OnAuthFailure(const chromeos::AuthFailure& error) override;
+  void OnAuthSuccess(const UserContext& user_context) override;
 
   // Does actual unlocking once authentication is successful and all blocking
   // animations are done.
@@ -130,7 +130,7 @@ class ScreenLocker : public AuthStatusConsumer {
     UserContext user_context;
   };
 
-  virtual ~ScreenLocker();
+  ~ScreenLocker() override;
 
   // Sets the authenticator.
   void SetAuthenticator(Authenticator* authenticator);

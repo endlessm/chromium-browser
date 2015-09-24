@@ -6,12 +6,16 @@
 #define COMPONENTS_PRECACHE_CONTENT_PRECACHE_MANAGER_H_
 
 #include <list>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "components/history/core/browser/history_types.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/precache/core/precache_fetcher.h"
 #include "url/gurl.h"
@@ -24,10 +28,20 @@ namespace content {
 class BrowserContext;
 }
 
+namespace history {
+class HistoryService;
+}
+
+namespace sync_driver {
+class SyncService;
+}
+
 namespace precache {
 
 class PrecacheDatabase;
-class URLListProvider;
+
+// Visible for test.
+int NumTopHosts();
 
 // Class that manages all precaching-related activities. Owned by the
 // BrowserContext that it is constructed for. Use
@@ -42,7 +56,8 @@ class PrecacheManager : public KeyedService,
  public:
   typedef base::Closure PrecacheCompletionCallback;
 
-  explicit PrecacheManager(content::BrowserContext* browser_context);
+  PrecacheManager(content::BrowserContext* browser_context,
+                  const sync_driver::SyncService* const sync_service);
   ~PrecacheManager() override;
 
   // Returns true if precaching is enabled as part of a field trial or by the
@@ -58,7 +73,7 @@ class PrecacheManager : public KeyedService,
   // precaching finishes, but will not be run if precaching is canceled.
   void StartPrecaching(
       const PrecacheCompletionCallback& precache_completion_callback,
-      URLListProvider* url_list_provider);
+      const history::HistoryService& history_service);
 
   // Cancels precaching if it is in progress.
   void CancelPrecaching();
@@ -72,6 +87,10 @@ class PrecacheManager : public KeyedService,
                            int64 size,
                            bool was_cached);
 
+  // Posts a task to the DB thread to delete all history entries from the
+  // database. Does not wait for completion of this task.
+  void ClearHistory();
+
  private:
   // From KeyedService.
   void Shutdown() override;
@@ -79,10 +98,15 @@ class PrecacheManager : public KeyedService,
   // From PrecacheFetcher::PrecacheDelegate.
   void OnDone() override;
 
-  void OnURLsReceived(const std::list<GURL>& urls);
+  // From history::HistoryService::TopHosts.
+  void OnHostsReceived(const history::TopHostsList& host_counts);
 
   // The browser context that owns this PrecacheManager.
-  content::BrowserContext* browser_context_;
+  content::BrowserContext* const browser_context_;
+
+  // The sync service corresponding to the browser context. Used to determine
+  // whether precache can run. May be null.
+  const sync_driver::SyncService* const sync_service_;
 
   // The PrecacheFetcher used to precache resources. Should only be used on the
   // UI thread.
@@ -94,7 +118,7 @@ class PrecacheManager : public KeyedService,
 
   // The PrecacheDatabase for tracking precache metrics. Should only be used on
   // the DB thread.
-  scoped_refptr<PrecacheDatabase> precache_database_;
+  const scoped_refptr<PrecacheDatabase> precache_database_;
 
   // Flag indicating whether or not precaching is currently in progress.
   bool is_precaching_;

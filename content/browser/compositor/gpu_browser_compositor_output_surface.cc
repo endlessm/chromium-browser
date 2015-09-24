@@ -6,32 +6,32 @@
 
 #include "cc/output/compositor_frame.h"
 #include "cc/output/output_surface_client.h"
+#include "content/browser/compositor/browser_compositor_overlay_candidate_validator.h"
 #include "content/browser/compositor/reflector_impl.h"
+#include "content/browser/compositor/reflector_texture.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/common/gpu/client/context_provider_command_buffer.h"
-#include "content/public/browser/browser_thread.h"
 #include "gpu/command_buffer/client/context_support.h"
-#include "gpu/command_buffer/client/gles2_interface.h"
 
 namespace content {
 
 GpuBrowserCompositorOutputSurface::GpuBrowserCompositorOutputSurface(
     const scoped_refptr<ContextProviderCommandBuffer>& context,
-    int surface_id,
-    IDMap<BrowserCompositorOutputSurface>* output_surface_map,
     const scoped_refptr<ui::CompositorVSyncManager>& vsync_manager,
-    scoped_ptr<cc::OverlayCandidateValidator> overlay_candidate_validator)
+    scoped_ptr<BrowserCompositorOverlayCandidateValidator>
+        overlay_candidate_validator)
     : BrowserCompositorOutputSurface(context,
-                                     surface_id,
-                                     output_surface_map,
-                                     vsync_manager),
+                                     vsync_manager,
+                                     overlay_candidate_validator.Pass()),
 #if defined(OS_MACOSX)
-      should_not_show_frames_(false),
+      should_show_frames_state_(SHOULD_SHOW_FRAMES),
 #endif
       swap_buffers_completion_callback_(
           base::Bind(&GpuBrowserCompositorOutputSurface::OnSwapBuffersCompleted,
-                     base::Unretained(this))) {
-  overlay_candidate_validator_ = overlay_candidate_validator.Pass();
+                     base::Unretained(this))),
+      update_vsync_parameters_callback_(base::Bind(
+          &BrowserCompositorOutputSurface::OnUpdateVSyncParametersFromGpu,
+          base::Unretained(this))) {
 }
 
 GpuBrowserCompositorOutputSurface::~GpuBrowserCompositorOutputSurface() {}
@@ -54,7 +54,18 @@ bool GpuBrowserCompositorOutputSurface::BindToClient(
 
   GetCommandBufferProxy()->SetSwapBuffersCompletionCallback(
       swap_buffers_completion_callback_.callback());
+  GetCommandBufferProxy()->SetUpdateVSyncParametersCallback(
+      update_vsync_parameters_callback_.callback());
   return true;
+}
+
+void GpuBrowserCompositorOutputSurface::OnReflectorChanged() {
+  if (!reflector_) {
+    reflector_texture_.reset();
+  } else {
+    reflector_texture_.reset(new ReflectorTexture(context_provider()));
+    reflector_->OnSourceTextureMailboxUpdated(reflector_texture_->mailbox());
+  }
 }
 
 void GpuBrowserCompositorOutputSurface::SwapBuffers(
@@ -63,12 +74,16 @@ void GpuBrowserCompositorOutputSurface::SwapBuffers(
 
   GetCommandBufferProxy()->SetLatencyInfo(frame->metadata.latency_info);
 
-  if (reflector_.get()) {
+  if (reflector_) {
     if (frame->gl_frame_data->sub_buffer_rect ==
-        gfx::Rect(frame->gl_frame_data->size))
-      reflector_->OnSwapBuffers();
-    else
-      reflector_->OnPostSubBuffer(frame->gl_frame_data->sub_buffer_rect);
+        gfx::Rect(frame->gl_frame_data->size)) {
+      reflector_texture_->CopyTextureFullImage(SurfaceSize());
+      reflector_->OnSourceSwapBuffers();
+    } else {
+      const gfx::Rect& rect = frame->gl_frame_data->sub_buffer_rect;
+      reflector_texture_->CopyTextureSubImage(rect);
+      reflector_->OnSourcePostSubBuffer(rect);
+    }
   }
 
   if (frame->gl_frame_data->sub_buffer_rect ==
@@ -82,26 +97,22 @@ void GpuBrowserCompositorOutputSurface::SwapBuffers(
   client_->DidSwapBuffers();
 
 #if defined(OS_MACOSX)
-  if (should_not_show_frames_)
-    should_not_show_frames_ = false;
+  if (should_show_frames_state_ ==
+      SHOULD_NOT_SHOW_FRAMES_NO_SWAP_AFTER_SUSPENDED) {
+    should_show_frames_state_ = SHOULD_SHOW_FRAMES;
+  }
 #endif
 }
 
 void GpuBrowserCompositorOutputSurface::OnSwapBuffersCompleted(
-    const std::vector<ui::LatencyInfo>& latency_info) {
+    const std::vector<ui::LatencyInfo>& latency_info,
+    gfx::SwapResult result) {
 #if defined(OS_MACOSX)
   // On Mac, delay acknowledging the swap to the output surface client until
   // it has been drawn, see OnSurfaceDisplayed();
   NOTREACHED();
 #else
-  if (BrowserThread::CurrentlyOn(BrowserThread::UI)) {
-    RenderWidgetHostImpl::CompositorFrameDrawn(latency_info);
-  } else {
-    BrowserThread::PostTask(
-        BrowserThread::UI,
-        FROM_HERE,
-        base::Bind(&RenderWidgetHostImpl::CompositorFrameDrawn, latency_info));
-  }
+  RenderWidgetHostImpl::CompositorFrameDrawn(latency_info);
   OnSwapBuffersComplete();
 #endif
 }
@@ -111,26 +122,43 @@ void GpuBrowserCompositorOutputSurface::OnSurfaceDisplayed() {
   cc::OutputSurface::OnSwapBuffersComplete();
 }
 
-void GpuBrowserCompositorOutputSurface::OnSurfaceRecycled() {
-  // Discard the backbuffer immediately. This is necessary only when using a
-  // ImageTransportSurfaceFBO with a CALayerStorageProvider. Discarding the
-  // backbuffer results in the next frame using a new CALayer and CAContext,
-  // which guarantees that the browser will not flash stale content when adding
-  // the remote CALayer to the NSView hierarchy (it could flash stale content
-  // because the system window server is not synchronized with any signals we
-  // control or observe).
-  DiscardBackbuffer();
-  // It may be that there are frames in-flight from the GPU process back to the
-  // browser. Make sure that these frames are not displayed by ignoring them in
-  // GpuProcessHostUIShim, until the browser issues a SwapBuffers for the new
-  // content.
-  should_not_show_frames_ = true;
+void GpuBrowserCompositorOutputSurface::SetSurfaceSuspendedForRecycle(
+    bool suspended) {
+  if (suspended) {
+    // It may be that there are frames in-flight from the GPU process back to
+    // the browser. Make sure that these frames are not displayed by ignoring
+    // them in GpuProcessHostUIShim, until the browser issues a SwapBuffers for
+    // the new content.
+    should_show_frames_state_ = SHOULD_NOT_SHOW_FRAMES_SUSPENDED;
+  } else {
+    // Discard the backbuffer before drawing the new frame. This is necessary
+    // only when using a ImageTransportSurfaceFBO with a
+    // CALayerStorageProvider. Discarding the backbuffer results in the next
+    // frame using a new CALayer and CAContext, which guarantees that the
+    // browser will not flash stale content when adding the remote CALayer to
+    // the NSView hierarchy (it could flash stale content because the system
+    // window server is not synchronized with any signals we control or
+    // observe).
+    if (should_show_frames_state_ == SHOULD_NOT_SHOW_FRAMES_SUSPENDED) {
+      DiscardBackbuffer();
+      should_show_frames_state_ =
+          SHOULD_NOT_SHOW_FRAMES_NO_SWAP_AFTER_SUSPENDED;
+    }
+  }
 }
 
-bool GpuBrowserCompositorOutputSurface::ShouldNotShowFramesAfterRecycle()
-    const {
-  return should_not_show_frames_;
+bool GpuBrowserCompositorOutputSurface::
+    SurfaceShouldNotShowFramesAfterSuspendForRecycle() const {
+  return should_show_frames_state_ != SHOULD_SHOW_FRAMES;
 }
 #endif
+
+bool GpuBrowserCompositorOutputSurface::SurfaceIsSuspendForRecycle() const {
+#if defined(OS_MACOSX)
+  return should_show_frames_state_ == SHOULD_NOT_SHOW_FRAMES_SUSPENDED;
+#else
+  return false;
+#endif
+}
 
 }  // namespace content

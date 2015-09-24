@@ -6,13 +6,16 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/location.h"
 #include "base/md5.h"
 #include "base/rand_util.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/common/cloud_print/cloud_print_constants.h"
 #include "chrome/common/cloud_print/cloud_print_helpers.h"
@@ -51,10 +54,9 @@ bool CloudPrintConnector::InitPrintSystem() {
 }
 
 void CloudPrintConnector::ScheduleStatsReport() {
-  base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::Bind(&CloudPrintConnector::ReportStats,
-                 stats_ptr_factory_.GetWeakPtr()),
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, base::Bind(&CloudPrintConnector::ReportStats,
+                            stats_ptr_factory_.GetWeakPtr()),
       base::TimeDelta::FromHours(1));
 }
 
@@ -416,7 +418,8 @@ void CloudPrintConnector::InitJobHandlerForPrinter(
     for (size_t index = 0; index < tags_list->GetSize(); index++) {
       std::string tag;
       if (tags_list->GetString(index, &tag) &&
-          StartsWithASCII(tag, kCloudPrintServiceTagsHashTagName, false)) {
+          base::StartsWith(tag, kCloudPrintServiceTagsHashTagName,
+                           base::CompareCase::INSENSITIVE_ASCII)) {
         std::vector<std::string> tag_parts;
         base::SplitStringDontTrim(tag, '=', &tag_parts);
         DCHECK_EQ(tag_parts.size(), 2U);
@@ -492,7 +495,7 @@ void CloudPrintConnector::AddPendingTask(const PendingTask& task) {
   pending_tasks_.push_back(task);
   // If this is the only pending task, we need to start the process.
   if (pending_tasks_.size() == 1) {
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(&CloudPrintConnector::ProcessPendingTask, this));
   }
 }
@@ -527,7 +530,7 @@ void CloudPrintConnector::ContinuePendingTaskProcessing() {
   // Delete current task and repost if we have more task available.
   pending_tasks_.pop_front();
   if (pending_tasks_.size() != 0) {
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(&CloudPrintConnector::ProcessPendingTask, this));
   }
 }
@@ -615,7 +618,7 @@ void CloudPrintConnector::OnReceivePrinterCaps(
   net::AddMultipartValueForUpload(kPrinterDescValue,
       info.printer_description, mime_boundary, std::string(), &post_data);
   net::AddMultipartValueForUpload(kPrinterStatusValue,
-      base::StringPrintf("%d", info.printer_status),
+      base::IntToString(info.printer_status),
       mime_boundary, std::string(), &post_data);
   // Add local_settings with a current XMPP ping interval.
   net::AddMultipartValueForUpload(kPrinterLocalSettingsValue,

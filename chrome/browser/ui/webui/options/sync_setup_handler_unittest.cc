@@ -13,7 +13,7 @@
 #include "base/stl_util.h"
 #include "base/values.h"
 #include "chrome/browser/signin/fake_signin_manager.h"
-#include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
+#include "chrome/browser/signin/signin_error_controller_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync/profile_sync_service_mock.h"
@@ -25,12 +25,12 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/signin/core/browser/fake_auth_status_provider.h"
-#include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/sync_driver/sync_prefs.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/test/test_browser_thread.h"
 #include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/test_web_ui.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/layout.h"
 
@@ -94,7 +94,7 @@ std::string GetConfiguration(const base::DictionaryValue* extra_values,
   result.SetBoolean("wifiCredentialsSynced",
                     types.Has(syncer::WIFI_CREDENTIALS));
   std::string args;
-  base::JSONWriter::Write(&result, &args);
+  base::JSONWriter::Write(result, &args);
   return args;
 }
 
@@ -126,7 +126,7 @@ void CheckBool(const base::DictionaryValue* dictionary,
 // Checks to make sure that the values stored in |dictionary| match the values
 // expected by the showSyncSetupPage() JS function for a given set of data
 // types.
-void CheckConfigDataTypeArguments(base::DictionaryValue* dictionary,
+void CheckConfigDataTypeArguments(const base::DictionaryValue* dictionary,
                                   SyncAllDataConfig config,
                                   syncer::ModelTypeSet types) {
   CheckBool(dictionary, "syncAllDataTypes", config == SYNC_ALL_DATA);
@@ -147,97 +147,10 @@ void CheckConfigDataTypeArguments(base::DictionaryValue* dictionary,
 
 }  // namespace
 
-// Test instance of WebUI that tracks the data passed to
-// CallJavascriptFunction().
-class TestWebUI : public content::WebUI {
- public:
-  ~TestWebUI() override { ClearTrackedCalls(); }
-
-  void ClearTrackedCalls() {
-    // Manually free the arguments stored in CallData, since there's no good
-    // way to use a self-freeing reference like scoped_ptr in a std::vector.
-    for (std::vector<CallData>::iterator i = call_data_.begin();
-         i != call_data_.end();
-         ++i) {
-      delete i->arg1;
-      delete i->arg2;
-    }
-    call_data_.clear();
-  }
-
-  void CallJavascriptFunction(const std::string& function_name) override {
-    call_data_.push_back(CallData());
-    call_data_.back().function_name = function_name;
-  }
-
-  void CallJavascriptFunction(const std::string& function_name,
-                              const base::Value& arg1) override {
-    call_data_.push_back(CallData());
-    call_data_.back().function_name = function_name;
-    call_data_.back().arg1 = arg1.DeepCopy();
-  }
-
-  void CallJavascriptFunction(const std::string& function_name,
-                              const base::Value& arg1,
-                              const base::Value& arg2) override {
-    call_data_.push_back(CallData());
-    call_data_.back().function_name = function_name;
-    call_data_.back().arg1 = arg1.DeepCopy();
-    call_data_.back().arg2 = arg2.DeepCopy();
-  }
-
-  content::WebContents* GetWebContents() const override { return NULL; }
-  content::WebUIController* GetController() const override { return NULL; }
-  void SetController(content::WebUIController* controller) override {}
-  float GetDeviceScaleFactor() const override { return 1.0f; }
-  const base::string16& GetOverriddenTitle() const override {
-    return temp_string_;
-  }
-  void OverrideTitle(const base::string16& title) override {}
-  ui::PageTransition GetLinkTransitionType() const override {
-    return ui::PAGE_TRANSITION_LINK;
-  }
-  void SetLinkTransitionType(ui::PageTransition type) override {}
-  int GetBindings() const override { return 0; }
-  void SetBindings(int bindings) override {}
-  void OverrideJavaScriptFrame(const std::string& frame_name) override {}
-  void AddMessageHandler(content::WebUIMessageHandler* handler) override {}
-  void RegisterMessageCallback(const std::string& message,
-                               const MessageCallback& callback) override {}
-  void ProcessWebUIMessage(const GURL& source_url,
-                           const std::string& message,
-                           const base::ListValue& args) override {}
-  void CallJavascriptFunction(const std::string& function_name,
-                              const base::Value& arg1,
-                              const base::Value& arg2,
-                              const base::Value& arg3) override {}
-  void CallJavascriptFunction(const std::string& function_name,
-                              const base::Value& arg1,
-                              const base::Value& arg2,
-                              const base::Value& arg3,
-                              const base::Value& arg4) override {}
-  void CallJavascriptFunction(
-      const std::string& function_name,
-      const std::vector<const base::Value*>& args) override {}
-
-  class CallData {
-   public:
-    CallData() : arg1(NULL), arg2(NULL) {}
-    std::string function_name;
-    base::Value* arg1;
-    base::Value* arg2;
-  };
-  const std::vector<CallData>& call_data() { return call_data_; }
- private:
-  std::vector<CallData> call_data_;
-  base::string16 temp_string_;
-};
-
 class TestingSyncSetupHandler : public SyncSetupHandler {
  public:
   TestingSyncSetupHandler(content::WebUI* web_ui, Profile* profile)
-      : SyncSetupHandler(NULL),
-        profile_(profile) {
+      : profile_(profile) {
     set_web_ui(web_ui);
   }
   ~TestingSyncSetupHandler() override { set_web_ui(NULL); }
@@ -276,11 +189,8 @@ class SyncSetupHandlerTest : public testing::Test {
     mock_signin_ = static_cast<SigninManagerBase*>(
         SigninManagerFactory::GetForProfile(profile_.get()));
     std::string username = GetTestUser();
-    if (!username.empty()) {
-      mock_signin_->SetAuthenticatedUsername(username);
-      profile_->GetPrefs()->SetString(prefs::kGoogleServicesUsername,
-                                      username);
-    }
+    if (!username.empty())
+      mock_signin_->SetAuthenticatedAccountInfo(username, username);
 
     mock_pss_ = static_cast<ProfileSyncServiceMock*>(
         ProfileSyncServiceFactory::GetInstance()->SetTestingFactoryAndUse(
@@ -303,8 +213,7 @@ class SyncSetupHandlerTest : public testing::Test {
 
   // Setup the expectations for calls made when displaying the config page.
   void SetDefaultExpectationsForConfigPage() {
-    EXPECT_CALL(*mock_pss_, IsSyncEnabledAndLoggedIn()).
-        WillRepeatedly(Return(true));
+    EXPECT_CALL(*mock_pss_, CanSyncStart()).WillRepeatedly(Return(true));
     EXPECT_CALL(*mock_pss_, GetRegisteredDataTypes()).
         WillRepeatedly(Return(GetAllTypes()));
     EXPECT_CALL(*mock_pss_, GetPreferredDataTypes()).
@@ -326,30 +235,30 @@ class SyncSetupHandlerTest : public testing::Test {
 
   void ExpectConfig() {
     ASSERT_EQ(1U, web_ui_.call_data().size());
-    const TestWebUI::CallData& data = web_ui_.call_data()[0];
-    EXPECT_EQ("SyncSetupOverlay.showSyncSetupPage", data.function_name);
+    const content::TestWebUI::CallData& data = *web_ui_.call_data()[0];
+    EXPECT_EQ("SyncSetupOverlay.showSyncSetupPage", data.function_name());
     std::string page;
-    ASSERT_TRUE(data.arg1->GetAsString(&page));
+    ASSERT_TRUE(data.arg1()->GetAsString(&page));
     EXPECT_EQ(page, "configure");
   }
 
   void ExpectDone() {
     ASSERT_EQ(1U, web_ui_.call_data().size());
-    const TestWebUI::CallData& data = web_ui_.call_data()[0];
-    EXPECT_EQ("SyncSetupOverlay.showSyncSetupPage", data.function_name);
+    const content::TestWebUI::CallData& data = *web_ui_.call_data()[0];
+    EXPECT_EQ("SyncSetupOverlay.showSyncSetupPage", data.function_name());
     std::string page;
-    ASSERT_TRUE(data.arg1->GetAsString(&page));
+    ASSERT_TRUE(data.arg1()->GetAsString(&page));
     EXPECT_EQ(page, "done");
   }
 
   void ExpectSpinnerAndClose() {
     // We expect a call to SyncSetupOverlay.showSyncSetupPage.
     EXPECT_EQ(1U, web_ui_.call_data().size());
-    const TestWebUI::CallData& data = web_ui_.call_data()[0];
-    EXPECT_EQ("SyncSetupOverlay.showSyncSetupPage", data.function_name);
+    const content::TestWebUI::CallData& data = *web_ui_.call_data()[0];
+    EXPECT_EQ("SyncSetupOverlay.showSyncSetupPage", data.function_name());
 
     std::string page;
-    ASSERT_TRUE(data.arg1->GetAsString(&page));
+    ASSERT_TRUE(data.arg1()->GetAsString(&page));
     EXPECT_EQ(page, "spinner");
     // Cancelling the spinner dialog will cause CloseSyncSetup().
     handler_->CloseSyncSetup();
@@ -375,7 +284,7 @@ class SyncSetupHandlerTest : public testing::Test {
   ProfileSyncServiceMock* mock_pss_;
   GoogleServiceAuthError error_;
   SigninManagerBase* mock_signin_;
-  TestWebUI web_ui_;
+  content::TestWebUI web_ui_;
   scoped_ptr<TestingSyncSetupHandler> handler_;
 };
 
@@ -388,8 +297,7 @@ TEST_F(SyncSetupHandlerTest, Basic) {
 
 #if !defined(OS_CHROMEOS)
 TEST_F(SyncSetupHandlerFirstSigninTest, DisplayBasicLogin) {
-  EXPECT_CALL(*mock_pss_, IsSyncEnabledAndLoggedIn())
-      .WillRepeatedly(Return(false));
+  EXPECT_CALL(*mock_pss_, CanSyncStart()).WillRepeatedly(Return(false));
   EXPECT_CALL(*mock_pss_, IsOAuthRefreshTokenAvailable())
       .WillRepeatedly(Return(false));
   EXPECT_CALL(*mock_pss_, HasSyncSetupCompleted())
@@ -413,8 +321,7 @@ TEST_F(SyncSetupHandlerFirstSigninTest, DisplayBasicLogin) {
 }
 
 TEST_F(SyncSetupHandlerTest, ShowSyncSetupWhenNotSignedIn) {
-  EXPECT_CALL(*mock_pss_, IsSyncEnabledAndLoggedIn())
-      .WillRepeatedly(Return(false));
+  EXPECT_CALL(*mock_pss_, CanSyncStart()).WillRepeatedly(Return(false));
   EXPECT_CALL(*mock_pss_, IsOAuthRefreshTokenAvailable())
       .WillRepeatedly(Return(false));
   EXPECT_CALL(*mock_pss_, HasSyncSetupCompleted())
@@ -423,8 +330,8 @@ TEST_F(SyncSetupHandlerTest, ShowSyncSetupWhenNotSignedIn) {
 
   // We expect a call to SyncSetupOverlay.showSyncSetupPage.
   ASSERT_EQ(1U, web_ui_.call_data().size());
-  const TestWebUI::CallData& data = web_ui_.call_data()[0];
-  EXPECT_EQ("SyncSetupOverlay.showSyncSetupPage", data.function_name);
+  const content::TestWebUI::CallData& data = *web_ui_.call_data()[0];
+  EXPECT_EQ("SyncSetupOverlay.showSyncSetupPage", data.function_name());
 
   ASSERT_FALSE(handler_->is_configuring_sync());
   EXPECT_EQ(NULL,
@@ -449,8 +356,7 @@ TEST_F(SyncSetupHandlerTest, HandleSetupUIWhenSyncDisabled) {
 // Verifies that the handler correctly handles a cancellation when
 // it is displaying the spinner to the user.
 TEST_F(SyncSetupHandlerTest, DisplayConfigureWithBackendDisabledAndCancel) {
-  EXPECT_CALL(*mock_pss_, IsSyncEnabledAndLoggedIn())
-      .WillRepeatedly(Return(true));
+  EXPECT_CALL(*mock_pss_, CanSyncStart()).WillRepeatedly(Return(true));
   EXPECT_CALL(*mock_pss_, IsOAuthRefreshTokenAvailable())
       .WillRepeatedly(Return(true));
   EXPECT_CALL(*mock_pss_, HasSyncSetupCompleted())
@@ -476,8 +382,7 @@ TEST_F(SyncSetupHandlerTest, DisplayConfigureWithBackendDisabledAndCancel) {
 // to showing a configuration page when sync setup completes successfully.
 TEST_F(SyncSetupHandlerTest,
        DisplayConfigureWithBackendDisabledAndSyncStartupCompleted) {
-  EXPECT_CALL(*mock_pss_, IsSyncEnabledAndLoggedIn())
-      .WillRepeatedly(Return(true));
+  EXPECT_CALL(*mock_pss_, CanSyncStart()).WillRepeatedly(Return(true));
   EXPECT_CALL(*mock_pss_, IsOAuthRefreshTokenAvailable())
       .WillRepeatedly(Return(true));
   EXPECT_CALL(*mock_pss_, HasSyncSetupCompleted())
@@ -493,10 +398,10 @@ TEST_F(SyncSetupHandlerTest,
   // We expect a call to SyncSetupOverlay.showSyncSetupPage.
   EXPECT_EQ(1U, web_ui_.call_data().size());
 
-  const TestWebUI::CallData& data0 = web_ui_.call_data()[0];
-  EXPECT_EQ("SyncSetupOverlay.showSyncSetupPage", data0.function_name);
+  const content::TestWebUI::CallData& data0 = *web_ui_.call_data()[0];
+  EXPECT_EQ("SyncSetupOverlay.showSyncSetupPage", data0.function_name());
   std::string page;
-  ASSERT_TRUE(data0.arg1->GetAsString(&page));
+  ASSERT_TRUE(data0.arg1()->GetAsString(&page));
   EXPECT_EQ(page, "spinner");
 
   Mock::VerifyAndClearExpectations(mock_pss_);
@@ -510,14 +415,13 @@ TEST_F(SyncSetupHandlerTest,
 
   // We expect a second call to SyncSetupOverlay.showSyncSetupPage.
   EXPECT_EQ(2U, web_ui_.call_data().size());
-  const TestWebUI::CallData& data1 = web_ui_.call_data().back();
-  EXPECT_EQ("SyncSetupOverlay.showSyncSetupPage", data1.function_name);
-  ASSERT_TRUE(data1.arg1->GetAsString(&page));
+  const content::TestWebUI::CallData& data1 = *web_ui_.call_data().back();
+  EXPECT_EQ("SyncSetupOverlay.showSyncSetupPage", data1.function_name());
+  ASSERT_TRUE(data1.arg1()->GetAsString(&page));
   EXPECT_EQ(page, "configure");
-  base::DictionaryValue* dictionary;
-  ASSERT_TRUE(data1.arg2->GetAsDictionary(&dictionary));
+  const base::DictionaryValue* dictionary = nullptr;
+  ASSERT_TRUE(data1.arg2()->GetAsDictionary(&dictionary));
   CheckBool(dictionary, "passphraseFailed", false);
-  CheckBool(dictionary, "showSyncEverythingPage", false);
   CheckBool(dictionary, "syncAllDataTypes", true);
   CheckBool(dictionary, "encryptAllDataAllowed", true);
   CheckBool(dictionary, "encryptAllData", false);
@@ -531,8 +435,7 @@ TEST_F(SyncSetupHandlerTest,
 // before the user has continued on.
 TEST_F(SyncSetupHandlerTest,
        DisplayConfigureWithBackendDisabledAndCancelAfterSigninSuccess) {
-  EXPECT_CALL(*mock_pss_, IsSyncEnabledAndLoggedIn())
-      .WillRepeatedly(Return(true));
+  EXPECT_CALL(*mock_pss_, CanSyncStart()).WillRepeatedly(Return(true));
   EXPECT_CALL(*mock_pss_, IsOAuthRefreshTokenAvailable())
       .WillRepeatedly(Return(true));
   EXPECT_CALL(*mock_pss_, HasSyncSetupCompleted())
@@ -547,7 +450,7 @@ TEST_F(SyncSetupHandlerTest,
   // It's important to tell sync the user cancelled the setup flow before we
   // tell it we're through with the setup progress.
   testing::InSequence seq;
-  EXPECT_CALL(*mock_pss_, DisableForUser());
+  EXPECT_CALL(*mock_pss_, RequestStop(ProfileSyncService::CLEAR_DATA));
   EXPECT_CALL(*mock_pss_, SetSetupInProgress(false));
 
   handler_->CloseSyncSetup();
@@ -558,8 +461,7 @@ TEST_F(SyncSetupHandlerTest,
 
 TEST_F(SyncSetupHandlerTest,
        DisplayConfigureWithBackendDisabledAndSigninFailed) {
-  EXPECT_CALL(*mock_pss_, IsSyncEnabledAndLoggedIn())
-      .WillRepeatedly(Return(true));
+  EXPECT_CALL(*mock_pss_, CanSyncStart()).WillRepeatedly(Return(true));
   EXPECT_CALL(*mock_pss_, IsOAuthRefreshTokenAvailable())
       .WillRepeatedly(Return(true));
   EXPECT_CALL(*mock_pss_, HasSyncSetupCompleted())
@@ -568,10 +470,10 @@ TEST_F(SyncSetupHandlerTest,
   EXPECT_CALL(*mock_pss_, backend_initialized()).WillRepeatedly(Return(false));
 
   handler_->OpenSyncSetup();
-  const TestWebUI::CallData& data = web_ui_.call_data()[0];
-  EXPECT_EQ("SyncSetupOverlay.showSyncSetupPage", data.function_name);
+  const content::TestWebUI::CallData& data = *web_ui_.call_data()[0];
+  EXPECT_EQ("SyncSetupOverlay.showSyncSetupPage", data.function_name());
   std::string page;
-  ASSERT_TRUE(data.arg1->GetAsString(&page));
+  ASSERT_TRUE(data.arg1()->GetAsString(&page));
   EXPECT_EQ(page, "spinner");
   Mock::VerifyAndClearExpectations(mock_pss_);
   error_ = GoogleServiceAuthError(
@@ -593,8 +495,7 @@ class SyncSetupHandlerNonCrosTest : public SyncSetupHandlerTest {
 };
 
 TEST_F(SyncSetupHandlerNonCrosTest, HandleGaiaAuthFailure) {
-  EXPECT_CALL(*mock_pss_, IsSyncEnabledAndLoggedIn())
-      .WillRepeatedly(Return(false));
+  EXPECT_CALL(*mock_pss_, CanSyncStart()).WillRepeatedly(Return(false));
   EXPECT_CALL(*mock_pss_, IsOAuthRefreshTokenAvailable())
       .WillRepeatedly(Return(false));
   EXPECT_CALL(*mock_pss_, HasUnrecoverableError())
@@ -609,8 +510,7 @@ TEST_F(SyncSetupHandlerNonCrosTest, HandleGaiaAuthFailure) {
 
 // TODO(kochi): We need equivalent tests for ChromeOS.
 TEST_F(SyncSetupHandlerNonCrosTest, UnrecoverableErrorInitializingSync) {
-  EXPECT_CALL(*mock_pss_, IsSyncEnabledAndLoggedIn())
-      .WillRepeatedly(Return(false));
+  EXPECT_CALL(*mock_pss_, CanSyncStart()).WillRepeatedly(Return(false));
   EXPECT_CALL(*mock_pss_, IsOAuthRefreshTokenAvailable())
       .WillRepeatedly(Return(false));
   EXPECT_CALL(*mock_pss_, HasSyncSetupCompleted())
@@ -622,8 +522,7 @@ TEST_F(SyncSetupHandlerNonCrosTest, UnrecoverableErrorInitializingSync) {
 }
 
 TEST_F(SyncSetupHandlerNonCrosTest, GaiaErrorInitializingSync) {
-  EXPECT_CALL(*mock_pss_, IsSyncEnabledAndLoggedIn())
-      .WillRepeatedly(Return(false));
+  EXPECT_CALL(*mock_pss_, CanSyncStart()).WillRepeatedly(Return(false));
   EXPECT_CALL(*mock_pss_, IsOAuthRefreshTokenAvailable())
       .WillRepeatedly(Return(false));
   EXPECT_CALL(*mock_pss_, HasSyncSetupCompleted())
@@ -659,14 +558,14 @@ TEST_F(SyncSetupHandlerTest, TestSyncNothing) {
       NULL, SYNC_NOTHING, GetAllTypes(), std::string(), ENCRYPT_PASSWORDS);
   base::ListValue list_args;
   list_args.Append(new base::StringValue(args));
-  EXPECT_CALL(*mock_pss_, DisableForUser());
+  EXPECT_CALL(*mock_pss_, RequestStop(ProfileSyncService::CLEAR_DATA));
   SetupInitializedProfileSyncService();
   handler_->HandleConfigure(&list_args);
 
   // We expect a call to SyncSetupOverlay.showSyncSetupPage.
   ASSERT_EQ(1U, web_ui_.call_data().size());
-  const TestWebUI::CallData& data = web_ui_.call_data()[0];
-  EXPECT_EQ("SyncSetupOverlay.showSyncSetupPage", data.function_name);
+  const content::TestWebUI::CallData& data = *web_ui_.call_data()[0];
+  EXPECT_EQ("SyncSetupOverlay.showSyncSetupPage", data.function_name());
 }
 
 TEST_F(SyncSetupHandlerTest, TurnOnEncryptAll) {
@@ -794,9 +693,9 @@ TEST_F(SyncSetupHandlerTest, UnsuccessfullySetPassphrase) {
 
   // Make sure we display an error message to the user due to the failed
   // passphrase.
-  const TestWebUI::CallData& data = web_ui_.call_data()[0];
-  base::DictionaryValue* dictionary;
-  ASSERT_TRUE(data.arg2->GetAsDictionary(&dictionary));
+  const content::TestWebUI::CallData& data = *web_ui_.call_data()[0];
+  const base::DictionaryValue* dictionary = nullptr;
+  ASSERT_TRUE(data.arg2()->GetAsDictionary(&dictionary));
   CheckBool(dictionary, "passphraseFailed", true);
 }
 
@@ -870,13 +769,11 @@ TEST_F(SyncSetupHandlerTest, ShowSigninOnAuthError) {
       GoogleServiceAuthError::INVALID_GAIA_CREDENTIALS);
 
   SetupInitializedProfileSyncService();
-  mock_signin_->SetAuthenticatedUsername(kTestUser);
+  mock_signin_->SetAuthenticatedAccountInfo(kTestUser, kTestUser);
   FakeAuthStatusProvider provider(
-      ProfileOAuth2TokenServiceFactory::GetForProfile(profile_.get())->
-          signin_error_controller());
-  provider.SetAuthError(kTestUser, kTestUser, error_);
-  EXPECT_CALL(*mock_pss_, IsSyncEnabledAndLoggedIn())
-      .WillRepeatedly(Return(true));
+      SigninErrorControllerFactory::GetForProfile(profile_.get()));
+  provider.SetAuthError(kTestUser, error_);
+  EXPECT_CALL(*mock_pss_, CanSyncStart()).WillRepeatedly(Return(true));
   EXPECT_CALL(*mock_pss_, IsOAuthRefreshTokenAvailable())
       .WillRepeatedly(Return(true));
   EXPECT_CALL(*mock_pss_, IsPassphraseRequired())
@@ -919,10 +816,9 @@ TEST_F(SyncSetupHandlerTest, ShowSetupSyncEverything) {
   handler_->OpenSyncSetup();
 
   ExpectConfig();
-  const TestWebUI::CallData& data = web_ui_.call_data()[0];
-  base::DictionaryValue* dictionary;
-  ASSERT_TRUE(data.arg2->GetAsDictionary(&dictionary));
-  CheckBool(dictionary, "showSyncEverythingPage", false);
+  const content::TestWebUI::CallData& data = *web_ui_.call_data()[0];
+  const base::DictionaryValue* dictionary = nullptr;
+  ASSERT_TRUE(data.arg2()->GetAsDictionary(&dictionary));
   CheckBool(dictionary, "syncAllDataTypes", true);
   CheckBool(dictionary, "appsRegistered", true);
   CheckBool(dictionary, "autofillRegistered", true);
@@ -954,9 +850,9 @@ TEST_F(SyncSetupHandlerTest, ShowSetupManuallySyncAll) {
   handler_->OpenSyncSetup();
 
   ExpectConfig();
-  const TestWebUI::CallData& data = web_ui_.call_data()[0];
-  base::DictionaryValue* dictionary;
-  ASSERT_TRUE(data.arg2->GetAsDictionary(&dictionary));
+  const content::TestWebUI::CallData& data = *web_ui_.call_data()[0];
+  const base::DictionaryValue* dictionary = nullptr;
+  ASSERT_TRUE(data.arg2()->GetAsDictionary(&dictionary));
   CheckConfigDataTypeArguments(dictionary, CHOOSE_WHAT_TO_SYNC, GetAllTypes());
 }
 
@@ -984,9 +880,9 @@ TEST_F(SyncSetupHandlerTest, ShowSetupSyncForAllTypesIndividually) {
     // Close the config overlay.
     LoginUIServiceFactory::GetForProfile(profile_.get())->LoginUIClosed(
         handler_.get());
-    const TestWebUI::CallData& data = web_ui_.call_data()[0];
-    base::DictionaryValue* dictionary;
-    ASSERT_TRUE(data.arg2->GetAsDictionary(&dictionary));
+    const content::TestWebUI::CallData& data = *web_ui_.call_data()[0];
+    const base::DictionaryValue* dictionary = nullptr;
+    ASSERT_TRUE(data.arg2()->GetAsDictionary(&dictionary));
     CheckConfigDataTypeArguments(dictionary, CHOOSE_WHAT_TO_SYNC, types);
     Mock::VerifyAndClearExpectations(mock_pss_);
     // Clean up so we can loop back to display the dialog again.
@@ -1006,9 +902,9 @@ TEST_F(SyncSetupHandlerTest, ShowSetupGaiaPassphraseRequired) {
   handler_->OpenSyncSetup();
 
   ExpectConfig();
-  const TestWebUI::CallData& data = web_ui_.call_data()[0];
-  base::DictionaryValue* dictionary;
-  ASSERT_TRUE(data.arg2->GetAsDictionary(&dictionary));
+  const content::TestWebUI::CallData& data = *web_ui_.call_data()[0];
+  const base::DictionaryValue* dictionary = nullptr;
+  ASSERT_TRUE(data.arg2()->GetAsDictionary(&dictionary));
   CheckBool(dictionary, "showPassphrase", true);
   CheckBool(dictionary, "usePassphrase", false);
   CheckBool(dictionary, "passphraseFailed", false);
@@ -1028,9 +924,9 @@ TEST_F(SyncSetupHandlerTest, ShowSetupCustomPassphraseRequired) {
   handler_->OpenSyncSetup();
 
   ExpectConfig();
-  const TestWebUI::CallData& data = web_ui_.call_data()[0];
-  base::DictionaryValue* dictionary;
-  ASSERT_TRUE(data.arg2->GetAsDictionary(&dictionary));
+  const content::TestWebUI::CallData& data = *web_ui_.call_data()[0];
+  const base::DictionaryValue* dictionary = nullptr;
+  ASSERT_TRUE(data.arg2()->GetAsDictionary(&dictionary));
   CheckBool(dictionary, "showPassphrase", true);
   CheckBool(dictionary, "usePassphrase", true);
   CheckBool(dictionary, "passphraseFailed", false);
@@ -1050,9 +946,9 @@ TEST_F(SyncSetupHandlerTest, ShowSetupEncryptAll) {
   handler_->OpenSyncSetup();
 
   ExpectConfig();
-  const TestWebUI::CallData& data = web_ui_.call_data()[0];
-  base::DictionaryValue* dictionary;
-  ASSERT_TRUE(data.arg2->GetAsDictionary(&dictionary));
+  const content::TestWebUI::CallData& data = *web_ui_.call_data()[0];
+  const base::DictionaryValue* dictionary = nullptr;
+  ASSERT_TRUE(data.arg2()->GetAsDictionary(&dictionary));
   CheckBool(dictionary, "encryptAllData", true);
 }
 
@@ -1070,9 +966,9 @@ TEST_F(SyncSetupHandlerTest, ShowSetupEncryptAllDisallowed) {
   handler_->OpenSyncSetup();
 
   ExpectConfig();
-  const TestWebUI::CallData& data = web_ui_.call_data()[0];
-  base::DictionaryValue* dictionary;
-  ASSERT_TRUE(data.arg2->GetAsDictionary(&dictionary));
+  const content::TestWebUI::CallData& data = *web_ui_.call_data()[0];
+  const base::DictionaryValue* dictionary = nullptr;
+  ASSERT_TRUE(data.arg2()->GetAsDictionary(&dictionary));
   CheckBool(dictionary, "encryptAllData", false);
   CheckBool(dictionary, "encryptAllDataAllowed", false);
 }

@@ -38,6 +38,9 @@ base::string16 GetAudioDeviceName(const chromeos::AudioDevice& device) {
       return l10n_util::GetStringFUTF16(
           IDS_ASH_STATUS_TRAY_AUDIO_HDMI_DEVICE,
           base::UTF8ToUTF16(device.display_name));
+    case chromeos::AUDIO_TYPE_MIC:
+      return l10n_util::GetStringUTF16(
+          IDS_ASH_STATUS_TRAY_AUDIO_MIC_JACK_DEVICE);
     default:
       return base::UTF8ToUTF16(device.display_name);
   }
@@ -50,10 +53,8 @@ using chromeos::CrasAudioHandler;
 namespace ash {
 namespace tray {
 
-AudioDetailedView::AudioDetailedView(SystemTrayItem* owner,
-                                     user::LoginStatus login)
-    : TrayDetailsView(owner),
-      login_(login) {
+AudioDetailedView::AudioDetailedView(SystemTrayItem* owner)
+    : TrayDetailsView(owner) {
   CreateItems();
   Update();
 }
@@ -95,10 +96,10 @@ void AudioDetailedView::AddScrollListInfoItem(const base::string16& text) {
 
 HoverHighlightView* AudioDetailedView::AddScrollListItem(
     const base::string16& text,
-    gfx::Font::FontStyle style,
+    bool highlight,
     bool checked) {
   HoverHighlightView* container = new HoverHighlightView(this);
-  container->AddCheckableLabel(text, style, checked);
+  container->AddCheckableLabel(text, highlight, checked);
   scroll_content()->AddChildView(container);
   return container;
 }
@@ -118,8 +119,11 @@ void AudioDetailedView::UpdateAudioDevices() {
   chromeos::AudioDeviceList devices;
   CrasAudioHandler::Get()->GetAudioDevices(&devices);
   for (size_t i = 0; i < devices.size(); ++i) {
-    // Don't display keyboard mic.
-    if (devices[i].type == chromeos::AUDIO_TYPE_KEYBOARD_MIC)
+    // Don't display keyboard mic or aokr type.
+    if (devices[i].type == chromeos::AUDIO_TYPE_KEYBOARD_MIC ||
+        devices[i].type == chromeos::AUDIO_TYPE_AOKR ||
+        devices[i].type == chromeos::AUDIO_TYPE_POST_MIX_LOOPBACK ||
+        devices[i].type == chromeos::AUDIO_TYPE_POST_DSP_LOOPBACK)
       continue;
     if (devices[i].is_input)
       input_devices_.push_back(devices[i]);
@@ -138,9 +142,8 @@ void AudioDetailedView::UpdateScrollableList() {
       l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_AUDIO_OUTPUT));
   for (size_t i = 0; i < output_devices_.size(); ++i) {
     HoverHighlightView* container = AddScrollListItem(
-        GetAudioDeviceName(output_devices_[i]),
-        gfx::Font::NORMAL,
-        output_devices_[i].active);  /* checkmark if active */
+        GetAudioDeviceName(output_devices_[i]), false /* highlight */,
+        output_devices_[i].active); /* checkmark if active */
     device_map_[container] = output_devices_[i];
   }
 
@@ -151,9 +154,8 @@ void AudioDetailedView::UpdateScrollableList() {
       l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_AUDIO_INPUT));
   for (size_t i = 0; i < input_devices_.size(); ++i) {
     HoverHighlightView* container = AddScrollListItem(
-        GetAudioDeviceName(input_devices_[i]),
-        gfx::Font::NORMAL,
-        input_devices_[i].active);  /* checkmark if active */
+        GetAudioDeviceName(input_devices_[i]), false /* highlight */,
+        input_devices_[i].active); /* checkmark if active */
     device_map_[container] = input_devices_[i];
   }
 

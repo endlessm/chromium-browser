@@ -6,6 +6,7 @@
 
 #include "base/files/file_util.h"
 #include "base/path_service.h"
+#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/test_timeouts.h"
 #include "base/time/time.h"
@@ -32,17 +33,40 @@ static const char kAdviseOnGclientSolution[] =
     "You need to add this solution to your .gclient to run this test:\n"
     "{\n"
     "  \"name\"        : \"webrtc.DEPS\",\n"
-    "  \"url\"         : \"svn://svn.chromium.org/chrome/trunk/deps/"
-    "third_party/webrtc/webrtc.DEPS\",\n"
+    "  \"url\"         : \"https://chromium.googlesource.com/chromium/deps/"
+    "webrtc/webrtc.DEPS\",\n"
     "}";
 
 const int kDefaultPollIntervalMsec = 250;
+
+bool IsErrorResult(const std::string& result) {
+  return base::StartsWith(result, "failed-",
+                          base::CompareCase::INSENSITIVE_ASCII);
+}
 
 base::FilePath GetReferenceFilesDir() {
   base::FilePath test_data_dir;
   PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir);
 
   return test_data_dir.Append(kReferenceFilesDirName);
+}
+
+base::FilePath GetToolForPlatform(const std::string& tool_name) {
+  base::FilePath tools_dir =
+      GetReferenceFilesDir().Append(FILE_PATH_LITERAL("tools"));
+#if defined(OS_WIN)
+  return tools_dir
+      .Append(FILE_PATH_LITERAL("win"))
+      .AppendASCII(tool_name)
+      .AddExtension(FILE_PATH_LITERAL("exe"));
+#elif defined(OS_MACOSX)
+  return tools_dir.Append(FILE_PATH_LITERAL("mac")).AppendASCII(tool_name);
+#elif defined(OS_LINUX)
+  return tools_dir.Append(FILE_PATH_LITERAL("linux")).AppendASCII(tool_name);
+#else
+  CHECK(false) << "Can't retrieve tool " << tool_name << " on this platform.";
+  return base::FilePath();
+#endif
 }
 
 bool HasReferenceFilesInCheckout() {
@@ -115,8 +139,12 @@ bool PollingWaitUntil(const std::string& javascript,
       return false;
     }
 
-    if (evaluates_to == result)
+    if (evaluates_to == result) {
       return true;
+    } else if (IsErrorResult(result)) {
+      LOG(ERROR) << "|" << javascript << "| returned an error: " << result;
+      return false;
+    }
 
     // Sleep a bit here to keep this loop from spinlocking too badly.
     if (!SleepInJavascript(tab_contents, poll_interval_msec)) {

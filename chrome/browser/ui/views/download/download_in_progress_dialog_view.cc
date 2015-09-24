@@ -11,7 +11,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/constrained_window/constrained_window_views.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/message_box_view.h"
 #include "ui/views/layout/grid_layout.h"
@@ -26,7 +26,7 @@ void DownloadInProgressDialogView::Show(
     const base::Callback<void(bool)>& callback) {
   DownloadInProgressDialogView* window = new DownloadInProgressDialogView(
       download_count, dialog_type, app_modal, callback);
-  CreateBrowserModalDialogViews(window, parent)->Show();
+  constrained_window::CreateBrowserModalDialogViews(window, parent)->Show();
 }
 
 DownloadInProgressDialogView::DownloadInProgressDialogView(
@@ -37,46 +37,20 @@ DownloadInProgressDialogView::DownloadInProgressDialogView(
     : app_modal_(app_modal),
       callback_(callback),
       message_box_view_(NULL) {
-  base::string16 explanation_text;
-  switch (dialog_type) {
-    case Browser::DOWNLOAD_CLOSE_BROWSER_SHUTDOWN:
-      if (download_count == 1) {
-        title_text_ = l10n_util::GetStringUTF16(
-            IDS_SINGLE_DOWNLOAD_REMOVE_CONFIRM_TITLE);
-        explanation_text = l10n_util::GetStringUTF16(
-            IDS_SINGLE_DOWNLOAD_REMOVE_CONFIRM_EXPLANATION);
-      } else {
-        title_text_ = l10n_util::GetStringUTF16(
-            IDS_MULTIPLE_DOWNLOADS_REMOVE_CONFIRM_TITLE);
-        explanation_text = l10n_util::GetStringUTF16(
-            IDS_MULTIPLE_DOWNLOADS_REMOVE_CONFIRM_EXPLANATION);
-      }
-      ok_button_text_ = l10n_util::GetStringUTF16(
-          IDS_DOWNLOAD_REMOVE_CONFIRM_OK_BUTTON_LABEL);
-      break;
-    case Browser::DOWNLOAD_CLOSE_LAST_WINDOW_IN_INCOGNITO_PROFILE:
-      if (download_count == 1) {
-        title_text_ = l10n_util::GetStringUTF16(
-            IDS_SINGLE_INCOGNITO_DOWNLOAD_REMOVE_CONFIRM_TITLE);
-        explanation_text = l10n_util::GetStringUTF16(
-            IDS_SINGLE_INCOGNITO_DOWNLOAD_REMOVE_CONFIRM_EXPLANATION);
-      } else {
-        title_text_ = l10n_util::GetStringUTF16(
-            IDS_MULTIPLE_INCOGNITO_DOWNLOADS_REMOVE_CONFIRM_TITLE);
-        explanation_text = l10n_util::GetStringUTF16(
-            IDS_MULTIPLE_INCOGNITO_DOWNLOADS_REMOVE_CONFIRM_EXPLANATION);
-      }
-      ok_button_text_ = l10n_util::GetStringUTF16(
-          IDS_INCOGNITO_DOWNLOAD_REMOVE_CONFIRM_OK_BUTTON_LABEL);
-      break;
-    default:
-      // This dialog should have been created within the same thread invocation
-      // as the original test that lead to us, so it should always not be ok
-      // to close.
-      NOTREACHED();
-  }
-  cancel_button_text_ = l10n_util::GetStringUTF16(
-      IDS_DOWNLOAD_REMOVE_CONFIRM_CANCEL_BUTTON_LABEL);
+  // This dialog should have been created within the same thread invocation
+  // as the original test, so it's never ok to close.
+  DCHECK_NE(Browser::DOWNLOAD_CLOSE_OK, dialog_type);
+  base::string16 explanation_text(l10n_util::GetPluralStringFUTF16(
+      (dialog_type == Browser::DOWNLOAD_CLOSE_BROWSER_SHUTDOWN)
+          ? IDS_DOWNLOAD_REMOVE_CONFIRM_EXPLANATION
+          : IDS_INCOGNITO_DOWNLOAD_REMOVE_CONFIRM_EXPLANATION,
+      download_count));
+  title_text_ = l10n_util::GetPluralStringFUTF16(
+      IDS_DOWNLOAD_REMOVE_CONFIRM_TITLE, download_count);
+  ok_button_text_ = l10n_util::GetPluralStringFUTF16(
+      IDS_DOWNLOAD_REMOVE_CONFIRM_OK_BUTTON_LABEL, download_count);
+  cancel_button_text_ = l10n_util::GetPluralStringFUTF16(
+      IDS_DOWNLOAD_REMOVE_CONFIRM_CANCEL_BUTTON_LABEL, download_count);
 
   message_box_view_ = new views::MessageBoxView(
       views::MessageBoxView::InitParams(explanation_text));

@@ -7,16 +7,23 @@
 namespace switches {
 
 #if defined(OS_MACOSX) && !defined(OS_IOS)
-// Enable use of cross-process CALayers to display content directly from the
+// Disable use of cross-process CALayers to display content directly from the
 // GPU process on Mac.
 const char kDisableRemoteCoreAnimation[] = "disable-remote-core-animation";
+
+// Disable using the private NSCGLSurface API to draw content.
+const char kDisableNSCGLSurfaceApi[] = "disable-ns-cgl-surface-api";
+
+// Force all content to draw via the private NSCGLSurface API, even when there
+// exist performance, stability, or correctness reasons not to.
+const char kForceNSCGLSurfaceApi[] = "force-ns-cgl-surface-api";
 #endif
 
 // Disables use of DWM composition for top level windows.
 const char kDisableDwmComposition[] = "disable-dwm-composition";
 
-// Disables an experimental focus manager to track text input clients.
-const char kDisableTextInputFocusManager[] = "disable-text-input-focus-manager";
+// Disables large icons on the New Tab page.
+const char kDisableIconNtp[] = "disable-icon-ntp";
 
 // Disables touch adjustment.
 const char kDisableTouchAdjustment[] = "disable-touch-adjustment";
@@ -27,12 +34,15 @@ const char kDisableTouchDragDrop[] = "disable-touch-drag-drop";
 // Disables controls that support touch base text editing.
 const char kDisableTouchEditing[] = "disable-touch-editing";
 
+// Disables additional visual feedback to touch input.
+const char kDisableTouchFeedback[] = "disable-touch-feedback";
+
+// Enables large icons on the New Tab page.
+const char kEnableIconNtp[] = "enable-icon-ntp";
+
 // Enables a zoomed popup bubble that allows the user to select a link.
 const char kEnableLinkDisambiguationPopup[] =
     "enable-link-disambiguation-popup";
-
-// Enables an experimental focus manager to track text input clients.
-const char kEnableTextInputFocusManager[] = "enable-text-input-focus-manager";
 
 // Enables touch event based drag and drop.
 const char kEnableTouchDragDrop[] = "enable-touch-drag-drop";
@@ -40,16 +50,24 @@ const char kEnableTouchDragDrop[] = "enable-touch-drag-drop";
 // Enables controls that support touch base text editing.
 const char kEnableTouchEditing[] = "enable-touch-editing";
 
-// Enables additional visual feedback to touch input.
-const char kEnableTouchFeedback[] = "enable-touch-feedback";
-
 // The language file that we want to try to open. Of the form
 // language[-country] where language is the 2 letter code from ISO-639.
 const char kLang[] = "lang";
 
-// Disable ui::MessageBox. This is useful when running as part of scripts that
-// do not have a user interface.
-const char kNoMessageBox[] = "no-message-box";
+#if defined(ENABLE_TOPCHROME_MD)
+// Enables top Chrome material design elements.
+const char kTopChromeMD[] = "top-chrome-md";
+
+// Material design mode for the |kTopChromeMD| switch.
+const char kTopChromeMDMaterial[] = "material";
+
+// Material design hybrid mode for the |kTopChromeMD| switch. Targeted for
+// mouse/touch hybrid devices.
+const char kTopChromeMDMaterialHybrid[] = "material-hybrid";
+
+// Classic, non-material, mode for the |kTopChromeMD| switch.
+const char kTopChromeMDNonMaterial[] = "";
+#endif  // defined(ENABLE_TOPCHROME_MD)
 
 // On Windows only: requests that Chrome connect to the running Metro viewer
 // process.

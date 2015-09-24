@@ -3,15 +3,14 @@
 // found in the LICENSE file.
 #include "chromeos/dbus/gsm_sms_client.h"
 
-#include <map>
 #include <utility>
 #include <vector>
 
 #include "base/bind.h"
+#include "base/containers/scoped_ptr_map.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "dbus/bus.h"
@@ -162,74 +161,72 @@ class SMSProxy {
 // The GsmSMSClient implementation.
 class GsmSMSClientImpl : public GsmSMSClient {
  public:
-  GsmSMSClientImpl() : bus_(NULL), proxies_deleter_(&proxies_) {}
+  GsmSMSClientImpl() : bus_(NULL) {}
 
   // GsmSMSClient override.
-  virtual void SetSmsReceivedHandler(
-      const std::string& service_name,
-      const dbus::ObjectPath& object_path,
-      const SmsReceivedHandler& handler) override {
+  void SetSmsReceivedHandler(const std::string& service_name,
+                             const dbus::ObjectPath& object_path,
+                             const SmsReceivedHandler& handler) override {
     GetProxy(service_name, object_path)->SetSmsReceivedHandler(handler);
   }
 
   // GsmSMSClient override.
-  virtual void ResetSmsReceivedHandler(
-      const std::string& service_name,
-      const dbus::ObjectPath& object_path) override {
+  void ResetSmsReceivedHandler(const std::string& service_name,
+                               const dbus::ObjectPath& object_path) override {
     GetProxy(service_name, object_path)->ResetSmsReceivedHandler();
   }
 
   // GsmSMSClient override.
-  virtual void Delete(const std::string& service_name,
-                      const dbus::ObjectPath& object_path,
-                      uint32 index,
-                      const DeleteCallback& callback) override {
+  void Delete(const std::string& service_name,
+              const dbus::ObjectPath& object_path,
+              uint32 index,
+              const DeleteCallback& callback) override {
     GetProxy(service_name, object_path)->Delete(index, callback);
   }
 
   // GsmSMSClient override.
-  virtual void Get(const std::string& service_name,
-                   const dbus::ObjectPath& object_path,
-                   uint32 index,
-                   const GetCallback& callback) override {
+  void Get(const std::string& service_name,
+           const dbus::ObjectPath& object_path,
+           uint32 index,
+           const GetCallback& callback) override {
     GetProxy(service_name, object_path)->Get(index, callback);
   }
 
   // GsmSMSClient override.
-  virtual void List(const std::string& service_name,
-                    const dbus::ObjectPath& object_path,
-                    const ListCallback& callback) override {
+  void List(const std::string& service_name,
+            const dbus::ObjectPath& object_path,
+            const ListCallback& callback) override {
     GetProxy(service_name, object_path)->List(callback);
   }
 
   // GsmSMSClient override.
-  virtual void RequestUpdate(const std::string& service_name,
-                             const dbus::ObjectPath& object_path) override {
-  }
+  void RequestUpdate(const std::string& service_name,
+                     const dbus::ObjectPath& object_path) override {}
 
  protected:
-  virtual void Init(dbus::Bus* bus) override { bus_ = bus; }
+  void Init(dbus::Bus* bus) override { bus_ = bus; }
 
  private:
-  typedef std::map<std::pair<std::string, std::string>, SMSProxy*> ProxyMap;
+  typedef base::ScopedPtrMap<std::pair<std::string, std::string>,
+                             scoped_ptr<SMSProxy>> ProxyMap;
 
   // Returns a SMSProxy for the given service name and object path.
   SMSProxy* GetProxy(const std::string& service_name,
                      const dbus::ObjectPath& object_path) {
     const ProxyMap::key_type key(service_name, object_path.value());
-    ProxyMap::iterator it = proxies_.find(key);
+    ProxyMap::const_iterator it = proxies_.find(key);
     if (it != proxies_.end())
       return it->second;
 
     // There is no proxy for the service_name and object_path, create it.
-    SMSProxy* proxy = new SMSProxy(bus_, service_name, object_path);
-    proxies_.insert(ProxyMap::value_type(key, proxy));
-    return proxy;
+    scoped_ptr<SMSProxy> proxy(new SMSProxy(bus_, service_name, object_path));
+    SMSProxy* proxy_ptr = proxy.get();
+    proxies_.insert(key, proxy.Pass());
+    return proxy_ptr;
   }
 
   dbus::Bus* bus_;
   ProxyMap proxies_;
-  STLValueDeleter<ProxyMap> proxies_deleter_;
 
   DISALLOW_COPY_AND_ASSIGN(GsmSMSClientImpl);
 };

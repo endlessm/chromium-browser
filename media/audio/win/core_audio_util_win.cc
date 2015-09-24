@@ -4,7 +4,6 @@
 
 #include "media/audio/win/core_audio_util_win.h"
 
-#include <audioclient.h>
 #include <devicetopology.h>
 #include <functiondiscoverykeys_devpkey.h>
 
@@ -16,6 +15,7 @@
 #include "base/win/scoped_handle.h"
 #include "base/win/scoped_propvariant.h"
 #include "base/win/windows_version.h"
+#include "media/audio/audio_manager_base.h"
 #include "media/base/media_switches.h"
 
 using base::win::ScopedCoMem;
@@ -136,18 +136,6 @@ static bool LoadAudiosesDll() {
   return (LoadLibraryExW(path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH) != NULL);
 }
 
-static bool CanCreateDeviceEnumerator() {
-  ScopedComPtr<IMMDeviceEnumerator> device_enumerator;
-  HRESULT hr = device_enumerator.CreateInstance(__uuidof(MMDeviceEnumerator),
-                                                NULL, CLSCTX_INPROC_SERVER);
-
-  // If we hit CO_E_NOTINITIALIZED, CoInitialize has not been called and it
-  // must be called at least once for each thread that uses the COM library.
-  CHECK_NE(hr, CO_E_NOTINITIALIZED);
-
-  return SUCCEEDED(hr);
-}
-
 static std::string GetDeviceID(IMMDevice* device) {
   ScopedCoMem<WCHAR> device_id_com;
   std::string device_id;
@@ -156,9 +144,58 @@ static std::string GetDeviceID(IMMDevice* device) {
   return device_id;
 }
 
-bool CoreAudioUtil::IsSupported() {
+static bool IsDeviceActive(IMMDevice* device) {
+  DWORD state = DEVICE_STATE_DISABLED;
+  return SUCCEEDED(device->GetState(&state)) && (state & DEVICE_STATE_ACTIVE);
+}
+
+static HRESULT GetDeviceFriendlyNameInternal(IMMDevice* device,
+                                             std::string* friendly_name) {
+  // Retrieve user-friendly name of endpoint device.
+  // Example: "Microphone (Realtek High Definition Audio)".
+  ScopedComPtr<IPropertyStore> properties;
+  HRESULT hr = device->OpenPropertyStore(STGM_READ, properties.Receive());
+  if (FAILED(hr))
+    return hr;
+
+  base::win::ScopedPropVariant friendly_name_pv;
+  hr = properties->GetValue(PKEY_Device_FriendlyName,
+                            friendly_name_pv.Receive());
+  if (FAILED(hr))
+    return hr;
+
+  if (friendly_name_pv.get().vt == VT_LPWSTR &&
+      friendly_name_pv.get().pwszVal) {
+    base::WideToUTF8(friendly_name_pv.get().pwszVal,
+                     wcslen(friendly_name_pv.get().pwszVal), friendly_name);
+  }
+
+  return hr;
+}
+
+static ScopedComPtr<IMMDeviceEnumerator> CreateDeviceEnumeratorInternal(
+    bool allow_reinitialize) {
+  ScopedComPtr<IMMDeviceEnumerator> device_enumerator;
+  HRESULT hr = device_enumerator.CreateInstance(__uuidof(MMDeviceEnumerator),
+                                                NULL, CLSCTX_INPROC_SERVER);
+  if (hr == CO_E_NOTINITIALIZED && allow_reinitialize) {
+    LOG(ERROR) << "CoCreateInstance fails with CO_E_NOTINITIALIZED";
+    // We have seen crashes which indicates that this method can in fact
+    // fail with CO_E_NOTINITIALIZED in combination with certain 3rd party
+    // modules. Calling CoInitializeEx is an attempt to resolve the reported
+    // issues. See http://crbug.com/378465 for details.
+    hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    if (SUCCEEDED(hr)) {
+      hr = device_enumerator.CreateInstance(__uuidof(MMDeviceEnumerator),
+                                            NULL, CLSCTX_INPROC_SERVER);
+    }
+  }
+  return device_enumerator;
+}
+
+static bool IsSupportedInternal() {
   // It is possible to force usage of WaveXxx APIs by using a command line flag.
-  const CommandLine* cmd_line = CommandLine::ForCurrentProcess();
+  const base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
   if (cmd_line->HasSwitch(switches::kForceWaveAudio)) {
     DVLOG(1) << "Forcing usage of Windows WaveXxx APIs";
     return false;
@@ -176,19 +213,28 @@ bool CoreAudioUtil::IsSupported() {
   // the Audioses DLL since it depends on Mmdevapi.dll.
   // See http://crbug.com/166397 why this extra step is required to guarantee
   // Core Audio support.
-  static bool g_audioses_dll_available = LoadAudiosesDll();
-  if (!g_audioses_dll_available)
+  if (!LoadAudiosesDll())
     return false;
 
   // Being able to load the Audioses.dll does not seem to be sufficient for
   // all devices to guarantee Core Audio support. To be 100%, we also verify
   // that it is possible to a create the IMMDeviceEnumerator interface. If this
   // works as well we should be home free.
-  static bool g_can_create_device_enumerator = CanCreateDeviceEnumerator();
-  LOG_IF(ERROR, !g_can_create_device_enumerator)
-      << "Failed to create Core Audio device enumerator on thread with ID "
-      << GetCurrentThreadId();
-  return g_can_create_device_enumerator;
+  ScopedComPtr<IMMDeviceEnumerator> device_enumerator =
+      CreateDeviceEnumeratorInternal(false);
+  if (!device_enumerator) {
+    LOG(ERROR)
+        << "Failed to create Core Audio device enumerator on thread with ID "
+        << GetCurrentThreadId();
+    return false;
+  }
+
+  return true;
+}
+
+bool CoreAudioUtil::IsSupported() {
+  static bool g_is_supported = IsSupportedInternal();
+  return g_is_supported;
 }
 
 base::TimeDelta CoreAudioUtil::RefererenceTimeToTimeDelta(REFERENCE_TIME time) {
@@ -197,7 +243,7 @@ base::TimeDelta CoreAudioUtil::RefererenceTimeToTimeDelta(REFERENCE_TIME time) {
 }
 
 AUDCLNT_SHAREMODE CoreAudioUtil::GetShareMode() {
-  const CommandLine* cmd_line = CommandLine::ForCurrentProcess();
+  const base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
   if (cmd_line->HasSwitch(switches::kEnableExclusiveAudio))
     return AUDCLNT_SHAREMODE_EXCLUSIVE;
   return AUDCLNT_SHAREMODE_SHARED;
@@ -208,7 +254,7 @@ int CoreAudioUtil::NumberOfActiveDevices(EDataFlow data_flow) {
   // Create the IMMDeviceEnumerator interface.
   ScopedComPtr<IMMDeviceEnumerator> device_enumerator =
       CreateDeviceEnumerator();
-  if (!device_enumerator)
+  if (!device_enumerator.get())
     return 0;
 
   // Generate a collection of active (present and not disabled) audio endpoint
@@ -233,22 +279,9 @@ int CoreAudioUtil::NumberOfActiveDevices(EDataFlow data_flow) {
 
 ScopedComPtr<IMMDeviceEnumerator> CoreAudioUtil::CreateDeviceEnumerator() {
   DCHECK(IsSupported());
-  ScopedComPtr<IMMDeviceEnumerator> device_enumerator;
-  HRESULT hr = device_enumerator.CreateInstance(__uuidof(MMDeviceEnumerator),
-                                                NULL, CLSCTX_INPROC_SERVER);
-  if (hr == CO_E_NOTINITIALIZED) {
-    LOG(ERROR) << "CoCreateInstance fails with CO_E_NOTINITIALIZED";
-    // We have seen crashes which indicates that this method can in fact
-    // fail with CO_E_NOTINITIALIZED in combination with certain 3rd party
-    // modules. Calling CoInitializeEx is an attempt to resolve the reported
-    // issues. See http://crbug.com/378465 for details.
-    hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
-    if (SUCCEEDED(hr)) {
-      hr = device_enumerator.CreateInstance(__uuidof(MMDeviceEnumerator),
-                                            NULL, CLSCTX_INPROC_SERVER);
-    }
-  }
-  CHECK(SUCCEEDED(hr));
+  ScopedComPtr<IMMDeviceEnumerator> device_enumerator =
+      CreateDeviceEnumeratorInternal(true);
+  CHECK(device_enumerator);
   return device_enumerator;
 }
 
@@ -260,7 +293,7 @@ ScopedComPtr<IMMDevice> CoreAudioUtil::CreateDefaultDevice(EDataFlow data_flow,
   // Create the IMMDeviceEnumerator interface.
   ScopedComPtr<IMMDeviceEnumerator> device_enumerator =
       CreateDeviceEnumerator();
-  if (!device_enumerator)
+  if (!device_enumerator.get())
     return endpoint_device;
 
   // Retrieve the default audio endpoint for the specified data-flow
@@ -276,13 +309,9 @@ ScopedComPtr<IMMDevice> CoreAudioUtil::CreateDefaultDevice(EDataFlow data_flow,
 
   // Verify that the audio endpoint device is active, i.e., that the audio
   // adapter that connects to the endpoint device is present and enabled.
-  DWORD state = DEVICE_STATE_DISABLED;
-  hr = endpoint_device->GetState(&state);
-  if (SUCCEEDED(hr)) {
-    if (!(state & DEVICE_STATE_ACTIVE)) {
-      DVLOG(1) << "Selected endpoint device is not active";
-      endpoint_device.Release();
-    }
+  if (!IsDeviceActive(endpoint_device.get())) {
+    DVLOG(1) << "Selected endpoint device is not active";
+    endpoint_device.Release();
   }
   return endpoint_device;
 }
@@ -290,7 +319,7 @@ ScopedComPtr<IMMDevice> CoreAudioUtil::CreateDefaultDevice(EDataFlow data_flow,
 std::string CoreAudioUtil::GetDefaultOutputDeviceID() {
   DCHECK(IsSupported());
   ScopedComPtr<IMMDevice> device(CreateDefaultDevice(eRender, eConsole));
-  return device ? GetDeviceID(device) : std::string();
+  return device.get() ? GetDeviceID(device.get()) : std::string();
 }
 
 ScopedComPtr<IMMDevice> CoreAudioUtil::CreateDevice(
@@ -301,7 +330,7 @@ ScopedComPtr<IMMDevice> CoreAudioUtil::CreateDevice(
   // Create the IMMDeviceEnumerator interface.
   ScopedComPtr<IMMDeviceEnumerator> device_enumerator =
       CreateDeviceEnumerator();
-  if (!device_enumerator)
+  if (!device_enumerator.get())
     return endpoint_device;
 
   // Retrieve an audio device specified by an endpoint device-identification
@@ -310,6 +339,18 @@ ScopedComPtr<IMMDevice> CoreAudioUtil::CreateDevice(
       base::UTF8ToUTF16(device_id).c_str(), endpoint_device.Receive());
   DVLOG_IF(1, FAILED(hr)) << "IMMDeviceEnumerator::GetDevice: "
                           << std::hex << hr;
+
+  if (FAILED(hr)) {
+    DVLOG(1) << "IMMDeviceEnumerator::GetDevice: " << std::hex << hr;
+    return endpoint_device;
+  }
+
+  // Verify that the audio endpoint device is active, i.e., that the audio
+  // adapter that connects to the endpoint device is present and enabled.
+  if (!IsDeviceActive(endpoint_device.get())) {
+    DVLOG(1) << "Selected endpoint device is not active";
+    endpoint_device.Release();
+  }
   return endpoint_device;
 }
 
@@ -323,21 +364,9 @@ HRESULT CoreAudioUtil::GetDeviceName(IMMDevice* device, AudioDeviceName* name) {
   if (device_name.unique_id.empty())
     return E_FAIL;
 
-  // Retrieve user-friendly name of endpoint device.
-  // Example: "Microphone (Realtek High Definition Audio)".
-  ScopedComPtr<IPropertyStore> properties;
-  HRESULT hr = device->OpenPropertyStore(STGM_READ, properties.Receive());
+  HRESULT hr = GetDeviceFriendlyNameInternal(device, &device_name.device_name);
   if (FAILED(hr))
     return hr;
-  base::win::ScopedPropVariant friendly_name;
-  hr = properties->GetValue(PKEY_Device_FriendlyName, friendly_name.Receive());
-  if (FAILED(hr))
-    return hr;
-  if (friendly_name.get().vt == VT_LPWSTR && friendly_name.get().pwszVal) {
-    base::WideToUTF8(friendly_name.get().pwszVal,
-                     wcslen(friendly_name.get().pwszVal),
-                     &device_name.device_name);
-  }
 
   *name = device_name;
   DVLOG(2) << "friendly name: " << device_name.device_name;
@@ -395,12 +424,13 @@ std::string CoreAudioUtil::GetAudioControllerID(IMMDevice* device,
 std::string CoreAudioUtil::GetMatchingOutputDeviceID(
     const std::string& input_device_id) {
   ScopedComPtr<IMMDevice> input_device(CreateDevice(input_device_id));
-  if (!input_device)
+  if (!input_device.get())
     return std::string();
 
   // See if we can get id of the associated controller.
   ScopedComPtr<IMMDeviceEnumerator> enumerator(CreateDeviceEnumerator());
-  std::string controller_id(GetAudioControllerID(input_device, enumerator));
+  std::string controller_id(
+      GetAudioControllerID(input_device.get(), enumerator.get()));
   if (controller_id.empty())
     return std::string();
 
@@ -409,7 +439,7 @@ std::string CoreAudioUtil::GetMatchingOutputDeviceID(
   ScopedComPtr<IMMDeviceCollection> collection;
   enumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE,
       collection.Receive());
-  if (!collection)
+  if (!collection.get())
     return std::string();
 
   UINT count = 0;
@@ -417,24 +447,24 @@ std::string CoreAudioUtil::GetMatchingOutputDeviceID(
   ScopedComPtr<IMMDevice> output_device;
   for (UINT i = 0; i < count; ++i) {
     collection->Item(i, output_device.Receive());
-    std::string output_controller_id(GetAudioControllerID(
-        output_device, enumerator));
+    std::string output_controller_id(
+        GetAudioControllerID(output_device.get(), enumerator.get()));
     if (output_controller_id == controller_id)
       break;
     output_device = NULL;
   }
 
-  return output_device ? GetDeviceID(output_device) : std::string();
+  return output_device.get() ? GetDeviceID(output_device.get()) : std::string();
 }
 
 std::string CoreAudioUtil::GetFriendlyName(const std::string& device_id) {
   DCHECK(IsSupported());
   ScopedComPtr<IMMDevice> audio_device = CreateDevice(device_id);
-  if (!audio_device)
+  if (!audio_device.get())
     return std::string();
 
   AudioDeviceName device_name;
-  HRESULT hr = GetDeviceName(audio_device, &device_name);
+  HRESULT hr = GetDeviceName(audio_device.get(), &device_name);
   if (FAILED(hr))
     return std::string();
 
@@ -446,10 +476,10 @@ bool CoreAudioUtil::DeviceIsDefault(EDataFlow flow,
                                     const std::string& device_id) {
   DCHECK(IsSupported());
   ScopedComPtr<IMMDevice> device = CreateDefaultDevice(flow, role);
-  if (!device)
+  if (!device.get())
     return false;
 
-  std::string str_default(GetDeviceID(device));
+  std::string str_default(GetDeviceID(device.get()));
   return device_id.compare(str_default) == 0;
 }
 
@@ -490,8 +520,8 @@ ScopedComPtr<IAudioClient> CoreAudioUtil::CreateDefaultClient(
     EDataFlow data_flow, ERole role) {
   DCHECK(IsSupported());
   ScopedComPtr<IMMDevice> default_device(CreateDefaultDevice(data_flow, role));
-  return (default_device ? CreateClient(default_device) :
-      ScopedComPtr<IAudioClient>());
+  return (default_device.get() ? CreateClient(default_device.get())
+                               : ScopedComPtr<IAudioClient>());
 }
 
 ScopedComPtr<IAudioClient> CoreAudioUtil::CreateClient(
@@ -500,10 +530,10 @@ ScopedComPtr<IAudioClient> CoreAudioUtil::CreateClient(
     return CreateDefaultClient(data_flow, role);
 
   ScopedComPtr<IMMDevice> device(CreateDevice(device_id));
-  if (!device)
+  if (!device.get())
     return ScopedComPtr<IAudioClient>();
 
- return CreateClient(device);
+  return CreateClient(device.get());
 }
 
 HRESULT CoreAudioUtil::GetSharedModeMixFormat(
@@ -554,11 +584,11 @@ bool CoreAudioUtil::IsChannelLayoutSupported(const std::string& device_id,
   // First, get the preferred mixing format for shared mode streams.
 
   ScopedComPtr<IAudioClient> client(CreateClient(device_id, data_flow, role));
-  if (!client)
+  if (!client.get())
     return false;
 
   WAVEFORMATPCMEX format;
-  HRESULT hr = GetSharedModeMixFormat(client, &format);
+  HRESULT hr = GetSharedModeMixFormat(client.get(), &format);
   if (FAILED(hr))
     return false;
 
@@ -591,8 +621,8 @@ bool CoreAudioUtil::IsChannelLayoutSupported(const std::string& device_id,
   // an even wider range of shared-mode formats where the installation package
   // for the audio device includes a local effects (LFX) audio processing
   // object (APO) that can handle format conversions.
-  return CoreAudioUtil::IsFormatSupported(client, AUDCLNT_SHAREMODE_SHARED,
-                                          &format);
+  return CoreAudioUtil::IsFormatSupported(client.get(),
+                                          AUDCLNT_SHAREMODE_SHARED, &format);
 }
 
 HRESULT CoreAudioUtil::GetDevicePeriod(IAudioClient* client,
@@ -644,10 +674,10 @@ HRESULT CoreAudioUtil::GetPreferredAudioParameters(
   // Some devices don't appear to set a valid channel layout, so guess based on
   // the number of channels.  See http://crbug.com/311906.
   if (channel_layout == CHANNEL_LAYOUT_UNSUPPORTED) {
-    VLOG(1) << "Unsupported channel config: "
-            << std::hex << channel_config
-            << ".  Guessing layout by channel count: "
-            << std::dec << mix_format.Format.nChannels;
+    DVLOG(1) << "Unsupported channel config: "
+             << std::hex << channel_config
+             << ".  Guessing layout by channel count: "
+             << std::dec << mix_format.Format.nChannels;
     channel_layout = GuessChannelLayout(mix_format.Format.nChannels);
   }
 
@@ -685,13 +715,13 @@ HRESULT CoreAudioUtil::GetPreferredAudioParameters(
     EDataFlow data_flow, ERole role, AudioParameters* params) {
   DCHECK(IsSupported());
   ScopedComPtr<IAudioClient> client(CreateDefaultClient(data_flow, role));
-  if (!client) {
+  if (!client.get()) {
     // Map NULL-pointer to new error code which can be different from the
     // actual error code. The exact value is not important here.
     return AUDCLNT_E_ENDPOINT_CREATE_FAILED;
   }
 
-  HRESULT hr = GetPreferredAudioParameters(client, params);
+  HRESULT hr = GetPreferredAudioParameters(client.get(), params);
   if (FAILED(hr))
     return hr;
 
@@ -706,23 +736,63 @@ HRESULT CoreAudioUtil::GetPreferredAudioParameters(
   return hr;
 }
 
-HRESULT CoreAudioUtil::GetPreferredAudioParameters(
-    const std::string& device_id, AudioParameters* params) {
+HRESULT CoreAudioUtil::GetPreferredAudioParameters(const std::string& device_id,
+                                                   bool is_output_device,
+                                                   AudioParameters* params) {
   DCHECK(IsSupported());
-  ScopedComPtr<IMMDevice> device(CreateDevice(device_id));
-  if (!device) {
+
+  ScopedComPtr<IMMDevice> device;
+  if (device_id == AudioManagerBase::kDefaultDeviceId) {
+    device = CoreAudioUtil::CreateDefaultDevice(
+        is_output_device ? eRender : eCapture, eConsole);
+  } else if (device_id == AudioManagerBase::kLoopbackInputDeviceId) {
+    DCHECK(!is_output_device);
+    device = CoreAudioUtil::CreateDefaultDevice(eRender, eConsole);
+  } else {
+    device = CreateDevice(device_id);
+  }
+
+  if (!device.get()) {
     // Map NULL-pointer to new error code which can be different from the
     // actual error code. The exact value is not important here.
     return AUDCLNT_E_DEVICE_INVALIDATED;
   }
 
-  ScopedComPtr<IAudioClient> client(CreateClient(device));
-  if (!client) {
+  ScopedComPtr<IAudioClient> client(CreateClient(device.get()));
+  if (!client.get()) {
     // Map NULL-pointer to new error code which can be different from the
     // actual error code. The exact value is not important here.
     return AUDCLNT_E_ENDPOINT_CREATE_FAILED;
   }
-  return GetPreferredAudioParameters(client, params);
+
+  HRESULT hr = GetPreferredAudioParameters(client.get(), params);
+  if (FAILED(hr) || is_output_device || !params->IsValid())
+    return hr;
+
+  // The following functionality is only for input devices.
+  DCHECK(!is_output_device);
+
+  // TODO(dalecurtis): Old code rewrote != 1 channels to stereo, do we still
+  // need to do the same thing?
+  if (params->channels() != 1) {
+    params->Reset(params->format(), CHANNEL_LAYOUT_STEREO, 2,
+                  params->sample_rate(), params->bits_per_sample(),
+                  params->frames_per_buffer());
+  }
+
+  ScopedComPtr<IMMDevice> communications_device(
+      CreateDefaultDevice(eCapture, eCommunications));
+  if (communications_device &&
+      GetDeviceID(communications_device.get()) == GetDeviceID(device.get())) {
+    // Raise the 'DUCKING' flag for default communication devices.
+    *params =
+        AudioParameters(params->format(), params->channel_layout(),
+                        params->channels(), params->sample_rate(),
+                        params->bits_per_sample(), params->frames_per_buffer(),
+                        params->effects() | AudioParameters::DUCKING);
+  }
+
+  return hr;
 }
 
 ChannelConfig CoreAudioUtil::GetChannelConfig(const std::string& device_id,
@@ -730,8 +800,8 @@ ChannelConfig CoreAudioUtil::GetChannelConfig(const std::string& device_id,
   ScopedComPtr<IAudioClient> client(
       CreateClient(device_id, data_flow, eConsole));
 
-  WAVEFORMATPCMEX format = {0};
-  if (!client || FAILED(GetSharedModeMixFormat(client, &format)))
+  WAVEFORMATPCMEX format = {};
+  if (!client.get() || FAILED(GetSharedModeMixFormat(client.get(), &format)))
     return 0;
 
   return static_cast<ChannelConfig>(format.dwChannelMask);

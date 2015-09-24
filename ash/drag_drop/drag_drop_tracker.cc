@@ -11,6 +11,7 @@
 #include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/events/event.h"
+#include "ui/events/event_utils.h"
 #include "ui/gfx/screen.h"
 #include "ui/wm/core/coordinate_conversion.h"
 #include "ui/wm/public/activation_delegate.h"
@@ -43,7 +44,7 @@ aura::Window* CreateCaptureWindow(aura::Window* context_root,
   // Set type of window as popup to prevent different window manager codes
   // trying to manage this window.
   window->SetType(ui::wm::WINDOW_TYPE_POPUP);
-  window->Init(aura::WINDOW_LAYER_NOT_DRAWN);
+  window->Init(ui::LAYER_NOT_DRAWN);
   aura::client::ParentWindowWithContext(window, context_root, gfx::Rect());
   aura::client::SetActivationDelegate(window, activation_delegate_instance);
   window->Show();
@@ -91,12 +92,10 @@ ui::LocatedEvent* DragDropTracker::ConvertEvent(
       capture_window_->GetRootWindow(),
       ash::wm::GetRootWindowAt(location_in_screen),
       &target_root_location);
-  return new ui::MouseEvent(event.type(),
-                            target_location,
-                            target_root_location,
-                            event.flags(),
-                            static_cast<const ui::MouseEvent&>(event).
-                                changed_button_flags());
+  return new ui::MouseEvent(
+      event.type(), target_location, target_root_location,
+      ui::EventTimeForNow(), event.flags(),
+      static_cast<const ui::MouseEvent&>(event).changed_button_flags());
 }
 
 }  // namespace ash

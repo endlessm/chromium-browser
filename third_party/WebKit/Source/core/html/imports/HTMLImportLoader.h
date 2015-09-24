@@ -70,13 +70,13 @@ public:
         return adoptPtrWillBeNoop(new HTMLImportLoader(controller));
     }
 
-    virtual ~HTMLImportLoader();
+    ~HTMLImportLoader() override;
+    void dispose();
 
     Document* document() const { return m_document.get(); }
     void addImport(HTMLImportChild*);
-#if !ENABLE(OILPAN)
     void removeImport(HTMLImportChild*);
-#endif
+
     void moveToFirst(HTMLImportChild*);
     HTMLImportChild* firstImport() const { return m_imports[0]; }
     bool isFirstImport(const HTMLImportChild* child) const { return m_imports.size() ? firstImport() == child : false; }
@@ -85,9 +85,6 @@ public:
     bool hasError() const { return m_state == StateError; }
     bool shouldBlockScriptExecution() const;
 
-#if !ENABLE(OILPAN)
-    void importDestroyed();
-#endif
     void startLoading(const ResourcePtr<RawResource>&);
 
     // Tells the loader that all of the import's stylesheets finished
@@ -97,20 +94,20 @@ public:
 
     PassRefPtrWillBeRawPtr<CustomElementSyncMicrotaskQueue> microtaskQueue() const;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     HTMLImportLoader(HTMLImportsController*);
 
     // RawResourceClient
-    virtual void responseReceived(Resource*, const ResourceResponse&, PassOwnPtr<WebDataConsumerHandle>) override;
-    virtual void dataReceived(Resource*, const char* data, unsigned length) override;
-    virtual void notifyFinished(Resource*) override;
+    void responseReceived(Resource*, const ResourceResponse&, PassOwnPtr<WebDataConsumerHandle>) override;
+    void dataReceived(Resource*, const char* data, unsigned length) override;
+    void notifyFinished(Resource*) override;
 
     // DocumentParserClient
 
     // Called after document parse is complete after DOMContentLoaded was dispatched.
-    virtual void notifyParserStopped() override;
+    void notifyParserStopped() override;
 
     State startWritingAndParsing(const ResourceResponse&);
     State finishWriting();

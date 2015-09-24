@@ -17,11 +17,11 @@
 #include "SkValidationUtils.h"
 
 SkTileImageFilter* SkTileImageFilter::Create(const SkRect& srcRect, const SkRect& dstRect,
-                                             SkImageFilter* input, uint32_t uniqueID) {
+                                             SkImageFilter* input) {
     if (!SkIsValidRect(srcRect) || !SkIsValidRect(dstRect)) {
         return NULL;
     }
-    return SkNEW_ARGS(SkTileImageFilter, (srcRect, dstRect, input, uniqueID));
+    return SkNEW_ARGS(SkTileImageFilter, (srcRect, dstRect, input));
 }
 
 bool SkTileImageFilter::onFilterImage(Proxy* proxy, const SkBitmap& src,
@@ -36,8 +36,7 @@ bool SkTileImageFilter::onFilterImage(Proxy* proxy, const SkBitmap& src,
 
     SkRect dstRect;
     ctx.ctm().mapRect(&dstRect, fDstRect);
-    SkIRect dstIRect;
-    dstRect.roundOut(&dstIRect);
+    const SkIRect dstIRect = dstRect.roundOut();
     int w = dstIRect.width();
     int h = dstIRect.height();
     if (!fSrcRect.width() || !fSrcRect.height() || !w || !h) {
@@ -94,21 +93,18 @@ bool SkTileImageFilter::onFilterBounds(const SkIRect& src, const SkMatrix& ctm,
     return true;
 }
 
-#ifdef SK_SUPPORT_LEGACY_DEEPFLATTENING
-SkTileImageFilter::SkTileImageFilter(SkReadBuffer& buffer)
-  : INHERITED(1, buffer) {
-    buffer.readRect(&fSrcRect);
-    buffer.readRect(&fDstRect);
-    buffer.validate(buffer.isValid() && SkIsValidRect(fSrcRect) && SkIsValidRect(fDstRect));
+void SkTileImageFilter::computeFastBounds(const SkRect& src, SkRect* dst) const {
+    // This is a workaround for skia:3194.
+    *dst = src;
+    dst->join(fDstRect);
 }
-#endif
 
 SkFlattenable* SkTileImageFilter::CreateProc(SkReadBuffer& buffer) {
     SK_IMAGEFILTER_UNFLATTEN_COMMON(common, 1);
     SkRect src, dst;
     buffer.readRect(&src);
     buffer.readRect(&dst);
-    return Create(src, dst, common.getInput(0), common.uniqueID());
+    return Create(src, dst, common.getInput(0));
 }
 
 void SkTileImageFilter::flatten(SkWriteBuffer& buffer) const {
@@ -116,3 +112,19 @@ void SkTileImageFilter::flatten(SkWriteBuffer& buffer) const {
     buffer.writeRect(fSrcRect);
     buffer.writeRect(fDstRect);
 }
+
+#ifndef SK_IGNORE_TO_STRING
+void SkTileImageFilter::toString(SkString* str) const {
+    str->appendf("SkTileImageFilter: (");
+    str->appendf("src: %.2f %.2f %.2f %.2f",
+                 fSrcRect.fLeft, fSrcRect.fTop, fSrcRect.fRight, fSrcRect.fBottom);
+    str->appendf(" dst: %.2f %.2f %.2f %.2f",
+                 fDstRect.fLeft, fDstRect.fTop, fDstRect.fRight, fDstRect.fBottom);
+    if (this->getInput(0)) {
+        str->appendf("input: (");
+        this->getInput(0)->toString(str);
+        str->appendf(")");
+    }
+    str->append(")");
+}
+#endif

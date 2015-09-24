@@ -11,6 +11,7 @@
 #
 # See also build/config/ui.gni
 
+import("//native_client/build/config/chrome_build.gni")
 if (is_android) {
   import("//native_client/build/config/android/config.gni")
 }
@@ -22,7 +23,7 @@ declare_args() {
   enable_plugins = !is_android || !is_ios
 
   # Enables Native Client support.
-  enable_nacl = (!is_ios && !is_android)
+  enable_nacl = !is_ios && !is_android
 }
 
 # Additional dependent variables -----------------------------------------------
@@ -45,22 +46,20 @@ enable_spellcheck = !is_android
 
 enable_pepper_cdms = enable_plugins && (is_linux || is_mac || is_win)
 
-# Enable printing support and UI. This variable is used to configure which
-# parts of printing will be built. 0 disables printing completely, 1 enables it
-# fully, and 2 enables only the codepath to generate a Metafile (e.g.  usually
-# a PDF or EMF) and disables print preview, cloud print, UI, etc.
-if (is_android) {
-  enable_printing = 2
-} else {
-  enable_printing = 1
-}
+# Enable basic printing support and UI.
+enable_basic_printing = !is_chromeos
+
+# Enable printing with print preview. It does not imply
+# enable_basic_printing. It's possible to build Chrome with preview only.
+enable_print_preview = !is_android
 
 # The seccomp-bpf sandbox is only supported on three architectures
 # currently.
 # Do not disable seccomp_bpf anywhere without talking to
 # security@chromium.org!
-use_seccomp_bpf = (is_linux || is_android) &&
-  (cpu_arch == "x86" || cpu_arch == "x64" || cpu_arch == "arm")
+use_seccomp_bpf =
+    (is_linux || is_android) &&
+    (current_cpu == "x86" || current_cpu == "x64" || current_cpu == "arm")
 
 enable_webrtc = !is_ios
 
@@ -78,7 +77,7 @@ enable_speech_input = true
 
 use_dbus = is_linux
 
-enable_extensions = (!is_android && !is_ios)
+enable_extensions = !is_android && !is_ios
 
 # Variable safe_browsing is used to control the build time configuration for
 # safe browsing feature. Safe browsing can be compiled in 3 different levels: 0
@@ -136,6 +135,6 @@ enable_managed_users = !is_ios
 
 enable_service_discovery = enable_mdns || is_mac
 
-enable_autofill_dialog = !is_ios && !(is_android && is_android_webview_build)
+enable_autofill_dialog = !is_ios && !is_android
 
 enable_wifi_bootstrapping = is_win || is_mac

@@ -23,6 +23,10 @@ enum {
   DIR_LOGS,                     // Directory where logs should be written.
   DIR_USER_DATA,                // Directory where user data can be written.
   DIR_CRASH_DUMPS,              // Directory where crash dumps are written.
+#if defined(OS_WIN)
+  DIR_WATCHER_DATA,             // Directory where the Chrome watcher stores
+                                // data.
+#endif
   DIR_RESOURCES,                // Directory containing separate file resources
                                 // used by Chrome at runtime.
   DIR_INSPECTOR,                // Directory where web inspector is located.
@@ -43,8 +47,6 @@ enum {
                                 // contains subdirectories.
 #endif
 #if defined(OS_MACOSX) && !defined(OS_IOS)
-  DIR_MANAGED_PREFS,            // Directory that stores the managed prefs plist
-                                // files for the current user.
   DIR_USER_APPLICATIONS,        // ~/Applications
   DIR_USER_LIBRARY,             // ~/Library
 #endif
@@ -70,8 +72,6 @@ enum {
   DIR_COMPONENT_UPDATED_PEPPER_FLASH_PLUGIN,  // Base directory of the Pepper
                                               // Flash plugins downloaded by the
                                               // component updater.
-  DIR_PEPPER_FLASH_DEBUGGER_PLUGIN,  // Base directory of the debugging version
-                                     // of the Pepper Flash plugin.
   FILE_RESOURCE_MODULE,         // Full path and filename of the module that
                                 // contains embedded resources (version,
                                 // strings, images, etc.).
@@ -80,20 +80,20 @@ enum {
   FILE_RECORDED_SCRIPT,         // Full path to the script.log file that
                                 // contains recorded browser events for
                                 // playback.
-  FILE_FLASH_PLUGIN,            // Full path to the internal NPAPI Flash plugin
-                                // file. Querying this path will succeed no
-                                // matter the file exists or not.
   FILE_PEPPER_FLASH_PLUGIN,     // Full path to the bundled Pepper Flash plugin
                                 // file.
-  FILE_PDF_PLUGIN,              // Full path to the internal PDF plugin file.
-
+  FILE_PEPPER_FLASH_SYSTEM_PLUGIN,  // Full path to the system version of the
+                                    // Pepper Flash plugin, downloadable from
+                                    // Adobe website. Querying this path might
+                                    // succeed no matter the file exists or not.
+  FILE_FLASH_SYSTEM_PLUGIN,     // Full path to the system version of NPAPI
+                                // Flash plugin, downloadable from Adobe
+                                // website. Querying this path might succeed no
+                                // matter the file exists or not.
   FILE_NACL_PLUGIN,             // Full path to the internal NaCl plugin file.
   DIR_PNACL_BASE,               // Full path to the base dir for PNaCl.
   DIR_PNACL_COMPONENT,          // Full path to the latest PNaCl version
                                 // (subdir of DIR_PNACL_BASE).
-  FILE_O1D_PLUGIN,              // Full path to the O1D Pepper plugin file.
-  FILE_EFFECTS_PLUGIN,          // Full path to the Effects Pepper plugin file.
-  FILE_GTALK_PLUGIN,            // Full path to the GTalk Pepper plugin file.
   DIR_COMPONENT_WIDEVINE_CDM,   // Directory that contains component-updated
                                 // Widevine CDM files.
   FILE_WIDEVINE_CDM_ADAPTER,    // Full path to the Widevine CDM adapter file.

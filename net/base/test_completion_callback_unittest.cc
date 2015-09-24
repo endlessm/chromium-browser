@@ -5,13 +5,17 @@
 // Illustrates how to use worker threads that issue completion callbacks
 
 #include "base/bind.h"
+#include "base/location.h"
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/threading/worker_pool.h"
 #include "net/base/completion_callback.h"
 #include "net/base/test_completion_callback.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
+
+namespace net {
 
 namespace {
 
@@ -36,7 +40,7 @@ class ExampleEmployer {
   // Do some imaginary work on a worker thread;
   // when done, worker posts callback on the original thread.
   // Returns true on success
-  bool DoSomething(const net::CompletionCallback& callback);
+  bool DoSomething(const CompletionCallback& callback);
 
  private:
   class ExampleWorker;
@@ -49,8 +53,7 @@ class ExampleEmployer {
 class ExampleEmployer::ExampleWorker
     : public base::RefCountedThreadSafe<ExampleWorker> {
  public:
-  ExampleWorker(ExampleEmployer* employer,
-                const net::CompletionCallback& callback)
+  ExampleWorker(ExampleEmployer* employer, const CompletionCallback& callback)
       : employer_(employer),
         callback_(callback),
         origin_loop_(base::MessageLoop::current()) {}
@@ -63,7 +66,7 @@ class ExampleEmployer::ExampleWorker
 
   // Only used on the origin thread (where DoSomething was called).
   ExampleEmployer* employer_;
-  net::CompletionCallback callback_;
+  CompletionCallback callback_;
   // Used to post ourselves onto the origin thread.
   base::Lock origin_loop_lock_;
   base::MessageLoop* origin_loop_;
@@ -79,8 +82,8 @@ void ExampleEmployer::ExampleWorker::DoWork() {
   {
     base::AutoLock locked(origin_loop_lock_);
     if (origin_loop_)
-      origin_loop_->PostTask(FROM_HERE,
-                             base::Bind(&ExampleWorker::DoCallback, this));
+      origin_loop_->task_runner()->PostTask(
+          FROM_HERE, base::Bind(&ExampleWorker::DoCallback, this));
   }
 }
 
@@ -101,7 +104,7 @@ ExampleEmployer::ExampleEmployer() {
 ExampleEmployer::~ExampleEmployer() {
 }
 
-bool ExampleEmployer::DoSomething(const net::CompletionCallback& callback) {
+bool ExampleEmployer::DoSomething(const CompletionCallback& callback) {
   DCHECK(!request_.get()) << "already in use";
 
   request_ = new ExampleWorker(this, callback);
@@ -125,7 +128,7 @@ typedef PlatformTest TestCompletionCallbackTest;
 
 TEST_F(TestCompletionCallbackTest, Simple) {
   ExampleEmployer boss;
-  net::TestCompletionCallback callback;
+  TestCompletionCallback callback;
   bool queued = boss.DoSomething(callback.callback());
   EXPECT_TRUE(queued);
   int result = callback.WaitForResult();
@@ -134,11 +137,11 @@ TEST_F(TestCompletionCallbackTest, Simple) {
 
 TEST_F(TestCompletionCallbackTest, Closure) {
   ExampleEmployer boss;
-  net::TestClosure closure;
+  TestClosure closure;
   bool did_check_result = false;
-  net::CompletionCallback completion_callback =
-      base::Bind(&CallClosureAfterCheckingResult,
-                 closure.closure(), base::Unretained(&did_check_result));
+  CompletionCallback completion_callback =
+      base::Bind(&CallClosureAfterCheckingResult, closure.closure(),
+                 base::Unretained(&did_check_result));
   bool queued = boss.DoSomething(completion_callback);
   EXPECT_TRUE(queued);
 
@@ -148,3 +151,5 @@ TEST_F(TestCompletionCallbackTest, Closure) {
 }
 
 // TODO: test deleting ExampleEmployer while work outstanding
+
+}  // namespace net

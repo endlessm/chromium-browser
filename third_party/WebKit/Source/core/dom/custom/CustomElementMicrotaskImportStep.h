@@ -54,7 +54,7 @@ class CustomElementMicrotaskImportStep : public CustomElementMicrotaskStep {
     WTF_MAKE_NONCOPYABLE(CustomElementMicrotaskImportStep);
 public:
     static PassOwnPtrWillBeRawPtr<CustomElementMicrotaskImportStep> create(HTMLImportChild*);
-    virtual ~CustomElementMicrotaskImportStep();
+    ~CustomElementMicrotaskImportStep() override;
 
     // API for HTML Imports
     void invalidate();
@@ -63,7 +63,7 @@ public:
     WeakPtr<CustomElementMicrotaskImportStep> weakPtr() { return m_weakFactory.createWeakPtr(); }
 #endif
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     explicit CustomElementMicrotaskImportStep(HTMLImportChild*);
@@ -72,10 +72,10 @@ private:
     bool shouldWaitForImport() const;
 
     // CustomElementMicrotaskStep
-    virtual Result process() override final;
+    Result process() final;
 
 #if !defined(NDEBUG)
-    virtual void show(unsigned indent) override;
+    void show(unsigned indent) override;
 #endif
     WeakPtrWillBeWeakMember<HTMLImportChild> m_import;
 #if !ENABLE(OILPAN)

@@ -6,8 +6,8 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task_runner.h"
@@ -117,9 +117,6 @@ GURL DhcpProxyScriptAdapterFetcher::GetPacURL() const {
 DhcpProxyScriptAdapterFetcher::DhcpQuery::DhcpQuery() {
 }
 
-DhcpProxyScriptAdapterFetcher::DhcpQuery::~DhcpQuery() {
-}
-
 void DhcpProxyScriptAdapterFetcher::DhcpQuery::GetPacURLForAdapter(
     const std::string& adapter_name) {
   url_ = ImplGetPacURLFromDhcp(adapter_name);
@@ -133,6 +130,9 @@ std::string
     DhcpProxyScriptAdapterFetcher::DhcpQuery::ImplGetPacURLFromDhcp(
         const std::string& adapter_name) {
   return DhcpProxyScriptAdapterFetcher::GetPacURLFromDhcp(adapter_name);
+}
+
+DhcpProxyScriptAdapterFetcher::DhcpQuery::~DhcpQuery() {
 }
 
 void DhcpProxyScriptAdapterFetcher::OnDhcpQueryDone(

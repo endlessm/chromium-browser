@@ -15,15 +15,6 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/common/content_switches.h"
 
-// Declare notification names from the 10.7 SDK.
-#if !defined(MAC_OS_X_VERSION_10_7) || \
-    MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_X_VERSION_10_7
-
-NSString* NSPreferredScrollerStyleDidChangeNotification =
-    @"NSPreferredScrollerStyleDidChangeNotification";
-
-#endif
-
 @interface ScrollbarPrefsObserver : NSObject
 
 + (void)registerAsObserver;
@@ -53,7 +44,8 @@ suspensionBehavior:NSNotificationSuspensionBehaviorCoalesce];
   // In single-process mode, renderers will catch these notifications
   // themselves and listening for them here may trigger the DCHECK in Observe().
   if ([NSScroller respondsToSelector:@selector(preferredScrollerStyle)] &&
-      !CommandLine::ForCurrentProcess()->HasSwitch(switches::kSingleProcess)) {
+      !base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kSingleProcess)) {
     [[NSNotificationCenter defaultCenter]
         addObserver:self
            selector:@selector(behaviorPrefsChanged:)
@@ -71,7 +63,7 @@ suspensionBehavior:NSNotificationSuspensionBehaviorCoalesce];
 }
 
 + (void)notifyPrefsChangedWithRedraw:(BOOL)redraw {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
   [defaults synchronize];
 
@@ -107,15 +99,17 @@ void ThemeHelperMac::SendThemeChangeToAllRenderers(
     bool jump_on_track_click,
     blink::ScrollerStyle preferred_scroller_style,
     bool redraw) {
+  ViewMsg_UpdateScrollbarTheme_Params params;
+  params.initial_button_delay = initial_button_delay;
+  params.autoscroll_button_delay = autoscroll_button_delay;
+  params.jump_on_track_click = jump_on_track_click;
+  params.preferred_scroller_style = preferred_scroller_style;
+  params.redraw = redraw;
+
   for (RenderProcessHost::iterator it(RenderProcessHost::AllHostsIterator());
        !it.IsAtEnd();
        it.Advance()) {
-    it.GetCurrentValue()->Send(new ViewMsg_UpdateScrollbarTheme(
-        initial_button_delay,
-        autoscroll_button_delay,
-        jump_on_track_click,
-        preferred_scroller_style,
-        redraw));
+    it.GetCurrentValue()->Send(new ViewMsg_UpdateScrollbarTheme(params));
   }
 }
 
@@ -134,17 +128,22 @@ void ThemeHelperMac::Observe(int type,
                              const NotificationDetails& details) {
   DCHECK_EQ(NOTIFICATION_RENDERER_PROCESS_CREATED, type);
 
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
   [defaults synchronize];
 
   RenderProcessHost* rph = Source<RenderProcessHost>(source).ptr();
-  rph->Send(new ViewMsg_UpdateScrollbarTheme(
-      [defaults floatForKey:@"NSScrollerButtonDelay"],
-      [defaults floatForKey:@"NSScrollerButtonPeriod"],
-      [defaults boolForKey:@"AppleScrollerPagingBehavior"],
-      GetPreferredScrollerStyle(),
-      false));
+
+  ViewMsg_UpdateScrollbarTheme_Params params;
+  params.initial_button_delay = [defaults floatForKey:@"NSScrollerButtonDelay"];
+  params.autoscroll_button_delay =
+      [defaults floatForKey:@"NSScrollerButtonPeriod"];
+  params.jump_on_track_click =
+      [defaults boolForKey:@"AppleScrollerPagingBehavior"];
+  params.preferred_scroller_style = GetPreferredScrollerStyle();
+  params.redraw = false;
+
+  rph->Send(new ViewMsg_UpdateScrollbarTheme(params));
 }
 
 }  // namespace content

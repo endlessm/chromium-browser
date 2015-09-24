@@ -28,16 +28,22 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://w3c.github.io/FileAPI/#blob
+
 [
     GarbageCollected,
-    CustomConstructor,
-    CustomConstructor(sequence<any> blobParts, optional BlobPropertyBag options),
+    Constructor,
+    Constructor(sequence<(ArrayBuffer or ArrayBufferView or Blob or DOMString)> blobParts, optional BlobPropertyBag options),
+    RaisesException=Constructor,
     Exposed=(Window,Worker),
 ] interface Blob {
     readonly attribute unsigned long long size;
     readonly attribute DOMString type;
+    // TODO(jsbell): Implement:
+    // readonly attribute boolean isClosed;
 
+    // TODO(jsbell): start and end arguments should be [Clamp]
+    // TODO(philipj): contentType should not be optional or nullable.
     [RaisesException] Blob slice(optional long long start, optional long long end, [TreatUndefinedAs=NullString] optional DOMString? contentType);
     [RaisesException, CallWith=ExecutionContext, RuntimeEnabled=FileAPIBlobClose] void close();
 };
-

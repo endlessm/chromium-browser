@@ -8,6 +8,8 @@
 #include <string>
 #include <utility>
 
+#include "base/compiler_specific.h"
+#include "base/memory/scoped_ptr.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
 #include "components/content_settings/core/common/content_settings_types.h"
@@ -27,9 +29,6 @@ class RuleIterator;
 typedef std::pair<ContentSettingsPattern, ContentSettingsPattern> PatternPair;
 
 std::string GetTypeName(ContentSettingsType type);
-
-bool GetTypeFromName(const std::string& name,
-                     ContentSettingsType* return_setting);
 
 std::string ContentSettingToString(ContentSetting setting);
 
@@ -58,6 +57,10 @@ base::Value* GetContentSettingValueAndPatterns(
     ContentSettingsPattern* primary_pattern,
     ContentSettingsPattern* secondary_pattern);
 
+// Returns a |base::Value*| representation of |setting| if |setting| is
+// a valid content setting. Otherwise, returns a nullptr.
+scoped_ptr<base::Value> ContentSettingToValue(ContentSetting setting);
+
 base::Value* GetContentSettingValueAndPatterns(
     const ProviderInterface* provider,
     const GURL& primary_url,
@@ -72,6 +75,10 @@ base::Value* GetContentSettingValueAndPatterns(
 // handled by the renderer.
 void GetRendererContentSettingRules(const HostContentSettingsMap* map,
                                     RendererContentSettingRules* rules);
+
+// Get the flags to use when registering the preference to store |content_type|
+// settings.
+uint32 PrefRegistrationFlagsForType(ContentSettingsType content_type);
 
 }  // namespace content_settings
 

@@ -24,10 +24,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// http://www.w3.org/TR/SVG2/paths.html#InterfaceSVGPathSeg
+
 [
     DependentLifetime,
     RuntimeEnabled=SVG1DOM,
     MeasureAs=SVGPathSegDOM,
+    WillBeGarbageCollected,
 ] interface SVGPathSeg {
     // Path Segment Types
     const unsigned short PATHSEG_UNKNOWN = 0;

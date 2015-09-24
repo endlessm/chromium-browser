@@ -27,6 +27,7 @@ namespace {
 
 class FailsOnException : public ModuleSystem::ExceptionHandler {
  public:
+  FailsOnException() : ModuleSystem::ExceptionHandler(nullptr) {}
   void HandleUncaughtException(const v8::TryCatch& try_catch) override {
     FAIL() << "Uncaught exception: " << CreateExceptionString(try_catch);
   }
@@ -80,13 +81,13 @@ class ModuleSystemTestEnvironment::AssertNatives
   void AssertTrue(const v8::FunctionCallbackInfo<v8::Value>& args) {
     CHECK_EQ(1, args.Length());
     assertion_made_ = true;
-    failed_ = failed_ || !args[0]->ToBoolean()->Value();
+    failed_ = failed_ || !args[0]->ToBoolean(args.GetIsolate())->Value();
   }
 
   void AssertFalse(const v8::FunctionCallbackInfo<v8::Value>& args) {
     CHECK_EQ(1, args.Length());
     assertion_made_ = true;
-    failed_ = failed_ || args[0]->ToBoolean()->Value();
+    failed_ = failed_ || args[0]->ToBoolean(args.GetIsolate())->Value();
   }
 
  private:
@@ -101,8 +102,8 @@ class ModuleSystemTestEnvironment::StringSourceMap
   StringSourceMap() {}
   ~StringSourceMap() override {}
 
-  v8::Handle<v8::Value> GetSource(v8::Isolate* isolate,
-                                  const std::string& name) override {
+  v8::Local<v8::Value> GetSource(v8::Isolate* isolate,
+                                 const std::string& name) override {
     if (source_map_.count(name) == 0)
       return v8::Undefined(isolate);
     return v8::String::NewFromUtf8(isolate, source_map_[name].c_str());
@@ -129,10 +130,10 @@ ModuleSystemTestEnvironment::ModuleSystemTestEnvironment(v8::Isolate* isolate)
   context_holder_->SetContext(v8::Context::New(
       isolate, g_v8_extension_configurator.Get().GetConfiguration()));
   context_.reset(new ScriptContext(context_holder_->context(),
-                                   NULL,  // WebFrame
-                                   NULL,  // Extension
+                                   nullptr,  // WebFrame
+                                   nullptr,  // Extension
                                    Feature::BLESSED_EXTENSION_CONTEXT,
-                                   NULL,  // Effective Extension
+                                   nullptr,  // Effective Extension
                                    Feature::BLESSED_EXTENSION_CONTEXT));
   context_->v8_context()->Enter();
   assert_natives_ = new AssertNatives(context_.get());
@@ -156,8 +157,8 @@ ModuleSystemTestEnvironment::ModuleSystemTestEnvironment(v8::Isolate* isolate)
 }
 
 ModuleSystemTestEnvironment::~ModuleSystemTestEnvironment() {
-  if (context_)
-    context_->v8_context()->Exit();
+  if (context_->is_valid())
+    ShutdownModuleSystem();
 }
 
 void ModuleSystemTestEnvironment::RegisterModule(const std::string& name,
@@ -196,11 +197,12 @@ void ModuleSystemTestEnvironment::ShutdownGin() {
 }
 
 void ModuleSystemTestEnvironment::ShutdownModuleSystem() {
+  CHECK(context_->is_valid());
   context_->v8_context()->Exit();
-  context_.reset();
+  context_->Invalidate();
 }
 
-v8::Handle<v8::Object> ModuleSystemTestEnvironment::CreateGlobal(
+v8::Local<v8::Object> ModuleSystemTestEnvironment::CreateGlobal(
     const std::string& name) {
   v8::EscapableHandleScope handle_scope(isolate_);
   v8::Local<v8::Object> object = v8::Object::New(isolate_);

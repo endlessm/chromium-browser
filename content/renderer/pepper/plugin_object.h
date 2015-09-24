@@ -38,7 +38,7 @@ class PluginObject : public gin::Wrappable<PluginObject>,
   // Returns the PluginObject which is contained in the given v8 object, or NULL
   // if the object isn't backed by a PluginObject.
   static PluginObject* FromV8Object(v8::Isolate* isolate,
-                                    v8::Handle<v8::Object> v8_object);
+                                    v8::Local<v8::Object> v8_object);
 
   // Allocates a new PluginObject and returns it as a PP_Var with a
   // refcount of 1.
@@ -84,9 +84,9 @@ class PluginObject : public gin::Wrappable<PluginObject>,
   const PPP_Class_Deprecated* ppp_class_;
   void* ppp_class_data_;
 
-  base::WeakPtrFactory<PluginObject> weak_factory_;
+  v8::StdGlobalValueMap<std::string, v8::FunctionTemplate> template_cache_;
 
-  v8::StdPersistentValueMap<std::string, v8::FunctionTemplate> template_cache_;
+  base::WeakPtrFactory<PluginObject> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(PluginObject);
 };

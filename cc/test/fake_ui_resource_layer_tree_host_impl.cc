@@ -4,14 +4,17 @@
 
 #include "cc/test/fake_ui_resource_layer_tree_host_impl.h"
 
+#include "cc/resources/ui_resource_bitmap.h"
 #include "cc/test/fake_layer_tree_host_impl.h"
 
 namespace cc {
 
 FakeUIResourceLayerTreeHostImpl::FakeUIResourceLayerTreeHostImpl(
     Proxy* proxy,
-    SharedBitmapManager* manager)
-    : FakeLayerTreeHostImpl(proxy, manager), fake_next_resource_id_(1) {}
+    SharedBitmapManager* manager,
+    TaskGraphRunner* task_graph_runner)
+    : FakeLayerTreeHostImpl(proxy, manager, task_graph_runner) {
+}
 
 FakeUIResourceLayerTreeHostImpl::~FakeUIResourceLayerTreeHostImpl() {}
 
@@ -22,21 +25,23 @@ void FakeUIResourceLayerTreeHostImpl::CreateUIResource(
     DeleteUIResource(uid);
 
   UIResourceData data;
-  data.resource_id = fake_next_resource_id_++;
+  data.resource_id = resource_provider()->CreateResource(
+      bitmap.GetSize(), GL_CLAMP_TO_EDGE,
+      ResourceProvider::TEXTURE_HINT_IMMUTABLE, RGBA_8888);
+
   data.size = bitmap.GetSize();
   data.opaque = bitmap.GetOpaque();
   fake_ui_resource_map_[uid] = data;
 }
 
 void FakeUIResourceLayerTreeHostImpl::DeleteUIResource(UIResourceId uid) {
-  ResourceProvider::ResourceId id = ResourceIdForUIResource(uid);
+  ResourceId id = ResourceIdForUIResource(uid);
   if (id)
     fake_ui_resource_map_.erase(uid);
 }
 
-ResourceProvider::ResourceId
-    FakeUIResourceLayerTreeHostImpl::ResourceIdForUIResource(
-        UIResourceId uid) const {
+ResourceId FakeUIResourceLayerTreeHostImpl::ResourceIdForUIResource(
+    UIResourceId uid) const {
   UIResourceMap::const_iterator iter = fake_ui_resource_map_.find(uid);
   if (iter != fake_ui_resource_map_.end())
     return iter->second.resource_id;

@@ -4,15 +4,13 @@
 
 #include "chromeos/dbus/fake_bluetooth_profile_manager_client.h"
 
-#include <map>
-#include <string>
-
-#include "base/bind.h"
+#include "base/location.h"
 #include "base/logging.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chromeos/dbus/fake_bluetooth_profile_service_provider.h"
 #include "dbus/bus.h"
 #include "dbus/message.h"
-#include "dbus/object_path.h"
 #include "dbus/object_proxy.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
@@ -22,6 +20,8 @@ const char FakeBluetoothProfileManagerClient::kL2capUuid[] =
     "4d995052-33cc-4fdf-b446-75f32942a076";
 const char FakeBluetoothProfileManagerClient::kRfcommUuid[] =
     "3f6d6dbf-a6ad-45fc-9653-47dc912ef70e";
+const char FakeBluetoothProfileManagerClient::kUnregisterableUuid[] =
+    "00000000-0000-0000-0000-000000000000";
 
 FakeBluetoothProfileManagerClient::FakeBluetoothProfileManagerClient() {
 }
@@ -40,7 +40,15 @@ void FakeBluetoothProfileManagerClient::RegisterProfile(
     const ErrorCallback& error_callback) {
   VLOG(1) << "RegisterProfile: " << profile_path.value() << ": " << uuid;
 
-  // check options for channel & psm
+  if (uuid == kUnregisterableUuid) {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(error_callback,
+                              bluetooth_profile_manager::kErrorInvalidArguments,
+                              "Can't register this UUID"));
+    return;
+  }
+
+  // TODO(jamuraa): check options for channel & psm
 
   ServiceProviderMap::iterator iter = service_provider_map_.find(profile_path);
   if (iter == service_provider_map_.end()) {
@@ -53,7 +61,7 @@ void FakeBluetoothProfileManagerClient::RegisterProfile(
                          "Profile already registered");
     } else {
       profile_map_[uuid] = profile_path;
-      callback.Run();
+      base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, callback);
     }
   }
 }
@@ -77,7 +85,7 @@ void FakeBluetoothProfileManagerClient::UnregisterProfile(
       }
     }
 
-    callback.Run();
+    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, callback);
   }
 }
 
@@ -99,7 +107,7 @@ FakeBluetoothProfileManagerClient::GetProfileServiceProvider(
     const std::string& uuid) {
   ProfileMap::iterator iter = profile_map_.find(uuid);
   if (iter == profile_map_.end())
-    return NULL;
+    return nullptr;
   return service_provider_map_[iter->second];
 }
 

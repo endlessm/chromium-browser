@@ -22,8 +22,8 @@
 #include "build/build_config.h"
 #include "crypto/nss_util.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_log.h"
 #include "net/base/nss_memio.h"
+#include "net/log/net_log.h"
 
 #if defined(OS_WIN)
 #include "base/win/windows_version.h"
@@ -79,14 +79,15 @@ size_t CiphersCopy(const uint16* in, uint16* out) {
   }
 }
 
-base::Value* NetLogSSLErrorCallback(int net_error,
-                                    int ssl_lib_error,
-                                    NetLog::LogLevel /* log_level */) {
-  base::DictionaryValue* dict = new base::DictionaryValue();
+scoped_ptr<base::Value> NetLogSSLErrorCallback(
+    int net_error,
+    int ssl_lib_error,
+    NetLogCaptureMode /* capture_mode */) {
+  scoped_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   dict->SetInteger("net_error", net_error);
   if (ssl_lib_error)
     dict->SetInteger("ssl_lib_error", ssl_lib_error);
-  return dict;
+  return dict.Pass();
 }
 
 class NSSSSLInitSingleton {
@@ -108,7 +109,7 @@ class NSSSSLInitSingleton {
       disableECDSA = true;
 #endif
 
-    // Explicitly enable exactly those ciphers with keys of at least 80 bits
+    // Explicitly enable exactly those ciphers with keys of at least 80 bits.
     for (int i = 0; i < num_ciphers; i++) {
       SSLCipherSuiteInfo info;
       if (SSL_GetCipherSuiteInfo(ssl_ciphers[i], &info,
@@ -130,10 +131,6 @@ class NSSSSLInitSingleton {
           enabled = false;
         }
 
-        if (ssl_ciphers[i] == TLS_DHE_DSS_WITH_AES_128_CBC_SHA) {
-          // Enabled to allow servers with only a DSA certificate to function.
-          enabled = true;
-        }
         SSL_CipherPrefSetDefault(ssl_ciphers[i], enabled);
       }
     }
@@ -342,8 +339,6 @@ int MapNSSError(PRErrorCode err) {
       return ERR_SSL_DECRYPT_ERROR_ALERT;
     case SSL_ERROR_UNRECOGNIZED_NAME_ALERT:
       return ERR_SSL_UNRECOGNIZED_NAME_ALERT;
-    case SSL_ERROR_UNSAFE_NEGOTIATION:
-      return ERR_SSL_UNSAFE_NEGOTIATION;
     case SSL_ERROR_WEAK_SERVER_EPHEMERAL_DH_KEY:
       return ERR_SSL_WEAK_SERVER_EPHEMERAL_DH_KEY;
     case SSL_ERROR_HANDSHAKE_NOT_COMPLETED:
@@ -385,17 +380,17 @@ int MapNSSError(PRErrorCode err) {
 // Returns parameters to attach to the NetLog when we receive an error in
 // response to a call to an NSS function.  Used instead of
 // NetLogSSLErrorCallback with events of type TYPE_SSL_NSS_ERROR.
-base::Value* NetLogSSLFailedNSSFunctionCallback(
+scoped_ptr<base::Value> NetLogSSLFailedNSSFunctionCallback(
     const char* function,
     const char* param,
     int ssl_lib_error,
-    NetLog::LogLevel /* log_level */) {
-  base::DictionaryValue* dict = new base::DictionaryValue();
+    NetLogCaptureMode /* capture_mode */) {
+  scoped_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   dict->SetString("function", function);
   if (param[0] != '\0')
     dict->SetString("param", param);
   dict->SetInteger("ssl_lib_error", ssl_lib_error);
-  return dict;
+  return dict.Pass();
 }
 
 void LogFailedNSSFunction(const BoundNetLog& net_log,

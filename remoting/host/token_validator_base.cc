@@ -19,7 +19,7 @@
 #include "net/base/upload_bytes_element_reader.h"
 #include "net/base/upload_data_stream.h"
 #include "net/ssl/client_cert_store.h"
-#if defined(USE_NSS)
+#if defined(USE_NSS_CERTS)
 #include "net/ssl/client_cert_store_nss.h"
 #elif defined(OS_WIN)
 #include "net/ssl/client_cert_store_win.h"
@@ -113,7 +113,7 @@ void TokenValidatorBase::OnCertificateRequested(
   DCHECK_EQ(request_.get(), source);
 
   net::ClientCertStore* client_cert_store;
-#if defined(USE_NSS)
+#if defined(USE_NSS_CERTS)
   client_cert_store = new net::ClientCertStoreNSS(
       net::ClientCertStoreNSS::PasswordDelegateFactory());
 #elif defined(OS_WIN)
@@ -122,7 +122,7 @@ void TokenValidatorBase::OnCertificateRequested(
   client_cert_store = new net::ClientCertStoreMac();
 #elif defined(USE_OPENSSL)
     // OpenSSL does not use the ClientCertStore infrastructure.
-  client_cert_store = NULL;
+  client_cert_store = nullptr;
 #else
 #error Unknown platform.
 #endif
@@ -150,7 +150,7 @@ void TokenValidatorBase::OnCertificatesSelected(
         return;
       }
     }
-    request_->ContinueWithCertificate(NULL);
+    request_->ContinueWithCertificate(nullptr);
   }
 }
 
@@ -176,7 +176,7 @@ std::string TokenValidatorBase::ProcessResponse() {
   }
 
   // Decode the JSON data from the response.
-  scoped_ptr<base::Value> value(base::JSONReader::Read(data_));
+  scoped_ptr<base::Value> value = base::JSONReader::Read(data_);
   base::DictionaryValue* dict;
   if (!value || !value->GetAsDictionary(&dict)) {
     LOG(ERROR) << "Invalid token validation response: '" << data_ << "'";

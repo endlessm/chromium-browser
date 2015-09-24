@@ -67,6 +67,13 @@ class TestingProfileManager {
   // The subsystem owns the Profile and returns a weak pointer.
   TestingProfile* CreateGuestProfile();
 
+  // Creates a new system TestingProfile whose data lives in the system profile
+  // test environment directory, as specified by the profile manager.
+  // This profile will not be added to the ProfileInfoCache. This will
+  // register the TestingProfile with the profile subsystem as well.
+  // The subsystem owns the Profile and returns a weak pointer.
+  TestingProfile* CreateSystemProfile();
+
   // Deletes a TestingProfile from the profile subsystem.
   void DeleteTestingProfile(const std::string& profile_name);
 
@@ -77,12 +84,18 @@ class TestingProfileManager {
   // Deletes a guest TestingProfile from the profile manager.
   void DeleteGuestProfile();
 
+  // Deletes a system TestingProfile from the profile manager.
+  void DeleteSystemProfile();
+
   // Deletes the cache instance. This is useful for testing that the cache is
   // properly persisting data.
   void DeleteProfileInfoCache();
 
   // Sets ProfileManager's logged_in state. This is only useful on ChromeOS.
   void SetLoggedIn(bool logged_in);
+
+  // Sets the last used profile; also sets the active time to now.
+  void UpdateLastUser(Profile* last_active);
 
   // Helper accessors.
   const base::FilePath& profiles_dir();

@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef BASE_SAFE_MATH_H_
-#define BASE_SAFE_MATH_H_
+#ifndef BASE_NUMERICS_SAFE_MATH_H_
+#define BASE_NUMERICS_SAFE_MATH_H_
 
 #include "base/numerics/safe_math_impl.h"
 
@@ -64,6 +64,13 @@ class CheckedNumeric {
       : state_(value) {
     static_assert(std::numeric_limits<Src>::is_specialized,
                   "Argument must be numeric.");
+  }
+
+  // This is not an explicit constructor because we want a seamless conversion
+  // from StrictNumeric types.
+  template <typename Src>
+  CheckedNumeric(StrictNumeric<Src> value)
+      : state_(static_cast<Src>(value)) {
   }
 
   // IsValid() is the public API to test if a CheckedNumeric is currently valid.
@@ -269,4 +276,4 @@ using internal::CheckedNumeric;
 
 }  // namespace base
 
-#endif  // BASE_SAFE_MATH_H_
+#endif  // BASE_NUMERICS_SAFE_MATH_H_

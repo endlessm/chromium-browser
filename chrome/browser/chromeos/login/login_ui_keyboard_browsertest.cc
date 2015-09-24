@@ -29,6 +29,7 @@ void Append_en_US_InputMethods(std::vector<std::string>* out) {
   out->push_back("xkb:us:intl:eng");
   out->push_back("xkb:us:altgr-intl:eng");
   out->push_back("xkb:us:dvorak:eng");
+  out->push_back("xkb:us:dvp:eng");
   out->push_back("xkb:us:colemak:eng");
   chromeos::input_method::InputMethodManager::Get()->MigrateInputMethods(out);
 }
@@ -86,9 +87,9 @@ class FocusPODWaiter {
 class LoginUIKeyboardTest : public chromeos::LoginManagerTest {
  public:
   LoginUIKeyboardTest() : LoginManagerTest(false) {}
-  virtual ~LoginUIKeyboardTest() {}
+  ~LoginUIKeyboardTest() override {}
 
-  virtual void SetUpOnMainThread() override {
+  void SetUpOnMainThread() override {
     user_input_methods.push_back("xkb:fr::fra");
     user_input_methods.push_back("xkb:de::ger");
 
@@ -143,8 +144,7 @@ IN_PROC_BROWSER_TEST_F(LoginUIKeyboardTest, PRE_CheckPODScreenWithUsers) {
   StartupUtils::MarkOobeCompleted();
 }
 
-// Hangs flakily. See http://crbug.com/421450.
-IN_PROC_BROWSER_TEST_F(LoginUIKeyboardTest, DISABLED_CheckPODScreenWithUsers) {
+IN_PROC_BROWSER_TEST_F(LoginUIKeyboardTest, CheckPODScreenWithUsers) {
   js_checker().ExpectEQ("$('pod-row').pods.length", 2);
 
   EXPECT_EQ(user_input_methods[0],
@@ -177,16 +177,16 @@ IN_PROC_BROWSER_TEST_F(LoginUIKeyboardTest, DISABLED_CheckPODScreenWithUsers) {
 class LoginUIKeyboardTestWithUsersAndOwner : public chromeos::LoginManagerTest {
  public:
   LoginUIKeyboardTestWithUsersAndOwner() : LoginManagerTest(false) {}
-  virtual ~LoginUIKeyboardTestWithUsersAndOwner() {}
+  ~LoginUIKeyboardTestWithUsersAndOwner() override {}
 
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     LoginManagerTest::SetUpCommandLine(command_line);
     command_line->AppendSwitch(switches::kStubCrosSettings);
 
     LoginManagerTest::SetUpCommandLine(command_line);
   }
 
-  virtual void SetUpOnMainThread() override {
+  void SetUpOnMainThread() override {
     user_input_methods.push_back("xkb:fr::fra");
     user_input_methods.push_back("xkb:de::ger");
     user_input_methods.push_back("xkb:pl::pol");

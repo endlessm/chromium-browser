@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "testing/gtest/include/gtest/gtest.h"
+#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/common.h"
 #include "webrtc/modules/video_coding/codecs/interface/mock/mock_video_codec_interface.h"
 #include "webrtc/modules/video_coding/codecs/vp8/include/vp8_common_types.h"
@@ -20,7 +21,6 @@
 #include "webrtc/modules/video_coding/main/source/video_coding_impl.h"
 #include "webrtc/modules/video_coding/main/test/test_util.h"
 #include "webrtc/system_wrappers/interface/clock.h"
-#include "webrtc/system_wrappers/interface/scoped_ptr.h"
 #include "webrtc/test/frame_generator.h"
 #include "webrtc/test/testsupport/fileutils.h"
 #include "webrtc/test/testsupport/gtest_disable.h"
@@ -70,13 +70,18 @@ MATCHER_P(MatchesVp8StreamInfo, expected, "") {
 
 class EmptyFrameGenerator : public FrameGenerator {
  public:
-  virtual I420VideoFrame* NextFrame() OVERRIDE {
-    frame_.ResetSize();
-    return &frame_;
+  EmptyFrameGenerator(int width, int height) : width_(width), height_(height) {}
+  VideoFrame* NextFrame() override {
+    frame_.reset(new VideoFrame());
+    frame_->CreateEmptyFrame(width_, height_, width_, (width_ + 1) / 2,
+                             (width_ + 1) / 2);
+    return frame_.get();
   }
 
  private:
-  I420VideoFrame frame_;
+  const int width_;
+  const int height_;
+  rtc::scoped_ptr<VideoFrame> frame_;
 };
 
 class PacketizationCallback : public VCMPacketizationCallback {
@@ -86,16 +91,12 @@ class PacketizationCallback : public VCMPacketizationCallback {
 
   virtual ~PacketizationCallback() {}
 
-  virtual int32_t SendData(FrameType frame_type,
-                           uint8_t payload_type,
-                           uint32_t timestamp,
-                           int64_t capture_time_ms,
-                           const uint8_t* payload_data,
-                           uint32_t payload_size,
-                           const RTPFragmentationHeader& fragmentation_header,
-                           const RTPVideoHeader* rtp_video_header) OVERRIDE {
+  int32_t SendData(uint8_t payload_type,
+                   const EncodedImage& encoded_image,
+                   const RTPFragmentationHeader& fragmentation_header,
+                   const RTPVideoHeader* rtp_video_header) override {
     assert(rtp_video_header);
-    frame_data_.push_back(FrameData(payload_size, *rtp_video_header));
+    frame_data_.push_back(FrameData(encoded_image._length, *rtp_video_header));
     return 0;
   }
 
@@ -127,10 +128,10 @@ class PacketizationCallback : public VCMPacketizationCallback {
   struct FrameData {
     FrameData() {}
 
-    FrameData(uint32_t payload_size, const RTPVideoHeader& rtp_video_header)
+    FrameData(size_t payload_size, const RTPVideoHeader& rtp_video_header)
         : payload_size(payload_size), rtp_video_header(rtp_video_header) {}
 
-    uint32_t payload_size;
+    size_t payload_size;
     RTPVideoHeader rtp_video_header;
   };
 
@@ -152,8 +153,8 @@ class PacketizationCallback : public VCMPacketizationCallback {
     return frames;
   }
 
-  int SumPayloadBytesWithinTemporalLayer(int temporal_layer) {
-    int payload_size = 0;
+  size_t SumPayloadBytesWithinTemporalLayer(int temporal_layer) {
+    size_t payload_size = 0;
     for (size_t i = 0; i < frame_data_.size(); ++i) {
       EXPECT_EQ(kRtpVideoVp8, frame_data_[i].rtp_video_header.codec);
       const uint8_t temporal_idx =
@@ -175,9 +176,9 @@ class TestVideoSender : public ::testing::Test {
   // a special case (e.g. frame rate in media optimization).
   TestVideoSender() : clock_(1000), packetization_callback_(&clock_) {}
 
-  virtual void SetUp() OVERRIDE {
-    sender_.reset(new VideoSender(&clock_, &post_encode_callback_));
-    EXPECT_EQ(0, sender_->InitializeSender());
+  void SetUp() override {
+    sender_.reset(
+        new VideoSender(&clock_, &post_encode_callback_, nullptr, nullptr));
     EXPECT_EQ(0, sender_->RegisterTransportCallback(&packetization_callback_));
   }
 
@@ -189,8 +190,8 @@ class TestVideoSender : public ::testing::Test {
   SimulatedClock clock_;
   PacketizationCallback packetization_callback_;
   MockEncodedImageCallback post_encode_callback_;
-  scoped_ptr<VideoSender> sender_;
-  scoped_ptr<FrameGenerator> generator_;
+  rtc::scoped_ptr<VideoSender> sender_;
+  rtc::scoped_ptr<FrameGenerator> generator_;
 };
 
 class TestVideoSenderWithMockEncoder : public TestVideoSender {
@@ -201,9 +202,8 @@ class TestVideoSenderWithMockEncoder : public TestVideoSender {
   static const int kNumberOfLayers = 3;
   static const int kUnusedPayloadType = 10;
 
-  virtual void SetUp() OVERRIDE {
+  void SetUp() override {
     TestVideoSender::SetUp();
-    generator_.reset(new EmptyFrameGenerator());
     EXPECT_EQ(
         0,
         sender_->RegisterExternalEncoder(&encoder_, kUnusedPayloadType, false));
@@ -221,10 +221,12 @@ class TestVideoSenderWithMockEncoder : public TestVideoSender {
     ConfigureStream(
         kDefaultWidth, kDefaultHeight, 1200, &settings_.simulcastStream[2]);
     settings_.plType = kUnusedPayloadType;  // Use the mocked encoder.
+    generator_.reset(
+        new EmptyFrameGenerator(settings_.width, settings_.height));
     EXPECT_EQ(0, sender_->RegisterSendCodec(&settings_, 1, 1200));
   }
 
-  virtual void TearDown() OVERRIDE { sender_.reset(); }
+  void TearDown() override { sender_.reset(); }
 
   void ExpectIntraRequest(int stream) {
     if (stream == -1) {
@@ -312,19 +314,34 @@ TEST_F(TestVideoSenderWithMockEncoder, TestIntraRequestsInternalCapture) {
   EXPECT_EQ(-1, sender_->IntraFrameRequest(-1));
 }
 
+TEST_F(TestVideoSenderWithMockEncoder, EncoderFramerateUpdatedViaProcess) {
+  sender_->SetChannelParameters(settings_.startBitrate, 0, 200);
+  const int64_t kRateStatsWindowMs = 2000;
+  const uint32_t kInputFps = 20;
+  int64_t start_time = clock_.TimeInMilliseconds();
+  while (clock_.TimeInMilliseconds() < start_time + kRateStatsWindowMs) {
+    AddFrame();
+    clock_.AdvanceTimeMilliseconds(1000 / kInputFps);
+  }
+  EXPECT_CALL(encoder_, SetRates(_, kInputFps)).Times(1).WillOnce(Return(0));
+  sender_->Process();
+  AddFrame();
+}
+
 class TestVideoSenderWithVp8 : public TestVideoSender {
  public:
   TestVideoSenderWithVp8()
       : codec_bitrate_kbps_(300), available_bitrate_kbps_(1000) {}
 
-  virtual void SetUp() OVERRIDE {
+  void SetUp() override {
     TestVideoSender::SetUp();
 
     const char* input_video = "foreman_cif";
     const int width = 352;
     const int height = 288;
     generator_.reset(FrameGenerator::CreateFromYuvFile(
-        test::ResourcePath(input_video, "yuv").c_str(), width, height));
+        std::vector<std::string>(1, test::ResourcePath(input_video, "yuv")),
+        width, height, 1));
 
     codec_ = MakeVp8VideoCodec(width, height, 3);
     codec_.minBitrate = 10;
@@ -351,15 +368,13 @@ class TestVideoSenderWithVp8 : public TestVideoSender {
       EXPECT_CALL(post_encode_callback_, Encoded(_, NULL, NULL))
           .WillOnce(Return(0));
       AddFrame();
-
       // SetChannelParameters needs to be called frequently to propagate
       // framerate from the media optimization into the encoder.
       // Note: SetChannelParameters fails if less than 2 frames are in the
       // buffer since it will fail to calculate the framerate.
       if (i != 0) {
-        EXPECT_EQ(VCM_OK,
-                  sender_->SetChannelParameters(
-                      available_bitrate_kbps_ * 1000, 0, 200));
+        EXPECT_EQ(VCM_OK, sender_->SetChannelParameters(
+                              available_bitrate_kbps_ * 1000, 0, 200));
       }
     }
   }
@@ -383,7 +398,7 @@ class TestVideoSenderWithVp8 : public TestVideoSender {
 };
 
 TEST_F(TestVideoSenderWithVp8,
-       DISABLED_ON_ANDROID(FixedTemporalLayersStrategy)) {
+       DISABLED_ON_IOS(DISABLED_ON_ANDROID(FixedTemporalLayersStrategy))) {
   const int low_b = codec_bitrate_kbps_ * kVp8LayerRateAlloction[2][0];
   const int mid_b = codec_bitrate_kbps_ * kVp8LayerRateAlloction[2][1];
   const int high_b = codec_bitrate_kbps_ * kVp8LayerRateAlloction[2][2];
@@ -398,7 +413,7 @@ TEST_F(TestVideoSenderWithVp8,
 }
 
 TEST_F(TestVideoSenderWithVp8,
-       DISABLED_ON_ANDROID(RealTimeTemporalLayersStrategy)) {
+       DISABLED_ON_IOS(DISABLED_ON_ANDROID(RealTimeTemporalLayersStrategy))) {
   Config extra_options;
   extra_options.Set<TemporalLayers::Factory>(
       new RealTimeTemporalLayersFactory());

@@ -6,7 +6,6 @@
 
 #include "base/command_line.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/version_handler.h"
 #include "chrome/common/chrome_content_client.h"
@@ -14,7 +13,6 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "chrome/grit/google_chrome_strings.h"
 #include "content/public/browser/url_data_source.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
@@ -36,11 +34,13 @@
 #include "chrome/browser/ui/webui/version_handler_chromeos.h"
 #endif
 
+using content::WebUIDataSource;
+
 namespace {
 
-content::WebUIDataSource* CreateVersionUIDataSource(Profile* profile) {
-  content::WebUIDataSource* html_source =
-      content::WebUIDataSource::Create(chrome::kChromeUIVersionHost);
+WebUIDataSource* CreateVersionUIDataSource() {
+  WebUIDataSource* html_source =
+      WebUIDataSource::Create(chrome::kChromeUIVersionHost);
 
   // Localized and data strings.
   html_source->AddLocalizedString("title", IDS_ABOUT_VERSION_TITLE);
@@ -81,6 +81,11 @@ content::WebUIDataSource* CreateVersionUIDataSource(Profile* profile) {
   html_source->AddLocalizedString("official",
       version_info.IsOfficialBuild() ? IDS_ABOUT_VERSION_OFFICIAL :
                                        IDS_ABOUT_VERSION_UNOFFICIAL);
+#if defined(ARCH_CPU_64_BITS)
+  html_source->AddLocalizedString("version_bitsize", IDS_ABOUT_VERSION_64BIT);
+#else
+  html_source->AddLocalizedString("version_bitsize", IDS_ABOUT_VERSION_32BIT);
+#endif
   html_source->AddLocalizedString("user_agent_name",
                                   IDS_ABOUT_VERSION_USER_AGENT);
   html_source->AddString("useragent", GetUserAgent());
@@ -88,12 +93,13 @@ content::WebUIDataSource* CreateVersionUIDataSource(Profile* profile) {
                                   IDS_ABOUT_VERSION_COMMAND_LINE);
 
 #if defined(OS_WIN)
-  html_source->AddString("command_line", base::WideToUTF16(
-      CommandLine::ForCurrentProcess()->GetCommandLineString()));
+  html_source->AddString(
+      "command_line",
+      base::CommandLine::ForCurrentProcess()->GetCommandLineString());
 #elif defined(OS_POSIX)
   std::string command_line;
   typedef std::vector<std::string> ArgvList;
-  const ArgvList& argv = CommandLine::ForCurrentProcess()->argv();
+  const ArgvList& argv = base::CommandLine::ForCurrentProcess()->argv();
   for (ArgvList::const_iterator iter = argv.begin(); iter != argv.end(); iter++)
     command_line += " " + *iter;
   // TODO(viettrungluu): |command_line| could really have any encoding, whereas
@@ -140,7 +146,7 @@ VersionUI::VersionUI(content::WebUI* web_ui)
   content::URLDataSource::Add(profile, theme);
 #endif
 
-  content::WebUIDataSource::Add(profile, CreateVersionUIDataSource(profile));
+  WebUIDataSource::Add(profile, CreateVersionUIDataSource());
 }
 
 VersionUI::~VersionUI() {

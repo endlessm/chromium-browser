@@ -20,7 +20,7 @@ class GURL;
 class Profile;
 
 namespace content {
-  class WebContents;
+class WebContents;
 }
 
 namespace net {
@@ -79,9 +79,10 @@ class CaptivePortalTabHelper
   void DidFailProvisionalLoad(content::RenderFrameHost* render_frame_host,
                               const GURL& validated_url,
                               int error_code,
-                              const base::string16& error_description) override;
+                              const base::string16& error_description,
+                              bool was_ignored_by_handler) override;
 
-  void DidStopLoading(content::RenderViewHost* render_view_host) override;
+  void DidStopLoading() override;
 
   // content::NotificationObserver:
   void Observe(int type,
@@ -94,6 +95,10 @@ class CaptivePortalTabHelper
   // A "Login Tab" is a tab that was originally at a captive portal login
   // page.  This is set to false when a captive portal is no longer detected.
   bool IsLoginTab() const;
+
+  // Opens a login tab if the profile's active window doesn't have one already.
+  static void OpenLoginTabForWebContents(content::WebContents* web_contents,
+                                         bool focus);
 
  private:
   friend class CaptivePortalBrowserTest;
@@ -127,16 +132,11 @@ class CaptivePortalTabHelper
 
   CaptivePortalTabReloader* GetTabReloaderForTest();
 
-  // Opens a login tab if the profile's active window doesn't have one already.
-  void OpenLoginTab();
-
   Profile* profile_;
 
   // Neither of these will ever be NULL.
   scoped_ptr<CaptivePortalTabReloader> tab_reloader_;
   scoped_ptr<CaptivePortalLoginDetector> login_detector_;
-
-  content::WebContents* web_contents_;
 
   // If a provisional load has failed, and the tab is loading an error page, the
   // error code associated with the error page we're loading.

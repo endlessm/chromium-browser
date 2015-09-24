@@ -7,7 +7,6 @@
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/task_runner_util.h"
 #include "net/base/file_stream.h"
 #include "net/base/io_buffer.h"
@@ -19,15 +18,15 @@ namespace {
 
 // In tests, this value is used to override the return value of
 // UploadFileElementReader::GetContentLength() when set to non-zero.
-uint64 overriding_content_length = 0;
+uint64_t overriding_content_length = 0;
 
 }  // namespace
 
 UploadFileElementReader::UploadFileElementReader(
     base::TaskRunner* task_runner,
     const base::FilePath& path,
-    uint64 range_offset,
-    uint64 range_length,
+    uint64_t range_offset,
+    uint64_t range_length,
     const base::Time& expected_modification_time)
     : task_runner_(task_runner),
       path_(path),
@@ -63,13 +62,13 @@ int UploadFileElementReader::Init(const CompletionCallback& callback) {
   return result;
 }
 
-uint64 UploadFileElementReader::GetContentLength() const {
+uint64_t UploadFileElementReader::GetContentLength() const {
   if (overriding_content_length)
     return overriding_content_length;
   return content_length_;
 }
 
-uint64 UploadFileElementReader::BytesRemaining() const {
+uint64_t UploadFileElementReader::BytesRemaining() const {
   return bytes_remaining_;
 }
 
@@ -78,8 +77,8 @@ int UploadFileElementReader::Read(IOBuffer* buf,
                                   const CompletionCallback& callback) {
   DCHECK(!callback.is_null());
 
-  uint64 num_bytes_to_read =
-      std::min(BytesRemaining(), static_cast<uint64>(buf_length));
+  int num_bytes_to_read = static_cast<int>(
+      std::min(BytesRemaining(), static_cast<uint64_t>(buf_length)));
   if (num_bytes_to_read == 0)
     return 0;
 
@@ -104,11 +103,6 @@ void UploadFileElementReader::Reset() {
 void UploadFileElementReader::OnOpenCompleted(
     const CompletionCallback& callback,
     int result) {
-  // TODO(vadimt): Remove ScopedTracker below once crbug.com/423948 is fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "423948 UploadFileElementReader::OnOpenCompleted"));
-
   DCHECK(!callback.is_null());
 
   if (result < 0) {
@@ -119,14 +113,12 @@ void UploadFileElementReader::OnOpenCompleted(
   }
 
   if (range_offset_) {
-    int result = file_stream_->Seek(
-        base::File::FROM_BEGIN, range_offset_,
-        base::Bind(&UploadFileElementReader::OnSeekCompleted,
-                   weak_ptr_factory_.GetWeakPtr(),
-                   callback));
-    DCHECK_GT(0, result);
-    if (result != ERR_IO_PENDING)
-      callback.Run(result);
+    int seek_result = file_stream_->Seek(
+        range_offset_, base::Bind(&UploadFileElementReader::OnSeekCompleted,
+                                  weak_ptr_factory_.GetWeakPtr(), callback));
+    DCHECK_GT(0, seek_result);
+    if (seek_result != ERR_IO_PENDING)
+      callback.Run(seek_result);
   } else {
     OnSeekCompleted(callback, OK);
   }
@@ -134,13 +126,13 @@ void UploadFileElementReader::OnOpenCompleted(
 
 void UploadFileElementReader::OnSeekCompleted(
     const CompletionCallback& callback,
-    int64 result) {
+    int64_t result) {
   DCHECK(!callback.is_null());
 
   if (result < 0) {
     DLOG(WARNING) << "Failed to seek \"" << path_.value()
                   << "\" to offset: " << range_offset_ << " (" << result << ")";
-    callback.Run(result);
+    callback.Run(static_cast<int>(result));
     return;
   }
 
@@ -167,19 +159,22 @@ void UploadFileElementReader::OnGetFileInfoCompleted(
     return;
   }
 
-  int64 length = file_info->size;
-  if (range_offset_ < static_cast<uint64>(length)) {
+  int64_t length = file_info->size;
+  if (range_offset_ < static_cast<uint64_t>(length)) {
     // Compensate for the offset.
     length = std::min(length - range_offset_, range_length_);
   }
 
   // If the underlying file has been changed and the expected file modification
-  // time is set, treat it as error. Note that the expected modification time
-  // from WebKit is based on time_t precision. So we have to convert both to
-  // time_t to compare. This check is used for sliced files.
+  // time is set, treat it as error. Note that |expected_modification_time_| may
+  // have gone through multiple conversion steps involving loss of precision
+  // (including conversion to time_t). Therefore the check below only verifies
+  // that the timestamps are within one second of each other. This check is used
+  // for sliced files.
   if (!expected_modification_time_.is_null() &&
-      expected_modification_time_.ToTimeT() !=
-      file_info->last_modified.ToTimeT()) {
+      (expected_modification_time_ - file_info->last_modified)
+              .magnitude()
+              .InSeconds() != 0) {
     callback.Run(ERR_UPLOAD_FILE_CHANGED);
     return;
   }
@@ -196,7 +191,7 @@ int UploadFileElementReader::OnReadCompleted(
     result = ERR_UPLOAD_FILE_CHANGED;
 
   if (result > 0) {
-    DCHECK_GE(bytes_remaining_, static_cast<uint64>(result));
+    DCHECK_GE(bytes_remaining_, static_cast<uint64_t>(result));
     bytes_remaining_ -= result;
   }
 
@@ -206,7 +201,7 @@ int UploadFileElementReader::OnReadCompleted(
 }
 
 UploadFileElementReader::ScopedOverridingContentLengthForTests::
-ScopedOverridingContentLengthForTests(uint64 value) {
+    ScopedOverridingContentLengthForTests(uint64_t value) {
   overriding_content_length = value;
 }
 

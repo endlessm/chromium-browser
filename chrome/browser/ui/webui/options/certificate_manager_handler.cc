@@ -13,7 +13,7 @@
 #include "base/i18n/string_compare.h"
 #include "base/id_map.h"
 #include "base/memory/scoped_vector.h"
-#include "base/safe_strerror_posix.h"
+#include "base/posix/safe_strerror.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -92,8 +92,8 @@ struct DictionaryIdComparator {
     b_dict->GetString(kNameId, &b_str);
     if (collator_ == NULL)
       return a_str < b_str;
-    return base::i18n::CompareString16WithCollator(
-        collator_, a_str, b_str) == UCOL_LESS;
+    return base::i18n::CompareString16WithCollator(*collator_, a_str, b_str) ==
+           UCOL_LESS;
   }
 
   icu::Collator* collator_;
@@ -692,7 +692,8 @@ void CertificateManagerHandler::ExportPersonalFileWritten(
     ShowError(
         l10n_util::GetStringUTF8(IDS_CERT_MANAGER_PKCS12_EXPORT_ERROR_TITLE),
         l10n_util::GetStringFUTF8(IDS_CERT_MANAGER_WRITE_ERROR_FORMAT,
-                                  UTF8ToUTF16(safe_strerror(*write_errno))));
+                                  UTF8ToUTF16(
+                                      base::safe_strerror(*write_errno))));
   }
 }
 
@@ -749,7 +750,8 @@ void CertificateManagerHandler::ImportPersonalFileRead(
     ShowError(
         l10n_util::GetStringUTF8(IDS_CERT_MANAGER_PKCS12_IMPORT_ERROR_TITLE),
         l10n_util::GetStringFUTF8(IDS_CERT_MANAGER_READ_ERROR_FORMAT,
-                                  UTF8ToUTF16(safe_strerror(*read_errno))));
+                                  UTF8ToUTF16(
+                                      base::safe_strerror(*read_errno))));
     return;
   }
 
@@ -857,7 +859,8 @@ void CertificateManagerHandler::ImportServerFileRead(const int* read_errno,
     ShowError(
         l10n_util::GetStringUTF8(IDS_CERT_MANAGER_SERVER_IMPORT_ERROR_TITLE),
         l10n_util::GetStringFUTF8(IDS_CERT_MANAGER_READ_ERROR_FORMAT,
-                                  UTF8ToUTF16(safe_strerror(*read_errno))));
+                                  UTF8ToUTF16(
+                                      base::safe_strerror(*read_errno))));
     return;
   }
 
@@ -916,7 +919,8 @@ void CertificateManagerHandler::ImportCAFileRead(const int* read_errno,
     ShowError(
         l10n_util::GetStringUTF8(IDS_CERT_MANAGER_CA_IMPORT_ERROR_TITLE),
         l10n_util::GetStringFUTF8(IDS_CERT_MANAGER_READ_ERROR_FORMAT,
-                                  UTF8ToUTF16(safe_strerror(*read_errno))));
+                                  UTF8ToUTF16(
+                                      base::safe_strerror(*read_errno))));
     return;
   }
 
@@ -1116,9 +1120,9 @@ void CertificateManagerHandler::ShowError(const std::string& title,
   args.push_back(new base::StringValue(title));
   args.push_back(new base::StringValue(error));
   args.push_back(new base::StringValue(l10n_util::GetStringUTF8(IDS_OK)));
-  args.push_back(base::Value::CreateNullValue());  // cancelTitle
-  args.push_back(base::Value::CreateNullValue());  // okCallback
-  args.push_back(base::Value::CreateNullValue());  // cancelCallback
+  args.push_back(base::Value::CreateNullValue().release());  // cancelTitle
+  args.push_back(base::Value::CreateNullValue().release());  // okCallback
+  args.push_back(base::Value::CreateNullValue().release());  // cancelCallback
   web_ui()->CallJavascriptFunction("AlertOverlay.show", args.get());
 }
 

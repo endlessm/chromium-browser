@@ -115,12 +115,11 @@ ui::MenuModel* AppContextMenu::GetMenuModel() {
     menu_model_->AddSeparator(ui::NORMAL_SEPARATOR);
 
     if (!is_platform_app_) {
-      // Streamlined hosted apps can only toggle between USE_LAUNCH_TYPE_WINDOW
-      // and USE_LAUNCH_TYPE_REGULAR.
-      if (extensions::util::IsStreamlinedHostedAppsEnabled()) {
-        menu_model_->AddCheckItemWithStringId(
-            USE_LAUNCH_TYPE_REGULAR,
-            IDS_APP_CONTEXT_MENU_OPEN_TAB);
+      // When bookmark apps are enabled, hosted apps can only toggle between
+      // USE_LAUNCH_TYPE_WINDOW and USE_LAUNCH_TYPE_REGULAR.
+      if (extensions::util::IsNewBookmarkAppsEnabled()) {
+        menu_model_->AddCheckItemWithStringId(USE_LAUNCH_TYPE_WINDOW,
+                                              IDS_APP_CONTEXT_MENU_OPEN_WINDOW);
       } else {
         menu_model_->AddCheckItemWithStringId(
             USE_LAUNCH_TYPE_REGULAR,
@@ -182,24 +181,34 @@ bool AppContextMenu::IsItemForCommandIdDynamic(int command_id) const {
 
 base::string16 AppContextMenu::GetLabelForCommandId(int command_id) const {
   if (command_id == TOGGLE_PIN) {
+    // Return "{Pin to, Unpin from} shelf". Note this only exists on Ash
+    // desktops.
     return controller_->IsAppPinned(app_id_) ?
         l10n_util::GetStringUTF16(IDS_APP_LIST_CONTEXT_MENU_UNPIN) :
         l10n_util::GetStringUTF16(IDS_APP_LIST_CONTEXT_MENU_PIN);
-  } else if (command_id == LAUNCH_NEW) {
-#if defined(OS_MACOSX)
-    // Even fullscreen windows launch in a browser tab on Mac.
-    const bool launches_in_tab = true;
-#else
-    const bool launches_in_tab = IsCommandIdChecked(USE_LAUNCH_TYPE_PINNED) ||
-        IsCommandIdChecked(USE_LAUNCH_TYPE_REGULAR);
-#endif
-    return launches_in_tab ?
-        l10n_util::GetStringUTF16(IDS_APP_LIST_CONTEXT_MENU_NEW_TAB) :
-        l10n_util::GetStringUTF16(IDS_APP_LIST_CONTEXT_MENU_NEW_WINDOW);
-  } else {
-    NOTREACHED();
-    return base::string16();
   }
+
+  DCHECK_EQ(LAUNCH_NEW, command_id);
+
+  // If --enable-new-bookmark-apps is enabled, then only check if
+  // USE_LAUNCH_TYPE_REGULAR is checked, as USE_LAUNCH_TYPE_PINNED (i.e. open
+  // as pinned tab) and fullscreen-by-default windows do not exist.
+  if (extensions::util::IsNewBookmarkAppsEnabled()) {
+    return IsCommandIdChecked(USE_LAUNCH_TYPE_WINDOW)
+               ? l10n_util::GetStringUTF16(IDS_APP_LIST_CONTEXT_MENU_NEW_WINDOW)
+               : l10n_util::GetStringUTF16(IDS_APP_LIST_CONTEXT_MENU_NEW_TAB);
+  }
+
+#if defined(OS_MACOSX)
+  // Even fullscreen windows launch in a browser tab on Mac.
+  const bool launches_in_tab = true;
+#else
+  const bool launches_in_tab = IsCommandIdChecked(USE_LAUNCH_TYPE_PINNED) ||
+                               IsCommandIdChecked(USE_LAUNCH_TYPE_REGULAR);
+#endif
+  return launches_in_tab ?
+      l10n_util::GetStringUTF16(IDS_APP_LIST_CONTEXT_MENU_NEW_TAB) :
+      l10n_util::GetStringUTF16(IDS_APP_LIST_CONTEXT_MENU_NEW_WINDOW);
 }
 
 bool AppContextMenu::IsCommandIdChecked(int command_id) const {
@@ -260,13 +269,13 @@ void AppContextMenu::ExecuteCommand(int command_id, int event_flags) {
              command_id < USE_LAUNCH_TYPE_COMMAND_END) {
     extensions::LaunchType launch_type = static_cast<extensions::LaunchType>(
         command_id - USE_LAUNCH_TYPE_COMMAND_START);
-    // Streamlined hosted apps can only toggle between LAUNCH_TYPE_WINDOW and
-    // LAUNCH_TYPE_REGULAR.
-    if (extensions::util::IsStreamlinedHostedAppsEnabled()) {
+    // When bookmark apps are enabled, hosted apps can only toggle between
+    // LAUNCH_TYPE_WINDOW and LAUNCH_TYPE_REGULAR.
+    if (extensions::util::IsNewBookmarkAppsEnabled()) {
       launch_type = (controller_->GetExtensionLaunchType(profile_, app_id_) ==
-                     extensions::LAUNCH_TYPE_REGULAR) ?
-                    extensions::LAUNCH_TYPE_WINDOW :
-                    extensions::LAUNCH_TYPE_REGULAR;
+                     extensions::LAUNCH_TYPE_WINDOW)
+                        ? extensions::LAUNCH_TYPE_REGULAR
+                        : extensions::LAUNCH_TYPE_WINDOW;
     }
     controller_->SetExtensionLaunchType(profile_, app_id_, launch_type);
   } else if (command_id == OPTIONS) {

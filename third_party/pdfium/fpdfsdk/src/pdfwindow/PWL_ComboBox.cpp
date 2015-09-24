@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/pdfwindow/PDFWindow.h"
@@ -29,15 +29,15 @@ FX_BOOL	CPWL_CBListBox::OnLButtonUp(const CPDF_Point & point, FX_DWORD nFlag)
 	if (m_bMouseDown)
 	{
 		ReleaseCapture();
-		m_bMouseDown = FALSE;	
+		m_bMouseDown = FALSE;
 
-		if (this->ClientHitTest(point))
+		if (ClientHitTest(point))
 		{
 			if (CPWL_Wnd * pParent = GetParentWindow())
 			{
-				pParent->OnNotify(this,PNM_LBUTTONUP,0,PWL_MAKEDWORD(point.x,point.y));			
+				pParent->OnNotify(this,PNM_LBUTTONUP,0,PWL_MAKEDWORD(point.x,point.y));
 			}
-		
+
 			FX_BOOL bExit = FALSE;
 			OnNotifySelChanged(FALSE,bExit, nFlag);
 			if (bExit) return FALSE;
@@ -61,7 +61,7 @@ FX_BOOL CPWL_CBListBox::OnKeyDownWithExit(FX_WORD nChar, FX_BOOL & bExit, FX_DWO
 	case FWL_VKEY_Left:
 	case FWL_VKEY_End:
 	case FWL_VKEY_Right:
-		break;	
+		break;
 	}
 
 	switch (nChar)
@@ -114,14 +114,14 @@ FX_BOOL	CPWL_CBListBox::OnCharWithExit(FX_WORD nChar, FX_BOOL & bExit, FX_DWORD 
 void CPWL_CBButton::GetThisAppearanceStream(CFX_ByteTextBuf & sAppStream)
 {
 	CPWL_Wnd::GetThisAppearanceStream(sAppStream);
-	
+
 	CPDF_Rect rectWnd = CPWL_Wnd::GetWindowRect();
-	
+
 	if (IsVisible() && !rectWnd.IsEmpty())
 	{
-		CFX_ByteTextBuf sButton;	
+		CFX_ByteTextBuf sButton;
 
-		CPDF_Point ptCenter = this->GetCenterPoint();
+		CPDF_Point ptCenter = GetCenterPoint();
 
 		CPDF_Point pt1(ptCenter.x - PWL_CBBUTTON_TRIANGLE_HALFLEN,ptCenter.y + PWL_CBBUTTON_TRIANGLE_HALFLEN * 0.5f);
 		CPDF_Point pt2(ptCenter.x + PWL_CBBUTTON_TRIANGLE_HALFLEN,ptCenter.y + PWL_CBBUTTON_TRIANGLE_HALFLEN * 0.5f);
@@ -139,7 +139,7 @@ void CPWL_CBButton::GetThisAppearanceStream(CFX_ByteTextBuf & sAppStream)
 			sButton << pt1.x << " " << pt1.y << " l f\n";
 
 			sAppStream << "q\n" << sButton << "Q\n";
-		}	
+		}
 	}
 }
 
@@ -148,10 +148,10 @@ void CPWL_CBButton::DrawThisAppearance(CFX_RenderDevice* pDevice, CPDF_Matrix* p
 	CPWL_Wnd::DrawThisAppearance(pDevice,pUser2Device);
 
 	CPDF_Rect rectWnd = CPWL_Wnd::GetWindowRect();
-	
+
 	if (IsVisible() && !rectWnd.IsEmpty())
 	{
-		CPDF_Point ptCenter = this->GetCenterPoint();
+		CPDF_Point ptCenter = GetCenterPoint();
 
 		CPDF_Point pt1(ptCenter.x - PWL_CBBUTTON_TRIANGLE_HALFLEN,ptCenter.y + PWL_CBBUTTON_TRIANGLE_HALFLEN * 0.5f);
 		CPDF_Point pt2(ptCenter.x + PWL_CBBUTTON_TRIANGLE_HALFLEN,ptCenter.y + PWL_CBBUTTON_TRIANGLE_HALFLEN * 0.5f);
@@ -170,8 +170,8 @@ void CPWL_CBButton::DrawThisAppearance(CFX_RenderDevice* pDevice, CPDF_Matrix* p
 			path.SetPoint(2, pt3.x, pt3.y, FXPT_LINETO);
 			path.SetPoint(3, pt1.x, pt1.y, FXPT_LINETO);
 
-			pDevice->DrawPath(&path, pUser2Device, NULL, 
-				CPWL_Utils::PWLColorToFXColor(PWL_DEFAULT_BLACKCOLOR,GetTransparency()), 
+			pDevice->DrawPath(&path, pUser2Device, NULL,
+				CPWL_Utils::PWLColorToFXColor(PWL_DEFAULT_BLACKCOLOR,GetTransparency()),
 				0, FXFILL_ALTERNATE);
 		}
 	}
@@ -184,10 +184,10 @@ FX_BOOL	CPWL_CBButton::OnLButtonDown(const CPDF_Point & point, FX_DWORD nFlag)
 	SetCapture();
 
 	if (CPWL_Wnd * pParent = GetParentWindow())
-	{		
+	{
 		pParent->OnNotify(this,PNM_LBUTTONDOWN,0,PWL_MAKEDWORD(point.x,point.y));
 	}
-	
+
 	return TRUE;
 }
 
@@ -244,34 +244,34 @@ CFX_WideString CPWL_ComboBox::GetText() const
 	return CFX_WideString();
 }
 
-void CPWL_ComboBox::SetText(FX_LPCWSTR text)
+void CPWL_ComboBox::SetText(const FX_WCHAR* text)
 {
 	if (m_pEdit)
 		m_pEdit->SetText(text);
 }
 
-void CPWL_ComboBox::AddString(FX_LPCWSTR string)
+void CPWL_ComboBox::AddString(const FX_WCHAR* string)
 {
 	if (m_pList)
 		m_pList->AddString(string);
 }
 
-FX_INT32 CPWL_ComboBox::GetSelect() const
+int32_t CPWL_ComboBox::GetSelect() const
 {
 	return m_nSelectItem;
 }
 
-void CPWL_ComboBox::SetSelect(FX_INT32 nItemIndex)
+void CPWL_ComboBox::SetSelect(int32_t nItemIndex)
 {
 	if (m_pList)
 		m_pList->Select(nItemIndex);
 
-	m_pEdit->SetText(m_pList->GetText());
+	m_pEdit->SetText(m_pList->GetText().c_str());
 
 	m_nSelectItem = nItemIndex;
 }
 
-void CPWL_ComboBox::SetEditSel(FX_INT32 nStartChar,FX_INT32 nEndChar)
+void CPWL_ComboBox::SetEditSel(int32_t nStartChar,int32_t nEndChar)
 {
 	if (m_pEdit)
 	{
@@ -279,7 +279,7 @@ void CPWL_ComboBox::SetEditSel(FX_INT32 nStartChar,FX_INT32 nEndChar)
 	}
 }
 
-void CPWL_ComboBox::GetEditSel(FX_INT32 & nStartChar, FX_INT32 & nEndChar) const
+void CPWL_ComboBox::GetEditSel(int32_t & nStartChar, int32_t & nEndChar) const
 {
 	nStartChar = -1;
 	nEndChar = -1;
@@ -334,11 +334,11 @@ void CPWL_ComboBox::CreateButton(const PWL_CREATEPARAM & cp)
 {
 	if (!m_pButton)
 	{
-		m_pButton = new CPWL_CBButton;	
+		m_pButton = new CPWL_CBButton;
 
 		PWL_CREATEPARAM bcp = cp;
 		bcp.pParentWnd = this;
-		bcp.dwFlags = PWS_VISIBLE | PWS_CHILD | PWS_BORDER | PWS_BACKGROUND;	
+		bcp.dwFlags = PWS_VISIBLE | PWS_CHILD | PWS_BORDER | PWS_BACKGROUND;
 		bcp.sBackgroundColor = PWL_SCROLLBAR_BKCOLOR;
 		bcp.sBorderColor = PWL_DEFAULT_BLACKCOLOR;
 		bcp.dwBorderWidth = 2;
@@ -372,7 +372,7 @@ void CPWL_ComboBox::CreateListBox(const PWL_CREATEPARAM & cp)
 			lcp.sBorderColor = PWL_DEFAULT_BLACKCOLOR;
 
 		if (cp.sBackgroundColor.nColorType == COLORTYPE_TRANSPARENT)
-			lcp.sBackgroundColor = PWL_DEFAULT_WHITECOLOR;		
+			lcp.sBackgroundColor = PWL_DEFAULT_WHITECOLOR;
 
 		m_pList->Create(lcp);
 	}
@@ -391,7 +391,7 @@ void CPWL_ComboBox::RePosChildWnd()
 
 		FX_FLOAT fOldWindowHeight = m_rcOldWindow.Height();
 		FX_FLOAT fOldClientHeight = fOldWindowHeight - GetBorderWidth() * 2;
-		
+
 		switch (m_nPopupWhere)
 		{
 		case 0:
@@ -399,7 +399,7 @@ void CPWL_ComboBox::RePosChildWnd()
 
 			if (rcButton.left < rclient.left)
 				rcButton.left = rclient.left;
-			
+
 			rcButton.bottom = rcButton.top - fOldClientHeight;
 
 			rcEdit.right = rcButton.left - 1.0f;
@@ -420,7 +420,7 @@ void CPWL_ComboBox::RePosChildWnd()
 
 			if (rcButton.left < rclient.left)
 				rcButton.left = rclient.left;
-			
+
 			rcButton.top = rcButton.bottom + fOldClientHeight;
 
 			rcEdit.right = rcButton.left - 1.0f;
@@ -436,7 +436,7 @@ void CPWL_ComboBox::RePosChildWnd()
 			rcList.bottom += fOldWindowHeight;
 
 			break;
-		}		
+		}
 
 		if (m_pButton)
 			m_pButton->Move(rcButton,TRUE,FALSE);
@@ -446,17 +446,17 @@ void CPWL_ComboBox::RePosChildWnd()
 
 		if (m_pList)
 		{
-			m_pList->SetVisible(TRUE);			
+			m_pList->SetVisible(TRUE);
 			m_pList->Move(rcList,TRUE,FALSE);
 			m_pList->ScrollToListItem(m_nSelectItem);
 		}
 	}
 	else
-	{		
+	{
 		CPDF_Rect rcButton = rcClient;
 
-		rcButton.left = rcButton.right - PWL_COMBOBOX_BUTTON_WIDTH;	
-		
+		rcButton.left = rcButton.right - PWL_COMBOBOX_BUTTON_WIDTH;
+
 		if (rcButton.left < rcClient.left)
 			rcButton.left = rcClient.left;
 
@@ -502,7 +502,7 @@ void CPWL_ComboBox::SetPopup(FX_BOOL bPopup)
 	{
 		if (m_pFillerNotify)
 		{
-			FX_INT32 nWhere = 0;
+			int32_t nWhere = 0;
 			FX_FLOAT fPopupRet = 0.0f;
 			FX_FLOAT fPopupMin = 0.0f;
 			if (m_pList->GetCount() > 3)
@@ -526,7 +526,7 @@ void CPWL_ComboBox::SetPopup(FX_BOOL bPopup)
 					rcWindow.top += fPopupRet;
 					break;
 				}
-				
+
 				m_nPopupWhere = nWhere;
 				Move(rcWindow, TRUE, TRUE);
 			}
@@ -555,7 +555,7 @@ FX_BOOL CPWL_ComboBox::OnKeyDown(FX_WORD nChar, FX_DWORD nFlag)
 			if (m_pList->OnKeyDownWithExit(nChar,bExit,nFlag))
 			{
 				if (bExit) return FALSE;
-				SetSelectText();				
+				SetSelectText();
 			}
 		}
 		return TRUE;
@@ -566,7 +566,7 @@ FX_BOOL CPWL_ComboBox::OnKeyDown(FX_WORD nChar, FX_DWORD nFlag)
 			if (m_pList->OnKeyDownWithExit(nChar,bExit,nFlag))
 			{
 				if (bExit) return FALSE;
-				SetSelectText();				
+				SetSelectText();
 			}
 		}
 		return TRUE;
@@ -588,7 +588,7 @@ FX_BOOL CPWL_ComboBox::OnChar(FX_WORD nChar, FX_DWORD nFlag)
 
 	if (HasFlag(PCBS_ALLOWCUSTOMTEXT))
 	{
-		return m_pEdit->OnChar(nChar,nFlag);			
+		return m_pEdit->OnChar(nChar,nFlag);
 	}
 	else
 	{
@@ -601,7 +601,7 @@ FX_BOOL CPWL_ComboBox::OnChar(FX_WORD nChar, FX_DWORD nFlag)
 	}
 }
 
-void CPWL_ComboBox::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, FX_INTPTR wParam, FX_INTPTR lParam)
+void CPWL_ComboBox::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, intptr_t wParam, intptr_t lParam)
 {
 	switch (msg)
 	{
@@ -616,7 +616,7 @@ void CPWL_ComboBox::OnNotify(CPWL_Wnd* pWnd, FX_DWORD msg, FX_INTPTR wParam, FX_
 		if (m_pEdit && m_pList)
 		{
 			if (pWnd == m_pList)
-			{			
+			{
 				SetSelectText();
 				SelectAll();
 				m_pEdit->SetFocus();
@@ -638,7 +638,7 @@ void CPWL_ComboBox::SetSelectText()
 {
 	CFX_WideString swText = m_pList->GetText();
 	m_pEdit->SelectAll();
-	m_pEdit->ReplaceSel(m_pList->GetText());
+	m_pEdit->ReplaceSel(m_pList->GetText().c_str());
 	m_pEdit->SelectAll();
 
 	m_nSelectItem = m_pList->GetCurSel();

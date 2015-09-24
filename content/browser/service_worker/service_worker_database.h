@@ -7,6 +7,7 @@
 
 #include <map>
 #include <set>
+#include <string>
 #include <vector>
 
 #include "base/files/file_path.h"
@@ -91,6 +92,16 @@ class CONTENT_EXPORT ServiceWorkerDatabase {
       int64* next_avail_version_id,
       int64* next_avail_resource_id);
 
+  // Used for diskcache migration (http://crbug.com/487482). Returns true if the
+  // storage needs to migrate a disk cache.
+  Status IsDiskCacheMigrationNeeded(bool* migration_needed);
+  Status SetDiskCacheMigrationNotNeeded();
+
+  // Used for diskcache migration (http://crbug.com/487482). Returns true if the
+  // storage needs to delete an old disk cache.
+  Status IsOldDiskCacheDeletionNeeded(bool* deletion_needed);
+  Status SetOldDiskCacheDeletionNotNeeded();
+
   // Reads origins that have one or more than one registration from the
   // database. Returns OK if they are successfully read or not found.
   // Otherwise, returns an error.
@@ -100,7 +111,8 @@ class CONTENT_EXPORT ServiceWorkerDatabase {
   // successfully read or not found. Otherwise, returns an error.
   Status GetRegistrationsForOrigin(
       const GURL& origin,
-      std::vector<RegistrationData>* registrations);
+      std::vector<RegistrationData>* registrations,
+      std::vector<std::vector<ResourceRecord>>* opt_resources_list);
 
   // Reads all registrations from the database. Returns OK if successfully read
   // or not found. Otherwise, returns an error.
@@ -119,6 +131,11 @@ class CONTENT_EXPORT ServiceWorkerDatabase {
       const GURL& origin,
       RegistrationData* registration,
       std::vector<ResourceRecord>* resources);
+
+  // Looks up the origin for the registration with |registration_id|. Returns OK
+  // if a registration was found and read successfully. Otherwise, returns an
+  // error.
+  Status ReadRegistrationOrigin(int64 registration_id, GURL* origin);
 
   // Writes |registration| and |resources| into the database and does following
   // things:
@@ -157,6 +174,31 @@ class CONTENT_EXPORT ServiceWorkerDatabase {
                             const GURL& origin,
                             RegistrationData* deleted_version,
                             std::vector<int64>* newly_purgeable_resources);
+
+  // Reads user data for |registration_id| and |user_data_name| from the
+  // database.
+  Status ReadUserData(int64 registration_id,
+                      const std::string& user_data_name,
+                      std::string* user_data);
+
+  // Writes |user_data| into the database. Returns NOT_FOUND if the registration
+  // specified by |registration_id| does not exist in the database.
+  Status WriteUserData(int64 registration_id,
+                       const GURL& origin,
+                       const std::string& user_data_name,
+                       const std::string& user_data);
+
+  // Deletes user data for |registration_id| and |user_data_name| from the
+  // database. Returns OK if it's successfully deleted or not found in the
+  // database.
+  Status DeleteUserData(int64 registration_id,
+                        const std::string& user_data_name);
+
+  // Reads user data for all registrations that have data with |user_data_name|
+  // from the database. Returns OK if they are successfully read or not found.
+  Status ReadUserDataForAllRegistrations(
+      const std::string& user_data_name,
+      std::vector<std::pair<int64, std::string>>* user_data);
 
   // As new resources are put into the diskcache, they go into an uncommitted
   // list. When a registration is saved that refers to those ids, they're
@@ -216,6 +258,10 @@ class CONTENT_EXPORT ServiceWorkerDatabase {
   // the database is new or nonexistent, that is, it has never been used.
   bool IsNewOrNonexistentDatabase(Status status);
 
+  // Upgrades the database schema from version 1 to version 2. Called by
+  // LazyOpen() when the stored schema is older than version 2.
+  Status UpgradeDatabaseSchemaFromV1ToV2();
+
   // Reads the next available id for |id_key|. Returns OK if it's successfully
   // read. Fills |next_avail_id| with an initial value and returns OK if it's
   // not found in the database. Otherwise, returns an error.
@@ -273,6 +319,12 @@ class CONTENT_EXPORT ServiceWorkerDatabase {
       const std::set<int64>& ids,
       leveldb::WriteBatch* batch);
 
+  // Deletes all user data for |registration_id| from the database. Returns OK
+  // if they are successfully deleted or not found in the database.
+  Status DeleteUserDataForRegistration(
+      int64 registration_id,
+      leveldb::WriteBatch* batch);
+
   // Reads the current schema version from the database. If the database hasn't
   // been written anything yet, sets |db_version| to 0 and returns OK.
   Status ReadDatabaseVersion(int64* db_version);
@@ -309,7 +361,7 @@ class CONTENT_EXPORT ServiceWorkerDatabase {
       const tracked_objects::Location& from_here,
       Status status);
 
-  base::FilePath path_;
+  const base::FilePath path_;
   scoped_ptr<leveldb::Env> env_;
   scoped_ptr<leveldb::DB> db_;
 
@@ -324,13 +376,30 @@ class CONTENT_EXPORT ServiceWorkerDatabase {
   };
   State state_;
 
+  bool IsDatabaseInMemory() const;
+
+  void set_skip_writing_diskcache_migration_state_on_init_for_testing() {
+    skip_writing_diskcache_migration_state_on_init_for_testing_ = true;
+  }
+  bool skip_writing_diskcache_migration_state_on_init_for_testing_;
+
   base::SequenceChecker sequence_checker_;
 
   FRIEND_TEST_ALL_PREFIXES(ServiceWorkerDatabaseTest, OpenDatabase);
   FRIEND_TEST_ALL_PREFIXES(ServiceWorkerDatabaseTest, OpenDatabase_InMemory);
   FRIEND_TEST_ALL_PREFIXES(ServiceWorkerDatabaseTest, DatabaseVersion);
   FRIEND_TEST_ALL_PREFIXES(ServiceWorkerDatabaseTest, GetNextAvailableIds);
+  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerDatabaseTest,
+                           Registration_UninitializedDatabase);
+  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerDatabaseTest,
+                           UserData_UninitializedDatabase);
   FRIEND_TEST_ALL_PREFIXES(ServiceWorkerDatabaseTest, DestroyDatabase);
+  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerDatabaseTest, DiskCacheMigrationState);
+  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerDatabaseTest, UpgradeSchemaToVersion2);
+  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerDiskCacheMigratorTest,
+                           MigrateOnDiskCacheAccess);
+  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerDiskCacheMigratorTest,
+                           NotMigrateOnDatabaseAccess);
 
   DISALLOW_COPY_AND_ASSIGN(ServiceWorkerDatabase);
 };

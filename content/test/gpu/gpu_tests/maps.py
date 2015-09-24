@@ -14,11 +14,11 @@ import cloud_storage_test_base
 import maps_expectations
 
 from telemetry import benchmark
-from telemetry.core import bitmap
 from telemetry.core import util
 from telemetry.page import page
-from telemetry.page import page_set
 from telemetry.page import page_test
+from telemetry import story as story_module
+from telemetry.story import story_set as story_set_module
 
 class _MapsValidator(cloud_storage_test_base.ValidatorBase):
   def CustomizeBrowserOptions(self, options):
@@ -33,7 +33,7 @@ class _MapsValidator(cloud_storage_test_base.ValidatorBase):
     if not tab.screenshot_supported:
       raise page_test.Failure('Browser does not support screenshot capture')
     screenshot = tab.Screenshot(5)
-    if not screenshot:
+    if screenshot is None:
       raise page_test.Failure('Could not capture screenshot')
 
     dpr = tab.EvaluateJavaScript('window.devicePixelRatio')
@@ -72,16 +72,17 @@ class _MapsValidator(cloud_storage_test_base.ValidatorBase):
 
 
 class MapsPage(page.Page):
-  def __init__(self, page_set, base_dir):
+  def __init__(self, story_set, base_dir):
     super(MapsPage, self).__init__(
-      url='http://localhost:10020/tracker.html',
-      page_set=page_set,
-      base_dir=base_dir,
-      name='Maps.maps_002')
+        url='http://localhost:10020/tracker.html',
+        page_set=story_set,
+        base_dir=base_dir,
+        name='Maps.maps_002',
+        make_javascript_deterministic=False)
     self.pixel_expectations = 'data/maps_002_expectations.json'
 
   def RunNavigateSteps(self, action_runner):
-    action_runner.NavigateToPage(self)
+    super(MapsPage, self).RunNavigateSteps(action_runner)
     action_runner.WaitForJavaScriptCondition(
         'window.testDone', timeout_in_seconds=180)
 
@@ -90,15 +91,19 @@ class Maps(cloud_storage_test_base.TestBase):
   """Google Maps pixel tests."""
   test = _MapsValidator
 
+  @classmethod
+  def Name(cls):
+    return 'maps'
+
   def CreateExpectations(self):
     return maps_expectations.MapsExpectations()
 
-  def CreatePageSet(self, options):
-    page_set_path = os.path.join(
+  def CreateStorySet(self, options):
+    story_set_path = os.path.join(
         util.GetChromiumSrcDir(), 'content', 'test', 'gpu', 'page_sets')
-    ps = page_set.PageSet(archive_data_file='data/maps.json',
-                          make_javascript_deterministic=False,
-                          file_path=page_set_path,
-                          bucket=page_set.PUBLIC_BUCKET)
-    ps.AddPage(MapsPage(ps, ps.base_dir))
+    ps = story_set_module.StorySet(
+        archive_data_file='data/maps.json',
+        base_dir=story_set_path,
+        cloud_storage_bucket=story_module.PUBLIC_BUCKET)
+    ps.AddStory(MapsPage(ps, ps.base_dir))
     return ps

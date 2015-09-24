@@ -8,8 +8,6 @@
 
 #include <sstream>
 
-#include "ash/ime/input_method_menu_item.h"
-#include "ash/ime/input_method_menu_manager.h"
 #include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/location.h"
@@ -25,19 +23,22 @@
 #include "chrome/browser/chromeos/input_method/candidate_window_controller.h"
 #include "chrome/browser/chromeos/input_method/component_extension_ime_manager_impl.h"
 #include "chrome/browser/chromeos/input_method/input_method_engine.h"
+#include "chrome/browser/chromeos/input_method/input_method_switch_recorder.h"
 #include "chrome/browser/chromeos/language_preferences.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/ime/component_extension_ime_manager.h"
-#include "chromeos/ime/extension_ime_util.h"
-#include "chromeos/ime/fake_ime_keyboard.h"
-#include "chromeos/ime/ime_keyboard.h"
-#include "chromeos/ime/input_method_delegate.h"
 #include "components/user_manager/user_manager.h"
 #include "third_party/icu/source/common/unicode/uloc.h"
 #include "ui/base/accelerators/accelerator.h"
+#include "ui/base/ime/chromeos/component_extension_ime_manager.h"
+#include "ui/base/ime/chromeos/extension_ime_util.h"
+#include "ui/base/ime/chromeos/fake_ime_keyboard.h"
+#include "ui/base/ime/chromeos/ime_keyboard.h"
+#include "ui/base/ime/chromeos/input_method_delegate.h"
+#include "ui/chromeos/ime/input_method_menu_item.h"
+#include "ui/chromeos/ime/input_method_menu_manager.h"
 #include "ui/keyboard/keyboard_controller.h"
 #include "ui/keyboard/keyboard_util.h"
 
@@ -69,22 +70,26 @@ InputMethodCategory GetInputMethodCategory(const std::string& input_method_id,
       extension_ime_util::GetComponentIDByInputMethodID(input_method_id);
   InputMethodCategory category = INPUT_METHOD_CATEGORY_UNKNOWN;
   char ch = 0;
-  if (StartsWithASCII(component_id, "xkb:", true)) {
+  if (base::StartsWith(component_id, "xkb:", base::CompareCase::SENSITIVE)) {
     ch = component_id[4];
     category = INPUT_METHOD_CATEGORY_XKB;
-  } else if (StartsWithASCII(component_id, "zh-", true)) {
+  } else if (base::StartsWith(component_id, "zh-",
+                              base::CompareCase::SENSITIVE)) {
     size_t pos = component_id.find("-t-i0-");
     if (pos > 0)
       pos += 6;
     ch = component_id[pos];
     category = INPUT_METHOD_CATEGORY_ZH;
-  } else if (StartsWithASCII(component_id, "nacl_mozc_", true)) {
+  } else if (base::StartsWith(component_id, "nacl_mozc_",
+                              base::CompareCase::SENSITIVE)) {
     ch = component_id[10];
     category = INPUT_METHOD_CATEGORY_JA;
-  } else if (StartsWithASCII(component_id, "hangul_", true)) {
+  } else if (base::StartsWith(component_id, "hangul_",
+                              base::CompareCase::SENSITIVE)) {
     ch = component_id[7];
     category = INPUT_METHOD_CATEGORY_KO;
-  } else if (StartsWithASCII(component_id, "vkd_", true)) {
+  } else if (base::StartsWith(component_id, "vkd_",
+                              base::CompareCase::SENSITIVE)) {
     ch = component_id[4];
     category = INPUT_METHOD_CATEGORY_M17N;
   } else if (component_id.find("-t-i0-") > 0) {
@@ -129,7 +134,7 @@ std::string InputMethodManagerImpl::StateImpl::Dump() const {
   std::ostringstream os;
 
   os << "################# "
-     << (profile ? profile->GetProfileName() : std::string("NULL"))
+     << (profile ? profile->GetProfileUserName() : std::string("NULL"))
      << " #################\n";
 
   os << "previous_input_method: '"
@@ -391,12 +396,6 @@ void InputMethodManagerImpl::StateImpl::ChangeInputMethod(
     return;
 
   bool notify_menu = false;
-  // For 3rd party IME, when the user just logged in, SetEnabledExtensionImes
-  // happens after activating the 3rd party IME.
-  // So here to record the 3rd party IME to be activated, and activate it
-  // when SetEnabledExtensionImes happens later.
-  if (MethodAwaitsExtensionLoad(input_method_id))
-    pending_input_method_id = input_method_id;
 
   // Always lookup input method, even if it is the same as
   // |current_input_method| because If it is no longer in
@@ -404,6 +403,20 @@ void InputMethodManagerImpl::StateImpl::ChangeInputMethod(
   // |active_input_method_ids|.
   const InputMethodDescriptor* descriptor =
       manager_->LookupInputMethod(input_method_id, this);
+  if (!descriptor) {
+    descriptor = manager_->LookupInputMethod(
+        manager_->util_.MigrateInputMethod(input_method_id), this);
+    if (!descriptor)
+      return;
+  }
+
+  // For 3rd party IME, when the user just logged in, SetEnabledExtensionImes
+  // happens after activating the 3rd party IME.
+  // So here to record the 3rd party IME to be activated, and activate it
+  // when SetEnabledExtensionImes happens later.
+  if (MethodAwaitsExtensionLoad(descriptor->id()))
+    pending_input_method_id = descriptor->id();
+
   if (descriptor->id() != current_input_method.id()) {
     previous_input_method = current_input_method;
     current_input_method = *descriptor;
@@ -413,7 +426,8 @@ void InputMethodManagerImpl::StateImpl::ChangeInputMethod(
   // Always change input method even if it is the same.
   // TODO(komatsu): Revisit if this is neccessary.
   if (IsActive())
-    manager_->ChangeInputMethodInternal(*descriptor, show_message, notify_menu);
+    manager_->ChangeInputMethodInternal(*descriptor, profile, show_message,
+                                        notify_menu);
   manager_->RecordInputMethodUsage(current_input_method.id());
 }
 
@@ -436,7 +450,7 @@ void InputMethodManagerImpl::StateImpl::AddInputMethodExtension(
 
   DCHECK(engine);
 
-  manager_->engine_map_[extension_id] = engine;
+  manager_->engine_map_[profile][extension_id] = engine;
 
   bool contain = false;
   for (size_t i = 0; i < descriptors.size(); i++) {
@@ -493,10 +507,10 @@ void InputMethodManagerImpl::StateImpl::RemoveInputMethodExtension(
 
   if (IsActive()) {
     if (IMEBridge::Get()->GetCurrentEngineHandler() ==
-        manager_->engine_map_[extension_id]) {
+        manager_->engine_map_[profile][extension_id]) {
       IMEBridge::Get()->SetCurrentEngineHandler(NULL);
     }
-    manager_->engine_map_.erase(extension_id);
+    manager_->engine_map_[profile].erase(extension_id);
   }
 
   // If |current_input_method| is no longer in |active_input_method_ids|,
@@ -632,7 +646,7 @@ void InputMethodManagerImpl::StateImpl::SetInputMethodLoginDefault() {
   }
 }
 
-bool InputMethodManagerImpl::StateImpl::SwitchToNextInputMethod() {
+bool InputMethodManagerImpl::StateImpl::CanCycleInputMethod() {
   // Sanity checks.
   if (active_input_method_ids.empty()) {
     DVLOG(1) << "active input method is empty";
@@ -646,34 +660,29 @@ bool InputMethodManagerImpl::StateImpl::SwitchToNextInputMethod() {
 
   // Do not consume key event if there is only one input method is enabled.
   // Ctrl+Space or Alt+Shift may be used by other application.
-  if (active_input_method_ids.size() == 1)
-    return false;
+  return active_input_method_ids.size() > 1;
+}
+
+void InputMethodManagerImpl::StateImpl::SwitchToNextInputMethod() {
+  DCHECK(CanCycleInputMethod());
+  if (!CanCycleInputMethod())
+    return;
 
   // Find the next input method and switch to it.
   SwitchToNextInputMethodInternal(active_input_method_ids,
                                   current_input_method.id());
-  return true;
+  InputMethodSwitchRecorder::Get()->RecordSwitch(false /* by_tray_menu*/);
 }
 
-bool InputMethodManagerImpl::StateImpl::SwitchToPreviousInputMethod(
-    const ui::Accelerator& accelerator) {
-  // Sanity check.
-  if (active_input_method_ids.empty()) {
-    DVLOG(1) << "active input method is empty";
-    return false;
-  }
-
-  // Do not consume key event if there is only one input method is enabled.
-  // Ctrl+Space or Alt+Shift may be used by other application.
-  if (active_input_method_ids.size() == 1)
-    return false;
-
-  if (accelerator.type() == ui::ET_KEY_RELEASED)
-    return true;
+void InputMethodManagerImpl::StateImpl::SwitchToPreviousInputMethod() {
+  DCHECK(CanCycleInputMethod());
+  if (!CanCycleInputMethod())
+    return;
 
   if (previous_input_method.id().empty() ||
       previous_input_method.id() == current_input_method.id()) {
-    return SwitchToNextInputMethod();
+    SwitchToNextInputMethod();
+    return;
   }
 
   std::vector<std::string>::const_iterator iter =
@@ -682,23 +691,57 @@ bool InputMethodManagerImpl::StateImpl::SwitchToPreviousInputMethod(
                 previous_input_method.id());
   if (iter == active_input_method_ids.end()) {
     // previous_input_method is not supported.
-    return SwitchToNextInputMethod();
+    SwitchToNextInputMethod();
+    return;
   }
   ChangeInputMethod(*iter, true);
-
-  return true;
+  InputMethodSwitchRecorder::Get()->RecordSwitch(false /* by_tray_menu*/);
 }
 
-bool InputMethodManagerImpl::StateImpl::SwitchInputMethod(
+bool InputMethodManagerImpl::StateImpl::CanSwitchInputMethod(
     const ui::Accelerator& accelerator) {
+  // If none of the input methods associated with |accelerator| are active, we
+  // should ignore the accelerator. For example, we should just ignore
+  // VKEY_HANGUL when mozc-hangul is not active.
+  std::vector<std::string> candidate_ids;
+  GetCandidateInputMethodsForAccelerator(accelerator, &candidate_ids);
+  return !candidate_ids.empty();
+}
+
+void InputMethodManagerImpl::StateImpl::SwitchInputMethod(
+    const ui::Accelerator& accelerator) {
+  std::vector<std::string> candidate_ids;
+  GetCandidateInputMethodsForAccelerator(accelerator, &candidate_ids);
+  DCHECK(!candidate_ids.empty());
+  if (!candidate_ids.empty()) {
+    SwitchToNextInputMethodInternal(candidate_ids, current_input_method.id());
+    InputMethodSwitchRecorder::Get()->RecordSwitch(false /* by_tray_menu*/);
+  }
+}
+
+void InputMethodManagerImpl::StateImpl::SwitchToNextInputMethodInternal(
+    const std::vector<std::string>& input_method_ids,
+    const std::string& current_input_methodid) {
+  std::vector<std::string>::const_iterator iter = std::find(
+      input_method_ids.begin(), input_method_ids.end(), current_input_methodid);
+  if (iter != input_method_ids.end())
+    ++iter;
+  if (iter == input_method_ids.end())
+    iter = input_method_ids.begin();
+  ChangeInputMethod(*iter, true);
+}
+
+void InputMethodManagerImpl::StateImpl::GetCandidateInputMethodsForAccelerator(
+    const ui::Accelerator& accelerator,
+    std::vector<std::string>* out_candidate_ids) {
+  out_candidate_ids->clear();
+
   // Sanity check.
   if (active_input_method_ids.empty()) {
     DVLOG(1) << "active input method is empty";
-    return false;
+    return;
   }
 
-  // Get the list of input method ids for the |accelerator|. For example, get
-  // { "mozc-hangul", "xkb:kr:kr104:kor" } for ui::VKEY_DBE_SBCSCHAR.
   std::vector<std::string> input_method_ids_to_switch;
   switch (accelerator.key_code()) {
     case ui::VKEY_CONVERT:  // Henkan key on JP106 keyboard
@@ -722,38 +765,16 @@ bool InputMethodManagerImpl::StateImpl::SwitchInputMethod(
   }
   if (input_method_ids_to_switch.empty()) {
     DVLOG(1) << "Unexpected VKEY: " << accelerator.key_code();
-    return false;
+    return;
   }
 
   // Obtain the intersection of input_method_ids_to_switch and
-  // active_input_method_ids. The order of IDs in active_input_method_ids is
-  // preserved.
-  std::vector<std::string> ids;
+  // active_input_method_ids.
   for (size_t i = 0; i < input_method_ids_to_switch.size(); ++i) {
     const std::string& id = input_method_ids_to_switch[i];
     if (Contains(active_input_method_ids, id))
-      ids.push_back(id);
+      out_candidate_ids->push_back(id);
   }
-  if (ids.empty()) {
-    // No input method for the accelerator is active. For example, we should
-    // just ignore VKEY_HANGUL when mozc-hangul is not active.
-    return false;
-  }
-
-  SwitchToNextInputMethodInternal(ids, current_input_method.id());
-  return true;  // consume the accelerator.
-}
-
-void InputMethodManagerImpl::StateImpl::SwitchToNextInputMethodInternal(
-    const std::vector<std::string>& input_method_ids,
-    const std::string& current_input_methodid) {
-  std::vector<std::string>::const_iterator iter = std::find(
-      input_method_ids.begin(), input_method_ids.end(), current_input_methodid);
-  if (iter != input_method_ids.end())
-    ++iter;
-  if (iter == input_method_ids.end())
-    iter = input_method_ids.begin();
-  ChangeInputMethod(*iter, true);
 }
 
 InputMethodDescriptor InputMethodManagerImpl::StateImpl::GetCurrentInputMethod()
@@ -797,19 +818,10 @@ void InputMethodManagerImpl::SetState(
   DCHECK(state.get());
   InputMethodManagerImpl::StateImpl* new_impl_state =
       static_cast<InputMethodManagerImpl::StateImpl*>(state.get());
-#if defined(USE_ATHENA)
-  const bool profile_changed = (state_.get()
-      ? state_->profile != new_impl_state->profile
-      : true);
-#endif
 
   state_ = new_impl_state;
 
   if (state_.get() && state_->active_input_method_ids.size()) {
-#if defined(USE_ATHENA)
-    if (profile_changed)
-      LoadNecessaryComponentExtensions(state_.get());
-#endif
     // Initialize candidate window controller and widgets such as
     // candidate window, infolist and mode indicator.  Note, mode
     // indicator is used by only keyboard layout input methods.
@@ -818,9 +830,8 @@ void InputMethodManagerImpl::SetState(
     // Always call ChangeInputMethodInternal even when the input method id
     // remain unchanged, because onActivate event needs to be sent to IME
     // extension to update the current screen type correctly.
-    ChangeInputMethodInternal(state_->current_input_method,
-                              false /* show_message */,
-                              true /* notify_menu */);
+    ChangeInputMethodInternal(state_->current_input_method, state_->profile,
+                              false /* show_message */, true /* notify_menu */);
   }
 }
 
@@ -968,6 +979,7 @@ const InputMethodDescriptor* InputMethodManagerImpl::LookupInputMethod(
 
 void InputMethodManagerImpl::ChangeInputMethodInternal(
     const InputMethodDescriptor& descriptor,
+    Profile* profile,
     bool show_message,
     bool notify_menu) {
   // No need to switch input method when terminating.
@@ -982,9 +994,9 @@ void InputMethodManagerImpl::ChangeInputMethodInternal(
     // extension IMEs via InputMethodEngine::(Set|Update)MenuItems.
     // If the current input method is a keyboard layout, empty
     // properties are sufficient.
-    const ash::ime::InputMethodMenuItemList empty_menu_item_list;
-    ash::ime::InputMethodMenuManager* input_method_menu_manager =
-        ash::ime::InputMethodMenuManager::GetInstance();
+    const ui::ime::InputMethodMenuItemList empty_menu_item_list;
+    ui::ime::InputMethodMenuManager* input_method_menu_manager =
+        ui::ime::InputMethodMenuManager::GetInstance();
     input_method_menu_manager->SetCurrentInputMethodMenuItemList(
             empty_menu_item_list);
   }
@@ -1002,7 +1014,7 @@ void InputMethodManagerImpl::ChangeInputMethodInternal(
       extension_ime_util::GetExtensionIDFromInputMethodID(descriptor.id());
   const std::string& component_id =
       extension_ime_util::GetComponentIDByInputMethodID(descriptor.id());
-  engine = engine_map_[extension_id];
+  engine = engine_map_[profile][extension_id];
 
   IMEBridge::Get()->SetCurrentEngineHandler(engine);
 
@@ -1026,9 +1038,8 @@ void InputMethodManagerImpl::ChangeInputMethodInternal(
   }
 
   // Update input method indicators (e.g. "US", "DV") in Chrome windows.
-  FOR_EACH_OBSERVER(InputMethodManager::Observer,
-                    observers_,
-                    InputMethodChanged(this, show_message));
+  FOR_EACH_OBSERVER(InputMethodManager::Observer, observers_,
+                    InputMethodChanged(this, profile, show_message));
 }
 
 void InputMethodManagerImpl::LoadNecessaryComponentExtensions(
@@ -1061,7 +1072,7 @@ void InputMethodManagerImpl::ActivateInputMethodMenuItem(
     const std::string& key) {
   DCHECK(!key.empty());
 
-  if (ash::ime::InputMethodMenuManager::GetInstance()->
+  if (ui::ime::InputMethodMenuManager::GetInstance()->
       HasInputMethodMenuItemForKey(key)) {
     IMEEngineHandlerInterface* engine =
         IMEBridge::Get()->GetCurrentEngineHandler();

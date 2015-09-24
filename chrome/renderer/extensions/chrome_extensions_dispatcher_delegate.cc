@@ -15,35 +15,29 @@
 #include "chrome/grit/renderer_resources.h"
 #include "chrome/renderer/extensions/app_bindings.h"
 #include "chrome/renderer/extensions/automation_internal_custom_bindings.h"
-#include "chrome/renderer/extensions/chrome_v8_context.h"
-#include "chrome/renderer/extensions/enterprise_platform_keys_natives.h"
 #include "chrome/renderer/extensions/file_browser_handler_custom_bindings.h"
 #include "chrome/renderer/extensions/file_manager_private_custom_bindings.h"
 #include "chrome/renderer/extensions/media_galleries_custom_bindings.h"
 #include "chrome/renderer/extensions/notifications_native_handler.h"
 #include "chrome/renderer/extensions/page_capture_custom_bindings.h"
+#include "chrome/renderer/extensions/platform_keys_natives.h"
 #include "chrome/renderer/extensions/sync_file_system_custom_bindings.h"
-#include "chrome/renderer/extensions/tab_finder.h"
 #include "chrome/renderer/extensions/tabs_custom_bindings.h"
 #include "chrome/renderer/extensions/webstore_bindings.h"
 #include "content/public/renderer/render_thread.h"
 #include "content/public/renderer/render_view.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/feature_switch.h"
-#include "extensions/common/permissions/api_permission_set.h"
 #include "extensions/common/permissions/manifest_permission_set.h"
 #include "extensions/common/permissions/permission_set.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "extensions/common/switches.h"
-#include "extensions/common/url_pattern_set.h"
 #include "extensions/renderer/dispatcher.h"
 #include "extensions/renderer/native_handler.h"
 #include "extensions/renderer/resource_bundle_source_map.h"
 #include "extensions/renderer/script_context.h"
 #include "third_party/WebKit/public/platform/WebString.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
 #include "third_party/WebKit/public/web/WebSecurityPolicy.h"
-#include "third_party/WebKit/public/web/WebView.h"
 
 #if defined(ENABLE_WEBRTC)
 #include "chrome/renderer/extensions/cast_streaming_native_handler.h"
@@ -55,23 +49,6 @@ ChromeExtensionsDispatcherDelegate::ChromeExtensionsDispatcherDelegate() {
 }
 
 ChromeExtensionsDispatcherDelegate::~ChromeExtensionsDispatcherDelegate() {
-}
-
-scoped_ptr<extensions::ScriptContext>
-ChromeExtensionsDispatcherDelegate::CreateScriptContext(
-    const v8::Handle<v8::Context>& v8_context,
-    blink::WebFrame* frame,
-    const extensions::Extension* extension,
-    extensions::Feature::Context context_type,
-    const extensions::Extension* effective_extension,
-    extensions::Feature::Context effective_context_type) {
-  return scoped_ptr<extensions::ScriptContext>(
-      new extensions::ChromeV8Context(v8_context,
-                                      frame,
-                                      extension,
-                                      context_type,
-                                      effective_extension,
-                                      effective_context_type));
 }
 
 void ChromeExtensionsDispatcherDelegate::InitOriginPermissions(
@@ -104,10 +81,6 @@ void ChromeExtensionsDispatcherDelegate::RegisterNativeHandlers(
       scoped_ptr<NativeHandler>(
           new extensions::SyncFileSystemCustomBindings(context)));
   module_system->RegisterNativeHandler(
-      "enterprise_platform_keys_natives",
-      scoped_ptr<NativeHandler>(
-          new extensions::EnterprisePlatformKeysNatives(context)));
-  module_system->RegisterNativeHandler(
       "file_browser_handler",
       scoped_ptr<NativeHandler>(
           new extensions::FileBrowserHandlerCustomBindings(context)));
@@ -127,6 +100,9 @@ void ChromeExtensionsDispatcherDelegate::RegisterNativeHandlers(
       "page_capture",
       scoped_ptr<NativeHandler>(
           new extensions::PageCaptureCustomBindings(context)));
+  module_system->RegisterNativeHandler(
+      "platform_keys_natives",
+      scoped_ptr<NativeHandler>(new extensions::PlatformKeysNatives(context)));
   module_system->RegisterNativeHandler(
       "tabs",
       scoped_ptr<NativeHandler>(new extensions::TabsCustomBindings(context)));
@@ -165,16 +141,12 @@ void ChromeExtensionsDispatcherDelegate::PopulateSourceMap(
                              IDR_ENTERPRISE_PLATFORM_KEYS_CUSTOM_BINDINGS_JS);
   source_map->RegisterSource("enterprise.platformKeys.internalAPI",
                              IDR_ENTERPRISE_PLATFORM_KEYS_INTERNAL_API_JS);
-  source_map->RegisterSource("enterprise.platformKeys.Key",
-                             IDR_ENTERPRISE_PLATFORM_KEYS_KEY_JS);
   source_map->RegisterSource("enterprise.platformKeys.KeyPair",
                              IDR_ENTERPRISE_PLATFORM_KEYS_KEY_PAIR_JS);
   source_map->RegisterSource("enterprise.platformKeys.SubtleCrypto",
                              IDR_ENTERPRISE_PLATFORM_KEYS_SUBTLE_CRYPTO_JS);
   source_map->RegisterSource("enterprise.platformKeys.Token",
                              IDR_ENTERPRISE_PLATFORM_KEYS_TOKEN_JS);
-  source_map->RegisterSource("enterprise.platformKeys.utils",
-                             IDR_ENTERPRISE_PLATFORM_KEYS_UTILS_JS);
   source_map->RegisterSource("feedbackPrivate",
                              IDR_FEEDBACK_PRIVATE_CUSTOM_BINDINGS_JS);
   source_map->RegisterSource("fileBrowserHandler",
@@ -198,6 +170,16 @@ void ChromeExtensionsDispatcherDelegate::PopulateSourceMap(
   source_map->RegisterSource("pageAction", IDR_PAGE_ACTION_CUSTOM_BINDINGS_JS);
   source_map->RegisterSource("pageCapture",
                              IDR_PAGE_CAPTURE_CUSTOM_BINDINGS_JS);
+  source_map->RegisterSource("platformKeys",
+                             IDR_PLATFORM_KEYS_CUSTOM_BINDINGS_JS);
+  source_map->RegisterSource("platformKeys.getPublicKey",
+                             IDR_PLATFORM_KEYS_GET_PUBLIC_KEY_JS);
+  source_map->RegisterSource("platformKeys.internalAPI",
+                             IDR_PLATFORM_KEYS_INTERNAL_API_JS);
+  source_map->RegisterSource("platformKeys.Key", IDR_PLATFORM_KEYS_KEY_JS);
+  source_map->RegisterSource("platformKeys.SubtleCrypto",
+                             IDR_PLATFORM_KEYS_SUBTLE_CRYPTO_JS);
+  source_map->RegisterSource("platformKeys.utils", IDR_PLATFORM_KEYS_UTILS_JS);
   source_map->RegisterSource("syncFileSystem",
                              IDR_SYNC_FILE_SYSTEM_CUSTOM_BINDINGS_JS);
   source_map->RegisterSource("systemIndicator",
@@ -214,7 +196,13 @@ void ChromeExtensionsDispatcherDelegate::PopulateSourceMap(
   source_map->RegisterSource(
       "cast.streaming.udpTransport",
       IDR_CAST_STREAMING_UDP_TRANSPORT_CUSTOM_BINDINGS_JS);
+  source_map->RegisterSource(
+      "cast.streaming.receiverSession",
+      IDR_CAST_STREAMING_RECEIVER_SESSION_CUSTOM_BINDINGS_JS);
 #endif
+  source_map->RegisterSource(
+      "webrtcDesktopCapturePrivate",
+      IDR_WEBRTC_DESKTOP_CAPTURE_PRIVATE_CUSTOM_BINDINGS_JS);
   source_map->RegisterSource("webstore", IDR_WEBSTORE_CUSTOM_BINDINGS_JS);
 
   // Custom types sources.
@@ -226,15 +214,10 @@ void ChromeExtensionsDispatcherDelegate::PopulateSourceMap(
   // Platform app sources that are not API-specific..
   source_map->RegisterSource("fileEntryBindingUtil",
                              IDR_FILE_ENTRY_BINDING_UTIL_JS);
-  source_map->RegisterSource("extensionOptions", IDR_EXTENSION_OPTIONS_JS);
-  source_map->RegisterSource("extensionOptionsEvents",
-                             IDR_EXTENSION_OPTIONS_EVENTS_JS);
   source_map->RegisterSource("tagWatcher", IDR_TAG_WATCHER_JS);
   source_map->RegisterSource("chromeWebViewInternal",
                              IDR_CHROME_WEB_VIEW_INTERNAL_CUSTOM_BINDINGS_JS);
   source_map->RegisterSource("chromeWebView", IDR_CHROME_WEB_VIEW_JS);
-  source_map->RegisterSource("chromeWebViewExperimental",
-                             IDR_CHROME_WEB_VIEW_EXPERIMENTAL_JS);
   source_map->RegisterSource("injectAppTitlebar", IDR_INJECT_APP_TITLEBAR_JS);
 }
 
@@ -250,7 +233,7 @@ void ChromeExtensionsDispatcherDelegate::RequireAdditionalModules(
   if (context_type == extensions::Feature::BLESSED_EXTENSION_CONTEXT &&
       is_within_platform_app &&
       extensions::GetCurrentChannel() <= chrome::VersionInfo::CHANNEL_DEV &&
-      CommandLine::ForCurrentProcess()->HasSwitch(
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
           extensions::switches::kEnableAppWindowControls)) {
     module_system->Require("windowControls");
   }
@@ -259,21 +242,14 @@ void ChromeExtensionsDispatcherDelegate::RequireAdditionalModules(
   // The API will be automatically set up when first used.
   if (context->GetAvailability("webViewInternal").is_available()) {
     module_system->Require("chromeWebView");
-    if (context->GetAvailability("webViewExperimentalInternal")
-            .is_available()) {
-      module_system->Require("chromeWebViewExperimental");
-    }
-  }
-
-  if (context->GetAvailability("extensionOptionsInternal").is_available()) {
-    module_system->Require("extensionOptions");
   }
 }
 
 void ChromeExtensionsDispatcherDelegate::OnActiveExtensionsUpdated(
     const std::set<std::string>& extension_ids) {
   // In single-process mode, the browser process reports the active extensions.
-  if (CommandLine::ForCurrentProcess()->HasSwitch(::switches::kSingleProcess))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          ::switches::kSingleProcess))
     return;
   crash_keys::SetActiveExtensions(extension_ids);
 }
@@ -281,47 +257,4 @@ void ChromeExtensionsDispatcherDelegate::OnActiveExtensionsUpdated(
 void ChromeExtensionsDispatcherDelegate::SetChannel(int channel) {
   extensions::SetCurrentChannel(
       static_cast<chrome::VersionInfo::Channel>(channel));
-}
-
-void ChromeExtensionsDispatcherDelegate::ClearTabSpecificPermissions(
-    const extensions::Dispatcher* dispatcher,
-    int tab_id,
-    const std::vector<std::string>& extension_ids) {
-  for (std::vector<std::string>::const_iterator it = extension_ids.begin();
-       it != extension_ids.end();
-       ++it) {
-    const extensions::Extension* extension =
-        dispatcher->extensions()->GetByID(*it);
-    if (extension)
-      extension->permissions_data()->ClearTabSpecificPermissions(tab_id);
-  }
-}
-
-void ChromeExtensionsDispatcherDelegate::UpdateTabSpecificPermissions(
-    const extensions::Dispatcher* dispatcher,
-    const GURL& url,
-    int tab_id,
-    const std::string& extension_id,
-    const extensions::URLPatternSet& origin_set) {
-  content::RenderView* view = extensions::TabFinder::Find(tab_id);
-
-  // For now, the message should only be sent to the render view that contains
-  // the target tab. This may change. Either way, if this is the target tab it
-  // gives us the chance to check against the URL to avoid races.
-  DCHECK(view);
-  GURL active_url(view->GetWebView()->mainFrame()->document().url());
-  if (active_url != url)
-    return;
-
-  const extensions::Extension* extension =
-      dispatcher->extensions()->GetByID(extension_id);
-  if (!extension)
-    return;
-
-  extension->permissions_data()->UpdateTabSpecificPermissions(
-      tab_id,
-      new extensions::PermissionSet(extensions::APIPermissionSet(),
-                                    extensions::ManifestPermissionSet(),
-                                    origin_set,
-                                    extensions::URLPatternSet()));
 }

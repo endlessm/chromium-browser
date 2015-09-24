@@ -135,6 +135,17 @@ int32_t NaClSysGetdents(struct NaClAppThread *natp,
            "%"NACL_PRIuS"[0x%"NACL_PRIxS"])\n"),
           (uintptr_t) natp, d, dirp, count, count);
 
+  if (!NaClAclBypassChecks) {
+    /*
+     * Filesystem access is disabled, so disable the getdents() syscall.
+     * We do this for security hardening, though it should be redundant,
+     * because untrusted code should not be able to open any directory
+     * descriptors (i.e. descriptors with a non-trivial Getdents()
+     * implementation).
+     */
+    return -NACL_ABI_EACCES;
+  }
+
   ndp = NaClAppGetDesc(nap, d);
   if (NULL == ndp) {
     retval = -NACL_ABI_EBADF;
@@ -405,6 +416,9 @@ int32_t NaClSysFstat(struct NaClAppThread *natp,
   retval = (*((struct NaClDescVtbl const *) ndp->base.vtbl)->
             Fstat)(ndp, &result);
   if (0 == retval) {
+    if (!NaClAclBypassChecks) {
+      result.nacl_abi_st_ino = NACL_FAKE_INODE_NUM;
+    }
     if (!NaClCopyOutToUser(nap, nasp, &result, sizeof result)) {
       retval = -NACL_ABI_EFAULT;
     }

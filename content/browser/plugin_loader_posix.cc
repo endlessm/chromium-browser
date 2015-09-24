@@ -5,9 +5,10 @@
 #include "content/browser/plugin_loader_posix.h"
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/location.h"
 #include "base/metrics/histogram.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/browser/utility_process_host_impl.h"
 #include "content/common/child_process_host_impl.h"
 #include "content/common/plugin_list.h"
@@ -19,24 +20,27 @@
 namespace content {
 
 PluginLoaderPosix::PluginLoaderPosix()
-    : next_load_index_(0) {
+    : next_load_index_(0), loading_plugins_(false) {
 }
 
 void PluginLoaderPosix::GetPlugins(
     const PluginService::GetPluginsCallback& callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   std::vector<WebPluginInfo> cached_plugins;
   if (PluginList::Singleton()->GetPluginsNoRefresh(&cached_plugins)) {
     // Can't assume the caller is reentrant.
-    base::MessageLoop::current()->PostTask(FROM_HERE,
-        base::Bind(callback, cached_plugins));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(callback, cached_plugins));
     return;
   }
 
-  if (callbacks_.empty()) {
+  if (!loading_plugins_) {
+    loading_plugins_ = true;
     callbacks_.push_back(callback);
 
+    // When |loading_plugins_| is set to false, this instance must call
+    // SetPlugins().
     PluginList::Singleton()->PrepareForPluginLoading();
 
     BrowserThread::PostTask(BrowserThread::FILE,
@@ -81,6 +85,10 @@ void PluginLoaderPosix::OnProcessCrashed(int exit_code) {
   LoadPluginsInternal();
 }
 
+void PluginLoaderPosix::OnProcessLaunchFailed() {
+  FinishedLoadingPlugins();
+}
+
 bool PluginLoaderPosix::Send(IPC::Message* message) {
   if (process_host_.get())
     return process_host_->Send(message);
@@ -91,7 +99,7 @@ PluginLoaderPosix::~PluginLoaderPosix() {
 }
 
 void PluginLoaderPosix::GetPluginsToLoad() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
 
   base::TimeTicks start_time(base::TimeTicks::Now());
 
@@ -116,18 +124,17 @@ void PluginLoaderPosix::GetPluginsToLoad() {
 }
 
 void PluginLoaderPosix::LoadPluginsInternal() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   // Check if the list is empty or all plugins have already been loaded before
   // forking.
-  if (MaybeRunPendingCallbacks())
+  if (IsFinishedLoadingPlugins()) {
+    FinishedLoadingPlugins();
     return;
+  }
 
   RecordAction(
       base::UserMetricsAction("PluginLoaderPosix.LaunchUtilityProcess"));
-
-  if (load_start_time_.is_null())
-    load_start_time_ = base::TimeTicks::Now();
 
   UtilityProcessHostImpl* host = new UtilityProcessHostImpl(
       this,
@@ -138,7 +145,13 @@ void PluginLoaderPosix::LoadPluginsInternal() {
   host->set_child_flags(ChildProcessHost::CHILD_ALLOW_HEAP_EXECUTION);
 #endif
 
-  process_host_->Send(new UtilityMsg_LoadPlugins(canonical_list_));
+  bool launched = LaunchUtilityProcess();
+  if (!launched) {
+    // The utility process either failed to start or failed to receive the IPC.
+    // This process will never receive any callbacks for OnPluginLoaded() or
+    // OnPluginLoadFailed().
+    FinishedLoadingPlugins();
+  }
 }
 
 void PluginLoaderPosix::GetPluginsWrapper(
@@ -159,12 +172,18 @@ void PluginLoaderPosix::OnPluginLoaded(uint32 index,
     return;
   }
 
-  if (!MaybeAddInternalPlugin(plugin.path))
+  auto it = FindInternalPlugin(plugin.path);
+  if (it != internal_plugins_.end()) {
+    loaded_plugins_.push_back(*it);
+    internal_plugins_.erase(it);
+  } else {
     loaded_plugins_.push_back(plugin);
+  }
 
   ++next_load_index_;
 
-  MaybeRunPendingCallbacks();
+  if (IsFinishedLoadingPlugins())
+    FinishedLoadingPlugins();
 }
 
 void PluginLoaderPosix::OnPluginLoadFailed(uint32 index,
@@ -177,44 +196,45 @@ void PluginLoaderPosix::OnPluginLoadFailed(uint32 index,
 
   ++next_load_index_;
 
-  MaybeAddInternalPlugin(plugin_path);
-  MaybeRunPendingCallbacks();
-}
-
-bool PluginLoaderPosix::MaybeAddInternalPlugin(
-    const base::FilePath& plugin_path) {
-  for (std::vector<WebPluginInfo>::iterator it = internal_plugins_.begin();
-       it != internal_plugins_.end();
-       ++it) {
-    if (it->path == plugin_path) {
-      loaded_plugins_.push_back(*it);
-      internal_plugins_.erase(it);
-      return true;
-    }
+  auto it = FindInternalPlugin(plugin_path);
+  if (it != internal_plugins_.end()) {
+    loaded_plugins_.push_back(*it);
+    internal_plugins_.erase(it);
   }
-  return false;
+
+  if (IsFinishedLoadingPlugins())
+    FinishedLoadingPlugins();
 }
 
-bool PluginLoaderPosix::MaybeRunPendingCallbacks() {
-  if (next_load_index_ < canonical_list_.size())
-    return false;
+std::vector<WebPluginInfo>::iterator PluginLoaderPosix::FindInternalPlugin(
+    const base::FilePath& plugin_path) {
+  return std::find_if(internal_plugins_.begin(), internal_plugins_.end(),
+                      [&plugin_path](const WebPluginInfo& plugin) {
+    return plugin.path == plugin_path;
+  });
+}
 
+bool PluginLoaderPosix::IsFinishedLoadingPlugins() {
+  if (canonical_list_.empty())
+    return true;
+
+  DCHECK(next_load_index_ <= canonical_list_.size());
+  return next_load_index_ == canonical_list_.size();
+}
+
+void PluginLoaderPosix::FinishedLoadingPlugins() {
+  loading_plugins_ = false;
   PluginList::Singleton()->SetPlugins(loaded_plugins_);
 
-  for (std::vector<PluginService::GetPluginsCallback>::iterator it =
-           callbacks_.begin();
-       it != callbacks_.end(); ++it) {
-    base::MessageLoop::current()->PostTask(FROM_HERE,
-                                           base::Bind(*it, loaded_plugins_));
+  for (auto& callback : callbacks_) {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(callback, loaded_plugins_));
   }
   callbacks_.clear();
+}
 
-  LOCAL_HISTOGRAM_TIMES("PluginLoaderPosix.LoadDone",
-                        (base::TimeTicks::Now() - load_start_time_) *
-                            base::Time::kMicrosecondsPerMillisecond);
-  load_start_time_ = base::TimeTicks();
-
-  return true;
+bool PluginLoaderPosix::LaunchUtilityProcess() {
+  return process_host_->Send(new UtilityMsg_LoadPlugins(canonical_list_));
 }
 
 }  // namespace content

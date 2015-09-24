@@ -6,9 +6,16 @@ package org.chromium.content.browser;
 
 import android.test.suitebuilder.annotation.SmallTest;
 
+import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.base.test.util.Feature;
 import org.chromium.content_public.browser.JavaScriptCallback;
+import org.chromium.content_public.browser.LoadUrlParams;
+import org.chromium.content_public.browser.NavigationController;
 import org.chromium.content_public.browser.WebContents;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Part of the test suite for the WebView's Java Bridge.
@@ -17,6 +24,7 @@ import org.chromium.content_public.browser.WebContents;
  * main frame.
  */
 public class JavaBridgeChildFrameTest extends JavaBridgeTestBase {
+    @SuppressFBWarnings("CHROMIUM_SYNCHRONIZED_METHOD")
     private class TestController extends Controller {
         private String mStringValue;
 
@@ -38,7 +46,7 @@ public class JavaBridgeChildFrameTest extends JavaBridgeTestBase {
     protected void setUp() throws Exception {
         super.setUp();
         mTestController = new TestController();
-        setUpContentView(mTestController, "testController");
+        injectObjectAndReload(mTestController, "testController");
     }
 
     @SmallTest
@@ -64,12 +72,11 @@ public class JavaBridgeChildFrameTest extends JavaBridgeTestBase {
                 "<html><body><iframe></iframe></body></html>", "text/html", false);
         // In case there is anything wrong with the JS wrapper, an attempt
         // to look up its properties will result in an exception being thrown.
-        String script =
-                "(function(){ try {" +
-                "  return typeof testController.setStringValue;" +
-                "} catch (e) {" +
-                "  return e.toString();" +
-                "} })()";
+        String script = "(function(){ try {"
+                + "  return typeof testController.setStringValue;"
+                + "} catch (e) {"
+                + "  return e.toString();"
+                + "} })()";
         assertEquals("\"function\"",
                 executeJavaScriptAndGetResult(getWebContents(), script));
         // Make sure calling a method also works.
@@ -86,20 +93,77 @@ public class JavaBridgeChildFrameTest extends JavaBridgeTestBase {
         // Test by setting a custom property on the parent page's injected
         // object and then checking that child frame doesn't see the property.
         loadDataSync(getWebContents().getNavigationController(),
-                "<html><head>" +
-                "<script>" +
-                "  window.wProperty = 42;" +
-                "  testController.tcProperty = 42;" +
-                "  function queryProperties(w) {" +
-                "    return w.wProperty + ' / ' + w.testController.tcProperty;" +
-                "  }" +
-                "</script>" +
-                "</head><body><iframe></iframe></body></html>", "text/html", false);
+                "<html><head>"
+                        + "<script>"
+                        + "  window.wProperty = 42;"
+                        + "  testController.tcProperty = 42;"
+                        + "  function queryProperties(w) {"
+                        + "    return w.wProperty + ' / ' + w.testController.tcProperty;"
+                        + "  }"
+                        + "</script>"
+                        + "</head><body><iframe></iframe></body></html>", "text/html", false);
         assertEquals("\"42 / 42\"",
                 executeJavaScriptAndGetResult(getWebContents(), "queryProperties(window)"));
         assertEquals("\"undefined / undefined\"",
                 executeJavaScriptAndGetResult(getWebContents(),
                         "queryProperties(window.frames[0])"));
+    }
+
+    // Regression test for crbug.com/484927 -- make sure that existence of transient
+    // objects held by multiple RenderFrames doesn't cause an infinite loop when one
+    // of them gets removed.
+    @SmallTest
+    @Feature({"AndroidWebView", "Android-JavaBridge"})
+    public void testRemovingTransientObjectHolders() throws Throwable {
+        class Test {
+            private Object mInner = new Object();
+            // Expecting the inner object to be retrieved twice.
+            private CountDownLatch mLatch = new CountDownLatch(2);
+            @JavascriptInterface
+            public Object getInner() {
+                mLatch.countDown();
+                return mInner;
+            }
+            public void waitForInjection() throws Throwable {
+                if (!mLatch.await(5, TimeUnit.SECONDS)) {
+                    throw new TimeoutException();
+                }
+            }
+        }
+        final Test testObject = new Test();
+
+        // Due to crbug.com/486262, Java objects are sometimes not injected
+        // into newly added frames. To work around this, we load the page first, so
+        // all the frames got created, then inject the object.
+        // Thus, the script code fails on the first execution (as no Java object is
+        // injected yet), but then works just fine after reload.
+        loadDataSync(getWebContents().getNavigationController(),
+                "<html>"
+                + "<head><script>window.inner_ref = test.getInner()</script></head>"
+                + "<body>"
+                + "   <iframe id='frame' "
+                + "       srcdoc='<script>window.inner_ref = test.getInner()</script>'>"
+                + "   </iframe>"
+                + "</body></html>", "text/html", false);
+        injectObjectAndReload(testObject, "test");
+        testObject.waitForInjection();
+        // Just in case, check that the object wrappers are in place.
+        assertEquals("\"object\"",
+                executeJavaScriptAndGetResult(getWebContents(), "typeof inner_ref"));
+        assertEquals("\"object\"",
+                executeJavaScriptAndGetResult(getWebContents(),
+                        "typeof window.frames[0].inner_ref"));
+        // Remove the iframe, this will trigger a removal of RenderFrame, which was causing
+        // the bug condition, as the transient object still has a holder -- the main window.
+        assertEquals("{}",
+                executeJavaScriptAndGetResult(getWebContents(),
+                        "(function(){ "
+                        + "var f = document.getElementById('frame');"
+                        + "f.parentNode.removeChild(f); return f; })()"));
+        // Just in case, check that the remaining wrapper is still accessible.
+        assertEquals("\"object\"",
+                executeJavaScriptAndGetResult(getWebContents(),
+                        "typeof inner_ref"));
     }
 
     private String executeJavaScriptAndGetResult(final WebContents webContents,
@@ -122,5 +186,14 @@ public class JavaBridgeChildFrameTest extends JavaBridgeTestBase {
         });
         resultCallback.waitForResult();
         return result[0];
+    }
+
+    /**
+     * Loads data on the UI thread and blocks until onPageFinished is called.
+     */
+    private void loadDataSync(final NavigationController navigationController, final String data,
+            final String mimeType, final boolean isBase64Encoded) throws Throwable {
+        loadUrl(navigationController, mTestCallbackHelperContainer,
+                LoadUrlParams.createLoadDataParams(data, mimeType, isBase64Encoded));
     }
 }

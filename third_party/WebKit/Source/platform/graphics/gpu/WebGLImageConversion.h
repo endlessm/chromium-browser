@@ -9,6 +9,8 @@
 #include "platform/graphics/Image.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "third_party/khronos/GLES2/gl2ext.h"
+#include "third_party/khronos/GLES3/gl3.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 #include "wtf/RefPtr.h"
 
 namespace blink {
@@ -22,11 +24,23 @@ public:
     // reduce the amount of temporary allocations during texture
     // uploading. This enum must be public because it is accessed
     // by non-member functions.
+    // "_S" postfix indicates signed type.
     enum DataFormat {
         DataFormatRGBA8 = 0,
+        DataFormatRGBA8_S,
+        DataFormatRGBA16,
+        DataFormatRGBA16_S,
+        DataFormatRGBA32,
+        DataFormatRGBA32_S,
         DataFormatRGBA16F,
         DataFormatRGBA32F,
+        DataFormatRGBA2_10_10_10,
         DataFormatRGB8,
+        DataFormatRGB8_S,
+        DataFormatRGB16,
+        DataFormatRGB16_S,
+        DataFormatRGB32,
+        DataFormatRGB32_S,
         DataFormatRGB16F,
         DataFormatRGB32F,
         DataFormatBGR8,
@@ -36,7 +50,22 @@ public:
         DataFormatRGBA5551,
         DataFormatRGBA4444,
         DataFormatRGB565,
+        DataFormatRGB10F11F11F,
+        DataFormatRGB5999,
+        DataFormatRG8,
+        DataFormatRG8_S,
+        DataFormatRG16,
+        DataFormatRG16_S,
+        DataFormatRG32,
+        DataFormatRG32_S,
+        DataFormatRG16F,
+        DataFormatRG32F,
         DataFormatR8,
+        DataFormatR8_S,
+        DataFormatR16,
+        DataFormatR16_S,
+        DataFormatR32,
+        DataFormatR32_S,
         DataFormatR16F,
         DataFormatR32F,
         DataFormatRA8,
@@ -46,6 +75,10 @@ public:
         DataFormatA8,
         DataFormatA16F,
         DataFormatA32F,
+        DataFormatD16,
+        DataFormatD32,
+        DataFormatD32F,
+        DataFormatDS24_8,
         DataFormatNumFormats
     };
 
@@ -56,8 +89,10 @@ public:
         ChannelAlpha = 8,
         ChannelDepth = 16,
         ChannelStencil = 32,
+        ChannelRG = ChannelRed | ChannelGreen,
         ChannelRGB = ChannelRed | ChannelGreen | ChannelBlue,
         ChannelRGBA = ChannelRGB | ChannelAlpha,
+        ChannelDepthStencil = ChannelDepth | ChannelStencil,
     };
 
     // Possible alpha operations that may need to occur during
@@ -95,8 +130,8 @@ public:
         // This needs to lock the resources or relevant data if needed and return true upon success
         bool extractImage(bool premultiplyAlpha, bool ignoreGammaAndColorProfile);
 
-        RefPtr<NativeImageSkia> m_nativeImage;
-        RefPtr<NativeImageSkia> m_skiaImage;
+        SkBitmap m_bitmap;
+        SkBitmap m_skiaBitmap;
         Image* m_image;
         ImageHtmlDomSource m_imageHtmlDomSource;
         bool m_extractSucceeded;
@@ -128,7 +163,7 @@ public:
         return SrcFormat == DataFormatBGRA8 || SrcFormat == DataFormatRGBA8;
     }
 
-    static unsigned getClearBitsByFormat(GLenum);
+    // The input can be either format or internalformat.
     static unsigned getChannelBitsByFormat(GLenum);
 
     // The Following functions are implemented in GraphicsContext3DImagePacking.cpp

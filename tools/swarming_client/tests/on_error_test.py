@@ -170,7 +170,8 @@ class OnErrorServerTest(OnErrorBase):
   def call(self, url, arg, returncode):
     cmd = [sys.executable, 'on_error_test.py', 'run_shell_out', url, arg]
     proc = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=os.environ)
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=os.environ,
+        universal_newlines=True)
     out = proc.communicate()[0]
     logging.debug('\n%s', out)
     self.assertEqual(returncode, proc.returncode)
@@ -365,7 +366,7 @@ def run_shell_out(url, mode):
   on_error._ENABLED_DOMAINS = (socket.getfqdn(),)
 
   # Don't try to authenticate into localhost.
-  on_error.net.create_authenticator = lambda _: None
+  on_error.net.OAuthAuthenticator = lambda *_: None
 
   if not on_error.report_on_exception_exit(url):
     print 'Failure to register the handler'

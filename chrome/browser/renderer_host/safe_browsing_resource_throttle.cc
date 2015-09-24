@@ -14,6 +14,7 @@
 #include "content/public/browser/resource_request_info.h"
 #include "content/public/browser/web_contents.h"
 #include "net/base/load_flags.h"
+#include "net/url_request/redirect_info.h"
 #include "net/url_request/url_request.h"
 
 // Maximum time in milliseconds to wait for the safe browsing service to
@@ -54,16 +55,17 @@ void SafeBrowsingResourceThrottle::WillStartRequest(bool* defer) {
   *defer = true;
 }
 
-void SafeBrowsingResourceThrottle::WillRedirectRequest(const GURL& new_url,
-                                                       bool* defer) {
+void SafeBrowsingResourceThrottle::WillRedirectRequest(
+    const net::RedirectInfo& redirect_info,
+    bool* defer) {
   CHECK(state_ == STATE_NONE);
   CHECK(defer_state_ == DEFERRED_NONE);
 
   // Save the redirect urls for possible malware detail reporting later.
-  redirect_urls_.push_back(new_url);
+  redirect_urls_.push_back(redirect_info.new_url);
 
   // We need to check the new URL before following the redirect.
-  if (CheckUrl(new_url))
+  if (CheckUrl(redirect_info.new_url))
     return;
 
   // If the URL couldn't be verified synchronously, defer following the
@@ -88,12 +90,6 @@ void SafeBrowsingResourceThrottle::OnCheckBrowseUrlResult(
   CHECK(defer_state_ != DEFERRED_NONE);
   CHECK(url == url_being_checked_) << "Was expecting: " << url_being_checked_
                                    << " but got: " << url;
-
-#if defined(OS_ANDROID)
-  // Temporarily disable SB interstitial during Finch experiment.
-  // The database check is still exercised, but the interstitial never shown.
-  threat_type = SB_THREAT_TYPE_SAFE;
-#endif
 
   timer_.Stop();  // Cancel the timeout timer.
   threat_type_ = threat_type;

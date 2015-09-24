@@ -16,8 +16,8 @@
 
 #include <algorithm>  // find_if()
 
+#include "webrtc/modules/audio_coding/codecs/audio_decoder.h"
 #include "webrtc/modules/audio_coding/neteq/decoder_database.h"
-#include "webrtc/modules/audio_coding/neteq/interface/audio_decoder.h"
 
 namespace webrtc {
 
@@ -47,6 +47,10 @@ PacketBuffer::~PacketBuffer() {
 // Flush the buffer. All packets in the buffer will be destroyed.
 void PacketBuffer::Flush() {
   DeleteAllPackets(&buffer_);
+}
+
+bool PacketBuffer::Empty() const {
+  return buffer_.empty();
 }
 
 int PacketBuffer::InsertPacket(Packet* packet) {
@@ -229,6 +233,14 @@ int PacketBuffer::DiscardOldPackets(uint32_t timestamp_limit,
   return 0;
 }
 
+int PacketBuffer::DiscardAllOldPackets(uint32_t timestamp_limit) {
+  return DiscardOldPackets(timestamp_limit, 0);
+}
+
+int PacketBuffer::NumPacketsInBuffer() const {
+  return static_cast<int>(buffer_.size());
+}
+
 int PacketBuffer::NumSamplesInBuffer(DecoderDatabase* decoder_database,
                                      int last_decoded_length) const {
   PacketList::const_iterator it;
@@ -238,16 +250,12 @@ int PacketBuffer::NumSamplesInBuffer(DecoderDatabase* decoder_database,
     Packet* packet = (*it);
     AudioDecoder* decoder =
         decoder_database->GetDecoder(packet->header.payloadType);
-    if (decoder) {
-      int duration;
-      if (packet->sync_packet) {
-        duration = last_duration;
-      } else if (packet->primary) {
-        duration =
-            decoder->PacketDuration(packet->payload, packet->payload_length);
-      } else {
+    if (decoder && !packet->sync_packet) {
+      if (!packet->primary) {
         continue;
       }
+      int duration =
+        decoder->PacketDuration(packet->payload, packet->payload_length);
       if (duration >= 0) {
         last_duration = duration;  // Save the most up-to-date (valid) duration.
       }

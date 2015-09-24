@@ -66,6 +66,19 @@ static const SrtpCipherMapEntry kSrtpCipherMap[] = {
 };
 #endif
 
+// Ciphers to enable to get ECDHE encryption with endpoints that support it.
+static const uint32_t kEnabledCiphers[] = {
+  TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+  TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+};
+
+// Default cipher used between NSS stream adapters.
+// This needs to be updated when the default of the SSL library changes.
+static const char kDefaultSslCipher10[] =
+    "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA";
+static const char kDefaultSslCipher12[] =
+    "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256";
+
 
 // Implementation of NSPR methods
 static PRStatus StreamClose(PRFileDesc *socket) {
@@ -422,6 +435,15 @@ bool NSSStreamAdapter::Init() {
     return false;
   }
 
+  // Disable reusing of ECDHE keys. By default NSS, when in server mode, uses
+  // the same key for multiple connections, so disable this behaviour to get
+  // ephemeral keys.
+  rv = SSL_OptionSet(ssl_fd, SSL_REUSE_SERVER_ECDHE_KEY, PR_FALSE);
+  if (rv != SECSuccess) {
+    LOG(LS_ERROR) << "Error disabling ECDHE key reuse";
+    return false;
+  }
+
   ssl_fd_ = ssl_fd;
 
   return true;
@@ -497,10 +519,33 @@ int NSSStreamAdapter::BeginSSL() {
 
   // Set the version range.
   SSLVersionRange vrange;
-  vrange.min =  (ssl_mode_ == SSL_MODE_DTLS) ?
-      SSL_LIBRARY_VERSION_TLS_1_1 :
-      SSL_LIBRARY_VERSION_TLS_1_0;
-  vrange.max = SSL_LIBRARY_VERSION_TLS_1_1;
+  if (ssl_mode_ == SSL_MODE_DTLS) {
+    vrange.min = SSL_LIBRARY_VERSION_TLS_1_1;
+    switch (ssl_max_version_) {
+      case SSL_PROTOCOL_DTLS_10:
+        vrange.max = SSL_LIBRARY_VERSION_TLS_1_1;
+        break;
+      case SSL_PROTOCOL_DTLS_12:
+      default:
+        vrange.max = SSL_LIBRARY_VERSION_TLS_1_2;
+        break;
+    }
+  } else {
+    // SSL_MODE_TLS
+    vrange.min = SSL_LIBRARY_VERSION_TLS_1_0;
+    switch (ssl_max_version_) {
+      case SSL_PROTOCOL_TLS_10:
+        vrange.max = SSL_LIBRARY_VERSION_TLS_1_0;
+        break;
+      case SSL_PROTOCOL_TLS_11:
+        vrange.max = SSL_LIBRARY_VERSION_TLS_1_1;
+        break;
+      case SSL_PROTOCOL_TLS_12:
+      default:
+        vrange.max = SSL_LIBRARY_VERSION_TLS_1_2;
+        break;
+    }
+  }
 
   rv = SSL_VersionRangeSet(ssl_fd_, &vrange);
   if (rv != SECSuccess) {
@@ -520,6 +565,15 @@ int NSSStreamAdapter::BeginSSL() {
     }
   }
 #endif
+
+  // Enable additional ciphers.
+  for (size_t i = 0; i < ARRAY_SIZE(kEnabledCiphers); i++) {
+    rv = SSL_CipherPrefSet(ssl_fd_, kEnabledCiphers[i], PR_TRUE);
+    if (rv != SECSuccess) {
+      Error("BeginSSL", -1, false);
+      return -1;
+    }
+  }
 
   // Certificate validation
   rv = SSL_AuthCertificateHook(ssl_fd_, AuthCertificateHook, this);
@@ -569,7 +623,7 @@ int NSSStreamAdapter::ContinueSSL() {
         return -1;
       } else {
         LOG(LS_INFO) << "Malformed DTLS message. Ignoring.";
-        // Fall through
+        FALLTHROUGH();  // Fall through
       }
     case PR_WOULD_BLOCK_ERROR:
       LOG(LS_INFO) << "Would have blocked";
@@ -608,6 +662,11 @@ void NSSStreamAdapter::Cleanup() {
   peer_certificate_.reset();
 
   Thread::Current()->Clear(this, MSG_DTLS_TIMEOUT);
+}
+
+bool NSSStreamAdapter::GetDigestLength(const std::string& algorithm,
+                                       size_t* length) {
+  return NSSCertificate::GetDigestLength(algorithm, length);
 }
 
 StreamResult NSSStreamAdapter::Read(void* data, size_t data_len,
@@ -866,6 +925,27 @@ SECStatus NSSStreamAdapter::GetClientAuthDataHook(void *arg, PRFileDesc *fd,
   return SECSuccess;
 }
 
+bool NSSStreamAdapter::GetSslCipher(std::string* cipher) {
+  ASSERT(state_ == SSL_CONNECTED);
+  if (state_ != SSL_CONNECTED)
+    return false;
+
+  SSLChannelInfo channel_info;
+  SECStatus rv = SSL_GetChannelInfo(ssl_fd_, &channel_info,
+                                    sizeof(channel_info));
+  if (rv == SECFailure)
+    return false;
+
+  SSLCipherSuiteInfo ciphersuite_info;
+  rv = SSL_GetCipherSuiteInfo(channel_info.cipherSuite, &ciphersuite_info,
+                              sizeof(ciphersuite_info));
+  if (rv == SECFailure)
+    return false;
+
+  *cipher = ciphersuite_info.cipherSuiteName;
+  return true;
+}
+
 // RFC 5705 Key Exporter
 bool NSSStreamAdapter::ExportKeyingMaterial(const std::string& label,
                                             const uint8* context,
@@ -948,24 +1028,26 @@ bool NSSStreamAdapter::GetDtlsSrtpCipher(std::string* cipher) {
 }
 
 
-bool NSSContext::initialized;
+GlobalLockPod NSSContext::lock;
 NSSContext *NSSContext::global_nss_context;
 
 // Static initialization and shutdown
 NSSContext *NSSContext::Instance() {
+  lock.Lock();
   if (!global_nss_context) {
-    scoped_ptr<NSSContext> new_ctx(new NSSContext());
-    new_ctx->slot_ = PK11_GetInternalSlot();
+    scoped_ptr<NSSContext> new_ctx(new NSSContext(PK11_GetInternalSlot()));
     if (new_ctx->slot_)
       global_nss_context = new_ctx.release();
   }
+  lock.Unlock();
+
   return global_nss_context;
 }
 
-
-
 bool NSSContext::InitializeSSL(VerificationCallback callback) {
   ASSERT(!callback);
+
+  static bool initialized = false;
 
   if (!initialized) {
     SECStatus rv;
@@ -1009,6 +1091,17 @@ bool NSSStreamAdapter::HaveDtlsSrtp() {
 
 bool NSSStreamAdapter::HaveExporter() {
   return true;
+}
+
+std::string NSSStreamAdapter::GetDefaultSslCipher(SSLProtocolVersion version) {
+  switch (version) {
+    case SSL_PROTOCOL_TLS_10:
+    case SSL_PROTOCOL_TLS_11:
+      return kDefaultSslCipher10;
+    case SSL_PROTOCOL_TLS_12:
+    default:
+      return kDefaultSslCipher12;
+  }
 }
 
 }  // namespace rtc

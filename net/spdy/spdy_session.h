@@ -54,12 +54,10 @@ const size_t kInitialMaxConcurrentStreams = 100;
 // Specifies the maxiumum concurrent streams server could send (via push).
 const int kMaxConcurrentPushedStreams = 1000;
 
-// Specifies the maximum number of bytes to read synchronously before
-// yielding.
-const int kMaxReadBytesWithoutYielding = 32 * 1024;
-
-// The initial receive window size for both streams and sessions.
-const int32 kDefaultInitialRecvWindowSize = 10 * 1024 * 1024;  // 10MB
+// If more than this many bytes have been read or more than that many
+// milliseconds have passed, return ERR_IO_PENDING from ReadLoop.
+const int kYieldAfterBytesRead = 32 * 1024;
+const int kYieldAfterDurationMilliseconds = 50;
 
 // First and last valid stream IDs. As we always act as the client,
 // start at 1 for the first stream id.
@@ -105,6 +103,8 @@ enum SpdyProtocolErrorDetails {
   STATUS_CODE_SETTINGS_TIMEOUT = 32,
   STATUS_CODE_CONNECT_ERROR = 33,
   STATUS_CODE_ENHANCE_YOUR_CALM = 34,
+  STATUS_CODE_INADEQUATE_SECURITY = 35,
+  STATUS_CODE_HTTP_1_1_REQUIRED = 36,
 
   // SpdySession errors
   PROTOCOL_ERROR_UNEXPECTED_PING = 22,
@@ -116,7 +116,7 @@ enum SpdyProtocolErrorDetails {
   PROTOCOL_ERROR_RECEIVE_WINDOW_VIOLATION = 28,
 
   // Next free value.
-  NUM_SPDY_PROTOCOL_ERROR_DETAILS = 35,
+  NUM_SPDY_PROTOCOL_ERROR_DETAILS = 37,
 };
 SpdyProtocolErrorDetails NET_EXPORT_PRIVATE
     MapFramerErrorToProtocolError(SpdyFramer::SpdyError error);
@@ -127,10 +127,10 @@ SpdyGoAwayStatus NET_EXPORT_PRIVATE MapNetErrorToGoAwayStatus(Error err);
 
 // If these compile asserts fail then SpdyProtocolErrorDetails needs
 // to be updated with new values, as do the mapping functions above.
-COMPILE_ASSERT(12 == SpdyFramer::LAST_ERROR,
-               SpdyProtocolErrorDetails_SpdyErrors_mismatch);
-COMPILE_ASSERT(15 == RST_STREAM_NUM_STATUS_CODES,
-               SpdyProtocolErrorDetails_RstStreamStatus_mismatch);
+static_assert(12 == SpdyFramer::LAST_ERROR,
+              "SpdyProtocolErrorDetails / Spdy Errors mismatch");
+static_assert(17 == RST_STREAM_NUM_STATUS_CODES,
+              "SpdyProtocolErrorDetails / RstStreamStatus mismatch");
 
 // Splits pushed |headers| into request and response parts. Request headers are
 // the headers specifying resource URL.
@@ -243,9 +243,9 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
               bool enable_compression,
               bool enable_ping_based_connection_checking,
               NextProto default_protocol,
-              size_t stream_initial_recv_window_size,
+              size_t session_max_recv_window_size,
+              size_t stream_max_recv_window_size,
               size_t initial_max_concurrent_streams,
-              size_t max_concurrent_streams_limit,
               TimeFunc time_func,
               const HostPortPair& trusted_spdy_proxy,
               NetLog* net_log);
@@ -359,10 +359,6 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
                   bool* was_npn_negotiated,
                   NextProto* protocol_negotiated);
 
-  // Fills SSL Certificate Request info |cert_request_info| and returns
-  // true when SSL is in use.
-  bool GetSSLCertRequestInfo(SSLCertRequestInfo* cert_request_info);
-
   // Send a WINDOW_UPDATE frame for a stream. Called by a stream
   // whenever receive window size is increased.
   void SendStreamWindowUpdate(SpdyStreamId stream_id,
@@ -402,8 +398,8 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
   void MaybeFinishGoingAway();
 
   // Retrieves information on the current state of the SPDY session as a
-  // Value.  Caller takes possession of the returned value.
-  base::Value* GetInfoAsValue() const;
+  // Value.
+  scoped_ptr<base::Value> GetInfoAsValue() const;
 
   // Indicates whether the session is being reused after having successfully
   // used to send/receive data in the past or if the underlying socket was idle
@@ -461,11 +457,6 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
     return stream_initial_send_window_size_;
   }
 
-  // Returns the current |stream_initial_recv_window_size_|.
-  int32 stream_initial_recv_window_size() const {
-    return stream_initial_recv_window_size_;
-  }
-
   // Returns true if no stream in the session can send data due to
   // session flow control.
   bool IsSendStalled() const {
@@ -509,6 +500,12 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
     return buffered_spdy_framer_->GetDataFrameMaximumPayload();
   }
 
+  // Default value of SETTINGS_INITIAL_WINDOW_SIZE per protocol specification.
+  // A session is always created with this initial window size.
+  static int32 GetDefaultInitialWindowSize(NextProto protocol) {
+    return protocol < kProtoHTTP2MinimumVersion ? 65536 : 65535;
+  }
+
   // https://http2.github.io/http2-spec/#TLSUsage mandates minimum security
   // standards for TLS.
   bool HasAcceptableTransportSecurity() const;
@@ -534,6 +531,11 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
   FRIEND_TEST_ALL_PREFIXES(SpdySessionTest, AdjustRecvWindowSize);
   FRIEND_TEST_ALL_PREFIXES(SpdySessionTest, AdjustSendWindowSize);
   FRIEND_TEST_ALL_PREFIXES(SpdySessionTest, SessionFlowControlInactiveStream);
+  FRIEND_TEST_ALL_PREFIXES(SpdySessionTest, SessionFlowControlPadding);
+  FRIEND_TEST_ALL_PREFIXES(SpdySessionTest,
+                           SessionFlowControlTooMuchDataTwoDataFrames);
+  FRIEND_TEST_ALL_PREFIXES(SpdySessionTest,
+                           StreamFlowControlTooMuchDataTwoDataFrames);
   FRIEND_TEST_ALL_PREFIXES(SpdySessionTest, SessionFlowControlNoReceiveLeaks);
   FRIEND_TEST_ALL_PREFIXES(SpdySessionTest, SessionFlowControlNoSendLeaks);
   FRIEND_TEST_ALL_PREFIXES(SpdySessionTest, SessionFlowControlEndToEnd);
@@ -723,7 +725,7 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
                              RequestPriority priority);
 
   // Send the PING frame.
-  void WritePingFrame(uint32 unique_id, bool is_ack);
+  void WritePingFrame(SpdyPingId unique_id, bool is_ack);
 
   // Post a CheckPingStatus call after delay. Don't post if there is already
   // CheckPingStatus running.
@@ -827,10 +829,10 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
                          const char* data,
                          size_t len,
                          bool fin) override;
+  void OnStreamPadding(SpdyStreamId stream_id, size_t len) override;
   void OnSettings(bool clear_persisted) override;
   void OnSetting(SpdySettingsIds id, uint8 flags, uint32 value) override;
-  void OnWindowUpdate(SpdyStreamId stream_id,
-                      uint32 delta_window_size) override;
+  void OnWindowUpdate(SpdyStreamId stream_id, int delta_window_size) override;
   void OnPushPromise(SpdyStreamId stream_id,
                      SpdyStreamId promised_stream_id,
                      const SpdyHeaderBlock& headers) override;
@@ -846,6 +848,8 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
   void OnHeaders(SpdyStreamId stream_id,
                  bool has_priority,
                  SpdyPriority priority,
+                 SpdyStreamId parent_stream_id,
+                 bool exclusive,
                  bool fin,
                  const SpdyHeaderBlock& headers) override;
   bool OnUnknownFrame(SpdyStreamId stream_id, int frame_type) override;
@@ -876,7 +880,7 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
   // window size to overflow, does nothing.
   //
   // If session flow control is turned off, this must not be called.
-  void IncreaseSendWindowSize(int32 delta_window_size);
+  void IncreaseSendWindowSize(int delta_window_size);
 
   // If session flow control is turned on, called by CreateDataFrame()
   // (which is in turn called by a stream) to decrease this session's
@@ -942,7 +946,7 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
 
   int64 pings_in_flight() const { return pings_in_flight_; }
 
-  uint32 next_ping_id() const { return next_ping_id_; }
+  SpdyPingId next_ping_id() const { return next_ping_id_; }
 
   base::TimeTicks last_activity_time() const { return last_activity_time_; }
 
@@ -1057,7 +1061,6 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
 
   // Limits
   size_t max_concurrent_streams_;  // 0 if no limit
-  size_t max_concurrent_streams_limit_;
   size_t max_concurrent_pushed_streams_;
 
   // Some statistics counters for the session.
@@ -1079,7 +1082,7 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
   int64 pings_in_flight_;
 
   // This is the next ping_id (unique_id) to be sent in PING frame.
-  uint32 next_ping_id_;
+  SpdyPingId next_ping_id_;
 
   // This is the last time we have sent a PING.
   base::TimeTicks last_ping_sent_time_;
@@ -1104,6 +1107,25 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
   // The (version-dependent) flow control state.
   FlowControlState flow_control_state_;
 
+  // Current send window size.  Zero unless session flow control is turned on.
+  int32 session_send_window_size_;
+
+  // Maximum receive window size.  Each time a WINDOW_UPDATE is sent, it
+  // restores the receive window size to this value.  Zero unless session flow
+  // control is turned on.
+  int32 session_max_recv_window_size_;
+
+  // Sum of |session_unacked_recv_window_bytes_| and current receive window
+  // size.  Zero unless session flow control is turned on.
+  // TODO(bnc): Rename or change semantics so that |window_size_| is actual
+  // window size.
+  int32 session_recv_window_size_;
+
+  // When bytes are consumed, SpdyIOBuffer destructor calls back to SpdySession,
+  // and this member keeps count of them until the corresponding WINDOW_UPDATEs
+  // are sent.  Zero unless session flow control is turned on.
+  int32 session_unacked_recv_window_bytes_;
+
   // Initial send window size for this session's streams. Can be
   // changed by an arriving SETTINGS frame. Newly created streams use
   // this value for the initial send window size.
@@ -1114,13 +1136,7 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
   // frame with window size announcement to be sent on startup. Newly
   // created streams will use this value for the initial receive
   // window size.
-  int32 stream_initial_recv_window_size_;
-
-  // Session flow control variables. All zero unless session flow
-  // control is turned on.
-  int32 session_send_window_size_;
-  int32 session_recv_window_size_;
-  int32 session_unacked_recv_window_bytes_;
+  int32 stream_max_recv_window_size_;
 
   // A queue of stream IDs that have been send-stalled at some point
   // in the past.

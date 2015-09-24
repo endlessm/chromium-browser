@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_RENDERER_HOST_PEPPER_PEPPER_OUTPUT_PROTECTION_MESSAGE_FILTER_H_
 #define CHROME_BROWSER_RENDERER_HOST_PEPPER_PEPPER_OUTPUT_PROTECTION_MESSAGE_FILTER_H_
 
+#include "base/memory/weak_ptr.h"
 #include "ppapi/c/pp_instance.h"
 #include "ppapi/host/resource_message_filter.h"
 
@@ -18,6 +19,12 @@ struct HostMessageContext;
 }  // namespace host
 }  // namespace ppapi
 
+#if defined(OS_CHROMEOS)
+namespace chromeos {
+class OutputProtectionDelegate;
+}
+#endif
+
 namespace chrome {
 
 class PepperOutputProtectionMessageFilter
@@ -27,10 +34,6 @@ class PepperOutputProtectionMessageFilter
                                       PP_Instance instance);
 
  private:
-#if defined(OS_CHROMEOS)
-  class Delegate;
-#endif
-
   // ppapi::host::ResourceMessageFilter overrides.
   scoped_refptr<base::TaskRunner> OverrideTaskRunnerForMessage(
       const IPC::Message& msg) override;
@@ -44,10 +47,21 @@ class PepperOutputProtectionMessageFilter
   int32_t OnEnableProtection(ppapi::host::HostMessageContext* context,
                              uint32_t desired_method_mask);
 
+  void OnQueryStatusComplete(ppapi::host::ReplyMessageContext reply_context,
+                             bool success,
+                             uint32_t link_mask,
+                             uint32_t protection_mask);
+
+  void OnEnableProtectionComplete(
+      ppapi::host::ReplyMessageContext reply_context,
+      bool success);
+
 #if defined(OS_CHROMEOS)
-  // Delegator. Should be deleted in UI thread.
-  Delegate* delegate_;
+  // Delegate. Should be deleted in UI thread.
+  chromeos::OutputProtectionDelegate* delegate_;
 #endif
+
+  base::WeakPtrFactory<PepperOutputProtectionMessageFilter> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(PepperOutputProtectionMessageFilter);
 };

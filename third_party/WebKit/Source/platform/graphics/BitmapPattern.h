@@ -6,6 +6,7 @@
 #define BitmapPattern_h
 
 #include "platform/graphics/BitmapPatternBase.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 
 namespace blink {
 
@@ -16,18 +17,18 @@ public:
         return adoptRef(new BitmapPattern(tileImage, repeatMode));
     }
 
-    virtual ~BitmapPattern() { }
+    ~BitmapPattern() override {}
 
 protected:
-    virtual PassRefPtr<SkShader> createShader() override;
+    PassRefPtr<SkShader> createShader() override;
 
-    virtual SkImageInfo getBitmapInfo() override;
-    virtual void drawBitmapToCanvas(SkCanvas&, SkPaint&) override;
+    SkImageInfo getBitmapInfo() override;
+    void drawBitmapToCanvas(SkCanvas&, SkPaint&) override;
 
 private:
     BitmapPattern(PassRefPtr<Image>, RepeatMode);
 
-    RefPtr<NativeImageSkia> m_tileImage;
+    SkBitmap m_tileImage;
 };
 
 } // namespace

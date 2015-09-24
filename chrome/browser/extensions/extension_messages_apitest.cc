@@ -10,12 +10,14 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/values.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/api/messaging/incognito_connectability.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/test_extension_dir.h"
+#include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -47,7 +49,7 @@ class MessageSender : public content::NotificationObserver {
  public:
   MessageSender() {
     registrar_.Add(this,
-                   extensions::NOTIFICATION_EXTENSION_HOST_DID_STOP_LOADING,
+                   extensions::NOTIFICATION_EXTENSION_HOST_DID_STOP_FIRST_LOAD,
                    content::NotificationService::AllSources());
   }
 
@@ -66,7 +68,8 @@ class MessageSender : public content::NotificationObserver {
   static scoped_ptr<Event> BuildEvent(scoped_ptr<base::ListValue> event_args,
                                       Profile* profile,
                                       GURL event_url) {
-    scoped_ptr<Event> event(new Event("test.onMessage", event_args.Pass()));
+    scoped_ptr<Event> event(new Event(events::TEST_ON_MESSAGE, "test.onMessage",
+                                      event_args.Pass()));
     event->restrict_to_browser_context = profile;
     event->event_url = event_url;
     return event.Pass();
@@ -75,6 +78,8 @@ class MessageSender : public content::NotificationObserver {
   void Observe(int type,
                const content::NotificationSource& source,
                const content::NotificationDetails& details) override {
+    DCHECK_EQ(extensions::NOTIFICATION_EXTENSION_HOST_DID_STOP_FIRST_LOAD,
+              type);
     EventRouter* event_router =
         EventRouter::Get(content::Source<Profile>(source).ptr());
 
@@ -127,7 +132,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest, MessagingEventURL) {
 
 // Tests connecting from a panel to its extension.
 class PanelMessagingTest : public ExtensionApiTest {
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionApiTest::SetUpCommandLine(command_line);
     command_line->AppendSwitch(switches::kEnablePanels);
   }
@@ -304,7 +309,8 @@ class ExternallyConnectableMessagingTest : public ExtensionApiTest {
     return extension;
   }
 
-  scoped_refptr<const Extension> LoadChromiumConnectableApp() {
+  scoped_refptr<const Extension> LoadChromiumConnectableApp(
+      bool with_event_handlers = true) {
     scoped_refptr<const Extension> extension =
         LoadExtensionIntoDir(&web_connectable_dir_,
                              "{"
@@ -319,7 +325,8 @@ class ExternallyConnectableMessagingTest : public ExtensionApiTest {
                              "  \"manifest_version\": 2,"
                              "  \"name\": \"app_connectable\","
                              "  \"version\": \"1.0\""
-                             "}");
+                             "}",
+                             with_event_handlers);
     CHECK(extension.get());
     return extension;
   }
@@ -380,26 +387,33 @@ class ExternallyConnectableMessagingTest : public ExtensionApiTest {
  private:
   scoped_refptr<const Extension> LoadExtensionIntoDir(
       TestExtensionDir* dir,
-      const std::string& manifest) {
+      const std::string& manifest,
+      bool with_event_handlers = true) {
     dir->WriteManifest(manifest);
-    dir->WriteFile(FILE_PATH_LITERAL("background.js"),
-                   base::StringPrintf(
-        "function maybeClose(message) {\n"
-        "  if (message.indexOf('%s') >= 0)\n"
-        "    window.setTimeout(function() { window.close() }, 0);\n"
-        "}\n"
-        "chrome.runtime.onMessageExternal.addListener(\n"
-        "    function(message, sender, reply) {\n"
-        "  reply({ message: message, sender: sender });\n"
-        "  maybeClose(message);\n"
-        "});\n"
-        "chrome.runtime.onConnectExternal.addListener(function(port) {\n"
-        "  port.onMessage.addListener(function(message) {\n"
-        "    port.postMessage({ message: message, sender: port.sender });\n"
-        "    maybeClose(message);\n"
-        "  });\n"
-        "});\n",
-                   close_background_message()));
+    if (with_event_handlers) {
+      dir->WriteFile(
+          FILE_PATH_LITERAL("background.js"),
+          base::StringPrintf(
+              "function maybeClose(message) {\n"
+              "  if (message.indexOf('%s') >= 0)\n"
+              "    window.setTimeout(function() { window.close() }, 0);\n"
+              "}\n"
+              "chrome.runtime.onMessageExternal.addListener(\n"
+              "    function(message, sender, reply) {\n"
+              "  reply({ message: message, sender: sender });\n"
+              "  maybeClose(message);\n"
+              "});\n"
+              "chrome.runtime.onConnectExternal.addListener(function(port) {\n"
+              "  port.onMessage.addListener(function(message) {\n"
+              "    port.postMessage({ message: message, sender: port.sender "
+              "});\n"
+              "    maybeClose(message);\n"
+              "  });\n"
+              "});\n",
+              close_background_message()));
+    } else {
+      dir->WriteFile(FILE_PATH_LITERAL("background.js"), "");
+    }
     return LoadExtension(dir->unpacked_path());
   }
 
@@ -564,13 +578,13 @@ IN_PROC_BROWSER_TEST_F(ExternallyConnectableMessagingTest,
   ui_test_utils::NavigateToURL(browser(), google_com_url());
   // The extension requests the TLS channel ID, but it doesn't get it for a
   // site that can't connect to it, regardless of whether the page asks for it.
-  EXPECT_EQ(base::StringPrintf("%d", NAMESPACE_NOT_DEFINED),
+  EXPECT_EQ(base::IntToString(NAMESPACE_NOT_DEFINED),
             GetTlsChannelIdFromPortConnect(chromium_connectable.get(), false));
-  EXPECT_EQ(base::StringPrintf("%d", NAMESPACE_NOT_DEFINED),
+  EXPECT_EQ(base::IntToString(NAMESPACE_NOT_DEFINED),
             GetTlsChannelIdFromSendMessage(chromium_connectable.get(), true));
-  EXPECT_EQ(base::StringPrintf("%d", NAMESPACE_NOT_DEFINED),
+  EXPECT_EQ(base::IntToString(NAMESPACE_NOT_DEFINED),
             GetTlsChannelIdFromPortConnect(chromium_connectable.get(), false));
-  EXPECT_EQ(base::StringPrintf("%d", NAMESPACE_NOT_DEFINED),
+  EXPECT_EQ(base::IntToString(NAMESPACE_NOT_DEFINED),
             GetTlsChannelIdFromSendMessage(chromium_connectable.get(), true));
 }
 
@@ -733,6 +747,36 @@ IN_PROC_BROWSER_TEST_F(ExternallyConnectableMessagingTest,
       CanConnectAndSendMessagesToFrame(incognito_frame, extension.get(), NULL));
 }
 
+// Tests connection from incognito tabs when the extension doesn't have an event
+// handler for the connection event.
+IN_PROC_BROWSER_TEST_F(ExternallyConnectableMessagingTest,
+                       FromIncognitoNoEventHandlerInApp) {
+  InitializeTestServer();
+
+  scoped_refptr<const Extension> app = LoadChromiumConnectableApp(false);
+  ASSERT_TRUE(app->is_platform_app());
+
+  Browser* incognito_browser = ui_test_utils::OpenURLOffTheRecord(
+      profile()->GetOffTheRecordProfile(), chromium_org_url());
+  content::RenderFrameHost* incognito_frame =
+      incognito_browser->tab_strip_model()
+          ->GetActiveWebContents()
+          ->GetMainFrame();
+
+  {
+    IncognitoConnectability::ScopedAlertTracker alert_tracker(
+        IncognitoConnectability::ScopedAlertTracker::ALWAYS_ALLOW);
+
+    // No connection because incognito-enabled hasn't been set for the app, and
+    // the app hasn't installed event handlers.
+    EXPECT_EQ(
+        COULD_NOT_ESTABLISH_CONNECTION_ERROR,
+        CanConnectAndSendMessagesToFrame(incognito_frame, app.get(), NULL));
+    // No dialog should have been shown.
+    EXPECT_EQ(0, alert_tracker.GetAndResetAlertCount());
+  }
+}
+
 // Tests connection from incognito tabs when the user accepts the connection
 // request. Spanning mode only. Separate tests for apps and extensions.
 //
@@ -771,6 +815,82 @@ IN_PROC_BROWSER_TEST_F(ExternallyConnectableMessagingTest,
   ExtensionPrefs::Get(profile())->SetIsIncognitoEnabled(app->id(), true);
   EXPECT_EQ(OK,
             CanConnectAndSendMessagesToFrame(incognito_frame, app.get(), NULL));
+}
+
+// Tests connection from incognito tabs when there are multiple tabs open to the
+// same origin. The user should only need to accept the connection request once.
+IN_PROC_BROWSER_TEST_F(ExternallyConnectableMessagingTest,
+                       FromIncognitoPromptApp) {
+  InitializeTestServer();
+
+  scoped_refptr<const Extension> app = LoadChromiumConnectableApp();
+  ASSERT_TRUE(app->is_platform_app());
+
+  // Open an incognito browser with two tabs displaying "chromium.org".
+  Browser* incognito_browser = ui_test_utils::OpenURLOffTheRecord(
+      profile()->GetOffTheRecordProfile(), chromium_org_url());
+  content::RenderFrameHost* incognito_frame1 =
+      incognito_browser->tab_strip_model()
+          ->GetActiveWebContents()
+          ->GetMainFrame();
+  InfoBarService* infobar_service1 = InfoBarService::FromWebContents(
+      incognito_browser->tab_strip_model()->GetActiveWebContents());
+
+  CHECK(ui_test_utils::OpenURLOffTheRecord(profile()->GetOffTheRecordProfile(),
+                                           chromium_org_url()) ==
+        incognito_browser);
+  content::RenderFrameHost* incognito_frame2 =
+      incognito_browser->tab_strip_model()
+          ->GetActiveWebContents()
+          ->GetMainFrame();
+  InfoBarService* infobar_service2 = InfoBarService::FromWebContents(
+      incognito_browser->tab_strip_model()->GetActiveWebContents());
+  EXPECT_EQ(2, incognito_browser->tab_strip_model()->count());
+  EXPECT_NE(incognito_frame1, incognito_frame2);
+
+  // Trigger a infobars in both tabs by trying to send messages.
+  std::string script =
+      base::StringPrintf("assertions.trySendMessage('%s')", app->id().c_str());
+  CHECK(content::ExecuteScript(incognito_frame1, script));
+  CHECK(content::ExecuteScript(incognito_frame2, script));
+  EXPECT_EQ(1U, infobar_service1->infobar_count());
+  EXPECT_EQ(1U, infobar_service2->infobar_count());
+
+  // Navigating away will dismiss the infobar on the active tab only.
+  ui_test_utils::NavigateToURL(incognito_browser, google_com_url());
+  EXPECT_EQ(1U, infobar_service1->infobar_count());
+  EXPECT_EQ(0U, infobar_service2->infobar_count());
+
+  // Navigate back and accept the infobar this time. Both should be dismissed.
+  {
+    IncognitoConnectability::ScopedAlertTracker alert_tracker(
+        IncognitoConnectability::ScopedAlertTracker::ALWAYS_ALLOW);
+
+    ui_test_utils::NavigateToURL(incognito_browser, chromium_org_url());
+    incognito_frame2 = incognito_browser->tab_strip_model()
+                           ->GetActiveWebContents()
+                           ->GetMainFrame();
+    EXPECT_NE(incognito_frame1, incognito_frame2);
+
+    EXPECT_EQ(1U, infobar_service1->infobar_count());
+    EXPECT_EQ(OK, CanConnectAndSendMessagesToFrame(incognito_frame2, app.get(),
+                                                   NULL));
+    EXPECT_EQ(1, alert_tracker.GetAndResetAlertCount());
+    EXPECT_EQ(0U, infobar_service1->infobar_count());
+  }
+}
+
+IN_PROC_BROWSER_TEST_F(ExternallyConnectableMessagingTest, IllegalArguments) {
+  // Tests that malformed arguments to connect() don't crash.
+  // Regression test for crbug.com/472700.
+  InitializeTestServer();
+  LoadChromiumConnectableExtension();
+  ui_test_utils::NavigateToURL(browser(), chromium_org_url());
+  bool result;
+  CHECK(content::ExecuteScriptAndExtractBool(
+      browser()->tab_strip_model()->GetActiveWebContents(),
+      "assertions.tryIllegalArguments()", &result));
+  EXPECT_TRUE(result);
 }
 
 IN_PROC_BROWSER_TEST_F(ExternallyConnectableMessagingTest,
@@ -854,49 +974,43 @@ class ExternallyConnectableMessagingWithTlsChannelIdTest :
   std::string CreateTlsChannelId() {
     scoped_refptr<net::URLRequestContextGetter> request_context_getter(
         profile()->GetRequestContext());
-  std::string channel_id_private_key;
-  std::string channel_id_cert;
-  net::ChannelIDService::RequestHandle request_handle;
+    scoped_ptr<crypto::ECPrivateKey> channel_id_key;
+    net::ChannelIDService::Request request;
     content::BrowserThread::PostTask(
-        content::BrowserThread::IO,
-        FROM_HERE,
-        base::Bind(
-            &ExternallyConnectableMessagingWithTlsChannelIdTest::
-                CreateDomainBoundCertOnIOThread,
-            base::Unretained(this),
-            base::Unretained(&channel_id_private_key),
-            base::Unretained(&channel_id_cert),
-            base::Unretained(&request_handle),
-            request_context_getter));
+        content::BrowserThread::IO, FROM_HERE,
+        base::Bind(&ExternallyConnectableMessagingWithTlsChannelIdTest::
+                       CreateDomainBoundCertOnIOThread,
+                   base::Unretained(this), base::Unretained(&channel_id_key),
+                   base::Unretained(&request), request_context_getter));
     tls_channel_id_created_.Wait();
     // Create the expected value.
-    base::StringPiece spki;
-    net::asn1::ExtractSPKIFromDERCert(channel_id_cert, &spki);
+    std::vector<uint8> spki_vector;
+    if (!channel_id_key->ExportPublicKey(&spki_vector))
+      return std::string();
+    base::StringPiece spki(reinterpret_cast<char*>(
+        vector_as_array(&spki_vector)), spki_vector.size());
     base::DictionaryValue jwk_value;
     net::JwkSerializer::ConvertSpkiFromDerToJwk(spki, &jwk_value);
     std::string tls_channel_id_value;
-    base::JSONWriter::Write(&jwk_value, &tls_channel_id_value);
+    base::JSONWriter::Write(jwk_value, &tls_channel_id_value);
     return tls_channel_id_value;
   }
 
  private:
   void CreateDomainBoundCertOnIOThread(
-      std::string* channel_id_private_key,
-      std::string* channel_id_cert,
-      net::ChannelIDService::RequestHandle* request_handle,
+      scoped_ptr<crypto::ECPrivateKey>* channel_id_key,
+      net::ChannelIDService::Request* request,
       scoped_refptr<net::URLRequestContextGetter> request_context_getter) {
     DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
     net::ChannelIDService* channel_id_service =
         request_context_getter->GetURLRequestContext()->
             channel_id_service();
     int status = channel_id_service->GetOrCreateChannelID(
-        chromium_org_url().host(),
-        channel_id_private_key,
-        channel_id_cert,
+        chromium_org_url().host(), channel_id_key,
         base::Bind(&ExternallyConnectableMessagingWithTlsChannelIdTest::
-                   GotDomainBoundCert,
+                       GotDomainBoundCert,
                    base::Unretained(this)),
-        request_handle);
+        request);
     if (status == net::ERR_IO_PENDING)
       return;
     GotDomainBoundCert(status);

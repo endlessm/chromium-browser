@@ -110,7 +110,7 @@ do_package() {
   if [ -f "${DEB_CONTROL}" ]; then
     gen_control
   fi
-  fakeroot dpkg-deb -Zlzma -b "${STAGEDIR}" .
+  fakeroot dpkg-deb -Zxz -z9 -b "${STAGEDIR}" .
 }
 
 # Remove temporary files and unwanted packaging output.
@@ -233,6 +233,7 @@ eval $(sed -e "s/^\([^=]\+\)=\(.*\)$/export \1='\2'/" \
   "${BUILDDIR}/installer/theme/BRANDING")
 
 REPOCONFIG="deb http://dl.google.com/linux/chrome/deb/ stable main"
+SSLREPOCONFIG="deb https://dl.google.com/linux/chrome/deb/ stable main"
 verify_channel
 
 # Some Debian packaging tools want these set.
@@ -287,8 +288,8 @@ fi
 rm -rf "$DUMMY_STAGING_DIR"
 
 # Additional dependencies not in the dpkg-shlibdeps output.
-# Pull a more recent version of NSS than required by runtime linking, for
-# security and stability updates in NSS.
+# - Pull a more recent version of NSS than required by runtime linking, for
+#   security and stability updates in NSS.
 ADDITION_DEPS="ca-certificates, libappindicator1, libcurl3, \
   libnss3 (>= 3.14.3), lsb-base (>=3.2), xdg-utils (>= 1.0.2), wget"
 
@@ -298,11 +299,6 @@ ADDITION_DEPS="ca-certificates, libappindicator1, libcurl3, \
 DPKG_SHLIB_DEPS=$(sed \
     's/\(libnspr4-0d ([^)]*)\), /\1 | libnspr4 (>= 4.9.5-0ubuntu0), /g' \
     <<< $DPKG_SHLIB_DEPS)
-
-# Fix-up libudev dependency because Ubuntu 13.04 has libudev1 instead of
-# libudev0.
-DPKG_SHLIB_DEPS=$(sed 's/\(libudev0 ([^)]*)\), /\1 | libudev1 (>= 198), /g' \
-                  <<< $DPKG_SHLIB_DEPS)
 
 COMMON_DEPS="${DPKG_SHLIB_DEPS}, ${ADDITION_DEPS}"
 COMMON_PREDEPS="dpkg (>= 1.14.0)"

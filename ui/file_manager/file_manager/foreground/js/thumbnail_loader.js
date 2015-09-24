@@ -12,14 +12,19 @@
  *     default: IMAGE.
  * @param {Object=} opt_metadata Metadata object.
  * @param {string=} opt_mediaType Media type.
- * @param {ThumbnailLoader.UseEmbedded=} opt_useEmbedded If to use embedded
- *     jpeg thumbnail if available. Default: USE_EMBEDDED.
+ * @param {Array<ThumbnailLoader.LoadTarget>=} opt_loadTargets The list of load
+ *     targets in preferential order. The default value is [CONTENT_METADATA,
+ *     EXTERNAL_METADATA, FILE_ENTRY].
  * @param {number=} opt_priority Priority, the highest is 0. default: 2.
  * @constructor
  */
 function ThumbnailLoader(entry, opt_loaderType, opt_metadata, opt_mediaType,
-    opt_useEmbedded, opt_priority) {
-  opt_useEmbedded = opt_useEmbedded || ThumbnailLoader.UseEmbedded.USE_EMBEDDED;
+    opt_loadTargets, opt_priority) {
+  var loadTargets = opt_loadTargets || [
+    ThumbnailLoader.LoadTarget.CONTENT_METADATA,
+    ThumbnailLoader.LoadTarget.EXTERNAL_METADATA,
+    ThumbnailLoader.LoadTarget.FILE_ENTRY
+  ];
 
   this.mediaType_ = opt_mediaType || FileType.getMediaType(entry);
   this.loaderType_ = opt_loaderType || ThumbnailLoader.LoaderType.IMAGE;
@@ -27,8 +32,15 @@ function ThumbnailLoader(entry, opt_loaderType, opt_metadata, opt_mediaType,
   this.priority_ = (opt_priority !== undefined) ? opt_priority : 2;
   this.transform_ = null;
 
+  /**
+   * @type {?ThumbnailLoader.LoadTarget}
+   * @private
+   */
+  this.loadTarget_ = null;
+
   if (!opt_metadata) {
     this.thumbnailUrl_ = entry.toURL();  // Use the URL directly.
+    this.loadTarget_ = ThumbnailLoader.LoadTarget.FILE_ENTRY;
     return;
   }
 
@@ -36,34 +48,44 @@ function ThumbnailLoader(entry, opt_loaderType, opt_metadata, opt_mediaType,
   this.thumbnailUrl_ = null;
   if (opt_metadata.external && opt_metadata.external.customIconUrl)
     this.fallbackUrl_ = opt_metadata.external.customIconUrl;
+  var mimeType = opt_metadata && opt_metadata.contentMimeType;
 
-  // Fetch the rotation from the external properties (if available).
-  var externalTransform;
-  if (opt_metadata.external &&
-      opt_metadata.external.imageRotation !== undefined) {
-    externalTransform = {
-      scaleX: 1,
-      scaleY: 1,
-      rotate90: opt_metadata.external.imageRotation / 90
-    };
+  for (var i = 0; i < loadTargets.length; i++) {
+    switch (loadTargets[i]) {
+      case ThumbnailLoader.LoadTarget.CONTENT_METADATA:
+        if (opt_metadata.thumbnail && opt_metadata.thumbnail.url) {
+          this.thumbnailUrl_ = opt_metadata.thumbnail.url;
+          this.transform_ =
+              opt_metadata.thumbnail && opt_metadata.thumbnail.transform;
+          this.loadTarget_ = ThumbnailLoader.LoadTarget.CONTENT_METADATA;
+        }
+        break;
+      case ThumbnailLoader.LoadTarget.EXTERNAL_METADATA:
+        if (opt_metadata.external && opt_metadata.external.thumbnailUrl &&
+            (!opt_metadata.external.present ||
+             !FileType.isImage(entry, mimeType))) {
+          this.thumbnailUrl_ = opt_metadata.external.thumbnailUrl;
+          this.croppedThumbnailUrl_ = opt_metadata.external.croppedThumbnailUrl;
+          this.loadTarget_ = ThumbnailLoader.LoadTarget.EXTERNAL_METADATA;
+        }
+        break;
+      case ThumbnailLoader.LoadTarget.FILE_ENTRY:
+        if (FileType.isImage(entry, mimeType) ||
+            FileType.isRaw(entry, mimeType)) {
+          this.thumbnailUrl_ = entry.toURL();
+          this.transform_ =
+              opt_metadata.media && opt_metadata.media.imageTransform;
+          this.loadTarget_ = ThumbnailLoader.LoadTarget.FILE_ENTRY;
+        }
+        break;
+      default:
+        assertNotReached('Unkonwn load type: ' + loadTargets[i]);
+    }
+    if (this.thumbnailUrl_)
+      break;
   }
 
-  if (((opt_metadata.thumbnail && opt_metadata.thumbnail.url) ||
-       (opt_metadata.external && opt_metadata.external.thumbnailUrl)) &&
-      opt_useEmbedded === ThumbnailLoader.UseEmbedded.USE_EMBEDDED) {
-    // If the thumbnail generated from the local cache (metadata.thumbnail.url)
-    // is available, use it. If not, use the one passed from the external
-    // provider (metadata.external.thumbnailUrl).
-    this.thumbnailUrl_ =
-        (opt_metadata.thumbnail && opt_metadata.thumbnail.url) ||
-        (opt_metadata.external && opt_metadata.external.thumbnailUrl);
-    this.transform_ = externalTransform !== undefined ? externalTransform :
-        (opt_metadata.thumbnail && opt_metadata.thumbnail.transform);
-  } else if (FileType.isImage(entry)) {
-    this.thumbnailUrl_ = entry.toURL();
-    this.transform_ = externalTransform !== undefined ? externalTransform :
-        opt_metadata.media && opt_metadata.media.imageTransform;
-  } else if (this.fallbackUrl_) {
+  if (!this.thumbnailUrl_ && this.fallbackUrl_) {
     // Use fallback as the primary thumbnail.
     this.thumbnailUrl_ = this.fallbackUrl_;
     this.fallbackUrl_ = null;
@@ -108,13 +130,16 @@ ThumbnailLoader.LoaderType = {
 };
 
 /**
- * Whether to use the embedded thumbnail, or not. The embedded thumbnail may
- * be small.
- * @enum {number}
+ * Load target of ThumbnailLoader.
+ * @enum {string}
  */
-ThumbnailLoader.UseEmbedded = {
-  USE_EMBEDDED: 0,
-  NO_EMBEDDED: 1
+ThumbnailLoader.LoadTarget = {
+  // e.g. Drive thumbnail, FSP thumbnail.
+  EXTERNAL_METADATA: 'externalMetadata',
+  // e.g. EXIF thumbnail.
+  CONTENT_METADATA: 'contentMetadata',
+  // Image file itself.
+  FILE_ENTRY: 'fileEntry'
 };
 
 /**
@@ -130,6 +155,14 @@ ThumbnailLoader.THUMBNAIL_MAX_WIDTH = 500;
  * @type {number}
  */
 ThumbnailLoader.THUMBNAIL_MAX_HEIGHT = 500;
+
+/**
+ * Returns the target of loading.
+ * @return {?ThumbnailLoader.LoadTarget}
+ */
+ThumbnailLoader.prototype.getLoadTarget = function() {
+  return this.loadTarget_;
+};
 
 /**
  * Loads and attaches an image.
@@ -159,7 +192,7 @@ ThumbnailLoader.prototype.load = function(box, fillMode, opt_optimizationMode,
   this.canvasUpToDate_ = false;
   this.image_ = new Image();
   this.image_.onload = function() {
-    this.attachImage(box, fillMode);
+    this.attachImage(assert(box), fillMode);
     if (opt_onSuccess)
       opt_onSuccess(this.image_, this.transform_);
   }.bind(this);
@@ -186,14 +219,20 @@ ThumbnailLoader.prototype.load = function(box, fillMode, opt_optimizationMode,
                          this.metadata_.filesystem &&
                          this.metadata_.filesystem.modificationTime &&
                          this.metadata_.filesystem.modificationTime.getTime();
-  this.taskId_ = util.loadImage(
-      this.image_,
+  this.taskId_ = ImageLoaderClient.loadToImage(
       this.thumbnailUrl_,
-      { maxWidth: ThumbnailLoader.THUMBNAIL_MAX_WIDTH,
+      this.image_,
+      {
+        maxWidth: ThumbnailLoader.THUMBNAIL_MAX_WIDTH,
         maxHeight: ThumbnailLoader.THUMBNAIL_MAX_HEIGHT,
         cache: true,
         priority: this.priority_,
-        timestamp: modificationTime },
+        timestamp: modificationTime
+      },
+      function() {},
+      function() {
+        this.image_.onerror(new Event('load-error'));
+      }.bind(this),
       function() {
         if (opt_optimizationMode ==
             ThumbnailLoader.OptimizationMode.DISCARD_DETACHED &&
@@ -206,13 +245,133 @@ ThumbnailLoader.prototype.load = function(box, fillMode, opt_optimizationMode,
 };
 
 /**
+ * Loads thumbnail as data url. If data url of thumbnail can be fetched from
+ * metadata, this fetches it from it. Otherwise, this tries to load it from
+ * thumbnail loader.
+ * Compared with ThumbnailLoader.load, this method does not provide a
+ * functionality to fit image to a box. This method is responsible for rotating
+ * and flipping a thumbnail.
+ *
+ * @param {ThumbnailLoader.FillMode} fillMode Only FIT and OVER_FILL is
+ *     supported. This takes effect only when external thumbnail source is used.
+ * @return {!Promise<{data:string, width:number, height:number}>} A promise
+ *     which is resolved when data url is fetched.
+ */
+ThumbnailLoader.prototype.loadAsDataUrl = function(fillMode) {
+  assert(fillMode === ThumbnailLoader.FillMode.FIT ||
+      fillMode === ThumbnailLoader.FillMode.OVER_FILL);
+
+  return new Promise(function(resolve, reject) {
+    // Load by using ImageLoaderClient.
+    var modificationTime = this.metadata_ &&
+                           this.metadata_.filesystem &&
+                           this.metadata_.filesystem.modificationTime &&
+                           this.metadata_.filesystem.modificationTime.getTime();
+    var thumbnailUrl = this.thumbnailUrl_;
+    var options = {
+      maxWidth: ThumbnailLoader.THUMBNAIL_MAX_WIDTH,
+      maxHeight: ThumbnailLoader.THUMBNAIL_MAX_HEIGHT,
+      cache: true,
+      priority: this.priority_,
+      timestamp: modificationTime
+    };
+
+    if (fillMode === ThumbnailLoader.FillMode.OVER_FILL) {
+      // Use cropped thumbnail url if available.
+      thumbnailUrl = this.croppedThumbnailUrl_ ?
+          this.croppedThumbnailUrl_ : this.thumbnailUrl_;
+
+      // Set crop option to image loader. Since image of croppedThumbnailUrl_ is
+      // 360x360 with current implemenation, it's no problem to crop it.
+      options['width'] = 360;
+      options['height'] = 360;
+      options['crop'] = true;
+    }
+
+    ImageLoaderClient.getInstance().load(
+        thumbnailUrl,
+        function(result) {
+          if (result.status === 'success')
+            resolve(result);
+          else
+            reject(result);
+        },
+        options);
+  }.bind(this)).then(function(result) {
+    if (!this.transform_)
+      return result;
+    else
+      return this.applyTransformToDataUrl_(
+          this.transform_, result.data, result.width, result.height);
+  }.bind(this));
+};
+
+/**
+ * Applies transform to data url.
+ *
+ * @param {{scaleX:number, scaleY:number, rotate90: number}} transform
+ *     Transform.
+ * @param {string} dataUrl Data url.
+ * @param {number} width Width.
+ * @param {number} height Height.
+ * @return {!Promise<{data:string, width:number, height:number}>} A promise
+ *     which is resolved with dataUrl and its width and height.
+ * @private
+ */
+ThumbnailLoader.prototype.applyTransformToDataUrl_ = function(
+    transform, dataUrl, width, height) {
+  var image = new Image();
+  var scaleX = this.transform_.scaleX;
+  var scaleY = this.transform_.scaleY;
+  var rotate90 = this.transform_.rotate90;
+
+  assert(scaleX === 1 || scaleX === -1);
+  assert(scaleY === 1 || scaleY === -1);
+  assert(rotate90 === 0 || rotate90 === 1);
+
+  return new Promise(function(resolve, reject) {
+    // Decode image for transformation.
+    image.onload = resolve;
+    image.onerror = reject;
+    image.src = dataUrl;
+  }).then(function() {
+    // Apply transform. Scale transformation should be applied before rotate
+    // transformation. i.e. When matrices for scale and rotate are A and B,
+    // transformation matrix should be BA.
+    var canvas = document.createElement('canvas');
+    var context = canvas.getContext('2d');
+
+    canvas.width = rotate90 === 1 ? height : width;
+    canvas.height = rotate90 === 1 ? width : height;
+
+    // Rotate 90 degree at center.
+    if (rotate90 === 1) {
+      context.translate(height, 0);
+      context.rotate(Math.PI / 2);
+    }
+
+    // Flip X and Y.
+    context.translate(scaleX === -1 ? width : 0, scaleY === -1 ? height : 0);
+    context.scale(scaleX, scaleY);
+
+    context.drawImage(image, 0, 0);
+
+    return {
+      data: canvas.toDataURL('image/png'),
+      width: canvas.width,
+      height: canvas.height
+    };
+  }.bind(this));
+}
+
+/**
  * Cancels loading the current image.
  */
 ThumbnailLoader.prototype.cancel = function() {
   if (this.taskId_) {
     this.image_.onload = function() {};
     this.image_.onerror = function() {};
-    util.cancelLoadImage(this.taskId_);
+    ImageLoaderClient.getInstance().cancel(this.taskId_);
     this.taskId_ = null;
   }
 };
@@ -269,14 +428,20 @@ ThumbnailLoader.prototype.loadDetachedImage = function(callback) {
                          this.metadata_.filesystem &&
                          this.metadata_.filesystem.modificationTime &&
                          this.metadata_.filesystem.modificationTime.getTime();
-  this.taskId_ = util.loadImage(
-      this.image_,
+  this.taskId_ = ImageLoaderClient.loadToImage(
       this.thumbnailUrl_,
-      { maxWidth: ThumbnailLoader.THUMBNAIL_MAX_WIDTH,
+      this.image_,
+      {
+        maxWidth: ThumbnailLoader.THUMBNAIL_MAX_WIDTH,
         maxHeight: ThumbnailLoader.THUMBNAIL_MAX_HEIGHT,
         cache: true,
         priority: this.priority_,
-        timestamp: modificationTime });
+        timestamp: modificationTime
+      },
+      function() {},
+      function() {
+        this.image_.onerror(new Event('load-error'));
+      }.bind(this));
 };
 
 /**
@@ -302,7 +467,7 @@ ThumbnailLoader.prototype.renderMedia_ = function() {
 
 /**
  * Attach the image to a given element.
- * @param {Element} container Parent element.
+ * @param {!Element} container Parent element.
  * @param {ThumbnailLoader.FillMode} fillMode Fill mode.
  */
 ThumbnailLoader.prototype.attachImage = function(container, fillMode) {

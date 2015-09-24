@@ -5,16 +5,13 @@
 package org.chromium.android_webview;
 
 import android.content.Context;
-import android.util.Log;
 
 import org.chromium.base.PathUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.library_loader.LibraryLoader;
+import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.library_loader.ProcessInitException;
 import org.chromium.content.browser.BrowserStartupController;
-import org.chromium.media.MediaDrmBridge;
-
-import java.util.UUID;
 
 /**
  * Wrapper for the steps needed to initialize the java and native sides of webview chromium.
@@ -29,17 +26,18 @@ public abstract class AwBrowserProcess {
      * to run webview in this process. Does not create threads; safe to call from zygote.
      * Note: it is up to the caller to ensure this is only called once.
      */
-    public static void loadLibrary() {
-        PathUtils.setPrivateDataDirectorySuffix(PRIVATE_DATA_DIRECTORY_SUFFIX);
+    public static void loadLibrary(Context context) {
+        PathUtils.setPrivateDataDirectorySuffix(PRIVATE_DATA_DIRECTORY_SUFFIX, context);
         try {
-            LibraryLoader.loadNow();
+            LibraryLoader libraryLoader = LibraryLoader.get(LibraryProcessType.PROCESS_WEBVIEW);
+            libraryLoader.loadNow(context);
+            // Switch the command line implementation from Java to native.
+            // It's okay for the WebView to do this before initialization because we have
+            // setup the JNI bindings by this point.
+            libraryLoader.switchCommandLineForWebView();
         } catch (ProcessInitException e) {
             throw new RuntimeException("Cannot load WebView", e);
         }
-        // Switch the command line implementation from Java to native.
-        // It's okay for the WebView to do this before initialization because we have
-        // setup the JNI bindings by this point.
-        LibraryLoader.switchCommandLineForWebView();
     }
 
     /**
@@ -56,26 +54,12 @@ public abstract class AwBrowserProcess {
             @Override
             public void run() {
                 try {
-                    BrowserStartupController.get(context).startBrowserProcessesSync(true);
-                    initializePlatformKeySystem();
+                    BrowserStartupController.get(context, LibraryProcessType.PROCESS_WEBVIEW)
+                            .startBrowserProcessesSync(true);
                 } catch (ProcessInitException e) {
                     throw new RuntimeException("Cannot initialize WebView", e);
                 }
             }
         });
-    }
-
-    private static void initializePlatformKeySystem() {
-        String[] mappings = AwResource.getConfigKeySystemUuidMapping();
-        for (String mapping : mappings) {
-            try {
-                String fragments[] = mapping.split(",");
-                String keySystem = fragments[0].trim();
-                UUID uuid = UUID.fromString(fragments[1]);
-                MediaDrmBridge.addKeySystemUuidMapping(keySystem, uuid);
-            } catch (java.lang.RuntimeException e) {
-                Log.e(TAG, "Can't parse key-system mapping: " + mapping);
-            }
-        }
     }
 }

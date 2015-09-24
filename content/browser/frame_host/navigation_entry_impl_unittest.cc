@@ -76,6 +76,27 @@ TEST_F(NavigationEntryTest, NavigationEntryURLs) {
   EXPECT_EQ(ASCIIToUTF16("bar baz.txt"),
             entry1_->GetTitleForDisplay(std::string()));
 
+  // For file:/// URLs, make sure that slashes after the filename are ignored.
+  // Regression test for https://crbug.com/503003.
+  entry1_->SetURL(GURL("file:///foo/bar baz.txt#foo/bar"));
+  EXPECT_EQ(ASCIIToUTF16("bar baz.txt#foo/bar"),
+            entry1_->GetTitleForDisplay(std::string()));
+  entry1_->SetURL(GURL("file:///foo/bar baz.txt?x=foo/bar"));
+  EXPECT_EQ(ASCIIToUTF16("bar baz.txt?x=foo/bar"),
+            entry1_->GetTitleForDisplay(std::string()));
+  entry1_->SetURL(GURL("file:///foo/bar baz.txt#baz/boo?x=foo/bar"));
+  EXPECT_EQ(ASCIIToUTF16("bar baz.txt#baz/boo?x=foo/bar"),
+            entry1_->GetTitleForDisplay(std::string()));
+  entry1_->SetURL(GURL("file:///foo/bar baz.txt?x=foo/bar#baz/boo"));
+  EXPECT_EQ(ASCIIToUTF16("bar baz.txt?x=foo/bar#baz/boo"),
+            entry1_->GetTitleForDisplay(std::string()));
+  entry1_->SetURL(GURL("file:///foo/bar baz.txt#foo/bar#baz/boo"));
+  EXPECT_EQ(ASCIIToUTF16("bar baz.txt#foo/bar#baz/boo"),
+            entry1_->GetTitleForDisplay(std::string()));
+  entry1_->SetURL(GURL("file:///foo/bar baz.txt?x=foo/bar?y=baz/boo"));
+  EXPECT_EQ(ASCIIToUTF16("bar baz.txt?x=foo/bar?y=baz/boo"),
+            entry1_->GetTitleForDisplay(std::string()));
+
   // Title affects GetTitleForDisplay
   entry1_->SetTitle(ASCIIToUTF16("Google"));
   EXPECT_EQ(ASCIIToUTF16("Google"), entry1_->GetTitleForDisplay(std::string()));
@@ -207,10 +228,27 @@ TEST_F(NavigationEntryTest, NavigationEntryAccessors) {
   entry2_->SetBrowserInitiatedPostData(post_data.get());
   EXPECT_EQ(post_data->front(),
       entry2_->GetBrowserInitiatedPostData()->front());
+}
 
- // Frame to navigate.
-  EXPECT_TRUE(entry1_->GetFrameToNavigate().empty());
-  EXPECT_TRUE(entry2_->GetFrameToNavigate().empty());
+// Test basic Clone behavior.
+TEST_F(NavigationEntryTest, NavigationEntryClone) {
+  // Set some additional values.
+  entry2_->SetTransitionType(ui::PAGE_TRANSITION_RELOAD);
+  entry2_->set_should_replace_entry(true);
+
+  scoped_ptr<NavigationEntryImpl> clone(entry2_->Clone());
+
+  // Value from FrameNavigationEntry.
+  EXPECT_EQ(entry2_->site_instance(), clone->site_instance());
+
+  // Value from constructor.
+  EXPECT_EQ(entry2_->GetTitle(), clone->GetTitle());
+
+  // Value set after constructor.
+  EXPECT_EQ(entry2_->GetTransitionType(), clone->GetTransitionType());
+
+  // Value not copied due to ResetForCommit.
+  EXPECT_NE(entry2_->should_replace_entry(), clone->should_replace_entry());
 }
 
 // Test timestamps.

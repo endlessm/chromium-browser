@@ -12,7 +12,7 @@
 
 #include <string>
 
-#include "base/callback_forward.h"
+#include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/memory/linked_ptr.h"
 #include "base/memory/ref_counted.h"
@@ -24,7 +24,9 @@
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_sender.h"
 
+#if defined(OS_MACOSX)
 struct GpuHostMsg_AcceleratedSurfaceBuffersSwapped_Params;
+#endif
 
 namespace ui {
 struct LatencyInfo;
@@ -72,6 +74,7 @@ class GpuProcessHostUIShim : public IPC::Listener,
   // actually received on the IO thread.
   bool OnMessageReceived(const IPC::Message& message) override;
 
+  CONTENT_EXPORT void RelinquishGpuResources(const base::Closure& callback);
   CONTENT_EXPORT void SimulateRemoveAllContext();
   CONTENT_EXPORT void SimulateCrash();
   CONTENT_EXPORT void SimulateHang();
@@ -89,13 +92,19 @@ class GpuProcessHostUIShim : public IPC::Listener,
   void OnGraphicsInfoCollected(const gpu::GPUInfo& gpu_info);
 
   void OnAcceleratedSurfaceInitialized(int32 surface_id, int32 route_id);
+#if defined(OS_MACOSX)
   void OnAcceleratedSurfaceBuffersSwapped(
       const GpuHostMsg_AcceleratedSurfaceBuffersSwapped_Params& params);
+#endif
   void OnVideoMemoryUsageStatsReceived(
       const GPUVideoMemoryUsageStats& video_memory_usage_stats);
+  void OnResourcesRelinquished();
+  void OnAddSubscription(int32 process_id, unsigned int target);
+  void OnRemoveSubscription(int32 process_id, unsigned int target);
 
   // The serial number of the GpuProcessHost / GpuProcessHostUIShim pair.
   int host_id_;
+  base::Closure relinquish_callback_;
 };
 
 }  // namespace content

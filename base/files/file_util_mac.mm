@@ -4,8 +4,8 @@
 
 #include "base/files/file_util.h"
 
-#import <Foundation/Foundation.h>
 #include <copyfile.h>
+#import <Foundation/Foundation.h>
 
 #include "base/basictypes.h"
 #include "base/files/file_path.h"
@@ -14,15 +14,14 @@
 #include "base/threading/thread_restrictions.h"
 
 namespace base {
-namespace internal {
 
-bool CopyFileUnsafe(const FilePath& from_path, const FilePath& to_path) {
+bool CopyFile(const FilePath& from_path, const FilePath& to_path) {
   ThreadRestrictions::AssertIOAllowed();
+  if (from_path.ReferencesParent() || to_path.ReferencesParent())
+    return false;
   return (copyfile(from_path.value().c_str(),
                    to_path.value().c_str(), NULL, COPYFILE_DATA) == 0);
 }
-
-}  // namespace internal
 
 bool GetTempDir(base::FilePath* path) {
   NSString* tmp = NSTemporaryDirectory();

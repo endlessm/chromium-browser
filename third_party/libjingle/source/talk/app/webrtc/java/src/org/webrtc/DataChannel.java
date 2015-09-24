@@ -1,6 +1,6 @@
 /*
  * libjingle
- * Copyright 2013, Google Inc.
+ * Copyright 2013 Google Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -77,6 +77,8 @@ public class DataChannel {
 
   /** Java version of C++ DataChannelObserver. */
   public interface Observer {
+    /** The data channel's bufferedAmount has changed. */
+    public void onBufferedAmountChange(long previousAmount);
     /** The data channel state has changed. */
     public void onStateChange();
     /**

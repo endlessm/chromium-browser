@@ -171,8 +171,6 @@ namespace skiagm {
      */
     class ExpectationsSource : public SkRefCnt {
     public:
-        SK_DECLARE_INST_COUNT(ExpectationsSource)
-
         virtual Expectations get(const char *testName) const = 0;
 
     private:
@@ -193,7 +191,7 @@ namespace skiagm {
          */
         explicit IndividualImageExpectationsSource(const char *rootDir) : fRootDir(rootDir) {}
 
-        Expectations get(const char *testName) const SK_OVERRIDE ;
+        Expectations get(const char *testName) const override ;
 
     private:
         const SkString fRootDir;
@@ -212,7 +210,7 @@ namespace skiagm {
          */
         explicit JsonExpectationsSource(const char *jsonPath);
 
-        Expectations get(const char *testName) const SK_OVERRIDE;
+        Expectations get(const char *testName) const override;
 
     private:
 

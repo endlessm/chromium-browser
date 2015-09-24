@@ -759,6 +759,9 @@ const StaticCountryData kCountryData[] = {
   { "WS", { IDS_AUTOFILL_FIELD_LABEL_POSTAL_CODE,
             IDS_AUTOFILL_FIELD_LABEL_PROVINCE,
             ADDRESS_REQUIREMENTS_UNKNOWN } },
+  { "XK", { IDS_AUTOFILL_FIELD_LABEL_POSTAL_CODE,
+            IDS_AUTOFILL_FIELD_LABEL_PROVINCE,
+            ADDRESS_REQUIRES_CITY } },
   { "YE", { IDS_AUTOFILL_FIELD_LABEL_POSTAL_CODE,
             IDS_AUTOFILL_FIELD_LABEL_PROVINCE,
             ADDRESS_REQUIRES_CITY } },
@@ -934,7 +937,8 @@ CountryNames::~CountryNames() {
 const std::string CountryNames::GetCountryCode(const base::string16& country,
                                                const std::string& locale) {
   // First, check common country names, including 2- and 3-letter country codes.
-  std::string country_utf8 = base::UTF16ToUTF8(StringToUpperASCII(country));
+  std::string country_utf8 = base::UTF16ToUTF8(
+      base::StringToUpperASCII(country));
   std::map<std::string, std::string>::const_iterator result =
       common_names_.find(country_utf8);
   if (result != common_names_.end())
@@ -1084,7 +1088,7 @@ const std::string AutofillCountry::CountryCodeForLocale(
   std::string likely_locale;
   UErrorCode error_ignored = U_ZERO_ERROR;
   uloc_addLikelySubtags(locale.c_str(),
-                        WriteInto(&likely_locale, kLocaleCapacity),
+                        base::WriteInto(&likely_locale, kLocaleCapacity),
                         kLocaleCapacity,
                         &error_ignored);
 

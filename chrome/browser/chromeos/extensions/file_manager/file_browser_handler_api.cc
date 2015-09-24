@@ -33,7 +33,7 @@
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/chromeos/file_manager/fileapi_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -42,8 +42,8 @@
 #include "chrome/common/extensions/api/file_browser_handler_internal.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_security_policy.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
-#include "content/public/browser/render_view_host.h"
 #include "storage/browser/fileapi/file_system_backend.h"
 #include "storage/browser/fileapi/file_system_context.h"
 #include "storage/common/fileapi/file_system_info.h"
@@ -100,7 +100,7 @@ class FileSelectorImpl : public FileSelector,
                          public ui::SelectFileDialog::Listener {
  public:
   FileSelectorImpl();
-  virtual ~FileSelectorImpl() override;
+  ~FileSelectorImpl() override;
 
  protected:
   // file_manager::FileSelectr overrides.
@@ -111,19 +111,19 @@ class FileSelectorImpl : public FileSelector,
   // After this method is called, the selector implementation should not be
   // deleted by the caller. It will delete itself after it receives response
   // from SelectFielDialog.
-  virtual void SelectFile(
+  void SelectFile(
       const base::FilePath& suggested_name,
       const std::vector<std::string>& allowed_extensions,
       Browser* browser,
       FileBrowserHandlerInternalSelectFileFunction* function) override;
 
   // ui::SelectFileDialog::Listener overrides.
-  virtual void FileSelected(const base::FilePath& path,
-                            int index,
-                            void* params) override;
-  virtual void MultiFilesSelected(const std::vector<base::FilePath>& files,
-                                  void* params) override;
-  virtual void FileSelectionCanceled(void* params) override;
+  void FileSelected(const base::FilePath& path,
+                    int index,
+                    void* params) override;
+  void MultiFilesSelected(const std::vector<base::FilePath>& files,
+                          void* params) override;
+  void FileSelectionCanceled(void* params) override;
 
  private:
   // Initiates and shows 'save as' dialog which will be used to prompt user to
@@ -178,7 +178,8 @@ void FileSelectorImpl::SelectFile(
   if (!StartSelectFile(suggested_name, allowed_extensions, browser)) {
     // If the dialog wasn't launched, let's asynchronously report failure to the
     // function.
-    base::MessageLoopProxy::current()->PostTask(FROM_HERE,
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
         base::Bind(&FileSelectorImpl::FileSelectionCanceled,
                    base::Unretained(this), static_cast<void*>(NULL)));
   }
@@ -188,7 +189,7 @@ bool FileSelectorImpl::StartSelectFile(
     const base::FilePath& suggested_name,
     const std::vector<std::string>& allowed_extensions,
     Browser* browser) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(!dialog_.get());
   DCHECK(browser);
 
@@ -240,7 +241,7 @@ void FileSelectorImpl::FileSelectionCanceled(
 
 void FileSelectorImpl::SendResponse(bool success,
                                     const base::FilePath& selected_path) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   // We don't want to send multiple responses.
   if (function_.get())
@@ -252,11 +253,11 @@ void FileSelectorImpl::SendResponse(bool success,
 class FileSelectorFactoryImpl : public FileSelectorFactory {
  public:
   FileSelectorFactoryImpl() {}
-  virtual ~FileSelectorFactoryImpl() {}
+  ~FileSelectorFactoryImpl() override {}
 
   // FileSelectorFactory implementation.
   // Creates new FileSelectorImplementation for the function.
-  virtual FileSelector* CreateFileSelector() const override {
+  FileSelector* CreateFileSelector() const override {
     return new FileSelectorImpl();
   }
 
@@ -308,7 +309,7 @@ bool FileBrowserHandlerInternalSelectFileFunction::RunAsync() {
 void FileBrowserHandlerInternalSelectFileFunction::OnFilePathSelected(
     bool success,
     const base::FilePath& full_path) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (!success) {
     Respond(EntryDefinition(), false);
@@ -316,8 +317,8 @@ void FileBrowserHandlerInternalSelectFileFunction::OnFilePathSelected(
   }
 
   storage::ExternalFileSystemBackend* external_backend =
-      file_manager::util::GetFileSystemContextForRenderViewHost(
-          GetProfile(), render_view_host())->external_backend();
+      file_manager::util::GetFileSystemContextForRenderFrameHost(
+          GetProfile(), render_frame_host())->external_backend();
   DCHECK(external_backend);
 
   FileDefinition file_definition;
@@ -334,7 +335,7 @@ void FileBrowserHandlerInternalSelectFileFunction::OnFilePathSelected(
 
   // Grant access to the selected file to target extensions render view process.
   content::ChildProcessSecurityPolicy::GetInstance()->GrantCreateReadWriteFile(
-      render_view_host()->GetProcess()->GetID(), full_path);
+      render_frame_host()->GetProcess()->GetID(), full_path);
 
   file_manager::util::ConvertFileDefinitionToEntryDefinition(
       GetProfile(),

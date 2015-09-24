@@ -38,7 +38,7 @@ enum ColorMatrixType {
 
 class PLATFORM_EXPORT FEColorMatrix : public FilterEffect {
 public:
-    static PassRefPtr<FEColorMatrix> create(Filter*, ColorMatrixType, const Vector<float>&);
+    static PassRefPtrWillBeRawPtr<FEColorMatrix> create(Filter*, ColorMatrixType, const Vector<float>&);
 
     ColorMatrixType type() const;
     bool setType(ColorMatrixType);
@@ -46,9 +46,9 @@ public:
     const Vector<float>& values() const;
     bool setValues(const Vector<float>&);
 
-    virtual PassRefPtr<SkImageFilter> createImageFilter(SkiaImageFilterBuilder*) override;
+    PassRefPtr<SkImageFilter> createImageFilter(SkiaImageFilterBuilder*) override;
 
-    virtual TextStream& externalRepresentation(TextStream&, int indention) const override;
+    TextStream& externalRepresentation(TextStream&, int indention) const override;
 
     static inline void calculateSaturateComponents(float* components, float value);
     static inline void calculateHueRotateComponents(float* components, float value);
@@ -56,9 +56,12 @@ public:
 private:
     FEColorMatrix(Filter*, ColorMatrixType, const Vector<float>&);
 
-    virtual bool affectsTransparentPixels() override;
+    bool affectsTransparentPixels() override;
 
     ColorMatrixType m_type;
+
+    // The m_values vector may not contain the right number of values. Always check
+    // before accessing contents.
     Vector<float> m_values;
 };
 

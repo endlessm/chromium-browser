@@ -31,8 +31,8 @@
 #include "base/values.h"
 #include "build/build_config.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_log.h"
 #include "net/http/http_response_headers.h"
+#include "net/log/net_log.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_fetcher_delegate.h"
 #include "net/url_request/url_request_context.h"
@@ -103,7 +103,7 @@ class PrintingLogObserver : public net::NetLog::ThreadSafeObserver {
 
   ~PrintingLogObserver() override {
     // This is guaranteed to be safe as this program is single threaded.
-    net_log()->RemoveThreadSafeObserver(this);
+    net_log()->DeprecatedRemoveObserver(this);
   }
 
   // NetLog::ThreadSafeObserver implementation:
@@ -122,7 +122,7 @@ class PrintingLogObserver : public net::NetLog::ThreadSafeObserver {
     scoped_ptr<base::Value> params(entry.ParametersToValue());
     std::string params_str;
     if (params.get()) {
-      base::JSONWriter::Write(params.get(), &params_str);
+      base::JSONWriter::Write(*params, &params_str);
       params_str.insert(0, ": ");
     }
 
@@ -226,11 +226,12 @@ int main(int argc, char* argv[]) {
   // printing_log_observer.
   net::NetLog net_log;
   PrintingLogObserver printing_log_observer;
-  net_log.AddThreadSafeObserver(&printing_log_observer, net::NetLog::LOG_ALL);
+  net_log.DeprecatedAddObserver(&printing_log_observer,
+                                net::NetLogCaptureMode::IncludeSocketBytes());
 
   QuitDelegate delegate;
-  scoped_ptr<net::URLFetcher> fetcher(
-      net::URLFetcher::Create(url, net::URLFetcher::HEAD, &delegate));
+  scoped_ptr<net::URLFetcher> fetcher =
+      net::URLFetcher::Create(url, net::URLFetcher::HEAD, &delegate);
   scoped_ptr<net::URLRequestContext> url_request_context(
       BuildURLRequestContext(&net_log));
   fetcher->SetRequestContext(
@@ -239,7 +240,7 @@ int main(int argc, char* argv[]) {
       // The URLFetcher will take a reference on the object, and hence
       // implicitly take ownership.
       new net::TrivialURLRequestContextGetter(url_request_context.get(),
-                                              main_loop.message_loop_proxy()));
+                                              main_loop.task_runner()));
   const base::Time start_time = base::Time::Now();
   const base::TimeTicks start_ticks = base::TimeTicks::Now();
 

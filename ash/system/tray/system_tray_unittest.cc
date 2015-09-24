@@ -18,11 +18,9 @@
 #include "ash/system/tray/tray_popup_item_container.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/window_util.h"
-#include "base/command_line.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/aura/window.h"
-#include "ui/base/ui_base_switches.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/events/test/event_generator.h"
@@ -146,20 +144,7 @@ class ModalWidgetDelegate : public views::WidgetDelegateView {
 
 }  // namespace
 
-class SystemTrayTest : public AshTestBase {
- public:
-  SystemTrayTest() {}
-  ~SystemTrayTest() override {}
-
-  void SetUp() override {
-    base::CommandLine::ForCurrentProcess()->AppendSwitch(
-        switches::kEnableTouchFeedback);
-    test::AshTestBase::SetUp();
-  }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SystemTrayTest);
-};
+typedef AshTestBase SystemTrayTest;
 
 TEST_F(SystemTrayTest, SystemTrayDefaultView) {
   SystemTray* tray = GetSystemTray();
@@ -522,11 +507,9 @@ TEST_F(SystemTrayTest, TrayPopupItemContainerTouchFeedback) {
   ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow());
   generator.set_current_location(view->GetBoundsInScreen().CenterPoint());
   generator.PressTouch();
-  RunAllPendingInMessageLoop();
   EXPECT_TRUE(view->active());
 
   generator.ReleaseTouch();
-  RunAllPendingInMessageLoop();
   EXPECT_FALSE(view->active());
 }
 
@@ -545,17 +528,14 @@ TEST_F(SystemTrayTest, TrayPopupItemContainerTouchFeedbackCancellation) {
   ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow());
   generator.set_current_location(view_bounds.CenterPoint());
   generator.PressTouch();
-  RunAllPendingInMessageLoop();
   EXPECT_TRUE(view->active());
 
   gfx::Point move_point(view_bounds.x(), view_bounds.CenterPoint().y());
   generator.MoveTouch(move_point);
-  RunAllPendingInMessageLoop();
   EXPECT_FALSE(view->active());
 
   generator.set_current_location(move_point);
   generator.ReleaseTouch();
-  RunAllPendingInMessageLoop();
   EXPECT_FALSE(view->active());
 }
 #endif  // OS_CHROMEOS

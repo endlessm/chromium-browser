@@ -32,7 +32,6 @@ void SharedMemIPCClient::FreeBuffer(void* buffer) {
   ChannelControl* channel = control_->channels;
   LONG result = ::InterlockedExchange(&channel[num].state, kFreeChannel);
   DCHECK_NE(kFreeChannel, static_cast<ChannelState>(result));
-  result;
 }
 
 // The constructor simply casts the shared memory to the internal
@@ -90,7 +89,7 @@ ResultCode SharedMemIPCClient::DoCall(CrossCallParams* params,
       } else {
         // The server has crashed and windows has signaled the mutex as
         // abandoned.
-        ::InterlockedExchange(&channel[num].state, kAbandonnedChannel);
+        ::InterlockedExchange(&channel[num].state, kAbandonedChannel);
         control_->server_alive = 0;
         return SBOX_ERROR_CHANNEL_ERROR;
       }

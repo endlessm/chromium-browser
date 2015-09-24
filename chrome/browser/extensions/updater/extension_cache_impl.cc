@@ -12,41 +12,30 @@
 #include "base/threading/sequenced_worker_pool.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/crx_installer.h"
+#include "chrome/browser/extensions/updater/extension_cache_delegate.h"
 #include "chrome/browser/extensions/updater/local_extension_cache.h"
+#include "chrome/common/extensions/extension_constants.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
+#include "extensions/browser/install/crx_install_error.h"
 
 namespace extensions {
-namespace {
 
-#if defined(OS_CHROMEOS)
-const char kLocalCacheDir[] = "/var/cache/external_cache";
-#else
-#error Please define kLocalCacheDir suitable for target OS
-#endif// Directory where the extensions are cached.
-
-// Maximum size of local cache on disk.
-size_t kMaxCacheSize = 100 * 1024 * 1024;
-
-// Maximum age of unused extensions in cache.
-const int kMaxCacheAgeDays = 30;
-
-}  // namespace
-
-ExtensionCacheImpl::ExtensionCacheImpl()
-  : cache_(new LocalExtensionCache(base::FilePath(kLocalCacheDir),
-        kMaxCacheSize,
-        base::TimeDelta::FromDays(kMaxCacheAgeDays),
-        content::BrowserThread::GetBlockingPool()->
-            GetSequencedTaskRunnerWithShutdownBehavior(
-                content::BrowserThread::GetBlockingPool()->GetSequenceToken(),
-                base::SequencedWorkerPool::SKIP_ON_SHUTDOWN))),
-    weak_ptr_factory_(this) {
+ExtensionCacheImpl::ExtensionCacheImpl(
+    scoped_ptr<ExtensionCacheDelegate> delegate)
+    : cache_(new LocalExtensionCache(
+          delegate->GetCacheDir(),
+          delegate->GetMaximumCacheSize(),
+          delegate->GetMaximumCacheAge(),
+          content::BrowserThread::GetBlockingPool()
+              ->GetSequencedTaskRunnerWithShutdownBehavior(
+                  content::BrowserThread::GetBlockingPool()->GetSequenceToken(),
+                  base::SequencedWorkerPool::SKIP_ON_SHUTDOWN))),
+      weak_ptr_factory_(this) {
   notification_registrar_.Add(
-      this,
-      extensions::NOTIFICATION_EXTENSION_INSTALL_ERROR,
+      this, extensions::NOTIFICATION_EXTENSION_INSTALL_ERROR,
       content::NotificationService::AllBrowserContextsAndSources());
   cache_->Init(true, base::Bind(&ExtensionCacheImpl::OnCacheInitialized,
                                 weak_ptr_factory_.GetWeakPtr()));
@@ -76,22 +65,28 @@ void ExtensionCacheImpl::AllowCaching(const std::string& id) {
 }
 
 bool ExtensionCacheImpl::GetExtension(const std::string& id,
+                                      const std::string& expected_hash,
                                       base::FilePath* file_path,
                                       std::string* version) {
-  if (cache_)
-    return cache_->GetExtension(id, file_path, version);
+  if (cache_ && CachingAllowed(id))
+    return cache_->GetExtension(id, expected_hash, file_path, version);
   else
     return false;
 }
 
 void ExtensionCacheImpl::PutExtension(const std::string& id,
+                                      const std::string& expected_hash,
                                       const base::FilePath& file_path,
                                       const std::string& version,
                                       const PutExtensionCallback& callback) {
-  if (cache_ && ContainsKey(allowed_extensions_, id))
-    cache_->PutExtension(id, file_path, version, callback);
+  if (cache_ && CachingAllowed(id))
+    cache_->PutExtension(id, expected_hash, file_path, version, callback);
   else
     callback.Run(file_path, true);
+}
+
+bool ExtensionCacheImpl::CachingAllowed(const std::string& id) {
+  return ContainsKey(allowed_extensions_, id);
 }
 
 void ExtensionCacheImpl::OnCacheInitialized() {
@@ -121,9 +116,26 @@ void ExtensionCacheImpl::Observe(int type,
     case extensions::NOTIFICATION_EXTENSION_INSTALL_ERROR: {
       extensions::CrxInstaller* installer =
           content::Source<extensions::CrxInstaller>(source).ptr();
-      // TODO(dpolukhin): remove extension from cache only if installation
-      // failed due to file corruption.
-      cache_->RemoveExtension(installer->expected_id());
+      const std::string& id = installer->expected_id();
+      const std::string& hash = installer->expected_hash();
+      const extensions::CrxInstallError* error =
+          content::Details<const extensions::CrxInstallError>(details).ptr();
+      switch (error->type()) {
+        case extensions::CrxInstallError::ERROR_DECLINED:
+          DVLOG(2) << "Extension install was declined, file kept";
+          break;
+        case extensions::CrxInstallError::ERROR_HASH_MISMATCH: {
+          if (cache_->ShouldRetryDownload(id, hash)) {
+            cache_->RemoveExtension(id, hash);
+            installer->set_hash_check_failed(true);
+          }
+          // We deliberately keep the file with incorrect hash sum, so that it
+          // will not be re-downloaded each time.
+        } break;
+        default:
+          cache_->RemoveExtension(id, hash);
+          break;
+      }
       break;
     }
 

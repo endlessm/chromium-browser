@@ -64,21 +64,32 @@ sub {
 table {
   border-collapse: collapse;
   border-spacing: 0;
+  display: block;
+  overflow-x: auto;
 }
 
 td,
 th {
-  padding: 0;
+  padding: 0.5rem;
 }
 
 /* Base typography. */
 
-body,
 html {
   font-size: 14px;
-  line-height: 1.4;
+  height: 100%;
+}
+
+body {
+  height: 100%;
+  line-height: 1.714;
+  margin: 0px auto;
   text-rendering: optimizeLegibility;
+  transition-property: color, background-color;
+  transition-duration: 0.5s;
+  transition-timing-function: ease;
   overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Classes for light, dark and sepia themes.
@@ -86,13 +97,13 @@ html {
  * and with CSS class constants in viewer.cc */
 
 .light {
-  color: #333;
-  background-color: #FFF;
+  color: #424242;
+  background-color: #FAFAFA;
 }
 
 .dark {
-  color: #FFF;
-  background-color: #000;
+  color: #E0E0E0;
+  background-color: #212121;
 }
 
 .sepia {
@@ -100,12 +111,79 @@ html {
   background-color: rgb(203, 173, 141);
 }
 
+.light a:link,
+.sepia a:link {
+  color: #55F;
+}
+
+.dark a:link {
+  color: #88F;
+}
+
+.light a:visited,
+.sepia a:visited {
+  color: #902290;
+}
+
+.dark a:visited {
+  color: #D872D8;
+}
+
+.light code,
+.light pre {
+  background-color: #EEE;
+  border-color: #AAA;
+}
+
+.sepia code,
+.sepia pre {
+  background-color: rgb(217, 196, 175);
+  border-color: rgb(147, 125, 102);
+}
+
+.dark code,
+.dark pre {
+  background-color: #333;
+  border-color: #555;
+}
+
+.light tbody tr:nth-child(odd) {
+  background-color: #EEE;
+}
+
+.light th, .light td {
+  border-left: 1px solid #AAA;
+}
+
+.sepia tbody tr:nth-child(odd) {
+  background-color: rgb(217, 196, 175);
+}
+
+.sepia th, .sepia td {
+  border-left: 1px solid rgb(147, 125, 102);
+}
+
+.dark tbody tr:nth-child(odd) {
+  background-color: #333;
+}
+
+.dark th, .dark td {
+  border-left: 1px solid #555;
+}
+
+/* #contentWrap is added to be more specific than the color theme rules */
+#contentWrap th:first-child { border-left: none; }
+#contentWrap td:first-child { border-left: none; }
+
+
+/* Font settings */
+
 .serif {
   font-family: serif;
 }
 
 .sans-serif {
-  font-family: 'Open Sans', sans-serif;
+  font-family: 'Roboto', sans-serif;
 }
 
 .monospace {
@@ -132,82 +210,96 @@ table,
 td,
 th,
 ul {
-  margin-bottom: 1rem;
+  margin-bottom: 1.143rem;
 }
 
+h1,
 h2,
 h3,
 h4,
 h5,
 h6 {
-  line-height: 1.296rem;
-  margin-bottom: 0.444rem;
+  line-height: 1.417;
+  margin: 1em 0;
 }
 
 /* Content. */
 
 /* Margins for Show Original link. */
 
-#showOriginal {
-  margin: auto 1.296rem 1.296rem 1.296rem;
+.light #closeReaderView {
+  border-top: 1px solid #E0E0E0;
+  color: #4285F4;
 }
 
-#content {
-  margin-top: 1.296rem;
+.dark #closeReaderView {
+  border-top: 1px solid #555;
+  color: #3adaff;
 }
 
-/* Main margins. */
-
-body {
-  max-width: 800px;
-  margin: 0px auto;
-}
-
-#mainContent {
-  margin: 1.296rem 1.296rem auto;
-}
-
-/* Link colors for light, dark and sepia themes */
-
-a:link {
+.sepia #closeReaderView {
+  border-top: 1px solid rgb(147, 125, 102);
   color: #55F;
 }
 
-a:visited {
-  color: #902290;
+#closeReaderView {
+  flex: 0 0 auto;
+  font-family: 'Roboto', sans-serif;
+  font-weight: 700;
+  line-height: 14px;
+  padding: 24px 16px;
+  font-size: 14px;
+  text-align: right;
+  text-decoration: none;
+  text-transform: uppercase;
+  width: 100%;
+}
+
+#content {
+  margin: 24px 16px 24px 16px;
+}
+
+#mainContent {
+  flex: 1 1 auto;
+  margin: 0px auto;
+  max-width: 35em;
+  width: 100%;
+}
+
+#articleHeader {
+  margin-top: 24px;
+  width: 100%;
+}
+
+#titleHolder {
+  font-size: 1.714rem;
+  line-height: 1.417;
+  margin: 0 16px;
 }
 
 blockquote {
-  border-left: 4px solid #eee;
+  border-left: 4px solid #888;
   padding-left: 1em;
 }
 
 cite {
-  color: rgba(0, 0, 0, .54);
+  opacity: .8;
   font-style: italic;
 }
 
 hr {
-  background-color: #e4dfdf;
-  border: none;
-  height: 1px;
-  margin: inherit auto;
+  opacity: .5;
+  border-style: solid;
+  height: 1px 0 0 0;
   width: 75%;
 }
 
-h1 {
-  font-size: 1.7rem;
-  line-height: 1.9rem;
-  margin-bottom: 0.444rem;
-}
 
 q {
-  color: #222;
+  opacity: .8;
   display:block;
-  font-size: 1.5rem;
   font-style: italic;
   font-weight: 600;
-  line-height: 1.444;
 }
 
 embed,
@@ -222,7 +314,7 @@ video {
 img {
   display: block;
   height: auto;
-  margin: 0 auto 0.6rem auto;
+  margin: 0.6rem auto 0.4rem 0;
 }
 
 /* TODO(nyquist): set these classes directly in the dom distiller. */
@@ -232,10 +324,11 @@ figcaption,
 img+[class*='caption'],
 object+[class*='caption'],
 video+[class*='caption'] {
-  color: rgba(0,0,0,.54);
+  opacity: .8;
   display: table;
-  font-style: italic;
-  margin: 0 auto;
+  margin-bottom: 1rem;
+  font-size: 0.857rem;
+  line-height: 1.667;
 }
 
 ol,
@@ -243,35 +336,124 @@ ul {
   margin-left: 1.296rem;
 }
 
-.light code,
-.light pre,
-.sepia code,
-.sepia pre {
-  background-color: #f8f8f8;
-  border: 1px solid #eee;
-  border-radius: 2px;
-}
-
-.dark code,
-.dark pre {
-  background-color: #333;
-  border: 1px solid #555;
+code, pre {
+  border: 1px solid;
   border-radius: 2px;
 }
 
 pre code {
   border: none;
-  padding: 0;
 }
 
 pre {
-  line-height: 1.296rem;
-  overflow-x: scroll;
+  line-height: 1.642;
   padding: .5em;
+  white-space: pre-wrap;
 }
 
 .hidden {
   display: none;
+}
+
+/* Footer feedback form. */
+#contentWrap {
+  display: flex;
+  flex-flow: column;
+  min-height: 100%;
+  overflow: auto;
+  position: relative;
+  z-index: 1;
+}
+
+#feedbackContainer {
+  font-size: 14px;
+  position: relative;
+  z-index: 2;
+}
+
+.footerFeedback {
+  background-color: #4285F4;
+  clear: both;
+  color: #fff;
+  display: none;
+  height: 120px;
+  margin-top: -120px;
+  width: 100%;
+}
+
+.feedbackContent {
+  font-size: 14px;
+  background-color: #4285F4;
+  clear: both;
+  padding: 14px;
+}
+
+#feedbackQuestion {
+  font-size: 1.4em;
+  font-weight: 700;
+  text-align: center;
+  width: 100%;
+}
+
+.feedbackButtonWrap {
+  margin-top: 14px;
+  text-align: center;
+  width: 100%;
+}
+
+.feedbackButton {
+  -webkit-user-select: none;
+  background-color: #FFFFFF;
+  border-radius: 3px;
+  color: #4285F4;
+  display: inline-block;
+  font-weight: 900;
+  height: 35px;
+  margin: 0px 4% 0px 4%;
+  padding-top: 8px;
+  text-align: center;
+  text-transform: uppercase;
+  user-select: none;
+  width: 40%;
+}
+
+.clear {
+  clear: both;
+}
+
+/* Feedback fade out */
+.fadeOut {
+  animation-duration: 0.5s;
+  animation-name: fadeOutAndSwipeAnimation;
+}
+
+@keyframes fadeOutAndSwipeAnimation {
+  from {
+    margin-left: 0%;
+    opacity: 1;
+  }
+
+  to {
+    margin-left: -100%;
+    opacity: 0;
+  }
+}
+
+/* Iframe sizing. */
+.youtubeContainer {
+  height: 0px;
+  /* This is the perecnt height of a standard HD video. */
+  padding-bottom: 56.25%;
+  position: relative;
+  width: 100%;
+}
+
+.youtubeIframe {
+  height: 100%;
+  left: 0px;
+  position: absolute;
+  top: 0px;
+  width: 100%;
 }
 
 /* Loading Indicator. */

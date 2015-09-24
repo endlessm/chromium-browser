@@ -98,10 +98,10 @@ void RemoveMatchesFromList(const BinaryOpNode* op_node,
     }
 
     case Value::LIST:  // Filter out each individual thing.
-      for (size_t i = 0; i < to_remove.list_value().size(); i++) {
+      for (const auto& elem : to_remove.list_value()) {
         // TODO(brettw) if the nested item is a list, we may want to search
         // for the literal list rather than remote the items in it.
-        RemoveMatchesFromList(op_node, list, to_remove.list_value()[i], err);
+        RemoveMatchesFromList(op_node, list, elem, err);
         if (err->has_error())
           return;
       }
@@ -490,42 +490,6 @@ Value ExecuteAnd(Scope* scope,
 }  // namespace
 
 // ----------------------------------------------------------------------------
-
-bool IsUnaryOperator(const Token& token) {
-  return token.type() == Token::BANG;
-}
-
-bool IsBinaryOperator(const Token& token) {
-  return token.type() == Token::EQUAL ||
-         token.type() == Token::PLUS ||
-         token.type() == Token::MINUS ||
-         token.type() == Token::PLUS_EQUALS ||
-         token.type() == Token::MINUS_EQUALS ||
-         token.type() == Token::EQUAL_EQUAL ||
-         token.type() == Token::NOT_EQUAL ||
-         token.type() == Token::LESS_EQUAL ||
-         token.type() == Token::GREATER_EQUAL ||
-         token.type() == Token::LESS_THAN ||
-         token.type() == Token::GREATER_THAN ||
-         token.type() == Token::BOOLEAN_AND ||
-         token.type() == Token::BOOLEAN_OR;
-}
-
-bool IsFunctionCallArgBeginScoper(const Token& token) {
-  return token.type() == Token::LEFT_PAREN;
-}
-
-bool IsFunctionCallArgEndScoper(const Token& token) {
-  return token.type() == Token::RIGHT_PAREN;
-}
-
-bool IsScopeBeginScoper(const Token& token) {
-  return token.type() == Token::LEFT_BRACE;
-}
-
-bool IsScopeEndScoper(const Token& token) {
-  return token.type() == Token::RIGHT_BRACE;
-}
 
 Value ExecuteUnaryOperator(Scope* scope,
                            const UnaryOpNode* op_node,

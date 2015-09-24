@@ -26,7 +26,6 @@ class TestRunner(instr_test_runner.TestRunner):
     # Create an InstrumentationOptions object to pass to the super class
     instrumentation_options = instr_test_options.InstrumentationOptions(
         test_options.tool,
-        test_options.cleanup_test_files,
         test_options.annotations,
         test_options.exclude_annotations,
         test_options.test_filter,
@@ -40,7 +39,10 @@ class TestRunner(instr_test_runner.TestRunner):
         test_apk_jar_path=None,
         test_runner=None,
         test_support_apk_path=None,
-        device_flags=None)
+        device_flags=None,
+        isolate_file_path=None,
+        set_asserts=test_options.set_asserts,
+        delete_stale_data=False)
     super(TestRunner, self).__init__(instrumentation_options, device,
                                      shard_index, test_pkg)
 
@@ -56,14 +58,11 @@ class TestRunner(instr_test_runner.TestRunner):
     self.test_pkg.Install(self.device)
 
   #override
-  def PushDataDeps(self):
-    pass
-
-  #override
   def _RunTest(self, test, timeout):
     self.device.ClearApplicationState(self._package)
     if self.flags:
-      if 'Feature:FirstRunExperience' in self.test_pkg.GetTestAnnotations(test):
+      annotations = self.test_pkg.GetTestAnnotations(test)
+      if 'FirstRunExperience' == annotations.get('Feature', None):
         self.flags.RemoveFlags(['--disable-fre'])
       else:
         self.flags.AddFlags(['--disable-fre'])
@@ -73,13 +72,18 @@ class TestRunner(instr_test_runner.TestRunner):
                       package=self._package),
         blocking=True,
         force_stop=True)
-    cmd = ['uiautomator', 'runtest', self.test_pkg.GetPackageName(),
-           '-e', 'class', test]
+    cmd = ['uiautomator', 'runtest',
+           self.test_pkg.UIAUTOMATOR_PATH + self.test_pkg.GetPackageName(),
+           '-e', 'class', test,
+           '-e', 'test_package', self._package]
     return self.device.RunShellCommand(cmd, timeout=timeout, retries=0)
 
   #override
-  def _GenerateTestResult(self, test, instr_statuses, start_ms, duration_ms):
+  def _GenerateTestResult(self, test, _result_code, _result_bundle, statuses,
+                          start_ms, duration_ms):
     # uiautomator emits its summary status with INSTRUMENTATION_STATUS_CODE,
     # not INSTRUMENTATION_CODE, so we have to drop if off the list of statuses.
+    summary_code, summary_bundle = statuses[-1]
     return super(TestRunner, self)._GenerateTestResult(
-        test, instr_statuses[:-1], start_ms, duration_ms)
+        test, summary_code, summary_bundle, statuses[:-1], start_ms,
+        duration_ms)

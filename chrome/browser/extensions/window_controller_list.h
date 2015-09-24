@@ -13,7 +13,7 @@
 #include "chrome/browser/extensions/window_controller.h"
 
 class Profile;
-class ChromeExtensionFunctionDetails;
+class UIThreadExtensionFunction;
 
 namespace extensions {
 
@@ -38,13 +38,13 @@ class WindowControllerList {
 
   // Returns a window matching the context the function was invoked in.
   WindowController* FindWindowForFunctionById(
-      const ChromeExtensionFunctionDetails& function_details,
+      const UIThreadExtensionFunction* function,
       int id) const;
 
   // Returns the focused or last added window matching the context the function
   // was invoked in.
   WindowController* CurrentWindowForFunction(
-      const ChromeExtensionFunctionDetails& function_details) const;
+      const UIThreadExtensionFunction* function) const;
 
   const ControllerList& windows() const { return windows_; }
 
@@ -56,7 +56,7 @@ class WindowControllerList {
   // Entries are not owned by this class and must be removed when destroyed.
   ControllerList windows_;
 
-  ObserverList<WindowControllerListObserver> observers_;
+  base::ObserverList<WindowControllerListObserver> observers_;
 
   DISALLOW_COPY_AND_ASSIGN(WindowControllerList);
 };

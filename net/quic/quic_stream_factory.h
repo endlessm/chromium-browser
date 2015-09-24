@@ -15,10 +15,12 @@
 #include "net/base/address_list.h"
 #include "net/base/completion_callback.h"
 #include "net/base/host_port_pair.h"
-#include "net/base/net_log.h"
 #include "net/base/network_change_notifier.h"
 #include "net/cert/cert_database.h"
+#include "net/log/net_log.h"
 #include "net/proxy/proxy_server.h"
+#include "net/quic/network_connection.h"
+#include "net/quic/quic_client_session.h"
 #include "net/quic/quic_config.h"
 #include "net/quic/quic_crypto_stream.h"
 #include "net/quic/quic_http_stream.h"
@@ -54,9 +56,13 @@ class NET_EXPORT_PRIVATE QuicStreamRequest {
   ~QuicStreamRequest();
 
   // For http, |is_https| is false.
+  // |cert_verify_flags| is bitwise OR'd of CertVerifier::VerifyFlags and it is
+  // passed to CertVerifier::Verify.
   int Request(const HostPortPair& host_port_pair,
               bool is_https,
               PrivacyMode privacy_mode,
+              int cert_verify_flags,
+              base::StringPiece origin_host,
               base::StringPiece method,
               const BoundNetLog& net_log,
               const CompletionCallback& callback);
@@ -67,6 +73,10 @@ class NET_EXPORT_PRIVATE QuicStreamRequest {
 
   void set_stream(scoped_ptr<QuicHttpStream> stream);
 
+  const std::string origin_host() const { return origin_host_; }
+
+  PrivacyMode privacy_mode() const { return privacy_mode_; }
+
   const BoundNetLog& net_log() const{
     return net_log_;
   }
@@ -74,7 +84,8 @@ class NET_EXPORT_PRIVATE QuicStreamRequest {
  private:
   QuicStreamFactory* factory_;
   HostPortPair host_port_pair_;
-  bool is_https_;
+  std::string origin_host_;
+  PrivacyMode privacy_mode_;
   BoundNetLog net_log_;
   CompletionCallback callback_;
   scoped_ptr<QuicHttpStream> stream_;
@@ -104,7 +115,17 @@ class NET_EXPORT_PRIVATE QuicStreamFactory
       bool enable_port_selection,
       bool always_require_handshake_confirmation,
       bool disable_connection_pooling,
-      int load_server_info_timeout,
+      float load_server_info_timeout_srtt_multiplier,
+      bool enable_connection_racing,
+      bool enable_non_blocking_io,
+      bool disable_disk_cache,
+      bool prefer_aes,
+      int max_number_of_lossy_connections,
+      float packet_loss_threshold,
+      int max_recent_disabled_reasons,
+      int threshold_timeouts_with_streams_open,
+      int threshold_public_resets_post_handshake,
+      int socket_receive_buffer_size,
       const QuicTagVector& connection_options);
   ~QuicStreamFactory() override;
 
@@ -116,9 +137,30 @@ class NET_EXPORT_PRIVATE QuicStreamFactory
   int Create(const HostPortPair& host_port_pair,
              bool is_https,
              PrivacyMode privacy_mode,
+             int cert_verify_flags,
+             base::StringPiece origin_host,
              base::StringPiece method,
              const BoundNetLog& net_log,
              QuicStreamRequest* request);
+
+  // If |packet_loss_rate| is greater than or equal to |packet_loss_threshold_|
+  // it marks QUIC as recently broken for the port of the session. Increments
+  // |number_of_lossy_connections_| by port. If |number_of_lossy_connections_|
+  // is greater than or equal to |max_number_of_lossy_connections_| then it
+  // disables QUIC. If QUIC is disabled then it closes the connection.
+  //
+  // Returns true if QUIC is disabled for the port of the session.
+  bool OnHandshakeConfirmed(QuicClientSession* session, float packet_loss_rate);
+
+  // Returns true if QUIC is disabled for this port.
+  bool IsQuicDisabled(uint16 port);
+
+  // Returns reason QUIC is disabled for this port, or QUIC_DISABLED_NOT if not.
+  QuicClientSession::QuicDisabledReason QuicDisabledReason(uint16 port) const;
+
+  // Returns reason QUIC is disabled as string for net-internals, or
+  // returns empty string if QUIC is not disabled.
+  const char* QuicDisabledReasonString() const;
 
   // Called by a session when it becomes idle.
   void OnIdleSession(QuicClientSession* session);
@@ -139,7 +181,7 @@ class NET_EXPORT_PRIVATE QuicStreamFactory
   // Closes all current sessions.
   void CloseAllSessions(int error);
 
-  base::Value* QuicStreamFactoryInfoToValue() const;
+  scoped_ptr<base::Value> QuicStreamFactoryInfoToValue() const;
 
   // Delete all cached state objects in |crypto_config_|.
   void ClearCachedStatesInCryptoConfig();
@@ -176,9 +218,17 @@ class NET_EXPORT_PRIVATE QuicStreamFactory
     quic_server_info_factory_ = quic_server_info_factory;
   }
 
+  bool enable_connection_racing() const { return enable_connection_racing_; }
+  void set_enable_connection_racing(bool enable_connection_racing) {
+    enable_connection_racing_ = enable_connection_racing;
+  }
+
+  int socket_receive_buffer_size() const { return socket_receive_buffer_size_; }
+
  private:
   class Job;
   friend class test::QuicStreamFactoryPeer;
+  FRIEND_TEST_ALL_PREFIXES(HttpStreamFactoryTest, QuicLossyProxyMarkedAsBad);
 
   // The key used to find session by ip. Includes
   // the ip address, port, and scheme.
@@ -202,15 +252,24 @@ class NET_EXPORT_PRIVATE QuicStreamFactory
   typedef std::set<QuicClientSession*> SessionSet;
   typedef std::map<IpAliasKey, SessionSet> IPAliasMap;
   typedef std::map<QuicServerId, QuicCryptoClientConfig*> CryptoConfigMap;
-  typedef std::map<QuicServerId, Job*> JobMap;
-  typedef std::map<QuicStreamRequest*, Job*> RequestMap;
+  typedef std::set<Job*> JobSet;
+  typedef std::map<QuicServerId, JobSet> JobMap;
+  typedef std::map<QuicStreamRequest*, QuicServerId> RequestMap;
   typedef std::set<QuicStreamRequest*> RequestSet;
-  typedef std::map<Job*, RequestSet> JobRequestsMap;
+  typedef std::map<QuicServerId, RequestSet> ServerIDRequestsMap;
+  typedef std::deque<enum QuicClientSession::QuicDisabledReason>
+      DisabledReasonsQueue;
 
-  // Returns a newly created QuicHttpStream owned by the caller, if a
-  // matching session already exists.  Returns NULL otherwise.
-  scoped_ptr<QuicHttpStream> CreateIfSessionExists(const QuicServerId& key,
-                                                   const BoundNetLog& net_log);
+  // Creates a job which doesn't wait for server config to be loaded from the
+  // disk cache. This job is started via a PostTask.
+  void CreateAuxilaryJob(const QuicServerId server_id,
+                         int cert_verify_flags,
+                         bool server_and_origin_have_same_host,
+                         bool is_post,
+                         const BoundNetLog& net_log);
+
+  // Returns a newly created QuicHttpStream owned by the caller.
+  scoped_ptr<QuicHttpStream> CreateFromSession(QuicClientSession*);
 
   bool OnResolution(const QuicServerId& server_id,
                     const AddressList& address_list);
@@ -218,12 +277,24 @@ class NET_EXPORT_PRIVATE QuicStreamFactory
   bool HasActiveSession(const QuicServerId& server_id) const;
   bool HasActiveJob(const QuicServerId& server_id) const;
   int CreateSession(const QuicServerId& server_id,
+                    int cert_verify_flags,
                     scoped_ptr<QuicServerInfo> quic_server_info,
                     const AddressList& address_list,
+                    base::TimeTicks dns_resolution_end_time,
                     const BoundNetLog& net_log,
                     QuicClientSession** session);
   void ActivateSession(const QuicServerId& key,
                        QuicClientSession* session);
+
+  // Returns |srtt| in micro seconds from ServerNetworkStats. Returns 0 if there
+  // is no |http_server_properties_| or if |http_server_properties_| doesn't
+  // have ServerNetworkStats for the given |server_id|.
+  int64 GetServerNetworkStatsSmoothedRttInMicroseconds(
+      const QuicServerId& server_id) const;
+
+  // Helper methods.
+  bool WasQuicRecentlyBroken(const QuicServerId& server_id) const;
+  bool CryptoConfigCacheIsEmpty(const QuicServerId& server_id);
 
   // Initializes the cached state associated with |server_id| in
   // |crypto_config_| with the information in |server_info|.
@@ -234,6 +305,9 @@ class NET_EXPORT_PRIVATE QuicStreamFactory
   void ProcessGoingAwaySession(QuicClientSession* session,
                                const QuicServerId& server_id,
                                bool was_session_active);
+
+  // Collect stats from recent connections, possibly disabling Quic.
+  void MaybeDisableQuic(QuicClientSession* session);
 
   bool require_confirmation_;
   HostResolver* host_resolver_;
@@ -266,7 +340,7 @@ class NET_EXPORT_PRIVATE QuicStreamFactory
   QuicCryptoClientConfig crypto_config_;
 
   JobMap active_jobs_;
-  JobRequestsMap job_requests_map_;
+  ServerIDRequestsMap job_requests_map_;
   RequestMap active_requests_;
 
   QuicVersionVector supported_versions_;
@@ -283,23 +357,68 @@ class NET_EXPORT_PRIVATE QuicStreamFactory
   // Set if we do not want connection pooling.
   bool disable_connection_pooling_;
 
-  // Specifies the timeout in milliseconds to wait for loading of QUIC server
-  // information. If we don't want to timeout, set
-  // |load_server_info_timeout_ms_| to 0.
-  int load_server_info_timeout_ms_;
+  // Specifies the ratio between time to load QUIC server information from disk
+  // cache to 'smoothed RTT'. This ratio is used to calculate the timeout in
+  // milliseconds to wait for loading of QUIC server information. If we don't
+  // want to timeout, set |load_server_info_timeout_srtt_multiplier_| to 0.
+  float load_server_info_timeout_srtt_multiplier_;
 
-  // Each profile will (probably) have a unique port_seed_ value.  This value is
-  // used to help seed a pseudo-random number generator (PortSuggester) so that
-  // we consistently (within this profile) suggest the same ephemeral port when
-  // we re-connect to any given server/port.  The differences between profiles
-  // (probablistically) prevent two profiles from colliding in their ephemeral
-  // port requests.
+  // Set if we want to race connections - one connection that sends
+  // INCHOATE_HELLO and another connection that sends CHLO after loading server
+  // config from the disk cache.
+  bool enable_connection_racing_;
+
+  // Set if experimental non-blocking IO should be used on windows sockets.
+  bool enable_non_blocking_io_;
+
+  // Set if we do not want to load server config from the disk cache.
+  bool disable_disk_cache_;
+
+  // Set if AES-GCM should be preferred, even if there is no hardware support.
+  bool prefer_aes_;
+
+  // Set if we want to disable QUIC when there is high packet loss rate.
+  // Specifies the maximum number of connections with high packet loss in a row
+  // after which QUIC will be disabled.
+  int max_number_of_lossy_connections_;
+  // Specifies packet loss rate in fraction after which a connection is closed
+  // and is considered as a lossy connection.
+  float packet_loss_threshold_;
+  // Count number of lossy connections by port.
+  std::map<uint16, int> number_of_lossy_connections_;
+
+  // Keep track of stats for recently closed connections, using a
+  // bounded queue.
+  int max_disabled_reasons_;
+  DisabledReasonsQueue disabled_reasons_;
+  // Events that can trigger disabling QUIC
+  int num_public_resets_post_handshake_;
+  int num_timeouts_with_open_streams_;
+  // Keep track the largest values for UMA histograms, that will help
+  // determine good threshold values.
+  int max_public_resets_post_handshake_;
+  int max_timeouts_with_open_streams_;
+  // Thresholds if greater than zero, determine when to
+  int threshold_timeouts_with_open_streams_;
+  int threshold_public_resets_post_handshake_;
+
+  // Size of the UDP receive buffer.
+  int socket_receive_buffer_size_;
+
+  // Each profile will (probably) have a unique port_seed_ value.  This value
+  // is used to help seed a pseudo-random number generator (PortSuggester) so
+  // that we consistently (within this profile) suggest the same ephemeral
+  // port when we re-connect to any given server/port.  The differences between
+  // profiles (probablistically) prevent two profiles from colliding in their
+  // ephemeral port requests.
   uint64 port_seed_;
 
   // Local address of socket that was created in CreateSession.
   IPEndPoint local_address_;
   bool check_persisted_supports_quic_;
   std::set<HostPortPair> quic_supported_servers_at_startup_;
+
+  NetworkConnection network_connection_;
 
   base::TaskRunner* task_runner_;
 

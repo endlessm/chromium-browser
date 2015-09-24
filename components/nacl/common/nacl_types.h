@@ -6,6 +6,7 @@
 #define COMPONENTS_NACL_COMMON_NACL_TYPES_H_
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/basictypes.h"
@@ -15,28 +16,7 @@
 #include "ipc/ipc_channel.h"
 #include "ipc/ipc_platform_file.h"
 
-#if defined(OS_POSIX)
-#include "base/file_descriptor_posix.h"
-#endif
-
-#if defined(OS_WIN)
-#include <windows.h>   // for HANDLE
-#endif
-
-// TODO(gregoryd): add a Windows definition for base::FileDescriptor
 namespace nacl {
-
-#if defined(OS_WIN)
-typedef HANDLE FileDescriptor;
-inline HANDLE ToNativeHandle(const FileDescriptor& desc) {
-  return desc;
-}
-#elif defined(OS_POSIX)
-typedef base::FileDescriptor FileDescriptor;
-inline int ToNativeHandle(const FileDescriptor& desc) {
-  return desc.fd;
-}
-#endif
 
 // We allocate a page of shared memory for sharing crash information from
 // trusted code in the NaCl process to the renderer.
@@ -57,17 +37,61 @@ enum NaClAppProcessType {
   kNumNaClProcessTypes
 };
 
+// Represents a request to prefetch a file that's listed in the "files" section
+// of a NaCl manifest file.
+struct NaClResourcePrefetchRequest {
+  NaClResourcePrefetchRequest();
+  NaClResourcePrefetchRequest(const std::string& file_key,
+                              const std::string& resource_url);
+  ~NaClResourcePrefetchRequest();
+
+  std::string file_key;  // a key for open_resource.
+  std::string resource_url;
+};
+
+// Represents a single prefetched file that's listed in the "files" section of
+// a NaCl manifest file.
+struct NaClResourcePrefetchResult {
+  NaClResourcePrefetchResult();
+  NaClResourcePrefetchResult(const IPC::PlatformFileForTransit& file,
+                             const base::FilePath& file_path,
+                             const std::string& file_key);
+  ~NaClResourcePrefetchResult();
+
+  IPC::PlatformFileForTransit file;
+  base::FilePath file_path_metadata;  // a key for validation caching
+  std::string file_key;  // a key for open_resource
+};
+
 // Parameters sent to the NaCl process when we start it.
 struct NaClStartParams {
   NaClStartParams();
   ~NaClStartParams();
 
   IPC::PlatformFileForTransit nexe_file;
-  uint64_t nexe_token_lo;
-  uint64_t nexe_token_hi;
+  // Used only as a key for validation caching.
+  base::FilePath nexe_file_path_metadata;
 
-  std::vector<FileDescriptor> handles;
-  FileDescriptor debug_stub_server_bound_socket;
+  IPC::PlatformFileForTransit imc_bootstrap_handle;
+  IPC::PlatformFileForTransit irt_handle;
+#if defined(OS_MACOSX)
+  IPC::PlatformFileForTransit mac_shm_fd;
+#endif
+#if defined(OS_POSIX)
+  IPC::PlatformFileForTransit debug_stub_server_bound_socket;
+#endif
+
+#if defined(OS_LINUX) || defined(OS_NACL_NONSFI)
+  // These are for Non-SFI mode IPC channels.
+  // For security hardening, unlike in SFI mode, we cannot create socket pairs
+  // in a NaCl loader process. Thus, the browser process creates the
+  // ChannelHandle instances, and passes them to the NaCl loader process.
+  // SFI mode uses NaClProcessHostMsg_PpapiChannelsCreated instead.
+  IPC::ChannelHandle ppapi_browser_channel_handle;
+  IPC::ChannelHandle ppapi_renderer_channel_handle;
+  IPC::ChannelHandle trusted_service_channel_handle;
+  IPC::ChannelHandle manifest_service_channel_handle;
+#endif
 
   bool validation_cache_enabled;
   std::string validation_cache_key;
@@ -95,14 +119,17 @@ struct NaClStartParams {
 // nacl_host_messages.h.
 struct NaClLaunchParams {
   NaClLaunchParams();
-  NaClLaunchParams(const std::string& manifest_url,
-                   const IPC::PlatformFileForTransit& nexe_file,
-                   uint64_t nexe_token_lo,
-                   uint64_t nexe_token_hi,
-                   int render_view_id,
-                   uint32 permission_bits,
-                   bool uses_nonsfi_mode,
-                   NaClAppProcessType process_type);
+  NaClLaunchParams(
+      const std::string& manifest_url,
+      const IPC::PlatformFileForTransit& nexe_file,
+      uint64_t nexe_token_lo,
+      uint64_t nexe_token_hi,
+      const std::vector<
+          NaClResourcePrefetchRequest>& resource_prefetch_request_list,
+      int render_view_id,
+      uint32 permission_bits,
+      bool uses_nonsfi_mode,
+      NaClAppProcessType process_type);
   ~NaClLaunchParams();
 
   std::string manifest_url;
@@ -112,6 +139,7 @@ struct NaClLaunchParams {
   IPC::PlatformFileForTransit nexe_file;
   uint64_t nexe_token_lo;
   uint64_t nexe_token_hi;
+  std::vector<NaClResourcePrefetchRequest> resource_prefetch_request_list;
 
   int render_view_id;
   uint32 permission_bits;
@@ -123,7 +151,7 @@ struct NaClLaunchParams {
 struct NaClLaunchResult {
   NaClLaunchResult();
   NaClLaunchResult(
-      FileDescriptor imc_channel_handle,
+      const IPC::PlatformFileForTransit& imc_channel_handle,
       const IPC::ChannelHandle& ppapi_ipc_channel_handle,
       const IPC::ChannelHandle& trusted_ipc_channel_handle,
       const IPC::ChannelHandle& manifest_service_ipc_channel_handle,
@@ -133,7 +161,7 @@ struct NaClLaunchResult {
   ~NaClLaunchResult();
 
   // For plugin loader <-> renderer IMC communication.
-  FileDescriptor imc_channel_handle;
+  IPC::PlatformFileForTransit imc_channel_handle;
 
   // For plugin <-> renderer PPAPI communication.
   IPC::ChannelHandle ppapi_ipc_channel_handle;

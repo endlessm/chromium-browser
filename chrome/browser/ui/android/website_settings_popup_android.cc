@@ -80,13 +80,6 @@ void WebsiteSettingsPopupAndroid::OnPermissionSettingChanged(JNIEnv* env,
 void WebsiteSettingsPopupAndroid::SetIdentityInfo(
     const IdentityInfo& identity_info) {
   JNIEnv* env = base::android::AttachCurrentThread();
-
-  Java_WebsiteSettingsPopup_updatePageDetails(
-      env,
-      popup_jobject_.obj(),
-      identity_info.connection_status ==
-          WebsiteSettings::SITE_CONNECTION_STATUS_INTERNAL_PAGE);
-
   Java_WebsiteSettingsPopup_showDialog(env, popup_jobject_.obj());
 }
 
@@ -103,8 +96,9 @@ void WebsiteSettingsPopupAndroid::SetPermissionInfo(
   // particular order, but only if their value is different from the default.
   std::vector<ContentSettingsType> permissions_to_display;
   permissions_to_display.push_back(CONTENT_SETTINGS_TYPE_GEOLOCATION);
-  permissions_to_display.push_back(CONTENT_SETTINGS_TYPE_MEDIASTREAM);
-  permissions_to_display.push_back(CONTENT_SETTINGS_TYPE_PUSH_MESSAGING);
+  permissions_to_display.push_back(CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA);
+  permissions_to_display.push_back(CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC);
+  permissions_to_display.push_back(CONTENT_SETTINGS_TYPE_NOTIFICATIONS);
   permissions_to_display.push_back(CONTENT_SETTINGS_TYPE_IMAGES);
   permissions_to_display.push_back(CONTENT_SETTINGS_TYPE_JAVASCRIPT);
   permissions_to_display.push_back(CONTENT_SETTINGS_TYPE_POPUPS);
@@ -134,16 +128,13 @@ void WebsiteSettingsPopupAndroid::SetPermissionInfo(
           static_cast<jint>(user_specified_settings_to_display[permission]));
     }
   }
+
+  Java_WebsiteSettingsPopup_updatePermissionDisplay(env, popup_jobject_.obj());
 }
 
 void WebsiteSettingsPopupAndroid::SetSelectedTab(
     WebsiteSettingsUI::TabId tab_id) {
   // There's no tab UI on Android - only connection info is shown.
-  NOTIMPLEMENTED();
-}
-
-void WebsiteSettingsPopupAndroid::SetFirstVisit(
-    const base::string16& first_visit) {
   NOTIMPLEMENTED();
 }
 

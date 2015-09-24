@@ -4,34 +4,24 @@
 
 #include "net/quic/quic_data_writer.h"
 
+#include <stdint.h>
 #include <algorithm>
 #include <limits>
-#include <string>
-
-#include "base/basictypes.h"
-#include "base/logging.h"
 
 using base::StringPiece;
 using std::numeric_limits;
 
 namespace net {
 
-QuicDataWriter::QuicDataWriter(size_t size)
-    : buffer_(new char[size]),
-      capacity_(size),
-      length_(0) {
+QuicDataWriter::QuicDataWriter(size_t size, char* buffer)
+    : buffer_(buffer), capacity_(size), length_(0) {
 }
 
 QuicDataWriter::~QuicDataWriter() {
-  delete[] buffer_;
 }
 
-char* QuicDataWriter::take() {
-  char* rv = buffer_;
-  buffer_ = nullptr;
-  capacity_ = 0;
-  length_ = 0;
-  return rv;
+char* QuicDataWriter::data() {
+  return buffer_;
 }
 
 bool QuicDataWriter::WriteUInt8(uint8 value) {
@@ -47,8 +37,8 @@ bool QuicDataWriter::WriteUInt32(uint32 value) {
 }
 
 bool QuicDataWriter::WriteUInt48(uint64 value) {
-  uint32 hi = value >> 32;
-  uint32 lo = value & GG_UINT64_C(0x00000000FFFFFFFF);
+  uint16 hi = static_cast<uint16>(value >> 32);
+  uint32 lo = static_cast<uint32>(value);
   return WriteUInt32(lo) && WriteUInt16(hi);
 }
 
@@ -58,10 +48,10 @@ bool QuicDataWriter::WriteUInt64(uint64 value) {
 
 bool QuicDataWriter::WriteUFloat16(uint64 value) {
   uint16 result;
-  if (value < (GG_UINT64_C(1) << kUFloat16MantissaEffectiveBits)) {
+  if (value < (UINT64_C(1) << kUFloat16MantissaEffectiveBits)) {
     // Fast path: either the value is denormalized, or has exponent zero.
     // Both cases are represented by the value itself.
-    result = value;
+    result = static_cast<uint16>(value);
   } else if (value >= kUFloat16MaxValue) {
     // Value is out of range; clamp it to the maximum representable.
     result = numeric_limits<uint16>::max();
@@ -75,7 +65,7 @@ bool QuicDataWriter::WriteUFloat16(uint64 value) {
       // Right-shift the value until the highest bit is in position 11.
       // For offset of 16, 8, 4, 2 and 1 (binary search over 1-30),
       // shift if the bit is at or above 11 + offset.
-      if (value >= (GG_UINT64_C(1) << (kUFloat16MantissaBits + offset))) {
+      if (value >= (UINT64_C(1) << (kUFloat16MantissaBits + offset))) {
         exponent += offset;
         value >>= offset;
       }
@@ -83,38 +73,26 @@ bool QuicDataWriter::WriteUFloat16(uint64 value) {
 
     DCHECK_GE(exponent, 1);
     DCHECK_LE(exponent, kUFloat16MaxExponent);
-    DCHECK_GE(value, GG_UINT64_C(1) << kUFloat16MantissaBits);
-    DCHECK_LT(value, GG_UINT64_C(1) << kUFloat16MantissaEffectiveBits);
+    DCHECK_GE(value, UINT64_C(1) << kUFloat16MantissaBits);
+    DCHECK_LT(value, UINT64_C(1) << kUFloat16MantissaEffectiveBits);
 
     // Hidden bit (position 11) is set. We should remove it and increment the
     // exponent. Equivalently, we just add it to the exponent.
     // This hides the bit.
-    result = value + (exponent << kUFloat16MantissaBits);
+    result = static_cast<uint16>(value + (exponent << kUFloat16MantissaBits));
   }
 
   return WriteBytes(&result, sizeof(result));
 }
 
 bool QuicDataWriter::WriteStringPiece16(StringPiece val) {
-  if (val.length() > numeric_limits<uint16>::max()) {
+  if (val.size() > numeric_limits<uint16>::max()) {
     return false;
   }
-  if (!WriteUInt16(val.size())) {
+  if (!WriteUInt16(static_cast<uint16>(val.size()))) {
     return false;
   }
   return WriteBytes(val.data(), val.size());
-}
-
-bool QuicDataWriter::WriteIOVector(const IOVector& data) {
-  char *dest = BeginWrite(data.TotalBufferSize());
-  if (!dest) {
-    return false;
-  }
-  for (size_t i = 0; i < data.Size(); ++i) {
-    WriteBytes(data.iovec()[i].iov_base,  data.iovec()[i].iov_len);
-  }
-
-  return true;
 }
 
 char* QuicDataWriter::BeginWrite(size_t length) {
@@ -127,7 +105,7 @@ char* QuicDataWriter::BeginWrite(size_t length) {
   }
 
 #ifdef ARCH_CPU_64_BITS
-  DCHECK_LE(length, numeric_limits<uint32>::max());
+  DCHECK_LE(length, std::numeric_limits<uint32>::max());
 #endif
 
   return buffer_ + length_;
@@ -166,37 +144,5 @@ void QuicDataWriter::WritePadding() {
   length_ = capacity_;
 }
 
-bool QuicDataWriter::WriteUInt8ToOffset(uint8 value, size_t offset) {
-  if (offset >= capacity_) {
-    LOG(DFATAL) << "offset: " << offset << " >= capacity: " << capacity_;
-    return false;
-  }
-  size_t latched_length = length_;
-  length_ = offset;
-  bool success = WriteUInt8(value);
-  DCHECK_LE(length_, latched_length);
-  length_ = latched_length;
-  return success;
-}
-
-bool QuicDataWriter::WriteUInt32ToOffset(uint32 value, size_t offset) {
-  DCHECK_LT(offset, capacity_);
-  size_t latched_length = length_;
-  length_ = offset;
-  bool success = WriteUInt32(value);
-  DCHECK_LE(length_, latched_length);
-  length_ = latched_length;
-  return success;
-}
-
-bool QuicDataWriter::WriteUInt48ToOffset(uint64 value, size_t offset) {
-  DCHECK_LT(offset, capacity_);
-  size_t latched_length = length_;
-  length_ = offset;
-  bool success = WriteUInt48(value);
-  DCHECK_LE(length_, latched_length);
-  length_ = latched_length;
-  return success;
-}
 
 }  // namespace net

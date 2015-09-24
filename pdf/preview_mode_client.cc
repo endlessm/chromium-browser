@@ -5,7 +5,6 @@
 #include "pdf/preview_mode_client.h"
 
 #include "base/logging.h"
-#include "pdf/instance.h"
 
 namespace chrome_pdf {
 
@@ -157,6 +156,11 @@ void PreviewModeClient::FormTextFieldFocusChange(bool in_focus) {
 bool PreviewModeClient::IsPrintPreview() {
   NOTREACHED();
   return false;
+}
+
+uint32 PreviewModeClient::GetBackgroundColor() {
+  NOTREACHED();
+  return 0;
 }
 
 }  // namespace chrome_pdf

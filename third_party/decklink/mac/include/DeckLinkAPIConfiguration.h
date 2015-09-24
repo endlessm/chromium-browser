@@ -42,7 +42,7 @@
 
 // Interface ID Declarations
 
-BMD_CONST REFIID IID_IDeckLinkConfiguration                       = /* C679A35B-610C-4D09-B748-1D0478100FC0 */ {0xC6,0x79,0xA3,0x5B,0x61,0x0C,0x4D,0x09,0xB7,0x48,0x1D,0x04,0x78,0x10,0x0F,0xC0};
+BMD_CONST REFIID IID_IDeckLinkConfiguration                       = /* CB71734A-FE37-4E8D-8E13-802133A1C3F2 */ {0xCB,0x71,0x73,0x4A,0xFE,0x37,0x4E,0x8D,0x8E,0x13,0x80,0x21,0x33,0xA1,0xC3,0xF2};
 
 /* Enum BMDDeckLinkConfigurationID - DeckLink Configuration ID */
 
@@ -72,9 +72,10 @@ enum _BMDDeckLinkConfigurationID {
     bmdDeckLinkConfigFieldFlickerRemoval                         = 'fdfr',
     bmdDeckLinkConfigHD1080p24ToHD1080i5994Conversion            = 'to59',
     bmdDeckLinkConfig444SDIVideoOutput                           = '444o',
-    bmdDeckLinkConfig3GBpsVideoOutput                            = '3gbs',
     bmdDeckLinkConfigBlackVideoOutputDuringCapture               = 'bvoc',
     bmdDeckLinkConfigLowLatencyVideoOutput                       = 'llvo',
+    bmdDeckLinkConfigDownConversionOnAllAnalogOutput             = 'caao',
+    bmdDeckLinkConfigSMPTELevelAOutput                           = 'smta',
 
     /* Video Output Integers */
 
@@ -85,6 +86,7 @@ enum _BMDDeckLinkConfigurationID {
     bmdDeckLinkConfigVideoOutputIdleOperation                    = 'voio',
     bmdDeckLinkConfigDefaultVideoOutputMode                      = 'dvom',
     bmdDeckLinkConfigDefaultVideoOutputModeFlags                 = 'dvof',
+    bmdDeckLinkConfigSDIOutputLinkConfiguration                  = 'solc',
 
     /* Video Output Floats */
 
@@ -144,7 +146,16 @@ enum _BMDDeckLinkConfigurationID {
     bmdDeckLinkConfigAnalogAudioOutputScaleChannel2              = 'aos2',
     bmdDeckLinkConfigAnalogAudioOutputScaleChannel3              = 'aos3',
     bmdDeckLinkConfigAnalogAudioOutputScaleChannel4              = 'aos4',
-    bmdDeckLinkConfigDigitalAudioOutputScale                     = 'daos'
+    bmdDeckLinkConfigDigitalAudioOutputScale                     = 'daos',
+
+    /* Device Information Strings */
+
+    bmdDeckLinkConfigDeviceInformationLabel                      = 'dila',
+    bmdDeckLinkConfigDeviceInformationSerialNumber               = 'disn',
+    bmdDeckLinkConfigDeviceInformationCompany                    = 'dico',
+    bmdDeckLinkConfigDeviceInformationPhone                      = 'diph',
+    bmdDeckLinkConfigDeviceInformationEmail                      = 'diem',
+    bmdDeckLinkConfigDeviceInformationDate                       = 'dida'
 };
 
 // Forward Declarations
@@ -167,7 +178,7 @@ public:
     virtual HRESULT WriteConfigurationToPreferences (void) = 0;
 
 protected:
-    virtual ~IDeckLinkConfiguration () {}; // call Release method to drop reference count
+    virtual ~IDeckLinkConfiguration () {} // call Release method to drop reference count
 };
 
 /* Functions */
@@ -175,7 +186,7 @@ protected:
 extern "C" {
 
 
-};
+}
 
 
 #endif /* defined(BMD_DECKLINKAPICONFIGURATION_H) */

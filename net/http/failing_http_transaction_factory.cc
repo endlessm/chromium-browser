@@ -6,10 +6,14 @@
 
 #include "base/bind.h"
 #include "base/compiler_specific.h"
+#include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "net/base/load_timing_info.h"
 #include "net/base/upload_progress.h"
+#include "net/http/http_response_info.h"
+#include "net/socket/connection_attempts.h"
 
 namespace net {
 
@@ -18,8 +22,6 @@ class BoundNetLog;
 class HttpRequestHeaders;
 class IOBuffer;
 class X509Certificate;
-
-struct HttpRequestInfo;
 
 namespace {
 
@@ -51,7 +53,7 @@ class FailingHttpTransaction : public HttpTransaction {
   const HttpResponseInfo* GetResponseInfo() const override;
   LoadState GetLoadState() const override;
   UploadProgress GetUploadProgress() const override;
-  void SetQuicServerInfo(net::QuicServerInfo* quic_server_info) override;
+  void SetQuicServerInfo(QuicServerInfo* quic_server_info) override;
   bool GetLoadTimingInfo(LoadTimingInfo* load_timing_info) const override;
   void SetPriority(RequestPriority priority) override;
   void SetWebSocketHandshakeStreamCreateHelper(
@@ -61,9 +63,11 @@ class FailingHttpTransaction : public HttpTransaction {
   void SetBeforeProxyHeadersSentCallback(
       const BeforeProxyHeadersSentCallback& callback) override;
   int ResumeNetworkStart() override;
+  void GetConnectionAttempts(ConnectionAttempts* out) const override;
 
  private:
   Error error_;
+  HttpResponseInfo response_;
 };
 
 FailingHttpTransaction::FailingHttpTransaction(Error error) : error_(error) {
@@ -75,8 +79,8 @@ FailingHttpTransaction::~FailingHttpTransaction() {}
 int FailingHttpTransaction::Start(const HttpRequestInfo* request_info,
                                   const CompletionCallback& callback,
                                   const BoundNetLog& net_log)  {
-  base::MessageLoop::current()->PostTask(
-      FROM_HERE, base::Bind(callback, error_));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
+                                                base::Bind(callback, error_));
   return ERR_IO_PENDING;
 }
 
@@ -123,7 +127,7 @@ void FailingHttpTransaction::DoneReading()  {
 }
 
 const HttpResponseInfo* FailingHttpTransaction::GetResponseInfo() const  {
-  return NULL;
+  return &response_;
 }
 
 LoadState FailingHttpTransaction::GetLoadState() const  {
@@ -135,7 +139,8 @@ UploadProgress FailingHttpTransaction::GetUploadProgress() const  {
 }
 
 void FailingHttpTransaction::SetQuicServerInfo(
-    net::QuicServerInfo* quic_server_info) {}
+    QuicServerInfo* quic_server_info) {
+}
 
 bool FailingHttpTransaction::GetLoadTimingInfo(
     LoadTimingInfo* load_timing_info) const  {
@@ -160,6 +165,11 @@ void FailingHttpTransaction::SetBeforeProxyHeadersSentCallback(
 int FailingHttpTransaction::ResumeNetworkStart()  {
   NOTREACHED();
   return ERR_FAILED;
+}
+
+void FailingHttpTransaction::GetConnectionAttempts(
+    ConnectionAttempts* out) const {
+  NOTIMPLEMENTED();
 }
 
 }  // namespace

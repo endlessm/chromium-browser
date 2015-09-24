@@ -38,23 +38,24 @@ namespace chromeos {
 namespace {
 
 // AppWindowHandler watches for app window and exits the session when the
-// last app window is closed.
+// last window of a given app is closed.
 class AppWindowHandler : public AppWindowRegistry::Observer {
  public:
   AppWindowHandler() : window_registry_(NULL) {}
-  virtual ~AppWindowHandler() {}
+  ~AppWindowHandler() override {}
 
-  void Init(Profile* profile) {
+  void Init(Profile* profile, const std::string& app_id) {
     DCHECK(!window_registry_);
     window_registry_ = AppWindowRegistry::Get(profile);
     if (window_registry_)
       window_registry_->AddObserver(this);
+    app_id_ = app_id;
   }
 
  private:
   // extensions::AppWindowRegistry::Observer overrides:
-  virtual void OnAppWindowRemoved(AppWindow* app_window) override {
-    if (window_registry_->app_windows().empty()) {
+  void OnAppWindowRemoved(AppWindow* app_window) override {
+    if (window_registry_->GetAppWindowsForApp(app_id_).empty()) {
       if (DemoAppLauncher::IsDemoAppSession(
               user_manager::UserManager::Get()->GetActiveUser()->email())) {
         // If we were in demo mode, we disabled all our network technologies,
@@ -72,6 +73,7 @@ class AppWindowHandler : public AppWindowRegistry::Observer {
   }
 
   AppWindowRegistry* window_registry_;
+  std::string app_id_;
 
   DISALLOW_COPY_AND_ASSIGN(AppWindowHandler);
 };
@@ -87,9 +89,7 @@ class BrowserWindowHandler : public chrome::BrowserListObserver {
   BrowserWindowHandler() {
     BrowserList::AddObserver(this);
   }
-  virtual ~BrowserWindowHandler() {
-    BrowserList::RemoveObserver(this);
-  }
+  ~BrowserWindowHandler() override { BrowserList::RemoveObserver(this); }
 
  private:
   void HandleBrowser(Browser* browser) {
@@ -104,7 +104,7 @@ class BrowserWindowHandler : public chrome::BrowserListObserver {
   }
 
   // chrome::BrowserListObserver overrides:
-  virtual void OnBrowserAdded(Browser* browser) override {
+  void OnBrowserAdded(Browser* browser) override {
     base::MessageLoop::current()->PostTask(
         FROM_HERE,
         base::Bind(&BrowserWindowHandler::HandleBrowser,
@@ -123,7 +123,7 @@ base::LazyInstance<BrowserWindowHandler> browser_window_handler
 void InitAppSession(Profile* profile, const std::string& app_id) {
   // Binds the session lifetime with app window counts.
   CHECK(app_window_handler == NULL);
-  app_window_handler.Get().Init(profile);
+  app_window_handler.Get().Init(profile, app_id);
 
   CHECK(browser_window_handler == NULL);
   browser_window_handler.Get();

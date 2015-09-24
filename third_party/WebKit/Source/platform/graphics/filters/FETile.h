@@ -29,15 +29,15 @@ namespace blink {
 
 class PLATFORM_EXPORT FETile : public FilterEffect {
 public:
-    static PassRefPtr<FETile> create(Filter* filter);
+    static PassRefPtrWillBeRawPtr<FETile> create(Filter*);
 
-    virtual PassRefPtr<SkImageFilter> createImageFilter(SkiaImageFilterBuilder*) override;
+    PassRefPtr<SkImageFilter> createImageFilter(SkiaImageFilterBuilder*) override;
 
-    virtual FloatRect mapPaintRect(const FloatRect&, bool forward = true) override final;
+    FloatRect mapPaintRect(const FloatRect&, bool forward = true) final;
 
-    virtual FilterEffectType filterEffectType() const override { return FilterEffectTypeTile; }
+    FilterEffectType filterEffectType() const override { return FilterEffectTypeTile; }
 
-    virtual TextStream& externalRepresentation(TextStream&, int indention) const override;
+    TextStream& externalRepresentation(TextStream&, int indention) const override;
 
 private:
     FETile(Filter*);

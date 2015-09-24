@@ -5,7 +5,7 @@
 package org.chromium.chrome.browser.banners;
 
 import android.app.PendingIntent;
-import android.graphics.drawable.Drawable;
+import android.content.Intent;
 
 /**
  * Stores information about a particular app.
@@ -21,10 +21,7 @@ public class AppData {
     private float mRating;
     private String mInstallButtonText;
     private PendingIntent mDetailsIntent;
-    private PendingIntent mInstallIntent;
-
-    // Data that can be updated asynchronously.
-    private Drawable mIcon;
+    private Intent mInstallIntent;
 
     /**
      * Creates a new AppData for the given page and package.
@@ -56,7 +53,7 @@ public class AppData {
      * Returns the title to display for the app in the banner.
      * @return The String to display.
      */
-    String title() {
+    public String title() {
         return mTitle;
     }
 
@@ -69,18 +66,10 @@ public class AppData {
     }
 
     /**
-     * Returns the Drawable depicting the app's icon.
-     * @return The Drawable to use as the app icon.
-     */
-    Drawable icon() {
-        return mIcon;
-    }
-
-    /**
      * Returns how well the app was rated, on a scale from 0 to 5.
      * @return The rating of the app.
      */
-    float rating() {
+    public float rating() {
         return mRating;
     }
 
@@ -88,7 +77,7 @@ public class AppData {
      * Returns text to display on the install button when the app is not installed on the system.
      * @return The String to display.
      */
-    String installButtonText() {
+    public String installButtonText() {
         return mInstallButtonText;
     }
 
@@ -97,16 +86,15 @@ public class AppData {
      * The IntentSender stored inside dictates what package needs to be launched.
      * @return Intent that triggers the details page.
      */
-    PendingIntent detailsIntent() {
+    public PendingIntent detailsIntent() {
         return mDetailsIntent;
     }
 
     /**
-     * Returns the PendingIntent that triggers the install.
-     * The IntentSender stored inside dictates what package needs to be launched.
-     * @return PendingIntent used to trigger the install.
+     * Returns the Intent that triggers the install.
+     * @return Intent used to trigger the install.
      */
-    PendingIntent installIntent() {
+    public Intent installIntent() {
         return mInstallIntent;
     }
 
@@ -120,20 +108,12 @@ public class AppData {
      * @param installIntent     Intent to fire to trigger the purchase/install process.
      */
     public void setPackageInfo(String title, String imageUrl, float rating,
-            String installButtonText, PendingIntent detailsIntent, PendingIntent installIntent) {
+            String installButtonText, PendingIntent detailsIntent, Intent installIntent) {
         mTitle = title;
         mImageUrl = imageUrl;
         mRating = rating;
         mInstallButtonText = installButtonText;
         mDetailsIntent = detailsIntent;
         mInstallIntent = installIntent;
-    }
-
-    /**
-     * Sets the icon used to depict the app.
-     * @param Drawable App icon in Drawable form.
-     */
-    void setIcon(Drawable icon) {
-        mIcon = icon;
     }
 }

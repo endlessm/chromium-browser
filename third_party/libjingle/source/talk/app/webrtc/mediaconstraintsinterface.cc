@@ -1,6 +1,6 @@
 /*
  * libjingle
- * Copyright 2013, Google Inc.
+ * Copyright 2013 Google Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -47,9 +47,13 @@ const char MediaConstraintsInterface::kMinFrameRate[] = "minFrameRate";
 
 // Audio constraints.
 const char MediaConstraintsInterface::kEchoCancellation[] =
+    "echoCancellation";
+const char MediaConstraintsInterface::kGoogEchoCancellation[] =
     "googEchoCancellation";
-const char MediaConstraintsInterface::kExperimentalEchoCancellation[] =
+const char MediaConstraintsInterface::kExtendedFilterEchoCancellation[] =
     "googEchoCancellation2";
+const char MediaConstraintsInterface::kDAEchoCancellation[] =
+    "googDAEchoCancellation";
 const char MediaConstraintsInterface::kAutoGainControl[] =
     "googAutoGainControl";
 const char MediaConstraintsInterface::kExperimentalAutoGainControl[] =
@@ -63,6 +67,7 @@ const char MediaConstraintsInterface::kHighpassFilter[] =
 const char MediaConstraintsInterface::kTypingNoiseDetection[] =
     "googTypingNoiseDetection";
 const char MediaConstraintsInterface::kAudioMirroring[] = "googAudioMirroring";
+const char MediaConstraintsInterface::kAecDump[] = "audioDebugRecording";
 
 // Google-specific constraint keys for a local video source (getUserMedia).
 const char MediaConstraintsInterface::kNoiseReduction[] = "googNoiseReduction";

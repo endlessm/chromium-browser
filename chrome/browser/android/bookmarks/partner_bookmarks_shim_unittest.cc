@@ -17,6 +17,9 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
+using bookmarks::BookmarkPermanentNode;
 using testing::_;
 
 class MockObserver : public PartnerBookmarksShim::Observer {
@@ -59,7 +62,7 @@ class PartnerBookmarksShimTest : public testing::Test {
 
  protected:
   // testing::Test
-  virtual void SetUp() override {
+  void SetUp() override {
     profile_.reset(new TestingProfile());
     profile_->CreateBookmarkModel(true);
 
@@ -67,7 +70,7 @@ class PartnerBookmarksShimTest : public testing::Test {
     bookmarks::test::WaitForBookmarkModelToLoad(model_);
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     PartnerBookmarksShim::ClearInBrowserContextForTesting(profile_.get());
     PartnerBookmarksShim::ClearPartnerModelForTesting();
     PartnerBookmarksShim::EnablePartnerBookmarksEditing();

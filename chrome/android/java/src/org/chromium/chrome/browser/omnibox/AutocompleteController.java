@@ -4,10 +4,12 @@
 
 package org.chromium.chrome.browser.omnibox;
 
+import android.os.Bundle;
 import android.text.TextUtils;
 
 import org.chromium.base.CalledByNative;
 import org.chromium.base.VisibleForTesting;
+import org.chromium.chrome.browser.omnibox.VoiceSuggestionProvider.VoiceResult;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.content_public.browser.WebContents;
 
@@ -18,9 +20,17 @@ import java.util.List;
  * Bridge to the native AutocompleteControllerAndroid.
  */
 public class AutocompleteController {
+    // Maximum number of search/history suggestions to show.
+    private static final int MAX_DEFAULT_SUGGESTION_COUNT = 5;
+
+    // Maximum number of voice suggestions to show.
+    private static final int MAX_VOICE_SUGGESTION_COUNT = 3;
+
     private long mNativeAutocompleteControllerAndroid;
     private long mCurrentNativeAutocompleteResult;
     private final OnSuggestionsReceivedListener mListener;
+    private final VoiceSuggestionProvider mVoiceSuggestionProvider = new VoiceSuggestionProvider();
+
 
     /**
      * Listener for receiving OmniboxSuggestions.
@@ -69,13 +79,28 @@ public class AutocompleteController {
      * @param text The text to query autocomplete suggestions for.
      * @param preventInlineAutocomplete Whether autocomplete suggestions should be prevented.
      */
-    public void start(Profile profile, String url, String text, boolean preventInlineAutocomplete) {
+    public void start(Profile profile, String url, String text,
+            boolean preventInlineAutocomplete) {
+        start(profile, url, text, -1, preventInlineAutocomplete);
+    }
+
+    /**
+     * Starts querying for omnibox suggestions for a given text.
+     *
+     * @param profile The profile to use for starting the AutocompleteController
+     * @param url The URL of the current tab, used to suggest query refinements.
+     * @param text The text to query autocomplete suggestions for.
+     * @param cursorPosition The position of the cursor within the text.
+     * @param preventInlineAutocomplete Whether autocomplete suggestions should be prevented.
+     */
+    public void start(Profile profile, String url, String text, int cursorPosition,
+            boolean preventInlineAutocomplete) {
         if (profile == null || TextUtils.isEmpty(url)) return;
 
         mNativeAutocompleteControllerAndroid = nativeInit(profile);
         // Initializing the native counterpart might still fail.
         if (mNativeAutocompleteControllerAndroid != 0) {
-            nativeStart(mNativeAutocompleteControllerAndroid, text, null, url,
+            nativeStart(mNativeAutocompleteControllerAndroid, text, cursorPosition, null, url,
                     preventInlineAutocomplete, false, false, true);
         }
     }
@@ -94,7 +119,10 @@ public class AutocompleteController {
      *         be null if the input is invalid.
      */
     public OmniboxSuggestion classify(String text) {
-        return nativeClassify(mNativeAutocompleteControllerAndroid, text);
+        if (mNativeAutocompleteControllerAndroid != 0) {
+            return nativeClassify(mNativeAutocompleteControllerAndroid, text);
+        }
+        return null;
     }
 
     /**
@@ -112,7 +140,7 @@ public class AutocompleteController {
         if (profile == null || TextUtils.isEmpty(url)) return;
         mNativeAutocompleteControllerAndroid = nativeInit(profile);
         if (mNativeAutocompleteControllerAndroid != 0) {
-            nativeStartZeroSuggest(mNativeAutocompleteControllerAndroid, omniboxText, url,
+            nativeOnOmniboxFocused(mNativeAutocompleteControllerAndroid, omniboxText, url,
                     isQueryInOmnibox, focusedFromFakebox);
         }
     }
@@ -129,6 +157,7 @@ public class AutocompleteController {
      * @param clear Whether to clear the most recent autocomplete results.
      */
     public void stop(boolean clear) {
+        if (clear) mVoiceSuggestionProvider.clearVoiceSearchResults();
         mCurrentNativeAutocompleteResult = 0;
         if (mNativeAutocompleteControllerAndroid != 0) {
             nativeStop(mNativeAutocompleteControllerAndroid, clear);
@@ -168,6 +197,15 @@ public class AutocompleteController {
             List<OmniboxSuggestion> suggestions,
             String inlineAutocompleteText,
             long currentNativeAutocompleteResult) {
+        if (suggestions.size() > MAX_DEFAULT_SUGGESTION_COUNT) {
+            // Trim to the default amount of normal suggestions we can have.
+            suggestions.subList(MAX_DEFAULT_SUGGESTION_COUNT, suggestions.size()).clear();
+        }
+
+        // Run through new providers to get an updated list of suggestions.
+        suggestions = mVoiceSuggestionProvider.addVoiceSuggestions(
+                suggestions, MAX_VOICE_SUGGESTION_COUNT);
+
         mCurrentNativeAutocompleteResult = currentNativeAutocompleteResult;
 
         // Notify callbacks of suggestions.
@@ -192,12 +230,26 @@ public class AutocompleteController {
      *                                 modifying text in the omnibox and selecting a suggestion.
      * @param webContents The web contents for the tab where the selected suggestion will be shown.
      */
-    protected void onSuggestionSelected(int selectedIndex, OmniboxSuggestion.Type type,
+    public void onSuggestionSelected(int selectedIndex, OmniboxSuggestion.Type type,
             String currentPageUrl, boolean isQueryInOmnibox, boolean focusedFromFakebox,
             long elapsedTimeSinceModified, WebContents webContents) {
+        // Don't natively log voice suggestion results as we add them in Java.
+        if (type == OmniboxSuggestion.Type.VOICE_SUGGEST) return;
         nativeOnSuggestionSelected(mNativeAutocompleteControllerAndroid, selectedIndex,
                 currentPageUrl, isQueryInOmnibox, focusedFromFakebox, elapsedTimeSinceModified,
                 webContents);
+    }
+
+    /**
+     * Pass the autocomplete controller a {@link Bundle} representing the results of a voice
+     * recognition.
+     * @param data A {@link Bundle} containing the results of a voice recognition.
+     * @return The top voice match if one exists, {@code null} otherwise.
+     */
+    public VoiceResult onVoiceResults(Bundle data) {
+        mVoiceSuggestionProvider.setVoiceResultsFromIntentBundle(data);
+        List<VoiceResult> results = mVoiceSuggestionProvider.getResults();
+        return (results != null && results.size() > 0) ? results.get(0) : null;
     }
 
     @CalledByNative
@@ -240,19 +292,12 @@ public class AutocompleteController {
                 mNativeAutocompleteControllerAndroid, selectedIndex, elapsedTimeSinceInputChange);
     }
 
-    /**
-     * @param query User input text.
-     * @return The top synchronous suggestion from the autocomplete controller.
-     */
-    public OmniboxSuggestion getTopSynchronousMatch(String query) {
-        return nativeGetTopSynchronousMatch(mNativeAutocompleteControllerAndroid, query);
-    }
-
     @VisibleForTesting
     protected native long nativeInit(Profile profile);
     private native void nativeStart(long nativeAutocompleteControllerAndroid, String text,
-            String desiredTld, String currentUrl, boolean preventInlineAutocomplete,
-            boolean preferKeyword, boolean allowExactKeywordMatch, boolean wantAsynchronousMatches);
+            int cursorPosition, String desiredTld, String currentUrl,
+            boolean preventInlineAutocomplete, boolean preferKeyword,
+            boolean allowExactKeywordMatch, boolean wantAsynchronousMatches);
     private native OmniboxSuggestion nativeClassify(long nativeAutocompleteControllerAndroid,
             String text);
     private native void nativeStop(long nativeAutocompleteControllerAndroid, boolean clearResults);
@@ -260,7 +305,7 @@ public class AutocompleteController {
     private native void nativeOnSuggestionSelected(long nativeAutocompleteControllerAndroid,
             int selectedIndex, String currentPageUrl, boolean isQueryInOmnibox,
             boolean focusedFromFakebox, long elapsedTimeSinceModified, WebContents webContents);
-    private native void nativeStartZeroSuggest(long nativeAutocompleteControllerAndroid,
+    private native void nativeOnOmniboxFocused(long nativeAutocompleteControllerAndroid,
             String omniboxText, String currentUrl, boolean isQueryInOmnibox,
             boolean focusedFromFakebox);
     private native void nativeDeleteSuggestion(long nativeAutocompleteControllerAndroid,
@@ -268,8 +313,6 @@ public class AutocompleteController {
     private native String nativeUpdateMatchDestinationURLWithQueryFormulationTime(
             long nativeAutocompleteControllerAndroid, int selectedIndex,
             long elapsedTimeSinceInputChange);
-    private native OmniboxSuggestion nativeGetTopSynchronousMatch(
-            long nativeAutocompleteControllerAndroid, String query);
 
     /**
      * Given a search query, this will attempt to see if the query appears to be portion of a

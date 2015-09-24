@@ -164,36 +164,53 @@ void ContinueGetSelectedFileInfo(Profile* profile,
 
 }  // namespace
 
-void VolumeInfoToVolumeMetadata(
+void VolumeToVolumeMetadata(
     Profile* profile,
-    const VolumeInfo& volume_info,
+    const Volume& volume,
     file_manager_private::VolumeMetadata* volume_metadata) {
   DCHECK(volume_metadata);
 
-  volume_metadata->volume_id = volume_info.volume_id;
+  volume_metadata->volume_id = volume.volume_id();
 
   // TODO(kinaba): fill appropriate information once multi-profile support is
   // implemented.
-  volume_metadata->profile.display_name = profile->GetProfileName();
+  volume_metadata->profile.display_name = profile->GetProfileUserName();
   volume_metadata->profile.is_current_profile = true;
 
-  if (!volume_info.source_path.empty()) {
+  if (!volume.source_path().empty()) {
     volume_metadata->source_path.reset(
-        new std::string(volume_info.source_path.AsUTF8Unsafe()));
+        new std::string(volume.source_path().AsUTF8Unsafe()));
   }
 
-  if (volume_info.type == VOLUME_TYPE_PROVIDED) {
-    volume_metadata->extension_id.reset(
-        new std::string(volume_info.extension_id));
+  switch (volume.source()) {
+    case SOURCE_FILE:
+      volume_metadata->source = file_manager_private::SOURCE_FILE;
+      break;
+    case SOURCE_DEVICE:
+      volume_metadata->source = file_manager_private::SOURCE_DEVICE;
+      break;
+    case SOURCE_NETWORK:
+      volume_metadata->source =
+          extensions::api::file_manager_private::SOURCE_NETWORK;
+      break;
+    case SOURCE_SYSTEM:
+      volume_metadata->source =
+          extensions::api::file_manager_private::SOURCE_SYSTEM;
+      break;
+  }
 
+  volume_metadata->configurable = volume.configurable();
+  volume_metadata->watchable = volume.watchable();
+
+  if (volume.type() == VOLUME_TYPE_PROVIDED) {
+    volume_metadata->extension_id.reset(new std::string(volume.extension_id()));
     volume_metadata->file_system_id.reset(
-        new std::string(volume_info.file_system_id));
+        new std::string(volume.file_system_id()));
   }
 
-  volume_metadata->volume_label.reset(
-      new std::string(volume_info.volume_label));
+  volume_metadata->volume_label.reset(new std::string(volume.volume_label()));
 
-  switch (volume_info.type) {
+  switch (volume.type()) {
     case VOLUME_TYPE_GOOGLE_DRIVE:
       volume_metadata->volume_type =
           file_manager_private::VOLUME_TYPE_DRIVE;
@@ -208,10 +225,6 @@ void VolumeInfoToVolumeMetadata(
       break;
     case VOLUME_TYPE_MOUNTED_ARCHIVE_FILE:
       volume_metadata->volume_type = file_manager_private::VOLUME_TYPE_ARCHIVE;
-      break;
-    case VOLUME_TYPE_CLOUD_DEVICE:
-      volume_metadata->volume_type =
-          file_manager_private::VOLUME_TYPE_CLOUD_DEVICE;
       break;
     case VOLUME_TYPE_PROVIDED:
       volume_metadata->volume_type = file_manager_private::VOLUME_TYPE_PROVIDED;
@@ -229,8 +242,8 @@ void VolumeInfoToVolumeMetadata(
   }
 
   // Fill device_type iff the volume is removable partition.
-  if (volume_info.type == VOLUME_TYPE_REMOVABLE_DISK_PARTITION) {
-    switch (volume_info.device_type) {
+  if (volume.type() == VOLUME_TYPE_REMOVABLE_DISK_PARTITION) {
+    switch (volume.device_type()) {
       case chromeos::DEVICE_TYPE_UNKNOWN:
         volume_metadata->device_type =
             file_manager_private::DEVICE_TYPE_UNKNOWN;
@@ -251,18 +264,17 @@ void VolumeInfoToVolumeMetadata(
         break;
     }
     volume_metadata->device_path.reset(
-        new std::string(volume_info.system_path_prefix.AsUTF8Unsafe()));
-    volume_metadata->is_parent_device.reset(
-        new bool(volume_info.is_parent));
+        new std::string(volume.system_path_prefix().AsUTF8Unsafe()));
+    volume_metadata->is_parent_device.reset(new bool(volume.is_parent()));
   } else {
     volume_metadata->device_type =
         file_manager_private::DEVICE_TYPE_NONE;
   }
 
-  volume_metadata->is_read_only = volume_info.is_read_only;
-  volume_metadata->has_media = volume_info.has_media;
+  volume_metadata->is_read_only = volume.is_read_only();
+  volume_metadata->has_media = volume.has_media();
 
-  switch (volume_info.mount_condition) {
+  switch (volume.mount_condition()) {
     case chromeos::disks::MOUNT_CONDITION_NONE:
       volume_metadata->mount_condition =
           file_manager_private::MOUNT_CONDITION_NONE;
@@ -276,16 +288,28 @@ void VolumeInfoToVolumeMetadata(
           file_manager_private::MOUNT_CONDITION_UNSUPPORTED;
       break;
   }
+
+  // If the context is known, then pass it.
+  switch (volume.mount_context()) {
+    case MOUNT_CONTEXT_USER:
+      volume_metadata->mount_context = file_manager_private::MOUNT_CONTEXT_USER;
+      break;
+    case MOUNT_CONTEXT_AUTO:
+      volume_metadata->mount_context = file_manager_private::MOUNT_CONTEXT_AUTO;
+      break;
+    case MOUNT_CONTEXT_UNKNOWN:
+      break;
+  }
 }
 
-base::FilePath GetLocalPathFromURL(content::RenderViewHost* render_view_host,
+base::FilePath GetLocalPathFromURL(content::RenderFrameHost* render_frame_host,
                                    Profile* profile,
                                    const GURL& url) {
-  DCHECK(render_view_host);
+  DCHECK(render_frame_host);
   DCHECK(profile);
 
   scoped_refptr<storage::FileSystemContext> file_system_context =
-      util::GetFileSystemContextForRenderViewHost(profile, render_view_host);
+      util::GetFileSystemContextForRenderFrameHost(profile, render_frame_host);
 
   const storage::FileSystemURL filesystem_url(
       file_system_context->CrackURL(url));
@@ -295,12 +319,12 @@ base::FilePath GetLocalPathFromURL(content::RenderViewHost* render_view_host,
   return filesystem_url.path();
 }
 
-void GetSelectedFileInfo(content::RenderViewHost* render_view_host,
+void GetSelectedFileInfo(content::RenderFrameHost* render_frame_host,
                          Profile* profile,
                          const std::vector<GURL>& file_urls,
                          GetSelectedFileInfoLocalPathOption local_path_option,
                          GetSelectedFileInfoCallback callback) {
-  DCHECK(render_view_host);
+  DCHECK(render_frame_host);
   DCHECK(profile);
 
   scoped_ptr<GetSelectedFileInfoParams> params(new GetSelectedFileInfoParams);
@@ -310,7 +334,7 @@ void GetSelectedFileInfo(content::RenderViewHost* render_view_host,
   for (size_t i = 0; i < file_urls.size(); ++i) {
     const GURL& file_url = file_urls[i];
     const base::FilePath path = GetLocalPathFromURL(
-        render_view_host, profile, file_url);
+        render_frame_host, profile, file_url);
     if (!path.empty()) {
       DVLOG(1) << "Selected: file path: " << path.value();
       params->file_paths.push_back(path);

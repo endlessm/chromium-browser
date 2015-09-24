@@ -69,6 +69,8 @@ void AppsContainerView::ShowActiveFolder(AppListFolderItem* folder_item) {
   SetShowState(SHOW_ACTIVE_FOLDER, false);
 
   CreateViewsForFolderTopItemsAnimation(folder_item, true);
+
+  apps_grid_view_->ClearAnySelectedView();
 }
 
 void AppsContainerView::ShowApps(AppListFolderItem* folder_item) {
@@ -106,6 +108,11 @@ bool AppsContainerView::IsInFolderView() const {
   return show_state_ == SHOW_ACTIVE_FOLDER;
 }
 
+void AppsContainerView::ReparentDragEnded() {
+  DCHECK_EQ(SHOW_ITEM_REPARENT, show_state_);
+  show_state_ = AppsContainerView::SHOW_APPS;
+}
+
 gfx::Size AppsContainerView::GetPreferredSize() const {
   const gfx::Size grid_size = apps_grid_view_->GetPreferredSize();
   const gfx::Size folder_view_size = app_list_folder_view_->GetPreferredSize();
@@ -140,6 +147,20 @@ bool AppsContainerView::OnKeyPressed(const ui::KeyEvent& event) {
     return apps_grid_view_->OnKeyPressed(event);
   else
     return app_list_folder_view_->OnKeyPressed(event);
+}
+
+void AppsContainerView::OnWillBeShown() {
+  apps_grid_view()->ClearAnySelectedView();
+  app_list_folder_view()->items_grid_view()->ClearAnySelectedView();
+}
+
+gfx::Rect AppsContainerView::GetPageBoundsForState(
+    AppListModel::State state) const {
+  gfx::Rect onscreen_bounds = GetDefaultContentsBounds();
+  if (state == AppListModel::STATE_APPS)
+    return onscreen_bounds;
+
+  return GetBelowContentsOffscreenBounds(onscreen_bounds.size());
 }
 
 void AppsContainerView::OnTopIconAnimationsComplete() {

@@ -591,7 +591,7 @@ TEST_F(SocketTestWithServer, LargeSend) {
 
 TEST_F(SocketTestUDP, Listen) {
   EXPECT_EQ(-1, ki_listen(sock1_, 10));
-  EXPECT_EQ(errno, ENOTSUP);
+  EXPECT_EQ(errno, EOPNOTSUPP);
 }
 
 TEST_F(SocketTestUDP, Sockopt_BUFSIZE) {
@@ -606,6 +606,41 @@ TEST_F(SocketTestUDP, Sockopt_BUFSIZE) {
     << "failed with: " << strerror(errno);
   ASSERT_EQ(0, ki_setsockopt(sock1_, SOL_SOCKET, SO_SNDBUF, &option, len))
     << "failed with: " << strerror(errno);
+}
+
+TEST_F(SocketTestUDP, Sockopt_BROADCAST) {
+  int option = 1;
+  socklen_t len = sizeof(option);
+
+  ASSERT_EQ(0, Bind(sock1_, LOCAL_HOST, ANY_PORT));
+
+  // Modify the test to verify the change by calling getsockopt
+  // once UDPInterface supports GetOption() call
+  ASSERT_EQ(0, ki_setsockopt(sock1_, SOL_SOCKET, SO_BROADCAST, &option, len))
+    << "failed with: " << strerror(errno);
+}
+
+TEST_F(SocketTestTCP, AcceptNoParams) {
+  sockaddr_in addr;
+  socklen_t addrlen = sizeof(addr);
+  int server_sock = sock1_;
+
+  // Bind and Listen
+  ASSERT_EQ(0, Bind(server_sock, LOCAL_HOST, PORT1));
+  ASSERT_EQ(0, ki_listen(server_sock, 10));
+
+  // Connect to listening socket
+  int client_sock = sock2_;
+  IP4ToSockAddr(LOCAL_HOST, PORT1, &addr);
+  addrlen = sizeof(addr);
+  ASSERT_EQ(0, ki_connect(client_sock, (sockaddr*)&addr, addrlen))
+    << "Failed with " << errno << ": " << strerror(errno);
+
+  // Accept without addr and len should succeed
+  int new_socket = ki_accept(server_sock, NULL, NULL);
+  ASSERT_GT(new_socket, -1);
+
+  ASSERT_EQ(0, ki_close(new_socket));
 }
 
 TEST_F(SocketTestTCP, Listen) {
@@ -669,7 +704,12 @@ TEST_F(SocketTestTCP, Listen) {
   // expected length.
   sockaddr_in client_addr2;
   memset(&client_addr2, 0, sizeof(client_addr2));
-  socklen_t truncated_len = sizeof(client_addr2.sin_family);
+
+  // truncated_len is the size of the structure up to and including sin_family.
+  // TODO(sbc): Fix this test so it doesn't depend on the layout of the
+  // sockaddr_in structure.
+  socklen_t truncated_len = offsetof(sockaddr_in, sin_family) +
+      sizeof(client_addr2.sin_family);
   ASSERT_GT(sizeof(sockaddr_in), truncated_len);
   ASSERT_EQ(0, ki_getsockname(client_sock, (sockaddr*)&client_addr2,
                               &truncated_len));
@@ -790,11 +830,12 @@ TEST_F(SocketTestTCP, SendRecvAfterRemoteShutdown) {
   int bytes_remaining = strlen(send_buf) - 10;
   ASSERT_EQ(bytes_remaining, ki_recv(client_sock, buf, 256, 0));
 
-  // Attempt to read/write after remote shutdown, with no bytes remainging
+  // Attempt to read/write after remote shutdown, with no bytes remaining
   ASSERT_EQ(0, ki_recv(client_sock, buf, 10, 0));
   ASSERT_EQ(0, ki_recv(client_sock, buf, 10, 0));
-  ASSERT_EQ(-1, ki_send(client_sock, buf, 10, 0));
-  ASSERT_EQ(errno, EPIPE);
+
+  // It is still legal to send to the remote socket, even after it is closed.
+  ASSERT_EQ(10, ki_send(client_sock, buf, 10, 0));
 }
 
 TEST_F(SocketTestTCP, SendRecvAfterLocalShutdown) {

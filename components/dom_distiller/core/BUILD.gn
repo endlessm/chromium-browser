@@ -7,20 +7,24 @@ source_set("core") {
   sources = [
     "../android/component_jni_registrar.cc",
     "../android/component_jni_registrar.h",
+    "article_attachments_data.cc",
+    "article_attachments_data.h",
     "article_distillation_update.cc",
     "article_distillation_update.h",
     "article_entry.cc",
     "article_entry.h",
+    "distillable_page_detector.cc",
+    "distillable_page_detector.h",
     "distilled_content_store.cc",
     "distilled_content_store.h",
-    "distiller.cc",
-    "distiller.h",
-    "distiller_page.cc",
-    "distiller_page.h",
     "distilled_page_prefs.cc",
     "distilled_page_prefs.h",
     "distilled_page_prefs_android.cc",
     "distilled_page_prefs_android.h",
+    "distiller.cc",
+    "distiller.h",
+    "distiller_page.cc",
+    "distiller_page.h",
     "distiller_url_fetcher.cc",
     "distiller_url_fetcher.h",
     "dom_distiller_constants.cc",
@@ -28,20 +32,29 @@ source_set("core") {
     "dom_distiller_model.cc",
     "dom_distiller_model.h",
     "dom_distiller_observer.h",
+    "dom_distiller_request_view_base.cc",
+    "dom_distiller_request_view_base.h",
     "dom_distiller_service.cc",
     "dom_distiller_service.h",
     "dom_distiller_store.cc",
     "dom_distiller_store.h",
+    "dom_distiller_switches.cc",
+    "dom_distiller_switches.h",
+    "experiments.cc",
+    "experiments.h",
+    "external_feedback_reporter.h",
     "feedback_reporter.cc",
     "feedback_reporter.h",
+    "page_features.cc",
+    "page_features.h",
     "task_tracker.cc",
     "task_tracker.h",
     "url_constants.cc",
     "url_constants.h",
-    "url_utils_android.cc",
-    "url_utils_android.h",
     "url_utils.cc",
     "url_utils.h",
+    "url_utils_android.cc",
+    "url_utils_android.h",
     "viewer.cc",
     "viewer.h",
   ]
@@ -52,12 +65,16 @@ source_set("core") {
   ]
   deps = [
     "//base",
+    "//base:prefs",
     "//components/leveldb_proto",
+    "//components/pref_registry",
     "//components/resources",
     "//components/strings",
     "//net",
     "//skia",
     "//sync",
+    "//sync/protocol",  # TODO(brettw) bug 475091: this should be unnecessary.
+    "//third_party/re2",
     "//ui/base",
     "//url",
   ]
@@ -72,7 +89,7 @@ source_set("core") {
 }
 
 # GYP version: components/dom_distiller.gypi:dom_distiller_test_support
-static_library("test_support") {
+source_set("test_support") {
   testonly = true
   sources = [
     "dom_distiller_test_util.cc",
@@ -81,14 +98,17 @@ static_library("test_support") {
     "fake_distiller.h",
     "fake_distiller_page.cc",
     "fake_distiller_page.h",
+    "test_request_view_handle.h",
   ]
 
   deps = [
     ":core",
+    "//base",
     "//components/leveldb_proto:test_support",
     "//sync",
     "//testing/gmock",
     "//testing/gtest",
+    "//url",
   ]
 }
 
@@ -101,8 +121,10 @@ source_set("unit_tests") {
     "distiller_unittest.cc",
     "distiller_url_fetcher_unittest.cc",
     "dom_distiller_model_unittest.cc",
+    "dom_distiller_request_view_base_unittest.cc",
     "dom_distiller_service_unittest.cc",
     "dom_distiller_store_unittest.cc",
+    "page_features_unittest.cc",
     "task_tracker_unittest.cc",
     "url_utils_unittest.cc",
     "viewer_unittest.cc",
@@ -111,8 +133,16 @@ source_set("unit_tests") {
   deps = [
     ":core",
     ":test_support",
+    "//base",
+    "//components/leveldb_proto:test_support",
+    "//components/pref_registry:test_support",
+    "//components/resources",
+    "//components/strings",
+    "//net:test_support",
+    "//sync",
     "//testing/gmock",
     "//testing/gtest",
+    "//url",
   ]
 }
 

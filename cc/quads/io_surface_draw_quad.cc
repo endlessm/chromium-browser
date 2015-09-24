@@ -4,16 +4,14 @@
 
 #include "cc/quads/io_surface_draw_quad.h"
 
-#include "base/debug/trace_event_argument.h"
 #include "base/logging.h"
+#include "base/trace_event/trace_event_argument.h"
 #include "base/values.h"
 #include "cc/base/math_util.h"
 
 namespace cc {
 
-IOSurfaceDrawQuad::IOSurfaceDrawQuad()
-    : io_surface_resource_id(0),
-      orientation(FLIPPED) {
+IOSurfaceDrawQuad::IOSurfaceDrawQuad() : orientation(FLIPPED) {
 }
 
 void IOSurfaceDrawQuad::SetNew(const SharedQuadState* shared_quad_state,
@@ -27,7 +25,8 @@ void IOSurfaceDrawQuad::SetNew(const SharedQuadState* shared_quad_state,
   DrawQuad::SetAll(shared_quad_state, DrawQuad::IO_SURFACE_CONTENT, rect,
                    opaque_rect, visible_rect, needs_blending);
   this->io_surface_size = io_surface_size;
-  this->io_surface_resource_id = io_surface_resource_id;
+  resources.ids[kIOSurfaceResourceIdIndex] = io_surface_resource_id;
+  resources.count = 1;
   this->orientation = orientation;
 }
 
@@ -42,13 +41,9 @@ void IOSurfaceDrawQuad::SetAll(const SharedQuadState* shared_quad_state,
   DrawQuad::SetAll(shared_quad_state, DrawQuad::IO_SURFACE_CONTENT, rect,
                    opaque_rect, visible_rect, needs_blending);
   this->io_surface_size = io_surface_size;
-  this->io_surface_resource_id = io_surface_resource_id;
+  resources.ids[kIOSurfaceResourceIdIndex] = io_surface_resource_id;
+  resources.count = 1;
   this->orientation = orientation;
-}
-
-void IOSurfaceDrawQuad::IterateResources(
-    const ResourceIteratorCallback& callback) {
-  io_surface_resource_id = callback.Run(io_surface_resource_id);
 }
 
 const IOSurfaceDrawQuad* IOSurfaceDrawQuad::MaterialCast(
@@ -57,12 +52,12 @@ const IOSurfaceDrawQuad* IOSurfaceDrawQuad::MaterialCast(
   return static_cast<const IOSurfaceDrawQuad*>(quad);
 }
 
-void IOSurfaceDrawQuad::ExtendValue(base::debug::TracedValue* value) const {
-  value->BeginDictionary("io_surface_size");
-  MathUtil::AddToTracedValue(io_surface_size, value);
-  value->EndDictionary();
+void IOSurfaceDrawQuad::ExtendValue(
+    base::trace_event::TracedValue* value) const {
+  MathUtil::AddToTracedValue("io_surface_size", io_surface_size, value);
 
-  value->SetInteger("io_surface_resource_id", io_surface_resource_id);
+  value->SetInteger("io_surface_resource_id",
+                    resources.ids[kIOSurfaceResourceIdIndex]);
   const char* orientation_string = NULL;
   switch (orientation) {
     case FLIPPED:

@@ -6,9 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_PASSWORDS_MANAGE_PASSWORDS_BUBBLE_VIEW_H_
 
 #include "chrome/browser/ui/passwords/manage_passwords_bubble.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_registrar.h"
-#include "ui/views/bubble/bubble_delegate.h"
+#include "chrome/browser/ui/views/managed_full_screen_bubble_delegate_view.h"
 
 class ManagePasswordsIconView;
 
@@ -25,8 +23,7 @@ class WebContents;
 // 3. BlacklistedView: Informs the user that the current page is blacklisted.
 //
 class ManagePasswordsBubbleView : public ManagePasswordsBubble,
-                                  public views::BubbleDelegateView,
-                                  public content::NotificationObserver {
+                                  public ManagedFullScreenBubbleDelegateView {
  public:
   // Shows the bubble.
   static void ShowBubble(content::WebContents* web_contents,
@@ -38,40 +35,47 @@ class ManagePasswordsBubbleView : public ManagePasswordsBubble,
   // Makes the bubble the foreground window.
   static void ActivateBubble();
 
-  // Whether the bubble is currently showing.
-  static bool IsShowing();
-
   // Returns a pointer to the bubble.
-  static const ManagePasswordsBubbleView* manage_password_bubble() {
+  static ManagePasswordsBubbleView* manage_password_bubble() {
     return manage_passwords_bubble_;
   }
 
   content::WebContents* web_contents() const;
 
+#if defined(UNIT_TEST)
   const View* initially_focused_view() const {
     return initially_focused_view_;
   }
 
+  static void set_auto_signin_toast_timeout(int seconds) {
+    auto_signin_toast_timeout_ = seconds;
+  }
+#endif
+
  private:
+  class AccountChooserView;
+  class AutoSigninView;
   class BlacklistedView;
   class ConfirmNeverView;
   class ManageView;
+  class ManageAccountsView;
   class PendingView;
+  class SaveAccountView;
   class SaveConfirmationView;
+  class WebContentMouseHandler;
 
   ManagePasswordsBubbleView(content::WebContents* web_contents,
                             ManagePasswordsIconView* anchor_view,
                             DisplayReason reason);
   ~ManagePasswordsBubbleView() override;
 
-  // If the bubble is not anchored to a view, places the bubble in the top
-  // right (left in RTL) of the |screen_bounds| that contain |web_contents_|'s
-  // browser window. Because the positioning is based on the size of the
-  // bubble, this must be called after the bubble is created.
-  void AdjustForFullscreen(const gfx::Rect& screen_bounds);
+  // ManagedFullScreenBubbleDelegateView:
+  views::View* GetInitiallyFocusedView() override;
+  void Init() override;
+  void Close() override;
 
-  // Close the bubble.
-  void Close();
+  // WidgetObserver:
+  void OnWidgetClosing(views::Widget* widget) override;
 
   // Refreshes the bubble's state: called to display a confirmation screen after
   // a user selects "Never for this site", for instance.
@@ -89,18 +93,6 @@ class ManagePasswordsBubbleView : public ManagePasswordsBubble,
   // undo the action and refresh to PendingView.
   void NotifyUndoNeverForThisSite();
 
-  // views::BubbleDelegateView:
-  void Init() override;
-  void WindowClosing() override;
-
-  // views::WidgetDelegate:
-  views::View* GetInitiallyFocusedView() override;
-
-  // content::NotificationObserver:
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override;
-
   void set_initially_focused_view(views::View* view) {
     DCHECK(!initially_focused_view_);
     initially_focused_view_ = view;
@@ -112,20 +104,15 @@ class ManagePasswordsBubbleView : public ManagePasswordsBubble,
   // be deleted when the bubble closes.
   static ManagePasswordsBubbleView* manage_passwords_bubble_;
 
-  ManagePasswordsIconView* anchor_view_;
+  // The timeout in seconds for the auto sign-in toast.
+  static int auto_signin_toast_timeout_;
 
-  // If true upon destruction, the user has confirmed that she never wants to
-  // save passwords for a particular site.
-  bool never_save_passwords_;
+  ManagePasswordsIconView* anchor_view_;
 
   views::View* initially_focused_view_;
 
   // A helper to intercept mouse click events on the web contents.
-  class WebContentMouseHandler;
   scoped_ptr<WebContentMouseHandler> mouse_handler_;
-
-  // Used to register for fullscreen change notifications.
-  content::NotificationRegistrar registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(ManagePasswordsBubbleView);
 };

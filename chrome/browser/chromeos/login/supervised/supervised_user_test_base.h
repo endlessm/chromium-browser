@@ -10,7 +10,7 @@
 #include "chrome/browser/chromeos/login/login_manager_test.h"
 #include "chrome/browser/chromeos/net/network_portal_detector_test_impl.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/supervised_user/supervised_user_registration_utility_stub.h"
+#include "chrome/browser/supervised_user/legacy/supervised_user_registration_utility_stub.h"
 #include "chromeos/cryptohome/mock_async_method_caller.h"
 #include "chromeos/cryptohome/mock_homedir_methods.h"
 #include "sync/api/fake_sync_change_processor.h"
@@ -67,14 +67,14 @@ class SupervisedUsersSharedSettingsSyncTestAdapter {
 class SupervisedUserTestBase : public chromeos::LoginManagerTest {
  public:
   SupervisedUserTestBase();
-  virtual ~SupervisedUserTestBase();
+  ~SupervisedUserTestBase() override;
 
-  virtual void SetUpInProcessBrowserTestFixture() override;
+  void SetUpInProcessBrowserTestFixture() override;
 
  protected:
-  virtual void TearDown() override;
+  void TearDown() override;
 
-  virtual void TearDownInProcessBrowserTestFixture() override;
+  void TearDownInProcessBrowserTestFixture() override;
 
   void JSEval(const std::string& script);
   void JSEvalOrExitBrowser(const std::string& script);

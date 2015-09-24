@@ -5,10 +5,13 @@
 #ifndef CHROME_BROWSER_HISTORY_ANDROID_BOOKMARK_MODEL_SQL_HANDLER_H_
 #define CHROME_BROWSER_HISTORY_ANDROID_BOOKMARK_MODEL_SQL_HANDLER_H_
 
-#include "chrome/browser/history/android/sql_handler.h"
+#include "components/history/core/browser/android/sql_handler.h"
 
-class BookmarkModel;
 class Profile;
+
+namespace bookmarks {
+class BookmarkModel;
+}
 
 namespace history {
 
@@ -19,13 +22,13 @@ class BookmarkModelSQLHandler : public SQLHandler {
  public:
   explicit BookmarkModelSQLHandler(URLDatabase* url_database);
 
-  virtual ~BookmarkModelSQLHandler();
+  ~BookmarkModelSQLHandler() override;
 
   // SQLHandler overrides:
-  virtual bool Update(const HistoryAndBookmarkRow& row,
-                      const TableIDRows& ids_set) override;
-  virtual bool Delete(const TableIDRows& ids_set) override;
-  virtual bool Insert(HistoryAndBookmarkRow* row) override;
+  bool Update(const HistoryAndBookmarkRow& row,
+              const TableIDRows& ids_set) override;
+  bool Delete(const TableIDRows& ids_set) override;
+  bool Insert(HistoryAndBookmarkRow* row) override;
 
  private:
   // This class helps to modify the bookmark model in UI thread.
@@ -62,7 +65,7 @@ class BookmarkModelSQLHandler : public SQLHandler {
     ~Task();
 
     // Returns profile_'s BookmarkModel if the profile_ is valid.
-    BookmarkModel* GetBookmarkModel();
+    bookmarks::BookmarkModel* GetBookmarkModel();
 
     DISALLOW_COPY_AND_ASSIGN(Task);
   };

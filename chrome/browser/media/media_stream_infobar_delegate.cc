@@ -40,7 +40,7 @@ bool MediaStreamInfoBarDelegate::Create(
     const content::MediaResponseCallback& callback) {
   scoped_ptr<MediaStreamDevicesController> controller(
       new MediaStreamDevicesController(web_contents, request, callback));
-  if (controller->DismissInfoBarAndTakeActionOnSettings())
+  if (!controller->IsAskingForAudio() && !controller->IsAskingForVideo())
     return false;
 
   InfoBarService* infobar_service =
@@ -48,12 +48,12 @@ bool MediaStreamInfoBarDelegate::Create(
   if (!infobar_service) {
     // Deny the request if there is no place to show the infobar, e.g. when
     // the request comes from a background extension page.
-    controller->Deny(false, content::MEDIA_DEVICE_INVALID_STATE);
+    controller->Cancelled();
     return false;
   }
 
   scoped_ptr<infobars::InfoBar> infobar(
-      ConfirmInfoBarDelegate::CreateInfoBar(scoped_ptr<ConfirmInfoBarDelegate>(
+      infobar_service->CreateConfirmInfoBar(scoped_ptr<ConfirmInfoBarDelegate>(
           new MediaStreamInfoBarDelegate(controller.Pass()))));
   for (size_t i = 0; i < infobar_service->infobar_count(); ++i) {
     infobars::InfoBar* old_infobar = infobar_service->infobar_at(i);
@@ -66,12 +66,30 @@ bool MediaStreamInfoBarDelegate::Create(
   return true;
 }
 
+bool MediaStreamInfoBarDelegate::IsRequestingVideoAccess() const {
+  return controller_->IsAskingForVideo();
+}
+
+bool MediaStreamInfoBarDelegate::IsRequestingMicrophoneAccess() const {
+  return controller_->IsAskingForAudio();
+}
+
 MediaStreamInfoBarDelegate::MediaStreamInfoBarDelegate(
     scoped_ptr<MediaStreamDevicesController> controller)
     : ConfirmInfoBarDelegate(),
       controller_(controller.Pass()) {
   DCHECK(controller_.get());
-  DCHECK(controller_->HasAudio() || controller_->HasVideo());
+  DCHECK(controller_->IsAskingForAudio() || controller_->IsAskingForVideo());
+}
+
+infobars::InfoBarDelegate::Type
+MediaStreamInfoBarDelegate::GetInfoBarType() const {
+  return PAGE_ACTION_TYPE;
+}
+
+int MediaStreamInfoBarDelegate::GetIconID() const {
+  return controller_->IsAskingForVideo() ? IDR_INFOBAR_MEDIA_STREAM_CAMERA
+                                         : IDR_INFOBAR_MEDIA_STREAM_MIC;
 }
 
 void MediaStreamInfoBarDelegate::InfoBarDismissed() {
@@ -79,17 +97,7 @@ void MediaStreamInfoBarDelegate::InfoBarDismissed() {
   // we don't want WebRTC to be waiting for an answer that will never come.
   UMA_HISTOGRAM_ENUMERATION("Media.DevicePermissionActions",
                             kCancel, kPermissionActionsMax);
-  controller_->Deny(false, content::MEDIA_DEVICE_PERMISSION_DISMISSED);
-}
-
-int MediaStreamInfoBarDelegate::GetIconID() const {
-  return controller_->HasVideo() ?
-      IDR_INFOBAR_MEDIA_STREAM_CAMERA : IDR_INFOBAR_MEDIA_STREAM_MIC;
-}
-
-infobars::InfoBarDelegate::Type MediaStreamInfoBarDelegate::GetInfoBarType()
-    const {
-  return PAGE_ACTION_TYPE;
+  controller_->Cancelled();
 }
 
 MediaStreamInfoBarDelegate*
@@ -99,9 +107,9 @@ MediaStreamInfoBarDelegate*
 
 base::string16 MediaStreamInfoBarDelegate::GetMessageText() const {
   int message_id = IDS_MEDIA_CAPTURE_AUDIO_AND_VIDEO;
-  if (!controller_->HasAudio())
+  if (!controller_->IsAskingForAudio())
     message_id = IDS_MEDIA_CAPTURE_VIDEO_ONLY;
-  else if (!controller_->HasVideo())
+  else if (!controller_->IsAskingForVideo())
     message_id = IDS_MEDIA_CAPTURE_AUDIO_ONLY;
   return l10n_util::GetStringFUTF16(
       message_id, base::UTF8ToUTF16(controller_->GetSecurityOriginSpec()));
@@ -110,7 +118,7 @@ base::string16 MediaStreamInfoBarDelegate::GetMessageText() const {
 base::string16 MediaStreamInfoBarDelegate::GetButtonLabel(
     InfoBarButton button) const {
   return l10n_util::GetStringUTF16((button == BUTTON_OK) ?
-      IDS_MEDIA_CAPTURE_ALLOW : IDS_MEDIA_CAPTURE_DENY);
+      IDS_MEDIA_CAPTURE_ALLOW : IDS_MEDIA_CAPTURE_BLOCK);
 }
 
 bool MediaStreamInfoBarDelegate::Accept() {
@@ -122,14 +130,14 @@ bool MediaStreamInfoBarDelegate::Accept() {
     UMA_HISTOGRAM_ENUMERATION("Media.DevicePermissionActions",
                               kAllowHttp, kPermissionActionsMax);
   }
-  controller_->Accept(true);
+  controller_->PermissionGranted();
   return true;
 }
 
 bool MediaStreamInfoBarDelegate::Cancel() {
   UMA_HISTOGRAM_ENUMERATION("Media.DevicePermissionActions",
                             kDeny, kPermissionActionsMax);
-  controller_->Deny(true, content::MEDIA_DEVICE_PERMISSION_DENIED);
+  controller_->PermissionDenied();
   return true;
 }
 

@@ -100,11 +100,11 @@ class AudioDecoderTest : public testing::TestWithParam<DecoderTestData> {
     switch (GetParam().decoder_type) {
       case FFMPEG:
         decoder_.reset(new FFmpegAudioDecoder(
-            message_loop_.message_loop_proxy(), LogCB()));
+            message_loop_.task_runner(), LogCB()));
         break;
       case OPUS:
         decoder_.reset(
-            new OpusAudioDecoder(message_loop_.message_loop_proxy()));
+            new OpusAudioDecoder(message_loop_.task_runner()));
         break;
     }
   }
@@ -161,14 +161,13 @@ class AudioDecoderTest : public testing::TestWithParam<DecoderTestData> {
   }
 
   void InitializeDecoder(const AudioDecoderConfig& config) {
-    InitializeDecoderWithStatus(config, PIPELINE_OK);
+    InitializeDecoderWithResult(config, true);
   }
 
-  void InitializeDecoderWithStatus(const AudioDecoderConfig& config,
-                                   PipelineStatus status) {
+  void InitializeDecoderWithResult(const AudioDecoderConfig& config,
+                                   bool success) {
     decoder_->Initialize(
-        config,
-        NewExpectedStatusCB(status),
+        config, NewExpectedBoolCB(success),
         base::Bind(&AudioDecoderTest::OnDecoderOutput, base::Unretained(this)));
     base::RunLoop().RunUntilIdle();
   }
@@ -186,6 +185,8 @@ class AudioDecoderTest : public testing::TestWithParam<DecoderTestData> {
         reader_->GetAVStreamForTesting()->time_base, packet.pts));
     buffer->set_duration(ConvertFromTimeBase(
         reader_->GetAVStreamForTesting()->time_base, packet.duration));
+    if (packet.flags & AV_PKT_FLAG_KEY)
+      buffer->set_is_key_frame(true);
 
     // Don't set discard padding for Opus, it already has discard behavior set
     // based on the codec delay in the AudioDecoderConfig.
@@ -401,7 +402,7 @@ TEST_P(OpusAudioDecoderBehavioralTest, InitializeWithBadCodecDelay) {
       base::TimeDelta::FromMilliseconds(80),
       // Use a different codec delay than in the extradata.
       100);
-  InitializeDecoderWithStatus(decoder_config, DECODER_ERROR_NOT_SUPPORTED);
+  InitializeDecoderWithResult(decoder_config, false);
 }
 
 TEST_P(FFmpegAudioDecoderBehavioralTest, InitializeWithBadConfig) {
@@ -413,7 +414,7 @@ TEST_P(FFmpegAudioDecoderBehavioralTest, InitializeWithBadConfig) {
                                           NULL,
                                           0,
                                           false);
-  InitializeDecoderWithStatus(decoder_config, DECODER_ERROR_NOT_SUPPORTED);
+  InitializeDecoderWithResult(decoder_config, false);
 }
 
 const DecodedBufferExpectations kSfxOpusExpectations[] = {

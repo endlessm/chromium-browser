@@ -1,23 +1,27 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _IJAVASCRIPT_H_
-#define _IJAVASCRIPT_H_
+#ifndef FPDFSDK_INCLUDE_JAVASCRIPT_IJAVASCRIPT_H_
+#define FPDFSDK_INCLUDE_JAVASCRIPT_IJAVASCRIPT_H_
 
-namespace v8 {
-class Platform;
-}
+#include "../../../core/include/fxcrt/fx_string.h"
+#include "../../../core/include/fxcrt/fx_system.h"
 
-class IFXJS_Context  
+class CPDF_Bookmark;
+class CPDF_FormField;
+class CPDFSDK_Annot;
+class CPDFSDK_Document;
+
+class IFXJS_Context
 {
 public:
+        virtual ~IFXJS_Context() { }
 	virtual FX_BOOL				Compile(const CFX_WideString& script, CFX_WideString& info) = 0;
 	virtual FX_BOOL				RunScript(const CFX_WideString& script, CFX_WideString& info) = 0;
 
-public:
 	virtual void				OnApp_Init() = 0;
 
 	virtual void				OnDoc_Open(CPDFSDK_Document* pDoc, const CFX_WideString& strTargetName) = 0;
@@ -31,7 +35,7 @@ public:
 	virtual void				OnPage_Close(CPDFSDK_Document* pTarget) = 0;
 	virtual void				OnPage_InView(CPDFSDK_Document* pTarget) = 0;
 	virtual void				OnPage_OutView(CPDFSDK_Document* pTarget) = 0;
-	
+
 	virtual void				OnField_MouseDown(FX_BOOL bModifier, FX_BOOL bShift, CPDF_FormField* pTarget) = 0;
 	virtual void				OnField_MouseEnter(FX_BOOL bModifier, FX_BOOL bShift, CPDF_FormField* pTarget) = 0;
 	virtual void				OnField_MouseExit(FX_BOOL bModifier, FX_BOOL bShift, CPDF_FormField* pTarget) = 0;
@@ -40,10 +44,10 @@ public:
 	virtual void				OnField_Blur(FX_BOOL bModifier, FX_BOOL bShift, CPDF_FormField* pTarget, const CFX_WideString& Value) = 0;
 
 	virtual void				OnField_Calculate(CPDF_FormField* pSource, CPDF_FormField* pTarget, CFX_WideString& Value, FX_BOOL& bRc) = 0;
-	virtual void				OnField_Format(int nCommitKey, CPDF_FormField* pTarget, CFX_WideString& Value, FX_BOOL bWillCommit) = 0;
-	virtual void				OnField_Keystroke(int nCommitKey, CFX_WideString& strChange, const CFX_WideString& strChangeEx,
+	virtual void				OnField_Format(CPDF_FormField* pTarget, CFX_WideString& Value, FX_BOOL bWillCommit) = 0;
+	virtual void				OnField_Keystroke(CFX_WideString& strChange, const CFX_WideString& strChangeEx,
 									FX_BOOL KeyDown, FX_BOOL bModifier, int &nSelEnd,int &nSelStart, FX_BOOL bShift,
-									CPDF_FormField* pTarget, CFX_WideString& Value, FX_BOOL bWillCommit, 
+									CPDF_FormField* pTarget, CFX_WideString& Value, FX_BOOL bWillCommit,
 									FX_BOOL bFieldFull, FX_BOOL &bRc) = 0;
 	virtual void				OnField_Validate(CFX_WideString& strChange, const CFX_WideString& strChangeEx, FX_BOOL bKeyDown,
 									FX_BOOL bModifier, FX_BOOL bShift, CPDF_FormField* pTarget, CFX_WideString& Value, FX_BOOL& bRc) = 0;
@@ -78,16 +82,10 @@ public:
 	virtual IFXJS_Context*		GetCurrentContext() = 0;
 
 	virtual void				SetReaderDocument(CPDFSDK_Document* pReaderDoc) = 0;
-	virtual	CPDFSDK_Document*	GetReaderDocument() = 0;	
+	virtual	CPDFSDK_Document*	GetReaderDocument() = 0;
 
-	virtual void				GetObjectNames(CFX_WideStringArray& array) = 0;
-	virtual void				GetObjectConsts(const CFX_WideString& swObjName, CFX_WideStringArray& array) = 0;
-	virtual void				GetObjectProps(const CFX_WideString& swObjName, CFX_WideStringArray& array) = 0;
-	virtual void				GetObjectMethods(const CFX_WideString& swObjName, CFX_WideStringArray& array) = 0;
-
-	virtual void				Exit() = 0;
-	virtual void				Enter() = 0;
-	virtual FX_BOOL				IsEntered() = 0;
+protected:
+         ~IFXJS_Runtime() { }
 };
 
 class CPDFDoc_Environment;
@@ -96,7 +94,7 @@ class CJS_GlobalData;
 class CJS_RuntimeFactory
 {
 public:
-	CJS_RuntimeFactory():m_bInit(FALSE),m_nRef(0),m_pGlobalData(NULL),m_nGlobalDataCount(0),m_platform(NULL) {}
+	CJS_RuntimeFactory():m_bInit(FALSE),m_nRef(0),m_pGlobalData(NULL),m_nGlobalDataCount(0) {}
 	~CJS_RuntimeFactory();
 	IFXJS_Runtime*					NewJSRuntime(CPDFDoc_Environment* pApp);
 	void							DeleteJSRuntime(IFXJS_Runtime* pRuntime);
@@ -109,9 +107,7 @@ private:
 	FX_BOOL m_bInit;
 	int m_nRef;
 	CJS_GlobalData*					m_pGlobalData;
-	FX_INT32						m_nGlobalDataCount;
-        v8::Platform*						m_platform;
+	int32_t						m_nGlobalDataCount;
 };
 
-#endif //_IJAVASCRIPT_H_
-
+#endif  // FPDFSDK_INCLUDE_JAVASCRIPT_IJAVASCRIPT_H_

@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2014 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,41 +6,25 @@
 
 from __future__ import print_function
 
-import logging
 import multiprocessing
-import os
-import sys
 
-sys.path.insert(0, os.path.abspath('%s/../..' % os.path.dirname(__file__)))
 from chromite.cbuildbot import metadata_lib
 from chromite.lib import cros_test_lib
 from chromite.lib import parallel
-
-
-@cros_test_lib.NetworkTest()
-class MetadataFetchTest(cros_test_lib.TestCase):
-  """Test functions for fetching metadata from GS."""
-
-  def testPaladinBuilder(self):
-    bot, version = ('x86-mario-paladin', '5611.0.0')
-    full_version = metadata_lib.FindLatestFullVersion(bot, version)
-    self.assertEqual(full_version, 'R35-5611.0.0-rc2')
-    metadata = metadata_lib.GetBuildMetadata(bot, full_version)
-    metadata_dict = metadata._metadata_dict # pylint: disable=W0212
-    self.assertEqual(metadata_dict['status']['status'], 'passed')
 
 
 class MetadataTest(cros_test_lib.TestCase):
   """Tests the correctness of various metadata methods."""
 
   def testGetDict(self):
-    starting_dict = {'key1': 1,
-                     'key2': '2',
-                     'cl_actions': [('a', 1), ('b', 2)],
-                     'board-metadata': {
-                         'board-1': {'info': 432}
-                         }
-                     }
+    starting_dict = {
+        'key1': 1,
+        'key2': '2',
+        'cl_actions': [('a', 1), ('b', 2)],
+        'board-metadata': {
+            'board-1': {'info': 432},
+        },
+    }
     metadata = metadata_lib.CBuildbotMetadata(starting_dict)
     ending_dict = metadata.GetDict()
     self.assertEqual(starting_dict, ending_dict)
@@ -75,19 +58,20 @@ class MetadataTest(cros_test_lib.TestCase):
 
 
   def testUpdateBoardMetadataWithMultiprocessDict(self):
-    starting_dict = {'key1': 1,
-                     'key2': '2',
-                     'cl_actions': [('a', 1), ('b', 2)],
-                     'board-metadata': {
-                         'board-1': {'info': 432}
-                         }
-                     }
+    starting_dict = {
+        'key1': 1,
+        'key2': '2',
+        'cl_actions': [('a', 1), ('b', 2)],
+        'board-metadata': {
+            'board-1': {'info': 432},
+        },
+    }
 
     m = multiprocessing.Manager()
     metadata = metadata_lib.CBuildbotMetadata(metadata_dict=starting_dict,
                                               multiprocess_manager=m)
 
-    # pylint: disable-msg=E1101
+    # pylint: disable=no-member
     update_dict = m.dict()
     update_dict['my_key'] = 'some value'
     metadata.UpdateBoardDictWithDict('board-1', update_dict)
@@ -99,14 +83,15 @@ class MetadataTest(cros_test_lib.TestCase):
     m = multiprocessing.Manager()
     metadata = metadata_lib.CBuildbotMetadata(multiprocess_manager=m)
     key_dict = {'key1': 1, 'key2': 2}
-    starting_dict = {'key1': 1,
-                     'key2': '2',
-                     'key3': key_dict,
-                     'cl_actions': [('a', 1), ('b', 2)],
-                     'board-metadata': {
-                         'board-1': {'info': 432}
-                         }
-                    }
+    starting_dict = {
+        'key1': 1,
+        'key2': '2',
+        'key3': key_dict,
+        'cl_actions': [('a', 1), ('b', 2)],
+        'board-metadata': {
+            'board-1': {'info': 432},
+        },
+    }
 
     # Test that UpdateWithDict is process-safe
     parallel.RunParallelSteps([lambda: metadata.UpdateWithDict(starting_dict)])
@@ -161,7 +146,3 @@ class MetadataTest(cros_test_lib.TestCase):
           q.put([board, {k: v}])
 
     self.assertEqual(expected_dict, metadata.GetDict()['board-metadata'])
-
-
-if __name__ == '__main__':
-  cros_test_lib.main(level=logging.DEBUG)

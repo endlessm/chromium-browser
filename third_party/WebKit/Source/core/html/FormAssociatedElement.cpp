@@ -39,11 +39,11 @@ namespace blink {
 using namespace HTMLNames;
 
 class FormAttributeTargetObserver : public IdTargetObserver {
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
+    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(FormAttributeTargetObserver);
 public:
     static PassOwnPtrWillBeRawPtr<FormAttributeTargetObserver> create(const AtomicString& id, FormAssociatedElement*);
-    virtual void trace(Visitor*) override;
-    virtual void idTargetChanged() override;
+    DECLARE_VIRTUAL_TRACE();
+    void idTargetChanged() override;
 
 private:
     FormAttributeTargetObserver(const AtomicString& id, FormAssociatedElement*);
@@ -61,7 +61,7 @@ FormAssociatedElement::~FormAssociatedElement()
     // We can't call setForm here because it contains virtual calls.
 }
 
-void FormAssociatedElement::trace(Visitor* visitor)
+DEFINE_TRACE(FormAssociatedElement)
 {
     visitor->trace(m_formAttributeTargetObserver);
     visitor->trace(m_form);
@@ -99,8 +99,11 @@ void FormAssociatedElement::insertedInto(ContainerNode* insertionPoint)
 void FormAssociatedElement::removedFrom(ContainerNode* insertionPoint)
 {
     HTMLElement* element = toHTMLElement(this);
-    if (insertionPoint->inDocument() && element->fastHasAttribute(formAttr))
+    if (insertionPoint->inDocument() && element->fastHasAttribute(formAttr)) {
         setFormAttributeTargetObserver(nullptr);
+        resetFormOwner();
+        return;
+    }
     // If the form and element are both in the same tree, preserve the connection to the form.
     // Otherwise, null out our form and remove ourselves from the form's list of elements.
     if (m_form && NodeTraversal::highestAncestorOrSelf(*element) != NodeTraversal::highestAncestorOrSelf(*m_form.get()))
@@ -174,6 +177,10 @@ void FormAssociatedElement::willChangeForm()
 
 void FormAssociatedElement::didChangeForm()
 {
+    if (!m_formWasSetByParser && m_form && m_form->inDocument()) {
+        HTMLElement* element = toHTMLElement(this);
+        element->document().didAssociateFormControl(element);
+    }
 }
 
 void FormAssociatedElement::resetFormOwner()
@@ -189,12 +196,7 @@ void FormAssociatedElement::resetFormOwner()
     if (m_form && formId.isNull() && m_form.get() == nearestForm)
         return;
 
-    HTMLFormElement* originalForm = m_form.get();
     setForm(findAssociatedForm(element));
-    // FIXME: Move didAssociateFormControl call to didChangeForm or
-    // HTMLFormElement::associate.
-    if (m_form && m_form.get() != originalForm && m_form->inDocument())
-        element->document().didAssociateFormControl(element);
 }
 
 void FormAssociatedElement::formAttributeChanged()
@@ -314,10 +316,9 @@ const HTMLElement& toHTMLElement(const FormAssociatedElement& associatedElement)
 {
     if (associatedElement.isFormControlElement())
         return toHTMLFormControlElement(associatedElement);
-    else if (associatedElement.isLabelElement())
+    if (associatedElement.isLabelElement())
         return toHTMLLabelElement(associatedElement);
-    else
-        return toHTMLObjectElement(associatedElement);
+    return toHTMLObjectElement(associatedElement);
 }
 
 const HTMLElement* toHTMLElement(const FormAssociatedElement* associatedElement)
@@ -347,7 +348,7 @@ FormAttributeTargetObserver::FormAttributeTargetObserver(const AtomicString& id,
 {
 }
 
-void FormAttributeTargetObserver::trace(Visitor* visitor)
+DEFINE_TRACE(FormAttributeTargetObserver)
 {
     visitor->trace(m_element);
     IdTargetObserver::trace(visitor);

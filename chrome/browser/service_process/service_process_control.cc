@@ -8,11 +8,14 @@
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/location.h"
 #include "base/metrics/histogram_base.h"
 #include "base/metrics/histogram_delta_serialization.h"
 #include "base/process/kill.h"
 #include "base/process/launch.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "chrome/browser/browser_process.h"
@@ -90,7 +93,7 @@ bool ServiceProcessControl::IsConnected() const {
 
 void ServiceProcessControl::Launch(const base::Closure& success_task,
                                    const base::Closure& failure_task) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   base::Closure failure = failure_task;
   if (!success_task.is_null())
@@ -114,18 +117,18 @@ void ServiceProcessControl::Launch(const base::Closure& success_task,
 
   scoped_ptr<base::CommandLine> cmd_line(CreateServiceProcessCommandLine());
   // And then start the process asynchronously.
-  launcher_ = new Launcher(this, cmd_line.Pass());
+  launcher_ = new Launcher(cmd_line.Pass());
   launcher_->Run(base::Bind(&ServiceProcessControl::OnProcessLaunched,
                             base::Unretained(this)));
 }
 
 void ServiceProcessControl::Disconnect() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   channel_.reset();
 }
 
 void ServiceProcessControl::OnProcessLaunched() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (launcher_->launched()) {
     UMA_HISTOGRAM_ENUMERATION("CloudPrint.ServiceEvents",
                               SERVICE_EVENT_LAUNCHED, SERVICE_EVENT_MAX);
@@ -157,7 +160,7 @@ bool ServiceProcessControl::OnMessageReceived(const IPC::Message& message) {
 }
 
 void ServiceProcessControl::OnChannelConnected(int32 peer_pid) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   UMA_HISTOGRAM_ENUMERATION("CloudPrint.ServiceEvents",
                             SERVICE_EVENT_CHANNEL_CONNECTED, SERVICE_EVENT_MAX);
@@ -175,7 +178,7 @@ void ServiceProcessControl::OnChannelConnected(int32 peer_pid) {
 }
 
 void ServiceProcessControl::OnChannelError() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   UMA_HISTOGRAM_ENUMERATION("CloudPrint.ServiceEvents",
                             SERVICE_EVENT_CHANNEL_ERROR, SERVICE_EVENT_MAX);
@@ -185,7 +188,7 @@ void ServiceProcessControl::OnChannelError() {
 }
 
 bool ServiceProcessControl::Send(IPC::Message* message) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (!channel_.get())
     return false;
   return channel_->Send(message);
@@ -203,7 +206,7 @@ void ServiceProcessControl::Observe(
 
 void ServiceProcessControl::OnCloudPrintProxyInfo(
     const cloud_print::CloudPrintProxyInfo& proxy_info) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   UMA_HISTOGRAM_ENUMERATION("CloudPrint.ServiceEvents",
                             SERVICE_EVENT_INFO_REPLY, SERVICE_EVENT_MAX);
   if (!cloud_print_info_callback_.is_null()) {
@@ -216,14 +219,14 @@ void ServiceProcessControl::OnHistograms(
     const std::vector<std::string>& pickled_histograms) {
   UMA_HISTOGRAM_ENUMERATION("CloudPrint.ServiceEvents",
                             SERVICE_EVENT_HISTOGRAMS_REPLY, SERVICE_EVENT_MAX);
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   base::HistogramDeltaSerialization::DeserializeAndAddSamples(
       pickled_histograms);
   RunHistogramsCallback();
 }
 
 void ServiceProcessControl::RunHistogramsCallback() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (!histograms_callback_.is_null()) {
     histograms_callback_.Run();
     histograms_callback_.Reset();
@@ -233,7 +236,7 @@ void ServiceProcessControl::RunHistogramsCallback() {
 
 void ServiceProcessControl::OnPrinters(
     const std::vector<std::string>& printers) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   UMA_HISTOGRAM_ENUMERATION(
       "CloudPrint.ServiceEvents", SERVICE_PRINTERS_REPLY, SERVICE_EVENT_MAX);
   UMA_HISTOGRAM_COUNTS_10000("CloudPrint.AvailablePrinters", printers.size());
@@ -245,7 +248,7 @@ void ServiceProcessControl::OnPrinters(
 
 bool ServiceProcessControl::GetCloudPrintProxyInfo(
     const CloudPrintProxyInfoCallback& cloud_print_info_callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(!cloud_print_info_callback.is_null());
   cloud_print_info_callback_.Reset();
   UMA_HISTOGRAM_ENUMERATION("CloudPrint.ServiceEvents",
@@ -259,7 +262,7 @@ bool ServiceProcessControl::GetCloudPrintProxyInfo(
 bool ServiceProcessControl::GetHistograms(
     const base::Closure& histograms_callback,
     const base::TimeDelta& timeout) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(!histograms_callback.is_null());
   histograms_callback_.Reset();
 
@@ -294,7 +297,7 @@ bool ServiceProcessControl::GetHistograms(
 
 bool ServiceProcessControl::GetPrinters(
     const PrintersCallback& printers_callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(!printers_callback.is_null());
   printers_callback_.Reset();
   UMA_HISTOGRAM_ENUMERATION(
@@ -306,7 +309,7 @@ bool ServiceProcessControl::GetPrinters(
 }
 
 bool ServiceProcessControl::Shutdown() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   bool ret = Send(new ServiceMsg_Shutdown());
   channel_.reset();
   return ret;
@@ -318,27 +321,23 @@ ServiceProcessControl* ServiceProcessControl::GetInstance() {
 }
 
 ServiceProcessControl::Launcher::Launcher(
-    ServiceProcessControl* process,
     scoped_ptr<base::CommandLine> cmd_line)
-    : process_(process),
-      cmd_line_(cmd_line.Pass()),
+    : cmd_line_(cmd_line.Pass()),
       launched_(false),
-      retry_count_(0),
-      process_handle_(base::kNullProcessHandle) {
+      retry_count_(0) {
 }
 
 // Execute the command line to start the process asynchronously.
 // After the command is executed, |task| is called with the process handle on
 // the UI thread.
 void ServiceProcessControl::Launcher::Run(const base::Closure& task) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   notify_task_ = task;
   BrowserThread::PostTask(BrowserThread::PROCESS_LAUNCHER, FROM_HERE,
                           base::Bind(&Launcher::DoRun, this));
 }
 
 ServiceProcessControl::Launcher::~Launcher() {
-  CloseProcessHandle();
 }
 
 
@@ -346,13 +345,6 @@ void ServiceProcessControl::Launcher::Notify() {
   DCHECK(!notify_task_.is_null());
   notify_task_.Run();
   notify_task_.Reset();
-}
-
-void ServiceProcessControl::Launcher::CloseProcessHandle() {
-  if (process_handle_ != base::kNullProcessHandle) {
-    base::CloseProcessHandle(process_handle_);
-    process_handle_ = base::kNullProcessHandle;
-  }
 }
 
 #if !defined(OS_MACOSX)
@@ -364,9 +356,8 @@ void ServiceProcessControl::Launcher::DoDetectLaunched() {
 
   int exit_code = 0;
   if (launched_ || (retry_count_ >= kMaxLaunchDetectRetries) ||
-      base::WaitForExitCodeWithTimeout(process_handle_, &exit_code,
-                                       base::TimeDelta())) {
-    CloseProcessHandle();
+      process_.WaitForExitWithTimeout(base::TimeDelta(), &exit_code)) {
+    process_.Close();
     BrowserThread::PostTask(
         BrowserThread::UI, FROM_HERE, base::Bind(&Launcher::Notify, this));
     return;
@@ -375,7 +366,7 @@ void ServiceProcessControl::Launcher::DoDetectLaunched() {
 
   // If the service process is not launched yet then check again in 2 seconds.
   const base::TimeDelta kDetectLaunchRetry = base::TimeDelta::FromSeconds(2);
-  base::MessageLoop::current()->PostDelayedTask(
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE, base::Bind(&Launcher::DoDetectLaunched, this),
       kDetectLaunchRetry);
 }
@@ -387,7 +378,8 @@ void ServiceProcessControl::Launcher::DoRun() {
 #if defined(OS_WIN)
   options.start_hidden = true;
 #endif
-  if (base::LaunchProcess(*cmd_line_, options, &process_handle_)) {
+  process_ = base::LaunchProcess(*cmd_line_, options);
+  if (process_.IsValid()) {
     BrowserThread::PostTask(
         BrowserThread::IO, FROM_HERE,
         base::Bind(&Launcher::DoDetectLaunched, this));

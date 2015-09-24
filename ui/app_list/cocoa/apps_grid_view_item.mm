@@ -238,12 +238,11 @@ void ItemModelObserverBridge::ItemPercentDownloadedChanged() {
   NSDictionary* titleAttributes = @{
     NSParagraphStyleAttributeName : paragraphStyle,
     NSFontAttributeName : ui::ResourceBundle::GetSharedInstance()
-        .GetFontList(app_list::kItemTextFontStyle)
-        .DeriveWithSizeDelta(kMacFontSizeDelta)
-        .GetPrimaryFont()
-        .GetNativeFont(),
-    NSForegroundColorAttributeName : [self isSelected] ?
-        gfx::SkColorToSRGBNSColor(app_list::kGridTitleHoverColor) :
+                              .GetFontList(app_list::kItemTextFontStyle)
+                              .DeriveWithSizeDelta(kMacFontSizeDelta)
+                              .GetPrimaryFont()
+                              .GetNativeFont(),
+    NSForegroundColorAttributeName :
         gfx::SkColorToSRGBNSColor(app_list::kGridTitleColor)
   };
   NSString* buttonTitle =
@@ -275,7 +274,7 @@ void ItemModelObserverBridge::ItemPercentDownloadedChanged() {
   NSImage* buttonImage = gfx::NSImageFromImageSkiaWithColorSpace(
       icon, base::mac::GetSRGBColorSpace());
   [[self button] setImage:buttonImage];
-  [[[self button] cell] setHasShadow:[self model]->has_shadow()];
+  [[[self button] cell] setHasShadow:true];
 }
 
 - (void)setModel:(app_list::AppListItem*)itemModel {

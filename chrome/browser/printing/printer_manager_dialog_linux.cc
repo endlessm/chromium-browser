@@ -35,9 +35,9 @@ void DetectAndOpenPrinterConfigDialog() {
     case base::nix::DESKTOP_ENVIRONMENT_KDE3:
     case base::nix::DESKTOP_ENVIRONMENT_KDE4:
     case base::nix::DESKTOP_ENVIRONMENT_UNITY:
+    case base::nix::DESKTOP_ENVIRONMENT_XFCE:
       command = kGNOMEPrinterConfigCommand;
       break;
-    case base::nix::DESKTOP_ENVIRONMENT_XFCE:
     case base::nix::DESKTOP_ENVIRONMENT_OTHER:
       break;
   }
@@ -49,12 +49,12 @@ void DetectAndOpenPrinterConfigDialog() {
 
   std::vector<std::string> argv;
   argv.push_back(command);
-  base::ProcessHandle handle;
-  if (!base::LaunchProcess(argv, base::LaunchOptions(), &handle)) {
+  base::Process process = base::LaunchProcess(argv, base::LaunchOptions());
+  if (!process.IsValid()) {
     LOG(ERROR) << "Failed to open printer manager dialog ";
     return;
   }
-  base::EnsureProcessGetsReaped(handle);
+  base::EnsureProcessGetsReaped(process.Pid());
 }
 
 }  // anonymous namespace

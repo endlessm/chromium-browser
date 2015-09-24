@@ -208,15 +208,21 @@ bool PermissionsRequestFunction::RunAsync() {
   requested_permissions_ = PermissionSet::CreateDifference(
       requested_permissions_.get(), granted.get());
 
+  // Filter out the active permissions.
+  requested_permissions_ = PermissionSet::CreateDifference(
+      requested_permissions_.get(),
+      extension()->permissions_data()->active_permissions().get());
+
   AddRef();  // Balanced in InstallUIProceed() / InstallUIAbort().
 
   // We don't need to show the prompt if there are no new warnings, or if
   // we're skipping the confirmation UI. All extension types but INTERNAL
   // are allowed to silently increase their permission level.
-  bool has_no_warnings = PermissionMessageProvider::Get()
-                             ->GetWarningMessages(requested_permissions_.get(),
-                                                  extension()->GetType())
-                             .empty();
+  bool has_no_warnings =
+      PermissionMessageProvider::Get()
+          ->GetPermissionMessageStrings(requested_permissions_.get(),
+                                        extension()->GetType())
+          .empty();
   if (auto_confirm_for_tests == PROCEED || has_no_warnings ||
       extension_->location() == Manifest::COMPONENT) {
     InstallUIProceed();

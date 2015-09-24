@@ -23,7 +23,11 @@ class ExtensionMessagePort : public MessageService::MessagePort {
                        const std::string& extension_id);
   void DispatchOnConnect(int dest_port_id,
                          const std::string& channel_name,
-                         const base::DictionaryValue& source_tab,
+                         scoped_ptr<base::DictionaryValue> source_tab,
+                         int source_frame_id,
+                         int target_frame_id,
+                         int guest_process_id,
+                         int guest_render_frame_routing_id,
                          const std::string& source_extension_id,
                          const std::string& target_extension_id,
                          const GURL& source_url,

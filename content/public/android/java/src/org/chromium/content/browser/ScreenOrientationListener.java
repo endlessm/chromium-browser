@@ -11,10 +11,10 @@ import android.content.res.Configuration;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.DisplayManager.DisplayListener;
 import android.os.Build;
-import android.util.Log;
 import android.view.Surface;
 import android.view.WindowManager;
 
+import org.chromium.base.Log;
 import org.chromium.base.ObserverList;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.VisibleForTesting;
@@ -107,8 +107,7 @@ public class ScreenOrientationListener {
         public void startAccurateListening() {
             ++mAccurateCount;
 
-            if (mAccurateCount > 1)
-                return;
+            if (mAccurateCount > 1) return;
 
             // Start polling if we went from 0 to 1. The polling will
             // automatically stop when mAccurateCount reaches 0.
@@ -118,8 +117,7 @@ public class ScreenOrientationListener {
                 public void run() {
                     self.onConfigurationChanged(null);
 
-                    if (self.mAccurateCount < 1)
-                        return;
+                    if (self.mAccurateCount < 1) return;
 
                     ThreadUtils.postOnUiThreadDelayed(this,
                             ScreenOrientationConfigurationListener.POLLING_DELAY);
@@ -198,7 +196,7 @@ public class ScreenOrientationListener {
 
     }
 
-    private static final String TAG = "ScreenOrientationListener";
+    private static final String TAG = "cr.ScreenOrientation";
 
     // List of observers to notify when the screen orientation changes.
     private final ObserverList<ScreenOrientationObserver> mObservers =
@@ -231,9 +229,9 @@ public class ScreenOrientationListener {
     }
 
     private ScreenOrientationListener() {
-        mBackend = Build.VERSION.SDK_INT >= 17 ?
-                new ScreenOrientationDisplayListener() :
-                new ScreenOrientationConfigurationListener();
+        mBackend = Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1
+                ? new ScreenOrientationDisplayListener()
+                : new ScreenOrientationConfigurationListener();
     }
 
     /**

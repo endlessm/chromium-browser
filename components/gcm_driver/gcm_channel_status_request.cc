@@ -5,7 +5,9 @@
 #include "components/gcm_driver/gcm_channel_status_request.h"
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "components/gcm_driver/gcm_backoff_policy.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
@@ -64,8 +66,8 @@ void GCMChannelStatusRequest::Start() {
      NOTREACHED();
   }
 
-  url_fetcher_.reset(
-      net::URLFetcher::Create(request_url, net::URLFetcher::POST, this));
+  url_fetcher_ =
+      net::URLFetcher::Create(request_url, net::URLFetcher::POST, this);
   url_fetcher_->SetRequestContext(request_context_getter_.get());
   url_fetcher_->AddExtraRequestHeader("User-Agent: " + user_agent_);
   url_fetcher_->SetUploadData(kRequestContentType, upload_data);
@@ -142,11 +144,9 @@ void GCMChannelStatusRequest::RetryWithBackoff(bool update_backoff) {
     DVLOG(1) << "Delaying GCM channel request for "
              << backoff_entry_.GetTimeUntilRelease().InMilliseconds()
              << " ms.";
-    base::MessageLoop::current()->PostDelayedTask(
-        FROM_HERE,
-        base::Bind(&GCMChannelStatusRequest::RetryWithBackoff,
-                   weak_ptr_factory_.GetWeakPtr(),
-                   false),
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE, base::Bind(&GCMChannelStatusRequest::RetryWithBackoff,
+                              weak_ptr_factory_.GetWeakPtr(), false),
         backoff_entry_.GetTimeUntilRelease());
     return;
   }

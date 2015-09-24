@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/command_line.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
@@ -14,12 +15,20 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/host_desktop.h"
 #include "chrome/common/chrome_paths.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "chrome/test/base/testing_profile.h"
 #include "ui/app_list/app_list_model.h"
+#include "ui/app_list/app_list_switches.h"
 #include "ui/app_list/search_box_model.h"
 #include "ui/app_list/search_result.h"
 #include "ui/app_list/search_result_observer.h"
 #include "ui/base/models/list_model_observer.h"
+
+#if defined(OS_CHROMEOS)
+#include "chromeos/chromeos_switches.h"
+#include "chromeos/login/user_names.h"
+#endif  // defined(OS_CHROMEOS)
 
 // Browser Test for AppListController that runs on all platforms supporting
 // app_list.
@@ -96,7 +105,6 @@ class AppListControllerSearchResultsBrowserTest
  public:
   AppListControllerSearchResultsBrowserTest()
       : observed_result_(NULL),
-        item_uninstall_count_(0),
         observed_results_list_(NULL) {}
 
   void WatchResultsLookingForItem(
@@ -139,10 +147,6 @@ class AppListControllerSearchResultsBrowserTest
   void OnIsInstallingChanged() override {}
   void OnPercentDownloadedChanged() override {}
   void OnItemInstalled() override {}
-  void OnItemUninstalled() override {
-    ++item_uninstall_count_;
-    EXPECT_TRUE(observed_result_);
-  }
 
   // Overridden from ui::ListModelObserver:
   void ListItemsAdded(size_t start, size_t count) override {
@@ -155,7 +159,6 @@ class AppListControllerSearchResultsBrowserTest
   void ListItemsChanged(size_t start, size_t count) override {}
 
   app_list::SearchResult* observed_result_;
-  int item_uninstall_count_;
 
  private:
   base::string16 item_to_observe_;
@@ -201,15 +204,46 @@ IN_PROC_BROWSER_TEST_F(AppListControllerSearchResultsBrowserTest,
   base::RunLoop().RunUntilIdle();
 
   // Now uninstall and ensure this browser test observes it.
-  EXPECT_EQ(0, item_uninstall_count_);
   UninstallExtension(extension->id());
-  EXPECT_EQ(1, item_uninstall_count_);
 
-  // Results should not be immediately refreshed. When they are, the item should
-  // be removed from the model.
-  EXPECT_TRUE(observed_result_);
+  // Allow async AppSearchProvider::UpdateResults to run.
   base::RunLoop().RunUntilIdle();
+
   EXPECT_FALSE(observed_result_);
   StopWatchingResults();
   service->DismissAppList();
 }
+
+#if defined(OS_CHROMEOS)
+
+class AppListControllerGuestModeBrowserTest : public InProcessBrowserTest {
+ public:
+  AppListControllerGuestModeBrowserTest() {}
+
+ protected:
+  void SetUpCommandLine(base::CommandLine* command_line) override;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(AppListControllerGuestModeBrowserTest);
+};
+
+void AppListControllerGuestModeBrowserTest::SetUpCommandLine(
+    base::CommandLine* command_line) {
+  command_line->AppendSwitch(chromeos::switches::kGuestSession);
+  command_line->AppendSwitchASCII(chromeos::switches::kLoginUser,
+                                  chromeos::login::kGuestUserName);
+  command_line->AppendSwitchASCII(chromeos::switches::kLoginProfile,
+                                  TestingProfile::kTestUserProfileDir);
+  command_line->AppendSwitch(switches::kIncognito);
+}
+
+// Test creating the initial app list in guest mode.
+IN_PROC_BROWSER_TEST_F(AppListControllerGuestModeBrowserTest, Incognito) {
+  AppListService* service = test::GetAppListService();
+  EXPECT_TRUE(service->GetCurrentAppListProfile());
+
+  service->ShowForProfile(browser()->profile());
+  EXPECT_EQ(browser()->profile(), service->GetCurrentAppListProfile());
+}
+
+#endif  // defined(OS_CHROMEOS)

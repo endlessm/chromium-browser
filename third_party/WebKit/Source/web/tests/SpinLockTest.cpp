@@ -32,15 +32,15 @@
 #include "wtf/SpinLock.h"
 
 #include "platform/Task.h"
+#include "platform/ThreadSafeFunctional.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebThread.h"
+#include "public/platform/WebTraceLocation.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/PassOwnPtr.h"
 #include <gtest/gtest.h>
 
-namespace {
-
-using namespace blink;
+namespace blink {
 
 static const size_t bufferSize = 16;
 
@@ -75,18 +75,18 @@ static void threadMain(volatile char* buffer)
     }
 }
 
-TEST(WTF_SpinLock, Torture)
+TEST(SpinLockTest, Torture)
 {
     char sharedBuffer[bufferSize];
 
     OwnPtr<WebThread> thread1 = adoptPtr(Platform::current()->createThread("thread1"));
     OwnPtr<WebThread> thread2 = adoptPtr(Platform::current()->createThread("thread2"));
 
-    thread1->postTask(new Task(WTF::bind(&threadMain, static_cast<char*>(sharedBuffer))));
-    thread2->postTask(new Task(WTF::bind(&threadMain, static_cast<char*>(sharedBuffer))));
+    thread1->postTask(FROM_HERE, new Task(threadSafeBind(&threadMain, AllowCrossThreadAccess(static_cast<char*>(sharedBuffer)))));
+    thread2->postTask(FROM_HERE, new Task(threadSafeBind(&threadMain, AllowCrossThreadAccess(static_cast<char*>(sharedBuffer)))));
 
     thread1.clear();
     thread2.clear();
 }
 
-} // namespace
+} // namespace blink

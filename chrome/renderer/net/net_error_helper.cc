@@ -77,7 +77,7 @@ NetErrorHelper::NetErrorHelper(RenderFrame* render_frame)
     : RenderFrameObserver(render_frame),
       content::RenderFrameObserverTracker<NetErrorHelper>(render_frame) {
   RenderThread::Get()->AddObserver(this);
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   bool auto_reload_enabled =
       command_line->HasSwitch(switches::kEnableOfflineAutoReload);
   bool auto_reload_visible_only =
@@ -92,16 +92,11 @@ NetErrorHelper::~NetErrorHelper() {
   RenderThread::Get()->RemoveObserver(this);
 }
 
-void NetErrorHelper::ReloadButtonPressed() {
-  core_->ExecuteButtonPress(NetErrorHelperCore::RELOAD_BUTTON);
-}
-
-void NetErrorHelper::LoadStaleButtonPressed() {
-  core_->ExecuteButtonPress(NetErrorHelperCore::LOAD_STALE_BUTTON);
-}
-
-void NetErrorHelper::MoreButtonPressed() {
-  core_->ExecuteButtonPress(NetErrorHelperCore::MORE_BUTTON);
+void NetErrorHelper::ButtonPressed(
+    error_page::NetErrorHelperCore::Button button) {
+  GURL url = render_frame()->GetWebFrame()->document().url();
+  bool is_error_page = (url == GURL(content::kUnreachableWebDataURL));
+  core_->ExecuteButtonPress(is_error_page, button);
 }
 
 void NetErrorHelper::DidStartProvisionalLoad() {
@@ -109,7 +104,8 @@ void NetErrorHelper::DidStartProvisionalLoad() {
   core_->OnStartLoad(GetFrameType(frame), GetLoadingPageType(frame));
 }
 
-void NetErrorHelper::DidCommitProvisionalLoad(bool is_new_navigation) {
+void NetErrorHelper::DidCommitProvisionalLoad(bool is_new_navigation,
+                                              bool is_same_page_navigation) {
   blink::WebFrame* frame = render_frame()->GetWebFrame();
   core_->OnCommitLoad(GetFrameType(frame), frame->document().url());
 }
@@ -170,7 +166,9 @@ void NetErrorHelper::GenerateLocalizedErrorPage(
     bool is_failed_post,
     scoped_ptr<ErrorPageParams> params,
     bool* reload_button_shown,
-    bool* load_stale_button_shown,
+    bool* show_saved_copy_button_shown,
+    bool* show_cached_copy_button_shown,
+    bool* show_cached_page_button_shown,
     std::string* error_html) const {
   error_html->clear();
 
@@ -180,22 +178,31 @@ void NetErrorHelper::GenerateLocalizedErrorPage(
   if (template_html.empty()) {
     NOTREACHED() << "unable to load template.";
   } else {
-    CommandLine* command_line = CommandLine::ForCurrentProcess();
-    bool load_stale_cache_enabled =
-        command_line->HasSwitch(switches::kEnableOfflineLoadStaleCache);
-
     base::DictionaryValue error_strings;
     LocalizedError::GetStrings(error.reason, error.domain.utf8(),
                                error.unreachableURL, is_failed_post,
-                               (load_stale_cache_enabled &&
-                                error.staleCopyInCache && !is_failed_post),
+                               error.staleCopyInCache,
                                RenderThread::Get()->GetLocale(),
                                render_frame()->GetRenderView()->
                                    GetAcceptLanguages(),
                                params.Pass(), &error_strings);
     *reload_button_shown = error_strings.Get("reloadButton", NULL);
-    *load_stale_button_shown = error_strings.Get("staleLoadButton", NULL);
+    *show_saved_copy_button_shown =
+        error_strings.Get("showSavedCopyButton", NULL);
 
+    bool show_cache_copy_button_default_label;
+    bool showing_cache_copy_experiment =
+        error_strings.GetBoolean("cacheButton.defaultLabel",
+        &show_cache_copy_button_default_label);
+    if (showing_cache_copy_experiment) {
+      if (show_cache_copy_button_default_label) {
+        *show_cached_copy_button_shown = false;
+        *show_cached_page_button_shown = true;
+      } else {
+        *show_cached_page_button_shown = false;
+        *show_cached_copy_button_shown = true;
+      }
+    }
     // "t" is the id of the template's root node.
     *error_html = webui::GetTemplatesHtml(template_html, &error_strings, "t");
   }
@@ -216,17 +223,12 @@ void NetErrorHelper::EnablePageHelperFunctions() {
 
 void NetErrorHelper::UpdateErrorPage(const blink::WebURLError& error,
                                      bool is_failed_post) {
-    CommandLine* command_line = CommandLine::ForCurrentProcess();
-    bool load_stale_cache_enabled =
-        command_line->HasSwitch(switches::kEnableOfflineLoadStaleCache);
-
   base::DictionaryValue error_strings;
   LocalizedError::GetStrings(error.reason,
                              error.domain.utf8(),
                              error.unreachableURL,
                              is_failed_post,
-                             (load_stale_cache_enabled &&
-                              error.staleCopyInCache && !is_failed_post),
+                             error.staleCopyInCache,
                              RenderThread::Get()->GetLocale(),
                              render_frame()->GetRenderView()->
                                  GetAcceptLanguages(),
@@ -234,7 +236,7 @@ void NetErrorHelper::UpdateErrorPage(const blink::WebURLError& error,
                              &error_strings);
 
   std::string json;
-  JSONWriter::Write(&error_strings, &json);
+  JSONWriter::Write(error_strings, &json);
 
   std::string js = "if (window.updateForDnsProbe) "
                    "updateForDnsProbe(" + json + ");";
@@ -266,7 +268,7 @@ void NetErrorHelper::FetchNavigationCorrections(
   correction_fetcher_->Start(
       frame,
       blink::WebURLRequest::RequestContextInternal,
-      blink::WebURLRequest::FrameTypeTopLevel,
+      blink::WebURLRequest::FrameTypeNone,
       content::ResourceFetcher::PLATFORM_LOADER,
       base::Bind(&NetErrorHelper::OnNavigationCorrectionsFetched,
                  base::Unretained(this)));
@@ -308,7 +310,8 @@ void NetErrorHelper::ReloadPage() {
 
 void NetErrorHelper::LoadPageFromCache(const GURL& page_url) {
   blink::WebFrame* web_frame = render_frame()->GetWebFrame();
-  DCHECK(!EqualsASCII(web_frame->dataSource()->request().httpMethod(), "POST"));
+  DCHECK(!base::EqualsASCII(web_frame->dataSource()->request().httpMethod(),
+                            "POST"));
 
   blink::WebURLRequest request(page_url);
   request.setCachePolicy(blink::WebURLRequest::ReturnCacheDataDontLoad);

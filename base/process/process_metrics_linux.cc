@@ -228,7 +228,7 @@ double ProcessMetrics::GetCPUUsage() {
   // are together adding to more than one CPU's worth.
   TimeDelta cpu_time = internal::ClockTicksToTimeDelta(cpu);
   TimeDelta last_cpu_time = internal::ClockTicksToTimeDelta(last_cpu_);
-  int percentage = 100 * (cpu_time - last_cpu_time).InSecondsF() /
+  double percentage = 100.0 * (cpu_time - last_cpu_time).InSecondsF() /
       TimeDelta::FromMicroseconds(time_delta).InSecondsF();
 
   last_cpu_time_ = time;
@@ -399,17 +399,36 @@ size_t GetSystemCommitCharge() {
   return meminfo.total - meminfo.free - meminfo.buffers - meminfo.cached;
 }
 
-// Exposed for testing.
 int ParseProcStatCPU(const std::string& input) {
-  std::vector<std::string> proc_stats;
-  if (!internal::ParseProcStats(input, &proc_stats))
+  // |input| may be empty if the process disappeared somehow.
+  // e.g. http://crbug.com/145811.
+  if (input.empty())
     return -1;
 
-  if (proc_stats.size() <= internal::VM_STIME)
+  size_t start = input.find_last_of(')');
+  if (start == input.npos)
     return -1;
-  int utime = GetProcStatsFieldAsInt64(proc_stats, internal::VM_UTIME);
-  int stime = GetProcStatsFieldAsInt64(proc_stats, internal::VM_STIME);
-  return utime + stime;
+
+  // Number of spaces remaining until reaching utime's index starting after the
+  // last ')'.
+  int num_spaces_remaining = internal::VM_UTIME - 1;
+
+  size_t i = start;
+  while ((i = input.find(' ', i + 1)) != input.npos) {
+    // Validate the assumption that there aren't any contiguous spaces
+    // in |input| before utime.
+    DCHECK_NE(input[i - 1], ' ');
+    if (--num_spaces_remaining == 0) {
+      int utime = 0;
+      int stime = 0;
+      if (sscanf(&input.data()[i], "%d %d", &utime, &stime) != 2)
+        return -1;
+
+      return utime + stime;
+    }
+  }
+
+  return -1;
 }
 
 const char kProcSelfExe[] = "/proc/self/exe";
@@ -544,17 +563,15 @@ bool ParseProcMeminfo(const std::string& meminfo_data,
   // MemTotal value
   meminfo->total = 0;
 
-  std::vector<std::string> meminfo_lines;
-  Tokenize(meminfo_data, "\n", &meminfo_lines);
-  for (std::vector<std::string>::iterator it = meminfo_lines.begin();
-       it != meminfo_lines.end(); ++it) {
-    std::vector<std::string> tokens;
-    SplitStringAlongWhitespace(*it, &tokens);
+  for (const StringPiece& line : SplitStringPiece(
+           meminfo_data, "\n", KEEP_WHITESPACE, SPLIT_WANT_NONEMPTY)) {
+    std::vector<StringPiece> tokens = SplitStringPiece(
+        line, kWhitespaceASCII, TRIM_WHITESPACE, SPLIT_WANT_NONEMPTY);
     // HugePages_* only has a number and no suffix so we can't rely on
     // there being exactly 3 tokens.
     if (tokens.size() <= 1) {
       DLOG(WARNING) << "meminfo: tokens: " << tokens.size()
-                    << " malformed line: " << *it;
+                    << " malformed line: " << line.as_string();
       continue;
     }
 
@@ -611,12 +628,10 @@ bool ParseProcVmstat(const std::string& vmstat_data,
   // We iterate through the whole file because the position of the
   // fields are dependent on the kernel version and configuration.
 
-  std::vector<std::string> vmstat_lines;
-  Tokenize(vmstat_data, "\n", &vmstat_lines);
-  for (std::vector<std::string>::iterator it = vmstat_lines.begin();
-       it != vmstat_lines.end(); ++it) {
-    std::vector<std::string> tokens;
-    SplitString(*it, ' ', &tokens);
+  for (const StringPiece& line : SplitStringPiece(
+           vmstat_data, "\n", KEEP_WHITESPACE, SPLIT_WANT_NONEMPTY)) {
+    std::vector<StringPiece> tokens = SplitStringPiece(
+        line, " ", KEEP_WHITESPACE, SPLIT_WANT_NONEMPTY);
     if (tokens.size() != 2)
       continue;
 
@@ -650,13 +665,13 @@ bool GetSystemMemoryInfo(SystemMemoryInfoKB* meminfo) {
   }
 
 #if defined(OS_CHROMEOS)
-  // Report on Chrome OS GEM object graphics memory. /var/run/debugfs_gpu is a
+  // Report on Chrome OS GEM object graphics memory. /run/debugfs_gpu is a
   // bind mount into /sys/kernel/debug and synchronously reading the in-memory
   // files in /sys is fast.
 #if defined(ARCH_CPU_ARM_FAMILY)
-  FilePath geminfo_file("/var/run/debugfs_gpu/exynos_gem_objects");
+  FilePath geminfo_file("/run/debugfs_gpu/exynos_gem_objects");
 #else
-  FilePath geminfo_file("/var/run/debugfs_gpu/i915_gem_objects");
+  FilePath geminfo_file("/run/debugfs_gpu/i915_gem_objects");
 #endif
   std::string geminfo_data;
   meminfo->gem_objects = -1;
@@ -773,9 +788,9 @@ bool GetSystemDiskInfo(SystemDiskInfo* diskinfo) {
     return false;
   }
 
-  std::vector<std::string> diskinfo_lines;
-  size_t line_count = Tokenize(diskinfo_data, "\n", &diskinfo_lines);
-  if (line_count == 0) {
+  std::vector<StringPiece> diskinfo_lines = SplitStringPiece(
+      diskinfo_data, "\n", KEEP_WHITESPACE, SPLIT_WANT_NONEMPTY);
+  if (diskinfo_lines.size() == 0) {
     DLOG(WARNING) << "No lines found";
     return false;
   }
@@ -804,12 +819,12 @@ bool GetSystemDiskInfo(SystemDiskInfo* diskinfo) {
   uint64 io_time = 0;
   uint64 weighted_io_time = 0;
 
-  for (size_t i = 0; i < line_count; i++) {
-    std::vector<std::string> disk_fields;
-    SplitStringAlongWhitespace(diskinfo_lines[i], &disk_fields);
+  for (const StringPiece& line : diskinfo_lines) {
+    std::vector<StringPiece> disk_fields = SplitStringPiece(
+        line, kWhitespaceASCII, TRIM_WHITESPACE, SPLIT_WANT_NONEMPTY);
 
     // Fields may have overflowed and reset to zero.
-    if (IsValidDiskName(disk_fields[kDiskDriveName])) {
+    if (IsValidDiskName(disk_fields[kDiskDriveName].as_string())) {
       StringToUint64(disk_fields[kDiskReads], &reads);
       StringToUint64(disk_fields[kDiskReadsMerged], &reads_merged);
       StringToUint64(disk_fields[kDiskSectorsRead], &sectors_read);

@@ -1,11 +1,12 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _FX_GE_WIN32_H_
-#define _FX_GE_WIN32_H_
+#ifndef CORE_INCLUDE_FXGE_FX_GE_WIN32_H_
+#define CORE_INCLUDE_FXGE_FX_GE_WIN32_H_
+
 #ifdef _WIN32
 #ifndef _WINDOWS_
 #include <windows.h>
@@ -16,11 +17,11 @@ typedef struct  WINDIB_Open_Args_ {
 
     int         flags;
 
-    const FX_BYTE*  memory_base;
+    const uint8_t*  memory_base;
 
     size_t    memory_size;
 
-    FX_LPCWSTR  path_name;
+    const FX_WCHAR*  path_name;
 } WINDIB_Open_Args_;
 class CFX_WindowsDIB : public CFX_DIBitmap
 {
@@ -34,11 +35,11 @@ public:
 
     static CFX_DIBitmap* LoadFromDDB(HDC hDC, HBITMAP hBitmap, FX_DWORD* pPalette = NULL, FX_DWORD size = 256);
 
-    static CFX_DIBitmap* LoadFromFile(FX_LPCWSTR filename);
+    static CFX_DIBitmap* LoadFromFile(const FX_WCHAR* filename);
 
-    static CFX_DIBitmap* LoadFromFile(FX_LPCSTR filename)
+    static CFX_DIBitmap* LoadFromFile(const FX_CHAR* filename)
     {
-        return LoadFromFile(CFX_WideString::FromLocal(filename));
+        return LoadFromFile(CFX_WideString::FromLocal(filename).c_str());
     }
 
     static CFX_DIBitmap* LoadDIBitmap(WINDIB_Open_Args_ args);
@@ -102,4 +103,5 @@ protected:
     HDC		m_hDC;
 };
 #endif
-#endif
+
+#endif  // CORE_INCLUDE_FXGE_FX_GE_WIN32_H_

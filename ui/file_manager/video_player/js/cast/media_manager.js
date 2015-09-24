@@ -42,6 +42,9 @@ MediaManager.prototype.isAvailableForCast = function() {
  * @return {Promise} Promise which is resolved with the token. Reject if failed.
  */
 MediaManager.prototype.getToken = function(refresh) {
+  if (chrome.test)
+    return Promise.resolve('DUMMY_ACCESS_TOKEN');
+
   if (this.cachedToken_ && !refresh)
     return Promise.resolve(this.cachedToken_);
 
@@ -55,8 +58,9 @@ MediaManager.prototype.getToken = function(refresh) {
     }
     if (!url)
       return Promise.reject('Token fetch failed.');
-    var token = url.substring(url.indexOf('access_token=') + 13);
-    if (token) {
+    var index = url.indexOf('access_token=');
+    var token = url.substring(index + 13);
+    if (index > 0 && token) {
       this.cachedToken_ = token;
       return token;
     } else {
@@ -71,6 +75,9 @@ MediaManager.prototype.getToken = function(refresh) {
  * @return {Promise} Promise which is resolved with the url. Reject if failed.
  */
 MediaManager.prototype.getUrl = function() {
+  if (chrome.test)
+    return Promise.resolve('http://example.com/dummy_url.mp4');
+
   if (this.cachedUrl_)
     return Promise.resolve(this.cachedUrl_);
 
@@ -104,7 +111,7 @@ MediaManager.prototype.getMime = function() {
 
   return new Promise(function(fulfill, reject) {
     chrome.fileManagerPrivate.getEntryProperties(
-        [this.entry_.toURL()], fulfill);
+        [this.entry_], ['contentMimeType', 'thumbnailUrl'], fulfill);
   }.bind(this)).then(function(props) {
     if (!props || !props[0]) {
       return Promise.reject('Mime fetch failed.');
@@ -130,7 +137,7 @@ MediaManager.prototype.getThumbnail = function() {
 
   return new Promise(function(fulfill, reject) {
     chrome.fileManagerPrivate.getEntryProperties(
-        [this.entry_.toURL()], fulfill);
+        [this.entry_], ['contentMimeType', 'thumbnailUrl'], fulfill);
   }.bind(this)).then(function(props) {
     if (!props || !props[0]) {
       return Promise.reject('Thumbnail fetch failed.');

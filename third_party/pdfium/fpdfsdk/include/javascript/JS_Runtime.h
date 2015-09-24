@@ -1,11 +1,25 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _JS_RUNTIME_H_
-#define _JS_RUNTIME_H_
+#ifndef FPDFSDK_INCLUDE_JAVASCRIPT_JS_RUNTIME_H_
+#define FPDFSDK_INCLUDE_JAVASCRIPT_JS_RUNTIME_H_
+
+#include "../../../third_party/base/nonstd_unique_ptr.h"
+#include "../../../core/include/fxcrt/fx_basic.h"
+#include "../jsapi/fxjs_v8.h"
+#include "IJavaScript.h"
+#include "JS_EventHandler.h"
+
+class CJS_Context;
+
+class CJS_ArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
+    void* Allocate(size_t length) override;
+    void* AllocateUninitialized(size_t length) override;
+    void Free(void* data, size_t length) override;
+};
 
 class CJS_FieldEvent
 {
@@ -28,15 +42,6 @@ public:
 	virtual void							SetReaderDocument(CPDFSDK_Document *pReaderDoc);
 	virtual CPDFSDK_Document *				GetReaderDocument(){return m_pDocument;}
 
-	virtual void							GetObjectNames(CFX_WideStringArray& array);
-	virtual void							GetObjectConsts(const CFX_WideString& swObjName, CFX_WideStringArray& array);
-	virtual void							GetObjectProps(const CFX_WideString& swObjName, CFX_WideStringArray& array);
-	virtual void							GetObjectMethods(const CFX_WideString& swObjName, CFX_WideStringArray& array);
-
-	virtual void							Exit();
-	virtual void							Enter();
-	virtual FX_BOOL							IsEntered();
-
 	CPDFDoc_Environment *							GetReaderApp(){return m_pApp;}
 
 	FX_BOOL									InitJSObjects();
@@ -53,18 +58,18 @@ public:
 	v8::Isolate*								GetIsolate(){return m_isolate;};
 	void									SetIsolate(v8::Isolate* isolate){m_isolate = isolate;}
 
-	v8::Handle<v8::Context>							NewJSContext();
+	v8::Local<v8::Context>							NewJSContext();
 protected:
-	CFX_ArrayTemplate<CJS_Context *>		m_ContextArray;
-	CPDFDoc_Environment *							m_pApp;
-	CPDFSDK_Document *						m_pDocument;
+	CFX_ArrayTemplate<CJS_Context*>		m_ContextArray;
+	CPDFDoc_Environment*							m_pApp;
+	CPDFSDK_Document*						m_pDocument;
 	FX_BOOL									m_bBlocking;
+	FX_BOOL									m_bRegistered;
 	CJS_FieldEvent*							m_pFieldEventPath;
 
-	v8::Isolate*								m_isolate;
-	v8::Persistent<v8::Context>						m_context;
-	FX_BOOL									m_bRegistered;
+	v8::Isolate* m_isolate;
+	nonstd::unique_ptr<CJS_ArrayBufferAllocator> m_pArrayBufferAllocator;
+	v8::Global<v8::Context> m_context;
 };
 
-#endif //_JS_RUNTIME_H_
-
+#endif  // FPDFSDK_INCLUDE_JAVASCRIPT_JS_RUNTIME_H_

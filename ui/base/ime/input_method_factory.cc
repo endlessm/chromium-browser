@@ -14,13 +14,16 @@
 #include "ui/base/ime/remote_input_method_win.h"
 #elif defined(OS_MACOSX)
 #include "ui/base/ime/input_method_mac.h"
-#elif defined(USE_AURA) && defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#elif defined(USE_AURA) && defined(OS_LINUX) && defined(USE_X11) && \
+      !defined(OS_CHROMEOS)
 #include "ui/base/ime/input_method_auralinux.h"
 #else
 #include "ui/base/ime/input_method_minimal.h"
 #endif
 
 namespace {
+
+ui::InputMethod* g_input_method_for_testing = nullptr;
 
 bool g_input_method_set_for_testing = false;
 
@@ -36,21 +39,28 @@ scoped_ptr<InputMethod> CreateInputMethod(
   if (!g_create_input_method_called)
     g_create_input_method_called = true;
 
+  if (g_input_method_for_testing) {
+    ui::InputMethod* ret = g_input_method_for_testing;
+    g_input_method_for_testing = nullptr;
+    return make_scoped_ptr(ret);
+  }
+
   if (g_input_method_set_for_testing)
-    return scoped_ptr<InputMethod>(new MockInputMethod(delegate));
+    return make_scoped_ptr(new MockInputMethod(delegate));
 
 #if defined(OS_CHROMEOS)
-  return scoped_ptr<InputMethod>(new InputMethodChromeOS(delegate));
+  return make_scoped_ptr(new InputMethodChromeOS(delegate));
 #elif defined(OS_WIN)
   if (IsRemoteInputMethodWinRequired(widget))
     return CreateRemoteInputMethodWin(delegate);
-  return scoped_ptr<InputMethod>(new InputMethodWin(delegate, widget));
+  return make_scoped_ptr(new InputMethodWin(delegate, widget));
 #elif defined(OS_MACOSX)
-  return scoped_ptr<InputMethod>(new InputMethodMac(delegate));
-#elif defined(USE_AURA) && defined(OS_LINUX) && !defined(OS_CHROMEOS)
-  return scoped_ptr<InputMethod>(new InputMethodAuraLinux(delegate));
+  return make_scoped_ptr(new InputMethodMac(delegate));
+#elif defined(USE_AURA) && defined(OS_LINUX) && defined(USE_X11) && \
+      !defined(OS_CHROMEOS)
+  return make_scoped_ptr(new InputMethodAuraLinux(delegate));
 #else
-  return scoped_ptr<InputMethod>(new InputMethodMinimal(delegate));
+  return make_scoped_ptr(new InputMethodMinimal(delegate));
 #endif
 }
 
@@ -64,6 +74,10 @@ void SetUpInputMethodFactoryForTesting() {
       << "ui::SetUpInputMethodFactoryForTesting earlier.";
 
   g_input_method_set_for_testing = true;
+}
+
+void SetUpInputMethodForTesting(InputMethod* input_method) {
+  g_input_method_for_testing = input_method;
 }
 
 }  // namespace ui

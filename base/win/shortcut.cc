@@ -5,13 +5,18 @@
 #include "base/win/shortcut.h"
 
 #include <shellapi.h>
+#include <shldisp.h>
 #include <shlobj.h>
 #include <propkey.h>
 
 #include "base/files/file_util.h"
+#include "base/strings/string_util.h"
 #include "base/threading/thread_restrictions.h"
+#include "base/win/scoped_bstr.h"
 #include "base/win/scoped_comptr.h"
+#include "base/win/scoped_handle.h"
 #include "base/win/scoped_propvariant.h"
+#include "base/win/scoped_variant.h"
 #include "base/win/win_util.h"
 #include "base/win/windows_version.h"
 
@@ -19,6 +24,90 @@ namespace base {
 namespace win {
 
 namespace {
+
+// String resource IDs in shell32.dll.
+const uint32_t kPinToTaskbarID = 5386;
+const uint32_t kUnpinFromTaskbarID = 5387;
+
+// Traits for a GenericScopedHandle that will free a module on closure.
+struct ModuleTraits {
+  typedef HMODULE Handle;
+  static Handle NullHandle() { return nullptr; }
+  static bool IsHandleValid(Handle module) { return !!module; }
+  static bool CloseHandle(Handle module) { return !!::FreeLibrary(module); }
+
+ private:
+  DISALLOW_IMPLICIT_CONSTRUCTORS(ModuleTraits);
+};
+
+// An object that will free a module when it goes out of scope.
+using ScopedLibrary = GenericScopedHandle<ModuleTraits, DummyVerifierTraits>;
+
+// Returns the shell resource string identified by |resource_id|, or an empty
+// string on error.
+string16 LoadShellResourceString(uint32_t resource_id) {
+  ScopedLibrary shell32(::LoadLibrary(L"shell32.dll"));
+  if (!shell32.IsValid())
+    return string16();
+
+  const wchar_t* resource_ptr = nullptr;
+  int length = ::LoadStringW(shell32.Get(), resource_id,
+                             reinterpret_cast<wchar_t*>(&resource_ptr), 0);
+  if (!length || !resource_ptr)
+    return string16();
+  return string16(resource_ptr, length);
+}
+
+// Uses the shell to perform the verb identified by |resource_id| on |path|.
+bool DoVerbOnFile(uint32_t resource_id, const FilePath& path) {
+  string16 verb_name(LoadShellResourceString(resource_id));
+  if (verb_name.empty())
+    return false;
+
+  ScopedComPtr<IShellDispatch> shell_dispatch;
+  HRESULT hresult =
+      shell_dispatch.CreateInstance(CLSID_Shell, nullptr, CLSCTX_INPROC_SERVER);
+  if (FAILED(hresult) || !shell_dispatch.get())
+    return false;
+
+  ScopedComPtr<Folder> folder;
+  hresult = shell_dispatch->NameSpace(
+      ScopedVariant(path.DirName().value().c_str()), folder.Receive());
+  if (FAILED(hresult) || !folder.get())
+    return false;
+
+  ScopedComPtr<FolderItem> item;
+  hresult = folder->ParseName(ScopedBstr(path.BaseName().value().c_str()),
+                              item.Receive());
+  if (FAILED(hresult) || !item.get())
+    return false;
+
+  ScopedComPtr<FolderItemVerbs> verbs;
+  hresult = item->Verbs(verbs.Receive());
+  if (FAILED(hresult) || !verbs.get())
+    return false;
+
+  long verb_count = 0;
+  hresult = verbs->get_Count(&verb_count);
+  if (FAILED(hresult))
+    return false;
+
+  for (long i = 0; i < verb_count; ++i) {
+    ScopedComPtr<FolderItemVerb> verb;
+    hresult = verbs->Item(ScopedVariant(i, VT_I4), verb.Receive());
+    if (FAILED(hresult) || !verb.get())
+      continue;
+    ScopedBstr name;
+    hresult = verb->get_Name(name.Receive());
+    if (FAILED(hresult))
+      continue;
+    if (StringPiece16(name, name.Length()) == verb_name) {
+      hresult = verb->DoIt();
+      return SUCCEEDED(hresult);
+    }
+  }
+  return false;
+}
 
 // Initializes |i_shell_link| and |i_persist_file| (releasing them first if they
 // are already initialized).
@@ -33,7 +122,7 @@ void InitializeShortcutInterfaces(
   i_persist_file->Release();
   if (FAILED(i_shell_link->CreateInstance(CLSID_ShellLink, NULL,
                                           CLSCTX_INPROC_SERVER)) ||
-      FAILED(i_persist_file->QueryFrom(*i_shell_link)) ||
+      FAILED(i_persist_file->QueryFrom(i_shell_link->get())) ||
       (shortcut && FAILED((*i_persist_file)->Load(shortcut, STGM_READWRITE)))) {
     i_shell_link->Release();
     i_persist_file->Release();
@@ -41,6 +130,13 @@ void InitializeShortcutInterfaces(
 }
 
 }  // namespace
+
+ShortcutProperties::ShortcutProperties()
+    : icon_index(-1), dual_mode(false), options(0U) {
+}
+
+ShortcutProperties::~ShortcutProperties() {
+}
 
 bool CreateOrUpdateShortcutLink(const FilePath& shortcut_path,
                                 const ShortcutProperties& properties,
@@ -129,15 +225,17 @@ bool CreateOrUpdateShortcutLink(const FilePath& shortcut_path,
   if ((has_app_id || has_dual_mode) &&
       GetVersion() >= VERSION_WIN7) {
     ScopedComPtr<IPropertyStore> property_store;
-    if (FAILED(property_store.QueryFrom(i_shell_link)) || !property_store.get())
+    if (FAILED(property_store.QueryFrom(i_shell_link.get())) ||
+        !property_store.get())
       return false;
 
     if (has_app_id &&
-        !SetAppIdForPropertyStore(property_store, properties.app_id.c_str())) {
+        !SetAppIdForPropertyStore(property_store.get(),
+                                  properties.app_id.c_str())) {
       return false;
     }
     if (has_dual_mode &&
-        !SetBooleanValueForPropertyStore(property_store,
+        !SetBooleanValueForPropertyStore(property_store.get(),
                                          PKEY_AppUserModel_IsDualMode,
                                          properties.dual_mode)) {
       return false;
@@ -192,7 +290,7 @@ bool ResolveShortcutProperties(const FilePath& shortcut_path,
 
   ScopedComPtr<IPersistFile> persist;
   // Query IShellLink for the IPersistFile interface.
-  if (FAILED(persist.QueryFrom(i_shell_link)))
+  if (FAILED(persist.QueryFrom(i_shell_link.get())))
     return false;
 
   // Load the shell link.
@@ -239,7 +337,7 @@ bool ResolveShortcutProperties(const FilePath& shortcut_path,
   if ((options & ShortcutProperties::PROPERTIES_WIN7) &&
       GetVersion() >= VERSION_WIN7) {
     ScopedComPtr<IPropertyStore> property_store;
-    if (FAILED(property_store.QueryFrom(i_shell_link)))
+    if (FAILED(property_store.QueryFrom(i_shell_link.get())))
       return false;
 
     if (options & ShortcutProperties::PROPERTIES_APP_ID) {
@@ -305,28 +403,24 @@ bool ResolveShortcut(const FilePath& shortcut_path,
   return true;
 }
 
-bool TaskbarPinShortcutLink(const wchar_t* shortcut) {
+bool TaskbarPinShortcutLink(const FilePath& shortcut) {
   base::ThreadRestrictions::AssertIOAllowed();
 
   // "Pin to taskbar" is only supported after Win7.
   if (GetVersion() < VERSION_WIN7)
     return false;
 
-  int result = reinterpret_cast<int>(ShellExecute(NULL, L"taskbarpin", shortcut,
-      NULL, NULL, 0));
-  return result > 32;
+  return DoVerbOnFile(kPinToTaskbarID, shortcut);
 }
 
-bool TaskbarUnpinShortcutLink(const wchar_t* shortcut) {
+bool TaskbarUnpinShortcutLink(const FilePath& shortcut) {
   base::ThreadRestrictions::AssertIOAllowed();
 
   // "Unpin from taskbar" is only supported after Win7.
   if (GetVersion() < VERSION_WIN7)
     return false;
 
-  int result = reinterpret_cast<int>(ShellExecute(NULL, L"taskbarunpin",
-      shortcut, NULL, NULL, 0));
-  return result > 32;
+  return DoVerbOnFile(kUnpinFromTaskbarID, shortcut);
 }
 
 }  // namespace win

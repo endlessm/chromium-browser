@@ -13,8 +13,8 @@
 #include "base/time/clock.h"
 #include "base/time/time.h"
 #include "base/values.h"
-#include "components/invalidation/invalidation_service.h"
-#include "components/invalidation/object_id_invalidation_map.h"
+#include "components/invalidation/public/invalidation_service.h"
+#include "components/invalidation/public/object_id_invalidation_map.h"
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
 #include "components/policy/core/common/cloud/cloud_policy_refresh_scheduler.h"
 #include "components/policy/core/common/cloud/enterprise_metrics.h"
@@ -308,16 +308,15 @@ void CloudPolicyInvalidator::Register(const invalidation::ObjectId& object_id) {
   // Update registration with the invalidation service.
   syncer::ObjectIdSet ids;
   ids.insert(object_id);
-  invalidation_service_->UpdateRegisteredInvalidationIds(this, ids);
+  CHECK(invalidation_service_->UpdateRegisteredInvalidationIds(this, ids));
 }
 
 void CloudPolicyInvalidator::Unregister() {
   if (is_registered_) {
     if (invalid_)
       AcknowledgeInvalidation();
-    invalidation_service_->UpdateRegisteredInvalidationIds(
-        this,
-        syncer::ObjectIdSet());
+    CHECK(invalidation_service_->UpdateRegisteredInvalidationIds(
+        this, syncer::ObjectIdSet()));
     invalidation_service_->UnregisterInvalidationHandler(this);
     is_registered_ = false;
     UpdateInvalidationsEnabled();

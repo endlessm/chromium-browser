@@ -4,6 +4,7 @@
 
 #include "ash/wm/lock_window_state.h"
 
+#include "ash/display/display_manager.h"
 #include "ash/screen_util.h"
 #include "ash/shell.h"
 #include "ash/wm/lock_layout_manager.h"
@@ -15,7 +16,7 @@
 #include "ash/wm/wm_event.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_delegate.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/keyboard/keyboard_controller.h"
 #include "ui/keyboard/keyboard_util.h"
 #include "ui/wm/core/window_animations.h"
@@ -76,6 +77,8 @@ void LockWindowState::OnWMEvent(wm::WindowState* window_state,
           current_state_type_ != wm::WINDOW_STATE_TYPE_FULLSCREEN) {
         UpdateWindow(window_state,
                      GetMaximizedOrCenteredWindowType(window_state));
+      } else {
+        UpdateBounds(window_state);
       }
       break;
     case wm::WM_EVENT_WORKAREA_BOUNDS_CHANGED:
@@ -162,6 +165,17 @@ wm::WindowStateType LockWindowState::GetMaximizedOrCenteredWindowType(
                                        wm::WINDOW_STATE_TYPE_NORMAL;
 }
 
+gfx::Rect GetBoundsForLockWindow(aura::Window* window) {
+  DisplayManager* display_manager = Shell::GetInstance()->display_manager();
+  if (display_manager->IsInUnifiedMode()) {
+    const gfx::Display& first =
+        display_manager->software_mirroring_display_list()[0];
+    return first.bounds();
+  } else {
+    return ScreenUtil::GetDisplayBoundsInParent(window);
+  }
+}
+
 void LockWindowState::UpdateBounds(wm::WindowState* window_state) {
   if (!window_state->IsMaximized() && !window_state->IsFullscreen())
     return;
@@ -175,9 +189,9 @@ void LockWindowState::UpdateBounds(wm::WindowState* window_state) {
       keyboard_controller->keyboard_visible()) {
     keyboard_bounds = keyboard_controller->current_keyboard_bounds();
   }
-
   gfx::Rect bounds =
-      ScreenUtil::GetDisplayBoundsInParent(window_state->window());
+      ScreenUtil::GetShelfDisplayBoundsInScreen(window_state->window());
+
   bounds.set_height(bounds.height() - keyboard_bounds.height());
 
   VLOG(1) << "Updating window bounds to: " << bounds.ToString();

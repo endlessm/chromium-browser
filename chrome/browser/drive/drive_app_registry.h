@@ -14,7 +14,8 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "google_apis/drive/gdata_errorcode.h"
+#include "base/threading/thread_checker.h"
+#include "google_apis/drive/drive_api_error_codes.h"
 #include "url/gurl.h"
 
 namespace google_apis {
@@ -66,7 +67,7 @@ struct DriveAppInfo {
 };
 
 // Callback type for UninstallApp().
-typedef base::Callback<void(google_apis::GDataErrorCode)> UninstallCallback;
+typedef base::Callback<void(google_apis::DriveApiErrorCode)> UninstallCallback;
 
 // Keeps the track of installed drive applications in-memory.
 class DriveAppRegistry {
@@ -106,13 +107,16 @@ class DriveAppRegistry {
  private:
   // Part of Update(). Runs upon the completion of fetching the Drive apps
   // data from the server.
-  void UpdateAfterGetAppList(google_apis::GDataErrorCode gdata_error,
+  void UpdateAfterGetAppList(google_apis::DriveApiErrorCode gdata_error,
                              scoped_ptr<google_apis::AppList> app_list);
 
   // Part of UninstallApp(). Receives the response from the server.
   void OnAppUninstalled(const std::string& app_id,
                         const UninstallCallback& callback,
-                        google_apis::GDataErrorCode error);
+                        google_apis::DriveApiErrorCode error);
+
+  // The class is expected to run on UI thread.
+  base::ThreadChecker thread_checker_;
 
   // Map of application id to each app's info.
   std::map<std::string, DriveAppInfo> all_apps_;
@@ -127,7 +131,7 @@ class DriveAppRegistry {
 
   bool is_updating_;
 
-  ObserverList<DriveAppRegistryObserver> observers_;
+  base::ObserverList<DriveAppRegistryObserver> observers_;
 
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate the weak pointers before any other members are destroyed.

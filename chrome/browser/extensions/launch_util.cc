@@ -5,7 +5,6 @@
 #include "chrome/browser/extensions/launch_util.h"
 
 #include "base/values.h"
-#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_sync_service.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/profiles/profile.h"
@@ -14,6 +13,7 @@
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "extensions/browser/extension_prefs.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/browser/pref_names.h"
 #include "extensions/common/extension.h"
 
@@ -34,10 +34,8 @@ namespace launch_util {
 
 // static
 void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterIntegerPref(
-      pref_names::kBookmarkAppCreationLaunchType,
-      LAUNCH_TYPE_WINDOW,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterIntegerPref(pref_names::kBookmarkAppCreationLaunchType,
+                                LAUNCH_TYPE_REGULAR);
 }
 
 }  // namespace launch_util
@@ -46,23 +44,23 @@ LaunchType GetLaunchType(const ExtensionPrefs* prefs,
                          const Extension* extension) {
   LaunchType result = LAUNCH_TYPE_DEFAULT;
 
-  // Launch hosted apps as windows by default for streamlined hosted apps.
-  if (util::IsStreamlinedHostedAppsEnabled() &&
-      extension->id() != extension_misc::kChromeAppId) {
-    result = LAUNCH_TYPE_WINDOW;
-  }
-
   int value = GetLaunchTypePrefValue(prefs, extension->id());
   if (value >= LAUNCH_TYPE_FIRST && value < NUM_LAUNCH_TYPES)
     result = static_cast<LaunchType>(value);
 
 #if defined(OS_MACOSX)
-    // App windows are not yet supported on mac.  Pref sync could make
-    // the launch type LAUNCH_TYPE_WINDOW, even if there is no UI to set it
-    // on mac.
-    if (!extension->is_platform_app() && result == LAUNCH_TYPE_WINDOW)
-      result = LAUNCH_TYPE_REGULAR;
+  // On Mac, opening in a window is only supported if bookmark apps are enabled.
+  if (!extensions::util::IsNewBookmarkAppsEnabled() &&
+      !extension->is_platform_app() && result == LAUNCH_TYPE_WINDOW)
+    result = LAUNCH_TYPE_REGULAR;
 #endif
+
+  if (extensions::util::IsNewBookmarkAppsEnabled()) {
+    if (result == LAUNCH_TYPE_PINNED)
+      result = LAUNCH_TYPE_REGULAR;
+    if (result == LAUNCH_TYPE_FULLSCREEN)
+      result = LAUNCH_TYPE_WINDOW;
+  }
 
   return result;
 }
@@ -74,22 +72,21 @@ LaunchType GetLaunchTypePrefValue(const ExtensionPrefs* prefs,
       ? static_cast<LaunchType>(value) : LAUNCH_TYPE_INVALID;
 }
 
-void SetLaunchType(ExtensionService* service,
+void SetLaunchType(content::BrowserContext* context,
                    const std::string& extension_id,
                    LaunchType launch_type) {
   DCHECK(launch_type >= LAUNCH_TYPE_FIRST && launch_type < NUM_LAUNCH_TYPES);
 
-  ExtensionPrefs::Get(service->profile())->UpdateExtensionPref(
-      extension_id,
-      kPrefLaunchType,
+  ExtensionPrefs::Get(context)->UpdateExtensionPref(
+      extension_id, kPrefLaunchType,
       new base::FundamentalValue(static_cast<int>(launch_type)));
 
   // Sync the launch type.
-  const Extension* extension = service->GetInstalledExtension(extension_id);
-  if (extension) {
-    ExtensionSyncService::Get(service->profile())->
-        SyncExtensionChangeIfNeeded(*extension);
-  }
+  const Extension* extension =
+      ExtensionRegistry::Get(context)
+          ->GetExtensionById(extension_id, ExtensionRegistry::EVERYTHING);
+  if (extension)
+    ExtensionSyncService::Get(context)->SyncExtensionChangeIfNeeded(*extension);
 }
 
 LaunchContainer GetLaunchContainer(const ExtensionPrefs* prefs,
@@ -152,6 +149,12 @@ bool HasPreferredLaunchContainer(const ExtensionPrefs* prefs,
       AppLaunchInfo::GetLaunchContainer(extension);
   return manifest_launch_container == LAUNCH_CONTAINER_TAB &&
       prefs->ReadPrefAsInteger(extension->id(), kPrefLaunchType, &value);
+}
+
+bool LaunchesInWindow(content::BrowserContext* context,
+                      const Extension* extension) {
+  return GetLaunchType(ExtensionPrefs::Get(context), extension) ==
+         LAUNCH_TYPE_WINDOW;
 }
 
 }  // namespace extensions

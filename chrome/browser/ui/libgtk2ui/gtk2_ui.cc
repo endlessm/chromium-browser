@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/libgtk2ui/gtk2_ui.h"
 
+#include <math.h>
 #include <set>
 
 #include <pango/pango.h>
@@ -16,6 +17,7 @@
 #include "base/nix/mime_util_xdg.h"
 #include "base/nix/xdg_util.h"
 #include "base/stl_util.h"
+#include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/libgtk2ui/app_indicator_icon.h"
@@ -42,16 +44,18 @@
 #include "third_party/skia/include/core/SkShader.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
+#include "ui/gfx/display.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/image/image.h"
-#include "ui/gfx/pango_util.h"
-#include "ui/gfx/rect.h"
-#include "ui/gfx/size.h"
 #include "ui/gfx/skbitmap_operations.h"
 #include "ui/gfx/skia_util.h"
+#include "ui/native_theme/native_theme.h"
 #include "ui/resources/grit/ui_resources.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/button/label_button_border.h"
 #include "ui/views/linux_ui/window_button_order_observer.h"
+#include "ui/views/resources/grit/views_resources.h"
 
 #if defined(USE_GCONF)
 #include "chrome/browser/ui/libgtk2ui/gconf_listener.h"
@@ -161,6 +165,7 @@ const int kThemeImages[] = {
 // TODO(erg): Decide what to do about other icons that appear in the omnibox,
 // e.g. content settings icons.
 const int kAutocompleteImages[] = {
+  IDR_OMNIBOX_CALCULATOR,
   IDR_OMNIBOX_EXTENSION_APP,
   IDR_OMNIBOX_HTTP,
   IDR_OMNIBOX_HTTP_DARK,
@@ -198,9 +203,6 @@ const int kOtherToolbarButtonIDs[] = {
   IDR_TOOLBAR_BEZEL_HOVER,
   IDR_TOOLBAR_BEZEL_PRESSED,
   IDR_BROWSER_ACTIONS_OVERFLOW,
-  IDR_THROBBER,
-  IDR_THROBBER_WAITING,
-  IDR_THROBBER_LIGHT,
 
   // TODO(erg): The dropdown arrow should be tinted because we're injecting
   // various background GTK colors, but the code that accesses them needs to be
@@ -327,7 +329,7 @@ color_utils::HSL GetDefaultTint(int id) {
   }
 }
 
-// Returns a FontRenderParams corresponding to GTK's configuration.
+// Returns a gfx::FontRenderParams corresponding to GTK's configuration.
 gfx::FontRenderParams GetGtkFontRenderParams() {
   GtkSettings* gtk_settings = gtk_settings_get_default();
   CHECK(gtk_settings);
@@ -379,6 +381,29 @@ gfx::FontRenderParams GetGtkFontRenderParams() {
   return params;
 }
 
+double GetDPI() {
+  GtkSettings* gtk_settings = gtk_settings_get_default();
+  CHECK(gtk_settings);
+  gint gtk_dpi = -1;
+  g_object_get(gtk_settings, "gtk-xft-dpi", &gtk_dpi, NULL);
+
+  // GTK multiplies the DPI by 1024 before storing it.
+  return (gtk_dpi > 0) ? gtk_dpi / 1024.0 : 96.0;
+}
+
+// Queries GTK for its font DPI setting and returns the number of pixels in a
+// point.
+double GetPixelsInPoint(float device_scale_factor) {
+  double dpi = GetDPI();
+
+  // Take device_scale_factor into account — if Chrome already scales the
+  // entire UI up by 2x, we should not also scale up.
+  dpi /= device_scale_factor;
+
+  // There are 72 points in an inch.
+  return dpi / 72.0;
+}
+
 views::LinuxUI::NonClientMiddleClickAction GetDefaultMiddleClickAction() {
   scoped_ptr<base::Environment> env(base::Environment::Create());
   switch (base::nix::GetDesktopEnvironment(env.get())) {
@@ -395,8 +420,12 @@ views::LinuxUI::NonClientMiddleClickAction GetDefaultMiddleClickAction() {
 
 }  // namespace
 
-Gtk2UI::Gtk2UI() : middle_click_action_(GetDefaultMiddleClickAction()) {
-  GtkInitFromCommandLine(*CommandLine::ForCurrentProcess());
+Gtk2UI::Gtk2UI()
+    : default_font_size_pixels_(0),
+      default_font_style_(gfx::Font::NORMAL),
+      middle_click_action_(GetDefaultMiddleClickAction()),
+      device_scale_factor_(1.0) {
+  GtkInitFromCommandLine(*base::CommandLine::ForCurrentProcess());
 }
 
 void Gtk2UI::Initialize() {
@@ -660,9 +689,10 @@ void Gtk2UI::SetNonClientMiddleClickAction(NonClientMiddleClickAction action) {
 }
 
 scoped_ptr<ui::LinuxInputMethodContext> Gtk2UI::CreateInputMethodContext(
-    ui::LinuxInputMethodContextDelegate* delegate) const {
+    ui::LinuxInputMethodContextDelegate* delegate,
+    bool is_simple) const {
   return scoped_ptr<ui::LinuxInputMethodContext>(
-      new X11InputMethodContextImplGtk2(delegate));
+      new X11InputMethodContextImplGtk2(delegate, is_simple));
 }
 
 gfx::FontRenderParams Gtk2UI::GetDefaultFontRenderParams() const {
@@ -670,21 +700,15 @@ gfx::FontRenderParams Gtk2UI::GetDefaultFontRenderParams() const {
   return params;
 }
 
-scoped_ptr<gfx::ScopedPangoFontDescription>
-Gtk2UI::GetDefaultPangoFontDescription() const {
-  return scoped_ptr<gfx::ScopedPangoFontDescription>(
-      new gfx::ScopedPangoFontDescription(
-          pango_font_description_copy(default_font_description_->get())));
-}
-
-double Gtk2UI::GetFontDPI() const {
-  GtkSettings* gtk_settings = gtk_settings_get_default();
-  CHECK(gtk_settings);
-  gint dpi = -1;
-  g_object_get(gtk_settings, "gtk-xft-dpi", &dpi, NULL);
-
-  // GTK multiplies the DPI by 1024 before storing it.
-  return (dpi > 0) ? dpi / 1024.0 : dpi;
+void Gtk2UI::GetDefaultFontDescription(
+    std::string* family_out,
+    int* size_pixels_out,
+    int* style_out,
+    gfx::FontRenderParams* params_out) const {
+  *family_out = default_font_family_;
+  *size_pixels_out = default_font_size_pixels_;
+  *style_out = default_font_style_;
+  *params_out = default_font_render_params_;
 }
 
 ui::SelectFileDialog* Gtk2UI::CreateSelectFileDialog(
@@ -851,8 +875,7 @@ void Gtk2UI::LoadGtkValues() {
   SetThemeColorFromGtk(ThemeProperties::COLOR_BOOKMARK_TEXT, &label_color);
   SetThemeColorFromGtk(ThemeProperties::COLOR_STATUS_BAR_TEXT, &label_color);
 
-  default_font_description_.reset(new gfx::ScopedPangoFontDescription(
-      pango_font_description_copy(label_style->font_desc)));
+  UpdateDefaultFont(label_style->font_desc);
 
   // Build the various icon tints.
   GetNormalButtonTintHSL(&button_tint_);
@@ -949,6 +972,13 @@ void Gtk2UI::LoadGtkValues() {
       GdkColorToSkColor(entry_style->base[GTK_STATE_ACTIVE]);
   inactive_selection_fg_color_ =
       GdkColorToSkColor(entry_style->text[GTK_STATE_ACTIVE]);
+
+  colors_[ThemeProperties::COLOR_THROBBER_SPINNING] =
+      NativeThemeGtk2::instance()->GetSystemColor(
+          ui::NativeTheme::kColorId_ThrobberSpinningColor);
+  colors_[ThemeProperties::COLOR_THROBBER_WAITING] =
+      NativeThemeGtk2::instance()->GetSystemColor(
+          ui::NativeTheme::kColorId_ThrobberWaitingColor);
 }
 
 GdkColor Gtk2UI::BuildFrameColors(GtkStyle* frame_style) {
@@ -1081,6 +1111,7 @@ SkBitmap Gtk2UI::GenerateGtkThemeBitmap(int id) const {
     // different colors between the omnibox and the normal background area.
     // TODO(erg): Decide what to do about other icons that appear in the
     // omnibox, e.g. content settings icons.
+    case IDR_OMNIBOX_CALCULATOR:
     case IDR_OMNIBOX_EXTENSION_APP:
     case IDR_OMNIBOX_HTTP:
     case IDR_OMNIBOX_SEARCH:
@@ -1146,8 +1177,6 @@ SkBitmap Gtk2UI::GenerateFrameImage(
     SkColor lighter = gradient_top_color ?
         GdkColorToSkColor(*gradient_top_color) :
         color_utils::HSLShift(base, kGtkFrameShift);
-    if (gradient_top_color)
-      gdk_color_free(gradient_top_color);
     skia::RefPtr<SkShader> shader = gfx::CreateGradientShader(
         0, gradient_size, lighter, base);
     SkPaint paint;
@@ -1157,6 +1186,9 @@ SkBitmap Gtk2UI::GenerateFrameImage(
 
     canvas.DrawRect(gfx::Rect(0, 0, kToolbarImageWidth, gradient_size), paint);
   }
+
+  if (gradient_top_color)
+    gdk_color_free(gradient_top_color);
 
   canvas.FillRect(gfx::Rect(0, gradient_size, kToolbarImageWidth,
                             kToolbarImageHeight - gradient_size), base);
@@ -1353,10 +1385,61 @@ void Gtk2UI::ClearAllThemeData() {
   gtk_images_.clear();
 }
 
+void Gtk2UI::UpdateDefaultFont(const PangoFontDescription* desc) {
+  // Use gfx::FontRenderParams to select a family and determine the rendering
+  // settings.
+  gfx::FontRenderParamsQuery query;
+  base::SplitString(pango_font_description_get_family(desc), ',',
+                    &query.families);
+
+  if (pango_font_description_get_size_is_absolute(desc)) {
+    // If the size is absolute, it's specified in Pango units. There are
+    // PANGO_SCALE Pango units in a device unit (pixel).
+    const int size_pixels = pango_font_description_get_size(desc) / PANGO_SCALE;
+    default_font_size_pixels_ = size_pixels;
+    query.pixel_size = size_pixels;
+  } else {
+    // Non-absolute sizes are in points (again scaled by PANGO_SIZE).
+    // Round the value when converting to pixels to match GTK's logic.
+    const double size_points = pango_font_description_get_size(desc) /
+        static_cast<double>(PANGO_SCALE);
+    default_font_size_pixels_ = static_cast<int>(
+        GetPixelsInPoint(device_scale_factor_) * size_points + 0.5);
+    query.point_size = static_cast<int>(size_points);
+  }
+
+  query.style = gfx::Font::NORMAL;
+  // TODO(davemoore): Support weights other than bold?
+  if (pango_font_description_get_weight(desc) == PANGO_WEIGHT_BOLD)
+    query.style |= gfx::Font::BOLD;
+  // TODO(davemoore): What about PANGO_STYLE_OBLIQUE?
+  if (pango_font_description_get_style(desc) == PANGO_STYLE_ITALIC)
+    query.style |= gfx::Font::ITALIC;
+
+  default_font_render_params_ =
+      gfx::GetFontRenderParams(query, &default_font_family_);
+  default_font_style_ = query.style;
+}
+
 void Gtk2UI::OnStyleSet(GtkWidget* widget, GtkStyle* previous_style) {
   ClearAllThemeData();
   LoadGtkValues();
   NativeThemeGtk2::instance()->NotifyObservers();
+}
+
+void Gtk2UI::UpdateDeviceScaleFactor(float device_scale_factor) {
+  device_scale_factor_ = device_scale_factor;
+  GtkStyle* label_style = gtk_rc_get_style(fake_label_.get());
+  UpdateDefaultFont(label_style->font_desc);
+}
+
+float Gtk2UI::GetDeviceScaleFactor() const {
+  if (gfx::Display::HasForceDeviceScaleFactor())
+    return gfx::Display::GetForcedDeviceScaleFactor();
+  const int kCSSDefaultDPI = 96;
+  float scale = GetDPI() / kCSSDefaultDPI;
+  // Round to 1 decimal, e.g. to 1.4.
+  return roundf(scale * 10) / 10;
 }
 
 }  // namespace libgtk2ui

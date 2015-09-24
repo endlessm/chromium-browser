@@ -8,7 +8,7 @@
 #include "base/basictypes.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/browser/web_contents_observer.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace autofill {
 
@@ -38,7 +38,7 @@ class AutofillDialogSignInDelegate: public content::WebContentsDelegate,
   void AddNewContents(content::WebContents* source,
                       content::WebContents* new_contents,
                       WindowOpenDisposition disposition,
-                      const gfx::Rect& initial_pos,
+                      const gfx::Rect& initial_rect,
                       bool user_gesture,
                       bool* was_blocked) override;
   bool PreHandleGestureEvent(content::WebContents* source,

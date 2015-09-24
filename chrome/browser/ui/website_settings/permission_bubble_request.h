@@ -21,7 +21,7 @@ class PermissionBubbleRequest {
   virtual ~PermissionBubbleRequest() {}
 
   // The icon to use next to the message text fragment in the permission bubble.
-  // Must be a valid icon of size 16x16. (TODO(gbillock): tbd size)
+  // Must be a valid icon of size 18x18.
   virtual int GetIconID() const = 0;
 
   // Returns the full prompt text for this permission. This is the only text
@@ -35,8 +35,9 @@ class PermissionBubbleRequest {
   // next to an image and indicate the user grants the permission.
   virtual base::string16 GetMessageTextFragment() const = 0;
 
-  // Get whether this request was accompanied by a user gesture. User gestured
-  // permissions requests will not be suppressed.
+  // Get whether this request was accompanied by a user gesture. Non-gestured
+  // requests will be delayed if PermissionBubbleManager::
+  // RequireUserGesture(true) has been called on the manager.
   virtual bool HasUserGesture() const = 0;
 
   // Get the hostname on whose behalf this permission request is being made.

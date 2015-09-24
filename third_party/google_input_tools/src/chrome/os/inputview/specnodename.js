@@ -21,10 +21,13 @@ goog.provide('i18n.input.chrome.inputview.SpecNodeName');
  */
 i18n.input.chrome.inputview.SpecNodeName = {
   ALIGN: 'align',
+  ARIA_LABEL: 'ariaLabel',
   CHARACTERS: 'characters',
   CHILDREN: 'children',
   CONDITION: 'condition',
   DIRECTION: 'direction',
+  DISABLE_LONGPRESS: 'disableLongpress',
+  EMOJI_NAMES: 'emojiNames',
   GIVE_WEIGHT_TO: 'giveWeightTo',
   HAS_ALTGR_KEY: 'hasAltGrKey',
   HEIGHT: 'height',
@@ -51,6 +54,7 @@ i18n.input.chrome.inputview.SpecNodeName = {
   PADDING: 'padding',
   RECORD: 'record',
   SHOW_MENU_KEY: 'showMenuKey',
+  ENABLE_SHIFT_RENDERING: 'enableShiftRendering',
   SUPPORT_STICKY: 'supportSticky',
   SPEC: 'spec',
   TEXT: 'text',
@@ -65,6 +69,7 @@ i18n.input.chrome.inputview.SpecNodeName = {
   WIDTH_PERCENT: 'widthPercent',
   IS_EMOTICON: 'isEmoticon',
   MORE_KEYS_SHIFT_OPERATION: 'moreKeysShiftOperation',
-  ON_SHIFT: 'onShift'
+  ON_SHIFT: 'onShift',
+  FIXED_COLUMN_NUMBER: 'fixedColumnNumber'
 };
 

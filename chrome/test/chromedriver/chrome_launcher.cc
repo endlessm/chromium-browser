@@ -20,6 +20,7 @@
 #include "base/logging.h"
 #include "base/process/kill.h"
 #include "base/process/launch.h"
+#include "base/process/process.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -52,7 +53,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #elif defined(OS_WIN)
-#include "base/win/scoped_handle.h"
+#include "chrome/test/chromedriver/keycode_text_conversion.h"
 #endif
 
 namespace {
@@ -85,9 +86,9 @@ Status UnpackAutomationExtension(const base::FilePath& temp_dir,
   return Status(kOk);
 }
 
-Status PrepareCommandLine(int port,
+Status PrepareCommandLine(uint16 port,
                           const Capabilities& capabilities,
-                          CommandLine* prepared_command,
+                          base::CommandLine* prepared_command,
                           base::ScopedTempDir* user_data_dir,
                           base::ScopedTempDir* extension_dir,
                           std::vector<std::string>* extension_bg_pages) {
@@ -100,7 +101,7 @@ Status PrepareCommandLine(int port,
                   base::StringPrintf("no chrome binary at %" PRFilePath,
                                      program.value().c_str()));
   }
-  CommandLine command(program);
+  base::CommandLine command(program);
   Switches switches;
 
   for (size_t i = 0; i < arraysize(kCommonSwitches); ++i)
@@ -268,13 +269,13 @@ Status LaunchRemoteChromeSession(
 
 Status LaunchDesktopChrome(
     URLRequestContextGetter* context_getter,
-    int port,
+    uint16 port,
     scoped_ptr<PortReservation> port_reservation,
     const SyncWebSocketFactory& socket_factory,
     const Capabilities& capabilities,
     ScopedVector<DevToolsEventListener>* devtools_event_listeners,
     scoped_ptr<Chrome>* chrome) {
-  CommandLine command(CommandLine::NO_PROGRAM);
+  base::CommandLine command(base::CommandLine::NO_PROGRAM);
   base::ScopedTempDir user_data_dir;
   base::ScopedTempDir extension_dir;
   std::vector<std::string> extension_bg_pages;
@@ -316,7 +317,7 @@ Status LaunchDesktopChrome(
 #if defined(OS_POSIX)
   base::FileHandleMappingVector no_stderr;
   base::ScopedFD devnull;
-  if (!CommandLine::ForCurrentProcess()->HasSwitch("verbose")) {
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch("verbose")) {
     // Redirect stderr to /dev/null, so that Chrome log spew doesn't confuse
     // users.
     devnull.reset(HANDLE_EINTR(open("/dev/null", O_WRONLY)));
@@ -326,24 +327,9 @@ Status LaunchDesktopChrome(
     options.fds_to_remap = &no_stderr;
   }
 #elif defined(OS_WIN)
-  // Silence chrome error message.
-  HANDLE out_read;
-  HANDLE out_write;
-  SECURITY_ATTRIBUTES sa_attr;
-
-  sa_attr.nLength = sizeof(SECURITY_ATTRIBUTES);
-  sa_attr.bInheritHandle = TRUE;
-  sa_attr.lpSecurityDescriptor = NULL;
-  if (!CreatePipe(&out_read, &out_write, &sa_attr, 0))
-      return Status(kUnknownError, "CreatePipe() - Pipe creation failed");
-  // Prevent handle leak.
-  base::win::ScopedHandle scoped_out_read(out_read);
-  base::win::ScopedHandle scoped_out_write(out_write);
-
-  options.stdout_handle = out_write;
-  options.stderr_handle = out_write;
-  options.stdin_handle = GetStdHandle(STD_INPUT_HANDLE);
-  options.inherit_handles = true;
+  if (!SwitchToUSKeyboardLayout())
+    VLOG(0) << "Can not set to US keyboard layout - Some keycodes may be"
+        "interpreted incorrectly";
 #endif
 
 #if defined(OS_WIN)
@@ -352,8 +338,8 @@ Status LaunchDesktopChrome(
   std::string command_string = command.GetCommandLineString();
 #endif
   VLOG(0) << "Launching chrome: " << command_string;
-  base::ProcessHandle process;
-  if (!base::LaunchProcess(command, options, &process))
+  base::Process process = base::LaunchProcess(command, options);
+  if (!process.IsValid())
     return Status(kUnknownError, "chrome failed to start");
 
   scoped_ptr<DevToolsHttpClient> devtools_http_client;
@@ -364,7 +350,7 @@ Status LaunchDesktopChrome(
   if (status.IsError()) {
     int exit_code;
     base::TerminationStatus chrome_status =
-        base::GetTerminationStatus(process, &exit_code);
+        base::GetTerminationStatus(process.Handle(), &exit_code);
     if (chrome_status != base::TERMINATION_STATUS_STILL_RUNNING) {
       std::string termination_reason;
       switch (chrome_status) {
@@ -375,6 +361,9 @@ Status LaunchDesktopChrome(
           termination_reason = "exited abnormally";
           break;
         case base::TERMINATION_STATUS_PROCESS_WAS_KILLED:
+#if defined(OS_CHROMEOS)
+        case base::TERMINATION_STATUS_PROCESS_WAS_KILLED_BY_OOM:
+#endif
           termination_reason = "was killed";
           break;
         case base::TERMINATION_STATUS_PROCESS_CRASHED:
@@ -387,9 +376,9 @@ Status LaunchDesktopChrome(
       return Status(kUnknownError,
                     "Chrome failed to start: " + termination_reason);
     }
-    if (!base::KillProcess(process, 0, true)) {
+    if (!process.Terminate(0, true)) {
       int exit_code;
-      if (base::GetTerminationStatus(process, &exit_code) ==
+      if (base::GetTerminationStatus(process.Handle(), &exit_code) ==
           base::TERMINATION_STATUS_STILL_RUNNING)
         return Status(kUnknownError, "cannot kill Chrome", status);
     }
@@ -410,7 +399,7 @@ Status LaunchDesktopChrome(
                             devtools_websocket_client.Pass(),
                             *devtools_event_listeners,
                             port_reservation.Pass(),
-                            process,
+                            process.Pass(),
                             command,
                             &user_data_dir,
                             &extension_dir));
@@ -432,7 +421,7 @@ Status LaunchDesktopChrome(
 
 Status LaunchAndroidChrome(
     URLRequestContextGetter* context_getter,
-    int port,
+    uint16 port,
     scoped_ptr<PortReservation> port_reservation,
     const SyncWebSocketFactory& socket_factory,
     const Capabilities& capabilities,
@@ -511,7 +500,7 @@ Status LaunchChrome(
         capabilities, devtools_event_listeners, chrome);
   }
 
-  int port = 0;
+  uint16 port = 0;
   scoped_ptr<PortReservation> port_reservation;
   Status port_status(kOk);
 
@@ -658,7 +647,8 @@ Status ProcessExtension(const std::string& extension,
   std::string manifest_data;
   if (!base::ReadFileToString(manifest_path, &manifest_data))
     return Status(kUnknownError, "cannot read manifest");
-  scoped_ptr<base::Value> manifest_value(base::JSONReader::Read(manifest_data));
+  scoped_ptr<base::Value> manifest_value =
+      base::JSONReader::Read(manifest_data);
   base::DictionaryValue* manifest;
   if (!manifest_value || !manifest_value->GetAsDictionary(&manifest))
     return Status(kUnknownError, "invalid manifest");
@@ -686,7 +676,7 @@ Status ProcessExtension(const std::string& extension,
     }
   } else {
     manifest->SetString("key", public_key_base64);
-    base::JSONWriter::Write(manifest, &manifest_data);
+    base::JSONWriter::Write(*manifest, &manifest_data);
     if (base::WriteFile(
             manifest_path, manifest_data.c_str(), manifest_data.size()) !=
         static_cast<int>(manifest_data.size())) {
@@ -766,8 +756,9 @@ Status WritePrefsFile(
     const base::FilePath& path) {
   int code;
   std::string error_msg;
-  scoped_ptr<base::Value> template_value(base::JSONReader::ReadAndReturnError(
-          template_string, 0, &code, &error_msg));
+  scoped_ptr<base::Value> template_value(
+      base::JSONReader::DeprecatedReadAndReturnError(template_string, 0, &code,
+                                                     &error_msg));
   base::DictionaryValue* prefs;
   if (!template_value || !template_value->GetAsDictionary(&prefs)) {
     return Status(kUnknownError,
@@ -782,7 +773,7 @@ Status WritePrefsFile(
   }
 
   std::string prefs_str;
-  base::JSONWriter::Write(prefs, &prefs_str);
+  base::JSONWriter::Write(*prefs, &prefs_str);
   VLOG(0) << "Populating " << path.BaseName().value()
           << " file: " << PrettyPrintValue(*prefs);
   if (static_cast<int>(prefs_str.length()) != base::WriteFile(

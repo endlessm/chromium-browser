@@ -7,7 +7,6 @@
 
 #include "base/compiler_specific.h"
 #include "base/logging.h"
-#include "base/prefs/pref_member.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/views/frame/browser_non_client_frame_view.h"
 #include "ui/views/context_menu_controller.h"
@@ -73,6 +72,15 @@ class BrowserFrame
   // Tells the frame to update the throbber.
   void UpdateThrobber(bool running);
 
+  // Tells the frame to update any toolbar elements it has.
+  void UpdateToolbar();
+
+  // Returns the location icon, if there is a location icon embedded into the
+  // frame. This is the case for web app frames, which do not have a visible
+  // toolbar. Instead of using the normal location icon from the location bar
+  // in the toolbar, these windows have a location icon in the frame.
+  views::View* GetLocationIconView() const;
+
   // Returns the NonClientFrameView of this frame.
   views::View* GetFrameView() const;
 
@@ -114,9 +122,6 @@ class BrowserFrame
   ui::MenuModel* GetSystemMenuModel();
 
  private:
-  // Called when the preference changes.
-  void OnUseCustomChromeFrameChanged();
-
   NativeBrowserFrame* native_browser_frame_;
 
   // A weak reference to the root view associated with the window. We save a
@@ -138,13 +143,10 @@ class BrowserFrame
 
   // SetThemeProvider() triggers setting both |owned_theme_provider_| and
   // |theme_provider_|. Initially |theme_provider_| is set to the ThemeService
-  // and |owned_theme_provider_| is NULL (as ThemeServices lifetime is managed
+  // and |owned_theme_provider_| is null (as ThemeServices lifetime is managed
   // externally).
   scoped_ptr<ui::ThemeProvider> owned_theme_provider_;
   ui::ThemeProvider* theme_provider_;
-
-  // Whether the custom Chrome frame preference is set.
-  BooleanPrefMember use_custom_frame_pref_;
 
   scoped_ptr<ui::EventHandler> browser_command_handler_;
 

@@ -7,9 +7,10 @@
 
 #include "base/basictypes.h"
 #include "base/observer_list.h"
-#include "chrome/browser/autocomplete/autocomplete_controller.h"
 #include "chrome/browser/ui/omnibox/omnibox_edit_model.h"
-#include "components/omnibox/autocomplete_result.h"
+#include "components/omnibox/browser/autocomplete_controller.h"
+#include "components/omnibox/browser/autocomplete_result.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 
 class OmniboxPopupModelObserver;
 class OmniboxPopupView;
@@ -87,8 +88,14 @@ class OmniboxPopupModel {
   void Move(int count);
 
   // If the selected line has both a normal match and a keyword match, this can
-  // be used to choose which to select. It is an error to call this when the
-  // selected line does not have both matches (or there is no selection).
+  // be used to choose which to select.  This allows the user to toggle between
+  // normal and keyword mode with tab/shift-tab without rerunning autocomplete
+  // or disturbing other popup state, which in turn is an important part of
+  // supporting the use of tab to do both tab-to-search and
+  // tab-to-traverse-dropdown.
+  //
+  // It is an error to call this when the selected line does not have both
+  // matches (or there is no selection).
   void SetSelectedLineState(LineState state);
 
   // Called when the user hits shift-delete.  This should determine if the item
@@ -115,11 +122,17 @@ class OmniboxPopupModel {
   void AddObserver(OmniboxPopupModelObserver* observer);
   void RemoveObserver(OmniboxPopupModelObserver* observer);
 
+  // Stores the image in a local data member and schedules a repaint.
+  void SetAnswerBitmap(const SkBitmap& bitmap);
+  const SkBitmap& answer_bitmap() const { return answer_bitmap_; }
+
   // The token value for selected_line_, hover_line_ and functions dealing with
   // a "line number" that indicates "no line".
   static const size_t kNoMatch;
 
  private:
+  SkBitmap answer_bitmap_;
+
   OmniboxPopupView* view_;
 
   OmniboxEditModel* edit_model_;
@@ -141,7 +154,7 @@ class OmniboxPopupModel {
   AutocompleteResult::Selection manually_selected_match_;
 
   // Observers.
-  ObserverList<OmniboxPopupModelObserver> observers_;
+  base::ObserverList<OmniboxPopupModelObserver> observers_;
 
   DISALLOW_COPY_AND_ASSIGN(OmniboxPopupModel);
 };

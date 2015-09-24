@@ -2,9 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <vector>
+
 #include "base/message_loop/message_loop.h"
 #include "extensions/common/extension.h"
+#include "extensions/common/extension_set.h"
 #include "extensions/common/features/feature.h"
+#include "extensions/renderer/scoped_web_frame.h"
 #include "extensions/renderer/script_context.h"
 #include "extensions/renderer/script_context_set.h"
 #include "gin/public/context_holder.h"
@@ -14,47 +18,43 @@
 
 namespace extensions {
 
-TEST(ScriptContextSet, Lifecycle) {
+TEST(ScriptContextSetTest, Lifecycle) {
   base::MessageLoop loop;
+  ScopedWebFrame web_frame;
 
-  ScriptContextSet context_set;
-
+  // Do this after construction of the webview, since it may construct the
+  // Isolate.
   v8::Isolate* isolate = v8::Isolate::GetCurrent();
+
   v8::HandleScope handle_scope(isolate);
+  v8::Local<v8::Context> v8_context = v8::Context::New(isolate);
+  v8::Context::Scope context_scope(v8_context);
+  // ScriptContext relies on gin, it just doesn't look like it from here.
   gin::ContextHolder context_holder(isolate);
-  context_holder.SetContext(v8::Context::New(isolate));
+  context_holder.SetContext(v8_context);
 
-  // Dirty hack, but we don't actually need the frame, and this is easier than
-  // creating a whole webview.
-  blink::WebFrame* frame = reinterpret_cast<blink::WebFrame*>(1);
-  const Extension* extension = NULL;
-  ScriptContext* context =
-      new ScriptContext(context_holder.context(),
-                        frame,
-                        extension,
-                        Feature::BLESSED_EXTENSION_CONTEXT,
-                        extension,
-                        Feature::BLESSED_EXTENSION_CONTEXT);
+  ExtensionSet extensions;
+  ExtensionIdSet active_extensions;
+  ScriptContextSet context_set(&extensions, &active_extensions);
+  ScriptContext* context = context_set.Register(
+      web_frame.frame(), v8_context, 0, 0);  // no extension group or world ID
 
-  context_set.Add(context);
-  EXPECT_EQ(1u, context_set.GetAll().count(context));
-  EXPECT_EQ(context, context_set.GetByV8Context(context->v8_context()));
+  // Context is valid and resembles correctness.
+  EXPECT_TRUE(context->is_valid());
+  EXPECT_EQ(web_frame.frame(), context->web_frame());
+  EXPECT_EQ(v8_context, context->v8_context());
 
-  // Adding the same item multiple times should be OK and deduped.
-  context_set.Add(context);
-  EXPECT_EQ(1u, context_set.GetAll().count(context));
+  // Context has been correctly added.
+  EXPECT_EQ(1u, context_set.size());
+  EXPECT_EQ(context, context_set.GetByV8Context(v8_context));
 
-  // GetAll() returns a copy so removing from one should not remove from others.
-  ScriptContextSet::ContextSet set_copy = context_set.GetAll();
-  EXPECT_EQ(1u, set_copy.count(context));
-
+  // Test context is correctly removed.
   context_set.Remove(context);
-  EXPECT_EQ(0, context_set.size());
-  EXPECT_FALSE(context_set.GetByV8Context(context->v8_context()));
-  EXPECT_EQ(1u, set_copy.size());
+  EXPECT_EQ(0u, context_set.size());
+  EXPECT_EQ(nullptr, context_set.GetByV8Context(v8_context));
 
   // After removal, the context should be marked for destruction.
-  EXPECT_FALSE(context->web_frame());
+  EXPECT_FALSE(context->is_valid());
 
   // Run loop to do the actual deletion.
   loop.RunUntilIdle();

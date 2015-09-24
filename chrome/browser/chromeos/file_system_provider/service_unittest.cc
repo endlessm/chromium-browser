@@ -16,8 +16,9 @@
 #include "chrome/browser/chromeos/file_system_provider/observer.h"
 #include "chrome/browser/chromeos/file_system_provider/provided_file_system_info.h"
 #include "chrome/browser/chromeos/file_system_provider/registry_interface.h"
-#include "chrome/browser/chromeos/login/users/fake_user_manager.h"
+#include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
+#include "chrome/common/extensions/api/file_system_provider_capabilities/file_system_provider_capabilities_handler.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_pref_service_syncable.h"
 #include "chrome/test/base/testing_profile.h"
@@ -48,38 +49,47 @@ class LoggingObserver : public Observer {
   class Event {
    public:
     Event(const ProvidedFileSystemInfo& file_system_info,
+          MountContext context,
           base::File::Error error)
-        : file_system_info_(file_system_info), error_(error) {}
+        : file_system_info_(file_system_info),
+          context_(context),
+          error_(error) {}
     ~Event() {}
 
-    const ProvidedFileSystemInfo& file_system_info() {
+    const ProvidedFileSystemInfo& file_system_info() const {
       return file_system_info_;
     }
-    base::File::Error error() { return error_; }
+    MountContext context() const { return context_; }
+    base::File::Error error() const { return error_; }
 
    private:
     ProvidedFileSystemInfo file_system_info_;
+    MountContext context_;
     base::File::Error error_;
   };
 
   LoggingObserver() {}
-  virtual ~LoggingObserver() {}
+  ~LoggingObserver() override {}
 
   // file_system_provider::Observer overrides.
-  virtual void OnProvidedFileSystemMount(
-      const ProvidedFileSystemInfo& file_system_info,
-      base::File::Error error) override {
-    mounts.push_back(Event(file_system_info, error));
+  void OnProvidedFileSystemMount(const ProvidedFileSystemInfo& file_system_info,
+                                 MountContext context,
+                                 base::File::Error error) override {
+    mounts.push_back(Event(file_system_info, context, error));
   }
 
-  virtual void OnProvidedFileSystemUnmount(
+  void OnProvidedFileSystemUnmount(
       const ProvidedFileSystemInfo& file_system_info,
       base::File::Error error) override {
-    unmounts.push_back(Event(file_system_info, error));
+    // TODO(mtomasz): Split these events, as mount context doesn't make sense
+    // for unmounting.
+    unmounts.push_back(Event(file_system_info, MOUNT_CONTEXT_USER, error));
   }
 
   std::vector<Event> mounts;
   std::vector<Event> unmounts;
+
+  DISALLOW_COPY_AND_ASSIGN(LoggingObserver);
 };
 
 // Fake implementation of the registry, since it's already tested separately.
@@ -87,18 +97,17 @@ class LoggingObserver : public Observer {
 class FakeRegistry : public RegistryInterface {
  public:
   FakeRegistry() {}
-  virtual ~FakeRegistry() {}
+  ~FakeRegistry() override {}
 
   // RegistryInterface overrides.
-  virtual void RememberFileSystem(
-      const ProvidedFileSystemInfo& file_system_info,
-      const Watchers& watchers) override {
+  void RememberFileSystem(const ProvidedFileSystemInfo& file_system_info,
+                          const Watchers& watchers) override {
     file_system_info_.reset(new ProvidedFileSystemInfo(file_system_info));
     watchers_.reset(new Watchers(watchers));
   }
 
-  virtual void ForgetFileSystem(const std::string& extension_id,
-                                const std::string& file_system_id) override {
+  void ForgetFileSystem(const std::string& extension_id,
+                        const std::string& file_system_id) override {
     if (!file_system_info_.get() || !watchers_.get())
       return;
     if (file_system_info_->extension_id() == extension_id &&
@@ -108,7 +117,7 @@ class FakeRegistry : public RegistryInterface {
     }
   }
 
-  virtual scoped_ptr<RestoredFileSystems> RestoreFileSystems(
+  scoped_ptr<RestoredFileSystems> RestoreFileSystems(
       const std::string& extension_id) override {
     scoped_ptr<RestoredFileSystems> result(new RestoredFileSystems);
 
@@ -130,8 +139,8 @@ class FakeRegistry : public RegistryInterface {
     return result;
   }
 
-  virtual void UpdateWatcherTag(const ProvidedFileSystemInfo& file_system_info,
-                                const Watcher& watcher) override {
+  void UpdateWatcherTag(const ProvidedFileSystemInfo& file_system_info,
+                        const Watcher& watcher) override {
     ASSERT_TRUE(watchers_.get());
     const Watchers::iterator it =
         watchers_->find(WatcherKey(watcher.entry_path, watcher.recursive));
@@ -174,15 +183,15 @@ class FileSystemProviderServiceTest : public testing::Test {
  protected:
   FileSystemProviderServiceTest() : profile_(NULL) {}
 
-  virtual ~FileSystemProviderServiceTest() {}
+  ~FileSystemProviderServiceTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     profile_manager_.reset(
         new TestingProfileManager(TestingBrowserProcess::GetGlobal()));
     ASSERT_TRUE(profile_manager_->SetUp());
     profile_ = profile_manager_->CreateTestingProfile("test-user@example.com");
-    user_manager_ = new FakeUserManager();
-    user_manager_->AddUser(profile_->GetProfileName());
+    user_manager_ = new FakeChromeUserManager();
+    user_manager_->AddUser(profile_->GetProfileUserName());
     user_manager_enabler_.reset(new ScopedUserManagerEnabler(user_manager_));
     extension_registry_.reset(new extensions::ExtensionRegistry(profile_));
 
@@ -203,7 +212,7 @@ class FileSystemProviderServiceTest : public testing::Test {
   content::TestBrowserThreadBundle thread_bundle_;
   scoped_ptr<TestingProfileManager> profile_manager_;
   TestingProfile* profile_;
-  FakeUserManager* user_manager_;
+  FakeChromeUserManager* user_manager_;
   scoped_ptr<ScopedUserManagerEnabler> user_manager_enabler_;
   scoped_ptr<extensions::ExtensionRegistry> extension_registry_;
   scoped_ptr<Service> service_;
@@ -216,8 +225,9 @@ TEST_F(FileSystemProviderServiceTest, MountFileSystem) {
   LoggingObserver observer;
   service_->AddObserver(&observer);
 
-  EXPECT_TRUE(service_->MountFileSystem(
-      kExtensionId, MountOptions(kFileSystemId, kDisplayName)));
+  EXPECT_EQ(base::File::FILE_OK,
+            service_->MountFileSystem(
+                kExtensionId, MountOptions(kFileSystemId, kDisplayName)));
 
   ASSERT_EQ(1u, observer.mounts.size());
   EXPECT_EQ(kExtensionId, observer.mounts[0].file_system_info().extension_id());
@@ -231,6 +241,7 @@ TEST_F(FileSystemProviderServiceTest, MountFileSystem) {
   EXPECT_FALSE(observer.mounts[0].file_system_info().writable());
   EXPECT_FALSE(observer.mounts[0].file_system_info().supports_notify_tag());
   EXPECT_EQ(base::File::FILE_OK, observer.mounts[0].error());
+  EXPECT_EQ(MOUNT_CONTEXT_USER, observer.mounts[0].context());
   ASSERT_EQ(0u, observer.unmounts.size());
 
   std::vector<ProvidedFileSystemInfo> file_system_info_list =
@@ -248,7 +259,8 @@ TEST_F(FileSystemProviderServiceTest,
   MountOptions options(kFileSystemId, kDisplayName);
   options.writable = true;
   options.supports_notify_tag = true;
-  EXPECT_TRUE(service_->MountFileSystem(kExtensionId, options));
+  EXPECT_EQ(base::File::FILE_OK,
+            service_->MountFileSystem(kExtensionId, options));
 
   ASSERT_EQ(1u, observer.mounts.size());
   EXPECT_TRUE(observer.mounts[0].file_system_info().writable());
@@ -265,10 +277,12 @@ TEST_F(FileSystemProviderServiceTest, MountFileSystem_UniqueIds) {
   LoggingObserver observer;
   service_->AddObserver(&observer);
 
-  EXPECT_TRUE(service_->MountFileSystem(
-      kExtensionId, MountOptions(kFileSystemId, kDisplayName)));
-  EXPECT_FALSE(service_->MountFileSystem(
-      kExtensionId, MountOptions(kFileSystemId, kDisplayName)));
+  EXPECT_EQ(base::File::FILE_OK,
+            service_->MountFileSystem(
+                kExtensionId, MountOptions(kFileSystemId, kDisplayName)));
+  EXPECT_EQ(base::File::FILE_ERROR_EXISTS,
+            service_->MountFileSystem(
+                kExtensionId, MountOptions(kFileSystemId, kDisplayName)));
 
   ASSERT_EQ(2u, observer.mounts.size());
   EXPECT_EQ(base::File::FILE_OK, observer.mounts[0].error());
@@ -289,14 +303,16 @@ TEST_F(FileSystemProviderServiceTest, MountFileSystem_StressTest) {
   for (size_t i = 0; i < kMaxFileSystems; ++i) {
     const std::string file_system_id =
         std::string("test-") + base::IntToString(i);
-    EXPECT_TRUE(service_->MountFileSystem(
-        kExtensionId, MountOptions(file_system_id, kDisplayName)));
+    EXPECT_EQ(base::File::FILE_OK,
+              service_->MountFileSystem(
+                  kExtensionId, MountOptions(file_system_id, kDisplayName)));
   }
   ASSERT_EQ(kMaxFileSystems, observer.mounts.size());
 
   // The next file system is out of limit, and registering it should fail.
-  EXPECT_FALSE(service_->MountFileSystem(
-      kExtensionId, MountOptions(kFileSystemId, kDisplayName)));
+  EXPECT_EQ(base::File::FILE_ERROR_TOO_MANY_OPENED,
+            service_->MountFileSystem(
+                kExtensionId, MountOptions(kFileSystemId, kDisplayName)));
 
   ASSERT_EQ(kMaxFileSystems + 1, observer.mounts.size());
   EXPECT_EQ(base::File::FILE_ERROR_TOO_MANY_OPENED,
@@ -313,12 +329,14 @@ TEST_F(FileSystemProviderServiceTest, UnmountFileSystem) {
   LoggingObserver observer;
   service_->AddObserver(&observer);
 
-  EXPECT_TRUE(service_->MountFileSystem(
-      kExtensionId, MountOptions(kFileSystemId, kDisplayName)));
+  EXPECT_EQ(base::File::FILE_OK,
+            service_->MountFileSystem(
+                kExtensionId, MountOptions(kFileSystemId, kDisplayName)));
   ASSERT_EQ(1u, observer.mounts.size());
 
-  EXPECT_TRUE(service_->UnmountFileSystem(
-      kExtensionId, kFileSystemId, Service::UNMOUNT_REASON_USER));
+  EXPECT_EQ(base::File::FILE_OK,
+            service_->UnmountFileSystem(kExtensionId, kFileSystemId,
+                                        Service::UNMOUNT_REASON_USER));
   ASSERT_EQ(1u, observer.unmounts.size());
   EXPECT_EQ(base::File::FILE_OK, observer.unmounts[0].error());
 
@@ -338,8 +356,9 @@ TEST_F(FileSystemProviderServiceTest, UnmountFileSystem_OnExtensionUnload) {
   LoggingObserver observer;
   service_->AddObserver(&observer);
 
-  EXPECT_TRUE(service_->MountFileSystem(
-      kExtensionId, MountOptions(kFileSystemId, kDisplayName)));
+  EXPECT_EQ(base::File::FILE_OK,
+            service_->MountFileSystem(
+                kExtensionId, MountOptions(kFileSystemId, kDisplayName)));
   ASSERT_EQ(1u, observer.mounts.size());
 
   // Directly call the observer's method.
@@ -369,13 +388,15 @@ TEST_F(FileSystemProviderServiceTest, UnmountFileSystem_WrongExtensionId) {
 
   const std::string kWrongExtensionId = "helloworldhelloworldhelloworldhe";
 
-  EXPECT_TRUE(service_->MountFileSystem(
-      kExtensionId, MountOptions(kFileSystemId, kDisplayName)));
+  EXPECT_EQ(base::File::FILE_OK,
+            service_->MountFileSystem(
+                kExtensionId, MountOptions(kFileSystemId, kDisplayName)));
   ASSERT_EQ(1u, observer.mounts.size());
   ASSERT_EQ(1u, service_->GetProvidedFileSystemInfoList().size());
 
-  EXPECT_FALSE(service_->UnmountFileSystem(
-      kWrongExtensionId, kFileSystemId, Service::UNMOUNT_REASON_USER));
+  EXPECT_EQ(base::File::FILE_ERROR_NOT_FOUND,
+            service_->UnmountFileSystem(kWrongExtensionId, kFileSystemId,
+                                        Service::UNMOUNT_REASON_USER));
   ASSERT_EQ(1u, observer.unmounts.size());
   EXPECT_EQ(base::File::FILE_ERROR_NOT_FOUND, observer.unmounts[0].error());
   ASSERT_EQ(1u, service_->GetProvidedFileSystemInfoList().size());
@@ -395,7 +416,8 @@ TEST_F(FileSystemProviderServiceTest, RestoreFileSystem_OnExtensionLoad) {
   MountOptions options(kFileSystemId, kDisplayName);
   options.supports_notify_tag = true;
   ProvidedFileSystemInfo file_system_info(
-      kExtensionId, options, base::FilePath(FILE_PATH_LITERAL("/a/b/c")));
+      kExtensionId, options, base::FilePath(FILE_PATH_LITERAL("/a/b/c")),
+      false /* configurable */, false /* watchable */, extensions::SOURCE_FILE);
   Watchers fake_watchers;
   fake_watchers[WatcherKey(fake_watcher_.entry_path, fake_watcher_.recursive)] =
       fake_watcher_;
@@ -408,13 +430,14 @@ TEST_F(FileSystemProviderServiceTest, RestoreFileSystem_OnExtensionLoad) {
 
   ASSERT_EQ(1u, observer.mounts.size());
   EXPECT_EQ(base::File::FILE_OK, observer.mounts[0].error());
+  EXPECT_EQ(MOUNT_CONTEXT_RESTORE, observer.mounts[0].context());
 
   EXPECT_EQ(file_system_info.extension_id(),
             observer.mounts[0].file_system_info().extension_id());
   EXPECT_EQ(file_system_info.file_system_id(),
             observer.mounts[0].file_system_info().file_system_id());
   EXPECT_EQ(file_system_info.writable(),
-            observer.mounts[0].file_system_info().writable());
+            observer.mounts[0].file_system_info().watchable());
   EXPECT_EQ(file_system_info.supports_notify_tag(),
             observer.mounts[0].file_system_info().supports_notify_tag());
 
@@ -448,8 +471,9 @@ TEST_F(FileSystemProviderServiceTest, RememberFileSystem_OnMount) {
   EXPECT_FALSE(registry_->file_system_info());
   EXPECT_FALSE(registry_->watchers());
 
-  EXPECT_TRUE(service_->MountFileSystem(
-      kExtensionId, MountOptions(kFileSystemId, kDisplayName)));
+  EXPECT_EQ(base::File::FILE_OK,
+            service_->MountFileSystem(
+                kExtensionId, MountOptions(kFileSystemId, kDisplayName)));
   ASSERT_EQ(1u, observer.mounts.size());
 
   ASSERT_TRUE(registry_->file_system_info());
@@ -457,6 +481,8 @@ TEST_F(FileSystemProviderServiceTest, RememberFileSystem_OnMount) {
   EXPECT_EQ(kFileSystemId, registry_->file_system_info()->file_system_id());
   EXPECT_EQ(kDisplayName, registry_->file_system_info()->display_name());
   EXPECT_FALSE(registry_->file_system_info()->writable());
+  EXPECT_FALSE(registry_->file_system_info()->configurable());
+  EXPECT_FALSE(registry_->file_system_info()->watchable());
   EXPECT_FALSE(registry_->file_system_info()->supports_notify_tag());
   ASSERT_TRUE(registry_->watchers());
 
@@ -470,8 +496,9 @@ TEST_F(FileSystemProviderServiceTest, RememberFileSystem_OnUnmountOnShutdown) {
   {
     EXPECT_FALSE(registry_->file_system_info());
     EXPECT_FALSE(registry_->watchers());
-    EXPECT_TRUE(service_->MountFileSystem(
-        kExtensionId, MountOptions(kFileSystemId, kDisplayName)));
+    EXPECT_EQ(base::File::FILE_OK,
+              service_->MountFileSystem(
+                  kExtensionId, MountOptions(kFileSystemId, kDisplayName)));
 
     EXPECT_EQ(1u, observer.mounts.size());
     EXPECT_TRUE(registry_->file_system_info());
@@ -479,8 +506,9 @@ TEST_F(FileSystemProviderServiceTest, RememberFileSystem_OnUnmountOnShutdown) {
   }
 
   {
-    EXPECT_TRUE(service_->UnmountFileSystem(
-        kExtensionId, kFileSystemId, Service::UNMOUNT_REASON_SHUTDOWN));
+    EXPECT_EQ(base::File::FILE_OK,
+              service_->UnmountFileSystem(kExtensionId, kFileSystemId,
+                                          Service::UNMOUNT_REASON_SHUTDOWN));
 
     EXPECT_EQ(1u, observer.unmounts.size());
     EXPECT_TRUE(registry_->file_system_info());
@@ -497,8 +525,9 @@ TEST_F(FileSystemProviderServiceTest, RememberFileSystem_OnUnmountByUser) {
   {
     EXPECT_FALSE(registry_->file_system_info());
     EXPECT_FALSE(registry_->watchers());
-    EXPECT_TRUE(service_->MountFileSystem(
-        kExtensionId, MountOptions(kFileSystemId, kDisplayName)));
+    EXPECT_EQ(base::File::FILE_OK,
+              service_->MountFileSystem(
+                  kExtensionId, MountOptions(kFileSystemId, kDisplayName)));
 
     EXPECT_EQ(1u, observer.mounts.size());
     EXPECT_TRUE(registry_->file_system_info());
@@ -506,8 +535,9 @@ TEST_F(FileSystemProviderServiceTest, RememberFileSystem_OnUnmountByUser) {
   }
 
   {
-    EXPECT_TRUE(service_->UnmountFileSystem(
-        kExtensionId, kFileSystemId, Service::UNMOUNT_REASON_USER));
+    EXPECT_EQ(base::File::FILE_OK,
+              service_->UnmountFileSystem(kExtensionId, kFileSystemId,
+                                          Service::UNMOUNT_REASON_USER));
 
     EXPECT_EQ(1u, observer.unmounts.size());
     EXPECT_FALSE(registry_->file_system_info());

@@ -13,6 +13,8 @@ import android.widget.FrameLayout;
 
 import org.chromium.content.browser.ContentVideoViewClient;
 import org.chromium.content.browser.ContentViewClient;
+import org.chromium.content.browser.SelectActionMode;
+import org.chromium.content.browser.SelectActionModeCallback.ActionHandler;
 
 /**
  * ContentViewClient implementation for WebView
@@ -39,18 +41,43 @@ public class AwContentViewClient extends ContentViewClient implements ContentVid
 
     @Override
     public void onStartContentIntent(Context context, String contentUrl) {
-        //  Callback when detecting a click on a content link.
-        mAwContentsClient.shouldOverrideUrlLoading(contentUrl);
+        if (mAwContentsClient.hasWebViewClient()) {
+            //  Callback when detecting a click on a content link.
+            mAwContentsClient.shouldOverrideUrlLoading(contentUrl);
+            return;
+        }
+
+        // Comes from WebViewImpl::detectContentOnTouch in Blink, so must be user-initiated, and
+        // isn't a redirect.
+        AwContentsClient.sendBrowsingIntent(context, contentUrl, true, false);
     }
 
     @Override
     public void onUpdateTitle(String title) {
-        mAwContentsClient.onReceivedTitle(title);
+        mAwContentsClient.updateTitle(title, true);
     }
 
     @Override
     public boolean shouldOverrideKeyEvent(KeyEvent event) {
-        return mAwContentsClient.shouldOverrideKeyEvent(event);
+        if (mAwContentsClient.hasWebViewClient()) {
+            // The check below is reflecting Chrome's behavior and is a workaround for
+            // http://b/7697782.
+            if (!ContentViewClient.shouldPropagateKey(event.getKeyCode())) return true;
+            return mAwContentsClient.shouldOverrideKeyEvent(event);
+        }
+
+        return super.shouldOverrideKeyEvent(event);
+    }
+
+    @Override
+    public SelectActionMode startActionMode(
+            View view, ActionHandler actionHandler, boolean floating) {
+        return mAwContentsClient.startActionMode(view, actionHandler, floating);
+    }
+
+    @Override
+    public boolean supportsFloatingActionMode() {
+        return mAwContentsClient.supportsFloatingActionMode();
     }
 
     @Override
@@ -83,6 +110,10 @@ public class AwContentViewClient extends ContentViewClient implements ContentVid
     @Override
     public View getVideoLoadingProgressView() {
         return mAwContentsClient.getVideoLoadingProgressView();
+    }
+
+    @Override
+    public void setSystemUiVisibility(boolean enterFullscreen) {
     }
 
     /**
@@ -123,5 +154,10 @@ public class AwContentViewClient extends ContentViewClient implements ContentVid
             mAwContents.exitFullScreen();
             mAwContentsClient.onHideCustomView();
         }
+    }
+
+    @Override
+    public boolean isExternalScrollActive() {
+        return mAwContents.isSmoothScrollingActive();
     }
 }

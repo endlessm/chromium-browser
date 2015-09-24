@@ -23,28 +23,26 @@ class SecureHashSHA256NSS : public SecureHash {
     SHA256_Begin(&ctx_);
   }
 
-  virtual ~SecureHashSHA256NSS() {
-    memset(&ctx_, 0, sizeof(ctx_));
-  }
+  ~SecureHashSHA256NSS() override { memset(&ctx_, 0, sizeof(ctx_)); }
 
   // SecureHash implementation:
-  virtual void Update(const void* input, size_t len) override {
+  void Update(const void* input, size_t len) override {
     SHA256_Update(&ctx_, static_cast<const unsigned char*>(input), len);
   }
 
-  virtual void Finish(void* output, size_t len) override {
+  void Finish(void* output, size_t len) override {
     SHA256_End(&ctx_, static_cast<unsigned char*>(output), NULL,
                static_cast<unsigned int>(len));
   }
 
-  virtual bool Serialize(Pickle* pickle) override;
-  virtual bool Deserialize(PickleIterator* data_iterator) override;
+  bool Serialize(base::Pickle* pickle) override;
+  bool Deserialize(base::PickleIterator* data_iterator) override;
 
  private:
   SHA256Context ctx_;
 };
 
-bool SecureHashSHA256NSS::Serialize(Pickle* pickle) {
+bool SecureHashSHA256NSS::Serialize(base::Pickle* pickle) {
   if (!pickle)
     return false;
 
@@ -57,7 +55,7 @@ bool SecureHashSHA256NSS::Serialize(Pickle* pickle) {
   return true;
 }
 
-bool SecureHashSHA256NSS::Deserialize(PickleIterator* data_iterator) {
+bool SecureHashSHA256NSS::Deserialize(base::PickleIterator* data_iterator) {
   int version;
   if (!data_iterator->ReadInt(&version))
     return false;

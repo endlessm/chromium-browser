@@ -8,7 +8,7 @@
 #include "base/tuple.h"
 #include "ipc/ipc_param_traits.h"
 #include "printing/printing_export.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace printing {
 
@@ -16,7 +16,7 @@ namespace printing {
 // gfx::Rect - render area
 // int - render dpi
 // bool - autorotate pages to fit paper
-typedef Tuple3<gfx::Rect, int, bool> PdfRenderSettingsBase;
+typedef base::Tuple<gfx::Rect, int, bool> PdfRenderSettingsBase;
 
 class PdfRenderSettings : public PdfRenderSettingsBase {
  public:
@@ -25,9 +25,9 @@ class PdfRenderSettings : public PdfRenderSettingsBase {
       : PdfRenderSettingsBase(area, dpi, autorotate) {}
   ~PdfRenderSettings() {}
 
-  const gfx::Rect& area() const { return a; }
-  int dpi() const { return b; }
-  bool autorotate() const { return c; }
+  const gfx::Rect& area() const { return base::get<0>(*this); }
+  int dpi() const { return base::get<1>(*this); }
+  bool autorotate() const { return base::get<2>(*this); }
 };
 
 }  // namespace printing

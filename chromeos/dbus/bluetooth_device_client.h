@@ -48,6 +48,10 @@ class CHROMEOS_EXPORT BluetoothDeviceClient : public DBusClient {
     // Read-only.
     dbus::Property<std::vector<std::string> > uuids;
 
+    // Transmitted power level. This field is avaliable only for LE devices
+    // that include this field in AD. Read-only.
+    dbus::Property<int16> tx_power;
+
     // Indicates that the device is currently paired. Read-only.
     dbus::Property<bool> paired;
 
@@ -80,24 +84,10 @@ class CHROMEOS_EXPORT BluetoothDeviceClient : public DBusClient {
     // discovered during inquiry. Read-only.
     dbus::Property<int16> rssi;
 
-    // Received signal strength indicator when a connection is open to the
-    // device. This property is not set unless connection monitor is enabled.
-    // Read-only.
-    dbus::Property<int16> connection_rssi;
-
-    // The transmit power level of the host when a connection is open
-    // to the device. This property is not set unless connection monitor is
-    // enabled. Read-only.
-    dbus::Property<int16> connection_tx_power;
-
-    // The maximum transmit power level of the host that can be set
-    // when connected to the device. Read-only.
-    dbus::Property<int16> connection_tx_power_max;
-
     Properties(dbus::ObjectProxy* object_proxy,
                const std::string& interface_name,
                const PropertyChangedCallback& callback);
-    virtual ~Properties();
+    ~Properties() override;
   };
 
   // Interface for observing changes from a remote bluetooth device.
@@ -119,7 +109,7 @@ class CHROMEOS_EXPORT BluetoothDeviceClient : public DBusClient {
                                        const std::string& property_name) {}
   };
 
-  virtual ~BluetoothDeviceClient();
+  ~BluetoothDeviceClient() override;
 
   // Adds and removes observers for events on all remote bluetooth
   // devices. Check the |object_path| parameter of observer methods to
@@ -184,18 +174,18 @@ class CHROMEOS_EXPORT BluetoothDeviceClient : public DBusClient {
                              const base::Closure& callback,
                              const ErrorCallback& error_callback) = 0;
 
-  // Starts connection monitor for the device with object path
-  // |object_path|. Connection monitor is a mode the connection properties,
-  // RSSI and TX power are tracked and updated when they change.
-  virtual void StartConnectionMonitor(const dbus::ObjectPath& object_path,
-                                      const base::Closure& callback,
-                                      const ErrorCallback& error_callback) = 0;
+  // The callback invoked for a successful GetConnInfo API call with the
+  // RSSI, TX power, and maximum TX power of the current connection.
+  typedef base::Callback<void(int16 rssi,
+                              int16 transmit_power,
+                              int16 max_transmit_power)> ConnInfoCallback;
 
-  // Stops connection monitor for the device with object path
-  // |object_path|.
-  virtual void StopConnectionMonitor(const dbus::ObjectPath& object_path,
-                                     const base::Closure& callback,
-                                     const ErrorCallback& error_callback) = 0;
+  // Returns the RSSI, TX power, and maximum TX power of a connection to the
+  // device with object path |object_path|. If the device is not connected, then
+  // an error will be returned.
+  virtual void GetConnInfo(const dbus::ObjectPath& object_path,
+                           const ConnInfoCallback& callback,
+                           const ErrorCallback& error_callback) = 0;
 
   // Creates the instance.
   static BluetoothDeviceClient* Create();

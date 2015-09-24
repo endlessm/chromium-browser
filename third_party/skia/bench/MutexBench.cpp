@@ -5,11 +5,11 @@
  * found in the LICENSE file.
  */
 #include "Benchmark.h"
-#include "SkThread.h"
+#include "SkMutex.h"
 
 class MutexBench : public Benchmark {
 public:
-    virtual bool isSuitableFor(Backend backend) SK_OVERRIDE {
+    bool isSuitableFor(Backend backend) override {
         return backend == kNonRendering_Backend;
     }
 

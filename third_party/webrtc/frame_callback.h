@@ -8,8 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_VIDEO_ENGINE_NEW_INCLUDE_FRAME_CALLBACK_H_
-#define WEBRTC_VIDEO_ENGINE_NEW_INCLUDE_FRAME_CALLBACK_H_
+#ifndef WEBRTC_FRAME_CALLBACK_H_
+#define WEBRTC_FRAME_CALLBACK_H_
 
 #include <stddef.h>
 
@@ -17,7 +17,7 @@
 
 namespace webrtc {
 
-class I420VideoFrame;
+class VideoFrame;
 
 struct EncodedFrame {
  public:
@@ -34,7 +34,7 @@ class I420FrameCallback {
  public:
   // This function is called with a I420 frame allowing the user to modify the
   // frame content.
-  virtual void FrameCallback(I420VideoFrame* video_frame) = 0;
+  virtual void FrameCallback(VideoFrame* video_frame) = 0;
 
  protected:
   virtual ~I420FrameCallback() {}
@@ -50,4 +50,4 @@ class EncodedFrameObserver {
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_VIDEO_ENGINE_NEW_INCLUDE_FRAME_CALLBACK_H_
+#endif  // WEBRTC_FRAME_CALLBACK_H_

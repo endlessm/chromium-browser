@@ -21,12 +21,15 @@
 #include "chrome/browser/media_galleries/media_galleries_scan_result_controller.h"
 #include "chrome/browser/media_galleries/media_galleries_test_util.h"
 #include "chrome/browser/media_galleries/media_scan_manager.h"
+#include "chrome/browser/ui/extensions/app_launch_params.h"
+#include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/common/chrome_paths.h"
 #include "components/storage_monitor/storage_info.h"
 #include "components/storage_monitor/storage_monitor.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/extension_system.h"
+#include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/test/result_catcher.h"
 #include "media/base/test_data_util.h"
@@ -161,7 +164,7 @@ class MediaGalleriesPlatformAppBrowserTest : public PlatformAppBrowserTest {
     const char* custom_arg = NULL;
     std::string json_string;
     if (!custom_arg_value.empty()) {
-      base::JSONWriter::Write(&custom_arg_value, &json_string);
+      base::JSONWriter::Write(custom_arg_value, &json_string);
       custom_arg = json_string.c_str();
     }
 
@@ -362,10 +365,10 @@ class MediaGalleriesPlatformAppBrowserTest : public PlatformAppBrowserTest {
     base::FilePath in_both_jpg = iphoto_data_root.AppendASCII("InBoth.jpg");
     ASSERT_TRUE(base::CopyFile(test_jpg_path, first_only_jpg));
     ASSERT_TRUE(base::CopyFile(test_jpg_path, in_both_jpg));
-    ReplaceFirstSubstringAfterOffset(
-        &xml_contents, 0, std::string("$path1"), first_only_jpg.value());
-    ReplaceFirstSubstringAfterOffset(
-        &xml_contents, 0, std::string("$path2"), in_both_jpg.value());
+    base::ReplaceFirstSubstringAfterOffset(
+        &xml_contents, 0, "$path1", first_only_jpg.value());
+    base::ReplaceFirstSubstringAfterOffset(
+        &xml_contents, 0, "$path2", in_both_jpg.value());
 
     base::FilePath album_xml = iphoto_data_root.AppendASCII("AlbumData.xml");
     ASSERT_NE(-1, base::WriteFile(album_xml,
@@ -438,7 +441,7 @@ class MediaGalleriesPlatformAppBrowserTest : public PlatformAppBrowserTest {
 class MediaGalleriesPlatformAppPpapiTest
     : public MediaGalleriesPlatformAppBrowserTest {
  protected:
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     MediaGalleriesPlatformAppBrowserTest::SetUpCommandLine(command_line);
     command_line->AppendSwitch(switches::kEnablePepperTesting);
   }
@@ -470,11 +473,10 @@ IN_PROC_BROWSER_TEST_F(MediaGalleriesPlatformAppPpapiTest, SendFilesystem) {
   ASSERT_TRUE(extension);
 
   extensions::ResultCatcher catcher;
-  AppLaunchParams params(browser()->profile(),
-                         extension,
-                         extensions::LAUNCH_CONTAINER_NONE,
-                         NEW_WINDOW);
-  params.command_line = *CommandLine::ForCurrentProcess();
+  AppLaunchParams params(browser()->profile(), extension,
+                         extensions::LAUNCH_CONTAINER_NONE, NEW_WINDOW,
+                         extensions::SOURCE_TEST);
+  params.command_line = *base::CommandLine::ForCurrentProcess();
   OpenApplication(params);
 
   bool result = true;
@@ -612,7 +614,13 @@ IN_PROC_BROWSER_TEST_F(MediaGalleriesPlatformAppBrowserTest, CancelScan) {
   ASSERT_TRUE(RunMediaGalleriesTest("cancel_scan")) << message_;
 }
 
-IN_PROC_BROWSER_TEST_F(MediaGalleriesPlatformAppBrowserTest, Scan) {
+// Flaky time outs on MSAN. https://crbug.com/503329
+#if defined(MEMORY_SANITIZER)
+#define MAYBE_Scan DISABLED_Scan
+#else
+#define MAYBE_Scan Scan
+#endif
+IN_PROC_BROWSER_TEST_F(MediaGalleriesPlatformAppBrowserTest, MAYBE_Scan) {
   base::ScopedTempDir scan_root;
   ASSERT_TRUE(scan_root.CreateUniqueTempDir());
   std::vector<base::FilePath> roots;

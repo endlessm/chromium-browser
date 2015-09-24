@@ -23,7 +23,7 @@ class CONTENT_EXPORT BrowserAccessibilityManagerWin
       BrowserAccessibilityDelegate* delegate,
       BrowserAccessibilityFactory* factory = new BrowserAccessibilityFactory());
 
-  virtual ~BrowserAccessibilityManagerWin();
+  ~BrowserAccessibilityManagerWin() override;
 
   static ui::AXTreeUpdate GetEmptyDocument();
 
@@ -34,15 +34,12 @@ class CONTENT_EXPORT BrowserAccessibilityManagerWin
   IAccessible* GetParentIAccessible();
 
   // Calls NotifyWinEvent if the parent window's IAccessible pointer is known.
-  void MaybeCallNotifyWinEvent(DWORD event, LONG child_id);
-
-  // AXTree methods
-  virtual void OnNodeWillBeDeleted(ui::AXNode* node) override;
-  virtual void OnNodeCreated(ui::AXNode* node) override;
+  void MaybeCallNotifyWinEvent(DWORD event, BrowserAccessibility* node);
 
   // BrowserAccessibilityManager methods
-  virtual void OnWindowFocused() override;
-  virtual void NotifyAccessibilityEvent(
+  void OnWindowFocused() override;
+  void UserIsReloading() override;
+  void NotifyAccessibilityEvent(
       ui::AXEvent event_type, BrowserAccessibility* node) override;
 
   // Track this object and post a VISIBLE_DATA_CHANGED notification when
@@ -58,8 +55,13 @@ class CONTENT_EXPORT BrowserAccessibilityManagerWin
   void OnAccessibleHwndDeleted();
 
  protected:
-  // BrowserAccessibilityManager methods
-  virtual void OnRootChanged(ui::AXNode* new_root) override;
+  // AXTree methods.
+  void OnNodeWillBeDeleted(ui::AXTree* tree, ui::AXNode* node) override;
+  void OnNodeCreated(ui::AXTree* tree, ui::AXNode* node) override;
+  void OnAtomicUpdateFinished(
+      ui::AXTree* tree,
+      bool root_changed,
+      const std::vector<ui::AXTreeDelegate::Change>& changes) override;
 
  private:
   // Give BrowserAccessibilityManager::Create access to our constructor.

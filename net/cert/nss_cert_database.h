@@ -5,11 +5,12 @@
 #ifndef NET_CERT_NSS_CERT_DATABASE_H_
 #define NET_CERT_NSS_CERT_DATABASE_H_
 
+#include <stdint.h>
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/callback_forward.h"
+#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
@@ -20,9 +21,10 @@
 #include "net/cert/x509_certificate.h"
 
 namespace base {
+template <class ObserverType>
+class ObserverListThreadSafe;
 class TaskRunner;
 }
-template <class ObserverType> class ObserverListThreadSafe;
 
 namespace net {
 
@@ -84,7 +86,7 @@ class NET_EXPORT NSSCertDatabase {
   // Use TRUST_DEFAULT to inherit trust as normal.
   // NOTE: The actual constants are defined using an enum instead of static
   // consts due to compilation/linkage constraints with template functions.
-  typedef uint32 TrustBits;
+  typedef uint32_t TrustBits;
   enum {
     TRUST_DEFAULT         =      0,
     TRUSTED_SSL           = 1 << 0,
@@ -263,6 +265,12 @@ class NET_EXPORT NSSCertDatabase {
   // in tests (see SetSlowTaskRunnerForTest).
   scoped_refptr<base::TaskRunner> GetSlowTaskRunner() const;
 
+ protected:
+  // Broadcasts notifications to all registered observers.
+  void NotifyObserversOfCertAdded(const X509Certificate* cert);
+  void NotifyObserversOfCertRemoved(const X509Certificate* cert);
+  void NotifyObserversOfCACertChanged(const X509Certificate* cert);
+
  private:
   // Registers |observer| to receive notifications of certificate changes.  The
   // thread on which this is called is the thread on which |observer| will be
@@ -282,11 +290,6 @@ class NET_EXPORT NSSCertDatabase {
                                     const DeleteCertCallback& callback,
                                     bool success);
 
-  // Broadcasts notifications to all registered observers.
-  void NotifyObserversOfCertAdded(const X509Certificate* cert);
-  void NotifyObserversOfCertRemoved(const X509Certificate* cert);
-  void NotifyObserversOfCACertChanged(const X509Certificate* cert);
-
   // Certificate removal implementation used by |DeleteCertAndKey*|. Static so
   // it may safely be used on the worker thread.
   static bool DeleteCertAndKeyImpl(scoped_refptr<X509Certificate> cert);
@@ -300,7 +303,7 @@ class NET_EXPORT NSSCertDatabase {
   // Task runner that should be used in tests if set.
   scoped_refptr<base::TaskRunner> slow_task_runner_for_test_;
 
-  const scoped_refptr<ObserverListThreadSafe<Observer> > observer_list_;
+  const scoped_refptr<base::ObserverListThreadSafe<Observer>> observer_list_;
 
   base::WeakPtrFactory<NSSCertDatabase> weak_factory_;
 

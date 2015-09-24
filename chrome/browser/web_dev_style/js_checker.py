@@ -40,6 +40,10 @@ class JSChecker(object):
       return self.RegexCheck(i, line, regex, msg)
     return _check(r'^\s*(\*\*/)\s*$') or _check(r'/\*\* @[a-zA-Z]+.* (\*\*/)')
 
+  def ExtraDotInGenericCheck(self, i, line):
+    return self.RegexCheck(i, line, r"((?:Array|Object|Promise)\.<)",
+        "Don't use a dot after generics (Object.<T> should be Object<T>).")
+
   def GetElementByIdCheck(self, i, line):
     """Checks for use of 'document.getElementById' instead of '$'."""
     return self.RegexCheck(i, line, r"(document\.getElementById)\('",
@@ -129,6 +133,7 @@ class JSChecker(object):
 
       from closure_linter import errors, runner
       from closure_linter.common import errorhandler
+      import gflags
 
     finally:
       sys.path = old_path
@@ -181,6 +186,9 @@ class JSChecker(object):
             errors.MISSING_JSDOC_TAG_THIS,
         ]
 
+    # Whitelist Polymer-specific JsDoc tags.
+    gflags.FLAGS.custom_jsdoc_tags = ('group', 'element', 'attribute',
+                                      'default')
     error_handler = ErrorHandlerImpl(self.input_api.re)
     runner.Run(file_to_lint, error_handler, source=source)
     return error_handler.GetErrors()
@@ -208,6 +216,8 @@ class JSChecker(object):
             self.ChromeSendCheck(i, line),
             self.ConstCheck(i, line),
             self.GetElementByIdCheck(i, line),
+            self.EndJsDocCommentCheck(i, line),
+            self.ExtraDotInGenericCheck(i, line),
             self.InheritDocCheck(i, line),
             self.WrapperTypeCheck(i, line),
             self.VarNameCheck(i, line),

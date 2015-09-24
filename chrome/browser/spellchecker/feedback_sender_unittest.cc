@@ -74,7 +74,7 @@ class FeedbackSenderTest : public testing::Test {
   void AppendCommandLineSwitch() {
     // The command-line switch is temporary.
     // TODO(rouslan): Remove the command-line switch. http://crbug.com/247726
-    CommandLine::ForCurrentProcess()->AppendSwitch(
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
         switches::kEnableSpellingFeedbackFieldTrial);
     feedback_.reset(new FeedbackSender(NULL, kLanguage, kCountry));
     feedback_->StartFeedbackCollection();
@@ -141,8 +141,8 @@ class FeedbackSenderTest : public testing::Test {
   scoped_ptr<spellcheck::FeedbackSender> feedback_;
 
  private:
-  TestingProfile profile_;
   base::MessageLoop loop_;
+  TestingProfile profile_;
   content::TestBrowserThread ui_thread_;
   scoped_ptr<base::FieldTrialList> field_trial_list_;
   scoped_refptr<base::FieldTrial> field_trial_;
@@ -416,8 +416,8 @@ TEST_F(FeedbackSenderTest, FeedbackAPI) {
   feedback_->OnReceiveDocumentMarkers(kRendererProcessId,
                                       std::vector<uint32>());
   std::string actual_data = GetUploadData();
-  scoped_ptr<base::DictionaryValue> actual(
-      static_cast<base::DictionaryValue*>(base::JSONReader::Read(actual_data)));
+  scoped_ptr<base::DictionaryValue> actual(static_cast<base::DictionaryValue*>(
+      base::JSONReader::DeprecatedRead(actual_data)));
   actual->SetString("params.key", "TestDummyKey");
   base::ListValue* suggestions = NULL;
   actual->GetList("params.suggestionInfo", &suggestions);
@@ -443,7 +443,7 @@ TEST_F(FeedbackSenderTest, FeedbackAPI) {
       "\"suggestions\":[\"Hello\"],"
       "\"timestamp\":\"9001\","
       "\"userActions\":[{\"actionType\":\"NO_ACTION\"}]}]}}";
-  scoped_ptr<base::Value> expected(base::JSONReader::Read(expected_data));
+  scoped_ptr<base::Value> expected = base::JSONReader::Read(expected_data);
   EXPECT_TRUE(expected->Equals(actual.get()))
       << "Expected data: " << expected_data
       << "\nActual data:   " << actual_data;
@@ -619,6 +619,24 @@ TEST_F(FeedbackSenderTest, NoFeedbackCollectionWhenStopped) {
   feedback_->OnReceiveDocumentMarkers(kRendererProcessId,
                                       std::vector<uint32>());
   EXPECT_FALSE(IsUploadingData());
+}
+
+// The feedback context is trimmed to 2 words on the left and 2 words on the
+// right side of the misspelling.
+TEST_F(FeedbackSenderTest, TrimFeedback) {
+  std::vector<SpellCheckResult> results(
+      1, SpellCheckResult(SpellCheckResult::SPELLING, 13, 3,
+                          base::UTF8ToUTF16("the")));
+  feedback_->OnSpellcheckResults(
+      kRendererProcessId,
+      base::UTF8ToUTF16("Far and away teh best prize that life has to offer is "
+                        "the chance to work hard at work worth doing."),
+      std::vector<SpellCheckMarker>(), &results);
+  feedback_->OnReceiveDocumentMarkers(kRendererProcessId,
+                                      std::vector<uint32>());
+  EXPECT_TRUE(
+      UploadDataContains(",\"originalText\":\"and away teh best prize\","));
+  EXPECT_TRUE(UploadDataContains(",\"misspelledStart\":9,"));
 }
 
 }  // namespace spellcheck

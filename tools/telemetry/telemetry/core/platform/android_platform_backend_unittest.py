@@ -4,44 +4,78 @@
 
 import unittest
 
-from telemetry import benchmark
 from telemetry.core.platform import android_device
 from telemetry.core.platform import android_platform_backend
-from telemetry.unittest import system_stub
+from telemetry.core import util
+from telemetry import decorators
+from telemetry.testing import options_for_unittests
+from telemetry.testing import system_stub
 
+util.AddDirToPythonPath(util.GetTelemetryDir(), 'third_party', 'mock')
+import mock  # pylint: disable=import-error
+util.AddDirToPythonPath(util.GetChromiumSrcDir(), 'build', 'android')
+from pylib.device import battery_utils  # pylint: disable=import-error
+from pylib.device import device_utils  # pylint: disable=import-error
 
 class AndroidPlatformBackendTest(unittest.TestCase):
   def setUp(self):
+    self._options = options_for_unittests.GetCopy()
     self._stubs = system_stub.Override(
         android_platform_backend,
-        ['perf_control', 'thermal_throttle', 'adb_commands', 'certutils'])
+        ['perf_control', 'thermal_throttle', 'certutils', 'adb_install_cert',
+         'platformsettings'])
+
+    # Skip _FixPossibleAdbInstability by setting psutil to None.
+    self._actual_ps_util = android_platform_backend.psutil
+    android_platform_backend.psutil = None
+    self.battery_patcher = mock.patch.object(battery_utils, 'BatteryUtils')
+    self.battery_patcher.start()
+
+    def get_prop(name, cache=None):
+      return {'ro.product.cpu.abi': 'armeabi-v7a'}.get(name)
+
+    self.setup_prebuilt_tool_patcher = mock.patch(
+        'telemetry.core.platform.android_platform_backend._SetupPrebuiltTools')
+    m = self.setup_prebuilt_tool_patcher.start()
+    m.return_value = True
+
+    self.device_patcher = mock.patch.multiple(
+        device_utils.DeviceUtils,
+        HasRoot=mock.MagicMock(return_value=True),
+        GetProp=mock.MagicMock(side_effect=get_prop))
+    self.device_patcher.start()
 
   def tearDown(self):
     self._stubs.Restore()
+    android_platform_backend.psutil = self._actual_ps_util
+    self.battery_patcher.stop()
+    self.setup_prebuilt_tool_patcher.stop()
+    self.device_patcher.stop()
 
-  @benchmark.Disabled('chromeos')
+  @decorators.Disabled('chromeos')
   def testGetCpuStats(self):
-    proc_stat_content = [
+    proc_stat_content = (
         '7702 (.android.chrome) S 167 167 0 0 -1 1077936448 '
         '3247 0 0 0 4 1 0 0 20 0 9 0 5603962 337379328 5867 '
         '4294967295 1074458624 1074463824 3197495984 3197494152 '
         '1074767676 0 4612 0 38136 4294967295 0 0 17 0 0 0 0 0 0 '
-        '1074470376 1074470912 1102155776']
-    self._stubs.adb_commands.adb_device.mock_content = proc_stat_content
-    old_interface = self._stubs.adb_commands.adb_device.old_interface
-    old_interface.can_access_protected_file_contents = True
-    backend = android_platform_backend.AndroidPlatformBackend(
-        android_device.AndroidDevice('12345'))
-    cpu_stats = backend.GetCpuStats('7702')
-    self.assertEquals(cpu_stats, {'CpuProcessTime': 0.05})
+        '1074470376 1074470912 1102155776\n')
+    with mock.patch('pylib.device.device_utils.DeviceUtils.ReadFile',
+                    return_value=proc_stat_content):
+      backend = android_platform_backend.AndroidPlatformBackend(
+          android_device.AndroidDevice('12345'), self._options)
+      cpu_stats = backend.GetCpuStats('7702')
+      self.assertEquals(cpu_stats, {'CpuProcessTime': 0.05})
 
-  @benchmark.Disabled('chromeos')
+  @decorators.Disabled('chromeos')
   def testGetCpuStatsInvalidPID(self):
     # Mock an empty /proc/pid/stat.
-    backend = android_platform_backend.AndroidPlatformBackend(
-        android_device.AndroidDevice('1234'))
-    cpu_stats = backend.GetCpuStats('7702')
-    self.assertEquals(cpu_stats, {})
+    with mock.patch('pylib.device.device_utils.DeviceUtils.ReadFile',
+                    return_value=''):
+      backend = android_platform_backend.AndroidPlatformBackend(
+          android_device.AndroidDevice('1234'), self._options)
+      cpu_stats = backend.GetCpuStats('7702')
+      self.assertEquals(cpu_stats, {})
 
   def testAndroidParseCpuStates(self):
     cstate = {
@@ -68,7 +102,142 @@ class AndroidPlatformBackendTest(unittest.TestCase):
 
   def testInstallTestCaFailure(self):
     backend = android_platform_backend.AndroidPlatformBackend(
-        android_device.AndroidDevice('12345'))
-    is_installed = backend.InstallTestCa()
-    self.assertFalse(is_installed)
-    self.assertIsNone(backend.wpr_ca_cert_path)
+        android_device.AndroidDevice('failure'), self._options)
+    backend.InstallTestCa()
+    self.assertFalse(backend.is_test_ca_installed)
+
+  def testInstallTestCaSuccess(self):
+    backend = android_platform_backend.AndroidPlatformBackend(
+        android_device.AndroidDevice('success'), self._options)
+    backend.InstallTestCa()
+    self.assertTrue(backend.is_test_ca_installed)
+
+  def testIsScreenLockedTrue(self):
+    test_input = ['a=b', 'mHasBeenInactive=true']
+    backend = android_platform_backend.AndroidPlatformBackend(
+        android_device.AndroidDevice('success'), self._options)
+    self.assertTrue(backend._IsScreenLocked(test_input))
+
+  def testIsScreenLockedFalse(self):
+    test_input = ['a=b', 'mHasBeenInactive=false']
+    backend = android_platform_backend.AndroidPlatformBackend(
+        android_device.AndroidDevice('success'), self._options)
+    self.assertFalse(backend._IsScreenLocked(test_input))
+
+  def testIsScreenOnmScreenOnTrue(self):
+    test_input = ['a=b', 'mScreenOn=true']
+    backend = android_platform_backend.AndroidPlatformBackend(
+        android_device.AndroidDevice('success'), self._options)
+    self.assertTrue(backend._IsScreenOn(test_input))
+
+  def testIsScreenOnmScreenOnFalse(self):
+    test_input = ['a=b', 'mScreenOn=false']
+    backend = android_platform_backend.AndroidPlatformBackend(
+        android_device.AndroidDevice('success'), self._options)
+    self.assertFalse(backend._IsScreenOn(test_input))
+
+  def testIsScreenOnmInteractiveTrue(self):
+    test_input = ['a=b', 'mInteractive=true']
+    backend = android_platform_backend.AndroidPlatformBackend(
+        android_device.AndroidDevice('success'), self._options)
+    self.assertTrue(backend._IsScreenOn(test_input))
+
+  def testIsScreenOnmInteractiveFalse(self):
+    test_input = ['a=b', 'mInteractive=false']
+    backend = android_platform_backend.AndroidPlatformBackend(
+        android_device.AndroidDevice('success'), self._options)
+    self.assertFalse(backend._IsScreenOn(test_input))
+
+class AndroidPlatformBackendPsutilTest(unittest.TestCase):
+
+  class psutil_1_0(object):
+    version_info = (1, 0)
+    def __init__(self):
+      self.set_cpu_affinity_args = []
+    class Process(object):
+      def __init__(self, parent):
+        self._parent = parent
+        self.name = 'adb'
+      def set_cpu_affinity(self, cpus):
+        self._parent.set_cpu_affinity_args.append(cpus)
+    def process_iter(self):
+      return [self.Process(self)]
+
+  class psutil_2_0(object):
+    version_info = (2, 0)
+    def __init__(self):
+      self.set_cpu_affinity_args = []
+    class Process(object):
+      def __init__(self, parent):
+        self._parent = parent
+        self.set_cpu_affinity_args = []
+      def name(self):
+        return 'adb'
+      def cpu_affinity(self, cpus=None):
+        self._parent.set_cpu_affinity_args.append(cpus)
+    def process_iter(self):
+      return [self.Process(self)]
+
+  def setUp(self):
+    self._options = options_for_unittests.GetCopy()
+    self._stubs = system_stub.Override(
+        android_platform_backend,
+        ['perf_control'])
+    self.battery_patcher = mock.patch.object(battery_utils, 'BatteryUtils')
+    self.battery_patcher.start()
+    self._actual_ps_util = android_platform_backend.psutil
+    self.setup_prebuilt_tool_patcher = mock.patch(
+        'telemetry.core.platform.android_platform_backend._SetupPrebuiltTools')
+    m = self.setup_prebuilt_tool_patcher.start()
+    m.return_value = True
+
+    def get_prop(name, cache=None):
+      return {'ro.product.cpu.abi': 'armeabi-v7a'}.get(name)
+
+    self.helper_patcher = mock.patch(
+        'telemetry.core.platform.android_platform_backend._SetupPrebuiltTools',
+        return_value=True)
+    self.helper_patcher.start()
+
+    self.device_patcher = mock.patch.multiple(
+        device_utils.DeviceUtils,
+        FileExists=mock.MagicMock(return_value=False),
+        GetProp=mock.MagicMock(side_effect=get_prop),
+        HasRoot=mock.MagicMock(return_value=True))
+    self.device_patcher.start()
+
+  def tearDown(self):
+    self._stubs.Restore()
+    android_platform_backend.psutil = self._actual_ps_util
+    self.battery_patcher.stop()
+    self.device_patcher.stop()
+    self.helper_patcher.stop()
+    self.setup_prebuilt_tool_patcher.stop()
+
+  @decorators.Disabled('chromeos')
+  def testPsutil1(self):
+    psutil = self.psutil_1_0()
+    android_platform_backend.psutil = psutil
+
+    # Mock an empty /proc/pid/stat.
+    with mock.patch('pylib.device.device_utils.DeviceUtils.ReadFile',
+                    return_value=''):
+      backend = android_platform_backend.AndroidPlatformBackend(
+          android_device.AndroidDevice('1234'), self._options)
+      cpu_stats = backend.GetCpuStats('7702')
+      self.assertEquals({}, cpu_stats)
+      self.assertEquals([[0]], psutil.set_cpu_affinity_args)
+
+  @decorators.Disabled('chromeos')
+  def testPsutil2(self):
+    psutil = self.psutil_2_0()
+    android_platform_backend.psutil = psutil
+
+    # Mock an empty /proc/pid/stat.
+    with mock.patch('pylib.device.device_utils.DeviceUtils.ReadFile',
+                    return_value=''):
+      backend = android_platform_backend.AndroidPlatformBackend(
+          android_device.AndroidDevice('1234'), self._options)
+      cpu_stats = backend.GetCpuStats('7702')
+      self.assertEquals({}, cpu_stats)
+      self.assertEquals([[0]], psutil.set_cpu_affinity_args)

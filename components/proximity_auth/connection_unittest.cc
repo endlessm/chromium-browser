@@ -35,11 +35,11 @@ class MockConnection : public Connection {
 
   // Gmock only supports copyable types, so create simple wrapper methods for
   // ease of mocking.
-  virtual void SendMessageImpl(scoped_ptr<WireMessage> message) override {
+  void SendMessageImpl(scoped_ptr<WireMessage> message) override {
     SendMessageImplProxy(message.get());
   }
 
-  virtual scoped_ptr<WireMessage> DeserializeWireMessage(
+  scoped_ptr<WireMessage> DeserializeWireMessage(
       bool* is_incomplete_message) override {
     return make_scoped_ptr(DeserializeWireMessageProxy(is_incomplete_message));
   }
@@ -59,7 +59,7 @@ class MockConnectionObserver : public ConnectionObserver {
   virtual ~MockConnectionObserver() {}
 
   MOCK_METHOD3(OnConnectionStatusChanged,
-               void(const Connection& connection,
+               void(Connection* connection,
                     Connection::Status old_status,
                     Connection::Status new_status));
   MOCK_METHOD2(OnMessageReceived,
@@ -143,10 +143,9 @@ TEST(ProximityAuthConnectionTest, SetStatus_NotifiesObserversOfStatusChange) {
   StrictMock<MockConnectionObserver> observer;
   connection.AddObserver(&observer);
 
-  EXPECT_CALL(
-      observer,
-      OnConnectionStatusChanged(
-          Ref(connection), Connection::DISCONNECTED, Connection::CONNECTED));
+  EXPECT_CALL(observer,
+              OnConnectionStatusChanged(&connection, Connection::DISCONNECTED,
+                                        Connection::CONNECTED));
   connection.SetStatus(Connection::CONNECTED);
 }
 

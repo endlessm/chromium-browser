@@ -7,6 +7,7 @@ package org.chromium.content.browser;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.text.TextUtils;
 
@@ -17,8 +18,6 @@ import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.DOMUtils;
 import org.chromium.content_shell_apk.ContentShellTestBase;
-
-import java.util.concurrent.Callable;
 
 /**
  * Integration tests for text selection-related behavior.
@@ -474,6 +473,23 @@ public class ContentViewCoreSelectionTest extends ContentShellTestBase {
         assertEquals(mContentViewCore.getSelectedText(), "SampleTextToCopy");
     }
 
+    @SmallTest
+    @Feature({"TextInput"})
+    public void testSelectActionBarSearchAndShareLaunchesNewTask() throws Exception {
+        DOMUtils.longPressNode(this, mContentViewCore, "textarea");
+        assertWaitForSelectActionBarVisible(true);
+        assertTrue(mContentViewCore.hasSelection());
+        assertNotNull(mContentViewCore.getSelectActionHandler());
+        selectActionBarSearch();
+        Intent i = getActivity().getLastSentIntent();
+        int new_task_flag = Intent.FLAG_ACTIVITY_NEW_TASK;
+        assertEquals(i.getFlags() & new_task_flag, new_task_flag);
+
+        selectActionBarShare();
+        i = getActivity().getLastSentIntent();
+        assertEquals(i.getFlags() & new_task_flag, new_task_flag);
+    }
+
     private void selectActionBarPaste() {
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
@@ -510,29 +526,41 @@ public class ContentViewCoreSelectionTest extends ContentShellTestBase {
         });
     }
 
+    private void selectActionBarSearch() {
+        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
+            @Override
+            public void run() {
+                mContentViewCore.getSelectActionHandler().search();
+            }
+        });
+    }
+
+    private void selectActionBarShare() {
+        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
+            @Override
+            public void run() {
+                mContentViewCore.getSelectActionHandler().share();
+            }
+        });
+    }
+
     private void assertClipboardContents(final Context context, final String expectedContents)
             throws InterruptedException {
-        assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+        assertTrue(CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
-                return ThreadUtils.runOnUiThreadBlockingNoException(new Callable<Boolean>() {
-                    @Override
-                    public Boolean call() throws Exception {
-                        ClipboardManager clipboardManager =
-                                (ClipboardManager) context.getSystemService(
-                                        Context.CLIPBOARD_SERVICE);
-                        ClipData clip = clipboardManager.getPrimaryClip();
-                        return clip != null && clip.getItemCount() == 1
-                                && TextUtils.equals(clip.getItemAt(0).getText(), expectedContents);
-                    }
-                });
+                ClipboardManager clipboardManager =
+                        (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
+                ClipData clip = clipboardManager.getPrimaryClip();
+                return clip != null && clip.getItemCount() == 1
+                        && TextUtils.equals(clip.getItemAt(0).getText(), expectedContents);
             }
         }));
     }
 
     private void assertWaitForSelectActionBarVisible(
             final boolean visible) throws InterruptedException {
-        assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+        assertTrue(CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 return visible == mContentViewCore.isSelectActionBarShowing();
@@ -587,7 +615,7 @@ public class ContentViewCoreSelectionTest extends ContentShellTestBase {
     }
 
     private void assertWaitForPastePopupStatus(final boolean show) throws InterruptedException {
-        assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+        assertTrue(CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 return show == mContentViewCore.getPastePopupForTest().isShowing();

@@ -45,21 +45,15 @@ ScriptHeapSnapshot::~ScriptHeapSnapshot()
     const_cast<v8::HeapSnapshot*>(m_snapshot)->Delete();
 }
 
-String ScriptHeapSnapshot::title() const
-{
-    v8::HandleScope scope(v8::Isolate::GetCurrent());
-    return toCoreString(m_snapshot->GetTitle());
-}
-
 namespace {
 
 class OutputStreamAdapter final : public v8::OutputStream {
 public:
     OutputStreamAdapter(ScriptHeapSnapshot::OutputStream* output)
         : m_output(output) { }
-    virtual void EndOfStream() override { m_output->Close(); }
-    virtual int GetChunkSize() override { return 102400; }
-    virtual WriteResult WriteAsciiChunk(char* data, int size) override
+    void EndOfStream() override { m_output->Close(); }
+    int GetChunkSize() override { return 102400; }
+    WriteResult WriteAsciiChunk(char* data, int size) override
     {
         m_output->Write(String(data, size));
         return kContinue;

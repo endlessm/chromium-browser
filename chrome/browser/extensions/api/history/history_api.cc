@@ -10,25 +10,24 @@
 #include "base/command_line.h"
 #include "base/json/json_writer.h"
 #include "base/lazy_instance.h"
+#include "base/location.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "base/prefs/pref_service.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/cancelable_task_tracker.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/values.h"
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/activity_log/activity_log.h"
-#include "chrome/browser/history/history_service.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/api/history.h"
 #include "chrome/common/pref_names.h"
+#include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_types.h"
-#include "content/public/browser/notification_details.h"
-#include "content/public/browser/notification_source.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_system_provider.h"
 #include "extensions/browser/extensions_browser_client.h"
@@ -85,40 +84,40 @@ scoped_ptr<VisitItem> GetVisitItem(const history::VisitRow& row) {
       new double(MilliSecondsFromTime(row.visit_time)));
   visit_item->referring_visit_id = base::Int64ToString(row.referring_visit);
 
-  VisitItem::Transition transition = VisitItem::TRANSITION_LINK;
+  api::history::TransitionType transition = api::history::TRANSITION_TYPE_LINK;
   switch (row.transition & ui::PAGE_TRANSITION_CORE_MASK) {
     case ui::PAGE_TRANSITION_LINK:
-      transition = VisitItem::TRANSITION_LINK;
+      transition = api::history::TRANSITION_TYPE_LINK;
       break;
     case ui::PAGE_TRANSITION_TYPED:
-      transition = VisitItem::TRANSITION_TYPED;
+      transition = api::history::TRANSITION_TYPE_TYPED;
       break;
     case ui::PAGE_TRANSITION_AUTO_BOOKMARK:
-      transition = VisitItem::TRANSITION_AUTO_BOOKMARK;
+      transition = api::history::TRANSITION_TYPE_AUTO_BOOKMARK;
       break;
     case ui::PAGE_TRANSITION_AUTO_SUBFRAME:
-      transition = VisitItem::TRANSITION_AUTO_SUBFRAME;
+      transition = api::history::TRANSITION_TYPE_AUTO_SUBFRAME;
       break;
     case ui::PAGE_TRANSITION_MANUAL_SUBFRAME:
-      transition = VisitItem::TRANSITION_MANUAL_SUBFRAME;
+      transition = api::history::TRANSITION_TYPE_MANUAL_SUBFRAME;
       break;
     case ui::PAGE_TRANSITION_GENERATED:
-      transition = VisitItem::TRANSITION_GENERATED;
+      transition = api::history::TRANSITION_TYPE_GENERATED;
       break;
     case ui::PAGE_TRANSITION_AUTO_TOPLEVEL:
-      transition = VisitItem::TRANSITION_AUTO_TOPLEVEL;
+      transition = api::history::TRANSITION_TYPE_AUTO_TOPLEVEL;
       break;
     case ui::PAGE_TRANSITION_FORM_SUBMIT:
-      transition = VisitItem::TRANSITION_FORM_SUBMIT;
+      transition = api::history::TRANSITION_TYPE_FORM_SUBMIT;
       break;
     case ui::PAGE_TRANSITION_RELOAD:
-      transition = VisitItem::TRANSITION_RELOAD;
+      transition = api::history::TRANSITION_TYPE_RELOAD;
       break;
     case ui::PAGE_TRANSITION_KEYWORD:
-      transition = VisitItem::TRANSITION_KEYWORD;
+      transition = api::history::TRANSITION_TYPE_KEYWORD;
       break;
     case ui::PAGE_TRANSITION_KEYWORD_GENERATED:
-      transition = VisitItem::TRANSITION_KEYWORD_GENERATED;
+      transition = api::history::TRANSITION_TYPE_KEYWORD_GENERATED;
       break;
     default:
       DCHECK(false);
@@ -132,28 +131,16 @@ scoped_ptr<VisitItem> GetVisitItem(const history::VisitRow& row) {
 }  // namespace
 
 HistoryEventRouter::HistoryEventRouter(Profile* profile,
-                                       HistoryService* history_service)
+                                       history::HistoryService* history_service)
     : profile_(profile), history_service_observer_(this) {
   DCHECK(profile);
-  registrar_.Add(this,
-                 chrome::NOTIFICATION_HISTORY_URLS_DELETED,
-                 content::Source<Profile>(profile));
   history_service_observer_.Add(history_service);
 }
 
 HistoryEventRouter::~HistoryEventRouter() {
 }
 
-void HistoryEventRouter::Observe(int type,
-                                 const content::NotificationSource& source,
-                                 const content::NotificationDetails& details) {
-  DCHECK_EQ(type, chrome::NOTIFICATION_HISTORY_URLS_DELETED);
-  HistoryUrlsRemoved(
-      content::Source<Profile>(source).ptr(),
-      content::Details<const history::URLsDeletedDetails>(details).ptr());
-}
-
-void HistoryEventRouter::OnURLVisited(HistoryService* history_service,
+void HistoryEventRouter::OnURLVisited(history::HistoryService* history_service,
                                       ui::PageTransition transition,
                                       const history::URLRow& row,
                                       const history::RedirectList& redirects,
@@ -163,21 +150,22 @@ void HistoryEventRouter::OnURLVisited(HistoryService* history_service,
   DispatchEvent(profile_, api::history::OnVisited::kEventName, args.Pass());
 }
 
-void HistoryEventRouter::HistoryUrlsRemoved(
-    Profile* profile,
-    const history::URLsDeletedDetails* details) {
+void HistoryEventRouter::OnURLsDeleted(history::HistoryService* history_service,
+                                       bool all_history,
+                                       bool expired,
+                                       const history::URLRows& deleted_rows,
+                                       const std::set<GURL>& favicon_urls) {
   OnVisitRemoved::Removed removed;
-  removed.all_history = details->all_history;
+  removed.all_history = all_history;
 
   std::vector<std::string>* urls = new std::vector<std::string>();
-  for (history::URLRows::const_iterator iterator = details->rows.begin();
-      iterator != details->rows.end(); ++iterator) {
-    urls->push_back(iterator->url().spec());
-  }
+  for (const auto& row : deleted_rows)
+    urls->push_back(row.url().spec());
   removed.urls.reset(urls);
 
   scoped_ptr<base::ListValue> args = OnVisitRemoved::Create(removed);
-  DispatchEvent(profile, api::history::OnVisitRemoved::kEventName, args.Pass());
+  DispatchEvent(profile_, api::history::OnVisitRemoved::kEventName,
+                args.Pass());
 }
 
 void HistoryEventRouter::DispatchEvent(
@@ -186,7 +174,7 @@ void HistoryEventRouter::DispatchEvent(
     scoped_ptr<base::ListValue> event_args) {
   if (profile && extensions::EventRouter::Get(profile)) {
     scoped_ptr<extensions::Event> event(new extensions::Event(
-        event_name, event_args.Pass()));
+        extensions::events::UNKNOWN, event_name, event_args.Pass()));
     event->restrict_to_browser_context = profile;
     extensions::EventRouter::Get(profile)->BroadcastEvent(event.Pass());
   }
@@ -204,6 +192,7 @@ HistoryAPI::~HistoryAPI() {
 }
 
 void HistoryAPI::Shutdown() {
+  history_event_router_.reset();
   EventRouter::Get(browser_context_)->UnregisterObserver(this);
 }
 
@@ -218,14 +207,15 @@ BrowserContextKeyedAPIFactory<HistoryAPI>* HistoryAPI::GetFactoryInstance() {
 template <>
 void BrowserContextKeyedAPIFactory<HistoryAPI>::DeclareFactoryDependencies() {
   DependsOn(ActivityLog::GetFactoryInstance());
+  DependsOn(HistoryServiceFactory::GetInstance());
   DependsOn(ExtensionsBrowserClient::Get()->GetExtensionSystemFactory());
 }
 
 void HistoryAPI::OnListenerAdded(const EventListenerInfo& details) {
   Profile* profile = Profile::FromBrowserContext(browser_context_);
   history_event_router_.reset(new HistoryEventRouter(
-      profile,
-      HistoryServiceFactory::GetForProfile(profile, Profile::EXPLICIT_ACCESS)));
+      profile, HistoryServiceFactory::GetForProfile(
+                   profile, ServiceAccessType::EXPLICIT_ACCESS)));
   EventRouter::Get(browser_context_)->UnregisterObserver(this);
 }
 
@@ -273,7 +263,7 @@ bool HistoryFunctionWithCallback::RunAsync() {
 }
 
 void HistoryFunctionWithCallback::SendAsyncResponse() {
-  base::MessageLoop::current()->PostTask(
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::Bind(&HistoryFunctionWithCallback::SendResponseToCallback, this));
 }
@@ -291,8 +281,8 @@ bool HistoryGetVisitsFunction::RunAsyncImpl() {
   if (!ValidateUrl(params->details.url, &url))
     return false;
 
-  HistoryService* hs = HistoryServiceFactory::GetForProfile(
-      GetProfile(), Profile::EXPLICIT_ACCESS);
+  history::HistoryService* hs = HistoryServiceFactory::GetForProfile(
+      GetProfile(), ServiceAccessType::EXPLICIT_ACCESS);
   hs->QueryURL(url,
                true,  // Retrieve full history of a URL.
                base::Bind(&HistoryGetVisitsFunction::QueryComplete,
@@ -336,8 +326,8 @@ bool HistorySearchFunction::RunAsyncImpl() {
   if (params->query.max_results.get())
     options.max_count = *params->query.max_results;
 
-  HistoryService* hs = HistoryServiceFactory::GetForProfile(
-      GetProfile(), Profile::EXPLICIT_ACCESS);
+  history::HistoryService* hs = HistoryServiceFactory::GetForProfile(
+      GetProfile(), ServiceAccessType::EXPLICIT_ACCESS);
   hs->QueryHistory(search_text,
                    options,
                    base::Bind(&HistorySearchFunction::SearchComplete,
@@ -370,8 +360,8 @@ bool HistoryAddUrlFunction::RunAsync() {
   if (!ValidateUrl(params->details.url, &url))
     return false;
 
-  HistoryService* hs = HistoryServiceFactory::GetForProfile(
-      GetProfile(), Profile::EXPLICIT_ACCESS);
+  history::HistoryService* hs = HistoryServiceFactory::GetForProfile(
+      GetProfile(), ServiceAccessType::EXPLICIT_ACCESS);
   hs->AddPage(url, base::Time::Now(), history::SOURCE_EXTENSION);
 
   SendResponse(true);
@@ -389,14 +379,14 @@ bool HistoryDeleteUrlFunction::RunAsync() {
   if (!ValidateUrl(params->details.url, &url))
     return false;
 
-  HistoryService* hs = HistoryServiceFactory::GetForProfile(
-      GetProfile(), Profile::EXPLICIT_ACCESS);
+  history::HistoryService* hs = HistoryServiceFactory::GetForProfile(
+      GetProfile(), ServiceAccessType::EXPLICIT_ACCESS);
   hs->DeleteURL(url);
 
   // Also clean out from the activity log. If the activity log testing flag is
   // set then don't clean so testers can see what potentially malicious
   // extensions have been trying to clean from their logs.
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnableExtensionActivityLogTesting)) {
     ActivityLog* activity_log = ActivityLog::GetInstance(GetProfile());
     DCHECK(activity_log);
@@ -418,8 +408,8 @@ bool HistoryDeleteRangeFunction::RunAsyncImpl() {
   base::Time end_time = GetTime(params->range.end_time);
 
   std::set<GURL> restrict_urls;
-  HistoryService* hs = HistoryServiceFactory::GetForProfile(
-      GetProfile(), Profile::EXPLICIT_ACCESS);
+  history::HistoryService* hs = HistoryServiceFactory::GetForProfile(
+      GetProfile(), ServiceAccessType::EXPLICIT_ACCESS);
   hs->ExpireHistoryBetween(
       restrict_urls,
       start_time,
@@ -429,7 +419,7 @@ bool HistoryDeleteRangeFunction::RunAsyncImpl() {
       &task_tracker_);
 
   // Also clean from the activity log unless in testing mode.
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnableExtensionActivityLogTesting)) {
     ActivityLog* activity_log = ActivityLog::GetInstance(GetProfile());
     DCHECK(activity_log);
@@ -448,8 +438,8 @@ bool HistoryDeleteAllFunction::RunAsyncImpl() {
     return false;
 
   std::set<GURL> restrict_urls;
-  HistoryService* hs = HistoryServiceFactory::GetForProfile(
-      GetProfile(), Profile::EXPLICIT_ACCESS);
+  history::HistoryService* hs = HistoryServiceFactory::GetForProfile(
+      GetProfile(), ServiceAccessType::EXPLICIT_ACCESS);
   hs->ExpireHistoryBetween(
       restrict_urls,
       base::Time(),      // Unbounded beginning...
@@ -459,7 +449,7 @@ bool HistoryDeleteAllFunction::RunAsyncImpl() {
       &task_tracker_);
 
   // Also clean from the activity log unless in testing mode.
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnableExtensionActivityLogTesting)) {
     ActivityLog* activity_log = ActivityLog::GetInstance(GetProfile());
     DCHECK(activity_log);

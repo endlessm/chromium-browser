@@ -27,7 +27,7 @@ void AppendJsonHtml(const base::DictionaryValue* json, std::string* output) {
 
   // </ confuses the HTML parser because it could be a </script> tag.  So we
   // replace </ with <\/.  The extra \ will be ignored by the JS engine.
-  ReplaceSubstringsAfterOffset(&javascript_string, 0, "</", "<\\/");
+  base::ReplaceSubstringsAfterOffset(&javascript_string, 0, "</", "<\\/");
 
   output->append("<script>");
   output->append(javascript_string);
@@ -85,7 +85,7 @@ void AppendJsTemplateProcessHtml(
 void AppendI18nTemplateSourceHtml(std::string* output) {
   base::StringPiece i18n_template_src(
       ResourceBundle::GetSharedInstance().GetRawDataResource(
-          IDR_WEBUI_I18N_TEMPLATE2_JS));
+          IDR_WEBUI_I18N_TEMPLATE_JS));
 
   if (i18n_template_src.empty()) {
     NOTREACHED() << "Unable to get i18n template src";

@@ -6,6 +6,7 @@
 
 #include <string.h>
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/portability.h"
 #include "native_client/src/include/nacl_macros.h"
 
@@ -273,89 +274,6 @@ ssize_t NaClDescQuotaGetdents(struct NaClDesc *vself,
   return (*NACL_VTBL(NaClDesc, self->desc)->Getdents)(self->desc, dirp, count);
 }
 
-int NaClDescQuotaExternalizeSize(struct NaClDesc *vself,
-                                 size_t          *nbytes,
-                                 size_t          *nhandles) {
-  struct NaClDescQuota  *self = (struct NaClDescQuota *) vself;
-  int                   rv;
-  size_t                num_bytes;
-  size_t                num_handles;
-
-  if (NULL != self->quota_interface) {
-    /* Already quota-managed descriptors may not be transferred. */
-    return -NACL_ABI_EINVAL;
-  }
-  if (0 != (rv = (*NACL_VTBL(NaClDesc, self->desc)->
-                  ExternalizeSize)(self->desc, &num_bytes, &num_handles))) {
-    return rv;
-  }
-  *nbytes = num_bytes + sizeof self->file_id;
-  *nhandles = num_handles;
-  NaClNrdXferIncrTagOverhead(nbytes, nhandles);
-  return 0;
-}
-
-/*
- * nrd_xfer tagging scheme details escapes into here.
- */
-int NaClDescQuotaExternalize(struct NaClDesc          *vself,
-                             struct NaClDescXferState *xfer) {
-  struct NaClDescQuota  *self = (struct NaClDescQuota *) vself;
-
-  memcpy(xfer->next_byte, self->file_id, sizeof self->file_id);
-  xfer->next_byte += sizeof self->file_id;
-
-  if (0 != NaClDescExternalizeToXferBuffer(xfer, self->desc)) {
-    NaClLog(LOG_ERROR,
-            ("NaClDescQuotaExternalize: externalizing wrapped descriptor"
-             " type %d failed\n"),
-            NACL_VTBL(NaClDesc, self->desc)->typeTag);
-    return -NACL_ABI_EINVAL;  /* invalid/non-transferable desc type */
-  }
-  return 0;
-}
-
-int NaClDescQuotaInternalize(struct NaClDesc               **out_desc,
-                             struct NaClDescXferState      *xfer,
-                             struct NaClDescQuotaInterface *quota_interface) {
-  int                   rv = -NACL_ABI_EIO;
-  uint8_t               file_id[NACL_DESC_QUOTA_FILE_ID_LEN];
-  struct NaClDescQuota  *out = NULL;
-  struct NaClDesc       *wrapped_desc;
-
-  if (NULL == (out = malloc(sizeof *out))) {
-    rv = -NACL_ABI_ENOMEM;
-    goto cleanup;
-  }
-  memcpy(file_id, xfer->next_byte, sizeof file_id);
-  xfer->next_byte += sizeof file_id;
-
-  if (1 != NaClDescInternalizeFromXferBuffer(&wrapped_desc, xfer,
-                                             quota_interface)) {
-    rv = -NACL_ABI_EIO;
-    goto cleanup;
-  }
-  if (!NaClDescQuotaCtor(out, wrapped_desc, file_id, quota_interface)) {
-    rv = -NACL_ABI_ENOMEM;
-    goto cleanup_wrapped;
-
-  }
-
-  *out_desc = (struct NaClDesc *) out;
-  rv = 0;
-
-cleanup_wrapped:
-  if (0 != rv) {
-    NaClDescUnref(wrapped_desc);
-  }
-
-cleanup:
-  if (0 != rv) {
-    free(out);
-  }
-  return rv;
-}
-
 int NaClDescQuotaLock(struct NaClDesc *vself) {
   struct NaClDescQuota  *self = (struct NaClDescQuota *) vself;
 
@@ -412,12 +330,10 @@ ssize_t NaClDescQuotaSendMsg(struct NaClDesc                 *vself,
 
 ssize_t NaClDescQuotaRecvMsg(struct NaClDesc               *vself,
                              struct NaClImcTypedMsgHdr     *nitmhp,
-                             int                           flags,
-                             struct NaClDescQuotaInterface *quota_interface) {
+                             int                           flags) {
   struct NaClDescQuota  *self = (struct NaClDescQuota *) vself;
 
-  return (*NACL_VTBL(NaClDesc, self->desc)->RecvMsg)(self->desc, nitmhp, flags,
-                                                     quota_interface);
+  return (*NACL_VTBL(NaClDesc, self->desc)->RecvMsg)(self->desc, nitmhp, flags);
 }
 
 ssize_t NaClDescQuotaLowLevelSendMsg(struct NaClDesc                *vself,
@@ -519,8 +435,8 @@ static struct NaClDescVtbl const kNaClDescQuotaVtbl = {
   NaClDescQuotaPWrite,
   NaClDescQuotaFstat,
   NaClDescQuotaGetdents,
-  NaClDescQuotaExternalizeSize,
-  NaClDescQuotaExternalize,
+  NaClDescExternalizeSizeNotImplemented,
+  NaClDescExternalizeNotImplemented,
   NaClDescQuotaLock,
   NaClDescQuotaTryLock,
   NaClDescQuotaUnlock,

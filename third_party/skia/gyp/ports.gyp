@@ -1,3 +1,7 @@
+# Copyright 2015 Google Inc.
+#
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
 # Port-specific Skia library code.
 {
   'targets': [
@@ -15,7 +19,6 @@
         '../include/ports',
         '../include/utils',
         '../include/utils/win',
-        '../include/xml',
         '../src/core',
         '../src/lazy',
         '../src/ports',
@@ -23,20 +26,19 @@
         '../src/utils',
       ],
       'sources': [
-        '../src/ports/SkAtomics_sync.h',
-        '../src/ports/SkAtomics_win.h',
-        '../src/ports/SkMutex_pthread.h',
-        '../src/ports/SkMutex_win.h',
-        '../src/ports/SkDebug_nacl.cpp',
         '../src/ports/SkDebug_stdio.cpp',
         '../src/ports/SkDebug_win.cpp',
 
         '../src/fonts/SkFontMgr_indirect.cpp',
         '../src/fonts/SkRemotableFontMgr.cpp',
         '../src/ports/SkFontHost_win.cpp',
-        '../src/ports/SkFontMgr_default_gdi.cpp',
-        '../src/ports/SkFontMgr_default_dw.cpp',
+        '../src/ports/SkFontMgr_android_factory.cpp',
+        '../src/ports/SkFontMgr_custom_directory_factory.cpp',
+        '../src/ports/SkFontMgr_custom_embedded_factory.cpp',
+        '../src/ports/SkFontMgr_fontconfig_factory.cpp',
         '../src/ports/SkFontMgr_win_dw.cpp',
+        '../src/ports/SkFontMgr_win_dw_factory.cpp',
+        '../src/ports/SkFontMgr_win_gdi_factory.cpp',
         '../src/ports/SkRemotableFontMgr_win_dw.cpp',
         '../src/ports/SkScalerContext_win_dw.cpp',
         '../src/ports/SkScalerContext_win_dw.h',
@@ -45,8 +47,6 @@
 
         '../src/ports/SkGlobalInitialization_default.cpp',
         '../src/ports/SkMemory_malloc.cpp',
-        '../src/ports/SkMutex_pthread.h',
-        '../src/ports/SkMutex_win.h',
         '../src/ports/SkOSFile_posix.cpp',
         '../src/ports/SkOSFile_stdio.cpp',
         '../src/ports/SkOSFile_win.cpp',
@@ -55,15 +55,25 @@
         '../src/ports/SkTime_win.cpp',
         '../src/ports/SkTLS_pthread.cpp',
         '../src/ports/SkTLS_win.cpp',
-        '../src/ports/SkXMLParser_empty.cpp',
 
+        '../include/ports/SkAtomics_atomic.h',
+        '../include/ports/SkAtomics_std.h',
+        '../include/ports/SkAtomics_sync.h',
         '../include/ports/SkFontConfigInterface.h',
         '../include/ports/SkFontMgr.h',
+        '../include/ports/SkFontMgr_android.h',
+        '../include/ports/SkFontMgr_custom.h',
+        '../include/ports/SkFontMgr_fontconfig.h',
         '../include/ports/SkFontMgr_indirect.h',
+        '../include/ports/SkMutex_pthread.h',
+        '../include/ports/SkMutex_win.h',
         '../include/ports/SkRemotableFontMgr.h',
       ],
+      'sources/': [
+        ['exclude', 'SkFontMgr_.+_factory\\.cpp$'],
+      ],
       'conditions': [
-        [ 'skia_os in ["linux", "freebsd", "openbsd", "solaris", "chromeos", "nacl", "android"]', {
+        [ 'skia_os in ["linux", "freebsd", "openbsd", "solaris", "chromeos", "android"]', {
           'sources': [
             '../src/ports/SkFontHost_FreeType.cpp',
             '../src/ports/SkFontHost_FreeType_common.cpp',
@@ -74,15 +84,55 @@
         }],
         [ 'skia_os in ["linux", "freebsd", "openbsd", "solaris", "chromeos"]', {
           'conditions': [
-            [ 'skia_no_fontconfig', {
+            [ 'skia_embedded_fonts', {
+              'link_settings': {
+                'libraries': [
+                  '-ldl',
+                ],
+              },
+              'variables': {
+                'embedded_font_data_identifier': 'sk_fonts',
+                'fonts_to_include': [
+                  '../resources/fonts/Funkster.ttf',
+                ],
+              },
+              'sources': [
+                '../include/ports/SkFontMgr_custom.h',
+                '../src/ports/SkFontMgr_custom.cpp',
+              ],
+              'sources/': [['include', '../src/ports/SkFontMgr_custom_embedded_factory.cpp']],
+              'actions': [{
+                'action_name': 'generate_embedded_font_data',
+                'inputs': [
+                  '../tools/embed_resources.py',
+                  '<@(fonts_to_include)',
+                ],
+                'outputs': [
+                  '<(SHARED_INTERMEDIATE_DIR)/ports/fonts/fonts.cpp',
+                ],
+                'action': ['python', '../tools/embed_resources.py',
+                                     '--align', '4',
+                                     '--name', '<(embedded_font_data_identifier)',
+                                     '--input', '<@(fonts_to_include)',
+                                     '--output', '<@(_outputs)',
+                ],
+                'message': 'Generating <@(_outputs)',
+                'process_outputs_as_sources': 1,
+              }],
+              'defines': [
+                'SK_EMBEDDED_FONTS=<(embedded_font_data_identifier)',
+              ],
+            }, 'skia_no_fontconfig', {
               'link_settings': {
                 'libraries': [
                   '-ldl',
                 ],
               },
               'sources': [
-                '../src/ports/SkFontHost_linux.cpp',
+                '../include/ports/SkFontMgr_custom.h',
+                '../src/ports/SkFontMgr_custom.cpp',
               ],
+              'sources/': [['include', '../src/ports/SkFontMgr_custom_directory_factory.cpp']],
             }, {
               'link_settings': {
                 'libraries': [
@@ -95,19 +145,8 @@
                 '../src/ports/SkFontHost_fontconfig.cpp',
                 '../src/ports/SkFontConfigInterface_direct.cpp',
               ],
+              'sources/': [['include', '../src/ports/SkFontMgr_fontconfig_factory.cpp']],
             }]
-          ],
-        }],
-        [ 'skia_os == "nacl"', {
-          'sources': [
-            '../src/ports/SkFontHost_linux.cpp',
-          ],
-          'sources!': [
-            '../src/ports/SkDebug_stdio.cpp',
-          ],
-        }, {
-          'sources!': [
-            '../src/ports/SkDebug_nacl.cpp',
           ],
         }],
         [ 'skia_os == "mac"', {
@@ -149,21 +188,15 @@
           'conditions': [
             #    when we build for win, we only want one of these default files
             [ 'skia_gdi', {
-              'sources!': [
-                '../src/ports/SkFontMgr_default_dw.cpp',
-              ],
+              'sources/': [['include', '../src/ports/SkFontMgr_win_gdi_factory.cpp']],
             }, { # normally default to direct write
-              'sources!': [
-                '../src/ports/SkFontMgr_default_gdi.cpp',
-              ],
+              'sources/': [['include', '../src/ports/SkFontMgr_win_dw_factory.cpp']],
             }],
           ],
         }, { # else !win
           'sources!': [
             '../src/ports/SkDebug_win.cpp',
             '../src/ports/SkFontHost_win.cpp',
-            '../src/ports/SkFontMgr_default_gdi.cpp',
-            '../src/ports/SkFontMgr_default_dw.cpp',
             '../src/ports/SkFontMgr_win_dw.cpp',
             '../src/ports/SkOSFile_win.cpp',
             '../src/ports/SkRemotableFontMgr_win_dw.cpp',
@@ -181,9 +214,10 @@
           ],
           'sources': [
             '../src/ports/SkDebug_android.cpp',
-            '../src/ports/SkFontConfigParser_android.cpp',
             '../src/ports/SkFontMgr_android.cpp',
+            '../src/ports/SkFontMgr_android_parser.cpp',
           ],
+          'sources/': [['include', '../src/ports/SkFontMgr_android_factory.cpp']],
           'dependencies': [
              'android_deps.gyp:expat',
           ],

@@ -5,7 +5,9 @@
 #ifndef SANDBOX_LINUX_TESTS_TEST_UTILS_H_
 #define SANDBOX_LINUX_TESTS_TEST_UTILS_H_
 
-#include "base/basictypes.h"
+#include <sys/types.h>
+
+#include "base/macros.h"
 
 namespace sandbox {
 
@@ -13,6 +15,10 @@ namespace sandbox {
 class TestUtils {
  public:
   static bool CurrentProcessHasChildren();
+  // |pid| is the return value of a fork()-like call. This
+  // makes sure that if fork() succeeded the child exits
+  // and the parent waits for it.
+  static void HandlePostForkReturn(pid_t pid);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(TestUtils);

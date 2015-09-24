@@ -9,6 +9,7 @@
 
 /* Defines the API exposed by the Native Client validators. */
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/nacl_base.h"
 #include "native_client/src/include/portability.h"
 #include "native_client/src/trusted/cpu_features/cpu_features.h"
@@ -39,8 +40,8 @@ typedef enum NaClValidationStatus {
  * the validator where performance is critical.
  *
  * Parameters are:
- *    guest_addr - The virtual pc to assume with the beginning address of the
- *           code segment. Typically, this is the corresponding addresss that
+ *    guest_addr - The virtual pc to assume is the beginning address of the
+ *           code segment. Typically, this is the corresponding address that
  *           will be used by objdump.
  *    data - The contents of the code segment to be validated.
  *    size - The size of the code segment to be validated.
@@ -82,8 +83,8 @@ typedef int (*NaClCopyInstructionFunc)(
  * require that the code segment match the Native Client rules.
  *
  * Parameters are:
- *    guest_addr - The virtual pc to assume with the beginning address of the
- *           code segment. Typically, this is the corresponding addresss that
+ *    guest_addr - The virtual pc to assume is the beginning address of the
+ *           code segment. Typically, this is the corresponding address that
  *           will be used by objdump.
  *    data_old - The contents of the original code segment.
  *    data_new - The addres of the new code segment for which the original
@@ -107,8 +108,8 @@ typedef NaClValidationStatus (*NaClCopyCodeFunc)(
  * that don't change instruction sizes.
  *
  * Parameters are:
- *    guest_addr - The virtual pc to assume with the beginning address of the
- *           code segment. Typically, this is the corresponding addresss that
+ *    guest_addr - The virtual pc to assume is the beginning address of the
+ *           code segment. Typically, this is the corresponding address that
  *           will be used by objdump.
  *    data_old - The contents of the original code segment.
  *    data_new - The contents of the new code segment that should be validated.
@@ -124,6 +125,26 @@ typedef NaClValidationStatus (*NaClValidateCodeReplacementFunc)(
 
 typedef void (*NaClCPUFeaturesAllFunc)(NaClCPUFeatures *f);
 typedef int (*NaClCPUFeaturesFixFunc)(NaClCPUFeatures *f);
+
+/* Function type for checking if an address is on the boundary of
+ * a single instruction or pseudo-instruction. If it's within a
+ * pseudo-instruction it will invalid.
+ *
+ * Parameters are:
+ *    guest_addr - The virtual pc to assume is the beginning address of the
+ *           code segment. Typically, this is the corresponding address that
+ *           will be used by objdump.
+ *    addr - The address of the code to check.
+ *    data - The contents of the code segment assumed to be valid.
+ *    size - The size of the code segment.
+ *    cpu_features - The CPU features to support while validating.
+ */
+typedef NaClValidationStatus (*NaClIsOnInstBoundaryFunc)(
+    uintptr_t guest_addr,
+    uintptr_t addr,
+    const uint8_t *data,
+    size_t size,
+    const NaClCPUFeatures *cpu_features);
 
 /* The full set of validator APIs. */
 struct NaClValidatorInterface {
@@ -151,6 +172,7 @@ struct NaClValidatorInterface {
    * model. Otherwise returns 0.
    */
   NaClCPUFeaturesFixFunc FixCPUFeatures;
+  NaClIsOnInstBoundaryFunc IsOnInstBoundary;
 };
 
 /* Make a choice of validating functions. */
@@ -169,16 +191,16 @@ const struct NaClValidatorInterface *NaClValidatorCreateMips(void);
  * not be performance critical.
  *
  * Parameters are:
- *    guest_addr - The virtual pc to assume with the beginning address of the
- *           code segment. Typically, this is the corresponding addresss that
+ *    guest_addr - The virtual pc to assume is the beginning address of the
+ *           code segment. Typically, this is the corresponding address that
  *           will be used by objdump.
  *    data - The contents of the code segment to be validated.
  *    size - The size of the code segment to be validated.
  *    cpu_features - The CPU features to support while validating.
  */
 NaClValidationStatus NACL_SUBARCH_NAME(ApplyValidatorVerbosely,
-                                       NACL_TARGET_ARCH,
-                                       NACL_TARGET_SUBARCH)(
+                                       NACL_BUILD_ARCH,
+                                       NACL_BUILD_SUBARCH)(
     uintptr_t guest_addr,
     uint8_t *data,
     size_t size,

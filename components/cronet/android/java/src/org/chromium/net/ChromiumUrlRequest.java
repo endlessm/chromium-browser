@@ -6,12 +6,13 @@ package org.chromium.net;
 
 import android.util.Log;
 
-import org.apache.http.conn.ConnectTimeoutException;
 import org.chromium.base.CalledByNative;
 import org.chromium.base.JNINamespace;
+import org.chromium.base.annotations.SuppressFBWarnings;
 
 import java.io.IOException;
 import java.net.MalformedURLException;
+import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
@@ -25,8 +26,10 @@ import java.util.Map.Entry;
 
 /**
  * Network request using the native http stack implementation.
+ * @deprecated Use {@link CronetUrlRequest} instead.
  */
 @JNINamespace("cronet")
+@Deprecated
 public class ChromiumUrlRequest implements HttpUrlRequest {
     /**
      * Native adapter object, owned by UrlRequest.
@@ -46,22 +49,40 @@ public class ChromiumUrlRequest implements HttpUrlRequest {
     private IOException mSinkException;
     private volatile boolean mStarted;
     private volatile boolean mCanceled;
-    private volatile boolean mRecycled;
     private volatile boolean mFinished;
     private boolean mHeadersAvailable;
-    private String mContentType;
     private long mUploadContentLength;
     private final HttpUrlRequestListener mListener;
     private boolean mBufferFullResponse;
     private long mOffset;
-    private long mContentLength;
     private long mContentLengthLimit;
     private boolean mCancelIfContentLengthOverLimit;
     private boolean mContentLengthOverLimit;
     private boolean mSkippingToOffset;
     private long mSize;
+
     // Indicates whether redirects have been disabled.
     private boolean mDisableRedirects;
+
+    // Http status code. Default to 0. Populated in onResponseStarted().
+    private int mHttpStatusCode = 0;
+
+    // Http status text. Default to null. Populated in onResponseStarted().
+    private String mHttpStatusText;
+
+    // Content type. Default to null. Populated in onResponseStarted().
+    private String mContentType;
+
+    // Compressed content length as reported by the server. Populated in onResponseStarted().
+    private long mContentLength;
+
+    // Native error code. Default to no error. Populated in onRequestComplete().
+    private int mErrorCode = ChromiumUrlRequestError.SUCCESS;
+
+    // Native error string. Default to null. Populated in onRequestComplete().
+    private String mErrorString;
+
+    // Protects access of mUrlRequestAdapter, mStarted, mCanceled, and mFinished.
     private final Object mLock = new Object();
 
     public ChromiumUrlRequest(ChromiumUrlRequestContext requestContext,
@@ -97,9 +118,7 @@ public class ChromiumUrlRequest implements HttpUrlRequest {
         mHeaders = headers;
         mSink = sink;
         mUrlRequestAdapter = nativeCreateRequestAdapter(
-                mRequestContext.getChromiumUrlRequestContextAdapter(),
-                mUrl,
-                mPriority);
+                mRequestContext.getUrlRequestContextAdapter(), mUrl, mPriority);
         mListener = listener;
     }
 
@@ -131,26 +150,24 @@ public class ChromiumUrlRequest implements HttpUrlRequest {
 
     @Override
     public int getHttpStatusCode() {
-        int httpStatusCode = nativeGetHttpStatusCode(mUrlRequestAdapter);
-
         // TODO(mef): Investigate the following:
         // If we have been able to successfully resume a previously interrupted
         // download, the status code will be 206, not 200. Since the rest of the
         // application is expecting 200 to indicate success, we need to fake it.
-        if (httpStatusCode == 206) {
-            httpStatusCode = 200;
+        if (mHttpStatusCode == 206) {
+            return 200;
         }
-        return httpStatusCode;
+        return mHttpStatusCode;
     }
 
     @Override
     public String getHttpStatusText() {
-        return nativeGetHttpStatusText(mUrlRequestAdapter);
+        return mHttpStatusText;
     }
 
     /**
-     * Returns an exception if any, or null if the request was completed
-     * successfully.
+     * Returns an exception if any, or null if the request has not completed or
+     * completed successfully.
      */
     @Override
     public IOException getException() {
@@ -158,22 +175,18 @@ public class ChromiumUrlRequest implements HttpUrlRequest {
             return mSinkException;
         }
 
-        validateNotRecycled();
-
-        int errorCode = nativeGetErrorCode(mUrlRequestAdapter);
-        switch (errorCode) {
+        switch (mErrorCode) {
             case ChromiumUrlRequestError.SUCCESS:
                 if (mContentLengthOverLimit) {
                     return new ResponseTooLargeException();
                 }
                 return null;
             case ChromiumUrlRequestError.UNKNOWN:
-                return new IOException(
-                        nativeGetErrorString(mUrlRequestAdapter));
+                return new IOException(mErrorString);
             case ChromiumUrlRequestError.MALFORMED_URL:
                 return new MalformedURLException("Malformed URL: " + mUrl);
             case ChromiumUrlRequestError.CONNECTION_TIMED_OUT:
-                return new ConnectTimeoutException("Connection timed out");
+                return new SocketTimeoutException("Connection timed out");
             case ChromiumUrlRequestError.UNKNOWN_HOST:
                 String host;
                 try {
@@ -187,7 +200,7 @@ public class ChromiumUrlRequest implements HttpUrlRequest {
                         + "many redirects or redirects have been disabled");
             default:
                 throw new IllegalStateException(
-                        "Unrecognized error code: " + errorCode);
+                        "Unrecognized error code: " + mErrorCode);
         }
     }
 
@@ -222,6 +235,7 @@ public class ChromiumUrlRequest implements HttpUrlRequest {
      * @param data The content that needs to be uploaded.
      */
     @Override
+    @SuppressFBWarnings("EI_EXPOSE_REP2")
     public void setUploadData(String contentType, byte[] data) {
         synchronized (mLock) {
             validateNotStarted();
@@ -315,9 +329,12 @@ public class ChromiumUrlRequest implements HttpUrlRequest {
 
     @Override
     public void disableRedirects() {
-        mDisableRedirects = true;
-        validateNotStarted();
-        nativeDisableRedirects(mUrlRequestAdapter);
+        synchronized (mLock) {
+            validateNotStarted();
+            validateNativeAdapterNotDestroyed();
+            mDisableRedirects = true;
+            nativeDisableRedirects(mUrlRequestAdapter);
+        }
     }
 
     public WritableByteChannel getSink() {
@@ -332,7 +349,7 @@ public class ChromiumUrlRequest implements HttpUrlRequest {
             }
 
             validateNotStarted();
-            validateNotRecycled();
+            validateNativeAdapterNotDestroyed();
 
             mStarted = true;
 
@@ -382,7 +399,7 @@ public class ChromiumUrlRequest implements HttpUrlRequest {
 
             mCanceled = true;
 
-            if (!mRecycled) {
+            if (mUrlRequestAdapter != 0) {
                 nativeCancel(mUrlRequestAdapter);
             }
         }
@@ -395,17 +412,22 @@ public class ChromiumUrlRequest implements HttpUrlRequest {
         }
     }
 
-    public boolean isRecycled() {
+    @Override
+    public String getNegotiatedProtocol() {
         synchronized (mLock) {
-            return mRecycled;
+            validateNativeAdapterNotDestroyed();
+            validateHeadersAvailable();
+            return nativeGetNegotiatedProtocol(mUrlRequestAdapter);
         }
     }
 
     @Override
-    public String getNegotiatedProtocol() {
-        validateNotRecycled();
-        validateHeadersAvailable();
-        return nativeGetNegotiatedProtocol(mUrlRequestAdapter);
+    public boolean wasCached() {
+        synchronized (mLock) {
+            validateNativeAdapterNotDestroyed();
+            validateHeadersAvailable();
+            return nativeGetWasCached(mUrlRequestAdapter);
+        }
     }
 
     @Override
@@ -415,19 +437,23 @@ public class ChromiumUrlRequest implements HttpUrlRequest {
 
     @Override
     public String getHeader(String name) {
-        validateNotRecycled();
-        validateHeadersAvailable();
-        return nativeGetHeader(mUrlRequestAdapter, name);
+        synchronized (mLock) {
+            validateNativeAdapterNotDestroyed();
+            validateHeadersAvailable();
+            return nativeGetHeader(mUrlRequestAdapter, name);
+        }
     }
 
     // All response headers.
     @Override
     public Map<String, List<String>> getAllHeaders() {
-        validateNotRecycled();
-        validateHeadersAvailable();
-        ResponseHeadersMap result = new ResponseHeadersMap();
-        nativeGetAllHeaders(mUrlRequestAdapter, result);
-        return result;
+        synchronized (mLock) {
+            validateNativeAdapterNotDestroyed();
+            validateHeadersAvailable();
+            ResponseHeadersMap result = new ResponseHeadersMap();
+            nativeGetAllHeaders(mUrlRequestAdapter, result);
+            return result;
+        }
     }
 
     @Override
@@ -461,12 +487,23 @@ public class ChromiumUrlRequest implements HttpUrlRequest {
      * A callback invoked when the response has been fully consumed.
      */
     private void onRequestComplete() {
+        mErrorCode = nativeGetErrorCode(mUrlRequestAdapter);
+        mErrorString = nativeGetErrorString(mUrlRequestAdapter);
+        // When there is an error or redirects have been disabled,
+        // onResponseStarted is often not invoked.
+        // Populate status code and status text if that's the case.
+        // Note that besides redirects, these two fields may be set on the
+        // request for AUTH and CERT requests.
+        if (mErrorCode != ChromiumUrlRequestError.SUCCESS) {
+            mHttpStatusCode = nativeGetHttpStatusCode(mUrlRequestAdapter);
+            mHttpStatusText = nativeGetHttpStatusText(mUrlRequestAdapter);
+        }
         mListener.onRequestComplete(this);
     }
 
-    private void validateNotRecycled() {
-        if (mRecycled) {
-            throw new IllegalStateException("Accessing recycled request");
+    private void validateNativeAdapterNotDestroyed() {
+        if (mUrlRequestAdapter == 0) {
+            throw new IllegalStateException("Adapter has been destroyed");
         }
     }
 
@@ -513,6 +550,8 @@ public class ChromiumUrlRequest implements HttpUrlRequest {
     @CalledByNative
     private void onResponseStarted() {
         try {
+            mHttpStatusCode = nativeGetHttpStatusCode(mUrlRequestAdapter);
+            mHttpStatusText = nativeGetHttpStatusText(mUrlRequestAdapter);
             mContentType = nativeGetContentType(mUrlRequestAdapter);
             mContentLength = nativeGetContentLength(mUrlRequestAdapter);
             mHeadersAvailable = true;
@@ -534,7 +573,7 @@ public class ChromiumUrlRequest implements HttpUrlRequest {
                 // The server may ignore the request for a byte range, in which
                 // case status code will be 200, instead of 206. Note that we
                 // cannot call getHttpStatusCode as it rewrites 206 into 200.
-                if (nativeGetHttpStatusCode(mUrlRequestAdapter) == 200) {
+                if (mHttpStatusCode == 200) {
                     // TODO(mef): Revisit this logic.
                     if (mContentLength != -1) {
                         mContentLength -= mOffset;
@@ -605,7 +644,7 @@ public class ChromiumUrlRequest implements HttpUrlRequest {
                 }
                 mFinished = true;
 
-                if (mRecycled) {
+                if (mUrlRequestAdapter == 0) {
                     return;
                 }
                 try {
@@ -623,7 +662,6 @@ public class ChromiumUrlRequest implements HttpUrlRequest {
                 onRequestComplete();
                 nativeDestroyRequestAdapter(mUrlRequestAdapter);
                 mUrlRequestAdapter = 0;
-                mRecycled = true;
             }
         } catch (Exception e) {
             mSinkException = new IOException("Exception in finish", e);
@@ -657,8 +695,7 @@ public class ChromiumUrlRequest implements HttpUrlRequest {
     @CalledByNative
     private int readFromUploadChannel(ByteBuffer dest) {
         try {
-            if (mUploadChannel == null || !mUploadChannel.isOpen())
-                return -1;
+            if (mUploadChannel == null || !mUploadChannel.isOpen()) return -1;
             int result = mUploadChannel.read(dest);
             if (result < 0) {
                 mUploadChannel.close();
@@ -720,7 +757,10 @@ public class ChromiumUrlRequest implements HttpUrlRequest {
 
     private native String nativeGetNegotiatedProtocol(long urlRequestAdapter);
 
+    private native boolean nativeGetWasCached(long urlRequestAdapter);
+
     // Explicit class to work around JNI-generator generics confusion.
-    private class ResponseHeadersMap extends HashMap<String, List<String>> {
+    private static class ResponseHeadersMap extends
+            HashMap<String, List<String>> {
     }
 }

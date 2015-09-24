@@ -168,8 +168,13 @@ class AutofillDialogControllerImpl
   void DidSelectSuggestion(const base::string16& value,
                            int identifier) override;
   void DidAcceptSuggestion(const base::string16& value,
-                           int identifier) override;
-  void RemoveSuggestion(const base::string16& value, int identifier) override;
+                           int identifier,
+                           int position) override;
+  bool GetDeletionConfirmationText(const base::string16& value,
+                                   int identifier,
+                                   base::string16* title,
+                                   base::string16* body) override;
+  bool RemoveSuggestion(const base::string16& value, int identifier) override;
   void ClearPreviewedForm() override;
 
   // content::NotificationObserver implementation.
@@ -182,7 +187,6 @@ class AutofillDialogControllerImpl
                               size_t index) override;
 
   // wallet::WalletClientDelegate implementation.
-  const AutofillMetrics& GetMetricLogger() const override;
   std::string GetRiskData() const override;
   std::string GetWalletCookieValue() const override;
   bool IsShippingAddressRequired() const override;
@@ -263,8 +267,7 @@ class AutofillDialogControllerImpl
   // Asks risk module to asynchronously load fingerprint data. Data will be
   // returned via |OnDidLoadRiskFingerprintData()|. Exposed for testing.
   virtual void LoadRiskFingerprintData();
-  virtual void OnDidLoadRiskFingerprintData(
-      scoped_ptr<risk::Fingerprint> fingerprint);
+  virtual void OnDidLoadRiskFingerprintData(const std::string& risk_data);
 
   // Opens the given URL in a new foreground tab.
   virtual void OpenTabWithUrl(const GURL& url);
@@ -469,11 +472,10 @@ class AutofillDialogControllerImpl
 
   // Suggests address completions using the downloaded i18n validation rules.
   // Stores the suggestions in |i18n_validator_suggestions_|.
-  void GetI18nValidatorSuggestions(DialogSection section,
-                                   ServerFieldType type,
-                                   std::vector<base::string16>* popup_values,
-                                   std::vector<base::string16>* popup_labels,
-                                   std::vector<base::string16>* popup_icons);
+  void GetI18nValidatorSuggestions(
+      DialogSection section,
+      ServerFieldType type,
+      std::vector<autofill::Suggestion>* popup_suggestions);
 
   // Like RequestedFieldsForSection, but returns a pointer.
   DetailInputs* MutableRequestedFieldsForSection(DialogSection section);
@@ -629,7 +631,6 @@ class AutofillDialogControllerImpl
   Profile* const profile_;
 
   // For logging UMA metrics.
-  const AutofillMetrics metric_logger_;
   base::Time dialog_shown_timestamp_;
   AutofillMetrics::DialogInitialUserStateMetric initial_user_state_;
 
@@ -745,8 +746,10 @@ class AutofillDialogControllerImpl
   base::string16 transaction_amount_;
   base::string16 transaction_currency_;
 
-  // The GUIDs for the currently showing unverified profiles popup.
-  std::vector<PersonalDataManager::GUIDPair> popup_guids_;
+  // The IDs for the currently showing unverified profiles popup. This will
+  // be the first section in the list. The rest of the items will be the
+  // i18n_validator_suggestions_.
+  std::vector<std::string> popup_suggestion_ids_;
 
   // The autofill suggestions based on downloaded i18n validation rules.
   std::vector< ::i18n::addressinput::AddressData> i18n_validator_suggestions_;

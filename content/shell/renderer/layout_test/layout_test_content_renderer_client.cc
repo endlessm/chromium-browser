@@ -7,20 +7,22 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/debug/debugger.h"
+#include "components/test_runner/app_banner_client.h"
+#include "components/test_runner/mock_credential_manager_client.h"
+#include "components/test_runner/web_test_interfaces.h"
+#include "components/test_runner/web_test_proxy.h"
 #include "components/web_cache/renderer/web_cache_render_process_observer.h"
 #include "content/public/common/content_constants.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/renderer/render_view.h"
 #include "content/public/test/layouttest_support.h"
 #include "content/shell/common/shell_switches.h"
-#include "content/shell/common/webkit_test_helpers.h"
+#include "content/shell/renderer/layout_test/blink_test_helpers.h"
+#include "content/shell/renderer/layout_test/blink_test_runner.h"
 #include "content/shell/renderer/layout_test/layout_test_render_frame_observer.h"
 #include "content/shell/renderer/layout_test/layout_test_render_process_observer.h"
-#include "content/shell/renderer/layout_test/webkit_test_runner.h"
+#include "content/shell/renderer/layout_test/test_media_stream_renderer_factory.h"
 #include "content/shell/renderer/shell_render_view_observer.h"
-#include "content/shell/renderer/test_runner/mock_credential_manager_client.h"
-#include "content/shell/renderer/test_runner/web_test_interfaces.h"
-#include "content/shell/renderer/test_runner/web_test_proxy.h"
 #include "content/test/mock_webclipboard_impl.h"
 #include "ppapi/shared_impl/ppapi_switches.h"
 #include "third_party/WebKit/public/platform/WebMediaStreamCenter.h"
@@ -97,16 +99,16 @@ void LayoutTestContentRendererClient::RenderViewCreated(
     RenderView* render_view) {
   new ShellRenderViewObserver(render_view);
 
-  WebKitTestRunner* test_runner = WebKitTestRunner::Get(render_view);
+  BlinkTestRunner* test_runner = BlinkTestRunner::Get(render_view);
   test_runner->Reset();
   render_view->GetWebView()->setSpellCheckClient(
       test_runner->proxy()->GetSpellCheckClient());
 
   render_view->GetWebView()->setCredentialManagerClient(
       test_runner->proxy()->GetCredentialManagerClientMock());
-  WebTestDelegate* delegate =
+  test_runner::WebTestDelegate* delegate =
       LayoutTestRenderProcessObserver::GetInstance()->test_delegate();
-  if (delegate == static_cast<WebTestDelegate*>(test_runner))
+  if (delegate == static_cast<test_runner::WebTestDelegate*>(test_runner))
     LayoutTestRenderProcessObserver::GetInstance()->SetMainWindow(render_view);
 }
 
@@ -114,7 +116,7 @@ WebMediaStreamCenter*
 LayoutTestContentRendererClient::OverrideCreateWebMediaStreamCenter(
     WebMediaStreamCenterClient* client) {
 #if defined(ENABLE_WEBRTC)
-  WebTestInterfaces* interfaces =
+  test_runner::WebTestInterfaces* interfaces =
       LayoutTestRenderProcessObserver::GetInstance()->test_interfaces();
   return interfaces->CreateMediaStreamCenter(client);
 #else
@@ -126,7 +128,7 @@ WebRTCPeerConnectionHandler*
 LayoutTestContentRendererClient::OverrideCreateWebRTCPeerConnectionHandler(
     WebRTCPeerConnectionHandlerClient* client) {
 #if defined(ENABLE_WEBRTC)
-  WebTestInterfaces* interfaces =
+  test_runner::WebTestInterfaces* interfaces =
       LayoutTestRenderProcessObserver::GetInstance()->test_interfaces();
   return interfaces->CreateWebRTCPeerConnectionHandler(client);
 #else
@@ -137,7 +139,7 @@ LayoutTestContentRendererClient::OverrideCreateWebRTCPeerConnectionHandler(
 WebMIDIAccessor*
 LayoutTestContentRendererClient::OverrideCreateMIDIAccessor(
     WebMIDIAccessorClient* client) {
-  WebTestInterfaces* interfaces =
+  test_runner::WebTestInterfaces* interfaces =
       LayoutTestRenderProcessObserver::GetInstance()->test_interfaces();
   return interfaces->CreateMIDIAccessor(client);
 }
@@ -145,7 +147,7 @@ LayoutTestContentRendererClient::OverrideCreateMIDIAccessor(
 WebAudioDevice*
 LayoutTestContentRendererClient::OverrideCreateAudioDevice(
     double sample_rate) {
-  WebTestInterfaces* interfaces =
+  test_runner::WebTestInterfaces* interfaces =
       LayoutTestRenderProcessObserver::GetInstance()->test_interfaces();
   return interfaces->CreateAudioDevice(sample_rate);
 }
@@ -162,10 +164,28 @@ WebThemeEngine* LayoutTestContentRendererClient::OverrideThemeEngine() {
       ->ThemeEngine();
 }
 
+scoped_ptr<blink::WebAppBannerClient>
+LayoutTestContentRendererClient::CreateAppBannerClient(
+    RenderFrame* render_frame) {
+  test_runner::WebTestInterfaces* interfaces =
+      LayoutTestRenderProcessObserver::GetInstance()->test_interfaces();
+  return interfaces->CreateAppBannerClient();
+}
+
+scoped_ptr<MediaStreamRendererFactory>
+LayoutTestContentRendererClient::CreateMediaStreamRendererFactory() {
+#if defined(ENABLE_WEBRTC)
+  return scoped_ptr<MediaStreamRendererFactory>(
+      new TestMediaStreamRendererFactory());
+#else
+  return nullptr;
+#endif
+}
+
 void LayoutTestContentRendererClient::WebTestProxyCreated(
     RenderView* render_view,
-    WebTestProxyBase* proxy) {
-  WebKitTestRunner* test_runner = new WebKitTestRunner(render_view);
+    test_runner::WebTestProxyBase* proxy) {
+  BlinkTestRunner* test_runner = new BlinkTestRunner(render_view);
   test_runner->set_proxy(proxy);
   if (!LayoutTestRenderProcessObserver::GetInstance()->test_delegate()) {
     LayoutTestRenderProcessObserver::GetInstance()->SetTestDelegate(

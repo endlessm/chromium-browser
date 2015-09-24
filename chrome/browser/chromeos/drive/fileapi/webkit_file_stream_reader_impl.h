@@ -13,7 +13,7 @@
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/drive/drive_file_stream_reader.h"
 #include "net/base/completion_callback.h"
-#include "storage/browser/blob/file_stream_reader.h"
+#include "storage/browser/fileapi/file_stream_reader.h"
 
 namespace base {
 class SequencedTaskRunner;
@@ -38,14 +38,13 @@ class WebkitFileStreamReaderImpl : public storage::FileStreamReader {
       const base::FilePath& drive_file_path,
       int64 offset,
       const base::Time& expected_modification_time);
-  virtual ~WebkitFileStreamReaderImpl();
+  ~WebkitFileStreamReaderImpl() override;
 
   // storage::FileStreamReader override.
-  virtual int Read(net::IOBuffer* buffer,
-                   int buffer_length,
-                   const net::CompletionCallback& callback) override;
-  virtual int64 GetLength(const net::Int64CompletionCallback& callback)
-      override;
+  int Read(net::IOBuffer* buffer,
+           int buffer_length,
+           const net::CompletionCallback& callback) override;
+  int64 GetLength(const net::Int64CompletionCallback& callback) override;
 
  private:
   // Called upon the initialization completion of |stream_reader_|.

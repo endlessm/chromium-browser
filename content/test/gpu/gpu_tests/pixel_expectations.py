@@ -2,26 +2,19 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-from telemetry.page import test_expectations
+from gpu_test_expectations import GpuTestExpectations
 
-# Valid expectation conditions are:
-#
-# Operating systems:
-#     win, xp, vista, win7, mac, leopard, snowleopard, lion, mountainlion,
-#     mavericks, yosemite, linux, chromeos, android
-#
-# GPU vendors:
-#     amd, arm, broadcom, hisilicon, intel, imagination, nvidia, qualcomm,
-#     vivante
-#
-# Specific GPUs can be listed as a tuple with vendor name and device ID.
-# Examples: ('nvidia', 0x1234), ('arm', 'Mali-T604')
-# Device IDs must be paired with a GPU vendor.
+# See the GpuTestExpectations class for documentation.
 
-class PixelExpectations(test_expectations.TestExpectations):
+class PixelExpectations(GpuTestExpectations):
   def SetExpectations(self):
     # Sample Usage:
     # self.Fail('Pixel.Canvas2DRedBox',
     #     ['mac', 'amd', ('nvidia', 0x1234)], bug=123)
-
+    self.Fail('Pixel.Canvas2DRedBox',
+               [ 'linux', ('nvidia', 0x104a)], bug=511580)
+    self.Fail('Pixel.CSS3DBlueBox',
+               [ 'linux', ('nvidia', 0x104a)], bug=511580)
+    self.Fail('Pixel.WebGLGreenTriangle',
+               [ 'linux', ('nvidia', 0x104a)], bug=511580)
     pass

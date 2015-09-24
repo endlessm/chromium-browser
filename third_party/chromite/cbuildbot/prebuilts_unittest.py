@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2014 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,19 +6,13 @@
 
 from __future__ import print_function
 
+import mock
 import os
-import sys
 
-import constants
-sys.path.insert(0, constants.SOURCE_ROOT)
+from chromite.cbuildbot import constants
 from chromite.cbuildbot import prebuilts
 from chromite.lib import cros_build_lib_unittest
-from chromite.lib import cros_test_lib
 from chromite.lib import osutils
-
-# TODO(build): Finish test wrapper (http://crosbug.com/37517).
-# Until then, this has to be after the chromite imports.
-import mock
 
 
 # pylint: disable=W0212
@@ -34,10 +27,11 @@ class PrebuiltTest(cros_build_lib_unittest.RunCommandTempDirTestCase):
     os.makedirs(os.path.join(self._buildroot, '.repo'))
 
   def testUploadPrebuilts(self, builder_type=constants.PFQ_TYPE, private=False,
-                          chrome_rev=None):
+                          chrome_rev=None, version=None):
     """Test UploadPrebuilts with a public location."""
     prebuilts.UploadPrebuilts(builder_type, chrome_rev, private,
-                              buildroot=self._buildroot, board=self._board)
+                              buildroot=self._buildroot, board=self._board,
+                              version=version)
     self.assertCommandContains([builder_type, 'gs://chromeos-prebuilt'])
 
   def testUploadPrivatePrebuilts(self):
@@ -54,25 +48,47 @@ class PrebuiltTest(cros_build_lib_unittest.RunCommandTempDirTestCase):
     # A magical date for a magical time.
     version = '1994.04.02.000000'
 
+    # Fake out toolchains overlay tarballs.
+    tarball_dir = os.path.join(self._buildroot, constants.DEFAULT_CHROOT_DIR,
+                               constants.SDK_OVERLAYS_OUTPUT)
+    osutils.SafeMakedirs(tarball_dir)
+
+    toolchain_overlay_tarball_args = []
+    # Sample toolchain combos, corresponding to x86-alex and daisy.
+    toolchain_combos = (
+        ('i686-pc-linux-gnu',),
+        ('armv7a-cros-linux-gnueabi', 'arm-none-eabi'),
+    )
+    for toolchains in ['-'.join(sorted(combo)) for combo in toolchain_combos]:
+      tarball = 'built-sdk-overlay-toolchains-%s.tar.xz' % toolchains
+      tarball_path = os.path.join(tarball_dir, tarball)
+      osutils.Touch(tarball_path)
+      tarball_arg = '%s:%s' % (toolchains, tarball_path)
+      toolchain_overlay_tarball_args.append(['--toolchains-overlay-tarball',
+                                             tarball_arg])
+
     # Fake out toolchain tarballs.
     tarball_dir = os.path.join(self._buildroot, constants.DEFAULT_CHROOT_DIR,
                                constants.SDK_TOOLCHAINS_OUTPUT)
     osutils.SafeMakedirs(tarball_dir)
 
-    tarball_args = []
+    toolchain_tarball_args = []
     for tarball_base in ('i686', 'arm-none-eabi'):
       tarball = '%s.tar.xz' % tarball_base
       tarball_path = os.path.join(tarball_dir, tarball)
       osutils.Touch(tarball_path)
       tarball_arg = '%s:%s' % (tarball_base, tarball_path)
-      tarball_args.append(['--toolchain-tarball', tarball_arg])
+      toolchain_tarball_args.append(['--toolchain-tarball', tarball_arg])
 
-    with mock.patch.object(prebuilts, '_GenerateSdkVersion',
-                           return_value=version):
-      self.testUploadPrebuilts(builder_type=constants.CHROOT_BUILDER_TYPE)
+    self.testUploadPrebuilts(builder_type=constants.CHROOT_BUILDER_TYPE,
+                             version=version)
+    self.assertCommandContains([
+        '--toolchains-overlay-upload-path',
+        '1994/04/cros-sdk-overlay-toolchains-%%(toolchains)s-'
+        '%(version)s.tar.xz'])
     self.assertCommandContains(['--toolchain-upload-path',
                                 '1994/04/%%(target)s-%(version)s.tar.xz'])
-    for args in tarball_args:
+    for args in toolchain_overlay_tarball_args + toolchain_tarball_args:
       self.assertCommandContains(args)
     self.assertCommandContains(['--set-version', version])
     self.assertCommandContains(['--prepackaged-tarball',
@@ -111,7 +127,3 @@ ca-t3/pk-g4-4.0.1-r333
     """Test that we raise an exception when the installer file is missing."""
     self.assertRaises(prebuilts.PackageFileMissing,
                       self.testDevInstallerPrebuilts, packages=())
-
-
-if __name__ == '__main__':
-  cros_test_lib.main()

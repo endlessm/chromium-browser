@@ -21,22 +21,31 @@ class ASH_EXPORT PowerEventObserver
  public:
   // This class registers/unregisters itself as an observer in ctor/dtor.
   PowerEventObserver();
-  virtual ~PowerEventObserver();
+  ~PowerEventObserver() override;
+
+  // Called by the WebUIScreenLocker when all the lock screen animations have
+  // completed.  This really should be implemented via an observer but since
+  // ash/ isn't allowed to depend on chrome/ we need to have the
+  // WebUIScreenLocker reach into ash::Shell to make this call.
+  void OnLockAnimationsComplete();
 
   // chromeos::PowerManagerClient::Observer overrides:
-  virtual void BrightnessChanged(int level, bool user_initiated) override;
-  virtual void SuspendImminent() override;
-  virtual void SuspendDone(const base::TimeDelta& sleep_duration) override;
+  void BrightnessChanged(int level, bool user_initiated) override;
+  void SuspendImminent() override;
+  void SuspendDone(const base::TimeDelta& sleep_duration) override;
 
   // chromeos::SessionManagerClient::Observer overrides.
-  virtual void ScreenIsLocked() override;
-  virtual void ScreenIsUnlocked() override;
+  void ScreenIsLocked() override;
+  void ScreenIsUnlocked() override;
 
   // Is the screen currently locked?
   bool screen_locked_;
 
-  // If set, called when the lock screen has been shown to confirm that the
-  // system is ready to be suspended.
+  // Have the lock screen animations completed?
+  bool waiting_for_lock_screen_animations_;
+
+  // If set, called when the lock screen animations have completed to confirm
+  // that the system is ready to be suspended.
   base::Closure screen_lock_callback_;
 
  private:

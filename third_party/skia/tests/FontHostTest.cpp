@@ -111,8 +111,7 @@ static void test_charsToGlyphs(skiatest::Reporter* reporter, SkTypeface* face) {
     }
 }
 
-static void test_fontstream(skiatest::Reporter* reporter,
-                            SkStream* stream, int ttcIndex) {
+static void test_fontstream(skiatest::Reporter* reporter, SkStream* stream, int ttcIndex) {
     int n = SkFontStream::GetTableTags(stream, ttcIndex, NULL);
     SkAutoTArray<SkFontTableTag> array(n);
 
@@ -138,7 +137,13 @@ static void test_fontstream(skiatest::Reporter* reporter,
     }
 }
 
-static void test_fontstream(skiatest::Reporter* reporter, SkStream* stream) {
+static void test_fontstream(skiatest::Reporter* reporter) {
+    SkAutoTDelete<SkStreamAsset> stream(GetResourceAsStream("/fonts/test.ttc"));
+    if (!stream) {
+        SkDebugf("Skipping FontHostTest::test_fontstream\n");
+        return;
+    }
+
     int count = SkFontStream::CountTTCEntries(stream);
 #ifdef DUMP_TTC_TABLES
     SkDebugf("CountTTCEntries %d\n", count);
@@ -148,21 +153,20 @@ static void test_fontstream(skiatest::Reporter* reporter, SkStream* stream) {
     }
 }
 
-static void test_fontstream(skiatest::Reporter* reporter) {
-    // This test cannot run if there is no resource path.
-    SkString resourcePath = GetResourcePath();
-    if (resourcePath.isEmpty()) {
-        SkDebugf("Could not run fontstream test because resourcePath not specified.");
+static void test_symbolfont(skiatest::Reporter* reporter) {
+    SkAutoTUnref<SkTypeface> typeface(GetResourceAsTypeface("/fonts/SpiderSymbol.ttf"));
+    if (!typeface) {
+        SkDebugf("Skipping FontHostTest::test_symbolfont\n");
         return;
     }
-    SkString filename = SkOSPath::Join(resourcePath.c_str(), "test.ttc");
 
-    SkFILEStream stream(filename.c_str());
-    if (stream.isValid()) {
-        test_fontstream(reporter, &stream);
-    } else {
-        SkDebugf("Could not run fontstream test because test.ttc not found.");
-    }
+    SkUnichar c = 0xf021;
+    uint16_t g;
+    SkPaint paint;
+    paint.setTypeface(typeface);
+    paint.setTextEncoding(SkPaint::kUTF32_TextEncoding);
+    paint.textToGlyphs(&c, 4, &g);
+    REPORTER_ASSERT(reporter, g == 3);
 }
 
 static void test_tables(skiatest::Reporter* reporter, SkTypeface* face) {
@@ -307,6 +311,7 @@ DEF_TEST(FontHost, reporter) {
     test_tables(reporter);
     test_fontstream(reporter);
     test_advances(reporter);
+    test_symbolfont(reporter);
 }
 
 // need tests for SkStrSearch

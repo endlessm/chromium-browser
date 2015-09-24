@@ -127,10 +127,16 @@ Status ToggleOptionElement(
     WebView* web_view,
     const std::string& element_id);
 
+// |offset| is an optional offset from the top-left of the first ClientRect
+// that is returned by the element's getClientRects() function.
+// If |offset| is null, the |location| returned will be the center of the
+// ClientRect. If it is non-null, |location| will be offset by the specified
+// value.
 Status ScrollElementIntoView(
     Session* session,
     WebView* web_view,
     const std::string& element_id,
+    const WebPoint* offset,
     WebPoint* location);
 
 // |element_id| refers to the element which is to be scrolled into view.

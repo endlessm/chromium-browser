@@ -7,12 +7,12 @@
 
 namespace blink {
 
-DEFINE_EMPTY_DESTRUCTOR_WILL_BE_REMOVED(Interpolation);
-
 namespace {
 
 bool typesMatch(const InterpolableValue* start, const InterpolableValue* end)
 {
+    if (start == end)
+        return true;
     if (start->isNumber())
         return end->isNumber();
     if (start->isBool())
@@ -39,21 +39,25 @@ Interpolation::Interpolation(PassOwnPtrWillBeRawPtr<InterpolableValue> start, Pa
     , m_end(end)
     , m_cachedFraction(0)
     , m_cachedIteration(0)
-    , m_cachedValue(m_start->clone())
+    , m_cachedValue(m_start ? m_start->clone() : nullptr)
 {
     RELEASE_ASSERT(typesMatch(m_start.get(), m_end.get()));
 }
 
-void Interpolation::interpolate(int iteration, double fraction) const
+Interpolation::~Interpolation()
+{
+}
+
+void Interpolation::interpolate(int iteration, double fraction)
 {
     if (m_cachedFraction != fraction || m_cachedIteration != iteration) {
-        m_cachedValue = m_start->interpolate(*m_end, fraction);
+        m_start->interpolate(*m_end, fraction, *m_cachedValue);
         m_cachedIteration = iteration;
         m_cachedFraction = fraction;
     }
 }
 
-void Interpolation::trace(Visitor* visitor)
+DEFINE_TRACE(Interpolation)
 {
     visitor->trace(m_start);
     visitor->trace(m_end);

@@ -31,12 +31,13 @@
 #include "config.h"
 #include "modules/indexeddb/IDBTransaction.h"
 
+#include "bindings/core/v8/V8BindingForTesting.h"
 #include "core/dom/DOMError.h"
 #include "core/dom/Document.h"
 #include "modules/indexeddb/IDBDatabase.h"
 #include "modules/indexeddb/IDBDatabaseCallbacks.h"
 #include "platform/SharedBuffer.h"
-#include "public/platform/WebIDBDatabase.h"
+#include "public/platform/modules/indexeddb/WebIDBDatabase.h"
 #include <gtest/gtest.h>
 #include <v8.h>
 
@@ -47,14 +48,19 @@ class IDBTransactionTest : public testing::Test {
 public:
     IDBTransactionTest()
         : m_scope(v8::Isolate::GetCurrent())
-        , m_executionContext(Document::create())
     {
+    }
+
+    void SetUp() override
+    {
+        m_executionContext = Document::create();
         m_scope.scriptState()->setExecutionContext(m_executionContext.get());
     }
 
-    ~IDBTransactionTest()
+    void TearDown() override
     {
-        m_scope.scriptState()->setExecutionContext(0);
+        m_executionContext->notifyContextDestroyed();
+        m_scope.scriptState()->setExecutionContext(nullptr);
     }
 
     v8::Isolate* isolate() const { return m_scope.isolate(); }
@@ -63,7 +69,7 @@ public:
 
     void deactivateNewTransactions()
     {
-        V8PerIsolateData::from(isolate())->ensureIDBPendingTransactionMonitor()->deactivateNewTransactions();
+        V8PerIsolateData::from(isolate())->runEndOfScopeTasks();
     }
 
 private:
@@ -75,9 +81,9 @@ class FakeWebIDBDatabase final : public WebIDBDatabase {
 public:
     static PassOwnPtr<FakeWebIDBDatabase> create() { return adoptPtr(new FakeWebIDBDatabase()); }
 
-    virtual void commit(long long transactionId) override { }
-    virtual void abort(long long transactionId) override { }
-    virtual void close() override { }
+    void commit(long long transactionId) override { }
+    void abort(long long transactionId) override { }
+    void close() override { }
 
 private:
     FakeWebIDBDatabase() { }
@@ -86,10 +92,10 @@ private:
 class FakeIDBDatabaseCallbacks final : public IDBDatabaseCallbacks {
 public:
     static FakeIDBDatabaseCallbacks* create() { return new FakeIDBDatabaseCallbacks(); }
-    virtual void onVersionChange(int64_t oldVersion, int64_t newVersion) override { }
-    virtual void onForcedClose() override { }
-    virtual void onAbort(int64_t transactionId, DOMError* error) override { }
-    virtual void onComplete(int64_t transactionId) override { }
+    void onVersionChange(int64_t oldVersion, int64_t newVersion) override { }
+    void onForcedClose() override { }
+    void onAbort(int64_t transactionId, DOMError* error) override { }
+    void onComplete(int64_t transactionId) override { }
 private:
     FakeIDBDatabaseCallbacks() { }
 };
@@ -100,9 +106,9 @@ TEST_F(IDBTransactionTest, EnsureLifetime)
     Persistent<IDBDatabase> db = IDBDatabase::create(executionContext(), backend.release(), FakeIDBDatabaseCallbacks::create());
 
     const int64_t transactionId = 1234;
-    const Vector<String> transactionScope;
+    const HashSet<String> transactionScope = HashSet<String>();
     Persistent<IDBTransaction> transaction = IDBTransaction::create(scriptState(), transactionId, transactionScope, WebIDBTransactionModeReadOnly, db.get());
-    PersistentHeapHashSet<WeakMember<IDBTransaction> > set;
+    PersistentHeapHashSet<WeakMember<IDBTransaction>> set;
     set.add(transaction);
 
     Heap::collectAllGarbage();
@@ -130,9 +136,9 @@ TEST_F(IDBTransactionTest, TransactionFinish)
     Persistent<IDBDatabase> db = IDBDatabase::create(executionContext(), backend.release(), FakeIDBDatabaseCallbacks::create());
 
     const int64_t transactionId = 1234;
-    const Vector<String> transactionScope;
+    const HashSet<String> transactionScope = HashSet<String>();
     Persistent<IDBTransaction> transaction = IDBTransaction::create(scriptState(), transactionId, transactionScope, WebIDBTransactionModeReadOnly, db.get());
-    PersistentHeapHashSet<WeakMember<IDBTransaction> > set;
+    PersistentHeapHashSet<WeakMember<IDBTransaction>> set;
     set.add(transaction);
 
     Heap::collectAllGarbage();

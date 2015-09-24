@@ -37,7 +37,7 @@ bool IsLocaleSupported() {
   const std::string& locale = g_browser_process->GetApplicationLocale();
   static const char* const unsupported_locales[] = {"CN", "TR", "IR"};
   for (size_t i = 0; i < arraysize(unsupported_locales); ++i) {
-    if (EndsWith(locale, unsupported_locales[i], false)) {
+    if (base::EndsWith(locale, unsupported_locales[i], false)) {
       return false;
     }
   }
@@ -49,10 +49,7 @@ bool IsLocaleSupported() {
 namespace default_apps {
 
 void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterIntegerPref(
-      prefs::kDefaultAppsInstallState,
-      kUnknown,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterIntegerPref(prefs::kDefaultAppsInstallState, kUnknown);
 }
 
 bool Provider::ShouldInstallInProfile() {

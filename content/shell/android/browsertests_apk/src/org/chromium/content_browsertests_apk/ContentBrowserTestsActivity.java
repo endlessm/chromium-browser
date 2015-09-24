@@ -4,59 +4,40 @@
 
 package org.chromium.content_browsertests_apk;
 
-import android.app.Activity;
-import android.content.Context;
 import android.os.Bundle;
-import android.util.Log;
-import android.view.LayoutInflater;
-import android.view.View;
 
-import org.chromium.base.JNINamespace;
-import org.chromium.base.library_loader.LibraryLoader;
-import org.chromium.base.library_loader.ProcessInitException;
-import org.chromium.content.browser.BrowserStartupController;
-import org.chromium.content_shell.ShellManager;
-import org.chromium.ui.base.ActivityWindowAndroid;
-import org.chromium.ui.base.WindowAndroid;
+import org.chromium.base.PathUtils;
+import org.chromium.content_shell.browsertests.ContentShellBrowserTestActivity;
+
+import java.io.File;
 
 /**
  * Android activity for running content browser tests
  */
-@JNINamespace("content")
-public class ContentBrowserTestsActivity extends Activity {
-    private static final String TAG = "ChromeBrowserTestsActivity";
-
-    private ShellManager mShellManager;
-    private WindowAndroid mWindowAndroid;
+public class ContentBrowserTestsActivity extends ContentShellBrowserTestActivity {
+    private static final String TAG = "cr.native_test";
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        try {
-            LibraryLoader.ensureInitialized();
-        } catch (ProcessInitException e) {
-            Log.i(TAG, "Cannot load content_browsertests:" +  e);
-            System.exit(-1);
-        }
-        BrowserStartupController.get(getApplicationContext()).initChromiumBrowserProcessForTests();
-
-        LayoutInflater inflater =
-                (LayoutInflater) getSystemService(Context.LAYOUT_INFLATER_SERVICE);
-        View view = inflater.inflate(R.layout.test_activity, null);
-        mShellManager = (ShellManager) view.findViewById(R.id.shell_container);
-        mWindowAndroid = new ActivityWindowAndroid(this);
-        mShellManager.setWindow(mWindowAndroid);
-
-        Log.i(TAG, "Running tests");
-        runTests();
-        Log.i(TAG, "Tests finished.");
-        finish();
+        appendCommandLineFlags(
+                "--remote-debugging-socket-name content_browsertests_devtools_remote");
     }
 
-    private void runTests() {
-        nativeRunTests(getFilesDir().getAbsolutePath(), getApplicationContext());
+    @Override
+    protected File getPrivateDataDirectory() {
+        return new File(PathUtils.getExternalStorageDirectory(),
+                ContentBrowserTestsApplication.PRIVATE_DATA_DIRECTORY_SUFFIX);
     }
 
-    private native void nativeRunTests(String filesDir, Context appContext);
+    @Override
+    protected int getTestActivityViewId() {
+        return R.layout.test_activity;
+    }
+
+    @Override
+    protected int getShellManagerViewId() {
+        return R.id.shell_container;
+    }
+
 }

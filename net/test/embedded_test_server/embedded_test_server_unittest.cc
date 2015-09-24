@@ -5,11 +5,20 @@
 #include "net/test/embedded_test_server/embedded_test_server.h"
 
 #include "base/path_service.h"
+#include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
+#include "base/synchronization/lock.h"
 #include "base/threading/thread.h"
+#include "net/base/test_completion_callback.h"
 #include "net/http/http_response_headers.h"
+#include "net/log/test_net_log.h"
+#include "net/socket/client_socket_factory.h"
+#include "net/socket/stream_socket.h"
+#include "net/test/embedded_test_server/embedded_test_server_connection_listener.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
+#include "net/test/spawned_test_server/base_test_server.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_fetcher_delegate.h"
 #include "net/url_request/url_request_test_util.h"
@@ -41,6 +50,59 @@ std::string GetContentTypeFromFetcher(const URLFetcher& fetcher) {
 
 }  // namespace
 
+// Gets notified by the EmbeddedTestServer on incoming connections being
+// accepted, read from, or closed.
+class TestConnectionListener
+    : public net::test_server::EmbeddedTestServerConnectionListener {
+ public:
+  TestConnectionListener()
+      : socket_accepted_count_(0),
+        did_read_from_socket_(false),
+        task_runner_(base::ThreadTaskRunnerHandle::Get()) {}
+
+  ~TestConnectionListener() override {}
+
+  // Get called from the EmbeddedTestServer thread to be notified that
+  // a connection was accepted.
+  void AcceptedSocket(
+      const net::test_server::StreamListenSocket& connection) override {
+    base::AutoLock lock(lock_);
+    ++socket_accepted_count_;
+    task_runner_->PostTask(FROM_HERE, accept_loop_.QuitClosure());
+  }
+
+  // Get called from the EmbeddedTestServer thread to be notified that
+  // a connection was read from.
+  void ReadFromSocket(
+      const net::test_server::StreamListenSocket& connection) override {
+    base::AutoLock lock(lock_);
+    did_read_from_socket_ = true;
+  }
+
+  void WaitUntilFirstConnectionAccepted() { accept_loop_.Run(); }
+
+  size_t SocketAcceptedCount() const {
+    base::AutoLock lock(lock_);
+    return socket_accepted_count_;
+  }
+
+  bool DidReadFromSocket() const {
+    base::AutoLock lock(lock_);
+    return did_read_from_socket_;
+  }
+
+ private:
+  size_t socket_accepted_count_;
+  bool did_read_from_socket_;
+
+  base::RunLoop accept_loop_;
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+
+  mutable base::Lock lock_;
+
+  DISALLOW_COPY_AND_ASSIGN(TestConnectionListener);
+};
+
 class EmbeddedTestServerTest: public testing::Test,
                               public URLFetcherDelegate {
  public:
@@ -55,10 +117,11 @@ class EmbeddedTestServerTest: public testing::Test,
     thread_options.message_loop_type = base::MessageLoop::TYPE_IO;
     ASSERT_TRUE(io_thread_.StartWithOptions(thread_options));
 
-    request_context_getter_ = new TestURLRequestContextGetter(
-        io_thread_.message_loop_proxy());
+    request_context_getter_ =
+        new TestURLRequestContextGetter(io_thread_.task_runner());
 
     server_.reset(new EmbeddedTestServer);
+    server_->SetConnectionListener(&connection_listener_);
     ASSERT_TRUE(server_->InitializeAndWaitUntilReady());
   }
 
@@ -108,16 +171,17 @@ class EmbeddedTestServerTest: public testing::Test,
   std::string request_relative_url_;
   base::Thread io_thread_;
   scoped_refptr<TestURLRequestContextGetter> request_context_getter_;
+  TestConnectionListener connection_listener_;
   scoped_ptr<EmbeddedTestServer> server_;
 };
 
 TEST_F(EmbeddedTestServerTest, GetBaseURL) {
-  EXPECT_EQ(base::StringPrintf("http://127.0.0.1:%d/", server_->port()),
+  EXPECT_EQ(base::StringPrintf("http://127.0.0.1:%u/", server_->port()),
                                server_->base_url().spec());
 }
 
 TEST_F(EmbeddedTestServerTest, GetURL) {
-  EXPECT_EQ(base::StringPrintf("http://127.0.0.1:%d/path?query=foo",
+  EXPECT_EQ(base::StringPrintf("http://127.0.0.1:%u/path?query=foo",
                                server_->port()),
             server_->GetURL("/path?query=foo").spec());
 }
@@ -137,10 +201,8 @@ TEST_F(EmbeddedTestServerTest, RegisterRequestHandler) {
                  "text/html",
                  HTTP_OK));
 
-  scoped_ptr<URLFetcher> fetcher(
-      URLFetcher::Create(server_->GetURL("/test?q=foo"),
-                              URLFetcher::GET,
-                              this));
+  scoped_ptr<URLFetcher> fetcher =
+      URLFetcher::Create(server_->GetURL("/test?q=foo"), URLFetcher::GET, this);
   fetcher->SetRequestContext(request_context_getter_.get());
   fetcher->Start();
   WaitForResponses(1);
@@ -159,10 +221,8 @@ TEST_F(EmbeddedTestServerTest, ServeFilesFromDirectory) {
   server_->ServeFilesFromDirectory(
       src_dir.AppendASCII("net").AppendASCII("data"));
 
-  scoped_ptr<URLFetcher> fetcher(
-      URLFetcher::Create(server_->GetURL("/test.html"),
-                              URLFetcher::GET,
-                              this));
+  scoped_ptr<URLFetcher> fetcher =
+      URLFetcher::Create(server_->GetURL("/test.html"), URLFetcher::GET, this);
   fetcher->SetRequestContext(request_context_getter_.get());
   fetcher->Start();
   WaitForResponses(1);
@@ -174,16 +234,42 @@ TEST_F(EmbeddedTestServerTest, ServeFilesFromDirectory) {
 }
 
 TEST_F(EmbeddedTestServerTest, DefaultNotFoundResponse) {
-  scoped_ptr<URLFetcher> fetcher(
-      URLFetcher::Create(server_->GetURL("/non-existent"),
-                              URLFetcher::GET,
-                              this));
+  scoped_ptr<URLFetcher> fetcher = URLFetcher::Create(
+      server_->GetURL("/non-existent"), URLFetcher::GET, this);
   fetcher->SetRequestContext(request_context_getter_.get());
 
   fetcher->Start();
   WaitForResponses(1);
   EXPECT_EQ(URLRequestStatus::SUCCESS, fetcher->GetStatus().status());
   EXPECT_EQ(HTTP_NOT_FOUND, fetcher->GetResponseCode());
+}
+
+TEST_F(EmbeddedTestServerTest, ConnectionListenerAccept) {
+  TestNetLog net_log;
+  net::AddressList address_list;
+  EXPECT_TRUE(server_->GetAddressList(&address_list));
+
+  scoped_ptr<StreamSocket> socket =
+      ClientSocketFactory::GetDefaultFactory()->CreateTransportClientSocket(
+          address_list, &net_log, NetLog::Source());
+  TestCompletionCallback callback;
+  ASSERT_EQ(OK, callback.GetResult(socket->Connect(callback.callback())));
+
+  connection_listener_.WaitUntilFirstConnectionAccepted();
+
+  EXPECT_EQ(1u, connection_listener_.SocketAcceptedCount());
+  EXPECT_FALSE(connection_listener_.DidReadFromSocket());
+}
+
+TEST_F(EmbeddedTestServerTest, ConnectionListenerRead) {
+  scoped_ptr<URLFetcher> fetcher = URLFetcher::Create(
+      server_->GetURL("/non-existent"), URLFetcher::GET, this);
+  fetcher->SetRequestContext(request_context_getter_.get());
+
+  fetcher->Start();
+  WaitForResponses(1);
+  EXPECT_EQ(1u, connection_listener_.SocketAcceptedCount());
+  EXPECT_TRUE(connection_listener_.DidReadFromSocket());
 }
 
 TEST_F(EmbeddedTestServerTest, ConcurrentFetches) {
@@ -209,20 +295,14 @@ TEST_F(EmbeddedTestServerTest, ConcurrentFetches) {
                  "text/plain",
                  HTTP_NOT_FOUND));
 
-  scoped_ptr<URLFetcher> fetcher1 = scoped_ptr<URLFetcher>(
-      URLFetcher::Create(server_->GetURL("/test1"),
-                              URLFetcher::GET,
-                              this));
+  scoped_ptr<URLFetcher> fetcher1 =
+      URLFetcher::Create(server_->GetURL("/test1"), URLFetcher::GET, this);
   fetcher1->SetRequestContext(request_context_getter_.get());
-  scoped_ptr<URLFetcher> fetcher2 = scoped_ptr<URLFetcher>(
-      URLFetcher::Create(server_->GetURL("/test2"),
-                              URLFetcher::GET,
-                              this));
+  scoped_ptr<URLFetcher> fetcher2 =
+      URLFetcher::Create(server_->GetURL("/test2"), URLFetcher::GET, this);
   fetcher2->SetRequestContext(request_context_getter_.get());
-  scoped_ptr<URLFetcher> fetcher3 = scoped_ptr<URLFetcher>(
-      URLFetcher::Create(server_->GetURL("/test3"),
-                              URLFetcher::GET,
-                              this));
+  scoped_ptr<URLFetcher> fetcher3 =
+      URLFetcher::Create(server_->GetURL("/test3"), URLFetcher::GET, this);
   fetcher3->SetRequestContext(request_context_getter_.get());
 
   // Fetch the three URLs concurrently.
@@ -273,7 +353,7 @@ class EmbeddedTestServerThreadingTestDelegate
     base::Thread::Options thread_options;
     thread_options.message_loop_type = base::MessageLoop::TYPE_IO;
     ASSERT_TRUE(io_thread.StartWithOptions(thread_options));
-    io_thread_runner = io_thread.message_loop_proxy();
+    io_thread_runner = io_thread.task_runner();
 
     scoped_ptr<base::MessageLoop> loop;
     if (message_loop_present_on_initialize_)
@@ -289,10 +369,10 @@ class EmbeddedTestServerThreadingTestDelegate
     if (!loop)
       loop.reset(new base::MessageLoopForIO);
 
-    scoped_ptr<URLFetcher> fetcher(URLFetcher::Create(
-        server.GetURL("/test?q=foo"), URLFetcher::GET, this));
+    scoped_ptr<URLFetcher> fetcher =
+        URLFetcher::Create(server.GetURL("/test?q=foo"), URLFetcher::GET, this);
     fetcher->SetRequestContext(
-        new TestURLRequestContextGetter(loop->message_loop_proxy()));
+        new TestURLRequestContextGetter(loop->task_runner()));
     fetcher->Start();
     loop->Run();
     fetcher.reset();

@@ -155,10 +155,9 @@ std::string SyncData::ToString() const {
 
   std::string type = ModelTypeToString(GetDataType());
   std::string specifics;
-  scoped_ptr<base::DictionaryValue> value(
-      EntitySpecificsToValue(GetSpecifics()));
-  base::JSONWriter::WriteWithOptions(
-      value.get(), base::JSONWriter::OPTIONS_PRETTY_PRINT, &specifics);
+  base::JSONWriter::WriteWithOptions(*EntitySpecificsToValue(GetSpecifics()),
+                                     base::JSONWriter::OPTIONS_PRETTY_PRINT,
+                                     &specifics);
 
   if (IsLocal()) {
     SyncDataLocal sync_data_local(*this);
@@ -216,12 +215,6 @@ void SyncDataRemote::GetOrDownloadAttachments(
     const AttachmentIdList& attachment_ids,
     const AttachmentService::GetOrDownloadCallback& callback) {
   attachment_service_.GetOrDownloadAttachments(attachment_ids, callback);
-}
-
-void SyncDataRemote::DropAttachments(
-    const AttachmentIdList& attachment_ids,
-    const AttachmentService::DropCallback& callback) {
-  attachment_service_.DropAttachments(attachment_ids, callback);
 }
 
 }  // namespace syncer

@@ -34,10 +34,7 @@ void CaptivePortalDetector::DetectCaptivePortal(
   detection_callback_ = detection_callback;
 
   // The first 0 means this can use a TestURLFetcherFactory in unit tests.
-  url_fetcher_.reset(net::URLFetcher::Create(0,
-                                             url,
-                                             net::URLFetcher::GET,
-                                             this));
+  url_fetcher_ = net::URLFetcher::Create(0, url, net::URLFetcher::GET, this);
   url_fetcher_->SetAutomaticallyRetryOn5xx(false);
   url_fetcher_->SetRequestContext(request_context_.get());
 
@@ -45,7 +42,6 @@ void CaptivePortalDetector::DetectCaptivePortal(
   // since then the connection may be reused without checking the cert.
   url_fetcher_->SetLoadFlags(
       net::LOAD_BYPASS_CACHE |
-      net::LOAD_DO_NOT_PROMPT_FOR_LOGIN |
       net::LOAD_DO_NOT_SAVE_COOKIES |
       net::LOAD_DO_NOT_SEND_COOKIES |
       net::LOAD_DO_NOT_SEND_AUTH_DATA);

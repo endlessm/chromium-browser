@@ -29,10 +29,12 @@
 #define NATIVE_CLIENT_SRC_TRUSTED_SERVICE_RUNTIME_SEL_LDR_H_ 1
 
 #include "native_client/src/include/atomic_ops.h"
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/nacl_base.h"
 #include "native_client/src/include/portability.h"
 #include "native_client/src/include/elf.h"
 
+#include "native_client/src/public/imc_types.h"
 #include "native_client/src/public/nacl_app.h"
 
 #include "native_client/src/shared/platform/nacl_host_desc.h"
@@ -45,11 +47,11 @@
 #include "native_client/src/trusted/interval_multiset/nacl_interval_range_tree.h"
 
 #include "native_client/src/trusted/service_runtime/dyn_array.h"
+#include "native_client/src/trusted/service_runtime/include/bits/nacl_syscalls.h"
 #include "native_client/src/trusted/service_runtime/nacl_error_code.h"
-#include "native_client/src/trusted/service_runtime/nacl_kernel_service.h"
 #include "native_client/src/trusted/service_runtime/nacl_resource.h"
 #include "native_client/src/trusted/service_runtime/nacl_secure_service.h"
-#include "native_client/src/trusted/service_runtime/name_service/name_service.h"
+#include "native_client/src/trusted/service_runtime/nacl_syscall_handlers.h"
 #include "native_client/src/trusted/service_runtime/sel_addrspace.h"
 #include "native_client/src/trusted/service_runtime/sel_mem.h"
 #include "native_client/src/trusted/service_runtime/sel_rt.h"
@@ -68,8 +70,6 @@ EXTERN_C_BEGIN
 struct NaClAppThread;
 struct NaClDesc;  /* see native_client/src/trusted/desc/nacl_desc_base.h */
 struct NaClDynamicRegion;
-struct NaClRuntimeHostInterface;
-struct NaClDescQuotaInterface;
 struct NaClSignalContext;
 struct NaClThreadInterface;  /* see sel_ldr_thread_interface.h */
 struct NaClValidationCache;
@@ -79,11 +79,6 @@ struct NaClDebugCallbacks {
   void (*thread_create_hook)(struct NaClAppThread *natp);
   void (*thread_exit_hook)(struct NaClAppThread *natp);
   void (*process_exit_hook)(void);
-};
-
-enum NaClResourcePhase {
-  NACL_RESOURCE_PHASE_START,
-  NACL_RESOURCE_PHASE_RUNTIME_HOST
 };
 
 #if NACL_WINDOWS
@@ -238,28 +233,12 @@ struct NaClApp {
   int                       threads_launching;
 #endif
 
-  /*
-   * An array of NaCl syscall handlers. The length of the array must be
-   * at least NACL_MAX_SYSCALLS.
-   */
-  struct NaClSyscallTableEntry *syscall_table;
-
-  /*
-   * Name service must launch after mu, cv, vm_hole_may_exit,
-   * threads_launching are initialized.
-   */
-  struct NaClNameService    *name_service;  /* default name server */
-  struct NaClDesc           *name_service_conn_cap;
+  /* Array of NaCl syscall handlers. */
+  struct NaClSyscallTableEntry syscall_table[NACL_MAX_SYSCALLS];
 
   struct NaClSecureService          *secure_service;
 
-  struct NaClKernelService          *kernel_service;
-
   struct NaClResourceNaClApp        resources;
-  enum NaClResourcePhase            resource_phase;
-
-  struct NaClRuntimeHostInterface   *runtime_host_interface;
-  struct NaClDescQuotaInterface     *desc_quota_interface;
 
   /*
    * The ordering in this enum is important. We use the ordering
@@ -428,6 +407,7 @@ struct NaClApp {
 
   const struct NaClValidatorInterface *validator;
 
+#if !NACL_LINUX
   /*
    * Mutex for protecting futex_wait_list_head.  Lock ordering:
    * NaClApp::mu may be claimed after futex_wait_list_mu but never
@@ -441,30 +421,13 @@ struct NaClApp {
    * holding the mutex futex_wait_list_mu.
    */
   struct NaClListNode       futex_wait_list_head;
+#endif
 };
 
 
 
 void  NaClAppIncrVerbosity(void);
 
-/*
- * Initializes a NaCl application with the default parameters
- * and the specified syscall table.
- *
- * If invoked after the outer sandbox is enabled, the caller is
- * responsible for initializing the sc_nprocessors_onln member to a
- * sane value.
- *
- * nap is a pointer to the NaCl object that is being filled in.
- *
- * table is the NaCl syscall table. The syscall table must contain at least
- * NACL_MAX_SYSCALLS valid entries.
- *
- * Caution! Syscall handlers must be extremely careful with respect to
- * argument validation, including time-of-check vs time-of-use defense, etc.
- */
-int NaClAppWithSyscallTableCtor(struct NaClApp               *nap,
-                                struct NaClSyscallTableEntry *table) NACL_WUR;
 /*
  * Standard Ctor for NaClApp objects.  Installs default syscall
  * handlers.
@@ -476,6 +439,13 @@ int NaClAppWithSyscallTableCtor(struct NaClApp               *nap,
  * nap is a pointer to the NaCl object that is being filled in.
  */
 int NaClAppCtor(struct NaClApp  *nap) NACL_WUR;
+
+/*
+ * This is the same as NaClAppCtor(), except that it initializes the
+ * NaClApp without registering any syscall handlers.  Syscall handlers
+ * can be added explicitly using NACL_REGISTER_SYSCALL.
+ */
+int NaClAppWithEmptySyscallTableCtor(struct NaClApp *nap) NACL_WUR;
 
 /*
  * Loads a NaCl ELF file into memory in preparation for running it.
@@ -544,6 +514,9 @@ NaClErrorCode NaClValidateImage(struct NaClApp  *nap) NACL_WUR;
 int NaClAddrIsValidEntryPt(struct NaClApp *nap,
                            uintptr_t      addr);
 
+int NaClAddrIsValidIrtEntryPt(struct NaClApp *nap,
+                              uintptr_t      addr);
+
 /*
  * Takes ownership of descriptor, i.e., when NaCl app closes, it's gone.
  */
@@ -558,17 +531,6 @@ void NaClAddHostDescriptor(struct NaClApp *nap,
 void NaClAddImcHandle(struct NaClApp  *nap,
                       NaClHandle      h,
                       int             nacl_desc);
-
-/*
- * Launch system-level service threads.  After this, access to the
- * NaClApp object must be done in a thread-safe manner, using nap->mu
- * etc, or access only read-only data.
- *
- * NB: the "secure command channel" thread should have already started
- * (if enabled); that thread must take care to not race with the main
- * thread that is continuing to set up the NaCl module as well.
- */
-int NaClAppLaunchServiceThreads(struct NaClApp *nap);
 
 /*
  * Report the low eight bits of |exit_status| via the reverse channel
@@ -682,12 +644,6 @@ void NaClAppLoadModule(struct NaClApp      *self,
                                                       NaClErrorCode status),
                        void                *instance_data);
 
-int NaClAppRuntimeHostSetup(struct NaClApp                  *self,
-                            struct NaClRuntimeHostInterface *host_itf);
-
-int NaClAppDescQuotaSetup(struct NaClApp                *self,
-                          struct NaClDescQuotaInterface *rev_quota);
-
 /*
  * Starts the NaCl app, the |start_cb| callback is invoked before the
  * application is actually started.
@@ -774,7 +730,7 @@ struct NaClPatchInfo {
   struct NaClPatch    *abs64;
   size_t              num_abs64;
 
-#if NACL_TARGET_SUBARCH == 32
+#if NACL_BUILD_SUBARCH == 32
   uintptr_t           *rel32;
   size_t              num_rel32;
 #endif

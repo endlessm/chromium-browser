@@ -3,27 +3,25 @@
 # found in the LICENSE file.
 
 from telemetry.page import page as page_module
-from telemetry.page import page_set as page_set_module
+from telemetry import story
 
 
 class CorsBypassPage(page_module.Page):
 
   def __init__(self, url, page_set):
     super(CorsBypassPage, self).__init__(url=url, page_set=page_set)
-    self.archive_data_file = '../data/chrome_proxy_bypass.json'
 
 
-class CorsBypassPageSet(page_set_module.PageSet):
+class CorsBypassStorySet(story.StorySet):
 
   """ Chrome proxy test sites """
 
   def __init__(self):
-    super(CorsBypassPageSet, self).__init__(
-      archive_data_file='../data/chrome_proxy_bypass.json')
+    super(CorsBypassStorySet, self).__init__()
 
     urls_list = [
-      'http://aws1.mdw.la/test/cors/',
+      'http://www.gstatic.com/chrome/googlezip/cors/',
     ]
 
     for url in urls_list:
-      self.AddPage(CorsBypassPage(url, self))
+      self.AddStory(CorsBypassPage(url, self))

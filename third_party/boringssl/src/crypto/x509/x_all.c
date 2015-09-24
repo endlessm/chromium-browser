@@ -69,6 +69,8 @@ extern const ASN1_ITEM RSAPublicKey_it;
 
 int X509_verify(X509 *a, EVP_PKEY *r)
 	{
+	if (X509_ALGOR_cmp(a->sig_alg, a->cert_info->signature))
+		return 0;
 	return(ASN1_item_verify(ASN1_ITEM_rptr(X509_CINF),a->sig_alg,
 		a->signature,a->cert_info,r));
 	}
@@ -140,6 +142,12 @@ int NETSCAPE_SPKI_sign(NETSCAPE_SPKI *x, EVP_PKEY *pkey, const EVP_MD *md)
 	{
 	return(ASN1_item_sign(ASN1_ITEM_rptr(NETSCAPE_SPKAC), x->sig_algor,NULL,
 		x->signature, x->spkac,pkey,md));
+	}
+
+int NETSCAPE_SPKI_verify(NETSCAPE_SPKI *x, EVP_PKEY *pkey)
+	{
+	return (ASN1_item_verify(ASN1_ITEM_rptr(NETSCAPE_SPKAC), x->sig_algor,
+		x->signature, x->spkac, pkey));
 	}
 
 #ifndef OPENSSL_NO_FP_API

@@ -8,7 +8,7 @@
 It is similar in behavior to pkg-config or sdl-config.
 """
 
-import optparse
+import argparse
 import os
 import posixpath
 import sys
@@ -16,8 +16,8 @@ import sys
 import getos
 
 
-if sys.version_info < (2, 6, 0):
-  sys.stderr.write("python 2.6 or later is required run this script\n")
+if sys.version_info < (2, 7, 0):
+  sys.stderr.write("python 2.7 or later is required run this script\n")
   sys.exit(1)
 
 
@@ -44,7 +44,7 @@ ARCH_BASE_NAME = {
   'x86_64': 'x86'
 }
 
-NACL_TOOLCHAINS = ('newlib', 'glibc', 'pnacl', 'bionic')
+NACL_TOOLCHAINS = ('newlib', 'glibc', 'pnacl', 'bionic', 'clang-newlib')
 HOST_TOOLCHAINS = ('linux', 'mac', 'win')
 VALID_TOOLCHAINS = list(HOST_TOOLCHAINS) + list(NACL_TOOLCHAINS) + ['host']
 
@@ -57,7 +57,7 @@ VALID_TOOLCHAINS = list(HOST_TOOLCHAINS) + list(NACL_TOOLCHAINS) + ['host']
 # Most tools will be passed through directly.
 # e.g. For PNaCl foo => pnacl-foo
 #      For NaCl  foo => x86_64-nacl-foo.
-PNACL_TOOLS = {
+CLANG_TOOLS = {
   'cc': 'clang',
   'c++': 'clang++',
   'gcc': 'clang',
@@ -65,7 +65,7 @@ PNACL_TOOLS = {
   'ld': 'clang++'
 }
 
-NACL_TOOLS = {
+GCC_TOOLS = {
   'cc': 'gcc',
   'c++': 'g++',
   'gcc': 'gcc',
@@ -119,7 +119,7 @@ def CheckValidToolchainArch(toolchain, arch, arch_required=False):
       ExpectArch(arch, VALID_ARCHES)
 
     if arch == 'arm':
-      Expect(toolchain in ['newlib', 'bionic'],
+      Expect(toolchain in ['newlib', 'bionic', 'clang-newlib'],
              'The arm arch only supports newlib.')
 
 
@@ -153,7 +153,7 @@ def GetToolchainDir(toolchain, arch=None):
   ExpectToolchain(toolchain, NACL_TOOLCHAINS)
   root = GetPosixSDKPath()
   platform = getos.GetPlatform()
-  if toolchain == 'pnacl':
+  if toolchain in ('pnacl', 'clang-newlib'):
     subdir = '%s_pnacl' % platform
   else:
     assert arch is not None
@@ -178,6 +178,8 @@ def GetToolchainBinDir(toolchain, arch=None):
 def GetSDKIncludeDirs(toolchain):
   root = GetPosixSDKPath()
   base_include = posixpath.join(root, 'include')
+  if toolchain == 'clang-newlib':
+    toolchain = 'newlib'
   return [base_include, posixpath.join(base_include, toolchain)]
 
 
@@ -197,12 +199,15 @@ def GetToolPath(toolchain, arch, tool):
 
   if toolchain == 'pnacl':
     CheckValidToolchainArch(toolchain, arch)
-    tool = PNACL_TOOLS.get(tool, tool)
+    tool = CLANG_TOOLS.get(tool, tool)
     full_tool_name = 'pnacl-%s' % tool
   else:
     CheckValidToolchainArch(toolchain, arch, arch_required=True)
     ExpectArch(arch, VALID_ARCHES)
-    tool = NACL_TOOLS.get(tool, tool)
+    if toolchain == 'clang-newlib':
+      tool = CLANG_TOOLS.get(tool, tool)
+    else:
+      tool = GCC_TOOLS.get(tool, tool)
     full_tool_name = '%s-nacl-%s' % (GetArchName(arch), tool)
   return posixpath.join(GetToolchainBinDir(toolchain, arch), full_tool_name)
 
@@ -222,27 +227,25 @@ def GetLDFlags():
 
 
 def main(args):
-  usage = 'Usage: %prog [options] <command>'
-  parser = optparse.OptionParser(usage=usage, description=__doc__)
-  parser.add_option('-t', '--toolchain', help='toolchain name. This can also '
-                    'be specified with the NACL_TOOLCHAIN environment '
-                    'variable.')
-  parser.add_option('-a', '--arch', help='architecture name. This can also be '
-                    'specified with the NACL_ARCH environment variable.')
+  parser = argparse.ArgumentParser(description=__doc__)
+  parser.add_argument('-t', '--toolchain', help='toolchain name. This can also '
+                      'be specified with the NACL_TOOLCHAIN environment '
+                      'variable.')
+  parser.add_argument('-a', '--arch', help='architecture name. This can also '
+                      'be specified with the NACL_ARCH environment variable.')
 
-  group = optparse.OptionGroup(parser, 'Commands')
-  group.add_option('--tool', help='get tool path')
-  group.add_option('--cflags',
-                    help='output all preprocessor and compiler flags',
-                    action='store_true')
-  group.add_option('--libs', '--ldflags', help='output all linker flags',
-                    action='store_true')
-  group.add_option('--include-dirs',
-                   help='output include dirs, separated by spaces',
-                   action='store_true')
-  parser.add_option_group(group)
+  group = parser.add_argument_group('Commands')
+  group.add_argument('--tool', help='get tool path')
+  group.add_argument('--cflags',
+                     help='output all preprocessor and compiler flags',
+                     action='store_true')
+  group.add_argument('--libs', '--ldflags', help='output all linker flags',
+                     action='store_true')
+  group.add_argument('--include-dirs',
+                     help='output include dirs, separated by spaces',
+                     action='store_true')
 
-  options, _ = parser.parse_args(args)
+  options = parser.parse_args(args)
 
   # Get toolchain/arch from environment, if not specified on commandline
   options.toolchain = options.toolchain or os.getenv('NACL_TOOLCHAIN')

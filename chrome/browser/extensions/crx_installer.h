@@ -13,14 +13,13 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/version.h"
-#include "chrome/browser/extensions/blacklist.h"
 #include "chrome/browser/extensions/extension_install_checker.h"
 #include "chrome/browser/extensions/extension_install_prompt.h"
 #include "chrome/browser/extensions/extension_service.h"
-#include "chrome/browser/extensions/sandboxed_unpacker.h"
 #include "chrome/browser/extensions/webstore_installer.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "extensions/browser/install_flag.h"
+#include "extensions/browser/sandboxed_unpacker.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest.h"
 #include "sync/api/string_ordinal.h"
@@ -35,7 +34,7 @@ class SequencedTaskRunner;
 }
 
 namespace extensions {
-class CrxInstallerError;
+class CrxInstallError;
 class ExtensionUpdaterTest;
 class RequirementsChecker;
 
@@ -99,6 +98,7 @@ class CrxInstaller
 
   // Install the crx in |source_file|.
   void InstallCrx(const base::FilePath& source_file);
+  void InstallCrxFile(const CRXFileInfo& source_file);
 
   // Convert the specified user script into an extension and install it.
   void InstallUserScript(const base::FilePath& source_file,
@@ -125,6 +125,13 @@ class CrxInstaller
 
   const std::string& expected_id() const { return expected_id_; }
   void set_expected_id(const std::string& val) { expected_id_ = val; }
+
+  // Expected SHA256 hash sum for the package.
+  const std::string& expected_hash() const { return expected_hash_; }
+  void set_expected_hash(const std::string& val) { expected_hash_ = val; }
+
+  bool hash_check_failed() const { return hash_check_failed_; }
+  void set_hash_check_failed(bool val) { hash_check_failed_ = val; }
 
   void set_expected_version(const Version& val) {
     expected_version_.reset(new Version(val));
@@ -219,10 +226,10 @@ class CrxInstaller
 
   // Called after OnUnpackSuccess as a last check to see whether the install
   // should complete.
-  CrxInstallerError AllowInstall(const Extension* extension);
+  CrxInstallError AllowInstall(const Extension* extension);
 
   // SandboxedUnpackerClient
-  void OnUnpackFailure(const base::string16& error_message) override;
+  void OnUnpackFailure(const CrxInstallError& error) override;
   void OnUnpackSuccess(const base::FilePath& temp_dir,
                        const base::FilePath& extension_dir,
                        const base::DictionaryValue* original_manifest,
@@ -252,8 +259,8 @@ class CrxInstaller
   void ReloadExtensionAfterInstall(const base::FilePath& version_dir);
 
   // Result reporting.
-  void ReportFailureFromFileThread(const CrxInstallerError& error);
-  void ReportFailureFromUIThread(const CrxInstallerError& error);
+  void ReportFailureFromFileThread(const CrxInstallError& error);
+  void ReportFailureFromUIThread(const CrxInstallError& error);
   void ReportSuccessFromFileThread();
   void ReportSuccessFromUIThread();
   void NotifyCrxInstallBegin();
@@ -299,6 +306,12 @@ class CrxInstaller
   // For updates, external and webstore installs we have an ID we're expecting
   // the extension to contain.
   std::string expected_id_;
+
+  // An expected hash sum for the .crx file.
+  std::string expected_hash_;
+
+  // True if installation failed due to a hash sum mismatch.
+  bool hash_check_failed_;
 
   // A parsed copy of the expected manifest, before any transformations like
   // localization have taken place. If |approved_| is true, then the
@@ -357,9 +370,7 @@ class CrxInstaller
 
   // The client we will work with to do the installation. This can be NULL, in
   // which case the install is silent.
-  // NOTE: we may be deleted on the file thread. To ensure the UI is deleted on
-  // the main thread we don't use a scoped_ptr here.
-  ExtensionInstallPrompt* client_;
+  scoped_ptr<ExtensionInstallPrompt> client_;
 
   // The root of the unpacked extension directory. This is a subdirectory of
   // temp_dir_, so we don't have to delete it explicitly.

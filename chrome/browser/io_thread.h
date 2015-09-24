@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_IO_THREAD_H_
 #define CHROME_BROWSER_IO_THREAD_H_
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -38,17 +39,12 @@ namespace chrome_browser_net {
 class DnsProbeService;
 }
 
-namespace data_reduction_proxy {
-class DataReductionProxyAuthRequestHandler;
-class DataReductionProxyDelegate;
-class DataReductionProxyParams;
-}
-
 namespace extensions {
 class EventRouterForwarder;
 }
 
 namespace net {
+class CertPolicyEnforcer;
 class CertVerifier;
 class ChannelIDService;
 class CookieStore;
@@ -61,6 +57,7 @@ class HttpServerProperties;
 class HttpTransactionFactory;
 class HttpUserAgentSettings;
 class NetworkDelegate;
+class NetworkQualityEstimator;
 class ProxyConfigService;
 class ProxyService;
 class SSLConfigService;
@@ -68,7 +65,6 @@ class TransportSecurityState;
 class URLRequestContext;
 class URLRequestContextGetter;
 class URLRequestJobFactory;
-class URLRequestThrottlerManager;
 class URLSecurityManager;
 }  // namespace net
 
@@ -132,6 +128,7 @@ class IOThread : public content::BrowserThreadDelegate {
     // pins.
     scoped_ptr<net::TransportSecurityState> transport_security_state;
     scoped_ptr<net::CTVerifier> cert_transparency_verifier;
+    scoped_ptr<net::CertPolicyEnforcer> cert_policy_enforcer;
     scoped_refptr<net::SSLConfigService> ssl_config_service;
     scoped_ptr<net::HttpAuthHandlerFactory> http_auth_handler_factory;
     scoped_ptr<net::HttpServerProperties> http_server_properties;
@@ -142,7 +139,6 @@ class IOThread : public content::BrowserThreadDelegate {
         proxy_script_fetcher_ftp_transaction_factory;
     scoped_ptr<net::URLRequestJobFactory>
         proxy_script_fetcher_url_request_job_factory;
-    scoped_ptr<net::URLRequestThrottlerManager> throttler_manager;
     scoped_ptr<net::URLSecurityManager> url_security_manager;
     // TODO(willchan): Remove proxy script fetcher context since it's not
     // necessary now that I got rid of refcounting URLRequestContexts.
@@ -165,32 +161,36 @@ class IOThread : public content::BrowserThreadDelegate {
 #endif
     scoped_ptr<net::HostMappingRules> host_mapping_rules;
     scoped_ptr<net::HttpUserAgentSettings> http_user_agent_settings;
-    bool enable_ssl_connect_job_waiting;
+    scoped_ptr<net::NetworkQualityEstimator> network_quality_estimator;
     bool ignore_certificate_errors;
-    bool use_stale_while_revalidate;
     uint16 testing_fixed_http_port;
     uint16 testing_fixed_https_port;
     Optional<bool> enable_tcp_fast_open_for_ssl;
 
     Optional<size_t> initial_max_spdy_concurrent_streams;
-    Optional<bool> force_spdy_single_domain;
     Optional<bool> enable_spdy_compression;
     Optional<bool> enable_spdy_ping_based_connection_checking;
     Optional<net::NextProto> spdy_default_protocol;
     net::NextProtoVector next_protos;
-    Optional<string> trusted_spdy_proxy;
-    Optional<bool> force_spdy_over_ssl;
-    Optional<bool> force_spdy_always;
+    Optional<std::string> trusted_spdy_proxy;
     std::set<net::HostPortPair> forced_spdy_exclusions;
     Optional<bool> use_alternate_protocols;
-    Optional<double> alternate_protocol_probability_threshold;
-    Optional<bool> enable_websocket_over_spdy;
+    Optional<double> alternative_service_probability_threshold;
 
     Optional<bool> enable_quic;
+    Optional<bool> disable_insecure_quic;
+    Optional<bool> enable_quic_for_proxies;
     Optional<bool> enable_quic_port_selection;
     Optional<bool> quic_always_require_handshake_confirmation;
     Optional<bool> quic_disable_connection_pooling;
-    Optional<int> quic_load_server_info_timeout_ms;
+    Optional<float> quic_load_server_info_timeout_srtt_multiplier;
+    Optional<bool> quic_enable_connection_racing;
+    Optional<bool> quic_enable_non_blocking_io;
+    Optional<bool> quic_disable_disk_cache;
+    Optional<bool> quic_prefer_aes;
+    Optional<int> quic_max_number_of_lossy_connections;
+    Optional<float> quic_packet_loss_threshold;
+    Optional<int> quic_socket_receive_buffer_size;
     Optional<size_t> quic_max_packet_length;
     net::QuicTagVector quic_connection_options;
     Optional<std::string> quic_user_agent_id;
@@ -201,12 +201,6 @@ class IOThread : public content::BrowserThreadDelegate {
     // main frame load fails with a DNS error in order to provide more useful
     // information to the renderer so it can show a more specific error page.
     scoped_ptr<chrome_browser_net::DnsProbeService> dns_probe_service;
-    scoped_ptr<data_reduction_proxy::DataReductionProxyParams>
-        data_reduction_proxy_params;
-    scoped_ptr<data_reduction_proxy::DataReductionProxyAuthRequestHandler>
-        data_reduction_proxy_auth_request_handler;
-    scoped_ptr<data_reduction_proxy::DataReductionProxyDelegate>
-        data_reduction_proxy_delegate;
   };
 
   // |net_log| must either outlive the IOThread or be NULL.
@@ -244,6 +238,10 @@ class IOThread : public content::BrowserThreadDelegate {
 
   base::TimeTicks creation_time() const;
 
+  // Returns true if QUIC should be enabled for data reduction proxy, either as
+  // a result of a field trial or a command line flag.
+  static bool ShouldEnableQuicForDataReductionProxy();
+
  private:
   // Map from name to value for all parameters associate with a field trial.
   typedef std::map<std::string, std::string> VariationParameters;
@@ -258,7 +256,6 @@ class IOThread : public content::BrowserThreadDelegate {
   // This handles initialization and destruction of state that must
   // live on the IO thread.
   void Init() override;
-  void InitAsync() override;
   void CleanUp() override;
 
   // Initializes |params| based on the settings in |globals|.
@@ -271,27 +268,13 @@ class IOThread : public content::BrowserThreadDelegate {
   // Sets up TCP FastOpen if enabled via field trials or via the command line.
   void ConfigureTCPFastOpen(const base::CommandLine& command_line);
 
-  // Enable SPDY with the given mode, which may contain the following:
-  //
-  //   "off"                      : Disables SPDY support entirely.
-  //   "ssl"                      : Forces SPDY for all HTTPS requests.
-  //   "no-ssl"                   : Forces SPDY for all HTTP requests.
-  //   "no-ping"                  : Disables SPDY ping connection testing.
-  //   "exclude=<host>"           : Disables SPDY support for the host <host>.
-  //   "no-compress"              : Disables SPDY header compression.
-  //   "no-alt-protocols          : Disables alternate protocol support.
-  //   "force-alt-protocols       : Forces an alternate protocol of SPDY/3
-  //                                on port 443.
-  //   "single-domain"            : Forces all spdy traffic to a single domain.
-  //   "init-max-streams=<limit>" : Specifies the maximum number of concurrent
-  //                                streams for a SPDY session, unless the
-  //                                specifies a different value via SETTINGS.
-  void EnableSpdy(const std::string& mode);
-
-  // Configures available SPDY protocol versions from the given trial.
-  // Used only if no command-line configuration was present.
-  static void ConfigureSpdyFromTrial(base::StringPiece spdy_trial_group,
-                                     Globals* globals);
+  // Configures available SPDY protocol versions in |globals| based on the flags
+  // in |command_lin| as well as SPDY field trial group and parameters.  Must be
+  // called after ConfigureQuicGlobals.
+  static void ConfigureSpdyGlobals(const base::CommandLine& command_line,
+                                   base::StringPiece quic_trial_group,
+                                   const VariationParameters& quic_trial_params,
+                                   Globals* globals);
 
   // Global state must be initialized on the IO thread, then this
   // method must be invoked on the UI thread.
@@ -317,9 +300,6 @@ class IOThread : public content::BrowserThreadDelegate {
   // well as the QUIC field trial group.
   void ConfigureQuic(const base::CommandLine& command_line);
 
-  // Set up data reduction proxy related objects on IO thread globals.
-  void SetupDataReductionProxy(ChromeNetworkDelegate* network_delegate);
-
   extensions::EventRouterForwarder* extension_event_router_forwarder() {
 #if defined(ENABLE_EXTENSIONS)
     return extension_event_router_forwarder_;
@@ -328,18 +308,33 @@ class IOThread : public content::BrowserThreadDelegate {
 #endif
   }
   // Configures QUIC options in |globals| based on the flags in |command_line|
-  // as well as the QUIC field trial group and parameters.
+  // as well as the QUIC field trial group and parameters.  Must be called
+  // before ConfigureSpdyGlobals.
   static void ConfigureQuicGlobals(
       const base::CommandLine& command_line,
       base::StringPiece quic_trial_group,
       const VariationParameters& quic_trial_params,
+      bool quic_allowed_by_policy,
       Globals* globals);
 
   // Returns true if QUIC should be enabled, either as a result
   // of a field trial or a command line flag.
   static bool ShouldEnableQuic(
       const base::CommandLine& command_line,
-      base::StringPiece quic_trial_group);
+      base::StringPiece quic_trial_group,
+      bool quic_allowed_by_policy);
+
+  // Returns true if QUIC should be enabled for proxies, either as a result
+  // of a field trial or a command line flag.
+  static bool ShouldEnableQuicForProxies(
+      const base::CommandLine& command_line,
+      base::StringPiece quic_trial_group,
+      bool quic_allowed_by_policy);
+
+  // Returns true if QUIC should be disabled for http:// URLs, as a result
+  // of a field trial.
+  static bool ShouldDisableInsecureQuic(
+      const VariationParameters& quic_trial_params);
 
   // Returns true if the selection of the ephemeral port in bind() should be
   // performed by Chromium, and false if the OS should select the port.  The OS
@@ -347,13 +342,6 @@ class IOThread : public content::BrowserThreadDelegate {
   // dialog.
   static bool ShouldEnableQuicPortSelection(
       const base::CommandLine& command_line);
-
-  // Returns true if QUIC packet pacing should be negotiated during the
-  // QUIC handshake.
-  static bool ShouldEnableQuicPacing(
-      const base::CommandLine& command_line,
-      base::StringPiece quic_trial_group,
-      const VariationParameters& quic_trial_params);
 
   // Returns true if QUIC should always require handshake confirmation during
   // the QUIC handshake.
@@ -364,10 +352,43 @@ class IOThread : public content::BrowserThreadDelegate {
   static bool ShouldQuicDisableConnectionPooling(
       const VariationParameters& quic_trial_params);
 
-  // Returns the timeout value for loading of QUIC sever information from disk
-  // cache base on field trial. Returns 0 if there is an error parsing the
-  // field trial params, or if the default value should be used.
-  static int GetQuicLoadServerInfoTimeout(
+  // Returns the ratio of time to load QUIC sever information from disk cache to
+  // 'smoothed RTT' based on field trial. Returns 0 if there is an error parsing
+  // the field trial params, or if the default value should be used.
+  static float GetQuicLoadServerInfoTimeoutSrttMultiplier(
+      const VariationParameters& quic_trial_params);
+
+  // Returns true if QUIC's connection racing should be enabled.
+  static bool ShouldQuicEnableConnectionRacing(
+      const VariationParameters& quic_trial_params);
+
+  // Returns true if QUIC's should use non-blocking IO.
+  static bool ShouldQuicEnableNonBlockingIO(
+      const VariationParameters& quic_trial_params);
+
+  // Returns true if QUIC shouldn't load QUIC server information from the disk
+  // cache.
+  static bool ShouldQuicDisableDiskCache(
+      const VariationParameters& quic_trial_params);
+
+  // Returns true if QUIC should prefer AES-GCN even without hardware support.
+  static bool ShouldQuicPreferAes(const VariationParameters& quic_trial_params);
+
+  // Returns the maximum number of QUIC connections with high packet loss in a
+  // row after which QUIC should be disabled.  Returns 0 if the default value
+  // should be used.
+  static int GetQuicMaxNumberOfLossyConnections(
+      const VariationParameters& quic_trial_params);
+
+  // Returns the packet loss rate in fraction after which a QUIC connection is
+  // closed and is considered as a lossy connection. Returns 0 if the default
+  // value should be used.
+  static float GetQuicPacketLossThreshold(
+      const VariationParameters& quic_trial_params);
+
+  // Returns the size of the QUIC receive buffer to use, or 0 if
+  // the default should be used.
+  static int GetQuicSocketReceiveBufferSize(
       const VariationParameters& quic_trial_params);
 
   // Returns the maximum length for QUIC packets, based on any flags in
@@ -375,7 +396,6 @@ class IOThread : public content::BrowserThreadDelegate {
   // parsing any of the options, or if the default value should be used.
   static size_t GetQuicMaxPacketLength(
       const base::CommandLine& command_line,
-      base::StringPiece quic_trial_group,
       const VariationParameters& quic_trial_params);
 
   // Returns the QUIC versions specified by any flags in |command_line|
@@ -394,14 +414,9 @@ class IOThread : public content::BrowserThreadDelegate {
       const base::CommandLine& command_line,
       const VariationParameters& quic_trial_params);
 
-  // Returns the list of QUIC tags represented by the comma separated
-  // string in |connection_options|.
-  static net::QuicTagVector ParseQuicConnectionOptions(
-      const std::string& connection_options);
-
-  // Returns the alternate protocol probability threshold specified by
+  // Returns the alternative service probability threshold specified by
   // any flags in |command_line| or |quic_trial_params|.
-  static double GetAlternateProtocolProbabilityThreshold(
+  static double GetAlternativeProtocolProbabilityThreshold(
       const base::CommandLine& command_line,
       const VariationParameters& quic_trial_params);
 
@@ -442,6 +457,7 @@ class IOThread : public content::BrowserThreadDelegate {
   std::string auth_server_whitelist_;
   std::string auth_delegate_whitelist_;
   std::string gssapi_library_name_;
+  std::string auth_android_negotiate_account_type_;
 
   // This is an instance of the default SSLConfigServiceManager for the current
   // platform and it gets SSL preferences from local_state object.
@@ -458,6 +474,9 @@ class IOThread : public content::BrowserThreadDelegate {
 
   // True if SPDY is disabled by policy.
   bool is_spdy_disabled_by_policy_;
+
+  // True if QUIC is allowed by policy.
+  bool is_quic_allowed_by_policy_;
 
   const base::TimeTicks creation_time_;
 

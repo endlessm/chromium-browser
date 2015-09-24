@@ -30,6 +30,7 @@ class ScopedOleInitializer;
 namespace content {
 
 class BrowserContext;
+class ContentBrowserSanityChecker;
 class MockRenderProcessHost;
 class MockRenderProcessHostFactory;
 class NavigationController;
@@ -38,6 +39,7 @@ class RenderViewHostDelegate;
 class TestRenderFrameHostFactory;
 class TestRenderViewHostFactory;
 class WebContents;
+struct WebPreferences;
 
 // An interface and utility for driving tests of RenderFrameHost.
 class RenderFrameHostTester {
@@ -64,22 +66,37 @@ class RenderFrameHostTester {
 
   virtual ~RenderFrameHostTester() {}
 
+  // Simulates initialization of the RenderFrame object in the renderer process
+  // and ensures internal state of RenderFrameHost is ready for simulating
+  // RenderFrame originated IPCs.
+  virtual void InitializeRenderFrameIfNeeded() = 0;
+
   // Gives tests access to RenderFrameHostImpl::OnCreateChild. The returned
   // RenderFrameHost is owned by the parent RenderFrameHost.
   virtual RenderFrameHost* AppendChild(const std::string& frame_name) = 0;
 
   // Calls OnDidCommitProvisionalLoad on the RenderFrameHost with the given
-  // information. Sets the rest of the parameters in the message to the
-  // "typical" values. This is a helper function for simulating the most common
-  // types of loads.
-  virtual void SendNavigate(int page_id, const GURL& url) = 0;
-  virtual void SendFailedNavigate(int page_id, const GURL& url) = 0;
-
-  // Calls OnDidCommitProvisionalLoad on the RenderFrameHost with the given
-  // information, including a custom PageTransition.  Sets the rest of the
-  // parameters in the message to the "typical" values. This is a helper
-  // function for simulating the most common types of loads.
+  // information with various sets of parameters. These are helper functions for
+  // simulating the most common types of loads.
+  //
+  // Guidance for calling these:
+  // - nav_entry_id should be 0 if simulating a renderer-initiated navigation;
+  //   if simulating a browser-initiated one, pass the GetUniqueID() value of
+  //   the NavigationController's PendingEntry.
+  // - did_create_new_entry should be true if simulating a navigation that
+  //   created a new navigation entry; false for history navigations, reloads,
+  //   and other navigations that don't affect the history list.
+  virtual void SendNavigate(int page_id,
+                            int nav_entry_id,
+                            bool did_create_new_entry,
+                            const GURL& url) = 0;
+  virtual void SendFailedNavigate(int page_id,
+                                  int nav_entry_id,
+                                  bool did_create_new_entry,
+                                  const GURL& url) = 0;
   virtual void SendNavigateWithTransition(int page_id,
+                                          int nav_entry_id,
+                                          bool did_create_new_entry,
                                           const GURL& url,
                                           ui::PageTransition transition) = 0;
 
@@ -115,16 +132,19 @@ class RenderViewHostTester {
   virtual ~RenderViewHostTester() {}
 
   // Gives tests access to RenderViewHostImpl::CreateRenderView.
-  virtual bool CreateRenderView(const base::string16& frame_name,
-                                int opener_route_id,
-                                int proxy_routing_id,
-                                int32 max_page_id,
-                                bool created_with_opener) = 0;
+  virtual bool CreateTestRenderView(const base::string16& frame_name,
+                                    int opener_frame_route_id,
+                                    int proxy_routing_id,
+                                    int32 max_page_id,
+                                    bool created_with_opener) = 0;
 
   // Makes the WasHidden/WasShown calls to the RenderWidget that
   // tell it it has been hidden or restored from having been hidden.
   virtual void SimulateWasHidden() = 0;
   virtual void SimulateWasShown() = 0;
+
+  // Promote ComputeWebkitPrefs to public.
+  virtual WebPreferences TestComputeWebkitPrefs() = 0;
 };
 
 // You can instantiate only one class like this at a time.  During its
@@ -226,6 +246,11 @@ class RenderViewHostTestHarness : public testing::Test {
   void SetRenderProcessHostFactory(RenderProcessHostFactory* factory);
 
  private:
+  int thread_bundle_options_;
+  scoped_ptr<TestBrowserThreadBundle> thread_bundle_;
+
+  scoped_ptr<ContentBrowserSanityChecker> sanity_checker_;
+
   scoped_ptr<BrowserContext> browser_context_;
 
   scoped_ptr<WebContents> contents_;
@@ -236,9 +261,6 @@ class RenderViewHostTestHarness : public testing::Test {
   scoped_ptr<aura::test::AuraTestHelper> aura_test_helper_;
 #endif
   RenderViewHostTestEnabler rvh_test_enabler_;
-
-  int thread_bundle_options_;
-  scoped_ptr<TestBrowserThreadBundle> thread_bundle_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderViewHostTestHarness);
 };

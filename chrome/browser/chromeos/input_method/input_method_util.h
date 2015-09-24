@@ -14,7 +14,7 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "base/threading/thread_checker.h"
-#include "chromeos/ime/input_method_descriptor.h"
+#include "ui/base/ime/chromeos/input_method_descriptor.h"
 
 namespace chromeos {
 namespace input_method {
@@ -99,7 +99,16 @@ class InputMethodUtil {
   // Returns empty string on error.
   std::string GetLanguageDefaultInputMethodId(const std::string& language_code);
 
-  // Migrates the legacy xkb id to extension based xkb id.
+  // Migrates the input method id as below:
+  //  - Legacy xkb id to extension based id, e.g.
+  //    xkb:us::eng -> _comp_ime_...xkb:us::eng
+  //  - VPD well formatted id to extension based input method id, e.g.
+  //    m17n:vi_telex -> _comp_ime_...vkd_vi_telex
+  //  - ChromiumOS input method ID to ChromeOS one, or vice versa, e.g.
+  //    _comp_ime_xxxxxx...xkb:us::eng -> _comp_ime_yyyyyy...xkb:us::eng
+  std::string MigrateInputMethod(const std::string& input_method_id);
+
+  // Migrates the input method IDs.
   // Returns true if the given input method id list is modified,
   // returns false otherwise.
   // This method should not be removed because it's required to transfer XKB
@@ -124,6 +133,10 @@ class InputMethodUtil {
   // non-login keyboard, this function will returns "xkb:us::eng" as the
   // fallback keyboard.
   const std::vector<std::string>& GetHardwareLoginInputMethodIds();
+
+  // Returns the localized display name for the given input method.
+  std::string GetLocalizedDisplayName(
+      const InputMethodDescriptor& descriptor) const;
 
   // Returns true if given input method can be used to input login data.
   bool IsLoginKeyboard(const std::string& input_method_id) const;

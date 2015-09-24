@@ -12,6 +12,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/files/file_path.h"
+#include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/metrics/field_trial.h"
 #include "base/strings/string_util.h"
@@ -21,19 +22,26 @@
 #include "base/win/scoped_comptr.h"
 #include "base/win/windows_version.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/platform_util_internal.h"
 #include "chrome/browser/ui/host_desktop.h"
 #include "chrome/common/chrome_utility_messages.h"
+#include "chrome/grit/generated_resources.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/utility_process_host.h"
 #include "content/public/browser/utility_process_host_client.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/base/win/shell.h"
 #include "ui/gfx/native_widget_types.h"
 #include "url/gurl.h"
 
 using content::BrowserThread;
 
+namespace platform_util {
+
 namespace {
 
+// TODO(asanka): Move this to ui/base/win/shell.{h,cc} and invoke it from the
+// utility process.
 void ShowItemInFolderOnFileThread(const base::FilePath& full_path) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
   base::FilePath dir = full_path.DirName().AsEndingWithSeparator();
@@ -48,7 +56,7 @@ void ShowItemInFolderOnFileThread(const base::FilePath& full_path) {
       DWORD flags);
 
   static SHOpenFolderAndSelectItemsFuncPtr open_folder_and_select_itemsPtr =
-    NULL;
+      nullptr;
   static bool initialize_open_folder_proc = true;
   if (initialize_open_folder_proc) {
     initialize_open_folder_proc = false;
@@ -102,10 +110,9 @@ void ShowItemInFolderOnFileThread(const base::FilePath& full_path) {
     if (hr == ERROR_FILE_NOT_FOUND) {
       ShellExecute(NULL, L"open", dir.value().c_str(), NULL, NULL, SW_SHOW);
     } else {
-      LOG(WARNING) << " " << __FUNCTION__
-                   << "(): Can't open full_path = \""
+      LOG(WARNING) << " " << __FUNCTION__ << "(): Can't open full_path = \""
                    << full_path.value() << "\""
-                  << " hr = " << logging::SystemErrorCodeToString(hr);
+                   << " hr = " << logging::SystemErrorCodeToString(hr);
     }
   }
 }
@@ -114,8 +121,8 @@ void ShowItemInFolderOnFileThread(const base::FilePath& full_path) {
 // is empty. This function tells if it is.
 bool ValidateShellCommandForScheme(const std::string& scheme) {
   base::win::RegKey key;
-  std::wstring registry_path = base::ASCIIToWide(scheme) +
-                               L"\\shell\\open\\command";
+  base::string16 registry_path = base::ASCIIToUTF16(scheme) +
+                                 L"\\shell\\open\\command";
   key.Open(HKEY_CLASSES_ROOT, registry_path.c_str(), KEY_READ);
   if (!key.Valid())
     return false;
@@ -159,46 +166,65 @@ void OpenExternalOnFileThread(const GURL& url) {
   }
 }
 
-void OpenItemViaShellInUtilityProcess(const base::FilePath& full_path) {
+void OpenItemViaShellInUtilityProcess(const base::FilePath& full_path,
+                                      OpenItemType type) {
   base::WeakPtr<content::UtilityProcessHost> utility_process_host(
       content::UtilityProcessHost::Create(NULL, NULL)->AsWeakPtr());
+  utility_process_host->SetName(l10n_util::GetStringUTF16(
+      IDS_UTILITY_PROCESS_FILE_DIALOG_NAME));
   utility_process_host->DisableSandbox();
-  utility_process_host->Send(new ChromeUtilityMsg_OpenItemViaShell(full_path));
+  switch (type) {
+    case OPEN_FILE:
+      utility_process_host->Send(
+          new ChromeUtilityMsg_OpenFileViaShell(full_path));
+      return;
+
+    case OPEN_FOLDER:
+      utility_process_host->Send(
+          new ChromeUtilityMsg_OpenFolderViaShell(full_path));
+      return;
+  }
+}
+
+void ActivateDesktopIfNecessary() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  if (chrome::GetActiveDesktop() == chrome::HOST_DESKTOP_TYPE_ASH)
+    chrome::ActivateDesktopHelper(chrome::ASH_KEEP_RUNNING);
 }
 
 }  // namespace
 
-namespace platform_util {
-
 void ShowItemInFolder(Profile* profile, const base::FilePath& full_path) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-
-  if (chrome::GetActiveDesktop() == chrome::HOST_DESKTOP_TYPE_ASH)
-    chrome::ActivateDesktopHelper(chrome::ASH_KEEP_RUNNING);
-
+  ActivateDesktopIfNecessary();
   BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
       base::Bind(&ShowItemInFolderOnFileThread, full_path));
 }
 
-void OpenItem(Profile* profile, const base::FilePath& full_path) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+namespace internal {
 
-  if (chrome::GetActiveDesktop() == chrome::HOST_DESKTOP_TYPE_ASH)
-    chrome::ActivateDesktopHelper(chrome::ASH_KEEP_RUNNING);
+void PlatformOpenVerifiedItem(const base::FilePath& path, OpenItemType type) {
+  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
+                          base::Bind(&ActivateDesktopIfNecessary));
 
   if (base::FieldTrialList::FindFullName("IsolateShellOperations") ==
       "Enabled") {
     BrowserThread::PostTask(
-        BrowserThread::IO,
-        FROM_HERE,
-        base::Bind(&OpenItemViaShellInUtilityProcess, full_path));
+        BrowserThread::IO, FROM_HERE,
+        base::Bind(&OpenItemViaShellInUtilityProcess, path, type));
   } else {
-    BrowserThread::PostTask(
-        BrowserThread::FILE,
-        FROM_HERE,
-        base::Bind(base::IgnoreResult(&ui::win::OpenItemViaShell), full_path));
+    switch (type) {
+      case OPEN_FILE:
+        ui::win::OpenFileViaShell(path);
+        break;
+
+      case OPEN_FOLDER:
+        ui::win::OpenFolderViaShell(path);
+        break;
+    }
   }
 }
+
+}  // namespace internal
 
 void OpenExternal(Profile* profile, const GURL& url) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
@@ -210,28 +236,5 @@ void OpenExternal(Profile* profile, const GURL& url) {
   BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
                           base::Bind(&OpenExternalOnFileThread, url));
 }
-
-#if !defined(USE_AURA)
-gfx::NativeWindow GetTopLevel(gfx::NativeView view) {
-  return ::GetAncestor(view, GA_ROOT);
-}
-
-gfx::NativeView GetParent(gfx::NativeView view) {
-  return ::GetParent(view);
-}
-
-bool IsWindowActive(gfx::NativeWindow window) {
-  return ::GetForegroundWindow() == window;
-}
-
-void ActivateWindow(gfx::NativeWindow window) {
-  ::SetForegroundWindow(window);
-}
-
-bool IsVisible(gfx::NativeView view) {
-  // MSVC complains if we don't include != 0.
-  return ::IsWindowVisible(view) != 0;
-}
-#endif
 
 }  // namespace platform_util

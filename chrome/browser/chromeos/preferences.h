@@ -6,15 +6,15 @@
 #define CHROME_BROWSER_CHROMEOS_PREFERENCES_H_
 
 #include <string>
-#include <vector>
 
 #include "ash/shell_observer.h"
 #include "base/compiler_specific.h"
+#include "base/prefs/pref_change_registrar.h"
 #include "base/prefs/pref_member.h"
 #include "chrome/browser/chromeos/language_preferences.h"
 #include "chrome/browser/prefs/pref_service_syncable_observer.h"
-#include "chromeos/ime/input_method_manager.h"
 #include "components/user_manager/user_manager.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
 
 class PrefRegistrySimple;
 class PrefService;
@@ -32,6 +32,7 @@ class User;
 
 namespace input_method {
 class InputMethodManager;
+class InputMethodSyncer;
 }
 
 // The Preferences class handles Chrome OS preferences. When the class
@@ -45,7 +46,7 @@ class Preferences : public PrefServiceSyncableObserver,
   Preferences();
   explicit Preferences(
       input_method::InputMethodManager* input_method_manager);  // for testing
-  virtual ~Preferences();
+  ~Preferences() override;
 
   // These method will register the prefs associated with Chrome OS settings.
   static void RegisterPrefs(PrefRegistrySimple* registry);
@@ -101,14 +102,13 @@ class Preferences : public PrefServiceSyncableObserver,
   void ForceNaturalScrollDefault();
 
   // PrefServiceSyncableObserver implementation.
-  virtual void OnIsSyncingChanged() override;
+  void OnIsSyncingChanged() override;
 
   // Overriden from ash::ShellObserver.
-  virtual void OnTouchHudProjectionToggled(bool enabled) override;
+  void OnTouchHudProjectionToggled(bool enabled) override;
 
   // Overriden form user_manager::UserManager::UserSessionStateObserver.
-  virtual void ActiveUserChanged(
-      const user_manager::User* active_user) override;
+  void ActiveUserChanged(const user_manager::User* active_user) override;
 
   void ActivateInputMethods(const user_manager::User* active_user);
 
@@ -140,6 +140,10 @@ class Preferences : public PrefServiceSyncableObserver,
   IntegerPrefMember xkb_auto_repeat_delay_pref_;
   IntegerPrefMember xkb_auto_repeat_interval_pref_;
 
+  BooleanPrefMember wake_on_wifi_ssid_;
+
+  PrefChangeRegistrar pref_change_registrar_;
+
   // User owning these preferences.
   const user_manager::User* user_;
 
@@ -148,6 +152,8 @@ class Preferences : public PrefServiceSyncableObserver,
 
   // Input Methods state for this user.
   scoped_refptr<input_method::InputMethodManager::State> ime_state_;
+
+  scoped_ptr<input_method::InputMethodSyncer> input_method_syncer_;
 
   DISALLOW_COPY_AND_ASSIGN(Preferences);
 };

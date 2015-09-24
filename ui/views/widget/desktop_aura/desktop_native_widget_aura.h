@@ -10,7 +10,6 @@
 #include "ui/aura/window_delegate.h"
 #include "ui/aura/window_tree_host_observer.h"
 #include "ui/base/cursor/cursor.h"
-#include "ui/views/ime/input_method_delegate.h"
 #include "ui/views/widget/native_widget_private.h"
 #include "ui/wm/core/compound_event_filter.h"
 #include "ui/wm/public/activation_change_observer.h"
@@ -32,7 +31,6 @@ namespace wm {
 class CompoundEventFilter;
 class CursorManager;
 class FocusController;
-class InputMethodEventFilter;
 class ShadowController;
 class VisibilityController;
 class WindowModalityController;
@@ -58,7 +56,6 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
       public aura::client::ActivationDelegate,
       public aura::client::ActivationChangeObserver,
       public aura::client::FocusChangeObserver,
-      public views::internal::InputMethodDelegate,
       public aura::client::DragDropDelegate,
       public aura::WindowTreeHostObserver {
  public:
@@ -79,9 +76,6 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   // as by the time we get here |dispatcher_| is NULL.
   virtual void OnDesktopWindowTreeHostDestroyed(aura::WindowTreeHost* host);
 
-  wm::InputMethodEventFilter* input_method_event_filter() {
-    return input_method_event_filter_.get();
-  }
   wm::CompoundEventFilter* root_window_event_filter() {
     return root_window_event_filter_.get();
   }
@@ -115,9 +109,7 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   void SetCapture() override;
   void ReleaseCapture() override;
   bool HasCapture() const override;
-  InputMethod* CreateInputMethod() override;
-  internal::InputMethodDelegate* GetInputMethodDelegate() override;
-  ui::InputMethod* GetHostInputMethod() override;
+  ui::InputMethod* GetInputMethod() override;
   void CenterWindow(const gfx::Size& size) override;
   void GetWindowPlacement(gfx::Rect* bounds,
                           ui::WindowShowState* maximized) const override;
@@ -133,7 +125,7 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   void StackAbove(gfx::NativeView native_view) override;
   void StackAtTop() override;
   void StackBelow(gfx::NativeView native_view) override;
-  void SetShape(gfx::NativeRegion shape) override;
+  void SetShape(SkRegion* shape) override;
   void Close() override;
   void CloseNow() override;
   void Show() override;
@@ -194,7 +186,7 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
       const gfx::Point& location) override;
   bool CanFocus() override;
   void OnCaptureLost() override;
-  void OnPaint(gfx::Canvas* canvas) override;
+  void OnPaint(const ui::PaintContext& context) override;
   void OnDeviceScaleFactorChanged(float device_scale_factor) override;
   void OnWindowDestroying(aura::Window* window) override;
   void OnWindowDestroyed(aura::Window* window) override;
@@ -212,15 +204,14 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   bool ShouldActivate() const override;
 
   // Overridden from aura::client::ActivationChangeObserver:
-  void OnWindowActivated(aura::Window* gained_active,
-                         aura::Window* lost_active) override;
+  void OnWindowActivated(
+      aura::client::ActivationChangeObserver::ActivationReason reason,
+      aura::Window* gained_active,
+      aura::Window* lost_active) override;
 
   // Overridden from aura::client::FocusChangeObserver:
   void OnWindowFocused(aura::Window* gained_focus,
                        aura::Window* lost_focus) override;
-
-  // Overridden from views::internal::InputMethodDelegate:
-  void DispatchKeyEventPostIME(const ui::KeyEvent& key) override;
 
   // Overridden from aura::client::DragDropDelegate:
   void OnDragEntered(const ui::DropTargetEvent& event) override;
@@ -237,9 +228,6 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
  private:
   friend class FocusManagerEventHandler;
   friend class RootWindowDestructionObserver;
-
-  // Installs the input method filter.
-  void InstallInputMethodEventFilter();
 
   // To save a clear on platforms where the window is never transparent, the
   // window is only set as transparent when the glass frame is in use.
@@ -275,8 +263,6 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
 
   // Toplevel event filter which dispatches to other event filters.
   scoped_ptr<wm::CompoundEventFilter> root_window_event_filter_;
-
-  scoped_ptr<wm::InputMethodEventFilter> input_method_event_filter_;
 
   scoped_ptr<DropHelper> drop_helper_;
   int last_drop_operation_;

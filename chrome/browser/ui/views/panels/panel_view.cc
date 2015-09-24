@@ -20,8 +20,7 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
-#include "ui/aura/window.h"
-#include "ui/aura/window_tree_host.h"
+#include "ui/content_accelerators/accelerator_util.h"
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/path.h"
 #include "ui/gfx/screen.h"
@@ -42,6 +41,7 @@
 #include "chrome/browser/shell_integration_linux.h"
 #include "chrome/browser/ui/views/panels/x11_panel_resizer.h"
 #include "chrome/browser/web_applications/web_app.h"
+#include "ui/aura/window.h"
 #include "ui/views/widget/desktop_aura/desktop_window_tree_host_x11.h"
 #endif
 
@@ -55,7 +55,7 @@ const int kStackedPanelHeightShrinkThresholdToBecomeMinimized =
 #endif
 
 // Supported accelerators.
-// Note: We can't use the acclerator table defined in chrome/browser/ui/views
+// Note: We can't use the accelerator table defined in chrome/browser/ui/views
 // due to checkdeps violation.
 struct AcceleratorMapping {
   ui::KeyboardCode keycode;
@@ -337,8 +337,10 @@ PanelView::~PanelView() {
 }
 
 void PanelView::ShowPanel() {
-  ShowPanelInactive();
-  ActivatePanel();
+  if (window_->IsVisible())
+    return;
+  window_->Show();
+  panel_->manager()->OnPanelAnimationEnded(panel_.get());
 }
 
 void PanelView::ShowPanelInactive() {
@@ -534,10 +536,6 @@ void PanelView::UpdatePanelLoadingAnimations(bool should_animate) {
   GetFrameView()->UpdateThrobber();
 }
 
-void PanelView::PanelWebContentsFocused(content::WebContents* contents) {
-  web_view_->OnWebContentsFocused(contents);
-}
-
 void PanelView::PanelCut() {
   // Nothing to do since we do not have panel-specific system menu.
   NOTREACHED();
@@ -596,11 +594,8 @@ void PanelView::HandlePanelKeyboardEvent(
   if (focus_manager->shortcut_handling_suspended())
     return;
 
-  ui::Accelerator accelerator(
-      static_cast<ui::KeyboardCode>(event.windowsKeyCode),
-      content::GetModifiersFromNativeWebKeyboardEvent(event));
-  if (event.type == blink::WebInputEvent::KeyUp)
-    accelerator.set_type(ui::ET_KEY_RELEASED);
+  ui::Accelerator accelerator =
+      ui::GetAcceleratorFromNativeWebKeyboardEvent(event);
   focus_manager->ProcessAccelerator(accelerator);
 }
 

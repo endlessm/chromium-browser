@@ -9,6 +9,7 @@
 #include "base/logging.h"
 #include "base/values.h"
 #include "chromeos/network/onc/onc_signature.h"
+#include "chromeos/network/onc/onc_utils.h"
 #include "components/onc/onc_constants.h"
 
 namespace chromeos {
@@ -156,11 +157,7 @@ void Normalizer::NormalizeNetworkConfiguration(base::DictionaryValue* network) {
     network->RemoveWithoutPathExpansion(::onc::network_config::kStaticIPConfig,
                                         NULL);
     network->RemoveWithoutPathExpansion(::onc::network_config::kName, NULL);
-    network->RemoveWithoutPathExpansion(::onc::network_config::kNameServers,
-                                        NULL);
     network->RemoveWithoutPathExpansion(::onc::network_config::kProxySettings,
-                                        NULL);
-    network->RemoveWithoutPathExpansion(::onc::network_config::kSearchDomains,
                                         NULL);
     network->RemoveWithoutPathExpansion(::onc::network_config::kType, NULL);
     // Fields dependent on kType are removed afterwards, too.
@@ -176,6 +173,19 @@ void Normalizer::NormalizeNetworkConfiguration(base::DictionaryValue* network) {
   RemoveEntryUnless(network,
                     ::onc::network_config::kWiFi,
                     type == ::onc::network_type::kWiFi);
+
+  std::string ip_address_config_type, name_servers_config_type;
+  network->GetStringWithoutPathExpansion(
+      ::onc::network_config::kIPAddressConfigType, &ip_address_config_type);
+  network->GetStringWithoutPathExpansion(
+      ::onc::network_config::kNameServersConfigType, &name_servers_config_type);
+  RemoveEntryUnless(
+      network, ::onc::network_config::kStaticIPConfig,
+      (ip_address_config_type == ::onc::network_config::kIPConfigTypeStatic) ||
+          (name_servers_config_type ==
+           ::onc::network_config::kIPConfigTypeStatic));
+  // TODO(pneubeck): Remove fields from StaticIPConfig not specified by
+  // IP[Address|Nameservers]ConfigType.
 }
 
 void Normalizer::NormalizeOpenVPN(base::DictionaryValue* openvpn) {
@@ -222,6 +232,7 @@ void Normalizer::NormalizeVPN(base::DictionaryValue* vpn) {
   RemoveEntryUnless(vpn, kOpenVPN, type == kOpenVPN);
   RemoveEntryUnless(vpn, kIPsec, type == kIPsec || type == kTypeL2TP_IPsec);
   RemoveEntryUnless(vpn, kL2TP, type == kTypeL2TP_IPsec);
+  RemoveEntryUnless(vpn, kThirdPartyVpn, type == kThirdPartyVpn);
 }
 
 void Normalizer::NormalizeWiFi(base::DictionaryValue* wifi) {
@@ -232,6 +243,7 @@ void Normalizer::NormalizeWiFi(base::DictionaryValue* wifi) {
   RemoveEntryUnless(wifi, kEAP, security == kWEP_8021X || security == kWPA_EAP);
   RemoveEntryUnless(wifi, kPassphrase,
                     security == kWEP_PSK || security == kWPA_PSK);
+  FillInHexSSIDField(wifi);
 }
 
 }  // namespace onc

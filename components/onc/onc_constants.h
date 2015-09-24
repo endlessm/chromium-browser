@@ -61,15 +61,17 @@ ONC_EXPORT extern const char kCellular[];
 ONC_EXPORT extern const char kDevice[];
 ONC_EXPORT extern const char kEthernet[];
 ONC_EXPORT extern const char kGUID[];
+ONC_EXPORT extern const char kIPAddressConfigType[];
 ONC_EXPORT extern const char kIPConfigs[];
+ONC_EXPORT extern const char kIPConfigTypeDHCP[];
+ONC_EXPORT extern const char kIPConfigTypeStatic[];
 ONC_EXPORT extern const char kSavedIPConfig[];
 ONC_EXPORT extern const char kStaticIPConfig[];
 ONC_EXPORT extern const char kMacAddress[];
+ONC_EXPORT extern const char kNameServersConfigType[];
 ONC_EXPORT extern const char kName[];
-ONC_EXPORT extern const char kNameServers[];
 ONC_EXPORT extern const char kPriority[];
 ONC_EXPORT extern const char kProxySettings[];
-ONC_EXPORT extern const char kSearchDomains[];
 ONC_EXPORT extern const char kSource[];
 ONC_EXPORT extern const char kSourceDevice[];
 ONC_EXPORT extern const char kSourceDevicePolicy[];
@@ -106,6 +108,7 @@ namespace cellular {
 ONC_EXPORT extern const char kActivationState[];
 ONC_EXPORT extern const char kActivated[];
 ONC_EXPORT extern const char kActivating[];
+ONC_EXPORT extern const char kAutoConnect[];
 ONC_EXPORT extern const char kNotActivated[];
 ONC_EXPORT extern const char kPartiallyActivated[];
 ONC_EXPORT extern const char kActivationType[];
@@ -129,16 +132,28 @@ ONC_EXPORT extern const char kMEID[];
 ONC_EXPORT extern const char kMIN[];
 ONC_EXPORT extern const char kModelID[];
 ONC_EXPORT extern const char kNetworkTechnology[];
+ONC_EXPORT extern const char kPaymentPortal[];
 ONC_EXPORT extern const char kPRLVersion[];
-ONC_EXPORT extern const char kProviderRequiresRoaming[];
+ONC_EXPORT extern const char kRoamingHome[];
+ONC_EXPORT extern const char kRoamingRequired[];
+ONC_EXPORT extern const char kRoamingRoaming[];
 ONC_EXPORT extern const char kRoamingState[];
-ONC_EXPORT extern const char kHome[];
-ONC_EXPORT extern const char kRoaming[];
 ONC_EXPORT extern const char kServingOperator[];
+ONC_EXPORT extern const char kSignalStrength[];
 ONC_EXPORT extern const char kSIMLockStatus[];
 ONC_EXPORT extern const char kSIMPresent[];
 ONC_EXPORT extern const char kSupportedCarriers[];
 ONC_EXPORT extern const char kSupportNetworkScan[];
+ONC_EXPORT extern const char kTechnologyCdma1Xrtt[];
+ONC_EXPORT extern const char kTechnologyEdge[];
+ONC_EXPORT extern const char kTechnologyEvdo[];
+ONC_EXPORT extern const char kTechnologyGprs[];
+ONC_EXPORT extern const char kTechnologyGsm[];
+ONC_EXPORT extern const char kTechnologyHspa[];
+ONC_EXPORT extern const char kTechnologyHspaPlus[];
+ONC_EXPORT extern const char kTechnologyLte[];
+ONC_EXPORT extern const char kTechnologyLteAdvanced[];
+ONC_EXPORT extern const char kTechnologyUmts[];
 }  // namespace cellular
 
 namespace cellular_provider {
@@ -164,6 +179,12 @@ ONC_EXPORT extern const char kLongName[];
 ONC_EXPORT extern const char kTechnology[];
 }  // namespace cellular_found_network
 
+namespace cellular_payment_portal {
+ONC_EXPORT extern const char kMethod[];
+ONC_EXPORT extern const char kPostData[];
+ONC_EXPORT extern const char kUrl[];
+}  // namespace cellular_payment_portal
+
 namespace sim_lock_status {
 ONC_EXPORT extern const char kLockEnabled[];
 ONC_EXPORT extern const char kLockType[];
@@ -183,6 +204,7 @@ ONC_EXPORT extern const char kIPv4[];
 ONC_EXPORT extern const char kIPv6[];
 ONC_EXPORT extern const char kNameServers[];
 ONC_EXPORT extern const char kRoutingPrefix[];
+ONC_EXPORT extern const char kSearchDomains[];
 ONC_EXPORT extern const char kType[];
 ONC_EXPORT extern const char kWebProxyAutoDiscoveryUrl[];
 }  // namespace ipconfig
@@ -201,8 +223,10 @@ ONC_EXPORT extern const char kBSSID[];
 ONC_EXPORT extern const char kEAP[];
 ONC_EXPORT extern const char kFrequency[];
 ONC_EXPORT extern const char kFrequencyList[];
+ONC_EXPORT extern const char kHexSSID[];
 ONC_EXPORT extern const char kHiddenSSID[];
 ONC_EXPORT extern const char kPassphrase[];
+ONC_EXPORT extern const char kRoamThreshold[];
 ONC_EXPORT extern const char kSSID[];
 ONC_EXPORT extern const char kSecurity[];
 ONC_EXPORT extern const char kSecurityNone[];
@@ -273,6 +297,7 @@ ONC_EXPORT extern const char kEAP_FAST[];
 ONC_EXPORT extern const char kEAP_SIM[];
 ONC_EXPORT extern const char kEAP_TLS[];
 ONC_EXPORT extern const char kEAP_TTLS[];
+ONC_EXPORT extern const char kGTC[];
 ONC_EXPORT extern const char kIdentity[];
 ONC_EXPORT extern const char kInner[];
 ONC_EXPORT extern const char kLEAP[];
@@ -287,6 +312,7 @@ ONC_EXPORT extern const char kServerCAPEMs[];
 ONC_EXPORT extern const char kServerCARef[];
 ONC_EXPORT extern const char kServerCARefs[];
 ONC_EXPORT extern const char kUseSystemCAs[];
+ONC_EXPORT extern const char kUseProactiveKeyCaching[];
 }  // namespace eap
 
 namespace vpn {
@@ -297,6 +323,7 @@ ONC_EXPORT extern const char kL2TP[];
 ONC_EXPORT extern const char kOpenVPN[];
 ONC_EXPORT extern const char kPassword[];
 ONC_EXPORT extern const char kSaveCredentials[];
+ONC_EXPORT extern const char kThirdPartyVpn[];
 ONC_EXPORT extern const char kTypeL2TP_IPsec[];
 ONC_EXPORT extern const char kType[];
 ONC_EXPORT extern const char kUsername[];
@@ -314,6 +341,13 @@ ONC_EXPORT extern const char kServerCARef[];
 ONC_EXPORT extern const char kServerCARefs[];
 ONC_EXPORT extern const char kXAUTH[];
 }  // namespace ipsec
+
+namespace l2tp {
+ONC_EXPORT extern const char kLcpEchoDisabled[];
+ONC_EXPORT extern const char kPassword[];
+ONC_EXPORT extern const char kSaveCredentials[];
+ONC_EXPORT extern const char kUsername[];
+}  // namespace l2tp
 
 namespace openvpn {
 ONC_EXPORT extern const char kAuthNoCache[];
@@ -361,6 +395,10 @@ ONC_EXPORT extern const char kPassword[];
 ONC_EXPORT extern const char kPasswordAndOTP[];
 }  // openvpn_user_auth_type
 
+namespace third_party_vpn {
+ONC_EXPORT extern const char kExtensionID[];
+}  // third_party_vpn
+
 namespace verify_x509 {
 ONC_EXPORT extern const char kName[];
 ONC_EXPORT extern const char kType[];
@@ -395,6 +433,13 @@ ONC_EXPORT extern const char kWPAD[];
 namespace global_network_config {
 ONC_EXPORT extern const char kAllowOnlyPolicyNetworksToAutoconnect[];
 }  // global_network_config
+
+namespace device_state {
+ONC_EXPORT extern const char kUninitialized[];
+ONC_EXPORT extern const char kDisabled[];
+ONC_EXPORT extern const char kEnabling[];
+ONC_EXPORT extern const char kEnabled[];
+}  // device_state
 
 }  // namespace onc
 

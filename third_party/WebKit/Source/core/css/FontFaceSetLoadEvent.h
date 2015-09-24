@@ -32,16 +32,13 @@
 #define FontFaceSetLoadEvent_h
 
 #include "core/css/FontFace.h"
+#include "core/css/FontFaceSetLoadEventInit.h"
 #include "core/dom/DOMError.h"
 #include "core/events/Event.h"
 #include "wtf/PassRefPtr.h"
 #include "wtf/RefPtr.h"
 
 namespace blink {
-
-struct FontFaceSetLoadEventInit : public EventInit {
-    FontFaceArray fontfaces;
-};
 
 class FontFaceSetLoadEvent final : public Event {
     DEFINE_WRAPPERTYPEINFO();
@@ -67,7 +64,7 @@ public:
 
     virtual const AtomicString& interfaceName() const override;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     FontFaceSetLoadEvent();

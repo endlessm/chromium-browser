@@ -123,7 +123,7 @@
 #   persistent IDs for all fields (but not for groups!) are needed. These are
 #   specified by the 'id' keys of each policy. NEVER CHANGE EXISTING IDs,
 #   because doing so would break the deployed wire format!
-#   For your editing convenience: highest ID currently used: 281
+#   For your editing convenience: highest ID currently used: 303
 #
 # Placeholders:
 #   The following placeholder strings are automatically substituted:
@@ -172,7 +172,10 @@
 
           If you enable this setting, users cannot change their home page URL in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>, but they can still can choose the New Tab Page as their home page.
 
-          Leaving this policy not set will allow the user to choose his home page on his own if HomepageIsNewTabPage is not set too.''',
+          Leaving this policy not set will allow the user to choose his home page on his own if HomepageIsNewTabPage is not set too.
+
+          This policy is not available on Windows instances that are not joined
+          to an Active Directory domain.''',
           'label': '''Home page URL''',
         },
         {
@@ -196,7 +199,10 @@
 
           If you enable or disable this setting, users cannot change their homepage type in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>.
 
-          Leaving this policy not set will allow the user to choose whether the new tab page is his home page on his own.''',
+          Leaving this policy not set will allow the user to choose whether the new tab page is his home page on his own.
+
+          This policy is not available on Windows instances that are not joined
+          to an Active Directory domain.''',
         },
       ],
     },
@@ -565,7 +571,7 @@
           'name': 'RemoteAccessClientFirewallTraversal',
           'type': 'main',
           'schema': { 'type': 'boolean' },
-          'supported_on': ['chrome.*:14-', 'chrome_os:14-'],
+          'supported_on': ['chrome.*:14-16', 'chrome_os:14-16'],
           'features': {
             'dynamic_refresh': True,
           },
@@ -585,7 +591,7 @@
           'name': 'RemoteAccessHostFirewallTraversal',
           'type': 'main',
           'schema': { 'type': 'boolean' },
-          'supported_on': ['chrome.*:14-'],
+          'supported_on': ['chrome.*:14-', 'chrome_os:41-'],
           'features': {
             'dynamic_refresh': True,
             'per_profile': False,
@@ -605,7 +611,7 @@
           'name': 'RemoteAccessHostDomain',
           'type': 'string',
           'schema': { 'type': 'string' },
-          'supported_on': ['chrome.*:22-'],
+          'supported_on': ['chrome.*:22-', 'chrome_os:41-'],
           'features': {
             'dynamic_refresh': True,
             'per_profile': False,
@@ -623,11 +629,13 @@
           'name': 'RemoteAccessHostRequireTwoFactor',
           'type': 'main',
           'schema': { 'type': 'boolean' },
-          'supported_on': ['chrome.*:22-'],
+          'supported_on': ['chrome.*:22-22'],
           'features': {
             'dynamic_refresh': True,
             'per_profile': False,
           },
+          # Mark this 'removed' when http://crbug.com/100216 is resolved.
+          'deprecated': True,
           'example_value': False,
           'id': 155,
           'caption': '''Enable two-factor authentication for remote access hosts''',
@@ -641,7 +649,7 @@
           'name': 'RemoteAccessHostTalkGadgetPrefix',
           'type': 'string',
           'schema': { 'type': 'string' },
-          'supported_on': ['chrome.*:22-'],
+          'supported_on': ['chrome.*:22-', 'chrome_os:41-'],
           'features': {
             'dynamic_refresh': True,
             'per_profile': False,
@@ -663,7 +671,7 @@
           'name': 'RemoteAccessHostRequireCurtain',
           'type': 'main',
           'schema': { 'type': 'boolean' },
-          'supported_on': ['chrome.*:23-'],
+          'supported_on': ['chrome.*:23-', 'chrome_os:41-'],
           'features': {
             'dynamic_refresh': True,
             'per_profile': False,
@@ -681,14 +689,14 @@
           'name': 'RemoteAccessHostAllowClientPairing',
           'type': 'main',
           'schema': { 'type': 'boolean' },
-          'supported_on': ['chrome.*:30-'],
+          'supported_on': ['chrome.*:30-', 'chrome_os:41-'],
           'features': {
             'dynamic_refresh': True,
             'per_profile': False,
           },
           'example_value': False,
           'id': 234,
-          'caption': '''Enable or disable PIN-less authentication''',
+          'caption': '''Enable or disable PIN-less authentication for remote access hosts''',
           'desc': '''If this setting is enabled or not configured, then users can opt to pair clients and hosts at connection time, eliminating the need to enter a PIN every time.
 
           If this setting is disabled, then this feature will not be available.''',
@@ -697,14 +705,14 @@
           'name': 'RemoteAccessHostAllowGnubbyAuth',
           'type': 'main',
           'schema': { 'type': 'boolean' },
-          'supported_on': ['chrome.*:35-'],
+          'supported_on': ['chrome.*:35-', 'chrome_os:41-'],
           'features': {
             'dynamic_refresh': True,
             'per_profile': False,
           },
           'example_value': True,
           'id': 257,
-          'caption': '''Allow gnubby authentication''',
+          'caption': '''Allow gnubby authentication for remote access hosts''',
           'desc': '''If this setting is enabled, then gnubby authentication requests will be proxied across a remote host connection.
 
           If this setting is disabled or not configured, gnubby authentication requests will not be proxied.''',
@@ -713,7 +721,7 @@
           'name': 'RemoteAccessHostAllowRelayedConnection',
           'type': 'main',
           'schema': { 'type': 'boolean' },
-          'supported_on': ['chrome.*:36-'],
+          'supported_on': ['chrome.*:36-', 'chrome_os:41-'],
           'features': {
             'dynamic_refresh': True,
             'per_profile': False,
@@ -733,7 +741,7 @@
           'name': 'RemoteAccessHostUdpPortRange',
           'type': 'string',
           'schema': { 'type': 'string' },
-          'supported_on': ['chrome.*:36-'],
+          'supported_on': ['chrome.*:36-', 'chrome_os:41-'],
           'features': {
             'dynamic_refresh': True,
             'per_profile': False,
@@ -744,6 +752,94 @@
           'desc': '''Restricts the UDP port range used by the remote access host in this machine.
 
           If this policy is left not set, or if it is set to an empty string, the remote access host will be allowed to use any available port, unless the policy <ph name="REMOTEACCESSHOSTFIREWALLTRAVERSAL_POLICY_NAME">RemoteAccessHostFirewallTraversal</ph> is disabled, in which case the remote access host will use UDP ports in the 12400-12409 range.''',
+        },
+        {
+          'name': 'RemoteAccessHostMatchUsername',
+          'type': 'main',
+          'schema': { 'type': 'boolean' },
+          'supported_on': ['chrome.linux:25-', 'chrome.mac:25-', 'chrome_os:42-'],
+          'features': {
+            'dynamic_refresh': True,
+            'per_profile': False,
+          },
+          'example_value': False,
+          'id': 285,
+          'caption': '''Requires that the name of the local user and the remote access host owner match''',
+          'desc': '''Requires that the name of the local user and the remote access host owner match.
+
+          If this setting is enabled, then the remote access host compares the name of the local user (that the host is associated with) and the name of the Google account registered as the host owner (i.e. "johndoe" if the host is owned by "johndoe@example.com" Google account).  The remote access host will not start if the name of the host owner is different from the name of the local user that the host is associated with.  RemoteAccessHostMatchUsername policy should be used together with RemoteAccessHostDomain to also enforce that the Google account of the host owner is associated with a specific domain (i.e. "example.com").
+
+          If this setting is disabled or not set, then the remote access host can be associated with any local user.''',
+        },
+        {
+          'name': 'RemoteAccessHostTokenUrl',
+          'type': 'string',
+          'schema': { 'type': 'string' },
+          'supported_on': ['chrome.*:28-','chrome_os:42-'],
+          'features': {
+            'dynamic_refresh': True,
+            'per_profile': False,
+          },
+          'example_value': 'https://example.com/issue',
+          'id': 286,
+          'caption': '''URL where remote access clients should obtain their authentication token''',
+          'desc': '''URL where remote access clients should obtain their authentication token.
+
+          If this policy is set, the remote access host will require authenticating clients to obtain an authentication token from this URL in order to connect. Must be used in conjunction with RemoteAccessHostTokenValidationUrl.
+
+          This feature is currently disabled server-side.''',
+        },
+        {
+          'name': 'RemoteAccessHostTokenValidationUrl',
+          'type': 'string',
+          'schema': { 'type': 'string' },
+          'supported_on': ['chrome.*:28-','chrome_os:42-'],
+          'features': {
+            'dynamic_refresh': True,
+            'per_profile': False,
+          },
+          'example_value': 'https://example.com/validate',
+          'id': 287,
+          'caption': '''URL for validating remote access client authentication token''',
+          'desc': '''URL for validating remote access client authentication token.
+
+          If this policy is set, the remote access host will use this URL to validate authentication tokens from remote access clients, in order to accept connections. Must be used in conjunction with RemoteAccessHostTokenUrl.
+
+          This feature is currently disabled server-side.''',
+        },
+        {
+          'name': 'RemoteAccessHostTokenValidationCertificateIssuer',
+          'type': 'string',
+          'schema': { 'type': 'string' },
+          'supported_on': ['chrome.*:28-','chrome_os:42-'],
+          'features': {
+            'dynamic_refresh': True,
+            'per_profile': False,
+          },
+          'example_value': 'Example Certificate Authority',
+          'id': 288,
+          'caption': '''Client certificate for connecting to RemoteAccessHostTokenValidationUrl''',
+          'desc': '''Client certificate for connecting to RemoteAccessHostTokenValidationUrl.
+
+          If this policy is set, the host will use a client certificate with the given issuer CN to authenticate to RemoteAccessHostTokenValidationUrl. Set it to "*" to use any available client certificate.
+
+          This feature is currently disabled server-side.''',
+        },
+        {
+          'name': 'RemoteAccessHostDebugOverridePolicies',
+          'type': 'string',
+          'schema': { 'type': 'string' },
+          'supported_on': ['chrome.*:25-','chrome_os:42-'],
+          'features': {
+            'dynamic_refresh': True,
+            'per_profile': False,
+          },
+          'example_value': '{ "RemoteAccessHostMatchUsername": true }',
+          'id': 289,
+          'caption': '''Policy overrides for Debug builds of the remote access host''',
+          'desc': '''Overrides policies on Debug builds of the remote access host.
+
+          The value is parsed as a JSON dictionary of policy name to policy value mappings.''',
         },
       ],
     },
@@ -793,14 +889,55 @@
         'dynamic_refresh': True,
         'per_profile': True,
       },
+      'deprecated': True,
       'example_value': False,
       'id': 162,
       'caption': '''Force SafeSearch''',
-      'desc': '''Forces queries in Google Web Search to be done with SafeSearch set to active and prevents users from changing this setting. This setting also forces Safety Mode on YouTube.
+      'desc': '''This policy is deprecated, please use ForceGoogleSafeSearch and ForceYouTubeSafetyMode instead. This policy will be ignored if either the ForceGoogleSafeSearch or ForceYouTubeSafetyMode policies are set.
+
+      Forces queries in Google Web Search to be done with SafeSearch set to active and prevents users from changing this setting. This setting also forces Safety Mode on YouTube.
 
       If you enable this setting, SafeSearch in Google Search and YouTube is always active.
 
       If you disable this setting or do not set a value, SafeSearch in Google Search and YouTube is not enforced.''',
+    },
+    {
+      'name': 'ForceGoogleSafeSearch',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': ['chrome.*:41-', 'chrome_os:41-', 'android:41-'],
+      'features': {
+        'can_be_recommended': False,
+        'dynamic_refresh': True,
+        'per_profile': True,
+      },
+      'example_value': False,
+      'id': 282,
+      'caption': '''Force Google SafeSearch''',
+      'desc': '''Forces queries in Google Web Search to be done with SafeSearch set to active and prevents users from changing this setting.
+
+      If you enable this setting, SafeSearch in Google Search is always active.
+
+      If you disable this setting or do not set a value, SafeSearch in Google Search is not enforced.''',
+    },
+    {
+      'name': 'ForceYouTubeSafetyMode',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': ['chrome.*:41-', 'chrome_os:41-', 'android:41-'],
+      'features': {
+        'can_be_recommended': False,
+        'dynamic_refresh': True,
+        'per_profile': True,
+      },
+      'example_value': False,
+      'id': 283,
+      'caption': '''Force YouTube Safety Mode''',
+      'desc': '''Forces YouTube Safety Mode to active and prevents users from changing this setting.
+
+      If you enable this setting, Safety Mode on YouTube is always active.
+
+      If you disable this setting or do not set a value, Safety Mode on YouTube is not enforced.''',
     },
     {
       'name': 'SafeBrowsingEnabled',
@@ -846,7 +983,10 @@
 
       If you enable or disable this setting, users cannot change or override this setting in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>.
 
-      If this policy is left not set the setting will be what the user chose upon installation / first run.''',
+      If this policy is left not set the setting will be what the user chose upon installation / first run.
+
+      This policy is not available on Windows instances that are not joined to
+      an Active Directory domain.''',
     },
     {
       'name': 'PasswordManager',
@@ -1061,18 +1201,21 @@
       If you set this policy, you can configure whether a user is allowed to sign in to <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>. Setting this policy to 'False' will prevent apps and extensions that use the chrome.identity API from functioning, so you may want to use SyncDisabled instead.''',
     },
     {
-      'name': 'EnableWebBasedSignin',
+      'name': 'EnableDeprecatedWebBasedSignin',
       'type': 'main',
       'schema': { 'type': 'boolean' },
-      'supported_on': ['chrome.*:35-'],
+      'supported_on': ['chrome.*:35-42'],
       'features': {
         'dynamic_refresh': False,
         'per_profile': False,
       },
+      'deprecated': True,
       'example_value': False,
       'id': 265,
       'caption': '''Enables the old web-based signin''',
       'desc': '''Enables the old web-based signin flow.
+
+      This setting was named EnableWebBasedSignin prior to Chrome 42, and support for it will be removed entirely in Chrome 43.
 
       This setting is useful for enterprise customers who are using SSO solutions that are not compatible with the new inline signin flow yet.
       If you enable this setting, the old web-based signin flow would be used.
@@ -1202,6 +1345,28 @@
       'caption': '''Clear site data on browser shutdown (deprecated)''',
       'desc': '''This policy has been retired as of <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> version 29.''',
       'label': '''Clear site data on browser shutdown (deprecated)''',
+    },
+    {
+      'name': 'CaptivePortalAuthenticationIgnoresProxy',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': ['chrome_os:41-'],
+      'features': {
+        'can_be_recommended': False,
+        'dynamic_refresh': True,
+        'per_profile': True,
+      },
+      'example_value': True,
+      'default_for_enterprise_users': False,
+      'id': 295,
+      'caption': '''Captive portal authentication ignores proxy''',
+      'desc': '''This policy allows <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> to bypass any proxy for captive portal authentication.
+
+      This policy only takes effect if a proxy is configured (for example through policy, by the user in chrome://settings, or by extensions).
+
+      If you enable this setting, any captive portal authentication pages (i.e. all web pages starting from captive portal signin page until <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> detects succesful internet connection) will be displayed in a separate window ignoring all policy settings and restrictions for the current user.
+
+      If you disable this setting or leave it unset, any captive portal authentication pages will be shown in a (regular) new browser tab, using the current user's proxy settings.''',
     },
     {
       'name': 'Proxy',
@@ -1663,6 +1828,10 @@
           'caption': '''Configure the list of force-installed extensions''',
           'desc': '''Allows you to specify a list of extensions that will be installed silently, without user interaction.
 
+          For Windows instances that are not joined to an Active Directory
+          domain, forced installation is limited to extensions listed in the
+          Chrome Web Store.
+
           Each item of the list is a string that contains an extension ID and an update URL delimited by a semicolon (<ph name="SEMICOLON">;</ph>). The extension ID is the 32-letter string found e.g. on <ph name="CHROME_EXTENSIONS_LINK">chrome://extensions</ph> when in developer mode. The update URL should point to an Update Manifest XML document as described at <ph name="LINK_TO_EXTENSION_DOC1">https://developer.chrome.com/extensions/autoupdate</ph>. Note that the update URL set in this policy is only used for the initial installation; subsequent updates of the extension will use the update URL indicated in the extension's manifest.
 
           For each item, <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> will retrieve the extension specified by the extension ID from the update service at the specified update URL and silently install it.
@@ -1671,7 +1840,11 @@
 
           Users will be unable to uninstall extensions that are specified by this policy. If you remove an extension from this list, then it will be automatically uninstalled by <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>. Extensions specified in this list are also automatically whitelisted for installation; the ExtensionsInstallBlacklist does not affect them.
 
-          If this policy is left not set the user can uninstall any extension  in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>.''',
+          Note that the source code of any extension may be altered (potentially
+          rendering the extension dysfunctional) by using Developer Tools. If
+          this is a concern, the DeveloperToolsDisabled policy should be set.
+
+          If this policy is left not set the user can uninstall any extension in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>.''',
           'label': '''Extension IDs and update URLs to be silently installed''',
         },
         {
@@ -1761,6 +1934,10 @@
                   'allowed_permissions': {
                     '$ref': 'ListOfPermissions',
                   },
+                  'minimum_version_required': {
+                    'type': 'string',
+                    'pattern': '^[0-9]+([.][0-9]+)*$',
+                  },
                 },
               },
               '^update_url:': {
@@ -1810,6 +1987,7 @@
             'abcdefghijklmnopabcdefghijklmnop' : {
               'installation_mode': 'allowed',
               'blocked_permissions': ['history'],
+              'minimum_version_required': '1.0.1',
             },
             'bcdefghijklmnopabcdefghijklmnopa' : {
               'installation_mode': 'force_installed',
@@ -1849,6 +2027,8 @@
           "blocked_permissions": maps to a list of strings indicating the blocked API permissions for the extension. The permissions names are same as the permission strings declared in manifest of extension as described at <ph name="LINK_TO_EXTENSION_DOC3">https://developer.chrome.com/extensions/declare_permissions</ph>. This setting also can be configured for "*" extension. If the extension requires a permission which is on the blocklist, it will not be allowed to load. If it contains a blocked permission as optional requirement, it will be handled in the normal way, but requesting conflicting permissions will be declined automatically at runtime.
 
           "allowed_permissions": similar to "blocked_permissions", but instead explicitly allow some permissions which might be blocked by global blocked permission list, thus can not be configured for "*" extension. Note that this setting doesn't give granted permissions to extensions automatically.
+
+          "minimum_version_required": maps to a version string. The format of the version string is the same as the one used in extension manifest, as described at <ph name="LINK_TO_EXTENSION_DOC4">https://developer.chrome.com/apps/manifest/version</ph>. An extension with a version older than the specified minimum version will be disabled. This applies to force-installed extensions as well.
 
           The following settings can be used only for the default "*" configuration:
 
@@ -1954,7 +2134,10 @@
 
           If you enable this setting, users cannot change or override it in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>.
 
-          Disabling this setting is equivalent to leaving it not configured. The user will still be able to change it in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>.''',
+          Disabling this setting is equivalent to leaving it not configured. The user will still be able to change it in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>.
+
+          This policy is not available on Windows instances that are not joined
+          to an Active Directory domain.''',
         },
         {
           'name': 'RestoreOnStartupURLs',
@@ -1974,7 +2157,10 @@
           'caption': '''URLs to open on startup''',
           'desc': '''If 'Open a list of URLs' is selected as the startup action, this allows you to specify the list of URLs that are opened. If left not set no URL will be opened on start up.
 
-          This policy only works if the 'RestoreOnStartup' policy is set to 'RestoreOnStartupIsURLs'.''',
+          This policy only works if the 'RestoreOnStartup' policy is set to 'RestoreOnStartupIsURLs'.
+
+          This policy is not available on Windows instances that are not joined
+          to an Active Directory domain.''',
         },
       ],
     },
@@ -2034,7 +2220,10 @@
 
           If you enable or disable this setting, users cannot change or override this setting in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>.
 
-          If this policy is left not set, the default search provider is enabled, and the user will be able to set the search provider list.''',
+          If this policy is left not set, the default search provider is enabled, and the user will be able to set the search provider list.
+
+          This policy is not available on Windows instances that are not joined
+          to an Active Directory domain.''',
         },
         {
           'name': 'DefaultSearchProviderName',
@@ -3683,16 +3872,18 @@
         'dynamic_refresh': True,
         'per_profile': True,
       },
-      'example_value': ['example.com', 'https://ssl.server.com', 'hosting.com/bad_path', 'http://server:8080/path', '.exact.hostname.com', '*'],
+      'example_value': ['example.com', 'https://ssl.server.com', 'hosting.com/bad_path', 'http://server:8080/path', '.exact.hostname.com', 'file://*', '*'],
       'id': 103,
       'caption': '''Block access to a list of URLs''',
       'desc': '''Blocks access to the listed URLs.
 
-      This policy prevents the user from loading web pages from blacklisted URLs.
+      This policy prevents the user from loading web pages from blacklisted URLs. The blacklist provides a list of URL patterns that specify which URLs will be blacklisted.
 
-      A URL has the format 'scheme://host:port/path'.
-      The optional scheme can be http, https or ftp. Only this scheme will be blocked; if none is specified, all schemes are blocked.
-      The host can be a hostname or an IP address. Subdomains of a hostname will also be blocked. To prevent blocking subdomains, include a '.' before the hostname. The special hostname '*' will block all domains.
+      Each URL pattern can either be a pattern for local files or a generic URL pattern. Local file patterns are of the format 'file://path', where path should be an absolute path to block. All file system locations for which that path is a prefix will be blocked.
+
+      A generic URL pattern has the format 'scheme://host:port/path'.
+      If present, only the specified scheme will be blocked. If the scheme:// prefix is not specified, all schemes are blocked.
+      The host is required and can be a hostname or an IP address. Subdomains of a hostname will also be blocked. To prevent blocking subdomains, include a '.' before the hostname. The special hostname '*' will block all domains.
       The optional port is a valid port number from 1 to 65535. If none is specified, all ports are blocked.
       If the optional path is specified, only paths with that prefix will be blocked.
 
@@ -4095,6 +4286,95 @@
       'desc': '''Report list of device users that have recently logged in.
 
       If the policy is set to false, the users will not be reported.''',
+    },
+    {
+      'name': 'ReportDeviceHardwareStatus',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': ['chrome_os:42-'],
+      'device_only': True,
+      'features': {
+        'dynamic_refresh': True,
+      },
+      'example_value': False,
+      'id': 290,
+      'caption': '''Report hardware status''',
+      'desc': '''Report hardware statistics such as CPU/RAM usage.
+
+      If the policy is set to false, the statistics will not be reported.
+      If set to true or left unset, statistics will be reported.''',
+    },
+    {
+      'name': 'ReportDeviceSessionStatus',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': ['chrome_os:42-'],
+      'device_only': True,
+      'features': {
+        'dynamic_refresh': True,
+      },
+      'example_value': False,
+      'id': 291,
+      'caption': '''Report information about active kiosk sessions''',
+      'desc': '''Report information about the active kiosk session, such as
+      application ID and version.
+
+      If the policy is set to false, the session information will not be
+      reported. If set to true or left unset, session information will be
+      reported.''',
+    },
+    {
+      'name': 'ReportUploadFrequency',
+      'type': 'int',
+      'schema': { 'type': 'integer', 'minimum': 60000 },
+      'supported_on': ['chrome_os:42-'],
+      'device_only': True,
+      'features': {
+        'dynamic_refresh': True,
+      },
+      'example_value': 180000,
+      'id': 292,
+      'caption': '''Frequency of device status report uploads''',
+      'desc': '''How frequently device status uploads are sent, in milliseconds.
+
+      If this policy is unset, the default frequency is 3 hours. The minimum
+      allowed frequency is 60 seconds.''',
+    },
+    {
+      'name': 'HeartbeatEnabled',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': ['chrome_os:43-'],
+      'device_only': True,
+      'features': {
+        'dynamic_refresh': True,
+      },
+      'example_value': False,
+      'id': 293,
+      'caption': '''Send monitoring heartbeats to the management server''',
+      'desc': '''Send monitoring heartbeats to the management server, to allow
+      the server to detect if the device is offline.
+
+      If this policy is set to true, monitoring heartbeats will be sent. If set
+      to false or unset, then no heartbeats will be sent.''',
+    },
+    {
+      'name': 'HeartbeatFrequency',
+      'type': 'int',
+      'schema': { 'type': 'integer', 'minimum': 30000 },
+      'supported_on': ['chrome_os:43-'],
+      'device_only': True,
+      'features': {
+        'dynamic_refresh': True,
+      },
+      'example_value': 180000,
+      'id': 294,
+      'caption': '''Frequency of monitoring heartbeats''',
+      'desc': '''How frequently monitoring heartbeats are sent, in milliseconds.
+
+      If this policy is unset, the default frequency is 3 minutes. The minimum
+      frequency is 30 seconds and the maximum frequency is 24 hours - values
+      outside of this range will be clamped to this range.''',
     },
     {
       'name': 'DeviceUserWhitelist',
@@ -4694,6 +4974,20 @@
       'desc': '''The Safe Browsing service shows a warning page when users navigate to sites that are flagged as potentially malicious. Enabling this setting prevents users from proceeding anyway from the warning page to the malicious site.
 
       If this setting is disabled or not configured then users can choose to proceed to the flagged site after being shown the warning.''',
+    },
+    {
+      'name': 'SafeBrowsingExtendedReportingOptInAllowed',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': ['chrome.*:44-', 'chrome_os:44-'],
+      'features': {
+        'dynamic_refresh': True,
+        'per_profile': True,
+      },
+      'example_value': True,
+      'id': 299,
+      'caption': '''Allow users to opt in to Safe Browsing extended reporting''',
+      'desc': '''Setting this policy to false stops users from choosing to send information about security errors they encounter to Google servers. If this setting is true or not configured, then users will be allowed to send information when they encounter an SSL error or Safe Browsing warning.''',
     },
     {
       'name': 'SpellCheckServiceEnabled',
@@ -6880,10 +7174,10 @@
         },
       ],
       'supported_on': [
-        'chrome.*:39-',
-        'chrome_os:39-',
-        'android:39-',
-        'ios:39-',
+        'chrome.*:39-43',
+        'chrome_os:39-43',
+        'android:39-43',
+        'ios:39-43',
       ],
       'features': {
         'dynamic_refresh': True,
@@ -6892,7 +7186,9 @@
       'example_value': 'ssl3',
       'id': 279,
       'caption': '''Minimum SSL version enabled''',
-      'desc': '''If this policy is not configured then <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> will use a default minimum version, which is SSLv3 in Chrome 39 but may be TLS 1.0 in Chrome 40.
+      'desc': '''Warning: SSLv3 support will be entirely removed from <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> after version 43 (around July 2015) and this policy will be removed at the same time.
+
+      If this policy is not configured then <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> uses a default minimum version which is SSLv3 in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> 39 and TLS 1.0 in later versions.
 
       Otherwise it may be set to one of the following values: "sslv3", "tls1", "tls1.1" or "tls1.2". When set, <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> will not use SSL/TLS versions less than the specified version. An unrecognized value will be ignored.
 
@@ -6904,18 +7200,12 @@
       'schema': {
         'type': 'string',
         'enum': [
-          'ssl3',
           'tls1',
           'tls1.1',
           'tls1.2',
         ],
       },
       'items': [
-        {
-          'name': 'SSLv3',
-          'value': 'ssl3',
-          'caption': 'SSL 3.0',
-        },
         {
           'name': 'TLSv1',
           'value': 'tls1',
@@ -6933,27 +7223,27 @@
         },
       ],
       'supported_on': [
-        'chrome.*:39-',
-        'chrome_os:39-',
-        'android:39-',
-        'ios:39-',
+        'chrome.*:45-47',
+        'chrome_os:45-47',
+        'android:45-47',
+        'ios:45-47',
       ],
       'features': {
         'dynamic_refresh': True,
         'per_profile': False,
       },
-      'example_value': 'tls1',
+      'example_value': 'tls1.1',
       'id': 280,
-      'caption': '''Minimum SSL version to fallback to''',
-      'desc': '''When an SSL/TLS handshake fails, <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> will retry the connection with a lesser version of SSL/TLS in order to work around bugs in HTTPS servers. This setting configures the version at which this fallback process will stop. If a server performs version negotiation correctly (i.e. without breaking the connection) then this setting doesn't apply. Regardless, the resulting connection must still comply with SSLVersionMin.
+      'caption': '''Minimum TLS version to fallback to''',
+      'desc': '''Warning: The TLS 1.0 version fallback will be removed from <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> after version 47 (around January 2016) and the "tls1" option will stop working then.
 
-      If this policy is not configured then <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> will use a default minimum version, which was SSLv3 in Chrome 38 but is TLS 1.0 in Chrome 39.
+      When a TLS handshake fails, <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> will retry the connection with a lesser version of TLS in order to work around bugs in HTTPS servers. This setting configures the version at which this fallback process will stop. If a server performs version negotiation correctly (i.e. without breaking the connection) then this setting doesn't apply. Regardless, the resulting connection must still comply with SSLVersionMin.
 
-      Otherwise it may be set to one of the following values: "sslv3", "tls1", "tls1.1" or "tls1.2". A setting of "tls1" protects against attacks on SSLv3 but is already the default. A more likely situation is that compatibility with a buggy server must be maintained and thus this needs to be set to "sslv3". That potentially opens up all connections to SSLv3 attacks since a network attacker can induce fallbacks. Thus this is a stopgap measure and the server should be rapidly fixed.
+      If this policy is not configured then <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> uses a default minimum version which is TLS 1.0 in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> 44 and TLS 1.1 in later versions. Note this does not disable support for TLS 1.0, only whether <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> will work around buggy servers which cannot negotiate versions correctly.
 
-      A setting of "tls1.2" disables all fallback but this may have a significant compatibility impact.
+      Otherwise it may be set to one of the following values: "tls1", "tls1.1" or "tls1.2". If compatibility with a buggy server must be maintained, this may be set to "tls1". This is a stopgap measure and the server should be rapidly fixed.
 
-      Note that, despite the number, "sslv3" is an earier version than "tls1".''',
+      A setting of "tls1.2" disables all fallback but this may have a significant compatibility impact.''',
     },
     {
       'name': 'ContextualSearchEnabled',
@@ -6977,6 +7267,154 @@
 
       If this policy is left not set, it is equivalent to being enabled, see description above.''',
     },
+    {
+      'name': 'DeviceRebootOnShutdown',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': ['chrome_os:41-'],
+      'device_only': True,
+      'features': {
+        'dynamic_refresh': True,
+      },
+      'example_value': True,
+      'id': 284,
+      'caption': '''Automatic reboot on device shutdown''',
+      'desc': '''If this policy is set to false or not configured, <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> will allow the user to shut down the device.
+      If this policy is set to true, <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> will trigger a reboot when the user shuts down the device. <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> replaces all occurrences of shutdown buttons in the UI by reboot buttons. If the user shuts down the device using the power button, it will not automatically reboot, even if the policy is enabled.''',
+    },
+    {
+      'name': 'ExtensionCacheSize',
+      'type': 'int',
+      'schema': { 'type': 'integer' },
+      'supported_on': ['chrome_os:43-'],
+      'device_only': True,
+      'features': {
+        'dynamic_refresh': False,
+      },
+      'example_value': 104857600,
+      'id': 296,
+      'caption': '''Set Apps and Extensions cache size (in bytes)''',
+      'desc': '''<ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> caches Apps and Extensions for installation by multiple users of a single device to avoid re-downloading them for each user.
+      If this policy is not configured or the value is lower than 1 MB, <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> will use the default cache size.''',
+    },
+    {
+      'name': 'DeviceLoginScreenDomainAutoComplete',
+      'type': 'string',
+      'schema': { 'type': 'string' },
+      'supported_on': [ 'chrome_os:44-'],
+      'device_only': True,
+      'features': {
+        'dynamic_refresh': True,
+      },
+      'example_value': 'students.school.edu',
+      'id': 297,
+      'caption': '''Enable domain name autocomplete during user sign in''',
+      'desc': '''If this policy is set to a blank string or not configured, <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> will not show an autocomplete option during user sign-in flow.
+      If this policy is set to a string representing a domain name, <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> will show an autocomplete option during user sign-in allowing the user to type in only his user name without the domain name extension.  The user will be able to overwrite this domain name extension.''',
+    },
+    {
+      'name': 'ForceMaximizeOnFirstRun',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': ['chrome_os:43-'],
+      'features': {
+        'dynamic_refresh': False,
+        'per_profile': True,
+      },
+      'example_value': True,
+      'id': 298,
+      'caption': '''Maximize the first browser window on first run''',
+      'desc': '''If this policy is set to true, <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> will unconditionally maximize the the first window shown on first run.
+      If this policy is set to false or not configured, a heuristic will decide whether to maximize the first window shown, based on the screen size.''',
+    },
+    {
+      'name': 'SSLErrorOverrideAllowed',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': ['chrome.*:44-', 'chrome_os:44-', 'android:44-'],
+      'features': {
+        'dynamic_refresh': True,
+        'per_profile': True,
+      },
+      'example_value': True,
+      'id': 300,
+      'caption': '''Allow proceeding from the SSL warning page''',
+      'desc': '''Chrome shows a warning page when users navigate to sites that have SSL errors. By default or when this policy is set to true, users are allowed to click through these warning pages.
+      Setting this policy to false disallows users to click through any warning page.''',
+    },
+    {
+      'name': 'QuicAllowed',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': ['chrome.*:43-', 'chrome_os:43-'],
+      'features': {
+        'dynamic_refresh': False,
+        'per_profile': False,
+      },
+      'example_value': True,
+      'id': 301,
+      'caption': '''Allows QUIC protocol''',
+      'desc': '''If this policy is set to true or not set usage of QUIC protocol in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> is allowed.
+      If this policy is set to false usage of QUIC protocol is disallowed.''',
+    },
+    {
+      'name': 'KeyPermissions',
+      'type': 'dict',
+      'schema': {
+        'type': 'object',
+        'additionalProperties': {
+          'type': 'object',
+          'properties': {
+            'allowCorporateKeyUsage': {
+              'description': '''If set to true, this extension can use all keys that are designated for corporate usage to sign arbitrary data. If set to false, it cannot access any such keys and the user cannot grant such permission either.''',
+              'type': 'boolean',
+            },
+          },
+        },
+      },
+      'supported_on': ['chrome_os:45-'],
+      'features': {
+        'dynamic_refresh': True,
+        'per_profile': True,
+      },
+      'example_value': {
+        'extension1': {
+          'allowCorporateKeyUsage': 'true'
+        },
+        'extension2': {
+          'allowCorporateKeyUsage': 'false'
+        }
+      },
+      'id': 302,
+      'caption': 'Key Permissions',
+      'desc': '''Grants access to corporate keys to extensions.
+
+      Keys are designated for corporate usage if they're generated using the chrome.platformKeys API on a managed account. Keys imported or generated in another way are not designated for corporate usage.
+
+      Access to keys designated for corporate usage is solely controlled by this policy. The user can neither grant nor withdraw access to corporate keys to or from extensions.
+
+      By default an extension cannot use a key designated for corporate usage, which is equivalent to setting allowCorporateKeyUsage to false for that extension.
+
+      Only if allowCorporateKeyUsage is set to true for an extension, it can use any platform key marked for corporate usage to sign arbitrary data. This permission should only be granted if the extension is trusted to secure access to the key against attackers.''',
+    },
+    {
+      'name': 'WelcomePageOnOSUpgradeEnabled',
+      'supported_on': ['chrome.win:45-'],
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'id': 303,
+      'caption': 'Enable showing the welcome page on the first browser launch following OS upgrade.',
+      'desc': '''Enable showing the welcome page on the first browser launch following OS upgrade.
+
+      If this policy is set to true or not configured, the browser will re-show the welcome page on the first launch following an OS upgrade.
+
+      If this policy is set to false, the browser will not re-show the welcome page on the first launch following an OS upgrade.''',
+      'features': {
+        'dynamic_refresh': False,
+        'per_profile': False
+      },
+      'example_value': False
+    }
   ],
   'messages': {
     # Messages that are not associated to any policies.
@@ -6999,6 +7437,10 @@
     'doc_mac_linux_pref_name': {
       'desc': '''Caption text of the field 'mac/linux preference name' in the summary chart of a policy in the generated documentation''',
       'text': '''Mac/Linux preference name:'''
+    },
+    'doc_android_restriction_name': {
+      'desc': '''Caption text of the field 'android restriction name' in the summary chart of a policy in the generated documentation''',
+      'text': '''Android restriction name:'''
     },
     'doc_supported_on': {
       'desc': '''Caption text of the list of 'products, platforms and versions where this policy is supported' in the summary chart of a policy in the generated documentation''',
@@ -7043,12 +7485,9 @@
       name="POLICY_TEMPLATE_DOWNLOAD_URL">http://www.chromium.org/administrators/policy-templates<ex>
       http://www.chromium.org/administrators/policy-templates</ex></ph>.
 
-      Note: Starting with <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>
-      28, policies are loaded directly from the Group Policy API on
-      Windows. Policies manually written to the registry will be ignored. See
-      http://crbug.com/259236 for details.
-
-      Starting with <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> 35, policies are read directly from the registry if the workstation is joined to an Active Directory domain; otherwise the policies are read from GPO.'''
+      The recommended way to configure policy on Windows is via GPO, although
+      provisioning policy via registry is still supported for Windows instances
+      that are joined to an Active Directory domain.'''
     },
     'doc_back_to_top': {
       'desc': '''Text of a link in the generated policy documentation, that takes the user to the top of the page''',

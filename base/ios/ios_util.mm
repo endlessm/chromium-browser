@@ -20,12 +20,13 @@ const int32* OSVersionAsArray() {
 namespace base {
 namespace ios {
 
-bool IsRunningOnIOS7OrLater() {
-  return IsRunningOnOrLater(7, 0, 0);
-}
-
+// When dropping iOS7 support, also address issues listed in crbug.com/502968.
 bool IsRunningOnIOS8OrLater() {
   return IsRunningOnOrLater(8, 0, 0);
+}
+
+bool IsRunningOnIOS9OrLater() {
+  return IsRunningOnOrLater(9, 0, 0);
 }
 
 bool IsRunningOnOrLater(int32 major, int32 minor, int32 bug_fix) {

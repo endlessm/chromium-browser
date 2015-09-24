@@ -8,9 +8,9 @@ extern "C" {
 
 #include "ui/gl/gl_context_glx.h"
 
-#include "base/debug/trace_event.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/trace_event/trace_event.h"
 #include "ui/gl/GL/glextchromium.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_implementation.h"
@@ -20,8 +20,8 @@ namespace gfx {
 
 GLContextGLX::GLContextGLX(GLShareGroup* share_group)
   : GLContextReal(share_group),
-    context_(NULL),
-    display_(NULL) {
+    context_(nullptr),
+    display_(nullptr) {
 }
 
 XDisplay* GLContextGLX::display() {
@@ -33,7 +33,7 @@ bool GLContextGLX::Initialize(
   display_ = static_cast<XDisplay*>(compatible_surface->GetDisplay());
 
   GLXContext share_handle = static_cast<GLXContext>(
-      share_group() ? share_group()->GetHandle() : NULL);
+      share_group() ? share_group()->GetHandle() : nullptr);
 
   if (GLSurfaceGLX::IsCreateContextSupported()) {
     DVLOG(1) << "GLX_ARB_create_context supported.";
@@ -88,7 +88,7 @@ void GLContextGLX::Destroy() {
   if (context_) {
     glXDestroyContext(display_,
                       static_cast<GLXContext>(context_));
-    context_ = NULL;
+    context_ = nullptr;
   }
 }
 
@@ -132,7 +132,7 @@ void GLContextGLX::ReleaseCurrent(GLSurface* surface) {
   if (!IsCurrent(surface))
     return;
 
-  SetCurrent(NULL);
+  SetCurrent(nullptr);
   if (!glXMakeContextCurrent(display_, 0, 0, 0))
     LOG(ERROR) << "glXMakeCurrent failed in ReleaseCurrent";
 }
@@ -163,8 +163,8 @@ void* GLContextGLX::GetHandle() {
   return context_;
 }
 
-void GLContextGLX::SetSwapInterval(int interval) {
-  DCHECK(IsCurrent(NULL));
+void GLContextGLX::OnSetSwapInterval(int interval) {
+  DCHECK(IsCurrent(nullptr));
   if (HasExtension("GLX_EXT_swap_control") &&
       g_driver_glx.fn.glXSwapIntervalEXTFn) {
     glXSwapIntervalEXT(
@@ -183,7 +183,7 @@ void GLContextGLX::SetSwapInterval(int interval) {
 }
 
 std::string GLContextGLX::GetExtensions() {
-  DCHECK(IsCurrent(NULL));
+  DCHECK(IsCurrent(nullptr));
   const char* extensions = GLSurfaceGLX::GetGLXExtensions();
   if (extensions) {
     return GLContext::GetExtensions() + " " + extensions;

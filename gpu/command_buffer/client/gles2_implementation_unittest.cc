@@ -6,13 +6,16 @@
 
 #include "gpu/command_buffer/client/gles2_implementation.h"
 
-#include <limits>
-
+#include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #include <GLES2/gl2extchromium.h>
+#include <GLES3/gl3.h>
 #include "base/compiler_specific.h"
 #include "gpu/command_buffer/client/client_test_helper.h"
+#include "gpu/command_buffer/client/gles2_cmd_helper.h"
 #include "gpu/command_buffer/client/program_info_manager.h"
+#include "gpu/command_buffer/client/query_tracker.h"
+#include "gpu/command_buffer/client/ring_buffer.h"
 #include "gpu/command_buffer/client/transfer_buffer.h"
 #include "gpu/command_buffer/common/command_buffer.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -50,13 +53,13 @@ template <typename T>
 class SizedResultHelper {
  public:
   explicit SizedResultHelper(T result)
-      : size_(sizeof(result)),
-        result_(result) {
+      : size_(sizeof(result)) {
+    memcpy(result_, &result, sizeof(T));
   }
 
  private:
   uint32 size_;
-  T result_;
+  char result_[sizeof(T)];
 };
 
 // Struct to make it easy to pass a vec4 worth of floats.
@@ -132,6 +135,7 @@ class MockTransferBuffer : public TransferBufferInterface {
   void* AllocUpTo(unsigned int size, unsigned int* size_allocated) override;
   void* Alloc(unsigned int size) override;
   RingBuffer::Offset GetOffset(void* pointer) const override;
+  void DiscardBlock(void* p) override;
   void FreePendingToken(void* p, unsigned int /* token */) override;
 
   size_t MaxTransferBufferSize() {
@@ -295,6 +299,11 @@ RingBuffer::Offset MockTransferBuffer::GetOffset(void* pointer) const {
   return static_cast<uint8*>(pointer) - actual_buffer();
 }
 
+void MockTransferBuffer::DiscardBlock(void* p) {
+  EXPECT_EQ(last_alloc_, p);
+  last_alloc_ = NULL;
+}
+
 void MockTransferBuffer::FreePendingToken(void* p, unsigned int /* token */) {
   EXPECT_EQ(last_alloc_, p);
   last_alloc_ = NULL;
@@ -377,13 +386,16 @@ class GLES2ImplementationTest : public testing::Test {
   static const GLint kMaxVertexUniformVectors = 128;
   static const GLint kNumCompressedTextureFormats = 0;
   static const GLint kNumShaderBinaryFormats = 0;
+  static const GLuint kMaxTransformFeedbackSeparateAttribs = 4;
+  static const GLuint kMaxUniformBufferBindings = 36;
   static const GLuint kStartId = 1024;
-  static const GLuint kBuffersStartId =
-      GLES2Implementation::kClientSideArrayId + 2 * kNumTestContexts;
+  static const GLuint kBuffersStartId = 1;
   static const GLuint kFramebuffersStartId = 1;
   static const GLuint kProgramsAndShadersStartId = 1;
   static const GLuint kRenderbuffersStartId = 1;
+  static const GLuint kSamplersStartId = 1;
   static const GLuint kTexturesStartId = 1;
+  static const GLuint kTransformFeedbacksStartId = 1;
   static const GLuint kQueriesStartId = 1;
   static const GLuint kVertexArraysStartId = 1;
   static const GLuint kValuebuffersStartId = 1;
@@ -398,7 +410,9 @@ class GLES2ImplementationTest : public testing::Test {
                     bool bind_generates_resource_client,
                     bool bind_generates_resource_service,
                     bool lose_context_when_out_of_memory,
-                    bool transfer_buffer_initialize_fail) {
+                    bool transfer_buffer_initialize_fail,
+                    bool sync_query,
+                    bool occlusion_query_boolean) {
       command_buffer_.reset(new StrictMock<MockClientCommandBuffer>());
       if (!command_buffer_->Initialize())
         return false;
@@ -414,44 +428,40 @@ class GLES2ImplementationTest : public testing::Test {
       helper_->Initialize(kCommandBufferSizeBytes);
 
       gpu_control_.reset(new StrictMock<MockClientGpuControl>());
-      EXPECT_CALL(*gpu_control_, GetCapabilities())
-          .WillOnce(testing::Return(Capabilities()));
-
-      GLES2Implementation::GLStaticState state;
-      GLES2Implementation::GLStaticState::IntState& int_state = state.int_state;
-      int_state.max_combined_texture_image_units =
+      Capabilities capabilities;
+      capabilities.VisitPrecisions(
+          [](GLenum shader, GLenum type,
+             Capabilities::ShaderPrecision* precision) {
+            precision->min_range = 3;
+            precision->max_range = 5;
+            precision->precision = 7;
+          });
+      capabilities.max_combined_texture_image_units =
           kMaxCombinedTextureImageUnits;
-      int_state.max_cube_map_texture_size = kMaxCubeMapTextureSize;
-      int_state.max_fragment_uniform_vectors = kMaxFragmentUniformVectors;
-      int_state.max_renderbuffer_size = kMaxRenderbufferSize;
-      int_state.max_texture_image_units = kMaxTextureImageUnits;
-      int_state.max_texture_size = kMaxTextureSize;
-      int_state.max_varying_vectors = kMaxVaryingVectors;
-      int_state.max_vertex_attribs = kMaxVertexAttribs;
-      int_state.max_vertex_texture_image_units = kMaxVertexTextureImageUnits;
-      int_state.max_vertex_uniform_vectors = kMaxVertexUniformVectors;
-      int_state.num_compressed_texture_formats = kNumCompressedTextureFormats;
-      int_state.num_shader_binary_formats = kNumShaderBinaryFormats;
-      int_state.bind_generates_resource_chromium =
+      capabilities.max_cube_map_texture_size = kMaxCubeMapTextureSize;
+      capabilities.max_fragment_uniform_vectors = kMaxFragmentUniformVectors;
+      capabilities.max_renderbuffer_size = kMaxRenderbufferSize;
+      capabilities.max_texture_image_units = kMaxTextureImageUnits;
+      capabilities.max_texture_size = kMaxTextureSize;
+      capabilities.max_varying_vectors = kMaxVaryingVectors;
+      capabilities.max_vertex_attribs = kMaxVertexAttribs;
+      capabilities.max_vertex_texture_image_units = kMaxVertexTextureImageUnits;
+      capabilities.max_vertex_uniform_vectors = kMaxVertexUniformVectors;
+      capabilities.num_compressed_texture_formats =
+          kNumCompressedTextureFormats;
+      capabilities.num_shader_binary_formats = kNumShaderBinaryFormats;
+      capabilities.max_transform_feedback_separate_attribs =
+          kMaxTransformFeedbackSeparateAttribs;
+      capabilities.max_uniform_buffer_bindings = kMaxUniformBufferBindings;
+      capabilities.bind_generates_resource_chromium =
           bind_generates_resource_service ? 1 : 0;
-
-      // This just happens to work for now because IntState has 1 GLint per
-      // state.
-      // If IntState gets more complicated this code will need to get more
-      // complicated.
-      ExpectedMemoryInfo mem1 = transfer_buffer_->GetExpectedMemory(
-          sizeof(GLES2Implementation::GLStaticState::IntState) * 2 +
-          sizeof(cmds::GetShaderPrecisionFormat::Result) * 12);
+      capabilities.sync_query = sync_query;
+      capabilities.occlusion_query_boolean = occlusion_query_boolean;
+      EXPECT_CALL(*gpu_control_, GetCapabilities())
+          .WillOnce(testing::Return(capabilities));
 
       {
         InSequence sequence;
-
-        if (!transfer_buffer_initialize_fail) {
-          EXPECT_CALL(*command_buffer_, OnFlush())
-              .WillOnce(SetMemory(mem1.ptr + sizeof(int_state), int_state))
-              .RetiresOnSaturation();
-        }
-        GetNextToken();  // eat the token that starting up will use.
 
         const bool support_client_side_arrays = true;
         gl_.reset(new GLES2Implementation(helper_.get(),
@@ -469,7 +479,6 @@ class GLES2ImplementationTest : public testing::Test {
           return false;
       }
 
-      EXPECT_CALL(*command_buffer_, OnFlush()).Times(1).RetiresOnSaturation();
       helper_->CommandBufferHelper::Finish();
       ::testing::Mock::VerifyAndClearExpectations(gl_.get());
 
@@ -538,12 +547,16 @@ class GLES2ImplementationTest : public testing::Test {
         : bind_generates_resource_client(true),
           bind_generates_resource_service(true),
           lose_context_when_out_of_memory(false),
-          transfer_buffer_initialize_fail(false) {}
+          transfer_buffer_initialize_fail(false),
+          sync_query(true),
+          occlusion_query_boolean(true) {}
 
     bool bind_generates_resource_client;
     bool bind_generates_resource_service;
     bool lose_context_when_out_of_memory;
     bool transfer_buffer_initialize_fail;
+    bool sync_query;
+    bool occlusion_query_boolean;
   };
 
   bool Initialize(const ContextInitOptions& init_options) {
@@ -556,7 +569,9 @@ class GLES2ImplementationTest : public testing::Test {
               init_options.bind_generates_resource_client,
               init_options.bind_generates_resource_service,
               init_options.lose_context_when_out_of_memory,
-              init_options.transfer_buffer_initialize_fail))
+              init_options.transfer_buffer_initialize_fail,
+              init_options.sync_query,
+              init_options.occlusion_query_boolean))
         success = false;
     }
 
@@ -588,12 +603,28 @@ class GLES2ImplementationTest : public testing::Test {
     return transfer_buffer_->MaxTransferBufferSize();
   }
 
+  void SetMappedMemoryLimit(size_t limit) {
+    gl_->mapped_memory_->set_max_allocated_bytes(limit);
+  }
+
   ExpectedMemoryInfo GetExpectedMemory(size_t size) {
     return transfer_buffer_->GetExpectedMemory(size);
   }
 
   ExpectedMemoryInfo GetExpectedResultMemory(size_t size) {
     return transfer_buffer_->GetExpectedResultMemory(size);
+  }
+
+  ExpectedMemoryInfo GetExpectedMappedMemory(size_t size) {
+    ExpectedMemoryInfo mem;
+
+    // Temporarily allocate memory and expect that memory block to be reused.
+    mem.ptr = static_cast<uint8*>(gl_->mapped_memory_->Alloc(size,
+                                                             &mem.id,
+                                                             &mem.offset));
+    gl_->mapped_memory_->Free(mem.ptr);
+
+    return mem;
   }
 
   // Sets the ProgramInfoManager. The manager will be owned
@@ -763,7 +794,9 @@ const GLuint GLES2ImplementationTest::kBuffersStartId;
 const GLuint GLES2ImplementationTest::kFramebuffersStartId;
 const GLuint GLES2ImplementationTest::kProgramsAndShadersStartId;
 const GLuint GLES2ImplementationTest::kRenderbuffersStartId;
+const GLuint GLES2ImplementationTest::kSamplersStartId;
 const GLuint GLES2ImplementationTest::kTexturesStartId;
+const GLuint GLES2ImplementationTest::kTransformFeedbacksStartId;
 const GLuint GLES2ImplementationTest::kQueriesStartId;
 const GLuint GLES2ImplementationTest::kVertexArraysStartId;
 const GLuint GLES2ImplementationTest::kValuebuffersStartId;
@@ -829,20 +862,22 @@ TEST_F(GLES2ImplementationTest, GetShaderPrecisionFormat) {
     cmds::GetShaderPrecisionFormat cmd;
   };
   typedef cmds::GetShaderPrecisionFormat::Result Result;
+  const unsigned kDummyType1 = 3;
+  const unsigned kDummyType2 = 4;
 
-  // The first call for mediump should trigger a command buffer request.
+  // The first call for dummy type 1 should trigger a command buffer request.
   GLint range1[2] = {0, 0};
   GLint precision1 = 0;
   Cmds expected1;
   ExpectedMemoryInfo client_result1 = GetExpectedResultMemory(4);
-  expected1.cmd.Init(GL_FRAGMENT_SHADER, GL_MEDIUM_FLOAT,
-                     client_result1.id, client_result1.offset);
+  expected1.cmd.Init(GL_FRAGMENT_SHADER, kDummyType1, client_result1.id,
+                     client_result1.offset);
   Result server_result1 = {true, 14, 14, 10};
   EXPECT_CALL(*command_buffer(), OnFlush())
       .WillOnce(SetMemory(client_result1.ptr, server_result1))
       .RetiresOnSaturation();
-  gl_->GetShaderPrecisionFormat(GL_FRAGMENT_SHADER, GL_MEDIUM_FLOAT,
-                                range1, &precision1);
+  gl_->GetShaderPrecisionFormat(GL_FRAGMENT_SHADER, kDummyType1, range1,
+                                &precision1);
   const void* commands2 = GetPut();
   EXPECT_NE(commands_, commands2);
   EXPECT_EQ(0, memcmp(&expected1, commands_, sizeof(expected1)));
@@ -850,92 +885,53 @@ TEST_F(GLES2ImplementationTest, GetShaderPrecisionFormat) {
   EXPECT_EQ(range1[1], 14);
   EXPECT_EQ(precision1, 10);
 
-  // The second call for mediump should use the cached value and avoid
+  // The second call for dummy type 1 should use the cached value and avoid
   // triggering a command buffer request, so we do not expect a call to
   // OnFlush() here. We do expect the results to be correct though.
   GLint range2[2] = {0, 0};
   GLint precision2 = 0;
-  gl_->GetShaderPrecisionFormat(GL_FRAGMENT_SHADER, GL_MEDIUM_FLOAT,
-                                range2, &precision2);
+  gl_->GetShaderPrecisionFormat(GL_FRAGMENT_SHADER, kDummyType1, range2,
+                                &precision2);
   const void* commands3 = GetPut();
   EXPECT_EQ(commands2, commands3);
   EXPECT_EQ(range2[0], 14);
   EXPECT_EQ(range2[1], 14);
   EXPECT_EQ(precision2, 10);
 
-  // If we then make a request for highp, we should get another command
+  // If we then make a request for dummy type 2, we should get another command
   // buffer request since it hasn't been cached yet.
   GLint range3[2] = {0, 0};
   GLint precision3 = 0;
   Cmds expected3;
   ExpectedMemoryInfo result3 = GetExpectedResultMemory(4);
-  expected3.cmd.Init(GL_FRAGMENT_SHADER, GL_HIGH_FLOAT,
-                     result3.id, result3.offset);
+  expected3.cmd.Init(GL_FRAGMENT_SHADER, kDummyType2, result3.id,
+                     result3.offset);
   Result result3_source = {true, 62, 62, 16};
   EXPECT_CALL(*command_buffer(), OnFlush())
       .WillOnce(SetMemory(result3.ptr, result3_source))
       .RetiresOnSaturation();
-  gl_->GetShaderPrecisionFormat(GL_FRAGMENT_SHADER, GL_HIGH_FLOAT,
-                                range3, &precision3);
+  gl_->GetShaderPrecisionFormat(GL_FRAGMENT_SHADER, kDummyType2, range3,
+                                &precision3);
   const void* commands4 = GetPut();
   EXPECT_NE(commands3, commands4);
   EXPECT_EQ(0, memcmp(&expected3, commands3, sizeof(expected3)));
   EXPECT_EQ(range3[0], 62);
   EXPECT_EQ(range3[1], 62);
   EXPECT_EQ(precision3, 16);
-}
 
-TEST_F(GLES2ImplementationTest, ShaderSource) {
-  const uint32 kBucketId = GLES2Implementation::kResultBucketId;
-  const GLuint kShaderId = 456;
-  const char* kString1 = "foobar";
-  const char* kString2 = "barfoo";
-  const size_t kString1Size = strlen(kString1);
-  const size_t kString2Size = strlen(kString2);
-  const size_t kString3Size = 1;  // Want the NULL;
-  const size_t kSourceSize = kString1Size + kString2Size + kString3Size;
-  const size_t kPaddedString1Size =
-      transfer_buffer_->RoundToAlignment(kString1Size);
-  const size_t kPaddedString2Size =
-      transfer_buffer_->RoundToAlignment(kString2Size);
-  const size_t kPaddedString3Size =
-      transfer_buffer_->RoundToAlignment(kString3Size);
-  struct Cmds {
-    cmd::SetBucketSize set_bucket_size;
-    cmd::SetBucketData set_bucket_data1;
-    cmd::SetToken set_token1;
-    cmd::SetBucketData set_bucket_data2;
-    cmd::SetToken set_token2;
-    cmd::SetBucketData set_bucket_data3;
-    cmd::SetToken set_token3;
-    cmds::ShaderSourceBucket shader_source_bucket;
-    cmd::SetBucketSize clear_bucket_size;
-  };
-
-  ExpectedMemoryInfo mem1 = GetExpectedMemory(kPaddedString1Size);
-  ExpectedMemoryInfo mem2 = GetExpectedMemory(kPaddedString2Size);
-  ExpectedMemoryInfo mem3 = GetExpectedMemory(kPaddedString3Size);
-
-  Cmds expected;
-  expected.set_bucket_size.Init(kBucketId, kSourceSize);
-  expected.set_bucket_data1.Init(
-      kBucketId, 0, kString1Size, mem1.id, mem1.offset);
-  expected.set_token1.Init(GetNextToken());
-  expected.set_bucket_data2.Init(
-      kBucketId, kString1Size, kString2Size, mem2.id, mem2.offset);
-  expected.set_token2.Init(GetNextToken());
-  expected.set_bucket_data3.Init(
-      kBucketId, kString1Size + kString2Size,
-      kString3Size, mem3.id, mem3.offset);
-  expected.set_token3.Init(GetNextToken());
-  expected.shader_source_bucket.Init(kShaderId, kBucketId);
-  expected.clear_bucket_size.Init(kBucketId, 0);
-  const char* strings[] = {
-    kString1,
-    kString2,
-  };
-  gl_->ShaderSource(kShaderId, 2, strings, NULL);
-  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+  // Any call for predefined types should use the cached value from the
+  // Capabilities  and avoid triggering a command buffer request, so we do not
+  // expect a call to OnFlush() here. We do expect the results to be correct
+  // though.
+  GLint range4[2] = {0, 0};
+  GLint precision4 = 0;
+  gl_->GetShaderPrecisionFormat(GL_FRAGMENT_SHADER, GL_MEDIUM_FLOAT, range4,
+                                &precision4);
+  const void* commands5 = GetPut();
+  EXPECT_EQ(commands4, commands5);
+  EXPECT_EQ(range4[0], 3);
+  EXPECT_EQ(range4[1], 5);
+  EXPECT_EQ(precision4, 7);
 }
 
 TEST_F(GLES2ImplementationTest, GetShaderSource) {
@@ -1959,122 +1955,6 @@ TEST_F(GLES2ImplementationTest, MapUnmapTexSubImage2DCHROMIUMBadArgs) {
   EXPECT_EQ(static_cast<GLenum>(GL_INVALID_VALUE), gl_->GetError());
 }
 
-TEST_F(GLES2ImplementationTest, GetMultipleIntegervCHROMIUMValidArgs) {
-  const GLenum pnames[] = {
-    GL_DEPTH_WRITEMASK,
-    GL_COLOR_WRITEMASK,
-    GL_STENCIL_WRITEMASK,
-  };
-  const GLint num_results = 6;
-  GLint results[num_results + 1];
-  struct Cmds {
-    cmds::GetMultipleIntegervCHROMIUM get_multiple;
-    cmd::SetToken set_token;
-  };
-  const GLsizei kNumPnames = arraysize(pnames);
-  const GLsizeiptr kResultsSize = num_results * sizeof(results[0]);
-  const size_t kPNamesSize = kNumPnames * sizeof(pnames[0]);
-
-  ExpectedMemoryInfo mem1 = GetExpectedMemory(kPNamesSize + kResultsSize);
-  ExpectedMemoryInfo result1 = GetExpectedResultMemory(
-      sizeof(cmds::GetError::Result));
-
-  const uint32 kPnamesOffset = mem1.offset;
-  const uint32 kResultsOffset = mem1.offset + kPNamesSize;
-  Cmds expected;
-  expected.get_multiple.Init(
-      mem1.id, kPnamesOffset, kNumPnames,
-      mem1.id, kResultsOffset, kResultsSize);
-  expected.set_token.Init(GetNextToken());
-
-  const GLint kSentinel = 0x12345678;
-  memset(results, 0, sizeof(results));
-  results[num_results] = kSentinel;
-  const GLint returned_results[] = {
-    1, 0, 1, 0, 1, -1,
-  };
-  // One call to flush to wait for results
-  EXPECT_CALL(*command_buffer(), OnFlush())
-      .WillOnce(SetMemoryFromArray(mem1.ptr + kPNamesSize,
-                                   returned_results, sizeof(returned_results)))
-      .WillOnce(SetMemory(result1.ptr, GLuint(GL_NO_ERROR)))
-      .RetiresOnSaturation();
-
-  gl_->GetMultipleIntegervCHROMIUM(
-      &pnames[0], kNumPnames, &results[0], kResultsSize);
-  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
-  EXPECT_EQ(0, memcmp(&returned_results, results, sizeof(returned_results)));
-  EXPECT_EQ(kSentinel, results[num_results]);
-  EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), gl_->GetError());
-}
-
-TEST_F(GLES2ImplementationTest, GetMultipleIntegervCHROMIUMBadArgs) {
-  GLenum pnames[] = {
-    GL_DEPTH_WRITEMASK,
-    GL_COLOR_WRITEMASK,
-    GL_STENCIL_WRITEMASK,
-  };
-  const GLint num_results = 6;
-  GLint results[num_results + 1];
-  const GLsizei kNumPnames = arraysize(pnames);
-  const GLsizeiptr kResultsSize = num_results * sizeof(results[0]);
-
-  ExpectedMemoryInfo result1 =
-      GetExpectedResultMemory(sizeof(cmds::GetError::Result));
-  ExpectedMemoryInfo result2 =
-      GetExpectedResultMemory(sizeof(cmds::GetError::Result));
-  ExpectedMemoryInfo result3 =
-      GetExpectedResultMemory(sizeof(cmds::GetError::Result));
-  ExpectedMemoryInfo result4 =
-      GetExpectedResultMemory(sizeof(cmds::GetError::Result));
-
-  // Calls to flush to wait for GetError
-  EXPECT_CALL(*command_buffer(), OnFlush())
-      .WillOnce(SetMemory(result1.ptr, GLuint(GL_NO_ERROR)))
-      .WillOnce(SetMemory(result2.ptr, GLuint(GL_NO_ERROR)))
-      .WillOnce(SetMemory(result3.ptr, GLuint(GL_NO_ERROR)))
-      .WillOnce(SetMemory(result4.ptr, GLuint(GL_NO_ERROR)))
-      .RetiresOnSaturation();
-
-  const GLint kSentinel = 0x12345678;
-  memset(results, 0, sizeof(results));
-  results[num_results] = kSentinel;
-  // try bad size.
-  gl_->GetMultipleIntegervCHROMIUM(
-      &pnames[0], kNumPnames, &results[0], kResultsSize + 1);
-  EXPECT_TRUE(NoCommandsWritten());
-  EXPECT_EQ(static_cast<GLenum>(GL_INVALID_VALUE), gl_->GetError());
-  EXPECT_EQ(0, results[0]);
-  EXPECT_EQ(kSentinel, results[num_results]);
-  // try bad size.
-  ClearCommands();
-  gl_->GetMultipleIntegervCHROMIUM(
-      &pnames[0], kNumPnames, &results[0], kResultsSize - 1);
-  EXPECT_TRUE(NoCommandsWritten());
-  EXPECT_EQ(static_cast<GLenum>(GL_INVALID_VALUE), gl_->GetError());
-  EXPECT_EQ(0, results[0]);
-  EXPECT_EQ(kSentinel, results[num_results]);
-  // try uncleared results.
-  ClearCommands();
-  results[2] = 1;
-  gl_->GetMultipleIntegervCHROMIUM(
-      &pnames[0], kNumPnames, &results[0], kResultsSize);
-  EXPECT_TRUE(NoCommandsWritten());
-  EXPECT_EQ(static_cast<GLenum>(GL_INVALID_VALUE), gl_->GetError());
-  EXPECT_EQ(0, results[0]);
-  EXPECT_EQ(kSentinel, results[num_results]);
-  // try bad enum results.
-  ClearCommands();
-  results[2] = 0;
-  pnames[1] = GL_TRUE;
-  gl_->GetMultipleIntegervCHROMIUM(
-      &pnames[0], kNumPnames, &results[0], kResultsSize);
-  EXPECT_TRUE(NoCommandsWritten());
-  EXPECT_EQ(static_cast<GLenum>(GL_INVALID_ENUM), gl_->GetError());
-  EXPECT_EQ(0, results[0]);
-  EXPECT_EQ(kSentinel, results[num_results]);
-}
-
 TEST_F(GLES2ImplementationTest, GetProgramInfoCHROMIUMGoodArgs) {
   const uint32 kBucketId = GLES2Implementation::kResultBucketId;
   const GLuint kProgramId = 123;
@@ -2177,6 +2057,108 @@ TEST_F(GLES2ImplementationTest, GetProgramInfoCHROMIUMBadArgs) {
   EXPECT_EQ(static_cast<GLenum>(GL_INVALID_VALUE), gl_->GetError());
 }
 
+TEST_F(GLES2ImplementationTest, GetUniformBlocksCHROMIUMGoodArgs) {
+  const uint32 kBucketId = GLES2Implementation::kResultBucketId;
+  const GLuint kProgramId = 123;
+  const char kBad = 0x12;
+  GLsizei size = 0;
+  const Str7 kString = {"foobar"};
+  char buf[20];
+
+  ExpectedMemoryInfo mem1 =
+      GetExpectedMemory(MaxTransferBufferSize());
+  ExpectedMemoryInfo result1 =
+      GetExpectedResultMemory(sizeof(cmd::GetBucketStart::Result));
+  ExpectedMemoryInfo result2 =
+      GetExpectedResultMemory(sizeof(cmds::GetError::Result));
+
+  memset(buf, kBad, sizeof(buf));
+  EXPECT_CALL(*command_buffer(), OnFlush())
+      .WillOnce(DoAll(SetMemory(result1.ptr, uint32(sizeof(kString))),
+                      SetMemory(mem1.ptr, kString)))
+      .WillOnce(SetMemory(result2.ptr, GLuint(GL_NO_ERROR)))
+      .RetiresOnSaturation();
+
+  struct Cmds {
+    cmd::SetBucketSize set_bucket_size1;
+    cmds::GetUniformBlocksCHROMIUM get_uniform_blocks;
+    cmd::GetBucketStart get_bucket_start;
+    cmd::SetToken set_token1;
+    cmd::SetBucketSize set_bucket_size2;
+  };
+  Cmds expected;
+  expected.set_bucket_size1.Init(kBucketId, 0);
+  expected.get_uniform_blocks.Init(kProgramId, kBucketId);
+  expected.get_bucket_start.Init(
+      kBucketId, result1.id, result1.offset,
+      MaxTransferBufferSize(), mem1.id, mem1.offset);
+  expected.set_token1.Init(GetNextToken());
+  expected.set_bucket_size2.Init(kBucketId, 0);
+  gl_->GetUniformBlocksCHROMIUM(kProgramId, sizeof(buf), &size, &buf);
+  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+  EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), gl_->GetError());
+  EXPECT_EQ(sizeof(kString), static_cast<size_t>(size));
+  EXPECT_STREQ(kString.str, buf);
+  EXPECT_EQ(buf[sizeof(kString)], kBad);
+}
+
+TEST_F(GLES2ImplementationTest, GetUniformBlocksCHROMIUMBadArgs) {
+  const uint32 kBucketId = GLES2Implementation::kResultBucketId;
+  const GLuint kProgramId = 123;
+  GLsizei size = 0;
+  const Str7 kString = {"foobar"};
+  char buf[20];
+
+  ExpectedMemoryInfo mem1 = GetExpectedMemory(MaxTransferBufferSize());
+  ExpectedMemoryInfo result1 =
+      GetExpectedResultMemory(sizeof(cmd::GetBucketStart::Result));
+  ExpectedMemoryInfo result2 =
+      GetExpectedResultMemory(sizeof(cmds::GetError::Result));
+  ExpectedMemoryInfo result3 =
+      GetExpectedResultMemory(sizeof(cmds::GetError::Result));
+  ExpectedMemoryInfo result4 =
+      GetExpectedResultMemory(sizeof(cmds::GetError::Result));
+
+  EXPECT_CALL(*command_buffer(), OnFlush())
+      .WillOnce(DoAll(SetMemory(result1.ptr, uint32(sizeof(kString))),
+                      SetMemory(mem1.ptr,  kString)))
+      .WillOnce(SetMemory(result2.ptr, GLuint(GL_NO_ERROR)))
+      .WillOnce(SetMemory(result3.ptr, GLuint(GL_NO_ERROR)))
+      .WillOnce(SetMemory(result4.ptr, GLuint(GL_NO_ERROR)))
+      .RetiresOnSaturation();
+
+  // try bufsize not big enough.
+  struct Cmds {
+    cmd::SetBucketSize set_bucket_size1;
+    cmds::GetUniformBlocksCHROMIUM get_uniform_blocks;
+    cmd::GetBucketStart get_bucket_start;
+    cmd::SetToken set_token1;
+    cmd::SetBucketSize set_bucket_size2;
+  };
+  Cmds expected;
+  expected.set_bucket_size1.Init(kBucketId, 0);
+  expected.get_uniform_blocks.Init(kProgramId, kBucketId);
+  expected.get_bucket_start.Init(
+      kBucketId, result1.id, result1.offset,
+      MaxTransferBufferSize(), mem1.id, mem1.offset);
+  expected.set_token1.Init(GetNextToken());
+  expected.set_bucket_size2.Init(kBucketId, 0);
+  gl_->GetUniformBlocksCHROMIUM(kProgramId, 6, &size, &buf);
+  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+  EXPECT_EQ(static_cast<GLenum>(GL_INVALID_OPERATION), gl_->GetError());
+  ClearCommands();
+
+  // try bad bufsize
+  gl_->GetUniformBlocksCHROMIUM(kProgramId, -1, &size, &buf);
+  EXPECT_TRUE(NoCommandsWritten());
+  EXPECT_EQ(static_cast<GLenum>(GL_INVALID_VALUE), gl_->GetError());
+  ClearCommands();
+  // try no size ptr.
+  gl_->GetUniformBlocksCHROMIUM(kProgramId, sizeof(buf), NULL, &buf);
+  EXPECT_TRUE(NoCommandsWritten());
+  EXPECT_EQ(static_cast<GLenum>(GL_INVALID_VALUE), gl_->GetError());
+}
+
 // Test that things are cached
 TEST_F(GLES2ImplementationTest, GetIntegerCacheRead) {
   struct PNameValue {
@@ -2263,20 +2245,17 @@ TEST_F(GLES2ImplementationTest, GetIntegerCacheWrite) {
 
 static bool CheckRect(
     int width, int height, GLenum format, GLenum type, int alignment,
-    bool flip_y, const uint8* r1, const uint8* r2) {
+    const uint8* r1, const uint8* r2) {
   uint32 size = 0;
   uint32 unpadded_row_size = 0;
   uint32 padded_row_size = 0;
   if (!GLES2Util::ComputeImageDataSizes(
-      width, height, format, type, alignment, &size, &unpadded_row_size,
+      width, height, 1, format, type, alignment, &size, &unpadded_row_size,
       &padded_row_size)) {
     return false;
   }
 
-  int r2_stride = flip_y ?
-      -static_cast<int>(padded_row_size) :
-      static_cast<int>(padded_row_size);
-  r2 = flip_y ? (r2 + (height - 1) * padded_row_size) : r2;
+  int r2_stride = static_cast<int>(padded_row_size);
 
   for (int y = 0; y < height; ++y) {
     if (memcmp(r1, r2, unpadded_row_size) != 0) {
@@ -2288,13 +2267,11 @@ static bool CheckRect(
   return true;
 }
 
-ACTION_P8(CheckRectAction, width, height, format, type, alignment, flip_y,
-          r1, r2) {
+ACTION_P7(CheckRectAction, width, height, format, type, alignment, r1, r2) {
   EXPECT_TRUE(CheckRect(
-      width, height, format, type, alignment, flip_y, r1, r2));
+      width, height, format, type, alignment, r1, r2));
 }
 
-// Test TexImage2D with and without flip_y
 TEST_F(GLES2ImplementationTest, TexImage2D) {
   struct Cmds {
     cmds::TexImage2D tex_image_2d;
@@ -2331,30 +2308,61 @@ TEST_F(GLES2ImplementationTest, TexImage2D) {
       pixels);
   EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
   EXPECT_TRUE(CheckRect(
-      kWidth, kHeight, kFormat, kType, kPixelStoreUnpackAlignment, false,
+      kWidth, kHeight, kFormat, kType, kPixelStoreUnpackAlignment,
       pixels, mem1.ptr));
+}
 
-  ClearCommands();
-  gl_->PixelStorei(GL_UNPACK_FLIP_Y_CHROMIUM, GL_TRUE);
+TEST_F(GLES2ImplementationTest, TexImage2DViaMappedMem) {
+  struct Cmds {
+    cmds::TexImage2D tex_image_2d;
+    cmd::SetToken set_token;
+  };
+  const GLenum kTarget = GL_TEXTURE_2D;
+  const GLint kLevel = 0;
+  const GLenum kFormat = GL_RGB;
+  const GLsizei kWidth = 3;
+  const GLint kBorder = 0;
+  const GLenum kType = GL_UNSIGNED_BYTE;
+  const GLint kPixelStoreUnpackAlignment = 4;
 
-  ExpectedMemoryInfo mem2 = GetExpectedMemory(sizeof(pixels));
-  Cmds2 expected2;
-  expected2.tex_image_2d.Init(
+  uint32 size = 0;
+  uint32 unpadded_row_size = 0;
+  uint32 padded_row_size = 0;
+  ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
+      kWidth, 2, 1, kFormat, kType, kPixelStoreUnpackAlignment,
+      &size, &unpadded_row_size, &padded_row_size));
+  const GLsizei kMaxHeight = (MaxTransferBufferSize() / padded_row_size) * 2;
+  const GLsizei kHeight = kMaxHeight * 2;
+  ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
+      kWidth, kHeight, 1, kFormat, kType, kPixelStoreUnpackAlignment,
+      &size, &unpadded_row_size, &padded_row_size));
+
+  scoped_ptr<uint8[]> pixels(new uint8[size]);
+  for (uint32 ii = 0; ii < size; ++ii) {
+    pixels[ii] = static_cast<uint8>(ii);
+  }
+
+  ExpectedMemoryInfo mem1 = GetExpectedMappedMemory(size);
+
+  Cmds expected;
+  expected.tex_image_2d.Init(
       kTarget, kLevel, kFormat, kWidth, kHeight, kFormat, kType,
-      mem2.id, mem2.offset);
-  expected2.set_token.Init(GetNextToken());
-  const void* commands2 = GetPut();
+      mem1.id, mem1.offset);
+  expected.set_token.Init(GetNextToken());
   gl_->TexImage2D(
       kTarget, kLevel, kFormat, kWidth, kHeight, kBorder, kFormat, kType,
-      pixels);
-  EXPECT_EQ(0, memcmp(&expected2, commands2, sizeof(expected2)));
+      pixels.get());
+  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
   EXPECT_TRUE(CheckRect(
-      kWidth, kHeight, kFormat, kType, kPixelStoreUnpackAlignment, true,
-      pixels, mem2.ptr));
+      kWidth, kHeight, kFormat, kType, kPixelStoreUnpackAlignment,
+      pixels.get(), mem1.ptr));
 }
 
 // Test TexImage2D with 2 writes
-TEST_F(GLES2ImplementationTest, TexImage2D2Writes) {
+TEST_F(GLES2ImplementationTest, TexImage2DViaTexSubImage2D) {
+  // Set limit to 1 to effectively disable mapped memory.
+  SetMappedMemoryLimit(1);
+
   struct Cmds {
     cmds::TexImage2D tex_image_2d;
     cmds::TexSubImage2D tex_sub_image_2d1;
@@ -2374,15 +2382,15 @@ TEST_F(GLES2ImplementationTest, TexImage2D2Writes) {
   uint32 unpadded_row_size = 0;
   uint32 padded_row_size = 0;
   ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
-      kWidth, 2, kFormat, kType, kPixelStoreUnpackAlignment,
+      kWidth, 2, 1, kFormat, kType, kPixelStoreUnpackAlignment,
       &size, &unpadded_row_size, &padded_row_size));
   const GLsizei kHeight = (MaxTransferBufferSize() / padded_row_size) * 2;
   ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
-      kWidth, kHeight, kFormat, kType, kPixelStoreUnpackAlignment,
+      kWidth, kHeight, 1, kFormat, kType, kPixelStoreUnpackAlignment,
       &size, NULL, NULL));
   uint32 half_size = 0;
   ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
-      kWidth, kHeight / 2, kFormat, kType, kPixelStoreUnpackAlignment,
+      kWidth, kHeight / 2, 1, kFormat, kType, kPixelStoreUnpackAlignment,
       &half_size, NULL, NULL));
 
   scoped_ptr<uint8[]> pixels(new uint8[size]);
@@ -2419,111 +2427,8 @@ TEST_F(GLES2ImplementationTest, TexImage2D2Writes) {
       pixels.get());
   EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
   EXPECT_TRUE(CheckRect(
-      kWidth, kHeight / 2, kFormat, kType, kPixelStoreUnpackAlignment, false,
+      kWidth, kHeight / 2, kFormat, kType, kPixelStoreUnpackAlignment,
       pixels.get() + kHeight / 2 * padded_row_size, mem2.ptr));
-
-  ClearCommands();
-  gl_->PixelStorei(GL_UNPACK_FLIP_Y_CHROMIUM, GL_TRUE);
-  const void* commands2 = GetPut();
-  ExpectedMemoryInfo mem3 = GetExpectedMemory(half_size);
-  ExpectedMemoryInfo mem4 = GetExpectedMemory(half_size);
-  expected.tex_image_2d.Init(
-      kTarget, kLevel, kFormat, kWidth, kHeight, kFormat, kType,
-      0, 0);
-  expected.tex_sub_image_2d1.Init(
-      kTarget, kLevel, 0, kHeight / 2, kWidth, kHeight / 2, kFormat, kType,
-      mem3.id, mem3.offset, true);
-  expected.set_token1.Init(GetNextToken());
-  expected.tex_sub_image_2d2.Init(
-      kTarget, kLevel, 0, 0, kWidth, kHeight / 2, kFormat, kType,
-      mem4.id, mem4.offset, true);
-  expected.set_token2.Init(GetNextToken());
-
-  // TODO(gman): Make it possible to run this test
-  // EXPECT_CALL(*command_buffer(), OnFlush())
-  //     .WillOnce(CheckRectAction(
-  //         kWidth, kHeight / 2, kFormat, kType, kPixelStoreUnpackAlignment,
-  //         true, pixels.get(),
-  //         GetExpectedTransferAddressFromOffsetAs<uint8>(offset3, half_size)))
-  //     .RetiresOnSaturation();
-
-  gl_->TexImage2D(
-      kTarget, kLevel, kFormat, kWidth, kHeight, kBorder, kFormat, kType,
-      pixels.get());
-  EXPECT_EQ(0, memcmp(&expected, commands2, sizeof(expected)));
-  EXPECT_TRUE(CheckRect(
-      kWidth, kHeight / 2, kFormat, kType, kPixelStoreUnpackAlignment, true,
-      pixels.get() + kHeight / 2 * padded_row_size, mem4.ptr));
-}
-
-// Test TexSubImage2D with GL_PACK_FLIP_Y set and partial multirow transfers
-TEST_F(GLES2ImplementationTest, TexSubImage2DFlipY) {
-  const GLsizei kTextureWidth = MaxTransferBufferSize() / 4;
-  const GLsizei kTextureHeight = 7;
-  const GLsizei kSubImageWidth = MaxTransferBufferSize() / 8;
-  const GLsizei kSubImageHeight = 4;
-  const GLint kSubImageXOffset = 1;
-  const GLint kSubImageYOffset = 2;
-  const GLenum kFormat = GL_RGBA;
-  const GLenum kType = GL_UNSIGNED_BYTE;
-  const GLenum kTarget = GL_TEXTURE_2D;
-  const GLint kLevel = 0;
-  const GLint kBorder = 0;
-  const GLint kPixelStoreUnpackAlignment = 4;
-
-  struct Cmds {
-    cmds::PixelStorei pixel_store_i1;
-    cmds::TexImage2D tex_image_2d;
-    cmds::PixelStorei pixel_store_i2;
-    cmds::TexSubImage2D tex_sub_image_2d1;
-    cmd::SetToken set_token1;
-    cmds::TexSubImage2D tex_sub_image_2d2;
-    cmd::SetToken set_token2;
-  };
-
-  uint32 sub_2_high_size = 0;
-  ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
-      kSubImageWidth, 2, kFormat, kType, kPixelStoreUnpackAlignment,
-      &sub_2_high_size, NULL, NULL));
-
-  ExpectedMemoryInfo mem1 = GetExpectedMemory(sub_2_high_size);
-  ExpectedMemoryInfo mem2 = GetExpectedMemory(sub_2_high_size);
-
-  Cmds expected;
-  expected.pixel_store_i1.Init(GL_UNPACK_ALIGNMENT, kPixelStoreUnpackAlignment);
-  expected.tex_image_2d.Init(
-      kTarget, kLevel, kFormat, kTextureWidth, kTextureHeight, kFormat,
-      kType, 0, 0);
-  expected.pixel_store_i2.Init(GL_UNPACK_FLIP_Y_CHROMIUM, GL_TRUE);
-  expected.tex_sub_image_2d1.Init(kTarget, kLevel, kSubImageXOffset,
-      kSubImageYOffset + 2, kSubImageWidth, 2, kFormat, kType,
-      mem1.id, mem1.offset, false);
-  expected.set_token1.Init(GetNextToken());
-  expected.tex_sub_image_2d2.Init(kTarget, kLevel, kSubImageXOffset,
-      kSubImageYOffset, kSubImageWidth , 2, kFormat, kType,
-      mem2.id, mem2.offset, false);
-  expected.set_token2.Init(GetNextToken());
-
-  gl_->PixelStorei(GL_UNPACK_ALIGNMENT, kPixelStoreUnpackAlignment);
-  gl_->TexImage2D(
-      kTarget, kLevel, kFormat, kTextureWidth, kTextureHeight, kBorder, kFormat,
-      kType, NULL);
-  gl_->PixelStorei(GL_UNPACK_FLIP_Y_CHROMIUM, GL_TRUE);
-  scoped_ptr<uint32[]> pixels(new uint32[kSubImageWidth * kSubImageHeight]);
-  for (int y = 0; y < kSubImageHeight; ++y) {
-    for (int x = 0; x < kSubImageWidth; ++x) {
-      pixels.get()[kSubImageWidth * y + x] = x | (y << 16);
-    }
-  }
-  gl_->TexSubImage2D(
-      GL_TEXTURE_2D, 0, kSubImageXOffset, kSubImageYOffset, kSubImageWidth,
-      kSubImageHeight, GL_RGBA, GL_UNSIGNED_BYTE, pixels.get());
-
-  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
-  EXPECT_TRUE(CheckRect(
-      kSubImageWidth, 2, kFormat, kType, kPixelStoreUnpackAlignment, true,
-      reinterpret_cast<uint8*>(pixels.get() + 2 * kSubImageWidth),
-      mem2.ptr));
 }
 
 TEST_F(GLES2ImplementationTest, SubImageUnpack) {
@@ -2552,20 +2457,18 @@ TEST_F(GLES2ImplementationTest, SubImageUnpack) {
 
   struct {
     cmds::PixelStorei pixel_store_i;
-    cmds::PixelStorei pixel_store_i2;
     cmds::TexImage2D tex_image_2d;
   } texImageExpected;
 
   struct  {
     cmds::PixelStorei pixel_store_i;
-    cmds::PixelStorei pixel_store_i2;
     cmds::TexImage2D tex_image_2d;
     cmds::TexSubImage2D tex_sub_image_2d;
   } texSubImageExpected;
 
   uint32 src_size;
   ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
-      kSrcWidth, kSrcSubImageY1, kFormat, kType, 8, &src_size, NULL, NULL));
+      kSrcWidth, kSrcSubImageY1, 1, kFormat, kType, 8, &src_size, NULL, NULL));
   scoped_ptr<uint8[]> src_pixels;
   src_pixels.reset(new uint8[src_size]);
   for (size_t i = 0; i < src_size; ++i) {
@@ -2573,74 +2476,66 @@ TEST_F(GLES2ImplementationTest, SubImageUnpack) {
   }
 
   for (int sub = 0; sub < 2; ++sub) {
-    for (int flip_y = 0; flip_y < 2; ++flip_y) {
-      for (size_t a = 0; a < arraysize(unpack_alignments); ++a) {
-        GLint alignment = unpack_alignments[a];
-        uint32 size;
-        uint32 unpadded_row_size;
-        uint32 padded_row_size;
-        ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
-            kSrcSubImageWidth, kSrcSubImageHeight, kFormat, kType, alignment,
-            &size, &unpadded_row_size, &padded_row_size));
-        ASSERT_TRUE(size <= MaxTransferBufferSize());
-        ExpectedMemoryInfo mem = GetExpectedMemory(size);
+    for (size_t a = 0; a < arraysize(unpack_alignments); ++a) {
+      GLint alignment = unpack_alignments[a];
+      uint32 size;
+      uint32 unpadded_row_size;
+      uint32 padded_row_size;
+      ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
+          kSrcSubImageWidth, kSrcSubImageHeight, 1, kFormat, kType, alignment,
+          &size, &unpadded_row_size, &padded_row_size));
+      ASSERT_TRUE(size <= MaxTransferBufferSize());
+      ExpectedMemoryInfo mem = GetExpectedMemory(size);
 
-        const void* commands = GetPut();
-        gl_->PixelStorei(GL_UNPACK_ALIGNMENT, alignment);
-        gl_->PixelStorei(GL_UNPACK_ROW_LENGTH_EXT, kSrcWidth);
-        gl_->PixelStorei(GL_UNPACK_SKIP_PIXELS_EXT, kSrcSubImageX0);
-        gl_->PixelStorei(GL_UNPACK_SKIP_ROWS_EXT, kSrcSubImageY0);
-        gl_->PixelStorei(GL_UNPACK_FLIP_Y_CHROMIUM, flip_y);
-        if (sub) {
-          gl_->TexImage2D(
-              GL_TEXTURE_2D, kLevel, kFormat, kTexWidth, kTexHeight, kBorder,
-              kFormat, kType, NULL);
-          gl_->TexSubImage2D(
-              GL_TEXTURE_2D, kLevel, kTexSubXOffset, kTexSubYOffset,
-              kSrcSubImageWidth, kSrcSubImageHeight, kFormat, kType,
-              src_pixels.get());
-          texSubImageExpected.pixel_store_i.Init(
-              GL_UNPACK_ALIGNMENT, alignment);
-          texSubImageExpected.pixel_store_i2.Init(
-              GL_UNPACK_FLIP_Y_CHROMIUM, flip_y);
-          texSubImageExpected.tex_image_2d.Init(
-              GL_TEXTURE_2D, kLevel, kFormat, kTexWidth, kTexHeight,
-              kFormat, kType, 0, 0);
-          texSubImageExpected.tex_sub_image_2d.Init(
-              GL_TEXTURE_2D, kLevel, kTexSubXOffset, kTexSubYOffset,
-              kSrcSubImageWidth, kSrcSubImageHeight, kFormat, kType, mem.id,
-              mem.offset, GL_FALSE);
-          EXPECT_EQ(0, memcmp(
-              &texSubImageExpected, commands, sizeof(texSubImageExpected)));
-        } else {
-          gl_->TexImage2D(
-              GL_TEXTURE_2D, kLevel, kFormat,
-              kSrcSubImageWidth, kSrcSubImageHeight, kBorder, kFormat, kType,
-              src_pixels.get());
-          texImageExpected.pixel_store_i.Init(GL_UNPACK_ALIGNMENT, alignment);
-          texImageExpected.pixel_store_i2.Init(
-              GL_UNPACK_FLIP_Y_CHROMIUM, flip_y);
-          texImageExpected.tex_image_2d.Init(
-              GL_TEXTURE_2D, kLevel, kFormat, kSrcSubImageWidth,
-              kSrcSubImageHeight, kFormat, kType, mem.id, mem.offset);
-          EXPECT_EQ(0, memcmp(
-              &texImageExpected, commands, sizeof(texImageExpected)));
-        }
-        uint32 src_padded_row_size;
-        ASSERT_TRUE(GLES2Util::ComputeImagePaddedRowSize(
-            kSrcWidth, kFormat, kType, alignment, &src_padded_row_size));
-        uint32 bytes_per_group = GLES2Util::ComputeImageGroupSize(
-            kFormat, kType);
-        for (int y = 0; y < kSrcSubImageHeight; ++y) {
-          GLint src_sub_y = flip_y ? kSrcSubImageHeight - y - 1 : y;
-          const uint8* src_row = src_pixels.get() +
-              (kSrcSubImageY0 + src_sub_y) * src_padded_row_size +
-              bytes_per_group * kSrcSubImageX0;
-          const uint8* dst_row = mem.ptr + y * padded_row_size;
-          EXPECT_EQ(0, memcmp(src_row, dst_row, unpadded_row_size));
-        }
-        ClearCommands();
+      const void* commands = GetPut();
+      gl_->PixelStorei(GL_UNPACK_ALIGNMENT, alignment);
+      gl_->PixelStorei(GL_UNPACK_ROW_LENGTH_EXT, kSrcWidth);
+      gl_->PixelStorei(GL_UNPACK_SKIP_PIXELS_EXT, kSrcSubImageX0);
+      gl_->PixelStorei(GL_UNPACK_SKIP_ROWS_EXT, kSrcSubImageY0);
+      if (sub) {
+        gl_->TexImage2D(
+            GL_TEXTURE_2D, kLevel, kFormat, kTexWidth, kTexHeight, kBorder,
+            kFormat, kType, NULL);
+        gl_->TexSubImage2D(
+            GL_TEXTURE_2D, kLevel, kTexSubXOffset, kTexSubYOffset,
+            kSrcSubImageWidth, kSrcSubImageHeight, kFormat, kType,
+            src_pixels.get());
+        texSubImageExpected.pixel_store_i.Init(
+            GL_UNPACK_ALIGNMENT, alignment);
+        texSubImageExpected.tex_image_2d.Init(
+            GL_TEXTURE_2D, kLevel, kFormat, kTexWidth, kTexHeight,
+            kFormat, kType, 0, 0);
+        texSubImageExpected.tex_sub_image_2d.Init(
+            GL_TEXTURE_2D, kLevel, kTexSubXOffset, kTexSubYOffset,
+            kSrcSubImageWidth, kSrcSubImageHeight, kFormat, kType, mem.id,
+            mem.offset, GL_FALSE);
+        EXPECT_EQ(0, memcmp(
+            &texSubImageExpected, commands, sizeof(texSubImageExpected)));
+      } else {
+        gl_->TexImage2D(
+            GL_TEXTURE_2D, kLevel, kFormat,
+            kSrcSubImageWidth, kSrcSubImageHeight, kBorder, kFormat, kType,
+            src_pixels.get());
+        texImageExpected.pixel_store_i.Init(GL_UNPACK_ALIGNMENT, alignment);
+        texImageExpected.tex_image_2d.Init(
+            GL_TEXTURE_2D, kLevel, kFormat, kSrcSubImageWidth,
+            kSrcSubImageHeight, kFormat, kType, mem.id, mem.offset);
+        EXPECT_EQ(0, memcmp(
+            &texImageExpected, commands, sizeof(texImageExpected)));
       }
+      uint32 src_padded_row_size;
+      ASSERT_TRUE(GLES2Util::ComputeImagePaddedRowSize(
+          kSrcWidth, kFormat, kType, alignment, &src_padded_row_size));
+      uint32 bytes_per_group = GLES2Util::ComputeImageGroupSize(
+          kFormat, kType);
+      for (int y = 0; y < kSrcSubImageHeight; ++y) {
+        const uint8* src_row = src_pixels.get() +
+            (kSrcSubImageY0 + y) * src_padded_row_size +
+            bytes_per_group * kSrcSubImageX0;
+        const uint8* dst_row = mem.ptr + y * padded_row_size;
+        EXPECT_EQ(0, memcmp(src_row, dst_row, unpadded_row_size));
+      }
+      ClearCommands();
     }
   }
 }
@@ -2681,7 +2576,7 @@ TEST_F(GLES2ImplementationTest, TextureInvalidArguments) {
       pixels);
   EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
   EXPECT_TRUE(CheckRect(
-      kWidth, kHeight, kFormat, kType, kPixelStoreUnpackAlignment, false,
+      kWidth, kHeight, kFormat, kType, kPixelStoreUnpackAlignment,
       pixels, mem1.ptr));
 
   ClearCommands();
@@ -2731,36 +2626,234 @@ TEST_F(GLES2ImplementationTest, TextureInvalidArguments) {
   EXPECT_EQ(GL_INVALID_VALUE, CheckError());
 }
 
-
-// Binds can not be cached with bind_generates_resource = false because
-// our id might not be valid. More specifically if you bind on contextA then
-// delete on contextB the resource is still bound on contextA but GetInterger
-// won't return an id.
-TEST_F(GLES2ImplementationStrictSharedTest, BindsNotCached) {
-  struct PNameValue {
-    GLenum pname;
-    GLint expected;
+TEST_F(GLES2ImplementationTest, TexImage3DSingleCommand) {
+  struct Cmds {
+    cmds::TexImage3D tex_image_3d;
   };
-  const PNameValue pairs[] = {{GL_TEXTURE_BINDING_2D, 1, },
-                              {GL_TEXTURE_BINDING_CUBE_MAP, 2, },
-                              {GL_TEXTURE_BINDING_EXTERNAL_OES, 3, },
-                              {GL_FRAMEBUFFER_BINDING, 4, },
-                              {GL_RENDERBUFFER_BINDING, 5, },
-                              {GL_ARRAY_BUFFER_BINDING, 6, },
-                              {GL_ELEMENT_ARRAY_BUFFER_BINDING, 7, }, };
-  size_t num_pairs = sizeof(pairs) / sizeof(pairs[0]);
-  for (size_t ii = 0; ii < num_pairs; ++ii) {
-    const PNameValue& pv = pairs[ii];
-    GLint v = -1;
-    ExpectedMemoryInfo result1 =
-        GetExpectedResultMemory(sizeof(cmds::GetIntegerv::Result));
-    EXPECT_CALL(*command_buffer(), OnFlush())
-        .WillOnce(SetMemory(result1.ptr,
-                            SizedResultHelper<GLuint>(pv.expected)))
-        .RetiresOnSaturation();
-    gl_->GetIntegerv(pv.pname, &v);
-    EXPECT_EQ(pv.expected, v);
+  const GLenum kTarget = GL_TEXTURE_3D;
+  const GLint kLevel = 0;
+  const GLint kBorder = 0;
+  const GLenum kFormat = GL_RGB;
+  const GLenum kType = GL_UNSIGNED_BYTE;
+  const GLint kPixelStoreUnpackAlignment = 4;
+  const GLsizei kWidth = 3;
+  const GLsizei kDepth = 2;
+
+  uint32 size = 0;
+  uint32 unpadded_row_size = 0;
+  uint32 padded_row_size = 0;
+  ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
+      kWidth, 2, kDepth, kFormat, kType, kPixelStoreUnpackAlignment,
+      &size, &unpadded_row_size, &padded_row_size));
+  // Makes sure we can just send over the data in one command.
+  const GLsizei kHeight = MaxTransferBufferSize() / padded_row_size / kDepth;
+  ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
+      kWidth, kHeight, kDepth, kFormat, kType, kPixelStoreUnpackAlignment,
+      &size, NULL, NULL));
+
+  scoped_ptr<uint8[]> pixels(new uint8[size]);
+  for (uint32 ii = 0; ii < size; ++ii) {
+    pixels[ii] = static_cast<uint8>(ii);
   }
+
+  ExpectedMemoryInfo mem = GetExpectedMemory(size);
+
+  Cmds expected;
+  expected.tex_image_3d.Init(
+      kTarget, kLevel, kFormat, kWidth, kHeight, kDepth,
+      kFormat, kType, mem.id, mem.offset);
+
+  gl_->TexImage3D(
+      kTarget, kLevel, kFormat, kWidth, kHeight, kDepth, kBorder,
+      kFormat, kType, pixels.get());
+
+  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+  EXPECT_TRUE(CheckRect(
+      kWidth, kHeight * kDepth, kFormat, kType, kPixelStoreUnpackAlignment,
+      reinterpret_cast<uint8*>(pixels.get()), mem.ptr));
+}
+
+TEST_F(GLES2ImplementationTest, TexImage3DViaMappedMem) {
+  struct Cmds {
+    cmds::TexImage3D tex_image_3d;
+  };
+  const GLenum kTarget = GL_TEXTURE_3D;
+  const GLint kLevel = 0;
+  const GLint kBorder = 0;
+  const GLenum kFormat = GL_RGB;
+  const GLenum kType = GL_UNSIGNED_BYTE;
+  const GLint kPixelStoreUnpackAlignment = 4;
+  const GLsizei kWidth = 3;
+  const GLsizei kDepth = 2;
+
+  uint32 size = 0;
+  uint32 unpadded_row_size = 0;
+  uint32 padded_row_size = 0;
+  ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
+      kWidth, 2, kDepth, kFormat, kType, kPixelStoreUnpackAlignment,
+      &size, &unpadded_row_size, &padded_row_size));
+  // Makes sure we can just send over the data in one command.
+  const GLsizei kMaxHeight = MaxTransferBufferSize() / padded_row_size / kDepth;
+  const GLsizei kHeight = kMaxHeight * 2;
+  ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
+      kWidth, kHeight, kDepth, kFormat, kType, kPixelStoreUnpackAlignment,
+      &size, NULL, NULL));
+
+  scoped_ptr<uint8[]> pixels(new uint8[size]);
+  for (uint32 ii = 0; ii < size; ++ii) {
+    pixels[ii] = static_cast<uint8>(ii);
+  }
+
+  ExpectedMemoryInfo mem = GetExpectedMappedMemory(size);
+
+  Cmds expected;
+  expected.tex_image_3d.Init(
+      kTarget, kLevel, kFormat, kWidth, kHeight, kDepth,
+      kFormat, kType, mem.id, mem.offset);
+
+  gl_->TexImage3D(
+      kTarget, kLevel, kFormat, kWidth, kHeight, kDepth, kBorder,
+      kFormat, kType, pixels.get());
+
+  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+  EXPECT_TRUE(CheckRect(
+      kWidth, kHeight * kDepth, kFormat, kType, kPixelStoreUnpackAlignment,
+      reinterpret_cast<uint8*>(pixels.get()), mem.ptr));
+}
+
+TEST_F(GLES2ImplementationTest, TexImage3DViaTexSubImage3D) {
+  // Set limit to 1 to effectively disable mapped memory.
+  SetMappedMemoryLimit(1);
+
+  struct Cmds {
+    cmds::TexImage3D tex_image_3d;
+    cmds::TexSubImage3D tex_sub_image_3d1;
+    cmd::SetToken set_token;
+    cmds::TexSubImage3D tex_sub_image_3d2;
+  };
+  const GLenum kTarget = GL_TEXTURE_3D;
+  const GLint kLevel = 0;
+  const GLint kBorder = 0;
+  const GLenum kFormat = GL_RGB;
+  const GLenum kType = GL_UNSIGNED_BYTE;
+  const GLint kPixelStoreUnpackAlignment = 4;
+  const GLsizei kWidth = 3;
+
+  uint32 size = 0;
+  uint32 unpadded_row_size = 0;
+  uint32 padded_row_size = 0;
+  ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
+      kWidth, 2, 1, kFormat, kType, kPixelStoreUnpackAlignment,
+      &size, &unpadded_row_size, &padded_row_size));
+  // Makes sure the data is more than one command can hold.
+  const GLsizei kHeight = MaxTransferBufferSize() / padded_row_size + 3;
+  ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
+      kWidth, kHeight, 1, kFormat, kType, kPixelStoreUnpackAlignment,
+      &size, NULL, NULL));
+  uint32 first_size = padded_row_size * (kHeight - 3);
+  uint32 second_size =
+      padded_row_size * 3 - (padded_row_size - unpadded_row_size);
+  EXPECT_EQ(size, first_size + second_size);
+  ExpectedMemoryInfo mem1 = GetExpectedMemory(first_size);
+  ExpectedMemoryInfo mem2 = GetExpectedMemory(second_size);
+  scoped_ptr<uint8[]> pixels(new uint8[size]);
+  for (uint32 ii = 0; ii < size; ++ii) {
+    pixels[ii] = static_cast<uint8>(ii);
+  }
+
+  Cmds expected;
+  expected.tex_image_3d.Init(
+      kTarget, kLevel, kFormat, kWidth, kHeight, 1, kFormat, kType, 0, 0);
+  expected.tex_sub_image_3d1.Init(
+      kTarget, kLevel, 0, 0, 0, kWidth, kHeight - 3, 1, kFormat, kType,
+      mem1.id, mem1.offset, GL_TRUE);
+  expected.tex_sub_image_3d2.Init(
+      kTarget, kLevel, 0, kHeight - 3, 0, kWidth, 3, 1, kFormat, kType,
+      mem2.id, mem2.offset, GL_TRUE);
+  expected.set_token.Init(GetNextToken());
+
+  gl_->TexImage3D(
+      kTarget, kLevel, kFormat, kWidth, kHeight, 1, kBorder,
+      kFormat, kType, pixels.get());
+  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+}
+
+// Test TexSubImage3D with 4 writes
+TEST_F(GLES2ImplementationTest, TexSubImage3D4Writes) {
+  struct Cmds {
+    cmds::TexSubImage3D tex_sub_image_3d1_1;
+    cmd::SetToken set_token1;
+    cmds::TexSubImage3D tex_sub_image_3d1_2;
+    cmd::SetToken set_token2;
+    cmds::TexSubImage3D tex_sub_image_3d2_1;
+    cmd::SetToken set_token3;
+    cmds::TexSubImage3D tex_sub_image_3d2_2;
+  };
+  const GLenum kTarget = GL_TEXTURE_3D;
+  const GLint kLevel = 0;
+  const GLint kXOffset = 0;
+  const GLint kYOffset = 0;
+  const GLint kZOffset = 0;
+  const GLenum kFormat = GL_RGB;
+  const GLenum kType = GL_UNSIGNED_BYTE;
+  const GLint kPixelStoreUnpackAlignment = 4;
+  const GLsizei kWidth = 3;
+  const GLsizei kDepth = 2;
+
+  uint32 size = 0;
+  uint32 unpadded_row_size = 0;
+  uint32 padded_row_size = 0;
+  ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
+      kWidth, 2, 1, kFormat, kType, kPixelStoreUnpackAlignment,
+      &size, &unpadded_row_size, &padded_row_size));
+  const GLsizei kHeight = MaxTransferBufferSize() / padded_row_size + 2;
+  ASSERT_TRUE(GLES2Util::ComputeImageDataSizes(
+      kWidth, kHeight, kDepth, kFormat, kType, kPixelStoreUnpackAlignment,
+      &size, NULL, NULL));
+  uint32 first_size = (kHeight - 2) * padded_row_size;
+  uint32 second_size = 2 * padded_row_size;
+  uint32 third_size = first_size;
+  uint32 fourth_size = second_size - (padded_row_size - unpadded_row_size);
+  EXPECT_EQ(size, first_size + second_size + third_size + fourth_size);
+
+  scoped_ptr<uint8[]> pixels(new uint8[size]);
+  for (uint32 ii = 0; ii < size; ++ii) {
+    pixels[ii] = static_cast<uint8>(ii);
+  }
+
+  ExpectedMemoryInfo mem1_1 = GetExpectedMemory(first_size);
+  ExpectedMemoryInfo mem1_2 = GetExpectedMemory(second_size);
+  ExpectedMemoryInfo mem2_1 = GetExpectedMemory(third_size);
+  ExpectedMemoryInfo mem2_2 = GetExpectedMemory(fourth_size);
+
+  Cmds expected;
+  expected.tex_sub_image_3d1_1.Init(
+      kTarget, kLevel, kXOffset, kYOffset, kZOffset,
+      kWidth, kHeight - 2, 1, kFormat, kType,
+      mem1_1.id, mem1_1.offset, GL_FALSE);
+  expected.tex_sub_image_3d1_2.Init(
+      kTarget, kLevel, kXOffset, kYOffset + kHeight - 2, kZOffset,
+      kWidth, 2, 1, kFormat, kType, mem1_2.id, mem1_2.offset, GL_FALSE);
+  expected.tex_sub_image_3d2_1.Init(
+      kTarget, kLevel, kXOffset, kYOffset, kZOffset + 1,
+      kWidth, kHeight - 2, 1, kFormat, kType,
+      mem2_1.id, mem2_1.offset, GL_FALSE);
+  expected.tex_sub_image_3d2_2.Init(
+      kTarget, kLevel, kXOffset, kYOffset + kHeight - 2, kZOffset + 1,
+      kWidth, 2, 1, kFormat, kType, mem2_2.id, mem2_2.offset, GL_FALSE);
+  expected.set_token1.Init(GetNextToken());
+  expected.set_token2.Init(GetNextToken());
+  expected.set_token3.Init(GetNextToken());
+
+  gl_->TexSubImage3D(
+      kTarget, kLevel, kXOffset, kYOffset, kZOffset, kWidth, kHeight, kDepth,
+      kFormat, kType, pixels.get());
+
+  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+  uint32 offset_to_last = first_size + second_size + third_size;
+  EXPECT_TRUE(CheckRect(
+      kWidth, 2, kFormat, kType, kPixelStoreUnpackAlignment,
+      reinterpret_cast<uint8*>(pixels.get()) + offset_to_last, mem2_2.ptr));
 }
 
 // glGen* Ids must not be reused until glDelete* commands have been
@@ -2818,11 +2911,9 @@ TEST_F(GLES2ImplementationStrictSharedTest,
 TEST_F(GLES2ImplementationTest, GetString) {
   const uint32 kBucketId = GLES2Implementation::kResultBucketId;
   const Str7 kString = {"foobar"};
-  // GL_CHROMIUM_map_sub GL_CHROMIUM_flipy are hard coded into
-  // GLES2Implementation.
+  // GL_CHROMIUM_map_sub is hard coded into GLES2Implementation.
   const char* expected_str =
       "foobar "
-      "GL_CHROMIUM_flipy "
       "GL_EXT_unpack_subimage "
       "GL_CHROMIUM_map_sub";
   const char kBad = 0x12;
@@ -3100,6 +3191,53 @@ TEST_F(GLES2ImplementationTest, BeginEndQueryEXT) {
   ClearCommands();
   gl_->GetQueryObjectuivEXT(id1, GL_QUERY_RESULT_AVAILABLE_EXT, &available);
   EXPECT_EQ(0u, available);
+
+  // Test GetQueryObjectui64vEXT fails if unused id
+  GLuint64 available2 = 0xBDu;
+  ClearCommands();
+  gl_->GetQueryObjectui64vEXT(id2, GL_QUERY_RESULT_AVAILABLE_EXT, &available2);
+  EXPECT_TRUE(NoCommandsWritten());
+  EXPECT_EQ(0xBDu, available2);
+  EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
+
+  // Test GetQueryObjectui64vEXT fails if bad id
+  ClearCommands();
+  gl_->GetQueryObjectui64vEXT(4567, GL_QUERY_RESULT_AVAILABLE_EXT, &available2);
+  EXPECT_TRUE(NoCommandsWritten());
+  EXPECT_EQ(0xBDu, available2);
+  EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
+
+  // Test GetQueryObjectui64vEXT CheckResultsAvailable
+  ClearCommands();
+  gl_->GetQueryObjectui64vEXT(id1, GL_QUERY_RESULT_AVAILABLE_EXT, &available2);
+  EXPECT_EQ(0u, available2);
+}
+
+TEST_F(GLES2ImplementationManualInitTest, BadQueryTargets) {
+  ContextInitOptions init_options;
+  init_options.sync_query = false;
+  init_options.occlusion_query_boolean = false;
+  ASSERT_TRUE(Initialize(init_options));
+
+  GLuint id = 0;
+  gl_->GenQueriesEXT(1, &id);
+  ClearCommands();
+
+  gl_->BeginQueryEXT(GL_COMMANDS_COMPLETED_CHROMIUM, id);
+  EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
+  EXPECT_EQ(nullptr, GetQuery(id));
+
+  gl_->BeginQueryEXT(GL_ANY_SAMPLES_PASSED, id);
+  EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
+  EXPECT_EQ(nullptr, GetQuery(id));
+
+  gl_->BeginQueryEXT(GL_ANY_SAMPLES_PASSED_CONSERVATIVE, id);
+  EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
+  EXPECT_EQ(nullptr, GetQuery(id));
+
+  gl_->BeginQueryEXT(0x123, id);
+  EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
+  EXPECT_EQ(nullptr, GetQuery(id));
 }
 
 TEST_F(GLES2ImplementationTest, ErrorQuery) {
@@ -3369,6 +3507,305 @@ TEST_F(GLES2ImplementationTest, LimitSizeAndOffsetTo32Bit) {
       reinterpret_cast<void*>(offset));
   EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
   EXPECT_STREQ(kOffsetOverflowMessage, GetLastError().c_str());
+}
+
+TEST_F(GLES2ImplementationTest, TraceBeginCHROMIUM) {
+  const uint32 kCategoryBucketId = GLES2Implementation::kResultBucketId;
+  const uint32 kNameBucketId = GLES2Implementation::kResultBucketId + 1;
+  const std::string category_name = "test category";
+  const std::string trace_name = "test trace";
+  const size_t kPaddedString1Size =
+      transfer_buffer_->RoundToAlignment(category_name.size() + 1);
+  const size_t kPaddedString2Size =
+      transfer_buffer_->RoundToAlignment(trace_name.size() + 1);
+
+  gl_->TraceBeginCHROMIUM(category_name.c_str(), trace_name.c_str());
+  EXPECT_EQ(GL_NO_ERROR, CheckError());
+
+  struct Cmds {
+    cmd::SetBucketSize category_size1;
+    cmd::SetBucketData category_data;
+    cmd::SetToken set_token1;
+    cmd::SetBucketSize name_size1;
+    cmd::SetBucketData name_data;
+    cmd::SetToken set_token2;
+    cmds::TraceBeginCHROMIUM trace_call_begin;
+    cmd::SetBucketSize category_size2;
+    cmd::SetBucketSize name_size2;
+  };
+
+  ExpectedMemoryInfo mem1 = GetExpectedMemory(kPaddedString1Size);
+  ExpectedMemoryInfo mem2 = GetExpectedMemory(kPaddedString2Size);
+
+  ASSERT_STREQ(category_name.c_str(), reinterpret_cast<char*>(mem1.ptr));
+  ASSERT_STREQ(trace_name.c_str(), reinterpret_cast<char*>(mem2.ptr));
+
+  Cmds expected;
+  expected.category_size1.Init(kCategoryBucketId, category_name.size() + 1);
+  expected.category_data.Init(
+      kCategoryBucketId, 0, category_name.size() + 1, mem1.id, mem1.offset);
+  expected.set_token1.Init(GetNextToken());
+  expected.name_size1.Init(kNameBucketId, trace_name.size() + 1);
+  expected.name_data.Init(
+      kNameBucketId, 0, trace_name.size() + 1, mem2.id, mem2.offset);
+  expected.set_token2.Init(GetNextToken());
+  expected.trace_call_begin.Init(kCategoryBucketId, kNameBucketId);
+  expected.category_size2.Init(kCategoryBucketId, 0);
+  expected.name_size2.Init(kNameBucketId, 0);
+
+  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+}
+
+TEST_F(GLES2ImplementationTest, AllowNestedTracesCHROMIUM) {
+  const std::string category1_name = "test category 1";
+  const std::string trace1_name = "test trace 1";
+  const std::string category2_name = "test category 2";
+  const std::string trace2_name = "test trace 2";
+
+  gl_->TraceBeginCHROMIUM(category1_name.c_str(), trace1_name.c_str());
+  EXPECT_EQ(GL_NO_ERROR, CheckError());
+
+  gl_->TraceBeginCHROMIUM(category2_name.c_str(), trace2_name.c_str());
+  EXPECT_EQ(GL_NO_ERROR, CheckError());
+
+  gl_->TraceEndCHROMIUM();
+  EXPECT_EQ(GL_NO_ERROR, CheckError());
+
+  gl_->TraceEndCHROMIUM();
+  EXPECT_EQ(GL_NO_ERROR, CheckError());
+
+  // No more corresponding begin tracer marker should error.
+  gl_->TraceEndCHROMIUM();
+  EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
+}
+
+TEST_F(GLES2ImplementationTest, IsEnabled) {
+  // If we use a valid enum, its state is cached on client side, so no command
+  // is actually generated, and this test will fail.
+  // TODO(zmo): it seems we never need the command. Maybe remove it.
+  GLenum kCap = 1;
+  struct Cmds {
+    cmds::IsEnabled cmd;
+  };
+
+  Cmds expected;
+  ExpectedMemoryInfo result1 =
+      GetExpectedResultMemory(sizeof(cmds::IsEnabled::Result));
+  expected.cmd.Init(kCap, result1.id, result1.offset);
+
+  EXPECT_CALL(*command_buffer(), OnFlush())
+      .WillOnce(SetMemory(result1.ptr, uint32_t(GL_TRUE)))
+      .RetiresOnSaturation();
+
+  GLboolean result = gl_->IsEnabled(kCap);
+  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+  EXPECT_TRUE(result);
+}
+
+TEST_F(GLES2ImplementationTest, ClientWaitSync) {
+  const GLuint client_sync_id = 36;
+  struct Cmds {
+    cmds::ClientWaitSync cmd;
+  };
+
+  Cmds expected;
+  ExpectedMemoryInfo result1 =
+      GetExpectedResultMemory(sizeof(cmds::ClientWaitSync::Result));
+  const GLuint64 kTimeout = 0xABCDEF0123456789;
+  uint32_t v32_0 = 0, v32_1 = 0;
+  GLES2Util::MapUint64ToTwoUint32(kTimeout, &v32_0, &v32_1);
+  expected.cmd.Init(client_sync_id, GL_SYNC_FLUSH_COMMANDS_BIT,
+                    v32_0, v32_1, result1.id, result1.offset);
+
+  EXPECT_CALL(*command_buffer(), OnFlush())
+      .WillOnce(SetMemory(result1.ptr, uint32_t(GL_CONDITION_SATISFIED)))
+      .RetiresOnSaturation();
+
+  GLenum result = gl_->ClientWaitSync(
+      reinterpret_cast<GLsync>(client_sync_id), GL_SYNC_FLUSH_COMMANDS_BIT,
+      kTimeout);
+  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+  EXPECT_EQ(static_cast<GLenum>(GL_CONDITION_SATISFIED), result);
+}
+
+TEST_F(GLES2ImplementationTest, WaitSync) {
+  const GLuint kClientSyncId = 36;
+  struct Cmds {
+    cmds::WaitSync cmd;
+  };
+  Cmds expected;
+  const GLuint64 kTimeout = GL_TIMEOUT_IGNORED;
+  uint32_t v32_0 = 0, v32_1 = 0;
+  GLES2Util::MapUint64ToTwoUint32(kTimeout, &v32_0, &v32_1);
+  expected.cmd.Init(kClientSyncId, 0, v32_0, v32_1);
+
+  gl_->WaitSync(reinterpret_cast<GLsync>(kClientSyncId), 0, kTimeout);
+  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+}
+
+TEST_F(GLES2ImplementationTest, MapBufferRangeUnmapBufferWrite) {
+  ExpectedMemoryInfo result =
+      GetExpectedResultMemory(sizeof(cmds::MapBufferRange::Result));
+
+  EXPECT_CALL(*command_buffer(), OnFlush())
+      .WillOnce(SetMemory(result.ptr, uint32_t(1)))
+      .RetiresOnSaturation();
+
+  const GLuint kBufferId = 123;
+  gl_->BindBuffer(GL_ARRAY_BUFFER, kBufferId);
+
+  void* mem = gl_->MapBufferRange(GL_ARRAY_BUFFER, 10, 64, GL_MAP_WRITE_BIT);
+  EXPECT_TRUE(mem != nullptr);
+
+  EXPECT_TRUE(gl_->UnmapBuffer(GL_ARRAY_BUFFER));
+}
+
+TEST_F(GLES2ImplementationTest, MapBufferRangeWriteWithInvalidateBit) {
+  ExpectedMemoryInfo result =
+      GetExpectedResultMemory(sizeof(cmds::MapBufferRange::Result));
+
+  EXPECT_CALL(*command_buffer(), OnFlush())
+      .WillOnce(SetMemory(result.ptr, uint32_t(1)))
+      .RetiresOnSaturation();
+
+  const GLuint kBufferId = 123;
+  gl_->BindBuffer(GL_ARRAY_BUFFER, kBufferId);
+
+  GLsizeiptr kSize = 64;
+  void* mem = gl_->MapBufferRange(
+      GL_ARRAY_BUFFER, 10, kSize,
+      GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_RANGE_BIT);
+  EXPECT_TRUE(mem != nullptr);
+  std::vector<int8_t> zero(kSize);
+  memset(&zero[0], 0, kSize);
+  EXPECT_EQ(0, memcmp(mem, &zero[0], kSize));
+}
+
+TEST_F(GLES2ImplementationTest, MapBufferRangeWriteWithGLError) {
+  ExpectedMemoryInfo result =
+      GetExpectedResultMemory(sizeof(cmds::MapBufferRange::Result));
+
+  // Return a result of 0 to indicate an GL error.
+  EXPECT_CALL(*command_buffer(), OnFlush())
+      .WillOnce(SetMemory(result.ptr, uint32_t(0)))
+      .RetiresOnSaturation();
+
+  const GLuint kBufferId = 123;
+  gl_->BindBuffer(GL_ARRAY_BUFFER, kBufferId);
+
+  void* mem = gl_->MapBufferRange(GL_ARRAY_BUFFER, 10, 64, GL_MAP_WRITE_BIT);
+  EXPECT_TRUE(mem == nullptr);
+}
+
+TEST_F(GLES2ImplementationTest, MapBufferRangeUnmapBufferRead) {
+  ExpectedMemoryInfo result =
+      GetExpectedResultMemory(sizeof(cmds::MapBufferRange::Result));
+
+  EXPECT_CALL(*command_buffer(), OnFlush())
+      .WillOnce(SetMemory(result.ptr, uint32_t(1)))
+      .RetiresOnSaturation();
+
+  const GLuint kBufferId = 123;
+  gl_->BindBuffer(GL_ARRAY_BUFFER, kBufferId);
+
+  void* mem = gl_->MapBufferRange(GL_ARRAY_BUFFER, 10, 64, GL_MAP_READ_BIT);
+  EXPECT_TRUE(mem != nullptr);
+
+  EXPECT_TRUE(gl_->UnmapBuffer(GL_ARRAY_BUFFER));
+}
+
+TEST_F(GLES2ImplementationTest, MapBufferRangeReadWithGLError) {
+  ExpectedMemoryInfo result =
+      GetExpectedResultMemory(sizeof(cmds::MapBufferRange::Result));
+
+  // Return a result of 0 to indicate an GL error.
+  EXPECT_CALL(*command_buffer(), OnFlush())
+      .WillOnce(SetMemory(result.ptr, uint32_t(0)))
+      .RetiresOnSaturation();
+
+  const GLuint kBufferId = 123;
+  gl_->BindBuffer(GL_ARRAY_BUFFER, kBufferId);
+
+  void* mem = gl_->MapBufferRange(GL_ARRAY_BUFFER, 10, 64, GL_MAP_READ_BIT);
+  EXPECT_TRUE(mem == nullptr);
+}
+
+TEST_F(GLES2ImplementationTest, UnmapBufferFails) {
+  // No bound buffer.
+  EXPECT_FALSE(gl_->UnmapBuffer(GL_ARRAY_BUFFER));
+  EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
+
+  const GLuint kBufferId = 123;
+  gl_->BindBuffer(GL_ARRAY_BUFFER, kBufferId);
+
+  // Buffer is unmapped.
+  EXPECT_FALSE(gl_->UnmapBuffer(GL_ARRAY_BUFFER));
+  EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
+}
+
+TEST_F(GLES2ImplementationTest, BufferDataUnmapsDataStore) {
+  ExpectedMemoryInfo result =
+      GetExpectedResultMemory(sizeof(cmds::MapBufferRange::Result));
+
+  EXPECT_CALL(*command_buffer(), OnFlush())
+      .WillOnce(SetMemory(result.ptr, uint32_t(1)))
+      .RetiresOnSaturation();
+
+  const GLuint kBufferId = 123;
+  gl_->BindBuffer(GL_ARRAY_BUFFER, kBufferId);
+
+  void* mem = gl_->MapBufferRange(GL_ARRAY_BUFFER, 10, 64, GL_MAP_WRITE_BIT);
+  EXPECT_TRUE(mem != nullptr);
+
+  std::vector<uint8_t> data(16);
+  // BufferData unmaps the data store.
+  gl_->BufferData(GL_ARRAY_BUFFER, 16, &data[0], GL_STREAM_DRAW);
+
+  EXPECT_FALSE(gl_->UnmapBuffer(GL_ARRAY_BUFFER));
+  EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
+}
+
+TEST_F(GLES2ImplementationTest, DeleteBuffersUnmapsDataStore) {
+  ExpectedMemoryInfo result =
+      GetExpectedResultMemory(sizeof(cmds::MapBufferRange::Result));
+
+  EXPECT_CALL(*command_buffer(), OnFlush())
+      .WillOnce(SetMemory(result.ptr, uint32_t(1)))
+      .RetiresOnSaturation();
+
+  const GLuint kBufferId = 123;
+  gl_->BindBuffer(GL_ARRAY_BUFFER, kBufferId);
+
+  void* mem = gl_->MapBufferRange(GL_ARRAY_BUFFER, 10, 64, GL_MAP_WRITE_BIT);
+  EXPECT_TRUE(mem != nullptr);
+
+  std::vector<uint8_t> data(16);
+  // DeleteBuffers unmaps the data store.
+  gl_->DeleteBuffers(1, &kBufferId);
+
+  EXPECT_FALSE(gl_->UnmapBuffer(GL_ARRAY_BUFFER));
+  EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
+}
+
+TEST_F(GLES2ImplementationTest, GetInternalformativ) {
+  const GLint kNumSampleCounts = 8;
+  struct Cmds {
+    cmds::GetInternalformativ cmd;
+  };
+  typedef cmds::GetInternalformativ::Result::Type ResultType;
+  ResultType result = 0;
+  Cmds expected;
+  ExpectedMemoryInfo result1 =
+      GetExpectedResultMemory(sizeof(uint32_t) + sizeof(ResultType));
+  expected.cmd.Init(123, GL_RGBA8, GL_NUM_SAMPLE_COUNTS,
+                    result1.id, result1.offset);
+  EXPECT_CALL(*command_buffer(), OnFlush())
+      .WillOnce(SetMemory(result1.ptr,
+                          SizedResultHelper<ResultType>(kNumSampleCounts)))
+      .RetiresOnSaturation();
+  gl_->GetInternalformativ(123, GL_RGBA8, GL_NUM_SAMPLE_COUNTS, 1, &result);
+  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+  EXPECT_EQ(static_cast<ResultType>(kNumSampleCounts), result);
 }
 
 TEST_F(GLES2ImplementationManualInitTest, LoseContextOnOOM) {

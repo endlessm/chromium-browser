@@ -29,7 +29,7 @@ void TestAuthErrorCallback(const GoogleServiceAuthError& error) {}
 class SupervisedUserServiceTestSupervised : public InProcessBrowserTest {
  public:
   // content::BrowserTestBase:
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitchASCII(switches::kSupervisedUserId, "asdf");
   }
 };
@@ -81,8 +81,11 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserServiceTest,
 IN_PROC_BROWSER_TEST_F(SupervisedUserServiceTest, LocalPolicies) {
   Profile* profile = browser()->profile();
   PrefService* prefs = profile->GetPrefs();
-  EXPECT_FALSE(prefs->GetBoolean(prefs::kForceSafeSearch));
-  EXPECT_TRUE(prefs->IsUserModifiablePreference(prefs::kForceSafeSearch));
+  EXPECT_FALSE(prefs->GetBoolean(prefs::kForceGoogleSafeSearch));
+  EXPECT_FALSE(prefs->GetBoolean(prefs::kForceYouTubeSafetyMode));
+  EXPECT_TRUE(prefs->IsUserModifiablePreference(prefs::kForceGoogleSafeSearch));
+  EXPECT_TRUE(
+      prefs->IsUserModifiablePreference(prefs::kForceYouTubeSafetyMode));
 }
 
 IN_PROC_BROWSER_TEST_F(SupervisedUserServiceTest, ProfileName) {
@@ -101,8 +104,12 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserServiceTest, ProfileName) {
 IN_PROC_BROWSER_TEST_F(SupervisedUserServiceTestSupervised, LocalPolicies) {
   Profile* profile = browser()->profile();
   PrefService* prefs = profile->GetPrefs();
-  EXPECT_TRUE(prefs->GetBoolean(prefs::kForceSafeSearch));
-  EXPECT_FALSE(prefs->IsUserModifiablePreference(prefs::kForceSafeSearch));
+  EXPECT_TRUE(prefs->GetBoolean(prefs::kForceGoogleSafeSearch));
+  EXPECT_TRUE(prefs->GetBoolean(prefs::kForceYouTubeSafetyMode));
+  EXPECT_FALSE(
+      prefs->IsUserModifiablePreference(prefs::kForceGoogleSafeSearch));
+  EXPECT_FALSE(
+      prefs->IsUserModifiablePreference(prefs::kForceYouTubeSafetyMode));
 }
 
 IN_PROC_BROWSER_TEST_F(SupervisedUserServiceTestSupervised, ProfileName) {
@@ -116,7 +123,7 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserServiceTestSupervised, ProfileName) {
       SupervisedUserSettingsServiceFactory::GetForProfile(profile);
 
   std::string name = "Supervised User Test Name";
-  settings->SetLocalSettingForTesting(
+  settings->SetLocalSetting(
       supervised_users::kUserName,
       scoped_ptr<base::Value>(new base::StringValue(name)));
   EXPECT_FALSE(prefs->IsUserModifiablePreference(prefs::kProfileName));
@@ -127,7 +134,7 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserServiceTestSupervised, ProfileName) {
 
   // Change the name once more.
   std::string new_name = "New Supervised User Test Name";
-  settings->SetLocalSettingForTesting(
+  settings->SetLocalSetting(
       supervised_users::kUserName,
       scoped_ptr<base::Value>(new base::StringValue(new_name)));
   EXPECT_EQ(new_name, prefs->GetString(prefs::kProfileName));
@@ -136,8 +143,8 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserServiceTestSupervised, ProfileName) {
             base::UTF16ToUTF8(cache.GetNameOfProfileAtIndex(profile_index)));
 
   // Remove the setting.
-  settings->SetLocalSettingForTesting(supervised_users::kUserName,
-                                      scoped_ptr<base::Value>());
+  settings->SetLocalSetting(supervised_users::kUserName,
+                            scoped_ptr<base::Value>());
   EXPECT_EQ(original_name, prefs->GetString(prefs::kProfileName));
   profile_index = cache.GetIndexOfProfileWithPath(profile->GetPath());
   EXPECT_EQ(original_name,

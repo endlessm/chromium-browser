@@ -21,46 +21,60 @@ class ASH_EXPORT TouchTransformerController
     : public DisplayController::Observer {
  public:
   TouchTransformerController();
-  virtual ~TouchTransformerController();
+  ~TouchTransformerController() override;
 
   // Updates the TouchTransformer for touch device and pushes the new
   // TouchTransformer into device manager.
   void UpdateTouchTransformer() const;
 
   // DisplayController::Observer:
-  virtual void OnDisplaysInitialized() override;
-  virtual void OnDisplayConfigurationChanged() override;
+  void OnDisplaysInitialized() override;
+  void OnDisplayConfigurationChanged() override;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(TouchTransformerControllerTest,
-                           TouchTransformerMirrorModeLetterboxing);
+                           MirrorModeLetterboxing);
   FRIEND_TEST_ALL_PREFIXES(TouchTransformerControllerTest,
-                           TouchTransformerMirrorModePillarboxing);
-  FRIEND_TEST_ALL_PREFIXES(TouchTransformerControllerTest,
-                           TouchTransformerExtendedMode);
-  FRIEND_TEST_ALL_PREFIXES(TouchTransformerControllerTest,
-                           TouchRadiusScale);
+                           MirrorModePillarboxing);
+  FRIEND_TEST_ALL_PREFIXES(TouchTransformerControllerTest, SoftwareMirrorMode);
+  FRIEND_TEST_ALL_PREFIXES(TouchTransformerControllerTest, ExtendedMode);
+  FRIEND_TEST_ALL_PREFIXES(TouchTransformerControllerTest, TouchRadiusScale);
 
   // Returns a transform that will be used to change an event's location from
-  // the touchscreen's coordinate system into the display's coordinate system.
+  // the touchscreen's coordinate system into |display|'s coordinate system.
   // The transform is also responsible for properly scaling the display if the
-  // display support panel fitting.
+  // display supports panel fitting.
   //
   // On X11 events are reported in framebuffer coordinate space, so the
   // |framebuffer_size| is used for scaling.
   // On Ozone events are reported in the touchscreen's resolution, so
-  // |touchscreen| is used to determine the size and scale the event.
-  gfx::Transform GetTouchTransform(
-      const DisplayInfo& display,
-      const ui::TouchscreenDevice& touchscreen,
-      const gfx::Size& framebuffer_size) const;
+  // |touch_display| is used to determine the size and scale the event.
+  gfx::Transform GetTouchTransform(const DisplayInfo& display,
+                                   const DisplayInfo& touch_display,
+                                   const ui::TouchscreenDevice& touchscreen,
+                                   const gfx::Size& framebuffer_size) const;
 
   // Returns the scaling factor for the touch radius such that it scales the
-  // radius from |touch_device|'s coordiante system to the |touch_display|'s
+  // radius from |touch_device|'s coordinate system to the |touch_display|'s
   // coordinate system.
   double GetTouchResolutionScale(
       const DisplayInfo& touch_display,
       const ui::TouchscreenDevice& touch_device) const;
+
+  // For the provided |display| update the touch radius mapping.
+  void UpdateTouchRadius(const DisplayInfo& display) const;
+
+  // For a given |target_display| and |target_display_id| update the touch
+  // transformation based on the touchscreen associated with |touch_display|.
+  // |target_display_id| is the display id whose root window will receive the
+  // touch events.
+  // |touch_display| is the physical display that has the touchscreen
+  // from which the events arrive.
+  // |target_display| provides the dimensions to which the touch event will be
+  // transformed.
+  void UpdateTouchTransform(int64_t target_display_id,
+                            const DisplayInfo& touch_display,
+                            const DisplayInfo& target_display) const;
 
   DISALLOW_COPY_AND_ASSIGN(TouchTransformerController);
 };

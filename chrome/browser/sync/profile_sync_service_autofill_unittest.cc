@@ -23,6 +23,7 @@
 #include "base/time/time.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/prefs/pref_service_syncable.h"
+#include "chrome/browser/signin/account_tracker_service_factory.h"
 #include "chrome/browser/signin/fake_profile_oauth2_token_service.h"
 #include "chrome/browser/signin/fake_profile_oauth2_token_service_builder.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
@@ -35,22 +36,23 @@
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync/profile_sync_test_util.h"
 #include "chrome/browser/sync/test_profile_sync_service.h"
-#include "chrome/browser/webdata/autocomplete_syncable_service.h"
-#include "chrome/browser/webdata/web_data_service_factory.h"
+#include "chrome/browser/web_data_service_factory.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
+#include "components/autofill/core/browser/webdata/autocomplete_syncable_service.h"
 #include "components/autofill/core/browser/webdata/autofill_change.h"
 #include "components/autofill/core/browser/webdata/autofill_entry.h"
 #include "components/autofill/core/browser/webdata/autofill_profile_syncable_service.h"
 #include "components/autofill/core/browser/webdata/autofill_table.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
+#include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/sync_driver/data_type_controller.h"
-#include "components/webdata/common/web_data_service_test_util.h"
 #include "components/webdata/common/web_database.h"
+#include "components/webdata_services/web_data_service_test_util.h"
 #include "content/public/test/test_browser_thread.h"
 #include "google_apis/gaia/gaia_constants.h"
 #include "sync/internal_api/public/base/model_type.h"
@@ -65,6 +67,7 @@
 #include "sync/test/engine/test_id_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
+using autofill::AutocompleteSyncableService;
 using autofill::AutofillChange;
 using autofill::AutofillChangeList;
 using autofill::AutofillEntry;
@@ -101,8 +104,6 @@ using testing::ElementsAre;
 using testing::Not;
 using testing::SetArgumentPointee;
 using testing::Return;
-
-class HistoryService;
 
 namespace syncable {
 class Id;
@@ -172,7 +173,7 @@ class MockAutofillBackend : public autofill::AutofillWebDataBackend {
       autofill::AutofillWebDataServiceObserverOnDBThread* observer) override {}
   void RemoveExpiredFormElements() override {}
   void NotifyOfMultipleAutofillChanges() override {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
+    DCHECK_CURRENTLY_ON(BrowserThread::DB);
     BrowserThread::PostTask(BrowserThread::UI, FROM_HERE, on_changed_);
   }
 
@@ -336,10 +337,10 @@ class WebDataServiceFake : public AutofillWebDataService {
   DISALLOW_COPY_AND_ASSIGN(WebDataServiceFake);
 };
 
-KeyedService* BuildMockWebDataServiceWrapper(content::BrowserContext* profile) {
-  return new MockWebDataServiceWrapper(
-      new WebDataServiceFake(),
-      new TokenWebDataServiceFake());
+scoped_ptr<KeyedService> BuildMockWebDataServiceWrapper(
+    content::BrowserContext* profile) {
+  return make_scoped_ptr(new MockWebDataServiceWrapper(
+      new WebDataServiceFake(), new TokenWebDataServiceFake()));
 }
 
 ACTION_P(MakeAutocompleteSyncComponents, wds) {
@@ -424,8 +425,8 @@ class MockPersonalDataManager : public PersonalDataManager {
   MOCK_METHOD0(LoadCreditCards, void());
   MOCK_METHOD0(Refresh, void());
 
-  static KeyedService* Build(content::BrowserContext* profile) {
-    return new MockPersonalDataManager();
+  static scoped_ptr<KeyedService> Build(content::BrowserContext* profile) {
+    return make_scoped_ptr(new MockPersonalDataManager());
   }
 };
 
@@ -496,8 +497,9 @@ class ProfileSyncServiceAutofillTest
 
     personal_data_manager_->Init(
         WebDataServiceFactory::GetAutofillWebDataForProfile(
-            profile_, Profile::EXPLICIT_ACCESS),
+            profile_, ServiceAccessType::EXPLICIT_ACCESS),
         profile_->GetPrefs(),
+        AccountTrackerServiceFactory::GetForProfile(profile_),
         profile_->IsOffTheRecord());
 
     web_data_service_->StartSyncableService();
@@ -535,7 +537,7 @@ class ProfileSyncServiceAutofillTest
                         syncer::ModelType type) {
     AbstractAutofillFactory* factory = GetFactory(type);
     SigninManagerBase* signin = SigninManagerFactory::GetForProfile(profile_);
-    signin->SetAuthenticatedUsername("test_user@gmail.com");
+    signin->SetAuthenticatedAccountInfo("12345", "test_user@gmail.com");
     sync_service_ = TestProfileSyncService::BuildAutoStartAsyncInit(profile_,
                                                                     callback);
 
@@ -557,7 +559,8 @@ class ProfileSyncServiceAutofillTest
 
     // We need tokens to get the tests going
     ProfileOAuth2TokenServiceFactory::GetForProfile(profile_)
-        ->UpdateCredentials("test_user@gmail.com", "oauth2_login_token");
+        ->UpdateCredentials(signin->GetAuthenticatedAccountId(),
+                            "oauth2_login_token");
 
     sync_service_->RegisterDataTypeController(data_type_controller);
     sync_service_->Initialize();
@@ -565,7 +568,7 @@ class ProfileSyncServiceAutofillTest
 
     // It's possible this test triggered an unrecoverable error, in which case
     // we can't get the sync count.
-    if (sync_service_->SyncActive()) {
+    if (sync_service_->IsSyncActive()) {
       EXPECT_EQ(GetSyncCount(type),
                 association_stats_.num_sync_items_after_association);
     }
@@ -593,9 +596,7 @@ class ProfileSyncServiceAutofillTest
 
     sync_pb::EntitySpecifics specifics;
     AutocompleteSyncableService::WriteAutofillEntry(entry, &specifics);
-    sync_pb::AutofillSpecifics* autofill_specifics =
-        specifics.mutable_autofill();
-    node.SetAutofillSpecifics(*autofill_specifics);
+    node.SetEntitySpecifics(specifics);
     return true;
   }
 
@@ -615,9 +616,7 @@ class ProfileSyncServiceAutofillTest
 
     sync_pb::EntitySpecifics specifics;
     AutofillProfileSyncableService::WriteAutofillProfile(profile, &specifics);
-    sync_pb::AutofillProfileSpecifics* profile_specifics =
-        specifics.mutable_autofill_profile();
-    node.SetAutofillProfileSpecifics(*profile_specifics);
+    node.SetEntitySpecifics(specifics);
     return true;
   }
 
@@ -636,7 +635,7 @@ class ProfileSyncServiceAutofillTest
         return false;
 
       const sync_pb::AutofillSpecifics& autofill(
-          child_node.GetAutofillSpecifics());
+          child_node.GetEntitySpecifics().autofill());
       if (autofill.has_value()) {
         AutofillKey key(base::UTF8ToUTF16(autofill.name()),
                         base::UTF8ToUTF16(autofill.value()));
@@ -675,7 +674,7 @@ class ProfileSyncServiceAutofillTest
         return false;
 
       const sync_pb::AutofillProfileSpecifics& autofill(
-          child_node.GetAutofillProfileSpecifics());
+          child_node.GetEntitySpecifics().autofill_profile());
         AutofillProfile p;
         p.set_guid(autofill.guid());
         AutofillProfileSyncableService::OverwriteProfileWithServerData(
@@ -881,29 +880,6 @@ class FakeServerUpdater : public base::RefCountedThreadSafe<FakeServerUpdater> {
   syncer::syncable::Id parent_id_;
 };
 
-namespace {
-
-// Checks if the field of type |field_type| in |profile1| includes all values
-// of the field in |profile2|.
-bool IncludesField(const AutofillProfile& profile1,
-                   const AutofillProfile& profile2,
-                   ServerFieldType field_type) {
-  std::vector<base::string16> values1;
-  profile1.GetRawMultiInfo(field_type, &values1);
-  std::vector<base::string16> values2;
-  profile2.GetRawMultiInfo(field_type, &values2);
-
-  std::set<base::string16> values_set;
-  for (size_t i = 0; i < values1.size(); ++i)
-    values_set.insert(values1[i]);
-  for (size_t i = 0; i < values2.size(); ++i)
-    if (values_set.find(values2[i]) == values_set.end())
-      return false;
-  return true;
-}
-
-} // namespace
-
 // TODO(skrul): Test abort startup.
 // TODO(skrul): Test processing of cloud changes.
 // TODO(tim): Add autofill data type controller test, and a case to cover
@@ -1108,7 +1084,7 @@ TEST_F(ProfileSyncServiceAutofillTest, HasNativeHasSyncMergeProfileCombine) {
       "91601", "US", "19482937549");
 
   AutofillProfile expected_profile(sync_profile);
-  expected_profile.OverwriteWithOrAddTo(*native_profile, "en-US");
+  expected_profile.OverwriteWith(*native_profile, "en-US");
 
   std::vector<AutofillProfile*> native_profiles;
   native_profiles.push_back(native_profile);
@@ -1134,14 +1110,6 @@ TEST_F(ProfileSyncServiceAutofillTest, HasNativeHasSyncMergeProfileCombine) {
   ASSERT_EQ(1U, new_sync_profiles.size());
   // Check that key fields are the same.
   EXPECT_TRUE(new_sync_profiles[0].IsSubsetOf(sync_profile, "en-US"));
-  // Check that multivalued fields of the synced back data include original
-  // data.
-  EXPECT_TRUE(
-      IncludesField(new_sync_profiles[0], sync_profile, autofill::NAME_FULL));
-  EXPECT_TRUE(IncludesField(
-      new_sync_profiles[0], sync_profile, autofill::EMAIL_ADDRESS));
-  EXPECT_TRUE(IncludesField(
-      new_sync_profiles[0], sync_profile, autofill::PHONE_HOME_WHOLE_NUMBER));
 }
 
 TEST_F(ProfileSyncServiceAutofillTest, MergeProfileWithDifferentGuid) {

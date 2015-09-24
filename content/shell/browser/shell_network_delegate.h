@@ -7,11 +7,11 @@
 
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
-#include "net/base/network_delegate.h"
+#include "net/base/network_delegate_impl.h"
 
 namespace content {
 
-class ShellNetworkDelegate : public net::NetworkDelegate {
+class ShellNetworkDelegate : public net::NetworkDelegateImpl {
  public:
   ShellNetworkDelegate();
   ~ShellNetworkDelegate() override;
@@ -53,7 +53,7 @@ class ShellNetworkDelegate : public net::NetworkDelegate {
                       net::CookieOptions* options) override;
   bool OnCanAccessFile(const net::URLRequest& request,
                        const base::FilePath& path) const override;
-  bool OnCanThrottleRequest(const net::URLRequest& request) const override;
+  bool OnFirstPartyOnlyCookieExperimentEnabled() const override;
 
   DISALLOW_COPY_AND_ASSIGN(ShellNetworkDelegate);
 };

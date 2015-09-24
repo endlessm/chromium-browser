@@ -13,8 +13,11 @@ class WebContents;
 }
 
 namespace gfx {
-class Canvas;
-class Rect;
+class Size;
+}
+
+namespace ui {
+class MenuModel;
 }
 
 class ToolbarActionViewDelegate;
@@ -33,11 +36,9 @@ class ToolbarActionViewController {
   // Sets the view delegate, which can handle most of the front-end logic.
   virtual void SetDelegate(ToolbarActionViewDelegate* delegate) = 0;
 
-  // Returns the icon to use for the given |web_contents|.
-  virtual gfx::Image GetIcon(content::WebContents* web_contents) = 0;
-
-  // Returns the icon and the badge, if any, for the current tab.
-  virtual gfx::ImageSkia GetIconWithBadge() = 0;
+  // Returns the icon to use for the given |web_contents| and |size|.
+  virtual gfx::Image GetIcon(content::WebContents* web_contents,
+                             const gfx::Size& size) = 0;
 
   // Returns the name of the action, which can be separate from the accessible
   // name or name for the tooltip.
@@ -54,6 +55,10 @@ class ToolbarActionViewController {
   // Returns true if the action should be enabled on the given |web_contents|.
   virtual bool IsEnabled(content::WebContents* web_contents) const = 0;
 
+  // Returns true if the action wants to run, and should be popped out of the
+  // overflow menu on the given |web_contents|.
+  virtual bool WantsToRun(content::WebContents* web_contents) const = 0;
+
   // Returns true if the action has a popup for the given |web_contents|.
   virtual bool HasPopup(content::WebContents* web_contents) const = 0;
 
@@ -63,8 +68,12 @@ class ToolbarActionViewController {
   // Returns the native view for the popup, if one is active.
   virtual gfx::NativeView GetPopupNativeView() = 0;
 
-  // Returns true if a menu is currently running for the action.
-  virtual bool IsMenuRunning() const = 0;
+  // Returns the context menu model, or null if no context menu should be shown.
+  virtual ui::MenuModel* GetContextMenu() = 0;
+
+  // Called when a context menu has closed so the controller can perform any
+  // necessary cleanup.
+  virtual void OnContextMenuClosed() {}
 
   // Returns true if this view can be dragged. This should only be true for
   // extensions right now, since they are the only ones the model currently
@@ -78,11 +87,12 @@ class ToolbarActionViewController {
   // Returns true if a popup is shown.
   virtual bool ExecuteAction(bool by_user) = 0;
 
-  // Paints any extra parts of the image (e.g., a badge).
-  virtual void PaintExtra(gfx::Canvas* canvas,
-                          const gfx::Rect& bounds,
-                          content::WebContents* web_contents) const {
-  }
+  // Updates the current state of the action.
+  virtual void UpdateState() = 0;
+
+  // Returns true if clicking on an otherwise-disabled action should open the
+  // context menu.
+  virtual bool DisabledClickOpensMenu() const = 0;
 
   // Registers an accelerator. Called when the view is added to the hierarchy.
   // Unregistering any commands is the responsibility of the controller.

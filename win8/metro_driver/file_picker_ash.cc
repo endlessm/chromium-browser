@@ -8,6 +8,7 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/win/metro.h"
@@ -23,7 +24,7 @@ typedef winfoundtn::Collections::IVector<HSTRING> StringVectorItf;
 // TODO(siggi): Complete this implementation and move it to a common place.
 class StringVectorImpl : public mswr::RuntimeClass<StringVectorItf> {
  public:
-  ~StringVectorImpl() {
+  ~StringVectorImpl() override {
     std::for_each(strings_.begin(), strings_.end(), ::WindowsDeleteString);
   }
 
@@ -35,44 +36,35 @@ class StringVectorImpl : public mswr::RuntimeClass<StringVectorItf> {
   }
 
   // IVector<HSTRING> implementation.
-  STDMETHOD(GetAt)(unsigned index, HSTRING* item) {
+  STDMETHOD(GetAt)(unsigned index, HSTRING* item) override {
     if (index >= strings_.size())
       return E_INVALIDARG;
 
     return ::WindowsDuplicateString(strings_[index], item);
   }
-  STDMETHOD(get_Size)(unsigned *size) {
+  STDMETHOD(get_Size)(unsigned* size) override {
     if (strings_.size() > UINT_MAX)
       return E_UNEXPECTED;
     *size = static_cast<unsigned>(strings_.size());
     return S_OK;
   }
-  STDMETHOD(GetView)(winfoundtn::Collections::IVectorView<HSTRING> **view) {
+  STDMETHOD(GetView)(
+      winfoundtn::Collections::IVectorView<HSTRING>** view) override {
     return E_NOTIMPL;
   }
-  STDMETHOD(IndexOf)(HSTRING value, unsigned *index, boolean *found) {
+  STDMETHOD(IndexOf)(HSTRING value, unsigned* index, boolean* found) override {
     return E_NOTIMPL;
   }
 
   // write methods
-  STDMETHOD(SetAt)(unsigned index, HSTRING item) {
+  STDMETHOD(SetAt)(unsigned index, HSTRING item) override { return E_NOTIMPL; }
+  STDMETHOD(InsertAt)(unsigned index, HSTRING item) override {
     return E_NOTIMPL;
   }
-  STDMETHOD(InsertAt)(unsigned index, HSTRING item) {
-    return E_NOTIMPL;
-  }
-  STDMETHOD(RemoveAt)(unsigned index) {
-    return E_NOTIMPL;
-  }
-  STDMETHOD(Append)(HSTRING item) {
-    return E_NOTIMPL;
-  }
-  STDMETHOD(RemoveAtEnd)() {
-    return E_NOTIMPL;
-  }
-  STDMETHOD(Clear)() {
-    return E_NOTIMPL;
-  }
+  STDMETHOD(RemoveAt)(unsigned index) override { return E_NOTIMPL; }
+  STDMETHOD(Append)(HSTRING item) override { return E_NOTIMPL; }
+  STDMETHOD(RemoveAtEnd)() override { return E_NOTIMPL; }
+  STDMETHOD(Clear)() override { return E_NOTIMPL; }
 
  private:
   std::vector<HSTRING> strings_;
@@ -80,21 +72,24 @@ class StringVectorImpl : public mswr::RuntimeClass<StringVectorItf> {
 
 }  // namespace
 
-FilePickerSessionBase::FilePickerSessionBase(ChromeAppViewAsh* app_view,
-                                             const base::string16& title,
-                                             const base::string16& filter,
-                                             const base::FilePath& default_path)
-    : app_view_(app_view),
-      title_(title),
-      filter_(filter),
-      default_path_(default_path),
-      success_(false) {
+FilePickerSessionBase::~FilePickerSessionBase() {
 }
 
 bool FilePickerSessionBase::Run() {
   if (!DoFilePicker())
     return false;
   return success_;
+}
+
+FilePickerSessionBase::FilePickerSessionBase(ChromeAppViewAsh* app_view,
+                                             const base::string16& title,
+                                             const base::string16& filter,
+                                             const base::FilePath& default_path)
+    : success_(false),
+      title_(title),
+      filter_(filter),
+      default_path_(default_path),
+      app_view_(app_view) {
 }
 
 bool FilePickerSessionBase::DoFilePicker() {
@@ -122,6 +117,9 @@ OpenFilePickerSession::OpenFilePickerSession(
     bool allow_multi_select)
     : FilePickerSessionBase(app_view, title, filter, default_path),
       allow_multi_select_(allow_multi_select) {
+}
+
+OpenFilePickerSession::~OpenFilePickerSession() {
 }
 
 HRESULT OpenFilePickerSession::SinglePickerDone(SingleFileAsyncOp* async,
@@ -242,9 +240,8 @@ HRESULT OpenFilePickerSession::StartFilePicker() {
         break;
 
       // There can be a single extension, or a list of semicolon-separated ones.
-      std::vector<base::string16> extensions_win32_style;
-      size_t extension_count = Tokenize(walk, L";", &extensions_win32_style);
-      DCHECK_EQ(extension_count, extensions_win32_style.size());
+      std::vector<base::string16> extensions_win32_style = base::SplitString(
+          walk, L";", base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
 
       // Metro wants suffixes only, not patterns.
       mswrw::HString extension;
@@ -424,9 +421,8 @@ HRESULT SaveFilePickerSession::StartFilePicker() {
         break;
 
       // There can be a single extension, or a list of semicolon-separated ones.
-      std::vector<base::string16> extensions_win32_style;
-      size_t extension_count = Tokenize(walk, L";", &extensions_win32_style);
-      DCHECK_EQ(extension_count, extensions_win32_style.size());
+      std::vector<base::string16> extensions_win32_style = base::SplitString(
+          walk, L";", base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
 
       // Metro wants suffixes only, not patterns.  Also, metro does not support
       // the all files ("*") pattern in the save picker.
@@ -551,7 +547,8 @@ HRESULT SaveFilePickerSession::FilePickerDone(SaveFileAsyncOp* async,
 
 FolderPickerSession::FolderPickerSession(ChromeAppViewAsh* app_view,
                                          const base::string16& title)
-    : FilePickerSessionBase(app_view, title, L"", base::FilePath()) {}
+    : FilePickerSessionBase(app_view, title, L"", base::FilePath()) {
+}
 
 HRESULT FolderPickerSession::StartFilePicker() {
   mswrw::HStringReference class_name(

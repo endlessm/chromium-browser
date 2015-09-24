@@ -6,26 +6,121 @@
 
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/prefs/pref_service.h"
+#include "base/threading/thread_restrictions.h"
+#include "base/time/time.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "content/public/browser/browser_thread.h"
 
 #if defined(OS_WIN)
-#include "base/win/metro.h"
+#include <windows.h>
+#include <wpcapi.h>
+#include "base/bind.h"
+#include "base/bind_helpers.h"
+#include "base/memory/singleton.h"
+#include "base/win/scoped_comptr.h"
+#include "base/win/windows_version.h"
 #endif  // OS_WIN
 
 #if defined(OS_ANDROID)
-#include "chrome/browser/android/chromium_application.h"
+#include "chrome/browser/android/chrome_application.h"
 #endif  // OS_ANDROID
+
+using content::BrowserThread;
 
 #if defined(OS_WIN)
 namespace {
 
-bool g_parental_control_on = false;
+// This singleton allows us to attempt to calculate the Platform Parental
+// Controls enabled value on a worker thread before the UI thread needs the
+// value. If the UI thread finishes sooner than we expect, that's no worse than
+// today where we block.
+class PlatformParentalControlsValue {
+ public:
+  static PlatformParentalControlsValue* GetInstance() {
+    return Singleton<PlatformParentalControlsValue>::get();
+  }
 
-} // empty namespace
+  bool is_enabled() const {
+    return is_enabled_;
+  }
+
+ private:
+  friend struct DefaultSingletonTraits<PlatformParentalControlsValue>;
+
+  // Histogram enum for tracking the thread that checked parental controls.
+  enum class ThreadType {
+    UI = 0,
+    BLOCKING,
+    COUNT,
+  };
+
+  PlatformParentalControlsValue()
+      : is_enabled_(IsParentalControlActivityLoggingOn()) {}
+
+  ~PlatformParentalControlsValue() = default;
+
+  // Returns true if Windows Parental control activity logging is enabled. This
+  // feature is available on Windows 7 and beyond. This function should be
+  // called on a COM Initialized thread and is potentially blocking.
+  static bool IsParentalControlActivityLoggingOn() {
+    // Since we can potentially block, make sure the thread is okay with this.
+    base::ThreadRestrictions::AssertIOAllowed();
+    base::ThreadRestrictions::AssertWaitAllowed();
+
+    // Query this info on Windows 7 and above.
+    if (base::win::GetVersion() < base::win::VERSION_WIN7)
+      return false;
+
+    ThreadType thread_type = ThreadType::BLOCKING;
+    if (BrowserThread::IsThreadInitialized(BrowserThread::UI) &&
+        content::BrowserThread::CurrentlyOn(content::BrowserThread::UI)) {
+      thread_type = ThreadType::UI;
+    }
+
+    UMA_HISTOGRAM_ENUMERATION(
+        "IncognitoModePrefs.WindowsParentalControlsInitThread",
+        static_cast<int32_t>(thread_type),
+        static_cast<int32_t>(ThreadType::COUNT));
+
+    base::Time begin_time = base::Time::Now();
+    bool result = IsParentalControlActivityLoggingOnImpl();
+    UMA_HISTOGRAM_TIMES("IncognitoModePrefs.WindowsParentalControlsInitTime",
+                        base::Time::Now() - begin_time);
+    return result;
+  }
+
+  // Does the work of determining if Windows Parental control activity logging
+  // is enabled.
+  static bool IsParentalControlActivityLoggingOnImpl() {
+    base::win::ScopedComPtr<IWindowsParentalControlsCore> parent_controls;
+    HRESULT hr = parent_controls.CreateInstance(
+        __uuidof(WindowsParentalControls));
+    if (FAILED(hr))
+      return false;
+
+    base::win::ScopedComPtr<IWPCSettings> settings;
+    hr = parent_controls->GetUserSettings(nullptr, settings.Receive());
+    if (FAILED(hr))
+      return false;
+
+    unsigned long restrictions = 0;
+    settings->GetRestrictions(&restrictions);
+
+    return (restrictions & WPCFLAG_LOGGING_REQUIRED) ==
+        WPCFLAG_LOGGING_REQUIRED;
+  }
+
+  const bool is_enabled_;
+
+  DISALLOW_COPY_AND_ASSIGN(PlatformParentalControlsValue);
+};
+
+}  // namespace
 #endif  // OS_WIN
 
 // static
@@ -64,15 +159,13 @@ void IncognitoModePrefs::SetAvailability(PrefService* prefs,
 // static
 void IncognitoModePrefs::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterIntegerPref(
-      prefs::kIncognitoModeAvailability,
-      IncognitoModePrefs::ENABLED,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterIntegerPref(prefs::kIncognitoModeAvailability,
+                                IncognitoModePrefs::ENABLED);
 }
 
 // static
 bool IncognitoModePrefs::ShouldLaunchIncognito(
-    const CommandLine& command_line,
+    const base::CommandLine& command_line,
     const PrefService* prefs) {
   Availability incognito_avail = GetAvailability(prefs);
   return incognito_avail != IncognitoModePrefs::DISABLED &&
@@ -101,30 +194,22 @@ bool IncognitoModePrefs::CanOpenBrowser(Profile* profile) {
   }
 }
 
+#if defined(OS_WIN)
+// static
+void IncognitoModePrefs::InitializePlatformParentalControls() {
+  content::BrowserThread::PostBlockingPoolTask(
+      FROM_HERE,
+      base::Bind(
+          base::IgnoreResult(&PlatformParentalControlsValue::GetInstance)));
+}
+#endif
+
 // static
 bool IncognitoModePrefs::ArePlatformParentalControlsEnabled() {
 #if defined(OS_WIN)
-  // Disable incognito mode windows if parental controls are on. This is only
-  // for Windows Vista and above.
-  return base::win::IsParentalControlActivityLoggingOn();
+  return PlatformParentalControlsValue::GetInstance()->is_enabled();
 #elif defined(OS_ANDROID)
-  return chrome::android::ChromiumApplication::AreParentalControlsEnabled();
-#else
-  return false;
-#endif
-}
-
-#if defined(OS_WIN)
-void IncognitoModePrefs::InitializePlatformParentalControls() {
-  g_parental_control_on = base::win::IsParentalControlActivityLoggingOn();
-}
-#endif // OS_WIN
-
-bool IncognitoModePrefs::ArePlatformParentalControlsEnabledCached() {
-#if defined(OS_WIN)
-  return g_parental_control_on;
-#elif defined(OS_ANDROID)
-  return chrome::android::ChromiumApplication::AreParentalControlsEnabled();
+  return chrome::android::ChromeApplication::AreParentalControlsEnabled();
 #else
   return false;
 #endif

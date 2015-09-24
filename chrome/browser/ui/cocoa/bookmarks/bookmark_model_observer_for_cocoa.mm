@@ -4,6 +4,9 @@
 
 #include "chrome/browser/ui/cocoa/bookmarks/bookmark_model_observer_for_cocoa.h"
 
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
+
 BookmarkModelObserverForCocoa::BookmarkModelObserverForCocoa(
     BookmarkModel* model,
     ChangeCallback callback) {

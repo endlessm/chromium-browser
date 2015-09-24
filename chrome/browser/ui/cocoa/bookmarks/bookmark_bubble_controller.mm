@@ -5,7 +5,6 @@
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bubble_controller.h"
 
 #include "base/mac/bundle_locations.h"
-#include "base/mac/mac_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/browser/bookmarks/chrome_bookmark_client.h"
 #include "chrome/browser/ui/browser.h"
@@ -25,6 +24,8 @@
 #include "ui/base/l10n/l10n_util_mac.h"
 
 using base::UserMetricsAction;
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
 
 // An object to represent the ChooseAnotherFolder item in the pop up.
 @interface ChooseAnotherFolder : NSObject
@@ -107,6 +108,7 @@ using base::UserMetricsAction;
   while (node) {
     if ((node->parent() == model_->bookmark_bar_node()) ||
         (node->parent() == client_->managed_node()) ||
+        (node->parent() == client_->supervised_node()) ||
         (node == model_->other_node())) {
       pulsingBookmarkNode_ = node;
       bookmarkObserver_->StartObservingNode(pulsingBookmarkNode_);

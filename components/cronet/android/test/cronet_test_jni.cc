@@ -7,17 +7,24 @@
 #include "base/android/base_jni_registrar.h"
 #include "base/android/jni_android.h"
 #include "base/android/jni_registrar.h"
-#include "components/cronet/android/cronet_loader.h"
-#include "mock_url_request_job_util.h"
+#include "components/cronet/android/cronet_library_loader.h"
+#include "mock_url_request_job_factory.h"
+#include "native_test_server.h"
 #include "network_change_notifier_util.h"
-#include "upload_test_server.h"
+#include "quic_test_server.h"
+#include "sdch_test_util.h"
+#include "test_upload_data_stream_handler.h"
 
 namespace {
 
 const base::android::RegistrationMethod kCronetTestsRegisteredMethods[] = {
-  {"MockURLRequestJobUtil", cronet::RegisterMockUrlRequestJobUtil},
-  {"RegisterUploadTestServer", cronet::RegisterUploadTestServer},
-  {"NetworkChangeNotifierUtil", cronet::RegisterNetworkChangeNotifierUtil},
+    {"MockUrlRequestJobFactory", cronet::RegisterMockUrlRequestJobFactory},
+    {"NativeTestServer", cronet::RegisterNativeTestServer},
+    {"NetworkChangeNotifierUtil", cronet::RegisterNetworkChangeNotifierUtil},
+    {"QuicTestServer", cronet::RegisterQuicTestServer},
+    {"SdchTestUtil", cronet::RegisterSdchTestUtil},
+    {"TestUploadDataStreamHandlerRegisterJni",
+     cronet::TestUploadDataStreamHandlerRegisterJni},
 };
 
 }  // namespace

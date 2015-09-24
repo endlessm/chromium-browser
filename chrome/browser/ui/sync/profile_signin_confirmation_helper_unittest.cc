@@ -20,13 +20,13 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
-#include "chrome/browser/history/history_service.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/test/base/testing_pref_service_syncable.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/test/bookmark_test_helpers.h"
+#include "components/history/core/browser/history_service.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "content/public/test/test_utils.h"
@@ -49,6 +49,8 @@
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/permissions/permission_set.h"
 #endif
+
+using bookmarks::BookmarkModel;
 
 namespace {
 
@@ -146,7 +148,7 @@ class ProfileSigninConfirmationHelperTest : public testing::Test {
     extensions::TestExtensionSystem* system =
         static_cast<extensions::TestExtensionSystem*>(
             extensions::ExtensionSystem::Get(profile_.get()));
-    CommandLine command_line(CommandLine::NO_PROGRAM);
+    base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
     system->CreateExtensionService(&command_line,
                                    base::FilePath(kExtensionFilePath),
                                    false);
@@ -227,9 +229,8 @@ TEST_F(ProfileSigninConfirmationHelperTest, PromptForNewProfile_Extensions) {
 // http://crbug.com/393149
 TEST_F(ProfileSigninConfirmationHelperTest,
        DISABLED_PromptForNewProfile_History) {
-  HistoryService* history = HistoryServiceFactory::GetForProfile(
-      profile_.get(),
-      Profile::EXPLICIT_ACCESS);
+  history::HistoryService* history = HistoryServiceFactory::GetForProfile(
+      profile_.get(), ServiceAccessType::EXPLICIT_ACCESS);
   ASSERT_TRUE(history);
 
   // Profile is new but has more than $(kHistoryEntriesBeforeNewProfilePrompt)
@@ -252,9 +253,8 @@ TEST_F(ProfileSigninConfirmationHelperTest,
 // http://crbug.com/393149
 TEST_F(ProfileSigninConfirmationHelperTest,
        DISABLED_PromptForNewProfile_TypedURLs) {
-  HistoryService* history = HistoryServiceFactory::GetForProfile(
-      profile_.get(),
-      Profile::EXPLICIT_ACCESS);
+  history::HistoryService* history = HistoryServiceFactory::GetForProfile(
+      profile_.get(), ServiceAccessType::EXPLICIT_ACCESS);
   ASSERT_TRUE(history);
 
   // Profile is new but has a typed URL.

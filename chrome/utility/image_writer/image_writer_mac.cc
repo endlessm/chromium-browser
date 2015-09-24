@@ -17,7 +17,7 @@
 #include "base/posix/eintr_wrapper.h"
 #include "base/process/kill.h"
 #include "base/process/launch.h"
-#include "base/strings/stringprintf.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/common/extensions/image_writer/image_writer_util_mac.h"
 #include "chrome/utility/image_writer/disk_unmounter_mac.h"
@@ -107,7 +107,7 @@ bool ImageWriter::OpenDevice() {
   }
 
   // Build the command line.
-  std::string rdwr = base::StringPrintf("%d", O_RDWR);
+  std::string rdwr = base::IntToString(O_RDWR);
 
   base::CommandLine cmd_line = base::CommandLine(base::FilePath(kAuthOpenPath));
   cmd_line.AppendSwitch("-stdoutpipe");
@@ -117,8 +117,8 @@ bool ImageWriter::OpenDevice() {
   cmd_line.AppendArgPath(real_device_path);
 
   // Launch the process.
-  base::ProcessHandle process_handle;
-  if (!base::LaunchProcess(cmd_line, options, &process_handle)) {
+  base::Process process = base::LaunchProcess(cmd_line, options);
+  if (!process.IsValid()) {
     LOG(ERROR) << "Failed to launch authopen process.";
     return false;
   }
@@ -157,7 +157,7 @@ bool ImageWriter::OpenDevice() {
 
   // Wait for the child.
   int child_exit_status;
-  if (!base::WaitForExitCode(process_handle, &child_exit_status)) {
+  if (!process.WaitForExit(&child_exit_status)) {
     LOG(ERROR) << "Unable to wait for child.";
     return false;
   }

@@ -13,11 +13,13 @@ SearchBoxModel::SpeechButtonProperty::SpeechButtonProperty(
     const gfx::ImageSkia& on_icon,
     const base::string16& on_tooltip,
     const gfx::ImageSkia& off_icon,
-    const base::string16& off_tooltip)
+    const base::string16& off_tooltip,
+    const base::string16& accessible_name)
     : on_icon(on_icon),
       on_tooltip(on_tooltip),
       off_icon(off_icon),
-      off_tooltip(off_tooltip) {
+      off_tooltip(off_tooltip),
+      accessible_name(accessible_name) {
 }
 
 SearchBoxModel::SpeechButtonProperty::~SpeechButtonProperty() {
@@ -47,6 +49,14 @@ void SearchBoxModel::SetHintText(const base::string16& hint_text) {
     return;
 
   hint_text_ = hint_text;
+  FOR_EACH_OBSERVER(SearchBoxModelObserver, observers_, HintTextChanged());
+}
+
+void SearchBoxModel::SetAccessibleName(const base::string16& accessible_name) {
+  if (accessible_name_ == accessible_name)
+    return;
+
+  accessible_name_ = accessible_name;
   FOR_EACH_OBSERVER(SearchBoxModelObserver, observers_, HintTextChanged());
 }
 

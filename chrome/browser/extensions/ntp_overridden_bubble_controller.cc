@@ -40,13 +40,15 @@ class NtpOverriddenBubbleDelegate
       override;
   void PerformAction(const extensions::ExtensionIdList& list) override;
   base::string16 GetTitle() const override;
-  base::string16 GetMessageBody(bool anchored_to_browser_action) const override;
+  base::string16 GetMessageBody(bool anchored_to_browser_action,
+                                int extension_count) const override;
   base::string16 GetOverflowText(
       const base::string16& overflow_count) const override;
   GURL GetLearnMoreUrl() const override;
   base::string16 GetActionButtonLabel() const override;
   base::string16 GetDismissButtonLabel() const override;
   bool ShouldShowExtensionList() const override;
+  bool ShouldHighlightExtensions() const override;
   void RestrictToSingleExtension(const std::string& extension_id) override;
   void LogExtensionCount(size_t count) override;
   void LogAction(extensions::ExtensionMessageBubbleController::BubbleAction
@@ -111,7 +113,8 @@ base::string16 NtpOverriddenBubbleDelegate::GetTitle() const {
 }
 
 base::string16 NtpOverriddenBubbleDelegate::GetMessageBody(
-    bool anchored_to_browser_action) const {
+    bool anchored_to_browser_action,
+    int extension_count) const {
   base::string16 body =
       l10n_util::GetStringUTF16(IDS_EXTENSIONS_NTP_CONTROLLED_FIRST_LINE);
   body += l10n_util::GetStringUTF16(
@@ -139,6 +142,10 @@ base::string16 NtpOverriddenBubbleDelegate::GetDismissButtonLabel() const {
 }
 
 bool NtpOverriddenBubbleDelegate::ShouldShowExtensionList() const {
+  return false;
+}
+
+bool NtpOverriddenBubbleDelegate::ShouldHighlightExtensions() const {
   return false;
 }
 

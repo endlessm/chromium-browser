@@ -4,8 +4,8 @@
 
 #include "cc/quads/debug_border_draw_quad.h"
 
-#include "base/debug/trace_event_argument.h"
 #include "base/logging.h"
+#include "base/trace_event/trace_event_argument.h"
 #include "base/values.h"
 
 namespace cc {
@@ -41,16 +41,14 @@ void DebugBorderDrawQuad::SetAll(const SharedQuadState* shared_quad_state,
   this->width = width;
 }
 
-void DebugBorderDrawQuad::IterateResources(
-    const ResourceIteratorCallback& callback) {}
-
 const DebugBorderDrawQuad* DebugBorderDrawQuad::MaterialCast(
     const DrawQuad* quad) {
   DCHECK(quad->material == DrawQuad::DEBUG_BORDER);
   return static_cast<const DebugBorderDrawQuad*>(quad);
 }
 
-void DebugBorderDrawQuad::ExtendValue(base::debug::TracedValue* value) const {
+void DebugBorderDrawQuad::ExtendValue(
+    base::trace_event::TracedValue* value) const {
   value->SetInteger("color", color);
   value->SetInteger("width", width);
 }

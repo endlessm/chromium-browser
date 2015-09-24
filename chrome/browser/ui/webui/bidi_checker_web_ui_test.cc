@@ -15,7 +15,6 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
-#include "chrome/browser/history/history_service.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profiles/profile.h"
@@ -25,6 +24,7 @@
 #include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
+#include "components/history/core/browser/history_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "ui/base/resource/resource_bundle.h"
 
@@ -80,12 +80,12 @@ static const base::FilePath::CharType* kBidiCheckerTestsJS =
     FILE_PATH_LITERAL("bidichecker_tests.js");
 
 void WebUIBidiCheckerBrowserTest::SetUp() {
-  argv_ = CommandLine::ForCurrentProcess()->GetArgs();
+  argv_ = base::CommandLine::ForCurrentProcess()->GetArgs();
 }
 
 void WebUIBidiCheckerBrowserTest::TearDown() {
   // Reset command line to the way it was before the test was run.
-  CommandLine::ForCurrentProcess()->InitFromArgv(argv_);
+  base::CommandLine::ForCurrentProcess()->InitFromArgv(argv_);
 }
 
 WebUIBidiCheckerBrowserTest::~WebUIBidiCheckerBrowserTest() {}
@@ -148,8 +148,9 @@ void WebUIBidiCheckerBrowserTestRTL::TearDownOnMainThread() {
 static void SetupHistoryPageTest(Browser* browser,
                                  const std::string& page_url,
                                  const std::string& page_title) {
-  HistoryService* history_service = HistoryServiceFactory::GetForProfile(
-      browser->profile(), Profile::IMPLICIT_ACCESS);
+  history::HistoryService* history_service =
+      HistoryServiceFactory::GetForProfile(browser->profile(),
+                                           ServiceAccessType::IMPLICIT_ACCESS);
   const GURL history_url = GURL(page_url);
   history_service->AddPage(
       history_url, base::Time::Now(), history::SOURCE_BROWSED);

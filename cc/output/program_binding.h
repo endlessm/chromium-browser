@@ -42,6 +42,8 @@ class ProgramBindingBase {
                                unsigned fragment_shader);
   void CleanupShaders(gpu::gles2::GLES2Interface* context);
 
+  bool IsContextLost(gpu::gles2::GLES2Interface* context);
+
   unsigned program_;
   unsigned vertex_shader_id_;
   unsigned fragment_shader_id_;
@@ -58,21 +60,38 @@ class ProgramBinding : public ProgramBindingBase {
 
   void Initialize(ContextProvider* context_provider,
                   TexCoordPrecision precision,
+                  SamplerType sampler) {
+    return Initialize(
+        context_provider, precision, sampler, BLEND_MODE_NONE, false);
+  }
+
+  void Initialize(ContextProvider* context_provider,
+                  TexCoordPrecision precision,
                   SamplerType sampler,
-                  BlendMode blend_mode = BlendModeNone) {
+                  BlendMode blend_mode) {
+    return Initialize(
+        context_provider, precision, sampler, blend_mode, false);
+  }
+
+  void Initialize(ContextProvider* context_provider,
+                  TexCoordPrecision precision,
+                  SamplerType sampler,
+                  BlendMode blend_mode,
+                  bool mask_for_background) {
     DCHECK(context_provider);
     DCHECK(!initialized_);
 
-    if (context_provider->IsContextLost())
+    if (IsContextLost(context_provider->ContextGL()))
       return;
 
     fragment_shader_.set_blend_mode(blend_mode);
+    fragment_shader_.set_mask_for_background(mask_for_background);
 
     if (!ProgramBindingBase::Init(
             context_provider->ContextGL(),
             vertex_shader_.GetShaderString(),
             fragment_shader_.GetShaderString(precision, sampler))) {
-      DCHECK(context_provider->IsContextLost());
+      DCHECK(IsContextLost(context_provider->ContextGL()));
       return;
     }
 
@@ -84,7 +103,7 @@ class ProgramBinding : public ProgramBindingBase {
 
     // Link after binding uniforms
     if (!Link(context_provider->ContextGL())) {
-      DCHECK(context_provider->IsContextLost());
+      DCHECK(IsContextLost(context_provider->ContextGL()));
       return;
     }
 

@@ -20,6 +20,7 @@
         '../base/base.gyp:base',
         # TODO(viettrungluu): Needed for base/lazy_instance.h, which is suspect.
         '../base/third_party/dynamic_annotations/dynamic_annotations.gyp:dynamic_annotations',
+        '../crypto/crypto.gyp:crypto',
       ],
       # TODO(gregoryd): direct_dependent_settings should be shared with the
       # 64-bit target, but it doesn't work due to a bug in gyp
@@ -44,11 +45,11 @@
         '..'
       ],
       'sources': [
-        'file_descriptor_set_posix_unittest.cc',
         'ipc_channel_posix_unittest.cc',
         'ipc_channel_proxy_unittest.cc',
         'ipc_channel_unittest.cc',
         'ipc_fuzzing_tests.cc',
+        'ipc_message_attachment_set_posix_unittest.cc',
         'ipc_message_unittest.cc',
         'ipc_message_utils_unittest.cc',
         'ipc_send_fds_test.cc',
@@ -132,6 +133,8 @@
         'ipc_multiprocess_test.h',
         'ipc_perftest_support.cc',
         'ipc_perftest_support.h',
+        'ipc_security_test_util.cc',
+        'ipc_security_test_util.h',
         'ipc_test_base.cc',
         'ipc_test_base.h',
         'ipc_test_channel_listener.cc',
@@ -155,6 +158,7 @@
             # TODO(viettrungluu): Needed for base/lazy_instance.h, which is
             # suspect.
             '../base/third_party/dynamic_annotations/dynamic_annotations.gyp:dynamic_annotations_win64',
+            '../crypto/crypto.gyp:crypto_nacl_win64',
           ],
           # TODO(gregoryd): direct_dependent_settings should be shared with the
           # 32-bit target, but it doesn't work due to a bug in gyp
@@ -195,6 +199,23 @@
           },
           'includes': [ '../build/apk_test.gypi' ],
         }],
+    }],
+    ['test_isolation_mode != "noop"', {
+      'targets': [
+        {
+          'target_name': 'ipc_tests_run',
+          'type': 'none',
+          'dependencies': [
+            'ipc_tests',
+          ],
+          'includes': [
+            '../build/isolate.gypi',
+          ],
+          'sources': [
+            'ipc_tests.isolate',
+          ],
+        },
+      ],
     }],
   ],
 }

@@ -36,7 +36,7 @@ template <>
 struct ParamTraits<scoped_refptr<net::HttpResponseHeaders> > {
   typedef scoped_refptr<net::HttpResponseHeaders> param_type;
   static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, PickleIterator* iter, param_type* r);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
   static void Log(const param_type& p, std::string* l);
 };
 
@@ -44,7 +44,7 @@ template <>
 struct CONTENT_EXPORT ParamTraits<storage::DataElement> {
   typedef storage::DataElement param_type;
   static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, PickleIterator* iter, param_type* r);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
   static void Log(const param_type& p, std::string* l);
 };
 
@@ -52,7 +52,7 @@ template <>
 struct ParamTraits<scoped_refptr<content::ResourceDevToolsInfo> > {
   typedef scoped_refptr<content::ResourceDevToolsInfo> param_type;
   static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, PickleIterator* iter, param_type* r);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
   static void Log(const param_type& p, std::string* l);
 };
 
@@ -60,7 +60,7 @@ template <>
 struct ParamTraits<net::LoadTimingInfo> {
   typedef net::LoadTimingInfo param_type;
   static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, PickleIterator* iter, param_type* r);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
   static void Log(const param_type& p, std::string* l);
 };
 
@@ -68,7 +68,7 @@ template <>
 struct ParamTraits<scoped_refptr<content::ResourceRequestBody> > {
   typedef scoped_refptr<content::ResourceRequestBody> param_type;
   static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, PickleIterator* iter, param_type* r);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
   static void Log(const param_type& p, std::string* l);
 };
 
@@ -129,9 +129,8 @@ IPC_STRUCT_TRAITS_BEGIN(content::ResourceResponseInfo)
   IPC_STRUCT_TRAITS_MEMBER(was_fallback_required_by_service_worker)
   IPC_STRUCT_TRAITS_MEMBER(original_url_via_service_worker)
   IPC_STRUCT_TRAITS_MEMBER(response_type_via_service_worker)
-  IPC_STRUCT_TRAITS_MEMBER(service_worker_fetch_start)
-  IPC_STRUCT_TRAITS_MEMBER(service_worker_fetch_ready)
-  IPC_STRUCT_TRAITS_MEMBER(service_worker_fetch_end)
+  IPC_STRUCT_TRAITS_MEMBER(service_worker_start_time)
+  IPC_STRUCT_TRAITS_MEMBER(service_worker_ready_time)
   IPC_STRUCT_TRAITS_MEMBER(proxy_server)
 IPC_STRUCT_TRAITS_END()
 
@@ -194,6 +193,9 @@ IPC_STRUCT_BEGIN(ResourceHostMsg_Request)
   // or kAppCacheNoHostId.
   IPC_STRUCT_MEMBER(int, appcache_host_id)
 
+  // True if corresponding AppCache group should be resetted.
+  IPC_STRUCT_MEMBER(bool, should_reset_appcache)
+
   // Indicates which frame (or worker context) the request is being loaded into,
   // or kInvalidServiceWorkerProviderId.
   IPC_STRUCT_MEMBER(int, service_worker_provider_id)
@@ -227,6 +229,9 @@ IPC_STRUCT_BEGIN(ResourceHostMsg_Request)
 
   // True if upload progress should be available for request.
   IPC_STRUCT_MEMBER(bool, enable_upload_progress)
+
+  // True if login prompts for this request should be supressed.
+  IPC_STRUCT_MEMBER(bool, do_not_prompt_for_login)
 
   // The routing id of the RenderFrame.
   IPC_STRUCT_MEMBER(int, render_frame_id)

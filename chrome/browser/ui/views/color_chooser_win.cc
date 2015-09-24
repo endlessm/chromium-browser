@@ -23,15 +23,15 @@ class ColorChooserWin : public content::ColorChooser,
 
   ColorChooserWin(content::WebContents* web_contents,
                   SkColor initial_color);
-  ~ColorChooserWin();
+  ~ColorChooserWin() override;
 
   // content::ColorChooser overrides:
-  virtual void End() override;
-  virtual void SetSelectedColor(SkColor color) override {}
+  void End() override;
+  void SetSelectedColor(SkColor color) override {}
 
   // views::ColorChooserListener overrides:
-  virtual void OnColorChosen(SkColor color);
-  virtual void OnColorChooserDialogClosed();
+  void OnColorChosen(SkColor color) override;
+  void OnColorChooserDialogClosed() override;
 
  private:
   static ColorChooserWin* current_color_chooser_;
@@ -66,7 +66,7 @@ ColorChooserWin::ColorChooserWin(content::WebContents* web_contents,
 
 ColorChooserWin::~ColorChooserWin() {
   // Always call End() before destroying.
-  DCHECK(!color_chooser_dialog_);
+  DCHECK(!color_chooser_dialog_.get());
 }
 
 void ColorChooserWin::End() {

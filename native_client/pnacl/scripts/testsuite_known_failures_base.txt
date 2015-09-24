@@ -38,15 +38,7 @@ office-ispell
 city
 ocean
 ft
-ReedSolomon
 # undefined re_comp (also needs regex library port?)
 plot2fig
 # no sys/utsname.h
 unix-smail
-
-############################################################################
-# Other issues
-############################################################################
-# The native version is broken under gcc 4.6.3.
-# See https://code.google.com/p/nativeclient/issues/detail?id=3664
-ms_struct_pack_layout

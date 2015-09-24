@@ -29,25 +29,47 @@
  */
 
 #include "config.h"
+#include "platform/PartitionAllocMemoryDumpProvider.h"
 #include "public/platform/Platform.h"
 
 namespace blink {
 
 static Platform* s_platform = 0;
 
+Platform::Platform()
+    : m_mainThread(0)
+{
+}
+
 void Platform::initialize(Platform* platform)
 {
     s_platform = platform;
+    if (s_platform)
+        s_platform->m_mainThread = platform->currentThread();
+
+    // TODO(ssid): remove this check after fixing crbug.com/486782.
+    if (s_platform && s_platform->m_mainThread)
+        s_platform->registerMemoryDumpProvider(PartitionAllocMemoryDumpProvider::instance());
 }
 
 void Platform::shutdown()
 {
+    if (s_platform->m_mainThread)
+        s_platform->unregisterMemoryDumpProvider(PartitionAllocMemoryDumpProvider::instance());
+
+    if (s_platform)
+        s_platform->m_mainThread = 0;
     s_platform = 0;
 }
 
 Platform* Platform::current()
 {
     return s_platform;
+}
+
+WebThread* Platform::mainThread() const
+{
+    return m_mainThread;
 }
 
 } // namespace blink

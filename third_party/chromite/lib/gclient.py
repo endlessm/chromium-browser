@@ -17,6 +17,14 @@ from chromite.lib import osutils
 CHROME_COMMITTER_URL = 'https://chromium.googlesource.com/chromium/src'
 STATUS_URL = 'https://chromium-status.appspot.com/current?format=json'
 
+# Last release for each milestone where a '.DEPS.git' was emitted. After this,
+# a Git-only DEPS is emitted as 'DEPS' and '.DEPS.git' is no longer created.
+_DEPS_GIT_TRANSITION_MAP = {
+    45: (45, 0, 2430, 3),
+    44: (44, 0, 2403, 48),
+    43: (43, 0, 2357, 125),
+}
+
 
 def FindGclientFile(path):
   """Returns the nearest higher-level gclient file from the specified path.
@@ -36,6 +44,67 @@ def FindGclientCheckoutRoot(path):
   return None
 
 
+def _LoadGclientFile(path):
+  """Load a gclient file and return the solutions defined by the gclient file.
+
+  Args:
+    path: The gclient file to load.
+
+  Returns:
+    A list of solutions defined by the gclient file or an empty list if no
+    solutions exists.
+  """
+  global_scope = {}
+  # Similar to depot_tools, we use execfile() to evaluate the gclient file,
+  # which is essentially a Python script, and then extract the solutions
+  # defined by the gclient file from the 'solutions' variable in the global
+  # scope.
+  execfile(path, global_scope)
+  return global_scope.get('solutions', [])
+
+
+def _FindOrAddSolution(solutions, name):
+  """Find a solution of the specified name from the given list of solutions.
+
+  If no solution with the specified name is found, a solution with the
+  specified name is appended to the given list of solutions. This function thus
+  always returns a solution.
+
+  Args:
+    solutions: The list of solutions to search from.
+    name: The solution name to search for.
+
+  Returns:
+    The solution with the specified name.
+  """
+  for solution in solutions:
+    if solution['name'] == name:
+      return solution
+
+  solution = {'name': name}
+  solutions.append(solution)
+  return solution
+
+
+def BuildspecUsesDepsGit(rev):
+  """Tests if a given buildspec revision uses .DEPS.git or DEPS.
+
+  Previous, Chromium emitted two dependency files: DEPS and .DEPS.git, the
+  latter being a Git-only construction of DEPS. Recently a switch was thrown,
+  causing .DEPS.git to be emitted exclusively as DEPS.
+
+  To support past buildspec checkouts, this logic tests a given Chromium
+  buildspec revision against the transition thresholds, using .DEPS.git prior
+  to transition and DEPS after.
+  """
+  rev = tuple(int(d) for d in rev.split('.'))
+  milestone = rev[0]
+  threshold = _DEPS_GIT_TRANSITION_MAP.get(milestone)
+  if threshold:
+    return rev <= threshold
+  return all(milestone < k for k in _DEPS_GIT_TRANSITION_MAP.iterkeys())
+
+
 def _GetGclientURLs(internal, rev):
   """Get the URLs and deps_file values to use in gclient file.
 
@@ -46,12 +115,9 @@ def _GetGclientURLs(internal, rev):
   if rev is None or git.IsSHA1(rev):
     # Regular chromium checkout; src may float to origin/master or be pinned.
     url = constants.CHROMIUM_GOB_URL
+
     if rev:
       url += ('@' + rev)
-    # TODO(szager): .DEPS.git will eventually be deprecated in favor of DEPS.
-    # When that happens, this could should continue to work, because gclient
-    # will fall back to DEPS if .DEPS.git doesn't exist.  Eventually, this
-    # code should be cleaned up to stop referring to non-existent .DEPS.git.
     results.append(('src', url, '.DEPS.git'))
     if internal:
       results.append(
@@ -60,7 +126,11 @@ def _GetGclientURLs(internal, rev):
     # Internal buildspec: check out the buildspec repo and set deps_file to
     # the path to the desired release spec.
     url = constants.INTERNAL_GOB_URL + '/chrome/tools/buildspec.git'
-    results.append(('CHROME_DEPS', url, 'releases/%s/.DEPS.git' % rev))
+
+    # Chromium switched to DEPS at version 45.0.2432.3.
+    deps_file = '.DEPS.git' if BuildspecUsesDepsGit(rev) else 'DEPS'
+
+    results.append(('CHROME_DEPS', url, 'releases/%s/%s' % (rev, deps_file)))
   else:
     # External buildspec: use the main chromium src repository, pinned to the
     # release tag, with deps_file set to .DEPS.git (which is created by
@@ -71,43 +141,48 @@ def _GetGclientURLs(internal, rev):
   return results
 
 
-def _GetGclientSolutions(internal, rev):
+def _GetGclientSolutions(internal, rev, template):
   """Get the solutions array to write to the gclient file.
 
   See WriteConfigFile below.
   """
   urls = _GetGclientURLs(internal, rev)
-  solutions = []
+  solutions = _LoadGclientFile(template) if template is not None else []
   for (name, url, deps_file) in urls:
-    solution = {
-        'name': name,
-        'url': url,
-        'custom_deps': {},
-        'custom_vars': {},
-    }
+    solution = _FindOrAddSolution(solutions, name)
+    # Always override 'url' and 'deps_file' of a solution as we need to specify
+    # the revision information.
+    solution['url'] = url
     if deps_file:
       solution['deps_file'] = deps_file
-    solutions.append(solution)
+
+    # Use 'custom_deps' and 'custom_vars' of a solution when specified by the
+    # template gclient file.
+    solution.setdefault('custom_deps', {})
+    solution.setdefault('custom_vars', {})
+
   return solutions
 
 
-def _GetGclientSpec(internal, rev):
+def _GetGclientSpec(internal, rev, template, use_cache):
   """Return a formatted gclient spec.
 
   See WriteConfigFile below.
   """
-  solutions = _GetGclientSolutions(internal=internal, rev=rev)
+  solutions = _GetGclientSolutions(internal=internal, rev=rev,
+                                   template=template)
   result = 'solutions = %s\n' % pprint.pformat(solutions)
 
   # Horrible hack, I will go to hell for this.  The bots need to have a git
   # cache set up; but how can we tell whether this code is running on a bot
   # or a developer's machine?
-  if cros_build_lib.HostIsCIBuilder():
+  if cros_build_lib.HostIsCIBuilder() and use_cache:
     result += "cache_dir = '/b/git-cache'\n"
 
   return result
 
-def WriteConfigFile(gclient, cwd, internal, rev):
+def WriteConfigFile(gclient, cwd, internal, rev, template=None,
+                    use_cache=True):
   """Initialize the specified directory as a gclient checkout.
 
   For gclient documentation, see:
@@ -121,8 +196,16 @@ def WriteConfigFile(gclient, cwd, internal, rev):
         - If None, use the latest from trunk.
         - If this is a sha1, use the specified revision.
         - Otherwise, treat this as a chrome version string.
+    template: An optional file to provide a template of gclient solutions.
+              _GetGclientSolutions iterates through the solutions specified
+              by the template and performs appropriate modifications such as
+              filling information like url and revision and adding extra
+              solutions.
+    use_cache: An optional Boolean flag to indicate if the git cache should
+               be used when available (on a continuous-integration builder).
   """
-  spec = _GetGclientSpec(internal=internal, rev=rev)
+  spec = _GetGclientSpec(internal=internal, rev=rev, template=template,
+                         use_cache=use_cache)
   cmd = [gclient, 'config', '--spec', spec]
   cros_build_lib.RunCommand(cmd, cwd=cwd)
 

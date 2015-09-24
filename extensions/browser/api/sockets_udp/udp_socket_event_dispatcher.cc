@@ -100,7 +100,7 @@ void UDPSocketEventDispatcher::ReceiveCallback(
     int bytes_read,
     scoped_refptr<net::IOBuffer> io_buffer,
     const std::string& address,
-    int port) {
+    uint16 port) {
   DCHECK_CURRENTLY_ON(params.thread_id);
 
   // If |bytes_read| == 0, the message contained no data.
@@ -111,13 +111,13 @@ void UDPSocketEventDispatcher::ReceiveCallback(
     // Dispatch "onReceive" event.
     sockets_udp::ReceiveInfo receive_info;
     receive_info.socket_id = params.socket_id;
-    receive_info.data = std::string(io_buffer->data(), bytes_read);
+    receive_info.data.assign(io_buffer->data(), io_buffer->data() + bytes_read);
     receive_info.remote_address = address;
     receive_info.remote_port = port;
     scoped_ptr<base::ListValue> args =
         sockets_udp::OnReceive::Create(receive_info);
-    scoped_ptr<Event> event(
-        new Event(sockets_udp::OnReceive::kEventName, args.Pass()));
+    scoped_ptr<Event> event(new Event(
+        events::UNKNOWN, sockets_udp::OnReceive::kEventName, args.Pass()));
     PostEvent(params, event.Pass());
 
     // Post a task to delay the read until the socket is available, as
@@ -137,8 +137,8 @@ void UDPSocketEventDispatcher::ReceiveCallback(
     receive_error_info.result_code = bytes_read;
     scoped_ptr<base::ListValue> args =
         sockets_udp::OnReceiveError::Create(receive_error_info);
-    scoped_ptr<Event> event(
-        new Event(sockets_udp::OnReceiveError::kEventName, args.Pass()));
+    scoped_ptr<Event> event(new Event(
+        events::UNKNOWN, sockets_udp::OnReceiveError::kEventName, args.Pass()));
     PostEvent(params, event.Pass());
 
     // Since we got an error, the socket is now "paused" until the application

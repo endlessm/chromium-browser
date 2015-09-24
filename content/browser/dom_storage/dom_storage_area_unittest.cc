@@ -5,9 +5,11 @@
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/location.h"
 #include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "base/time/time.h"
 #include "content/browser/dom_storage/dom_storage_area.h"
@@ -16,6 +18,7 @@
 #include "content/browser/dom_storage/dom_storage_task_runner.h"
 #include "content/browser/dom_storage/local_storage_database_adapter.h"
 #include "content/common/dom_storage/dom_storage_types.h"
+#include "content/public/browser/browser_thread.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::ASCIIToUTF16;
@@ -39,7 +42,19 @@ class DOMStorageAreaTest : public testing::Test {
   const base::string16 kValue2;
 
   // Method used in the CommitTasks test case.
-  void InjectedCommitSequencingTask(DOMStorageArea* area) {
+  void InjectedCommitSequencingTask1(
+      const scoped_refptr<DOMStorageArea>& area) {
+    // At this point the StartCommitTimer task has run and
+    // the OnCommitTimer task is queued. We want to inject after
+    // that.
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::Bind(&DOMStorageAreaTest::InjectedCommitSequencingTask2,
+                   base::Unretained(this), area));
+  }
+
+  void InjectedCommitSequencingTask2(
+      const scoped_refptr<DOMStorageArea>& area) {
     // At this point the OnCommitTimer has run.
     // Verify that it put a commit in flight.
     EXPECT_EQ(1, area->commit_batches_in_flight_);
@@ -159,10 +174,10 @@ TEST_F(DOMStorageAreaTest, BackingDatabaseOpened) {
 
   // This should set up a DOMStorageArea that is correctly backed to disk.
   {
-    scoped_refptr<DOMStorageArea> area(new DOMStorageArea(
-        kOrigin,
-        temp_dir.path(),
-        new MockDOMStorageTaskRunner(base::MessageLoopProxy::current().get())));
+    scoped_refptr<DOMStorageArea> area(
+        new DOMStorageArea(kOrigin, temp_dir.path(),
+                           new MockDOMStorageTaskRunner(
+                               base::ThreadTaskRunnerHandle::Get().get())));
 
     EXPECT_TRUE(area->backing_.get());
     DOMStorageDatabase* database = static_cast<LocalStorageDatabaseAdapter*>(
@@ -207,9 +222,8 @@ TEST_F(DOMStorageAreaTest, CommitTasks) {
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
 
   scoped_refptr<DOMStorageArea> area(new DOMStorageArea(
-      kOrigin,
-      temp_dir.path(),
-      new MockDOMStorageTaskRunner(base::MessageLoopProxy::current().get())));
+      kOrigin, temp_dir.path(),
+      new MockDOMStorageTaskRunner(base::ThreadTaskRunnerHandle::Get().get())));
   // Inject an in-memory db to speed up the test.
   area->backing_.reset(new LocalStorageDatabaseAdapter());
 
@@ -261,13 +275,14 @@ TEST_F(DOMStorageAreaTest, CommitTasks) {
   // those will also get committed.
   EXPECT_TRUE(area->SetItem(kKey, kValue, &old_value));
   EXPECT_TRUE(area->HasUncommittedChanges());
-  // At this point the OnCommitTimer task has been posted. We inject
-  // another task in the queue that will execute after the timer task,
-  // but before the CommitChanges task. From within our injected task,
-  // we'll make an additional SetItem() call.
-  base::MessageLoop::current()->PostTask(
-      FROM_HERE,
-      base::Bind(&DOMStorageAreaTest::InjectedCommitSequencingTask,
+  // At this point the StartCommitTimer task has been posted to the after
+  // startup task queue. We inject another task in the queue that will
+  // execute when the CommitChanges task is inflight. From within our
+  // injected task, we'll make an additional SetItem() call and verify
+  // that a new commit batch is created for that additional change.
+  BrowserThread::PostAfterStartupTask(
+      FROM_HERE, base::ThreadTaskRunnerHandle::Get(),
+      base::Bind(&DOMStorageAreaTest::InjectedCommitSequencingTask1,
                  base::Unretained(this),
                  area));
   base::MessageLoop::current()->RunUntilIdle();
@@ -285,9 +300,8 @@ TEST_F(DOMStorageAreaTest, CommitChangesAtShutdown) {
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
   scoped_refptr<DOMStorageArea> area(new DOMStorageArea(
-      kOrigin,
-      temp_dir.path(),
-      new MockDOMStorageTaskRunner(base::MessageLoopProxy::current().get())));
+      kOrigin, temp_dir.path(),
+      new MockDOMStorageTaskRunner(base::ThreadTaskRunnerHandle::Get().get())));
 
   // Inject an in-memory db to speed up the test and also to verify
   // the final changes are commited in it's dtor.
@@ -312,9 +326,8 @@ TEST_F(DOMStorageAreaTest, DeleteOrigin) {
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
   scoped_refptr<DOMStorageArea> area(new DOMStorageArea(
-      kOrigin,
-      temp_dir.path(),
-      new MockDOMStorageTaskRunner(base::MessageLoopProxy::current().get())));
+      kOrigin, temp_dir.path(),
+      new MockDOMStorageTaskRunner(base::ThreadTaskRunnerHandle::Get().get())));
 
   // This test puts files on disk.
   base::FilePath db_file_path = static_cast<LocalStorageDatabaseAdapter*>(
@@ -373,9 +386,8 @@ TEST_F(DOMStorageAreaTest, PurgeMemory) {
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
   scoped_refptr<DOMStorageArea> area(new DOMStorageArea(
-      kOrigin,
-      temp_dir.path(),
-      new MockDOMStorageTaskRunner(base::MessageLoopProxy::current().get())));
+      kOrigin, temp_dir.path(),
+      new MockDOMStorageTaskRunner(base::ThreadTaskRunnerHandle::Get().get())));
 
   // Inject an in-memory db to speed up the test.
   area->backing_.reset(new LocalStorageDatabaseAdapter());
@@ -470,6 +482,53 @@ TEST_F(DOMStorageAreaTest, DatabaseFileNames) {
       base::FilePath().AppendASCII(".extensiononly-journal"),
       DOMStorageDatabase::GetJournalFilePath(
           base::FilePath().AppendASCII(".extensiononly")));
+}
+
+TEST_F(DOMStorageAreaTest, RateLimiter) {
+  // Limit to 1000 samples per second
+  DOMStorageArea::RateLimiter rate_limiter(
+      1000, base::TimeDelta::FromSeconds(1));
+
+  // No samples have been added so no time/delay should be needed.
+  EXPECT_EQ(base::TimeDelta(),
+            rate_limiter.ComputeTimeNeeded());
+  EXPECT_EQ(base::TimeDelta(),
+            rate_limiter.ComputeDelayNeeded(base::TimeDelta()));
+  EXPECT_EQ(base::TimeDelta(),
+            rate_limiter.ComputeDelayNeeded(base::TimeDelta::FromDays(1)));
+
+  // Add a seconds worth of samples.
+  rate_limiter.add_samples(1000);
+  EXPECT_EQ(base::TimeDelta::FromSeconds(1),
+            rate_limiter.ComputeTimeNeeded());
+  EXPECT_EQ(base::TimeDelta::FromSeconds(1),
+            rate_limiter.ComputeDelayNeeded(base::TimeDelta()));
+  EXPECT_EQ(base::TimeDelta(),
+            rate_limiter.ComputeDelayNeeded(base::TimeDelta::FromSeconds(1)));
+  EXPECT_EQ(base::TimeDelta::FromMilliseconds(250),
+            rate_limiter.ComputeDelayNeeded(
+                base::TimeDelta::FromMilliseconds(750)));
+  EXPECT_EQ(base::TimeDelta(),
+            rate_limiter.ComputeDelayNeeded(
+                base::TimeDelta::FromDays(1)));
+
+  // And another half seconds worth.
+  rate_limiter.add_samples(500);
+  EXPECT_EQ(base::TimeDelta::FromMilliseconds(1500),
+            rate_limiter.ComputeTimeNeeded());
+  EXPECT_EQ(base::TimeDelta::FromMilliseconds(1500),
+            rate_limiter.ComputeDelayNeeded(base::TimeDelta()));
+  EXPECT_EQ(base::TimeDelta::FromMilliseconds(500),
+            rate_limiter.ComputeDelayNeeded(base::TimeDelta::FromSeconds(1)));
+  EXPECT_EQ(base::TimeDelta::FromMilliseconds(750),
+            rate_limiter.ComputeDelayNeeded(
+                base::TimeDelta::FromMilliseconds(750)));
+  EXPECT_EQ(base::TimeDelta(),
+            rate_limiter.ComputeDelayNeeded(
+                base::TimeDelta::FromMilliseconds(1500)));
+  EXPECT_EQ(base::TimeDelta(),
+            rate_limiter.ComputeDelayNeeded(
+                base::TimeDelta::FromDays(1)));
 }
 
 }  // namespace content

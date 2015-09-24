@@ -6,16 +6,19 @@
 #define CHROME_BROWSER_PASSWORD_MANAGER_SAVE_PASSWORD_INFOBAR_DELEGATE_H_
 
 #include "base/basictypes.h"
-#include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/timer/elapsed_timer.h"
 #include "components/infobars/core/confirm_infobar_delegate.h"
-#include "components/infobars/core/infobar_delegate.h"
 #include "components/password_manager/core/browser/password_form_manager.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
+#include "ui/gfx/range/range.h"
 
 namespace content {
 class WebContents;
+}
+
+namespace password_manager {
+enum class CredentialSourceType;
 }
 
 // After a successful *new* login attempt, we take the PasswordFormManager in
@@ -35,29 +38,39 @@ class SavePasswordInfoBarDelegate : public ConfirmInfoBarDelegate {
   static void Create(
       content::WebContents* web_contents,
       scoped_ptr<password_manager::PasswordFormManager> form_to_save,
-      const std::string& uma_histogram_suffix);
-
- private:
-  SavePasswordInfoBarDelegate(
-      scoped_ptr<password_manager::PasswordFormManager> form_to_save,
-      const std::string& uma_histogram_suffix);
+      const std::string& uma_histogram_suffix,
+      password_manager::CredentialSourceType source_type);
 
   ~SavePasswordInfoBarDelegate() override;
 
-  // InfoBarDelegate
-  bool ShouldExpire(const NavigationDetails& details) const override;
+  // If the infobar was triggered by the Credential management API, then on
+  // Android it should display the "More" button.
+  bool ShouldShowMoreButton();
 
-  // ConfirmInfoBarDelegate
-  int GetIconID() const override;
+  const gfx::Range& title_link_range() const { return title_link_range_; }
+
+  // ConfirmInfoBarDelegate:
   Type GetInfoBarType() const override;
+  InfoBarAutomationType GetInfoBarAutomationType() const override;
+  int GetIconID() const override;
+  bool ShouldExpire(const NavigationDetails& details) const override;
+  void InfoBarDismissed() override;
   base::string16 GetMessageText() const override;
   base::string16 GetButtonLabel(InfoBarButton button) const override;
+  bool LinkClicked(WindowOpenDisposition disposition) override;
   bool Accept() override;
   bool Cancel() override;
-  void InfoBarDismissed() override;
 
-  InfoBarAutomationType GetInfoBarAutomationType() const override;
+ protected:
+  // Makes a ctor available in tests.
+  SavePasswordInfoBarDelegate(
+      content::WebContents* web_contents,
+      scoped_ptr<password_manager::PasswordFormManager> form_to_save,
+      const std::string& uma_histogram_suffix,
+      password_manager::CredentialSourceType source_type,
+      bool is_smartlock_branding_enabled);
 
+ private:
   // The PasswordFormManager managing the form we're asking the user about,
   // and should update as per her decision.
   scoped_ptr<password_manager::PasswordFormManager> form_to_save_;
@@ -73,7 +86,24 @@ class SavePasswordInfoBarDelegate : public ConfirmInfoBarDelegate {
   // form is on a monitored domain. Otherwise, an empty string.
   const std::string uma_histogram_suffix_;
 
+  // Records source from where infobar was triggered.
+  // Infobar appearance (title, buttons) depends on value of this parameter.
+  password_manager::CredentialSourceType source_type_;
+
+  // Title for the infobar: branded as a part of Google Smart Lock for signed
+  // users.
+  base::string16 title_;
+
+  // If set, describes the location of the link to the help center article for
+  // Smart Lock.
+  gfx::Range title_link_range_;
+
   DISALLOW_COPY_AND_ASSIGN(SavePasswordInfoBarDelegate);
 };
+
+// Creates the platform-specific SavePassword InfoBar. This function is defined
+// in platform-specific .cc (or .mm) files.
+scoped_ptr<infobars::InfoBar> CreateSavePasswordInfoBar(
+    scoped_ptr<SavePasswordInfoBarDelegate> delegate);
 
 #endif  // CHROME_BROWSER_PASSWORD_MANAGER_SAVE_PASSWORD_INFOBAR_DELEGATE_H_

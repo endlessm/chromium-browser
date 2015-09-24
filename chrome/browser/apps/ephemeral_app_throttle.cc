@@ -30,7 +30,7 @@ bool LaunchEphemeralApp(
     const std::string& app_id,
     content::WebContents* source,
     const navigation_interception::NavigationParams& params) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   // Redirect top-level navigations only.
   if (source->IsSubframe())
@@ -66,7 +66,7 @@ content::ResourceThrottle*
 EphemeralAppThrottle::MaybeCreateThrottleForLaunch(
     net::URLRequest* request,
     ProfileIOData* profile_io_data) {
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnableLinkableEphemeralApps))
     return NULL;
 

@@ -43,6 +43,7 @@ typedef struct {
 
 typedef struct {
   double frame;
+  double weight;
   double intra_error;
   double coded_error;
   double sr_coded_error;
@@ -50,6 +51,8 @@ typedef struct {
   double pcnt_motion;
   double pcnt_second_ref;
   double pcnt_neutral;
+  double intra_skip_pct;
+  double inactive_zone_rows;  // Image mask rows top and bottom.
   double MVr;
   double mvr_abs;
   double MVc;
@@ -71,6 +74,13 @@ typedef enum {
   OVERLAY_UPDATE = 4,
   FRAME_UPDATE_TYPES = 5
 } FRAME_UPDATE_TYPE;
+
+#define FC_ANIMATION_THRESH 0.15
+typedef enum {
+  FC_NORMAL = 0,
+  FC_GRAPHICS_ANIMATION = 1,
+  FRAME_CONTENT_TYPES = 2
+} FRAME_CONTENT_TYPE;
 
 typedef struct {
   unsigned char index;
@@ -95,26 +105,35 @@ typedef struct {
   double modified_error_min;
   double modified_error_max;
   double modified_error_left;
+  double mb_av_energy;
 
 #if CONFIG_FP_MB_STATS
   uint8_t *frame_mb_stats_buf;
   uint8_t *this_frame_mb_stats;
   FIRSTPASS_MB_STATS firstpass_mb_stats;
 #endif
+  // An indication of the content type of the current frame
+  FRAME_CONTENT_TYPE fr_content_type;
 
   // Projected total bits available for a key frame group of frames
   int64_t kf_group_bits;
 
   // Error score of frames still to be coded in kf group
   int64_t kf_group_error_left;
+
+  // The fraction for a kf groups total bits allocated to the inter frames
+  double kfgroup_inter_fraction;
+
   int sr_update_lag;
 
   int kf_zeromotion_pct;
   int last_kfgroup_zeromotion_pct;
   int gf_zeromotion_pct;
   int active_worst_quality;
+  int baseline_active_worst_quality;
   int extend_minq;
   int extend_maxq;
+  int extend_minq_fast;
 
   GF_GROUP gf_group;
 } TWO_PASS;
@@ -128,9 +147,17 @@ void vp9_end_first_pass(struct VP9_COMP *cpi);
 
 void vp9_init_second_pass(struct VP9_COMP *cpi);
 void vp9_rc_get_second_pass_params(struct VP9_COMP *cpi);
+void vp9_twopass_postencode_update(struct VP9_COMP *cpi);
 
 // Post encode update of the rate control parameters for 2-pass
 void vp9_twopass_postencode_update(struct VP9_COMP *cpi);
+
+void vp9_init_subsampling(struct VP9_COMP *cpi);
+
+void calculate_coded_size(struct VP9_COMP *cpi,
+                          int *scaled_frame_width,
+                          int *scaled_frame_height);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

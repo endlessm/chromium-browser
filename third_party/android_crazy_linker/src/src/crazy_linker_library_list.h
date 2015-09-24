@@ -69,7 +69,7 @@ class LibraryList {
                            uintptr_t load_address,
                            off_t file_offset,
                            SearchPathList* search_path_list,
-                           bool no_map_exec_support_fallback_enabled,
+                           bool is_dependency_or_preload,
                            Error* error);
 
   // Return the full path of |lib_name| in the zip file
@@ -91,7 +91,7 @@ class LibraryList {
                                     int dlopen_flags,
                                     uintptr_t load_address,
                                     SearchPathList* search_path_list,
-                                    bool no_map_exec_support_fallback_enabled,
+                                    bool is_dependency_or_preload,
                                     Error* error);
 
   // Unload a given shared library. This really decrements the library's
@@ -107,7 +107,15 @@ class LibraryList {
   LibraryList(const LibraryList&);
   LibraryList& operator=(const LibraryList&);
 
+  // Preload any libraries that override symbols in later loads.
+  // Called once only, on library list construction. Libraries to preload
+  // are controlled by LD_PRELOAD.
+  void LoadPreloads();
+
   void ClearError();
+
+  // The list of all preloaded libraries.
+  Vector<LibraryView*> preloaded_libraries_;
 
   // The list of all known libraries.
   Vector<LibraryView*> known_libraries_;
@@ -118,7 +126,6 @@ class LibraryList {
   // This does _not_ include system libraries present in known_libraries_.
   SharedLibrary* head_;
 
-  size_t count_;
   bool has_error_;
   char error_buffer_[512];
 };

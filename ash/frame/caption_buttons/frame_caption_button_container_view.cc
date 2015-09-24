@@ -12,6 +12,7 @@
 #include "ash/frame/caption_buttons/frame_size_button.h"
 #include "ash/metrics/user_metrics_recorder.h"
 #include "ash/shell.h"
+#include "ash/touch/touch_uma.h"
 #include "ash/wm/maximize_mode/maximize_mode_controller.h"
 #include "ui/base/hit_test.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -19,8 +20,8 @@
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/gfx/animation/tween.h"
 #include "ui/gfx/canvas.h"
-#include "ui/gfx/insets.h"
-#include "ui/gfx/point.h"
+#include "ui/gfx/geometry/insets.h"
+#include "ui/gfx/geometry/point.h"
 #include "ui/strings/grit/ui_strings.h"  // Accessibility names
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
@@ -151,11 +152,9 @@ void FrameCaptionButtonContainerView::TestApi::EndAnimations() {
 void FrameCaptionButtonContainerView::SetButtonImages(
     CaptionButtonIcon icon,
     int icon_image_id,
-    int inactive_icon_image_id,
     int hovered_background_image_id,
     int pressed_background_image_id) {
   button_icon_id_map_[icon] = ButtonIconIds(icon_image_id,
-                                            inactive_icon_image_id,
                                             hovered_background_image_id,
                                             pressed_background_image_id);
   FrameCaptionButton* buttons[] = {
@@ -166,7 +165,6 @@ void FrameCaptionButtonContainerView::SetButtonImages(
       buttons[i]->SetImages(icon,
                             FrameCaptionButton::ANIMATE_NO,
                             icon_image_id,
-                            inactive_icon_image_id,
                             hovered_background_image_id,
                             pressed_background_image_id);
     }
@@ -307,7 +305,6 @@ void FrameCaptionButtonContainerView::SetButtonIcon(FrameCaptionButton* button,
     button->SetImages(icon,
                       fcb_animate,
                       it->second.icon_image_id,
-                      it->second.inactive_icon_image_id,
                       it->second.hovered_background_image_id,
                       it->second.pressed_background_image_id);
   }
@@ -338,6 +335,11 @@ void FrameCaptionButtonContainerView::ButtonPressed(views::Button* sender,
     } else {
       frame_->Maximize();
       action = ash::UMA_WINDOW_MAXIMIZE_BUTTON_CLICK_MAXIMIZE;
+    }
+
+    if (event.IsGestureEvent()) {
+      TouchUMA::GetInstance()->RecordGestureAction(
+          TouchUMA::GESTURE_FRAMEMAXIMIZE_TAP);
     }
   } else if (sender == close_button_) {
     frame_->Close();
@@ -418,18 +420,15 @@ void FrameCaptionButtonContainerView::SetHoveredAndPressedButtons(
 
 FrameCaptionButtonContainerView::ButtonIconIds::ButtonIconIds()
     : icon_image_id(-1),
-      inactive_icon_image_id(-1),
       hovered_background_image_id(-1),
       pressed_background_image_id(-1) {
 }
 
 FrameCaptionButtonContainerView::ButtonIconIds::ButtonIconIds(
     int icon_id,
-    int inactive_icon_id,
     int hovered_background_id,
     int pressed_background_id)
     : icon_image_id(icon_id),
-      inactive_icon_image_id(inactive_icon_id),
       hovered_background_image_id(hovered_background_id),
       pressed_background_image_id(pressed_background_id) {
 }

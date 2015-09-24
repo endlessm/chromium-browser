@@ -19,13 +19,20 @@
 #include "chrome/common/pref_names.h"
 #include "components/content_settings/core/browser/content_settings_utils.h"
 #include "components/content_settings/core/common/content_settings.h"
+#include "components/google/core/browser/google_util.h"
 #include "content/public/browser/browser_thread.h"
+#include "net/socket/ssl_client_socket.h"
 #include "net/ssl/ssl_cipher_suite_names.h"
 #include "net/ssl/ssl_config_service.h"
+#include "url/gurl.h"
 
 using content::BrowserThread;
 
 namespace {
+
+// Field trial for ClientHello padding.
+const char kClientHelloFieldTrialName[] = "FastRadioPadding";
+const char kClientHelloFieldTrialEnabledGroupName[] = "Enabled";
 
 // Converts a ListValue of StringValues into a vector of strings. Any Values
 // which cannot be converted will be skipped.
@@ -68,9 +75,7 @@ std::vector<uint16> ParseCipherSuites(
 // Returns 0 if the string is invalid.
 uint16 SSLProtocolVersionFromString(const std::string& version_str) {
   uint16 version = 0;  // Invalid.
-  if (version_str == switches::kSSLVersionSSLv3) {
-    version = net::SSL_PROTOCOL_VERSION_SSL3;
-  } else if (version_str == switches::kSSLVersionTLSv1) {
+  if (version_str == switches::kSSLVersionTLSv1) {
     version = net::SSL_PROTOCOL_VERSION_TLS1;
   } else if (version_str == switches::kSSLVersionTLSv11) {
     version = net::SSL_PROTOCOL_VERSION_TLS1_1;
@@ -95,6 +100,8 @@ class SSLConfigServicePref : public net::SSLConfigService {
   // Store SSL config settings in |config|. Must only be called from IO thread.
   void GetSSLConfig(net::SSLConfig* config) override;
 
+  bool SupportsFastradioPadding(const GURL& url) override;
+
  private:
   // Allow the pref watcher to update our internal state.
   friend class SSLConfigServiceManagerPref;
@@ -112,7 +119,13 @@ class SSLConfigServicePref : public net::SSLConfigService {
 };
 
 void SSLConfigServicePref::GetSSLConfig(net::SSLConfig* config) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   *config = cached_config_;
+}
+
+bool SSLConfigServicePref::SupportsFastradioPadding(const GURL& url) {
+  return google_util::IsGoogleHostname(url.host(),
+                                       google_util::ALLOW_SUBDOMAIN);
 }
 
 void SSLConfigServicePref::SetNewSSLConfig(
@@ -213,9 +226,9 @@ void SSLConfigServiceManagerPref::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(
       prefs::kCertRevocationCheckingRequiredLocalAnchors,
       default_config.rev_checking_required_local_anchors);
-  registry->RegisterStringPref(prefs::kSSLVersionMin, "");
-  registry->RegisterStringPref(prefs::kSSLVersionMax, "");
-  registry->RegisterStringPref(prefs::kSSLVersionFallbackMin, "");
+  registry->RegisterStringPref(prefs::kSSLVersionMin, std::string());
+  registry->RegisterStringPref(prefs::kSSLVersionMax, std::string());
+  registry->RegisterStringPref(prefs::kSSLVersionFallbackMin, std::string());
   registry->RegisterBooleanPref(prefs::kDisableSSLRecordSplitting,
                                 !default_config.false_start_enabled);
   registry->RegisterListPref(prefs::kCipherSuiteBlacklist);
@@ -228,7 +241,7 @@ net::SSLConfigService* SSLConfigServiceManagerPref::Get() {
 void SSLConfigServiceManagerPref::OnPreferenceChanged(
     PrefService* prefs,
     const std::string& pref_name_in) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(prefs);
   if (pref_name_in == prefs::kCipherSuiteBlacklist)
     OnDisabledCipherSuitesChange(prefs);
@@ -261,7 +274,7 @@ void SSLConfigServiceManagerPref::GetSSLConfigFromPrefs(
   std::string version_max_str = ssl_version_max_.GetValue();
   std::string version_fallback_min_str = ssl_version_fallback_min_.GetValue();
   config->version_min = net::kDefaultSSLVersionMin;
-  config->version_max = net::kDefaultSSLVersionMax;
+  config->version_max = net::SSLClientSocket::GetMaxSupportedSSLVersion();
   config->version_fallback_min = net::kDefaultSSLVersionFallbackMin;
   uint16 version_min = SSLProtocolVersionFromString(version_min_str);
   uint16 version_max = SSLProtocolVersionFromString(version_max_str);
@@ -269,15 +282,8 @@ void SSLConfigServiceManagerPref::GetSSLConfigFromPrefs(
       SSLProtocolVersionFromString(version_fallback_min_str);
   if (version_min) {
     config->version_min = version_min;
-  } else {
-    const std::string group = base::FieldTrialList::FindFullName("SSLv3");
-    if (group == "Enabled") {
-      config->version_min = net::SSL_PROTOCOL_VERSION_SSL3;
-    }
   }
   if (version_max) {
-    // TODO(wtc): get the maximum SSL protocol version supported by the
-    // SSLClientSocket class.
     uint16 supported_version_max = config->version_max;
     config->version_max = std::min(supported_version_max, version_max);
   }
@@ -287,6 +293,12 @@ void SSLConfigServiceManagerPref::GetSSLConfigFromPrefs(
   config->disabled_cipher_suites = disabled_cipher_suites_;
   // disabling False Start also happens to disable record splitting.
   config->false_start_enabled = !ssl_record_splitting_disabled_.GetValue();
+
+  base::StringPiece group =
+      base::FieldTrialList::FindFullName(kClientHelloFieldTrialName);
+  if (group.starts_with(kClientHelloFieldTrialEnabledGroupName)) {
+    config->fastradio_padding_enabled = true;
+  }
 }
 
 void SSLConfigServiceManagerPref::OnDisabledCipherSuitesChange(

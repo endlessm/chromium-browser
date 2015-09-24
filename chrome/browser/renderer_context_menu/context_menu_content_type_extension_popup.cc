@@ -15,6 +15,8 @@ ContextMenuContentTypeExtensionPopup::~ContextMenuContentTypeExtensionPopup() {
 
 bool ContextMenuContentTypeExtensionPopup::SupportsGroup(int group) {
   switch (group) {
+    case ITEM_GROUP_LINK:
+    case ITEM_GROUP_MEDIA_IMAGE:
     case ITEM_GROUP_EDITABLE:
     case ITEM_GROUP_COPY:
     case ITEM_GROUP_SEARCH_PROVIDER:

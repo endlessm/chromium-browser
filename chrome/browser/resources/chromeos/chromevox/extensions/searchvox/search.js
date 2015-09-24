@@ -23,7 +23,7 @@ cvox.Search = function() {
 
 /**
  * Selectors to match results.
- * @type {Object.<string, string>}
+ * @type {Object<string>}
  */
 cvox.Search.selectors = {};
 
@@ -36,7 +36,7 @@ cvox.Search.webSelectors = {
   SPELL_SUGG_SELECT: '.ssp',
   SPELL_CORRECTION_SELECT: '.sp_cnt',
   KNOW_PANEL_SELECT: '.knop',
-  RESULT_SELECT: 'li.g',
+  RESULT_SELECT: '.g',
   RELATED_SELECT: '#brs'
 };
 
@@ -56,13 +56,13 @@ cvox.Search.index;
 
 /**
  * Array of the search results.
- * @type {Array.<Element>}
+ * @type {Array<Element>}
  */
 cvox.Search.results = [];
 
 /**
  * Array of the navigation panes.
- * @type {Array.<Element>}
+ * @type {Array<Element>}
  */
 cvox.Search.panes = [];
 
@@ -412,7 +412,7 @@ cvox.Search.init = function() {
   cvox.ChromeVox.tts.stop();
 
   /* Determine the type of search. */
-  var SELECTED_CLASS = 'hdtb_msel';
+  var SELECTED_CLASS = 'hdtb-msel';
   var selected = document.getElementsByClassName(SELECTED_CLASS)[0];
   if (!selected) {
     return;

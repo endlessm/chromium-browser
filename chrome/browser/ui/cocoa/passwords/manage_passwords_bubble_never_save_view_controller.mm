@@ -21,9 +21,8 @@ using namespace password_manager::mac::ui;
 
 - (id)initWithModel:(ManagePasswordsBubbleModel*)model
            delegate:(id<ManagePasswordsBubbleNeverSaveViewDelegate>)delegate {
-  if ((self = [super initWithNibName:nil bundle:nil])) {
+  if (([super initWithDelegate:delegate])) {
     model_ = model;
-    delegate_ = delegate;
   }
   return self;
 }
@@ -34,11 +33,13 @@ using namespace password_manager::mac::ui;
 }
 
 - (void)onUndoClicked:(id)sender {
-  [delegate_ neverSavePasswordCancelled];
+  SEL selector = @selector(neverSavePasswordCancelled);
+  if ([delegate_ respondsToSelector:selector])
+    [delegate_ performSelector:selector];
 }
 
 - (void)loadView {
-  self.view = [[[NSView alloc] initWithFrame:NSZeroRect] autorelease];
+  base::scoped_nsobject<NSView> view([[NSView alloc] initWithFrame:NSZeroRect]);
 
   // -----------------------------------
   // |  Title                          |
@@ -51,24 +52,28 @@ using namespace password_manager::mac::ui;
   // Create the elements and add them to the view.
 
   // Title.
-  NSTextField* titleLabel = [self
-      addTitleLabel:l10n_util::GetNSString(
-          IDS_MANAGE_PASSWORDS_BLACKLIST_CONFIRMATION_TITLE)];
+  NSTextField* titleLabel =
+      [self addTitleLabel:l10n_util::GetNSString(
+                              IDS_MANAGE_PASSWORDS_BLACKLIST_CONFIRMATION_TITLE)
+                   toView:view];
 
   // Blacklist confirmation.
-  NSTextField* confirmationLabel = [self
-      addLabel:l10n_util::GetNSString(
-          IDS_MANAGE_PASSWORDS_BLACKLIST_CONFIRMATION_TEXT)];
+  NSTextField* confirmationLabel =
+      [self addLabel:l10n_util::GetNSString(
+                         IDS_MANAGE_PASSWORDS_BLACKLIST_CONFIRMATION_TEXT)
+              toView:view];
 
   // Undo button.
   undoButton_.reset([[self addButton:l10n_util::GetNSString(IDS_CANCEL)
+                              toView:view
                               target:self
                               action:@selector(onUndoClicked:)] retain]);
 
   // Confirm button.
   confirmButton_.reset(
       [[self addButton:l10n_util::GetNSString(
-        IDS_MANAGE_PASSWORDS_BLACKLIST_CONFIRMATION_BUTTON)
+                           IDS_MANAGE_PASSWORDS_BLACKLIST_CONFIRMATION_BUTTON)
+                toView:view
                 target:self
                 action:@selector(onConfirmClicked:)] retain]);
 
@@ -109,7 +114,9 @@ using namespace password_manager::mac::ui;
 
   // Update the bubble size.
   const CGFloat height = NSMaxY([titleLabel frame]) + kFramePadding;
-  [self.view setFrame:NSMakeRect(0, 0, width, height)];
+  [view setFrame:NSMakeRect(0, 0, width, height)];
+
+  [self setView:view];
 }
 
 @end

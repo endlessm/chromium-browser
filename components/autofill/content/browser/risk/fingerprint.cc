@@ -39,7 +39,7 @@
 #include "gpu/config/gpu_info.h"
 #include "third_party/WebKit/public/platform/WebRect.h"
 #include "third_party/WebKit/public/platform/WebScreenInfo.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/screen.h"
 
 using blink::WebScreenInfo;
@@ -172,12 +172,6 @@ void AddGpuInfoToFingerprint(Fingerprint::MachineCharacteristics* machine,
   graphics->set_device_id(gpu_info.gpu.device_id);
   graphics->set_driver_version(gpu_info.driver_version);
   graphics->set_driver_date(gpu_info.driver_date);
-
-  Fingerprint::MachineCharacteristics::Graphics::PerformanceStatistics*
-      gpu_performance = graphics->mutable_performance_statistics();
-  gpu_performance->set_graphics_score(gpu_info.performance_stats.graphics);
-  gpu_performance->set_gaming_score(gpu_info.performance_stats.gaming);
-  gpu_performance->set_overall_score(gpu_info.performance_stats.overall);
 }
 
 // Waits for all asynchronous data required for the fingerprint to be loaded,
@@ -478,7 +472,7 @@ void GetFingerprint(
   gfx::Rect content_bounds = web_contents->GetContainerBounds();
 
   blink::WebScreenInfo screen_info;
-  content::RenderWidgetHostView* host_view =
+  const content::RenderWidgetHostView* host_view =
       web_contents->GetRenderWidgetHostView();
   if (host_view)
     host_view->GetRenderWidgetHost()->GetWebScreenInfo(&screen_info);

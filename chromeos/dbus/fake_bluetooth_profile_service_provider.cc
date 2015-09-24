@@ -6,7 +6,6 @@
 
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/fake_bluetooth_profile_manager_client.h"
-#include "dbus/object_path.h"
 
 namespace chromeos {
 
@@ -32,8 +31,8 @@ FakeBluetoothProfileServiceProvider::~FakeBluetoothProfileServiceProvider() {
   fake_bluetooth_profile_manager_client->UnregisterProfileServiceProvider(this);
 }
 
-void FakeBluetoothProfileServiceProvider::Release() {
-  VLOG(1) << object_path_.value() << ": Release";
+void FakeBluetoothProfileServiceProvider::Released() {
+  VLOG(1) << object_path_.value() << ": Released";
   delegate_->Released();
 }
 

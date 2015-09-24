@@ -11,7 +11,7 @@
 #include "base/memory/ref_counted.h"
 #include "media/base/media_export.h"
 #include "media/base/pipeline_status.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace media {
 
@@ -25,11 +25,13 @@ class MEDIA_EXPORT VideoDecoder {
   // TODO(rileya): Now that both AudioDecoder and VideoDecoder Status enums
   // match, break them into a decoder_status.h.
   enum Status {
-    kOk,  // Everything went as planned.
-    kAborted,  // Decode was aborted as a result of Reset() being called.
-    kDecodeError,  // Decoding error happened.
-    kDecryptError  // Decrypting error happened.
+    kOk,          // Everything went as planned.
+    kAborted,     // Decode was aborted as a result of Reset() being called.
+    kDecodeError  // Decoding error happened.
   };
+
+  // Callback for VideoDecoder initialization.
+  typedef base::Callback<void(bool success)> InitCB;
 
   // Callback for VideoDecoder to return a decoded frame whenever it becomes
   // available. Only non-EOS frames should be returned via this callback.
@@ -52,17 +54,23 @@ class MEDIA_EXPORT VideoDecoder {
   virtual std::string GetDisplayName() const = 0;
 
   // Initializes a VideoDecoder with the given |config|, executing the
-  // |status_cb| upon completion. |output_cb| is called for each output frame
+  // |init_cb| upon completion. |output_cb| is called for each output frame
   // decoded by Decode().
+  //
+  // If |low_delay| is true then the decoder is not allowed to queue frames,
+  // except for out-of-order frames, i.e. if the next frame can be returned it
+  // must be returned without waiting for Decode() to be called again.
+  // Initialization should fail if |low_delay| is true and the decoder cannot
+  // satisfy the requirements above.
   //
   // Note:
   // 1) The VideoDecoder will be reinitialized if it was initialized before.
   //    Upon reinitialization, all internal buffered frames will be dropped.
   // 2) This method should not be called during pending decode or reset.
-  // 3) No VideoDecoder calls should be made before |status_cb| is executed.
+  // 3) No VideoDecoder calls should be made before |init_cb| is executed.
   virtual void Initialize(const VideoDecoderConfig& config,
                           bool low_delay,
-                          const PipelineStatusCB& status_cb,
+                          const InitCB& init_cb,
                           const OutputCB& output_cb) = 0;
 
   // Requests a |buffer| to be decoded. The status of the decoder and decoded
@@ -78,8 +86,9 @@ class MEDIA_EXPORT VideoDecoder {
   // called again).
   //
   // After decoding is finished the decoder calls |output_cb| specified in
-  // Initialize() for each decoded frame. |output_cb| may be called before or
-  // after |decode_cb|.
+  // Initialize() for each decoded frame. In general |output_cb| may be called
+  // before or after |decode_cb|, but software decoders normally call
+  // |output_cb| before calling |decode_cb|, i.e. while Decode() is pending.
   //
   // If |buffer| is an EOS buffer then the decoder must be flushed, i.e.
   // |output_cb| must be called for each frame pending in the queue and

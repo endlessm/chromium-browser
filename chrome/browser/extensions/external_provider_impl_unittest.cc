@@ -9,7 +9,6 @@
 #include "base/files/file_util.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
-#include "base/prefs/testing_pref_service.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/scoped_path_override.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -32,11 +31,11 @@
 #include "testing/gmock/include/gmock/gmock.h"
 
 #if defined(OS_CHROMEOS)
-#include "chrome/browser/chromeos/customization_document.h"
-#include "chrome/browser/chromeos/login/users/fake_user_manager.h"
+#include "chrome/browser/chromeos/customization/customization_document.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chromeos/system/fake_statistics_provider.h"
 #include "chromeos/system/statistics_provider.h"
+#include "components/user_manager/fake_user_manager.h"
 #endif
 
 using ::testing::NotNull;
@@ -60,7 +59,7 @@ class ExternalProviderImplTest : public ExtensionServiceTestBase {
   void InitServiceWithExternalProviders() {
 #if defined(OS_CHROMEOS)
     chromeos::ScopedUserManagerEnabler scoped_user_manager(
-        new chromeos::FakeUserManager);
+        new user_manager::FakeUserManager);
 #endif
     InitializeExtensionServiceWithUpdaterAndPrefs();
 
@@ -99,12 +98,6 @@ class ExternalProviderImplTest : public ExtensionServiceTestBase {
     ExtensionServiceTestBase::SetUp();
     test_server_.reset(new EmbeddedTestServer());
 
-#if defined(OS_CHROMEOS)
-    TestingBrowserProcess::GetGlobal()->SetLocalState(&local_state_);
-    chromeos::ServicesCustomizationDocument::RegisterPrefs(
-        local_state_.registry());
-#endif
-
     ASSERT_TRUE(test_server_->InitializeAndWaitUntilReady());
     test_server_->RegisterRequestHandler(
         base::Bind(&ExternalProviderImplTest::HandleRequest,
@@ -112,13 +105,9 @@ class ExternalProviderImplTest : public ExtensionServiceTestBase {
 
     test_extension_cache_.reset(new ExtensionCacheFake());
 
-    CommandLine* cmdline = CommandLine::ForCurrentProcess();
+    base::CommandLine* cmdline = base::CommandLine::ForCurrentProcess();
     cmdline->AppendSwitchASCII(switches::kAppsGalleryUpdateURL,
                                test_server_->GetURL(kManifestPath).spec());
-  }
-
-  void TearDown() override {
-    TestingBrowserProcess::GetGlobal()->SetLocalState(NULL);
   }
 
  private:
@@ -163,7 +152,6 @@ class ExternalProviderImplTest : public ExtensionServiceTestBase {
   // chromeos::ServicesCustomizationExternalLoader is hooked up as an
   // extensions::ExternalLoader and depends on a functioning StatisticsProvider.
   chromeos::system::ScopedFakeStatisticsProvider fake_statistics_provider_;
-  TestingPrefServiceSimple local_state_;
 #endif
 
   DISALLOW_COPY_AND_ASSIGN(ExternalProviderImplTest);

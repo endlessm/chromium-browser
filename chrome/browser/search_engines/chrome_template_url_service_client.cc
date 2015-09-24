@@ -4,19 +4,21 @@
 
 #include "chrome/browser/search_engines/chrome_template_url_service_client.h"
 
-#include "chrome/browser/history/history_service.h"
+#include "components/history/core/browser/history_service.h"
 #include "components/search_engines/template_url_service.h"
 #include "extensions/common/constants.h"
 
 ChromeTemplateURLServiceClient::ChromeTemplateURLServiceClient(
-    HistoryService* history_service)
-    : owner_(NULL), history_service_(history_service) {
+    history::HistoryService* history_service)
+    : owner_(NULL),
+      history_service_observer_(this),
+      history_service_(history_service) {
   // TODO(sky): bug 1166191. The keywords should be moved into the history
   // db, which will mean we no longer need this notification and the history
   // backend can handle automatically adding the search terms as the user
   // navigates.
   if (history_service_)
-    history_service_->AddObserver(this);
+    history_service_observer_.Add(history_service_);
 }
 
 ChromeTemplateURLServiceClient::~ChromeTemplateURLServiceClient() {
@@ -30,8 +32,7 @@ void ChromeTemplateURLServiceClient::Shutdown() {
   // Remove self from |history_service_| observers in the shutdown phase of the
   // two-phases since KeyedService are not supposed to use a dependend service
   // after the Shutdown call.
-  if (history_service_)
-    history_service_->RemoveObserver(this);
+  history_service_observer_.RemoveAll();
 }
 
 void ChromeTemplateURLServiceClient::SetOwner(TemplateURLService* owner) {
@@ -74,7 +75,7 @@ void ChromeTemplateURLServiceClient::RestoreExtensionInfoIfNecessary(
 }
 
 void ChromeTemplateURLServiceClient::OnURLVisited(
-    HistoryService* history_service,
+    history::HistoryService* history_service,
     ui::PageTransition transition,
     const history::URLRow& row,
     const history::RedirectList& redirects,

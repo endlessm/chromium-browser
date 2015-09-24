@@ -14,7 +14,7 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_ui_controller.h"
 #include "content/public/common/service_registry.h"
-#include "mojo/public/cpp/system/core.h"
+#include "third_party/mojo/src/mojo/public/cpp/system/core.h"
 
 class MojoWebUIHandler;
 
@@ -54,9 +54,8 @@ class MojoWebUIController : public MojoWebUIControllerBase {
  public:
   explicit MojoWebUIController(content::WebUI* contents)
       : MojoWebUIControllerBase(contents), weak_factory_(this) {}
-  virtual ~MojoWebUIController() {}
-  virtual void RenderViewCreated(
-      content::RenderViewHost* render_view_host) override {
+  ~MojoWebUIController() override {}
+  void RenderViewCreated(content::RenderViewHost* render_view_host) override {
     MojoWebUIControllerBase::RenderViewCreated(render_view_host);
     render_view_host->GetMainFrame()->GetServiceRegistry()->
         AddService<Interface>(

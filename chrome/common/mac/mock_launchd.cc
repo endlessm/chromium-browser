@@ -97,6 +97,7 @@ MockLaunchd::MockLaunchd(const base::FilePath& file,
                          bool create_socket,
                          bool as_service)
     : file_(file),
+      pipe_name_(GetServiceProcessChannel().name),
       message_loop_(loop),
       create_socket_(create_socket),
       as_service_(as_service),
@@ -105,37 +106,9 @@ MockLaunchd::MockLaunchd(const base::FilePath& file,
       checkin_called_(false),
       write_called_(false),
       delete_called_(false) {
-  std::string pipe_suffix("_SOCKET");
-  base::FilePath socket_path = file_;
-  while (socket_path.value().length() + pipe_suffix.length() >
-         kMaxPipeNameLength - 2) {
-    socket_path = socket_path.DirName();
-  }
-  pipe_name_ = socket_path.value() + pipe_suffix;
 }
 
 MockLaunchd::~MockLaunchd() {
-}
-
-CFDictionaryRef MockLaunchd::CopyExports() {
-  if (!create_socket_) {
-    ADD_FAILURE();
-    return NULL;
-  }
-
-  CFStringRef env_var =
-      base::mac::NSToCFCast(GetServiceProcessLaunchDSocketEnvVar());
-  base::ScopedCFTypeRef<CFStringRef> socket_path(CFStringCreateWithCString(
-      kCFAllocatorDefault, pipe_name_.c_str(), kCFStringEncodingUTF8));
-  const void *keys[] = { env_var };
-  const void *values[] = { socket_path };
-  COMPILE_ASSERT(arraysize(keys) == arraysize(values), array_sizes_must_match);
-  return CFDictionaryCreate(kCFAllocatorDefault,
-                            keys,
-                            values,
-                            arraysize(keys),
-                            &kCFTypeDictionaryKeyCallBacks,
-                            &kCFTypeDictionaryValueCallBacks);
 }
 
 CFDictionaryRef MockLaunchd::CopyJobDictionary(CFStringRef label) {
@@ -155,7 +128,8 @@ CFDictionaryRef MockLaunchd::CopyJobDictionary(CFStringRef label) {
   base::ScopedCFTypeRef<CFNumberRef> pid(
       CFNumberCreate(NULL, kCFNumberIntType, &process_id));
   const void *values[] = { path, pid };
-  COMPILE_ASSERT(arraysize(keys) == arraysize(values), array_sizes_must_match);
+  static_assert(arraysize(keys) == arraysize(values),
+                "keys must have the same number of elements as values");
   return CFDictionaryCreate(kCFAllocatorDefault,
                             keys,
                             values,
@@ -177,8 +151,8 @@ CFDictionaryRef MockLaunchd::CopyDictionaryByCheckingIn(CFErrorRef* error) {
   if (!create_socket_) {
     const void *keys[] = { program, program_args };
     const void *values[] = { path, args };
-    COMPILE_ASSERT(arraysize(keys) == arraysize(values),
-                   array_sizes_must_match);
+    static_assert(arraysize(keys) == arraysize(values),
+                  "keys must have the same number of elements as values");
     return CFDictionaryCreate(kCFAllocatorDefault,
                               keys,
                               values,
@@ -230,8 +204,9 @@ CFDictionaryRef MockLaunchd::CopyDictionaryByCheckingIn(CFErrorRef* error) {
   CFStringRef socket_dict_key = CFSTR("ServiceProcessSocket");
   const void *socket_keys[] = { socket_dict_key };
   const void *socket_values[] = { sockets };
-  COMPILE_ASSERT(arraysize(socket_keys) == arraysize(socket_values),
-                 socket_array_sizes_must_match);
+  static_assert(arraysize(socket_keys) == arraysize(socket_values),
+                "socket_keys must have the same number of elements "
+                "as socket_values");
   base::ScopedCFTypeRef<CFDictionaryRef> socket_dict(
       CFDictionaryCreate(kCFAllocatorDefault,
                          socket_keys,
@@ -241,7 +216,8 @@ CFDictionaryRef MockLaunchd::CopyDictionaryByCheckingIn(CFErrorRef* error) {
                          &kCFTypeDictionaryValueCallBacks));
   const void *keys[] = { program, program_args, socket_key };
   const void *values[] = { path, args, socket_dict };
-  COMPILE_ASSERT(arraysize(keys) == arraysize(values), array_sizes_must_match);
+  static_assert(arraysize(keys) == arraysize(values),
+                "keys must have the same number of elements as values");
   return CFDictionaryCreate(kCFAllocatorDefault,
                             keys,
                             values,

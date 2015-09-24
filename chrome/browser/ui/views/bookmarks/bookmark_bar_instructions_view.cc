@@ -87,6 +87,10 @@ void BookmarkBarInstructionsView::Layout() {
   }
 }
 
+const char* BookmarkBarInstructionsView::GetClassName() const {
+  return "BookmarkBarInstructionsView";
+}
+
 void BookmarkBarInstructionsView::OnThemeChanged() {
   UpdateColors();
 }
@@ -104,7 +108,7 @@ void BookmarkBarInstructionsView::GetAccessibleState(
 
 void BookmarkBarInstructionsView::LinkClicked(views::Link* source,
                                               int event_flags) {
-  delegate_->ShowImportDialog();
+  delegate_->OnImportBookmarks();
 }
 
 void BookmarkBarInstructionsView::ShowContextMenuForView(

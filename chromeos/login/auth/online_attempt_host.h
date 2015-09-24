@@ -10,6 +10,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/single_thread_task_runner.h"
 #include "chromeos/chromeos_export.h"
 #include "chromeos/login/auth/auth_attempt_state_resolver.h"
 #include "chromeos/login/auth/user_context.h"
@@ -34,7 +35,7 @@ class CHROMEOS_EXPORT OnlineAttemptHost : public AuthAttemptStateResolver {
   };
 
   explicit OnlineAttemptHost(Delegate* delegate);
-  virtual ~OnlineAttemptHost();
+  ~OnlineAttemptHost() override;
 
   // Performs an online check of the credentials in |request_context| and
   // invokes
@@ -50,13 +51,13 @@ class CHROMEOS_EXPORT OnlineAttemptHost : public AuthAttemptStateResolver {
 
   // AuthAttemptStateResolver overrides.
   // Executed on IO thread.
-  virtual void Resolve() override;
+  void Resolve() override;
 
   // Does an actual resolve on UI thread.
   void ResolveOnUIThread(bool success);
 
  private:
-  scoped_refptr<base::MessageLoopProxy> message_loop_;
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   Delegate* delegate_;
   UserContext current_attempt_user_context_;
   scoped_ptr<OnlineAttempt> online_attempt_;

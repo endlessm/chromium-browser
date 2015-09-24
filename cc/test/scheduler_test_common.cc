@@ -7,24 +7,25 @@
 #include <string>
 
 #include "base/logging.h"
+#include "cc/debug/rendering_stats_instrumentation.h"
 
 namespace cc {
 
-void FakeTimeSourceClient::OnTimerTick() {
+void FakeDelayBasedTimeSourceClient::OnTimerTick() {
   tick_called_ = true;
 }
 
 base::TimeTicks FakeDelayBasedTimeSource::Now() const { return now_; }
 
 TestDelayBasedTimeSource::TestDelayBasedTimeSource(
-    scoped_refptr<TestNowSource> now_src,
+    base::SimpleTestTickClock* now_src,
     base::TimeDelta interval,
     OrderedSimpleTaskRunner* task_runner)
     : DelayBasedTimeSource(interval, task_runner), now_src_(now_src) {
 }
 
 base::TimeTicks TestDelayBasedTimeSource::Now() const {
-  return now_src_->Now();
+  return now_src_->NowTicks();
 }
 
 std::string TestDelayBasedTimeSource::TypeString() const {
@@ -37,13 +38,15 @@ TestDelayBasedTimeSource::~TestDelayBasedTimeSource() {
 void FakeBeginFrameSource::DidFinishFrame(size_t remaining_frames) {
   remaining_frames_ = remaining_frames;
 }
-void FakeBeginFrameSource::AsValueInto(base::debug::TracedValue* dict) const {
+
+void FakeBeginFrameSource::AsValueInto(
+    base::trace_event::TracedValue* dict) const {
   dict->SetString("type", "FakeBeginFrameSource");
-  BeginFrameSourceMixIn::AsValueInto(dict);
+  BeginFrameSourceBase::AsValueInto(dict);
 }
 
 TestBackToBackBeginFrameSource::TestBackToBackBeginFrameSource(
-    scoped_refptr<TestNowSource> now_src,
+    base::SimpleTestTickClock* now_src,
     base::SingleThreadTaskRunner* task_runner)
     : BackToBackBeginFrameSource(task_runner), now_src_(now_src) {
 }
@@ -52,94 +55,134 @@ TestBackToBackBeginFrameSource::~TestBackToBackBeginFrameSource() {
 }
 
 base::TimeTicks TestBackToBackBeginFrameSource::Now() {
-  return now_src_->Now();
+  return now_src_->NowTicks();
 }
 
 TestSyntheticBeginFrameSource::TestSyntheticBeginFrameSource(
-    scoped_refptr<DelayBasedTimeSource> time_source)
-    : SyntheticBeginFrameSource(time_source) {
+    scoped_ptr<DelayBasedTimeSource> time_source)
+    : SyntheticBeginFrameSource(time_source.Pass()) {
 }
 
 TestSyntheticBeginFrameSource::~TestSyntheticBeginFrameSource() {
 }
 
-TestSchedulerFrameSourcesConstructor::TestSchedulerFrameSourcesConstructor(
-    OrderedSimpleTaskRunner* test_task_runner,
-    TestNowSource* now_src)
-    : test_task_runner_(test_task_runner), now_src_(now_src) {
+scoped_ptr<FakeCompositorTimingHistory> FakeCompositorTimingHistory::Create() {
+  scoped_ptr<RenderingStatsInstrumentation> rendering_stats_instrumentation =
+      RenderingStatsInstrumentation::Create();
+  return make_scoped_ptr(
+      new FakeCompositorTimingHistory(rendering_stats_instrumentation.Pass()));
 }
-TestSchedulerFrameSourcesConstructor::~TestSchedulerFrameSourcesConstructor() {
+
+FakeCompositorTimingHistory::FakeCompositorTimingHistory(
+    scoped_ptr<RenderingStatsInstrumentation> rendering_stats_instrumentation)
+    : CompositorTimingHistory(rendering_stats_instrumentation.get()),
+      rendering_stats_instrumentation_owned_(
+          rendering_stats_instrumentation.Pass()) {
 }
 
-BeginFrameSource*
-TestSchedulerFrameSourcesConstructor::ConstructPrimaryFrameSource(
-    Scheduler* scheduler) {
-  if (!scheduler->settings_.throttle_frame_production) {
-    TRACE_EVENT1(
-        "cc",
-        "TestSchedulerFrameSourcesConstructor::ConstructPrimaryFrameSource",
-        "source",
-        "TestBackToBackBeginFrameSource");
-    DCHECK(!scheduler->primary_frame_source_internal_);
-    scheduler->primary_frame_source_internal_ =
-        TestBackToBackBeginFrameSource::Create(now_src_, test_task_runner_);
-    return scheduler->primary_frame_source_internal_.get();
-  } else if (scheduler->settings_.begin_frame_scheduling_enabled) {
-    return SchedulerFrameSourcesConstructor::ConstructPrimaryFrameSource(
-        scheduler);
-  } else {
-    TRACE_EVENT1(
-        "cc",
-        "TestSchedulerFrameSourcesConstructor::ConstructPrimaryFrameSource",
-        "source",
-        "TestSyntheticBeginFrameSource");
-    scoped_ptr<TestSyntheticBeginFrameSource> synthetic_source =
-        TestSyntheticBeginFrameSource::Create(
-            now_src_, test_task_runner_, BeginFrameArgs::DefaultInterval());
+FakeCompositorTimingHistory::~FakeCompositorTimingHistory() {
+}
 
-    DCHECK(!scheduler->vsync_observer_);
-    scheduler->vsync_observer_ = synthetic_source.get();
+void FakeCompositorTimingHistory::SetAllEstimatesTo(base::TimeDelta duration) {
+  begin_main_frame_to_commit_duration_ = duration;
+  commit_to_ready_to_activate_duration_ = duration;
+  prepare_tiles_duration_ = duration;
+  activate_duration_ = duration;
+  draw_duration_ = duration;
+}
 
-    DCHECK(!scheduler->primary_frame_source_internal_);
-    scheduler->primary_frame_source_internal_ = synthetic_source.Pass();
-    return scheduler->primary_frame_source_internal_.get();
+void FakeCompositorTimingHistory::SetBeginMainFrameToCommitDurationEstimate(
+    base::TimeDelta duration) {
+  begin_main_frame_to_commit_duration_ = duration;
+}
+
+void FakeCompositorTimingHistory::SetCommitToReadyToActivateDurationEstimate(
+    base::TimeDelta duration) {
+  commit_to_ready_to_activate_duration_ = duration;
+}
+
+void FakeCompositorTimingHistory::SetPrepareTilesDurationEstimate(
+    base::TimeDelta duration) {
+  prepare_tiles_duration_ = duration;
+}
+
+void FakeCompositorTimingHistory::SetActivateDurationEstimate(
+    base::TimeDelta duration) {
+  activate_duration_ = duration;
+}
+
+void FakeCompositorTimingHistory::SetDrawDurationEstimate(
+    base::TimeDelta duration) {
+  draw_duration_ = duration;
+}
+
+base::TimeDelta
+FakeCompositorTimingHistory::BeginMainFrameToCommitDurationEstimate() const {
+  return begin_main_frame_to_commit_duration_;
+}
+
+base::TimeDelta
+FakeCompositorTimingHistory::CommitToReadyToActivateDurationEstimate() const {
+  return commit_to_ready_to_activate_duration_;
+}
+
+base::TimeDelta FakeCompositorTimingHistory::PrepareTilesDurationEstimate()
+    const {
+  return prepare_tiles_duration_;
+}
+
+base::TimeDelta FakeCompositorTimingHistory::ActivateDurationEstimate() const {
+  return activate_duration_;
+}
+
+base::TimeDelta FakeCompositorTimingHistory::DrawDurationEstimate() const {
+  return draw_duration_;
+}
+
+scoped_ptr<TestScheduler> TestScheduler::Create(
+    base::SimpleTestTickClock* now_src,
+    SchedulerClient* client,
+    const SchedulerSettings& settings,
+    int layer_tree_host_id,
+    OrderedSimpleTaskRunner* task_runner,
+    BeginFrameSource* external_frame_source,
+    scoped_ptr<CompositorTimingHistory> compositor_timing_history) {
+  scoped_ptr<TestSyntheticBeginFrameSource> synthetic_frame_source;
+  if (!settings.use_external_begin_frame_source) {
+    synthetic_frame_source = TestSyntheticBeginFrameSource::Create(
+        now_src, task_runner, BeginFrameArgs::DefaultInterval());
   }
-}
-
-BeginFrameSource*
-TestSchedulerFrameSourcesConstructor::ConstructBackgroundFrameSource(
-    Scheduler* scheduler) {
-  TRACE_EVENT1(
-      "cc",
-      "TestSchedulerFrameSourcesConstructor::ConstructBackgroundFrameSource",
-      "source",
-      "TestSyntheticBeginFrameSource");
-  DCHECK(!(scheduler->background_frame_source_internal_));
-  scheduler->background_frame_source_internal_ =
-      TestSyntheticBeginFrameSource::Create(
-          now_src_, test_task_runner_, base::TimeDelta::FromSeconds(1));
-  return scheduler->background_frame_source_internal_.get();
+  scoped_ptr<TestBackToBackBeginFrameSource> unthrottled_frame_source =
+      TestBackToBackBeginFrameSource::Create(now_src, task_runner);
+  return make_scoped_ptr(new TestScheduler(
+      now_src, client, settings, layer_tree_host_id, task_runner,
+      external_frame_source, synthetic_frame_source.Pass(),
+      unthrottled_frame_source.Pass(), compositor_timing_history.Pass()));
 }
 
 TestScheduler::TestScheduler(
-    scoped_refptr<TestNowSource> now_src,
+    base::SimpleTestTickClock* now_src,
     SchedulerClient* client,
     const SchedulerSettings& scheduler_settings,
     int layer_tree_host_id,
-    const scoped_refptr<OrderedSimpleTaskRunner>& test_task_runner,
-    base::PowerMonitor* power_monitor,
-    TestSchedulerFrameSourcesConstructor* frame_sources_constructor)
+    OrderedSimpleTaskRunner* task_runner,
+    BeginFrameSource* external_frame_source,
+    scoped_ptr<TestSyntheticBeginFrameSource> synthetic_frame_source,
+    scoped_ptr<TestBackToBackBeginFrameSource> unthrottled_frame_source,
+    scoped_ptr<CompositorTimingHistory> compositor_timing_history)
     : Scheduler(client,
                 scheduler_settings,
                 layer_tree_host_id,
-                test_task_runner,
-                power_monitor,
-                frame_sources_constructor),
+                task_runner,
+                external_frame_source,
+                synthetic_frame_source.Pass(),
+                unthrottled_frame_source.Pass(),
+                compositor_timing_history.Pass()),
       now_src_(now_src) {
 }
 
 base::TimeTicks TestScheduler::Now() const {
-  return now_src_->Now();
+  return now_src_->NowTicks();
 }
 
 TestScheduler::~TestScheduler() {

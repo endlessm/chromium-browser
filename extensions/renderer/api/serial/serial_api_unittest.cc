@@ -2,9 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/thread_task_runner_handle.h"
 #include "device/serial/serial_device_enumerator.h"
 #include "device/serial/serial_service_impl.h"
 #include "device/serial/test_serial_io_handler.h"
+#include "extensions/browser/mojo/stash_backend.h"
 #include "extensions/common/mojo/keep_alive.mojom.h"
 #include "extensions/renderer/api_test_base.h"
 #include "grit/extensions_renderer_resources.h"
@@ -176,78 +178,86 @@ class GetControlSignalsTestIoHandler : public TestIoHandlerBase {
 class ConfigurePortTestIoHandler : public TestIoHandlerBase {
  public:
   ConfigurePortTestIoHandler() {}
-  bool ConfigurePort(
-      const device::serial::ConnectionOptions& options) override {
+  bool ConfigurePortImpl() override {
     static const device::serial::ConnectionOptions expected_options[] = {
+        // Each JavaScript call to chrome.serial.update only modifies a single
+        // property of the connection however this function can only check the
+        // final value of all options. The modified option is marked with "set".
         GenerateConnectionOptions(9600,
                                   device::serial::DATA_BITS_EIGHT,
                                   device::serial::PARITY_BIT_NO,
                                   device::serial::STOP_BITS_ONE,
                                   OPTIONAL_VALUE_FALSE),
-        GenerateConnectionOptions(57600,
-                                  device::serial::DATA_BITS_NONE,
-                                  device::serial::PARITY_BIT_NONE,
-                                  device::serial::STOP_BITS_NONE,
-                                  OPTIONAL_VALUE_UNSET),
-        GenerateConnectionOptions(0,
-                                  device::serial::DATA_BITS_SEVEN,
-                                  device::serial::PARITY_BIT_NONE,
-                                  device::serial::STOP_BITS_NONE,
-                                  OPTIONAL_VALUE_UNSET),
-        GenerateConnectionOptions(0,
+        GenerateConnectionOptions(57600,  // set
                                   device::serial::DATA_BITS_EIGHT,
-                                  device::serial::PARITY_BIT_NONE,
-                                  device::serial::STOP_BITS_NONE,
-                                  OPTIONAL_VALUE_UNSET),
-        GenerateConnectionOptions(0,
-                                  device::serial::DATA_BITS_NONE,
                                   device::serial::PARITY_BIT_NO,
-                                  device::serial::STOP_BITS_NONE,
-                                  OPTIONAL_VALUE_UNSET),
-        GenerateConnectionOptions(0,
-                                  device::serial::DATA_BITS_NONE,
-                                  device::serial::PARITY_BIT_ODD,
-                                  device::serial::STOP_BITS_NONE,
-                                  OPTIONAL_VALUE_UNSET),
-        GenerateConnectionOptions(0,
-                                  device::serial::DATA_BITS_NONE,
-                                  device::serial::PARITY_BIT_EVEN,
-                                  device::serial::STOP_BITS_NONE,
-                                  OPTIONAL_VALUE_UNSET),
-        GenerateConnectionOptions(0,
-                                  device::serial::DATA_BITS_NONE,
-                                  device::serial::PARITY_BIT_NONE,
                                   device::serial::STOP_BITS_ONE,
-                                  OPTIONAL_VALUE_UNSET),
-        GenerateConnectionOptions(0,
-                                  device::serial::DATA_BITS_NONE,
-                                  device::serial::PARITY_BIT_NONE,
-                                  device::serial::STOP_BITS_TWO,
-                                  OPTIONAL_VALUE_UNSET),
-        GenerateConnectionOptions(0,
-                                  device::serial::DATA_BITS_NONE,
-                                  device::serial::PARITY_BIT_NONE,
-                                  device::serial::STOP_BITS_NONE,
                                   OPTIONAL_VALUE_FALSE),
-        GenerateConnectionOptions(0,
-                                  device::serial::DATA_BITS_NONE,
-                                  device::serial::PARITY_BIT_NONE,
-                                  device::serial::STOP_BITS_NONE,
-                                  OPTIONAL_VALUE_TRUE),
+        GenerateConnectionOptions(57600,
+                                  device::serial::DATA_BITS_SEVEN,  // set
+                                  device::serial::PARITY_BIT_NO,
+                                  device::serial::STOP_BITS_ONE,
+                                  OPTIONAL_VALUE_FALSE),
+        GenerateConnectionOptions(57600,
+                                  device::serial::DATA_BITS_EIGHT,  // set
+                                  device::serial::PARITY_BIT_NO,
+                                  device::serial::STOP_BITS_ONE,
+                                  OPTIONAL_VALUE_FALSE),
+        GenerateConnectionOptions(57600,
+                                  device::serial::DATA_BITS_EIGHT,
+                                  device::serial::PARITY_BIT_NO,  // set
+                                  device::serial::STOP_BITS_ONE,
+                                  OPTIONAL_VALUE_FALSE),
+        GenerateConnectionOptions(57600,
+                                  device::serial::DATA_BITS_EIGHT,
+                                  device::serial::PARITY_BIT_ODD,  // set
+                                  device::serial::STOP_BITS_ONE,
+                                  OPTIONAL_VALUE_FALSE),
+        GenerateConnectionOptions(57600,
+                                  device::serial::DATA_BITS_EIGHT,
+                                  device::serial::PARITY_BIT_EVEN,  // set
+                                  device::serial::STOP_BITS_ONE,
+                                  OPTIONAL_VALUE_FALSE),
+        GenerateConnectionOptions(57600,
+                                  device::serial::DATA_BITS_EIGHT,
+                                  device::serial::PARITY_BIT_EVEN,
+                                  device::serial::STOP_BITS_ONE,  // set
+                                  OPTIONAL_VALUE_FALSE),
+        GenerateConnectionOptions(57600,
+                                  device::serial::DATA_BITS_EIGHT,
+                                  device::serial::PARITY_BIT_EVEN,
+                                  device::serial::STOP_BITS_TWO,  // set
+                                  OPTIONAL_VALUE_FALSE),
+        GenerateConnectionOptions(57600,
+                                  device::serial::DATA_BITS_EIGHT,
+                                  device::serial::PARITY_BIT_EVEN,
+                                  device::serial::STOP_BITS_TWO,
+                                  OPTIONAL_VALUE_FALSE),  // set
+        GenerateConnectionOptions(57600,
+                                  device::serial::DATA_BITS_EIGHT,
+                                  device::serial::PARITY_BIT_EVEN,
+                                  device::serial::STOP_BITS_TWO,
+                                  OPTIONAL_VALUE_TRUE),  // set
     };
-    if (num_calls() >= arraysize(expected_options))
-      return false;
 
-    EXPECT_EQ(expected_options[num_calls()].bitrate, options.bitrate);
-    EXPECT_EQ(expected_options[num_calls()].data_bits, options.data_bits);
-    EXPECT_EQ(expected_options[num_calls()].parity_bit, options.parity_bit);
-    EXPECT_EQ(expected_options[num_calls()].stop_bits, options.stop_bits);
+    if (!TestIoHandlerBase::ConfigurePortImpl()) {
+      return false;
+    }
+
+    if (num_calls() >= arraysize(expected_options)) {
+      return false;
+    }
+
+    EXPECT_EQ(expected_options[num_calls()].bitrate, options().bitrate);
+    EXPECT_EQ(expected_options[num_calls()].data_bits, options().data_bits);
+    EXPECT_EQ(expected_options[num_calls()].parity_bit, options().parity_bit);
+    EXPECT_EQ(expected_options[num_calls()].stop_bits, options().stop_bits);
     EXPECT_EQ(expected_options[num_calls()].has_cts_flow_control,
-              options.has_cts_flow_control);
+              options().has_cts_flow_control);
     EXPECT_EQ(expected_options[num_calls()].cts_flow_control,
-              options.cts_flow_control);
+              options().cts_flow_control);
     record_call();
-    return TestSerialIoHandler::ConfigurePort(options);
+    return true;
   }
 
  private:
@@ -275,6 +285,7 @@ class FailToConnectTestIoHandler : public TestIoHandlerBase {
  public:
   FailToConnectTestIoHandler() {}
   void Open(const std::string& port,
+            const device::serial::ConnectionOptions& options,
             const OpenCompleteCallback& callback) override {
     callback.Run(false);
     return;
@@ -397,13 +408,24 @@ class SerialApiTest : public ApiTestBase {
 
   void SetUp() override {
     ApiTestBase::SetUp();
-    env()->RegisterModule("serial", IDR_SERIAL_CUSTOM_BINDINGS_JS);
-    service_provider()->AddService<device::serial::SerialService>(base::Bind(
-        &SerialApiTest::CreateSerialService, base::Unretained(this)));
-    service_provider()->IgnoreServiceRequests<KeepAlive>();
+    stash_backend_.reset(new StashBackend(base::Closure()));
+    PrepareEnvironment(api_test_env(), stash_backend_.get());
+  }
+
+  void PrepareEnvironment(ApiTestEnvironment* environment,
+                          StashBackend* stash_backend) {
+    environment->env()->RegisterModule("serial", IDR_SERIAL_CUSTOM_BINDINGS_JS);
+    environment->service_provider()->AddService<device::serial::SerialService>(
+        base::Bind(&SerialApiTest::CreateSerialService,
+                   base::Unretained(this)));
+    environment->service_provider()->AddService(base::Bind(
+        &StashBackend::BindToRequest, base::Unretained(stash_backend)));
+    environment->service_provider()->IgnoreServiceRequests<KeepAlive>();
   }
 
   scoped_refptr<TestIoHandlerBase> io_handler_;
+
+  scoped_ptr<StashBackend> stash_backend_;
 
  private:
   scoped_refptr<device::SerialIoHandler> GetIoHandler() {
@@ -414,14 +436,13 @@ class SerialApiTest : public ApiTestBase {
 
   void CreateSerialService(
       mojo::InterfaceRequest<device::serial::SerialService> request) {
-    mojo::BindToRequest(new device::SerialServiceImpl(
-                            new device::SerialConnectionFactory(
-                                base::Bind(&SerialApiTest::GetIoHandler,
-                                           base::Unretained(this)),
-                                base::MessageLoopProxy::current()),
-                            scoped_ptr<device::SerialDeviceEnumerator>(
-                                new FakeSerialDeviceEnumerator)),
-                        &request);
+    new device::SerialServiceImpl(
+        new device::SerialConnectionFactory(
+            base::Bind(&SerialApiTest::GetIoHandler, base::Unretained(this)),
+            base::ThreadTaskRunnerHandle::Get()),
+        scoped_ptr<device::SerialDeviceEnumerator>(
+            new FakeSerialDeviceEnumerator),
+        request.Pass());
   }
 
   DISALLOW_COPY_AND_ASSIGN(SerialApiTest);
@@ -629,6 +650,38 @@ TEST_F(SerialApiTest, SetPausedUnknownConnectionId) {
 
 TEST_F(SerialApiTest, SendUnknownConnectionId) {
   RunTest("serial_unittest.js", "testSendUnknownConnectionId");
+}
+
+TEST_F(SerialApiTest, StashAndRestoreDuringEcho) {
+  ASSERT_NO_FATAL_FAILURE(RunTest("serial_unittest.js", "testSendAndStash"));
+  env()->context()->DispatchOnUnloadEvent();
+  scoped_ptr<ModuleSystemTestEnvironment> new_env(CreateEnvironment());
+  ApiTestEnvironment new_api_test_env(new_env.get());
+  PrepareEnvironment(&new_api_test_env, stash_backend_.get());
+  new_api_test_env.RunTest("serial_unittest.js", "testRestoreAndReceive");
+}
+
+TEST_F(SerialApiTest, StashAndRestoreDuringEchoError) {
+  io_handler_ =
+      new ReceiveErrorTestIoHandler(device::serial::RECEIVE_ERROR_DEVICE_LOST);
+  ASSERT_NO_FATAL_FAILURE(
+      RunTest("serial_unittest.js", "testRestoreAndReceiveErrorSetUp"));
+  env()->context()->DispatchOnUnloadEvent();
+  scoped_ptr<ModuleSystemTestEnvironment> new_env(CreateEnvironment());
+  ApiTestEnvironment new_api_test_env(new_env.get());
+  PrepareEnvironment(&new_api_test_env, stash_backend_.get());
+  new_api_test_env.RunTest("serial_unittest.js", "testRestoreAndReceiveError");
+}
+
+TEST_F(SerialApiTest, StashAndRestoreNoConnections) {
+  ASSERT_NO_FATAL_FAILURE(
+      RunTest("serial_unittest.js", "testStashNoConnections"));
+  env()->context()->DispatchOnUnloadEvent();
+  io_handler_ = nullptr;
+  scoped_ptr<ModuleSystemTestEnvironment> new_env(CreateEnvironment());
+  ApiTestEnvironment new_api_test_env(new_env.get());
+  PrepareEnvironment(&new_api_test_env, stash_backend_.get());
+  new_api_test_env.RunTest("serial_unittest.js", "testRestoreNoConnections");
 }
 
 }  // namespace extensions

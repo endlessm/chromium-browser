@@ -8,7 +8,7 @@
 This script is normally run immediately after build_sdk.py.
 """
 
-import optparse
+import argparse
 import os
 import subprocess
 import sys
@@ -83,16 +83,10 @@ def StepRunSelLdrTests(pepperdir, sanitizer):
       deps = True
       if sanitizer == 'valgrind':
         args += ['RUN_UNDER=valgrind']
-      else:
-        args += ['CC=clang', 'CXX=clang++',
-                 'LDFLAGS=-pie -fsanitize=' + sanitizer,
-                 'CFLAGS=-fPIC -fsanitize=' + sanitizer]
-      build_projects.BuildProjectsBranch(pepperdir, 'src', clean=False,
-                                         deps=deps, config=config,
-                                         args=args + ['clean'])
-      build_projects.BuildProjectsBranch(pepperdir, 'tests', clean=False,
-                                         deps=deps, config=config,
-                                         args=args + ['clean'])
+      elif sanitizer == 'address':
+        args += ['ASAN=1']
+      elif sanitizer == 'thread':
+        args += ['TSAN=1']
 
     build_projects.BuildProjectsBranch(pepperdir, test, clean=False,
                                        deps=deps, config=config,
@@ -132,7 +126,7 @@ def StepRunSelLdrTests(pepperdir, sanitizer):
       if sanitizer:
         continue
 
-      for toolchain in ('newlib', 'glibc', 'pnacl'):
+      for toolchain in ('clang-newlib', 'newlib', 'glibc', 'pnacl'):
         for arch in archs:
           for config in configs:
             RunTest(location, toolchain, config, arch)
@@ -159,15 +153,15 @@ def StepRunBrowserTests(toolchains, experimental):
 
 
 def main(args):
-  usage = '%prog [<options>] [<phase...>]'
-  parser = optparse.OptionParser(description=__doc__, usage=usage)
-  parser.add_option('--experimental', help='build experimental tests',
-                    action='store_true')
-  parser.add_option('--sanitizer',
-                    help='Run sanitizer (asan/tsan/valgrind) tests',
-                    action='store_true')
-  parser.add_option('--verbose', '-v', help='Verbose output',
-                    action='store_true')
+  parser = argparse.ArgumentParser(description=__doc__)
+  parser.add_argument('--experimental', help='build experimental tests',
+                      action='store_true')
+  parser.add_argument('--sanitizer',
+                      help='Run sanitizer (asan/tsan/valgrind) tests',
+                      action='store_true')
+  parser.add_argument('--verbose', '-v', help='Verbose output',
+                      action='store_true')
+  parser.add_argument('phases', nargs="*")
 
   if 'NACL_SDK_ROOT' in os.environ:
     # We don't want the currently configured NACL_SDK_ROOT to have any effect
@@ -183,11 +177,11 @@ def main(args):
   except ImportError:
     pass
 
-  options, args = parser.parse_args(args[1:])
+  options = parser.parse_args(args)
 
   pepper_ver = str(int(build_version.ChromeMajorVersion()))
   pepperdir = os.path.join(OUT_DIR, 'pepper_' + pepper_ver)
-  toolchains = ['newlib', 'glibc', 'pnacl']
+  toolchains = ['clang-newlib', 'newlib', 'glibc', 'pnacl']
   toolchains.append(getos.GetPlatform())
 
   if options.verbose:
@@ -210,9 +204,9 @@ def main(args):
       ('sel_ldr_tests_valgrind', StepRunSelLdrTests, pepperdir, 'valgrind')
     ]
 
-  if args:
+  if options.phases:
     phase_names = [p[0] for p in phases]
-    for arg in args:
+    for arg in options.phases:
       if arg not in phase_names:
         msg = 'Invalid argument: %s\n' % arg
         msg += 'Possible arguments:\n'
@@ -222,7 +216,7 @@ def main(args):
 
   for phase in phases:
     phase_name = phase[0]
-    if args and phase_name not in args:
+    if options.phases and phase_name not in options.phases:
       continue
     phase_func = phase[1]
     phase_args = phase[2:]
@@ -233,6 +227,6 @@ def main(args):
 
 if __name__ == '__main__':
   try:
-    sys.exit(main(sys.argv))
+    sys.exit(main(sys.argv[1:]))
   except KeyboardInterrupt:
     buildbot_common.ErrorExit('test_sdk: interrupted')

@@ -10,6 +10,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "ppapi/proxy/interface_proxy.h"
 #include "ppapi/proxy/ppapi_proxy_export.h"
 #include "ppapi/shared_impl/ppb_message_loop_shared.h"
@@ -26,17 +27,16 @@ class PPAPI_PROXY_EXPORT MessageLoopResource : public MessageLoopShared {
   // Construct the one MessageLoopResource for the main thread. This must be
   // invoked on the main thread.
   explicit MessageLoopResource(ForMainThread);
-  virtual ~MessageLoopResource();
+  ~MessageLoopResource() override;
 
   // Resource overrides.
-  virtual thunk::PPB_MessageLoop_API* AsPPB_MessageLoop_API() override;
+  thunk::PPB_MessageLoop_API* AsPPB_MessageLoop_API() override;
 
   // PPB_MessageLoop_API implementation.
-  virtual int32_t AttachToCurrentThread() override;
-  virtual int32_t Run() override;
-  virtual int32_t PostWork(PP_CompletionCallback callback,
-                           int64_t delay_ms) override;
-  virtual int32_t PostQuit(PP_Bool should_destroy) override;
+  int32_t AttachToCurrentThread() override;
+  int32_t Run() override;
+  int32_t PostWork(PP_CompletionCallback callback, int64_t delay_ms) override;
+  int32_t PostQuit(PP_Bool should_destroy) override;
 
   static MessageLoopResource* GetCurrent();
   void DetachFromThread();
@@ -44,8 +44,8 @@ class PPAPI_PROXY_EXPORT MessageLoopResource : public MessageLoopShared {
     return is_main_thread_loop_;
   }
 
-  const scoped_refptr<base::MessageLoopProxy>& message_loop_proxy() {
-    return loop_proxy_;
+  const scoped_refptr<base::SingleThreadTaskRunner>& task_runner() {
+    return task_runner_;
   }
 
   void set_currently_handling_blocking_message(bool handling_blocking_message) {
@@ -69,11 +69,11 @@ class PPAPI_PROXY_EXPORT MessageLoopResource : public MessageLoopShared {
   // NOTE: The given closure will be run *WITHOUT* acquiring the Proxy lock.
   //       This only makes sense for user code and completely thread-safe
   //       proxy operations (e.g., MessageLoop::QuitClosure).
-  virtual void PostClosure(const tracked_objects::Location& from_here,
-                           const base::Closure& closure,
-                           int64 delay_ms) override;
-  virtual base::MessageLoopProxy* GetMessageLoopProxy() override;
-  virtual bool CurrentlyHandlingBlockingMessage() override;
+  void PostClosure(const tracked_objects::Location& from_here,
+                   const base::Closure& closure,
+                   int64 delay_ms) override;
+  base::SingleThreadTaskRunner* GetTaskRunner() override;
+  bool CurrentlyHandlingBlockingMessage() override;
 
   // TLS destructor function.
   static void ReleaseMessageLoop(void* value);
@@ -81,9 +81,9 @@ class PPAPI_PROXY_EXPORT MessageLoopResource : public MessageLoopShared {
   // Created when we attach to the current thread, since MessageLoop assumes
   // that it's created on the thread it will run on. NULL for the main thread
   // loop, since that's owned by somebody else. This is needed for Run and Quit.
-  // Any time we post tasks, we should post them using loop_proxy_.
+  // Any time we post tasks, we should post them using task_runner_.
   scoped_ptr<base::MessageLoop> loop_;
-  scoped_refptr<base::MessageLoopProxy> loop_proxy_;
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
   // Number of invocations of Run currently on the stack.
   int nested_invocations_;

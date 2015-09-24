@@ -9,6 +9,7 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_base.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -33,6 +34,9 @@ class ScopedCOMInitializer;
 
 class Browser;
 class Profile;
+#if defined(OS_MACOSX)
+class ScopedBundleSwizzlerMac;
+#endif  // defined(OS_MACOSX)
 
 namespace content {
 class ContentRendererClient;
@@ -107,12 +111,26 @@ class InProcessBrowserTest : public content::BrowserTestBase {
   // Returns the browser created by CreateBrowser.
   Browser* browser() const { return browser_; }
 
+  // Closes the given browser and waits for it to release all its resources.
+  void CloseBrowserSynchronously(Browser* browser);
+
+  // Closes the browser without waiting for it to release all its resources.
+  // WARNING: This may leave tasks posted, but not yet run, in the message
+  // loops. Prefer CloseBrowserSynchronously over this method.
+  void CloseBrowserAsynchronously(Browser* browser);
+
+  // Closes all browsers. No guarantees are made about the destruction of
+  // outstanding resources.
+  void CloseAllBrowsers();
+
   // Convenience methods for adding tabs to a Browser.
   void AddTabAtIndexToBrowser(Browser* browser,
                               int index,
                               const GURL& url,
-                              ui::PageTransition transition);
-  void AddTabAtIndex(int index, const GURL& url,
+                              ui::PageTransition transition,
+                              bool check_navigation_success);
+  void AddTabAtIndex(int index,
+                     const GURL& url,
                      ui::PageTransition transition);
 
   // Initializes the contents of the user data directory. Called by SetUp()
@@ -146,6 +164,13 @@ class InProcessBrowserTest : public content::BrowserTestBase {
   // the navigation to complete, and show the browser's window.
   void AddBlankTabAndShow(Browser* browser);
 
+  // Enables running of accessibility audit for a particular test case.
+  //  - Call in test body to enable/disable for one test case.
+  //  - Call in SetUpOnMainThread to enable for all test cases.
+  void EnableAccessibilityChecksForTestCase(bool enabled) {
+    run_accessibility_checks_for_test_case_ = enabled;
+  }
+
 #if !defined OS_MACOSX
   // Return a CommandLine object that is used to relaunch the browser_test
   // binary as a browser process. This function is deliberately not defined on
@@ -176,6 +201,9 @@ class InProcessBrowserTest : public content::BrowserTestBase {
     multi_desktop_test_ = multi_desktop_test;
   }
 
+  // Runs accessibility checks and sets |error_message| if it fails.
+  bool RunAccessibilityChecks(std::string* error_message);
+
  private:
   // Creates a user data directory for the test if one is needed. Returns true
   // if successful.
@@ -205,8 +233,13 @@ class InProcessBrowserTest : public content::BrowserTestBase {
   // not ensure that Browsers are only created on the tested desktop).
   bool multi_desktop_test_;
 
+  // True if the accessibility test should run for a particular test case.
+  // This is reset for every test case.
+  bool run_accessibility_checks_for_test_case_;
+
 #if defined(OS_MACOSX)
   base::mac::ScopedNSAutoreleasePool* autorelease_pool_;
+  scoped_ptr<ScopedBundleSwizzlerMac> bundle_swizzler_;
 #endif  // OS_MACOSX
 
 #if defined(OS_WIN)

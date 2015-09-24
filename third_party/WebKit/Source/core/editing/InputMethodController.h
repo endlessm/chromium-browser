@@ -26,6 +26,7 @@
 #ifndef InputMethodController_h
 #define InputMethodController_h
 
+#include "core/CoreExport.h"
 #include "core/editing/CompositionUnderline.h"
 #include "core/editing/PlainTextRange.h"
 #include "platform/heap/Handle.h"
@@ -38,7 +39,7 @@ class LocalFrame;
 class Range;
 class Text;
 
-class InputMethodController final : public NoBaseWillBeGarbageCollectedFinalized<InputMethodController> {
+class CORE_EXPORT InputMethodController final : public NoBaseWillBeGarbageCollectedFinalized<InputMethodController> {
     WTF_MAKE_NONCOPYABLE(InputMethodController);
 public:
     enum ConfirmCompositionBehavior {
@@ -48,7 +49,7 @@ public:
 
     static PassOwnPtrWillBeRawPtr<InputMethodController> create(LocalFrame&);
     ~InputMethodController();
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
     // international text input composition
     bool hasComposition() const;
@@ -63,7 +64,6 @@ public:
     // Inserts the text that is being composed or specified non-empty text and
     // returns true.
     bool confirmCompositionOrInsertText(const String& text, ConfirmCompositionBehavior);
-    void confirmCompositionAndResetState();
     // Deletes the existing composition text.
     void cancelComposition();
     void cancelCompositionIfSelectionIsInvalid();
@@ -86,11 +86,12 @@ public:
 private:
     class SelectionOffsetsScope {
         WTF_MAKE_NONCOPYABLE(SelectionOffsetsScope);
+        STACK_ALLOCATED();
     public:
-        SelectionOffsetsScope(InputMethodController*);
+        explicit SelectionOffsetsScope(InputMethodController*);
         ~SelectionOffsetsScope();
     private:
-        InputMethodController* m_inputMethodController;
+        RawPtrWillBeMember<InputMethodController> m_inputMethodController;
         const PlainTextRange m_offsets;
     };
     friend class SelectionOffsetsScope;

@@ -169,10 +169,10 @@ class PrivetDeviceListerTest : public testing::Test {
   PrivetDeviceListerTest() : mock_client_(&mock_delegate_) {
   }
 
-  virtual ~PrivetDeviceListerTest() {
+  ~PrivetDeviceListerTest() override {
   }
 
-  virtual void SetUp() override {
+  void SetUp() override {
     example_attrs_.push_back("tXtvers=1");
     example_attrs_.push_back("ty=My Printer");
     example_attrs_.push_back("nOte=This is my Printer");
@@ -230,12 +230,9 @@ TEST_F(PrivetDeviceListerTest, SimpleUpdateTest) {
             outgoing_description.address.host());
   EXPECT_EQ(service_description_.address.port(),
             outgoing_description.address.port());
-  EXPECT_EQ(service_description_.ip_address, outgoing_description.ip_address);
-  EXPECT_EQ(service_description_.last_seen, outgoing_description.last_seen);
   EXPECT_EQ("My Printer", outgoing_description.name);
   EXPECT_EQ("This is my Printer", outgoing_description.description);
   EXPECT_EQ("", outgoing_description.id);
-  EXPECT_EQ(DeviceDescription::ONLINE, outgoing_description.connection_state);
 
   EXPECT_CALL(delegate_, DeviceRemoved("myprinter._privet._tcp.local"));
 

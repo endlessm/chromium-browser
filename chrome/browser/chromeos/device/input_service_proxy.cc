@@ -15,10 +15,13 @@ typedef device::InputServiceLinux::InputDeviceInfo InputDeviceInfo;
 
 namespace chromeos {
 
+// static
+BrowserThread::ID InputServiceProxy::thread_identifier_ = BrowserThread::FILE;
+
 class InputServiceProxy::ServiceObserver : public InputServiceLinux::Observer {
  public:
-  ServiceObserver() { DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI)); }
-  virtual ~ServiceObserver() { DCHECK(CalledOnValidThread()); }
+  ServiceObserver() { DCHECK_CURRENTLY_ON(BrowserThread::UI); }
+  ~ServiceObserver() override { DCHECK(CalledOnValidThread()); }
 
   void Initialize(const base::WeakPtr<InputServiceProxy>& proxy) {
     DCHECK(CalledOnValidThread());
@@ -54,7 +57,7 @@ class InputServiceProxy::ServiceObserver : public InputServiceLinux::Observer {
   }
 
   // InputServiceLinux::Observer implementation:
-  virtual void OnInputDeviceAdded(
+  void OnInputDeviceAdded(
       const InputServiceLinux::InputDeviceInfo& info) override {
     DCHECK(CalledOnValidThread());
     BrowserThread::PostTask(
@@ -63,7 +66,7 @@ class InputServiceProxy::ServiceObserver : public InputServiceLinux::Observer {
         base::Bind(&InputServiceProxy::OnDeviceAdded, proxy_, info));
   }
 
-  virtual void OnInputDeviceRemoved(const std::string& id) override {
+  void OnInputDeviceRemoved(const std::string& id) override {
     DCHECK(CalledOnValidThread());
     BrowserThread::PostTask(
         BrowserThread::UI,
@@ -73,7 +76,7 @@ class InputServiceProxy::ServiceObserver : public InputServiceLinux::Observer {
 
  private:
   bool CalledOnValidThread() const {
-    return BrowserThread::CurrentlyOn(BrowserThread::FILE);
+    return BrowserThread::CurrentlyOn(InputServiceProxy::thread_identifier_);
   }
 
   base::WeakPtr<InputServiceProxy> proxy_;
@@ -82,10 +85,12 @@ class InputServiceProxy::ServiceObserver : public InputServiceLinux::Observer {
 };
 
 InputServiceProxy::InputServiceProxy()
-    : service_observer_(new ServiceObserver()), weak_factory_(this) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  BrowserThread::PostTask(
-      BrowserThread::FILE,
+    : service_observer_(new ServiceObserver()),
+      task_runner_(BrowserThread::GetMessageLoopProxyForThread(
+          thread_identifier_)),
+      weak_factory_(this) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  task_runner_->PostTask(
       FROM_HERE,
       base::Bind(&InputServiceProxy::ServiceObserver::Initialize,
                  base::Unretained(service_observer_.get()),
@@ -94,19 +99,10 @@ InputServiceProxy::InputServiceProxy()
 
 InputServiceProxy::~InputServiceProxy() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  BrowserThread::PostTask(
-      BrowserThread::FILE,
+  task_runner_->PostTask(
       FROM_HERE,
       base::Bind(&InputServiceProxy::ServiceObserver::Shutdown,
                  base::Unretained(service_observer_.release())));
-}
-
-// static
-void InputServiceProxy::WarmUp() {
-  content::BrowserThread::PostTask(
-      content::BrowserThread::FILE,
-      FROM_HERE,
-      base::Bind(base::IgnoreResult(&InputServiceLinux::GetInstance)));
 }
 
 void InputServiceProxy::AddObserver(Observer* observer) {
@@ -123,8 +119,8 @@ void InputServiceProxy::RemoveObserver(Observer* observer) {
 
 void InputServiceProxy::GetDevices(const GetDevicesCallback& callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  BrowserThread::PostTaskAndReplyWithResult(
-      BrowserThread::FILE,
+  base::PostTaskAndReplyWithResult(
+      task_runner_.get(),
       FROM_HERE,
       base::Bind(&InputServiceProxy::ServiceObserver::GetDevices,
                  base::Unretained(service_observer_.get())),
@@ -134,13 +130,17 @@ void InputServiceProxy::GetDevices(const GetDevicesCallback& callback) {
 void InputServiceProxy::GetDeviceInfo(const std::string& id,
                                       const GetDeviceInfoCallback& callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  BrowserThread::PostTask(
-      BrowserThread::FILE,
+  task_runner_->PostTask(
       FROM_HERE,
       base::Bind(&InputServiceProxy::ServiceObserver::GetDeviceInfo,
                  base::Unretained(service_observer_.release()),
                  id,
                  callback));
+}
+
+// static
+void InputServiceProxy::SetThreadIdForTesting(BrowserThread::ID thread_id) {
+  InputServiceProxy::thread_identifier_ = thread_id;
 }
 
 void InputServiceProxy::OnDeviceAdded(

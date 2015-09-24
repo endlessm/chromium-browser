@@ -142,10 +142,12 @@ using namespace WTF;
 #define GC_PLUGIN_IGNORE(bug)                           \
     __attribute__((annotate("blink_gc_plugin_ignore")))
 
-#define USING_GARBAGE_COLLECTED_MIXIN(type)             \
-    public:                                             \
-    virtual void adjustAndMark(Visitor*) const {}       \
-    virtual bool isAlive(Visitor*) const { return 0; }
+#define USING_GARBAGE_COLLECTED_MIXIN(type)                     \
+public:                                                         \
+    virtual void adjustAndMark(Visitor*) const override { }     \
+    virtual bool isHeapObjectAlive(Visitor*) const override { return 0; }
+
+#define EAGERLY_FINALIZED() typedef int IsEagerlyFinalizedMarker
 
 template<typename T> class GarbageCollected { };
 
@@ -204,18 +206,32 @@ class HeapHashMap : public HashMap<K, V, void, void, void, HeapAllocator> { };
 template<typename T>
 class PersistentHeapVector : public Vector<T, 0, HeapAllocator> { };
 
-class Visitor {
+template <typename Derived>
+class VisitorHelper {
 public:
     template<typename T>
     void trace(const T&);
+};
+
+class Visitor : public VisitorHelper<Visitor> {
+public:
+    template<typename T, void (T::*method)(Visitor*)>
+    void registerWeakMembers(const T* obj);
+};
+
+class InlinedGlobalMarkingVisitor
+    : public VisitorHelper<InlinedGlobalMarkingVisitor> {
+public:
+    InlinedGlobalMarkingVisitor* operator->() { return this; }
 
     template<typename T, void (T::*method)(Visitor*)>
     void registerWeakMembers(const T* obj);
 };
 
 class GarbageCollectedMixin {
+public:
     virtual void adjustAndMark(Visitor*) const = 0;
-    virtual bool isAlive(Visitor*) const = 0;
+    virtual bool isHeapObjectAlive(Visitor*) const = 0;
     virtual void trace(Visitor*) { }
 };
 

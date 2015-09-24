@@ -116,9 +116,12 @@ bool SkLayerRasterizer::onRasterize(const SkPath& path, const SkMatrix& matrix,
     }
 
     if (SkMask::kJustComputeBounds_CreateMode != mode) {
-        SkBitmap        device;
-        SkRasterClip    rectClip;
         SkDraw          draw;
+        if (!draw.fDst.reset(*mask)) {
+            return false;
+        }
+
+        SkRasterClip    rectClip;
         SkMatrix        translatedMatrix;  // this translates us to our local pixels
         SkMatrix        drawMatrix;        // this translates the path by each layer's offset
 
@@ -128,9 +131,6 @@ bool SkLayerRasterizer::onRasterize(const SkPath& path, const SkMatrix& matrix,
         translatedMatrix.postTranslate(-SkIntToScalar(mask->fBounds.fLeft),
                                        -SkIntToScalar(mask->fBounds.fTop));
 
-        device.installMaskPixels(*mask);
-
-        draw.fBitmap    = &device;
         draw.fMatrix    = &drawMatrix;
         draw.fRC        = &rectClip;
         draw.fClip      = &rectClip.bwRgn();
@@ -148,18 +148,13 @@ bool SkLayerRasterizer::onRasterize(const SkPath& path, const SkMatrix& matrix,
     return true;
 }
 
-#ifdef SK_SUPPORT_LEGACY_DEEPFLATTENING
-SkLayerRasterizer::SkLayerRasterizer(SkReadBuffer& buffer)
-    : SkRasterizer(buffer), fLayers(ReadLayers(buffer)) {}
-#endif
-
 SkFlattenable* SkLayerRasterizer::CreateProc(SkReadBuffer& buffer) {
     return SkNEW_ARGS(SkLayerRasterizer, (ReadLayers(buffer)));
 }
 
 SkDeque* SkLayerRasterizer::ReadLayers(SkReadBuffer& buffer) {
     int count = buffer.readInt();
-    
+
     SkDeque* layers = SkNEW_ARGS(SkDeque, (sizeof(SkLayerRasterizer_Rec)));
     for (int i = 0; i < count; i++) {
         SkLayerRasterizer_Rec* rec = (SkLayerRasterizer_Rec*)layers->push_back();

@@ -13,10 +13,11 @@
 #include "base/run_loop.h"
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
+#include "chromeos/chromeos_switches.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/codec/jpeg_codec.h"
-#include "ui/gfx/point.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace chromeos {
 
@@ -32,14 +33,13 @@ class TestWallpaperObserverPendingListEmpty
     wallpaper_manager_->AddObserver(this);
   }
 
-  virtual ~TestWallpaperObserverPendingListEmpty() {
+  ~TestWallpaperObserverPendingListEmpty() override {
     wallpaper_manager_->RemoveObserver(this);
   }
 
-  virtual void OnWallpaperAnimationFinished(
-      const std::string& user_id) override {}
+  void OnWallpaperAnimationFinished(const std::string& user_id) override {}
 
-  virtual void OnPendingListEmptyForTesting() override {
+  void OnPendingListEmptyForTesting() override {
     empty_ = true;
     base::MessageLoop::current()->Quit();
   }
@@ -68,6 +68,8 @@ const SkColor kLargeDefaultWallpaperColor = SK_ColorRED;
 const SkColor kSmallDefaultWallpaperColor = SK_ColorGREEN;
 const SkColor kLargeGuestWallpaperColor = SK_ColorBLUE;
 const SkColor kSmallGuestWallpaperColor = SK_ColorYELLOW;
+const SkColor kLargeChildWallpaperColor = SK_ColorCYAN;
+const SkColor kSmallChildWallpaperColor = SK_ColorMAGENTA;
 
 const SkColor kCustomWallpaperColor = SK_ColorMAGENTA;
 
@@ -167,22 +169,35 @@ void CreateCmdlineWallpapers(const base::ScopedTempDir& dir,
   const base::FilePath small_file =
       dir.path().Append(FILE_PATH_LITERAL("small.jpg"));
   options.push_back(std::string("--") +
-                    ash::switches::kAshDefaultWallpaperSmall + "=" +
+                    chromeos::switches::kDefaultWallpaperSmall + "=" +
                     small_file.value());
   const base::FilePath large_file =
       dir.path().Append(FILE_PATH_LITERAL("large.jpg"));
   options.push_back(std::string("--") +
-                    ash::switches::kAshDefaultWallpaperLarge + "=" +
+                    chromeos::switches::kDefaultWallpaperLarge + "=" +
                     large_file.value());
 
   const base::FilePath guest_small_file =
       dir.path().Append(FILE_PATH_LITERAL("guest_small.jpg"));
-  options.push_back(std::string("--") + ash::switches::kAshGuestWallpaperSmall +
-                    "=" + guest_small_file.value());
+  options.push_back(std::string("--") +
+                    chromeos::switches::kGuestWallpaperSmall + "=" +
+                    guest_small_file.value());
   const base::FilePath guest_large_file =
       dir.path().Append(FILE_PATH_LITERAL("guest_large.jpg"));
-  options.push_back(std::string("--") + ash::switches::kAshGuestWallpaperLarge +
-                    "=" + guest_large_file.value());
+  options.push_back(std::string("--") +
+                    chromeos::switches::kGuestWallpaperLarge + "=" +
+                    guest_large_file.value());
+
+  const base::FilePath child_small_file =
+      dir.path().Append(FILE_PATH_LITERAL("child_small.jpg"));
+  options.push_back(std::string("--") +
+                    chromeos::switches::kChildWallpaperSmall + "=" +
+                    child_small_file.value());
+  const base::FilePath child_large_file =
+      dir.path().Append(FILE_PATH_LITERAL("child_large.jpg"));
+  options.push_back(std::string("--") +
+                    chromeos::switches::kChildWallpaperLarge + "=" +
+                    child_large_file.value());
 
   ASSERT_TRUE(WriteJPEGFile(
       small_file, kWallpaperSize, kWallpaperSize, kSmallDefaultWallpaperColor));
@@ -197,6 +212,15 @@ void CreateCmdlineWallpapers(const base::ScopedTempDir& dir,
                             kWallpaperSize,
                             kWallpaperSize,
                             kLargeGuestWallpaperColor));
+
+  ASSERT_TRUE(WriteJPEGFile(child_small_file,
+                            kWallpaperSize,
+                            kWallpaperSize,
+                            kSmallChildWallpaperColor));
+  ASSERT_TRUE(WriteJPEGFile(child_large_file,
+                            kWallpaperSize,
+                            kWallpaperSize,
+                            kLargeChildWallpaperColor));
 
   command_line->reset(new base::CommandLine(options));
   WallpaperManager::Get()->SetCommandLineForTesting(command_line->get());

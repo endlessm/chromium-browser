@@ -45,11 +45,16 @@ class CrashReporterClient {
   CrashReporterClient();
   virtual ~CrashReporterClient();
 
+#if !defined(OS_MACOSX)
   // Sets the crash reporting client ID, a unique identifier for the client
   // that is sending crash reports. After it is set, it should not be changed.
   // |client_guid| may either be a full GUID or a GUID that was already stripped
   // from its dashes.
+  //
+  // On Mac OS X, this is the responsibility of Crashpad, and can not be set
+  // directly by the client.
   virtual void SetCrashReporterClientIdFromGUID(const std::string& client_guid);
+#endif
 
 #if defined(OS_WIN)
   // Returns true if an alternative location to store the minidump files was
@@ -94,6 +99,9 @@ class CrashReporterClient {
 
   // Invoked before attempting to write a minidump.
   virtual void RecordCrashDumpAttempt(bool is_real_crash);
+
+  // Invoked with the results of a minidump attempt.
+  virtual void RecordCrashDumpAttemptResult(bool is_real_crash, bool succeeded);
 #endif
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_IOS)
@@ -135,11 +143,10 @@ class CrashReporterClient {
 #if defined(OS_ANDROID)
   // Returns the descriptor key of the android minidump global descriptor.
   virtual int GetAndroidMinidumpDescriptor();
-#endif
 
-#if defined(OS_MACOSX)
-  // Install additional breakpad filter callbacks.
-  virtual void InstallAdditionalFilters(BreakpadRef breakpad);
+  // Returns true if breakpad microdumps should be enabled. This orthogonal to
+  // the standard minidump uploader (which depends on the user consent).
+  virtual bool ShouldEnableBreakpadMicrodumps();
 #endif
 
   // Returns true if breakpad should run in the given process type.

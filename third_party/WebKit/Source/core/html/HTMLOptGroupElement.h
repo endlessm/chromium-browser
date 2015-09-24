@@ -24,19 +24,21 @@
 #ifndef HTMLOptGroupElement_h
 #define HTMLOptGroupElement_h
 
+#include "core/CoreExport.h"
 #include "core/html/HTMLElement.h"
+#include "core/style/ComputedStyle.h"
 
 namespace blink {
 
 class HTMLSelectElement;
 class HTMLDivElement;
 
-class HTMLOptGroupElement final : public HTMLElement {
+class CORE_EXPORT HTMLOptGroupElement final : public HTMLElement {
     DEFINE_WRAPPERTYPEINFO();
 public:
     static PassRefPtrWillBeRawPtr<HTMLOptGroupElement> create(Document&);
 
-    virtual bool isDisabledFormControl() const override;
+    bool isDisabledFormControl() const override;
     HTMLSelectElement* ownerSelectElement() const;
 
     String groupLabelText() const;
@@ -45,23 +47,23 @@ public:
 private:
     explicit HTMLOptGroupElement(Document&);
 
-    virtual bool rendererIsFocusable() const override { return true; }
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void childrenChanged(const ChildrenChange&) override;
-    virtual void accessKeyAction(bool sendMouseEvents) override;
-    virtual void didAddUserAgentShadowRoot(ShadowRoot&) override;
-    virtual void attach(const AttachContext& = AttachContext()) override;
-    virtual void detach(const AttachContext& = AttachContext()) override;
+    bool supportsFocus() const override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void childrenChanged(const ChildrenChange&) override;
+    void accessKeyAction(bool sendMouseEvents) override;
+    void didAddUserAgentShadowRoot(ShadowRoot&) override;
+    void attach(const AttachContext& = AttachContext()) override;
+    void detach(const AttachContext& = AttachContext()) override;
 
-    // <optgroup> might not have a renderer so we manually manage a cached style.
-    void updateNonRenderStyle();
-    virtual RenderStyle* nonRendererStyle() const override;
-    virtual PassRefPtr<RenderStyle> customStyleForRenderer() override;
+    // <optgroup> might not have a layoutObject so we manually manage a cached style.
+    void updateNonComputedStyle();
+    ComputedStyle* nonLayoutObjectComputedStyle() const override;
+    PassRefPtr<ComputedStyle> customStyleForLayoutObject() override;
 
     void updateGroupLabel();
     void recalcSelectOptions();
 
-    RefPtr<RenderStyle> m_style;
+    RefPtr<ComputedStyle> m_style;
 };
 
 } // namespace blink

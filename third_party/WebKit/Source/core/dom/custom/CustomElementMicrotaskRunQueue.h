@@ -25,11 +25,9 @@ public:
     void requestDispatchIfNeeded();
     bool isEmpty() const;
 
-    void trace(Visitor*);
-
-#if !defined(NDEBUG)
-    void show(unsigned indent);
-#endif
+    // Must be promptly finalized to prevent unsafe dispatching.
+    EAGERLY_FINALIZE();
+    DECLARE_TRACE();
 
 private:
     static void dispatchIfAlive(WeakPtr<CustomElementMicrotaskRunQueue> self);

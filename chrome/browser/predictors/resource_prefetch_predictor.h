@@ -9,28 +9,25 @@
 #include <string>
 #include <vector>
 
+#include "base/containers/scoped_ptr_map.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/linked_ptr.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/scoped_observer.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "base/time/time.h"
 #include "chrome/browser/predictors/resource_prefetch_common.h"
 #include "chrome/browser/predictors/resource_prefetch_predictor_tables.h"
 #include "chrome/browser/predictors/resource_prefetcher.h"
+#include "components/history/core/browser/history_service_observer.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/keyed_service/core/keyed_service.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_registrar.h"
 #include "content/public/common/resource_type.h"
 #include "url/gurl.h"
 
 class PredictorsHandler;
 class Profile;
-
-namespace content {
-class WebContents;
-}
 
 namespace net {
 class URLRequest;
@@ -74,7 +71,7 @@ class ResourcePrefetcherManager;
 // with main frame.
 class ResourcePrefetchPredictor
     : public KeyedService,
-      public content::NotificationObserver,
+      public history::HistoryServiceObserver,
       public base::SupportsWeakPtr<ResourcePrefetchPredictor> {
  public:
   // Stores the data that we need to get from the URLRequest.
@@ -145,6 +142,7 @@ class ResourcePrefetchPredictor
   FRIEND_TEST_ALL_PREFIXES(ResourcePrefetchPredictorTest, OnMainFrameRedirect);
   FRIEND_TEST_ALL_PREFIXES(ResourcePrefetchPredictorTest,
                            OnSubresourceResponse);
+  FRIEND_TEST_ALL_PREFIXES(ResourcePrefetchPredictorTest, GetCorrectPLT);
 
   enum InitializationState {
     NOT_INITIALIZED = 0,
@@ -172,7 +170,7 @@ class ResourcePrefetchPredictor
   typedef ResourcePrefetchPredictorTables::PrefetchDataMap PrefetchDataMap;
   typedef std::map<NavigationID, linked_ptr<std::vector<URLRequestSummary> > >
       NavigationMap;
-  typedef std::map<NavigationID, Result*> ResultsMap;
+  typedef base::ScopedPtrMap<NavigationID, scoped_ptr<Result>> ResultsMap;
 
   // Returns true if the main page request is supported for prediction.
   static bool IsHandledMainPage(net::URLRequest* request);
@@ -182,11 +180,6 @@ class ResourcePrefetchPredictor
 
   // Returns true if the request (should have a response in it) is cacheable.
   static bool IsCacheable(const net::URLRequest* request);
-
-  // content::NotificationObserver methods override.
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override;
 
   // KeyedService methods override.
   void Shutdown() override;
@@ -199,9 +192,11 @@ class ResourcePrefetchPredictor
   void OnSubresourceResponse(const URLRequestSummary& response);
 
   // Called when onload completes for a navigation. We treat this point as the
-  // "completion" of the navigation. The resources requested by the page upto
-  // this point are the only ones considered for prefetching.
-  void OnNavigationComplete(const NavigationID& navigation_id);
+  // "completion" of the navigation. The resources requested by the page up to
+  // this point are the only ones considered for prefetching. Return the page
+  // load time for testing.
+  base::TimeDelta OnNavigationComplete(
+      const NavigationID& nav_id_without_timing_info);
 
   // Returns true if there is PrefetchData that can be used for the
   // navigation and fills in the |prefetch_data| to resources that need to be
@@ -293,6 +288,19 @@ class ResourcePrefetchPredictor
       size_t total_resources_fetched_from_network,
       size_t max_assumed_prefetched) const;
 
+  // history::HistoryServiceObserver:
+  void OnURLsDeleted(history::HistoryService* history_service,
+                     bool all_history,
+                     bool expired,
+                     const history::URLRows& deleted_rows,
+                     const std::set<GURL>& favicon_urls) override;
+  void OnHistoryServiceLoaded(
+      history::HistoryService* history_service) override;
+
+  // Used to connect to HistoryService or register for service loaded
+  // notificatioan.
+  void ConnectToHistoryService();
+
   // Used for testing to inject mock tables.
   void set_mock_tables(scoped_refptr<ResourcePrefetchPredictorTables> tables) {
     tables_ = tables;
@@ -303,7 +311,6 @@ class ResourcePrefetchPredictor
   InitializationState initialization_state_;
   scoped_refptr<ResourcePrefetchPredictorTables> tables_;
   scoped_refptr<ResourcePrefetcherManager> prefetch_manager_;
-  content::NotificationRegistrar notification_registrar_;
   base::CancelableTaskTracker history_lookup_consumer_;
 
   // Map of all the navigations in flight to their resource requests.
@@ -314,7 +321,9 @@ class ResourcePrefetchPredictor
   scoped_ptr<PrefetchDataMap> host_table_cache_;
 
   ResultsMap results_map_;
-  STLValueDeleter<ResultsMap> results_map_deleter_;
+
+  ScopedObserver<history::HistoryService, history::HistoryServiceObserver>
+      history_service_observer_;
 
   DISALLOW_COPY_AND_ASSIGN(ResourcePrefetchPredictor);
 };

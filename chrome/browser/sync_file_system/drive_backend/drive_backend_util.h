@@ -13,13 +13,12 @@
 #include "base/memory/scoped_vector.h"
 #include "chrome/browser/sync_file_system/drive_backend/metadata_database.pb.h"
 #include "chrome/browser/sync_file_system/sync_status_code.h"
-#include "google_apis/drive/gdata_errorcode.h"
-#include "storage/common/blob/scoped_file.h"
+#include "google_apis/drive/drive_api_error_codes.h"
+#include "storage/browser/blob/scoped_file.h"
 
 namespace google_apis {
 class ChangeResource;
 class FileResource;
-class ResourceEntry;
 }
 
 namespace sync_file_system {
@@ -44,8 +43,8 @@ bool IsAppRoot(const FileTracker& tracker);
 
 std::string GetTrackerTitle(const FileTracker& tracker);
 
-SyncStatusCode GDataErrorCodeToSyncStatusCode(
-    google_apis::GDataErrorCode error);
+SyncStatusCode DriveApiErrorCodeToSyncStatusCode(
+    google_apis::DriveApiErrorCode error);
 
 // Returns true if |str| starts with |prefix|, and removes |prefix| from |str|.
 // If |out| is not NULL, the result is stored in it.

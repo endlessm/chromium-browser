@@ -77,15 +77,12 @@ class MediaEngineInterface {
 
   // MediaChannel creation
   // Creates a voice media channel. Returns NULL on failure.
-  virtual VoiceMediaChannel *CreateChannel() = 0;
+  virtual VoiceMediaChannel* CreateChannel(const AudioOptions& options) = 0;
   // Creates a video media channel, paired with the specified voice channel.
   // Returns NULL on failure.
   virtual VideoMediaChannel* CreateVideoChannel(
       const VideoOptions& options,
       VoiceMediaChannel* voice_media_channel) = 0;
-
-  // Creates a soundclip object for playing sounds on. Returns NULL on failure.
-  virtual SoundclipMedia *CreateSoundclip() = 0;
 
   // Configuration
   // Gets global audio options.
@@ -101,7 +98,6 @@ class MediaEngineInterface {
       = 0;
 
   // Device selection
-  // TODO(tschmelcher): Add method for selecting the soundclip device.
   virtual bool SetSoundDevices(const Device* in_device,
                                const Device* out_device) = 0;
 
@@ -141,11 +137,6 @@ class MediaEngineInterface {
   virtual bool UnregisterVoiceProcessor(uint32 ssrc,
                                         VoiceProcessor* video_processor,
                                         MediaProcessorDirection direction) = 0;
-
-  virtual VideoFormat GetStartCaptureFormat() const = 0;
-
-  virtual sigslot::repeater2<VideoCapturer*, CaptureState>&
-      SignalVideoCaptureStateChange() = 0;
 };
 
 
@@ -172,35 +163,27 @@ class MediaEngineFactory {
 template<class VOICE, class VIDEO>
 class CompositeMediaEngine : public MediaEngineInterface {
  public:
-  CompositeMediaEngine() {}
+  CompositeMediaEngine() : video_(&voice_) {}
   virtual ~CompositeMediaEngine() {}
   virtual bool Init(rtc::Thread* worker_thread) {
     if (!voice_.Init(worker_thread))
       return false;
-    if (!video_.Init(worker_thread)) {
-      voice_.Terminate();
-      return false;
-    }
-    SignalVideoCaptureStateChange().repeat(video_.SignalCaptureStateChange);
+    video_.Init();
     return true;
   }
   virtual void Terminate() {
-    video_.Terminate();
     voice_.Terminate();
   }
 
   virtual int GetCapabilities() {
     return (voice_.GetCapabilities() | video_.GetCapabilities());
   }
-  virtual VoiceMediaChannel *CreateChannel() {
-    return voice_.CreateChannel();
+  virtual VoiceMediaChannel* CreateChannel(const AudioOptions& options) {
+    return voice_.CreateChannel(options);
   }
   virtual VideoMediaChannel* CreateVideoChannel(const VideoOptions& options,
                                                 VoiceMediaChannel* channel) {
     return video_.CreateChannel(options, channel);
-  }
-  virtual SoundclipMedia *CreateSoundclip() {
-    return voice_.CreateSoundclip();
   }
 
   virtual AudioOptions GetAudioOptions() const {
@@ -268,18 +251,10 @@ class CompositeMediaEngine : public MediaEngineInterface {
                                         MediaProcessorDirection direction) {
     return voice_.UnregisterProcessor(ssrc, processor, direction);
   }
-  virtual VideoFormat GetStartCaptureFormat() const {
-    return video_.GetStartCaptureFormat();
-  }
-  virtual sigslot::repeater2<VideoCapturer*, CaptureState>&
-      SignalVideoCaptureStateChange() {
-    return signal_state_change_;
-  }
 
  protected:
   VOICE voice_;
   VIDEO video_;
-  sigslot::repeater2<VideoCapturer*, CaptureState> signal_state_change_;
 };
 
 // NullVoiceEngine can be used with CompositeMediaEngine in the case where only
@@ -290,11 +265,8 @@ class NullVoiceEngine {
   void Terminate() {}
   int GetCapabilities() { return 0; }
   // If you need this to return an actual channel, use FakeMediaEngine instead.
-  VoiceMediaChannel* CreateChannel() {
-    return NULL;
-  }
-  SoundclipMedia* CreateSoundclip() {
-    return NULL;
+  VoiceMediaChannel* CreateChannel(const AudioOptions& options) {
+    return nullptr;
   }
   bool SetDelayOffset(int offset) { return true; }
   AudioOptions GetOptions() const { return AudioOptions(); }
@@ -336,6 +308,7 @@ class NullVideoEngine {
   int GetCapabilities() { return 0; }
   // If you need this to return an actual channel, use FakeMediaEngine instead.
   VideoMediaChannel* CreateChannel(
+      const VideoOptions& options,
       VoiceMediaChannel* voice_media_channel) {
     return NULL;
   }
@@ -348,9 +321,7 @@ class NullVideoEngine {
     return rtp_header_extensions_;
   }
   void SetLogging(int min_sev, const char* filter) {}
-  VideoFormat GetStartCaptureFormat() const { return VideoFormat(); }
 
-  sigslot::signal2<VideoCapturer*, CaptureState> SignalCaptureStateChange;
  private:
   std::vector<VideoCodec> codecs_;
   std::vector<RtpHeaderExtension> rtp_header_extensions_;

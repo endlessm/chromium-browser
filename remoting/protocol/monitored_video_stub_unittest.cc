@@ -5,7 +5,6 @@
 #include "remoting/protocol/monitored_video_stub.h"
 
 #include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/run_loop.h"
 #include "base/test/test_timeouts.h"
 #include "remoting/protocol/protocol_mock_objects.h"
@@ -24,7 +23,7 @@ static const int64 kTestOverrideDelayMilliseconds = 1;
 
 class MonitoredVideoStubTest : public testing::Test {
  protected:
-  virtual void SetUp() override {
+  void SetUp() override {
     packet_.reset(new VideoPacket());
     monitor_.reset(new MonitoredVideoStub(
         &video_stub_,

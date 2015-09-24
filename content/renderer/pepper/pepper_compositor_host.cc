@@ -4,13 +4,18 @@
 
 #include "content/renderer/pepper/pepper_compositor_host.h"
 
+#include <limits>
+
 #include "base/logging.h"
 #include "base/memory/shared_memory.h"
+#include "cc/blink/web_layer_impl.h"
 #include "cc/layers/layer.h"
 #include "cc/layers/solid_color_layer.h"
 #include "cc/layers/texture_layer.h"
 #include "cc/resources/texture_mailbox.h"
 #include "cc/trees/layer_tree_host.h"
+#include "content/child/child_shared_bitmap_manager.h"
+#include "content/child/child_thread_impl.h"
 #include "content/public/renderer/renderer_ppapi_host.h"
 #include "content/renderer/pepper/gfx_conversion.h"
 #include "content/renderer/pepper/host_globals.h"
@@ -32,6 +37,14 @@ using ppapi::thunk::PPB_ImageData_API;
 namespace content {
 
 namespace {
+
+bool CheckPPFloatRect(const PP_FloatRect& rect, float width, float height) {
+    const float kEpsilon = std::numeric_limits<float>::epsilon();
+    return (rect.point.x >= -kEpsilon &&
+            rect.point.y >= -kEpsilon &&
+            rect.point.x + rect.size.width <= width + kEpsilon &&
+            rect.point.y + rect.size.height <= height + kEpsilon);
+}
 
 int32_t VerifyCommittedLayer(
     const ppapi::CompositorLayerData* old_layer,
@@ -61,6 +74,11 @@ int32_t VerifyCommittedLayer(
     }
     if (!new_layer->texture->mailbox.Verify())
       return PP_ERROR_BADARGUMENT;
+
+    // Make sure the source rect is not beyond the dimensions of the
+    // texture.
+    if (!CheckPPFloatRect(new_layer->texture->source_rect, 1.0f, 1.0f))
+      return PP_ERROR_BADARGUMENT;
     return PP_OK;
   }
 
@@ -77,6 +95,7 @@ int32_t VerifyCommittedLayer(
         return PP_OK;
       }
     }
+
     EnterResourceNoLock<PPB_ImageData_API> enter(new_layer->image->resource,
                                                  true);
     if (enter.failed())
@@ -90,25 +109,23 @@ int32_t VerifyCommittedLayer(
       return PP_ERROR_BADARGUMENT;
     }
 
-    int handle;
+    // Make sure the source rect is not beyond the dimensions of the
+    // image.
+    if (!CheckPPFloatRect(new_layer->image->source_rect,
+                          desc.size.width, desc.size.height)) {
+      return PP_ERROR_BADARGUMENT;
+    }
+
+    base::SharedMemory* shm;
     uint32_t byte_count;
-    if (enter.object()->GetSharedMemory(&handle, &byte_count) != PP_OK)
+    if (enter.object()->GetSharedMemory(&shm, &byte_count) != PP_OK)
       return PP_ERROR_FAILED;
 
-#if defined(OS_WIN)
-    base::SharedMemoryHandle shm_handle;
-    if (!::DuplicateHandle(::GetCurrentProcess(),
-                           reinterpret_cast<base::SharedMemoryHandle>(handle),
-                           ::GetCurrentProcess(),
-                           &shm_handle,
-                           0,
-                           FALSE,
-                           DUPLICATE_SAME_ACCESS)) {
+    base::SharedMemoryHandle shm_handle =
+        base::SharedMemory::DuplicateHandle(shm->handle());
+    if (!base::SharedMemory::IsHandleValid(shm_handle))
       return PP_ERROR_FAILED;
-    }
-#else
-    base::SharedMemoryHandle shm_handle(dup(handle), false);
-#endif
+
     image_shm->reset(new base::SharedMemory(shm_handle, true));
     if (!(*image_shm)->Map(desc.stride * desc.size.height)) {
       image_shm->reset();
@@ -135,7 +152,7 @@ PepperCompositorHost::PepperCompositorHost(
     : ResourceHost(host->GetPpapiHost(), instance, resource),
       bound_instance_(NULL),
       weak_factory_(this) {
-  layer_ = cc::Layer::Create();
+  layer_ = cc::Layer::Create(cc_blink::WebLayerImpl::LayerSettings());
   // TODO(penghuang): SetMasksToBounds() can be expensive if the layer is
   // transformed. Possibly better could be to explicitly clip the child layers
   // (by modifying their bounds).
@@ -168,13 +185,14 @@ void PepperCompositorHost::ViewInitiatedPaint() {
   SendCommitLayersReplyIfNecessary();
 }
 
-void PepperCompositorHost::ViewFlushedPaint() {}
-
 void PepperCompositorHost::ImageReleased(
     int32_t id,
-    const scoped_ptr<base::SharedMemory>& shared_memory,
+    scoped_ptr<base::SharedMemory> shared_memory,
+    scoped_ptr<cc::SharedBitmap> bitmap,
     uint32_t sync_point,
     bool is_lost) {
+  bitmap.reset();
+  shared_memory.reset();
   ResourceReleased(id, sync_point, is_lost);
 }
 
@@ -221,7 +239,7 @@ void PepperCompositorHost::UpdateLayer(
     scoped_refptr<cc::Layer> clip_parent = layer->parent();
     if (clip_parent.get() == layer_.get()) {
       // Create a clip parent layer, if it does not exist.
-      clip_parent = cc::Layer::Create();
+      clip_parent = cc::Layer::Create(cc_blink::WebLayerImpl::LayerSettings());
       clip_parent->SetMasksToBounds(true);
       clip_parent->SetIsDrawable(true);
       layer_->ReplaceChild(layer.get(), clip_parent);
@@ -284,15 +302,18 @@ void PepperCompositorHost::UpdateLayer(
       DCHECK_EQ(rv, PP_TRUE);
       DCHECK_EQ(desc.stride, desc.size.width * 4);
       DCHECK_EQ(desc.format, PP_IMAGEDATAFORMAT_RGBA_PREMUL);
+      scoped_ptr<cc::SharedBitmap> bitmap =
+          ChildThreadImpl::current()
+              ->shared_bitmap_manager()
+              ->GetBitmapForSharedMemory(image_shm.get());
 
-      cc::TextureMailbox mailbox(image_shm.get(),
-                                 PP_ToGfxSize(desc.size));
-      image_layer->SetTextureMailbox(mailbox,
-          cc::SingleReleaseCallback::Create(
-              base::Bind(&PepperCompositorHost::ImageReleased,
-                         weak_factory_.GetWeakPtr(),
-                         new_layer->common.resource_id,
-                         base::Passed(&image_shm))));
+      cc::TextureMailbox mailbox(bitmap.get(), PP_ToGfxSize(desc.size));
+      image_layer->SetTextureMailbox(
+          mailbox,
+          cc::SingleReleaseCallback::Create(base::Bind(
+              &PepperCompositorHost::ImageReleased, weak_factory_.GetWeakPtr(),
+              new_layer->common.resource_id, base::Passed(&image_shm),
+              base::Passed(&bitmap))));
       // TODO(penghuang): get a damage region from the application and
       // pass it to SetNeedsDisplayRect().
       image_layer->SetNeedsDisplay();
@@ -360,9 +381,11 @@ int32_t PepperCompositorHost::OnHostMsgCommitLayers(
 
     if (!cc_layer.get()) {
       if (pp_layer->color)
-        cc_layer = cc::SolidColorLayer::Create();
+        cc_layer = cc::SolidColorLayer::Create(
+            cc_blink::WebLayerImpl::LayerSettings());
       else if (pp_layer->texture || pp_layer->image)
-        cc_layer = cc::TextureLayer::CreateForMailbox(NULL);
+        cc_layer = cc::TextureLayer::CreateForMailbox(
+            cc_blink::WebLayerImpl::LayerSettings(), NULL);
       layer_->AddChild(cc_layer);
     }
 

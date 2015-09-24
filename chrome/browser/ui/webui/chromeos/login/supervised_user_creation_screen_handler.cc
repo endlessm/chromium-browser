@@ -11,11 +11,13 @@
 #include "chrome/browser/chromeos/login/supervised/supervised_user_creation_flow.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/supervised_user_manager.h"
+#include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/audio/chromeos_sounds.h"
+#include "components/login/localized_values_builder.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_type.h"
 #include "google_apis/gaia/gaia_auth_util.h"
@@ -24,10 +26,6 @@
 #include "net/base/escape.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
-
-#if !defined(USE_ATHENA)
-#include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
-#endif
 
 const char kJsScreenPath[] = "login.SupervisedUserCreationScreen";
 
@@ -51,7 +49,7 @@ SupervisedUserCreationScreenHandler::~SupervisedUserCreationScreenHandler() {
 }
 
 void SupervisedUserCreationScreenHandler::DeclareLocalizedValues(
-    LocalizedValuesBuilder* builder) {
+    ::login::LocalizedValuesBuilder* builder) {
   builder->Add(
       "supervisedUserCreationFlowRetryButtonTitle",
       IDS_CREATE_SUPERVISED_USER_CREATION_ERROR_RETRY_BUTTON_TITLE);
@@ -167,6 +165,9 @@ void SupervisedUserCreationScreenHandler::RegisterMessages() {
   AddCallback("abortLocalSupervisedUserCreation",
               &SupervisedUserCreationScreenHandler::
                   HandleAbortLocalSupervisedUserCreation);
+  AddCallback("hideLocalSupervisedUserCreation",
+              &SupervisedUserCreationScreenHandler::
+                  HandleHideLocalSupervisedUserCreation);
   AddCallback("checkSupervisedUserName",
               &SupervisedUserCreationScreenHandler::
                   HandleCheckSupervisedUserName);
@@ -214,22 +215,18 @@ void SupervisedUserCreationScreenHandler::Show() {
   scoped_ptr<base::DictionaryValue> data(new base::DictionaryValue());
   scoped_ptr<base::ListValue> users_list(new base::ListValue());
   const user_manager::UserList& users =
-      user_manager::UserManager::Get()->GetUsers();
+      ChromeUserManager::Get()->GetUsersAllowedForSupervisedUsersCreation();
   std::string owner;
   chromeos::CrosSettings::Get()->GetString(chromeos::kDeviceOwner, &owner);
 
   for (user_manager::UserList::const_iterator it = users.begin();
        it != users.end();
        ++it) {
-    if ((*it)->GetType() != user_manager::USER_TYPE_REGULAR)
-      continue;
     bool is_owner = ((*it)->email() == owner);
     base::DictionaryValue* user_dict = new base::DictionaryValue();
     UserSelectionScreen::FillUserDictionary(
-        *it,
-        is_owner,
-        false, /* is_signin_to_add */
-        ScreenlockBridge::LockHandler::OFFLINE_PASSWORD,
+        *it, is_owner, false, /* is_signin_to_add */
+        proximity_auth::ScreenlockBridge::LockHandler::OFFLINE_PASSWORD,
         NULL, /* public_session_recommended_locales */
         user_dict);
     users_list->Append(user_dict);
@@ -290,13 +287,16 @@ void SupervisedUserCreationScreenHandler::
   delegate_->AbortFlow();
 }
 
+void SupervisedUserCreationScreenHandler::
+    HandleHideLocalSupervisedUserCreation() {
+  delegate_->HideFlow();
+}
+
 void SupervisedUserCreationScreenHandler::HandleManagerSelected(
     const std::string& manager_id) {
-#if !defined(USE_ATHENA)
   if (!delegate_)
     return;
   WallpaperManager::Get()->SetUserWallpaperNow(manager_id);
-#endif
 }
 
 void SupervisedUserCreationScreenHandler::HandleImportUserSelected(
@@ -427,16 +427,11 @@ void SupervisedUserCreationScreenHandler::HandlePhotoTaken
 }
 
 void SupervisedUserCreationScreenHandler::HandleTakePhoto() {
-#if !defined(USE_ATHENA)
-  // crbug.com/408733
   ash::PlaySystemSoundIfSpokenFeedback(SOUND_CAMERA_SNAP);
-#endif
 }
 
 void SupervisedUserCreationScreenHandler::HandleDiscardPhoto() {
-#if !defined(USE_ATHENA)
   ash::PlaySystemSoundIfSpokenFeedback(SOUND_OBJECT_DELETE);
-#endif
 }
 
 void SupervisedUserCreationScreenHandler::HandleSelectImage(

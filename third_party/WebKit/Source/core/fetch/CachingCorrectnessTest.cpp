@@ -30,23 +30,20 @@
 
 #include "config.h"
 
+#include "core/fetch/FetchContext.h"
 #include "core/fetch/ImageResource.h"
 #include "core/fetch/MemoryCache.h"
+#include "core/fetch/RawResource.h"
 #include "core/fetch/Resource.h"
 #include "core/fetch/ResourceFetcher.h"
 #include "core/fetch/ResourcePtr.h"
-#include "core/html/HTMLDocument.h"
-#include "core/loader/DocumentLoader.h"
 #include "platform/network/ResourceRequest.h"
 #include "public/platform/Platform.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/RefPtr.h"
-
 #include <gtest/gtest.h>
 
-using namespace blink;
-
-namespace {
+namespace blink {
 
 // An URL for the original request.
 const char kResourceURL[] = "http://resource.com/";
@@ -59,6 +56,22 @@ const char kOneDayBeforeOriginalRequest[] = "Wed, 24 May 1977 18:30:00 GMT";
 const char kOneDayAfterOriginalRequest[] = "Fri, 26 May 1977 18:30:00 GMT";
 
 const unsigned char kAConstUnsignedCharZero = 0;
+
+class MockFetchContext : public FetchContext {
+public:
+    static MockFetchContext* create()
+    {
+        return new MockFetchContext;
+    }
+
+    ~MockFetchContext() { }
+
+    bool allowImage(bool imagesEnabled, const KURL&) const override { return true; }
+    bool canRequest(Resource::Type, const ResourceRequest&, const KURL&, const ResourceLoaderOptions&, bool forPreload, FetchRequest::OriginRestriction) const override { return true; }
+
+private:
+    MockFetchContext() { }
+};
 
 class CachingCorrectnessTest : public ::testing::Test {
 protected:
@@ -94,13 +107,13 @@ protected:
     ResourcePtr<Resource> fetch()
     {
         FetchRequest fetchRequest(ResourceRequest(KURL(ParsedURLString, kResourceURL)), FetchInitiatorInfo());
-        return m_fetcher->fetchSynchronously(fetchRequest);
+        return RawResource::fetchSynchronously(fetchRequest, fetcher());
     }
 
     ResourcePtr<Resource> fetchImage()
     {
         FetchRequest fetchRequest(ResourceRequest(KURL(ParsedURLString, kResourceURL)), FetchInitiatorInfo());
-        return m_fetcher->fetchImage(fetchRequest);
+        return ImageResource::fetch(fetchRequest, fetcher());
     }
 
     ResourceFetcher* fetcher() const { return m_fetcher.get(); }
@@ -109,11 +122,21 @@ private:
     // A simple platform that mocks out the clock, for cache freshness testing.
     class ProxyPlatform : public blink::Platform {
     public:
-        ProxyPlatform() : m_elapsedSeconds(0.) { }
+        ProxyPlatform() : m_platform(blink::Platform::current()), m_elapsedSeconds(0.) { }
+
+        ~ProxyPlatform()
+        {
+            blink::Platform::initialize(m_platform);
+        }
 
         void advanceClock(double seconds)
         {
             m_elapsedSeconds += seconds;
+        }
+
+        WebThread* currentThread() override
+        {
+            return m_platform->currentThread();
         }
 
     private:
@@ -130,23 +153,18 @@ private:
             return &kAConstUnsignedCharZero;
         }
 
+        blink::Platform* m_platform; // Not owned.
         double m_elapsedSeconds;
     };
 
     virtual void SetUp()
     {
-        m_savedPlatform = blink::Platform::current();
         blink::Platform::initialize(&m_proxyPlatform);
 
         // Save the global memory cache to restore it upon teardown.
         m_globalMemoryCache = replaceMemoryCacheForTesting(MemoryCache::create());
 
-        // Create a ResourceFetcher that has a real DocumentLoader and Document, but is not attached to a LocalFrame.
-        const KURL kDocumentURL(ParsedURLString, "http://document.com/");
-        m_documentLoader = DocumentLoader::create(0, ResourceRequest(kDocumentURL), SubstituteData());
-        m_document = HTMLDocument::create();
-        m_fetcher = ResourceFetcher::create(m_documentLoader.get());
-        m_fetcher->setDocument(m_document.get());
+        m_fetcher = ResourceFetcher::create(MockFetchContext::create());
     }
 
     virtual void TearDown()
@@ -155,19 +173,12 @@ private:
 
         // Yield the ownership of the global memory cache back.
         replaceMemoryCacheForTesting(m_globalMemoryCache.release());
-
-        blink::Platform::initialize(m_savedPlatform);
     }
 
-    blink::Platform* m_savedPlatform;
     ProxyPlatform m_proxyPlatform;
 
-    OwnPtrWillBePersistent<MemoryCache> m_globalMemoryCache;
-
-    RefPtr<DocumentLoader> m_documentLoader;
-
-    RefPtrWillBePersistent<HTMLDocument> m_document;
-    RefPtrWillBePersistent<ResourceFetcher> m_fetcher;
+    Persistent<MemoryCache> m_globalMemoryCache;
+    Persistent<ResourceFetcher> m_fetcher;
 };
 
 TEST_F(CachingCorrectnessTest, FreshFromLastModified)
@@ -458,7 +469,7 @@ TEST_F(CachingCorrectnessTest, PostToSameURLTwice)
     ResourceRequest request2(KURL(ParsedURLString, kResourceURL));
     request2.setHTTPMethod("POST");
     FetchRequest fetch2(request2, FetchInitiatorInfo());
-    ResourcePtr<Resource> resource2 = fetcher()->fetchSynchronously(fetch2);
+    ResourcePtr<Resource> resource2 = RawResource::fetchSynchronously(fetch2, fetcher());
 
     EXPECT_EQ(resource2, memoryCache()->resourceForURL(request2.url()));
     EXPECT_NE(resource1, resource2);
@@ -569,4 +580,4 @@ TEST_F(CachingCorrectnessTest, 302RedirectExplicitlyFreshExpires)
     EXPECT_EQ(firstResource, fetched);
 }
 
-} // namespace
+} // namespace blink

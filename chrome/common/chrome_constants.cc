@@ -21,7 +21,9 @@
 
 namespace chrome {
 
+#if defined(OS_WIN)
 const char kChromeVersionEnvVar[] = "CHROME_VERSION";
+#endif
 
 // The following should not be used for UI strings; they are meant
 // for system strings only. UI changes should be made in the GRD.
@@ -124,23 +126,20 @@ const char* const kHelperFlavorSuffixes[] = {
 #endif  // OS_MACOSX
 
 #if defined(OS_WIN)
+const base::FilePath::CharType kBrowserResourcesDll[] = FPL("chrome.dll");
 const base::FilePath::CharType kMetroDriverDll[] = FPL("metro_driver.dll");
-const wchar_t kStatusTrayWindowClass[] = L"Chrome_StatusTrayWindow";
+const base::FilePath::CharType kStatusTrayWindowClass[] =
+    FPL("Chrome_StatusTrayWindow");
 #endif  // defined(OS_WIN)
 
-const wchar_t kCrashReportLog[] = L"Reported Crashes.txt";
-const wchar_t kTestingInterfaceDLL[] = L"testing_interface.dll";
 const char    kInitialProfile[] = "Default";
 const char    kMultiProfileDirPrefix[] = "Profile ";
 const base::FilePath::CharType kGuestProfileDir[] = FPL("Guest Profile");
-const wchar_t kBrowserResourcesDll[] = L"chrome.dll";
+const base::FilePath::CharType kSystemProfileDir[] = FPL("System Profile");
 
 // filenames
-#if defined(OS_ANDROID)
-const base::FilePath::CharType kAndroidCacheFilename[] = FPL("AndroidCache");
-#endif
-const base::FilePath::CharType kArchivedHistoryFilename[] =
-    FPL("Archived History");
+const base::FilePath::CharType kAffiliationDatabaseFileName[] =
+    FPL("Affiliation Database");
 const base::FilePath::CharType kCacheDirname[] = FPL("Cache");
 const base::FilePath::CharType kChannelIDFilename[] = FPL("Origin Bound Certs");
 const base::FilePath::CharType kCookieFilename[] = FPL("Cookies");
@@ -152,17 +151,14 @@ const base::FilePath::CharType kExtensionActivityLogFilename[] =
     FPL("Extension Activity");
 const base::FilePath::CharType kExtensionsCookieFilename[] =
     FPL("Extension Cookies");
-const base::FilePath::CharType kFaviconsFilename[] = FPL("Favicons");
 const base::FilePath::CharType kFirstRunSentinel[] = FPL("First Run");
 const base::FilePath::CharType kGCMStoreDirname[] = FPL("GCM Store");
-const base::FilePath::CharType kHistoryFilename[] = FPL("History");
-const base::FilePath::CharType kJumpListIconDirname[] = FPL("JumpListIcons");
 const base::FilePath::CharType kLocalStateFilename[] = FPL("Local State");
 const base::FilePath::CharType kLocalStorePoolName[] = FPL("LocalStorePool");
 const base::FilePath::CharType kLoginDataFileName[] = FPL("Login Data");
 const base::FilePath::CharType kMediaCacheDirname[] = FPL("Media Cache");
-const base::FilePath::CharType kNewTabThumbnailsFilename[] =
-    FPL("Top Thumbnails");
+const base::FilePath::CharType kNetworkPersistentStateFilename[] =
+    FPL("Network Persistent State");
 const base::FilePath::CharType kPreferencesFilename[] = FPL("Preferences");
 const base::FilePath::CharType kProtectedPreferencesFilenameDeprecated[] =
     FPL("Protected Preferences");
@@ -182,12 +178,12 @@ const base::FilePath::CharType kSingletonSocketFilename[] =
     FPL("SingletonSocket");
 const base::FilePath::CharType kSupervisedUserSettingsFilename[] =
     FPL("Managed Mode Settings");
-const base::FilePath::CharType kSyncCredentialsFilename[] =
-    FPL("Sync Credentials");
 const base::FilePath::CharType kThemePackFilename[] = FPL("Cached Theme.pak");
-const base::FilePath::CharType kThumbnailsFilename[] = FPL("Thumbnails");
-const base::FilePath::CharType kTopSitesFilename[] = FPL("Top Sites");
 const base::FilePath::CharType kWebAppDirname[] = FPL("Web Applications");
+
+#if defined(OS_WIN)
+const base::FilePath::CharType kJumpListIconDirname[] = FPL("JumpListIcons");
+#endif
 
 // File name of the Pepper Flash plugin on different platforms.
 const base::FilePath::CharType kPepperFlashPluginFilename[] =
@@ -200,24 +196,8 @@ const base::FilePath::CharType kPepperFlashPluginFilename[] =
 #endif
 
 // directory names
+#if defined(OS_WIN)
 const wchar_t kUserDataDirname[] = L"User Data";
-
-// We don't enable record mode in the released product because users could
-// potentially be tricked into running a product in record mode without
-// knowing it.  Enable in debug builds.  Playback mode is allowed always,
-// because it is useful for testing and not hazardous by itself.
-#ifndef NDEBUG
-// const bool kRecordModeEnabled = true;
-#else
-// const bool kRecordModeEnabled = false;
-#endif
-
-const bool kRecordModeEnabled = true;
-
-#if defined(OS_ANDROID) || defined(OS_IOS)
-const bool kEnableTouchIcon = true;
-#else
-const bool kEnableTouchIcon = false;
 #endif
 
 const float kMaxShareOfExtensionProcesses = 0.30f;
@@ -238,7 +218,11 @@ const wchar_t kLaunchModeValue[] = L"launch_mode";
 // This is used by breakpad and the metrics reporting.
 const wchar_t kBrowserCrashDumpAttemptsRegistryPath[] =
     L"Software\\" PRODUCT_STRING_PATH L"\\BrowserCrashDumpAttempts";
-const char kSafeModeEnvVar[] = "CHROME_SAFE_MODE";
+const wchar_t kBrowserCrashDumpAttemptsRegistryPathSxS[] =
+    L"Software\\" PRODUCT_STRING_PATH L"\\BrowserCrashDumpAttemptsSxS";
+// This is used by browser exit code metrics reporting.
+const wchar_t kBrowserExitCodesRegistryPath[] =
+    L"Software\\" PRODUCT_STRING_PATH L"\\BrowserExitCodes";
 #endif
 
 #if defined(OS_CHROMEOS)

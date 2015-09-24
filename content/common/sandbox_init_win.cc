@@ -26,11 +26,6 @@ bool InitializeSandbox(sandbox::SandboxInterfaceInfo* sandbox_info) {
     // process to swap its window station. During this time all the UI will be
     // broken. This has to run before threads and windows are created.
     if (!command_line.HasSwitch(switches::kNoSandbox)) {
-#if defined(ADDRESS_SANITIZER) && defined(OS_WIN)
-      LOG(FATAL) << "AddressSanitizer for Windows doesn't support sandboxing "
-                    "yet (http://crbug.com/382867).  "
-                    "Please rerun with sandbox disabled.";
-#endif
       // Precreate the desktop and window station used by the renderers.
       sandbox::TargetPolicy* policy = broker_services->CreatePolicy();
       sandbox::ResultCode result = policy->CreateAlternateDesktop(true);
@@ -45,6 +40,14 @@ bool InitializeSandbox(sandbox::SandboxInterfaceInfo* sandbox_info) {
 
   sandbox::TargetServices* target_services = sandbox_info->target_services;
   return InitTargetServices(target_services);
+}
+
+bool BrokerDuplicateSharedMemoryHandle(
+    const base::SharedMemoryHandle& source_handle,
+    base::ProcessId target_process_id,
+    base::SharedMemoryHandle* target_handle) {
+  return BrokerDuplicateHandle(source_handle, target_process_id, target_handle,
+                               0, DUPLICATE_SAME_ACCESS);
 }
 
 }  // namespace content

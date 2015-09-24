@@ -17,7 +17,7 @@
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
-#include "chrome/browser/chromeos/login/login_utils.h"
+#include "chrome/browser/chromeos/login/session/user_session_manager.h"
 #include "chrome/browser/chromeos/login/ui/login_display.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
@@ -26,7 +26,7 @@
 #include "components/user_manager/user.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
 
 namespace base {
@@ -35,8 +35,10 @@ class ListValue;
 
 namespace chromeos {
 
+class BootstrapUserContextInitializer;
 class CrosSettings;
 class LoginDisplayHost;
+class OAuth2TokenInitializer;
 
 namespace login {
 class NetworkStateHelper;
@@ -52,11 +54,11 @@ class NetworkStateHelper;
 class ExistingUserController : public LoginDisplay::Delegate,
                                public content::NotificationObserver,
                                public LoginPerformer::Delegate,
-                               public LoginUtils::Delegate {
+                               public UserSessionManagerDelegate {
  public:
   // All UI initialization is deferred till Init() call.
   explicit ExistingUserController(LoginDisplayHost* host);
-  virtual ~ExistingUserController();
+  ~ExistingUserController() override;
 
   // Returns the current existing user controller if it has been created.
   static ExistingUserController* current_controller() {
@@ -66,13 +68,6 @@ class ExistingUserController : public LoginDisplay::Delegate,
   // Creates and shows login UI for known users.
   void Init(const user_manager::UserList& users);
 
-  // Tells the controller to enter the Enterprise Enrollment screen when
-  // appropriate.
-  void DoAutoEnrollment();
-
-  // Tells the controller to resume a pending login.
-  void ResumeLogin();
-
   // Start the public session auto-login timer.
   void StartPublicSessionAutoLoginTimer();
 
@@ -80,28 +75,30 @@ class ExistingUserController : public LoginDisplay::Delegate,
   void StopPublicSessionAutoLoginTimer();
 
   // LoginDisplay::Delegate: implementation
-  virtual void CancelPasswordChangedFlow() override;
-  virtual void CreateAccount() override;
-  virtual void CompleteLogin(const UserContext& user_context) override;
-  virtual base::string16 GetConnectedNetworkName() override;
-  virtual bool IsSigninInProgress() const override;
-  virtual void Login(const UserContext& user_context,
-                     const SigninSpecifics& specifics) override;
-  virtual void MigrateUserData(const std::string& old_password) override;
-  virtual void OnSigninScreenReady() override;
-  virtual void OnStartEnterpriseEnrollment() override;
-  virtual void OnStartKioskEnableScreen() override;
-  virtual void OnStartKioskAutolaunchScreen() override;
-  virtual void ResetPublicSessionAutoLoginTimer() override;
-  virtual void ResyncUserData() override;
-  virtual void SetDisplayEmail(const std::string& email) override;
-  virtual void ShowWrongHWIDScreen() override;
-  virtual void Signout() override;
+  void CancelPasswordChangedFlow() override;
+  void CreateAccount() override;
+  void CompleteLogin(const UserContext& user_context) override;
+  base::string16 GetConnectedNetworkName() override;
+  bool IsSigninInProgress() const override;
+  void Login(const UserContext& user_context,
+             const SigninSpecifics& specifics) override;
+  void MigrateUserData(const std::string& old_password) override;
+  void OnSigninScreenReady() override;
+  void OnStartEnterpriseEnrollment() override;
+  void OnStartEnableDebuggingScreen() override;
+  void OnStartKioskEnableScreen() override;
+  void OnStartKioskAutolaunchScreen() override;
+  void ResetPublicSessionAutoLoginTimer() override;
+  void ResyncUserData() override;
+  void SetDisplayEmail(const std::string& email) override;
+  void ShowWrongHWIDScreen() override;
+  void Signout() override;
+  bool IsUserWhitelisted(const std::string& user_id) override;
 
   // content::NotificationObserver implementation.
-  virtual void Observe(int type,
-                       const content::NotificationSource& source,
-                       const content::NotificationDetails& details) override;
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override;
 
   // Set a delegate that we will pass AuthStatusConsumer events to.
   // Used for testing.
@@ -134,7 +131,6 @@ class ExistingUserController : public LoginDisplay::Delegate,
   friend class ExistingUserControllerPublicSessionTest;
   friend class MockLoginPerformerDelegate;
 
-  void LoginAsRetailModeUser();
   void LoginAsGuest();
   void LoginAsPublicSession(const UserContext& user_context);
   void LoginAsKioskApp(const std::string& app_id, bool diagnostic_mode);
@@ -146,18 +142,16 @@ class ExistingUserController : public LoginDisplay::Delegate,
   void OnPublicSessionAutoLoginTimerFire();
 
   // LoginPerformer::Delegate implementation:
-  virtual void OnAuthFailure(const AuthFailure& error) override;
-  virtual void OnAuthSuccess(const UserContext& user_context) override;
-  virtual void OnOffTheRecordAuthSuccess() override;
-  virtual void OnPasswordChangeDetected() override;
-  virtual void WhiteListCheckFailed(const std::string& email) override;
-  virtual void PolicyLoadFailed() override;
-  virtual void OnOnlineChecked(
-      const std::string& username, bool success) override;
+  void OnAuthFailure(const AuthFailure& error) override;
+  void OnAuthSuccess(const UserContext& user_context) override;
+  void OnOffTheRecordAuthSuccess() override;
+  void OnPasswordChangeDetected() override;
+  void WhiteListCheckFailed(const std::string& email) override;
+  void PolicyLoadFailed() override;
+  void OnOnlineChecked(const std::string& username, bool success) override;
 
-  // LoginUtils::Delegate implementation:
-  virtual void OnProfilePrepared(Profile* profile,
-                                 bool browser_launched) override;
+  // UserSessionManagerDelegate implementation:
+  void OnProfilePrepared(Profile* profile, bool browser_launched) override;
 
   // Called when device settings change.
   void DeviceSettingsChanged();
@@ -183,14 +177,14 @@ class ExistingUserController : public LoginDisplay::Delegate,
   void OnConsumerKioskAutoLaunchCheckCompleted(
       KioskAppManager::ConsumerKioskAutoLaunchStatus status);
 
-  // Enters the enterprise enrollment screen. |forced| is true if this is the
-  // result of an auto-enrollment check, and the user shouldn't be able to
-  // easily cancel the enrollment. In that case, |user| is the user name that
-  // first logged in.
-  void ShowEnrollmentScreen(bool forced, const std::string& user);
+  // Enters the enterprise enrollment screen.
+  void ShowEnrollmentScreen();
 
   // Shows "reset device" screen.
   void ShowResetScreen();
+
+  // Shows "enable developer features" screen.
+  void ShowEnableDebuggingScreen();
 
   // Shows kiosk feature enable screen.
   void ShowKioskEnableScreen();
@@ -201,15 +195,7 @@ class ExistingUserController : public LoginDisplay::Delegate,
   // Shows "critical TPM error" screen.
   void ShowTPMError();
 
-  // Invoked to complete login. Login might be suspended if auto-enrollment
-  // has to be performed, and will resume once auto-enrollment completes.
-  void CompleteLoginInternal(
-      const UserContext& user_context,
-      DeviceSettingsService::OwnershipStatus ownership_status);
-
   // Creates |login_performer_| if necessary and calls login() on it.
-  // The string arguments aren't passed by const reference because this is
-  // posted as |resume_login_callback_| and resets it.
   void PerformLogin(const UserContext& user_context,
                     LoginPerformer::AuthorizationMode auth_mode);
 
@@ -238,6 +224,25 @@ class ExistingUserController : public LoginDisplay::Delegate,
   // auto-login timer is started.
   void PerformLoginFinishedActions(bool start_public_session_timer);
 
+  // Invokes |continuation| after verifying that the device is not disabled.
+  void ContinueLoginIfDeviceNotDisabled(const base::Closure& continuation);
+
+  // Signs in as a new user. This is a continuation of CompleteLogin() that gets
+  // invoked after it has been verified that the device is not disabled.
+  void DoCompleteLogin(const UserContext& user_context);
+
+  // Signs in as a known user. This is a continuation of Login() that gets
+  // invoked after it has been verified that the device is not disabled.
+  void DoLogin(const UserContext& user_context,
+               const SigninSpecifics& specifics);
+
+  // Callback invoked when |bootstrap_user_context_initializer_| has finished.
+  void OnBootstrapUserContextInitialized(bool success,
+                                         const UserContext& user_context);
+
+  // Callback invoked when |oauth2_token_initializer_| has finished.
+  void OnOAuth2TokensFetched(bool success, const UserContext& user_context);
+
   // Public session auto-login timer.
   scoped_ptr<base::OneShotTimer<ExistingUserController> > auto_login_timer_;
 
@@ -256,9 +261,6 @@ class ExistingUserController : public LoginDisplay::Delegate,
 
   // Username of the last login attempt.
   std::string last_login_attempt_username_;
-
-  // Auth flow of the last login attempt.
-  UserContext::AuthFlow last_login_attempt_auth_flow_;
 
   // OOBE/login display host.
   LoginDisplayHost* host_;
@@ -302,19 +304,8 @@ class ExistingUserController : public LoginDisplay::Delegate,
   // Set in OnLoginSuccess. Before that use LoginPerformer::auth_mode().
   // Initialized with AUTH_MODE_EXTENSION as more restricted mode.
   LoginPerformer::AuthorizationMode auth_mode_;
-
-  // True if auto-enrollment should be performed before starting the user's
-  // session.
-  bool do_auto_enrollment_;
-
   // Whether the sign-in UI is finished loading.
   bool signin_screen_ready_;
-
-  // The username used for auto-enrollment, if it was triggered.
-  std::string auto_enrollment_username_;
-
-  // Callback to invoke to resume login, after auto-enrollment has completed.
-  base::Closure resume_login_callback_;
 
   // Time when the signin screen was first displayed. Used to measure the time
   // from showing the screen until a successful login is performed.
@@ -335,6 +326,11 @@ class ExistingUserController : public LoginDisplay::Delegate,
       local_account_auto_login_id_subscription_;
   scoped_ptr<CrosSettings::ObserverSubscription>
       local_account_auto_login_delay_subscription_;
+
+  scoped_ptr<BootstrapUserContextInitializer>
+      bootstrap_user_context_initializer_;
+
+  scoped_ptr<OAuth2TokenInitializer> oauth2_token_initializer_;
 
   FRIEND_TEST_ALL_PREFIXES(ExistingUserControllerTest, ExistingUserLogin);
 

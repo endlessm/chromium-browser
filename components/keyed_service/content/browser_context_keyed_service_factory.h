@@ -40,7 +40,7 @@ class KEYED_SERVICE_EXPORT BrowserContextKeyedServiceFactory
   // A function that supplies the instance of a KeyedService for a given
   // BrowserContext. This is used primarily for testing, where we want to feed
   // a specific mock into the BCKSF system.
-  typedef KeyedService* (*TestingFactoryFunction)(
+  typedef scoped_ptr<KeyedService>(*TestingFactoryFunction)(
       content::BrowserContext* context);
 
   // Associates |factory| with |context| so that |factory| is used to create
@@ -124,19 +124,17 @@ class KEYED_SERVICE_EXPORT BrowserContextKeyedServiceFactory
   friend class BrowserContextDependencyManagerUnittests;
 
   // Registers any user preferences on this service. This is called by
-  // RegisterProfilePrefsIfNecessary() and should be overriden by any service
+  // RegisterPrefsIfNecessaryForContext() and should be overriden by any service
   // that wants to register profile-specific preferences.
   virtual void RegisterProfilePrefs(
       user_prefs::PrefRegistrySyncable* registry) {}
 
   // KeyedServiceFactory:
-  KeyedService* BuildServiceInstanceFor(
+  scoped_ptr<KeyedService> BuildServiceInstanceFor(
       base::SupportsUserData* context) const final;
   bool IsOffTheRecord(base::SupportsUserData* context) const final;
 
   // KeyedServiceBaseFactory:
-  user_prefs::PrefRegistrySyncable* GetAssociatedPrefRegistry(
-      base::SupportsUserData* context) const final;
   base::SupportsUserData* GetContextToUse(
       base::SupportsUserData* context) const final;
   bool ServiceIsCreatedWithContext() const final;

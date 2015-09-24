@@ -27,17 +27,22 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// http://www.w3.org/TR/IndexedDB/#idl-def-IDBRequestReadyState
+
 enum IDBRequestReadyState {
     "pending",
     "done"
 };
 
+// http://www.w3.org/TR/IndexedDB/#idl-def-IDBRequest
+
 [
+    Exposed=(Window,Worker),
     ActiveDOMObject,
     GarbageCollected,
 ] interface IDBRequest : EventTarget {
     [RaisesException=Getter, CachedAttribute=isResultDirty] readonly attribute any result;
-    [RaisesException=Getter] readonly attribute DOMError error;
+    [RaisesException=Getter, Measure] readonly attribute DOMError error;
 
     readonly attribute any source;
     readonly attribute IDBTransaction transaction;

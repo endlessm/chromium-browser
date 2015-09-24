@@ -7,7 +7,6 @@ package org.chromium.chrome.browser.contextmenu;
 import android.view.ContextMenu;
 import android.view.ContextMenu.ContextMenuInfo;
 import android.view.HapticFeedbackConstants;
-import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MenuItem.OnMenuItemClickListener;
 import android.view.View;
@@ -21,6 +20,9 @@ import org.chromium.content.browser.ContentViewCore;
  * A helper class that handles generating context menus for {@link ContentViewCore}s.
  */
 public class ContextMenuHelper implements OnCreateContextMenuListener, OnMenuItemClickListener {
+    private static final String DATA_REDUCTION_PROXY_PASSTHROUGH_HEADER =
+            "Chrome-Proxy: pass-through\r\n";
+
     private long mNativeContextMenuHelper;
 
     private ContextMenuPopulator mPopulator;
@@ -68,7 +70,6 @@ public class ContextMenuHelper implements OnCreateContextMenuListener, OnMenuIte
         mCurrentContextMenuParams = params;
 
         view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
-        contentViewCore.setIgnoreRemainingTouchEvents();
         view.setOnCreateContextMenuListener(this);
         view.showContextMenu();
     }
@@ -77,22 +78,19 @@ public class ContextMenuHelper implements OnCreateContextMenuListener, OnMenuIte
      * Starts a download based on the current {@link ContextMenuParams}.
      * @param isLink Whether or not the download target is a link.
      */
-    public void startContextMenuDownload(boolean isLink) {
-        if (mNativeContextMenuHelper != 0) nativeOnStartDownload(mNativeContextMenuHelper, isLink);
+    public void startContextMenuDownload(boolean isLink, boolean isDataReductionProxyEnabled) {
+        if (mNativeContextMenuHelper != 0) {
+            nativeOnStartDownload(mNativeContextMenuHelper, isLink,
+                    isDataReductionProxyEnabled ? DATA_REDUCTION_PROXY_PASSTHROUGH_HEADER : null);
+        }
     }
 
     @Override
     public void onCreateContextMenu(ContextMenu menu, View v, ContextMenuInfo menuInfo) {
         if (!shouldShowMenu(mCurrentContextMenuParams)) return;
 
-        if (mCurrentContextMenuParams.isCustomMenu()) {
-            for (int i = 0; i < mCurrentContextMenuParams.getCustomMenuSize(); i++) {
-                menu.add(Menu.NONE, i, Menu.NONE, mCurrentContextMenuParams.getCustomLabelAt(i));
-            }
-        } else {
-            assert mPopulator != null;
-            mPopulator.buildContextMenu(menu, v.getContext(), mCurrentContextMenuParams);
-        }
+        assert mPopulator != null;
+        mPopulator.buildContextMenu(menu, v.getContext(), mCurrentContextMenuParams);
 
         for (int i = 0; i < menu.size(); i++) {
             menu.getItem(i).setOnMenuItemClickListener(this);
@@ -101,15 +99,7 @@ public class ContextMenuHelper implements OnCreateContextMenuListener, OnMenuIte
 
     @Override
     public boolean onMenuItemClick(MenuItem item) {
-        if (mCurrentContextMenuParams.isCustomMenu()) {
-            if (mNativeContextMenuHelper != 0) {
-                final int action = mCurrentContextMenuParams.getCustomActionAt(item.getItemId());
-                nativeOnCustomItemSelected(mNativeContextMenuHelper, action);
-            }
-            return true;
-        } else {
-            return mPopulator.onItemSelected(this, mCurrentContextMenuParams, item.getItemId());
-        }
+        return mPopulator.onItemSelected(this, mCurrentContextMenuParams, item.getItemId());
     }
 
     /**
@@ -121,11 +111,9 @@ public class ContextMenuHelper implements OnCreateContextMenuListener, OnMenuIte
     }
 
     private boolean shouldShowMenu(ContextMenuParams params) {
-        // Custom menus are handled by this class and do not require a ContextMenuPopulator.
-        return params.isCustomMenu() ||
-                (mPopulator != null && mPopulator.shouldShowContextMenu(params));
+        return (mPopulator != null && mPopulator.shouldShowContextMenu(params));
     }
 
-    private native void nativeOnStartDownload(long nativeContextMenuHelper, boolean isLink);
-    private native void nativeOnCustomItemSelected(long nativeContextMenuHelper, int action);
+    private native void nativeOnStartDownload(
+            long nativeContextMenuHelper, boolean isLink, String headers);
 }

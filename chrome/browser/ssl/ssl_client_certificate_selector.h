@@ -6,31 +6,28 @@
 #define CHROME_BROWSER_SSL_SSL_CLIENT_CERTIFICATE_SELECTOR_H_
 
 #include "base/callback_forward.h"
+#include "base/memory/scoped_ptr.h"
 
 namespace content {
+class ClientCertificateDelegate;
 class WebContents;
 }
 
 namespace net {
-class HttpNetworkSession;
 class SSLCertRequestInfo;
 class X509Certificate;
 }
 
 namespace chrome {
 
-typedef base::Callback<void(net::X509Certificate*)> SelectCertificateCallback;
-
 // Opens a constrained SSL client certificate selection dialog under |parent|,
 // offering certificates from |cert_request_info|. When the user has made a
-// selection, the dialog will report back to |callback|. |callback| is notified
-// when the dialog closes in call cases; if the user cancels the dialog, we call
-// with a NULL certificate.
+// selection, the dialog will report back to |delegate|. If the dialog is
+// closed with no selection, |delegate| will simply be destroyed.
 void ShowSSLClientCertificateSelector(
     content::WebContents* contents,
-    const net::HttpNetworkSession* network_session,
     net::SSLCertRequestInfo* cert_request_info,
-    const SelectCertificateCallback& callback);
+    scoped_ptr<content::ClientCertificateDelegate> delegate);
 
 }  // namespace chrome
 

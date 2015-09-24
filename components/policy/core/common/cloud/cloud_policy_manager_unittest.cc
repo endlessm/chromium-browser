@@ -8,7 +8,6 @@
 #include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/mock_cloud_policy_client.h"
 #include "components/policy/core/common/cloud/mock_cloud_policy_store.h"
@@ -74,12 +73,9 @@ ConfigurationPolicyProvider* TestHarness::CreateProvider(
     scoped_refptr<base::SequencedTaskRunner> task_runner) {
   // Create and initialize the store.
   store_.NotifyStoreLoaded();
-  ConfigurationPolicyProvider* provider = new CloudPolicyManager(
-      PolicyNamespaceKey(dm_protocol::kChromeUserPolicyType, std::string()),
-      &store_,
-      task_runner,
-      task_runner,
-      task_runner);
+  ConfigurationPolicyProvider* provider =
+      new CloudPolicyManager(dm_protocol::kChromeUserPolicyType, std::string(),
+                             &store_, task_runner, task_runner, task_runner);
   Mock::VerifyAndClearExpectations(&store_);
   return provider;
 }
@@ -92,7 +88,7 @@ void TestHarness::InstallStringPolicy(const std::string& policy_name,
                          policy_level(),
                          policy_scope(),
                          new base::StringValue(policy_value),
-                         NULL);
+                         nullptr);
 }
 
 void TestHarness::InstallIntegerPolicy(const std::string& policy_name,
@@ -101,7 +97,7 @@ void TestHarness::InstallIntegerPolicy(const std::string& policy_name,
                          policy_level(),
                          policy_scope(),
                          new base::FundamentalValue(policy_value),
-                         NULL);
+                         nullptr);
 }
 
 void TestHarness::InstallBooleanPolicy(const std::string& policy_name,
@@ -110,20 +106,20 @@ void TestHarness::InstallBooleanPolicy(const std::string& policy_name,
                          policy_level(),
                          policy_scope(),
                          new base::FundamentalValue(policy_value),
-                         NULL);
+                         nullptr);
 }
 
 void TestHarness::InstallStringListPolicy(const std::string& policy_name,
                                           const base::ListValue* policy_value) {
   store_.policy_map_.Set(policy_name, policy_level(), policy_scope(),
-                         policy_value->DeepCopy(), NULL);
+                         policy_value->DeepCopy(), nullptr);
 }
 
 void TestHarness::InstallDictionaryPolicy(
     const std::string& policy_name,
     const base::DictionaryValue* policy_value) {
   store_.policy_map_.Set(policy_name, policy_level(), policy_scope(),
-                         policy_value->DeepCopy(), NULL);
+                         policy_value->DeepCopy(), nullptr);
 }
 
 // static
@@ -148,9 +144,8 @@ class TestCloudPolicyManager : public CloudPolicyManager {
   TestCloudPolicyManager(
       CloudPolicyStore* store,
       const scoped_refptr<base::SequencedTaskRunner>& task_runner)
-      : CloudPolicyManager(PolicyNamespaceKey(
-                               dm_protocol::kChromeUserPolicyType,
-                               std::string()),
+      : CloudPolicyManager(dm_protocol::kChromeUserPolicyType,
+                           std::string(),
                            store,
                            task_runner,
                            task_runner,
@@ -167,14 +162,14 @@ class TestCloudPolicyManager : public CloudPolicyManager {
   DISALLOW_COPY_AND_ASSIGN(TestCloudPolicyManager);
 };
 
-MATCHER_P(ProtoMatches, proto, "") {
+MATCHER_P(ProtoMatches, proto, std::string()) {
   return arg.SerializePartialAsString() == proto.SerializePartialAsString();
 }
 
 class CloudPolicyManagerTest : public testing::Test {
  protected:
   CloudPolicyManagerTest()
-      : policy_ns_key_(dm_protocol::kChromeUserPolicyType, std::string()) {}
+      : policy_type_(dm_protocol::kChromeUserPolicyType) {}
 
   void SetUp() override {
     // Set up a policy map for testing.
@@ -182,7 +177,7 @@ class CloudPolicyManagerTest : public testing::Test {
                     POLICY_LEVEL_MANDATORY,
                     POLICY_SCOPE_USER,
                     new base::StringValue("value"),
-                    NULL);
+                    nullptr);
     expected_bundle_.Get(PolicyNamespace(POLICY_DOMAIN_CHROME, std::string()))
         .CopyFrom(policy_map_);
 
@@ -190,8 +185,7 @@ class CloudPolicyManagerTest : public testing::Test {
     policy_.Build();
 
     EXPECT_CALL(store_, Load());
-    manager_.reset(new TestCloudPolicyManager(&store_,
-                                              loop_.message_loop_proxy()));
+    manager_.reset(new TestCloudPolicyManager(&store_, loop_.task_runner()));
     manager_->Init(&schema_registry_);
     Mock::VerifyAndClearExpectations(&store_);
     manager_->AddObserver(&observer_);
@@ -206,7 +200,7 @@ class CloudPolicyManagerTest : public testing::Test {
   base::MessageLoop loop_;
 
   // Testing policy.
-  const PolicyNamespaceKey policy_ns_key_;
+  const std::string policy_type_;
   UserPolicyBuilder policy_;
   PolicyMap policy_map_;
   PolicyBundle expected_bundle_;
@@ -266,7 +260,7 @@ TEST_F(CloudPolicyManagerTest, RegistrationAndFetch) {
   client->SetDMToken(policy_.policy_data().request_token());
   client->NotifyRegistrationStateChanged();
 
-  client->SetPolicy(policy_ns_key_, policy_.policy());
+  client->SetPolicy(policy_type_, std::string(), policy_.policy());
   EXPECT_CALL(store_, Store(ProtoMatches(policy_.policy())));
   client->NotifyPolicyFetched();
   Mock::VerifyAndClearExpectations(&store_);
@@ -339,7 +333,7 @@ TEST_F(CloudPolicyManagerTest, RefreshSuccessful) {
   // Respond to the policy fetch, which should trigger a write to |store_|.
   EXPECT_CALL(observer_, OnUpdatePolicy(_)).Times(0);
   EXPECT_CALL(store_, Store(_));
-  client->SetPolicy(policy_ns_key_, policy_.policy());
+  client->SetPolicy(policy_type_, std::string(), policy_.policy());
   client->NotifyPolicyFetched();
   Mock::VerifyAndClearExpectations(&observer_);
   Mock::VerifyAndClearExpectations(&store_);

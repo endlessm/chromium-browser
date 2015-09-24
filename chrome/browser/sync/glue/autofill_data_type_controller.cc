@@ -10,8 +10,8 @@
 #include "chrome/browser/sync/glue/chrome_report_unrecoverable_error.h"
 #include "chrome/browser/sync/profile_sync_components_factory.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
-#include "chrome/browser/webdata/autocomplete_syncable_service.h"
-#include "chrome/browser/webdata/web_data_service_factory.h"
+#include "chrome/browser/web_data_service_factory.h"
+#include "components/autofill/core/browser/webdata/autocomplete_syncable_service.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "sync/api/sync_error.h"
@@ -40,30 +40,30 @@ syncer::ModelSafeGroup AutofillDataTypeController::model_safe_group() const {
 }
 
 void AutofillDataTypeController::WebDatabaseLoaded() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK_EQ(MODEL_STARTING, state());
 
   OnModelLoaded();
 }
 
 AutofillDataTypeController::~AutofillDataTypeController() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 }
 
 bool AutofillDataTypeController::PostTaskOnBackendThread(
     const tracked_objects::Location& from_here,
     const base::Closure& task) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   return BrowserThread::PostTask(BrowserThread::DB, from_here, task);
 }
 
 bool AutofillDataTypeController::StartModels() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK_EQ(MODEL_STARTING, state());
 
   autofill::AutofillWebDataService* web_data_service =
       WebDataServiceFactory::GetAutofillWebDataForProfile(
-          profile_, Profile::EXPLICIT_ACCESS).get();
+          profile_, ServiceAccessType::EXPLICIT_ACCESS).get();
 
   if (!web_data_service)
     return false;
@@ -79,7 +79,7 @@ bool AutofillDataTypeController::StartModels() {
 
 void AutofillDataTypeController::StartAssociating(
     const StartCallback& start_callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK_EQ(state(), MODEL_LOADED);
   ProfileSyncService* sync = ProfileSyncServiceFactory::GetForProfile(
       profile_);

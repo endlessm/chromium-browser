@@ -14,66 +14,54 @@ var remoting = remoting || {};
 
 /**
  * @param {HTMLElement} titleBar The root node of the title-bar DOM hierarchy.
+ * @param {function()} disconnectCallback Callback for disconnecting the
+ *     session.
  * @constructor
  */
-remoting.WindowFrame = function(titleBar) {
-  /**
-   * @type {remoting.ClientSession}
-   * @private
-   */
-  this.clientSession_ = null;
+remoting.WindowFrame = function(titleBar, disconnectCallback) {
+  /** @private {remoting.DesktopConnectedView} */
+  this.desktopConnectedView_ = null;
 
-  /**
-   * @type {HTMLElement}
-   * @private
-   */
+  /** @private {HTMLElement} */
   this.titleBar_ = titleBar;
 
-  /**
-   * @type {HTMLElement}
-   * @private
-   */
+  /** @private {HTMLElement} */
   this.title_ = /** @type {HTMLElement} */
       (titleBar.querySelector('.window-title'));
-  base.debug.assert(this.title_ != null);
+  console.assert(this.title_ != null, 'Missing title element.');
 
-  /**
-   * @type {HTMLElement}
-   * @private
-   */
+  /** @private {HTMLElement} */
   this.maximizeRestoreControl_ = /** @type {HTMLElement} */
       (titleBar.querySelector('.window-maximize-restore'));
-  base.debug.assert(this.maximizeRestoreControl_ != null);
+  console.assert(this.maximizeRestoreControl_ != null,
+                 'Missing maximize/restore control.');
 
   var optionsButton = titleBar.querySelector('.window-options');
-  base.debug.assert(optionsButton != null);
+  console.assert(optionsButton != null, 'Missing options button.');
   this.optionMenuButton_ = new remoting.MenuButton(
       optionsButton,
       this.onShowOptionsMenu_.bind(this),
       this.onHideOptionsMenu_.bind(this));
 
-  /**
-   * @type {HTMLElement}
-   * @private
-   */
+  /** @private {HTMLElement} */
   this.optionsMenuList_ = /** @type {HTMLElement} */
       (optionsButton.querySelector('.window-options-menu'));
-  base.debug.assert(this.optionsMenuList_ != null);
+  console.assert(this.optionsMenuList_ != null, 'Missing options menu.');
 
   /**
-   * @type {Array.<{cls:string, fn: function()}>}
+   * @type {Array<{cls:string, fn: function()}>}
    */
   var handlers = [
-    { cls: 'window-disconnect', fn: this.disconnectSession_.bind(this) },
+    { cls: 'window-disconnect', fn: disconnectCallback },
     { cls: 'window-maximize-restore',
       fn: this.maximizeOrRestoreWindow_.bind(this) },
     { cls: 'window-minimize', fn: this.minimizeWindow_.bind(this) },
-    { cls: 'window-close', fn: window.close.bind(window) },
+    { cls: 'window-close', fn: remoting.app.quit.bind(remoting.app) },
     { cls: 'window-controls-stub', fn: this.toggleWindowControls_.bind(this) }
   ];
   for (var i = 0; i < handlers.length; ++i) {
     var element = titleBar.querySelector('.' + handlers[i].cls);
-    base.debug.assert(element != null);
+    console.assert(element != null, 'Missing class: ' + handlers[i].cls + '.');
     element.addEventListener('click', handlers[i].fn, false);
   }
 
@@ -96,28 +84,30 @@ remoting.WindowFrame.prototype.createOptionsMenu = function() {
   return new remoting.OptionsMenu(
       this.titleBar_.querySelector('.menu-send-ctrl-alt-del'),
       this.titleBar_.querySelector('.menu-send-print-screen'),
+      this.titleBar_.querySelector('.menu-map-right-ctrl-to-meta'),
       this.titleBar_.querySelector('.menu-resize-to-client'),
       this.titleBar_.querySelector('.menu-shrink-to-fit'),
-      this.titleBar_.querySelector('.menu-new-connection'),
+      this.titleBar_.querySelector('.menu-new-window'),
       this.titleBar_.querySelector('.window-fullscreen'),
+      this.titleBar_.querySelector('.menu-toggle-connection-stats'),
       this.titleBar_.querySelector('.menu-start-stop-recording'));
 };
 
 /**
- * @param {remoting.ClientSession} clientSession The client session, or null if
- *     there is no connection.
+ * @param {remoting.DesktopConnectedView} desktopConnectedView The view for the
+ *     current session, or null if there is no connection.
  */
-remoting.WindowFrame.prototype.setClientSession = function(clientSession) {
-  this.clientSession_ = clientSession;
+remoting.WindowFrame.prototype.setDesktopConnectedView = function(
+    desktopConnectedView) {
+  this.desktopConnectedView_ = desktopConnectedView;
   var windowTitle = document.head.querySelector('title');
-  if (this.clientSession_) {
-    this.title_.innerText = clientSession.getHostDisplayName();
-    windowTitle.innerText = clientSession.getHostDisplayName() + ' - ' +
-        chrome.i18n.getMessage(/*i18n-content*/'PRODUCT_NAME');
+  if (this.desktopConnectedView_) {
+    this.title_.innerText = desktopConnectedView.getHostDisplayName();
+    windowTitle.innerText = desktopConnectedView.getHostDisplayName() + ' - ' +
+        remoting.app.getApplicationName();
   } else {
     this.title_.innerHTML = '&nbsp;';
-    windowTitle.innerText =
-        chrome.i18n.getMessage(/*i18n-content*/'PRODUCT_NAME');
+    windowTitle.innerText = remoting.app.getApplicationName();
   }
   this.handleWindowStateChange_();
 };
@@ -137,20 +127,6 @@ remoting.WindowFrame.prototype.getClientArea = function() {
       'width': window.innerWidth - 2 * kBorderWidth
     };
   }
-};
-
-/**
- * @private
- */
-remoting.WindowFrame.prototype.disconnectSession_ = function() {
-  // When the user disconnects, exit full-screen mode. This should not be
-  // necessary, as we do the same thing in client_session.js when the plugin
-  // is removed. However, there seems to be a bug in chrome.AppWindow.restore
-  // that causes it to get stuck in full-screen mode without this.
-  if (chrome.app.window.current().isFullscreen()) {
-    chrome.app.window.current().restore();
-  }
-  remoting.disconnect();
 };
 
 /**

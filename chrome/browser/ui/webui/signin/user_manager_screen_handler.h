@@ -14,12 +14,13 @@
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_metrics.h"
-#include "chrome/browser/signin/screenlock_bridge.h"
 #include "chrome/browser/ui/host_desktop.h"
+#include "components/proximity_auth/screenlock_bridge.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/web_ui_message_handler.h"
 #include "google_apis/gaia/gaia_auth_consumer.h"
+#include "google_apis/gaia/gaia_oauth_client.h"
 
 class GaiaAuthFetcher;
 
@@ -29,10 +30,12 @@ class FilePath;
 class ListValue;
 }
 
-class UserManagerScreenHandler : public content::WebUIMessageHandler,
-                                 public ScreenlockBridge::LockHandler,
-                                 public GaiaAuthConsumer,
-                                 public content::NotificationObserver {
+class UserManagerScreenHandler
+    : public content::WebUIMessageHandler,
+      public proximity_auth::ScreenlockBridge::LockHandler,
+      public GaiaAuthConsumer,
+      public gaia::GaiaOAuthClient::Delegate,
+      public content::NotificationObserver {
  public:
   UserManagerScreenHandler();
   ~UserManagerScreenHandler() override;
@@ -47,18 +50,20 @@ class UserManagerScreenHandler : public content::WebUIMessageHandler,
                const content::NotificationSource& source,
                const content::NotificationDetails& details) override;
 
-  // ScreenlockBridge::LockHandler implementation.
+  // proximity_auth::ScreenlockBridge::LockHandler implementation.
   void ShowBannerMessage(const base::string16& message) override;
   void ShowUserPodCustomIcon(
       const std::string& user_email,
-      const ScreenlockBridge::UserPodCustomIconOptions& icon_options) override;
+      const proximity_auth::ScreenlockBridge::UserPodCustomIconOptions&
+          icon_options) override;
   void HideUserPodCustomIcon(const std::string& user_email) override;
   void EnableInput() override;
-  void SetAuthType(const std::string& user_email,
-                   ScreenlockBridge::LockHandler::AuthType auth_type,
-                   const base::string16& auth_value) override;
-  ScreenlockBridge::LockHandler::AuthType GetAuthType(
-      const std::string& user_email) const override;
+  void SetAuthType(
+      const std::string& user_email,
+      proximity_auth::ScreenlockBridge::LockHandler::AuthType auth_type,
+      const base::string16& auth_value) override;
+  AuthType GetAuthType(const std::string& user_email) const override;
+  ScreenType GetScreenType() const override;
   void Unlock(const std::string& user_email) override;
   void AttemptEasySignin(const std::string& user_email,
                          const std::string& secret,
@@ -79,6 +84,11 @@ class UserManagerScreenHandler : public content::WebUIMessageHandler,
   void HandleHardlockUserPod(const base::ListValue* args);
 
   // Handle GAIA auth results.
+  void OnGetTokenInfoResponse(
+      scoped_ptr<base::DictionaryValue> token_info) override;
+  void OnOAuthError() override;
+  void OnNetworkError(int response_code) override;
+  // ClientLogin is deprecated
   void OnClientLoginSuccess(const ClientLoginResult& result) override;
   void OnClientLoginFailure(const GoogleServiceAuthError& error) override;
 
@@ -104,24 +114,27 @@ class UserManagerScreenHandler : public content::WebUIMessageHandler,
   chrome::HostDesktopType desktop_type_;
 
   // Authenticator used when local-auth fails.
+  scoped_ptr<gaia::GaiaOAuthClient> oauth_client_;
   scoped_ptr<GaiaAuthFetcher> client_login_;
 
   // The index of the profile currently being authenticated.
   size_t authenticating_profile_index_;
 
-  // Login password, held during on-line auth for saving later if correct.
+  // Login email and password, held during on-line auth for later use.
+  base::string16 email_address_;
   std::string password_attempt_;
 
   // URL hash, used to key post-profile actions if present.
   std::string url_hash_;
 
-  typedef std::map<std::string, ScreenlockBridge::LockHandler::AuthType>
+  typedef std::map<std::string,
+                   proximity_auth::ScreenlockBridge::LockHandler::AuthType>
       UserAuthTypeMap;
   UserAuthTypeMap user_auth_type_map_;
 
-  base::WeakPtrFactory<UserManagerScreenHandler> weak_ptr_factory_;
-
   content::NotificationRegistrar registrar_;
+
+  base::WeakPtrFactory<UserManagerScreenHandler> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(UserManagerScreenHandler);
 };

@@ -23,6 +23,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://html.spec.whatwg.org/#error-codes
+
 [
     RuntimeEnabled=Media,
     WillBeGarbageCollected,
@@ -31,6 +33,5 @@
     const unsigned short MEDIA_ERR_NETWORK = 2;
     const unsigned short MEDIA_ERR_DECODE = 3;
     const unsigned short MEDIA_ERR_SRC_NOT_SUPPORTED = 4;
-    [DeprecateAs=MediaErrorEncrypted] const unsigned short MEDIA_ERR_ENCRYPTED = 5;
     readonly attribute unsigned short code;
 };

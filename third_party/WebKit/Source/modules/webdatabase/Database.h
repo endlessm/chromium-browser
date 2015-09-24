@@ -52,7 +52,7 @@ class Database final : public GarbageCollectedFinalized<Database>, public Script
     DEFINE_WRAPPERTYPEINFO();
 public:
     virtual ~Database();
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
     bool openAndVerifyVersion(bool setVersionInNewDatabase, DatabaseError&, String& errorMessage);
     void close();
@@ -138,7 +138,7 @@ private:
         const ChangeVersionData* = 0);
     Vector<String> performGetTableNames();
 
-    void reportOpenDatabaseResult(int errorSite, int webSqlErrorCode, int sqliteErrorCode);
+    void reportOpenDatabaseResult(int errorSite, int webSqlErrorCode, int sqliteErrorCode, double duration);
     void reportChangeVersionResult(int errorSite, int webSqlErrorCode, int sqliteErrorCode);
     void reportStartTransactionResult(int errorSite, int webSqlErrorCode, int sqliteErrorCode);
     void reportCommitTransactionResult(int errorSite, int webSqlErrorCode, int sqliteErrorCode);
@@ -168,7 +168,7 @@ private:
 
     Member<DatabaseAuthorizer> m_databaseAuthorizer;
 
-    HeapDeque<Member<SQLTransactionBackend> > m_transactionQueue;
+    HeapDeque<Member<SQLTransactionBackend>> m_transactionQueue;
     Mutex m_transactionInProgressMutex;
     bool m_transactionInProgress;
     bool m_isTransactionQueueEnabled;

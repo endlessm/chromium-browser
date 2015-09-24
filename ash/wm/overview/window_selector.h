@@ -56,6 +56,9 @@ class ASH_EXPORT WindowSelector
   // the text filtering textfield.
   static const int kTextFilterBottomEdge;
 
+  // Returns true if the window can be selected in overview mode.
+  static bool IsSelectable(aura::Window* window);
+
   enum Direction {
     LEFT,
     UP,
@@ -66,15 +69,27 @@ class ASH_EXPORT WindowSelector
   typedef std::vector<aura::Window*> WindowList;
   typedef ScopedVector<WindowSelectorItem> WindowSelectorItemList;
 
-  WindowSelector(const WindowList& windows,
-                 WindowSelectorDelegate* delegate);
+  explicit WindowSelector(WindowSelectorDelegate* delegate);
   ~WindowSelector() override;
+
+  // Initialize with the windows that can be selected.
+  void Init(const WindowList& windows);
+
+  // Perform cleanup that cannot be done in the destructor.
+  void Shutdown();
 
   // Cancels window selection.
   void CancelSelection();
 
   // Called when the last window selector item from a grid is deleted.
   void OnGridEmpty(WindowGrid* grid);
+
+  // Activates |window|.
+  void SelectWindow(aura::Window* window);
+
+  bool restoring_minimized_windows() const {
+    return restoring_minimized_windows_;
+  }
 
   // gfx::DisplayObserver:
   void OnDisplayAdded(const gfx::Display& display) override;
@@ -87,8 +102,10 @@ class ASH_EXPORT WindowSelector
   void OnWindowDestroying(aura::Window* window) override;
 
   // aura::client::ActivationChangeObserver:
-  void OnWindowActivated(aura::Window* gained_active,
-                         aura::Window* lost_active) override;
+  void OnWindowActivated(
+      aura::client::ActivationChangeObserver::ActivationReason reason,
+      aura::Window* gained_active,
+      aura::Window* lost_active) override;
   void OnAttemptToReactivateWindow(aura::Window* request_active,
                                    aura::Window* actual_active) override;
 
@@ -107,15 +124,16 @@ class ASH_EXPORT WindowSelector
   // Position all of the windows in the overview.
   void PositionWindows(bool animate);
 
-  // Hide and track all hidden windows not in the overview item list.
-  void HideAndTrackNonOverviewWindows();
-
   // |focus|, restores focus to the stored window.
   void ResetFocusRestoreWindow(bool focus);
 
   // Helper function that moves the selection widget to |direction| on the
   // corresponding window grid.
   void Move(Direction direction, bool animate);
+
+  // Removes all observers that were registered during construction and/or
+  // initialization.
+  void RemoveAllObservers();
 
   // Tracks observed windows.
   std::set<aura::Window*> observed_windows_;
@@ -135,10 +153,6 @@ class ASH_EXPORT WindowSelector
 
   // List of all the window overview grids, one for each root window.
   ScopedVector<WindowGrid> grid_list_;
-
-  // Tracks windows which were hidden because they were not part of the
-  // overview.
-  aura::WindowTracker hidden_windows_;
 
   // Tracks the index of the root window the selection widget is in.
   size_t selected_grid_index_;
@@ -168,6 +182,10 @@ class ASH_EXPORT WindowSelector
   // The number of times the text filtering textfield has been cleared of text
   // during this overview mode session.
   size_t num_times_textfield_cleared_;
+
+  // Tracks whether minimized windows are currently being restored for overview
+  // mode.
+  bool restoring_minimized_windows_;
 
   DISALLOW_COPY_AND_ASSIGN(WindowSelector);
 };

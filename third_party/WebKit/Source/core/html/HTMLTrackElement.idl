@@ -23,6 +23,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://html.spec.whatwg.org/#the-track-element
+
 interface HTMLTrackElement : HTMLElement {
     attribute DOMString kind;
     [Reflect, URL] attribute DOMString src;
@@ -38,6 +40,4 @@ interface HTMLTrackElement : HTMLElement {
     readonly attribute unsigned short readyState;
 
     readonly attribute TextTrack track;
-
-    [Reflect, RuntimeEnabled=SubresourceIntegrity] attribute DOMString integrity;
 };

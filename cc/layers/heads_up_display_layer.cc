@@ -6,17 +6,19 @@
 
 #include <algorithm>
 
-#include "base/debug/trace_event.h"
+#include "base/trace_event/trace_event.h"
 #include "cc/layers/heads_up_display_layer_impl.h"
 #include "cc/trees/layer_tree_host.h"
 
 namespace cc {
 
-scoped_refptr<HeadsUpDisplayLayer> HeadsUpDisplayLayer::Create() {
-  return make_scoped_refptr(new HeadsUpDisplayLayer());
+scoped_refptr<HeadsUpDisplayLayer> HeadsUpDisplayLayer::Create(
+    const LayerSettings& settings) {
+  return make_scoped_refptr(new HeadsUpDisplayLayer(settings));
 }
 
-HeadsUpDisplayLayer::HeadsUpDisplayLayer() {
+HeadsUpDisplayLayer::HeadsUpDisplayLayer(const LayerSettings& settings)
+    : Layer(settings) {
   SetIsDrawable(true);
   UpdateDrawsContent(HasDrawableContent());
 }

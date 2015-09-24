@@ -9,6 +9,7 @@ body {
 
 viewer-toolbar {
   visibility: hidden;
+  white-space: nowrap;
   z-index: 3;
 }
 
@@ -18,15 +19,16 @@ viewer-page-indicator {
 }
 
 viewer-progress-bar {
+  visibility: hidden;
   z-index: 3;
 }
 
-viewer-error-screen {
+viewer-error-screen-legacy {
   visibility: hidden;
   z-index: 2;
 }
 
-viewer-password-screen {
+viewer-password-screen-legacy {
   visibility: hidden;
   z-index: 2;
 }

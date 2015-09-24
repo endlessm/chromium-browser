@@ -35,7 +35,7 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
 #include "chrome/browser/supervised_user/supervised_user_service.h"
 #include "chrome/browser/supervised_user/supervised_user_service_factory.h"
 #include "chrome/browser/supervised_user/supervised_user_url_filter.h"
@@ -65,8 +65,6 @@ const char kUseSearchPathForInstant[] = "use_search_path_for_instant";
 const char kAltInstantURLPath[] = "search";
 const char kAltInstantURLQueryParams[] = "&qbp=1";
 
-const char kDisplaySearchButtonFlagName[] = "display_search_button";
-const char kOriginChipFlagName[] = "origin_chip";
 #if !defined(OS_IOS) && !defined(OS_ANDROID)
 const char kEnableQueryExtractionFlagName[] = "query_extraction";
 #endif
@@ -177,8 +175,8 @@ bool MatchesAnySearchURL(const GURL& url,
 // --google-base-url to point at non-HTTPS servers, which eases testing.)
 bool IsSuitableURLForInstant(const GURL& url, const TemplateURL* template_url) {
   return template_url->HasSearchTermsReplacementKey(url) &&
-      (url.SchemeIsSecure() ||
-       google_util::StartsWithCommandLineGoogleBaseURL(url));
+         (url.SchemeIsCryptographic() ||
+          google_util::StartsWithCommandLineGoogleBaseURL(url));
 }
 
 // Returns true if |url| can be used as an Instant URL for |profile|.
@@ -246,7 +244,7 @@ base::string16 GetSearchTermsImpl(const content::WebContents* contents,
 }
 
 bool IsURLAllowedForSupervisedUser(const GURL& url, Profile* profile) {
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
   SupervisedUserService* supervised_user_service =
       SupervisedUserServiceFactory::GetForProfile(profile);
   SupervisedUserURLFilter* url_filter =
@@ -266,7 +264,7 @@ NewTabURLState IsValidNewTabURL(Profile* profile, const GURL& new_tab_url) {
     return NEW_TAB_URL_INCOGNITO;
   if (!new_tab_url.is_valid())
     return NEW_TAB_URL_NOT_SET;
-  if (!new_tab_url.SchemeIsSecure())
+  if (!new_tab_url.SchemeIsCryptographic())
     return NEW_TAB_URL_INSECURE;
   if (!IsURLAllowedForSupervisedUser(new_tab_url, profile))
     return NEW_TAB_URL_BLOCKED;
@@ -325,12 +323,13 @@ std::string ForceInstantResultsParam(bool for_prerender) {
 
 bool IsQueryExtractionEnabled() {
 #if defined(OS_IOS) || defined(OS_ANDROID)
-  return true;
+  return false;
 #else
   if (!IsInstantExtendedAPIEnabled())
     return false;
 
-  const CommandLine* command_line = CommandLine::ForCurrentProcess();
+  const base::CommandLine* command_line =
+      base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kEnableQueryExtraction))
     return true;
 
@@ -482,11 +481,10 @@ GURL GetInstantURL(Profile* profile, bool force_instant_results) {
   // Extended mode requires HTTPS.  Force it unless the base URL was overridden
   // on the command line, in which case we allow HTTP (see comments on
   // IsSuitableURLForInstant()).
-  if (!instant_url.SchemeIsSecure() &&
+  if (!instant_url.SchemeIsCryptographic() &&
       !google_util::StartsWithCommandLineGoogleBaseURL(instant_url)) {
     GURL::Replacements replacements;
-    const std::string secure_scheme(url::kHttpsScheme);
-    replacements.SetSchemeStr(secure_scheme);
+    replacements.SetSchemeStr(url::kHttpsScheme);
     instant_url = instant_url.ReplaceComponents(replacements);
   }
 
@@ -534,7 +532,7 @@ bool ShouldPrefetchSearchResults() {
     return false;
 
 #if defined(OS_ANDROID)
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kPrefetchSearchResults)) {
     return true;
   }
@@ -580,49 +578,6 @@ bool ShouldReuseInstantSearchBasePage() {
 
 GURL GetLocalInstantURL(Profile* profile) {
   return GURL(chrome::kChromeSearchLocalNtpUrl);
-}
-
-DisplaySearchButtonConditions GetDisplaySearchButtonConditions() {
-  const CommandLine* cl = CommandLine::ForCurrentProcess();
-  if (cl->HasSwitch(switches::kDisableSearchButtonInOmnibox))
-    return DISPLAY_SEARCH_BUTTON_NEVER;
-  if (cl->HasSwitch(switches::kEnableSearchButtonInOmniboxForStr))
-    return DISPLAY_SEARCH_BUTTON_FOR_STR;
-  if (cl->HasSwitch(switches::kEnableSearchButtonInOmniboxForStrOrIip))
-    return DISPLAY_SEARCH_BUTTON_FOR_STR_OR_IIP;
-  if (cl->HasSwitch(switches::kEnableSearchButtonInOmniboxAlways))
-    return DISPLAY_SEARCH_BUTTON_ALWAYS;
-
-  FieldTrialFlags flags;
-  if (!GetFieldTrialInfo(&flags))
-    return DISPLAY_SEARCH_BUTTON_NEVER;
-  uint64 value =
-      GetUInt64ValueForFlagWithDefault(kDisplaySearchButtonFlagName, 0, flags);
-  return (value < DISPLAY_SEARCH_BUTTON_NUM_VALUES) ?
-      static_cast<DisplaySearchButtonConditions>(value) :
-      DISPLAY_SEARCH_BUTTON_NEVER;
-}
-
-bool ShouldDisplayOriginChip() {
-  return GetOriginChipCondition() != ORIGIN_CHIP_DISABLED;
-}
-
-OriginChipCondition GetOriginChipCondition() {
-  const CommandLine* cl = CommandLine::ForCurrentProcess();
-  if (cl->HasSwitch(switches::kDisableOriginChip))
-    return ORIGIN_CHIP_DISABLED;
-  if (cl->HasSwitch(switches::kEnableOriginChipAlways))
-    return ORIGIN_CHIP_ALWAYS;
-  if (cl->HasSwitch(switches::kEnableOriginChipOnSrp))
-    return ORIGIN_CHIP_ON_SRP;
-
-  FieldTrialFlags flags;
-  if (!GetFieldTrialInfo(&flags))
-    return ORIGIN_CHIP_DISABLED;
-  uint64 value =
-      GetUInt64ValueForFlagWithDefault(kOriginChipFlagName, 0, flags);
-  return (value < ORIGIN_CHIP_NUM_VALUES) ?
-      static_cast<OriginChipCondition>(value) : ORIGIN_CHIP_DISABLED;
 }
 
 bool ShouldShowGoogleLocalNTP() {
@@ -731,7 +686,7 @@ bool ShouldPrefetchSearchResultsOnSRP() {
 }
 
 void EnableQueryExtractionForTesting() {
-  CommandLine* cl = CommandLine::ForCurrentProcess();
+  base::CommandLine* cl = base::CommandLine::ForCurrentProcess();
   cl->AppendSwitch(switches::kEnableQueryExtraction);
 }
 

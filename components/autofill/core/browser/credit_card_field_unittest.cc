@@ -29,8 +29,8 @@ class CreditCardFieldTest : public testing::Test {
   // |field_|.
   void Parse() {
     AutofillScanner scanner(list_.get());
-    field_.reset(
-        static_cast<const CreditCardField*>(CreditCardField::Parse(&scanner)));
+    scoped_ptr<FormField> field = CreditCardField::Parse(&scanner);
+    field_ = make_scoped_ptr(static_cast<CreditCardField*>(field.release()));
   }
 
   // Associates fields with their corresponding types, based on the previous
@@ -45,13 +45,13 @@ class CreditCardFieldTest : public testing::Test {
 
 TEST_F(CreditCardFieldTest, Empty) {
   Parse();
-  ASSERT_EQ(static_cast<CreditCardField*>(NULL), field_.get());
+  ASSERT_EQ(nullptr, field_.get());
 }
 
 TEST_F(CreditCardFieldTest, NonParse) {
   list_.push_back(new AutofillField);
   Parse();
-  ASSERT_EQ(static_cast<CreditCardField*>(NULL), field_.get());
+  ASSERT_EQ(nullptr, field_.get());
 }
 
 TEST_F(CreditCardFieldTest, ParseCreditCardNoNumber) {
@@ -67,7 +67,7 @@ TEST_F(CreditCardFieldTest, ParseCreditCardNoNumber) {
   list_.push_back(new AutofillField(field, ASCIIToUTF16("year2")));
 
   Parse();
-  ASSERT_EQ(static_cast<CreditCardField*>(NULL), field_.get());
+  ASSERT_EQ(nullptr, field_.get());
 }
 
 TEST_F(CreditCardFieldTest, ParseCreditCardNoDate) {
@@ -79,7 +79,7 @@ TEST_F(CreditCardFieldTest, ParseCreditCardNoDate) {
   list_.push_back(new AutofillField(field, ASCIIToUTF16("number1")));
 
   Parse();
-  ASSERT_EQ(static_cast<CreditCardField*>(NULL), field_.get());
+  ASSERT_EQ(nullptr, field_.get());
 }
 
 TEST_F(CreditCardFieldTest, ParseMiniumCreditCard) {
@@ -99,7 +99,7 @@ TEST_F(CreditCardFieldTest, ParseMiniumCreditCard) {
   list_.push_back(new AutofillField(field, ASCIIToUTF16("year3")));
 
   Parse();
-  ASSERT_NE(static_cast<CreditCardField*>(NULL), field_.get());
+  ASSERT_NE(nullptr, field_.get());
   EXPECT_TRUE(ClassifyField());
   ASSERT_TRUE(
       field_type_map_.find(ASCIIToUTF16("number1")) != field_type_map_.end());
@@ -116,10 +116,6 @@ TEST_F(CreditCardFieldTest, ParseMiniumCreditCard) {
 TEST_F(CreditCardFieldTest, ParseFullCreditCard) {
   FormFieldData field;
   field.form_control_type = "text";
-
-  field.label = ASCIIToUTF16("Card Type");
-  field.name = ASCIIToUTF16("card_type");
-  list_.push_back(new AutofillField(field, ASCIIToUTF16("type")));
 
   field.label = ASCIIToUTF16("Name on Card");
   field.name = ASCIIToUTF16("name_on_card");
@@ -141,8 +137,15 @@ TEST_F(CreditCardFieldTest, ParseFullCreditCard) {
   field.name = ASCIIToUTF16("verification");
   list_.push_back(new AutofillField(field, ASCIIToUTF16("cvc")));
 
+  field.form_control_type = "select-one";
+  field.label = ASCIIToUTF16("Card Type");
+  field.name = ASCIIToUTF16("card_type");
+  field.option_contents.push_back(ASCIIToUTF16("visa"));
+  field.option_values.push_back(ASCIIToUTF16("visa"));
+  list_.push_back(new AutofillField(field, ASCIIToUTF16("type")));
+
   Parse();
-  ASSERT_NE(static_cast<CreditCardField*>(NULL), field_.get());
+  ASSERT_NE(nullptr, field_.get());
   EXPECT_TRUE(ClassifyField());
   ASSERT_TRUE(
       field_type_map_.find(ASCIIToUTF16("type")) != field_type_map_.end());
@@ -187,7 +190,7 @@ TEST_F(CreditCardFieldTest, ParseExpMonthYear) {
   list_.push_back(new AutofillField(field, ASCIIToUTF16("year4")));
 
   Parse();
-  ASSERT_NE(static_cast<CreditCardField*>(NULL), field_.get());
+  ASSERT_NE(nullptr, field_.get());
   EXPECT_TRUE(ClassifyField());
   ASSERT_TRUE(
       field_type_map_.find(ASCIIToUTF16("name1")) != field_type_map_.end());
@@ -225,7 +228,7 @@ TEST_F(CreditCardFieldTest, ParseExpMonthYear2) {
   list_.push_back(new AutofillField(field, ASCIIToUTF16("year4")));
 
   Parse();
-  ASSERT_NE(static_cast<CreditCardField*>(NULL), field_.get());
+  ASSERT_NE(nullptr, field_.get());
   EXPECT_TRUE(ClassifyField());
   ASSERT_TRUE(
       field_type_map_.find(ASCIIToUTF16("name1")) != field_type_map_.end());
@@ -259,7 +262,7 @@ TEST_F(CreditCardFieldTest, ParseExpField) {
   list_.push_back(new AutofillField(field, ASCIIToUTF16("exp3")));
 
   Parse();
-  ASSERT_NE(static_cast<CreditCardField*>(NULL), field_.get());
+  ASSERT_NE(nullptr, field_.get());
   EXPECT_TRUE(ClassifyField());
   ASSERT_TRUE(
       field_type_map_.find(ASCIIToUTF16("name1")) != field_type_map_.end());
@@ -290,7 +293,7 @@ TEST_F(CreditCardFieldTest, ParseExpField2DigitYear) {
   list_.push_back(new AutofillField(field, ASCIIToUTF16("exp3")));
 
   Parse();
-  ASSERT_NE(static_cast<CreditCardField*>(NULL), field_.get());
+  ASSERT_NE(nullptr, field_.get());
   EXPECT_TRUE(ClassifyField());
   ASSERT_TRUE(
       field_type_map_.find(ASCIIToUTF16("name1")) != field_type_map_.end());
@@ -304,6 +307,69 @@ TEST_F(CreditCardFieldTest, ParseExpField2DigitYear) {
             field_type_map_[ASCIIToUTF16("exp3")]);
 }
 
+TEST_F(CreditCardFieldTest, ParseExpField2DigitYearDueToMaxLength) {
+  FormFieldData field;
+  field.form_control_type = "text";
+
+  field.label = ASCIIToUTF16("Name on Card");
+  field.name = ASCIIToUTF16("name_on_card");
+  list_.push_back(new AutofillField(field, ASCIIToUTF16("name1")));
+
+  field.label = ASCIIToUTF16("Card Number");
+  field.name = ASCIIToUTF16("card_number");
+  list_.push_back(new AutofillField(field, ASCIIToUTF16("number2")));
+
+  field.label = ASCIIToUTF16("Expiration Date");
+  field.name = ASCIIToUTF16("cc_exp");
+  field.max_length = 6;  // Cannot fit YYYY-MM.
+  list_.push_back(new AutofillField(field, ASCIIToUTF16("exp3")));
+
+  Parse();
+  ASSERT_NE(nullptr, field_.get());
+  EXPECT_TRUE(ClassifyField());
+  ASSERT_TRUE(
+      field_type_map_.find(ASCIIToUTF16("name1")) != field_type_map_.end());
+  EXPECT_EQ(CREDIT_CARD_NAME, field_type_map_[ASCIIToUTF16("name1")]);
+  ASSERT_TRUE(
+      field_type_map_.find(ASCIIToUTF16("number2")) != field_type_map_.end());
+  EXPECT_EQ(CREDIT_CARD_NUMBER, field_type_map_[ASCIIToUTF16("number2")]);
+  ASSERT_TRUE(
+      field_type_map_.find(ASCIIToUTF16("exp3")) != field_type_map_.end());
+  EXPECT_EQ(CREDIT_CARD_EXP_DATE_2_DIGIT_YEAR,
+            field_type_map_[ASCIIToUTF16("exp3")]);
+}
+
+TEST_F(CreditCardFieldTest, ParseExpField4DigitYear) {
+  FormFieldData field;
+  field.form_control_type = "text";
+
+  field.label = ASCIIToUTF16("Name on Card");
+  field.name = ASCIIToUTF16("name_on_card");
+  list_.push_back(new AutofillField(field, ASCIIToUTF16("name1")));
+
+  field.label = ASCIIToUTF16("Card Number");
+  field.name = ASCIIToUTF16("card_number");
+  list_.push_back(new AutofillField(field, ASCIIToUTF16("number2")));
+
+  field.label = ASCIIToUTF16("MM / YYYY");
+  field.name = ASCIIToUTF16("cc_exp");
+  list_.push_back(new AutofillField(field, ASCIIToUTF16("exp3")));
+
+  Parse();
+  ASSERT_NE(nullptr, field_.get());
+  EXPECT_TRUE(ClassifyField());
+  ASSERT_TRUE(
+      field_type_map_.find(ASCIIToUTF16("name1")) != field_type_map_.end());
+  EXPECT_EQ(CREDIT_CARD_NAME, field_type_map_[ASCIIToUTF16("name1")]);
+  ASSERT_TRUE(
+      field_type_map_.find(ASCIIToUTF16("number2")) != field_type_map_.end());
+  EXPECT_EQ(CREDIT_CARD_NUMBER, field_type_map_[ASCIIToUTF16("number2")]);
+  ASSERT_TRUE(
+      field_type_map_.find(ASCIIToUTF16("exp3")) != field_type_map_.end());
+  EXPECT_EQ(CREDIT_CARD_EXP_DATE_4_DIGIT_YEAR,
+            field_type_map_[ASCIIToUTF16("exp3")]);
+}
+
 TEST_F(CreditCardFieldTest, ParseCreditCardHolderNameWithCCFullName) {
   FormFieldData field;
   field.form_control_type = "text";
@@ -313,7 +379,7 @@ TEST_F(CreditCardFieldTest, ParseCreditCardHolderNameWithCCFullName) {
   list_.push_back(new AutofillField(field, ASCIIToUTF16("name1")));
 
   Parse();
-  ASSERT_NE(static_cast<CreditCardField*>(NULL), field_.get());
+  ASSERT_NE(nullptr, field_.get());
   EXPECT_TRUE(ClassifyField());
   ASSERT_TRUE(
       field_type_map_.find(ASCIIToUTF16("name1")) != field_type_map_.end());
@@ -335,7 +401,7 @@ TEST_F(CreditCardFieldTest, ParseMonthControl) {
   list_.push_back(new AutofillField(field, ASCIIToUTF16("date2")));
 
   Parse();
-  ASSERT_NE(static_cast<CreditCardField*>(NULL), field_.get());
+  ASSERT_NE(nullptr, field_.get());
   EXPECT_TRUE(ClassifyField());
   ASSERT_TRUE(
       field_type_map_.find(ASCIIToUTF16("number1")) != field_type_map_.end());
@@ -366,7 +432,7 @@ TEST_F(CreditCardFieldTest, ParseCreditCardExpYear_2DigitMaxLength) {
   list_.push_back(new AutofillField(field, ASCIIToUTF16("year")));
 
   Parse();
-  ASSERT_NE(static_cast<CreditCardField*>(NULL), field_.get());
+  ASSERT_NE(nullptr, field_.get());
   EXPECT_TRUE(ClassifyField());
   ASSERT_TRUE(field_type_map_.find(ASCIIToUTF16("number")) !=
               field_type_map_.end());
@@ -416,7 +482,7 @@ TEST_F(CreditCardFieldTest, ParseCreditCardNumberWithSplit) {
   list_.push_back(new AutofillField(field, ASCIIToUTF16("year6")));
 
   Parse();
-  ASSERT_NE(static_cast<CreditCardField*>(NULL), field_.get());
+  ASSERT_NE(nullptr, field_.get());
   EXPECT_TRUE(ClassifyField());
 
   ASSERT_TRUE(field_type_map_.find(ASCIIToUTF16("number1")) !=
@@ -473,7 +539,7 @@ TEST_F(CreditCardFieldTest, ParseMultipleCreditCardNumbers) {
   list_.push_back(new AutofillField(field, ASCIIToUTF16("year5")));
 
   Parse();
-  ASSERT_NE(static_cast<CreditCardField*>(NULL), field_.get());
+  ASSERT_NE(nullptr, field_.get());
   EXPECT_TRUE(ClassifyField());
 
   ASSERT_TRUE(field_type_map_.find(ASCIIToUTF16("name1")) !=

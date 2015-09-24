@@ -33,10 +33,10 @@
 #include "core/frame/LocalFrame.h"
 #include "core/frame/RemoteFrame.h"
 #include "core/html/parser/HTMLParserIdioms.h"
+#include "core/layout/LayoutPart.h"
 #include "core/loader/FrameLoader.h"
 #include "core/page/FocusController.h"
 #include "core/page/Page.h"
-#include "core/rendering/RenderPart.h"
 
 namespace blink {
 
@@ -99,11 +99,11 @@ void HTMLFrameElementBase::openURL(bool lockBackForwardList)
 
 void HTMLFrameElementBase::parseAttribute(const QualifiedName& name, const AtomicString& value)
 {
-    if (name == srcdocAttr)
+    if (name == srcdocAttr) {
         setLocation("about:srcdoc");
-    else if (name == srcAttr && !fastHasAttribute(srcdocAttr))
+    } else if (name == srcAttr && !fastHasAttribute(srcdocAttr)) {
         setLocation(stripLeadingAndTrailingHTMLSpaces(value));
-    else if (isIdAttributeName(name)) {
+    } else if (name == idAttr) {
         // Important to call through to base for the id attribute so the hasID bit gets set.
         HTMLFrameOwnerElement::parseAttribute(name, value);
         m_frameName = value;
@@ -128,8 +128,9 @@ void HTMLFrameElementBase::parseAttribute(const QualifiedName& name, const Atomi
     } else if (name == onbeforeunloadAttr) {
         // FIXME: should <frame> elements have beforeunload handlers?
         setAttributeEventListener(EventTypeNames::beforeunload, createAttributeEventListener(this, name, value, eventParameterName()));
-    } else
+    } else {
         HTMLFrameOwnerElement::parseAttribute(name, value);
+    }
 }
 
 void HTMLFrameElementBase::setNameAndOpenURL()
@@ -159,7 +160,7 @@ void HTMLFrameElementBase::attach(const AttachContext& context)
 {
     HTMLFrameOwnerElement::attach(context);
 
-    if (renderPart()) {
+    if (layoutPart()) {
         if (Frame* frame = contentFrame()) {
             if (frame->isLocalFrame())
                 setWidget(toLocalFrame(frame)->view());

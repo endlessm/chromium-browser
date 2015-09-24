@@ -6,6 +6,7 @@
 
 #include "remoting/proto/event.pb.h"
 #include "remoting/protocol/protocol_mock_objects.h"
+#include "remoting/protocol/test_event_matchers.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -16,52 +17,44 @@ using ::testing::InSequence;
 namespace remoting {
 namespace protocol {
 
+using test::EqualsKeyEventWithCapsLock;
+using test::EqualsMouseEvent;
+using test::EqualsKeyEventWithoutLockStates;
+
 namespace {
 
 static const MouseEvent::MouseButton BUTTON_LEFT = MouseEvent::BUTTON_LEFT;
 static const MouseEvent::MouseButton BUTTON_RIGHT = MouseEvent::BUTTON_RIGHT;
 
-// A hardcoded value used to verify |lock_states| is preserved.
-static const uint32 kTestLockStates = protocol::KeyEvent::LOCK_STATES_CAPSLOCK;
+MATCHER_P2(TouchPointIdsAndTypeEqual, ids, type, "") {
+  if (arg.event_type() != type)
+    return false;
 
-// Verify the usb key code and the "pressed" state.
-// Also verify that the event doesn't have |lock_states| set.
-MATCHER_P2(EqualsUsbEventWithoutLockStates, usb_keycode, pressed, "") {
-  return arg.usb_keycode() == static_cast<uint32>(usb_keycode) &&
-         arg.pressed() == pressed &&
-         !arg.has_lock_states();
+  std::set<uint32> touch_ids;
+  for (const TouchEventPoint& point : arg.touch_points()) {
+    touch_ids.insert(point.id());
+  }
+  return touch_ids == ids;
 }
 
-// Verify the usb key code, the "pressed" state, and the lock states.
-MATCHER_P2(EqualsUsbEvent, usb_keycode, pressed, "") {
-  return arg.usb_keycode() == static_cast<uint32>(usb_keycode) &&
-          arg.pressed() == pressed &&
-          arg.lock_states() == kTestLockStates;
-}
-
-MATCHER_P4(EqualsMouseEvent, x, y, button, down, "") {
-  return arg.x() == x && arg.y() == y && arg.button() == button &&
-         arg.button_down() == down;
-}
-
-static KeyEvent NewUsbEvent(uint32 usb_keycode,
-                            bool pressed) {
+static KeyEvent NewUsbEvent(uint32 usb_keycode, bool pressed) {
   KeyEvent event;
   event.set_usb_keycode(usb_keycode);
   event.set_pressed(pressed);
   // Create all key events with the hardcoded |lock_state| in this test.
-  event.set_lock_states(kTestLockStates);
+  event.set_lock_states(KeyEvent::LOCK_STATES_CAPSLOCK);
   return event;
 }
 
-static void PressAndReleaseUsb(InputStub* input_stub,
-                               uint32 usb_keycode) {
+static void PressAndReleaseUsb(InputStub* input_stub, uint32 usb_keycode) {
   input_stub->InjectKeyEvent(NewUsbEvent(usb_keycode, true));
   input_stub->InjectKeyEvent(NewUsbEvent(usb_keycode, false));
 }
 
-static MouseEvent NewMouseEvent(int x, int y,
-    MouseEvent::MouseButton button, bool down) {
+static MouseEvent NewMouseEvent(int x,
+                                int y,
+                                MouseEvent::MouseButton button,
+                                bool down) {
   MouseEvent event;
   event.set_x(x);
   event.set_y(y);
@@ -70,7 +63,12 @@ static MouseEvent NewMouseEvent(int x, int y,
   return event;
 }
 
+void AddTouchPoint(uint32 id, TouchEvent* event) {
+  TouchEventPoint* p = event->add_touch_points();
+  p->set_id(id);
 }
+
+}  // namespace
 
 // Verify that keys that were pressed and released aren't re-released.
 TEST(InputEventTrackerTest, NothingToRelease) {
@@ -80,15 +78,17 @@ TEST(InputEventTrackerTest, NothingToRelease) {
   {
     InSequence s;
 
-    EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(1, true)));
-    EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(1, false)));
-    EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(2, true)));
-    EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(2, false)));
+    EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsKeyEventWithCapsLock(1, true)));
+    EXPECT_CALL(mock_stub,
+                InjectKeyEvent(EqualsKeyEventWithCapsLock(1, false)));
+    EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsKeyEventWithCapsLock(2, true)));
+    EXPECT_CALL(mock_stub,
+                InjectKeyEvent(EqualsKeyEventWithCapsLock(2, false)));
 
     EXPECT_CALL(mock_stub,
-        InjectMouseEvent(EqualsMouseEvent(0, 0, BUTTON_LEFT, true)));
+                InjectMouseEvent(EqualsMouseEvent(0, 0, BUTTON_LEFT, true)));
     EXPECT_CALL(mock_stub,
-        InjectMouseEvent(EqualsMouseEvent(0, 0, BUTTON_LEFT, false)));
+                InjectMouseEvent(EqualsMouseEvent(0, 0, BUTTON_LEFT, false)));
   }
 
   PressAndReleaseUsb(&input_tracker, 1);
@@ -109,27 +109,30 @@ TEST(InputEventTrackerTest, ReleaseAllKeys) {
   {
     InSequence s;
 
-    injects += EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(3, true)));
-    injects += EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(1, true)));
-    injects += EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(1, false)));
-    injects += EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(2, true)));
-    injects += EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(2, false)));
+    injects += EXPECT_CALL(mock_stub,
+                           InjectKeyEvent(EqualsKeyEventWithCapsLock(3, true)));
+    injects += EXPECT_CALL(mock_stub,
+                           InjectKeyEvent(EqualsKeyEventWithCapsLock(1, true)));
+    injects += EXPECT_CALL(
+        mock_stub, InjectKeyEvent(EqualsKeyEventWithCapsLock(1, false)));
+    injects += EXPECT_CALL(mock_stub,
+                           InjectKeyEvent(EqualsKeyEventWithCapsLock(2, true)));
+    injects += EXPECT_CALL(
+        mock_stub, InjectKeyEvent(EqualsKeyEventWithCapsLock(2, false)));
 
-    injects += EXPECT_CALL(mock_stub,
-        InjectMouseEvent(EqualsMouseEvent(0, 0, BUTTON_RIGHT, true)));
-    injects += EXPECT_CALL(mock_stub,
-        InjectMouseEvent(EqualsMouseEvent(0, 0, BUTTON_LEFT, true)));
-    injects += EXPECT_CALL(mock_stub,
-        InjectMouseEvent(EqualsMouseEvent(1, 1, BUTTON_LEFT, false)));
+    injects += EXPECT_CALL(mock_stub, InjectMouseEvent(EqualsMouseEvent(
+                                          0, 0, BUTTON_RIGHT, true)));
+    injects += EXPECT_CALL(
+        mock_stub, InjectMouseEvent(EqualsMouseEvent(0, 0, BUTTON_LEFT, true)));
+    injects += EXPECT_CALL(mock_stub, InjectMouseEvent(EqualsMouseEvent(
+                                          1, 1, BUTTON_LEFT, false)));
   }
 
   // The key should be released but |lock_states| should not be set.
-  EXPECT_CALL(mock_stub,
-              InjectKeyEvent(EqualsUsbEventWithoutLockStates(3, false)))
-      .After(injects);
-  EXPECT_CALL(mock_stub,
-              InjectMouseEvent(EqualsMouseEvent(1, 1, BUTTON_RIGHT, false)))
-      .After(injects);
+  EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsKeyEventWithoutLockStates(
+                             3, false))).After(injects);
+  EXPECT_CALL(mock_stub, InjectMouseEvent(EqualsMouseEvent(
+                             1, 1, BUTTON_RIGHT, false))).After(injects);
 
   input_tracker.InjectKeyEvent(NewUsbEvent(3, true));
   PressAndReleaseUsb(&input_tracker, 1);
@@ -156,27 +159,34 @@ TEST(InputEventTrackerTest, TrackUsbKeyEvents) {
   {
     InSequence s;
 
-    injects += EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(3, true)));
-    injects += EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(6, true)));
-    injects += EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(7, true)));
-    injects += EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(5, true)));
-    injects += EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(5, true)));
-    injects += EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(2, true)));
-    injects += EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(2, false)));
+    injects += EXPECT_CALL(mock_stub,
+                           InjectKeyEvent(EqualsKeyEventWithCapsLock(3, true)));
+    injects += EXPECT_CALL(mock_stub,
+                           InjectKeyEvent(EqualsKeyEventWithCapsLock(6, true)));
+    injects += EXPECT_CALL(mock_stub,
+                           InjectKeyEvent(EqualsKeyEventWithCapsLock(7, true)));
+    injects += EXPECT_CALL(mock_stub,
+                           InjectKeyEvent(EqualsKeyEventWithCapsLock(5, true)));
+    injects += EXPECT_CALL(mock_stub,
+                           InjectKeyEvent(EqualsKeyEventWithCapsLock(5, true)));
+    injects += EXPECT_CALL(mock_stub,
+                           InjectKeyEvent(EqualsKeyEventWithCapsLock(2, true)));
+    injects += EXPECT_CALL(
+        mock_stub, InjectKeyEvent(EqualsKeyEventWithCapsLock(2, false)));
   }
 
   // The key should be auto released with no |lock_states|.
   EXPECT_CALL(mock_stub,
-              InjectKeyEvent(EqualsUsbEventWithoutLockStates(3, false)))
+              InjectKeyEvent(EqualsKeyEventWithoutLockStates(3, false)))
       .After(injects);
   EXPECT_CALL(mock_stub,
-              InjectKeyEvent(EqualsUsbEventWithoutLockStates(6, false)))
+              InjectKeyEvent(EqualsKeyEventWithoutLockStates(6, false)))
       .After(injects);
   EXPECT_CALL(mock_stub,
-              InjectKeyEvent(EqualsUsbEventWithoutLockStates(7, false)))
+              InjectKeyEvent(EqualsKeyEventWithoutLockStates(7, false)))
       .After(injects);
   EXPECT_CALL(mock_stub,
-              InjectKeyEvent(EqualsUsbEventWithoutLockStates(5, false)))
+              InjectKeyEvent(EqualsKeyEventWithoutLockStates(5, false)))
       .After(injects);
 
   input_tracker.InjectKeyEvent(NewUsbEvent(3, true));
@@ -206,16 +216,21 @@ TEST(InputEventTrackerTest, InvalidEventsNotTracked) {
   {
     InSequence s;
 
-    injects += EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(3, true)));
-    injects += EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(1, true)));
-    injects += EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(1, false)));
+    injects += EXPECT_CALL(mock_stub,
+                           InjectKeyEvent(EqualsKeyEventWithCapsLock(3, true)));
+    injects += EXPECT_CALL(mock_stub,
+                           InjectKeyEvent(EqualsKeyEventWithCapsLock(1, true)));
+    injects += EXPECT_CALL(
+        mock_stub, InjectKeyEvent(EqualsKeyEventWithCapsLock(1, false)));
     injects += EXPECT_CALL(mock_stub, InjectKeyEvent(_)).Times(2);
-    injects += EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(2, true)));
-    injects += EXPECT_CALL(mock_stub, InjectKeyEvent(EqualsUsbEvent(2, false)));
+    injects += EXPECT_CALL(mock_stub,
+                           InjectKeyEvent(EqualsKeyEventWithCapsLock(2, true)));
+    injects += EXPECT_CALL(
+        mock_stub, InjectKeyEvent(EqualsKeyEventWithCapsLock(2, false)));
   }
 
   EXPECT_CALL(mock_stub,
-              InjectKeyEvent(EqualsUsbEventWithoutLockStates(3, false)))
+              InjectKeyEvent(EqualsKeyEventWithoutLockStates(3, false)))
       .After(injects);
 
   input_tracker.InjectKeyEvent(NewUsbEvent(3, true));
@@ -235,6 +250,103 @@ TEST(InputEventTrackerTest, InvalidEventsNotTracked) {
   EXPECT_FALSE(input_tracker.IsKeyPressed(2));
   EXPECT_TRUE(input_tracker.IsKeyPressed(3));
   EXPECT_EQ(1, input_tracker.PressedKeyCount());
+
+  input_tracker.ReleaseAll();
+}
+
+// All touch points added with multiple touch events should be released as a
+// cancel event.
+TEST(InputEventTrackerTest, ReleaseAllTouchPoints) {
+  MockInputStub mock_stub;
+  InputEventTracker input_tracker(&mock_stub);
+
+  std::set<uint32> expected_ids1;
+  expected_ids1.insert(1);
+  expected_ids1.insert(2);
+  std::set<uint32> expected_ids2;
+  expected_ids2.insert(3);
+  expected_ids2.insert(5);
+  expected_ids2.insert(8);
+
+  std::set<uint32> all_touch_point_ids;
+  all_touch_point_ids.insert(expected_ids1.begin(), expected_ids1.end());
+  all_touch_point_ids.insert(expected_ids2.begin(), expected_ids2.end());
+
+  InSequence s;
+  EXPECT_CALL(mock_stub, InjectTouchEvent(TouchPointIdsAndTypeEqual(
+                             expected_ids1, TouchEvent::TOUCH_POINT_START)));
+  EXPECT_CALL(mock_stub, InjectTouchEvent(TouchPointIdsAndTypeEqual(
+                             expected_ids2, TouchEvent::TOUCH_POINT_START)));
+
+  EXPECT_CALL(mock_stub,
+              InjectTouchEvent(TouchPointIdsAndTypeEqual(
+                  all_touch_point_ids, TouchEvent::TOUCH_POINT_CANCEL)));
+
+  TouchEvent start_event1;
+  start_event1.set_event_type(TouchEvent::TOUCH_POINT_START);
+  AddTouchPoint(1, &start_event1);
+  AddTouchPoint(2, &start_event1);
+  input_tracker.InjectTouchEvent(start_event1);
+
+  TouchEvent start_event2;
+  start_event2.set_event_type(TouchEvent::TOUCH_POINT_START);
+  AddTouchPoint(3, &start_event2);
+  AddTouchPoint(5, &start_event2);
+  AddTouchPoint(8, &start_event2);
+  input_tracker.InjectTouchEvent(start_event2);
+
+  input_tracker.ReleaseAll();
+}
+
+// Add some touch points and remove only a subset of them. ReleaseAll() should
+// cancel all the remaining touch points.
+TEST(InputEventTrackerTest, ReleaseAllRemainingTouchPoints) {
+  MockInputStub mock_stub;
+  InputEventTracker input_tracker(&mock_stub);
+
+  std::set<uint32> start_expected_ids;
+  start_expected_ids.insert(1);
+  start_expected_ids.insert(2);
+  start_expected_ids.insert(3);
+
+  std::set<uint32> end_expected_ids;
+  end_expected_ids.insert(1);
+  std::set<uint32> cancel_expected_ids;
+  cancel_expected_ids.insert(3);
+
+  std::set<uint32> all_remaining_touch_point_ids;
+  all_remaining_touch_point_ids.insert(2);
+
+  InSequence s;
+  EXPECT_CALL(mock_stub,
+              InjectTouchEvent(TouchPointIdsAndTypeEqual(
+                  start_expected_ids, TouchEvent::TOUCH_POINT_START)));
+  EXPECT_CALL(mock_stub, InjectTouchEvent(TouchPointIdsAndTypeEqual(
+                             end_expected_ids, TouchEvent::TOUCH_POINT_END)));
+  EXPECT_CALL(mock_stub,
+              InjectTouchEvent(TouchPointIdsAndTypeEqual(
+                  cancel_expected_ids, TouchEvent::TOUCH_POINT_CANCEL)));
+
+  EXPECT_CALL(mock_stub, InjectTouchEvent(TouchPointIdsAndTypeEqual(
+                             all_remaining_touch_point_ids,
+                             TouchEvent::TOUCH_POINT_CANCEL)));
+
+  TouchEvent start_event;
+  start_event.set_event_type(TouchEvent::TOUCH_POINT_START);
+  AddTouchPoint(1, &start_event);
+  AddTouchPoint(2, &start_event);
+  AddTouchPoint(3, &start_event);
+  input_tracker.InjectTouchEvent(start_event);
+
+  TouchEvent end_event;
+  end_event.set_event_type(TouchEvent::TOUCH_POINT_END);
+  AddTouchPoint(1, &end_event);
+  input_tracker.InjectTouchEvent(end_event);
+
+  TouchEvent cancel_event;
+  cancel_event.set_event_type(TouchEvent::TOUCH_POINT_CANCEL);
+  AddTouchPoint(3, &cancel_event);
+  input_tracker.InjectTouchEvent(cancel_event);
 
   input_tracker.ReleaseAll();
 }

@@ -100,7 +100,8 @@ class Me2MeNativeMessagingHost
       scoped_ptr<base::DictionaryValue> response);
   void ProcessGetCredentialsFromAuthCode(
       scoped_ptr<base::DictionaryValue> message,
-      scoped_ptr<base::DictionaryValue> response);
+      scoped_ptr<base::DictionaryValue> response,
+      bool need_user_email);
 
   // These Send... methods get called on the DaemonController's internal thread,
   // or on the calling thread if called by the PairingRegistry.
@@ -135,8 +136,8 @@ class Me2MeNativeMessagingHost
    public:
     ElevatedChannelEventHandler(Me2MeNativeMessagingHost* host);
 
-    virtual void OnMessage(scoped_ptr<base::Value> message) override;
-    virtual void OnDisconnect() override;
+    void OnMessage(scoped_ptr<base::Value> message) override;
+    void OnDisconnect() override;
    private:
     Me2MeNativeMessagingHost* parent_;
   };
@@ -144,7 +145,7 @@ class Me2MeNativeMessagingHost
   // Create and connect to an elevated host process if necessary.
   // |elevated_channel_| will contain the native messaging channel to the
   // elevated host if the function succeeds.
-  void Me2MeNativeMessagingHost::EnsureElevatedHostCreated();
+  void EnsureElevatedHostCreated();
 
   // Disconnect and shut down the elevated host.
   void DisconnectElevatedHost();
@@ -162,8 +163,10 @@ class Me2MeNativeMessagingHost
 
   bool needs_elevation_;
 
+#if defined(OS_WIN)
   // Handle of the parent window.
   intptr_t parent_window_handle_;
+#endif  // defined(OS_WIN)
 
   base::Closure quit_closure_;
 

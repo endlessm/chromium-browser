@@ -10,6 +10,7 @@
 
 #include <algorithm>
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/nacl_scoped_ptr.h"
 #include "native_client/src/shared/platform/nacl_check.h"
 #include "native_client/src/shared/platform/nacl_exit.h"
@@ -21,6 +22,7 @@
 #include "native_client/src/trusted/debug_stub/target.h"
 #include "native_client/src/trusted/debug_stub/thread.h"
 #include "native_client/src/trusted/debug_stub/util.h"
+#include "native_client/src/trusted/desc/nacl_desc_base.h"
 #include "native_client/src/trusted/service_runtime/nacl_app_thread.h"
 #include "native_client/src/trusted/service_runtime/sel_ldr.h"
 #include "native_client/src/trusted/service_runtime/thread_suspension.h"
@@ -32,7 +34,7 @@
 using std::string;
 
 using port::IPlatform;
-using port::IThread;
+using port::Thread;
 using port::MutexLock;
 
 namespace gdb_rsp {
@@ -159,10 +161,10 @@ bool Target::RemoveBreakpoint(uint32_t user_address) {
   return true;
 }
 
-void Target::CopyFaultSignalFromAppThread(IThread *thread) {
+void Target::CopyFaultSignalFromAppThread(Thread *thread) {
   if (thread->GetFaultSignal() == 0 && thread->HasThreadFaulted()) {
     int signal =
-        IThread::ExceptionToSignal(thread->GetAppThread()->fault_signal);
+        Thread::ExceptionToSignal(thread->GetAppThread()->fault_signal);
     // If a thread hits a breakpoint, we want to ensure that it is
     // reported as SIGTRAP rather than SIGSEGV.  This is necessary
     // because we use HLT (which produces SIGSEGV) rather than the
@@ -285,7 +287,7 @@ void Target::ProcessDebugEvent() {
     // This is why we must check the status of a specific thread --
     // we cannot call UnqueueAnyFaultedThread() and expect it to
     // return step_over_breakpoint_thread_.
-    IThread *thread = threads_[step_over_breakpoint_thread_];
+    Thread *thread = threads_[step_over_breakpoint_thread_];
     if (!thread->HasThreadFaulted()) {
       // The thread has not faulted.  Nothing to do, so try again.
       // Note that we do not respond to input from GDB while in this
@@ -605,17 +607,13 @@ bool Target::ProcessPacket(Packet* pktIn, Packet* pktOut) {
     // IN : $g
     // OUT: $xx...xx
     case 'g': {
-      IThread *thread = GetRegThread();
+      Thread *thread = GetRegThread();
       if (NULL == thread) {
         err = BAD_ARGS;
         break;
       }
 
-      // Copy OS preserved registers to GDB payload
-      for (uint32_t a = 0; a < abi_->GetRegisterCount(); a++) {
-        const Abi::RegDef *def = abi_->GetRegisterDef(a);
-        thread->GetRegister(a, &ctx_[def->offset_], def->bytes_);
-      }
+      thread->GetRegisters(ctx_);
 
       pktOut->AddBlock(ctx_, abi_->GetContextSize());
       break;
@@ -624,7 +622,7 @@ bool Target::ProcessPacket(Packet* pktIn, Packet* pktOut) {
     // IN : $Gxx..xx
     // OUT: $OK
     case 'G': {
-      IThread *thread = GetRegThread();
+      Thread *thread = GetRegThread();
       if (NULL == thread) {
         err = BAD_ARGS;
         break;
@@ -632,11 +630,7 @@ bool Target::ProcessPacket(Packet* pktIn, Packet* pktOut) {
 
       pktIn->GetBlock(ctx_, abi_->GetContextSize());
 
-      // GDB payload to OS registers
-      for (uint32_t a = 0; a < abi_->GetRegisterCount(); a++) {
-        const Abi::RegDef *def = abi_->GetRegisterDef(a);
-        thread->SetRegister(a, &ctx_[def->offset_], def->bytes_);
-      }
+      thread->SetRegisters(ctx_);
 
       pktOut->AddString("OK");
       break;
@@ -815,7 +809,7 @@ bool Target::ProcessPacket(Packet* pktIn, Packet* pktOut) {
     }
 
     case 's': {
-      IThread *thread = GetRunThread();
+      Thread *thread = GetRunThread();
       if (thread) thread->SetStep(true);
       return true;
     }
@@ -1003,7 +997,7 @@ void Target::TrackThread(struct NaClAppThread *natp) {
   uint32_t id = natp->thread_num + 1;
   MutexLock lock(&mutex_);
   CHECK(threads_[id] == 0);
-  threads_[id] = IThread::Create(id, natp);
+  threads_[id] = new Thread(id, natp);
 }
 
 void Target::IgnoreThread(struct NaClAppThread *natp) {
@@ -1040,7 +1034,7 @@ void Target::Kill() {
   should_exit_ = true;
 }
 
-IThread* Target::GetRegThread() {
+Thread* Target::GetRegThread() {
   ThreadMap_t::const_iterator itr;
 
   switch (reg_thread_) {
@@ -1060,7 +1054,7 @@ IThread* Target::GetRegThread() {
   return itr->second;
 }
 
-IThread* Target::GetRunThread() {
+Thread* Target::GetRunThread() {
   // This is used to select a thread for "s" (step) command only.
   // For multi-threaded targets, "s" is deprecated in favor of "vCont", which
   // always specifies the thread explicitly when needed. However, we want
@@ -1072,7 +1066,7 @@ IThread* Target::GetRunThread() {
   return NULL;
 }
 
-IThread* Target::GetThread(uint32_t id) {
+Thread* Target::GetThread(uint32_t id) {
   ThreadMap_t::const_iterator itr;
   itr = threads_.find(id);
   if (itr != threads_.end()) return itr->second;
@@ -1085,7 +1079,7 @@ void Target::SuspendAllThreads() {
   for (ThreadMap_t::const_iterator iter = threads_.begin();
        iter != threads_.end();
        ++iter) {
-    IThread *thread = iter->second;
+    Thread *thread = iter->second;
     thread->CopyRegistersFromAppThread();
     CopyFaultSignalFromAppThread(thread);
   }
@@ -1108,7 +1102,7 @@ void Target::UnqueueAnyFaultedThread(uint32_t *thread_id, int8_t *signal) {
   for (ThreadMap_t::const_iterator iter = threads_.begin();
        iter != threads_.end();
        ++iter) {
-    IThread *thread = iter->second;
+    Thread *thread = iter->second;
     if (thread->GetFaultSignal() != 0) {
       *signal = thread->GetFaultSignal();
       *thread_id = thread->GetId();

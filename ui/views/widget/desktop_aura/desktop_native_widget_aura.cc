@@ -5,7 +5,7 @@
 #include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
 
 #include "base/bind.h"
-#include "base/debug/trace_event.h"
+#include "base/trace_event/trace_event.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/cursor_client.h"
 #include "ui/aura/client/focus_client.h"
@@ -15,20 +15,18 @@
 #include "ui/aura/window_property.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/hit_test.h"
-#include "ui/base/ui_base_switches_util.h"
+#include "ui/base/ime/input_method.h"
 #include "ui/compositor/layer.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/display.h"
-#include "ui/gfx/point_conversions.h"
+#include "ui/gfx/geometry/point_conversions.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/screen.h"
-#include "ui/gfx/size_conversions.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/corewm/tooltip.h"
 #include "ui/views/corewm/tooltip_controller.h"
 #include "ui/views/drag_utils.h"
-#include "ui/views/ime/input_method_bridge.h"
-#include "ui/views/ime/null_input_method.h"
 #include "ui/views/view_constants_aura.h"
 #include "ui/views/widget/desktop_aura/desktop_capture_client.h"
 #include "ui/views/widget/desktop_aura/desktop_cursor_loader_updater.h"
@@ -50,7 +48,6 @@
 #include "ui/wm/core/compound_event_filter.h"
 #include "ui/wm/core/cursor_manager.h"
 #include "ui/wm/core/focus_controller.h"
-#include "ui/wm/core/input_method_event_filter.h"
 #include "ui/wm/core/native_cursor_manager.h"
 #include "ui/wm/core/shadow_controller.h"
 #include "ui/wm/core/shadow_types.h"
@@ -96,7 +93,7 @@ class DesktopNativeWidgetTopLevelHandler : public aura::WindowObserver {
         Widget::InitParams::TYPE_POPUP;
     init_params.bounds = bounds;
     init_params.ownership = Widget::InitParams::NATIVE_WIDGET_OWNS_WIDGET;
-    init_params.layer_type = aura::WINDOW_LAYER_NOT_DRAWN;
+    init_params.layer_type = ui::LAYER_NOT_DRAWN;
     init_params.activatable = full_screen ?
         Widget::InitParams::ACTIVATABLE_YES :
         Widget::InitParams::ACTIVATABLE_NO;
@@ -105,6 +102,12 @@ class DesktopNativeWidgetTopLevelHandler : public aura::WindowObserver {
     // This widget instance will get deleted when the window is
     // destroyed.
     top_level_handler->top_level_widget_ = new Widget();
+    // Ensure that we always use the DesktopNativeWidgetAura instance as the
+    // native widget here. If we enter this code path in tests then it is
+    // possible that we may end up with a NativeWidgetAura instance as the
+    // native widget which breaks this code path.
+    init_params.native_widget =
+        new DesktopNativeWidgetAura(top_level_handler->top_level_widget_);
     top_level_handler->top_level_widget_->Init(init_params);
 
     top_level_handler->top_level_widget_->SetFullscreen(full_screen);
@@ -145,8 +148,11 @@ class DesktopNativeWidgetTopLevelHandler : public aura::WindowObserver {
   void OnWindowBoundsChanged(aura::Window* window,
                              const gfx::Rect& old_bounds,
                              const gfx::Rect& new_bounds) override {
+    // The position of the window may have changed. Hence we use SetBounds in
+    // place of SetSize. We need to pass the bounds in screen coordinates to
+    // the Widget::SetBounds function.
     if (top_level_widget_ && window == child_window_)
-      top_level_widget_->SetSize(new_bounds.size());
+      top_level_widget_->SetBounds(window->GetBoundsInScreen());
   }
 
  private:
@@ -306,8 +312,6 @@ void DesktopNativeWidgetAura::OnHostClosed() {
     tooltip_controller_.reset();
   }
 
-  root_window_event_filter_->RemoveHandler(input_method_event_filter_.get());
-
   window_tree_client_.reset();  // Uses host_->dispatcher() at destruction.
 
   capture_client_.reset();  // Uses host_->dispatcher() at destruction.
@@ -322,7 +326,7 @@ void DesktopNativeWidgetAura::OnHostClosed() {
   focus_client_.reset();
 
   host_->RemoveObserver(this);
-  host_.reset();  // Uses input_method_event_filter_ at destruction.
+  host_.reset();
   // WindowEventDispatcher owns |desktop_window_tree_host_|.
   desktop_window_tree_host_ = NULL;
   content_window_ = NULL;
@@ -377,6 +381,9 @@ void DesktopNativeWidgetAura::HandleActivationChanged(bool active) {
         view_for_activation = GetWidget()->GetRootView();
       activation_client->ActivateWindow(
           view_for_activation->GetWidget()->GetNativeView());
+      // Refreshes the focus info to IMF in case that IMF cached the old info
+      // about focused text input client when it was "inactive".
+      GetInputMethod()->OnFocus();
     }
   } else {
     // If we're not active we need to deactivate the corresponding
@@ -384,8 +391,10 @@ void DesktopNativeWidgetAura::HandleActivationChanged(bool active) {
     // deactivated (child widgets don't get native desktop activation changes,
     // only aura activation changes).
     aura::Window* active_window = activation_client->GetActiveWindow();
-    if (active_window)
+    if (active_window) {
       activation_client->DeactivateWindow(active_window);
+      GetInputMethod()->OnBlur();
+    }
   }
 }
 
@@ -410,7 +419,7 @@ void DesktopNativeWidgetAura::InitNativeWidget(
   wm::SetShadowType(content_window_, wm::SHADOW_TYPE_NONE);
 
   content_window_container_ = new aura::Window(NULL);
-  content_window_container_->Init(aura::WINDOW_LAYER_NOT_DRAWN);
+  content_window_container_->Init(ui::LAYER_NOT_DRAWN);
   content_window_container_->Show();
   content_window_container_->AddChild(content_window_);
 
@@ -419,9 +428,6 @@ void DesktopNativeWidgetAura::InitNativeWidget(
       DesktopWindowTreeHost::Create(native_widget_delegate_, this);
   host_.reset(desktop_window_tree_host_->AsWindowTreeHost());
   desktop_window_tree_host_->Init(content_window_, params);
-
-  // Mark this window as Desktop root window.
-  host_->window()->SetProperty(views::kDesktopRootWindow, true);
 
   host_->InitHost();
   host_->window()->AddChild(content_window_container_);
@@ -479,8 +485,6 @@ void DesktopNativeWidgetAura::InitNativeWidget(
                                     dispatcher_client_.get());
 
   position_client_.reset(new DesktopScreenPositionClient(host_->window()));
-
-  InstallInputMethodEventFilter();
 
   drag_drop_client_ = desktop_window_tree_host_->CreateDragDropClient(
       native_cursor_manager_);
@@ -627,21 +631,8 @@ bool DesktopNativeWidgetAura::HasCapture() const {
       desktop_window_tree_host_->HasCapture();
 }
 
-InputMethod* DesktopNativeWidgetAura::CreateInputMethod() {
-  if (switches::IsTextInputFocusManagerEnabled())
-    return new NullInputMethod();
-
-  ui::InputMethod* host = input_method_event_filter_->input_method();
-  return new InputMethodBridge(this, host, false);
-}
-
-internal::InputMethodDelegate*
-    DesktopNativeWidgetAura::GetInputMethodDelegate() {
-  return this;
-}
-
-ui::InputMethod* DesktopNativeWidgetAura::GetHostInputMethod() {
-  return input_method_event_filter_->input_method();
+ui::InputMethod* DesktopNativeWidgetAura::GetInputMethod() {
+  return host() ? host()->GetInputMethod() : nullptr;
 }
 
 void DesktopNativeWidgetAura::CenterWindow(const gfx::Size& size) {
@@ -714,6 +705,8 @@ void DesktopNativeWidgetAura::SetSize(const gfx::Size& size) {
 }
 
 void DesktopNativeWidgetAura::StackAbove(gfx::NativeView native_view) {
+  if (content_window_)
+    desktop_window_tree_host_->StackAbove(native_view);
 }
 
 void DesktopNativeWidgetAura::StackAtTop() {
@@ -724,7 +717,7 @@ void DesktopNativeWidgetAura::StackAtTop() {
 void DesktopNativeWidgetAura::StackBelow(gfx::NativeView native_view) {
 }
 
-void DesktopNativeWidgetAura::SetShape(gfx::NativeRegion shape) {
+void DesktopNativeWidgetAura::SetShape(SkRegion* shape) {
   if (content_window_)
     desktop_window_tree_host_->SetShape(shape);
 }
@@ -873,7 +866,10 @@ void DesktopNativeWidgetAura::SetCursor(gfx::NativeCursor cursor) {
 }
 
 bool DesktopNativeWidgetAura::IsMouseEventsEnabled() const {
-  if (!content_window_)
+  // We explicitly check |host_| here because it can be null during the process
+  // of widget shutdown (even if |content_window_| is not), and must be valid to
+  // determine if mouse events are enabled.
+  if (!content_window_ || !host_)
     return false;
   aura::client::CursorClient* cursor_client =
       aura::client::GetCursorClient(host_->window());
@@ -1004,8 +1000,8 @@ void DesktopNativeWidgetAura::OnCaptureLost() {
   native_widget_delegate_->OnMouseCaptureLost();
 }
 
-void DesktopNativeWidgetAura::OnPaint(gfx::Canvas* canvas) {
-  native_widget_delegate_->OnNativeWidgetPaint(canvas);
+void DesktopNativeWidgetAura::OnPaint(const ui::PaintContext& context) {
+  native_widget_delegate_->OnNativeWidgetPaint(context);
 }
 
 void DesktopNativeWidgetAura::OnDeviceScaleFactorChanged(
@@ -1098,8 +1094,10 @@ bool DesktopNativeWidgetAura::ShouldActivate() const {
 // DesktopNativeWidgetAura, aura::client::ActivationChangeObserver
 //    implementation:
 
-void DesktopNativeWidgetAura::OnWindowActivated(aura::Window* gained_active,
-                                                aura::Window* lost_active) {
+void DesktopNativeWidgetAura::OnWindowActivated(
+    aura::client::ActivationChangeObserver::ActivationReason reason,
+    aura::Window* gained_active,
+    aura::Window* lost_active) {
   DCHECK(content_window_ == gained_active || content_window_ == lost_active);
   if (gained_active == content_window_ && restore_focus_on_activate_) {
     restore_focus_on_activate_ = false;
@@ -1119,30 +1117,11 @@ void DesktopNativeWidgetAura::OnWindowFocused(aura::Window* gained_focus,
                                               aura::Window* lost_focus) {
   if (content_window_ == gained_focus) {
     desktop_window_tree_host_->OnNativeWidgetFocus();
-    native_widget_delegate_->OnNativeFocus(lost_focus);
-
-    // If focus is moving from a descendant Window to |content_window_| then
-    // native activation hasn't changed. Still, the InputMethod must be informed
-    // of the Window focus change.
-    InputMethod* input_method = GetWidget()->GetInputMethod();
-    if (input_method)
-      input_method->OnFocus();
+    native_widget_delegate_->OnNativeFocus();
   } else if (content_window_ == lost_focus) {
     desktop_window_tree_host_->OnNativeWidgetBlur();
-    native_widget_delegate_->OnNativeBlur(gained_focus);
+    native_widget_delegate_->OnNativeBlur();
   }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// DesktopNativeWidgetAura, views::internal::InputMethodDelegate:
-
-void DesktopNativeWidgetAura::DispatchKeyEventPostIME(const ui::KeyEvent& key) {
-  FocusManager* focus_manager =
-      native_widget_delegate_->AsWidget()->GetFocusManager();
-  native_widget_delegate_->OnKeyEvent(const_cast<ui::KeyEvent*>(&key));
-  if (key.handled() || !focus_manager)
-    return;
-  focus_manager->OnKeyEvent(key);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1207,16 +1186,6 @@ void DesktopNativeWidgetAura::OnHostMoved(const aura::WindowTreeHost* host,
 
 ////////////////////////////////////////////////////////////////////////////////
 // DesktopNativeWidgetAura, private:
-
-void DesktopNativeWidgetAura::InstallInputMethodEventFilter() {
-  DCHECK(!input_method_event_filter_.get());
-
-  input_method_event_filter_.reset(new wm::InputMethodEventFilter(
-      host_->GetAcceleratedWidget()));
-  input_method_event_filter_->SetInputMethodPropertyInRootWindow(
-      host_->window());
-  root_window_event_filter_->AddHandler(input_method_event_filter_.get());
-}
 
 void DesktopNativeWidgetAura::UpdateWindowTransparency() {
   content_window_->SetTransparent(

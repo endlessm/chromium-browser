@@ -2,25 +2,32 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <vector>
+
 #include "chrome/browser/android/signin/signin_manager_android.h"
 
 #include "base/android/jni_android.h"
+#include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/prefs/pref_service.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browsing_data/browsing_data_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_remover.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/signin/android_profile_oauth2_token_service.h"
+#include "chrome/browser/signin/account_tracker_service_factory.h"
+#include "chrome/browser/signin/oauth2_token_service_delegate_android.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/common/pref_names.h"
 #include "components/bookmarks/browser/bookmark_model.h"
+#include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/signin/core/browser/signin_metrics.h"
@@ -40,6 +47,8 @@
 #include "net/url_request/url_request_context_getter.h"
 #endif
 
+using bookmarks::BookmarkModel;
+
 namespace {
 
 // A BrowsingDataRemover::Observer that clears all Profile data and then
@@ -48,23 +57,23 @@ class ProfileDataRemover : public BrowsingDataRemover::Observer {
  public:
   ProfileDataRemover(Profile* profile, const base::Closure& callback)
       : callback_(callback),
-        origin_loop_(base::MessageLoopProxy::current()),
+        origin_runner_(base::ThreadTaskRunnerHandle::Get()),
         remover_(BrowsingDataRemover::CreateForUnboundedRange(profile)) {
     remover_->AddObserver(this);
     remover_->Remove(BrowsingDataRemover::REMOVE_ALL, BrowsingDataHelper::ALL);
   }
 
-  virtual ~ProfileDataRemover() {}
+  ~ProfileDataRemover() override {}
 
-  virtual void OnBrowsingDataRemoverDone() override {
+  void OnBrowsingDataRemoverDone() override {
     remover_->RemoveObserver(this);
-    origin_loop_->PostTask(FROM_HERE, callback_);
-    origin_loop_->DeleteSoon(FROM_HERE, this);
+    origin_runner_->PostTask(FROM_HERE, callback_);
+    origin_runner_->DeleteSoon(FROM_HERE, this);
   }
 
  private:
   base::Closure callback_;
-  scoped_refptr<base::MessageLoopProxy> origin_loop_;
+  scoped_refptr<base::SingleThreadTaskRunner> origin_runner_;
   BrowsingDataRemover* remover_;
 
   DISALLOW_COPY_AND_ASSIGN(ProfileDataRemover);
@@ -134,7 +143,37 @@ void SigninManagerAndroid::FetchPolicyBeforeSignIn(JNIEnv* env, jobject obj) {
 
 void SigninManagerAndroid::OnSignInCompleted(JNIEnv* env,
                                              jobject obj,
-                                             jstring username) {
+                                             jstring username,
+                                             jobjectArray accountIds,
+                                             jobjectArray accountNames) {
+  DVLOG(1) << "SigninManagerAndroid::OnSignInCompleted";
+  // Seed the account tracker with id/email information if provided.
+  if (accountIds && accountNames) {
+    std::vector<std::string> gaia_ids;
+    std::vector<std::string> emails;
+    base::android::AppendJavaStringArrayToStringVector(env, accountIds,
+                                                       &gaia_ids);
+    base::android::AppendJavaStringArrayToStringVector(env, accountNames,
+                                                       &emails);
+    DCHECK_EQ(emails.size(), gaia_ids.size());
+    DVLOG(1) << "SigninManagerAndroid::OnSignInCompleted: seeding "
+             << emails.size() << " accounts";
+
+    AccountTrackerService* tracker =
+        AccountTrackerServiceFactory::GetForProfile(profile_);
+    for (size_t i = 0; i < emails.size(); ++i) {
+      DVLOG(1) << "SigninManagerAndroid::OnSignInCompleted: seeding"
+               << " gaia_id=" << gaia_ids[i]
+               << " email=" << emails[i];
+      if (!gaia_ids[i].empty() && !emails[i].empty())
+        tracker->SeedAccountInfo(gaia_ids[i], emails[i]);
+    }
+  } else {
+    DVLOG(1) << "SigninManagerAndroid::OnSignInCompleted: missing ids/email"
+             << " ids=" << (void*) accountIds
+             << " emails=" << (void*) accountNames;
+  }
+
   SigninManagerFactory::GetForProfile(profile_)->OnExternalSigninCompleted(
       base::android::ConvertJavaStringToUTF8(env, username));
 }
@@ -223,44 +262,26 @@ void SigninManagerAndroid::ClearLastSignedInUser() {
   profile_->GetPrefs()->ClearPref(prefs::kGoogleServicesLastUsername);
 }
 
-void SigninManagerAndroid::MergeSessionCompleted(
-    const std::string& account_id,
-    const GoogleServiceAuthError& error) {
-  merge_session_helper_->RemoveObserver(this);
-  merge_session_helper_.reset();
-}
-
 void SigninManagerAndroid::LogInSignedInUser(JNIEnv* env, jobject obj) {
   SigninManagerBase* signin_manager =
       SigninManagerFactory::GetForProfile(profile_);
-  if (switches::IsNewProfileManagement()) {
-    // New Mirror code path that just fires the events and let the
-    // Account Reconcilor handles everything.
-    AndroidProfileOAuth2TokenService* token_service =
-        ProfileOAuth2TokenServiceFactory::GetPlatformSpecificForProfile(
-            profile_);
-    const std::string& primary_acct =
-        signin_manager->GetAuthenticatedAccountId();
-    token_service->ValidateAccounts(primary_acct, true);
+  // With the account consistency enabled let the account Reconcilor handles
+  // everything.
+  ProfileOAuth2TokenService* token_service =
+      ProfileOAuth2TokenServiceFactory::GetForProfile(profile_);
+  const std::string& primary_acct = signin_manager->GetAuthenticatedAccountId();
 
-  } else {
-    DVLOG(1) << "SigninManagerAndroid::LogInSignedInUser "
-        " Manually calling MergeSessionHelper";
-    // Old code path that doesn't depend on the new Account Reconcilor.
-    // We manually login.
-
-    ProfileOAuth2TokenService* token_service =
-        ProfileOAuth2TokenServiceFactory::GetForProfile(profile_);
-    merge_session_helper_.reset(new MergeSessionHelper(
-        token_service, GaiaConstants::kChromeSource,
-        profile_->GetRequestContext(), this));
-    merge_session_helper_->LogIn(signin_manager->GetAuthenticatedAccountId());
-  }
+  static_cast<OAuth2TokenServiceDelegateAndroid*>(token_service->GetDelegate())
+      ->ValidateAccounts(primary_acct, true);
 }
 
 jboolean SigninManagerAndroid::IsSigninAllowedByPolicy(JNIEnv* env,
                                                        jobject obj) {
   return SigninManagerFactory::GetForProfile(profile_)->IsSigninAllowed();
+}
+
+jboolean SigninManagerAndroid::IsSignedInOnNative(JNIEnv* env, jobject obj) {
+  return SigninManagerFactory::GetForProfile(profile_)->IsAuthenticated();
 }
 
 void SigninManagerAndroid::OnSigninAllowedPrefChanged() {
@@ -285,10 +306,6 @@ static jboolean ShouldLoadPolicyForUser(JNIEnv* env,
 #else
   return false;
 #endif
-}
-
-static jboolean IsNewProfileManagementEnabled(JNIEnv* env, jclass clazz) {
-  return switches::IsNewProfileManagement();
 }
 
 // static

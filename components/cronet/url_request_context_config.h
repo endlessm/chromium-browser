@@ -58,17 +58,29 @@ struct URLRequestContextConfig {
   bool enable_quic;
   // Enable SPDY.
   bool enable_spdy;
+  // Enable SDCH.
+  bool enable_sdch;
   // Type of http cache: "HTTP_CACHE_DISABLED", "HTTP_CACHE_DISK" or
   // "HTTP_CACHE_IN_MEMORY".
   std::string http_cache;
   // Max size of http cache in bytes.
   int http_cache_max_size;
+  // Disable caching for HTTP responses. Other information may be stored in
+  // the cache.
+  bool load_disable_cache;
   // Storage path for http cache and cookie storage.
   std::string storage_path;
   // User-Agent request header field.
   std::string user_agent;
   // App-provided list of servers that support QUIC.
   ScopedVector<QuicHint> quic_hints;
+  // Comma-separted list of QUIC connection options.
+  std::string quic_connection_options;
+  // Enable Data Reduction Proxy with authentication key.
+  std::string data_reduction_proxy_key;
+  std::string data_reduction_primary_proxy;
+  std::string data_reduction_fallback_proxy;
+  std::string data_reduction_secure_proxy_check_url;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(URLRequestContextConfig);

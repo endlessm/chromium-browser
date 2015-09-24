@@ -3,8 +3,11 @@
 # found in the LICENSE file.
 
 import cloud_storage_test_base
+import gpu_rasterization_expectations
 import optparse
 import page_sets
+
+from telemetry.util import image_util
 
 
 test_harness_script = r"""
@@ -45,15 +48,14 @@ class _GpuRasterizationValidator(cloud_storage_test_base.ValidatorBase):
       raise page_test.Failure('Browser does not support screenshot capture')
 
     screenshot = tab.Screenshot()
-    if not screenshot:
+    if screenshot is None:
       raise page_test.Failure('Could not capture screenshot')
 
     device_pixel_ratio = tab.EvaluateJavaScript('window.devicePixelRatio')
     if hasattr(page, 'test_rect'):
       test_rect = [int(x * device_pixel_ratio) for x in page.test_rect]
-      screenshot = screenshot.Crop(
-          test_rect[0], test_rect[1],
-          test_rect[2], test_rect[3])
+      screenshot = image_util.Crop(screenshot, test_rect[0], test_rect[1],
+                                   test_rect[2], test_rect[3])
 
     self._ValidateScreenshotSamples(
         page.display_name,
@@ -66,8 +68,15 @@ class GpuRasterization(cloud_storage_test_base.TestBase):
   """Tests that GPU rasterization produces valid content"""
   test = _GpuRasterizationValidator
 
-  def CreatePageSet(self, options):
-    page_set = page_sets.GpuRasterizationTestsPageSet()
-    for page in page_set.pages:
+  @classmethod
+  def Name(cls):
+    return 'gpu_rasterization'
+
+  def CreateStorySet(self, options):
+    story_set = page_sets.GpuRasterizationTestsStorySet()
+    for page in story_set:
       page.script_to_evaluate_on_commit = test_harness_script
-    return page_set
+    return story_set
+
+  def CreateExpectations(self):
+    return gpu_rasterization_expectations.GpuRasterizationExpectations()

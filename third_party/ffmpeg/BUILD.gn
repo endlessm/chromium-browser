@@ -9,17 +9,7 @@ import("ffmpeg_generated.gni")
 platform_config_root =
     "chromium/config/$ffmpeg_branding/$os_config/$ffmpeg_arch"
 
-# Stub generator script and signatures of all functions used by Chrome.
-generate_stubs_script = "//tools/generate_stubs/generate_stubs.py"
-
-# Used by ffmpeg_generate_stubs and ffmpeg_generate_def
-sig_files = [ "chromium/ffmpegsumo.sigs" ]
-
-# TODO(ajwong): Should be in ffmpeg_generate_stubs if we could grab the
-# outputs of an action via a function.
-stubs_filename_root = "ffmpeg_stubs"
-
-if (cpu_arch != "arm" && os_config != "linux-noasm") {
+if ((current_cpu == "x86" || current_cpu == "x64") && os_config != "linux-noasm") {
   import("//third_party/yasm/yasm_assemble.gni")
   yasm_assemble("ffmpeg_yasm") {
     sources = ffmpeg_yasm_sources
@@ -27,11 +17,17 @@ if (cpu_arch != "arm" && os_config != "linux-noasm") {
     # Ensure the architecture defines go in the command line before the -P
     # file below, so don't use defines.
     yasm_flags = []
-    if (cpu_arch == "x86") {
+    if (current_cpu == "x86") {
       yasm_flags += [ "-DARCH_X86_32" ]
-    } else if (cpu_arch == "x64") {
+    } else if (current_cpu == "x64") {
       yasm_flags += [ "-DARCH_X86_64" ]
     }
+
+    inputs = [
+      # Sets visibility hidden for cglobal functions. Explicitly included
+      # to avoid overlooking changes to this file in incremental builds.
+      "libavutil/x86/x86inc.asm",
+    ]
 
     defines = [ "PIC" ]
     include_dirs = [
@@ -55,210 +51,208 @@ if (cpu_arch != "arm" && os_config != "linux-noasm") {
   }
 }
 
-# FFMpeg is dynamically loaded on all platforms but our code calls it
-# as if it were directly linked. To make this work, the build system needs
-# to generate stubs that indirect into the library calls.
-#
-# On Windows, this script calls the windows stub generator. Otherwise, assume
-# this is a POSIX platform and generate our own wrapper stubs.
-action("ffmpeg_generate_stubs") {
-  extra_header = "chromium/ffmpeg_stub_headers.fragment"
-
-  script = generate_stubs_script
-  sources = sig_files
-  inputs = [ extra_header ]
-
-  if (is_win) {
-    if (build_cpu_arch == "x64") {
-      outfile_type = "windows_lib_x64"
-    } else {
-      outfile_type = "windows_lib"
-    }
-
-    # TODO(ajwong): these need to be in the ffmpeg build.
-    outputs = [
-      "$target_gen_dir/$stubs_filename_root.lib",
-    ]
-
-    args = [
-      # TODO(ajwong): In gyp, this uses different directories for the
-      # windows build. We should think this through.
-      "-i", rebase_path(target_gen_dir, root_build_dir),
-      "-o", rebase_path(target_gen_dir, root_build_dir),
-      "-t", outfile_type,
-    ]
-  } else {
-    # If it's not windows, clearly it must be posix.
-
-    # TODO(ajwong): these need to be included in the ffmpeg build.
-    outputs = [
-      "$target_gen_dir/$stubs_filename_root.cc",
-      "$target_gen_dir/$stubs_filename_root.h",
-    ]
-    args = [
-      # TODO(ajwong): IN gyp, this used to output the .h file into a shared
-      # directory that other targets could reference. The .cc ends up in a
-      # special generated directory that gyp would guaranteed that no one else
-      # could look at. Now we're dumping both into the generated directory.
-      # Verify what the best + simplest behavior is here and use that.
-      "-i", rebase_path(target_gen_dir, root_build_dir),
-      "-o", rebase_path(target_gen_dir, root_build_dir),
-      "-t", "posix_stubs",
-      "-e", rebase_path(extra_header, root_build_dir),
-      "-s", stubs_filename_root,
-      "-p", "third_party/ffmpeg",
-    ]
-  }
-
-  args += rebase_path(sources, root_build_dir)
+config("ffmpeg_dependent_config") {
+  include_dirs = [
+    platform_config_root,
+    ".",
+  ]
 }
 
-if (build_ffmpegsumo) {
+if (is_chromeos) {
+  # This short-lived hack allows chromium changes to statically link ffmpeg to
+  # be independent from chrome-os changes to ebuild files that explicitly
+  # mention libffmpegsumo.so as a target.
+  # TODO(chcunningham): Remove this once ebuilds are patched.
   shared_library("ffmpegsumo") {
-    # TODO(gyp): Add version number to dll.
-    sources = ffmpeg_c_sources + ffmpeg_gas_sources + [
-      "$platform_config_root/config.h",
-      "$platform_config_root/libavutil/avconfig.h",
-    ]
-    include_dirs = [
-      platform_config_root,
-      ".",
-    ]
-    defines = [
-      "HAVE_AV_CONFIG_H",
-      "_POSIX_C_SOURCE=200112",
-      "_XOPEN_SOURCE=600",
-      "PIC",
-      # Disable deprecated features which generate spammy warnings.
-      "FF_API_PIX_FMT_DESC=0",
-      "FF_API_OLD_DECODE_AUDIO=0",
-      "FF_API_DESTRUCT_PACKET=0",
-      "FF_API_GET_BUFFER=0",
-    ]
+    # Reusing an existing dummy file.
+    sources = [ "xcode_hack.c" ]
+  }
+}
 
-    # So we can append below and assume they're defined.
-    cflags = []
-    ldflags = []
-    libs = []
-    deps = []
+if (is_win) {
+  # Stub generator script and signatures of all functions used by Chrome.
+  generate_stubs_script = "//tools/generate_stubs/generate_stubs.py"
 
-    configs -= [ "//build/config/compiler:chromium_code" ]
-    configs += [ "//build/config/compiler:no_chromium_code" ]
+  # Used by ffmpeg_generate_stubs and ffmpeg_generate_def
+  sig_files = [ "chromium/ffmpeg.sigs" ]
 
-    # Since we are not often debugging FFmpeg, and performance is
-    # unacceptable without optimization, freeze the optimizations to -O2.
-    # If someone really wants -O1 , they can change these in their checkout.
-    # If you want -O0, see the Gotchas in README.Chromium for why that
-    # won't work.
-    #
-    # In addition to the above reasons, /Od optimization won't remove symbols
-    # that are under "if (0)" style sections.  Which lead to link time errors
-    # when for example it tries to link an ARM symbol on X86.
-    if (is_debug) {
-      configs -= [ "//build/config/compiler:no_optimize" ]
-    } else {
-      configs -= [ "//build/config/compiler:optimize" ]
-    }
-    if (is_win) {
-      # Setting the optimizations to 'speed' or to 'max' on Windows results in
-      # a lot of unresolved symbols. The only supported mode is 'size' (see
-      # crbug.com/264459).
-      configs += [ "//build/config/compiler:optimize" ]
-    } else {
-      configs += [ "//build/config/compiler:optimize_max" ]
-    }
+  action("ffmpeg_generate_def") {
+    script = generate_stubs_script
+    sources = sig_files
+    outputs = [ "$target_gen_dir/ffmpeg.def" ]
+    args = [
+  # TODO(ajwong): This was -i <(INTERMEDIATE_DIR). What next?
+      "-i", rebase_path(target_out_dir, root_build_dir),
+      "-o", rebase_path(target_gen_dir, root_build_dir),
+      "-t", "windows_def",
+      "-m", "ffmpeg.dll",
+    ] + rebase_path(sources, root_build_dir)
+  }
+}
 
-    if (is_posix) {
-      cflags += [
-        "-fPIC",
-        "-fomit-frame-pointer",
+source_set("ffmpeg_internal") {
+  sources = ffmpeg_c_sources + ffmpeg_gas_sources + [
+    "$platform_config_root/config.h",
+    "$platform_config_root/libavutil/avconfig.h",
+  ]
+  include_dirs = [
+    platform_config_root,
+    ".",
+  ]
+  defines = [
+    "HAVE_AV_CONFIG_H",
+    "_POSIX_C_SOURCE=200112",
+    "_XOPEN_SOURCE=600",
+    "PIC",
+    # Disable deprecated features which generate spammy warnings.
+    "FF_API_PIX_FMT_DESC=0",
+    "FF_API_OLD_DECODE_AUDIO=0",
+    "FF_API_DESTRUCT_PACKET=0",
+    "FF_API_GET_BUFFER=0",
+  ]
+
+  # So we can append below and assume they're defined.
+  cflags = []
+  ldflags = []
+  libs = []
+  deps = []
+
+  configs -= [ "//build/config/compiler:chromium_code" ]
+  configs += [ "//build/config/compiler:no_chromium_code" ]
+
+  # Since we are not often debugging FFmpeg, and performance is
+  # unacceptable without optimization, freeze the optimizations to -O2.
+  # If someone really wants -O1 , they can change these in their checkout.
+  # If you want -O0, see the Gotchas in README.Chromium for why that
+  # won't work.
+  #
+  # In addition to the above reasons, /Od optimization won't remove symbols
+  # that are under "if (0)" style sections.  Which lead to link time errors
+  # when for example it tries to link an ARM symbol on X86.
+  if (is_debug) {
+    configs -= [ "//build/config/compiler:no_optimize" ]
+  } else {
+    configs -= [ "//build/config/compiler:optimize" ]
+  }
+  if (is_win) {
+    # Setting the optimizations to 'speed' or to 'max' on Windows results in
+    # a lot of unresolved symbols. The only supported mode is 'size' (see
+    # crbug.com/264459).
+    configs += [ "//build/config/compiler:optimize" ]
+  } else {
+    configs += [ "//build/config/compiler:optimize_max" ]
+  }
+
+  # gn orders flags on a target before flags from configs. The default config
+  # adds -Wall, and these flags have to be after -Wall -- so they need to come
+  # from a config and can't be on the target directly.
+  config("ffmpegsumo_warnings") {
+    if (is_clang) {
+      cflags = [
+        "-Wno-absolute-value",
         # ffmpeg uses its own deprecated functions.
         "-Wno-deprecated-declarations",
+        # ffmpeg doesn't care about pointer constness.
+        "-Wno-incompatible-pointer-types",
+        # ffmpeg doesn't follow usual parentheses conventions.
+        "-Wno-logical-op-parentheses",
+        # ffmpeg doesn't care about pointer signedness.
+        "-Wno-parentheses",
+        # ffmpeg doesn't care about pointer signedness.
+        "-Wno-pointer-sign",
+        # ffmpeg doesn't believe in exhaustive switch statements.
+        "-Wno-switch",
+        # matroskadec.c has a "failed:" label that's only used if some
+        # CONFIG_ flags we don't set are set.
+        "-Wno-unused-label",
+        # ffmpeg has a lot of unused variables.
+        "-Wno-unused-variable",
+        # This fires on `av_assert0(!"valid element size")` in utils.c
+        "-Wno-string-conversion",
+        # This fires on `pos_min` and `pos_max` in
+        # autorename_libavformat_utils.c
+        "-Wno-sometimes-uninitialized",
       ]
-
-      if (is_clang) {
-        cflags += [
-          "-Wno-absolute-value",
-          "-Wno-incompatible-pointer-types",
-          "-Wno-logical-op-parentheses",
-          "-Wno-parentheses",
-          "-Wno-pointer-sign",
-          "-Wno-switch",
-        ]
-      } else {
-        # gcc doesn't have flags for specific warnings, so disable them
-        # all.
-        cflags += [ "-w" ]
-      }
-      if (cpu_arch == "x86") {
-        # Turn off valgrind build option that breaks ffmpeg builds.
-        # TODO(ajwong): The gyp file had special removals for
-        # debug_extra_cflags and release_extra_cflags. Do we care?
-#cflags -= [ "-fno-omit-frame-pointer" ]
-      } else if (cpu_arch == "arm") {
-        # TODO(ihf): See the long comment in build_ffmpeg.sh
-        # We want to be consistent with CrOS and have configured
-        # ffmpeg for thumb. Protect yourself from -marm.
-        if (is_chromeos) {
-          cflags += [ "-marm" ]
-        }
-        cflags += [
-          "-mthumb",
-          "-march=armv7-a",
-          "-mtune=cortex-a8",
-          "-mfpu=${arm_fpu}"
-        ]
-        if (arm_float_abi == "hard") {
-          cflags += [ "-DHAVE_VFP_ARGS=1" ]
-        } else {
-          cflags += [ "-DHAVE_VFP_ARGS=0" ]
-        }
-      } else if (cpu_arch == "mipsel") {
-        cflags += [
-          "-mips32",
-          "-EL -Wl,-EL",
-        ]
+      if (is_win) {
+        # This corresponds to /wd4273 below.
+        cflags += [ "-Wno-inconsistent-dllimport" ]
       }
     }
+  }
 
-    if (is_posix && !is_mac) {
-      defines += [
-        "_ISOC99_SOURCE",
-        "_LARGEFILE_SOURCE",
-        # BUG(ihf): ffmpeg compiles with this define. But according to
-        # ajwong: I wouldn't change _FILE_OFFSET_BITS.  That's a scary change
-        # cause it affects the default length of off_t, and fpos_t,
-        # which can cause strange problems if the loading code doesn't
-        # have it set and you start passing FILE*s or file descriptors
-        # between symbol contexts.
-        # "_FILE_OFFSET_BITS=64",
-      ]
-      cflags += [
-        "-std=c99",
-        "-pthread",
-        "-fno-math-errno",
-        "-fno-signed-zeros",
-        "-fno-tree-vectorize",
-        "-fomit-frame-pointer",
-      ]
-      # Ensure the symbols are exported.
-      #
-      # TODO(ajwong): Manually tag the API that we use to be
-      # exported.
+  configs += [ ":ffmpegsumo_warnings" ]
+
+  if (is_posix) {
+    cflags += [
+      "-fPIC",
+      "-fomit-frame-pointer",
+      # ffmpeg uses its own deprecated functions.
+      "-Wno-deprecated-declarations",
+    ]
+
+    if (!is_clang) {
+      # gcc doesn't have flags for specific warnings, so disable them
+      # all.
+      cflags += [ "-w" ]
+    }
+
+    if (current_cpu == "arm") {
+      if (arm_float_abi == "hard") {
+        cflags += [ "-DHAVE_VFP_ARGS=1" ]
+      } else {
+        cflags += [ "-DHAVE_VFP_ARGS=0" ]
+      }
+    }
+  }
+
+  if (is_posix && !is_mac) {
+    defines += [
+      "_ISOC99_SOURCE",
+      "_LARGEFILE_SOURCE",
+      # BUG(ihf): ffmpeg compiles with this define. But according to
+      # ajwong: I wouldn't change _FILE_OFFSET_BITS.  That's a scary change
+      # cause it affects the default length of off_t, and fpos_t,
+      # which can cause strange problems if the loading code doesn't
+      # have it set and you start passing FILE*s or file descriptors
+      # between symbol contexts.
+      # "_FILE_OFFSET_BITS=64",
+    ]
+    cflags += [
+      "-std=c99",
+      "-pthread",
+      "-fno-math-errno",
+      "-fno-signed-zeros",
+      "-fno-tree-vectorize",
+      "-fomit-frame-pointer",
+    ]
+    ldflags = [
+      "-L", rebase_path(target_gen_dir, root_build_dir),
+    ]
+    libs = [
+      "m",
+      "z",
+    ]
+    if (!is_android) {
+      # for clock_gettime on precise
+      libs += [ "rt" ]
+    }
+    if (is_component_ffmpeg) {
+      # Export all symbols when building as component.
       configs -= [ "//build/config/gcc:symbol_visibility_hidden" ]
-      ldflags = [
-        "-Wl,-Bsymbolic",
-        "-L", rebase_path(target_gen_dir, root_build_dir),
-      ]
-      libs = [ "z" ]
+    }
 # TODO(ajwong): How to handle openbsd? Especially w/o the is_posix?
 #      if (is_openbsd) {
 #       # OpenBSD's gcc (4.2.1) does not support this flag
 #       cflags -= [ "-fno-signed-zeros" ]
 #      }
+  }
+  if (is_mac) {
+    if (is_component_ffmpeg) {
+      # Export all symbols when building as component.
+      configs -= [ "//build/config/gcc:symbol_visibility_hidden" ]
     }
-    if (is_mac) {
-      defines += [ "_DARWIN_C_SOURCE" ]
+
+    defines += [ "_DARWIN_C_SOURCE" ]
 
 # TODO(ajwong): What does this do in mac? There isn't anything in ffmpeg.gyp that
 # uses mac_real_dsym
@@ -268,158 +262,115 @@ if (build_ffmpegsumo) {
 #                    'mac_real_dsym': 1,
 #                  },
 #              }],
-      if (cpu_arch != "x64") {
-        # This is needed because even though FFmpeg now builds
-        # with -fPIC, it's not quite a complete PIC build, only
-        # partial :( Thus we need to instruct the linker to allow
-        # relocations for read-only segments for this target to be
-        # able to generated the shared library on Mac.
-        #
-#TODO(ajwong): Check if this can be cpu_arch == "x86"
-        # Note -read_only_relocs cannot be used in x86_64
-        #
-        # This makes Mark sad, but he's okay with it since it is
-        # isolated to this module. When Mark finds this in the
-        # future, and has forgotten this conversation, this
-        # comment should remind him that the world is still nice
-        # and butterflies still exist...as do rainbows, sunshine,
-        # tulips, etc., etc...but not kittens. Those went away
-        # with this flag.
-        ldflags = [
-          "-Wl,-read_only_relocs,suppress",
-        ]
-      }
+    if (current_cpu != "x64") {
+      # This is needed because even though FFmpeg now builds
+      # with -fPIC, it's not quite a complete PIC build, only
+      # partial :( Thus we need to instruct the linker to allow
+      # relocations for read-only segments for this target to be
+      # able to generated the shared library on Mac.
+      #
+#TODO(ajwong): Check if this can be current_cpu == "x86"
+      # Note -read_only_relocs cannot be used in x86_64
+      #
+      # This makes Mark sad, but he's okay with it since it is
+      # isolated to this module. When Mark finds this in the
+      # future, and has forgotten this conversation, this
+      # comment should remind him that the world is still nice
+      # and butterflies still exist...as do rainbows, sunshine,
+      # tulips, etc., etc...but not kittens. Those went away
+      # with this flag.
+      ldflags = [
+        "-Wl,-read_only_relocs,suppress",
+      ]
+    }
 # TODO(ajwong): How to handle SDKROOT?
 #                'libraries': [
 #                  '$(SDKROOT)/usr/lib/libz.dylib',
 #                ],
-      # Ensure the symbols are exported.
-      #
-      # TODO(ajwong): Manually tag the API that we use to be exported.
-      if (!is_win) {
-        configs -= [ "//build/config/gcc:symbol_visibility_hidden" ]
-      }
 # TODO(ajwong): How to handle @loader_path?
 #              'xcode_settings': {
 #                'DYLIB_INSTALL_NAME_BASE': '@loader_path',
 #              }
-      lib_dirs = [ target_gen_dir ]
-    } else if (is_win) {
-      defines += [
-        "inline=__inline",
-        "strtoll=_strtoi64",
-        "_ISOC99_SOURCE",
-        "_LARGEFILE_SOURCE",
-        "HAVE_AV_CONFIG_H",
-        "strtod=avpriv_strtod",
-        "snprintf=avpriv_snprintf",
-        "_snprintf=avpriv_snprintf",
-        "vsnprintf=avpriv_vsnprintf",
-      ]
+    lib_dirs = [ target_gen_dir ]
+  } else if (is_win) {
+    defines += [
+      "inline=__inline",
+      "strtoll=_strtoi64",
+      "_ISOC99_SOURCE",
+      "_LARGEFILE_SOURCE",
+      "HAVE_AV_CONFIG_H",
+      "strtod=avpriv_strtod",
+      "snprintf=avpriv_snprintf",
+      "_snprintf=avpriv_snprintf",
+      "vsnprintf=avpriv_vsnprintf",
+    ]
 
-      include_dirs += [
-        "chromium/include/win"
-      ]
-      # TODO(dalecurtis): We should fix these.  http://crbug.com/154421
+    if (is_component_ffmpeg) {
+      # Required to avoid 4049 and 4217 errors around redundant imports.
+      cflags += [ "/FIcompat/msvcrt/snprintf.h", "/FIcompat/msvcrt/strtod.h" ]
+    }
+
+    # TODO(dalecurtis): We should fix these.  http://crbug.com/154421
+    cflags += [
+      "/wd4996", # 'function': was declared deprecated
+      "/wd4018", # 'expression': signed/unsigned mismatch
+      "/wd4090", # 'operation' : different 'modifier' qualifiers
+      "/wd4305", # 'identifier': truncation from 'type1' to 'type2'
+      "/wd4133", # 'type' : incompatible types - from 'type1' to 'type2'
+      "/wd4146", # unary minus operator applied to unsigned type, result
+                 #   still unsigned
+      "/wd4554", # 'operator' : check operator precedence for possible
+                 #   error; use parentheses to clarify precedence
+      "/wd4028", # formal parameter 'number' different from declaration
+      "/wd4334", # 'operator' : result of 32-bit shift implicitly
+                 #   converted to 64 bits (was 64-bit shift intended?)
+      "/wd4101", # 'identifier' : unreferenced local variable
+      "/wd4102", # 'label' : unreferenced label
+      "/wd4116", # unnamed type definition in parentheses
+      "/wd4307", # 'operator' : integral constant overflow
+      "/wd4273", # 'function' : inconsistent DLL linkage
+      "/wd4005", # 'identifier' : macro redefinition
+      "/wd4056", # overflow in floating point constant arithmetic
+      "/wd4756", # overflow in constant arithmetic
+    ]
+    if (current_cpu == "x64") {
+      # TODO(wolenetz): We should fix this.  http://crbug.com/171009
       cflags += [
-        "/wd4996", # 'function': was declared deprecated
-        "/wd4018", # 'expression': signed/unsigned mismatch
-        "/wd4090", # 'operation' : different 'modifier' qualifiers
-        "/wd4305", # 'identifier': truncation from 'type1' to 'type2'
-        "/wd4133", # 'type' : incompatible types - from 'type1' to 'type2'
-        "/wd4146", # unary minus operator applied to unsigned type, result
-                   #   still unsigned
-        "/wd4554", # 'operator' : check operator precedence for possible
-                   #   error; use parentheses to clarify precedence
-        "/wd4028", # formal parameter 'number' different from declaration
-        "/wd4334", # 'operator' : result of 32-bit shift implicitly
-                   #   converted to 64 bits (was 64-bit shift intended?)
-        "/wd4101", # 'identifier' : unreferenced local variable
-        "/wd4102", # 'label' : unreferenced label
-        "/wd4116", # unnamed type definition in parentheses
-        "/wd4307", # 'operator' : integral constant overflow
-        "/wd4273", # 'function' : inconsistent DLL linkage
-        "/wd4005", # 'identifier' : macro redefinition
-        "/wd4056", # overflow in floating point constant arithmetic
-        "/wd4756", # overflow in constant arithmetic
+        "/wd4267"  # Conversion from size_t to 'type'.
       ]
-# TODO(ajwong): Verify this is true.
-      # Ignore warnings about a local symbol being inefficiently imported,
-      # upstream is working on a fix.
-      ldflags += [
-        "/ignore:4049", # locally defined symbol 'symbol' imported
-        "/ignore:4217", # locally defined symbol 'symbol' imported in
-                        #   function 'function'
-      ]
-      if (cpu_arch == "x64") {
-        # TODO(wolenetz): We should fix this.  http://crbug.com/171009
-        cflags += [
-          "/wd4267"  # Conversion from size_t to 'type'.
-        ]
-      }
-      deps += [ ":ffmpeg_generate_def" ]
     }
+  }
 
-    if (cpu_arch != "arm" && cpu_arch != "mipsel" && os_config != "linux-noasm") {
-      deps += [ ":ffmpeg_yasm" ]
-    }
+  if ((current_cpu == "x86" || current_cpu == "x64") &&
+      os_config != "linux-noasm") {
+    deps += [ ":ffmpeg_yasm" ]
   }
 }
 
-if (is_win) {
-  config("ffmpeg_win_dependent_config") {
-    include_dirs = [
-      platform_config_root,
-      "chromium/include/win",
-      ".",
-    ]
-    libs = [ "$target_out_dir/ffmpegsumo.lib" ]
-    ldflags = [ "/DELAYLOAD:ffmpegsumo.dll" ]
-  }
+if (is_component_ffmpeg) {
+  shared_library("ffmpeg") {
+    public_configs = [ ":ffmpeg_dependent_config" ]
+    deps = [ ":ffmpeg_internal" ]
 
-  action("ffmpeg_generate_def") {
-    script = generate_stubs_script
-    sources = sig_files
-    outputs = [ "$target_gen_dir/ffmpegsumo.def" ]
-    args = [
-# TODO(ajwong): This was -i <(INTERMEDIATE_DIR). What next?
-      "-i", rebase_path(target_out_dir, root_build_dir),
-      "-o", rebase_path(target_gen_dir, root_build_dir),
-      "-t", "windows_def",
-      "-m", "ffmpegsumo.dll",
-    ] + rebase_path(sources, root_build_dir)
-  }
+    # So we can append below and assume they're defined.
+    ldflags = []
 
-  group("ffmpeg") {
-    public_configs = [ ":ffmpeg_win_dependent_config" ]
-    public_deps = [
-      ":ffmpeg_generate_stubs",
-      ":ffmpegsumo",
-    ]
+    if (is_posix && !is_mac) {
+      # Fixes warnings PIC relocation when building as component.
+      ldflags += [
+        "-Wl,-Bsymbolic",
+        "-L", rebase_path(target_gen_dir, root_build_dir),
+      ]
+    } else if (is_win) {
+      # Windows component build needs the .def file to export ffmpeg symbols.
+      deps += [ ":ffmpeg_generate_def" ]
+      ldflags +=
+        [ "/DEF:" + rebase_path("$target_gen_dir/ffmpeg.def", root_build_dir) ]
+    }
   }
 } else {
-  config("ffmpeg_posix_dependent_config") {
-    include_dirs = [
-      platform_config_root,
-      ".",
-    ]
-  }
-  component("ffmpeg") {
-    sources = [
-      "$target_gen_dir/$stubs_filename_root.cc",
-      "$target_gen_dir/$stubs_filename_root.h",
-    ]
-    configs -= [ "//build/config/gcc:symbol_visibility_hidden" ]
-    defines = [
-      "__STDC_CONSTANT_MACROS",  # FFmpeg uses INT64_C.
-    ]
-
-    include_dirs = [
-      platform_config_root,
-      ".",
-    ]
-
-    public_configs = [ ":ffmpeg_posix_dependent_config" ]
-    deps = [ ":ffmpeg_generate_stubs", ":ffmpegsumo" ]
+  source_set("ffmpeg") {
+    public_configs = [ ":ffmpeg_dependent_config" ]
+    deps = [ ":ffmpeg_internal" ]
   }
 }

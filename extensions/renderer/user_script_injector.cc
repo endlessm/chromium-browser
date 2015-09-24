@@ -8,13 +8,18 @@
 
 #include "base/lazy_instance.h"
 #include "content/public/common/url_constants.h"
+#include "content/public/renderer/render_thread.h"
+#include "content/public/renderer/render_frame.h"
+#include "content/public/renderer/render_view.h"
 #include "extensions/common/extension.h"
+#include "extensions/common/guest_view/extensions_guest_view_messages.h"
 #include "extensions/common/permissions/permissions_data.h"
+#include "extensions/renderer/injection_host.h"
 #include "extensions/renderer/script_context.h"
 #include "extensions/renderer/scripts_run_info.h"
 #include "grit/extensions_renderer_resources.h"
 #include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebFrame.h"
+#include "third_party/WebKit/public/web/WebLocalFrame.h"
 #include "third_party/WebKit/public/web/WebScriptSource.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "url/gurl.h"
@@ -23,10 +28,39 @@ namespace extensions {
 
 namespace {
 
+struct RoutingInfoKey {
+  int routing_id;
+  int script_id;
+
+  RoutingInfoKey(int routing_id, int script_id)
+      : routing_id(routing_id), script_id(script_id) {}
+
+  bool operator<(const RoutingInfoKey& other) const {
+    if (routing_id != other.routing_id)
+      return routing_id < other.routing_id;
+
+    if (script_id != other.script_id)
+      return script_id < other.script_id;
+    return false;  // keys are equal.
+  }
+};
+
+using RoutingInfoMap = std::map<RoutingInfoKey, bool>;
+
 // These two strings are injected before and after the Greasemonkey API and
 // user script to wrap it in an anonymous scope.
 const char kUserScriptHead[] = "(function (unsafeWindow) {\n";
 const char kUserScriptTail[] = "\n})(window);";
+
+// A map records whether a given |script_id| from a webview-added user script
+// is allowed to inject on the render of given |routing_id|.
+// Once a script is added, the decision of whether or not allowed to inject
+// won't be changed.
+// After removed by the webview, the user scipt will also be removed
+// from the render. Therefore, there won't be any query from the same
+// |script_id| and |routing_id| pair.
+base::LazyInstance<RoutingInfoMap> g_routing_info_map =
+    LAZY_INSTANCE_INITIALIZER;
 
 // Greasemonkey API source that is injected with the scripts.
 struct GreasemonkeyApiJsString {
@@ -54,13 +88,12 @@ base::LazyInstance<GreasemonkeyApiJsString> g_greasemonkey_api =
 
 }  // namespace
 
-UserScriptInjector::UserScriptInjector(
-    const UserScript* script,
-    UserScriptSet* script_list,
-    bool is_declarative)
+UserScriptInjector::UserScriptInjector(const UserScript* script,
+                                       UserScriptSet* script_list,
+                                       bool is_declarative)
     : script_(script),
       script_id_(script_->id()),
-      extension_id_(script_->extension_id()),
+      host_id_(script_->host_id()),
       is_declarative_(is_declarative),
       user_script_set_observer_(this) {
   user_script_set_observer_.Add(script_list);
@@ -70,11 +103,11 @@ UserScriptInjector::~UserScriptInjector() {
 }
 
 void UserScriptInjector::OnUserScriptsUpdated(
-    const std::set<std::string>& changed_extensions,
+    const std::set<HostID>& changed_hosts,
     const std::vector<UserScript*>& scripts) {
-  // If the extension causing this injection changed, then this injection
+  // If the host causing this injection changed, then this injection
   // will be removed, and there's no guarantee the backing script still exists.
-  if (changed_extensions.count(extension_id_) > 0)
+  if (changed_hosts.count(host_id_) > 0)
     return;
 
   for (std::vector<UserScript*>::const_iterator iter = scripts.begin();
@@ -91,10 +124,6 @@ void UserScriptInjector::OnUserScriptsUpdated(
 
 UserScript::InjectionType UserScriptInjector::script_type() const {
   return UserScript::CONTENT_SCRIPT;
-}
-
-bool UserScriptInjector::ShouldExecuteInChildFrames() const {
-  return false;
 }
 
 bool UserScriptInjector::ShouldExecuteInMainWorld() const {
@@ -122,38 +151,45 @@ bool UserScriptInjector::ShouldInjectCss(
 }
 
 PermissionsData::AccessType UserScriptInjector::CanExecuteOnFrame(
-    const Extension* extension,
-    blink::WebFrame* web_frame,
-    int tab_id,
-    const GURL& top_url) const {
-  // If we don't have a tab id, we have no UI surface to ask for user consent.
-  // For now, we treat this as an automatic allow.
-  if (tab_id == -1)
-    return PermissionsData::ACCESS_ALLOWED;
-
+    const InjectionHost* injection_host,
+    blink::WebLocalFrame* web_frame,
+    int tab_id) const {
   GURL effective_document_url = ScriptContext::GetEffectiveDocumentURL(
       web_frame, web_frame->document().url(), script_->match_about_blank());
+  PermissionsData::AccessType can_execute = injection_host->CanExecuteOnFrame(
+      effective_document_url,
+      content::RenderFrame::FromWebFrame(web_frame),
+      tab_id,
+      is_declarative_);
+  if (script_->consumer_instance_type() !=
+          UserScript::ConsumerInstanceType::WEBVIEW ||
+      can_execute == PermissionsData::ACCESS_DENIED)
+    return can_execute;
 
-  // Declarative user scripts use "page access" (from "permissions" section in
-  // manifest) whereas non-declarative user scripts use custom
-  // "content script access" logic.
-  if (is_declarative_) {
-    return extension->permissions_data()->GetPageAccess(
-        extension,
-        effective_document_url,
-        top_url,
-        tab_id,
-        -1,  // no process id
-        NULL /* ignore error */);
+  int routing_id = content::RenderView::FromWebView(web_frame->top()->view())
+                      ->GetRoutingID();
+
+  RoutingInfoKey key(routing_id, script_->id());
+
+  RoutingInfoMap& map = g_routing_info_map.Get();
+  auto iter = map.find(key);
+
+  bool allowed = false;
+  if (iter != map.end()) {
+    allowed = iter->second;
   } else {
-    return extension->permissions_data()->GetContentScriptAccess(
-        extension,
-        effective_document_url,
-        top_url,
-        tab_id,
-        -1,  // no process id
-        NULL /* ignore error */);
+    // Send a SYNC IPC message to the browser to check if this is allowed. This
+    // is not ideal, but is mitigated by the fact that this is only done for
+    // webviews, and then only once per host.
+    // TODO(hanxi): Find a more efficient way to do this.
+    content::RenderThread::Get()->Send(
+        new ExtensionsGuestViewHostMsg_CanExecuteContentScriptSync(
+            routing_id, script_->id(), &allowed));
+    map.insert(std::pair<RoutingInfoKey, bool>(key, allowed));
   }
+
+  return allowed ? PermissionsData::ACCESS_ALLOWED
+                 : PermissionsData::ACCESS_DENIED;
 }
 
 std::vector<blink::WebScriptSource> UserScriptInjector::GetJsSources(
@@ -204,23 +240,27 @@ std::vector<std::string> UserScriptInjector::GetCssSources(
   return sources;
 }
 
-void UserScriptInjector::OnInjectionComplete(
-    scoped_ptr<base::ListValue> execution_results,
+void UserScriptInjector::GetRunInfo(
     ScriptsRunInfo* scripts_run_info,
-    UserScript::RunLocation run_location) {
+    UserScript::RunLocation run_location) const {
   if (ShouldInjectJs(run_location)) {
     const UserScript::FileList& js_scripts = script_->js_scripts();
     scripts_run_info->num_js += js_scripts.size();
     for (UserScript::FileList::const_iterator iter = js_scripts.begin();
          iter != js_scripts.end();
          ++iter) {
-      scripts_run_info->executing_scripts[extension_id_].insert(
+      scripts_run_info->executing_scripts[host_id_.id()].insert(
           iter->url().path());
     }
   }
 
   if (ShouldInjectCss(run_location))
     scripts_run_info->num_css += script_->css_scripts().size();
+}
+
+void UserScriptInjector::OnInjectionComplete(
+    scoped_ptr<base::Value> execution_result,
+    UserScript::RunLocation run_location) {
 }
 
 void UserScriptInjector::OnWillNotInject(InjectFailureReason reason) {

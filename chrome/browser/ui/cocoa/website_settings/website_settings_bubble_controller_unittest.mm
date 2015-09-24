@@ -17,7 +17,6 @@
 - (NSTextField*)identityStatusDescriptionField;
 - (NSImageView*)connectionStatusIcon;
 - (NSTextField*)connectionStatusDescriptionField;
-- (NSTextField*)firstVisitDescriptionField;
 - (NSButton*)helpButton;
 @end
 
@@ -50,10 +49,6 @@
 
 - (NSTextField*)connectionStatusDescriptionField {
   return connectionStatusDescriptionField_;
-}
-
-- (NSTextField*)firstVisitDescriptionField {
-  return firstVisitDescriptionField_;
 }
 
 - (NSButton*)helpButton {
@@ -99,7 +94,7 @@ const ContentSettingsType kTestPermissionTypes[] = {
   CONTENT_SETTINGS_TYPE_GEOLOCATION,
   CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
   CONTENT_SETTINGS_TYPE_MOUSELOCK,
-  CONTENT_SETTINGS_TYPE_MEDIASTREAM,
+  CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC
 };
 
 const ContentSetting kTestSettings[] = {
@@ -111,7 +106,7 @@ const ContentSetting kTestSettings[] = {
   CONTENT_SETTING_ALLOW,
   CONTENT_SETTING_BLOCK,
   CONTENT_SETTING_ALLOW,
-  CONTENT_SETTING_BLOCK,
+  CONTENT_SETTING_BLOCK
 };
 
 const ContentSetting kTestDefaultSettings[] = {
@@ -129,7 +124,7 @@ const content_settings::SettingSource kTestSettingSources[] = {
   content_settings::SETTING_SOURCE_POLICY,
   content_settings::SETTING_SOURCE_POLICY,
   content_settings::SETTING_SOURCE_EXTENSION,
-  content_settings::SETTING_SOURCE_EXTENSION,
+  content_settings::SETTING_SOURCE_EXTENSION
 };
 
 class WebsiteSettingsBubbleControllerTest : public CocoaTest {
@@ -138,7 +133,7 @@ class WebsiteSettingsBubbleControllerTest : public CocoaTest {
     controller_ = nil;
   }
 
-  virtual void TearDown() {
+  void TearDown() override {
     [controller_ close];
     CocoaTest::TearDown();
   }
@@ -314,13 +309,6 @@ TEST_F(WebsiteSettingsBubbleControllerTest, SetIdentityInfo) {
   link_button = static_cast<NSButton*>([buttons objectAtIndex:1]);
   EXPECT_NSEQ(controller_, [link_button target]);
   EXPECT_TRUE([link_button action] == @selector(showCertificateInfo:));
-}
-
-TEST_F(WebsiteSettingsBubbleControllerTest, SetFirstVisit) {
-  CreateBubble();
-  bridge_->SetFirstVisit(base::ASCIIToUTF16("Yesterday"));
-  EXPECT_NSEQ(@"Yesterday",
-              [[controller_ firstVisitDescriptionField] stringValue]);
 }
 
 TEST_F(WebsiteSettingsBubbleControllerTest, SetPermissionInfo) {

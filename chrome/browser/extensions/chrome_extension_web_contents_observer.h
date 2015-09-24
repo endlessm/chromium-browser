@@ -30,16 +30,24 @@ class ChromeExtensionWebContentsObserver
       content::WebContents* web_contents);
   ~ChromeExtensionWebContentsObserver() override;
 
+  // ExtensionWebContentsObserver:
+  void InitializeRenderFrame(
+      content::RenderFrameHost* render_frame_host) override;
+
   // content::WebContentsObserver overrides.
   void RenderViewCreated(content::RenderViewHost* render_view_host) override;
+
+  // Silence a warning about hiding a virtual function.
   bool OnMessageReceived(const IPC::Message& message,
                          content::RenderFrameHost* render_frame_host) override;
 
   // Adds a message to the extensions ErrorConsole.
-  void OnDetailedConsoleMessageAdded(const base::string16& message,
-                                     const base::string16& source,
-                                     const StackTrace& stack_trace,
-                                     int32 severity_level);
+  void OnDetailedConsoleMessageAdded(
+      content::RenderFrameHost* render_frame_host,
+      const base::string16& message,
+      const base::string16& source,
+      const StackTrace& stack_trace,
+      int32 severity_level);
 
   // Reloads an extension if it is on the terminated list.
   void ReloadIfTerminated(content::RenderViewHost* render_view_host);

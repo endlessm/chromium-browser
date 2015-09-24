@@ -23,9 +23,11 @@ class FakeProxy : public Proxy {
 
   void FinishAllRendering() override {}
   bool IsStarted() const override;
+  bool CommitToActiveTree() const override;
   void SetOutputSurface(scoped_ptr<OutputSurface>) override {}
   void SetLayerTreeHostClientReady() override {}
   void SetVisible(bool visible) override {}
+  void SetThrottleFrameProduction(bool throttle) override {}
   const RendererCapabilities& GetRendererCapabilities() const override;
   void SetNeedsAnimate() override {}
   void SetNeedsUpdateLayers() override {}
@@ -40,18 +42,17 @@ class FakeProxy : public Proxy {
   void Start() override {}
   void Stop() override {}
   void ForceSerializeOnSwapBuffers() override {}
-  size_t MaxPartialTextureUpdates() const override;
   bool SupportsImplScrolling() const override;
   void SetDebugState(const LayerTreeDebugState& debug_state) override {}
   bool MainFrameWillHappenForTesting() override;
-  void AsValueInto(base::debug::TracedValue* state) const override;
+  void SetChildrenNeedBeginFrames(bool children_need_begin_frames) override {}
+  void SetAuthoritativeVSyncInterval(const base::TimeDelta& interval) override {
+  }
 
   virtual RendererCapabilities& GetRendererCapabilities();
-  void SetMaxPartialTextureUpdates(size_t max);
 
  private:
   RendererCapabilities capabilities_;
-  size_t max_partial_texture_updates_;
   LayerTreeHost* layer_tree_host_;
 };
 

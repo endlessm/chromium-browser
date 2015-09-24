@@ -7,12 +7,14 @@
 #include <algorithm>
 
 #include "base/bind.h"
+#include "base/location.h"
 #include "base/memory/ref_counted_memory.h"
-#include "base/message_loop/message_loop.h"
 #include "base/prefs/pref_service.h"
 #include "base/sequenced_task_runner.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
@@ -34,8 +36,14 @@
 #include "ui/base/layout.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/image/image_skia.h"
+#include "ui/native_theme/common_theme.h"
+#include "ui/native_theme/native_theme.h"
 
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_EXTENSIONS)
+#include "extensions/browser/extension_registry_observer.h"
+#endif
+
+#if defined(ENABLE_SUPERVISED_USERS)
 #include "chrome/browser/supervised_user/supervised_user_theme.h"
 #endif
 
@@ -96,10 +104,62 @@ bool IsColorGrayscale(SkColor color) {
 
 }  // namespace
 
+#if defined(ENABLE_EXTENSIONS)
+class ThemeService::ThemeObserver
+    : public extensions::ExtensionRegistryObserver {
+ public:
+  explicit ThemeObserver(ThemeService* service) : theme_service_(service) {
+    extensions::ExtensionRegistry::Get(theme_service_->profile_)
+        ->AddObserver(this);
+  }
+
+  ~ThemeObserver() override {
+    extensions::ExtensionRegistry::Get(theme_service_->profile_)
+        ->RemoveObserver(this);
+  }
+
+ private:
+  void OnExtensionWillBeInstalled(content::BrowserContext* browser_context,
+                                  const extensions::Extension* extension,
+                                  bool is_update,
+                                  bool from_ephemeral,
+                                  const std::string& old_name) override {
+    if (extension->is_theme()) {
+      // The theme may be initially disabled. Wait till it is loaded (if ever).
+      theme_service_->installed_pending_load_id_ = extension->id();
+    }
+  }
+
+  void OnExtensionLoaded(content::BrowserContext* browser_context,
+                         const extensions::Extension* extension) override {
+    if (extension->is_theme() &&
+        theme_service_->installed_pending_load_id_ != kDefaultThemeID &&
+        theme_service_->installed_pending_load_id_ == extension->id()) {
+      theme_service_->SetTheme(extension);
+    }
+    theme_service_->installed_pending_load_id_ = kDefaultThemeID;
+  }
+
+  void OnExtensionUnloaded(
+      content::BrowserContext* browser_context,
+      const extensions::Extension* extension,
+      extensions::UnloadedExtensionInfo::Reason reason) override {
+    if (reason != extensions::UnloadedExtensionInfo::REASON_UPDATE &&
+        reason != extensions::UnloadedExtensionInfo::REASON_LOCK_ALL &&
+        extension->is_theme() &&
+        extension->id() == theme_service_->GetThemeID()) {
+      theme_service_->UseDefaultTheme();
+    }
+  }
+
+  ThemeService* theme_service_;
+};
+#endif  // defined(ENABLE_EXTENSIONS)
+
 ThemeService::ThemeService()
     : ready_(false),
       rb_(ResourceBundle::GetSharedInstance()),
-      profile_(NULL),
+      profile_(nullptr),
       installed_pending_load_id_(kDefaultThemeID),
       number_of_infobars_(0),
       weak_ptr_factory_(this) {
@@ -146,7 +206,7 @@ bool ThemeService::UsingSystemTheme() const {
 gfx::ImageSkia* ThemeService::GetImageSkiaNamed(int id) const {
   gfx::Image image = GetImageNamed(id);
   if (image.IsEmpty())
-    return NULL;
+    return nullptr;
   // TODO(pkotwicz): Remove this const cast.  The gfx::Image interface returns
   // its images const. GetImageSkiaNamed() also should but has many callsites.
   return const_cast<gfx::ImageSkia*>(image.ToImageSkia());
@@ -171,7 +231,19 @@ SkColor ThemeService::GetColor(int id) const {
       return IncreaseLightness(GetColor(Properties::COLOR_NTP_TEXT), 0.86);
     case Properties::COLOR_NTP_TEXT_LIGHT:
       return IncreaseLightness(GetColor(Properties::COLOR_NTP_TEXT), 0.40);
-#if defined(ENABLE_MANAGED_USERS)
+    case Properties::COLOR_THROBBER_SPINNING:
+    case Properties::COLOR_THROBBER_WAITING: {
+      SkColor base_color;
+      bool found_color = ui::CommonThemeGetSystemColor(
+          id == Properties::COLOR_THROBBER_SPINNING
+              ? ui::NativeTheme::kColorId_ThrobberSpinningColor
+              : ui::NativeTheme::kColorId_ThrobberWaitingColor,
+          &base_color);
+      DCHECK(found_color);
+      color_utils::HSL hsl = GetTint(Properties::TINT_BUTTONS);
+      return color_utils::HSLShift(base_color, hsl);
+    }
+#if defined(ENABLE_SUPERVISED_USERS)
     case Properties::COLOR_SUPERVISED_USER_LABEL:
       return color_utils::GetReadableColor(
           SK_ColorWHITE,
@@ -236,13 +308,8 @@ bool ThemeService::ShouldUseNativeFrame() const {
 }
 
 bool ThemeService::HasCustomImage(int id) const {
-  if (!Properties::IsThemeableImage(id))
-    return false;
-
-  if (theme_supplier_.get())
-    return theme_supplier_->HasCustomImage(id);
-
-  return false;
+  return BrowserThemePack::IsPersistentImageID(id) &&
+      theme_supplier_ && theme_supplier_->HasCustomImage(id);
 }
 
 base::RefCountedMemory* ThemeService::GetRawData(
@@ -253,13 +320,19 @@ base::RefCountedMemory* ThemeService::GetRawData(
   if (id == IDR_PRODUCT_LOGO && ntp_alternate != 0)
     id = IDR_PRODUCT_LOGO_WHITE;
 
-  base::RefCountedMemory* data = NULL;
+  base::RefCountedMemory* data = nullptr;
   if (theme_supplier_.get())
     data = theme_supplier_->GetRawData(id, scale_factor);
   if (!data)
     data = rb_.LoadDataResourceBytesForScale(id, ui::SCALE_FACTOR_100P);
 
   return data;
+}
+
+void ThemeService::Shutdown() {
+#if defined(ENABLE_EXTENSIONS)
+  theme_observer_.reset();
+#endif
 }
 
 void ThemeService::Observe(int type,
@@ -273,39 +346,14 @@ void ThemeService::Observe(int type,
                         content::Source<Profile>(profile_));
       OnExtensionServiceReady();
       break;
-    case extensions::NOTIFICATION_EXTENSION_WILL_BE_INSTALLED_DEPRECATED: {
-      // The theme may be initially disabled. Wait till it is loaded (if ever).
-      Details<const extensions::InstalledExtensionInfo> installed_details(
-          details);
-      if (installed_details->extension->is_theme())
-        installed_pending_load_id_ = installed_details->extension->id();
-      break;
-    }
-    case extensions::NOTIFICATION_EXTENSION_LOADED_DEPRECATED: {
-      const Extension* extension = Details<const Extension>(details).ptr();
-      if (extension->is_theme() &&
-          installed_pending_load_id_ != kDefaultThemeID &&
-          installed_pending_load_id_ == extension->id()) {
-        SetTheme(extension);
-      }
-      installed_pending_load_id_ = kDefaultThemeID;
-      break;
-    }
     case extensions::NOTIFICATION_EXTENSION_ENABLED: {
       const Extension* extension = Details<const Extension>(details).ptr();
       if (extension->is_theme())
         SetTheme(extension);
       break;
     }
-    case extensions::NOTIFICATION_EXTENSION_UNLOADED_DEPRECATED: {
-      Details<const UnloadedExtensionInfo> unloaded_details(details);
-      if (unloaded_details->reason != UnloadedExtensionInfo::REASON_UPDATE &&
-          unloaded_details->extension->is_theme() &&
-          unloaded_details->extension->id() == GetThemeID()) {
-        UseDefaultTheme();
-      }
-      break;
-    }
+    default:
+      NOTREACHED();
   }
 }
 
@@ -392,15 +440,14 @@ void ThemeService::RemoveUnusedThemes(bool ignore_infobars) {
   for (size_t i = 0; i < remove_list.size(); ++i) {
     service->UninstallExtension(remove_list[i],
                                 extensions::UNINSTALL_REASON_ORPHANED_THEME,
-                                base::Bind(&base::DoNothing),
-                                NULL);
+                                base::Bind(&base::DoNothing), nullptr);
   }
 }
 
 void ThemeService::UseDefaultTheme() {
   if (ready_)
     content::RecordAction(UserMetricsAction("Themes_Reset"));
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
   if (IsSupervisedUser()) {
     SetSupervisedUserTheme();
     return;
@@ -438,7 +485,7 @@ void ThemeService::ClearAllThemeData() {
   if (!ready_)
     return;
 
-  SwapThemeSupplier(NULL);
+  SwapThemeSupplier(nullptr);
 
   // Clear our image cache.
   FreePlatformCaches();
@@ -450,10 +497,9 @@ void ThemeService::ClearAllThemeData() {
   // http://crbug.com/62154
   // RemoveUnusedThemes is called on a task because ClearAllThemeData() may
   // be called as a result of NOTIFICATION_EXTENSION_UNLOADED_DEPRECATED.
-  base::MessageLoop::current()->PostTask(FROM_HERE,
-      base::Bind(&ThemeService::RemoveUnusedThemes,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 true));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&ThemeService::RemoveUnusedThemes,
+                            weak_ptr_factory_.GetWeakPtr(), true));
 }
 
 void ThemeService::LoadThemePrefs() {
@@ -461,7 +507,7 @@ void ThemeService::LoadThemePrefs() {
 
   std::string current_id = GetThemeID();
   if (current_id == kDefaultThemeID) {
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
     // Supervised users have a different default theme.
     if (IsSupervisedUser()) {
       SetSupervisedUserTheme();
@@ -483,7 +529,7 @@ void ThemeService::LoadThemePrefs() {
   base::FilePath path = prefs->GetFilePath(prefs::kCurrentThemePackFilename);
   if (path != base::FilePath()) {
     SwapThemeSupplier(BrowserThemePack::BuildFromDataPack(path, current_id));
-    loaded_pack = theme_supplier_.get() != NULL;
+    loaded_pack = theme_supplier_.get() != nullptr;
   }
 
   if (loaded_pack) {
@@ -533,24 +579,17 @@ void ThemeService::OnExtensionServiceReady() {
     NotifyThemeChanged();
   }
 
-  registrar_.Add(
-      this,
-      extensions::NOTIFICATION_EXTENSION_WILL_BE_INSTALLED_DEPRECATED,
-      content::Source<Profile>(profile_));
-  registrar_.Add(this,
-                 extensions::NOTIFICATION_EXTENSION_LOADED_DEPRECATED,
-                 content::Source<Profile>(profile_));
+#if defined(ENABLE_EXTENSIONS)
+  theme_observer_.reset(new ThemeObserver(this));
+#endif
+
   registrar_.Add(this,
                  extensions::NOTIFICATION_EXTENSION_ENABLED,
                  content::Source<Profile>(profile_));
-  registrar_.Add(this,
-                 extensions::NOTIFICATION_EXTENSION_UNLOADED_DEPRECATED,
-                 content::Source<Profile>(profile_));
 
-  base::MessageLoop::current()->PostDelayedTask(FROM_HERE,
-      base::Bind(&ThemeService::RemoveUnusedThemes,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 false),
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, base::Bind(&ThemeService::RemoveUnusedThemes,
+                            weak_ptr_factory_.GetWeakPtr(), false),
       base::TimeDelta::FromSeconds(kRemoveUnusedThemesStartupDelay));
 }
 
@@ -559,8 +598,8 @@ void ThemeService::MigrateTheme() {
   // theme is being migrated.
   ExtensionService* service =
       extensions::ExtensionSystem::Get(profile_)->extension_service();
-  const Extension* extension = service ?
-      service->GetExtensionById(GetThemeID(), false) : NULL;
+  const Extension* extension =
+      service ? service->GetExtensionById(GetThemeID(), false) : nullptr;
   if (extension) {
     DLOG(ERROR) << "Migrating theme";
     BuildFromExtension(extension);
@@ -616,7 +655,7 @@ void ThemeService::BuildFromExtension(const Extension* extension) {
   SwapThemeSupplier(pack);
 }
 
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
 bool ThemeService::IsSupervisedUser() const {
   return profile_->IsSupervised();
 }

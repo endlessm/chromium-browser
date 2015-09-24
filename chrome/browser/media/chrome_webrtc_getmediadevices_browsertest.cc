@@ -47,7 +47,7 @@ class WebRtcGetMediaDevicesBrowserTest
     DetectErrorsInJavaScript();  // Look for errors in our rather complex js.
   }
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     // Ensure the infobar is enabled, since we expect that in this test.
     EXPECT_FALSE(command_line->HasSwitch(switches::kUseFakeUIForMediaStream));
 
@@ -89,11 +89,9 @@ class WebRtcGetMediaDevicesBrowserTest
 
     int error_code;
     std::string error_message;
-    scoped_ptr<base::Value> value(
-        base::JSONReader::ReadAndReturnError(devices_as_json,
-                                             base::JSON_ALLOW_TRAILING_COMMAS,
-                                             &error_code,
-                                             &error_message));
+    scoped_ptr<base::Value> value = base::JSONReader::ReadAndReturnError(
+        devices_as_json, base::JSON_ALLOW_TRAILING_COMMAS, &error_code,
+        &error_message);
 
     ASSERT_TRUE(value.get() != NULL) << error_message;
     EXPECT_EQ(value->GetType(), base::Value::TYPE_LIST);
@@ -212,7 +210,7 @@ IN_PROC_BROWSER_TEST_P(WebRtcGetMediaDevicesBrowserTest,
   content::WebContents* tab =
       browser()->tab_strip_model()->GetActiveWebContents();
 
-  GetUserMediaAndAccept(tab);
+  EXPECT_TRUE(GetUserMediaAndAccept(tab));
 
   std::vector<MediaDeviceInfo> devices;
   GetMediaDevices(tab, &devices);
@@ -269,7 +267,7 @@ IN_PROC_BROWSER_TEST_P(WebRtcGetMediaDevicesBrowserTest,
   content::WebContents* tab =
       browser()->tab_strip_model()->GetActiveWebContents();
 
-  GetUserMediaAndAccept(tab);
+  EXPECT_TRUE(GetUserMediaAndAccept(tab));
 
   std::vector<MediaDeviceInfo> devices;
   GetMediaDevices(tab, &devices);

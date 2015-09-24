@@ -21,15 +21,18 @@
 #ifndef SVGTests_h
 #define SVGTests_h
 
+#include "core/CoreExport.h"
 #include "core/svg/SVGStaticStringList.h"
+#include "platform/heap/Handle.h"
 #include "wtf/HashSet.h"
 
 namespace blink {
 
+class Document;
 class QualifiedName;
 class SVGElement;
 
-class SVGTests {
+class CORE_EXPORT SVGTests : public WillBeGarbageCollectedMixin {
 public:
     // JS API
     SVGStringListTearOff* requiredFeatures() { return m_requiredFeatures->tearOff(); }
@@ -37,20 +40,22 @@ public:
     SVGStringListTearOff* systemLanguage() { return m_systemLanguage->tearOff(); }
     bool hasExtension(const String&);
 
-    bool isValid() const;
+    bool isValid(Document&) const;
 
     bool parseAttribute(const QualifiedName&, const AtomicString&);
     bool isKnownAttribute(const QualifiedName&);
 
     void addSupportedAttributes(HashSet<QualifiedName>&);
 
+    DECLARE_VIRTUAL_TRACE();
+
 protected:
-    SVGTests(SVGElement* contextElement);
+    explicit SVGTests(SVGElement* contextElement);
 
 private:
-    RefPtr<SVGStaticStringList> m_requiredFeatures;
-    RefPtr<SVGStaticStringList> m_requiredExtensions;
-    RefPtr<SVGStaticStringList> m_systemLanguage;
+    RefPtrWillBeMember<SVGStaticStringList> m_requiredFeatures;
+    RefPtrWillBeMember<SVGStaticStringList> m_requiredExtensions;
+    RefPtrWillBeMember<SVGStaticStringList> m_systemLanguage;
 };
 
 } // namespace blink

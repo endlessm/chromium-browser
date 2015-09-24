@@ -8,6 +8,7 @@
 #include "base/logging.h"
 #include "base/sys_info.h"
 #include "chromeos/chromeos_switches.h"
+#include "components/device_event_log/device_event_log.h"
 
 namespace chromeos {
 
@@ -18,7 +19,8 @@ namespace {
 // logged in.
 bool AlwaysLoggedInByDefault() {
   return !base::SysInfo::IsRunningOnChromeOS() &&
-      !CommandLine::ForCurrentProcess()->HasSwitch(switches::kLoginManager);
+         !base::CommandLine::ForCurrentProcess()->HasSwitch(
+             switches::kLoginManager);
 }
 
 }  // namespace
@@ -63,14 +65,14 @@ void LoginState::SetLoggedInStateAndPrimaryUser(
     const std::string& primary_user_hash) {
   DCHECK(type != LOGGED_IN_USER_NONE);
   primary_user_hash_ = primary_user_hash;
-  VLOG(1) << "LoggedInStateUser: " << primary_user_hash;
+  LOGIN_LOG(EVENT) << "LoggedInStateUser: " << primary_user_hash;
   SetLoggedInState(state, type);
 }
 
 void LoginState::SetLoggedInState(LoggedInState state, LoggedInUserType type) {
   if (state == logged_in_state_ && type == logged_in_user_type_)
     return;
-  VLOG(1) << "LoggedInState: " << state << " UserType: " << type;
+  LOGIN_LOG(EVENT) << "LoggedInState: " << state << " UserType: " << type;
   logged_in_state_ = state;
   logged_in_user_type_ = type;
   NotifyObservers();
@@ -96,8 +98,7 @@ bool LoginState::IsGuestSessionUser() const {
 }
 
 bool LoginState::IsPublicSessionUser() const {
-  return logged_in_user_type_ == LOGGED_IN_USER_PUBLIC_ACCOUNT ||
-         logged_in_user_type_ == LOGGED_IN_USER_RETAIL_MODE;
+  return logged_in_user_type_ == LOGGED_IN_USER_PUBLIC_ACCOUNT;
 }
 
 bool LoginState::IsKioskApp() const {

@@ -8,11 +8,11 @@
 #include "chrome/browser/extensions/extension_action.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
-#import "chrome/browser/ui/cocoa/extensions/extension_action_context_menu_controller.h"
 #import "chrome/browser/ui/cocoa/location_bar/location_bar_view_mac.h"
 #include "chrome/browser/ui/extensions/extension_action_view_controller.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/extension_registry.h"
+#import "ui/base/cocoa/menu_controller.h"
 #include "ui/gfx/image/image.h"
 
 using content::WebContents;
@@ -33,15 +33,14 @@ PageActionDecoration::PageActionDecoration(
     Browser* browser,
     ExtensionAction* page_action)
     : owner_(NULL),
-      contextMenuController_(nil),
       preview_enabled_(false) {
   const Extension* extension = extensions::ExtensionRegistry::Get(
       browser->profile())->enabled_extensions().GetByID(
           page_action->extension_id());
   DCHECK(extension);
 
-  viewController_.reset(
-      new ExtensionActionViewController(extension, browser, page_action));
+  viewController_.reset(new ExtensionActionViewController(
+      extension, browser, page_action, nullptr));
   viewController_->SetDelegate(this);
 
   // We set the owner last of all so that we can determine whether we are in
@@ -94,14 +93,14 @@ void PageActionDecoration::UpdateVisibility(WebContents* contents) {
     SetToolTip(viewController_->GetTooltip(contents));
 
     // Set the image.
-    gfx::Image icon = viewController_->GetIcon(contents);
+    gfx::Size size(ExtensionAction::kPageActionIconMaxSize,
+                   ExtensionAction::kPageActionIconMaxSize);
+    gfx::Image icon = viewController_->GetIcon(contents, size);
     if (!icon.IsEmpty()) {
       SetImage(icon.ToNSImage());
     } else if (!GetImage()) {
-      const NSSize default_size = NSMakeSize(
-          ExtensionAction::kPageActionIconMaxSize,
-          ExtensionAction::kPageActionIconMaxSize);
-      SetImage([[[NSImage alloc] initWithSize:default_size] autorelease]);
+      NSSize ns_size = NSSizeFromCGSize(size.ToCGSize());
+      SetImage([[[NSImage alloc] initWithSize:ns_size] autorelease]);
     }
   }
 
@@ -130,15 +129,13 @@ NSPoint PageActionDecoration::GetBubblePointInFrame(NSRect frame) {
 }
 
 NSMenu* PageActionDecoration::GetMenu() {
-  // |contextMenuController| can be nil if we don't show menus for this
-  // extension.
-  if (contextMenuController_) {
-    base::scoped_nsobject<NSMenu> contextMenu(
-        [[NSMenu alloc] initWithTitle:@""]);
-    [contextMenuController_ populateMenu:contextMenu];
-    return contextMenu.autorelease();
-  }
-  return nil;
+  ui::MenuModel* contextMenu = viewController_->GetContextMenu();
+  if (!contextMenu)
+    return nil;
+  contextMenuController_.reset(
+      [[MenuController alloc] initWithModel:contextMenu
+                     useWithPopUpButtonCell:NO]);
+  return [contextMenuController_ menu];
 }
 
 void PageActionDecoration::SetToolTip(const base::string16& tooltip) {
@@ -147,34 +144,19 @@ void PageActionDecoration::SetToolTip(const base::string16& tooltip) {
   tooltip_.reset([nsTooltip retain]);
 }
 
-ToolbarActionViewController*
-PageActionDecoration::GetPreferredPopupViewController() {
-  return viewController_.get();
-}
-
 content::WebContents* PageActionDecoration::GetCurrentWebContents() const {
+  // If we have no owner, that means this class is still being constructed.
   return owner_ ? owner_->GetWebContents() : nullptr;
 }
 
 void PageActionDecoration::UpdateState() {
-  // If we have no owner, that means this class is still being constructed.
-  WebContents* web_contents = owner_ ? owner_->GetWebContents() : NULL;
+  WebContents* web_contents = GetCurrentWebContents();
   if (web_contents) {
     UpdateVisibility(web_contents);
     owner_->RedrawDecoration(this);
   }
 }
 
-NSPoint PageActionDecoration::GetPopupPoint() {
-  // Anchor popup at the bottom center of the page action icon.
-  AutocompleteTextField* field = owner_->GetAutocompleteTextField();
-  NSPoint anchor = GetBubblePointInFrame(
-      owner_->GetPageActionFrame(viewController_->extension_action()));
-  anchor = [field convertPoint:anchor toView:nil];
-  return anchor;
-}
-
-void PageActionDecoration::SetContextMenuController(
-    ExtensionActionContextMenuController* menuController) {
-  contextMenuController_ = menuController;
+bool PageActionDecoration::IsMenuRunning() const {
+  return contextMenuController_.get() && [contextMenuController_ isMenuOpen];
 }

@@ -9,7 +9,7 @@
 #include "base/bind.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
-#include "base/mac/mac_util.h"
+#include "base/mac/foundation_util.h"
 #include "base/pickle.h"
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
@@ -173,7 +173,7 @@ void PromiseWriterHelper(const DropData& drop_data,
       net::UnescapeRule::Type unescapeRules =
           net::UnescapeRule::SPACES |
           net::UnescapeRule::URL_SPECIAL_CHARS |
-          net::UnescapeRule::CONTROL_CHARS;
+          net::UnescapeRule::SPOOFING_AND_CONTROL_CHARS;
       std::string unescapedUrlString =
           net::UnescapeURLComponent(dropData_->url.spec(), unescapeRules);
       std::string escapedUrlString =
@@ -200,7 +200,7 @@ void PromiseWriterHelper(const DropData& drop_data,
 
   // Custom MIME data.
   } else if ([type isEqualToString:ui::kWebCustomDataPboardType]) {
-    Pickle pickle;
+    base::Pickle pickle;
     ui::WriteCustomDataToPickle(dropData_->custom_data, &pickle);
     [pboard setData:[NSData dataWithBytes:pickle.data() length:pickle.size()]
             forType:ui::kWebCustomDataPboardType];

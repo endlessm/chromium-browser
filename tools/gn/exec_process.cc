@@ -7,6 +7,7 @@
 #include "base/logging.h"
 #include "base/process/kill.h"
 #include "base/process/launch.h"
+#include "base/process/process.h"
 
 #if defined(OS_WIN)
 #include <windows.h>
@@ -26,7 +27,7 @@
 namespace internal {
 
 #if defined(OS_WIN)
-bool ExecProcess(const CommandLine& cmdline,
+bool ExecProcess(const base::CommandLine& cmdline,
                  const base::FilePath& startup_dir,
                  std::string* std_out,
                  std::string* std_err,
@@ -35,11 +36,11 @@ bool ExecProcess(const CommandLine& cmdline,
   // Set the bInheritHandle flag so pipe handles are inherited.
   sa_attr.nLength = sizeof(SECURITY_ATTRIBUTES);
   sa_attr.bInheritHandle = TRUE;
-  sa_attr.lpSecurityDescriptor = NULL;
+  sa_attr.lpSecurityDescriptor = nullptr;
 
   // Create the pipe for the child process's STDOUT.
-  HANDLE out_read = NULL;
-  HANDLE out_write = NULL;
+  HANDLE out_read = nullptr;
+  HANDLE out_write = nullptr;
   if (!CreatePipe(&out_read, &out_write, &sa_attr, 0)) {
     NOTREACHED() << "Failed to create pipe";
     return false;
@@ -48,8 +49,8 @@ bool ExecProcess(const CommandLine& cmdline,
   base::win::ScopedHandle scoped_out_write(out_write);
 
   // Create the pipe for the child process's STDERR.
-  HANDLE err_read = NULL;
-  HANDLE err_write = NULL;
+  HANDLE err_read = nullptr;
+  HANDLE err_write = nullptr;
   if (!CreatePipe(&err_read, &err_write, &sa_attr, 0)) {
     NOTREACHED() << "Failed to create pipe";
     return false;
@@ -82,11 +83,11 @@ bool ExecProcess(const CommandLine& cmdline,
 
   // Create the child process.
   PROCESS_INFORMATION temp_process_info = {};
-  if (!CreateProcess(NULL,
+  if (!CreateProcess(nullptr,
                      &cmdline_str[0],
-                     NULL, NULL,
+                     nullptr, nullptr,
                      TRUE,  // Handles are inherited.
-                     0, NULL,
+                     0, nullptr,
                      startup_dir.value().c_str(),
                      &start_info, &temp_process_info)) {
     return false;
@@ -107,7 +108,8 @@ bool ExecProcess(const CommandLine& cmdline,
   // Also uncomment start_info code above.
   for (;;) {
     DWORD bytes_read = 0;
-    BOOL success = ReadFile(out_read, buffer, kBufferSize, &bytes_read, NULL);
+    BOOL success =
+        ReadFile(out_read, buffer, kBufferSize, &bytes_read, nullptr);
     if (!success || bytes_read == 0)
       break;
     std_out->append(buffer, bytes_read);
@@ -138,7 +140,7 @@ bool ReadFromPipe(int fd, std::string* output) {
   return true;
 }
 
-bool ExecProcess(const CommandLine& cmdline,
+bool ExecProcess(const base::CommandLine& cmdline,
                  const base::FilePath& startup_dir,
                  std::string* std_out,
                  std::string* std_err,
@@ -173,6 +175,9 @@ bool ExecProcess(const CommandLine& cmdline,
       {
         // DANGER: no calls to malloc are allowed from now on:
         // http://crbug.com/36678
+        //
+        // STL iterators are also not allowed (including those implied
+        // by range-based for loops), since debug iterators use locks.
 
         // Obscure fork() rule: in the child, if you don't end up doing exec*(),
         // you call _exit() instead of exit(). This is because _exit() does not
@@ -192,6 +197,7 @@ bool ExecProcess(const CommandLine& cmdline,
         // Adding another element here? Remeber to increase the argument to
         // reserve(), above.
 
+        // DANGER: Do NOT convert to range-based for loop!
         for (size_t i = 0; i < fd_shuffle1.size(); ++i)
           fd_shuffle2.push_back(fd_shuffle1[i]);
 
@@ -203,9 +209,10 @@ bool ExecProcess(const CommandLine& cmdline,
         // TODO(brettw) the base version GetAppOutput does a
         // CloseSuperfluousFds call here. Do we need this?
 
+        // DANGER: Do NOT convert to range-based for loop!
         for (size_t i = 0; i < argv.size(); i++)
           argv_cstr[i] = const_cast<char*>(argv[i].c_str());
-        argv_cstr[argv.size()] = NULL;
+        argv_cstr[argv.size()] = nullptr;
         execvp(argv_cstr[0], argv_cstr.get());
         _exit(127);
       }
@@ -225,10 +232,7 @@ bool ExecProcess(const CommandLine& cmdline,
           FD_SET(err_read.get(), &read_fds);
           int res =
               HANDLE_EINTR(select(std::max(out_read.get(), err_read.get()) + 1,
-                                  &read_fds,
-                                  NULL,
-                                  NULL,
-                                  NULL));
+                                  &read_fds, nullptr, nullptr, nullptr));
           if (res <= 0)
             break;
           if (FD_ISSET(out_read.get(), &read_fds))
@@ -237,7 +241,8 @@ bool ExecProcess(const CommandLine& cmdline,
             err_open = ReadFromPipe(err_read.get(), std_err);
         }
 
-        return base::WaitForExitCode(pid, exit_code);
+        base::Process process(pid);
+        return process.WaitForExit(exit_code);
       }
   }
 

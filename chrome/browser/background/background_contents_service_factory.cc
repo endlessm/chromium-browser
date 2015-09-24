@@ -40,14 +40,12 @@ BackgroundContentsServiceFactory::~BackgroundContentsServiceFactory() {
 KeyedService* BackgroundContentsServiceFactory::BuildServiceInstanceFor(
     content::BrowserContext* profile) const {
   return new BackgroundContentsService(static_cast<Profile*>(profile),
-                                       CommandLine::ForCurrentProcess());
+                                       base::CommandLine::ForCurrentProcess());
 }
 
 void BackgroundContentsServiceFactory::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* user_prefs) {
-  user_prefs->RegisterDictionaryPref(
-      prefs::kRegisteredBackgroundContents,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  user_prefs->RegisterDictionaryPref(prefs::kRegisteredBackgroundContents);
 }
 
 content::BrowserContext*

@@ -23,7 +23,7 @@
 #include "third_party/WebKit/public/platform/WebLayer.h"
 #include "third_party/WebKit/public/platform/WebSize.h"
 #include "third_party/WebKit/public/web/WebWidget.h"
-#include "ui/gfx/size_conversions.h"
+#include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gl/gpu_preference.h"
 
 using blink::WebCanvas;
@@ -104,8 +104,8 @@ WebMouseEvent WebMouseEventFromGestureEvent(const WebGestureEvent& gesture) {
 
   mouse.x = gesture.x;
   mouse.y = gesture.y;
-  mouse.windowX = gesture.globalX;
-  mouse.windowY = gesture.globalY;
+  mouse.windowX = gesture.x;
+  mouse.windowY = gesture.y;
   mouse.globalX = gesture.globalX;
   mouse.globalY = gesture.globalY;
 
@@ -155,7 +155,7 @@ class PepperWidget : public WebWidget {
 
     size_ = size;
     WebRect plugin_rect(0, 0, size_.width, size_.height);
-    widget_->plugin()->ViewChanged(plugin_rect, plugin_rect,
+    widget_->plugin()->ViewChanged(plugin_rect, plugin_rect, plugin_rect,
                                    std::vector<gfx::Rect>());
     widget_->Invalidate();
   }
@@ -189,8 +189,8 @@ class PepperWidget : public WebWidget {
 
           mouse.x = gesture_event->x;
           mouse.y = gesture_event->y;
-          mouse.windowX = gesture_event->globalX;
-          mouse.windowY = gesture_event->globalY;
+          mouse.windowX = gesture_event->x;
+          mouse.windowY = gesture_event->y;
           mouse.globalX = gesture_event->globalX;
           mouse.globalY = gesture_event->globalY;
           mouse.movementX = 0;
@@ -264,13 +264,14 @@ class PepperWidget : public WebWidget {
 // static
 RenderWidgetFullscreenPepper* RenderWidgetFullscreenPepper::Create(
     int32 opener_id,
+    CompositorDependencies* compositor_deps,
     PepperPluginInstanceImpl* plugin,
     const GURL& active_url,
     const blink::WebScreenInfo& screen_info) {
   DCHECK_NE(MSG_ROUTING_NONE, opener_id);
   scoped_refptr<RenderWidgetFullscreenPepper> widget(
       new RenderWidgetFullscreenPepper(plugin, active_url, screen_info));
-  widget->Init(opener_id);
+  widget->Init(opener_id, compositor_deps);
   widget->AddRef();
   return widget.get();
 }
@@ -359,8 +360,6 @@ void RenderWidgetFullscreenPepper::DidInitiatePaint() {
 }
 
 void RenderWidgetFullscreenPepper::DidFlushPaint() {
-  if (plugin_)
-    plugin_->ViewFlushedPaint();
 }
 
 void RenderWidgetFullscreenPepper::Close() {

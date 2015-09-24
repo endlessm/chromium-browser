@@ -215,7 +215,7 @@ $vp8_sixtap_predict8x4_media=vp8_sixtap_predict8x4_armv6;
 $vp8_sixtap_predict8x4_dspr2=vp8_sixtap_predict8x4_dspr2;
 
 add_proto qw/void vp8_sixtap_predict4x4/, "unsigned char *src, int src_pitch, int xofst, int yofst, unsigned char *dst, int dst_pitch";
-# Disable neon while investigating https://code.google.com/p/webm/issues/detail?id=817
+#TODO(johannkoenig): fix the neon version https://code.google.com/p/webm/issues/detail?id=817
 specialize qw/vp8_sixtap_predict4x4 mmx ssse3 media dspr2/;
 $vp8_sixtap_predict4x4_media=vp8_sixtap_predict4x4_armv6;
 $vp8_sixtap_predict4x4_dspr2=vp8_sixtap_predict4x4_dspr2;
@@ -233,33 +233,9 @@ specialize qw/vp8_bilinear_predict8x4 mmx media neon/;
 $vp8_bilinear_predict8x4_media=vp8_bilinear_predict8x4_armv6;
 
 add_proto qw/void vp8_bilinear_predict4x4/, "unsigned char *src, int src_pitch, int xofst, int yofst, unsigned char *dst, int dst_pitch";
-specialize qw/vp8_bilinear_predict4x4 mmx media neon/;
+#TODO(johannkoenig): fix the neon version https://code.google.com/p/webm/issues/detail?id=892
+specialize qw/vp8_bilinear_predict4x4 mmx media/;
 $vp8_bilinear_predict4x4_media=vp8_bilinear_predict4x4_armv6;
-
-#
-# Whole-pixel Variance
-#
-add_proto qw/unsigned int vp8_variance4x4/, "const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sse";
-specialize qw/vp8_variance4x4 mmx sse2/;
-$vp8_variance4x4_sse2=vp8_variance4x4_wmt;
-
-add_proto qw/unsigned int vp8_variance8x8/, "const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sse";
-specialize qw/vp8_variance8x8 mmx sse2 media neon/;
-$vp8_variance8x8_sse2=vp8_variance8x8_wmt;
-$vp8_variance8x8_media=vp8_variance8x8_armv6;
-
-add_proto qw/unsigned int vp8_variance8x16/, "const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sse";
-specialize qw/vp8_variance8x16 mmx sse2 neon/;
-$vp8_variance8x16_sse2=vp8_variance8x16_wmt;
-
-add_proto qw/unsigned int vp8_variance16x8/, "const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sse";
-specialize qw/vp8_variance16x8 mmx sse2 neon/;
-$vp8_variance16x8_sse2=vp8_variance16x8_wmt;
-
-add_proto qw/unsigned int vp8_variance16x16/, "const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sse";
-specialize qw/vp8_variance16x16 mmx sse2 media neon/;
-$vp8_variance16x16_sse2=vp8_variance16x16_wmt;
-$vp8_variance16x16_media=vp8_variance16x16_armv6;
 
 #
 # Sub-pixel Variance
@@ -269,10 +245,9 @@ specialize qw/vp8_sub_pixel_variance4x4 mmx sse2/;
 $vp8_sub_pixel_variance4x4_sse2=vp8_sub_pixel_variance4x4_wmt;
 
 add_proto qw/unsigned int vp8_sub_pixel_variance8x8/, "const unsigned char  *src_ptr, int  source_stride, int  xoffset, int  yoffset, const unsigned char *ref_ptr, int Refstride, unsigned int *sse";
-specialize qw/vp8_sub_pixel_variance8x8 mmx sse2 media neon_asm/;
+specialize qw/vp8_sub_pixel_variance8x8 mmx sse2 media/;
 $vp8_sub_pixel_variance8x8_sse2=vp8_sub_pixel_variance8x8_wmt;
 $vp8_sub_pixel_variance8x8_media=vp8_sub_pixel_variance8x8_armv6;
-$vp8_sub_pixel_variance8x8_neon_asm=vp8_sub_pixel_variance8x8_neon;
 
 add_proto qw/unsigned int vp8_sub_pixel_variance8x16/, "const unsigned char  *src_ptr, int  source_stride, int  xoffset, int  yoffset, const unsigned char *ref_ptr, int Refstride, unsigned int *sse";
 specialize qw/vp8_sub_pixel_variance8x16 mmx sse2/;
@@ -304,118 +279,15 @@ $vp8_variance_halfpixvar16x16_hv_sse2=vp8_variance_halfpixvar16x16_hv_wmt;
 $vp8_variance_halfpixvar16x16_hv_media=vp8_variance_halfpixvar16x16_hv_armv6;
 
 #
-# Single block SAD
-#
-add_proto qw/unsigned int vp8_sad4x4/, "const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int ref_stride, unsigned int max_sad";
-specialize qw/vp8_sad4x4 mmx sse2 neon/;
-$vp8_sad4x4_sse2=vp8_sad4x4_wmt;
-
-add_proto qw/unsigned int vp8_sad8x8/, "const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int ref_stride, unsigned int max_sad";
-specialize qw/vp8_sad8x8 mmx sse2 neon/;
-$vp8_sad8x8_sse2=vp8_sad8x8_wmt;
-
-add_proto qw/unsigned int vp8_sad8x16/, "const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int ref_stride, unsigned int max_sad";
-specialize qw/vp8_sad8x16 mmx sse2 neon/;
-$vp8_sad8x16_sse2=vp8_sad8x16_wmt;
-
-add_proto qw/unsigned int vp8_sad16x8/, "const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int ref_stride, unsigned int max_sad";
-specialize qw/vp8_sad16x8 mmx sse2 neon/;
-$vp8_sad16x8_sse2=vp8_sad16x8_wmt;
-
-add_proto qw/unsigned int vp8_sad16x16/, "const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int ref_stride, unsigned int max_sad";
-specialize qw/vp8_sad16x16 mmx sse2 sse3 media neon/;
-$vp8_sad16x16_sse2=vp8_sad16x16_wmt;
-$vp8_sad16x16_media=vp8_sad16x16_armv6;
-
-#
-# Multi-block SAD, comparing a reference to N blocks 1 pixel apart horizontally
-#
-add_proto qw/void vp8_sad4x4x3/, "const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sad_array";
-specialize qw/vp8_sad4x4x3 sse3/;
-
-add_proto qw/void vp8_sad8x8x3/, "const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sad_array";
-specialize qw/vp8_sad8x8x3 sse3/;
-
-add_proto qw/void vp8_sad8x16x3/, "const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sad_array";
-specialize qw/vp8_sad8x16x3 sse3/;
-
-add_proto qw/void vp8_sad16x8x3/, "const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sad_array";
-specialize qw/vp8_sad16x8x3 sse3 ssse3/;
-
-add_proto qw/void vp8_sad16x16x3/, "const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sad_array";
-specialize qw/vp8_sad16x16x3 sse3 ssse3/;
-
-# Note the only difference in the following prototypes is that they return into
-# an array of short
-add_proto qw/void vp8_sad4x4x8/, "const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned short *sad_array";
-specialize qw/vp8_sad4x4x8 sse4_1/;
-$vp8_sad4x4x8_sse4_1=vp8_sad4x4x8_sse4;
-
-add_proto qw/void vp8_sad8x8x8/, "const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned short *sad_array";
-specialize qw/vp8_sad8x8x8 sse4_1/;
-$vp8_sad8x8x8_sse4_1=vp8_sad8x8x8_sse4;
-
-add_proto qw/void vp8_sad8x16x8/, "const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned short *sad_array";
-specialize qw/vp8_sad8x16x8 sse4_1/;
-$vp8_sad8x16x8_sse4_1=vp8_sad8x16x8_sse4;
-
-add_proto qw/void vp8_sad16x8x8/, "const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned short *sad_array";
-specialize qw/vp8_sad16x8x8 sse4_1/;
-$vp8_sad16x8x8_sse4_1=vp8_sad16x8x8_sse4;
-
-add_proto qw/void vp8_sad16x16x8/, "const unsigned char *src_ptr, int src_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned short *sad_array";
-specialize qw/vp8_sad16x16x8 sse4_1/;
-$vp8_sad16x16x8_sse4_1=vp8_sad16x16x8_sse4;
-
-#
-# Multi-block SAD, comparing a reference to N independent blocks
-#
-add_proto qw/void vp8_sad4x4x4d/, "const unsigned char *src_ptr, int src_stride, const unsigned char * const ref_ptr[], int  ref_stride, unsigned int *sad_array";
-specialize qw/vp8_sad4x4x4d sse3/;
-
-add_proto qw/void vp8_sad8x8x4d/, "const unsigned char *src_ptr, int src_stride, const unsigned char * const ref_ptr[], int  ref_stride, unsigned int *sad_array";
-specialize qw/vp8_sad8x8x4d sse3/;
-
-add_proto qw/void vp8_sad8x16x4d/, "const unsigned char *src_ptr, int src_stride, const unsigned char * const ref_ptr[], int  ref_stride, unsigned int *sad_array";
-specialize qw/vp8_sad8x16x4d sse3/;
-
-add_proto qw/void vp8_sad16x8x4d/, "const unsigned char *src_ptr, int src_stride, const unsigned char * const ref_ptr[], int  ref_stride, unsigned int *sad_array";
-specialize qw/vp8_sad16x8x4d sse3/;
-
-add_proto qw/void vp8_sad16x16x4d/, "const unsigned char *src_ptr, int src_stride, const unsigned char * const ref_ptr[], int  ref_stride, unsigned int *sad_array";
-specialize qw/vp8_sad16x16x4d sse3/;
-
-#
 # Encoder functions below this point.
 #
 if (vpx_config("CONFIG_VP8_ENCODER") eq "yes") {
 
 #
-# Sum of squares (vector)
-#
-add_proto qw/unsigned int vp8_get_mb_ss/, "const short *";
-specialize qw/vp8_get_mb_ss mmx sse2/;
-
-#
-# SSE (Sum Squared Error)
-#
-add_proto qw/unsigned int vp8_sub_pixel_mse16x16/, "const unsigned char  *src_ptr, int  source_stride, int  xoffset, int  yoffset, const unsigned char *ref_ptr, int Refstride, unsigned int *sse";
-specialize qw/vp8_sub_pixel_mse16x16 mmx sse2/;
-$vp8_sub_pixel_mse16x16_sse2=vp8_sub_pixel_mse16x16_wmt;
-
-add_proto qw/unsigned int vp8_mse16x16/, "const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride, unsigned int *sse";
-specialize qw/vp8_mse16x16 mmx sse2 media neon/;
-$vp8_mse16x16_sse2=vp8_mse16x16_wmt;
-$vp8_mse16x16_media=vp8_mse16x16_armv6;
-
-add_proto qw/unsigned int vp8_get4x4sse_cs/, "const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int  ref_stride";
-specialize qw/vp8_get4x4sse_cs mmx neon/;
-
-#
 # Block copy
 #
 if ($opts{arch} =~ /x86/) {
-    add_proto qw/void vp8_copy32xn/, "const unsigned char *src_ptr, int source_stride, const unsigned char *ref_ptr, int ref_stride, int n";
+    add_proto qw/void vp8_copy32xn/, "const unsigned char *src_ptr, int source_stride, unsigned char *dst_ptr, int dst_stride, int n";
     specialize qw/vp8_copy32xn sse2 sse3/;
 }
 
@@ -454,25 +326,7 @@ add_proto qw/void vp8_regular_quantize_b/, "struct block *, struct blockd *";
 specialize qw/vp8_regular_quantize_b sse2 sse4_1/;
 
 add_proto qw/void vp8_fast_quantize_b/, "struct block *, struct blockd *";
-specialize qw/vp8_fast_quantize_b sse2 ssse3 media neon_asm/;
-$vp8_fast_quantize_b_media=vp8_fast_quantize_b_armv6;
-$vp8_fast_quantize_b_neon_asm=vp8_fast_quantize_b_neon;
-
-add_proto qw/void vp8_regular_quantize_b_pair/, "struct block *b1, struct block *b2, struct blockd *d1, struct blockd *d2";
-# no asm yet
-
-add_proto qw/void vp8_fast_quantize_b_pair/, "struct block *b1, struct block *b2, struct blockd *d1, struct blockd *d2";
-specialize qw/vp8_fast_quantize_b_pair neon_asm/;
-$vp8_fast_quantize_b_pair_neon_asm=vp8_fast_quantize_b_pair_neon;
-
-add_proto qw/void vp8_quantize_mb/, "struct macroblock *";
-specialize qw/vp8_quantize_mb neon/;
-
-add_proto qw/void vp8_quantize_mby/, "struct macroblock *";
-specialize qw/vp8_quantize_mby neon/;
-
-add_proto qw/void vp8_quantize_mbuv/, "struct macroblock *";
-specialize qw/vp8_quantize_mbuv neon/;
+specialize qw/vp8_fast_quantize_b sse2 ssse3 neon/;
 
 #
 # Block subtraction
@@ -490,16 +344,13 @@ specialize qw/vp8_mbuverror mmx sse2/;
 $vp8_mbuverror_sse2=vp8_mbuverror_xmm;
 
 add_proto qw/void vp8_subtract_b/, "struct block *be, struct blockd *bd, int pitch";
-specialize qw/vp8_subtract_b mmx sse2 media neon/;
-$vp8_subtract_b_media=vp8_subtract_b_armv6;
+specialize qw/vp8_subtract_b mmx sse2 neon/;
 
 add_proto qw/void vp8_subtract_mby/, "short *diff, unsigned char *src, int src_stride, unsigned char *pred, int pred_stride";
-specialize qw/vp8_subtract_mby mmx sse2 media neon/;
-$vp8_subtract_mby_media=vp8_subtract_mby_armv6;
+specialize qw/vp8_subtract_mby mmx sse2 neon/;
 
 add_proto qw/void vp8_subtract_mbuv/, "short *diff, unsigned char *usrc, unsigned char *vsrc, int src_stride, unsigned char *upred, unsigned char *vpred, int pred_stride";
-specialize qw/vp8_subtract_mbuv mmx sse2 media neon/;
-$vp8_subtract_mbuv_media=vp8_subtract_mbuv_armv6;
+specialize qw/vp8_subtract_mbuv mmx sse2 neon/;
 
 #
 # Motion search

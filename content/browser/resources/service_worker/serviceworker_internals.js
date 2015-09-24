@@ -42,7 +42,7 @@ cr.define('serviceworker', function() {
   }
 
   // All commands are completed with 'onOperationComplete'.
-  var COMMANDS = ['stop', 'sync', 'push', 'inspect', 'unregister', 'start'];
+  var COMMANDS = ['stop', 'push', 'inspect', 'unregister', 'start'];
   function commandHandler(command) {
     return function(event) {
       var link = event.target;
@@ -192,11 +192,7 @@ cr.define('serviceworker', function() {
     }
   }
 
-  function onWorkerStarted(partition_id, version_id, process_id, thread_id) {
-    update();
-  }
-
-  function onWorkerStopped(partition_id, version_id, process_id, thread_id) {
+  function onRunningStateChanged(partition_id, version_id) {
     update();
   }
 
@@ -258,8 +254,7 @@ cr.define('serviceworker', function() {
     onOptions: onOptions,
     onOperationComplete: onOperationComplete,
     onPartitionData: onPartitionData,
-    onWorkerStarted: onWorkerStarted,
-    onWorkerStopped: onWorkerStopped,
+    onRunningStateChanged: onRunningStateChanged,
     onErrorReported: onErrorReported,
     onConsoleMessageReported: onConsoleMessageReported,
     onVersionStateChanged: onVersionStateChanged,

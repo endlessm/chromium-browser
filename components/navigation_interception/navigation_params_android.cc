@@ -13,16 +13,25 @@ namespace navigation_interception {
 
 base::android::ScopedJavaLocalRef<jobject> CreateJavaNavigationParams(
     JNIEnv* env,
-    const NavigationParams& params) {
+    const NavigationParams& params,
+    bool has_user_gesture_carryover) {
   ScopedJavaLocalRef<jstring> jstring_url =
       ConvertUTF8ToJavaString(env, params.url().spec());
 
-  return Java_NavigationParams_create(env,
-                                      jstring_url.obj(),
-                                      params.is_post(),
-                                      params.has_user_gesture(),
-                                      params.transition_type(),
-                                      params.is_redirect());
+  ScopedJavaLocalRef<jstring> jstring_referrer =
+      ConvertUTF8ToJavaString(env, params.referrer().url.spec());
+
+  return Java_NavigationParams_create(
+      env,
+      jstring_url.obj(),
+      jstring_referrer.obj(),
+      params.is_post(),
+      params.has_user_gesture(),
+      params.transition_type(),
+      params.is_redirect(),
+      params.is_external_protocol(),
+      params.is_main_frame(),
+      has_user_gesture_carryover);
 }
 
 // Register native methods.

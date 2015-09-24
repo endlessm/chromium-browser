@@ -15,6 +15,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/test_simple_task_runner.h"
+#include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/browser/chromeos/policy/user_cloud_policy_token_forwarder.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/prefs/browser_prefs.h"
@@ -36,6 +37,7 @@
 #include "components/policy/core/common/schema_registry.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_manager.h"
+#include "components/user_manager/fake_user_manager.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "google_apis/gaia/gaia_auth_consumer.h"
 #include "google_apis/gaia/gaia_constants.h"
@@ -80,9 +82,11 @@ class UserCloudPolicyManagerChromeOSTest : public testing::Test {
         external_data_manager_(NULL),
         task_runner_(new base::TestSimpleTaskRunner()),
         profile_(NULL),
-        signin_profile_(NULL) {}
+        signin_profile_(NULL),
+        user_manager_(new user_manager::FakeUserManager()),
+        user_manager_enabler_(user_manager_) {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     // The initialization path that blocks on the initial policy fetch requires
     // a signin Profile to use its URLRequestContext.
     profile_manager_.reset(
@@ -120,6 +124,11 @@ class UserCloudPolicyManagerChromeOSTest : public testing::Test {
                     POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER,
                     new base::FundamentalValue(false),
                     NULL);
+    policy_map_.Set(key::kCaptivePortalAuthenticationIgnoresProxy,
+                    POLICY_LEVEL_MANDATORY,
+                    POLICY_SCOPE_USER,
+                    new base::FundamentalValue(false),
+                    NULL);
     expected_bundle_.Get(PolicyNamespace(POLICY_DOMAIN_CHROME, std::string()))
         .CopyFrom(policy_map_);
 
@@ -144,7 +153,7 @@ class UserCloudPolicyManagerChromeOSTest : public testing::Test {
         .Times(AnyNumber());
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     if (token_forwarder_)
       token_forwarder_->Shutdown();
     if (manager_) {
@@ -203,9 +212,9 @@ class UserCloudPolicyManagerChromeOSTest : public testing::Test {
     if (!fetcher)
       return NULL;
     EXPECT_TRUE(fetcher->delegate());
-    EXPECT_TRUE(StartsWithASCII(fetcher->GetOriginalURL().spec(),
-                                expected_url.spec(),
-                                true));
+    EXPECT_TRUE(base::StartsWith(fetcher->GetOriginalURL().spec(),
+                                 expected_url.spec(),
+                                 base::CompareCase::SENSITIVE));
     fetcher->set_url(fetcher->GetOriginalURL());
     fetcher->set_response_code(200);
     fetcher->set_status(net::URLRequestStatus());
@@ -337,14 +346,12 @@ class UserCloudPolicyManagerChromeOSTest : public testing::Test {
   TestingProfile* profile_;
   TestingProfile* signin_profile_;
 
-  static const char kSigninProfile[];
+  user_manager::FakeUserManager* user_manager_;
+  chromeos::ScopedUserManagerEnabler user_manager_enabler_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(UserCloudPolicyManagerChromeOSTest);
 };
-
-const char UserCloudPolicyManagerChromeOSTest::kSigninProfile[] =
-    "signin_profile";
 
 TEST_F(UserCloudPolicyManagerChromeOSTest, BlockingFirstFetch) {
   // Tests the initialization of a manager whose Profile is waiting for the

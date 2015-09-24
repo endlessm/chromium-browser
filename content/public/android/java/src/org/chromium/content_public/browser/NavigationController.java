@@ -51,6 +51,11 @@ public interface NavigationController {
     void goForward();
 
     /**
+     * @return Whether the tab is navigating to the URL the tab is opened with.
+     */
+    boolean isInitialNavigation();
+
+    /**
      * Loads the current navigation if there is a pending lazy load (after tab restore).
      */
     public void loadIfNecessary();
@@ -137,6 +142,13 @@ public interface NavigationController {
     public void setUseDesktopUserAgent(boolean override, boolean reloadOnChange);
 
     /**
+     * Return the NavigationEntry at the given index.
+     * @param index Index to retrieve the NavigationEntry for.
+     * @return Entry containing info about the navigation, null if the index is out of bounds.
+     */
+    public NavigationEntry getEntryAtIndex(int index);
+
+    /**
      * @return The pending {@link NavigationEntry} for this controller or {@code null} if none
      *         exists.
      */
@@ -153,4 +165,29 @@ public interface NavigationController {
      *         call discards any transient or pending entries.
      */
     public boolean removeEntryAtIndex(int index);
+
+    /**
+     * @return Whether it is safe to call CopyStateFrom (i.e. the navigation state is empty).
+     */
+    public boolean canCopyStateOver();
+
+    /**
+     * @return Whether it is safe to call CopyStateFromAndPrune.
+     */
+    public boolean canPruneAllButLastCommitted();
+
+    /**
+     * Copies the navigation state from the given controller to this one. This one should be empty.
+     * @param source A source of the navigation state
+     */
+    public void copyStateFrom(NavigationController source);
+
+    /**
+     * A variant of CopyStateFrom. Removes all entries from this except the last committed entry,
+     * and inserts all entries from |source| before and including its last committed entry.
+     * See navigation_controller.h for more detailed description.
+     * @param source A source of the navigation state
+     * @param replaceEntry Whether to replace the current entry in source
+     */
+    public void copyStateFromAndPrune(NavigationController source, boolean replaceEntry);
 }

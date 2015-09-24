@@ -9,8 +9,14 @@ namespace nacl {
 
 NaClStartParams::NaClStartParams()
     : nexe_file(IPC::InvalidPlatformFileForTransit()),
-      nexe_token_lo(0),
-      nexe_token_hi(0),
+      imc_bootstrap_handle(IPC::InvalidPlatformFileForTransit()),
+      irt_handle(IPC::InvalidPlatformFileForTransit()),
+#if defined(OS_MACOSX)
+      mac_shm_fd(IPC::InvalidPlatformFileForTransit()),
+#endif
+#if defined(OS_POSIX)
+      debug_stub_server_bound_socket(IPC::InvalidPlatformFileForTransit()),
+#endif
       validation_cache_enabled(false),
       enable_debug_stub(false),
       enable_ipc_proxy(false),
@@ -19,6 +25,33 @@ NaClStartParams::NaClStartParams()
 }
 
 NaClStartParams::~NaClStartParams() {
+}
+
+NaClResourcePrefetchResult::NaClResourcePrefetchResult()
+    : file(IPC::InvalidPlatformFileForTransit()) {
+}
+
+NaClResourcePrefetchResult::NaClResourcePrefetchResult(
+    const IPC::PlatformFileForTransit& file,
+    const base::FilePath& file_path_metadata,
+    const std::string& file_key)
+    : file(file), file_path_metadata(file_path_metadata), file_key(file_key) {
+}
+
+NaClResourcePrefetchResult::~NaClResourcePrefetchResult() {
+}
+
+NaClResourcePrefetchRequest::NaClResourcePrefetchRequest() {
+}
+
+NaClResourcePrefetchRequest::NaClResourcePrefetchRequest(
+    const std::string& file_key,
+    const std::string& resource_url)
+    : file_key(file_key),
+      resource_url(resource_url) {
+}
+
+NaClResourcePrefetchRequest::~NaClResourcePrefetchRequest() {
 }
 
 NaClLaunchParams::NaClLaunchParams()
@@ -35,6 +68,8 @@ NaClLaunchParams::NaClLaunchParams(
     const IPC::PlatformFileForTransit& nexe_file,
     uint64_t nexe_token_lo,
     uint64_t nexe_token_hi,
+    const std::vector<
+        NaClResourcePrefetchRequest>& resource_prefetch_request_list,
     int render_view_id,
     uint32 permission_bits,
     bool uses_nonsfi_mode,
@@ -43,6 +78,7 @@ NaClLaunchParams::NaClLaunchParams(
       nexe_file(nexe_file),
       nexe_token_lo(nexe_token_lo),
       nexe_token_hi(nexe_token_hi),
+      resource_prefetch_request_list(resource_prefetch_request_list),
       render_view_id(render_view_id),
       permission_bits(permission_bits),
       uses_nonsfi_mode(uses_nonsfi_mode),
@@ -62,7 +98,7 @@ NaClLaunchResult::NaClLaunchResult()
 }
 
 NaClLaunchResult::NaClLaunchResult(
-    FileDescriptor imc_channel_handle,
+    const IPC::PlatformFileForTransit& imc_channel_handle,
     const IPC::ChannelHandle& ppapi_ipc_channel_handle,
     const IPC::ChannelHandle& trusted_ipc_channel_handle,
     const IPC::ChannelHandle& manifest_service_ipc_channel_handle,

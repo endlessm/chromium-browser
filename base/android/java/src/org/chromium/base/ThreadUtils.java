@@ -29,12 +29,13 @@ public class ThreadUtils {
         }
     }
 
+    @VisibleForTesting
     public static void setUiThread(Looper looper) {
         synchronized (sLock) {
             if (sUiThreadHandler != null && sUiThreadHandler.getLooper() != looper) {
-                throw new RuntimeException("UI thread looper is already set to " +
-                        sUiThreadHandler.getLooper() + " (Main thread looper is " +
-                        Looper.getMainLooper() + "), cannot set to new looper " + looper);
+                throw new RuntimeException("UI thread looper is already set to "
+                        + sUiThreadHandler.getLooper() + " (Main thread looper is "
+                        + Looper.getMainLooper() + "), cannot set to new looper " + looper);
             } else {
                 sUiThreadHandler = new Handler(looper);
             }
@@ -176,6 +177,7 @@ public class ThreadUtils {
      * @param task The Runnable to run
      * @param delayMillis The delay in milliseconds until the Runnable will be run
      */
+    @VisibleForTesting
     public static void postOnUiThreadDelayed(Runnable task, long delayMillis) {
         getUiThreadHandler().postDelayed(task, delayMillis);
     }

@@ -7,12 +7,14 @@
 #include "base/prefs/pref_value_map.h"
 #include "base/values.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
-#include "components/policy/core/browser/managed_bookmarks_tracker.h"
+#include "components/bookmarks/managed/managed_bookmarks_tracker.h"
 #include "components/policy/core/browser/policy_error_map.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/url_fixer/url_fixer.h"
 #include "policy/policy_constants.h"
 #include "url/gurl.h"
+
+using bookmarks::ManagedBookmarksTracker;
 
 namespace policy {
 
@@ -37,7 +39,7 @@ void ManagedBookmarksPolicyHandler::ApplyPolicySettings(
     return;
 
   FilterBookmarks(list);
-  prefs->SetValue(bookmarks::prefs::kManagedBookmarks, value.release());
+  prefs->SetValue(bookmarks::prefs::kManagedBookmarks, value.Pass());
 }
 
 void ManagedBookmarksPolicyHandler::FilterBookmarks(base::ListValue* list) {

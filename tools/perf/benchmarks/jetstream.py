@@ -20,9 +20,12 @@ specialized optimization for one benchmark might make another benchmark slower.
 import json
 import os
 
+from core import perf_benchmark
+
 from telemetry import benchmark
-from telemetry.page import page_set
+from telemetry import page as page_module
 from telemetry.page import page_test
+from telemetry import story
 from telemetry.util import statistics
 from telemetry.value import list_of_scalar_values
 
@@ -76,13 +79,19 @@ class _JetstreamMeasurement(page_test.PageTest):
 
 
 @benchmark.Disabled('android', 'xp')  # crbug.com/381742
-class Jetstream(benchmark.Benchmark):
+class Jetstream(perf_benchmark.PerfBenchmark):
   test = _JetstreamMeasurement
 
-  def CreatePageSet(self, options):
-    ps = page_set.PageSet(
+  @classmethod
+  def Name(cls):
+    return 'jetstream'
+
+  def CreateStorySet(self, options):
+    ps = story.StorySet(
         archive_data_file='../page_sets/data/jetstream.json',
-        make_javascript_deterministic=False,
-        file_path=os.path.abspath(__file__))
-    ps.AddPageWithDefaultRunNavigate('http://browserbench.org/JetStream/')
+        base_dir=os.path.dirname(os.path.abspath(__file__)),
+        cloud_storage_bucket=story.INTERNAL_BUCKET)
+    ps.AddStory(page_module.Page(
+        'http://browserbench.org/JetStream/', ps, ps.base_dir,
+        make_javascript_deterministic=False))
     return ps

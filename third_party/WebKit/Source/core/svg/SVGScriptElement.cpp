@@ -35,12 +35,7 @@ namespace blink {
 inline SVGScriptElement::SVGScriptElement(Document& document, bool wasInsertedByParser, bool alreadyStarted)
     : SVGElement(SVGNames::scriptTag, document)
     , SVGURIReference(this)
-    , m_svgLoadEventTimer(this, &SVGElement::svgLoadEventTimerFired)
     , m_loader(ScriptLoader::create(this, wasInsertedByParser, alreadyStarted))
-{
-}
-
-SVGScriptElement::~SVGScriptElement()
 {
 }
 
@@ -54,7 +49,7 @@ void SVGScriptElement::parseAttribute(const QualifiedName& name, const AtomicStr
     if (name == HTMLNames::onerrorAttr)
         setAttributeEventListener(EventTypeNames::error, createAttributeEventListener(this, name, value, eventParameterName()));
     else
-        parseAttributeNew(name, value);
+        SVGElement::parseAttribute(name, value);
 }
 
 void SVGScriptElement::svgAttributeChanged(const QualifiedName& attrName)
@@ -78,10 +73,8 @@ void SVGScriptElement::didNotifySubtreeInsertionsToDocument()
 {
     m_loader->didNotifySubtreeInsertionsToDocument();
 
-    if (!m_loader->isParserInserted()) {
+    if (!m_loader->isParserInserted())
         m_loader->setHaveFiredLoadEvent(true);
-        sendSVGLoadEventIfPossibleAsynchronously();
-    }
 }
 
 void SVGScriptElement::childrenChanged(const ChildrenChange& change)
@@ -92,8 +85,7 @@ void SVGScriptElement::childrenChanged(const ChildrenChange& change)
 
 void SVGScriptElement::didMoveToNewDocument(Document& oldDocument)
 {
-    if (RefPtrWillBeRawPtr<Document> contextDocument = document().contextDocument().get())
-        oldDocument.scriptRunner()->movePendingAsyncScript(contextDocument->scriptRunner(), m_loader.get());
+    ScriptRunner::movePendingAsyncScript(oldDocument, document(), m_loader.get());
     SVGElement::didMoveToNewDocument(oldDocument);
 }
 
@@ -178,10 +170,11 @@ bool SVGScriptElement::isAnimatableAttribute(const QualifiedName& name) const
 }
 #endif
 
-void SVGScriptElement::trace(Visitor* visitor)
+DEFINE_TRACE(SVGScriptElement)
 {
     visitor->trace(m_loader);
     SVGElement::trace(visitor);
+    SVGURIReference::trace(visitor);
 }
 
 } // namespace blink

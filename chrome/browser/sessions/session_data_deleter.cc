@@ -105,7 +105,7 @@ void SessionDataDeleter::ClearSessionOnlyLocalStorage(
 
 void SessionDataDeleter::DeleteSessionCookiesOnIOThread(
     ProfileIOData* profile_io_data) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   net::URLRequestContext* request_context =
       profile_io_data->GetMainRequestContext();
   cookie_monster_ = request_context->cookie_store()->GetCookieMonster();
@@ -142,17 +142,19 @@ void SessionDataDeleter::DeleteSessionOnlyOriginCookies(
 }  // namespace
 
 void DeleteSessionOnlyData(Profile* profile) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (browser_shutdown::IsTryingToQuit())
     return;
 
+  // TODO: Remove Athena special casing once the AthenaSessionRestore is in
+  // place.
 #if defined(OS_ANDROID)
   SessionStartupPref::Type startup_pref_type =
       SessionStartupPref::GetDefaultStartupType();
 #else
   SessionStartupPref::Type startup_pref_type =
       StartupBrowserCreator::GetSessionStartupPref(
-          *CommandLine::ForCurrentProcess(), profile).type;
+          *base::CommandLine::ForCurrentProcess(), profile).type;
 #endif
 
   scoped_refptr<SessionDataDeleter> deleter(

@@ -2,17 +2,15 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//testing/test.gni")
+
 static_library("courgette_lib") {
   sources = [
     "adjustment_method.cc",
-    "adjustment_method_2.cc",
     "adjustment_method.h",
+    "adjustment_method_2.cc",
     "assembly_program.cc",
     "assembly_program.h",
-    "third_party/bsdiff.h",
-    "third_party/bsdiff_apply.cc",
-    "third_party/bsdiff_create.cc",
-    "third_party/paged_array.h",
     "courgette.h",
     "crc.cc",
     "crc.h",
@@ -26,10 +24,10 @@ static_library("courgette_lib") {
     "disassembler_elf_32_arm.h",
     "disassembler_elf_32_x86.cc",
     "disassembler_elf_32_x86.h",
-    "disassembler_win32_x86.cc",
-    "disassembler_win32_x86.h",
     "disassembler_win32_x64.cc",
     "disassembler_win32_x64.h",
+    "disassembler_win32_x86.cc",
+    "disassembler_win32_x86.h",
     "encoded_program.cc",
     "encoded_program.h",
     "ensemble.cc",
@@ -38,15 +36,19 @@ static_library("courgette_lib") {
     "ensemble_create.cc",
     "memory_allocator.cc",
     "memory_allocator.h",
+    "patch_generator_x86_32.h",
+    "patcher_x86_32.h",
     "region.h",
     "simple_delta.cc",
     "simple_delta.h",
     "streams.cc",
     "streams.h",
+    "third_party/bsdiff.h",
+    "third_party/bsdiff_apply.cc",
+    "third_party/bsdiff_create.cc",
+    "third_party/paged_array.h",
     "types_elf.h",
     "types_win_pe.h",
-    "patch_generator_x86_32.h",
-    "patcher_x86_32.h",
   ]
 
   deps = [
@@ -56,7 +58,7 @@ static_library("courgette_lib") {
 }
 
 executable("courgette") {
-  if (is_win && cpu_arch == "x64") {
+  if (is_win && current_cpu == "x64") {
     # The build infrastructure needs courgette to be named courgette64.
     output_name = "courgette64"
   }
@@ -89,26 +91,24 @@ executable("courgette_minimal_tool") {
 test("courgette_unittests") {
   sources = [
     "adjustment_method_unittest.cc",
-    "bsdiff_memory_unittest.cc",
     "base_test_unittest.cc",
     "base_test_unittest.h",
+    "bsdiff_memory_unittest.cc",
     "difference_estimator_unittest.cc",
     "disassembler_elf_32_x86_unittest.cc",
-    "disassembler_win32_x86_unittest.cc",
     "disassembler_win32_x64_unittest.cc",
-    "encoded_program_unittest.cc",
+    "disassembler_win32_x86_unittest.cc",
     "encode_decode_unittest.cc",
+    "encoded_program_unittest.cc",
     "ensemble_unittest.cc",
     "streams_unittest.cc",
+    "third_party/paged_array_unittest.cc",
     "typedrva_unittest.cc",
     "versioning_unittest.cc",
-    "third_party/paged_array_unittest.cc"
   ]
 
-  if (is_win) {
-    # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-    cflags = [ "/wd4267" ]
-  }
+  # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 
   deps = [
     ":courgette_lib",

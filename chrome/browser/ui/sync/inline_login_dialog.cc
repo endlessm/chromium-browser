@@ -7,16 +7,15 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/common/url_constants.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "url/gurl.h"
 
 // static
 void InlineLoginDialog::Show(Profile* profile) {
-  chrome::ShowWebDialog(NULL, profile, new InlineLoginDialog(profile));
+  chrome::ShowWebDialog(NULL, profile, new InlineLoginDialog());
 }
 
-InlineLoginDialog::InlineLoginDialog(Profile* profile)
-    : profile_(profile) {
+InlineLoginDialog::InlineLoginDialog() {
 }
 
 ui::ModalType InlineLoginDialog::GetDialogModalType() const {
@@ -49,8 +48,7 @@ void InlineLoginDialog::OnDialogClosed(const std::string& json_retval) {
 
 void InlineLoginDialog::OnCloseContents(
     content::WebContents* source, bool* out_close_dialog) {
-  if (out_close_dialog)
-    *out_close_dialog = true;
+  *out_close_dialog = true;
 }
 
 bool InlineLoginDialog::ShouldShowDialogTitle() const {

@@ -30,7 +30,17 @@ def run_script(argv, funcs):
   # TODO(phajdan.jr): Make build-config-fs required after passing it in recipe.
   parser.add_argument('--build-config-fs')
   parser.add_argument('--paths', type=parse_json, default={})
+  # Properties describe the environment of the build, and are the same per
+  # script invocation.
   parser.add_argument('--properties', type=parse_json, default={})
+  # Args contains per-invocation arguments that potentially change the
+  # behavior of the script.
+  parser.add_argument('--args', type=parse_json, default=[])
+
+  parser.add_argument(
+      '--use-src-side-runtest-py', action='store_true',
+      help='Use the src-side copy of runtest.py, as opposed to the build-side '
+           'one')
 
   subparsers = parser.add_subparsers()
 
@@ -57,17 +67,29 @@ def run_command(argv):
 
 
 def run_runtest(cmd_args, runtest_args):
-  return run_command([
+  if cmd_args.use_src_side_runtest_py:
+    cmd = [
+      sys.executable,
+      os.path.join(
+          cmd_args.paths['checkout'], 'infra', 'scripts', 'runtest_wrapper.py'),
+      '--path-build', cmd_args.paths['build'],
+      '--',
+    ]
+  else:
+    cmd = [
       sys.executable,
       os.path.join(cmd_args.paths['build'], 'scripts', 'tools', 'runit.py'),
       '--show-path',
       sys.executable,
       os.path.join(cmd_args.paths['build'], 'scripts', 'slave', 'runtest.py'),
+    ]
+  return run_command(cmd + [
       '--target', cmd_args.build_config_fs,
       '--xvfb',
       '--builder-name', cmd_args.properties['buildername'],
       '--slave-name', cmd_args.properties['slavename'],
       '--build-number', str(cmd_args.properties['buildnumber']),
+      '--build-properties', json.dumps(cmd_args.properties),
   ] + runtest_args)
 
 
@@ -131,3 +153,19 @@ def parse_common_test_results(json_results, test_separator='/'):
     results[key][test] = data
 
   return results
+
+
+def parse_gtest_test_results(json_results):
+  failures = set()
+  for cur_iteration_data in json_results.get('per_iteration_data', []):
+    for test_fullname, results in cur_iteration_data.iteritems():
+      # Results is a list with one entry per test try. Last one is the final
+      # result, the only we care about here.
+      last_result = results[-1]
+
+      if last_result['status'] != 'SUCCESS':
+        failures.add(test_fullname)
+
+  return {
+    'failures': sorted(failures),
+  }

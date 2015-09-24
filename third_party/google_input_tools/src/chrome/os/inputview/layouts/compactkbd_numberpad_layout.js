@@ -39,10 +39,11 @@ goog.require('i18n.input.chrome.inputview.layouts.util');
     'widthInWeight': 6.45,
     'children': [keyboardContainer],
     'disableCandidateView': true,
+    'disableLongpress': true,
     'widthPercent' : {
-         'HORIZONTAL' : 0.56,
-         'VERTICAL' : 0.56,
-         'HORIZONTAL_WIDE_SCREEN': 0.56
+         'LANDSCAPE' : 0.56,
+         'PORTRAIT' : 0.56,
+         'LANDSCAPE_WIDE_SCREEN': 0.56
   }};
 
   google.ime.chrome.inputview.onLayoutLoaded(data);

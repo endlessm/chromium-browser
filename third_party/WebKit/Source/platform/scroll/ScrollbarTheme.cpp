@@ -30,6 +30,9 @@
 #include "platform/RuntimeEnabledFeatures.h"
 #include "platform/graphics/Color.h"
 #include "platform/graphics/GraphicsContext.h"
+#include "platform/graphics/paint/DisplayItemList.h"
+#include "platform/graphics/paint/DrawingDisplayItem.h"
+#include "platform/graphics/paint/DrawingRecorder.h"
 #include "platform/scroll/ScrollbarThemeClient.h"
 #include "platform/scroll/ScrollbarThemeMock.h"
 #include "platform/scroll/ScrollbarThemeOverlayMock.h"
@@ -47,6 +50,11 @@ namespace blink {
 
 bool ScrollbarTheme::gMockScrollbarsEnabled = false;
 
+static inline bool shouldPaintScrollbarPart(const IntRect& partRect, const IntRect& damageRect)
+{
+    return (RuntimeEnabledFeatures::slimmingPaintEnabled() && !partRect.isEmpty()) || damageRect.intersects(partRect);
+}
+
 bool ScrollbarTheme::paint(ScrollbarThemeClient* scrollbar, GraphicsContext* graphicsContext, const IntRect& damageRect)
 {
     // Create the ScrollbarControlPartMask based on the damageRect
@@ -58,16 +66,16 @@ bool ScrollbarTheme::paint(ScrollbarThemeClient* scrollbar, GraphicsContext* gra
     IntRect forwardButtonEndPaintRect;
     if (hasButtons(scrollbar)) {
         backButtonStartPaintRect = backButtonRect(scrollbar, BackButtonStartPart, true);
-        if (damageRect.intersects(backButtonStartPaintRect))
+        if (shouldPaintScrollbarPart(backButtonStartPaintRect, damageRect))
             scrollMask |= BackButtonStartPart;
         backButtonEndPaintRect = backButtonRect(scrollbar, BackButtonEndPart, true);
-        if (damageRect.intersects(backButtonEndPaintRect))
+        if (shouldPaintScrollbarPart(backButtonEndPaintRect, damageRect))
             scrollMask |= BackButtonEndPart;
         forwardButtonStartPaintRect = forwardButtonRect(scrollbar, ForwardButtonStartPart, true);
-        if (damageRect.intersects(forwardButtonStartPaintRect))
+        if (shouldPaintScrollbarPart(forwardButtonStartPaintRect, damageRect))
             scrollMask |= ForwardButtonStartPart;
         forwardButtonEndPaintRect = forwardButtonRect(scrollbar, ForwardButtonEndPart, true);
-        if (damageRect.intersects(forwardButtonEndPaintRect))
+        if (shouldPaintScrollbarPart(forwardButtonEndPaintRect, damageRect))
             scrollMask |= ForwardButtonEndPart;
     }
 
@@ -75,17 +83,17 @@ bool ScrollbarTheme::paint(ScrollbarThemeClient* scrollbar, GraphicsContext* gra
     IntRect thumbRect;
     IntRect endTrackRect;
     IntRect trackPaintRect = trackRect(scrollbar, true);
-    if (damageRect.intersects(trackPaintRect))
+    if (RuntimeEnabledFeatures::slimmingPaintEnabled() || damageRect.intersects(trackPaintRect))
         scrollMask |= TrackBGPart;
     bool thumbPresent = hasThumb(scrollbar);
     if (thumbPresent) {
         IntRect track = trackRect(scrollbar);
         splitTrack(scrollbar, track, startTrackRect, thumbRect, endTrackRect);
-        if (damageRect.intersects(thumbRect))
+        if (shouldPaintScrollbarPart(thumbRect, damageRect))
             scrollMask |= ThumbPart;
-        if (damageRect.intersects(startTrackRect))
+        if (shouldPaintScrollbarPart(startTrackRect, damageRect))
             scrollMask |= BackTrackPart;
-        if (damageRect.intersects(endTrackRect))
+        if (shouldPaintScrollbarPart(endTrackRect, damageRect))
             scrollMask |= ForwardTrackPart;
     }
 
@@ -202,25 +210,20 @@ void ScrollbarTheme::invalidatePart(ScrollbarThemeClient* scrollbar, ScrollbarPa
     scrollbar->invalidateRect(result);
 }
 
-void ScrollbarTheme::paintScrollCorner(GraphicsContext* context, const IntRect& cornerRect)
+void ScrollbarTheme::paintScrollCorner(GraphicsContext* context, const DisplayItemClientWrapper& displayItemClient, const IntRect& cornerRect)
 {
     if (cornerRect.isEmpty())
         return;
 
+    if (DrawingRecorder::useCachedDrawingIfPossible(*context, displayItemClient, DisplayItem::ScrollbarCorner))
+        return;
+
+    DrawingRecorder recorder(*context, displayItemClient, DisplayItem::ScrollbarCorner, cornerRect);
 #if OS(MACOSX)
     context->fillRect(cornerRect, Color::white);
 #else
     Platform::current()->themeEngine()->paint(context->canvas(), WebThemeEngine::PartScrollbarCorner, WebThemeEngine::StateNormal, WebRect(cornerRect), 0);
 #endif
-}
-
-void ScrollbarTheme::paintOverhangBackground(GraphicsContext* context, const IntRect& horizontalOverhangRect, const IntRect& verticalOverhangRect, const IntRect& dirtyRect)
-{
-    context->setFillColor(Color::white);
-    if (!horizontalOverhangRect.isEmpty())
-        context->fillRect(intersection(horizontalOverhangRect, dirtyRect));
-    if (!verticalOverhangRect.isEmpty())
-        context->fillRect(intersection(verticalOverhangRect, dirtyRect));
 }
 
 bool ScrollbarTheme::shouldCenterOnThumb(ScrollbarThemeClient* scrollbar, const PlatformMouseEvent& evt)
@@ -235,23 +238,13 @@ bool ScrollbarTheme::shouldSnapBackToDragOrigin(ScrollbarThemeClient* scrollbar,
     return Platform::current()->scrollbarBehavior()->shouldSnapBackToDragOrigin(mousePosition, trackRect(scrollbar), scrollbar->orientation() == HorizontalScrollbar);
 }
 
-// Returns the size represented by track taking into account scrolling past
-// the end of the document.
-static float usedTotalSize(ScrollbarThemeClient* scrollbar)
-{
-    float overhangAtStart = -scrollbar->currentPos();
-    float overhangAtEnd = scrollbar->currentPos() + scrollbar->visibleSize() - scrollbar->totalSize();
-    float overhang = std::max(0.0f, std::max(overhangAtStart, overhangAtEnd));
-    return scrollbar->totalSize() + overhang;
-}
-
 int ScrollbarTheme::thumbPosition(ScrollbarThemeClient* scrollbar)
 {
     if (scrollbar->enabled()) {
-        float size = usedTotalSize(scrollbar) - scrollbar->visibleSize();
+        float size = scrollbar->totalSize() - scrollbar->visibleSize();
         // Avoid doing a floating point divide by zero and return 1 when usedTotalSize == visibleSize.
         if (!size)
-            return 1;
+            return 0;
         float pos = std::max(0.0f, scrollbar->currentPos()) * (trackLength(scrollbar) - thumbLength(scrollbar)) / size;
         return (pos < 1 && pos > 0) ? 1 : pos;
     }
@@ -263,13 +256,9 @@ int ScrollbarTheme::thumbLength(ScrollbarThemeClient* scrollbar)
     if (!scrollbar->enabled())
         return 0;
 
-    float overhang = 0;
-    if (scrollbar->currentPos() < 0)
-        overhang = -scrollbar->currentPos();
-    else if (scrollbar->visibleSize() + scrollbar->currentPos() > scrollbar->totalSize())
-        overhang = scrollbar->currentPos() + scrollbar->visibleSize() - scrollbar->totalSize();
+    float overhang = fabsf(scrollbar->elasticOverscroll());
     float proportion = 0.0f;
-    float totalSize = usedTotalSize(scrollbar);
+    float totalSize = scrollbar->totalSize();
     if (totalSize > 0.0f) {
         proportion = (scrollbar->visibleSize() - overhang) / totalSize;
     }
@@ -357,6 +346,36 @@ void ScrollbarTheme::setMockScrollbarsEnabled(bool flag)
 bool ScrollbarTheme::mockScrollbarsEnabled()
 {
     return gMockScrollbarsEnabled;
+}
+
+DisplayItem::Type ScrollbarTheme::buttonPartToDisplayItemType(ScrollbarPart part)
+{
+    switch (part) {
+    case BackButtonStartPart:
+        return DisplayItem::ScrollbarBackButtonStart;
+    case BackButtonEndPart:
+        return DisplayItem::ScrollbarBackButtonEnd;
+    case ForwardButtonStartPart:
+        return DisplayItem::ScrollbarForwardButtonStart;
+    case ForwardButtonEndPart:
+        return DisplayItem::ScrollbarForwardButtonEnd;
+    default:
+        ASSERT_NOT_REACHED();
+        return DisplayItem::ScrollbarBackButtonStart;
+    }
+}
+
+DisplayItem::Type ScrollbarTheme::trackPiecePartToDisplayItemType(ScrollbarPart part)
+{
+    switch (part) {
+    case BackTrackPart:
+        return DisplayItem::ScrollbarBackTrack;
+    case ForwardTrackPart:
+        return DisplayItem::ScrollbarForwardTrack;
+    default:
+        ASSERT_NOT_REACHED();
+        return DisplayItem::ScrollbarBackTrack;
+    }
 }
 
 } // namespace blink

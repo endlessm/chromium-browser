@@ -13,7 +13,10 @@ var Event = eventBindings.Event;
 var forEach = require('utils').forEach;
 var lastError = require('lastError');
 var logging = requireNative('logging');
-var schema = requireNative('automationInternal').GetSchemaAdditions();
+var nativeAutomationInternal = requireNative('automationInternal');
+var GetRoutingID = nativeAutomationInternal.GetRoutingID;
+var GetSchemaAdditions = nativeAutomationInternal.GetSchemaAdditions;
+var schema = GetSchemaAdditions();
 
 /**
  * A namespace to export utility functions to other files in automation.
@@ -43,11 +46,19 @@ automationUtil.storeTreeCallback = function(id, callback) {
   }
 };
 
+/**
+ * Global list of tree change observers.
+ * @type {Array<TreeChangeObserver>}
+ */
+automationUtil.treeChangeObservers = [];
+
 automation.registerCustomHook(function(bindingsAPI) {
   var apiFunctions = bindingsAPI.apiFunctions;
 
   // TODO(aboxhall, dtseng): Make this return the speced AutomationRootNode obj.
-  apiFunctions.setHandleRequest('getTree', function getTree(tabId, callback) {
+  apiFunctions.setHandleRequest('getTree', function getTree(tabID, callback) {
+    var routingID = GetRoutingID();
+
     // enableTab() ensures the renderer for the active or specified tab has
     // accessibility enabled, and fetches its ax tree id to use as
     // a key in the idToAutomationRootNode map. The callback to
@@ -55,13 +66,15 @@ automation.registerCustomHook(function(bindingsAPI) {
     // the tree is available (either due to having been cached earlier, or after
     // an accessibility event occurs which causes the tree to be populated), the
     // callback can be called.
-    automationInternal.enableTab(tabId, function onEnable(id) {
-      if (lastError.hasError(chrome)) {
-        callback();
-        return;
-      }
-      automationUtil.storeTreeCallback(id, callback);
-    });
+    var params = { routingID: routingID, tabID: tabID };
+    automationInternal.enableTab(params,
+        function onEnable(id) {
+          if (lastError.hasError(chrome)) {
+            callback();
+            return;
+          }
+          automationUtil.storeTreeCallback(id, callback);
+        });
   });
 
   var desktopTree = null;
@@ -74,9 +87,11 @@ automation.registerCustomHook(function(bindingsAPI) {
       else
         idToCallback[DESKTOP_TREE_ID] = [callback];
 
+      var routingID = GetRoutingID();
+
       // TODO(dtseng): Disable desktop tree once desktop object goes out of
       // scope.
-      automationInternal.enableDesktop(function() {
+      automationInternal.enableDesktop(routingID, function() {
         if (lastError.hasError(chrome)) {
           delete idToAutomationRootNode[
               DESKTOP_TREE_ID];
@@ -88,6 +103,26 @@ automation.registerCustomHook(function(bindingsAPI) {
       callback(desktopTree);
     }
   });
+
+  function removeTreeChangeObserver(observer) {
+    var observers = automationUtil.treeChangeObservers;
+    for (var i = 0; i < observers.length; i++) {
+      if (observer == observers[i])
+        observers.splice(i, 1);
+    }
+  }
+  apiFunctions.setHandleRequest('removeTreeChangeObserver', function(observer) {
+    removeTreeChangeObserver(observer);
+  });
+
+  function addTreeChangeObserver(observer) {
+    removeTreeChangeObserver(observer);
+    automationUtil.treeChangeObservers.push(observer);
+  }
+  apiFunctions.setHandleRequest('addTreeChangeObserver', function(observer) {
+    addTreeChangeObserver(observer);
+  });
+
 });
 
 // Listen to the automationInternal.onAccessibilityEvent event, which is

@@ -22,13 +22,19 @@
 #include "third_party/WebKit/public/platform/WebReferrerPolicy.h"
 #include "third_party/WebKit/public/platform/WebURLRequest.h"
 #include "third_party/WebKit/public/web/WebWindowFeatures.h"
+#include "ui/accessibility/ax_node_data.h"
+#include "ui/accessibility/ax_tree_update.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
+#include "ui/gfx/ipc/gfx_param_traits.h"
 
 #undef IPC_MESSAGE_EXPORT
 #define IPC_MESSAGE_EXPORT CONTENT_EXPORT
 
-IPC_ENUM_TRAITS(ui::PageTransition)  // Bitmask.
+IPC_ENUM_TRAITS_VALIDATE(ui::PageTransition,
+                         ((value &
+                           ui::PageTransition::PAGE_TRANSITION_CORE_MASK) <=
+                          ui::PageTransition::PAGE_TRANSITION_LAST_CORE))
 IPC_ENUM_TRAITS_MAX_VALUE(net::NetworkChangeNotifier::ConnectionType,
                           net::NetworkChangeNotifier::CONNECTION_LAST)
 IPC_ENUM_TRAITS_MAX_VALUE(content::ConsoleMessageLevel,
@@ -44,8 +50,15 @@ IPC_ENUM_TRAITS_MAX_VALUE(WindowOpenDisposition,
 IPC_ENUM_TRAITS_MAX_VALUE(net::RequestPriority, net::MAXIMUM_PRIORITY)
 IPC_ENUM_TRAITS_MAX_VALUE(content::V8CacheOptions,
                           content::V8_CACHE_OPTIONS_LAST)
-IPC_ENUM_TRAITS_MAX_VALUE(content::V8ScriptStreamingMode,
-                          content::V8_SCRIPT_STREAMING_MODE_LAST)
+IPC_ENUM_TRAITS_MIN_MAX_VALUE(ui::PointerType,
+                              ui::POINTER_TYPE_FIRST,
+                              ui::POINTER_TYPE_LAST)
+IPC_ENUM_TRAITS_MIN_MAX_VALUE(ui::HoverType,
+                              ui::HOVER_TYPE_FIRST,
+                              ui::HOVER_TYPE_LAST)
+IPC_ENUM_TRAITS_MIN_MAX_VALUE(content::ImageAnimationPolicy,
+                              content::IMAGE_ANIMATION_POLICY_ALLOWED,
+                              content::IMAGE_ANIMATION_POLICY_NO_ANIMATION)
 
 IPC_STRUCT_TRAITS_BEGIN(blink::WebPoint)
   IPC_STRUCT_TRAITS_MEMBER(x)
@@ -103,6 +116,7 @@ IPC_STRUCT_TRAITS_BEGIN(content::WebPreferences)
   IPC_STRUCT_TRAITS_MEMBER(minimum_font_size)
   IPC_STRUCT_TRAITS_MEMBER(minimum_logical_font_size)
   IPC_STRUCT_TRAITS_MEMBER(default_encoding)
+  IPC_STRUCT_TRAITS_MEMBER(context_menu_on_mouse_up)
   IPC_STRUCT_TRAITS_MEMBER(javascript_enabled)
   IPC_STRUCT_TRAITS_MEMBER(web_security_enabled)
   IPC_STRUCT_TRAITS_MEMBER(javascript_can_open_windows_automatically)
@@ -132,7 +146,7 @@ IPC_STRUCT_TRAITS_BEGIN(content::WebPreferences)
   IPC_STRUCT_TRAITS_MEMBER(webaudio_enabled)
   IPC_STRUCT_TRAITS_MEMBER(experimental_webgl_enabled)
   IPC_STRUCT_TRAITS_MEMBER(pepper_3d_enabled)
-  IPC_STRUCT_TRAITS_MEMBER(pinch_virtual_viewport_enabled)
+  IPC_STRUCT_TRAITS_MEMBER(invert_viewport_scroll_order)
   IPC_STRUCT_TRAITS_MEMBER(pinch_overlay_scrollbar_thickness)
   IPC_STRUCT_TRAITS_MEMBER(use_solid_color_scrollbars)
   IPC_STRUCT_TRAITS_MEMBER(flash_3d_enabled)
@@ -142,7 +156,6 @@ IPC_STRUCT_TRAITS_BEGIN(content::WebPreferences)
   IPC_STRUCT_TRAITS_MEMBER(privileged_webgl_extensions_enabled)
   IPC_STRUCT_TRAITS_MEMBER(webgl_errors_to_console_enabled)
   IPC_STRUCT_TRAITS_MEMBER(mock_scrollbars_enabled)
-  IPC_STRUCT_TRAITS_MEMBER(layer_squashing_enabled)
   IPC_STRUCT_TRAITS_MEMBER(asynchronous_spell_checking_enabled)
   IPC_STRUCT_TRAITS_MEMBER(unified_textchecker_enabled)
   IPC_STRUCT_TRAITS_MEMBER(accelerated_2d_canvas_enabled)
@@ -156,17 +169,22 @@ IPC_STRUCT_TRAITS_BEGIN(content::WebPreferences)
   IPC_STRUCT_TRAITS_MEMBER(text_blobs_enabled)
   IPC_STRUCT_TRAITS_MEMBER(allow_displaying_insecure_content)
   IPC_STRUCT_TRAITS_MEMBER(allow_running_insecure_content)
+  IPC_STRUCT_TRAITS_MEMBER(disable_reading_from_canvas)
+  IPC_STRUCT_TRAITS_MEMBER(strict_mixed_content_checking)
+  IPC_STRUCT_TRAITS_MEMBER(strict_powerful_feature_restrictions)
   IPC_STRUCT_TRAITS_MEMBER(enable_scroll_animator)
   IPC_STRUCT_TRAITS_MEMBER(password_echo_enabled)
   IPC_STRUCT_TRAITS_MEMBER(should_clear_document_background)
-  IPC_STRUCT_TRAITS_MEMBER(region_based_columns_enabled)
   IPC_STRUCT_TRAITS_MEMBER(touch_enabled)
   IPC_STRUCT_TRAITS_MEMBER(device_supports_touch)
   IPC_STRUCT_TRAITS_MEMBER(device_supports_mouse)
   IPC_STRUCT_TRAITS_MEMBER(touch_adjustment_enabled)
   IPC_STRUCT_TRAITS_MEMBER(pointer_events_max_touch_points)
+  IPC_STRUCT_TRAITS_MEMBER(available_pointer_types)
+  IPC_STRUCT_TRAITS_MEMBER(primary_pointer_type)
+  IPC_STRUCT_TRAITS_MEMBER(available_hover_types)
+  IPC_STRUCT_TRAITS_MEMBER(primary_hover_type)
   IPC_STRUCT_TRAITS_MEMBER(sync_xhr_in_documents_enabled)
-  IPC_STRUCT_TRAITS_MEMBER(deferred_image_decoding_enabled)
   IPC_STRUCT_TRAITS_MEMBER(image_color_profiles_enabled)
   IPC_STRUCT_TRAITS_MEMBER(should_respect_image_orientation)
   IPC_STRUCT_TRAITS_MEMBER(number_of_cpu_cores)
@@ -181,10 +199,9 @@ IPC_STRUCT_TRAITS_BEGIN(content::WebPreferences)
   IPC_STRUCT_TRAITS_MEMBER(navigate_on_drag_drop)
   IPC_STRUCT_TRAITS_MEMBER(spatial_navigation_enabled)
   IPC_STRUCT_TRAITS_MEMBER(v8_cache_options)
-  IPC_STRUCT_TRAITS_MEMBER(v8_script_streaming_enabled)
-  IPC_STRUCT_TRAITS_MEMBER(v8_script_streaming_mode)
   IPC_STRUCT_TRAITS_MEMBER(slimming_paint_enabled)
   IPC_STRUCT_TRAITS_MEMBER(pepper_accelerated_video_decode_enabled)
+  IPC_STRUCT_TRAITS_MEMBER(animation_policy)
 #if defined(OS_ANDROID)
   IPC_STRUCT_TRAITS_MEMBER(text_autosizing_enabled)
   IPC_STRUCT_TRAITS_MEMBER(font_scale_factor)
@@ -207,6 +224,8 @@ IPC_STRUCT_TRAITS_BEGIN(content::WebPreferences)
   IPC_STRUCT_TRAITS_MEMBER(ignore_main_frame_overflow_hidden_quirk)
   IPC_STRUCT_TRAITS_MEMBER(report_screen_size_in_physical_pixels_quirk)
 #endif
+  IPC_STRUCT_TRAITS_MEMBER(default_minimum_page_scale_factor)
+  IPC_STRUCT_TRAITS_MEMBER(default_maximum_page_scale_factor)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(blink::WebWindowFeatures)
@@ -226,6 +245,35 @@ IPC_STRUCT_TRAITS_BEGIN(blink::WebWindowFeatures)
   IPC_STRUCT_TRAITS_MEMBER(resizable)
   IPC_STRUCT_TRAITS_MEMBER(fullscreen)
   IPC_STRUCT_TRAITS_MEMBER(dialog)
+IPC_STRUCT_TRAITS_END()
+
+IPC_ENUM_TRAITS_MAX_VALUE(ui::AXEvent, ui::AX_EVENT_LAST)
+IPC_ENUM_TRAITS_MAX_VALUE(ui::AXRole, ui::AX_ROLE_LAST)
+
+IPC_ENUM_TRAITS_MAX_VALUE(ui::AXBoolAttribute, ui::AX_BOOL_ATTRIBUTE_LAST)
+IPC_ENUM_TRAITS_MAX_VALUE(ui::AXFloatAttribute, ui::AX_FLOAT_ATTRIBUTE_LAST)
+IPC_ENUM_TRAITS_MAX_VALUE(ui::AXIntAttribute, ui::AX_INT_ATTRIBUTE_LAST)
+IPC_ENUM_TRAITS_MAX_VALUE(ui::AXIntListAttribute,
+                          ui::AX_INT_LIST_ATTRIBUTE_LAST)
+IPC_ENUM_TRAITS_MAX_VALUE(ui::AXStringAttribute, ui::AX_STRING_ATTRIBUTE_LAST)
+
+IPC_STRUCT_TRAITS_BEGIN(ui::AXNodeData)
+  IPC_STRUCT_TRAITS_MEMBER(id)
+  IPC_STRUCT_TRAITS_MEMBER(role)
+  IPC_STRUCT_TRAITS_MEMBER(state)
+  IPC_STRUCT_TRAITS_MEMBER(location)
+  IPC_STRUCT_TRAITS_MEMBER(string_attributes)
+  IPC_STRUCT_TRAITS_MEMBER(int_attributes)
+  IPC_STRUCT_TRAITS_MEMBER(float_attributes)
+  IPC_STRUCT_TRAITS_MEMBER(bool_attributes)
+  IPC_STRUCT_TRAITS_MEMBER(intlist_attributes)
+  IPC_STRUCT_TRAITS_MEMBER(html_attributes)
+  IPC_STRUCT_TRAITS_MEMBER(child_ids)
+IPC_STRUCT_TRAITS_END()
+
+IPC_STRUCT_TRAITS_BEGIN(ui::AXTreeUpdate)
+  IPC_STRUCT_TRAITS_MEMBER(node_id_to_clear)
+  IPC_STRUCT_TRAITS_MEMBER(nodes)
 IPC_STRUCT_TRAITS_END()
 
 #endif  // CONTENT_PUBLIC_COMMON_COMMON_PARAM_TRAITS_MACROS_H_

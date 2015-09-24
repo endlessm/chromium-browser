@@ -219,16 +219,24 @@ class ChromeRenderProcessHostTest : public InProcessBrowserTest {
 class ChromeRenderProcessHostTestWithCommandLine
     : public ChromeRenderProcessHostTest {
  protected:
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitchASCII(switches::kRendererProcessLimit, "1");
   }
 };
 
-IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTest, ProcessPerTab) {
+// Disable on Mac and Windows due to ongoing flakiness. (crbug.com/442785)
+#if defined(OS_MACOSX) || defined(OS_WIN)
+#define MAYBE_ProcessPerTab DISABLED_ProcessPerTab
+#else
+#define MAYBE_ProcessPerTab ProcessPerTab
+#endif
+
+IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTest, MAYBE_ProcessPerTab) {
   // Set max renderers to 1 to force running out of processes.
   content::RenderProcessHost::SetMaxRendererProcessCount(1);
 
-  CommandLine& parsed_command_line = *CommandLine::ForCurrentProcess();
+  base::CommandLine& parsed_command_line =
+      *base::CommandLine::ForCurrentProcess();
   parsed_command_line.AppendSwitch(switches::kProcessPerTab);
 
   int tab_count = 1;
@@ -294,7 +302,8 @@ IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTest, MAYBE_Backgrounding) {
     LOG(ERROR) << "Can't background processes";
     return;
   }
-  CommandLine& parsed_command_line = *CommandLine::ForCurrentProcess();
+  base::CommandLine& parsed_command_line =
+      *base::CommandLine::ForCurrentProcess();
   parsed_command_line.AppendSwitch(switches::kProcessPerTab);
 
   // Change the first tab to be the omnibox page (TYPE_WEBUI).
@@ -312,7 +321,7 @@ IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTest, MAYBE_Backgrounding) {
   GURL page2("data:text/html,hello world2");
   base::Process process2 = ShowSingletonTab(page2);
   ASSERT_TRUE(process2.IsValid());
-  EXPECT_NE(process1.pid(), process2.pid());
+  EXPECT_NE(process1.Pid(), process2.Pid());
   EXPECT_TRUE(process1.IsProcessBackgrounded());
   EXPECT_FALSE(process2.IsProcessBackgrounded());
 
@@ -321,15 +330,15 @@ IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTest, MAYBE_Backgrounding) {
   GURL page3("data:text/html,hello world3");
   base::Process process3 = OpenBackgroundTab(page3);
   ASSERT_TRUE(process3.IsValid());
-  EXPECT_NE(process3.pid(), process1.pid());
-  EXPECT_NE(process3.pid(), process2.pid());
+  EXPECT_NE(process3.Pid(), process1.Pid());
+  EXPECT_NE(process3.Pid(), process2.Pid());
   EXPECT_TRUE(process1.IsProcessBackgrounded());
   EXPECT_FALSE(process2.IsProcessBackgrounded());
   EXPECT_TRUE(process3.IsProcessBackgrounded());
 
   // Navigate back to the first page. Its renderer should be in foreground
   // again while the other renderers should be backgrounded.
-  EXPECT_EQ(process1.pid(), ShowSingletonTab(page1).pid());
+  EXPECT_EQ(process1.Pid(), ShowSingletonTab(page1).Pid());
   EXPECT_FALSE(process1.IsProcessBackgrounded());
   EXPECT_TRUE(process2.IsProcessBackgrounded());
   EXPECT_TRUE(process3.IsProcessBackgrounded());
@@ -337,7 +346,8 @@ IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTest, MAYBE_Backgrounding) {
 #endif
 
 // TODO(nasko): crbug.com/173137
-#if defined(OS_WIN)
+// Disable on Mac 10.9 due to ongoing flakiness. (crbug.com/442785)
+#if defined(OS_WIN) || defined(OS_MACOSX)
 #define MAYBE_ProcessOverflow DISABLED_ProcessOverflow
 #else
 #define MAYBE_ProcessOverflow ProcessOverflow
@@ -349,10 +359,17 @@ IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTest, MAYBE_ProcessOverflow) {
   TestProcessOverflow();
 }
 
+// Disable on Mac 10.9 due to ongoing flakiness. (crbug.com/442785)
+#if defined(OS_MACOSX) || defined(OS_WIN)
+#define MAYBE_ProcessOverflowCommandLine DISABLED_ProcessOverflow
+#else
+#define MAYBE_ProcessOverflowCommandLine ProcessOverflow
+#endif
+
 // Variation of the ProcessOverflow test, which is driven through command line
 // parameter instead of direct function call into the class.
 IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTestWithCommandLine,
-                       ProcessOverflow) {
+                       MAYBE_ProcessOverflowCommandLine) {
   TestProcessOverflow();
 }
 
@@ -362,11 +379,13 @@ IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTest,
                        DevToolsOnSelfInOwnProcessPPT) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
-  CommandLine& parsed_command_line = *CommandLine::ForCurrentProcess();
+  base::CommandLine& parsed_command_line =
+      *base::CommandLine::ForCurrentProcess();
   parsed_command_line.AppendSwitch(switches::kProcessPerTab);
 
   int tab_count = 1;
@@ -412,7 +431,8 @@ IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTest,
                        DevToolsOnSelfInOwnProcess) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -510,7 +530,7 @@ IN_PROC_BROWSER_TEST_F(ChromeRenderProcessHostTest,
   // Kill the renderer process, simulating a crash. This should the ProcessDied
   // method to be called. Alternatively, RenderProcessHost::OnChannelError can
   // be called to directly force a call to ProcessDied.
-  base::KillProcess(wc1->GetRenderProcessHost()->GetHandle(), -1, true);
+  wc1->GetRenderProcessHost()->Shutdown(-1, true);
 
   observer.Wait();
 }

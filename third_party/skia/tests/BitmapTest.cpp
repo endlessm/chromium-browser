@@ -6,8 +6,46 @@
  */
 
 #include "SkBitmap.h"
-
+#include "SkMallocPixelRef.h"
 #include "Test.h"
+
+static void test_peekpixels(skiatest::Reporter* reporter) {
+    const SkImageInfo info = SkImageInfo::MakeN32Premul(10, 10);
+
+    SkPixmap pmap;
+    SkBitmap bm;
+
+    // empty should return false
+    REPORTER_ASSERT(reporter, !bm.peekPixels(NULL));
+    REPORTER_ASSERT(reporter, !bm.peekPixels(&pmap));
+
+    // no pixels should return false
+    bm.setInfo(SkImageInfo::MakeN32Premul(10, 10));
+    REPORTER_ASSERT(reporter, !bm.peekPixels(NULL));
+    REPORTER_ASSERT(reporter, !bm.peekPixels(&pmap));
+
+    // real pixels should return true
+    bm.allocPixels(info);
+    REPORTER_ASSERT(reporter, bm.peekPixels(NULL));
+    REPORTER_ASSERT(reporter, bm.peekPixels(&pmap));
+    REPORTER_ASSERT(reporter, pmap.info() == bm.info());
+    REPORTER_ASSERT(reporter, pmap.addr() == bm.getPixels());
+    REPORTER_ASSERT(reporter, pmap.rowBytes() == bm.rowBytes());
+    REPORTER_ASSERT(reporter, pmap.ctable() == bm.getColorTable());
+}
+
+// https://code.google.com/p/chromium/issues/detail?id=446164
+static void test_bigalloc(skiatest::Reporter* reporter) {
+    const int width = 0x40000001;
+    const int height = 0x00000096;
+    const SkImageInfo info = SkImageInfo::MakeN32Premul(width, height);
+
+    SkBitmap bm;
+    REPORTER_ASSERT(reporter, !bm.tryAllocPixels(info));
+
+    SkPixelRef* pr = SkMallocPixelRef::NewAllocate(info, info.minRowBytes(), NULL);
+    REPORTER_ASSERT(reporter, !pr);
+}
 
 static void test_allocpixels(skiatest::Reporter* reporter) {
     const int width = 10;
@@ -81,4 +119,6 @@ DEF_TEST(Bitmap, reporter) {
 
     test_bigwidth(reporter);
     test_allocpixels(reporter);
+    test_bigalloc(reporter);
+    test_peekpixels(reporter);
 }

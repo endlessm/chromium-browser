@@ -2,24 +2,34 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-"""Validate or replace the standard gdata authorization token."""
+"""Validate or replace the standard gdata authorization token.
+
+Run outside of chroot to validate the gdata token file at ~/.gdata_token or
+update it if it has expired.
+To update the token file, there must be a valid credentials file at
+~/.gdata_cred.txt.
+
+If run inside chroot the updated token file is still valid but will not be
+preserved if chroot is deleted.
+"""
 
 from __future__ import print_function
 
 import filecmp
-import optparse
 import os
 import shutil
 
 from chromite.cbuildbot import constants
+from chromite.lib import commandline
 from chromite.lib import cros_build_lib as build_lib
 from chromite.lib import operation
+
 
 MODULE = os.path.splitext(os.path.basename(__file__))[0]
 oper = operation.Operation(MODULE)
 
-TOKEN_FILE = os.path.join(os.environ['HOME'], '.gdata_token')
-CRED_FILE = os.path.join(os.environ['HOME'], '.gdata_cred.txt')
+TOKEN_FILE = os.path.expanduser('~/.gdata_token')
+CRED_FILE = os.path.expanduser('~/.gdata_cred.txt')
 
 
 def _ChrootPathToExternalPath(path):
@@ -74,8 +84,8 @@ class InsideChroot(object):
 
   def __init__(self):
     self.creds = None     # gdata_lib.Creds object.
-    self.gd_client = None # For interacting with Google Docs.
-    self.it_client = None # For interacting with Issue Tracker.
+    self.gd_client = None  # For interacting with Google Docs.
+    self.it_client = None  # For interacting with Issue Tracker.
 
   def _LoadTokenFile(self):
     """Load existing auth token file."""
@@ -93,7 +103,6 @@ class InsideChroot(object):
 
   def _ValidateDocsToken(self):
     """Validate the existing Docs token."""
-    # pylint: disable=W0404
     import gdata.service
 
     if not self.creds.docs_auth_token:
@@ -119,7 +128,6 @@ class InsideChroot(object):
 
   def _GenerateDocsToken(self):
     """Generate a new Docs token from credentials."""
-    # pylint: disable=W0404
     import gdata.service
 
     oper.Warning('Docs token not valid.  Will try to generate a new one.')
@@ -140,7 +148,6 @@ class InsideChroot(object):
 
   def _ValidateTrackerToken(self):
     """Validate the existing Tracker token."""
-    # pylint: disable=W0404
     import gdata.gauth
     import gdata.projecthosting.client
 
@@ -150,7 +157,7 @@ class InsideChroot(object):
     oper.Notice('Attempting to log into Tracker using auth token.')
     self.it_client.source = 'Package Status'
     self.it_client.auth_token = gdata.gauth.ClientLoginToken(
-      self.creds.tracker_auth_token)
+        self.creds.tracker_auth_token)
 
     try:
       # Try to access Tracker Issue #1, which will check access.
@@ -170,7 +177,6 @@ class InsideChroot(object):
 
   def _GenerateTrackerToken(self):
     """Generate a new Tracker token from credentials."""
-    # pylint: disable=W0404
     import gdata.client
 
     oper.Warning('Tracker token not valid.  Will try to generate a new one.')
@@ -191,7 +197,6 @@ class InsideChroot(object):
 
   def Run(self):
     """Validate existing auth token or generate new one from credentials."""
-    # pylint: disable=W0404
     import chromite.lib.gdata_lib as gdata_lib
     import gdata.spreadsheet.service
 
@@ -212,35 +217,17 @@ class InsideChroot(object):
     self._SaveTokenFile()
 
 
-def _CreateParser():
-  usage = 'Usage: %prog'
-  epilog = ('\n'
-            'Run outside of chroot to validate the gdata '
-            'token file at %r or update it if it has expired.\n'
-            'To update the token file there must be a valid '
-            'credentials file at %r.\n'
-            'If run inside chroot the updated token file is '
-            'still valid but will not be preserved if chroot\n'
-            'is deleted.\n' %
-            (TOKEN_FILE, CRED_FILE))
-
-  return optparse.OptionParser(usage=usage, epilog=epilog)
+def GetParser():
+  return commandline.ArgumentParser(description=__doc__)
 
 
 def main(argv):
   """Main function."""
-  # Create a copy of args just to be safe.
-  argv = list(argv)
-
   # No actual options used, but --help is still supported.
-  parser = _CreateParser()
-  (_options, args) = parser.parse_args(argv)
-
-  if args:
-    parser.print_help()
-    oper.Die('No arguments allowed.')
+  parser = GetParser()
+  _opts = parser.parse_args(argv)
 
   if build_lib.IsInsideChroot():
     InsideChroot().Run()
   else:
-    OutsideChroot(args).Run()
+    OutsideChroot(argv).Run()

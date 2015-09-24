@@ -22,7 +22,7 @@ enum ViewID {
   VIEW_ID_CLOSE_BUTTON,
   VIEW_ID_WINDOW_ICON,
   VIEW_ID_WINDOW_TITLE,
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
   VIEW_ID_SUPERVISED_USER_AVATAR_LABEL,
 #endif
   VIEW_ID_AVATAR_BUTTON,
@@ -65,6 +65,7 @@ enum ViewID {
   VIEW_ID_BOOKMARK_BAR,
   VIEW_ID_OTHER_BOOKMARKS,
   VIEW_ID_MANAGED_BOOKMARKS,
+  VIEW_ID_SUPERVISED_BOOKMARKS,
   // Used for bookmarks/folders on the bookmark bar.
   VIEW_ID_BOOKMARK_BAR_ELEMENT,
 
@@ -85,18 +86,6 @@ enum ViewID {
 
   // The Download shelf.
   VIEW_ID_DOWNLOAD_SHELF,
-
-// TODO(dbeam): change the zoom decoration to an NSImageView on Mac so IDs work.
-#if !defined(OS_MACOSX)
-  // Zoom button in location bar.
-  VIEW_ID_ZOOM_BUTTON,
-#endif
-
-// TODO(npentrel): change the passwords decoration to an NSImageView.
-#if !defined(OS_MACOSX)
-  // The manage passwords icon in the location bar.
-  VIEW_ID_MANAGE_PASSWORDS_ICON_BUTTON,
-#endif
 
   // The omnibox icon to do voice-based search.
   VIEW_ID_MIC_SEARCH_BUTTON,

@@ -37,7 +37,7 @@
 namespace {
 
 void ResetShortcutsOnFileThread() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
   // Get full path of chrome.
   base::FilePath chrome_exe;
   if (!PathService::Get(base::FILE_EXE, &chrome_exe))
@@ -127,7 +127,7 @@ void ProfileResetter::Reset(
 }
 
 bool ProfileResetter::IsActive() const {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   return pending_reset_flags_ != 0;
 }
 
@@ -288,7 +288,7 @@ void ProfileResetter::ResetPinnedTabs() {
       // If we unpin the tab, it can be moved to the right. Thus traversing in
       // reverse direction is correct.
       for (int i = tab_model->count() - 1; i >= 0; --i) {
-        if (tab_model->IsTabPinned(i) && !tab_model->IsAppTab(i))
+        if (tab_model->IsTabPinned(i))
           tab_model->SetTabPinned(i, false);
       }
     }
@@ -326,7 +326,7 @@ void ProfileResetter::OnBrowsingDataRemoverDone() {
 
 std::vector<ShortcutCommand> GetChromeLaunchShortcuts(
     const scoped_refptr<SharedCancellationFlag>& cancel) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
 #if defined(OS_WIN)
   // Get full path of chrome.
   base::FilePath chrome_exe;
@@ -337,7 +337,7 @@ std::vector<ShortcutCommand> GetChromeLaunchShortcuts(
   std::vector<ShortcutCommand> shortcuts;
   for (int location = ShellUtil::SHORTCUT_LOCATION_FIRST;
        location < ShellUtil::NUM_SHORTCUT_LOCATIONS; ++location) {
-    if (cancel && cancel->data.IsSet())
+    if (cancel.get() && cancel->data.IsSet())
       break;
     ShellUtil::ShortcutListMaybeRemoveUnknownArgs(
         static_cast<ShellUtil::ShortcutLocation>(location),

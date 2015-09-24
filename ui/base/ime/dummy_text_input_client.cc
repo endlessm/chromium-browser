@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 #include "ui/base/ime/dummy_text_input_client.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace ui {
 
@@ -30,10 +30,6 @@ void DummyTextInputClient::InsertText(const base::string16& text) {
 }
 
 void DummyTextInputClient::InsertChar(base::char16 ch, int flags) {
-}
-
-gfx::NativeWindow DummyTextInputClient::GetAttachedWindow() const {
-  return NULL;
 }
 
 TextInputType DummyTextInputClient::GetTextInputType() const {
@@ -106,20 +102,11 @@ void DummyTextInputClient::ExtendSelectionAndDelete(size_t before,
 void DummyTextInputClient::EnsureCaretInRect(const gfx::Rect& rect)  {
 }
 
-void DummyTextInputClient::OnCandidateWindowShown() {
-}
-
-void DummyTextInputClient::OnCandidateWindowUpdated() {
-}
-
-void DummyTextInputClient::OnCandidateWindowHidden() {
-}
-
-bool DummyTextInputClient::IsEditingCommandEnabled(int command_id) {
+bool DummyTextInputClient::IsEditCommandEnabled(int command_id) {
   return false;
 }
 
-void DummyTextInputClient::ExecuteEditingCommand(int command_id) {
+void DummyTextInputClient::SetEditCommandForNextKeyEvent(int command_id) {
 }
 
 }  // namespace ui

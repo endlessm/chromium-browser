@@ -7,7 +7,7 @@
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
 #include "components/language_usage_metrics/language_usage_metrics.h"
 
@@ -47,8 +47,8 @@ const MetricsEntry kMetricsEntries[] = {
     kTranslateUnsupportedLanguageAtInitiation },
 };
 
-COMPILE_ASSERT(arraysize(kMetricsEntries) == TranslateBrowserMetrics::UMA_MAX,
-               arraysize_of_kMetricsEntries_should_be_UMA_MAX);
+static_assert(arraysize(kMetricsEntries) == TranslateBrowserMetrics::UMA_MAX,
+              "kMetricsEntries should have UMA_MAX elements");
 
 }  // namespace
 

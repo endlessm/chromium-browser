@@ -18,25 +18,27 @@ class PrintSettings;
 class PRINTING_EXPORT PrintingContextWin : public PrintingContext {
  public:
   explicit PrintingContextWin(Delegate* delegate);
-  virtual ~PrintingContextWin();
+  ~PrintingContextWin() override;
 
   // PrintingContext implementation.
-  virtual void AskUserForSettings(
+  void AskUserForSettings(
       int max_pages,
       bool has_selection,
+      bool is_scripted,
       const PrintSettingsCallback& callback) override;
-  virtual Result UseDefaultSettings() override;
-  virtual gfx::Size GetPdfPaperSizeDeviceUnits() override;
-  virtual Result UpdatePrinterSettings(bool external_preview,
-                                       bool show_system_dialog) override;
-  virtual Result InitWithSettings(const PrintSettings& settings) override;
-  virtual Result NewDocument(const base::string16& document_name) override;
-  virtual Result NewPage() override;
-  virtual Result PageDone() override;
-  virtual Result DocumentDone() override;
-  virtual void Cancel() override;
-  virtual void ReleaseContext() override;
-  virtual gfx::NativeDrawingContext context() const override;
+  Result UseDefaultSettings() override;
+  gfx::Size GetPdfPaperSizeDeviceUnits() override;
+  Result UpdatePrinterSettings(bool external_preview,
+                               bool show_system_dialog,
+                               int page_count) override;
+  Result InitWithSettings(const PrintSettings& settings) override;
+  Result NewDocument(const base::string16& document_name) override;
+  Result NewPage() override;
+  Result PageDone() override;
+  Result DocumentDone() override;
+  void Cancel() override;
+  void ReleaseContext() override;
+  gfx::NativeDrawingContext context() const override;
 
  protected:
   static HWND GetRootWindow(gfx::NativeView view);
@@ -51,11 +53,6 @@ class PRINTING_EXPORT PrintingContextWin : public PrintingContext {
   void set_context(HDC context) { context_ = context; }
 
  private:
-  virtual scoped_ptr<DEVMODE, base::FreeDeleter> ShowPrintDialog(
-      HANDLE printer,
-      gfx::NativeView parent_view,
-      DEVMODE* dev_mode);
-
   // Used in response to the user canceling the printing.
   static BOOL CALLBACK AbortProc(HDC hdc, int nCode);
 

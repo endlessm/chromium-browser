@@ -85,6 +85,10 @@ bool DnsSdRegistry::ServiceTypeData::RemoveService(
   return false;
 }
 
+void DnsSdRegistry::ServiceTypeData::ForceDiscovery() {
+  lister_->Discover(false);
+}
+
 bool DnsSdRegistry::ServiceTypeData::ClearServices() {
   lister_->Discover(false);
 
@@ -127,7 +131,17 @@ DnsSdDeviceLister* DnsSdRegistry::CreateDnsSdDeviceLister(
   return new DnsSdDeviceLister(discovery_client, delegate, service_type);
 }
 
-void DnsSdRegistry::RegisterDnsSdListener(std::string service_type) {
+void DnsSdRegistry::Publish(const std::string& service_type) {
+  DispatchApiEvent(service_type);
+}
+
+void DnsSdRegistry::ForceDiscovery() {
+  for (const auto& next_service : service_data_map_) {
+    next_service.second->ForceDiscovery();
+  }
+}
+
+void DnsSdRegistry::RegisterDnsSdListener(const std::string& service_type) {
   VLOG(1) << "RegisterDnsSdListener: " << service_type
           << ", registered: " << IsRegistered(service_type);
   if (service_type.empty())
@@ -148,7 +162,7 @@ void DnsSdRegistry::RegisterDnsSdListener(std::string service_type) {
   DispatchApiEvent(service_type);
 }
 
-void DnsSdRegistry::UnregisterDnsSdListener(std::string service_type) {
+void DnsSdRegistry::UnregisterDnsSdListener(const std::string& service_type) {
   VLOG(1) << "UnregisterDnsSdListener: " << service_type;
   DnsSdRegistry::DnsSdServiceTypeDataMap::iterator it =
       service_data_map_.find(service_type);
@@ -211,8 +225,6 @@ void DnsSdRegistry::ServicesFlushed(const std::string& service_type) {
 }
 
 void DnsSdRegistry::DispatchApiEvent(const std::string& service_type) {
-  // TODO(justinlin): Make this MaybeDispatchApiEvent instead and dispatch if a
-  // dirty bit is set.
   VLOG(1) << "DispatchApiEvent: service_type: " << service_type;
   FOR_EACH_OBSERVER(DnsSdObserver, observers_, OnDnsSdEvent(
       service_type, service_data_map_[service_type]->GetServiceList()));

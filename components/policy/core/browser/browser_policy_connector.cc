@@ -9,9 +9,7 @@
 
 #include "base/command_line.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/prefs/pref_registry_simple.h"
 #include "base/strings/string16.h"
@@ -53,12 +51,12 @@ const wchar_t* const kNonManagedDomainPatterns[] = {
   L"aol\\.com",
   L"googlemail\\.com",
   L"gmail\\.com",
-  L"hotmail(\\.co|\\.com|)\\.[^.]+", // hotmail.com, hotmail.it, hotmail.co.uk
+  L"hotmail(\\.co|\\.com|)\\.[^.]+",  // hotmail.com, hotmail.it, hotmail.co.uk
   L"live\\.com",
   L"mail\\.ru",
   L"msn\\.com",
   L"qq\\.com",
-  L"yahoo(\\.co|\\.com|)\\.[^.]+", // yahoo.com, yahoo.co.uk, yahoo.com.tw
+  L"yahoo(\\.co|\\.com|)\\.[^.]+",  // yahoo.com, yahoo.co.uk, yahoo.com.tw
   L"yandex\\.ru",
 };
 
@@ -134,13 +132,10 @@ void BrowserPolicyConnector::Init(
   for (size_t i = 0; i < policy_providers_.size(); ++i)
     policy_providers_[i]->Init(GetSchemaRegistry());
 
-  policy_statistics_collector_.reset(
-      new policy::PolicyStatisticsCollector(
-          base::Bind(&GetChromePolicyDetails),
-          GetChromeSchema(),
-          GetPolicyService(),
-          local_state,
-          base::MessageLoop::current()->message_loop_proxy()));
+  policy_statistics_collector_.reset(new policy::PolicyStatisticsCollector(
+      base::Bind(&GetChromePolicyDetails), GetChromeSchema(),
+      GetPolicyService(), local_state,
+      base::MessageLoop::current()->task_runner()));
   policy_statistics_collector_->Initialize();
 
   is_initialized_ = true;
@@ -234,7 +229,7 @@ bool BrowserPolicyConnector::IsNonEnterpriseUser(const std::string& username) {
 
 // static
 std::string BrowserPolicyConnector::GetDeviceManagementUrl() {
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kDeviceManagementUrl))
     return command_line->GetSwitchValueASCII(switches::kDeviceManagementUrl);
   else

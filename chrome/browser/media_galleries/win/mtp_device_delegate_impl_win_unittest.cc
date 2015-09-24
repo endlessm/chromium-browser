@@ -99,7 +99,7 @@ void MTPDeviceDelegateImplWinTest::SetUp() {
       static_cast<extensions::TestExtensionSystem*>(
           extensions::ExtensionSystem::Get(profile())));
   extension_system->CreateExtensionService(
-      CommandLine::ForCurrentProcess(), base::FilePath(), false);
+      base::CommandLine::ForCurrentProcess(), base::FilePath(), false);
 
   std::vector<std::string> all_permissions;
   all_permissions.push_back("allAutoDetected");
@@ -159,12 +159,11 @@ TEST_F(MTPDeviceDelegateImplWinTest, GalleryNameMTP) {
           TestPortableDeviceWatcherWin::kStorageUniqueIdA));
   AttachDevice(StorageInfo::MTP_OR_PTP, "mtp_fake_id", location);
 
-  content::RenderViewHost* rvh = web_contents()->GetRenderViewHost();
   FSInfoMap results;
   MediaFileSystemRegistry* registry =
       g_browser_process->media_file_system_registry();
   registry->GetMediaFileSystemsForExtension(
-      rvh, extension_.get(),
+      web_contents(), extension_.get(),
       base::Bind(&GetGalleryInfoCallback, base::Unretained(&results)));
   base::RunLoop().RunUntilIdle();
 

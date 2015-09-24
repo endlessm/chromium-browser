@@ -63,7 +63,7 @@ class NaClIPCAdapter : public base::RefCountedThreadSafe<NaClIPCAdapter>,
   // header is duplicated here so we have a cross-platform definition of the
   // header we're exposing to NaCl.
 #pragma pack(push, 4)
-  struct NaClMessageHeader : public Pickle::Header {
+  struct NaClMessageHeader : public base::Pickle::Header {
     int32 routing;
     uint32 type;
     uint32 flags;
@@ -72,6 +72,22 @@ class NaClIPCAdapter : public base::RefCountedThreadSafe<NaClIPCAdapter>,
   };
 #pragma pack(pop)
 
+  typedef base::Callback<void(IPC::PlatformFileForTransit, base::FilePath)>
+      ResolveFileTokenReplyCallback;
+
+  typedef base::Callback<void(uint64_t,  // file_token_lo
+                              uint64_t,  // file_token_hi
+                              ResolveFileTokenReplyCallback)>
+      ResolveFileTokenCallback;
+
+  typedef base::Callback<void(const IPC::Message&,
+                              IPC::PlatformFileForTransit,
+                              base::FilePath)> OpenResourceReplyCallback;
+
+  typedef base::Callback<bool(const IPC::Message&,
+                              const std::string&,  // key
+                              OpenResourceReplyCallback)> OpenResourceCallback;
+
   // Creates an adapter, using the thread associated with the given task
   // runner for posting messages. In normal use, the task runner will post to
   // the I/O thread of the process.
@@ -79,7 +95,20 @@ class NaClIPCAdapter : public base::RefCountedThreadSafe<NaClIPCAdapter>,
   // If you use this constructor, you MUST call ConnectChannel after the
   // NaClIPCAdapter is constructed, or the NaClIPCAdapter's channel will not be
   // connected.
-  NaClIPCAdapter(const IPC::ChannelHandle& handle, base::TaskRunner* runner);
+  //
+  // |resolve_file_token_cb| is an optional callback to be invoked for
+  // resolving file tokens received from the renderer. When the file token
+  // is resolved, the ResolveFileTokenReplyCallback passed inside the
+  // ResolveFileTokenCallback will be invoked. |open_resource_cb| is also an
+  // optional callback to be invoked for intercepting open_resource IRT calls.
+  // |open_resource_cb| may immediately call a OpenResourceReplyCallback
+  // function to send a pre-opened resource descriptor to the untrusted side.
+  // OpenResourceCallback returns true when OpenResourceReplyCallback is called.
+  NaClIPCAdapter(
+      const IPC::ChannelHandle& handle,
+      base::TaskRunner* runner,
+      ResolveFileTokenCallback resolve_file_token_cb,
+      OpenResourceCallback open_resource_cb);
 
   // Initializes with a given channel that's already created for testing
   // purposes. This function will take ownership of the given channel.
@@ -114,22 +143,6 @@ class NaClIPCAdapter : public base::RefCountedThreadSafe<NaClIPCAdapter>,
   bool OnMessageReceived(const IPC::Message& message) override;
   void OnChannelConnected(int32 peer_pid) override;
   void OnChannelError() override;
-
-  typedef base::Callback<void(IPC::PlatformFileForTransit, base::FilePath)>
-      ResolveFileTokenReplyCallback;
-
-  typedef base::Callback<void(uint64_t,  // file_token_lo
-                              uint64_t,  // file_token_hi
-                              ResolveFileTokenReplyCallback)>
-      ResolveFileTokenCallback;
-
-  // Sets a callback to be invoked for resolving file tokens received from the
-  // renderer. When the file token is resolved, the
-  // ResolveFileTokenReplyCallback passed inside the ResolveFileTokenCallback
-  // will be invoked.
-  void set_resolve_file_token_callback(ResolveFileTokenCallback cb) {
-    resolve_file_token_cb_ = cb;
-  }
 
  private:
   friend class base::RefCountedThreadSafe<NaClIPCAdapter>;
@@ -177,9 +190,9 @@ class NaClIPCAdapter : public base::RefCountedThreadSafe<NaClIPCAdapter>,
 
   ~NaClIPCAdapter() override;
 
-  void OnFileTokenResolved(const IPC::Message& orig_msg,
-                           IPC::PlatformFileForTransit ipc_fd,
-                           base::FilePath file_path);
+  void SaveOpenResourceMessage(const IPC::Message& orig_msg,
+                               IPC::PlatformFileForTransit ipc_fd,
+                               base::FilePath file_path);
 
   bool RewriteMessage(const IPC::Message& msg, uint32_t type);
 
@@ -209,6 +222,7 @@ class NaClIPCAdapter : public base::RefCountedThreadSafe<NaClIPCAdapter>,
   scoped_refptr<base::TaskRunner> task_runner_;
 
   ResolveFileTokenCallback resolve_file_token_cb_;
+  OpenResourceCallback open_resource_cb_;
 
   // To be accessed inside of lock_ only.
   LockedData locked_data_;

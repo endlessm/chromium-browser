@@ -6,7 +6,9 @@
 
 #include "base/command_line.h"
 #include "chrome/browser/extensions/install_tracker_factory.h"
+#include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/ui/app_list/start_page_service.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
@@ -39,6 +41,7 @@ StartPageServiceFactory::StartPageServiceFactory()
   DependsOn(
       extensions::ExtensionsBrowserClient::Get()->GetExtensionSystemFactory());
   DependsOn(extensions::InstallTrackerFactory::GetInstance());
+  DependsOn(TemplateURLServiceFactory::GetInstance());
 }
 
 StartPageServiceFactory::~StartPageServiceFactory() {}
@@ -47,6 +50,12 @@ KeyedService* StartPageServiceFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
   Profile* profile = static_cast<Profile*>(context);
   return new StartPageService(profile);
+}
+
+content::BrowserContext* StartPageServiceFactory::GetBrowserContextToUse(
+    content::BrowserContext* context) const {
+  // The start page service needs an instance in ChromeOS guest mode.
+  return chrome::GetBrowserContextOwnInstanceInIncognito(context);
 }
 
 }  // namespace app_list

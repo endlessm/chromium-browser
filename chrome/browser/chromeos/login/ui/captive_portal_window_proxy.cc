@@ -4,10 +4,13 @@
 
 #include "chrome/browser/chromeos/login/ui/captive_portal_window_proxy.h"
 
+#include "base/metrics/histogram_macros.h"
 #include "chrome/browser/chromeos/login/ui/captive_portal_view.h"
 #include "chrome/browser/chromeos/login/ui/proxy_settings_dialog.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
-#include "components/web_modal/popup_manager.h"
+#include "components/web_modal/web_contents_modal_dialog_host.h"
+#include "components/web_modal/web_contents_modal_dialog_manager.h"
+#include "components/web_modal/web_contents_modal_dialog_manager_delegate.h"
 #include "ui/views/widget/widget.h"
 
 namespace {
@@ -71,15 +74,14 @@ void CaptivePortalWindowProxy::Show() {
   InitCaptivePortalView();
 
   CaptivePortalView* portal = captive_portal_view_.release();
-  web_modal::PopupManager* popup_manager =
-      web_modal::PopupManager::FromWebContents(web_contents_);
-  if (popup_manager) {
-    widget_ =
-        CreateWindowAsFramelessChild(portal, popup_manager->GetHostView());
-    portal->Init();
-    widget_->AddObserver(this);
-    popup_manager->ShowModalDialog(widget_->GetNativeView(), web_contents_);
-  }
+  auto manager =
+      web_modal::WebContentsModalDialogManager::FromWebContents(web_contents_);
+  widget_ = CreateWindowAsFramelessChild(
+      portal,
+      manager->delegate()->GetWebContentsModalDialogHost()->GetHostView());
+  portal->Init();
+  widget_->AddObserver(this);
+  manager->ShowModalDialog(widget_->GetNativeView());
 }
 
 void CaptivePortalWindowProxy::Close() {
@@ -90,8 +92,14 @@ void CaptivePortalWindowProxy::Close() {
 }
 
 void CaptivePortalWindowProxy::OnRedirected() {
-  if (GetState() == STATE_WAITING_FOR_REDIRECTION)
+  if (GetState() == STATE_WAITING_FOR_REDIRECTION) {
+    if (!started_loading_at_.is_null()) {
+      UMA_HISTOGRAM_TIMES("CaptivePortal.RedirectTime",
+                          base::Time::Now() - started_loading_at_);
+      started_loading_at_ = base::Time();
+    }
     Show();
+  }
   delegate_->OnPortalDetected();
 }
 
@@ -124,6 +132,8 @@ void CaptivePortalWindowProxy::InitCaptivePortalView() {
         new CaptivePortalView(ProfileHelper::GetSigninProfile(), this));
     captive_portal_view_for_testing_ = captive_portal_view_.get();
   }
+
+  started_loading_at_ = base::Time::Now();
   captive_portal_view_->StartLoad();
 }
 

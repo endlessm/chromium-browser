@@ -43,10 +43,10 @@ base::Time FileEnumerator::FileInfo::GetLastModifiedTime() const {
 FileEnumerator::FileEnumerator(const FilePath& root_path,
                                bool recursive,
                                int file_type)
-    : recursive_(recursive),
-      file_type_(file_type),
-      has_find_data_(false),
-      find_handle_(INVALID_HANDLE_VALUE) {
+    : has_find_data_(false),
+      find_handle_(INVALID_HANDLE_VALUE),
+      recursive_(recursive),
+      file_type_(file_type) {
   // INCLUDE_DOT_DOT must not be specified if recursive.
   DCHECK(!(recursive && (INCLUDE_DOT_DOT & file_type_)));
   memset(&find_data_, 0, sizeof(find_data_));
@@ -57,11 +57,11 @@ FileEnumerator::FileEnumerator(const FilePath& root_path,
                                bool recursive,
                                int file_type,
                                const FilePath::StringType& pattern)
-    : recursive_(recursive),
+    : has_find_data_(false),
+      find_handle_(INVALID_HANDLE_VALUE),
+      recursive_(recursive),
       file_type_(file_type),
-      has_find_data_(false),
-      pattern_(pattern),
-      find_handle_(INVALID_HANDLE_VALUE) {
+      pattern_(pattern) {
   // INCLUDE_DOT_DOT must not be specified if recursive.
   DCHECK(!(recursive && (INCLUDE_DOT_DOT & file_type_)));
   memset(&find_data_, 0, sizeof(find_data_));
@@ -147,7 +147,8 @@ FilePath FileEnumerator::Next() {
         // add it to pending_paths_ so we scan it after we finish scanning this
         // directory. However, don't do recursion through reparse points or we
         // may end up with an infinite cycle.
-        if (!(find_data_.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT))
+        DWORD attributes = GetFileAttributes(cur_file.value().c_str());
+        if (!(attributes & FILE_ATTRIBUTE_REPARSE_POINT))
           pending_paths_.push(cur_file);
       }
       if (file_type_ & FileEnumerator::DIRECTORIES)

@@ -7,6 +7,7 @@
 
 #include <X11/extensions/shape.h>
 #include <X11/Xlib.h>
+#include <X11/Xutil.h>
 
 #include "base/basictypes.h"
 #include "base/cancelable_callback.h"
@@ -14,11 +15,10 @@
 #include "base/observer_list.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/cursor/cursor_loader_x11.h"
-#include "ui/events/event_source.h"
 #include "ui/events/platform/platform_event_dispatcher.h"
-#include "ui/gfx/insets.h"
-#include "ui/gfx/rect.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/insets.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/x/x11_atom_cache.h"
 #include "ui/views/views_export.h"
 #include "ui/views/widget/desktop_aura/desktop_window_tree_host.h"
@@ -42,7 +42,6 @@ class X11WindowEventFilter;
 class VIEWS_EXPORT DesktopWindowTreeHostX11
     : public DesktopWindowTreeHost,
       public aura::WindowTreeHost,
-      public ui::EventSource,
       public ui::PlatformEventDispatcher {
  public:
   DesktopWindowTreeHostX11(
@@ -82,8 +81,9 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   // Swaps the current handler for events in the non client view with |handler|.
   void SwapNonClientEventHandler(scoped_ptr<ui::EventHandler> handler);
 
-  // Deallocates the internal list of open windows.
-  static void CleanUpWindowList();
+  // Runs the |func| callback for each content-window, and deallocates the
+  // internal list of open windows.
+  static void CleanUpWindowList(void (*func)(aura::Window* window));
 
  protected:
   // Overridden from DesktopWindowTreeHost:
@@ -100,6 +100,7 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   void ShowMaximizedWithBounds(const gfx::Rect& restored_bounds) override;
   bool IsVisible() const override;
   void SetSize(const gfx::Size& requested_size) override;
+  void StackAbove(aura::Window* window) override;
   void StackAtTop() override;
   void CenterWindow(const gfx::Size& size) override;
   void GetWindowPlacement(gfx::Rect* bounds,
@@ -108,7 +109,7 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   gfx::Rect GetClientAreaBoundsInScreen() const override;
   gfx::Rect GetRestoredBounds() const override;
   gfx::Rect GetWorkAreaBoundsInScreen() const override;
-  void SetShape(gfx::NativeRegion native_region) override;
+  void SetShape(SkRegion* native_region) override;
   void Activate() override;
   void Deactivate() override;
   bool IsActive() const override;
@@ -147,12 +148,13 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   void SizeConstraintsChanged() override;
 
   // Overridden from aura::WindowTreeHost:
+  gfx::Transform GetRootTransform() const override;
   ui::EventSource* GetEventSource() override;
   gfx::AcceleratedWidget GetAcceleratedWidget() override;
-  void Show() override;
-  void Hide() override;
+  void ShowImpl() override;
+  void HideImpl() override;
   gfx::Rect GetBounds() const override;
-  void SetBounds(const gfx::Rect& requested_bounds) override;
+  void SetBounds(const gfx::Rect& requested_bounds_in_pixels) override;
   gfx::Point GetLocationOnNativeScreen() const override;
   void SetCapture() override;
   void ReleaseCapture() override;
@@ -160,10 +162,8 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   void MoveCursorToNative(const gfx::Point& location) override;
   void OnCursorVisibilityChangedNative(bool show) override;
 
-  // Overridden frm ui::EventSource
-  ui::EventProcessor* GetEventProcessor() override;
-
  private:
+  friend class DesktopWindowTreeHostX11HighDPITest;
   // Initializes our X11 surface to draw on. This method performs all
   // initialization related to talking to the X11 server.
   void InitX11Window(const Widget::InitParams& params);
@@ -209,6 +209,11 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   // and dispatched to that host instead.
   void DispatchTouchEvent(ui::TouchEvent* event);
 
+  // Updates the location of |located_event| to be in |host|'s coordinate system
+  // so that it can be dispatched to |host|.
+  void ConvertEventToDifferentHost(ui::LocatedEvent* located_event,
+                                   DesktopWindowTreeHostX11* host);
+
   // Resets the window region for the current widget bounds if necessary.
   void ResetWindowRegion();
 
@@ -235,7 +240,11 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   bool CanDispatchEvent(const ui::PlatformEvent& event) override;
   uint32_t DispatchEvent(const ui::PlatformEvent& event) override;
 
-  void DelayedResize(const gfx::Size& size);
+  void DelayedResize(const gfx::Size& size_in_pixels);
+
+  gfx::Rect GetWorkAreaBoundsInPixels() const;
+  gfx::Rect ToDIPRect(const gfx::Rect& rect_in_pixels) const;
+  gfx::Rect ToPixelRect(const gfx::Rect& rect_in_dip) const;
 
   // X11 things
   // The display and the native X window hosting the root window.
@@ -251,24 +260,25 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   bool window_mapped_;
 
   // The bounds of |xwindow_|.
-  gfx::Rect bounds_;
+  gfx::Rect bounds_in_pixels_;
 
   // Whenever the bounds are set, we keep the previous set of bounds around so
-  // we can have a better chance of getting the real |restored_bounds_|. Window
-  // managers tend to send a Configure message with the maximized bounds, and
-  // then set the window maximized property. (We don't rely on this for when we
-  // request that the window be maximized, only when we detect that some other
-  // process has requested that we become the maximized window.)
-  gfx::Rect previous_bounds_;
+  // we can have a better chance of getting the real
+  // |restored_bounds_in_pixels_|. Window managers tend to send a Configure
+  // message with the maximized bounds, and then set the window maximized
+  // property. (We don't rely on this for when we request that the window be
+  // maximized, only when we detect that some other process has requested that
+  // we become the maximized window.)
+  gfx::Rect previous_bounds_in_pixels_;
 
   // The bounds of our window before we were maximized.
-  gfx::Rect restored_bounds_;
+  gfx::Rect restored_bounds_in_pixels_;
 
   // |xwindow_|'s minimum size.
-  gfx::Size min_size_;
+  gfx::Size min_size_in_pixels_;
 
   // |xwindow_|'s maximum size.
-  gfx::Size max_size_;
+  gfx::Size max_size_in_pixels_;
 
   // The window manager state bits.
   std::set< ::Atom> window_properties_;
@@ -306,16 +316,17 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   DesktopWindowTreeHostX11* window_parent_;
   std::set<DesktopWindowTreeHostX11*> window_children_;
 
-  ObserverList<DesktopWindowTreeHostObserverX11> observer_list_;
+  base::ObserverList<DesktopWindowTreeHostObserverX11> observer_list_;
 
   // The window shape if the window is non-rectangular.
-  ::Region window_shape_;
+  gfx::XScopedPtr<_XRegion, gfx::XObjectDeleter<_XRegion, int, XDestroyRegion>>
+      window_shape_;
 
   // Whether |window_shape_| was set via SetShape().
   bool custom_window_shape_;
 
   // The size of the window manager provided borders (if any).
-  gfx::Insets native_window_frame_borders_;
+  gfx::Insets native_window_frame_borders_in_pixels_;
 
   // The current DesktopWindowTreeHostX11 which has capture. Set synchronously
   // when capture is requested via SetCapture().

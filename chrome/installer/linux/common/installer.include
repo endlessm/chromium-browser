@@ -73,6 +73,7 @@ process_template() (
     -e "s#@@MAINTNAME@@#${MAINTNAME}#g" \
     -e "s#@@MAINTMAIL@@#${MAINTMAIL}#g" \
     -e "s#@@REPOCONFIG@@#${REPOCONFIG}#g" \
+    -e "s#@@SSLREPOCONFIG@@#${SSLREPOCONFIG}#g" \
     -e "s#@@SHORTDESC@@#${SHORTDESC}#g" \
     -e "s#@@FULLDESC@@#${FULLDESC}#g" \
     -e "s#@@DEFAULT_FLAGS@@#${DEFAULT_FLAGS:-}#g" \
@@ -127,6 +128,7 @@ stage_install_common() {
   # only the public repository).
   if [ -r "${BUILDDIR}/chrome_100_percent.pak" ]; then
     install -m 644 "${BUILDDIR}/chrome_100_percent.pak" "${STAGEDIR}/${INSTALLDIR}/"
+    install -m 644 "${BUILDDIR}/chrome_200_percent.pak" "${STAGEDIR}/${INSTALLDIR}/"
   else
     install -m 644 "${BUILDDIR}/theme_resources_100_percent.pak" "${STAGEDIR}/${INSTALLDIR}/"
     install -m 644 "${BUILDDIR}/ui_resources_100_percent.pak" "${STAGEDIR}/${INSTALLDIR}/"
@@ -135,6 +137,13 @@ stage_install_common() {
   # ICU data file; only necessary when icu_use_data_file_flag is set to 1
   # in build/common.gypi.
   install -m 644 "${BUILDDIR}/icudtl.dat" "${STAGEDIR}/${INSTALLDIR}/"
+
+  # V8 snapshot files; only necessary when v8_use_external_startup_data is
+  # set to 1 in build/common.gypi.
+  if [ -f "${BUILDDIR}/natives_blob.bin" ]; then
+    install -m 644 "${BUILDDIR}/natives_blob.bin" "${STAGEDIR}/${INSTALLDIR}/"
+    install -m 644 "${BUILDDIR}/snapshot_blob.bin" "${STAGEDIR}/${INSTALLDIR}/"
+  fi
 
   # sandbox
   # Rename sandbox binary with hyphen instead of underscore because that's what
@@ -146,9 +155,6 @@ stage_install_common() {
   cp -a "${BUILDDIR}/locales" "${STAGEDIR}/${INSTALLDIR}/"
   find "${STAGEDIR}/${INSTALLDIR}/locales" -type f -exec chmod 644 '{}' \;
   find "${STAGEDIR}/${INSTALLDIR}/locales" -type d -exec chmod 755 '{}' \;
-
-  # ffmpeg libs
-  install -m 644 -s "${BUILDDIR}/libffmpegsumo.so" "${STAGEDIR}/${INSTALLDIR}/"
 
   # Widevine CDM.
   if [ -f "${BUILDDIR}/libwidevinecdmadapter.so" ]; then
@@ -165,17 +171,20 @@ stage_install_common() {
   install -m 644 "${PEPPERFLASH_SRCDIR}/manifest.json" \
     "${PEPPERFLASH_DESTDIR}/"
 
-  # pdf plugin
-  if [ -f "${BUILDDIR}/libpdf.so" ]; then
-    install -m 644 -s "${BUILDDIR}/libpdf.so" "${STAGEDIR}/${INSTALLDIR}/"
-  fi
-
   # peerconnection shared library
   if [ -f "${BUILDDIR}/lib/libpeerconnection.so" ]; then
     install -m 755 -d "${STAGEDIR}/${INSTALLDIR}/lib/"
 
     install -m 644 -s "${BUILDDIR}/lib/libpeerconnection.so" "${STAGEDIR}/${INSTALLDIR}/lib/"
   fi
+
+  # libc++
+  if [ -f "${BUILDDIR}/lib/libc++.so" ]; then
+    install -m 755 -d "${STAGEDIR}/${INSTALLDIR}/lib/"
+
+    install -m 644 -s "${BUILDDIR}/lib/libc++.so" "${STAGEDIR}/${INSTALLDIR}/lib/"
+  fi
+
 
   # nacl_helper and nacl_helper_bootstrap
   # Don't use "-s" (strip) because this runs binutils "strip", which

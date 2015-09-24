@@ -39,8 +39,9 @@ class WebInbandTextTrack;
 class WebLayer;
 class WebMediaSource;
 
-class MediaPlayerClient {
+class PLATFORM_EXPORT MediaPlayerClient {
 public:
+    MediaPlayerClient() { }
     virtual ~MediaPlayerClient() { }
 
     // the network state has changed
@@ -57,8 +58,6 @@ public:
 
     // the play/pause status changed
     virtual void mediaPlayerPlaybackStateChanged() = 0;
-
-    virtual void mediaPlayerRequestFullscreen() = 0;
 
     virtual void mediaPlayerRequestSeek(double) = 0;
 
@@ -88,8 +87,6 @@ class PLATFORM_EXPORT MediaPlayer {
 public:
     static PassOwnPtr<MediaPlayer> create(MediaPlayerClient*);
     static void setMediaEngineCreateFunction(CreateMediaEnginePlayer);
-
-    static double invalidTime() { return -1.0; }
 
     MediaPlayer() { }
     virtual ~MediaPlayer() { }

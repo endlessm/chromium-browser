@@ -21,9 +21,6 @@ base::string16 GetLocalizedSignOutStringForStatus(LoginStatus status,
     case LOGGED_IN_GUEST:
       message_id = IDS_ASH_STATUS_TRAY_EXIT_GUEST;
       break;
-    case LOGGED_IN_RETAIL_MODE:
-      message_id = IDS_ASH_STATUS_TRAY_EXIT_KIOSK;
-      break;
     case LOGGED_IN_PUBLIC:
       message_id = IDS_ASH_STATUS_TRAY_EXIT_PUBLIC;
       break;
@@ -44,7 +41,8 @@ base::string16 GetLocalizedSignOutStringForStatus(LoginStatus status,
   // spaces are substituted.
   base::string16 newline = multiline ? base::ASCIIToUTF16("\n")
                                      : base::ASCIIToUTF16(" ");
-  ReplaceSubstringsAfterOffset(&message, 0, base::ASCIIToUTF16("\\n"), newline);
+  base::ReplaceSubstringsAfterOffset(
+      &message, 0, base::ASCIIToUTF16("\\n"), newline);
   return message;
 }
 

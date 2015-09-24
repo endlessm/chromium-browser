@@ -19,8 +19,10 @@
       'sources': [
         'geometry/box_f.cc',
         'geometry/box_f.h',
-        'geometry/cubic_bezier.h',
         'geometry/cubic_bezier.cc',
+        'geometry/cubic_bezier.h',
+        'geometry/dip_util.cc',
+        'geometry/dip_util.h',
         'geometry/insets.cc',
         'geometry/insets.h',
         'geometry/insets_base.h',
@@ -44,9 +46,6 @@
         'geometry/rect_conversions.h',
         'geometry/rect_f.cc',
         'geometry/rect_f.h',
-        'geometry/r_tree.h',
-        'geometry/r_tree_base.cc',
-        'geometry/r_tree_base.h',
         'geometry/safe_integer_conversions.h',
         'geometry/scroll_offset.cc',
         'geometry/scroll_offset.h',
@@ -95,7 +94,7 @@
         'GFX_IMPLEMENTATION',
       ],
       'include_dirs': [
-        '<(DEPTH)/third_party/icu/source/common'
+        '<(DEPTH)/third_party/icu/source/common',
       ],
       'sources': [
         'android/device_display_info.cc',
@@ -133,8 +132,6 @@
         'canvas_notimplemented.cc',
         'canvas_paint_mac.h',
         'canvas_paint_mac.mm',
-        'canvas_paint_win.cc',
-        'canvas_paint_win.h',
         'canvas_skia.cc',
         'canvas_skia_paint.h',
         'codec/jpeg_codec.cc',
@@ -161,7 +158,7 @@
         'font.h',
         'font_fallback.h',
         'font_fallback_linux.cc',
-        'font_fallback_mac.cc',
+        'font_fallback_mac.mm',
         'font_fallback_win.cc',
         'font_fallback_win.h',
         'font_list.cc',
@@ -174,12 +171,15 @@
         'font_render_params_linux.cc',
         'font_render_params_mac.cc',
         'font_render_params_win.cc',
-        'frame_time.h',
         'gfx_export.h',
         'gfx_paths.cc',
         'gfx_paths.h',
         'gpu_memory_buffer.cc',
         'gpu_memory_buffer.h',
+        'harfbuzz_font_skia.cc',
+        'harfbuzz_font_skia.h',
+        'hud_font.cc',
+        'hud_font.h',
         'image/canvas_image_source.cc',
         'image/canvas_image_source.h',
         'image/image.cc',
@@ -206,20 +206,25 @@
         'image/image_util_ios.mm',
         'interpolated_transform.cc',
         'interpolated_transform.h',
+        'ios/NSString+CrStringDrawing.h',
+        'ios/NSString+CrStringDrawing.mm',
+        'ios/uikit_util.h',
+        'ios/uikit_util.mm',
         'linux_font_delegate.cc',
         'linux_font_delegate.h',
         'mac/coordinate_conversion.h',
         'mac/coordinate_conversion.mm',
+        'mac/nswindow_frame_controls.h',
+        'mac/nswindow_frame_controls.mm',
         'mac/scoped_ns_disable_screen_updates.h',
         'native_widget_types.h',
         'nine_image_painter.cc',
         'nine_image_painter.h',
         'overlay_transform.h',
-        'pango_util.cc',
-        'pango_util.h',
+        'paint_throbber.cc',
+        'paint_throbber.h',
         'path.cc',
         'path.h',
-        'path_aura.cc',
         'path_win.cc',
         'path_win.h',
         'path_x11.cc',
@@ -228,15 +233,16 @@
         'platform_font_android.cc',
         'platform_font_ios.h',
         'platform_font_ios.mm',
+        'platform_font_linux.cc',
+        'platform_font_linux.h',
         'platform_font_mac.h',
         'platform_font_mac.mm',
-        'platform_font_ozone.cc',
-        'platform_font_pango.cc',
-        'platform_font_pango.h',
         'platform_font_win.cc',
         'platform_font_win.h',
         'range/range.cc',
         'range/range.h',
+        'range/range_f.cc',
+        'range/range_f.h',
         'range/range_mac.mm',
         'range/range_win.cc',
         'render_text.cc',
@@ -245,11 +251,6 @@
         'render_text_harfbuzz.h',
         'render_text_mac.cc',
         'render_text_mac.h',
-        'render_text_ozone.cc',
-        'render_text_pango.cc',
-        'render_text_pango.h',
-        'render_text_win.cc',
-        'render_text_win.h',
         'scoped_canvas.h',
         'scoped_cg_context_save_gstate_mac.h',
         'scoped_ns_graphics_context_save_gstate_mac.h',
@@ -276,10 +277,9 @@
         'skbitmap_operations.h',
         'skia_util.cc',
         'skia_util.h',
+        'swap_result.h',
         'switches.cc',
         'switches.h',
-        'sys_color_change_listener.cc',
-        'sys_color_change_listener.h',
         'text_constants.h',
         'text_elider.cc',
         'text_elider.h',
@@ -296,6 +296,8 @@
         'utf16_indexing.cc',
         'utf16_indexing.h',
         'vsync_provider.h',
+        'win/direct_manipulation.cc',
+        'win/direct_manipulation.h',
         'win/direct_write.cc',
         'win/direct_write.h',
         'win/dpi.cc',
@@ -305,6 +307,8 @@
         'win/scoped_set_map_mode.h',
         'win/singleton_hwnd.cc',
         'win/singleton_hwnd.h',
+        'win/singleton_hwnd_observer.cc',
+        'win/singleton_hwnd_observer.h',
         'win/window_impl.cc',
         'win/window_impl.h',
       ],
@@ -313,12 +317,13 @@
       ],
       'conditions': [
         ['OS=="ios"', {
-          'dependencies': [
-            '<(DEPTH)/ui/ios/ui_ios.gyp:ui_ios',
-          ],
-          # iOS only uses a subset of UI.
-          'sources/': [
-            ['exclude', '^codec/jpeg_codec\\.cc$'],
+          # Linkable dependents need to set the linker flag '-ObjC' in order to
+          # use the categories in this target (e.g. NSString+CrStringDrawing.h).
+          'link_settings': {
+            'xcode_settings': {'OTHER_LDFLAGS': ['-ObjC']},
+          },
+          'sources!': [
+            'codec/jpeg_codec.cc',
           ],
         }, {
           'dependencies': [
@@ -342,6 +347,8 @@
             'gdi_util.h',
             'icon_util.cc',
             'icon_util.h',
+            'sys_color_change_listener.cc',
+            'sys_color_change_listener.h',
           ],
           # TODO(jschuh): C4267: http://crbug.com/167187 size_t -> int
           # C4324 is structure was padded due to __declspec(align()), which is
@@ -355,6 +362,7 @@
           ],
           'dependencies': [
             'gfx_jni_headers',
+            '<(DEPTH)/base/base.gyp:base_java',
           ],
           'link_settings': {
             'libraries': [
@@ -362,6 +370,16 @@
               '-ljnigraphics',
             ],
           },
+        }],
+        ['chromeos==1', {
+          # Chrome OS requires robust JPEG decoding for the login screen.
+          'sources': [
+            'chromeos/codec/jpeg_codec_robust_slow.cc',
+            'chromeos/codec/jpeg_codec_robust_slow.h',
+          ],
+          'dependencies': [
+            '<(libjpeg_ijg_gyp_path):libjpeg',
+          ],
         }],
         ['use_aura==0 and toolkit_views==0', {
           'sources!': [
@@ -379,18 +397,51 @@
             'screen_android.cc',
           ],
         }],
-        ['OS=="android" and android_webview_build==0', {
-          'dependencies': [
-            '<(DEPTH)/base/base.gyp:base_java',
-          ],
-        }],
         ['OS=="android" or OS=="ios"', {
           'sources!': [
+            'harfbuzz_font_skia.cc',
+            'harfbuzz_font_skia.h',
             'render_text.cc',
             'render_text.h',
             'render_text_harfbuzz.cc',
             'render_text_harfbuzz.h',
             'text_utils_skia.cc',
+          ],
+        }, {  # desktop platforms
+          'variables': {
+            'vector_icons_cc_file': '<(INTERMEDIATE_DIR)/ui/gfx/vector_icons.cc',
+            'vector_icons_public_h_file': '<(SHARED_INTERMEDIATE_DIR)/ui/gfx/vector_icons_public.h',
+          },
+          'include_dirs': [
+            '<(SHARED_INTERMEDIATE_DIR)',
+          ],
+          'sources': [
+            '<(vector_icons_cc_file)',
+            '<(vector_icons_public_h_file)',
+
+            'paint_vector_icon.cc',
+            'paint_vector_icon.h',
+            'vector_icons.h',
+          ],
+          'actions': [
+            {
+              # GN version: //ui/gfx:aggregate_vector_icons
+              'action_name': 'aggregate_vector_icons',
+              'inputs': [
+                'vector_icons/',
+              ],
+              'outputs': [
+                '<(vector_icons_cc_file)',
+                '<(vector_icons_public_h_file)',
+              ],
+              'action': [ 'python',
+                          'vector_icons/aggregate_vector_icons.py',
+                          '--working_directory=vector_icons/',
+                          '--output_cc=<(vector_icons_cc_file)',
+                          '--output_h=<(vector_icons_public_h_file)',
+              ],
+              'message': 'Aggregating vector resources.',
+            },
           ],
         }],
         ['use_x11==1', {
@@ -399,13 +450,9 @@
             'x/gfx_x11.gyp:gfx_x11',
           ],
         }],
-        ['use_pango==1', {
+        ['use_cairo==1', {
           'dependencies': [
             '<(DEPTH)/build/linux/system.gyp:pangocairo',
-          ],
-          'sources!': [
-            'platform_font_ozone.cc',
-            'render_text_ozone.cc',
           ],
         }],
         ['desktop_linux==1 or chromeos==1', {

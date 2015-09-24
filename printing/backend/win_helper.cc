@@ -91,8 +91,8 @@ HRESULT StreamFromPrintTicket(const std::string& print_ticket,
                    base::checked_cast<ULONG>(print_ticket.length()),
                    &bytes_written);
   DCHECK(bytes_written == print_ticket.length());
-  LARGE_INTEGER pos = {0};
-  ULARGE_INTEGER new_pos = {0};
+  LARGE_INTEGER pos = {};
+  ULARGE_INTEGER new_pos = {};
   (*stream)->Seek(pos, STREAM_SEEK_SET, &new_pos);
   return S_OK;
 }
@@ -410,13 +410,9 @@ scoped_ptr<DEVMODE, base::FreeDeleter> XpsTicketToDevMode(
     ULONG size = 0;
     DEVMODE* dm = NULL;
     // Use kPTJobScope, because kPTDocumentScope breaks duplex.
-    hr = printing::XPSModule::ConvertPrintTicketToDevMode(provider,
-                                                          pt_stream,
-                                                          kUserDefaultDevmode,
-                                                          kPTJobScope,
-                                                          &size,
-                                                          &dm,
-                                                          NULL);
+    hr = printing::XPSModule::ConvertPrintTicketToDevMode(
+        provider, pt_stream.get(), kUserDefaultDevmode, kPTJobScope, &size, &dm,
+        NULL);
     if (SUCCEEDED(hr)) {
       // Correct DEVMODE using DocumentProperties. See documentation for
       // PTConvertPrintTicketToDevMode.
@@ -476,6 +472,11 @@ scoped_ptr<DEVMODE, base::FreeDeleter> CreateDevMode(HANDLE printer,
       NULL, printer, const_cast<wchar_t*>(L""), NULL, NULL, 0);
   if (buffer_size < static_cast<int>(sizeof(DEVMODE)))
     return scoped_ptr<DEVMODE, base::FreeDeleter>();
+
+  // Some drivers request buffers with size smaller than dmSize + dmDriverExtra.
+  // crbug.com/421402
+  buffer_size *= 2;
+
   scoped_ptr<DEVMODE, base::FreeDeleter> out(
       reinterpret_cast<DEVMODE*>(calloc(buffer_size, 1)));
   DWORD flags = (in ? (DM_IN_BUFFER) : 0) | DM_OUT_BUFFER;
@@ -505,6 +506,11 @@ scoped_ptr<DEVMODE, base::FreeDeleter> PromptDevMode(
                          0);
   if (buffer_size < static_cast<int>(sizeof(DEVMODE)))
     return scoped_ptr<DEVMODE, base::FreeDeleter>();
+
+  // Some drivers request buffers with size smaller than dmSize + dmDriverExtra.
+  // crbug.com/421402
+  buffer_size *= 2;
+
   scoped_ptr<DEVMODE, base::FreeDeleter> out(
       reinterpret_cast<DEVMODE*>(calloc(buffer_size, 1)));
   DWORD flags = (in ? (DM_IN_BUFFER) : 0) | DM_OUT_BUFFER | DM_IN_PROMPT;

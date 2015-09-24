@@ -24,24 +24,25 @@
 #ifndef HTMLLabelElement_h
 #define HTMLLabelElement_h
 
+#include "core/CoreExport.h"
 #include "core/html/FormAssociatedElement.h"
 #include "core/html/HTMLElement.h"
 #include "core/html/LabelableElement.h"
 
 namespace blink {
 
-class HTMLLabelElement final : public HTMLElement, public FormAssociatedElement {
+class CORE_EXPORT HTMLLabelElement final : public HTMLElement, public FormAssociatedElement {
     DEFINE_WRAPPERTYPEINFO();
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(HTMLLabelElement);
 public:
     static PassRefPtrWillBeRawPtr<HTMLLabelElement> create(Document&, HTMLFormElement*);
     LabelableElement* control() const;
 
-    virtual bool willRespondToMouseClickEvents() override;
+    bool willRespondToMouseClickEvents() override;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
-    virtual HTMLFormElement* formOwner() const override;
+    HTMLFormElement* formOwner() const override;
 
 
 #if !ENABLE(OILPAN)
@@ -53,33 +54,33 @@ private:
     explicit HTMLLabelElement(Document&, HTMLFormElement*);
     bool isInInteractiveContent(Node*) const;
 
-    virtual bool rendererIsFocusable() const override;
-    virtual bool isInteractiveContent() const override;
-    virtual void accessKeyAction(bool sendMouseEvents) override;
+    bool layoutObjectIsFocusable() const override;
+    bool isInteractiveContent() const override;
+    void accessKeyAction(bool sendMouseEvents) override;
 
-    virtual void attributeWillChange(const QualifiedName&, const AtomicString& oldValue, const AtomicString& newValue) override;
-    virtual InsertionNotificationRequest insertedInto(ContainerNode*) override;
-    virtual void removedFrom(ContainerNode*) override;
+    void attributeWillChange(const QualifiedName&, const AtomicString& oldValue, const AtomicString& newValue) override;
+    InsertionNotificationRequest insertedInto(ContainerNode*) override;
+    void removedFrom(ContainerNode*) override;
 
     // Overridden to update the hover/active state of the corresponding control.
-    virtual void setActive(bool = true) override;
-    virtual void setHovered(bool = true) override;
+    void setActive(bool = true) override;
+    void setHovered(bool = true) override;
 
     // Overridden to either click() or focus() the corresponding control.
-    virtual void defaultEventHandler(Event*) override;
+    void defaultEventHandler(Event*) override;
 
-    virtual void focus(bool restorePreviousSelection, FocusType) override;
+    void focus(bool restorePreviousSelection, WebFocusType) override;
 
     // FormAssociatedElement methods
-    virtual bool isFormControlElement() const override { return false; }
-    virtual bool isEnumeratable() const override { return false; }
-    virtual bool isLabelElement() const override { return true; }
+    bool isFormControlElement() const override { return false; }
+    bool isEnumeratable() const override { return false; }
+    bool isLabelElement() const override { return true; }
 #if !ENABLE(OILPAN)
-    virtual void refFormAssociatedElement() override { ref(); }
-    virtual void derefFormAssociatedElement() override { deref(); }
+    void refFormAssociatedElement() override { ref(); }
+    void derefFormAssociatedElement() override { deref(); }
 #endif
 
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) override;
 
     void updateLabel(TreeScope&, const AtomicString& oldForAttributeValue, const AtomicString& newForAttributeValue);
 

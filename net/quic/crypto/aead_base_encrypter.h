@@ -42,19 +42,25 @@ class NET_EXPORT_PRIVATE AeadBaseEncrypter : public QuicEncrypter {
   // QuicEncrypter implementation
   bool SetKey(base::StringPiece key) override;
   bool SetNoncePrefix(base::StringPiece nonce_prefix) override;
-  bool Encrypt(base::StringPiece nonce,
-               base::StringPiece associated_data,
-               base::StringPiece plaintext,
-               unsigned char* output) override;
-  QuicData* EncryptPacket(QuicPacketSequenceNumber sequence_number,
-                          base::StringPiece associated_data,
-                          base::StringPiece plaintext) override;
+  bool EncryptPacket(QuicPacketSequenceNumber sequence_number,
+                     base::StringPiece associated_data,
+                     base::StringPiece plaintext,
+                     char* output,
+                     size_t* output_length,
+                     size_t max_output_length) override;
   size_t GetKeySize() const override;
   size_t GetNoncePrefixSize() const override;
   size_t GetMaxPlaintextSize(size_t ciphertext_size) const override;
   size_t GetCiphertextSize(size_t plaintext_size) const override;
   base::StringPiece GetKey() const override;
   base::StringPiece GetNoncePrefix() const override;
+
+  // Necessary so unit tests can explicitly specify a nonce, instead of a
+  // nonce prefix and sequence number.
+  bool Encrypt(base::StringPiece nonce,
+               base::StringPiece associated_data,
+               base::StringPiece plaintext,
+               unsigned char* output);
 
  protected:
   // Make these constants available to the subclasses so that the subclasses
@@ -68,9 +74,9 @@ class NET_EXPORT_PRIVATE AeadBaseEncrypter : public QuicEncrypter {
     unsigned int len;
     union {
       CK_GCM_PARAMS gcm_params;
-#if !defined(USE_NSS)
-      // USE_NSS means we are using system NSS rather than our copy of NSS.
-      // The system NSS <pkcs11n.h> header doesn't define this type yet.
+#if !defined(USE_NSS_CERTS)
+      // USE_NSS_CERTS implies we are using system NSS rather than our copy of
+      // NSS. The system NSS <pkcs11n.h> header doesn't define this type yet.
       CK_NSS_AEAD_PARAMS nss_aead_params;
 #endif
     } data;

@@ -53,8 +53,12 @@ static const size_t kSystemPageSize = 4096;
 static const size_t kSystemPageOffsetMask = kSystemPageSize - 1;
 static const size_t kSystemPageBaseMask = ~kSystemPageOffsetMask;
 
-// Allocate one or more pages. Addresses in the range will be readable and
-// writeable but not executable.
+enum PageAccessibilityConfiguration {
+    PageAccessible,
+    PageInaccessible,
+};
+
+// Allocate one or more pages.
 // The requested address is just a hint; the actual address returned may
 // differ. The returned address will be aligned at least to align bytes.
 // len is in bytes, and must be a multiple of kPageAllocationGranularity.
@@ -62,8 +66,10 @@ static const size_t kSystemPageBaseMask = ~kSystemPageOffsetMask;
 // kPageAllocationGranularity.
 // If addr is null, then a suitable and randomized address will be chosen
 // automatically.
+// PageAccessibilityConfiguration controls the permission of the
+// allocated pages.
 // This call will return null if the allocation cannot be satisfied.
-WTF_EXPORT void* allocPages(void* addr, size_t len, size_t align);
+WTF_EXPORT void* allocPages(void* addr, size_t len, size_t align, PageAccessibilityConfiguration);
 
 // Free one or more pages.
 // addr and len must match a previous call to allocPages().
@@ -78,7 +84,11 @@ WTF_EXPORT void setSystemPagesInaccessible(void* addr, size_t len);
 // Mark one or more system pages as being accessible.
 // The pages will be readable and writeable.
 // len must be a multiple of kSystemPageSize bytes.
-WTF_EXPORT void setSystemPagesAccessible(void* addr, size_t len);
+// The result bool value indicates whether the permission
+// change succeeded or not. You must check the result
+// (in most cases you need to RELEASE_ASSERT that it is
+// true).
+WTF_EXPORT WARN_UNUSED_RETURN bool setSystemPagesAccessible(void* addr, size_t len);
 
 // Decommit one or more system pages. Decommitted means that the physical memory
 // is released to the system, but the virtual address space remains reserved.
@@ -96,6 +106,22 @@ WTF_EXPORT void decommitSystemPages(void* addr, size_t len);
 // Note that this operation may be a no-op on some platforms.
 // len must be a multiple of kSystemPageSize bytes.
 WTF_EXPORT void recommitSystemPages(void* addr, size_t len);
+
+// Discard one or more system pages. Discarding is a hint to the system that
+// the page is no longer required. The hint may:
+// - Do nothing.
+// - Discard the page immediately, freeing up physical pages.
+// - Discard the page at some time in the future in response to memory pressure.
+// Only committed pages should be discarded. Discarding a page does not
+// decommit it, and it is valid to discard an already-discarded page.
+// A read or write to a discarded page will not fault.
+// Reading from a discarded page may return the original page content, or a
+// page full of zeroes.
+// Writing to a discarded page is the only guaranteed way to tell the system
+// that the page is required again. Once written to, the content of the page is // guaranteed stable once more. After being written to, the page content may be
+// based on the original page content, or a page of zeroes.
+// len must be a multiple of kSystemPageSize bytes.
+WTF_EXPORT void discardSystemPages(void* addr, size_t len);
 
 } // namespace WTF
 

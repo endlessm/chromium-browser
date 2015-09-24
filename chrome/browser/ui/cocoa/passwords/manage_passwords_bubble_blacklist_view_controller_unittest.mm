@@ -4,6 +4,7 @@
 
 #import "chrome/browser/ui/cocoa/passwords/manage_passwords_bubble_blacklist_view_controller.h"
 
+#include "base/memory/scoped_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/cocoa/cocoa_test_helper.h"
 #import "chrome/browser/ui/cocoa/passwords/manage_passwords_bubble_blacklist_view_controller.h"
@@ -38,7 +39,7 @@ class ManagePasswordsBubbleBlacklistViewControllerTest
  public:
   ManagePasswordsBubbleBlacklistViewControllerTest() : controller_(nil) {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     ManagePasswordsControllerTest::SetUp();
     delegate_.reset(
         [[ManagePasswordsBubbleBlacklistViewTestDelegate alloc] init]);
@@ -74,20 +75,10 @@ TEST_F(ManagePasswordsBubbleBlacklistViewControllerTest,
 
 TEST_F(ManagePasswordsBubbleBlacklistViewControllerTest,
        ShouldDismissAndUnblacklistWhenUnblacklistClicked) {
-  ui_controller()->SetState(password_manager::ui::BLACKLIST_STATE);
-  // Unblacklisting requires passwords to exist for the site.
-  autofill::PasswordForm form;
-  form.username_value = base::ASCIIToUTF16("username");
-  form.password_value = base::ASCIIToUTF16("password");
-  autofill::ConstPasswordFormMap map;
-  map[base::ASCIIToUTF16("username")] = &form;
-  ui_controller()->SetPasswordFormMap(map);
-
-  EXPECT_EQ(password_manager::ui::BLACKLIST_STATE, ui_controller()->state());
   NSButton* undoButton = controller().undoBlacklistButton;
   [undoButton performClick:nil];
   EXPECT_TRUE(delegate().dismissed);
-  EXPECT_NE(password_manager::ui::BLACKLIST_STATE, ui_controller()->state());
+  EXPECT_TRUE(ui_controller()->unblacklist_site());
 }
 
 }  // namespace

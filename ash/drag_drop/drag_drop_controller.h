@@ -13,7 +13,7 @@
 #include "ui/events/event_constants.h"
 #include "ui/events/event_handler.h"
 #include "ui/gfx/animation/animation_delegate.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/wm/public/drag_drop_client.h"
 
 namespace gfx {
@@ -46,7 +46,7 @@ class ASH_EXPORT DragDropController
   int StartDragAndDrop(const ui::OSExchangeData& data,
                        aura::Window* root_window,
                        aura::Window* source_window,
-                       const gfx::Point& root_location,
+                       const gfx::Point& screen_location,
                        int operation,
                        ui::DragDropTypes::DragEventSource source) override;
   void DragUpdate(aura::Window* target, const ui::LocatedEvent& event) override;

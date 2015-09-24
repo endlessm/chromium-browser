@@ -16,6 +16,7 @@
 #include "components/os_crypt/os_crypt_switches.h"
 #include "crypto/apple_keychain.h"
 #include "crypto/encryptor.h"
+#include "crypto/mock_apple_keychain.h"
 #include "crypto/symmetric_key.h"
 
 using crypto::AppleKeychain;
@@ -52,12 +53,13 @@ crypto::SymmetricKey* GetEncryptionKey() {
     return cached_encryption_key;
 
   static bool mock_keychain_command_line_flag =
-      CommandLine::ForCurrentProcess()->HasSwitch(
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
           os_crypt::switches::kUseMockKeychain);
 
   std::string password;
   if (use_mock_keychain || mock_keychain_command_line_flag) {
-    password = "mock_password";
+    crypto::MockAppleKeychain keychain;
+    password = keychain.GetEncryptionPassword();
   } else {
     AppleKeychain keychain;
     KeychainPassword encryptor_password(keychain);

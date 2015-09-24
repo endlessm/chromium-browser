@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// MSVC++ requires this to be set before any other includes to get M_PI.
+#define _USE_MATH_DEFINES
+
+#include <cmath>
+
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/gesture_detection/motion_event_generic.h"
@@ -17,6 +22,10 @@ TEST(MotionEventGenericTest, Basic) {
   EXPECT_EQ(0U, event.GetHistorySize());
   EXPECT_EQ(event_time, event.GetEventTime());
 
+  DCHECK_NE(0U, event.GetUniqueEventId());
+  event.set_unique_event_id(123456U);
+  EXPECT_EQ(123456U, event.GetUniqueEventId());
+
   event.PushPointer(PointerProperties(8.3f, 4.7f, 0.9f));
   ASSERT_EQ(2U, event.GetPointerCount());
   EXPECT_EQ(8.3f, event.GetX(1));
@@ -27,8 +36,8 @@ TEST(MotionEventGenericTest, Basic) {
   EXPECT_EQ(2.3f, event.GetX(2));
   EXPECT_EQ(-3.7f, event.GetY(2));
 
-  event.set_id(1);
-  EXPECT_EQ(1, event.GetId());
+  event.pointer(0).id = 3;
+  EXPECT_EQ(3, event.GetPointerId(0));
 
   event.set_action(MotionEvent::ACTION_POINTER_DOWN);
   EXPECT_EQ(MotionEvent::ACTION_POINTER_DOWN, event.GetAction());
@@ -78,11 +87,11 @@ TEST(MotionEventGenericTest, Clone) {
   MotionEventGeneric event(MotionEvent::ACTION_DOWN,
                            base::TimeTicks::Now(),
                            PointerProperties(8.3f, 4.7f, 2.f));
-  event.set_id(1);
   event.set_button_state(MotionEvent::BUTTON_PRIMARY);
 
   scoped_ptr<MotionEvent> clone = event.Clone();
   ASSERT_TRUE(clone);
+  EXPECT_EQ(event.GetUniqueEventId(), clone->GetUniqueEventId());
   EXPECT_EQ(test::ToString(event), test::ToString(*clone));
 }
 
@@ -103,6 +112,7 @@ TEST(MotionEventGenericTest, CloneWithHistory) {
 
   scoped_ptr<MotionEvent> clone = event.Clone();
   ASSERT_TRUE(clone);
+  EXPECT_EQ(event.GetUniqueEventId(), clone->GetUniqueEventId());
   EXPECT_EQ(test::ToString(event), test::ToString(*clone));
 }
 
@@ -110,12 +120,12 @@ TEST(MotionEventGenericTest, Cancel) {
   MotionEventGeneric event(MotionEvent::ACTION_UP,
                            base::TimeTicks::Now(),
                            PointerProperties(8.7f, 4.3f, 1.f));
-  event.set_id(2);
   event.set_button_state(MotionEvent::BUTTON_SECONDARY);
 
   scoped_ptr<MotionEvent> cancel = event.Cancel();
   event.set_action(MotionEvent::ACTION_CANCEL);
   ASSERT_TRUE(cancel);
+  EXPECT_NE(event.GetUniqueEventId(), cancel->GetUniqueEventId());
   EXPECT_EQ(test::ToString(event), test::ToString(*cancel));
 }
 
@@ -130,7 +140,7 @@ TEST(MotionEventGenericTest, FindPointerIndexOfId) {
 
   MotionEventGeneric event1(event0);
   pointer.id = 7;
-  event1.PushPointer(pointer);
+  EXPECT_EQ(1u, event1.PushPointer(pointer));
   EXPECT_EQ(0, event1.FindPointerIndexOfId(0));
   EXPECT_EQ(1, event1.FindPointerIndexOfId(7));
   EXPECT_EQ(-1, event1.FindPointerIndexOfId(6));
@@ -138,12 +148,81 @@ TEST(MotionEventGenericTest, FindPointerIndexOfId) {
 
   MotionEventGeneric event2(event1);
   pointer.id = 3;
-  event2.PushPointer(pointer);
+  EXPECT_EQ(2u, event2.PushPointer(pointer));
   EXPECT_EQ(0, event2.FindPointerIndexOfId(0));
   EXPECT_EQ(1, event2.FindPointerIndexOfId(7));
   EXPECT_EQ(2, event2.FindPointerIndexOfId(3));
   EXPECT_EQ(-1, event2.FindPointerIndexOfId(1));
   EXPECT_EQ(-1, event2.FindPointerIndexOfId(2));
+}
+
+TEST(MotionEventGenericTest, RemovePointerAt) {
+  base::TimeTicks event_time = base::TimeTicks::Now();
+  PointerProperties pointer;
+  pointer.id = 0;
+  MotionEventGeneric event(MotionEvent::ACTION_DOWN, event_time, pointer);
+
+  pointer.id = 7;
+  EXPECT_EQ(1u, event.PushPointer(pointer));
+  EXPECT_EQ(2u, event.GetPointerCount());
+
+  // Remove from the end.
+  event.RemovePointerAt(1);
+  EXPECT_EQ(1u, event.GetPointerCount());
+  EXPECT_EQ(-1, event.FindPointerIndexOfId(7));
+  EXPECT_EQ(0, event.FindPointerIndexOfId(0));
+
+  EXPECT_EQ(1u, event.PushPointer(pointer));
+  EXPECT_EQ(2u, event.GetPointerCount());
+
+  // Remove from the beginning.
+  event.RemovePointerAt(0);
+  EXPECT_EQ(1u, event.GetPointerCount());
+  EXPECT_EQ(0, event.FindPointerIndexOfId(7));
+  EXPECT_EQ(-1, event.FindPointerIndexOfId(0));
+}
+
+TEST(MotionEventGenericTest, AxisAndOrientation) {
+  {
+    PointerProperties properties;
+    float radius_x = 10;
+    float radius_y = 5;
+    float rotation_angle_deg = 0;
+    properties.SetAxesAndOrientation(radius_x, radius_y, rotation_angle_deg);
+    EXPECT_EQ(20, properties.touch_major);
+    EXPECT_EQ(10, properties.touch_minor);
+    EXPECT_NEAR(-M_PI_2, properties.orientation, 0.001);
+  }
+  {
+    PointerProperties properties;
+    float radius_x = 5;
+    float radius_y = 10;
+    float rotation_angle_deg = 0;
+    properties.SetAxesAndOrientation(radius_x, radius_y, rotation_angle_deg);
+    EXPECT_EQ(20, properties.touch_major);
+    EXPECT_EQ(10, properties.touch_minor);
+    EXPECT_NEAR(0, properties.orientation, 0.001);
+  }
+  {
+    PointerProperties properties;
+    float radius_x = 10;
+    float radius_y = 5;
+    float rotation_angle_deg = 179.99f;
+    properties.SetAxesAndOrientation(radius_x, radius_y, rotation_angle_deg);
+    EXPECT_EQ(20, properties.touch_major);
+    EXPECT_EQ(10, properties.touch_minor);
+    EXPECT_NEAR(M_PI_2, properties.orientation, 0.001);
+  }
+  {
+    PointerProperties properties;
+    float radius_x = 10;
+    float radius_y = 5;
+    float rotation_angle_deg = 90;
+    properties.SetAxesAndOrientation(radius_x, radius_y, rotation_angle_deg);
+    EXPECT_EQ(20, properties.touch_major);
+    EXPECT_EQ(10, properties.touch_minor);
+    EXPECT_NEAR(0, properties.orientation, 0.001);
+  }
 }
 
 TEST(MotionEventGenericTest, ToString) {

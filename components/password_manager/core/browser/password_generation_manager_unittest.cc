@@ -4,6 +4,7 @@
 
 #include <vector>
 
+#include "base/message_loop/message_loop.h"
 #include "base/prefs/pref_registry_simple.h"
 #include "base/prefs/pref_service.h"
 #include "base/prefs/testing_pref_service.h"
@@ -20,10 +21,12 @@
 #include "components/password_manager/core/browser/stub_password_manager_driver.h"
 #include "components/password_manager/core/browser/test_password_store.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
 using base::ASCIIToUTF16;
+using testing::_;
 
 namespace password_manager {
 
@@ -33,13 +36,11 @@ class TestPasswordManagerDriver : public StubPasswordManagerDriver {
  public:
   TestPasswordManagerDriver(PasswordManagerClient* client)
       : password_manager_(client),
-        password_generation_manager_(client),
-        password_autofill_manager_(client, NULL),
-        is_off_the_record_(false) {}
+        password_generation_manager_(client, this),
+        password_autofill_manager_(this, nullptr) {}
   ~TestPasswordManagerDriver() override {}
 
   // PasswordManagerDriver implementation.
-  bool IsOffTheRecord() override { return is_off_the_record_; }
   PasswordGenerationManager* GetPasswordGenerationManager() override {
     return &password_generation_manager_;
   }
@@ -56,55 +57,34 @@ class TestPasswordManagerDriver : public StubPasswordManagerDriver {
   const std::vector<autofill::FormData>& GetFoundAccountCreationForms() {
     return found_account_creation_forms_;
   }
-  void set_is_off_the_record(bool is_off_the_record) {
-    is_off_the_record_ = is_off_the_record;
-  }
 
  private:
   PasswordManager password_manager_;
   PasswordGenerationManager password_generation_manager_;
   PasswordAutofillManager password_autofill_manager_;
   std::vector<autofill::FormData> found_account_creation_forms_;
-  bool is_off_the_record_;
 };
 
-class TestPasswordManagerClient : public StubPasswordManagerClient {
+class MockPasswordManagerClient : public StubPasswordManagerClient {
  public:
-  TestPasswordManagerClient(scoped_ptr<PrefService> prefs)
-      : prefs_(prefs.Pass()),
-        store_(new TestPasswordStore),
-        driver_(this),
-        is_sync_enabled_(false) {}
+  MOCK_CONST_METHOD0(GetPasswordSyncState, PasswordSyncState());
+  MOCK_CONST_METHOD0(IsSavingEnabledForCurrentPage, bool());
+  MOCK_CONST_METHOD0(IsOffTheRecord, bool());
 
-  ~TestPasswordManagerClient() override {
-    store_->Shutdown();
-  }
+  MockPasswordManagerClient(scoped_ptr<PrefService> prefs)
+      : prefs_(prefs.Pass()), store_(new TestPasswordStore), driver_(this) {}
 
-  PasswordStore* GetPasswordStore() override { return store_.get(); }
+  ~MockPasswordManagerClient() override { store_->Shutdown(); }
+
+  PasswordStore* GetPasswordStore() const override { return store_.get(); }
   PrefService* GetPrefs() override { return prefs_.get(); }
-  PasswordManagerDriver* GetDriver() override { return &driver_; }
-  bool IsPasswordSyncEnabled(CustomPassphraseState state) override {
-    return is_sync_enabled_;
-  }
 
-  void set_is_password_sync_enabled(bool enabled) {
-    is_sync_enabled_ = enabled;
-  }
+  TestPasswordManagerDriver* test_driver() { return &driver_; }
 
  private:
   scoped_ptr<PrefService> prefs_;
   scoped_refptr<TestPasswordStore> store_;
   TestPasswordManagerDriver driver_;
-  bool is_sync_enabled_;
-};
-
-// Unlike the base AutofillMetrics, exposes copy and assignment constructors,
-// which are handy for briefer test code.  The AutofillMetrics class is
-// stateless, so this is safe.
-class TestAutofillMetrics : public autofill::AutofillMetrics {
- public:
-  TestAutofillMetrics() {}
-  ~TestAutofillMetrics() override {}
 };
 
 }  // anonymous namespace
@@ -118,18 +98,16 @@ class PasswordGenerationManagerTest : public testing::Test {
     scoped_ptr<TestingPrefServiceSimple> prefs(new TestingPrefServiceSimple());
     prefs->registry()->RegisterBooleanPref(prefs::kPasswordManagerSavingEnabled,
                                            true);
-    client_.reset(new TestPasswordManagerClient(prefs.Pass()));
+    client_.reset(new MockPasswordManagerClient(prefs.Pass()));
   }
 
   void TearDown() override { client_.reset(); }
 
   PasswordGenerationManager* GetGenerationManager() {
-    return client_->GetDriver()->GetPasswordGenerationManager();
+    return client_->test_driver()->GetPasswordGenerationManager();
   }
 
-  TestPasswordManagerDriver* GetTestDriver() {
-    return static_cast<TestPasswordManagerDriver*>(client_->GetDriver());
-  }
+  TestPasswordManagerDriver* GetTestDriver() { return client_->test_driver(); }
 
   bool IsGenerationEnabled() {
     return GetGenerationManager()->IsGenerationEnabled();
@@ -140,33 +118,47 @@ class PasswordGenerationManagerTest : public testing::Test {
     GetGenerationManager()->DetectAccountCreationForms(forms);
   }
 
-  scoped_ptr<TestPasswordManagerClient> client_;
+  base::MessageLoop message_loop_;
+  scoped_ptr<MockPasswordManagerClient> client_;
 };
 
 TEST_F(PasswordGenerationManagerTest, IsGenerationEnabled) {
   // Enabling the PasswordManager and password sync should cause generation to
-  // be enabled.
-  PrefService* prefs = client_->GetPrefs();
-  prefs->SetBoolean(prefs::kPasswordManagerSavingEnabled, true);
-  client_->set_is_password_sync_enabled(true);
+  // be enabled, unless the sync is with a custom passphrase.
+  EXPECT_CALL(*client_, IsSavingEnabledForCurrentPage())
+      .WillRepeatedly(testing::Return(true));
+  EXPECT_CALL(*client_, GetPasswordSyncState())
+      .WillRepeatedly(testing::Return(SYNCING_NORMAL_ENCRYPTION));
   EXPECT_TRUE(IsGenerationEnabled());
 
+  EXPECT_CALL(*client_, GetPasswordSyncState())
+      .WillRepeatedly(testing::Return(SYNCING_WITH_CUSTOM_PASSPHRASE));
+  EXPECT_FALSE(IsGenerationEnabled());
+
   // Disabling password syncing should cause generation to be disabled.
-  client_->set_is_password_sync_enabled(false);
+  EXPECT_CALL(*client_, GetPasswordSyncState())
+      .WillRepeatedly(testing::Return(NOT_SYNCING_PASSWORDS));
   EXPECT_FALSE(IsGenerationEnabled());
 
   // Disabling the PasswordManager should cause generation to be disabled even
   // if syncing is enabled.
-  prefs->SetBoolean(prefs::kPasswordManagerSavingEnabled, false);
-  client_->set_is_password_sync_enabled(true);
+  EXPECT_CALL(*client_, IsSavingEnabledForCurrentPage())
+      .WillRepeatedly(testing::Return(false));
+  EXPECT_CALL(*client_, GetPasswordSyncState())
+      .WillRepeatedly(testing::Return(SYNCING_NORMAL_ENCRYPTION));
+  EXPECT_FALSE(IsGenerationEnabled());
+
+  EXPECT_CALL(*client_, GetPasswordSyncState())
+      .WillRepeatedly(testing::Return(SYNCING_WITH_CUSTOM_PASSPHRASE));
   EXPECT_FALSE(IsGenerationEnabled());
 }
 
 TEST_F(PasswordGenerationManagerTest, DetectAccountCreationForms) {
   // Setup so that IsGenerationEnabled() returns true.
-  PrefService* prefs = client_->GetPrefs();
-  prefs->SetBoolean(prefs::kPasswordManagerSavingEnabled, true);
-  client_->set_is_password_sync_enabled(true);
+  EXPECT_CALL(*client_, IsSavingEnabledForCurrentPage())
+      .WillRepeatedly(testing::Return(true));
+  EXPECT_CALL(*client_, GetPasswordSyncState())
+      .WillRepeatedly(testing::Return(SYNCING_NORMAL_ENCRYPTION));
 
   autofill::FormData login_form;
   login_form.origin = GURL("http://www.yahoo.com/login/");
@@ -204,8 +196,7 @@ TEST_F(PasswordGenerationManagerTest, DetectAccountCreationForms) {
       "<field autofilltype=\"76\" />"
       "<field autofilltype=\"75\" />"
       "</autofillqueryresponse>";
-  autofill::FormStructure::ParseQueryResponse(
-      kServerResponse, forms, TestAutofillMetrics());
+  autofill::FormStructure::ParseQueryResponse(kServerResponse, forms, NULL);
 
   DetectAccountCreationForms(forms);
   EXPECT_EQ(1u, GetTestDriver()->GetFoundAccountCreationForms().size());
@@ -217,10 +208,11 @@ TEST_F(PasswordGenerationManagerTest, UpdatePasswordSyncStateIncognito) {
   // Disable password manager by going incognito. Even though password
   // syncing is enabled, generation should still
   // be disabled.
-  GetTestDriver()->set_is_off_the_record(true);
+  EXPECT_CALL(*client_, IsOffTheRecord()).WillRepeatedly(testing::Return(true));
   PrefService* prefs = client_->GetPrefs();
   prefs->SetBoolean(prefs::kPasswordManagerSavingEnabled, true);
-  client_->set_is_password_sync_enabled(true);
+  EXPECT_CALL(*client_, GetPasswordSyncState())
+      .WillRepeatedly(testing::Return(SYNCING_NORMAL_ENCRYPTION));
 
   EXPECT_FALSE(IsGenerationEnabled());
 }

@@ -17,6 +17,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "storage/common/fileapi/file_system_util.h"
+#include "third_party/leveldatabase/env_chromium.h"
 #include "third_party/leveldatabase/src/include/leveldb/db.h"
 #include "third_party/leveldatabase/src/include/leveldb/write_batch.h"
 
@@ -80,6 +81,7 @@ bool SandboxOriginDatabase::Init(InitOption init_option,
   leveldb::Options options;
   options.max_open_files = 0;  // Use minimum.
   options.create_if_missing = true;
+  options.reuse_logs = leveldb_env::kDefaultLogReuseOptionValue;
   if (env_override_)
     options.env = env_override_;
   leveldb::DB* db;
@@ -289,8 +291,8 @@ bool SandboxOriginDatabase::ListAllOrigins(
   std::string origin_key_prefix = OriginToOriginKey(std::string());
   iter->Seek(origin_key_prefix);
   origins->clear();
-  while (iter->Valid() &&
-      StartsWithASCII(iter->key().ToString(), origin_key_prefix, true)) {
+  while (iter->Valid() && base::StartsWithASCII(iter->key().ToString(),
+                                                origin_key_prefix, true)) {
     std::string origin =
       iter->key().ToString().substr(origin_key_prefix.length());
     base::FilePath path = StringToFilePath(iter->value().ToString());

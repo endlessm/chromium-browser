@@ -17,6 +17,7 @@ struct FrameHostMsg_DidFailProvisionalLoadWithError_Params;
 
 namespace content {
 
+class FrameTreeNode;
 class RenderFrameHostImpl;
 struct LoadCommittedDetails;
 struct OpenURLParams;
@@ -33,10 +34,6 @@ class CONTENT_EXPORT NavigatorDelegate {
       bool is_error_page,
       bool is_iframe_srcdoc) {}
 
-  // The |render_frame_host| started a transition-flagged navigation.
-  virtual void DidStartNavigationTransition(
-      RenderFrameHostImpl* render_frame_host) {}
-
   // A provisional load in |render_frame_host| failed.
   virtual void DidFailProvisionalLoadWithError(
       RenderFrameHostImpl* render_frame_host,
@@ -47,7 +44,8 @@ class CONTENT_EXPORT NavigatorDelegate {
       RenderFrameHostImpl* render_frame_host,
       const GURL& url,
       int error_code,
-      const base::string16& error_description) {}
+      const base::string16& error_description,
+      bool was_ignored_by_handler) {}
 
   // A navigation was committed in |render_frame_host|.
   virtual void DidCommitProvisionalLoad(
@@ -64,6 +62,7 @@ class CONTENT_EXPORT NavigatorDelegate {
   // not provided since it may be invalid/changed after being committed. The
   // NavigationController's last committed entry is for this navigation.
   virtual void DidNavigateMainFramePostCommit(
+      RenderFrameHostImpl* render_frame_host,
       const LoadCommittedDetails& details,
       const FrameHostMsg_DidCommitProvisionalLoad_Params& params) {}
   virtual void DidNavigateAnyFramePostCommit(
@@ -81,12 +80,12 @@ class CONTENT_EXPORT NavigatorDelegate {
 
   // Notifies the Navigator embedder that it is beginning to navigate a frame.
   virtual void AboutToNavigateRenderFrame(
-      RenderFrameHostImpl* render_frame_host) {}
+      RenderFrameHostImpl* old_host,
+      RenderFrameHostImpl* new_host) {}
 
-  // Notifies the Navigator embedder that a navigation to pending
+  // Notifies the Navigator embedder that a navigation to the pending
   // NavigationEntry has started in the browser process.
   virtual void DidStartNavigationToPendingEntry(
-      RenderFrameHostImpl* render_frame_host,
       const GURL& url,
       NavigationController::ReloadType reload_type) {}
 
@@ -98,6 +97,20 @@ class CONTENT_EXPORT NavigatorDelegate {
   // Returns whether URLs for aborted browser-initiated navigations should be
   // preserved in the omnibox.  Defaults to false.
   virtual bool ShouldPreserveAbortedURLs();
+
+  // A RenderFrameHost in the specified |frame_tree_node| started loading a new
+  // document. This correponds to Blink's notion of the throbber starting.
+  // |to_different_document| will be true unless the load is a fragment
+  // navigation, or triggered by history.pushState/replaceState.
+  virtual void DidStartLoading(FrameTreeNode* frame_tree_node,
+                               bool to_different_document) {}
+
+  // A document stopped loading. This corresponds to Blink's notion of the
+  // throbber stopping.
+  virtual void DidStopLoading() {}
+
+  // The load progress was changed.
+  virtual void DidChangeLoadProgress() {}
 };
 
 }  // namspace content

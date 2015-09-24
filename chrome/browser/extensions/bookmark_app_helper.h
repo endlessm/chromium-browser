@@ -19,6 +19,7 @@
 
 class ExtensionService;
 class FaviconDownloader;
+class Profile;
 class SkBitmap;
 
 namespace content {
@@ -33,14 +34,25 @@ class Extension;
 // A helper class for creating bookmark apps from a WebContents.
 class BookmarkAppHelper : public content::NotificationObserver {
  public:
+  struct BitmapAndSource {
+    BitmapAndSource();
+    BitmapAndSource(const GURL& source_url_p, const SkBitmap& bitmap_p);
+    ~BitmapAndSource();
+
+    GURL source_url;
+    SkBitmap bitmap;
+  };
+
   typedef base::Callback<void(const Extension*, const WebApplicationInfo&)>
       CreateBookmarkAppCallback;
 
   // This helper class will create a bookmark app out of |web_app_info| and
   // install it to |service|. Icons will be downloaded from the URLs in
   // |web_app_info.icons| using |contents| if |contents| is not NULL.
-  // All existing icons from WebApplicationInfo will also be used.
-  BookmarkAppHelper(ExtensionService* service,
+  // All existing icons from WebApplicationInfo will also be used. The user
+  // will then be prompted to edit the creation information via a bubble and
+  // will have a chance to cancel the operation.
+  BookmarkAppHelper(Profile* profile,
                     WebApplicationInfo web_app_info,
                     content::WebContents* contents);
   ~BookmarkAppHelper() override;
@@ -53,20 +65,47 @@ class BookmarkAppHelper : public content::NotificationObserver {
   // |sizes| and resizes it to that size. This returns a map of sizes to bitmaps
   // which contains only bitmaps of a size in |sizes| and at most one bitmap of
   // each size.
-  static std::map<int, SkBitmap> ConstrainBitmapsToSizes(
-      const std::vector<SkBitmap>& bitmaps,
+  static std::map<int, BitmapAndSource> ConstrainBitmapsToSizes(
+      const std::vector<BitmapAndSource>& bitmaps,
       const std::set<int>& sizes);
 
   // Adds a square container icon of |output_size| pixels to |bitmaps| by
   // drawing the given |letter| into a rounded background of |color|.
   // Does nothing if an icon of |output_size| already exists in |bitmaps|.
-  static void GenerateIcon(std::map<int, SkBitmap>* bitmaps,
+  static void GenerateIcon(std::map<int, BitmapAndSource>* bitmaps,
                            int output_size,
                            SkColor color,
                            char letter);
 
+  // Returns true if a bookmark or hosted app from a given URL is already
+  // installed and enabled.
+  static bool BookmarkOrHostedAppInstalled(
+      content::BrowserContext* browser_context, const GURL& url);
+
+  // Resize icons to the accepted sizes, and generate any that are missing. Does
+  // not update |web_app_info| except to update |generated_icon_color|.
+  static std::map<int, BitmapAndSource> ResizeIconsAndGenerateMissing(
+      std::vector<BitmapAndSource> icons,
+      std::set<int> sizes_to_generate,
+      WebApplicationInfo* web_app_info);
+
+  // It is important that the linked app information in any extension that
+  // gets created from sync matches the linked app information that came from
+  // sync. If there are any changes, they will be synced back to other devices
+  // and could potentially create a never ending sync cycle.
+  // This function updates |web_app_info| with the image data of any icon from
+  // |bitmap_map| that has a URL and size matching that in |web_app_info|, as
+  // well as adding any new images from |bitmap_map| that have no URL.
+  static void UpdateWebAppIconsWithoutChangingLinks(
+      std::map<int, BookmarkAppHelper::BitmapAndSource> bitmap_map,
+      WebApplicationInfo* web_app_info);
+
   // Begins the asynchronous bookmark app creation.
   void Create(const CreateBookmarkAppCallback& callback);
+
+  // Begins the asynchronous bookmark app creation from an app banner.
+  void CreateFromAppBanner(const CreateBookmarkAppCallback& callback,
+                           const content::Manifest& manifest);
 
  private:
   friend class TestBookmarkAppHelper;
@@ -80,10 +119,22 @@ class BookmarkAppHelper : public content::NotificationObserver {
   void OnIconsDownloaded(bool success,
                          const std::map<GURL, std::vector<SkBitmap> >& bitmaps);
 
+  // Called after the bubble has been shown, and the user has either accepted or
+  // the dialog was dismissed.
+  void OnBubbleCompleted(bool user_accepted,
+                         const WebApplicationInfo& web_app_info);
+
+  // Called when the installation of the app is complete to perform the final
+  // installation steps.
+  void FinishInstallation(const Extension* extension);
+
   // Overridden from content::NotificationObserver:
   void Observe(int type,
                const content::NotificationSource& source,
                const content::NotificationDetails& details) override;
+
+  // The profile that the bookmark app is being added to.
+  Profile* profile_;
 
   // The web contents that the bookmark app is being created for.
   content::WebContents* contents_;
@@ -107,7 +158,7 @@ class BookmarkAppHelper : public content::NotificationObserver {
 // Creates or updates a bookmark app from the given |web_app_info|. Icons will
 // not be downloaded so only supplied icon data will be used.
 void CreateOrUpdateBookmarkApp(ExtensionService* service,
-                               WebApplicationInfo& web_app_info);
+                               WebApplicationInfo* web_app_info);
 
 // Retrieves the WebApplicationInfo that represents a given bookmark app.
 // |callback| will be called with a WebApplicationInfo which is populated with

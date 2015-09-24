@@ -32,6 +32,7 @@
 #include "bindings/core/v8/V8PopStateEvent.h"
 
 #include "bindings/core/v8/SerializedScriptValue.h"
+#include "bindings/core/v8/SerializedScriptValueFactory.h"
 #include "bindings/core/v8/V8HiddenValue.h"
 #include "bindings/core/v8/V8History.h"
 #include "core/events/PopStateEvent.h"
@@ -40,15 +41,15 @@
 namespace blink {
 
 // Save the state value to a hidden attribute in the V8PopStateEvent, and return it, for convenience.
-static v8::Handle<v8::Value> cacheState(v8::Handle<v8::Object> popStateEvent, v8::Handle<v8::Value> state, v8::Isolate* isolate)
+static v8::Local<v8::Value> cacheState(v8::Local<v8::Object> popStateEvent, v8::Local<v8::Value> state, v8::Isolate* isolate)
 {
     V8HiddenValue::setHiddenValue(isolate, popStateEvent, V8HiddenValue::state(isolate), state);
     return state;
 }
 
-void V8PopStateEvent::stateAttributeGetterCustom(const v8::PropertyCallbackInfo<v8::Value>& info)
+void V8PopStateEvent::stateAttributeGetterCustom(const v8::FunctionCallbackInfo<v8::Value>& info)
 {
-    v8::Handle<v8::Value> result = V8HiddenValue::getHiddenValue(info.GetIsolate(), info.Holder(), V8HiddenValue::state(info.GetIsolate()));
+    v8::Local<v8::Value> result = V8HiddenValue::getHiddenValue(info.GetIsolate(), info.Holder(), V8HiddenValue::state(info.GetIsolate()));
 
     if (!result.IsEmpty()) {
         v8SetReturnValue(info, result);
@@ -58,16 +59,14 @@ void V8PopStateEvent::stateAttributeGetterCustom(const v8::PropertyCallbackInfo<
     PopStateEvent* event = V8PopStateEvent::toImpl(info.Holder());
     History* history = event->history();
     if (!history || !event->serializedState()) {
-        if (!event->serializedState()) {
-            // If we're in an isolated world and the event was created in the main world,
-            // we need to find the 'state' property on the main world wrapper and clone it.
-            v8::Local<v8::Value> mainWorldState = V8HiddenValue::getHiddenValueFromMainWorldWrapper(info.GetIsolate(), event, V8HiddenValue::state(info.GetIsolate()));
-            if (!mainWorldState.IsEmpty())
-                event->setSerializedState(SerializedScriptValue::createAndSwallowExceptions(info.GetIsolate(), mainWorldState));
-        }
+        // If the event doesn't have serializedState(), it means that the
+        // event was initialized with PopStateEventInit. In such case, we need
+        // to get a v8 value for the current world from state().
         if (event->serializedState())
             result = event->serializedState()->deserialize();
         else
+            result = event->state().v8ValueFor(ScriptState::current(info.GetIsolate()));
+        if (result.IsEmpty())
             result = v8::Null(info.GetIsolate());
         v8SetReturnValue(info, cacheState(info.Holder(), result, info.GetIsolate()));
         return;
@@ -82,7 +81,10 @@ void V8PopStateEvent::stateAttributeGetterCustom(const v8::PropertyCallbackInfo<
     bool isSameState = history->isSameAsCurrentState(event->serializedState());
 
     if (isSameState) {
-        v8::Handle<v8::Object> v8History = toV8(history, info.Holder(), info.GetIsolate()).As<v8::Object>();
+        v8::Local<v8::Value> v8HistoryValue = toV8(history, info.Holder(), info.GetIsolate());
+        if (v8HistoryValue.IsEmpty())
+            return;
+        v8::Local<v8::Object> v8History = v8HistoryValue.As<v8::Object>();
         if (!history->stateChanged()) {
             result = V8HiddenValue::getHiddenValue(info.GetIsolate(), v8History, V8HiddenValue::state(info.GetIsolate()));
             if (!result.IsEmpty()) {

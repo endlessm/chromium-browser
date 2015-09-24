@@ -10,7 +10,6 @@
 #include "src/disasm.h"
 #include "src/macro-assembler.h"
 #include "src/ostreams.h"
-#include "src/zone-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -213,5 +212,5 @@ uint32_t SafepointTableBuilder::EncodeExceptPC(const DeoptimizationInfo& info,
 }
 
 
-
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

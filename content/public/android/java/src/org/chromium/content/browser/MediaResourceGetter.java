@@ -12,10 +12,10 @@ import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.ParcelFileDescriptor;
 import android.text.TextUtils;
-import android.util.Log;
 
 import org.chromium.base.CalledByNative;
 import org.chromium.base.JNINamespace;
+import org.chromium.base.Log;
 import org.chromium.base.PathUtils;
 import org.chromium.base.VisibleForTesting;
 
@@ -33,7 +33,7 @@ import java.util.Map;
 @JNINamespace("content")
 class MediaResourceGetter {
 
-    private static final String TAG = "MediaResourceGetter";
+    private static final String TAG = "cr.MediaResourceGetter";
     private static final MediaMetadata EMPTY_METADATA = new MediaMetadata(0, 0, 0, false);
 
     private final MediaMetadataRetriever mRetriever = new MediaMetadataRetriever();
@@ -98,47 +98,36 @@ class MediaResourceGetter {
 
         @Override
         public boolean equals(Object obj) {
-            if (this == obj)
-                return true;
-            if (obj == null)
-                return false;
-            if (getClass() != obj.getClass())
-                return false;
+            if (this == obj) return true;
+            if (obj == null) return false;
+            if (getClass() != obj.getClass()) return false;
             MediaMetadata other = (MediaMetadata) obj;
-            if (mDurationInMilliseconds != other.mDurationInMilliseconds)
-                return false;
-            if (mHeight != other.mHeight)
-                return false;
-            if (mSuccess != other.mSuccess)
-                return false;
-            if (mWidth != other.mWidth)
-                return false;
+            if (mDurationInMilliseconds != other.mDurationInMilliseconds) return false;
+            if (mHeight != other.mHeight) return false;
+            if (mSuccess != other.mSuccess) return false;
+            if (mWidth != other.mWidth) return false;
             return true;
         }
     }
 
     @CalledByNative
     private static MediaMetadata extractMediaMetadata(final Context context,
-                                                      final String url,
-                                                      final String cookies,
-                                                      final String userAgent) {
+            final String url,
+            final String cookies,
+            final String userAgent) {
         return new MediaResourceGetter().extract(
                 context, url, cookies, userAgent);
     }
 
     @CalledByNative
     private static MediaMetadata extractMediaMetadataFromFd(int fd,
-                                                            long offset,
-                                                            long length) {
+            long offset,
+            long length) {
         return new MediaResourceGetter().extract(fd, offset, length);
     }
 
     @VisibleForTesting
     MediaMetadata extract(int fd, long offset, long length) {
-        if (!androidDeviceOk(android.os.Build.MODEL, android.os.Build.VERSION.SDK_INT)) {
-            return EMPTY_METADATA;
-        }
-
         configure(fd, offset, length);
         return doExtractMetadata();
     }
@@ -146,10 +135,6 @@ class MediaResourceGetter {
     @VisibleForTesting
     MediaMetadata extract(final Context context, final String url,
                           final String cookies, final String userAgent) {
-        if (!androidDeviceOk(android.os.Build.MODEL, android.os.Build.VERSION.SDK_INT)) {
-            return EMPTY_METADATA;
-        }
-
         if (!configure(context, url, cookies, userAgent)) {
             Log.e(TAG, "Unable to configure metadata extractor");
             return EMPTY_METADATA;
@@ -170,7 +155,7 @@ class MediaResourceGetter {
             try {
                 durationMillis = Integer.parseInt(durationString);
             } catch (NumberFormatException e) {
-                Log.w(TAG, "non-numeric duration: " + durationString);
+                Log.w(TAG, "non-numeric duration: %s", durationString);
                 return EMPTY_METADATA;
             }
 
@@ -189,7 +174,7 @@ class MediaResourceGetter {
                 try {
                     width = Integer.parseInt(widthString);
                 } catch (NumberFormatException e) {
-                    Log.w(TAG, "non-numeric width: " + widthString);
+                    Log.w(TAG, "non-numeric width: %s", widthString);
                     return EMPTY_METADATA;
                 }
 
@@ -202,15 +187,15 @@ class MediaResourceGetter {
                 try {
                     height = Integer.parseInt(heightString);
                 } catch (NumberFormatException e) {
-                    Log.w(TAG, "non-numeric height: " + heightString);
+                    Log.w(TAG, "non-numeric height: %s", heightString);
                     return EMPTY_METADATA;
                 }
             }
             MediaMetadata result = new MediaMetadata(durationMillis, width, height, true);
-            Log.d(TAG, "extracted valid metadata: " + result.toString());
+            Log.d(TAG, "extracted valid metadata: %s", result);
             return result;
         } catch (RuntimeException e) {
-            Log.e(TAG, "Unable to extract medata", e);
+            Log.e(TAG, "Unable to extract metadata: %s", e.getMessage());
             return EMPTY_METADATA;
         }
     }
@@ -221,7 +206,7 @@ class MediaResourceGetter {
         try {
             uri = URI.create(url);
         } catch (IllegalArgumentException  e) {
-            Log.e(TAG, "Cannot parse uri.", e);
+            Log.e(TAG, "Cannot parse uri: %s", e.getMessage());
             return false;
         }
         String scheme = uri.getScheme();
@@ -239,29 +224,32 @@ class MediaResourceGetter {
                 configure(file.getAbsolutePath());
                 return true;
             } catch (RuntimeException e) {
-                Log.e(TAG, "Error configuring data source", e);
+                Log.e(TAG, "Error configuring data source: %s", e.getMessage());
                 return false;
             }
-        } else {
-            final String host = uri.getHost();
-            if (!isLoopbackAddress(host) && !isNetworkReliable(context)) {
-                Log.w(TAG, "non-file URI can't be read due to unsuitable network conditions");
-                return false;
-            }
-            Map<String, String> headersMap = new HashMap<String, String>();
-            if (!TextUtils.isEmpty(cookies)) {
-                headersMap.put("Cookie", cookies);
-            }
-            if (!TextUtils.isEmpty(userAgent)) {
-                headersMap.put("User-Agent", userAgent);
-            }
-            try {
-                configure(url, headersMap);
-                return true;
-            } catch (RuntimeException e) {
-                Log.e(TAG, "Error configuring data source", e);
-                return false;
-            }
+        }
+        if (uri.getPath() != null && uri.getPath().endsWith(".m3u8")) {
+            // MediaMetadataRetriever does not work with HLS correctly.
+            return false;
+        }
+        final String host = uri.getHost();
+        if (!isLoopbackAddress(host) && !isNetworkReliable(context)) {
+            Log.w(TAG, "non-file URI can't be read due to unsuitable network conditions");
+            return false;
+        }
+        Map<String, String> headersMap = new HashMap<String, String>();
+        if (!TextUtils.isEmpty(cookies)) {
+            headersMap.put("Cookie", cookies);
+        }
+        if (!TextUtils.isEmpty(userAgent)) {
+            headersMap.put("User-Agent", userAgent);
+        }
+        try {
+            configure(url, headersMap);
+            return true;
+        } catch (RuntimeException e) {
+            Log.e(TAG, "Error configuring data source: %s", e.getMessage());
+            return false;
         }
     }
 
@@ -272,9 +260,8 @@ class MediaResourceGetter {
      */
     @VisibleForTesting
     boolean isNetworkReliable(Context context) {
-        if (context.checkCallingOrSelfPermission(
-                android.Manifest.permission.ACCESS_NETWORK_STATE) !=
-                PackageManager.PERMISSION_GRANTED) {
+        if (context.checkCallingOrSelfPermission(android.Manifest.permission.ACCESS_NETWORK_STATE)
+                != PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "permission denied to access network state");
             return false;
         }
@@ -325,25 +312,13 @@ class MediaResourceGetter {
         // Note that canonicalized directory paths always end with '/'.
         List<String> acceptablePaths = canonicalize(getRawAcceptableDirectories(context));
         acceptablePaths.add(getExternalStorageDirectory());
-        Log.d(TAG, "canonicalized file path: " + path);
+        Log.d(TAG, "canonicalized file path: %s", path);
         for (String acceptablePath : acceptablePaths) {
             if (path.startsWith(acceptablePath)) {
                 return true;
             }
         }
         return false;
-    }
-
-    /**
-     * Special case handling for device/OS combos that simply do not work.
-     * @param model the model of device being examined
-     * @param sdkVersion the version of the SDK installed on the device
-     * @return true if the device can be used correctly, otherwise false
-     */
-    @VisibleForTesting
-    static boolean androidDeviceOk(final String model, final int sdkVersion) {
-        return !("GT-I9100".contentEquals(model) &&
-                 sdkVersion < android.os.Build.VERSION_CODES.JELLY_BEAN);
     }
 
     // The methods below can be used by unit tests to fake functionality.
@@ -407,7 +382,7 @@ class MediaResourceGetter {
             try {
                 parcelFd.close();
             } catch (IOException e) {
-                Log.e(TAG, "Failed to close file descriptor: " + e);
+                Log.e(TAG, "Failed to close file descriptor: %s", e);
             }
         }
     }

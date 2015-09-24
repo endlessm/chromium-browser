@@ -47,8 +47,10 @@
 #include "content/public/common/url_constants.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/test_renderer_host.h"
+#include "net/base/net_errors.h"
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "net/url_request/url_fetcher_delegate.h"
+#include "net/url_request/url_request_status.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "third_party/WebKit/public/web/WebContextMenuData.h"
 #include "url/gurl.h"
@@ -135,14 +137,14 @@ class TranslateManagerRenderViewHostTest
         ChromeViewMsg_TranslatePage::ID);
     if (!message)
       return false;
-    Tuple4<int, std::string, std::string, std::string> translate_param;
+    base::Tuple<int, std::string, std::string, std::string> translate_param;
     ChromeViewMsg_TranslatePage::Read(message, &translate_param);
-    // Ignore translate_param.a which is the page seq no.
-    // Ignore translate_param.b which is the script injected in the page.
+    // Ignore get<0>(translate_param) which is the page seq no.
+    // Ignore get<1>(translate_param) which is the script injected in the page.
     if (original_lang)
-      *original_lang = translate_param.c;
+      *original_lang = base::get<2>(translate_param);
     if (target_lang)
-      *target_lang = translate_param.d;
+      *target_lang = base::get<3>(translate_param);
     return true;
   }
 
@@ -291,11 +293,9 @@ class TranslateManagerRenderViewHostTest
     net::TestURLFetcher* fetcher = url_fetcher_factory_.GetFetcherByID(
         translate::TranslateScript::kFetcherId);
     ASSERT_TRUE(fetcher);
-    net::URLRequestStatus status;
-    status.set_status(success ? net::URLRequestStatus::SUCCESS
-                              : net::URLRequestStatus::FAILED);
+    net::Error error = success ? net::OK : net::ERR_FAILED;
     fetcher->set_url(fetcher->GetOriginalURL());
-    fetcher->set_status(status);
+    fetcher->set_status(net::URLRequestStatus::FromError(error));
     fetcher->set_response_code(success ? 200 : 500);
     fetcher->delegate()->OnURLFetchComplete(fetcher);
   }
@@ -305,15 +305,12 @@ class TranslateManagerRenderViewHostTest
       const std::vector<std::string>& languages,
       bool use_alpha_languages,
       const std::vector<std::string>& alpha_languages) {
-    net::URLRequestStatus status;
-    status.set_status(success ? net::URLRequestStatus::SUCCESS
-                              : net::URLRequestStatus::FAILED);
+    net::Error error = success ? net::OK : net::ERR_FAILED;
 
     std::string data;
     if (success) {
       data = base::StringPrintf(
-          "%s{\"sl\": {\"bla\": \"bla\"}, \"%s\": {",
-          translate::TranslateLanguageList::kLanguageListCallbackName,
+          "{\"sl\": {\"bla\": \"bla\"}, \"%s\": {",
           translate::TranslateLanguageList::kTargetLanguagesKey);
       const char* comma = "";
       for (size_t i = 0; i < languages.size(); ++i) {
@@ -336,13 +333,13 @@ class TranslateManagerRenderViewHostTest
         }
       }
 
-      data += "}})";
+      data += "}}";
     }
     net::TestURLFetcher* fetcher = url_fetcher_factory_.GetFetcherByID(
         translate::TranslateLanguageList::kFetcherId);
     ASSERT_TRUE(fetcher != NULL);
     fetcher->set_url(fetcher->GetOriginalURL());
-    fetcher->set_status(status);
+    fetcher->set_status(net::URLRequestStatus::FromError(error));
     fetcher->set_response_code(success ? 200 : 500);
     fetcher->SetResponseString(data);
     fetcher->delegate()->OnURLFetchComplete(fetcher);
@@ -840,8 +837,11 @@ TEST_F(TranslateManagerRenderViewHostTest, ReloadFromLocationBar) {
   NavEntryCommittedObserver nav_observer(web_contents());
   web_contents()->GetController().LoadURL(
       url, content::Referrer(), ui::PAGE_TRANSITION_TYPED, std::string());
+  int pending_id =
+      web_contents()->GetController().GetPendingEntry()->GetUniqueID();
   content::RenderFrameHostTester::For(web_contents()->GetMainFrame())
-      ->SendNavigateWithTransition(0, url, ui::PAGE_TRANSITION_TYPED);
+      ->SendNavigateWithTransition(0, pending_id, false, url,
+                                   ui::PAGE_TRANSITION_TYPED);
 
   // Test that we are really getting a same page navigation, the test would be
   // useless if it was not the case.
@@ -894,12 +894,12 @@ TEST_F(TranslateManagerRenderViewHostTest, CloseInfoBarInSubframeNavigation) {
 
   // Simulate a sub-frame auto-navigating.
   subframe_tester->SendNavigateWithTransition(
-      1, GURL("http://pub.com"), ui::PAGE_TRANSITION_AUTO_SUBFRAME);
+      0, 0, false, GURL("http://pub.com"), ui::PAGE_TRANSITION_AUTO_SUBFRAME);
   EXPECT_TRUE(GetTranslateInfoBar() == NULL);
 
   // Simulate the user navigating in a sub-frame.
   subframe_tester->SendNavigateWithTransition(
-      2, GURL("http://pub.com"), ui::PAGE_TRANSITION_MANUAL_SUBFRAME);
+      1, 0, true, GURL("http://pub.com"), ui::PAGE_TRANSITION_MANUAL_SUBFRAME);
   EXPECT_TRUE(GetTranslateInfoBar() == NULL);
 
   // Navigate out of page, a new infobar should show.

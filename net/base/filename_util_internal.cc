@@ -41,8 +41,10 @@ void SanitizeGeneratedFileName(base::FilePath::StringType* filename,
   if (filename->empty())
     return;
   // Replace any path information by changing path separators.
-  ReplaceSubstringsAfterOffset(filename, 0, FILE_PATH_LITERAL("/"), kReplace);
-  ReplaceSubstringsAfterOffset(filename, 0, FILE_PATH_LITERAL("\\"), kReplace);
+  base::ReplaceSubstringsAfterOffset(
+      filename, 0, FILE_PATH_LITERAL("/"), kReplace);
+  base::ReplaceSubstringsAfterOffset(
+      filename, 0, FILE_PATH_LITERAL("\\"), kReplace);
 }
 
 // Returns the filename determined from the last component of the path portion
@@ -70,8 +72,8 @@ std::string GetFileNameFromURL(const GURL& url,
     // encoding detection.
     base::string16 utf16_output;
     if (!referrer_charset.empty() &&
-        net::ConvertToUTF16(
-            unescaped_url_filename, referrer_charset.c_str(), &utf16_output)) {
+        ConvertToUTF16(unescaped_url_filename, referrer_charset.c_str(),
+                       &utf16_output)) {
       decoded_filename = base::UTF16ToUTF8(utf16_output);
     } else {
       decoded_filename =
@@ -106,48 +108,6 @@ bool IsShellIntegratedExtension(const base::FilePath::StringType& extension) {
   return false;
 }
 
-// Returns whether the specified file name is a reserved name on windows.
-// This includes names like "com2.zip" (which correspond to devices) and
-// desktop.ini and thumbs.db which have special meaning to the windows shell.
-bool IsReservedName(const base::FilePath::StringType& filename) {
-  // This list is taken from the MSDN article "Naming a file"
-  // http://msdn2.microsoft.com/en-us/library/aa365247(VS.85).aspx
-  // I also added clock$ because GetSaveFileName seems to consider it as a
-  // reserved name too.
-  static const char* const known_devices[] = {
-      "con",  "prn",  "aux",  "nul",  "com1", "com2", "com3",  "com4",
-      "com5", "com6", "com7", "com8", "com9", "lpt1", "lpt2",  "lpt3",
-      "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9", "clock$"};
-#if defined(OS_WIN)
-  std::string filename_lower =
-      base::StringToLowerASCII(base::WideToUTF8(filename));
-#elif defined(OS_POSIX)
-  std::string filename_lower = base::StringToLowerASCII(filename);
-#endif
-
-  for (size_t i = 0; i < arraysize(known_devices); ++i) {
-    // Exact match.
-    if (filename_lower == known_devices[i])
-      return true;
-    // Starts with "DEVICE.".
-    if (filename_lower.find(std::string(known_devices[i]) + ".") == 0)
-      return true;
-  }
-
-  static const char* const magic_names[] = {
-    // These file names are used by the "Customize folder" feature of the shell.
-    "desktop.ini",
-    "thumbs.db",
-  };
-
-  for (size_t i = 0; i < arraysize(magic_names); ++i) {
-    if (filename_lower == magic_names[i])
-      return true;
-  }
-
-  return false;
-}
-
 // Examines the current extension in |file_name| and modifies it if necessary in
 // order to ensure the filename is safe.  If |file_name| doesn't contain an
 // extension or if |ignore_extension| is true, then a new extension will be
@@ -172,8 +132,8 @@ void EnsureSafeExtension(const std::string& mime_type,
   if ((ignore_extension || extension.empty()) && !mime_type.empty()) {
     base::FilePath::StringType preferred_mime_extension;
     std::vector<base::FilePath::StringType> all_mime_extensions;
-    net::GetPreferredExtensionForMimeType(mime_type, &preferred_mime_extension);
-    net::GetExtensionsForMimeType(mime_type, &all_mime_extensions);
+    GetPreferredExtensionForMimeType(mime_type, &preferred_mime_extension);
+    GetExtensionsForMimeType(mime_type, &all_mime_extensions);
     // If the existing extension is in the list of valid extensions for the
     // given type, use it. This avoids doing things like pointlessly renaming
     // "foo.jpg" to "foo.jpeg".
@@ -202,8 +162,8 @@ void EnsureSafeExtension(const std::string& mime_type,
 
 bool FilePathToString16(const base::FilePath& path, base::string16* converted) {
 #if defined(OS_WIN)
-  return base::WideToUTF16(
-      path.value().c_str(), path.value().size(), converted);
+  *converted = path.value();
+  return true;
 #elif defined(OS_POSIX)
   std::string component8 = path.AsUTF8Unsafe();
   return !component8.empty() &&

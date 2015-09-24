@@ -8,8 +8,11 @@
 #include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/navigation_entry.h"
+#include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/extension_registry.h"
+#include "extensions/browser/process_manager.h"
 #include "extensions/common/extension_messages.h"
 #include "extensions/common/feature_switch.h"
 #include "extensions/common/permissions/permission_set.h"
@@ -17,16 +20,59 @@
 #include "extensions/common/user_script.h"
 #include "url/gurl.h"
 
-using content::RenderProcessHost;
-using content::WebContentsObserver;
-
 namespace extensions {
+
+namespace {
+
+using CreateMessageFunction = base::Callback<IPC::Message*(bool)>;
+
+// Creates a new IPC message for updating tab-specific permissions.
+IPC::Message* CreateUpdateMessage(const GURL& visible_url,
+                                  const std::string& extension_id,
+                                  const URLPatternSet& new_hosts,
+                                  int tab_id,
+                                  bool update_whitelist) {
+  return new ExtensionMsg_UpdateTabSpecificPermissions(
+      visible_url, extension_id, new_hosts, update_whitelist, tab_id);
+}
+
+// Creates a new IPC message for clearing tab-specific permissions.
+IPC::Message* CreateClearMessage(const std::vector<std::string>& ids,
+                                 int tab_id,
+                                 bool update_whitelist) {
+  return new ExtensionMsg_ClearTabSpecificPermissions(
+      ids, update_whitelist, tab_id);
+}
+
+// Sends a message exactly once to each render process host owning one of the
+// given |frame_hosts| and |tab_process|. If |tab_process| doesn't own any of
+// the |frame_hosts|, it will not be signaled to update its origin whitelist.
+void SendMessageToProcesses(
+    const std::set<content::RenderFrameHost*>& frame_hosts,
+    content::RenderProcessHost* tab_process,
+    const CreateMessageFunction& create_message) {
+  std::set<content::RenderProcessHost*> sent_to_hosts;
+  for (content::RenderFrameHost* frame_host : frame_hosts) {
+    content::RenderProcessHost* process_host = frame_host->GetProcess();
+    if (sent_to_hosts.count(process_host) == 0) {
+      // Extension processes have to update the origin whitelists.
+      process_host->Send(create_message.Run(true));
+      sent_to_hosts.insert(frame_host->GetProcess());
+    }
+  }
+  // If the tab wasn't one of those processes already updated (it likely
+  // wasn't), update it. Tabs don't need to update the origin whitelist.
+  if (sent_to_hosts.count(tab_process) == 0)
+    tab_process->Send(create_message.Run(false));
+}
+
+}  // namespace
 
 ActiveTabPermissionGranter::ActiveTabPermissionGranter(
     content::WebContents* web_contents,
     int tab_id,
     Profile* profile)
-    : WebContentsObserver(web_contents),
+    : content::WebContentsObserver(web_contents),
       tab_id_(tab_id),
       extension_registry_observer_(this) {
   extension_registry_observer_.Add(ExtensionRegistry::Get(profile));
@@ -65,11 +111,20 @@ void ActiveTabPermissionGranter::GrantIfRequested(const Extension* extension) {
     const content::NavigationEntry* navigation_entry =
         web_contents()->GetController().GetVisibleEntry();
     if (navigation_entry) {
-      Send(new ExtensionMsg_UpdateTabSpecificPermissions(
-          navigation_entry->GetURL(),
-          tab_id_,
-          extension->id(),
-          new_hosts));
+      // We update all extension render views with the new tab permissions, and
+      // also the tab itself.
+      CreateMessageFunction update_message =
+          base::Bind(&CreateUpdateMessage,
+                     navigation_entry->GetURL(),
+                     extension->id(),
+                     new_hosts,
+                     tab_id_);
+      SendMessageToProcesses(
+          ProcessManager::Get(web_contents()->GetBrowserContext())->
+              GetRenderFrameHostsForExtension(extension->id()),
+          web_contents()->GetRenderProcessHost(),
+          update_message);
+
       // If more things ever need to know about this, we should consider making
       // an observer class.
       // It's important that this comes after the IPC is sent to the renderer,
@@ -125,15 +180,25 @@ void ActiveTabPermissionGranter::ClearActiveExtensionsAndNotify() {
   if (granted_extensions_.is_empty())
     return;
 
+  std::set<content::RenderFrameHost*> frame_hosts;
   std::vector<std::string> extension_ids;
-
-  for (ExtensionSet::const_iterator it = granted_extensions_.begin();
-       it != granted_extensions_.end(); ++it) {
-    it->get()->permissions_data()->ClearTabSpecificPermissions(tab_id_);
-    extension_ids.push_back((*it)->id());
+  ProcessManager* process_manager =
+      ProcessManager::Get(web_contents()->GetBrowserContext());
+  for (const scoped_refptr<const Extension>& extension : granted_extensions_) {
+    extension->permissions_data()->ClearTabSpecificPermissions(tab_id_);
+    extension_ids.push_back(extension->id());
+    std::set<content::RenderFrameHost*> extension_frame_hosts =
+        process_manager->GetRenderFrameHostsForExtension(extension->id());
+    frame_hosts.insert(extension_frame_hosts.begin(),
+                       extension_frame_hosts.end());
   }
 
-  Send(new ExtensionMsg_ClearTabSpecificPermissions(tab_id_, extension_ids));
+  CreateMessageFunction clear_message =
+      base::Bind(&CreateClearMessage, extension_ids, tab_id_);
+  SendMessageToProcesses(frame_hosts,
+                         web_contents()->GetRenderProcessHost(),
+                         clear_message);
+
   granted_extensions_.Clear();
 }
 

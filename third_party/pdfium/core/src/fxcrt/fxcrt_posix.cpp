@@ -1,17 +1,18 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../include/fxcrt/fx_ext.h"
+#include "../../include/fxcrt/fx_basic.h"
 #include "fxcrt_posix.h"
+
 #if _FXM_PLATFORM_ == _FXM_PLATFORM_LINUX_ || _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_ || _FXM_PLATFORM_ == _FXM_PLATFORM_ANDROID_
 IFXCRT_FileAccess* FXCRT_FileAccess_Create()
 {
-    return FX_NEW CFXCRT_FileAccess_Posix;
+    return new CFXCRT_FileAccess_Posix;
 }
-void FXCRT_Posix_GetFileMode(FX_DWORD dwModes, FX_INT32 &nFlags, FX_INT32 &nMasks)
+void FXCRT_Posix_GetFileMode(FX_DWORD dwModes, int32_t &nFlags, int32_t &nMasks)
 {
     nFlags = O_BINARY | O_LARGEFILE;
     if (dwModes & FX_FILEMODE_ReadOnly) {
@@ -33,17 +34,17 @@ CFXCRT_FileAccess_Posix::~CFXCRT_FileAccess_Posix()
 {
     Close();
 }
-FX_BOOL CFXCRT_FileAccess_Posix::Open(FX_BSTR fileName, FX_DWORD dwMode)
+FX_BOOL CFXCRT_FileAccess_Posix::Open(const CFX_ByteStringC& fileName, FX_DWORD dwMode)
 {
     if (m_nFD > -1) {
         return FALSE;
     }
-    FX_INT32 nFlags, nMasks;
+    int32_t nFlags, nMasks;
     FXCRT_Posix_GetFileMode(dwMode, nFlags, nMasks);
     m_nFD = open(fileName.GetCStr(), nFlags, nMasks);
     return m_nFD > -1;
 }
-FX_BOOL CFXCRT_FileAccess_Posix::Open(FX_WSTR fileName, FX_DWORD dwMode)
+FX_BOOL CFXCRT_FileAccess_Posix::Open(const CFX_WideStringC& fileName, FX_DWORD dwMode)
 {
     return Open(FX_UTF8Encode(fileName), dwMode);
 }
@@ -65,7 +66,7 @@ FX_FILESIZE CFXCRT_FileAccess_Posix::GetSize() const
         return 0;
     }
     struct stat s;
-    FXSYS_memset32(&s, 0, sizeof(s));
+    FXSYS_memset(&s, 0, sizeof(s));
     fstat(m_nFD, &s);
     return s.st_size;
 }
@@ -134,23 +135,23 @@ FX_BOOL CFXCRT_FileAccess_Posix::Truncate(FX_FILESIZE szFile)
     }
     return !ftruncate(m_nFD, szFile);
 }
-FX_BOOL FX_File_Exist(FX_BSTR fileName)
+FX_BOOL FX_File_Exist(const CFX_ByteStringC& fileName)
 {
     return access(fileName.GetCStr(), F_OK) > -1;
 }
-FX_BOOL FX_File_Exist(FX_WSTR fileName)
+FX_BOOL FX_File_Exist(const CFX_WideStringC& fileName)
 {
     return FX_File_Exist(FX_UTF8Encode(fileName));
 }
-FX_BOOL FX_File_Delete(FX_BSTR fileName)
+FX_BOOL FX_File_Delete(const CFX_ByteStringC& fileName)
 {
     return remove(fileName.GetCStr()) > -1;
 }
-FX_BOOL FX_File_Delete(FX_WSTR fileName)
+FX_BOOL FX_File_Delete(const CFX_WideStringC& fileName)
 {
     return FX_File_Delete(FX_UTF8Encode(fileName));
 }
-FX_BOOL FX_File_Copy(FX_BSTR fileNameSrc, FX_BSTR fileNameDst)
+FX_BOOL FX_File_Copy(const CFX_ByteStringC& fileNameSrc, const CFX_ByteStringC& fileNameDst)
 {
     CFXCRT_FileAccess_Posix src, dst;
     if (!src.Open(fileNameSrc, FX_FILEMODE_ReadOnly)) {
@@ -164,10 +165,7 @@ FX_BOOL FX_File_Copy(FX_BSTR fileNameSrc, FX_BSTR fileNameDst)
         return FALSE;
     }
     size_t num = 0;
-    FX_LPBYTE pBuffer = FX_Alloc(FX_BYTE, 32768);
-    if (!pBuffer) {
-        return FALSE;
-    }
+    uint8_t* pBuffer = FX_Alloc(uint8_t, 32768);
     num = src.Read(pBuffer, 32768);
     while (num) {
         if (dst.Write(pBuffer, num) != num) {
@@ -178,15 +176,15 @@ FX_BOOL FX_File_Copy(FX_BSTR fileNameSrc, FX_BSTR fileNameDst)
     FX_Free(pBuffer);
     return TRUE;
 }
-FX_BOOL FX_File_Copy(FX_WSTR fileNameSrc, FX_WSTR fileNameDst)
+FX_BOOL FX_File_Copy(const CFX_WideStringC& fileNameSrc, const CFX_WideStringC& fileNameDst)
 {
     return FX_File_Copy(FX_UTF8Encode(fileNameSrc), FX_UTF8Encode(fileNameDst));
 }
-FX_BOOL FX_File_Move(FX_BSTR fileNameSrc, FX_BSTR fileNameDst)
+FX_BOOL FX_File_Move(const CFX_ByteStringC& fileNameSrc, const CFX_ByteStringC& fileNameDst)
 {
     return rename(fileNameSrc.GetCStr(), fileNameDst.GetCStr());
 }
-FX_BOOL FX_File_Move(FX_WSTR fileNameSrc, FX_WSTR fileNameDst)
+FX_BOOL FX_File_Move(const CFX_WideStringC& fileNameSrc, const CFX_WideStringC& fileNameDst)
 {
     return FX_File_Move(FX_UTF8Encode(fileNameSrc), FX_UTF8Encode(fileNameDst));
 }

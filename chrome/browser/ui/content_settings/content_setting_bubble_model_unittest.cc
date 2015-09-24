@@ -13,6 +13,7 @@
 #include "chrome/browser/media/media_stream_capture_indicator.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/content_settings/content_setting_bubble_model.h"
+#include "chrome/browser/ui/elide_url.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
@@ -47,7 +48,7 @@ class ContentSettingBubbleModelTest : public ChromeRenderViewHostTestHarness {
         content_setting_bubble_model->bubble_content();
     EXPECT_TRUE(bubble_content.title.empty());
     EXPECT_TRUE(bubble_content.radio_group.radio_items.empty());
-    EXPECT_TRUE(bubble_content.popup_items.empty());
+    EXPECT_TRUE(bubble_content.list_items.empty());
     EXPECT_EQ(expected_domains, bubble_content.domain_lists.size());
     EXPECT_NE(expect_clear_link || expect_reload_hint,
               bubble_content.custom_link.empty());
@@ -96,10 +97,7 @@ TEST_F(ContentSettingBubbleModelTest, Cookies) {
       content_setting_bubble_model->bubble_content();
   std::string title = bubble_content.title;
   EXPECT_FALSE(title.empty());
-  EXPECT_TRUE(bubble_content.plugin_names.empty());
   ASSERT_EQ(2U, bubble_content.radio_group.radio_items.size());
-  std::string radio1 = bubble_content.radio_group.radio_items[0];
-  std::string radio2 = bubble_content.radio_group.radio_items[1];
   EXPECT_FALSE(bubble_content.custom_link.empty());
   EXPECT_TRUE(bubble_content.custom_link_enabled);
   EXPECT_FALSE(bubble_content.manage_link.empty());
@@ -115,9 +113,14 @@ TEST_F(ContentSettingBubbleModelTest, Cookies) {
   EXPECT_FALSE(bubble_content_2.title.empty());
   EXPECT_NE(title, bubble_content_2.title);
   ASSERT_EQ(2U, bubble_content_2.radio_group.radio_items.size());
-  // TODO(bauerb): Update this once the strings have been updated.
-  EXPECT_EQ(radio1, bubble_content_2.radio_group.radio_items[0]);
-  EXPECT_EQ(radio2, bubble_content_2.radio_group.radio_items[1]);
+  EXPECT_EQ(bubble_content_2.radio_group.radio_items[0],
+            l10n_util::GetStringUTF8(IDS_ALLOWED_COOKIES_NO_ACTION));
+  EXPECT_EQ(bubble_content_2.radio_group.radio_items[1],
+            l10n_util::GetStringFUTF8(
+                IDS_ALLOWED_COOKIES_BLOCK,
+                FormatUrlForSecurityDisplay(web_contents()->GetURL(),
+                                            profile()->GetPrefs()->GetString(
+                                                prefs::kAcceptLanguages))));
   EXPECT_FALSE(bubble_content_2.custom_link.empty());
   EXPECT_TRUE(bubble_content_2.custom_link_enabled);
   EXPECT_FALSE(bubble_content_2.manage_link.empty());
@@ -154,7 +157,9 @@ TEST_F(ContentSettingBubbleModelTest, MediastreamMicAndCamera) {
   EXPECT_EQ(bubble_content.radio_group.radio_items[0],
             l10n_util::GetStringFUTF8(
                 IDS_ALLOWED_MEDIASTREAM_MIC_AND_CAMERA_NO_ACTION,
-                base::UTF8ToUTF16(request_host)));
+                FormatUrlForSecurityDisplay(security_origin,
+                                            profile()->GetPrefs()->GetString(
+                                                prefs::kAcceptLanguages))));
   EXPECT_EQ(bubble_content.radio_group.radio_items[1],
             l10n_util::GetStringUTF8(
                 IDS_ALLOWED_MEDIASTREAM_MIC_AND_CAMERA_BLOCK));
@@ -537,7 +542,9 @@ TEST_F(ContentSettingBubbleModelTest, MediastreamMic) {
   EXPECT_EQ(bubble_content.radio_group.radio_items[0],
             l10n_util::GetStringFUTF8(
                 IDS_ALLOWED_MEDIASTREAM_MIC_NO_ACTION,
-                base::UTF8ToUTF16(request_host)));
+                FormatUrlForSecurityDisplay(security_origin,
+                                            profile()->GetPrefs()->GetString(
+                                                prefs::kAcceptLanguages))));
   EXPECT_EQ(bubble_content.radio_group.radio_items[1],
             l10n_util::GetStringUTF8(
                 IDS_ALLOWED_MEDIASTREAM_MIC_BLOCK));
@@ -569,7 +576,9 @@ TEST_F(ContentSettingBubbleModelTest, MediastreamMic) {
   EXPECT_EQ(new_bubble_content.radio_group.radio_items[0],
             l10n_util::GetStringFUTF8(
                 IDS_BLOCKED_MEDIASTREAM_MIC_ASK,
-                base::UTF8ToUTF16(request_host)));
+                FormatUrlForSecurityDisplay(security_origin,
+                                            profile()->GetPrefs()->GetString(
+                                                prefs::kAcceptLanguages))));
   EXPECT_EQ(new_bubble_content.radio_group.radio_items[1],
             l10n_util::GetStringUTF8(
                 IDS_BLOCKED_MEDIASTREAM_MIC_NO_ACTION));
@@ -612,7 +621,9 @@ TEST_F(ContentSettingBubbleModelTest, MediastreamCamera) {
   EXPECT_EQ(bubble_content.radio_group.radio_items[0],
             l10n_util::GetStringFUTF8(
                 IDS_ALLOWED_MEDIASTREAM_CAMERA_NO_ACTION,
-                base::UTF8ToUTF16(request_host)));
+                FormatUrlForSecurityDisplay(security_origin,
+                                            profile()->GetPrefs()->GetString(
+                                                prefs::kAcceptLanguages))));
   EXPECT_EQ(bubble_content.radio_group.radio_items[1],
             l10n_util::GetStringUTF8(
                 IDS_ALLOWED_MEDIASTREAM_CAMERA_BLOCK));
@@ -644,7 +655,9 @@ TEST_F(ContentSettingBubbleModelTest, MediastreamCamera) {
   EXPECT_EQ(new_bubble_content.radio_group.radio_items[0],
             l10n_util::GetStringFUTF8(
                 IDS_BLOCKED_MEDIASTREAM_CAMERA_ASK,
-                base::UTF8ToUTF16(request_host)));
+                FormatUrlForSecurityDisplay(security_origin,
+                                            profile()->GetPrefs()->GetString(
+                                                prefs::kAcceptLanguages))));
   EXPECT_EQ(new_bubble_content.radio_group.radio_items[1],
             l10n_util::GetStringUTF8(
                 IDS_BLOCKED_MEDIASTREAM_CAMERA_NO_ACTION));
@@ -689,7 +702,9 @@ TEST_F(ContentSettingBubbleModelTest, AccumulateMediastreamMicAndCamera) {
   EXPECT_EQ(bubble_content.radio_group.radio_items[0],
             l10n_util::GetStringFUTF8(
                 IDS_ALLOWED_MEDIASTREAM_MIC_NO_ACTION,
-                base::UTF8ToUTF16(request_host)));
+                FormatUrlForSecurityDisplay(security_origin,
+                                            profile()->GetPrefs()->GetString(
+                                                prefs::kAcceptLanguages))));
   EXPECT_EQ(bubble_content.radio_group.radio_items[1],
             l10n_util::GetStringUTF8(
                 IDS_ALLOWED_MEDIASTREAM_MIC_BLOCK));
@@ -719,7 +734,9 @@ TEST_F(ContentSettingBubbleModelTest, AccumulateMediastreamMicAndCamera) {
   EXPECT_EQ(new_bubble_content.radio_group.radio_items[0],
             l10n_util::GetStringFUTF8(
                 IDS_ALLOWED_MEDIASTREAM_MIC_AND_CAMERA_NO_ACTION,
-                base::UTF8ToUTF16(request_host)));
+                FormatUrlForSecurityDisplay(security_origin,
+                                            profile()->GetPrefs()->GetString(
+                                                prefs::kAcceptLanguages))));
   EXPECT_EQ(new_bubble_content.radio_group.radio_items[1],
             l10n_util::GetStringUTF8(
                 IDS_ALLOWED_MEDIASTREAM_MIC_AND_CAMERA_BLOCK));
@@ -742,9 +759,9 @@ TEST_F(ContentSettingBubbleModelTest, Plugins) {
   const ContentSettingBubbleModel::BubbleContent& bubble_content =
       content_setting_bubble_model->bubble_content();
   EXPECT_FALSE(bubble_content.title.empty());
-  EXPECT_FALSE(bubble_content.plugin_names.empty());
-  EXPECT_NE(base::string16::npos,
-            bubble_content.plugin_names.find(plugin_name));
+  ASSERT_EQ(1U, bubble_content.list_items.size());
+  EXPECT_EQ(plugin_name,
+            base::ASCIIToUTF16(bubble_content.list_items[0].title));
   EXPECT_EQ(2U, bubble_content.radio_group.radio_items.size());
   EXPECT_FALSE(bubble_content.custom_link.empty());
   EXPECT_TRUE(bubble_content.custom_link_enabled);
@@ -853,14 +870,13 @@ TEST_F(ContentSettingBubbleModelTest, RegisterProtocolHandler) {
           "mailto", GURL("http://www.toplevel.example/")));
 
   ContentSettingRPHBubbleModel content_setting_bubble_model(
-          NULL, web_contents(), profile(), NULL,
-          CONTENT_SETTINGS_TYPE_PROTOCOL_HANDLERS);
+      NULL, web_contents(), profile(), NULL);
 
   const ContentSettingBubbleModel::BubbleContent& bubble_content =
       content_setting_bubble_model.bubble_content();
   EXPECT_FALSE(bubble_content.title.empty());
   EXPECT_FALSE(bubble_content.radio_group.radio_items.empty());
-  EXPECT_TRUE(bubble_content.popup_items.empty());
+  EXPECT_TRUE(bubble_content.list_items.empty());
   EXPECT_TRUE(bubble_content.domain_lists.empty());
   EXPECT_TRUE(bubble_content.custom_link.empty());
   EXPECT_FALSE(bubble_content.custom_link_enabled);
@@ -907,8 +923,7 @@ TEST_F(ContentSettingBubbleModelTest, RPHAllow) {
   content_settings->set_pending_protocol_handler(test_handler);
 
   ContentSettingRPHBubbleModel content_setting_bubble_model(
-          NULL, web_contents(), profile(), &registry,
-          CONTENT_SETTINGS_TYPE_PROTOCOL_HANDLERS);
+      NULL, web_contents(), profile(), &registry);
 
   {
     ProtocolHandler handler = registry.GetHandlerFor("mailto");

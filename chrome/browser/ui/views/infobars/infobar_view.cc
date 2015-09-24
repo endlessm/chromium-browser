@@ -8,6 +8,7 @@
 
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/ui/infobar_container_delegate.h"
 #include "chrome/browser/ui/views/infobars/infobar_background.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/infobars/core/infobar_delegate.h"
@@ -16,6 +17,7 @@
 #include "ui/accessibility/ax_view_state.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/compositor/clip_transform_recorder.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/image/image.h"
 #include "ui/resources/grit/ui_resources.h"
@@ -47,18 +49,6 @@ bool SortLabelsByDecreasingWidth(views::Label* label_1, views::Label* label_2) {
 
 }  // namespace
 
-
-// InfoBar --------------------------------------------------------------------
-
-// static
-const int infobars::InfoBar::kSeparatorLineHeight =
-    views::NonClientFrameView::kClientEdgeThickness;
-const int infobars::InfoBar::kDefaultArrowTargetHeight = 9;
-const int infobars::InfoBar::kMaximumArrowTargetHeight = 24;
-const int infobars::InfoBar::kDefaultArrowTargetHalfWidth =
-    kDefaultArrowTargetHeight;
-const int infobars::InfoBar::kMaximumArrowTargetHalfWidth = 14;
-const int infobars::InfoBar::kDefaultBarTargetHeight = 36;
 
 // InfoBarView ----------------------------------------------------------------
 
@@ -154,10 +144,11 @@ void InfoBarView::Layout() {
     static_cast<InfoBarBackground*>(background())->set_separator_color(
         delegate->GetInfoBarSeparatorColor());
     int arrow_x;
-    SkScalar arrow_fill_height =
-        SkIntToScalar(std::max(arrow_height() - kSeparatorLineHeight, 0));
+    SkScalar arrow_fill_height = SkIntToScalar(std::max(
+        arrow_height() - InfoBarContainerDelegate::kSeparatorLineHeight, 0));
     SkScalar arrow_fill_half_width = SkIntToScalar(arrow_half_width());
-    SkScalar separator_height = SkIntToScalar(kSeparatorLineHeight);
+    SkScalar separator_height =
+        SkIntToScalar(InfoBarContainerDelegate::kSeparatorLineHeight);
     if (delegate->DrawInfoBarArrows(&arrow_x) && arrow_fill_height) {
       // Skia pixel centers are at the half-values, so the arrow is horizontally
       // centered at |arrow_x| + 0.5.  Vertically, the stroke path is the center
@@ -184,8 +175,10 @@ void InfoBarView::Layout() {
     }
   }
   if (bar_height()) {
-    fill_path_.addRect(0.0, SkIntToScalar(arrow_height()),
-        SkIntToScalar(width()), SkIntToScalar(height() - kSeparatorLineHeight));
+    fill_path_.addRect(
+        0.0, SkIntToScalar(arrow_height()), SkIntToScalar(width()),
+        SkIntToScalar(
+            height() - InfoBarContainerDelegate::kSeparatorLineHeight));
   }
 
   int start_x = kEdgeItemPadding;
@@ -239,7 +232,7 @@ void InfoBarView::ViewHierarchyChanged(
 
   // Ensure the infobar is tall enough to display its contents.
   const int kMinimumVerticalPadding = 6;
-  int height = kDefaultBarTargetHeight;
+  int height = InfoBarContainerDelegate::kDefaultBarTargetHeight;
   for (int i = 0; i < child_count(); ++i) {
     const int child_height = child_at(i)->height();
     height = std::max(height, child_height + kMinimumVerticalPadding);
@@ -247,10 +240,7 @@ void InfoBarView::ViewHierarchyChanged(
   SetBarTargetHeight(height);
 }
 
-void InfoBarView::PaintChildren(gfx::Canvas* canvas,
-                                const views::CullSet& cull_set) {
-  canvas->Save();
-
+void InfoBarView::PaintChildren(const ui::PaintContext& context) {
   // TODO(scr): This really should be the |fill_path_|, but the clipPath seems
   // broken on non-Windows platforms (crbug.com/75154). For now, just clip to
   // the bar bounds.
@@ -258,9 +248,10 @@ void InfoBarView::PaintChildren(gfx::Canvas* canvas,
   // canvas->sk_canvas()->clipPath(fill_path_);
   DCHECK_EQ(total_height(), height())
       << "Infobar piecewise heights do not match overall height";
-  canvas->ClipRect(gfx::Rect(0, arrow_height(), width(), bar_height()));
-  views::View::PaintChildren(canvas, cull_set);
-  canvas->Restore();
+  ui::ClipTransformRecorder clip_transform_recorder(context);
+  clip_transform_recorder.ClipRect(
+      gfx::Rect(0, arrow_height(), width(), bar_height()));
+  views::View::PaintChildren(context);
 }
 
 void InfoBarView::ButtonPressed(views::Button* sender,

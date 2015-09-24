@@ -10,12 +10,13 @@
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
+#include "base/time/time.h"
 #include "chrome/browser/search/instant_service_observer.h"
 #include "chrome/browser/ui/search/search_ipc_router.h"
 #include "chrome/browser/ui/search/search_model.h"
 #include "chrome/common/instant_types.h"
 #include "chrome/common/ntp_logging_events.h"
-#include "chrome/common/omnibox_focus_state.h"
+#include "components/omnibox/common/omnibox_focus_state.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "ui/base/window_open_disposition.h"
@@ -113,13 +114,20 @@ class SearchTabHelper : public content::WebContentsObserver,
   FRIEND_TEST_ALL_PREFIXES(SearchTabHelperTest,
                            OnChromeIdentityCheckMatch);
   FRIEND_TEST_ALL_PREFIXES(SearchTabHelperTest,
-                           OnChromeIdentityCheckMismatch);
+                           OnChromeIdentityCheckMatchSlightlyDifferentGmail);
+  FRIEND_TEST_ALL_PREFIXES(SearchTabHelperTest,
+                           OnChromeIdentityCheckMatchSlightlyDifferentGmail2);
+  FRIEND_TEST_ALL_PREFIXES(SearchTabHelperTest, OnChromeIdentityCheckMismatch);
   FRIEND_TEST_ALL_PREFIXES(SearchTabHelperTest,
                            OnChromeIdentityCheckSignedOutMatch);
   FRIEND_TEST_ALL_PREFIXES(SearchTabHelperTest,
                            OnChromeIdentityCheckSignedOutMismatch);
   FRIEND_TEST_ALL_PREFIXES(SearchTabHelperTest,
-                           OnChromeIdentityCheckMatchNotSyncing);
+                           OnHistorySyncCheckSyncInactive);
+  FRIEND_TEST_ALL_PREFIXES(SearchTabHelperTest,
+                           OnHistorySyncCheckSyncing);
+  FRIEND_TEST_ALL_PREFIXES(SearchTabHelperTest,
+                           OnHistorySyncCheckNotSyncing);
   FRIEND_TEST_ALL_PREFIXES(SearchTabHelperWindowTest,
                            OnProvisionalLoadFailRedirectNTPToLocal);
   FRIEND_TEST_ALL_PREFIXES(SearchTabHelperWindowTest,
@@ -149,10 +157,6 @@ class SearchTabHelper : public content::WebContentsObserver,
   void DidNavigateMainFrame(
       const content::LoadCommittedDetails& details,
       const content::FrameNavigateParams& params) override;
-  void DidFailProvisionalLoad(content::RenderFrameHost* render_frame_host,
-                              const GURL& validated_url,
-                              int error_code,
-                              const base::string16& error_description) override;
   void DidFinishLoad(content::RenderFrameHost* render_frame_host,
                      const GURL& validated_url) override;
   void NavigationEntryCommitted(
@@ -168,13 +172,14 @@ class SearchTabHelper : public content::WebContentsObserver,
   void OnDeleteMostVisitedItem(const GURL& url) override;
   void OnUndoMostVisitedDeletion(const GURL& url) override;
   void OnUndoAllMostVisitedDeletions() override;
-  void OnLogEvent(NTPLoggingEventType event) override;
+  void OnLogEvent(NTPLoggingEventType event, base::TimeDelta time) override;
   void OnLogMostVisitedImpression(int position,
                                   const base::string16& provider) override;
   void OnLogMostVisitedNavigation(int position,
                                   const base::string16& provider) override;
   void PasteIntoOmnibox(const base::string16& text) override;
   void OnChromeIdentityCheck(const base::string16& identity) override;
+  void OnHistorySyncCheck() override;
 
   // Overridden from InstantServiceObserver:
   void ThemeInfoChanged(const ThemeBackgroundInfo& theme_info) override;
@@ -198,10 +203,6 @@ class SearchTabHelper : public content::WebContentsObserver,
   SearchIPCRouter& ipc_router() { return ipc_router_; }
 
   Profile* profile() const;
-
-  // Helper function to navigate the given contents to the local fallback
-  // Instant URL and trim the history correctly.
-  void RedirectToLocalNTP();
 
   // Returns whether input is in progress, i.e. if the omnibox has focus and the
   // active tab is in mode SEARCH_SUGGESTIONS.

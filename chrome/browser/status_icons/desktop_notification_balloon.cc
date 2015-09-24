@@ -5,7 +5,10 @@
 #include "chrome/browser/status_icons/desktop_notification_balloon.h"
 
 #include "base/bind.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/thread_restrictions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
@@ -39,10 +42,9 @@ class DummyNotificationDelegate : public NotificationDelegate {
       : id_(kNotificationPrefix + id), profile_(profile) {}
 
   void Display() override {
-    base::MessageLoop::current()->PostDelayedTask(
-        FROM_HERE,
-        base::Bind(
-            &CloseBalloon, id(), NotificationUIManager::GetProfileID(profile_)),
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE, base::Bind(&CloseBalloon, id(),
+                              NotificationUIManager::GetProfileID(profile_)),
         base::TimeDelta::FromSeconds(kTimeoutSeconds));
   }
   std::string id() const override { return id_; }
@@ -79,13 +81,14 @@ void DesktopNotificationBalloon::DisplayBalloon(
     base::ThreadRestrictions::ScopedAllowIO allow_io;
     profile = ProfileManager::GetLastUsedProfile();
   }
-  notification_id_ = DesktopNotificationService::AddIconNotification(
-      GURL(),
-      title,
-      contents,
-      gfx::Image(icon),
-      base::string16(),
-      new DummyNotificationDelegate(base::IntToString(id_count_++), profile_),
-      profile);
+
+  NotificationDelegate* delegate =
+      new DummyNotificationDelegate(base::IntToString(id_count_++), profile_);
+  Notification notification(GURL(), title, contents, gfx::Image(icon),
+      base::string16(), std::string(), delegate);
+
+  g_browser_process->notification_ui_manager()->Add(notification, profile);
+
+  notification_id_ = notification.delegate_id();
   profile_ = profile;
 }

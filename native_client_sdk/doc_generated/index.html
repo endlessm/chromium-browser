@@ -18,7 +18,7 @@ Native Client, including its goals, how it works, and how
 Portable Native Client lets developers run native compiled code on the web.</p>
 <aside class="note">
 This site uses several examples of Native Client. For the best experience,
-consider downloading the <a class="reference external" href="http://www.google.com/chrome/">latest version of Chrome</a>. When you come back, be sure to <a class="reference external" href="https://gonativeclient.appspot.com/demo">check out
+consider downloading the <a class="reference external" href="https://www.google.com/chrome/">latest version of Chrome</a>. When you come back, be sure to <a class="reference external" href="https://gonativeclient.appspot.com/demo">check out
 our demos</a>.
 </aside>
 </div>
@@ -37,9 +37,12 @@ any web server.</li>
 <li><strong>Native Client (NaCl)</strong>: Also called traditional or non-portable Native
 Client, NaCl runs architecture-dependent (<strong>nexe</strong>) modules, which are
 packaged into an application. At runtime, the browser decides which nexe to
-load based on the architecture of the client machine. NaCl modules must be run
-from the <a class="reference external" href="https://chrome.google.com/webstore/category/apps">Chrome Web Store (CWS)</a>. Fortunately, work from
-PNaCl modules can be used to create NaCl modules.</li>
+load based on the architecture of the client machine.
+Apps and Extensions installed via the <a class="reference external" href="https://chrome.google.com/webstore/category/apps">Chrome Web Store (CWS)</a> can use NaCl
+modules without additional prompting.
+NaCl apps can also be installed from chrome://extensions or
+the command-line during development,
+however, this is not a recommended distribution mechanism.</li>
 </ul>
 <p>These flavors are described in more depth in <a class="reference internal" href="/native-client/nacl-and-pnacl.html"><em>PNaCl and NaCl</em></a></p>
 <div class="left-side">
@@ -68,7 +71,8 @@ Reference</em></a> or the <a class="reference internal" href="/native-client/ref
 </div>
 </div><h2 id="i-want-to-know-everything">I Want to Know Everything</h2>
 <p>So, you like to read now and try later. Start with our <a class="reference internal" href="/native-client/overview.html"><em>Technical Overview</em></a></p>
-<div class="big-intro" style="clear: both;"><p>Send us questions, comments, and feedback: <a class="reference external" href="https://groups.google.com/forum/#!forum/native-client-discuss">native-client-discuss</a>.</p>
+<div class="big-intro" style="clear: both;"><p>Send us comments and feedback on the <a class="reference external" href="https://groups.google.com/forum/#!forum/native-client-discuss">native-client-discuss</a> mailing list,
+or ask questions using Stack Overflow&#8217;s <a class="reference external" href="https://stackoverflow.com/questions/tagged/google-nativeclient">google-nativeclient</a> tag.</p>
 </div></section>
 
 {{/partials.standard_nacl_article}}

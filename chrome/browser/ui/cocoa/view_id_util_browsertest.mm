@@ -21,6 +21,7 @@
 #include "components/bookmarks/test/bookmark_test_helpers.h"
 #include "extensions/common/switches.h"
 
+using bookmarks::BookmarkModel;
 using content::OpenURLParams;
 using content::Referrer;
 
@@ -28,7 +29,7 @@ using content::Referrer;
 class ViewIDTest : public InProcessBrowserTest {
  public:
   ViewIDTest() : root_window_(nil) {
-    CommandLine::ForCurrentProcess()->AppendSwitch(
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
         extensions::switches::kEnableExperimentalExtensionApis);
   }
 
@@ -97,7 +98,8 @@ IN_PROC_BROWSER_TEST_F(ViewIDTest, Basic) {
 // Flaky on Mac: http://crbug.com/90557.
 IN_PROC_BROWSER_TEST_F(ViewIDTest, DISABLED_Fullscreen) {
   browser()->window()->EnterFullscreen(
-      GURL(), FEB_TYPE_BROWSER_FULLSCREEN_EXIT_INSTRUCTION);
+      GURL(), EXCLUSIVE_ACCESS_BUBBLE_TYPE_BROWSER_FULLSCREEN_EXIT_INSTRUCTION,
+      false);
   ASSERT_NO_FATAL_FAILURE(DoTest());
 }
 

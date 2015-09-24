@@ -18,7 +18,6 @@
 #include "chrome/browser/chromeos/app_mode/app_session_lifetime.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/chromeos/app_mode/startup_app_launcher.h"
-#include "chrome/browser/chromeos/login/screens/error_screen_actor.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
 #include "chrome/browser/chromeos/login/ui/oobe_display.h"
@@ -29,6 +28,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/chromeos/login/app_launch_splash_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
+#include "chromeos/settings/cros_settings_names.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/notification_service.h"
 #include "extensions/browser/app_window/app_window.h"
@@ -76,13 +76,11 @@ class AppLaunchController::AppWindowWatcher
       window_registry_->AddObserver(this);
     }
   }
-  virtual ~AppWindowWatcher() {
-    window_registry_->RemoveObserver(this);
-  }
+  ~AppWindowWatcher() override { window_registry_->RemoveObserver(this); }
 
  private:
   // extensions::AppWindowRegistry::Observer overrides:
-  virtual void OnAppWindowAdded(extensions::AppWindow* app_window) override {
+  void OnAppWindowAdded(extensions::AppWindow* app_window) override {
     if (app_window->extension_id() == app_id_) {
       window_registry_->RemoveObserver(this);
       NotifyAppWindowCreated();
@@ -128,8 +126,11 @@ AppLaunchController::~AppLaunchController() {
   app_launch_splash_screen_actor_->SetDelegate(NULL);
 }
 
-void AppLaunchController::StartAppLaunch() {
+void AppLaunchController::StartAppLaunch(bool is_auto_launch) {
   DVLOG(1) << "Starting kiosk mode...";
+
+  // Ensure WebUILoginView is enabled so that bailout shortcut key works.
+  host_->GetWebUILoginView()->SetUIEnabled(true);
 
   webui_visible_ = host_->GetWebUILoginView()->webui_visible();
   if (!webui_visible_) {
@@ -145,6 +146,20 @@ void AppLaunchController::StartAppLaunch() {
   KioskAppManager::App app;
   CHECK(KioskAppManager::Get());
   CHECK(KioskAppManager::Get()->GetApp(app_id_, &app));
+
+  if (is_auto_launch) {
+    int delay;
+    if (!CrosSettings::Get()->GetInteger(
+            kAccountsPrefDeviceLocalAccountAutoLoginDelay, &delay)) {
+      delay = 0;
+    }
+    DCHECK_EQ(0, delay) << "Kiosks do not support non-zero auto-login delays";
+
+    // If we are launching a kiosk app with zero delay, mark it appropriately.
+    if (delay == 0)
+      KioskAppManager::Get()->SetAppWasAutoLaunchedWithZeroDelay(app_id_);
+  }
+
   kiosk_profile_loader_.reset(
       new KioskProfileLoader(app.user_id, false, this));
   kiosk_profile_loader_->Start();
@@ -180,6 +195,9 @@ void AppLaunchController::SetNeedOwnerAuthToConfigureNetworkCallbackForTesting(
 
 void AppLaunchController::OnConfigureNetwork() {
   DCHECK(profile_);
+  if (showing_network_dialog_)
+    return;
+
   showing_network_dialog_ = true;
   if (CanConfigureNetwork() && NeedOwnerAuthToConfigureNetwork()) {
     signin_screen_.reset(new AppLaunchSigninScreen(
@@ -254,7 +272,13 @@ void AppLaunchController::OnProfileLoadFailed(
   OnLaunchFailed(error);
 }
 
+void AppLaunchController::ClearNetworkWaitTimer() {
+  waiting_for_network_ = false;
+  network_wait_timer_.Stop();
+}
+
 void AppLaunchController::CleanUp() {
+  ClearNetworkWaitTimer();
   kiosk_profile_loader_.reset();
   startup_app_launcher_.reset();
   splash_wait_timer_.Stop();
@@ -358,8 +382,7 @@ void AppLaunchController::OnInstallingApp() {
   app_launch_splash_screen_actor_->UpdateAppLaunchState(
       AppLaunchSplashScreenActor::APP_LAUNCH_STATE_INSTALLING_APPLICATION);
 
-  waiting_for_network_ = false;
-  network_wait_timer_.Stop();
+  ClearNetworkWaitTimer();
   app_launch_splash_screen_actor_->ToggleNetworkConfig(false);
 
   // We have connectivity at this point, so we can skip the network
@@ -382,6 +405,8 @@ void AppLaunchController::OnReadyToLaunch() {
 
   if (splash_wait_timer_.IsRunning())
     return;
+
+  ClearNetworkWaitTimer();
 
   const int64 time_taken_ms = (base::TimeTicks::Now() -
       base::TimeTicks::FromInternalValue(launch_splash_start_time_)).

@@ -46,11 +46,13 @@
 
 namespace blink {
 class WebFrame;
+class WebLocalFrame;
 }
 
 namespace content {
 class RenderFrameImpl;
 class RenderViewImpl;
+struct NavigationParams;
 
 // A guide to history state in the renderer:
 //
@@ -109,7 +111,13 @@ class CONTENT_EXPORT HistoryController {
   explicit HistoryController(RenderViewImpl* render_view);
   ~HistoryController();
 
-  void GoToEntry(scoped_ptr<HistoryEntry> entry,
+  void set_provisional_entry(scoped_ptr<HistoryEntry> entry) {
+    provisional_entry_ = entry.Pass();
+  }
+
+  void GoToEntry(blink::WebLocalFrame* main_frame,
+                 scoped_ptr<HistoryEntry> entry,
+                 scoped_ptr<NavigationParams> navigation_params,
                  blink::WebURLRequest::CachePolicy cache_policy);
 
   void UpdateForCommit(RenderFrameImpl* frame,
@@ -136,8 +144,17 @@ class CONTENT_EXPORT HistoryController {
 
   RenderViewImpl* render_view_;
 
+  // A HistoryEntry representing the currently-loaded page.
   scoped_ptr<HistoryEntry> current_entry_;
+  // A HistoryEntry representing the page that is being loaded, or an empty
+  // scoped_ptr if no page is being loaded.
   scoped_ptr<HistoryEntry> provisional_entry_;
+  // The NavigationParams corresponding to the last load that was initiated by
+  // |GoToEntry|. This is kept around so that it can be passed into existing
+  // frames modified during a history navigation in GoToEntry(), and can be
+  // passed into frames created after the commit that resulted from the
+  // navigation in GetItemForNewChildFrame().
+  scoped_ptr<NavigationParams> navigation_params_;
 
   DISALLOW_COPY_AND_ASSIGN(HistoryController);
 };

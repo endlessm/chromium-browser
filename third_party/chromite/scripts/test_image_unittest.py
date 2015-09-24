@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright 2014 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -8,15 +7,13 @@
 from __future__ import print_function
 
 import os
-import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, os.path.abspath('%s/../..' % os.path.dirname(__file__)))
 from chromite.cbuildbot import constants
-from chromite.cros.tests import image_test
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_test_lib
+from chromite.lib import image_test_lib
 from chromite.lib import osutils
 from chromite.scripts import test_image
 
@@ -75,7 +72,7 @@ class MainTest(TestImageTest):
   def testChdir(self):
     """Verify the CWD is in a temp directory."""
 
-    class CwdTest(image_test.NonForgivingImageTestCase):
+    class CwdTest(image_test_lib.NonForgivingImageTestCase):
       """A dummy test class to verify current working directory."""
 
       _expected_dir = None
@@ -90,7 +87,7 @@ class MainTest(TestImageTest):
     os.chdir('/tmp')
 
     test = CwdTest('testExpectedCwd')
-    suite = image_test.ImageTestSuite()
+    suite = image_test_lib.ImageTestSuite()
     suite.addTest(test)
     self.PatchObject(unittest.TestLoader, 'loadTestsFromName', autospec=True,
                      return_value=[suite])
@@ -108,7 +105,7 @@ class MainTest(TestImageTest):
 
   def _testForgiveness(self, forgiveness, expected_result):
 
-    class ForgivenessTest(image_test.ImageTestCase):
+    class ForgivenessTest(image_test_lib.ImageTestCase):
       """A dummy test that is sometime forgiving, sometime not.
 
       Its only test (testFail) always fail.
@@ -127,7 +124,7 @@ class MainTest(TestImageTest):
 
     test = ForgivenessTest('testFail')
     test.SetForgiving(forgiveness)
-    suite = image_test.ImageTestSuite()
+    suite = image_test_lib.ImageTestSuite()
     suite.addTest(test)
     self.PatchObject(unittest.TestLoader, 'loadTestsFromName', autospec=True,
                      return_value=[suite])
@@ -143,14 +140,14 @@ class MainTest(TestImageTest):
   def testBoardAndDirectory(self):
     """Verify that "--board", "--test_results_root" are passed to the tests."""
 
-    class AttributeTest(image_test.ForgivingImageTestCase):
+    class AttributeTest(image_test_lib.ForgivingImageTestCase):
       """Dummy test class to hold board and directory."""
 
       def testOkay(self):
         pass
 
     test = AttributeTest('testOkay')
-    suite = image_test.ImageTestSuite()
+    suite = image_test_lib.ImageTestSuite()
     suite.addTest(test)
     self.PatchObject(unittest.TestLoader, 'loadTestsFromName', autospec=True,
                      return_value=[suite])
@@ -166,7 +163,3 @@ class MainTest(TestImageTest):
     self.assertEqual('my-board', test._board)
     # pylint: disable=W0212
     self.assertEqual('your-root', os.path.basename(test._result_dir))
-
-
-if __name__ == '__main__':
-  cros_test_lib.main()

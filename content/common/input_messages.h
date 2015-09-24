@@ -12,11 +12,13 @@
 #include "content/common/edit_command.h"
 #include "content/common/input/did_overscroll_params.h"
 #include "content/common/input/input_event.h"
+#include "content/common/input/input_event_ack.h"
 #include "content/common/input/input_event_ack_state.h"
 #include "content/common/input/input_param_traits.h"
 #include "content/common/input/synthetic_gesture_packet.h"
 #include "content/common/input/synthetic_gesture_params.h"
 #include "content/common/input/synthetic_pinch_gesture_params.h"
+#include "content/common/input/synthetic_smooth_drag_gesture_params.h"
 #include "content/common/input/synthetic_smooth_scroll_gesture_params.h"
 #include "content/common/input/synthetic_tap_gesture_params.h"
 #include "content/common/input/touch_action.h"
@@ -24,11 +26,11 @@
 #include "ipc/ipc_message_macros.h"
 #include "third_party/WebKit/public/web/WebInputEvent.h"
 #include "ui/events/ipc/latency_info_param_traits.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/vector2d_f.h"
 #include "ui/gfx/ipc/gfx_param_traits.h"
-#include "ui/gfx/point.h"
 #include "ui/gfx/range/range.h"
-#include "ui/gfx/rect.h"
-#include "ui/gfx/vector2d_f.h"
 
 #undef IPC_MESSAGE_EXPORT
 #define IPC_MESSAGE_EXPORT CONTENT_EXPORT
@@ -77,6 +79,13 @@ IPC_STRUCT_TRAITS_BEGIN(content::SyntheticGestureParams)
   IPC_STRUCT_TRAITS_MEMBER(gesture_source_type)
 IPC_STRUCT_TRAITS_END()
 
+IPC_STRUCT_TRAITS_BEGIN(content::SyntheticSmoothDragGestureParams)
+  IPC_STRUCT_TRAITS_PARENT(content::SyntheticGestureParams)
+  IPC_STRUCT_TRAITS_MEMBER(start_point)
+  IPC_STRUCT_TRAITS_MEMBER(distances)
+  IPC_STRUCT_TRAITS_MEMBER(speed_in_pixels_s)
+IPC_STRUCT_TRAITS_END()
+
 IPC_STRUCT_TRAITS_BEGIN(content::SyntheticSmoothScrollGestureParams)
   IPC_STRUCT_TRAITS_PARENT(content::SyntheticGestureParams)
   IPC_STRUCT_TRAITS_MEMBER(anchor)
@@ -98,13 +107,13 @@ IPC_STRUCT_TRAITS_BEGIN(content::SyntheticTapGestureParams)
   IPC_STRUCT_TRAITS_MEMBER(duration_ms)
 IPC_STRUCT_TRAITS_END()
 
-IPC_STRUCT_BEGIN(InputHostMsg_HandleInputEvent_ACK_Params)
-  IPC_STRUCT_MEMBER(blink::WebInputEvent::Type, type)
-  IPC_STRUCT_MEMBER(content::InputEventAckState, state)
-  IPC_STRUCT_MEMBER(ui::LatencyInfo, latency)
-  // TODO(jdduke): Use Optional<T> type to avoid heap alloc, crbug.com/375002.
-  IPC_STRUCT_MEMBER(scoped_ptr<content::DidOverscrollParams>, overscroll)
-IPC_STRUCT_END()
+IPC_STRUCT_TRAITS_BEGIN(content::InputEventAck)
+  IPC_STRUCT_TRAITS_MEMBER(type)
+  IPC_STRUCT_TRAITS_MEMBER(state)
+  IPC_STRUCT_TRAITS_MEMBER(latency)
+  IPC_STRUCT_TRAITS_MEMBER(overscroll)
+  IPC_STRUCT_TRAITS_MEMBER(unique_touch_event_id)
+IPC_STRUCT_TRAITS_END()
 
 // Sends an input event to the render widget.
 IPC_MESSAGE_ROUTED3(InputMsg_HandleInputEvent,
@@ -162,6 +171,9 @@ IPC_MESSAGE_ROUTED2(InputMsg_ExecuteEditCommand,
                     std::string, /* name */
                     std::string /* value */)
 
+// Message payload is the name of a WebCore edit command to execute.
+IPC_MESSAGE_ROUTED1(InputMsg_ExecuteNoValueEditCommand, std::string /* name */)
+
 IPC_MESSAGE_ROUTED0(InputMsg_MouseCaptureLost)
 
 // TODO(darin): figure out how this meshes with RestoreFocus
@@ -202,6 +214,14 @@ IPC_MESSAGE_ROUTED2(InputMsg_SelectRange,
                     gfx::Point /* base */,
                     gfx::Point /* extent */)
 
+// Sent by the browser to ask the renderer to adjust the selection start and
+// end points by the given amounts. A negative amount moves the selection
+// towards the beginning of the document, a positive amount moves the selection
+// towards the end of the document.
+IPC_MESSAGE_ROUTED2(InputMsg_AdjustSelectionByCharacterOffset,
+                    int /* start_adjust*/,
+                    int /* end_adjust */)
+
 // Requests the renderer to move the selection extent point to a new position.
 // Expects a MoveRangeSelectionExtent_ACK message when finished.
 IPC_MESSAGE_ROUTED1(InputMsg_MoveRangeSelectionExtent,
@@ -228,7 +248,7 @@ IPC_MESSAGE_ROUTED0(InputMsg_SyntheticGestureCompleted)
 
 // Acknowledges receipt of a InputMsg_HandleInputEvent message.
 IPC_MESSAGE_ROUTED1(InputHostMsg_HandleInputEvent_ACK,
-                    InputHostMsg_HandleInputEvent_ACK_Params)
+                    content::InputEventAck /* ack */)
 
 IPC_MESSAGE_ROUTED1(InputHostMsg_QueueSyntheticGesture,
                     content::SyntheticGesturePacket)
@@ -242,6 +262,9 @@ IPC_MESSAGE_ROUTED1(InputHostMsg_SetTouchAction,
 IPC_MESSAGE_ROUTED1(InputHostMsg_DidOverscroll,
                     content::DidOverscrollParams /* params */)
 
+// Sent by the compositor when a fling animation is stopped.
+IPC_MESSAGE_ROUTED0(InputHostMsg_DidStopFlinging)
+
 // Acknowledges receipt of a InputMsg_MoveCaret message.
 IPC_MESSAGE_ROUTED0(InputHostMsg_MoveCaret_ACK)
 
@@ -254,15 +277,11 @@ IPC_MESSAGE_ROUTED0(InputHostMsg_SelectRange_ACK)
 // Required for cancelling an ongoing input method composition.
 IPC_MESSAGE_ROUTED0(InputHostMsg_ImeCancelComposition)
 
-#if defined(OS_MACOSX) || defined(USE_AURA) || defined(OS_ANDROID)
-// On Mac and Aura IME can request composition character bounds
-// synchronously (see crbug.com/120597). This IPC message sends the character
-// bounds after every composition change to always have correct bound info.
-// This IPC message is also used on Android 5.0 and above.
+// This IPC message sends the character bounds after every composition change
+// to always have correct bound info.
 IPC_MESSAGE_ROUTED2(InputHostMsg_ImeCompositionRangeChanged,
                     gfx::Range /* composition range */,
                     std::vector<gfx::Rect> /* character bounds */)
-#endif
 
 // Adding a new message? Stick to the sort order above: first platform
 // independent InputMsg, then ifdefs for platform specific InputMsg, then

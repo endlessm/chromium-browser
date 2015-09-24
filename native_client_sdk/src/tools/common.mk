@@ -15,9 +15,9 @@
 # accordingly.
 #
 ifneq ($(ENABLE_BIONIC),)
-ALL_TOOLCHAINS ?= pnacl newlib glibc bionic
+ALL_TOOLCHAINS ?= pnacl newlib glibc clang-newlib bionic
 else
-ALL_TOOLCHAINS ?= pnacl newlib glibc
+ALL_TOOLCHAINS ?= pnacl newlib glibc clang-newlib
 endif
 
 VALID_TOOLCHAINS ?= $(ALL_TOOLCHAINS)
@@ -142,7 +142,11 @@ endif
 # Disable DOS PATH warning when using Cygwin based NaCl tools on Windows.
 #
 ifeq ($(OSNAME),win)
-  CYGWIN?=nodosfilewarning
+  # Always use cmd.exe as the shell on Windows. Otherwise Make may try to
+  # search the path for sh.exe. If it is found in a path with a space, the
+  # command will fail.
+  SHELL := cmd.exe
+  CYGWIN ?= nodosfilewarning
   export CYGWIN
 endif
 
@@ -239,11 +243,18 @@ STANDALONE = 1
 endif
 
 OUTBASE ?= .
+CONFIG_DIR := $(CONFIG)
 ifdef STANDALONE
-OUTDIR := $(OUTBASE)/$(TOOLCHAIN)/standalone_$(CONFIG)
-else
-OUTDIR := $(OUTBASE)/$(TOOLCHAIN)/$(CONFIG)
+CONFIG_DIR := standalone_$(CONFIG_DIR)
 endif
+ifdef MSAN
+CONFIG_DIR := msan_$(CONFIG_DIR)
+endif
+ifdef TSAN
+CONFIG_DIR := tsan_$(CONFIG_DIR)
+endif
+
+OUTDIR := $(OUTBASE)/$(TOOLCHAIN)/$(CONFIG_DIR)
 STAMPDIR ?= $(OUTDIR)
 LIBDIR ?= $(NACL_SDK_ROOT)/lib
 
@@ -322,11 +333,11 @@ endif
 # so that calls to assert(3) are not included in the build.
 #
 ifeq ($(CONFIG),Release)
-POSIX_FLAGS ?= -g -O2 -pthread -MMD -DNDEBUG
+POSIX_CFLAGS ?= -g -O2 -pthread -MMD -DNDEBUG
 NACL_LDFLAGS ?= -O2
 PNACL_LDFLAGS ?= -O2
 else
-POSIX_FLAGS ?= -g -O0 -pthread -MMD -DNACL_SDK_DEBUG
+POSIX_CFLAGS ?= -g -O0 -pthread -MMD -DNACL_SDK_DEBUG
 endif
 
 NACL_CFLAGS ?= -Wno-long-long -Werror
@@ -414,7 +425,7 @@ ifneq (,$(findstring $(TOOLCHAIN),win))
 include $(NACL_SDK_ROOT)/tools/host_vc.mk
 endif
 
-ifneq (,$(findstring $(TOOLCHAIN),glibc newlib bionic))
+ifneq (,$(findstring $(TOOLCHAIN),glibc newlib bionic clang-newlib))
 include $(NACL_SDK_ROOT)/tools/nacl_gcc.mk
 endif
 
@@ -476,11 +487,9 @@ CHROME_PATH ?= $(shell $(GETOS) --chrome 2> $(DEV_NULL))
 
 NULL :=
 SPACE := $(NULL) # one space after NULL is required
-ifneq ($(OSNAME),win)
-  CHROME_PATH_ESCAPE := $(subst $(SPACE),\ ,$(CHROME_PATH))
-  SANDBOX_ARGS :=
-else
-  CHROME_PATH_ESCAPE := $(CHROME_PATH)
+CHROME_PATH_ESCAPE := $(subst $(SPACE),\ ,$(CHROME_PATH))
+
+ifeq ($(OSNAME),win)
   SANDBOX_ARGS := --no-sandbox
 endif
 
@@ -500,14 +509,14 @@ PAGE_TC_CONFIG ?= "$(PAGE)?tc=$(TOOLCHAIN)&config=$(CONFIG)"
 .PHONY: run
 run: check_for_chrome all $(PAGE)
 	$(RUN_PY) -C $(CURDIR) -P $(PAGE_TC_CONFIG) \
-	    $(addprefix -E ,$(CHROME_ENV)) -- $(CHROME_PATH_ESCAPE) \
+	    $(addprefix -E ,$(CHROME_ENV)) -- "$(CHROME_PATH)" \
 	    $(CHROME_ARGS) \
 	    --register-pepper-plugins="$(PPAPI_DEBUG),$(PPAPI_RELEASE)"
 
 .PHONY: run_package
 run_package: check_for_chrome all
 	@echo "$(TOOLCHAIN) $(CONFIG)" > $(CURDIR)/run_package_config
-	$(CHROME_PATH_ESCAPE) --load-and-launch-app=$(CURDIR) $(CHROME_ARGS)
+	"$(CHROME_PATH)" --load-and-launch-app=$(CURDIR) $(CHROME_ARGS)
 
 GDB_ARGS += -D $(GDB_PATH)
 # PNaCl's nexe is acquired with "remote get nexe <path>" instead of the NMF.
@@ -520,7 +529,7 @@ endif
 debug: check_for_chrome all $(PAGE)
 	$(RUN_PY) $(GDB_ARGS) \
 	    -C $(CURDIR) -P $(PAGE_TC_CONFIG) \
-	    $(addprefix -E ,$(CHROME_ENV)) -- $(CHROME_PATH_ESCAPE) \
+	    $(addprefix -E ,$(CHROME_ENV)) -- "$(CHROME_PATH)" \
 	    $(CHROME_ARGS) $(SANDBOX_ARGS) --enable-nacl-debug \
 	    --register-pepper-plugins="$(PPAPI_DEBUG),$(PPAPI_RELEASE)"
 

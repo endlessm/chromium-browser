@@ -4,13 +4,16 @@
 
 #include "remoting/protocol/libjingle_transport_factory.h"
 
+#include <algorithm>
+
 #include "base/callback.h"
+#include "base/callback_helpers.h"
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/timer/timer.h"
-#include "jingle/glue/channel_socket_adapter.h"
 #include "jingle/glue/utils.h"
 #include "net/base/net_errors.h"
+#include "remoting/protocol/channel_socket_adapter.h"
 #include "remoting/protocol/network_settings.h"
 #include "remoting/signaling/jingle_info_request.h"
 #include "third_party/webrtc/base/network.h"
@@ -32,13 +35,30 @@ const int kReconnectDelaySeconds = 15;
 // Get fresh STUN/Relay configuration every hour.
 const int kJingleInfoUpdatePeriodSeconds = 3600;
 
+// Utility function to map a cricket::Candidate string type to a
+// TransportRoute::RouteType enum value.
+TransportRoute::RouteType CandidateTypeToTransportRouteType(
+    const std::string& candidate_type) {
+  if (candidate_type == "local") {
+    return TransportRoute::DIRECT;
+  } else if (candidate_type == "stun" || candidate_type == "prflx") {
+    return TransportRoute::STUN;
+  } else if (candidate_type == "relay") {
+    return TransportRoute::RELAY;
+  } else {
+    LOG(FATAL) << "Unknown candidate type: " << candidate_type;
+    return TransportRoute::DIRECT;
+  }
+}
+
 class LibjingleTransport
     : public Transport,
       public base::SupportsWeakPtr<LibjingleTransport>,
       public sigslot::has_slots<> {
  public:
   LibjingleTransport(cricket::PortAllocator* port_allocator,
-                           const NetworkSettings& network_settings);
+                     const NetworkSettings& network_settings,
+                     TransportRole role);
   ~LibjingleTransport() override;
 
   // Called by JingleTransportFactory when it has fresh Jingle info.
@@ -48,9 +68,12 @@ class LibjingleTransport
   void Connect(const std::string& name,
                Transport::EventHandler* event_handler,
                const Transport::ConnectedCallback& callback) override;
+  void SetRemoteCredentials(const std::string& ufrag,
+                            const std::string& password) override;
   void AddRemoteCandidate(const cricket::Candidate& candidate) override;
   const std::string& name() const override;
   bool is_connected() const override;
+  void SetUseStandardIce(bool use_standard_ice) override;
 
  private:
   void DoStart();
@@ -64,27 +87,32 @@ class LibjingleTransport
                      const cricket::Candidate& candidate);
   void OnWritableState(cricket::TransportChannel* channel);
 
-  // Callback for jingle_glue::TransportChannelSocketAdapter to notify when the
-  // socket is destroyed.
+  // Callback for TransportChannelSocketAdapter to notify when the socket is
+  // destroyed.
   void OnChannelDestroyed();
+
+  void NotifyRouteChanged();
 
   // Tries to connect by restarting ICE. Called by |reconnect_timer_|.
   void TryReconnect();
 
   cricket::PortAllocator* port_allocator_;
   NetworkSettings network_settings_;
+  TransportRole role_;
+
+  bool use_standard_ice_ = true;
 
   std::string name_;
   EventHandler* event_handler_;
   Transport::ConnectedCallback callback_;
   std::string ice_username_fragment_;
-  std::string ice_password_;
 
   bool can_start_;
 
+  std::string remote_ice_username_fragment_;
+  std::string remote_ice_password_;
   std::list<cricket::Candidate> pending_candidates_;
   scoped_ptr<cricket::P2PTransportChannel> channel_;
-  bool channel_was_writable_;
   int connect_attempts_left_;
   base::RepeatingTimer<LibjingleTransport> reconnect_timer_;
 
@@ -94,19 +122,18 @@ class LibjingleTransport
 };
 
 LibjingleTransport::LibjingleTransport(cricket::PortAllocator* port_allocator,
-                                       const NetworkSettings& network_settings)
+                                       const NetworkSettings& network_settings,
+                                       TransportRole role)
     : port_allocator_(port_allocator),
       network_settings_(network_settings),
-      event_handler_(NULL),
+      role_(role),
+      event_handler_(nullptr),
       ice_username_fragment_(
           rtc::CreateRandomString(cricket::ICE_UFRAG_LENGTH)),
-      ice_password_(rtc::CreateRandomString(cricket::ICE_PWD_LENGTH)),
       can_start_(false),
-      channel_was_writable_(false),
       connect_attempts_left_(kMaxReconnectAttempts),
       weak_factory_(this) {
   DCHECK(!ice_username_fragment_.empty());
-  DCHECK(!ice_password_.empty());
 }
 
 LibjingleTransport::~LibjingleTransport() {
@@ -130,7 +157,17 @@ void LibjingleTransport::OnCanStart() {
   if (!callback_.is_null())
     DoStart();
 
+  // Pass pending ICE credentials and candidates to the channel.
+  if (!remote_ice_username_fragment_.empty()) {
+    channel_->SetRemoteIceCredentials(remote_ice_username_fragment_,
+                                      remote_ice_password_);
+  }
+
   while (!pending_candidates_.empty()) {
+    if (!use_standard_ice_) {
+      channel_->SetRemoteIceCredentials(pending_candidates_.front().username(),
+                                        pending_candidates_.front().password());
+    }
     channel_->OnCandidate(pending_candidates_.front());
     pending_candidates_.pop_front();
   }
@@ -160,9 +197,19 @@ void LibjingleTransport::DoStart() {
   // Create P2PTransportChannel, attach signal handlers and connect it.
   // TODO(sergeyu): Specify correct component ID for the channel.
   channel_.reset(new cricket::P2PTransportChannel(
-      std::string(), 0, NULL, port_allocator_));
-  channel_->SetIceProtocolType(cricket::ICEPROTO_GOOGLE);
-  channel_->SetIceCredentials(ice_username_fragment_, ice_password_);
+      std::string(), 0, nullptr, port_allocator_));
+  std::string ice_password = rtc::CreateRandomString(cricket::ICE_PWD_LENGTH);
+  if (use_standard_ice_) {
+    channel_->SetIceProtocolType(cricket::ICEPROTO_RFC5245);
+    channel_->SetIceRole((role_ == TransportRole::CLIENT)
+                             ? cricket::ICEROLE_CONTROLLING
+                             : cricket::ICEROLE_CONTROLLED);
+    event_handler_->OnTransportIceCredentials(this, ice_username_fragment_,
+                                              ice_password);
+  } else {
+    channel_->SetIceProtocolType(cricket::ICEPROTO_GOOGLE);
+  }
+  channel_->SetIceCredentials(ice_username_fragment_, ice_password);
   channel_->SignalRequestSignaling.connect(
       this, &LibjingleTransport::OnRequestSignaling);
   channel_->SignalCandidateReady.connect(
@@ -182,18 +229,30 @@ void LibjingleTransport::DoStart() {
   reconnect_timer_.Start(
       FROM_HERE, base::TimeDelta::FromSeconds(kReconnectDelaySeconds),
       this, &LibjingleTransport::TryReconnect);
+
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&LibjingleTransport::NotifyConnected,
+                            weak_factory_.GetWeakPtr()));
 }
 
 void LibjingleTransport::NotifyConnected() {
   // Create net::Socket adapter for the P2PTransportChannel.
-  scoped_ptr<jingle_glue::TransportChannelSocketAdapter> socket(
-      new jingle_glue::TransportChannelSocketAdapter(channel_.get()));
+  scoped_ptr<TransportChannelSocketAdapter> socket(
+      new TransportChannelSocketAdapter(channel_.get()));
   socket->SetOnDestroyedCallback(base::Bind(
       &LibjingleTransport::OnChannelDestroyed, base::Unretained(this)));
+  base::ResetAndReturn(&callback_).Run(socket.Pass());
+}
 
-  Transport::ConnectedCallback callback = callback_;
-  callback_.Reset();
-  callback.Run(socket.Pass());
+void LibjingleTransport::SetRemoteCredentials(const std::string& ufrag,
+                                              const std::string& password) {
+  DCHECK(CalledOnValidThread());
+
+  remote_ice_username_fragment_ = ufrag;
+  remote_ice_password_ = password;
+
+  if (channel_)
+    channel_->SetRemoteIceCredentials(ufrag, password);
 }
 
 void LibjingleTransport::AddRemoteCandidate(
@@ -208,6 +267,10 @@ void LibjingleTransport::AddRemoteCandidate(
     return;
 
   if (channel_) {
+    if (!use_standard_ice_) {
+      channel_->SetRemoteIceCredentials(candidate.username(),
+                                        candidate.password());
+    }
     channel_->OnCandidate(candidate);
   } else {
     pending_candidates_.push_back(candidate);
@@ -222,6 +285,12 @@ const std::string& LibjingleTransport::name() const {
 bool LibjingleTransport::is_connected() const {
   DCHECK(CalledOnValidThread());
   return callback_.is_null();
+}
+
+void LibjingleTransport::SetUseStandardIce(bool use_standard_ice) {
+  DCHECK(CalledOnValidThread());
+  DCHECK(!channel_);
+  use_standard_ice_ = use_standard_ice;
 }
 
 void LibjingleTransport::OnRequestSignaling(
@@ -240,24 +309,57 @@ void LibjingleTransport::OnCandidateReady(
 void LibjingleTransport::OnRouteChange(
     cricket::TransportChannel* channel,
     const cricket::Candidate& candidate) {
+  // Ignore notifications if the channel is not writable.
+  if (channel_->writable())
+    NotifyRouteChanged();
+}
+
+void LibjingleTransport::OnWritableState(
+    cricket::TransportChannel* channel) {
+  DCHECK_EQ(channel, channel_.get());
+
+  if (channel->writable()) {
+    connect_attempts_left_ = kMaxReconnectAttempts;
+    reconnect_timer_.Stop();
+
+    // Route change notifications are ignored when the |channel_| is not
+    // writable. Notify the event handler about the current route once the
+    // channel is writable.
+    NotifyRouteChanged();
+  } else {
+    reconnect_timer_.Reset();
+    TryReconnect();
+  }
+}
+
+void LibjingleTransport::OnChannelDestroyed() {
+  // The connection socket is being deleted, so delete the transport too.
+  delete this;
+}
+
+void LibjingleTransport::NotifyRouteChanged() {
   TransportRoute route;
 
-  if (candidate.type() == "local") {
-    route.type = TransportRoute::DIRECT;
-  } else if (candidate.type() == "stun") {
-    route.type = TransportRoute::STUN;
-  } else if (candidate.type() == "relay") {
-    route.type = TransportRoute::RELAY;
-  } else {
-    LOG(FATAL) << "Unknown candidate type: " << candidate.type();
-  }
+  DCHECK(channel_->best_connection());
+  const cricket::Connection* connection = channel_->best_connection();
+
+  // A connection has both a local and a remote candidate. For our purposes, the
+  // route type is determined by the most indirect candidate type. For example:
+  // it's possible for the local candidate be a "relay" type, while the remote
+  // candidate is "local". In this case, we still want to report a RELAY route
+  // type.
+  static_assert(TransportRoute::DIRECT < TransportRoute::STUN &&
+                TransportRoute::STUN < TransportRoute::RELAY,
+                "Route type enum values are ordered by 'indirectness'");
+  route.type = std::max(
+      CandidateTypeToTransportRouteType(connection->local_candidate().type()),
+      CandidateTypeToTransportRouteType(connection->remote_candidate().type()));
 
   if (!jingle_glue::SocketAddressToIPEndPoint(
-          candidate.address(), &route.remote_address)) {
+          connection->remote_candidate().address(), &route.remote_address)) {
     LOG(FATAL) << "Failed to convert peer IP address.";
   }
 
-  DCHECK(channel_->best_connection());
   const cricket::Candidate& local_candidate =
       channel_->best_connection()->local_candidate();
   if (!jingle_glue::SocketAddressToIPEndPoint(
@@ -266,33 +368,6 @@ void LibjingleTransport::OnRouteChange(
   }
 
   event_handler_->OnTransportRouteChange(this, route);
-}
-
-void LibjingleTransport::OnWritableState(
-    cricket::TransportChannel* channel) {
-  DCHECK_EQ(channel, channel_.get());
-
-  if (channel->writable()) {
-    if (!channel_was_writable_) {
-      channel_was_writable_ = true;
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE,
-          base::Bind(&LibjingleTransport::NotifyConnected,
-                     weak_factory_.GetWeakPtr()));
-    }
-    connect_attempts_left_ = kMaxReconnectAttempts;
-    reconnect_timer_.Stop();
-  } else if (!channel->writable() && channel_was_writable_) {
-    reconnect_timer_.Reset();
-    TryReconnect();
-  }
-}
-
-void LibjingleTransport::OnChannelDestroyed() {
-  if (is_connected()) {
-    // The connection socket is being deleted, so delete the transport too.
-    delete this;
-  }
 }
 
 void LibjingleTransport::TryReconnect() {
@@ -309,8 +384,10 @@ void LibjingleTransport::TryReconnect() {
   --connect_attempts_left_;
 
   // Restart ICE by resetting ICE password.
-  ice_password_ = rtc::CreateRandomString(cricket::ICE_PWD_LENGTH);
-  channel_->SetIceCredentials(ice_username_fragment_, ice_password_);
+  std::string ice_password = rtc::CreateRandomString(cricket::ICE_PWD_LENGTH);
+  event_handler_->OnTransportIceCredentials(this, ice_username_fragment_,
+                                            ice_password);
+  channel_->SetIceCredentials(ice_username_fragment_, ice_password);
 }
 
 }  // namespace
@@ -318,10 +395,12 @@ void LibjingleTransport::TryReconnect() {
 LibjingleTransportFactory::LibjingleTransportFactory(
     SignalStrategy* signal_strategy,
     scoped_ptr<cricket::HttpPortAllocatorBase> port_allocator,
-    const NetworkSettings& network_settings)
+    const NetworkSettings& network_settings,
+    TransportRole role)
     : signal_strategy_(signal_strategy),
       port_allocator_(port_allocator.Pass()),
-      network_settings_(network_settings) {
+      network_settings_(network_settings),
+      role_(role) {
 }
 
 LibjingleTransportFactory::~LibjingleTransportFactory() {
@@ -338,7 +417,7 @@ void LibjingleTransportFactory::PrepareTokens() {
 
 scoped_ptr<Transport> LibjingleTransportFactory::CreateTransport() {
   scoped_ptr<LibjingleTransport> result(
-      new LibjingleTransport(port_allocator_.get(), network_settings_));
+      new LibjingleTransport(port_allocator_.get(), network_settings_, role_));
 
   EnsureFreshJingleInfo();
 

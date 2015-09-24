@@ -15,7 +15,10 @@
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/defaults.h"
 #include "chrome/browser/prefs/pref_service_syncable.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/common/chrome_paths.h"
 #include "content/public/browser/browser_thread.h"
 
@@ -42,7 +45,7 @@ std::set<base::FilePath> GetPrefsCandidateFilesFromFolder(
       false,  // Recursive.
       base::FileEnumerator::FILES);
 #if defined(OS_WIN)
-  base::FilePath::StringType extension = base::UTF8ToWide(std::string(".json"));
+  base::FilePath::StringType extension = base::UTF8ToWide(".json");
 #elif defined(OS_POSIX)
   base::FilePath::StringType extension(".json");
 #endif
@@ -68,10 +71,11 @@ std::set<base::FilePath> GetPrefsCandidateFilesFromFolder(
 // occurs). An empty dictionary is returned in case of failure (e.g. invalid
 // path or json content).
 // Caller takes ownership of the returned dictionary.
-base::DictionaryValue* ExtractExtensionPrefs(base::ValueSerializer* serializer,
-                                             const base::FilePath& path) {
+base::DictionaryValue* ExtractExtensionPrefs(
+    base::ValueDeserializer* deserializer,
+    const base::FilePath& path) {
   std::string error_msg;
-  base::Value* extensions = serializer->Deserialize(NULL, &error_msg);
+  base::Value* extensions = deserializer->Deserialize(NULL, &error_msg);
   if (!extensions) {
     LOG(WARNING) << "Unable to deserialize json data: " << error_msg
                  << " in file " << path.value() << ".";
@@ -113,12 +117,23 @@ const base::FilePath ExternalPrefLoader::GetBaseCrxFilePath() {
 
 void ExternalPrefLoader::StartLoading() {
   CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  if (options_ & DELAY_LOAD_UNTIL_PRIORITY_SYNC) {
+  if ((options_ & DELAY_LOAD_UNTIL_PRIORITY_SYNC) &&
+      (profile_ && profile_->IsSyncAllowed())) {
     if (!PostLoadIfPrioritySyncReady()) {
       DCHECK(profile_);
       PrefServiceSyncable* prefs = PrefServiceSyncable::FromProfile(profile_);
       DCHECK(prefs);
       syncable_pref_observer_.Add(prefs);
+      ProfileSyncService* service =
+          ProfileSyncServiceFactory::GetForProfile(profile_);
+      DCHECK(service);
+      if (service->CanSyncStart() &&
+          (service->HasSyncSetupCompleted() ||
+           browser_defaults::kSyncAutoStarts)) {
+        service->AddObserver(this);
+      } else {
+        PostLoadAndRemoveObservers();
+      }
     }
   } else {
     BrowserThread::PostTask(
@@ -131,6 +146,15 @@ void ExternalPrefLoader::OnIsSyncingChanged() {
   PostLoadIfPrioritySyncReady();
 }
 
+void ExternalPrefLoader::OnStateChanged() {
+  ProfileSyncService* service =
+      ProfileSyncServiceFactory::GetForProfile(profile_);
+  DCHECK(service);
+  if (!service->CanSyncStart()) {
+    PostLoadAndRemoveObservers();
+  }
+}
+
 bool ExternalPrefLoader::PostLoadIfPrioritySyncReady() {
   DCHECK(options_ & DELAY_LOAD_UNTIL_PRIORITY_SYNC);
   DCHECK(profile_);
@@ -138,14 +162,26 @@ bool ExternalPrefLoader::PostLoadIfPrioritySyncReady() {
   PrefServiceSyncable* prefs = PrefServiceSyncable::FromProfile(profile_);
   DCHECK(prefs);
   if (prefs->IsPrioritySyncing()) {
-    BrowserThread::PostTask(
-        BrowserThread::FILE, FROM_HERE,
-        base::Bind(&ExternalPrefLoader::LoadOnFileThread, this));
-    syncable_pref_observer_.Remove(prefs);
+    PostLoadAndRemoveObservers();
     return true;
   }
 
   return false;
+}
+
+void ExternalPrefLoader::PostLoadAndRemoveObservers() {
+  PrefServiceSyncable* prefs = PrefServiceSyncable::FromProfile(profile_);
+  DCHECK(prefs);
+  syncable_pref_observer_.Remove(prefs);
+
+  ProfileSyncService* service =
+      ProfileSyncServiceFactory::GetForProfile(profile_);
+  DCHECK(service);
+  service->RemoveObserver(this);
+
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
+      base::Bind(&ExternalPrefLoader::LoadOnFileThread, this));
 }
 
 void ExternalPrefLoader::LoadOnFileThread() {
@@ -220,9 +256,9 @@ void ExternalPrefLoader::ReadExternalExtensionPrefFile(
 #endif  // defined(OS_MACOSX)
   }
 
-  JSONFileValueSerializer serializer(json_file);
+  JSONFileValueDeserializer deserializer(json_file);
   scoped_ptr<base::DictionaryValue> ext_prefs(
-      ExtractExtensionPrefs(&serializer, json_file));
+      ExtractExtensionPrefs(&deserializer, json_file));
   if (ext_prefs)
     prefs->MergeDictionary(ext_prefs.get());
 }
@@ -252,15 +288,15 @@ void ExternalPrefLoader::ReadStandaloneExtensionPrefFiles(
         base::UTF16ToASCII(
             extension_candidate_path.RemoveExtension().BaseName().value());
 #elif defined(OS_POSIX)
-        extension_candidate_path.RemoveExtension().BaseName().value().c_str();
+        extension_candidate_path.RemoveExtension().BaseName().value();
 #endif
 
     DVLOG(1) << "Reading json file: "
-             << extension_candidate_path.LossyDisplayName().c_str();
+             << extension_candidate_path.LossyDisplayName();
 
-    JSONFileValueSerializer serializer(extension_candidate_path);
+    JSONFileValueDeserializer deserializer(extension_candidate_path);
     scoped_ptr<base::DictionaryValue> ext_prefs(
-        ExtractExtensionPrefs(&serializer, extension_candidate_path));
+        ExtractExtensionPrefs(&deserializer, extension_candidate_path));
     if (ext_prefs) {
       DVLOG(1) << "Adding extension with id: " << id;
       prefs->Set(id, ext_prefs.release());
@@ -273,9 +309,9 @@ ExternalTestingLoader::ExternalTestingLoader(
     const base::FilePath& fake_base_path)
     : fake_base_path_(fake_base_path) {
   CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  JSONStringValueSerializer serializer(json_data);
+  JSONStringValueDeserializer deserializer(json_data);
   base::FilePath fake_json_path = fake_base_path.AppendASCII("fake.json");
-  testing_prefs_.reset(ExtractExtensionPrefs(&serializer, fake_json_path));
+  testing_prefs_.reset(ExtractExtensionPrefs(&deserializer, fake_json_path));
 }
 
 void ExternalTestingLoader::StartLoading() {

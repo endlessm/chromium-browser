@@ -20,7 +20,6 @@
 #include "webrtc/modules/audio_coding/codecs/opus/interface/opus_interface.h"
 #include "webrtc/modules/audio_coding/main/interface/audio_coding_module_typedefs.h"
 #include "webrtc/modules/audio_coding/main/acm2/acm_codec_database.h"
-#include "webrtc/modules/audio_coding/main/acm2/acm_opus.h"
 #include "webrtc/modules/audio_coding/main/test/TestStereo.h"
 #include "webrtc/modules/audio_coding/main/test/utility.h"
 #include "webrtc/system_wrappers/interface/trace.h"
@@ -79,14 +78,14 @@ void OpusTest::Perform() {
   in_file_mono_.ReadStereo(false);
 
   // Create Opus encoders for mono and stereo.
-  ASSERT_GT(WebRtcOpus_EncoderCreate(&opus_mono_encoder_, 1), -1);
-  ASSERT_GT(WebRtcOpus_EncoderCreate(&opus_stereo_encoder_, 2), -1);
+  ASSERT_GT(WebRtcOpus_EncoderCreate(&opus_mono_encoder_, 1, 0), -1);
+  ASSERT_GT(WebRtcOpus_EncoderCreate(&opus_stereo_encoder_, 2, 1), -1);
 
   // Create Opus decoders for mono and stereo for stand-alone testing of Opus.
   ASSERT_GT(WebRtcOpus_DecoderCreate(&opus_mono_decoder_, 1), -1);
   ASSERT_GT(WebRtcOpus_DecoderCreate(&opus_stereo_decoder_, 2), -1);
-  ASSERT_GT(WebRtcOpus_DecoderInitNew(opus_mono_decoder_), -1);
-  ASSERT_GT(WebRtcOpus_DecoderInitNew(opus_stereo_decoder_), -1);
+  ASSERT_GT(WebRtcOpus_DecoderInit(opus_mono_decoder_), -1);
+  ASSERT_GT(WebRtcOpus_DecoderInit(opus_stereo_decoder_), -1);
 
   ASSERT_TRUE(acm_receiver_.get() != NULL);
   EXPECT_EQ(0, acm_receiver_->InitializeReceiver());
@@ -274,17 +273,11 @@ void OpusTest::Run(TestPackStereo* channel, int channels, int bitrate,
       int16_t bitstream_len_byte;
       uint8_t bitstream[kMaxBytes];
       for (int i = 0; i < loop_encode; i++) {
-        if (channels == 1) {
-          bitstream_len_byte = WebRtcOpus_Encode(
-              opus_mono_encoder_, &audio[read_samples],
-              frame_length, kMaxBytes, bitstream);
-          ASSERT_GT(bitstream_len_byte, -1);
-        } else {
-          bitstream_len_byte = WebRtcOpus_Encode(
-              opus_stereo_encoder_, &audio[read_samples],
-              frame_length, kMaxBytes, bitstream);
-          ASSERT_GT(bitstream_len_byte, -1);
-        }
+        int bitstream_len_byte_int = WebRtcOpus_Encode(
+            (channels == 1) ? opus_mono_encoder_ : opus_stereo_encoder_,
+            &audio[read_samples], frame_length, kMaxBytes, bitstream);
+        ASSERT_GE(bitstream_len_byte_int, 0);
+        bitstream_len_byte = static_cast<int16_t>(bitstream_len_byte_int);
 
         // Simulate packet loss by setting |packet_loss_| to "true" in
         // |percent_loss| percent of the loops.
@@ -304,7 +297,7 @@ void OpusTest::Run(TestPackStereo* channel, int channels, int bitrate,
         // Run stand-alone Opus decoder, or decode PLC.
         if (channels == 1) {
           if (!lost_packet) {
-            decoded_samples += WebRtcOpus_DecodeNew(
+            decoded_samples += WebRtcOpus_Decode(
                 opus_mono_decoder_, bitstream, bitstream_len_byte,
                 &out_audio[decoded_samples * channels], &audio_type);
           } else {
@@ -313,7 +306,7 @@ void OpusTest::Run(TestPackStereo* channel, int channels, int bitrate,
           }
         } else {
           if (!lost_packet) {
-            decoded_samples += WebRtcOpus_DecodeNew(
+            decoded_samples += WebRtcOpus_Decode(
                 opus_stereo_decoder_, bitstream, bitstream_len_byte,
                 &out_audio[decoded_samples * channels], &audio_type);
           } else {

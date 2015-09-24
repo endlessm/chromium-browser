@@ -42,10 +42,9 @@ CaptivePortalTabHelper::CaptivePortalTabHelper(
           new CaptivePortalTabReloader(
               profile_,
               web_contents,
-              base::Bind(&CaptivePortalTabHelper::OpenLoginTab,
-                         base::Unretained(this)))),
+              base::Bind(&CaptivePortalTabHelper::OpenLoginTabForWebContents,
+                         web_contents, false))),
       login_detector_(new CaptivePortalLoginDetector(profile_)),
-      web_contents_(web_contents),
       pending_error_code_(net::OK),
       provisional_render_view_host_(NULL) {
   registrar_.Add(this,
@@ -94,7 +93,7 @@ void CaptivePortalTabHelper::DidStartProvisionalLoadForFrame(
   provisional_render_view_host_ = render_view_host;
   pending_error_code_ = net::OK;
 
-  tab_reloader_->OnLoadStart(validated_url.SchemeIsSecure());
+  tab_reloader_->OnLoadStart(validated_url.SchemeIsCryptographic());
 }
 
 void CaptivePortalTabHelper::DidCommitProvisionalLoadForFrame(
@@ -116,7 +115,7 @@ void CaptivePortalTabHelper::DidCommitProvisionalLoadForFrame(
     OnLoadAborted();
 
     // Send information about the new load.
-    tab_reloader_->OnLoadStart(url.SchemeIsSecure());
+    tab_reloader_->OnLoadStart(url.SchemeIsCryptographic());
     tab_reloader_->OnLoadCommitted(net::OK);
   }
 
@@ -128,7 +127,8 @@ void CaptivePortalTabHelper::DidFailProvisionalLoad(
     content::RenderFrameHost* render_frame_host,
     const GURL& validated_url,
     int error_code,
-    const base::string16& error_description) {
+    const base::string16& error_description,
+    bool was_ignored_by_handler) {
   DCHECK(CalledOnValidThread());
 
   // Ignore subframes and unexpected RenderViewHosts.
@@ -146,8 +146,7 @@ void CaptivePortalTabHelper::DidFailProvisionalLoad(
   pending_error_code_ = error_code;
 }
 
-void CaptivePortalTabHelper::DidStopLoading(
-    content::RenderViewHost* render_view_host) {
+void CaptivePortalTabHelper::DidStopLoading() {
   DCHECK(CalledOnValidThread());
 
   login_detector_->OnStoppedLoading();
@@ -193,6 +192,44 @@ bool CaptivePortalTabHelper::IsLoginTab() const {
   return login_detector_->is_login_tab();
 }
 
+// static
+void CaptivePortalTabHelper::OpenLoginTabForWebContents(
+    content::WebContents* web_contents,
+    bool focus) {
+  Browser* browser = chrome::FindBrowserWithWebContents(web_contents);
+
+  // If the Profile doesn't have a tabbed browser window open, do nothing.
+  if (!browser)
+    return;
+
+  // Check if the Profile's topmost browser window already has a login tab.
+  // If so, do nothing.
+  // TODO(mmenke):  Consider focusing that tab, at least if this is the tab
+  //                helper for the currently active tab for the profile.
+  for (int i = 0; i < browser->tab_strip_model()->count(); ++i) {
+    content::WebContents* contents =
+        browser->tab_strip_model()->GetWebContentsAt(i);
+    CaptivePortalTabHelper* captive_portal_tab_helper =
+        CaptivePortalTabHelper::FromWebContents(contents);
+    if (captive_portal_tab_helper->IsLoginTab()) {
+      if (focus)
+        browser->tab_strip_model()->ActivateTabAt(i, false);
+      return;
+    }
+  }
+
+  // Otherwise, open a login tab.  Only end up here when a captive portal result
+  // was received, so it's safe to assume profile has a CaptivePortalService.
+  content::WebContents* new_contents = chrome::AddSelectedTabWithURL(
+      browser,
+      CaptivePortalServiceFactory::GetForProfile(
+          browser->profile())->test_url(),
+      ui::PAGE_TRANSITION_TYPED);
+  CaptivePortalTabHelper* captive_portal_tab_helper =
+      CaptivePortalTabHelper::FromWebContents(new_contents);
+  captive_portal_tab_helper->SetIsLoginTab();
+}
+
 void CaptivePortalTabHelper::OnRedirect(int child_id,
                                         ResourceType resource_type,
                                         const GURL& new_url) {
@@ -203,7 +240,7 @@ void CaptivePortalTabHelper::OnRedirect(int child_id,
     return;
   }
 
-  tab_reloader_->OnRedirect(new_url.SchemeIsSecure());
+  tab_reloader_->OnRedirect(new_url.SchemeIsCryptographic());
 }
 
 void CaptivePortalTabHelper::OnCaptivePortalResults(
@@ -233,35 +270,4 @@ void CaptivePortalTabHelper::SetTabReloaderForTest(
 
 CaptivePortalTabReloader* CaptivePortalTabHelper::GetTabReloaderForTest() {
   return tab_reloader_.get();
-}
-
-void CaptivePortalTabHelper::OpenLoginTab() {
-  Browser* browser = chrome::FindBrowserWithWebContents(web_contents_);
-
-  // If the Profile doesn't have a tabbed browser window open, do nothing.
-  if (!browser)
-    return;
-
-  // Check if the Profile's topmost browser window already has a login tab.
-  // If so, do nothing.
-  // TODO(mmenke):  Consider focusing that tab, at least if this is the tab
-  //                helper for the currently active tab for the profile.
-  for (int i = 0; i < browser->tab_strip_model()->count(); ++i) {
-    content::WebContents* web_contents =
-        browser->tab_strip_model()->GetWebContentsAt(i);
-    CaptivePortalTabHelper* captive_portal_tab_helper =
-        CaptivePortalTabHelper::FromWebContents(web_contents);
-    if (captive_portal_tab_helper->IsLoginTab())
-      return;
-  }
-
-  // Otherwise, open a login tab.  Only end up here when a captive portal result
-  // was received, so it's safe to assume |profile_| has a CaptivePortalService.
-  content::WebContents* web_contents = chrome::AddSelectedTabWithURL(
-          browser,
-          CaptivePortalServiceFactory::GetForProfile(profile_)->test_url(),
-          ui::PAGE_TRANSITION_TYPED);
-  CaptivePortalTabHelper* captive_portal_tab_helper =
-      CaptivePortalTabHelper::FromWebContents(web_contents);
-  captive_portal_tab_helper->SetIsLoginTab();
 }

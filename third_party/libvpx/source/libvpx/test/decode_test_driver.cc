@@ -65,7 +65,7 @@ void DecoderTest::HandlePeekResult(Decoder *const decoder,
 
 void DecoderTest::RunLoop(CompressedVideoSource *video,
                           const vpx_codec_dec_cfg_t &dec_cfg) {
-  Decoder* const decoder = codec_->CreateDecoder(dec_cfg, 0);
+  Decoder* const decoder = codec_->CreateDecoder(dec_cfg, flags_, 0);
   ASSERT_TRUE(decoder != NULL);
   bool end_of_file = false;
 
@@ -108,6 +108,14 @@ void DecoderTest::RunLoop(CompressedVideoSource *video,
 void DecoderTest::RunLoop(CompressedVideoSource *video) {
   vpx_codec_dec_cfg_t dec_cfg = vpx_codec_dec_cfg_t();
   RunLoop(video, dec_cfg);
+}
+
+void DecoderTest::set_cfg(const vpx_codec_dec_cfg_t &dec_cfg) {
+  memcpy(&cfg_, &dec_cfg, sizeof(cfg_));
+}
+
+void DecoderTest::set_flags(const vpx_codec_flags_t flags) {
+  flags_ = flags;
 }
 
 }  // namespace libvpx_test

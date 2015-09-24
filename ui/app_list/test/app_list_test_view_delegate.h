@@ -7,6 +7,7 @@
 
 #include <map>
 #include <string>
+#include <vector>
 
 #include "base/callback_forward.h"
 #include "base/compiler_specific.h"
@@ -78,6 +79,8 @@ class AppListTestViewDelegate : public AppListViewDelegate {
   views::View* CreateStartPageWebView(const gfx::Size& size) override;
   std::vector<views::View*> CreateCustomPageWebViews(
       const gfx::Size& size) override;
+  void CustomLauncherPageAnimationChanged(double progress) override {}
+  void CustomLauncherPagePopSubpage() override {}
 #endif
   bool IsSpeechRecognitionEnabled() override;
   const Users& GetUsers() const override;
@@ -99,7 +102,7 @@ class AppListTestViewDelegate : public AppListViewDelegate {
   std::map<size_t, int> open_search_result_counts_;
   Users users_;
   scoped_ptr<AppListTestModel> model_;
-  ObserverList<AppListViewDelegateObserver> observers_;
+  base::ObserverList<AppListViewDelegateObserver> observers_;
   SpeechUIModel speech_ui_;
   base::TimeDelta auto_launch_timeout_;
 

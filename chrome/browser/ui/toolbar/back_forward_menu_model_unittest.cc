@@ -9,7 +9,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
-#include "chrome/browser/history/history_service.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
@@ -19,6 +18,7 @@
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/test_browser_window.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/history/core/browser/history_service.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
@@ -519,13 +519,12 @@ TEST_F(BackFwdMenuModelTest, FaviconLoadTest) {
   NavigateAndCommit(url2);
 
   // Set the desired favicon for url1.
-  HistoryServiceFactory::GetForProfile(
-      profile(), Profile::EXPLICIT_ACCESS)->AddPage(
-          url1, base::Time::Now(), history::SOURCE_BROWSED);
-  FaviconServiceFactory::GetForProfile(profile(), Profile::EXPLICIT_ACCESS)
-      ->SetFavicons(url1,
-                    url1_favicon,
-                    favicon_base::FAVICON,
+  HistoryServiceFactory::GetForProfile(profile(),
+                                       ServiceAccessType::EXPLICIT_ACCESS)
+      ->AddPage(url1, base::Time::Now(), history::SOURCE_BROWSED);
+  FaviconServiceFactory::GetForProfile(profile(),
+                                       ServiceAccessType::EXPLICIT_ACCESS)
+      ->SetFavicons(url1, url1_favicon, favicon_base::FAVICON,
                     gfx::Image::CreateFrom1xBitmap(new_icon_bitmap));
 
   // Will return the current icon (default) but start an anync call

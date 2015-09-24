@@ -18,7 +18,7 @@ bool ReadFile(const base::FilePath& file, std::string* content) {
   if (!base::ReadFileToString(file, content))
     return false;
 
-  ReplaceSubstringsAfterOffset(content, 0, "\r\n", "\n");
+  base::ReplaceSubstringsAfterOffset(content, 0, "\r\n", "\n");
   return true;
 }
 
@@ -45,24 +45,36 @@ void DataDrivenTest::RunDataDrivenTest(
   for (base::FilePath input_file = input_files.Next();
        !input_file.empty();
        input_file = input_files.Next()) {
-    SCOPED_TRACE(input_file.BaseName().value());
-
-    std::string input;
-    ASSERT_TRUE(ReadFile(input_file, &input));
-
-    std::string output;
-    GenerateResults(input, &output);
-
-    base::FilePath output_file = output_directory.Append(
-        input_file.BaseName().StripTrailingSeparators().ReplaceExtension(
-            FILE_PATH_LITERAL(".out")));
-
-    std::string output_file_contents;
-    if (ReadFile(output_file, &output_file_contents))
-      EXPECT_EQ(output_file_contents, output);
-    else
-      ASSERT_TRUE(WriteFile(output_file, output));
+    RunOneDataDrivenTest(input_file, output_directory);
   }
+}
+
+void DataDrivenTest::RunOneDataDrivenTest(
+    const base::FilePath& test_file_name,
+    const base::FilePath& output_directory) {
+  // iOS doesn't get rid of removed test files. TODO(estade): remove this after
+  // all iOS bots are clobbered.
+  if (test_file_name.BaseName().value() == FILE_PATH_LITERAL("multimerge.in"))
+    return;
+
+  ASSERT_TRUE(base::DirectoryExists(output_directory));
+  SCOPED_TRACE(test_file_name.BaseName().value());
+
+  std::string input;
+  ReadFile(test_file_name, &input);
+
+  std::string output;
+  GenerateResults(input, &output);
+
+  base::FilePath output_file = output_directory.Append(
+      test_file_name.BaseName().StripTrailingSeparators().ReplaceExtension(
+          FILE_PATH_LITERAL(".out")));
+
+  std::string output_file_contents;
+  if (ReadFile(output_file, &output_file_contents))
+    EXPECT_EQ(output_file_contents, output);
+  else
+    ASSERT_TRUE(WriteFile(output_file, output));
 }
 
 base::FilePath DataDrivenTest::GetInputDirectory(

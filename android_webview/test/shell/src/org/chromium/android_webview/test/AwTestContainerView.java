@@ -15,8 +15,6 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.View;
-import android.view.accessibility.AccessibilityEvent;
-import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityNodeProvider;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
@@ -207,7 +205,7 @@ public class AwTestContainerView extends FrameLayout {
             if (process) {
                 DrawGL.drawGL(mDrawGL, mViewContext, width, height, 0, 0, MODE_PROCESS);
             }
-            if (draw) {
+            if (process || draw) {
                 DrawGL.drawGL(mDrawGL, mViewContext, width, height,
                         mCommittedScrollX, mCommittedScrollY, MODE_DRAW);
             }
@@ -252,7 +250,7 @@ public class AwTestContainerView extends FrameLayout {
         mAwContents = awContents;
         if (isBackedByHardwareView()) {
             mHardwareView.initialize(
-                    mAwContents.getAwDrawGLFunction(), mAwContents.getAwDrawGLViewContext());
+                    AwContents.getAwDrawGLFunction(), mAwContents.getAwDrawGLViewContext());
         }
     }
 
@@ -384,6 +382,18 @@ public class AwTestContainerView extends FrameLayout {
     }
 
     @Override
+    public boolean onGenericMotionEvent(MotionEvent ev) {
+        super.onGenericMotionEvent(ev);
+        return mAwContents.onGenericMotionEvent(ev);
+    }
+
+    @Override
+    public boolean onHoverEvent(MotionEvent ev) {
+        super.onHoverEvent(ev);
+        return mAwContents.onHoverEvent(ev);
+    }
+
+    @Override
     public void onDraw(Canvas canvas) {
         if (isBackedByHardwareView()) {
             mHardwareView.updateScroll(getScrollX(), getScrollY());
@@ -397,20 +407,6 @@ public class AwTestContainerView extends FrameLayout {
         AccessibilityNodeProvider provider =
                 mAwContents.getAccessibilityNodeProvider();
         return provider == null ? super.getAccessibilityNodeProvider() : provider;
-    }
-
-    @Override
-    public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
-        super.onInitializeAccessibilityNodeInfo(info);
-        info.setClassName(AwContents.class.getName());
-        mAwContents.onInitializeAccessibilityNodeInfo(info);
-    }
-
-    @Override
-    public void onInitializeAccessibilityEvent(AccessibilityEvent event) {
-        super.onInitializeAccessibilityEvent(event);
-        event.setClassName(AwContents.class.getName());
-        mAwContents.onInitializeAccessibilityEvent(event);
     }
 
     @Override

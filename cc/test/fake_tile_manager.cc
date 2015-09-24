@@ -8,23 +8,22 @@
 #include <limits>
 
 #include "base/lazy_instance.h"
-#include "cc/resources/raster_buffer.h"
-#include "cc/resources/rasterizer.h"
+#include "base/thread_task_runner_handle.h"
+#include "cc/raster/raster_buffer.h"
+#include "cc/raster/tile_task_runner.h"
 
 namespace cc {
 
 namespace {
 
-class FakeRasterizerImpl : public Rasterizer, public RasterizerTaskClient {
+class FakeTileTaskRunnerImpl : public TileTaskRunner, public TileTaskClient {
  public:
-  // Overridden from Rasterizer:
-  void SetClient(RasterizerClient* client) override {}
+  // Overridden from TileTaskRunner:
+  void SetClient(TileTaskRunnerClient* client) override {}
   void Shutdown() override {}
-  void ScheduleTasks(RasterTaskQueue* queue) override {
-    for (RasterTaskQueue::Item::Vector::const_iterator it =
-             queue->items.begin();
-         it != queue->items.end();
-         ++it) {
+  void ScheduleTasks(TileTaskQueue* queue) override {
+    for (TileTaskQueue::Item::Vector::const_iterator it = queue->items.begin();
+         it != queue->items.end(); ++it) {
       RasterTask* task = it->task;
 
       task->WillSchedule();
@@ -48,10 +47,16 @@ class FakeRasterizerImpl : public Rasterizer, public RasterizerTaskClient {
     }
     completed_tasks_.clear();
   }
+  ResourceFormat GetResourceFormat() const override { return RGBA_8888; }
+  bool GetResourceRequiresSwizzle() const override {
+    return !PlatformColor::SameComponentOrder(GetResourceFormat());
+  }
 
-  // Overridden from RasterizerTaskClient:
+  // Overridden from TileTaskClient:
   scoped_ptr<RasterBuffer> AcquireBufferForRaster(
-      const Resource* resource) override {
+      const Resource* resource,
+      uint64_t resource_content_id,
+      uint64_t previous_content_id) override {
     return nullptr;
   }
   void ReleaseBufferForRaster(scoped_ptr<RasterBuffer> buffer) override {}
@@ -59,39 +64,29 @@ class FakeRasterizerImpl : public Rasterizer, public RasterizerTaskClient {
  private:
   RasterTask::Vector completed_tasks_;
 };
-base::LazyInstance<FakeRasterizerImpl> g_fake_rasterizer =
+base::LazyInstance<FakeTileTaskRunnerImpl> g_fake_tile_task_runner =
     LAZY_INSTANCE_INITIALIZER;
 
 }  // namespace
 
 FakeTileManager::FakeTileManager(TileManagerClient* client)
     : TileManager(client,
-                  base::MessageLoopProxy::current(),
-                  NULL,
-                  g_fake_rasterizer.Pointer(),
-                  NULL,
+                  base::ThreadTaskRunnerHandle::Get(),
                   std::numeric_limits<size_t>::max()) {
+  SetResources(nullptr, g_fake_tile_task_runner.Pointer(),
+               std::numeric_limits<size_t>::max());
 }
 
 FakeTileManager::FakeTileManager(TileManagerClient* client,
                                  ResourcePool* resource_pool)
     : TileManager(client,
-                  base::MessageLoopProxy::current(),
-                  resource_pool,
-                  g_fake_rasterizer.Pointer(),
-                  NULL,
+                  base::ThreadTaskRunnerHandle::Get(),
                   std::numeric_limits<size_t>::max()) {
+  SetResources(resource_pool, g_fake_tile_task_runner.Pointer(),
+               std::numeric_limits<size_t>::max());
 }
 
 FakeTileManager::~FakeTileManager() {}
-
-void FakeTileManager::AssignMemoryToTiles(
-    const GlobalStateThatImpactsTilePriority& state) {
-  tiles_for_raster.clear();
-
-  SetGlobalStateForTesting(state);
-  AssignGpuMemoryToTiles(&tiles_for_raster);
-}
 
 bool FakeTileManager::HasBeenAssignedMemory(Tile* tile) {
   return std::find(tiles_for_raster.begin(),

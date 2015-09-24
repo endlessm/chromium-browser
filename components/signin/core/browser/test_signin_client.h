@@ -30,6 +30,8 @@ class TestSigninClient : public SigninClient {
 
   // SigninClient implementation that is specialized for unit tests.
 
+  void DoFinalInit() override;
+
   // Returns NULL.
   // NOTE: This should be changed to return a properly-initalized PrefService
   // once there is a unit test that requires it.
@@ -47,6 +49,13 @@ class TestSigninClient : public SigninClient {
   // Does nothing.
   void OnSignedOut() override;
 
+  // Trace that this was called.
+  void PostSignedIn(const std::string& account_id,
+                    const std::string& username,
+                    const std::string& password) override;
+
+  std::string get_signed_in_password() { return signed_in_password_; }
+
   // Returns the empty string.
   std::string GetProductVersion() override;
 
@@ -59,7 +68,7 @@ class TestSigninClient : public SigninClient {
   void SetURLRequestContext(net::URLRequestContextGetter* request_context);
 
 #if defined(OS_IOS)
-  virtual ios::ProfileOAuth2TokenServiceIOSProvider* GetIOSProvider() override;
+  ios::ProfileOAuth2TokenServiceIOSProvider* GetIOSProvider() override;
 #endif
 
   // Returns true.
@@ -72,17 +81,30 @@ class TestSigninClient : public SigninClient {
       const std::string& name,
       const net::CookieStore::CookieChangedCallback& callback) override;
 
+  bool UpdateAccountInfo(
+      AccountTrackerService::AccountInfo* out_account_info) override;
+
 #if defined(OS_IOS)
   ios::FakeProfileOAuth2TokenServiceIOSProvider* GetIOSProviderAsFake();
 #endif
 
+  void set_are_signin_cookies_allowed(bool value) {
+    are_signin_cookies_allowed_ = value;
+  }
+
   // SigninClient overrides:
-  void SetSigninProcess(int host_id) override;
-  void ClearSigninProcess() override;
-  bool IsSigninProcess(int host_id) const override;
-  bool HasSigninProcess() const override;
   bool IsFirstRun() const override;
   base::Time GetInstallDate() override;
+  bool AreSigninCookiesAllowed() override;
+  void AddContentSettingsObserver(
+      content_settings::Observer* observer) override;
+  void RemoveContentSettingsObserver(
+      content_settings::Observer* observer) override;
+  void DelayNetworkCall(const base::Closure& callback) override;
+  GaiaAuthFetcher* CreateGaiaAuthFetcher(
+      GaiaAuthConsumer* consumer,
+      const std::string& source,
+      net::URLRequestContextGetter* getter) override;
 
  private:
   // Loads the token database.
@@ -91,8 +113,11 @@ class TestSigninClient : public SigninClient {
   base::ScopedTempDir temp_dir_;
   scoped_refptr<net::URLRequestContextGetter> request_context_;
   scoped_refptr<TokenWebData> database_;
-  int signin_host_id_;
   PrefService* pref_service_;
+  bool are_signin_cookies_allowed_;
+
+  // Pointer to be filled by PostSignedIn.
+  std::string signed_in_password_;
 
 #if defined(OS_IOS)
   scoped_ptr<ios::FakeProfileOAuth2TokenServiceIOSProvider> iosProvider_;

@@ -8,7 +8,7 @@
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/compositor/layer.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace aura {
 namespace test {
@@ -25,8 +25,8 @@ Window* CreateTestWindow(SkColor color,
                          int id,
                          const gfx::Rect& bounds,
                          Window* parent) {
-  return CreateTestWindowWithDelegate(new ColorTestWindowDelegate(color),
-                                      id, bounds, parent);
+  return CreateTestWindowWithDelegate(new ColorTestWindowDelegate(color), id,
+                                      bounds, parent);
 }
 
 Window* CreateTestWindowWithDelegate(WindowDelegate* delegate,
@@ -45,7 +45,7 @@ Window* CreateTestWindowWithDelegateAndType(WindowDelegate* delegate,
   Window* window = new Window(delegate);
   window->set_id(id);
   window->SetType(type);
-  window->Init(aura::WINDOW_LAYER_TEXTURED);
+  window->Init(ui::LAYER_TEXTURED);
   window->SetBounds(bounds);
   window->Show();
   if (parent)

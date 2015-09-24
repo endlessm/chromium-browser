@@ -12,6 +12,7 @@
 #include "grit/theme_resources.h"
 
 #if defined(OS_CHROMEOS)
+#include "components/chrome_apps/chrome_apps_resource_util.h"
 #include "ui/file_manager/file_manager_resource_util.h"
 #endif
 
@@ -28,6 +29,11 @@ ChromeComponentExtensionResourceManager() {
     {"web_store/webstore_icon_16.png", IDR_WEBSTORE_ICON_16},
     {"chrome_app/product_logo_128.png", IDR_PRODUCT_LOGO_128},
     {"chrome_app/product_logo_16.png", IDR_PRODUCT_LOGO_16},
+#if defined(OS_CHROMEOS)
+    {"webstore_widget/app/icons/icon_16.png", IDR_WEBSTORE_ICON_16},
+    {"webstore_widget/app/icons/icon_32.png", IDR_WEBSTORE_ICON_32},
+    {"webstore_widget/app/icons/icon_128.png", IDR_WEBSTORE_ICON},
+#endif
 #if defined(ENABLE_SETTINGS_APP)
     {"settings_app/settings_app_icon_128.png", IDR_SETTINGS_APP_ICON_128},
     {"settings_app/settings_app_icon_16.png", IDR_SETTINGS_APP_ICON_16},
@@ -43,6 +49,13 @@ ChromeComponentExtensionResourceManager() {
       kExtraComponentExtensionResources,
       arraysize(kExtraComponentExtensionResources));
 #if defined(OS_CHROMEOS)
+  size_t chrome_apps_resource_size;
+  const GritResourceMap* chrome_apps_resources =
+      chrome_apps::GetChromeAppsResources(&chrome_apps_resource_size);
+  AddComponentResourceEntries(
+      chrome_apps_resources,
+      chrome_apps_resource_size);
+
   size_t file_manager_resource_size;
   const GritResourceMap* file_manager_resources =
       file_manager::GetFileManagerResources(&file_manager_resource_size);
@@ -65,7 +78,7 @@ ChromeComponentExtensionResourceManager::
 bool ChromeComponentExtensionResourceManager::IsComponentExtensionResource(
     const base::FilePath& extension_path,
     const base::FilePath& resource_path,
-    int* resource_id) {
+    int* resource_id) const {
   base::FilePath directory_path = extension_path;
   base::FilePath resources_dir;
   base::FilePath relative_path;

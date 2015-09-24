@@ -7,8 +7,8 @@
 #include <string>
 
 #include "base/bind.h"
+#include "base/location.h"
 #include "base/memory/linked_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "base/strings/string_util.h"
 #include "base/task_runner_util.h"
 #include "base/threading/thread.h"
@@ -166,8 +166,8 @@ MediaMetadataParser::MediaMetadataParser(media::DataSource* source,
 MediaMetadataParser::~MediaMetadataParser() {}
 
 void MediaMetadataParser::Start(const MetadataCallback& callback) {
-  if (StartsWithASCII(mime_type_, "audio/", true) ||
-      StartsWithASCII(mime_type_, "video/", true)) {
+  if (base::StartsWith(mime_type_, "audio/", base::CompareCase::SENSITIVE) ||
+      base::StartsWith(mime_type_, "video/", base::CompareCase::SENSITIVE)) {
     MediaMetadata* metadata = new MediaMetadata;
     metadata->mime_type = mime_type_;
     std::vector<AttachedImage>* attached_images =
@@ -175,16 +175,15 @@ void MediaMetadataParser::Start(const MetadataCallback& callback) {
 
     media_thread_.reset(new base::Thread("media_thread"));
     CHECK(media_thread_->Start());
-    media_thread_->message_loop_proxy()->PostTaskAndReply(
-        FROM_HERE,
-        base::Bind(&ParseAudioVideoMetadata, source_, get_attached_images_,
-                   metadata, attached_images),
+    media_thread_->task_runner()->PostTaskAndReply(
+        FROM_HERE, base::Bind(&ParseAudioVideoMetadata, source_,
+                              get_attached_images_, metadata, attached_images),
         base::Bind(&FinishParseAudioVideoMetadata, callback,
                    base::Owned(metadata), base::Owned(attached_images)));
     return;
   }
 
-  if (StartsWithASCII(mime_type_, "image/", true)) {
+  if (base::StartsWith(mime_type_, "image/", base::CompareCase::SENSITIVE)) {
     ImageMetadataExtractor* extractor = new ImageMetadataExtractor;
     extractor->Extract(
         source_,

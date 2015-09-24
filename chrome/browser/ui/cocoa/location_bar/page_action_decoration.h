@@ -8,13 +8,13 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #import "chrome/browser/ui/cocoa/location_bar/image_decoration.h"
-#import "chrome/browser/ui/cocoa/toolbar/toolbar_action_view_delegate_cocoa.h"
+#include "chrome/browser/ui/toolbar/toolbar_action_view_delegate.h"
 
-class ExtensionAction;
-@class ExtensionActionContextMenuController;
-class ExtensionActionViewController;
 class Browser;
+class ExtensionAction;
+class ExtensionActionViewController;
 class LocationBarViewMac;
+@class MenuController;
 
 namespace content {
 class WebContents;
@@ -28,7 +28,7 @@ class Extension;
 // Action and notify the extension when the icon is clicked.
 
 class PageActionDecoration : public ImageDecoration,
-                             public ToolbarActionViewDelegateCocoa {
+                             public ToolbarActionViewDelegate {
  public:
   PageActionDecoration(LocationBarViewMac* owner,
                        Browser* browser,
@@ -66,13 +66,10 @@ class PageActionDecoration : public ImageDecoration,
   // Sets the tooltip for this Page Action image.
   void SetToolTip(const base::string16& tooltip);
 
-  // Overridden from ToolbarActionViewDelegateCocoa:
-  ToolbarActionViewController* GetPreferredPopupViewController() override;
+  // Overridden from ToolbarActionViewDelegate:
   content::WebContents* GetCurrentWebContents() const override;
+  bool IsMenuRunning() const override;
   void UpdateState() override;
-  NSPoint GetPopupPoint() override;
-  void SetContextMenuController(
-      ExtensionActionContextMenuController* menuController) override;
 
   // The location bar view that owns us.
   LocationBarViewMac* owner_;
@@ -83,8 +80,8 @@ class PageActionDecoration : public ImageDecoration,
   // The string to show for a tooltip.
   base::scoped_nsobject<NSString> tooltip_;
 
-  // The context menu controller for the Page Action. Weak.
-  ExtensionActionContextMenuController* contextMenuController_;
+  // The context menu controller for the Page Action.
+  base::scoped_nsobject<MenuController> contextMenuController_;
 
   // This is used for post-install visual feedback. The page_action
   // icon is briefly shown even if it hasn't been enabled by its

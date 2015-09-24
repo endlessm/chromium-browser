@@ -24,13 +24,13 @@
 #include "content/public/test/mock_blob_url_request_context.h"
 #include "content/public/test/mock_special_storage_policy.h"
 #include "content/public/test/test_file_system_options.h"
+#include "storage/browser/blob/shareable_file_reference.h"
 #include "storage/browser/fileapi/external_mount_points.h"
 #include "storage/browser/fileapi/file_system_backend.h"
 #include "storage/browser/fileapi/file_system_context.h"
 #include "storage/browser/fileapi/file_system_operation_context.h"
 #include "storage/browser/fileapi/file_system_operation_runner.h"
 #include "storage/browser/quota/quota_manager.h"
-#include "storage/common/blob/shareable_file_reference.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::File;
@@ -550,13 +550,13 @@ FileSystemOperationRunner* CannedSyncableFileSystem::operation_runner() {
 }
 
 void CannedSyncableFileSystem::OnSyncEnabled(const FileSystemURL& url) {
-  sync_status_observers_->Notify(&LocalFileSyncStatus::Observer::OnSyncEnabled,
-                                 url);
+  sync_status_observers_->Notify(
+      FROM_HERE, &LocalFileSyncStatus::Observer::OnSyncEnabled, url);
 }
 
 void CannedSyncableFileSystem::OnWriteEnabled(const FileSystemURL& url) {
-  sync_status_observers_->Notify(&LocalFileSyncStatus::Observer::OnWriteEnabled,
-                                 url);
+  sync_status_observers_->Notify(
+      FROM_HERE, &LocalFileSyncStatus::Observer::OnWriteEnabled, url);
 }
 
 void CannedSyncableFileSystem::DoOpenFileSystem(
@@ -594,11 +594,9 @@ void CannedSyncableFileSystem::DoCopy(
   EXPECT_TRUE(io_task_runner_->RunsTasksOnCurrentThread());
   EXPECT_TRUE(is_filesystem_opened_);
   operation_runner()->Copy(
-      src_url,
-      dest_url,
-      storage::FileSystemOperation::OPTION_NONE,
-      storage::FileSystemOperationRunner::CopyProgressCallback(),
-      callback);
+      src_url, dest_url, storage::FileSystemOperation::OPTION_NONE,
+      storage::FileSystemOperation::ERROR_BEHAVIOR_ABORT,
+      storage::FileSystemOperationRunner::CopyProgressCallback(), callback);
 }
 
 void CannedSyncableFileSystem::DoMove(

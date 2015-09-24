@@ -8,21 +8,13 @@
 
 #include "base/command_line.h"
 #include "base/metrics/field_trial.h"
-#include "base/prefs/pref_service.h"
-#include "base/strings/string_util.h"
 #include "chrome/browser/auto_launch_trial.h"
 #include "chrome/browser/google/google_brand.h"
 #include "chrome/browser/prerender/prerender_field_trial.h"
-#include "chrome/browser/profiles/profiles_state.h"
-#include "chrome/browser/safe_browsing/safe_browsing_blocking_page.h"
-#include "chrome/browser/ui/app_list/app_list_util.h"
-#include "chrome/browser/ui/sync/one_click_signin_helper.h"
+#include "chrome/browser/tracing/background_tracing_field_trial.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/chrome_version_info.h"
 #include "chrome/common/variations/variations_util.h"
-#include "content/public/common/content_constants.h"
-#include "net/spdy/spdy_session.h"
-#include "ui/base/layout.h"
+#include "components/variations/variations_associated_data.h"
 
 namespace chrome {
 
@@ -42,36 +34,40 @@ void AutoLaunchChromeFieldTrial() {
   }
 }
 
-void SetupInfiniteCacheFieldTrial() {
-  const base::FieldTrial::Probability kDivisor = 100;
-
-  base::FieldTrial::Probability infinite_cache_probability = 0;
-
-  scoped_refptr<base::FieldTrial> trial(
-      base::FieldTrialList::FactoryGetFieldTrial(
-          "InfiniteCache", kDivisor, "No", 2013, 12, 31,
-          base::FieldTrial::ONE_TIME_RANDOMIZED, NULL));
-  trial->AppendGroup("Yes", infinite_cache_probability);
-  trial->AppendGroup("Control", infinite_cache_probability);
+void SetupLightSpeedTrials() {
+  if (!variations::GetVariationParamValue("LightSpeed", "NoGpu").empty()) {
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
+        switches::kDisableGpu);
+  }
 }
 
-void DisableShowProfileSwitcherTrialIfNecessary() {
-  // This trial is created by the VariationsService, but it needs to be disabled
-  // if multi-profiles isn't enabled.
-  base::FieldTrial* trial = base::FieldTrialList::Find("ShowProfileSwitcher");
-  if (trial && !profiles::IsMultipleProfilesEnabled())
-    trial->Disable();
+void SetupStunProbeTrial() {
+#if defined(ENABLE_WEBRTC)
+  std::map<std::string, std::string> params;
+  if (!variations::GetVariationParams("StunProbeTrial", &params))
+    return;
+
+  // The parameter, used by StartStunFieldTrial, should have the following
+  // format: "request_per_ip/interval/sharedsocket/server1:port/server2:port/
+  // server3:port/"
+  std::string cmd_param = params["request_per_ip"] + "/" + params["interval"] +
+                          "/" + params["sharedsocket"] + "/" +
+                          params["server1"] + "/" + params["server2"] + "/" +
+                          params["server3"] + "/";
+
+  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+      switches::kWebRtcStunProbeTrialParameter, cmd_param);
+#endif
 }
 
 }  // namespace
 
-void SetupDesktopFieldTrials(const CommandLine& parsed_command_line,
-                             PrefService* local_state) {
+void SetupDesktopFieldTrials(const base::CommandLine& parsed_command_line) {
   prerender::ConfigurePrerender(parsed_command_line);
   AutoLaunchChromeFieldTrial();
-  SetupInfiniteCacheFieldTrial();
-  DisableShowProfileSwitcherTrialIfNecessary();
-  SetupShowAppLauncherPromoFieldTrial(local_state);
+  SetupLightSpeedTrials();
+  tracing::SetupBackgroundTracingFieldTrial();
+  SetupStunProbeTrial();
 }
 
 }  // namespace chrome

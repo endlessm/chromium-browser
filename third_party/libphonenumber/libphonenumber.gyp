@@ -66,6 +66,10 @@
     'variables': {
       'proto_in_dir': 'src/resources',
       'proto_out_dir': 'third_party/libphonenumber/phonenumbers',
+      'clang_warning_flags': [
+        # https://github.com/googlei18n/libphonenumber/pull/741
+        '-Wno-unused-private-field',
+      ],
     },
     'includes': [ '../../build/protoc.gypi' ],
     'direct_dependent_settings': {
@@ -138,6 +142,12 @@
       ['OS=="win"', {
         'action': [
           '/wo4309',
+        ],
+      }],
+      # libphonenumber needs to fix their ODR violations. http://crbug.com/456021
+      ['OS=="linux"', {
+        'ldflags!': [
+          '-Wl,--detect-odr-violations',
         ],
       }],
     ],

@@ -27,12 +27,13 @@
 #define MediaError_h
 
 #include "bindings/core/v8/ScriptWrappable.h"
+#include "core/CoreExport.h"
 #include "wtf/PassRefPtr.h"
 #include "wtf/RefCounted.h"
 
 namespace blink {
 
-class MediaError final : public RefCountedWillBeGarbageCollectedFinalized<MediaError>, public ScriptWrappable {
+class CORE_EXPORT MediaError final : public RefCountedWillBeGarbageCollectedFinalized<MediaError>, public ScriptWrappable {
     DEFINE_WRAPPERTYPEINFO();
 public:
     enum Code {
@@ -40,7 +41,6 @@ public:
         MEDIA_ERR_NETWORK,
         MEDIA_ERR_DECODE,
         MEDIA_ERR_SRC_NOT_SUPPORTED,
-        MEDIA_ERR_ENCRYPTED
     };
 
     static PassRefPtrWillBeRawPtr<MediaError> create(Code code)
@@ -50,7 +50,7 @@ public:
 
     Code code() const { return m_code; }
 
-    void trace(Visitor*) { }
+    DEFINE_INLINE_TRACE() { }
 
 private:
     MediaError(Code code) : m_code(code) { }

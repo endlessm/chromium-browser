@@ -14,13 +14,12 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
+#include "chrome/browser/chromeos/file_system_provider/abort_callback.h"
 #include "chrome/browser/chromeos/file_system_provider/provided_file_system_observer.h"
 #include "chrome/browser/chromeos/file_system_provider/watcher.h"
 #include "storage/browser/fileapi/async_file_util.h"
 #include "storage/browser/fileapi/watcher_manager.h"
 #include "url/gurl.h"
-
-class EventRouter;
 
 namespace base {
 class Time;
@@ -52,18 +51,38 @@ struct EntryMetadata {
   DISALLOW_COPY_AND_ASSIGN(EntryMetadata);
 };
 
+// Represents actions for either a file or a directory.
+struct Action {
+  std::string id;
+  std::string title;
+};
+
+typedef std::vector<Action> Actions;
+
+// Mode of opening a file. Used by OpenFile().
+enum OpenFileMode { OPEN_FILE_MODE_READ, OPEN_FILE_MODE_WRITE };
+
+// Contains information about an opened file.
+struct OpenedFile {
+  OpenedFile(const base::FilePath& file_path, OpenFileMode& mode);
+  OpenedFile();
+  ~OpenedFile();
+
+  base::FilePath file_path;
+  OpenFileMode mode;
+};
+
+// Map from a file handle to an OpenedFile struct.
+typedef std::map<int, OpenedFile> OpenedFiles;
+
 // Interface for a provided file system. Acts as a proxy between providers
 // and clients. All of the request methods return an abort callback in order to
 // terminate it while running. They must be called on the same thread as the
 // request methods. The cancellation callback may be null if the operation
-// fails synchronously.
+// fails synchronously. It must not be called once the operation is completed
+// with either a success or an error.
 class ProvidedFileSystemInterface {
  public:
-  struct Change;
-
-  // Mode of opening a file. Used by OpenFile().
-  enum OpenFileMode { OPEN_FILE_MODE_READ, OPEN_FILE_MODE_WRITE };
-
   // Extra fields to be fetched with metadata.
   enum MetadataField {
     METADATA_FIELD_DEFAULT = 0,
@@ -80,8 +99,8 @@ class ProvidedFileSystemInterface {
   typedef base::Callback<void(scoped_ptr<EntryMetadata> entry_metadata,
                               base::File::Error result)> GetMetadataCallback;
 
-  typedef base::Callback<void(
-      const storage::AsyncFileUtil::StatusCallback& callback)> AbortCallback;
+  typedef base::Callback<void(const Actions& actions, base::File::Error result)>
+      GetActionsCallback;
 
   // Mask of fields requested from the GetMetadata() call.
   typedef int MetadataFieldMask;
@@ -99,6 +118,17 @@ class ProvidedFileSystemInterface {
   virtual AbortCallback GetMetadata(const base::FilePath& entry_path,
                                     MetadataFieldMask fields,
                                     const GetMetadataCallback& callback) = 0;
+
+  // Requests list of actions for the passed |entry_path|. It can be either a
+  // file or a directory.
+  virtual AbortCallback GetActions(const base::FilePath& entry_path,
+                                   const GetActionsCallback& callback) = 0;
+
+  // Executes the |action_id| action on the entry at |entry_path|.
+  virtual AbortCallback ExecuteAction(
+      const base::FilePath& entry_path,
+      const std::string& action_id,
+      const storage::AsyncFileUtil::StatusCallback& callback) = 0;
 
   // Requests enumerating entries from the passed |directory_path|. The callback
   // can be called multiple times until |has_more| is set to false.
@@ -198,20 +228,32 @@ class ProvidedFileSystemInterface {
       const storage::AsyncFileUtil::StatusCallback& callback) = 0;
 
   // Notifies about changes related to the watcher within the file system.
-  // Invoked by the file system implementation. Returns false if the
-  // notification arguments are malformed or the entry is not watched anymore.
+  // Invoked by the file system implementation. Returns an error code via the
+  // callback if the notification arguments are malformed or the entry is not
+  // watched anymore. On success, returns base::File::FILE_OK.
   // TODO(mtomasz): Replace [entry_path, recursive] with a watcher id.
-  virtual bool Notify(const base::FilePath& entry_path,
-                      bool recursive,
-                      storage::WatcherManager::ChangeType change_type,
-                      scoped_ptr<ProvidedFileSystemObserver::Changes> changes,
-                      const std::string& tag) = 0;
+  virtual void Notify(
+      const base::FilePath& entry_path,
+      bool recursive,
+      storage::WatcherManager::ChangeType change_type,
+      scoped_ptr<ProvidedFileSystemObserver::Changes> changes,
+      const std::string& tag,
+      const storage::AsyncFileUtil::StatusCallback& callback) = 0;
+
+  // Requests showing UI for configuring the file system by user. Once the
+  // configuration process is completed, base::File::FILE_OK or an error code is
+  // returned via the |callback|.
+  virtual void Configure(
+      const storage::AsyncFileUtil::StatusCallback& callback) = 0;
 
   // Returns a provided file system info for this file system.
   virtual const ProvidedFileSystemInfo& GetFileSystemInfo() const = 0;
 
   // Returns a mutable list of watchers.
   virtual Watchers* GetWatchers() = 0;
+
+  // Returns a list of opened files.
+  virtual const OpenedFiles& GetOpenedFiles() const = 0;
 
   // Returns a request manager for the file system.
   virtual RequestManager* GetRequestManager() = 0;

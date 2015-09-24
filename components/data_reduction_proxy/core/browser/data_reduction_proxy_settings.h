@@ -5,6 +5,7 @@
 #ifndef COMPONENTS_DATA_REDUCTION_PROXY_CORE_BROWSER_DATA_REDUCTION_PROXY_SETTINGS_H_
 #define COMPONENTS_DATA_REDUCTION_PROXY_CORE_BROWSER_DATA_REDUCTION_PROXY_SETTINGS_H_
 
+#include <string>
 #include <vector>
 
 #include "base/basictypes.h"
@@ -14,33 +15,24 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/prefs/pref_member.h"
 #include "base/threading/thread_checker.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_configurator.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_statistics_prefs.h"
-#include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
-#include "net/base/net_util.h"
-#include "net/base/network_change_notifier.h"
-#include "net/url_request/url_fetcher_delegate.h"
+#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_metrics.h"
+#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_service_observer.h"
+#include "url/gurl.h"
 
 class PrefService;
 
-namespace net {
-class HostPortPair;
-class HttpNetworkSession;
-class HttpResponseHeaders;
-class URLFetcher;
-class URLRequestContextGetter;
-}
-
 namespace data_reduction_proxy {
 
-// The number of days of bandwidth usage statistics that are tracked.
-const unsigned int kNumDaysInHistory = 60;
+class DataReductionProxyConfig;
+class DataReductionProxyEventStore;
+class DataReductionProxyIOData;
+class DataReductionProxyService;
+class DataReductionProxyCompressionStats;
 
-// The number of days of bandwidth usage statistics that are presented.
-const unsigned int kNumDaysInHistorySummary = 30;
-
-COMPILE_ASSERT(kNumDaysInHistorySummary <= kNumDaysInHistory,
-               DataReductionProxySettings_summary_too_long);
+// The header used to request a data reduction proxy pass through. When a
+// request is sent to the data reduction proxy with this header, it will respond
+// with the original uncompressed response.
+extern const char kDataReductionPassThroughHeader[];
 
 // Values of the UMA DataReductionProxy.StartupState histogram.
 // This enum must remain synchronized with DataReductionProxyStartupState
@@ -52,30 +44,15 @@ enum ProxyStartupState {
   PROXY_STARTUP_STATE_COUNT,
 };
 
-// Values of the UMA DataReductionProxy.ProbeURL histogram.
+// Values of the UMA DataReductionProxy.LoFi.ImplicitOptOutAction histogram.
 // This enum must remain synchronized with
-// DataReductionProxyProbeURLFetchResult in metrics/histograms/histograms.xml.
-// TODO(marq): Rename these histogram buckets with s/DISABLED/RESTRICTED/, so
-//     their names match the behavior they track.
-enum ProbeURLFetchResult {
-  // The probe failed because the Internet was disconnected.
-  INTERNET_DISCONNECTED = 0,
-
-  // The probe failed for any other reason, and as a result, the proxy was
-  // disabled.
-  FAILED_PROXY_DISABLED,
-
-  // The probe failed, but the proxy was already restricted.
-  FAILED_PROXY_ALREADY_DISABLED,
-
-  // The probe succeeded, and as a result the proxy was restricted.
-  SUCCEEDED_PROXY_ENABLED,
-
-  // The probe succeeded, but the proxy was already restricted.
-  SUCCEEDED_PROXY_ALREADY_ENABLED,
-
-  // This must always be last.
-  PROBE_URL_FETCH_RESULT_COUNT
+// DataReductionProxyLoFiImplicitOptOutAction in
+// metrics/histograms/histograms.xml.
+enum LoFiImplicitOptOutAction {
+  LO_FI_OPT_OUT_ACTION_DISABLED_FOR_SESSION = 0,
+  LO_FI_OPT_OUT_ACTION_DISABLED_UNTIL_NEXT_EPOCH,
+  LO_FI_OPT_OUT_ACTION_NEXT_EPOCH,
+  LO_FI_OPT_OUT_ACTION_INDEX_BOUNDARY,
 };
 
 // Central point for configuring the data reduction proxy.
@@ -83,79 +60,78 @@ enum ProbeURLFetchResult {
 // be called from there.
 // TODO(marq): Convert this to be a KeyedService with an
 // associated factory class, and refactor the Java call sites accordingly.
-class DataReductionProxySettings
-    : public net::URLFetcherDelegate,
-      public net::NetworkChangeNotifier::IPAddressObserver {
+class DataReductionProxySettings : public DataReductionProxyServiceObserver {
  public:
-  typedef std::vector<long long> ContentLengthList;
+  typedef base::Callback<bool(const std::string&, const std::string&)>
+      SyntheticFieldTrialRegistrationCallback;
 
-  static bool IsProxyKeySetOnCommandLine();
+  DataReductionProxySettings();
+  virtual ~DataReductionProxySettings();
 
-  DataReductionProxySettings(DataReductionProxyParams* params);
-  ~DataReductionProxySettings() override;
-
-  DataReductionProxyParams* params() const {
-    return params_.get();
-  }
-
-  // Initializes the data reduction proxy with profile and local state prefs,
-  // and a |UrlRequestContextGetter| for canary probes. The caller must ensure
-  // that all parameters remain alive for the lifetime of the
-  // |DataReductionProxySettings| instance.
+  // Initializes the data reduction proxy with profile prefs and a
+  // |DataReductionProxyIOData|. The caller must ensure that all parameters
+  // remain alive for the lifetime of the |DataReductionProxySettings| instance.
   void InitDataReductionProxySettings(
       PrefService* prefs,
-      net::URLRequestContextGetter* url_request_context_getter);
+      DataReductionProxyIOData* io_data,
+      scoped_ptr<DataReductionProxyService> data_reduction_proxy_service);
 
-  // Initializes the data reduction proxy with profile and local state prefs,
-  // a |UrlRequestContextGetter| for canary probes, and a proxy configurator.
-  // The caller must ensure that all parameters remain alive for the lifetime of
-  // the |DataReductionProxySettings| instance.
-  // TODO(marq): Remove when iOS supports the new interface above.
-  void InitDataReductionProxySettings(
-      PrefService* prefs,
-      net::URLRequestContextGetter* url_request_context_getter,
-      DataReductionProxyConfigurator* configurator);
+  base::WeakPtr<DataReductionProxyCompressionStats> compression_stats();
 
-  // Sets the |statistics_prefs_| to be used for data reduction proxy pref reads
-  // and writes.
-  void SetDataReductionProxyStatisticsPrefs(
-      DataReductionProxyStatisticsPrefs* statistics_prefs);
-
-  // Sets the |on_data_reduction_proxy_enabled_| callback and runs to register
-  // the DataReductionProxyEnabled synthetic field trial.
-  void SetOnDataReductionEnabledCallback(
-      const base::Callback<void(bool)>& on_data_reduction_proxy_enabled);
-
-  // Sets the logic the embedder uses to set the networking configuration that
-  // causes traffic to be proxied.
-  void SetProxyConfigurator(
-      DataReductionProxyConfigurator* configurator);
+  // Sets the |register_synthetic_field_trial_| callback and runs to register
+  // the DataReductionProxyEnabled and the DataReductionProxyLoFiEnabled
+  // synthetic field trial.
+  void SetCallbackToRegisterSyntheticFieldTrial(
+      const SyntheticFieldTrialRegistrationCallback&
+          on_data_reduction_proxy_enabled);
 
   // Returns true if the proxy is enabled.
-  bool IsDataReductionProxyEnabled();
+  bool IsDataReductionProxyEnabled() const;
 
-  // Returns true if the alternative proxy is enabled.
-  bool IsDataReductionProxyAlternativeEnabled() const;
+  // Returns true if the proxy can be used for the given url. This method does
+  // not take into account the proxy config or proxy retry list, so it can
+  // return true even when the proxy will not be used. Specifically, if
+  // another proxy configuration overrides use of data reduction proxy, or
+  // if data reduction proxy is in proxy retry list, then data reduction proxy
+  // will not be used, but this method will still return true. If this method
+  // returns false, then we are guaranteed that data reduction proxy will not be
+  // used.
+  bool CanUseDataReductionProxy(const GURL& url) const;
 
   // Returns true if the proxy is managed by an adminstrator's policy.
   bool IsDataReductionProxyManaged();
 
-  // Enables or disables the data reduction proxy. If a probe URL is available,
-  // and a probe request fails at some point, the proxy won't be used until a
-  // probe succeeds.
+  // Enables or disables the data reduction proxy.
   void SetDataReductionProxyEnabled(bool enabled);
 
-  // Enables or disables the alternative data reduction proxy configuration.
-  void SetDataReductionProxyAlternativeEnabled(bool enabled);
+  // Sets |lo_fi_mode_active_| to true if Lo-Fi is currently active, meaning
+  // requests are being sent with "q=low" headers. Set from the IO thread only
+  // on main frame requests.
+  void SetLoFiModeActiveOnMainFrame(bool lo_fi_mode_active);
+
+  // Returns true if Lo-Fi was active on the main frame request.
+  bool WasLoFiModeActiveOnMainFrame() const;
+
+  // Returns true if a "Load image" context menu request has not been made since
+  // the last main frame request.
+  bool WasLoFiLoadImageRequestedBefore();
+
+  // Sets |lo_fi_load_image_requested_| to true, which means a "Load image"
+  // context menu request has been made since the last main frame request.
+  void SetLoFiLoadImageRequested();
+
+  // Counts the number of requests to reload the page with images from the Lo-Fi
+  // snackbar. If the user requests the page with images a certain number of
+  // times, then Lo-Fi is disabled for the remainder of the session.
+  void IncrementLoFiUserRequestsForImages();
+
+  // Records UMA for Lo-Fi implicit opt out actions.
+  void RecordLoFiImplicitOptOutAction(
+      data_reduction_proxy::LoFiImplicitOptOutAction action) const;
 
   // Returns the time in microseconds that the last update was made to the
   // daily original and received content lengths.
   int64 GetDataReductionLastUpdateTime();
-
-  // Returns a vector containing the total size of all HTTP content that was
-  // received over the last |kNumDaysInHistory| before any compression by the
-  // data reduction proxy. Each element in the vector contains one day of data.
-  ContentLengthList GetDailyOriginalContentLengths();
 
   // Returns aggregate received and original content lengths over the specified
   // number of days, as well as the time these stats were last updated.
@@ -172,92 +148,75 @@ class DataReductionProxySettings
   // some of them should have.
   bool IsDataReductionProxyUnreachable();
 
-  // Returns an vector containing the aggregate received HTTP content in the
-  // last |kNumDaysInHistory| days.
-  ContentLengthList GetDailyReceivedContentLengths();
-
   ContentLengthList GetDailyContentLengths(const char* pref_name);
 
-  // net::URLFetcherDelegate:
-  void OnURLFetchComplete(const net::URLFetcher* source) override;
-
-  // Configures data reduction proxy and makes a request to the probe URL to
-  // determine server availability. |at_startup| is true when this method is
+  // Configures data reduction proxy. |at_startup| is true when this method is
   // called in response to creating or loading a new profile.
   void MaybeActivateDataReductionProxy(bool at_startup);
+
+  // Returns the event store being used. May be null if
+  // InitDataReductionProxySettings has not been called.
+  DataReductionProxyEventStore* GetEventStore() const;
+
+  // Returns true if the data reduction proxy configuration may be used.
+  bool Allowed() const {
+    return allowed_;
+  }
+
+  // Returns true if the data reduction proxy promo may be shown.
+  // This is independent of whether the data reduction proxy is allowed.
+  bool PromoAllowed() const {
+    return promo_allowed_;
+  }
+
+  DataReductionProxyService* data_reduction_proxy_service() {
+    return data_reduction_proxy_service_.get();
+  }
+
+  // Returns the |DataReductionProxyConfig| being used. May be null if
+  // InitDataReductionProxySettings has not been called.
+  DataReductionProxyConfig* Config() const {
+    return config_;
+  }
+
+  // Permits changing the underlying |DataReductionProxyConfig| without running
+  // the initialization loop.
+  void ResetConfigForTest(DataReductionProxyConfig* config) {
+    config_ = config;
+  }
 
  protected:
   void InitPrefMembers();
 
-  // Returns a fetcher for the probe to check if OK for the proxy to use SPDY.
-  // Virtual for testing.
-  virtual net::URLFetcher* GetURLFetcherForAvailabilityCheck();
+  void UpdateConfigValues();
 
   // Virtualized for unit test support.
   virtual PrefService* GetOriginalProfilePrefs();
 
-  // Sets the proxy configs, enabling or disabling the proxy according to
-  // the value of |enabled| and |alternative_enabled|. Use the alternative
-  // configuration only if |enabled| and |alternative_enabled| are true. If
-  // |restricted| is true, only enable the fallback proxy. |at_startup| is true
-  // when this method is called from InitDataReductionProxySettings.
-  virtual void SetProxyConfigs(bool enabled,
-                               bool alternative_enabled,
-                               bool restricted,
-                               bool at_startup);
-
   // Metrics method. Subclasses should override if they wish to provide
   // alternatives.
   virtual void RecordDataReductionInit();
-
-  virtual void AddDefaultProxyBypassRules();
-
-  // Writes a warning to the log that is used in backend processing of
-  // customer feedback. Virtual so tests can mock it for verification.
-  virtual void LogProxyState(bool enabled, bool restricted, bool at_startup);
-
-  // Virtualized for mocking. Records UMA containing the result of requesting
-  // the probe URL.
-  virtual void RecordProbeURLFetchResult(
-      data_reduction_proxy::ProbeURLFetchResult result);
 
   // Virtualized for mocking. Records UMA specifying whether the proxy was
   // enabled or disabled at startup.
   virtual void RecordStartupState(
       data_reduction_proxy::ProxyStartupState state);
 
-  // Virtualized for mocking. Returns the list of network interfaces in use.
-  virtual void GetNetworkList(net::NetworkInterfaceList* interfaces,
-                              int policy);
-
-  DataReductionProxyConfigurator* configurator() {
-    return configurator_;
-  }
-
-  // Reset params for tests.
-  void ResetParamsForTest(DataReductionProxyParams* params);
-
  private:
   friend class DataReductionProxySettingsTestBase;
   friend class DataReductionProxySettingsTest;
-  FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
-                           TestAuthenticationInit);
-  FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
-                           TestAuthHashGeneration);
-  FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
-                           TestAuthHashGenerationWithOriginSetViaSwitch);
+  friend class DataReductionProxyTestContext;
   FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
                            TestResetDataReductionStatistics);
   FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
                            TestIsProxyEnabledOrManaged);
   FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
-                           TestContentLengths);
+                           TestCanUseDataReductionProxy);
+  FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest, TestContentLengths);
   FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
                            TestGetDailyContentLengths);
   FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
                            TestMaybeActivateDataReductionProxy);
-  FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
-                           TestOnIPAddressChanged);
   FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
                            TestOnProxyEnabledPrefChange);
   FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
@@ -265,57 +224,81 @@ class DataReductionProxySettings
   FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
                            TestInitDataReductionProxyOff);
   FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
-                           TestBypassList);
-  FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
                            CheckInitMetricsWhenNotAllowed);
   FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
-                           TestSetProxyConfigs);
+                           TestLoFiImplicitOptOutClicksPerSession);
   FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
-                           TestSetProxyConfigsHoldback);
+                           TestLoFiImplicitOptOutConsecutiveSessions);
+  FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
+                           TestLoFiImplicitOptOutHistograms);
+  FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
+                           TestLoFiSessionStateHistograms);
 
-  // NetworkChangeNotifier::IPAddressObserver:
-  void OnIPAddressChanged() override;
+  // Override of DataReductionProxyService::Observer.
+  void OnServiceInitialized() override;
+
+  // Registers the trial "SyntheticDataReductionProxySetting" with the group
+  // "Enabled" or "Disabled". Indicates whether the proxy is turned on or not.
+  void RegisterDataReductionProxyFieldTrial();
+
+  // Registers the trial "SyntheticDataReductionProxyLoFiSetting" with the group
+  // "Enabled" or "Disabled". Indicates whether Lo-Fi is turned on or not.
+  // The group won't be reported if it changes while compiling the report. It
+  // can be assumed that when no Lo-Fi group is reported, the user was in a
+  // mixed Lo-Fi state.
+  void RegisterLoFiFieldTrial();
 
   void OnProxyEnabledPrefChange();
-  void OnProxyAlternativeEnabledPrefChange();
 
   void ResetDataReductionStatistics();
 
-  // Requests the proxy probe URL, if one is set.  If unable to do so, disables
-  // the proxy, if enabled. Otherwise enables the proxy if disabled by a probe
-  // failure.
-  void ProbeWhetherDataReductionProxyIsAvailable();
+  // Update IO thread objects in response to UI thread changes.
+  void UpdateIOData(bool at_startup);
 
-  // Disables use of the data reduction proxy on VPNs. Returns true if the
-  // data reduction proxy has been disabled.
-  bool DisableIfVPN();
-
-  // Generic method to get a URL fetcher.
-  net::URLFetcher* GetBaseURLFetcher(const GURL& gurl, int load_flags);
-
-  std::string key_;
-  bool restricted_by_carrier_;
-  bool enabled_by_user_;
-  bool disabled_on_vpn_;
   bool unreachable_;
 
-  scoped_ptr<net::URLFetcher> fetcher_;
+  // A call to MaybeActivateDataReductionProxy may take place before the
+  // |data_reduction_proxy_service_| has received a DataReductionProxyIOData
+  // pointer. In that case, the operation against the IO objects will not
+  // succeed and |deferred_initialization_| will be set to true. When
+  // OnServiceInitialized is called, if |deferred_initialization_| is true,
+  // IO object calls will be performed at that time.
+  bool deferred_initialization_;
+
+  // The following values are cached in order to access the values on the
+  // correct thread.
+  bool allowed_;
+  bool promo_allowed_;
+
+  // True if Lo-Fi is active.
+  bool lo_fi_mode_active_;
+
+  // True if a "Load image" context menu request has not been made since the
+  // last main frame request.
+  bool lo_fi_load_image_requested_;
+
+  // The number of requests to reload the page with images from the Lo-Fi
+  // snackbar until Lo-Fi is disabled for the remainder of the
+  // session.
+  int lo_fi_user_requests_for_images_per_session_;
+
+  // The number of consecutive sessions where Lo-Fi was disabled for
+  // Lo-Fi to be disabled until the next implicit opt out epoch, which may be in
+  // a later session, or never.
+  int lo_fi_consecutive_session_disables_;
 
   BooleanPrefMember spdy_proxy_auth_enabled_;
-  BooleanPrefMember data_reduction_proxy_alternative_enabled_;
+
+  scoped_ptr<DataReductionProxyService> data_reduction_proxy_service_;
 
   PrefService* prefs_;
-  DataReductionProxyStatisticsPrefs* statistics_prefs_;
 
-  net::URLRequestContextGetter* url_request_context_getter_;
+  // The caller must ensure that the |config_| outlives this instance.
+  DataReductionProxyConfig* config_;
 
-  base::Callback<void(bool)> on_data_reduction_proxy_enabled_;
-
-  DataReductionProxyConfigurator* configurator_;
+  SyntheticFieldTrialRegistrationCallback register_synthetic_field_trial_;
 
   base::ThreadChecker thread_checker_;
-
-  scoped_ptr<DataReductionProxyParams> params_;
 
   DISALLOW_COPY_AND_ASSIGN(DataReductionProxySettings);
 };

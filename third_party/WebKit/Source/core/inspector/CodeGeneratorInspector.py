@@ -48,8 +48,7 @@ TYPE_NAME_FIX_MAP = {
 
 
 TYPES_WITH_RUNTIME_CAST_SET = frozenset(["Runtime.RemoteObject", "Runtime.PropertyDescriptor", "Runtime.InternalPropertyDescriptor",
-                                         "Debugger.FunctionDetails", "Debugger.CollectionEntry", "Debugger.CallFrame", "Debugger.Location",
-                                         "Canvas.TraceLog", "Canvas.ResourceState"])
+                                         "Debugger.FunctionDetails", "Debugger.GeneratorObjectDetails", "Debugger.CollectionEntry", "Debugger.CallFrame", "Debugger.Location"])
 
 TYPES_WITH_OPEN_FIELD_LIST_SET = frozenset([
                                             # InspectorStyleSheet not only creates this property but wants to read it and modify it.
@@ -1006,7 +1005,7 @@ class TypeBindings:
                                     pos += 1
 
                                 writer.newline_multiline(CodeGeneratorInspectorStrings.class_binding_builder_part_3
-                                                         % (class_name, class_name, class_name, class_name, class_name))
+                                                         % (class_name, class_name, class_name, class_name, class_name, class_name))
 
                                 writer.newline("    /*\n")
                                 writer.newline("     * Synthetic constructor:\n")
@@ -1055,7 +1054,7 @@ class TypeBindings:
                                     writer.append("#if %s\n" % VALIDATOR_IFDEF_NAME)
                                     writer.newline("        assertCorrectValue(object.get());\n")
                                     writer.append("#endif  // %s\n" % VALIDATOR_IFDEF_NAME)
-                                    writer.newline("        COMPILE_ASSERT(sizeof(%s) == sizeof(JSONObjectBase), type_cast_problem);\n" % class_name)
+                                    writer.newline("        static_assert(sizeof(%s) == sizeof(JSONObjectBase), \"%s should be the same size as JSONObjectBase\");\n" % (class_name, class_name))
                                     writer.newline("        return static_cast<%s*>(static_cast<JSONObjectBase*>(object.get()));\n" % class_name)
                                     writer.newline("    }\n")
                                     writer.append("\n")
@@ -1648,7 +1647,7 @@ class Generator:
                 frontendDomainMethodDeclarations="".join(flatten_list(frontend_method_declaration_lines))))
 
             agent_interface_name = Capitalizer.lower_camel_case_to_upper(domain_name) + "CommandHandler"
-            Generator.backend_agent_interface_list.append("    class %s {\n" % agent_interface_name)
+            Generator.backend_agent_interface_list.append("    class CORE_EXPORT %s {\n" % agent_interface_name)
             Generator.backend_agent_interface_list.append("    public:\n")
             if "commands" in json_domain:
                 for json_command in json_domain["commands"]:
@@ -1706,7 +1705,7 @@ class Generator:
 
         Generator.method_name_enum_list.append("        %s," % cmd_enum_name)
         Generator.method_handler_list.append("            &InspectorBackendDispatcherImpl::%s_%s," % (domain_name, json_command_name))
-        Generator.backend_method_declaration_list.append("    void %s_%s(long callId, JSONObject* requestMessageObject, JSONArray* protocolErrors);" % (domain_name, json_command_name))
+        Generator.backend_method_declaration_list.append("    void %s_%s(int callId, JSONObject* requestMessageObject, JSONArray* protocolErrors);" % (domain_name, json_command_name))
 
         backend_agent_interface_list = [] if "redirect" in json_command else Generator.backend_agent_interface_list
 
@@ -1788,7 +1787,7 @@ class Generator:
             callback_writer.newline("class " + callback_name + " : public CallbackBase {\n")
             callback_writer.newline("public:\n")
             callback_writer.newline("    " + callback_name + "(PassRefPtrWillBeRawPtr<InspectorBackendDispatcherImpl>, int id);\n")
-            callback_writer.newline("    void sendSuccess(" + ", ".join(decl_parameter_list) + ");\n")
+            callback_writer.newline("    CORE_EXPORT void sendSuccess(" + ", ".join(decl_parameter_list) + ");\n")
             error_part_writer = callback_writer.insert_writer("")
             callback_writer.newline("};\n")
 
@@ -1882,6 +1881,7 @@ class Generator:
             commandNameIndex=cmd_enum_name))
         declaration_command_name = "%s.%s\\0" % (domain_name, json_command_name)
         Generator.backend_method_name_declaration_list.append("    \"%s\"" % declaration_command_name)
+        assert Generator.backend_method_name_declaration_current_index < 2 ** 16, "Number too large for unsigned short."
         Generator.backend_method_name_declaration_index_list.append("    %d," % Generator.backend_method_name_declaration_current_index)
         Generator.backend_method_name_declaration_current_index += len(declaration_command_name) - 1
 

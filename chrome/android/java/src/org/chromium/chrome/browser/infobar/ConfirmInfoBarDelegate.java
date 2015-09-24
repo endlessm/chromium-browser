@@ -4,8 +4,11 @@
 
 package org.chromium.chrome.browser.infobar;
 
+import android.graphics.Bitmap;
+
 import org.chromium.base.CalledByNative;
 import org.chromium.chrome.browser.ResourceId;
+import org.chromium.ui.base.WindowAndroid;
 
 /**
  * Provides JNI methods for ConfirmInfoBars
@@ -22,22 +25,28 @@ public class ConfirmInfoBarDelegate {
 
     /**
      * Creates and begins the process for showing a ConfirmInfoBar.
-     * @param nativeInfoBar Pointer to the C++ InfoBar corresponding to the Java InfoBar.
+     * @param windowAndroid The owning window for the infobar.
      * @param enumeratedIconId ID corresponding to the icon that will be shown for the InfoBar.
      *                         The ID must have been mapped using the ResourceMapper class before
      *                         passing it to this function.
+     * @param iconBitmap Bitmap to use if there is no equivalent Java resource for
+     *                   enumeratedIconId.
      * @param message Message to display to the user indicating what the InfoBar is for.
      * @param linkText Link text to display in addition to the message.
      * @param buttonOk String to display on the OK button.
      * @param buttonCancel String to display on the Cancel button.
+     * @param contentSettings The list of ContentSettingTypes being requested by this infobar.
      */
     @CalledByNative
-    InfoBar showConfirmInfoBar(long nativeInfoBar, int enumeratedIconId, String message,
-            String linkText, String buttonOk, String buttonCancel) {
+    InfoBar showConfirmInfoBar(WindowAndroid windowAndroid, int enumeratedIconId,
+            Bitmap iconBitmap, String message, String linkText, String buttonOk,
+            String buttonCancel, int[] contentSettings) {
         int drawableId = ResourceId.mapToDrawableId(enumeratedIconId);
 
-        ConfirmInfoBar infoBar = new ConfirmInfoBar(nativeInfoBar, null, drawableId, message,
-                linkText, buttonOk, buttonCancel);
+        ConfirmInfoBar infoBar = new ConfirmInfoBar(
+                null, drawableId, iconBitmap, message, linkText, buttonOk, buttonCancel);
+        infoBar.setContentSettings(windowAndroid, contentSettings);
+
         return infoBar;
     }
 }

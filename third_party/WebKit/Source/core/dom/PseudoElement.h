@@ -27,43 +27,50 @@
 #ifndef PseudoElement_h
 #define PseudoElement_h
 
+#include "core/CoreExport.h"
 #include "core/dom/Element.h"
-#include "core/rendering/style/RenderStyle.h"
+#include "core/style/ComputedStyle.h"
 
 namespace blink {
 
-class PseudoElement final : public Element {
+class CORE_EXPORT PseudoElement : public Element {
 public:
-    static PassRefPtrWillBeRawPtr<PseudoElement> create(Element* parent, PseudoId pseudoId)
-    {
-        return adoptRefWillBeNoop(new PseudoElement(parent, pseudoId));
-    }
+    static PassRefPtrWillBeRawPtr<PseudoElement> create(Element* parent, PseudoId);
 
-    virtual PassRefPtr<RenderStyle> customStyleForRenderer() override;
-    virtual void attach(const AttachContext& = AttachContext()) override;
-    virtual bool rendererIsNeeded(const RenderStyle&) override;
+    PassRefPtr<ComputedStyle> customStyleForLayoutObject() override;
+    void attach(const AttachContext& = AttachContext()) override;
+    bool layoutObjectIsNeeded(const ComputedStyle&) override;
 
-    virtual bool canStartSelection() const override { return false; }
-    virtual bool canContainRangeEndPoint() const override { return false; }
-    virtual PseudoId pseudoId() const override { return m_pseudoId; }
+    bool canStartSelection() const override { return false; }
+    bool canContainRangeEndPoint() const override { return false; }
+    PseudoId pseudoId() const override { return m_pseudoId; }
 
     static String pseudoElementNameForEvents(PseudoId);
 
-    void dispose();
+    Node* findAssociatedNode() const;
 
-private:
+    virtual void dispose();
+
+protected:
     PseudoElement(Element*, PseudoId);
 
-    virtual void didRecalcStyle(StyleRecalcChange) override;
+private:
+    void didRecalcStyle(StyleRecalcChange) override;
 
     PseudoId m_pseudoId;
 };
 
 const QualifiedName& pseudoElementTagName();
 
-inline bool pseudoElementRendererIsNeeded(const RenderStyle* style)
+inline bool pseudoElementLayoutObjectIsNeeded(const ComputedStyle* style)
 {
-    return style && style->display() != NONE && (style->styleType() == BACKDROP || style->contentData());
+    if (!style)
+        return false;
+    if (style->display() == NONE)
+        return false;
+    if (style->styleType() == FIRST_LETTER || style->styleType() == BACKDROP)
+        return true;
+    return style->contentData();
 }
 
 DEFINE_ELEMENT_TYPE_CASTS(PseudoElement, isPseudoElement());

@@ -20,7 +20,7 @@ class AudioCapturer {
   virtual ~AudioCapturer() {}
 
   // Returns true if audio capturing is supported on this platform. If this
-  // returns true, then Create() must not return NULL.
+  // returns true, then Create() must not return nullptr.
   static bool IsSupported();
   static scoped_ptr<AudioCapturer> Create();
 
@@ -28,11 +28,6 @@ class AudioCapturer {
   // PCM stereo format. Capturers may choose the number of frames per packet.
   // Returns true on success.
   virtual bool Start(const PacketCapturedCallback& callback) = 0;
-  // Stops the audio capturer, and frees the OS-specific audio capture
-  // resources.
-  virtual void Stop() = 0;
-  // Returns true if the audio capturer is running.
-  virtual bool IsStarted() = 0;
 
   static bool IsValidSampleRate(int sample_rate);
 };

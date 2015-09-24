@@ -30,14 +30,10 @@ CustomLauncherPageContents::~CustomLauncherPageContents() {
 
 void CustomLauncherPageContents::Initialize(content::BrowserContext* context,
                                             const GURL& url) {
-  extension_function_dispatcher_.reset(
-      new extensions::ExtensionFunctionDispatcher(context, this));
-
   web_contents_.reset(
       content::WebContents::Create(content::WebContents::CreateParams(
           context, content::SiteInstance::CreateForURL(context, url))));
 
-  Observe(web_contents());
   web_contents_->GetMutableRendererPrefs()
       ->browser_handles_all_top_level_requests = true;
   web_contents_->GetRenderViewHost()->SyncRendererPrefs();
@@ -71,13 +67,13 @@ void CustomLauncherPageContents::AddNewContents(
     content::WebContents* source,
     content::WebContents* new_contents,
     WindowOpenDisposition disposition,
-    const gfx::Rect& initial_pos,
+    const gfx::Rect& initial_rect,
     bool user_gesture,
     bool* was_blocked) {
   app_delegate_->AddNewContents(new_contents->GetBrowserContext(),
                                 new_contents,
                                 disposition,
-                                initial_pos,
+                                initial_rect,
                                 user_gesture,
                                 was_blocked);
 }
@@ -87,7 +83,8 @@ bool CustomLauncherPageContents::IsPopupOrPanel(
   return true;
 }
 
-bool CustomLauncherPageContents::ShouldSuppressDialogs() {
+bool CustomLauncherPageContents::ShouldSuppressDialogs(
+    content::WebContents* source) {
   return true;
 }
 
@@ -132,32 +129,6 @@ bool CustomLauncherPageContents::CheckMediaAccessPermission(
     content::MediaStreamType type) {
   DCHECK_EQ(web_contents_.get(), web_contents);
   return helper_->CheckMediaAccessPermission(security_origin, type);
-}
-
-bool CustomLauncherPageContents::OnMessageReceived(
-    const IPC::Message& message) {
-  bool handled = true;
-  IPC_BEGIN_MESSAGE_MAP(CustomLauncherPageContents, message)
-  IPC_MESSAGE_HANDLER(ExtensionHostMsg_Request, OnRequest)
-  IPC_MESSAGE_UNHANDLED(handled = false)
-  IPC_END_MESSAGE_MAP()
-  return handled;
-}
-
-extensions::WindowController*
-CustomLauncherPageContents::GetExtensionWindowController() const {
-  return NULL;
-}
-
-content::WebContents* CustomLauncherPageContents::GetAssociatedWebContents()
-    const {
-  return web_contents();
-}
-
-void CustomLauncherPageContents::OnRequest(
-    const ExtensionHostMsg_Request_Params& params) {
-  extension_function_dispatcher_->Dispatch(params,
-                                           web_contents_->GetRenderViewHost());
 }
 
 }  // namespace apps

@@ -4,23 +4,23 @@
       "archives": [
         {
           "checksum": {
-            "sha1": "61bc0ab13c4ff1d3222446fb616f207b1617441f"
+            "sha1": "3c63a6002dea894616292bb25d6b375dba0290f1"
           },
           "host_os": "all",
-          "size": 29619,
-          "url": "https://storage.googleapis.com/nativeclient-mirror/nacl/nacl_sdk/trunk.228691/sdk_tools.tgz"
+          "size": 30527,
+          "url": "https://storage.googleapis.com/nativeclient-mirror/nacl/nacl_sdk/trunk.314836/sdk_tools.tgz"
         }
       ],
-      "description": "Native Client SDK Tools, revision 228691",
+      "description": "Native Client SDK Tools, revision 314836",
       "name": "sdk_tools",
       "recommended": "yes",
-      "revision": 228691,
+      "revision": 314836,
       "stability": "stable",
       "version": 1
     },
     {
-       "archives": [
-         {
+      "archives": [
+        {
           "host_os": "win",
           "url": "https://storage.googleapis.com/nativeclient-mirror/nacl/nacl_sdk/sdk/${revision}/vs_addin.tgz"
         }
@@ -32,132 +32,6 @@
       "revision": 1578,
       "stability": "dev",
       "version": 0
-    },
-    {
-      "archives": [
-        {
-          "checksum": {
-            "sha1": "1cde8464f0c22d8016e7b5510d0842338b752bdc"
-          },
-          "host_os": "all",
-          "size": 73165335,
-          "url": "https://commondatastorage.googleapis.com/nativeclient-mirror/nacl/nacl_sdk/32.0.1700.107/naclports.tar.bz2"
-        },
-        {
-          "checksum": {
-            "sha1": "1b42e24e4406dc7ef7466461214de22b3c426e6e"
-          },
-          "host_os": "linux",
-          "size": 284112979,
-          "url": "https://commondatastorage.googleapis.com/nativeclient-mirror/nacl/nacl_sdk/32.0.1700.107/naclsdk_linux.tar.bz2"
-        },
-        {
-          "checksum": {
-            "sha1": "e8f22dcc253f4b5b1d3727dd4bdb435d5192202d"
-          },
-          "host_os": "mac",
-          "size": 250355709,
-          "url": "https://commondatastorage.googleapis.com/nativeclient-mirror/nacl/nacl_sdk/32.0.1700.107/naclsdk_mac.tar.bz2"
-        },
-        {
-          "checksum": {
-            "sha1": "4231ab60ced3db505ff6a5543e7965639ea5a15a"
-          },
-          "host_os": "win",
-          "size": 269032445,
-          "url": "https://commondatastorage.googleapis.com/nativeclient-mirror/nacl/nacl_sdk/32.0.1700.107/naclsdk_win.tar.bz2"
-        }
-      ],
-      "description": "Chrome 32 bundle. Chrome revision: 248368. NaCl revision: 12321",
-      "name": "pepper_32",
-      "recommended": "no",
-      "repath": "pepper_32",
-      "revision": 248368,
-      "stability": "post_stable",
-      "version": 32
-    },
-    {
-      "archives": [
-        {
-          "checksum": {
-            "sha1": "8e3e394d7269bab454361cd2eccd44f719de7039"
-          },
-          "host_os": "all",
-          "size": 73455859,
-          "url": "https://storage.googleapis.com/nativeclient-mirror/nacl/nacl_sdk/33.0.1750.117/naclports.tar.bz2"
-        },
-        {
-          "checksum": {
-            "sha1": "6e883b9e76cc803db5d579933de070d3b707f1eb"
-          },
-          "host_os": "linux",
-          "size": 301049823,
-          "url": "https://storage.googleapis.com/nativeclient-mirror/nacl/nacl_sdk/33.0.1750.117/naclsdk_linux.tar.bz2"
-        },
-        {
-          "checksum": {
-            "sha1": "0e47e9b841dfb5f75bdcdd1ebf0b501ab094a806"
-          },
-          "host_os": "mac",
-          "size": 261626911,
-          "url": "https://storage.googleapis.com/nativeclient-mirror/nacl/nacl_sdk/33.0.1750.117/naclsdk_mac.tar.bz2"
-        },
-        {
-          "checksum": {
-            "sha1": "d9a34b8b19990273f97aa22559ed82d569ef751c"
-          },
-          "host_os": "win",
-          "size": 279181683,
-          "url": "https://storage.googleapis.com/nativeclient-mirror/nacl/nacl_sdk/33.0.1750.117/naclsdk_win.tar.bz2"
-        }
-      ],
-      "description": "Chrome 33 bundle. Chrome revision: 252094. NaCl revision: 12558",
-      "name": "pepper_33",
-      "recommended": "no",
-      "repath": "pepper_33",
-      "revision": 252094,
-      "stability": "post_stable",
-      "version": 33
-    },
-    {
-      "archives": [],
-      "description": "Chrome 34 bundle, revision xxxxx",
-      "name": "pepper_34",
-      "recommended": "no",
-      "repath": "pepper_34",
-      "revision": 0,
-      "stability": "post_stable",
-      "version": 34
-    },
-    {
-      "archives": [],
-      "description": "Chrome 35 bundle, revision xxxxx",
-      "name": "pepper_35",
-      "recommended": "no",
-      "repath": "pepper_35",
-      "revision": 0,
-      "stability": "post_stable",
-      "version": 35
-    },
-    {
-      "archives": [],
-      "description": "Chrome 36 bundle, revision xxxxx",
-      "name": "pepper_36",
-      "recommended": "no",
-      "repath": "pepper_36",
-      "revision": 0,
-      "stability": "post_stable",
-      "version": 36
-    },
-    {
-      "archives": [],
-      "description": "Chrome 37 bundle, revision xxxxx",
-      "name": "pepper_37",
-      "recommended": "no",
-      "repath": "pepper_37",
-      "revision": 0,
-      "stability": "post_stable",
-      "version": 37
     },
     {
       "archives": [],
@@ -178,6 +52,56 @@
       "revision": 0,
       "stability": "post_stable",
       "version": 39
+    },
+    {
+      "archives": [],
+      "description": "Chrome 40 bundle, revision xxxxx",
+      "name": "pepper_40",
+      "recommended": "no",
+      "repath": "pepper_40",
+      "revision": 0,
+      "stability": "post_stable",
+      "version": 40
+    },
+    {
+      "archives": [],
+      "description": "Chrome 41 bundle, revision xxxxx",
+      "name": "pepper_41",
+      "recommended": "no",
+      "repath": "pepper_41",
+      "revision": 0,
+      "stability": "post_stable",
+      "version": 41
+    },
+    {
+      "archives": [],
+      "description": "Chrome 42 bundle, revision xxxxx",
+      "name": "pepper_42",
+      "recommended": "no",
+      "repath": "pepper_42",
+      "revision": 0,
+      "stability": "post_stable",
+      "version": 42
+    },
+    {
+      "archives": [],
+      "description": "Chrome 43 bundle, revision xxxxx",
+      "name": "pepper_43",
+      "recommended": "no",
+      "repath": "pepper_43",
+      "revision": 0,
+      "stability": "post_stable",
+      "version": 43
+    },
+    {
+      "archives": [],
+      "description": "Chrome 44 bundle, revision xxxxx",
+      "name": "pepper_44",
+      "recommended": "no",
+      "repath": "pepper_44",
+      "revision": 0,
+      "stability": "post_stable",
+      "version": 44
     },
     {
       "archives": [],

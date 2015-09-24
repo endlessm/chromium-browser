@@ -4,7 +4,7 @@
 
 #include "base/logging.h"
 #include "chrome/browser/platform_util.h"
-#include "ui/base/android/view_android.h"
+#include "ui/android/view_android.h"
 
 namespace platform_util {
 
@@ -14,7 +14,10 @@ void ShowItemInFolder(Profile* profile, const base::FilePath& full_path) {
   NOTIMPLEMENTED();
 }
 
-void OpenItem(Profile* profile, const base::FilePath& full_path) {
+void OpenItem(Profile* profile,
+              const base::FilePath& full_path,
+              OpenItemType item_type,
+              const OpenOperationCallback& callback) {
   NOTIMPLEMENTED();
 }
 

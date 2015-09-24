@@ -55,7 +55,6 @@ WimaxConfigView::WimaxConfigView(NetworkConfigView* parent,
       identity_textfield_(NULL),
       save_credentials_checkbox_(NULL),
       share_network_checkbox_(NULL),
-      shared_network_label_(NULL),
       passphrase_label_(NULL),
       passphrase_textfield_(NULL),
       passphrase_visible_button_(NULL),
@@ -101,7 +100,7 @@ void WimaxConfigView::UpdateErrorLabel() {
     const NetworkState* wimax = NetworkHandler::Get()->network_state_handler()->
         GetNetworkState(service_path_);
     if (wimax && wimax->connection_state() == shill::kStateFailure)
-      error_msg = ui::NetworkConnect::Get()->GetErrorString(
+      error_msg = ui::NetworkConnect::Get()->GetShillErrorString(
           wimax->last_error(), wimax->path());
   }
   if (!error_msg.empty()) {
@@ -348,10 +347,9 @@ void WimaxConfigView::Init() {
   UpdateErrorLabel();
 
   if (wimax) {
-    NetworkHandler::Get()->network_configuration_handler()->GetProperties(
-        service_path_,
-        base::Bind(&WimaxConfigView::InitFromProperties,
-                   weak_ptr_factory_.GetWeakPtr()),
+    NetworkHandler::Get()->network_configuration_handler()->GetShillProperties(
+        service_path_, base::Bind(&WimaxConfigView::InitFromProperties,
+                                  weak_ptr_factory_.GetWeakPtr()),
         base::Bind(&ShillError, "GetProperties"));
   }
 }

@@ -33,7 +33,7 @@ namespace blink {
 class MockImageDecoderClient {
 public:
     virtual void decoderBeingDestroyed() = 0;
-    virtual void frameBufferRequested() = 0;
+    virtual void decodeRequested() = 0;
     virtual ImageFrame::Status status() = 0;
     virtual size_t frameCount() = 0;
     virtual int repetitionCount() const = 0;
@@ -61,55 +61,50 @@ public:
         m_client->decoderBeingDestroyed();
     }
 
-    virtual IntSize decodedSize() const override
+    IntSize decodedSize() const override
     {
         return m_client->decodedSize().isEmpty() ? size() : m_client->decodedSize();
     }
 
-    virtual bool setSize(unsigned width, unsigned height) override
-    {
-        ImageDecoder::setSize(width, height);
-        m_frameBufferCache.resize(1);
-        m_frameBufferCache[0].setSize(width, height);
-        return true;
-    }
-
-    virtual String filenameExtension() const override
+    String filenameExtension() const override
     {
         return "mock";
     }
 
-    virtual size_t frameCount() override
-    {
-        return m_client->frameCount();
-    }
-
-    virtual int repetitionCount() const override
+    int repetitionCount() const override
     {
         return m_client->repetitionCount();
     }
 
-    virtual ImageFrame* frameBufferAtIndex(size_t) override
-    {
-        m_client->frameBufferRequested();
-
-        m_frameBufferCache[0].setStatus(m_client->status());
-        return &m_frameBufferCache[0];
-    }
-
-    virtual bool frameIsCompleteAtIndex(size_t) const override
+    bool frameIsCompleteAtIndex(size_t) const override
     {
         return m_client->status() == ImageFrame::FrameComplete;
     }
 
-    virtual float frameDurationAtIndex(size_t) const override
+    float frameDurationAtIndex(size_t) const override
     {
         return m_client->frameDuration();
     }
 
-    void setFrameHasAlpha(bool hasAlpha) { m_frameBufferCache[0].setHasAlpha(hasAlpha); }
+    size_t clearCacheExceptFrame(size_t) override { return 0; }
 
 private:
+    void decodeSize() override { }
+
+    size_t decodeFrameCount() override { return m_client->frameCount(); }
+
+    void decode(size_t index) override
+    {
+        m_client->decodeRequested();
+        m_frameBufferCache[index].setStatus(m_client->status());
+    }
+
+    void initializeNewFrame(size_t index) override
+    {
+        m_frameBufferCache[index].setSize(size().width(), size().height());
+        m_frameBufferCache[index].setHasAlpha(false);
+    }
+
     MockImageDecoderClient* m_client;
 };
 
@@ -125,11 +120,10 @@ public:
         return adoptPtr(new MockImageDecoderFactory(client, decodedSize));
     }
 
-    virtual PassOwnPtr<ImageDecoder> create() override
+    PassOwnPtr<ImageDecoder> create() override
     {
         OwnPtr<MockImageDecoder> decoder = MockImageDecoder::create(m_client);
         decoder->setSize(m_decodedSize.width(), m_decodedSize.height());
-        decoder->setFrameHasAlpha(false);
         return decoder.release();
     }
 

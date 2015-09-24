@@ -62,13 +62,6 @@ function ScanController(
   this.scanInProgress_ = false;
 
   /**
-   * Whether a scan is updated at least once. If true, spinner should disappear.
-   * @type {boolean}
-   * @private
-   */
-  this.scanUpdatedAtLeastOnceOrCompleted_ = false;
-
-  /**
    * Timer ID to delay UI refresh after a scan is completed.
    * @type {number}
    * @private
@@ -82,6 +75,19 @@ function ScanController(
    */
   this.scanUpdatedTimer_ = 0;
 
+  /**
+   * Last value of hosted files disabled.
+   * @type {?boolean}
+   * @private
+   */
+  this.lastHostedFilesDisabled_ = null;
+
+  /**
+   * @type {?function()}
+   * @private
+   */
+  this.spinnerHideCallback_ = null;
+
   this.directoryModel_.addEventListener(
       'scan-started', this.onScanStarted_.bind(this));
   this.directoryModel_.addEventListener(
@@ -94,6 +100,9 @@ function ScanController(
       'scan-updated', this.onScanUpdated_.bind(this));
   this.directoryModel_.addEventListener(
       'rescan-completed', this.onRescanCompleted_.bind(this));
+  chrome.fileManagerPrivate.onPreferencesChanged.addListener(
+      this.onPreferencesChanged_.bind(this));
+  this.onPreferencesChanged_();
 }
 
 /**
@@ -109,7 +118,6 @@ ScanController.prototype.onScanStarted_ = function() {
   this.listContainer_.startBatchUpdates();
   this.scanInProgress_ = true;
 
-  this.scanUpdatedAtLeastOnceOrCompleted_ = false;
   if (this.scanCompletedTimer_) {
     clearTimeout(this.scanCompletedTimer_);
     this.scanCompletedTimer_ = 0;
@@ -120,7 +128,9 @@ ScanController.prototype.onScanStarted_ = function() {
     this.scanUpdatedTimer_ = 0;
   }
 
-  this.spinnerController_.showLater();
+  this.hideSpinner_();
+  this.spinnerHideCallback_ = this.spinnerController_.showWithDelay(
+      500, this.onSpinnerShown_.bind(this));
 };
 
 /**
@@ -128,13 +138,14 @@ ScanController.prototype.onScanStarted_ = function() {
  */
 ScanController.prototype.onScanCompleted_ = function() {
   if (!this.scanInProgress_) {
-    console.error('Scan-completed event recieved. But scan is not started.');
+    console.error('Scan-completed event received. But scan is not started.');
     return;
   }
 
   if (this.commandHandler_)
     this.commandHandler_.updateAvailability();
-  this.spinnerController_.hide();
+
+  this.hideSpinner_();
 
   if (this.scanUpdatedTimer_) {
     clearTimeout(this.scanUpdatedTimer_);
@@ -144,11 +155,6 @@ ScanController.prototype.onScanCompleted_ = function() {
   // To avoid flickering postpone updating the ui by a small amount of time.
   // There is a high chance, that metadata will be received within 50 ms.
   this.scanCompletedTimer_ = setTimeout(function() {
-    // Check if batch updates are already finished by onScanUpdated_().
-    if (!this.scanUpdatedAtLeastOnceOrCompleted_) {
-      this.scanUpdatedAtLeastOnceOrCompleted_ = true;
-    }
-
     this.scanInProgress_ = false;
     this.listContainer_.endBatchUpdates();
     this.scanCompletedTimer_ = 0;
@@ -160,7 +166,7 @@ ScanController.prototype.onScanCompleted_ = function() {
  */
 ScanController.prototype.onScanUpdated_ = function() {
   if (!this.scanInProgress_) {
-    console.error('Scan-updated event recieved. But scan is not started.');
+    console.error('Scan-updated event received. But scan is not started.');
     return;
   }
 
@@ -170,11 +176,7 @@ ScanController.prototype.onScanUpdated_ = function() {
   // Show contents incrementally by finishing batch updated, but only after
   // 200ms elapsed, to avoid flickering when it is not necessary.
   this.scanUpdatedTimer_ = setTimeout(function() {
-    // We need to hide the spinner only once.
-    if (!this.scanUpdatedAtLeastOnceOrCompleted_) {
-      this.scanUpdatedAtLeastOnceOrCompleted_ = true;
-      this.spinnerController_.hide();
-    }
+    this.hideSpinner_();
 
     // Update the UI.
     if (this.scanInProgress_) {
@@ -190,13 +192,15 @@ ScanController.prototype.onScanUpdated_ = function() {
  */
 ScanController.prototype.onScanCancelled_ = function() {
   if (!this.scanInProgress_) {
-    console.error('Scan-cancelled event recieved. But scan is not started.');
+    console.error('Scan-cancelled event received. But scan is not started.');
     return;
   }
 
   if (this.commandHandler_)
     this.commandHandler_.updateAvailability();
-  this.spinnerController_.hide();
+
+  this.hideSpinner_();
+
   if (this.scanCompletedTimer_) {
     clearTimeout(this.scanCompletedTimer_);
     this.scanCompletedTimer_ = 0;
@@ -204,10 +208,6 @@ ScanController.prototype.onScanCancelled_ = function() {
   if (this.scanUpdatedTimer_) {
     clearTimeout(this.scanUpdatedTimer_);
     this.scanUpdatedTimer_ = 0;
-  }
-  // Finish unfinished batch updates.
-  if (!this.scanUpdatedAtLeastOnceOrCompleted_) {
-    this.scanUpdatedAtLeastOnceOrCompleted_ = true;
   }
 
   this.scanInProgress_ = false;
@@ -220,4 +220,46 @@ ScanController.prototype.onScanCancelled_ = function() {
  */
 ScanController.prototype.onRescanCompleted_ = function() {
   this.selectionHandler_.onFileSelectionChanged();
+};
+
+/**
+ * Handles preferences change and starts rescan if needed.
+ * @private
+ */
+ScanController.prototype.onPreferencesChanged_ = function() {
+  chrome.fileManagerPrivate.getPreferences(function(prefs) {
+    if (chrome.runtime.lastError) {
+      console.error(chrome.runtime.lastError.name);
+      return;
+    }
+    if (this.lastHostedFilesDisabled_ !== null &&
+        this.lastHostedFilesDisabled_ !== prefs.hostedFilesDisabled &&
+        this.directoryModel_.isOnDrive()) {
+      this.directoryModel_.rescan(false);
+    }
+    this.lastHostedFilesDisabled_ = prefs.hostedFilesDisabled;
+  }.bind(this));
+};
+
+/**
+ * When a spinner is shown, updates the UI to remove items in the previous
+ * directory.
+ * @private
+ */
+ScanController.prototype.onSpinnerShown_ = function() {
+  if (this.scanInProgress_) {
+    this.listContainer_.endBatchUpdates();
+    this.listContainer_.startBatchUpdates();
+  }
+};
+
+/**
+ * Hides the spinner if it's shown or scheduled to be shown.
+ * @private
+ */
+ScanController.prototype.hideSpinner_ = function() {
+  if (this.spinnerHideCallback_) {
+    this.spinnerHideCallback_();
+    this.spinnerHideCallback_ = null;
+  }
 };

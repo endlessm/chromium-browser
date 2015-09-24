@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CONTENT_SHELL_LAYOUT_TEST_RENDER_PROCESS_OBSERVER_H_
-#define CONTENT_SHELL_LAYOUT_TEST_RENDER_PROCESS_OBSERVER_H_
+#ifndef CONTENT_SHELL_RENDERER_LAYOUT_TEST_LAYOUT_TEST_RENDER_PROCESS_OBSERVER_H_
+#define CONTENT_SHELL_RENDERER_LAYOUT_TEST_LAYOUT_TEST_RENDER_PROCESS_OBSERVER_H_
 
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
@@ -16,12 +16,15 @@ namespace blink {
 class WebFrame;
 }
 
+namespace test_runner {
+class WebTestDelegate;
+class WebTestInterfaces;
+}
+
 namespace content {
 
 class RenderView;
-class WebKitTestRunner;
-class WebTestDelegate;
-class WebTestInterfaces;
+class BlinkTestRunner;
 
 class LayoutTestRenderProcessObserver : public RenderProcessObserver {
  public:
@@ -30,7 +33,7 @@ class LayoutTestRenderProcessObserver : public RenderProcessObserver {
   LayoutTestRenderProcessObserver();
   ~LayoutTestRenderProcessObserver() override;
 
-  void SetTestDelegate(WebTestDelegate* delegate);
+  void SetTestDelegate(test_runner::WebTestDelegate* delegate);
   void SetMainWindow(RenderView* view);
 
   // RenderProcessObserver implementation.
@@ -38,22 +41,22 @@ class LayoutTestRenderProcessObserver : public RenderProcessObserver {
   void OnRenderProcessShutdown() override;
   bool OnControlMessageReceived(const IPC::Message& message) override;
 
-  WebTestDelegate* test_delegate() const {
+  test_runner::WebTestDelegate* test_delegate() const {
     return test_delegate_;
   }
-  WebTestInterfaces* test_interfaces() const {
+  test_runner::WebTestInterfaces* test_interfaces() const {
     return test_interfaces_.get();
   }
-  WebKitTestRunner* main_test_runner() const { return main_test_runner_; }
+  BlinkTestRunner* main_test_runner() const { return main_test_runner_; }
   const base::FilePath& webkit_source_dir() const { return webkit_source_dir_; }
 
  private:
   // Message handlers.
   void OnSetWebKitSourceDir(const base::FilePath& webkit_source_dir);
 
-  WebKitTestRunner* main_test_runner_;
-  WebTestDelegate* test_delegate_;
-  scoped_ptr<WebTestInterfaces> test_interfaces_;
+  BlinkTestRunner* main_test_runner_;
+  test_runner::WebTestDelegate* test_delegate_;
+  scoped_ptr<test_runner::WebTestInterfaces> test_interfaces_;
 
   base::FilePath webkit_source_dir_;
 
@@ -62,4 +65,4 @@ class LayoutTestRenderProcessObserver : public RenderProcessObserver {
 
 }  // namespace content
 
-#endif  // CONTENT_SHELL_LAYOUT_TEST_RENDER_PROCESS_OBSERVER_H_
+#endif  // CONTENT_SHELL_RENDERER_LAYOUT_TEST_LAYOUT_TEST_RENDER_PROCESS_OBSERVER_H_

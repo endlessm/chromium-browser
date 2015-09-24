@@ -11,6 +11,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "extensions/common/extension.h"
+#include "extensions/common/manifest.h"
 
 namespace extensions {
 
@@ -29,18 +30,19 @@ Feature::Platform Feature::GetCurrentPlatform() {
 #endif
 }
 
-// static
-Feature::Availability Feature::CreateAvailability(AvailabilityResult result,
-                                                  const std::string& message) {
-  return Availability(result, message);
-}
-
 Feature::Availability Feature::IsAvailableToExtension(
-    const Extension* extension) {
+    const Extension* extension) const {
   return IsAvailableToManifest(extension->id(),
                                extension->GetType(),
                                extension->location(),
                                extension->manifest_version());
+}
+
+Feature::Availability Feature::IsAvailableToEnvironment() const {
+  return IsAvailableToManifest("",  // extension_id
+                               Manifest::TYPE_UNKNOWN,
+                               Manifest::INVALID_LOCATION,
+                               -1);  // manifest_version
 }
 
 Feature::Feature() : no_parent_(false) {}

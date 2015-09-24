@@ -5,7 +5,8 @@
 #ifndef ASH_SYSTEM_TRAY_SPECIAL_POPUP_ROW_H_
 #define ASH_SYSTEM_TRAY_SPECIAL_POPUP_ROW_H_
 
-#include "ui/gfx/size.h"
+#include "ash/ash_export.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/views/view.h"
 
 namespace views {
@@ -20,7 +21,7 @@ class ViewClickListener;
 
 // The 'special' looking row in the uber-tray popups. This is usually the bottom
 // row in the popups, and has a fixed height.
-class SpecialPopupRow : public views::View {
+class ASH_EXPORT SpecialPopupRow : public views::View {
  public:
   SpecialPopupRow();
   ~SpecialPopupRow() override;
@@ -41,7 +42,6 @@ class SpecialPopupRow : public views::View {
 
   views::View* content_;
   views::View* button_container_;
-  views::Label* text_label_;
 
   DISALLOW_COPY_AND_ASSIGN(SpecialPopupRow);
 };

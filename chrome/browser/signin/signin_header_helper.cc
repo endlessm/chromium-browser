@@ -5,14 +5,18 @@
 #include "chrome/browser/signin/signin_header_helper.h"
 
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile_io_data.h"
+#include "chrome/browser/signin/account_reconcilor_factory.h"
+#include "chrome/browser/signin/chrome_signin_client.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/url_constants.h"
 #include "components/google/core/browser/google_util.h"
+#include "components/signin/core/browser/account_reconcilor.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/resource_request_info.h"
@@ -23,9 +27,10 @@
 
 #if defined(OS_ANDROID)
 #include "chrome/browser/android/signin/account_management_screen_helper.h"
-#else
+#elif !defined(OS_IOS)
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
+#include "extensions/browser/guest_view/web_view/web_view_renderer_state.h"
 #endif  // defined(OS_ANDROID)
 
 namespace {
@@ -68,22 +73,18 @@ signin::GAIAServiceType GetGAIAServiceTypeFromHeader(
 // "key1=value1,key2=value2,...".
 MirrorResponseHeaderDictionary ParseMirrorResponseHeader(
     const std::string& header_value) {
-  std::vector<std::string> fields;
-  if (!Tokenize(header_value, std::string(","), &fields))
-    return MirrorResponseHeaderDictionary();
-
   MirrorResponseHeaderDictionary dictionary;
-  for (std::vector<std::string>::iterator i = fields.begin();
-       i != fields.end(); ++i) {
-    std::string field(*i);
-    std::vector<std::string> tokens;
+  for (const base::StringPiece& field :
+       base::SplitStringPiece(header_value, ",", base::KEEP_WHITESPACE,
+                              base::SPLIT_WANT_NONEMPTY)) {
     size_t delim = field.find_first_of('=');
     if (delim == std::string::npos) {
       DLOG(WARNING) << "Unexpected GAIA header field '" << field << "'.";
       continue;
     }
-    dictionary[field.substr(0, delim)] = net::UnescapeURLComponent(
-        field.substr(delim + 1), net::UnescapeRule::URL_SPECIAL_CHARS);
+    dictionary[field.substr(0, delim).as_string()] = net::UnescapeURLComponent(
+        field.substr(delim + 1).as_string(),
+        net::UnescapeRule::URL_SPECIAL_CHARS);
   }
   return dictionary;
 }
@@ -123,7 +124,7 @@ signin::ManageAccountsParams BuildManageAccountsParams(
 void ProcessMirrorHeaderUIThread(
     int child_id, int route_id,
     signin::ManageAccountsParams manage_accounts_params) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   signin::GAIAServiceType service_type = manage_accounts_params.service_type;
   DCHECK_NE(signin::GAIA_SERVICE_TYPE_NONE, service_type);
@@ -133,6 +134,8 @@ void ProcessMirrorHeaderUIThread(
   if (!web_contents)
     return;
 
+  Profile* profile =
+      Profile::FromBrowserContext(web_contents->GetBrowserContext());
 #if !defined(OS_ANDROID)
   Browser* browser = chrome::FindBrowserWithWebContents(web_contents);
   if (browser) {
@@ -150,6 +153,8 @@ void ProcessMirrorHeaderUIThread(
       default:
         bubble_mode = BrowserWindow::AVATAR_BUBBLE_MODE_ACCOUNT_MANAGEMENT;
     }
+    signin_metrics::LogAccountReconcilorStateOnGaiaResponse(
+        AccountReconcilorFactory::GetForProfile(profile)->GetState());
     browser->window()->ShowAvatarBubbleFromAvatarButton(
         bubble_mode, manage_accounts_params);
   }
@@ -162,16 +167,17 @@ void ProcessMirrorHeaderUIThread(
         url, content::Referrer(), OFF_THE_RECORD,
         ui::PAGE_TRANSITION_AUTO_TOPLEVEL, false));
   } else {
-    AccountManagementScreenHelper::OpenAccountManagementScreen(
-        Profile::FromBrowserContext(web_contents->GetBrowserContext()),
-        service_type);
+    signin_metrics::LogAccountReconcilorStateOnGaiaResponse(
+        AccountReconcilorFactory::GetForProfile(profile)->GetState());
+    AccountManagementScreenHelper::OpenAccountManagementScreen(profile,
+                                                               service_type);
   }
 #endif // OS_ANDROID
 }
 #endif // !defined(OS_IOS)
 
 bool IsDriveOrigin(const GURL& url) {
-  if (!url.SchemeIsSecure())
+  if (!url.SchemeIsCryptographic())
     return false;
 
   const GURL kGoogleDriveURL("https://drive.google.com");
@@ -195,16 +201,27 @@ ManageAccountsParams::ManageAccountsParams() :
 bool AppendMirrorRequestHeaderIfPossible(
     net::URLRequest* request,
     const GURL& redirect_url,
-    ProfileIOData* io_data) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+    ProfileIOData* io_data,
+    int child_id,
+    int route_id) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
-  if (io_data->IsOffTheRecord() ||
-      io_data->google_services_username()->GetValue().empty()) {
+  if (io_data->IsOffTheRecord())
+    return false;
+
+  std::string account_id(io_data->google_services_account_id()->GetValue());
+
+  if (account_id.empty())
+    return false;
+
+  // If signin cookies are not allowed, don't add the header.
+  if (!ChromeSigninClient::SettingsAllowSigninCookies(
+          io_data->GetCookieSettings())) {
     return false;
   }
 
   // Only set the header for Drive and Gaia always, and other Google properties
-  // if new-profile-management is enabled.
+  // if account consistency is enabled.
   // Vasquette, which is integrated with most Google properties, needs the
   // header to redirect certain user actions to Chrome native UI. Drive and Gaia
   // need the header to tell if the current user is connected. The drive path is
@@ -214,7 +231,6 @@ bool AppendMirrorRequestHeaderIfPossible(
   GURL origin(url.GetOrigin());
   bool is_enable_account_consistency = switches::IsEnableAccountConsistency();
   bool is_google_url =
-      !switches::IsEnableWebBasedSignin() &&
       is_enable_account_consistency &&
       (google_util::IsGoogleDomainUrl(
            url,
@@ -229,12 +245,23 @@ bool AppendMirrorRequestHeaderIfPossible(
     return false;
   }
 
-  std::string account_id(io_data->google_services_account_id()->GetValue());
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+  extensions::WebViewRendererState::WebViewInfo webview_info;
+  bool is_guest =  extensions::WebViewRendererState::GetInstance()->GetInfo(
+      child_id, route_id, &webview_info);
+  // Do not set the x-chrome-connected header on requests from a native signin
+  // webview, as identified by an empty extension id which means the webview is
+  // embedded in a webui page, otherwise user may end up with a blank page as
+  // gaia uses the header to decide whether it returns 204 for certain end
+  // points.
+  if (is_guest && webview_info.owner_host.empty())
+    return false;
+#endif // !OS_ANDROID && !OS_IOS
 
   int profile_mode_mask = PROFILE_MODE_DEFAULT;
   if (io_data->incognito_availibility()->GetValue() ==
           IncognitoModePrefs::DISABLED ||
-      IncognitoModePrefs::ArePlatformParentalControlsEnabledCached()) {
+      IncognitoModePrefs::ArePlatformParentalControlsEnabled()) {
     profile_mode_mask |= PROFILE_MODE_INCOGNITO_DISABLED;
   }
 
@@ -248,31 +275,41 @@ bool AppendMirrorRequestHeaderIfPossible(
   return true;
 }
 
-void ProcessMirrorResponseHeaderIfExists(
-    net::URLRequest* request,
-    ProfileIOData* io_data,
-    int child_id,
-    int route_id) {
-#if defined(OS_IOS)
-  NOTREACHED();
-#else
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
-  if (!gaia::IsGaiaSignonRealm(request->url().GetOrigin()))
-    return;
+ManageAccountsParams BuildManageAccountsParamsIfValid(net::URLRequest* request,
+                                                      ProfileIOData* io_data) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
+  ManageAccountsParams empty_params;
+  empty_params.service_type = GAIA_SERVICE_TYPE_NONE;
+  if (!gaia::IsGaiaSignonRealm(request->url().GetOrigin()))
+    return empty_params;
+
+#if !defined(OS_IOS)
   const content::ResourceRequestInfo* info =
       content::ResourceRequestInfo::ForRequest(request);
   if (!(info && info->GetResourceType() == content::RESOURCE_TYPE_MAIN_FRAME))
-    return;
+    return empty_params;
+#endif
 
   std::string header_value;
   if (!request->response_headers()->GetNormalizedHeader(
           kChromeManageAccountsHeader, &header_value)) {
-    return;
+    return empty_params;
   }
 
   DCHECK(switches::IsEnableAccountConsistency() && !io_data->IsOffTheRecord());
-  ManageAccountsParams params(BuildManageAccountsParams(header_value));
+  return BuildManageAccountsParams(header_value);
+}
+
+void ProcessMirrorResponseHeaderIfExists(net::URLRequest* request,
+                                         ProfileIOData* io_data,
+                                         int child_id,
+                                         int route_id) {
+#if defined(OS_IOS)
+  NOTREACHED();
+#else
+  ManageAccountsParams params =
+      BuildManageAccountsParamsIfValid(request, io_data);
   if (params.service_type == GAIA_SERVICE_TYPE_NONE)
     return;
 

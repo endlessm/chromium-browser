@@ -13,7 +13,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_auth.h"
-#include "net/http/http_auth_challenge_tokenizer.h"
+#include "net/http/http_auth_multi_round_parse.h"
 
 namespace net {
 
@@ -185,6 +185,60 @@ int MapFreeContextBufferStatusToError(SECURITY_STATUS status) {
 
 }  // anonymous namespace
 
+SECURITY_STATUS SSPILibraryDefault::AcquireCredentialsHandle(
+    LPWSTR pszPrincipal,
+    LPWSTR pszPackage,
+    unsigned long fCredentialUse,
+    void* pvLogonId,
+    void* pvAuthData,
+    SEC_GET_KEY_FN pGetKeyFn,
+    void* pvGetKeyArgument,
+    PCredHandle phCredential,
+    PTimeStamp ptsExpiry) {
+  return ::AcquireCredentialsHandle(pszPrincipal, pszPackage, fCredentialUse,
+                                    pvLogonId, pvAuthData, pGetKeyFn,
+                                    pvGetKeyArgument, phCredential, ptsExpiry);
+}
+
+SECURITY_STATUS SSPILibraryDefault::InitializeSecurityContext(
+    PCredHandle phCredential,
+    PCtxtHandle phContext,
+    SEC_WCHAR* pszTargetName,
+    unsigned long fContextReq,
+    unsigned long Reserved1,
+    unsigned long TargetDataRep,
+    PSecBufferDesc pInput,
+    unsigned long Reserved2,
+    PCtxtHandle phNewContext,
+    PSecBufferDesc pOutput,
+    unsigned long* contextAttr,
+    PTimeStamp ptsExpiry) {
+  return ::InitializeSecurityContext(phCredential, phContext, pszTargetName,
+                                     fContextReq, Reserved1, TargetDataRep,
+                                     pInput, Reserved2, phNewContext, pOutput,
+                                     contextAttr, ptsExpiry);
+}
+
+SECURITY_STATUS SSPILibraryDefault::QuerySecurityPackageInfo(
+    LPWSTR pszPackageName,
+    PSecPkgInfoW* pkgInfo) {
+  return ::QuerySecurityPackageInfo(pszPackageName, pkgInfo);
+}
+
+SECURITY_STATUS SSPILibraryDefault::FreeCredentialsHandle(
+    PCredHandle phCredential) {
+  return ::FreeCredentialsHandle(phCredential);
+}
+
+SECURITY_STATUS SSPILibraryDefault::DeleteSecurityContext(
+    PCtxtHandle phContext) {
+  return ::DeleteSecurityContext(phContext);
+}
+
+SECURITY_STATUS SSPILibraryDefault::FreeContextBuffer(PVOID pvContextBuffer) {
+  return ::FreeContextBuffer(pvContextBuffer);
+}
+
 HttpAuthSSPI::HttpAuthSSPI(SSPILibrary* library,
                            const std::string& scheme,
                            const SEC_WCHAR* security_package,
@@ -228,37 +282,18 @@ void HttpAuthSSPI::ResetSecurityContext() {
 
 HttpAuth::AuthorizationResult HttpAuthSSPI::ParseChallenge(
     HttpAuthChallengeTokenizer* tok) {
-  // Verify the challenge's auth-scheme.
-  if (!LowerCaseEqualsASCII(tok->scheme(),
-                            base::StringToLowerASCII(scheme_).c_str()))
-    return HttpAuth::AUTHORIZATION_RESULT_INVALID;
-
-  std::string encoded_auth_token = tok->base64_param();
-  if (encoded_auth_token.empty()) {
-    // If a context has already been established, an empty challenge
-    // should be treated as a rejection of the current attempt.
-    if (SecIsValidHandle(&ctxt_))
-      return HttpAuth::AUTHORIZATION_RESULT_REJECT;
-    DCHECK(decoded_server_auth_token_.empty());
-    return HttpAuth::AUTHORIZATION_RESULT_ACCEPT;
-  } else {
-    // If a context has not already been established, additional tokens should
-    // not be present in the auth challenge.
-    if (!SecIsValidHandle(&ctxt_))
-      return HttpAuth::AUTHORIZATION_RESULT_INVALID;
+  if (!SecIsValidHandle(&ctxt_)) {
+    return net::ParseFirstRoundChallenge(scheme_, tok);
   }
-
-  std::string decoded_auth_token;
-  bool base64_rv = base::Base64Decode(encoded_auth_token, &decoded_auth_token);
-  if (!base64_rv)
-    return HttpAuth::AUTHORIZATION_RESULT_INVALID;
-  decoded_server_auth_token_ = decoded_auth_token;
-  return HttpAuth::AUTHORIZATION_RESULT_ACCEPT;
+  std::string encoded_auth_token;
+  return net::ParseLaterRoundChallenge(scheme_, tok, &encoded_auth_token,
+                                       &decoded_server_auth_token_);
 }
 
 int HttpAuthSSPI::GenerateAuthToken(const AuthCredentials* credentials,
                                     const std::string& spn,
-                                    std::string* auth_token) {
+                                    std::string* auth_token,
+                                    const CompletionCallback& /*callback*/) {
   // Initial challenge.
   if (!SecIsValidHandle(&cred_)) {
     int rv = OnFirstRound(credentials);

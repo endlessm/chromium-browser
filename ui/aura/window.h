@@ -15,7 +15,6 @@
 #include "base/observer_list.h"
 #include "base/strings/string16.h"
 #include "ui/aura/aura_export.h"
-#include "ui/aura/window_layer_type.h"
 #include "ui/aura/window_observer.h"
 #include "ui/compositor/layer_animator.h"
 #include "ui/compositor/layer_delegate.h"
@@ -24,9 +23,9 @@
 #include "ui/events/event_target.h"
 #include "ui/events/event_targeter.h"
 #include "ui/events/gestures/gesture_types.h"
-#include "ui/gfx/insets.h"
+#include "ui/gfx/geometry/insets.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
-#include "ui/gfx/rect.h"
 #include "ui/wm/public/window_types.h"
 
 namespace gfx {
@@ -38,6 +37,7 @@ class Vector2d;
 namespace ui {
 class EventHandler;
 class Layer;
+class TextInputClient;
 class Texture;
 }
 
@@ -51,6 +51,10 @@ class WindowTreeHost;
 // Defined in window_property.h (which we do not include)
 template<typename T>
 struct WindowProperty;
+
+namespace subtle {
+class PropertyHelper;
+}
 
 namespace test {
 class WindowTestApi;
@@ -76,7 +80,7 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   ~Window() override;
 
   // Initializes the window. This creates the window's layer.
-  void Init(WindowLayerType layer_type);
+  void Init(ui::LayerType layer_type);
 
   void set_owned_by_parent(bool owned_by_parent) {
     owned_by_parent_ = owned_by_parent;
@@ -223,7 +227,7 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   // Add/remove observer.
   void AddObserver(WindowObserver* observer);
   void RemoveObserver(WindowObserver* observer);
-  bool HasObserver(WindowObserver* observer);
+  bool HasObserver(const WindowObserver* observer) const;
 
   void set_ignore_events(bool ignore_events) { ignore_events_ = ignore_events; }
   bool ignore_events() const { return ignore_events_; }
@@ -258,9 +262,8 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   // that has a delegate set).  The toplevel window may be |this|.
   Window* GetToplevelWindow();
 
-  // Claims or relinquishes the claim to focus.
+  // Claims focus.
   void Focus();
-  void Blur();
 
   // Returns true if the Window is currently the focused window.
   bool HasFocus() const;
@@ -332,7 +335,7 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   friend class test::WindowTestApi;
   friend class LayoutManager;
   friend class WindowTargeter;
-
+  friend class subtle::PropertyHelper;
   // Called by the public {Set,Get,Clear}Property functions.
   int64 SetPropertyInternal(const void* key,
                             const char* name,
@@ -360,10 +363,10 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
 
   // Asks the delegate to paint the window and invokes PaintLayerlessChildren()
   // to paint any children with no layers.
-  void Paint(gfx::Canvas* canvas);
+  void Paint(const ui::PaintContext& context);
 
   // Paints any layerless children to |canvas|.
-  void PaintLayerlessChildren(gfx::Canvas* canvas);
+  void PaintLayerlessChildren(const ui::PaintContext& context);
 
   // Gets a Window (either this one or a subwindow) containing |local_point|.
   // If |return_tightest| is true, returns the tightest-containing (i.e.
@@ -378,12 +381,6 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   // of an add, |new_parent| is the new parent |child| is going to be parented
   // to.
   void RemoveChildImpl(Window* child, Window* new_parent);
-
-  // If this Window has a layer the layer's parent is set to NULL, otherwise
-  // UnparentLayers() is invoked on all the children. |offset| is the offset
-  // relative to the nearest ancestor with a layer.
-  void UnparentLayers(bool has_layerless_ancestor,
-                      const gfx::Vector2d& offset);
 
   // If this Window has a layer it is added to |parent| and the origin set to
   // |offset|. Otherwise this recurses through the children invoking
@@ -455,7 +452,7 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   void OnWindowBoundsChanged(const gfx::Rect& old_bounds);
 
   // Overridden from ui::LayerDelegate:
-  void OnPaintLayer(gfx::Canvas* canvas) override;
+  void OnPaintLayer(const ui::PaintContext& context) override;
   void OnDelegatedFrameDamage(const gfx::Rect& damage_rect_in_dip) override;
   base::Closure PrepareForLayerBoundsChange() override;
 
@@ -469,15 +466,6 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
 
   // Updates the layer name based on the window's name and id.
   void UpdateLayerName();
-
-  // Returns the first ancestor (starting at |this|) with a layer. |offset| is
-  // set to the offset from |this| to the first ancestor with a layer. |offset|
-  // may be NULL.
-  Window* GetAncestorWithLayer(gfx::Vector2d* offset) {
-    return const_cast<Window*>(
-        const_cast<const Window*>(this)->GetAncestorWithLayer(offset));
-  }
-  const Window* GetAncestorWithLayer(gfx::Vector2d* offset) const;
 
   // Bounds of this window relative to the parent. This is cached as the bounds
   // of the Layer and Window are not necessarily the same. In particular bounds
@@ -525,7 +513,7 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   // See set_hit_test_bounds_override_inner().
   gfx::Insets hit_test_bounds_override_inner_;
 
-  ObserverList<WindowObserver, true> observers_;
+  base::ObserverList<WindowObserver, true> observers_;
 
   // Value struct to keep the name and deallocator for this property.
   // Key cannot be used for this purpose because it can be char* or

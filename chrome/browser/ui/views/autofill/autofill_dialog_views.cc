@@ -30,13 +30,14 @@
 #include "ui/base/models/combobox_model.h"
 #include "ui/base/models/menu_model.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/compositor/paint_recorder.h"
 #include "ui/events/event_handler.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/font_list.h"
+#include "ui/gfx/geometry/point.h"
 #include "ui/gfx/path.h"
-#include "ui/gfx/point.h"
 #include "ui/gfx/skia_util.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
@@ -97,12 +98,6 @@ const int kDialogEdgePadding = 20;
 
 // The vertical padding between rows of manual inputs (in pixels).
 const int kManualInputRowPadding = 10;
-
-// Slight shading for mouse hover and legal document background.
-SkColor kShadingColor = SkColorSetARGB(7, 0, 0, 0);
-
-// A border color for the legal document view.
-SkColor kSubtleBorderColor = SkColorSetARGB(10, 0, 0, 0);
 
 // The top and bottom padding, in pixels, for the suggestions menu dropdown
 // arrows.
@@ -685,8 +680,6 @@ void AutofillDialogViews::OverlayView::OnPaint(gfx::Canvas* canvas) {
     paint.setStyle(SkPaint::kStroke_Style);
     canvas->DrawPath(arrow, paint);
   }
-
-  PaintChildren(canvas, views::CullSet());
 }
 
 void AutofillDialogViews::OverlayView::OnNativeThemeChanged(
@@ -761,17 +754,12 @@ const char* AutofillDialogViews::NotificationArea::GetClassName() const {
 }
 
 void AutofillDialogViews::NotificationArea::PaintChildren(
-    gfx::Canvas* canvas,
-    const views::CullSet& cull_set) {
-}
-
-void AutofillDialogViews::NotificationArea::OnPaint(gfx::Canvas* canvas) {
-  views::View::OnPaint(canvas);
-  views::View::PaintChildren(canvas, views::CullSet());
-
+    const ui::PaintContext& context) {
+  views::View::PaintChildren(context);
   if (HasArrow()) {
+    ui::PaintRecorder recorder(context, size());
     DrawArrow(
-        canvas,
+        recorder.canvas(),
         GetMirroredXInView(width() - arrow_centering_anchor_->width() / 2.0f),
         notifications_[0].GetBackgroundColor(),
         notifications_[0].GetBorderColor());
@@ -864,9 +852,9 @@ void AutofillDialogViews::SectionContainer::SetActive(bool active) {
   if (is_active == !!background())
     return;
 
-  set_background(is_active ?
-      views::Background::CreateSolidBackground(kShadingColor) :
-      NULL);
+  set_background(
+      is_active ? views::Background::CreateSolidBackground(kLightShadingColor)
+                : NULL);
   SchedulePaint();
 }
 
@@ -1000,11 +988,6 @@ gfx::Size AutofillDialogViews::SuggestedButton::GetPreferredSize() const {
 
 const char* AutofillDialogViews::SuggestedButton::GetClassName() const {
   return kSuggestedButtonClassName;
-}
-
-void AutofillDialogViews::SuggestedButton::PaintChildren(
-    gfx::Canvas* canvas,
-    const views::CullSet& cull_set) {
 }
 
 void AutofillDialogViews::SuggestedButton::OnPaint(gfx::Canvas* canvas) {
@@ -1238,7 +1221,8 @@ void AutofillDialogViews::Show() {
   UpdateNotificationArea();
   UpdateButtonStripExtraView();
 
-  window_ = ShowWebModalDialogViews(this, delegate_->GetWebContents());
+  window_ = constrained_window::ShowWebModalDialogViews(
+      this, delegate_->GetWebContents());
   focus_manager_ = window_->GetFocusManager();
   focus_manager_->AddFocusChangeListener(this);
 
@@ -1619,7 +1603,7 @@ views::View* AutofillDialogViews::CreateFootnoteView() {
   footnote_view_->SetBorder(
       views::Border::CreateSolidSidedBorder(1, 0, 0, 0, kSubtleBorderColor));
   footnote_view_->set_background(
-      views::Background::CreateSolidBackground(kShadingColor));
+      views::Background::CreateSolidBackground(kLightShadingColor));
 
   legal_document_view_ = new views::StyledLabel(base::string16(), this);
 
@@ -1662,8 +1646,7 @@ void AutofillDialogViews::ContentsChanged(views::Textfield* sender,
 
 bool AutofillDialogViews::HandleKeyEvent(views::Textfield* sender,
                                          const ui::KeyEvent& key_event) {
-  ui::KeyEvent copy(key_event);
-  content::NativeWebKeyboardEvent event(&copy);
+  content::NativeWebKeyboardEvent event(key_event);
   return delegate_->HandleKeyPressEventInInput(event);
 }
 
@@ -1739,13 +1722,11 @@ void AutofillDialogViews::OnMenuButtonClicked(views::View* source,
       new views::MenuRunner(delegate_->MenuModelForSection(group->section), 0));
 
   group->container->SetActive(true);
-  views::Button::ButtonState state = group->suggested_button->state();
-  group->suggested_button->SetState(views::Button::STATE_PRESSED);
 
   gfx::Rect screen_bounds = source->GetBoundsInScreen();
   screen_bounds.Inset(source->GetInsets());
   if (menu_runner_->RunMenuAt(source->GetWidget(),
-                              NULL,
+                              group->suggested_button,
                               screen_bounds,
                               views::MENU_ANCHOR_TOPRIGHT,
                               ui::MENU_SOURCE_NONE) ==
@@ -1754,7 +1735,6 @@ void AutofillDialogViews::OnMenuButtonClicked(views::View* source,
   }
 
   group->container->SetActive(false);
-  group->suggested_button->SetState(state);
 }
 
 gfx::Size AutofillDialogViews::CalculatePreferredSize(
@@ -2319,7 +2299,7 @@ void AutofillDialogViews::ContentsPreferredSizeChanged() {
   preferred_size_ = gfx::Size();
 
   if (GetWidget() && delegate_ && delegate_->GetWebContents()) {
-    UpdateWebContentsModalDialogPosition(
+    constrained_window::UpdateWebContentsModalDialogPosition(
         GetWidget(),
         web_modal::WebContentsModalDialogManager::FromWebContents(
             delegate_->GetWebContents())->delegate()->
@@ -2483,7 +2463,7 @@ void AutofillDialogViews::SetEditabilityForSection(DialogSection section) {
 
     TextfieldMap::iterator text_mapping = group->textfields.find(input.type);
     if (text_mapping != group->textfields.end()) {
-      ExpandingTextfield* textfield= text_mapping->second;
+      ExpandingTextfield* textfield = text_mapping->second;
       textfield->SetEditable(editable);
       continue;
     }

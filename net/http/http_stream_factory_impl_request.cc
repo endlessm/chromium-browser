@@ -39,17 +39,10 @@ HttpStreamFactoryImpl::Request::Request(
 HttpStreamFactoryImpl::Request::~Request() {
   if (bound_job_.get())
     DCHECK(jobs_.empty());
-  else
-    DCHECK(!jobs_.empty());
 
   net_log_.EndEvent(NetLog::TYPE_HTTP_STREAM_REQUEST);
 
-  for (std::set<Job*>::iterator it = jobs_.begin(); it != jobs_.end(); ++it)
-    factory_->request_map_.erase(*it);
-
-  RemoveRequestFromSpdySessionRequestMap();
-
-  STLDeleteElements(&jobs_);
+  CancelJobs();
 }
 
 void HttpStreamFactoryImpl::Request::SetSpdySessionKey(
@@ -68,22 +61,14 @@ void HttpStreamFactoryImpl::Request::AttachJob(Job* job) {
   factory_->request_map_[job] = this;
 }
 
-void HttpStreamFactoryImpl::Request::Complete(
-    bool was_npn_negotiated,
-    NextProto protocol_negotiated,
-    bool using_spdy,
-    const BoundNetLog& job_net_log) {
+void HttpStreamFactoryImpl::Request::Complete(bool was_npn_negotiated,
+                                              NextProto protocol_negotiated,
+                                              bool using_spdy) {
   DCHECK(!completed_);
   completed_ = true;
   was_npn_negotiated_ = was_npn_negotiated;
   protocol_negotiated_ = protocol_negotiated;
   using_spdy_ = using_spdy;
-  net_log_.AddEvent(
-      NetLog::TYPE_HTTP_STREAM_REQUEST_BOUND_TO_JOB,
-      job_net_log.source().ToEventParametersCallback());
-  job_net_log.AddEvent(
-      NetLog::TYPE_HTTP_STREAM_JOB_BOUND_TO_REQUEST,
-      net_log_.source().ToEventParametersCallback());
 }
 
 void HttpStreamFactoryImpl::Request::OnStreamReady(
@@ -116,13 +101,14 @@ void HttpStreamFactoryImpl::Request::OnWebSocketHandshakeStreamReady(
 void HttpStreamFactoryImpl::Request::OnStreamFailed(
     Job* job,
     int status,
-    const SSLConfig& used_ssl_config) {
+    const SSLConfig& used_ssl_config,
+    SSLFailureState ssl_failure_state) {
   DCHECK_NE(OK, status);
   DCHECK(job);
   if (!bound_job_.get()) {
-    // Hey, we've got other jobs! Maybe one of them will succeed, let's just
-    // ignore this failure.
     if (jobs_.size() > 1) {
+      // Hey, we've got other jobs! Maybe one of them will succeed, let's just
+      // ignore this failure.
       jobs_.erase(job);
       factory_->request_map_.erase(job);
       // Notify all the other jobs that this one failed.
@@ -131,15 +117,12 @@ void HttpStreamFactoryImpl::Request::OnStreamFailed(
       delete job;
       return;
     } else {
-      bound_job_.reset(job);
-      jobs_.erase(job);
-      DCHECK(jobs_.empty());
-      factory_->request_map_.erase(job);
+      BindJob(job);
     }
   } else {
     DCHECK(jobs_.empty());
   }
-  delegate_->OnStreamFailed(status, used_ssl_config);
+  delegate_->OnStreamFailed(status, used_ssl_config, ssl_failure_state);
 }
 
 void HttpStreamFactoryImpl::Request::OnCertificateError(
@@ -149,7 +132,7 @@ void HttpStreamFactoryImpl::Request::OnCertificateError(
     const SSLInfo& ssl_info) {
   DCHECK_NE(OK, status);
   if (!bound_job_.get())
-    OrphanJobsExcept(job);
+    BindJob(job);
   else
     DCHECK(jobs_.empty());
   delegate_->OnCertificateError(status, used_ssl_config, ssl_info);
@@ -162,7 +145,7 @@ void HttpStreamFactoryImpl::Request::OnNeedsProxyAuth(
     const ProxyInfo& used_proxy_info,
     HttpAuthController* auth_controller) {
   if (!bound_job_.get())
-    OrphanJobsExcept(job);
+    BindJob(job);
   else
     DCHECK(jobs_.empty());
   delegate_->OnNeedsProxyAuth(
@@ -174,7 +157,7 @@ void HttpStreamFactoryImpl::Request::OnNeedsClientAuth(
     const SSLConfig& used_ssl_config,
     SSLCertRequestInfo* cert_info) {
   if (!bound_job_.get())
-    OrphanJobsExcept(job);
+    BindJob(job);
   else
     DCHECK(jobs_.empty());
   delegate_->OnNeedsClientAuth(used_ssl_config, cert_info);
@@ -187,7 +170,7 @@ void HttpStreamFactoryImpl::Request::OnHttpsProxyTunnelResponse(
     const ProxyInfo& used_proxy_info,
     HttpStream* stream) {
   if (!bound_job_.get())
-    OrphanJobsExcept(job);
+    BindJob(job);
   else
     DCHECK(jobs_.empty());
   delegate_->OnHttpsProxyTunnelResponse(
@@ -234,6 +217,11 @@ bool HttpStreamFactoryImpl::Request::using_spdy() const {
   return using_spdy_;
 }
 
+const ConnectionAttempts& HttpStreamFactoryImpl::Request::connection_attempts()
+    const {
+  return connection_attempts_;
+}
+
 void
 HttpStreamFactoryImpl::Request::RemoveRequestFromSpdySessionRequestMap() {
   if (spdy_session_key_.get()) {
@@ -275,7 +263,7 @@ void HttpStreamFactoryImpl::Request::OnNewSpdySessionReady(
 
   // The first case is the usual case.
   if (!bound_job_.get()) {
-    OrphanJobsExcept(job);
+    BindJob(job);
   } else {  // This is the case for HTTPS proxy tunneling.
     DCHECK_EQ(bound_job_.get(), job);
     DCHECK(jobs_.empty());
@@ -290,7 +278,7 @@ void HttpStreamFactoryImpl::Request::OnNewSpdySessionReady(
   const bool using_spdy = job->using_spdy();
   const BoundNetLog net_log = job->net_log();
 
-  Complete(was_npn_negotiated, protocol_negotiated, using_spdy, net_log);
+  Complete(was_npn_negotiated, protocol_negotiated, using_spdy);
 
   // Cache this so we can still use it if the request is deleted.
   HttpStreamFactoryImpl* factory = factory_;
@@ -315,13 +303,24 @@ void HttpStreamFactoryImpl::Request::OnNewSpdySessionReady(
   }
 }
 
-void HttpStreamFactoryImpl::Request::OrphanJobsExcept(Job* job) {
+void HttpStreamFactoryImpl::Request::AddConnectionAttempts(
+    const ConnectionAttempts& attempts) {
+  for (const auto& attempt : attempts)
+    connection_attempts_.push_back(attempt);
+}
+
+void HttpStreamFactoryImpl::Request::BindJob(Job* job) {
   DCHECK(job);
   DCHECK(!bound_job_.get());
   DCHECK(ContainsKey(jobs_, job));
   bound_job_.reset(job);
   jobs_.erase(job);
   factory_->request_map_.erase(job);
+
+  net_log_.AddEvent(NetLog::TYPE_HTTP_STREAM_REQUEST_BOUND_TO_JOB,
+                    job->net_log().source().ToEventParametersCallback());
+  job->net_log().AddEvent(NetLog::TYPE_HTTP_STREAM_JOB_BOUND_TO_REQUEST,
+                          net_log_.source().ToEventParametersCallback());
 
   OrphanJobs();
 }
@@ -332,8 +331,20 @@ void HttpStreamFactoryImpl::Request::OrphanJobs() {
   std::set<Job*> tmp;
   tmp.swap(jobs_);
 
-  for (std::set<Job*>::iterator it = tmp.begin(); it != tmp.end(); ++it)
-    factory_->OrphanJob(*it, this);
+  for (Job* job : tmp)
+    factory_->OrphanJob(job, this);
+}
+
+void HttpStreamFactoryImpl::Request::CancelJobs() {
+  RemoveRequestFromSpdySessionRequestMap();
+
+  std::set<Job*> tmp;
+  tmp.swap(jobs_);
+
+  for (Job* job : tmp) {
+    factory_->request_map_.erase(job);
+    delete job;
+  }
 }
 
 void HttpStreamFactoryImpl::Request::OnJobSucceeded(Job* job) {
@@ -350,11 +361,12 @@ void HttpStreamFactoryImpl::Request::OnJobSucceeded(Job* job) {
     // they complete? Or do we want to prevent connecting a new SpdySession if
     // we've already got one available for a different hostname where the ip
     // address matches up?
+    CancelJobs();
     return;
   }
   if (!bound_job_.get()) {
     if (jobs_.size() > 1)
-      job->ReportJobSuccededForRequest();
+      job->ReportJobSucceededForRequest();
     // Notify all the other jobs that this one succeeded.
     for (std::set<Job*>::iterator it = jobs_.begin(); it != jobs_.end(); ++it) {
       if (*it != job) {
@@ -363,7 +375,7 @@ void HttpStreamFactoryImpl::Request::OnJobSucceeded(Job* job) {
     }
     // We may have other jobs in |jobs_|. For example, if we start multiple jobs
     // for Alternate-Protocol.
-    OrphanJobsExcept(job);
+    BindJob(job);
     return;
   }
   DCHECK(jobs_.empty());

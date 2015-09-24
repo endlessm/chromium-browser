@@ -11,18 +11,18 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/scoped_observer.h"
 #include "base/strings/string16.h"
 #include "chrome/browser/predictors/autocomplete_action_predictor_table.h"
+#include "components/history/core/browser/history_service_observer.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/keyed_service/core/keyed_service.h"
-#include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "url/gurl.h"
 
 struct AutocompleteMatch;
 class AutocompleteResult;
-class HistoryService;
 struct OmniboxLog;
 class PredictorsHandler;
 class Profile;
@@ -36,6 +36,7 @@ class Size;
 }
 
 namespace history {
+class HistoryService;
 class URLDatabase;
 }
 
@@ -61,6 +62,7 @@ namespace predictors {
 class AutocompleteActionPredictor
     : public KeyedService,
       public content::NotificationObserver,
+      public history::HistoryServiceObserver,
       public base::SupportsWeakPtr<AutocompleteActionPredictor> {
  public:
   enum Action {
@@ -98,7 +100,7 @@ class AutocompleteActionPredictor
   // prerenders (if any).
   void StartPrerendering(
       const GURL& url,
-      const content::SessionStorageNamespaceMap& session_storage_namespace_map,
+      content::SessionStorageNamespace* session_storage_namespace,
       const gfx::Size& size);
 
   // Cancels the current prerender, unless it has already been abandoned.
@@ -185,7 +187,7 @@ class AutocompleteActionPredictor
 
   // Attempts to call DeleteOldEntries if the in-memory database has been loaded
   // by |service|. Returns success as a boolean.
-  bool TryDeleteOldEntries(HistoryService* service);
+  bool TryDeleteOldEntries(history::HistoryService* service);
 
   // Called to delete any old or invalid entries from the database. Called after
   // the local caches are created once the history service is available.
@@ -214,6 +216,18 @@ class AutocompleteActionPredictor
 
   // Calculates the confidence for an entry in the DBCacheMap.
   double CalculateConfidenceForDbEntry(DBCacheMap::const_iterator iter) const;
+
+  // KeyedService:
+  void Shutdown() override;
+
+  // history::HistoryServiceObserver:
+  void OnURLsDeleted(history::HistoryService* history_service,
+                     bool all_history,
+                     bool expired,
+                     const history::URLRows& deleted_rows,
+                     const std::set<GURL>& favicon_urls) override;
+  void OnHistoryServiceLoaded(
+      history::HistoryService* history_service) override;
 
   Profile* profile_;
 
@@ -245,6 +259,9 @@ class AutocompleteActionPredictor
   DBIdCacheMap db_id_cache_;
 
   bool initialized_;
+
+  ScopedObserver<history::HistoryService, history::HistoryServiceObserver>
+      history_service_observer_;
 
   DISALLOW_COPY_AND_ASSIGN(AutocompleteActionPredictor);
 };

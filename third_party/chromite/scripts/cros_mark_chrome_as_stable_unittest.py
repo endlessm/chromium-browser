@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -9,36 +8,24 @@ from __future__ import print_function
 
 import base64
 import cStringIO
-import mox
+import mock
 import os
-import sys
 from textwrap import dedent
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                '..', '..'))
 from chromite.cbuildbot import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_test_lib
 from chromite.lib import git
 from chromite.lib import gob_util
+from chromite.lib import osutils
 from chromite.lib import portage_util
 from chromite.scripts import cros_mark_chrome_as_stable
 
 
-# pylint: disable=W0212,R0904
 unstable_data = 'KEYWORDS=~x86 ~arm'
 stable_data = 'KEYWORDS=x86 arm'
 fake_svn_rev = '12345'
 new_fake_svn_rev = '23456'
-
-
-def _TouchAndWrite(path, data=None):
-  """Writes data (if it exists) to the file specified by the path."""
-  fh = open(path, 'w')
-  if data:
-    fh.write(data)
-
-  fh.close()
 
 
 class _StubCommandResult(object):
@@ -47,7 +34,7 @@ class _StubCommandResult(object):
     self.output = msg
 
 
-class CrosMarkChromeAsStable(cros_test_lib.MoxTempDirTestCase):
+class CrosMarkChromeAsStable(cros_test_lib.MockTempDirTestCase):
   """Tests for cros_mark_chrome_as_stable."""
 
   def setUp(self):
@@ -76,22 +63,23 @@ class CrosMarkChromeAsStable(cros_test_lib.MoxTempDirTestCase):
     self.tot_new_version = '9.0.306.0'
     self.tot_new = ebuild % (self.tot_new_version + '_alpha-r1')
 
-    _TouchAndWrite(self.unstable, unstable_data)
-    _TouchAndWrite(self.sticky, stable_data)
-    _TouchAndWrite(self.sticky_rc, stable_data)
-    _TouchAndWrite(self.latest_stable, stable_data)
-    _TouchAndWrite(self.tot_stable,
-                   '\n'.join(
-                       (stable_data,
-                        '%s=%s' % (cros_mark_chrome_as_stable._CHROME_SVN_TAG,
-                                   fake_svn_rev))))
+    osutils.WriteFile(self.unstable, unstable_data)
+    osutils.WriteFile(self.sticky, stable_data)
+    osutils.WriteFile(self.sticky_rc, stable_data)
+    osutils.WriteFile(self.latest_stable, stable_data)
+    # pylint: disable=protected-access
+    osutils.WriteFile(
+        self.tot_stable,
+        '\n'.join((stable_data,
+                   '%s=%s' % (cros_mark_chrome_as_stable._CHROME_SVN_TAG,
+                              fake_svn_rev))))
 
   def testFindChromeCandidates(self):
     """Test creation of stable ebuilds from mock dir."""
     unstable, stable_ebuilds = cros_mark_chrome_as_stable.FindChromeCandidates(
         self.mock_chrome_dir)
 
-    stable_ebuild_paths = map(lambda eb: eb.ebuild_path, stable_ebuilds)
+    stable_ebuild_paths = [x.ebuild_path for x in stable_ebuilds]
     self.assertEqual(unstable.ebuild_path, self.unstable)
     self.assertEqual(len(stable_ebuilds), 4)
     self.assertTrue(self.sticky in stable_ebuild_paths)
@@ -141,15 +129,9 @@ class CrosMarkChromeAsStable(cros_test_lib.MoxTempDirTestCase):
   def testGetTipOfTrunkRevision(self):
     """Tests if we can get the latest svn revision from TOT."""
     A_URL = 'dorf://mink/delaane/forkat/sertiunu.ortg./desk'
-    self.mox.StubOutWithMock(gob_util, 'FetchUrlJson')
-    gob_util.FetchUrlJson(
-        'mink',
-        '/delaane/forkat/sertiunu.ortg./desk/+log/master?n=1&format=JSON',
-        ignore_404=False).AndReturn(
-            { 'log': [ { 'commit': 'deadbeef' * 5 } ] })
-    self.mox.ReplayAll()
+    result = {'log': [{'commit': 'deadbeef' * 5}]}
+    self.PatchObject(gob_util, 'FetchUrlJson', return_value=result)
     revision = gob_util.GetTipOfTrunkRevision(A_URL)
-    self.mox.VerifyAll()
     self.assertEquals(revision, 'deadbeef' * 5)
 
   def testGetTipOfTrunkVersion(self):
@@ -160,16 +142,11 @@ class CrosMarkChromeAsStable(cros_test_lib.MoxTempDirTestCase):
         B=0
         C=256
         D=0''')
-    self.mox.StubOutWithMock(gob_util, 'FetchUrl')
-    gob_util.FetchUrl(
-        'host.org',
-        '/path/to/repo/+/test-revision/chrome/VERSION?format=text',
-        ignore_404=True).AndReturn(
-            cStringIO.StringIO(base64.b64encode(TEST_VERSION_CONTENTS)))
-    self.mox.ReplayAll()
+    result = cStringIO.StringIO(base64.b64encode(TEST_VERSION_CONTENTS))
+    self.PatchObject(gob_util, 'FetchUrl', return_value=result)
+    # pylint: disable=protected-access
     version = cros_mark_chrome_as_stable._GetSpecificVersionUrl(
         TEST_URL, 'test-revision')
-    self.mox.VerifyAll()
     self.assertEquals(version, '8.0.256.0')
 
   def testCheckIfChromeRightForOS(self):
@@ -196,22 +173,12 @@ class CrosMarkChromeAsStable(cros_test_lib.MoxTempDirTestCase):
         buildspec_platforms: 'chromeos,',
         ''')
 
-    self.mox.StubOutWithMock(gob_util, 'FetchUrl')
-    self.mox.StubOutWithMock(gob_util, 'FetchUrlJson')
-    gob_util.FetchUrlJson(
-        TEST_HOST, '/tqs/+refs/tags?format=JSON', ignore_404=False).AndReturn(
-            TEST_REFS_JSON)
-    gob_util.FetchUrl(
-        TEST_HOST, '/tqs/+/refs/tags/8.0.365.5/DEPS?format=text',
-        ignore_404=False).AndReturn(
-            cStringIO.StringIO(base64.b64encode(TEST_BAD_DEPS_CONTENT)))
-    gob_util.FetchUrl(
-        TEST_HOST, '/tqs/+/refs/tags/7.0.224.1/DEPS?format=text',
-        ignore_404=False).AndReturn(
-            cStringIO.StringIO(base64.b64encode(TEST_GOOD_DEPS_CONTENT)))
-    self.mox.ReplayAll()
+    self.PatchObject(gob_util, 'FetchUrl', side_effect=(
+        cStringIO.StringIO(base64.b64encode(TEST_BAD_DEPS_CONTENT)),
+        cStringIO.StringIO(base64.b64encode(TEST_GOOD_DEPS_CONTENT)),
+    ))
+    self.PatchObject(gob_util, 'FetchUrlJson', side_effect=(TEST_REFS_JSON,))
     release = cros_mark_chrome_as_stable.GetLatestRelease(TEST_URL)
-    self.mox.VerifyAll()
     self.assertEqual('7.0.224.1', release)
 
   def testGetLatestStickyRelease(self):
@@ -224,18 +191,11 @@ class CrosMarkChromeAsStable(cros_test_lib.MoxTempDirTestCase):
         buildspec_platforms: 'chromeos,',
         ''')
 
-    self.mox.StubOutWithMock(gob_util, 'FetchUrl')
-    self.mox.StubOutWithMock(gob_util, 'FetchUrlJson')
-    gob_util.FetchUrlJson(
-        TEST_HOST, '/tqs/+refs/tags?format=JSON', ignore_404=False).AndReturn(
-            TEST_REFS_JSON)
-    gob_util.FetchUrl(
-        TEST_HOST, '/tqs/+/refs/tags/7.0.224.2/DEPS?format=text',
-        ignore_404=False).AndReturn(
-            cStringIO.StringIO(base64.b64encode(TEST_DEPS_CONTENT)))
-    self.mox.ReplayAll()
+    self.PatchObject(gob_util, 'FetchUrl', side_effect=(
+        cStringIO.StringIO(base64.b64encode(TEST_DEPS_CONTENT)),
+    ))
+    self.PatchObject(gob_util, 'FetchUrlJson', side_effect=(TEST_REFS_JSON,))
     release = cros_mark_chrome_as_stable.GetLatestRelease(TEST_URL, '7.0.224')
-    self.mox.VerifyAll()
     self.assertEqual('7.0.224.2', release)
 
   def testLatestChromeRevisionListLink(self):
@@ -244,7 +204,7 @@ class CrosMarkChromeAsStable(cros_test_lib.MoxTempDirTestCase):
     Verifies that we can generate a link to the revision list between the
     latest Chromium release and the last one we successfully built.
     """
-    _TouchAndWrite(self.latest_new, stable_data)
+    osutils.WriteFile(self.latest_new, stable_data)
     expected = cros_mark_chrome_as_stable.GetChromeRevisionLinkFromVersions(
         self.latest_stable_version, self.latest_new_version)
     made = cros_mark_chrome_as_stable.GetChromeRevisionListLink(
@@ -255,6 +215,7 @@ class CrosMarkChromeAsStable(cros_test_lib.MoxTempDirTestCase):
 
   def testStickyEBuild(self):
     """Tests if we can find the sticky ebuild from our mock directories."""
+    # pylint: disable=protected-access
     stable_ebuilds = self._GetStableEBuilds()
     sticky_ebuild = cros_mark_chrome_as_stable._GetStickyEBuild(
         stable_ebuilds)
@@ -279,9 +240,10 @@ class CrosMarkChromeAsStable(cros_test_lib.MoxTempDirTestCase):
       new_ebuild_path: path to the to be created path
       commit_string_indicator: a string that the commit message must contain
     """
-    self.mox.StubOutWithMock(cros_build_lib, 'RunCommand')
-    self.mox.StubOutWithMock(git, 'RunGit')
-    self.mox.StubOutWithMock(portage_util.EBuild, 'CommitChange')
+    self.PatchObject(cros_build_lib, 'RunCommand',
+                     side_effect=Exception('should not be called'))
+    git_mock = self.PatchObject(git, 'RunGit')
+    commit_mock = self.PatchObject(portage_util.EBuild, 'CommitChange')
     stable_candidate = cros_mark_chrome_as_stable.ChromeEBuild(old_ebuild_path)
     unstable_ebuild = cros_mark_chrome_as_stable.ChromeEBuild(self.unstable)
     chrome_pn = 'chromeos-chrome'
@@ -289,16 +251,15 @@ class CrosMarkChromeAsStable(cros_test_lib.MoxTempDirTestCase):
     commit = None
     package_dir = self.mock_chrome_dir
 
-    git.RunGit(package_dir, ['add', new_ebuild_path])
-    git.RunGit(package_dir, ['rm', old_ebuild_path])
-    portage_util.EBuild.CommitChange(
-        mox.StrContains(commit_string_indicator), package_dir)
-
-    self.mox.ReplayAll()
     cros_mark_chrome_as_stable.MarkChromeEBuildAsStable(
         stable_candidate, unstable_ebuild, chrome_pn, chrome_rev,
         chrome_version, commit, package_dir)
-    self.mox.VerifyAll()
+
+    git_mock.assert_has_calls([
+        mock.call(package_dir, ['add', new_ebuild_path]),
+        mock.call(package_dir, ['rm', old_ebuild_path]),
+    ])
+    commit_mock.assert_call(mock.call(commit_string_indicator, package_dir))
 
   def testStickyMarkAsStable(self):
     """Tests to see if we can mark chrome as stable for a new sticky release."""
@@ -320,7 +281,3 @@ class CrosMarkChromeAsStable(cros_test_lib.MoxTempDirTestCase):
         constants.CHROME_REV_TOT,
         self.tot_new_version, self.tot_stable,
         self.tot_new, 'tot')
-
-
-if __name__ == '__main__':
-  cros_test_lib.main()

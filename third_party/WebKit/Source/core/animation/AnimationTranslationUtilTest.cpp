@@ -23,28 +23,21 @@
  */
 
 #include "config.h"
-
 #include "core/animation/AnimationTranslationUtil.h"
 
-#include "core/animation/css/CSSAnimationData.h"
-#include "platform/animation/KeyframeValueList.h"
-#include "platform/geometry/IntSize.h"
 #include "platform/graphics/filters/FilterOperations.h"
 #include "platform/transforms/Matrix3DTransformOperation.h"
 #include "platform/transforms/RotateTransformOperation.h"
 #include "platform/transforms/ScaleTransformOperation.h"
 #include "platform/transforms/TransformOperations.h"
 #include "platform/transforms/TranslateTransformOperation.h"
-#include "public/platform/WebCompositorAnimation.h"
 #include "public/platform/WebFilterOperations.h"
 #include "public/platform/WebTransformOperations.h"
 #include "wtf/RefPtr.h"
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-using namespace blink;
-
-namespace {
+namespace blink {
 
 class WebTransformOperationsMock : public WebTransformOperations {
 public:
@@ -76,6 +69,7 @@ public:
     MOCK_METHOD1(appendSaturatingBrightnessFilter, void(float));
     MOCK_METHOD1(appendReferenceFilter, void(SkImageFilter*));
     MOCK_METHOD0(clear, void());
+    MOCK_CONST_METHOD0(isEmpty, bool());
 };
 
 TEST(AnimationTranslationUtilTest, transformsWork)
@@ -110,5 +104,4 @@ TEST(AnimationTranslationUtilTest, filtersWork)
     toWebFilterOperations(ops, &outOps);
 }
 
-}
-
+} // namespace blink

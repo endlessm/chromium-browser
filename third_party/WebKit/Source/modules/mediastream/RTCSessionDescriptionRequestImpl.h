@@ -45,17 +45,18 @@ class RTCSessionDescriptionCallback;
 class WebRTCSessionDescription;
 
 class RTCSessionDescriptionRequestImpl final : public RTCSessionDescriptionRequest, public ActiveDOMObject {
+    WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(RTCSessionDescriptionRequestImpl);
 public:
     static RTCSessionDescriptionRequestImpl* create(ExecutionContext*, RTCPeerConnection*, RTCSessionDescriptionCallback*, RTCErrorCallback*);
-    virtual ~RTCSessionDescriptionRequestImpl();
+    ~RTCSessionDescriptionRequestImpl() override;
 
-    virtual void requestSucceeded(const WebRTCSessionDescription&) override;
-    virtual void requestFailed(const String& error) override;
+    void requestSucceeded(const WebRTCSessionDescription&) override;
+    void requestFailed(const String& error) override;
 
     // ActiveDOMObject
-    virtual void stop() override;
+    void stop() override;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     RTCSessionDescriptionRequestImpl(ExecutionContext*, RTCPeerConnection*, RTCSessionDescriptionCallback*, RTCErrorCallback*);

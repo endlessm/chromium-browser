@@ -11,8 +11,11 @@
 #include "base/values.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "extensions/common/error_utils.h"
+#include "extensions/common/install_warning.h"
 #include "extensions/common/manifest.h"
 #include "extensions/common/manifest_constants.h"
+#include "extensions/common/manifest_handlers/permissions_parser.h"
+#include "extensions/common/permissions/api_permission.h"
 #include "extensions/common/url_pattern.h"
 #include "url/url_constants.h"
 
@@ -115,11 +118,12 @@ bool FileBrowserHandler::HasCreateAccessPermission() const {
 // static
 FileBrowserHandler::List*
 FileBrowserHandler::GetHandlers(const extensions::Extension* extension) {
-  FileBrowserHandlerInfo* info = static_cast<FileBrowserHandlerInfo*>(
+  FileBrowserHandlerInfo* const info = static_cast<FileBrowserHandlerInfo*>(
       extension->GetManifestData(keys::kFileBrowserHandlers));
-  if (info)
-    return &info->file_browser_handlers;
-  return NULL;
+  if (!info)
+    return nullptr;
+
+  return &info->file_browser_handlers;
 }
 
 FileBrowserHandlerParser::FileBrowserHandlerParser() {
@@ -196,9 +200,8 @@ FileBrowserHandler* LoadFileBrowserHandler(
         return NULL;
       }
       base::StringToLowerASCII(&filter);
-      if (!StartsWithASCII(filter,
-                           std::string(url::kFileSystemScheme) + ':',
-                           true)) {
+      if (!base::StartsWith(filter, std::string(url::kFileSystemScheme) + ':',
+                            base::CompareCase::SENSITIVE)) {
         *error = extensions::ErrorUtils::FormatErrorMessageUTF16(
             errors::kInvalidURLPatternError, filter);
         return NULL;
@@ -268,17 +271,30 @@ bool LoadFileBrowserHandlers(
 
 bool FileBrowserHandlerParser::Parse(extensions::Extension* extension,
                                      base::string16* error) {
-  const base::ListValue* file_browser_handlers_value = NULL;
-  if (!extension->manifest()->GetList(keys::kFileBrowserHandlers,
-                                      &file_browser_handlers_value)) {
+  const base::Value* file_browser_handlers_value = nullptr;
+  if (!extension->manifest()->Get(keys::kFileBrowserHandlers,
+                                  &file_browser_handlers_value)) {
+    return true;
+  }
+
+  if (!extensions::PermissionsParser::HasAPIPermission(
+          extension, extensions::APIPermission::ID::kFileBrowserHandler)) {
+    extension->AddInstallWarning(extensions::InstallWarning(
+        errors::kInvalidFileBrowserHandlerMissingPermission));
+    return true;
+  }
+
+  const base::ListValue* file_browser_handlers_list_value = nullptr;
+  if (!file_browser_handlers_value->GetAsList(
+          &file_browser_handlers_list_value)) {
     *error = base::ASCIIToUTF16(errors::kInvalidFileBrowserHandler);
     return false;
   }
+
   scoped_ptr<FileBrowserHandlerInfo> info(new FileBrowserHandlerInfo);
   if (!LoadFileBrowserHandlers(extension->id(),
-                               file_browser_handlers_value,
-                               &info->file_browser_handlers,
-                               error)) {
+                               file_browser_handlers_list_value,
+                               &info->file_browser_handlers, error)) {
     return false;  // Failed to parse file browser actions definition.
   }
 

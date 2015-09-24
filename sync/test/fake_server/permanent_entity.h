@@ -21,26 +21,28 @@ class PermanentEntity : public FakeServerEntity {
 
   // Factory function for PermanentEntity. |server_tag| should be a globally
   // unique identifier.
-  static FakeServerEntity* Create(const syncer::ModelType& model_type,
-                                  const std::string& server_tag,
-                                  const std::string& name,
-                                  const std::string& parent_server_tag);
+  static scoped_ptr<FakeServerEntity> Create(
+      const syncer::ModelType& model_type,
+      const std::string& server_tag,
+      const std::string& name,
+      const std::string& parent_server_tag);
 
   // Factory function for a top level PermanentEntity. Top level means that the
   // entity's parent is the root entity (no PermanentEntity exists for root).
-  static FakeServerEntity* CreateTopLevel(const syncer::ModelType& model_type);
+  static scoped_ptr<FakeServerEntity> CreateTopLevel(
+      const syncer::ModelType& model_type);
 
   // Factory function for creating an updated version of a PermanentEntity.
   // This function should only be called for the Nigori entity.
-  static FakeServerEntity* CreateUpdatedNigoriEntity(
+  static scoped_ptr<FakeServerEntity> CreateUpdatedNigoriEntity(
       const sync_pb::SyncEntity& client_entity,
-      FakeServerEntity* current_server_entity);
+      const FakeServerEntity& current_server_entity);
 
   // FakeServerEntity implementation.
   std::string GetParentId() const override;
-  void SerializeAsProto(sync_pb::SyncEntity* proto) override;
-  bool IsDeleted() const override;
+  void SerializeAsProto(sync_pb::SyncEntity* proto) const override;
   bool IsFolder() const override;
+  bool IsPermanent() const override;
 
  private:
   PermanentEntity(const std::string& id,
@@ -53,7 +55,6 @@ class PermanentEntity : public FakeServerEntity {
   // All member values have equivalent fields in SyncEntity.
   std::string server_defined_unique_tag_;
   std::string parent_id_;
-  sync_pb::EntitySpecifics specifics_;
 };
 
 }  // namespace fake_server

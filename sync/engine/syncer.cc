@@ -4,11 +4,12 @@
 
 #include "sync/engine/syncer.h"
 
-#include "base/debug/trace_event.h"
+#include "base/auto_reset.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
 #include "base/time/time.h"
+#include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "sync/engine/apply_control_data_updates.h"
 #include "sync/engine/commit.h"
@@ -45,7 +46,8 @@ using sessions::SyncSession;
 using sessions::NudgeTracker;
 
 Syncer::Syncer(syncer::CancelationSignal* cancelation_signal)
-    : cancelation_signal_(cancelation_signal) {
+    : cancelation_signal_(cancelation_signal),
+      is_syncing_(false) {
 }
 
 Syncer::~Syncer() {}
@@ -54,40 +56,46 @@ bool Syncer::ExitRequested() {
   return cancelation_signal_->IsSignalled();
 }
 
+bool Syncer::IsSyncing() const {
+  return is_syncing_;
+}
+
 bool Syncer::NormalSyncShare(ModelTypeSet request_types,
-                             const NudgeTracker& nudge_tracker,
+                             NudgeTracker* nudge_tracker,
                              SyncSession* session) {
+  base::AutoReset<bool> is_syncing(&is_syncing_, true);
   HandleCycleBegin(session);
-  if (nudge_tracker.IsGetUpdatesRequired() ||
+  if (nudge_tracker->IsGetUpdatesRequired() ||
       session->context()->ShouldFetchUpdatesBeforeCommit()) {
     VLOG(1) << "Downloading types " << ModelTypeSetToString(request_types);
-    NormalGetUpdatesDelegate normal_delegate(nudge_tracker);
+    NormalGetUpdatesDelegate normal_delegate(*nudge_tracker);
     GetUpdatesProcessor get_updates_processor(
         session->context()->model_type_registry()->update_handler_map(),
         normal_delegate);
     if (!DownloadAndApplyUpdates(
-            request_types,
+            &request_types,
             session,
             &get_updates_processor,
             kCreateMobileBookmarksFolder)) {
-      return HandleCycleEnd(session, nudge_tracker.GetLegacySource());
+      return HandleCycleEnd(session, nudge_tracker->GetLegacySource());
     }
   }
 
   VLOG(1) << "Committing from types " << ModelTypeSetToString(request_types);
   CommitProcessor commit_processor(
       session->context()->model_type_registry()->commit_contributor_map());
-  SyncerError commit_result =
-      BuildAndPostCommits(request_types, session, &commit_processor);
+  SyncerError commit_result = BuildAndPostCommits(request_types, nudge_tracker,
+                                                  session, &commit_processor);
   session->mutable_status_controller()->set_commit_result(commit_result);
 
-  return HandleCycleEnd(session, nudge_tracker.GetLegacySource());
+  return HandleCycleEnd(session, nudge_tracker->GetLegacySource());
 }
 
 bool Syncer::ConfigureSyncShare(
     ModelTypeSet request_types,
     sync_pb::GetUpdatesCallerInfo::GetUpdatesSource source,
     SyncSession* session) {
+  base::AutoReset<bool> is_syncing(&is_syncing_, true);
   VLOG(1) << "Configuring types " << ModelTypeSetToString(request_types);
   HandleCycleBegin(session);
   ConfigureGetUpdatesDelegate configure_delegate(source);
@@ -95,7 +103,7 @@ bool Syncer::ConfigureSyncShare(
       session->context()->model_type_registry()->update_handler_map(),
       configure_delegate);
   DownloadAndApplyUpdates(
-      request_types,
+      &request_types,
       session,
       &get_updates_processor,
       kCreateMobileBookmarksFolder);
@@ -104,6 +112,7 @@ bool Syncer::ConfigureSyncShare(
 
 bool Syncer::PollSyncShare(ModelTypeSet request_types,
                            SyncSession* session) {
+  base::AutoReset<bool> is_syncing(&is_syncing_, true);
   VLOG(1) << "Polling types " << ModelTypeSetToString(request_types);
   HandleCycleBegin(session);
   PollGetUpdatesDelegate poll_delegate;
@@ -111,7 +120,7 @@ bool Syncer::PollSyncShare(ModelTypeSet request_types,
       session->context()->model_type_registry()->update_handler_map(),
       poll_delegate);
   DownloadAndApplyUpdates(
-      request_types,
+      &request_types,
       session,
       &get_updates_processor,
       kCreateMobileBookmarksFolder);
@@ -119,7 +128,7 @@ bool Syncer::PollSyncShare(ModelTypeSet request_types,
 }
 
 bool Syncer::DownloadAndApplyUpdates(
-    ModelTypeSet request_types,
+    ModelTypeSet* request_types,
     SyncSession* session,
     GetUpdatesProcessor* get_updates_processor,
     bool create_mobile_bookmarks_folder) {
@@ -146,7 +155,7 @@ bool Syncer::DownloadAndApplyUpdates(
     // Apply upates to the other types.  May or may not involve cross-thread
     // traffic, depending on the underlying update handlers and the GU type's
     // delegate.
-    get_updates_processor->ApplyUpdates(request_types,
+    get_updates_processor->ApplyUpdates(*request_types,
                                         session->mutable_status_controller());
 
     session->context()->set_hierarchy_conflict_detected(
@@ -160,6 +169,7 @@ bool Syncer::DownloadAndApplyUpdates(
 }
 
 SyncerError Syncer::BuildAndPostCommits(ModelTypeSet requested_types,
+                                        sessions::NudgeTracker* nudge_tracker,
                                         sessions::SyncSession* session,
                                         CommitProcessor* commit_processor) {
   // The ExitRequested() check is unnecessary, since we should start getting
@@ -180,8 +190,7 @@ SyncerError Syncer::BuildAndPostCommits(ModelTypeSet requested_types,
     }
 
     SyncerError error = commit->PostAndProcessResponse(
-        session,
-        session->mutable_status_controller(),
+        nudge_tracker, session, session->mutable_status_controller(),
         session->context()->extensions_activity());
     commit->CleanUp();
     if (error != SYNCER_OK) {
@@ -202,7 +211,12 @@ bool Syncer::HandleCycleEnd(
     sync_pb::GetUpdatesCallerInfo::GetUpdatesSource source) {
   if (!ExitRequested()) {
     session->SendSyncCycleEndEventNotification(source);
-    return true;
+
+    bool success = !sessions::HasSyncerError(
+          session->status_controller().model_neutral_state());
+    if (success && source == sync_pb::GetUpdatesCallerInfo::PERIODIC)
+      session->mutable_status_controller()->UpdatePollTime();
+    return success;
   } else {
     return false;
   }

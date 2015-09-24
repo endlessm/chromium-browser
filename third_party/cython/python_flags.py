@@ -5,20 +5,13 @@
 import argparse
 import os
 import sys
-
-from distutils import sysconfig
-from distutils.command import build_ext
-from distutils.dist import Distribution
-from distutils.extension import Extension
+import sysconfig
 
 def main():
   """Command line utility to retrieve compilation options for python modules'
   """
   parser = argparse.ArgumentParser(
       description='Retrieves compilation options for python modules.')
-  parser.add_argument('--gn',
-                      help='Returns all values in a format suitable for gn',
-                      action='store_true')
   parser.add_argument('--libraries', help='Returns libraries',
                       action='store_true')
   parser.add_argument('--includes', help='Returns includes',
@@ -27,32 +20,25 @@ def main():
                       action='store_true')
   opts = parser.parse_args()
 
-  ext = Extension('Dummy', [])
-  b = build_ext.build_ext(Distribution())
-  b.initialize_options()
-  b.finalize_options()
   result = []
-  if opts.libraries:
-    libraries = b.get_libraries(ext)
-    if sys.platform == 'darwin':
-      libraries.append('python%s' % sys.version[:3])
-    if not opts.gn and sys.platform in ['darwin', 'linux2']:
-      # In case of GYP output for darwin and linux prefix all
-      # libraries (if there are any) so the result can be used as a
-      # compiler argument. GN handles platform-appropriate prefixing itself.
-      libraries = ['-l%s' % library for library in libraries]
-    result.extend(libraries)
-  if opts.includes:
-    result = result  + b.include_dirs
-  if opts.library_dirs:
-    if sys.platform == 'darwin':
-      result.append('%s/lib' % sysconfig.get_config_vars('prefix')[0])
 
-  if opts.gn:
-    for x in result:
-      print x
-  else:
-    print ''.join(['"%s"' % x for x in result])
+  if opts.libraries:
+    python_lib = sysconfig.get_config_var('LDLIBRARY')
+    if python_lib.endswith(".so"):
+      python_lib = python_lib[:-3]
+    if python_lib.startswith("lib"):
+      python_lib = python_lib[3:]
+
+    result.append(python_lib)
+
+  if opts.includes:
+    result.append(sysconfig.get_config_var('INCLUDEPY'))
+
+  if opts.library_dirs:
+    result.append(sysconfig.get_config_var('BINLIBDEST'))
+
+  for x in result:
+    print x
 
 if __name__ == '__main__':
   main()

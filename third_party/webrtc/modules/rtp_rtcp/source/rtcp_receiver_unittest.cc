@@ -18,7 +18,7 @@
 // Note: This file has no directory. Lint warning must be ignored.
 #include "webrtc/common_types.h"
 #include "webrtc/modules/remote_bitrate_estimator/include/mock/mock_remote_bitrate_observer.h"
-#include "webrtc/modules/remote_bitrate_estimator/include/remote_bitrate_estimator.h"
+#include "webrtc/modules/remote_bitrate_estimator/remote_bitrate_estimator_single_stream.h"
 #include "webrtc/modules/rtp_rtcp/source/rtcp_packet.h"
 #include "webrtc/modules/rtp_rtcp/source/rtcp_receiver.h"
 #include "webrtc/modules/rtp_rtcp/source/rtcp_sender.h"
@@ -39,24 +39,22 @@ class TestTransport : public Transport,
   void SetRTCPReceiver(RTCPReceiver* rtcp_receiver) {
     rtcp_receiver_ = rtcp_receiver;
   }
-  virtual int SendPacket(int /*ch*/,
-                         const void* /*data*/,
-                         int /*len*/) OVERRIDE {
+  int SendPacket(int /*ch*/, const void* /*data*/, size_t /*len*/) override {
     ADD_FAILURE();  // FAIL() gives a compile error.
     return -1;
   }
 
   // Injects an RTCP packet into the receiver.
-  virtual int SendRTCPPacket(int /* ch */,
-                             const void *packet,
-                             int packet_len) OVERRIDE {
+  int SendRTCPPacket(int /* ch */,
+                     const void* packet,
+                     size_t packet_len) override {
     ADD_FAILURE();
     return 0;
   }
 
-  virtual int OnReceivedPayloadData(const uint8_t* payloadData,
-                                    const uint16_t payloadSize,
-                                    const WebRtcRTPHeader* rtpHeader) OVERRIDE {
+  int OnReceivedPayloadData(const uint8_t* payloadData,
+                            const size_t payloadSize,
+                            const WebRtcRTPHeader* rtpHeader) override {
     ADD_FAILURE();
     return 0;
   }
@@ -71,12 +69,10 @@ class RtcpReceiverTest : public ::testing::Test {
       : over_use_detector_options_(),
         system_clock_(1335900000),
         remote_bitrate_observer_(),
-        remote_bitrate_estimator_(
-            RemoteBitrateEstimatorFactory().Create(
-                &remote_bitrate_observer_,
-                &system_clock_,
-                kMimdControl,
-                kRemoteBitrateEstimatorMinBitrateBps)) {
+        remote_bitrate_estimator_(new RemoteBitrateEstimatorSingleStream(
+            &remote_bitrate_observer_,
+            &system_clock_,
+            kRemoteBitrateEstimatorMinBitrateBps)) {
     test_transport_ = new TestTransport();
 
     RtpRtcp::Configuration configuration;
@@ -86,7 +82,8 @@ class RtcpReceiverTest : public ::testing::Test {
     configuration.outgoing_transport = test_transport_;
     configuration.remote_bitrate_estimator = remote_bitrate_estimator_.get();
     rtp_rtcp_impl_ = new ModuleRtpRtcpImpl(configuration);
-    rtcp_receiver_ = new RTCPReceiver(0, &system_clock_, rtp_rtcp_impl_);
+    rtcp_receiver_ = new RTCPReceiver(0, &system_clock_, false, NULL, NULL,
+                                      NULL, rtp_rtcp_impl_);
     test_transport_->SetRTCPReceiver(rtcp_receiver_);
   }
   ~RtcpReceiverTest() {
@@ -142,7 +139,7 @@ class RtcpReceiverTest : public ::testing::Test {
   TestTransport* test_transport_;
   RTCPHelp::RTCPPacketInformation rtcp_packet_info_;
   MockRemoteBitrateObserver remote_bitrate_observer_;
-  scoped_ptr<RemoteBitrateEstimator> remote_bitrate_estimator_;
+  rtc::scoped_ptr<RemoteBitrateEstimator> remote_bitrate_estimator_;
 };
 
 
@@ -156,8 +153,8 @@ TEST_F(RtcpReceiverTest, InjectSrPacket) {
   const uint32_t kSenderSsrc = 0x10203;
   rtcp::SenderReport sr;
   sr.From(kSenderSsrc);
-  rtcp::RawPacket p = sr.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(sr.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   // The parser will note the remote SSRC on a SR from other than his
   // expected peer, but will not flag that he's gotten a packet.
   EXPECT_EQ(kSenderSsrc, rtcp_packet_info_.remoteSSRC);
@@ -170,8 +167,8 @@ TEST_F(RtcpReceiverTest, InjectSrPacketFromExpectedPeer) {
   rtcp_receiver_->SetRemoteSSRC(kSenderSsrc);
   rtcp::SenderReport sr;
   sr.From(kSenderSsrc);
-  rtcp::RawPacket p = sr.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(sr.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(kSenderSsrc, rtcp_packet_info_.remoteSSRC);
   EXPECT_EQ(kRtcpSr, rtcp_packet_info_.rtcpPacketTypeFlags);
 }
@@ -180,8 +177,8 @@ TEST_F(RtcpReceiverTest, InjectRrPacket) {
   const uint32_t kSenderSsrc = 0x10203;
   rtcp::ReceiverReport rr;
   rr.From(kSenderSsrc);
-  rtcp::RawPacket p = rr.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(rr.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(kSenderSsrc, rtcp_packet_info_.remoteSSRC);
   EXPECT_EQ(kRtcpRr, rtcp_packet_info_.rtcpPacketTypeFlags);
   ASSERT_EQ(0u, rtcp_packet_info_.report_blocks.size());
@@ -198,12 +195,16 @@ TEST_F(RtcpReceiverTest, InjectRrPacketWithReportBlockNotToUsIgnored) {
   rb.To(kSourceSsrc + 1);
   rtcp::ReceiverReport rr;
   rr.From(kSenderSsrc);
-  rr.WithReportBlock(&rb);
-  rtcp::RawPacket p = rr.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rr.WithReportBlock(rb);
+  rtc::scoped_ptr<rtcp::RawPacket> packet(rr.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(kSenderSsrc, rtcp_packet_info_.remoteSSRC);
   EXPECT_EQ(kRtcpRr, rtcp_packet_info_.rtcpPacketTypeFlags);
   ASSERT_EQ(0u, rtcp_packet_info_.report_blocks.size());
+
+  std::vector<RTCPReportBlock> received_blocks;
+  rtcp_receiver_->StatisticsReceived(&received_blocks);
+  EXPECT_TRUE(received_blocks.empty());
 }
 
 TEST_F(RtcpReceiverTest, InjectRrPacketWithOneReportBlock) {
@@ -217,18 +218,24 @@ TEST_F(RtcpReceiverTest, InjectRrPacketWithOneReportBlock) {
   rb.To(kSourceSsrc);
   rtcp::ReceiverReport rr;
   rr.From(kSenderSsrc);
-  rr.WithReportBlock(&rb);
-  rtcp::RawPacket p = rr.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rr.WithReportBlock(rb);
+  rtc::scoped_ptr<rtcp::RawPacket> packet(rr.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(kSenderSsrc, rtcp_packet_info_.remoteSSRC);
   EXPECT_EQ(kRtcpRr, rtcp_packet_info_.rtcpPacketTypeFlags);
   ASSERT_EQ(1u, rtcp_packet_info_.report_blocks.size());
+
+  std::vector<RTCPReportBlock> received_blocks;
+  rtcp_receiver_->StatisticsReceived(&received_blocks);
+  EXPECT_EQ(1u, received_blocks.size());
 }
 
 TEST_F(RtcpReceiverTest, InjectRrPacketWithTwoReportBlocks) {
   const uint32_t kSenderSsrc = 0x10203;
   const uint32_t kSourceSsrcs[] = {0x40506, 0x50607};
   const uint16_t kSequenceNumbers[] = {10, 12423};
+  const uint32_t kCumLost[] = {13, 555};
+  const uint8_t kFracLost[] = {20, 11};
   const int kNumSsrcs = sizeof(kSourceSsrcs) / sizeof(kSourceSsrcs[0]);
 
   std::set<uint32_t> ssrcs(kSourceSsrcs, kSourceSsrcs + kNumSsrcs);
@@ -246,11 +253,11 @@ TEST_F(RtcpReceiverTest, InjectRrPacketWithTwoReportBlocks) {
 
   rtcp::ReceiverReport rr1;
   rr1.From(kSenderSsrc);
-  rr1.WithReportBlock(&rb1);
-  rr1.WithReportBlock(&rb2);
+  rr1.WithReportBlock(rb1);
+  rr1.WithReportBlock(rb2);
 
-  rtcp::RawPacket p1 = rr1.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p1.buffer(), p1.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> p1(rr1.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(p1->Buffer(), p1->Length()));
   ASSERT_EQ(2u, rtcp_packet_info_.report_blocks.size());
   EXPECT_EQ(10, rtcp_packet_info_.report_blocks.front().fractionLost);
   EXPECT_EQ(0, rtcp_packet_info_.report_blocks.back().fractionLost);
@@ -258,29 +265,129 @@ TEST_F(RtcpReceiverTest, InjectRrPacketWithTwoReportBlocks) {
   rtcp::ReportBlock rb3;
   rb3.To(kSourceSsrcs[0]);
   rb3.WithExtHighestSeqNum(kSequenceNumbers[0]);
+  rb3.WithFractionLost(kFracLost[0]);
+  rb3.WithCumulativeLost(kCumLost[0]);
 
   rtcp::ReportBlock rb4;
   rb4.To(kSourceSsrcs[1]);
   rb4.WithExtHighestSeqNum(kSequenceNumbers[1]);
-  rb4.WithFractionLost(20);
-  rb4.WithCumulativeLost(10);
+  rb4.WithFractionLost(kFracLost[1]);
+  rb4.WithCumulativeLost(kCumLost[1]);
 
   rtcp::ReceiverReport rr2;
   rr2.From(kSenderSsrc);
-  rr2.WithReportBlock(&rb3);
-  rr2.WithReportBlock(&rb4);
+  rr2.WithReportBlock(rb3);
+  rr2.WithReportBlock(rb4);
 
-  rtcp::RawPacket p2 = rr2.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p2.buffer(), p2.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> p2(rr2.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(p2->Buffer(), p2->Length()));
   ASSERT_EQ(2u, rtcp_packet_info_.report_blocks.size());
-  EXPECT_EQ(0, rtcp_packet_info_.report_blocks.front().fractionLost);
-  EXPECT_EQ(20, rtcp_packet_info_.report_blocks.back().fractionLost);
+  EXPECT_EQ(kFracLost[0], rtcp_packet_info_.report_blocks.front().fractionLost);
+  EXPECT_EQ(kFracLost[1], rtcp_packet_info_.report_blocks.back().fractionLost);
+
+  std::vector<RTCPReportBlock> received_blocks;
+  rtcp_receiver_->StatisticsReceived(&received_blocks);
+  EXPECT_EQ(2u, received_blocks.size());
+  for (size_t i = 0; i < received_blocks.size(); ++i) {
+    EXPECT_EQ(kSenderSsrc, received_blocks[i].remoteSSRC);
+    EXPECT_EQ(kSourceSsrcs[i], received_blocks[i].sourceSSRC);
+    EXPECT_EQ(kFracLost[i], received_blocks[i].fractionLost);
+    EXPECT_EQ(kCumLost[i], received_blocks[i].cumulativeLost);
+    EXPECT_EQ(kSequenceNumbers[i], received_blocks[i].extendedHighSeqNum);
+  }
+}
+
+TEST_F(RtcpReceiverTest, InjectRrPacketsFromTwoRemoteSsrcs) {
+  const uint32_t kSenderSsrc1 = 0x10203;
+  const uint32_t kSenderSsrc2 = 0x20304;
+  const uint32_t kSourceSsrcs[] = {0x40506, 0x50607};
+  const uint16_t kSequenceNumbers[] = {10, 12423};
+  const uint32_t kCumLost[] = {13, 555};
+  const uint8_t kFracLost[] = {20, 11};
+  const int kNumSsrcs = sizeof(kSourceSsrcs) / sizeof(kSourceSsrcs[0]);
+
+  std::set<uint32_t> ssrcs(kSourceSsrcs, kSourceSsrcs + kNumSsrcs);
+  rtcp_receiver_->SetSsrcs(kSourceSsrcs[0], ssrcs);
+
+  rtcp::ReportBlock rb1;
+  rb1.To(kSourceSsrcs[0]);
+  rb1.WithExtHighestSeqNum(kSequenceNumbers[0]);
+  rb1.WithFractionLost(kFracLost[0]);
+  rb1.WithCumulativeLost(kCumLost[0]);
+  rtcp::ReceiverReport rr1;
+  rr1.From(kSenderSsrc1);
+  rr1.WithReportBlock(rb1);
+
+  rtc::scoped_ptr<rtcp::RawPacket> p1(rr1.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(p1->Buffer(), p1->Length()));
+  ASSERT_EQ(1u, rtcp_packet_info_.report_blocks.size());
+  EXPECT_EQ(kFracLost[0], rtcp_packet_info_.report_blocks.front().fractionLost);
+
+  std::vector<RTCPReportBlock> received_blocks;
+  rtcp_receiver_->StatisticsReceived(&received_blocks);
+  EXPECT_EQ(1u, received_blocks.size());
+  EXPECT_EQ(kSenderSsrc1, received_blocks[0].remoteSSRC);
+  EXPECT_EQ(kSourceSsrcs[0], received_blocks[0].sourceSSRC);
+  EXPECT_EQ(kFracLost[0], received_blocks[0].fractionLost);
+  EXPECT_EQ(kCumLost[0], received_blocks[0].cumulativeLost);
+  EXPECT_EQ(kSequenceNumbers[0], received_blocks[0].extendedHighSeqNum);
+
+  rtcp::ReportBlock rb2;
+  rb2.To(kSourceSsrcs[0]);
+  rb2.WithExtHighestSeqNum(kSequenceNumbers[1]);
+  rb2.WithFractionLost(kFracLost[1]);
+  rb2.WithCumulativeLost(kCumLost[1]);
+  rtcp::ReceiverReport rr2;
+  rr2.From(kSenderSsrc2);
+  rr2.WithReportBlock(rb2);
+  rtc::scoped_ptr<rtcp::RawPacket> p2(rr2.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(p2->Buffer(), p2->Length()));
+  ASSERT_EQ(1u, rtcp_packet_info_.report_blocks.size());
+  EXPECT_EQ(kFracLost[1], rtcp_packet_info_.report_blocks.front().fractionLost);
+
+  received_blocks.clear();
+  rtcp_receiver_->StatisticsReceived(&received_blocks);
+  ASSERT_EQ(2u, received_blocks.size());
+  EXPECT_EQ(kSenderSsrc1, received_blocks[0].remoteSSRC);
+  EXPECT_EQ(kSenderSsrc2, received_blocks[1].remoteSSRC);
+  for (size_t i = 0; i < received_blocks.size(); ++i) {
+    EXPECT_EQ(kSourceSsrcs[0], received_blocks[i].sourceSSRC);
+    EXPECT_EQ(kFracLost[i], received_blocks[i].fractionLost);
+    EXPECT_EQ(kCumLost[i], received_blocks[i].cumulativeLost);
+    EXPECT_EQ(kSequenceNumbers[i], received_blocks[i].extendedHighSeqNum);
+  }
+}
+
+TEST_F(RtcpReceiverTest, GetRtt) {
+  const uint32_t kSenderSsrc = 0x10203;
+  const uint32_t kSourceSsrc = 0x123456;
+  std::set<uint32_t> ssrcs;
+  ssrcs.insert(kSourceSsrc);
+  rtcp_receiver_->SetSsrcs(kSourceSsrc, ssrcs);
+
+  // No report block received.
+  EXPECT_EQ(-1, rtcp_receiver_->RTT(kSenderSsrc, NULL, NULL, NULL, NULL));
+
+  rtcp::ReportBlock rb;
+  rb.To(kSourceSsrc);
+  rtcp::ReceiverReport rr;
+  rr.From(kSenderSsrc);
+  rr.WithReportBlock(rb);
+  rtc::scoped_ptr<rtcp::RawPacket> packet(rr.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
+  EXPECT_EQ(kSenderSsrc, rtcp_packet_info_.remoteSSRC);
+  EXPECT_EQ(kRtcpRr, rtcp_packet_info_.rtcpPacketTypeFlags);
+  EXPECT_EQ(1u, rtcp_packet_info_.report_blocks.size());
+  EXPECT_EQ(0, rtcp_receiver_->RTT(kSenderSsrc, NULL, NULL, NULL, NULL));
+
+  // Report block not received.
+  EXPECT_EQ(-1, rtcp_receiver_->RTT(kSenderSsrc + 1, NULL, NULL, NULL, NULL));
 }
 
 TEST_F(RtcpReceiverTest, InjectIjWithNoItem) {
   rtcp::Ij ij;
-  rtcp::RawPacket p = ij.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(ij.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(0U, rtcp_packet_info_.rtcpPacketTypeFlags);
 }
 
@@ -288,8 +395,8 @@ TEST_F(RtcpReceiverTest, InjectIjWithOneItem) {
   rtcp::Ij ij;
   ij.WithJitterItem(0x11111111);
 
-  rtcp::RawPacket p = ij.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(ij.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(kRtcpTransmissionTimeOffset, rtcp_packet_info_.rtcpPacketTypeFlags);
   EXPECT_EQ(0x11111111U, rtcp_packet_info_.interArrivalJitter);
 }
@@ -303,8 +410,8 @@ TEST_F(RtcpReceiverTest, InjectAppWithNoData) {
   name += 'e';
   app.WithName(name);
 
-  rtcp::RawPacket p = app.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(app.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(kRtcpApp, rtcp_packet_info_.rtcpPacketTypeFlags);
   EXPECT_EQ(30, rtcp_packet_info_.applicationSubType);
   EXPECT_EQ(name, rtcp_packet_info_.applicationName);
@@ -323,8 +430,8 @@ TEST_F(RtcpReceiverTest, InjectAppWithData) {
   const size_t kDataLength = sizeof(kData) / sizeof(kData[0]);
   app.WithData((const uint8_t*)kData, kDataLength);
 
-  rtcp::RawPacket p = app.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(app.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(kRtcpApp, rtcp_packet_info_.rtcpPacketTypeFlags);
   EXPECT_EQ(30, rtcp_packet_info_.applicationSubType);
   EXPECT_EQ(name, rtcp_packet_info_.applicationName);
@@ -336,29 +443,70 @@ TEST_F(RtcpReceiverTest, InjectSdesWithOneChunk) {
   rtcp::Sdes sdes;
   sdes.WithCName(kSenderSsrc, "alice@host");
 
-  rtcp::RawPacket p = sdes.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(sdes.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   char cName[RTCP_CNAME_SIZE];
   EXPECT_EQ(0, rtcp_receiver_->CNAME(kSenderSsrc, cName));
   EXPECT_EQ(0, strncmp(cName, "alice@host", RTCP_CNAME_SIZE));
 }
 
-TEST_F(RtcpReceiverTest, InjectByePacket) {
+TEST_F(RtcpReceiverTest, InjectByePacket_RemovesCname) {
   const uint32_t kSenderSsrc = 0x123456;
   rtcp::Sdes sdes;
   sdes.WithCName(kSenderSsrc, "alice@host");
 
-  rtcp::RawPacket p = sdes.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(sdes.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   char cName[RTCP_CNAME_SIZE];
   EXPECT_EQ(0, rtcp_receiver_->CNAME(kSenderSsrc, cName));
 
   // Verify that BYE removes the CNAME.
   rtcp::Bye bye;
   bye.From(kSenderSsrc);
-  rtcp::RawPacket p2 = bye.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p2.buffer(), p2.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> p2(bye.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(p2->Buffer(), p2->Length()));
   EXPECT_EQ(-1, rtcp_receiver_->CNAME(kSenderSsrc, cName));
+}
+
+TEST_F(RtcpReceiverTest, InjectByePacket_RemovesReportBlocks) {
+  const uint32_t kSenderSsrc = 0x10203;
+  const uint32_t kSourceSsrcs[] = {0x40506, 0x50607};
+  const int kNumSsrcs = sizeof(kSourceSsrcs) / sizeof(kSourceSsrcs[0]);
+
+  std::set<uint32_t> ssrcs(kSourceSsrcs, kSourceSsrcs + kNumSsrcs);
+  rtcp_receiver_->SetSsrcs(kSourceSsrcs[0], ssrcs);
+
+  rtcp::ReportBlock rb1;
+  rb1.To(kSourceSsrcs[0]);
+  rtcp::ReportBlock rb2;
+  rb2.To(kSourceSsrcs[1]);
+  rtcp::ReceiverReport rr;
+  rr.From(kSenderSsrc);
+  rr.WithReportBlock(rb1);
+  rr.WithReportBlock(rb2);
+
+  rtc::scoped_ptr<rtcp::RawPacket> p1(rr.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(p1->Buffer(), p1->Length()));
+  ASSERT_EQ(2u, rtcp_packet_info_.report_blocks.size());
+  std::vector<RTCPReportBlock> received_blocks;
+  rtcp_receiver_->StatisticsReceived(&received_blocks);
+  EXPECT_EQ(2u, received_blocks.size());
+
+  // Verify that BYE removes the report blocks.
+  rtcp::Bye bye;
+  bye.From(kSenderSsrc);
+  rtc::scoped_ptr<rtcp::RawPacket> p2(bye.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(p2->Buffer(), p2->Length()));
+  received_blocks.clear();
+  rtcp_receiver_->StatisticsReceived(&received_blocks);
+  EXPECT_TRUE(received_blocks.empty());
+
+  // Inject packet.
+  EXPECT_EQ(0, InjectRtcpPacket(p1->Buffer(), p1->Length()));
+  ASSERT_EQ(2u, rtcp_packet_info_.report_blocks.size());
+  received_blocks.clear();
+  rtcp_receiver_->StatisticsReceived(&received_blocks);
+  EXPECT_EQ(2u, received_blocks.size());
 }
 
 TEST_F(RtcpReceiverTest, InjectPliPacket) {
@@ -369,8 +517,8 @@ TEST_F(RtcpReceiverTest, InjectPliPacket) {
 
   rtcp::Pli pli;
   pli.To(kSourceSsrc);
-  rtcp::RawPacket p = pli.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(pli.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(kRtcpPli, rtcp_packet_info_.rtcpPacketTypeFlags);
 }
 
@@ -382,8 +530,8 @@ TEST_F(RtcpReceiverTest, PliPacketNotToUsIgnored) {
 
   rtcp::Pli pli;
   pli.To(kSourceSsrc + 1);
-  rtcp::RawPacket p = pli.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(pli.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(0U, rtcp_packet_info_.rtcpPacketTypeFlags);
 }
 
@@ -395,8 +543,8 @@ TEST_F(RtcpReceiverTest, InjectFirPacket) {
 
   rtcp::Fir fir;
   fir.To(kSourceSsrc);
-  rtcp::RawPacket p = fir.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(fir.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(kRtcpFir, rtcp_packet_info_.rtcpPacketTypeFlags);
 }
 
@@ -408,16 +556,16 @@ TEST_F(RtcpReceiverTest, FirPacketNotToUsIgnored) {
 
   rtcp::Fir fir;
   fir.To(kSourceSsrc + 1);
-  rtcp::RawPacket p = fir.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(fir.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(0U, rtcp_packet_info_.rtcpPacketTypeFlags);
 }
 
 TEST_F(RtcpReceiverTest, InjectSliPacket) {
   rtcp::Sli sli;
   sli.WithPictureId(40);
-  rtcp::RawPacket p = sli.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(sli.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(kRtcpSli, rtcp_packet_info_.rtcpPacketTypeFlags);
   EXPECT_EQ(40, rtcp_packet_info_.sliPictureId);
 }
@@ -425,8 +573,8 @@ TEST_F(RtcpReceiverTest, InjectSliPacket) {
 TEST_F(RtcpReceiverTest, XrPacketWithZeroReportBlocksIgnored) {
   rtcp::Xr xr;
   xr.From(0x2345);
-  rtcp::RawPacket p = xr.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(xr.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(0U, rtcp_packet_info_.rtcpPacketTypeFlags);
 }
 
@@ -443,8 +591,8 @@ TEST_F(RtcpReceiverTest, InjectXrVoipPacket) {
   rtcp::Xr xr;
   xr.From(0x2345);
   xr.WithVoipMetric(&voip_metric);
-  rtcp::RawPacket p = xr.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(xr.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   ASSERT_TRUE(rtcp_packet_info_.VoIPMetric != NULL);
   EXPECT_EQ(kLossRate, rtcp_packet_info_.VoIPMetric->lossRate);
   EXPECT_EQ(kRtcpXrVoipMetric, rtcp_packet_info_.rtcpPacketTypeFlags);
@@ -461,8 +609,8 @@ TEST_F(RtcpReceiverTest, XrVoipPacketNotToUsIgnored) {
   rtcp::Xr xr;
   xr.From(0x2345);
   xr.WithVoipMetric(&voip_metric);
-  rtcp::RawPacket p = xr.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(xr.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(0U, rtcp_packet_info_.rtcpPacketTypeFlags);
 }
 
@@ -474,8 +622,8 @@ TEST_F(RtcpReceiverTest, InjectXrReceiverReferenceTimePacket) {
   xr.From(0x2345);
   xr.WithRrtr(&rrtr);
 
-  rtcp::RawPacket p = xr.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(xr.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(kRtcpXrReceiverReferenceTime,
             rtcp_packet_info_.rtcpPacketTypeFlags);
 }
@@ -491,8 +639,8 @@ TEST_F(RtcpReceiverTest, XrDlrrPacketNotToUsIgnored) {
   rtcp::Xr xr;
   xr.From(0x2345);
   xr.WithDlrr(&dlrr);
-  rtcp::RawPacket p = xr.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(xr.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(0U, rtcp_packet_info_.rtcpPacketTypeFlags);
   EXPECT_FALSE(rtcp_packet_info_.xr_dlrr_item);
 }
@@ -508,8 +656,8 @@ TEST_F(RtcpReceiverTest, InjectXrDlrrPacketWithSubBlock) {
   rtcp::Xr xr;
   xr.From(0x2345);
   xr.WithDlrr(&dlrr);
-  rtcp::RawPacket p = xr.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(xr.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   // The parser should note the DLRR report block item, but not flag the packet
   // since the RTT is not estimated.
   EXPECT_TRUE(rtcp_packet_info_.xr_dlrr_item);
@@ -528,8 +676,8 @@ TEST_F(RtcpReceiverTest, InjectXrDlrrPacketWithMultipleSubBlocks) {
   rtcp::Xr xr;
   xr.From(0x2345);
   xr.WithDlrr(&dlrr);
-  rtcp::RawPacket p = xr.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(xr.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   // The parser should note the DLRR report block item, but not flag the packet
   // since the RTT is not estimated.
   EXPECT_TRUE(rtcp_packet_info_.xr_dlrr_item);
@@ -551,8 +699,8 @@ TEST_F(RtcpReceiverTest, InjectXrPacketWithMultipleReportBlocks) {
   xr.WithRrtr(&rrtr);
   xr.WithDlrr(&dlrr);
   xr.WithVoipMetric(&metric);
-  rtcp::RawPacket p = xr.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(xr.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(static_cast<unsigned int>(kRtcpXrReceiverReferenceTime +
                                       kRtcpXrVoipMetric),
             rtcp_packet_info_.rtcpPacketTypeFlags);
@@ -579,13 +727,13 @@ TEST_F(RtcpReceiverTest, InjectXrPacketWithUnknownReportBlock) {
   xr.WithRrtr(&rrtr);
   xr.WithDlrr(&dlrr);
   xr.WithVoipMetric(&metric);
-  rtcp::RawPacket p = xr.Build();
+  rtc::scoped_ptr<rtcp::RawPacket> packet(xr.Build());
   // Modify the DLRR block to have an unsupported block type, from 5 to 6.
-  uint8_t* buffer = const_cast<uint8_t*>(p.buffer());
+  uint8_t* buffer = const_cast<uint8_t*>(packet->Buffer());
   EXPECT_EQ(5, buffer[20]);
   buffer[20] = 6;
 
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(static_cast<unsigned int>(kRtcpXrReceiverReferenceTime +
                                       kRtcpXrVoipMetric),
             rtcp_packet_info_.rtcpPacketTypeFlags);
@@ -593,7 +741,7 @@ TEST_F(RtcpReceiverTest, InjectXrPacketWithUnknownReportBlock) {
 }
 
 TEST_F(RtcpReceiverTest, TestXrRrRttInitiallyFalse) {
-  uint16_t rtt_ms;
+  int64_t rtt_ms;
   EXPECT_FALSE(rtcp_receiver_->GetAndResetXrRrRtt(&rtt_ms));
 }
 
@@ -614,8 +762,8 @@ TEST_F(RtcpReceiverTest, GetLastReceivedXrReferenceTimeInfo) {
   rtcp::Xr xr;
   xr.From(kSenderSsrc);
   xr.WithRrtr(&rrtr);
-  rtcp::RawPacket p = xr.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(xr.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(kRtcpXrReceiverReferenceTime,
       rtcp_packet_info_.rtcpPacketTypeFlags);
 
@@ -652,16 +800,16 @@ TEST_F(RtcpReceiverTest, ReceiveReportTimeout) {
   rb1.WithExtHighestSeqNum(kSequenceNumber);
   rtcp::ReceiverReport rr1;
   rr1.From(kSenderSsrc);
-  rr1.WithReportBlock(&rb1);
-  rtcp::RawPacket p1 = rr1.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p1.buffer(), p1.buffer_length()));
+  rr1.WithReportBlock(rb1);
+  rtc::scoped_ptr<rtcp::RawPacket> p1(rr1.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(p1->Buffer(), p1->Length()));
   system_clock_.AdvanceTimeMilliseconds(3 * kRtcpIntervalMs - 1);
   EXPECT_FALSE(rtcp_receiver_->RtcpRrTimeout(kRtcpIntervalMs));
   EXPECT_FALSE(rtcp_receiver_->RtcpRrSequenceNumberTimeout(kRtcpIntervalMs));
 
   // Add a RR with the same extended max as the previous RR to trigger a
   // sequence number timeout, but not a RR timeout.
-  EXPECT_EQ(0, InjectRtcpPacket(p1.buffer(), p1.buffer_length()));
+  EXPECT_EQ(0, InjectRtcpPacket(p1->Buffer(), p1->Length()));
   system_clock_.AdvanceTimeMilliseconds(2);
   EXPECT_FALSE(rtcp_receiver_->RtcpRrTimeout(kRtcpIntervalMs));
   EXPECT_TRUE(rtcp_receiver_->RtcpRrSequenceNumberTimeout(kRtcpIntervalMs));
@@ -681,15 +829,15 @@ TEST_F(RtcpReceiverTest, ReceiveReportTimeout) {
   rb2.WithExtHighestSeqNum(kSequenceNumber + 1);
   rtcp::ReceiverReport rr2;
   rr2.From(kSenderSsrc);
-  rr2.WithReportBlock(&rb2);
-  rtcp::RawPacket p2 = rr2.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p2.buffer(), p2.buffer_length()));
+  rr2.WithReportBlock(rb2);
+  rtc::scoped_ptr<rtcp::RawPacket> p2(rr2.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(p2->Buffer(), p2->Length()));
   EXPECT_FALSE(rtcp_receiver_->RtcpRrTimeout(kRtcpIntervalMs));
   EXPECT_FALSE(rtcp_receiver_->RtcpRrSequenceNumberTimeout(kRtcpIntervalMs));
 
   // Verify we can get a timeout again once we've received new RR.
   system_clock_.AdvanceTimeMilliseconds(2 * kRtcpIntervalMs);
-  EXPECT_EQ(0, InjectRtcpPacket(p2.buffer(), p2.buffer_length()));
+  EXPECT_EQ(0, InjectRtcpPacket(p2->Buffer(), p2->Length()));
   system_clock_.AdvanceTimeMilliseconds(kRtcpIntervalMs + 1);
   EXPECT_FALSE(rtcp_receiver_->RtcpRrTimeout(kRtcpIntervalMs));
   EXPECT_TRUE(rtcp_receiver_->RtcpRrSequenceNumberTimeout(kRtcpIntervalMs));
@@ -717,8 +865,8 @@ TEST_F(RtcpReceiverTest, TmmbrPacketAccepted) {
   rtcp::SenderReport sr;
   sr.From(kSenderSsrc);
   sr.Append(&tmmbr);
-  rtcp::RawPacket p = sr.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  rtc::scoped_ptr<rtcp::RawPacket> packet(sr.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
 
   EXPECT_EQ(1, rtcp_receiver_->TMMBRReceived(0, 0, NULL));
   TMMBRSet candidate_set;
@@ -740,12 +888,12 @@ TEST_F(RtcpReceiverTest, TmmbrPacketNotForUsIgnored) {
   rtcp::SenderReport sr;
   sr.From(kSenderSsrc);
   sr.Append(&tmmbr);
-  rtcp::RawPacket p = sr.Build();
+  rtc::scoped_ptr<rtcp::RawPacket> packet(sr.Build());
 
   std::set<uint32_t> ssrcs;
   ssrcs.insert(kMediaFlowSsrc);
   rtcp_receiver_->SetSsrcs(kMediaFlowSsrc, ssrcs);
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(0, rtcp_receiver_->TMMBRReceived(0, 0, NULL));
 }
 
@@ -764,9 +912,9 @@ TEST_F(RtcpReceiverTest, TmmbrPacketZeroRateIgnored) {
   rtcp::SenderReport sr;
   sr.From(kSenderSsrc);
   sr.Append(&tmmbr);
-  rtcp::RawPacket p = sr.Build();
+  rtc::scoped_ptr<rtcp::RawPacket> packet(sr.Build());
 
-  EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+  EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
   EXPECT_EQ(0, rtcp_receiver_->TMMBRReceived(0, 0, NULL));
 }
 
@@ -788,8 +936,8 @@ TEST_F(RtcpReceiverTest, TmmbrThreeConstraintsTimeOut) {
     rtcp::SenderReport sr;
     sr.From(ssrc);
     sr.Append(&tmmbr);
-    rtcp::RawPacket p = sr.Build();
-    EXPECT_EQ(0, InjectRtcpPacket(p.buffer(), p.buffer_length()));
+    rtc::scoped_ptr<rtcp::RawPacket> packet(sr.Build());
+    EXPECT_EQ(0, InjectRtcpPacket(packet->Buffer(), packet->Length()));
     // 5 seconds between each packet.
     system_clock_.AdvanceTimeMilliseconds(5000);
   }
@@ -814,11 +962,13 @@ TEST_F(RtcpReceiverTest, Callbacks) {
     RtcpCallbackImpl() : RtcpStatisticsCallback(), ssrc_(0) {}
     virtual ~RtcpCallbackImpl() {}
 
-    virtual void StatisticsUpdated(const RtcpStatistics& statistics,
-                                   uint32_t ssrc) OVERRIDE {
+    void StatisticsUpdated(const RtcpStatistics& statistics,
+                           uint32_t ssrc) override {
       stats_ = statistics;
       ssrc_ = ssrc;
     }
+
+    void CNameChanged(const char* cname, uint32_t ssrc) override {}
 
     bool Matches(uint32_t ssrc, uint32_t extended_max, uint8_t fraction_loss,
                  uint32_t cumulative_loss, uint32_t jitter) {
@@ -856,9 +1006,9 @@ TEST_F(RtcpReceiverTest, Callbacks) {
 
   rtcp::ReceiverReport rr1;
   rr1.From(kSenderSsrc);
-  rr1.WithReportBlock(&rb1);
-  rtcp::RawPacket p1 = rr1.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p1.buffer(), p1.buffer_length()));
+  rr1.WithReportBlock(rb1);
+  rtc::scoped_ptr<rtcp::RawPacket> p1(rr1.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(p1->Buffer(), p1->Length()));
   EXPECT_TRUE(callback.Matches(kSourceSsrc, kSequenceNumber, kFractionLoss,
                                kCumulativeLoss, kJitter));
 
@@ -874,9 +1024,9 @@ TEST_F(RtcpReceiverTest, Callbacks) {
 
   rtcp::ReceiverReport rr2;
   rr2.From(kSenderSsrc);
-  rr2.WithReportBlock(&rb2);
-  rtcp::RawPacket p2 = rr2.Build();
-  EXPECT_EQ(0, InjectRtcpPacket(p2.buffer(), p2.buffer_length()));
+  rr2.WithReportBlock(rb2);
+  rtc::scoped_ptr<rtcp::RawPacket> p2(rr2.Build());
+  EXPECT_EQ(0, InjectRtcpPacket(p2->Buffer(), p2->Length()));
   EXPECT_TRUE(callback.Matches(kSourceSsrc, kSequenceNumber, kFractionLoss,
                                kCumulativeLoss, kJitter));
 }

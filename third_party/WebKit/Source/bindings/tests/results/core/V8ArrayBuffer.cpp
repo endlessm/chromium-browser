@@ -10,10 +10,8 @@
 #include "bindings/core/v8/ExceptionState.h"
 #include "bindings/core/v8/V8ArrayBuffer.h"
 #include "bindings/core/v8/V8DOMConfiguration.h"
-#include "bindings/core/v8/V8HiddenValue.h"
 #include "bindings/core/v8/V8ObjectConstructor.h"
 #include "core/dom/ContextFeatures.h"
-#include "core/dom/DOMArrayBufferDeallocationObserver.h"
 #include "core/dom/Document.h"
 #include "platform/RuntimeEnabledFeatures.h"
 #include "platform/TraceEvent.h"
@@ -22,19 +20,28 @@
 
 namespace blink {
 
-const WrapperTypeInfo V8ArrayBuffer::wrapperTypeInfo = { gin::kEmbedderBlink, 0, V8ArrayBuffer::refObject, V8ArrayBuffer::derefObject, V8ArrayBuffer::trace, 0, 0, 0, V8ArrayBuffer::installConditionallyEnabledMethods, V8ArrayBuffer::installConditionallyEnabledProperties, 0, WrapperTypeInfo::WrapperTypeObjectPrototype, WrapperTypeInfo::ObjectClassId, WrapperTypeInfo::Independent, WrapperTypeInfo::RefCountedObject };
+// Suppress warning: global constructors, because struct WrapperTypeInfo is trivial
+// and does not depend on another global objects.
+#if defined(COMPONENT_BUILD) && defined(WIN32) && COMPILER(CLANG)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wglobal-constructors"
+#endif
+const WrapperTypeInfo V8ArrayBuffer::wrapperTypeInfo = { gin::kEmbedderBlink, 0, V8ArrayBuffer::refObject, V8ArrayBuffer::derefObject, V8ArrayBuffer::trace, 0, 0, V8ArrayBuffer::preparePrototypeObject, V8ArrayBuffer::installConditionallyEnabledProperties, "ArrayBuffer", 0, WrapperTypeInfo::WrapperTypeObjectPrototype, WrapperTypeInfo::ObjectClassId, WrapperTypeInfo::NotInheritFromEventTarget, WrapperTypeInfo::Independent, WrapperTypeInfo::RefCountedObject };
+#if defined(COMPONENT_BUILD) && defined(WIN32) && COMPILER(CLANG)
+#pragma clang diagnostic pop
+#endif
 
 // This static member must be declared by DEFINE_WRAPPERTYPEINFO in TestArrayBuffer.h.
 // For details, see the comment of DEFINE_WRAPPERTYPEINFO in
 // bindings/core/v8/ScriptWrappable.h.
 const WrapperTypeInfo& TestArrayBuffer::s_wrapperTypeInfo = V8ArrayBuffer::wrapperTypeInfo;
 
-bool V8ArrayBuffer::hasInstance(v8::Handle<v8::Value> v8Value, v8::Isolate* isolate)
+bool V8ArrayBuffer::hasInstance(v8::Local<v8::Value> v8Value, v8::Isolate* isolate)
 {
     return v8Value->IsArrayBuffer();
 }
 
-TestArrayBuffer* V8ArrayBuffer::toImpl(v8::Handle<v8::Object> object)
+TestArrayBuffer* V8ArrayBuffer::toImpl(v8::Local<v8::Object> object)
 {
     ASSERT(object->IsArrayBuffer());
     v8::Local<v8::ArrayBuffer> v8buffer = object.As<v8::ArrayBuffer>();
@@ -42,42 +49,33 @@ TestArrayBuffer* V8ArrayBuffer::toImpl(v8::Handle<v8::Object> object)
         const WrapperTypeInfo* wrapperTypeInfo = toWrapperTypeInfo(object);
         RELEASE_ASSERT(wrapperTypeInfo);
         RELEASE_ASSERT(wrapperTypeInfo->ginEmbedder == gin::kEmbedderBlink);
-        return blink::toScriptWrappableBase(object)->toImpl<TestArrayBuffer>();
+        return toScriptWrappable(object)->toImpl<TestArrayBuffer>();
     }
 
     // Transfer the ownership of the allocated memory to an ArrayBuffer without
     // copying.
     v8::ArrayBuffer::Contents v8Contents = v8buffer->Externalize();
-    WTF::ArrayBufferContents contents(v8Contents.Data(), v8Contents.ByteLength(), 0);
+    WTF::ArrayBufferContents contents(v8Contents.Data(), v8Contents.ByteLength(), WTF::ArrayBufferContents::NotShared);
     RefPtr<TestArrayBuffer> buffer = TestArrayBuffer::create(contents);
-    // Since this transfer doesn't allocate new memory, do not call
-    // DOMArrayBufferDeallocationObserver::blinkAllocatedMemory.
-    buffer->buffer()->setDeallocationObserverWithoutAllocationNotification(
-        DOMArrayBufferDeallocationObserver::instance());
-    buffer->associateWithWrapper(buffer->wrapperTypeInfo(), object, v8::Isolate::GetCurrent());
+    v8::Local<v8::Object> associatedWrapper = buffer->associateWithWrapper(v8::Isolate::GetCurrent(), buffer->wrapperTypeInfo(), object);
+    ASSERT_UNUSED(associatedWrapper, associatedWrapper == object);
 
-    return blink::toScriptWrappableBase(object)->toImpl<TestArrayBuffer>();
+    return buffer.get();
 }
 
-TestArrayBuffer* V8ArrayBuffer::toImplWithTypeCheck(v8::Isolate* isolate, v8::Handle<v8::Value> value)
+TestArrayBuffer* V8ArrayBuffer::toImplWithTypeCheck(v8::Isolate* isolate, v8::Local<v8::Value> value)
 {
-    return hasInstance(value, isolate) ? toImpl(v8::Handle<v8::Object>::Cast(value)) : 0;
+    return hasInstance(value, isolate) ? toImpl(v8::Local<v8::Object>::Cast(value)) : 0;
 }
 
-void V8ArrayBuffer::refObject(ScriptWrappableBase* scriptWrappableBase)
+void V8ArrayBuffer::refObject(ScriptWrappable* scriptWrappable)
 {
-    scriptWrappableBase->toImpl<TestArrayBuffer>()->ref();
+    scriptWrappable->toImpl<TestArrayBuffer>()->ref();
 }
 
-void V8ArrayBuffer::derefObject(ScriptWrappableBase* scriptWrappableBase)
+void V8ArrayBuffer::derefObject(ScriptWrappable* scriptWrappable)
 {
-    scriptWrappableBase->toImpl<TestArrayBuffer>()->deref();
-}
-
-template<>
-v8::Handle<v8::Value> toV8NoInline(TestArrayBuffer* impl, v8::Handle<v8::Object> creationContext, v8::Isolate* isolate)
-{
-    return toV8(impl, creationContext, isolate);
+    scriptWrappable->toImpl<TestArrayBuffer>()->deref();
 }
 
 } // namespace blink

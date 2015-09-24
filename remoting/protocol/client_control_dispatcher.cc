@@ -7,7 +7,6 @@
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "net/socket/stream_socket.h"
 #include "remoting/base/constants.h"
 #include "remoting/proto/control.pb.h"
@@ -38,8 +37,8 @@ bool CursorShapeIsValid(const CursorShapeInfo& cursor_shape) {
 
   // Verify that |width| and |height| are within sane limits. Otherwise integer
   // overflow can occur while calculating |cursor_total_bytes| below.
-  if (width <= 0 || width > (SHRT_MAX / 2) ||
-      height <= 0 || height > (SHRT_MAX / 2)) {
+  if (width < 0 || width > (SHRT_MAX / 2) ||
+      height < 0 || height > (SHRT_MAX / 2)) {
     LOG(ERROR) << "Cursor dimensions are out of bounds for SetCursor: "
                << width << "x" << height;
     return false;
@@ -60,70 +59,66 @@ bool CursorShapeIsValid(const CursorShapeInfo& cursor_shape) {
 
 ClientControlDispatcher::ClientControlDispatcher()
     : ChannelDispatcherBase(kControlChannelName),
-      client_stub_(NULL),
-      clipboard_stub_(NULL) {
+      client_stub_(nullptr),
+      clipboard_stub_(nullptr),
+      parser_(base::Bind(&ClientControlDispatcher::OnMessageReceived,
+                         base::Unretained(this)),
+              reader()) {
 }
 
 ClientControlDispatcher::~ClientControlDispatcher() {
-  writer_.Close();
-}
-
-void ClientControlDispatcher::OnInitialized() {
-  // TODO(garykac): Set write failed callback.
-  writer_.Init(channel(), BufferedSocketWriter::WriteFailedCallback());
-  reader_.Init(channel(), base::Bind(
-      &ClientControlDispatcher::OnMessageReceived, base::Unretained(this)));
 }
 
 void ClientControlDispatcher::InjectClipboardEvent(
     const ClipboardEvent& event) {
   ControlMessage message;
   message.mutable_clipboard_event()->CopyFrom(event);
-  writer_.Write(SerializeAndFrameMessage(message), base::Closure());
+  writer()->Write(SerializeAndFrameMessage(message), base::Closure());
 }
 
 void ClientControlDispatcher::NotifyClientResolution(
     const ClientResolution& resolution) {
   ControlMessage message;
   message.mutable_client_resolution()->CopyFrom(resolution);
-  writer_.Write(SerializeAndFrameMessage(message), base::Closure());
+  writer()->Write(SerializeAndFrameMessage(message), base::Closure());
 }
 
 void ClientControlDispatcher::ControlVideo(const VideoControl& video_control) {
   ControlMessage message;
   message.mutable_video_control()->CopyFrom(video_control);
-  writer_.Write(SerializeAndFrameMessage(message), base::Closure());
+  writer()->Write(SerializeAndFrameMessage(message), base::Closure());
 }
 
 void ClientControlDispatcher::ControlAudio(const AudioControl& audio_control) {
   ControlMessage message;
   message.mutable_audio_control()->CopyFrom(audio_control);
-  writer_.Write(SerializeAndFrameMessage(message), base::Closure());
+  writer()->Write(SerializeAndFrameMessage(message), base::Closure());
 }
 
 void ClientControlDispatcher::SetCapabilities(
     const Capabilities& capabilities) {
   ControlMessage message;
   message.mutable_capabilities()->CopyFrom(capabilities);
-  writer_.Write(SerializeAndFrameMessage(message), base::Closure());
+  writer()->Write(SerializeAndFrameMessage(message), base::Closure());
 }
 
 void ClientControlDispatcher::RequestPairing(
     const PairingRequest& pairing_request) {
   ControlMessage message;
   message.mutable_pairing_request()->CopyFrom(pairing_request);
-  writer_.Write(SerializeAndFrameMessage(message), base::Closure());
+  writer()->Write(SerializeAndFrameMessage(message), base::Closure());
 }
 
 void ClientControlDispatcher::DeliverClientMessage(
     const ExtensionMessage& message) {
   ControlMessage control_message;
   control_message.mutable_extension_message()->CopyFrom(message);
-  writer_.Write(SerializeAndFrameMessage(control_message), base::Closure());
+  writer()->Write(SerializeAndFrameMessage(control_message), base::Closure());
 }
 
 void ClientControlDispatcher::OnMessageReceived(
-    scoped_ptr<ControlMessage> message, const base::Closure& done_task) {
+    scoped_ptr<ControlMessage> message,
+    const base::Closure& done_task) {
   DCHECK(client_stub_);
   DCHECK(clipboard_stub_);
   base::ScopedClosureRunner done_runner(done_task);

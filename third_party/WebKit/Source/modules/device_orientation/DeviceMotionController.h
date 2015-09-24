@@ -5,35 +5,39 @@
 #ifndef DeviceMotionController_h
 #define DeviceMotionController_h
 
-#include "core/dom/DocumentSupplementable.h"
+#include "core/dom/Document.h"
 #include "core/frame/DeviceSingleWindowEventController.h"
+#include "modules/ModulesExport.h"
 
 namespace blink {
 
 class Event;
 
-class DeviceMotionController final : public DeviceSingleWindowEventController, public DocumentSupplement {
+class MODULES_EXPORT DeviceMotionController final : public DeviceSingleWindowEventController, public WillBeHeapSupplement<Document> {
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(DeviceMotionController);
 public:
-    virtual ~DeviceMotionController();
+    ~DeviceMotionController() override;
 
     static const char* supplementName();
     static DeviceMotionController& from(Document&);
 
-    virtual void trace(Visitor*) override;
+    // DeviceSingleWindowEventController
+    void didAddEventListener(LocalDOMWindow*, const AtomicString& eventType) override;
+
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     explicit DeviceMotionController(Document&);
 
     // Inherited from DeviceEventControllerBase.
-    virtual void registerWithDispatcher() override;
-    virtual void unregisterWithDispatcher() override;
-    virtual bool hasLastData() override;
+    void registerWithDispatcher() override;
+    void unregisterWithDispatcher() override;
+    bool hasLastData() override;
 
     // Inherited from DeviceSingleWindowEventController.
-    virtual PassRefPtrWillBeRawPtr<Event> lastEvent() const override;
-    virtual const AtomicString& eventTypeName() const override;
-    virtual bool isNullEvent(Event*) const override;
+    PassRefPtrWillBeRawPtr<Event> lastEvent() const override;
+    const AtomicString& eventTypeName() const override;
+    bool isNullEvent(Event*) const override;
 };
 
 } // namespace blink

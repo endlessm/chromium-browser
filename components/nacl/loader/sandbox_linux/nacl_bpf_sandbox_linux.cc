@@ -18,6 +18,7 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
+#include "base/files/scoped_file.h"
 #include "base/logging.h"
 
 #include "components/nacl/common/nacl_switches.h"
@@ -25,7 +26,7 @@
 #include "sandbox/linux/bpf_dsl/bpf_dsl.h"
 #include "sandbox/linux/bpf_dsl/policy.h"
 #include "sandbox/linux/seccomp-bpf-helpers/syscall_parameters_restrictions.h"
-#include "sandbox/linux/services/linux_syscalls.h"
+#include "sandbox/linux/system_headers/linux_syscalls.h"
 
 #endif  // defined(USE_SECCOMP_BPF)
 
@@ -100,8 +101,6 @@ ResultExpr NaClBPFSandboxPolicy::EvaluateSyscall(int sysno) const {
     // Needed on i386 to set-up the custom segments.
     case __NR_modify_ldt:
 #endif
-    // NaClAddrSpaceBeforeAlloc needs prlimit64.
-    case __NR_prlimit64:
     // NaCl uses custom signal stacks.
     case __NR_sigaltstack:
     // Below is fairly similar to the policy for a Chromium renderer.
@@ -111,8 +110,6 @@ ResultExpr NaClBPFSandboxPolicy::EvaluateSyscall(int sysno) const {
 #if defined(__i386__) || defined(__arm__)
     case __NR_ugetrlimit:
 #endif
-    // NaCl runtime exposes clock_getres to untrusted code.
-    case __NR_clock_getres:
     // NaCl runtime uses flock to simulate POSIX behavior for pwrite.
     case __NR_flock:
     case __NR_pread64:
@@ -134,6 +131,12 @@ ResultExpr NaClBPFSandboxPolicy::EvaluateSyscall(int sysno) const {
     case __NR_sched_getscheduler:
     case __NR_sched_setscheduler:
       return sandbox::RestrictSchedTarget(policy_pid_, sysno);
+    // NaClAddrSpaceBeforeAlloc needs prlimit64.
+    case __NR_prlimit64:
+      return sandbox::RestrictPrlimit64(policy_pid_);
+    // NaCl runtime exposes clock_getres to untrusted code.
+    case __NR_clock_getres:
+      return sandbox::RestrictClockID();
     default:
       return baseline_policy_->EvaluateSyscall(sysno);
   }
@@ -159,10 +162,11 @@ void RunSandboxSanityChecks() {
 
 #endif  // defined(USE_SECCOMP_BPF)
 
-bool InitializeBPFSandbox() {
+bool InitializeBPFSandbox(base::ScopedFD proc_fd) {
 #if defined(USE_SECCOMP_BPF)
   bool sandbox_is_initialized = content::InitializeSandbox(
-      scoped_ptr<sandbox::bpf_dsl::Policy>(new NaClBPFSandboxPolicy));
+      scoped_ptr<sandbox::bpf_dsl::Policy>(new NaClBPFSandboxPolicy),
+      proc_fd.Pass());
   if (sandbox_is_initialized) {
     RunSandboxSanityChecks();
     return true;

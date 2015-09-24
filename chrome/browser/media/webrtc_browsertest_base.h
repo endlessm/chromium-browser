@@ -26,12 +26,15 @@ class WebRtcTestBase : public InProcessBrowserTest {
   static const char kAudioVideoCallConstraints[];
   static const char kAudioOnlyCallConstraints[];
   static const char kVideoOnlyCallConstraints[];
-  static const char kAudioVideoCallConstraintsQVGA[];
+  static const char kVideoCallConstraintsQVGA[];
+  static const char kVideoCallConstraints360p[];
+  static const char kVideoCallConstraintsVGA[];
+  static const char kVideoCallConstraints720p[];
+  static const char kVideoCallConstraints1080p[];
   static const char kAudioVideoCallConstraints360p[];
-  static const char kAudioVideoCallConstraintsVGA[];
   static const char kAudioVideoCallConstraints720p[];
-  static const char kAudioVideoCallConstraints1080p[];
 
+  static const char kOkGotStream[];
   static const char kFailedWithPermissionDeniedError[];
   static const char kFailedWithPermissionDismissedError[];
 
@@ -40,9 +43,11 @@ class WebRtcTestBase : public InProcessBrowserTest {
   ~WebRtcTestBase() override;
 
   // These all require that the loaded page fulfills the public interface in
-  // chrome/test/data/webrtc/message_handling.js.
-  void GetUserMediaAndAccept(content::WebContents* tab_contents) const;
-  void GetUserMediaWithSpecificConstraintsAndAccept(
+  // chrome/test/data/webrtc/getusermedia.js.
+  // If an error is reported back from the getUserMedia call, these functions
+  // will return false.
+  bool GetUserMediaAndAccept(content::WebContents* tab_contents) const;
+  bool GetUserMediaWithSpecificConstraintsAndAccept(
       content::WebContents* tab_contents,
       const std::string& constraints) const;
   void GetUserMediaAndDeny(content::WebContents* tab_contents);
@@ -81,6 +86,9 @@ class WebRtcTestBase : public InProcessBrowserTest {
   // (which you can prepare by calling one of the GetUserMedia* methods above).
   void SetupPeerconnectionWithLocalStream(content::WebContents* tab) const;
 
+  // Same as above but does not add the local stream.
+  void SetupPeerconnectionWithoutLocalStream(content::WebContents* tab) const;
+
   // Exchanges offers and answers between the peer connections in the
   // respective tabs. Before calling this, you must have prepared peer
   // connections in both tabs and configured them as you like (for instance by
@@ -101,7 +109,7 @@ class WebRtcTestBase : public InProcessBrowserTest {
   // make that work). Looks at a 320x240 area of the target video tag.
   void StartDetectingVideo(content::WebContents* tab_contents,
                            const std::string& video_element) const;
-  void WaitForVideoToPlay(content::WebContents* tab_contents) const;
+  bool WaitForVideoToPlay(content::WebContents* tab_contents) const;
 
   // Returns the stream size as a string on the format <width>x<height>.
   std::string GetStreamSize(content::WebContents* tab_contents,

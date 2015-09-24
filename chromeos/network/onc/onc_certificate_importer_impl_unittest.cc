@@ -30,7 +30,7 @@ namespace onc {
 
 namespace {
 
-#if defined(USE_NSS)
+#if defined(USE_NSS_CERTS)
 // In NSS 3.13, CERTDB_VALID_PEER was renamed CERTDB_TERMINAL_RECORD. So we use
 // the new name of the macro.
 #if !defined(CERTDB_TERMINAL_RECORD)
@@ -58,16 +58,16 @@ net::CertType GetCertType(net::X509Certificate::OSCertHandle cert) {
   NOTIMPLEMENTED();
   return net::OTHER_CERT;
 }
-#endif  // USE_NSS
+#endif  // USE_NSS_CERTS
 
 }  // namespace
 
 class ONCCertificateImporterImplTest : public testing::Test {
  public:
   ONCCertificateImporterImplTest() {}
-  virtual ~ONCCertificateImporterImplTest() {}
+  ~ONCCertificateImporterImplTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     ASSERT_TRUE(public_nssdb_.is_open());
     ASSERT_TRUE(private_nssdb_.is_open());
 
@@ -84,7 +84,7 @@ class ONCCertificateImporterImplTest : public testing::Test {
     EXPECT_TRUE(ListCertsInPrivateSlot().empty());
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     thread_task_runner_handle_.reset();
     task_runner_ = NULL;
   }

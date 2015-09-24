@@ -9,11 +9,10 @@
 
 #include "base/i18n/rtl.h"
 #include "base/mac/bundle_locations.h"
-#include "base/mac/mac_util.h"
 #import "chrome/browser/themes/theme_properties.h"
 #import "chrome/browser/themes/theme_service.h"
 #import "chrome/browser/ui/cocoa/sprite_view.h"
-#import "chrome/browser/ui/cocoa/tabs/media_indicator_button.h"
+#import "chrome/browser/ui/cocoa/tabs/media_indicator_button_cocoa.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_controller_target.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_view.h"
 #import "chrome/browser/ui/cocoa/themed_window.h"
@@ -24,9 +23,7 @@
 @implementation TabController
 
 @synthesize action = action_;
-@synthesize app = app_;
 @synthesize loadingState = loadingState_;
-@synthesize mini = mini_;
 @synthesize pinned = pinned_;
 @synthesize target = target_;
 @synthesize url = url_;
@@ -66,6 +63,8 @@ class MenuDelegate : public ui::SimpleMenuModel::Delegate {
 
 }  // TabControllerInternal namespace
 
++ (CGFloat)defaultTabHeight { return 26; }
+
 // The min widths is the smallest number at which the right edge of the right
 // tab border image is not visibly clipped.  It is a bit smaller than the sum
 // of the two tab edge bitmaps because these bitmaps have a few transparent
@@ -73,8 +72,7 @@ class MenuDelegate : public ui::SimpleMenuModel::Delegate {
 + (CGFloat)minTabWidth { return 36; }
 + (CGFloat)minActiveTabWidth { return 52; }
 + (CGFloat)maxTabWidth { return 214; }
-+ (CGFloat)miniTabWidth { return 58; }
-+ (CGFloat)appTabWidth { return 66; }
++ (CGFloat)pinnedTabWidth { return 58; }
 
 - (TabView*)tabView {
   DCHECK([[self view] isKindOfClass:[TabView class]]);
@@ -105,11 +103,13 @@ class MenuDelegate : public ui::SimpleMenuModel::Delegate {
     [closeButton_ setTarget:self];
     [closeButton_ setAction:@selector(closeTab:)];
 
-    base::scoped_nsobject<TabView> view(
-        [[TabView alloc] initWithFrame:NSMakeRect(0, 0, 160, 25)
-                            controller:self
-                           closeButton:closeButton_]);
+    base::scoped_nsobject<TabView> view([[TabView alloc]
+        initWithFrame:NSMakeRect(0, 0, 160, [TabController defaultTabHeight])
+           controller:self
+          closeButton:closeButton_]);
     [view setAutoresizingMask:NSViewMaxXMargin | NSViewMinYMargin];
+    [view setPostsFrameChangedNotifications:NO];
+    [view setPostsBoundsChangedNotifications:NO];
     [view addSubview:iconView_];
     [view addSubview:closeButton_];
     [view setTitleFrame:titleFrame];
@@ -210,14 +210,10 @@ class MenuDelegate : public ui::SimpleMenuModel::Delegate {
   TabView* tabView = [self tabView];
   [tabView setTitle:title];
 
-  if ([self mini] && ![self active]) {
+  if ([self pinned] && ![self active]) {
     [tabView startAlert];
   }
   [super setTitle:title];
-}
-
-- (void)setToolTip:(NSString*)toolTip {
-  [[self view] setToolTip:toolTip];
 }
 
 - (void)setActive:(BOOL)active {
@@ -279,6 +275,10 @@ class MenuDelegate : public ui::SimpleMenuModel::Delegate {
   return [[self tabView] toolTipText];
 }
 
+- (void)setToolTip:(NSString*)toolTip {
+  [[self tabView] setToolTipText:toolTip];
+}
+
 // Return a rough approximation of the number of icons we could fit in the
 // tab. We never actually do this, but it's a helpful guide for determining
 // how much space we have available.
@@ -296,21 +296,21 @@ class MenuDelegate : public ui::SimpleMenuModel::Delegate {
 
 - (BOOL)shouldShowIcon {
   return chrome::ShouldTabShowFavicon(
-      [self iconCapacity], [self mini], [self active], iconView_ != nil,
+      [self iconCapacity], [self pinned], [self active], iconView_ != nil,
       !mediaIndicatorButton_ ? TAB_MEDIA_STATE_NONE :
           [mediaIndicatorButton_ showingMediaState]);
 }
 
 - (BOOL)shouldShowMediaIndicator {
   return chrome::ShouldTabShowMediaIndicator(
-      [self iconCapacity], [self mini], [self active], iconView_ != nil,
+      [self iconCapacity], [self pinned], [self active], iconView_ != nil,
       !mediaIndicatorButton_ ? TAB_MEDIA_STATE_NONE :
           [mediaIndicatorButton_ showingMediaState]);
 }
 
 - (BOOL)shouldShowCloseButton {
   return chrome::ShouldTabShowCloseButton(
-      [self iconCapacity], [self mini], [self active]);
+      [self iconCapacity], [self pinned], [self active]);
 }
 
 - (void)setIconImage:(NSImage*)image {
@@ -329,12 +329,11 @@ class MenuDelegate : public ui::SimpleMenuModel::Delegate {
 
     [iconView_ setImage:image withToastAnimation:animate];
 
-    if ([self app] || [self mini]) {
+    if ([self pinned]) {
       NSRect appIconFrame = [iconView_ frame];
       appIconFrame.origin = originalIconFrame_.origin;
 
-      const CGFloat tabWidth = [self app] ? [TabController appTabWidth]
-                                          : [TabController miniTabWidth];
+      const CGFloat tabWidth = [TabController pinnedTabWidth];
 
       // Center the icon.
       appIconFrame.origin.x =
@@ -355,9 +354,9 @@ class MenuDelegate : public ui::SimpleMenuModel::Delegate {
   [iconView_ setHidden:!newShowIcon];
   isIconShowing_ = newShowIcon;
 
-  // If the tab is a mini-tab, hide the title.
+  // If the tab is a pinned-tab, hide the title.
   TabView* tabView = [self tabView];
-  [tabView setTitleHidden:[self mini]];
+  [tabView setTitleHidden:[self pinned]];
 
   BOOL newShowCloseButton = [self shouldShowCloseButton];
 
@@ -370,10 +369,9 @@ class MenuDelegate : public ui::SimpleMenuModel::Delegate {
   if (newShowMediaIndicator) {
     NSRect newFrame = [mediaIndicatorButton_ frame];
     newFrame.size = [[mediaIndicatorButton_ image] size];
-    if ([self app] || [self mini]) {
+    if ([self pinned]) {
       // Tab is pinned: Position the media indicator in the center.
-      const CGFloat tabWidth = [self app] ?
-          [TabController appTabWidth] : [TabController miniTabWidth];
+      const CGFloat tabWidth = [TabController pinnedTabWidth];
       newFrame.origin.x = std::floor((tabWidth - NSWidth(newFrame)) / 2);
       newFrame.origin.y = NSMinY(originalIconFrame_) -
           std::floor((NSHeight(newFrame) - NSHeight(originalIconFrame_)) / 2);
@@ -390,6 +388,7 @@ class MenuDelegate : public ui::SimpleMenuModel::Delegate {
           std::floor((NSHeight(newFrame) - NSHeight(closeButtonFrame)) / 2);
     }
     [mediaIndicatorButton_ setFrame:newFrame];
+    [mediaIndicatorButton_ updateEnabledForMuteToggle];
   }
 
   // Adjust the title view based on changes to the icon's and close button's

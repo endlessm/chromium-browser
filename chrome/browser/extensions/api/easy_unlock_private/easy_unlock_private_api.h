@@ -9,6 +9,8 @@
 
 #include "base/basictypes.h"
 #include "base/memory/scoped_ptr.h"
+#include "device/bluetooth/bluetooth_device.h"
+#include "extensions/browser/api/bluetooth/bluetooth_extension_function.h"
 #include "extensions/browser/api/bluetooth_socket/bluetooth_socket_api.h"
 #include "extensions/browser/browser_context_keyed_api_factory.h"
 #include "extensions/browser/extension_function.h"
@@ -20,11 +22,6 @@ class BrowserContext;
 }
 
 namespace extensions {
-namespace api {
-
-namespace easy_unlock {
-struct SeekDeviceResult;
-}  // easy_unlock
 
 class EasyUnlockPrivateCryptoDelegate;
 
@@ -38,9 +35,7 @@ class EasyUnlockPrivateAPI : public BrowserContextKeyedAPI {
   explicit EasyUnlockPrivateAPI(content::BrowserContext* context);
   ~EasyUnlockPrivateAPI() override;
 
-  EasyUnlockPrivateCryptoDelegate* crypto_delegate() {
-    return crypto_delegate_.get();
-  }
+  EasyUnlockPrivateCryptoDelegate* GetCryptoDelegate();
 
  private:
   friend class BrowserContextKeyedAPIFactory<EasyUnlockPrivateAPI>;
@@ -283,7 +278,7 @@ class EasyUnlockPrivateGetRemoteDevicesFunction : public SyncExtensionFunction {
 };
 
 class EasyUnlockPrivateGetSignInChallengeFunction :
-    public SyncExtensionFunction {
+    public AsyncExtensionFunction {
  public:
   DECLARE_EXTENSION_FUNCTION("easyUnlockPrivate.getSignInChallenge",
                              EASYUNLOCKPRIVATE_GETSIGNINCHALLENGE)
@@ -292,8 +287,11 @@ class EasyUnlockPrivateGetSignInChallengeFunction :
  private:
   ~EasyUnlockPrivateGetSignInChallengeFunction() override;
 
-  // SyncExtensionFunction:
-  bool RunSync() override;
+  // AsyncExtensionFunction:
+  bool RunAsync() override;
+
+  // Called when the challenge and the signed nonce have been generated.
+  void OnDone(const std::string& challenge, const std::string& signed_nonce);
 
   DISALLOW_COPY_AND_ASSIGN(EasyUnlockPrivateGetSignInChallengeFunction);
 };
@@ -329,22 +327,71 @@ class EasyUnlockPrivateGetUserInfoFunction : public SyncExtensionFunction {
   DISALLOW_COPY_AND_ASSIGN(EasyUnlockPrivateGetUserInfoFunction);
 };
 
-class EasyUnlockPrivateGetUserImageFunction : public SyncExtensionFunction {
+class EasyUnlockPrivateGetConnectionInfoFunction
+    : public core_api::BluetoothExtensionFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION("easyUnlockPrivate.getUserImage",
-                             EASYUNLOCKPRIVATE_GETUSERIMAGE)
-  EasyUnlockPrivateGetUserImageFunction();
+  DECLARE_EXTENSION_FUNCTION("easyUnlockPrivate.getConnectionInfo",
+                             EASYUNLOCKPRIVATE_GETCONNECTIONINFO)
+  EasyUnlockPrivateGetConnectionInfoFunction();
 
  private:
-  ~EasyUnlockPrivateGetUserImageFunction() override;
+  ~EasyUnlockPrivateGetConnectionInfoFunction() override;
+
+  // BluetoothExtensionFunction:
+  bool DoWork(scoped_refptr<device::BluetoothAdapter> adapter) override;
+
+  void OnConnectionInfo(
+      const device::BluetoothDevice::ConnectionInfo& connection_info);
+
+  DISALLOW_COPY_AND_ASSIGN(EasyUnlockPrivateGetConnectionInfoFunction);
+};
+
+class EasyUnlockPrivateShowErrorBubbleFunction : public SyncExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("easyUnlockPrivate.showErrorBubble",
+                             EASYUNLOCKPRIVATE_SHOWERRORBUBBLE)
+  EasyUnlockPrivateShowErrorBubbleFunction();
+
+ private:
+  ~EasyUnlockPrivateShowErrorBubbleFunction() override;
 
   // SyncExtensionFunction:
   bool RunSync() override;
 
-  DISALLOW_COPY_AND_ASSIGN(EasyUnlockPrivateGetUserImageFunction);
+  DISALLOW_COPY_AND_ASSIGN(EasyUnlockPrivateShowErrorBubbleFunction);
 };
 
-}  // namespace api
+class EasyUnlockPrivateHideErrorBubbleFunction : public SyncExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("easyUnlockPrivate.hideErrorBubble",
+                             EASYUNLOCKPRIVATE_HIDEERRORBUBBLE)
+  EasyUnlockPrivateHideErrorBubbleFunction();
+
+ private:
+  ~EasyUnlockPrivateHideErrorBubbleFunction() override;
+
+  // SyncExtensionFunction:
+  bool RunSync() override;
+
+  DISALLOW_COPY_AND_ASSIGN(EasyUnlockPrivateHideErrorBubbleFunction);
+};
+
+class EasyUnlockPrivateSetAutoPairingResultFunction
+    : public SyncExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("easyUnlockPrivate.setAutoPairingResult",
+                             EASYUNLOCKPRIVATE_SETAUTOPAIRINGRESULT)
+  EasyUnlockPrivateSetAutoPairingResultFunction();
+
+ private:
+  ~EasyUnlockPrivateSetAutoPairingResultFunction() override;
+
+  // SyncExtensionFunction:
+  bool RunSync() override;
+
+  DISALLOW_COPY_AND_ASSIGN(EasyUnlockPrivateSetAutoPairingResultFunction);
+};
+
 }  // namespace extensions
 
 #endif  // CHROME_BROWSER_EXTENSIONS_API_EASY_UNLOCK_PRIVATE_EASY_UNLOCK_PRIVATE_API_H_

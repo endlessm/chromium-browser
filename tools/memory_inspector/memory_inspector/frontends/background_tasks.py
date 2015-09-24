@@ -11,20 +11,22 @@ operations, an instance of |BackgroundTask| is created here and the server
 returns just its id. The client can later poll the status of the asynchronous
 task to check for its progress.
 
-From a technical viewpoint, each background task is just a python subprocess
+From a technical viewpoint, each background task is just a python thread
 which communicates its progress updates through a Queue. The messages enqueued
 are tuples with the following format: (completion_ratio%, 'message string').
 """
 
 import datetime
-import multiprocessing
+import itertools
 import Queue
+import threading
 import time
 
 from memory_inspector.core import backends
 from memory_inspector.data import file_storage
 
 
+_task_id_generator = itertools.count(1)
 _tasks = {}  #id (int) -> |BackgroundTask| instance.
 
 
@@ -40,19 +42,13 @@ def StartTracer(process, storage_path, interval, count, trace_native_heap):
       count=count,
       trace_native_heap=trace_native_heap)
   task.start()
-  _tasks[task.pid] = task
-  return task.pid
+  task_id = _task_id_generator.next()
+  _tasks[task_id] = task
+  return task_id
 
 
 def Get(task_id):
   return _tasks.get(task_id)
-
-
-def TerminateAll():
-  for proc in _tasks.itervalues():
-    if proc.is_alive():
-      proc.terminate()
-  _tasks.clear()
 
 
 def TracerMain_(log, storage_path, backend_name, device_id, pid, interval,
@@ -129,14 +125,23 @@ def TracerMain_(log, storage_path, backend_name, device_id, pid, interval,
   return 0
 
 
-class BackgroundTask(multiprocessing.Process):
+class BackgroundTask(threading.Thread):
   def __init__(self, entry_point, *args, **kwargs):
-    self._log_queue = multiprocessing.Queue()
+    self._log_queue = Queue.Queue()
     self._progress_log = []  # A list of tuples [(50%, 'msg1'), (100%, 'msg2')].
     super(BackgroundTask, self).__init__(
         target=entry_point,
         args=((self._log_queue,) + args),  # Just propagate all args.
         kwargs=kwargs)
+    self.daemon = True
+
+  def run(self):
+    try:
+      super(BackgroundTask, self).run()
+    except Exception, e:
+      self._log_queue.put((
+          100, 'An error occurred (%s). See the log for more details.' % e))
+      raise
 
   def GetProgress(self):
     """ Returns a tuple (completion_rate, message). """
@@ -145,6 +150,4 @@ class BackgroundTask(multiprocessing.Process):
         self._progress_log += [self._log_queue.get(block=False)]
       except Queue.Empty:
         break
-    if not self.is_alive() and self.exitcode != 0:
-      return self._progress_log + [(100, 'Failed with code %d' % self.exitcode)]
     return self._progress_log

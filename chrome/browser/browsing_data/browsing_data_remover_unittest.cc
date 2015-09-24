@@ -13,16 +13,18 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/guid.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/prefs/testing_pref_service.h"
+#include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
+#include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/browsing_data/browsing_data_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_remover_test_util.h"
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/domain_reliability/service_factory.h"
-#include "chrome/browser/history/history_service.h"
+#include "chrome/browser/favicon/favicon_service_factory.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/common/pref_names.h"
@@ -33,13 +35,17 @@
 #include "components/autofill/core/browser/credit_card.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
 #include "components/autofill/core/browser/personal_data_manager_observer.h"
+#include "components/bookmarks/browser/bookmark_model.h"
+#include "components/bookmarks/test/bookmark_test_helpers.h"
 #include "components/domain_reliability/clear_mode.h"
 #include "components/domain_reliability/monitor.h"
 #include "components/domain_reliability/service.h"
+#include "components/favicon/core/favicon_service.h"
+#include "components/history/core/browser/history_service.h"
+#include "components/omnibox/browser/omnibox_pref_names.h"
 #include "content/public/browser/cookie_store_factory.h"
 #include "content/public/browser/dom_storage_context.h"
 #include "content/public/browser/local_storage_usage_info.h"
-#include "content/public/browser/notification_service.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/test/test_browser_thread.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -52,6 +58,8 @@
 #include "net/url_request/url_request_context_getter.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/gfx/favicon_size.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/login/users/mock_user_manager.h"
@@ -151,6 +159,20 @@ class TestStoragePartition : public StoragePartition {
     return NULL;
   }
   content::GeofencingManager* GetGeofencingManager() override { return NULL; }
+  content::NavigatorConnectContext* GetNavigatorConnectContext() override {
+    return nullptr;
+  }
+
+  content::PlatformNotificationContext* GetPlatformNotificationContext()
+      override {
+    return nullptr;
+  }
+
+  content::HostZoomMap* GetHostZoomMap() override { return NULL; }
+  content::HostZoomLevelContext* GetHostZoomLevelContext() override {
+    return NULL;
+  }
+  content::ZoomLevelDelegate* GetZoomLevelDelegate() override { return NULL; }
 
   void ClearDataForOrigin(uint32 remove_mask,
                           uint32 quota_storage_remove_mask,
@@ -186,6 +208,8 @@ class TestStoragePartition : public StoragePartition {
         base::Bind(&TestStoragePartition::AsyncRunCallback,
                    base::Unretained(this), callback));
   }
+
+  void Flush() override {}
 
   StoragePartitionRemovalData GetStoragePartitionRemovalData() {
     return storage_partition_removal_data_;
@@ -263,7 +287,7 @@ class RemoveCookieTester {
   DISALLOW_COPY_AND_ASSIGN(RemoveCookieTester);
 };
 
-#if defined(FULL_SAFE_BROWSING) || defined(MOBILE_SAFE_BROWSING)
+#if defined(SAFE_BROWSING_SERVICE)
 class RemoveSafeBrowsingCookieTester : public RemoveCookieTester {
  public:
   RemoveSafeBrowsingCookieTester()
@@ -310,29 +334,23 @@ class RemoveChannelIDTester : public net::SSLConfigService::Observer {
     ssl_config_service_->RemoveObserver(this);
   }
 
-  int ChannelIDCount() {
-    return channel_id_service_->cert_count();
-  }
+  int ChannelIDCount() { return channel_id_service_->channel_id_count(); }
 
   // Add a server bound cert for |server| with specific creation and expiry
   // times.  The cert and key data will be filled with dummy values.
   void AddChannelIDWithTimes(const std::string& server_identifier,
-                                   base::Time creation_time,
-                                   base::Time expiration_time) {
-    GetChannelIDStore()->SetChannelID(server_identifier,
-                                      creation_time,
-                                      expiration_time,
-                                      "a",
-                                      "b");
+                             base::Time creation_time) {
+    GetChannelIDStore()->SetChannelID(
+        make_scoped_ptr(new net::ChannelIDStore::ChannelID(
+            server_identifier, creation_time,
+            make_scoped_ptr(crypto::ECPrivateKey::Create()))));
   }
 
   // Add a server bound cert for |server|, with the current time as the
   // creation time.  The cert and key data will be filled with dummy values.
   void AddChannelID(const std::string& server_identifier) {
     base::Time now = base::Time::Now();
-    AddChannelIDWithTimes(server_identifier,
-                          now,
-                          now + base::TimeDelta::FromDays(1));
+    AddChannelIDWithTimes(server_identifier, now);
   }
 
   void GetChannelIDList(net::ChannelIDStore::ChannelIDList* channel_ids) {
@@ -374,7 +392,7 @@ class RemoveHistoryTester {
     if (!profile->CreateHistoryService(true, false))
       return false;
     history_service_ = HistoryServiceFactory::GetForProfile(
-        profile, Profile::EXPLICIT_ACCESS);
+        profile, ServiceAccessType::EXPLICIT_ACCESS);
     return true;
   }
 
@@ -414,9 +432,99 @@ class RemoveHistoryTester {
   base::Closure quit_closure_;
 
   // TestingProfile owns the history service; we shouldn't delete it.
-  HistoryService* history_service_;
+  history::HistoryService* history_service_;
 
   DISALLOW_COPY_AND_ASSIGN(RemoveHistoryTester);
+};
+
+class RemoveFaviconTester {
+ public:
+  RemoveFaviconTester()
+      : got_favicon_(false),
+        got_expired_favicon_(false),
+        history_service_(nullptr),
+        favicon_service_(nullptr) {}
+
+  bool Init(TestingProfile* profile) WARN_UNUSED_RESULT {
+    // Create the history service if it has not been created yet.
+    history_service_ = HistoryServiceFactory::GetForProfile(
+        profile, ServiceAccessType::EXPLICIT_ACCESS);
+    if (!history_service_) {
+      if (!profile->CreateHistoryService(true, false))
+        return false;
+      history_service_ = HistoryServiceFactory::GetForProfile(
+          profile, ServiceAccessType::EXPLICIT_ACCESS);
+    }
+
+    profile->CreateFaviconService();
+    favicon_service_ = FaviconServiceFactory::GetForProfile(
+        profile, ServiceAccessType::EXPLICIT_ACCESS);
+    return true;
+  }
+
+  // Returns true if there is a favicon stored for |page_url| in the favicon
+  // database.
+  bool HasFaviconForPageURL(const GURL& page_url) {
+    RequestFaviconSyncForPageURL(page_url);
+    return got_favicon_;
+  }
+
+  // Returns true if:
+  // - There is a favicon stored for |page_url| in the favicon database.
+  // - The stored favicon is expired.
+  bool HasExpiredFaviconForPageURL(const GURL& page_url) {
+    RequestFaviconSyncForPageURL(page_url);
+    return got_expired_favicon_;
+  }
+
+  // Adds a visit to history and stores an arbitrary favicon bitmap for
+  // |page_url|.
+  void VisitAndAddFavicon(const GURL& page_url) {
+    history_service_->AddPage(page_url, base::Time::Now(), nullptr, 0, GURL(),
+        history::RedirectList(), ui::PAGE_TRANSITION_LINK,
+        history::SOURCE_BROWSED, false);
+
+    SkBitmap bitmap;
+    bitmap.allocN32Pixels(gfx::kFaviconSize, gfx::kFaviconSize);
+    bitmap.eraseColor(SK_ColorBLUE);
+    favicon_service_->SetFavicons(page_url, page_url, favicon_base::FAVICON,
+                                  gfx::Image::CreateFrom1xBitmap(bitmap));
+  }
+
+ private:
+  // Synchronously requests the favicon for |page_url| from the favicon
+  // database.
+  void RequestFaviconSyncForPageURL(const GURL& page_url) {
+    base::RunLoop run_loop;
+    quit_closure_ = run_loop.QuitClosure();
+    favicon_service_->GetRawFaviconForPageURL(
+        page_url,
+        favicon_base::FAVICON,
+        gfx::kFaviconSize,
+        base::Bind(&RemoveFaviconTester::SaveResultAndQuit,
+                   base::Unretained(this)),
+        &tracker_);
+    run_loop.Run();
+  }
+
+  // Callback for HistoryService::QueryURL.
+  void SaveResultAndQuit(const favicon_base::FaviconRawBitmapResult& result) {
+    got_favicon_ = result.is_valid();
+    got_expired_favicon_ = result.is_valid() && result.expired;
+    quit_closure_.Run();
+  }
+
+  // For favicon requests.
+  base::CancelableTaskTracker tracker_;
+  bool got_favicon_;
+  bool got_expired_favicon_;
+  base::Closure quit_closure_;
+
+  // Owned by TestingProfile.
+  history::HistoryService* history_service_;
+  favicon::FaviconService* favicon_service_;
+
+  DISALLOW_COPY_AND_ASSIGN(RemoveFaviconTester);
 };
 
 class RemoveAutofillTester : public autofill::PersonalDataManagerObserver {
@@ -637,7 +745,7 @@ struct TestingDomainReliabilityServiceFactoryUserData
 const void* TestingDomainReliabilityServiceFactoryUserData::kKey =
     &TestingDomainReliabilityServiceFactoryUserData::kKey;
 
-KeyedService* TestingDomainReliabilityServiceFactoryFunction(
+scoped_ptr<KeyedService> TestingDomainReliabilityServiceFactoryFunction(
     content::BrowserContext* context) {
   const void* kKey = TestingDomainReliabilityServiceFactoryUserData::kKey;
 
@@ -649,7 +757,7 @@ KeyedService* TestingDomainReliabilityServiceFactoryFunction(
   EXPECT_FALSE(data->attached);
 
   data->attached = true;
-  return data->service;
+  return make_scoped_ptr(data->service);
 }
 
 class ClearDomainReliabilityTester {
@@ -660,9 +768,9 @@ class ClearDomainReliabilityTester {
     AttachService();
   }
 
-  unsigned clear_count() { return mock_service_->clear_count(); }
+  unsigned clear_count() const { return mock_service_->clear_count(); }
 
-  DomainReliabilityClearMode last_clear_mode() {
+  DomainReliabilityClearMode last_clear_mode() const {
     return mock_service_->last_clear_mode();
   }
 
@@ -694,13 +802,15 @@ class ClearDomainReliabilityTester {
 
 // Test Class ----------------------------------------------------------------
 
-class BrowsingDataRemoverTest : public testing::Test,
-                                public content::NotificationObserver {
+class BrowsingDataRemoverTest : public testing::Test {
  public:
   BrowsingDataRemoverTest()
-      : profile_(new TestingProfile()) {
-    registrar_.Add(this, chrome::NOTIFICATION_BROWSING_DATA_REMOVED,
-                   content::Source<Profile>(profile_.get()));
+      : profile_(new TestingProfile()),
+        clear_domain_reliability_tester_(GetProfile()) {
+    callback_subscription_ =
+        BrowsingDataRemover::RegisterOnBrowsingDataRemovedCallback(
+            base::Bind(&BrowsingDataRemoverTest::NotifyWithDetails,
+                       base::Unretained(this)));
   }
 
   ~BrowsingDataRemoverTest() override {}
@@ -717,6 +827,8 @@ class BrowsingDataRemoverTest : public testing::Test,
     // Otherwise we leak memory.
     profile_.reset();
     base::MessageLoop::current()->RunUntilIdle();
+
+    TestingBrowserProcess::GetGlobal()->SetLocalState(NULL);
   }
 
   void BlockUntilBrowsingDataRemoved(BrowsingDataRemover::TimePeriod period,
@@ -731,12 +843,12 @@ class BrowsingDataRemoverTest : public testing::Test,
     called_with_details_.reset(new BrowsingDataRemover::NotificationDetails());
 
     // BrowsingDataRemover deletes itself when it completes.
-    int origin_set_mask = BrowsingDataHelper::UNPROTECTED_WEB;
+    int origin_type_mask = BrowsingDataHelper::UNPROTECTED_WEB;
     if (include_protected_origins)
-      origin_set_mask |= BrowsingDataHelper::PROTECTED_WEB;
+      origin_type_mask |= BrowsingDataHelper::PROTECTED_WEB;
 
     BrowsingDataRemoverCompletionObserver completion_observer(remover);
-    remover->Remove(remove_mask, origin_set_mask);
+    remover->Remove(remove_mask, origin_type_mask);
     completion_observer.BlockUntilCompletion();
 
     // Save so we can verify later.
@@ -777,27 +889,23 @@ class BrowsingDataRemoverTest : public testing::Test,
     return called_with_details_->removal_mask;
   }
 
-  int GetOriginSetMask() {
-    return called_with_details_->origin_set_mask;
+  int GetOriginTypeMask() {
+    return called_with_details_->origin_type_mask;
   }
 
   StoragePartitionRemovalData GetStoragePartitionRemovalData() {
     return storage_partition_removal_data_;
   }
 
-  // content::NotificationObserver implementation.
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override {
-    DCHECK_EQ(type, chrome::NOTIFICATION_BROWSING_DATA_REMOVED);
-
+  // Callback for browsing data removal events.
+  void NotifyWithDetails(
+      const BrowsingDataRemover::NotificationDetails& details) {
     // We're not taking ownership of the details object, but storing a copy of
     // it locally.
-    called_with_details_.reset(new BrowsingDataRemover::NotificationDetails(
-        *content::Details<BrowsingDataRemover::NotificationDetails>(
-            details).ptr()));
+    called_with_details_.reset(
+        new BrowsingDataRemover::NotificationDetails(details));
 
-    registrar_.RemoveAll();
+    callback_subscription_.reset();
   }
 
   MockExtensionSpecialStoragePolicy* CreateMockPolicy() {
@@ -828,12 +936,14 @@ class BrowsingDataRemoverTest : public testing::Test,
 #endif
   }
 
+  const ClearDomainReliabilityTester& clear_domain_reliability_tester() {
+    return clear_domain_reliability_tester_;
+  }
+
  protected:
   scoped_ptr<BrowsingDataRemover::NotificationDetails> called_with_details_;
 
  private:
-  content::NotificationRegistrar registrar_;
-
   content::TestBrowserThreadBundle thread_bundle_;
   scoped_ptr<TestingProfile> profile_;
 
@@ -842,6 +952,11 @@ class BrowsingDataRemoverTest : public testing::Test,
 #if defined(ENABLE_EXTENSIONS)
   scoped_refptr<MockExtensionSpecialStoragePolicy> mock_policy_;
 #endif
+
+  BrowsingDataRemover::CallbackSubscription callback_subscription_;
+
+  // Needed to mock out DomainReliabilityService, even for unrelated tests.
+  ClearDomainReliabilityTester clear_domain_reliability_tester_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowsingDataRemoverTest);
 };
@@ -854,7 +969,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveCookieForever) {
                                 false);
 
   EXPECT_EQ(BrowsingDataRemover::REMOVE_COOKIES, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
 
   // Verify that storage partition was instructed to remove the cookies.
   StoragePartitionRemovalData removal_data = GetStoragePartitionRemovalData();
@@ -872,7 +987,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveCookieLastHour) {
                                 false);
 
   EXPECT_EQ(BrowsingDataRemover::REMOVE_COOKIES, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
 
   // Verify that storage partition was instructed to remove the cookies.
   StoragePartitionRemovalData removal_data = GetStoragePartitionRemovalData();
@@ -886,7 +1001,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveCookieLastHour) {
   EXPECT_EQ(removal_data.remove_begin, GetBeginTime());
 }
 
-#if defined(FULL_SAFE_BROWSING) || defined(MOBILE_SAFE_BROWSING)
+#if defined(SAFE_BROWSING_SERVICE)
 TEST_F(BrowsingDataRemoverTest, RemoveSafeBrowsingCookieForever) {
   RemoveSafeBrowsingCookieTester tester;
 
@@ -897,7 +1012,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveSafeBrowsingCookieForever) {
       BrowsingDataRemover::REMOVE_COOKIES, false);
 
   EXPECT_EQ(BrowsingDataRemover::REMOVE_COOKIES, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
   EXPECT_FALSE(tester.ContainsCookie());
 }
 
@@ -911,7 +1026,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveSafeBrowsingCookieLastHour) {
       BrowsingDataRemover::REMOVE_COOKIES, false);
 
   EXPECT_EQ(BrowsingDataRemover::REMOVE_COOKIES, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
   // Removing with time period other than EVERYTHING should not clear safe
   // browsing cookies.
   EXPECT_TRUE(tester.ContainsCookie());
@@ -929,7 +1044,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveChannelIDForever) {
       BrowsingDataRemover::REMOVE_CHANNEL_IDS, false);
 
   EXPECT_EQ(BrowsingDataRemover::REMOVE_CHANNEL_IDS, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
   EXPECT_EQ(1, tester.ssl_config_changed_count());
   EXPECT_EQ(0, tester.ChannelIDCount());
 }
@@ -940,8 +1055,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveChannelIDLastHour) {
   base::Time now = base::Time::Now();
   tester.AddChannelID(kTestOrigin1);
   tester.AddChannelIDWithTimes(kTestOrigin2,
-                                     now - base::TimeDelta::FromHours(2),
-                                     now);
+                               now - base::TimeDelta::FromHours(2));
   EXPECT_EQ(0, tester.ssl_config_changed_count());
   EXPECT_EQ(2, tester.ChannelIDCount());
 
@@ -949,7 +1063,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveChannelIDLastHour) {
       BrowsingDataRemover::REMOVE_CHANNEL_IDS, false);
 
   EXPECT_EQ(BrowsingDataRemover::REMOVE_CHANNEL_IDS, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
   EXPECT_EQ(1, tester.ssl_config_changed_count());
   ASSERT_EQ(1, tester.ChannelIDCount());
   net::ChannelIDStore::ChannelIDList channel_ids;
@@ -970,7 +1084,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveUnprotectedLocalStorageForever) {
                                 false);
 
   EXPECT_EQ(BrowsingDataRemover::REMOVE_LOCAL_STORAGE, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
 
   // Verify that storage partition was instructed to remove the data correctly.
   StoragePartitionRemovalData removal_data = GetStoragePartitionRemovalData();
@@ -1002,7 +1116,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveProtectedLocalStorageForever) {
 
   EXPECT_EQ(BrowsingDataRemover::REMOVE_LOCAL_STORAGE, GetRemovalMask());
   EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB |
-            BrowsingDataHelper::PROTECTED_WEB, GetOriginSetMask());
+            BrowsingDataHelper::PROTECTED_WEB, GetOriginTypeMask());
 
   // Verify that storage partition was instructed to remove the data correctly.
   StoragePartitionRemovalData removal_data = GetStoragePartitionRemovalData();
@@ -1031,7 +1145,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveLocalStorageForLastWeek) {
                                 false);
 
   EXPECT_EQ(BrowsingDataRemover::REMOVE_LOCAL_STORAGE, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
 
   // Verify that storage partition was instructed to remove the data correctly.
   StoragePartitionRemovalData removal_data = GetStoragePartitionRemovalData();
@@ -1061,7 +1175,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveHistoryForever) {
       BrowsingDataRemover::REMOVE_HISTORY, false);
 
   EXPECT_EQ(BrowsingDataRemover::REMOVE_HISTORY, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
   EXPECT_FALSE(tester.HistoryContainsURL(kOrigin1));
 }
 
@@ -1080,7 +1194,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveHistoryForLastHour) {
       BrowsingDataRemover::REMOVE_HISTORY, false);
 
   EXPECT_EQ(BrowsingDataRemover::REMOVE_HISTORY, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
   EXPECT_FALSE(tester.HistoryContainsURL(kOrigin1));
   EXPECT_TRUE(tester.HistoryContainsURL(kOrigin2));
 }
@@ -1104,7 +1218,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveHistoryProhibited) {
   BlockUntilBrowsingDataRemoved(BrowsingDataRemover::LAST_HOUR,
       BrowsingDataRemover::REMOVE_HISTORY, false);
   EXPECT_EQ(BrowsingDataRemover::REMOVE_HISTORY, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
 
   // Nothing should have been deleted.
   EXPECT_TRUE(tester.HistoryContainsURL(kOrigin1));
@@ -1126,7 +1240,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveMultipleTypes) {
       removal_mask, false);
 
   EXPECT_EQ(removal_mask, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
   EXPECT_FALSE(history_tester.HistoryContainsURL(kOrigin1));
 
   // The cookie would be deleted throught the StorageParition, check if the
@@ -1157,7 +1271,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveMultipleTypesHistoryProhibited) {
   BlockUntilBrowsingDataRemoved(BrowsingDataRemover::LAST_HOUR,
                                 removal_mask, false);
   EXPECT_EQ(removal_mask, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
 
   // 1/2. History should remain.
   EXPECT_TRUE(history_tester.HistoryContainsURL(kOrigin1));
@@ -1173,6 +1287,48 @@ TEST_F(BrowsingDataRemoverTest, RemoveMultipleTypesHistoryProhibited) {
 }
 #endif
 
+// Test that clearing history deletes favicons not associated with bookmarks.
+TEST_F(BrowsingDataRemoverTest, RemoveFaviconsForever) {
+  GURL page_url("http://a");
+
+  RemoveFaviconTester favicon_tester;
+  ASSERT_TRUE(favicon_tester.Init(GetProfile()));
+  favicon_tester.VisitAndAddFavicon(page_url);
+  ASSERT_TRUE(favicon_tester.HasFaviconForPageURL(page_url));
+
+  BlockUntilBrowsingDataRemoved(BrowsingDataRemover::EVERYTHING,
+                                BrowsingDataRemover::REMOVE_HISTORY, false);
+  EXPECT_EQ(BrowsingDataRemover::REMOVE_HISTORY, GetRemovalMask());
+  EXPECT_FALSE(favicon_tester.HasFaviconForPageURL(page_url));
+}
+
+// Test that a bookmark's favicon is expired and not deleted when clearing
+// history. Expiring the favicon causes the bookmark's favicon to be updated
+// when the user next visits the bookmarked page. Expiring the bookmark's
+// favicon is useful when the bookmark's favicon becomes incorrect (See
+// crbug.com/474421 for a sample bug which causes this).
+TEST_F(BrowsingDataRemoverTest, ExpireBookmarkFavicons) {
+  GURL bookmarked_page("http://a");
+
+  TestingProfile* profile = GetProfile();
+  profile->CreateBookmarkModel(true);
+  bookmarks::BookmarkModel* bookmark_model =
+      BookmarkModelFactory::GetForProfile(profile);
+  bookmarks::test::WaitForBookmarkModelToLoad(bookmark_model);
+  bookmark_model->AddURL(bookmark_model->bookmark_bar_node(), 0,
+                         base::ASCIIToUTF16("a"), bookmarked_page);
+
+  RemoveFaviconTester favicon_tester;
+  ASSERT_TRUE(favicon_tester.Init(GetProfile()));
+  favicon_tester.VisitAndAddFavicon(bookmarked_page);
+  ASSERT_TRUE(favicon_tester.HasFaviconForPageURL(bookmarked_page));
+
+  BlockUntilBrowsingDataRemoved(BrowsingDataRemover::EVERYTHING,
+                                BrowsingDataRemover::REMOVE_HISTORY, false);
+  EXPECT_EQ(BrowsingDataRemover::REMOVE_HISTORY, GetRemovalMask());
+  EXPECT_TRUE(favicon_tester.HasExpiredFaviconForPageURL(bookmarked_page));
+}
+
 TEST_F(BrowsingDataRemoverTest, RemoveQuotaManagedDataForeverBoth) {
   BlockUntilBrowsingDataRemoved(BrowsingDataRemover::EVERYTHING,
                                 BrowsingDataRemover::REMOVE_FILE_SYSTEMS |
@@ -1187,7 +1343,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveQuotaManagedDataForeverBoth) {
       BrowsingDataRemover::REMOVE_APPCACHE |
       BrowsingDataRemover::REMOVE_SERVICE_WORKERS |
       BrowsingDataRemover::REMOVE_INDEXEDDB, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
 
   // Verify storage partition related stuffs.
   StoragePartitionRemovalData removal_data = GetStoragePartitionRemovalData();
@@ -1220,7 +1376,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveQuotaManagedDataForeverOnlyTemporary) {
       BrowsingDataRemover::REMOVE_APPCACHE |
       BrowsingDataRemover::REMOVE_SERVICE_WORKERS |
       BrowsingDataRemover::REMOVE_INDEXEDDB, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
 
   // Verify storage partition related stuffs.
   StoragePartitionRemovalData removal_data = GetStoragePartitionRemovalData();
@@ -1260,7 +1416,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveQuotaManagedDataForeverOnlyPersistent) {
       BrowsingDataRemover::REMOVE_APPCACHE |
       BrowsingDataRemover::REMOVE_SERVICE_WORKERS |
       BrowsingDataRemover::REMOVE_INDEXEDDB, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
 
   // Verify storage partition related stuffs.
   StoragePartitionRemovalData removal_data = GetStoragePartitionRemovalData();
@@ -1301,7 +1457,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveQuotaManagedDataForeverNeither) {
       BrowsingDataRemover::REMOVE_APPCACHE |
       BrowsingDataRemover::REMOVE_SERVICE_WORKERS |
       BrowsingDataRemover::REMOVE_INDEXEDDB, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
 
   // Verify storage partition related stuffs.
   StoragePartitionRemovalData removal_data = GetStoragePartitionRemovalData();
@@ -1338,7 +1494,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveQuotaManagedDataForeverSpecificOrigin) {
       BrowsingDataRemover::REMOVE_FILE_SYSTEMS |
       BrowsingDataRemover::REMOVE_INDEXEDDB |
       BrowsingDataRemover::REMOVE_WEBSQL, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
 
   // Verify storage partition related stuffs.
   StoragePartitionRemovalData removal_data = GetStoragePartitionRemovalData();
@@ -1368,7 +1524,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveQuotaManagedDataForLastHour) {
       BrowsingDataRemover::REMOVE_APPCACHE |
       BrowsingDataRemover::REMOVE_SERVICE_WORKERS |
       BrowsingDataRemover::REMOVE_INDEXEDDB, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
 
   // Verify storage partition related stuffs.
   StoragePartitionRemovalData removal_data = GetStoragePartitionRemovalData();
@@ -1404,7 +1560,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveQuotaManagedDataForLastWeek) {
       BrowsingDataRemover::REMOVE_APPCACHE |
       BrowsingDataRemover::REMOVE_SERVICE_WORKERS |
       BrowsingDataRemover::REMOVE_INDEXEDDB, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
 
   // Verify storage partition related stuffs.
   StoragePartitionRemovalData removal_data = GetStoragePartitionRemovalData();
@@ -1446,7 +1602,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveQuotaManagedUnprotectedOrigins) {
       BrowsingDataRemover::REMOVE_APPCACHE |
       BrowsingDataRemover::REMOVE_SERVICE_WORKERS |
       BrowsingDataRemover::REMOVE_INDEXEDDB, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
 
   // Verify storage partition related stuffs.
   StoragePartitionRemovalData removal_data = GetStoragePartitionRemovalData();
@@ -1489,7 +1645,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveQuotaManagedProtectedSpecificOrigin) {
       BrowsingDataRemover::REMOVE_FILE_SYSTEMS |
       BrowsingDataRemover::REMOVE_INDEXEDDB |
       BrowsingDataRemover::REMOVE_WEBSQL, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
 
   // Verify storage partition related stuffs.
   StoragePartitionRemovalData removal_data = GetStoragePartitionRemovalData();
@@ -1533,7 +1689,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveQuotaManagedProtectedOrigins) {
       BrowsingDataRemover::REMOVE_INDEXEDDB |
       BrowsingDataRemover::REMOVE_WEBSQL, GetRemovalMask());
   EXPECT_EQ(BrowsingDataHelper::PROTECTED_WEB |
-      BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+      BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
 
   // Verify storage partition related stuffs.
   StoragePartitionRemovalData removal_data = GetStoragePartitionRemovalData();
@@ -1549,7 +1705,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveQuotaManagedProtectedOrigins) {
   EXPECT_TRUE(removal_data.remove_origin.is_empty());
 
   // Check OriginMatcherFunction, |kOrigin1| would match mask since we
-  // would have 'protected' specified in origin_set_mask.
+  // would have 'protected' specified in origin_type_mask.
   EXPECT_TRUE(removal_data.origin_matcher.Run(kOrigin1, mock_policy()));
   EXPECT_TRUE(removal_data.origin_matcher.Run(kOrigin2, mock_policy()));
   EXPECT_TRUE(removal_data.origin_matcher.Run(kOrigin3, mock_policy()));
@@ -1573,7 +1729,7 @@ TEST_F(BrowsingDataRemoverTest, RemoveQuotaManagedIgnoreExtensionsAndDevTools) {
       BrowsingDataRemover::REMOVE_FILE_SYSTEMS |
       BrowsingDataRemover::REMOVE_INDEXEDDB |
       BrowsingDataRemover::REMOVE_WEBSQL, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
 
   // Verify storage partition related stuffs.
   StoragePartitionRemovalData removal_data = GetStoragePartitionRemovalData();
@@ -1609,7 +1765,7 @@ TEST_F(BrowsingDataRemoverTest, OriginBasedHistoryRemoval) {
       BrowsingDataRemover::REMOVE_HISTORY, kOrigin2);
 
   EXPECT_EQ(BrowsingDataRemover::REMOVE_HISTORY, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
 
   // Nothing should have been deleted.
   EXPECT_TRUE(tester.HistoryContainsURL(kOrigin1));
@@ -1631,7 +1787,7 @@ TEST_F(BrowsingDataRemoverTest, OriginAndTimeBasedHistoryRemoval) {
       BrowsingDataRemover::REMOVE_HISTORY, kOrigin2);
 
   EXPECT_EQ(BrowsingDataRemover::REMOVE_HISTORY, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
   EXPECT_TRUE(tester.HistoryContainsURL(kOrigin1));
   EXPECT_TRUE(tester.HistoryContainsURL(kOrigin2));
 }
@@ -1650,7 +1806,7 @@ TEST_F(BrowsingDataRemoverTest, AutofillRemovalLastHour) {
       BrowsingDataRemover::REMOVE_FORM_DATA, false);
 
   EXPECT_EQ(BrowsingDataRemover::REMOVE_FORM_DATA, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
   ASSERT_FALSE(tester.HasProfile());
 }
 
@@ -1667,7 +1823,7 @@ TEST_F(BrowsingDataRemoverTest, AutofillRemovalEverything) {
       BrowsingDataRemover::REMOVE_FORM_DATA, false);
 
   EXPECT_EQ(BrowsingDataRemover::REMOVE_FORM_DATA, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
   ASSERT_FALSE(tester.HasProfile());
 }
 
@@ -1686,7 +1842,7 @@ TEST_F(BrowsingDataRemoverTest, AutofillOriginsRemovedWithHistory) {
       BrowsingDataRemover::REMOVE_HISTORY, false);
 
   EXPECT_EQ(BrowsingDataRemover::REMOVE_HISTORY, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
   EXPECT_TRUE(tester.HasOrigin(std::string()));
   EXPECT_FALSE(tester.HasOrigin(kWebOrigin));
   EXPECT_TRUE(tester.HasOrigin(kChromeOrigin));
@@ -1713,7 +1869,7 @@ TEST_F(BrowsingDataRemoverTest, CompletionInhibition) {
 
   // Verify that the completion notification has not yet been broadcasted.
   EXPECT_EQ(-1, GetRemovalMask());
-  EXPECT_EQ(-1, GetOriginSetMask());
+  EXPECT_EQ(-1, GetOriginTypeMask());
 
   // Now run the removal process until completion, and verify that observers are
   // now notified, and the notifications is sent out.
@@ -1722,21 +1878,21 @@ TEST_F(BrowsingDataRemoverTest, CompletionInhibition) {
   completion_observer.BlockUntilCompletion();
 
   EXPECT_EQ(BrowsingDataRemover::REMOVE_HISTORY, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
 }
 
 TEST_F(BrowsingDataRemoverTest, ZeroSuggestCacheClear) {
   PrefService* prefs = GetProfile()->GetPrefs();
-  prefs->SetString(prefs::kZeroSuggestCachedResults,
+  prefs->SetString(omnibox::kZeroSuggestCachedResults,
                    "[\"\", [\"foo\", \"bar\"]]");
   BlockUntilBrowsingDataRemoved(BrowsingDataRemover::EVERYTHING,
                                 BrowsingDataRemover::REMOVE_COOKIES,
                                 false);
 
   // Expect the prefs to be cleared when cookies are removed.
-  EXPECT_TRUE(prefs->GetString(prefs::kZeroSuggestCachedResults).empty());
+  EXPECT_TRUE(prefs->GetString(omnibox::kZeroSuggestCachedResults).empty());
   EXPECT_EQ(BrowsingDataRemover::REMOVE_COOKIES, GetRemovalMask());
-  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginSetMask());
+  EXPECT_EQ(BrowsingDataHelper::UNPROTECTED_WEB, GetOriginTypeMask());
 }
 
 #if defined(OS_CHROMEOS)
@@ -1769,13 +1925,15 @@ TEST_F(BrowsingDataRemoverTest, ContentProtectionPlatformKeysRemoval) {
 #endif
 
 TEST_F(BrowsingDataRemoverTest, DomainReliability_Null) {
-  ClearDomainReliabilityTester tester(GetProfile());
+  const ClearDomainReliabilityTester& tester =
+      clear_domain_reliability_tester();
 
   EXPECT_EQ(0u, tester.clear_count());
 }
 
 TEST_F(BrowsingDataRemoverTest, DomainReliability_Beacons) {
-  ClearDomainReliabilityTester tester(GetProfile());
+  const ClearDomainReliabilityTester& tester =
+      clear_domain_reliability_tester();
 
   BlockUntilBrowsingDataRemoved(
       BrowsingDataRemover::EVERYTHING,
@@ -1785,7 +1943,8 @@ TEST_F(BrowsingDataRemoverTest, DomainReliability_Beacons) {
 }
 
 TEST_F(BrowsingDataRemoverTest, DomainReliability_Contexts) {
-  ClearDomainReliabilityTester tester(GetProfile());
+  const ClearDomainReliabilityTester& tester =
+      clear_domain_reliability_tester();
 
   BlockUntilBrowsingDataRemoved(
       BrowsingDataRemover::EVERYTHING,
@@ -1795,7 +1954,8 @@ TEST_F(BrowsingDataRemoverTest, DomainReliability_Contexts) {
 }
 
 TEST_F(BrowsingDataRemoverTest, DomainReliability_ContextsWin) {
-  ClearDomainReliabilityTester tester(GetProfile());
+  const ClearDomainReliabilityTester& tester =
+      clear_domain_reliability_tester();
 
   BlockUntilBrowsingDataRemoved(
       BrowsingDataRemover::EVERYTHING,
@@ -1806,7 +1966,8 @@ TEST_F(BrowsingDataRemoverTest, DomainReliability_ContextsWin) {
 }
 
 TEST_F(BrowsingDataRemoverTest, DomainReliability_ProtectedOrigins) {
-  ClearDomainReliabilityTester tester(GetProfile());
+  const ClearDomainReliabilityTester& tester =
+      clear_domain_reliability_tester();
 
   BlockUntilBrowsingDataRemoved(
       BrowsingDataRemover::EVERYTHING,
@@ -1815,7 +1976,11 @@ TEST_F(BrowsingDataRemoverTest, DomainReliability_ProtectedOrigins) {
   EXPECT_EQ(CLEAR_CONTEXTS, tester.last_clear_mode());
 }
 
-TEST_F(BrowsingDataRemoverTest, DomainReliability_NoMonitor) {
+// TODO(ttuttle): This isn't actually testing the no-monitor case, since
+// BrowsingDataRemoverTest now creates one unconditionally, since it's needed
+// for some unrelated test cases. This should be fixed so it tests the no-
+// monitor case again.
+TEST_F(BrowsingDataRemoverTest, DISABLED_DomainReliability_NoMonitor) {
   BlockUntilBrowsingDataRemoved(
       BrowsingDataRemover::EVERYTHING,
       BrowsingDataRemover::REMOVE_HISTORY |

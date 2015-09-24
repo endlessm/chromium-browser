@@ -6,10 +6,23 @@ package org.chromium.chrome.browser;
 
 import android.view.ContextMenu;
 
+import org.chromium.content.browser.ContentViewCore;
+import org.chromium.content_public.browser.LoadUrlParams;
+import org.chromium.content_public.browser.WebContents;
+
 /**
  * An implementation of the {@link TabObserver} which has empty implementations of all methods.
  */
 public class EmptyTabObserver implements TabObserver {
+
+    @Override
+    public void onShown(Tab tab) { }
+
+    @Override
+    public void onHidden(Tab tab) { }
+
+    @Override
+    public void onClosingStateChanged(Tab tab, boolean closing) { }
 
     @Override
     public void onDestroyed(Tab tab) { }
@@ -18,7 +31,22 @@ public class EmptyTabObserver implements TabObserver {
     public void onContentChanged(Tab tab) { }
 
     @Override
-    public void onLoadUrl(Tab tab, String url, int loadType) { }
+    public void onOverlayContentViewCoreAdded(Tab tab, ContentViewCore content) { }
+
+    @Override
+    public void onOverlayContentViewCoreRemoved(Tab tab, ContentViewCore content) { }
+
+    @Override
+    public void onLoadUrl(Tab tab, LoadUrlParams params, int loadType) { }
+
+    @Override
+    public void onPageLoadStarted(Tab tab, String url) { }
+
+    @Override
+    public void onPageLoadFinished(Tab tab) { }
+
+    @Override
+    public void onPageLoadFailed(Tab tab, int errorCode) { }
 
     @Override
     public void onFaviconUpdated(Tab tab) { }
@@ -33,10 +61,16 @@ public class EmptyTabObserver implements TabObserver {
     public void onSSLStateUpdated(Tab tab) { }
 
     @Override
+    public void onCrash(Tab tab, boolean sadTabShown) { }
+
+    @Override
     public void onWebContentsSwapped(Tab tab, boolean didStartLoad, boolean didFinishLoad) { }
 
     @Override
     public void onContextMenuShown(Tab tab, ContextMenu menu) { }
+
+    @Override
+    public void onContextualActionBarVisibilityChanged(Tab tab, boolean visible) { }
 
     @Override
     public void onWebContentsInstantSupportDisabled() { }
@@ -74,6 +108,9 @@ public class EmptyTabObserver implements TabObserver {
             boolean isNavigationToDifferentPage, boolean isFragmentNavigation, int statusCode) { }
 
     @Override
+    public void didFirstVisuallyNonEmptyPaint(Tab tab) { }
+
+    @Override
     public void onDidChangeThemeColor(int color) { }
 
     @Override
@@ -81,4 +118,14 @@ public class EmptyTabObserver implements TabObserver {
 
     @Override
     public void onDidDetachInterstitialPage(Tab tab) { }
+
+    @Override
+    public void onDidStartNavigationToPendingEntry(Tab tab, String url) { }
+
+    @Override
+    public void onBackgroundColorChanged(Tab tab, int color) { }
+
+    @Override
+    public void webContentsCreated(Tab tab, WebContents sourceWebContents, long openerRenderFrameId,
+            String frameName, String targetUrl, WebContents newWebContents) { }
 }

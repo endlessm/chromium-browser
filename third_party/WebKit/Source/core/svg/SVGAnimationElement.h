@@ -25,12 +25,16 @@
 #ifndef SVGAnimationElement_h
 #define SVGAnimationElement_h
 
+#include "core/CoreExport.h"
 #include "core/svg/SVGAnimatedBoolean.h"
 #include "core/svg/animation/SVGSMILElement.h"
 #include "platform/animation/UnitBezier.h"
 #include "wtf/Functional.h"
+#include "wtf/Vector.h"
 
 namespace blink {
+
+class ExceptionState;
 
 enum AnimationMode {
     NoAnimation,
@@ -56,13 +60,13 @@ enum CalcMode {
     CalcModeSpline
 };
 
-class SVGAnimationElement : public SVGSMILElement {
+class CORE_EXPORT SVGAnimationElement : public SVGSMILElement {
     DEFINE_WRAPPERTYPEINFO();
 public:
     // SVGAnimationElement
-    float getStartTime() const;
+    float getStartTime(ExceptionState&) const;
     float getCurrentTime() const;
-    float getSimpleDuration() const;
+    float getSimpleDuration(ExceptionState&) const;
 
     void beginElement();
     void beginElementAt(float offset);
@@ -83,7 +87,8 @@ public:
     enum ShouldApplyAnimation {
         DontApplyAnimation,
         ApplyCSSAnimation,
-        ApplyXMLAnimation
+        ApplyXMLAnimation,
+        ApplyXMLandCSSAnimation
     };
 
     ShouldApplyAnimation shouldApplyAnimation(SVGElement* targetElement, const QualifiedName& attributeName);
@@ -135,9 +140,8 @@ protected:
     void computeCSSPropertyValue(SVGElement*, CSSPropertyID, String& value);
     void determinePropertyValueTypes(const String& from, const String& to);
 
-    bool isSupportedAttribute(const QualifiedName&);
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void svgAttributeChanged(const QualifiedName&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void svgAttributeChanged(const QualifiedName&) override;
 
     enum AttributeType {
         AttributeTypeCSS,
@@ -151,14 +155,14 @@ protected:
     String fromValue() const;
 
     // from SVGSMILElement
-    virtual void startedActiveInterval() override;
-    virtual void updateAnimation(float percent, unsigned repeat, SVGSMILElement* resultElement) override;
+    void startedActiveInterval() override;
+    void updateAnimation(float percent, unsigned repeat, SVGSMILElement* resultElement) override;
 
     AnimatedPropertyValueType m_fromPropertyValueType;
     AnimatedPropertyValueType m_toPropertyValueType;
 
-    virtual void setTargetElement(SVGElement*) override;
-    virtual void setAttributeName(const QualifiedName&) override;
+    void setTargetElement(SVGElement*) override;
+    void setAttributeName(const QualifiedName&) override;
 
     bool hasInvalidCSSAttributeType() const { return m_hasInvalidCSSAttributeType; }
 
@@ -166,13 +170,20 @@ protected:
     void setAnimationMode(AnimationMode animationMode) { m_animationMode = animationMode; }
     void setCalcMode(CalcMode calcMode) { m_calcMode = calcMode; }
 
-private:
-    virtual bool isValid() const override final { return SVGTests::isValid(); }
+    // Parses a list of values as specified by SVG, stripping leading
+    // and trailing whitespace, and places them in result. If the
+    // format of the string is not valid, parseValues empties result
+    // and returns false. See
+    // http://www.w3.org/TR/SVG/animate.html#ValuesAttribute .
+    static bool parseValues(const String&, Vector<String>& result);
 
-    virtual void animationAttributeChanged() override;
+private:
+    bool isValid() const final { return SVGTests::isValid(document()); }
+
+    void animationAttributeChanged() override;
     void setAttributeType(const AtomicString&);
 
-    void checkInvalidCSSAttributeType(SVGElement*);
+    void checkInvalidCSSAttributeType();
 
     virtual bool calculateToAtEndOfDurationValue(const String& toAtEndOfDurationString) = 0;
     virtual bool calculateFromAndToValues(const String& fromString, const String& toString) = 0;

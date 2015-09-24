@@ -44,10 +44,10 @@ void NativeAppWindowViews::Init(AppWindow* app_window,
   Observe(app_window_->web_contents());
 
   widget_ = new views::Widget;
+  widget_->AddObserver(this);
   InitializeWindow(app_window, create_params);
 
   OnViewWasResized();
-  widget_->AddObserver(this);
 }
 
 NativeAppWindowViews::~NativeAppWindowViews() {
@@ -352,10 +352,6 @@ void NativeAppWindowViews::UpdateWindowTitle() {
   widget_->UpdateWindowTitle();
 }
 
-void NativeAppWindowViews::UpdateBadgeIcon() {
-  // Stub implementation. See also ChromeNativeAppWindowViews.
-}
-
 void NativeAppWindowViews::UpdateDraggableRegions(
     const std::vector<extensions::DraggableRegion>& regions) {
   // Draggable region is not supported for non-frameless window.
@@ -371,6 +367,10 @@ SkRegion* NativeAppWindowViews::GetDraggableRegion() {
 }
 
 void NativeAppWindowViews::UpdateShape(scoped_ptr<SkRegion> region) {
+  // Stub implementation. See also ChromeNativeAppWindowViews.
+}
+
+void NativeAppWindowViews::SetInterceptAllKeys(bool want_all_keys) {
   // Stub implementation. See also ChromeNativeAppWindowViews.
 }
 

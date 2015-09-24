@@ -2,8 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-from telemetry.page import page_set
 from telemetry.page import page
+from telemetry import story
 
 
 TOP_2013_URLS = [
@@ -252,25 +252,21 @@ class Top2012Q3Page(page.Page):
   def __init__(self, url, ps):
     super(Top2012Q3Page, self).__init__(
         url=url, page_set=ps, credentials_path = 'data/credentials.json')
-    self.make_javascript_deterministic = True
     self.archive_data_file = 'data/2012Q3.json'
 
-  def RunSmoothness(self, action_runner):
-    interaction = action_runner.BeginGestureInteraction(
-        'ScrollAction', is_smooth=True)
-    action_runner.ScrollPage()
-    interaction.End()
+  def RunPageInteractions(self, action_runner):
+    with action_runner.CreateGestureInteraction('ScrollAction'):
+      action_runner.ScrollPage()
 
 
-class Top2012Q3PageSet(page_set.PageSet):
+class Top2012Q3PageSet(story.StorySet):
   """ Pages hand-picked from top-lists in Q32012. """
 
   def __init__(self):
     super(Top2012Q3PageSet, self).__init__(
-      make_javascript_deterministic=True,
       archive_data_file='data/2012Q3.json',
-      bucket=page_set.PARTNER_BUCKET)
+      cloud_storage_bucket=story.PARTNER_BUCKET)
 
 
     for url in TOP_2013_URLS:
-      self.AddPage(Top2012Q3Page(url, self))
+      self.AddStory(Top2012Q3Page(url, self))

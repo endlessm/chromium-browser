@@ -57,6 +57,7 @@ using testing::_;
 using testing::Action;
 using testing::ActionInterface;
 using testing::Assign;
+using testing::ByMove;
 using testing::ByRef;
 using testing::DefaultValue;
 using testing::DoDefault;
@@ -264,7 +265,7 @@ TEST(DefaultValueDeathTest, GetReturnsBuiltInDefaultValueWhenUnset) {
   }, "");
 }
 
-#if GTEST_LANG_CXX11
+#if GTEST_HAS_STD_UNIQUE_PTR_
 TEST(DefaultValueDeathTest, GetWorksForMoveOnlyIfSet) {
   EXPECT_FALSE(DefaultValue<std::unique_ptr<int>>::Exists());
   EXPECT_DEATH_IF_SUPPORTED({
@@ -277,7 +278,7 @@ TEST(DefaultValueDeathTest, GetWorksForMoveOnlyIfSet) {
   std::unique_ptr<int> i = DefaultValue<std::unique_ptr<int>>::Get();
   EXPECT_EQ(42, *i);
 }
-#endif  // GTEST_LANG_CXX11
+#endif  // GTEST_HAS_STD_UNIQUE_PTR_
 
 // Tests that DefaultValue<void>::Get() returns void.
 TEST(DefaultValueTest, GetWorksForVoid) {
@@ -508,6 +509,26 @@ TEST(ReturnTest, AcceptsStringLiteral) {
   EXPECT_EQ("world", a2.Perform(make_tuple()));
 }
 
+// Test struct which wraps a vector of integers. Used in
+// 'SupportsWrapperReturnType' test.
+struct IntegerVectorWrapper {
+  std::vector<int> * v;
+  IntegerVectorWrapper(std::vector<int>& _v) : v(&_v) {}  // NOLINT
+};
+
+// Tests that Return() works when return type is a wrapper type.
+TEST(ReturnTest, SupportsWrapperReturnType) {
+  // Initialize vector of integers.
+  std::vector<int> v;
+  for (int i = 0; i < 5; ++i) v.push_back(i);
+
+  // Return() called with 'v' as argument. The Action will return the same data
+  // as 'v' (copy) but it will be wrapped in an IntegerVectorWrapper.
+  Action<IntegerVectorWrapper()> a = Return(v);
+  const std::vector<int>& result = *(a.Perform(make_tuple()).v);
+  EXPECT_THAT(result, ::testing::ElementsAre(0, 1, 2, 3, 4));
+}
+
 // Tests that Return(v) is covaraint.
 
 struct Base {
@@ -636,8 +657,9 @@ class MockClass {
 
   MOCK_METHOD1(IntFunc, int(bool flag));  // NOLINT
   MOCK_METHOD0(Foo, MyClass());
-#if GTEST_LANG_CXX11
+#if GTEST_HAS_STD_UNIQUE_PTR_
   MOCK_METHOD0(MakeUnique, std::unique_ptr<int>());
+  MOCK_METHOD0(MakeUniqueBase, std::unique_ptr<Base>());
   MOCK_METHOD0(MakeVectorUnique, std::vector<std::unique_ptr<int>>());
 #endif
 
@@ -1273,7 +1295,7 @@ TEST(ByRefTest, PrintsCorrectly) {
   EXPECT_EQ(expected.str(), actual.str());
 }
 
-#if GTEST_LANG_CXX11
+#if GTEST_HAS_STD_UNIQUE_PTR_
 
 std::unique_ptr<int> UniquePtrSource() {
   return std::unique_ptr<int>(new int(19));
@@ -1285,7 +1307,42 @@ std::vector<std::unique_ptr<int>> VectorUniquePtrSource() {
   return out;
 }
 
-TEST(MockMethodTest, CanReturnMoveOnlyValue) {
+TEST(MockMethodTest, CanReturnMoveOnlyValue_Return) {
+  MockClass mock;
+  std::unique_ptr<int> i(new int(19));
+  EXPECT_CALL(mock, MakeUnique()).WillOnce(Return(ByMove(std::move(i))));
+  EXPECT_CALL(mock, MakeVectorUnique())
+      .WillOnce(Return(ByMove(VectorUniquePtrSource())));
+  Derived* d = new Derived;
+  EXPECT_CALL(mock, MakeUniqueBase())
+      .WillOnce(Return(ByMove(std::unique_ptr<Derived>(d))));
+
+  std::unique_ptr<int> result1 = mock.MakeUnique();
+  EXPECT_EQ(19, *result1);
+
+  std::vector<std::unique_ptr<int>> vresult = mock.MakeVectorUnique();
+  EXPECT_EQ(1u, vresult.size());
+  EXPECT_NE(nullptr, vresult[0]);
+  EXPECT_EQ(7, *vresult[0]);
+
+  std::unique_ptr<Base> result2 = mock.MakeUniqueBase();
+  EXPECT_EQ(d, result2.get());
+}
+
+TEST(MockMethodTest, CanReturnMoveOnlyValue_DoAllReturn) {
+  testing::MockFunction<void()> mock_function;
+  MockClass mock;
+  std::unique_ptr<int> i(new int(19));
+  EXPECT_CALL(mock_function, Call());
+  EXPECT_CALL(mock, MakeUnique()).WillOnce(DoAll(
+      InvokeWithoutArgs(&mock_function, &testing::MockFunction<void()>::Call),
+      Return(ByMove(std::move(i)))));
+
+  std::unique_ptr<int> result1 = mock.MakeUnique();
+  EXPECT_EQ(19, *result1);
+}
+
+TEST(MockMethodTest, CanReturnMoveOnlyValue_Invoke) {
   MockClass mock;
 
   // Check default value
@@ -1294,8 +1351,7 @@ TEST(MockMethodTest, CanReturnMoveOnlyValue) {
   });
   EXPECT_EQ(42, *mock.MakeUnique());
 
-  EXPECT_CALL(mock, MakeUnique())
-      .WillRepeatedly(Invoke(UniquePtrSource));
+  EXPECT_CALL(mock, MakeUnique()).WillRepeatedly(Invoke(UniquePtrSource));
   EXPECT_CALL(mock, MakeVectorUnique())
       .WillRepeatedly(Invoke(VectorUniquePtrSource));
   std::unique_ptr<int> result1 = mock.MakeUnique();
@@ -1305,11 +1361,11 @@ TEST(MockMethodTest, CanReturnMoveOnlyValue) {
   EXPECT_NE(result1, result2);
 
   std::vector<std::unique_ptr<int>> vresult = mock.MakeVectorUnique();
-  EXPECT_EQ(1, vresult.size());
+  EXPECT_EQ(1u, vresult.size());
   EXPECT_NE(nullptr, vresult[0]);
   EXPECT_EQ(7, *vresult[0]);
 }
 
-#endif  // GTEST_LANG_CXX11
+#endif  // GTEST_HAS_STD_UNIQUE_PTR_
 
 }  // Unnamed namespace

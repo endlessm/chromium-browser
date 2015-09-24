@@ -12,11 +12,10 @@
 #ifndef WEBRTC_MODULES_VIDEO_CODING_CODECS_VP8_TEMPORAL_LAYERS_H_
 #define WEBRTC_MODULES_VIDEO_CODING_CODECS_VP8_TEMPORAL_LAYERS_H_
 
+#include "vpx/vpx_encoder.h"
+
 #include "webrtc/common_video/interface/video_image.h"
 #include "webrtc/typedefs.h"
-
-// libvpx forward declaration.
-typedef struct vpx_codec_enc_cfg vpx_codec_enc_cfg_t;
 
 namespace webrtc {
 
@@ -48,9 +47,11 @@ class TemporalLayers {
                                      CodecSpecificInfoVP8* vp8_info,
                                      uint32_t timestamp) = 0;
 
-  virtual void FrameEncoded(unsigned int size, uint32_t timestamp) = 0;
+  virtual void FrameEncoded(unsigned int size, uint32_t timestamp, int qp) = 0;
 
   virtual int CurrentLayerId() const = 0;
+
+  virtual bool UpdateConfiguration(vpx_codec_enc_cfg_t* cfg) = 0;
 };
 
 // Factory for a temporal layers strategy that adaptively changes the number of

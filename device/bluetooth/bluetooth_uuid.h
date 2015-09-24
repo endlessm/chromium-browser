@@ -7,6 +7,13 @@
 
 #include <string>
 
+#include "device/bluetooth/bluetooth_export.h"
+#include "ipc/ipc_param_traits.h"
+
+namespace base {
+class PickleIterator;
+}  // namespace base
+
 namespace device {
 
 // Opaque wrapper around a Bluetooth UUID. Instances of UUID represent the
@@ -14,7 +21,7 @@ namespace device {
 // used in Bluetooth based communication, such as a peripheral's services,
 // characteristics, and characteristic descriptors. An instance are
 // constructed using a string representing 16, 32, or 128 bit UUID formats.
-class BluetoothUUID {
+class DEVICE_BLUETOOTH_EXPORT BluetoothUUID {
  public:
   // Possible representation formats used during construction.
   enum Format {
@@ -90,8 +97,24 @@ class BluetoothUUID {
 };
 
 // This is required by gtest to print a readable output on test failures.
-void PrintTo(const BluetoothUUID& uuid, std::ostream* out);
+void DEVICE_BLUETOOTH_EXPORT
+PrintTo(const BluetoothUUID& uuid, std::ostream* out);
 
 }  // namespace device
+
+namespace IPC {
+
+class Message;
+
+// Tell the IPC system how to serialize and deserialize a BluetoothUUID.
+template <>
+struct DEVICE_BLUETOOTH_EXPORT ParamTraits<device::BluetoothUUID> {
+  typedef device::BluetoothUUID param_type;
+  static void Write(Message* m, const param_type& p);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
+  static void Log(const param_type& p, std::string* l);
+};
+
+}  // namespace IPC
 
 #endif  // DEVICE_BLUETOOTH_BLUETOOTH_UUID_H_

@@ -30,9 +30,10 @@
 
 #include "base/metrics/histogram.h"
 #include "chrome/browser/download/download_crx_util.h"
-#include "chrome/browser/history/download_database.h"
-#include "chrome/browser/history/download_row.h"
-#include "chrome/browser/history/history_service.h"
+#include "components/history/content/browser/download_constants_utils.h"
+#include "components/history/core/browser/download_database.h"
+#include "components/history/core/browser/download_row.h"
+#include "components/history/core/browser/history_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_item.h"
 #include "content/public/browser/download_manager.h"
@@ -135,10 +136,10 @@ history::DownloadRow GetDownloadRow(
       item->GetLastModifiedTime(),
       item->GetReceivedBytes(),
       item->GetTotalBytes(),
-      item->GetState(),
-      item->GetDangerType(),
-      item->GetLastReason(),
-      item->GetId(),
+      history::ToHistoryDownloadState(item->GetState()),
+      history::ToHistoryDownloadDangerType(item->GetDangerType()),
+      history::ToHistoryDownloadInterruptReason(item->GetLastReason()),
+      history::ToHistoryDownloadId(item->GetId()),
       item->GetOpened(),
       by_ext_id,
       by_ext_name);
@@ -168,19 +169,20 @@ typedef std::vector<history::DownloadRow> InfoVector;
 
 }  // anonymous namespace
 
-DownloadHistory::HistoryAdapter::HistoryAdapter(HistoryService* history)
-  : history_(history) {
+DownloadHistory::HistoryAdapter::HistoryAdapter(
+    history::HistoryService* history)
+    : history_(history) {
 }
 DownloadHistory::HistoryAdapter::~HistoryAdapter() {}
 
 void DownloadHistory::HistoryAdapter::QueryDownloads(
-    const HistoryService::DownloadQueryCallback& callback) {
+    const history::HistoryService::DownloadQueryCallback& callback) {
   history_->QueryDownloads(callback);
 }
 
 void DownloadHistory::HistoryAdapter::CreateDownload(
     const history::DownloadRow& info,
-    const HistoryService::DownloadCreateCallback& callback) {
+    const history::HistoryService::DownloadCreateCallback& callback) {
   history_->CreateDownload(info, callback);
 }
 
@@ -210,7 +212,7 @@ DownloadHistory::DownloadHistory(content::DownloadManager* manager,
     loading_id_(content::DownloadItem::kInvalidId),
     history_size_(0),
     weak_ptr_factory_(this) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   content::DownloadManager::DownloadVector items;
   notifier_.GetManager()->GetAllDownloads(&items);
   for (content::DownloadManager::DownloadVector::const_iterator
@@ -222,24 +224,24 @@ DownloadHistory::DownloadHistory(content::DownloadManager* manager,
 }
 
 DownloadHistory::~DownloadHistory() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   FOR_EACH_OBSERVER(Observer, observers_, OnDownloadHistoryDestroyed());
   observers_.Clear();
 }
 
 void DownloadHistory::AddObserver(DownloadHistory::Observer* observer) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   observers_.AddObserver(observer);
 }
 
 void DownloadHistory::RemoveObserver(DownloadHistory::Observer* observer) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   observers_.RemoveObserver(observer);
 }
 
 bool DownloadHistory::WasRestoredFromHistory(
     const content::DownloadItem* download) const {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   const DownloadHistoryData* data = DownloadHistoryData::Get(download);
 
   // The OnDownloadCreated handler sets the was_restored_from_history flag when
@@ -251,13 +253,13 @@ bool DownloadHistory::WasRestoredFromHistory(
 }
 
 void DownloadHistory::QueryCallback(scoped_ptr<InfoVector> infos) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   // ManagerGoingDown() may have happened before the history loaded.
   if (!notifier_.GetManager())
     return;
   for (InfoVector::const_iterator it = infos->begin();
        it != infos->end(); ++it) {
-    loading_id_ = it->id;
+    loading_id_ = history::ToContentDownloadId(it->id);
     content::DownloadItem* item = notifier_.GetManager()->CreateDownloadItem(
         loading_id_,
         it->current_path,
@@ -272,9 +274,9 @@ void DownloadHistory::QueryCallback(scoped_ptr<InfoVector> infos) {
         it->last_modified,
         it->received_bytes,
         it->total_bytes,
-        it->state,
-        it->danger_type,
-        it->interrupt_reason,
+        history::ToContentDownloadState(it->state),
+        history::ToContentDownloadDangerType(it->danger_type),
+        history::ToContentDownloadInterruptReason(it->interrupt_reason),
         it->opened);
 #if defined(ENABLE_EXTENSIONS)
     if (!it->by_ext_id.empty() && !it->by_ext_name.empty()) {
@@ -291,7 +293,7 @@ void DownloadHistory::QueryCallback(scoped_ptr<InfoVector> infos) {
 }
 
 void DownloadHistory::MaybeAddToHistory(content::DownloadItem* item) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   uint32 download_id = item->GetId();
   DownloadHistoryData* data = DownloadHistoryData::Get(item);
@@ -369,7 +371,7 @@ void DownloadHistory::ItemAdded(uint32 download_id, bool success) {
 
 void DownloadHistory::OnDownloadCreated(
     content::DownloadManager* manager, content::DownloadItem* item) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   // All downloads should pass through OnDownloadCreated exactly once.
   CHECK(!DownloadHistoryData::Get(item));
@@ -387,7 +389,7 @@ void DownloadHistory::OnDownloadCreated(
 
 void DownloadHistory::OnDownloadUpdated(
     content::DownloadManager* manager, content::DownloadItem* item) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   DownloadHistoryData* data = DownloadHistoryData::Get(item);
   if (data->state() == DownloadHistoryData::NOT_PERSISTED) {
@@ -422,7 +424,7 @@ void DownloadHistory::OnDownloadOpened(
 
 void DownloadHistory::OnDownloadRemoved(
     content::DownloadManager* manager, content::DownloadItem* item) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   DownloadHistoryData* data = DownloadHistoryData::Get(item);
   if (data->state() != DownloadHistoryData::PERSISTED) {
@@ -443,7 +445,7 @@ void DownloadHistory::OnDownloadRemoved(
 }
 
 void DownloadHistory::ScheduleRemoveDownload(uint32 download_id) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   // For database efficiency, batch removals together if they happen all at
   // once.
@@ -456,7 +458,7 @@ void DownloadHistory::ScheduleRemoveDownload(uint32 download_id) {
 }
 
 void DownloadHistory::RemoveDownloadsBatch() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   IdSet remove_ids;
   removing_ids_.swap(remove_ids);
   history_->RemoveDownloads(remove_ids);

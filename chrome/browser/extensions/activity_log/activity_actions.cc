@@ -27,10 +27,10 @@
 #include "content/public/browser/web_contents.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/dom_action_types.h"
-#include "sql/statement.h"
 #include "url/gurl.h"
 
 namespace constants = activity_log_constants;
+namespace activity_log = extensions::api::activity_log_private;
 
 namespace extensions {
 
@@ -191,7 +191,8 @@ std::string Action::SerializePageUrl() const {
 }
 
 void Action::ParsePageUrl(const std::string& url) {
-  set_page_incognito(StartsWithASCII(url, constants::kIncognitoUrl, true));
+  set_page_incognito(base::StartsWith(url, constants::kIncognitoUrl,
+                                      base::CompareCase::SENSITIVE));
   if (page_incognito())
     set_page_url(GURL(url.substr(strlen(constants::kIncognitoUrl))));
   else
@@ -203,7 +204,8 @@ std::string Action::SerializeArgUrl() const {
 }
 
 void Action::ParseArgUrl(const std::string& url) {
-  set_arg_incognito(StartsWithASCII(url, constants::kIncognitoUrl, true));
+  set_arg_incognito(base::StartsWith(url, constants::kIncognitoUrl,
+                                     base::CompareCase::SENSITIVE));
   if (arg_incognito())
     set_arg_url(GURL(url.substr(strlen(constants::kIncognitoUrl))));
   else
@@ -218,29 +220,30 @@ scoped_ptr<ExtensionActivity> Action::ConvertToExtensionActivity() {
   // without affecting the database.
   switch (action_type()) {
     case ACTION_API_CALL:
-      result->activity_type = ExtensionActivity::ACTIVITY_TYPE_API_CALL;
+      result->activity_type = activity_log::EXTENSION_ACTIVITY_TYPE_API_CALL;
       break;
     case ACTION_API_EVENT:
-      result->activity_type = ExtensionActivity::ACTIVITY_TYPE_API_EVENT;
+      result->activity_type = activity_log::EXTENSION_ACTIVITY_TYPE_API_EVENT;
       break;
     case ACTION_CONTENT_SCRIPT:
-      result->activity_type = ExtensionActivity::ACTIVITY_TYPE_CONTENT_SCRIPT;
+      result->activity_type =
+          activity_log::EXTENSION_ACTIVITY_TYPE_CONTENT_SCRIPT;
       break;
     case ACTION_DOM_ACCESS:
-      result->activity_type = ExtensionActivity::ACTIVITY_TYPE_DOM_ACCESS;
+      result->activity_type = activity_log::EXTENSION_ACTIVITY_TYPE_DOM_ACCESS;
       break;
     case ACTION_DOM_EVENT:
-      result->activity_type = ExtensionActivity::ACTIVITY_TYPE_DOM_EVENT;
+      result->activity_type = activity_log::EXTENSION_ACTIVITY_TYPE_DOM_EVENT;
       break;
     case ACTION_WEB_REQUEST:
-      result->activity_type = ExtensionActivity::ACTIVITY_TYPE_WEB_REQUEST;
+      result->activity_type = activity_log::EXTENSION_ACTIVITY_TYPE_WEB_REQUEST;
       break;
     case UNUSED_ACTION_API_BLOCKED:
     case ACTION_ANY:
     default:
       // This shouldn't be reached, but some people might have old or otherwise
       // weird db entries. Treat it like an API call if that happens.
-      result->activity_type = ExtensionActivity::ACTIVITY_TYPE_API_CALL;
+      result->activity_type = activity_log::EXTENSION_ACTIVITY_TYPE_API_CALL;
       break;
   }
 
@@ -282,31 +285,38 @@ scoped_ptr<ExtensionActivity> Action::ConvertToExtensionActivity() {
                                                 &dom_verb)) {
       switch (static_cast<DomActionType::Type>(dom_verb)) {
         case DomActionType::GETTER:
-          other_field->dom_verb = ExtensionActivity::Other::DOM_VERB_GETTER;
+          other_field->dom_verb =
+              activity_log::EXTENSION_ACTIVITY_DOM_VERB_GETTER;
           break;
         case DomActionType::SETTER:
-          other_field->dom_verb = ExtensionActivity::Other::DOM_VERB_SETTER;
+          other_field->dom_verb =
+              activity_log::EXTENSION_ACTIVITY_DOM_VERB_SETTER;
           break;
         case DomActionType::METHOD:
-          other_field->dom_verb = ExtensionActivity::Other::DOM_VERB_METHOD;
+          other_field->dom_verb =
+              activity_log::EXTENSION_ACTIVITY_DOM_VERB_METHOD;
           break;
         case DomActionType::INSERTED:
-          other_field->dom_verb = ExtensionActivity::Other::DOM_VERB_INSERTED;
+          other_field->dom_verb =
+              activity_log::EXTENSION_ACTIVITY_DOM_VERB_INSERTED;
           break;
         case DomActionType::XHR:
-          other_field->dom_verb = ExtensionActivity::Other::DOM_VERB_XHR;
+          other_field->dom_verb = activity_log::EXTENSION_ACTIVITY_DOM_VERB_XHR;
           break;
         case DomActionType::WEBREQUEST:
-          other_field->dom_verb = ExtensionActivity::Other::DOM_VERB_WEBREQUEST;
+          other_field->dom_verb =
+              activity_log::EXTENSION_ACTIVITY_DOM_VERB_WEBREQUEST;
           break;
         case DomActionType::MODIFIED:
-          other_field->dom_verb = ExtensionActivity::Other::DOM_VERB_MODIFIED;
+          other_field->dom_verb =
+              activity_log::EXTENSION_ACTIVITY_DOM_VERB_MODIFIED;
           break;
         default:
-          other_field->dom_verb = ExtensionActivity::Other::DOM_VERB_NONE;
+          other_field->dom_verb =
+              activity_log::EXTENSION_ACTIVITY_DOM_VERB_NONE;
       }
     } else {
-      other_field->dom_verb = ExtensionActivity::Other::DOM_VERB_NONE;
+      other_field->dom_verb = activity_log::EXTENSION_ACTIVITY_DOM_VERB_NONE;
     }
     result->other.reset(other_field.release());
   }

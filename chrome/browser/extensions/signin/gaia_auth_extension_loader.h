@@ -5,7 +5,11 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_SIGNIN_GAIA_AUTH_EXTENSION_LOADER_H_
 #define CHROME_BROWSER_EXTENSIONS_SIGNIN_GAIA_AUTH_EXTENSION_LOADER_H_
 
-#include "base/memory/scoped_ptr.h"
+#include <map>
+#include <string>
+
+#include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "extensions/browser/browser_context_keyed_api_factory.h"
 
 namespace content {
@@ -28,6 +32,16 @@ class GaiaAuthExtensionLoader : public BrowserContextKeyedAPI {
   void LoadIfNeeded();
   // Unload the gaia auth extension if no pending reference.
   void UnloadIfNeeded();
+  void UnloadIfNeededAsync();
+
+  // Add a string data for gaia auth extension. Returns an ID that
+  // could be used to get the data. All strings are cleared when gaia auth
+  // is unloaded.
+  int AddData(const std::string& data);
+
+  // Get data for the given ID. Returns true if the data is found and
+  // its value is copied to |data|. Otherwise, returns false.
+  bool GetData(int data_id, std::string* data);
 
   static GaiaAuthExtensionLoader* Get(content::BrowserContext* context);
 
@@ -49,6 +63,11 @@ class GaiaAuthExtensionLoader : public BrowserContextKeyedAPI {
 
   content::BrowserContext* browser_context_;
   int load_count_;
+
+  int last_data_id_;
+  std::map<int, std::string> data_;
+
+  base::WeakPtrFactory<GaiaAuthExtensionLoader> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(GaiaAuthExtensionLoader);
 };

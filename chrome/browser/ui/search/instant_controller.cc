@@ -30,10 +30,6 @@
 #include "net/base/network_change_notifier.h"
 #include "url/gurl.h"
 
-#if defined(TOOLKIT_VIEWS)
-#include "ui/views/widget/widget.h"
-#endif
-
 namespace {
 
 bool IsContentsFrom(const InstantPage* page,
@@ -56,15 +52,16 @@ void EnsureSearchTermsAreSet(content::WebContents* contents,
     return;
 
   const content::NavigationEntry* entry = controller->GetLastCommittedEntry();
-  content::NavigationEntry* transient = controller->CreateNavigationEntry(
-      entry->GetURL(),
-      entry->GetReferrer(),
-      entry->GetTransitionType(),
-      false,
-      std::string(),
-      contents->GetBrowserContext());
+  scoped_ptr<content::NavigationEntry> transient =
+      controller->CreateNavigationEntry(
+          entry->GetURL(),
+          entry->GetReferrer(),
+          entry->GetTransitionType(),
+          false,
+          std::string(),
+          contents->GetBrowserContext());
   transient->SetExtraData(sessions::kSearchTermsKey, search_terms);
-  controller->SetTransientEntry(transient);
+  controller->SetTransientEntry(transient.Pass());
 
   SearchTabHelper::FromWebContents(contents)->NavigationEntryUpdated();
 }

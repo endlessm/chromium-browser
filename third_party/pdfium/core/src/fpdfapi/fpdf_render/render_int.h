@@ -1,15 +1,20 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _FPDF_PAGEOBJ_H_
+#ifndef CORE_SRC_FPDFAPI_FPDF_RENDER_RENDER_INT_H_
+#define CORE_SRC_FPDFAPI_FPDF_RENDER_RENDER_INT_H_
+
+#include <map>
+
+#include "../../../../third_party/base/nonstd_unique_ptr.h"
 #include "../../../include/fpdfapi/fpdf_pageobj.h"
-#endif
+
 class CPDF_QuickStretcher;
 #define TYPE3_MAX_BLUES		16
-class CPDF_Type3Glyphs : public CFX_Object
+class CPDF_Type3Glyphs
 {
 public:
     CPDF_Type3Glyphs()
@@ -25,7 +30,7 @@ public:
     int						m_TopBlueCount, m_BottomBlueCount;
 };
 class CFX_GlyphBitmap;
-class CPDF_Type3Cache : public CFX_Object
+class CPDF_Type3Cache
 {
 public:
     CPDF_Type3Cache(CPDF_Type3Font* pFont)
@@ -39,24 +44,22 @@ protected:
     CPDF_Type3Font*			m_pFont;
     CFX_MapByteStringToPtr	m_SizeMap;
 };
-class CPDF_TransferFunc : public CFX_Object
+class CPDF_TransferFunc
 {
 public:
     CPDF_Document*	m_pPDFDoc;
-    FX_BYTE			m_Samples[256 * 3];
+    uint8_t			m_Samples[256 * 3];
     FX_BOOL			m_bIdentity;
 
     CFX_DIBSource*	TranslateImage(const CFX_DIBSource* pSrc, FX_BOOL bAutoDropSrc);
     FX_COLORREF		TranslateColor(FX_COLORREF src);
 };
-typedef CFX_MapPtrTemplate<CPDF_Font*, CPDF_CountedObject<CPDF_Type3Cache*>*> CPDF_Type3CacheMap;
-typedef CFX_MapPtrTemplate<CPDF_Object*, CPDF_CountedObject<CPDF_TransferFunc*>*> CPDF_TransferFuncMap;
-class CPDF_DocRenderData : public CFX_Object
+
+class CPDF_DocRenderData
 {
 public:
     CPDF_DocRenderData(CPDF_Document* pPDFDoc = NULL);
     ~CPDF_DocRenderData();
-    FX_BOOL				Initialize();
     CPDF_Type3Cache*	GetCachedType3(CPDF_Type3Font* pFont);
     CPDF_TransferFunc*	GetTransferFunc(CPDF_Object* pObj);
     CFX_FontCache*		GetFontCache()
@@ -67,10 +70,15 @@ public:
     void				ReleaseCachedType3(CPDF_Type3Font* pFont);
     void				ReleaseTransferFunc(CPDF_Object* pObj);
 private:
-    CPDF_Document*		m_pPDFDoc;
-    CFX_FontCache*		m_pFontCache;
-    CPDF_Type3CacheMap	m_Type3FaceMap;
-    CPDF_TransferFuncMap	m_TransferFuncMap;
+    using CPDF_Type3CacheMap =
+        std::map<CPDF_Font*, CPDF_CountedObject<CPDF_Type3Cache>*>;
+    using CPDF_TransferFuncMap =
+        std::map<CPDF_Object*, CPDF_CountedObject<CPDF_TransferFunc>*> ;
+
+    CPDF_Document* m_pPDFDoc;
+    CFX_FontCache* m_pFontCache;
+    CPDF_Type3CacheMap m_Type3FaceMap;
+    CPDF_TransferFuncMap m_TransferFuncMap;
 };
 struct _PDF_RenderItem {
 public:
@@ -78,7 +86,7 @@ public:
     CFX_AffineMatrix			m_Matrix;
 };
 typedef CFX_ArrayTemplate<_PDF_RenderItem>	CPDF_RenderLayer;
-class IPDF_ObjectRenderer : public CFX_Object
+class IPDF_ObjectRenderer
 {
 public:
     static IPDF_ObjectRenderer* Create(int type);
@@ -87,12 +95,12 @@ public:
     virtual FX_BOOL Continue(IFX_Pause* pPause) = 0;
     FX_BOOL		m_Result;
 };
-class CPDF_RenderStatus : public CFX_Object
+class CPDF_RenderStatus
 {
 public:
     CPDF_RenderStatus();
     ~CPDF_RenderStatus();
-    FX_BOOL			Initialize(int level, class CPDF_RenderContext* pContext, CFX_RenderDevice* pDevice, const CFX_AffineMatrix* pDeviceMatrix,
+    FX_BOOL			Initialize(class CPDF_RenderContext* pContext, CFX_RenderDevice* pDevice, const CFX_AffineMatrix* pDeviceMatrix,
                                const CPDF_PageObject* pStopObj, const CPDF_RenderStatus* pParentStatus,
                                const CPDF_GraphicStates* pInitialStates, const CPDF_RenderOptions* pOptions,
                                int transparency, FX_BOOL bDropObjects, CPDF_Dictionary* pFormResource = NULL,
@@ -131,7 +139,6 @@ protected:
                                     const CFX_AffineMatrix* pImage2Device, CPDF_ImageCache* pImageCache, FX_DWORD flags);
     void			CompositeDIBitmap(CFX_DIBitmap* pDIBitmap, int left, int top, FX_ARGB mask_argb,
                                       int bitmap_alpha, int blend_mode, int bIsolated);
-    FX_BOOL			ProcessInlines(CPDF_InlineImages* pInlines, const CFX_AffineMatrix* pObj2Device);
     FX_BOOL			ProcessShading(CPDF_ShadingObject* pShadingObj, const CFX_AffineMatrix* pObj2Device);
     void			DrawShading(CPDF_ShadingPattern* pPattern, CFX_AffineMatrix* pMatrix, FX_RECT& clip_rect,
                                 int alpha, FX_BOOL bAlphaMode);
@@ -155,8 +162,11 @@ protected:
     void			DitherObjectArea(const CPDF_PageObject* pObj, const CFX_AffineMatrix* pObj2Device);
     FX_BOOL			GetObjectClippedRect(const CPDF_PageObject* pObj, const CFX_AffineMatrix* pObj2Device, FX_BOOL bLogical, FX_RECT &rect) const;
     void			GetScaledMatrix(CFX_Matrix &matrix) const;
+
 protected:
-    int						m_Level;
+    static const int kRenderMaxRecursionDepth = 64;
+    static int s_CurrentRecursionDepth;
+
     CFX_RenderDevice*		m_pDevice;
     CFX_AffineMatrix		m_DeviceMatrix;
     CPDF_ClipPath			m_LastClipPath;
@@ -176,7 +186,7 @@ protected:
     FX_ARGB					m_T3FillColor;
     int                     m_curBlend;
 };
-class CPDF_ImageLoader : public CFX_Object
+class CPDF_ImageLoader
 {
 public:
     CPDF_ImageLoader()
@@ -191,31 +201,31 @@ public:
 
     FX_BOOL					Load(const CPDF_ImageObject* pImage, CPDF_PageRenderCache* pCache, FX_BOOL bStdCS = FALSE, FX_DWORD GroupFamily = 0, FX_BOOL bLoadMask = FALSE, CPDF_RenderStatus* pRenderStatus = NULL);
 
-    FX_BOOL					StartLoadImage(const CPDF_ImageObject* pImage, CPDF_PageRenderCache* pCache, FX_LPVOID& LoadHandle, FX_BOOL bStdCS = FALSE, FX_DWORD GroupFamily = 0, FX_BOOL bLoadMask = FALSE, CPDF_RenderStatus* pRenderStatus = NULL, FX_INT32 nDownsampleWidth = 0, FX_INT32 nDownsampleHeight = 0);
-    FX_BOOL					Continue(FX_LPVOID LoadHandle, IFX_Pause* pPause);
+    FX_BOOL					StartLoadImage(const CPDF_ImageObject* pImage, CPDF_PageRenderCache* pCache, void*& LoadHandle, FX_BOOL bStdCS = FALSE, FX_DWORD GroupFamily = 0, FX_BOOL bLoadMask = FALSE, CPDF_RenderStatus* pRenderStatus = NULL, int32_t nDownsampleWidth = 0, int32_t nDownsampleHeight = 0);
+    FX_BOOL					Continue(void* LoadHandle, IFX_Pause* pPause);
     ~CPDF_ImageLoader();
     CFX_DIBSource*			m_pBitmap;
     CFX_DIBSource*			m_pMask;
     FX_DWORD				m_MatteColor;
     FX_BOOL					m_bCached;
 protected:
-    FX_INT32                m_nDownsampleWidth;
-    FX_INT32                m_nDownsampleHeight;
+    int32_t                m_nDownsampleWidth;
+    int32_t                m_nDownsampleHeight;
 };
-class CPDF_ProgressiveImageLoaderHandle : public CFX_Object
+class CPDF_ProgressiveImageLoaderHandle
 {
 public:
     CPDF_ProgressiveImageLoaderHandle();
     ~CPDF_ProgressiveImageLoaderHandle();
 
-    FX_BOOL			Start(CPDF_ImageLoader* pImageLoader, const CPDF_ImageObject* pImage, CPDF_PageRenderCache* pCache, FX_BOOL bStdCS = FALSE, FX_DWORD GroupFamily = 0, FX_BOOL bLoadMask = FALSE, CPDF_RenderStatus* pRenderStatus = NULL, FX_INT32 nDownsampleWidth = 0, FX_INT32 nDownsampleHeight = 0);
+    FX_BOOL			Start(CPDF_ImageLoader* pImageLoader, const CPDF_ImageObject* pImage, CPDF_PageRenderCache* pCache, FX_BOOL bStdCS = FALSE, FX_DWORD GroupFamily = 0, FX_BOOL bLoadMask = FALSE, CPDF_RenderStatus* pRenderStatus = NULL, int32_t nDownsampleWidth = 0, int32_t nDownsampleHeight = 0);
     FX_BOOL			Continue(IFX_Pause* pPause);
 protected:
     CPDF_ImageLoader*	m_pImageLoader;
     CPDF_PageRenderCache* m_pCache;
     CPDF_ImageObject* m_pImage;
-    FX_INT32            m_nDownsampleWidth;
-    FX_INT32            m_nDownsampleHeight;
+    int32_t            m_nDownsampleWidth;
+    int32_t            m_nDownsampleHeight;
 };
 class CFX_ImageTransformer;
 class CPDF_ImageRenderer : public IPDF_ObjectRenderer
@@ -244,8 +254,8 @@ protected:
     CPDF_QuickStretcher*	m_pQuickStretcher;
     CFX_ImageTransformer*	m_pTransformer;
     CPDF_ImageRenderer*	m_pRenderer2;
-    FX_LPVOID			m_DeviceHandle;
-    FX_LPVOID           m_LoadHandle;
+    void*			m_DeviceHandle;
+    void*           m_LoadHandle;
     FX_BOOL				m_bStdCS;
     int					m_BlendType;
     FX_BOOL				StartBitmapAlpha();
@@ -255,7 +265,7 @@ protected:
     FX_BOOL				DrawMaskedImage();
     FX_BOOL				DrawPatternImage(const CFX_Matrix* pObj2Device);
 };
-class CPDF_ScaledRenderBuffer : public CFX_Object
+class CPDF_ScaledRenderBuffer
 {
 public:
     CPDF_ScaledRenderBuffer();
@@ -280,7 +290,7 @@ private:
     CFX_AffineMatrix	m_Matrix;
 };
 class ICodec_ScanlineDecoder;
-class CPDF_QuickStretcher : public CFX_Object
+class CPDF_QuickStretcher
 {
 public:
     CPDF_QuickStretcher();
@@ -297,7 +307,7 @@ public:
     CPDF_StreamAcc m_StreamAcc;
     int			m_LineIndex;
 };
-class CPDF_DeviceBuffer : public CFX_Object
+class CPDF_DeviceBuffer
 {
 public:
     CPDF_DeviceBuffer();
@@ -321,7 +331,7 @@ private:
     CFX_DIBitmap*		m_pBitmap;
     CFX_AffineMatrix	m_Matrix;
 };
-class CPDF_ImageCache : public CFX_Object
+class CPDF_ImageCache
 {
 public:
     CPDF_ImageCache(CPDF_Document* pDoc, CPDF_Stream* pStream);
@@ -330,7 +340,7 @@ public:
     void				Reset(const CFX_DIBitmap* pBitmap);
     FX_BOOL				GetCachedBitmap(CFX_DIBSource*& pBitmap, CFX_DIBSource*& pMask, FX_DWORD& MatteColor, CPDF_Dictionary* pPageResources,
                                         FX_BOOL bStdCS = FALSE, FX_DWORD GroupFamily = 0, FX_BOOL bLoadMask = FALSE,
-                                        CPDF_RenderStatus* pRenderStatus = NULL, FX_INT32 downsampleWidth = 0, FX_INT32 downsampleHeight = 0);
+                                        CPDF_RenderStatus* pRenderStatus = NULL, int32_t downsampleWidth = 0, int32_t downsampleHeight = 0);
     FX_DWORD			EstimateSize() const
     {
         return m_dwCacheSize;
@@ -351,7 +361,7 @@ public:
 public:
     int					StartGetCachedBitmap(CPDF_Dictionary* pFormResources, CPDF_Dictionary* pPageResources,
             FX_BOOL bStdCS = FALSE, FX_DWORD GroupFamily = 0,
-            FX_BOOL bLoadMask = FALSE, CPDF_RenderStatus* pRenderStatus = NULL, FX_INT32 downsampleWidth = 0, FX_INT32 downsampleHeight = 0);
+            FX_BOOL bLoadMask = FALSE, CPDF_RenderStatus* pRenderStatus = NULL, int32_t downsampleWidth = 0, int32_t downsampleHeight = 0);
     int					Continue(IFX_Pause* pPause);
     int 				ContinueGetCachedBitmap();
     CFX_DIBSource*		DetachBitmap();
@@ -384,9 +394,9 @@ public:
                              CPDF_Dictionary* pFormResources, CPDF_Dictionary* pPageResources,
                              FX_BOOL bStdCS = FALSE, FX_DWORD GroupFamily = 0, FX_BOOL bLoadMask = FALSE);
     virtual FX_BOOL		SkipToScanline(int line, IFX_Pause* pPause) const;
-    virtual	FX_LPBYTE	GetBuffer() const;
-    virtual FX_LPCBYTE	GetScanline(int line) const;
-    virtual void		DownSampleScanline(int line, FX_LPBYTE dest_scan, int dest_bpp,
+    virtual	uint8_t*	GetBuffer() const;
+    virtual const uint8_t*	GetScanline(int line) const;
+    virtual void		DownSampleScanline(int line, uint8_t* dest_scan, int dest_bpp,
                                            int dest_width, FX_BOOL bFlipX, int clip_left, int clip_width) const;
     virtual void		SetDownSampleSize(int dest_width, int dest_height) const;
     CFX_DIBitmap*		GetBitmap() const;
@@ -404,7 +414,7 @@ public:
     CPDF_DIBSource*		DetachMask();
     CPDF_DIBSource*		m_pMask;
     FX_DWORD			m_MatteColor;
-    FX_LPVOID			m_pJbig2Context;
+    void*			m_pJbig2Context;
     CPDF_StreamAcc*		m_pGlobalStream;
     FX_BOOL				m_bStdCS;
     int					m_Status;
@@ -416,30 +426,32 @@ protected:
     CPDF_DIBSource*		LoadMask(FX_DWORD& MatteColor);
     CPDF_DIBSource*		LoadMaskDIB(CPDF_Stream* pMask);
     void				LoadJpxBitmap();
-    void				LoadJbig2Bitmap();
     void				LoadPalette();
-    FX_BOOL				CreateDecoder();
-    void				TranslateScanline24bpp(FX_LPBYTE dest_scan, FX_LPCBYTE src_scan) const;
+    int					CreateDecoder();
+    void				TranslateScanline24bpp(uint8_t* dest_scan, const uint8_t* src_scan) const;
     void                ValidateDictParam();
     CPDF_Document*		m_pDocument;
     const CPDF_Stream*	m_pStream;
     CPDF_StreamAcc*		m_pStreamAcc;
     const CPDF_Dictionary*	m_pDict;
     CPDF_ColorSpace*	m_pColorSpace;
-    FX_DWORD			m_Family, m_bpc, m_bpc_orig, m_nComponents, m_GroupFamily;
+    FX_DWORD			m_Family;
+    FX_DWORD			m_bpc;
+    FX_DWORD			m_bpc_orig;
+    FX_DWORD			m_nComponents;
+    FX_DWORD			m_GroupFamily;
     FX_BOOL				m_bLoadMask;
-    FX_BOOL				m_bDefaultDecode, m_bImageMask, m_bColorKey;
+    FX_BOOL				m_bDefaultDecode;
+    FX_BOOL				m_bImageMask;
+    FX_BOOL				m_bDoBpcCheck;
+    FX_BOOL				m_bColorKey;
     DIB_COMP_DATA*		m_pCompData;
-    FX_LPBYTE			m_pLineBuf;
-    FX_LPBYTE			m_pMaskedLine;
-    CFX_DIBitmap*		m_pCachedBitmap;
+    uint8_t*			m_pLineBuf;
+    uint8_t*			m_pMaskedLine;
+    nonstd::unique_ptr<CFX_DIBitmap> m_pCachedBitmap;
     ICodec_ScanlineDecoder*	m_pDecoder;
 };
-#ifdef _FPDFAPI_MINI_
-#define FPDF_HUGE_IMAGE_SIZE	3000000
-#else
 #define FPDF_HUGE_IMAGE_SIZE	60000000
-#endif
 class CPDF_DIBTransferFunc : public CFX_FilteredDIB
 {
 public:
@@ -449,14 +461,16 @@ public:
     {
         return NULL;
     }
-    virtual void			TranslateScanline(FX_LPBYTE dest_buf, FX_LPCBYTE src_buf) const;
-    virtual void			TranslateDownSamples(FX_LPBYTE dest_buf, FX_LPCBYTE src_buf, int pixels, int Bpp) const;
-    FX_LPCBYTE				m_RampR;
-    FX_LPCBYTE				m_RampG;
-    FX_LPCBYTE				m_RampB;
+    virtual void			TranslateScanline(uint8_t* dest_buf, const uint8_t* src_buf) const;
+    virtual void			TranslateDownSamples(uint8_t* dest_buf, const uint8_t* src_buf, int pixels, int Bpp) const;
+    const uint8_t*				m_RampR;
+    const uint8_t*				m_RampG;
+    const uint8_t*				m_RampB;
 };
 struct _CPDF_UniqueKeyGen {
     void		Generate(int count, ...);
     FX_CHAR		m_Key[128];
     int			m_KeyLen;
 };
+
+#endif  // CORE_SRC_FPDFAPI_FPDF_RENDER_RENDER_INT_H_

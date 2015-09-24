@@ -140,19 +140,17 @@ class PluginChannel::MessageFilter : public IPC::MessageFilter {
 };
 
 PluginChannel* PluginChannel::GetPluginChannel(
-    int renderer_id, base::MessageLoopProxy* ipc_message_loop) {
+    int renderer_id,
+    base::SingleThreadTaskRunner* ipc_task_runner,
+    IPC::AttachmentBroker* broker) {
   // Map renderer ID to a (single) channel to that process.
   std::string channel_key = base::StringPrintf(
       "%d.r%d", base::GetCurrentProcId(), renderer_id);
 
   PluginChannel* channel =
       static_cast<PluginChannel*>(NPChannelBase::GetChannel(
-          channel_key,
-          IPC::Channel::MODE_SERVER,
-          ClassFactory,
-          ipc_message_loop,
-          false,
-          ChildProcess::current()->GetShutDownEvent()));
+          channel_key, IPC::Channel::MODE_SERVER, ClassFactory, ipc_task_runner,
+          false, ChildProcess::current()->GetShutDownEvent(), broker));
 
   if (channel)
     channel->renderer_id_ = renderer_id;
@@ -226,11 +224,14 @@ void PluginChannel::CleanUp() {
   }
 }
 
-bool PluginChannel::Init(base::MessageLoopProxy* ipc_message_loop,
+bool PluginChannel::Init(base::SingleThreadTaskRunner* ipc_task_runner,
                          bool create_pipe_now,
-                         base::WaitableEvent* shutdown_event) {
-  if (!NPChannelBase::Init(ipc_message_loop, create_pipe_now, shutdown_event))
+                         base::WaitableEvent* shutdown_event,
+                         IPC::AttachmentBroker* broker) {
+  if (!NPChannelBase::Init(ipc_task_runner, create_pipe_now, shutdown_event,
+                           broker)) {
     return false;
+  }
 
   channel_->AddFilter(filter_.get());
   return true;
@@ -243,7 +244,8 @@ PluginChannel::PluginChannel()
       filter_(new MessageFilter()),
       npp_(new struct _NPP) {
   set_send_unblocking_only_during_unblock_dispatch();
-  const CommandLine* command_line = CommandLine::ForCurrentProcess();
+  const base::CommandLine* command_line =
+      base::CommandLine::ForCurrentProcess();
   log_messages_ = command_line->HasSwitch(switches::kLogPluginMessages);
 
   // Register |npp_| as the default owner for any object we receive via IPC,
@@ -315,7 +317,7 @@ void PluginChannel::OnClearSiteData(const std::string& site,
                                     uint64 flags,
                                     uint64 max_age) {
   bool success = false;
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   base::FilePath path = command_line->GetSwitchValuePath(switches::kPluginPath);
   scoped_refptr<PluginLib> plugin_lib(PluginLib::CreatePluginLib(path));
   if (plugin_lib.get()) {

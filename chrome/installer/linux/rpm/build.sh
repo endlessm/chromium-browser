@@ -99,9 +99,7 @@ do_package() {
 
   # Use find-requires script to make sure the dependencies are complete
   # (especially libc and libstdc++ versions).
-  # - Filter out udev to avoid libudev.so.0 vs. libudev.so.1 mismatches.
-  DETECTED_DEPENDS="$(echo "${BUILDDIR}/chrome" | /usr/lib/rpm/find-requires |
-      grep -v udev)"
+  DETECTED_DEPENDS="$(echo "${BUILDDIR}/chrome" | /usr/lib/rpm/find-requires)"
 
   # Compare the expected dependency list to the generated list.
   BAD_DIFF=0
@@ -148,7 +146,7 @@ do_package() {
   # compression, symbol stripping, etc. that we want.
   fakeroot rpmbuild -bb --target="$ARCHITECTURE" --rmspec \
     --define "_topdir $RPMBUILD_DIR" \
-    --define "_binary_payload w9.bzdio" \
+    --define "_binary_payload w9.xzdio" \
     --define "__os_install_post  %{nil}" \
     "${SPEC}"
   PKGNAME="${PACKAGE}-${CHANNEL}-${VERSION}-${PACKAGE_RELEASE}"
@@ -283,6 +281,7 @@ eval $(sed -e "s/^\([^=]\+\)=\(.*\)$/export \1='\2'/" \
   "${BUILDDIR}/installer/theme/BRANDING")
 
 REPOCONFIG="http://dl.google.com/linux/${PACKAGE#google-}/rpm/stable"
+SSLREPOCONFIG="https://dl.google.com/linux/${PACKAGE#google-}/rpm/stable"
 verify_channel
 export USR_BIN_SYMLINK_NAME="${PACKAGE}-${CHANNEL}"
 

@@ -170,7 +170,7 @@ void AppendPublicKeyHashes(X509_STORE_CTX* store_ctx,
       continue;
 
     HashValue sha1(HASH_VALUE_SHA1);
-    base::SHA1HashBytes(reinterpret_cast<const uint8*>(spki_bytes.data()),
+    base::SHA1HashBytes(reinterpret_cast<const uint8_t*>(spki_bytes.data()),
                         spki_bytes.size(), sha1.data());
     hashes->push_back(sha1);
 
@@ -190,9 +190,14 @@ bool CertVerifyProcOpenSSL::SupportsAdditionalTrustAnchors() const {
   return false;
 }
 
+bool CertVerifyProcOpenSSL::SupportsOCSPStapling() const {
+  return false;
+}
+
 int CertVerifyProcOpenSSL::VerifyInternal(
     X509Certificate* cert,
     const std::string& hostname,
+    const std::string& ocsp_response,
     int flags,
     CRLSet* crl_set,
     const CertificateList& additional_trust_anchors,
@@ -204,10 +209,10 @@ int CertVerifyProcOpenSSL::VerifyInternal(
     verify_result->cert_status |= CERT_STATUS_COMMON_NAME_INVALID;
   }
 
-  crypto::ScopedOpenSSL<X509_STORE_CTX, X509_STORE_CTX_free>::Type ctx(
+  crypto::ScopedOpenSSL<X509_STORE_CTX, X509_STORE_CTX_free> ctx(
       X509_STORE_CTX_new());
 
-  crypto::ScopedOpenSSL<STACK_OF(X509), sk_X509_free_fn>::Type intermediates(
+  crypto::ScopedOpenSSL<STACK_OF(X509), sk_X509_free_fn> intermediates(
       sk_X509_new_null());
   if (!intermediates.get())
     return ERR_OUT_OF_MEMORY;

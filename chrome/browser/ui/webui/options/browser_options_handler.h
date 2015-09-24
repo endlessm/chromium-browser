@@ -16,14 +16,15 @@
 #include "base/prefs/pref_member.h"
 #include "base/scoped_observer.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_info_cache_observer.h"
 #include "chrome/browser/shell_integration.h"
-#include "chrome/browser/sync/profile_sync_service_observer.h"
 #include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/webui/options/options_ui.h"
 #include "chrome/browser/ui/zoom/chrome_zoom_level_prefs.h"
 #include "components/policy/core/common/policy_service.h"
 #include "components/search_engines/template_url_service_observer.h"
 #include "components/signin/core/browser/signin_manager_base.h"
+#include "components/sync_driver/sync_service_observer.h"
 #include "content/public/browser/notification_observer.h"
 #include "extensions/browser/extension_registry_observer.h"
 #include "google_apis/gaia/google_service_auth_error.h"
@@ -53,7 +54,8 @@ namespace options {
 // Chrome browser options page UI handler.
 class BrowserOptionsHandler
     : public OptionsPageUIHandler,
-      public ProfileSyncServiceObserver,
+      public ProfileInfoCacheObserver,
+      public sync_driver::SyncServiceObserver,
       public SigninManagerBase::Observer,
       public ui::SelectFileDialog::Listener,
       public ShellIntegration::DefaultWebClientObserver,
@@ -77,7 +79,7 @@ class BrowserOptionsHandler
   void RegisterMessages() override;
   void Uninitialize() override;
 
-  // ProfileSyncServiceObserver implementation.
+  // sync_driver::SyncServiceObserver implementation.
   void OnStateChanged() override;
 
   // SigninManagerBase::Observer implementation.
@@ -113,6 +115,14 @@ class BrowserOptionsHandler
                const content::NotificationSource& source,
                const content::NotificationDetails& details) override;
 
+ // ProfileInfoCacheObserver implementation.
+ void OnProfileAdded(const base::FilePath& profile_path) override;
+ void OnProfileWasRemoved(const base::FilePath& profile_path,
+                          const base::string16& profile_name) override;
+ void OnProfileNameChanged(const base::FilePath& profile_path,
+                           const base::string16& old_profile_name) override;
+ void OnProfileAvatarChanged(const base::FilePath& profile_path) override;
+
 #if defined(ENABLE_PRINT_PREVIEW) && !defined(OS_CHROMEOS)
   void OnCloudPrintPrefsChanged();
 #endif
@@ -124,8 +134,8 @@ class BrowserOptionsHandler
 
 #if defined(OS_CHROMEOS)
   // PointerDeviceObserver::Observer implementation.
-  virtual void TouchpadExists(bool exists) override;
-  virtual void MouseExists(bool exists) override;
+  void TouchpadExists(bool exists) override;
+  void MouseExists(bool exists) override;
 
   // Will be called when the policy::key::kUserAvatarImage policy changes.
   void OnUserImagePolicyChanged(const base::Value* previous_policy,
@@ -139,7 +149,7 @@ class BrowserOptionsHandler
   void OnPowerwashDialogShow(const base::ListValue* args);
 
   // ConsumerManagementService::Observer:
-  virtual void OnConsumerManagementStatusChanged() override;
+  void OnConsumerManagementStatusChanged() override;
 #endif
 
   void UpdateSyncState();
@@ -226,6 +236,11 @@ class BrowserOptionsHandler
   // |false| and preventing the user from changing the wallpaper if |managed| is
   // |true|.
   void OnWallpaperManagedChanged(bool managed);
+
+  // Updates the UI, allowing the user to change the system time zone if
+  // kSystemTimezonePolicy is set, and preventing the user from changing the
+  // system time zone if kSystemTimezonePolicy is not set.
+  void OnSystemTimezonePolicyChanged();
 #endif
 
   // Callback for the "selectDownloadLocation" message. This will prompt the
@@ -266,7 +281,7 @@ class BrowserOptionsHandler
   void ShowNetworkProxySettings(const base::ListValue* args);
 #endif
 
-#if !defined(USE_NSS)
+#if !defined(USE_NSS_CERTS)
   // Callback for the "showManageSSLCertificates" message. This will invoke
   // an appropriate certificate management action based on the platform.
   void ShowManageSSLCertificates(const base::ListValue* args);
@@ -285,11 +300,21 @@ class BrowserOptionsHandler
   // the hotword section of the settings page.
   void SendHotwordAvailable();
 
+  // Callback that updates the visibility of the audio history upon completion
+  // of a call to the server to the get the current value.
+  void SetHotwordAudioHistorySectionVisible(
+      const base::string16& audio_history_state,
+      bool success,
+      bool logging_enabled);
+
   // Callback for "requestHotwordAvailable" message.
   void HandleRequestHotwordAvailable(const base::ListValue* args);
 
   // Callback for "launchHotwordAudioVerificationApp" message.
   void HandleLaunchHotwordAudioVerificationApp(const base::ListValue* args);
+
+  // Callback for "requestGoogleNowAvailable" message.
+  void HandleRequestGoogleNowAvailable(const base::ListValue* args);
 
   // Callback for "launchEasyUnlockSetup" message.
   void HandleLaunchEasyUnlockSetup(const base::ListValue* args);

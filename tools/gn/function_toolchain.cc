@@ -114,6 +114,25 @@ bool ReadOutputExtension(Scope* scope, Tool* tool, Err* err) {
   return true;
 }
 
+bool ReadPrecompiledHeaderType(Scope* scope, Tool* tool, Err* err) {
+  const Value* value = scope->GetValue("precompiled_header_type", true);
+  if (!value)
+    return true;  // Not present is fine.
+  if (!value->VerifyTypeIs(Value::STRING, err))
+    return false;
+
+  if (value->string_value().empty())
+    return true;  // Accept empty string, do nothing (default is "no PCH").
+
+  if (value->string_value() == "msvc") {
+    tool->set_precompiled_header_type(Tool::PCH_MSVC);
+    return true;
+  }
+  *err = Err(*value, "Invalid precompiled_header_type",
+             "Must either be empty or \"msvc\".");
+  return false;
+}
+
 bool ReadDepsFormat(Scope* scope, Tool* tool, Err* err) {
   const Value* value = scope->GetValue("depsformat", true);
   if (!value)
@@ -266,7 +285,7 @@ const char kToolchain_Help[] =
     "    concurrent_links = 8\n"
     "\n"
     "    tool(\"cc\") {\n"
-    "      command = \"gcc $in\"\n"
+    "      command = \"gcc {{source}}\"\n"
     "      ...\n"
     "    }\n"
     "\n"
@@ -292,7 +311,7 @@ Value RunToolchain(Scope* scope,
   const SourceDir& input_dir = scope->GetSourceDir();
   Label label(input_dir, args[0].string_value());
   if (g_scheduler->verbose_logging())
-    g_scheduler->Log("Definining toolchain", label.GetUserVisibleName(false));
+    g_scheduler->Log("Defining toolchain", label.GetUserVisibleName(false));
 
   // This object will actually be copied into the one owned by the toolchain
   // manager, but that has to be done in the lock.
@@ -302,8 +321,8 @@ Value RunToolchain(Scope* scope,
 
   Scope block_scope(scope);
   block_scope.SetProperty(&kToolchainPropertyKey, toolchain.get());
-  block->ExecuteBlockInScope(&block_scope, err);
-  block_scope.SetProperty(&kToolchainPropertyKey, NULL);
+  block->Execute(&block_scope, err);
+  block_scope.SetProperty(&kToolchainPropertyKey, nullptr);
   if (err->has_error())
     return Value();
 
@@ -503,6 +522,20 @@ const char kTool_Help[] =
     "        Posix systems:\n"
     "          output_prefix = \"lib\"\n"
     "\n"
+    "    precompiled_header_type  [string]\n"
+    "        Valid for: \"cc\", \"cxx\", \"objc\", \"objcxx\"\n"
+    "\n"
+    "        Type of precompiled headers. If undefined or the empty string,\n"
+    "        precompiled headers will not be used for this tool. Otherwise\n"
+    "        use \"msvc\" which is the only currently supported value.\n"
+    "\n"
+    "        For precompiled headers to be used for a given target, the\n"
+    "        target (or a config applied to it) must also specify a\n"
+    "        \"precompiled_header\" and, for \"msvc\"-style headers, a\n"
+    "        \"precompiled_source\" value.\n"
+    "\n"
+    "        See \"gn help precompiled_header\" for more.\n"
+    "\n"
     "    restat  [boolean]\n"
     "        Valid for: all tools (optional, defaults to false)\n"
     "\n"
@@ -540,7 +573,7 @@ const char kTool_Help[] =
     "            rspfile_content = \"{{inputs}} {{solibs}} {{libs}}\"\n"
     "          }\n"
     "\n"
-    "Expansions for tool variables"
+    "Expansions for tool variables\n"
     "\n"
     "  All paths are relative to the root build directory, which is the\n"
     "  current directory for running all tools. These expansions are\n"
@@ -553,7 +586,7 @@ const char kTool_Help[] =
     "        will be included for targets in other toolchains.\n"
     "\n"
     "    {{output}}\n"
-    "        The relative path and name of the output)((s) of the current\n"
+    "        The relative path and name of the output(s) of the current\n"
     "        build step. If there is more than one output, this will expand\n"
     "        to a list of all of them.\n"
     "        Example: \"out/base/my_file.o\"\n"
@@ -631,7 +664,7 @@ const char kTool_Help[] =
     "    {{ldflags}}\n"
     "        Expands to the processed set of ldflags and library search paths\n"
     "        specified for the target.\n"
-    "        Example: \"-m64, -fPIC -pthread -L/usr/local/mylib\"\n"
+    "        Example: \"-m64 -fPIC -pthread -L/usr/local/mylib\"\n"
     "\n"
     "    {{libs}}\n"
     "        Expands to the list of system libraries to link to. Each will\n"
@@ -688,10 +721,10 @@ const char kTool_Help[] =
                  "{{output_extension}}.TOC\",\n"
     "      ]\n"
     "      link_output =\n"
-    "        \"{{root_out_dir}}/{{target_output_name}}{{output_extension}}\",\n"
+    "        \"{{root_out_dir}}/{{target_output_name}}{{output_extension}}\"\n"
     "      depend_output =\n"
     "        \"{{root_out_dir}}/{{target_output_name}}"
-                 "{{output_extension}}.TOC\",\n"
+                 "{{output_extension}}.TOC\"\n"
     "      restat = true\n"
     "    }\n"
     "\n"
@@ -703,14 +736,14 @@ const char kTool_Help[] =
     "    lib_dir_prefix = \"-L\"\n"
     "\n"
     "    tool(\"cc\") {\n"
-    "      command = \"gcc \\$in -o \\$out\"\n"
-    "      outputs = [ \"{{source_out_dir}}/{{source_name_part}}.o\"\n"
-    "      description = \"GCC \\$in\"\n"
+    "      command = \"gcc {{source}} -o {{output}}\"\n"
+    "      outputs = [ \"{{source_out_dir}}/{{source_name_part}}.o\" ]\n"
+    "      description = \"GCC {{source}}\"\n"
     "    }\n"
     "    tool(\"cxx\") {\n"
-    "      command = \"g++ \\$in -o \\$out\"\n"
-    "      outputs = [ \"{{source_out_dir}}/{{source_name_part}}.o\"\n"
-    "      description = \"G++ \\$in\"\n"
+    "      command = \"g++ {{source}} -o {{output}}\"\n"
+    "      outputs = [ \"{{source_out_dir}}/{{source_name_part}}.o\" ]\n"
+    "      description = \"G++ {{source}}\"\n"
     "    }\n"
     "  }\n";
 
@@ -722,7 +755,7 @@ Value RunTool(Scope* scope,
   // Find the toolchain definition we're executing inside of. The toolchain
   // function will set a property pointing to it that we'll pick up.
   Toolchain* toolchain = reinterpret_cast<Toolchain*>(
-      scope->GetProperty(&kToolchainPropertyKey, NULL));
+      scope->GetProperty(&kToolchainPropertyKey, nullptr));
   if (!toolchain) {
     *err = Err(function->function(), "tool() called outside of toolchain().",
         "The tool() function can only be used inside a toolchain() "
@@ -741,15 +774,15 @@ Value RunTool(Scope* scope,
 
   // Run the tool block.
   Scope block_scope(scope);
-  block->ExecuteBlockInScope(&block_scope, err);
+  block->Execute(&block_scope, err);
   if (err->has_error())
     return Value();
 
   // Figure out which validator to use for the substitution pattern for this
   // tool type. There are different validators for the "outputs" than for the
   // rest of the strings.
-  bool (*subst_validator)(SubstitutionType) = NULL;
-  bool (*subst_output_validator)(SubstitutionType) = NULL;
+  bool (*subst_validator)(SubstitutionType) = nullptr;
+  bool (*subst_output_validator)(SubstitutionType) = nullptr;
   if (IsCompilerTool(tool_type)) {
     subst_validator = &IsValidCompilerSubstitution;
     subst_output_validator = &IsValidCompilerOutputsSubstitution;
@@ -784,6 +817,7 @@ Value RunTool(Scope* scope,
                    &Tool::set_depend_output, err) ||
       !ReadString(&block_scope, "output_prefix", tool.get(),
                   &Tool::set_output_prefix, err) ||
+      !ReadPrecompiledHeaderType(&block_scope, tool.get(), err) ||
       !ReadBool(&block_scope, "restat", tool.get(), &Tool::set_restat, err) ||
       !ReadPattern(&block_scope, "rspfile", subst_validator, tool.get(),
                    &Tool::set_rspfile, err) ||
@@ -889,7 +923,7 @@ Value RunToolchainArgs(Scope* scope,
   // Find the toolchain definition we're executing inside of. The toolchain
   // function will set a property pointing to it that we'll pick up.
   Toolchain* toolchain = reinterpret_cast<Toolchain*>(
-      scope->GetProperty(&kToolchainPropertyKey, NULL));
+      scope->GetProperty(&kToolchainPropertyKey, nullptr));
   if (!toolchain) {
     *err = Err(function->function(),
                "toolchain_args() called outside of toolchain().",
@@ -906,7 +940,7 @@ Value RunToolchainArgs(Scope* scope,
   // This function makes a new scope with various variable sets on it, which
   // we then save on the toolchain to use when re-invoking the build.
   Scope block_scope(scope);
-  block->ExecuteBlockInScope(&block_scope, err);
+  block->Execute(&block_scope, err);
   if (err->has_error())
     return Value();
 

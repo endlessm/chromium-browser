@@ -14,6 +14,8 @@
 
 #include <openssl/bytestring.h>
 
+#include <string.h>
+
 #include "internal.h"
 
 
@@ -41,7 +43,7 @@ static int cbs_find_ber(CBS *orig_in, char *ber_found, unsigned depth) {
     unsigned tag;
     size_t header_len;
 
-    if (!CBS_get_any_asn1_element(&in, &contents, &tag, &header_len)) {
+    if (!CBS_get_any_ber_asn1_element(&in, &contents, &tag, &header_len)) {
       return 0;
     }
     if (CBS_len(&contents) == header_len &&
@@ -72,7 +74,7 @@ static char is_primitive_type(unsigned tag) {
 }
 
 /* is_eoc returns true if |header_len| and |contents|, as returned by
- * |CBS_get_any_asn1_element|, indicate an "end of contents" (EOC) value. */
+ * |CBS_get_any_ber_asn1_element|, indicate an "end of contents" (EOC) value. */
 static char is_eoc(size_t header_len, CBS *contents) {
   return header_len == 2 && CBS_len(contents) == 2 &&
          memcmp(CBS_data(contents), "\x00\x00", 2) == 0;
@@ -96,7 +98,7 @@ static int cbs_convert_ber(CBS *in, CBB *out, char squash_header,
     size_t header_len;
     CBB *out_contents, out_contents_storage;
 
-    if (!CBS_get_any_asn1_element(in, &contents, &tag, &header_len)) {
+    if (!CBS_get_any_ber_asn1_element(in, &contents, &tag, &header_len)) {
       return 0;
     }
     out_contents = out;
@@ -122,15 +124,17 @@ static int cbs_convert_ber(CBS *in, CBB *out, char squash_header,
          * implicit and the tags within are fragments of a primitive type that
          * need to be concatenated. */
         if (context_specific && (tag & CBS_ASN1_CONSTRUCTED)) {
-          CBS in_copy, contents;
-          unsigned tag;
-          size_t header_len;
+          CBS in_copy, inner_contents;
+          unsigned inner_tag;
+          size_t inner_header_len;
 
           CBS_init(&in_copy, CBS_data(in), CBS_len(in));
-          if (!CBS_get_any_asn1_element(&in_copy, &contents, &tag, &header_len)) {
+          if (!CBS_get_any_ber_asn1_element(&in_copy, &inner_contents,
+                                            &inner_tag, &inner_header_len)) {
             return 0;
           }
-          if (CBS_len(&contents) > header_len && is_primitive_type(tag)) {
+          if (CBS_len(&inner_contents) > inner_header_len &&
+              is_primitive_type(inner_tag)) {
             squash_child_headers = 1;
           }
         }
@@ -205,7 +209,9 @@ int CBS_asn1_ber_to_der(CBS *in, uint8_t **out, size_t *out_len) {
     return 1;
   }
 
-  CBB_init(&cbb, CBS_len(in));
+  if (!CBB_init(&cbb, CBS_len(in))) {
+    return 0;
+  }
   if (!cbs_convert_ber(in, &cbb, 0, 0, 0)) {
     CBB_cleanup(&cbb);
     return 0;

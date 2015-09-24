@@ -8,6 +8,8 @@
 #include <stdint.h>
 #include <vector>
 
+#include "base/strings/string16.h"
+
 namespace device {
 
 enum UsbTransferType {
@@ -39,8 +41,6 @@ struct UsbEndpointDescriptor {
   UsbEndpointDescriptor();
   ~UsbEndpointDescriptor();
 
-  typedef std::vector<UsbEndpointDescriptor>::const_iterator Iterator;
-
   uint8_t address;
   UsbEndpointDirection direction;
   uint16_t maximum_packet_size;
@@ -54,8 +54,6 @@ struct UsbEndpointDescriptor {
 struct UsbInterfaceDescriptor {
   UsbInterfaceDescriptor();
   ~UsbInterfaceDescriptor();
-
-  typedef std::vector<UsbInterfaceDescriptor>::const_iterator Iterator;
 
   uint8_t interface_number;
   uint8_t alternate_setting;
@@ -77,6 +75,9 @@ struct UsbConfigDescriptor {
   std::vector<UsbInterfaceDescriptor> interfaces;
   std::vector<uint8_t> extra_data;
 };
+
+bool ParseUsbStringDescriptor(const std::vector<uint8_t>& descriptor,
+                              base::string16* output);
 
 }  // namespace device
 

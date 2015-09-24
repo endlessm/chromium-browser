@@ -5,11 +5,12 @@
 #include "chrome/browser/ui/webui/chromeos/login/core_oobe_handler.h"
 
 #include "ash/shell.h"
-#include "base/memory/scoped_ptr.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
+#include "chrome/browser/chromeos/accessibility/magnification_manager.h"
 #include "chrome/browser/chromeos/login/helper.h"
+#include "chrome/browser/chromeos/login/lock/screen_locker.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
@@ -23,31 +24,17 @@
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/chromeos_constants.h"
+#include "components/login/localized_values_builder.h"
 #include "grit/components_strings.h"
 #include "ui/chromeos/accessibility_types.h"
 #include "ui/gfx/display.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/screen.h"
-#include "ui/gfx/size.h"
 #include "ui/keyboard/keyboard_controller.h"
-
-#if !defined(USE_ATHENA)
-#include "chrome/browser/chromeos/accessibility/magnification_manager.h"
-#endif
 
 namespace {
 
 const char kJsScreenPath[] = "cr.ui.Oobe";
-
-// JS API callbacks names.
-const char kJsApiEnableHighContrast[] = "enableHighContrast";
-const char kJsApiEnableVirtualKeyboard[] = "enableVirtualKeyboard";
-const char kJsApiEnableScreenMagnifier[] = "enableScreenMagnifier";
-const char kJsApiEnableLargeCursor[] = "enableLargeCursor";
-const char kJsApiEnableSpokenFeedback[] = "enableSpokenFeedback";
-const char kJsApiScreenStateInitialize[] = "screenStateInitialize";
-const char kJsApiSkipUpdateEnrollAfterEula[] = "skipUpdateEnrollAfterEula";
-const char kJsApiScreenAssetsLoaded[] = "screenAssetsLoaded";
-const char kJsApiHeaderBarVisible[] = "headerBarVisible";
 
 }  // namespace
 
@@ -75,7 +62,8 @@ void CoreOobeHandler::SetDelegate(Delegate* delegate) {
   delegate_ = delegate;
 }
 
-void CoreOobeHandler::DeclareLocalizedValues(LocalizedValuesBuilder* builder) {
+void CoreOobeHandler::DeclareLocalizedValues(
+    ::login::LocalizedValuesBuilder* builder) {
   builder->Add("title", IDS_SHORT_PRODUCT_NAME);
   builder->Add("productName", IDS_SHORT_PRODUCT_NAME);
   builder->Add("learnMore", IDS_LEARN_MORE);
@@ -104,6 +92,9 @@ void CoreOobeHandler::DeclareLocalizedValues(LocalizedValuesBuilder* builder) {
                IDS_ENTERPRISE_DEVICE_REQUISITION_REMORA_PROMPT_TEXT);
   builder->Add("deviceRequisitionSharkPromptText",
                IDS_ENTERPRISE_DEVICE_REQUISITION_SHARK_PROMPT_TEXT);
+
+  // Strings for Asset Identifier shown in version string.
+  builder->Add("assetIdLabel", IDS_OOBE_ASSET_ID_LABEL);
 }
 
 void CoreOobeHandler::Initialize() {
@@ -120,32 +111,34 @@ void CoreOobeHandler::Initialize() {
 }
 
 void CoreOobeHandler::RegisterMessages() {
-  AddCallback(kJsApiScreenStateInitialize,
+  AddCallback("screenStateInitialize",
               &CoreOobeHandler::HandleInitialized);
-  AddCallback(kJsApiSkipUpdateEnrollAfterEula,
+  AddCallback("skipUpdateEnrollAfterEula",
               &CoreOobeHandler::HandleSkipUpdateEnrollAfterEula);
   AddCallback("updateCurrentScreen",
               &CoreOobeHandler::HandleUpdateCurrentScreen);
-  AddCallback(kJsApiEnableHighContrast,
+  AddCallback("enableHighContrast",
               &CoreOobeHandler::HandleEnableHighContrast);
-  AddCallback(kJsApiEnableLargeCursor,
+  AddCallback("enableLargeCursor",
               &CoreOobeHandler::HandleEnableLargeCursor);
-  AddCallback(kJsApiEnableVirtualKeyboard,
+  AddCallback("enableVirtualKeyboard",
               &CoreOobeHandler::HandleEnableVirtualKeyboard);
-  AddCallback(kJsApiEnableScreenMagnifier,
+  AddCallback("enableScreenMagnifier",
               &CoreOobeHandler::HandleEnableScreenMagnifier);
-  AddCallback(kJsApiEnableSpokenFeedback,
+  AddCallback("enableSpokenFeedback",
               &CoreOobeHandler::HandleEnableSpokenFeedback);
   AddCallback("setDeviceRequisition",
               &CoreOobeHandler::HandleSetDeviceRequisition);
-  AddCallback(kJsApiScreenAssetsLoaded,
+  AddCallback("screenAssetsLoaded",
               &CoreOobeHandler::HandleScreenAssetsLoaded);
   AddRawCallback("skipToLoginForTesting",
                  &CoreOobeHandler::HandleSkipToLoginForTesting);
   AddCallback("launchHelpApp",
               &CoreOobeHandler::HandleLaunchHelpApp);
   AddCallback("toggleResetScreen", &CoreOobeHandler::HandleToggleResetScreen);
-  AddCallback(kJsApiHeaderBarVisible,
+  AddCallback("toggleEnableDebuggingScreen",
+              &CoreOobeHandler::HandleEnableDebuggingScreen);
+  AddCallback("headerBarVisible",
               &CoreOobeHandler::HandleHeaderBarVisible);
 }
 
@@ -173,13 +166,22 @@ void CoreOobeHandler::ShowDeviceResetScreen() {
     if (wizard_controller && !wizard_controller->login_screen_started()) {
       wizard_controller->AdvanceToScreen(WizardController::kResetScreenName);
     } else {
-      scoped_ptr<base::DictionaryValue> params(new base::DictionaryValue());
       DCHECK(LoginDisplayHostImpl::default_host());
       if (LoginDisplayHostImpl::default_host()) {
         LoginDisplayHostImpl::default_host()->StartWizard(
-            WizardController::kResetScreenName, params.Pass());
+            WizardController::kResetScreenName);
       }
     }
+  }
+}
+
+void CoreOobeHandler::ShowEnableDebuggingScreen() {
+  // Don't recreate WizardController if it already exists.
+  WizardController* wizard_controller =
+      WizardController::default_controller();
+  if (wizard_controller && !wizard_controller->login_screen_started()) {
+    wizard_controller->AdvanceToScreen(
+        WizardController::kEnableDebuggingScreenName);
   }
 }
 
@@ -199,8 +201,9 @@ void CoreOobeHandler::RefocusCurrentPod() {
   CallJS("refocusCurrentPod");
 }
 
-void CoreOobeHandler::ShowPasswordChangedScreen(bool show_password_error) {
-  CallJS("showPasswordChangedScreen", show_password_error);
+void CoreOobeHandler::ShowPasswordChangedScreen(bool show_password_error,
+                                                const std::string& email) {
+  CallJS("showPasswordChangedScreen", show_password_error, email);
 }
 
 void CoreOobeHandler::SetUsageStats(bool checked) {
@@ -225,10 +228,6 @@ void CoreOobeHandler::ReloadContent(const base::DictionaryValue& dictionary) {
 
 void CoreOobeHandler::ShowControlBar(bool show) {
   CallJS("showControlBar", show);
-}
-
-void CoreOobeHandler::SetKeyboardState(bool shown, const gfx::Rect& bounds) {
-  CallJS("setKeyboardState", shown, bounds.width(), bounds.height());
 }
 
 void CoreOobeHandler::SetClientAreaSize(int width, int height) {
@@ -264,11 +263,9 @@ void CoreOobeHandler::HandleEnableVirtualKeyboard(bool enabled) {
 }
 
 void CoreOobeHandler::HandleEnableScreenMagnifier(bool enabled) {
-#if !defined(USE_ATHENA)
   // TODO(nkostylev): Add support for partial screen magnifier.
   DCHECK(MagnificationManager::Get());
   MagnificationManager::Get()->SetMagnifierEnabled(enabled);
-#endif
 }
 
 void CoreOobeHandler::HandleEnableSpokenFeedback(bool /* enabled */) {
@@ -304,7 +301,13 @@ void CoreOobeHandler::HandleSkipToLoginForTesting(
       WizardController::default_controller()->SkipToLoginForTesting(context);
 }
 
-void CoreOobeHandler::HandleToggleResetScreen() { ShowDeviceResetScreen(); }
+void CoreOobeHandler::HandleToggleResetScreen() {
+  ShowDeviceResetScreen();
+}
+
+void CoreOobeHandler::HandleEnableDebuggingScreen() {
+  ShowEnableDebuggingScreen();
+}
 
 void CoreOobeHandler::ShowOobeUI(bool show) {
   if (show == show_oobe_ui_)
@@ -316,8 +319,12 @@ void CoreOobeHandler::ShowOobeUI(bool show) {
     UpdateOobeUIVisibility();
 }
 
+void CoreOobeHandler::UpdateShutdownAndRebootVisibility(
+    bool reboot_on_shutdown) {
+  CallJS("showShutdown", !reboot_on_shutdown);
+}
+
 void CoreOobeHandler::UpdateA11yState() {
-#if !defined(USE_ATHENA)
   // TODO(dpolukhin): crbug.com/412891
   DCHECK(MagnificationManager::Get());
   base::DictionaryValue a11y_info;
@@ -332,14 +339,9 @@ void CoreOobeHandler::UpdateA11yState() {
   a11y_info.SetBoolean("virtualKeyboardEnabled",
                        AccessibilityManager::Get()->IsVirtualKeyboardEnabled());
   CallJS("refreshA11yInfo", a11y_info);
-#endif
 }
 
 void CoreOobeHandler::UpdateOobeUIVisibility() {
-#if defined(USE_ATHENA)
-  // Athena builds have their own way to display version so hide ours.
-  bool should_show_version = false;
-#else
   // Don't show version label on the stable channel by default.
   bool should_show_version = true;
   chrome::VersionInfo::Channel channel = chrome::VersionInfo::GetChannel();
@@ -347,7 +349,6 @@ void CoreOobeHandler::UpdateOobeUIVisibility() {
       channel == chrome::VersionInfo::CHANNEL_BETA) {
     should_show_version = false;
   }
-#endif
   CallJS("showVersion", should_show_version);
   CallJS("showOobeUI", show_oobe_ui_);
   if (system::InputDeviceSettings::Get()->ForceKeyboardDrivenUINavigation())
@@ -360,8 +361,8 @@ void CoreOobeHandler::OnOSVersionLabelTextUpdated(
 }
 
 void CoreOobeHandler::OnEnterpriseInfoUpdated(
-    const std::string& message_text) {
-  CallJS("setEnterpriseInfo", message_text);
+    const std::string& message_text, const std::string& asset_id) {
+  CallJS("setEnterpriseInfo", message_text, asset_id);
 }
 
 void CoreOobeHandler::UpdateLabel(const std::string& id,
@@ -377,14 +378,11 @@ void CoreOobeHandler::UpdateDeviceRequisition() {
 }
 
 void CoreOobeHandler::UpdateKeyboardState() {
-  if (!login::LoginScrollIntoViewEnabled())
-    return;
-
   keyboard::KeyboardController* keyboard_controller =
       keyboard::KeyboardController::GetInstance();
   if (keyboard_controller) {
     gfx::Rect bounds = keyboard_controller->current_keyboard_bounds();
-    SetKeyboardState(!bounds.IsEmpty(), bounds);
+    ShowControlBar(bounds.IsEmpty());
   }
 }
 
@@ -413,6 +411,8 @@ void CoreOobeHandler::HandleHeaderBarVisible() {
   LoginDisplayHost* login_display_host = LoginDisplayHostImpl::default_host();
   if (login_display_host)
     login_display_host->SetStatusAreaVisible(true);
+  if (ScreenLocker::default_screen_locker())
+    ScreenLocker::default_screen_locker()->delegate()->OnHeaderBarVisible();
 }
 
 void CoreOobeHandler::InitDemoModeDetection() {

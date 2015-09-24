@@ -28,8 +28,9 @@
 #include "core/InputTypeNames.h"
 #include "core/html/HTMLInputElement.h"
 #include "core/html/parser/HTMLParserIdioms.h"
-#include "core/page/Chrome.h"
+#include "core/inspector/ConsoleMessage.h"
 #include "core/page/ChromeClient.h"
+#include "platform/JSONValues.h"
 #include "platform/text/PlatformLocale.h"
 #include "public/platform/Platform.h"
 #include "wtf/PassOwnPtr.h"
@@ -96,11 +97,11 @@ String EmailInputType::convertEmailAddressToUnicode(const String& address) const
     if (address.find("xn--", atPosition + 1) == kNotFound)
         return address;
 
-    if (!chrome())
+    if (!chromeClient())
         return address;
 
-    String languages = chrome()->client().acceptLanguages();
-    String unicodeHost = blink::Platform::current()->convertIDNToUnicode(address.substring(atPosition + 1), languages);
+    String languages = chromeClient()->acceptLanguages();
+    String unicodeHost = Platform::current()->convertIDNToUnicode(address.substring(atPosition + 1), languages);
     StringBuilder builder;
     builder.append(address, 0, atPosition + 1);
     builder.append(unicodeHost);
@@ -235,6 +236,15 @@ String EmailInputType::typeMismatchText() const
     if (element().multiple())
         return locale().queryString(WebLocalizedString::ValidationTypeMismatchForMultipleEmail);
     return locale().queryString(WebLocalizedString::ValidationTypeMismatchForEmail);
+}
+
+void EmailInputType::warnIfValueIsInvalid(const String& value) const
+{
+    String invalidAddress = findInvalidAddress(value);
+    if (invalidAddress.isNull())
+        return;
+    element().document().addConsoleMessage(ConsoleMessage::create(RenderingMessageSource, WarningMessageLevel,
+        String::format("The specified value %s is not a valid email address.", JSONValue::quoteString(invalidAddress).utf8().data())));
 }
 
 bool EmailInputType::supportsSelectionAPI() const

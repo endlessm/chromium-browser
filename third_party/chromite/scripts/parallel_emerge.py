@@ -30,6 +30,7 @@ except ImportError:
   # pylint: disable=F0401
   import queue as Queue
 import signal
+import subprocess
 import sys
 import tempfile
 import threading
@@ -37,7 +38,7 @@ import time
 import traceback
 
 from chromite.lib import cros_build_lib
-from chromite.lib import osutils
+from chromite.lib import process_util
 from chromite.lib import proctitle
 
 # If PORTAGE_USERNAME isn't specified, scrape it from the $HOME variable. On
@@ -56,6 +57,18 @@ if "PORTAGE_USERNAME" not in os.environ:
   if homedir:
     os.environ["PORTAGE_USERNAME"] = os.path.basename(homedir)
 
+# Wrap Popen with a lock to ensure no two Popen are executed simultaneously in
+# the same process.
+# Two Popen call at the same time might be the cause for crbug.com/433482.
+_popen_lock = threading.Lock()
+_old_popen = subprocess.Popen
+
+def _LockedPopen(*args, **kwargs):
+  with _popen_lock:
+    return _old_popen(*args, **kwargs)
+
+subprocess.Popen = _LockedPopen
+
 # Portage doesn't expose dependency trees in its public API, so we have to
 # make use of some private APIs here. These modules are found under
 # /usr/lib/portage/pym/.
@@ -66,16 +79,10 @@ from _emerge.actions import adjust_configs
 from _emerge.actions import load_emerge_config
 from _emerge.create_depgraph_params import create_depgraph_params
 from _emerge.depgraph import backtrack_depgraph
-try:
-  from _emerge.main import clean_logs
-except ImportError:
-  # Older portage versions did not provide clean_logs, so stub it.
-  # We need this if running in an older chroot that hasn't yet upgraded
-  # the portage version.
-  clean_logs = lambda x: None
 from _emerge.main import emerge_main
 from _emerge.main import parse_opts
 from _emerge.Package import Package
+from _emerge.post_emerge import clean_logs
 from _emerge.Scheduler import Scheduler
 from _emerge.stdout_spinner import stdout_spinner
 from portage._global_updates import _global_updates
@@ -214,14 +221,17 @@ class DepGraphGenerator(object):
     PrintDepsMap(deps_graph)
   """
 
-  __slots__ = ["board", "emerge", "package_db", "show_output", "unpack_only"]
+  __slots__ = ["board", "emerge", "package_db", "show_output", "sysroot",
+               "unpack_only", "max_retries"]
 
   def __init__(self):
     self.board = None
     self.emerge = EmergeData()
     self.package_db = {}
     self.show_output = False
+    self.sysroot = None
     self.unpack_only = False
+    self.max_retries = 1
 
   def ParseParallelEmergeArgs(self, argv):
     """Read the parallel emerge arguments from the command-line.
@@ -242,6 +252,8 @@ class DepGraphGenerator(object):
       # pass through the rest.
       if arg.startswith("--board="):
         self.board = arg.replace("--board=", "")
+      elif arg.startswith("--sysroot="):
+        self.sysroot = arg.replace("--sysroot=", "")
       elif arg.startswith("--workon="):
         workon_str = arg.replace("--workon=", "")
         emerge_args.append("--reinstall-atoms=%s" % workon_str)
@@ -249,6 +261,8 @@ class DepGraphGenerator(object):
       elif arg.startswith("--force-remote-binary="):
         force_remote_binary = arg.replace("--force-remote-binary=", "")
         emerge_args.append("--useoldpkg-atoms=%s" % force_remote_binary)
+      elif arg.startswith("--retries="):
+        self.max_retries = int(arg.replace("--retries=", ""))
       elif arg == "--show-output":
         self.show_output = True
       elif arg == "--rebuild":
@@ -274,21 +288,21 @@ class DepGraphGenerator(object):
     # Parse and strip out args that are just intended for parallel_emerge.
     emerge_args = self.ParseParallelEmergeArgs(args)
 
+    if self.sysroot and self.board:
+      cros_build_lib.Die("--sysroot and --board are incompatible.")
+
     # Setup various environment variables based on our current board. These
     # variables are normally setup inside emerge-${BOARD}, but since we don't
     # call that script, we have to set it up here. These variables serve to
     # point our tools at /build/BOARD and to setup cross compiles to the
     # appropriate board as configured in toolchain.conf.
     if self.board:
-      sysroot = cros_build_lib.GetSysroot(board=self.board)
-      os.environ["PORTAGE_CONFIGROOT"] = sysroot
-      os.environ["PORTAGE_SYSROOT"] = sysroot
-      os.environ["SYSROOT"] = sysroot
+      self.sysroot = os.environ.get('SYSROOT',
+                                    cros_build_lib.GetSysroot(self.board))
 
-      # Although CHROMEOS_ROOT isn't specific to boards, it's normally setup
-      # inside emerge-${BOARD}, so we set it up here for compatibility. It
-      # will be going away soon as we migrate to CROS_WORKON_SRCROOT.
-      os.environ.setdefault("CHROMEOS_ROOT", os.environ["HOME"] + "/trunk")
+    if self.sysroot:
+      os.environ["PORTAGE_CONFIGROOT"] = self.sysroot
+      os.environ["SYSROOT"] = self.sysroot
 
     # Turn off interactive delays
     os.environ["EBEEP_IGNORE"] = "1"
@@ -316,11 +330,12 @@ class DepGraphGenerator(object):
     # This is safe because we only run up to one instance of parallel_emerge in
     # parallel.
     # TODO(davidjames): Enable this for the host too.
-    if self.board:
+    if self.sysroot:
       os.environ.setdefault("PORTAGE_LOCKS", "false")
 
     # Now that we've setup the necessary environment variables, we can load the
     # emerge config from disk.
+    # pylint: disable=unpacking-non-sequence
     settings, trees, mtimedb = load_emerge_config()
 
     # Add in EMERGE_DEFAULT_OPTS, if specified.
@@ -332,7 +347,7 @@ class DepGraphGenerator(object):
 
     # If we're installing to the board, we want the --root-deps option so that
     # portage will install the build dependencies to that location as well.
-    if self.board:
+    if self.sysroot:
       opts.setdefault("--root-deps", True)
 
     # Check whether our portage tree is out of date. Typically, this happens
@@ -345,6 +360,7 @@ class DepGraphGenerator(object):
     # use that function here.
     if _global_updates(trees, mtimedb["updates"]):
       mtimedb.commit()
+      # pylint: disable=unpacking-non-sequence
       settings, trees, mtimedb = load_emerge_config(trees=trees)
 
     # Setup implied options. Portage normally handles this logic in
@@ -454,7 +470,7 @@ class DepGraphGenerator(object):
     # pylint: disable=W0212
     digraph = depgraph._dynamic_config.digraph
     root = emerge.settings["ROOT"]
-    final_db = get_db(depgraph._dynamic_config, root)
+    final_db = depgraph._dynamic_config._filtered_trees[root]['graph_db']
     for node, node_deps in digraph.nodes.items():
       # Calculate dependency packages that need to be installed first. Each
       # child on the digraph is a dependency. The "operation" field specifies
@@ -518,8 +534,8 @@ class DepGraphGenerator(object):
     """Print the deps we have seen in the emerge output.
 
     Args:
-     deps: Dependency tree structure.
-     depth: Allows printing the tree recursively, with indentation.
+      deps: Dependency tree structure.
+      depth: Allows printing the tree recursively, with indentation.
     """
     for entry in sorted(deps):
       action = deps[entry]["action"]
@@ -1022,7 +1038,7 @@ def EmergeWorker(task_queue, job_queue, emerge, package_db, fetch_only=False,
   # Disable flushing of caches to save on I/O.
   root = emerge.settings["ROOT"]
   vardb = emerge.trees[root]["vartree"].dbapi
-  vardb._flush_cache_enabled = False
+  vardb._flush_cache_enabled = False  # pylint: disable=protected-access
   bindb = emerge.trees[root]["bintree"].dbapi
   # Might be a set, might be a list, might be None; no clue, just use shallow
   # copy to ensure we can roll it back.
@@ -1274,7 +1290,8 @@ class ScoredHeap(object):
 class EmergeQueue(object):
   """Class to schedule emerge jobs according to a dependency graph."""
 
-  def __init__(self, deps_map, emerge, package_db, show_output, unpack_only):
+  def __init__(self, deps_map, emerge, package_db, show_output, unpack_only,
+               max_retries):
     # Store the dependency graph.
     self._deps_map = deps_map
     self._state_map = {}
@@ -1290,6 +1307,7 @@ class EmergeQueue(object):
     self._total_jobs = len(install_jobs)
     self._show_output = show_output
     self._unpack_only = unpack_only
+    self._max_retries = max_retries
 
     if "--pretend" in emerge.opts:
       print("Skipping merge because of --pretend mode.")
@@ -1308,7 +1326,9 @@ class EmergeQueue(object):
     # jobs.
     procs = min(self._total_jobs,
                 emerge.opts.pop("--jobs", multiprocessing.cpu_count()))
-    self._build_procs = self._unpack_procs = self._fetch_procs = max(1, procs)
+    self._build_procs = self._unpack_procs = max(1, procs)
+    # Fetch is IO bound, we can use more processes.
+    self._fetch_procs = max(4, procs)
     self._load_avg = emerge.opts.pop("--load-average", None)
     self._job_queue = multiprocessing.Queue()
     self._print_queue = multiprocessing.Queue()
@@ -1337,7 +1357,7 @@ class EmergeQueue(object):
 
     # Initialize the failed queue to empty.
     self._retry_queue = []
-    self._failed = set()
+    self._failed_count = dict()
 
     # Setup an exit handler so that we print nice messages if we are
     # terminated.
@@ -1405,7 +1425,7 @@ class EmergeQueue(object):
         try:
           # Wait for the process to exit. When it does, exit with the return
           # value of the subprocess.
-          os._exit(osutils.GetExitStatus(os.waitpid(pid, 0)[1]))
+          os._exit(process_util.GetExitStatus(os.waitpid(pid, 0)[1]))
         except OSError as ex:
           if ex.errno == errno.EINTR:
             continue
@@ -1487,7 +1507,7 @@ class EmergeQueue(object):
       if unpack_only:
         self._ScheduleUnpack(state)
       else:
-        if state.target not in self._failed:
+        if state.target not in self._failed_count:
           self._Schedule(state)
 
   def _Print(self, line):
@@ -1542,8 +1562,8 @@ class EmergeQueue(object):
         line += "Building %s/%s, " % (bjobs, bready + bjobs)
         if retries:
           line += "Retrying %s, " % (retries,)
-      load =  " ".join(str(x) for x in os.getloadavg())
-      line += ("[Time %dm%.1fs Load %s]" % (seconds/60, seconds %60, load))
+      load = " ".join(str(x) for x in os.getloadavg())
+      line += ("[Time %dm%.1fs Load %s]" % (seconds / 60, seconds % 60, load))
       self._Print(line)
 
   def _Finish(self, target):
@@ -1636,7 +1656,6 @@ class EmergeQueue(object):
     # Print an update, then get going.
     self._Status()
 
-    retried = set()
     while self._deps_map:
       # Check here that we are actually waiting for something.
       if (self._build_queue.empty() and
@@ -1653,12 +1672,13 @@ class EmergeQueue(object):
           self._Retry()
         else:
           # Tell the user why we're exiting.
-          if self._failed:
-            print('Packages failed:\n\t%s' % '\n\t'.join(self._failed))
+          if self._failed_count:
+            print('Packages failed:\n\t%s' %
+                  '\n\t'.join(self._failed_count.iterkeys()))
             status_file = os.environ.get("PARALLEL_EMERGE_STATUS_FILE")
             if status_file:
               failed_pkgs = set(portage.versions.cpv_getkey(x)
-                                for x in self._failed)
+                                for x in self._failed_count.iterkeys())
               with open(status_file, "a") as f:
                 f.write("%s\n" % " ".join(failed_pkgs))
           else:
@@ -1744,31 +1764,26 @@ class EmergeQueue(object):
 
       seconds = time.time() - job.start_timestamp
       details = "%s (in %dm%.1fs)" % (target, seconds / 60, seconds % 60)
-      previously_failed = target in self._failed
 
       # Complain if necessary.
       if job.retcode != 0:
         # Handle job failure.
-        if previously_failed:
-          # If this job has failed previously, give up.
+        failed_count = self._failed_count.get(target, 0)
+        if failed_count >= self._max_retries:
+          # If this job has failed and can't be retried, give up.
           self._Print("Failed %s. Your build has failed." % details)
         else:
           # Queue up this build to try again after a long while.
-          retried.add(target)
           self._retry_queue.append(self._state_map[target])
-          self._failed.add(target)
+          self._failed_count[target] = failed_count + 1
           self._Print("Failed %s, retrying later." % details)
       else:
-        if previously_failed:
-          # Remove target from list of failed packages.
-          self._failed.remove(target)
-
         self._Print("Completed %s" % details)
 
         # Mark as completed and unblock waiting ebuilds.
         self._Finish(target)
 
-        if previously_failed and self._retry_queue:
+        if target in self._failed_count and self._retry_queue:
           # If we have successfully retried a failed package, and there
           # are more failed packages, try the next one. We will only have
           # one retrying package actively running at a time.
@@ -1780,12 +1795,12 @@ class EmergeQueue(object):
       self._Status()
 
     # If packages were retried, output a warning.
-    if retried:
+    if self._failed_count:
       self._Print("")
-      self._Print("WARNING: The following packages failed the first time,")
+      self._Print("WARNING: The following packages failed once or more,")
       self._Print("but succeeded upon retry. This might indicate incorrect")
       self._Print("dependencies.")
-      for pkg in retried:
+      for pkg in self._failed_count.iterkeys():
         self._Print("  %s" % pkg)
       self._Print("@@@STEP_WARNINGS@@@")
       self._Print("")
@@ -1809,19 +1824,6 @@ def main(argv):
       # wasn't started.
       if x.name == 'QueueFeederThread' and x.ident is not None:
         x.join(1)
-
-
-def get_db(config, root):
-  """Return the dbapi.
-  Handles both portage 2.1.11 and 2.2.10 (where mydbapi has been removed).
-
-  TODO(bsimonnet): Remove this once portage has been uprevd.
-  """
-  try:
-    return config.mydbapi[root]
-  except AttributeError:
-    # pylint: disable=W0212
-    return config._filtered_trees[root]['graph_db']
 
 
 def real_main(argv):
@@ -1851,7 +1853,7 @@ def real_main(argv):
     cmdline_packages = " ".join(emerge.cmdline_packages)
     print("Starting fast-emerge.")
     print(" Building package %s on %s" % (cmdline_packages,
-                                          deps.board or "root"))
+                                          deps.sysroot or "root"))
 
   deps_tree, deps_info = deps.GenDependencyTree()
 
@@ -1873,8 +1875,8 @@ def real_main(argv):
   portage_upgrade = False
   root = emerge.settings["ROOT"]
   # pylint: disable=W0212
-  final_db = get_db(emerge.depgraph._dynamic_config, root)
   if root == "/":
+    final_db = emerge.depgraph._dynamic_config._filtered_trees[root]['graph_db']
     for db_pkg in final_db.match_pkgs("sys-apps/portage"):
       portage_pkg = deps_graph.get(db_pkg.cpv)
       if portage_pkg:
@@ -1902,9 +1904,15 @@ def real_main(argv):
     # Now upgrade the rest.
     os.execvp(args[0], args)
 
+  # Attempt to solve crbug.com/433482
+  # The file descriptor error appears only when getting userpriv_groups
+  # (lazily generated). Loading userpriv_groups here will reduce the number of
+  # calls from few hundreds to one.
+  portage.data._get_global('userpriv_groups')
+
   # Run the queued emerges.
   scheduler = EmergeQueue(deps_graph, emerge, deps.package_db, deps.show_output,
-                          deps.unpack_only)
+                          deps.unpack_only, deps.max_retries)
   try:
     scheduler.Run()
   finally:

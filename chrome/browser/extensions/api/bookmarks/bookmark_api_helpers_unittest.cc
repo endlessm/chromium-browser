@@ -19,6 +19,9 @@
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
+
 namespace extensions {
 
 namespace keys = bookmark_api_constants;
@@ -115,7 +118,8 @@ TEST_F(ExtensionBookmarksTest, GetModifiableNode) {
   EXPECT_EQ("Digg", tree->title);
   ASSERT_TRUE(tree->url);
   EXPECT_EQ("http://www.reddit.com/", *tree->url);
-  EXPECT_EQ(BookmarkTreeNode::UNMODIFIABLE_NONE, tree->unmodifiable);
+  EXPECT_EQ(api::bookmarks::BOOKMARK_TREE_NODE_UNMODIFIABLE_NONE,
+            tree->unmodifiable);
 }
 
 TEST_F(ExtensionBookmarksTest, GetManagedNode) {
@@ -131,7 +135,8 @@ TEST_F(ExtensionBookmarksTest, GetManagedNode) {
                           false));  // Only folders.
   EXPECT_EQ("Chromium", tree->title);
   EXPECT_EQ("http://www.chromium.org/", *tree->url);
-  EXPECT_EQ(BookmarkTreeNode::UNMODIFIABLE_MANAGED, tree->unmodifiable);
+  EXPECT_EQ(api::bookmarks::BOOKMARK_TREE_NODE_UNMODIFIABLE_MANAGED,
+            tree->unmodifiable);
 }
 
 TEST_F(ExtensionBookmarksTest, RemoveNodeInvalidId) {

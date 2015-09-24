@@ -12,6 +12,7 @@
 #include "ash/system/tray/system_tray_delegate.h"
 #include "ash/system/tray/system_tray_notifier.h"
 #include "ash/system/tray/tray_constants.h"
+#include "ash/system/tray/tray_utils.h"
 #include "ash/system/user/config.h"
 #include "ash/system/user/rounded_image_view.h"
 #include "base/i18n/rtl.h"
@@ -22,13 +23,14 @@
 #include "components/user_manager/user_info.h"
 #include "grit/ash_resources.h"
 #include "grit/ash_strings.h"
+#include "ui/accessibility/ax_view_state.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
-#include "ui/gfx/insets.h"
+#include "ui/gfx/geometry/insets.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/range/range.h"
-#include "ui/gfx/rect.h"
 #include "ui/gfx/render_text.h"
-#include "ui/gfx/size.h"
 #include "ui/gfx/text_elider.h"
 #include "ui/gfx/text_utils.h"
 #include "ui/views/border.h"
@@ -74,13 +76,13 @@ class MediaIndicator : public views::View, public MediaCaptureObserver {
     set_id(VIEW_ID_USER_VIEW_MEDIA_INDICATOR);
   }
 
-  virtual ~MediaIndicator() {
+  ~MediaIndicator() override {
     Shell::GetInstance()->system_tray_notifier()->RemoveMediaCaptureObserver(
         this);
   }
 
   // MediaCaptureObserver:
-  virtual void OnMediaCaptureChanged() override {
+  void OnMediaCaptureChanged() override {
     Shell* shell = Shell::GetInstance();
     content::BrowserContext* context =
         shell->session_state_delegate()->GetBrowserContextByIndex(index_);
@@ -339,27 +341,21 @@ UserCardView::UserCardView(user::LoginStatus login_status,
                            int multiprofile_index) {
   SetLayoutManager(new views::BoxLayout(
       views::BoxLayout::kHorizontal, 0, 0, kTrayPopupPaddingBetweenItems));
-  switch (login_status) {
-    case user::LOGGED_IN_RETAIL_MODE:
-      AddRetailModeUserContent();
-      break;
-    case user::LOGGED_IN_PUBLIC:
-      AddPublicModeUserContent(max_width);
-      break;
-    default:
-      AddUserContent(login_status, multiprofile_index);
-      break;
+  if (login_status == user::LOGGED_IN_PUBLIC) {
+    AddPublicModeUserContent(max_width);
+  } else {
+    AddUserContent(login_status, multiprofile_index);
   }
 }
 
 UserCardView::~UserCardView() {}
 
-void UserCardView::AddRetailModeUserContent() {
-  views::Label* details = new views::Label;
-  details->SetText(l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_KIOSK_LABEL));
-  details->SetBorder(views::Border::CreateEmptyBorder(0, 4, 0, 1));
-  details->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  AddChildView(details);
+void UserCardView::GetAccessibleState(ui::AXViewState* state) {
+  state->role = ui::AX_ROLE_STATIC_TEXT;
+  std::vector<base::string16> labels;
+  for (int i = 0; i < child_count(); ++i)
+    GetAccessibleLabelFromDescendantViews(child_at(i), labels);
+  state->name = JoinString(labels, base::ASCIIToUTF16(" "));
 }
 
 void UserCardView::AddPublicModeUserContent(int max_width) {

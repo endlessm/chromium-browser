@@ -4,14 +4,12 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _FPDF_SERIAL_
-#define _FPDF_SERIAL_
-#ifndef _FPDF_PAGE_
+#ifndef CORE_INCLUDE_FPDFAPI_FPDF_SERIAL_H_
+#define CORE_INCLUDE_FPDFAPI_FPDF_SERIAL_H_
+
 #include "fpdf_page.h"
-#endif
-#ifndef _FPDF_PAGEOBJ_H_
 #include "fpdf_pageobj.h"
-#endif
+
 class CPDF_ObjectStream;
 class CPDF_XRefStream;
 CFX_ByteTextBuf& operator << (CFX_ByteTextBuf& buf, const CPDF_Object* pObj);
@@ -28,7 +26,7 @@ class CPDF_ObjArchiveLoader : public CFX_ArchiveLoader
 {
 public:
 
-    CPDF_ObjArchiveLoader(FX_LPCBYTE pData, FX_DWORD dwSize) : CFX_ArchiveLoader(pData, dwSize),
+    CPDF_ObjArchiveLoader(const uint8_t* pData, FX_DWORD dwSize) : CFX_ArchiveLoader(pData, dwSize),
         m_IndirectObjects(NULL) {}
 
     friend CPDF_ObjArchiveLoader&	operator >> (CPDF_ObjArchiveLoader& ar, CPDF_Object*& pObj);
@@ -74,7 +72,7 @@ class CPDF_PageArchiveLoader : public CPDF_ObjArchiveLoader
 {
 public:
 
-    CPDF_PageArchiveLoader(CPDF_PageObjects* pPageObjs, FX_LPCBYTE pData, FX_DWORD dwSize);
+    CPDF_PageArchiveLoader(CPDF_PageObjects* pPageObjs, const uint8_t* pData, FX_DWORD dwSize);
 
     friend CPDF_PageArchiveLoader&	operator >> (CPDF_PageArchiveLoader& ar, CPDF_PageObject*& pObj);
 
@@ -93,7 +91,7 @@ public:
 protected:
     void				PostProcColor(CPDF_Color& color);
 
-    CPDF_Object*		AddResource(CPDF_Object* pSrcObj, FX_LPCSTR type);
+    CPDF_Object*		AddResource(CPDF_Object* pSrcObj, const FX_CHAR* type);
 
     CPDF_ClipPath		m_LastClipPath;
 
@@ -113,7 +111,7 @@ protected:
 #define FPDFCREATE_NO_ORIGINAL		2
 #define FPDFCREATE_PROGRESSIVE		4
 #define FPDFCREATE_OBJECTSTREAM		8
-class CPDF_Creator : public CFX_Object
+class CPDF_Creator
 {
 public:
 
@@ -123,15 +121,15 @@ public:
 
     void				RemoveSecurity();
 
-    FX_BOOL				Create(FX_LPCWSTR filename, FX_DWORD flags = 0);
+    FX_BOOL				Create(const FX_WCHAR* filename, FX_DWORD flags = 0);
 
-    FX_BOOL				Create(FX_LPCSTR filename, FX_DWORD flags = 0);
+    FX_BOOL				Create(const FX_CHAR* filename, FX_DWORD flags = 0);
 
     FX_BOOL				Create(IFX_StreamWrite* pFile, FX_DWORD flags = 0);
 
-    FX_INT32			Continue(IFX_Pause *pPause = NULL);
+    int32_t			Continue(IFX_Pause *pPause = NULL);
 
-    FX_BOOL				SetFileVersion(FX_INT32 fileVersion = 17);
+    FX_BOOL				SetFileVersion(int32_t fileVersion = 17);
 protected:
 
     CPDF_Document*		m_pDocument;
@@ -157,16 +155,16 @@ protected:
 
     CPDF_XRefStream*	m_pXRefStream;
 
-    FX_INT32			m_ObjectStreamSize;
+    int32_t			m_ObjectStreamSize;
 
     FX_DWORD			m_dwLastObjNum;
     FX_BOOL				Create(FX_DWORD flags);
     void				ResetStandardSecurity();
     void				Clear();
-    FX_INT32			WriteDoc_Stage1(IFX_Pause *pPause);
-    FX_INT32			WriteDoc_Stage2(IFX_Pause *pPause);
-    FX_INT32			WriteDoc_Stage3(IFX_Pause *pPause);
-    FX_INT32			WriteDoc_Stage4(IFX_Pause *pPause);
+    int32_t			WriteDoc_Stage1(IFX_Pause *pPause);
+    int32_t			WriteDoc_Stage2(IFX_Pause *pPause);
+    int32_t			WriteDoc_Stage3(IFX_Pause *pPause);
+    int32_t			WriteDoc_Stage4(IFX_Pause *pPause);
 
     CFX_FileBufferArchive	m_File;
 
@@ -174,19 +172,19 @@ protected:
     void				InitOldObjNumOffsets();
     void				InitNewObjNumOffsets();
     void				AppendNewObjNum(FX_DWORD objbum);
-    FX_INT32			WriteOldIndirectObject(FX_DWORD objnum);
-    FX_INT32			WriteOldObjs(IFX_Pause *pPause);
-    FX_INT32			WriteNewObjs(FX_BOOL bIncremental, IFX_Pause *pPause);
-    FX_INT32			WriteIndirectObj(const CPDF_Object* pObj);
-    FX_INT32			WriteDirectObj(FX_DWORD objnum, const CPDF_Object* pObj, FX_BOOL bEncrypt = TRUE);
-    FX_INT32			WriteIndirectObjectToStream(const CPDF_Object* pObj);
-    FX_INT32			WriteIndirectObj(FX_DWORD objnum, const CPDF_Object* pObj);
-    FX_INT32			WriteIndirectObjectToStream(FX_DWORD objnum, FX_LPCBYTE pBuffer, FX_DWORD dwSize);
-    FX_INT32			AppendObjectNumberToXRef(FX_DWORD objnum);
+    int32_t			WriteOldIndirectObject(FX_DWORD objnum);
+    int32_t			WriteOldObjs(IFX_Pause *pPause);
+    int32_t			WriteNewObjs(FX_BOOL bIncremental, IFX_Pause *pPause);
+    int32_t			WriteIndirectObj(const CPDF_Object* pObj);
+    int32_t			WriteDirectObj(FX_DWORD objnum, const CPDF_Object* pObj, FX_BOOL bEncrypt = TRUE);
+    int32_t			WriteIndirectObjectToStream(const CPDF_Object* pObj);
+    int32_t			WriteIndirectObj(FX_DWORD objnum, const CPDF_Object* pObj);
+    int32_t			WriteIndirectObjectToStream(FX_DWORD objnum, const uint8_t* pBuffer, FX_DWORD dwSize);
+    int32_t			AppendObjectNumberToXRef(FX_DWORD objnum);
     void				InitID(FX_BOOL bDefault = TRUE);
-    FX_INT32			WriteStream(const CPDF_Object* pStream, FX_DWORD objnum, CPDF_CryptoHandler* pCrypto);
+    int32_t			WriteStream(const CPDF_Object* pStream, FX_DWORD objnum, CPDF_CryptoHandler* pCrypto);
 
-    FX_INT32			m_iStage;
+    int32_t			m_iStage;
     FX_DWORD			m_dwFlags;
     FX_POSITION			m_Pos;
     FX_FILESIZE			m_XrefStart;
@@ -198,8 +196,9 @@ protected:
 
     CPDF_Array*			m_pIDArray;
 
-    FX_INT32			m_FileVersion;
+    int32_t			m_FileVersion;
     friend class CPDF_ObjectStream;
     friend class CPDF_XRefStream;
 };
-#endif
+
+#endif  // CORE_INCLUDE_FPDFAPI_FPDF_SERIAL_H_

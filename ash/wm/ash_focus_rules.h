@@ -18,8 +18,12 @@ class ASH_EXPORT AshFocusRules : public ::wm::BaseFocusRules {
   AshFocusRules();
   ~AshFocusRules() override;
 
+  // Tests if the given |window| can be activated, ignoring the system modal
+  // dialog state.
+  bool IsWindowConsideredActivatable(aura::Window* window) const;
+
  private:
-  // Overridden from ::wm::BaseFocusRules:
+  // ::wm::BaseFocusRules:
   bool SupportsChildActivation(aura::Window* window) const override;
   bool IsWindowConsideredVisibleForActivation(
       aura::Window* window) const override;

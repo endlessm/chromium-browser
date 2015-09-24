@@ -11,6 +11,9 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/models/combobox_model_observer.h"
 
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
+
 namespace {
 
 // Max number of most recently used folders.

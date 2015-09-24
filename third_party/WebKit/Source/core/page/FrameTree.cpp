@@ -172,19 +172,13 @@ AtomicString FrameTree::uniqueChildName(const AtomicString& requestedName) const
 
 Frame* FrameTree::scopedChild(unsigned index) const
 {
-    if (!m_thisFrame->isLocalFrame())
-        return nullptr;
-    TreeScope* scope = toLocalFrame(m_thisFrame)->document();
-    if (!scope)
-        return nullptr;
-
     unsigned scopedIndex = 0;
-    for (Frame* result = firstChild(); result; result = result->tree().nextSibling()) {
-        if (result->isLocalFrame() && toLocalFrame(result)->inScope(scope)) {
-            if (scopedIndex == index)
-                return result;
-            scopedIndex++;
-        }
+    for (Frame* child = firstChild(); child; child = child->tree().nextSibling()) {
+        if (child->client()->inShadowTree())
+            continue;
+        if (scopedIndex == index)
+            return child;
+        scopedIndex++;
     }
 
     return nullptr;
@@ -192,28 +186,22 @@ Frame* FrameTree::scopedChild(unsigned index) const
 
 Frame* FrameTree::scopedChild(const AtomicString& name) const
 {
-    if (!m_thisFrame->isLocalFrame())
-        return nullptr;
-
-    TreeScope* scope = toLocalFrame(m_thisFrame)->document();
-    if (!scope)
-        return nullptr;
-
-    for (Frame* child = firstChild(); child; child = child->tree().nextSibling())
-        if (child->tree().name() == name && child->isLocalFrame() && toLocalFrame(child)->inScope(scope))
+    for (Frame* child = firstChild(); child; child = child->tree().nextSibling()) {
+        if (child->client()->inShadowTree())
+            continue;
+        if (child->tree().name() == name)
             return child;
+    }
     return nullptr;
 }
 
 inline unsigned FrameTree::scopedChildCount(TreeScope* scope) const
 {
-    if (!scope)
-        return 0;
-
     unsigned scopedCount = 0;
-    for (Frame* result = firstChild(); result; result = result->tree().nextSibling()) {
-        if (result->isLocalFrame() && toLocalFrame(result)->inScope(scope))
-            scopedCount++;
+    for (Frame* child = firstChild(); child; child = child->tree().nextSibling()) {
+        if (child->client()->inShadowTree())
+            continue;
+        scopedCount++;
     }
 
     return scopedCount;
@@ -221,8 +209,11 @@ inline unsigned FrameTree::scopedChildCount(TreeScope* scope) const
 
 unsigned FrameTree::scopedChildCount() const
 {
-    if (m_scopedChildCount == invalidChildCount)
-        m_scopedChildCount = scopedChildCount(toLocalFrame(m_thisFrame)->document());
+    if (m_scopedChildCount == invalidChildCount) {
+        // FIXME: implement a TreeScope for RemoteFrames.
+        TreeScope* scope = m_thisFrame->isLocalFrame() ? toLocalFrame(m_thisFrame)->document() : nullptr;
+        m_scopedChildCount = scopedChildCount(scope);
+    }
     return m_scopedChildCount;
 }
 
@@ -377,7 +368,7 @@ Frame* FrameTree::deepLastChild() const
     return result;
 }
 
-void FrameTree::trace(Visitor* visitor)
+DEFINE_TRACE(FrameTree)
 {
     visitor->trace(m_thisFrame);
 }

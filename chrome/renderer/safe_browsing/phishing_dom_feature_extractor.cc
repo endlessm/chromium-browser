@@ -7,10 +7,12 @@
 #include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/containers/hash_tables.h"
+#include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/renderer/safe_browsing/feature_extractor_clock.h"
 #include "chrome/renderer/safe_browsing/features.h"
@@ -54,6 +56,7 @@ struct PhishingDOMFeatureExtractor::PageFeatureState {
   int num_check_inputs;
   int action_other_domain;
   int total_actions;
+  base::hash_set<std::string> page_action_urls;
 
   // Image related features
   int img_other_domain;
@@ -132,7 +135,7 @@ void PhishingDOMFeatureExtractor::ExtractFeatures(
     cur_document_ = web_view->mainFrame()->document();
   }
 
-  base::MessageLoop::current()->PostTask(
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::Bind(&PhishingDOMFeatureExtractor::ExtractFeaturesWithTimeout,
                  weak_factory_.GetWeakPtr()));
@@ -212,7 +215,7 @@ void PhishingDOMFeatureExtractor::ExtractFeaturesWithTimeout() {
           // clock granularity.
           UMA_HISTOGRAM_TIMES("SBClientPhishing.DOMFeatureChunkTime",
                               chunk_elapsed);
-          base::MessageLoop::current()->PostTask(
+          base::ThreadTaskRunnerHandle::Get()->PostTask(
               FROM_HERE,
               base::Bind(
                   &PhishingDOMFeatureExtractor::ExtractFeaturesWithTimeout,
@@ -278,6 +281,8 @@ void PhishingDOMFeatureExtractor::HandleForm(
 
   blink::WebURL full_url = element.document().completeURL(
       element.getAttribute("action"));
+
+  page_feature_state_->page_action_urls.insert(full_url.string().utf8());
 
   std::string domain;
   bool is_external = IsExternalDomain(full_url, &domain);
@@ -440,10 +445,8 @@ void PhishingDOMFeatureExtractor::InsertFeatures() {
     features_->AddRealFeature(features::kPageExternalLinksFreq, link_freq);
 
     // Add a feature for each unique domain that we're linking to
-    for (base::hash_set<std::string>::iterator it =
-             page_feature_state_->external_domains.begin();
-         it != page_feature_state_->external_domains.end(); ++it) {
-      features_->AddBooleanFeature(features::kPageLinkDomain + *it);
+    for (const auto& domain : page_feature_state_->external_domains) {
+      features_->AddBooleanFeature(features::kPageLinkDomain + domain);
     }
 
     // Fraction of links that use https.
@@ -476,6 +479,11 @@ void PhishingDOMFeatureExtractor::InsertFeatures() {
         page_feature_state_->total_actions;
     features_->AddRealFeature(features::kPageActionOtherDomainFreq,
                               action_freq);
+  }
+
+  // Add a feature for each unique external action url.
+  for (const auto& url : page_feature_state_->page_action_urls) {
+    features_->AddBooleanFeature(features::kPageActionURL + url);
   }
 
   // Record how many image src attributes point to a different domain.

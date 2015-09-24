@@ -18,6 +18,7 @@
 #include "content/public/browser/plugin_service.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/extension.h"
 #include "net/base/filename_util.h"
@@ -63,11 +64,13 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, MAYBE_PluginLoadUnload) {
 
   ExtensionService* service = extensions::ExtensionSystem::Get(
       browser()->profile())->extension_service();
+  extensions::ExtensionRegistry* registry =
+      extensions::ExtensionRegistry::Get(browser()->profile());
   service->set_show_extensions_prompts(false);
-  const size_t size_before = service->extensions()->size();
+  const size_t size_before = registry->enabled_extensions().size();
   const Extension* extension = LoadExtension(extension_dir);
   ASSERT_TRUE(extension);
-  EXPECT_EQ(size_before + 1, service->extensions()->size());
+  EXPECT_EQ(size_before + 1, registry->enabled_extensions().size());
   // Now the plugin should be in the cache.
   ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
       tab, "testPluginWorks()", &result));
@@ -78,9 +81,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, MAYBE_PluginLoadUnload) {
   EXPECT_TRUE(result);
 #endif
 
-  EXPECT_EQ(size_before + 1, service->extensions()->size());
+  EXPECT_EQ(size_before + 1, registry->enabled_extensions().size());
   UnloadExtension(extension->id());
-  EXPECT_EQ(size_before, service->extensions()->size());
+  EXPECT_EQ(size_before, registry->enabled_extensions().size());
 
   // Now the plugin should be unloaded, and the page should be broken.
 
@@ -91,7 +94,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, MAYBE_PluginLoadUnload) {
   // If we reload the extension and page, it should work again.
 
   ASSERT_TRUE(LoadExtension(extension_dir));
-  EXPECT_EQ(size_before + 1, service->extensions()->size());
+  EXPECT_EQ(size_before + 1, registry->enabled_extensions().size());
   {
     content::WindowedNotificationObserver observer(
         content::NOTIFICATION_LOAD_STOP,
@@ -128,7 +131,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, MAYBE_PluginLoadUnload) {
 IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, MAYBE_PluginPrivate) {
 #if defined(OS_WIN) && defined(USE_ASH)
   // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAshBrowserTests))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshBrowserTests))
     return;
 #endif
 
@@ -143,11 +147,13 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, MAYBE_PluginPrivate) {
 
   ExtensionService* service = extensions::ExtensionSystem::Get(
       browser()->profile())->extension_service();
+  extensions::ExtensionRegistry* registry =
+      extensions::ExtensionRegistry::Get(browser()->profile());
   service->set_show_extensions_prompts(false);
-  const size_t size_before = service->extensions()->size();
+  const size_t size_before = registry->enabled_extensions().size();
   const Extension* extension = LoadExtension(extension_dir);
   ASSERT_TRUE(extension);
-  EXPECT_EQ(size_before + 1, service->extensions()->size());
+  EXPECT_EQ(size_before + 1, registry->enabled_extensions().size());
 
   // Load the test page through the extension URL, and the plugin should work.
   ui_test_utils::NavigateToURL(browser(),
@@ -160,15 +166,15 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, MAYBE_PluginPrivate) {
 #if defined(OS_CHROMEOS)
   EXPECT_FALSE(result);
 #else
-  // TODO(bauerb): This might wrongly fail if the plug-in takes too long
-  // to load. Extension-private plug-ins don't appear in navigator.plugins, so
-  // we can't check for the plug-in in Javascript.
+  // TODO(bauerb): This might wrongly fail if the plugin takes too long
+  // to load. Extension-private plugins don't appear in navigator.plugins, so
+  // we can't check for the plugin in Javascript.
   EXPECT_TRUE(result);
 #endif
 
-  // Regression test for http://crbug.com/131811: The plug-in should be
+  // Regression test for http://crbug.com/131811: The plugin should be
   // whitelisted for the extension (and only for the extension), so it should be
-  // loaded even if content settings are set to block plug-ins.
+  // loaded even if content settings are set to block plugins.
   browser()->profile()->GetHostContentSettingsMap()->SetDefaultContentSetting(
       CONTENT_SETTINGS_TYPE_PLUGINS, CONTENT_SETTING_BLOCK);
   ASSERT_TRUE(content::ExecuteScriptAndExtractBool(

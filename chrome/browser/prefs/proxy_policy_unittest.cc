@@ -10,8 +10,6 @@
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/prefs/pref_service_mock_factory.h"
 #include "chrome/browser/prefs/pref_service_syncable.h"
-#include "chrome/browser/prefs/proxy_config_dictionary.h"
-#include "chrome/browser/prefs/proxy_prefs.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "components/policy/core/common/external_data_fetcher.h"
@@ -19,6 +17,9 @@
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_service_impl.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/proxy_config/proxy_config_dictionary.h"
+#include "components/proxy_config/proxy_prefs.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "policy/policy_constants.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -81,8 +82,7 @@ void assertProxyModeWithoutParams(const ProxyConfigDictionary& dict,
 
 class ProxyPolicyTest : public testing::Test {
  protected:
-  ProxyPolicyTest()
-      : command_line_(CommandLine::NO_PROGRAM) {}
+  ProxyPolicyTest() : command_line_(base::CommandLine::NO_PROGRAM) {}
 
   void SetUp() override {
     EXPECT_CALL(provider_, IsInitializationComplete(_))
@@ -109,8 +109,8 @@ class ProxyPolicyTest : public testing::Test {
     return prefs.Pass();
   }
 
-  base::MessageLoop loop_;
-  CommandLine command_line_;
+  content::TestBrowserThreadBundle thread_bundle_;
+  base::CommandLine command_line_;
   MockConfigurationPolicyProvider provider_;
   scoped_ptr<PolicyServiceImpl> policy_service_;
 };

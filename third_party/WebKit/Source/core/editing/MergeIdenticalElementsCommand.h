@@ -37,13 +37,13 @@ public:
         return adoptRefWillBeNoop(new MergeIdenticalElementsCommand(element1, element2));
     }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     MergeIdenticalElementsCommand(PassRefPtrWillBeRawPtr<Element>, PassRefPtrWillBeRawPtr<Element>);
 
-    virtual void doApply() override;
-    virtual void doUnapply() override;
+    void doApply() override;
+    void doUnapply() override;
 
     RefPtrWillBeMember<Element> m_element1;
     RefPtrWillBeMember<Element> m_element2;

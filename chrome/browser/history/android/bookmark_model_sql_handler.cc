@@ -6,7 +6,6 @@
 
 #include "base/logging.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
@@ -14,6 +13,8 @@
 #include "content/public/browser/browser_thread.h"
 
 using base::Time;
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
 using content::BrowserThread;
 
 namespace history {
@@ -60,8 +61,7 @@ void BookmarkModelSQLHandler::Task::RemoveBookmark(const GURL& url) {
   bookmark_model->GetNodesByURL(url, &nodes);
   for (std::vector<const BookmarkNode*>::iterator i = nodes.begin();
        i != nodes.end(); ++i) {
-    const BookmarkNode* parent_node = (*i)->parent();
-    bookmark_model->Remove(parent_node, parent_node->GetIndexOf(*i));
+    bookmark_model->Remove(*i);
   }
 }
 

@@ -229,7 +229,7 @@ namespace chrome {
 
 void ShowCreateWebAppShortcutsDialog(gfx::NativeWindow parent_window,
                                      content::WebContents* web_contents) {
-  CreateBrowserModalDialogViews(
+  constrained_window::CreateBrowserModalDialogViews(
       new CreateUrlApplicationShortcutView(web_contents),
       parent_window)->Show();
 }
@@ -239,7 +239,7 @@ void ShowCreateChromeAppShortcutsDialog(
     Profile* profile,
     const extensions::Extension* app,
     const base::Callback<void(bool)>& close_callback) {
-  CreateBrowserModalDialogViews(
+  constrained_window::CreateBrowserModalDialogViews(
       new CreateChromeApplicationShortcutView(profile, app, close_callback),
       parent_window)->Show();
 }
@@ -252,15 +252,16 @@ CreateApplicationShortcutView::CreateApplicationShortcutView(Profile* profile)
       create_shortcuts_label_(NULL),
       desktop_check_box_(NULL),
       menu_check_box_(NULL),
-      quick_launch_check_box_(NULL) {}
+      quick_launch_check_box_(NULL) {
+}
 
 CreateApplicationShortcutView::~CreateApplicationShortcutView() {}
 
 void CreateApplicationShortcutView::InitControls(DialogLayout dialog_layout) {
-  if (dialog_layout == DIALOG_LAYOUT_URL_SHORTCUT) {
-    app_info_ = new AppInfoView(shortcut_info_.title,
-                                shortcut_info_.description,
-                                shortcut_info_.favicon);
+  if (dialog_layout == DIALOG_LAYOUT_URL_SHORTCUT && shortcut_info_) {
+    app_info_ =
+        new AppInfoView(shortcut_info_->title, shortcut_info_->description,
+                        shortcut_info_->favicon);
   }
   create_shortcuts_label_ = new views::Label(
       l10n_util::GetStringUTF16(IDS_CREATE_SHORTCUTS_LABEL));
@@ -370,6 +371,12 @@ base::string16 CreateApplicationShortcutView::GetWindowTitle() const {
 }
 
 bool CreateApplicationShortcutView::Accept() {
+  // NOTE: This procedure will reset |shortcut_info_| to null.
+
+  // Can happen if the shortcut data is not yet loaded.
+  if (!shortcut_info_)
+    return false;
+
   if (!IsDialogButtonEnabled(ui::DIALOG_BUTTON_OK))
     return false;
 
@@ -392,8 +399,7 @@ bool CreateApplicationShortcutView::Accept() {
 #endif
 
   web_app::CreateShortcutsWithInfo(web_app::SHORTCUT_CREATION_BY_USER,
-                                   creation_locations,
-                                   shortcut_info_,
+                                   creation_locations, shortcut_info_.Pass(),
                                    file_handlers_info_);
   return true;
 }
@@ -430,7 +436,7 @@ CreateUrlApplicationShortcutView::CreateUrlApplicationShortcutView(
       web_contents_(web_contents),
       pending_download_id_(-1),
       weak_ptr_factory_(this)  {
-  web_app::GetShortcutInfoForTab(web_contents_, &shortcut_info_);
+  shortcut_info_ = web_app::GetShortcutInfoForTab(web_contents_);
   const WebApplicationInfo& app_info =
       extensions::TabHelper::FromWebContents(web_contents_)->web_app_info();
   if (!app_info.icons.empty()) {
@@ -448,12 +454,15 @@ CreateUrlApplicationShortcutView::~CreateUrlApplicationShortcutView() {
 }
 
 bool CreateUrlApplicationShortcutView::Accept() {
+  // Get the smallest icon in the icon family (should have only 1). This must be
+  // done before the call to Accept(), which will reset |shortcut_info_|.
+  DCHECK(shortcut_info_);
+  const gfx::Image* icon = shortcut_info_->favicon.GetBest(0, 0);
+  SkBitmap bitmap = icon ? icon->AsBitmap() : SkBitmap();
+
   if (!CreateApplicationShortcutView::Accept())
     return false;
 
-  // Get the smallest icon in the icon family (should have only 1).
-  const gfx::Image* icon = shortcut_info_.favicon.GetBest(0, 0);
-  SkBitmap bitmap = icon ? icon->AsBitmap() : SkBitmap();
   extensions::TabHelper::FromWebContents(web_contents_)->SetAppIcon(bitmap);
   Browser* browser = chrome::FindBrowserWithWebContents(web_contents_);
   if (browser)
@@ -474,6 +483,7 @@ void CreateUrlApplicationShortcutView::FetchIcon() {
       unprocessed_icons_.back().url,
       true,  // is a favicon
       0,  // no maximum size
+      false,  // normal cache policy
       base::Bind(&CreateUrlApplicationShortcutView::DidDownloadFavicon,
                  weak_ptr_factory_.GetWeakPtr(),
                  preferred_size));
@@ -492,14 +502,21 @@ void CreateUrlApplicationShortcutView::DidDownloadFavicon(
     return;
   pending_download_id_ = -1;
 
+  // Can happen if the dialog has already been accepted.
+  if (!shortcut_info_)
+    return;
+
   gfx::ImageSkia image_skia = CreateFaviconImageSkia(
       bitmaps,
       original_bitmap_sizes,
       requested_size,
       NULL);
   if (!image_skia.isNull()) {
-    shortcut_info_.favicon.Add(image_skia);
-    static_cast<AppInfoView*>(app_info_)->UpdateIcon(shortcut_info_.favicon);
+    // As |shortcut_info_| will be passed to the FILE thread upon accepting the
+    // dialog, this image must be made read-only and thread-safe.
+    image_skia.MakeThreadSafe();
+    shortcut_info_->favicon.Add(image_skia);
+    static_cast<AppInfoView*>(app_info_)->UpdateIcon(shortcut_info_->favicon);
   } else {
     FetchIcon();
   }
@@ -541,8 +558,8 @@ bool CreateChromeApplicationShortcutView::Cancel() {
 }
 
 void CreateChromeApplicationShortcutView::OnAppInfoLoaded(
-    const web_app::ShortcutInfo& shortcut_info,
+    scoped_ptr<web_app::ShortcutInfo> shortcut_info,
     const extensions::FileHandlersInfo& file_handlers_info) {
-  shortcut_info_ = shortcut_info;
+  shortcut_info_ = shortcut_info.Pass();
   file_handlers_info_ = file_handlers_info;
 }

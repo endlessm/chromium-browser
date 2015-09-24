@@ -18,6 +18,14 @@ public:
     SkSurface_Base(const SkImageInfo&, const SkSurfaceProps*);
     virtual ~SkSurface_Base();
 
+    virtual GrBackendObject onGetTextureHandle(BackendHandleAccess) {
+        return 0;
+    }
+
+    virtual bool onGetRenderTargetHandle(GrBackendObject*, BackendHandleAccess) {
+        return false;
+    }
+
     /**
      *  Allocate a canvas that will draw into this surface. We will cache this
      *  canvas, to return the same object to the caller multiple times. We
@@ -32,9 +40,9 @@ public:
      *  Allocate an SkImage that represents the current contents of the surface.
      *  This needs to be able to outlive the surface itself (if need be), and
      *  must faithfully represent the current contents, even if the surface
-     *  is chaged after this calle (e.g. it is drawn to via its canvas).
+     *  is changed after this called (e.g. it is drawn to via its canvas).
      */
-    virtual SkImage* onNewImageSnapshot() = 0;
+    virtual SkImage* onNewImageSnapshot(Budgeted) = 0;
 
     /**
      *  Default implementation:
@@ -61,7 +69,7 @@ public:
     virtual void onCopyOnWrite(ContentChangeMode) = 0;
 
     inline SkCanvas* getCachedCanvas();
-    inline SkImage* getCachedImage();
+    inline SkImage* getCachedImage(Budgeted);
 
     // called by SkSurface to compute a new genID
     uint32_t newGenerationID();
@@ -87,9 +95,9 @@ SkCanvas* SkSurface_Base::getCachedCanvas() {
     return fCachedCanvas;
 }
 
-SkImage* SkSurface_Base::getCachedImage() {
+SkImage* SkSurface_Base::getCachedImage(Budgeted budgeted) {
     if (NULL == fCachedImage) {
-        fCachedImage = this->onNewImageSnapshot();
+        fCachedImage = this->onNewImageSnapshot(budgeted);
         SkASSERT(!fCachedCanvas || fCachedCanvas->getSurfaceBase() == this);
     }
     return fCachedImage;

@@ -16,9 +16,9 @@
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/shill_profile_client.h"
 #include "chromeos/login/login_state.h"
-#include "chromeos/network/network_event_log.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
+#include "components/device_event_log/device_event_log.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/common/content_switches.h"
 #include "net/http/http_status_code.h"
@@ -96,7 +96,7 @@ void RecordDiscrepancyWithShill(
           NetworkPortalDetectorImpl::kSessionShillOnlineHistogram,
           status,
           NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_COUNT);
-    } else if (network->connection_state() == shill::kStatePortal) {
+    } else if (network->is_captive_portal()) {
       UMA_HISTOGRAM_ENUMERATION(
           NetworkPortalDetectorImpl::kSessionShillPortalHistogram,
           status,
@@ -113,7 +113,7 @@ void RecordDiscrepancyWithShill(
           NetworkPortalDetectorImpl::kOobeShillOnlineHistogram,
           status,
           NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_COUNT);
-    } else if (network->connection_state() == shill::kStatePortal) {
+    } else if (network->is_captive_portal()) {
       UMA_HISTOGRAM_ENUMERATION(
           NetworkPortalDetectorImpl::kOobeShillPortalHistogram,
           status,
@@ -162,21 +162,13 @@ NetworkPortalDetectorImpl::DetectionAttemptCompletedReport::
 
 void NetworkPortalDetectorImpl::DetectionAttemptCompletedReport::Report()
     const {
-  // TODO (ygorshenin@): remove VLOG as soon as NET_LOG_EVENT will be dumped on
-  // a disk, crbug.com/293739.
-  VLOG(1) << "Detection attempt completed: "
-          << "name=" << network_name << ", "
-          << "id=" << network_id << ", "
-          << "result=" << captive_portal::CaptivePortalResultToString(result)
-          << ", "
-          << "response_code=" << response_code;
-  NET_LOG_EVENT(StringPrintf(
-                    "Portal detection completed: network_id=%s, result=%s, "
-                    "response_code=%d",
-                    network_id.c_str(),
-                    captive_portal::CaptivePortalResultToString(result).c_str(),
-                    response_code),
-                network_name);
+  // To see NET_LOG output, use '--vmodule=device_event_log*=1'
+  NET_LOG(EVENT) << "Detection attempt completed: "
+                 << "name=" << network_name << ", "
+                 << "id=" << network_id << ", "
+                 << "result="
+                 << captive_portal::CaptivePortalResultToString(result) << ", "
+                 << "response_code=" << response_code;
 }
 
 bool NetworkPortalDetectorImpl::DetectionAttemptCompletedReport::Equals(
@@ -221,7 +213,8 @@ void NetworkPortalDetectorImpl::Initialize(
     return;
   CHECK(!NetworkPortalDetector::network_portal_detector())
       << "NetworkPortalDetector was initialized twice.";
-  if (CommandLine::ForCurrentProcess()->HasSwitch(::switches::kTestType))
+  NET_LOG(EVENT) << "NetworkPortalDetectorImpl::Initialize()";
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(::switches::kTestType))
     set_network_portal_detector(new NetworkPortalDetectorStubImpl());
   else
     set_network_portal_detector(new NetworkPortalDetectorImpl(url_context));
@@ -233,12 +226,17 @@ NetworkPortalDetectorImpl::NetworkPortalDetectorImpl(
       test_url_(CaptivePortalDetector::kDefaultURL),
       enabled_(false),
       strategy_(PortalDetectorStrategy::CreateById(
-          PortalDetectorStrategy::STRATEGY_ID_LOGIN_SCREEN, this)),
+          PortalDetectorStrategy::STRATEGY_ID_LOGIN_SCREEN,
+          this)),
       last_detection_result_(CAPTIVE_PORTAL_STATUS_UNKNOWN),
       same_detection_result_count_(0),
       no_response_result_count_(0),
       weak_factory_(this) {
+  NET_LOG(EVENT) << "NetworkPortalDetectorImpl::NetworkPortalDetectorImpl()";
   captive_portal_detector_.reset(new CaptivePortalDetector(request_context));
+
+  notification_controller_.set_retry_detection_callback(base::Bind(
+      &NetworkPortalDetectorImpl::RetryDetection, base::Unretained(this)));
 
   registrar_.Add(this,
                  chrome::NOTIFICATION_LOGIN_PROXY_CHANGED,
@@ -255,6 +253,7 @@ NetworkPortalDetectorImpl::NetworkPortalDetectorImpl(
 }
 
 NetworkPortalDetectorImpl::~NetworkPortalDetectorImpl() {
+  NET_LOG(EVENT) << "NetworkPortalDetectorImpl::~NetworkPortalDetectorImpl()";
   DCHECK(CalledOnValidThread());
 
   attempt_task_.Cancel();
@@ -306,9 +305,8 @@ void NetworkPortalDetectorImpl::Enable(bool start_detection) {
   const NetworkState* network = DefaultNetwork();
   if (!start_detection || !network)
     return;
-  NET_LOG_EVENT(StringPrintf("Starting detection attempt: network_id=%s",
-                             network->guid().c_str()),
-                network->name());
+  NET_LOG(EVENT) << "Starting detection attempt:"
+                 << " name=" << network->name() << " id=" << network->guid();
   portal_state_map_.erase(network->guid());
   StartDetection();
 }
@@ -338,12 +336,17 @@ void NetworkPortalDetectorImpl::SetStrategy(
   StartDetectionIfIdle();
 }
 
+void NetworkPortalDetectorImpl::OnLockScreenRequest() {
+  notification_controller_.CloseDialog();
+}
+
 void NetworkPortalDetectorImpl::DefaultNetworkChanged(
     const NetworkState* default_network) {
   DCHECK(CalledOnValidThread());
 
+  notification_controller_.DefaultNetworkChanged(default_network);
   if (!default_network) {
-    NET_LOG_EVENT("Default network changed", "None");
+    NET_LOG(EVENT) << "Default network changed: None";
 
     default_network_name_.clear();
 
@@ -364,14 +367,12 @@ void NetworkPortalDetectorImpl::DefaultNetworkChanged(
       (default_connection_state_ != default_network->connection_state());
   default_connection_state_ = default_network->connection_state();
 
-  NET_LOG_EVENT(StringPrintf(
-                    "Default network changed: network_id=%s, state=%s, "
-                    "changed=%d, state_changed=%d",
-                    default_network_id_.c_str(),
-                    default_connection_state_.c_str(),
-                    network_changed,
-                    connection_state_changed),
-                default_network_name_);
+  NET_LOG(EVENT) << "Default network changed:"
+                 << " name=" << default_network_name_
+                 << " id=" << default_network_id_
+                 << " state=" << default_connection_state_
+                 << " changed=" << network_changed
+                 << " state_changed=" << connection_state_changed;
 
   if (network_changed || connection_state_changed)
     StopDetection();
@@ -397,7 +398,7 @@ base::TimeTicks NetworkPortalDetectorImpl::AttemptStartTime() {
   return attempt_start_time_;
 }
 
-base::TimeTicks NetworkPortalDetectorImpl::GetCurrentTimeTicks() {
+base::TimeTicks NetworkPortalDetectorImpl::NowTicks() {
   if (time_ticks_for_testing_.is_null())
     return base::TimeTicks::Now();
   return time_ticks_for_testing_;
@@ -411,7 +412,7 @@ void NetworkPortalDetectorImpl::StartDetection() {
   DCHECK(is_idle());
 
   ResetStrategyAndCounters();
-  detection_start_time_ = GetCurrentTimeTicks();
+  detection_start_time_ = NowTicks();
   ScheduleAttempt(base::TimeDelta());
 }
 
@@ -421,6 +422,11 @@ void NetworkPortalDetectorImpl::StopDetection() {
   captive_portal_detector_->Cancel();
   state_ = STATE_IDLE;
   ResetStrategyAndCounters();
+}
+
+void NetworkPortalDetectorImpl::RetryDetection() {
+  StopDetection();
+  StartDetection();
 }
 
 void NetworkPortalDetectorImpl::ScheduleAttempt(const base::TimeDelta& delay) {
@@ -444,7 +450,7 @@ void NetworkPortalDetectorImpl::StartAttempt() {
   DCHECK(is_portal_check_pending());
 
   state_ = STATE_CHECKING_FOR_PORTAL;
-  attempt_start_time_ = GetCurrentTimeTicks();
+  attempt_start_time_ = NowTicks();
 
   captive_portal_detector_->DetectCaptivePortal(
       test_url_,
@@ -464,9 +470,9 @@ void NetworkPortalDetectorImpl::OnAttemptTimeout() {
   DCHECK(CalledOnValidThread());
   DCHECK(is_checking_for_portal());
 
-  NET_LOG_ERROR(StringPrintf("Portal detection timeout: network_id=%s",
-                             default_network_id_.c_str()),
-                default_network_name_);
+  NET_LOG(ERROR) << "Portal detection timeout: "
+                 << " name=" << default_network_name_
+                 << " id=" << default_network_id_;
 
   captive_portal_detector_->Cancel();
   CaptivePortalDetector::Results results;
@@ -488,7 +494,7 @@ void NetworkPortalDetectorImpl::OnAttemptCompleted(
   // if the default network is in portal state.
   if (result != captive_portal::RESULT_NO_RESPONSE &&
       DBusThreadManager::Get()->GetShillProfileClient()->GetTestInterface() &&
-      network && network->connection_state() == shill::kStatePortal) {
+      network && network->is_captive_portal()) {
     result = captive_portal::RESULT_BEHIND_CAPTIVE_PORTAL;
     response_code = 200;
   }
@@ -505,13 +511,12 @@ void NetworkPortalDetectorImpl::OnAttemptCompleted(
 
   CaptivePortalState state;
   state.response_code = response_code;
-  state.time = GetCurrentTimeTicks();
+  state.time = NowTicks();
   switch (result) {
     case captive_portal::RESULT_NO_RESPONSE:
       if (state.response_code == net::HTTP_PROXY_AUTHENTICATION_REQUIRED) {
         state.status = CAPTIVE_PORTAL_STATUS_PROXY_AUTH_REQUIRED;
-      } else if (network &&
-                 (network->connection_state() == shill::kStatePortal)) {
+      } else if (network && network->is_captive_portal()) {
         // Take into account shill's detection results.
         state.status = CAPTIVE_PORTAL_STATUS_PORTAL;
       } else {
@@ -564,9 +569,8 @@ void NetworkPortalDetectorImpl::Observe(
   if (type == chrome::NOTIFICATION_LOGIN_PROXY_CHANGED ||
       type == chrome::NOTIFICATION_AUTH_SUPPLIED ||
       type == chrome::NOTIFICATION_AUTH_CANCELLED) {
-    NET_LOG_EVENT(
-        "Restarting portal detection due to proxy change",
-        default_network_name_.empty() ? "None" : default_network_name_);
+    NET_LOG(EVENT) << "Restarting portal detection due to proxy change"
+                   << " name=" << default_network_name_;
     StopDetection();
     ScheduleAttempt(base::TimeDelta::FromSeconds(kProxyChangeDelaySec));
   }
@@ -619,7 +623,7 @@ void NetworkPortalDetectorImpl::RecordDetectionStats(
     return;
 
   if (!detection_start_time_.is_null())
-    RecordDetectionDuration(GetCurrentTimeTicks() - detection_start_time_);
+    RecordDetectionDuration(NowTicks() - detection_start_time_);
   RecordDetectionResult(status);
 
   switch (status) {
@@ -627,17 +631,15 @@ void NetworkPortalDetectorImpl::RecordDetectionStats(
       NOTREACHED();
       break;
     case NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_OFFLINE:
-      if (network->connection_state() == shill::kStateOnline ||
-          network->connection_state() == shill::kStatePortal) {
+      if (network->IsConnectedState())
         RecordDiscrepancyWithShill(network, status);
-      }
       break;
     case NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_ONLINE:
       if (network->connection_state() != shill::kStateOnline)
         RecordDiscrepancyWithShill(network, status);
       break;
     case NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_PORTAL:
-      if (network->connection_state() != shill::kStatePortal)
+      if (!network->is_captive_portal())
         RecordDiscrepancyWithShill(network, status);
       break;
     case NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_PROXY_AUTH_REQUIRED:

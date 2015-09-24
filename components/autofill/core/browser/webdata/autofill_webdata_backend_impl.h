@@ -19,10 +19,10 @@
 #include "components/webdata/common/web_database.h"
 
 namespace base {
-class MessageLoopProxy;
+class SingleThreadTaskRunner;
 }
 
-class WebDataServiceBackend;
+class WebDatabaseBackend;
 
 namespace autofill {
 
@@ -47,9 +47,9 @@ class AutofillWebDataBackendImpl
   // thread of changes initiated by Sync (this callback may be called multiple
   // times).
   AutofillWebDataBackendImpl(
-      scoped_refptr<WebDataServiceBackend> web_database_backend,
-      scoped_refptr<base::MessageLoopProxy> ui_thread,
-      scoped_refptr<base::MessageLoopProxy> db_thread,
+      scoped_refptr<WebDatabaseBackend> web_database_backend,
+      scoped_refptr<base::SingleThreadTaskRunner> ui_thread,
+      scoped_refptr<base::SingleThreadTaskRunner> db_thread,
       const base::Closure& on_changed_callback);
 
   // AutofillWebDataBackend implementation.
@@ -89,56 +89,79 @@ class AutofillWebDataBackendImpl
       const base::Time& delete_end,
       WebDatabase* db);
 
-
   // Removes the Form-value |value| which has been entered in form input fields
   // named |name| from the database.
   WebDatabase::State RemoveFormValueForElementName(const base::string16& name,
                                                    const base::string16& value,
                                                    WebDatabase* db);
 
-  // Adds an Autofill profile to the web database.
+  // Adds an Autofill profile to the web database. Valid only for local
+  // profiles.
   WebDatabase::State AddAutofillProfile(const AutofillProfile& profile,
                                         WebDatabase* db);
 
-  // Updates an Autofill profile in the web database.
+  // Updates an Autofill profile in the web database. Valid only for local
+  // profiles.
   WebDatabase::State UpdateAutofillProfile(const AutofillProfile& profile,
                                            WebDatabase* db);
 
-  // Removes an Autofill profile from the web database.
+  // Removes an Autofill profile from the web database. Valid only for local
+  // profiles.
   WebDatabase::State RemoveAutofillProfile(const std::string& guid,
                                            WebDatabase* db);
 
-  // Returns all Autofill profiles from the web database.
+  // Returns the local/server Autofill profiles from the web database.
   scoped_ptr<WDTypedResult> GetAutofillProfiles(WebDatabase* db);
+  scoped_ptr<WDTypedResult> GetServerProfiles(WebDatabase* db);
 
   // Updates Autofill entries in the web database.
   WebDatabase::State UpdateAutofillEntries(
       const std::vector<autofill::AutofillEntry>& autofill_entries,
       WebDatabase* db);
 
-  // Adds a credit card to the web database.
+  // Adds a credit card to the web database. Valid only for local cards.
   WebDatabase::State AddCreditCard(const CreditCard& credit_card,
                                    WebDatabase* db);
 
-  // Updates a credit card in the web database.
+  // Updates a credit card in the web database. Valid only for local cards.
   WebDatabase::State UpdateCreditCard(const CreditCard& credit_card,
                                       WebDatabase* db);
 
-  // Removes a credit card from the web database.
+  // Removes a credit card from the web database. Valid only for local cards.
   WebDatabase::State RemoveCreditCard(const std::string& guid,
                                       WebDatabase* db);
 
-  // Returns a vector of all credit cards from the web database.
+  // Returns a vector of local/server credit cards from the web database.
   scoped_ptr<WDTypedResult> GetCreditCards(WebDatabase* db);
+  scoped_ptr<WDTypedResult> GetServerCreditCards(WebDatabase* db);
 
-  // Removes Autofill records from the database.
+  // Server credit cards can be masked (only last 4 digits stored) or unmasked
+  // (all data stored). These toggle between the two states.
+  WebDatabase::State UnmaskServerCreditCard(const CreditCard& card,
+                                            const base::string16& full_number,
+                                            WebDatabase* db);
+  WebDatabase::State MaskServerCreditCard(const std::string& id,
+                                          WebDatabase* db);
+
+  WebDatabase::State UpdateServerCardUsageStats(
+      const CreditCard& credit_card,
+      WebDatabase* db);
+
+  WebDatabase::State UpdateServerAddressUsageStats(
+      const AutofillProfile& profile,
+      WebDatabase* db);
+
+  WebDatabase::State ClearAllServerData(WebDatabase* db);
+
+  // Removes Autofill records from the database. Valid only for local
+  // cards/profiles.
   WebDatabase::State RemoveAutofillDataModifiedBetween(
       const base::Time& delete_begin,
       const base::Time& delete_end,
       WebDatabase* db);
 
-  // Removes origin URLs associated with Autofill profiles and credit cards from
-  // the database.
+  // Removes origin URLs associated with Autofill profiles and credit cards
+  // from the database. Valid only for local cards/profiles.
   WebDatabase::State RemoveOriginURLsModifiedBetween(
       const base::Time& delete_begin,
       const base::Time& delete_end,
@@ -164,11 +187,11 @@ class AutofillWebDataBackendImpl
     DISALLOW_COPY_AND_ASSIGN(SupportsUserDataAggregatable);
   };
 
-  // The MessageLoopProxy that this class uses as its UI thread.
-  scoped_refptr<base::MessageLoopProxy> ui_thread_;
+  // The task runner that this class uses as its UI thread.
+  scoped_refptr<base::SingleThreadTaskRunner> ui_thread_;
 
-  // The MessageLoopProxy that this class uses as its DB thread.
-  scoped_refptr<base::MessageLoopProxy> db_thread_;
+  // The task runner that this class uses as its DB thread.
+  scoped_refptr<base::SingleThreadTaskRunner> db_thread_;
 
   // Storage for user data to be accessed only on the DB thread. May
   // be used e.g. for SyncableService subclasses that need to be owned
@@ -182,11 +205,12 @@ class AutofillWebDataBackendImpl
   void DestroyAutofillProfileResult(const WDTypedResult* result);
   void DestroyAutofillCreditCardResult(const WDTypedResult* result);
 
-  ObserverList<AutofillWebDataServiceObserverOnDBThread> db_observer_list_;
+  base::ObserverList<AutofillWebDataServiceObserverOnDBThread>
+      db_observer_list_;
 
-  // WebDataServiceBackend allows direct access to DB.
+  // WebDatabaseBackend allows direct access to DB.
   // TODO(caitkp): Make it so nobody but us needs direct DB access anymore.
-  scoped_refptr<WebDataServiceBackend> web_database_backend_;
+  scoped_refptr<WebDatabaseBackend> web_database_backend_;
 
   base::Closure on_changed_callback_;
 

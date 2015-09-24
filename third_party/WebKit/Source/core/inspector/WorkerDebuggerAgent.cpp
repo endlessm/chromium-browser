@@ -31,44 +31,21 @@
 #include "config.h"
 #include "core/inspector/WorkerDebuggerAgent.h"
 
-#include "bindings/core/v8/ScriptDebugServer.h"
-#include "core/inspector/WorkerInspectorController.h"
+#include "core/inspector/InjectedScript.h"
+#include "core/inspector/V8Debugger.h"
+#include "core/inspector/WorkerThreadDebugger.h"
 #include "core/workers/WorkerGlobalScope.h"
-#include "core/workers/WorkerThread.h"
-#include "wtf/MessageQueue.h"
 
 namespace blink {
 
-namespace {
-
-class RunInspectorCommandsTask final : public ScriptDebugServer::Task {
-public:
-    explicit RunInspectorCommandsTask(WorkerThread* thread)
-        : m_thread(thread) { }
-    virtual ~RunInspectorCommandsTask() { }
-    virtual void run() override
-    {
-        // Process all queued debugger commands. WorkerThread is certainly
-        // alive if this task is being executed.
-        m_thread->willEnterNestedLoop();
-        while (MessageQueueMessageReceived == m_thread->runDebuggerTask(WorkerThread::DontWaitForMessage)) { }
-        m_thread->didLeaveNestedLoop();
-    }
-
-private:
-    WorkerThread* m_thread;
-};
-
-} // namespace
-
-PassOwnPtrWillBeRawPtr<WorkerDebuggerAgent> WorkerDebuggerAgent::create(WorkerScriptDebugServer* scriptDebugServer, WorkerGlobalScope* inspectedWorkerGlobalScope, InjectedScriptManager* injectedScriptManager)
+PassOwnPtrWillBeRawPtr<WorkerDebuggerAgent> WorkerDebuggerAgent::create(WorkerThreadDebugger* workerThreadDebugger, WorkerGlobalScope* inspectedWorkerGlobalScope, InjectedScriptManager* injectedScriptManager)
 {
-    return adoptPtrWillBeNoop(new WorkerDebuggerAgent(scriptDebugServer, inspectedWorkerGlobalScope, injectedScriptManager));
+    return adoptPtrWillBeNoop(new WorkerDebuggerAgent(workerThreadDebugger, inspectedWorkerGlobalScope, injectedScriptManager));
 }
 
-WorkerDebuggerAgent::WorkerDebuggerAgent(WorkerScriptDebugServer* scriptDebugServer, WorkerGlobalScope* inspectedWorkerGlobalScope, InjectedScriptManager* injectedScriptManager)
-    : InspectorDebuggerAgent(injectedScriptManager)
-    , m_scriptDebugServer(scriptDebugServer)
+WorkerDebuggerAgent::WorkerDebuggerAgent(WorkerThreadDebugger* workerThreadDebugger, WorkerGlobalScope* inspectedWorkerGlobalScope, InjectedScriptManager* injectedScriptManager)
+    : InspectorDebuggerAgent(injectedScriptManager, workerThreadDebugger->debugger()->isolate())
+    , m_workerThreadDebugger(workerThreadDebugger)
     , m_inspectedWorkerGlobalScope(inspectedWorkerGlobalScope)
 {
 }
@@ -77,30 +54,25 @@ WorkerDebuggerAgent::~WorkerDebuggerAgent()
 {
 }
 
-void WorkerDebuggerAgent::trace(Visitor* visitor)
+DEFINE_TRACE(WorkerDebuggerAgent)
 {
     visitor->trace(m_inspectedWorkerGlobalScope);
     InspectorDebuggerAgent::trace(visitor);
 }
 
-void WorkerDebuggerAgent::interruptAndDispatchInspectorCommands()
+void WorkerDebuggerAgent::startListeningV8Debugger()
 {
-    scriptDebugServer().interruptAndRunTask(adoptPtr(new RunInspectorCommandsTask(m_inspectedWorkerGlobalScope->thread())));
+    m_workerThreadDebugger->addListener(this);
 }
 
-void WorkerDebuggerAgent::startListeningScriptDebugServer()
+void WorkerDebuggerAgent::stopListeningV8Debugger()
 {
-    scriptDebugServer().addListener(this);
+    m_workerThreadDebugger->removeListener(this);
 }
 
-void WorkerDebuggerAgent::stopListeningScriptDebugServer()
+V8Debugger& WorkerDebuggerAgent::debugger()
 {
-    scriptDebugServer().removeListener(this);
-}
-
-WorkerScriptDebugServer& WorkerDebuggerAgent::scriptDebugServer()
-{
-    return *m_scriptDebugServer;
+    return *(m_workerThreadDebugger->debugger());
 }
 
 InjectedScript WorkerDebuggerAgent::injectedScriptForEval(ErrorString* error, const int* executionContextId)

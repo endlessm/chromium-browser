@@ -44,7 +44,7 @@ static FloatPoint contentsOffset(LocalFrame* frame)
     return FloatPoint(frameView->scrollPosition()).scaledBy(scale);
 }
 
-Touch::Touch(LocalFrame* frame, EventTarget* target, unsigned identifier, const FloatPoint& screenPos, const FloatPoint& pagePos, const FloatSize& radius, float rotationAngle, float force)
+Touch::Touch(LocalFrame* frame, EventTarget* target, int identifier, const FloatPoint& screenPos, const FloatPoint& pagePos, const FloatSize& radius, float rotationAngle, float force)
     : m_target(target)
     , m_identifier(identifier)
     , m_clientPos(pagePos - contentsOffset(frame))
@@ -58,7 +58,7 @@ Touch::Touch(LocalFrame* frame, EventTarget* target, unsigned identifier, const 
     m_absoluteLocation = roundedLayoutPoint(pagePos.scaledBy(scaleFactor));
 }
 
-Touch::Touch(EventTarget* target, unsigned identifier, const FloatPoint& clientPos, const FloatPoint& screenPos, const FloatPoint& pagePos, const FloatSize& radius, float rotationAngle, float force, LayoutPoint absoluteLocation)
+Touch::Touch(EventTarget* target, int identifier, const FloatPoint& clientPos, const FloatPoint& screenPos, const FloatPoint& pagePos, const FloatSize& radius, float rotationAngle, float force, LayoutPoint absoluteLocation)
     : m_target(target)
     , m_identifier(identifier)
     , m_clientPos(clientPos)
@@ -76,7 +76,7 @@ PassRefPtrWillBeRawPtr<Touch> Touch::cloneWithNewTarget(EventTarget* eventTarget
     return adoptRefWillBeNoop(new Touch(eventTarget, m_identifier, m_clientPos, m_screenPos, m_pagePos, m_radius, m_rotationAngle, m_force, m_absoluteLocation));
 }
 
-void Touch::trace(Visitor* visitor)
+DEFINE_TRACE(Touch)
 {
     visitor->trace(m_target);
 }

@@ -16,25 +16,23 @@ namespace protocol {
 
 HostEventDispatcher::HostEventDispatcher()
     : ChannelDispatcherBase(kEventChannelName),
-      input_stub_(NULL) {
+      input_stub_(nullptr),
+      parser_(base::Bind(&HostEventDispatcher::OnMessageReceived,
+                         base::Unretained(this)),
+              reader()) {
 }
 
 HostEventDispatcher::~HostEventDispatcher() {
 }
 
-void HostEventDispatcher::OnInitialized() {
-  reader_.Init(channel(), base::Bind(
-      &HostEventDispatcher::OnMessageReceived, base::Unretained(this)));
-}
-
-void HostEventDispatcher::OnMessageReceived(
-    scoped_ptr<EventMessage> message, const base::Closure& done_task) {
+void HostEventDispatcher::OnMessageReceived(scoped_ptr<EventMessage> message,
+                                            const base::Closure& done_task) {
   DCHECK(input_stub_);
 
   base::ScopedClosureRunner done_runner(done_task);
 
-  if (message->has_sequence_number() && !sequence_number_callback_.is_null())
-    sequence_number_callback_.Run(message->sequence_number());
+  if (message->has_timestamp() && !event_timestamp_callback_.is_null())
+    event_timestamp_callback_.Run(message->timestamp());
 
   if (message->has_key_event()) {
     const KeyEvent& event = message->key_event();
@@ -52,6 +50,8 @@ void HostEventDispatcher::OnMessageReceived(
     }
   } else if (message->has_mouse_event()) {
     input_stub_->InjectMouseEvent(message->mouse_event());
+  } else if (message->has_touch_event()) {
+    input_stub_->InjectTouchEvent(message->touch_event());
   } else {
     LOG(WARNING) << "Unknown event message received.";
   }

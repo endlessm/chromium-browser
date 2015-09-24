@@ -6,40 +6,32 @@
 
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/fake_power_manager_client.h"
-#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-
-using ::testing::_;
-using ::testing::SaveArg;
 
 namespace chromeos {
 
 class PowerPolicyControllerTest : public testing::Test {
  public:
-  PowerPolicyControllerTest() {}
-  virtual ~PowerPolicyControllerTest() {}
+  PowerPolicyControllerTest()
+      : fake_power_client_(new FakePowerManagerClient) {}
 
-  virtual void SetUp() override {
-    scoped_ptr<DBusThreadManagerSetter> dbus_setter =
-        chromeos::DBusThreadManager::GetSetterForTesting();
-    fake_power_client_ = new FakePowerManagerClient;
-    dbus_setter->SetPowerManagerClient(
-        scoped_ptr<PowerManagerClient>(fake_power_client_));
+  ~PowerPolicyControllerTest() override {}
 
-    policy_controller_.reset(new PowerPolicyController);
-    policy_controller_->Init(DBusThreadManager::Get());
+  void SetUp() override {
+    PowerPolicyController::Initialize(fake_power_client_.get());
+    ASSERT_TRUE(PowerPolicyController::IsInitialized());
+    policy_controller_ = PowerPolicyController::Get();
   }
 
-  virtual void TearDown() override {
-    policy_controller_.reset();
-    DBusThreadManager::Shutdown();
+  void TearDown() override {
+    if (PowerPolicyController::IsInitialized())
+      PowerPolicyController::Shutdown();
   }
 
  protected:
-  FakePowerManagerClient* fake_power_client_;
-  scoped_ptr<PowerPolicyController> policy_controller_;
+  scoped_ptr<FakePowerManagerClient> fake_power_client_;
+  PowerPolicyController* policy_controller_;
   base::MessageLoop message_loop_;
 };
 
@@ -62,6 +54,7 @@ TEST_F(PowerPolicyControllerTest, Prefs) {
   prefs.presentation_screen_dim_delay_factor = 3.0;
   prefs.user_activity_screen_dim_delay_factor = 2.0;
   prefs.wait_for_initial_user_activity = true;
+  prefs.force_nonzero_brightness_for_user_activity = false;
   policy_controller_->ApplyPrefs(prefs);
 
   power_manager::PowerManagementPolicy expected_policy;
@@ -88,7 +81,8 @@ TEST_F(PowerPolicyControllerTest, Prefs) {
   expected_policy.set_presentation_screen_dim_delay_factor(3.0);
   expected_policy.set_user_activity_screen_dim_delay_factor(2.0);
   expected_policy.set_wait_for_initial_user_activity(true);
-  expected_policy.set_reason("Prefs");
+  expected_policy.set_force_nonzero_brightness_for_user_activity(false);
+  expected_policy.set_reason(PowerPolicyController::kPrefsReason);
   EXPECT_EQ(PowerPolicyController::GetPolicyDebugString(expected_policy),
             PowerPolicyController::GetPolicyDebugString(
                 fake_power_client_->policy()));
@@ -98,12 +92,14 @@ TEST_F(PowerPolicyControllerTest, Prefs) {
   prefs.battery_idle_warning_delay_ms = 400000;
   prefs.lid_closed_action = PowerPolicyController::ACTION_SUSPEND;
   prefs.ac_brightness_percent = -1.0;
+  prefs.force_nonzero_brightness_for_user_activity = true;
   policy_controller_->ApplyPrefs(prefs);
   expected_policy.mutable_ac_delays()->set_idle_warning_ms(700000);
   expected_policy.mutable_battery_delays()->set_idle_warning_ms(400000);
   expected_policy.set_lid_closed_action(
       power_manager::PowerManagementPolicy_Action_SUSPEND);
   expected_policy.clear_ac_brightness_percent();
+  expected_policy.set_force_nonzero_brightness_for_user_activity(true);
   EXPECT_EQ(PowerPolicyController::GetPolicyDebugString(expected_policy),
             PowerPolicyController::GetPolicyDebugString(
                 fake_power_client_->policy()));
@@ -155,10 +151,12 @@ TEST_F(PowerPolicyControllerTest, Prefs) {
   // pref-supplied screen-related delays should be left untouched.
   prefs.allow_screen_wake_locks = false;
   policy_controller_->ApplyPrefs(prefs);
-  policy_controller_->AddScreenWakeLock("Screen");
+  policy_controller_->AddScreenWakeLock(PowerPolicyController::REASON_OTHER,
+                                        "Screen");
   expected_policy.set_ac_idle_action(
       power_manager::PowerManagementPolicy_Action_DO_NOTHING);
-  expected_policy.set_reason("Prefs, Screen");
+  expected_policy.set_reason(std::string(PowerPolicyController::kPrefsReason) +
+                             ", Screen");
   EXPECT_EQ(PowerPolicyController::GetPolicyDebugString(expected_policy),
             PowerPolicyController::GetPolicyDebugString(
                 fake_power_client_->policy()));
@@ -166,8 +164,8 @@ TEST_F(PowerPolicyControllerTest, Prefs) {
 
 TEST_F(PowerPolicyControllerTest, WakeLocks) {
   const char kSystemWakeLockReason[] = "system";
-  const int system_id =
-      policy_controller_->AddSystemWakeLock(kSystemWakeLockReason);
+  const int system_id = policy_controller_->AddSystemWakeLock(
+      PowerPolicyController::REASON_OTHER, kSystemWakeLockReason);
   power_manager::PowerManagementPolicy expected_policy;
   expected_policy.set_ac_idle_action(
       power_manager::PowerManagementPolicy_Action_DO_NOTHING);
@@ -180,15 +178,15 @@ TEST_F(PowerPolicyControllerTest, WakeLocks) {
 
   const char kScreenWakeLockReason[] = "screen";
   const int screen_id = policy_controller_->AddScreenWakeLock(
-      kScreenWakeLockReason);
+      PowerPolicyController::REASON_OTHER, kScreenWakeLockReason);
   expected_policy.mutable_ac_delays()->set_screen_dim_ms(0);
   expected_policy.mutable_ac_delays()->set_screen_off_ms(0);
   expected_policy.mutable_ac_delays()->set_screen_lock_ms(0);
   expected_policy.mutable_battery_delays()->set_screen_dim_ms(0);
   expected_policy.mutable_battery_delays()->set_screen_off_ms(0);
   expected_policy.mutable_battery_delays()->set_screen_lock_ms(0);
-  expected_policy.set_reason(
-      std::string(kScreenWakeLockReason) + ", " + kSystemWakeLockReason);
+  expected_policy.set_reason(std::string(kSystemWakeLockReason) + ", " +
+                             kScreenWakeLockReason);
   EXPECT_EQ(PowerPolicyController::GetPolicyDebugString(expected_policy),
             PowerPolicyController::GetPolicyDebugString(
                 fake_power_client_->policy()));
@@ -206,11 +204,77 @@ TEST_F(PowerPolicyControllerTest, WakeLocks) {
                 fake_power_client_->policy()));
 }
 
+TEST_F(PowerPolicyControllerTest, IgnoreMediaWakeLocksWhenRequested) {
+  PowerPolicyController::PrefValues prefs;
+  policy_controller_->ApplyPrefs(prefs);
+  const power_manager::PowerManagementPolicy kDefaultPolicy =
+      fake_power_client_->policy();
+
+  // Wake locks created for audio or video playback should be ignored when the
+  // |use_audio_activity| or |use_video_activity| prefs are unset.
+  prefs.use_audio_activity = false;
+  prefs.use_video_activity = false;
+  policy_controller_->ApplyPrefs(prefs);
+
+  const int audio_id = policy_controller_->AddSystemWakeLock(
+      PowerPolicyController::REASON_AUDIO_PLAYBACK, "audio");
+  const int video_id = policy_controller_->AddScreenWakeLock(
+      PowerPolicyController::REASON_VIDEO_PLAYBACK, "video");
+
+  power_manager::PowerManagementPolicy expected_policy = kDefaultPolicy;
+  expected_policy.set_use_audio_activity(false);
+  expected_policy.set_use_video_activity(false);
+  expected_policy.set_reason(PowerPolicyController::kPrefsReason);
+  EXPECT_EQ(PowerPolicyController::GetPolicyDebugString(expected_policy),
+            PowerPolicyController::GetPolicyDebugString(
+                fake_power_client_->policy()));
+
+  // Non-media screen wake locks should still be honored.
+  const int other_id = policy_controller_->AddScreenWakeLock(
+      PowerPolicyController::REASON_OTHER, "other");
+
+  expected_policy.set_ac_idle_action(
+      power_manager::PowerManagementPolicy_Action_DO_NOTHING);
+  expected_policy.set_battery_idle_action(
+      power_manager::PowerManagementPolicy_Action_DO_NOTHING);
+  expected_policy.mutable_ac_delays()->set_screen_dim_ms(0);
+  expected_policy.mutable_ac_delays()->set_screen_off_ms(0);
+  expected_policy.mutable_ac_delays()->set_screen_lock_ms(0);
+  expected_policy.mutable_battery_delays()->set_screen_dim_ms(0);
+  expected_policy.mutable_battery_delays()->set_screen_off_ms(0);
+  expected_policy.mutable_battery_delays()->set_screen_lock_ms(0);
+  expected_policy.set_reason(std::string(PowerPolicyController::kPrefsReason) +
+                             ", other");
+  EXPECT_EQ(PowerPolicyController::GetPolicyDebugString(expected_policy),
+            PowerPolicyController::GetPolicyDebugString(
+                fake_power_client_->policy()));
+
+  // Start honoring audio activity and check that the audio wake lock is used.
+  policy_controller_->RemoveWakeLock(other_id);
+  prefs.use_audio_activity = true;
+  policy_controller_->ApplyPrefs(prefs);
+
+  expected_policy = kDefaultPolicy;
+  expected_policy.set_use_video_activity(false);
+  expected_policy.set_ac_idle_action(
+      power_manager::PowerManagementPolicy_Action_DO_NOTHING);
+  expected_policy.set_battery_idle_action(
+      power_manager::PowerManagementPolicy_Action_DO_NOTHING);
+  expected_policy.set_reason(std::string(PowerPolicyController::kPrefsReason) +
+                             ", audio");
+  EXPECT_EQ(PowerPolicyController::GetPolicyDebugString(expected_policy),
+            PowerPolicyController::GetPolicyDebugString(
+                fake_power_client_->policy()));
+
+  policy_controller_->RemoveWakeLock(audio_id);
+  policy_controller_->RemoveWakeLock(video_id);
+}
+
 TEST_F(PowerPolicyControllerTest, AvoidSendingEmptyPolicies) {
   // Check that empty policies aren't sent when PowerPolicyController is created
   // or destroyed.
   EXPECT_EQ(0, fake_power_client_->num_set_policy_calls());
-  policy_controller_.reset();
+  PowerPolicyController::Shutdown();
   EXPECT_EQ(0, fake_power_client_->num_set_policy_calls());
 }
 

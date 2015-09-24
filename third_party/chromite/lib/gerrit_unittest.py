@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -9,48 +8,60 @@ from __future__ import print_function
 
 import getpass
 import httplib
-import os
-import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))))
+import mock
 
 from chromite.cbuildbot import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_test_lib
 from chromite.lib import gerrit
+from chromite.lib import git
 from chromite.lib import gob_util
+from chromite.lib import retry_util
+from chromite.lib import timeout_util
 
-import mock
+
+# NOTE: The following test cases are designed to run as part of the release
+# qualification process for the googlesource.com servers:
+#   GerritHelperTest
+# Any new test cases must be manually added to the qualification test suite.
 
 
 # pylint: disable=W0212,R0904
+@cros_test_lib.NetworkTest()
 class GerritHelperTest(cros_test_lib.GerritTestCase):
   """Unittests for GerritHelper."""
 
   def _GetHelper(self, remote=constants.EXTERNAL_REMOTE):
     return gerrit.GetGerritHelper(remote)
 
-  def createPatch(self, clone_path, project, amend=False):
+  def createPatch(self, clone_path, project, **kwargs):
     """Create a patch in the given git checkout and upload it to gerrit.
 
     Args:
       clone_path: The directory on disk of the git clone.
       project: The associated project.
-      amend: Whether to amend an existing patch. If set, we will amend the
-        HEAD commit in the checkout and upload that patch.
+      **kwargs: Additional keyword arguments to pass to createCommit.
 
     Returns:
       A GerritPatch object.
     """
-    (revision, changeid) = self.createCommit(clone_path, amend=amend)
+    (revision, changeid) = self.createCommit(clone_path, **kwargs)
     self.uploadChange(clone_path)
-    gpatch = self._GetHelper().QuerySingleRecord(
-        change=changeid, project=project, branch='master')
+    # TODO(phobbs): there is a race condition here.  We need to retry this.
+    def PatchQuery():
+      return self._GetHelper().QuerySingleRecord(
+          change=changeid, project=project, branch='master')
+    # 'RetryException' is needed because there is a race condition between
+    # uploading the change and querying for the change.
+    gpatch = retry_util.RetryException(
+        gerrit.QueryHasNoResults,
+        5,
+        PatchQuery,
+        sleep=1)
     self.assertEqual(gpatch.change_id, changeid)
     self.assertEqual(gpatch.revision, revision)
     return gpatch
 
-  @cros_test_lib.NetworkTest()
   def test001SimpleQuery(self):
     """Create one independent and three dependent changes, then query them."""
     project = self.createProject('test001')
@@ -78,7 +89,6 @@ class GerritHelperTest(cros_test_lib.GerritTestCase):
     self.assertEqual(change.change_id, head_changeid)
     self.assertEqual(change.sha1, head_sha1)
 
-  @cros_test_lib.NetworkTest()
   @mock.patch.object(gerrit.GerritHelper, '_GERRIT_MAX_QUERY_RETURN', 2)
   def test002GerritQueryTruncation(self):
     """Verify that we detect gerrit truncating our query, and handle it."""
@@ -97,7 +107,6 @@ class GerritHelperTest(cros_test_lib.GerritTestCase):
     changes = helper.Query(project=project)
     self.assertEqual(len(changes), num_changes)
 
-  @cros_test_lib.NetworkTest()
   def test003IsChangeCommitted(self):
     """Tests that we can parse a json to check if a change is committed."""
     project = self.createProject('test003')
@@ -111,7 +120,6 @@ class GerritHelperTest(cros_test_lib.GerritTestCase):
     gpatch = self.createPatch(clone_path, project)
     self.assertFalse(helper.IsChangeCommitted(gpatch.gerrit_number))
 
-  @cros_test_lib.NetworkTest()
   def test004GetLatestSHA1ForBranch(self):
     """Verifies that we can query the tip-of-tree commit in a git repository."""
     project = self.createProject('test004')
@@ -137,7 +145,6 @@ class GerritHelperTest(cros_test_lib.GerritTestCase):
     self.assertGreaterEqual(len(ret), 2)
     return ret
 
-  @cros_test_lib.NetworkTest()
   def test005SetReviewers(self):
     """Verify that we can set reviewers on a CL."""
     project = self.createProject('test005')
@@ -158,7 +165,6 @@ class GerritHelperTest(cros_test_lib.GerritTestCase):
     self.assertEqual(len(reviewers), 1)
     self.assertEqual(reviewers[0]['email'], emails[1])
 
-  @cros_test_lib.NetworkTest()
   def test006PatchNotFound(self):
     """Test case where ChangeID isn't found on the server."""
     changeids = ['I' + ('deadbeef' * 5), 'I' + ('beadface' * 5)]
@@ -173,7 +179,6 @@ class GerritHelperTest(cros_test_lib.GerritTestCase):
     self.assertRaises(gerrit.GerritException, gerrit.GetGerritPatchInfo,
                       ['*' + num for num in gerrit_numbers])
 
-  @cros_test_lib.NetworkTest()
   def test007VagueQuery(self):
     """Verify GerritHelper complains if an ID matches multiple changes."""
     project = self.createProject('test007')
@@ -191,7 +196,6 @@ class GerritHelperTest(cros_test_lib.GerritTestCase):
     self.assertRaises(gerrit.GerritException, gerrit.GetGerritPatchInfo,
                       [changeid])
 
-  @cros_test_lib.NetworkTest()
   def test008Queries(self):
     """Verify assorted query operations."""
     project = self.createProject('test008')
@@ -242,7 +246,6 @@ class GerritHelperTest(cros_test_lib.GerritTestCase):
     self.assertEqual(patch_info[0].gerrit_number, gpatch.gerrit_number)
     self.assertEqual(patch_info[0].remote, constants.INTERNAL_REMOTE)
 
-  @cros_test_lib.NetworkTest()
   def test009SubmitOutdatedCommit(self):
     """Tests that we can parse a json to check if a change is committed."""
     project = self.createProject('test009')
@@ -267,8 +270,119 @@ class GerritHelperTest(cros_test_lib.GerritTestCase):
 
     # Try submitting the up-to-date change.
     helper.SubmitChange(gpatch2)
-    self.assertTrue(helper.IsChangeCommitted(gpatch2.gerrit_number))
+    helper.IsChangeCommitted(gpatch2.gerrit_number)
+
+  def test010SubmitUsingGit(self, projectName='test010', submitC=True):
+    """Tests that we can rebase & submit a change."""
+    project = self.createProject(projectName)
+
+    # Init the repository first.
+    helper = self._GetHelper()
+    clone_path1 = self.cloneProject(project, 'p1')
+    gpatch1 = self.createPatch(clone_path1, project, msg='Init')
+    helper.SetReview(gpatch1.gerrit_number, labels={'Code-Review':'+2'})
+    helper.SubmitChange(gpatch1)
+    # GoB does not guarantee that the change will be in "merged" state
+    # atomically after the /Submit endpoint is called.
+    timeout_util.WaitForReturnTrue(
+        lambda: helper.IsChangeCommitted(gpatch1.gerrit_number),
+        timeout=30)
+
+    # Create a change.
+    clone_path2 = self.cloneProject(project, 'p2')
+    git.CreateBranch(clone_path2, 'patch', 'origin/master', track=True)
+    gpatchA = self.createPatch(clone_path2, project, msg='Change A',
+                               filename='a.txt')
+
+    # Create another change.
+    clone_path3 = self.cloneProject(project, 'p3')
+    git.CreateBranch(clone_path3, 'patch', 'origin/master', track=True)
+    gpatchB = self.createPatch(clone_path3, project, msg='Change B',
+                               filename='b.txt')
+
+    # Create another two changes.
+    gpatchC = self.createPatch(clone_path2, project, msg='Change C',
+                               filename='a.txt')
+    gpatchD = self.createPatch(clone_path2, project, msg='Change D',
+                               filename='a.txt')
+
+    # Submit patch A.
+    self.assertTrue(helper.SubmitChangeUsingGit(gpatchA, clone_path2))
+    self.assertTrue(helper.IsChangeCommitted(gpatchA.gerrit_number))
+
+    # Submit patch B.
+    self.assertTrue(helper.SubmitChangeUsingGit(gpatchB, clone_path3))
+    self.assertTrue(helper.IsChangeCommitted(gpatchB.gerrit_number))
+
+    # Submit patch C and D.
+    if submitC:
+      self.assertTrue(helper.SubmitChangeUsingGit(gpatchC, clone_path2))
+    self.assertTrue(helper.SubmitChangeUsingGit(gpatchD, clone_path2))
+
+    # Check that C and D are submitted.
+    self.assertTrue(helper.IsChangeCommitted(gpatchC.gerrit_number))
+    self.assertTrue(helper.IsChangeCommitted(gpatchD.gerrit_number))
+
+  def test011SubmitStackUsingGit(self):
+    """Test case where we submit C implicitly, via submitting D."""
+    self.test010SubmitUsingGit('test011', submitC=False)
+
+  def test012ResetReviewLabels(self):
+    """Tests that we can remove a code review label."""
+    project = self.createProject('test012')
+    helper = self._GetHelper()
+    clone_path = self.cloneProject(project, 'p1')
+    gpatch = self.createPatch(clone_path, project, msg='Init')
+    helper.SetReview(gpatch.gerrit_number, labels={'Code-Review':'+2'})
+    gob_util.ResetReviewLabels(helper.host, gpatch.gerrit_number,
+                               label='Code-Review', notify='OWNER')
+
+  def test013ApprovalTime(self):
+    """Approval timestamp should be reset when a new patchset is created."""
+    # Create a change.
+    project = self.createProject('test012')
+    helper = self._GetHelper()
+    clone_path = self.cloneProject(project, 'p1')
+    gpatch = self.createPatch(clone_path, project, msg='Init')
+    helper.SetReview(gpatch.gerrit_number, labels={'Code-Review':'+2'})
+
+    # Update the change.
+    new_msg = 'New %s' % gpatch.commit_message
+    cros_build_lib.RunCommand(
+        ['git', 'commit', '--amend', '-m', new_msg], cwd=clone_path, quiet=True)
+    self.uploadChange(clone_path)
+    gpatch2 = self._GetHelper().QuerySingleRecord(
+        change=gpatch.change_id, project=gpatch.project, branch='master')
+    self.assertNotEqual(gpatch2.approval_timestamp, 0)
+    self.assertNotEqual(gpatch2.commit_timestamp, 0)
+    self.assertEqual(gpatch2.approval_timestamp, gpatch2.commit_timestamp)
 
 
-if __name__ == '__main__':
-  cros_test_lib.main()
+@cros_test_lib.NetworkTest()
+class DirectGerritHelperTest(cros_test_lib.TestCase):
+  """Unittests for GerritHelper that use the real Chromium instance."""
+
+  # A big list of real changes.
+  CHANGES = ['235893', '*189165', '231790', '*190026', '231647', '234645']
+
+  def testMultipleChangeDetail(self):
+    """Test ordering of results in GetMultipleChangeDetail"""
+    changes = [x for x in self.CHANGES if not x.startswith('*')]
+    helper = gerrit.GetCrosExternal()
+    results = list(helper.GetMultipleChangeDetail([str(x) for x in changes]))
+    gerrit_numbers = [str(x['_number']) for x in results]
+    self.assertEqual(changes, gerrit_numbers)
+
+  def testQueryMultipleCurrentPatchset(self):
+    """Test ordering of results in QueryMultipleCurrentPatchset"""
+    changes = [x for x in self.CHANGES if not x.startswith('*')]
+    helper = gerrit.GetCrosExternal()
+    results = list(helper.QueryMultipleCurrentPatchset(changes))
+    self.assertEqual(changes, [x.gerrit_number for _, x in results])
+    self.assertEqual(changes, [x for x, _ in results])
+
+  def testGetGerritPatchInfo(self):
+    """Test ordering of results in GetGerritPatchInfo"""
+    changes = self.CHANGES
+    results = list(gerrit.GetGerritPatchInfo(changes))
+    self.assertEqual(changes, [x.gerrit_number_str for x in results])

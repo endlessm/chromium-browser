@@ -10,6 +10,9 @@
 
 #include "SkTypes.h"
 
+class SkData;
+class SkImageGenerator;
+
 class SK_API SkGraphics {
 public:
     /**
@@ -78,7 +81,7 @@ public:
     static void PurgeFontCache();
 
     /**
-     *  Scaling bitmaps with the SkPaint::kHigh_FilterLevel setting is
+     *  Scaling bitmaps with the kHigh_SkFilterQuality setting is
      *  expensive, so the result is saved in the global Scaled Image
      *  Cache.
      *
@@ -140,6 +143,18 @@ public:
      *  global font cache.
      */
     static void SetTLSFontCacheLimit(size_t bytes);
+
+    typedef SkImageGenerator* (*ImageGeneratorFromEncodedFactory)(SkData*);
+
+    /**
+     *  To instantiate images from encoded data, first looks at this runtime function-ptr. If it
+     *  exists, it is called to create an SkImageGenerator from SkData. If there is no function-ptr
+     *  or there is, but it returns NULL, then skia will call its internal default implementation.
+     *
+     *  Returns the previous factory (which could be NULL).
+     */
+    static ImageGeneratorFromEncodedFactory
+           SetImageGeneratorFromEncodedFactory(ImageGeneratorFromEncodedFactory);
 };
 
 class SkAutoGraphics {

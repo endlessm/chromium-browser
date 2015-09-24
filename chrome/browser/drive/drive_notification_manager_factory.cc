@@ -10,7 +10,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
-#include "components/invalidation/profile_invalidation_provider.h"
+#include "components/invalidation/impl/profile_invalidation_provider.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 
 namespace drive {
@@ -27,7 +27,7 @@ DriveNotificationManagerFactory::FindForBrowserContext(
 DriveNotificationManager*
 DriveNotificationManagerFactory::GetForBrowserContext(
     content::BrowserContext* context) {
-  if (!ProfileSyncService::IsSyncEnabled())
+  if (!ProfileSyncService::IsSyncAllowedByFlag())
     return NULL;
   if (!invalidation::ProfileInvalidationProviderFactory::GetForProfile(
           Profile::FromBrowserContext(context))) {

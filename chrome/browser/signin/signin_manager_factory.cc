@@ -7,7 +7,9 @@
 #include "base/prefs/pref_registry_simple.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/signin/account_tracker_service_factory.h"
 #include "chrome/browser/signin/chrome_signin_client_factory.h"
+#include "chrome/browser/signin/gaia_cookie_manager_service_factory.h"
 #include "chrome/browser/signin/local_auth.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/common/pref_names.h"
@@ -20,7 +22,9 @@ SigninManagerFactory::SigninManagerFactory()
         "SigninManager",
         BrowserContextDependencyManager::GetInstance()) {
   DependsOn(ChromeSigninClientFactory::GetInstance());
+  DependsOn(GaiaCookieManagerServiceFactory::GetInstance());
   DependsOn(ProfileOAuth2TokenServiceFactory::GetInstance());
+  DependsOn(AccountTrackerServiceFactory::GetInstance());
 }
 
 SigninManagerFactory::~SigninManagerFactory() {
@@ -32,6 +36,13 @@ SigninManagerBase* SigninManagerFactory::GetForProfileIfExists(
     Profile* profile) {
   return static_cast<SigninManagerBase*>(
       GetInstance()->GetServiceForBrowserContext(profile, false));
+}
+
+const SigninManagerBase* SigninManagerFactory::GetForProfileIfExists(
+    const Profile* profile) {
+  return static_cast<const SigninManagerBase*>(
+      GetInstance()->GetServiceForBrowserContext(
+          const_cast<Profile*>(profile), false));
 }
 
 // static
@@ -53,6 +64,14 @@ SigninManager* SigninManagerFactory::GetForProfileIfExists(Profile* profile) {
   return static_cast<SigninManager*>(
       GetInstance()->GetServiceForBrowserContext(profile, false));
 }
+
+// static
+const SigninManager* SigninManagerFactory::GetForProfileIfExists(
+    const Profile* profile) {
+  return static_cast<const SigninManager*>(
+      GetInstance()->GetServiceForBrowserContext(
+          const_cast<Profile*>(profile), false));
+}
 #endif
 
 // static
@@ -62,42 +81,29 @@ SigninManagerFactory* SigninManagerFactory::GetInstance() {
 
 void SigninManagerFactory::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterStringPref(
-      prefs::kGoogleServicesHostedDomain,
-      std::string(),
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterStringPref(
-      prefs::kGoogleServicesLastUsername,
-      std::string(),
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterStringPref(
-      prefs::kGoogleServicesUserAccountId,
-      std::string(),
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterStringPref(
-      prefs::kGoogleServicesUsername,
-      std::string(),
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterStringPref(
-      prefs::kGoogleServicesSigninScopedDeviceId,
-      std::string(),
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kAutologinEnabled,
-      true,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kReverseAutologinEnabled,
-      true,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterListPref(prefs::kReverseAutologinRejectedEmailList,
-                             new base::ListValue,
-                             user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterStringPref(prefs::kGoogleServicesHostedDomain,
+                               std::string());
+  registry->RegisterStringPref(prefs::kGoogleServicesLastUsername,
+                               std::string());
   registry->RegisterInt64Pref(
-      prefs::kSignedInTime,
-      base::Time().ToInternalValue(),
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  chrome::RegisterLocalAuthPrefs(registry);
+      prefs::kGoogleServicesRefreshTokenAnnotateScheduledTime,
+      base::Time().ToInternalValue());
+  registry->RegisterStringPref(prefs::kGoogleServicesSigninScopedDeviceId,
+                               std::string());
+  registry->RegisterStringPref(prefs::kGoogleServicesAccountId, std::string());
+  registry->RegisterStringPref(prefs::kGoogleServicesUserAccountId,
+                               std::string());
+  registry->RegisterBooleanPref(prefs::kAutologinEnabled, true);
+  registry->RegisterBooleanPref(prefs::kReverseAutologinEnabled, true);
+  registry->RegisterListPref(prefs::kReverseAutologinRejectedEmailList,
+                             new base::ListValue);
+  registry->RegisterInt64Pref(prefs::kSignedInTime,
+                              base::Time().ToInternalValue());
+
+  LocalAuth::RegisterLocalAuthPrefs(registry);
+
+  // Deprecated prefs: will be removed in a future release.
+  registry->RegisterStringPref(prefs::kGoogleServicesUsername, std::string());
 }
 
 // static
@@ -126,10 +132,15 @@ KeyedService* SigninManagerFactory::BuildServiceInstanceFor(
   SigninClient* client =
       ChromeSigninClientFactory::GetInstance()->GetForProfile(profile);
 #if defined(OS_CHROMEOS)
-  service = new SigninManagerBase(client);
+  service = new SigninManagerBase(
+      client,
+      AccountTrackerServiceFactory::GetForProfile(profile));
 #else
   service = new SigninManager(
-      client, ProfileOAuth2TokenServiceFactory::GetForProfile(profile));
+      client,
+      ProfileOAuth2TokenServiceFactory::GetForProfile(profile),
+      AccountTrackerServiceFactory::GetForProfile(profile),
+      GaiaCookieManagerServiceFactory::GetForProfile(profile));
 #endif
   service->Initialize(g_browser_process->local_state());
   FOR_EACH_OBSERVER(Observer, observer_list_, SigninManagerCreated(service));

@@ -10,6 +10,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.text.TextUtils;
+import android.view.ActionMode;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -38,9 +39,15 @@ import org.chromium.android_webview.AwSettings;
 import org.chromium.android_webview.test.AwTestContainerView;
 import org.chromium.android_webview.test.NullContentsClient;
 import org.chromium.base.CommandLine;
+import org.chromium.content.browser.SelectActionMode;
+import org.chromium.content.browser.SelectActionModeCallback;
+import org.chromium.content.browser.SelectActionModeCallback.ActionHandler;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.NavigationController;
 import org.chromium.content_public.browser.WebContents;
+
+import java.net.URI;
+import java.net.URISyntaxException;
 
 /**
  * This is a lightweight activity for tests that only require WebView functionality.
@@ -141,6 +148,16 @@ public class AwShellActivity extends Activity {
                 }
                 return false;
             }
+
+            @Override
+            public SelectActionMode startActionMode(
+                    View view, ActionHandler actionHandler, boolean floating) {
+                if (floating) return null;
+                ActionMode.Callback callback =
+                        new SelectActionModeCallback(view.getContext(), actionHandler);
+                ActionMode actionMode = view.startActionMode(callback);
+                return actionMode != null ? new SelectActionMode(actionMode) : null;
+            }
         };
 
         SharedPreferences sharedPreferences =
@@ -149,9 +166,16 @@ public class AwShellActivity extends Activity {
             mBrowserContext = new AwBrowserContext(sharedPreferences);
         }
         final AwSettings awSettings = new AwSettings(this /*context*/,
-                false /*isAccessFromFileURLsGrantedByDefault*/, true /*supportsLegacyQuirks*/);
+                false /*isAccessFromFileURLsGrantedByDefault*/, false /*supportsLegacyQuirks*/);
         // Required for WebGL conformance tests.
         awSettings.setMediaPlaybackRequiresUserGesture(false);
+        // Allow zoom and fit contents to screen
+        awSettings.setBuiltInZoomControls(true);
+        awSettings.setDisplayZoomControls(false);
+        awSettings.setUseWideViewPort(true);
+        awSettings.setLoadWithOverviewMode(true);
+        awSettings.setLayoutAlgorithm(android.webkit.WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING);
+
         testContainerView.initialize(new AwContents(mBrowserContext, testContainerView,
                 testContainerView.getContext(), testContainerView.getInternalAccessDelegate(),
                 testContainerView.getNativeGLDelegate(), awContentsClient, awSettings));
@@ -182,14 +206,24 @@ public class AwShellActivity extends Activity {
         mUrlTextView.setOnEditorActionListener(new OnEditorActionListener() {
             @Override
             public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
-                if ((actionId != EditorInfo.IME_ACTION_GO) && (event == null ||
-                        event.getKeyCode() != KeyEvent.KEYCODE_ENTER ||
-                        event.getAction() != KeyEvent.ACTION_DOWN)) {
+                if ((actionId != EditorInfo.IME_ACTION_GO) && (event == null
+                        || event.getKeyCode() != KeyEvent.KEYCODE_ENTER
+                        || event.getAction() != KeyEvent.ACTION_DOWN)) {
                     return false;
                 }
 
-                mAwTestContainerView.getAwContents().loadUrl(
-                        new LoadUrlParams(mUrlTextView.getText().toString()));
+                String url = mUrlTextView.getText().toString();
+                try {
+                    URI uri = new URI(url);
+                    if (uri.getScheme() == null) {
+                        url = "http://" + uri.toString();
+                    } else {
+                        url = uri.toString();
+                    }
+                } catch (URISyntaxException e) {
+                    // Ignore syntax errors.
+                }
+                mAwTestContainerView.getAwContents().loadUrl(new LoadUrlParams(url));
                 mUrlTextView.clearFocus();
                 setKeyboardVisibilityForUrl(false);
                 mAwTestContainerView.requestFocus();

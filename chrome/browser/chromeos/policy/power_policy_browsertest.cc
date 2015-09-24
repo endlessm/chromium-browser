@@ -49,7 +49,7 @@
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/test/test_utils.h"
-#include "extensions/browser/api/power/power_api_manager.h"
+#include "extensions/browser/api/power/power_api.h"
 #include "extensions/common/api/power.h"
 #include "policy/proto/device_management_backend.pb.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -123,8 +123,8 @@ class PowerPolicyBrowserTestBase : public DevicePolicyCrosBrowserTest {
   PowerPolicyBrowserTestBase();
 
   // DevicePolicyCrosBrowserTest:
-  virtual void SetUpInProcessBrowserTestFixture() override;
-  virtual void SetUpOnMainThread() override;
+  void SetUpInProcessBrowserTestFixture() override;
+  void SetUpOnMainThread() override;
 
   void InstallUserKey();
   void StoreAndReloadUserPolicy();
@@ -155,10 +155,11 @@ class PowerPolicyLoginScreenBrowserTest : public PowerPolicyBrowserTestBase {
   PowerPolicyLoginScreenBrowserTest();
 
   // PowerPolicyBrowserTestBase:
-  virtual void SetUpCommandLine(CommandLine* command_line) override;
-  virtual void SetUpOnMainThread() override;
-  virtual void TearDownOnMainThread() override;
+  void SetUpCommandLine(base::CommandLine* command_line) override;
+  void SetUpOnMainThread() override;
+  void TearDownOnMainThread() override;
 
+ private:
   DISALLOW_COPY_AND_ASSIGN(PowerPolicyLoginScreenBrowserTest);
 };
 
@@ -167,8 +168,9 @@ class PowerPolicyInSessionBrowserTest : public PowerPolicyBrowserTestBase {
   PowerPolicyInSessionBrowserTest();
 
   // PowerPolicyBrowserTestBase:
-  virtual void SetUpOnMainThread() override;
+  void SetUpOnMainThread() override;
 
+ private:
   DISALLOW_COPY_AND_ASSIGN(PowerPolicyInSessionBrowserTest);
 };
 
@@ -256,7 +258,8 @@ void PowerPolicyBrowserTestBase::RunClosureAndWaitForUserPolicyUpdate(
       .WillOnce(InvokeWithoutArgs(&run_loop, &base::RunLoop::Quit));
   EXPECT_CALL(observer, OnPolicyServiceInitialized(_)).Times(AnyNumber());
   PolicyService* policy_service =
-      ProfilePolicyConnectorFactory::GetForProfile(profile)->policy_service();
+      ProfilePolicyConnectorFactory::GetForBrowserContext(profile)
+          ->policy_service();
   ASSERT_TRUE(policy_service);
   policy_service->AddObserver(POLICY_DOMAIN_CHROME, &observer);
   closure.Run();
@@ -275,7 +278,7 @@ PowerPolicyLoginScreenBrowserTest::PowerPolicyLoginScreenBrowserTest() {
 }
 
 void PowerPolicyLoginScreenBrowserTest::SetUpCommandLine(
-    CommandLine* command_line) {
+    base::CommandLine* command_line) {
   PowerPolicyBrowserTestBase::SetUpCommandLine(command_line);
   command_line->AppendSwitch(chromeos::switches::kLoginManager);
   command_line->AppendSwitch(chromeos::switches::kForceLoginManagerInTests);
@@ -479,8 +482,8 @@ IN_PROC_BROWSER_TEST_F(PowerPolicyInSessionBrowserTest, AllowScreenWakeLocks) {
 
   // Pretend an extension grabs a screen wake lock.
   const char kExtensionId[] = "abcdefghijklmnopabcdefghijlkmnop";
-  extensions::PowerApiManager::Get(browser()->profile())->AddRequest(
-      kExtensionId, extensions::core_api::power::LEVEL_DISPLAY);
+  extensions::PowerAPI::Get(browser()->profile())
+      ->AddRequest(kExtensionId, extensions::core_api::power::LEVEL_DISPLAY);
   base::RunLoop().RunUntilIdle();
 
   // Check that the lock is in effect (ignoring ac_idle_action,

@@ -15,7 +15,7 @@
 #include "net/base/filename_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
-#include "url/url_parse.h"
+#include "url/third_party/mozilla/url_parse.h"
 
 namespace url {
 
@@ -507,7 +507,7 @@ TEST(URLFixerTest, FixupRelativeFile) {
   // test file in the subdir with different slashes and escaping.
   base::FilePath::StringType relative_file_str = sub_dir.value() +
       FILE_PATH_LITERAL("/") + sub_file.value();
-  ReplaceSubstringsAfterOffset(&relative_file_str, 0,
+  base::ReplaceSubstringsAfterOffset(&relative_file_str, 0,
       FILE_PATH_LITERAL(" "), FILE_PATH_LITERAL("%20"));
   EXPECT_TRUE(IsMatchingFileURL(
       url_fixer::FixupRelativeFile(temp_dir_.path(),

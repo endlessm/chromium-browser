@@ -40,7 +40,7 @@ class TextTrackLoader;
 
 class TextTrackLoaderClient : public ResourceOwner<RawResource> {
 public:
-    virtual ~TextTrackLoaderClient() { }
+    ~TextTrackLoaderClient() override {}
 
     virtual void newCuesAvailable(TextTrackLoader*) = 0;
     virtual void cueLoadingCompleted(TextTrackLoader*, bool loadingFailed) = 0;
@@ -49,13 +49,13 @@ public:
 
 class TextTrackLoader final : public NoBaseWillBeGarbageCollectedFinalized<TextTrackLoader>, public ResourceOwner<RawResource>, private VTTParserClient {
     WTF_MAKE_NONCOPYABLE(TextTrackLoader);
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED;
+    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(TextTrackLoader);
 public:
     static PassOwnPtrWillBeRawPtr<TextTrackLoader> create(TextTrackLoaderClient& client, Document& document)
     {
         return adoptPtrWillBeNoop(new TextTrackLoader(client, document));
     }
-    virtual ~TextTrackLoader();
+    ~TextTrackLoader() override;
 
     bool load(const KURL&, const AtomicString& crossOriginMode);
     void cancelLoad();
@@ -63,20 +63,20 @@ public:
     enum State { Idle, Loading, Finished, Failed };
     State loadState() { return m_state; }
 
-    void getNewCues(WillBeHeapVector<RefPtrWillBeMember<VTTCue> >& outputCues);
-    void getNewRegions(WillBeHeapVector<RefPtrWillBeMember<VTTRegion> >& outputRegions);
+    void getNewCues(WillBeHeapVector<RefPtrWillBeMember<TextTrackCue>>& outputCues);
+    void getNewRegions(WillBeHeapVector<RefPtrWillBeMember<VTTRegion>>& outputRegions);
 
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
 private:
     // RawResourceClient
-    virtual void dataReceived(Resource*, const char* data, unsigned length) override;
-    virtual void notifyFinished(Resource*) override;
+    void dataReceived(Resource*, const char* data, unsigned length) override;
+    void notifyFinished(Resource*) override;
 
     // VTTParserClient
-    virtual void newCuesParsed() override;
-    virtual void newRegionsParsed() override;
-    virtual void fileFailedToParse() override;
+    void newCuesParsed() override;
+    void newRegionsParsed() override;
+    void fileFailedToParse() override;
 
     TextTrackLoader(TextTrackLoaderClient&, Document&);
 

@@ -26,91 +26,97 @@
   }
 
   /**
-   * Converts the time into human friendly string.
-   * @param {number} time Time to be converted.
-   * @return {string} String representation of the given time
+   * @constructor
+   * @extends {PolymerElement}
    */
-  function time2string(time) {
-    return ~~(time / 60000) + ':' + ('0' + ~~(time / 1000 % 60)).slice(-2);
-  }
+  var ControlPanelElement = function() {};
 
-  Polymer('control-panel', {
+  ControlPanelElement.prototype = {
+    is: 'control-panel',
+
+    properties: {
+      /**
+       * Flag whether the audio is playing or paused. True if playing, or false
+       * paused.
+       */
+      playing: {
+        type: Boolean,
+        value: false,
+        notify: true
+      },
+
+      /**
+       * Current elapsed time in the current music in millisecond.
+       */
+      time: {
+        type: Number,
+        value: 0,
+        notify: true
+      },
+
+      /**
+       * Total length of the current music in millisecond.
+       */
+      duration: {
+        type: Number,
+        value: 0
+      },
+
+      /**
+       * Whether the shuffle button is ON.
+       */
+      shuffle: {
+        type: Boolean,
+        value: false,
+        notify: true
+      },
+
+      /**
+       * Whether the repeat button is ON.
+       */
+      repeat: {
+        type: Boolean,
+        value: false,
+        notify: true
+      },
+
+      /**
+       * The audio volume. 0 is silent, and 100 is maximum loud.
+       */
+      volume: {
+        type: Number,
+        notify: true
+      },
+
+      /**
+       * Whether the expanded button is ON.
+       */
+      expanded: {
+        type: Boolean,
+        value: false,
+        notify: true
+      },
+
+      /**
+       * Whether the volume slider is expanded or not.
+       */
+      volumeSliderShown: {
+        type: Boolean,
+        value: false,
+        observer: 'volumeSliderShownChanged',
+        notify: true
+      }
+    },
+
     /**
      * Initializes an element. This method is called automatically when the
      * element is ready.
      */
     ready: function() {
       var onFocusoutBound = this.onVolumeControllerFocusout_.bind(this);
+
       this.$.volumeSlider.addEventListener('focusout', onFocusoutBound);
       this.$.volumeButton.addEventListener('focusout', onFocusoutBound);
-    },
-
-    /**
-     * Model object of the Audio Player.
-     * @type {AudioPlayerModel}
-     */
-    model: null,
-
-    /**
-     * Invoked when the model changed.
-     * @param {AudioPlayerModel} oldValue Old Value.
-     * @param {AudioPlayerModel} newValue New Value.
-     */
-    modelChanged: function(oldValue, newValue) {
-      this.$.volumeSlider.model = newValue;
-    },
-
-    /**
-     * Current elapsed time in the current music in millisecond.
-     * @type {number}
-     */
-    time: 0,
-
-    /**
-     * String representation of 'time'.
-     * @type {number}
-     * @private
-     */
-    get timeString_() {
-      return time2string(this.time);
-    },
-
-    /**
-     * Total length of the current music in millisecond.
-     * @type {number}
-     */
-    duration: 0,
-
-    /**
-     * String representation of 'duration'.
-     * @type {string}
-     * @private
-     */
-    get durationString_() {
-      return time2string(this.duration);
-    },
-
-    /**
-     * Flag whether the volume slider is expanded or not.
-     * @type {boolean}
-     */
-    volumeSliderShown: false,
-
-    /**
-     * Flag whether the audio is playing or paused. True if playing, or false
-     * paused.
-     * @type {boolean}
-     */
-    playing: false,
-
-    /**
-     * Invoked when the 'duration' property is changed.
-     * @param {number} oldValue old value.
-     * @param {number} newValue new value.
-     */
-    durationChanged: function(oldValue, newValue) {
-      // Reset the current playback position.
-      this.time = 0;
     },
 
     /**
@@ -135,17 +141,16 @@
     },
 
     /**
-     * Invoked the volume button is clicked.
-     * @type {Event} event The event.
+     * Invoked when the property 'volumeSliderShown' changes.
+     * @param {boolean} shown
      */
-    volumeButtonClick: function(event) {
-      this.showVolumeController_(this.volumeSliderShown);
-      event.stopPropagation();
+    volumeSliderShownChanged: function(shown) {
+      this.showVolumeController_(shown);
     },
 
     /**
      * Invoked when the focus goes out of the volume elements.
-     * @param {FocusEvent} event The focusout event.
+     * @param {!FocusEvent} event The focusout event.
      * @private
      */
     onVolumeControllerFocusout_: function(event) {
@@ -154,7 +159,6 @@
         if (!event.relatedTarget ||
             (event.relatedTarget !== this.$.volumeButton &&
              event.relatedTarget !== this.$.volumeSlider)) {
-          this.showVolumeController_(false);
           this.volumeSliderShown = false;
         }
       }
@@ -173,5 +177,32 @@
         this.$.volumeContainer.style.visibility = 'hidden';
       }
     },
-  });
+
+    /**
+     * Converts the time into human friendly string.
+     * @param {number} time Time to be converted.
+     * @return {string} String representation of the given time
+     */
+    time2string_: function(time) {
+      return ~~(time / 60000) + ':' + ('0' + ~~(time / 1000 % 60)).slice(-2);
+    },
+
+    /**
+     * Computes state for play button based on 'playing' property.
+     * @return {string}
+     */
+    computePlayState_: function(playing) {
+      return playing ? "playing" : "ended";
+    },
+
+    /**
+     * Computes style for '.filled' element of progress bar.
+     * @return {string}
+     */
+    computeProgressBarStyle_: function(time, duration) {
+      return 'width: ' + (time / duration * 100) + '%;';
+    }
+  };
+
+  Polymer(ControlPanelElement.prototype);
 })();  // Anonymous closure

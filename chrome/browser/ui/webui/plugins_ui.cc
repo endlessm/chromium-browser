@@ -118,8 +118,6 @@ base::string16 PluginTypeToString(int type) {
       return l10n_util::GetStringUTF16(IDS_PLUGINS_PPAPI_IN_PROCESS);
     case WebPluginInfo::PLUGIN_TYPE_PEPPER_OUT_OF_PROCESS:
       return l10n_util::GetStringUTF16(IDS_PLUGINS_PPAPI_OUT_OF_PROCESS);
-    case WebPluginInfo::PLUGIN_TYPE_PEPPER_UNSANDBOXED:
-      return l10n_util::GetStringUTF16(IDS_PLUGINS_PPAPI_UNSANDBOXED);
     case WebPluginInfo::PLUGIN_TYPE_BROWSER_PLUGIN:
       return l10n_util::GetStringUTF16(IDS_PLUGINS_BROWSER_PLUGIN);
   }
@@ -174,8 +172,8 @@ class PluginsDOMHandler : public WebUIMessageHandler,
 
   content::NotificationRegistrar registrar_;
 
-  // Holds grouped plug-ins. The key is the group identifier and
-  // the value is the list of plug-ins belonging to the group.
+  // Holds grouped plugins. The key is the group identifier and
+  // the value is the list of plugins belonging to the group.
   typedef base::hash_map<std::string, std::vector<const WebPluginInfo*> >
       PluginGroups;
 
@@ -226,7 +224,7 @@ void PluginsDOMHandler::HandleRequestPluginsData(const base::ListValue* args) {
 void PluginsDOMHandler::HandleEnablePluginMessage(const base::ListValue* args) {
   Profile* profile = Profile::FromWebUI(web_ui());
 
-  // Be robust in accepting badness since plug-ins display HTML (hence
+  // Be robust in accepting badness since plugins display HTML (hence
   // JavaScript).
   if (args->GetSize() != 3) {
     NOTREACHED();
@@ -310,7 +308,7 @@ void PluginsDOMHandler::HandleSetPluginAlwaysAllowed(
       plugin,
       allowed ? CONTENT_SETTING_ALLOW : CONTENT_SETTING_DEFAULT);
 
-  // Keep track of the whitelist separately, so that we can distinguish plug-ins
+  // Keep track of the whitelist separately, so that we can distinguish plugins
   // whitelisted by the user from automatically whitelisted ones.
   DictionaryPrefUpdate update(profile->GetPrefs(),
                               prefs::kContentSettingsPluginWhitelist);
@@ -341,8 +339,8 @@ void PluginsDOMHandler::PluginsLoaded(
   ContentSettingsPattern wildcard = ContentSettingsPattern::Wildcard();
 
   PluginFinder* plugin_finder = PluginFinder::GetInstance();
-  // Group plug-ins by identifier. This is done to be able to display
-  // the plug-ins in UI in a grouped fashion.
+  // Group plugins by identifier. This is done to be able to display
+  // the plugins in UI in a grouped fashion.
   PluginGroups groups;
   for (size_t i = 0; i < plugins.size(); ++i) {
     scoped_ptr<PluginMetadata> plugin(
@@ -372,16 +370,26 @@ void PluginsDOMHandler::PluginsLoaded(
       plugin_file->SetString("name", group_plugin.name);
 
       // If this plugin is Pepper Flash, and the plugin path is the same as the
-      // path for the Pepper Flash Debugger plugin, then mark this plugin
-      // description as the debugger plugin to help the user disambiguate the
+      // path for the Pepper Flash System plugin, then mark this plugin
+      // description as the system plugin to help the user disambiguate the
       // two plugins.
       base::string16 desc = group_plugin.desc;
       if (group_plugin.is_pepper_plugin() &&
           group_plugin.name == base::ASCIIToUTF16(content::kFlashPluginName)) {
-        base::FilePath debug_path;
-        PathService::Get(chrome::DIR_PEPPER_FLASH_DEBUGGER_PLUGIN, &debug_path);
-        if (group_plugin.path.DirName() == debug_path)
+        base::FilePath system_flash_path;
+        PathService::Get(chrome::FILE_PEPPER_FLASH_SYSTEM_PLUGIN,
+                         &system_flash_path);
+        if (base::FilePath::CompareEqualIgnoreCase(group_plugin.path.value(),
+                                                   system_flash_path.value())) {
+#if defined(GOOGLE_CHROME_BUILD)
+          // Existing documentation for debugging Flash describe this plugin as
+          // "Debug" so preserve this nomenclature here.
           desc += base::ASCIIToUTF16(" Debug");
+#else
+          // On Chromium, we can name it what it really is; the system plugin.
+          desc += base::ASCIIToUTF16(" System");
+#endif
+        }
       }
       plugin_file->SetString("description", desc);
 
@@ -515,10 +523,7 @@ base::RefCountedMemory* PluginsUI::GetFaviconResourceBytes(
 // static
 void PluginsUI::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterBooleanPref(
-      prefs::kPluginsShowDetails,
-      false,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterBooleanPref(prefs::kPluginsShowDetails, false);
   registry->RegisterDictionaryPref(
       prefs::kContentSettingsPluginWhitelist,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);

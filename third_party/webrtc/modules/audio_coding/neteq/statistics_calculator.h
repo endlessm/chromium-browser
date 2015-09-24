@@ -70,6 +70,9 @@ class StatisticsCalculator {
   // Stores new packet waiting time in waiting time statistics.
   void StoreWaitingTime(int waiting_time_ms);
 
+  // Reports that |num_samples| samples were decoded from secondary packets.
+  void SecondaryDecodedSamples(int num_samples);
+
   // Returns the current network statistics in |stats|. The current sample rate
   // is |fs_hz|, the total number of samples in packet buffer and sync buffer
   // yet to play out is |num_samples_in_buffers|, and the number of samples per
@@ -88,12 +91,12 @@ class StatisticsCalculator {
   static const int kLenWaitingTimes = 100;
 
   // Calculates numerator / denominator, and returns the value in Q14.
-  static int CalculateQ14Ratio(uint32_t numerator, uint32_t denominator);
+  static uint16_t CalculateQ14Ratio(uint32_t numerator, uint32_t denominator);
 
   uint32_t preemptive_samples_;
   uint32_t accelerate_samples_;
   int added_zero_samples_;
-  uint32_t expanded_voice_samples_;
+  uint32_t expanded_speech_samples_;
   uint32_t expanded_noise_samples_;
   int discarded_packets_;
   uint32_t lost_timestamps_;
@@ -101,6 +104,7 @@ class StatisticsCalculator {
   int waiting_times_[kLenWaitingTimes];  // Used as a circular buffer.
   int len_waiting_times_;
   int next_waiting_time_index_;
+  uint32_t secondary_decoded_samples_;
 
   DISALLOW_COPY_AND_ASSIGN(StatisticsCalculator);
 };

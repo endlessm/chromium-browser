@@ -7,11 +7,10 @@
 
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/sync_file_system/sync_status_code.h"
-#include "google_apis/drive/gdata_errorcode.h"
+#include "google_apis/drive/drive_api_error_codes.h"
 
 namespace google_apis {
 class FileResource;
-class ResourceEntry;
 }
 
 namespace sync_file_system {
@@ -43,6 +42,15 @@ scoped_ptr<FileTracker> CreatePlaceholderTracker(
     const std::string& file_id,
     int64 tracker_id,
     const FileTracker* parent_tracker);
+
+// The return value type of GetFileResourceKind().
+enum FileResourceKind {
+  RESOURCE_KIND_FILE,
+  RESOURCE_KIND_FOLDER,
+};
+
+// Returns the kind of the given FileResourceKind.
+FileResourceKind GetFileResourceKind(const google_apis::FileResource& resource);
 
 }  // namespace test_util
 }  // namespace drive_backend

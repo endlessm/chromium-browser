@@ -7,15 +7,18 @@
 #include "base/bind.h"
 #include "base/i18n/number_formatting.h"
 #include "base/i18n/rtl.h"
+#include "base/location.h"
 #include "base/prefs/pref_registry_simple.h"
 #include "base/prefs/pref_service.h"
-#include "base/process/process_metrics.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/private_working_set_snapshot.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_window.h"
 #include "chrome/browser/task_manager/background_information.h"
@@ -271,6 +274,11 @@ TaskManagerModel::TaskManagerModel(TaskManager* task_manager)
       task_manager,
       scoped_ptr<WebContentsInformation>(
           new task_manager::GuestInformation())));
+#if defined(OS_WIN)
+  working_set_snapshot_.reset(new PrivateWorkingSetSnapshot);
+  working_set_snapshot_->AddToMonitorList("chrome");
+  working_set_snapshot_->AddToMonitorList("nacl64");
+#endif
 }
 
 void TaskManagerModel::AddObserver(TaskManagerModelObserver* observer) {
@@ -314,7 +322,10 @@ base::ProcessId TaskManagerModel::GetProcessId(int index) const {
   PerResourceValues& values(GetPerResourceValues(index));
   if (!values.is_process_id_valid) {
     values.is_process_id_valid = true;
-    values.process_id = base::GetProcId(GetResource(index)->GetProcess());
+    base::ProcessHandle process(GetResource(index)->GetProcess());
+    DCHECK(process);
+    values.process_id = base::GetProcId(process);
+    DCHECK(values.process_id);
   }
   return values.process_id;
 }
@@ -575,10 +586,13 @@ bool TaskManagerModel::GetPhysicalMemory(int index, size_t* result) const {
     // On Linux private memory is also resident. Just use it.
     values.physical_memory = ws_usage.priv * 1024;
 #else
-    // Memory = working_set.private + working_set.shareable.
-    // We exclude the shared memory.
+    // Memory = working_set.private which is working set minus shareable. This
+    // avoids the unpredictable counting that occurs when calculating memory as
+    // working set minus shared (renderer code counted when one tab is open and
+    // not counted when two or more are open) and it is much more efficient to
+    // calculate on Windows.
     values.physical_memory = iter->second->GetWorkingSetSize();
-    values.physical_memory -= ws_usage.shared * 1024;
+    values.physical_memory -= ws_usage.shareable * 1024;
 #endif
   }
   *result = values.physical_memory;
@@ -916,6 +930,7 @@ WebContents* TaskManagerModel::GetResourceWebContents(int index) const {
 
 void TaskManagerModel::AddResource(Resource* resource) {
   base::ProcessHandle process = resource->GetProcess();
+  DCHECK(process);
 
   GroupMap::iterator group_iter = group_map_.find(process);
   int new_entry_index = 0;
@@ -1022,9 +1037,8 @@ void TaskManagerModel::StartUpdating() {
   // If update_state_ is STOPPING, it means a task is still pending.  Setting
   // it to TASK_PENDING ensures the tasks keep being posted (by Refresh()).
   if (update_state_ == IDLE) {
-      base::MessageLoop::current()->PostTask(
-          FROM_HERE,
-          base::Bind(&TaskManagerModel::RefreshCallback, this));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(&TaskManagerModel::RefreshCallback, this));
   }
   update_state_ = TASK_PENDING;
 
@@ -1121,9 +1135,38 @@ void TaskManagerModel::ModelChanged() {
   FOR_EACH_OBSERVER(TaskManagerModelObserver, observer_list_, OnModelChanged());
 }
 
+void TaskManagerModel::RefreshPhysicalMemoryFromWorkingSetSnapshot() {
+#if defined(OS_WIN)
+  // Collect working-set data for all monitored processes in one operation, to
+  // avoid the inefficiency of retrieving it one at a time.
+  working_set_snapshot_->Sample();
+
+  for (size_t i = 0; i < resources_.size(); ++i) {
+    size_t private_working_set =
+        working_set_snapshot_->GetPrivateWorkingSet(GetProcessId(i));
+
+    // If working-set data is available then use it. If not then
+    // GetWorkingSetKBytes will retrieve the data. This is rare except on
+    // Windows XP where GetWorkingSetKBytes will always be used.
+    if (private_working_set) {
+      // Fill in the cache with the retrieved private working set value.
+      base::ProcessHandle handle = GetResource(i)->GetProcess();
+      PerProcessValues& values(per_process_cache_[handle]);
+      values.is_physical_memory_valid = true;
+      // Note that the other memory fields are *not* filled in.
+      values.physical_memory = private_working_set;
+    }
+  }
+#else
+// This is a NOP on other platforms because they can efficiently retrieve
+// the private working-set data on a per-process basis.
+#endif
+}
+
 void TaskManagerModel::Refresh() {
   per_resource_cache_.clear();
   per_process_cache_.clear();
+  RefreshPhysicalMemoryFromWorkingSetSnapshot();
 
 #if !defined(DISABLE_NACL)
   nacl::NaClBrowser* nacl_browser = nacl::NaClBrowser::GetInstance();
@@ -1198,33 +1241,11 @@ void TaskManagerModel::Refresh() {
   }
 }
 
-void TaskManagerModel::NotifyResourceTypeStats(
-    base::ProcessId renderer_id,
-    const blink::WebCache::ResourceTypeStats& stats) {
-  for (ResourceList::iterator it = resources_.begin();
-       it != resources_.end(); ++it) {
-    if (base::GetProcId((*it)->GetProcess()) == renderer_id) {
-      (*it)->NotifyResourceTypeStats(stats);
-    }
-  }
-}
-
 void TaskManagerModel::NotifyVideoMemoryUsageStats(
     const content::GPUVideoMemoryUsageStats& video_memory_usage_stats) {
   DCHECK(pending_video_memory_usage_stats_update_);
   video_memory_usage_stats_ = video_memory_usage_stats;
   pending_video_memory_usage_stats_update_ = false;
-}
-
-void TaskManagerModel::NotifyV8HeapStats(base::ProcessId renderer_id,
-                                         size_t v8_memory_allocated,
-                                         size_t v8_memory_used) {
-  for (ResourceList::iterator it = resources_.begin();
-       it != resources_.end(); ++it) {
-    if (base::GetProcId((*it)->GetProcess()) == renderer_id) {
-      (*it)->NotifyV8HeapStats(v8_memory_allocated, v8_memory_used);
-    }
-  }
 }
 
 void TaskManagerModel::NotifyBytesRead(const net::URLRequest& request,
@@ -1250,9 +1271,8 @@ void TaskManagerModel::NotifyBytesRead(const net::URLRequest& request,
     origin_pid = info->GetOriginPID();
 
   if (bytes_read_buffer_.empty()) {
-    base::MessageLoop::current()->PostDelayedTask(
-        FROM_HERE,
-        base::Bind(&TaskManagerModel::NotifyMultipleBytesRead, this),
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE, base::Bind(&TaskManagerModel::NotifyMultipleBytesRead, this),
         base::TimeDelta::FromSeconds(1));
   }
 
@@ -1292,9 +1312,8 @@ void TaskManagerModel::RefreshCallback() {
   Refresh();
 
   // Schedule the next update.
-  base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::Bind(&TaskManagerModel::RefreshCallback, this),
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, base::Bind(&TaskManagerModel::RefreshCallback, this),
       base::TimeDelta::FromMilliseconds(kUpdateTimeMs));
 }
 
@@ -1491,10 +1510,13 @@ bool TaskManager::IsBrowserProcess(int index) const {
 }
 
 void TaskManager::KillProcess(int index) {
-  base::ProcessHandle process = model_->GetProcess(index);
-  DCHECK(process);
-  if (process != base::GetCurrentProcessHandle())
-    base::KillProcess(process, content::RESULT_CODE_KILLED, false);
+  base::ProcessHandle process_handle = model_->GetProcess(index);
+  DCHECK(process_handle);
+  if (process_handle != base::GetCurrentProcessHandle()) {
+    base::Process process =
+        base::Process::DeprecatedGetProcessFromHandle(process_handle);
+    process.Terminate(content::RESULT_CODE_KILLED, false);
+  }
 }
 
 void TaskManager::ActivateProcess(int index) {

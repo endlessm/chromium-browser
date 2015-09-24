@@ -4,18 +4,20 @@
 
 #include "ui/views/widget/widget.h"
 
-#include "base/debug/trace_event.h"
 #include "base/logging.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/trace_event/trace_event.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/base/default_theme_provider.h"
 #include "ui/base/hit_test.h"
+#include "ui/base/ime/input_method.h"
 #include "ui/base/l10n/l10n_font_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/compositor/compositor.h"
 #include "ui/compositor/layer.h"
 #include "ui/events/event.h"
+#include "ui/events/event_utils.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/screen.h"
 #include "ui/views/controls/menu/menu_controller.h"
@@ -23,7 +25,6 @@
 #include "ui/views/focus/focus_manager_factory.h"
 #include "ui/views/focus/view_storage.h"
 #include "ui/views/focus/widget_focus_manager.h"
-#include "ui/views/ime/input_method.h"
 #include "ui/views/views_delegate.h"
 #include "ui/views/widget/native_widget_private.h"
 #include "ui/views/widget/root_view.h"
@@ -61,6 +62,14 @@ NativeWidget* CreateNativeWidget(NativeWidget* native_widget,
         internal::NativeWidgetPrivate::CreateNativeWidget(delegate);
   }
   return native_widget;
+}
+
+void NotifyCaretBoundsChanged(ui::InputMethod* input_method) {
+  if (!input_method)
+    return;
+  ui::TextInputClient* client = input_method->GetTextInputClient();
+  if (client)
+    input_method->OnCaretBoundsChanged(client);
 }
 
 }  // namespace
@@ -111,7 +120,7 @@ Widget::InitParams::InitParams()
       parent(NULL),
       native_widget(NULL),
       desktop_window_tree_host(NULL),
-      layer_type(aura::WINDOW_LAYER_TEXTURED),
+      layer_type(ui::LAYER_TEXTURED),
       context(NULL),
       force_show_in_taskbar(false) {
 }
@@ -134,7 +143,7 @@ Widget::InitParams::InitParams(Type type)
       parent(NULL),
       native_widget(NULL),
       desktop_window_tree_host(NULL),
-      layer_type(aura::WINDOW_LAYER_TEXTURED),
+      layer_type(ui::LAYER_TEXTURED),
       context(NULL),
       force_show_in_taskbar(false) {
 }
@@ -313,8 +322,8 @@ void Widget::Init(const InitParams& in_params) {
       params.type != views::Widget::InitParams::TYPE_PANEL)
     params.opacity = views::Widget::InitParams::OPAQUE_WINDOW;
 
-  if (ViewsDelegate::views_delegate)
-    ViewsDelegate::views_delegate->OnBeforeWidgetInit(&params, this);
+  if (ViewsDelegate::GetInstance())
+    ViewsDelegate::GetInstance()->OnBeforeWidgetInit(&params, this);
 
   if (params.opacity == views::Widget::InitParams::INFER_OPACITY)
     params.opacity = views::Widget::InitParams::OPAQUE_WINDOW;
@@ -356,8 +365,10 @@ void Widget::Init(const InitParams& in_params) {
     non_client_view_->set_client_view(widget_delegate_->CreateClientView(this));
     non_client_view_->SetOverlayView(widget_delegate_->CreateOverlayView());
     SetContentsView(non_client_view_);
-    // Initialize the window's title before setting the window's initial bounds;
-    // the frame view's preferred height may depend on the presence of a title.
+    // Initialize the window's icon and title before setting the window's
+    // initial bounds; the frame view's preferred height may depend on the
+    // presence of an icon or a title.
+    UpdateWindowIcon();
     UpdateWindowTitle();
     non_client_view_->ResetWindowControls();
     SetInitialBounds(params.bounds);
@@ -386,6 +397,8 @@ gfx::NativeWindow Widget::GetNativeWindow() const {
 }
 
 void Widget::AddObserver(WidgetObserver* observer) {
+  // Make sure that there is no nullptr in observer list. crbug.com/471649.
+  CHECK(observer);
   observers_.AddObserver(observer);
 }
 
@@ -393,7 +406,7 @@ void Widget::RemoveObserver(WidgetObserver* observer) {
   observers_.RemoveObserver(observer);
 }
 
-bool Widget::HasObserver(WidgetObserver* observer) {
+bool Widget::HasObserver(const WidgetObserver* observer) const {
   return observers_.HasObserver(observer);
 }
 
@@ -405,7 +418,7 @@ void Widget::RemoveRemovalsObserver(WidgetRemovalsObserver* observer) {
   removals_observers_.RemoveObserver(observer);
 }
 
-bool Widget::HasRemovalsObserver(WidgetRemovalsObserver* observer) {
+bool Widget::HasRemovalsObserver(const WidgetRemovalsObserver* observer) const {
   return removals_observers_.HasObserver(observer);
 }
 
@@ -439,9 +452,9 @@ void Widget::NotifyNativeViewHierarchyChanged() {
 }
 
 void Widget::NotifyWillRemoveView(View* view) {
-    FOR_EACH_OBSERVER(WidgetRemovalsObserver,
-                      removals_observers_,
-                      OnWillRemoveView(this, view));
+  FOR_EACH_OBSERVER(WidgetRemovalsObserver,
+                    removals_observers_,
+                    OnWillRemoveView(this, view));
 }
 
 // Converted methods (see header) ----------------------------------------------
@@ -557,7 +570,7 @@ void Widget::StackBelow(gfx::NativeView native_view) {
   native_widget_->StackBelow(native_view);
 }
 
-void Widget::SetShape(gfx::NativeRegion shape) {
+void Widget::SetShape(SkRegion* shape) {
   native_widget_->SetShape(shape);
 }
 
@@ -599,7 +612,9 @@ bool Widget::IsClosed() const {
 }
 
 void Widget::Show() {
-  TRACE_EVENT0("views", "Widget::Show");
+  const ui::Layer* layer = GetLayer();
+  TRACE_EVENT1("views", "Widget::Show", "layer",
+               layer ? layer->name() : "none");
   if (non_client_view_) {
     // While initializing, the kiosk mode will go to full screen before the
     // widget gets shown. In that case we stay in full screen mode, regardless
@@ -756,29 +771,20 @@ const FocusManager* Widget::GetFocusManager() const {
   return toplevel_widget ? toplevel_widget->focus_manager_.get() : NULL;
 }
 
-InputMethod* Widget::GetInputMethod() {
-  return const_cast<InputMethod*>(
-      const_cast<const Widget*>(this)->GetInputMethod());
-}
-
-const InputMethod* Widget::GetInputMethod() const {
+ui::InputMethod* Widget::GetInputMethod() {
   if (is_top_level()) {
-    if (!input_method_.get())
-      input_method_ = const_cast<Widget*>(this)->CreateInputMethod().Pass();
-    return input_method_.get();
+    // Only creates the shared the input method instance on top level widget.
+    return native_widget_private()->GetInputMethod();
   } else {
-    const Widget* toplevel = GetTopLevelWidget();
+    Widget* toplevel = GetTopLevelWidget();
     // If GetTopLevelWidget() returns itself which is not toplevel,
     // the widget is detached from toplevel widget.
     // TODO(oshima): Fix GetTopLevelWidget() to return NULL
     // if there is no toplevel. We probably need to add GetTopMostWidget()
     // to replace some use cases.
-    return (toplevel && toplevel != this) ? toplevel->GetInputMethod() : NULL;
+    return (toplevel && toplevel != this) ? toplevel->GetInputMethod()
+                                          : nullptr;
   }
-}
-
-ui::InputMethod* Widget::GetHostInputMethod() {
-  return native_widget_private()->GetHostInputMethod();
 }
 
 void Widget::RunShellDrag(View* view,
@@ -788,7 +794,14 @@ void Widget::RunShellDrag(View* view,
                           ui::DragDropTypes::DragEventSource source) {
   dragged_view_ = view;
   OnDragWillStart();
+
+  WidgetDeletionObserver widget_deletion_observer(this);
   native_widget_->RunShellDrag(view, data, location, operation, source);
+
+  // The widget may be destroyed during the drag operation.
+  if (!widget_deletion_observer.IsWidgetAlive())
+    return;
+
   // If the view is removed during the drag operation, dragged_view_ is set to
   // NULL.
   if (view && dragged_view_ == view) {
@@ -854,6 +867,10 @@ void Widget::LocaleChanged() {
   root_view_->LocaleChanged();
 }
 
+void Widget::DeviceScaleFactorChanged(float device_scale_factor) {
+  root_view_->DeviceScaleFactorChanged(device_scale_factor);
+}
+
 void Widget::SetFocusTraversableParent(FocusTraversable* parent) {
   root_view_->SetFocusTraversableParent(parent);
 }
@@ -871,9 +888,9 @@ NonClientFrameView* Widget::CreateNonClientFrameView() {
       widget_delegate_->CreateNonClientFrameView(this);
   if (!frame_view)
     frame_view = native_widget_->CreateNonClientFrameView();
-  if (!frame_view && ViewsDelegate::views_delegate) {
+  if (!frame_view && ViewsDelegate::GetInstance()) {
     frame_view =
-        ViewsDelegate::views_delegate->CreateDefaultNonClientFrameView(this);
+        ViewsDelegate::GetInstance()->CreateDefaultNonClientFrameView(this);
   }
   if (frame_view)
     return frame_view;
@@ -972,9 +989,8 @@ gfx::Rect Widget::GetWorkAreaBoundsInScreen() const {
 
 void Widget::SynthesizeMouseMoveEvent() {
   last_mouse_event_was_move_ = false;
-  ui::MouseEvent mouse_event(ui::ET_MOUSE_MOVED,
-                             last_mouse_event_position_,
-                             last_mouse_event_position_,
+  ui::MouseEvent mouse_event(ui::ET_MOUSE_MOVED, last_mouse_event_position_,
+                             last_mouse_event_position_, ui::EventTimeForNow(),
                              ui::EF_IS_SYNTHESIZED, 0);
   root_view_->OnMouseMoved(mouse_event);
 }
@@ -1028,31 +1044,16 @@ void Widget::OnNativeWidgetActivationChanged(bool active) {
   FOR_EACH_OBSERVER(WidgetObserver, observers_,
                     OnWidgetActivationChanged(this, active));
 
-  // During window creation, the widget gets focused without activation, and in
-  // that case, the focus manager cannot set the appropriate text input client
-  // because the widget is not active.  Thus we have to notify the focus manager
-  // not only when the focus changes but also when the widget gets activated.
-  // See crbug.com/377479 for details.
-  views::FocusManager* focus_manager = GetFocusManager();
-  if (focus_manager) {
-    if (active)
-      focus_manager->FocusTextInputClient(focus_manager->GetFocusedView());
-    else
-      focus_manager->BlurTextInputClient(focus_manager->GetFocusedView());
-  }
-
   if (IsVisible() && non_client_view())
     non_client_view()->frame_view()->SchedulePaint();
 }
 
-void Widget::OnNativeFocus(gfx::NativeView old_focused_view) {
-  WidgetFocusManager::GetInstance()->OnWidgetFocusEvent(old_focused_view,
-                                                        GetNativeView());
+void Widget::OnNativeFocus() {
+  WidgetFocusManager::GetInstance()->OnNativeFocusChanged(GetNativeView());
 }
 
-void Widget::OnNativeBlur(gfx::NativeView new_focused_view) {
-  WidgetFocusManager::GetInstance()->OnWidgetFocusEvent(GetNativeView(),
-                                                        new_focused_view);
+void Widget::OnNativeBlur() {
+  WidgetFocusManager::GetInstance()->OnNativeFocusChanged(nullptr);
 }
 
 void Widget::OnNativeWidgetVisibilityChanging(bool visible) {
@@ -1107,12 +1108,8 @@ gfx::Size Widget::GetMaximumSize() const {
 
 void Widget::OnNativeWidgetMove() {
   widget_delegate_->OnWidgetMove();
-  View* root = GetRootView();
-  if (root && root->GetFocusManager()) {
-    View* focused_view = root->GetFocusManager()->GetFocusedView();
-    if (focused_view && focused_view->GetInputMethod())
-      focused_view->GetInputMethod()->OnCaretBoundsChanged(focused_view);
-  }
+  NotifyCaretBoundsChanged(GetInputMethod());
+
   FOR_EACH_OBSERVER(WidgetObserver, observers_, OnWidgetBoundsChanged(
     this,
     GetWindowBoundsInScreen()));
@@ -1120,14 +1117,10 @@ void Widget::OnNativeWidgetMove() {
 
 void Widget::OnNativeWidgetSizeChanged(const gfx::Size& new_size) {
   View* root = GetRootView();
-  if (root) {
+  if (root)
     root->SetSize(new_size);
-    if (root->GetFocusManager()) {
-      View* focused_view = GetRootView()->GetFocusManager()->GetFocusedView();
-      if (focused_view && focused_view->GetInputMethod())
-        focused_view->GetInputMethod()->OnCaretBoundsChanged(focused_view);
-    }
-  }
+
+  NotifyCaretBoundsChanged(GetInputMethod());
   SaveWindowPlacementIfInitialized();
 
   FOR_EACH_OBSERVER(WidgetObserver, observers_, OnWidgetBoundsChanged(
@@ -1151,20 +1144,12 @@ bool Widget::HasFocusManager() const {
   return !!focus_manager_.get();
 }
 
-bool Widget::OnNativeWidgetPaintAccelerated(const gfx::Rect& dirty_region) {
-  ui::Compositor* compositor = GetCompositor();
-  if (!compositor)
-    return false;
-
-  compositor->ScheduleRedrawRect(dirty_region);
-  return true;
-}
-
-void Widget::OnNativeWidgetPaint(gfx::Canvas* canvas) {
+void Widget::OnNativeWidgetPaint(const ui::PaintContext& context) {
   // On Linux Aura, we can get here during Init() because of the
   // SetInitialBounds call.
-  if (native_widget_initialized_)
-    GetRootView()->Paint(canvas, CullSet());
+  if (!native_widget_initialized_)
+    return;
+  GetRootView()->Paint(context);
 }
 
 int Widget::GetNonClientComponent(const gfx::Point& point) {
@@ -1294,10 +1279,6 @@ bool Widget::ExecuteCommand(int command_id) {
   return widget_delegate_->ExecuteWindowsCommand(command_id);
 }
 
-InputMethod* Widget::GetInputMethodDirect() {
-  return input_method_.get();
-}
-
 const std::vector<ui::Layer*>& Widget::GetRootLayers() {
   if (root_layers_dirty_) {
     root_layers_dirty_ = false;
@@ -1391,8 +1372,6 @@ internal::RootView* Widget::CreateRootView() {
 void Widget::DestroyRootView() {
   non_client_view_ = NULL;
   root_view_.reset();
-  // Input method has to be destroyed before focus manager.
-  input_method_.reset();
 }
 
 void Widget::OnDragWillStart() {
@@ -1498,19 +1477,6 @@ bool Widget::GetSavedWindowPlacement(gfx::Rect* bounds,
     return true;
   }
   return false;
-}
-
-scoped_ptr<InputMethod> Widget::CreateInputMethod() {
-  scoped_ptr<InputMethod> input_method(native_widget_->CreateInputMethod());
-  if (input_method.get())
-    input_method->Init(this);
-  return input_method.Pass();
-}
-
-void Widget::ReplaceInputMethod(InputMethod* input_method) {
-  input_method_.reset(input_method);
-  input_method->SetDelegate(native_widget_->GetInputMethodDelegate());
-  input_method->Init(this);
 }
 
 namespace internal {

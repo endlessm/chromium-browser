@@ -17,15 +17,16 @@ class FrameGeneratorForTest;
 class MockFrameProvider : public CodedFrameProvider {
  public:
   MockFrameProvider();
-  virtual ~MockFrameProvider();
+  ~MockFrameProvider() override;
 
   void Configure(
       const std::vector<bool>& delayed_task_pattern,
       scoped_ptr<FrameGeneratorForTest> frame_generator);
+  void SetDelayFlush(bool delay_flush);
 
   // CodedFrameProvider implementation.
-  virtual void Read(const ReadCB& read_cb) override;
-  virtual void Flush(const base::Closure& flush_cb) override;
+  void Read(const ReadCB& read_cb) override;
+  void Flush(const base::Closure& flush_cb) override;
 
  private:
   void DoRead(const ReadCB& read_cb);
@@ -35,8 +36,11 @@ class MockFrameProvider : public CodedFrameProvider {
   // i.e. after receiving a Read request, either delivers a frame right away
   // or wait some time before delivering the frame.
   // |pattern_idx_| is the current index in the pattern.
+  // |delay_flush_| indicates whether to delay flush cb in Flush. Default is
+  // false.
   std::vector<bool> delayed_task_pattern_;
   size_t pattern_idx_;
+  bool delay_flush_;
 
   scoped_ptr<FrameGeneratorForTest> frame_generator_;
 

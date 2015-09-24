@@ -21,22 +21,19 @@ class WebContents;
 class ToolbarModelAndroid : public ToolbarModelDelegate {
  public:
   explicit ToolbarModelAndroid(JNIEnv* env, jobject jdelegate);
-  virtual ~ToolbarModelAndroid();
+  ~ToolbarModelAndroid() override;
 
   void Destroy(JNIEnv* env, jobject obj);
   base::android::ScopedJavaLocalRef<jstring> GetText(
       JNIEnv* env,
       jobject obj);
-  base::android::ScopedJavaLocalRef<jstring> GetQueryExtractionParam(
-      JNIEnv* env,
-      jobject obj);
   base::android::ScopedJavaLocalRef<jstring> GetCorpusChipText(
       JNIEnv* env,
       jobject obj);
+  jboolean WouldReplaceURL(JNIEnv* env, jobject obj);
 
   // ToolbarDelegate:
-  virtual content::WebContents* GetActiveWebContents() const override;
-  virtual bool InTabbedBrowser() const override;
+  content::WebContents* GetActiveWebContents() const override;
 
   static bool RegisterToolbarModelAndroid(JNIEnv* env);
 

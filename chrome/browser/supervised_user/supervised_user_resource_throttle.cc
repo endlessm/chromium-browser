@@ -5,13 +5,14 @@
 #include "chrome/browser/supervised_user/supervised_user_resource_throttle.h"
 
 #include "base/bind.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/sparse_histogram.h"
 #include "chrome/browser/supervised_user/supervised_user_interstitial.h"
 #include "chrome/browser/supervised_user/supervised_user_navigation_observer.h"
 #include "chrome/browser/supervised_user/supervised_user_url_filter.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/resource_controller.h"
 #include "content/public/browser/resource_request_info.h"
+#include "net/url_request/redirect_info.h"
 #include "net/url_request/url_request.h"
 #include "ui/base/page_transition_types.h"
 
@@ -27,14 +28,16 @@ enum {
   FILTERING_BEHAVIOR_ALLOW_UNCERTAIN,
   FILTERING_BEHAVIOR_BLOCK_BLACKLIST,
   FILTERING_BEHAVIOR_BLOCK_SAFESITES,
-  FILTERING_BEHAVIOR_MAX = FILTERING_BEHAVIOR_BLOCK_SAFESITES
+  FILTERING_BEHAVIOR_BLOCK_MANUAL,
+  FILTERING_BEHAVIOR_BLOCK_DEFAULT,
+  FILTERING_BEHAVIOR_MAX = FILTERING_BEHAVIOR_BLOCK_DEFAULT
 };
 const int kHistogramFilteringBehaviorSpacing = 100;
 const int kHistogramPageTransitionMaxKnownValue =
     static_cast<int>(ui::PAGE_TRANSITION_KEYWORD_GENERATED);
 const int kHistogramPageTransitionFallbackValue =
     kHistogramFilteringBehaviorSpacing - 1;
-const int kHistogramMax = 500;
+const int kHistogramMax = 700;
 
 static_assert(kHistogramPageTransitionMaxKnownValue <
                   kHistogramPageTransitionFallbackValue,
@@ -45,25 +48,25 @@ static_assert(FILTERING_BEHAVIOR_MAX * kHistogramFilteringBehaviorSpacing +
 
 int GetHistogramValueForFilteringBehavior(
     SupervisedUserURLFilter::FilteringBehavior behavior,
-    SupervisedUserURLFilter::FilteringBehaviorSource source,
+    SupervisedUserURLFilter::FilteringBehaviorReason reason,
     bool uncertain) {
-  // Since we're only interested in statistics about the blacklist and
-  // SafeSites, count everything that got through to the default fallback
-  // behavior as ALLOW (made it through all the filters!).
-  if (source == SupervisedUserURLFilter::DEFAULT)
-    behavior = SupervisedUserURLFilter::ALLOW;
-
   switch (behavior) {
     case SupervisedUserURLFilter::ALLOW:
+    case SupervisedUserURLFilter::WARN:
       return uncertain ? FILTERING_BEHAVIOR_ALLOW_UNCERTAIN
                        : FILTERING_BEHAVIOR_ALLOW;
     case SupervisedUserURLFilter::BLOCK:
-      if (source == SupervisedUserURLFilter::BLACKLIST)
-        return FILTERING_BEHAVIOR_BLOCK_BLACKLIST;
-      else if (source == SupervisedUserURLFilter::ASYNC_CHECKER)
-        return FILTERING_BEHAVIOR_BLOCK_SAFESITES;
-      // Fall through.
-    default:
+      switch (reason) {
+        case SupervisedUserURLFilter::BLACKLIST:
+          return FILTERING_BEHAVIOR_BLOCK_BLACKLIST;
+        case SupervisedUserURLFilter::ASYNC_CHECKER:
+          return FILTERING_BEHAVIOR_BLOCK_SAFESITES;
+        case SupervisedUserURLFilter::MANUAL:
+          return FILTERING_BEHAVIOR_BLOCK_MANUAL;
+        case SupervisedUserURLFilter::DEFAULT:
+          return FILTERING_BEHAVIOR_BLOCK_DEFAULT;
+      }
+    case SupervisedUserURLFilter::INVALID:
       NOTREACHED();
   }
   return 0;
@@ -79,18 +82,23 @@ int GetHistogramValueForTransitionType(ui::PageTransition transition_type) {
 }
 
 void RecordFilterResultEvent(
+    bool safesites_histogram,
     SupervisedUserURLFilter::FilteringBehavior behavior,
-    SupervisedUserURLFilter::FilteringBehaviorSource source,
+    SupervisedUserURLFilter::FilteringBehaviorReason reason,
     bool uncertain,
     ui::PageTransition transition_type) {
-  DCHECK(source != SupervisedUserURLFilter::MANUAL);
   int value =
-      GetHistogramValueForFilteringBehavior(behavior, source, uncertain) *
+      GetHistogramValueForFilteringBehavior(behavior, reason, uncertain) *
           kHistogramFilteringBehaviorSpacing +
       GetHistogramValueForTransitionType(transition_type);
   DCHECK_LT(value, kHistogramMax);
-  UMA_HISTOGRAM_ENUMERATION("ManagedUsers.SafetyFilter",
-                            value, kHistogramMax);
+  // Note: We can't pass in the histogram name as a parameter to this function
+  // because of how the macro works (look up the histogram on the first
+  // invocation and cache it in a static variable).
+  if (safesites_histogram)
+    UMA_HISTOGRAM_SPARSE_SLOWLY("ManagedUsers.SafetyFilter", value);
+  else
+    UMA_HISTOGRAM_SPARSE_SLOWLY("ManagedUsers.FilteringResult", value);
 }
 
 }  // namespace
@@ -103,7 +111,7 @@ SupervisedUserResourceThrottle::SupervisedUserResourceThrottle(
       is_main_frame_(is_main_frame),
       url_filter_(url_filter),
       deferred_(false),
-      behavior_(SupervisedUserURLFilter::HISTOGRAM_BOUNDING_VALUE),
+      behavior_(SupervisedUserURLFilter::INVALID),
       weak_ptr_factory_(this) {}
 
 SupervisedUserResourceThrottle::~SupervisedUserResourceThrottle() {}
@@ -116,26 +124,27 @@ void SupervisedUserResourceThrottle::ShowInterstitialIfNeeded(bool is_redirect,
     return;
 
   deferred_ = false;
-  DCHECK_EQ(SupervisedUserURLFilter::HISTOGRAM_BOUNDING_VALUE, behavior_);
+  DCHECK_EQ(SupervisedUserURLFilter::INVALID, behavior_);
   bool got_result = url_filter_->GetFilteringBehaviorForURLWithAsyncChecks(
       url,
       base::Bind(&SupervisedUserResourceThrottle::OnCheckDone,
                  weak_ptr_factory_.GetWeakPtr(), url));
-  DCHECK_EQ(got_result,
-            (behavior_ != SupervisedUserURLFilter::HISTOGRAM_BOUNDING_VALUE));
+  DCHECK_EQ(got_result, behavior_ != SupervisedUserURLFilter::INVALID);
   // If we got a "not blocked" result synchronously, don't defer.
   *defer = deferred_ = !got_result ||
                        (behavior_ == SupervisedUserURLFilter::BLOCK);
   if (got_result)
-    behavior_ = SupervisedUserURLFilter::HISTOGRAM_BOUNDING_VALUE;
+    behavior_ = SupervisedUserURLFilter::INVALID;
 }
 
-void SupervisedUserResourceThrottle::ShowInterstitial(const GURL& url) {
+void SupervisedUserResourceThrottle::ShowInterstitial(
+    const GURL& url,
+    SupervisedUserURLFilter::FilteringBehaviorReason reason) {
   const content::ResourceRequestInfo* info =
       content::ResourceRequestInfo::ForRequest(request_);
   BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
       base::Bind(&SupervisedUserNavigationObserver::OnRequestBlocked,
-                 info->GetChildID(), info->GetRouteID(), url,
+                 info->GetChildID(), info->GetRouteID(), url, reason,
                  base::Bind(
                      &SupervisedUserResourceThrottle::OnInterstitialResult,
                      weak_ptr_factory_.GetWeakPtr())));
@@ -145,9 +154,10 @@ void SupervisedUserResourceThrottle::WillStartRequest(bool* defer) {
   ShowInterstitialIfNeeded(false, request_->url(), defer);
 }
 
-void SupervisedUserResourceThrottle::WillRedirectRequest(const GURL& new_url,
-                                                         bool* defer) {
-  ShowInterstitialIfNeeded(true, new_url, defer);
+void SupervisedUserResourceThrottle::WillRedirectRequest(
+    const net::RedirectInfo& redirect_info,
+    bool* defer) {
+  ShowInterstitialIfNeeded(true, redirect_info.new_url, defer);
 }
 
 const char* SupervisedUserResourceThrottle::GetNameForLogging() const {
@@ -157,24 +167,28 @@ const char* SupervisedUserResourceThrottle::GetNameForLogging() const {
 void SupervisedUserResourceThrottle::OnCheckDone(
     const GURL& url,
     SupervisedUserURLFilter::FilteringBehavior behavior,
-    SupervisedUserURLFilter::FilteringBehaviorSource source,
+    SupervisedUserURLFilter::FilteringBehaviorReason reason,
     bool uncertain) {
-  DCHECK_EQ(SupervisedUserURLFilter::HISTOGRAM_BOUNDING_VALUE, behavior_);
+  DCHECK_EQ(SupervisedUserURLFilter::INVALID, behavior_);
   // If we got a result synchronously, pass it back to ShowInterstitialIfNeeded.
   if (!deferred_)
     behavior_ = behavior;
 
-  // If both the static blacklist and SafeSites are enabled, record UMA events.
+  ui::PageTransition transition =
+      content::ResourceRequestInfo::ForRequest(request_)->GetPageTransition();
+
+  RecordFilterResultEvent(false, behavior, reason, uncertain, transition);
+
+  // If both the static blacklist and the async checker are enabled, also record
+  // SafeSites-only UMA events.
   if (url_filter_->HasBlacklist() && url_filter_->HasAsyncURLChecker() &&
-      source < SupervisedUserURLFilter::MANUAL) {
-    const content::ResourceRequestInfo* info =
-        content::ResourceRequestInfo::ForRequest(request_);
-    RecordFilterResultEvent(behavior, source, uncertain,
-                            info->GetPageTransition());
+      (reason == SupervisedUserURLFilter::ASYNC_CHECKER ||
+       reason == SupervisedUserURLFilter::BLACKLIST)) {
+    RecordFilterResultEvent(true, behavior, reason, uncertain, transition);
   }
 
   if (behavior == SupervisedUserURLFilter::BLOCK)
-    ShowInterstitial(url);
+    ShowInterstitial(url, reason);
   else if (deferred_)
     controller()->Resume();
 }

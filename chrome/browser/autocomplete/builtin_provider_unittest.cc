@@ -2,17 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/autocomplete/builtin_provider.h"
+#include "components/omnibox/browser/builtin_provider.h"
 
 #include "base/format_macros.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/autocomplete/chrome_autocomplete_provider_client.h"
 #include "chrome/browser/autocomplete/chrome_autocomplete_scheme_classifier.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/test/base/testing_profile.h"
 #include "components/metrics/proto/omnibox_event.pb.h"
-#include "components/omnibox/autocomplete_input.h"
-#include "components/omnibox/autocomplete_match.h"
-#include "components/omnibox/autocomplete_provider.h"
+#include "components/omnibox/browser/autocomplete_input.h"
+#include "components/omnibox/browser/autocomplete_match.h"
+#include "components/omnibox/browser/autocomplete_provider.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
@@ -29,7 +32,11 @@ class BuiltinProviderTest : public testing::Test {
   BuiltinProviderTest() : provider_(NULL) {}
   ~BuiltinProviderTest() override {}
 
-  void SetUp() override { provider_ = new BuiltinProvider(); }
+  void SetUp() override {
+    profile_.reset(new TestingProfile());
+    client_.reset(new ChromeAutocompleteProviderClient(profile_.get()));
+    provider_ = new BuiltinProvider(client_.get());
+  }
   void TearDown() override { provider_ = NULL; }
 
   void RunTest(const TestData cases[], size_t num_cases) {
@@ -37,11 +44,10 @@ class BuiltinProviderTest : public testing::Test {
     for (size_t i = 0; i < num_cases; ++i) {
       SCOPED_TRACE(base::StringPrintf(
           "case %" PRIuS ": %s", i, base::UTF16ToUTF8(cases[i].input).c_str()));
-      const AutocompleteInput input(cases[i].input, base::string16::npos,
-                                    std::string(), GURL(),
-                                    metrics::OmniboxEventProto::INVALID_SPEC,
-                                    true, false, true, true,
-                                    ChromeAutocompleteSchemeClassifier(NULL));
+      const AutocompleteInput input(
+          cases[i].input, base::string16::npos, std::string(), GURL(),
+          metrics::OmniboxEventProto::INVALID_SPEC, true, false, true, true,
+          false, ChromeAutocompleteSchemeClassifier(NULL));
       provider_->Start(input, false);
       EXPECT_TRUE(provider_->done());
       matches = provider_->matches();
@@ -55,9 +61,13 @@ class BuiltinProviderTest : public testing::Test {
     }
   }
 
- private:
+  content::TestBrowserThreadBundle thread_bundle_;
+
+  scoped_ptr<TestingProfile> profile_;
+  scoped_ptr<ChromeAutocompleteProviderClient> client_;
   scoped_refptr<BuiltinProvider> provider_;
 
+ private:
   DISALLOW_COPY_AND_ASSIGN(BuiltinProviderTest);
 };
 
@@ -280,6 +290,15 @@ TEST_F(BuiltinProviderTest, AboutBlank) {
   };
 
   RunTest(about_blank_cases, arraysize(about_blank_cases));
+}
+
+TEST_F(BuiltinProviderTest, DoesNotSupportMatchesOnFocus) {
+  const AutocompleteInput input(
+      ASCIIToUTF16("chrome://s"), base::string16::npos, std::string(), GURL(),
+      metrics::OmniboxEventProto::INVALID_SPEC, true, false, true, true, true,
+      ChromeAutocompleteSchemeClassifier(NULL));
+  provider_->Start(input, false);
+   EXPECT_TRUE(provider_->matches().empty());
 }
 
 #if !defined(OS_ANDROID)

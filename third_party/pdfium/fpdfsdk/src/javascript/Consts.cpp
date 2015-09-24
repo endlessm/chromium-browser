@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../include/javascript/JavaScript.h"
@@ -151,94 +151,94 @@ int	CJS_GlobalConsts::Init(IJS_Runtime* pRuntime)
 int	CJS_GlobalArrays::Init(IJS_Runtime* pRuntime)
 {
 	{
-		FX_LPCWSTR ArrayName = (FX_LPCWSTR)L"RE_NUMBER_ENTRY_DOT_SEP";
-		FX_LPCWSTR ArrayContent[] = {(FX_LPCWSTR)L"[+-]?\\d*\\.?\\d*"};
+		const FX_WCHAR* ArrayName = L"RE_NUMBER_ENTRY_DOT_SEP";
+		const FX_WCHAR* ArrayContent[] = {L"[+-]?\\d*\\.?\\d*"};
 		DEFINE_GLOBAL_ARRAY(pRuntime);
 	}
 
 	{
-		FX_LPCWSTR ArrayName = (FX_LPCWSTR)L"RE_NUMBER_COMMIT_DOT_SEP";
-		FX_LPCWSTR ArrayContent[] = {(FX_LPCWSTR)L"[+-]?\\d+(\\.\\d+)?",                /* -1.0 or -1 */
-										(FX_LPCWSTR)L"[+-]?\\.\\d+",                            /* -.1 */
-										(FX_LPCWSTR)L"[+-]?\\d+\\."                             /* -1. */
-										};
+		const FX_WCHAR* ArrayName = L"RE_NUMBER_COMMIT_DOT_SEP";
+		const FX_WCHAR* ArrayContent[] = { L"[+-]?\\d+(\\.\\d+)?",                /* -1.0 or -1 */
+									  L"[+-]?\\.\\d+",                       /* -.1 */
+									  L"[+-]?\\d+\\."                        /* -1. */
+									};
 		DEFINE_GLOBAL_ARRAY(pRuntime);
 	}
 
 	{
-		FX_LPCWSTR ArrayName = (FX_LPCWSTR)L"RE_NUMBER_ENTRY_COMMA_SEP";
-		FX_LPCWSTR ArrayContent[] = {(FX_LPCWSTR)L"[+-]?\\d*,?\\d*"};
-		
+		const FX_WCHAR* ArrayName = L"RE_NUMBER_ENTRY_COMMA_SEP";
+		const FX_WCHAR* ArrayContent[] = {L"[+-]?\\d*,?\\d*"};
+
 		DEFINE_GLOBAL_ARRAY(pRuntime);
 	}
 
 	{
-		FX_LPCWSTR ArrayName = (FX_LPCWSTR)L"RE_NUMBER_COMMIT_COMMA_SEP";
-		FX_LPCWSTR ArrayContent[] = {(FX_LPCWSTR)L"[+-]?\\d+([.,]\\d+)?",               /* -1,0 or -1 */
-										(FX_LPCWSTR)L"[+-]?[.,]\\d+",                   /* -,1 */
-                                        (FX_LPCWSTR)L"[+-]?\\d+[.,]"                            /* -1, */
-                                        };
+		const FX_WCHAR* ArrayName = L"RE_NUMBER_COMMIT_COMMA_SEP";
+		const FX_WCHAR* ArrayContent[] = { L"[+-]?\\d+([.,]\\d+)?",               /* -1,0 or -1 */
+									  L"[+-]?[.,]\\d+",                   /* -,1 */
+                                      L"[+-]?\\d+[.,]"                            /* -1, */
+                                    };
 		DEFINE_GLOBAL_ARRAY(pRuntime);
 	}
 
 	{
-		FX_LPCWSTR ArrayName = (FX_LPCWSTR)L"RE_ZIP_ENTRY";
-        FX_LPCWSTR ArrayContent[] = {(FX_LPCWSTR)L"\\d{0,5}"};
+		const FX_WCHAR* ArrayName = L"RE_ZIP_ENTRY";
+        const FX_WCHAR* ArrayContent[] = {L"\\d{0,5}"};
 		DEFINE_GLOBAL_ARRAY(pRuntime);
 	}
 
 	{
-		FX_LPCWSTR ArrayName = (FX_LPCWSTR)L"RE_ZIP_COMMIT";
-		FX_LPCWSTR ArrayContent[] = {(FX_LPCWSTR)L"\\d{5}"};
+		const FX_WCHAR* ArrayName = L"RE_ZIP_COMMIT";
+		const FX_WCHAR* ArrayContent[] = {L"\\d{5}"};
 		DEFINE_GLOBAL_ARRAY(pRuntime);
 	}
 
 	{
-		FX_LPCWSTR ArrayName = (FX_LPCWSTR)L"RE_ZIP4_ENTRY";
-		FX_LPCWSTR ArrayContent[] = {(FX_LPCWSTR)L"\\d{0,5}(\\.|[- ])?\\d{0,4}"};
+		const FX_WCHAR* ArrayName = L"RE_ZIP4_ENTRY";
+		const FX_WCHAR* ArrayContent[] = {L"\\d{0,5}(\\.|[- ])?\\d{0,4}"};
 		DEFINE_GLOBAL_ARRAY(pRuntime);
 	}
 
 	{
-		FX_LPCWSTR ArrayName = (FX_LPCWSTR)L"RE_ZIP4_COMMIT";
-		FX_LPCWSTR ArrayContent[] = {(FX_LPCWSTR)L"\\d{5}(\\.|[- ])?\\d{4}"};
+		const FX_WCHAR* ArrayName = L"RE_ZIP4_COMMIT";
+		const FX_WCHAR* ArrayContent[] = {L"\\d{5}(\\.|[- ])?\\d{4}"};
 		DEFINE_GLOBAL_ARRAY(pRuntime);
 	}
 
 	{
-		FX_LPCWSTR ArrayName = (FX_LPCWSTR)L"RE_PHONE_ENTRY";
-		FX_LPCWSTR ArrayContent[] = {
-				(FX_LPCWSTR)L"\\d{0,3}(\\.|[- ])?\\d{0,3}(\\.|[- ])?\\d{0,4}",		/* 555-1234 or 408 555-1234 */
-				(FX_LPCWSTR)L"\\(\\d{0,3}",											/* (408 */
-				(FX_LPCWSTR)L"\\(\\d{0,3}\\)(\\.|[- ])?\\d{0,3}(\\.|[- ])?\\d{0,4}",	/* (408) 555-1234 */
+		const FX_WCHAR* ArrayName = L"RE_PHONE_ENTRY";
+		const FX_WCHAR* ArrayContent[] = {
+				L"\\d{0,3}(\\.|[- ])?\\d{0,3}(\\.|[- ])?\\d{0,4}",		/* 555-1234 or 408 555-1234 */
+				L"\\(\\d{0,3}",											/* (408 */
+				L"\\(\\d{0,3}\\)(\\.|[- ])?\\d{0,3}(\\.|[- ])?\\d{0,4}",	/* (408) 555-1234 */
 					/* (allow the addition of parens as an afterthought) */
-				(FX_LPCWSTR)L"\\(\\d{0,3}(\\.|[- ])?\\d{0,3}(\\.|[- ])?\\d{0,4}",	/* (408 555-1234 */
-				(FX_LPCWSTR)L"\\d{0,3}\\)(\\.|[- ])?\\d{0,3}(\\.|[- ])?\\d{0,4}",	/* 408) 555-1234 */
-				(FX_LPCWSTR)L"011(\\.|[- \\d])*"										/* international */
+				L"\\(\\d{0,3}(\\.|[- ])?\\d{0,3}(\\.|[- ])?\\d{0,4}",	/* (408 555-1234 */
+				L"\\d{0,3}\\)(\\.|[- ])?\\d{0,3}(\\.|[- ])?\\d{0,4}",	/* 408) 555-1234 */
+				L"011(\\.|[- \\d])*"										/* international */
 			};
 		DEFINE_GLOBAL_ARRAY(pRuntime);
 	}
 
 	{
-		FX_LPCWSTR ArrayName = (FX_LPCWSTR)L"RE_PHONE_COMMIT";
-		FX_LPCWSTR ArrayContent[] = {
-					(FX_LPCWSTR)L"\\d{3}(\\.|[- ])?\\d{4}",							/* 555-1234 */
-					(FX_LPCWSTR)L"\\d{3}(\\.|[- ])?\\d{3}(\\.|[- ])?\\d{4}",			/* 408 555-1234 */
-					(FX_LPCWSTR)L"\\(\\d{3}\\)(\\.|[- ])?\\d{3}(\\.|[- ])?\\d{4}",	/* (408) 555-1234 */
-					(FX_LPCWSTR)L"011(\\.|[- \\d])*"									/* international */
+		const FX_WCHAR* ArrayName = L"RE_PHONE_COMMIT";
+		const FX_WCHAR* ArrayContent[] = {
+					L"\\d{3}(\\.|[- ])?\\d{4}",							/* 555-1234 */
+					L"\\d{3}(\\.|[- ])?\\d{3}(\\.|[- ])?\\d{4}",			/* 408 555-1234 */
+					L"\\(\\d{3}\\)(\\.|[- ])?\\d{3}(\\.|[- ])?\\d{4}",	/* (408) 555-1234 */
+					L"011(\\.|[- \\d])*"									/* international */
 				};
 		DEFINE_GLOBAL_ARRAY(pRuntime);
 	}
 
 	{
-		FX_LPCWSTR ArrayName = (FX_LPCWSTR)L"RE_SSN_ENTRY";
-		FX_LPCWSTR ArrayContent[] = {(FX_LPCWSTR)L"\\d{0,3}(\\.|[- ])?\\d{0,2}(\\.|[- ])?\\d{0,4}"};
+		const FX_WCHAR* ArrayName = L"RE_SSN_ENTRY";
+		const FX_WCHAR* ArrayContent[] = {L"\\d{0,3}(\\.|[- ])?\\d{0,2}(\\.|[- ])?\\d{0,4}"};
 		DEFINE_GLOBAL_ARRAY(pRuntime);
 	}
 
 	{
-		FX_LPCWSTR ArrayName = (FX_LPCWSTR)L"RE_SSN_COMMIT";
-		FX_LPCWSTR ArrayContent[] = {(FX_LPCWSTR)L"\\d{3}(\\.|[- ])?\\d{2}(\\.|[- ])?\\d{4}"};
+		const FX_WCHAR* ArrayName = L"RE_SSN_COMMIT";
+		const FX_WCHAR* ArrayContent[] = {L"\\d{3}(\\.|[- ])?\\d{2}(\\.|[- ])?\\d{4}"};
 		DEFINE_GLOBAL_ARRAY(pRuntime);
 	}
 

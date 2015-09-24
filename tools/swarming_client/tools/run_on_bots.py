@@ -5,7 +5,7 @@
 
 """Automated maintenance tool to run a script on bots.
 
-To use this script, write a self-contained python script (use a .par if
+To use this script, write a self-contained python script (use a .zip if
 necessary), specify it on the command line and it will be packaged and triggered
 on all the swarming bots corresponding to the --dimension filters specified, or
 all the bots if no filter is specified.
@@ -32,11 +32,11 @@ from utils import tools
 def get_bot_list(swarming_server, dimensions, dead_only):
   """Returns a list of swarming bots."""
   cmd = [
-    sys.executable, 'swarming.py', 'query',
+    sys.executable, 'swarming.py', 'bots',
     '--swarming', swarming_server,
     '--bare',
   ]
-  for k, v in dimensions.iteritems():
+  for k, v in sorted(dimensions.iteritems()):
     cmd.extend(('--dimension', k, v))
   if dead_only:
     cmd.append('--dead-only')
@@ -52,7 +52,7 @@ def archive(isolate_server, script):
       'files': [base_script],
     },
   }
-  tempdir = tempfile.mkdtemp(prefix='run_on_bots')
+  tempdir = tempfile.mkdtemp(prefix=u'run_on_bots')
   try:
     isolate_file = os.path.join(tempdir, 'tool.isolate')
     isolated_file = os.path.join(tempdir, 'tool.isolated')
@@ -75,17 +75,15 @@ def run_serial(
     name, bots):
   """Runs the task one at a time.
 
-  This will be mainly bound by task scheduling latency, especially if the slaves
+  This will be mainly bound by task scheduling latency, especially if the bots
   are busy and the priority is low.
   """
   result = 0
-  now = parallel_execution.timestamp()
   for i in xrange(repeat):
     for bot in bots:
-      # Use an unique task name to ensure the task is executed.
       suffix = '/%d' % i if repeat > 1 else ''
-      task_name = parallel_execution.unique_task_to_name(
-          name, {'id': bot}, isolated_hash, now) + suffix
+      task_name = parallel_execution.task_to_name(
+          name, {'id': bot}, isolated_hash) + suffix
       cmd = [
         sys.executable, 'swarming.py', 'run',
         '--swarming', swarming_server,
@@ -104,14 +102,13 @@ def run_serial(
 def run_parallel(
     swarming_server, isolate_server, priority, deadline, repeat, isolated_hash,
     name, bots):
-  now = parallel_execution.timestamp()
   tasks = []
   for i in xrange(repeat):
     suffix = '/%d' % i if repeat > 1 else ''
     tasks.extend(
         (
-          parallel_execution.unique_task_to_name(
-              name, {'id': bot}, isolated_hash, now) + suffix,
+          parallel_execution.task_to_name(
+              name, {'id': bot}, isolated_hash) + suffix,
           isolated_hash,
           {'id': bot},
         ) for bot in bots)

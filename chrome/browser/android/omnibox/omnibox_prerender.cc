@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "omnibox_prerender.h"
+#include "chrome/browser/android/omnibox/omnibox_prerender.h"
 
 #include "base/android/jni_string.h"
 #include "base/logging.h"
@@ -12,8 +12,8 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_android.h"
 #include "chrome/browser/ui/search/instant_search_prerenderer.h"
-#include "components/omnibox/autocomplete_match.h"
-#include "components/omnibox/autocomplete_result.h"
+#include "components/omnibox/browser/autocomplete_match.h"
+#include "components/omnibox/browser/autocomplete_result.h"
 #include "content/public/browser/web_contents.h"
 #include "jni/OmniboxPrerender_jni.h"
 #include "url/gurl.h"
@@ -147,13 +147,13 @@ void OmniboxPrerender::DoPrerender(const AutocompleteMatch& match,
       InstantSearchPrerenderer::GetForProfile(profile);
   if (prerenderer && prerenderer->IsAllowed(match, web_contents)) {
     prerenderer->Init(
-        web_contents->GetController().GetSessionStorageNamespaceMap(),
+        web_contents->GetController().GetDefaultSessionStorageNamespace(),
         container_bounds.size());
     return;
   }
   predictors::AutocompleteActionPredictorFactory::GetForProfile(profile)->
       StartPrerendering(
           match.destination_url,
-          web_contents->GetController().GetSessionStorageNamespaceMap(),
+          web_contents->GetController().GetDefaultSessionStorageNamespace(),
           container_bounds.size());
 }

@@ -63,14 +63,14 @@ static_library("apps") {
       "ui/views/app_window_frame_view.h",
     ]
     deps += [
-      "//extensions/browser",
       "//ui/strings",
       "//ui/views",
     ]
+    if (enable_extensions) {
+      deps += [ "//extensions/browser" ]
+    }
   }
 
-  if (is_win) {
-    # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-    cflags = [ "/wd4267" ]
-  }
+  # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 }

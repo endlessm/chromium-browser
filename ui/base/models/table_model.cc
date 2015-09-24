@@ -20,7 +20,8 @@ TableColumn::TableColumn()
       width(-1),
       percent(),
       min_visible_width(0),
-      sortable(false) {
+      sortable(false),
+      initial_sort_is_ascending(true) {
 }
 
 TableColumn::TableColumn(int id, Alignment alignment, int width, float percent)
@@ -30,7 +31,8 @@ TableColumn::TableColumn(int id, Alignment alignment, int width, float percent)
       width(width),
       percent(percent),
       min_visible_width(0),
-      sortable(false) {
+      sortable(false),
+      initial_sort_is_ascending(true) {
 }
 
 // TableModel -----------------------------------------------------------------
@@ -76,7 +78,7 @@ int TableModel::CompareValues(int row1, int row2, int column_id) {
   icu::Collator* collator = GetCollator();
 
   if (collator)
-    return base::i18n::CompareString16WithCollator(collator, value1, value2);
+    return base::i18n::CompareString16WithCollator(*collator, value1, value2);
 
   NOTREACHED();
   return 0;

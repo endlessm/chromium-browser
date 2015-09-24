@@ -23,12 +23,10 @@ namespace remoting {
 class AudioCapturerWin : public AudioCapturer {
  public:
   AudioCapturerWin();
-  virtual ~AudioCapturerWin();
+  ~AudioCapturerWin() override;
 
   // AudioCapturer interface.
-  virtual bool Start(const PacketCapturedCallback& callback) override;
-  virtual void Stop() override;
-  virtual bool IsStarted() override;
+  bool Start(const PacketCapturedCallback& callback) override;
 
  private:
   // Receives all packets from the audio capture endpoint buffer and pushes them

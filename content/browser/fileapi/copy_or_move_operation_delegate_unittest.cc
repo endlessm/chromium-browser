@@ -9,24 +9,27 @@
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/browser/quota/mock_quota_manager.h"
 #include "content/browser/quota/mock_quota_manager_proxy.h"
 #include "content/public/test/async_file_test_helper.h"
 #include "content/public/test/test_file_system_backend.h"
 #include "content/public/test/test_file_system_context.h"
 #include "content/test/fileapi_test_file_set.h"
-#include "storage/browser/blob/file_stream_reader.h"
 #include "storage/browser/fileapi/copy_or_move_file_validator.h"
 #include "storage/browser/fileapi/copy_or_move_operation_delegate.h"
+#include "storage/browser/fileapi/file_stream_reader.h"
 #include "storage/browser/fileapi/file_stream_writer.h"
 #include "storage/browser/fileapi/file_system_backend.h"
 #include "storage/browser/fileapi/file_system_context.h"
 #include "storage/browser/fileapi/file_system_operation.h"
 #include "storage/browser/fileapi/file_system_url.h"
 #include "storage/browser/quota/quota_manager.h"
+#include "storage/common/fileapi/file_system_mount_option.h"
 #include "storage/common/fileapi/file_system_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -78,7 +81,7 @@ class TestValidatorFactory : public storage::CopyOrMoveFileValidatorFactory {
     void StartPreWriteValidation(
         const ResultCallback& result_callback) override {
       // Post the result since a real validator must do work asynchronously.
-      base::MessageLoop::current()->PostTask(
+      base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::Bind(result_callback, result_));
     }
 
@@ -91,7 +94,7 @@ class TestValidatorFactory : public storage::CopyOrMoveFileValidatorFactory {
         result = base::File::FILE_ERROR_SECURITY;
       }
       // Post the result since a real validator must do work asynchronously.
-      base::MessageLoop::current()->PostTask(
+      base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::Bind(result_callback, result));
     }
 
@@ -146,7 +149,7 @@ class ScopedThreadStopper {
     if (thread_) {
       // Give another chance for deleted streams to perform Close.
       base::RunLoop run_loop;
-      thread_->message_loop_proxy()->PostTaskAndReply(
+      thread_->task_runner()->PostTaskAndReply(
           FROM_HERE, base::Bind(&base::DoNothing), run_loop.QuitClosure());
       run_loop.Run();
       thread_->Stop();
@@ -190,13 +193,12 @@ class CopyOrMoveOperationTestHelper {
     ASSERT_TRUE(base_.CreateUniqueTempDir());
     base::FilePath base_dir = base_.path();
     quota_manager_ =
-        new MockQuotaManager(false /* is_incognito */,
-                                    base_dir,
-                                    base::MessageLoopProxy::current().get(),
-                                    base::MessageLoopProxy::current().get(),
-                                    NULL /* special storage policy */);
+        new MockQuotaManager(false /* is_incognito */, base_dir,
+                             base::ThreadTaskRunnerHandle::Get().get(),
+                             base::ThreadTaskRunnerHandle::Get().get(),
+                             NULL /* special storage policy */);
     quota_manager_proxy_ = new MockQuotaManagerProxy(
-        quota_manager_.get(), base::MessageLoopProxy::current().get());
+        quota_manager_.get(), base::ThreadTaskRunnerHandle::Get().get());
     file_system_context_ =
         CreateFileSystemContextForTesting(quota_manager_proxy_.get(), base_dir);
 
@@ -727,8 +729,8 @@ TEST(LocalFileSystemCopyOrMoveOperationTest, StreamCopyHelper) {
   ScopedThreadStopper thread_stopper(&file_thread);
   ASSERT_TRUE(thread_stopper.is_valid());
 
-  scoped_refptr<base::MessageLoopProxy> task_runner =
-      file_thread.message_loop_proxy();
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner =
+      file_thread.task_runner();
 
   scoped_ptr<storage::FileStreamReader> reader(
       storage::FileStreamReader::CreateForLocalFile(
@@ -740,7 +742,7 @@ TEST(LocalFileSystemCopyOrMoveOperationTest, StreamCopyHelper) {
   std::vector<int64> progress;
   CopyOrMoveOperationDelegate::StreamCopyHelper helper(
       reader.Pass(), writer.Pass(),
-      false,  // don't need flush
+      storage::FlushPolicy::NO_FLUSH_ON_COMPLETION,
       10,  // buffer size
       base::Bind(&RecordFileProgressCallback, base::Unretained(&progress)),
       base::TimeDelta());  // For testing, we need all the progress.
@@ -783,8 +785,8 @@ TEST(LocalFileSystemCopyOrMoveOperationTest, StreamCopyHelperWithFlush) {
   ScopedThreadStopper thread_stopper(&file_thread);
   ASSERT_TRUE(thread_stopper.is_valid());
 
-  scoped_refptr<base::MessageLoopProxy> task_runner =
-      file_thread.message_loop_proxy();
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner =
+      file_thread.task_runner();
 
   scoped_ptr<storage::FileStreamReader> reader(
       storage::FileStreamReader::CreateForLocalFile(
@@ -796,7 +798,7 @@ TEST(LocalFileSystemCopyOrMoveOperationTest, StreamCopyHelperWithFlush) {
   std::vector<int64> progress;
   CopyOrMoveOperationDelegate::StreamCopyHelper helper(
       reader.Pass(), writer.Pass(),
-      true,  // need flush
+      storage::FlushPolicy::NO_FLUSH_ON_COMPLETION,
       10,  // buffer size
       base::Bind(&RecordFileProgressCallback, base::Unretained(&progress)),
       base::TimeDelta());  // For testing, we need all the progress.
@@ -834,8 +836,8 @@ TEST(LocalFileSystemCopyOrMoveOperationTest, StreamCopyHelper_Cancel) {
   ScopedThreadStopper thread_stopper(&file_thread);
   ASSERT_TRUE(thread_stopper.is_valid());
 
-  scoped_refptr<base::MessageLoopProxy> task_runner =
-      file_thread.message_loop_proxy();
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner =
+      file_thread.task_runner();
 
   scoped_ptr<storage::FileStreamReader> reader(
       storage::FileStreamReader::CreateForLocalFile(
@@ -847,13 +849,13 @@ TEST(LocalFileSystemCopyOrMoveOperationTest, StreamCopyHelper_Cancel) {
   std::vector<int64> progress;
   CopyOrMoveOperationDelegate::StreamCopyHelper helper(
       reader.Pass(), writer.Pass(),
-      false,  // need_flush
+      storage::FlushPolicy::NO_FLUSH_ON_COMPLETION,
       10,  // buffer size
       base::Bind(&RecordFileProgressCallback, base::Unretained(&progress)),
       base::TimeDelta());  // For testing, we need all the progress.
 
   // Call Cancel() later.
-  base::MessageLoopProxy::current()->PostTask(
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::Bind(&CopyOrMoveOperationDelegate::StreamCopyHelper::Cancel,
                  base::Unretained(&helper)));

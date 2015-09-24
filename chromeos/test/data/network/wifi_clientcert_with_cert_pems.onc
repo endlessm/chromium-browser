@@ -3,12 +3,13 @@
     "Type": "WiFi",
     "Name": "SomeWifi-XY",
     "WiFi": {
-        "SSID": "SomeWifi-XY",
+        "HexSSID": "4F70656E577274", // Hex of "OpenWrt"
         "Security": "WPA-EAP",
         "Recommended": [ "AutoConnect" ],
         "EAP": {
             "Outer": "EAP-TLS",
             "Identity": "abc ${LOGIN_ID}@my.domain.com",
+            "UseProactiveKeyCaching": true,
             "UseSystemCAs": true,
             "ClientCertType": "Pattern",
             "ClientCertPattern": {

@@ -9,6 +9,7 @@
  * mapping using descriptors.
  */
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/portability.h"
 
 #if NACL_WINDOWS
@@ -110,8 +111,7 @@ struct NaClDescIoDesc *NaClDescIoDescMake(struct NaClHostDesc *nhdp) {
   return ndp;
 }
 
-struct NaClDesc *NaClDescIoDescFromHandleAllocCtor(NaClHandle handle,
-                                                   int flags) {
+struct NaClDesc *NaClDescIoMakeFromHandle(NaClHandle handle, int flags) {
   int posix_d;
 
 #if NACL_WINDOWS
@@ -386,8 +386,7 @@ static struct NaClDescVtbl const kNaClDescIoDescVtbl = {
 
 /* set *out_desc to struct NaClDescIo * output */
 int NaClDescIoInternalize(struct NaClDesc               **out_desc,
-                          struct NaClDescXferState      *xfer,
-                          struct NaClDescQuotaInterface *quota_interface) {
+                          struct NaClDescXferState      *xfer) {
   int                   rv;
   NaClHandle            h;
   int                   d;
@@ -395,7 +394,6 @@ int NaClDescIoInternalize(struct NaClDesc               **out_desc,
   struct NaClHostDesc   *nhdp;
   struct NaClDescIoDesc *ndidp;
 
-  UNREFERENCED_PARAMETER(quota_interface);
   rv = -NACL_ABI_EIO;  /* catch-all */
   h = NACL_INVALID_HANDLE;
   nhdp = NULL;

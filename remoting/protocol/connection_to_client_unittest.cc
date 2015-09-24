@@ -6,7 +6,6 @@
 
 #include "base/bind.h"
 #include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/run_loop.h"
 #include "remoting/base/constants.h"
 #include "remoting/protocol/fake_session.h"
@@ -14,6 +13,7 @@
 #include "testing/gmock/include/gmock/gmock.h"
 
 using ::testing::_;
+using ::testing::InvokeWithoutArgs;
 using ::testing::NotNull;
 using ::testing::StrictMock;
 
@@ -31,11 +31,10 @@ class ConnectionToClientTest : public testing::Test {
 
     // Allocate a ClientConnection object with the mock objects.
     viewer_.reset(new ConnectionToClient(session_));
-    viewer_->set_clipboard_stub(&clipboard_stub_);
-    viewer_->set_host_stub(&host_stub_);
-    viewer_->set_input_stub(&input_stub_);
     viewer_->SetEventHandler(&handler_);
-    EXPECT_CALL(handler_, OnConnectionAuthenticated(viewer_.get()));
+    EXPECT_CALL(handler_, OnConnectionAuthenticated(viewer_.get()))
+        .WillOnce(
+            InvokeWithoutArgs(this, &ConnectionToClientTest::ConnectStubs));
     EXPECT_CALL(handler_, OnConnectionChannelsConnected(viewer_.get()));
     session_->event_handler()->OnSessionStateChange(Session::CONNECTED);
     session_->event_handler()->OnSessionStateChange(Session::AUTHENTICATED);
@@ -45,6 +44,12 @@ class ConnectionToClientTest : public testing::Test {
   void TearDown() override {
     viewer_.reset();
     base::RunLoop().RunUntilIdle();
+  }
+
+  void ConnectStubs() {
+    viewer_->set_clipboard_stub(&clipboard_stub_);
+    viewer_->set_host_stub(&host_stub_);
+    viewer_->set_input_stub(&input_stub_);
   }
 
   base::MessageLoop message_loop_;

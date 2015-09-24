@@ -31,7 +31,7 @@
 #include "ui/events/test/event_generator.h"
 #include "ui/events/test/events_test_utils.h"
 #include "ui/events/test/test_event_handler.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/views/controls/menu/menu_controller.h"
 #include "ui/views/controls/menu/menu_runner.h"
 #include "ui/views/widget/widget.h"
@@ -374,6 +374,9 @@ TEST_F(ShellTest, LockScreenClosesActiveMenu) {
 }
 
 TEST_F(ShellTest, ManagedWindowModeBasics) {
+  if (!SupportsHostWindowResize())
+    return;
+
   // We start with the usual window containers.
   ExpectAllContainers();
   // Shelf is visible.
@@ -445,7 +448,7 @@ TEST_F(ShellTest, ToggleAutoHide) {
   scoped_ptr<aura::Window> window(new aura::Window(NULL));
   window->SetProperty(aura::client::kShowStateKey, ui::SHOW_STATE_NORMAL);
   window->SetType(ui::wm::WINDOW_TYPE_NORMAL);
-  window->Init(aura::WINDOW_LAYER_TEXTURED);
+  window->Init(ui::LAYER_TEXTURED);
   ParentWindowInPrimaryRootWindow(window.get());
   window->Show();
   wm::ActivateWindow(window.get());
@@ -522,7 +525,7 @@ class ShellTest2 : public test::AshTestBase {
 
 TEST_F(ShellTest2, DontCrashWhenWindowDeleted) {
   window_.reset(new aura::Window(NULL));
-  window_->Init(aura::WINDOW_LAYER_NOT_DRAWN);
+  window_->Init(ui::LAYER_NOT_DRAWN);
 }
 
 }  // namespace ash

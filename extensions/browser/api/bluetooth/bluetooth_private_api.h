@@ -90,6 +90,43 @@ class BluetoothPrivateSetPairingResponseFunction
   DISALLOW_COPY_AND_ASSIGN(BluetoothPrivateSetPairingResponseFunction);
 };
 
+class BluetoothPrivateDisconnectAllFunction
+    : public BluetoothExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("bluetoothPrivate.disconnectAll",
+                             BLUETOOTHPRIVATE_DISCONNECTALL);
+  BluetoothPrivateDisconnectAllFunction();
+
+  // BluetoothExtensionFunction overrides:
+  bool DoWork(scoped_refptr<device::BluetoothAdapter> adapter) override;
+
+ private:
+  ~BluetoothPrivateDisconnectAllFunction() override;
+
+  void OnSuccessCallback();
+  void OnErrorCallback(scoped_refptr<device::BluetoothAdapter> adapter,
+                       const std::string& device_address);
+
+  DISALLOW_COPY_AND_ASSIGN(BluetoothPrivateDisconnectAllFunction);
+};
+
+class BluetoothPrivateSetDiscoveryFilterFunction
+    : public BluetoothExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("bluetoothPrivate.setDiscoveryFilter",
+                             BLUETOOTHPRIVATE_SETDISCOVERYFILTER)
+
+ protected:
+  ~BluetoothPrivateSetDiscoveryFilterFunction() override {}
+
+  // BluetoothExtensionFunction:
+  bool DoWork(scoped_refptr<device::BluetoothAdapter> adapter) override;
+
+ private:
+  void OnSuccessCallback();
+  void OnErrorCallback();
+};
+
 }  // namespace core_api
 
 }  // namespace extensions

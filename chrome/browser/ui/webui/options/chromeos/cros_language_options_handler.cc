@@ -22,9 +22,6 @@
 #include "chrome/browser/ui/webui/chromeos/login/l10n_util.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/ime/component_extension_ime_manager.h"
-#include "chromeos/ime/extension_ime_util.h"
-#include "chromeos/ime/input_method_manager.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_type.h"
 #include "content/public/browser/navigation_controller.h"
@@ -33,6 +30,9 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest_url_handlers.h"
+#include "ui/base/ime/chromeos/component_extension_ime_manager.h"
+#include "ui/base/ime/chromeos/extension_ime_util.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
 #include "ui/base/l10n/l10n_util.h"
 
 using base::UserMetricsAction;
@@ -160,12 +160,15 @@ base::ListValue* CrosLanguageOptionsHandler::GetInputMethodList() {
 base::ListValue*
     CrosLanguageOptionsHandler::ConvertInputMethodDescriptorsToIMEList(
         const input_method::InputMethodDescriptors& descriptors) {
+  input_method::InputMethodUtil* util =
+      input_method::InputMethodManager::Get()->GetInputMethodUtil();
   scoped_ptr<base::ListValue> ime_ids_list(new base::ListValue());
   for (size_t i = 0; i < descriptors.size(); ++i) {
     const input_method::InputMethodDescriptor& descriptor = descriptors[i];
     scoped_ptr<base::DictionaryValue> dictionary(new base::DictionaryValue());
     dictionary->SetString("id", descriptor.id());
-    dictionary->SetString("displayName", descriptor.name());
+    dictionary->SetString(
+        "displayName", util->GetLocalizedDisplayName(descriptor));
     dictionary->SetString("optionsPage", descriptor.options_page_url().spec());
     scoped_ptr<base::DictionaryValue> language_codes(
         new base::DictionaryValue());
@@ -187,7 +190,8 @@ void CrosLanguageOptionsHandler::SetApplicationLocale(
   user_manager::UserManager* user_manager = user_manager::UserManager::Get();
 
   // Secondary users and public session users cannot change the locale.
-  user_manager::User* user = ProfileHelper::Get()->GetUserByProfile(profile);
+  const user_manager::User* user =
+      ProfileHelper::Get()->GetUserByProfile(profile);
   if (user &&
       user->email() == user_manager->GetPrimaryUser()->email() &&
       user->GetType() != user_manager::USER_TYPE_PUBLIC_ACCOUNT) {

@@ -11,9 +11,8 @@
 #include "base/hash.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/field_trial.h"
-#include "base/metrics/histogram.h"
-#include "base/metrics/stats_counters.h"
 #include "base/rand_util.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/sys_info.h"
@@ -91,7 +90,8 @@ int BackendImplV3::Init(const CompletionCallback& callback) {
 // ------------------------------------------------------------------------
 
 bool BackendImplV3::SetMaxSize(int max_bytes) {
-  COMPILE_ASSERT(sizeof(max_bytes) == sizeof(max_size_), unsupported_int_model);
+  static_assert(sizeof(max_bytes) == sizeof(max_size_),
+                "unsupported int model");
   if (max_bytes < 0)
     return false;
 
@@ -229,7 +229,8 @@ bool BackendImplV3::IsLoaded() const {
 }
 
 std::string BackendImplV3::HistogramName(const char* name) const {
-  static const char* names[] = { "Http", "", "Media", "AppCache", "Shader" };
+  static const char* const names[] = {
+    "Http", "", "Media", "AppCache", "Shader" };
   DCHECK_NE(cache_type_, net::MEMORY_CACHE);
   return base::StringPrintf("DiskCache3.%s_%s", name, names[cache_type_]);
 }
@@ -666,8 +667,8 @@ class BackendImplV3::IteratorImpl : public Backend::Iterator {
       : background_queue_(background_queue), data_(NULL) {
   }
 
-  virtual int OpenNextEntry(Entry** next_entry,
-                            const net::CompletionCallback& callback) override {
+  int OpenNextEntry(Entry** next_entry,
+                    const net::CompletionCallback& callback) override {
     if (!background_queue_)
       return net::ERR_FAILED;
     background_queue_->OpenNextEntry(&data_, next_entry, callback);
@@ -690,19 +691,19 @@ void BackendImplV3::GetStats(StatsItems* stats) {
   std::pair<std::string, std::string> item;
 
   item.first = "Entries";
-  item.second = base::StringPrintf("%d", data_->header.num_entries);
+  item.second = base::IntToString(data_->header.num_entries);
   stats->push_back(item);
 
   item.first = "Pending IO";
-  item.second = base::StringPrintf("%d", num_pending_io_);
+  item.second = base::IntToString(num_pending_io_);
   stats->push_back(item);
 
   item.first = "Max size";
-  item.second = base::StringPrintf("%d", max_size_);
+  item.second = base::IntToString(max_size_);
   stats->push_back(item);
 
   item.first = "Current size";
-  item.second = base::StringPrintf("%d", data_->header.num_bytes);
+  item.second = base::IntToString(data_->header.num_bytes);
   stats->push_back(item);
 
   item.first = "Cache type";

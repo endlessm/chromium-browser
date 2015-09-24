@@ -49,12 +49,12 @@ public:
         return new FileEntrySync(fileSystem, fullPath);
     }
 
-    virtual bool isFile() const override { return true; }
+    bool isFile() const override { return true; }
 
     File* file(ExceptionState&);
     FileWriterSync* createWriter(ExceptionState&);
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     FileEntrySync(DOMFileSystemBase*, const String& fullPath);

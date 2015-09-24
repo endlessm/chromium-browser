@@ -14,6 +14,7 @@
 #include "chrome/browser/chromeos/file_system_provider/operations/test_util.h"
 #include "chrome/browser/chromeos/file_system_provider/provided_file_system_interface.h"
 #include "chrome/common/extensions/api/file_system_provider.h"
+#include "chrome/common/extensions/api/file_system_provider_capabilities/file_system_provider_capabilities_handler.h"
 #include "chrome/common/extensions/api/file_system_provider_internal.h"
 #include "extensions/browser/event_router.h"
 #include "storage/browser/fileapi/async_file_util.h"
@@ -27,21 +28,24 @@ namespace {
 const char kExtensionId[] = "mbflcebpggnecokmikipoihdbecnjfoj";
 const char kFileSystemId[] = "testing-file-system";
 const int kRequestId = 2;
-const base::FilePath::CharType kSourcePath[] = "/bunny/and/bear/happy";
-const base::FilePath::CharType kTargetPath[] = "/kitty/and/puppy/happy";
+const base::FilePath::CharType kSourcePath[] =
+    FILE_PATH_LITERAL("/bunny/and/bear/happy");
+const base::FilePath::CharType kTargetPath[] =
+    FILE_PATH_LITERAL("/kitty/and/puppy/happy");
 
 }  // namespace
 
 class FileSystemProviderOperationsCopyEntryTest : public testing::Test {
  protected:
   FileSystemProviderOperationsCopyEntryTest() {}
-  virtual ~FileSystemProviderOperationsCopyEntryTest() {}
+  ~FileSystemProviderOperationsCopyEntryTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     MountOptions mount_options(kFileSystemId, "" /* display_name */);
     mount_options.writable = true;
-    file_system_info_ =
-        ProvidedFileSystemInfo(kExtensionId, mount_options, base::FilePath());
+    file_system_info_ = ProvidedFileSystemInfo(
+        kExtensionId, mount_options, base::FilePath(), false /* configurable */,
+        true /* watchable */, extensions::SOURCE_FILE);
   }
 
   ProvidedFileSystemInfo file_system_info_;
@@ -53,10 +57,8 @@ TEST_F(FileSystemProviderOperationsCopyEntryTest, Execute) {
   util::LoggingDispatchEventImpl dispatcher(true /* dispatch_reply */);
   util::StatusCallbackLog callback_log;
 
-  CopyEntry copy_entry(NULL,
-                       file_system_info_,
-                       base::FilePath::FromUTF8Unsafe(kSourcePath),
-                       base::FilePath::FromUTF8Unsafe(kTargetPath),
+  CopyEntry copy_entry(NULL, file_system_info_, base::FilePath(kSourcePath),
+                       base::FilePath(kTargetPath),
                        base::Bind(&util::LogStatusCallback, &callback_log));
   copy_entry.SetDispatchEventImplForTesting(
       base::Bind(&util::LoggingDispatchEventImpl::OnDispatchEventImpl,
@@ -87,10 +89,8 @@ TEST_F(FileSystemProviderOperationsCopyEntryTest, Execute_NoListener) {
   util::LoggingDispatchEventImpl dispatcher(false /* dispatch_reply */);
   util::StatusCallbackLog callback_log;
 
-  CopyEntry copy_entry(NULL,
-                       file_system_info_,
-                       base::FilePath::FromUTF8Unsafe(kSourcePath),
-                       base::FilePath::FromUTF8Unsafe(kTargetPath),
+  CopyEntry copy_entry(NULL, file_system_info_, base::FilePath(kSourcePath),
+                       base::FilePath(kTargetPath),
                        base::Bind(&util::LogStatusCallback, &callback_log));
   copy_entry.SetDispatchEventImplForTesting(
       base::Bind(&util::LoggingDispatchEventImpl::OnDispatchEventImpl,
@@ -104,14 +104,12 @@ TEST_F(FileSystemProviderOperationsCopyEntryTest, Execute_ReadOnly) {
   util::StatusCallbackLog callback_log;
 
   const ProvidedFileSystemInfo read_only_file_system_info(
-      kExtensionId,
-      MountOptions(kFileSystemId, "" /* display_name */),
-      base::FilePath() /* mount_path */);
+      kExtensionId, MountOptions(kFileSystemId, "" /* display_name */),
+      base::FilePath() /* mount_path */, false /* configurable */,
+      true /* watchable */, extensions::SOURCE_FILE);
 
-  CopyEntry copy_entry(NULL,
-                       read_only_file_system_info,
-                       base::FilePath::FromUTF8Unsafe(kSourcePath),
-                       base::FilePath::FromUTF8Unsafe(kTargetPath),
+  CopyEntry copy_entry(NULL, read_only_file_system_info,
+                       base::FilePath(kSourcePath), base::FilePath(kTargetPath),
                        base::Bind(&util::LogStatusCallback, &callback_log));
   copy_entry.SetDispatchEventImplForTesting(
       base::Bind(&util::LoggingDispatchEventImpl::OnDispatchEventImpl,
@@ -124,10 +122,8 @@ TEST_F(FileSystemProviderOperationsCopyEntryTest, OnSuccess) {
   util::LoggingDispatchEventImpl dispatcher(true /* dispatch_reply */);
   util::StatusCallbackLog callback_log;
 
-  CopyEntry copy_entry(NULL,
-                       file_system_info_,
-                       base::FilePath::FromUTF8Unsafe(kSourcePath),
-                       base::FilePath::FromUTF8Unsafe(kTargetPath),
+  CopyEntry copy_entry(NULL, file_system_info_, base::FilePath(kSourcePath),
+                       base::FilePath(kTargetPath),
                        base::Bind(&util::LogStatusCallback, &callback_log));
   copy_entry.SetDispatchEventImplForTesting(
       base::Bind(&util::LoggingDispatchEventImpl::OnDispatchEventImpl,
@@ -146,10 +142,8 @@ TEST_F(FileSystemProviderOperationsCopyEntryTest, OnError) {
   util::LoggingDispatchEventImpl dispatcher(true /* dispatch_reply */);
   util::StatusCallbackLog callback_log;
 
-  CopyEntry copy_entry(NULL,
-                       file_system_info_,
-                       base::FilePath::FromUTF8Unsafe(kSourcePath),
-                       base::FilePath::FromUTF8Unsafe(kTargetPath),
+  CopyEntry copy_entry(NULL, file_system_info_, base::FilePath(kSourcePath),
+                       base::FilePath(kTargetPath),
                        base::Bind(&util::LogStatusCallback, &callback_log));
   copy_entry.SetDispatchEventImplForTesting(
       base::Bind(&util::LoggingDispatchEventImpl::OnDispatchEventImpl,

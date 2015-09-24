@@ -21,14 +21,14 @@
 #include "cc/layers/texture_layer_client.h"
 #include "content/common/content_export.h"
 #include "content/public/renderer/pepper_plugin_instance.h"
+#include "content/public/renderer/plugin_instance_throttler.h"
+#include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_frame_observer.h"
 #include "content/renderer/mouse_lock_dispatcher.h"
 #include "gin/handle.h"
 #include "ppapi/c/dev/pp_cursor_type_dev.h"
 #include "ppapi/c/dev/ppp_printing_dev.h"
-#include "ppapi/c/dev/ppp_selection_dev.h"
 #include "ppapi/c/dev/ppp_text_input_dev.h"
-#include "ppapi/c/dev/ppp_zoom_dev.h"
 #include "ppapi/c/pp_completion_callback.h"
 #include "ppapi/c/pp_instance.h"
 #include "ppapi/c/pp_time.h"
@@ -58,7 +58,7 @@
 #include "third_party/WebKit/public/web/WebUserGestureToken.h"
 #include "ui/base/ime/text_input_type.h"
 #include "ui/events/latency_info.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
 #include "v8/include/v8.h"
 
@@ -103,7 +103,7 @@ class FullscreenContainer;
 class MessageChannel;
 class PepperCompositorHost;
 class PepperGraphics2DHost;
-class PepperPluginInstanceThrottler;
+class PluginInstanceThrottlerImpl;
 class PluginModule;
 class PluginObject;
 class PPB_Graphics3D_Impl;
@@ -121,7 +121,8 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
       public NON_EXPORTED_BASE(PepperPluginInstance),
       public ppapi::PPB_Instance_Shared,
       public NON_EXPORTED_BASE(cc::TextureLayerClient),
-      public RenderFrameObserver {
+      public RenderFrameObserver,
+      public NON_EXPORTED_BASE(PluginInstanceThrottler::Observer) {
  public:
   // Create and return a PepperPluginInstanceImpl object which supports the most
   // recent version of PPP_Instance possible by querying the given
@@ -135,6 +136,8 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   PluginModule* module() const { return module_.get(); }
 
   blink::WebPluginContainer* container() const { return container_; }
+
+  PluginInstanceThrottlerImpl* throttler() const { return throttler_.get(); }
 
   // Returns the PP_Instance uniquely identifying this instance. Guaranteed
   // nonzero.
@@ -166,6 +169,8 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   // Returns true if Delete() has been called on this object.
   bool is_deleted() const;
 
+  GURL document_url() const { return document_url_; }
+
   // Paints the current backing store to the web page.
   void Paint(blink::WebCanvas* canvas,
              const gfx::Rect& plugin_rect,
@@ -196,13 +201,15 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   // PPP_Instance and PPP_Instance_Private.
   bool Initialize(const std::vector<std::string>& arg_names,
                   const std::vector<std::string>& arg_values,
-                  bool full_frame);
+                  bool full_frame,
+                  scoped_ptr<PluginInstanceThrottlerImpl> throttler);
   bool HandleDocumentLoad(const blink::WebURLResponse& response);
   bool HandleInputEvent(const blink::WebInputEvent& event,
                         blink::WebCursorInfo* cursor_info);
   PP_Var GetInstanceObject(v8::Isolate* isolate);
-  void ViewChanged(const gfx::Rect& position,
+  void ViewChanged(const gfx::Rect& window,
                    const gfx::Rect& clip,
+                   const gfx::Rect& unobscured,
                    const std::vector<gfx::Rect>& cut_outs_rects);
 
   // Handlers for composition events.
@@ -228,11 +235,9 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   // Notification about page visibility. The default is "visible".
   void PageVisibilityChanged(bool is_visible);
 
-  // Notifications that the view has started painting, and has flushed the
-  // painted content to the screen. These messages are used to send Flush
-  // callbacks to the plugin for DeviceContext2D/3D.
+  // Notifications that the view has started painting. This message is used to
+  // send Flush callbacks to the plugin for Graphics2D/3D.
   void ViewInitiatedPaint();
-  void ViewFlushedPaint();
 
   // Tracks all live PluginObjects.
   void AddPluginObject(PluginObject* plugin_object);
@@ -241,7 +246,6 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   base::string16 GetSelectedText(bool html);
   base::string16 GetLinkAtPosition(const gfx::Point& point);
   void RequestSurroundingText(size_t desired_number_of_characters);
-  void Zoom(double factor, bool text_only);
   bool StartFind(const base::string16& search_text,
                  bool case_sensitive,
                  int identifier);
@@ -251,8 +255,10 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   bool SupportsPrintInterface();
   bool IsPrintScalingDisabled();
   int PrintBegin(const blink::WebPrintParams& print_params);
-  bool PrintPage(int page_number, blink::WebCanvas* canvas);
+  void PrintPage(int page_number, blink::WebCanvas* canvas);
   void PrintEnd();
+  bool GetPrintPresetOptionsFromDocument(
+      blink::WebPrintPresetOptions* preset_options);
 
   bool CanRotateView();
   void RotateView(blink::WebPlugin::RotationType type);
@@ -417,20 +423,11 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   void ClearInputEventRequest(PP_Instance instance,
                               uint32_t event_classes) override;
   void StartTrackingLatency(PP_Instance instance) override;
-  void ZoomChanged(PP_Instance instance, double factor) override;
-  void ZoomLimitsChanged(PP_Instance instance,
-                         double minimum_factor,
-                         double maximum_factor) override;
   void PostMessage(PP_Instance instance, PP_Var message) override;
   int32_t RegisterMessageHandler(PP_Instance instance,
                                  void* user_data,
                                  const PPP_MessageHandler_0_2* handler,
                                  PP_Resource message_loop) override;
-  int32_t RegisterMessageHandler_1_1_Deprecated(
-      PP_Instance instance,
-      void* user_data,
-      const PPP_MessageHandler_0_1_Deprecated* handler,
-      PP_Resource message_loop) override;
   void UnregisterMessageHandler(PP_Instance instance) override;
   PP_Bool SetCursor(PP_Instance instance,
                     PP_MouseCursor_Type type,
@@ -466,32 +463,32 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   void PromiseResolved(PP_Instance instance, uint32 promise_id) override;
   void PromiseResolvedWithSession(PP_Instance instance,
                                   uint32 promise_id,
-                                  PP_Var web_session_id_var) override;
-  void PromiseResolvedWithKeyIds(PP_Instance instance,
-                                 uint32 promise_id,
-                                 PP_Var key_ids_var) override;
+                                  PP_Var session_id_var) override;
   void PromiseRejected(PP_Instance instance,
                        uint32 promise_id,
                        PP_CdmExceptionCode exception_code,
                        uint32 system_code,
                        PP_Var error_description_var) override;
   void SessionMessage(PP_Instance instance,
-                      PP_Var web_session_id_var,
+                      PP_Var session_id_var,
+                      PP_CdmMessageType message_type,
                       PP_Var message_var,
-                      PP_Var destination_url_var) override;
-  void SessionKeysChange(PP_Instance instance,
-                         PP_Var web_session_id_var,
-                         PP_Bool has_additional_usable_key) override;
+                      PP_Var legacy_destination_url) override;
+  void SessionKeysChange(
+      PP_Instance instance,
+      PP_Var session_id_var,
+      PP_Bool has_additional_usable_key,
+      uint32_t key_count,
+      const struct PP_KeyInformation key_information[]) override;
   void SessionExpirationChange(PP_Instance instance,
-                               PP_Var web_session_id_var,
+                               PP_Var session_id_var,
                                PP_Time new_expiry_time) override;
-  void SessionReady(PP_Instance instance, PP_Var web_session_id_var) override;
-  void SessionClosed(PP_Instance instance, PP_Var web_session_id_var) override;
-  void SessionError(PP_Instance instance,
-                    PP_Var web_session_id_var,
-                    PP_CdmExceptionCode exception_code,
-                    uint32 system_code,
-                    PP_Var error_description_var) override;
+  void SessionClosed(PP_Instance instance, PP_Var session_id_var) override;
+  void LegacySessionError(PP_Instance instance,
+                          PP_Var session_id_var,
+                          PP_CdmExceptionCode exception_code,
+                          uint32 system_code,
+                          PP_Var error_description_var) override;
   void DeliverBlock(PP_Instance instance,
                     PP_Resource decrypted_block,
                     const PP_DecryptedBlockInfo* block_info) override;
@@ -534,6 +531,10 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
 
   // RenderFrameObserver
   void OnDestruct() override;
+
+  // PluginInstanceThrottler::Observer
+  void OnThrottleStateChange() override;
+  void OnHiddenForPlaceholder(bool hidden) override;
 
   void AddLatencyInfo(const std::vector<ui::LatencyInfo>& latency_info);
 
@@ -602,7 +603,6 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   bool LoadPrintInterface();
   bool LoadPrivateInterface();
   bool LoadTextInputInterface();
-  bool LoadZoomInterface();
 
   // Update any transforms that should be applied to the texture layer.
   void UpdateLayerTransform();
@@ -644,7 +644,7 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   void UpdateLayer(bool device_changed);
 
   // Internal helper function for PrintPage().
-  bool PrintPageHelper(PP_PrintPageNumberRange_Dev* page_ranges,
+  void PrintPageHelper(PP_PrintPageNumberRange_Dev* page_ranges,
                        int num_ranges,
                        blink::WebCanvas* canvas);
 
@@ -687,8 +687,7 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
                                  int pending_host_id,
                                  const ppapi::URLResponseInfoData& data);
 
-  void SetPluginThrottled(bool throttled);
-  void DisablePowerSaverByRetroactiveWhitelist();
+  void RecordFlashJavaScriptUse();
 
   RenderFrameImpl* render_frame_;
   base::Closure instance_deleted_callback_;
@@ -711,28 +710,21 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   bool layer_is_hardware_;
 
   // Plugin URL.
-  GURL plugin_url_;
+  const GURL plugin_url_;
 
-  // Set to true first time plugin is clicked. Used to collect metrics.
+  GURL document_url_;
+
+  // Used to track Flash-specific metrics.
+  const bool is_flash_plugin_;
+
+  // Set to true the first time the plugin is clicked. Used to collect metrics.
   bool has_been_clicked_;
 
-  // Indicates whether this plugin may be throttled to reduce power consumption.
-  // |power_saver_enabled_| implies |is_peripheral_content_|.
-  bool power_saver_enabled_;
-
-  // Indicates whether this plugin was found to be peripheral content.
-  // This is separately tracked from |power_saver_enabled_| to collect UMAs.
-  // Always true if |power_saver_enabled_| is true.
-  bool is_peripheral_content_;
-
-  // Indicates if the plugin is currently throttled.
-  bool plugin_throttled_;
-
-  // Fake view data used by the Power Saver feature to throttle plugins.
-  const ppapi::ViewData empty_view_data_;
+  // Used to track if JavaScript has ever been used for this plugin instance.
+  bool javascript_used_;
 
   // Responsible for turning on throttling if Power Saver is on.
-  scoped_ptr<PepperPluginInstanceThrottler> throttler_;
+  scoped_ptr<PluginInstanceThrottlerImpl> throttler_;
 
   // Indicates whether this is a full frame instance, which means it represents
   // an entire document rather than an embed tag.
@@ -743,6 +735,8 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   // The last state sent to the plugin. It is only valid after
   // |sent_initial_did_change_view_| is set to true.
   ppapi::ViewData last_sent_view_data_;
+  // The current unobscured portion of the plugin.
+  gfx::Rect unobscured_rect_;
 
   // Indicates if we've ever sent a didChangeView to the plugin. This ensures we
   // always send an initial notification, even if the position and clip are the
@@ -775,7 +769,6 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   const PPP_Pdf* plugin_pdf_interface_;
   const PPP_Instance_Private* plugin_private_interface_;
   const PPP_TextInput_Dev* plugin_textinput_interface_;
-  const PPP_Zoom_Dev* plugin_zoom_interface_;
 
   // Flags indicating whether we have asked this plugin instance for the
   // corresponding interfaces, so that we can ask only once.
@@ -924,6 +917,8 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   int64 last_input_number_;
 
   bool is_tracking_latency_;
+
+  bool initialized_;
 
   // We use a weak ptr factory for scheduling DidChangeView events so that we
   // can tell whether updates are pending and consolidate them. When there's

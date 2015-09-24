@@ -26,66 +26,46 @@ var remoting = remoting || {};
  * @param {HTMLElement} loadingIndicator The HTML <span> to update while the
  *     host list is being loaded. The first element of this span should be
  *     the reload button.
+ * @param {function(!remoting.Error)} onError Function to call when an error
+ *     occurs.
+ * @param {function(string)} handleConnect Function to call to connect to the
+ *     host with |hostId|.
  */
 remoting.HostList = function(table, noHosts, errorMsg, errorButton,
-                             loadingIndicator) {
-  /**
-   * @type {Element}
-   * @private
-   */
+                             loadingIndicator, onError, handleConnect) {
+  /** @private {Element} */
   this.table_ = table;
   /**
-   * @type {Element}
-   * @private
    * TODO(jamiewalch): This should be doable using CSS's sibling selector,
    * but it doesn't work right now (crbug.com/135050).
+   * @private {Element}
    */
   this.noHosts_ = noHosts;
-  /**
-   * @type {Element}
-   * @private
-   */
+  /** @private {Element} */
   this.errorMsg_ = errorMsg;
-  /**
-   * @type {Element}
-   * @private
-   */
+  /** @private {Element} */
   this.errorButton_ = errorButton;
-  /**
-   * @type {HTMLElement}
-   * @private
-   */
+  /** @private {HTMLElement} */
   this.loadingIndicator_ = loadingIndicator;
-  /**
-   * @type {Array.<remoting.HostTableEntry>}
-   * @private
-   */
-  this.hostTableEntries_ = [];
-  /**
-   * @type {Array.<remoting.Host>}
-   * @private
-   */
-  this.hosts_ = [];
-  /**
-   * @type {string}
-   * @private
-   */
-  this.lastError_ = '';
-  /**
-   * @type {remoting.Host?}
-   * @private
-   */
-  this.localHost_ = null;
-  /**
-   * @type {remoting.HostController.State}
-   * @private
-   */
-  this.localHostState_ = remoting.HostController.State.UNKNOWN;
+  /** @private */
+  this.onError_ = remoting.Error.handler(onError);
+  /** @private */
+  this.handleConnect_ = handleConnect;
 
-  /**
-   * @type {number}
-   * @private
-   */
+  /** @private {Array<remoting.HostTableEntry>} */
+  this.hostTableEntries_ = [];
+  /** @private {Array<remoting.Host>} */
+  this.hosts_ = [];
+  /** @private {!remoting.Error} */
+  this.lastError_ = remoting.Error.none();
+  /** @private {remoting.LocalHostSection} */
+  this.localHostSection_ = new remoting.LocalHostSection(
+      /** @type {HTMLElement} */ (document.querySelector('.daemon-control')),
+      new remoting.LocalHostSection.Controller(
+          this, new remoting.HostSetupDialog(remoting.hostController, onError),
+          handleConnect));
+
+  /** @private {number} */
   this.webappMajorVersion_ = parseInt(chrome.runtime.getManifest().version, 10);
 
   this.errorButton_.addEventListener('click',
@@ -98,7 +78,7 @@ remoting.HostList = function(table, noHosts, errorMsg, errorButton,
   function refresh(event) {
     event.preventDefault();
     that.refresh(that.display.bind(that));
-  };
+  }
   reloadButton.addEventListener('click', refresh, false);
 };
 
@@ -111,12 +91,12 @@ remoting.HostList.prototype.load = function(onDone) {
   // Load the cache of the last host-list, if present.
   /** @type {remoting.HostList} */
   var that = this;
-  /** @param {Object.<string>} items */
+  /** @param {Object<string>} items */
   var storeHostList = function(items) {
     if (items[remoting.HostList.HOSTS_KEY]) {
       var cached = base.jsonParseSafe(items[remoting.HostList.HOSTS_KEY]);
       if (cached) {
-        that.hosts_ = /** @type {Array} */ cached;
+        that.hosts_ = /** @type {Array<remoting.Host>} */ (cached);
       } else {
         console.error('Invalid value for ' + remoting.HostList.HOSTS_KEY);
       }
@@ -165,23 +145,18 @@ remoting.HostList.prototype.getHostIdForName = function(hostName) {
  */
 remoting.HostList.prototype.refresh = function(onDone) {
   this.loadingIndicator_.classList.add('loading');
-  /** @param {XMLHttpRequest} xhr The response from the server. */
-  var parseHostListResponse = this.parseHostListResponse_.bind(this, onDone);
   /** @type {remoting.HostList} */
   var that = this;
-  /** @param {string} token The OAuth2 token. */
-  var getHosts = function(token) {
-    var headers = { 'Authorization': 'OAuth ' + token };
-    remoting.xhr.get(
-        remoting.settings.DIRECTORY_API_BASE_URL + '/@me/hosts',
-        parseHostListResponse, '', headers);
-  };
-  /** @param {remoting.Error} error */
+  /** @param {!remoting.Error} error */
   var onError = function(error) {
     that.lastError_ = error;
     onDone(false);
   };
-  remoting.identity.callWithToken(getHosts, onError);
+  remoting.HostListApi.getInstance().get().then(function(hosts) {
+    onDone(that.onHostListResponse_(hosts));
+  }).catch(
+    remoting.Error.handler(onError)
+  );
 };
 
 /**
@@ -189,67 +164,49 @@ remoting.HostList.prototype.refresh = function(onDone) {
  * include a JSON-encoded list of host descriptions, which we display if we're
  * able to successfully parse it.
  *
- * @param {function(boolean):void} onDone The callback passed to |refresh|.
- * @param {XMLHttpRequest} xhr The XHR object for the host list request.
- * @return {void} Nothing.
+ * @param {Array<remoting.Host>} hosts The list of hosts for the user.
+ * @return {boolean}
  * @private
  */
-remoting.HostList.prototype.parseHostListResponse_ = function(onDone, xhr) {
-  this.lastError_ = '';
-  try {
-    if (xhr.status == 200) {
-      var response = /** @type {{data: {items: Array}}} */
-          (base.jsonParseSafe(xhr.responseText));
-      if (response && response.data) {
-        if (response.data.items) {
-          this.hosts_ = response.data.items;
-          /**
-           * @param {remoting.Host} a
-           * @param {remoting.Host} b
-           */
-          var cmp = function(a, b) {
-            if (a.status < b.status) {
-              return 1;
-            } else if (b.status < a.status) {
-              return -1;
-            } else if (a.hostName.toLocaleLowerCase() <
-                       b.hostName.toLocaleLowerCase()) {
-              return -1;
-            } else if (a.hostName.toLocaleLowerCase() >
-                       b.hostName.toLocaleLowerCase()) {
-              return 1;
-            }
-            return 0;
-          };
-          this.hosts_ = /** @type {Array} */ this.hosts_.sort(cmp);
-        } else {
-          this.hosts_ = [];
-        }
-      } else {
-        this.lastError_ = remoting.Error.UNEXPECTED;
-        console.error('Invalid "hosts" response from server.');
-      }
-    } else {
-      // Some other error.
-      console.error('Bad status on host list query: ', xhr);
-      if (xhr.status == 0) {
-        this.lastError_ = remoting.Error.NETWORK_FAILURE;
-      } else if (xhr.status == 401) {
-        this.lastError_ = remoting.Error.AUTHENTICATION_FAILED;
-      } else if (xhr.status == 502 || xhr.status == 503) {
-        this.lastError_ = remoting.Error.SERVICE_UNAVAILABLE;
-      } else {
-        this.lastError_ = remoting.Error.UNEXPECTED;
-      }
-    }
-  } catch (er) {
-    var typed_er = /** @type {Object} */ (er);
-    console.error('Error processing response: ', xhr, typed_er);
-    this.lastError_ = remoting.Error.UNEXPECTED;
-  }
+remoting.HostList.prototype.onHostListResponse_ = function(hosts) {
+  this.lastError_ = remoting.Error.none();
+  this.hosts_ = hosts;
+  this.sortHosts_();
   this.save_();
   this.loadingIndicator_.classList.remove('loading');
-  onDone(this.lastError_ == '');
+  return true;
+};
+
+/**
+ * Sort the internal list of hosts.
+ *
+ * @suppress {reportUnknownTypes}
+ * @return {void} Nothing.
+ */
+remoting.HostList.prototype.sortHosts_ = function() {
+  /**
+   * Sort hosts, first by ONLINE/OFFLINE status and then by host-name.
+   *
+   * @param {remoting.Host} a
+   * @param {remoting.Host} b
+   * @return {number}
+   */
+  var cmp = function(a, b) {
+    if (a.status < b.status) {
+      return 1;
+    } else if (b.status < a.status) {
+      return -1;
+    } else if (a.hostName.toLocaleLowerCase() <
+               b.hostName.toLocaleLowerCase()) {
+      return -1;
+    } else if (a.hostName.toLocaleLowerCase() >
+               b.hostName.toLocaleLowerCase()) {
+      return 1;
+    }
+    return 0;
+  };
+
+  this.hosts_ = this.hosts_.sort(cmp);
 };
 
 /**
@@ -266,9 +223,9 @@ remoting.HostList.prototype.display = function() {
   this.table_.hidden = noHostsRegistered;
   this.noHosts_.hidden = !noHostsRegistered;
 
-  if (this.lastError_ != '') {
-    l10n.localizeElementFromTag(this.errorMsg_, this.lastError_);
-    if (this.lastError_ == remoting.Error.AUTHENTICATION_FAILED) {
+  if (!this.lastError_.isNone()) {
+    l10n.localizeElementFromTag(this.errorMsg_, this.lastError_.getTag());
+    if (this.lastError_.hasTag(remoting.Error.Tag.AUTHENTICATION_FAILED)) {
       l10n.localizeElementFromTag(this.errorButton_,
                                   /*i18n-content*/'SIGN_IN_BUTTON');
     } else {
@@ -283,41 +240,58 @@ remoting.HostList.prototype.display = function() {
       // not the local host (which is displayed separately). NB: if the host has
       // never sent a heartbeat, then there will be no jabberId.
       if (host.hostName && host.hostId && host.status && host.publicKey &&
-          (!this.localHost_ || host.hostId != this.localHost_.hostId)) {
+          (host.hostId != this.localHostSection_.getHostId())) {
         var hostTableEntry = new remoting.HostTableEntry(
-            host, this.webappMajorVersion_,
-            this.renameHost_.bind(this), this.deleteHost_.bind(this));
-        hostTableEntry.createDom();
+            this.webappMajorVersion_,
+            this.handleConnect_,
+            this.renameHost.bind(this),
+            this.deleteHost_.bind(this));
+        hostTableEntry.setHost(host);
         this.hostTableEntries_[i] = hostTableEntry;
-        this.table_.appendChild(hostTableEntry.tableRow);
+        this.table_.appendChild(hostTableEntry.element());
       }
     }
   }
 
-  this.errorMsg_.parentNode.hidden = (this.lastError_ == '');
+  this.errorMsg_.parentNode.hidden = this.lastError_.isNone();
+  if (noHostsRegistered) {
+    this.showHostListEmptyMessage_(this.localHostSection_.canChangeState());
+  }
+};
 
-  // The local host cannot be stopped or started if the host controller is not
-  // implemented for this platform. Additionally, it cannot be started if there
-  // is an error (in many error states, the start operation will fail anyway,
-  // but even if it succeeds, the chance of a related but hard-to-diagnose
-  // future error is high).
-  var state = this.localHostState_;
-  var enabled = (state == remoting.HostController.State.STARTING) ||
-      (state == remoting.HostController.State.STARTED);
-  var canChangeLocalHostState =
-      (state != remoting.HostController.State.NOT_IMPLEMENTED) &&
-      (state != remoting.HostController.State.UNKNOWN) &&
-      (state != remoting.HostController.State.NOT_INSTALLED ||
-       remoting.isMe2MeInstallable()) &&
-      (enabled || this.lastError_ == '');
-
-  remoting.updateModalUi(enabled ? 'enabled' : 'disabled', 'data-daemon-state');
-  var element = document.getElementById('daemon-control');
-  element.hidden = !canChangeLocalHostState;
-  element = document.getElementById('host-list-empty-hosting-supported');
-  element.hidden = !canChangeLocalHostState;
-  element = document.getElementById('host-list-empty-hosting-unsupported');
-  element.hidden = canChangeLocalHostState;
+/**
+ * Displays a message to the user when the host list is empty.
+ *
+ * @param {boolean} hostingSupported
+ * @return {void}
+ * @private
+ */
+remoting.HostList.prototype.showHostListEmptyMessage_ = function(
+    hostingSupported) {
+  var that = this;
+  remoting.AppsV2Migration.hasHostsInV1App().then(
+    /**
+     * @param {remoting.MigrationSettings} previousIdentity
+     * @this {remoting.HostList}
+     */
+    function(previousIdentity) {
+      that.noHosts_.innerHTML = remoting.AppsV2Migration.buildMigrationTips(
+          previousIdentity.email, previousIdentity.fullName);
+    },
+    function() {
+      var buttonLabel = l10n.getTranslationOrError(
+          /*i18n-content*/'HOME_DAEMON_START_BUTTON');
+      if (hostingSupported) {
+        that.noHosts_.innerText = l10n.getTranslationOrError(
+            /*i18n-content*/'HOST_LIST_EMPTY_HOSTING_SUPPORTED',
+            [buttonLabel]);
+      } else {
+        that.noHosts_.innerText = l10n.getTranslationOrError(
+            /*i18n-content*/'HOST_LIST_EMPTY_HOSTING_UNSUPPORTED',
+            [buttonLabel]);
+      }
+    }
+  );
 };
 
 /**
@@ -327,21 +301,21 @@ remoting.HostList.prototype.display = function() {
  * @private
  */
 remoting.HostList.prototype.deleteHost_ = function(hostTableEntry) {
-  this.table_.removeChild(hostTableEntry.tableRow);
+  this.table_.removeChild(hostTableEntry.element());
   var index = this.hostTableEntries_.indexOf(hostTableEntry);
   if (index != -1) {
     this.hostTableEntries_.splice(index, 1);
   }
-  remoting.HostList.unregisterHostById(hostTableEntry.host.hostId);
+  remoting.HostListApi.getInstance().remove(hostTableEntry.host.hostId).
+      catch(this.onError_);
 };
 
 /**
  * Prepare a host for renaming by replacing its name with an edit box.
  * @param {remoting.HostTableEntry} hostTableEntry The host to be renamed.
  * @return {void} Nothing.
- * @private
  */
-remoting.HostList.prototype.renameHost_ = function(hostTableEntry) {
+remoting.HostList.prototype.renameHost = function(hostTableEntry) {
   for (var i = 0; i < this.hosts_.length; ++i) {
     if (this.hosts_[i].hostId == hostTableEntry.host.hostId) {
       this.hosts_[i].hostName = hostTableEntry.host.hostName;
@@ -350,63 +324,39 @@ remoting.HostList.prototype.renameHost_ = function(hostTableEntry) {
   }
   this.save_();
 
-  /** @param {string?} token */
-  var renameHost = function(token) {
-    if (token) {
-      var headers = {
-        'Authorization': 'OAuth ' + token,
-        'Content-type' : 'application/json; charset=UTF-8'
-      };
-      var newHostDetails = { data: {
-        hostId: hostTableEntry.host.hostId,
-        hostName: hostTableEntry.host.hostName,
-        publicKey: hostTableEntry.host.publicKey
-      } };
-      remoting.xhr.put(
-          remoting.settings.DIRECTORY_API_BASE_URL + '/@me/hosts/' +
-          hostTableEntry.host.hostId,
-          function(xhr) {},
-          JSON.stringify(newHostDetails),
-          headers);
-    } else {
-      console.error('Could not rename host. Authentication failure.');
-    }
-  }
-  remoting.identity.callWithToken(renameHost, remoting.showErrorMessage);
+  var hostListApi = remoting.HostListApi.getInstance();
+  hostListApi.put(hostTableEntry.host.hostId,
+                  hostTableEntry.host.hostName,
+                  hostTableEntry.host.publicKey).
+      catch(this.onError_);
 };
 
 /**
  * Unregister a host.
  * @param {string} hostId The id of the host to be removed.
+ * @param {function(void)=} opt_onDone
  * @return {void} Nothing.
  */
-remoting.HostList.unregisterHostById = function(hostId) {
-  /** @param {string} token The OAuth2 token. */
-  var deleteHost = function(token) {
-    var headers = { 'Authorization': 'OAuth ' + token };
-    remoting.xhr.remove(
-        remoting.settings.DIRECTORY_API_BASE_URL + '/@me/hosts/' + hostId,
-        function() {}, '', headers);
-  }
-  remoting.identity.callWithToken(deleteHost, remoting.showErrorMessage);
-};
+remoting.HostList.prototype.unregisterHostById = function(hostId, opt_onDone) {
+  var that = this;
+  var onDone = opt_onDone || base.doNothing;
 
-/**
- * Set tool-tips for the 'connect' action. We can't just set this on the
- * parent element because the button has no tool-tip, and therefore would
- * inherit connectStr.
- *
- * @return {void} Nothing.
- * @private
- */
-remoting.HostList.prototype.setTooltips_ = function() {
-  var connectStr = '';
-  if (this.localHost_) {
-    chrome.i18n.getMessage(/*i18n-content*/'TOOLTIP_CONNECT',
-                           this.localHost_.hostName);
+  var host = this.getHostForId(hostId);
+  if (!host) {
+    console.log('Skipping host un-registration as the host is not registered ' +
+                'under the current account');
+    onDone();
+    return;
   }
-  document.getElementById('this-host-name').title = connectStr;
-  document.getElementById('this-host-icon').title = connectStr;
+
+  remoting.HostListApi.getInstance().remove(hostId).
+      then(function() {
+        that.refresh(function() {
+          that.display();
+          onDone();
+        });
+      }).
+      catch(this.onError_);
 };
 
 /**
@@ -417,48 +367,9 @@ remoting.HostList.prototype.setTooltips_ = function() {
  * @return {void} Nothing.
  */
 remoting.HostList.prototype.setLocalHostStateAndId = function(state, hostId) {
-  this.localHostState_ = state;
-  this.setLocalHost_(hostId ? this.getHostForId(hostId) : null);
-}
-
-/**
- * Set the host object that corresponds to the local computer, if any.
- *
- * @param {remoting.Host?} host The host, or null if not registered.
- * @return {void} Nothing.
- * @private
- */
-remoting.HostList.prototype.setLocalHost_ = function(host) {
-  this.localHost_ = host;
-  this.setTooltips_();
-  /** @type {remoting.HostList} */
-  var that = this;
-  if (host) {
-    /** @param {remoting.HostTableEntry} host */
-    var renameHost = function(host) {
-      that.renameHost_(host);
-      that.setTooltips_();
-    };
-    if (!this.localHostTableEntry_) {
-      /** @type {remoting.HostTableEntry} @private */
-      this.localHostTableEntry_ = new remoting.HostTableEntry(
-          host, this.webappMajorVersion_, renameHost);
-      this.localHostTableEntry_.init(
-          document.getElementById('this-host-connect'),
-          document.getElementById('this-host-warning'),
-          document.getElementById('this-host-name'),
-          document.getElementById('this-host-rename'));
-    } else {
-      // TODO(jamiewalch): This is hack to prevent multiple click handlers being
-      // registered for the same DOM elements if this method is called more than
-      // once. A better solution would be to let HostTable create the daemon row
-      // like it creates the rows for non-local hosts.
-      this.localHostTableEntry_.host = host;
-    }
-  } else {
-    this.localHostTableEntry_ = null;
-  }
-}
+  var host = hostId ? this.getHostForId(hostId) : null;
+  this.localHostSection_.setModel(host, state, !this.lastError_.isNone());
+};
 
 /**
  * Called by the HostControlled after the local host has been started.
@@ -476,17 +387,18 @@ remoting.HostList.prototype.onLocalHostStarted = function(
   // host JID, but it can be missing from the cache with no ill effects.
   // It will be refreshed if the user tries to connect to the local host,
   // and we hope that the directory will have been updated by that point.
-  var localHost = new remoting.Host();
+  var localHost = new remoting.Host(hostId);
   localHost.hostName = hostName;
   // Provide a version number to avoid warning about this dummy host being
   // out-of-date.
   localHost.hostVersion = String(this.webappMajorVersion_) + ".x"
-  localHost.hostId = hostId;
   localHost.publicKey = publicKey;
   localHost.status = 'ONLINE';
   this.hosts_.push(localHost);
   this.save_();
-  this.setLocalHost_(localHost);
+  this.localHostSection_.setModel(localHost,
+                                  remoting.HostController.State.STARTED,
+                                  !this.lastError_.isNone());
 };
 
 /**
@@ -496,10 +408,8 @@ remoting.HostList.prototype.onLocalHostStarted = function(
  * @private
  */
 remoting.HostList.prototype.onErrorClick_ = function() {
-  if (this.lastError_ == remoting.Error.AUTHENTICATION_FAILED) {
-    remoting.oauth2.doAuthRedirect(function() {
-      window.location.reload();
-    });
+  if (this.lastError_.hasTag(remoting.Error.Tag.AUTHENTICATION_FAILED)) {
+    remoting.handleAuthFailureAndRelaunch();
   } else {
     this.refresh(remoting.updateLocalHostState);
   }
@@ -512,6 +422,9 @@ remoting.HostList.prototype.save_ = function() {
   var items = {};
   items[remoting.HostList.HOSTS_KEY] = JSON.stringify(this.hosts_);
   chrome.storage.local.set(items);
+  if (this.hosts_.length !== 0) {
+    remoting.AppsV2Migration.saveUserInfo();
+  }
 };
 
 /**

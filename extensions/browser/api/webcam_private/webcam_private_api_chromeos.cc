@@ -4,22 +4,15 @@
 
 #include "extensions/browser/api/webcam_private/webcam_private_api.h"
 
-#include <fcntl.h>
-#include <linux/videodev2.h>
-#include <stdio.h>
-#include <sys/ioctl.h>
-#include <unistd.h>
-
-#include "base/files/scoped_file.h"
-#include "base/posix/eintr_wrapper.h"
+#include "base/lazy_instance.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/media_device_id.h"
 #include "content/public/browser/resource_context.h"
-#include "content/public/common/media_stream_request.h"
+#include "extensions/browser/api/webcam_private/v4l2_webcam.h"
+#include "extensions/browser/api/webcam_private/visca_webcam.h"
+#include "extensions/browser/process_manager.h"
+#include "extensions/browser/process_manager_factory.h"
 #include "extensions/common/api/webcam_private.h"
-
-#define V4L2_CID_PAN_SPEED (V4L2_CID_CAMERA_CLASS_BASE+32)
-#define V4L2_CID_TILT_SPEED (V4L2_CID_CAMERA_CLASS_BASE+33)
 
 namespace webcam_private = extensions::core_api::webcam_private;
 
@@ -28,46 +21,202 @@ class BrowserContext;
 }  // namespace content
 
 namespace {
-
-base::ScopedFD OpenWebcam(const std::string& extension_id,
-                          content::BrowserContext* browser_context,
-                          const std::string& webcam_id) {
-  GURL security_origin =
-      extensions::Extension::GetBaseURLFromExtensionId(extension_id);
-
-  std::string device_id;
-  bool success = content::GetMediaDeviceIDForHMAC(
-      content::MEDIA_DEVICE_VIDEO_CAPTURE,
-      browser_context->GetResourceContext()->GetMediaDeviceIDSalt(),
-      security_origin,
-      webcam_id,
-      &device_id);
-
-  if (!success)
-    return base::ScopedFD();
-
-  return base::ScopedFD(HANDLE_EINTR(open(device_id.c_str(), 0)));
-}
-
-void SetWebcamParameter(int fd, uint32_t control_id, int value) {
-  struct v4l2_control v4l2_ctrl = {control_id, value};
-  HANDLE_EINTR(ioctl(fd, VIDIOC_S_CTRL, &v4l2_ctrl));
-}
-
-bool GetWebcamParameter(int fd, uint32_t control_id, int* value) {
-  struct v4l2_control v4l2_ctrl = {control_id};
-
-  if (HANDLE_EINTR(ioctl(fd, VIDIOC_G_CTRL, &v4l2_ctrl)))
-    return false;
-
-  *value = v4l2_ctrl.value;
-  return true;
-}
-
+const char kPathInUse[] = "Path in use";
 const char kUnknownWebcam[] = "Unknown webcam id";
 }  // namespace
 
 namespace extensions {
+
+// static
+WebcamPrivateAPI* WebcamPrivateAPI::Get(content::BrowserContext* context) {
+  return GetFactoryInstance()->Get(context);
+}
+
+WebcamPrivateAPI::WebcamPrivateAPI(content::BrowserContext* context)
+    : browser_context_(context),
+      weak_ptr_factory_(this) {
+  webcam_resource_manager_.reset(
+      new ApiResourceManager<WebcamResource>(context));
+}
+
+WebcamPrivateAPI::~WebcamPrivateAPI() {
+}
+
+Webcam* WebcamPrivateAPI::GetWebcam(const std::string& extension_id,
+                                    const std::string& webcam_id) {
+  WebcamResource* webcam_resource = FindWebcamResource(extension_id, webcam_id);
+  if (webcam_resource)
+    return webcam_resource->GetWebcam();
+
+  std::string device_id;
+  GetDeviceId(extension_id, webcam_id, &device_id);
+  V4L2Webcam* v4l2_webcam(new V4L2Webcam(device_id));
+  if (!v4l2_webcam->Open()) {
+    return nullptr;
+  }
+
+  webcam_resource_manager_->Add(
+      new WebcamResource(extension_id, v4l2_webcam, webcam_id));
+
+  return v4l2_webcam;
+}
+
+bool WebcamPrivateAPI::OpenSerialWebcam(
+    const std::string& extension_id,
+    const std::string& device_path,
+    const base::Callback<void(const std::string&, bool)>& callback) {
+  const std::string& webcam_id = GetWebcamId(extension_id, device_path);
+  WebcamResource* webcam_resource = FindWebcamResource(extension_id, webcam_id);
+  if (webcam_resource)
+    return webcam_resource->GetWebcam();
+
+  ViscaWebcam* visca_webcam(new ViscaWebcam(device_path, extension_id));
+  visca_webcam->Open(base::Bind(
+      &WebcamPrivateAPI::OnOpenSerialWebcam, weak_ptr_factory_.GetWeakPtr(),
+      extension_id, device_path, make_scoped_refptr(visca_webcam), callback));
+  return true;
+}
+
+bool WebcamPrivateAPI::CloseWebcam(const std::string& extension_id,
+                                   const std::string& webcam_id) {
+  if (FindWebcamResource(extension_id, webcam_id)) {
+    RemoveWebcamResource(extension_id, webcam_id);
+    return true;
+  }
+  return false;
+}
+
+void WebcamPrivateAPI::OnOpenSerialWebcam(
+    const std::string& extension_id,
+    const std::string& device_path,
+    scoped_refptr<Webcam> webcam,
+    const base::Callback<void(const std::string&, bool)>& callback,
+    bool success) {
+  if (success) {
+    const std::string& webcam_id = GetWebcamId(extension_id, device_path);
+    webcam_resource_manager_->Add(
+        new WebcamResource(extension_id, webcam.get(), webcam_id));
+    callback.Run(webcam_id, true);
+  } else {
+    callback.Run("", false);
+  }
+}
+
+bool WebcamPrivateAPI::GetDeviceId(const std::string& extension_id,
+                                   const std::string& webcam_id,
+                                   std::string* device_id) {
+  GURL security_origin =
+      extensions::Extension::GetBaseURLFromExtensionId(extension_id);
+
+  return content::GetMediaDeviceIDForHMAC(
+      content::MEDIA_DEVICE_VIDEO_CAPTURE,
+      browser_context_->GetResourceContext()->GetMediaDeviceIDSalt(),
+      security_origin,
+      webcam_id,
+      device_id);
+}
+
+std::string WebcamPrivateAPI::GetWebcamId(const std::string& extension_id,
+                                          const std::string& device_id) {
+  GURL security_origin =
+      extensions::Extension::GetBaseURLFromExtensionId(extension_id);
+
+  return content::GetHMACForMediaDeviceID(
+      browser_context_->GetResourceContext()->GetMediaDeviceIDSalt(),
+      security_origin, device_id);
+}
+
+WebcamResource* WebcamPrivateAPI::FindWebcamResource(
+    const std::string& extension_id,
+    const std::string& webcam_id) const {
+  DCHECK(webcam_resource_manager_);
+
+  base::hash_set<int>* connection_ids =
+      webcam_resource_manager_->GetResourceIds(extension_id);
+  if (!connection_ids)
+    return nullptr;
+
+  for (const auto& connection_id : *connection_ids) {
+    WebcamResource* webcam_resource =
+        webcam_resource_manager_->Get(extension_id, connection_id);
+    if (webcam_resource && webcam_resource->GetWebcamId() == webcam_id)
+      return webcam_resource;
+  }
+
+  return nullptr;
+}
+
+bool WebcamPrivateAPI::RemoveWebcamResource(const std::string& extension_id,
+                                            const std::string& webcam_id) {
+  DCHECK(webcam_resource_manager_);
+
+  base::hash_set<int>* connection_ids =
+      webcam_resource_manager_->GetResourceIds(extension_id);
+  if (!connection_ids)
+    return false;
+
+  for (const auto& connection_id : *connection_ids) {
+    WebcamResource* webcam_resource =
+        webcam_resource_manager_->Get(extension_id, connection_id);
+    if (webcam_resource && webcam_resource->GetWebcamId() == webcam_id) {
+      webcam_resource_manager_->Remove(extension_id, connection_id);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+WebcamPrivateOpenSerialWebcamFunction::WebcamPrivateOpenSerialWebcamFunction() {
+}
+
+WebcamPrivateOpenSerialWebcamFunction::
+    ~WebcamPrivateOpenSerialWebcamFunction() {
+}
+
+bool WebcamPrivateOpenSerialWebcamFunction::RunAsync() {
+  scoped_ptr<webcam_private::OpenSerialWebcam::Params> params(
+      webcam_private::OpenSerialWebcam::Params::Create(*args_));
+  EXTENSION_FUNCTION_VALIDATE(params.get());
+
+  if (WebcamPrivateAPI::Get(browser_context())
+          ->OpenSerialWebcam(
+              extension_id(), params->path,
+              base::Bind(&WebcamPrivateOpenSerialWebcamFunction::OnOpenWebcam,
+                         this))) {
+    return true;
+  } else {
+    SetError(kPathInUse);
+    return false;
+  }
+}
+
+void WebcamPrivateOpenSerialWebcamFunction::OnOpenWebcam(
+    const std::string& webcam_id,
+    bool success) {
+  if (success) {
+    SetResult(new base::StringValue(webcam_id));
+    SendResponse(true);
+  } else {
+    SetError(kUnknownWebcam);
+    SendResponse(false);
+  }
+}
+
+WebcamPrivateCloseWebcamFunction::WebcamPrivateCloseWebcamFunction() {
+}
+
+WebcamPrivateCloseWebcamFunction::~WebcamPrivateCloseWebcamFunction() {
+}
+
+bool WebcamPrivateCloseWebcamFunction::RunAsync() {
+  scoped_ptr<webcam_private::CloseWebcam::Params> params(
+      webcam_private::CloseWebcam::Params::Create(*args_));
+  EXTENSION_FUNCTION_VALIDATE(params.get());
+
+  return WebcamPrivateAPI::Get(browser_context())
+      ->CloseWebcam(extension_id(), params->webcam_id);
+}
 
 WebcamPrivateSetFunction::WebcamPrivateSetFunction() {
 }
@@ -76,69 +225,65 @@ WebcamPrivateSetFunction::~WebcamPrivateSetFunction() {
 }
 
 bool WebcamPrivateSetFunction::RunSync() {
-  // Get parameters
   scoped_ptr<webcam_private::Set::Params> params(
       webcam_private::Set::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
-  base::ScopedFD fd =
-      OpenWebcam(extension_id(), browser_context(), params->webcam_id);
-  if (!fd.is_valid()) {
+  Webcam* webcam = WebcamPrivateAPI::Get(browser_context())
+                       ->GetWebcam(extension_id(), params->webcam_id);
+  if (!webcam) {
     SetError(kUnknownWebcam);
     return false;
   }
 
   if (params->config.pan) {
-    SetWebcamParameter(fd.get(), V4L2_CID_PAN_ABSOLUTE,
-                       *(params->config.pan));
+    webcam->SetPan(*(params->config.pan));
   }
 
   if (params->config.pan_direction) {
-    int direction = 0;
+    Webcam::PanDirection direction = Webcam::PAN_STOP;
     switch (params->config.pan_direction) {
       case webcam_private::PAN_DIRECTION_NONE:
       case webcam_private::PAN_DIRECTION_STOP:
-        direction = 0;
+        direction = Webcam::PAN_STOP;
         break;
 
       case webcam_private::PAN_DIRECTION_RIGHT:
-        direction = 1;
+        direction = Webcam::PAN_RIGHT;
         break;
 
       case webcam_private::PAN_DIRECTION_LEFT:
-        direction = -1;
+        direction = Webcam::PAN_LEFT;
         break;
     }
-    SetWebcamParameter(fd.get(), V4L2_CID_PAN_SPEED, direction);
+    webcam->SetPanDirection(direction);
   }
 
   if (params->config.tilt) {
-    SetWebcamParameter(fd.get(), V4L2_CID_TILT_ABSOLUTE,
-                       *(params->config.tilt));
+    webcam->SetTilt(*(params->config.tilt));
   }
 
   if (params->config.tilt_direction) {
-    int direction = 0;
+    Webcam::TiltDirection direction = Webcam::TILT_STOP;
     switch (params->config.tilt_direction) {
       case webcam_private::TILT_DIRECTION_NONE:
       case webcam_private::TILT_DIRECTION_STOP:
-        direction = 0;
+        direction = Webcam::TILT_STOP;
         break;
 
       case webcam_private::TILT_DIRECTION_UP:
-        direction = 1;
+        direction = Webcam::TILT_UP;
         break;
 
       case webcam_private::TILT_DIRECTION_DOWN:
-        direction = -1;
+        direction = Webcam::TILT_DOWN;
         break;
     }
-    SetWebcamParameter(fd.get(), V4L2_CID_TILT_SPEED, direction);
+    webcam->SetTiltDirection(direction);
   }
 
   if (params->config.zoom) {
-    SetWebcamParameter(fd.get(), V4L2_CID_ZOOM_ABSOLUTE,
-                       *(params->config.zoom));
+    webcam->SetZoom(*(params->config.zoom));
   }
 
 
@@ -152,14 +297,13 @@ WebcamPrivateGetFunction::~WebcamPrivateGetFunction() {
 }
 
 bool WebcamPrivateGetFunction::RunSync() {
-  // Get parameters
   scoped_ptr<webcam_private::Get::Params> params(
       webcam_private::Get::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
-  base::ScopedFD fd =
-      OpenWebcam(extension_id(), browser_context(), params->webcam_id);
-  if (!fd.is_valid()) {
+  Webcam* webcam = WebcamPrivateAPI::Get(browser_context())
+                       ->GetWebcam(extension_id(), params->webcam_id);
+  if (!webcam) {
     SetError(kUnknownWebcam);
     return false;
   }
@@ -167,15 +311,15 @@ bool WebcamPrivateGetFunction::RunSync() {
   webcam_private::WebcamConfiguration result;
 
   int pan;
-  if (GetWebcamParameter(fd.get(), V4L2_CID_PAN_ABSOLUTE, &pan))
+  if (webcam->GetPan(&pan))
     result.pan.reset(new double(pan));
 
   int tilt;
-  if (GetWebcamParameter(fd.get(), V4L2_CID_TILT_ABSOLUTE, &tilt))
+  if (webcam->GetTilt(&tilt))
     result.tilt.reset(new double(tilt));
 
   int zoom;
-  if (GetWebcamParameter(fd.get(), V4L2_CID_ZOOM_ABSOLUTE, &zoom))
+  if (webcam->GetZoom(&zoom))
     result.zoom.reset(new double(zoom));
 
   SetResult(result.ToValue().release());
@@ -190,34 +334,36 @@ WebcamPrivateResetFunction::~WebcamPrivateResetFunction() {
 }
 
 bool WebcamPrivateResetFunction::RunSync() {
-  // Get parameters
   scoped_ptr<webcam_private::Reset::Params> params(
       webcam_private::Reset::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
-  base::ScopedFD fd =
-      OpenWebcam(extension_id(), browser_context(), params->webcam_id);
-  if (!fd.is_valid()) {
+  Webcam* webcam = WebcamPrivateAPI::Get(browser_context())
+                       ->GetWebcam(extension_id(), params->webcam_id);
+  if (!webcam) {
     SetError(kUnknownWebcam);
     return false;
   }
 
-  if (params->config.pan) {
-    struct v4l2_control v4l2_ctrl = {V4L2_CID_PAN_RESET};
-    HANDLE_EINTR(ioctl(fd.get(), VIDIOC_S_CTRL, &v4l2_ctrl));
-  }
-
-  if (params->config.tilt) {
-    struct v4l2_control v4l2_ctrl = {V4L2_CID_TILT_RESET};
-    HANDLE_EINTR(ioctl(fd.get(), VIDIOC_S_CTRL, &v4l2_ctrl));
-  }
-
-  if (params->config.zoom) {
-    const int kDefaultZoom = 100;
-    SetWebcamParameter(fd.get(), V4L2_CID_ZOOM_ABSOLUTE, kDefaultZoom);
-  }
+  webcam->Reset(params->config.pan, params->config.tilt, params->config.zoom);
 
   return true;
+}
+
+static base::LazyInstance<BrowserContextKeyedAPIFactory<WebcamPrivateAPI>>
+    g_factory = LAZY_INSTANCE_INITIALIZER;
+
+// static
+BrowserContextKeyedAPIFactory<WebcamPrivateAPI>*
+WebcamPrivateAPI::GetFactoryInstance() {
+  return g_factory.Pointer();
+}
+
+template <>
+void BrowserContextKeyedAPIFactory<WebcamPrivateAPI>
+    ::DeclareFactoryDependencies() {
+  DependsOn(ExtensionsBrowserClient::Get()->GetExtensionSystemFactory());
+  DependsOn(ProcessManagerFactory::GetInstance());
 }
 
 }  // namespace extensions

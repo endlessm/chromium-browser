@@ -5,6 +5,8 @@
 #include "content/public/browser/content_browser_client.h"
 
 #include "base/files/file_path.h"
+#include "content/public/browser/client_certificate_delegate.h"
+#include "content/public/common/sandbox_type.h"
 #include "ui/gfx/image/image_skia.h"
 #include "url/gurl.h"
 
@@ -12,12 +14,19 @@ namespace content {
 
 BrowserMainParts* ContentBrowserClient::CreateBrowserMainParts(
     const MainFunctionParams& parameters) {
-  return NULL;
+  return nullptr;
+}
+
+void ContentBrowserClient::PostAfterStartupTask(
+    const tracked_objects::Location& from_here,
+    const scoped_refptr<base::TaskRunner>& task_runner,
+    const base::Closure& task) {
+  task_runner->PostTask(from_here, task);
 }
 
 WebContentsViewDelegate* ContentBrowserClient::GetWebContentsViewDelegate(
     WebContents* web_contents) {
-  return NULL;
+  return nullptr;
 }
 
 GURL ContentBrowserClient::GetEffectiveURL(BrowserContext* browser_context,
@@ -34,7 +43,7 @@ net::URLRequestContextGetter* ContentBrowserClient::CreateRequestContext(
     BrowserContext* browser_context,
     ProtocolHandlerMap* protocol_handlers,
     URLRequestInterceptorScopedVector request_interceptors) {
-  return NULL;
+  return nullptr;
 }
 
 net::URLRequestContextGetter*
@@ -44,7 +53,7 @@ ContentBrowserClient::CreateRequestContextForStoragePartition(
     bool in_memory,
     ProtocolHandlerMap* protocol_handlers,
     URLRequestInterceptorScopedVector request_interceptors) {
-  return NULL;
+  return nullptr;
 }
 
 bool ContentBrowserClient::IsHandledURL(const GURL& url) {
@@ -116,10 +125,11 @@ bool ContentBrowserClient::AllowAppCache(const GURL& manifest_url,
   return true;
 }
 
-bool ContentBrowserClient::AllowServiceWorker(
-    const GURL& scope,
-    const GURL& document_url,
-    content::ResourceContext* context) {
+bool ContentBrowserClient::AllowServiceWorker(const GURL& scope,
+                                              const GURL& document_url,
+                                              content::ResourceContext* context,
+                                              int render_process_id,
+                                              int render_frame_id) {
   return true;
 }
 
@@ -172,13 +182,27 @@ bool ContentBrowserClient::AllowWorkerIndexedDB(
   return true;
 }
 
+#if defined(ENABLE_WEBRTC)
+bool ContentBrowserClient::AllowWebRTCIdentityCache(const GURL& url,
+                                                    const GURL& first_party_url,
+                                                    ResourceContext* context) {
+  return true;
+}
+#endif  // defined(ENABLE_WEBRTC)
+
 QuotaPermissionContext* ContentBrowserClient::CreateQuotaPermissionContext() {
-  return NULL;
+  return nullptr;
+}
+
+void ContentBrowserClient::SelectClientCertificate(
+    WebContents* web_contents,
+    net::SSLCertRequestInfo* cert_request_info,
+    scoped_ptr<ClientCertificateDelegate> delegate) {
 }
 
 net::URLRequestContext* ContentBrowserClient::OverrideRequestContextForURL(
     const GURL& url, ResourceContext* context) {
-  return NULL;
+  return nullptr;
 }
 
 std::string ContentBrowserClient::GetStoragePartitionIdForSite(
@@ -208,25 +232,12 @@ void ContentBrowserClient::GetStoragePartitionConfigForSite(
 }
 
 MediaObserver* ContentBrowserClient::GetMediaObserver() {
-  return NULL;
+  return nullptr;
 }
 
-blink::WebNotificationPermission
-ContentBrowserClient::CheckDesktopNotificationPermission(
-    const GURL& source_origin,
-    ResourceContext* context,
-    int render_process_id) {
-  return blink::WebNotificationPermissionAllowed;
-}
-
-void ContentBrowserClient::RequestPermission(
-    PermissionType permission,
-    WebContents* web_contents,
-    int bridge_id,
-    const GURL& requesting_frame,
-    bool user_gesture,
-    const base::Callback<void(bool)>& result_callback) {
-  result_callback.Run(true);
+PlatformNotificationService*
+ContentBrowserClient::GetPlatformNotificationService() {
+  return nullptr;
 }
 
 bool ContentBrowserClient::CanCreateWindow(
@@ -242,23 +253,24 @@ bool ContentBrowserClient::CanCreateWindow(
     bool opener_suppressed,
     ResourceContext* context,
     int render_process_id,
-    int opener_id,
+    int opener_render_view_id,
+    int opener_render_frame_id,
     bool* no_javascript_access) {
   *no_javascript_access = false;
   return true;
 }
 
 SpeechRecognitionManagerDelegate*
-    ContentBrowserClient::GetSpeechRecognitionManagerDelegate() {
-  return NULL;
+    ContentBrowserClient::CreateSpeechRecognitionManagerDelegate() {
+  return nullptr;
 }
 
 net::NetLog* ContentBrowserClient::GetNetLog() {
-  return NULL;
+  return nullptr;
 }
 
 AccessTokenStore* ContentBrowserClient::CreateAccessTokenStore() {
-  return NULL;
+  return nullptr;
 }
 
 bool ContentBrowserClient::IsFastShutdownPossible() {
@@ -275,7 +287,7 @@ std::string ContentBrowserClient::GetDefaultDownloadName() {
 
 BrowserPpapiHost*
     ContentBrowserClient::GetExternalBrowserPpapiHost(int plugin_process_id) {
-  return NULL;
+  return nullptr;
 }
 
 bool ContentBrowserClient::AllowPepperSocketAPI(
@@ -288,19 +300,23 @@ bool ContentBrowserClient::AllowPepperSocketAPI(
 
 ui::SelectFilePolicy* ContentBrowserClient::CreateSelectFilePolicy(
     WebContents* web_contents) {
-  return NULL;
+  return nullptr;
 }
 
 LocationProvider* ContentBrowserClient::OverrideSystemLocationProvider() {
-  return NULL;
-}
-
-VibrationProvider* ContentBrowserClient::OverrideVibrationProvider() {
-  return NULL;
+  return nullptr;
 }
 
 DevToolsManagerDelegate* ContentBrowserClient::GetDevToolsManagerDelegate() {
-  return NULL;
+  return nullptr;
+}
+
+TracingDelegate* ContentBrowserClient::GetTracingDelegate() {
+  return nullptr;
+}
+
+bool ContentBrowserClient::IsNPAPIEnabled() {
+  return false;
 }
 
 bool ContentBrowserClient::IsPluginAllowedToCallRequestOSFileHandle(
@@ -315,14 +331,32 @@ bool ContentBrowserClient::IsPluginAllowedToUseDevChannelAPIs(
   return false;
 }
 
-net::CookieStore* ContentBrowserClient::OverrideCookieStoreForRenderProcess(
-    int render_process_id) {
-  return NULL;
+PresentationServiceDelegate*
+ContentBrowserClient::GetPresentationServiceDelegate(
+    WebContents* web_contents) {
+  return nullptr;
+}
+
+void ContentBrowserClient::OpenURL(
+    content::BrowserContext* browser_context,
+    const content::OpenURLParams& params,
+    const base::Callback<void(content::WebContents*)>& callback) {
+  callback.Run(nullptr);
 }
 
 #if defined(OS_WIN)
 const wchar_t* ContentBrowserClient::GetResourceDllName() {
-  return NULL;
+  return nullptr;
+}
+
+base::string16 ContentBrowserClient::GetAppContainerSidForSandboxType(
+    int sandbox_type) const {
+  // Embedders should override this method and return different SIDs for each
+  // sandbox type. Note: All content level tests will run child processes in the
+  // same AppContainer.
+  return base::string16(
+      L"S-1-15-2-3251537155-1984446955-2931258699-841473695-1938553385-"
+      L"924012148-129201922");
 }
 #endif
 
@@ -330,15 +364,9 @@ const wchar_t* ContentBrowserClient::GetResourceDllName() {
 ExternalVideoSurfaceContainer*
 ContentBrowserClient::OverrideCreateExternalVideoSurfaceContainer(
     WebContents* web_contents) {
-  return NULL;
+  NOTREACHED() << "Hole-punching is not supported. See crbug.com/469348.";
+  return nullptr;
 }
 #endif
-
-bool ContentBrowserClient::CheckMediaAccessPermission(
-    BrowserContext* browser_context,
-    const GURL& security_origin,
-    MediaStreamType type) {
-  return false;
-}
 
 }  // namespace content

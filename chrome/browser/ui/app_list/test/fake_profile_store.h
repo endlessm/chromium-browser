@@ -11,9 +11,12 @@
 #include "base/observer_list.h"
 #include "chrome/browser/ui/app_list/profile_store.h"
 
+class PrefService;
+
 class FakeProfileStore : public ProfileStore {
  public:
-  explicit FakeProfileStore(const base::FilePath& user_data_dir);
+  FakeProfileStore(const base::FilePath& user_data_dir,
+                   PrefService* local_state);
   ~FakeProfileStore() override;
 
   void LoadProfile(Profile* profile);
@@ -25,14 +28,17 @@ class FakeProfileStore : public ProfileStore {
                         base::Callback<void(Profile*)> callback) override;
   Profile* GetProfileByPath(const base::FilePath& path) override;
   base::FilePath GetUserDataDir() override;
+  std::string GetLastUsedProfileName() override;
   bool IsProfileSupervised(const base::FilePath& path) override;
+  bool IsProfileLocked(const base::FilePath& path) override;
 
  private:
   base::FilePath user_data_dir_;
+  PrefService* local_state_;
   typedef std::map<base::FilePath, base::Callback<void(Profile*)> >
       CallbacksByPath;
   CallbacksByPath callbacks_;
-  ObserverList<ProfileInfoCacheObserver> observer_list_;
+  base::ObserverList<ProfileInfoCacheObserver> observer_list_;
   typedef std::map<base::FilePath, Profile*> ProfilesByPath;
   ProfilesByPath loaded_profiles_;
 };

@@ -21,7 +21,7 @@
 #include "config.h"
 #include "core/svg/SVGPolyElement.h"
 
-#include "core/rendering/svg/RenderSVGShape.h"
+#include "core/layout/svg/LayoutSVGShape.h"
 #include "core/svg/SVGAnimatedPointList.h"
 #include "core/svg/SVGParserUtilities.h"
 
@@ -34,26 +34,47 @@ SVGPolyElement::SVGPolyElement(const QualifiedName& tagName, Document& document)
     addToPropertyMap(m_points);
 }
 
-void SVGPolyElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
+DEFINE_TRACE(SVGPolyElement)
 {
-    parseAttributeNew(name, value);
+    visitor->trace(m_points);
+    SVGGeometryElement::trace(visitor);
+}
+
+Path SVGPolyElement::asPathFromPoints() const
+{
+    Path path;
+
+    RefPtrWillBeRawPtr<SVGPointList> pointsValue = points()->currentValue();
+    if (pointsValue->isEmpty())
+        return path;
+
+    SVGPointList::ConstIterator it = pointsValue->begin();
+    SVGPointList::ConstIterator itEnd = pointsValue->end();
+    ASSERT(it != itEnd);
+    path.moveTo(it->value());
+    ++it;
+
+    for (; it != itEnd; ++it)
+        path.addLineTo(it->value());
+
+    return path;
 }
 
 void SVGPolyElement::svgAttributeChanged(const QualifiedName& attrName)
 {
-    if (attrName != SVGNames::pointsAttr) {
-        SVGGeometryElement::svgAttributeChanged(attrName);
+    if (attrName == SVGNames::pointsAttr) {
+        SVGElement::InvalidationGuard invalidationGuard(this);
+
+        LayoutSVGShape* layoutObject = toLayoutSVGShape(this->layoutObject());
+        if (!layoutObject)
+            return;
+
+        layoutObject->setNeedsShapeUpdate();
+        markForLayoutAndParentResourceInvalidation(layoutObject);
         return;
     }
 
-    SVGElement::InvalidationGuard invalidationGuard(this);
-
-    RenderSVGShape* renderer = toRenderSVGShape(this->renderer());
-    if (!renderer)
-        return;
-
-    renderer->setNeedsShapeUpdate();
-    markForLayoutAndParentResourceInvalidation(renderer);
+    SVGGeometryElement::svgAttributeChanged(attrName);
 }
 
 }

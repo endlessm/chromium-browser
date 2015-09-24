@@ -1,32 +1,37 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _FPDF_VT_H_
-#define _FPDF_VT_H_
-#include "../fxcrt/fx_basic.h"
+#ifndef CORE_INCLUDE_FPDFDOC_FPDF_VT_H_
+#define CORE_INCLUDE_FPDFDOC_FPDF_VT_H_
+
 #include "../fpdfapi/fpdf_parser.h"
-struct CPVT_WordPlace;
-struct CPVT_WordRange;
-struct CPVT_Word;
+#include "../fxge/fx_dib.h"
+
+class IPDF_VariableText;
+class IPDF_VariableText_Iterator;
+class IPDF_VariableText_Provider;
 struct CPVT_Line;
 struct CPVT_Section;
-class IPDF_VariableText_Provider;
-class IPDF_VariableText_Iterator;
-class IPDF_VariableText;
+struct CPVT_Word;
+struct CPVT_WordPlace;
+struct CPVT_WordRange;
+
 struct CPVT_WordPlace {
 
     CPVT_WordPlace() : nSecIndex(-1), nLineIndex(-1), nWordIndex(-1)
     {
     }
 
-    CPVT_WordPlace(FX_INT32 nSecIndex, FX_INT32 nLineIndex, FX_INT32 nWordIndex)
+    CPVT_WordPlace(int32_t other_nSecIndex,
+                   int32_t other_nLineIndex,
+                   int32_t other_nWordIndex)
     {
-        this->nSecIndex = nSecIndex;
-        this->nLineIndex = nLineIndex;
-        this->nWordIndex = nWordIndex;
+        nSecIndex = other_nSecIndex;
+        nLineIndex = other_nLineIndex;
+        nWordIndex = other_nWordIndex;
     }
 
     void Default()
@@ -36,70 +41,70 @@ struct CPVT_WordPlace {
 
     FX_BOOL operator == (const CPVT_WordPlace & wp) const
     {
-        return wp.nSecIndex == this->nSecIndex && wp.nLineIndex == this->nLineIndex && wp.nWordIndex == this->nWordIndex;
+        return wp.nSecIndex == nSecIndex && wp.nLineIndex == nLineIndex && wp.nWordIndex == nWordIndex;
     }
 
     FX_BOOL operator != (const CPVT_WordPlace & wp) const
     {
-        return wp.nSecIndex != this->nSecIndex || wp.nLineIndex != this->nLineIndex || wp.nWordIndex != this->nWordIndex;
+        return wp.nSecIndex != nSecIndex || wp.nLineIndex != nLineIndex || wp.nWordIndex != nWordIndex;
     }
 
-    inline FX_INT32 WordCmp(const CPVT_WordPlace & wp) const
+    inline int32_t WordCmp(const CPVT_WordPlace & wp) const
     {
-        if (this->nSecIndex > wp.nSecIndex) {
+        if (nSecIndex > wp.nSecIndex) {
             return 1;
         }
-        if (this->nSecIndex < wp.nSecIndex) {
+        if (nSecIndex < wp.nSecIndex) {
             return -1;
         }
-        if (this->nLineIndex > wp.nLineIndex) {
+        if (nLineIndex > wp.nLineIndex) {
             return 1;
         }
-        if (this->nLineIndex < wp.nLineIndex) {
+        if (nLineIndex < wp.nLineIndex) {
             return -1;
         }
-        if (this->nWordIndex > wp.nWordIndex) {
+        if (nWordIndex > wp.nWordIndex) {
             return 1;
         }
-        if (this->nWordIndex < wp.nWordIndex) {
+        if (nWordIndex < wp.nWordIndex) {
             return -1;
         }
         return 0;
     }
 
-    inline FX_INT32 LineCmp(const CPVT_WordPlace & wp) const
+    inline int32_t LineCmp(const CPVT_WordPlace & wp) const
     {
-        if (this->nSecIndex > wp.nSecIndex) {
+        if (nSecIndex > wp.nSecIndex) {
             return 1;
         }
-        if (this->nSecIndex < wp.nSecIndex) {
+        if (nSecIndex < wp.nSecIndex) {
             return -1;
         }
-        if (this->nLineIndex > wp.nLineIndex) {
+        if (nLineIndex > wp.nLineIndex) {
             return 1;
         }
-        if (this->nLineIndex < wp.nLineIndex) {
+        if (nLineIndex < wp.nLineIndex) {
             return -1;
         }
         return 0;
     }
 
-    inline FX_INT32 SecCmp(const CPVT_WordPlace & wp) const
+    inline int32_t SecCmp(const CPVT_WordPlace & wp) const
     {
-        if (this->nSecIndex > wp.nSecIndex) {
+        if (nSecIndex > wp.nSecIndex) {
             return 1;
         }
-        if (this->nSecIndex < wp.nSecIndex) {
+        if (nSecIndex < wp.nSecIndex) {
             return -1;
         }
         return 0;
     }
 
-    FX_INT32							nSecIndex;
+    int32_t							nSecIndex;
 
-    FX_INT32							nLineIndex;
+    int32_t							nLineIndex;
 
-    FX_INT32							nWordIndex;
+    int32_t							nWordIndex;
 };
 struct CPVT_WordRange {
 
@@ -120,31 +125,31 @@ struct CPVT_WordRange {
 
     void Set(const CPVT_WordPlace & begin, const CPVT_WordPlace & end)
     {
-        this->BeginPos = begin;
-        this->EndPos = end;
+        BeginPos = begin;
+        EndPos = end;
         SwapWordPlace();
     }
 
     void SetBeginPos(const CPVT_WordPlace & begin)
     {
-        this->BeginPos = begin;
+        BeginPos = begin;
         SwapWordPlace();
     }
 
     void SetEndPos(const CPVT_WordPlace & end)
     {
-        this->EndPos = end;
+        EndPos = end;
         SwapWordPlace();
     }
 
     FX_BOOL IsExist() const
     {
-        return this->BeginPos != this->EndPos;
+        return BeginPos != EndPos;
     }
 
     FX_BOOL operator != (const CPVT_WordRange & wr) const
     {
-        return wr.BeginPos != this->BeginPos || wr.EndPos != this->EndPos;
+        return wr.BeginPos != BeginPos || wr.EndPos != EndPos;
     }
 
     void SwapWordPlace()
@@ -160,13 +165,13 @@ struct CPVT_WordRange {
 
     CPVT_WordPlace EndPos;
 };
-struct CPVT_SecProps : public CFX_Object {
+struct CPVT_SecProps  {
 
     CPVT_SecProps() : fLineLeading(0.0f), fLineIndent(0.0f), nAlignment(0)
     {
     }
 
-    CPVT_SecProps(FX_FLOAT lineLeading, FX_FLOAT lineIndent, FX_INT32 alignment) :
+    CPVT_SecProps(FX_FLOAT lineLeading, FX_FLOAT lineIndent, int32_t alignment) :
         fLineLeading(lineLeading), fLineIndent(lineIndent), nAlignment(alignment)
     {
     }
@@ -180,17 +185,17 @@ struct CPVT_SecProps : public CFX_Object {
 
     FX_FLOAT			fLineIndent;
 
-    FX_INT32			nAlignment;
+    int32_t			nAlignment;
 };
-struct CPVT_WordProps : public CFX_Object {
+struct CPVT_WordProps  {
 
     CPVT_WordProps() : nFontIndex(-1), fFontSize(0.0f), dwWordColor(0), nScriptType(0), nWordStyle(0),
         fCharSpace(0.0f), nHorzScale(0)
     {
     }
 
-    CPVT_WordProps(FX_INT32	fontIndex, FX_FLOAT fontSize, FX_COLORREF wordColor = 0, FX_INT32 scriptType = 0, FX_INT32 wordStyle = 0,
-                   FX_FLOAT charSpace = 0, FX_INT32 horzScale = 100) :
+    CPVT_WordProps(int32_t	fontIndex, FX_FLOAT fontSize, FX_COLORREF wordColor = 0, int32_t scriptType = 0, int32_t wordStyle = 0,
+                   FX_FLOAT charSpace = 0, int32_t horzScale = 100) :
         nFontIndex(fontIndex), fFontSize(fontSize), dwWordColor(wordColor), nScriptType(scriptType),
         nWordStyle(wordStyle), fCharSpace(charSpace), nHorzScale(horzScale)
     {
@@ -203,19 +208,19 @@ struct CPVT_WordProps : public CFX_Object {
     {
     }
 
-    FX_INT32					nFontIndex;
+    int32_t					nFontIndex;
 
     FX_FLOAT					fFontSize;
 
     FX_COLORREF					dwWordColor;
 
-    FX_INT32					nScriptType;
+    int32_t					nScriptType;
 
-    FX_INT32					nWordStyle;
+    int32_t					nWordStyle;
 
     FX_FLOAT					fCharSpace;
 
-    FX_INT32					nHorzScale;
+    int32_t					nHorzScale;
 };
 struct CPVT_Word {
 
@@ -226,7 +231,7 @@ struct CPVT_Word {
 
     FX_WORD						Word;
 
-    FX_INT32					nCharset;
+    int32_t					nCharset;
 
     CPVT_WordPlace				WordPlace;
 
@@ -238,7 +243,7 @@ struct CPVT_Word {
 
     FX_FLOAT					fWidth;
 
-    FX_INT32					nFontIndex;
+    int32_t					nFontIndex;
 
     FX_FLOAT					fFontSize;
 
@@ -275,22 +280,24 @@ struct CPVT_Section {
 class IPDF_VariableText_Provider
 {
 public:
+    virtual ~IPDF_VariableText_Provider() { }
 
-    virtual FX_INT32						GetCharWidth(FX_INT32 nFontIndex, FX_WORD word, FX_INT32 nWordStyle) = 0;
+    virtual int32_t						GetCharWidth(int32_t nFontIndex, FX_WORD word, int32_t nWordStyle) = 0;
 
-    virtual FX_INT32						GetTypeAscent(FX_INT32 nFontIndex) = 0;
+    virtual int32_t						GetTypeAscent(int32_t nFontIndex) = 0;
 
-    virtual FX_INT32						GetTypeDescent(FX_INT32 nFontIndex) = 0;
+    virtual int32_t						GetTypeDescent(int32_t nFontIndex) = 0;
 
-    virtual FX_INT32						GetWordFontIndex(FX_WORD word, FX_INT32 charset, FX_INT32 nFontIndex) = 0;
+    virtual int32_t						GetWordFontIndex(FX_WORD word, int32_t charset, int32_t nFontIndex) = 0;
 
     virtual FX_BOOL							IsLatinWord(FX_WORD word) = 0;
 
-    virtual FX_INT32						GetDefaultFontIndex() = 0;
+    virtual int32_t						GetDefaultFontIndex() = 0;
 };
 class IPDF_VariableText_Iterator
 {
 public:
+    virtual ~IPDF_VariableText_Iterator() { }
 
     virtual FX_BOOL							NextWord() = 0;
 
@@ -314,7 +321,7 @@ public:
 
     virtual	FX_BOOL							SetSection(const CPVT_Section & section) = 0;
 
-    virtual void							SetAt(FX_INT32 nWordIndex) = 0;
+    virtual void							SetAt(int32_t nWordIndex) = 0;
 
     virtual void							SetAt(const CPVT_WordPlace & place) = 0;
 
@@ -323,11 +330,9 @@ public:
 class IPDF_VariableText
 {
 public:
-
     static IPDF_VariableText*			NewVariableText();
 
     static void							DelVariableText(IPDF_VariableText* pVT);
-public:
 
     virtual IPDF_VariableText_Provider*		SetProvider(IPDF_VariableText_Provider * pProvider) = 0;
 
@@ -335,17 +340,17 @@ public:
 
     virtual void							SetPlateRect(const CPDF_Rect & rect) = 0;
 
-    virtual void							SetAlignment(FX_INT32 nFormat = 0) = 0;
+    virtual void							SetAlignment(int32_t nFormat = 0) = 0;
 
     virtual void							SetPasswordChar(FX_WORD wSubWord = '*') = 0;
 
-    virtual void							SetLimitChar(FX_INT32 nLimitChar = 0) = 0;
+    virtual void							SetLimitChar(int32_t nLimitChar = 0) = 0;
 
-    virtual void							SetCharArray(FX_INT32 nCharArray = 0) = 0;
+    virtual void							SetCharArray(int32_t nCharArray = 0) = 0;
 
     virtual void							SetCharSpace(FX_FLOAT fCharSpace = 0.0f) = 0;
 
-    virtual void							SetHorzScale(FX_INT32 nHorzScale = 100) = 0;
+    virtual void							SetHorzScale(int32_t nHorzScale = 100) = 0;
 
     virtual void							SetMultiLine(FX_BOOL bMultiLine = TRUE) = 0;
 
@@ -371,16 +376,16 @@ public:
 
     virtual void							ResetAll() = 0;
 
-    virtual void							SetText(FX_LPCWSTR text, FX_INT32 charset = 1, const CPVT_SecProps * pSecProps = NULL,
+    virtual void							SetText(const FX_WCHAR* text, int32_t charset = 1, const CPVT_SecProps * pSecProps = NULL,
             const CPVT_WordProps * pWordProps = NULL) = 0;
 
-    virtual CPVT_WordPlace					InsertWord(const CPVT_WordPlace & place, FX_WORD word, FX_INT32 charset = 1,
+    virtual CPVT_WordPlace					InsertWord(const CPVT_WordPlace & place, FX_WORD word, int32_t charset = 1,
             const CPVT_WordProps * pWordProps = NULL) = 0;
 
     virtual CPVT_WordPlace					InsertSection(const CPVT_WordPlace & place, const CPVT_SecProps * pSecProps = NULL,
             const CPVT_WordProps * pWordProps = NULL) = 0;
 
-    virtual CPVT_WordPlace					InsertText(const CPVT_WordPlace & place, FX_LPCWSTR text, FX_INT32 charset = 1,
+    virtual CPVT_WordPlace					InsertText(const CPVT_WordPlace & place, const FX_WCHAR* text, int32_t charset = 1,
             const CPVT_SecProps * pSecProps = NULL,	const CPVT_WordProps * pWordProps = NULL) = 0;
 
     virtual CPVT_WordPlace					DeleteWords(const CPVT_WordRange & PlaceRange) = 0;
@@ -393,21 +398,21 @@ public:
 
     virtual CPDF_Rect						GetContentRect() const = 0;
 
-    virtual FX_INT32						GetTotalWords() const = 0;
+    virtual int32_t						GetTotalWords() const = 0;
 
     virtual FX_FLOAT						GetFontSize() const = 0;
 
-    virtual FX_INT32						GetAlignment() const = 0;
+    virtual int32_t						GetAlignment() const = 0;
 
     virtual FX_WORD							GetPasswordChar() const = 0;
 
-    virtual FX_INT32						GetCharArray() const = 0;
+    virtual int32_t						GetCharArray() const = 0;
 
-    virtual FX_INT32						GetLimitChar() const = 0;
+    virtual int32_t						GetLimitChar() const = 0;
 
     virtual FX_BOOL							IsMultiLine() const = 0;
 
-    virtual FX_INT32						GetHorzScale() const = 0;
+    virtual int32_t						GetHorzScale() const = 0;
 
     virtual FX_FLOAT						GetCharSpace() const = 0;
 
@@ -437,8 +442,12 @@ public:
 
     virtual CPVT_WordPlace					AjustLineHeader(const CPVT_WordPlace & place, FX_BOOL bPrevOrNext) const = 0;
 
-    virtual FX_INT32						WordPlaceToWordIndex(const CPVT_WordPlace & place) const = 0;
+    virtual int32_t						WordPlaceToWordIndex(const CPVT_WordPlace & place) const = 0;
 
-    virtual CPVT_WordPlace					WordIndexToWordPlace(FX_INT32 index) const = 0;
+    virtual CPVT_WordPlace					WordIndexToWordPlace(int32_t index) const = 0;
+
+protected:
+    ~IPDF_VariableText() { }
 };
-#endif
+
+#endif  // CORE_INCLUDE_FPDFDOC_FPDF_VT_H_

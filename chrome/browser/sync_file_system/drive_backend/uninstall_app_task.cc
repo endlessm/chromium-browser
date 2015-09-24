@@ -16,7 +16,6 @@
 #include "chrome/browser/sync_file_system/drive_backend/tracker_id_set.h"
 #include "chrome/browser/sync_file_system/syncable_file_system_util.h"
 #include "google_apis/drive/drive_api_parser.h"
-#include "google_apis/drive/gdata_wapi_parser.h"
 
 namespace sync_file_system {
 namespace drive_backend {
@@ -77,8 +76,8 @@ void UninstallAppTask::RunExclusive(const SyncStatusCallback& callback) {
 
 void UninstallAppTask::DidDeleteAppRoot(const SyncStatusCallback& callback,
                                         int64 change_id,
-                                        google_apis::GDataErrorCode error) {
-  SyncStatusCode status = GDataErrorCodeToSyncStatusCode(error);
+                                        google_apis::DriveApiErrorCode error) {
+  SyncStatusCode status = DriveApiErrorCodeToSyncStatusCode(error);
   if (status != SYNC_STATUS_OK &&
       error != google_apis::HTTP_NOT_FOUND) {
     callback.Run(SYNC_STATUS_FAILED);

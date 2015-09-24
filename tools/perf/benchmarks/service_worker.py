@@ -6,14 +6,18 @@ import collections
 import page_sets
 import re
 
-from measurements import timeline_controller
-from metrics import speedindex
+from core import perf_benchmark
+
 from telemetry import benchmark
 from telemetry.core import util
+from telemetry.page import action_runner
 from telemetry.page import page_test
 from telemetry.timeline import async_slice as async_slice_module
 from telemetry.timeline import slice as slice_module
 from telemetry.value import scalar
+
+from measurements import timeline_controller
+from metrics import speedindex
 
 
 class _ServiceWorkerTimelineMetric(object):
@@ -85,8 +89,8 @@ class _ServiceWorkerTimelineMetric(object):
 class _ServiceWorkerMeasurement(page_test.PageTest):
   """Measure Speed Index and TRACE_EVENTs"""
 
-  def __init__(self, *args, **kwargs):
-    super(_ServiceWorkerMeasurement, self).__init__(*args, **kwargs)
+  def __init__(self):
+    super(_ServiceWorkerMeasurement, self).__init__()
     self._timeline_controller = timeline_controller.TimelineController()
     self._speed_index = speedindex.SpeedIndexMetric()
     self._page_open_times = collections.defaultdict(int)
@@ -102,8 +106,15 @@ class _ServiceWorkerMeasurement(page_test.PageTest):
     self._speed_index.Start(page, tab)
 
   def ValidateAndMeasurePage(self, page, tab, results):
+    runner = action_runner.ActionRunner(tab)
+    # timeline_controller requires creation of at least a single interaction
+    # record. service_worker should be refactored to follow the
+    # timeline_based_measurement or it should not re-use timeline_controller
+    # logic for start & stop tracing.
+    with runner.CreateInteraction('_DummyInteraction'):
+      pass
     tab.WaitForDocumentReadyStateToBeComplete(40)
-    self._timeline_controller.Stop(tab)
+    self._timeline_controller.Stop(tab, results)
 
     # Retrieve TRACE_EVENTs
     timeline_metric = _ServiceWorkerTimelineMetric()
@@ -137,9 +148,8 @@ class _ServiceWorkerMeasurement(page_test.PageTest):
 class _ServiceWorkerMicroBenchmarkMeasurement(page_test.PageTest):
   """Measure JS land values and TRACE_EVENTs"""
 
-  def __init__(self, *args, **kwargs):
-    super(_ServiceWorkerMicroBenchmarkMeasurement, self).__init__(*args,
-                                                                  **kwargs)
+  def __init__(self):
+    super(_ServiceWorkerMicroBenchmarkMeasurement, self).__init__()
     self._timeline_controller = timeline_controller.TimelineController()
 
   def CustomizeBrowserOptions(self, options):
@@ -152,8 +162,15 @@ class _ServiceWorkerMicroBenchmarkMeasurement(page_test.PageTest):
     self._timeline_controller.Start(tab)
 
   def ValidateAndMeasurePage(self, page, tab, results):
+    runner = action_runner.ActionRunner(tab)
+    # timeline_controller requires creation of at least a single interaction
+    # record. service_worker should be refactored to follow the
+    # timeline_based_measurement or it should not re-use timeline_controller
+    # logic for start & stop tracing.
+    with runner.CreateInteraction('_DummyInteraction'):
+      pass
     tab.WaitForJavaScriptExpression('window.done', 40)
-    self._timeline_controller.Stop(tab)
+    self._timeline_controller.Stop(tab, results)
 
     # Measure JavaScript-land
     json = tab.EvaluateJavaScript('window.results || {}')
@@ -173,16 +190,31 @@ class _ServiceWorkerMicroBenchmarkMeasurement(page_test.PageTest):
         browser_process, 'IOThread', filter_text , results)
 
 
-@benchmark.Enabled('android')
-class ServiceWorkerPerfTest(benchmark.Benchmark):
+class ServiceWorkerPerfTest(perf_benchmark.PerfBenchmark):
   """Performance test on public applications using ServiceWorker"""
   test = _ServiceWorkerMeasurement
   page_set = page_sets.ServiceWorkerPageSet
 
+  @classmethod
+  def Name(cls):
+    return 'service_worker.service_worker'
 
-# FIXME(nhiroki): Temporary disable the benchmark (http://crbug.com/430232).
-@benchmark.Disabled
-class ServiceWorkerMicroBenchmarkPerfTest(benchmark.Benchmark):
-  """Service Worker performance test using a micro benchmark page set"""
+
+# Disabled due to redness on the tree. crbug.com/442752
+# TODO(horo): Enable after the reference build newer than M39 will be rolled.
+@benchmark.Disabled('reference')
+class ServiceWorkerMicroBenchmarkPerfTest(perf_benchmark.PerfBenchmark):
+  """This test measures the performance of pages using ServiceWorker.
+
+  As a page set, two benchamrk pages (many registration, many concurrent
+  fetching) and one application (Trained-to-thrill:
+  https://jakearchibald.github.io/trained-to-thrill/) are included. Execution
+  time of these pages will be shown as Speed Index, and TRACE_EVENTs are
+  subsidiary information to know more detail performance regression.
+  """
   test = _ServiceWorkerMicroBenchmarkMeasurement
   page_set = page_sets.ServiceWorkerMicroBenchmarkPageSet
+  @classmethod
+  def Name(cls):
+    return 'service_worker.service_worker_micro_benchmark'
+

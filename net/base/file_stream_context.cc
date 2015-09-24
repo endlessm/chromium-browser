@@ -6,7 +6,6 @@
 
 #include "base/files/file_path.h"
 #include "base/location.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/profiler/scoped_tracker.h"
 #include "base/task_runner.h"
 #include "base/task_runner_util.h"
@@ -22,7 +21,7 @@ namespace net {
 
 namespace {
 
-void CallInt64ToInt(const CompletionCallback& callback, int64 result) {
+void CallInt64ToInt(const CompletionCallback& callback, int64_t result) {
   callback.Run(static_cast<int>(result));
 }
 
@@ -33,14 +32,14 @@ FileStream::Context::IOResult::IOResult()
       os_error(0) {
 }
 
-FileStream::Context::IOResult::IOResult(int64 result, int os_error)
-    : result(result),
-      os_error(os_error) {
+FileStream::Context::IOResult::IOResult(int64_t result,
+                                        logging::SystemErrorCode os_error)
+    : result(result), os_error(os_error) {
 }
 
 // static
 FileStream::Context::IOResult FileStream::Context::IOResult::FromOSError(
-    int64 os_error) {
+    logging::SystemErrorCode os_error) {
   return IOResult(MapSystemError(os_error), os_error);
 }
 
@@ -115,19 +114,14 @@ void FileStream::Context::Close(const CompletionCallback& callback) {
   async_in_progress_ = true;
 }
 
-void FileStream::Context::Seek(base::File::Whence whence,
-                               int64 offset,
+void FileStream::Context::Seek(int64_t offset,
                                const Int64CompletionCallback& callback) {
   DCHECK(!async_in_progress_);
 
   bool posted = base::PostTaskAndReplyWithResult(
-      task_runner_.get(),
-      FROM_HERE,
-      base::Bind(
-          &Context::SeekFileImpl, base::Unretained(this), whence, offset),
-      base::Bind(&Context::OnAsyncCompleted,
-                 base::Unretained(this),
-                 callback));
+      task_runner_.get(), FROM_HERE,
+      base::Bind(&Context::SeekFileImpl, base::Unretained(this), offset),
+      base::Bind(&Context::OnAsyncCompleted, base::Unretained(this), callback));
   DCHECK(posted);
 
   async_in_progress_ = true;
@@ -148,13 +142,12 @@ void FileStream::Context::Flush(const CompletionCallback& callback) {
   async_in_progress_ = true;
 }
 
+bool FileStream::Context::IsOpen() const {
+  return file_.IsValid();
+}
+
 FileStream::Context::OpenResult FileStream::Context::OpenFileImpl(
     const base::FilePath& path, int open_flags) {
-  // TODO(vadimt): Remove ScopedTracker below once crbug.com/423948 is fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "423948 FileStream::Context::OpenFileImpl"));
-
 #if defined(OS_POSIX)
   // Always use blocking IO.
   open_flags &= ~base::File::FLAG_ASYNC;
@@ -201,20 +194,17 @@ FileStream::Context::IOResult FileStream::Context::FlushFileImpl() {
 void FileStream::Context::OnOpenCompleted(const CompletionCallback& callback,
                                           OpenResult open_result) {
   file_ = open_result.file.Pass();
-  if (file_.IsValid() && !orphaned_) {
-    // TODO(vadimt): Remove ScopedTracker below once crbug.com/423948 is fixed.
-    tracked_objects::ScopedTracker tracking_profile(
-        FROM_HERE_WITH_EXPLICIT_FUNCTION(
-            "423948 FileStream::Context::OnOpenCompleted"));
-
+  if (file_.IsValid() && !orphaned_)
     OnFileOpened();
-  }
 
   OnAsyncCompleted(IntToInt64(callback), open_result.error_code);
 }
 
 void FileStream::Context::CloseAndDelete() {
-  DCHECK(!async_in_progress_);
+  // TODO(ananta)
+  // Replace this CHECK with a DCHECK once we figure out the root cause of
+  // http://crbug.com/455066
+  CHECK(!async_in_progress_);
 
   if (file_.IsValid()) {
     bool posted = task_runner_.get()->PostTask(
@@ -235,6 +225,10 @@ Int64CompletionCallback FileStream::Context::IntToInt64(
 void FileStream::Context::OnAsyncCompleted(
     const Int64CompletionCallback& callback,
     const IOResult& result) {
+  // TODO(pkasting): Remove ScopedTracker below once crbug.com/477117 is fixed.
+  tracked_objects::ScopedTracker tracking_profile(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "477117 FileStream::Context::OnAsyncCompleted"));
   // Reset this before Run() as Run() may issue a new async operation. Also it
   // should be reset before Close() because it shouldn't run if any async
   // operation is in progress.

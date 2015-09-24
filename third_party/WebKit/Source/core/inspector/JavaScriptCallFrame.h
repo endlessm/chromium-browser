@@ -34,24 +34,19 @@
 
 #include "bindings/core/v8/ScopedPersistent.h"
 #include "bindings/core/v8/ScriptState.h"
-#include "bindings/core/v8/ScriptWrappable.h"
 #include "wtf/RefCounted.h"
 #include "wtf/text/WTFString.h"
 #include <v8.h>
 
 namespace blink {
 
-class ScriptValue;
-
-class JavaScriptCallFrame : public RefCountedWillBeGarbageCollectedFinalized<JavaScriptCallFrame>, public ScriptWrappable {
-    DEFINE_WRAPPERTYPEINFO();
+class JavaScriptCallFrame : public RefCounted<JavaScriptCallFrame> {
 public:
-    static PassRefPtrWillBeRawPtr<JavaScriptCallFrame> create(v8::Handle<v8::Context> debuggerContext, v8::Handle<v8::Object> callFrame)
+    static PassRefPtr<JavaScriptCallFrame> create(v8::Local<v8::Context> debuggerContext, v8::Local<v8::Object> callFrame)
     {
-        return adoptRefWillBeNoop(new JavaScriptCallFrame(debuggerContext, callFrame));
+        return adoptRef(new JavaScriptCallFrame(debuggerContext, callFrame));
     }
     ~JavaScriptCallFrame();
-    void trace(Visitor*);
 
     JavaScriptCallFrame* caller();
 
@@ -60,30 +55,37 @@ public:
     int column() const;
     String scriptName() const;
     String functionName() const;
+    int functionLine() const;
+    int functionColumn() const;
 
-    v8::Handle<v8::Value> scopeChain() const;
+    v8::Local<v8::Value> scopeChain() const;
     int scopeType(int scopeIndex) const;
-    v8::Handle<v8::Value> thisObject() const;
+    v8::Local<v8::Value> thisObject() const;
     String stepInPositions() const;
     bool isAtReturn() const;
-    v8::Handle<v8::Value> returnValue() const;
+    v8::Local<v8::Value> returnValue() const;
 
-    ScriptValue evaluateWithExceptionDetails(ScriptState*, const String& expression, const ScriptValue& scopeExtension);
-    v8::Handle<v8::Value> restart();
-    ScriptValue setVariableValue(ScriptState*, int scopeNumber, const String& variableName, const ScriptValue& newValue);
+    v8::Local<v8::Value> evaluateWithExceptionDetails(v8::Local<v8::Value> expression, v8::Local<v8::Value> scopeExtension);
+    v8::MaybeLocal<v8::Value> restart();
+    v8::MaybeLocal<v8::Value> setVariableValue(int scopeNumber, v8::Local<v8::Value> variableName, v8::Local<v8::Value> newValue);
 
-    static v8::Handle<v8::Object> createExceptionDetails(v8::Handle<v8::Message>, v8::Isolate*);
+    static v8::Local<v8::Object> createExceptionDetails(v8::Isolate*, v8::Local<v8::Message>);
+
+    // FIXME: store this template in per isolate data
+    void setWrapperTemplate(v8::Local<v8::FunctionTemplate> wrapperTemplate, v8::Isolate* isolate) { m_wrapperTemplate.Reset(isolate, wrapperTemplate); }
+    v8::Local<v8::FunctionTemplate> wrapperTemplate(v8::Isolate* isolate) { return v8::Local<v8::FunctionTemplate>::New(isolate, m_wrapperTemplate); }
 
 private:
-    JavaScriptCallFrame(v8::Handle<v8::Context> debuggerContext, v8::Handle<v8::Object> callFrame);
+    JavaScriptCallFrame(v8::Local<v8::Context> debuggerContext, v8::Local<v8::Object> callFrame);
 
     int callV8FunctionReturnInt(const char* name) const;
     String callV8FunctionReturnString(const char* name) const;
 
     v8::Isolate* m_isolate;
-    RefPtrWillBeMember<JavaScriptCallFrame> m_caller;
+    RefPtr<JavaScriptCallFrame> m_caller;
     ScopedPersistent<v8::Context> m_debuggerContext;
     ScopedPersistent<v8::Object> m_callFrame;
+    v8::Global<v8::FunctionTemplate> m_wrapperTemplate;
 };
 
 } // namespace blink

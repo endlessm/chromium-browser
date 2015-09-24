@@ -6,6 +6,7 @@
 
 import logging
 import os
+import posixpath
 import sys
 import tempfile
 
@@ -13,6 +14,7 @@ from pylib import cmd_helper
 from pylib import constants
 from pylib import pexpect
 from pylib.device import device_errors
+from pylib.gtest import gtest_test_instance
 from pylib.gtest.test_package import TestPackage
 
 
@@ -77,15 +79,7 @@ class TestPackageExecutable(TestPackage):
 
   #override
   def ClearApplicationState(self, device):
-    try:
-      # We don't expect the executable to be running, so we don't attempt
-      # to retry on failure.
-      device.KillAll(self.suite_name, blocking=True, timeout=30, retries=0)
-    except device_errors.CommandFailedError:
-      # KillAll raises an exception if it can't find a process with the given
-      # name. We only care that there is no process with the given name, so
-      # we can safely eat the exception.
-      pass
+    device.KillAll(self.suite_name, blocking=True, timeout=30, quiet=True)
 
   #override
   def CreateCommandLineFileOnDevice(self, device, test_filter, test_arguments):
@@ -118,15 +112,19 @@ class TestPackageExecutable(TestPackage):
 
   #override
   def GetAllTests(self, device):
-    cmd = '%s %s/%s --gtest_list_tests' % (self.tool.GetTestWrapper(),
-        constants.TEST_EXECUTABLE_DIR, self.suite_name)
-    lib_path = '%s/%s_deps' % (constants.TEST_EXECUTABLE_DIR, self.suite_name)
-    (exit_code, output) = device.old_interface.GetAndroidToolStatusAndOutput(
-        cmd, lib_path=lib_path)
-    if exit_code != 0:
-      raise Exception(
-          'Failed to start binary:\n%s' % '\n'.join(output))
-    return self._ParseGTestListTests(output)
+    lib_path = posixpath.join(
+        constants.TEST_EXECUTABLE_DIR, '%s_deps' % self.suite_name)
+
+    cmd = []
+    if self.tool.GetTestWrapper():
+      cmd.append(self.tool.GetTestWrapper())
+    cmd.extend([
+        posixpath.join(constants.TEST_EXECUTABLE_DIR, self.suite_name),
+        '--gtest_list_tests'])
+
+    output = device.RunShellCommand(
+        cmd, check_return=True, env={'LD_LIBRARY_PATH': lib_path})
+    return gtest_test_instance.ParseGTestListTests(output)
 
   #override
   def SpawnTestProcess(self, device):
@@ -159,3 +157,7 @@ class TestPackageExecutable(TestPackage):
     deps_path = self.suite_path + '_deps'
     if os.path.isdir(deps_path):
       device.PushChangedFiles([(deps_path, test_binary_path + '_deps')])
+
+  #override
+  def PullAppFiles(self, device, files, directory):
+    pass

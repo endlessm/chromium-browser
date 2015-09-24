@@ -6,10 +6,10 @@ import page_sets
 
 from telemetry import benchmark
 from telemetry.page import page_test
-from telemetry.core.platform import tracing_category_filter
-from telemetry.core.platform import tracing_options
 from telemetry.timeline import counter
 from telemetry.timeline import model
+from telemetry.timeline import tracing_category_filter
+from telemetry.timeline import tracing_options
 
 MEMORY_LIMIT_MB = 192
 SINGLE_TAB_LIMIT_MB = 192
@@ -103,11 +103,15 @@ class MemoryTest(benchmark.Benchmark):
   """Tests GPU memory limits"""
   test = _MemoryValidator
 
+  @classmethod
+  def Name(cls):
+    return 'memory_test'
+
   def CreateExpectations(self):
     return memory_test_expectations.MemoryTestExpectations()
 
-  def CreatePageSet(self, options):
-    page_set = page_sets.MemoryTestsPageSet()
-    for page in page_set.pages:
+  def CreateStorySet(self, options):
+    story_set = page_sets.MemoryTestsStorySet()
+    for page in story_set:
       page.script_to_evaluate_on_commit = test_harness_script
-    return page_set
+    return story_set

@@ -10,8 +10,11 @@
 #ifndef WEBRTC_COMMON_VIDEO_TEST_FRAME_GENERATOR_H_
 #define WEBRTC_COMMON_VIDEO_TEST_FRAME_GENERATOR_H_
 
-#include "webrtc/common_video/interface/i420_video_frame.h"
+#include <string>
+#include <vector>
+
 #include "webrtc/typedefs.h"
+#include "webrtc/video_frame.h"
 
 namespace webrtc {
 namespace test {
@@ -22,12 +25,19 @@ class FrameGenerator {
   virtual ~FrameGenerator() {}
 
   // Returns video frame that remains valid until next call.
-  virtual I420VideoFrame* NextFrame() = 0;
+  virtual VideoFrame* NextFrame() = 0;
 
-  static FrameGenerator* Create(size_t width, size_t height);
-  static FrameGenerator* CreateFromYuvFile(const char* file,
+  // Creates a test frame generator that creates fully saturated frames with
+  // varying U, V values over time.
+  static FrameGenerator* CreateChromaGenerator(size_t width, size_t height);
+
+  // Creates a frame generator that repeatedly plays a set of yuv files.
+  // The frame_repeat_count determines how many times each frame is shown,
+  // with 1 = show each frame once, etc.
+  static FrameGenerator* CreateFromYuvFile(std::vector<std::string> files,
                                            size_t width,
-                                           size_t height);
+                                           size_t height,
+                                           int frame_repeat_count);
 };
 }  // namespace test
 }  // namespace webrtc

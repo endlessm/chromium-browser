@@ -1,6 +1,6 @@
 /*
  * libjingle
- * Copyright 2014, Google Inc.
+ * Copyright 2014 Google Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -27,9 +27,6 @@
 
 package org.webrtc;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.nio.FloatBuffer;
 import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -37,12 +34,15 @@ import java.util.concurrent.LinkedBlockingQueue;
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
+import android.annotation.SuppressLint;
+import android.graphics.Point;
+import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.opengl.EGL14;
 import android.opengl.EGLContext;
-import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
+import android.opengl.Matrix;
 import android.util.Log;
 
 import org.webrtc.VideoRenderer.I420Frame;
@@ -56,6 +56,7 @@ import org.webrtc.VideoRenderer.I420Frame;
  */
 public class VideoRendererGui implements GLSurfaceView.Renderer {
   private static VideoRendererGui instance = null;
+  private static Runnable eglContextReady = null;
   private static final String TAG = "VideoRendererGui";
   private GLSurfaceView surface;
   private static EGLContext eglContext = null;
@@ -68,64 +69,26 @@ public class VideoRendererGui implements GLSurfaceView.Renderer {
   private int screenHeight;
   // List of yuv renderers.
   private ArrayList<YuvImageRenderer> yuvImageRenderers;
-  private int yuvProgram;
-  private int oesProgram;
+  private GlRectDrawer drawer;
+  // The minimum fraction of the frame content that will be shown for |SCALE_ASPECT_BALANCED|.
+  // This limits excessive cropping when adjusting display size.
+  private static float BALANCED_VISIBLE_FRACTION = 0.56f;
   // Types of video scaling:
   // SCALE_ASPECT_FIT - video frame is scaled to fit the size of the view by
   //    maintaining the aspect ratio (black borders may be displayed).
   // SCALE_ASPECT_FILL - video frame is scaled to fill the size of the view by
   //    maintaining the aspect ratio. Some portion of the video frame may be
   //    clipped.
-  // SCALE_FILL - video frame is scaled to to fill the size of the view. Video
-  //    aspect ratio is changed if necessary.
+  // SCALE_ASPECT_BALANCED - Compromise between FIT and FILL. Video frame will fill as much as
+  // possible of the view while maintaining aspect ratio, under the constraint that at least
+  // |BALANCED_VISIBLE_FRACTION| of the frame content will be shown.
   public static enum ScalingType
-      { SCALE_ASPECT_FIT, SCALE_ASPECT_FILL, SCALE_FILL };
+      { SCALE_ASPECT_FIT, SCALE_ASPECT_FILL, SCALE_ASPECT_BALANCED }
   private static final int EGL14_SDK_VERSION =
       android.os.Build.VERSION_CODES.JELLY_BEAN_MR1;
   // Current SDK version.
   private static final int CURRENT_SDK_VERSION =
       android.os.Build.VERSION.SDK_INT;
-
-  private final String VERTEX_SHADER_STRING =
-      "varying vec2 interp_tc;\n" +
-      "attribute vec4 in_pos;\n" +
-      "attribute vec2 in_tc;\n" +
-      "\n" +
-      "void main() {\n" +
-      "  gl_Position = in_pos;\n" +
-      "  interp_tc = in_tc;\n" +
-      "}\n";
-
-  private final String YUV_FRAGMENT_SHADER_STRING =
-      "precision mediump float;\n" +
-      "varying vec2 interp_tc;\n" +
-      "\n" +
-      "uniform sampler2D y_tex;\n" +
-      "uniform sampler2D u_tex;\n" +
-      "uniform sampler2D v_tex;\n" +
-      "\n" +
-      "void main() {\n" +
-      // CSC according to http://www.fourcc.org/fccyvrgb.php
-      "  float y = texture2D(y_tex, interp_tc).r;\n" +
-      "  float u = texture2D(u_tex, interp_tc).r - 0.5;\n" +
-      "  float v = texture2D(v_tex, interp_tc).r - 0.5;\n" +
-      "  gl_FragColor = vec4(y + 1.403 * v, " +
-      "                      y - 0.344 * u - 0.714 * v, " +
-      "                      y + 1.77 * u, 1);\n" +
-      "}\n";
-
-
-  private static final String OES_FRAGMENT_SHADER_STRING =
-      "#extension GL_OES_EGL_image_external : require\n" +
-      "precision mediump float;\n" +
-      "varying vec2 interp_tc;\n" +
-      "\n" +
-      "uniform samplerExternalOES oes_tex;\n" +
-      "\n" +
-      "void main() {\n" +
-      "  gl_FragColor = texture2D(oes_tex, interp_tc);\n" +
-      "}\n";
-
 
   private VideoRendererGui(GLSurfaceView surface) {
     this.surface = surface;
@@ -138,69 +101,6 @@ public class VideoRendererGui implements GLSurfaceView.Renderer {
     yuvImageRenderers = new ArrayList<YuvImageRenderer>();
   }
 
-  // Poor-man's assert(): die with |msg| unless |condition| is true.
-  private static void abortUnless(boolean condition, String msg) {
-    if (!condition) {
-      throw new RuntimeException(msg);
-    }
-  }
-
-  // Assert that no OpenGL ES 2.0 error has been raised.
-  private static void checkNoGLES2Error() {
-    int error = GLES20.glGetError();
-    abortUnless(error == GLES20.GL_NO_ERROR, "GLES20 error: " + error);
-  }
-
-  // Wrap a float[] in a direct FloatBuffer using native byte order.
-  private static FloatBuffer directNativeFloatBuffer(float[] array) {
-    FloatBuffer buffer = ByteBuffer.allocateDirect(array.length * 4).order(
-        ByteOrder.nativeOrder()).asFloatBuffer();
-    buffer.put(array);
-    buffer.flip();
-    return buffer;
-  }
-
-  private int loadShader(int shaderType, String source) {
-    int[] result = new int[] {
-        GLES20.GL_FALSE
-    };
-    int shader = GLES20.glCreateShader(shaderType);
-    GLES20.glShaderSource(shader, source);
-    GLES20.glCompileShader(shader);
-    GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, result, 0);
-    if (result[0] != GLES20.GL_TRUE) {
-      Log.e(TAG, "Could not compile shader " + shaderType + ":" +
-          GLES20.glGetShaderInfoLog(shader));
-      throw new RuntimeException(GLES20.glGetShaderInfoLog(shader));
-    }
-    checkNoGLES2Error();
-    return shader;
-}
-
-
-  private int createProgram(String vertexSource, String fragmentSource) {
-    int vertexShader = loadShader(GLES20.GL_VERTEX_SHADER, vertexSource);
-    int fragmentShader = loadShader(GLES20.GL_FRAGMENT_SHADER, fragmentSource);
-    int program = GLES20.glCreateProgram();
-    if (program == 0) {
-      throw new RuntimeException("Could not create program");
-    }
-    GLES20.glAttachShader(program, vertexShader);
-    GLES20.glAttachShader(program, fragmentShader);
-    GLES20.glLinkProgram(program);
-    int[] linkStatus = new int[] {
-        GLES20.GL_FALSE
-    };
-    GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, linkStatus, 0);
-    if (linkStatus[0] != GLES20.GL_TRUE) {
-      Log.e(TAG, "Could not link program: " +
-          GLES20.glGetProgramInfoLog(program));
-      throw new RuntimeException(GLES20.glGetProgramInfoLog(program));
-    }
-    checkNoGLES2Error();
-    return program;
-}
-
   /**
    * Class used to display stream of YUV420 frames at particular location
    * on a screen. New video frames are sent to display using renderFrame()
@@ -209,11 +109,8 @@ public class VideoRendererGui implements GLSurfaceView.Renderer {
   private static class YuvImageRenderer implements VideoRenderer.Callbacks {
     private GLSurfaceView surface;
     private int id;
-    private int yuvProgram;
-    private int oesProgram;
     private int[] yuvTextures = { -1, -1, -1 };
     private int oesTexture = -1;
-    private float[] stMatrix = new float[16];
 
     // Render frame queue - accessed by two threads. renderFrame() call does
     // an offer (writing I420Frame to render) and early-returns (recording
@@ -227,6 +124,7 @@ public class VideoRendererGui implements GLSurfaceView.Renderer {
     private static enum RendererType { RENDERER_YUV, RENDERER_TEXTURE };
     private RendererType rendererType;
     private ScalingType scalingType;
+    private boolean mirror;
     // Flag if renderFrame() was ever called.
     boolean seenFrame;
     // Total number of video frames received in renderFrame() call.
@@ -243,14 +141,13 @@ public class VideoRendererGui implements GLSurfaceView.Renderer {
     // Time in ns spent in renderFrame() function - including copying frame
     // data to rendering planes.
     private long copyTimeNs;
-    // Texture vertices.
-    private float texLeft;
-    private float texRight;
-    private float texTop;
-    private float texBottom;
-    private FloatBuffer textureVertices;
-    // Texture UV coordinates.
-    private FloatBuffer textureCoords;
+    // The allowed view area in percentage of screen size.
+    private final Rect layoutInPercentage;
+    // The actual view area in pixels. It is a centered subrectangle of the rectangle defined by
+    // |layoutInPercentage|.
+    private final Rect displayLayout = new Rect();
+    // Cached texture transformation matrix, calculated from current layout parameters.
+    private final float[] texMatrix = new float[16];
     // Flag if texture vertices or coordinates update is needed.
     private boolean updateTextureProperties;
     // Texture properties update lock.
@@ -262,48 +159,34 @@ public class VideoRendererGui implements GLSurfaceView.Renderer {
     private int videoWidth;
     private int videoHeight;
 
+    // This is the degree that the frame should be rotated clockwisely to have
+    // it rendered up right.
+    private int rotationDegree;
+
     private YuvImageRenderer(
         GLSurfaceView surface, int id,
         int x, int y, int width, int height,
-        ScalingType scalingType) {
+        ScalingType scalingType, boolean mirror) {
       Log.d(TAG, "YuvImageRenderer.Create id: " + id);
       this.surface = surface;
       this.id = id;
       this.scalingType = scalingType;
+      this.mirror = mirror;
       frameToRenderQueue = new LinkedBlockingQueue<I420Frame>(1);
-      // Create texture vertices.
-      texLeft = (x - 50) / 50.0f;
-      texTop = (50 - y) / 50.0f;
-      texRight = Math.min(1.0f, (x + width - 50) / 50.0f);
-      texBottom = Math.max(-1.0f, (50 - y - height) / 50.0f);
-      float textureVeticesFloat[] = new float[] {
-          texLeft, texTop,
-          texLeft, texBottom,
-          texRight, texTop,
-          texRight, texBottom
-      };
-      textureVertices = directNativeFloatBuffer(textureVeticesFloat);
-      // Create texture UV coordinates.
-      float textureCoordinatesFloat[] = new float[] {
-          0, 0, 0, 1, 1, 0, 1, 1
-      };
-      textureCoords = directNativeFloatBuffer(textureCoordinatesFloat);
+      layoutInPercentage = new Rect(x, y, Math.min(100, x + width), Math.min(100, y + height));
       updateTextureProperties = false;
+      rotationDegree = 0;
     }
 
-    private void createTextures(int yuvProgram, int oesProgram) {
+    private void createTextures() {
       Log.d(TAG, "  YuvImageRenderer.createTextures " + id + " on GL thread:" +
           Thread.currentThread().getId());
-      this.yuvProgram = yuvProgram;
-      this.oesProgram = oesProgram;
 
       // Generate 3 texture ids for Y/U/V and place them into |yuvTextures|.
       GLES20.glGenTextures(3, yuvTextures, 0);
       for (int i = 0; i < 3; i++)  {
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + i);
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, yuvTextures[i]);
-        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_LUMINANCE,
-            128, 128, 0, GLES20.GL_LUMINANCE, GLES20.GL_UNSIGNED_BYTE, null);
         GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D,
             GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
         GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D,
@@ -313,168 +196,152 @@ public class VideoRendererGui implements GLSurfaceView.Renderer {
         GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D,
             GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
       }
-      checkNoGLES2Error();
+      GlUtil.checkNoGLES2Error("y/u/v glGenTextures");
+    }
+
+    private static float convertScalingTypeToVisibleFraction(ScalingType scalingType) {
+      switch (scalingType) {
+        case SCALE_ASPECT_FIT:
+          return 1.0f;
+        case SCALE_ASPECT_FILL:
+          return 0.0f;
+        case SCALE_ASPECT_BALANCED:
+          return BALANCED_VISIBLE_FRACTION;
+        default:
+          throw new IllegalArgumentException();
+      }
+    }
+
+    private static Point getDisplaySize(float minVisibleFraction, float videoAspectRatio,
+        int maxDisplayWidth, int maxDisplayHeight) {
+      // If there is no constraint on the amount of cropping, fill the allowed display area.
+      if (minVisibleFraction == 0) {
+        return new Point(maxDisplayWidth, maxDisplayHeight);
+      }
+      // Each dimension is constrained on max display size and how much we are allowed to crop.
+      final int width = Math.min(maxDisplayWidth,
+          (int) (maxDisplayHeight / minVisibleFraction * videoAspectRatio));
+      final int height = Math.min(maxDisplayHeight,
+          (int) (maxDisplayWidth / minVisibleFraction / videoAspectRatio));
+      return new Point(width, height);
     }
 
     private void checkAdjustTextureCoords() {
-      if (!updateTextureProperties ||
-          scalingType == ScalingType.SCALE_FILL) {
-        return;
-      }
       synchronized(updateTextureLock) {
-        // Re - calculate texture vertices to preserve video aspect ratio.
-        float texRight = this.texRight;
-        float texLeft = this.texLeft;
-        float texTop = this.texTop;
-        float texBottom = this.texBottom;
-        float texOffsetU = 0;
-        float texOffsetV = 0;
-        float displayWidth = (texRight - texLeft) * screenWidth / 2;
-        float displayHeight = (texTop - texBottom) * screenHeight / 2;
-        Log.d(TAG, "ID: "  + id + ". Display: " + displayWidth +
-            " x " + displayHeight + ". Video: " + videoWidth +
-            " x " + videoHeight);
-        if (displayWidth > 1 && displayHeight > 1 &&
-            videoWidth > 1 && videoHeight > 1) {
-          float displayAspectRatio = displayWidth / displayHeight;
-          float videoAspectRatio = (float)videoWidth / videoHeight;
-          if (scalingType == ScalingType.SCALE_ASPECT_FIT) {
-            // Need to re-adjust vertices width or height to match video AR.
-            if (displayAspectRatio > videoAspectRatio) {
-              float deltaX = (displayWidth - videoAspectRatio * displayHeight) /
-                      instance.screenWidth;
-              texRight -= deltaX;
-              texLeft += deltaX;
-            } else {
-              float deltaY = (displayHeight - displayWidth / videoAspectRatio) /
-                      instance.screenHeight;
-              texTop -= deltaY;
-              texBottom += deltaY;
-            }
-          }
-          if (scalingType == ScalingType.SCALE_ASPECT_FILL) {
-            // Need to re-adjust UV coordinates to match display AR.
-            if (displayAspectRatio > videoAspectRatio) {
-              texOffsetV = (1.0f - videoAspectRatio / displayAspectRatio) /
-                  2.0f;
-            } else {
-              texOffsetU = (1.0f - displayAspectRatio / videoAspectRatio) /
-                  2.0f;
-            }
-          }
-          Log.d(TAG, "  Texture vertices: (" + texLeft + "," + texBottom +
-              ") - (" + texRight + "," + texTop + ")");
-          float textureVeticesFloat[] = new float[] {
-              texLeft, texTop,
-              texLeft, texBottom,
-              texRight, texTop,
-              texRight, texBottom
-          };
-          textureVertices = directNativeFloatBuffer(textureVeticesFloat);
-
-          Log.d(TAG, "  Texture UV offsets: " + texOffsetU + ", " + texOffsetV);
-          float textureCoordinatesFloat[] = new float[] {
-              texOffsetU, texOffsetV,               // left top
-              texOffsetU, 1.0f - texOffsetV,        // left bottom
-              1.0f - texOffsetU, texOffsetV,        // right top
-              1.0f - texOffsetU, 1.0f - texOffsetV  // right bottom
-          };
-          textureCoords = directNativeFloatBuffer(textureCoordinatesFloat);
+        if (!updateTextureProperties) {
+          return;
         }
+        // Initialize to maximum allowed area. Round to integer coordinates inwards the layout
+        // bounding box (ceil left/top and floor right/bottom) to not break constraints.
+        displayLayout.set(
+            (screenWidth * layoutInPercentage.left + 99) / 100,
+            (screenHeight * layoutInPercentage.top + 99) / 100,
+            (screenWidth * layoutInPercentage.right) / 100,
+            (screenHeight * layoutInPercentage.bottom) / 100);
+        Log.d(TAG, "ID: "  + id + ". AdjustTextureCoords. Allowed display size: "
+            + displayLayout.width() + " x " + displayLayout.height() + ". Video: " + videoWidth
+            + " x " + videoHeight + ". Rotation: " + rotationDegree + ". Mirror: " + mirror);
+        final float videoAspectRatio = (rotationDegree % 180 == 0)
+            ? (float) videoWidth / videoHeight
+            : (float) videoHeight / videoWidth;
+        // Adjust display size based on |scalingType|.
+        final float minVisibleFraction = convertScalingTypeToVisibleFraction(scalingType);
+        final Point displaySize = getDisplaySize(minVisibleFraction, videoAspectRatio,
+            displayLayout.width(), displayLayout.height());
+        displayLayout.inset((displayLayout.width() - displaySize.x) / 2,
+                            (displayLayout.height() - displaySize.y) / 2);
+        Log.d(TAG, "  Adjusted display size: " + displayLayout.width() + " x "
+            + displayLayout.height());
+        // The matrix stack is using post-multiplication, which means that matrix operations:
+        // A; B; C; will end up as A * B * C. When you apply this to a vertex, it will result in:
+        // v' = A * B * C * v, i.e. the last matrix operation is the first thing that affects the
+        // vertex. This is the opposite of what you might expect.
+        Matrix.setIdentityM(texMatrix, 0);
+        // Move coordinates back to [0,1]x[0,1].
+        Matrix.translateM(texMatrix, 0, 0.5f, 0.5f, 0.0f);
+        // Rotate frame clockwise in the XY-plane (around the Z-axis).
+        Matrix.rotateM(texMatrix, 0, -rotationDegree, 0, 0, 1);
+        // Scale one dimension until video and display size have same aspect ratio.
+        final float displayAspectRatio = (float) displayLayout.width() / displayLayout.height();
+        if (displayAspectRatio > videoAspectRatio) {
+            Matrix.scaleM(texMatrix, 0, 1, videoAspectRatio / displayAspectRatio, 1);
+        } else {
+            Matrix.scaleM(texMatrix, 0, displayAspectRatio / videoAspectRatio, 1, 1);
+        }
+        // TODO(magjed): We currently ignore the texture transform matrix from the SurfaceTexture.
+        // It contains a vertical flip that is hardcoded here instead.
+        Matrix.scaleM(texMatrix, 0, 1, -1, 1);
+        // Apply optional horizontal flip.
+        if (mirror) {
+          Matrix.scaleM(texMatrix, 0, -1, 1, 1);
+        }
+        // Center coordinates around origin.
+        Matrix.translateM(texMatrix, 0, -0.5f, -0.5f, 0.0f);
         updateTextureProperties = false;
+        Log.d(TAG, "  AdjustTextureCoords done");
       }
     }
 
-    private void draw() {
+    private void draw(GlRectDrawer drawer) {
       if (!seenFrame) {
         // No frame received yet - nothing to render.
         return;
       }
-      // Check if texture vertices/coordinates adjustment is required when
-      // screen orientation changes or video frame size changes.
-      checkAdjustTextureCoords();
-
       long now = System.nanoTime();
+
+      // OpenGL defaults to lower left origin.
+      GLES20.glViewport(displayLayout.left, screenHeight - displayLayout.bottom,
+                        displayLayout.width(), displayLayout.height());
 
       I420Frame frameFromQueue;
       synchronized (frameToRenderQueue) {
+        // Check if texture vertices/coordinates adjustment is required when
+        // screen orientation changes or video frame size changes.
+        checkAdjustTextureCoords();
+
         frameFromQueue = frameToRenderQueue.peek();
         if (frameFromQueue != null && startTimeNs == -1) {
           startTimeNs = now;
         }
 
-        if (rendererType == RendererType.RENDERER_YUV) {
-          // YUV textures rendering.
-          GLES20.glUseProgram(yuvProgram);
-
-          for (int i = 0; i < 3; ++i) {
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + i);
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, yuvTextures[i]);
-            if (frameFromQueue != null) {
-              int w = (i == 0) ?
-                  frameFromQueue.width : frameFromQueue.width / 2;
-              int h = (i == 0) ?
-                  frameFromQueue.height : frameFromQueue.height / 2;
+        if (frameFromQueue != null) {
+          if (frameFromQueue.yuvFrame) {
+            // YUV textures rendering. Upload YUV data as textures.
+            for (int i = 0; i < 3; ++i) {
+              GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + i);
+              GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, yuvTextures[i]);
+              int w = (i == 0) ? frameFromQueue.width : frameFromQueue.width / 2;
+              int h = (i == 0) ? frameFromQueue.height : frameFromQueue.height / 2;
               GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_LUMINANCE,
                   w, h, 0, GLES20.GL_LUMINANCE, GLES20.GL_UNSIGNED_BYTE,
                   frameFromQueue.yuvPlanes[i]);
             }
-          }
-        } else {
-          // External texture rendering.
-          GLES20.glUseProgram(oesProgram);
-
-          if (frameFromQueue != null) {
+          } else {
+            // External texture rendering. Copy texture id and update texture image to latest.
+            // TODO(magjed): We should not make an unmanaged copy of texture id. Also, this is not
+            // the best place to call updateTexImage.
             oesTexture = frameFromQueue.textureId;
             if (frameFromQueue.textureObject instanceof SurfaceTexture) {
               SurfaceTexture surfaceTexture =
                   (SurfaceTexture) frameFromQueue.textureObject;
               surfaceTexture.updateTexImage();
-              surfaceTexture.getTransformMatrix(stMatrix);
             }
           }
-          GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
-          GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oesTexture);
-        }
 
-        if (frameFromQueue != null) {
           frameToRenderQueue.poll();
         }
       }
 
       if (rendererType == RendererType.RENDERER_YUV) {
-        GLES20.glUniform1i(GLES20.glGetUniformLocation(yuvProgram, "y_tex"), 0);
-        GLES20.glUniform1i(GLES20.glGetUniformLocation(yuvProgram, "u_tex"), 1);
-        GLES20.glUniform1i(GLES20.glGetUniformLocation(yuvProgram, "v_tex"), 2);
+        drawer.drawYuv(videoWidth, videoHeight, yuvTextures, texMatrix);
+      } else {
+        drawer.drawOes(oesTexture, texMatrix);
       }
-
-      int posLocation = GLES20.glGetAttribLocation(yuvProgram, "in_pos");
-      if (posLocation == -1) {
-        throw new RuntimeException("Could not get attrib location for in_pos");
-      }
-      GLES20.glEnableVertexAttribArray(posLocation);
-      GLES20.glVertexAttribPointer(
-          posLocation, 2, GLES20.GL_FLOAT, false, 0, textureVertices);
-
-      int texLocation = GLES20.glGetAttribLocation(yuvProgram, "in_tc");
-      if (texLocation == -1) {
-        throw new RuntimeException("Could not get attrib location for in_tc");
-      }
-      GLES20.glEnableVertexAttribArray(texLocation);
-      GLES20.glVertexAttribPointer(
-          texLocation, 2, GLES20.GL_FLOAT, false, 0, textureCoords);
-
-      GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
-
-      GLES20.glDisableVertexAttribArray(posLocation);
-      GLES20.glDisableVertexAttribArray(texLocation);
-
-      checkNoGLES2Error();
 
       if (frameFromQueue != null) {
         framesRendered++;
         drawTimeNs += (System.nanoTime() - now);
-        if ((framesRendered % 150) == 0) {
+        if ((framesRendered % 300) == 0) {
           logStatistics();
         }
       }
@@ -496,6 +363,11 @@ public class VideoRendererGui implements GLSurfaceView.Renderer {
 
     public void setScreenSize(final int screenWidth, final int screenHeight) {
       synchronized(updateTextureLock) {
+        if (screenWidth == this.screenWidth && screenHeight == this.screenHeight) {
+          return;
+        }
+        Log.d(TAG, "ID: " + id + ". YuvImageRenderer.setScreenSize: " +
+            screenWidth + " x " + screenHeight);
         this.screenWidth = screenWidth;
         this.screenHeight = screenHeight;
         updateTextureProperties = true;
@@ -503,39 +375,57 @@ public class VideoRendererGui implements GLSurfaceView.Renderer {
     }
 
     public void setPosition(int x, int y, int width, int height,
-        ScalingType scalingType) {
+        ScalingType scalingType, boolean mirror) {
+      final Rect layoutInPercentage =
+          new Rect(x, y, Math.min(100, x + width), Math.min(100, y + height));
       synchronized(updateTextureLock) {
-        texLeft = (x - 50) / 50.0f;
-        texTop = (50 - y) / 50.0f;
-        texRight = Math.min(1.0f, (x + width - 50) / 50.0f);
-        texBottom = Math.max(-1.0f, (50 - y - height) / 50.0f);
+        if (layoutInPercentage.equals(this.layoutInPercentage) && scalingType == this.scalingType
+            && mirror == this.mirror) {
+          return;
+        }
+        Log.d(TAG, "ID: " + id + ". YuvImageRenderer.setPosition: (" + x + ", " + y +
+            ") " +  width + " x " + height + ". Scaling: " + scalingType +
+            ". Mirror: " + mirror);
+        this.layoutInPercentage.set(layoutInPercentage);
         this.scalingType = scalingType;
+        this.mirror = mirror;
         updateTextureProperties = true;
       }
     }
 
-    @Override
-    public void setSize(final int width, final int height) {
-      Log.d(TAG, "ID: " + id + ". YuvImageRenderer.setSize: " +
-          width + " x " + height);
-      videoWidth = width;
-      videoHeight = height;
-      int[] strides = { width, width / 2, width / 2  };
+    private void setSize(final int videoWidth, final int videoHeight, final int rotation) {
+      if (videoWidth == this.videoWidth && videoHeight == this.videoHeight
+          && rotation == rotationDegree) {
+        return;
+      }
+
       // Frame re-allocation need to be synchronized with copying
       // frame to textures in draw() function to avoid re-allocating
       // the frame while it is being copied.
       synchronized (frameToRenderQueue) {
+        Log.d(TAG, "ID: " + id + ". YuvImageRenderer.setSize: " +
+            videoWidth + " x " + videoHeight + " rotation " + rotation);
+
+        this.videoWidth = videoWidth;
+        this.videoHeight = videoHeight;
+        rotationDegree = rotation;
+        int[] strides = { videoWidth, videoWidth / 2, videoWidth / 2  };
+
         // Clear rendering queue.
         frameToRenderQueue.poll();
         // Re-allocate / allocate the frame.
-        yuvFrameToRender = new I420Frame(width, height, strides, null);
-        textureFrameToRender = new I420Frame(width, height, null, -1);
+        yuvFrameToRender = new I420Frame(videoWidth, videoHeight, rotationDegree,
+                                         strides, null);
+        textureFrameToRender = new I420Frame(videoWidth, videoHeight, rotationDegree,
+                                             null, -1);
         updateTextureProperties = true;
+        Log.d(TAG, "  YuvImageRenderer.setSize done.");
       }
     }
 
     @Override
     public synchronized void renderFrame(I420Frame frame) {
+      setSize(frame.width, frame.height, frame.rotationDegree);
       long now = System.nanoTime();
       framesReceived++;
       // Skip rendering of this frame if setSize() was not called.
@@ -545,9 +435,9 @@ public class VideoRendererGui implements GLSurfaceView.Renderer {
       }
       // Check input frame parameters.
       if (frame.yuvFrame) {
-        if (!(frame.yuvStrides[0] == frame.width &&
-            frame.yuvStrides[1] == frame.width / 2 &&
-            frame.yuvStrides[2] == frame.width / 2)) {
+        if (frame.yuvStrides[0] < frame.width ||
+            frame.yuvStrides[1] < frame.width / 2 ||
+            frame.yuvStrides[2] < frame.width / 2) {
           Log.e(TAG, "Incorrect strides " + frame.yuvStrides[0] + ", " +
               frame.yuvStrides[1] + ", " + frame.yuvStrides[2]);
           return;
@@ -583,12 +473,19 @@ public class VideoRendererGui implements GLSurfaceView.Renderer {
       surface.requestRender();
     }
 
+    // TODO(guoweis): Remove this once chrome code base is updated.
+    @Override
+    public boolean canApplyRotation() {
+      return true;
+    }
   }
 
   /** Passes GLSurfaceView to video renderer. */
-  public static void setView(GLSurfaceView surface) {
+  public static void setView(GLSurfaceView surface,
+      Runnable eglContextReadyCallback) {
     Log.d(TAG, "VideoRendererGui.setView");
     instance = new VideoRendererGui(surface);
+    eglContextReady = eglContextReadyCallback;
   }
 
   public static EGLContext getEGLContext() {
@@ -599,16 +496,17 @@ public class VideoRendererGui implements GLSurfaceView.Renderer {
    * Creates VideoRenderer with top left corner at (x, y) and resolution
    * (width, height). All parameters are in percentage of screen resolution.
    */
-  public static VideoRenderer createGui(
-      int x, int y, int width, int height, ScalingType scalingType)
-          throws Exception {
-    YuvImageRenderer javaGuiRenderer = create(x, y, width, height, scalingType);
+  public static VideoRenderer createGui(int x, int y, int width, int height,
+      ScalingType scalingType, boolean mirror) throws Exception {
+    YuvImageRenderer javaGuiRenderer = create(
+        x, y, width, height, scalingType, mirror);
     return new VideoRenderer(javaGuiRenderer);
   }
 
   public static VideoRenderer.Callbacks createGuiRenderer(
-      int x, int y, int width, int height, ScalingType scalingType) {
-    return create(x, y, width, height, scalingType);
+      int x, int y, int width, int height,
+      ScalingType scalingType, boolean mirror) {
+    return create(x, y, width, height, scalingType, mirror);
   }
 
   /**
@@ -616,8 +514,8 @@ public class VideoRendererGui implements GLSurfaceView.Renderer {
    * resolution (width, height). All parameters are in percentage of
    * screen resolution.
    */
-  public static YuvImageRenderer create(
-      int x, int y, int width, int height, ScalingType scalingType) {
+  public static YuvImageRenderer create(int x, int y, int width, int height,
+      ScalingType scalingType, boolean mirror) {
     // Check display region parameters.
     if (x < 0 || x > 100 || y < 0 || y > 100 ||
         width < 0 || width > 100 || height < 0 || height > 100 ||
@@ -631,7 +529,7 @@ public class VideoRendererGui implements GLSurfaceView.Renderer {
     }
     final YuvImageRenderer yuvImageRenderer = new YuvImageRenderer(
         instance.surface, instance.yuvImageRenderers.size(),
-        x, y, width, height, scalingType);
+        x, y, width, height, scalingType, mirror);
     synchronized (instance.yuvImageRenderers) {
       if (instance.onSurfaceCreatedCalled) {
         // onSurfaceCreated has already been called for VideoRendererGui -
@@ -640,8 +538,7 @@ public class VideoRendererGui implements GLSurfaceView.Renderer {
         final CountDownLatch countDownLatch = new CountDownLatch(1);
         instance.surface.queueEvent(new Runnable() {
           public void run() {
-            yuvImageRenderer.createTextures(
-                instance.yuvProgram, instance.oesProgram);
+            yuvImageRenderer.createTextures();
             yuvImageRenderer.setScreenSize(
                 instance.screenWidth, instance.screenHeight);
             countDownLatch.countDown();
@@ -662,7 +559,7 @@ public class VideoRendererGui implements GLSurfaceView.Renderer {
 
   public static void update(
       VideoRenderer.Callbacks renderer,
-      int x, int y, int width, int height, ScalingType scalingType) {
+      int x, int y, int width, int height, ScalingType scalingType, boolean mirror) {
     Log.d(TAG, "VideoRendererGui.update");
     if (instance == null) {
       throw new RuntimeException(
@@ -671,36 +568,52 @@ public class VideoRendererGui implements GLSurfaceView.Renderer {
     synchronized (instance.yuvImageRenderers) {
       for (YuvImageRenderer yuvImageRenderer : instance.yuvImageRenderers) {
         if (yuvImageRenderer == renderer) {
-          yuvImageRenderer.setPosition(x, y, width, height, scalingType);
+          yuvImageRenderer.setPosition(x, y, width, height, scalingType, mirror);
         }
       }
     }
   }
 
+  public static void remove(VideoRenderer.Callbacks renderer) {
+    Log.d(TAG, "VideoRendererGui.remove");
+    if (instance == null) {
+      throw new RuntimeException(
+          "Attempt to remove yuv renderer before setting GLSurfaceView");
+    }
+    synchronized (instance.yuvImageRenderers) {
+      if (!instance.yuvImageRenderers.remove(renderer)) {
+        Log.w(TAG, "Couldn't remove renderer (not present in current list)");
+      }
+    }
+  }
+
+  @SuppressLint("NewApi")
   @Override
   public void onSurfaceCreated(GL10 unused, EGLConfig config) {
     Log.d(TAG, "VideoRendererGui.onSurfaceCreated");
-    // Store render EGL context
+    // Store render EGL context.
     if (CURRENT_SDK_VERSION >= EGL14_SDK_VERSION) {
       eglContext = EGL14.eglGetCurrentContext();
       Log.d(TAG, "VideoRendererGui EGL Context: " + eglContext);
     }
 
-    // Create YUV and OES programs.
-    yuvProgram = createProgram(VERTEX_SHADER_STRING,
-        YUV_FRAGMENT_SHADER_STRING);
-    oesProgram = createProgram(VERTEX_SHADER_STRING,
-        OES_FRAGMENT_SHADER_STRING);
+    // Create drawer for YUV/OES frames.
+    drawer = new GlRectDrawer();
 
     synchronized (yuvImageRenderers) {
       // Create textures for all images.
       for (YuvImageRenderer yuvImageRenderer : yuvImageRenderers) {
-        yuvImageRenderer.createTextures(yuvProgram, oesProgram);
+        yuvImageRenderer.createTextures();
       }
       onSurfaceCreatedCalled = true;
     }
-    checkNoGLES2Error();
+    GlUtil.checkNoGLES2Error("onSurfaceCreated done");
     GLES20.glClearColor(0.15f, 0.15f, 0.15f, 1.0f);
+
+    // Fire EGL context ready event.
+    if (eglContextReady != null) {
+      eglContextReady.run();
+    }
   }
 
   @Override
@@ -709,7 +622,6 @@ public class VideoRendererGui implements GLSurfaceView.Renderer {
         width + " x " + height + "  ");
     screenWidth = width;
     screenHeight = height;
-    GLES20.glViewport(0, 0, width, height);
     synchronized (yuvImageRenderers) {
       for (YuvImageRenderer yuvImageRenderer : yuvImageRenderers) {
         yuvImageRenderer.setScreenSize(screenWidth, screenHeight);
@@ -719,10 +631,11 @@ public class VideoRendererGui implements GLSurfaceView.Renderer {
 
   @Override
   public void onDrawFrame(GL10 unused) {
+    GLES20.glViewport(0, 0, screenWidth, screenHeight);
     GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
     synchronized (yuvImageRenderers) {
       for (YuvImageRenderer yuvImageRenderer : yuvImageRenderers) {
-        yuvImageRenderer.draw();
+        yuvImageRenderer.draw(drawer);
       }
     }
   }

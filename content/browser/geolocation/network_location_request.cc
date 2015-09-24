@@ -123,8 +123,8 @@ bool NetworkLocationRequest::MakeRequest(const base::string16& access_token,
   wifi_data_timestamp_ = timestamp;
 
   GURL request_url = FormRequestURL(url_);
-  url_fetcher_.reset(net::URLFetcher::Create(
-      url_fetcher_id_for_tests, request_url, net::URLFetcher::POST, this));
+  url_fetcher_ = net::URLFetcher::Create(url_fetcher_id_for_tests, request_url,
+                                         net::URLFetcher::POST, this);
   url_fetcher_->SetRequestContext(url_context_.get());
   std::string upload_data;
   FormUploadData(wifi_data, timestamp, access_token, &upload_data);
@@ -221,7 +221,7 @@ void FormUploadData(const WifiData& wifi_data,
   AddWifiData(wifi_data, age, &request);
   if (!access_token.empty())
     request.SetString(kAccessTokenString, access_token);
-  base::JSONWriter::Write(&request, upload_data);
+  base::JSONWriter::Write(request, upload_data);
 }
 
 void AddString(const std::string& property_name, const std::string& value,
@@ -366,8 +366,9 @@ bool ParseServerResponse(const std::string& response_body,
 
   // Parse the response, ignoring comments.
   std::string error_msg;
-  scoped_ptr<base::Value> response_value(base::JSONReader::ReadAndReturnError(
-      response_body, base::JSON_PARSE_RFC, NULL, &error_msg));
+  scoped_ptr<base::Value> response_value(
+      base::JSONReader::DeprecatedReadAndReturnError(
+          response_body, base::JSON_PARSE_RFC, NULL, &error_msg));
   if (response_value == NULL) {
     LOG(WARNING) << "ParseServerResponse() : JSONReader failed : "
                  << error_msg;

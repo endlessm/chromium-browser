@@ -14,18 +14,12 @@
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry_factory.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/google/core/browser/google_util.h"
 #include "content/public/browser/web_ui.h"
 
 namespace options {
-
-namespace {
-
-const char kHandlersLearnMoreUrl[] =
-    "https://support.google.com/chrome/answer/1382847";
-
-}  // namespace
 
 HandlerOptionsHandler::HandlerOptionsHandler() {
 }
@@ -38,22 +32,22 @@ void HandlerOptionsHandler::GetLocalizedValues(
   DCHECK(localized_strings);
 
   static OptionsStringResource resources[] = {
-      { "handlers_tab_label", IDS_HANDLERS_TAB_LABEL },
-      { "handlers_allow", IDS_HANDLERS_ALLOW_RADIO },
-      { "handlers_block", IDS_HANDLERS_DONOTALLOW_RADIO },
-      { "handlers_type_column_header", IDS_HANDLERS_TYPE_COLUMN_HEADER },
-      { "handlers_site_column_header", IDS_HANDLERS_SITE_COLUMN_HEADER },
-      { "handlers_remove_link", IDS_HANDLERS_REMOVE_HANDLER_LINK },
-      { "handlers_none_handler", IDS_HANDLERS_NONE_HANDLER },
-      { "handlers_active_heading", IDS_HANDLERS_ACTIVE_HEADING },
-      { "handlers_ignored_heading", IDS_HANDLERS_IGNORED_HEADING },
+      { "handlersTabLabel", IDS_HANDLERS_TAB_LABEL },
+      { "handlersAllow", IDS_HANDLERS_ALLOW_RADIO },
+      { "handlersBlock", IDS_HANDLERS_DONOTALLOW_RADIO },
+      { "handlersTypeColumnHeader", IDS_HANDLERS_TYPE_COLUMN_HEADER },
+      { "handlersSiteColumnHeader", IDS_HANDLERS_SITE_COLUMN_HEADER },
+      { "handlersRemoveLink", IDS_HANDLERS_REMOVE_HANDLER_LINK },
+      { "handlersNoneHandler", IDS_HANDLERS_NONE_HANDLER },
+      { "handlersActiveHeading", IDS_HANDLERS_ACTIVE_HEADING },
+      { "handlersIgnoredHeading", IDS_HANDLERS_IGNORED_HEADING },
   };
   RegisterTitle(localized_strings, "handlersPage",
                 IDS_HANDLER_OPTIONS_WINDOW_TITLE);
   RegisterStrings(localized_strings, resources, arraysize(resources));
 
-  localized_strings->SetString("handlers_learn_more_url",
-                               kHandlersLearnMoreUrl);
+  localized_strings->SetString("handlersLearnMoreUrl",
+                               chrome::kLearnMoreRegisterProtocolHandlerURL);
 }
 
 void HandlerOptionsHandler::InitializeHandler() {

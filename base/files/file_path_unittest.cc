@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <sstream>
+
 #include "base/basictypes.h"
 #include "base/files/file_path.h"
 #include "base/strings/utf_string_conversions.h"
@@ -48,15 +50,7 @@ struct UTF8TestData {
 
 // file_util winds up using autoreleased objects on the Mac, so this needs
 // to be a PlatformTest
-class FilePathTest : public PlatformTest {
- protected:
-  virtual void SetUp() override {
-    PlatformTest::SetUp();
-  }
-  virtual void TearDown() override {
-    PlatformTest::TearDown();
-  }
-};
+typedef PlatformTest FilePathTest;
 
 TEST_F(FilePathTest, DirName) {
   const struct UnaryTestData cases[] = {
@@ -1280,5 +1274,14 @@ TEST_F(FilePathTest, ContentUriTest) {
   }
 }
 #endif
+
+// Test the PrintTo overload for FilePath (used when a test fails to compare two
+// FilePaths).
+TEST_F(FilePathTest, PrintTo) {
+  std::stringstream ss;
+  FilePath fp(FPL("foo"));
+  base::PrintTo(fp, &ss);
+  EXPECT_EQ("foo", ss.str());
+}
 
 }  // namespace base

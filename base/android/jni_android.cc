@@ -17,6 +17,8 @@ using base::android::GetClass;
 using base::android::MethodID;
 using base::android::ScopedJavaLocalRef;
 
+bool g_disable_manual_jni_registration = false;
+
 JavaVM* g_jvm = NULL;
 // Leak the global app context, as it is used from a non-joinable worker thread
 // that may still be running at shutdown. There is no harm in doing this.
@@ -26,56 +28,19 @@ base::LazyInstance<base::android::ScopedJavaGlobalRef<jobject> >::Leaky
     g_class_loader = LAZY_INSTANCE_INITIALIZER;
 jmethodID g_class_loader_load_class_method_id = 0;
 
-std::string GetJavaExceptionInfo(JNIEnv* env, jthrowable java_throwable) {
-  ScopedJavaLocalRef<jclass> throwable_clazz =
-      GetClass(env, "java/lang/Throwable");
-  jmethodID throwable_printstacktrace =
-      MethodID::Get<MethodID::TYPE_INSTANCE>(
-          env, throwable_clazz.obj(), "printStackTrace",
-          "(Ljava/io/PrintStream;)V");
-
-  // Create an instance of ByteArrayOutputStream.
-  ScopedJavaLocalRef<jclass> bytearray_output_stream_clazz =
-      GetClass(env, "java/io/ByteArrayOutputStream");
-  jmethodID bytearray_output_stream_constructor =
-      MethodID::Get<MethodID::TYPE_INSTANCE>(
-          env, bytearray_output_stream_clazz.obj(), "<init>", "()V");
-  jmethodID bytearray_output_stream_tostring =
-      MethodID::Get<MethodID::TYPE_INSTANCE>(
-          env, bytearray_output_stream_clazz.obj(), "toString",
-          "()Ljava/lang/String;");
-  ScopedJavaLocalRef<jobject> bytearray_output_stream(env,
-      env->NewObject(bytearray_output_stream_clazz.obj(),
-                     bytearray_output_stream_constructor));
-
-  // Create an instance of PrintStream.
-  ScopedJavaLocalRef<jclass> printstream_clazz =
-      GetClass(env, "java/io/PrintStream");
-  jmethodID printstream_constructor =
-      MethodID::Get<MethodID::TYPE_INSTANCE>(
-          env, printstream_clazz.obj(), "<init>",
-          "(Ljava/io/OutputStream;)V");
-  ScopedJavaLocalRef<jobject> printstream(env,
-      env->NewObject(printstream_clazz.obj(), printstream_constructor,
-                     bytearray_output_stream.obj()));
-
-  // Call Throwable.printStackTrace(PrintStream)
-  env->CallVoidMethod(java_throwable, throwable_printstacktrace,
-      printstream.obj());
-
-  // Call ByteArrayOutputStream.toString()
-  ScopedJavaLocalRef<jstring> exception_string(
-      env, static_cast<jstring>(
-          env->CallObjectMethod(bytearray_output_stream.obj(),
-                                bytearray_output_stream_tostring)));
-
-  return ConvertJavaStringToUTF8(exception_string);
-}
-
 }  // namespace
 
 namespace base {
 namespace android {
+
+bool IsManualJniRegistrationDisabled() {
+  return g_disable_manual_jni_registration;
+}
+
+void DisableManualJniRegistration() {
+  DCHECK(!g_disable_manual_jni_registration);
+  g_disable_manual_jni_registration = true;
+}
 
 JNIEnv* AttachCurrentThread() {
   DCHECK(g_jvm);
@@ -148,10 +113,25 @@ const jobject GetApplicationContext() {
 ScopedJavaLocalRef<jclass> GetClass(JNIEnv* env, const char* class_name) {
   jclass clazz;
   if (!g_class_loader.Get().is_null()) {
+    // ClassLoader.loadClass expects a classname with components separated by
+    // dots instead of the slashes that JNIEnv::FindClass expects. The JNI
+    // generator generates names with slashes, so we have to replace them here.
+    // TODO(torne): move to an approach where we always use ClassLoader except
+    // for the special case of base::android::GetClassLoader(), and change the
+    // JNI generator to generate dot-separated names. http://crbug.com/461773
+    size_t bufsize = strlen(class_name) + 1;
+    char dotted_name[bufsize];
+    memmove(dotted_name, class_name, bufsize);
+    for (size_t i = 0; i < bufsize; ++i) {
+      if (dotted_name[i] == '/') {
+        dotted_name[i] = '.';
+      }
+    }
+
     clazz = static_cast<jclass>(
         env->CallObjectMethod(g_class_loader.Get().obj(),
                               g_class_loader_load_class_method_id,
-                              ConvertUTF8ToJavaString(env, class_name).obj()));
+                              ConvertUTF8ToJavaString(env, dotted_name).obj()));
   } else {
     clazz = env->FindClass(class_name);
   }
@@ -261,13 +241,60 @@ void CheckException(JNIEnv* env) {
 
     // Set the exception_string in BuildInfo so that breakpad can read it.
     // RVO should avoid any extra copies of the exception string.
-    base::android::BuildInfo::GetInstance()->set_java_exception_info(
+    base::android::BuildInfo::GetInstance()->SetJavaExceptionInfo(
         GetJavaExceptionInfo(env, java_throwable));
   }
 
   // Now, feel good about it and die.
   CHECK(false) << "Please include Java exception stack in crash report";
 }
+
+std::string GetJavaExceptionInfo(JNIEnv* env, jthrowable java_throwable) {
+  ScopedJavaLocalRef<jclass> throwable_clazz =
+      GetClass(env, "java/lang/Throwable");
+  jmethodID throwable_printstacktrace =
+      MethodID::Get<MethodID::TYPE_INSTANCE>(
+          env, throwable_clazz.obj(), "printStackTrace",
+          "(Ljava/io/PrintStream;)V");
+
+  // Create an instance of ByteArrayOutputStream.
+  ScopedJavaLocalRef<jclass> bytearray_output_stream_clazz =
+      GetClass(env, "java/io/ByteArrayOutputStream");
+  jmethodID bytearray_output_stream_constructor =
+      MethodID::Get<MethodID::TYPE_INSTANCE>(
+          env, bytearray_output_stream_clazz.obj(), "<init>", "()V");
+  jmethodID bytearray_output_stream_tostring =
+      MethodID::Get<MethodID::TYPE_INSTANCE>(
+          env, bytearray_output_stream_clazz.obj(), "toString",
+          "()Ljava/lang/String;");
+  ScopedJavaLocalRef<jobject> bytearray_output_stream(env,
+      env->NewObject(bytearray_output_stream_clazz.obj(),
+                     bytearray_output_stream_constructor));
+
+  // Create an instance of PrintStream.
+  ScopedJavaLocalRef<jclass> printstream_clazz =
+      GetClass(env, "java/io/PrintStream");
+  jmethodID printstream_constructor =
+      MethodID::Get<MethodID::TYPE_INSTANCE>(
+          env, printstream_clazz.obj(), "<init>",
+          "(Ljava/io/OutputStream;)V");
+  ScopedJavaLocalRef<jobject> printstream(env,
+      env->NewObject(printstream_clazz.obj(), printstream_constructor,
+                     bytearray_output_stream.obj()));
+
+  // Call Throwable.printStackTrace(PrintStream)
+  env->CallVoidMethod(java_throwable, throwable_printstacktrace,
+      printstream.obj());
+
+  // Call ByteArrayOutputStream.toString()
+  ScopedJavaLocalRef<jstring> exception_string(
+      env, static_cast<jstring>(
+          env->CallObjectMethod(bytearray_output_stream.obj(),
+                                bytearray_output_stream_tostring)));
+
+  return ConvertJavaStringToUTF8(exception_string);
+}
+
 
 }  // namespace android
 }  // namespace base

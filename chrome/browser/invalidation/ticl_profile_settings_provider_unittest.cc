@@ -11,10 +11,11 @@
 #include "chrome/browser/services/gcm/gcm_profile_service_factory.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_profile.h"
-#include "components/invalidation/fake_invalidation_state_tracker.h"
-#include "components/invalidation/invalidation_state_tracker.h"
-#include "components/invalidation/ticl_invalidation_service.h"
-#include "components/invalidation/ticl_settings_provider.h"
+#include "components/gcm_driver/gcm_channel_status_syncer.h"
+#include "components/invalidation/impl/fake_invalidation_state_tracker.h"
+#include "components/invalidation/impl/invalidation_state_tracker.h"
+#include "components/invalidation/impl/ticl_invalidation_service.h"
+#include "components/invalidation/impl/ticl_settings_provider.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "google_apis/gaia/fake_identity_provider.h"
 #include "google_apis/gaia/fake_oauth2_token_service.h"
@@ -79,27 +80,27 @@ TEST_F(TiclProfileSettingsProviderTest, ChannelSelectionTest) {
 
   // If GCM is enabled and invalidation channel setting is not set or set to
   // true then use GCM channel.
-  prefs->SetBoolean(prefs::kGCMChannelEnabled, true);
+  prefs->SetBoolean(gcm::prefs::kGCMChannelStatus, true);
   prefs->SetBoolean(prefs::kInvalidationServiceUseGCMChannel, true);
   EXPECT_EQ(TiclInvalidationService::GCM_NETWORK_CHANNEL, GetNetworkChannel());
 
-  prefs->SetBoolean(prefs::kGCMChannelEnabled, true);
+  prefs->SetBoolean(gcm::prefs::kGCMChannelStatus, true);
   prefs->ClearPref(prefs::kInvalidationServiceUseGCMChannel);
   EXPECT_EQ(TiclInvalidationService::GCM_NETWORK_CHANNEL, GetNetworkChannel());
 
-  prefs->ClearPref(prefs::kGCMChannelEnabled);
+  prefs->ClearPref(gcm::prefs::kGCMChannelStatus);
+  prefs->SetBoolean(prefs::kInvalidationServiceUseGCMChannel, true);
+  EXPECT_EQ(TiclInvalidationService::GCM_NETWORK_CHANNEL, GetNetworkChannel());
+
+  // If invalidation channel setting says use GCM but GCM is not enabled, do not
+  // fall back to push channel.
+  prefs->SetBoolean(gcm::prefs::kGCMChannelStatus, false);
   prefs->SetBoolean(prefs::kInvalidationServiceUseGCMChannel, true);
   EXPECT_EQ(TiclInvalidationService::GCM_NETWORK_CHANNEL, GetNetworkChannel());
 
   // If invalidation channel setting is set to false, fall back to push channel.
-  prefs->SetBoolean(prefs::kGCMChannelEnabled, true);
+  prefs->SetBoolean(gcm::prefs::kGCMChannelStatus, true);
   prefs->SetBoolean(prefs::kInvalidationServiceUseGCMChannel, false);
-  EXPECT_EQ(TiclInvalidationService::PUSH_CLIENT_CHANNEL, GetNetworkChannel());
-
-  // If invalidation channel setting says use GCM but GCM is not enabled, fall
-  // back to push channel.
-  prefs->SetBoolean(prefs::kGCMChannelEnabled, false);
-  prefs->SetBoolean(prefs::kInvalidationServiceUseGCMChannel, true);
   EXPECT_EQ(TiclInvalidationService::PUSH_CLIENT_CHANNEL, GetNetworkChannel());
 }
 

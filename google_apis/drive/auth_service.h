@@ -60,7 +60,7 @@ class AuthService : public AuthServiceInterface,
   // Called when authentication request from StartAuthentication() is
   // completed.
   void OnAuthCompleted(const AuthStatusCallback& callback,
-                       GDataErrorCode error,
+                       DriveApiErrorCode error,
                        const std::string& access_token);
 
   OAuth2TokenService* oauth2_token_service_;
@@ -69,7 +69,7 @@ class AuthService : public AuthServiceInterface,
   bool has_refresh_token_;
   std::string access_token_;
   std::vector<std::string> scopes_;
-  ObserverList<AuthServiceObserver> observers_;
+  base::ObserverList<AuthServiceObserver> observers_;
   base::ThreadChecker thread_checker_;
 
   // Note: This should remain the last member so it'll be destroyed and

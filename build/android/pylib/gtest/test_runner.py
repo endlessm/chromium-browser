@@ -5,17 +5,38 @@
 import logging
 import os
 import re
+import tempfile
 
 from pylib import pexpect
+from pylib import ports
 from pylib.base import base_test_result
 from pylib.base import base_test_runner
 from pylib.device import device_errors
+from pylib.gtest import gtest_test_instance
+from pylib.local import local_test_server_spawner
 from pylib.perf import perf_control
+
+# Test case statuses.
+RE_RUN = re.compile('\\[ RUN      \\] ?(.*)\r\n')
+RE_FAIL = re.compile('\\[  FAILED  \\] ?(.*?)( \\((\\d+) ms\\))?\r\r\n')
+RE_OK = re.compile('\\[       OK \\] ?(.*?)( \\((\\d+) ms\\))?\r\r\n')
+
+# Test run statuses.
+RE_PASSED = re.compile('\\[  PASSED  \\] ?(.*)\r\n')
+RE_RUNNER_FAIL = re.compile('\\[ RUNNER_FAILED \\] ?(.*)\r\n')
+# Signal handlers are installed before starting tests
+# to output the CRASHED marker when a crash happens.
+RE_CRASH = re.compile('\\[ CRASHED      \\](.*)\r\n')
+
+# Bots that don't output anything for 20 minutes get timed out, so that's our
+# hard cap.
+_INFRA_STDOUT_TIMEOUT = 20 * 60
 
 
 def _TestSuiteRequiresMockTestServer(suite_name):
   """Returns True if the test suite requires mock test server."""
   tests_require_net_test_server = ['unit_tests', 'net_unittests',
+                                   'components_browsertests',
                                    'content_unittests',
                                    'content_browsertests']
   return (suite_name in
@@ -35,8 +56,7 @@ class TestRunner(base_test_runner.BaseTestRunner):
       test_package: An instance of TestPackage class.
     """
 
-    super(TestRunner, self).__init__(device, test_options.tool,
-                                     test_options.cleanup_test_files)
+    super(TestRunner, self).__init__(device, test_options.tool)
 
     self.test_package = test_package
     self.test_package.tool = self.tool
@@ -49,9 +69,28 @@ class TestRunner(base_test_runner.BaseTestRunner):
     if os.environ.get('BUILDBOT_SLAVENAME'):
       timeout = timeout * 2
 
-    self._timeout = timeout * self.tool.GetTimeoutScale()
+    self._timeout = min(timeout * self.tool.GetTimeoutScale(),
+                        _INFRA_STDOUT_TIMEOUT)
     if _TestSuiteRequiresHighPerfMode(self.test_package.suite_name):
       self._perf_controller = perf_control.PerfControl(self.device)
+
+    if _TestSuiteRequiresMockTestServer(self.test_package.suite_name):
+      self._servers = [
+          local_test_server_spawner.LocalTestServerSpawner(
+              ports.AllocateTestServerPort(), self.device, self.tool)]
+    else:
+      self._servers = []
+
+    if test_options.app_data_files:
+      self._app_data_files = test_options.app_data_files
+      if test_options.app_data_file_dir:
+        self._app_data_file_dir = test_options.app_data_file_dir
+      else:
+        self._app_data_file_dir = tempfile.mkdtemp()
+        logging.critical('Saving app files to %s', self._app_data_file_dir)
+    else:
+      self._app_data_files = None
+      self._app_data_file_dir = None
 
   #override
   def InstallTestPackage(self):
@@ -68,45 +107,37 @@ class TestRunner(base_test_runner.BaseTestRunner):
     """
     results = base_test_result.TestRunResults()
 
-    # Test case statuses.
-    re_run = re.compile('\[ RUN      \] ?(.*)\r\n')
-    re_fail = re.compile('\[  FAILED  \] ?(.*)\r\n')
-    re_ok = re.compile('\[       OK \] ?(.*?) .*\r\n')
-
-    # Test run statuses.
-    re_passed = re.compile('\[  PASSED  \] ?(.*)\r\n')
-    re_runner_fail = re.compile('\[ RUNNER_FAILED \] ?(.*)\r\n')
-    # Signal handlers are installed before starting tests
-    # to output the CRASHED marker when a crash happens.
-    re_crash = re.compile('\[ CRASHED      \](.*)\r\n')
-
     log = ''
     try:
       while True:
         full_test_name = None
-        found = p.expect([re_run, re_passed, re_runner_fail],
+
+        found = p.expect([RE_RUN, RE_PASSED, RE_RUNNER_FAIL],
                          timeout=self._timeout)
-        if found == 1:  # re_passed
+        if found == 1:  # RE_PASSED
           break
-        elif found == 2:  # re_runner_fail
+        elif found == 2:  # RE_RUNNER_FAIL
           break
-        else:  # re_run
+        else:  # RE_RUN
           full_test_name = p.match.group(1).replace('\r', '')
-          found = p.expect([re_ok, re_fail, re_crash], timeout=self._timeout)
+          found = p.expect([RE_OK, RE_FAIL, RE_CRASH], timeout=self._timeout)
           log = p.before.replace('\r', '')
-          if found == 0:  # re_ok
+          if found == 0:  # RE_OK
             if full_test_name == p.match.group(1).replace('\r', ''):
+              duration_ms = int(p.match.group(3)) if p.match.group(3) else 0
               results.AddResult(base_test_result.BaseTestResult(
                   full_test_name, base_test_result.ResultType.PASS,
-                  log=log))
-          elif found == 2:  # re_crash
+                  duration=duration_ms, log=log))
+          elif found == 2:  # RE_CRASH
             results.AddResult(base_test_result.BaseTestResult(
                 full_test_name, base_test_result.ResultType.CRASH,
                 log=log))
             break
-          else:  # re_fail
+          else:  # RE_FAIL
+            duration_ms = int(p.match.group(3)) if p.match.group(3) else 0
             results.AddResult(base_test_result.BaseTestResult(
-                full_test_name, base_test_result.ResultType.FAIL, log=log))
+                full_test_name, base_test_result.ResultType.FAIL,
+                duration=duration_ms, log=log))
     except pexpect.EOF:
       logging.error('Test terminated - EOF')
       # We're here because either the device went offline, or the test harness
@@ -148,8 +179,12 @@ class TestRunner(base_test_runner.BaseTestRunner):
           self.device, test, self._test_arguments)
       test_results = self._ParseTestOutput(
           self.test_package.SpawnTestProcess(self.device))
+      if self._app_data_files:
+        self.test_package.PullAppFiles(self.device, self._app_data_files,
+                                       self._app_data_file_dir)
     finally:
-      self.CleanupSpawningServerState()
+      for s in self._servers:
+        s.Reset()
     # Calculate unknown test results.
     all_tests = set(test.split(':'))
     all_tests_ran = set([t.GetName() for t in test_results.GetAll()])
@@ -164,8 +199,8 @@ class TestRunner(base_test_runner.BaseTestRunner):
   def SetUp(self):
     """Sets up necessary test enviroment for the test suite."""
     super(TestRunner, self).SetUp()
-    if _TestSuiteRequiresMockTestServer(self.test_package.suite_name):
-      self.LaunchChromeTestServerSpawner()
+    for s in self._servers:
+      s.SetUp()
     if _TestSuiteRequiresHighPerfMode(self.test_package.suite_name):
       self._perf_controller.SetHighPerfMode()
     self.tool.SetupEnvironment()
@@ -173,6 +208,8 @@ class TestRunner(base_test_runner.BaseTestRunner):
   #override
   def TearDown(self):
     """Cleans up the test enviroment for the test suite."""
+    for s in self._servers:
+      s.TearDown()
     if _TestSuiteRequiresHighPerfMode(self.test_package.suite_name):
       self._perf_controller.SetDefaultPerfMode()
     self.test_package.ClearApplicationState(self.device)

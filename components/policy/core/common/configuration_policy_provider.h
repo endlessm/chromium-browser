@@ -88,12 +88,13 @@ class POLICY_EXPORT ConfigurationPolicyProvider
   // The policies currently configured at this provider.
   PolicyBundle policy_bundle_;
 
-  // Whether Shutdown() has been invoked.
-  bool did_shutdown_;
+  // Used to validate proper Init() and Shutdown() nesting. This flag is set by
+  // Init() and cleared by Shutdown() and needs to be false in the destructor.
+  bool initialized_;
 
   SchemaRegistry* schema_registry_;
 
-  ObserverList<Observer, true> observer_list_;
+  base::ObserverList<Observer, true> observer_list_;
 
   DISALLOW_COPY_AND_ASSIGN(ConfigurationPolicyProvider);
 };

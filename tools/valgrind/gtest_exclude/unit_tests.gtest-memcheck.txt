@@ -13,3 +13,15 @@ ExtensionUpdaterTest.TestMultipleManifestDownloading
 
 # Test fail: crbug.com/314216
 ExtensionIconManagerTest.LoadComponentExtensionResource
+
+# Test fail: crbug.com/473689
+ManagePasswordsBubbleModelTest.CloseWithoutLogging
+
+# Test fail: crbug.com/476731
+PluginInfoMessageFilterTest.FindEnabledPlugin
+
+# Test fail: crbug.com/492705
+StatusUploaderTest.NoUploadAfterVideoCapture
+
+# Flaky test: crbug.com/493187
+DesktopMediaListAshTest.WindowOnly

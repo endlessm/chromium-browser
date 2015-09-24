@@ -13,8 +13,12 @@
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_function_registry.h"
 #include "extensions/browser/extension_registry.h"
+#include "extensions/browser/guest_view/mime_handler_view/mime_handler_stream_manager.h"
+#include "extensions/browser/guest_view/mime_handler_view/mime_handler_view_guest.h"
+#include "extensions/common/manifest_handlers/mime_types_handler.h"
 #include "net/http/http_response_headers.h"
 
+namespace extensions {
 namespace {
 
 void CreateResponseHeadersDictionary(const net::HttpResponseHeaders* headers,
@@ -39,8 +43,6 @@ void CreateResponseHeadersDictionary(const net::HttpResponseHeaders* headers,
 
 }  // namespace
 
-namespace extensions {
-
 namespace streams_private = api::streams_private;
 
 // static
@@ -63,13 +65,38 @@ void StreamsPrivateAPI::ExecuteMimeTypeHandler(
     content::WebContents* web_contents,
     scoped_ptr<content::StreamInfo> stream,
     const std::string& view_id,
-    int64 expected_content_size) {
+    int64 expected_content_size,
+    bool embedded,
+    int render_process_id,
+    int render_frame_id) {
+  const Extension* extension = ExtensionRegistry::Get(browser_context_)
+                                   ->enabled_extensions()
+                                   .GetByID(extension_id);
+  if (!extension)
+    return;
+
+  MimeTypesHandler* handler = MimeTypesHandler::GetHandler(extension);
+  // If the mime handler uses MimeHandlerViewGuest, the MimeHandlerViewGuest
+  // will take ownership of the stream. Otherwise, store the stream handle in
+  // |streams_| and fire an event notifying the extension.
+  if (!handler->handler_url().empty()) {
+    GURL handler_url(Extension::GetBaseURLFromExtensionId(extension_id).spec() +
+                     handler->handler_url());
+    auto tab_id = ExtensionTabUtil::GetTabId(web_contents);
+    scoped_ptr<StreamContainer> stream_container(new StreamContainer(
+        stream.Pass(), tab_id, embedded, handler_url, extension_id));
+    MimeHandlerStreamManager::Get(browser_context_)
+        ->AddStream(view_id, stream_container.Pass(), render_process_id,
+                    render_frame_id);
+    return;
+  }
   // Create the event's arguments value.
   streams_private::StreamInfo info;
   info.mime_type = stream->mime_type;
   info.original_url = stream->original_url.spec();
   info.stream_url = stream->handle->GetURL().spec();
   info.tab_id = ExtensionTabUtil::GetTabId(web_contents);
+  info.embedded = embedded;
 
   if (!view_id.empty()) {
     info.view_id.reset(new std::string(view_id));
@@ -83,9 +110,9 @@ void StreamsPrivateAPI::ExecuteMimeTypeHandler(
   CreateResponseHeadersDictionary(stream->response_headers.get(),
                                   &info.response_headers.additional_properties);
 
-  scoped_ptr<Event> event(
-      new Event(streams_private::OnExecuteMimeTypeHandler::kEventName,
-                streams_private::OnExecuteMimeTypeHandler::Create(info)));
+  scoped_ptr<Event> event(new Event(
+      events::UNKNOWN, streams_private::OnExecuteMimeTypeHandler::kEventName,
+      streams_private::OnExecuteMimeTypeHandler::Create(info)));
 
   EventRouter::Get(browser_context_)
       ->DispatchEventToExtension(extension_id, event.Pass());
@@ -125,7 +152,7 @@ StreamsPrivateAbortFunction::StreamsPrivateAbortFunction() {
 }
 
 ExtensionFunction::ResponseAction StreamsPrivateAbortFunction::Run() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   EXTENSION_FUNCTION_VALIDATE(args_->GetString(0, &stream_url_));
   StreamsPrivateAPI::Get(browser_context())->AbortStream(
       extension_id(), GURL(stream_url_), base::Bind(
@@ -134,7 +161,7 @@ ExtensionFunction::ResponseAction StreamsPrivateAbortFunction::Run() {
 }
 
 void StreamsPrivateAbortFunction::OnClose() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   Respond(NoArguments());
 }
 

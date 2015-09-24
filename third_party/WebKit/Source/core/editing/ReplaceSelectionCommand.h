@@ -52,13 +52,13 @@ public:
         return adoptRefWillBeNoop(new ReplaceSelectionCommand(document, fragment, options, action));
     }
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     ReplaceSelectionCommand(Document&, PassRefPtrWillBeRawPtr<DocumentFragment>, CommandOptions, EditAction);
 
-    virtual void doApply() override;
-    virtual EditAction editingAction() const override;
+    void doApply() override;
+    EditAction editingAction() const override;
 
     class InsertedNodes {
         STACK_ALLOCATED();

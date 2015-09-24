@@ -11,7 +11,6 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/test/chromedriver/basic_types.h"
-#include "chrome/test/chromedriver/chrome/browser_info.h"
 #include "chrome/test/chromedriver/chrome/chrome.h"
 #include "chrome/test/chromedriver/chrome/js.h"
 #include "chrome/test/chromedriver/chrome/status.h"
@@ -338,10 +337,12 @@ Status IsElementAttributeEqualToIgnoreCase(
   if (status.IsError())
     return status;
   std::string actual_value;
-  if (result->GetAsString(&actual_value))
-    *is_equal = LowerCaseEqualsASCII(actual_value, attribute_value.c_str());
-  else
+  if (result->GetAsString(&actual_value)) {
+    *is_equal =
+        base::LowerCaseEqualsASCII(actual_value, attribute_value.c_str());
+  } else {
     *is_equal = false;
+  }
   return status;
 }
 
@@ -398,20 +399,9 @@ Status GetElementClickableLocation(
   if (status.IsError())
     return status;
 
-  std::string tmp_element_id = element_id;
-  int build_no = session->chrome->GetBrowserInfo()->build_no;
-  if (tag_name == "area" && build_no < 1799 && build_no >= 1666) {
-    // This is to skip clickable verification for <area>.
-    // The problem is caused by document.ElementFromPoint(crbug.com/338601).
-    // It was introduced by blink r159012, which rolled into chromium r227489.
-    // And it was fixed in blink r165426, which rolled into chromium r245994.
-    // TODO(stgao): Revert after 33 is not supported.
-    tmp_element_id = std::string();
-  }
-
   status = ScrollElementRegionIntoView(
       session, web_view, target_element_id, rect,
-      true /* center */, tmp_element_id, location);
+      true /* center */, element_id, location);
   if (status.IsError())
     return status;
   location->Offset(rect.Width() / 2, rect.Height() / 2);
@@ -589,14 +579,21 @@ Status ScrollElementIntoView(
     Session* session,
     WebView* web_view,
     const std::string& id,
+    const WebPoint* offset,
     WebPoint* location) {
-  WebSize size;
-  Status status = GetElementSize(session, web_view, id, &size);
+  WebRect region;
+  Status status = GetElementRegion(session, web_view, id, &region);
   if (status.IsError())
     return status;
-  return ScrollElementRegionIntoView(
-      session, web_view, id, WebRect(WebPoint(0, 0), size),
+  status = ScrollElementRegionIntoView(session, web_view, id, region,
       false /* center */, std::string(), location);
+  if (status.IsError())
+    return status;
+  if (offset)
+    location->Offset(offset->x, offset->y);
+  else
+    location->Offset(region.size.width / 2, region.size.height / 2);
+  return Status(kOk);
 }
 
 Status ScrollElementRegionIntoView(

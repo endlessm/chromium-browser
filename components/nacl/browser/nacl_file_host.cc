@@ -10,6 +10,7 @@
 #include "base/files/file_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/sequenced_worker_pool.h"
+#include "components/nacl/browser/bad_message.h"
 #include "components/nacl/browser/nacl_browser.h"
 #include "components/nacl/browser/nacl_browser_delegate.h"
 #include "components/nacl/browser/nacl_host_message_filter.h"
@@ -49,7 +50,7 @@ void DoRegisterOpenedNaClExecutableFile(
     IPC::Message* reply_msg,
     WriteFileInfoReply write_reply_message) {
   // IO thread owns the NaClBrowser singleton.
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   nacl::NaClBrowser* nacl_browser = nacl::NaClBrowser::GetInstance();
   uint64 file_token_lo = 0;
@@ -122,6 +123,7 @@ void DoOpenPnaclFile(
 void DoOpenNaClExecutableOnThreadPool(
     scoped_refptr<nacl::NaClHostMessageFilter> nacl_host_message_filter,
     const GURL& file_url,
+    bool enable_validation_caching,
     IPC::Message* reply_msg) {
   DCHECK(BrowserThread::GetBlockingPool()->RunsTasksOnCurrentThread());
 
@@ -138,16 +140,31 @@ void DoOpenNaClExecutableOnThreadPool(
   base::File file = nacl::OpenNaClReadExecImpl(file_path,
                                                true /* is_executable */);
   if (file.IsValid()) {
-    // This function is running on the blocking pool, but the path needs to be
-    // registered in a structure owned by the IO thread.
-    BrowserThread::PostTask(
-        BrowserThread::IO, FROM_HERE,
-        base::Bind(
-            &DoRegisterOpenedNaClExecutableFile,
-            nacl_host_message_filter,
-            Passed(file.Pass()), file_path, reply_msg,
-            static_cast<WriteFileInfoReply>(
-                NaClHostMsg_OpenNaClExecutable::WriteReplyParams)));
+    // Opening a NaCl executable works with or without validation caching.
+    // Validation caching requires that the file descriptor is registered now
+    // for later use, which will save time.
+    // When validation caching isn't used (e.g. Non-SFI mode), there is no
+    // reason to do that unnecessary registration.
+    if (enable_validation_caching) {
+      // This function is running on the blocking pool, but the path needs to be
+      // registered in a structure owned by the IO thread.
+      BrowserThread::PostTask(
+          BrowserThread::IO, FROM_HERE,
+          base::Bind(
+              &DoRegisterOpenedNaClExecutableFile,
+              nacl_host_message_filter,
+              Passed(file.Pass()), file_path, reply_msg,
+              static_cast<WriteFileInfoReply>(
+                  NaClHostMsg_OpenNaClExecutable::WriteReplyParams)));
+    } else {
+      IPC::PlatformFileForTransit file_desc =
+          IPC::TakeFileHandleForProcess(file.Pass(),
+                                        nacl_host_message_filter->PeerHandle());
+      uint64_t dummy_file_token = 0;
+      NaClHostMsg_OpenNaClExecutable::WriteReplyParams(
+          reply_msg, file_desc, dummy_file_token, dummy_file_token);
+      nacl_host_message_filter->Send(reply_msg);
+    }
   } else {
     NotifyRendererOfError(nacl_host_message_filter.get(), reply_msg);
     return;
@@ -211,6 +228,7 @@ void OpenNaClExecutable(
     scoped_refptr<nacl::NaClHostMessageFilter> nacl_host_message_filter,
     int render_view_id,
     const GURL& file_url,
+    bool enable_validation_caching,
     IPC::Message* reply_msg) {
   if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
     BrowserThread::PostTask(
@@ -218,7 +236,10 @@ void OpenNaClExecutable(
         base::Bind(
             &OpenNaClExecutable,
             nacl_host_message_filter,
-            render_view_id, file_url, reply_msg));
+            render_view_id,
+            file_url,
+            enable_validation_caching,
+            reply_msg));
     return;
   }
 
@@ -228,7 +249,10 @@ void OpenNaClExecutable(
   content::RenderViewHost* rvh = content::RenderViewHost::FromID(
       nacl_host_message_filter->render_process_id(), render_view_id);
   if (!rvh) {
-    nacl_host_message_filter->BadMessageReceived();  // Kill the renderer.
+    nacl::bad_message::ReceivedBadMessage(
+        nacl_host_message_filter.get(),
+        nacl::bad_message::NFH_OPEN_EXECUTABLE_BAD_ROUTING_ID);
+    delete reply_msg;
     return;
   }
   content::SiteInstance* site_instance = rvh->GetSiteInstance();
@@ -247,7 +271,9 @@ void OpenNaClExecutable(
       base::Bind(
           &DoOpenNaClExecutableOnThreadPool,
           nacl_host_message_filter,
-          file_url, reply_msg))) {
+          file_url,
+          enable_validation_caching,
+          reply_msg))) {
     NotifyRendererOfError(nacl_host_message_filter.get(), reply_msg);
   }
 }

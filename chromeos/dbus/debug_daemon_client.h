@@ -5,25 +5,22 @@
 #ifndef CHROMEOS_DBUS_DEBUG_DAEMON_CLIENT_H_
 #define CHROMEOS_DBUS_DEBUG_DAEMON_CLIENT_H_
 
+#include <map>
+
 #include "base/callback.h"
 #include "base/files/file.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/task_runner.h"
 #include "chromeos/chromeos_export.h"
 #include "chromeos/dbus/dbus_client.h"
-
-#include <map>
-
-namespace metrics {
-class PerfDataProto;
-}
+#include "third_party/cros_system_api/dbus/service_constants.h"
 
 namespace chromeos {
 
 // DebugDaemonClient is used to communicate with the debug daemon.
 class CHROMEOS_EXPORT DebugDaemonClient : public DBusClient {
  public:
-  virtual ~DebugDaemonClient();
+  ~DebugDaemonClient() override;
 
   // Called once GetDebugLogs() is complete. Takes one parameter:
   // - succeeded: was the logs stored successfully.
@@ -92,8 +89,25 @@ class CHROMEOS_EXPORT DebugDaemonClient : public DBusClient {
       GetPerfDataCallback;
 
   // Runs perf for |duration| seconds and returns data collected.
+  // TODO(sque): This is being replaced by GetPerfOutput(). Remove this function
+  // and the above callback typedef when the new function is running.
   virtual void GetPerfData(uint32_t duration,
                            const GetPerfDataCallback& callback) = 0;
+
+  // Called once GetPerfOutput() is complete only if the the data is
+  // successfully obtained from debugd.
+  // Arguments:
+  // - The status from running perf.
+  // - Output from "perf record", in PerfDataProto format.
+  // - Output from "perf stat", in PerfStatProto format.
+  using GetPerfOutputCallback =
+      base::Callback<void(int status,
+                          const std::vector<uint8>& perf_data,
+                          const std::vector<uint8>& perf_stat)>;
+
+  // Runs perf for |duration| seconds and returns data collected.
+  virtual void GetPerfOutput(uint32_t duration,
+                             const GetPerfOutputCallback& callback) = 0;
 
   // Callback type for GetScrubbedLogs(), GetAllLogs() or GetUserLogFiles().
   typedef base::Callback<void(bool succeeded,
@@ -145,8 +159,47 @@ class CHROMEOS_EXPORT DebugDaemonClient : public DBusClient {
       const std::map<std::string, std::string>& options,
       const TestICMPCallback& callback) = 0;
 
+  // Called once EnableDebuggingFeatures() is complete. |succeeded| will be true
+  // if debugging features have been successfully enabled.
+  typedef base::Callback<void(bool succeeded)> EnableDebuggingCallback;
+
+  // Enables debugging features (sshd, boot from USB). |password| is a new
+  // password for root user. Can be only called in dev mode.
+  virtual void EnableDebuggingFeatures(
+      const std::string& password,
+      const EnableDebuggingCallback& callback) = 0;
+
+  static const int DEV_FEATURE_NONE = 0;
+  static const int DEV_FEATURE_ALL_ENABLED =
+      debugd::DevFeatureFlag::DEV_FEATURE_ROOTFS_VERIFICATION_REMOVED |
+      debugd::DevFeatureFlag::DEV_FEATURE_BOOT_FROM_USB_ENABLED |
+      debugd::DevFeatureFlag::DEV_FEATURE_SSH_SERVER_CONFIGURED |
+      debugd::DevFeatureFlag::DEV_FEATURE_DEV_MODE_ROOT_PASSWORD_SET;
+
+  // Called once QueryDebuggingFeatures() is complete. |succeeded| will be true
+  // if debugging features have been successfully enabled. |feature_mask| is a
+  // bitmask made out of DebuggingFeature enum values.
+  typedef base::Callback<void(bool succeeded,
+                              int feature_mask)> QueryDevFeaturesCallback;
+  // Checks which debugging features have been already enabled.
+  virtual void QueryDebuggingFeatures(
+      const QueryDevFeaturesCallback& callback) = 0;
+
+  // Removes rootfs verification from the file system. Can be only called in
+  // dev mode.
+  virtual void RemoveRootfsVerification(
+      const EnableDebuggingCallback& callback) = 0;
+
   // Trigger uploading of crashes.
   virtual void UploadCrashes() = 0;
+
+  // A callback for WaitForServiceToBeAvailable().
+  typedef base::Callback<void(bool service_is_ready)>
+      WaitForServiceToBeAvailableCallback;
+
+  // Runs the callback as soon as the service becomes available.
+  virtual void WaitForServiceToBeAvailable(
+      const WaitForServiceToBeAvailableCallback& callback) = 0;
 
   // Factory function, creates a new instance and returns ownership.
   // For normal usage, access the singleton via DBusThreadManager::Get().

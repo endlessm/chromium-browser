@@ -7,16 +7,16 @@
 #include <string>
 
 #include "base/base64.h"
-#include "base/debug/trace_event.h"
 #include "base/logging.h"
 #include "base/rand_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/trace_event/trace_event.h"
 #include "content/renderer/media/media_stream.h"
 #include "content/renderer/media/media_stream_registry_interface.h"
 #include "content/renderer/media/media_stream_video_track.h"
 #include "content/renderer/pepper/ppb_image_data_impl.h"
 #include "content/renderer/render_thread_impl.h"
-#include "media/video/capture/video_capture_types.h"
+#include "media/base/video_capture_types.h"
 #include "third_party/WebKit/public/platform/WebMediaStreamTrack.h"
 #include "third_party/WebKit/public/platform/WebURL.h"
 #include "third_party/WebKit/public/web/WebMediaStreamRegistry.h"
@@ -29,48 +29,42 @@ class PpFrameWriter::FrameWriterDelegate
     : public base::RefCountedThreadSafe<FrameWriterDelegate> {
  public:
   FrameWriterDelegate(
-      const scoped_refptr<base::MessageLoopProxy>& io_message_loop_proxy,
+      scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
       const VideoCaptureDeliverFrameCB& new_frame_callback);
 
-  void DeliverFrame(const scoped_refptr<media::VideoFrame>& frame,
-                    const media::VideoCaptureFormat& format);
+  void DeliverFrame(const scoped_refptr<media::VideoFrame>& frame);
  private:
   friend class base::RefCountedThreadSafe<FrameWriterDelegate>;
   virtual ~FrameWriterDelegate();
 
-  void DeliverFrameOnIO(const scoped_refptr<media::VideoFrame>& frame,
-                        const media::VideoCaptureFormat& format);
+  void DeliverFrameOnIO(const scoped_refptr<media::VideoFrame>& frame);
 
-  scoped_refptr<base::MessageLoopProxy> io_message_loop_;
+  scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
   VideoCaptureDeliverFrameCB new_frame_callback_;
 };
 
 PpFrameWriter::FrameWriterDelegate::FrameWriterDelegate(
-    const scoped_refptr<base::MessageLoopProxy>& io_message_loop_proxy,
+    scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
     const VideoCaptureDeliverFrameCB& new_frame_callback)
-    : io_message_loop_(io_message_loop_proxy),
-      new_frame_callback_(new_frame_callback) {
+    : io_task_runner_(io_task_runner), new_frame_callback_(new_frame_callback) {
 }
 
 PpFrameWriter::FrameWriterDelegate::~FrameWriterDelegate() {
 }
 
 void PpFrameWriter::FrameWriterDelegate::DeliverFrame(
-    const scoped_refptr<media::VideoFrame>& frame,
-    const media::VideoCaptureFormat& format) {
-  io_message_loop_->PostTask(
+    const scoped_refptr<media::VideoFrame>& frame) {
+  io_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&FrameWriterDelegate::DeliverFrameOnIO,
-                 this, frame, format));
+      base::Bind(&FrameWriterDelegate::DeliverFrameOnIO, this, frame));
 }
 
 void PpFrameWriter::FrameWriterDelegate::DeliverFrameOnIO(
-     const scoped_refptr<media::VideoFrame>& frame,
-     const media::VideoCaptureFormat& format) {
-  DCHECK(io_message_loop_->BelongsToCurrentThread());
+     const scoped_refptr<media::VideoFrame>& frame) {
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
   // The local time when this frame is generated is unknown so give a null
   // value to |estimated_capture_time|.
-  new_frame_callback_.Run(frame, format, base::TimeTicks());
+  new_frame_callback_.Run(frame, base::TimeTicks());
 }
 
 PpFrameWriter::PpFrameWriter() {
@@ -96,11 +90,12 @@ void PpFrameWriter::GetCurrentSupportedFormats(
 
 void PpFrameWriter::StartSourceImpl(
     const media::VideoCaptureFormat& format,
+    const blink::WebMediaConstraints& constraints,
     const VideoCaptureDeliverFrameCB& frame_callback) {
   DCHECK(CalledOnValidThread());
   DCHECK(!delegate_.get());
   DVLOG(3) << "PpFrameWriter::StartSourceImpl()";
-  delegate_ = new FrameWriterDelegate(io_message_loop(), frame_callback);
+  delegate_ = new FrameWriterDelegate(io_task_runner(), frame_callback);
   OnStartDone(MEDIA_DEVICE_OK);
 }
 
@@ -152,31 +147,19 @@ void PpFrameWriter::PutFrame(PPB_ImageData_Impl* image_data,
   scoped_refptr<media::VideoFrame> new_frame =
       frame_pool_.CreateFrame(media::VideoFrame::YV12, frame_size,
                               gfx::Rect(frame_size), frame_size, timestamp);
-  media::VideoCaptureFormat format(
-      frame_size,
-      MediaStreamVideoSource::kUnknownFrameRate,
-      media::PIXEL_FORMAT_YV12);
 
-  // TODO(magjed): Chrome OS is not ready for switching from BGRA to ARGB.
-  // Remove this once http://crbug/434007 is fixed. We have a corresponding
-  // problem when we send frames to the effects plugin in PepperVideoSourceHost.
-#if defined(OS_CHROMEOS)
-  auto libyuv_xxxx_to_i420 = &libyuv::BGRAToI420;
-#else
-  auto libyuv_xxxx_to_i420 = &libyuv::ARGBToI420;
-#endif
-  libyuv_xxxx_to_i420(src_data,
-                      src_stride,
-                      new_frame->data(media::VideoFrame::kYPlane),
-                      new_frame->stride(media::VideoFrame::kYPlane),
-                      new_frame->data(media::VideoFrame::kUPlane),
-                      new_frame->stride(media::VideoFrame::kUPlane),
-                      new_frame->data(media::VideoFrame::kVPlane),
-                      new_frame->stride(media::VideoFrame::kVPlane),
-                      width,
-                      height);
+  libyuv::ARGBToI420(src_data,
+                     src_stride,
+                     new_frame->data(media::VideoFrame::kYPlane),
+                     new_frame->stride(media::VideoFrame::kYPlane),
+                     new_frame->data(media::VideoFrame::kUPlane),
+                     new_frame->stride(media::VideoFrame::kUPlane),
+                     new_frame->data(media::VideoFrame::kVPlane),
+                     new_frame->stride(media::VideoFrame::kVPlane),
+                     width,
+                     height);
 
-  delegate_->DeliverFrame(new_frame, format);
+  delegate_->DeliverFrame(new_frame);
 }
 
 // PpFrameWriterProxy is a helper class to make sure the user won't use
@@ -189,10 +172,9 @@ class PpFrameWriterProxy : public FrameWriterInterface {
     DCHECK(writer_ != NULL);
   }
 
-  virtual ~PpFrameWriterProxy() {}
+  ~PpFrameWriterProxy() override {}
 
-  virtual void PutFrame(PPB_ImageData_Impl* image_data,
-                        int64 time_stamp_ns) override {
+  void PutFrame(PPB_ImageData_Impl* image_data, int64 time_stamp_ns) override {
     writer_->PutFrame(image_data, time_stamp_ns);
   }
 
@@ -235,7 +217,8 @@ bool VideoDestinationHandler::Open(
   blink::WebMediaStreamSource::Type type =
       blink::WebMediaStreamSource::TypeVideo;
   blink::WebString webkit_track_id = base::UTF8ToUTF16(track_id);
-  webkit_source.initialize(webkit_track_id, type, webkit_track_id);
+  webkit_source.initialize(webkit_track_id, type, webkit_track_id,
+                           false /* remote */, true /* readonly */);
   webkit_source.setExtraData(writer);
 
   blink::WebMediaConstraints constraints;

@@ -82,7 +82,7 @@ void TokenValidatorImpl::StartValidateRequest(const std::string& token) {
 
   request_ = request_context_getter_->GetURLRequestContext()->CreateRequest(
       third_party_auth_config_.token_validation_url, net::DEFAULT_PRIORITY,
-      this, NULL);
+      this);
   request_->SetExtraRequestHeaderByName(
       net::HttpRequestHeaders::kContentType,
       "application/x-www-form-urlencoded", true);
@@ -99,7 +99,8 @@ std::string TokenValidatorImpl::CreateScope(
     const std::string& local_jid,
     const std::string& remote_jid) {
   std::string nonce_bytes;
-  crypto::RandBytes(WriteInto(&nonce_bytes, kNonceLength + 1), kNonceLength);
+  crypto::RandBytes(base::WriteInto(&nonce_bytes, kNonceLength + 1),
+                    kNonceLength);
   std::string nonce;
   base::Base64Encode(nonce_bytes, &nonce);
   return "client:" + remote_jid + " host:" + local_jid + " nonce:" + nonce;

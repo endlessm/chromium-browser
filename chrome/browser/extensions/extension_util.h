@@ -22,10 +22,13 @@ namespace gfx {
 class ImageSkia;
 }
 
+class Profile;
+
 namespace extensions {
 
 class Extension;
 struct ExtensionInfo;
+class PermissionSet;
 
 namespace util {
 
@@ -68,6 +71,9 @@ void SetAllowFileAccess(const std::string& extension_id,
 bool AllowedScriptingOnAllUrls(const std::string& extension_id,
                                content::BrowserContext* context);
 
+// Returns the default value for being allowed to script on all urls.
+bool DefaultAllowedScriptingOnAllUrls();
+
 // Sets whether the extension with |extension_id| is allowed to execute scripts
 // on all urls (exempting chrome:// urls, etc) without explicit user consent.
 // This should only be used with FeatureSwitch::scripts_require_action()
@@ -76,9 +82,11 @@ void SetAllowedScriptingOnAllUrls(const std::string& extension_id,
                                   content::BrowserContext* context,
                                   bool allowed);
 
-// Returns true if the --scripts-require-action flag would possibly affect
-// the given |extension|.
-bool ScriptsMayRequireActionForExtension(const Extension* extension);
+// Returns true if the user has set an explicit preference for the specified
+// extension being allowed to script on all urls; this is set to be true
+// whenever SetAllowedScriptingOnAllUrls() is called.
+bool HasSetAllowedScriptingOnAllUrls(const std::string& extension_id,
+                                     content::BrowserContext* context);
 
 // Returns true if |extension_id| can be launched (possibly only after being
 // enabled).
@@ -123,8 +131,14 @@ bool SiteHasIsolatedStorage(const GURL& extension_site_url,
 const gfx::ImageSkia& GetDefaultExtensionIcon();
 const gfx::ImageSkia& GetDefaultAppIcon();
 
-// Returns true if the experimental streamlined hosted apps feature is enabled.
-bool IsStreamlinedHostedAppsEnabled();
+// Returns true if the bookmark apps feature is enabled.
+//
+// TODO(benwells): http://crbug.com/441128: Remove this entirely once the
+// feature is stable.
+bool IsNewBookmarkAppsEnabled();
+
+// Returns true for custodian-installed extensions in a supervised profile.
+bool IsExtensionSupervised(const Extension* extension, Profile* profile);
 
 }  // namespace util
 }  // namespace extensions

@@ -2,11 +2,18 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import logging
 import os
 
-from telemetry.core import util
-from telemetry.core.backends.chrome import android_browser_finder
 from telemetry.core.platform import profiler
+from telemetry.core import util
+from telemetry.internal.backends.chrome import android_browser_finder
+
+util.AddDirToPythonPath(util.GetChromiumSrcDir(), 'build', 'android')
+try:
+  from pylib.device import device_errors  # pylint: disable=F0401
+except ImportError:
+  device_errors = None
 
 
 class AndroidTraceviewProfiler(profiler.Profiler):
@@ -49,10 +56,15 @@ class AndroidTraceviewProfiler(profiler.Profiler):
     output_files = []
     for pid, trace_file in self._trace_files:
       self._browser_backend.adb.RunShellCommand('am profile %s stop' % pid)
+      # pylint: disable=cell-var-from-loop
       util.WaitFor(lambda: self._FileSize(trace_file) > 0, timeout=10)
       output_files.append(trace_file)
-    self._browser_backend.adb.device().old_interface.Adb().Pull(
-        self._DEFAULT_DEVICE_DIR, self._output_path)
+    try:
+      self._browser_backend.adb.device().PullFile(
+          self._DEFAULT_DEVICE_DIR, self._output_path)
+    except:
+      logging.exception('New exception caused by DeviceUtils conversion')
+      raise
     self._browser_backend.adb.RunShellCommand(
         'rm ' + os.path.join(self._DEFAULT_DEVICE_DIR, '*'))
     print 'Traceview profiles available in ', self._output_path
@@ -61,5 +73,7 @@ class AndroidTraceviewProfiler(profiler.Profiler):
     return output_files
 
   def _FileSize(self, file_name):
-    f = self._browser_backend.adb.device().Ls(file_name)
-    return f.get(os.path.basename(file_name), (0, ))[0]
+    try:
+      return self._browser_backend.adb.device().Stat(file_name).st_size
+    except device_errors.CommandFailedError:
+      return 0

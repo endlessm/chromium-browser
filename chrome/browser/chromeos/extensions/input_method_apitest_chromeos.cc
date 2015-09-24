@@ -11,8 +11,6 @@
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/chromeos/extensions/input_method_event_router.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
-#include "chromeos/ime/extension_ime_util.h"
-#include "chromeos/ime/input_method_manager.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/notification_service.h"
@@ -20,6 +18,8 @@
 #include "extensions/browser/api/test/test_api.h"
 #include "extensions/browser/notification_types.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/ime/chromeos/extension_ime_util.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
 
 namespace {
 
@@ -36,12 +36,12 @@ class TestListener : public content::NotificationObserver {
                    content::NotificationService::AllSources());
   }
 
-  virtual ~TestListener() {}
+  ~TestListener() override {}
 
   // Implements the content::NotificationObserver interface.
-  virtual void Observe(int type,
-                       const content::NotificationSource& source,
-                       const content::NotificationDetails& details) override {
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override {
     const std::string& content = *content::Details<std::string>(details).ptr();
     if (content == kBackgroundReady) {
       // Initializes IMF for testing when receives ready message from
@@ -64,7 +64,7 @@ class TestListener : public content::NotificationObserver {
 };
 
 class ExtensionInputMethodApiTest : public ExtensionApiTest {
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionApiTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII(
         extensions::switches::kWhitelistedExtensionID,
@@ -74,14 +74,7 @@ class ExtensionInputMethodApiTest : public ExtensionApiTest {
 
 }  // namespace
 
-// Fails on cros official bot. crbug.com/431446.
-#if defined(OFFICIAL_BUILD)
-#define MAYBE_Basic DISABLED_Basic
-#else
-#define MAYBE_Basic Basic
-#endif
-
-IN_PROC_BROWSER_TEST_F(ExtensionInputMethodApiTest, MAYBE_Basic) {
+IN_PROC_BROWSER_TEST_F(ExtensionInputMethodApiTest, Basic) {
   // Listener for extension's background ready.
   TestListener listener;
 

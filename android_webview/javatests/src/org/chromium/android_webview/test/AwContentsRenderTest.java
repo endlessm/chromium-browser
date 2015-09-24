@@ -4,19 +4,21 @@
 
 package org.chromium.android_webview.test;
 
-import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.os.Build;
 import android.test.suitebuilder.annotation.SmallTest;
 
 import org.chromium.android_webview.AwContents;
+import org.chromium.android_webview.test.util.GraphicsTestUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.MinAndroidSdkLevel;
 
-import java.util.concurrent.Callable;
 
 /**
  * AwContents rendering / pixel tests.
  */
+@MinAndroidSdkLevel(Build.VERSION_CODES.KITKAT)
 public class AwContentsRenderTest extends AwTestBase {
 
     private TestAwContentsClient mContentsClient;
@@ -40,58 +42,35 @@ public class AwContentsRenderTest extends AwTestBase {
         });
     }
 
-    Bitmap grabViewToBitmap() {
-        final Bitmap result = Bitmap.createBitmap(10, 10, Bitmap.Config.ARGB_8888);
-        mAwContents.onDraw(new android.graphics.Canvas(result));
-        return result;
-    }
 
-    int sampleBackgroundColorOnUiThread() throws Exception {
-        return ThreadUtils.runOnUiThreadBlocking(new Callable<Integer>() {
-            @Override
-            public Integer call() throws Exception {
-                return grabViewToBitmap().getPixel(0, 0);
-            }
-        });
-    }
-
-    void pollForBackgroundColor(final int c) throws Throwable {
-        poll(new Callable<Boolean>() {
-            @Override
-            public Boolean call() throws Exception {
-                return sampleBackgroundColorOnUiThread() == c;
-            }
-        });
-    }
-
-    /*
     @SmallTest
     @Feature({"AndroidWebView"})
-    */
     public void testSetGetBackgroundColor() throws Throwable {
         setBackgroundColorOnUiThread(Color.MAGENTA);
-        pollForBackgroundColor(Color.MAGENTA);
+        GraphicsTestUtils.pollForBackgroundColor(mAwContents, Color.MAGENTA);
 
         setBackgroundColorOnUiThread(Color.CYAN);
-        pollForBackgroundColor(Color.CYAN);
+        GraphicsTestUtils.pollForBackgroundColor(mAwContents, Color.CYAN);
 
         loadUrlSync(mAwContents, mContentsClient.getOnPageFinishedHelper(), "about:blank");
-        assertEquals(Color.CYAN, sampleBackgroundColorOnUiThread());
+        assertEquals(Color.CYAN, GraphicsTestUtils.sampleBackgroundColorOnUiThread(mAwContents));
 
         setBackgroundColorOnUiThread(Color.YELLOW);
-        pollForBackgroundColor(Color.YELLOW);
+        GraphicsTestUtils.pollForBackgroundColor(mAwContents, Color.YELLOW);
 
         loadUrlSync(mAwContents, mContentsClient.getOnPageFinishedHelper(),
-                "data:text/html,<html><head><style>body {background-color:#227788}</style></head>" +
-                "<body></body></html>");
-        pollForBackgroundColor(Color.rgb(0x22, 0x77, 0x88));
+                "data:text/html,<html><head><style>body {background-color:#227788}</style></head>"
+                + "<body></body></html>");
+        GraphicsTestUtils.pollForBackgroundColor(mAwContents, Color.rgb(0x22, 0x77, 0x88));
 
         // Changing the base background should not override CSS background.
         setBackgroundColorOnUiThread(Color.MAGENTA);
-        assertEquals(Color.rgb(0x22, 0x77, 0x88), sampleBackgroundColorOnUiThread());
+        assertEquals(Color.rgb(0x22, 0x77, 0x88),
+                GraphicsTestUtils.sampleBackgroundColorOnUiThread(mAwContents));
         // ...setting the background is asynchronous, so pause a bit and retest just to be sure.
         Thread.sleep(500);
-        assertEquals(Color.rgb(0x22, 0x77, 0x88), sampleBackgroundColorOnUiThread());
+        assertEquals(Color.rgb(0x22, 0x77, 0x88),
+                GraphicsTestUtils.sampleBackgroundColorOnUiThread(mAwContents));
     }
 
     @SmallTest

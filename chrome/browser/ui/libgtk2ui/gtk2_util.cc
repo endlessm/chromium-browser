@@ -17,13 +17,13 @@
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/keycodes/keyboard_code_conversion_x.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace {
 
 const char kAuraTransientParent[] = "aura-transient-parent";
 
-void CommonInitFromCommandLine(const CommandLine& command_line,
+void CommonInitFromCommandLine(const base::CommandLine& command_line,
                                void (*init_func)(gint*, gchar***)) {
   const std::vector<std::string>& args = command_line.argv();
   int argc = args.size();
@@ -50,7 +50,7 @@ void CommonInitFromCommandLine(const CommandLine& command_line,
 
 namespace libgtk2ui {
 
-void GtkInitFromCommandLine(const CommandLine& command_line) {
+void GtkInitFromCommandLine(const base::CommandLine& command_line) {
   CommonInitFromCommandLine(command_line, gtk_init);
 }
 

@@ -139,7 +139,7 @@ SkBitmap BadgeIcon(const SkBitmap& app_icon_bitmap,
 // Updates the preferences with the current icon version on icon creation
 // success.
 void OnProfileIconCreateSuccess(base::FilePath profile_path) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (!g_browser_process->profile_manager())
     return;
   Profile* profile =
@@ -163,7 +163,7 @@ base::FilePath CreateOrUpdateShortcutIconForProfile(
     const base::FilePath& profile_path,
     const SkBitmap& avatar_bitmap_1x,
     const SkBitmap& avatar_bitmap_2x) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
 
   if (!base::PathExists(profile_path)) {
     LOG(ERROR) << "Profile directory " << profile_path.value()
@@ -264,7 +264,7 @@ base::FilePath ConvertToLongPath(const base::FilePath& path) {
 bool IsChromeShortcut(const base::FilePath& path,
                       const base::FilePath& chrome_exe,
                       base::string16* command_line) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
 
   if (path.Extension() != installer::kLnkExt)
     return false;
@@ -326,7 +326,7 @@ bool RenameDesktopShortcut(const base::FilePath& old_shortcut_path,
 void RenameChromeDesktopShortcutForProfile(
     const base::string16& old_shortcut_filename,
     const base::string16& new_shortcut_filename) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
 
   base::FilePath user_shortcuts_directory;
   base::FilePath system_shortcuts_directory;
@@ -369,7 +369,7 @@ struct CreateOrUpdateShortcutsParams {
       base::FilePath profile_path,
       ProfileShortcutManagerWin::CreateOrUpdateMode create_mode,
       ProfileShortcutManagerWin::NonProfileShortcutAction action)
-      : profile_path(profile_path), create_mode(create_mode), action(action) {}
+      : create_mode(create_mode), action(action), profile_path(profile_path) {}
   ~CreateOrUpdateShortcutsParams() {}
 
   ProfileShortcutManagerWin::CreateOrUpdateMode create_mode;
@@ -393,7 +393,7 @@ struct CreateOrUpdateShortcutsParams {
 // thread.
 void CreateOrUpdateDesktopShortcutsAndIconForProfile(
     const CreateOrUpdateShortcutsParams& params) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
 
   const base::FilePath shortcut_icon =
       CreateOrUpdateShortcutIconForProfile(params.profile_path,
@@ -499,7 +499,7 @@ bool ChromeDesktopShortcutsExist(const base::FilePath& chrome_exe) {
 // shortcut(s). Must be called on the FILE thread.
 void DeleteDesktopShortcuts(const base::FilePath& profile_path,
                             bool ensure_shortcuts_remain) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
 
   base::FilePath chrome_exe;
   if (!PathService::Get(base::FILE_EXE, &chrome_exe)) {
@@ -518,7 +518,7 @@ void DeleteDesktopShortcuts(const base::FilePath& profile_path,
     // latter causes non-profile taskbar shortcuts to be removed since it
     // doesn't consider the command-line of the shortcuts it deletes.
     // TODO(huangs): Refactor with ShellUtil::RemoveShortcuts().
-    base::win::TaskbarUnpinShortcutLink(shortcuts[i].value().c_str());
+    base::win::TaskbarUnpinShortcutLink(shortcuts[i]);
     base::DeleteFile(shortcuts[i], false);
     // Notify the shell that the shortcut was deleted to ensure desktop refresh.
     SHChangeNotify(SHCNE_DELETE, SHCNF_PATH, shortcuts[i].value().c_str(),
@@ -550,7 +550,7 @@ void DeleteDesktopShortcuts(const base::FilePath& profile_path,
 // Returns true if profile at |profile_path| has any shortcuts. Does not
 // consider non-profile shortcuts. Must be called on the FILE thread.
 bool HasAnyProfileShortcuts(const base::FilePath& profile_path) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
 
   base::FilePath chrome_exe;
   if (!PathService::Get(base::FILE_EXE, &chrome_exe)) {
@@ -643,7 +643,7 @@ base::string16 CreateProfileShortcutFlags(const base::FilePath& profile_path) {
 
 // static
 bool ProfileShortcutManager::IsFeatureEnabled() {
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   return command_line->HasSwitch(switches::kEnableProfileShortcutManager) ||
          (BrowserDistribution::GetDistribution()->CanCreateDesktopShortcuts() &&
           !command_line->HasSwitch(switches::kUserDataDir));
@@ -701,7 +701,7 @@ void ProfileShortcutManagerWin::HasProfileShortcuts(
 
 void ProfileShortcutManagerWin::GetShortcutProperties(
     const base::FilePath& profile_path,
-    CommandLine* command_line,
+    base::CommandLine* command_line,
     base::string16* name,
     base::FilePath* icon_path) {
   base::FilePath chrome_exe;

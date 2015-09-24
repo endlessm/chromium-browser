@@ -15,6 +15,7 @@ import android.view.View;
 import org.chromium.base.BaseSwitches;
 import org.chromium.base.CommandLine;
 import org.chromium.base.library_loader.LibraryLoader;
+import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.library_loader.Linker;
 import org.chromium.base.library_loader.ProcessInitException;
 import org.chromium.content.browser.BrowserStartupController;
@@ -23,7 +24,6 @@ import org.chromium.content.browser.ContentViewCore;
 import org.chromium.content_shell.Shell;
 import org.chromium.content_shell.ShellManager;
 import org.chromium.ui.base.ActivityWindowAndroid;
-import org.chromium.ui.base.WindowAndroid;
 
 /**
  * Test activity used for verifying the different configuration options for the ContentLinker.
@@ -42,7 +42,7 @@ public class ChromiumLinkerTestActivity extends Activity {
     private static final String LOW_MEMORY_DEVICE = "--low-memory-device";
 
     private ShellManager mShellManager;
-    private WindowAndroid mWindowAndroid;
+    private ActivityWindowAndroid mWindowAndroid;
 
     @Override
     public void onCreate(final Bundle savedInstanceState) {
@@ -62,30 +62,32 @@ public class ChromiumLinkerTestActivity extends Activity {
         // reason, so parse the command-line differently here:
         boolean hasLowMemoryDeviceSwitch = false;
         String[] cmdline = CommandLine.getJavaSwitchesOrNull();
-        if (cmdline == null)
+        if (cmdline == null) {
             Log.i(TAG, "Command line is null");
-        else {
+        } else {
             Log.i(TAG, "Command line is:");
             for (int n = 0; n < cmdline.length; ++n) {
                 Log.i(TAG, "  '" + cmdline[n] + "'");
-                if (cmdline[n].equals(LOW_MEMORY_DEVICE))
-                    hasLowMemoryDeviceSwitch = true;
+                if (cmdline[n].equals(LOW_MEMORY_DEVICE)) hasLowMemoryDeviceSwitch = true;
             }
         }
 
         // Determine which kind of device to simulate from the command-line.
         int memoryDeviceConfig = Linker.MEMORY_DEVICE_CONFIG_NORMAL;
-        if (hasLowMemoryDeviceSwitch)
+        if (hasLowMemoryDeviceSwitch) {
             memoryDeviceConfig = Linker.MEMORY_DEVICE_CONFIG_LOW;
-        Linker.setMemoryDeviceConfig(memoryDeviceConfig);
+        }
+        Linker linker = Linker.getInstance();
+        linker.setMemoryDeviceConfig(memoryDeviceConfig);
 
         // Register the test runner class by name.
-        Linker.setTestRunnerClassName(LinkerTests.class.getName());
+        linker.setTestRunnerClassName(LinkerTests.class.getName());
 
         // Load the library in the browser process, this will also run the test
         // runner in this process.
         try {
-            LibraryLoader.ensureInitialized();
+            LibraryLoader.get(LibraryProcessType.PROCESS_BROWSER)
+                    .ensureInitialized(getApplicationContext());
         } catch (ProcessInitException e) {
             Log.i(TAG, "Cannot load chromium_linker_test:" +  e);
         }
@@ -93,7 +95,8 @@ public class ChromiumLinkerTestActivity extends Activity {
         // Now, start a new renderer process by creating a new view.
         // This will run the test runner in the renderer process.
 
-        BrowserStartupController.get(getApplicationContext()).initChromiumBrowserProcessForTests();
+        BrowserStartupController.get(getApplicationContext(), LibraryProcessType.PROCESS_BROWSER)
+                .initChromiumBrowserProcessForTests();
 
         LayoutInflater inflater =
                 (LayoutInflater) getSystemService(Context.LAYOUT_INFLATER_SERVICE);
@@ -105,18 +108,19 @@ public class ChromiumLinkerTestActivity extends Activity {
         mShellManager.setStartupUrl("about:blank");
 
         try {
-            BrowserStartupController.get(this).startBrowserProcessesAsync(
-                    new BrowserStartupController.StartupCallback() {
-                        @Override
-                        public void onSuccess(boolean alreadyStarted) {
-                            finishInitialization(savedInstanceState);
-                        }
+            BrowserStartupController.get(this, LibraryProcessType.PROCESS_BROWSER)
+                    .startBrowserProcessesAsync(
+                            new BrowserStartupController.StartupCallback() {
+                                @Override
+                                public void onSuccess(boolean alreadyStarted) {
+                                    finishInitialization(savedInstanceState);
+                                }
 
-                        @Override
-                        public void onFailure() {
-                            initializationFailed();
-                        }
-                    });
+                                @Override
+                                public void onFailure() {
+                                    initializationFailed();
+                                }
+                            });
         } catch (ProcessInitException e) {
             Log.e(TAG, "Unable to load native library.", e);
             finish();
@@ -182,12 +186,14 @@ public class ChromiumLinkerTestActivity extends Activity {
      *         one is not showing.
      */
     public ContentViewCore getActiveContentViewCore() {
-        if (mShellManager == null)
+        if (mShellManager == null) {
             return null;
+        }
 
         Shell shell = mShellManager.getActiveShell();
-        if (shell == null)
+        if (shell == null) {
             return null;
+        }
 
         return shell.getContentViewCore();
     }

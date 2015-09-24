@@ -30,11 +30,13 @@
 #include "config.h"
 #include "core/fetch/ResourceLoader.h"
 
+#include "core/fetch/CSSStyleSheetResource.h"
 #include "core/fetch/Resource.h"
-#include "core/fetch/ResourceLoaderHost.h"
+#include "core/fetch/ResourceFetcher.h"
 #include "core/fetch/ResourcePtr.h"
 #include "platform/Logging.h"
 #include "platform/SharedBuffer.h"
+#include "platform/ThreadedDataReceiver.h"
 #include "platform/exported/WrappedResourceRequest.h"
 #include "platform/exported/WrappedResourceResponse.h"
 #include "platform/network/ResourceError.h"
@@ -49,41 +51,22 @@
 
 namespace blink {
 
-ResourceLoader::RequestCountTracker::RequestCountTracker(ResourceLoaderHost* host, Resource* resource)
-    : m_host(host)
-    , m_resource(resource)
+ResourceLoader* ResourceLoader::create(ResourceFetcher* fetcher, Resource* resource, const ResourceRequest& request, const ResourceLoaderOptions& options)
 {
-    m_host->incrementRequestCount(m_resource);
-}
-
-ResourceLoader::RequestCountTracker::~RequestCountTracker()
-{
-    m_host->decrementRequestCount(m_resource);
-}
-
-ResourceLoader::RequestCountTracker::RequestCountTracker(const RequestCountTracker& other)
-{
-    m_host = other.m_host;
-    m_resource = other.m_resource;
-    m_host->incrementRequestCount(m_resource);
-}
-
-PassRefPtrWillBeRawPtr<ResourceLoader> ResourceLoader::create(ResourceLoaderHost* host, Resource* resource, const ResourceRequest& request, const ResourceLoaderOptions& options)
-{
-    RefPtrWillBeRawPtr<ResourceLoader> loader(adoptRefWillBeNoop(new ResourceLoader(host, resource, options)));
+    ResourceLoader* loader = new ResourceLoader(fetcher, resource, options);
     loader->init(request);
-    return loader.release();
+    return loader;
 }
 
-ResourceLoader::ResourceLoader(ResourceLoaderHost* host, Resource* resource, const ResourceLoaderOptions& options)
-    : m_host(host)
+ResourceLoader::ResourceLoader(ResourceFetcher* fetcher, Resource* resource, const ResourceLoaderOptions& options)
+    : m_fetcher(fetcher)
     , m_notifiedLoadComplete(false)
-    , m_defersLoading(host->defersLoading())
+    , m_defersLoading(fetcher->defersLoading())
+    , m_loadingMultipartContent(false)
     , m_options(options)
     , m_resource(resource)
     , m_state(Initialized)
     , m_connectionState(ConnectionStateNew)
-    , m_requestCountTracker(adoptPtr(new RequestCountTracker(host, resource)))
 {
 }
 
@@ -92,9 +75,9 @@ ResourceLoader::~ResourceLoader()
     ASSERT(m_state == Terminated);
 }
 
-void ResourceLoader::trace(Visitor* visitor)
+DEFINE_TRACE(ResourceLoader)
 {
-    visitor->trace(m_host);
+    visitor->trace(m_fetcher);
     visitor->trace(m_resource);
 }
 
@@ -102,45 +85,35 @@ void ResourceLoader::releaseResources()
 {
     ASSERT(m_state != Terminated);
     ASSERT(m_notifiedLoadComplete);
-    ASSERT(!m_requestCountTracker);
-    m_host->didLoadResource();
+    m_fetcher->didLoadResource();
     if (m_state == Terminated)
         return;
     m_resource->clearLoader();
     m_resource->deleteIfPossible();
     m_resource = nullptr;
-    m_host->willTerminateResourceLoader(this);
 
     ASSERT(m_state != Terminated);
 
-    // It's possible that when we release the loader, it will be
-    // deallocated and release the last reference to this object.
-    // We need to retain to avoid accessing the object after it
-    // has been deallocated and also to avoid reentering this method.
-    RefPtrWillBeRawPtr<ResourceLoader> protector(this);
-
-    m_host.clear();
     m_state = Terminated;
-
     if (m_loader) {
         m_loader->cancel();
         m_loader.clear();
     }
-
     m_deferredRequest = ResourceRequest();
+    m_fetcher.clear();
 }
 
 void ResourceLoader::init(const ResourceRequest& passedRequest)
 {
     ASSERT(m_state != Terminated);
     ResourceRequest request(passedRequest);
-    m_host->willSendRequest(m_resource->identifier(), request, ResourceResponse(), m_options.initiatorInfo);
+    m_fetcher->willSendRequest(m_resource->identifier(), request, ResourceResponse(), m_options.initiatorInfo);
     ASSERT(m_state != Terminated);
     ASSERT(!request.isNull());
     m_originalRequest = m_request = applyOptions(request);
     m_resource->updateRequest(request);
     ASSERT(m_state != Terminated);
-    m_host->didInitializeResourceLoader(this);
+    m_fetcher->didInitializeResourceLoader(this);
 }
 
 void ResourceLoader::start()
@@ -149,12 +122,12 @@ void ResourceLoader::start()
     ASSERT(!m_request.isNull());
     ASSERT(m_deferredRequest.isNull());
 
-    if (responseNeedsAccessControlCheck() && m_host->isControlledByServiceWorker()) {
+    if (responseNeedsAccessControlCheck() && m_fetcher->isControlledByServiceWorker()) {
         m_fallbackRequestForServiceWorker = adoptPtr(new ResourceRequest(m_request));
         m_fallbackRequestForServiceWorker->setSkipServiceWorker(true);
     }
 
-    m_host->willStartLoadingResource(m_resource, m_request);
+    m_fetcher->willStartLoadingResource(m_resource, m_request);
 
     if (m_options.synchronousPolicy == RequestSynchronously) {
         requestSynchronously();
@@ -172,9 +145,9 @@ void ResourceLoader::start()
     RELEASE_ASSERT(m_connectionState == ConnectionStateNew);
     m_connectionState = ConnectionStateStarted;
 
-    m_loader = adoptPtr(blink::Platform::current()->createURLLoader());
+    m_loader = adoptPtr(Platform::current()->createURLLoader());
     ASSERT(m_loader);
-    blink::WrappedResourceRequest wrappedRequest(m_request);
+    WrappedResourceRequest wrappedRequest(m_request);
     m_loader->loadAsynchronously(wrappedRequest, this);
 }
 
@@ -201,24 +174,23 @@ void ResourceLoader::setDefersLoading(bool defers)
     }
 }
 
-void ResourceLoader::attachThreadedDataReceiver(PassOwnPtr<blink::WebThreadedDataReceiver> threadedDataReceiver)
+void ResourceLoader::attachThreadedDataReceiver(PassRefPtrWillBeRawPtr<ThreadedDataReceiver> threadedDataReceiver)
 {
     if (m_loader) {
         // The implementor of the WebURLLoader assumes ownership of the
         // threaded data receiver if it signals that it got successfully
         // attached.
-        blink::WebThreadedDataReceiver* rawThreadedDataReceiver = threadedDataReceiver.leakPtr();
-        if (!m_loader->attachThreadedDataReceiver(rawThreadedDataReceiver))
-            delete rawThreadedDataReceiver;
+        WebThreadedDataReceiver* webDataReceiver = new WebThreadedDataReceiver(threadedDataReceiver);
+        if (!m_loader->attachThreadedDataReceiver(webDataReceiver))
+            delete webDataReceiver;
     }
 }
 
-void ResourceLoader::didDownloadData(blink::WebURLLoader*, int length, int encodedDataLength)
+void ResourceLoader::didDownloadData(WebURLLoader*, int length, int encodedDataLength)
 {
     ASSERT(m_state != Terminated);
-    RefPtrWillBeRawPtr<ResourceLoader> protect(this);
     RELEASE_ASSERT(m_connectionState == ConnectionStateReceivedResponse);
-    m_host->didDownloadData(m_resource, length, encodedDataLength);
+    m_fetcher->didDownloadData(m_resource, length, encodedDataLength);
     if (m_state == Terminated)
         return;
     m_resource->didDownloadData(length);
@@ -233,16 +205,16 @@ void ResourceLoader::didFinishLoadingOnePart(double finishTime, int64_t encodedD
 
     if (m_notifiedLoadComplete)
         return;
-    didComplete();
-    m_host->didFinishLoading(m_resource, finishTime, encodedDataLength);
+    m_notifiedLoadComplete = true;
+    m_fetcher->didFinishLoading(m_resource, finishTime, encodedDataLength);
 }
 
 void ResourceLoader::didChangePriority(ResourceLoadPriority loadPriority, int intraPriorityValue)
 {
     if (m_loader) {
-        m_host->didChangeLoadingPriority(m_resource, loadPriority, intraPriorityValue);
+        m_fetcher->didChangeLoadingPriority(m_resource, loadPriority, intraPriorityValue);
         ASSERT(m_state != Terminated);
-        m_loader->didChangePriority(static_cast<blink::WebURLRequest::Priority>(loadPriority), intraPriorityValue);
+        m_loader->didChangePriority(static_cast<WebURLRequest::Priority>(loadPriority), intraPriorityValue);
     }
 }
 
@@ -270,10 +242,6 @@ void ResourceLoader::cancel(const ResourceError& error)
 
     ResourceError nonNullError = error.isNull() ? ResourceError::cancelledError(m_request.url()) : error;
 
-    // This function calls out to clients at several points that might do
-    // something that causes the last reference to this object to go away.
-    RefPtrWillBeRawPtr<ResourceLoader> protector(this);
-
     WTF_LOG(ResourceLoading, "Cancelled load of '%s'.\n", m_resource->url().string().latin1().data());
     if (m_state == Initialized)
         m_state = Finishing;
@@ -286,8 +254,8 @@ void ResourceLoader::cancel(const ResourceError& error)
     }
 
     if (!m_notifiedLoadComplete) {
-        didComplete();
-        m_host->didFailLoading(m_resource, nonNullError);
+        m_notifiedLoadComplete = true;
+        m_fetcher->didFailLoading(m_resource, nonNullError);
     }
 
     if (m_state == Finishing)
@@ -296,47 +264,46 @@ void ResourceLoader::cancel(const ResourceError& error)
         releaseResources();
 }
 
-void ResourceLoader::willSendRequest(blink::WebURLLoader*, blink::WebURLRequest& passedNewRequest, const blink::WebURLResponse& passedRedirectResponse)
+void ResourceLoader::willSendRequest(WebURLLoader*, WebURLRequest& passedNewRequest, const WebURLResponse& passedRedirectResponse)
 {
     ASSERT(m_state != Terminated);
-    RefPtrWillBeRawPtr<ResourceLoader> protect(this);
 
     ResourceRequest& newRequest(applyOptions(passedNewRequest.toMutableResourceRequest()));
 
     ASSERT(!newRequest.isNull());
     const ResourceResponse& redirectResponse(passedRedirectResponse.toResourceResponse());
     ASSERT(!redirectResponse.isNull());
-    if (!m_host->canAccessRedirect(m_resource, newRequest, redirectResponse, m_options)) {
-        cancel();
+    newRequest.setFollowedRedirect(true);
+    if (!m_fetcher->canAccessRedirect(m_resource, newRequest, redirectResponse, m_options)) {
+        cancel(ResourceError::cancelledDueToAccessCheckError(newRequest.url()));
         return;
     }
     ASSERT(m_state != Terminated);
 
     applyOptions(newRequest); // canAccessRedirect() can modify m_options so we should re-apply it.
-    m_host->redirectReceived(m_resource, redirectResponse);
+    m_fetcher->redirectReceived(m_resource, redirectResponse);
     ASSERT(m_state != Terminated);
     m_resource->willFollowRedirect(newRequest, redirectResponse);
     if (newRequest.isNull() || m_state == Terminated)
         return;
 
-    m_host->willSendRequest(m_resource->identifier(), newRequest, redirectResponse, m_options.initiatorInfo);
+    m_fetcher->willSendRequest(m_resource->identifier(), newRequest, redirectResponse, m_options.initiatorInfo);
     ASSERT(m_state != Terminated);
     ASSERT(!newRequest.isNull());
     m_resource->updateRequest(newRequest);
     m_request = newRequest;
 }
 
-void ResourceLoader::didReceiveCachedMetadata(blink::WebURLLoader*, const char* data, int length)
+void ResourceLoader::didReceiveCachedMetadata(WebURLLoader*, const char* data, int length)
 {
     RELEASE_ASSERT(m_connectionState == ConnectionStateReceivedResponse || m_connectionState == ConnectionStateReceivingData);
     ASSERT(m_state == Initialized);
     m_resource->setSerializedCachedMetadata(data, length);
 }
 
-void ResourceLoader::didSendData(blink::WebURLLoader*, unsigned long long bytesSent, unsigned long long totalBytesToBeSent)
+void ResourceLoader::didSendData(WebURLLoader*, unsigned long long bytesSent, unsigned long long totalBytesToBeSent)
 {
     ASSERT(m_state == Initialized);
-    RefPtrWillBeRawPtr<ResourceLoader> protect(this);
     m_resource->didSendData(bytesSent, totalBytesToBeSent);
 }
 
@@ -346,7 +313,7 @@ bool ResourceLoader::responseNeedsAccessControlCheck() const
     return m_options.corsEnabled == IsCORSEnabled;
 }
 
-void ResourceLoader::didReceiveResponse(blink::WebURLLoader*, const blink::WebURLResponse& response, WebDataConsumerHandle* rawHandle)
+void ResourceLoader::didReceiveResponse(WebURLLoader*, const WebURLResponse& response, WebDataConsumerHandle* rawHandle)
 {
     ASSERT(!response.isNull());
     ASSERT(m_state == Initialized);
@@ -369,9 +336,9 @@ void ResourceLoader::didReceiveResponse(blink::WebURLLoader*, const blink::WebUR
                 m_loader.clear();
                 m_connectionState = ConnectionStateStarted;
                 m_request = *m_fallbackRequestForServiceWorker;
-                m_loader = adoptPtr(blink::Platform::current()->createURLLoader());
+                m_loader = adoptPtr(Platform::current()->createURLLoader());
                 ASSERT(m_loader);
-                blink::WrappedResourceRequest wrappedRequest(m_request);
+                WrappedResourceRequest wrappedRequest(m_request);
                 m_loader->loadAsynchronously(wrappedRequest, this);
                 return;
             }
@@ -384,38 +351,35 @@ void ResourceLoader::didReceiveResponse(blink::WebURLLoader*, const blink::WebUR
                 resource = m_resource->resourceToRevalidate();
             else
                 m_resource->setResponse(resourceResponse);
-            if (!m_host->canAccessResource(resource, m_options.securityOrigin.get(), response.url())) {
-                m_host->didReceiveResponse(m_resource, resourceResponse);
-                cancel();
+            if (!m_fetcher->canAccessResource(resource, m_options.securityOrigin.get(), response.url(), ResourceFetcher::ShouldLogAccessControlErrors)) {
+                m_fetcher->didReceiveResponse(m_resource, resourceResponse);
+                cancel(ResourceError::cancelledDueToAccessCheckError(KURL(response.url())));
                 return;
             }
         }
     }
 
-    // Reference the object in this method since the additional processing can do
-    // anything including removing the last reference to this object.
-    RefPtrWillBeRawPtr<ResourceLoader> protect(this);
     m_resource->responseReceived(resourceResponse, handle.release());
     if (m_state == Terminated)
         return;
 
-    m_host->didReceiveResponse(m_resource, resourceResponse);
+    m_fetcher->didReceiveResponse(m_resource, resourceResponse);
     if (m_state == Terminated)
         return;
 
     if (response.toResourceResponse().isMultipart()) {
-        // We don't count multiParts in a ResourceFetcher's request count
-        m_requestCountTracker.clear();
-        if (!m_resource->isImage()) {
+        // We only support multipart for images, though the image may be loaded
+        // as a main resource that we end up displaying through an ImageDocument.
+        if (!m_resource->isImage() && m_resource->type() != Resource::MainResource) {
             cancel();
             return;
         }
+        m_loadingMultipartContent = true;
     } else if (isMultipartPayload) {
         // Since a subresource loader does not load multipart sections progressively, data was delivered to the loader all at once.
         // After the first multipart section is complete, signal to delegates that this load is "finished"
-        m_host->subresourceLoaderFinishedLoadingOnePart(this);
-        ASSERT(m_state != Terminated);
-        didFinishLoadingOnePart(0, blink::WebURLLoaderClient::kUnknownEncodedDataLength);
+        m_fetcher->subresourceLoaderFinishedLoadingOnePart(this);
+        didFinishLoadingOnePart(0, WebURLLoaderClient::kUnknownEncodedDataLength);
     }
     if (m_state == Terminated)
         return;
@@ -425,8 +389,8 @@ void ResourceLoader::didReceiveResponse(blink::WebURLLoader*, const blink::WebUR
     m_state = Finishing;
 
     if (!m_notifiedLoadComplete) {
-        didComplete();
-        m_host->didFailLoading(m_resource, ResourceError::cancelledError(m_request.url()));
+        m_notifiedLoadComplete = true;
+        m_fetcher->didFailLoading(m_resource, ResourceError::cancelledError(m_request.url()));
     }
 
     ASSERT(m_state != Terminated);
@@ -434,12 +398,12 @@ void ResourceLoader::didReceiveResponse(blink::WebURLLoader*, const blink::WebUR
     cancel();
 }
 
-void ResourceLoader::didReceiveResponse(blink::WebURLLoader* loader, const blink::WebURLResponse& response)
+void ResourceLoader::didReceiveResponse(WebURLLoader* loader, const WebURLResponse& response)
 {
     didReceiveResponse(loader, response, nullptr);
 }
 
-void ResourceLoader::didReceiveData(blink::WebURLLoader*, const char* data, int length, int encodedDataLength)
+void ResourceLoader::didReceiveData(WebURLLoader*, const char* data, int length, int encodedDataLength)
 {
     ASSERT(m_state != Terminated);
     RELEASE_ASSERT(m_connectionState == ConnectionStateReceivedResponse || m_connectionState == ConnectionStateReceivingData);
@@ -451,21 +415,17 @@ void ResourceLoader::didReceiveData(blink::WebURLLoader*, const char* data, int 
         return;
     ASSERT(m_state == Initialized);
 
-    // Reference the object in this method since the additional processing can do
-    // anything including removing the last reference to this object.
-    RefPtrWillBeRawPtr<ResourceLoader> protect(this);
-
     // FIXME: If we get a resource with more than 2B bytes, this code won't do the right thing.
     // However, with today's computers and networking speeds, this won't happen in practice.
     // Could be an issue with a giant local file.
-    m_host->didReceiveData(m_resource, data, length, encodedDataLength);
+    m_fetcher->didReceiveData(m_resource, data, length, encodedDataLength);
     if (m_state == Terminated)
         return;
     RELEASE_ASSERT(length >= 0);
     m_resource->appendData(data, length);
 }
 
-void ResourceLoader::didFinishLoading(blink::WebURLLoader*, double finishTime, int64_t encodedDataLength)
+void ResourceLoader::didFinishLoading(WebURLLoader*, double finishTime, int64_t encodedDataLength)
 {
     RELEASE_ASSERT(m_connectionState == ConnectionStateReceivedResponse || m_connectionState == ConnectionStateReceivingData);
     m_connectionState = ConnectionStateFinishedLoading;
@@ -474,7 +434,6 @@ void ResourceLoader::didFinishLoading(blink::WebURLLoader*, double finishTime, i
     ASSERT(m_state != Terminated);
     WTF_LOG(ResourceLoading, "Received '%s'.", m_resource->url().string().latin1().data());
 
-    RefPtrWillBeRawPtr<ResourceLoader> protect(this);
     ResourcePtr<Resource> protectResource(m_resource);
     m_state = Finishing;
     m_resource->setLoadFinishTime(finishTime);
@@ -490,21 +449,19 @@ void ResourceLoader::didFinishLoading(blink::WebURLLoader*, double finishTime, i
     releaseResources();
 }
 
-void ResourceLoader::didFail(blink::WebURLLoader*, const blink::WebURLError& error)
+void ResourceLoader::didFail(WebURLLoader*, const WebURLError& error)
 {
     m_connectionState = ConnectionStateFailed;
     ASSERT(m_state != Terminated);
     WTF_LOG(ResourceLoading, "Failed to load '%s'.\n", m_resource->url().string().latin1().data());
 
-    RefPtrWillBeRawPtr<ResourceLoader> protect(this);
-    RefPtrWillBeRawPtr<ResourceLoaderHost> protectHost(m_host.get());
     ResourcePtr<Resource> protectResource(m_resource);
     m_state = Finishing;
     m_resource->setResourceError(error);
 
     if (!m_notifiedLoadComplete) {
-        didComplete();
-        m_host->didFailLoading(m_resource, error);
+        m_notifiedLoadComplete = true;
+        m_fetcher->didFailLoading(m_resource, error);
     }
     if (m_state == Terminated)
         return;
@@ -517,33 +474,37 @@ void ResourceLoader::didFail(blink::WebURLLoader*, const blink::WebURLError& err
     releaseResources();
 }
 
-bool ResourceLoader::isLoadedBy(ResourceLoaderHost* loader) const
+bool ResourceLoader::isLoadedBy(ResourceFetcher* loader) const
 {
-    return m_host->isLoadedBy(loader);
+    return m_fetcher->isLoadedBy(loader);
 }
 
 void ResourceLoader::requestSynchronously()
 {
-    OwnPtr<blink::WebURLLoader> loader = adoptPtr(blink::Platform::current()->createURLLoader());
+    OwnPtr<WebURLLoader> loader = adoptPtr(Platform::current()->createURLLoader());
     ASSERT(loader);
 
     // downloadToFile is not supported for synchronous requests.
     ASSERT(!m_request.downloadToFile());
 
-    RefPtrWillBeRawPtr<ResourceLoader> protect(this);
-    RefPtrWillBeRawPtr<ResourceLoaderHost> protectHost(m_host.get());
     ResourcePtr<Resource> protectResource(m_resource);
 
     RELEASE_ASSERT(m_connectionState == ConnectionStateNew);
     m_connectionState = ConnectionStateStarted;
 
-    blink::WrappedResourceRequest requestIn(m_request);
-    blink::WebURLResponse responseOut;
+    WrappedResourceRequest requestIn(m_request);
+    WebURLResponse responseOut;
     responseOut.initialize();
-    blink::WebURLError errorOut;
-    blink::WebData dataOut;
+    WebURLError errorOut;
+    WebData dataOut;
     loader->loadSynchronously(requestIn, responseOut, errorOut, dataOut);
     if (errorOut.reason) {
+        if (m_state == Terminated) {
+            // A message dispatched while synchronously fetching the resource
+            // can bring about the cancellation of this load.
+            ASSERT(!m_resource);
+            return;
+        }
         didFail(0, errorOut);
         return;
     }
@@ -551,16 +512,10 @@ void ResourceLoader::requestSynchronously()
     if (m_state == Terminated)
         return;
     RefPtr<ResourceLoadInfo> resourceLoadInfo = responseOut.toResourceResponse().resourceLoadInfo();
-    int64_t encodedDataLength = resourceLoadInfo ? resourceLoadInfo->encodedDataLength : blink::WebURLLoaderClient::kUnknownEncodedDataLength;
-    m_host->didReceiveData(m_resource, dataOut.data(), dataOut.size(), encodedDataLength);
+    int64_t encodedDataLength = resourceLoadInfo ? resourceLoadInfo->encodedDataLength : WebURLLoaderClient::kUnknownEncodedDataLength;
+    m_fetcher->didReceiveData(m_resource, dataOut.data(), dataOut.size(), encodedDataLength);
     m_resource->setResourceBuffer(dataOut);
     didFinishLoading(0, monotonicallyIncreasingTime(), encodedDataLength);
-}
-
-void ResourceLoader::didComplete()
-{
-    m_notifiedLoadComplete = true;
-    m_requestCountTracker.clear();
 }
 
 ResourceRequest& ResourceLoader::applyOptions(ResourceRequest& request) const

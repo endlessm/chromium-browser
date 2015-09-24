@@ -18,25 +18,26 @@ namespace switches {
 
 // Please keep alphabetized.
 ASH_EXPORT extern const char kAshAnimateFromBootSplashScreen[];
-ASH_EXPORT extern const char kAshConstrainPointerToRoot[];
 ASH_EXPORT extern const char kAshCopyHostBackgroundAtBoot[];
 ASH_EXPORT extern const char kAshDebugShortcuts[];
-ASH_EXPORT extern const char kAshDefaultWallpaperIsOem[];
-ASH_EXPORT extern const char kAshDefaultWallpaperLarge[];
-ASH_EXPORT extern const char kAshDefaultWallpaperSmall[];
-ASH_EXPORT extern const char kAshDisableLockLayoutManager[];
+ASH_EXPORT extern const char kAshDisableMaximizeModeWindowBackdrop[];
+#if defined(OS_CHROMEOS)
+ASH_EXPORT extern const char kAshDisableScreenOrientationLock[];
+#endif
 ASH_EXPORT extern const char kAshDisableTouchExplorationMode[];
 #if defined(OS_CHROMEOS)
+ASH_EXPORT extern const char kAshEnableFullscreenAppList[];
 ASH_EXPORT extern const char kAshEnableMagnifierKeyScroller[];
+ASH_EXPORT extern const char kAshEnableUnifiedDesktop[];
 #endif
-ASH_EXPORT extern const char kAshDisableTextFilteringInOverviewMode[];
+ASH_EXPORT extern const char kAshEnableMirroredScreen[];
+ASH_EXPORT extern const char kAshDisableStableOverviewOrder[];
+ASH_EXPORT extern const char kAshEnableStableOverviewOrder[];
 ASH_EXPORT extern const char kAshEnablePowerButtonQuickLock[];
+ASH_EXPORT extern const char kAshEnableScreenRotationAnimation[];
 ASH_EXPORT extern const char kAshEnableSoftwareMirroring[];
 ASH_EXPORT extern const char kAshEnableSystemSounds[];
 ASH_EXPORT extern const char kAshEnableTouchViewTesting[];
-ASH_EXPORT extern const char kAshEnableTrayDragging[];
-ASH_EXPORT extern const char kAshGuestWallpaperLarge[];
-ASH_EXPORT extern const char kAshGuestWallpaperSmall[];
 ASH_EXPORT extern const char kAshHideNotificationsForFactory[];
 ASH_EXPORT extern const char kAshHostWindowBounds[];
 ASH_EXPORT extern const char kAshSecondaryDisplayLayout[];
@@ -47,13 +48,11 @@ ASH_EXPORT extern const char kAuraLegacyPowerButton[];
 ASH_EXPORT extern const char kForceAshToDesktop[];
 #endif
 
-// Returns true if items can be dragged off the shelf to unpin.
-ASH_EXPORT bool UseDragOffShelf();
-
 #if defined(OS_CHROMEOS)
-// Returns true if a notification should appear when a low-power USB charger
-// is connected.
-ASH_EXPORT bool UseUsbChargerNotification();
+// True if the pointer (cursor) position should be kept inside root windows.
+ASH_EXPORT bool ConstrainPointerToRoot();
+
+ASH_EXPORT bool UnifiedDesktopEnabled();
 #endif
 
 }  // namespace switches

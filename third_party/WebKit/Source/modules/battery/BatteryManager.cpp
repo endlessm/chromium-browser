@@ -9,7 +9,6 @@
 #include "core/events/Event.h"
 #include "modules/battery/BatteryDispatcher.h"
 #include "modules/battery/BatteryStatus.h"
-#include "platform/RuntimeEnabledFeatures.h"
 
 namespace blink {
 
@@ -31,31 +30,24 @@ BatteryManager::BatteryManager(ExecutionContext* context)
     : ActiveDOMObject(context)
     , PlatformEventController(toDocument(context)->page())
     , m_batteryStatus(BatteryStatus::create())
-    , m_state(NotStarted)
 {
 }
 
 ScriptPromise BatteryManager::startRequest(ScriptState* scriptState)
 {
-    if (m_state == Pending)
-        return m_resolver->promise();
+    if (!m_batteryProperty) {
+        m_batteryProperty = new BatteryProperty(scriptState->executionContext(), this, BatteryProperty::Ready);
 
-    m_resolver = ScriptPromiseResolver::create(scriptState);
-    ScriptPromise promise = m_resolver->promise();
-
-    ASSERT(executionContext());
-    // If the context is in a stopped state already, do not start updating.
-    if (m_state == Resolved || executionContext()->activeDOMObjectsAreStopped()) {
-        // FIXME: Consider returning the same promise in this case. See crbug.com/385025.
-        m_state = Resolved;
-        m_resolver->resolve(this);
-    } else if (m_state == NotStarted) {
-        m_state = Pending;
-        m_hasEventListener = true;
-        startUpdating();
+        // If the context is in a stopped state already, do not start updating.
+        if (!executionContext() || executionContext()->activeDOMObjectsAreStopped()) {
+            m_batteryProperty->resolve(this);
+        } else {
+            m_hasEventListener = true;
+            startUpdating();
+        }
     }
 
-    return promise;
+    return m_batteryProperty->promise(scriptState->world());
 }
 
 bool BatteryManager::charging()
@@ -80,16 +72,13 @@ double BatteryManager::level()
 
 void BatteryManager::didUpdateData()
 {
-    ASSERT(RuntimeEnabledFeatures::batteryStatusEnabled());
-    ASSERT(m_state != NotStarted);
+    ASSERT(m_batteryProperty);
 
     BatteryStatus* oldStatus = m_batteryStatus;
     m_batteryStatus = BatteryDispatcher::instance().latestData();
 
-    if (m_state == Pending) {
-        ASSERT(m_resolver);
-        m_state = Resolved;
-        m_resolver->resolve(this);
+    if (m_batteryProperty->state() == ScriptPromisePropertyBase::Pending) {
+        m_batteryProperty->resolve(this);
         return;
     }
 
@@ -140,7 +129,7 @@ void BatteryManager::resume()
 void BatteryManager::stop()
 {
     m_hasEventListener = false;
-    m_state = NotStarted;
+    m_batteryProperty.clear();
     stopUpdating();
 }
 
@@ -148,14 +137,16 @@ bool BatteryManager::hasPendingActivity() const
 {
     // Prevent V8 from garbage collecting the wrapper object if there are
     // event listeners attached to it.
-    return m_state == Resolved && hasEventListeners();
+    return hasEventListeners();
 }
 
-void BatteryManager::trace(Visitor* visitor)
+DEFINE_TRACE(BatteryManager)
 {
+    visitor->trace(m_batteryProperty);
     visitor->trace(m_batteryStatus);
     PlatformEventController::trace(visitor);
-    EventTargetWithInlineData::trace(visitor);
+    RefCountedGarbageCollectedEventTargetWithInlineData<BatteryManager>::trace(visitor);
+    ActiveDOMObject::trace(visitor);
 }
 
 } // namespace blink

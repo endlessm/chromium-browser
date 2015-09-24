@@ -5,8 +5,11 @@
 #include "android_webview/browser/aw_browser_main_parts.h"
 
 #include "android_webview/browser/aw_browser_context.h"
+#include "android_webview/browser/aw_dev_tools_discovery_provider.h"
+#include "android_webview/browser/aw_media_client_android.h"
 #include "android_webview/browser/aw_result_codes.h"
-#include "android_webview/native/aw_assets.h"
+#include "android_webview/common/aw_resource.h"
+#include "base/android/apk_assets.h"
 #include "base/android/build_info.h"
 #include "base/android/locale_utils.h"
 #include "base/android/memory_pressure_listener_android.h"
@@ -17,12 +20,15 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/common/result_codes.h"
 #include "content/public/common/url_utils.h"
+#include "media/base/android/media_client_android.h"
 #include "net/android/network_change_notifier_factory_android.h"
 #include "net/base/network_change_notifier.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/layout.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/base/resource/resource_bundle_android.h"
 #include "ui/base/ui_base_paths.h"
+#include "ui/gl/gl_surface.h"
 
 namespace android_webview {
 
@@ -45,40 +51,38 @@ void AwBrowserMainParts::PreEarlyInitialization() {
 }
 
 int AwBrowserMainParts::PreCreateThreads() {
-  int pak_fd = 0;
-  int64 pak_off = 0;
-  int64 pak_len = 0;
+  base::MemoryMappedFile::Region pak_region =
+      base::MemoryMappedFile::Region::kWholeFile;
 
   // TODO(primiano, mkosiba): GetApplicationLocale requires a ResourceBundle
   // instance to be present to work correctly so we call this (knowing it will
   // fail) just to create the ResourceBundle instance. We should refactor
   // ResourceBundle/GetApplicationLocale to not require an instance to be
   // initialized.
+  ui::SetLocalePaksStoredInApk(true);
   ui::ResourceBundle::InitSharedInstanceWithLocale(
       base::android::GetDefaultLocale(),
       NULL,
       ui::ResourceBundle::DO_NOT_LOAD_COMMON_RESOURCES);
-  std::string locale = l10n_util::GetApplicationLocale(std::string()) + ".pak";
-  if (AwAssets::OpenAsset(locale, &pak_fd, &pak_off, &pak_len)) {
-    VLOG(0) << "Load from apk succesful, fd=" << pak_fd << " off=" << pak_off
-            << " len=" << pak_len;
+  std::string locale = l10n_util::GetApplicationLocale(std::string());
+  std::string pak_path = ui::GetPathForAndroidLocalePakWithinApk(locale);
+  int pak_fd = base::android::OpenApkAsset(pak_path, &pak_region);
+  if (pak_fd != -1) {
     ui::ResourceBundle::CleanupSharedInstance();
     ui::ResourceBundle::InitSharedInstanceWithPakFileRegion(
-        base::File(pak_fd), base::MemoryMappedFile::Region(pak_off, pak_len));
+        base::File(pak_fd), pak_region);
   } else {
-    LOG(WARNING) << "Failed to load " << locale << ".pak from the apk too. "
+    LOG(WARNING) << "Failed to load " << locale << ".pak from the apk. "
                     "Bringing up WebView without any locale";
   }
 
   // Try to directly mmap the webviewchromium.pak from the apk. Fall back to
   // load from file, using PATH_SERVICE, otherwise.
-  if (AwAssets::OpenAsset("webviewchromium.pak", &pak_fd, &pak_off, &pak_len)) {
-    VLOG(0) << "Loading webviewchromium.pak from, fd:" << pak_fd
-            << " off:" << pak_off << " len:" << pak_len;
+  pak_fd = base::android::OpenApkAsset("assets/webviewchromium.pak",
+                                       &pak_region);
+  if (pak_fd != -1) {
     ui::ResourceBundle::GetSharedInstance().AddDataPackFromFileRegion(
-        base::File(pak_fd),
-        base::MemoryMappedFile::Region(pak_off, pak_len),
-        ui::SCALE_FACTOR_NONE);
+        base::File(pak_fd), pak_region, ui::SCALE_FACTOR_NONE);
   } else {
     base::FilePath pak_path;
     PathService::Get(ui::DIR_RESOURCE_PAKS_ANDROID, &pak_path);
@@ -96,6 +100,14 @@ int AwBrowserMainParts::PreCreateThreads() {
 
 void AwBrowserMainParts::PreMainMessageLoopRun() {
   browser_context_->PreMainMessageLoopRun();
+
+  AwDevToolsDiscoveryProvider::Install();
+
+  media::SetMediaClientAndroid(
+      new AwMediaClientAndroid(AwResource::GetConfigKeySystemUuidMapping()));
+
+  gfx::GLSurface::InitializeOneOff();
+
   // This is needed for WebView Classic backwards compatibility
   // See crbug.com/298495
   content::SetMaxURLChars(20 * 1024 * 1024);

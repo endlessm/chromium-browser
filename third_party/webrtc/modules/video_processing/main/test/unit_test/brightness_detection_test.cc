@@ -11,21 +11,21 @@
 #include "webrtc/common_video/libyuv/include/webrtc_libyuv.h"
 #include "webrtc/modules/video_processing/main/interface/video_processing.h"
 #include "webrtc/modules/video_processing/main/test/unit_test/video_processing_unittest.h"
+#include "webrtc/test/testsupport/gtest_disable.h"
 
 using namespace webrtc;
 
-TEST_F(VideoProcessingModuleTest, BrightnessDetection)
+TEST_F(VideoProcessingModuleTest, DISABLED_ON_IOS(BrightnessDetection))
 {
     uint32_t frameNum = 0;
     int32_t brightnessWarning = 0;
     uint32_t warningCount = 0;
-    scoped_ptr<uint8_t[]> video_buffer(new uint8_t[frame_length_]);
+    rtc::scoped_ptr<uint8_t[]> video_buffer(new uint8_t[frame_length_]);
     while (fread(video_buffer.get(), 1, frame_length_, source_file_) ==
            frame_length_)
     {
-      EXPECT_EQ(0, ConvertToI420(kI420, video_buffer.get(), 0, 0,
-                                 width_, height_,
-                                 0, kRotateNone, &video_frame_));
+      EXPECT_EQ(0, ConvertToI420(kI420, video_buffer.get(), 0, 0, width_,
+                                 height_, 0, kVideoRotation_0, &video_frame_));
         frameNum++;
         VideoProcessingModule::FrameStats stats;
         ASSERT_EQ(0, vpm_->GetFrameStats(&stats, video_frame_));
@@ -51,9 +51,8 @@ TEST_F(VideoProcessingModuleTest, BrightnessDetection)
         frame_length_ &&
         frameNum < 300)
     {
-        EXPECT_EQ(0, ConvertToI420(kI420, video_buffer.get(), 0, 0,
-                                   width_, height_,
-                                   0, kRotateNone, &video_frame_));
+      EXPECT_EQ(0, ConvertToI420(kI420, video_buffer.get(), 0, 0, width_,
+                                 height_, 0, kVideoRotation_0, &video_frame_));
         frameNum++;
 
         uint8_t* frame = video_frame_.buffer(kYPlane);
@@ -91,9 +90,8 @@ TEST_F(VideoProcessingModuleTest, BrightnessDetection)
     while (fread(video_buffer.get(), 1, frame_length_, source_file_) ==
         frame_length_ && frameNum < 300)
     {
-        EXPECT_EQ(0, ConvertToI420(kI420, video_buffer.get(), 0, 0,
-                                   width_, height_,
-                                   0, kRotateNone, &video_frame_));
+      EXPECT_EQ(0, ConvertToI420(kI420, video_buffer.get(), 0, 0, width_,
+                                 height_, 0, kVideoRotation_0, &video_frame_));
         frameNum++;
 
         uint8_t* y_plane = video_frame_.buffer(kYPlane);

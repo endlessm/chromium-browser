@@ -4,29 +4,29 @@
 
 package org.chromium.chromecast.shell;
 
+import android.content.Context;
+
 import org.chromium.base.CalledByNative;
 import org.chromium.base.JNINamespace;
+import org.chromium.base.Log;
+import org.chromium.chromecast.base.ChromecastConfigAndroid;
 
 /**
  * JNI wrapper class for accessing CastCrashHandler.
  */
 @JNINamespace("chromecast")
 public final class CastCrashHandler {
+    private static final String TAG = "cr.CastCrashHandler";
 
     @CalledByNative
-    public static void removeCrashDumpsSync(String crashDumpPath, boolean isDebugBuild) {
-        new CastCrashUploader(crashDumpPath, isDebugBuild).removeCrashDumpsSync();
-    }
-
-    @CalledByNative
-    public static void uploadCurrentProcessDumpSync(String crashDumpPath, String logFilePath,
-            boolean isDebugBuild) {
-        new CastCrashUploader(crashDumpPath, isDebugBuild)
-                .uploadCurrentProcessDumpSync(logFilePath);
-    }
-
-    @CalledByNative
-    public static void uploadCrashDumpsAsync(String crashDumpPath, boolean isDebugBuild) {
-        new CastCrashUploader(crashDumpPath, isDebugBuild).uploadRecentCrashesAsync();
+    public static void initializeUploader(Context context, String crashDumpPath,
+            boolean uploadCrashToStaging) {
+        CastCrashUploader uploader = new CastCrashUploader(crashDumpPath, uploadCrashToStaging);
+        if (ChromecastConfigAndroid.canSendUsageStats(context)) {
+            uploader.startPeriodicUpload();
+        } else {
+            Log.d(TAG, "Removing crash dumps instead of uploading");
+            uploader.removeCrashDumps();
+        }
     }
 }

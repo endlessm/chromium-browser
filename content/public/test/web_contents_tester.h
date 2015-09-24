@@ -5,6 +5,8 @@
 #ifndef CONTENT_PUBLIC_TEST_WEB_CONTENTS_TESTER_H_
 #define CONTENT_PUBLIC_TEST_WEB_CONTENTS_TESTER_H_
 
+#include <string>
+
 #include "ui/base/page_transition_types.h"
 
 class GURL;
@@ -17,7 +19,6 @@ class RenderViewHost;
 class SiteInstance;
 class WebContents;
 struct Referrer;
-struct WebPreferences;
 
 // This interface allows embedders of content/ to write tests that depend on a
 // test version of WebContents.  This interface can be retrieved from any
@@ -62,6 +63,8 @@ class WebContentsTester {
 
   // Gets the pending RenderFrameHost, if any, for the main frame. For the
   // current RenderFrameHost of the main frame, use WebContents::GetMainFrame().
+  // PlzNavigate: When browser side navigation is enabled it returns the
+  // speculative RenderFrameHost for the main frame if one exists.
   virtual RenderFrameHost* GetPendingMainFrame() const = 0;
 
   // Creates a pending navigation to the given URL with the default parameters
@@ -77,20 +80,32 @@ class WebContentsTester {
   // Does nothing if no cross-navigation is pending.
   virtual void ProceedWithCrossSiteNavigation() = 0;
 
+  // Simulates a navigation with the given information.
+  //
+  // Guidance for calling these:
+  // - nav_entry_id should be 0 if simulating a renderer-initiated navigation;
+  //   if simulating a browser-initiated one, pass the GetUniqueID() value of
+  //   the NavigationController's PendingEntry.
+  // - did_create_new_entry should be true if simulating a navigation that
+  //   created a new navigation entry; false for history navigations, reloads,
+  //   and other navigations that don't affect the history list.
   virtual void TestDidNavigate(RenderFrameHost* render_frame_host,
                                int page_id,
+                               int nav_entry_id,
+                               bool did_create_new_entry,
                                const GURL& url,
                                ui::PageTransition transition) = 0;
+  virtual void TestDidNavigateWithReferrer(RenderFrameHost* render_frame_host,
+                                           int page_id,
+                                           int nav_entry_id,
+                                           bool did_create_new_entry,
+                                           const GURL& url,
+                                           const Referrer& referrer,
+                                           ui::PageTransition transition) = 0;
 
-  virtual void TestDidNavigateWithReferrer(
-      RenderFrameHost* render_frame_host,
-      int page_id,
-      const GURL& url,
-      const Referrer& referrer,
-      ui::PageTransition transition) = 0;
-
-  // Promote ComputeWebkitPrefs to public.
-  virtual WebPreferences TestComputeWebkitPrefs() = 0;
+  // Returns headers that were passed in the previous SaveFrameWithHeaders(...)
+  // call.
+  virtual const std::string& GetSaveFrameHeaders() = 0;
 };
 
 }  // namespace content

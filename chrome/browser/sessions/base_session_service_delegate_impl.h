@@ -5,9 +5,10 @@
 #ifndef CHROME_BROWSER_SESSIONS_BASE_SESSION_SERVICE_DELEGATE_IMPL_H_
 #define CHROME_BROWSER_SESSIONS_BASE_SESSION_SERVICE_DELEGATE_IMPL_H_
 
-#include "chrome/browser/sessions/base_session_service_delegate.h"
+#include "components/sessions/base_session_service_delegate.h"
 
-class BaseSessionServiceDelegateImpl : public BaseSessionServiceDelegate {
+class BaseSessionServiceDelegateImpl
+    : public sessions::BaseSessionServiceDelegate {
  public:
   // If |use_delayed_save| is true, save operations can be performed as a
   // delayed task. Generally |used_delayed_save| should be true, testing may

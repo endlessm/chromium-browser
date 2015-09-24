@@ -12,7 +12,7 @@
 #include "content/browser/media/android/browser_media_player_manager.h"
 #include "content/browser/media/media_web_contents_observer.h"
 #include "content/browser/renderer_host/compositor_impl_android.h"
-#include "content/browser/renderer_host/render_view_host_impl.h"
+#include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/common/content_switches.h"
@@ -59,10 +59,10 @@ static void SetSurfacePeer(
     return;
   }
 
-  RenderViewHostImpl* view =
-      static_cast<RenderViewHostImpl*>(frame->GetRenderViewHost());
+  WebContentsImpl* web_contents =
+      static_cast<WebContentsImpl*>(WebContents::FromRenderFrameHost(frame));
   BrowserMediaPlayerManager* player_manager =
-      view->media_web_contents_observer()->GetMediaPlayerManager(frame);
+      web_contents->media_web_contents_observer()->GetMediaPlayerManager(frame);
   if (!player_manager) {
     DVLOG(1) << "Cannot find the media player manager for frame " << frame;
     return;
@@ -103,6 +103,7 @@ void StartChildProcess(
     const base::CommandLine::StringVector& argv,
     int child_process_id,
     scoped_ptr<content::FileDescriptorInfo> files_to_register,
+    const std::map<int, base::MemoryMappedFile::Region>& regions,
     const StartChildProcessCallback& callback) {
   JNIEnv* env = AttachCurrentThread();
   DCHECK(env);
@@ -113,41 +114,37 @@ void StartChildProcess(
   size_t file_count = files_to_register->GetMappingSize();
   DCHECK(file_count > 0);
 
-  ScopedJavaLocalRef<jintArray> j_file_ids(env, env->NewIntArray(file_count));
+  ScopedJavaLocalRef<jclass> j_file_info_class = base::android::GetClass(
+      env, "org/chromium/content/browser/FileDescriptorInfo");
+  ScopedJavaLocalRef<jobjectArray> j_file_infos(
+      env, env->NewObjectArray(file_count, j_file_info_class.obj(), NULL));
   base::android::CheckException(env);
-  jint* file_ids = env->GetIntArrayElements(j_file_ids.obj(), NULL);
-  base::android::CheckException(env);
-  ScopedJavaLocalRef<jintArray> j_file_fds(env, env->NewIntArray(file_count));
-  base::android::CheckException(env);
-  jint* file_fds = env->GetIntArrayElements(j_file_fds.obj(), NULL);
-  base::android::CheckException(env);
-  ScopedJavaLocalRef<jbooleanArray> j_file_auto_close(
-      env, env->NewBooleanArray(file_count));
-  base::android::CheckException(env);
-  jboolean* file_auto_close =
-      env->GetBooleanArrayElements(j_file_auto_close.obj(), NULL);
-  base::android::CheckException(env);
-  for (size_t i = 0; i < file_count; ++i) {
-    // Owners of passed descriptors can outlive this function and we don't know
-    // when it is safe to close() them. So we pass dup()-ed FD and
-    // let ChildProcessLauncher in java take care of their lifetimes.
-    // TODO(morrita): Drop FileDescriptorInfo.mAutoClose on Java side.
-    file_auto_close[i] = true;  // This indicates ownership transfer.
-    file_ids[i] = files_to_register->GetIDAt(i);
-    file_fds[i] = dup(files_to_register->GetFDAt(i));
-    PCHECK(0 <= file_fds[i]);
-  }
-  env->ReleaseIntArrayElements(j_file_ids.obj(), file_ids, 0);
-  env->ReleaseIntArrayElements(j_file_fds.obj(), file_fds, 0);
-  env->ReleaseBooleanArrayElements(j_file_auto_close.obj(), file_auto_close, 0);
 
-  Java_ChildProcessLauncher_start(env,
-      base::android::GetApplicationContext(),
-      j_argv.obj(),
-      child_process_id,
-      j_file_ids.obj(),
-      j_file_fds.obj(),
-      j_file_auto_close.obj(),
+  for (size_t i = 0; i < file_count; ++i) {
+    int fd = files_to_register->GetFDAt(i);
+    PCHECK(0 <= fd);
+    int id = files_to_register->GetIDAt(i);
+    bool auto_close = files_to_register->OwnsFD(fd);
+    int64 offset = 0L;
+    int64 size = 0L;
+    auto found_region_iter = regions.find(id);
+    if (found_region_iter != regions.end()) {
+      offset = found_region_iter->second.offset;
+      size = found_region_iter->second.size;
+    }
+    ScopedJavaLocalRef<jobject> j_file_info =
+        Java_ChildProcessLauncher_makeFdInfo(env, id, fd, auto_close, offset,
+                                             size);
+    PCHECK(j_file_info.obj());
+    env->SetObjectArrayElement(j_file_infos.obj(), i, j_file_info.obj());
+    if (auto_close) {
+      ignore_result(files_to_register->ReleaseFD(fd).release());
+    }
+  }
+
+  Java_ChildProcessLauncher_start(
+      env, base::android::GetApplicationContext(), j_argv.obj(),
+      child_process_id, j_file_infos.obj(),
       reinterpret_cast<intptr_t>(new StartChildProcessCallback(callback)));
 }
 

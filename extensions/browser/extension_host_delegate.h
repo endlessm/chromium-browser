@@ -22,6 +22,7 @@ class Rect;
 namespace extensions {
 class Extension;
 class ExtensionHost;
+class ExtensionHostQueue;
 
 // A delegate to support functionality that cannot exist in the extensions
 // module. This is not an inner class of ExtensionHost to allow it to be forward
@@ -46,7 +47,7 @@ class ExtensionHostDelegate {
   virtual void CreateTab(content::WebContents* web_contents,
                          const std::string& extension_id,
                          WindowOpenDisposition disposition,
-                         const gfx::Rect& initial_pos,
+                         const gfx::Rect& initial_rect,
                          bool user_gesture) = 0;
 
   // Requests access to an audio or video media stream. Invokes |callback|
@@ -64,6 +65,10 @@ class ExtensionHostDelegate {
                                           const GURL& security_origin,
                                           content::MediaStreamType type,
                                           const Extension* extension) = 0;
+
+  // Returns the ExtensionHostQueue implementation to use for creating
+  // ExtensionHost renderers.
+  virtual ExtensionHostQueue* GetExtensionHostQueue() const = 0;
 };
 
 }  // namespace extensions

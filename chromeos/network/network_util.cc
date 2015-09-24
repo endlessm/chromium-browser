@@ -4,11 +4,15 @@
 
 #include "chromeos/network/network_util.h"
 
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_tokenizer.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
+#include "chromeos/login/login_state.h"
+#include "chromeos/network/device_state.h"
+#include "chromeos/network/managed_network_configuration_handler.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
+#include "chromeos/network/network_ui_data.h"
 #include "chromeos/network/onc/onc_signature.h"
 #include "chromeos/network/onc/onc_translation_tables.h"
 #include "chromeos/network/onc/onc_translator.h"
@@ -50,7 +54,7 @@ std::string PrefixLengthToNetmask(int32 prefix_length) {
       netmask += ".";
     int value = remainder == 0 ? 0 :
         ((2L << (remainder - 1)) - 1) << (8 - remainder);
-    netmask += base::StringPrintf("%d", value);
+    netmask += base::IntToString(value);
   }
   return netmask;
 }
@@ -143,13 +147,39 @@ bool ParseCellularScanResults(const base::ListValue& list,
 scoped_ptr<base::DictionaryValue> TranslateNetworkStateToONC(
     const NetworkState* network) {
   // Get the properties from the NetworkState.
-  base::DictionaryValue shill_dictionary;
-  network->GetStateProperties(&shill_dictionary);
+  scoped_ptr<base::DictionaryValue> shill_dictionary(new base::DictionaryValue);
+  network->GetStateProperties(shill_dictionary.get());
+
+  // Get any Device properties required to translate state.
+  if (NetworkTypePattern::Cellular().MatchesType(network->type())) {
+    // We need to set Device[Cellular.ProviderRequiresRoaming] so that
+    // Cellular[RoamingState] can be set correctly for badging network icons.
+    const DeviceState* device =
+        NetworkHandler::Get()->network_state_handler()->GetDeviceState(
+            network->device_path());
+    if (device) {
+      scoped_ptr<base::DictionaryValue> device_dict(new base::DictionaryValue);
+      device_dict->SetBooleanWithoutPathExpansion(
+          shill::kProviderRequiresRoamingProperty,
+          device->provider_requires_roaming());
+      shill_dictionary->SetWithoutPathExpansion(shill::kDeviceProperty,
+                                                device_dict.release());
+    }
+  }
+
+  // NetworkState is always associated with the primary user profile, regardless
+  // of what profile is associated with the page that calls this method. We do
+  // not expose any sensitive properties in the resulting dictionary, it is
+  // only used to show connection state and icons.
+  std::string user_id_hash = chromeos::LoginState::Get()->primary_user_hash();
+  ::onc::ONCSource onc_source = ::onc::ONC_SOURCE_NONE;
+  NetworkHandler::Get()
+      ->managed_network_configuration_handler()
+      ->FindPolicyByGUID(user_id_hash, network->guid(), &onc_source);
 
   scoped_ptr<base::DictionaryValue> onc_dictionary =
-      TranslateShillServiceToONCPart(shill_dictionary,
-                                     ::onc::ONC_SOURCE_UNKNOWN,
-                                     &onc::kNetworkWithStateSignature);
+      TranslateShillServiceToONCPart(*shill_dictionary, onc_source,
+                                     &onc::kNetworkWithStateSignature, network);
   return onc_dictionary.Pass();
 }
 
@@ -164,18 +194,15 @@ scoped_ptr<base::ListValue> TranslateNetworkListToONC(
       pattern, configured_only, visible_only, limit, &network_states);
 
   scoped_ptr<base::ListValue> network_properties_list(new base::ListValue);
-  for (NetworkStateHandler::NetworkStateList::iterator it =
-           network_states.begin();
-       it != network_states.end();
-       ++it) {
+  for (const NetworkState* state : network_states) {
     scoped_ptr<base::DictionaryValue> onc_dictionary =
-        TranslateNetworkStateToONC(*it);
+        TranslateNetworkStateToONC(state);
 
     if (debugging_properties) {
-      onc_dictionary->SetBoolean("connectable", (*it)->connectable());
-      onc_dictionary->SetBoolean("visible", (*it)->visible());
-      onc_dictionary->SetString("profile_path", (*it)->profile_path());
-      onc_dictionary->SetString("service_path", (*it)->path());
+      onc_dictionary->SetBoolean("connectable", state->connectable());
+      onc_dictionary->SetBoolean("visible", state->visible());
+      onc_dictionary->SetString("profile_path", state->profile_path());
+      onc_dictionary->SetString("service_path", state->path());
     }
 
     network_properties_list->Append(onc_dictionary.release());
@@ -189,6 +216,14 @@ std::string TranslateONCTypeToShill(const std::string& onc_type) {
   std::string shill_type;
   onc::TranslateStringToShill(onc::kNetworkTypeTable, onc_type, &shill_type);
   return shill_type;
+}
+
+std::string TranslateShillTypeToONC(const std::string& shill_type) {
+  if (shill_type == shill::kTypeEthernet)
+    return ::onc::network_type::kEthernet;
+  std::string onc_type;
+  onc::TranslateStringToONC(onc::kNetworkTypeTable, shill_type, &onc_type);
+  return onc_type;
 }
 
 }  // namespace network_util

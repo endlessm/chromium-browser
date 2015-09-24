@@ -18,6 +18,18 @@ char* HeapStringAllocator::allocate(unsigned bytes) {
 }
 
 
+char* FixedStringAllocator::allocate(unsigned bytes) {
+  CHECK_LE(bytes, length_);
+  return buffer_;
+}
+
+
+char* FixedStringAllocator::grow(unsigned* old) {
+  *old = length_;
+  return buffer_;
+}
+
+
 bool StringStream::Put(char c) {
   if (full()) return false;
   DCHECK(length_ < capacity_);
@@ -170,7 +182,7 @@ void StringStream::PrintObject(Object* o) {
   } else if (o->IsNumber() || o->IsOddball()) {
     return;
   }
-  if (o->IsHeapObject()) {
+  if (o->IsHeapObject() && object_print_mode_ == kPrintObjectVerbose) {
     HeapObject* ho = HeapObject::cast(o);
     DebugObjectCache* debug_object_cache = ho->GetIsolate()->
         string_stream_debug_object_cache();
@@ -284,7 +296,8 @@ void StringStream::ClearMentionedObjectCache(Isolate* isolate) {
 
 #ifdef DEBUG
 bool StringStream::IsMentionedObjectCacheClear(Isolate* isolate) {
-  return isolate->string_stream_debug_object_cache()->length() == 0;
+  return object_print_mode_ == kPrintObjectConcise ||
+         isolate->string_stream_debug_object_cache()->length() == 0;
 }
 #endif
 
@@ -335,7 +348,7 @@ void StringStream::PrintUsingMap(JSObject* js_object) {
   DescriptorArray* descs = map->instance_descriptors();
   for (int i = 0; i < real_size; i++) {
     PropertyDetails details = descs->GetDetails(i);
-    if (details.type() == FIELD) {
+    if (details.type() == DATA) {
       Object* key = descs->GetKey(i);
       if (key->IsString() || key->IsNumber()) {
         int len = 3;
@@ -351,8 +364,13 @@ void StringStream::PrintUsingMap(JSObject* js_object) {
         }
         Add(": ");
         FieldIndex index = FieldIndex::ForDescriptor(map, i);
-        Object* value = js_object->RawFastPropertyAt(index);
-        Add("%o\n", value);
+        if (js_object->IsUnboxedDoubleField(index)) {
+          double value = js_object->RawFastDoublePropertyAt(index);
+          Add("<unboxed double> %.16g\n", FmtElm(value));
+        } else {
+          Object* value = js_object->RawFastPropertyAt(index);
+          Add("%o\n", value);
+        }
       }
     }
   }
@@ -398,6 +416,7 @@ void StringStream::PrintByteArray(ByteArray* byte_array) {
 
 
 void StringStream::PrintMentionedObjectCache(Isolate* isolate) {
+  if (object_print_mode_ == kPrintObjectConcise) return;
   DebugObjectCache* debug_object_cache =
       isolate->string_stream_debug_object_cache();
   Add("==== Key         ============================================\n\n");
@@ -557,4 +576,5 @@ char* HeapStringAllocator::grow(unsigned* bytes) {
 }
 
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8

@@ -49,7 +49,7 @@ bool FileManagerPrivateSelectFileFunction::RunAsync() {
   }
 
   file_manager::util::GetSelectedFileInfo(
-      render_view_host(),
+      render_frame_host(),
       GetProfile(),
       file_paths,
       option,
@@ -63,7 +63,7 @@ bool FileManagerPrivateSelectFileFunction::RunAsync() {
 void FileManagerPrivateSelectFileFunction::GetSelectedFileInfoResponse(
     int index,
     const std::vector<ui::SelectedFileInfo>& files) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (files.size() != 1) {
     SendResponse(false);
     return;
@@ -83,7 +83,7 @@ bool FileManagerPrivateSelectFilesFunction::RunAsync() {
     file_urls.push_back(GURL(params->selected_paths[i]));
 
   file_manager::util::GetSelectedFileInfo(
-      render_view_host(),
+      render_frame_host(),
       GetProfile(),
       file_urls,
       params->should_return_local_path ?
@@ -97,7 +97,7 @@ bool FileManagerPrivateSelectFilesFunction::RunAsync() {
 
 void FileManagerPrivateSelectFilesFunction::GetSelectedFileInfoResponse(
     const std::vector<ui::SelectedFileInfo>& files) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (files.empty()) {
     SendResponse(false);
     return;

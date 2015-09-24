@@ -44,7 +44,7 @@ var allFields = [
   'SERVER_PARENT_ID',
   'IS_DEL',
   'SERVER_IS_DEL',
-  'serverModelType',
+  'modelType',
   'SERVER_SPECIFICS',
   'SPECIFICS',
 ];
@@ -126,7 +126,7 @@ function makeDateUserAgentHeader() {
 /**
  * Builds a summary of current state and exports it as a downloaded file.
  *
- * @param {!Array.<{type: string, nodes: !Array<!Object>}>} nodesMap
+ * @param {!Array<{type: string, nodes: !Array<!Object>}>} nodesMap
  *     Summary of local state by model type.
  */
 function triggerDataDownload(nodesMap) {

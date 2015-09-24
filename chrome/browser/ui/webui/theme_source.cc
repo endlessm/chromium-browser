@@ -10,6 +10,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/resources_util.h"
 #include "chrome/browser/search/instant_io_context.h"
+#include "chrome/browser/themes/browser_theme_pack.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
@@ -21,6 +22,9 @@
 #include "ui/base/layout.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/webui/web_ui_util.h"
+#include "ui/gfx/codec/png_codec.h"
+#include "ui/gfx/image/image_skia.h"
+#include "ui/gfx/image/image_skia_rep.h"
 #include "url/gurl.h"
 
 using content::BrowserThread;
@@ -35,6 +39,24 @@ std::string GetThemePath() {
 // use a resource map rather than hard-coded strings.
 static const char* kNewTabCSSPath = "css/new_tab_theme.css";
 static const char* kNewIncognitoTabCSSPath = "css/incognito_new_tab_theme.css";
+
+void ProcessImageOnUIThread(const gfx::ImageSkia& image,
+                            float scale_factor,
+                            scoped_refptr<base::RefCountedBytes> data) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  const gfx::ImageSkiaRep& rep = image.GetRepresentation(scale_factor);
+  gfx::PNGCodec::EncodeBGRASkBitmap(
+      rep.sk_bitmap(), false /* discard transparency */, &data->data());
+}
+
+void ProcessResourceOnUIThread(int resource_id,
+                               float scale_factor,
+                               scoped_refptr<base::RefCountedBytes> data) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  ProcessImageOnUIThread(
+      *ResourceBundle::GetSharedInstance().GetImageSkiaNamed(resource_id),
+      scale_factor, data);
+}
 
 }  // namespace
 
@@ -67,6 +89,8 @@ void ThemeSource::StartDataRequest(
   webui::ParsePathAndScale(GURL(GetThemePath() + path),
                            &uncached_path,
                            &scale_factor);
+  scale_factor =
+      ui::GetScaleForScaleFactor(ui::GetSupportedScaleFactor(scale_factor));
 
   if (uncached_path == kNewTabCSSPath ||
       uncached_path == kNewIncognitoTabCSSPath) {
@@ -79,7 +103,10 @@ void ThemeSource::StartDataRequest(
 
   int resource_id = ResourcesUtil::GetThemeResourceId(uncached_path);
   if (resource_id != -1) {
-    SendThemeBitmap(callback, resource_id, scale_factor);
+    if (GetMimeType(path) == "image/png")
+      SendThemeImage(callback, resource_id, scale_factor);
+    else
+      SendThemeBitmap(callback, resource_id, scale_factor);
     return;
   }
 
@@ -113,7 +140,7 @@ base::MessageLoop* ThemeSource::MessageLoopForRequestPath(
 
   // If it's not a themeable image, we don't need to go to the UI thread.
   int resource_id = ResourcesUtil::GetThemeResourceId(uncached_path);
-  if (!ThemeProperties::IsThemeableImage(resource_id))
+  if (!BrowserThemePack::IsPersistentImageID(resource_id))
     return NULL;
 
   return content::URLDataSource::MessageLoopForRequestPath(path);
@@ -140,7 +167,7 @@ void ThemeSource::SendThemeBitmap(
     float scale_factor) {
   ui::ScaleFactor resource_scale_factor =
       ui::GetSupportedScaleFactor(scale_factor);
-  if (ThemeProperties::IsThemeableImage(resource_id)) {
+  if (BrowserThemePack::IsPersistentImageID(resource_id)) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
     ui::ThemeProvider* tp = ThemeServiceFactory::GetForProfile(profile_);
     DCHECK(tp);
@@ -153,5 +180,42 @@ void ThemeSource::SendThemeBitmap(
     const ResourceBundle& rb = ResourceBundle::GetSharedInstance();
     callback.Run(
         rb.LoadDataResourceBytesForScale(resource_id, resource_scale_factor));
+  }
+}
+
+void ThemeSource::SendThemeImage(
+    const content::URLDataSource::GotDataCallback& callback,
+    int resource_id,
+    float scale_factor) {
+  // If the resource bundle contains the data pack for |scale_factor|, we can
+  // safely fallback to SendThemeBitmap().
+  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+  if (ui::GetScaleForScaleFactor(rb.GetMaxScaleFactor()) >= scale_factor) {
+    SendThemeBitmap(callback, resource_id, scale_factor);
+    return;
+  }
+
+  // Otherwise, we should use gfx::ImageSkia to obtain the data. ImageSkia can
+  // rescale the bitmap if its backend doesn't contain the representation for
+  // the specified scale factor. This is the fallback path in case chrome is
+  // shipped without 2x resource pack but needs to use HighDPI display, which
+  // can happen in ChromeOS or Linux.
+  scoped_refptr<base::RefCountedBytes> data(new base::RefCountedBytes());
+  if (BrowserThemePack::IsPersistentImageID(resource_id)) {
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
+    ui::ThemeProvider* tp = ThemeServiceFactory::GetForProfile(profile_);
+    DCHECK(tp);
+
+    ProcessImageOnUIThread(*tp->GetImageSkiaNamed(resource_id), scale_factor,
+                           data);
+    callback.Run(data.get());
+  } else {
+    DCHECK_CURRENTLY_ON(BrowserThread::IO);
+    // Fetching image data in ResourceBundle should happen on the UI thread. See
+    // crbug.com/449277
+    content::BrowserThread::PostTaskAndReply(
+        content::BrowserThread::UI, FROM_HERE,
+        base::Bind(&ProcessResourceOnUIThread, resource_id, scale_factor, data),
+        base::Bind(callback, data));
   }
 }

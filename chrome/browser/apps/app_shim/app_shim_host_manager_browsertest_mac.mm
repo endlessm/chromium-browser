@@ -9,6 +9,7 @@
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/path_service.h"
+#include "chrome/browser/apps/app_shim/app_shim_handler_mac.h"
 #include "chrome/browser/apps/app_shim/test/app_shim_host_manager_test_api_mac.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
@@ -64,10 +65,8 @@ TestShimClient::TestShimClient() : io_thread_("TestShimClientIO") {
   app_mode::VerifySocketPermissions(socket_path);
 
   IPC::ChannelHandle handle(socket_path.value());
-  channel_ = IPC::ChannelProxy::Create(handle,
-                                       IPC::Channel::MODE_NAMED_CLIENT,
-                                       this,
-                                       io_thread_.message_loop_proxy().get());
+  channel_ = IPC::ChannelProxy::Create(handle, IPC::Channel::MODE_NAMED_CLIENT,
+                                       this, io_thread_.task_runner().get());
 }
 
 TestShimClient::~TestShimClient() {}
@@ -87,7 +86,7 @@ class AppShimHostManagerBrowserTest : public InProcessBrowserTest,
                                       public apps::AppShimHandler {
  public:
   AppShimHostManagerBrowserTest();
-  virtual ~AppShimHostManagerBrowserTest();
+  ~AppShimHostManagerBrowserTest() override;
 
  protected:
   // Wait for OnShimLaunch, then send a quit, and wait for the response. Used to

@@ -268,8 +268,8 @@ TEST_F(KernelProxyTest, WorkingDirectory) {
 
   EXPECT_EQ(0, ki_chdir("/"));
 
-  EXPECT_EQ(0, ki_mkdir("/foo", S_IREAD | S_IWRITE));
-  EXPECT_EQ(-1, ki_mkdir("/foo", S_IREAD | S_IWRITE));
+  EXPECT_EQ(0, ki_mkdir("/foo", S_IRUSR | S_IWUSR));
+  EXPECT_EQ(-1, ki_mkdir("/foo", S_IRUSR | S_IWUSR));
   EXPECT_EQ(EEXIST, errno);
 
   memset(text, 0, sizeof(text));
@@ -291,9 +291,9 @@ TEST_F(KernelProxyTest, FDPathMapping) {
 
   int fd1, fd2, fd3, fd4, fd5;
 
-  EXPECT_EQ(0, ki_mkdir("/foo", S_IREAD | S_IWRITE));
-  EXPECT_EQ(0, ki_mkdir("/foo/bar", S_IREAD | S_IWRITE));
-  EXPECT_EQ(0, ki_mkdir("/example", S_IREAD | S_IWRITE));
+  EXPECT_EQ(0, ki_mkdir("/foo", S_IRUSR | S_IWUSR));
+  EXPECT_EQ(0, ki_mkdir("/foo/bar", S_IRUSR | S_IWUSR));
+  EXPECT_EQ(0, ki_mkdir("/example", S_IRUSR | S_IWUSR));
   ki_chdir("/foo");
 
   fd1 = ki_open("/example", O_RDONLY, 0);
@@ -342,7 +342,7 @@ TEST_F(KernelProxyTest, FDPathMapping) {
   EXPECT_STREQ("/foo/bar", text);
 }
 
-TEST_F(KernelProxyTest, MemMountIO) {
+TEST_F(KernelProxyTest, BasicReadWrite) {
   char text[1024];
   int fd1, fd2, fd3;
   int len;
@@ -352,15 +352,15 @@ TEST_F(KernelProxyTest, MemMountIO) {
   EXPECT_EQ(ENOENT, errno);
 
   // Create "/foo"
-  EXPECT_EQ(0, ki_mkdir("/foo", S_IREAD | S_IWRITE));
-  EXPECT_EQ(-1, ki_mkdir("/foo", S_IREAD | S_IWRITE));
+  EXPECT_EQ(0, ki_mkdir("/foo", S_IRUSR | S_IWUSR));
+  EXPECT_EQ(-1, ki_mkdir("/foo", S_IRUSR | S_IWUSR));
   EXPECT_EQ(EEXIST, errno);
 
   // Delete "/foo"
   EXPECT_EQ(0, ki_rmdir("/foo"));
 
   // Recreate "/foo"
-  EXPECT_EQ(0, ki_mkdir("/foo", S_IREAD | S_IWRITE));
+  EXPECT_EQ(0, ki_mkdir("/foo", S_IRUSR | S_IWUSR));
 
   // Fail to open "/foo/bar"
   EXPECT_EQ(-1, ki_open("/foo/bar", O_RDONLY, 0));
@@ -411,7 +411,7 @@ TEST_F(KernelProxyTest, MemMountIO) {
   EXPECT_STREQ("HELLOWORLD", text);
 }
 
-TEST_F(KernelProxyTest, MemMountFTruncate) {
+TEST_F(KernelProxyTest, FTruncate) {
   char text[1024];
   int fd1, fd2;
 
@@ -438,7 +438,7 @@ TEST_F(KernelProxyTest, MemMountFTruncate) {
   EXPECT_EQ(EACCES, errno);
 }
 
-TEST_F(KernelProxyTest, MemMountTruncate) {
+TEST_F(KernelProxyTest, Truncate) {
   char text[1024];
   int fd1;
 
@@ -462,7 +462,7 @@ TEST_F(KernelProxyTest, MemMountTruncate) {
   EXPECT_EQ(EACCES, errno);
 }
 
-TEST_F(KernelProxyTest, MemMountLseek) {
+TEST_F(KernelProxyTest, Lseek) {
   int fd = ki_open("/foo", O_CREAT | O_RDWR, 0777);
   ASSERT_GT(fd, -1);
   ASSERT_EQ(9, ki_write(fd, "Some text", 9));
@@ -495,7 +495,7 @@ TEST_F(KernelProxyTest, CloseTwice) {
   EXPECT_EQ(0, ki_close(fd2));
 }
 
-TEST_F(KernelProxyTest, MemMountDup) {
+TEST_F(KernelProxyTest, Dup) {
   int fd = ki_open("/foo", O_CREAT | O_RDWR, 0777);
   ASSERT_GT(fd, -1);
 
@@ -527,10 +527,80 @@ TEST_F(KernelProxyTest, MemMountDup) {
   // fd, new_fd, dup_fd -> "/bar"
 }
 
+TEST_F(KernelProxyTest, DescriptorDup2Dance) {
+  // Open a file to a get a descriptor to copy for this test.
+  // The test makes the assumption at all descriptors
+  // open by default are contiguous starting from zero.
+  int fd = ki_open("/foo", O_CREAT | O_RDWR, 0777);
+  ASSERT_GT(fd, -1);
+
+  // The comment above each statement below tracks which descriptors,
+  // starting from fd are currently allocated.
+  // Descriptors marked with an 'x' are allocated.
+
+  // (fd)   (fd + 1)   (fd + 2)
+  //  x
+  ASSERT_EQ(fd + 1, ki_dup2(fd, fd + 1));
+  // (fd)   (fd + 1)   (fd + 2)
+  //  x      x
+  ASSERT_EQ(0, ki_close(fd + 1));
+  // (fd)   (fd + 1)   (fd + 2)
+  //  x
+  ASSERT_EQ(fd + 1, ki_dup2(fd, fd + 1));
+  // (fd)   (fd + 1)   (fd + 2)
+  //  x      x
+  ASSERT_EQ(fd + 2, ki_dup(fd));
+  // (fd)   (fd + 1)   (fd + 2)
+  //  x      x          x
+  ASSERT_EQ(0, ki_close(fd + 2));
+  // (fd)   (fd + 1)   (fd + 2)
+  //  x      x
+  ASSERT_EQ(0, ki_close(fd + 1));
+  // (fd)   (fd + 1)   (fd + 2)
+  //  x
+  ASSERT_EQ(0, ki_close(fd));
+}
+
+TEST_F(KernelProxyTest, Dup2Negative) {
+  // Open a file to a get a descriptor to copy for this test.
+  // The test makes the assumption at all descriptors
+  // open by default are contiguous starting from zero.
+  int fd = ki_open("/foo", O_CREAT | O_RDWR, 0777);
+  ASSERT_GT(fd, -1);
+
+  // Attempt to dup2 to an invalid descriptor.
+  ASSERT_EQ(-1, ki_dup2(fd, -12));
+  EXPECT_EQ(EBADF, errno);
+  ASSERT_EQ(0, ki_close(fd));
+}
+
+TEST_F(KernelProxyTest, DescriptorAllocationConsistency) {
+  // Check that the descriptor free list returns the expected ones,
+  // as the order is mandated by POSIX.
+
+  // Open a file to a get a descriptor to copy for this test.
+  // The test makes the assumption at all descriptors
+  // open by default are contiguous starting from zero.
+  int fd = ki_open("/foo", O_CREAT | O_RDWR, 0777);
+  ASSERT_GT(fd, -1);
+
+  // The next descriptor allocated should follow the first.
+  int dup_fd = ki_dup(fd);
+  ASSERT_EQ(fd + 1, dup_fd);
+
+  // Allocate a high descriptor number.
+  ASSERT_EQ(100, ki_dup2(fd, 100));
+
+  // The next descriptor allocate should still come 2 places
+  // after the first.
+  int dup_fd2 = ki_dup(fd);
+  ASSERT_EQ(fd + 2, dup_fd2);
+}
+
 TEST_F(KernelProxyTest, Lstat) {
   int fd = ki_open("/foo", O_CREAT | O_RDWR, 0777);
   ASSERT_GT(fd, -1);
-  ASSERT_EQ(0, ki_mkdir("/bar", S_IREAD | S_IWRITE));
+  ASSERT_EQ(0, ki_mkdir("/bar", S_IRUSR | S_IWUSR));
 
   struct stat buf;
   EXPECT_EQ(0, ki_lstat("/foo", &buf));
@@ -547,6 +617,49 @@ TEST_F(KernelProxyTest, Lstat) {
   // Still legal to stat a file that is write-only.
   EXPECT_EQ(0, ki_chmod("/foo", 0222));
   EXPECT_EQ(0, ki_lstat("/foo", &buf));
+}
+
+TEST_F(KernelProxyTest, Chmod) {
+  ASSERT_EQ(-1, ki_chmod("/foo", 0222));
+  ASSERT_EQ(errno, ENOENT);
+
+  int fd = ki_open("/foo", O_CREAT | O_RDWR, 0770);
+  ASSERT_GT(fd, -1);
+
+  struct stat buf;
+  ASSERT_EQ(0, ki_stat("/foo", &buf));
+  ASSERT_EQ(0770, buf.st_mode & 0777);
+
+  ASSERT_EQ(0, ki_chmod("/foo", 0222));
+  ASSERT_EQ(0, ki_stat("/foo", &buf));
+  ASSERT_EQ(0222, buf.st_mode & 0777);
+
+  // Check that passing mode bits other than permissions
+  // is ignored.
+  ASSERT_EQ(0, ki_chmod("/foo", S_IFBLK | 0222));
+  ASSERT_EQ(0, ki_stat("/foo", &buf));
+  EXPECT_TRUE(S_ISREG(buf.st_mode));
+  ASSERT_EQ(0222, buf.st_mode & 0777);
+}
+
+TEST_F(KernelProxyTest, Fchmod) {
+  int fd = ki_open("/foo", O_CREAT | O_RDWR, 0770);
+  ASSERT_GT(fd, -1);
+
+  struct stat buf;
+  ASSERT_EQ(0, ki_stat("/foo", &buf));
+  ASSERT_EQ(0770, buf.st_mode & 0777);
+
+  ASSERT_EQ(0, ki_fchmod(fd, 0222));
+  ASSERT_EQ(0, ki_stat("/foo", &buf));
+  ASSERT_EQ(0222, buf.st_mode & 0777);
+
+  // Check that passing mode bits other than permissions
+  // is ignored.
+  ASSERT_EQ(0, ki_fchmod(fd, S_IFBLK | 0222));
+  ASSERT_EQ(0, ki_stat("/foo", &buf));
+  EXPECT_TRUE(S_ISREG(buf.st_mode));
+  ASSERT_EQ(0222, buf.st_mode & 0777);
 }
 
 TEST_F(KernelProxyTest, OpenDirectory) {
@@ -614,10 +727,15 @@ TEST_F(KernelProxyTest, Utimes) {
   struct stat buf;
   EXPECT_EQ(0, ki_stat("/dummy", &buf));
 
-  EXPECT_GE(buf.st_atime, tm.tv_sec);
-  EXPECT_GE(buf.st_atimensec, tm.tv_usec * 1000);
-  EXPECT_GE(buf.st_mtime, tm.tv_sec);
-  EXPECT_GE(buf.st_mtimensec, tm.tv_usec * 1000);
+  // We just want to check if st_atime >= tm. This is true if atime seconds > tm
+  // seconds (in which case the nanoseconds are irrelevant), or if the seconds
+  // are equal, then this is true if atime nanoseconds >= tm microseconds.
+  EXPECT_TRUE(
+      buf.st_atime > tm.tv_sec ||
+      (buf.st_atime == tm.tv_sec && buf.st_atimensec >= tm.tv_usec * 1000));
+  EXPECT_TRUE(
+      buf.st_mtime > tm.tv_sec ||
+      (buf.st_mtime == tm.tv_sec && buf.st_mtimensec >= tm.tv_usec * 1000));
 }
 
 TEST_F(KernelProxyTest, Utime) {
@@ -645,10 +763,15 @@ TEST_F(KernelProxyTest, Utime) {
   struct stat buf;
   EXPECT_EQ(0, ki_stat("/dummy", &buf));
 
-  EXPECT_GE(buf.st_atime, tm.tv_sec);
-  EXPECT_GE(buf.st_atimensec, tm.tv_usec * 1000);
-  EXPECT_GE(buf.st_mtime, tm.tv_sec);
-  EXPECT_GE(buf.st_mtimensec, tm.tv_usec * 1000);
+  // We just want to check if st_atime >= tm. This is true if atime seconds > tm
+  // seconds (in which case the nanoseconds are irrelevant), or if the seconds
+  // are equal, then this is true if atime nanoseconds >= tm microseconds.
+  EXPECT_TRUE(
+      buf.st_atime > tm.tv_sec ||
+      (buf.st_atime == tm.tv_sec && buf.st_atimensec >= tm.tv_usec * 1000));
+  EXPECT_TRUE(
+      buf.st_mtime > tm.tv_sec ||
+      (buf.st_mtime == tm.tv_sec && buf.st_mtimensec >= tm.tv_usec * 1000));
 }
 
 TEST_F(KernelProxyTest, Umask) {
@@ -969,6 +1092,7 @@ TEST_F(KernelProxyErrorTest, WriteError) {
       .WillOnce(DoAll(SetArgPointee<3>(0),  // Wrote 0 bytes.
                       Return(1234)));       // Returned error 1234.
 
+  EXPECT_CALL(*mock_node, IsaDir()).Times(1);
   EXPECT_CALL(*mock_node, Destroy()).Times(1);
 
   int fd = ki_open("/dummy", O_WRONLY, 0);

@@ -7,7 +7,7 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/chromeos/login/users/fake_user_manager.h"
+#include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/multi_profile_user_controller_delegate.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/browser/chromeos/policy/policy_cert_service.h"
@@ -100,11 +100,11 @@ const BehaviorTestCase kBehaviorTestCases[] = {
 // we've ensured the profile has been shut down.
 policy::PolicyCertVerifier* g_policy_cert_verifier_for_factory = NULL;
 
-KeyedService* TestPolicyCertServiceFactory(content::BrowserContext* context) {
+scoped_ptr<KeyedService> TestPolicyCertServiceFactory(
+    content::BrowserContext* context) {
   return policy::PolicyCertService::CreateForTesting(
-             kUsers[0],
-             g_policy_cert_verifier_for_factory,
-             user_manager::UserManager::Get()).release();
+      kUsers[0], g_policy_cert_verifier_for_factory,
+      user_manager::UserManager::Get());
 }
 
 }  // namespace
@@ -114,12 +114,12 @@ class MultiProfileUserControllerTest
       public MultiProfileUserControllerDelegate {
  public:
   MultiProfileUserControllerTest()
-      : fake_user_manager_(new FakeUserManager),
+      : fake_user_manager_(new FakeChromeUserManager),
         user_manager_enabler_(fake_user_manager_),
         user_not_allowed_count_(0) {}
-  virtual ~MultiProfileUserControllerTest() {}
+  ~MultiProfileUserControllerTest() override {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     profile_manager_.reset(
         new TestingProfileManager(TestingBrowserProcess::GetGlobal()));
     ASSERT_TRUE(profile_manager_->SetUp());
@@ -141,7 +141,7 @@ class MultiProfileUserControllerTest
     }
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     // Clear our cached pointer to the PolicyCertVerifier.
     g_policy_cert_verifier_for_factory = NULL;
 
@@ -189,7 +189,7 @@ class MultiProfileUserControllerTest
   }
 
   // MultiProfileUserControllerDeleagte overrides:
-  virtual void OnUserNotAllowed(const std::string& user_email) override {
+  void OnUserNotAllowed(const std::string& user_email) override {
     ++user_not_allowed_count_;
   }
 
@@ -203,7 +203,7 @@ class MultiProfileUserControllerTest
   content::TestBrowserThreadBundle threads_;
   scoped_ptr<policy::PolicyCertVerifier> cert_verifier_;
   scoped_ptr<TestingProfileManager> profile_manager_;
-  FakeUserManager* fake_user_manager_;  // Not owned
+  FakeChromeUserManager* fake_user_manager_;  // Not owned
   ScopedUserManagerEnabler user_manager_enabler_;
 
   scoped_ptr<MultiProfileUserController> controller_;
@@ -320,23 +320,6 @@ TEST_F(MultiProfileUserControllerTest, PrimaryBehaviorChange) {
           << "Case " << i;
     }
   }
-}
-
-// Tests that owner could not be a secondary user.
-//
-// TODO (ygorshenin@, crbug.com/230018): remove or change the test when the
-// issue will be fixed.
-TEST_F(MultiProfileUserControllerTest, DISABLED_NoSecondaryOwner) {
-  LoginUser(0);
-  SetOwner(1);
-
-  MultiProfileUserController::UserAllowedInSessionReason reason;
-  EXPECT_FALSE(controller()->IsUserAllowedInSession(kUsers[1], &reason));
-  EXPECT_EQ(MultiProfileUserController::NOT_ALLOWED_OWNER_AS_SECONDARY, reason);
-
-  EXPECT_EQ(0, user_not_allowed_count());
-  LoginUser(1);
-  EXPECT_EQ(1, user_not_allowed_count());
 }
 
 TEST_F(MultiProfileUserControllerTest,

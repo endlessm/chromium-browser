@@ -94,7 +94,8 @@ SPDNotificationType TtsPlatformImplLinux::current_notification_ =
 
 TtsPlatformImplLinux::TtsPlatformImplLinux()
     : utterance_id_(0) {
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
   if (!command_line.HasSwitch(switches::kEnableSpeechDispatcher))
     return;
 
@@ -115,7 +116,7 @@ void TtsPlatformImplLinux::Initialize() {
     // http://crbug.com/317360
     ANNOTATE_SCOPED_MEMORY_LEAK;
     conn_ = libspeechd_loader_.spd_open(
-        "chrome", "extension_api", NULL, SPD_MODE_SINGLE);
+        "chrome", "extension_api", NULL, SPD_MODE_THREADED);
   }
   if (!conn_)
     return;
@@ -150,7 +151,7 @@ void TtsPlatformImplLinux::Reset() {
   if (conn_)
     libspeechd_loader_.spd_close(conn_);
   conn_ = libspeechd_loader_.spd_open(
-      "chrome", "extension_api", NULL, SPD_MODE_SINGLE);
+      "chrome", "extension_api", NULL, SPD_MODE_THREADED);
 }
 
 bool TtsPlatformImplLinux::PlatformImplAvailable() {
@@ -190,6 +191,10 @@ bool TtsPlatformImplLinux::Speak(
   // 3 = 100.
   libspeechd_loader_.spd_set_voice_rate(conn_, 100 * log10(rate) / log10(3));
   libspeechd_loader_.spd_set_voice_pitch(conn_, 100 * log10(pitch) / log10(3));
+
+  // Support languages other than the default
+  if (!lang.empty())
+    libspeechd_loader_.spd_set_language(conn_, lang.c_str());
 
   utterance_ = utterance;
   utterance_id_ = utterance_id;

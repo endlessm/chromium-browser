@@ -28,7 +28,8 @@ struct SourceProfile;
 
 // This class manages the import process. It creates the in-process half of the
 // importer bridge and the external process importer client.
-class ExternalProcessImporterHost : public BaseBookmarkModelObserver {
+class ExternalProcessImporterHost
+    : public bookmarks::BaseBookmarkModelObserver {
  public:
   ExternalProcessImporterHost();
 
@@ -79,9 +80,10 @@ class ExternalProcessImporterHost : public BaseBookmarkModelObserver {
   // complete.
   virtual void LaunchImportIfReady();
 
-  // BaseBookmarkModelObserver:
-  void BookmarkModelLoaded(BookmarkModel* model, bool ids_reassigned) override;
-  void BookmarkModelBeingDeleted(BookmarkModel* model) override;
+  // bookmarks::BaseBookmarkModelObserver:
+  void BookmarkModelLoaded(bookmarks::BookmarkModel* model,
+                           bool ids_reassigned) override;
+  void BookmarkModelBeingDeleted(bookmarks::BookmarkModel* model) override;
   void BookmarkModelChanged() override;
 
   // Called when TemplateURLService has been loaded.

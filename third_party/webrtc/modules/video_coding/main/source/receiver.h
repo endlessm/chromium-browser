@@ -23,55 +23,44 @@ namespace webrtc {
 class Clock;
 class VCMEncodedFrame;
 
-enum VCMNackStatus {
-  kNackOk,
-  kNackKeyFrameRequest
-};
-
-enum VCMReceiverState {
-  kReceiving,
-  kPassive,
-  kWaitForPrimaryDecode
-};
-
 class VCMReceiver {
  public:
   VCMReceiver(VCMTiming* timing,
               Clock* clock,
-              EventFactory* event_factory,
-              bool master);
+              EventFactory* event_factory);
+
+  // Using this constructor, you can specify a different event factory for the
+  // jitter buffer. Useful for unit tests when you want to simulate incoming
+  // packets, in which case the jitter buffer's wait event is different from
+  // that of VCMReceiver itself.
+  VCMReceiver(VCMTiming* timing,
+              Clock* clock,
+              rtc::scoped_ptr<EventWrapper> receiver_event,
+              rtc::scoped_ptr<EventWrapper> jitter_buffer_event);
+
   ~VCMReceiver();
 
   void Reset();
-  int32_t Initialize();
-  void UpdateRtt(uint32_t rtt);
+  void UpdateRtt(int64_t rtt);
   int32_t InsertPacket(const VCMPacket& packet,
                        uint16_t frame_width,
                        uint16_t frame_height);
   VCMEncodedFrame* FrameForDecoding(uint16_t max_wait_time_ms,
                                     int64_t& next_render_time_ms,
-                                    bool render_timing = true,
-                                    VCMReceiver* dual_receiver = NULL);
+                                    bool render_timing = true);
   void ReleaseFrame(VCMEncodedFrame* frame);
   void ReceiveStatistics(uint32_t* bitrate, uint32_t* framerate);
-  void ReceivedFrameCount(VCMFrameCount* frame_count) const;
   uint32_t DiscardedPackets() const;
 
   // NACK.
   void SetNackMode(VCMNackMode nackMode,
-                   int low_rtt_nack_threshold_ms,
-                   int high_rtt_nack_threshold_ms);
+                   int64_t low_rtt_nack_threshold_ms,
+                   int64_t high_rtt_nack_threshold_ms);
   void SetNackSettings(size_t max_nack_list_size,
                        int max_packet_age_to_nack,
                        int max_incomplete_time_ms);
   VCMNackMode NackMode() const;
-  VCMNackStatus NackList(uint16_t* nackList, uint16_t size,
-                         uint16_t* nack_list_length);
-
-  // Dual decoder.
-  bool DualDecoderCaughtUp(VCMEncodedFrame* dual_frame,
-                           VCMReceiver& dual_receiver) const;
-  VCMReceiverState State() const;
+  std::vector<uint16_t> NackList(bool* request_key_frame);
 
   // Receiver video delay.
   int SetMinReceiverDelay(int desired_delay_ms);
@@ -85,22 +74,17 @@ class VCMReceiver {
   // the time this function is called.
   int RenderBufferSizeMs();
 
- private:
-  void CopyJitterBufferStateFromReceiver(const VCMReceiver& receiver);
-  void UpdateState(VCMReceiverState new_state);
-  void UpdateState(const VCMEncodedFrame& frame);
-  static int32_t GenerateReceiverId();
+  void RegisterStatsCallback(VCMReceiveStatisticsCallback* callback);
 
+  void TriggerDecoderShutdown();
+
+ private:
   CriticalSectionWrapper* crit_sect_;
-  Clock* clock_;
-  bool master_;
+  Clock* const clock_;
   VCMJitterBuffer jitter_buffer_;
   VCMTiming* timing_;
-  scoped_ptr<EventWrapper> render_wait_event_;
-  VCMReceiverState state_;
+  rtc::scoped_ptr<EventWrapper> render_wait_event_;
   int max_video_delay_ms_;
-
-  static int32_t receiver_id_counter_;
 };
 
 }  // namespace webrtc

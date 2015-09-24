@@ -12,7 +12,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/values.h"
 #include "third_party/dom_distiller_js/dom_distiller.pb.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "url/gurl.h"
 
 namespace dom_distiller {
@@ -55,9 +55,18 @@ class DistillerPage {
   // should be the same regardless of the DistillerPage implementation.
   virtual void DistillPageImpl(const GURL& url, const std::string& script) = 0;
 
+  // The value returned between the JavaScript and the DistillerPage can be
+  // either a dictionary with all the content, or a stringified version.
+  virtual bool StringifyOutput() = 0;
+
+  // If true, forces the creation of a new window context to evaluate the
+  // JavaScript.
+  virtual bool CreateNewContext() = 0;
+
  private:
   bool ready_;
   DistillerPageCallback distiller_page_callback_;
+  base::TimeTicks distillation_start_;
   DISALLOW_COPY_AND_ASSIGN(DistillerPage);
 };
 

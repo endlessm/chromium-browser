@@ -95,8 +95,9 @@ KeyedService* PolicyCertServiceFactory::BuildServiceInstanceFor(
   Profile* profile = static_cast<Profile*>(context);
 
   user_manager::UserManager* user_manager = user_manager::UserManager::Get();
-  user_manager::User* user = chromeos::ProfileHelper::Get()->GetUserByProfile(
-      profile->GetOriginalProfile());
+  const user_manager::User* user =
+      chromeos::ProfileHelper::Get()->GetUserByProfile(
+          profile->GetOriginalProfile());
   if (!user)
     return NULL;
 
@@ -139,10 +140,7 @@ void PolicyCertServiceFactory::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
   // TODO(joaodasilva): this is used for backwards compatibility.
   // Remove once it's not necessary anymore.
-  registry->RegisterBooleanPref(
-      prefs::kUsedPolicyCertificatesOnce,
-      false,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterBooleanPref(prefs::kUsedPolicyCertificatesOnce, false);
 }
 
 bool PolicyCertServiceFactory::ServiceIsNULLWhileTesting() const {

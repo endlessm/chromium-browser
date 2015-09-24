@@ -10,6 +10,7 @@
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "chrome/test/remoting/remote_test_helper.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/test/browser_test_utils.h"
 #include "net/dns/mock_host_resolver.h"
@@ -29,20 +30,6 @@ const char kMe2MePin[] = "me2me-pin";
 const char kRemoteHostName[] = "remote-host-name";
 const char kExtensionName[] = "extension-name";
 const char kHttpServer[] = "http-server";
-
-// ASSERT_TRUE can only be used in void returning functions. This version
-// should be used in non-void-returning functions.
-inline void _ASSERT_TRUE(bool condition) {
-  if (!condition) {
-    // ASSERT_TRUE only prints the first call frame in the error message.
-    // In our case, this is the _ASSERT_TRUE wrapper function, which is not
-    // useful.  To help with debugging, we will dump the full callstack.
-    LOG(ERROR) << "Assertion failed.";
-    LOG(ERROR) << base::debug::StackTrace().ToString();
-  }
-  ASSERT_TRUE(condition);
-  return;
-}
 
 }  // namespace
 
@@ -86,8 +73,23 @@ class RemoteDesktopBrowserTest : public extensions::PlatformAppBrowserTest {
   // Test whether the chromoting extension is installed.
   void VerifyChromotingLoaded(bool expected);
 
-  // Launch the chromoting app.
-  void LaunchChromotingApp();
+  // Launch the Chromoting app. If |defer_start| is true, an additional URL
+  // parameter is passed to the application, causing it to defer start-up
+  // until StartChromotingApp is invoked. Test code can execute arbitrary
+  // JavaScript in the context of the app between these two calls, for example
+  // to set up appropriate mocks.
+  // |window_open_disposition| controls where the app will be launched.  For v2
+  // app, the value of |window_open_disposition| will always be NEW_WINDOW.
+  // Returns the content::Webconetns of the launched app. The lifetime of the
+  // returned value is managed by LaunchChromotingApp().
+  content::WebContents* LaunchChromotingApp(bool defer_start);
+  content::WebContents* LaunchChromotingApp(
+      bool defer_start,
+      WindowOpenDisposition window_open_disposition);
+
+  // If the Chromoting app was launched in deferred mode, tell it to continue
+  // its regular start-up sequence.
+  void StartChromotingApp();
 
   // Authorize: grant extended access permission to the user's computer.
   void Authorize();
@@ -135,10 +137,14 @@ class RemoteDesktopBrowserTest : public extensions::PlatformAppBrowserTest {
   // Install the chromoting extension
   void Install();
 
+  // Load the browser-test support JavaScript files, including helper functions
+  // and mocks.
+  void LoadBrowserTestJavaScript(content::WebContents* content);
+
   // Perform all necessary steps (installation, authorization, authentication,
-  // expanding the me2me section) so that the app is ready for a me2me
-  // connection.
-  void SetUpTestForMe2Me();
+  // expanding the me2me section) so that the app is ready for a connection.
+  // Returns the content::WebContents instance of the Chromoting app.
+  content::WebContents* SetUpTest();
 
   // Clean up after the test.
   void Cleanup();
@@ -150,7 +156,7 @@ class RemoteDesktopBrowserTest : public extensions::PlatformAppBrowserTest {
 
   // Ensures that the host is started locally with |me2me_pin()|.
   // Browser_test.js must be loaded before calling this function.
-  void EnsureRemoteConnectionEnabled();
+  void EnsureRemoteConnectionEnabled(content::WebContents* app_web_content);
 
   // Connect to the local host through Me2Me.
   void ConnectToLocalHost(bool remember_pin);
@@ -209,8 +215,8 @@ class RemoteDesktopBrowserTest : public extensions::PlatformAppBrowserTest {
     return client_web_content_;
   }
 
-  content::WebContents* app_web_content() {
-    return app_web_content_;
+  RemoteTestHelper* remote_test_helper() const {
+    return remote_test_helper_.get();
   }
 
   // Whether to perform the cleanup tasks (uninstalling chromoting, etc).
@@ -223,19 +229,16 @@ class RemoteDesktopBrowserTest : public extensions::PlatformAppBrowserTest {
 
   // Helper to construct the starting URL of the installed chromoting webapp.
   GURL Chromoting_Main_URL() {
-    if (is_platform_app())
-      // The v2 remoting app recently (M38 at the latest) started adding a
-      // query-string parameter to the main extension page. So we'll create a
-      // different expected URL for it.
-      return GURL("chrome-extension://" + ChromotingID() +
-        "/main.html?isKioskSession=false");
-    else
-      return GURL("chrome-extension://" + ChromotingID() + "/main.html");
+    return GURL("chrome-extension://" + ChromotingID() + "/main.html");
   }
 
-  // Helper to retrieve the current URL in the active WebContents.
+  // Helper to retrieve the current URL in the active WebContents. This function
+  // strips all query parameters from the URL.
   GURL GetCurrentURL() {
-    return active_web_contents()->GetURL();
+    GURL current_url = active_web_contents()->GetURL();
+    GURL::Replacements strip_query;
+    strip_query.ClearQuery();
+    return current_url.ReplaceComponents(strip_query);
   }
 
   // Helpers to execute JavaScript code on a web page.
@@ -250,32 +253,23 @@ class RemoteDesktopBrowserTest : public extensions::PlatformAppBrowserTest {
   // Helper to execute a JavaScript code snippet in the active WebContents
   // and extract the boolean result.
   bool ExecuteScriptAndExtractBool(const std::string& script) {
-    return ExecuteScriptAndExtractBool(active_web_contents(), script);
+    return RemoteTestHelper::ExecuteScriptAndExtractBool(
+        active_web_contents(), script);
   }
-
-  // Helper to execute a JavaScript code snippet and extract the boolean result.
-  static bool ExecuteScriptAndExtractBool(content::WebContents* web_contents,
-                                          const std::string& script);
 
   // Helper to execute a JavaScript code snippet in the active WebContents
   // and extract the int result.
   int ExecuteScriptAndExtractInt(const std::string& script) {
-    return ExecuteScriptAndExtractInt(active_web_contents(), script);
+    return RemoteTestHelper::ExecuteScriptAndExtractInt(
+        active_web_contents(), script);
   }
-
-  // Helper to execute a JavaScript code snippet and extract the int result.
-  static int ExecuteScriptAndExtractInt(content::WebContents* web_contents,
-                                        const std::string& script);
 
   // Helper to execute a JavaScript code snippet in the active WebContents
   // and extract the string result.
   std::string ExecuteScriptAndExtractString(const std::string& script) {
-    return ExecuteScriptAndExtractString(active_web_contents(), script);
+    return RemoteTestHelper::ExecuteScriptAndExtractString(
+        active_web_contents(), script);
   }
-
-  // Helper to execute a JavaScript code snippet and extract the string result.
-  static std::string ExecuteScriptAndExtractString(
-      content::WebContents* web_contents, const std::string& script);
 
   // Helper to load a JavaScript file from |path| and inject it to
   // current web_content.  The variable |path| is relative to the directory of
@@ -296,7 +290,14 @@ class RemoteDesktopBrowserTest : public extensions::PlatformAppBrowserTest {
   // the active WebContents.
   bool HtmlElementExists(const std::string& name) {
     return ExecuteScriptAndExtractBool(
-        "document.getElementById(\"" + name + "\") != null");
+        "(function() {"
+          "if (document.getElementById('" + name + "')) {"
+            "return true;"
+          "}"
+          "console.log('body.innerHTML:=' + document.body.innerHTML);"
+          "console.log('window.location:= ' + window.location);"
+          "return false;"
+        "})()");
   }
 
   // Helper to check whether a html element with the given name is visible in
@@ -311,6 +312,9 @@ class RemoteDesktopBrowserTest : public extensions::PlatformAppBrowserTest {
 
   // Checking whether the localHost has been initialized.
   bool IsLocalHostReady();
+
+  // Checking whether the hosts list has been initialized.
+  bool IsHostListReady();
 
   // Callback used by EnterPin to check whether the pin form is visible
   // and to dismiss the host-needs-update dialog.
@@ -343,6 +347,12 @@ class RemoteDesktopBrowserTest : public extensions::PlatformAppBrowserTest {
   static bool IsHostActionComplete(
       content::WebContents* client_web_content, std::string host_action_var);
 
+  // Test if the remoting app mode is equal to the given mode
+  bool IsAppModeEqualTo(const std::string& mode);
+
+  // Disable remote connection while the remote connection is enabled
+  void DisableRemoteConnection();
+
  private:
   // Fields
 
@@ -367,8 +377,8 @@ class RemoteDesktopBrowserTest : public extensions::PlatformAppBrowserTest {
   // will get acknowledgments of actions completed on the host.
   content::WebContents* client_web_content_;
 
-  // WebContent of the landing page in the chromoting app.
-  content::WebContents* app_web_content_;
+  // Helper class to assist in performing and verifying remote operations.
+  scoped_ptr<RemoteTestHelper> remote_test_helper_;
 
   bool no_cleanup_;
   bool no_install_;

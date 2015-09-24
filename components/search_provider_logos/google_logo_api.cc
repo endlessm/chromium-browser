@@ -16,24 +16,35 @@ namespace {
 const char kResponsePreamble[] = ")]}'";
 }
 
-GURL GoogleAppendFingerprintToLogoURL(const GURL& logo_url,
-                                      const std::string& fingerprint) {
+GURL GoogleAppendQueryparamsToLogoURL(const GURL& logo_url,
+                                      const std::string& fingerprint,
+                                      bool wants_cta) {
   // Note: we can't just use net::AppendQueryParameter() because it escapes
   // ":" to "%3A", but the server requires the colon not to be escaped.
   // See: http://crbug.com/413845
 
   // TODO(newt): Switch to using net::AppendQueryParameter once it no longer
   // escapes ":"
+  if (!fingerprint.empty() || wants_cta) {
+    std::string query(logo_url.query());
+    if (!query.empty())
+      query += "&";
 
-  std::string query(logo_url.query());
-  if (!query.empty())
-    query += "&";
+    query += "async=";
+    if (!fingerprint.empty()) {
+      query += "es_dfp:" + fingerprint;
+      if (wants_cta)
+        query += ",";
+    }
+    if (wants_cta) {
+      query += "cta:1";
+    }
+    GURL::Replacements replacements;
+    replacements.SetQueryStr(query);
+    return logo_url.ReplaceComponents(replacements);
+  }
 
-  query += "async=es_dfp:";
-  query += fingerprint;
-  GURL::Replacements replacements;
-  replacements.SetQueryStr(query);
-  return logo_url.ReplaceComponents(replacements);
+  return logo_url;
 }
 
 scoped_ptr<EncodedLogo> GoogleParseLogoResponse(
@@ -45,6 +56,7 @@ scoped_ptr<EncodedLogo> GoogleParseLogoResponse(
   //     "mime_type": "image/png",
   //     "fingerprint": "db063e32",
   //     "target": "http://www.google.com.au/search?q=Wilbur+Christiansen",
+  //     "url": "http://www.google.com/logos/doodle.png",
   //     "alt": "Wilbur Christiansen's Birthday"
   //     "time_to_live": 1389304799
   //   }}}
@@ -54,7 +66,7 @@ scoped_ptr<EncodedLogo> GoogleParseLogoResponse(
   if (response_sp.starts_with(kResponsePreamble))
     response_sp.remove_prefix(strlen(kResponsePreamble));
 
-  scoped_ptr<base::Value> value(base::JSONReader::Read(response_sp));
+  scoped_ptr<base::Value> value = base::JSONReader::Read(response_sp);
   if (!value.get())
     return scoped_ptr<EncodedLogo>();
 
@@ -88,6 +100,10 @@ scoped_ptr<EncodedLogo> GoogleParseLogoResponse(
   logo_dict->GetString("target", &logo->metadata.on_click_url);
   logo_dict->GetString("fingerprint", &logo->metadata.fingerprint);
   logo_dict->GetString("alt", &logo->metadata.alt_text);
+
+  // Existance of url indicates |data| is a call to action image for an
+  // animated doodle. |url| points to that animated doodle.
+  logo_dict->GetString("url", &logo->metadata.animated_url);
 
   base::TimeDelta time_to_live;
   int time_to_live_ms;

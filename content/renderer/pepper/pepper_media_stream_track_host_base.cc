@@ -6,6 +6,7 @@
 
 #include "base/logging.h"
 #include "base/numerics/safe_math.h"
+#include "content/common/pepper_file_util.h"
 #include "content/public/renderer/render_thread.h"
 #include "content/public/renderer/renderer_ppapi_host.h"
 #include "ppapi/c/pp_errors.h"
@@ -62,15 +63,7 @@ bool PepperMediaStreamTrackHostBase::InitBuffers(int32_t number_of_buffers,
     return false;
   }
 
-  base::PlatformFile platform_file =
-#if defined(OS_WIN)
-      shm_handle;
-#elif defined(OS_POSIX)
-      shm_handle.fd;
-#else
-#error Not implemented.
-#endif
-  SerializedHandle handle(host_->ShareHandleWithRemote(platform_file, false),
+  SerializedHandle handle(host_->ShareSharedMemoryHandleWithRemote(shm_handle),
                           size.ValueOrDie());
   bool readonly = (track_type == kRead);
   host()->SendUnsolicitedReplyWithHandles(

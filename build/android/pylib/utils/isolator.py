@@ -24,20 +24,31 @@ def DefaultPathVariables():
 
 
 def DefaultConfigVariables():
+  # Note: This list must match the --config-vars in build/isolate.gypi
   return {
     'CONFIGURATION_NAME': constants.GetBuildType(),
     'OS': 'android',
     'asan': '0',
+    'branding': 'Chromium',
     'chromeos': '0',
     'component': 'static_library',
+    'enable_pepper_cdms': '0',
+    'enable_plugins': '0',
     'fastbuild': '0',
     'icu_use_data_file_flag': '1',
+    'kasko': '0',
     'lsan': '0',
+    'msan': '0',
     # TODO(maruel): This may not always be true.
     'target_arch': 'arm',
+    'tsan': '0',
+    'use_custom_libcxx': '0',
+    'use_instrumented_libraries': '0',
+    'use_prebuilt_instrumented_libraries': '0',
     'use_openssl': '0',
     'use_ozone': '0',
-    'v8_use_external_startup_data': '0',
+    'use_x11': '0',
+    'v8_use_external_startup_data': '1',
   }
 
 

@@ -10,9 +10,11 @@
 #include "base/command_line.h"
 #include "base/json/json_writer.h"
 #include "base/lazy_instance.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/prefs/pref_service.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/trace_event/trace_event.h"
 #include "base/values.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/api/preference/preference_api.h"
@@ -86,8 +88,7 @@ void RegisterFontFamilyMapObserver(
     const PrefChangeRegistrar::NamedChangeCallback& callback) {
   for (size_t i = 0; i < prefs::kWebKitScriptsForFontFamilyMapsLength; ++i) {
     const char* script = prefs::kWebKitScriptsForFontFamilyMaps[i];
-    std::string pref_name = base::StringPrintf("%s.%s", map_name, script);
-    registrar->Add(pref_name.c_str(), callback);
+    registrar->Add(base::StringPrintf("%s.%s", map_name, script), callback);
   }
 }
 
@@ -95,6 +96,9 @@ void RegisterFontFamilyMapObserver(
 
 FontSettingsEventRouter::FontSettingsEventRouter(
     Profile* profile) : profile_(profile) {
+  TRACE_EVENT0("browser,startup", "FontSettingsEventRouter::ctor")
+  SCOPED_UMA_HISTOGRAM_TIMER("Extensions.FontSettingsEventRouterCtorTime");
+
   registrar_.Init(profile_->GetPrefs());
 
   AddPrefToObserve(prefs::kWebKitDefaultFixedFontSize,
@@ -156,7 +160,7 @@ void FontSettingsEventRouter::OnFontNamePrefChanged(
     const std::string& generic_family,
     const std::string& script) {
   const PrefService::Preference* pref = registrar_.prefs()->FindPreference(
-      pref_name.c_str());
+      pref_name);
   CHECK(pref);
 
   std::string font_name;
@@ -187,7 +191,7 @@ void FontSettingsEventRouter::OnFontPrefChanged(
     const std::string& key,
     const std::string& pref_name) {
   const PrefService::Preference* pref = registrar_.prefs()->FindPreference(
-      pref_name.c_str());
+      pref_name);
   CHECK(pref);
 
   base::ListValue args;
@@ -235,10 +239,10 @@ bool FontSettingsClearFontFunction::RunSync() {
 
   // Ensure |pref_path| really is for a registered per-script font pref.
   EXTENSION_FUNCTION_VALIDATE(
-      GetProfile()->GetPrefs()->FindPreference(pref_path.c_str()));
+      GetProfile()->GetPrefs()->FindPreference(pref_path));
 
   PreferenceAPI::Get(GetProfile())->RemoveExtensionControlledPref(
-      extension_id(), pref_path.c_str(), kExtensionPrefsScopeRegular);
+      extension_id(), pref_path, kExtensionPrefsScopeRegular);
   return true;
 }
 
@@ -252,7 +256,7 @@ bool FontSettingsGetFontFunction::RunSync() {
 
   PrefService* prefs = GetProfile()->GetPrefs();
   const PrefService::Preference* pref =
-      prefs->FindPreference(pref_path.c_str());
+      prefs->FindPreference(pref_path);
 
   std::string font_name;
   EXTENSION_FUNCTION_VALIDATE(
@@ -288,11 +292,11 @@ bool FontSettingsSetFontFunction::RunSync() {
 
   // Ensure |pref_path| really is for a registered font pref.
   EXTENSION_FUNCTION_VALIDATE(
-      GetProfile()->GetPrefs()->FindPreference(pref_path.c_str()));
+      GetProfile()->GetPrefs()->FindPreference(pref_path));
 
   PreferenceAPI::Get(GetProfile())->SetExtensionControlledPref(
       extension_id(),
-      pref_path.c_str(),
+      pref_path,
       kExtensionPrefsScopeRegular,
       new base::StringValue(params->details.font_id));
   return true;

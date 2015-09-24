@@ -9,10 +9,11 @@
 {
   'targets': [
     {
-      'target_name': 'iLBC',
+      'target_name': 'ilbc',
       'type': 'static_library',
       'dependencies': [
         '<(webrtc_root)/common_audio/common_audio.gyp:common_audio',
+        'audio_encoder_interface',
       ],
       'include_dirs': [
         'interface',
@@ -25,9 +26,11 @@
         ],
       },
       'sources': [
+        'interface/audio_encoder_ilbc.h',
         'interface/ilbc.h',
         'abs_quant.c',
         'abs_quant_loop.c',
+        'audio_encoder_ilbc.cc',
         'augmented_cb_corr.c',
         'bw_expand.c',
         'cb_construct.c',
@@ -165,21 +168,21 @@
         'window32_w32.h',
         'xcorr_coef.h',
      ], # sources
-    }, # iLBC
+    }, # ilbc
   ], # targets
   'conditions': [
     ['include_tests==1', {
       'targets': [
         {
-          'target_name': 'iLBCtest',
+          'target_name': 'ilbc_test',
           'type': 'executable',
           'dependencies': [
-            'iLBC',
+            'ilbc',
           ],
           'sources': [
             'test/iLBC_test.c',
           ],
-        }, # iLBCtest
+        }, # ilbc_test
       ], # targets
     }], # include_tests
   ], # conditions

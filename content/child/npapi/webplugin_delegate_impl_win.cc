@@ -14,7 +14,6 @@
 #include "base/lazy_instance.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/metrics/stats_counters.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/lock.h"
@@ -44,7 +43,6 @@ namespace content {
 namespace {
 
 const wchar_t kWebPluginDelegateProperty[] = L"WebPluginDelegateProperty";
-const wchar_t kPluginFlashThrottle[] = L"FlashThrottle";
 
 // The fastest we are willing to process WM_USER+1 events for Flash.
 // Flash can easily exceed the limits of our CPU if we don't throttle it.
@@ -188,11 +186,11 @@ std::wstring GetKeyPath(HKEY key) {
   return std::wstring(info->Name, info->NameLength / sizeof(wchar_t));
 }
 
-int GetPluginMajorVersion(const WebPluginInfo& plugin_info) {
+uint32_t GetPluginMajorVersion(const WebPluginInfo& plugin_info) {
   Version plugin_version;
   WebPluginInfo::CreateVersionFromString(plugin_info.version, &plugin_version);
 
-  int major_version = 0;
+  uint32_t major_version = 0;
   if (plugin_version.IsValid())
     major_version = plugin_version.components()[0];
 
@@ -222,32 +220,31 @@ LRESULT CALLBACK WebPluginDelegateImpl::MouseHookProc(
   return CallNextHookEx(NULL, code, wParam, lParam);
 }
 
-WebPluginDelegateImpl::WebPluginDelegateImpl(
-    WebPlugin* plugin,
-    PluginInstance* instance)
-    : instance_(instance),
-      quirks_(0),
-      plugin_(plugin),
-      windowless_(false),
-      windowed_handle_(NULL),
+WebPluginDelegateImpl::WebPluginDelegateImpl(WebPlugin* plugin,
+                                             PluginInstance* instance)
+    : windowed_handle_(NULL),
       windowed_did_set_window_(false),
+      windowless_(false),
+      plugin_(plugin),
+      instance_(instance),
       plugin_wnd_proc_(NULL),
       last_message_(0),
       is_calling_wndproc(false),
+      quirks_(0),
       dummy_window_for_activation_(NULL),
       dummy_window_parent_(NULL),
       old_dummy_window_proc_(NULL),
       handle_event_message_filter_hook_(NULL),
       handle_event_pump_messages_event_(NULL),
       user_gesture_message_posted_(false),
-      user_gesture_msg_factory_(this),
-      handle_event_depth_(0),
       mouse_hook_(NULL),
+      handle_event_depth_(0),
       first_set_window_call_(true),
       plugin_has_focus_(false),
       has_webkit_focus_(false),
       containing_view_has_focus_(true),
-      creation_succeeded_(false) {
+      creation_succeeded_(false),
+      user_gesture_msg_factory_(this) {
   memset(&window_, 0, sizeof(window_));
 
   const WebPluginInfo& plugin_info = instance_->plugin_lib()->plugin_info();
@@ -267,7 +264,7 @@ WebPluginDelegateImpl::WebPluginDelegateImpl(
     quirks_ |= PLUGIN_QUIRK_FAKE_WINDOW_FROM_POINT;
   } else if (filename == kAcrobatReaderPlugin) {
     // Check for the version number above or equal 9.
-    int major_version = GetPluginMajorVersion(plugin_info);
+    uint32_t major_version = GetPluginMajorVersion(plugin_info);
     if (major_version >= 9) {
       quirks_ |= PLUGIN_QUIRK_DIE_AFTER_UNLOAD;
       // 9.2 needs this.
@@ -301,7 +298,7 @@ WebPluginDelegateImpl::WebPluginDelegateImpl(
     // VLC hangs on NPP_Destroy if we call NPP_SetWindow with a null window
     // handle
     quirks_ |= PLUGIN_QUIRK_DONT_SET_NULL_WINDOW_HANDLE_ON_DESTROY;
-    int major_version = GetPluginMajorVersion(plugin_info);
+    uint32_t major_version = GetPluginMajorVersion(plugin_info);
     if (major_version == 0) {
       // VLC 0.8.6d and 0.8.6e crash if multiple instances are created.
       quirks_ |= PLUGIN_QUIRK_DONT_ALLOW_MULTIPLE_INSTANCES;
@@ -501,7 +498,7 @@ bool WebPluginDelegateImpl::WindowedCreatePlugin() {
   DCHECK(result == TRUE) << "SetProp failed, last error = " << GetLastError();
 
   // Calling SetWindowLongPtrA here makes the window proc ASCII, which is
-  // required by at least the Shockwave Director plug-in.
+  // required by at least the Shockwave Director plugin.
   SetWindowLongPtrA(windowed_handle_,
                     GWLP_WNDPROC,
                     reinterpret_cast<LONG_PTR>(DefWindowProcA));
@@ -796,7 +793,7 @@ bool WebPluginDelegateImpl::WindowedReposition(
 }
 
 void WebPluginDelegateImpl::WindowedSetWindow() {
-  if (!instance_)
+  if (!instance_.get())
     return;
 
   if (!windowed_handle_) {
@@ -823,7 +820,7 @@ void WebPluginDelegateImpl::WindowedSetWindow() {
   // Reset this flag before entering the instance in case of side-effects.
   windowed_did_set_window_ = true;
 
-  NPError err = instance()->NPP_SetWindow(&window_);
+  instance()->NPP_SetWindow(&window_);
   if (quirks_ & PLUGIN_QUIRK_SETWINDOW_TWICE)
     instance()->NPP_SetWindow(&window_);
 
@@ -873,7 +870,7 @@ LRESULT CALLBACK WebPluginDelegateImpl::WrapperWindowProc(
   // window messages when its first parameter is a handle representing the
   // DefWindowProc() function. To avoid this problem, this code creates a
   // wrapper function which just encapsulates the DefWindowProc() function
-  // and set it as the window procedure of a windowed plug-in.
+  // and set it as the window procedure of a windowed plugin.
   return DefWindowProc(hWnd, message, wParam, lParam);
 }
 
@@ -1053,8 +1050,6 @@ void WebPluginDelegateImpl::WindowlessPaint(HDC hdc,
   paint_event.event = WM_PAINT;
   paint_event.wParam = PtrToUlong(hdc);
   paint_event.lParam = reinterpret_cast<uintptr_t>(&damage_rect_win);
-  base::StatsRate plugin_paint("Plugin.Paint");
-  base::StatsScope<base::StatsRate> scope(plugin_paint);
   instance()->NPP_HandleEvent(&paint_event);
   window_.window = old_dc;
 }
@@ -1210,8 +1205,8 @@ bool WebPluginDelegateImpl::PlatformHandleInputEvent(
     return false;
   }
 
-  // Allow this plug-in to access this IME emulator through IMM32 API while the
-  // plug-in is processing this event.
+  // Allow this plugin to access this IME emulator through IMM32 API while the
+  // plugin is processing this event.
   if (GetQuirks() & PLUGIN_QUIRK_EMULATE_IME) {
     if (!plugin_ime_)
       plugin_ime_.reset(new WebPluginIMEWin);

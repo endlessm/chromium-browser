@@ -30,8 +30,8 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "components/app_modal_dialogs/javascript_app_modal_dialog.h"
-#include "components/app_modal_dialogs/native_app_modal_dialog.h"
+#include "components/app_modal/javascript_app_modal_dialog.h"
+#include "components/app_modal/native_app_modal_dialog.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/download_item.h"
 #include "content/public/browser/download_manager.h"
@@ -39,9 +39,9 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/download_test_observer.h"
 #include "content/public/test/test_navigation_observer.h"
-#include "content/test/net/url_request_slow_download_job.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/url_request/url_request_mock_http_job.h"
+#include "net/test/url_request/url_request_slow_download_job.h"
 
 #if defined(OS_CHROMEOS)
 #include "chromeos/chromeos_switches.h"
@@ -49,11 +49,11 @@
 
 namespace {
 
-NativeAppModalDialog* GetNextDialog() {
-  AppModalDialog* dialog = ui_test_utils::WaitForAppModalDialog();
+app_modal::NativeAppModalDialog* GetNextDialog() {
+  app_modal::AppModalDialog* dialog = ui_test_utils::WaitForAppModalDialog();
   EXPECT_TRUE(dialog->IsJavaScriptModalDialog());
-  JavaScriptAppModalDialog* js_dialog =
-      static_cast<JavaScriptAppModalDialog*>(dialog);
+  app_modal::JavaScriptAppModalDialog* js_dialog =
+      static_cast<app_modal::JavaScriptAppModalDialog*>(dialog);
   CHECK(js_dialog->native_dialog());
   return js_dialog->native_dialog();
 }
@@ -179,7 +179,7 @@ class FakeBackgroundModeManager : public BackgroundModeManager {
  public:
   FakeBackgroundModeManager()
       : BackgroundModeManager(
-            CommandLine::ForCurrentProcess(),
+            *base::CommandLine::ForCurrentProcess(),
             &g_browser_process->profile_manager()->GetProfileInfoCache()),
         suspended_(false) {}
 
@@ -220,7 +220,7 @@ class BrowserCloseManagerBrowserTest
         base::Bind(&chrome_browser_net::SetUrlRequestMocksEnabled, true));
   }
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     if (GetParam())
       command_line->AppendSwitch(switches::kEnableFastUnload);
 #if defined(OS_CHROMEOS)
@@ -234,7 +234,7 @@ class BrowserCloseManagerBrowserTest
         content::BrowserContext::GetDownloadManager(browser->profile()), 1);
     ui_test_utils::NavigateToURLWithDisposition(
         browser,
-        GURL(content::URLRequestSlowDownloadJob::kKnownSizeUrl),
+        GURL(net::URLRequestSlowDownloadJob::kKnownSizeUrl),
         NEW_BACKGROUND_TAB,
         ui_test_utils::BROWSER_TEST_NONE);
     observer.WaitForFinished();
@@ -601,8 +601,8 @@ IN_PROC_BROWSER_TEST_P(BrowserCloseManagerBrowserTest,
   EXPECT_TRUE(chrome::BrowserIterator().done());
 }
 
-// Test is flaky on windows, disabled. See http://crbug.com/276366
-#if defined(OS_WIN)
+// Test is flaky on Windows and Mac. See http://crbug.com/276366.
+#if defined(OS_WIN) || defined(OS_MACOSX)
 #define MAYBE_TestOpenAndCloseWindowDuringShutdown \
     DISABLED_TestOpenAndCloseWindowDuringShutdown
 #else
@@ -700,6 +700,32 @@ class BrowserCloseManagerWithDownloadsBrowserTest :
   base::ScopedTempDir scoped_download_directory_;
 };
 
+// Mac has its own in-progress download prompt in app_controller_mac.mm, so
+// BrowserCloseManager should simply close all browsers. If there are no
+// browsers, it should not crash.
+#if defined(OS_MACOSX)
+IN_PROC_BROWSER_TEST_P(BrowserCloseManagerWithDownloadsBrowserTest,
+                       TestWithDownloads) {
+  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  SetDownloadPathForProfile(browser()->profile());
+  ASSERT_NO_FATAL_FAILURE(CreateStalledDownload(browser()));
+
+  RepeatedNotificationObserver close_observer(
+      chrome::NOTIFICATION_BROWSER_CLOSED, 1);
+
+  TestBrowserCloseManager::AttemptClose(
+      TestBrowserCloseManager::NO_USER_CHOICE);
+  close_observer.Wait();
+  EXPECT_TRUE(browser_shutdown::IsTryingToQuit());
+  EXPECT_TRUE(chrome::BrowserIterator().done());
+  EXPECT_EQ(1, DownloadService::NonMaliciousDownloadCountAllProfiles());
+
+  // Attempting to close again should not crash.
+  TestBrowserCloseManager::AttemptClose(
+      TestBrowserCloseManager::NO_USER_CHOICE);
+}
+#else  // defined(OS_MACOSX)
+
 // Test shutdown with a DANGEROUS_URL download undecided.
 IN_PROC_BROWSER_TEST_P(BrowserCloseManagerWithDownloadsBrowserTest,
     TestWithDangerousUrlDownload) {
@@ -771,6 +797,40 @@ IN_PROC_BROWSER_TEST_P(BrowserCloseManagerWithDownloadsBrowserTest,
     EXPECT_EQ(1, DownloadService::NonMaliciousDownloadCountAllProfiles());
   else
     EXPECT_EQ(0, DownloadService::NonMaliciousDownloadCountAllProfiles());
+}
+
+// Test shutdown with a download in progress in an off-the-record profile.
+IN_PROC_BROWSER_TEST_P(BrowserCloseManagerWithDownloadsBrowserTest,
+                       TestWithOffTheRecordDownloads) {
+  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  Profile* otr_profile = browser()->profile()->GetOffTheRecordProfile();
+  SetDownloadPathForProfile(otr_profile);
+  Browser* otr_browser = CreateBrowser(otr_profile);
+  {
+    RepeatedNotificationObserver close_observer(
+        chrome::NOTIFICATION_BROWSER_CLOSED, 1);
+    browser()->window()->Close();
+    close_observer.Wait();
+  }
+  ASSERT_NO_FATAL_FAILURE(CreateStalledDownload(otr_browser));
+  content::TestNavigationObserver navigation_observer(
+      otr_browser->tab_strip_model()->GetActiveWebContents(), 1);
+  TestBrowserCloseManager::AttemptClose(
+      TestBrowserCloseManager::USER_CHOICE_USER_CANCELS_CLOSE);
+  EXPECT_FALSE(browser_shutdown::IsTryingToQuit());
+  navigation_observer.Wait();
+  EXPECT_EQ(GURL(chrome::kChromeUIDownloadsURL),
+            otr_browser->tab_strip_model()->GetActiveWebContents()->GetURL());
+
+  RepeatedNotificationObserver close_observer(
+      chrome::NOTIFICATION_BROWSER_CLOSED, 1);
+
+  TestBrowserCloseManager::AttemptClose(
+      TestBrowserCloseManager::USER_CHOICE_USER_ALLOWS_CLOSE);
+  close_observer.Wait();
+  EXPECT_TRUE(browser_shutdown::IsTryingToQuit());
+  EXPECT_TRUE(chrome::BrowserIterator().done());
+  EXPECT_EQ(0, DownloadService::NonMaliciousDownloadCountAllProfiles());
 }
 
 // Test shutdown with a download in progress from one profile, where the only
@@ -854,6 +914,8 @@ IN_PROC_BROWSER_TEST_P(BrowserCloseManagerWithDownloadsBrowserTest,
   EXPECT_TRUE(browser_shutdown::IsTryingToQuit());
   EXPECT_TRUE(chrome::BrowserIterator().done());
 }
+
+#endif  // defined(OS_MACOSX)
 
 INSTANTIATE_TEST_CASE_P(BrowserCloseManagerWithDownloadsBrowserTest,
                         BrowserCloseManagerWithDownloadsBrowserTest,

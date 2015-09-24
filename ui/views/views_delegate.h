@@ -11,6 +11,8 @@
 #include <windows.h>
 #endif
 
+#include "base/callback.h"
+#include "base/location.h"
 #include "base/strings/string16.h"
 #include "ui/accessibility/ax_enums.h"
 #include "ui/base/ui_base_types.h"
@@ -19,6 +21,7 @@
 #include "ui/views/widget/widget.h"
 
 namespace base {
+class TaskRunner;
 class TimeDelta;
 }
 
@@ -41,9 +44,14 @@ namespace views {
 
 class NativeWidget;
 class NonClientFrameView;
-class ViewsTouchSelectionControllerFactory;
+class ViewsTouchEditingControllerFactory;
 class View;
 class Widget;
+
+#if defined(USE_AURA)
+class TouchSelectionMenuRunnerViews;
+#endif
+
 namespace internal {
 class NativeWidgetDelegate;
 }
@@ -52,8 +60,8 @@ class NativeWidgetDelegate;
 // framework. It is used to obtain various high level application utilities
 // and perform some actions such as window placement saving.
 //
-// The embedding app must set views_delegate to assign its ViewsDelegate
-// implementation.
+// The embedding app must set the ViewsDelegate instance by instantiating an
+// implementation of ViewsDelegate (the constructor will set the instance).
 class VIEWS_EXPORT ViewsDelegate {
  public:
 #if defined(OS_WIN)
@@ -65,8 +73,10 @@ class VIEWS_EXPORT ViewsDelegate {
   };
 #endif
 
-  ViewsDelegate();
   virtual ~ViewsDelegate();
+
+  // Returns the ViewsDelegate instance if there is one, or nullptr otherwise.
+  static ViewsDelegate* GetInstance();
 
   // Saves the position, size and "show" state for the window with the
   // specified name.
@@ -95,6 +105,8 @@ class VIEWS_EXPORT ViewsDelegate {
 #if defined(OS_WIN)
   // Retrieves the default window icon to use for windows if none is specified.
   virtual HICON GetDefaultWindowIcon() const;
+  // Retrieves the small window icon to use for windows if none is specified.
+  virtual HICON GetSmallWindowIcon() const = 0;
   // Returns true if the window passed in is in the Windows 8 metro
   // environment.
   virtual bool IsWindowInMetro(gfx::NativeWindow window) const;
@@ -130,10 +142,11 @@ class VIEWS_EXPORT ViewsDelegate {
   // maximized windows; otherwise to restored windows.
   virtual bool WindowManagerProvidesTitleBar(bool maximized);
 
-#if defined(USE_AURA)
   // Returns the context factory for new windows.
   virtual ui::ContextFactory* GetContextFactory();
-#endif
+
+  // Returns the user-visible name of the application.
+  virtual std::string GetApplicationName();
 
 #if defined(OS_WIN)
   // Starts a query for the appbar autohide edges of the specified monitor and
@@ -146,11 +159,18 @@ class VIEWS_EXPORT ViewsDelegate {
                                      const base::Closure& callback);
 #endif
 
-  // The active ViewsDelegate used by the views system.
-  static ViewsDelegate* views_delegate;
+  // Returns a blocking pool task runner given a TaskRunnerType.
+  virtual scoped_refptr<base::TaskRunner> GetBlockingPoolTaskRunner();
+
+ protected:
+  ViewsDelegate();
 
  private:
-  scoped_ptr<ViewsTouchSelectionControllerFactory> views_tsc_factory_;
+  scoped_ptr<ViewsTouchEditingControllerFactory> views_tsc_factory_;
+
+#if defined(USE_AURA)
+  scoped_ptr<TouchSelectionMenuRunnerViews> touch_selection_menu_runner_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(ViewsDelegate);
 };

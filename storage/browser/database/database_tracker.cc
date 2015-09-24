@@ -9,10 +9,8 @@
 
 #include "base/basictypes.h"
 #include "base/bind.h"
-#include "base/files/file.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "net/base/net_errors.h"
@@ -84,7 +82,7 @@ DatabaseTracker::DatabaseTracker(
     bool is_incognito,
     storage::SpecialStoragePolicy* special_storage_policy,
     storage::QuotaManagerProxy* quota_manager_proxy,
-    base::MessageLoopProxy* db_tracker_thread)
+    base::SingleThreadTaskRunner* db_tracker_thread)
     : is_initialized_(false),
       is_incognito_(is_incognito),
       force_keep_session_state_(false),
@@ -461,6 +459,8 @@ bool DatabaseTracker::LazyInit() {
       }
     }
 
+    db_->set_histogram_tag("DatabaseTracker");
+
     // If the tracker database exists, but it's corrupt or doesn't
     // have a meta table, delete the database directory.
     const base::FilePath kTrackerDatabaseFullPath =
@@ -473,8 +473,6 @@ bool DatabaseTracker::LazyInit() {
       if (!base::DeleteFile(db_dir_, true))
         return false;
     }
-
-    db_->set_histogram_tag("DatabaseTracker");
 
     databases_table_.reset(new DatabasesTable(db_.get()));
     meta_table_.reset(new sql::MetaTable());

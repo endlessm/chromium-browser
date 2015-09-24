@@ -1,11 +1,13 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _PWL_LABEL_H_
-#define _PWL_LABEL_H_
+#ifndef FPDFSDK_INCLUDE_PDFWINDOW_PWL_LABEL_H_
+#define FPDFSDK_INCLUDE_PDFWINDOW_PWL_LABEL_H_
+
+#include "PWL_Wnd.h"
 
 class IFX_Edit;
 
@@ -15,37 +17,29 @@ public:
 	CPWL_Label();
 	virtual ~CPWL_Label();
 
-public:
-	virtual CFX_ByteString			GetClassName() const;	
+	virtual CFX_ByteString			GetClassName() const;
 	virtual void					SetFontSize(FX_FLOAT fFontSize);
 	virtual FX_FLOAT				GetFontSize() const;
 
-public:		
-	void							SetText(FX_LPCWSTR csText);
+	void							SetText(const FX_WCHAR* csText);
 	CFX_WideString					GetText() const;
-
-	void							SetLimitChar(FX_INT32 nLimitChar);
-	void							SetHorzScale(FX_INT32 nHorzScale);
+	void							SetLimitChar(int32_t nLimitChar);
+	void							SetHorzScale(int32_t nHorzScale);
 	void							SetCharSpace(FX_FLOAT fCharSpace);
-
-	CPDF_Rect						GetContentRect() const;	
-	FX_INT32						GetTotalWords();
-
+	CPDF_Rect						GetContentRect() const;
+	int32_t						GetTotalWords();
 	CFX_ByteString					GetTextAppearanceStream(const CPDF_Point & ptOffset) const;
 
 protected:
 	virtual void					OnCreated();
 	virtual void					DrawThisAppearance(CFX_RenderDevice* pDevice, CPDF_Matrix* pUser2Device);
 	virtual void					GetThisAppearanceStream(CFX_ByteTextBuf & sAppStream);
-	virtual void					RePosChildWnd();	
+	virtual void					RePosChildWnd();
 
 private:
 	void							SetParamByFlag();
 
-private:
 	IFX_Edit*						m_pEdit;
 };
 
-#endif
-
-
+#endif  // FPDFSDK_INCLUDE_PDFWINDOW_PWL_LABEL_H_

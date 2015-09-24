@@ -22,6 +22,7 @@
 
 #include "platform/geometry/FloatRect.h"
 #include "platform/geometry/FloatSize.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 #include "wtf/PassRefPtr.h"
 
 namespace blink {
@@ -33,21 +34,21 @@ IntSize SVGImageForContainer::size() const
     return roundedIntSize(scaledContainerSize);
 }
 
-void SVGImageForContainer::draw(GraphicsContext* context, const FloatRect& dstRect,
-    const FloatRect& srcRect, CompositeOperator compositeOp, blink::WebBlendMode blendMode)
+void SVGImageForContainer::draw(SkCanvas* canvas, const SkPaint& paint, const FloatRect& dstRect,
+    const FloatRect& srcRect, RespectImageOrientationEnum, ImageClampingMode)
 {
-    m_image->drawForContainer(context, m_containerSize, m_zoom, dstRect, srcRect, compositeOp, blendMode);
+    m_image->drawForContainer(canvas, paint, m_containerSize, m_zoom, dstRect, srcRect);
 }
 
 void SVGImageForContainer::drawPattern(GraphicsContext* context, const FloatRect& srcRect, const FloatSize& scale,
-    const FloatPoint& phase, CompositeOperator compositeOp, const FloatRect& dstRect, blink::WebBlendMode blendMode, const IntSize& repeatSpacing)
+    const FloatPoint& phase, SkXfermode::Mode op, const FloatRect& dstRect, const IntSize& repeatSpacing)
 {
-    m_image->drawPatternForContainer(context, m_containerSize, m_zoom, srcRect, scale, phase, compositeOp, dstRect, blendMode, repeatSpacing);
+    m_image->drawPatternForContainer(context, m_containerSize, m_zoom, srcRect, scale, phase, op, dstRect, repeatSpacing);
 }
 
-PassRefPtr<NativeImageSkia> SVGImageForContainer::nativeImageForCurrentFrame()
+bool SVGImageForContainer::bitmapForCurrentFrame(SkBitmap* bitmap)
 {
-    return m_image->nativeImageForCurrentFrame();
+    return m_image->bitmapForCurrentFrame(bitmap);
 }
 
 } // namespace blink

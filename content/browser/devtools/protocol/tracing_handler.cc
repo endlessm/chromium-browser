@@ -7,11 +7,11 @@
 #include <cmath>
 
 #include "base/bind.h"
-#include "base/debug/trace_event_impl.h"
 #include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "base/trace_event/trace_event_impl.h"
 
 namespace content {
 namespace devtools {
@@ -21,10 +21,6 @@ typedef DevToolsProtocolClient::Response Response;
 
 namespace {
 
-const char kRecordUntilFull[]   = "record-until-full";
-const char kRecordContinuously[] = "record-continuously";
-const char kRecordAsMuchAsPossible[] = "record-as-much-as-possible";
-const char kEnableSampling[] = "enable-sampling";
 const double kMinimumReportingInterval = 250.0;
 
 class DevToolsTraceSinkProxy : public TracingController::TraceDataSink {
@@ -51,7 +47,7 @@ class DevToolsTraceSinkProxy : public TracingController::TraceDataSink {
 
 TracingHandler::TracingHandler(TracingHandler::Target target)
     : target_(target),
-      is_recording_(false),
+      did_initiate_recording_(false),
       weak_factory_(this) {
 }
 
@@ -63,7 +59,7 @@ void TracingHandler::SetClient(scoped_ptr<Client> client) {
 }
 
 void TracingHandler::Detached() {
-  if (is_recording_)
+  if (IsRecording())
     DisableRecording(true);
 }
 
@@ -80,21 +76,21 @@ void TracingHandler::OnTraceDataCollected(const std::string& trace_fragment) {
 }
 
 void TracingHandler::OnTraceComplete() {
-  TracingCompleteParams params;
-  client_->TracingComplete(params);
+  client_->TracingComplete(TracingCompleteParams::Create());
 }
 
-scoped_refptr<DevToolsProtocol::Response> TracingHandler::Start(
-    const std::string* categories,
-    const std::string* options_str,
-    const double* buffer_usage_reporting_interval,
-    scoped_refptr<DevToolsProtocol::Command> command) {
-  if (is_recording_)
-    return command->InternalErrorResponse("Tracing is already started");
-  is_recording_ = true;
+Response TracingHandler::Start(DevToolsCommandId command_id,
+                               const std::string* categories,
+                               const std::string* options,
+                               const double* buffer_usage_reporting_interval) {
+  if (IsRecording())
+    return Response::InternalError("Tracing is already started");
 
-  base::debug::TraceOptions options = TraceOptionsFromString(options_str);
-  base::debug::CategoryFilter filter(categories ? *categories : std::string());
+  did_initiate_recording_ = true;
+
+  base::trace_event::TraceConfig trace_config(
+      categories ? *categories : std::string(),
+      options ? *options : std::string());
   if (buffer_usage_reporting_interval)
     SetupTimer(*buffer_usage_reporting_interval);
 
@@ -102,85 +98,59 @@ scoped_refptr<DevToolsProtocol::Response> TracingHandler::Start(
   // tracing agent in the renderer.
   if (target_ == Renderer) {
     TracingController::GetInstance()->EnableRecording(
-        filter,
-        options,
+        trace_config,
         TracingController::EnableRecordingDoneCallback());
-    return nullptr;
+    return Response::FallThrough();
   }
 
   TracingController::GetInstance()->EnableRecording(
-      filter,
-      options,
+      trace_config,
       base::Bind(&TracingHandler::OnRecordingEnabled,
                  weak_factory_.GetWeakPtr(),
-                 command));
-  return command->AsyncResponsePromise();
+                 command_id));
+  return Response::OK();
 }
 
-scoped_refptr<DevToolsProtocol::Response> TracingHandler::End(
-    scoped_refptr<DevToolsProtocol::Command> command) {
-  if (!is_recording_)
-    return command->InternalErrorResponse("Tracing is not started");
+Response TracingHandler::End(DevToolsCommandId command_id) {
+  if (!IsRecording())
+    return Response::InternalError("Tracing is not started");
+
   DisableRecording(false);
   // If inspected target is a render process Tracing.end will be handled by
   // tracing agent in the renderer.
-  if (target_ == Renderer)
-    return nullptr;
-  return command->SuccessResponse(nullptr);
+  return target_ == Renderer ? Response::FallThrough() : Response::OK();
 }
 
-scoped_refptr<DevToolsProtocol::Response> TracingHandler::GetCategories(
-    scoped_refptr<DevToolsProtocol::Command> command) {
+Response TracingHandler::GetCategories(DevToolsCommandId command_id) {
   TracingController::GetInstance()->GetCategories(
       base::Bind(&TracingHandler::OnCategoriesReceived,
                  weak_factory_.GetWeakPtr(),
-                 command));
-  return command->AsyncResponsePromise();
+                 command_id));
+  return Response::OK();
 }
 
-void TracingHandler::OnRecordingEnabled(
-    scoped_refptr<DevToolsProtocol::Command> command) {
-  StartResponse response;
-  client_->SendStartResponse(command, response);
+void TracingHandler::OnRecordingEnabled(DevToolsCommandId command_id) {
+  client_->SendStartResponse(command_id, StartResponse::Create());
 }
 
-void TracingHandler::OnBufferUsage(float usage) {
-  BufferUsageParams params;
-  params.set_value(usage);
-  client_->BufferUsage(params);
+void TracingHandler::OnBufferUsage(float percent_full,
+                                   size_t approximate_event_count) {
+  // TODO(crbug426117): remove set_value once all clients have switched to
+  // the new interface of the event.
+  client_->BufferUsage(BufferUsageParams::Create()
+                           ->set_value(percent_full)
+                           ->set_percent_full(percent_full)
+                           ->set_event_count(approximate_event_count));
 }
 
 void TracingHandler::OnCategoriesReceived(
-    scoped_refptr<DevToolsProtocol::Command> command,
+    DevToolsCommandId command_id,
     const std::set<std::string>& category_set) {
-  std::vector<std::string> categories(category_set.begin(), category_set.end());
-  GetCategoriesResponse response;
-  response.set_categories(categories);
-  client_->SendGetCategoriesResponse(command, response);
-}
-
-base::debug::TraceOptions TracingHandler::TraceOptionsFromString(
-    const std::string* options) {
-  base::debug::TraceOptions ret;
-  if (!options)
-    return ret;
-
-  std::vector<std::string> split;
-  std::vector<std::string>::iterator iter;
-
-  base::SplitString(*options, ',', &split);
-  for (iter = split.begin(); iter != split.end(); ++iter) {
-    if (*iter == kRecordUntilFull) {
-      ret.record_mode = base::debug::RECORD_UNTIL_FULL;
-    } else if (*iter == kRecordContinuously) {
-      ret.record_mode = base::debug::RECORD_CONTINUOUSLY;
-    } else if (*iter == kRecordAsMuchAsPossible) {
-      ret.record_mode = base::debug::RECORD_AS_MUCH_AS_POSSIBLE;
-    } else if (*iter == kEnableSampling) {
-      ret.enable_sampling = true;
-    }
-  }
-  return ret;
+  std::vector<std::string> categories;
+  for (const std::string& category : category_set)
+    categories.push_back(category);
+  client_->SendGetCategoriesResponse(command_id,
+      GetCategoriesResponse::Create()->set_categories(categories));
 }
 
 void TracingHandler::SetupTimer(double usage_reporting_interval) {
@@ -192,22 +162,24 @@ void TracingHandler::SetupTimer(double usage_reporting_interval) {
   base::TimeDelta interval = base::TimeDelta::FromMilliseconds(
       std::ceil(usage_reporting_interval));
   buffer_usage_poll_timer_.reset(new base::Timer(
-      FROM_HERE,
-      interval,
-      base::Bind(
-          base::IgnoreResult(&TracingController::GetTraceBufferPercentFull),
-          base::Unretained(TracingController::GetInstance()),
-          base::Bind(&TracingHandler::OnBufferUsage,
-                     weak_factory_.GetWeakPtr())),
+      FROM_HERE, interval,
+      base::Bind(base::IgnoreResult(&TracingController::GetTraceBufferUsage),
+                 base::Unretained(TracingController::GetInstance()),
+                 base::Bind(&TracingHandler::OnBufferUsage,
+                            weak_factory_.GetWeakPtr())),
       true));
   buffer_usage_poll_timer_->Reset();
 }
 
 void TracingHandler::DisableRecording(bool abort) {
-  is_recording_ = false;
   buffer_usage_poll_timer_.reset();
   TracingController::GetInstance()->DisableRecording(
       abort ? nullptr : new DevToolsTraceSinkProxy(weak_factory_.GetWeakPtr()));
+  did_initiate_recording_ = false;
+}
+
+bool TracingHandler::IsRecording() const {
+  return TracingController::GetInstance()->IsRecording();
 }
 
 }  // namespace tracing

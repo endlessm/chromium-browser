@@ -4,25 +4,77 @@
 // found in the LICENSE file.
 //
 
+#include <string.h>
 #include <cassert>
+#include <vector>
 
 #include "EGLWindow.h"
 #include "OSWindow.h"
+#include "common/debug.h"
 
-#ifdef _WIN32
-#include "win32/Win32Timer.h"
-#include "win32/Win32Window.h"
-#else
-#error unsupported OS.
-#endif
+EGLPlatformParameters::EGLPlatformParameters()
+    : renderer(EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE),
+      majorVersion(EGL_DONT_CARE),
+      minorVersion(EGL_DONT_CARE),
+      deviceType(EGL_DONT_CARE)
+{
+}
 
-EGLWindow::EGLWindow(size_t width, size_t height,
-                     EGLint glesMajorVersion, EGLint requestedRenderer)
-    : mSurface(EGL_NO_SURFACE),
+EGLPlatformParameters::EGLPlatformParameters(EGLint renderer)
+    : renderer(renderer),
+      majorVersion(EGL_DONT_CARE),
+      minorVersion(EGL_DONT_CARE),
+      deviceType(EGL_DONT_CARE)
+{
+    if (renderer == EGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE ||
+        renderer == EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE)
+    {
+        deviceType = EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE;
+    }
+}
+
+EGLPlatformParameters::EGLPlatformParameters(EGLint renderer, EGLint majorVersion, EGLint minorVersion, EGLint useWarp)
+    : renderer(renderer),
+      majorVersion(majorVersion),
+      minorVersion(minorVersion),
+      deviceType(useWarp)
+{
+}
+
+bool operator<(const EGLPlatformParameters &a, const EGLPlatformParameters &b)
+{
+    if (a.renderer != b.renderer)
+    {
+        return a.renderer < b.renderer;
+    }
+
+    if (a.majorVersion != b.majorVersion)
+    {
+        return a.majorVersion < b.majorVersion;
+    }
+
+    if (a.minorVersion != b.minorVersion)
+    {
+        return a.minorVersion < b.minorVersion;
+    }
+
+    return a.deviceType < b.deviceType;
+}
+
+bool operator==(const EGLPlatformParameters &a, const EGLPlatformParameters &b)
+{
+    return (a.renderer == b.renderer) &&
+           (a.majorVersion == b.majorVersion) &&
+           (a.minorVersion == b.minorVersion) &&
+           (a.deviceType == b.deviceType);
+}
+
+EGLWindow::EGLWindow(size_t width, size_t height, EGLint glesMajorVersion, const EGLPlatformParameters &platform)
+    : mDisplay(EGL_NO_DISPLAY),
+      mSurface(EGL_NO_SURFACE),
       mContext(EGL_NO_CONTEXT),
-      mDisplay(EGL_NO_DISPLAY),
       mClientVersion(glesMajorVersion),
-      mRequestedRenderer(requestedRenderer),
+      mPlatform(platform),
       mWidth(width),
       mHeight(height),
       mRedBits(-1),
@@ -74,13 +126,22 @@ bool EGLWindow::initializeGL(OSWindow *osWindow)
         return false;
     }
 
-    const EGLint displayAttributes[] =
-    {
-        EGL_PLATFORM_ANGLE_TYPE_ANGLE, mRequestedRenderer,
-        EGL_NONE,
-    };
+    std::vector<EGLint> displayAttributes;
+    displayAttributes.push_back(EGL_PLATFORM_ANGLE_TYPE_ANGLE);
+    displayAttributes.push_back(mPlatform.renderer);
+    displayAttributes.push_back(EGL_PLATFORM_ANGLE_MAX_VERSION_MAJOR_ANGLE);
+    displayAttributes.push_back(mPlatform.majorVersion);
+    displayAttributes.push_back(EGL_PLATFORM_ANGLE_MAX_VERSION_MINOR_ANGLE);
+    displayAttributes.push_back(mPlatform.minorVersion);
 
-    mDisplay = eglGetPlatformDisplayEXT(EGL_PLATFORM_ANGLE_ANGLE, osWindow->getNativeDisplay(), displayAttributes);
+    if (mPlatform.deviceType != EGL_DONT_CARE)
+    {
+        displayAttributes.push_back(EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE);
+        displayAttributes.push_back(mPlatform.deviceType);
+    }
+    displayAttributes.push_back(EGL_NONE);
+
+    mDisplay = eglGetPlatformDisplayEXT(EGL_PLATFORM_ANGLE_ANGLE, osWindow->getNativeDisplay(), &displayAttributes[0]);
     if (mDisplay == EGL_NO_DISPLAY)
     {
         destroyGL();
@@ -88,7 +149,7 @@ bool EGLWindow::initializeGL(OSWindow *osWindow)
     }
 
     EGLint majorVersion, minorVersion;
-    if (!eglInitialize(mDisplay, &majorVersion, &minorVersion))
+    if (eglInitialize(mDisplay, &majorVersion, &minorVersion) == EGL_FALSE)
     {
         destroyGL();
         return false;
@@ -127,24 +188,22 @@ bool EGLWindow::initializeGL(OSWindow *osWindow)
     eglGetConfigAttrib(mDisplay, mConfig, EGL_DEPTH_SIZE, &mDepthBits);
     eglGetConfigAttrib(mDisplay, mConfig, EGL_STENCIL_SIZE, &mStencilBits);
 
-    const EGLint surfaceAttributes[] =
+    std::vector<EGLint> surfaceAttributes;
+    if (strstr(eglQueryString(mDisplay, EGL_EXTENSIONS), "EGL_NV_post_sub_buffer") != nullptr)
     {
-        EGL_POST_SUB_BUFFER_SUPPORTED_NV, EGL_TRUE,
-        EGL_NONE, EGL_NONE,
-    };
-
-    mSurface = eglCreateWindowSurface(mDisplay, mConfig, osWindow->getNativeWindow(), surfaceAttributes);
-    if (mSurface == EGL_NO_SURFACE)
-    {
-        eglGetError(); // Clear error and try again
-        mSurface = eglCreateWindowSurface(mDisplay, mConfig, NULL, NULL);
+        surfaceAttributes.push_back(EGL_POST_SUB_BUFFER_SUPPORTED_NV);
+        surfaceAttributes.push_back(EGL_TRUE);
     }
 
+    surfaceAttributes.push_back(EGL_NONE);
+
+    mSurface = eglCreateWindowSurface(mDisplay, mConfig, osWindow->getNativeWindow(), &surfaceAttributes[0]);
     if (eglGetError() != EGL_SUCCESS)
     {
         destroyGL();
         return false;
     }
+    ASSERT(mSurface != EGL_NO_SURFACE);
 
     EGLint contextAttibutes[] =
     {
@@ -196,4 +255,44 @@ void EGLWindow::destroyGL()
         eglTerminate(mDisplay);
         mDisplay = EGL_NO_DISPLAY;
     }
+}
+
+bool EGLWindow::isGLInitialized() const
+{
+    return mSurface != EGL_NO_SURFACE &&
+           mContext != EGL_NO_CONTEXT &&
+           mDisplay != EGL_NO_DISPLAY;
+}
+
+// Find an EGLConfig that is an exact match for the specified attributes. EGL_FALSE is returned if
+// the EGLConfig is found.  This indicates that the EGLConfig is not supported.
+EGLBoolean EGLWindow::FindEGLConfig(EGLDisplay dpy, const EGLint *attrib_list, EGLConfig *config)
+{
+    EGLint numConfigs = 0;
+    eglGetConfigs(dpy, nullptr, 0, &numConfigs);
+    std::vector<EGLConfig> allConfigs(numConfigs);
+    eglGetConfigs(dpy, allConfigs.data(), allConfigs.size(), &numConfigs);
+
+    for (size_t i = 0; i < allConfigs.size(); i++)
+    {
+        bool matchFound = true;
+        for (const EGLint *curAttrib = attrib_list; curAttrib[0] != EGL_NONE; curAttrib += 2)
+        {
+            EGLint actualValue = EGL_DONT_CARE;
+            eglGetConfigAttrib(dpy, allConfigs[i], curAttrib[0], &actualValue);
+            if (curAttrib[1] != actualValue)
+            {
+                matchFound = false;
+                break;
+            }
+        }
+
+        if (matchFound)
+        {
+            *config = allConfigs[i];
+            return EGL_TRUE;
+        }
+    }
+
+    return EGL_FALSE;
 }

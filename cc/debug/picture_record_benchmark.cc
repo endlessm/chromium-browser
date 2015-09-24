@@ -10,6 +10,7 @@
 #include "base/values.h"
 #include "cc/layers/layer.h"
 #include "cc/layers/picture_layer.h"
+#include "cc/playback/picture.h"
 #include "cc/trees/layer_tree_host.h"
 #include "cc/trees/layer_tree_host_common.h"
 #include "ui/gfx/geometry/rect.h"
@@ -20,7 +21,6 @@ namespace {
 
 const int kPositionIncrement = 100;
 const int kTileGridSize = 512;
-const int kTileGridBorder = 1;
 
 }  // namespace
 
@@ -57,7 +57,7 @@ PictureRecordBenchmark::~PictureRecordBenchmark() {}
 void PictureRecordBenchmark::DidUpdateLayers(LayerTreeHost* host) {
   LayerTreeHostCommon::CallFunctionForSubtree(
       host->root_layer(),
-      base::Bind(&PictureRecordBenchmark::Run, base::Unretained(this)));
+      [this](Layer* layer) { layer->RunMicroBenchmark(this); });
 
   scoped_ptr<base::ListValue> results(new base::ListValue());
   for (std::map<std::pair<int, int>, TotalTime>::iterator it = times_.begin();
@@ -83,37 +83,30 @@ void PictureRecordBenchmark::DidUpdateLayers(LayerTreeHost* host) {
   NotifyDone(results.Pass());
 }
 
-void PictureRecordBenchmark::Run(Layer* layer) {
-  layer->RunMicroBenchmark(this);
-}
-
 void PictureRecordBenchmark::RunOnLayer(PictureLayer* layer) {
   ContentLayerClient* painter = layer->client();
-  gfx::Size content_bounds = layer->content_bounds();
+  gfx::Size bounds = layer->bounds();
 
-  SkTileGridFactory::TileGridInfo tile_grid_info;
-  tile_grid_info.fTileInterval.set(kTileGridSize - 2 * kTileGridBorder,
-                                   kTileGridSize - 2 * kTileGridBorder);
-  tile_grid_info.fMargin.set(kTileGridBorder, kTileGridBorder);
-  tile_grid_info.fOffset.set(-kTileGridBorder, -kTileGridBorder);
+  gfx::Size tile_grid_size(kTileGridSize, kTileGridSize);
 
   for (size_t i = 0; i < dimensions_.size(); ++i) {
     std::pair<int, int> dimensions = dimensions_[i];
     int width = dimensions.first;
     int height = dimensions.second;
 
-    int y_limit = std::max(1, content_bounds.height() - height);
-    int x_limit = std::max(1, content_bounds.width() - width);
+    int y_limit = std::max(1, bounds.height() - height);
+    int x_limit = std::max(1, bounds.width() - width);
     for (int y = 0; y < y_limit; y += kPositionIncrement) {
       for (int x = 0; x < x_limit; x += kPositionIncrement) {
         gfx::Rect rect = gfx::Rect(x, y, width, height);
 
-        base::TimeTicks start = base::TimeTicks::HighResNow();
+        base::TimeTicks start = base::TimeTicks::Now();
 
-        scoped_refptr<Picture> picture = Picture::Create(
-            rect, painter, tile_grid_info, false, Picture::RECORD_NORMALLY);
+        scoped_refptr<Picture> picture =
+            Picture::Create(rect, painter, tile_grid_size, false,
+                            RecordingSource::RECORD_NORMALLY);
 
-        base::TimeTicks end = base::TimeTicks::HighResNow();
+        base::TimeTicks end = base::TimeTicks::Now();
         base::TimeDelta duration = end - start;
         TotalTime& total_time = times_[dimensions];
         total_time.first += duration;

@@ -47,9 +47,15 @@ grit("webui_resources_grd") {
 
 if (!is_mac) {
   copy("copy_ui_resources_100_percent") {
-    sources = [ "$root_gen_dir/ui/resources/ui_resources_100_percent.pak" ]
-    outputs = [ "$root_out_dir/ui_resources_100_percent.pak" ]
-    deps = [ "//ui/resources" ]
+    sources = [
+      "$root_gen_dir/ui/resources/ui_resources_100_percent.pak",
+    ]
+    outputs = [
+      "$root_out_dir/ui_resources_100_percent.pak",
+    ]
+    deps = [
+      "//ui/resources",
+    ]
   }
 }
 
@@ -60,11 +66,22 @@ if (!is_mac) {
 #              (copy_ui_test_pak action)
 if (is_ios || is_mac) {
   group("ui_test_pak") {
-    deps = [ ":repack_ui_test_pak", ":repack_ui_test_mac_locale_pack" ]
+    public_deps = [
+      ":repack_ui_test_pak",
+      ":repack_ui_test_mac_locale_pack",
+    ]
   }
 } else {
-  group("ui_test_pak") {
-    deps = [ ":repack_ui_test_pak" ]
+  copy("ui_test_pak") {
+    sources = [
+      "$root_out_dir/ui_test.pak",
+    ]
+    outputs = [
+      "$root_out_dir/ui/en-US.pak",
+    ]
+    public_deps = [
+      ":repack_ui_test_pak",
+    ]
   }
 }
 
@@ -104,6 +121,12 @@ repack("repack_ui_test_pak") {
       "//ui/chromeos/strings",
     ]
   }
+
+  if (toolkit_views) {
+    deps += [ "//ui/views/resources" ]
+    sources +=
+        [ "$root_gen_dir/ui/views/resources/views_resources_100_percent.pak" ]
+  }
 }
 
 # Repack just the strings for the framework locales on Mac and iOS. This
@@ -111,7 +134,10 @@ repack("repack_ui_test_pak") {
 # copied, because it causes leaks from allocations within system libraries when
 # trying to load non-string resources. http://crbug.com/413034.
 repack("repack_ui_test_mac_locale_pack") {
-  visibility = [ ":ui_test_pak" ]
+  visibility = [
+    ":ui_test_pak",
+    "//:gn_visibility",  # TODO(GYP): this shouldn't be necessary.
+  ]
 
   sources = [
     "$root_gen_dir/ui/strings/app_locale_settings_en-US.pak",

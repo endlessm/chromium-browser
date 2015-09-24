@@ -36,6 +36,12 @@ class MTPDeviceDelegateImplMac : public MTPDeviceAsyncDelegate {
                    const GetFileInfoSuccessCallback& success_callback,
                    const ErrorCallback& error_callback) override;
 
+  void CreateDirectory(const base::FilePath& directory_path,
+                       const bool exclusive,
+                       const bool recursive,
+                       const CreateDirectorySuccessCallback& success_callback,
+                       const ErrorCallback& error_callback) override;
+
   // Note: passed absolute paths, but expects relative paths in reply.
   void ReadDirectory(const base::FilePath& root,
                      const ReadDirectorySuccessCallback& success_callback,
@@ -54,6 +60,42 @@ class MTPDeviceDelegateImplMac : public MTPDeviceAsyncDelegate {
                  int buf_len,
                  const ReadBytesSuccessCallback& success_callback,
                  const ErrorCallback& error_callback) override;
+  bool IsReadOnly() const override;
+  void CopyFileLocal(
+      const base::FilePath& source_file_path,
+      const base::FilePath& device_file_path,
+      const CreateTemporaryFileCallback& create_temporary_file_callback,
+      const CopyFileProgressCallback& progress_callback,
+      const CopyFileLocalSuccessCallback& success_callback,
+      const ErrorCallback& error_callback) override;
+  void MoveFileLocal(
+      const base::FilePath& source_file_path,
+      const base::FilePath& device_file_path,
+      const CreateTemporaryFileCallback& create_temporary_file_callback,
+      const MoveFileLocalSuccessCallback& success_callback,
+      const ErrorCallback& error_callback) override;
+  void CopyFileFromLocal(
+      const base::FilePath& source_file_path,
+      const base::FilePath& device_file_path,
+      const CopyFileFromLocalSuccessCallback& success_callback,
+      const ErrorCallback& error_callback) override;
+  void DeleteFile(const base::FilePath& file_path,
+                  const DeleteFileSuccessCallback& success_callback,
+                  const ErrorCallback& error_callback) override;
+  void DeleteDirectory(const base::FilePath& file_path,
+                       const DeleteDirectorySuccessCallback& success_callback,
+                       const ErrorCallback& error_callback) override;
+  void AddWatcher(const GURL& origin,
+                  const base::FilePath& file_path,
+                  const bool recursive,
+                  const storage::WatcherManager::StatusCallback& callback,
+                  const storage::WatcherManager::NotificationCallback&
+                      notification_callback) override;
+  void RemoveWatcher(
+      const GURL& origin,
+      const base::FilePath& file_path,
+      const bool recursive,
+      const storage::WatcherManager::StatusCallback& callback) override;
   void CancelPendingTasksAndDeleteDelegate() override;
 
   // Forward delegates for ImageCaptureDeviceListener. These are

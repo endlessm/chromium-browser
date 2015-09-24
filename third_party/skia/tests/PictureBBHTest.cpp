@@ -31,14 +31,6 @@ public:
         // No BBH
         this->run(NULL, reporter);
 
-        // With a Tile Grid
-        SkTileGridFactory::TileGridInfo gridInfo;
-        gridInfo.fMargin.setEmpty();
-        gridInfo.fOffset.setZero();
-        gridInfo.fTileInterval.set(1, 1);
-        SkTileGridFactory gridFactory(gridInfo);
-        this->run(&gridFactory, reporter);
-
         // With an R-Tree
         SkRTreeFactory RTreeFactory;
         this->run(&RTreeFactory, reporter);
@@ -49,7 +41,9 @@ private:
         SkCanvas playbackCanvas(fResultBitmap);
         playbackCanvas.clear(SK_ColorGREEN);
         SkPictureRecorder recorder;
-        SkCanvas* recordCanvas = recorder.beginRecording(SkIntToScalar(fPictureWidth), SkIntToScalar(fPictureHeight), factory);
+        SkCanvas* recordCanvas = recorder.beginRecording(SkIntToScalar(fPictureWidth),
+                                                         SkIntToScalar(fPictureHeight),
+                                                         factory);
         this->doTest(playbackCanvas, *recordCanvas);
         SkAutoTUnref<SkPicture> picture(recorder.endRecording());
         playbackCanvas.drawPicture(picture);
@@ -61,14 +55,14 @@ private:
 };
 
 // Test to verify the playback of an empty picture
-// 
+//
 class DrawEmptyPictureBBHTest : public PictureBBHTestBase {
 public:
     DrawEmptyPictureBBHTest()
         : PictureBBHTestBase(2, 2, 1, 1) { }
     virtual ~DrawEmptyPictureBBHTest() { }
 
-    virtual void doTest(SkCanvas&, SkCanvas&) SK_OVERRIDE { }
+    void doTest(SkCanvas&, SkCanvas&) override { }
 };
 
 // Test to verify the playback of a picture into a canvas that has
@@ -76,10 +70,10 @@ public:
 //
 class EmptyClipPictureBBHTest : public PictureBBHTestBase {
 public:
-    EmptyClipPictureBBHTest() 
+    EmptyClipPictureBBHTest()
         : PictureBBHTestBase(2, 2, 3, 3) { }
 
-    virtual void doTest(SkCanvas& playbackCanvas, SkCanvas& recordingCanvas) SK_OVERRIDE {
+    void doTest(SkCanvas& playbackCanvas, SkCanvas& recordingCanvas) override {
         // intersect with out of bounds rect -> empty clip.
         playbackCanvas.clipRect(SkRect::MakeXYWH(SkIntToScalar(10), SkIntToScalar(10),
             SkIntToScalar(1), SkIntToScalar(1)), SkRegion::kIntersect_Op);

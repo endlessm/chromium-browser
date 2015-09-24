@@ -5,6 +5,7 @@
 #include "chrome/browser/chromeos/login/startup_utils.h"
 
 #include "base/bind.h"
+#include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/path_service.h"
 #include "base/prefs/pref_registry_simple.h"
@@ -12,8 +13,11 @@
 #include "base/sys_info.h"
 #include "base/threading/thread_restrictions.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
+#include "chromeos/chromeos_switches.h"
+#include "components/web_resource/web_resource_pref_names.h"
 #include "content/public/browser/browser_thread.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -43,6 +47,11 @@ void SaveStringPreferenceForced(const char* pref_name,
   prefs->CommitPendingWrite();
 }
 
+bool IsWebViewDisabledCmdLine() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      chromeos::switches::kDisableWebviewSigninFlow);
+}
+
 }  // namespace
 
 namespace chromeos {
@@ -54,6 +63,8 @@ void StartupUtils::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterIntegerPref(prefs::kDeviceRegistered, -1);
   registry->RegisterBooleanPref(prefs::kEnrollmentRecoveryRequired, false);
   registry->RegisterStringPref(prefs::kInitialLocale, "en-US");
+  registry->RegisterBooleanPref(prefs::kWebviewSigninDisabled, false);
+  registry->RegisterBooleanPref(prefs::kNewLoginUIPopup, false);
 }
 
 // static
@@ -158,12 +169,6 @@ void StartupUtils::MarkDeviceRegistered(const base::Closure& done_callback) {
 }
 
 // static
-bool StartupUtils::IsEnrollmentRecoveryRequired() {
-  return g_browser_process->local_state()
-      ->GetBoolean(prefs::kEnrollmentRecoveryRequired);
-}
-
-// static
 void StartupUtils::MarkEnrollmentRecoveryRequired() {
   SaveBoolPreferenceForced(prefs::kEnrollmentRecoveryRequired, true);
 }
@@ -175,6 +180,34 @@ std::string StartupUtils::GetInitialLocale() {
   if (!l10n_util::IsValidLocaleSyntax(locale))
     locale = "en-US";
   return locale;
+}
+
+// static
+bool StartupUtils::IsWebviewSigninEnabled() {
+  const policy::DeviceCloudPolicyManagerChromeOS* policy_manager =
+      g_browser_process->platform_part()
+          ->browser_policy_connector_chromeos()
+          ->GetDeviceCloudPolicyManager();
+
+  const bool is_shark =
+      policy_manager ? policy_manager->IsSharkRequisition() : false;
+
+  const bool is_webview_disabled_pref =
+      g_browser_process->local_state()->GetBoolean(
+          prefs::kWebviewSigninDisabled);
+
+  // TODO(achuith): Remove is_shark when crbug.com/471744 is resolved.
+  return !is_shark && !IsWebViewDisabledCmdLine() && !is_webview_disabled_pref;
+}
+
+// static
+bool StartupUtils::EnableWebviewSignin(bool is_enabled) {
+  if (is_enabled && IsWebViewDisabledCmdLine())
+    return false;
+
+  g_browser_process->local_state()->SetBoolean(prefs::kWebviewSigninDisabled,
+                                               !is_enabled);
+  return true;
 }
 
 // static

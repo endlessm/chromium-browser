@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CONTENT_SHELL_RENDERER_LEAK_DETECTOR_H_
-#define CONTENT_SHELL_RENDERER_LEAK_DETECTOR_H_
+#ifndef CONTENT_SHELL_RENDERER_LAYOUT_TEST_LEAK_DETECTOR_H_
+#define CONTENT_SHELL_RENDERER_LAYOUT_TEST_LEAK_DETECTOR_H_
 
 #include "base/basictypes.h"
 #include "content/shell/common/leak_detection_result.h"
@@ -15,12 +15,12 @@ class WebLocalFrame;
 
 namespace content {
 
-class WebKitTestRunner;
+class BlinkTestRunner;
 
 // LeakDetector counts DOM objects and compare them between two pages.
 class LeakDetector : public blink::WebLeakDetectorClient {
  public:
-  explicit LeakDetector(WebKitTestRunner* test_runner);
+  explicit LeakDetector(BlinkTestRunner* test_runner);
   virtual ~LeakDetector();
 
   // Counts DOM objects, compare the previous status and returns the result of
@@ -34,7 +34,7 @@ class LeakDetector : public blink::WebLeakDetectorClient {
   virtual void onLeakDetectionComplete(const Result& result) override;
 
  private:
-  WebKitTestRunner* test_runner_;
+  BlinkTestRunner* test_runner_;
   scoped_ptr<blink::WebLeakDetector> web_leak_detector_;
   blink::WebLeakDetectorClient::Result previous_result_;
 
@@ -43,4 +43,4 @@ class LeakDetector : public blink::WebLeakDetectorClient {
 
 }  // namespace content
 
-#endif  // CONTENT_SHELL_RENDERER_LEAK_DETECTOR_H_
+#endif  // CONTENT_SHELL_RENDERER_LAYOUT_TEST_LEAK_DETECTOR_H_

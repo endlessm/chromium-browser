@@ -7,8 +7,9 @@
 
 #include "ash/ash_export.h"
 #include "base/basictypes.h"
+#include "base/gtest_prod_util.h"
 #include "base/strings/string16.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/views/bubble/bubble_border.h"
 
 namespace views {
@@ -62,19 +63,20 @@ class ASH_EXPORT PopupMessage {
   void Close();
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(PopupMessageTest, Layout);
+
   class MessageBubble;
+
+  static const int kCaptionLabelID;
+  static const int kMessageLabelID;
 
   void CancelHidingAnimation();
 
   MessageBubble* view_;
   views::Widget* widget_;
 
-  // Variables of the construction time.
-  views::View* anchor_;
   base::string16 caption_;
   base::string16 message_;
-  IconType message_type_;
-  views::BubbleBorder::Arrow arrow_orientation_;
 
   DISALLOW_COPY_AND_ASSIGN(PopupMessage);
 };

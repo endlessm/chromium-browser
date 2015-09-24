@@ -11,16 +11,20 @@ import android.accounts.AccountManagerFuture;
 import android.accounts.AuthenticatorException;
 import android.accounts.OperationCanceledException;
 import android.annotation.SuppressLint;
-import android.app.ActionBar;
-import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.ProgressDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
+import android.content.res.Resources;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.support.v4.widget.DrawerLayout;
+import android.support.v7.app.ActionBarActivity;
+import android.support.v7.app.ActionBarDrawerToggle;
+import android.support.v7.widget.Toolbar;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -35,12 +39,13 @@ import org.chromium.chromoting.jni.JniInterface;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Locale;
 
 /**
  * The user interface for querying and displaying a user's host list from the directory server. It
  * also requests and renews authentication tokens using the system account manager.
  */
-public class Chromoting extends Activity implements JniInterface.ConnectionListener,
+public class Chromoting extends ActionBarActivity implements JniInterface.ConnectionListener,
         AccountManagerCallback<Bundle>, AdapterView.OnItemSelectedListener, HostListLoader.Callback,
         View.OnClickListener {
     /** Only accounts of this type will be selectable for authentication. */
@@ -52,7 +57,7 @@ public class Chromoting extends Activity implements JniInterface.ConnectionListe
 
     /** Web page to be displayed in the Help screen when launched from this activity. */
     private static final String HELP_URL =
-            "http://support.google.com/chrome/?p=mobile_crd_hostslist";
+            "https://support.google.com/chrome/?p=mobile_crd_hostslist";
 
     /** Web page to be displayed when user triggers the hyperlink for setting up hosts. */
     private static final String HOST_SETUP_URL =
@@ -88,8 +93,11 @@ public class Chromoting extends Activity implements JniInterface.ConnectionListe
     /** Dialog for reporting connection progress. */
     private ProgressDialog mProgressIndicator;
 
-    /** Object for fetching OAuth2 access tokens from third party authorization servers. */
-    private ThirdPartyTokenFetcher mTokenFetcher;
+    /**
+     * Helper used by SessionConnection for session authentication. Receives onNewIntent()
+     * notifications to handle third-party authentication.
+     */
+    private SessionAuthenticator mAuthenticator;
 
     /**
      * This is set when receiving an authentication error from the HostListLoader. If that occurs,
@@ -104,6 +112,8 @@ public class Chromoting extends Activity implements JniInterface.ConnectionListe
      * while a token is being fetched.
      */
     private boolean mWaitingForAuthToken = false;
+
+    private ActionBarDrawerToggle mDrawerToggle;
 
     /** Shows a warning explaining that a Google account is required, then closes the activity. */
     private void showNoAccountsDialog() {
@@ -160,27 +170,68 @@ public class Chromoting extends Activity implements JniInterface.ConnectionListe
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
 
+        Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
+        setSupportActionBar(toolbar);
+
         mTriedNewAuthToken = false;
         mHostListLoader = new HostListLoader();
 
         // Get ahold of our view widgets.
         mHostListView = (ListView) findViewById(R.id.hostList_chooser);
         mHostListView.setEmptyView(findViewById(R.id.hostList_empty));
+        mHostListView.setOnItemClickListener(
+                new AdapterView.OnItemClickListener() {
+                    @Override
+                    public void onItemClick(AdapterView<?> parent, View view, int position,
+                            long id) {
+                        onHostClicked(position);
+                    }
+                });
+
         mProgressView = findViewById(R.id.hostList_progress);
 
         findViewById(R.id.host_setup_link_android).setOnClickListener(this);
+
+        DrawerLayout drawerLayout = (DrawerLayout) findViewById(R.id.drawer_layout);
+        mDrawerToggle = new ActionBarDrawerToggle(this, drawerLayout,
+                R.string.open_navigation_drawer, R.string.close_navigation_drawer);
+        drawerLayout.setDrawerListener(mDrawerToggle);
+
+        ListView navigationMenu = (ListView) findViewById(R.id.navigation_menu);
+        String[] navigationMenuItems = new String[] {
+            getString(R.string.actionbar_help)
+        };
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(this, R.layout.navigation_list_item,
+                navigationMenuItems);
+        navigationMenu.setAdapter(adapter);
+        navigationMenu.setOnItemClickListener(
+                new AdapterView.OnItemClickListener() {
+                    @Override
+                    public void onItemClick(AdapterView<?> parent, View view, int position,
+                            long id) {
+                        HelpActivity.launch(Chromoting.this, HELP_URL);
+                    }
+                });
+
+        // Make the navigation drawer icon visible in the ActionBar.
+        getSupportActionBar().setDisplayHomeAsUpEnabled(true);
 
         // Bring native components online.
         JniInterface.loadLibrary(this);
     }
 
     @Override
+    protected void onPostCreate(Bundle savedInstanceState) {
+        super.onPostCreate(savedInstanceState);
+        mDrawerToggle.syncState();
+    }
+
+    @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        if (mTokenFetcher != null) {
-            if (mTokenFetcher.handleTokenFetched(intent)) {
-                mTokenFetcher = null;
-            }
+
+        if (mAuthenticator != null) {
+            mAuthenticator.onNewIntent(intent);
         }
     }
 
@@ -213,22 +264,13 @@ public class Chromoting extends Activity implements JniInterface.ConnectionListe
             mAccount = mAccounts[0];
         }
 
-        if (mAccounts.length == 1) {
-            getActionBar().setDisplayOptions(ActionBar.DISPLAY_SHOW_TITLE,
-                    ActionBar.DISPLAY_SHOW_TITLE | ActionBar.DISPLAY_SHOW_CUSTOM);
-            getActionBar().setTitle(R.string.mode_me2me);
-            getActionBar().setSubtitle(mAccount.name);
-        } else {
-            mAccountsAdapter = new AccountsAdapter(this, mAccounts);
-            Spinner accountsSpinner = new Spinner(getActionBar().getThemedContext(), null,
-                    android.R.attr.actionDropDownStyle);
-            accountsSpinner.setAdapter(mAccountsAdapter);
-            getActionBar().setCustomView(accountsSpinner);
-            getActionBar().setDisplayOptions(ActionBar.DISPLAY_SHOW_CUSTOM,
-                    ActionBar.DISPLAY_SHOW_TITLE | ActionBar.DISPLAY_SHOW_CUSTOM);
-            accountsSpinner.setOnItemSelectedListener(this);
-            accountsSpinner.setSelection(index);
-        }
+        getSupportActionBar().setTitle(R.string.mode_me2me);
+
+        mAccountsAdapter = new AccountsAdapter(this, mAccounts);
+        Spinner accountsSpinner = (Spinner) findViewById(R.id.accounts_spinner);
+        accountsSpinner.setAdapter(mAccountsAdapter);
+        accountsSpinner.setOnItemSelectedListener(this);
+        accountsSpinner.setSelection(index);
 
         refreshHostList();
     }
@@ -245,11 +287,7 @@ public class Chromoting extends Activity implements JniInterface.ConnectionListe
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
 
-        // Reload the spinner resources, since the font sizes are dependent on the screen
-        // orientation.
-        if (mAccounts.length != 1) {
-            mAccountsAdapter.notifyDataSetChanged();
-        }
+        mDrawerToggle.onConfigurationChanged(newConfig);
     }
 
     /** Called to initialize the action bar. */
@@ -269,13 +307,13 @@ public class Chromoting extends Activity implements JniInterface.ConnectionListe
     /** Called whenever an action bar button is pressed. */
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
+        if (mDrawerToggle.onOptionsItemSelected(item)) {
+            return true;
+        }
+
         int id = item.getItemId();
         if (id == R.id.actionbar_directoryrefresh) {
             refreshHostList();
-            return true;
-        }
-        if (id == R.id.actionbar_help) {
-            HelpActivity.launch(this, HELP_URL);
             return true;
         }
         return super.onOptionsItemSelected(item);
@@ -288,7 +326,31 @@ public class Chromoting extends Activity implements JniInterface.ConnectionListe
     }
 
     /** Called when the user taps on a host entry. */
-    public void connectToHost(HostInfo host) {
+    private void onHostClicked(int index) {
+        HostInfo host = mHosts[index];
+        if (host.isOnline) {
+            connectToHost(host);
+        } else {
+            String tooltip = getHostOfflineTooltip(host.hostOfflineReason);
+            Toast.makeText(this, tooltip, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private String getHostOfflineTooltip(String hostOfflineReason) {
+        if (TextUtils.isEmpty(hostOfflineReason)) {
+            return getString(R.string.host_offline_tooltip);
+        }
+        try {
+            String resourceName = "offline_reason_" + hostOfflineReason.toLowerCase(Locale.ENGLISH);
+            int resourceId = getResources().getIdentifier(resourceName, "string",
+                    getPackageName());
+            return getString(resourceId);
+        } catch (Resources.NotFoundException ignored) {
+            return getString(R.string.offline_reason_unknown, hostOfflineReason);
+        }
+    }
+
+    private void connectToHost(HostInfo host) {
         mProgressIndicator = ProgressDialog.show(
                 this,
                 host.name,
@@ -299,13 +361,11 @@ public class Chromoting extends Activity implements JniInterface.ConnectionListe
                     @Override
                     public void onCancel(DialogInterface dialog) {
                         JniInterface.disconnectFromHost();
-                        mTokenFetcher = null;
                     }
                 });
         SessionConnector connector = new SessionConnector(this, this, mHostListLoader);
-        assert mTokenFetcher == null;
-        mTokenFetcher = createTokenFetcher(host);
-        connector.connectToHost(mAccount.name, mToken, host);
+        mAuthenticator = new SessionAuthenticator(this, host);
+        connector.connectToHost(mAccount.name, mToken, host, mAuthenticator);
     }
 
     private void refreshHostList() {
@@ -358,7 +418,7 @@ public class Chromoting extends Activity implements JniInterface.ConnectionListe
     }
 
     @Override
-    public void onItemSelected(AdapterView parent, View view, int itemPosition, long itemId) {
+    public void onItemSelected(AdapterView<?> parent, View view, int itemPosition, long itemId) {
         mAccount = mAccounts[itemPosition];
 
         getPreferences(MODE_PRIVATE).edit().putString("account_name", mAccount.name)
@@ -371,7 +431,7 @@ public class Chromoting extends Activity implements JniInterface.ConnectionListe
     }
 
     @Override
-    public void onNothingSelected(AdapterView parent) {
+    public void onNothingSelected(AdapterView<?> parent) {
     }
 
     @Override
@@ -485,29 +545,5 @@ public class Chromoting extends Activity implements JniInterface.ConnectionListe
             mProgressIndicator.dismiss();
             mProgressIndicator = null;
         }
-    }
-
-    private ThirdPartyTokenFetcher createTokenFetcher(HostInfo host) {
-        ThirdPartyTokenFetcher.Callback callback = new ThirdPartyTokenFetcher.Callback() {
-            @Override
-            public void onTokenFetched(String code, String accessToken) {
-                // The native client sends the OAuth authorization code to the host as the token so
-                // that the host can obtain the shared secret from the third party authorization
-                // server.
-                String token = code;
-
-                // The native client uses the OAuth access token as the shared secret to
-                // authenticate itself with the host using spake.
-                String sharedSecret = accessToken;
-
-                JniInterface.onThirdPartyTokenFetched(token, sharedSecret);
-            }
-        };
-        return new ThirdPartyTokenFetcher(this, host.getTokenUrlPatterns(), callback);
-    }
-
-    public void fetchThirdPartyToken(String tokenUrl, String clientId, String scope) {
-        assert mTokenFetcher != null;
-        mTokenFetcher.fetchToken(tokenUrl, clientId, scope);
     }
 }

@@ -8,10 +8,11 @@
 #include "base/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "device/bluetooth/bluetooth_adapter.h"
+#include "device/bluetooth/bluetooth_discovery_filter.h"
+#include "device/bluetooth/bluetooth_export.h"
 
 namespace device {
-
-class BluetoothAdapter;
 
 // BluetoothDiscoverySession represents a current active or inactive device
 // discovery session. Instances of this class are obtained by calling
@@ -25,7 +26,7 @@ class BluetoothAdapter;
 // AdapterDiscoveringChanged method of the BluetoothAdapter::Observer interface
 // to be notified of such a change and promptly request a new
 // BluetoothDiscoverySession if their existing sessions have become inactive.
-class BluetoothDiscoverySession {
+class DEVICE_BLUETOOTH_EXPORT BluetoothDiscoverySession {
  public:
   // The ErrorCallback is used by methods to asynchronously report errors.
   typedef base::Closure ErrorCallback;
@@ -57,14 +58,32 @@ class BluetoothDiscoverySession {
   virtual void Stop(const base::Closure& callback,
                     const ErrorCallback& error_callback);
 
+  virtual void SetDiscoveryFilter(
+      scoped_ptr<BluetoothDiscoveryFilter> discovery_filter,
+      const base::Closure& callback,
+      const ErrorCallback& error_callback);
+
+  virtual const BluetoothDiscoveryFilter* GetDiscoveryFilter() const;
+
  protected:
-  explicit BluetoothDiscoverySession(scoped_refptr<BluetoothAdapter> adapter);
+  explicit BluetoothDiscoverySession(
+      scoped_refptr<BluetoothAdapter> adapter,
+      scoped_ptr<BluetoothDiscoveryFilter> discovery_filter);
 
  private:
   friend class BluetoothAdapter;
 
-  // Internal callback invoked when a call to Stop has succeeded.
-  void OnStop(const base::Closure& callback);
+  // Internal callback invoked when a call to
+  // BluetoothAdapter::RemoveDiscoverySession has succeeded. Invokes
+  // |deactivate_discovery_session| if the session object still
+  // exists when this callback executes. Always invokes |success_callback|.
+  static void OnDiscoverySessionRemoved(
+      const base::Closure& deactivate_discovery_session,
+      const base::Closure& success_callback);
+
+  // Deactivate discovery session object after
+  // BluetoothAdapter::RemoveDiscoverySession completes.
+  void DeactivateDiscoverySession();
 
   // Marks this instance as inactive. Called by BluetoothAdapter to mark a
   // session as inactive in the case of an unexpected change to the adapter
@@ -76,6 +95,9 @@ class BluetoothDiscoverySession {
 
   // The adapter that created this instance.
   scoped_refptr<BluetoothAdapter> adapter_;
+
+  // Filter assigned to this session, if any
+  scoped_ptr<BluetoothDiscoveryFilter> discovery_filter_;
 
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate its weak pointers before any other members are destroyed.

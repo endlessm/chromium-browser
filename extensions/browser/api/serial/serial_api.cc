@@ -130,18 +130,14 @@ bool SerialConnectFunction::Prepare() {
 void SerialConnectFunction::AsyncWorkStart() {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   connection_ = CreateSerialConnection(params_->path, extension_->id());
-  connection_->Open(base::Bind(&SerialConnectFunction::OnConnected, this));
+  connection_->Open(*params_->options.get(),
+                    base::Bind(&SerialConnectFunction::OnConnected, this));
 }
 
 void SerialConnectFunction::OnConnected(bool success) {
   DCHECK(connection_);
 
-  if (success) {
-    if (!connection_->Configure(*params_->options.get())) {
-      delete connection_;
-      connection_ = NULL;
-    }
-  } else {
+  if (!success) {
     delete connection_;
     connection_ = NULL;
   }
@@ -424,6 +420,53 @@ void SerialSetControlSignalsFunction::Work() {
 
   bool success = connection->SetControlSignals(params_->signals);
   results_ = serial::SetControlSignals::Results::Create(success);
+}
+
+SerialSetBreakFunction::SerialSetBreakFunction() {
+}
+
+SerialSetBreakFunction::~SerialSetBreakFunction() {
+}
+
+bool SerialSetBreakFunction::Prepare() {
+  params_ = serial::SetBreak::Params::Create(*args_);
+  EXTENSION_FUNCTION_VALIDATE(params_.get());
+
+  return true;
+}
+
+void SerialSetBreakFunction::Work() {
+  SerialConnection* connection = GetSerialConnection(params_->connection_id);
+  if (!connection) {
+    error_ = kErrorSerialConnectionNotFound;
+    return;
+  }
+  bool success = connection->SetBreak();
+  results_ = serial::SetBreak::Results::Create(success);
+}
+
+SerialClearBreakFunction::SerialClearBreakFunction() {
+}
+
+SerialClearBreakFunction::~SerialClearBreakFunction() {
+}
+
+bool SerialClearBreakFunction::Prepare() {
+  params_ = serial::ClearBreak::Params::Create(*args_);
+  EXTENSION_FUNCTION_VALIDATE(params_.get());
+
+  return true;
+}
+
+void SerialClearBreakFunction::Work() {
+  SerialConnection* connection = GetSerialConnection(params_->connection_id);
+  if (!connection) {
+    error_ = kErrorSerialConnectionNotFound;
+    return;
+  }
+
+  bool success = connection->ClearBreak();
+  results_ = serial::ClearBreak::Results::Create(success);
 }
 
 }  // namespace core_api

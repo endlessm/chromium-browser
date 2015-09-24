@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "src/compiler/register-configuration.h"
+#include "src/globals.h"
 #include "src/macro-assembler.h"
 
 namespace v8 {
@@ -20,8 +21,13 @@ class ArchDefaultRegisterConfiguration : public RegisterConfiguration {
  public:
   ArchDefaultRegisterConfiguration()
       : RegisterConfiguration(Register::kMaxNumAllocatableRegisters,
+#if V8_TARGET_ARCH_X87
+                              1,
+                              1,
+#else
                               DoubleRegister::kMaxNumAllocatableRegisters,
                               DoubleRegister::NumAllocatableAliasedRegisters(),
+#endif
                               general_register_name_table_,
                               double_register_name_table_) {
     DCHECK_EQ(Register::kMaxNumAllocatableRegisters,
@@ -45,7 +51,7 @@ class ArchDefaultRegisterConfiguration : public RegisterConfiguration {
 static base::LazyInstance<ArchDefaultRegisterConfiguration>::type
     kDefaultRegisterConfiguration = LAZY_INSTANCE_INITIALIZER;
 
-}  // namepace
+}  // namespace
 
 
 const RegisterConfiguration* RegisterConfiguration::ArchDefault() {

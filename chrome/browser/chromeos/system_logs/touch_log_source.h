@@ -11,12 +11,12 @@ namespace system_logs {
 
 class TouchLogSource : public SystemLogsSource {
  public:
-  TouchLogSource();
-  virtual ~TouchLogSource();
+  TouchLogSource() : SystemLogsSource("Touch") {}
+  ~TouchLogSource() override {}
 
  private:
   // Overridden from SystemLogsSource:
-  virtual void Fetch(const SysLogsSourceCallback& callback) override;
+  void Fetch(const SysLogsSourceCallback& callback) override;
 
   DISALLOW_COPY_AND_ASSIGN(TouchLogSource);
 };

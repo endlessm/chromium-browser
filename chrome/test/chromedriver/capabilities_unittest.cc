@@ -12,7 +12,7 @@
 
 TEST(Switches, Empty) {
   Switches switches;
-  CommandLine cmd(CommandLine::NO_PROGRAM);
+  base::CommandLine cmd(base::CommandLine::NO_PROGRAM);
   switches.AppendToCommandLine(&cmd);
   ASSERT_EQ(0u, cmd.GetSwitches().size());
   ASSERT_EQ("", switches.ToString());
@@ -25,7 +25,7 @@ TEST(Switches, NoValue) {
   ASSERT_TRUE(switches.HasSwitch("hello"));
   ASSERT_EQ("", switches.GetSwitchValue("hello"));
 
-  CommandLine cmd(CommandLine::NO_PROGRAM);
+  base::CommandLine cmd(base::CommandLine::NO_PROGRAM);
   switches.AppendToCommandLine(&cmd);
   ASSERT_TRUE(cmd.HasSwitch("hello"));
   ASSERT_EQ(FILE_PATH_LITERAL(""), cmd.GetSwitchValueNative("hello"));
@@ -39,7 +39,7 @@ TEST(Switches, Value) {
   ASSERT_TRUE(switches.HasSwitch("hello"));
   ASSERT_EQ("there", switches.GetSwitchValue("hello"));
 
-  CommandLine cmd(CommandLine::NO_PROGRAM);
+  base::CommandLine cmd(base::CommandLine::NO_PROGRAM);
   switches.AppendToCommandLine(&cmd);
   ASSERT_TRUE(cmd.HasSwitch("hello"));
   ASSERT_EQ(FILE_PATH_LITERAL("there"), cmd.GetSwitchValueNative("hello"));
@@ -79,7 +79,7 @@ TEST(Switches, Multiple) {
   switches.SetSwitch("switch");
   switches.SetSwitch("hello", "there");
 
-  CommandLine cmd(CommandLine::NO_PROGRAM);
+  base::CommandLine cmd(base::CommandLine::NO_PROGRAM);
   switches.AppendToCommandLine(&cmd);
   ASSERT_TRUE(cmd.HasSwitch("switch"));
   ASSERT_TRUE(cmd.HasSwitch("hello"));
@@ -348,7 +348,7 @@ TEST(ParseCapabilities, PerfLoggingPrefsInspectorDomainStatus) {
             capabilities.perf_logging_prefs.network);
   ASSERT_EQ(PerfLoggingPrefs::InspectorDomainStatus::kDefaultEnabled,
             capabilities.perf_logging_prefs.page);
-  ASSERT_EQ(PerfLoggingPrefs::InspectorDomainStatus::kDefaultEnabled,
+  ASSERT_EQ(PerfLoggingPrefs::InspectorDomainStatus::kDefaultDisabled,
             capabilities.perf_logging_prefs.timeline);
   base::DictionaryValue perf_logging_prefs;
   perf_logging_prefs.SetBoolean("enableNetwork", true);
@@ -361,7 +361,7 @@ TEST(ParseCapabilities, PerfLoggingPrefsInspectorDomainStatus) {
             capabilities.perf_logging_prefs.network);
   ASSERT_EQ(PerfLoggingPrefs::InspectorDomainStatus::kExplicitlyDisabled,
             capabilities.perf_logging_prefs.page);
-  ASSERT_EQ(PerfLoggingPrefs::InspectorDomainStatus::kDefaultEnabled,
+  ASSERT_EQ(PerfLoggingPrefs::InspectorDomainStatus::kDefaultDisabled,
             capabilities.perf_logging_prefs.timeline);
 }
 
@@ -510,9 +510,9 @@ TEST(ParseCapabilities, MobileEmulationDeviceName) {
   ASSERT_EQ(1u, capabilities.switches.GetSize());
   ASSERT_TRUE(capabilities.switches.HasSwitch("user-agent"));
   ASSERT_EQ(
-      "Mozilla/5.0 (Linux; Android 4.2.1; en-us; Nexus 5 Build/JOP40D) "
-      "AppleWebKit/535.19 (KHTML, like Gecko) Chrome/18.0.1025.166 "
-      "Mobile Safari/535.19",
+      "Mozilla/5.0 (Linux; Android 4.4.4; en-us; Nexus 5 Build/JOP40D) "
+      "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2307.2 "
+      "Mobile Safari/537.36",
       capabilities.switches.GetSwitchValue("user-agent"));
 
   ASSERT_EQ(360, capabilities.device_metrics->width);

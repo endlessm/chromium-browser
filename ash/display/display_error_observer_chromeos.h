@@ -18,16 +18,17 @@ class ASH_EXPORT DisplayErrorObserver
     : public ui::DisplayConfigurator::Observer {
  public:
   DisplayErrorObserver();
-  virtual ~DisplayErrorObserver();
+  ~DisplayErrorObserver() override;
 
   // ui::DisplayConfigurator::Observer overrides:
-  virtual void OnDisplayModeChangeFailed(
+  void OnDisplayModeChangeFailed(
+      const ui::DisplayConfigurator::DisplayStateList& displays,
       ui::MultipleDisplayState failed_new_state) override;
 
  private:
   friend class DisplayErrorObserverTest;
 
-  base::string16 GetTitleOfDisplayErrorNotificationForTest();
+  base::string16 GetDisplayErrorNotificationMessageForTest();
 
   DISALLOW_COPY_AND_ASSIGN(DisplayErrorObserver);
 };

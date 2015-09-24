@@ -52,17 +52,19 @@ public:
     void imageUpdated();
     void imageClicked(int x, int y);
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     explicit ImageDocument(const DocumentInit&);
 
-    virtual PassRefPtrWillBeRawPtr<DocumentParser> createParser() override;
+    PassRefPtrWillBeRawPtr<DocumentParser> createParser() override;
 #if !ENABLE(OILPAN)
-    virtual void dispose() override;
+    void dispose() override;
 #endif
 
-    void createDocumentStructure();
+    void createDocumentStructure(bool loadingMultipartContent);
+
+    // These methods are for m_shrinkToFitMode == Desktop.
     void resizeImageToFit(ScaleType);
     void restoreImageSize(ScaleType);
     bool imageFitsInWindow() const;
@@ -79,6 +81,12 @@ private:
 
     // Whether the image should be shrunk or not
     bool m_shouldShrinkImage;
+
+    enum ShrinkToFitMode {
+        Viewport,
+        Desktop
+    };
+    ShrinkToFitMode m_shrinkToFitMode;
 };
 
 DEFINE_DOCUMENT_TYPE_CASTS(ImageDocument);

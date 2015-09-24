@@ -19,20 +19,15 @@ class WebContents;
 class ContextMenuHelper
     : public content::WebContentsUserData<ContextMenuHelper> {
  public:
-  virtual ~ContextMenuHelper();
+  ~ContextMenuHelper() override;
 
   void ShowContextMenu(const content::ContextMenuParams& params);
-
-  void ShowCustomContextMenu(
-      const content::ContextMenuParams& params,
-      const base::Callback<void(int)>& callback);
 
   void SetPopulator(jobject jpopulator);
 
   // Methods called from Java via JNI ------------------------------------------
-
-  void OnCustomItemSelected(JNIEnv* env, jobject obj, jint action);
-  void OnStartDownload(JNIEnv* env, jobject obj, jboolean jis_link);
+  void OnStartDownload(
+      JNIEnv* env, jobject obj, jboolean jis_link, jstring jheaders);
 
  private:
   explicit ContextMenuHelper(content::WebContents* web_contents);
@@ -44,7 +39,6 @@ class ContextMenuHelper
   base::android::ScopedJavaGlobalRef<jobject> java_obj_;
   content::WebContents* web_contents_;
 
-  base::Callback<void(int)> context_menu_callback_;
   content::ContextMenuParams context_menu_params_;
 
   DISALLOW_COPY_AND_ASSIGN(ContextMenuHelper);

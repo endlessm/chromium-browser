@@ -8,93 +8,60 @@ from telemetry.core.platform.power_monitor import cros_power_monitor
 
 
 class CrosPowerMonitorMonitorTest(unittest.TestCase):
-  initial_power = ('''Device: Line Power
-  path:                    /sys/class/power_supply/AC
-  online:                  no
-  type:                    Mains
-  enum type:               Disconnected
-  model name:
-  voltage (V):             0
-  current (A):             0
-Device: Battery
-  path:                    /sys/class/power_supply/BAT0
-  vendor:                  SANYO
-  model name:              AP13J3K
-  serial number:           0061
-  state:                   Discharging
-  voltage (V):             11.816
-  energy (Wh):             31.8262
-  energy rate (W):         12.7849
-  current (A):             1.082
-  charge (Ah):             2.829
-  full charge (Ah):        4.03
-  full charge design (Ah): 4.03
-  percentage:              70.1985
-  display percentage:      73.9874
-  technology:              Li-ion''')
-  final_power = ('''Device: Line Power
-  path:                    /sys/class/power_supply/AC
-  online:                  yes
-  type:                    Mains
-  enum type:               Disconnected
-  model name:
-  voltage (V):             0
-  current (A):             0
-Device: Battery
-  path:                    /sys/class/power_supply/BAT0
-  vendor:                  SANYO
-  model name:              AP13J3K
-  serial number:           0061
-  state:                   Discharging
-  voltage (V):             12.238
-  energy (Wh):             31.8262
-  energy rate (W):         12.7993
-  current (A):             1.082
-  charge (Ah):             2.827
-  full charge (Ah):        4.03
-  full charge design (Ah): 4.03
-  percentage:              70.1985
-  display percentage:      73.9874
-  technology:              Li-ion''')
-  expected_parsing_power = {
-    'Line Power': {
-      'path': '/sys/class/power_supply/AC',
-      'online': 'no',
-      'type': 'Mains',
-      'enum type': 'Disconnected',
-      'voltage': '0',
-      'current': '0'
-    },
-    'Battery': {
-      'path': '/sys/class/power_supply/BAT0',
-      'vendor': 'SANYO',
-      'model name': 'AP13J3K',
-      'serial number': '0061',
-      'state': 'Discharging',
-      'voltage': '11.816',
-      'energy': '31.8262',
-      'energy rate': '12.7849',
-      'current': '1.082',
-      'charge': '2.829',
-      'full charge': '4.03',
-      'full charge design': '4.03',
-      'percentage': '70.1985',
-      'display percentage': '73.9874',
-      'technology': 'Li-ion'
-    }
-  }
+  initial_power = ('''line_power_connected 0
+battery_present 1
+battery_percent 70.20
+battery_charge 2.83
+battery_charge_full 4.03
+battery_charge_full_design 4.03
+battery_current 1.08
+battery_energy 31.83
+battery_energy_rate 12.78
+battery_voltage 11.82
+battery_discharging 1''')
+  final_power = ('''line_power_connected 0
+battery_present 1
+battery_percent 70.20
+battery_charge 2.83
+battery_charge_full 4.03
+battery_charge_full_design 4.03
+battery_current 1.08
+battery_energy 31.83
+battery_energy_rate 12.80
+battery_voltage 12.24
+battery_discharging 1''')
+  incomplete_final_power = ('''line_power_connected 0
+battery_present 1
+battery_percent 70.20
+battery_charge 2.83
+battery_charge_full 4.03
+battery_charge_full_design 4.03
+battery_energy_rate 12.80
+battery_discharging 1''')
   expected_power = {
-    'energy_consumption_mwh': 2558.42,
-    'power_samples_mw': [12784.9, 12799.3],
+    'energy_consumption_mwh': 2558.0,
+    'power_samples_mw': [12780.0, 12800.0],
     'component_utilization': {
       'battery': {
         'charge_full': 4.03,
         'charge_full_design': 4.03,
-        'charge_now': 2.827,
-        'current_now': 1.082,
-        'energy': 31.8262,
-        'energy_rate': 12.7993,
-        'voltage_now': 12.238
+        'charge_now': 2.83,
+        'current_now': 1.08,
+        'energy': 31.83,
+        'energy_rate': 12.80,
+        'voltage_now': 12.24
+      }
+    }
+  }
+  expected_incomplete_power = {
+    'energy_consumption_mwh': 2558.0,
+    'power_samples_mw': [12780.0, 12800.0],
+    'component_utilization': {
+      'battery': {
+        'charge_full': 4.03,
+        'charge_full_design': 4.03,
+        'charge_now': 2.83,
+        'energy_rate': 12.80,
       }
     }
   }
@@ -178,24 +145,37 @@ Device: Battery
       }
     }
   }
-  def testParsePowerSupplyInfo(self):
-    result = cros_power_monitor.CrosPowerMonitor.ParsePowerSupplyInfo(
-        self.initial_power)
-    self.assertDictEqual(result, self.expected_parsing_power)
+
+  def _assertPowerEqual(self, results, expected):
+    battery = results['component_utilization']['battery']
+    expected_battery = expected['component_utilization']['battery']
+    self.assertItemsEqual(battery.keys(), expected_battery.keys())
+    for value in battery:
+      self.assertAlmostEqual(battery[value], expected_battery[value])
+
+    self.assertAlmostEqual(results['energy_consumption_mwh'],
+                           expected['energy_consumption_mwh'])
+    self.assertAlmostEqual(results['power_samples_mw'][0],
+                           expected['power_samples_mw'][0])
+    self.assertAlmostEqual(results['power_samples_mw'][1],
+                           expected['power_samples_mw'][1])
 
   def testParsePower(self):
     results = cros_power_monitor.CrosPowerMonitor.ParsePower(
         self.initial_power, self.final_power, 0.2)
-    for value in results['component_utilization']['battery']:
-      self.assertAlmostEqual(
-          results['component_utilization']['battery'][value],
-          self.expected_power['component_utilization']['battery'][value])
-    self.assertAlmostEqual(results['energy_consumption_mwh'],
-                           self.expected_power['energy_consumption_mwh'])
-    self.assertAlmostEqual(results['power_samples_mw'][0],
-                           self.expected_power['power_samples_mw'][0])
-    self.assertAlmostEqual(results['power_samples_mw'][1],
-                           self.expected_power['power_samples_mw'][1])
+    self._assertPowerEqual(results, self.expected_power)
+
+  def testParseIncompletePowerState(self):
+    """Test the case where dump_power_status only outputs partial fields.
+
+    CrosPowerMonitor hard-coded expected fields from dump_power_status,
+    this test ensures it parses successfully when expected fields does not
+    exist. It's mainly for backward compatibility.
+    """
+    results = cros_power_monitor.CrosPowerMonitor.ParsePower(
+        self.initial_power, self.incomplete_final_power, 0.2)
+    self._assertPowerEqual(results, self.expected_incomplete_power)
+
 
   def testSplitSample(self):
     sample = self.initial_power + '\n1408739546\n'
@@ -237,9 +217,9 @@ Device: Battery
 
   def testCanMonitorPower(self):
     # TODO(tmandel): Add a test here where the device cannot monitor power.
-    initial_status = cros_power_monitor.CrosPowerMonitor.ParsePowerSupplyInfo(
+    initial_status = cros_power_monitor.CrosPowerMonitor.ParsePowerStatus(
         self.initial_power)
-    final_status = cros_power_monitor.CrosPowerMonitor.ParsePowerSupplyInfo(
+    final_status = cros_power_monitor.CrosPowerMonitor.ParsePowerStatus(
         self.final_power)
     self.assertTrue(cros_power_monitor.CrosPowerMonitor.IsOnBatteryPower(
         initial_status, 'peppy'))

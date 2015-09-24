@@ -12,9 +12,13 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 //
 goog.provide('i18n.input.chrome.inputview.elements.content.TabBarKey');
+
+goog.require('goog.a11y.aria');
+goog.require('goog.a11y.aria.State');
 goog.require('goog.dom.TagName');
 goog.require('goog.dom.classlist');
 goog.require('i18n.input.chrome.inputview.Css');
+goog.require('i18n.input.chrome.inputview.EmojiType');
 goog.require('i18n.input.chrome.inputview.elements.content.FunctionalKey');
 goog.require('i18n.input.chrome.message.Name');
 goog.require('i18n.input.chrome.message.Type');
@@ -24,6 +28,7 @@ goog.scope(function() {
 var Type = i18n.input.chrome.message.Type;
 var Name = i18n.input.chrome.message.Name;
 var Css = i18n.input.chrome.inputview.Css;
+var EmojiType = i18n.input.chrome.inputview.EmojiType;
 
 
 
@@ -86,7 +91,40 @@ TabBarKey.prototype.createDom = function() {
   goog.dom.classlist.remove(this.bgElem, Css.SPECIAL_KEY_BG);
   goog.dom.classlist.add(this.bgElem, Css.EMOJI_TABBAR_KEY);
   goog.dom.classlist.add(this.iconElem, Css.EMOJI_SWITCH);
-  this.createSeparator_();
+  if (!i18n.input.chrome.inputview.GlobalFlags.isQPInputView) {
+    this.createSeparator_();
+  }
+
+  // Sets aria label.
+  var ariaLabel = '';
+  switch (this.toCategory) {
+    case EmojiType.RECENT:
+      ariaLabel = chrome.i18n.getMessage('EMOJI_TAB_RECENT');
+      break;
+    case EmojiType.HOT:
+      ariaLabel = chrome.i18n.getMessage('EMOJI_TAB_HOT');
+      break;
+    case EmojiType.EMOTION:
+      ariaLabel = chrome.i18n.getMessage('EMOJI_TAB_FACE');
+      break;
+    case EmojiType.SPECIAL_CHARACTERS:
+      ariaLabel = chrome.i18n.getMessage('EMOJI_TAB_SYMBOL');
+      break;
+    case EmojiType.NATURE:
+      ariaLabel = chrome.i18n.getMessage('EMOJI_TAB_NATURE');
+      break;
+    case EmojiType.PLACES_OF_INTERESTS:
+      ariaLabel = chrome.i18n.getMessage('EMOJI_TAB_PLACE');
+      break;
+    case EmojiType.ITEMS:
+      ariaLabel = chrome.i18n.getMessage('EMOJI_TAB_OBJECT');
+      break;
+    case EmojiType.EMOTICON:
+      ariaLabel = chrome.i18n.getMessage('EMOJI_TAB_EMOTICON');
+      break;
+  }
+  goog.a11y.aria.setState(/** @type {!Element} */ (elem),
+      goog.a11y.aria.State.LABEL, ariaLabel);
 };
 
 
@@ -97,9 +135,11 @@ TabBarKey.prototype.resize = function(width,
   this.tableCell.style.width = this.availableWidth + 'px';
   this.tableCell.style.height = this.availableHeight -
       this.BORDER_HEIGHT_ + 'px';
-  this.sepTableCell.style.height = this.availableHeight -
-      this.BORDER_HEIGHT_ + 'px';
-  this.separator.style.height = this.availableHeight * 0.32 + 'px';
+  if (!i18n.input.chrome.inputview.GlobalFlags.isQPInputView) {
+    this.sepTableCell.style.height = this.availableHeight -
+        this.BORDER_HEIGHT_ + 'px';
+    this.separator.style.height = this.availableHeight * 0.32 + 'px';
+  }
 };
 
 

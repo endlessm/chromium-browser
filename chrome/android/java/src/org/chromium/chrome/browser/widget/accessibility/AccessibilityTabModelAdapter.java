@@ -69,11 +69,13 @@ public class AccessibilityTabModelAdapter extends BaseAdapter {
         public void schedulePendingClosure(int tab) {
             mActualTabModel.closeTab(
                     TabModelUtils.getTabById(mActualTabModel, tab), true, false, true);
+            notifyDataSetChanged();
         }
 
         @Override
         public void cancelPendingClosure(int tab) {
             mActualTabModel.cancelTabClosure(tab);
+            notifyDataSetChanged();
         }
 
         @Override
@@ -120,17 +122,16 @@ public class AccessibilityTabModelAdapter extends BaseAdapter {
 
     @Override
     public long getItemId(int position) {
-        return mUndoneTabModel != null ?
-                mUndoneTabModel.getTabAt(position).getId() : Tab.INVALID_TAB_ID;
+        return mUndoneTabModel != null
+                ? mUndoneTabModel.getTabAt(position).getId() : Tab.INVALID_TAB_ID;
     }
 
     @Override
     public View getView(int position, View convertView, ViewGroup parent) {
         int tabId = (int) getItemId(position);
+        assert tabId != Tab.INVALID_TAB_ID;
 
-        if (tabId == Tab.INVALID_TAB_ID) return null;
-
-        AccessibilityTabModelListItem listItem = null;
+        AccessibilityTabModelListItem listItem;
         if (convertView != null && convertView instanceof AccessibilityTabModelListItem) {
             listItem = (AccessibilityTabModelListItem) convertView;
         } else {

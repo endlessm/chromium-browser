@@ -9,20 +9,20 @@
 #include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/logging.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/profiler/scoped_tracker.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "crypto/signature_verifier.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_log.h"
 #include "net/cert/asn1_util.h"
 #include "net/cert/cert_status_flags.h"
 #include "net/cert/cert_verifier.h"
 #include "net/cert/cert_verify_result.h"
-#include "net/cert/single_request_cert_verifier.h"
 #include "net/cert/x509_certificate.h"
 #include "net/cert/x509_util.h"
 #include "net/http/transport_security_state.h"
+#include "net/log/net_log.h"
 #include "net/quic/crypto/crypto_protocol.h"
 #include "net/ssl/ssl_config_service.h"
 
@@ -47,6 +47,7 @@ class ProofVerifierChromium::Job {
   Job(ProofVerifierChromium* proof_verifier,
       CertVerifier* cert_verifier,
       TransportSecurityState* transport_security_state,
+      int cert_verify_flags,
       const BoundNetLog& net_log);
 
   // Starts the proof verification.  If |QUIC_PENDING| is returned, then
@@ -79,7 +80,8 @@ class ProofVerifierChromium::Job {
   ProofVerifierChromium* proof_verifier_;
 
   // The underlying verifier used for verifying certificates.
-  scoped_ptr<SingleRequestCertVerifier> verifier_;
+  CertVerifier* verifier_;
+  scoped_ptr<CertVerifier::Request> cert_verifier_request_;
 
   TransportSecurityState* transport_security_state_;
 
@@ -93,6 +95,10 @@ class ProofVerifierChromium::Job {
   // X509Certificate from a chain of DER encoded certificates.
   scoped_refptr<X509Certificate> cert_;
 
+  // |cert_verify_flags| is bitwise OR'd of CertVerifier::VerifyFlags and it is
+  // passed to CertVerifier::Verify.
+  int cert_verify_flags_;
+
   State next_state_;
 
   BoundNetLog net_log_;
@@ -104,10 +110,12 @@ ProofVerifierChromium::Job::Job(
     ProofVerifierChromium* proof_verifier,
     CertVerifier* cert_verifier,
     TransportSecurityState* transport_security_state,
+    int cert_verify_flags,
     const BoundNetLog& net_log)
     : proof_verifier_(proof_verifier),
-      verifier_(new SingleRequestCertVerifier(cert_verifier)),
+      verifier_(cert_verifier),
       transport_security_state_(transport_security_state),
+      cert_verify_flags_(cert_verify_flags),
       next_state_(STATE_NONE),
       net_log_(net_log) {
 }
@@ -221,20 +229,16 @@ void ProofVerifierChromium::Job::OnIOComplete(int result) {
 int ProofVerifierChromium::Job::DoVerifyCert(int result) {
   next_state_ = STATE_VERIFY_CERT_COMPLETE;
 
-  int flags = 0;
   return verifier_->Verify(
-      cert_.get(),
-      hostname_,
-      flags,
-      SSLConfigService::GetCRLSet().get(),
-      &verify_details_->cert_verify_result,
+      cert_.get(), hostname_, std::string(), cert_verify_flags_,
+      SSLConfigService::GetCRLSet().get(), &verify_details_->cert_verify_result,
       base::Bind(&ProofVerifierChromium::Job::OnIOComplete,
                  base::Unretained(this)),
-      net_log_);
+      &cert_verifier_request_, net_log_);
 }
 
 int ProofVerifierChromium::Job::DoVerifyCertComplete(int result) {
-  verifier_.reset();
+  cert_verifier_request_.reset();
 
   const CertVerifyResult& cert_verify_result =
       verify_details_->cert_verify_result;
@@ -278,6 +282,11 @@ int ProofVerifierChromium::Job::DoVerifyCertComplete(int result) {
 bool ProofVerifierChromium::Job::VerifySignature(const string& signed_data,
                                                  const string& signature,
                                                  const string& cert) {
+  // TODO(rtenneti): Remove ScopedTracker below once crbug.com/422516 is fixed.
+  tracked_objects::ScopedTracker tracking_profile(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "422516 ProofVerifierChromium::Job::VerifySignature"));
+
   StringPiece spki;
   if (!asn1::ExtractSPKIFromDERCert(cert, &spki)) {
     DLOG(WARNING) << "ExtractSPKIFromDERCert failed";
@@ -377,13 +386,12 @@ QuicAsyncStatus ProofVerifierChromium::VerifyProof(
   }
   const ProofVerifyContextChromium* chromium_context =
       reinterpret_cast<const ProofVerifyContextChromium*>(verify_context);
-  scoped_ptr<Job> job(new Job(this,
-                              cert_verifier_,
-                              transport_security_state_,
+  scoped_ptr<Job> job(new Job(this, cert_verifier_, transport_security_state_,
+                              chromium_context->cert_verify_flags,
                               chromium_context->net_log));
-  QuicAsyncStatus status = job->VerifyProof(hostname, server_config, certs,
-                                            signature, error_details,
-                                            verify_details, callback);
+  QuicAsyncStatus status =
+      job->VerifyProof(hostname, server_config, certs, signature, error_details,
+                       verify_details, callback);
   if (status == QUIC_PENDING) {
     active_jobs_.insert(job.release());
   }

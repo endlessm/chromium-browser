@@ -20,7 +20,6 @@
 #include "chrome/browser/sync_file_system/logger.h"
 #include "chrome/browser/sync_file_system/syncable_file_system_util.h"
 #include "google_apis/drive/drive_api_parser.h"
-#include "google_apis/drive/gdata_wapi_parser.h"
 
 namespace sync_file_system {
 namespace drive_backend {
@@ -58,9 +57,9 @@ void ListChangesTask::StartListing(scoped_ptr<SyncTaskToken> token) {
 
 void ListChangesTask::DidListChanges(
     scoped_ptr<SyncTaskToken> token,
-    google_apis::GDataErrorCode error,
+    google_apis::DriveApiErrorCode error,
     scoped_ptr<google_apis::ChangeList> change_list) {
-  SyncStatusCode status = GDataErrorCodeToSyncStatusCode(error);
+  SyncStatusCode status = DriveApiErrorCodeToSyncStatusCode(error);
   if (status != SYNC_STATUS_OK) {
     token->RecordLog("Failed to fetch change list.");
     SyncTaskManager::NotifyTaskDone(

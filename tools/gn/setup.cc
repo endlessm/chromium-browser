@@ -26,6 +26,7 @@
 #include "tools/gn/source_dir.h"
 #include "tools/gn/source_file.h"
 #include "tools/gn/standard_out.h"
+#include "tools/gn/switches.h"
 #include "tools/gn/tokenizer.h"
 #include "tools/gn/trace.h"
 #include "tools/gn/value.h"
@@ -58,6 +59,35 @@ extern const char kDotfile_Help[] =
     "      Label of the build config file. This file will be used to set up\n"
     "      the build file execution environment for each toolchain.\n"
     "\n"
+    "  check_targets [optional]\n"
+    "      A list of labels and label patterns that should be checked when\n"
+    "      running \"gn check\" or \"gn gen --check\". If unspecified, all\n"
+    "      targets will be checked. If it is the empty list, no targets will\n"
+    "      be checked.\n"
+    "\n"
+    "      The format of this list is identical to that of \"visibility\"\n"
+    "      so see \"gn help visibility\" for examples.\n"
+    "\n"
+    "  exec_script_whitelist [optional]\n"
+    "      A list of .gn/.gni files (not labels) that have permission to call\n"
+    "      the exec_script function. If this list is defined, calls to\n"
+    "      exec_script will be checked against this list and GN will fail if\n"
+    "      the current file isn't in the list.\n"
+    "\n"
+    "      This is to allow the use of exec_script to be restricted since\n"
+    "      is easy to use inappropriately. Wildcards are not supported.\n"
+    "      Files in the secondary_source tree (if defined) should be\n"
+    "      referenced by ignoring the secondary tree and naming them as if\n"
+    "      they are in the main tree.\n"
+    "\n"
+    "      If unspecified, the ability to call exec_script is unrestricted.\n"
+    "\n"
+    "      Example:\n"
+    "        exec_script_whitelist = [\n"
+    "          \"//base/BUILD.gn\",\n"
+    "          \"//build/my_config.gni\",\n"
+    "        ]\n"
+    "\n"
     "  root [optional]\n"
     "      Label of the root build target. The GN build will start by loading\n"
     "      the build file containing this target name. This defaults to\n"
@@ -79,28 +109,16 @@ extern const char kDotfile_Help[] =
     "\n"
     "  buildconfig = \"//build/config/BUILDCONFIG.gn\"\n"
     "\n"
+    "  check_targets = [\n"
+    "    \"//doom_melon/*\",  # Check everything in this subtree.\n"
+    "    \"//tools:mind_controlling_ant\",  # Check this specific target.\n"
+    "  ]\n"
+    "\n"
     "  root = \"//:root\"\n"
     "\n"
     "  secondary_source = \"//build/config/temporary_buildfiles/\"\n";
 
 namespace {
-
-// More logging.
-const char kSwitchVerbose[] = "v";
-
-// Set build args.
-const char kSwitchArgs[] = "args";
-
-// Set root dir.
-const char kSwitchRoot[] = "root";
-
-// Set dotfile name.
-const char kSwitchDotfile[] = "dotfile";
-
-// Enable timing.
-const char kTimeSwitch[] = "time";
-
-const char kTracelogSwitch[] = "tracelog";
 
 const base::FilePath::CharType kGnFile[] = FILE_PATH_LITERAL(".gn");
 
@@ -132,91 +150,22 @@ void DecrementWorkCount() {
 
 }  // namespace
 
-// CommonSetup -----------------------------------------------------------------
+const char Setup::kBuildArgFileName[] = "args.gn";
 
-const char CommonSetup::kBuildArgFileName[] = "args.gn";
-
-CommonSetup::CommonSetup()
+Setup::Setup()
     : build_settings_(),
       loader_(new LoaderImpl(&build_settings_)),
       builder_(new Builder(loader_.get())),
       root_build_file_("//BUILD.gn"),
-      check_for_bad_items_(true),
-      check_for_unused_overrides_(true),
-      check_public_headers_(false) {
-  loader_->set_complete_callback(base::Bind(&DecrementWorkCount));
-}
-
-CommonSetup::CommonSetup(const CommonSetup& other)
-    : build_settings_(other.build_settings_),
-      loader_(new LoaderImpl(&build_settings_)),
-      builder_(new Builder(loader_.get())),
-      root_build_file_(other.root_build_file_),
-      check_for_bad_items_(other.check_for_bad_items_),
-      check_for_unused_overrides_(other.check_for_unused_overrides_),
-      check_public_headers_(other.check_public_headers_) {
-  loader_->set_complete_callback(base::Bind(&DecrementWorkCount));
-}
-
-CommonSetup::~CommonSetup() {
-}
-
-void CommonSetup::RunPreMessageLoop() {
-  // Load the root build file.
-  loader_->Load(root_build_file_, LocationRange(), Label());
-
-  // Will be decremented with the loader is drained.
-  g_scheduler->IncrementWorkCount();
-}
-
-bool CommonSetup::RunPostMessageLoop() {
-  Err err;
-  if (check_for_bad_items_) {
-    if (!builder_->CheckForBadItems(&err)) {
-      err.PrintToStdout();
-      return false;
-    }
-  }
-
-  if (check_for_unused_overrides_) {
-    if (!build_settings_.build_args().VerifyAllOverridesUsed(&err)) {
-      // TODO(brettw) implement a system of warnings. Until we have a better
-      // system, print the error but don't return failure.
-      err.PrintToStdout();
-      return true;
-    }
-  }
-
-  if (check_public_headers_) {
-    if (!commands::CheckPublicHeaders(&build_settings_,
-                                      builder_->GetAllResolvedTargets(),
-                                      std::vector<const Target*>(),
-                                      false)) {
-      return false;
-    }
-  }
-
-  // Write out tracing and timing if requested.
-  const CommandLine* cmdline = CommandLine::ForCurrentProcess();
-  if (cmdline->HasSwitch(kTimeSwitch))
-    PrintLongHelp(SummarizeTraces());
-  if (cmdline->HasSwitch(kTracelogSwitch))
-    SaveTraces(cmdline->GetSwitchValuePath(kTracelogSwitch));
-
-  return true;
-}
-
-// Setup -----------------------------------------------------------------------
-
-Setup::Setup()
-    : CommonSetup(),
-      empty_settings_(&empty_build_settings_, std::string()),
-      dotfile_scope_(&empty_settings_),
+      check_public_headers_(false),
+      dotfile_settings_(&build_settings_, std::string()),
+      dotfile_scope_(&dotfile_settings_),
       fill_arguments_(true) {
-  empty_settings_.set_toolchain_label(Label());
+  dotfile_settings_.set_toolchain_label(Label());
   build_settings_.set_item_defined_callback(
       base::Bind(&ItemDefinedCallback, scheduler_.main_loop(), builder_));
 
+  loader_->set_complete_callback(base::Bind(&DecrementWorkCount));
   // The scheduler's main loop wasn't created when the Loader was created, so
   // we need to set it now.
   loader_->set_main_loop(scheduler_.main_loop());
@@ -226,11 +175,11 @@ Setup::~Setup() {
 }
 
 bool Setup::DoSetup(const std::string& build_dir, bool force_create) {
-  CommandLine* cmdline = CommandLine::ForCurrentProcess();
+  base::CommandLine* cmdline = base::CommandLine::ForCurrentProcess();
 
-  scheduler_.set_verbose_logging(cmdline->HasSwitch(kSwitchVerbose));
-  if (cmdline->HasSwitch(kTimeSwitch) ||
-      cmdline->HasSwitch(kTracelogSwitch))
+  scheduler_.set_verbose_logging(cmdline->HasSwitch(switches::kVerbose));
+  if (cmdline->HasSwitch(switches::kTime) ||
+      cmdline->HasSwitch(switches::kTracelog))
     EnableTracing();
 
   ScopedTrace setup_trace(TraceItem::TRACE_SETUP, "DoSetup");
@@ -245,6 +194,13 @@ bool Setup::DoSetup(const std::string& build_dir, bool force_create) {
   // Must be after FillSourceDir to resolve.
   if (!FillBuildDir(build_dir, !force_create))
     return false;
+
+  // Check for unused variables in the .gn file.
+  Err err;
+  if (!dotfile_scope_.CheckForUnusedVars(&err)) {
+    err.PrintToStdout();
+    return false;
+  }
 
   if (fill_arguments_) {
     if (!FillArguments(*cmdline))
@@ -262,19 +218,65 @@ bool Setup::Run() {
   return RunPostMessageLoop();
 }
 
-Scheduler* Setup::GetScheduler() {
-  return &scheduler_;
-}
-
 SourceFile Setup::GetBuildArgFile() const {
   return SourceFile(build_settings_.build_dir().value() + kBuildArgFileName);
 }
 
-bool Setup::FillArguments(const CommandLine& cmdline) {
+void Setup::RunPreMessageLoop() {
+  // Load the root build file.
+  loader_->Load(root_build_file_, LocationRange(), Label());
+
+  // Will be decremented with the loader is drained.
+  g_scheduler->IncrementWorkCount();
+}
+
+bool Setup::RunPostMessageLoop() {
+  Err err;
+  if (build_settings_.check_for_bad_items()) {
+    if (!builder_->CheckForBadItems(&err)) {
+      err.PrintToStdout();
+      return false;
+    }
+
+    if (!build_settings_.build_args().VerifyAllOverridesUsed(&err)) {
+      // TODO(brettw) implement a system of warnings. Until we have a better
+      // system, print the error but don't return failure.
+      err.PrintToStdout();
+      return true;
+    }
+  }
+
+  if (check_public_headers_) {
+    std::vector<const Target*> all_targets = builder_->GetAllResolvedTargets();
+    std::vector<const Target*> to_check;
+    if (check_patterns()) {
+      commands::FilterTargetsByPatterns(all_targets, *check_patterns(),
+                                        &to_check);
+    } else {
+      to_check = all_targets;
+    }
+
+    if (!commands::CheckPublicHeaders(&build_settings_, all_targets,
+                                      to_check, false)) {
+      return false;
+    }
+  }
+
+  // Write out tracing and timing if requested.
+  const base::CommandLine* cmdline = base::CommandLine::ForCurrentProcess();
+  if (cmdline->HasSwitch(switches::kTime))
+    PrintLongHelp(SummarizeTraces());
+  if (cmdline->HasSwitch(switches::kTracelog))
+    SaveTraces(cmdline->GetSwitchValuePath(switches::kTracelog));
+
+  return true;
+}
+
+bool Setup::FillArguments(const base::CommandLine& cmdline) {
   // Use the args on the command line if specified, and save them. Do this even
   // if the list is empty (this means clear any defaults).
-  if (cmdline.HasSwitch(kSwitchArgs)) {
-    if (!FillArgsFromCommandLine(cmdline.GetSwitchValueASCII(kSwitchArgs)))
+  if (cmdline.HasSwitch(switches::kArgs)) {
+    if (!FillArgsFromCommandLine(cmdline.GetSwitchValueASCII(switches::kArgs)))
       return false;
     SaveArgsToFile();
     return true;
@@ -334,8 +336,8 @@ bool Setup::FillArgsFromArgsInputFile() {
     return false;
   }
 
-  Scope arg_scope(&empty_settings_);
-  args_root_->AsBlock()->ExecuteBlockInScope(&arg_scope, &err);
+  Scope arg_scope(&dotfile_settings_);
+  args_root_->Execute(&arg_scope, &err);
   if (err.has_error()) {
     err.PrintToStdout();
     return false;
@@ -368,7 +370,7 @@ bool Setup::SaveArgsToFile() {
 #if defined(OS_WIN)
   // Use Windows lineendings for this file since it will often open in
   // Notepad which can't handle Unix ones.
-  ReplaceSubstringsAfterOffset(&contents, 0, "\n", "\r\n");
+  base::ReplaceSubstringsAfterOffset(&contents, 0, "\n", "\r\n");
 #endif
   if (base::WriteFile(build_arg_file, contents.c_str(),
       static_cast<int>(contents.size())) == -1) {
@@ -385,12 +387,13 @@ bool Setup::SaveArgsToFile() {
   return true;
 }
 
-bool Setup::FillSourceDir(const CommandLine& cmdline) {
+bool Setup::FillSourceDir(const base::CommandLine& cmdline) {
   // Find the .gn file.
   base::FilePath root_path;
 
   // Prefer the command line args to the config file.
-  base::FilePath relative_root_path = cmdline.GetSwitchValuePath(kSwitchRoot);
+  base::FilePath relative_root_path =
+      cmdline.GetSwitchValuePath(switches::kRoot);
   if (!relative_root_path.empty()) {
     root_path = base::MakeAbsoluteFilePath(relative_root_path);
     if (root_path.empty()) {
@@ -403,7 +406,8 @@ bool Setup::FillSourceDir(const CommandLine& cmdline) {
     // When --root is specified, an alternate --dotfile can also be set.
     // --dotfile should be a real file path and not a "//foo" source-relative
     // path.
-    base::FilePath dot_file_path = cmdline.GetSwitchValuePath(kSwitchDotfile);
+    base::FilePath dot_file_path =
+        cmdline.GetSwitchValuePath(switches::kDotfile);
     if (dot_file_path.empty()) {
       dotfile_name_ = root_path.Append(kGnFile);
     } else {
@@ -439,13 +443,13 @@ bool Setup::FillSourceDir(const CommandLine& cmdline) {
 }
 
 bool Setup::FillBuildDir(const std::string& build_dir, bool require_exists) {
+  Err err;
   SourceDir resolved =
       SourceDirForCurrentDirectory(build_settings_.root_path()).
-          ResolveRelativeDir(build_dir);
-  if (resolved.is_null()) {
-    Err(Location(), "Couldn't resolve build directory.",
-        "The build directory supplied (\"" + build_dir + "\") was not valid.").
-        PrintToStdout();
+    ResolveRelativeDir(Value(nullptr, build_dir), &err,
+        build_settings_.root_path_utf8());
+  if (err.has_error()) {
+    err.PrintToStdout();
     return false;
   }
 
@@ -519,7 +523,7 @@ bool Setup::RunConfigFile() {
     return false;
   }
 
-  dotfile_root_->AsBlock()->ExecuteBlockInScope(&dotfile_scope_, &err);
+  dotfile_root_->Execute(&dotfile_scope_, &err);
   if (err.has_error()) {
     err.PrintToStdout();
     return false;
@@ -528,8 +532,9 @@ bool Setup::RunConfigFile() {
   return true;
 }
 
-bool Setup::FillOtherConfig(const CommandLine& cmdline) {
+bool Setup::FillOtherConfig(const base::CommandLine& cmdline) {
   Err err;
+  SourceDir current_dir("//");
 
   // Secondary source path, read from the config file if present.
   // Read from the config file if present.
@@ -553,7 +558,7 @@ bool Setup::FillOtherConfig(const CommandLine& cmdline) {
     }
 
     Label root_target_label =
-        Label::Resolve(SourceDir("//"), Label(), *root_value, &err);
+        Label::Resolve(current_dir, Label(), *root_value, &err);
     if (err.has_error()) {
       err.PrintToStdout();
       return false;
@@ -577,37 +582,50 @@ bool Setup::FillOtherConfig(const CommandLine& cmdline) {
   build_settings_.set_build_config_file(
       SourceFile(build_config_value->string_value()));
 
+  // Targets to check.
+  const Value* check_targets_value =
+      dotfile_scope_.GetValue("check_targets", true);
+  if (check_targets_value) {
+    // Fill the list of targets to check.
+    if (!check_targets_value->VerifyTypeIs(Value::LIST, &err)) {
+      err.PrintToStdout();
+      return false;
+    }
+
+    check_patterns_.reset(new std::vector<LabelPattern>);
+    for (const auto& item : check_targets_value->list_value()) {
+      check_patterns_->push_back(
+          LabelPattern::GetPattern(current_dir, item, &err));
+      if (err.has_error()) {
+        err.PrintToStdout();
+        return false;
+      }
+    }
+  }
+
+  // Fill exec_script_whitelist.
+  const Value* exec_script_whitelist_value =
+      dotfile_scope_.GetValue("exec_script_whitelist", true);
+  if (exec_script_whitelist_value) {
+    // Fill the list of targets to check.
+    if (!exec_script_whitelist_value->VerifyTypeIs(Value::LIST, &err)) {
+      err.PrintToStdout();
+      return false;
+    }
+    scoped_ptr<std::set<SourceFile>> whitelist(new std::set<SourceFile>);
+    for (const auto& item : exec_script_whitelist_value->list_value()) {
+      if (!item.VerifyTypeIs(Value::STRING, &err)) {
+        err.PrintToStdout();
+        return false;
+      }
+      whitelist->insert(current_dir.ResolveRelativeFile(item, &err));
+      if (err.has_error()) {
+        err.PrintToStdout();
+        return false;
+      }
+    }
+    build_settings_.set_exec_script_whitelist(whitelist.Pass());
+  }
+
   return true;
 }
-
-// DependentSetup --------------------------------------------------------------
-
-DependentSetup::DependentSetup(Setup* derive_from)
-    : CommonSetup(*derive_from),
-      scheduler_(derive_from->GetScheduler()) {
-  build_settings_.set_item_defined_callback(
-      base::Bind(&ItemDefinedCallback, scheduler_->main_loop(), builder_));
-}
-
-DependentSetup::DependentSetup(DependentSetup* derive_from)
-    : CommonSetup(*derive_from),
-      scheduler_(derive_from->GetScheduler()) {
-  build_settings_.set_item_defined_callback(
-      base::Bind(&ItemDefinedCallback, scheduler_->main_loop(), builder_));
-}
-
-DependentSetup::~DependentSetup() {
-}
-
-Scheduler* DependentSetup::GetScheduler() {
-  return scheduler_;
-}
-
-void DependentSetup::RunPreMessageLoop() {
-  CommonSetup::RunPreMessageLoop();
-}
-
-bool DependentSetup::RunPostMessageLoop() {
-  return CommonSetup::RunPostMessageLoop();
-}
-

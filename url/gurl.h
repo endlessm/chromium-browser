@@ -10,16 +10,16 @@
 
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
+#include "url/third_party/mozilla/url_parse.h"
 #include "url/url_canon.h"
 #include "url/url_canon_stdstring.h"
 #include "url/url_constants.h"
 #include "url/url_export.h"
-#include "url/url_parse.h"
 
 class URL_EXPORT GURL {
  public:
-  typedef url::StdStringReplacements<std::string> Replacements;
-  typedef url::StdStringReplacements<base::string16> ReplacementsW;
+  typedef url::StringPieceReplacements<std::string> Replacements;
+  typedef url::StringPieceReplacements<base::string16> ReplacementsW;
 
   // Creates an empty, invalid URL.
   GURL();
@@ -112,20 +112,12 @@ class URL_EXPORT GURL {
   }
 
   // Defiant equality operator!
-  bool operator==(const GURL& other) const {
-    return spec_ == other.spec_;
-  }
-  bool operator!=(const GURL& other) const {
-    return spec_ != other.spec_;
-  }
+  bool operator==(const GURL& other) const;
+  bool operator!=(const GURL& other) const;
 
   // Allows GURL to used as a key in STL (for example, a std::set or std::map).
-  bool operator<(const GURL& other) const {
-    return spec_ < other.spec_;
-  }
-  bool operator>(const GURL& other) const {
-    return spec_ > other.spec_;
-  }
+  bool operator<(const GURL& other) const;
+  bool operator>(const GURL& other) const;
 
   // Resolves a URL that's possibly relative to this object's URL, and returns
   // it. Absolute URLs are also handled according to the rules of URLs on web
@@ -198,13 +190,15 @@ class URL_EXPORT GURL {
 
   // A helper function to return a GURL stripped from the elements that are not
   // supposed to be sent as HTTP referrer: username, password and ref fragment.
-  // For invalid URLs the original URL will be returned.
+  // For invalid URLs or URLs that no valid referrers, an empty URL will be
+  // returned.
   GURL GetAsReferrer() const;
 
-  // Returns true if the scheme for the current URL is a known "standard"
-  // scheme. Standard schemes have an authority and a path section. This
-  // includes file: and filesystem:, which some callers may want to filter out
-  // explicitly by calling SchemeIsFile[System].
+  // Returns true if the scheme for the current URL is a known "standard-format"
+  // scheme. A standard-format scheme adheres to what RFC 3986 calls "generic
+  // URI syntax" (https://tools.ietf.org/html/rfc3986#section-3). This includes
+  // file: and filesystem:, which some callers may want to filter out explicitly
+  // by calling SchemeIsFile[System].
   bool IsStandard() const;
 
   // Returns true if the given parameter (should be lower-case ASCII to match
@@ -230,10 +224,32 @@ class URL_EXPORT GURL {
     return SchemeIs(url::kFileSystemScheme);
   }
 
-  // If the scheme indicates a secure connection
+  // Returns true if the scheme indicates a secure connection.
+  //
+  // NOTE: This function is deprecated. You probably want
+  // |SchemeIsCryptographic| (if you just want to know if a scheme uses TLS for
+  // network transport) or Chromium's |IsOriginSecure| for a higher-level test
+  // about an origin's security. See those functions' documentation for more
+  // detail.
+  //
+  // TODO(palmer): Audit callers and change them to |SchemeIsCryptographic| or
+  // |IsOriginSecure|, as appropriate. Then remove |SchemeIsSecure|.
+  // crbug.com/362214
   bool SchemeIsSecure() const {
     return SchemeIs(url::kHttpsScheme) || SchemeIs(url::kWssScheme) ||
-        (SchemeIsFileSystem() && inner_url() && inner_url()->SchemeIsSecure());
+           (SchemeIsFileSystem() && inner_url() &&
+            inner_url()->SchemeIsSecure());
+  }
+
+  // Returns true if the scheme indicates a network connection that uses TLS or
+  // some other cryptographic protocol (e.g. QUIC) for security.
+  //
+  // This function is a not a complete test of whether or not an origin's code
+  // is minimally trustworthy. For that, see Chromium's |IsOriginSecure| for a
+  // higher-level and more complete semantics. See that function's documentation
+  // for more detail.
+  bool SchemeIsCryptographic() const {
+    return SchemeIs(url::kHttpsScheme) || SchemeIs(url::kWssScheme);
   }
 
   // Returns true if the scheme is "blob".
@@ -248,7 +264,6 @@ class URL_EXPORT GURL {
 
   // Returns true if the hostname is an IP address. Note: this function isn't
   // as cheap as a simple getter because it re-parses the hostname to verify.
-  // This currently identifies only IPv4 addresses (bug 822685).
   bool HostIsIPAddress() const;
 
   // Getters for various components of the URL. The returned string will be
@@ -317,7 +332,7 @@ class URL_EXPORT GURL {
   // values defined in Parsed for ExtractPort.
   int IntPort() const;
 
-  // Returns the port number of the url, or the default port number.
+  // Returns the port number of the URL, or the default port number.
   // If the scheme has no concept of port (or unknown default) returns
   // PORT_UNSPECIFIED.
   int EffectiveIntPort() const;

@@ -44,12 +44,12 @@ class InnerBoundedLabel : public views::Label {
   std::vector<base::string16> GetWrappedText(int width, int lines);
 
   // Overridden from views::Label.
-  void SetText(const base::string16& text) override;
+  void SetText(const base::string16& new_text) override;
+  void OnPaint(gfx::Canvas* canvas) override;
 
  protected:
   // Overridden from views::Label.
   void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
-  void OnPaint(gfx::Canvas* canvas) override;
 
  private:
   int GetTextFlags();
@@ -187,8 +187,10 @@ void InnerBoundedLabel::OnPaint(gfx::Canvas* canvas) {
   }
 }
 
-void InnerBoundedLabel::SetText(const base::string16& text) {
-  views::Label::SetText(text);
+void InnerBoundedLabel::SetText(const base::string16& new_text) {
+  if (text() == new_text)
+    return;
+  views::Label::SetText(new_text);
   ClearCaches();
 }
 
@@ -199,11 +201,7 @@ int InnerBoundedLabel::GetTextFlags() {
   if (SkColorGetA(background_color()) != 0xFF)
     flags |= gfx::Canvas::NO_SUBPIXEL_RENDERING;
 
-  const base::i18n::TextDirection direction =
-      base::i18n::GetFirstStrongCharacterDirection(text());
-  if (direction == base::i18n::RIGHT_TO_LEFT)
-    return flags | gfx::Canvas::FORCE_RTL_DIRECTIONALITY;
-  return flags | gfx::Canvas::FORCE_LTR_DIRECTIONALITY;
+  return flags | gfx::Canvas::TEXT_ALIGN_TO_HEAD;
 }
 
 void InnerBoundedLabel::ClearCaches() {
@@ -323,9 +321,8 @@ int BoundedLabel::GetHeightForWidth(int width) const {
          label_->GetSizeForWidthAndLines(width, line_limit_).height() : 0;
 }
 
-void BoundedLabel::Paint(gfx::Canvas* canvas, const views::CullSet& cull_set) {
-  if (visible())
-    label_->Paint(canvas, cull_set);
+void BoundedLabel::OnPaint(gfx::Canvas* canvas) {
+  label_->OnPaint(canvas);
 }
 
 bool BoundedLabel::CanProcessEventsWithinSubtree() const {

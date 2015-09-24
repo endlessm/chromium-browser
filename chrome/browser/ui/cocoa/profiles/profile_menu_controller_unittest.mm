@@ -30,7 +30,7 @@ class ProfileMenuControllerTest : public CocoaProfileTest {
         [[ProfileMenuController alloc] initWithMainMenuItem:item_]);
   }
 
-  virtual void SetUp() {
+  void SetUp() override {
     CocoaProfileTest::SetUp();
     ASSERT_TRUE(profile());
 
@@ -80,12 +80,12 @@ class ProfileMenuControllerTest : public CocoaProfileTest {
 
 TEST_F(ProfileMenuControllerTest, InitializeMenu) {
   NSMenu* menu = [controller() menu];
-  // <sep>, Edit, <sep>, New.
-  ASSERT_EQ(4, [menu numberOfItems]);
+  // Profile, <sep>, Edit, <sep>, New.
+  ASSERT_EQ(5, [menu numberOfItems]);
 
   TestBottomItems();
 
-  EXPECT_TRUE([menu_item() isHidden]);
+  EXPECT_FALSE([menu_item() isHidden]);
 }
 
 TEST_F(ProfileMenuControllerTest, CreateItemWithTitle) {
@@ -100,9 +100,9 @@ TEST_F(ProfileMenuControllerTest, CreateItemWithTitle) {
 
 TEST_F(ProfileMenuControllerTest, RebuildMenu) {
   NSMenu* menu = [controller() menu];
-  EXPECT_EQ(4, [menu numberOfItems]);
+  EXPECT_EQ(5, [menu numberOfItems]);
 
-  EXPECT_TRUE([menu_item() isHidden]);
+  EXPECT_FALSE([menu_item() isHidden]);
 
   // Create some more profiles on the manager.
   TestingProfileManager* manager = testing_profile_manager();
@@ -130,12 +130,12 @@ TEST_F(ProfileMenuControllerTest, InsertItems) {
   base::scoped_nsobject<NSMenu> menu([[NSMenu alloc] initWithTitle:@""]);
   ASSERT_EQ(0, [menu numberOfItems]);
 
-  // With only one profile, insertItems should be a no-op.
+  // Even with one profile items can still be inserted.
   BOOL result = [controller() insertItemsIntoMenu:menu
                                          atOffset:0
                                          fromDock:NO];
-  EXPECT_FALSE(result);
-  EXPECT_EQ(0, [menu numberOfItems]);
+  EXPECT_TRUE(result);
+  EXPECT_EQ(1, [menu numberOfItems]);
   [menu removeAllItems];
 
   // Same for use in building the dock menu.
@@ -253,10 +253,20 @@ TEST_F(ProfileMenuControllerTest, SupervisedProfile) {
                                     0,
                                     "TEST_ID",
                                     TestingProfile::TestingFactories());
+  // The supervised profile is initially marked as omitted from the avatar menu
+  // (in non-test code, until we have confirmation that it has actually been
+  // created on the server). For the test, just tell the cache to un-hide it.
+  ProfileInfoCache* cache = manager->profile_info_cache();
+  size_t index =
+      cache->GetIndexOfProfileWithPath(supervised_profile->GetPath());
+  cache->SetIsOmittedProfileAtIndex(index, false);
+
   BrowserList::SetLastActive(browser());
 
   NSMenu* menu = [controller() menu];
+  // Person 1, Supervised User, <sep>, Edit, <sep>, New.
   ASSERT_EQ(6, [menu numberOfItems]);
+
   NSMenuItem* item = [menu itemAtIndex:0];
   ASSERT_EQ(@selector(switchToProfileFromMenu:), [item action]);
   EXPECT_TRUE([controller() validateMenuItem:item]);

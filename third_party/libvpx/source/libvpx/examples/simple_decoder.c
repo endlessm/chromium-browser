@@ -82,13 +82,13 @@
 
 #include "vpx/vpx_decoder.h"
 
-#include "./tools_common.h"
-#include "./video_reader.h"
+#include "../tools_common.h"
+#include "../video_reader.h"
 #include "./vpx_config.h"
 
 static const char *exec_name;
 
-void usage_exit() {
+void usage_exit(void) {
   fprintf(stderr, "Usage: %s <infile> <outfile>\n", exec_name);
   exit(EXIT_FAILURE);
 }

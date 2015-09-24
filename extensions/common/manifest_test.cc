@@ -8,6 +8,7 @@
 #include "base/files/file_util.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/path_service.h"
+#include "base/strings/pattern.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
 #include "extensions/common/extension_l10n_util.h"
@@ -26,9 +27,9 @@ base::DictionaryValue* LoadManifestFile(const base::FilePath& manifest_path,
   EXPECT_TRUE(base::PathExists(manifest_path)) <<
       "Couldn't find " << manifest_path.value();
 
-  JSONFileValueSerializer serializer(manifest_path);
-  base::DictionaryValue* manifest =
-      static_cast<base::DictionaryValue*>(serializer.Deserialize(NULL, error));
+  JSONFileValueDeserializer deserializer(manifest_path);
+  base::DictionaryValue* manifest = static_cast<base::DictionaryValue*>(
+      deserializer.Deserialize(NULL, error));
 
   // Most unit tests don't need localization, and they'll fail if we try to
   // localize them, since their manifests don't have a default_locale key.
@@ -87,6 +88,10 @@ base::DictionaryValue* ManifestTest::ManifestData::GetManifest(
   return manifest_;
 }
 
+std::string ManifestTest::GetTestExtensionID() const {
+  return std::string();
+}
+
 base::FilePath ManifestTest::GetTestDataDir() {
   base::FilePath path;
   PathService::Get(DIR_TEST_DATA, &path);
@@ -108,8 +113,8 @@ scoped_refptr<Extension> ManifestTest::LoadExtension(
   base::DictionaryValue* value = manifest.GetManifest(test_data_dir, error);
   if (!value)
     return NULL;
-  return Extension::Create(
-      test_data_dir.DirName(), location, *value, flags, error);
+  return Extension::Create(test_data_dir.DirName(), location, *value, flags,
+      GetTestExtensionID(), error);
 }
 
 scoped_refptr<Extension> ManifestTest::LoadAndExpectSuccess(
@@ -163,8 +168,9 @@ void ManifestTest::VerifyExpectedError(
   EXPECT_FALSE(extension) <<
       "Expected failure loading extension '" << name <<
       "', but didn't get one.";
-  EXPECT_TRUE(MatchPattern(error, expected_error)) << name <<
-      " expected '" << expected_error << "' but got '" << error << "'";
+  EXPECT_TRUE(base::MatchPattern(error, expected_error))
+      << name << " expected '" << expected_error << "' but got '" << error
+      << "'";
 }
 
 void ManifestTest::LoadAndExpectError(

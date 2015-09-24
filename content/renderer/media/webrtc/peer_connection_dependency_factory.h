@@ -9,14 +9,17 @@
 
 #include "base/basictypes.h"
 #include "base/files/file.h"
+#include "base/single_thread_task_runner.h"
 #include "base/threading/thread.h"
 #include "content/common/content_export.h"
 #include "content/public/renderer/render_process_observer.h"
 #include "content/renderer/media/aec_dump_message_filter.h"
+#include "content/renderer/media/webrtc/stun_field_trial.h"
 #include "content/renderer/p2p/socket_dispatcher.h"
 #include "ipc/ipc_platform_file.h"
 #include "third_party/libjingle/source/talk/app/webrtc/peerconnectioninterface.h"
 #include "third_party/libjingle/source/talk/app/webrtc/videosourceinterface.h"
+#include "third_party/webrtc/p2p/stunprober/stunprober.h"
 
 namespace base {
 class WaitableEvent;
@@ -55,12 +58,12 @@ struct StreamDeviceInfo;
 
 // Object factory for RTC PeerConnections.
 class CONTENT_EXPORT PeerConnectionDependencyFactory
-    : NON_EXPORTED_BASE(public base::NonThreadSafe),
-      NON_EXPORTED_BASE(public AecDumpMessageFilter::AecDumpDelegate) {
+    : NON_EXPORTED_BASE(base::MessageLoop::DestructionObserver),
+      NON_EXPORTED_BASE(public base::NonThreadSafe) {
  public:
   PeerConnectionDependencyFactory(
       P2PSocketDispatcher* p2p_socket_dispatcher);
-  virtual ~PeerConnectionDependencyFactory();
+  ~PeerConnectionDependencyFactory() override;
 
   // Create a RTCPeerConnectionHandler object that implements the
   // WebKit WebRTCPeerConnectionHandler interface.
@@ -74,7 +77,7 @@ class CONTENT_EXPORT PeerConnectionDependencyFactory
   // InitializeMediaStreamAudioSource initialize a MediaStream source object
   // for audio input.
   bool InitializeMediaStreamAudioSource(
-      int render_view_id,
+      int render_frame_id,
       const blink::WebMediaConstraints& audio_constraints,
       MediaStreamAudioSource* source_data);
 
@@ -123,15 +126,8 @@ class CONTENT_EXPORT PeerConnectionDependencyFactory
 
   WebRtcAudioDeviceImpl* GetWebRtcAudioDevice();
 
-  scoped_refptr<base::MessageLoopProxy> GetWebRtcWorkerThread() const;
-  scoped_refptr<base::MessageLoopProxy> GetWebRtcSignalingThread() const;
-
-  // AecDumpMessageFilter::AecDumpDelegate implementation.
-  // TODO(xians): Remove when option to disable audio track processing is
-  // removed.
-  void OnAecDumpFile(const IPC::PlatformFileForTransit& file_handle) override;
-  void OnDisableAecDump() override;
-  void OnIpcClosing() override;
+  scoped_refptr<base::SingleThreadTaskRunner> GetWebRtcWorkerThread() const;
+  scoped_refptr<base::SingleThreadTaskRunner> GetWebRtcSignalingThread() const;
 
  protected:
   // Asks the PeerConnection factory to create a Local Audio Source.
@@ -156,11 +152,12 @@ class CONTENT_EXPORT PeerConnectionDependencyFactory
       GetPcFactory();
   virtual bool PeerConnectionFactoryCreated();
 
-  // Returns a new capturer or existing capturer based on the |render_view_id|
-  // and |device_info|. When the |render_view_id| and |device_info| are valid,
-  // it reuses existing capture if any; otherwise it creates a new capturer.
+  // Returns a new capturer or existing capturer based on the |render_frame_id|
+  // and |device_info|; if both are valid, it reuses existing capture if any --
+  // otherwise it creates a new capturer.
   virtual scoped_refptr<WebRtcAudioCapturer> CreateAudioCapturer(
-      int render_view_id, const StreamDeviceInfo& device_info,
+      int render_frame_id,
+      const StreamDeviceInfo& device_info,
       const blink::WebMediaConstraints& constraints,
       MediaStreamAudioSource* audio_source);
 
@@ -170,6 +167,16 @@ class CONTENT_EXPORT PeerConnectionDependencyFactory
   virtual void StartLocalAudioTrack(WebRtcLocalAudioTrack* audio_track);
 
  private:
+  // Implement base::MessageLoop::DestructionObserver.
+  // This makes sure the libjingle PeerConnectionFactory is released before
+  // the renderer message loop is destroyed.
+  void WillDestroyCurrentMessageLoop() override;
+
+  // Functions related to Stun probing trial to determine how fast we could send
+  // Stun request without being dropped by NAT.
+  void TryScheduleStunProbeTrial();
+  void StartStunProbeTrialOnWorkerThread(const std::string& params);
+
   // Creates |pc_factory_|, which in turn is used for
   // creating PeerConnection objects.
   void CreatePeerConnectionFactory();
@@ -198,10 +205,7 @@ class CONTENT_EXPORT PeerConnectionDependencyFactory
   scoped_refptr<P2PSocketDispatcher> p2p_socket_dispatcher_;
   scoped_refptr<WebRtcAudioDeviceImpl> audio_device_;
 
-  // This is only used if audio track processing is disabled.
-  // TODO(xians): Remove when option to disable audio track processing is
-  // removed.
-  scoped_refptr<AecDumpMessageFilter> aec_dump_message_filter_;
+  scoped_ptr<stunprober::StunProber> stun_prober_;
 
   // PeerConnection threads. signaling_thread_ is created from the
   // "current" chrome thread.

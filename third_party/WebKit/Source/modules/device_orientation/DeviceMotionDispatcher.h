@@ -33,7 +33,7 @@
 
 #include "core/frame/PlatformEventDispatcher.h"
 #include "platform/heap/Handle.h"
-#include "public/platform/WebDeviceMotionListener.h"
+#include "public/platform/modules/device_orientation/WebDeviceMotionListener.h"
 #include "wtf/RefPtr.h"
 
 namespace blink {
@@ -46,23 +46,23 @@ class DeviceMotionDispatcher final : public GarbageCollectedFinalized<DeviceMoti
     USING_GARBAGE_COLLECTED_MIXIN(DeviceMotionDispatcher);
 public:
     static DeviceMotionDispatcher& instance();
-    virtual ~DeviceMotionDispatcher();
+    ~DeviceMotionDispatcher() override;
 
     // Note that the returned object is owned by this class.
     // FIXME: make the return value const, see crbug.com/233174.
     DeviceMotionData* latestDeviceMotionData();
 
     // Inherited from WebDeviceMotionListener.
-    virtual void didChangeDeviceMotion(const WebDeviceMotionData&) override;
+    void didChangeDeviceMotion(const WebDeviceMotionData&) override;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     DeviceMotionDispatcher();
 
     // Inherited from PlatformEventDispatcher.
-    virtual void startListening() override;
-    virtual void stopListening() override;
+    void startListening() override;
+    void stopListening() override;
 
     Member<DeviceMotionData> m_lastDeviceMotionData;
 };

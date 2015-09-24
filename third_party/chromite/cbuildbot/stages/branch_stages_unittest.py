@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -8,9 +7,7 @@
 from __future__ import print_function
 
 import os
-import sys
 
-sys.path.insert(0, os.path.abspath('%s/../../..' % os.path.dirname(__file__)))
 from chromite.cbuildbot import constants
 from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import manifest_version_unittest
@@ -46,11 +43,38 @@ MANIFEST_CONTENTS = """\
 
   <project name="chromiumos/special"
            path="src/special-old"
-           revision="old-special-branch"/>
+           revision="old-special-branch" />
 
+  <!-- Test the explicitly specified branching strategy for projects. -->
+  <project name="chromiumos/external-explicitly-pinned"
+           path="explicit-external"
+           revision="refs/heads/master">
+    <annotation name="branch-mode" value="pin" />
+  </project>
+
+  <project name="chromiumos/external-explicitly-unpinned"
+           path="explicit-unpinned"
+           revision="refs/heads/master">
+    <annotation name="branch-mode" value="tot" />
+  </project>
+
+  <project name="chromiumos/external-explicitly-pinned-sha1"
+           path="explicit-external-sha1"
+           revision="12345">
+    <annotation name="branch-mode" value="pin" />
+  </project>
+
+  <project name="chromiumos/external-explicitly-unpinned-sha1"
+           path="explicit-unpinned-sha1"
+           revision="12345">
+    <annotation name="branch-mode" value="tot" />
+  </project>
+
+  <!-- The next two projects test legacy heristic to determine branching
+       strategy for projects -->
   <project name="faraway/external"
            path="external"
-           revision="refs/heads/master"/>
+           revision="refs/heads/master" />
 
   <project name="faraway/unpinned"
            path="unpinned"
@@ -101,8 +125,7 @@ upstream="old-special-branch"/>
                       special_revision2=SPECIAL_REVISION2)
 
 
-# pylint: disable=W0212,R0901
-class BranchUtilStageTest(generic_stages_unittest.AbstractStageTest,
+class BranchUtilStageTest(generic_stages_unittest.AbstractStageTestCase,
                           cros_test_lib.LoggingTestCase):
   """Tests for branch creation/deletion."""
 
@@ -203,24 +226,44 @@ class BranchUtilStageTest(generic_stages_unittest.AbstractStageTest,
     self.assertEquals(int(after.chrome_branch) - int(before.chrome_branch), 1)
     self.assertEquals(int(after.build_number) - int(before.build_number), 1)
 
-    # Verify that manifests were branched properly. Notice that external
-    # is pinned to a SHA1, not an actual branch.
+    # Verify that manifests were branched properly. Notice that external,
+    # explicit-external are pinned to a SHA1, not an actual branch.
     branch_names = {
-      'chromite': self.norm_name,
-      'external': '12345',
-      'src/special-new': self.norm_name + '-new-special-branch',
-      'src/special-old': self.norm_name + '-old-special-branch',
-      'unpinned': 'refs/heads/master',
+        'chromite': self.norm_name,
+        'external': '12345',
+        'explicit-external': '12345',
+        'explicit-external-sha1': '12345',
+        'src/special-new': self.norm_name + '-new-special-branch',
+        'src/special-old': self.norm_name + '-old-special-branch',
+        'unpinned': 'refs/heads/master',
+        'explicit-unpinned': 'refs/heads/master',
+        # If all we had was a sha1, there is not way to even guess what the
+        # "master" branch is, so leave it pinned.
+        'explicit-unpinned-sha1': '12345',
+    }
+    # Verify that we correctly transfer branch modes to the branched manifest.
+    branch_modes = {
+        'explicit-external': 'pin',
+        'explicit-external-sha1': 'pin',
+        'explicit-unpinned': 'tot',
+        'explicit-unpinned-sha1': 'tot',
     }
     for m in ['manifest/default.xml', 'manifest-internal/official.xml']:
       manifest = git.Manifest(os.path.join(self.build_root, m))
       for project_data in manifest.checkouts_by_path.itervalues():
-        branch_name = branch_names[project_data['path']]
+        path = project_data['path']
+        branch_name = branch_names[path]
         msg = (
             'Branch name for %s should be %r, but got %r' %
-                (project_data['path'], branch_name, project_data['revision'])
+            (path, branch_name, project_data['revision'])
         )
         self.assertEquals(project_data['revision'], branch_name, msg)
+        if path in branch_modes:
+          self.assertEquals(
+              project_data['branch-mode'],
+              branch_modes[path],
+              'Branch mode for %s should be %r, but got %r' % (
+                  path, branch_modes[path], project_data['branch-mode']))
 
     self._VerifyPush(self.norm_name)
 
@@ -317,6 +360,7 @@ class BranchUtilStageTest(generic_stages_unittest.AbstractStageTest,
     self.rc_mock.AddCmdResult(partial_mock.In('push'), returncode=128)
     stage = self.ConstructStage()
     args = (overlay_dir, 'gerrit', 'refs/heads/master')
+    # pylint: disable=protected-access
     stage._IncrementVersionOnDiskForSourceBranch(*args)
 
   def testSourceIncrementWarning(self):
@@ -338,7 +382,3 @@ class BranchUtilStageTest(generic_stages_unittest.AbstractStageTest,
                      side_effect=FetchAndCheckoutTo, autospec=True)
     self.assertRaises(cros_build_lib.RunCommandError,
                       self._SimulateIncrementFailure)
-
-
-if __name__ == '__main__':
-  cros_test_lib.main()

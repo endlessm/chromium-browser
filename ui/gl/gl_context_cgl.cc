@@ -8,9 +8,9 @@
 #include <OpenGL/CGLTypes.h>
 #include <vector>
 
-#include "base/debug/trace_event.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/trace_event/trace_event.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_implementation.h"
 #include "ui/gl/gl_surface.h"
@@ -47,6 +47,15 @@ static CGLPixelFormatObj GetPixelFormat() {
     attribs.push_back((CGLPixelFormatAttribute) kCGLRendererGenericFloatID);
     g_support_renderer_switching = false;
   }
+  if (GetGLImplementation() == kGLImplementationDesktopGLCoreProfile) {
+    // These constants don't exist in the 10.6 SDK against which
+    // Chromium currently compiles.
+    const int kOpenGLProfile = 99;
+    const int kOpenGL3_2Core = 0x3200;
+    attribs.push_back(static_cast<CGLPixelFormatAttribute>(kOpenGLProfile));
+    attribs.push_back(static_cast<CGLPixelFormatAttribute>(kOpenGL3_2Core));
+  }
+
   attribs.push_back((CGLPixelFormatAttribute) 0);
 
   GLint num_virtual_screens;
@@ -54,11 +63,11 @@ static CGLPixelFormatObj GetPixelFormat() {
                            &format,
                            &num_virtual_screens) != kCGLNoError) {
     LOG(ERROR) << "Error choosing pixel format.";
-    return NULL;
+    return nullptr;
   }
   if (!format) {
     LOG(ERROR) << "format == 0.";
-    return NULL;
+    return nullptr;
   }
   DCHECK_NE(num_virtual_screens, 0);
   return format;
@@ -66,9 +75,9 @@ static CGLPixelFormatObj GetPixelFormat() {
 
 GLContextCGL::GLContextCGL(GLShareGroup* share_group)
   : GLContextReal(share_group),
-    context_(NULL),
+    context_(nullptr),
     gpu_preference_(PreferIntegratedGpu),
-    discrete_pixelformat_(NULL),
+    discrete_pixelformat_(nullptr),
     screen_(-1),
     renderer_id_(-1),
     safe_to_force_gpu_switch_(false) {
@@ -82,7 +91,7 @@ bool GLContextCGL::Initialize(GLSurface* compatible_surface,
       gpu_preference);
 
   GLContextCGL* share_context = share_group() ?
-      static_cast<GLContextCGL*>(share_group()->GetContext()) : NULL;
+      static_cast<GLContextCGL*>(share_group()->GetContext()) : nullptr;
 
   CGLPixelFormatObj format = GetPixelFormat();
   if (!format)
@@ -108,7 +117,7 @@ bool GLContextCGL::Initialize(GLSurface* compatible_surface,
   CGLError res = CGLCreateContext(
       format,
       share_context ?
-          static_cast<CGLContextObj>(share_context->GetHandle()) : NULL,
+          static_cast<CGLContextObj>(share_context->GetHandle()) : nullptr,
       reinterpret_cast<CGLContextObj*>(&context_));
   if (res != kCGLNoError) {
     LOG(ERROR) << "Error creating context.";
@@ -122,17 +131,20 @@ bool GLContextCGL::Initialize(GLSurface* compatible_surface,
 
 void GLContextCGL::Destroy() {
   if (discrete_pixelformat_) {
-    // Delay releasing the pixel format for 10 seconds to reduce the number of
-    // unnecessary GPU switches.
-    base::MessageLoop::current()->PostDelayedTask(
-        FROM_HERE,
-        base::Bind(&CGLReleasePixelFormat, discrete_pixelformat_),
-        base::TimeDelta::FromSeconds(10));
-    discrete_pixelformat_ = NULL;
+    if (base::MessageLoop::current() != nullptr) {
+      // Delay releasing the pixel format for 10 seconds to reduce the number of
+      // unnecessary GPU switches.
+      base::MessageLoop::current()->PostDelayedTask(
+          FROM_HERE, base::Bind(&CGLReleasePixelFormat, discrete_pixelformat_),
+          base::TimeDelta::FromSeconds(10));
+    } else {
+      CGLReleasePixelFormat(discrete_pixelformat_);
+    }
+    discrete_pixelformat_ = nullptr;
   }
   if (context_) {
     CGLDestroyContext(static_cast<CGLContextObj>(context_));
-    context_ = NULL;
+    context_ = nullptr;
   }
 }
 
@@ -216,8 +228,8 @@ void GLContextCGL::ReleaseCurrent(GLSurface* surface) {
   if (!IsCurrent(surface))
     return;
 
-  SetCurrent(NULL);
-  CGLSetCurrentContext(NULL);
+  SetCurrent(nullptr);
+  CGLSetCurrentContext(nullptr);
 }
 
 bool GLContextCGL::IsCurrent(GLSurface* surface) {
@@ -238,8 +250,8 @@ void* GLContextCGL::GetHandle() {
   return context_;
 }
 
-void GLContextCGL::SetSwapInterval(int interval) {
-  DCHECK(IsCurrent(NULL));
+void GLContextCGL::OnSetSwapInterval(int interval) {
+  DCHECK(IsCurrent(nullptr));
 }
 
 bool GLContextCGL::GetTotalGpuMemory(size_t* bytes) {
@@ -259,7 +271,7 @@ bool GLContextCGL::GetTotalGpuMemory(size_t* bytes) {
 
   // Iterate through the list of all renderers
   GLuint display_mask = static_cast<GLuint>(-1);
-  CGLRendererInfoObj renderer_info = NULL;
+  CGLRendererInfoObj renderer_info = nullptr;
   GLint num_renderers = 0;
   if (CGLQueryRendererInfo(display_mask,
                            &renderer_info,

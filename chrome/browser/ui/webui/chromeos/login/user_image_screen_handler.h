@@ -9,7 +9,7 @@
 
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
-#include "chrome/browser/chromeos/login/screens/user_image_screen_actor.h"
+#include "chrome/browser/chromeos/login/screens/user_image_view.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
 #include "ui/gfx/image/image_skia.h"
@@ -19,33 +19,26 @@ namespace chromeos {
 
 // WebUI implementation of UserImageScreenActor. It is used to interact
 // with JS page part allowing user to select avatar.
-class UserImageScreenHandler : public UserImageScreenActor,
-                               public BaseScreenHandler {
+class UserImageScreenHandler : public UserImageView, public BaseScreenHandler {
  public:
   UserImageScreenHandler();
-  virtual ~UserImageScreenHandler();
+  ~UserImageScreenHandler() override;
 
   // BaseScreenHandler implementation:
-  virtual void Initialize() override;
-  virtual void DeclareLocalizedValues(LocalizedValuesBuilder* builder) override;
+  void Initialize() override;
+  void DeclareLocalizedValues(
+      ::login::LocalizedValuesBuilder* builder) override;
 
   // WebUIMessageHandler implementation:
-  virtual void RegisterMessages() override;
+  void RegisterMessages() override;
 
-  // UserImageScreenActor implementation:
-  virtual void SetDelegate(
-      UserImageScreenActor::Delegate* screen) override;
-  virtual void Show() override;
-  virtual void Hide() override;
-  virtual void PrepareToShow() override;
-
-  virtual void SelectImage(int index) override;
-  virtual void SendProfileImage(const std::string& data_url) override;
-  virtual void OnProfileImageAbsent() override;
-
-  virtual void SetCameraPresent(bool enabled) override;
-
-  virtual void HideCurtain() override;
+  // UserImageView implementation:
+  void Bind(UserImageModel& model) override;
+  void Unbind() override;
+  void Show() override;
+  void Hide() override;
+  void PrepareToShow() override;
+  void HideCurtain() override;
 
  private:
 
@@ -75,7 +68,7 @@ class UserImageScreenHandler : public UserImageScreenActor,
   // Called when the user image screen has been loaded and shown.
   void HandleScreenShown();
 
-  UserImageScreenActor::Delegate* screen_;
+  UserImageModel* model_;
 
   // Keeps whether screen should be shown right after initialization.
   bool show_on_init_;

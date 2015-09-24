@@ -9,25 +9,21 @@
 
 #include "base/command_line.h"
 #include "base/metrics/histogram.h"
-#include "base/prefs/pref_service.h"
-#include "base/strings/string_util.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/account_tracker_service_factory.h"
 #include "chrome/browser/signin/chrome_signin_client_factory.h"
+#include "chrome/browser/signin/gaia_cookie_manager_service_factory.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
-#include "chrome/common/chrome_switches.h"
 #include "chromeos/chromeos_switches.h"
 #include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_client.h"
 #include "components/signin/core/browser/signin_manager.h"
+#include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "google_apis/gaia/gaia_auth_util.h"
-#include "google_apis/gaia/gaia_constants.h"
 #include "google_apis/gaia/gaia_urls.h"
-#include "net/url_request/url_request_context_getter.h"
 
 namespace chromeos {
 
@@ -47,8 +43,8 @@ OAuth2LoginManager::OAuth2LoginManager(Profile* user_profile)
 
   // For telemetry, we mark session restore completed to avoid warnings from
   // MergeSessionThrottle.
-  if (CommandLine::ForCurrentProcess()->
-          HasSwitch(chromeos::switches::kDisableGaiaServices)) {
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          chromeos::switches::kDisableGaiaServices)) {
     SetSessionRestoreState(SESSION_RESTORE_DONE);
   }
 }
@@ -69,21 +65,19 @@ void OAuth2LoginManager::RestoreSession(
     net::URLRequestContextGetter* auth_request_context,
     SessionRestoreStrategy restore_strategy,
     const std::string& oauth2_refresh_token,
-    const std::string& auth_code) {
+    const std::string& oauth2_access_token) {
   DCHECK(user_profile_);
   auth_request_context_ = auth_request_context;
   restore_strategy_ = restore_strategy;
   refresh_token_ = oauth2_refresh_token;
-  oauthlogin_access_token_ = std::string();
-  auth_code_ = auth_code;
+  oauthlogin_access_token_ = oauth2_access_token;
   session_restore_start_ = base::Time::Now();
-  SetSessionRestoreState(OAuth2LoginManager::SESSION_RESTORE_PREPARING);
   ContinueSessionRestore();
 }
 
 void OAuth2LoginManager::ContinueSessionRestore() {
-  if (restore_strategy_ == RESTORE_FROM_COOKIE_JAR ||
-      restore_strategy_ == RESTORE_FROM_AUTH_CODE) {
+  SetSessionRestoreState(OAuth2LoginManager::SESSION_RESTORE_PREPARING);
+  if (restore_strategy_ == RESTORE_FROM_COOKIE_JAR) {
     FetchOAuth2Tokens();
     return;
   }
@@ -125,9 +119,13 @@ void OAuth2LoginManager::Stop() {
   login_verifier_.reset();
 }
 
-bool OAuth2LoginManager::ShouldBlockTabLoading() {
+bool OAuth2LoginManager::SessionRestoreIsRunning() const {
   return state_ == SESSION_RESTORE_PREPARING ||
          state_ == SESSION_RESTORE_IN_PROGRESS;
+}
+
+bool OAuth2LoginManager::ShouldBlockTabLoading() const {
+  return SessionRestoreIsRunning();
 }
 
 void OAuth2LoginManager::OnRefreshTokenAvailable(
@@ -234,28 +232,23 @@ void OAuth2LoginManager::OnNetworkError(int response_code) {
 
 void OAuth2LoginManager::FetchOAuth2Tokens() {
   DCHECK(auth_request_context_.get());
+  if (restore_strategy_ != RESTORE_FROM_COOKIE_JAR) {
+    NOTREACHED();
+    SetSessionRestoreState(SESSION_RESTORE_FAILED);
+    return;
+  }
+
   // If we have authenticated cookie jar, get OAuth1 token first, then fetch
   // SID/LSID cookies through OAuthLogin call.
-  if (restore_strategy_ == RESTORE_FROM_COOKIE_JAR) {
-    SigninClient* signin_client =
-        ChromeSigninClientFactory::GetForProfile(user_profile_);
-    std::string signin_scoped_device_id =
-        signin_client->GetSigninScopedDeviceId();
+  SigninClient* signin_client =
+      ChromeSigninClientFactory::GetForProfile(user_profile_);
+  std::string signin_scoped_device_id =
+      signin_client->GetSigninScopedDeviceId();
 
-    oauth2_token_fetcher_.reset(
-        new OAuth2TokenFetcher(this, auth_request_context_.get()));
-    oauth2_token_fetcher_->StartExchangeFromCookies(std::string(),
-                                                    signin_scoped_device_id);
-  } else if (restore_strategy_ == RESTORE_FROM_AUTH_CODE) {
-    DCHECK(!auth_code_.empty());
-    oauth2_token_fetcher_.reset(
-        new OAuth2TokenFetcher(this,
-                               g_browser_process->system_request_context()));
-    oauth2_token_fetcher_->StartExchangeFromAuthCode(auth_code_);
-  } else {
-    NOTREACHED();
-    SetSessionRestoreState(OAuth2LoginManager::SESSION_RESTORE_FAILED);
-  }
+  oauth2_token_fetcher_.reset(
+      new OAuth2TokenFetcher(this, auth_request_context_.get()));
+  oauth2_token_fetcher_->StartExchangeFromCookies(std::string(),
+                                                  signin_scoped_device_id);
 }
 
 void OAuth2LoginManager::OnOAuth2TokensAvailable(
@@ -275,14 +268,12 @@ void OAuth2LoginManager::OnOAuth2TokensFetchFailed() {
 
 void OAuth2LoginManager::VerifySessionCookies() {
   DCHECK(!login_verifier_.get());
-  login_verifier_.reset(
-      new OAuth2LoginVerifier(this,
-                              g_browser_process->system_request_context(),
-                              user_profile_->GetRequestContext(),
-                              oauthlogin_access_token_));
+  login_verifier_.reset(new OAuth2LoginVerifier(
+      this, GaiaCookieManagerServiceFactory::GetForProfile(user_profile_),
+      GetPrimaryAccountId(), oauthlogin_access_token_));
 
   if (restore_strategy_ == RESTORE_FROM_SAVED_OAUTH2_REFRESH_TOKEN) {
-    login_verifier_->VerifyUserCookies(user_profile_);
+    login_verifier_->VerifyUserCookies();
     return;
   }
 
@@ -291,7 +282,7 @@ void OAuth2LoginManager::VerifySessionCookies() {
 
 void OAuth2LoginManager::RestoreSessionCookies() {
   SetSessionRestoreState(SESSION_RESTORE_IN_PROGRESS);
-  login_verifier_->VerifyProfileTokens(user_profile_);
+  login_verifier_->VerifyProfileTokens();
 }
 
 void OAuth2LoginManager::Shutdown() {
@@ -315,20 +306,19 @@ void OAuth2LoginManager::OnSessionMergeFailure(bool connection_error) {
                                   SESSION_RESTORE_FAILED);
 }
 
-void OAuth2LoginManager::OnListAccountsSuccess(const std::string& data) {
+void OAuth2LoginManager::OnListAccountsSuccess(
+    const std::vector<gaia::ListedAccount>& accounts) {
   MergeVerificationOutcome outcome = POST_MERGE_SUCCESS;
   // Let's analyze which accounts we see logged in here:
-  std::vector<std::pair<std::string, bool> > accounts;
-  gaia::ParseListAccountsData(data, &accounts);
   std::string user_email = gaia::CanonicalizeEmail(GetPrimaryAccountId());
   if (!accounts.empty()) {
     bool found = false;
     bool first = true;
-    for (std::vector<std::pair<std::string, bool> >::const_iterator iter =
+    for (std::vector<gaia::ListedAccount>::const_iterator iter =
              accounts.begin();
          iter != accounts.end(); ++iter) {
-      if (gaia::CanonicalizeEmail(iter->first) == user_email) {
-        found = iter->second;
+      if (iter->email == user_email) {
+        found = iter->valid;
         break;
       }
 

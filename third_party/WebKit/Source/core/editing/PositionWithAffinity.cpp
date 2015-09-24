@@ -7,24 +7,33 @@
 
 namespace blink {
 
-PositionWithAffinity::PositionWithAffinity(const Position& position, EAffinity affinity)
+template <typename PositionType>
+PositionWithAffinityTemplate<PositionType>::PositionWithAffinityTemplate(const PositionType& position, EAffinity affinity)
     : m_position(position)
     , m_affinity(affinity)
 {
 }
 
-PositionWithAffinity::PositionWithAffinity()
+template <typename PositionType>
+PositionWithAffinityTemplate<PositionType>::PositionWithAffinityTemplate()
     : m_affinity(DOWNSTREAM)
 {
 }
 
-PositionWithAffinity::~PositionWithAffinity()
+template <typename PositionType>
+PositionWithAffinityTemplate<PositionType>::~PositionWithAffinityTemplate()
 {
 }
 
-void PositionWithAffinity::trace(Visitor* visitor)
+template <typename PositionType>
+bool PositionWithAffinityTemplate<PositionType>::operator==(const PositionWithAffinityTemplate& other) const
 {
-    visitor->trace(m_position);
+    if (isNull())
+        return other.isNull();
+    return m_affinity == other.m_affinity && m_position == other.m_position;
 }
+
+template class CORE_TEMPLATE_EXPORT PositionWithAffinityTemplate<Position>;
+template class CORE_TEMPLATE_EXPORT PositionWithAffinityTemplate<PositionInComposedTree>;
 
 } // namespace blink

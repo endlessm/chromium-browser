@@ -11,6 +11,7 @@
 #include "ui/gfx/geometry/vector2d_f.h"
 
 namespace android_webview {
+struct ParentCompositorDrawConstraints;
 
 class BrowserViewRendererClient {
  public:
@@ -25,17 +26,13 @@ class BrowserViewRendererClient {
   virtual void OnNewPicture() = 0;
 
   // Called to trigger view invalidations.
+  // This calls postInvalidateOnAnimation if outside of a vsync, otherwise it
+  // calls invalidate.
   virtual void PostInvalidate() = 0;
 
   // Call postInvalidateOnAnimation for invalidations. This is only used to
   // synchronize draw functor destruction.
-  virtual void InvalidateOnFunctorDestroy() = 0;
-
-  // Called to update the parent draw constraints in browser view renderer.
-  virtual void UpdateParentDrawConstraints() = 0;
-
-  // Called if commit is skipped due to pipeline stall.
-  virtual void DidSkipCommitFrame() = 0;
+  virtual void DetachFunctorFromView() = 0;
 
   // Called to get view's absolute location on the screen.
   virtual gfx::Point GetLocationOnScreen() = 0;
@@ -44,7 +41,7 @@ class BrowserViewRendererClient {
   virtual void ScrollContainerViewTo(gfx::Vector2d new_value) = 0;
 
   // Is a Android view system managed fling in progress?
-  virtual bool IsFlingActive() const = 0;
+  virtual bool IsSmoothScrollingActive() const = 0;
 
   // Sets the following:
   // view's scroll offset cap to |max_scroll_offset|,
@@ -58,7 +55,14 @@ class BrowserViewRendererClient {
                                  float max_page_scale_factor) = 0;
 
   // Handle overscroll.
-  virtual void DidOverscroll(gfx::Vector2d overscroll_delta) = 0;
+  virtual void DidOverscroll(gfx::Vector2d overscroll_delta,
+                             gfx::Vector2dF overscroll_velocity) = 0;
+
+  // Visible for testing
+  // Called when the parent draw constraints in browser view renderer gets
+  // updated.
+  virtual void ParentDrawConstraintsUpdated(
+      const ParentCompositorDrawConstraints& draw_constraints) = 0;
 
  protected:
   virtual ~BrowserViewRendererClient() {}

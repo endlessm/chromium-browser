@@ -17,9 +17,9 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "content/public/browser/invalidate_type.h"
-#include "content/public/browser/render_view_host.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
-#include "extensions/browser/extension_registry.h"
+#include "extensions/browser/declarative_user_script_manager.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_messages.h"
@@ -43,13 +43,6 @@ const char kNoPageAction[] =
 const char kNoPageOrBrowserAction[] =
     "Can't use declarativeContent.SetIcon without a page or browser action";
 
-#define INPUT_FORMAT_VALIDATE(test) do { \
-    if (!(test)) { \
-      *bad_message = true; \
-      return false; \
-    } \
-  } while (0)
-
 //
 // The following are concrete actions.
 //
@@ -63,8 +56,7 @@ class ShowPageAction : public ContentAction {
       content::BrowserContext* browser_context,
       const Extension* extension,
       const base::DictionaryValue* dict,
-      std::string* error,
-      bool* bad_message) {
+      std::string* error) {
     // We can't show a page action if the extension doesn't have one.
     if (ActionInfo::GetPageActionInfo(extension) == NULL) {
       *error = kNoPageAction;
@@ -74,40 +66,28 @@ class ShowPageAction : public ContentAction {
   }
 
   // Implementation of ContentAction:
-  Type GetType() const override { return ACTION_SHOW_PAGE_ACTION; }
-  void Apply(const std::string& extension_id,
-             const base::Time& extension_install_time,
-             ApplyInfo* apply_info) const override {
+  void Apply(const ApplyInfo& apply_info) const override {
     ExtensionAction* action =
-        GetPageAction(apply_info->browser_context, extension_id);
-    action->DeclarativeShow(ExtensionTabUtil::GetTabId(apply_info->tab));
-    ExtensionActionAPI::Get(apply_info->browser_context)->NotifyChange(
-        action, apply_info->tab, apply_info->browser_context);
+        GetPageAction(apply_info.browser_context, apply_info.extension);
+    action->DeclarativeShow(ExtensionTabUtil::GetTabId(apply_info.tab));
+    ExtensionActionAPI::Get(apply_info.browser_context)->NotifyChange(
+        action, apply_info.tab, apply_info.browser_context);
   }
   // The page action is already showing, so nothing needs to be done here.
-  void Reapply(const std::string& extension_id,
-               const base::Time& extension_install_time,
-               ApplyInfo* apply_info) const override {}
-  void Revert(const std::string& extension_id,
-              const base::Time& extension_install_time,
-              ApplyInfo* apply_info) const override {
+  void Reapply(const ApplyInfo& apply_info) const override {}
+  void Revert(const ApplyInfo& apply_info) const override {
     if (ExtensionAction* action =
-            GetPageAction(apply_info->browser_context, extension_id)) {
-      action->UndoDeclarativeShow(ExtensionTabUtil::GetTabId(apply_info->tab));
-      ExtensionActionAPI::Get(apply_info->browser_context)->NotifyChange(
-          action, apply_info->tab, apply_info->browser_context);
+            GetPageAction(apply_info.browser_context, apply_info.extension)) {
+      action->UndoDeclarativeShow(ExtensionTabUtil::GetTabId(apply_info.tab));
+      ExtensionActionAPI::Get(apply_info.browser_context)->NotifyChange(
+          action, apply_info.tab, apply_info.browser_context);
     }
   }
 
  private:
   static ExtensionAction* GetPageAction(
       content::BrowserContext* browser_context,
-      const std::string& extension_id) {
-    const Extension* extension =
-        ExtensionRegistry::Get(browser_context)
-            ->GetExtensionById(extension_id, ExtensionRegistry::EVERYTHING);
-    if (!extension)
-      return NULL;
+      const Extension* extension) {
     return ExtensionActionManager::Get(browser_context)
         ->GetPageAction(*extension);
   }
@@ -126,52 +106,41 @@ class SetIcon : public ContentAction {
       content::BrowserContext* browser_context,
       const Extension* extension,
       const base::DictionaryValue* dict,
-      std::string* error,
-      bool* bad_message);
+      std::string* error);
 
   // Implementation of ContentAction:
-  Type GetType() const override { return ACTION_SET_ICON; }
-  void Apply(const std::string& extension_id,
-             const base::Time& extension_install_time,
-             ApplyInfo* apply_info) const override {
-    Profile* profile = Profile::FromBrowserContext(apply_info->browser_context);
-    ExtensionAction* action = GetExtensionAction(profile, extension_id);
+  void Apply(const ApplyInfo& apply_info) const override {
+    Profile* profile = Profile::FromBrowserContext(apply_info.browser_context);
+    ExtensionAction* action = GetExtensionAction(profile,
+                                                 apply_info.extension);
     if (action) {
-      action->DeclarativeSetIcon(ExtensionTabUtil::GetTabId(apply_info->tab),
-                                 apply_info->priority,
+      action->DeclarativeSetIcon(ExtensionTabUtil::GetTabId(apply_info.tab),
+                                 apply_info.priority,
                                  icon_);
       ExtensionActionAPI::Get(profile)
-          ->NotifyChange(action, apply_info->tab, profile);
+          ->NotifyChange(action, apply_info.tab, profile);
     }
   }
 
-  void Reapply(const std::string& extension_id,
-               const base::Time& extension_install_time,
-               ApplyInfo* apply_info) const override {}
+  void Reapply(const ApplyInfo& apply_info) const override {}
 
-  void Revert(const std::string& extension_id,
-              const base::Time& extension_install_time,
-              ApplyInfo* apply_info) const override {
-    Profile* profile = Profile::FromBrowserContext(apply_info->browser_context);
-    ExtensionAction* action = GetExtensionAction(profile, extension_id);
+  void Revert(const ApplyInfo& apply_info) const override {
+    Profile* profile = Profile::FromBrowserContext(apply_info.browser_context);
+    ExtensionAction* action = GetExtensionAction(profile,
+                                                 apply_info.extension);
     if (action) {
       action->UndoDeclarativeSetIcon(
-          ExtensionTabUtil::GetTabId(apply_info->tab),
-          apply_info->priority,
+          ExtensionTabUtil::GetTabId(apply_info.tab),
+          apply_info.priority,
           icon_);
-      ExtensionActionAPI::Get(apply_info->browser_context)
-          ->NotifyChange(action, apply_info->tab, profile);
+      ExtensionActionAPI::Get(apply_info.browser_context)
+          ->NotifyChange(action, apply_info.tab, profile);
     }
   }
 
  private:
   ExtensionAction* GetExtensionAction(Profile* profile,
-                                      const std::string& extension_id) const {
-    const Extension* extension =
-        ExtensionRegistry::Get(profile)
-            ->GetExtensionById(extension_id, ExtensionRegistry::EVERYTHING);
-    if (!extension)
-      return NULL;
+                                      const Extension* extension) const {
     switch (action_type_) {
       case ActionInfo::TYPE_BROWSER:
         return ExtensionActionManager::Get(profile)
@@ -211,16 +180,12 @@ static bool AppendJSStringsToCPPStrings(const base::ListValue& append_strings,
 struct ContentActionFactory {
   // Factory methods for ContentAction instances. |extension| is the extension
   // for which the action is being created. |dict| contains the json dictionary
-  // that describes the action. |error| is used to return error messages in case
-  // the extension passed an action that was syntactically correct but
-  // semantically incorrect. |bad_message| is set to true in case |dict| does
-  // not confirm to the validated JSON specification.
-  typedef scoped_refptr<ContentAction>(*FactoryMethod)(
+  // that describes the action. |error| is used to return error messages.
+  using FactoryMethod = scoped_refptr<ContentAction>(*)(
       content::BrowserContext* /* browser_context */,
       const Extension* /* extension */,
       const base::DictionaryValue* /* dict */,
-      std::string* /* error */,
-      bool* /* bad_message */);
+      std::string* /* error */);
   // Maps the name of a declarativeContent action type to the factory
   // function creating it.
   std::map<std::string, FactoryMethod> factory_methods;
@@ -264,10 +229,9 @@ scoped_refptr<ContentAction> RequestContentScript::Create(
     content::BrowserContext* browser_context,
     const Extension* extension,
     const base::DictionaryValue* dict,
-    std::string* error,
-    bool* bad_message) {
+    std::string* error) {
   ScriptData script_data;
-  if (!InitScriptData(dict, error, bad_message, &script_data))
+  if (!InitScriptData(dict, error, &script_data))
     return scoped_refptr<ContentAction>();
 
   return scoped_refptr<ContentAction>(new RequestContentScript(
@@ -281,25 +245,20 @@ scoped_refptr<ContentAction> RequestContentScript::CreateForTest(
     DeclarativeUserScriptMaster* master,
     const Extension* extension,
     const base::Value& json_action,
-    std::string* error,
-    bool* bad_message) {
+    std::string* error) {
   // Simulate ContentAction-level initialization. Check that instance type is
   // RequestContentScript.
-  ContentAction::ResetErrorData(error, bad_message);
+  error->clear();
   const base::DictionaryValue* action_dict = NULL;
   std::string instance_type;
-  if (!ContentAction::Validate(
-          json_action,
-          error,
-          bad_message,
-          &action_dict,
-          &instance_type) ||
-      instance_type != std::string(keys::kRequestContentScript))
+  if (!(json_action.GetAsDictionary(&action_dict) &&
+        action_dict->GetString(keys::kInstanceType, &instance_type) &&
+        instance_type == std::string(keys::kRequestContentScript)))
     return scoped_refptr<ContentAction>();
 
   // Normal RequestContentScript data initialization.
   ScriptData script_data;
-  if (!InitScriptData(action_dict, error, bad_message, &script_data))
+  if (!InitScriptData(action_dict, error, &script_data))
     return scoped_refptr<ContentAction>();
 
   // Inject provided DeclarativeUserScriptMaster, rather than looking it up
@@ -313,7 +272,6 @@ scoped_refptr<ContentAction> RequestContentScript::CreateForTest(
 // static
 bool RequestContentScript::InitScriptData(const base::DictionaryValue* dict,
                                           std::string* error,
-                                          bool* bad_message,
                                           ScriptData* script_data) {
   const base::ListValue* list_value = NULL;
 
@@ -322,24 +280,28 @@ bool RequestContentScript::InitScriptData(const base::DictionaryValue* dict,
     return false;
   }
   if (dict->HasKey(keys::kCss)) {
-    INPUT_FORMAT_VALIDATE(dict->GetList(keys::kCss, &list_value));
-    INPUT_FORMAT_VALIDATE(
-        AppendJSStringsToCPPStrings(*list_value, &script_data->css_file_names));
+    if (!dict->GetList(keys::kCss, &list_value) ||
+        !AppendJSStringsToCPPStrings(*list_value,
+                                     &script_data->css_file_names)) {
+      return false;
+    }
   }
   if (dict->HasKey(keys::kJs)) {
-    INPUT_FORMAT_VALIDATE(dict->GetList(keys::kJs, &list_value));
-    INPUT_FORMAT_VALIDATE(
-        AppendJSStringsToCPPStrings(*list_value, &script_data->js_file_names));
+    if (!dict->GetList(keys::kJs, &list_value) ||
+        !AppendJSStringsToCPPStrings(*list_value,
+                                     &script_data->js_file_names)) {
+      return false;
+    }
   }
   if (dict->HasKey(keys::kAllFrames)) {
-    INPUT_FORMAT_VALIDATE(
-        dict->GetBoolean(keys::kAllFrames, &script_data->all_frames));
+    if (!dict->GetBoolean(keys::kAllFrames, &script_data->all_frames))
+      return false;
   }
   if (dict->HasKey(keys::kMatchAboutBlank)) {
-    INPUT_FORMAT_VALIDATE(
-        dict->GetBoolean(
-            keys::kMatchAboutBlank,
-            &script_data->match_about_blank));
+    if (!dict->GetBoolean(keys::kMatchAboutBlank,
+                          &script_data->match_about_blank)) {
+      return false;
+    }
   }
 
   return true;
@@ -349,11 +311,11 @@ RequestContentScript::RequestContentScript(
     content::BrowserContext* browser_context,
     const Extension* extension,
     const ScriptData& script_data) {
-  InitScript(extension, script_data);
+  HostID host_id(HostID::EXTENSIONS, extension->id());
+  InitScript(host_id, extension, script_data);
 
-  master_ =
-      ExtensionSystem::Get(browser_context)->
-      GetDeclarativeUserScriptMasterByExtension(extension->id());
+  master_ = DeclarativeUserScriptManager::Get(browser_context)
+                ->GetDeclarativeUserScriptMasterByID(host_id);
   AddScript();
 }
 
@@ -361,7 +323,8 @@ RequestContentScript::RequestContentScript(
     DeclarativeUserScriptMaster* master,
     const Extension* extension,
     const ScriptData& script_data) {
-  InitScript(extension, script_data);
+  HostID host_id(HostID::EXTENSIONS, extension->id());
+  InitScript(host_id, extension, script_data);
 
   master_ = master;
   AddScript();
@@ -372,10 +335,11 @@ RequestContentScript::~RequestContentScript() {
   master_->RemoveScript(script_);
 }
 
-void RequestContentScript::InitScript(const Extension* extension,
+void RequestContentScript::InitScript(const HostID& host_id,
+                                      const Extension* extension,
                                       const ScriptData& script_data) {
   script_.set_id(UserScript::GenerateUserScriptID());
-  script_.set_extension_id(extension->id());
+  script_.set_host_id(host_id);
   script_.set_run_location(UserScript::BROWSER_DRIVEN);
   script_.set_match_all_frames(script_data.all_frames);
   script_.set_match_about_blank(script_data.match_about_blank);
@@ -397,34 +361,24 @@ void RequestContentScript::InitScript(const Extension* extension,
   }
 }
 
-ContentAction::Type RequestContentScript::GetType() const {
-  return ACTION_REQUEST_CONTENT_SCRIPT;
+void RequestContentScript::Apply(const ApplyInfo& apply_info) const {
+  InstructRenderProcessToInject(apply_info.tab, apply_info.extension);
 }
 
-void RequestContentScript::Apply(const std::string& extension_id,
-                                 const base::Time& extension_install_time,
-                                 ApplyInfo* apply_info) const {
-  InstructRenderProcessToInject(apply_info->tab, extension_id);
+void RequestContentScript::Reapply(const ApplyInfo& apply_info) const {
+  InstructRenderProcessToInject(apply_info.tab, apply_info.extension);
 }
 
-void RequestContentScript::Reapply(const std::string& extension_id,
-                                   const base::Time& extension_install_time,
-                                   ApplyInfo* apply_info) const {
-  InstructRenderProcessToInject(apply_info->tab, extension_id);
-}
-
-void RequestContentScript::Revert(const std::string& extension_id,
-                      const base::Time& extension_install_time,
-                      ApplyInfo* apply_info) const {}
+void RequestContentScript::Revert(const ApplyInfo& apply_info) const {}
 
 void RequestContentScript::InstructRenderProcessToInject(
     content::WebContents* contents,
-    const std::string& extension_id) const {
-  content::RenderViewHost* render_view_host = contents->GetRenderViewHost();
-  render_view_host->Send(new ExtensionMsg_ExecuteDeclarativeScript(
-      render_view_host->GetRoutingID(),
+    const Extension* extension) const {
+  content::RenderFrameHost* render_frame_host = contents->GetMainFrame();
+  render_frame_host->Send(new ExtensionMsg_ExecuteDeclarativeScript(
+      render_frame_host->GetRoutingID(),
       SessionTabHelper::IdForTab(contents),
-      extension_id,
+      extension->id(),
       script_.id(),
       contents->GetLastCommittedURL()));
 }
@@ -434,8 +388,7 @@ scoped_refptr<ContentAction> SetIcon::Create(
     content::BrowserContext* browser_context,
     const Extension* extension,
     const base::DictionaryValue* dict,
-    std::string* error,
-    bool* bad_message) {
+    std::string* error) {
   // We can't set a page or action's icon if the extension doesn't have one.
   ActionInfo::Type type;
   if (ActionInfo::GetPageActionInfo(extension) != NULL) {
@@ -452,7 +405,6 @@ scoped_refptr<ContentAction> SetIcon::Create(
   if (dict->GetDictionary("imageData", &canvas_set) &&
       !ExtensionAction::ParseIconFromCanvasDictionary(*canvas_set, &icon)) {
     *error = kInvalidIconDictionary;
-    *bad_message = true;
     return scoped_refptr<ContentAction>();
   }
   return scoped_refptr<ContentAction>(new SetIcon(gfx::Image(icon), type));
@@ -471,12 +423,12 @@ scoped_refptr<ContentAction> ContentAction::Create(
     content::BrowserContext* browser_context,
     const Extension* extension,
     const base::Value& json_action,
-    std::string* error,
-    bool* bad_message) {
-  ResetErrorData(error, bad_message);
+    std::string* error) {
+  error->clear();
   const base::DictionaryValue* action_dict = NULL;
   std::string instance_type;
-  if (!Validate(json_action, error, bad_message, &action_dict, &instance_type))
+  if (!(json_action.GetAsDictionary(&action_dict) &&
+        action_dict->GetString(keys::kInstanceType, &instance_type)))
     return scoped_refptr<ContentAction>();
 
   ContentActionFactory& factory = g_content_action_factory.Get();
@@ -484,21 +436,10 @@ scoped_refptr<ContentAction> ContentAction::Create(
       factory_method_iter = factory.factory_methods.find(instance_type);
   if (factory_method_iter != factory.factory_methods.end())
     return (*factory_method_iter->second)(
-        browser_context, extension, action_dict, error, bad_message);
+        browser_context, extension, action_dict, error);
 
   *error = base::StringPrintf(kInvalidInstanceTypeError, instance_type.c_str());
   return scoped_refptr<ContentAction>();
-}
-
-bool ContentAction::Validate(const base::Value& json_action,
-                             std::string* error,
-                             bool* bad_message,
-                             const base::DictionaryValue** action_dict,
-                             std::string* instance_type) {
-  INPUT_FORMAT_VALIDATE(json_action.GetAsDictionary(action_dict));
-  INPUT_FORMAT_VALIDATE(
-      (*action_dict)->GetString(keys::kInstanceType, instance_type));
-  return true;
 }
 
 }  // namespace extensions

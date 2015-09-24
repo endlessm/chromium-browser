@@ -27,7 +27,7 @@ class PowerPolicyController;
 class PowerPrefs : public content::NotificationObserver {
  public:
   explicit PowerPrefs(PowerPolicyController* power_policy_controller);
-  virtual ~PowerPrefs();
+  ~PowerPrefs() override;
 
   // Register power prefs with default values applicable to a user profile.
   static void RegisterUserProfilePrefs(
@@ -38,9 +38,9 @@ class PowerPrefs : public content::NotificationObserver {
       user_prefs::PrefRegistrySyncable* registry);
 
   // content::NotificationObserver:
-  virtual void Observe(int type,
-                       const content::NotificationSource& source,
-                       const content::NotificationDetails& details) override;
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override;
 
   void UpdatePowerPolicyFromPrefs();
 
@@ -59,6 +59,9 @@ class PowerPrefs : public content::NotificationObserver {
 
   Profile* profile_;  // Not owned.
   scoped_ptr<PrefChangeRegistrar> pref_change_registrar_;
+
+  // True while the screen is locked (but not while the login screen is shown).
+  bool screen_is_locked_;
 
   DISALLOW_COPY_AND_ASSIGN(PowerPrefs);
 };

@@ -37,10 +37,11 @@ const int kVerificationWindowTicks = 2000;
 const int kGenerationWindowTicks = 20;
 
 // Makes no sense to compare other way round.
-COMPILE_ASSERT(kGenerationWindowTicks <= kVerificationWindowTicks,
-    makes_no_sense_to_have_generation_window_larger_than_verification_one);
+static_assert(kGenerationWindowTicks <= kVerificationWindowTicks,
+    "generation window should not be larger than the verification window");
 // We are not optimized for high value of kGenerationWindowTicks.
-COMPILE_ASSERT(kGenerationWindowTicks < 30, too_large_generation_window);
+static_assert(kGenerationWindowTicks < 30,
+    "generation window should not be too large");
 
 // Regenerate key after this number of ticks.
 const int kKeyRegenerationSoftTicks = 500000;
@@ -99,8 +100,8 @@ bool IsVarSane(const std::string& var) {
       "abcdefghijklmnopqrstuvwxyz"
       "0123456789"
       "_";
-  COMPILE_ASSERT(
-      sizeof(kAllowedChars) == 26 + 26 + 10 + 1 + 1, some_mess_with_chars);
+  static_assert(
+      sizeof(kAllowedChars) == 26 + 26 + 10 + 1 + 1, "some mess with chars");
   // We must not allow kItemSeparator in anything used as an input to construct
   // message to sign.
   DCHECK(std::find(kAllowedChars, kAllowedChars + arraysize(kAllowedChars),
@@ -111,7 +112,7 @@ bool IsVarSane(const std::string& var) {
       var.size() <= kStringLengthLimit &&
       base::IsStringASCII(var) &&
       var.find_first_not_of(kAllowedChars) == std::string::npos &&
-      !IsAsciiDigit(var[0]);
+      !base::IsAsciiDigit(var[0]);
 }
 
 bool IsValueSane(const std::string& value) {
@@ -160,7 +161,7 @@ void CreatePassport(const std::string& domain,
 
   std::string hmac;
   unsigned char* hmac_data = reinterpret_cast<unsigned char*>(
-      WriteInto(&hmac, kHMACSizeInBytes + 1));
+      base::WriteInto(&hmac, kHMACSizeInBytes + 1));
   if (!engine->Sign(blob, hmac_data, kHMACSizeInBytes)) {
     NOTREACHED();
     return;
@@ -447,7 +448,7 @@ bool InternalAuthVerification::VerifyPassport(
 void InternalAuthVerification::ChangeKey(const std::string& key) {
   base::AutoLock alk(g_verification_service_lock.Get());
   g_verification_service.Get().ChangeKey(key);
-};
+}
 
 // static
 int InternalAuthVerification::get_verification_window_ticks() {

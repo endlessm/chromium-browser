@@ -10,15 +10,15 @@
 
 #include "base/bind_helpers.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/run_loop.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/safe_browsing/safe_browsing_util.h"
 
 namespace extensions {
 
 FakeSafeBrowsingDatabaseManager::FakeSafeBrowsingDatabaseManager(bool enabled)
-    : SafeBrowsingDatabaseManager(
+    : LocalSafeBrowsingDatabaseManager(
           make_scoped_refptr(SafeBrowsingService::CreateSafeBrowsingService())),
       enabled_(enabled) {
 }
@@ -84,7 +84,7 @@ FakeSafeBrowsingDatabaseManager& FakeSafeBrowsingDatabaseManager::RemoveUnsafe(
 }
 
 void FakeSafeBrowsingDatabaseManager::NotifyUpdate() {
-  SafeBrowsingDatabaseManager::NotifyDatabaseUpdateFinished(true);
+  LocalSafeBrowsingDatabaseManager::NotifyDatabaseUpdateFinished(true);
 }
 
 bool FakeSafeBrowsingDatabaseManager::CheckExtensionIDs(
@@ -116,19 +116,16 @@ bool FakeSafeBrowsingDatabaseManager::CheckExtensionIDs(
       safe_browsing_check->full_hash_results[i] = SB_THREAT_TYPE_EXTENSION;
   }
 
-  base::MessageLoopProxy::current()->PostTask(
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
-      base::Bind(&FakeSafeBrowsingDatabaseManager::OnSafeBrowsingResult,
-                 this,
-                 base::Passed(&safe_browsing_check),
-                 client));
+      base::Bind(&FakeSafeBrowsingDatabaseManager::OnSafeBrowsingResult, this,
+                 base::Passed(&safe_browsing_check)));
   return false;
 }
 
 void FakeSafeBrowsingDatabaseManager::OnSafeBrowsingResult(
-    scoped_ptr<SafeBrowsingCheck> result,
-    Client* client) {
-  client->OnSafeBrowsingResult(*result);
+    scoped_ptr<SafeBrowsingCheck> result) {
+  result->OnSafeBrowsingResult();
 }
 
 }  // namespace extensions

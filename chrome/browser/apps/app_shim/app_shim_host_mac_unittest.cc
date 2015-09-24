@@ -74,7 +74,7 @@ class AppShimHostTest : public testing::Test,
     EXPECT_EQ(AppShimMsg_LaunchApp_Done::ID, message->type());
     AppShimMsg_LaunchApp_Done::Param param;
     AppShimMsg_LaunchApp_Done::Read(message, &param);
-    return param.a;
+    return base::get<0>(param);
   }
 
   void SimulateDisconnect() {
@@ -111,7 +111,7 @@ class AppShimHostTest : public testing::Test,
   int quit_count_;
 
  private:
-  virtual void SetUp() override {
+  void SetUp() override {
     testing::Test::SetUp();
     host_.reset(new TestingAppShimHost());
   }

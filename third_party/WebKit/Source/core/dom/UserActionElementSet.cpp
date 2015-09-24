@@ -40,10 +40,10 @@ UserActionElementSet::~UserActionElementSet()
 {
 }
 
-void UserActionElementSet::didDetach(Node* node)
+void UserActionElementSet::didDetach(Element& element)
 {
-    ASSERT(node->isUserActionElement());
-    clearFlags(toElement(node), IsActiveFlag | InActiveChainFlag | IsHoveredFlag);
+    ASSERT(element.isUserActionElement());
+    clearFlags(&element, IsActiveFlag | InActiveChainFlag | IsHoveredFlag);
 }
 
 #if !ENABLE(OILPAN)
@@ -118,7 +118,7 @@ inline void UserActionElementSet::setFlags(Element* element, unsigned flags)
     m_elements.add(element, flags);
 }
 
-void UserActionElementSet::trace(Visitor* visitor)
+DEFINE_TRACE(UserActionElementSet)
 {
 #if ENABLE(OILPAN)
     visitor->trace(m_elements);

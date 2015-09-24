@@ -22,7 +22,7 @@ cr.define('cr.ui.login.ResourceLoader', function() {
    * @param {string} desc.id Unique identifier for the asset bundle.
    * @param {Array=} desc.js URLs containing JavaScript sources.
    * @param {Array=} desc.css URLs containing CSS rules.
-   * @param {Array.<Object>=} desc.html Descriptors for HTML fragments,
+   * @param {Array<Object>=} desc.html Descriptors for HTML fragments,
    * each of which has a 'url' property and a 'targetID' property that
    * specifies the node under which the HTML should be appended.
    *
@@ -97,7 +97,9 @@ cr.define('cr.ui.login.ResourceLoader', function() {
    * @param {HTMLElement} to Element to which nodes should be appended.
    */
   function moveNodes(from, to) {
-    Array.prototype.forEach.call(from.children, to.appendChild, to);
+    Array.prototype.forEach.call(from.children, function(child) {
+      to.appendChild(document.importNode(child, true));
+    });
   }
 
   /**

@@ -28,14 +28,16 @@
 #define SVGImage_h
 
 #include "platform/graphics/Image.h"
+#include "platform/graphics/paint/DisplayItemClient.h"
 #include "platform/heap/Handle.h"
 #include "platform/weborigin/KURL.h"
 
 namespace blink {
 
+class Document;
 class FrameView;
 class Page;
-class RenderBox;
+class LayoutBox;
 class SVGImageChromeClient;
 class SVGImageForContainer;
 
@@ -48,19 +50,19 @@ public:
 
     static bool isInSVGImage(const Node*);
 
-    RenderBox* embeddedContentBox() const;
+    LayoutBox* embeddedContentBox() const;
 
-    virtual bool isSVGImage() const override { return true; }
-    virtual IntSize size() const override { return m_intrinsicSize; }
+    bool isSVGImage() const override { return true; }
+    IntSize size() const override { return m_intrinsicSize; }
     void setURL(const KURL& url) { m_url = url; }
 
-    virtual bool currentFrameHasSingleSecurityOrigin() const override;
+    bool currentFrameHasSingleSecurityOrigin() const override;
 
-    virtual void startAnimation(CatchUpAnimation = CatchUp) override;
-    virtual void stopAnimation() override;
-    virtual void resetAnimation() override;
+    void startAnimation(CatchUpAnimation = CatchUp) override;
+    void stopAnimation() override;
+    void resetAnimation() override;
 
-    virtual PassRefPtr<NativeImageSkia> nativeImageForCurrentFrame() override;
+    bool bitmapForCurrentFrame(SkBitmap*) override;
 
     // Returns the SVG image document's frame.
     FrameView* frameView() const;
@@ -68,35 +70,39 @@ public:
     // Does the SVG image/document contain any animations?
     bool hasAnimations() const;
 
+    void updateUseCounters(Document&) const;
+
+    DisplayItemClient displayItemClient() const { return toDisplayItemClient(this); }
+    String debugName() const { return "SVGImage"; }
+
 private:
-    friend class AXRenderObject;
+    friend class AXLayoutObject;
     friend class SVGImageChromeClient;
     friend class SVGImageForContainer;
 
-    virtual ~SVGImage();
+    ~SVGImage() override;
 
+    String filenameExtension() const override;
 
-    virtual String filenameExtension() const override;
-
-    virtual void setContainerSize(const IntSize&) override;
+    void setContainerSize(const IntSize&) override;
     IntSize containerSize() const;
-    virtual bool usesContainerSize() const override { return true; }
-    virtual void computeIntrinsicDimensions(Length& intrinsicWidth, Length& intrinsicHeight, FloatSize& intrinsicRatio) override;
+    bool usesContainerSize() const override { return true; }
+    void computeIntrinsicDimensions(Length& intrinsicWidth, Length& intrinsicHeight, FloatSize& intrinsicRatio) override;
 
-    virtual bool dataChanged(bool allDataReceived) override;
+    bool dataChanged(bool allDataReceived) override;
 
     // FIXME: SVGImages are underreporting decoded sizes and will be unable
     // to prune because these functions are not implemented yet.
-    virtual void destroyDecodedData(bool) override { }
+    void destroyDecodedData(bool) override { }
 
     // FIXME: Implement this to be less conservative.
-    virtual bool currentFrameKnownToBeOpaque() override { return false; }
+    bool currentFrameKnownToBeOpaque() override { return false; }
 
     SVGImage(ImageObserver*);
-    virtual void draw(GraphicsContext*, const FloatRect& fromRect, const FloatRect& toRect, CompositeOperator, blink::WebBlendMode) override;
-    void drawForContainer(GraphicsContext*, const FloatSize, float, const FloatRect&, const FloatRect&, CompositeOperator, blink::WebBlendMode);
+    void draw(SkCanvas*, const SkPaint&, const FloatRect& fromRect, const FloatRect& toRect, RespectImageOrientationEnum, ImageClampingMode) override;
+    void drawForContainer(SkCanvas*, const SkPaint&, const FloatSize, float, const FloatRect&, const FloatRect&);
     void drawPatternForContainer(GraphicsContext*, const FloatSize, float, const FloatRect&, const FloatSize&, const FloatPoint&,
-        CompositeOperator, const FloatRect&, blink::WebBlendMode, const IntSize& repeatSpacing);
+        SkXfermode::Mode, const FloatRect&, const IntSize& repeatSpacing);
 
     OwnPtr<SVGImageChromeClient> m_chromeClient;
     OwnPtrWillBePersistent<Page> m_page;

@@ -23,6 +23,8 @@ import pipes
 import platform
 import psutil
 import platform
+import pwd
+import re
 import signal
 import socket
 import subprocess
@@ -48,7 +50,8 @@ DEFAULT_SIZES = "1600x1200,3840x2560"
 # resolution is supported in this case.
 DEFAULT_SIZE_NO_RANDR = "1600x1200"
 
-SCRIPT_PATH = sys.path[0]
+SCRIPT_PATH = os.path.abspath(sys.argv[0])
+SCRIPT_DIR = os.path.dirname(SCRIPT_PATH)
 
 IS_INSTALLED = (os.path.basename(sys.argv[0]) != 'linux_me2me_host.py')
 
@@ -171,6 +174,7 @@ class Authentication:
   """Manage authentication tokens for Chromoting/xmpp"""
 
   def __init__(self):
+    # Note: Initial values are never used.
     self.login = None
     self.oauth_refresh_token = None
 
@@ -192,23 +196,29 @@ class Host:
   """This manages the configuration for a host."""
 
   def __init__(self):
-    self.host_id = str(uuid.uuid1())
-    self.host_name = socket.gethostname()
+    # Note: Initial values are never used.
+    self.host_id = None
+    self.gcd_device_id = None
+    self.host_name = None
     self.host_secret_hash = None
     self.private_key = None
 
   def copy_from(self, config):
     try:
-      self.host_id = config["host_id"]
+      self.host_id = config.get("host_id")
+      self.gcd_device_id = config.get("gcd_device_id")
       self.host_name = config["host_name"]
       self.host_secret_hash = config.get("host_secret_hash")
       self.private_key = config["private_key"]
     except KeyError:
       return False
-    return True
+    return bool(self.host_id or self.gcd_device_id)
 
   def copy_to(self, config):
-    config["host_id"] = self.host_id
+    if self.host_id:
+      config["host_id"] = self.host_id
+    if self.gcd_device_id:
+      config["gcd_device_id"] = self.gcd_device_id
     config["host_name"] = self.host_name
     config["host_secret_hash"] = self.host_secret_hash
     config["private_key"] = self.private_key
@@ -415,6 +425,9 @@ class Desktop:
     if retcode != 0:
       logging.error("Failed to set XKB to 'evdev'")
 
+    if not self.server_supports_exact_resize:
+      return
+
     # Register the screen sizes if the X server's RANDR extension supports it.
     # Errors here are non-fatal; the X server will continue to run with the
     # dimensions from the "-screen" option.
@@ -429,7 +442,8 @@ class Desktop:
     # Set the initial mode to the first size specified, otherwise the X server
     # would default to (max_width, max_height), which might not even be in the
     # list.
-    label = "%dx%d" % self.sizes[0]
+    initial_size = self.sizes[0]
+    label = "%dx%d" % initial_size
     args = ["xrandr", "-s", label]
     subprocess.call(args, env=self.child_env, stdout=devnull, stderr=devnull)
 
@@ -438,6 +452,14 @@ class Desktop:
     # something realistic.
     args = ["xrandr", "--dpi", "96"]
     subprocess.call(args, env=self.child_env, stdout=devnull, stderr=devnull)
+
+    # Monitor for any automatic resolution changes from the desktop environment.
+    args = [SCRIPT_PATH, "--watch-resolution", str(initial_size[0]),
+            str(initial_size[1])]
+
+    # It is not necessary to wait() on the process here, as this script's main
+    # loop will reap the exit-codes of all child processes.
+    subprocess.Popen(args, env=self.child_env, stdout=devnull, stderr=devnull)
 
     devnull.close()
 
@@ -494,8 +516,19 @@ class Desktop:
     logging.info(args)
     if not self.host_proc.pid:
       raise Exception("Could not start Chrome Remote Desktop host")
-    self.host_proc.stdin.write(json.dumps(host_config.data))
-    self.host_proc.stdin.close()
+
+    try:
+      self.host_proc.stdin.write(json.dumps(host_config.data))
+      self.host_proc.stdin.flush()
+    except IOError as e:
+      # This can occur in rare situations, for example, if the machine is
+      # heavily loaded and the host process dies quickly (maybe if the X
+      # connection failed), the host process might be gone before this code
+      # writes to the host's stdin. Catch and log the exception, allowing
+      # the process to be retried instead of exiting the script completely.
+      logging.error("Failed writing to host's stdin: " + str(e))
+    finally:
+      self.host_proc.stdin.close()
 
 
 def get_daemon_proc():
@@ -595,9 +628,9 @@ def locate_executable(exe_name):
   if IS_INSTALLED:
     # If the script is running from its installed location, search the host
     # binary only in the same directory.
-    paths_to_try = [ SCRIPT_PATH ]
+    paths_to_try = [ SCRIPT_DIR ]
   else:
-    paths_to_try = map(lambda p: os.path.join(SCRIPT_PATH, p),
+    paths_to_try = map(lambda p: os.path.join(SCRIPT_DIR, p),
                        [".", "../../../out/Debug", "../../../out/Release" ])
   for path in paths_to_try:
     exe_path = os.path.join(path, exe_name)
@@ -872,7 +905,7 @@ class RelaunchInhibitor:
 
 def relaunch_self():
   cleanup()
-  os.execvp(sys.argv[0], sys.argv)
+  os.execvp(SCRIPT_PATH, sys.argv)
 
 
 def waitpid_with_timeout(pid, deadline):
@@ -944,6 +977,47 @@ def waitpid_handle_exceptions(pid, deadline):
         raise
 
 
+def watch_for_resolution_changes(initial_size):
+  """Watches for any resolution-changes which set the maximum screen resolution,
+  and resets the initial size if this happens.
+
+  The Ubuntu desktop has a component (the 'xrandr' plugin of
+  unity-settings-daemon) which often changes the screen resolution to the
+  first listed mode. This is the built-in mode for the maximum screen size,
+  which can trigger excessive CPU usage in some situations. So this is a hack
+  which waits for any such events, and undoes the change if it occurs.
+
+  Sometimes, the user might legitimately want to use the maximum available
+  resolution, so this monitoring is limited to a short time-period.
+  """
+  for _ in range(30):
+    time.sleep(1)
+
+    xrandr_output = subprocess.Popen(["xrandr"],
+                                     stdout=subprocess.PIPE).communicate()[0]
+    matches = re.search(r'current (\d+) x (\d+), maximum (\d+) x (\d+)',
+                        xrandr_output)
+
+    # No need to handle ValueError. If xrandr fails to give valid output,
+    # there's no point in continuing to monitor.
+    current_size = (int(matches.group(1)), int(matches.group(2)))
+    maximum_size = (int(matches.group(3)), int(matches.group(4)))
+
+    if current_size != initial_size:
+      # Resolution change detected.
+      if current_size == maximum_size:
+        # This was probably an automated change from unity-settings-daemon, so
+        # undo it.
+        label = "%dx%d" % initial_size
+        args = ["xrandr", "-s", label]
+        subprocess.call(args)
+        args = ["xrandr", "--dpi", "96"]
+        subprocess.call(args)
+
+      # Stop monitoring after any change was detected.
+      break
+
+
 def main():
   EPILOG = """This script is not intended for use by end-users.  To configure
 Chrome Remote Desktop, please install the app from the Chrome
@@ -978,9 +1052,16 @@ Web Store: https://chrome.google.com/remotedesktop"""
   parser.add_option("", "--add-user", dest="add_user", default=False,
                     action="store_true",
                     help="Add current user to the chrome-remote-desktop group.")
+  parser.add_option("", "--add-user-as-root", dest="add_user_as_root",
+                    action="store", metavar="USER",
+                    help="Adds the specified user to the chrome-remote-desktop "
+                    "group (must be run as root).")
   parser.add_option("", "--host-version", dest="host_version", default=False,
                     action="store_true",
                     help="Prints version of the host.")
+  parser.add_option("", "--watch-resolution", dest="watch_resolution",
+                    type="int", nargs=2, default=False, action="store",
+                    help=optparse.SUPPRESS_HELP)
   (options, args) = parser.parse_args()
 
   # Determine the filename of the host configuration and PID files.
@@ -988,7 +1069,6 @@ Web Store: https://chrome.google.com/remotedesktop"""
     options.config = os.path.join(CONFIG_DIR, "host#%s.json" % g_host_hash)
 
   # Check for a modal command-line option (start, stop, etc.)
-
   if options.get_status:
     proc = get_daemon_proc()
     if proc is not None:
@@ -1028,6 +1108,7 @@ Web Store: https://chrome.google.com/remotedesktop"""
 
   if options.add_user:
     user = getpass.getuser()
+
     try:
       if user in grp.getgrnam(CHROME_REMOTING_GROUP_NAME).gr_mem:
         logging.info("User '%s' is already a member of '%s'." %
@@ -1036,21 +1117,50 @@ Web Store: https://chrome.google.com/remotedesktop"""
     except KeyError:
       logging.info("Group '%s' not found." % CHROME_REMOTING_GROUP_NAME)
 
+    command = [SCRIPT_PATH, '--add-user-as-root', user]
     if os.getenv("DISPLAY"):
-      sudo_command = "gksudo --description \"Chrome Remote Desktop\""
+      # TODO(rickyz): Add a Polkit policy that includes a more friendly message
+      # about what this command does.
+      command = ["/usr/bin/pkexec"] + command
     else:
-      sudo_command = "sudo"
-    command = ("sudo -k && exec %(sudo)s -- sh -c "
-               "\"groupadd -f %(group)s && gpasswd --add %(user)s %(group)s\"" %
-               { 'group': CHROME_REMOTING_GROUP_NAME,
-                 'user': user,
-                 'sudo': sudo_command })
-    os.execv("/bin/sh", ["/bin/sh", "-c", command])
+      command = ["/usr/bin/sudo", "-k", "--"] + command
+
+    # Run with an empty environment out of paranoia, though if an attacker
+    # controls the environment this script is run under, we're already screwed
+    # anyway.
+    os.execve(command[0], command, {})
     return 1
+
+  if options.add_user_as_root is not None:
+    if os.getuid() != 0:
+      logging.error("--add-user-as-root can only be specified as root.")
+      return 1;
+
+    user = options.add_user_as_root
+    try:
+      pwd.getpwnam(user)
+    except KeyError:
+      logging.error("user '%s' does not exist." % user)
+      return 1
+
+    try:
+      subprocess.check_call(["/usr/sbin/groupadd", "-f",
+                             CHROME_REMOTING_GROUP_NAME])
+      subprocess.check_call(["/usr/bin/gpasswd", "--add", user,
+                             CHROME_REMOTING_GROUP_NAME])
+    except (ValueError, OSError, subprocess.CalledProcessError) as e:
+      logging.error("Command failed: " + str(e))
+      return 1
+
+    return 0
 
   if options.host_version:
     # TODO(sergeyu): Also check RPM package version once we add RPM package.
     return os.system(locate_executable(HOST_BINARY_NAME) + " --version") >> 8
+
+  if options.watch_resolution:
+    watch_for_resolution_changes(options.watch_resolution)
+    return 0
 
   if not options.start:
     # If no modal command-line options specified, print an error and exit.
@@ -1127,7 +1237,10 @@ Web Store: https://chrome.google.com/remotedesktop"""
   if not options.foreground:
     daemonize()
 
-  logging.info("Using host_id: " + host.host_id)
+  if host.host_id:
+    logging.info("Using host_id: " + host.host_id)
+  if host.gcd_device_id:
+    logging.info("Using gcd_device_id: " + host.gcd_device_id)
 
   desktop = Desktop(sizes)
 

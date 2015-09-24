@@ -9,6 +9,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/nacl_macros.h"
 #include "native_client/src/include/portability_io.h"
 #include "native_client/src/shared/platform/nacl_check.h"
@@ -42,7 +43,7 @@ static int s_Signals[] = {
 #endif
   SIGSYS, /* Used to support a seccomp-bpf sandbox. */
   NACL_THREAD_SUSPEND_SIGNAL,
-  SIGINT, SIGQUIT, SIGILL, SIGTRAP, SIGBUS, SIGFPE, SIGSEGV,
+  SIGHUP, SIGINT, SIGQUIT, SIGILL, SIGTRAP, SIGBUS, SIGFPE, SIGSEGV, SIGTERM,
   /* Handle SIGABRT in case someone sends it asynchronously using kill(). */
   SIGABRT
 };

@@ -13,31 +13,33 @@
 #include "content/public/common/main_function_params.h"
 #include "ui/aura/window_tree_host_observer.h"
 
+class PrefService;
+
 namespace content {
-class DevToolsHttpHandler;
+class BrowserContext;
 struct MainFunctionParams;
+}
+
+namespace devtools_http_handler {
+class DevToolsHttpHandler;
 }
 
 namespace views {
 class Widget;
 }
 
-namespace net {
-class NetLog;
-}
-
 namespace extensions {
 
 class AppWindowClient;
 class DesktopController;
+class ExtensionsBrowserClient;
+class ExtensionsClient;
 class ShellBrowserContext;
 class ShellBrowserMainDelegate;
 class ShellDeviceClient;
-class ShellExtensionsBrowserClient;
-class ShellExtensionsClient;
 class ShellExtensionSystem;
 class ShellOAuth2TokenService;
-class ShellOmahaQueryParamsDelegate;
+class ShellUpdateQueryParamsDelegate;
 
 #if defined(OS_CHROMEOS)
 class ShellAudioController;
@@ -65,6 +67,14 @@ class ShellBrowserMainParts : public content::BrowserMainParts {
   void PostMainMessageLoopRun() override;
   void PostDestroyThreads() override;
 
+ protected:
+  // app_shell embedders may need custom extensions client interfaces.
+  // This class takes ownership of the returned objects.
+  virtual ExtensionsClient* CreateExtensionsClient();
+  virtual ExtensionsBrowserClient* CreateExtensionsBrowserClient(
+      content::BrowserContext* context,
+      PrefService* service);
+
  private:
   // Creates and initializes the ExtensionSystem.
   void CreateExtensionSystem();
@@ -75,13 +85,14 @@ class ShellBrowserMainParts : public content::BrowserMainParts {
 #endif
   scoped_ptr<DesktopController> desktop_controller_;
   scoped_ptr<ShellBrowserContext> browser_context_;
+  scoped_ptr<PrefService> local_state_;
+  scoped_ptr<PrefService> user_pref_service_;
   scoped_ptr<ShellDeviceClient> device_client_;
   scoped_ptr<AppWindowClient> app_window_client_;
-  scoped_ptr<ShellExtensionsClient> extensions_client_;
-  scoped_ptr<ShellExtensionsBrowserClient> extensions_browser_client_;
-  scoped_ptr<net::NetLog> net_log_;
-  content::DevToolsHttpHandler* devtools_http_handler_;
-  scoped_ptr<ShellOmahaQueryParamsDelegate> omaha_query_params_delegate_;
+  scoped_ptr<ExtensionsClient> extensions_client_;
+  scoped_ptr<ExtensionsBrowserClient> extensions_browser_client_;
+  scoped_ptr<devtools_http_handler::DevToolsHttpHandler> devtools_http_handler_;
+  scoped_ptr<ShellUpdateQueryParamsDelegate> update_query_params_delegate_;
   scoped_ptr<ShellOAuth2TokenService> oauth2_token_service_;
 
   // Owned by the KeyedService system.

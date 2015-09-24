@@ -8,6 +8,8 @@
 
 #include "base/compiler_specific.h"
 #include "ui/accessibility/ax_view_state.h"
+#include "ui/base/ime/input_method.h"
+#include "ui/compositor/paint_recorder.h"
 #include "ui/events/event.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/safe_integer_conversions.h"
@@ -77,6 +79,10 @@ MenuItemView* SubmenuView::GetMenuItemAt(int index) {
   }
   NOTREACHED();
   return NULL;
+}
+
+PrefixSelector* SubmenuView::GetPrefixSelector() {
+  return &prefix_selector_;
 }
 
 void SubmenuView::ChildPreferredSizeChanged(View* child) {
@@ -183,16 +189,28 @@ void SubmenuView::GetAccessibleState(ui::AXViewState* state) {
   state->role = ui::AX_ROLE_MENU_LIST_POPUP;
 }
 
-ui::TextInputClient* SubmenuView::GetTextInputClient() {
-  return &prefix_selector_;
-}
+void SubmenuView::PaintChildren(const ui::PaintContext& context) {
+  View::PaintChildren(context);
 
-void SubmenuView::PaintChildren(gfx::Canvas* canvas,
-                                const views::CullSet& cull_set) {
-  View::PaintChildren(canvas, cull_set);
+  bool paint_drop_indicator = false;
+  if (drop_item_) {
+    switch (drop_position_) {
+      case MenuDelegate::DROP_NONE:
+      case MenuDelegate::DROP_ON:
+        break;
+      case MenuDelegate::DROP_UNKNOWN:
+      case MenuDelegate::DROP_BEFORE:
+      case MenuDelegate::DROP_AFTER:
+        paint_drop_indicator = true;
+        break;
+    }
+  }
 
-  if (drop_item_ && drop_position_ != MenuDelegate::DROP_ON)
-    PaintDropIndicator(canvas, drop_item_, drop_position_);
+  if (paint_drop_indicator) {
+    gfx::Rect bounds = CalculateDropIndicatorBounds(drop_item_, drop_position_);
+    ui::PaintRecorder recorder(context, size());
+    recorder.canvas()->FillRect(bounds, kDropIndicatorColor);
+  }
 }
 
 bool SubmenuView::GetDropFormats(
@@ -443,16 +461,6 @@ const char* SubmenuView::GetClassName() const {
 
 void SubmenuView::OnBoundsChanged(const gfx::Rect& previous_bounds) {
   SchedulePaint();
-}
-
-void SubmenuView::PaintDropIndicator(gfx::Canvas* canvas,
-                                     MenuItemView* item,
-                                     MenuDelegate::DropPosition position) {
-  if (position == MenuDelegate::DROP_NONE)
-    return;
-
-  gfx::Rect bounds = CalculateDropIndicatorBounds(item, position);
-  canvas->FillRect(bounds, kDropIndicatorColor);
 }
 
 void SubmenuView::SchedulePaintForDropIndicator(

@@ -9,80 +9,76 @@
 
 #include "bindings/core/v8/Nullable.h"
 #include "bindings/core/v8/ScriptValue.h"
+#include "bindings/core/v8/UnionTypesCore.h"
+#include "bindings/tests/idls/core/TestInterface2.h"
 #include "bindings/tests/idls/core/TestInterfaceGarbageCollected.h"
 #include "bindings/tests/idls/core/TestInterfaceImplementation.h"
 #include "bindings/tests/idls/core/TestInterfaceWillBeGarbageCollected.h"
+#include "core/CoreExport.h"
+#include "core/dom/DOMTypedArray.h"
 #include "core/dom/Element.h"
+#include "core/events/EventTarget.h"
+#include "core/testing/InternalDictionary.h"
 #include "platform/heap/Handle.h"
 #include "wtf/Vector.h"
 #include "wtf/text/WTFString.h"
 
 namespace blink {
 
-class TestDictionary final {
+class CORE_EXPORT TestDictionary {
     ALLOW_ONLY_INLINE_ALLOCATION();
 public:
     TestDictionary();
+
+    bool hasAnyMember() const { return !(m_anyMember.isEmpty() || m_anyMember.isNull() || m_anyMember.isUndefined()); }
+    ScriptValue anyMember() const { return m_anyMember; }
+    void setAnyMember(ScriptValue value) { m_anyMember = value; }
 
     bool hasBooleanMember() const { return !m_booleanMember.isNull(); }
     bool booleanMember() const { return m_booleanMember.get(); }
     void setBooleanMember(bool value) { m_booleanMember = value; }
 
-    bool hasLongMember() const { return !m_longMember.isNull(); }
-    int longMember() const { return m_longMember.get(); }
-    void setLongMember(int value) { m_longMember = value; }
-
-    bool hasStringMember() const { return !m_stringMember.isNull(); }
-    String stringMember() const { return m_stringMember; }
-    void setStringMember(String value) { m_stringMember = value; }
-
-    bool hasTestInterfaceMember() const { return m_testInterfaceMember; }
-    PassRefPtr<TestInterfaceImplementation> testInterfaceMember() const { return m_testInterfaceMember; }
-    void setTestInterfaceMember(PassRefPtr<TestInterfaceImplementation> value) { m_testInterfaceMember = value; }
+    bool hasCreateMember() const { return !m_createMember.isNull(); }
+    bool createMember() const { return m_createMember.get(); }
+    void setCreateMember(bool value) { m_createMember = value; }
 
     bool hasDoubleOrNullMember() const { return !m_doubleOrNullMember.isNull(); }
     double doubleOrNullMember() const { return m_doubleOrNullMember.get(); }
     void setDoubleOrNullMember(double value) { m_doubleOrNullMember = value; }
+    void setDoubleOrNullMemberToNull() { m_doubleOrNullMember = Nullable<double>(); }
 
-    bool hasStringOrNullMember() const { return !m_stringOrNullMember.isNull(); }
-    String stringOrNullMember() const { return m_stringOrNullMember; }
-    void setStringOrNullMember(String value) { m_stringOrNullMember = value; }
+    bool hasDoubleOrStringMember() const { return !m_doubleOrStringMember.isNull(); }
+    const DoubleOrString& doubleOrStringMember() const { return m_doubleOrStringMember; }
+    void setDoubleOrStringMember(const DoubleOrString& value) { m_doubleOrStringMember = value; }
 
-    bool hasTestInterfaceOrNullMember() const { return m_testInterfaceOrNullMember; }
-    PassRefPtr<TestInterfaceImplementation> testInterfaceOrNullMember() const { return m_testInterfaceOrNullMember; }
-    void setTestInterfaceOrNullMember(PassRefPtr<TestInterfaceImplementation> value) { m_testInterfaceOrNullMember = value; }
+    bool hasDoubleOrStringSequenceMember() const { return !m_doubleOrStringSequenceMember.isNull(); }
+    const HeapVector<DoubleOrString>& doubleOrStringSequenceMember() const { return m_doubleOrStringSequenceMember.get(); }
+    void setDoubleOrStringSequenceMember(const HeapVector<DoubleOrString>& value) { m_doubleOrStringSequenceMember = value; }
 
-    bool hasTestInterfaceGarbageCollectedMember() const { return m_testInterfaceGarbageCollectedMember; }
-    RawPtr<TestInterfaceGarbageCollected> testInterfaceGarbageCollectedMember() const { return m_testInterfaceGarbageCollectedMember; }
-    void setTestInterfaceGarbageCollectedMember(RawPtr<TestInterfaceGarbageCollected> value) { m_testInterfaceGarbageCollectedMember = value; }
-
-    bool hasTestInterfaceGarbageCollectedOrNullMember() const { return m_testInterfaceGarbageCollectedOrNullMember; }
-    RawPtr<TestInterfaceGarbageCollected> testInterfaceGarbageCollectedOrNullMember() const { return m_testInterfaceGarbageCollectedOrNullMember; }
-    void setTestInterfaceGarbageCollectedOrNullMember(RawPtr<TestInterfaceGarbageCollected> value) { m_testInterfaceGarbageCollectedOrNullMember = value; }
-
-    bool hasTestInterfaceWillBeGarbageCollectedMember() const { return m_testInterfaceWillBeGarbageCollectedMember; }
-    PassRefPtrWillBeRawPtr<TestInterfaceWillBeGarbageCollected> testInterfaceWillBeGarbageCollectedMember() const { return m_testInterfaceWillBeGarbageCollectedMember; }
-    void setTestInterfaceWillBeGarbageCollectedMember(PassRefPtrWillBeRawPtr<TestInterfaceWillBeGarbageCollected> value) { m_testInterfaceWillBeGarbageCollectedMember = value; }
-
-    bool hasTestInterfaceWillBeGarbageCollectedOrNullMember() const { return m_testInterfaceWillBeGarbageCollectedOrNullMember; }
-    PassRefPtrWillBeRawPtr<TestInterfaceWillBeGarbageCollected> testInterfaceWillBeGarbageCollectedOrNullMember() const { return m_testInterfaceWillBeGarbageCollectedOrNullMember; }
-    void setTestInterfaceWillBeGarbageCollectedOrNullMember(PassRefPtrWillBeRawPtr<TestInterfaceWillBeGarbageCollected> value) { m_testInterfaceWillBeGarbageCollectedOrNullMember = value; }
-
-    bool hasStringArrayMember() const { return !m_stringArrayMember.isNull(); }
-    const Vector<String>& stringArrayMember() const { return m_stringArrayMember.get(); }
-    void setStringArrayMember(const Vector<String>& value) { m_stringArrayMember = value; }
-
-    bool hasStringSequenceMember() const { return !m_stringSequenceMember.isNull(); }
-    const Vector<String>& stringSequenceMember() const { return m_stringSequenceMember.get(); }
-    void setStringSequenceMember(const Vector<String>& value) { m_stringSequenceMember = value; }
+    bool hasElementOrNullMember() const { return m_elementOrNullMember; }
+    PassRefPtrWillBeRawPtr<Element> elementOrNullMember() const { return m_elementOrNullMember; }
+    void setElementOrNullMember(PassRefPtrWillBeRawPtr<Element> value) { m_elementOrNullMember = value; }
+    void setElementOrNullMemberToNull() { m_elementOrNullMember = RefPtrWillBeMember<Element>(); }
 
     bool hasEnumMember() const { return !m_enumMember.isNull(); }
     String enumMember() const { return m_enumMember; }
     void setEnumMember(String value) { m_enumMember = value; }
 
-    bool hasElementOrNullMember() const { return m_elementOrNullMember; }
-    PassRefPtrWillBeRawPtr<Element> elementOrNullMember() const { return m_elementOrNullMember; }
-    void setElementOrNullMember(PassRefPtrWillBeRawPtr<Element> value) { m_elementOrNullMember = value; }
+    bool hasEnumSequenceMember() const { return !m_enumSequenceMember.isNull(); }
+    const Vector<String>& enumSequenceMember() const { return m_enumSequenceMember.get(); }
+    void setEnumSequenceMember(const Vector<String>& value) { m_enumSequenceMember = value; }
+
+    bool hasEventTargetMember() const { return m_eventTargetMember; }
+    PassRefPtrWillBeRawPtr<EventTarget> eventTargetMember() const { return m_eventTargetMember; }
+    void setEventTargetMember(PassRefPtrWillBeRawPtr<EventTarget> value) { m_eventTargetMember = value; }
+
+    bool hasInternalDictionarySequenceMember() const { return !m_internalDictionarySequenceMember.isNull(); }
+    const HeapVector<InternalDictionary>& internalDictionarySequenceMember() const { return m_internalDictionarySequenceMember.get(); }
+    void setInternalDictionarySequenceMember(const HeapVector<InternalDictionary>& value) { m_internalDictionarySequenceMember = value; }
+
+    bool hasLongMember() const { return !m_longMember.isNull(); }
+    int longMember() const { return m_longMember.get(); }
+    void setLongMember(int value) { m_longMember = value; }
 
     bool hasObjectMember() const { return !(m_objectMember.isEmpty() || m_objectMember.isNull() || m_objectMember.isUndefined()); }
     ScriptValue objectMember() const { return m_objectMember; }
@@ -91,32 +87,119 @@ public:
     bool hasObjectOrNullMember() const { return !(m_objectOrNullMember.isEmpty() || m_objectOrNullMember.isNull() || m_objectOrNullMember.isUndefined()); }
     ScriptValue objectOrNullMember() const { return m_objectOrNullMember; }
     void setObjectOrNullMember(ScriptValue value) { m_objectOrNullMember = value; }
+    void setObjectOrNullMemberToNull() { m_objectOrNullMember = ScriptValue(); }
 
-    bool hasCreateMember() const { return !m_createMember.isNull(); }
-    bool createMember() const { return m_createMember.get(); }
-    void setCreateMember(bool value) { m_createMember = value; }
+    bool hasOtherDoubleOrStringMember() const { return !m_otherDoubleOrStringMember.isNull(); }
+    const DoubleOrString& otherDoubleOrStringMember() const { return m_otherDoubleOrStringMember; }
+    void setOtherDoubleOrStringMember(const DoubleOrString& value) { m_otherDoubleOrStringMember = value; }
 
-    void trace(Visitor*);
+    bool hasRestrictedDoubleMember() const { return !m_restrictedDoubleMember.isNull(); }
+    double restrictedDoubleMember() const { return m_restrictedDoubleMember.get(); }
+    void setRestrictedDoubleMember(double value) { m_restrictedDoubleMember = value; }
+
+    bool hasStringArrayMember() const { return !m_stringArrayMember.isNull(); }
+    const Vector<String>& stringArrayMember() const { return m_stringArrayMember.get(); }
+    void setStringArrayMember(const Vector<String>& value) { m_stringArrayMember = value; }
+
+    bool hasStringMember() const { return !m_stringMember.isNull(); }
+    String stringMember() const { return m_stringMember; }
+    void setStringMember(String value) { m_stringMember = value; }
+
+    bool hasStringOrNullMember() const { return !m_stringOrNullMember.isNull(); }
+    String stringOrNullMember() const { return m_stringOrNullMember; }
+    void setStringOrNullMember(String value) { m_stringOrNullMember = value; }
+    void setStringOrNullMemberToNull() { m_stringOrNullMember = String(); }
+
+    bool hasStringSequenceMember() const { return !m_stringSequenceMember.isNull(); }
+    const Vector<String>& stringSequenceMember() const { return m_stringSequenceMember.get(); }
+    void setStringSequenceMember(const Vector<String>& value) { m_stringSequenceMember = value; }
+
+    bool hasTestInterface2OrUint8ArrayMember() const { return !m_testInterface2OrUint8ArrayMember.isNull(); }
+    const TestInterface2OrUint8Array& testInterface2OrUint8ArrayMember() const { return m_testInterface2OrUint8ArrayMember; }
+    void setTestInterface2OrUint8ArrayMember(const TestInterface2OrUint8Array& value) { m_testInterface2OrUint8ArrayMember = value; }
+
+    bool hasTestInterfaceGarbageCollectedMember() const { return m_testInterfaceGarbageCollectedMember; }
+    TestInterfaceGarbageCollected* testInterfaceGarbageCollectedMember() const { return m_testInterfaceGarbageCollectedMember; }
+    void setTestInterfaceGarbageCollectedMember(TestInterfaceGarbageCollected* value) { m_testInterfaceGarbageCollectedMember = value; }
+
+    bool hasTestInterfaceGarbageCollectedOrNullMember() const { return m_testInterfaceGarbageCollectedOrNullMember; }
+    TestInterfaceGarbageCollected* testInterfaceGarbageCollectedOrNullMember() const { return m_testInterfaceGarbageCollectedOrNullMember; }
+    void setTestInterfaceGarbageCollectedOrNullMember(TestInterfaceGarbageCollected* value) { m_testInterfaceGarbageCollectedOrNullMember = value; }
+    void setTestInterfaceGarbageCollectedOrNullMemberToNull() { m_testInterfaceGarbageCollectedOrNullMember = Member<TestInterfaceGarbageCollected>(); }
+
+    bool hasTestInterfaceGarbageCollectedSequenceMember() const { return !m_testInterfaceGarbageCollectedSequenceMember.isNull(); }
+    const HeapVector<Member<TestInterfaceGarbageCollected>>& testInterfaceGarbageCollectedSequenceMember() const { return m_testInterfaceGarbageCollectedSequenceMember.get(); }
+    void setTestInterfaceGarbageCollectedSequenceMember(const HeapVector<Member<TestInterfaceGarbageCollected>>& value) { m_testInterfaceGarbageCollectedSequenceMember = value; }
+
+    bool hasTestInterfaceMember() const { return m_testInterfaceMember; }
+    PassRefPtr<TestInterfaceImplementation> testInterfaceMember() const { return m_testInterfaceMember; }
+    void setTestInterfaceMember(PassRefPtr<TestInterfaceImplementation> value) { m_testInterfaceMember = value; }
+
+    bool hasTestInterfaceOrNullMember() const { return m_testInterfaceOrNullMember; }
+    PassRefPtr<TestInterfaceImplementation> testInterfaceOrNullMember() const { return m_testInterfaceOrNullMember; }
+    void setTestInterfaceOrNullMember(PassRefPtr<TestInterfaceImplementation> value) { m_testInterfaceOrNullMember = value; }
+    void setTestInterfaceOrNullMemberToNull() { m_testInterfaceOrNullMember = RefPtr<TestInterfaceImplementation>(); }
+
+    bool hasTestInterfaceSequenceMember() const { return !m_testInterfaceSequenceMember.isNull(); }
+    const Vector<RefPtr<TestInterfaceImplementation>>& testInterfaceSequenceMember() const { return m_testInterfaceSequenceMember.get(); }
+    void setTestInterfaceSequenceMember(const Vector<RefPtr<TestInterfaceImplementation>>& value) { m_testInterfaceSequenceMember = value; }
+
+    bool hasTestInterfaceWillBeGarbageCollectedMember() const { return m_testInterfaceWillBeGarbageCollectedMember; }
+    PassRefPtrWillBeRawPtr<TestInterfaceWillBeGarbageCollected> testInterfaceWillBeGarbageCollectedMember() const { return m_testInterfaceWillBeGarbageCollectedMember; }
+    void setTestInterfaceWillBeGarbageCollectedMember(PassRefPtrWillBeRawPtr<TestInterfaceWillBeGarbageCollected> value) { m_testInterfaceWillBeGarbageCollectedMember = value; }
+
+    bool hasTestInterfaceWillBeGarbageCollectedOrNullMember() const { return m_testInterfaceWillBeGarbageCollectedOrNullMember; }
+    PassRefPtrWillBeRawPtr<TestInterfaceWillBeGarbageCollected> testInterfaceWillBeGarbageCollectedOrNullMember() const { return m_testInterfaceWillBeGarbageCollectedOrNullMember; }
+    void setTestInterfaceWillBeGarbageCollectedOrNullMember(PassRefPtrWillBeRawPtr<TestInterfaceWillBeGarbageCollected> value) { m_testInterfaceWillBeGarbageCollectedOrNullMember = value; }
+    void setTestInterfaceWillBeGarbageCollectedOrNullMemberToNull() { m_testInterfaceWillBeGarbageCollectedOrNullMember = RefPtrWillBeMember<TestInterfaceWillBeGarbageCollected>(); }
+
+    bool hasTestInterfaceWillBeGarbageCollectedSequenceMember() const { return !m_testInterfaceWillBeGarbageCollectedSequenceMember.isNull(); }
+    const WillBeHeapVector<RefPtrWillBeMember<TestInterfaceWillBeGarbageCollected>>& testInterfaceWillBeGarbageCollectedSequenceMember() const { return m_testInterfaceWillBeGarbageCollectedSequenceMember.get(); }
+    void setTestInterfaceWillBeGarbageCollectedSequenceMember(const WillBeHeapVector<RefPtrWillBeMember<TestInterfaceWillBeGarbageCollected>>& value) { m_testInterfaceWillBeGarbageCollectedSequenceMember = value; }
+
+    bool hasUint8ArrayMember() const { return m_uint8ArrayMember; }
+    PassRefPtr<DOMUint8Array> uint8ArrayMember() const { return m_uint8ArrayMember; }
+    void setUint8ArrayMember(PassRefPtr<DOMUint8Array> value) { m_uint8ArrayMember = value; }
+
+    bool hasUnrestrictedDoubleMember() const { return !m_unrestrictedDoubleMember.isNull(); }
+    double unrestrictedDoubleMember() const { return m_unrestrictedDoubleMember.get(); }
+    void setUnrestrictedDoubleMember(double value) { m_unrestrictedDoubleMember = value; }
+
+    DECLARE_VIRTUAL_TRACE();
 
 private:
+    ScriptValue m_anyMember;
     Nullable<bool> m_booleanMember;
-    Nullable<int> m_longMember;
-    String m_stringMember;
-    RefPtr<TestInterfaceImplementation> m_testInterfaceMember;
+    Nullable<bool> m_createMember;
     Nullable<double> m_doubleOrNullMember;
-    String m_stringOrNullMember;
-    RefPtr<TestInterfaceImplementation> m_testInterfaceOrNullMember;
-    Member<TestInterfaceGarbageCollected> m_testInterfaceGarbageCollectedMember;
-    Member<TestInterfaceGarbageCollected> m_testInterfaceGarbageCollectedOrNullMember;
-    RefPtrWillBeMember<TestInterfaceWillBeGarbageCollected> m_testInterfaceWillBeGarbageCollectedMember;
-    RefPtrWillBeMember<TestInterfaceWillBeGarbageCollected> m_testInterfaceWillBeGarbageCollectedOrNullMember;
-    Nullable<Vector<String> > m_stringArrayMember;
-    Nullable<Vector<String> > m_stringSequenceMember;
-    String m_enumMember;
+    DoubleOrString m_doubleOrStringMember;
+    Nullable<HeapVector<DoubleOrString>> m_doubleOrStringSequenceMember;
     RefPtrWillBeMember<Element> m_elementOrNullMember;
+    String m_enumMember;
+    Nullable<Vector<String>> m_enumSequenceMember;
+    RefPtrWillBeMember<EventTarget> m_eventTargetMember;
+    Nullable<HeapVector<InternalDictionary>> m_internalDictionarySequenceMember;
+    Nullable<int> m_longMember;
     ScriptValue m_objectMember;
     ScriptValue m_objectOrNullMember;
-    Nullable<bool> m_createMember;
+    DoubleOrString m_otherDoubleOrStringMember;
+    Nullable<double> m_restrictedDoubleMember;
+    Nullable<Vector<String>> m_stringArrayMember;
+    String m_stringMember;
+    String m_stringOrNullMember;
+    Nullable<Vector<String>> m_stringSequenceMember;
+    TestInterface2OrUint8Array m_testInterface2OrUint8ArrayMember;
+    Member<TestInterfaceGarbageCollected> m_testInterfaceGarbageCollectedMember;
+    Member<TestInterfaceGarbageCollected> m_testInterfaceGarbageCollectedOrNullMember;
+    Nullable<HeapVector<Member<TestInterfaceGarbageCollected>>> m_testInterfaceGarbageCollectedSequenceMember;
+    RefPtr<TestInterfaceImplementation> m_testInterfaceMember;
+    RefPtr<TestInterfaceImplementation> m_testInterfaceOrNullMember;
+    Nullable<Vector<RefPtr<TestInterfaceImplementation>>> m_testInterfaceSequenceMember;
+    RefPtrWillBeMember<TestInterfaceWillBeGarbageCollected> m_testInterfaceWillBeGarbageCollectedMember;
+    RefPtrWillBeMember<TestInterfaceWillBeGarbageCollected> m_testInterfaceWillBeGarbageCollectedOrNullMember;
+    Nullable<WillBeHeapVector<RefPtrWillBeMember<TestInterfaceWillBeGarbageCollected>>> m_testInterfaceWillBeGarbageCollectedSequenceMember;
+    RefPtr<DOMUint8Array> m_uint8ArrayMember;
+    Nullable<double> m_unrestrictedDoubleMember;
 
     friend class V8TestDictionary;
 };

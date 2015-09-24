@@ -68,8 +68,8 @@ class UserInputMonitorLinuxCore
   static void ProcessReply(XPointer self, XRecordInterceptData* data);
 
   scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
-  scoped_refptr<ObserverListThreadSafe<UserInputMonitor::MouseEventListener> >
-      mouse_listeners_;
+  scoped_refptr<base::ObserverListThreadSafe<
+      UserInputMonitor::MouseEventListener>> mouse_listeners_;
 
   //
   // The following members should only be accessed on the IO thread.
@@ -294,7 +294,8 @@ void UserInputMonitorLinuxCore::ProcessXEvent(xEvent* event) {
     SkIPoint position(SkIPoint::Make(event->u.keyButtonPointer.rootX,
                                      event->u.keyButtonPointer.rootY));
     mouse_listeners_->Notify(
-        &UserInputMonitor::MouseEventListener::OnMouseMoved, position);
+        FROM_HERE, &UserInputMonitor::MouseEventListener::OnMouseMoved,
+        position);
   } else {
     ui::EventType type;
     if (event->u.u.type == KeyPress) {

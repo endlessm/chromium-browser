@@ -35,17 +35,12 @@ namespace blink {
 
 String CSSGridLineNamesValue::customCSSText() const
 {
-    return "(" + CSSValueList::customCSSText() + ")";
+    return "[" + CSSValueList::customCSSText() + "]";
 }
 
 CSSGridLineNamesValue::CSSGridLineNamesValue()
     : CSSValueList(GridLineNamesClass, SpaceSeparator)
 {
-}
-
-PassRefPtrWillBeRawPtr<CSSGridLineNamesValue> CSSGridLineNamesValue::cloneForCSSOM() const
-{
-    return adoptRefWillBeNoop(new CSSGridLineNamesValue(*this));
 }
 
 }

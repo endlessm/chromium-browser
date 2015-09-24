@@ -14,6 +14,10 @@
 #import "chrome/browser/ui/cocoa/view_id_util.h"
 #include "ui/gfx/scoped_ns_graphics_context_save_gstate_mac.h"
 
+namespace {
+const CGFloat kAnimationDuration = 0.2;
+}
+
 @implementation AutocompleteTextField
 
 @synthesize observer = observer_;
@@ -32,6 +36,9 @@
   [[self cell] setTruncatesLastVisibleLine:YES];
   [[self cell] setLineBreakMode:NSLineBreakByTruncatingTail];
   currentToolTips_.reset([[NSMutableArray alloc] init]);
+  resizeAnimation_.reset([[NSViewAnimation alloc] init]);
+  [resizeAnimation_ setDuration:kAnimationDuration];
+  [resizeAnimation_ setAnimationBlockingMode:NSAnimationNonblocking];
 }
 
 - (void)flagsChanged:(NSEvent*)theEvent {
@@ -181,16 +188,6 @@
   [super otherMouseDown:event];
 }
 
-// Received from tracking areas. Pass it down to the cell, and add the field.
-- (void)mouseEntered:(NSEvent*)theEvent {
-  [[self cell] mouseEntered:theEvent inView:self];
-}
-
-// Received from tracking areas. Pass it down to the cell, and add the field.
-- (void)mouseExited:(NSEvent*)theEvent {
-  [[self cell] mouseExited:theEvent inView:self];
-}
-
 // Overridden so that cursor and tooltip rects can be updated.
 - (void)setFrame:(NSRect)frameRect {
   [super setFrame:frameRect];
@@ -219,6 +216,28 @@
   if (!undoManager_.get())
     undoManager_.reset([[NSUndoManager alloc] init]);
   return undoManager_.get();
+}
+
+- (void)animateToFrame:(NSRect)frame {
+  [self stopAnimation];
+  NSDictionary* animationDictionary = @{
+    NSViewAnimationTargetKey : self,
+    NSViewAnimationStartFrameKey : [NSValue valueWithRect:[self frame]],
+    NSViewAnimationEndFrameKey : [NSValue valueWithRect:frame]
+  };
+  [resizeAnimation_ setViewAnimations:@[ animationDictionary ]];
+  [resizeAnimation_ startAnimation];
+}
+
+- (void)stopAnimation {
+  if ([resizeAnimation_ isAnimating]) {
+    // [NSViewAnimation stopAnimation] results in advancing the animation to
+    // the end. Since this is almost certainly not the behavior we want, reset
+    // the frame to the current frame.
+    NSRect frame = [self frame];
+    [resizeAnimation_ stopAnimation];
+    [self setFrame:frame];
+  }
 }
 
 - (void)clearUndoChain {
@@ -278,9 +297,6 @@
   // Reload the decoration tooltips.
   [currentToolTips_ removeAllObjects];
   [[self cell] updateToolTipsInRect:[self bounds] ofView:self];
-
-  // Setup/update the tracking areas for the decorations.
-  [[self cell] setUpTrackingAreasInRect:[self bounds] ofView:self];
 }
 
 // NOTE(shess): http://crbug.com/19116 describes a weird bug which
@@ -363,6 +379,17 @@
     DCHECK_EQ([self currentEditor], [[self window] firstResponder]);
     return NO;
   }
+
+  // If the event is a left-mouse click, and it lands on a decoration, then the
+  // event should not cause the text field to become first responder.
+  NSEvent* event = [NSApp currentEvent];
+  if ([event type] == NSLeftMouseDown) {
+    LocationBarDecoration* decoration =
+        [[self cell] decorationForEvent:event inRect:[self bounds] ofView:self];
+    if (decoration && decoration->AcceptsMousePress())
+      return NO;
+  }
+
   return [super acceptsFirstResponder];
 }
 

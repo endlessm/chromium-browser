@@ -17,8 +17,8 @@ Glossary:
     be something such as "win_x86_nacl_x86" or "mac_x86_nacl_x86". In that case,
     "win_x86_nacl_x86" and "mac_x86_nacl_x86" would each have their own version
     of "nacl_x86_glibc" and "nacl_x86_newlib" for windows and mac respectively.
-  Revision Number: The SVN revision number of a sanctioned version. This number
-    is used to synchronize packages to sanctioned versions.
+  Revision: The revision identifier of a sanctioned version.
+    This is used to synchronize packages to sanctioned versions.
 
 JSON Files:
   Packages File - A file which describes the various package targets for each
@@ -136,37 +136,6 @@ def DownloadPackageArchives(tar_dir, package_target, package_name, package_desc,
   local_package_file = package_locations.GetLocalPackageFile(tar_dir,
                                                              package_target,
                                                              package_name)
-  # To ensure that we do not redownload extra archives that we already have,
-  # create a dictionary of old package archives that contains the hash of each
-  # package archive.
-  old_archives = {}
-  if os.path.isfile(local_package_file):
-    try:
-      old_package_desc = package_info.PackageInfo(local_package_file)
-      old_archives_list = old_package_desc.GetArchiveList()
-      old_archive_names = [archive.GetArchiveData().name
-                           for archive
-                           in old_archives_list]
-      for archive_name in old_archive_names:
-        archive_file = package_locations.GetLocalPackageArchiveFile(
-            tar_dir,
-            package_target,
-            package_name,
-            archive_name
-            )
-
-        archive_hash = archive_info.GetArchiveHash(archive_file)
-        if archive_hash is not None:
-          old_archives[archive_name] = archive_hash
-    except:
-      # Nothing can be trusted here anymore, delete all package archives.
-      archive_directory = package_locations.GetLocalPackageArchiveDir(
-          tar_dir,
-          package_target,
-          package_name
-          )
-      os.unlink(local_package_file)
-      pynacl.file_tools.RemoveDir(archive_directory)
 
   # Download packages information file along with each of the package
   # archives described in the information file. Also keep track of what
@@ -175,25 +144,24 @@ def DownloadPackageArchives(tar_dir, package_target, package_name, package_desc,
   update_archives = []
   for archive_obj in package_desc.GetArchiveList():
     archive_desc = archive_obj.GetArchiveData()
-    old_hash = old_archives.get(archive_desc.name, None)
-    if old_hash is not None:
-      old_archives.pop(archive_desc.name)
-      if archive_desc.hash == old_hash:
+    local_archive_file = package_locations.GetLocalPackageArchiveFile(
+        tar_dir,
+        archive_desc.name,
+        archive_desc.hash)
+
+    old_hash = archive_info.GetArchiveHash(local_archive_file)
+    if archive_desc.hash == old_hash:
         logging.debug('Skipping matching archive: %s', archive_desc.name)
         continue
-    update_archives.append(archive_obj)
+
+    archive_tuple = (local_archive_file, archive_obj.GetArchiveData())
+    update_archives.append(archive_tuple)
 
   if update_archives:
     logging.info('--Syncing %s to revision %s--' % (package_name, revision_num))
     num_archives = len(update_archives)
-    for index, archive_obj in enumerate(update_archives):
-      archive_desc = archive_obj.GetArchiveData()
-      local_archive_file = package_locations.GetLocalPackageArchiveFile(
-          tar_dir,
-          package_target,
-          package_name,
-          archive_desc.name
-      )
+    for index, archive_tuple in enumerate(update_archives):
+      local_archive_file, archive_desc = archive_tuple
       pynacl.file_tools.MakeParentDirectoryIfAbsent(local_archive_file)
 
       if archive_desc.url is None:
@@ -209,8 +177,7 @@ def DownloadPackageArchives(tar_dir, package_target, package_name, package_desc,
 
       # Delete any stale log files
       local_archive_log = package_locations.GetLocalPackageArchiveLogFile(
-          local_archive_file
-      )
+          local_archive_file)
       if os.path.isfile(local_archive_log):
         os.unlink(local_archive_log)
 
@@ -229,13 +196,10 @@ def DownloadPackageArchives(tar_dir, package_target, package_name, package_desc,
       if archive_desc.log_url:
         local_archive_file = package_locations.GetLocalPackageArchiveFile(
             tar_dir,
-            package_target,
-            package_name,
-            archive_desc.name
-        )
+            archive_desc.name,
+            archive_desc.hash)
         local_archive_log = package_locations.GetLocalPackageArchiveLogFile(
-            local_archive_file
-        )
+            local_archive_file)
         if not os.path.isfile(local_archive_log):
           download_log_tuple = (archive_desc.name,
                                 archive_desc.log_url,
@@ -256,23 +220,17 @@ def DownloadPackageArchives(tar_dir, package_target, package_name, package_desc,
           raise IOError('Could not download log URL (%s): %s' %
                         (log_url, e))
 
-  # Delete any stale left over packages.
-  for old_archive in old_archives:
-    archive_file = package_locations.GetLocalPackageArchiveFile(
-        tar_dir,
-        package_target,
-        package_name,
-        old_archive)
-    os.unlink(archive_file)
-
-    archive_log = package_locations.GetLocalPackageArchiveLogFile(archive_file)
-    if os.path.isfile(archive_log):
-      os.unlink(archive_log)
-
   # Save the package file so we know what we currently have.
-  if update_archives or old_archives:
-    package_desc.SavePackageFile(local_package_file)
+  if not update_archives and os.path.isfile(local_package_file):
+    try:
+      local_package_desc = package_info.PackageInfo(local_package_file)
+      if local_package_desc == package_desc:
+        return downloaded_files
+    except:
+      # Something is wrong with our package file, just resave it.
+      pass
 
+  package_desc.SavePackageFile(local_package_file)
   return downloaded_files
 
 
@@ -338,23 +296,6 @@ def ArchivePackageArchives(tar_dir, package_target, package_name, archives,
     archive_json = archive_basename + '.json'
     valid_archive_files.update([archive_basename, archive_json])
 
-  # Delete any stale archive files
-  local_archive_dir = package_locations.GetLocalPackageArchiveDir(
-      tar_dir,
-      package_target,
-      package_name)
-
-  if os.path.isdir(local_archive_dir):
-    for dir_item in os.listdir(local_archive_dir):
-      if dir_item in valid_archive_files:
-        continue
-
-      item_path = os.path.join(local_archive_dir, dir_item)
-      if os.path.isdir(item_path):
-        pynacl.file_tools.RemoveDir(item_path)
-      else:
-        pynacl.file_tools.RemoveFile(item_path)
-
   # We do not need to archive the package if it already matches. But if the
   # local package file is invalid or does not match, then we should recreate
   # the json file.
@@ -370,15 +311,19 @@ def ArchivePackageArchives(tar_dir, package_target, package_name, archives,
   # Copy each of the packages over to the tar directory first.
   for archive_file in archive_list:
     archive_name = os.path.basename(archive_file)
+    archive_hash = archive_info.GetArchiveHash(archive_file)
     local_archive_file = package_locations.GetLocalPackageArchiveFile(
         tar_dir,
-        package_target,
-        package_name,
-        archive_name)
+        archive_name,
+        archive_hash
+    )
 
-    logging.info('Archiving file: %s', archive_file)
-    pynacl.file_tools.MakeParentDirectoryIfAbsent(local_archive_file)
-    shutil.copyfile(archive_file, local_archive_file)
+    if archive_hash == archive_info.GetArchiveHash(local_archive_file):
+      logging.info('Skipping archive of duplicate file: %s', archive_file)
+    else:
+      logging.info('Archiving file: %s', archive_file)
+      pynacl.file_tools.MakeParentDirectoryIfAbsent(local_archive_file)
+      shutil.copyfile(archive_file, local_archive_file)
 
   # Once all the copying is completed, update the local packages file.
   logging.info('Package "%s" archived: %s', package_name, local_package_file)
@@ -402,7 +347,7 @@ def UploadPackage(storage, revision, tar_dir, package_target, package_name,
 
   Args:
     storage: Cloud storage object which supports PutFile and GetFile.
-    revision: SVN Revision number the package should be associated with.
+    revision: Revision identifier the package should be associated with.
     tar_dir: Root tar directory where archives live.
     package_target: Package target of the package to archive.
     package_name: Package name of the package to archive.
@@ -436,9 +381,8 @@ def UploadPackage(storage, revision, tar_dir, package_target, package_name,
 
       archive_file = package_locations.GetLocalPackageArchiveFile(
           tar_dir,
-          package_target,
-          package_name,
-          archive_desc.name)
+          archive_desc.name,
+          archive_desc.hash)
       archive_hash = archive_info.GetArchiveHash(archive_file)
       if archive_hash is None:
         raise error.Error('Missing Archive File: %s' % archive_file)
@@ -479,7 +423,8 @@ def UploadPackage(storage, revision, tar_dir, package_target, package_name,
 
 
 def ExtractPackageTargets(package_target_packages, tar_dir, dest_dir,
-                          downloader=None, skip_missing=False, quiet=False):
+                          downloader=None, skip_missing=False,
+                          overlay_tar_dir=None, quiet=False):
   """Extracts package targets from the tar directory to the destination.
 
   Each package archive within a package will be verified before being
@@ -509,6 +454,33 @@ def ExtractPackageTargets(package_target_packages, tar_dir, dest_dir,
                                                              package_target,
                                                              package_name)
 
+    # Get a list of overlay archives.
+    overlaid_archives = set()
+    if overlay_tar_dir:
+      overlay_file = package_locations.GetLocalPackageFile(overlay_tar_dir,
+                                                           package_target,
+                                                           package_name)
+      logging.debug('Checking overlaid package file: %s', overlay_file)
+      if os.path.isfile(overlay_file):
+        logging.info('Found overlaid package file: %s', overlay_file)
+        overlay_package_desc = package_info.PackageInfo(overlay_file,
+                                                        skip_missing=True)
+
+        combined_archives = dict([(archive_obj.GetArchiveData().name,
+                                   archive_obj)
+                                 for archive_obj
+                                 in package_desc.GetArchiveList()])
+
+        for archive_obj in overlay_package_desc.GetArchiveList():
+          archive_desc = archive_obj.GetArchiveData()
+          if archive_desc.hash:
+            overlaid_archives.add(archive_desc.name)
+            combined_archives[archive_desc.name] = archive_obj
+
+        package_desc = package_info.PackageInfo()
+        for archive_name, archive_obj in combined_archives.iteritems():
+          package_desc.AppendArchive(archive_obj)
+
     # Only do the extraction if the extract packages do not match.
     if os.path.isfile(dest_package_file):
       try:
@@ -525,7 +497,7 @@ def ExtractPackageTargets(package_target_packages, tar_dir, dest_dir,
 
     if os.path.isdir(dest_package_dir):
       logging.debug('Deleting old package directory: %s', dest_package_dir)
-      pynacl.file_tools.RemoveDir(dest_package_dir)
+      pynacl.file_tools.RemoveDirectoryIfPresent(dest_package_dir)
 
     logging.info('Extracting package (%s) to directory: %s',
                  package_name, dest_package_dir)
@@ -533,12 +505,18 @@ def ExtractPackageTargets(package_target_packages, tar_dir, dest_dir,
     num_archives = len(archive_list)
     for index, archive_obj in enumerate(archive_list):
       archive_desc = archive_obj.GetArchiveData()
-      archive_file = package_locations.GetLocalPackageArchiveFile(
-          tar_dir,
-          package_target,
-          package_name,
-          archive_desc.name
-      )
+      archive_file = None
+      if archive_desc.name in overlaid_archives:
+        archive_file = package_locations.GetLocalPackageArchiveFile(
+            overlay_tar_dir,
+            archive_desc.name,
+            archive_desc.hash)
+        logging.info('Using overlaid tar: %s', archive_file)
+      else:
+        archive_file = package_locations.GetLocalPackageArchiveFile(
+            tar_dir,
+            archive_desc.name,
+            archive_desc.hash)
 
       # Upon extraction, some files may not be downloaded (or have stale files),
       # we need to check the hash of each file and attempt to download it if
@@ -552,8 +530,8 @@ def ExtractPackageTargets(package_target_packages, tar_dir, dest_dir,
             continue
           raise error.Error('Invalid archive file and URL: %s' % archive_file)
 
-        logging.warn('Expected archive missing, downloading: %s',
-                     archive_desc.name)
+        logging.warn('Archive missing, downloading: %s', archive_desc.name)
+        logging.info('Downloading %s: %s', archive_desc.name, archive_desc.url)
 
         pynacl.file_tools.MakeParentDirectoryIfAbsent(archive_file)
         downloader(archive_desc.url, archive_file)
@@ -568,7 +546,7 @@ def ExtractPackageTargets(package_target_packages, tar_dir, dest_dir,
                    (archive_desc.name, index+1, num_archives))
 
       temp_dir = os.path.join(destination_dir, '.tmp')
-      pynacl.file_tools.RemoveDir(temp_dir)
+      pynacl.file_tools.RemoveDirectoryIfPresent(temp_dir)
       os.makedirs(temp_dir)
       tar_output = not quiet
       tar = cygtar.CygTar(archive_file, 'r:*', verbose=tar_output)
@@ -582,10 +560,81 @@ def ExtractPackageTargets(package_target_packages, tar_dir, dest_dir,
 
       temp_src_dir = os.path.join(temp_dir, archive_desc.tar_src_dir)
       pynacl.file_tools.MoveAndMergeDirTree(temp_src_dir, destination_dir)
-      pynacl.file_tools.RemoveDir(temp_dir)
+      pynacl.file_tools.RemoveDirectoryIfPresent(temp_dir)
 
     pynacl.file_tools.MakeParentDirectoryIfAbsent(dest_package_file)
     package_desc.SavePackageFile(dest_package_file)
+
+
+def CleanupTarDirectory(tar_dir):
+  """Deletes any files within the tar directory that are not referenced.
+
+  Files such as package archives are shared between packages and therefore
+  non-trivial to delete. Package files may also change so old packages may
+  stay on the local hard drive even though they are not read anymore. This
+  function will walk through the tar directory and cleanup any stale files
+  it does not recognize.
+
+  Args:
+    tar_dir: Source tar directory where package archives live.
+  """
+  # Keep track of the names of all known files and directories. Because of
+  # case insensitive file systems, we should lowercase all the paths so
+  # that we do not accidentally delete any files.
+  known_directories = set()
+  known_files = set()
+
+  for package_target, package_list in package_locations.WalkPackages(tar_dir):
+    for package_name in package_list:
+      package_file = package_locations.GetLocalPackageFile(tar_dir,
+                                                           package_target,
+                                                           package_name)
+      try:
+        package_desc = package_info.PackageInfo(package_file, skip_missing=True)
+      except:
+        continue
+
+      for archive_obj in package_desc.GetArchiveList():
+        archive_desc = archive_obj.GetArchiveData()
+        if not archive_desc.hash:
+          continue
+        archive_file = package_locations.GetLocalPackageArchiveFile(
+            tar_dir,
+            archive_desc.name,
+            archive_desc.hash)
+        log_file = package_locations.GetLocalPackageArchiveLogFile(archive_file)
+
+        known_files.add(archive_file.lower())
+        known_files.add(log_file.lower())
+
+      package_name = package_info.GetLocalPackageName(package_file)
+      package_directory = os.path.join(os.path.dirname(package_file),
+                                       package_name)
+
+      known_files.add(package_file.lower())
+      known_directories.add(package_directory.lower())
+
+  # We are going to be deleting all files that do not match any known files,
+  # so do a sanity check that this is an actual tar directory. If we have no
+  # known files or directories, we probably do not have a valid tar directory.
+  if not known_directories or not known_files:
+    raise error.Error('No packages found for tar directory: %s' % tar_dir)
+
+  for dirpath, dirnames, filenames in os.walk(tar_dir, topdown=False):
+    if dirpath.lower() in known_directories:
+      continue
+
+    for filename in filenames:
+      full_path = os.path.join(dirpath, filename)
+      if full_path.lower() in known_files:
+        continue
+
+      logging.debug('Removing stale file: %s', full_path)
+      os.unlink(full_path)
+
+    if not os.listdir(dirpath):
+      logging.debug('Removing stale directory: %s', dirpath)
+      os.rmdir(dirpath)
 
 
 #
@@ -604,11 +653,26 @@ def _DoListCmd(arguments):
   for package_target, package in arguments.package_target_packages:
     package_targets[package_target].append(package)
 
+  modes_dict = arguments.packages_desc.GetPackageModes()
+  if not modes_dict:
+    print 'No Package Modes Found.'
+  else:
+    print 'Listing Modes:'
+    for mode, package_list in modes_dict.iteritems():
+      print ' [%s]' % mode
+      for package in package_list:
+        print '  ', package
+
+  if arguments.mode:
+    print
+    print 'Current Mode Selected:', arguments.mode
+
+  print
   print 'Listing Package Targets and Packages:'
   for package_target, packages in package_targets.iteritems():
-    print '\n%s:' % package_target
+    print ' [%s]:' % package_target
     for package in sorted(packages):
-      print ' ', package
+      print '  ', package
 
 
 def _ArchiveCmdArgParser(subparser):
@@ -665,6 +729,11 @@ def _ExtractCmdArgParser(subparser):
     '--skip-missing', dest='extract__skip_missing',
     action='store_true', default=False,
     help='Skip missing archive files when extracting rather than erroring out.')
+  subparser.add_argument(
+    '--overlay-tar-dir', dest='overlay_tar_dir',
+    default=None,
+    help='Extracts tar directorys as usual, except uses any packages' +
+         ' found within the overlay tar directory first.')
 
 
 def _DoExtractCmd(arguments):
@@ -673,6 +742,7 @@ def _DoExtractCmd(arguments):
       arguments.tar_dir,
       arguments.dest_dir,
       skip_missing=arguments.extract__skip_missing,
+      overlay_tar_dir=arguments.overlay_tar_dir,
       quiet=arguments.quiet)
 
 
@@ -682,8 +752,8 @@ def _UploadCmdArgParser(subparser):
     '--upload-package', metavar='NAME', dest='upload__package', required=True,
     help='Package to upload.')
   subparser.add_argument(
-    '--revision', metavar='NUM', dest='upload__revision', required=True,
-    help='SVN Revision of the package to upload.')
+    '--revision', metavar='ID', dest='upload__revision', required=True,
+    help='Revision of the package to upload.')
   subparser.add_argument(
     '--package-file', metavar='FILE', dest='upload__file',
     default=None,
@@ -721,9 +791,9 @@ def _DoUploadCmd(arguments):
 def _SyncCmdArgParser(subparser):
   subparser.description = 'Download package archives to the tar directory.'
   subparser.add_argument(
-    '--revision', metavar='NUM', dest='sync__revision',
+    '--revision', metavar='ID', dest='sync__revision',
     default=None,
-    help='SVN Revision of the packages to download.')
+    help='Revision identifier of the packages to download.')
   subparser.add_argument(
     '--include-logs', dest='sync__include_logs',
     action='store_true', default=False,
@@ -790,61 +860,77 @@ def _SetRevisionCmdArgParser(subparser):
   subparser.description = 'Specify the revision of a package.'
   subparser.add_argument(
     '--revision-package', metavar='NAME', dest='setrevision__package',
-    required=True,
+    action='append', default=[],
     help='Package name to set revision of.')
   subparser.add_argument(
-    '--revision', metavar='NUM', dest='setrevision__revision',
-    type=int, required=True,
-    help='SVN Revision of the package to set.')
+    '--revision-set', metavar='SET-NAME', dest='setrevision__revset',
+    action='append', default=[],
+    help='Revision set to set revision for.')
+  subparser.add_argument(
+    '--revision', metavar='ID', dest='setrevision__revision',
+    required=True,
+    help='Revision identifier of the package to set.')
 
 
 def _DoSetRevisionCmd(arguments):
-  package_name = arguments.setrevision__package
+  packages_list = arguments.setrevision__package
+  revision_sets = arguments.setrevision__revset
   revision_num = arguments.setrevision__revision
 
-  revision_desc = revision_info.RevisionInfo(arguments.packages_desc)
-  revision_desc.SetRevisionNumber(revision_num)
+  for revision_set in revision_sets:
+    set_packages = arguments.packages_desc.GetRevisionSet(revision_set)
+    if set_packages is None:
+      raise error.Error('Invalid Revision Set: %s' % revision_set)
+    packages_list.extend(set_packages)
 
-  custom_package_targets = GetPackageTargetPackages(package_name, [])
-  if not custom_package_targets:
-    package_targets = arguments.packages_desc.GetPackageTargetsForPackage(
-        package_name)
-  else:
-    package_targets = [target[0] for target in custom_package_targets]
-    first_target = custom_package_targets[0]
-    package_name = first_target[1]
+  if not packages_list:
+    raise error.Error('No revision packages have been supplied.')
 
-  with pynacl.working_directory.TemporaryWorkingDirectory() as work_dir:
+  for package_name in packages_list:
+    revision_desc = revision_info.RevisionInfo(arguments.packages_desc)
+    revision_desc.SetRevisionNumber(revision_num)
+
+    custom_package_targets = GetPackageTargetPackages(package_name, [])
+    if not custom_package_targets:
+      package_targets = arguments.packages_desc.GetPackageTargetsForPackage(
+          package_name
+      )
+    else:
+      package_targets = [target[0] for target in custom_package_targets]
+      first_target = custom_package_targets[0]
+      package_name = first_target[1]
+
     for package_target in package_targets:
-      remote_package_key = package_locations.GetRemotePackageKey(
-          arguments.packages_desc.IsSharedPackage(package_name),
-          revision_num,
-          package_target,
-          package_name)
+      with pynacl.working_directory.TemporaryWorkingDirectory() as work_dir:
+        remote_package_key = package_locations.GetRemotePackageKey(
+            arguments.packages_desc.IsSharedPackage(package_name),
+            revision_num,
+            package_target,
+            package_name)
 
-      temp_package_file = os.path.join(
-          work_dir,
-          os.path.basename(remote_package_key) + TEMP_SUFFIX)
+        temp_package_file = os.path.join(
+            work_dir,
+            os.path.basename(remote_package_key) + TEMP_SUFFIX)
 
-      package_info.DownloadPackageInfoFiles(
-          temp_package_file,
-          remote_package_key,
-          downloader=arguments.gsd_store.GetFile)
+        package_info.DownloadPackageInfoFiles(
+            temp_package_file,
+            remote_package_key,
+            downloader=arguments.gsd_store.GetFile)
 
-      package_desc = package_info.PackageInfo(temp_package_file)
+        package_desc = package_info.PackageInfo(temp_package_file)
 
-      logging.info('Setting %s:%s to revision %s',
-                   package_target, package_name, revision_num)
-      revision_desc.SetTargetRevision(
-          package_name,
-          package_target,
-          package_desc)
+        logging.info('Setting %s:%s to revision %s',
+                     package_target, package_name, revision_num)
+        revision_desc.SetTargetRevision(
+            package_name,
+            package_target,
+            package_desc)
 
-  revision_file = package_locations.GetRevisionFile(
-      arguments.revisions_dir,
-      package_name)
-  pynacl.file_tools.MakeParentDirectoryIfAbsent(revision_file)
-  revision_desc.SaveRevisionFile(revision_file)
+    revision_file = package_locations.GetRevisionFile(
+        arguments.revisions_dir,
+        package_name)
+    pynacl.file_tools.MakeParentDirectoryIfAbsent(revision_file)
+    revision_desc.SaveRevisionFile(revision_file)
 
   CleanTempFiles(arguments.revisions_dir)
 
@@ -852,27 +938,74 @@ def _DoSetRevisionCmd(arguments):
 def _GetRevisionCmdArgParser(subparser):
   subparser.description = 'Get the revision of a package.'
   subparser.add_argument(
-    '--revision-package', metavar='NAME', dest='getrevision__package',
-    required=True,
+    '--revision-package', metavar='NAME', dest='getrevision__packages',
+    action='append', default=[],
     help='Package name to get revision of.')
+  subparser.add_argument(
+    '--revision-set', metavar='SET-NAME', dest='getrevision__revset',
+    action='append', default=[],
+    help='Revision set to set revision for.')
 
 
 def _DoGetRevisionCmd(arguments):
-  package_name = arguments.getrevision__package
+  packages_list = arguments.getrevision__packages
+  revision_sets = arguments.getrevision__revset
 
-  custom_package_targets = GetPackageTargetPackages(package_name, [])
-  if custom_package_targets:
-    custom_target, package_name = custom_package_targets[0]
+  for revision_set in revision_sets:
+    set_packages = arguments.packages_desc.GetRevisionSet(revision_set)
+    if set_packages is None:
+      raise error.Error('Invalid Revision Set: %s' % revision_set)
+    packages_list.extend(set_packages)
 
-  revision_file = package_locations.GetRevisionFile(arguments.revisions_dir,
-                                                    package_name)
+  if not packages_list:
+    raise error.Error('No revision packages have been supplied.')
 
-  if not os.path.isfile(revision_file):
-    raise error.Error('No revision set for package: %s.' % package_name)
+  revision_number = None
+  for package_name in packages_list:
+    custom_package_targets = GetPackageTargetPackages(package_name, [])
+    if custom_package_targets:
+      custom_target, package_name = custom_package_targets[0]
 
-  revision_desc = revision_info.RevisionInfo(arguments.packages_desc,
-                                             revision_file)
-  print revision_desc.GetRevisionNumber()
+    revision_file = package_locations.GetRevisionFile(arguments.revisions_dir,
+                                                      package_name)
+
+    if not os.path.isfile(revision_file):
+      raise error.Error('No revision set for package: %s.' % package_name)
+
+    revision_desc = revision_info.RevisionInfo(arguments.packages_desc,
+                                               revision_file)
+
+    package_revision = revision_desc.GetRevisionNumber()
+    if revision_number is None:
+      revision_number = package_revision
+    elif revision_number != package_revision:
+      logging.error('Listing Get Revision Packages:')
+      for package in packages_list:
+        logging.error('  %s', package)
+      raise error.Error('Package revisions are not set to the same revision.')
+
+  print revision_number
+
+
+def _RevPackagesCmdArgParser(subparser):
+  subparser.description = 'Prints list of packages for a revision set name.'
+  subparser.add_argument(
+    '--revision-set', metavar='NAME', dest='revpackages__name',
+    required=True,
+    help='Name of the package or revision set.')
+
+
+def _DoRevPackagesCmd(arguments):
+  revision_package = arguments.revpackages__name
+  packages_list = [revision_package]
+
+  # Check if the package_name is a revision set.
+  revision_set = arguments.packages_desc.GetRevisionSet(revision_package)
+  if revision_set is not None:
+    packages_list = revision_set
+
+  for package_name in packages_list:
+    print package_name
 
 
 def _FillEmptyTarsParser(subparser):
@@ -916,16 +1049,17 @@ def _DoFillEmptyTarsCmd(arguments):
         else:
           raise error.Error('Unknown archive type: %s.' % archive_data.name)
 
+        temp_archive_file = os.path.join(arguments.tar_dir, archive_data.name)
+        tar_file = cygtar.CygTar(temp_archive_file, mode)
+        tar_file.Close()
+        tar_hash = archive_info.GetArchiveHash(temp_archive_file)
+
         archive_file = package_locations.GetLocalPackageArchiveFile(
             arguments.tar_dir,
-            package_target,
-            package_name,
-            archive_data.name
-            )
-
-        tar_file = cygtar.CygTar(archive_file, mode)
-        tar_file.Close()
-        tar_hash = archive_info.GetArchiveHash(archive_file)
+            archive_data.name,
+            tar_hash)
+        pynacl.file_tools.MakeParentDirectoryIfAbsent(archive_file)
+        os.rename(temp_archive_file, archive_file)
 
         empty_archive = archive_info.ArchiveInfo(name=archive_data.name,
                                                  hash=tar_hash)
@@ -934,17 +1068,25 @@ def _DoFillEmptyTarsCmd(arguments):
     output_package_desc.SavePackageFile(package_path)
 
 
-def _RecalcRevisions(subparser):
+def _RecalcRevsParser(subparser):
   subparser.description = 'Recalculates hashes for files in revision directory.'
 
 
-def _DoRecalcRevisions(arguments):
+def _DoRecalcRevsCmd(arguments):
   for json_file in os.listdir(arguments.revisions_dir):
     if json_file.endswith('.json'):
       revision_file = os.path.join(arguments.revisions_dir, json_file)
       revision_desc = revision_info.RevisionInfo(arguments.packages_desc)
       revision_desc.LoadRevisionFile(revision_file, skip_hash_verify=True)
       revision_desc.SaveRevisionFile(revision_file)
+
+
+def _CleanupParser(subparser):
+  subparser.description = 'Cleans up any unused package archives files.'
+
+
+def _DoCleanupCmd(arguments):
+  CleanupTarDirectory(arguments.tar_dir)
 
 
 CommandFuncs = collections.namedtuple(
@@ -960,8 +1102,10 @@ COMMANDS = {
     'sync': CommandFuncs(_SyncCmdArgParser, _DoSyncCmd),
     'setrevision': CommandFuncs(_SetRevisionCmdArgParser, _DoSetRevisionCmd),
     'getrevision': CommandFuncs(_GetRevisionCmdArgParser, _DoGetRevisionCmd),
+    'revpackages': CommandFuncs(_RevPackagesCmdArgParser, _DoRevPackagesCmd),
     'fillemptytars': CommandFuncs(_FillEmptyTarsParser, _DoFillEmptyTarsCmd),
-    'recalcrevisions': CommandFuncs(_RecalcRevisions, _DoRecalcRevisions),
+    'recalcrevisions': CommandFuncs(_RecalcRevsParser, _DoRecalcRevsCmd),
+    'cleanup': CommandFuncs(_CleanupParser, _DoCleanupCmd),
 }
 
 
@@ -994,6 +1138,11 @@ def ParseArgs(args):
     help='Custom package targets specifed as comma separated names. Defaults'
          ' to package targets defined for host platform and architecture inside'
          ' of the packages json file.')
+  parser.add_argument(
+    '--mode', dest='mode',
+    default=None,
+    help='Specify a package mode to filter by, modes are specified within'
+         ' the packages json file. For a list of modes use the "list" command.')
   parser.add_argument(
     '--packages', dest='packages',
     default=None,
@@ -1076,6 +1225,16 @@ def ParseArgs(args):
   else:
     packages_set.update(arguments.packages.split(','))
 
+  # If a mode was set, only use packages listed in the mode.
+  if arguments.mode:
+    modes_dict = packages_desc.GetPackageModes()
+    if arguments.mode not in modes_dict:
+      logging.info('Valid Package Modes:')
+      for mode in modes_dict:
+        logging.info('  %s', mode)
+      raise error.Error('Invalid Package Mode: %s.' % arguments.mode)
+    packages_set.intersection_update(modes_dict[arguments.mode])
+
   # Append/exclude any extra packages that were specified.
   packages_set.update(arguments.append_packages)
   packages_set.difference_update(arguments.exclude_packages)
@@ -1117,12 +1276,20 @@ def ParseArgs(args):
 
 
 def main(args):
-  try:
+  # If verbose is on, do not catch error.Error() exceptions separately but
+  # allow python to catch the errors and print out the entire callstack.
+  # Note that we cannot rely on ParseArgs() to parse if verbose is on, because
+  # ParseArgs() could throw an exception.
+  if '-v' in args or '--verbose' in args:
     arguments = ParseArgs(args)
     return COMMANDS[arguments.command].do_cmd_func(arguments)
-  except error.Error as e:
-    sys.stderr.write('package_version: ' + str(e) + '\n')
-    return 1
+  else:
+    try:
+      arguments = ParseArgs(args)
+      return COMMANDS[arguments.command].do_cmd_func(arguments)
+    except error.Error as e:
+      sys.stderr.write('package_version: ' + str(e) + '\n')
+      return 1
 
 
 if __name__ == '__main__':

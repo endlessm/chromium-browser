@@ -7,6 +7,7 @@
 from __future__ import print_function
 
 import calendar
+import collections
 import os
 import random
 import re
@@ -14,6 +15,7 @@ import time
 
 from chromite.cbuildbot import constants
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import git
 from chromite.lib import gob_util
 
@@ -101,6 +103,10 @@ def ParseChangeID(text, error_ok=True):
   return text if valid else None
 
 
+FullChangeId = collections.namedtuple(
+    'FullChangeId', ('project', 'branch', 'change_id'))
+
+
 def ParseFullChangeID(text, error_ok=True):
   """Checks if |text| conforms to the full change-ID format and parses it.
 
@@ -133,7 +139,7 @@ def ParseFullChangeID(text, error_ok=True):
 
     return None
 
-  return project, branch, change_id
+  return FullChangeId(project, branch, change_id)
 
 
 class PatchException(Exception):
@@ -146,7 +152,7 @@ class PatchException(Exception):
     is_mock = mock is not None and isinstance(patch, mock.MagicMock)
     if not isinstance(patch, GitRepoPatch) and not is_mock:
       raise TypeError(
-          "Patch must be a GitRepoPatch derivative; got type %s: %r"
+          'Patch must be a GitRepoPatch derivative; got type %s: %r'
           % (type(patch), patch))
     Exception.__init__(self)
     self.patch = patch
@@ -241,11 +247,11 @@ class DependencyError(PatchException):
     PatchException.__init__(self, patch)
     self.inflight = error.inflight
     self.error = error
-    self.args = (patch, error,)
+    self.args = (patch, error)
 
   def ShortExplanation(self):
     link = self.error.patch.PatchLink()
-    return ('depends on %s, which %s' % (link, self.error.ShortExplanation()))
+    return 'depends on %s, which %s' % (link, self.error.ShortExplanation())
 
 
 class BrokenCQDepends(PatchException):
@@ -292,6 +298,18 @@ class ChangeNotInManifest(PatchException):
     return 'could not be found in the repo manifest.'
 
 
+class PatchNotMergeable(PatchException):
+  """Raised if a patch is not mergeable."""
+
+  def __init__(self, patch, reason):
+    PatchException.__init__(self, patch)
+    self.reason = str(reason)
+    self.args = (patch, reason)
+
+  def ShortExplanation(self):
+    return self.reason
+
+
 def MakeChangeId(unusable=False):
   """Create a random Change-Id.
 
@@ -300,7 +318,7 @@ def MakeChangeId(unusable=False):
       will explicitly fail on.  This is primarily used for internal ids,
       as a fallback when a Change-Id could not be parsed.
   """
-  s = "%x" % (random.randint(0, 2 ** 160),)
+  s = '%x' % (random.randint(0, 2 ** 160),)
   s = s.rjust(_GERRIT_CHANGE_ID_LENGTH, '0')
   if unusable:
     return 'Fake-ID %s' % s
@@ -420,11 +438,11 @@ def ParsePatchDep(text, no_change_id=False, no_sha1=False,
   """
   original_text = text
   if not text:
-    raise ValueError("ParsePatchDep invoked with an empty value: %r"
+    raise ValueError('ParsePatchDep invoked with an empty value: %r'
                      % (text,))
   # Deal w/ CL: targets.
-  if text.upper().startswith("CL:"):
-    if not text.startswith("CL:"):
+  if text.upper().startswith('CL:'):
+    if not text.startswith('CL:'):
       raise ValueError(
           "ParsePatchDep: 'CL:' must be upper case: %r"
           % (original_text,))
@@ -439,9 +457,8 @@ def ParsePatchDep(text, no_change_id=False, no_sha1=False,
       raise ValueError(
           'ParsePatchDep: Full Change-ID is not allowed: %r.' % original_text)
 
-    project, branch, change_id = parsed
-    return PatchQuery(remote, project=project, tracking_branch=branch,
-                        change_id=change_id)
+    return PatchQuery(remote, project=parsed.project,
+                      tracking_branch=parsed.branch, change_id=parsed.change_id)
 
   parsed = ParseChangeID(text)
   if parsed:
@@ -470,9 +487,42 @@ def ParsePatchDep(text, no_change_id=False, no_sha1=False,
   raise ValueError('Cannot parse the dependency: %s' % original_text)
 
 
+def GetOptionLinesFromCommitMessage(commit_message, option_re):
+  """Finds lines in |commit_message| that start with |option_re|.
+
+  Args:
+    commit_message: (str) Text of the commit message.
+    option_re: (str) regular expression to match the key identifying this
+               option. Additionally, any whitespace surrounding the option
+               is ignored.
+
+  Returns:
+    list of line values that matched the option (with the option stripped
+    out) if at least 1 line matched the option (even if it provided no
+    valuse). None if no lines of the message matched the option.
+  """
+  option_lines = []
+  matched = False
+  lines = commit_message.splitlines()[2:]
+  for line in lines:
+    line = line.strip()
+    if re.match(option_re, line):
+      matched = True
+      line = re.sub(option_re, '', line, count=1).strip()
+      if line:
+        option_lines.append(line)
+
+  if matched:
+    return option_lines
+  else:
+    return None
+
+
+# TODO(akeshet): Refactor CQ-DEPEND parsing logic to use general purpose
+# GetOptionFromCommitMessage.
 def GetPaladinDeps(commit_message):
   """Get the paladin dependencies for the given |commit_message|."""
-  PALADIN_DEPENDENCY_RE = re.compile(r'^(CQ.?DEPEND.)(.*)$',
+  PALADIN_DEPENDENCY_RE = re.compile(r'^([ \t]*CQ.?DEPEND.)(.*)$',
                                      re.MULTILINE | re.IGNORECASE)
   PATCH_RE = re.compile('[^, ]+')
   EXPECTED_PREFIX = 'CQ-DEPEND='
@@ -500,6 +550,7 @@ class PatchQuery(object):
   non-full change id then it might match multiple patches. If a user
   specified an invalid change id then it might not match any patches.
   """
+
   def __init__(self, remote, project=None, tracking_branch=None, change_id=None,
                sha1=None, gerrit_number=None):
     """Initializes a PatchQuery instance.
@@ -518,6 +569,7 @@ class PatchQuery(object):
       self.tracking_branch = os.path.basename(tracking_branch)
     self.project = project
     self.sha1 = None if sha1 is None else ParseSHA1(sha1)
+    self.tree_hash = None
     self.change_id = None if change_id is None else ParseChangeID(change_id)
     self.gerrit_number = (None if gerrit_number is None else
                           ParseGerritNumber(gerrit_number))
@@ -609,7 +661,7 @@ class PatchQuery(object):
       return hash(self.id)
     else:
       return hash((self.remote, self.project, self.tracking_branch,
-                  self.gerrit_number, self.change_id, self.sha1))
+                   self.gerrit_number, self.change_id, self.sha1))
 
   def __eq__(self, other):
     """Defines when two PatchQuery objects are considered equal."""
@@ -634,7 +686,7 @@ class GitRepoPatch(PatchQuery):
   # ensuring CQ's internals can do the translation (almost can now,
   # but will fail in the case of a CQ-DEPEND on a change w/in the
   # same pool).
-  pattern = (r'^'+ re.escape(_GERRIT_CHANGE_ID_PREFIX) + r'[0-9a-fA-F]{' +
+  pattern = (r'^' + re.escape(_GERRIT_CHANGE_ID_PREFIX) + r'[0-9a-fA-F]{' +
              re.escape(str(_GERRIT_CHANGE_ID_LENGTH)) + r'}$')
   _STRICT_VALID_CHANGE_ID_RE = re.compile(pattern)
   _GIT_CHANGE_ID_RE = re.compile(r'^Change-Id:[\t ]*(\w+)\s*$',
@@ -657,18 +709,158 @@ class GitRepoPatch(PatchQuery):
     """
     super(GitRepoPatch, self).__init__(remote, project=project,
                                        tracking_branch=tracking_branch,
-                                       change_id = change_id,
+                                       change_id=change_id,
                                        sha1=sha1, gerrit_number=None)
     self.project_url = project_url
     self.commit_message = None
     self._subject_line = None
     self.ref = ref
     self._is_fetched = set()
+    self._committer_email = None
+    self._committer_name = None
+    self._commit_message = None
+
+  @property
+  def commit_message(self):
+    return self._commit_message
+
+  @commit_message.setter
+  def commit_message(self, value):
+    self._commit_message = self._AddFooters(value) if value else value
 
   @property
   def internal(self):
     """Whether patch is to an internal cros project."""
     return self.remote == constants.INTERNAL_REMOTE
+
+  def _GetFooters(self, msg):
+    """Get the Git footers of the specified commit message.
+
+    Args:
+      msg: A commit message
+
+    Returns:
+      The parsed footers from the commit message.  Footers are
+      lines of the form 'key: value' and are at the end of the commit
+      message in a separate paragraph.  We return a list of pairs like
+      ('key', 'value').
+    """
+    footers = []
+    data = re.split(r'\n{2,}', msg.rstrip('\n'))[-1]
+    for line in data.splitlines():
+      m = re.match(r'([A-Za-z0-9-]+): *(.*)', line.rstrip('\n'))
+      if m:
+        footers.append(m.groups())
+    return footers
+
+  def _AddFooters(self, msg):
+    """Ensure that commit messages have a change ID.
+
+    Args:
+      msg: The commit message.
+
+    Returns:
+      The modified commit message with necessary Gerrit footers.
+    """
+    if not msg:
+      msg = '<no commit message provided>'
+
+    if msg[-1] != '\n':
+      msg += '\n'
+
+    # This function is adapted from the version in Gerrit:
+    # goto/createCherryPickCommitMessage
+    old_footers = self._GetFooters(msg)
+
+    if not old_footers:
+      # Doesn't end in a "Signed-off-by: ..." style line? Add another line
+      # break to start a new paragraph for the reviewed-by tag lines.
+      msg += '\n'
+
+    # This replicates the behavior of
+    # goto/createCherryPickCommitMessage, but can result in multiple
+    # Change-Id footers.  We should consider changing this behavior.
+    if ('Change-Id', self.change_id) not in old_footers and self.change_id:
+      msg += 'Change-Id: %s\n' % self.change_id
+
+    return msg
+
+  def _PullData(self, rev, git_repo):
+    """Returns info about a commit object in the local repository.
+
+    Args:
+      rev: The commit to find information about
+      git_repo: The path of the local git repository.
+
+    Returns:
+      A 6-tuple of (sha1, tree_hash, commit subject, commit message,
+      committer email, committer name).
+    """
+    f = '%H%x00%T%x00%s%x00%B%x00%ce%x00%cn'
+    cmd = ['log', '--pretty=format:%s' % f, '-n1', rev]
+    ret = git.RunGit(git_repo, cmd, error_code_ok=True)
+    # TODO(phobbs): this should probably use a namedtuple...
+    if ret.returncode != 0:
+      return None, None, None, None, None, None
+    output = ret.output.split('\0')
+    if len(output) != 6:
+      return None, None, None, None, None, None
+    return [unicode(x.strip(), 'ascii', 'ignore') for x in output]
+
+  def UpdateMetadataFromRepo(self, git_repo, sha1):
+    """Update this this object's metadata given a sha1.
+
+    This updates various internal fields such as the committer name and email,
+    the commit message, tree hash, etc.
+
+    Raises a PatchException if the found sha1 differs from self.sha1.
+
+    Args:
+      git_repo: The path to the git repository that this commit exists in.
+      sha1: The sha1 of the commit.  If None, assumes it was just fetched and
+        uses "FETCH_HEAD".
+
+    Returns:
+      The sha1 of the commit.
+    """
+    sha1 = sha1 or 'FETCH_HEAD'
+    sha1, tree_hash, subject, msg, email, name = self._PullData(sha1, git_repo)
+    sha1 = ParseSHA1(sha1, error_ok=False)
+
+    if self.sha1 is not None and sha1 != self.sha1:
+      # Even if we know the sha1, still do a sanity check to ensure we
+      # actually just fetched it.
+      raise PatchException(self,
+                           'Patch %s specifies sha1 %s, yet in fetching from '
+                           '%s we could not find that sha1.  Internal error '
+                           'most likely.' % (self, self.sha1, self.ref))
+
+    self._committer_email = email
+    self._committer_name = name
+    self.sha1 = sha1
+    self.tree_hash = tree_hash
+    self.commit_message = msg
+    self._EnsureId(self.commit_message)
+    self._subject_line = subject
+    self._is_fetched.add(git_repo)
+    return self.sha1
+
+  def HasBeenFetched(self, git_repo):
+    """Whether this patch has already exists locally in `git_repo`
+
+    Args:
+      git_repo: The git repository to fetch this patch into.
+
+    Returns:
+      If it exists, the sha1 of this patch in `git_repo`.
+    """
+    git_repo = os.path.normpath(git_repo)
+    if git_repo in self._is_fetched:
+      return self.sha1
+
+    # See if we've already got the object.
+    if self.sha1 is not None:
+      return self._PullData(self.sha1, git_repo)[0]
 
   def Fetch(self, git_repo):
     """Fetch this patch into the given git repository.
@@ -690,45 +882,13 @@ class GitRepoPatch(PatchQuery):
     Returns:
       The sha1 of the patch.
     """
-    git_repo = os.path.normpath(git_repo)
-    if git_repo in self._is_fetched:
-      return self.sha1
-
-    def _PullData(rev):
-      ret = git.RunGit(
-          git_repo, ['log', '--pretty=format:%H%x00%s%x00%B', '-n1', rev],
-          error_code_ok=True)
-      if ret.returncode != 0:
-        return None, None, None
-      output = ret.output.split('\0')
-      if len(output) != 3:
-        return None, None, None
-      return [unicode(x.strip(), 'ascii', 'ignore') for x in output]
-
-    sha1 = None
-    if self.sha1 is not None:
-      # See if we've already got the object.
-      sha1, subject, msg = _PullData(self.sha1)
+    sha1 = self.HasBeenFetched(git_repo)
 
     if sha1 is None:
-      git.RunGit(git_repo, ['fetch', '-f', self.project_url, self.ref])
-      sha1, subject, msg = _PullData(self.sha1 or 'FETCH_HEAD')
+      git.RunGit(git_repo, ['fetch', '-f', self.project_url, self.ref],
+                 print_cmd=True)
 
-    sha1 = ParseSHA1(sha1, error_ok=False)
-
-    if self.sha1 is not None and sha1 != self.sha1:
-      # Even if we know the sha1, still do a sanity check to ensure we
-      # actually just fetched it.
-      raise PatchException(self,
-                           'Patch %s specifies sha1 %s, yet in fetching from '
-                           '%s we could not find that sha1.  Internal error '
-                           'most likely.' % (self, self.sha1, self.ref))
-    self.sha1 = sha1
-    self._EnsureId(msg)
-    self.commit_message = msg
-    self._subject_line = subject
-    self._is_fetched.add(git_repo)
-    return self.sha1
+    return self.UpdateMetadataFromRepo(git_repo, sha1=sha1 or self.sha1)
 
   def GetDiffStatus(self, git_repo):
     """Isolate the paths and modifications this patch induces.
@@ -761,6 +921,13 @@ class GitRepoPatch(PatchQuery):
     lines = lines.output.splitlines()
     return dict(line.split('\t', 1)[::-1] for line in lines)
 
+  def _AmendCommitMessage(self, git_repo):
+    """"Amend the commit and update our sha1 with the new commit."""
+    git.RunGit(git_repo, ['commit', '--amend', '-m', self.commit_message],
+               extra_env={'GIT_COMMITTER_NAME': self._committer_name or '',
+                          'GIT_COMMITTER_EMAIL': self._committer_email or ''})
+    self.sha1 = ParseSHA1(self._PullData('HEAD', git_repo)[0], error_ok=False)
+
   def CherryPick(self, git_repo, trivial=False, inflight=False,
                  leave_dirty=False):
     """Attempts to cherry-pick the given rev into branch.
@@ -784,24 +951,23 @@ class GitRepoPatch(PatchQuery):
     reset_target = None if leave_dirty else 'HEAD'
     try:
       git.RunGit(git_repo, cmd)
+      self._AmendCommitMessage(git_repo)
       reset_target = None
       return
     except cros_build_lib.RunCommandError as error:
       ret = error.result.returncode
       if ret not in (1, 2):
-        cros_build_lib.Error(
-            "Unknown cherry-pick exit code %s; %s",
-            ret, error)
+        logging.error('Unknown cherry-pick exit code %s; %s', ret, error)
         raise ApplyPatchException(
             self, inflight=inflight,
-            message=("Unknown exit code %s returned from cherry-pick "
-                     "command: %s" % (ret, error)))
+            message=('Unknown exit code %s returned from cherry-pick '
+                     'command: %s' % (ret, error)))
       elif ret == 1:
         # This means merge resolution was fine, but there was content conflicts.
         # If there are no conflicts, then this is caused by the change already
         # being merged.
         result = git.RunGit(git_repo,
-            ['diff', '--name-only', '--diff-filter=U'])
+                            ['diff', '--name-only', '--diff-filter=U'])
 
         # Output is one line per filename.
         conflicts = result.output.splitlines()
@@ -849,7 +1015,7 @@ class GitRepoPatch(PatchQuery):
 
     self.Fetch(git_repo)
 
-    cros_build_lib.Info('Attempting to cherry-pick change %s', self)
+    logging.info('Attempting to cherry-pick change %s', self)
 
     # If the patch branch exists use it, otherwise create it and switch to it.
     if git.DoesCommitExistInRepo(git_repo, constants.PATCH_BRANCH):
@@ -920,9 +1086,10 @@ class GitRepoPatch(PatchQuery):
     return []
 
   def _EnsureId(self, commit_message):
-    """Ensure we have a usable Change-Id.  This will parse the Change-Id out
-    of the given commit message- if it cannot find one, it logs a warning
-    and creates a fake ID.
+    """Ensure we have a usable Change-Id.
+
+    This will parse the Change-Id out of the given commit message;
+    if it cannot find one, it logs a warning and creates a fake ID.
 
     By its nature, that fake ID is useless- it's created to simplify
     API usage for patch consumers. If CQ were to see and try operating
@@ -934,7 +1101,7 @@ class GitRepoPatch(PatchQuery):
     try:
       self.change_id = self._ParseChangeId(commit_message)
     except BrokenChangeID:
-      cros_build_lib.Warning(
+      logging.warning(
           'Change %s, sha1 %s lacks a change-id in its commit '
           'message.  CQ-DEPEND against this rev may not work, nor '
           'will any gerrit querying.  Please add the appropriate '
@@ -983,8 +1150,7 @@ class GitRepoPatch(PatchQuery):
     CQ-DEPEND=10001,10002
     """
     dependencies = []
-    cros_build_lib.Debug('Checking for CQ-DEPEND dependencies for change %s',
-                         self)
+    logging.debug('Checking for CQ-DEPEND dependencies for change %s', self)
 
     # Only fetch the commit message if needed.
     if self.commit_message is None:
@@ -996,8 +1162,8 @@ class GitRepoPatch(PatchQuery):
       raise BrokenCQDepends(self, str(e))
 
     if dependencies:
-      cros_build_lib.Debug('Found %s Paladin dependencies for change %s',
-                           dependencies, self)
+      logging.debug('Found %s Paladin dependencies for change %s',
+                    dependencies, self)
     return dependencies
 
   def _FindEbuildConflicts(self, git_repo, upstream, inflight=False):
@@ -1090,6 +1256,26 @@ class GitRepoPatch(PatchQuery):
       s += ' "%s"' % (self._subject_line,)
     return s
 
+  def GetLocalSHA1(self, git_repo, revision):
+    """Get the local SHA1 for this patch in the given |manifest|.
+
+    Args:
+      git_repo: The path to the repo.
+      revision: The tracking branch.
+
+    Returns:
+      The local SHA1 for this patch, if it is present in the given |manifest|.
+      If this patch is not present, returns None.
+    """
+    query = 'Change-Id: %s' % self.change_id
+    cmd = ['log', '-F', '--all-match', '--grep', query,
+           '--format=%H', '%s..HEAD' % revision]
+    output = git.RunGit(git_repo, cmd).output.split()
+    if len(output) == 1:
+      return output[0]
+    elif len(output) > 1:
+      raise BrokenChangeID(self, 'Duplicate change ID')
+
 
 class LocalPatch(GitRepoPatch):
   """Represents patch coming from an on-disk git repo."""
@@ -1124,7 +1310,8 @@ class LocalPatch(GitRepoPatch):
 
     format_string = '%n'.join([code for _, code in fields] + ['%B'])
     result = git.RunGit(self.project_url,
-        ['log', '--format=%s' % format_string, '-n1', self.sha1])
+                        ['log', '--format=%s' % format_string, '-n1',
+                         self.sha1])
     lines = result.output.splitlines()
     field_value = dict(zip([name for name, _ in fields],
                            [line.strip() for line in lines]))
@@ -1143,7 +1330,7 @@ class LocalPatch(GitRepoPatch):
     # to all occur within the same second (thus the same commit date),
     # resulting in the same sha1.
     extra_env['GIT_COMMITTER_DATE'] = str(
-        int(extra_env["GIT_COMMITER_DATE"]) - 1)
+        int(extra_env['GIT_COMMITER_DATE']) - 1)
 
     result = git.RunGit(
         self.project_url,
@@ -1181,30 +1368,39 @@ class LocalPatch(GitRepoPatch):
       ref_to_upload = self.sha1
 
     cmd = ['push']
+
+    # This matches repo's project.py:Project.UploadForReview logic.
     if reviewers or cc:
-      pack = '--receive-pack=git receive-pack '
-      if reviewers:
-        pack += ' '.join(['--reviewer=' + x for x in reviewers])
-      if cc:
-        pack += ' '.join(['--cc=' + x for x in cc])
-      cmd.append(pack)
+      if push_url.startswith('ssh://'):
+        rp = (['gerrit receive-pack'] +
+              ['--reviewer=%s' % x for x in reviewers] +
+              ['--cc=%s' % x for x in cc])
+        cmd.append('--receive-pack=%s' % ' '.join(rp))
+      else:
+        rp = ['r=%s' % x for x in reviewers] + ['cc=%s' % x for x in cc]
+        remote_ref += '%' + ','.join(rp)
+
     cmd += [push_url, '%s:%s' % (ref_to_upload, remote_ref)]
     if dryrun:
       cmd.append('--dry-run')
 
-    lines = git.RunGit(self.project_url, cmd).error.splitlines()
+    # Depending on git/gerrit/weather, the URL might be written to stdout or
+    # stderr.  Just combine them so we don't have to worry about it.
+    result = git.RunGit(self.project_url, cmd, capture_output=True,
+                        combine_stdout_stderr=True)
+    lines = result.output.splitlines()
     urls = []
     for num, line in enumerate(lines):
       # Look for output like:
       # remote: New Changes:
-      # remote:   https://chromium-review.googlesource.com/36756
+      # remote:   https://chromium-review.googlesource.com/36756 Enforce a ...
       if 'New Changes:' in line:
         urls = []
         for line in lines[num + 1:]:
           line = line.split()
-          if len(line) != 2 or not line[1].startswith('http'):
+          if len(line) < 2 or not line[1].startswith('http'):
             break
-          urls.append(line[-1])
+          urls.append(line[1])
         break
     return urls
 
@@ -1231,6 +1427,8 @@ class UploadedLocalPatch(GitRepoPatch):
     self.original_branch = original_branch
     self.original_sha1 = ParseSHA1(original_sha1)
     self._original_sha1_valid = False if self.original_sha1 is None else True
+    if self._original_sha1_valid and not self.id:
+      self.id = AddPrefix(self, self.original_sha1)
 
   def LookupAliases(self):
     """Return the list of lookup keys this change is known by."""
@@ -1304,7 +1502,7 @@ class GerritFetchOnlyPatch(GitRepoPatch):
             % (self.change_id, self.sha1, parsed_id))
 
     except BrokenChangeID:
-      cros_build_lib.Warning(
+      logging.warning(
           'Change %s, Change-Id %s, sha1 %s lacks a change-id in its commit '
           'message.  This can break the ability for any children to depend on '
           'this Change as a parent.  Please add the appropriate '
@@ -1354,8 +1552,11 @@ class GerritPatch(GerritFetchOnlyPatch):
     self._approvals = []
     if 'currentPatchSet' in self.patch_dict:
       self._approvals = self.patch_dict['currentPatchSet'].get('approvals', [])
-    self.approval_timestamp = \
-        max(x['grantedOn'] for x in self._approvals) if self._approvals else 0
+    self.commit_timestamp = current_patch_set.get('date', 0)
+    self.approval_timestamp = max(
+        self.commit_timestamp,
+        max(x['grantedOn'] for x in self._approvals) if self._approvals else 0)
+    self._commit_message = None
     self.commit_message = patch_dict.get('commitMessage')
 
   @staticmethod
@@ -1370,62 +1571,67 @@ class GerritPatch(GerritFetchOnlyPatch):
       http://gerrit-documentation.googlecode.com/svn/Documentation/2.6/json.html
 
     New interface:
-      # pylint: disable=C0301
       https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html#json-entities
     """
-    _convert_tm = lambda tm: calendar.timegm(
-        time.strptime(tm.partition('.')[0], '%Y-%m-%d %H:%M:%S'))
-    _convert_user = lambda u: {
-        'name': u.get('name', '??unknown??'),
-        'email': u.get('email'),
-        'username': u.get('name', '??unknown??'),
-    }
-    change_id = change['change_id'].split('~')[-1]
-    patch_dict = {
-       'project': change['project'],
-       'branch': change['branch'],
-       'createdOn': _convert_tm(change['created']),
-       'lastUpdated': _convert_tm(change['updated']),
-       'id': change_id,
-       'owner': _convert_user(change['owner']),
-       'number': str(change['_number']),
-       'url': gob_util.GetChangePageUrl(host, change['_number']),
-       'status': change['status'],
-       'subject': change.get('subject'),
-    }
-    current_revision = change.get('current_revision', '')
-    current_revision_info = change.get('revisions', {}).get(current_revision)
-    if current_revision_info:
-      approvals = []
-      for label, label_data in change['labels'].iteritems():
-        # Skip unknown labels.
-        if label not in constants.GERRIT_ON_BORG_LABELS:
-          continue
-        for review_data in label_data.get('all', []):
-          granted_on = review_data.get('date', change['created'])
-          approvals.append({
-              'type': constants.GERRIT_ON_BORG_LABELS[label],
-              'description': label,
-              'value': str(review_data.get('value', '0')),
-              'grantedOn': _convert_tm(granted_on),
-              'by': _convert_user(review_data),
-          })
-
-      patch_dict['currentPatchSet'] = {
-          'approvals': approvals,
-          'ref': current_revision_info['fetch']['http']['ref'],
-          'revision': current_revision,
-          'number': str(current_revision_info['_number']),
-          'draft': current_revision_info.get('draft', False),
+    try:
+      _convert_tm = lambda tm: calendar.timegm(
+          time.strptime(tm.partition('.')[0], '%Y-%m-%d %H:%M:%S'))
+      _convert_user = lambda u: {
+          'name': u.get('name'),
+          'email': u.get('email'),
+          'username': u.get('name'),
       }
+      change_id = change['change_id'].split('~')[-1]
+      patch_dict = {
+          'project': change['project'],
+          'branch': change['branch'],
+          'createdOn': _convert_tm(change['created']),
+          'lastUpdated': _convert_tm(change['updated']),
+          'id': change_id,
+          'owner': _convert_user(change['owner']),
+          'number': str(change['_number']),
+          'url': gob_util.GetChangePageUrl(host, change['_number']),
+          'status': change['status'],
+          'subject': change.get('subject'),
+      }
+      current_revision = change.get('current_revision', '')
+      current_revision_info = change.get('revisions', {}).get(current_revision)
+      if current_revision_info:
+        approvals = []
+        for label, label_data in change['labels'].iteritems():
+          # Skip unknown labels.
+          if label not in constants.GERRIT_ON_BORG_LABELS:
+            continue
+          for review_data in label_data.get('all', []):
+            granted_on = review_data.get('date', change['created'])
+            approvals.append({
+                'type': constants.GERRIT_ON_BORG_LABELS[label],
+                'description': label,
+                'value': str(review_data.get('value', '0')),
+                'grantedOn': _convert_tm(granted_on),
+                'by': _convert_user(review_data),
+            })
 
-      current_commit = current_revision_info.get('commit')
-      if current_commit:
-        patch_dict['commitMessage'] = current_commit['message']
-        parents = current_commit.get('parents', [])
-        patch_dict['dependsOn'] = [{'revision': p['commit']} for p in parents]
+        date = current_revision_info['commit']['committer']['date']
+        patch_dict['currentPatchSet'] = {
+            'approvals': approvals,
+            'ref': current_revision_info['fetch']['http']['ref'],
+            'revision': current_revision,
+            'number': str(current_revision_info['_number']),
+            'date': _convert_tm(date),
+            'draft': current_revision_info.get('draft', False),
+        }
 
-    return patch_dict
+        current_commit = current_revision_info.get('commit')
+        if current_commit:
+          patch_dict['commitMessage'] = current_commit['message']
+          parents = current_commit.get('parents', [])
+          patch_dict['dependsOn'] = [{'revision': p['commit']} for p in parents]
+
+      return patch_dict
+    except:
+      logging.error('Error while converting:\n%s', change, exc_info=True)
+      raise
 
   def __reduce__(self):
     """Used for pickling to re-create patch object."""
@@ -1455,14 +1661,22 @@ class GerritPatch(GerritFetchOnlyPatch):
 
       results.append(
           PatchQuery(self.remote, project=self.project,
-                       tracking_branch=self.tracking_branch,
-                       gerrit_number=gerrit_number,
-                       change_id=change_id, sha1=sha1))
+                     tracking_branch=self.tracking_branch,
+                     gerrit_number=gerrit_number,
+                     change_id=change_id, sha1=sha1))
     return results
 
   def IsAlreadyMerged(self):
     """Returns whether the patch has already been merged in Gerrit."""
     return self.status == 'MERGED'
+
+  def IsBeingMerged(self):
+    """Whether the patch is merged or in the progress of being merged."""
+    return self.status in ('SUBMITTED', 'MERGED')
+
+  def IsDraft(self):
+    """Return true if the latest patchset is a draft."""
+    return self.patch_dict['currentPatchSet']['draft']
 
   def HasApproval(self, field, value):
     """Return whether the current patchset has the specified approval.
@@ -1471,8 +1685,8 @@ class GerritPatch(GerritFetchOnlyPatch):
       field: Which field to check.
         'VRIF': Whether patch was verified.
         'CRVW': Whether patch was approved.
-        'COMR': Whether patch was marked ready.
-        'TBVF': Whether patch was verified by trybot.
+        'COMR': Whether patch was marked commit ready.
+        'TRY':  Whether patch was marked ready for trybot.
       value: The expected value of the specified field (as string, or as list
              of accepted strings).
     """
@@ -1483,6 +1697,59 @@ class GerritPatch(GerritFetchOnlyPatch):
       return bool(set(value) & set(type_approvals))
     else:
       return value in type_approvals
+
+  def HasApprovals(self, flags):
+    """Return whether the current patchset has the specified approval.
+
+    Args:
+      flags: A dictionary of flag -> value mappings in
+        GerritPatch.HasApproval format.
+        ex: { 'CRVW': '2', 'VRIF': '1', 'COMR': ('1', '2') }
+
+    returns boolean telling if all flag requirements are met.
+    """
+    return all(self.HasApproval(field, value)
+               for field, value in flags.iteritems())
+
+  def WasVetoed(self):
+    """Return whether this CL was vetoed with VRIF=-1 or CRVW=-2."""
+    return self.HasApproval('VRIF', '-1') or self.HasApproval('CRVW', '-2')
+
+  def IsMergeable(self):
+    """Return true if all Gerrit approvals required for submission are set."""
+    return not self.GetMergeException()
+
+  def HasReadyFlag(self):
+    """Return true if the trybot-ready or commit-ready flag is set."""
+    return self.HasApproval('COMR', ('1', '2')) or self.HasApproval('TRY', '1')
+
+  def GetMergeException(self):
+    """Return the reason why this change is not mergeable.
+
+    If the change is in fact mergeable, return None.
+    """
+    if self.IsDraft():
+      return PatchNotMergeable(self, 'is a draft.')
+
+    if self.status != 'NEW':
+      statuses = {
+          'MERGED': 'is already merged.',
+          'SUBMITTED': 'is being merged.',
+          'ABANDONED': 'is abandoned.',
+      }
+      message = statuses.get(self.status, 'has status %s.' % self.status)
+      return PatchNotMergeable(self, message)
+
+    if self.HasApproval('VRIF', '-1'):
+      return PatchNotMergeable(self, 'is marked as Verified=-1.')
+    elif self.HasApproval('CRVW', '-2'):
+      return PatchNotMergeable(self, 'is marked as Code-Review=-2.')
+    elif not self.HasApproval('CRVW', '2'):
+      return PatchNotMergeable(self, 'is not marked Code-Review=+2.')
+    elif not self.HasApproval('VRIF', '1'):
+      return PatchNotMergeable(self, 'is not marked Verified=+1.')
+    elif not self.HasApproval('COMR', ('1', '2')):
+      return PatchNotMergeable(self, 'is not marked Commit-Queue>=+1.')
 
   def GetLatestApproval(self, field):
     """Return most recent value of specific field on the current patchset.
@@ -1501,6 +1768,33 @@ class GerritPatch(GerritFetchOnlyPatch):
     """Return a CL link for this patch."""
     return 'CL:%s' % (self.gerrit_number_str,)
 
+  def _AddFooters(self, msg):
+    """Ensure that commit messages have necessary Gerrit footers on the end.
+
+    Args:
+      msg: The commit message.
+
+    Returns:
+      The modified commit message with necessary Gerrit footers.
+    """
+    msg = super(GerritPatch, self)._AddFooters(msg)
+
+    # This function is adapted from the version in Gerrit:
+    # goto/createCherryPickCommitMessage
+    old_footers = self._GetFooters(msg)
+
+    gerrit_host = constants.GERRIT_HOSTS[self.remote]
+    reviewed_on = 'https://%s/%s' % (gerrit_host, self.gerrit_number)
+    if ('Reviewed-on', reviewed_on) not in old_footers:
+      msg += 'Reviewed-on: %s\n' % reviewed_on
+
+    for approval in self._approvals:
+      footer = FooterForApproval(approval, old_footers)
+      if footer and footer not in old_footers:
+        msg += '%s: %s\n' % footer
+
+    return msg
+
   def __str__(self):
     """Returns custom string to identify this patch."""
     s = '%s:%s' % (self.owner, self.gerrit_number_str)
@@ -1509,6 +1803,55 @@ class GerritPatch(GerritFetchOnlyPatch):
     if self._subject_line:
       s += ':"%s"' % (self._subject_line,)
     return s
+
+
+FOOTER_TAGS_BY_APPROVAL_TYPE = {
+    'CRVW': 'Reviewed-by',
+    'VRIF': 'Tested-by',
+    'COMR': 'Commit-Ready',
+    'TRY': None,
+    'SUBM': 'Submitted-by',
+}
+
+
+def FooterForApproval(approval, footers):
+  """Return a commit-message footer for a given approver.
+
+  Args:
+    approval: A dict containing the information about an approver
+    footers: A sequence of existing footers in the commit message.
+
+  Returns:
+    A 'footer', which is a tuple (tag, id).
+  """
+  if int(approval.get('value', 0)) <= 0:
+    # Negative votes aren't counted.
+    return
+
+  name = approval.get('by', {}).get('name')
+  email = approval.get('by', {}).get('email')
+  ident = ' '.join(x for x in [name, email and '<%s>' % email] if x)
+
+  # Nothing reasonable to describe them by? Ignore them.
+  if not ident:
+    return
+
+  # Don't bother adding additional footers if the CL has already been
+  # signed off.
+  if ('Signed-off-by', ident) in footers:
+    return
+
+  # If the tag is unknown, don't return anything at all.
+  if approval['type'] not in FOOTER_TAGS_BY_APPROVAL_TYPE:
+    logging.warning('unknown gerrit type %s (%r)', approval['type'], approval)
+    return
+
+  # We don't care about certain gerrit flags as they aren't approval related.
+  tag = FOOTER_TAGS_BY_APPROVAL_TYPE[approval['type']]
+  if not tag:
+    return
+
+  return tag, ident
 
 
 def GeneratePatchesFromRepo(git_repo, project, tracking_branch, branch, remote,
@@ -1591,7 +1934,7 @@ def PrepareRemotePatches(patches):
       project, original_branch, ref, tracking_branch, tag = patch.split(':')
     except ValueError as e:
       raise ValueError(
-          "Unexpected tryjob format.  You may be running an "
+          'Unexpected tryjob format.  You may be running an '
           "older version of chromite.  Run 'repo sync "
           "chromiumos/chromite'.  Error was %s" % e)
 
@@ -1609,3 +1952,16 @@ def PrepareRemotePatches(patches):
                                          os.path.basename(ref), remote))
 
   return patch_info
+
+
+def GetChangesAsString(changes, prefix='CL:', delimiter=' '):
+  """Gets a human readable string listing |changes| in CL:1234 form.
+
+  Args:
+    changes: A list of GerritPatch objects.
+    prefix: Prefix to use. Defaults to 'CL:'
+    delimiter: Delimiter to use. Defaults to a space.
+  """
+  formatted_changes = ['%s%s' % (prefix, AddPrefix(x, x.gerrit_number))
+                       for x in changes]
+  return delimiter.join(sorted(formatted_changes))

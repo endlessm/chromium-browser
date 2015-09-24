@@ -10,16 +10,20 @@
 #include "GrRenderTarget.h"
 
 #include "GrContext.h"
+#include "GrDrawContext.h"
 #include "GrGpu.h"
-#include "GrStencilBuffer.h"
+#include "GrRenderTargetPriv.h"
+#include "GrStencilAttachment.h"
 
 void GrRenderTarget::discard() {
     // go through context so that all necessary flushing occurs
     GrContext* context = this->getContext();
-    if (NULL == context) {
+    GrDrawContext* drawContext = context ? context->drawContext() : NULL;
+    if (!drawContext) {
         return;
     }
-    context->discardRenderTarget(this);
+
+    drawContext->discard(this);
 }
 
 void GrRenderTarget::flagAsNeedingResolve(const SkIRect* rect) {
@@ -46,18 +50,30 @@ void GrRenderTarget::overrideResolveRect(const SkIRect rect) {
     }
 }
 
-void GrRenderTarget::setStencilBuffer(GrStencilBuffer* stencilBuffer) {
-    SkRefCnt_SafeAssign(fStencilBuffer, stencilBuffer);
-}
-
 void GrRenderTarget::onRelease() {
-    this->setStencilBuffer(NULL);
+    this->renderTargetPriv().didAttachStencilAttachment(NULL);
 
     INHERITED::onRelease();
 }
 
 void GrRenderTarget::onAbandon() {
-    this->setStencilBuffer(NULL);
+    this->renderTargetPriv().didAttachStencilAttachment(NULL);
 
     INHERITED::onAbandon();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+void GrRenderTargetPriv::didAttachStencilAttachment(GrStencilAttachment* stencilAttachment) {
+    SkRefCnt_SafeAssign(fRenderTarget->fStencilAttachment, stencilAttachment);
+}
+
+GrStencilAttachment* GrRenderTargetPriv::attachStencilAttachment() const {
+    if (fRenderTarget->fStencilAttachment) {
+        return fRenderTarget->fStencilAttachment;
+    }
+    if (!fRenderTarget->wasDestroyed() && fRenderTarget->canAttemptStencilAttachment()) {
+        fRenderTarget->getGpu()->attachStencilAttachmentToRenderTarget(fRenderTarget);
+    }
+    return fRenderTarget->fStencilAttachment;
 }

@@ -60,7 +60,7 @@ views::View* TraySupervisedUser::CreateDefaultView(
   if (!delegate->IsUserSupervised())
     return NULL;
 
-  tray_view_ = new LabelTrayView(this, IDR_AURA_UBER_TRAY_SUPERVISED_USER);
+  tray_view_ = new LabelTrayView(this, GetSupervisedUserIconId());
   UpdateMessage();
   return tray_view_;
 }
@@ -82,6 +82,7 @@ void TraySupervisedUser::UpdateAfterLoginStatusChange(
     return;
 
   if (is_user_supervised &&
+      !delegate->IsUserChild() &&
       status_ != ash::user::LOGGED_IN_LOCKED &&
       !delegate->GetSupervisedUserManager().empty())
     CreateOrUpdateSupervisedWarningNotification();
@@ -95,10 +96,8 @@ void TraySupervisedUser::CreateOrUpdateNotification(
   ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
   scoped_ptr<Notification> notification(
       message_center::Notification::CreateSystemNotification(
-          kNotificationId,
-          base::string16() /* no title */,
-          new_message,
-          bundle.GetImageNamed(IDR_AURA_UBER_TRAY_SUPERVISED_USER),
+          kNotificationId, base::string16() /* no title */, new_message,
+          bundle.GetImageNamed(GetSupervisedUserIconId()),
           system_notifier::kNotifierSupervisedUser,
           base::Closure() /* null callback */));
   message_center::MessageCenter::Get()->AddNotification(notification.Pass());
@@ -113,11 +112,24 @@ void TraySupervisedUser::OnCustodianInfoChanged() {
   SystemTrayDelegate* delegate = Shell::GetInstance()->system_tray_delegate();
   std::string manager_name = delegate->GetSupervisedUserManager();
   if (!manager_name.empty()) {
-    if (!message_center::MessageCenter::Get()->FindVisibleNotificationById(
-            kNotificationId))
+    if (!delegate->IsUserChild() &&
+        !message_center::MessageCenter::Get()->FindVisibleNotificationById(
+            kNotificationId)) {
       CreateOrUpdateSupervisedWarningNotification();
+    }
     UpdateMessage();
   }
+}
+
+int TraySupervisedUser::GetSupervisedUserIconId() const {
+  SystemTrayDelegate* delegate = Shell::GetInstance()->system_tray_delegate();
+
+  // Not intended to be used for non-supervised users.
+  CHECK(delegate->IsUserSupervised());
+
+  if (delegate->IsUserChild())
+    return IDR_AURA_UBER_TRAY_CHILD_USER;
+  return IDR_AURA_UBER_TRAY_SUPERVISED_USER;
 }
 
 }  // namespace ash

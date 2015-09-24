@@ -41,34 +41,32 @@ class PLATFORM_EXPORT JPEGImageDecoder : public ImageDecoder {
     WTF_MAKE_NONCOPYABLE(JPEGImageDecoder);
 public:
     JPEGImageDecoder(ImageSource::AlphaOption, ImageSource::GammaAndColorProfileOption, size_t maxDecodedBytes);
-    virtual ~JPEGImageDecoder();
+    ~JPEGImageDecoder() override;
 
-    // ImageDecoder
-    virtual String filenameExtension() const override { return "jpg"; }
-    virtual bool isSizeAvailable() override;
-    virtual bool hasColorProfile() const override { return m_hasColorProfile; }
-    virtual IntSize decodedSize() const override { return m_decodedSize; }
-    virtual IntSize decodedYUVSize(int component, SizeType) const override;
-    virtual bool setSize(unsigned width, unsigned height) override;
-    virtual ImageFrame* frameBufferAtIndex(size_t) override;
-    // CAUTION: setFailed() deletes |m_reader|.  Be careful to avoid
-    // accessing deleted memory, especially when calling this from inside
-    // JPEGImageReader!
-    virtual bool setFailed() override;
-    virtual bool canDecodeToYUV() const override;
-    virtual bool decodeToYUV() override;
-    virtual void setImagePlanes(PassOwnPtr<ImagePlanes>) override;
+    // ImageDecoder:
+    String filenameExtension() const override { return "jpg"; }
+    bool hasColorProfile() const override { return m_hasColorProfile; }
+    IntSize decodedSize() const override { return m_decodedSize; }
+    IntSize decodedYUVSize(int component, SizeType) const override;
+    bool setSize(unsigned width, unsigned height) override;
+    bool canDecodeToYUV() override;
+    bool decodeToYUV() override;
+    void setImagePlanes(PassOwnPtr<ImagePlanes>) override;
     bool hasImagePlanes() const { return m_imagePlanes; }
 
     bool outputScanlines();
     unsigned desiredScaleNumerator() const;
-    void jpegComplete();
+    void complete();
 
     void setOrientation(ImageOrientation orientation) { m_orientation = orientation; }
     void setHasColorProfile(bool hasColorProfile) { m_hasColorProfile = hasColorProfile; }
     void setDecodedSize(unsigned width, unsigned height);
 
 private:
+    // ImageDecoder:
+    void decodeSize() override { decode(true); }
+    void decode(size_t) override { decode(false); }
+
     // Decodes the image.  If |onlySize| is true, stops decoding after
     // calculating the image size.  If decoding fails but there is no more
     // data coming, sets the "decode failure" flag.

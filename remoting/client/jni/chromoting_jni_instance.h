@@ -87,6 +87,9 @@ class ChromotingJniInstance
 
   void SendTextEvent(const std::string& text);
 
+  // Enables or disables the video channel. May be called from any thread.
+  void EnableVideoChannel(bool enable);
+
   void SendClientMessage(const std::string& type, const std::string& data);
 
   // Records paint time for statistics logging, if enabled. May be called from
@@ -94,30 +97,26 @@ class ChromotingJniInstance
   void RecordPaintTime(int64 paint_time_ms);
 
   // ClientUserInterface implementation.
-  virtual void OnConnectionState(
-      protocol::ConnectionToHost::State state,
-      protocol::ErrorCode error) override;
-  virtual void OnConnectionReady(bool ready) override;
-  virtual void OnRouteChanged(const std::string& channel_name,
-                              const protocol::TransportRoute& route) override;
-  virtual void SetCapabilities(const std::string& capabilities) override;
-  virtual void SetPairingResponse(
-      const protocol::PairingResponse& response) override;
-  virtual void DeliverHostMessage(
-      const protocol::ExtensionMessage& message) override;
-  virtual protocol::ClipboardStub* GetClipboardStub() override;
-  virtual protocol::CursorShapeStub* GetCursorShapeStub() override;
+  void OnConnectionState(protocol::ConnectionToHost::State state,
+                         protocol::ErrorCode error) override;
+  void OnConnectionReady(bool ready) override;
+  void OnRouteChanged(const std::string& channel_name,
+                      const protocol::TransportRoute& route) override;
+  void SetCapabilities(const std::string& capabilities) override;
+  void SetPairingResponse(const protocol::PairingResponse& response) override;
+  void DeliverHostMessage(const protocol::ExtensionMessage& message) override;
+  protocol::ClipboardStub* GetClipboardStub() override;
+  protocol::CursorShapeStub* GetCursorShapeStub() override;
 
   // CursorShapeStub implementation.
-  virtual void InjectClipboardEvent(
-      const protocol::ClipboardEvent& event) override;
+  void InjectClipboardEvent(const protocol::ClipboardEvent& event) override;
 
   // ClipboardStub implementation.
-  virtual void SetCursorShape(const protocol::CursorShapeInfo& shape) override;
+  void SetCursorShape(const protocol::CursorShapeInfo& shape) override;
 
  private:
   // This object is ref-counted, so it cleans itself up.
-  virtual ~ChromotingJniInstance();
+  ~ChromotingJniInstance() override;
 
   void ConnectToHostOnDisplayThread();
   void ConnectToHostOnNetworkThread();

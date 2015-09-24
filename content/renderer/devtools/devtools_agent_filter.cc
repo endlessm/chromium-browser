@@ -41,21 +41,19 @@ class MessageImpl : public WebDevToolsAgent::MessageDescriptor {
 }  // namespace
 
 DevToolsAgentFilter::DevToolsAgentFilter()
-    : message_handled_(false),
-      render_thread_loop_(base::MessageLoop::current()),
-      io_message_loop_proxy_(ChildProcess::current()->io_message_loop_proxy()),
-      current_routing_id_(0) {}
+    : render_thread_loop_(base::MessageLoop::current()),
+      io_task_runner_(ChildProcess::current()->io_task_runner()),
+      current_routing_id_(0) {
+}
 
 bool DevToolsAgentFilter::OnMessageReceived(const IPC::Message& message) {
   // Dispatch debugger commands directly from IO.
-  message_handled_ = true;
   current_routing_id_ = message.routing_id();
   IPC_BEGIN_MESSAGE_MAP(DevToolsAgentFilter, message)
     IPC_MESSAGE_HANDLER(DevToolsAgentMsg_DispatchOnInspectorBackend,
                         OnDispatchOnInspectorBackend)
-    IPC_MESSAGE_UNHANDLED(message_handled_ = false)
   IPC_END_MESSAGE_MAP()
-  return message_handled_;
+  return false;
 }
 
 DevToolsAgentFilter::~DevToolsAgentFilter() {}
@@ -64,34 +62,28 @@ void DevToolsAgentFilter::OnDispatchOnInspectorBackend(
     const std::string& message) {
   if (embedded_worker_routes_.find(current_routing_id_) !=
       embedded_worker_routes_.end()) {
-    message_handled_ = false;
     return;
   }
-  if (!WebDevToolsAgent::shouldInterruptForMessage(
-          WebString::fromUTF8(message))) {
-      message_handled_ = false;
-      return;
-  }
-  WebDevToolsAgent::interruptAndDispatch(
-      new MessageImpl(message, current_routing_id_));
 
-  render_thread_loop_->PostTask(
-      FROM_HERE, base::Bind(&WebDevToolsAgent::processPendingMessages));
+  if (WebDevToolsAgent::shouldInterruptForMessage(
+          WebString::fromUTF8(message))) {
+    WebDevToolsAgent::interruptAndDispatch(
+        new MessageImpl(message, current_routing_id_));
+  }
+
 }
 
 void DevToolsAgentFilter::AddEmbeddedWorkerRouteOnMainThread(int32 routing_id) {
-  io_message_loop_proxy_->PostTask(
-      FROM_HERE,
-      base::Bind(
-          &DevToolsAgentFilter::AddEmbeddedWorkerRoute, this, routing_id));
+  io_task_runner_->PostTask(
+      FROM_HERE, base::Bind(&DevToolsAgentFilter::AddEmbeddedWorkerRoute, this,
+                            routing_id));
 }
 
 void DevToolsAgentFilter::RemoveEmbeddedWorkerRouteOnMainThread(
     int32 routing_id) {
-  io_message_loop_proxy_->PostTask(
-      FROM_HERE,
-      base::Bind(
-          &DevToolsAgentFilter::RemoveEmbeddedWorkerRoute, this, routing_id));
+  io_task_runner_->PostTask(
+      FROM_HERE, base::Bind(&DevToolsAgentFilter::RemoveEmbeddedWorkerRoute,
+                            this, routing_id));
 }
 
 void DevToolsAgentFilter::AddEmbeddedWorkerRoute(int32 routing_id) {

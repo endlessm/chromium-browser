@@ -7,6 +7,7 @@
 
 #include <vector>
 #include "base/strings/string16.h"
+#include "chrome/browser/profiles/avatar_menu.h"
 
 class Browser;
 class PrefRegistrySimple;
@@ -39,6 +40,10 @@ base::string16 GetAvatarNameForProfile(const base::FilePath& profile_path);
 // may be elided and contain an indicator for supervised users.
 base::string16 GetAvatarButtonTextForProfile(Profile* profile);
 
+// Returns the string to use in the fast user switcher menu for the specified
+// menu item. Adds a supervision indicator to the profile name if appropriate.
+base::string16 GetProfileSwitcherTextForItem(const AvatarMenu::Item& item);
+
 // Update the name of |profile| to |new_profile_name|. This updates the
 // profile preferences, which triggers an update in the ProfileInfoCache.
 // This method should be called when the user is explicitely changing
@@ -59,6 +64,12 @@ std::vector<std::string> GetSecondaryAccountsForProfile(
 // incognito profiles.
 bool IsRegularOrGuestSession(Browser* browser);
 
+// Returns true if sign in is required to browse as this profile.  Call with
+// profile->GetPath() if you have a profile pointer.
+// TODO(mlerman): Refactor appropriate calls to
+// ProfileInfoCache::ProfileIsSigninRequiredAtIndex to call here instead.
+bool IsProfileLocked(const base::FilePath& path);
+
 // If the lock-enabled information for this profile is not up to date, starts
 // an update for the Gaia profile info.
 void UpdateIsProfileLockEnabledIfNeeded(Profile* profile);
@@ -73,9 +84,25 @@ void UpdateGaiaProfileInfoIfNeeded(Profile* profile);
 SigninErrorController* GetSigninErrorController(Profile* profile);
 
 // If the current active profile (given by prefs::kProfileLastUsed) is locked,
-// changes the active profile to the Guest profile and returns it, otherwise
-// returns NULL. This assumes that the Guest profile has been loaded.
-Profile* SetActiveProfileToGuestIfLocked();
+// changes the active profile to the Guest profile. Returns true if the active
+// profile had been Guest before calling or became Guest as a result of this
+// method.
+bool SetActiveProfileToGuestIfLocked();
+
+// If the profile given by |profile_path| is loaded in the ProfileManager, use
+// a BrowsingDataRemover to delete all the Profile's data.
+void RemoveBrowsingDataForProfile(const base::FilePath& profile_path);
+
+// Marks the right-click user switching tutorial dismissed state as |dismissed|.
+void SetFastUserSwitchingTutorialDismissedState(bool dismissed);
+
+// Returns true if the right-click user switching tutorial was previously
+// dismissed by a user, false otherwise.
+bool GetFastUserSwitchingTutorialDismissedState();
+
+// Sets the last used profile pref to |profile_dir|, unless |profile_dir| is the
+// System Profile directory, which is an invalid last used profile.
+void SetLastUsedProfile(const std::string& profile_dir);
 
 }  // namespace profiles
 

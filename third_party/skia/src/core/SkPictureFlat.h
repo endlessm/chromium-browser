@@ -18,7 +18,6 @@
 #include "SkPicture.h"
 #include "SkPtrRecorder.h"
 #include "SkTDynamicHash.h"
-#include "SkTRefArray.h"
 
 enum DrawType {
     UNUSED,
@@ -28,7 +27,7 @@ enum DrawType {
     CLIP_RRECT,
     CONCAT,
     DRAW_BITMAP,
-    DRAW_BITMAP_MATRIX,
+    DRAW_BITMAP_MATRIX, // deprecated, M41 was last Chromium version to write this to an .skp
     DRAW_BITMAP_NINE,
     DRAW_BITMAP_RECT_TO_RECT,
     DRAW_CLEAR,
@@ -58,20 +57,24 @@ enum DrawType {
     SKEW,
     TRANSLATE,
     NOOP,
-    BEGIN_COMMENT_GROUP,
-    COMMENT,
-    END_COMMENT_GROUP,
+    BEGIN_COMMENT_GROUP, // deprecated (M44)
+    COMMENT,             // deprecated (M44)
+    END_COMMENT_GROUP,   // deprecated (M44)
 
     // new ops -- feel free to re-alphabetize on next version bump
     DRAW_DRRECT,
-    PUSH_CULL,
-    POP_CULL,
+    PUSH_CULL,  // deprecated, M41 was last Chromium version to write this to an .skp
+    POP_CULL,   // deprecated, M41 was last Chromium version to write this to an .skp
 
     DRAW_PATCH, // could not add in aphabetical order
     DRAW_PICTURE_MATRIX_PAINT,
     DRAW_TEXT_BLOB,
+    DRAW_IMAGE,
+    DRAW_IMAGE_RECT,
+    DRAW_ATLAS,
+    DRAW_IMAGE_NINE,
 
-    LAST_DRAWTYPE_ENUM = DRAW_TEXT_BLOB
+    LAST_DRAWTYPE_ENUM = DRAW_IMAGE_NINE
 };
 
 // In the 'match' method, this constant will match any flavor of DRAW_BITMAP*
@@ -82,6 +85,11 @@ enum DrawVertexFlags {
     DRAW_VERTICES_HAS_COLORS  = 0x02,
     DRAW_VERTICES_HAS_INDICES = 0x04,
     DRAW_VERTICES_HAS_XFER    = 0x08,
+};
+
+enum DrawAtlasFlags {
+    DRAW_ATLAS_HAS_COLORS   = 1 << 0,
+    DRAW_ATLAS_HAS_CULL     = 1 << 1,
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -174,7 +182,7 @@ class SkFlatData;
 
 class SkFlatController : public SkRefCnt {
 public:
-    SK_DECLARE_INST_COUNT(SkFlatController)
+    
 
     SkFlatController(uint32_t writeBufferFlags = 0);
     virtual ~SkFlatController();
@@ -449,22 +457,6 @@ public:
     }
 
     /**
-     *  Unflatten the objects and return them in SkTRefArray, or return NULL
-     *  if there no objects.  Caller takes ownership of result.
-     */
-    SkTRefArray<T>* unflattenToArray() const {
-        const int count = this->count();
-        if (count == 0) {
-            return NULL;
-        }
-        SkTRefArray<T>* array = SkTRefArray<T>::Create(count);
-        for (int i = 0; i < count; i++) {
-            this->unflatten(&array->writableAt(i), fIndexedData[i]);
-        }
-        return array;
-    }
-
-    /**
      * Unflatten the specific object at the given index.
      * Caller takes ownership of the result.
      */
@@ -568,49 +560,6 @@ private:
 
     // For SkFlatData -> cached SkFlatData, which has index().
     SkTDynamicHash<SkFlatData, SkFlatData, SkFlatData::HashTraits> fHash;
-};
-
-struct SkPaintFlatteningTraits {
-    static void Flatten(SkWriteBuffer& buffer, const SkPaint& paint) { paint.flatten(buffer); }
-    static void Unflatten(SkReadBuffer& buffer, SkPaint* paint) { paint->unflatten(buffer); }
-};
-
-typedef SkFlatDictionary<SkPaint, SkPaintFlatteningTraits> SkPaintDictionary;
-
-class SkChunkFlatController : public SkFlatController {
-public:
-    SkChunkFlatController(size_t minSize)
-    : fHeap(minSize)
-    , fTypefaceSet(SkNEW(SkRefCntSet))
-    , fLastAllocated(NULL) {
-        this->setTypefaceSet(fTypefaceSet);
-        this->setTypefacePlayback(&fTypefacePlayback);
-    }
-
-    virtual void* allocThrow(size_t bytes) SK_OVERRIDE {
-        fLastAllocated = fHeap.allocThrow(bytes);
-        return fLastAllocated;
-    }
-
-    virtual void unalloc(void* ptr) SK_OVERRIDE {
-        // fHeap can only free a pointer if it was the last one allocated.  Otherwise, we'll just
-        // have to wait until fHeap is destroyed.
-        if (ptr == fLastAllocated) (void)fHeap.unalloc(ptr);
-    }
-
-    void setupPlaybacks() const {
-        fTypefacePlayback.reset(fTypefaceSet.get());
-    }
-
-    void setBitmapStorage(SkBitmapHeap* heap) {
-        this->setBitmapHeap(heap);
-    }
-
-private:
-    SkChunkAlloc               fHeap;
-    SkAutoTUnref<SkRefCntSet>  fTypefaceSet;
-    void*                      fLastAllocated;
-    mutable SkTypefacePlayback fTypefacePlayback;
 };
 
 #endif

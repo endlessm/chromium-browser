@@ -6,12 +6,14 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
 #include "base/profiler/scoped_tracker.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/thread_task_runner_handle.h"
 #include "components/translate/core/browser/translate_url_fetcher.h"
 #include "components/translate/core/browser/translate_url_util.h"
 #include "components/translate/core/common/translate_switches.h"
@@ -66,7 +68,8 @@ void TranslateScript::Request(const RequestCallback& callback) {
 
   GURL translate_script_url;
   // Check if command-line contains an alternative URL for translate service.
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
   if (command_line.HasSwitch(translate::switches::kTranslateScriptURL)) {
     translate_script_url = GURL(command_line.GetSwitchValueASCII(
         translate::switches::kTranslateScriptURL));
@@ -141,10 +144,9 @@ void TranslateScript::OnScriptFetchComplete(
     // We'll expire the cached script after some time, to make sure long
     // running browsers still get fixes that might get pushed with newer
     // scripts.
-    base::MessageLoop::current()->PostDelayedTask(
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE,
-        base::Bind(&TranslateScript::Clear,
-                   weak_method_factory_.GetWeakPtr()),
+        base::Bind(&TranslateScript::Clear, weak_method_factory_.GetWeakPtr()),
         expiration_delay_);
   }
 

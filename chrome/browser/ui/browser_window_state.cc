@@ -138,19 +138,9 @@ void GetSavedWindowBoundsAndShowState(const Browser* browser,
                                                   bounds,
                                                   show_state);
 
-  const CommandLine& parsed_command_line = *CommandLine::ForCurrentProcess();
-  bool record_mode = parsed_command_line.HasSwitch(switches::kRecordMode);
-  bool playback_mode = parsed_command_line.HasSwitch(switches::kPlaybackMode);
-  if (record_mode || playback_mode) {
-    // In playback/record mode we always fix the size of the browser and
-    // move it to (0,0).  The reason for this is two reasons:  First we want
-    // resize/moves in the playback to still work, and Second we want
-    // playbacks to work (as much as possible) on machines w/ different
-    // screen sizes.
-    *bounds = gfx::Rect(0, 0, 800, 600);
-  }
+  const base::CommandLine& parsed_command_line =
+      *base::CommandLine::ForCurrentProcess();
 
-  // The following options override playback/record.
   if (parsed_command_line.HasSwitch(switches::kWindowSize)) {
     std::string str =
         parsed_command_line.GetSwitchValueASCII(switches::kWindowSize);

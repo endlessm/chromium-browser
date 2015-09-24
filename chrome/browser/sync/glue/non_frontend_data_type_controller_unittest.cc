@@ -12,6 +12,7 @@
 #include "base/message_loop/message_loop.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/test/test_timeouts.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/tracked_objects.h"
 #include "chrome/browser/sync/glue/non_frontend_data_type_controller.h"
 #include "chrome/browser/sync/glue/non_frontend_data_type_controller_mock.h"
@@ -22,6 +23,7 @@
 #include "components/sync_driver/data_type_controller_mock.h"
 #include "components/sync_driver/model_associator_mock.h"
 #include "content/public/test/test_browser_thread.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "sync/internal_api/public/engine/model_safe_worker.h"
 
 using base::WaitableEvent;
@@ -56,7 +58,7 @@ class NonFrontendDataTypeControllerFake : public NonFrontendDataTypeController {
       Profile* profile,
       ProfileSyncService* sync_service,
       NonFrontendDataTypeControllerMock* mock)
-      : NonFrontendDataTypeController(base::MessageLoopProxy::current(),
+      : NonFrontendDataTypeController(base::ThreadTaskRunnerHandle::Get(),
                                       base::Closure(),
                                       profile_sync_factory,
                                       profile,
@@ -105,14 +107,12 @@ class NonFrontendDataTypeControllerFake : public NonFrontendDataTypeController {
 class SyncNonFrontendDataTypeControllerTest : public testing::Test {
  public:
   SyncNonFrontendDataTypeControllerTest()
-      : ui_thread_(BrowserThread::UI, &message_loop_),
-        db_thread_(BrowserThread::DB),
+      : thread_bundle_(content::TestBrowserThreadBundle::REAL_DB_THREAD),
         service_(&profile_),
         model_associator_(NULL),
         change_processor_(NULL) {}
 
   void SetUp() override {
-    db_thread_.Start();
     profile_sync_factory_.reset(new ProfileSyncComponentsFactoryMock());
 
     // All of these are refcounted, so don't need to be released.
@@ -129,7 +129,6 @@ class SyncNonFrontendDataTypeControllerTest : public testing::Test {
         NonFrontendDataTypeController::NOT_RUNNING) {
       non_frontend_dtc_->Stop();
     }
-    db_thread_.Stop();
   }
 
  protected:
@@ -199,9 +198,7 @@ class SyncNonFrontendDataTypeControllerTest : public testing::Test {
                    base::Unretained(&start_callback_)));
   }
 
-  base::MessageLoopForUI message_loop_;
-  content::TestBrowserThread ui_thread_;
-  content::TestBrowserThread db_thread_;
+  content::TestBrowserThreadBundle thread_bundle_;
   scoped_refptr<NonFrontendDataTypeControllerFake> non_frontend_dtc_;
   scoped_ptr<ProfileSyncComponentsFactoryMock> profile_sync_factory_;
   scoped_refptr<NonFrontendDataTypeControllerMock> dtc_mock_;

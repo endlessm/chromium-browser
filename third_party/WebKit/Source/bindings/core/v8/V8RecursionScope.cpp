@@ -31,15 +31,14 @@
 #include "config.h"
 #include "bindings/core/v8/V8RecursionScope.h"
 
-#include "bindings/core/v8/ModuleProxy.h"
 #include "core/dom/Microtask.h"
 
 namespace blink {
 
 void V8RecursionScope::didLeaveScriptContext()
 {
-    Microtask::performCheckpoint();
-    ModuleProxy::moduleProxy().didLeaveScriptContextForRecursionScope(m_isolate);
+    Microtask::performCheckpoint(m_isolate);
+    V8PerIsolateData::from(m_isolate)->runEndOfScopeTasks();
 }
 
 } // namespace blink

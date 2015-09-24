@@ -31,8 +31,10 @@
 #include "config.h"
 #include "WTF.h"
 
-#include "wtf/DefaultAllocator.h"
+#include "wtf/ArrayBufferContents.h"
+#include "wtf/Assertions.h"
 #include "wtf/FastMalloc.h"
+#include "wtf/Partitions.h"
 
 namespace WTF {
 
@@ -40,19 +42,20 @@ extern void initializeThreading();
 
 bool s_initialized;
 bool s_shutdown;
-bool Partitions::s_initialized;
-PartitionAllocatorGeneric Partitions::m_bufferAllocator;
 
-void initialize(TimeFunction currentTimeFunction, TimeFunction monotonicallyIncreasingTimeFunction)
+void initialize(TimeFunction currentTimeFunction, TimeFunction monotonicallyIncreasingTimeFunction, TimeFunction systemTraceTimeFunction, HistogramEnumerationFunction histogramEnumerationFunction, AdjustAmountOfExternalAllocatedMemoryFunction adjustAmountOfExternalAllocatedMemoryFunction)
 {
     // WTF, and Blink in general, cannot handle being re-initialized, even if shutdown first.
     // Make that explicit here.
     ASSERT(!s_initialized);
     ASSERT(!s_shutdown);
     s_initialized = true;
-    Partitions::initialize();
     setCurrentTimeFunction(currentTimeFunction);
     setMonotonicallyIncreasingTimeFunction(monotonicallyIncreasingTimeFunction);
+    setSystemTraceTimeFunction(systemTraceTimeFunction);
+    Partitions::initialize();
+    Partitions::setHistogramEnumeration(histogramEnumerationFunction);
+    ArrayBufferContents::setAdjustAmoutOfExternalAllocatedMemoryFunction(adjustAmountOfExternalAllocatedMemoryFunction);
     initializeThreading();
 }
 
@@ -67,24 +70,6 @@ void shutdown()
 bool isShutdown()
 {
     return s_shutdown;
-}
-
-void Partitions::initialize()
-{
-    static int lock = 0;
-    // Guard against two threads hitting here in parallel.
-    spinLockLock(&lock);
-    if (!s_initialized) {
-        m_bufferAllocator.init();
-        s_initialized = true;
-    }
-    spinLockUnlock(&lock);
-}
-
-void Partitions::shutdown()
-{
-    fastMallocShutdown();
-    m_bufferAllocator.shutdown();
 }
 
 } // namespace WTF

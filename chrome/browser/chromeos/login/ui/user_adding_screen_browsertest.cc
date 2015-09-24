@@ -41,14 +41,14 @@ class UserAddingScreenTest : public LoginManagerTest,
                            user_adding_finished_(0) {
   }
 
-  virtual void SetUpInProcessBrowserTestFixture() override {
+  void SetUpInProcessBrowserTestFixture() override {
     LoginManagerTest::SetUpInProcessBrowserTestFixture();
     UserAddingScreen::Get()->AddObserver(this);
   }
 
-  virtual void OnUserAddingFinished() override { ++user_adding_finished_; }
+  void OnUserAddingFinished() override { ++user_adding_finished_; }
 
-  virtual void OnUserAddingStarted() override { ++user_adding_started_; }
+  void OnUserAddingStarted() override { ++user_adding_started_; }
 
   void SetUserCanLock(user_manager::User* user, bool can_lock) {
     user->set_can_lock(can_lock);
@@ -91,7 +91,6 @@ IN_PROC_BROWSER_TEST_F(UserAddingScreenTest, PRE_CancelAdding) {
 }
 
 IN_PROC_BROWSER_TEST_F(UserAddingScreenTest, CancelAdding) {
-  EXPECT_CALL(login_utils(), DoBrowserLaunch(_, _)).Times(1);
   EXPECT_EQ(3u, user_manager::UserManager::Get()->GetUsers().size());
   EXPECT_EQ(0u, user_manager::UserManager::Get()->GetLoggedInUsers().size());
 
@@ -136,7 +135,6 @@ IN_PROC_BROWSER_TEST_F(UserAddingScreenTest, AddingSeveralUsers) {
   EXPECT_EQ(ash::SessionStateDelegate::SESSION_STATE_LOGIN_PRIMARY,
             ash::Shell::GetInstance()->session_state_delegate()->
                 GetSessionState());
-  EXPECT_CALL(login_utils(), DoBrowserLaunch(_, _)).Times(3);
   LoginUser(kTestUsers[0]);
   EXPECT_EQ(ash::SessionStateDelegate::SESSION_STATE_ACTIVE,
             ash::Shell::GetInstance()->session_state_delegate()->

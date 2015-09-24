@@ -10,6 +10,8 @@
 # Assumes tombstone file was created with current symbols.
 
 import datetime
+import itertools
+import logging
 import multiprocessing
 import os
 import re
@@ -17,9 +19,13 @@ import subprocess
 import sys
 import optparse
 
-from pylib import android_commands
+from pylib.device import adb_wrapper
+from pylib.device import device_errors
 from pylib.device import device_utils
+from pylib.utils import run_tests_helper
 
+
+_TZ_UTC = {'TZ': 'UTC'}
 
 def _ListTombstones(device):
   """List the tombstone files on the device.
@@ -30,13 +36,18 @@ def _ListTombstones(device):
   Yields:
     Tuples of (tombstone filename, date time of file on device).
   """
-  lines = device.RunShellCommand('TZ=UTC su -c ls -a -l /data/tombstones')
-  for line in lines:
-    if 'tombstone' in line and not 'No such file or directory' in line:
-      details = line.split()
-      t = datetime.datetime.strptime(details[-3] + ' ' + details[-2],
-                                     '%Y-%m-%d %H:%M')
-      yield details[-1], t
+  try:
+    lines = device.RunShellCommand(
+        ['ls', '-a', '-l', '/data/tombstones'],
+        as_root=True, check_return=True, env=_TZ_UTC, timeout=60)
+    for line in lines:
+      if 'tombstone' in line and not 'No such file or directory' in line:
+        details = line.split()
+        t = datetime.datetime.strptime(details[-3] + ' ' + details[-2],
+                                       '%Y-%m-%d %H:%M')
+        yield details[-1], t
+  except device_errors.CommandFailedError:
+    logging.exception('Could not retrieve tombstones.')
 
 
 def _GetDeviceDateTime(device):
@@ -48,7 +59,8 @@ def _GetDeviceDateTime(device):
   Returns:
     A datetime instance.
   """
-  device_now_string = device.RunShellCommand('TZ=UTC date')
+  device_now_string = device.RunShellCommand(
+      ['date'], check_return=True, env=_TZ_UTC)
   return datetime.datetime.strptime(
       device_now_string[0], '%a %b %d %H:%M:%S %Z %Y')
 
@@ -63,7 +75,8 @@ def _GetTombstoneData(device, tombstone_file):
   Returns:
     A list of lines
   """
-  return device.ReadFile('/data/tombstones/' + tombstone_file, as_root=True)
+  return device.ReadFile(
+      '/data/tombstones/' + tombstone_file, as_root=True).splitlines()
 
 
 def _EraseTombstone(device, tombstone_file):
@@ -74,7 +87,8 @@ def _EraseTombstone(device, tombstone_file):
     tombstone_file: the tombstone to delete.
   """
   return device.RunShellCommand(
-      'rm /data/tombstones/' + tombstone_file, as_root=True)
+      ['rm', '/data/tombstones/' + tombstone_file],
+      as_root=True, check_return=True)
 
 
 def _DeviceAbiToArch(device_abi):
@@ -125,8 +139,8 @@ def _ResolveTombstone(tombstone):
             ', about this long ago: ' +
             (str(tombstone['device_now'] - tombstone['time']) +
             ' Device: ' + tombstone['serial'])]
-  print '\n'.join(lines)
-  print 'Resolving...'
+  logging.info('\n'.join(lines))
+  logging.info('Resolving...')
   lines += _ResolveSymbols(tombstone['data'], tombstone['stack'],
                            tombstone['device_abi'])
   return lines
@@ -140,15 +154,16 @@ def _ResolveTombstones(jobs, tombstones):
     tombstones: a list of tombstones.
   """
   if not tombstones:
-    print 'No device attached?  Or no tombstones?'
+    logging.warning('No tombstones to resolve.')
     return
   if len(tombstones) == 1:
-    data = _ResolveTombstone(tombstones[0])
+    data = [_ResolveTombstone(tombstones[0])]
   else:
     pool = multiprocessing.Pool(processes=jobs)
     data = pool.map(_ResolveTombstone, tombstones)
-    data = ['\n'.join(d) for d in data]
-  print '\n'.join(data)
+  for tombstone in data:
+    for line in tombstone:
+      logging.info(line)
 
 
 def _GetTombstonesForDevice(device, options):
@@ -161,7 +176,7 @@ def _GetTombstonesForDevice(device, options):
   ret = []
   all_tombstones = list(_ListTombstones(device))
   if not all_tombstones:
-    print 'No device attached?  Or no tombstones?'
+    logging.warning('No tombstones.')
     return ret
 
   # Sort the tombstones in date order, descending
@@ -171,14 +186,21 @@ def _GetTombstonesForDevice(device, options):
   tombstones = all_tombstones if options.all_tombstones else [all_tombstones[0]]
 
   device_now = _GetDeviceDateTime(device)
-  for tombstone_file, tombstone_time in tombstones:
-    ret += [{'serial': str(device),
-             'device_abi': device.GetProp('ro.product.cpu.abi'),
-             'device_now': device_now,
-             'time': tombstone_time,
-             'file': tombstone_file,
-             'stack': options.stack,
-             'data': _GetTombstoneData(device, tombstone_file)}]
+  try:
+    for tombstone_file, tombstone_time in tombstones:
+      ret += [{'serial': str(device),
+               'device_abi': device.product_cpu_abi,
+               'device_now': device_now,
+               'time': tombstone_time,
+               'file': tombstone_file,
+               'stack': options.stack,
+               'data': _GetTombstoneData(device, tombstone_file)}]
+  except device_errors.CommandFailedError:
+    for line in device.RunShellCommand(
+        ['ls', '-a', '-l', '/data/tombstones'],
+        as_root=True, check_return=True, env=_TZ_UTC, timeout=60):
+      logging.info('%s: %s', str(device), line)
+    raise
 
   # Erase all the tombstones if desired.
   if options.wipe_tombstones:
@@ -189,6 +211,11 @@ def _GetTombstonesForDevice(device, options):
 
 
 def main():
+  custom_handler = logging.StreamHandler(sys.stdout)
+  custom_handler.setFormatter(run_tests_helper.CustomFormatter())
+  logging.getLogger().addHandler(custom_handler)
+  logging.getLogger().setLevel(logging.INFO)
+
   parser = optparse.OptionParser()
   parser.add_option('--device',
                     help='The serial number of the device. If not specified '
@@ -207,16 +234,19 @@ def main():
   options, _ = parser.parse_args()
 
   if options.device:
-    devices = [options.device]
+    devices = [device_utils.DeviceUtils(options.device)]
   else:
-    devices = android_commands.GetAttachedDevices()
+    devices = device_utils.DeviceUtils.HealthyDevices()
 
+  # This must be done serially because strptime can hit a race condition if
+  # used for the first time in a multithreaded environment.
+  # http://bugs.python.org/issue7980
   tombstones = []
-  for device_serial in devices:
-    device = device_utils.DeviceUtils(device_serial)
+  for device in devices:
     tombstones += _GetTombstonesForDevice(device, options)
 
   _ResolveTombstones(options.jobs, tombstones)
+
 
 if __name__ == '__main__':
   sys.exit(main())

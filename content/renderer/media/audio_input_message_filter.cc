@@ -5,7 +5,7 @@
 #include "content/renderer/media/audio_input_message_filter.h"
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
 #include "content/common/media/audio_messages.h"
 #include "content/renderer/media/webrtc_logging.h"
@@ -31,7 +31,7 @@ class AudioInputMessageFilter::AudioInputIPCImpl
     : public NON_EXPORTED_BASE(media::AudioInputIPC) {
  public:
   AudioInputIPCImpl(const scoped_refptr<AudioInputMessageFilter>& filter,
-                    int render_view_id);
+                    int render_frame_id);
   ~AudioInputIPCImpl() override;
 
   // media::AudioInputIPC implementation.
@@ -46,16 +46,15 @@ class AudioInputMessageFilter::AudioInputIPCImpl
 
  private:
   const scoped_refptr<AudioInputMessageFilter> filter_;
-  const int render_view_id_;
+  const int render_frame_id_;
   int stream_id_;
 };
 
 AudioInputMessageFilter* AudioInputMessageFilter::g_filter = NULL;
 
 AudioInputMessageFilter::AudioInputMessageFilter(
-    const scoped_refptr<base::MessageLoopProxy>& io_message_loop)
-    : sender_(NULL),
-      io_message_loop_(io_message_loop) {
+    scoped_refptr<base::SingleThreadTaskRunner> io_task_runner)
+    : sender_(NULL), io_task_runner_(io_task_runner) {
   DCHECK(!g_filter);
   g_filter = this;
 }
@@ -71,7 +70,7 @@ AudioInputMessageFilter* AudioInputMessageFilter::Get() {
 }
 
 void AudioInputMessageFilter::Send(IPC::Message* message) {
-  DCHECK(io_message_loop_->BelongsToCurrentThread());
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
   if (!sender_) {
     delete message;
   } else {
@@ -80,7 +79,7 @@ void AudioInputMessageFilter::Send(IPC::Message* message) {
 }
 
 bool AudioInputMessageFilter::OnMessageReceived(const IPC::Message& message) {
-  DCHECK(io_message_loop_->BelongsToCurrentThread());
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(AudioInputMessageFilter, message)
     IPC_MESSAGE_HANDLER(AudioInputMsg_NotifyStreamCreated,
@@ -94,14 +93,14 @@ bool AudioInputMessageFilter::OnMessageReceived(const IPC::Message& message) {
 }
 
 void AudioInputMessageFilter::OnFilterAdded(IPC::Sender* sender) {
-  DCHECK(io_message_loop_->BelongsToCurrentThread());
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
 
   // Captures the sender for IPC.
   sender_ = sender;
 }
 
 void AudioInputMessageFilter::OnFilterRemoved() {
-  DCHECK(io_message_loop_->BelongsToCurrentThread());
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
 
   // Once removed, a filter will not be used again.  At this time all
   // delegates must be notified so they release their reference.
@@ -109,7 +108,7 @@ void AudioInputMessageFilter::OnFilterRemoved() {
 }
 
 void AudioInputMessageFilter::OnChannelClosing() {
-  DCHECK(io_message_loop_->BelongsToCurrentThread());
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
   sender_ = NULL;
 
   DLOG_IF(WARNING, !delegates_.IsEmpty())
@@ -129,7 +128,7 @@ void AudioInputMessageFilter::OnStreamCreated(
     base::SyncSocket::TransitDescriptor socket_descriptor,
     uint32 length,
     uint32 total_segments) {
-  DCHECK(io_message_loop_->BelongsToCurrentThread());
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
   LogMessage(stream_id, "OnStreamCreated");
 
   base::SyncSocket::Handle socket_handle =
@@ -147,7 +146,7 @@ void AudioInputMessageFilter::OnStreamCreated(
 }
 
 void AudioInputMessageFilter::OnStreamVolume(int stream_id, double volume) {
-  DCHECK(io_message_loop_->BelongsToCurrentThread());
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
   media::AudioInputIPCDelegate* delegate = delegates_.Lookup(stream_id);
   if (!delegate) {
     DLOG(WARNING) << "Got audio stream event for a non-existent or removed"
@@ -158,8 +157,8 @@ void AudioInputMessageFilter::OnStreamVolume(int stream_id, double volume) {
 }
 
 void AudioInputMessageFilter::OnStreamStateChanged(
-    int stream_id, media::AudioInputIPCDelegate::State state) {
-  DCHECK(io_message_loop_->BelongsToCurrentThread());
+    int stream_id, media::AudioInputIPCDelegateState state) {
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
   media::AudioInputIPCDelegate* delegate = delegates_.Lookup(stream_id);
   if (!delegate) {
     DLOG(WARNING) << "Got audio stream event for a non-existent or removed"
@@ -170,18 +169,20 @@ void AudioInputMessageFilter::OnStreamStateChanged(
 }
 
 AudioInputMessageFilter::AudioInputIPCImpl::AudioInputIPCImpl(
-    const scoped_refptr<AudioInputMessageFilter>& filter, int render_view_id)
+    const scoped_refptr<AudioInputMessageFilter>& filter,
+    int render_frame_id)
     : filter_(filter),
-      render_view_id_(render_view_id),
-      stream_id_(kStreamIDNotSet) {}
+      render_frame_id_(render_frame_id),
+      stream_id_(kStreamIDNotSet) {
+}
 
 AudioInputMessageFilter::AudioInputIPCImpl::~AudioInputIPCImpl() {}
 
 scoped_ptr<media::AudioInputIPC> AudioInputMessageFilter::CreateAudioInputIPC(
-    int render_view_id) {
-  DCHECK_GT(render_view_id, 0);
+    int render_frame_id) {
+  DCHECK_GT(render_frame_id, 0);
   return scoped_ptr<media::AudioInputIPC>(
-      new AudioInputIPCImpl(this, render_view_id));
+      new AudioInputIPCImpl(this, render_frame_id));
 }
 
 void AudioInputMessageFilter::AudioInputIPCImpl::CreateStream(
@@ -190,7 +191,7 @@ void AudioInputMessageFilter::AudioInputIPCImpl::CreateStream(
     const media::AudioParameters& params,
     bool automatic_gain_control,
     uint32 total_segments) {
-  DCHECK(filter_->io_message_loop_->BelongsToCurrentThread());
+  DCHECK(filter_->io_task_runner_->BelongsToCurrentThread());
   DCHECK(delegate);
 
   stream_id_ = filter_->delegates_.Add(delegate);
@@ -202,8 +203,8 @@ void AudioInputMessageFilter::AudioInputIPCImpl::CreateStream(
   config.params = params;
   config.automatic_gain_control = automatic_gain_control;
   config.shared_memory_count = total_segments;
-  filter_->Send(new AudioInputHostMsg_CreateStream(
-      stream_id_, render_view_id_, session_id, config));
+  filter_->Send(new AudioInputHostMsg_CreateStream(stream_id_, render_frame_id_,
+                                                   session_id, config));
 }
 
 void AudioInputMessageFilter::AudioInputIPCImpl::RecordStream() {
@@ -218,7 +219,7 @@ void AudioInputMessageFilter::AudioInputIPCImpl::SetVolume(double volume) {
 }
 
 void AudioInputMessageFilter::AudioInputIPCImpl::CloseStream() {
-  DCHECK(filter_->io_message_loop_->BelongsToCurrentThread());
+  DCHECK(filter_->io_task_runner_->BelongsToCurrentThread());
   DCHECK_NE(stream_id_, kStreamIDNotSet);
   LogMessage(stream_id_, "CloseStream");
   filter_->Send(new AudioInputHostMsg_CloseStream(stream_id_));

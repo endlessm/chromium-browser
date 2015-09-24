@@ -5,8 +5,12 @@
 package org.chromium.chrome.shell;
 
 import android.app.Activity;
+import android.app.FragmentManager;
+import android.app.Notification;
 import android.content.Intent;
 import android.os.Bundle;
+import android.provider.Browser;
+import android.support.v7.app.AppCompatActivity;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.KeyEvent;
@@ -22,20 +26,31 @@ import org.chromium.base.CommandLine;
 import org.chromium.base.ContentUriUtils;
 import org.chromium.base.MemoryPressureListener;
 import org.chromium.base.VisibleForTesting;
+import org.chromium.base.annotations.SuppressFBWarnings;
+import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.library_loader.ProcessInitException;
 import org.chromium.chrome.browser.DevToolsServer;
 import org.chromium.chrome.browser.FileProviderHelper;
+import org.chromium.chrome.browser.Tab;
+import org.chromium.chrome.browser.WarmupManager;
+import org.chromium.chrome.browser.WebsiteSettingsPopup;
 import org.chromium.chrome.browser.appmenu.AppMenuHandler;
 import org.chromium.chrome.browser.appmenu.AppMenuPropertiesDelegate;
 import org.chromium.chrome.browser.dom_distiller.DomDistillerTabUtils;
 import org.chromium.chrome.browser.nfc.BeamController;
 import org.chromium.chrome.browser.nfc.BeamProvider;
+import org.chromium.chrome.browser.notifications.NotificationUIManager;
+import org.chromium.chrome.browser.preferences.PreferencesLauncher;
 import org.chromium.chrome.browser.printing.PrintingControllerFactory;
 import org.chromium.chrome.browser.printing.TabPrinter;
 import org.chromium.chrome.browser.share.ShareHelper;
+import org.chromium.chrome.browser.sync.SyncController;
 import org.chromium.chrome.browser.tabmodel.TabModel.TabLaunchType;
-import org.chromium.chrome.shell.sync.SyncController;
+import org.chromium.chrome.browser.tabmodel.TabModelSelector;
+import org.chromium.chrome.shell.signin.AccountChooserFragment;
+import org.chromium.chrome.shell.signin.SignoutFragment;
 import org.chromium.components.dom_distiller.core.DomDistillerUrlUtils;
+import org.chromium.components.service_tab_launcher.ServiceTabLauncher;
 import org.chromium.content.app.ContentApplication;
 import org.chromium.content.browser.ActivityContentVideoViewClient;
 import org.chromium.content.browser.BrowserStartupController;
@@ -51,7 +66,7 @@ import org.chromium.ui.base.WindowAndroid;
 /**
  * The {@link android.app.Activity} component of a basic test shell to test Chrome features.
  */
-public class ChromeShellActivity extends Activity implements AppMenuPropertiesDelegate {
+public class ChromeShellActivity extends AppCompatActivity implements AppMenuPropertiesDelegate {
     private static final String TAG = "ChromeShellActivity";
 
     /**
@@ -68,11 +83,12 @@ public class ChromeShellActivity extends Activity implements AppMenuPropertiesDe
             new ActivityWindowAndroidFactory() {
                 @Override
                 public ActivityWindowAndroid getActivityWindowAndroid(Activity activity) {
-                    return new ActivityWindowAndroid(activity);
+                    final boolean listenToActivityState = true;
+                    return new ActivityWindowAndroid(activity, listenToActivityState);
                 }
             };
 
-    private WindowAndroid mWindow;
+    private ActivityWindowAndroid mWindow;
     private TabManager mTabManager;
     private ChromeShellToolbar mToolbar;
     private DevToolsServer mDevToolsServer;
@@ -101,6 +117,7 @@ public class ChromeShellActivity extends Activity implements AppMenuPropertiesDe
     private AppMenuHandler mAppMenuHandler;
 
     @Override
+    @SuppressFBWarnings("DM_EXIT")
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
@@ -108,6 +125,11 @@ public class ChromeShellActivity extends Activity implements AppMenuPropertiesDe
         waitForDebuggerIfNeeded();
 
         DeviceUtils.addDeviceSpecificUserAgentSwitch(this);
+
+        String url = getUrlFromIntent(getIntent());
+        if (url != null) {
+            WarmupManager.getInstance().maybePrefetchDnsForUrlInBackground(this, url);
+        }
 
         BrowserStartupController.StartupCallback callback =
                 new BrowserStartupController.StartupCallback() {
@@ -126,7 +148,8 @@ public class ChromeShellActivity extends Activity implements AppMenuPropertiesDe
                     }
                 };
         try {
-            BrowserStartupController.get(this).startBrowserProcessesAsync(callback);
+            BrowserStartupController.get(this, LibraryProcessType.PROCESS_BROWSER)
+                    .startBrowserProcessesAsync(callback);
         } catch (ProcessInitException e) {
             Log.e(TAG, "Unable to load native library.", e);
             System.exit(-1);
@@ -156,13 +179,18 @@ public class ChromeShellActivity extends Activity implements AppMenuPropertiesDe
                 }
             }
         });
+        // Set up the animation placeholder to be the SurfaceView. This disables the
+        // SurfaceView's 'hole' clipping during animations that are notified to the window.
+        mWindow.setAnimationPlaceholderView(
+                mTabManager.getContentViewRenderView().getSurfaceView());
 
         String startupUrl = getUrlFromIntent(getIntent());
         if (!TextUtils.isEmpty(startupUrl)) {
             mTabManager.setStartupUrl(startupUrl);
         }
         mToolbar = (ChromeShellToolbar) findViewById(R.id.toolbar);
-        mAppMenuHandler = sAppMenuHandlerFactory.getAppMenuHandler(this, this, R.menu.main_menu);
+        mAppMenuHandler = sAppMenuHandlerFactory.getAppMenuHandler(this, this,
+                R.menu.chrome_shell_main_menu);
         mToolbar.setMenuHandler(mAppMenuHandler);
 
         mDevToolsServer = new DevToolsServer("chrome_shell");
@@ -174,7 +202,7 @@ public class ChromeShellActivity extends Activity implements AppMenuPropertiesDe
         mSyncController = SyncController.get(this);
         // In case this method is called after the first onStart(), we need to inform the
         // SyncController that we have started.
-        mSyncController.onStart();
+        mSyncController.updateSyncStateFromAndroid();
         ContentUriUtils.setFileProviderUtil(new FileProviderHelper());
 
         BeamController.registerForBeam(this, new BeamProvider() {
@@ -185,6 +213,12 @@ public class ChromeShellActivity extends Activity implements AppMenuPropertiesDe
                 return tab.getUrl();
             }
         });
+
+        // The notification settings cog on the flipped side of Notifications and in the Android
+        // Settings "App Notifications" view will open us with a specific category.
+        if (getIntent().hasCategory(Notification.INTENT_CATEGORY_NOTIFICATION_PREFERENCES)) {
+            NotificationUIManager.launchNotificationPreferences(this, getIntent());
+        }
     }
 
     @Override
@@ -222,10 +256,23 @@ public class ChromeShellActivity extends Activity implements AppMenuPropertiesDe
         if (MemoryPressureListener.handleDebugIntent(this, intent.getAction())) return;
 
         String url = getUrlFromIntent(intent);
-        if (!TextUtils.isEmpty(url)) {
-            ChromeShellTab tab = getActiveTab();
-            if (tab != null) tab.loadUrlWithSanitization(url);
+        if (TextUtils.isEmpty(url)) return;
+
+        if (intent.getBooleanExtra(Browser.EXTRA_CREATE_NEW_TAB, false)) {
+            if (mTabManager == null) return;
+
+            Tab newTab = mTabManager.createTab(url, TabLaunchType.FROM_LINK);
+            if (newTab != null && intent.hasExtra(ServiceTabLauncher.LAUNCH_REQUEST_ID_EXTRA)) {
+                ServiceTabLauncher.onWebContentsForRequestAvailable(
+                        intent.getIntExtra(ServiceTabLauncher.LAUNCH_REQUEST_ID_EXTRA, 0),
+                        newTab.getWebContents());
+            }
+
+            return;
         }
+
+        ChromeShellTab tab = getActiveTab();
+        if (tab != null) tab.loadUrlWithSanitization(url);
     }
 
     @Override
@@ -233,20 +280,17 @@ public class ChromeShellActivity extends Activity implements AppMenuPropertiesDe
         super.onStop();
 
         if (mToolbar != null) mToolbar.hideSuggestions();
-
-        ContentViewCore viewCore = getActiveContentViewCore();
-        if (viewCore != null) viewCore.onHide();
     }
 
     @Override
     protected void onStart() {
         super.onStart();
 
-        ContentViewCore viewCore = getActiveContentViewCore();
-        if (viewCore != null) viewCore.onShow();
+        Tab activeTab = getActiveTab();
+        if (activeTab != null) activeTab.onActivityStart();
 
         if (mSyncController != null) {
-            mSyncController.onStart();
+            mSyncController.updateSyncStateFromAndroid();
         }
     }
 
@@ -294,6 +338,11 @@ public class ChromeShellActivity extends Activity implements AppMenuPropertiesDe
         mTabManager.closeAllTabs();
     }
 
+    @VisibleForTesting
+    public void closeTab() {
+        mTabManager.closeTab();
+    }
+
     /**
      * Override the menu key event to show AppMenu.
      */
@@ -320,9 +369,9 @@ public class ChromeShellActivity extends Activity implements AppMenuPropertiesDe
         int id = item.getItemId();
         if (id == R.id.signin) {
             if (ChromeSigninController.get(this).isSignedIn()) {
-                SyncController.openSignOutDialog(getFragmentManager());
+                openSignOutDialog(getFragmentManager());
             } else if (AccountManagerHelper.get(this).hasGoogleAccounts()) {
-                SyncController.openSigninDialog(getFragmentManager());
+                openSigninDialog(getFragmentManager());
             } else {
                 Toast.makeText(this, R.string.signin_no_account, Toast.LENGTH_SHORT).show();
             }
@@ -349,13 +398,18 @@ public class ChromeShellActivity extends Activity implements AppMenuPropertiesDe
                 activeTab.goForward();
             }
             return true;
+        } else if (id == R.id.info_menu_id) {
+            WebsiteSettingsPopup.show(this, activeTab.getProfile(), activeTab.getWebContents());
+            return true;
         } else if (id == R.id.new_tab_menu_id) {
             mTabManager.createNewTab();
             return true;
         } else if (id == R.id.share_menu_id || id == R.id.direct_share_menu_id) {
             ShareHelper.share(item.getItemId() == R.id.direct_share_menu_id, this,
-                    activeTab.getTitle(), activeTab.getUrl(), null,
-                    Intent.FLAG_ACTIVITY_CLEAR_WHEN_TASK_RESET);
+                    activeTab.getTitle(), activeTab.getUrl(), null);
+            return true;
+        } else if (id == R.id.preferences) {
+            PreferencesLauncher.launchSettingsPage(this, null);
             return true;
         } else {
             return super.onOptionsItemSelected(item);
@@ -377,6 +431,11 @@ public class ChromeShellActivity extends Activity implements AppMenuPropertiesDe
     @Override
     public boolean shouldShowAppMenu() {
         return true;
+    }
+
+    @Override
+    public int getFooterResourceId() {
+        return 0;
     }
 
     @Override
@@ -420,14 +479,9 @@ public class ChromeShellActivity extends Activity implements AppMenuPropertiesDe
         return mAppMenuHandler;
     }
 
-    @Override
-    public int getMenuThemeResourceId() {
-        return R.style.OverflowMenuTheme;
-    }
-
-    @Override
-    public int getMenuButtonStartPaddingDimenId() {
-        return 0;
+    @VisibleForTesting
+    public TabModelSelector getTabModelSelector() {
+        return mTabManager.getTabModelSelector();
     }
 
     @VisibleForTesting
@@ -438,5 +492,25 @@ public class ChromeShellActivity extends Activity implements AppMenuPropertiesDe
     @VisibleForTesting
     public static void setAppMenuHandlerFactory(AppMenuHandlerFactory factory) {
         sAppMenuHandlerFactory = factory;
+    }
+
+    /**
+     * Open a dialog that gives the user the option to sign in from a list of available accounts.
+     *
+     * @param fragmentManager the FragmentManager.
+     */
+    private static void openSigninDialog(FragmentManager fragmentManager) {
+        AccountChooserFragment chooserFragment = new AccountChooserFragment();
+        chooserFragment.show(fragmentManager, null);
+    }
+
+    /**
+     * Open a dialog that gives the user the option to sign out.
+     *
+     * @param fragmentManager the FragmentManager.
+     */
+    private static void openSignOutDialog(FragmentManager fragmentManager) {
+        SignoutFragment signoutFragment = new SignoutFragment();
+        signoutFragment.show(fragmentManager, null);
     }
 }

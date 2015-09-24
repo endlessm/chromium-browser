@@ -10,6 +10,7 @@
 #include "base/threading/sequenced_worker_pool.h"
 #include "chrome/browser/chromeos/policy/device_policy_builder.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
+#include "chrome/browser/chromeos/settings/device_oauth2_token_service_delegate.h"
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
 #include "chrome/browser/chromeos/settings/device_settings_test_helper.h"
 #include "chrome/browser/chromeos/settings/token_encryptor.h"
@@ -28,9 +29,28 @@
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "net/url_request/url_fetcher_delegate.h"
 #include "net/url_request/url_request_test_util.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace chromeos {
+
+namespace {
+
+class MockOAuth2TokenServiceObserver : public OAuth2TokenService::Observer {
+ public:
+  MockOAuth2TokenServiceObserver();
+  ~MockOAuth2TokenServiceObserver() override;
+
+  MOCK_METHOD1(OnRefreshTokenAvailable, void(const std::string&));
+};
+
+MockOAuth2TokenServiceObserver::MockOAuth2TokenServiceObserver() {
+}
+
+MockOAuth2TokenServiceObserver::~MockOAuth2TokenServiceObserver() {
+}
+
+}  // namespace
 
 static const int kOAuthTokenServiceUrlFetcherId = 0;
 static const int kValidatorUrlFetcherId = gaia::GaiaOAuthClient::kUrlFetcherId;
@@ -39,9 +59,10 @@ class DeviceOAuth2TokenServiceTest : public testing::Test {
  public:
   DeviceOAuth2TokenServiceTest()
       : scoped_testing_local_state_(TestingBrowserProcess::GetGlobal()),
-        request_context_getter_(new net::TestURLRequestContextGetter(
-            message_loop_.message_loop_proxy())) {}
-  virtual ~DeviceOAuth2TokenServiceTest() {}
+        request_context_getter_(
+            new net::TestURLRequestContextGetter(message_loop_.task_runner())) {
+  }
+  ~DeviceOAuth2TokenServiceTest() override {}
 
   // Most tests just want a noop crypto impl with a dummy refresh token value in
   // Local State (if the value is an empty string, it will be ignored).
@@ -74,7 +95,7 @@ class DeviceOAuth2TokenServiceTest : public testing::Test {
                                          &consumer_);
   }
 
-  virtual void SetUp() override {
+  void SetUp() override {
     fake_cryptohome_client_ = new FakeCryptohomeClient;
     fake_cryptohome_client_->SetServiceIsAvailable(true);
     fake_cryptohome_client_->set_system_salt(
@@ -95,7 +116,8 @@ class DeviceOAuth2TokenServiceTest : public testing::Test {
     CrosSettings::Initialize();
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
+    oauth2_service_.reset();
     CrosSettings::Shutdown();
     TestingBrowserProcess::GetGlobal()->SetBrowserPolicyConnector(NULL);
     content::BrowserThread::GetBlockingPool()->FlushForTesting();
@@ -107,9 +129,11 @@ class DeviceOAuth2TokenServiceTest : public testing::Test {
   }
 
   void CreateService() {
-    oauth2_service_.reset(new DeviceOAuth2TokenService(
-        request_context_getter_.get(), scoped_testing_local_state_.Get()));
-    oauth2_service_->max_refresh_token_validation_retries_ = 0;
+    DeviceOAuth2TokenServiceDelegate* delegate =
+        new DeviceOAuth2TokenServiceDelegate(request_context_getter_.get(),
+                                             scoped_testing_local_state_.Get());
+    delegate->max_refresh_token_validation_retries_ = 0;
+    oauth2_service_.reset(new DeviceOAuth2TokenService(delegate));
     oauth2_service_->set_max_authorization_token_fetch_retries_for_testing(0);
   }
 
@@ -135,8 +159,9 @@ class DeviceOAuth2TokenServiceTest : public testing::Test {
     if (!RefreshTokenIsAvailable())
       return std::string();
 
-    return oauth2_service_->GetRefreshToken(
-        oauth2_service_->GetRobotAccountId());
+    return static_cast<DeviceOAuth2TokenServiceDelegate*>(
+               oauth2_service_->GetDelegate())
+        ->GetRefreshToken(oauth2_service_->GetRobotAccountId());
   }
 
   // A utility method to return fake URL results, for testing the refresh token
@@ -428,6 +453,27 @@ TEST_F(DeviceOAuth2TokenServiceTest, RefreshTokenValidation_Retry) {
   request = StartTokenRequest();
   PerformURLFetches();
   AssertConsumerTokensAndErrors(1, 1);
+}
+
+TEST_F(DeviceOAuth2TokenServiceTest, DoNotAnnounceTokenWithoutAccountID) {
+  CreateService();
+
+  testing::StrictMock<MockOAuth2TokenServiceObserver> observer;
+  oauth2_service_->AddObserver(&observer);
+
+  // Make a token available during enrollment. Verify that the token is not
+  // announced yet.
+  oauth2_service_->SetAndSaveRefreshToken(
+      "test-token", DeviceOAuth2TokenService::StatusCallback());
+  testing::Mock::VerifyAndClearExpectations(&observer);
+
+  // Also make the robot account ID available. Verify that the token is
+  // announced now.
+  EXPECT_CALL(observer, OnRefreshTokenAvailable("robot@example.com"));
+  SetRobotAccountId("robot@example.com");
+  testing::Mock::VerifyAndClearExpectations(&observer);
+
+  oauth2_service_->RemoveObserver(&observer);
 }
 
 }  // namespace chromeos

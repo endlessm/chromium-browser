@@ -8,7 +8,7 @@
 #include "base/json/json_writer.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/browser/supervised_user/experimental/supervised_user_async_url_checker.h"
 #include "net/url_request/test_url_fetcher_factory.h"
@@ -21,8 +21,6 @@ using testing::_;
 
 namespace {
 
-const char kCx[] = "somecsecx";
-const char kApiKey[] = "someapikey";
 const size_t kCacheSize = 2;
 
 const int kSupervisedUserAsyncURLCheckerSafeURLFetcherID = 0;
@@ -55,7 +53,7 @@ std::string BuildResponse(const GURL& url) {
     dict.SetWithoutPathExpansion("items", results_list);
   }
   std::string result;
-  base::JSONWriter::Write(&dict, &result);
+  base::JSONWriter::Write(dict, &result);
   return result;
 }
 
@@ -66,9 +64,8 @@ class SupervisedUserAsyncURLCheckerTest : public testing::Test {
   SupervisedUserAsyncURLCheckerTest()
       : next_url_(0),
         request_context_(new net::TestURLRequestContextGetter(
-            base::MessageLoopProxy::current())),
-        checker_(request_context_.get(), kCx, kApiKey, kCacheSize) {
-  }
+            base::ThreadTaskRunnerHandle::Get())),
+        checker_(request_context_.get(), kCacheSize) {}
 
   MOCK_METHOD3(OnCheckDone,
                void(const GURL& url,

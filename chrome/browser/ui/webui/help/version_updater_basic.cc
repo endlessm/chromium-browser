@@ -20,6 +20,6 @@ void VersionUpdaterBasic::RelaunchBrowser() const {
   chrome::AttemptRestart();
 }
 
-VersionUpdater* VersionUpdater::Create() {
+VersionUpdater* VersionUpdater::Create(content::WebContents* web_contents) {
   return new VersionUpdaterBasic;
 }

@@ -6,8 +6,8 @@
 
 #include "base/metrics/histogram.h"
 #include "chrome/browser/drive/drive_notification_observer.h"
-#include "components/invalidation/invalidation_service.h"
-#include "components/invalidation/object_id_invalidation_map.h"
+#include "components/invalidation/public/invalidation_service.h"
+#include "components/invalidation/public/object_id_invalidation_map.h"
 #include "google/cacheinvalidation/types.pb.h"
 
 namespace drive {
@@ -135,7 +135,7 @@ void DriveNotificationManager::RegisterDriveNotifications() {
   ids.insert(invalidation::ObjectId(
       ipc::invalidation::ObjectSource::COSMO_CHANGELOG,
       kDriveInvalidationObjectId));
-  invalidation_service_->UpdateRegisteredInvalidationIds(this, ids);
+  CHECK(invalidation_service_->UpdateRegisteredInvalidationIds(this, ids));
   push_notification_registered_ = true;
   OnInvalidatorStateChange(invalidation_service_->GetInvalidatorState());
 

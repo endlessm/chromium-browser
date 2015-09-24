@@ -1,70 +1,28 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _FPDFSDK_DEFINE_H
-#define _FPDFSDK_DEFINE_H
+#ifndef FPDFSDK_INCLUDE_FSDK_DEFINE_H_
+#define FPDFSDK_INCLUDE_FSDK_DEFINE_H_
 
 #ifdef _WIN32
 #include <tchar.h>
 #include <math.h>
 #endif
 
-//#define API5
-#define API6
-#define  _FPDFAPI_ASYNC_PARSING_
-#define _FXSDK_OPENSOURCE_
-
-#ifdef _FPDFEMB_WCE_
-	#include "../../core/include/fpdfapi/fpdfapi.h" 
-	#include "../../core/include/fpdfapi/fpdf_parser.h" 
-	#include "../../core/include/fpdfapi/fpdf_module.h" 
-	#include "../../core/include/fpdfapi/fpdf_render.h" 
-	#include "../../core/include/fpdfapi/fpdf_pageobj.h" 
-	#include "../../core/include/fpdfapi/fpdf_serial.h" 
-
-	#include "../../core/include/fpdftext/fpdf_text.h"
-
-	#include "../../core/include/fxge/fx_ge_win32.h"
-	#include "../../core/include/fxge/fx_ge.h"
-
-	#include "../../core/include/fxcodec/fx_codec.h"
-
-	#include "../../core/include/fpdfdoc/fpdf_doc.h" 
-	#include "../../core/include/fpdfdoc/fpdf_vt.h" 
-
-	#include "../../core/include/fxcrt/fx_xml.h" 
-	#include "../../core/include/fxcrt/fx_crypt.h"
-
-#else
-	#ifdef API6
-		#include "../../core/include/fpdfapi/fpdf_parser.h" 
-		#include "../../core/include/fpdfapi/fpdfapi.h" 
-		#include "../../core/include/fpdfapi/fpdf_parser.h" 
-		#include "../../core/include/fpdfapi/fpdf_module.h" 
-		#include "../../core/include/fpdfapi/fpdf_render.h" 
-		#include "../../core/include/fpdfapi/fpdf_pageobj.h" 
-		#include "../../core/include/fpdfapi/fpdf_serial.h" 
-
-		#include "../../core/include/fpdftext/fpdf_text.h"
-
-		#include "../../core/include/fxge/fx_ge_win32.h"
-		#include "../../core/include/fxge/fx_ge.h"
-
-		#include "../../core/include/fxcodec/fx_codec.h"
-
-		#include "../../core/include/fpdfdoc/fpdf_doc.h" 
-		#include "../../core/include/fpdfdoc/fpdf_vt.h" 
-
-		#include "../../core/include/fxcrt/fx_xml.h" 
-	//	#include "../../core/include/fdrm/fx_crypt.h"
-		#ifdef _LICENSED_BUILD_
-			#include "../../cryptopp/Cryptlib.h"
-		#endif
-	#endif
-#endif
+#include "../../core/include/fpdfapi/fpdf_module.h"
+#include "../../core/include/fpdfapi/fpdf_pageobj.h"
+#include "../../core/include/fpdfapi/fpdf_parser.h"
+#include "../../core/include/fpdfapi/fpdf_parser.h"
+#include "../../core/include/fpdfapi/fpdf_render.h"
+#include "../../core/include/fpdfapi/fpdf_serial.h"
+#include "../../core/include/fpdfapi/fpdfapi.h"
+#include "../../core/include/fpdfdoc/fpdf_doc.h"
+#include "../../core/include/fpdfdoc/fpdf_vt.h"
+#include "../../core/include/fxge/fx_ge.h"
+#include "../../core/include/fxge/fx_ge_win32.h"
 
 
 #ifndef FX_GetAValue
@@ -97,21 +55,21 @@
 #define FX_COLORREFTOARGB(rgb)		((FX_DWORD)0xFF000000|(((FX_DWORD)rgb & 0x000000FF) << 16)|((FX_DWORD)rgb & 0x0000FF00)|(((FX_DWORD)rgb & 0x00FF0000) >> 16))
 #endif
 
-typedef unsigned int FX_UINT;	
+typedef unsigned int FX_UINT;
 
-#include "fpdfview.h"
+#include "../../public/fpdfview.h"
 
-class CPDF_CustomAccess FX_FINAL : public IFX_FileRead, public CFX_Object
+class CPDF_CustomAccess final : public IFX_FileRead
 {
 public:
 	CPDF_CustomAccess(FPDF_FILEACCESS* pFileAccess);
 	~CPDF_CustomAccess() {}
 
-	virtual FX_FILESIZE	GetSize() FX_OVERRIDE { return m_FileAccess.m_FileLen; }
+	virtual FX_FILESIZE	GetSize() override { return m_FileAccess.m_FileLen; }
 
-	virtual void		Release() FX_OVERRIDE { delete this; }
+	virtual void		Release() override { delete this; }
 
-	virtual FX_BOOL		ReadBlock(void* buffer, FX_FILESIZE offset, size_t size) FX_OVERRIDE;
+	virtual FX_BOOL		ReadBlock(void* buffer, FX_FILESIZE offset, size_t size) override;
 
 private:
 	FPDF_FILEACCESS		m_FileAccess;
@@ -121,4 +79,4 @@ void		FSDK_SetSandBoxPolicy(FPDF_DWORD policy, FPDF_BOOL enable);
 FPDF_BOOL	FSDK_IsSandBoxPolicyEnabled(FPDF_DWORD policy);
 
 
-#endif//_FPDFSDK_DEFINE_H
+#endif  // FPDFSDK_INCLUDE_FSDK_DEFINE_H_

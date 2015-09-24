@@ -10,6 +10,7 @@
 #include "base/json/json_reader.h"
 #include "base/metrics/histogram.h"
 #include "base/stl_util.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
@@ -30,7 +31,7 @@ using net::URLRequestStatus;
 namespace {
 
 const char kQueryFormat[] = "https://www.googleapis.com/customsearch/v1"
-    "?cx=%s&key=%s&q=inurl%%3A%s";
+    "?cx=017993620680222980993%%3A1wdumejvx5i&key=%s&q=inurl%%3A%s";
 const char kQuerySafeParam[] = "&safe=high";
 
 const char kIdSearchInfo[] = "searchInformation";
@@ -45,30 +46,29 @@ const size_t kDefaultCacheSize = 1000;
 GURL GetNormalizedURL(const GURL& url) {
   GURL::Replacements replacements;
   // Set scheme to http.
-  const std::string scheme(url::kHttpScheme);
-  replacements.SetSchemeStr(scheme);
+  replacements.SetSchemeStr(url::kHttpScheme);
   // Strip leading "www." (if any).
   const std::string www("www.");
-  std::string new_host;
-  if (StartsWithASCII(url.host(), www, true)) {
-    new_host = url.host().substr(www.size());
-    replacements.SetHostStr(new_host);
-  }
+  const std::string host(url.host());
+  if (base::StartsWith(host, www, base::CompareCase::SENSITIVE))
+    replacements.SetHostStr(base::StringPiece(host).substr(www.size()));
+  // Strip trailing slash (if any).
+  const std::string path(url.path());
+  if (base::EndsWith(path, "/", true))
+    replacements.SetPathStr(base::StringPiece(path).substr(0, path.size() - 1));
   return url.ReplaceComponents(replacements);
 }
 
 // Builds a URL for a web search for |url| (using the "inurl:" query parameter
-// and a Custom Search Engine identified by |cx|, using the specified
-// |api_key|). If |safe| is specified, enables the SafeSearch query parameter.
-GURL BuildSearchURL(const std::string& cx,
-                    const std::string& api_key,
+// and a Custom Search Engine, using the specified |api_key|). If |safe| is
+// specified, enables the SafeSearch query parameter.
+GURL BuildSearchURL(const std::string& api_key,
                     const GURL& url,
                     bool safe) {
   // Strip the scheme, so that we'll match any scheme.
   std::string query = net::EscapeQueryParamValue(url.GetContent(), true);
   std::string search_url = base::StringPrintf(
       kQueryFormat,
-      cx.c_str(),
       api_key.c_str(),
       query.c_str());
   if (safe)
@@ -81,15 +81,14 @@ GURL BuildSearchURL(const std::string& cx,
 scoped_ptr<net::URLFetcher> CreateFetcher(
     URLFetcherDelegate* delegate,
     URLRequestContextGetter* context,
-    const std::string& cx,
     const std::string& api_key,
     const GURL& url,
     bool safe) {
   const int kSafeId = 0;
   const int kUnsafeId = 1;
   int id = safe ? kSafeId : kUnsafeId;
-  scoped_ptr<net::URLFetcher> fetcher(URLFetcher::Create(
-      id, BuildSearchURL(cx, api_key, url, safe), URLFetcher::GET, delegate));
+  scoped_ptr<net::URLFetcher> fetcher = URLFetcher::Create(
+      id, BuildSearchURL(api_key, url, safe), URLFetcher::GET, delegate);
   fetcher->SetRequestContext(context);
   fetcher->SetLoadFlags(net::LOAD_DO_NOT_SEND_COOKIES |
                         net::LOAD_DO_NOT_SAVE_COOKIES);
@@ -99,7 +98,7 @@ scoped_ptr<net::URLFetcher> CreateFetcher(
 // Checks whether the search |response| (in JSON format) contains an entry for
 // the given |url|.
 bool ResponseContainsURL(const std::string& response, const GURL& url) {
-  scoped_ptr<base::Value> value(base::JSONReader::Read(response));
+  scoped_ptr<base::Value> value = base::JSONReader::Read(response);
   const base::DictionaryValue* dict = NULL;
   if (!value || !value->GetAsDictionary(&dict)) {
     DLOG(WARNING) << "ResponseContainsURL failed to parse global dictionary";
@@ -180,20 +179,14 @@ SupervisedUserAsyncURLChecker::CheckResult::CheckResult(
 }
 
 SupervisedUserAsyncURLChecker::SupervisedUserAsyncURLChecker(
-    URLRequestContextGetter* context,
-    const std::string& cx,
-    const std::string& api_key)
-    : context_(context), cx_(cx), cache_(kDefaultCacheSize) {
-  SetApiKey(api_key);
+    URLRequestContextGetter* context)
+    : context_(context), cache_(kDefaultCacheSize) {
 }
 
 SupervisedUserAsyncURLChecker::SupervisedUserAsyncURLChecker(
     URLRequestContextGetter* context,
-    const std::string& cx,
-    const std::string& api_key,
     size_t cache_size)
-    : context_(context), cx_(cx), cache_(cache_size) {
-  SetApiKey(api_key);
+    : context_(context), cache_(cache_size) {
 }
 
 SupervisedUserAsyncURLChecker::~SupervisedUserAsyncURLChecker() {}
@@ -237,19 +230,16 @@ bool SupervisedUserAsyncURLChecker::CheckURL(const GURL& url,
   }
 
   DVLOG(1) << "Checking URL " << url;
+  std::string api_key = google_apis::GetSafeSitesAPIKey();
   scoped_ptr<URLFetcher> fetcher_safe(
-      CreateFetcher(this, context_, cx_, api_key_, url, true));
+      CreateFetcher(this, context_, api_key, url, true));
   scoped_ptr<URLFetcher> fetcher_unsafe(
-      CreateFetcher(this, context_, cx_, api_key_, url, false));
+      CreateFetcher(this, context_, api_key, url, false));
   fetcher_safe->Start();
   fetcher_unsafe->Start();
   checks_in_progress_.push_back(
       new Check(url, fetcher_safe.Pass(), fetcher_unsafe.Pass(), callback));
   return false;
-}
-
-void SupervisedUserAsyncURLChecker::SetApiKey(const std::string& api_key) {
-  api_key_ = api_key.empty() ? google_apis::GetAPIKey() : api_key;
 }
 
 void SupervisedUserAsyncURLChecker::OnURLFetchComplete(

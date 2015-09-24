@@ -108,12 +108,11 @@ public:
     BLINK_EXPORT bool isFocusable() const;
     BLINK_EXPORT bool isContentEditable() const;
     BLINK_EXPORT bool isElementNode() const;
-    BLINK_EXPORT bool dispatchEvent(const WebDOMEvent&);
+    BLINK_EXPORT void dispatchEvent(const WebDOMEvent&);
     BLINK_EXPORT void simulateClick();
     // The argument should be lower-cased.
     BLINK_EXPORT WebElementCollection getElementsByHTMLTagName(const WebString&) const;
     BLINK_EXPORT WebElement querySelector(const WebString&, WebExceptionCode&) const;
-    BLINK_EXPORT WebElement rootEditableElement() const;
     BLINK_EXPORT bool focused() const;
     BLINK_EXPORT bool remove();
 
@@ -124,8 +123,8 @@ public:
 
     BLINK_EXPORT bool containsIncludingShadowDOM(const WebNode&) const;
     BLINK_EXPORT WebPluginContainer* pluginContainer() const;
-    BLINK_EXPORT WebElement shadowHost() const;
 
+    BLINK_EXPORT bool isInsideFocusableElementOrARIAWidget() const;
     BLINK_EXPORT WebAXObject accessibilityObject();
 
     template<typename T> T to()

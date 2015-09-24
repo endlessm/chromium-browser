@@ -58,6 +58,7 @@ static const char* const kAcceptLanguageList[] = {
   "br",     // Breton
   "bs",     // Bosnian
   "ca",     // Catalan
+  "ckb",    // Kurdish (Arabci),  Sorani
   "co",     // Corsican
   "cs",     // Czech
   "cy",     // Welsh
@@ -66,6 +67,7 @@ static const char* const kAcceptLanguageList[] = {
   "de-AT",  // German (Austria)
   "de-CH",  // German (Switzerland)
   "de-DE",  // German (Germany)
+  "de-LI",  // German (Liechtenstein)
   "el",     // Greek
   "en",     // English
   "en-AU",  // English (Australia)
@@ -189,7 +191,7 @@ bool IsDuplicateName(const std::string& locale_name) {
   static const char* const kDuplicateNames[] = {
     "en",
     "en_001",
-    "pt",
+    "pt", // pt-BR and pt-PT are used.
     "zh",
     "zh_hans_cn",
     "zh_hant_hk",
@@ -198,11 +200,10 @@ bool IsDuplicateName(const std::string& locale_name) {
     "zh_hant_tw"
   };
 
-  // Skip all 'es_RR'. Currently, we use 'es' for es-ES (Spanish in Spain).
-  // 'es-419' (Spanish in Latin America) is not available in ICU so that it
-  // has to be added manually in GetAvailableLocales().
-  if (LowerCaseEqualsASCII(locale_name.substr(0, 3),  "es_"))
-    return true;
+  // Skip all the es_Foo other than es_419 for now.
+  if (base::StartsWithASCII(locale_name, "es_", false))
+    return !base::EndsWith(locale_name, "419", true);
+
   for (size_t i = 0; i < arraysize(kDuplicateNames); ++i) {
     if (base::strcasecmp(kDuplicateNames[i], locale_name.c_str()) == 0)
       return true;
@@ -287,16 +288,14 @@ struct AvailableLocalesTraits
       std::replace(locale_name.begin(), locale_name.end(), '_', '-');
 
       // Map the Chinese locale names over to zh-CN and zh-TW.
-      if (LowerCaseEqualsASCII(locale_name, "zh-hans")) {
+      if (base::LowerCaseEqualsASCII(locale_name, "zh-hans")) {
         locale_name = "zh-CN";
-      } else if (LowerCaseEqualsASCII(locale_name, "zh-hant")) {
+      } else if (base::LowerCaseEqualsASCII(locale_name, "zh-hant")) {
         locale_name = "zh-TW";
       }
       locales->push_back(locale_name);
     }
 
-    // Manually add 'es-419' to the list. See the comment in IsDuplicateName().
-    locales->push_back("es-419");
     return locales;
   }
 };
@@ -307,10 +306,6 @@ base::LazyInstance<std::vector<std::string>, AvailableLocalesTraits>
 }  // namespace
 
 namespace l10n_util {
-
-std::string GetCanonicalLocale(const std::string& locale) {
-  return base::i18n::GetCanonicalLocale(locale.c_str());
-}
 
 std::string GetLanguage(const std::string& locale) {
   const std::string::size_type hyphen_pos = locale.find('-');
@@ -346,26 +341,26 @@ bool CheckAndResolveLocale(const std::string& locale,
     std::string tmp_locale(lang);
     // Map es-RR other than es-ES to es-419 (Chrome's Latin American
     // Spanish locale).
-    if (LowerCaseEqualsASCII(lang, "es") &&
-        !LowerCaseEqualsASCII(region, "es")) {
+    if (base::LowerCaseEqualsASCII(lang, "es") &&
+        !base::LowerCaseEqualsASCII(region, "es")) {
       tmp_locale.append("-419");
-    } else if (LowerCaseEqualsASCII(lang, "zh")) {
+    } else if (base::LowerCaseEqualsASCII(lang, "zh")) {
       // Map zh-HK and zh-MO to zh-TW. Otherwise, zh-FOO is mapped to zh-CN.
-      if (LowerCaseEqualsASCII(region, "hk") ||
-          LowerCaseEqualsASCII(region, "mo")) { // Macao
+      if (base::LowerCaseEqualsASCII(region, "hk") ||
+          base::LowerCaseEqualsASCII(region, "mo")) {  // Macao
         tmp_locale.append("-TW");
       } else {
         tmp_locale.append("-CN");
       }
-    } else if (LowerCaseEqualsASCII(lang, "en")) {
+    } else if (base::LowerCaseEqualsASCII(lang, "en")) {
       // Map Australian, Canadian, New Zealand and South African English
       // to British English for now.
       // TODO(jungshik): en-CA may have to change sides once
       // we have OS locale separate from app locale (Chrome's UI language).
-      if (LowerCaseEqualsASCII(region, "au") ||
-          LowerCaseEqualsASCII(region, "ca") ||
-          LowerCaseEqualsASCII(region, "nz") ||
-          LowerCaseEqualsASCII(region, "za")) {
+      if (base::LowerCaseEqualsASCII(region, "au") ||
+          base::LowerCaseEqualsASCII(region, "ca") ||
+          base::LowerCaseEqualsASCII(region, "nz") ||
+          base::LowerCaseEqualsASCII(region, "za")) {
         tmp_locale.append("-GB");
       } else {
         tmp_locale.append("-US");
@@ -389,7 +384,7 @@ bool CheckAndResolveLocale(const std::string& locale,
   };
 
   for (size_t i = 0; i < arraysize(alias_map); ++i) {
-    if (LowerCaseEqualsASCII(lang, alias_map[i].source)) {
+    if (base::LowerCaseEqualsASCII(lang, alias_map[i].source)) {
       std::string tmp_locale(alias_map[i].dest);
       if (IsLocaleAvailable(tmp_locale)) {
         resolved_locale->swap(tmp_locale);
@@ -432,14 +427,15 @@ std::string GetApplicationLocaleInternal(const std::string& pref_locale) {
 
   // First, try the preference value.
   if (!pref_locale.empty())
-    candidates.push_back(GetCanonicalLocale(pref_locale));
+    candidates.push_back(base::i18n::GetCanonicalLocale(pref_locale));
 
   // Next, try the overridden locale.
   const std::vector<std::string>& languages = l10n_util::GetLocaleOverrides();
   if (!languages.empty()) {
     candidates.reserve(candidates.size() + languages.size());
     std::transform(languages.begin(), languages.end(),
-                   std::back_inserter(candidates), &GetCanonicalLocale);
+                   std::back_inserter(candidates),
+                   &base::i18n::GetCanonicalLocale);
   } else {
     // If no override was set, defer to ICU
     candidates.push_back(base::i18n::GetConfiguredLocale());
@@ -533,6 +529,8 @@ base::string16 GetDisplayNameForLocale(const std::string& locale,
     locale_code = "zh-Hant";
   else if (locale_code == "tl")
     locale_code = "fil";
+  else if (locale_code == "mo")
+    locale_code = "ro-MD";
 
   base::string16 display_name;
 #if defined(OS_ANDROID)
@@ -541,7 +539,7 @@ base::string16 GetDisplayNameForLocale(const std::string& locale,
   // zh-Hant because the current Android Java API doesn't support scripts.
   // TODO(wangxianzhu): remove the special handling of zh-Hans and zh-Hant once
   // Android Java API supports scripts.
-  if (!StartsWithASCII(locale_code, "zh-Han", true)) {
+  if (!base::StartsWithASCII(locale_code, "zh-Han", true)) {
     display_name = GetDisplayNameForLocale(locale_code, display_locale);
   } else
 #endif
@@ -551,7 +549,7 @@ base::string16 GetDisplayNameForLocale(const std::string& locale,
 
     int actual_size = uloc_getDisplayName(
         locale_code.c_str(), display_locale.c_str(),
-        WriteInto(&display_name, kBufferSize), kBufferSize - 1, &error);
+        base::WriteInto(&display_name, kBufferSize), kBufferSize - 1, &error);
     DCHECK(U_SUCCESS(error));
     display_name.resize(actual_size);
   }
@@ -616,7 +614,7 @@ bool IsValidLocaleSyntax(const std::string& locale) {
   // underscore.
   for (size_t i = 0; i < prefix.size(); i++) {
     char ch = prefix[i];
-    if (!IsAsciiAlpha(ch) && !IsAsciiDigit(ch) && ch != '_')
+    if (!base::IsAsciiAlpha(ch) && !base::IsAsciiDigit(ch) && ch != '_')
       return false;
   }
 
@@ -629,7 +627,7 @@ bool IsValidLocaleSyntax(const std::string& locale) {
         return false;
       break;
     }
-    if (!IsAsciiAlpha(ch))
+    if (!base::IsAsciiAlpha(ch))
       return false;
   }
 
@@ -825,25 +823,24 @@ base::string16 GetStringFUTF16Int(int message_id, int64 a) {
   return GetStringFUTF16(message_id, base::UTF8ToUTF16(base::Int64ToString(a)));
 }
 
-base::string16 GetPluralStringFUTF16(const std::vector<int>& message_ids,
-                               int number) {
-  scoped_ptr<icu::PluralFormat> format = BuildPluralFormat(message_ids);
-  DCHECK(format);
-
+base::string16 GetPluralStringFUTF16(int message_id, int number) {
+  base::string16 pattern = GetStringUTF16(message_id);
   UErrorCode err = U_ZERO_ERROR;
-  icu::UnicodeString result_files_string = format->format(number, err);
-  int capacity = result_files_string.length() + 1;
+  icu::MessageFormat format(
+      icu::UnicodeString(FALSE, pattern.data(), pattern.length()), err);
+  icu::UnicodeString result_unistring;
+  FormatNumberInPlural(format, number, &result_unistring, &err);
+  int capacity = result_unistring.length() + 1;
   DCHECK_GT(capacity, 1);
   base::string16 result;
-  result_files_string.extract(
-      static_cast<UChar*>(WriteInto(&result, capacity)), capacity, err);
+  result_unistring.extract(
+      static_cast<UChar*>(base::WriteInto(&result, capacity)), capacity, err);
   DCHECK(U_SUCCESS(err));
   return result;
 }
 
-std::string GetPluralStringFUTF8(const std::vector<int>& message_ids,
-                                 int number) {
-  return base::UTF16ToUTF8(GetPluralStringFUTF16(message_ids, number));
+std::string GetPluralStringFUTF8(int message_id, int number) {
+  return base::UTF16ToUTF8(GetPluralStringFUTF16(message_id, number));
 }
 
 void SortStrings16(const std::string& locale,

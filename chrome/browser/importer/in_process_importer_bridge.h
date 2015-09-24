@@ -17,7 +17,7 @@
 
 class GURL;
 struct ImportedBookmarkEntry;
-struct ImportedFaviconUsage;
+struct FaviconUsageData;
 class ExternalProcessImporterHost;
 
 namespace importer {
@@ -25,7 +25,7 @@ namespace importer {
 struct ImporterIE7PasswordInfo;
 #endif
 struct ImporterURlRow;
-struct URLKeywordInfo;
+struct SearchEngineInfo;
 }
 
 class InProcessImporterBridge : public ImporterBridge {
@@ -40,17 +40,18 @@ class InProcessImporterBridge : public ImporterBridge {
   void AddHomePage(const GURL& home_page) override;
 
 #if defined(OS_WIN)
-  virtual void AddIE7PasswordInfo(
+  void AddIE7PasswordInfo(
       const importer::ImporterIE7PasswordInfo& password_info) override;
 #endif
 
-  void SetFavicons(const std::vector<ImportedFaviconUsage>& favicons) override;
+  void SetFavicons(const favicon_base::FaviconUsageDataList& favicons) override;
 
   void SetHistoryItems(const std::vector<ImporterURLRow>& rows,
                        importer::VisitSource visit_source) override;
 
-  void SetKeywords(const std::vector<importer::URLKeywordInfo>& url_keywords,
-                   bool unique_on_host_and_path) override;
+  void SetKeywords(
+      const std::vector<importer::SearchEngineInfo>& search_engines,
+      bool unique_on_host_and_path) override;
 
   void SetFirefoxSearchEnginesXMLData(
       const std::vector<std::string>& search_engine_data) override;

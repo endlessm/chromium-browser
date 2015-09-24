@@ -46,7 +46,8 @@ class GESTURE_DETECTION_EXPORT MotionEvent {
 
   virtual ~MotionEvent() {}
 
-  virtual int GetId() const = 0;
+  // An unique identifier this motion event.
+  virtual uint32 GetUniqueEventId() const = 0;
   virtual Action GetAction() const = 0;
   // Only valid if |GetAction()| returns ACTION_POINTER_UP or
   // ACTION_POINTER_DOWN.
@@ -76,7 +77,11 @@ class GESTURE_DETECTION_EXPORT MotionEvent {
   virtual float GetHistoricalY(size_t pointer_index,
                                size_t historical_index) const;
 
+  // Get the id of the device which created the event. Currently Aura only.
+  virtual int GetSourceDeviceId(size_t pointer_index) const;
+
   // Utility accessor methods for convenience.
+  int GetPointerId() const { return GetPointerId(0); }
   float GetX() const { return GetX(0); }
   float GetY() const { return GetY(0); }
   float GetRawX() const { return GetRawX(0); }
@@ -87,8 +92,11 @@ class GESTURE_DETECTION_EXPORT MotionEvent {
   float GetTouchMajor() const { return GetTouchMajor(0); }
   float GetTouchMinor() const { return GetTouchMinor(0); }
 
-  // Returns the orientation of the major axis clockwise from vertical, in
-  // radians. The return value lies in [-PI/2, PI/2].
+  // Returns the orientation in radians. The meaning is overloaded:
+  // * For a touch screen or pad, it's the orientation of the major axis
+  //   clockwise from vertical. The return value lies in [-PI/2, PI/2].
+  // * For a stylus, it indicates the direction in which the stylus is pointing.
+  //   The return value lies in [-PI, PI].
   float GetOrientation() const { return GetOrientation(0); }
 
   float GetPressure() const { return GetPressure(0); }

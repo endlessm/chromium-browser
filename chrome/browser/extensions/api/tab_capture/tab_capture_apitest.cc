@@ -4,14 +4,23 @@
 
 #include "base/basictypes.h"
 #include "base/command_line.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
+#include "base/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/fullscreen/fullscreen_controller.h"
+#include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
+#include "chrome/browser/ui/tabs/tab_utils.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/chrome_version_info.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
+#include "content/public/test/browser_test_utils.h"
+#include "content/public/test/test_utils.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/switches.h"
 #include "extensions/test/extension_test_message_listener.h"
@@ -19,10 +28,6 @@
 
 #if defined(OS_WIN)
 #include "base/win/windows_version.h"
-#endif
-
-#if defined(OS_WIN) && defined(USE_ASH)
-#include "chrome/test/base/test_switches.h"
 #endif
 
 namespace extensions {
@@ -33,67 +38,89 @@ const char kExtensionId[] = "ddchlicdkolnonkihahngkmmmjnjlkkf";
 
 class TabCaptureApiTest : public ExtensionApiTest {
  public:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    ExtensionApiTest::SetUpCommandLine(command_line);
+    // Specify smallish window size to make testing of tab capture less CPU
+    // intensive.
+    command_line->AppendSwitchASCII(::switches::kWindowSize, "300,300");
+    command_line->AppendSwitch(::switches::kEnableTabAudioMuting);
+  }
+
   void AddExtensionToCommandLineWhitelist() {
-    CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+    base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
         switches::kWhitelistedExtensionID, kExtensionId);
+  }
+
+ protected:
+  void SimulateMouseClickInCurrentTab() {
+    content::SimulateMouseClick(
+        browser()->tab_strip_model()->GetActiveWebContents(),
+        0,
+        blink::WebMouseEvent::ButtonLeft);
   }
 };
 
 class TabCaptureApiPixelTest : public TabCaptureApiTest {
  public:
   void SetUp() override {
-    EnablePixelOutput();
+    if (!IsTooIntensiveForThisPlatform())
+      EnablePixelOutput();
     TabCaptureApiTest::SetUp();
+  }
+
+ protected:
+  bool IsTooIntensiveForThisPlatform() const {
+#if defined(OS_WIN)
+    if (base::win::GetVersion() < base::win::VERSION_VISTA)
+      return true;
+#endif
+
+    // The tests are too slow to succeed with OSMesa on the bots.
+    if (UsingOSMesa())
+      return true;
+
+#if defined(NDEBUG)
+    return false;
+#else
+    // TODO(miu): Look into enabling these tests for the Debug build bots once
+    // they prove to be stable again on the Release bots.
+    // http://crbug.com/396413
+    return !base::CommandLine::ForCurrentProcess()->HasSwitch(
+        "run-tab-capture-api-pixel-tests");
+#endif
   }
 };
 
+// Tests API behaviors, including info queries, and constraints violations.
 IN_PROC_BROWSER_TEST_F(TabCaptureApiTest, ApiTests) {
-#if defined(OS_WIN) && defined(USE_ASH)
-  // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (CommandLine::ForCurrentProcess()->HasSwitch(::switches::kAshBrowserTests))
-    return;
-#endif
-
-#if defined(OS_WIN)
-  // TODO(justinlin): Disabled for WinXP due to timeout issues.
-  if (base::win::GetVersion() < base::win::VERSION_VISTA) {
-    return;
-  }
-#endif
-
   AddExtensionToCommandLineWhitelist();
   ASSERT_TRUE(RunExtensionSubtest("tab_capture", "api_tests.html")) << message_;
 }
 
-IN_PROC_BROWSER_TEST_F(TabCaptureApiTest, ApiTestsAudio) {
-#if defined(OS_WIN)
-  // TODO(justinlin): Disabled for WinXP due to timeout issues.
-  if (base::win::GetVersion() < base::win::VERSION_VISTA) {
+// Tests that tab capture video frames can be received in a VIDEO element.
+IN_PROC_BROWSER_TEST_F(TabCaptureApiPixelTest, EndToEndWithoutRemoting) {
+  if (IsTooIntensiveForThisPlatform()) {
+    LOG(WARNING) << "Skipping this CPU-intensive test on this platform/build.";
     return;
   }
-#endif
-
   AddExtensionToCommandLineWhitelist();
-  ASSERT_TRUE(RunExtensionSubtest("tab_capture", "api_tests_audio.html"))
+  ASSERT_TRUE(RunExtensionSubtest(
+      "tab_capture", "end_to_end.html?method=local&colorDeviation=10"))
       << message_;
 }
 
-// Disabled on ChromeOS for http://crbug.com/406051
-// Disabled on other platforms for http://crbug.com/177163
-// Disabled http://crbug.com/367349
-IN_PROC_BROWSER_TEST_F(TabCaptureApiPixelTest, DISABLED_EndToEnd) {
-#if defined(OS_WIN)
-  // TODO(justinlin): Disabled for WinXP due to timeout issues.
-  if (base::win::GetVersion() < base::win::VERSION_VISTA) {
+// Tests that video frames are captured, transported via WebRTC, and finally
+// received in a VIDEO element.  More allowance is provided for color deviation
+// because of the additional layers of video processing performed within
+// WebRTC.
+IN_PROC_BROWSER_TEST_F(TabCaptureApiPixelTest, EndToEndThroughWebRTC) {
+  if (IsTooIntensiveForThisPlatform()) {
+    LOG(WARNING) << "Skipping this CPU-intensive test on this platform/build.";
     return;
   }
-#endif
-  // This test is too slow to succeed with OSMesa on the bots.
-  if (UsingOSMesa())
-    return;
-
   AddExtensionToCommandLineWhitelist();
-  ASSERT_TRUE(RunExtensionSubtest("tab_capture", "end_to_end.html"))
+  ASSERT_TRUE(RunExtensionSubtest(
+      "tab_capture", "end_to_end.html?method=webrtc&colorDeviation=50"))
       << message_;
 }
 
@@ -103,7 +130,7 @@ IN_PROC_BROWSER_TEST_F(TabCaptureApiPixelTest, DISABLED_EndToEnd) {
 #else
 #define MAYBE_GetUserMediaTest GetUserMediaTest
 #endif
-// Test that we can't get tabCapture streams using GetUserMedia directly.
+// Tests that getUserMedia() is NOT a way to start tab capture.
 IN_PROC_BROWSER_TEST_F(TabCaptureApiTest, MAYBE_GetUserMediaTest) {
   ExtensionTestMessageListener listener("ready", true);
 
@@ -181,58 +208,40 @@ IN_PROC_BROWSER_TEST_F(TabCaptureApiTest, MAYBE_ActiveTabPermission) {
 // http://crbug.com/177163
 #if defined(OS_WIN) && !defined(NDEBUG)
 #define MAYBE_FullscreenEvents DISABLED_FullscreenEvents
-#elif defined(USE_AURA) || defined(OS_MACOSX)
-// These don't always fire fullscreen events when run in tests. Tested manually.
-#define MAYBE_FullscreenEvents DISABLED_FullscreenEvents
-#elif defined(OS_LINUX)
-// Flaky to get out of fullscreen in tests. Tested manually.
-#define MAYBE_FullscreenEvents DISABLED_FullscreenEvents
 #else
 #define MAYBE_FullscreenEvents FullscreenEvents
 #endif
+// Tests that fullscreen transitions during a tab capture session dispatch
+// events to the onStatusChange listener.  The test loads a page that toggles
+// fullscreen mode, using the Fullscreen Javascript API, in response to mouse
+// clicks.
 IN_PROC_BROWSER_TEST_F(TabCaptureApiTest, MAYBE_FullscreenEvents) {
-#if defined(OS_WIN)
-  // TODO(justinlin): Disabled for WinXP due to timeout issues.
-  if (base::win::GetVersion() < base::win::VERSION_VISTA) {
-    return;
-  }
-#endif
-
   AddExtensionToCommandLineWhitelist();
 
-  content::OpenURLParams params(GURL("chrome://version"),
-                                content::Referrer(),
-                                CURRENT_TAB,
-                                ui::PAGE_TRANSITION_LINK, false);
-  content::WebContents* web_contents = browser()->OpenURL(params);
-
-  ExtensionTestMessageListener listeners_setup("ready1", true);
-  ExtensionTestMessageListener fullscreen_entered("ready2", true);
+  ExtensionTestMessageListener capture_started("tab_capture_started", false);
+  ExtensionTestMessageListener entered_fullscreen("entered_fullscreen", false);
 
   ASSERT_TRUE(RunExtensionSubtest("tab_capture", "fullscreen_test.html"))
       << message_;
-  EXPECT_TRUE(listeners_setup.WaitUntilSatisfied());
+  EXPECT_TRUE(capture_started.WaitUntilSatisfied());
 
-  // Toggle fullscreen after setting up listeners.
-  browser()->fullscreen_controller()->ToggleFullscreenModeForTab(web_contents,
-                                                                 true);
-  listeners_setup.Reply("");
+  // Click on the page to trigger the Javascript that will toggle the tab into
+  // fullscreen mode.
+  SimulateMouseClickInCurrentTab();
+  EXPECT_TRUE(entered_fullscreen.WaitUntilSatisfied());
 
-  // Toggle again after JS should have the event.
-  EXPECT_TRUE(fullscreen_entered.WaitUntilSatisfied());
-  browser()->fullscreen_controller()->ToggleFullscreenModeForTab(web_contents,
-                                                                 false);
-  fullscreen_entered.Reply("");
+  // Click again to exit fullscreen mode.
+  SimulateMouseClickInCurrentTab();
 
+  // Wait until the page examines its results and calls chrome.test.succeed().
   ResultCatcher catcher;
   catcher.RestrictToBrowserContext(browser()->profile());
   EXPECT_TRUE(catcher.GetNextResult()) << catcher.message();
 }
 
 // Times out on Win dbg bots: http://crbug.com/177163
-// #if defined(OS_WIN) && !defined(NDEBUG)
-// Times out on all Win bots, flaky on MSan bots: http://crbug.com/294431
-#if defined(OS_WIN) || defined(MEMORY_SANITIZER)
+// Flaky on MSan bots: http://crbug.com/294431
+#if (defined(OS_WIN) && !defined(NDEBUG)) || defined(MEMORY_SANITIZER)
 #define MAYBE_GrantForChromePages DISABLED_GrantForChromePages
 #else
 #define MAYBE_GrantForChromePages GrantForChromePages
@@ -262,30 +271,94 @@ IN_PROC_BROWSER_TEST_F(TabCaptureApiTest, MAYBE_GrantForChromePages) {
   EXPECT_TRUE(catcher.GetNextResult()) << catcher.message();
 }
 
-#if (defined(OS_WIN) && !defined(NDEBUG)) || defined(OS_MACOSX)
-// http://crbug.com/326319
+// http://crbug.com/177163
+#if defined(OS_WIN) && !defined(NDEBUG)
 #define MAYBE_CaptureInSplitIncognitoMode DISABLED_CaptureInSplitIncognitoMode
 #else
 #define MAYBE_CaptureInSplitIncognitoMode CaptureInSplitIncognitoMode
 #endif
-// Test that a tab can be captured in split incognito mode.
+// Tests that a tab in incognito mode can be captured.
 IN_PROC_BROWSER_TEST_F(TabCaptureApiTest, MAYBE_CaptureInSplitIncognitoMode) {
   AddExtensionToCommandLineWhitelist();
   ASSERT_TRUE(RunExtensionSubtest("tab_capture",
-                                  "incognito.html",
+                                  "start_tab_capture.html",
                                   kFlagEnableIncognito | kFlagUseIncognito))
       << message_;
 }
 
+// http://crbug.com/177163
 #if defined(OS_WIN) && !defined(NDEBUG)
 #define MAYBE_Constraints DISABLED_Constraints
 #else
 #define MAYBE_Constraints Constraints
 #endif
+// Tests that valid constraints allow tab capture to start, while invalid ones
+// do not.
 IN_PROC_BROWSER_TEST_F(TabCaptureApiTest, MAYBE_Constraints) {
   AddExtensionToCommandLineWhitelist();
   ASSERT_TRUE(RunExtensionSubtest("tab_capture", "constraints.html"))
       << message_;
+}
+
+// http://crbug.com/177163
+#if defined(OS_WIN) && !defined(NDEBUG)
+#define MAYBE_TabIndicator DISABLED_TabIndicator
+#else
+#define MAYBE_TabIndicator TabIndicator
+#endif
+// Tests that the tab indicator (in the tab strip) is shown during tab capture.
+IN_PROC_BROWSER_TEST_F(TabCaptureApiTest, MAYBE_TabIndicator) {
+  ASSERT_EQ(TAB_MEDIA_STATE_NONE,
+            chrome::GetTabMediaStateForContents(
+                browser()->tab_strip_model()->GetActiveWebContents()));
+
+  // Run an extension test that just turns on tab capture, which should cause
+  // the indicator to turn on.
+  AddExtensionToCommandLineWhitelist();
+  ASSERT_TRUE(RunExtensionSubtest("tab_capture", "start_tab_capture.html"))
+      << message_;
+
+  // A TabStripModelObserver that quits the MessageLoop whenever the UI's model
+  // is sent an event that changes the indicator status.
+  class IndicatorChangeObserver : public TabStripModelObserver {
+   public:
+    explicit IndicatorChangeObserver(Browser* browser)
+        : last_media_state_(chrome::GetTabMediaStateForContents(
+              browser->tab_strip_model()->GetActiveWebContents())) {}
+
+    TabMediaState last_media_state() const { return last_media_state_; }
+
+    void TabChangedAt(content::WebContents* contents,
+                      int index,
+                      TabChangeType change_type) override {
+      const TabMediaState media_state =
+          chrome::GetTabMediaStateForContents(contents);
+      const bool has_changed = media_state != last_media_state_;
+      last_media_state_ = media_state;
+      if (has_changed) {
+        base::ThreadTaskRunnerHandle::Get()->PostTask(
+            FROM_HERE, base::MessageLoop::QuitClosure());
+      }
+    }
+
+   private:
+    TabMediaState last_media_state_;
+  };
+
+  // Run the browser until the indicator turns on.
+  IndicatorChangeObserver observer(browser());
+  browser()->tab_strip_model()->AddObserver(&observer);
+  const base::TimeTicks start_time = base::TimeTicks::Now();
+  while (observer.last_media_state() != TAB_MEDIA_STATE_CAPTURING) {
+    if (base::TimeTicks::Now() - start_time >
+            base::TimeDelta::FromSeconds(10)) {
+      EXPECT_EQ(TAB_MEDIA_STATE_CAPTURING, observer.last_media_state());
+      browser()->tab_strip_model()->RemoveObserver(&observer);
+      return;
+    }
+    content::RunMessageLoop();
+  }
+  browser()->tab_strip_model()->RemoveObserver(&observer);
 }
 
 }  // namespace

@@ -32,16 +32,13 @@
 #include "core/html/track/vtt/BufferedLineReader.h"
 
 #include "wtf/text/CString.h"
+#include "wtf/text/CharacterNames.h"
 #include "wtf/text/WTFString.h"
-#include "wtf/unicode/CharacterNames.h"
-
 #include <gtest/gtest.h>
 
-using blink::BufferedLineReader;
+namespace blink {
 
-namespace {
-
-TEST(BufferedLineReader, Constructor)
+TEST(BufferedLineReaderTest, Constructor)
 {
     BufferedLineReader reader;
     ASSERT_FALSE(reader.isAtEndOfStream());
@@ -49,7 +46,7 @@ TEST(BufferedLineReader, Constructor)
     ASSERT_FALSE(reader.getLine(line));
 }
 
-TEST(BufferedLineReader, EOSNoInput)
+TEST(BufferedLineReaderTest, EOSNoInput)
 {
     BufferedLineReader reader;
     String line;
@@ -59,7 +56,7 @@ TEST(BufferedLineReader, EOSNoInput)
     ASSERT_FALSE(reader.getLine(line));
 }
 
-TEST(BufferedLineReader, EOSInput)
+TEST(BufferedLineReaderTest, EOSInput)
 {
     BufferedLineReader reader;
     reader.append("A");
@@ -69,7 +66,7 @@ TEST(BufferedLineReader, EOSInput)
     ASSERT_EQ(line, "A");
 }
 
-TEST(BufferedLineReader, EOSMultipleReads_1)
+TEST(BufferedLineReaderTest, EOSMultipleReads_1)
 {
     BufferedLineReader reader;
     reader.append("A");
@@ -82,7 +79,7 @@ TEST(BufferedLineReader, EOSMultipleReads_1)
     ASSERT_FALSE(reader.getLine(line));
 }
 
-TEST(BufferedLineReader, EOSMultipleReads_2)
+TEST(BufferedLineReaderTest, EOSMultipleReads_2)
 {
     BufferedLineReader reader;
     reader.append("A\n");
@@ -95,7 +92,7 @@ TEST(BufferedLineReader, EOSMultipleReads_2)
     ASSERT_FALSE(reader.getLine(line));
 }
 
-TEST(BufferedLineReader, LineEndingCR)
+TEST(BufferedLineReaderTest, LineEndingCR)
 {
     BufferedLineReader reader;
     reader.append("X\rY");
@@ -107,7 +104,7 @@ TEST(BufferedLineReader, LineEndingCR)
     ASSERT_EQ(line, "Y");
 }
 
-TEST(BufferedLineReader, LineEndingCR_EOS)
+TEST(BufferedLineReaderTest, LineEndingCR_EOS)
 {
     BufferedLineReader reader;
     reader.append("X\r");
@@ -118,7 +115,7 @@ TEST(BufferedLineReader, LineEndingCR_EOS)
     ASSERT_FALSE(reader.getLine(line));
 }
 
-TEST(BufferedLineReader, LineEndingLF)
+TEST(BufferedLineReaderTest, LineEndingLF)
 {
     BufferedLineReader reader;
     reader.append("X\nY");
@@ -130,7 +127,7 @@ TEST(BufferedLineReader, LineEndingLF)
     ASSERT_EQ(line, "Y");
 }
 
-TEST(BufferedLineReader, LineEndingLF_EOS)
+TEST(BufferedLineReaderTest, LineEndingLF_EOS)
 {
     BufferedLineReader reader;
     reader.append("X\n");
@@ -141,7 +138,7 @@ TEST(BufferedLineReader, LineEndingLF_EOS)
     ASSERT_FALSE(reader.getLine(line));
 }
 
-TEST(BufferedLineReader, LineEndingCRLF)
+TEST(BufferedLineReaderTest, LineEndingCRLF)
 {
     BufferedLineReader reader;
     reader.append("X\r\nY");
@@ -153,7 +150,7 @@ TEST(BufferedLineReader, LineEndingCRLF)
     ASSERT_EQ(line, "Y");
 }
 
-TEST(BufferedLineReader, LineEndingCRLF_EOS)
+TEST(BufferedLineReaderTest, LineEndingCRLF_EOS)
 {
     BufferedLineReader reader;
     reader.append("X\r\n");
@@ -188,7 +185,7 @@ String MakeTestData(const char** lines, const LineBreakType* breaks, int count)
 
 const size_t blockSizes[] = { 64, 32, 16, 8, 4, 2, 1, 3, 5, 7, 9, 11, 13, 17, 19, 23 };
 
-TEST(BufferedLineReader, BufferSizes)
+TEST(BufferedLineReaderTest, BufferSizes)
 {
     const char* lines[] = {
         "aaaaaaaaaaaaaaaa",
@@ -201,7 +198,7 @@ TEST(BufferedLineReader, BufferSizes)
     };
     const LineBreakType breaks[] = { Lf, Lf, Lf, Lf, Lf, Lf, Lf };
     const size_t numTestLines = WTF_ARRAY_LENGTH(lines);
-    COMPILE_ASSERT(numTestLines == WTF_ARRAY_LENGTH(breaks), DifferentLengths_lines_and_breaks);
+    static_assert(numTestLines == WTF_ARRAY_LENGTH(breaks), "number of test lines and breaks should be the same");
     String data = MakeTestData(lines, breaks, numTestLines);
 
     for (size_t k = 0; k < WTF_ARRAY_LENGTH(blockSizes); ++k) {
@@ -221,7 +218,7 @@ TEST(BufferedLineReader, BufferSizes)
     }
 }
 
-TEST(BufferedLineReader, BufferSizesMixedEndings)
+TEST(BufferedLineReaderTest, BufferSizesMixedEndings)
 {
     const char* lines[] = {
         "aaaaaaaaaaaaaaaa",
@@ -234,7 +231,7 @@ TEST(BufferedLineReader, BufferSizesMixedEndings)
     };
     const LineBreakType breaks[] = { Cr, Lf, CrLf, Cr, Lf, CrLf, Lf };
     const size_t numTestLines = WTF_ARRAY_LENGTH(lines);
-    COMPILE_ASSERT(numTestLines == WTF_ARRAY_LENGTH(breaks), DifferentLengths_lines_and_breaks);
+    static_assert(numTestLines == WTF_ARRAY_LENGTH(breaks), "number of test lines and breaks should be the same");
     String data = MakeTestData(lines, breaks, numTestLines);
 
     for (size_t k = 0; k < WTF_ARRAY_LENGTH(blockSizes); ++k) {
@@ -254,7 +251,7 @@ TEST(BufferedLineReader, BufferSizesMixedEndings)
     }
 }
 
-TEST(BufferedLineReader, BufferBoundaryInCRLF_1)
+TEST(BufferedLineReaderTest, BufferBoundaryInCRLF_1)
 {
     BufferedLineReader reader;
     reader.append("X\r");
@@ -265,7 +262,7 @@ TEST(BufferedLineReader, BufferBoundaryInCRLF_1)
     ASSERT_FALSE(reader.getLine(line));
 }
 
-TEST(BufferedLineReader, BufferBoundaryInCRLF_2)
+TEST(BufferedLineReaderTest, BufferBoundaryInCRLF_2)
 {
     BufferedLineReader reader;
     reader.append("X\r");
@@ -280,13 +277,13 @@ TEST(BufferedLineReader, BufferBoundaryInCRLF_2)
     ASSERT_EQ(line, "Y");
 }
 
-TEST(BufferedLineReader, NormalizedNUL)
+TEST(BufferedLineReaderTest, NormalizedNUL)
 {
     BufferedLineReader reader;
     reader.append(String("X\0Y\n", 4));
     String line;
     ASSERT_TRUE(reader.getLine(line));
-    ASSERT_EQ(line[1], WTF::Unicode::replacementCharacter);
+    ASSERT_EQ(line[1], replacementCharacter);
 }
 
-} // namespace
+} // namespace blink

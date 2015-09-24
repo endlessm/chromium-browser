@@ -28,6 +28,7 @@
 #define DOMURL_h
 
 #include "bindings/core/v8/ScriptWrappable.h"
+#include "core/CoreExport.h"
 #include "core/dom/DOMURLUtils.h"
 #include "platform/heap/Handle.h"
 #include "platform/weborigin/KURL.h"
@@ -40,36 +41,36 @@ class ExceptionState;
 class ExecutionContext;
 class URLRegistrable;
 
-class DOMURL final : public RefCountedWillBeGarbageCollectedFinalized<DOMURL>, public ScriptWrappable, public DOMURLUtils {
+class DOMURL final : public GarbageCollectedFinalized<DOMURL>, public ScriptWrappable, public DOMURLUtils {
     DEFINE_WRAPPERTYPEINFO();
 public:
-    static PassRefPtrWillBeRawPtr<DOMURL> create(const String& url, ExceptionState& exceptionState)
+    static DOMURL* create(const String& url, ExceptionState& exceptionState)
     {
-        return adoptRefWillBeNoop(new DOMURL(url, blankURL(), exceptionState));
+        return new DOMURL(url, blankURL(), exceptionState);
     }
-    static PassRefPtrWillBeRawPtr<DOMURL> create(const String& url, const String& base, ExceptionState& exceptionState)
+    static DOMURL* create(const String& url, const String& base, ExceptionState& exceptionState)
     {
-        return adoptRefWillBeNoop(new DOMURL(url, KURL(KURL(), base), exceptionState));
+        return new DOMURL(url, KURL(KURL(), base), exceptionState);
     }
-    static PassRefPtrWillBeRawPtr<DOMURL> create(const String& url, PassRefPtrWillBeRawPtr<DOMURL> base, ExceptionState& exceptionState)
+    static DOMURL* create(const String& url, DOMURL* base, ExceptionState& exceptionState)
     {
         ASSERT(base);
-        return adoptRefWillBeNoop(new DOMURL(url, base->m_url, exceptionState));
+        return new DOMURL(url, base->m_url, exceptionState);
     }
 
     static String createObjectURL(ExecutionContext*, Blob*, ExceptionState&);
     static void revokeObjectURL(ExecutionContext*, const String&);
 
-    static String createPublicURL(ExecutionContext*, URLRegistrable*, const String& uuid = String());
+    CORE_EXPORT static String createPublicURL(ExecutionContext*, URLRegistrable*, const String& uuid = String());
     static void revokeObjectUUID(ExecutionContext*, const String&);
 
-    virtual KURL url() const override { return m_url; }
-    virtual void setURL(const KURL& url) override { m_url = url; }
+    KURL url() const override { return m_url; }
+    void setURL(const KURL& url) override { m_url = url; }
 
-    virtual String input() const override { return m_input; }
-    virtual void setInput(const String&) override;
+    String input() const override { return m_input; }
+    void setInput(const String&) override;
 
-    void trace(Visitor*) { }
+    DEFINE_INLINE_TRACE() { }
 
 private:
     DOMURL(const String& url, const KURL& base, ExceptionState&);

@@ -5,26 +5,33 @@
 #ifndef CHROME_BROWSER_FAVICON_CHROME_FAVICON_CLIENT_H_
 #define CHROME_BROWSER_FAVICON_CHROME_FAVICON_CLIENT_H_
 
-#include "components/favicon/core/browser/favicon_client.h"
-
 #include "base/macros.h"
+#include "components/favicon/core/favicon_client.h"
 
-class FaviconService;
 class GURL;
 class Profile;
 
+namespace bookmarks {
+class BookmarkModel;
+}
+
 // ChromeFaviconClient implements the the FaviconClient interface.
-class ChromeFaviconClient : public FaviconClient {
+class ChromeFaviconClient : public favicon::FaviconClient {
  public:
   explicit ChromeFaviconClient(Profile* profile);
   ~ChromeFaviconClient() override;
 
-  // FaviconClient implementation:
-  FaviconService* GetFaviconService() override;
-  bool IsBookmarked(const GURL& url) override;
-
  private:
+  // favicon::FaviconClient implementation:
+  bool IsNativeApplicationURL(const GURL& url) override;
+  base::CancelableTaskTracker::TaskId GetFaviconForNativeApplicationURL(
+      const GURL& url,
+      const std::vector<int>& desired_sizes_in_pixel,
+      const favicon_base::FaviconResultsCallback& callback,
+      base::CancelableTaskTracker* tracker) override;
+
   Profile* profile_;
+
   DISALLOW_COPY_AND_ASSIGN(ChromeFaviconClient);
 };
 

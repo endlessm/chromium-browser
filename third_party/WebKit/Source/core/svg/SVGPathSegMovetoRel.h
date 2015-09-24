@@ -22,24 +22,29 @@
 #ifndef SVGPathSegMovetoRel_h
 #define SVGPathSegMovetoRel_h
 
-#include "core/svg/SVGPathSegWithContext.h"
+#include "core/svg/SVGPathSeg.h"
 
 namespace blink {
 
 class SVGPathSegMovetoRel final : public SVGPathSegSingleCoordinate {
     DEFINE_WRAPPERTYPEINFO();
 public:
-    static PassRefPtr<SVGPathSegMovetoRel> create(SVGPathElement* element, float x, float y)
+    static PassRefPtrWillBeRawPtr<SVGPathSegMovetoRel> create(SVGPathElement* element, float x, float y)
     {
-        return adoptRef(new SVGPathSegMovetoRel(element, x, y));
+        return adoptRefWillBeNoop(new SVGPathSegMovetoRel(element, x, y));
+    }
+
+    PassRefPtrWillBeRawPtr<SVGPathSeg> clone() override
+    {
+        return adoptRefWillBeNoop(new SVGPathSegMovetoRel(nullptr, x(), y()));
     }
 
 private:
     SVGPathSegMovetoRel(SVGPathElement* element, float x, float y)
         : SVGPathSegSingleCoordinate(element, x, y) { }
 
-    virtual unsigned short pathSegType() const override { return PATHSEG_MOVETO_REL; }
-    virtual String pathSegTypeAsLetter() const override { return "m"; }
+    unsigned short pathSegType() const override { return PATHSEG_MOVETO_REL; }
+    String pathSegTypeAsLetter() const override { return "m"; }
 };
 
 } // namespace blink

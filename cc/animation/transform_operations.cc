@@ -58,25 +58,24 @@ bool TransformOperations::BlendedBoundsForBox(const gfx::BoxF& box,
   if (!MatchesTypes(from))
     return false;
 
-  size_t num_operations =
-      std::max(from_identity ? 0 : from.operations_.size(),
-               to_identity ? 0 : operations_.size());
+  size_t num_operations = std::max(from_identity ? 0 : from.operations_.size(),
+                                   to_identity ? 0 : operations_.size());
 
   // Because we are squashing all of the matrices together when applying
   // them to the animation, we must apply them in reverse order when
   // not squashing them.
-  for (int i = num_operations - 1; i >= 0; --i) {
+  for (size_t i = 0; i < num_operations; ++i) {
+    size_t operation_index = num_operations - 1 - i;
     gfx::BoxF bounds_for_operation;
     const TransformOperation* from_op =
-        from_identity ? nullptr : &from.operations_[i];
-    const TransformOperation* to_op = to_identity ? nullptr : &operations_[i];
-    if (!TransformOperation::BlendedBoundsForBox(*bounds,
-                                                 from_op,
-                                                 to_op,
-                                                 min_progress,
-                                                 max_progress,
-                                                 &bounds_for_operation))
+        from_identity ? nullptr : &from.operations_[operation_index];
+    const TransformOperation* to_op =
+        to_identity ? nullptr : &operations_[operation_index];
+    if (!TransformOperation::BlendedBoundsForBox(*bounds, from_op, to_op,
+                                                 min_progress, max_progress,
+                                                 &bounds_for_operation)) {
       return false;
+    }
     *bounds = bounds_for_operation;
   }
 
@@ -85,29 +84,50 @@ bool TransformOperations::BlendedBoundsForBox(const gfx::BoxF& box,
 
 bool TransformOperations::AffectsScale() const {
   for (size_t i = 0; i < operations_.size(); ++i) {
-    if (operations_[i].type == TransformOperation::TransformOperationScale)
+    if (operations_[i].type == TransformOperation::TRANSFORM_OPERATION_SCALE)
       return true;
-    if (operations_[i].type == TransformOperation::TransformOperationMatrix &&
+    if (operations_[i].type == TransformOperation::TRANSFORM_OPERATION_MATRIX &&
         !operations_[i].matrix.IsIdentityOrTranslation())
       return true;
   }
   return false;
 }
 
+bool TransformOperations::PreservesAxisAlignment() const {
+  for (size_t i = 0; i < operations_.size(); ++i) {
+    switch (operations_[i].type) {
+      case TransformOperation::TRANSFORM_OPERATION_IDENTITY:
+      case TransformOperation::TRANSFORM_OPERATION_TRANSLATE:
+      case TransformOperation::TRANSFORM_OPERATION_SCALE:
+        continue;
+      case TransformOperation::TRANSFORM_OPERATION_MATRIX:
+        if (!operations_[i].matrix.IsIdentity() &&
+            !operations_[i].matrix.IsScaleOrTranslation())
+          return false;
+        continue;
+      case TransformOperation::TRANSFORM_OPERATION_ROTATE:
+      case TransformOperation::TRANSFORM_OPERATION_SKEW:
+      case TransformOperation::TRANSFORM_OPERATION_PERSPECTIVE:
+        return false;
+    }
+  }
+  return true;
+}
+
 bool TransformOperations::IsTranslation() const {
   for (size_t i = 0; i < operations_.size(); ++i) {
     switch (operations_[i].type) {
-      case TransformOperation::TransformOperationIdentity:
-      case TransformOperation::TransformOperationTranslate:
+      case TransformOperation::TRANSFORM_OPERATION_IDENTITY:
+      case TransformOperation::TRANSFORM_OPERATION_TRANSLATE:
         continue;
-      case TransformOperation::TransformOperationMatrix:
+      case TransformOperation::TRANSFORM_OPERATION_MATRIX:
         if (!operations_[i].matrix.IsIdentityOrTranslation())
           return false;
         continue;
-      case TransformOperation::TransformOperationRotate:
-      case TransformOperation::TransformOperationScale:
-      case TransformOperation::TransformOperationSkew:
-      case TransformOperation::TransformOperationPerspective:
+      case TransformOperation::TRANSFORM_OPERATION_ROTATE:
+      case TransformOperation::TRANSFORM_OPERATION_SCALE:
+      case TransformOperation::TRANSFORM_OPERATION_SKEW:
+      case TransformOperation::TRANSFORM_OPERATION_PERSPECTIVE:
         return false;
     }
   }
@@ -119,18 +139,18 @@ bool TransformOperations::ScaleComponent(gfx::Vector3dF* scale) const {
   bool has_scale_component = false;
   for (size_t i = 0; i < operations_.size(); ++i) {
     switch (operations_[i].type) {
-      case TransformOperation::TransformOperationIdentity:
-      case TransformOperation::TransformOperationTranslate:
+      case TransformOperation::TRANSFORM_OPERATION_IDENTITY:
+      case TransformOperation::TRANSFORM_OPERATION_TRANSLATE:
         continue;
-      case TransformOperation::TransformOperationMatrix:
+      case TransformOperation::TRANSFORM_OPERATION_MATRIX:
         if (!operations_[i].matrix.IsIdentityOrTranslation())
           return false;
         continue;
-      case TransformOperation::TransformOperationRotate:
-      case TransformOperation::TransformOperationSkew:
-      case TransformOperation::TransformOperationPerspective:
+      case TransformOperation::TRANSFORM_OPERATION_ROTATE:
+      case TransformOperation::TRANSFORM_OPERATION_SKEW:
+      case TransformOperation::TRANSFORM_OPERATION_PERSPECTIVE:
         return false;
-      case TransformOperation::TransformOperationScale:
+      case TransformOperation::TRANSFORM_OPERATION_SCALE:
         if (has_scale_component)
           return false;
         has_scale_component = true;
@@ -143,16 +163,14 @@ bool TransformOperations::ScaleComponent(gfx::Vector3dF* scale) const {
 }
 
 bool TransformOperations::MatchesTypes(const TransformOperations& other) const {
-  if (IsIdentity() || other.IsIdentity())
+  if (operations_.size() == 0 || other.operations_.size() == 0)
     return true;
 
   if (operations_.size() != other.operations_.size())
     return false;
 
   for (size_t i = 0; i < operations_.size(); ++i) {
-    if (operations_[i].type != other.operations_[i].type
-      && !operations_[i].IsIdentity()
-      && !other.operations_[i].IsIdentity())
+    if (operations_[i].type != other.operations_[i].type)
       return false;
   }
 
@@ -170,7 +188,7 @@ void TransformOperations::AppendTranslate(SkMScalar x,
                                           SkMScalar z) {
   TransformOperation to_add;
   to_add.matrix.Translate3d(x, y, z);
-  to_add.type = TransformOperation::TransformOperationTranslate;
+  to_add.type = TransformOperation::TRANSFORM_OPERATION_TRANSLATE;
   to_add.translate.x = x;
   to_add.translate.y = y;
   to_add.translate.z = z;
@@ -184,7 +202,7 @@ void TransformOperations::AppendRotate(SkMScalar x,
                                        SkMScalar degrees) {
   TransformOperation to_add;
   to_add.matrix.RotateAbout(gfx::Vector3dF(x, y, z), degrees);
-  to_add.type = TransformOperation::TransformOperationRotate;
+  to_add.type = TransformOperation::TRANSFORM_OPERATION_ROTATE;
   to_add.rotate.axis.x = x;
   to_add.rotate.axis.y = y;
   to_add.rotate.axis.z = z;
@@ -196,7 +214,7 @@ void TransformOperations::AppendRotate(SkMScalar x,
 void TransformOperations::AppendScale(SkMScalar x, SkMScalar y, SkMScalar z) {
   TransformOperation to_add;
   to_add.matrix.Scale3d(x, y, z);
-  to_add.type = TransformOperation::TransformOperationScale;
+  to_add.type = TransformOperation::TRANSFORM_OPERATION_SCALE;
   to_add.scale.x = x;
   to_add.scale.y = y;
   to_add.scale.z = z;
@@ -208,7 +226,7 @@ void TransformOperations::AppendSkew(SkMScalar x, SkMScalar y) {
   TransformOperation to_add;
   to_add.matrix.SkewX(x);
   to_add.matrix.SkewY(y);
-  to_add.type = TransformOperation::TransformOperationSkew;
+  to_add.type = TransformOperation::TRANSFORM_OPERATION_SKEW;
   to_add.skew.x = x;
   to_add.skew.y = y;
   operations_.push_back(to_add);
@@ -218,7 +236,7 @@ void TransformOperations::AppendSkew(SkMScalar x, SkMScalar y) {
 void TransformOperations::AppendPerspective(SkMScalar depth) {
   TransformOperation to_add;
   to_add.matrix.ApplyPerspectiveDepth(depth);
-  to_add.type = TransformOperation::TransformOperationPerspective;
+  to_add.type = TransformOperation::TRANSFORM_OPERATION_PERSPECTIVE;
   to_add.perspective_depth = depth;
   operations_.push_back(to_add);
   decomposed_transform_dirty_ = true;
@@ -227,7 +245,7 @@ void TransformOperations::AppendPerspective(SkMScalar depth) {
 void TransformOperations::AppendMatrix(const gfx::Transform& matrix) {
   TransformOperation to_add;
   to_add.matrix = matrix;
-  to_add.type = TransformOperation::TransformOperationMatrix;
+  to_add.type = TransformOperation::TRANSFORM_OPERATION_MATRIX;
   operations_.push_back(to_add);
   decomposed_transform_dirty_ = true;
 }
@@ -259,10 +277,9 @@ bool TransformOperations::BlendInternal(const TransformOperations& from,
     for (size_t i = 0; i < num_operations; ++i) {
       gfx::Transform blended;
       if (!TransformOperation::BlendTransformOperations(
-          from_identity ? 0 : &from.operations_[i],
-          to_identity ? 0 : &operations_[i],
-          progress,
-          &blended))
+              from.operations_.size() <= i ? 0 : &from.operations_[i],
+              operations_.size() <= i ? 0 : &operations_[i], progress,
+              &blended))
           return false;
       result->PreconcatTransform(blended);
     }

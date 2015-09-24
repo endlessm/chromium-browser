@@ -38,18 +38,21 @@ class WildcardLoginChecker : public UserInfoFetcher::Delegate {
   virtual ~WildcardLoginChecker();
 
   // Starts checking. The result will be reported via |callback_|.
-  void Start(scoped_refptr<net::URLRequestContextGetter> signin_context,
-             const StatusCallback& callback);
+  void StartWithSigninContext(
+      scoped_refptr<net::URLRequestContextGetter> signin_context,
+      const StatusCallback& callback);
+
+  // Starts checking with a provided refresh token.
+  void StartWithRefreshToken(const std::string& refresh_token,
+                             const StatusCallback& callback);
 
   // Starts checking with a provided access token.
   void StartWithAccessToken(const std::string& access_token,
                             const StatusCallback& callback);
 
   // UserInfoFetcher::Delegate:
-  virtual void OnGetUserInfoSuccess(const base::DictionaryValue* response)
-      override;
-  virtual void OnGetUserInfoFailure(const GoogleServiceAuthError& error)
-      override;
+  void OnGetUserInfoSuccess(const base::DictionaryValue* response) override;
+  void OnGetUserInfoFailure(const GoogleServiceAuthError& error) override;
 
  private:
   // Starts the check after successful token minting.

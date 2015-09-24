@@ -17,7 +17,7 @@
 #include "media/base/audio_hardware_config.h"
 
 namespace base {
-class MessageLoopProxy;
+class SingleThreadTaskRunner;
 }
 
 namespace content {
@@ -29,29 +29,21 @@ namespace content {
 class CONTENT_EXPORT AudioMessageFilter : public IPC::MessageFilter {
  public:
   explicit AudioMessageFilter(
-      const scoped_refptr<base::MessageLoopProxy>& io_message_loop);
+      scoped_refptr<base::SingleThreadTaskRunner> io_task_runner);
 
   // Getter for the one AudioMessageFilter object.
   static AudioMessageFilter* Get();
 
-  // Create an AudioOutputIPC to be owned by one delegate.  |render_view_id| and
-  // |render_frame_id| are the render view and render frame containing the
-  // entity producing the audio.
-  // TODO(jam): remove render_view_id
+  // Create an AudioOutputIPC to be owned by one delegate.  |render_frame_id| is
+  // the RenderFrame containing the entity producing the audio.
   //
   // The returned object is not thread-safe, and must be used on
-  // |io_message_loop|.
-  scoped_ptr<media::AudioOutputIPC> CreateAudioOutputIPC(int render_view_id,
-                                                         int render_frame_id);
+  // |io_task_runner|.
+  scoped_ptr<media::AudioOutputIPC> CreateAudioOutputIPC(int render_frame_id);
 
-  // When set, AudioMessageFilter will update the AudioHardwareConfig with new
-  // configuration values as received by OnOutputDeviceChanged().  The provided
-  // |config| must outlive AudioMessageFilter.
-  void SetAudioHardwareConfig(media::AudioHardwareConfig* config);
-
-  // IO message loop associated with this message filter.
-  scoped_refptr<base::MessageLoopProxy> io_message_loop() const {
-    return io_message_loop_;
+  // IO task runner associated with this message filter.
+  base::SingleThreadTaskRunner* io_task_runner() const {
+    return io_task_runner_.get();
   }
 
  protected:
@@ -62,13 +54,13 @@ class CONTENT_EXPORT AudioMessageFilter : public IPC::MessageFilter {
   FRIEND_TEST_ALL_PREFIXES(AudioMessageFilterTest, Delegates);
 
   // Implementation of media::AudioOutputIPC which augments IPC calls with
-  // stream_id and the source render_view_id.
+  // stream_id and the source render_frame_id.
   class AudioOutputIPCImpl;
 
   // Sends an IPC message using |sender_|.
   void Send(IPC::Message* message);
 
-  // IPC::MessageFilter override. Called on |io_message_loop|.
+  // IPC::MessageFilter override. Called on |io_task_runner_|.
   bool OnMessageReceived(const IPC::Message& message) override;
   void OnFilterAdded(IPC::Sender* sender) override;
   void OnFilterRemoved() override;
@@ -82,26 +74,23 @@ class CONTENT_EXPORT AudioMessageFilter : public IPC::MessageFilter {
   // Received when internal state of browser process' audio output device has
   // changed.
   void OnStreamStateChanged(int stream_id,
-                            media::AudioOutputIPCDelegate::State state);
+                            media::AudioOutputIPCDelegateState state);
 
-  // Received when the browser process detects an output device change.
-  void OnOutputDeviceChanged(int stream_id, int new_buffer_size,
-                             int new_sample_rate);
+  // Received when the browser process has finished processing a
+  // SwitchOutputDevice request
+  void OnOutputDeviceSwitched(int stream_id,
+                              int request_id,
+                              media::SwitchOutputDeviceResult result);
 
-  // IPC sender for Send(); must only be accesed on |io_message_loop_|.
+  // IPC sender for Send(); must only be accesed on |io_task_runner_|.
   IPC::Sender* sender_;
 
   // A map of stream ids to delegates; must only be accessed on
-  // |io_message_loop_|.
+  // |io_task_runner_|.
   IDMap<media::AudioOutputIPCDelegate> delegates_;
 
-  // Audio hardware configuration to update when OnOutputDeviceChanged() fires.
-  // Access is guarded by |lock_|.
-  base::Lock lock_;
-  media::AudioHardwareConfig* audio_hardware_config_;
-
-  // Message loop on which IPC calls are driven.
-  const scoped_refptr<base::MessageLoopProxy> io_message_loop_;
+  // Task runner on which IPC calls are executed.
+  const scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
 
   // The singleton instance for this filter.
   static AudioMessageFilter* g_filter;

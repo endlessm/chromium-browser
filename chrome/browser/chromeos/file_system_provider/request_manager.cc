@@ -4,9 +4,15 @@
 
 #include "chrome/browser/chromeos/file_system_provider/request_manager.h"
 
-#include "base/debug/trace_event.h"
 #include "base/files/file.h"
 #include "base/stl_util.h"
+#include "base/trace_event/trace_event.h"
+#include "chrome/browser/extensions/window_controller_list.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "extensions/browser/app_window/app_window_registry.h"
+#include "extensions/common/constants.h"
 
 namespace chromeos {
 namespace file_system_provider {
@@ -18,50 +24,13 @@ const int kDefaultTimeout = 10;
 
 }  // namespace
 
-std::string RequestTypeToString(RequestType type) {
-  switch (type) {
-    case REQUEST_UNMOUNT:
-      return "REQUEST_UNMOUNT";
-    case GET_METADATA:
-      return "GET_METADATA";
-    case READ_DIRECTORY:
-      return "READ_DIRECTORY";
-    case OPEN_FILE:
-      return "OPEN_FILE";
-    case CLOSE_FILE:
-      return "CLOSE_FILE";
-    case READ_FILE:
-      return "READ_FILE";
-    case CREATE_DIRECTORY:
-      return "CREATE_DIRECTORY";
-    case DELETE_ENTRY:
-      return "DELETE_ENTRY";
-    case CREATE_FILE:
-      return "CREATE_FILE";
-    case COPY_ENTRY:
-      return "COPY_ENTRY";
-    case MOVE_ENTRY:
-      return "MOVE_ENTRY";
-    case TRUNCATE:
-      return "TRUNCATE";
-    case WRITE_FILE:
-      return "WRITE_FILE";
-    case ABORT:
-      return "ABORT";
-    case ADD_WATCHER:
-      return "ADD_WATCHER";
-    case REMOVE_WATCHER:
-      return "REMOVE_WATCHER";
-    case TESTING:
-      return "TESTING";
-  }
-  NOTREACHED();
-  return "";
-}
-
 RequestManager::RequestManager(
+    Profile* profile,
+    const std::string& extension_id,
     NotificationManagerInterface* notification_manager)
-    : notification_manager_(notification_manager),
+    : profile_(profile),
+      extension_id_(extension_id),
+      notification_manager_(notification_manager),
       next_id_(1),
       timeout_(base::TimeDelta::FromSeconds(kDefaultTimeout)),
       weak_ptr_factory_(this) {
@@ -119,13 +88,14 @@ int RequestManager::CreateRequest(RequestType type,
   return request_id;
 }
 
-bool RequestManager::FulfillRequest(int request_id,
-                                    scoped_ptr<RequestValue> response,
-                                    bool has_more) {
+base::File::Error RequestManager::FulfillRequest(
+    int request_id,
+    scoped_ptr<RequestValue> response,
+    bool has_more) {
   CHECK(response.get());
   RequestMap::iterator request_it = requests_.find(request_id);
   if (request_it == requests_.end())
-    return false;
+    return base::File::FILE_ERROR_NOT_FOUND;
 
   FOR_EACH_OBSERVER(Observer,
                     observers_,
@@ -141,16 +111,17 @@ bool RequestManager::FulfillRequest(int request_id,
     ResetTimer(request_id);
   }
 
-  return true;
+  return base::File::FILE_OK;
 }
 
-bool RequestManager::RejectRequest(int request_id,
-                                   scoped_ptr<RequestValue> response,
-                                   base::File::Error error) {
+base::File::Error RequestManager::RejectRequest(
+    int request_id,
+    scoped_ptr<RequestValue> response,
+    base::File::Error error) {
   CHECK(response.get());
   RequestMap::iterator request_it = requests_.find(request_id);
   if (request_it == requests_.end())
-    return false;
+    return base::File::FILE_ERROR_NOT_FOUND;
 
   FOR_EACH_OBSERVER(Observer,
                     observers_,
@@ -158,7 +129,7 @@ bool RequestManager::RejectRequest(int request_id,
   request_it->second->handler->OnError(request_id, response.Pass(), error);
   DestroyRequest(request_id);
 
-  return true;
+  return base::File::FILE_OK;
 }
 
 void RequestManager::SetTimeoutForTesting(const base::TimeDelta& timeout) {
@@ -201,11 +172,14 @@ void RequestManager::OnRequestTimeout(int request_id) {
     return;
   }
 
-  notification_manager_->ShowUnresponsiveNotification(
-      request_id,
-      base::Bind(&RequestManager::OnUnresponsiveNotificationResult,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 request_id));
+  if (!IsInteractingWithUser()) {
+    notification_manager_->ShowUnresponsiveNotification(
+        request_id,
+        base::Bind(&RequestManager::OnUnresponsiveNotificationResult,
+                   weak_ptr_factory_.GetWeakPtr(), request_id));
+  } else {
+    ResetTimer(request_id);
+  }
 }
 
 void RequestManager::OnUnresponsiveNotificationResult(
@@ -236,6 +210,36 @@ void RequestManager::ResetTimer(int request_id) {
       base::Bind(&RequestManager::OnRequestTimeout,
                  weak_ptr_factory_.GetWeakPtr(),
                  request_id));
+}
+
+bool RequestManager::IsInteractingWithUser() const {
+  // First try for app windows. If not found, then fall back to browser windows
+  // and tabs.
+
+  const extensions::AppWindowRegistry* const registry =
+      extensions::AppWindowRegistry::Get(profile_);
+  DCHECK(registry);
+  if (registry->GetCurrentAppWindowForApp(extension_id_))
+    return true;
+
+  // This loop is heavy, but it's not called often. Only when a request timeouts
+  // which is at most once every 10 seconds per request (except tests).
+  const extensions::WindowControllerList::ControllerList& windows =
+      extensions::WindowControllerList::GetInstance()->windows();
+  for (const auto& window : windows) {
+    const TabStripModel* const tabs = window->GetBrowser()->tab_strip_model();
+    for (int i = 0; i < tabs->count(); ++i) {
+      const content::WebContents* const web_contents =
+          tabs->GetWebContentsAt(i);
+      const GURL& url = web_contents->GetURL();
+      if (url.scheme() == extensions::kExtensionScheme &&
+          url.host() == extension_id_) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 void RequestManager::DestroyRequest(int request_id) {

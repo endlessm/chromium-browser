@@ -64,6 +64,11 @@ bool GoogleServiceAuthError::operator==(
           second_factor_ == b.second_factor_);
 }
 
+bool GoogleServiceAuthError::operator!=(
+    const GoogleServiceAuthError& b) const {
+  return !(*this == b);
+}
+
 GoogleServiceAuthError::GoogleServiceAuthError(State s)
     : state_(s),
       network_error_(0) {
@@ -237,6 +242,24 @@ std::string GoogleServiceAuthError::ToString() const {
     default:
       NOTREACHED();
       return std::string();
+  }
+}
+
+bool GoogleServiceAuthError::IsPersistentError() const {
+  if (state_ == GoogleServiceAuthError::NONE) return false;
+  return !IsTransientError();
+}
+
+bool GoogleServiceAuthError::IsTransientError() const {
+  switch (state_) {
+  // These are failures that are likely to succeed if tried again.
+  case GoogleServiceAuthError::CONNECTION_FAILED:
+  case GoogleServiceAuthError::SERVICE_UNAVAILABLE:
+  case GoogleServiceAuthError::REQUEST_CANCELED:
+    return true;
+  // Everything else will have the same result.
+  default:
+    return false;
   }
 }
 

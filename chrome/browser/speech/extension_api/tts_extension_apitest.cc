@@ -6,8 +6,10 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/location.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/extensions/component_loader.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -15,6 +17,8 @@
 #include "chrome/browser/speech/tts_controller.h"
 #include "chrome/browser/speech/tts_platform.h"
 #include "chrome/common/chrome_switches.h"
+#include "content/public/browser/notification_service.h"
+#include "content/public/test/test_utils.h"
 #include "extensions/browser/extension_system.h"
 #include "net/base/network_change_notifier.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -45,8 +49,8 @@ namespace extensions {
 class MockTtsPlatformImpl : public TtsPlatformImpl {
  public:
   MockTtsPlatformImpl()
-      : ptr_factory_(this),
-        should_fake_get_voices_(false) {}
+      : should_fake_get_voices_(false),
+        ptr_factory_(this) {}
 
   virtual bool PlatformImplAvailable() {
     return true;
@@ -88,11 +92,11 @@ class MockTtsPlatformImpl : public TtsPlatformImpl {
   }
 
   void SendEndEventOnSavedUtteranceId() {
-    base::MessageLoop::current()->PostDelayedTask(
-        FROM_HERE, base::Bind(
-            &MockTtsPlatformImpl::SendEvent,
-            ptr_factory_.GetWeakPtr(),
-            false, g_saved_utterance_id, TTS_EVENT_END, 0, std::string()),
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE,
+        base::Bind(&MockTtsPlatformImpl::SendEvent, ptr_factory_.GetWeakPtr(),
+                   false, g_saved_utterance_id, TTS_EVENT_END, 0,
+                   std::string()),
         base::TimeDelta());
   }
 
@@ -101,12 +105,10 @@ class MockTtsPlatformImpl : public TtsPlatformImpl {
                     const std::string& lang,
                     const VoiceData& voice,
                     const UtteranceContinuousParameters& params) {
-    base::MessageLoop::current()->PostDelayedTask(
-        FROM_HERE, base::Bind(
-            &MockTtsPlatformImpl::SendEvent,
-            ptr_factory_.GetWeakPtr(),
-            false, utterance_id, TTS_EVENT_END, utterance.size(),
-            std::string()),
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE, base::Bind(&MockTtsPlatformImpl::SendEvent,
+                              ptr_factory_.GetWeakPtr(), false, utterance_id,
+                              TTS_EVENT_END, utterance.size(), std::string()),
         base::TimeDelta());
   }
 
@@ -116,11 +118,10 @@ class MockTtsPlatformImpl : public TtsPlatformImpl {
       const std::string& lang,
       const VoiceData& voice,
       const UtteranceContinuousParameters& params) {
-    base::MessageLoop::current()->PostDelayedTask(
-        FROM_HERE, base::Bind(
-            &MockTtsPlatformImpl::SendEvent,
-            ptr_factory_.GetWeakPtr(),
-            true, utterance_id, TTS_EVENT_END, utterance.size(), std::string()),
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE, base::Bind(&MockTtsPlatformImpl::SendEvent,
+                              ptr_factory_.GetWeakPtr(), true, utterance_id,
+                              TTS_EVENT_END, utterance.size(), std::string()),
         base::TimeDelta());
   }
 
@@ -131,12 +132,11 @@ class MockTtsPlatformImpl : public TtsPlatformImpl {
                       const UtteranceContinuousParameters& params) {
     for (int i = 0; i < static_cast<int>(utterance.size()); i++) {
       if (i == 0 || utterance[i - 1] == ' ') {
-        base::MessageLoop::current()->PostDelayedTask(
-            FROM_HERE, base::Bind(
-                &MockTtsPlatformImpl::SendEvent,
-                ptr_factory_.GetWeakPtr(),
-                false, utterance_id, TTS_EVENT_WORD, i,
-                std::string()),
+        base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+            FROM_HERE,
+            base::Bind(&MockTtsPlatformImpl::SendEvent,
+                       ptr_factory_.GetWeakPtr(), false, utterance_id,
+                       TTS_EVENT_WORD, i, std::string()),
             base::TimeDelta());
       }
     }
@@ -149,11 +149,10 @@ class MockTtsPlatformImpl : public TtsPlatformImpl {
                  const std::string& message) {
     TtsController* controller = TtsController::GetInstance();
     if (wait_for_non_empty_queue && controller->QueueSize() == 0) {
-      base::MessageLoop::current()->PostDelayedTask(
-          FROM_HERE, base::Bind(
-              &MockTtsPlatformImpl::SendEvent,
-              ptr_factory_.GetWeakPtr(),
-              true, utterance_id, event_type, char_index, message),
+      base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+          FROM_HERE,
+          base::Bind(&MockTtsPlatformImpl::SendEvent, ptr_factory_.GetWeakPtr(),
+                     true, utterance_id, event_type, char_index, message),
           base::TimeDelta::FromMilliseconds(100));
       return;
     }
@@ -162,8 +161,8 @@ class MockTtsPlatformImpl : public TtsPlatformImpl {
   }
 
  private:
-  base::WeakPtrFactory<MockTtsPlatformImpl> ptr_factory_;
   bool should_fake_get_voices_;
+  base::WeakPtrFactory<MockTtsPlatformImpl> ptr_factory_;
 };
 
 class FakeNetworkOnlineStateForTest : public net::NetworkChangeNotifier {
@@ -187,6 +186,18 @@ class TtsApiTest : public ExtensionApiTest {
   virtual void SetUpInProcessBrowserTestFixture() {
     ExtensionApiTest::SetUpInProcessBrowserTestFixture();
     TtsController::GetInstance()->SetPlatformImpl(&mock_platform_impl_);
+  }
+
+  void AddNetworkSpeechSynthesisExtension() {
+    content::WindowedNotificationObserver observer(
+        NOTIFICATION_EXTENSION_BACKGROUND_PAGE_READY,
+        content::NotificationService::AllSources());
+    ExtensionService* service =
+        extensions::ExtensionSystem::Get(profile())->extension_service();
+    service->component_loader()->AddNetworkSpeechSynthesisExtension();
+    observer.Wait();
+    ASSERT_EQ(Manifest::COMPONENT,
+              content::Source<const Extension>(observer.source())->location());
   }
 
  protected:
@@ -359,6 +370,14 @@ IN_PROC_BROWSER_TEST_F(TtsApiTest, PlatformPauseResume) {
   ASSERT_TRUE(RunExtensionTest("tts/pause_resume")) << message_;
 }
 
+IN_PROC_BROWSER_TEST_F(TtsApiTest, PlatformPauseSpeakNoEnqueue) {
+  // While paused, one utterance is enqueued, and then a second utterance that
+  // cannot be enqueued cancels both.
+  InSequence s;
+  EXPECT_CALL(mock_platform_impl_, StopSpeaking()).WillOnce(Return(true));
+  ASSERT_TRUE(RunExtensionTest("tts/pause_speak_no_enqueue")) << message_;
+}
+
 //
 // TTS Engine tests.
 //
@@ -422,9 +441,7 @@ IN_PROC_BROWSER_TEST_F(TtsApiTest, NetworkSpeechEngine) {
   net::NetworkChangeNotifier::DisableForTest disable_for_test;
   FakeNetworkOnlineStateForTest fake_online_state(true);
 
-  ExtensionService* service = extensions::ExtensionSystem::Get(
-      profile())->extension_service();
-  service->component_loader()->AddNetworkSpeechSynthesisExtension();
+  ASSERT_NO_FATAL_FAILURE(AddNetworkSpeechSynthesisExtension());
   ASSERT_TRUE(RunExtensionTest("tts_engine/network_speech_engine")) << message_;
 }
 
@@ -433,9 +450,7 @@ IN_PROC_BROWSER_TEST_F(TtsApiTest, NoNetworkSpeechEngineWhenOffline) {
   net::NetworkChangeNotifier::DisableForTest disable_for_test;
   FakeNetworkOnlineStateForTest fake_online_state(false);
 
-  ExtensionService* service = extensions::ExtensionSystem::Get(
-      profile())->extension_service();
-  service->component_loader()->AddNetworkSpeechSynthesisExtension();
+  ASSERT_NO_FATAL_FAILURE(AddNetworkSpeechSynthesisExtension());
   // Test should fail when offline.
   ASSERT_FALSE(RunExtensionTest("tts_engine/network_speech_engine"));
 }

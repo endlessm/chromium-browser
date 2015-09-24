@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "components/content_settings/core/common/content_settings_pattern.h"
+#include "components/content_settings/core/common/content_settings_types.h"
 
 // Different settings that can be assigned for a particular content type.  We
 // give the user the ability to set these on a global and per-origin basis.
@@ -20,12 +21,24 @@ enum ContentSetting {
   CONTENT_SETTING_BLOCK,
   CONTENT_SETTING_ASK,
   CONTENT_SETTING_SESSION_ONLY,
+  CONTENT_SETTING_DETECT_IMPORTANT_CONTENT,
   CONTENT_SETTING_NUM_SETTINGS
 };
 
 // Range-checked conversion of an int to a ContentSetting, for use when reading
 // prefs off disk.
 ContentSetting IntToContentSetting(int content_setting);
+
+// Converts a given content setting to its histogram value, for use when saving
+// content settings types to a histogram.
+ContentSettingsTypeHistogram ContentSettingTypeToHistogramValue(
+    ContentSettingsType content_setting);
+
+// Whether this content setting should be synced.
+bool IsContentSettingsTypeSyncable(ContentSettingsType content_setting);
+
+// Whether this content setting can tolerate data being lost.
+bool IsContentSettingsTypeLossy(ContentSettingsType content_setting);
 
 struct ContentSettingPatternSource {
   ContentSettingPatternSource(const ContentSettingsPattern& primary_pattern,
@@ -52,16 +65,19 @@ struct RendererContentSettingRules {
 
 namespace content_settings {
 
+typedef std::string ResourceIdentifier;
+
 // Enum containing the various source for content settings. Settings can be
-// set by policy, extension or the user. Certain (internal) schemes are
-// whilelisted. For whilelisted schemes the source is
-// |SETTING_SOURCE_WHITELIST|.
+// set by policy, extension, the user or by the custodian of a supervised user.
+// Certain (internal) schemes are whilelisted. For whilelisted schemes the
+// source is |SETTING_SOURCE_WHITELIST|.
 enum SettingSource {
   SETTING_SOURCE_NONE,
   SETTING_SOURCE_POLICY,
   SETTING_SOURCE_EXTENSION,
   SETTING_SOURCE_USER,
   SETTING_SOURCE_WHITELIST,
+  SETTING_SOURCE_SUPERVISED,
 };
 
 // |SettingInfo| provides meta data for content setting values. |source|

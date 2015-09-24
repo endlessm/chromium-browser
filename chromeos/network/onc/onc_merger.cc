@@ -215,7 +215,7 @@ class MergeSettingsAndPolicies : public MergeListOfDictionaries {
   }
 
   // MergeListOfDictionaries override.
-  virtual scoped_ptr<base::Value> MergeListOfValues(
+  scoped_ptr<base::Value> MergeListOfValues(
       const std::string& key,
       const std::vector<const base::Value*>& values) override {
     bool user_editable = !HasUserPolicy();
@@ -303,9 +303,8 @@ class MergeToEffective : public MergeSettingsAndPolicies {
   }
 
   // MergeSettingsAndPolicies override.
-  virtual scoped_ptr<base::Value> MergeValues(
-      const std::string& key,
-      const ValueParams& values) override {
+  scoped_ptr<base::Value> MergeValues(const std::string& key,
+                                      const ValueParams& values) override {
     std::string which;
     return MergeValues(key, values, &which);
   }
@@ -358,9 +357,8 @@ class MergeToAugmented : public MergeToEffective {
 
  protected:
   // MergeSettingsAndPolicies override.
-  virtual scoped_ptr<base::Value> MergeValues(
-      const std::string& key,
-      const ValueParams& values) override {
+  scoped_ptr<base::Value> MergeValues(const std::string& key,
+                                      const ValueParams& values) override {
     const OncFieldSignature* field = NULL;
     if (signature_)
       field = GetFieldSignature(*signature_, key);
@@ -369,7 +367,9 @@ class MergeToAugmented : public MergeToEffective {
       // This field is not part of the provided ONCSignature, thus it cannot be
       // controlled by policy. Return the plain active value instead of an
       // augmented dictionary.
-      return make_scoped_ptr(values.active_setting->DeepCopy());
+      if (values.active_setting)
+        return make_scoped_ptr(values.active_setting->DeepCopy());
+      return nullptr;
     }
 
     // This field is part of the provided ONCSignature, thus it can be
@@ -380,16 +380,18 @@ class MergeToAugmented : public MergeToEffective {
 
     if (IsIdentifierField(*signature_, key)) {
       // Don't augment the GUID but write the plain value.
-      if (!effective_value) {
-        LOG(ERROR) << "GUID field has no effective value";
-        return nullptr;
+      if (effective_value) {
+        // DCHECK that all provided GUIDs are identical.
+        DCHECK(AllPresentValuesEqual(values, *effective_value));
+        // Return the un-augmented GUID.
+        return effective_value.Pass();
       }
-
-      // DCHECK that all provided GUIDs are identical.
-      DCHECK(AllPresentValuesEqual(values, *effective_value));
-
-      // Return the un-augmented GUID.
-      return effective_value.Pass();
+      if (values.active_setting) {
+        // Unmanaged networks have assigned (active) GUID values.
+        return make_scoped_ptr(values.active_setting->DeepCopy());
+      }
+      LOG(ERROR) << "GUID field has no effective value";
+      return nullptr;
     }
 
     scoped_ptr<base::DictionaryValue> augmented_value(
@@ -443,9 +445,8 @@ class MergeToAugmented : public MergeToEffective {
   }
 
   // MergeListOfDictionaries override.
-  virtual DictionaryPtr MergeNestedDictionaries(
-      const std::string& key,
-      const DictPtrs &dicts) override {
+  DictionaryPtr MergeNestedDictionaries(const std::string& key,
+                                        const DictPtrs& dicts) override {
     DictionaryPtr result;
     if (signature_) {
       const OncValueSignature* enclosing_signature = signature_;

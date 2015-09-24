@@ -13,10 +13,10 @@
 #include "content/child/worker_task_runner.h"
 #include "content/common/indexed_db/indexed_db_messages.h"
 #include "third_party/WebKit/public/platform/WebBlobInfo.h"
-#include "third_party/WebKit/public/platform/WebIDBKeyPath.h"
-#include "third_party/WebKit/public/platform/WebIDBMetadata.h"
 #include "third_party/WebKit/public/platform/WebString.h"
 #include "third_party/WebKit/public/platform/WebVector.h"
+#include "third_party/WebKit/public/platform/modules/indexeddb/WebIDBKeyPath.h"
+#include "third_party/WebKit/public/platform/modules/indexeddb/WebIDBMetadata.h"
 
 using blink::WebBlobInfo;
 using blink::WebIDBCallbacks;
@@ -113,6 +113,21 @@ void WebIDBDatabaseImpl::get(long long transaction_id,
                                     IndexedDBKeyRangeBuilder::Build(key_range),
                                     key_only,
                                     callbacks);
+}
+
+void WebIDBDatabaseImpl::getAll(long long transaction_id,
+                                long long object_store_id,
+                                long long index_id,
+                                const WebIDBKeyRange& key_range,
+                                long long max_count,
+                                bool key_only,
+                                WebIDBCallbacks* callbacks) {
+  IndexedDBDispatcher* dispatcher =
+      IndexedDBDispatcher::ThreadSpecificInstance(thread_safe_sender_.get());
+  dispatcher->RequestIDBDatabaseGetAll(
+      ipc_database_id_, transaction_id, object_store_id, index_id,
+      IndexedDBKeyRangeBuilder::Build(key_range), key_only, max_count,
+      callbacks);
 }
 
 void WebIDBDatabaseImpl::put(long long transaction_id,

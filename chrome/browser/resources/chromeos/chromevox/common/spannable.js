@@ -12,7 +12,7 @@ goog.require('goog.object');
 
 /**
  * @constructor
- * @param {string=} opt_string Initial value of the spannable.
+ * @param {string|!cvox.Spannable=} opt_string Initial value of the spannable.
  * @param {*=} opt_annotation Initial annotation for the entire string.
  */
 cvox.Spannable = function(opt_string, opt_annotation) {
@@ -21,14 +21,18 @@ cvox.Spannable = function(opt_string, opt_annotation) {
    * @type {string}
    * @private
    */
-  this.string_ = opt_string || '';
+  this.string_ = opt_string instanceof cvox.Spannable ? '' : opt_string || '';
 
   /**
    * Spans (annotations).
-   * @type {!Array.<!{ value: *, start: number, end: number }>}
+   * @type {!Array<!{ value: *, start: number, end: number }>}
    * @private
    */
   this.spans_ = [];
+
+  // Append the initial spannable.
+  if (opt_string instanceof cvox.Spannable)
+  this.append(opt_string);
 
   // Optionally annotate the entire string.
   if (goog.isDef(opt_annotation)) {
@@ -65,6 +69,12 @@ cvox.Spannable.prototype.setSpan = function(value, start, end) {
     // Zero-length spans are explicitly allowed, because it is possible to
     // query for position by annotation as well as the reverse.
     this.spans_.push({ value: value, start: start, end: end });
+    this.spans_.sort(function(a, b) {
+      var ret = a.start - b.start;
+      if (ret == 0)
+        ret = a.end - b.end;
+      return ret;
+    });
   } else {
     throw new RangeError('span out of range (start=' + start +
         ', end=' + end + ', len=' + this.string_.length + ')');
@@ -133,6 +143,24 @@ cvox.Spannable.prototype.getSpanInstanceOf = function(constructor) {
       return span.value;
     }
   }
+};
+
+/**
+ * Returns all span values which are an instance of a given constructor.
+ * Spans are returned in the order of their starting index and ending index
+ * for spans with equals tarting indices.
+ * @param {!Function} constructor Constructor.
+ * @return {!Array<Object>} Array of object.
+ */
+cvox.Spannable.prototype.getSpansInstanceOf = function(constructor) {
+  var ret = [];
+  for (var i = 0; i < this.spans_.length; i++) {
+    var span = this.spans_[i];
+    if (span.value instanceof constructor) {
+      ret.push(span.value);
+    }
+  }
+  return ret;
 };
 
 
@@ -385,7 +413,7 @@ cvox.Spannable.SerializeInfo_;
 
 /**
  * The serialized format of a spannable.
- * @typedef {{string: string, spans: Array.<cvox.Spannable.SerializedSpan_>}}
+ * @typedef {{string: string, spans: Array<cvox.Spannable.SerializedSpan_>}}
  * @private
  */
 cvox.Spannable.SerializedSpannable_;
@@ -400,7 +428,7 @@ cvox.Spannable.SerializedSpan_;
 
 /**
  * Maps type names to serialization info objects.
- * @type {Object.<string, cvox.Spannable.SerializeInfo_>}
+ * @type {Object<cvox.Spannable.SerializeInfo_>}
  * @private
  */
 cvox.Spannable.serializableSpansByName_ = {};

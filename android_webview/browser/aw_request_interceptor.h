@@ -27,16 +27,15 @@ class AwWebResourceResponse;
 class AwRequestInterceptor : public net::URLRequestInterceptor {
  public:
   AwRequestInterceptor();
-  virtual ~AwRequestInterceptor();
+  ~AwRequestInterceptor() override;
 
   // net::URLRequestInterceptor override --------------------------------------
-  virtual net::URLRequestJob* MaybeInterceptRequest(
+  net::URLRequestJob* MaybeInterceptRequest(
       net::URLRequest* request,
       net::NetworkDelegate* network_delegate) const override;
 
  private:
   scoped_ptr<AwWebResourceResponse> QueryForAwWebResourceResponse(
-      const GURL& location,
       net::URLRequest* request) const;
 
   DISALLOW_COPY_AND_ASSIGN(AwRequestInterceptor);

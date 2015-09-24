@@ -338,7 +338,6 @@ DownloadInterruptReason BaseFile::MoveFileAndAdjustPermissions(
   move_info.fFlags = FOF_SILENT | FOF_NOCONFIRMATION | FOF_NOERRORUI |
       FOF_NOCONFIRMMKDIR | FOF_NOCOPYSECURITYATTRIBS;
 
-  base::TimeTicks now = base::TimeTicks::Now();
   int result = SHFileOperation(&move_info);
   DownloadInterruptReason interrupt_reason = DOWNLOAD_INTERRUPT_REASON_NONE;
 
@@ -353,7 +352,7 @@ DownloadInterruptReason BaseFile::MoveFileAndAdjustPermissions(
 }
 
 DownloadInterruptReason BaseFile::AnnotateWithSourceInformation() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
   DCHECK(!detached_);
 
   bound_net_log_.BeginEvent(net::NetLog::TYPE_DOWNLOAD_FILE_ANNOTATED);

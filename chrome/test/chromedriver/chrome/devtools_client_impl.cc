@@ -23,7 +23,7 @@ const char kInspectorContextError[] =
     "Execution context with given id not found.";
 
 Status ParseInspectorError(const std::string& error_json) {
-  scoped_ptr<base::Value> error(base::JSONReader::Read(error_json));
+  scoped_ptr<base::Value> error = base::JSONReader::Read(error_json);
   base::DictionaryValue* error_dict;
   if (!error || !error->GetAsDictionary(&error_dict))
     return Status(kUnknownError, "inspector error with no error message");
@@ -163,7 +163,14 @@ Status DevToolsClientImpl::SendCommand(
     const std::string& method,
     const base::DictionaryValue& params) {
   scoped_ptr<base::DictionaryValue> result;
-  return SendCommandInternal(method, params, &result);
+  return SendCommandInternal(method, params, &result, true);
+}
+
+Status DevToolsClientImpl::SendAsyncCommand(
+    const std::string& method,
+    const base::DictionaryValue& params) {
+  scoped_ptr<base::DictionaryValue> result;
+  return SendCommandInternal(method, params, &result, false);
 }
 
 Status DevToolsClientImpl::SendCommandAndGetResult(
@@ -171,7 +178,8 @@ Status DevToolsClientImpl::SendCommandAndGetResult(
     const base::DictionaryValue& params,
     scoped_ptr<base::DictionaryValue>* result) {
   scoped_ptr<base::DictionaryValue> intermediate_result;
-  Status status = SendCommandInternal(method, params, &intermediate_result);
+  Status status = SendCommandInternal(
+      method, params, &intermediate_result, true);
   if (status.IsError())
     return status;
   if (!intermediate_result)
@@ -221,7 +229,8 @@ DevToolsClientImpl::ResponseInfo::~ResponseInfo() {}
 Status DevToolsClientImpl::SendCommandInternal(
     const std::string& method,
     const base::DictionaryValue& params,
-    scoped_ptr<base::DictionaryValue>* result) {
+    scoped_ptr<base::DictionaryValue>* result,
+    bool wait_for_response) {
   if (!socket_->IsConnected())
     return Status(kDisconnected, "not connected to DevTools");
 
@@ -238,27 +247,29 @@ Status DevToolsClientImpl::SendCommandInternal(
   if (!socket_->Send(message))
     return Status(kDisconnected, "unable to send message to renderer");
 
-  linked_ptr<ResponseInfo> response_info =
-      make_linked_ptr(new ResponseInfo(method));
-  response_info_map_[command_id] = response_info;
-  while (response_info->state == kWaiting) {
-    Status status = ProcessNextMessage(
-        command_id, base::TimeDelta::FromMinutes(10));
-    if (status.IsError()) {
-      if (response_info->state == kReceived)
-        response_info_map_.erase(command_id);
-      return status;
+  if (wait_for_response) {
+    linked_ptr<ResponseInfo> response_info =
+        make_linked_ptr(new ResponseInfo(method));
+    response_info_map_[command_id] = response_info;
+    while (response_info->state == kWaiting) {
+      Status status = ProcessNextMessage(
+          command_id, base::TimeDelta::FromMinutes(10));
+      if (status.IsError()) {
+        if (response_info->state == kReceived)
+          response_info_map_.erase(command_id);
+        return status;
+      }
     }
+    if (response_info->state == kBlocked) {
+      response_info->state = kIgnored;
+      return Status(kUnexpectedAlertOpen);
+    }
+    CHECK_EQ(response_info->state, kReceived);
+    internal::InspectorCommandResponse& response = response_info->response;
+    if (!response.result)
+      return ParseInspectorError(response.error);
+    *result = response.result.Pass();
   }
-  if (response_info->state == kBlocked) {
-    response_info->state = kIgnored;
-    return Status(kUnexpectedAlertOpen);
-  }
-  CHECK_EQ(response_info->state, kReceived);
-  internal::InspectorCommandResponse& response = response_info->response;
-  if (!response.result)
-    return ParseInspectorError(response.error);
-  *result = response.result.Pass();
   return Status(kOk);
 }
 
@@ -452,7 +463,7 @@ bool ParseInspectorMessage(
     InspectorMessageType* type,
     InspectorEvent* event,
     InspectorCommandResponse* command_response) {
-  scoped_ptr<base::Value> message_value(base::JSONReader::Read(message));
+  scoped_ptr<base::Value> message_value = base::JSONReader::Read(message);
   base::DictionaryValue* message_dict;
   if (!message_value || !message_value->GetAsDictionary(&message_dict))
     return false;
@@ -485,7 +496,7 @@ bool ParseInspectorMessage(
     if (message_dict->GetDictionary("result", &unscoped_result))
       command_response->result.reset(unscoped_result->DeepCopy());
     else if (message_dict->GetDictionary("error", &unscoped_error))
-      base::JSONWriter::Write(unscoped_error, &command_response->error);
+      base::JSONWriter::Write(*unscoped_error, &command_response->error);
     else
       command_response->result.reset(new base::DictionaryValue());
     return true;

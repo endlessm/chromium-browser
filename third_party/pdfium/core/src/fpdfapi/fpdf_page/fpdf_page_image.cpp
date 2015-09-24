@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../../include/fpdfapi/fpdf_page.h"
@@ -54,7 +54,7 @@ CPDF_Image* CPDF_Image::Clone()
     if (m_pStream->GetObjNum()) {
         return m_pDocument->GetPageData()->GetImage(m_pStream);
     }
-    CPDF_Image* pImage = FX_NEW CPDF_Image(m_pDocument);
+    CPDF_Image* pImage = new CPDF_Image(m_pDocument);
     pImage->LoadImageF((CPDF_Stream*)((CPDF_Object*)m_pStream)->Clone(), m_bInline);
     if (m_bInline) {
         CPDF_Dictionary *pInlineDict = (CPDF_Dictionary*)m_pInlineDict->Clone(TRUE);
@@ -77,15 +77,6 @@ CPDF_Image::~CPDF_Image()
 {
     if (m_bInline) {
         if (m_pStream) {
-#ifndef FOXIT_CHROME_BUILD
-            CPDF_Dictionary* pDict = m_pStream->GetDict();
-            if (pDict) {
-                CPDF_Object* pCSObj = pDict->GetElementValue(FX_BSTRC("ColorSpace"));
-                if (pCSObj && m_pDocument) {
-                    m_pDocument->RemoveColorSpaceFromPageData(pCSObj);
-                }
-            }
-#endif
             m_pStream->Release();
         }
         if (m_pInlineDict) {
@@ -107,9 +98,7 @@ FX_BOOL CPDF_Image::LoadImageF(CPDF_Stream* pStream, FX_BOOL bInline)
     }
     m_pOC = pDict->GetDict(FX_BSTRC("OC"));
     m_bIsMask = !pDict->KeyExist(FX_BSTRC("ColorSpace")) || pDict->GetInteger(FX_BSTRC("ImageMask"));
-#ifndef _FPDFAPI_MINI_
     m_bInterpolate = pDict->GetInteger(FX_BSTRC("Interpolate"));
-#endif
     m_Height = pDict->GetInteger(FX_BSTRC("Height"));
     m_Width = pDict->GetInteger(FX_BSTRC("Width"));
     return TRUE;

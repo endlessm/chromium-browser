@@ -13,11 +13,13 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/synchronization/cancellation_flag.h"
 #include "base/values.h"
-#include "content/public/browser/browser_thread.h"
 #include "google_apis/drive/drive_api_parser.h"
-#include "google_apis/drive/gdata_wapi_parser.h"
 #include "net/base/escape.h"
+#include "net/base/io_buffer.h"
+#include "net/base/net_errors.h"
+#include "storage/browser/fileapi/file_stream_reader.h"
 #include "third_party/re2/re2/re2.h"
 #include "url/gurl.h"
 
@@ -41,6 +43,8 @@ const HostedDocumentKind kHostedDocumentKinds[] = {
 };
 
 const char kUnknownHostedDocumentExtension[] = ".glink";
+
+const int kMd5DigestBufferSize = 512 * 1024;  // 512 kB.
 
 }  // namespace
 
@@ -122,11 +126,6 @@ std::string TranslateQuery(const std::string& original_query) {
   return result;
 }
 
-std::string ExtractResourceIdFromUrl(const GURL& url) {
-  return net::UnescapeURLComponent(url.ExtractFileName(),
-                                   net::UnescapeRule::URL_SPECIAL_CHARS);
-}
-
 std::string CanonicalizeResourceId(const std::string& resource_id) {
   // If resource ID is in the old WAPI format starting with a prefix like
   // "document:", strip it and return the remaining part.
@@ -137,150 +136,8 @@ std::string CanonicalizeResourceId(const std::string& resource_id) {
   return resource_id;
 }
 
-scoped_ptr<google_apis::ResourceEntry>
-ConvertFileResourceToResourceEntry(
-    const google_apis::FileResource& file_resource) {
-  scoped_ptr<google_apis::ResourceEntry> entry(new google_apis::ResourceEntry);
-
-  // ResourceEntry
-  entry->set_resource_id(file_resource.file_id());
-  entry->set_id(file_resource.file_id());
-  if (file_resource.IsDirectory())
-    entry->set_kind(google_apis::ResourceEntry::ENTRY_KIND_FOLDER);
-  else if (file_resource.IsHostedDocument())
-    entry->set_kind(google_apis::ResourceEntry::ENTRY_KIND_UNKNOWN);
-  else
-    entry->set_kind(google_apis::ResourceEntry::ENTRY_KIND_FILE);
-  entry->set_title(file_resource.title());
-  entry->set_published_time(file_resource.created_date());
-
-  std::vector<std::string> labels;
-  if (!file_resource.shared_with_me_date().is_null())
-    labels.push_back("shared-with-me");
-  if (file_resource.shared())
-    labels.push_back("shared");
-  entry->set_labels(labels);
-
-  // This should be the url to download the file_resource.
-  {
-    google_apis::Content content;
-    content.set_mime_type(file_resource.mime_type());
-    entry->set_content(content);
-  }
-  // TODO(kochi): entry->resource_links_
-
-  // For file entries
-  entry->set_filename(file_resource.title());
-  entry->set_suggested_filename(file_resource.title());
-  entry->set_file_md5(file_resource.md5_checksum());
-  entry->set_file_size(file_resource.file_size());
-
-  // If file is removed completely, that information is only available in
-  // ChangeResource, and is reflected in |removed_|. If file is trashed, the
-  // file entry still exists but with its "trashed" label true.
-  entry->set_deleted(file_resource.labels().is_trashed());
-
-  // ImageMediaMetadata
-  entry->set_image_width(file_resource.image_media_metadata().width());
-  entry->set_image_height(file_resource.image_media_metadata().height());
-  entry->set_image_rotation(file_resource.image_media_metadata().rotation());
-
-  // CommonMetadata
-  entry->set_etag(file_resource.etag());
-  // entry->authors_
-  // entry->links_.
-  ScopedVector<google_apis::Link> links;
-  for (size_t i = 0; i < file_resource.parents().size(); ++i) {
-    google_apis::Link* link = new google_apis::Link;
-    link->set_type(google_apis::Link::LINK_PARENT);
-    link->set_href(file_resource.parents()[i].parent_link());
-    links.push_back(link);
-  }
-  if (!file_resource.alternate_link().is_empty()) {
-    google_apis::Link* link = new google_apis::Link;
-    link->set_type(google_apis::Link::LINK_ALTERNATE);
-    link->set_href(file_resource.alternate_link());
-    links.push_back(link);
-  }
-  entry->set_links(links.Pass());
-
-  // entry->categories_
-  entry->set_updated_time(file_resource.modified_date());
-  entry->set_last_viewed_time(file_resource.last_viewed_by_me_date());
-
-  entry->FillRemainingFields();
-  return entry.Pass();
-}
-
-scoped_ptr<google_apis::ResourceEntry>
-ConvertChangeResourceToResourceEntry(
-    const google_apis::ChangeResource& change_resource) {
-  scoped_ptr<google_apis::ResourceEntry> entry;
-  if (change_resource.file())
-    entry = ConvertFileResourceToResourceEntry(*change_resource.file()).Pass();
-  else
-    entry.reset(new google_apis::ResourceEntry);
-
-  entry->set_resource_id(change_resource.file_id());
-  // If |is_deleted()| returns true, the file is removed from Drive.
-  entry->set_removed(change_resource.is_deleted());
-  entry->set_changestamp(change_resource.change_id());
-  entry->set_modification_date(change_resource.modification_date());
-
-  return entry.Pass();
-}
-
-scoped_ptr<google_apis::ResourceList>
-ConvertFileListToResourceList(const google_apis::FileList& file_list) {
-  scoped_ptr<google_apis::ResourceList> feed(new google_apis::ResourceList);
-
-  const ScopedVector<google_apis::FileResource>& items = file_list.items();
-  ScopedVector<google_apis::ResourceEntry> entries;
-  for (size_t i = 0; i < items.size(); ++i)
-    entries.push_back(ConvertFileResourceToResourceEntry(*items[i]).release());
-  feed->set_entries(entries.Pass());
-
-  ScopedVector<google_apis::Link> links;
-  if (!file_list.next_link().is_empty()) {
-    google_apis::Link* link = new google_apis::Link;
-    link->set_type(google_apis::Link::LINK_NEXT);
-    link->set_href(file_list.next_link());
-    links.push_back(link);
-  }
-  feed->set_links(links.Pass());
-
-  return feed.Pass();
-}
-
-scoped_ptr<google_apis::ResourceList>
-ConvertChangeListToResourceList(const google_apis::ChangeList& change_list) {
-  scoped_ptr<google_apis::ResourceList> feed(new google_apis::ResourceList);
-
-  const ScopedVector<google_apis::ChangeResource>& items = change_list.items();
-  ScopedVector<google_apis::ResourceEntry> entries;
-  for (size_t i = 0; i < items.size(); ++i) {
-    entries.push_back(
-        ConvertChangeResourceToResourceEntry(*items[i]).release());
-  }
-  feed->set_entries(entries.Pass());
-
-  feed->set_largest_changestamp(change_list.largest_change_id());
-
-  ScopedVector<google_apis::Link> links;
-  if (!change_list.next_link().is_empty()) {
-    google_apis::Link* link = new google_apis::Link;
-    link->set_type(google_apis::Link::LINK_NEXT);
-    link->set_href(change_list.next_link());
-    links.push_back(link);
-  }
-  feed->set_links(links.Pass());
-
-  return feed.Pass();
-}
-
-std::string GetMd5Digest(const base::FilePath& file_path) {
-  const int kBufferSize = 512 * 1024;  // 512kB.
-
+std::string GetMd5Digest(const base::FilePath& file_path,
+                         const base::CancellationFlag* cancellation_flag) {
   base::File file(file_path, base::File::FLAG_OPEN | base::File::FLAG_READ);
   if (!file.IsValid())
     return std::string();
@@ -289,9 +146,12 @@ std::string GetMd5Digest(const base::FilePath& file_path) {
   base::MD5Init(&context);
 
   int64 offset = 0;
-  scoped_ptr<char[]> buffer(new char[kBufferSize]);
+  scoped_ptr<char[]> buffer(new char[kMd5DigestBufferSize]);
   while (true) {
-    int result = file.Read(offset, buffer.get(), kBufferSize);
+    if (cancellation_flag && cancellation_flag->IsSet()) {  // Cancelled.
+      return std::string();
+    }
+    int result = file.Read(offset, buffer.get(), kMd5DigestBufferSize);
     if (result < 0) {
       // Found an error.
       return std::string();
@@ -308,7 +168,56 @@ std::string GetMd5Digest(const base::FilePath& file_path) {
 
   base::MD5Digest digest;
   base::MD5Final(&digest, &context);
-  return MD5DigestToBase16(digest);
+  return base::MD5DigestToBase16(digest);
+}
+
+FileStreamMd5Digester::FileStreamMd5Digester()
+    : buffer_(new net::IOBuffer(kMd5DigestBufferSize)) {
+}
+
+FileStreamMd5Digester::~FileStreamMd5Digester() {
+}
+
+void FileStreamMd5Digester::GetMd5Digest(
+    scoped_ptr<storage::FileStreamReader> stream_reader,
+    const ResultCallback& callback) {
+  reader_ = stream_reader.Pass();
+  base::MD5Init(&md5_context_);
+
+  // Start the read/hash.
+  ReadNextChunk(callback);
+}
+
+void FileStreamMd5Digester::ReadNextChunk(const ResultCallback& callback) {
+  const int result =
+      reader_->Read(buffer_.get(), kMd5DigestBufferSize,
+                    base::Bind(&FileStreamMd5Digester::OnChunkRead,
+                               base::Unretained(this), callback));
+  if (result != net::ERR_IO_PENDING)
+    OnChunkRead(callback, result);
+}
+
+void FileStreamMd5Digester::OnChunkRead(const ResultCallback& callback,
+                                        int bytes_read) {
+  if (bytes_read < 0) {
+    // Error - just return empty string.
+    callback.Run("");
+    return;
+  } else if (bytes_read == 0) {
+    // EOF.
+    base::MD5Digest digest;
+    base::MD5Final(&digest, &md5_context_);
+    std::string result = base::MD5DigestToBase16(digest);
+    callback.Run(result);
+    return;
+  }
+
+  // Read data and digest it.
+  base::MD5Update(&md5_context_,
+                  base::StringPiece(buffer_->data(), bytes_read));
+
+  // Kick off the next read.
+  ReadNextChunk(callback);
 }
 
 std::string GetHostedDocumentExtension(const std::string& mime_type) {

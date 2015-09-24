@@ -21,7 +21,7 @@ class FakeStatusTrayStateChangerProxy : public StatusTrayStateChangerProxy {
   FakeStatusTrayStateChangerProxy()
       : enqueue_called_(false), icon_id_(0), window_(NULL) {}
 
-  virtual void EnqueueChange(UINT icon_id, HWND window) {
+  void EnqueueChange(UINT icon_id, HWND window) override {
     enqueue_called_ = true;
     icon_id_ = icon_id;
     window_ = window;
@@ -42,12 +42,9 @@ class FakeStatusTrayStateChangerProxy : public StatusTrayStateChangerProxy {
 class FakeStatusIconObserver : public StatusIconObserver {
  public:
   FakeStatusIconObserver()
-      : balloon_clicked_(false),
-        status_icon_click_count_(0) {}
-  virtual void OnStatusIconClicked() {
-    ++status_icon_click_count_;
-  }
-  virtual void OnBalloonClicked() { balloon_clicked_ = true; }
+      : status_icon_click_count_(0), balloon_clicked_(false) {}
+  void OnStatusIconClicked() override { ++status_icon_click_count_; }
+  void OnBalloonClicked() override { balloon_clicked_ = true; }
   bool balloon_clicked() const { return balloon_clicked_; }
   size_t status_icon_click_count() const {
     return status_icon_click_count_;

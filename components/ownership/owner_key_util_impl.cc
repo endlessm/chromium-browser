@@ -8,7 +8,9 @@
 
 #include "base/files/file_util.h"
 #include "base/logging.h"
-#include "crypto/rsa_private_key.h"
+
+#include <keythi.h>
+#include "crypto/nss_key_util.h"
 
 namespace ownership {
 
@@ -50,13 +52,18 @@ bool OwnerKeyUtilImpl::ImportPublicKey(std::vector<uint8>* output) {
   return data_read == safe_file_size;
 }
 
-#if defined(USE_NSS)
-crypto::RSAPrivateKey* OwnerKeyUtilImpl::FindPrivateKeyInSlot(
+crypto::ScopedSECKEYPrivateKey OwnerKeyUtilImpl::FindPrivateKeyInSlot(
     const std::vector<uint8>& key,
     PK11SlotInfo* slot) {
-  return crypto::RSAPrivateKey::FindFromPublicKeyInfoInSlot(key, slot);
+  if (!slot)
+    return nullptr;
+
+  crypto::ScopedSECKEYPrivateKey private_key(
+      crypto::FindNSSKeyFromPublicKeyInfoInSlot(key, slot));
+  if (!private_key || SECKEY_GetPrivateKeyType(private_key.get()) != rsaKey)
+    return nullptr;
+  return private_key.Pass();
 }
-#endif  // defined(USE_NSS)
 
 bool OwnerKeyUtilImpl::IsPublicKeyPresent() {
   return base::PathExists(public_key_file_);

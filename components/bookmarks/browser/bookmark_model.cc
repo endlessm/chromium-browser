@@ -12,6 +12,8 @@
 #include "base/i18n/string_compare.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/profiler/scoped_tracker.h"
 #include "base/strings/string_util.h"
 #include "components/bookmarks/browser/bookmark_expanded_state_tracker.h"
 #include "components/bookmarks/browser/bookmark_index.h"
@@ -26,13 +28,8 @@
 #include "ui/gfx/favicon_size.h"
 
 using base::Time;
-using bookmarks::BookmarkClient;
-using bookmarks::BookmarkExpandedStateTracker;
-using bookmarks::BookmarkIndex;
-using bookmarks::BookmarkLoadDetails;
-using bookmarks::BookmarkMatch;
-using bookmarks::BookmarkNodeData;
-using bookmarks::BookmarkStorage;
+
+namespace bookmarks {
 
 namespace {
 
@@ -82,7 +79,7 @@ class SortComparator : public std::binary_function<const BookmarkNode*,
       if (!collator_)
         return n1->GetTitle() < n2->GetTitle();
       return base::i18n::CompareString16WithCollator(
-          collator_, n1->GetTitle(), n2->GetTitle()) == UCOL_LESS;
+                 *collator_, n1->GetTitle(), n2->GetTitle()) == UCOL_LESS;
     }
     // Types differ, sort such that folders come first.
     return n1->is_folder();
@@ -104,7 +101,8 @@ BookmarkModel::BookmarkModel(BookmarkClient* client)
       other_node_(NULL),
       mobile_node_(NULL),
       next_node_id_(1),
-      observers_(ObserverList<BookmarkModelObserver>::NOTIFY_EXISTING_ONLY),
+      observers_(
+          base::ObserverList<BookmarkModelObserver>::NOTIFY_EXISTING_ONLY),
       loaded_signal_(true, false),
       extensive_changes_(0) {
   DCHECK(client_);
@@ -147,13 +145,13 @@ void BookmarkModel::Load(
       new BookmarkExpandedStateTracker(this, pref_service));
 
   // Load the bookmarks. BookmarkStorage notifies us when done.
-  store_ .reset(new BookmarkStorage(this, profile_path, io_task_runner.get()));
+  store_.reset(new BookmarkStorage(this, profile_path, io_task_runner.get()));
   store_->LoadBookmarks(CreateLoadDetails(accept_languages), ui_task_runner);
 }
 
 const BookmarkNode* BookmarkModel::GetParentForNewNodes() {
   std::vector<const BookmarkNode*> nodes =
-      bookmarks::GetMostRecentlyModifiedUserFolders(this, 1);
+      GetMostRecentlyModifiedUserFolders(this, 1);
   DCHECK(!nodes.empty());  // This list is always padded with default folders.
   return nodes[0];
 }
@@ -192,12 +190,11 @@ void BookmarkModel::EndGroupedChanges() {
                     GroupedBookmarkChangesEnded(this));
 }
 
-void BookmarkModel::Remove(const BookmarkNode* parent, int index) {
-  if (!loaded_ || !IsValidIndex(parent, index, false) || is_root_node(parent)) {
-    NOTREACHED();
-    return;
-  }
-  RemoveAndDeleteNode(AsMutable(parent->GetChild(index)));
+void BookmarkModel::Remove(const BookmarkNode* node) {
+  DCHECK(loaded_);
+  DCHECK(node);
+  DCHECK(!is_root_node(node));
+  RemoveAndDeleteNode(AsMutable(node));
 }
 
 void BookmarkModel::RemoveAllUserBookmarks() {
@@ -290,10 +287,9 @@ void BookmarkModel::Copy(const BookmarkNode* node,
 
   SetDateFolderModified(new_parent, Time::Now());
   BookmarkNodeData drag_data(node);
-  std::vector<BookmarkNodeData::Element> elements(drag_data.elements);
   // CloneBookmarkNode will use BookmarkModel methods to do the job, so we
   // don't need to send notifications here.
-  bookmarks::CloneBookmarkNode(this, elements, new_parent, index, true);
+  CloneBookmarkNode(this, drag_data.elements, new_parent, index, true);
 
   if (store_.get())
     store_->ScheduleSave();
@@ -303,11 +299,9 @@ const gfx::Image& BookmarkModel::GetFavicon(const BookmarkNode* node) {
   DCHECK(node);
   if (node->favicon_state() == BookmarkNode::INVALID_FAVICON) {
     BookmarkNode* mutable_node = AsMutable(node);
-    LoadFavicon(
-        mutable_node,
-        client_->PreferTouchIcon() ?
-            favicon_base::TOUCH_ICON :
-            favicon_base::FAVICON);
+    LoadFavicon(mutable_node,
+                client_->PreferTouchIcon() ? favicon_base::TOUCH_ICON
+                                           : favicon_base::FAVICON);
   }
   return node->favicon();
 }
@@ -319,10 +313,8 @@ favicon_base::IconType BookmarkModel::GetFaviconType(const BookmarkNode* node) {
 
 void BookmarkModel::SetTitle(const BookmarkNode* node,
                              const base::string16& title) {
-  if (!node) {
-    NOTREACHED();
-    return;
-  }
+  DCHECK(node);
+
   if (node->GetTitle() == title)
     return;
 
@@ -348,16 +340,7 @@ void BookmarkModel::SetTitle(const BookmarkNode* node,
 }
 
 void BookmarkModel::SetURL(const BookmarkNode* node, const GURL& url) {
-  if (!node) {
-    NOTREACHED();
-    return;
-  }
-
-  // We cannot change the URL of a folder.
-  if (node->is_folder()) {
-    NOTREACHED();
-    return;
-  }
+  DCHECK(node && !node->is_folder());
 
   if (node->url() == url)
     return;
@@ -435,6 +418,10 @@ void BookmarkModel::DeleteNodeMetaInfo(const BookmarkNode* node,
                     BookmarkMetaInfoChanged(this, node));
 }
 
+void BookmarkModel::AddNonClonedKey(const std::string& key) {
+  non_cloned_keys_.insert(key);
+}
+
 void BookmarkModel::SetNodeSyncTransactionVersion(
     const BookmarkNode* node,
     int64 sync_transaction_version) {
@@ -448,41 +435,45 @@ void BookmarkModel::SetNodeSyncTransactionVersion(
     store_->ScheduleSave();
 }
 
-void BookmarkModel::OnFaviconChanged(const std::set<GURL>& urls) {
-  // Ignore events if |Load| has not been called yet.
-  if (!store_)
-    return;
-
-  // Prevent the observers from getting confused for multiple favicon loads.
-  for (std::set<GURL>::const_iterator i = urls.begin(); i != urls.end(); ++i) {
+void BookmarkModel::OnFaviconsChanged(const std::set<GURL>& page_urls,
+                                      const GURL& icon_url) {
+  std::set<const BookmarkNode*> to_update;
+  for (const GURL& page_url : page_urls) {
     std::vector<const BookmarkNode*> nodes;
-    GetNodesByURL(*i, &nodes);
-    for (size_t i = 0; i < nodes.size(); ++i) {
-      // Got an updated favicon, for a URL, do a new request.
-      BookmarkNode* node = AsMutable(nodes[i]);
-      node->InvalidateFavicon();
-      CancelPendingFaviconLoadRequests(node);
-      FOR_EACH_OBSERVER(BookmarkModelObserver,
-                        observers_,
-                        BookmarkNodeFaviconChanged(this, node));
+    GetNodesByURL(page_url, &nodes);
+    to_update.insert(nodes.begin(), nodes.end());
+  }
+
+  if (!icon_url.is_empty()) {
+    // Log Histogram to determine how often |icon_url| is non empty in
+    // practice.
+    // TODO(pkotwicz): Do something more efficient if |icon_url| is non-empty
+    // many times a day for each user.
+    UMA_HISTOGRAM_BOOLEAN("Bookmarks.OnFaviconsChangedIconURL", true);
+
+    base::AutoLock url_lock(url_lock_);
+    for (const BookmarkNode* node : nodes_ordered_by_url_set_) {
+      if (icon_url == node->icon_url())
+        to_update.insert(node);
     }
+  }
+
+  for (const BookmarkNode* node : to_update) {
+    // Rerequest the favicon.
+    BookmarkNode* mutable_node = AsMutable(node);
+    mutable_node->InvalidateFavicon();
+    CancelPendingFaviconLoadRequests(mutable_node);
+    FOR_EACH_OBSERVER(BookmarkModelObserver,
+                      observers_,
+                      BookmarkNodeFaviconChanged(this, node));
   }
 }
 
-void BookmarkModel::SetDateAdded(const BookmarkNode* node,
-                                 Time date_added) {
-  if (!node) {
-    NOTREACHED();
-    return;
-  }
+void BookmarkModel::SetDateAdded(const BookmarkNode* node, Time date_added) {
+  DCHECK(node && !is_permanent_node(node));
 
   if (node->date_added() == date_added)
     return;
-
-  if (is_permanent_node(node)) {
-    NOTREACHED();
-    return;
-  }
 
   AsMutable(node)->set_date_added(date_added);
 
@@ -510,7 +501,7 @@ const BookmarkNode* BookmarkModel::GetMostRecentlyAddedUserNodeForURL(
     const GURL& url) {
   std::vector<const BookmarkNode*> nodes;
   GetNodesByURL(url, &nodes);
-  std::sort(nodes.begin(), nodes.end(), &bookmarks::MoreRecentlyAdded);
+  std::sort(nodes.begin(), nodes.end(), &MoreRecentlyAdded);
 
   // Look for the first node that the user can edit.
   for (size_t i = 0; i < nodes.size(); ++i) {
@@ -761,9 +752,19 @@ void BookmarkModel::DoneLoading(scoped_ptr<BookmarkLoadDetails> details) {
     return;
   }
 
+  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/467179
+  // is fixed.
+  tracked_objects::ScopedTracker tracking_profile1(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION("467179 BookmarkModel::DoneLoading1"));
+
   next_node_id_ = details->max_id();
   if (details->computed_checksum() != details->stored_checksum() ||
       details->ids_reassigned()) {
+    // TODO(robliao): Remove ScopedTracker below once https://crbug.com/467179
+    // is fixed.
+    tracked_objects::ScopedTracker tracking_profile2(
+        FROM_HERE_WITH_EXPLICIT_FUNCTION("467179 BookmarkModel::DoneLoading2"));
+
     // If bookmarks file changed externally, the IDs may have changed
     // externally. In that case, the decoder may have reassigned IDs to make
     // them unique. So when the file has changed externally, we should save the
@@ -780,6 +781,11 @@ void BookmarkModel::DoneLoading(scoped_ptr<BookmarkLoadDetails> details) {
   std::vector<BookmarkPermanentNode*> extra_nodes;
   details->release_extra_nodes(&extra_nodes);
 
+  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/467179
+  // is fixed.
+  tracked_objects::ScopedTracker tracking_profile3(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION("467179 BookmarkModel::DoneLoading3"));
+
   // WARNING: order is important here, various places assume the order is
   // constant (but can vary between embedders with the initial visibility
   // of permanent nodes).
@@ -789,6 +795,12 @@ void BookmarkModel::DoneLoading(scoped_ptr<BookmarkLoadDetails> details) {
   root_children.push_back(mobile_node_);
   for (size_t i = 0; i < extra_nodes.size(); ++i)
     root_children.push_back(extra_nodes[i]);
+
+  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/467179
+  // is fixed.
+  tracked_objects::ScopedTracker tracking_profile4(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION("467179 BookmarkModel::DoneLoading4"));
+
   std::stable_sort(root_children.begin(),
                    root_children.end(),
                    VisibilityComparator(client_));
@@ -797,6 +809,11 @@ void BookmarkModel::DoneLoading(scoped_ptr<BookmarkLoadDetails> details) {
 
   root_.SetMetaInfoMap(details->model_meta_info_map());
   root_.set_sync_transaction_version(details->model_sync_transaction_version());
+
+  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/467179
+  // is fixed.
+  tracked_objects::ScopedTracker tracking_profile5(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION("467179 BookmarkModel::DoneLoading5"));
 
   {
     base::AutoLock url_lock(url_lock_);
@@ -807,6 +824,11 @@ void BookmarkModel::DoneLoading(scoped_ptr<BookmarkLoadDetails> details) {
   loaded_ = true;
 
   loaded_signal_.Signal();
+
+  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/467179
+  // is fixed.
+  tracked_objects::ScopedTracker tracking_profile6(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION("467179 BookmarkModel::DoneLoading6"));
 
   // Notify our direct observers.
   FOR_EACH_OBSERVER(BookmarkModelObserver, observers_,
@@ -819,6 +841,7 @@ void BookmarkModel::RemoveAndDeleteNode(BookmarkNode* delete_me) {
   const BookmarkNode* parent = node->parent();
   DCHECK(parent);
   int index = parent->GetIndexOf(node.get());
+  DCHECK_NE(-1, index);
 
   FOR_EACH_OBSERVER(BookmarkModelObserver, observers_,
                     OnWillRemoveBookmarks(this, parent, index, node.get()));
@@ -858,7 +881,7 @@ void BookmarkModel::RemoveNodeAndGetRemovedUrls(BookmarkNode* node,
   // This method does not explicitly acquires a lock.
   url_lock_.AssertAcquired();
   DCHECK(removed_urls);
-  BookmarkNode* parent = AsMutable(node->parent());
+  BookmarkNode* parent = node->parent();
   DCHECK(parent);
   parent->Remove(node);
   RemoveNode(node, removed_urls);
@@ -962,9 +985,8 @@ void BookmarkModel::OnFaviconDataAvailable(
   }
 }
 
-void BookmarkModel::LoadFavicon(
-    BookmarkNode* node,
-    favicon_base::IconType icon_type) {
+void BookmarkModel::LoadFavicon(BookmarkNode* node,
+                                favicon_base::IconType icon_type) {
   if (node->is_folder())
     return;
 
@@ -1025,3 +1047,5 @@ scoped_ptr<BookmarkLoadDetails> BookmarkModel::CreateLoadDetails(
       new BookmarkIndex(client_, accept_languages),
       next_node_id_));
 }
+
+}  // namespace bookmarks

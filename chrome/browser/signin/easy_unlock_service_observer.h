@@ -5,10 +5,16 @@
 #ifndef CHROME_BROWSER_SIGNIN_EASY_UNLOCK_SERVICE_OBSERVER_H_
 #define CHROME_BROWSER_SIGNIN_EASY_UNLOCK_SERVICE_OBSERVER_H_
 
+#include "components/proximity_auth/screenlock_state.h"
+
 class EasyUnlockServiceObserver {
  public:
   // Invoked when turn-off operation status changes.
-  virtual void OnTurnOffOperationStatusChanged() = 0;
+  virtual void OnTurnOffOperationStatusChanged() {}
+
+  // Invoked when screenlock state changes.
+  virtual void OnScreenlockStateChanged(
+      proximity_auth::ScreenlockState state) {}
 
  protected:
   virtual ~EasyUnlockServiceObserver() {}

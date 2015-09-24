@@ -11,13 +11,11 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
-#include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager_impl.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
-#include "chrome/browser/chromeos/settings/cros_settings.h"
-#include "chrome/browser/chromeos/settings/device_settings_service.h"
-#include "chrome/browser/chromeos/settings/stub_cros_settings_provider.h"
+#include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
+#include "chrome/browser/chromeos/settings/scoped_cros_settings_test_helper.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/test/base/scoped_testing_local_state.h"
 #include "chrome/test/base/testing_browser_process.h"
@@ -25,7 +23,6 @@
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/settings/cros_settings_names.h"
-#include "chromeos/settings/cros_settings_provider.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/common/content_switches.h"
@@ -40,8 +37,7 @@ class UnittestProfileManager : public ::ProfileManagerWithoutInit {
       : ::ProfileManagerWithoutInit(user_data_dir) {}
 
  protected:
-  virtual Profile* CreateProfileHelper(
-      const base::FilePath& file_path) override {
+  Profile* CreateProfileHelper(const base::FilePath& file_path) override {
     if (!base::PathExists(file_path)) {
       if (!base::CreateDirectory(file_path))
         return NULL;
@@ -50,24 +46,15 @@ class UnittestProfileManager : public ::ProfileManagerWithoutInit {
   }
 };
 
-
 class UserManagerTest : public testing::Test {
  protected:
-  virtual void SetUp() override {
-    CommandLine& command_line = *CommandLine::ForCurrentProcess();
+  void SetUp() override {
+    base::CommandLine& command_line = *base::CommandLine::ForCurrentProcess();
     command_line.AppendSwitch(::switches::kTestType);
     command_line.AppendSwitch(
         chromeos::switches::kIgnoreUserProfileMappingForTests);
 
-    cros_settings_ = CrosSettings::Get();
-
-    // Replace the real DeviceSettingsProvider with a stub.
-    device_settings_provider_ =
-        cros_settings_->GetProvider(chromeos::kReportDeviceVersionInfo);
-    EXPECT_TRUE(device_settings_provider_);
-    EXPECT_TRUE(
-        cros_settings_->RemoveSettingsProvider(device_settings_provider_));
-    cros_settings_->AddSettingsProvider(&stub_settings_provider_);
+    settings_helper_.ReplaceProvider(kDeviceOwner);
 
     // Populate the stub DeviceSettingsProvider with valid values.
     SetDeviceSettings(false, "", false);
@@ -83,16 +70,12 @@ class UserManagerTest : public testing::Test {
     chromeos::DBusThreadManager::Initialize();
 
     ResetUserManager();
+    WallpaperManager::Initialize();
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     // Unregister the in-memory local settings instance.
     local_state_.reset();
-
-    // Restore the real DeviceSettingsProvider.
-    EXPECT_TRUE(
-      cros_settings_->RemoveSettingsProvider(&stub_settings_provider_));
-    cros_settings_->AddSettingsProvider(device_settings_provider_);
 
     // Shut down the DeviceSettingsService.
     DeviceSettingsService::Get()->UnsetSessionManager();
@@ -100,6 +83,7 @@ class UserManagerTest : public testing::Test {
 
     base::RunLoop().RunUntilIdle();
     chromeos::DBusThreadManager::Shutdown();
+    WallpaperManager::Shutdown();
   }
 
   ChromeUserManagerImpl* GetChromeUserManager() const {
@@ -138,14 +122,11 @@ class UserManagerTest : public testing::Test {
   void SetDeviceSettings(bool ephemeral_users_enabled,
                          const std::string &owner,
                          bool supervised_users_enabled) {
-    base::FundamentalValue
-        ephemeral_users_enabled_value(ephemeral_users_enabled);
-    stub_settings_provider_.Set(kAccountsPrefEphemeralUsersEnabled,
-        ephemeral_users_enabled_value);
-    base::StringValue owner_value(owner);
-    stub_settings_provider_.Set(kDeviceOwner, owner_value);
-    stub_settings_provider_.Set(kAccountsPrefSupervisedUsersEnabled,
-        base::FundamentalValue(supervised_users_enabled));
+    settings_helper_.SetBoolean(kAccountsPrefEphemeralUsersEnabled,
+                                ephemeral_users_enabled);
+    settings_helper_.SetString(kDeviceOwner, owner);
+    settings_helper_.SetBoolean(kAccountsPrefSupervisedUsersEnabled,
+                                supervised_users_enabled);
   }
 
   void RetrieveTrustedDevicePolicies() {
@@ -155,13 +136,8 @@ class UserManagerTest : public testing::Test {
  protected:
   content::TestBrowserThreadBundle thread_bundle_;
 
-  CrosSettings* cros_settings_;
-  CrosSettingsProvider* device_settings_provider_;
-  StubCrosSettingsProvider stub_settings_provider_;
+  ScopedCrosSettingsTestHelper settings_helper_;
   scoped_ptr<ScopedTestingLocalState> local_state_;
-
-  ScopedTestDeviceSettingsService test_device_settings_service_;
-  ScopedTestCrosSettings test_cros_settings_;
 
   scoped_ptr<ScopedUserManagerEnabler> user_manager_enabler_;
   base::ScopedTempDir temp_dir_;

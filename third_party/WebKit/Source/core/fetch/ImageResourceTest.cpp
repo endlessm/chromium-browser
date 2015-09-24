@@ -35,21 +35,20 @@
 #include "core/fetch/MemoryCache.h"
 #include "core/fetch/MockImageResourceClient.h"
 #include "core/fetch/ResourceFetcher.h"
+#include "core/fetch/ResourceLoader.h"
 #include "core/fetch/ResourcePtr.h"
-#include "core/loader/DocumentLoader.h"
-#include "core/loader/UniqueIdentifier.h"
-#include "core/testing/DummyPageHolder.h"
-#include "core/testing/URLTestHelpers.h"
-#include "core/testing/UnitTestHelpers.h"
+#include "core/fetch/UniqueIdentifier.h"
 #include "platform/SharedBuffer.h"
+#include "platform/exported/WrappedResourceResponse.h"
+#include "platform/graphics/Image.h"
+#include "platform/testing/URLTestHelpers.h"
+#include "platform/testing/UnitTestHelpers.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebURL.h"
 #include "public/platform/WebURLResponse.h"
 #include "public/platform/WebUnitTestSupport.h"
 
-using namespace blink;
-
-namespace {
+namespace blink {
 
 static Vector<unsigned char> jpegImage()
 {
@@ -85,14 +84,25 @@ static Vector<unsigned char> jpegImage()
 
 TEST(ImageResourceTest, MultipartImage)
 {
-    ResourcePtr<ImageResource> cachedImage = new ImageResource(ResourceRequest());
-    cachedImage->setLoading(true);
+    ResourceFetcher* fetcher = ResourceFetcher::create(nullptr);
+    KURL testURL(ParsedURLString, "http://www.test.com/cancelTest.html");
+    URLTestHelpers::registerMockedURLLoad(testURL, "cancelTest.html", "text/html");
+
+    // Emulate starting a real load, but don't expect any "real" WebURLLoaderClient callbacks.
+    ResourcePtr<ImageResource> cachedImage = new ImageResource(ResourceRequest(testURL), nullptr);
+    cachedImage->setIdentifier(createUniqueIdentifier());
+    cachedImage->load(fetcher, ResourceLoaderOptions());
+    Platform::current()->unitTestSupport()->unregisterMockedURL(testURL);
 
     MockImageResourceClient client;
     cachedImage->addClient(&client);
+    EXPECT_EQ(Resource::Pending, cachedImage->status());
 
     // Send the multipart response. No image or data buffer is created.
-    cachedImage->responseReceived(ResourceResponse(KURL(), "multipart/x-mixed-replace", 0, nullAtom, String()), nullptr);
+    // Note that the response must be routed through ResourceLoader to
+    // ensure the load is flagged as multipart.
+    ResourceResponse multipartResponse(KURL(), "multipart/x-mixed-replace", 0, nullAtom, String());
+    cachedImage->loader()->didReceiveResponse(nullptr, WrappedResourceResponse(multipartResponse), nullptr);
     ASSERT_FALSE(cachedImage->resourceBuffer());
     ASSERT_FALSE(cachedImage->hasImage());
     ASSERT_EQ(client.imageChangedCount(), 0);
@@ -101,7 +111,8 @@ TEST(ImageResourceTest, MultipartImage)
     // Send the response for the first real part. No image or data buffer is created.
     const char* svgData = "<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1'><rect width='1' height='1' fill='green'/></svg>";
     unsigned svgDataLength = strlen(svgData);
-    cachedImage->responseReceived(ResourceResponse(KURL(), "image/svg+xml", svgDataLength, nullAtom, String()), nullptr);
+    ResourceResponse payloadResponse(KURL(), "image/svg+xml", svgDataLength, nullAtom, String());
+    cachedImage->loader()->didReceiveResponse(nullptr, WrappedResourceResponse(payloadResponse), nullptr);
     ASSERT_FALSE(cachedImage->resourceBuffer());
     ASSERT_FALSE(cachedImage->hasImage());
     ASSERT_EQ(client.imageChangedCount(), 0);
@@ -132,15 +143,13 @@ TEST(ImageResourceTest, CancelOnDetach)
     KURL testURL(ParsedURLString, "http://www.test.com/cancelTest.html");
     URLTestHelpers::registerMockedURLLoad(testURL, "cancelTest.html", "text/html");
 
-    // Create enough of a mocked world to get a functioning ResourceLoader.
-    OwnPtr<DummyPageHolder> dummyPageHolder = DummyPageHolder::create();
-    RefPtr<DocumentLoader> documentLoader = DocumentLoader::create(&dummyPageHolder->frame(), ResourceRequest(testURL), SubstituteData());
+    ResourceFetcher* fetcher = ResourceFetcher::create(nullptr);
 
     // Emulate starting a real load.
-    ResourcePtr<ImageResource> cachedImage = new ImageResource(ResourceRequest(testURL));
+    ResourcePtr<ImageResource> cachedImage = new ImageResource(ResourceRequest(testURL), nullptr);
     cachedImage->setIdentifier(createUniqueIdentifier());
 
-    cachedImage->load(documentLoader->fetcher(), ResourceLoaderOptions());
+    cachedImage->load(fetcher, ResourceLoaderOptions());
     memoryCache()->add(cachedImage.get());
 
     MockImageResourceClient client;
@@ -157,12 +166,12 @@ TEST(ImageResourceTest, CancelOnDetach)
     EXPECT_EQ(Resource::LoadError, cachedImage->status());
     EXPECT_EQ(reinterpret_cast<Resource*>(0), memoryCache()->resourceForURL(testURL));
 
-    blink::Platform::current()->unitTestSupport()->unregisterMockedURL(testURL);
+    Platform::current()->unitTestSupport()->unregisterMockedURL(testURL);
 }
 
 TEST(ImageResourceTest, DecodedDataRemainsWhileHasClients)
 {
-    ResourcePtr<ImageResource> cachedImage = new ImageResource(ResourceRequest());
+    ResourcePtr<ImageResource> cachedImage = new ImageResource(ResourceRequest(), nullptr);
     cachedImage->setLoading(true);
 
     MockImageResourceClient client;
@@ -196,15 +205,13 @@ TEST(ImageResourceTest, DecodedDataRemainsWhileHasClients)
 
 TEST(ImageResourceTest, UpdateBitmapImages)
 {
-    ResourcePtr<ImageResource> cachedImage = new ImageResource(ResourceRequest());
+    ResourcePtr<ImageResource> cachedImage = new ImageResource(ResourceRequest(), nullptr);
     cachedImage->setLoading(true);
 
     MockImageResourceClient client;
     cachedImage->addClient(&client);
 
     // Send the image response.
-    cachedImage->responseReceived(ResourceResponse(KURL(), "multipart/x-mixed-replace", 0, nullAtom, String()), nullptr);
-
     Vector<unsigned char> jpeg = jpegImage();
     cachedImage->responseReceived(ResourceResponse(KURL(), "image/jpeg", jpeg.size(), nullAtom, String()), nullptr);
     cachedImage->appendData(reinterpret_cast<const char*>(jpeg.data()), jpeg.size());
@@ -212,18 +219,12 @@ TEST(ImageResourceTest, UpdateBitmapImages)
     ASSERT_FALSE(cachedImage->errorOccurred());
     ASSERT_TRUE(cachedImage->hasImage());
     ASSERT_FALSE(cachedImage->image()->isNull());
-    ASSERT_EQ(client.imageChangedCount(), 1);
+    ASSERT_EQ(client.imageChangedCount(), 2);
     ASSERT_TRUE(client.notifyFinishedCalled());
 
     HashSet<ImageResource*> bitmapImages;
     ASSERT_TRUE(cachedImage->image()->isBitmapImage());
     bitmapImages.add(cachedImage.get());
-
-    // Updating bitmap resources produces image changed callbacks on their clients.
-    ImageResource::updateBitmapImages(bitmapImages);
-    ASSERT_EQ(client.imageChangedCount(), 2);
-    ImageResource::updateBitmapImages(bitmapImages, true);
-    ASSERT_EQ(client.imageChangedCount(), 3);
 }
 
-} // namespace
+} // namespace blink

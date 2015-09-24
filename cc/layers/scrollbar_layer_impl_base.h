@@ -51,6 +51,7 @@ class CC_EXPORT ScrollbarLayerImplBase : public LayerImpl {
   void PushScrollClipPropertiesTo(LayerImpl* layer);
 
   bool SetVisibleToTotalLengthRatio(float ratio);
+  // Thumb quad rect in layer space.
   virtual gfx::Rect ComputeThumbQuadRect() const;
 
   float thumb_thickness_scale_factor() {
@@ -67,8 +68,6 @@ class CC_EXPORT ScrollbarLayerImplBase : public LayerImpl {
                          bool is_left_side_vertical_scrollbar,
                          bool is_overlay);
   ~ScrollbarLayerImplBase() override;
-
-  gfx::Rect ScrollbarLayerRectToContentRect(const gfx::RectF& layer_rect) const;
 
   float visible_to_total_length_ratio() const {
     return visible_to_total_length_ratio_;

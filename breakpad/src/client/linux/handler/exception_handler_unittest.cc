@@ -80,7 +80,11 @@ void FlushInstructionCache(const char* memory, uint32_t memory_size) {
   // Provided by Android's <unistd.h>
   long begin = reinterpret_cast<long>(memory);
   long end = begin + static_cast<long>(memory_size);
+#if _MIPS_SIM == _ABIO32
   cacheflush(begin, end, 0);
+#else
+  syscall(__NR_cacheflush, begin, end, ICACHE);
+#endif
 # elif defined(__linux__)
   // See http://www.linux-mips.org/wiki/Cacheflush_Syscall.
   cacheflush(const_cast<char*>(memory), memory_size, ICACHE);
@@ -955,7 +959,7 @@ TEST(ExceptionHandlerTest, ExternalDumper) {
   const ssize_t n = HANDLE_EINTR(recvmsg(fds[0], &msg, 0));
   ASSERT_EQ(static_cast<ssize_t>(kCrashContextSize), n);
   ASSERT_EQ(kControlMsgSize, msg.msg_controllen);
-  ASSERT_EQ(static_cast<typeof(msg.msg_flags)>(0), msg.msg_flags);
+  ASSERT_EQ(static_cast<__typeof__(msg.msg_flags)>(0), msg.msg_flags);
   ASSERT_EQ(0, close(fds[0]));
 
   pid_t crashing_pid = -1;

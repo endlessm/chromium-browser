@@ -13,7 +13,7 @@
 #include "base/i18n/time_formatting.h"
 #include "base/logging.h"
 #include "base/memory/weak_ptr.h"
-#include "base/profiler/scoped_tracker.h"
+#include "base/numerics/safe_math.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -129,7 +129,7 @@ void EmitAppCacheInfo(const GURL& base_url,
   out->append("<ul>");
   EmitListItem(
       kSize,
-      base::UTF16ToUTF8(FormatBytesUnlocalized(info->size)),
+      base::UTF16ToUTF8(base::FormatBytesUnlocalized(info->size)),
       out);
   EmitListItem(
       kCreationTime,
@@ -242,7 +242,7 @@ void EmitAppCacheResourceInfoVector(
                                       iter->url, iter->response_id,
                                       group_id),
                   false, false, out);
-    EmitTableData(base::UTF16ToUTF8(FormatBytesUnlocalized(iter->size)),
+    EmitTableData(base::UTF16ToUTF8(base::FormatBytesUnlocalized(iter->size)),
                   true, false, out);
     out->append("</tr>\n");
   }
@@ -276,7 +276,7 @@ void EmitHexDump(const char *buf, size_t buf_len, size_t total_len,
   out->append("</pre>");
 }
 
-GURL DecodeBase64URL(const std::string& base64) {
+GURL DecodeBase64URL(base::StringPiece base64) {
   std::string url;
   base::Base64Decode(base64, &url);
   return GURL(url);
@@ -358,10 +358,6 @@ class MainPageJob : public BaseInternalsJob {
               std::string* charset,
               std::string* out,
               const net::CompletionCallback& callback) const override {
-    // TODO(vadimt): Remove ScopedTracker below once crbug.com/422489 is fixed.
-    tracked_objects::ScopedTracker tracking_profile(
-        FROM_HERE_WITH_EXPLICIT_FUNCTION("422489 MainPageJob::GetData"));
-
     mime_type->assign("text/html");
     charset->assign("UTF-8");
 
@@ -483,10 +479,6 @@ class ViewAppCacheJob : public BaseInternalsJob,
               std::string* charset,
               std::string* out,
               const net::CompletionCallback& callback) const override {
-    // TODO(vadimt): Remove ScopedTracker below once crbug.com/422489 is fixed.
-    tracked_objects::ScopedTracker tracking_profile(
-        FROM_HERE_WITH_EXPLICIT_FUNCTION("422489 ViewAppCacheJob::GetData"));
-
     mime_type->assign("text/html");
     charset->assign("UTF-8");
     out->clear();
@@ -562,10 +554,6 @@ class ViewEntryJob : public BaseInternalsJob,
               std::string* charset,
               std::string* out,
               const net::CompletionCallback& callback) const override {
-    // TODO(vadimt): Remove ScopedTracker below once crbug.com/422489 is fixed.
-    tracked_objects::ScopedTracker tracking_profile(
-        FROM_HERE_WITH_EXPLICIT_FUNCTION("422489 ViewEntryJob::GetData"));
-
     mime_type->assign("text/html");
     charset->assign("UTF-8");
     out->clear();
@@ -609,7 +597,8 @@ class ViewEntryJob : public BaseInternalsJob,
     const int64 kLimit = 100 * 1000;
     int64 amount_to_read =
         std::min(kLimit, response_info->response_data_size());
-    response_data_ = new net::IOBuffer(amount_to_read);
+    response_data_ = new net::IOBuffer(
+        base::CheckedNumeric<size_t>(amount_to_read).ValueOrDie());
 
     reader_.reset(appcache_storage_->CreateResponseReader(
         manifest_url_, group_id_, response_id_));
@@ -658,16 +647,19 @@ net::URLRequestJob* ViewAppCacheInternalsJobFactory::CreateJobForRequest(
     return new ViewAppCacheJob(request, network_delegate, service,
                                DecodeBase64URL(param));
 
-  std::vector<std::string> tokens;
-  int64 response_id = 0;
-  int64 group_id = 0;
-  if (command == kViewEntryCommand && Tokenize(param, "|", &tokens) == 4u &&
-      base::StringToInt64(tokens[2], &response_id) &&
-      base::StringToInt64(tokens[3], &group_id)) {
-    return new ViewEntryJob(request, network_delegate, service,
-                            DecodeBase64URL(tokens[0]),  // manifest url
-                            DecodeBase64URL(tokens[1]),  // entry url
-                            response_id, group_id);
+  if (command == kViewEntryCommand) {
+    std::vector<base::StringPiece> tokens = base::SplitStringPiece(
+        param, "|", base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+    int64 response_id = 0;
+    int64 group_id = 0;
+    if (tokens.size() == 4u &&
+        base::StringToInt64(tokens[2], &response_id) &&
+        base::StringToInt64(tokens[3], &group_id)) {
+      return new ViewEntryJob(request, network_delegate, service,
+                              DecodeBase64URL(tokens[0]),  // manifest url
+                              DecodeBase64URL(tokens[1]),  // entry url
+                              response_id, group_id);
+    }
   }
 
   return new RedirectToMainPageJob(request, network_delegate, service);

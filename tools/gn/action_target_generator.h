@@ -6,6 +6,7 @@
 #define TOOLS_GN_ACTION_TARGET_GENERATOR_H_
 
 #include "base/macros.h"
+#include "tools/gn/target.h"
 #include "tools/gn/target_generator.h"
 
 // Populates a Target with the values from an action[_foreach] rule.
@@ -16,7 +17,7 @@ class ActionTargetGenerator : public TargetGenerator {
                         const FunctionCallNode* function_call,
                         Target::OutputType type,
                         Err* err);
-  virtual ~ActionTargetGenerator();
+  ~ActionTargetGenerator() override;
 
  protected:
   void DoRun() override;

@@ -38,10 +38,11 @@
 #include "core/dom/shadow/ShadowRoot.h"
 #include "core/frame/FrameView.h"
 #include "core/frame/LocalFrame.h"
-#include "core/page/EventHandler.h"
-#include "core/rendering/HitTestResult.h"
-#include "core/rendering/RenderTreeAsText.h"
-#include "core/testing/URLTestHelpers.h"
+#include "core/input/EventHandler.h"
+#include "core/layout/HitTestResult.h"
+#include "core/layout/LayoutTreeAsText.h"
+#include "platform/testing/URLTestHelpers.h"
+#include "platform/testing/UnitTestHelpers.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebUnitTestSupport.h"
 #include "public/web/WebDocument.h"
@@ -54,13 +55,11 @@
 #include "public/web/WebWidgetClient.h"
 #include "web/WebViewImpl.h"
 #include "web/tests/FrameTestHelpers.h"
-
 #include <gtest/gtest.h>
 
-using namespace blink;
-using blink::FrameTestHelpers::runPendingTasks;
+using blink::testing::runPendingTasks;
 
-namespace {
+namespace blink {
 
 class TouchActionTrackingWebViewClient : public FrameTestHelpers::TestWebViewClient {
 public:
@@ -71,7 +70,7 @@ public:
     }
 
     // WebWidgetClient methods
-    virtual void setTouchAction(WebTouchAction touchAction)
+    void setTouchAction(WebTouchAction touchAction) override
     {
         m_actionSetCount++;
         m_action = touchAction;
@@ -101,7 +100,7 @@ private:
 
 const int kfakeTouchId = 7;
 
-class TouchActionTest : public testing::Test {
+class TouchActionTest : public ::testing::Test {
 public:
     TouchActionTest()
         : m_baseURL("http://www.test.com/")
@@ -110,7 +109,7 @@ public:
         URLTestHelpers::registerMockedURLFromBaseURL(WebString::fromUTF8(m_baseURL), "touch-action-tests.js");
     }
 
-    virtual void TearDown()
+    void TearDown() override
     {
         Platform::current()->unitTestSupport()->unregisterAllMockedURLs();
     }
@@ -142,7 +141,7 @@ void TouchActionTest::runTouchActionTest(std::string file)
     // scenario.
     WebView* webView = setupTest(file, client);
 
-    RefPtrWillBePersistent<Document> document = static_cast<PassRefPtrWillBeRawPtr<Document> >(webView->mainFrame()->document());
+    RefPtrWillBePersistent<Document> document = static_cast<PassRefPtrWillBeRawPtr<Document>>(webView->mainFrame()->document());
     runTestOnTree(document.get(), webView, client);
 
     m_webViewHelper.reset(); // Explicitly reset to break dependency on locally scoped client.
@@ -157,7 +156,7 @@ void TouchActionTest::runShadowDOMTest(std::string file)
     TrackExceptionState es;
 
     // Oilpan: see runTouchActionTest() comment why these are persistent references.
-    RefPtrWillBePersistent<Document> document = static_cast<PassRefPtrWillBeRawPtr<Document> >(webView->mainFrame()->document());
+    RefPtrWillBePersistent<Document> document = static_cast<PassRefPtrWillBeRawPtr<Document>>(webView->mainFrame()->document());
     RefPtrWillBePersistent<StaticElementList> hostNodes = document->querySelectorAll("[shadow-host]", es);
     ASSERT_FALSE(es.hadException());
     ASSERT_GE(hostNodes->length(), 1u);
@@ -179,16 +178,13 @@ WebView* TouchActionTest::setupTest(std::string file, TouchActionTrackingWebView
     // Note that JavaScript must be enabled for shadow DOM tests.
     WebView* webView = m_webViewHelper.initializeAndLoad(m_baseURL + file, true, 0, &client);
 
-    // Lock page scale factor to avoid zooming out to contents size.
-    m_webViewHelper.webView()->setPageScaleFactorLimits(1, 1);
-
     // Set size to enable hit testing, and avoid line wrapping for consistency with browser.
     webView->resize(WebSize(800, 1200));
 
     // Scroll to verify the code properly transforms windows to client co-ords.
     const int kScrollOffset = 100;
-    RefPtrWillBeRawPtr<Document> document = static_cast<PassRefPtrWillBeRawPtr<Document> >(webView->mainFrame()->document());
-    document->frame()->view()->setScrollOffset(IntPoint(0, kScrollOffset));
+    RefPtrWillBeRawPtr<Document> document = static_cast<PassRefPtrWillBeRawPtr<Document>>(webView->mainFrame()->document());
+    document->frame()->view()->setScrollPosition(IntPoint(0, kScrollOffset), ProgrammaticScroll);
 
     return webView;
 }
@@ -221,9 +217,9 @@ void TouchActionTest::runTestOnTree(ContainerNode* root, WebView* webView, Touch
         // Note that we don't want the bounding box because our tests sometimes have elements with
         // multiple border boxes with other elements in between. Use the first border box (which
         // we can easily visualize in a browser for debugging).
-        RefPtrWillBePersistent<ClientRectList> rects = element->getClientRects();
+        Persistent<ClientRectList> rects = element->getClientRects();
         ASSERT_GE(rects->length(), 0u) << failureContext;
-        RefPtrWillBePersistent<ClientRect> r = rects->item(0);
+        Persistent<ClientRect> r = rects->item(0);
         FloatRect clientFloatRect = FloatRect(r->left(), r->top(), r->width(), r->height());
         IntRect clientRect =  enclosedIntRect(clientFloatRect);
         for (int locIdx = 0; locIdx < 3; locIdx++) {
@@ -261,7 +257,7 @@ void TouchActionTest::runTestOnTree(ContainerNode* root, WebView* webView, Touch
             // we intended. This is the easiest way for a test to be broken, but has nothing really
             // to do with touch action.
             // Note that we can't use WebView's hit test API because it doesn't look into shadow DOM.
-            IntPoint docPoint(frameView->windowToContents(clientPoint));
+            IntPoint docPoint(frameView->rootFrameToContents(clientPoint));
             HitTestResult result = frame->eventHandler().hitTestResultAtPoint(docPoint, HitTestRequest::ReadOnly | HitTestRequest::Active);
             ASSERT_EQ(element, result.innerElement()) << "Unexpected hit test result " << failureContextPos
                 << "  Got element: \"" << result.innerElement()->outerHTML().stripWhiteSpace().left(80).ascii().data() << "\""
@@ -328,7 +324,7 @@ void TouchActionTest::sendTouchEvent(WebView* webView, WebInputEvent::Type type,
 }
 
 // crbug.com/411038
-TEST_F(TouchActionTest, DISABLED_Simple)
+TEST_F(TouchActionTest, Simple)
 {
     runTouchActionTest("touch-action-simple.html");
 }
@@ -348,4 +344,4 @@ TEST_F(TouchActionTest, Pan)
     runTouchActionTest("touch-action-pan.html");
 }
 
-}
+} // namespace blink

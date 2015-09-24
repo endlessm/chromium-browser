@@ -41,9 +41,9 @@ UserInfoFetcher::~UserInfoFetcher() {
 
 void UserInfoFetcher::Start(const std::string& access_token) {
   // Create a URLFetcher and start it.
-  url_fetcher_.reset(net::URLFetcher::Create(
-      0, GaiaUrls::GetInstance()->oauth_user_info_url(),
-      net::URLFetcher::GET, this));
+  url_fetcher_ =
+      net::URLFetcher::Create(0, GaiaUrls::GetInstance()->oauth_user_info_url(),
+                              net::URLFetcher::GET, this);
   url_fetcher_->SetRequestContext(context_);
   url_fetcher_->SetLoadFlags(net::LOAD_DO_NOT_SEND_COOKIES |
                              net::LOAD_DO_NOT_SAVE_COOKIES);
@@ -75,7 +75,7 @@ void UserInfoFetcher::OnURLFetchComplete(const net::URLFetcher* source) {
   std::string unparsed_data;
   source->GetResponseAsString(&unparsed_data);
   DVLOG(1) << "Received UserInfo response: " << unparsed_data;
-  scoped_ptr<base::Value> parsed_value(base::JSONReader::Read(unparsed_data));
+  scoped_ptr<base::Value> parsed_value = base::JSONReader::Read(unparsed_data);
   base::DictionaryValue* dict;
   if (parsed_value.get() && parsed_value->GetAsDictionary(&dict)) {
     delegate_->OnGetUserInfoSuccess(dict);

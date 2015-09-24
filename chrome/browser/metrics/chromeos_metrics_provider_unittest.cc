@@ -7,7 +7,7 @@
 #include <string>
 
 #include "base/basictypes.h"
-#include "chrome/browser/chromeos/login/users/fake_user_manager.h"
+#include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/browser/metrics/chromeos_metrics_provider.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
@@ -54,7 +54,7 @@ class ChromeOSMetricsProviderTest : public testing::Test {
   ChromeOSMetricsProviderTest() {}
 
  protected:
-  virtual void SetUp() override {
+  void SetUp() override {
 #if defined(USE_X11)
     ui::DeviceDataManagerX11::CreateInstance();
 #endif
@@ -97,7 +97,7 @@ class ChromeOSMetricsProviderTest : public testing::Test {
       chromeos::LoginState::Initialize();
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     // Destroy the login state tracker if it was initialized.
     chromeos::LoginState::Shutdown();
 
@@ -120,7 +120,8 @@ TEST_F(ChromeOSMetricsProviderTest, MultiProfileUserCount) {
   std::string user3("user3@example.com");
 
   // |scoped_enabler| takes over the lifetime of |user_manager|.
-  chromeos::FakeUserManager* user_manager = new chromeos::FakeUserManager();
+  chromeos::FakeChromeUserManager* user_manager =
+      new chromeos::FakeChromeUserManager();
   chromeos::ScopedUserManagerEnabler scoped_enabler(user_manager);
   user_manager->AddKioskAppUser(user1);
   user_manager->AddKioskAppUser(user2);
@@ -142,7 +143,8 @@ TEST_F(ChromeOSMetricsProviderTest, MultiProfileCountInvalidated) {
   std::string user3("user3@example.com");
 
   // |scoped_enabler| takes over the lifetime of |user_manager|.
-  chromeos::FakeUserManager* user_manager = new chromeos::FakeUserManager();
+  chromeos::FakeChromeUserManager* user_manager =
+      new chromeos::FakeChromeUserManager();
   chromeos::ScopedUserManagerEnabler scoped_enabler(user_manager);
   user_manager->AddKioskAppUser(user1);
   user_manager->AddKioskAppUser(user2);
@@ -193,8 +195,8 @@ TEST_F(ChromeOSMetricsProviderTest, BluetoothHardwareEnabled) {
 }
 
 TEST_F(ChromeOSMetricsProviderTest, BluetoothPairedDevices) {
-  // The fake bluetooth adapter class already claims to be paired with one
-  // device when initialized. Add a second and third fake device to it so we
+  // The fake bluetooth adapter class already claims to be paired with two
+  // device when initialized. Add a third and fourth fake device to it so we
   // can test the cases where a device is not paired (LE device, generally)
   // and a device that does not have Device ID information.
   fake_bluetooth_device_client_->CreateDevice(
@@ -218,8 +220,8 @@ TEST_F(ChromeOSMetricsProviderTest, BluetoothPairedDevices) {
   ASSERT_TRUE(system_profile.has_hardware());
   ASSERT_TRUE(system_profile.hardware().has_bluetooth());
 
-  // Only two of the devices should appear.
-  EXPECT_EQ(2, system_profile.hardware().bluetooth().paired_device_size());
+  // Only three of the devices should appear.
+  EXPECT_EQ(3, system_profile.hardware().bluetooth().paired_device_size());
 
   typedef metrics::SystemProfileProto::Hardware::Bluetooth::PairedDevice
       PairedDevice;
@@ -237,7 +239,7 @@ TEST_F(ChromeOSMetricsProviderTest, BluetoothPairedDevices) {
   EXPECT_EQ(0x030DU, device1.product_id());
   EXPECT_EQ(0x0306U, device1.device_id());
 
-  // Second device should match the Confirm Passkey object, this has
+  // Third device should match the Confirm Passkey object, this has
   // no Device ID information.
   PairedDevice device2 = system_profile.hardware().bluetooth().paired_device(1);
 

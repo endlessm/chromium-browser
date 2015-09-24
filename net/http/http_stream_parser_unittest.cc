@@ -15,6 +15,7 @@
 #include "base/run_loop.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
+#include "base/thread_task_runner_handle.h"
 #include "net/base/chunked_upload_data_stream.h"
 #include "net/base/elements_upload_data_stream.h"
 #include "net/base/io_buffer.h"
@@ -39,6 +40,24 @@ const size_t kOutputSize = 1024;  // Just large enough for this test.
 // The number of bytes that can fit in a buffer of kOutputSize.
 const size_t kMaxPayloadSize =
     kOutputSize - HttpStreamParser::kChunkHeaderFooterSize;
+
+// Helper method to create a connected ClientSocketHandle using |data|.
+// Modifies |data|.
+scoped_ptr<ClientSocketHandle> CreateConnectedSocketHandle(
+    SequencedSocketData* data) {
+  data->set_connect_data(MockConnect(SYNCHRONOUS, OK));
+
+  scoped_ptr<MockTCPClientSocket> socket(
+      new MockTCPClientSocket(net::AddressList(), nullptr, data));
+  data->set_socket(socket.get());
+
+  TestCompletionCallback callback;
+  EXPECT_EQ(OK, socket->Connect(callback.callback()));
+
+  scoped_ptr<ClientSocketHandle> socket_handle(new ClientSocketHandle);
+  socket_handle->SetSocket(socket.Pass());
+  return socket_handle.Pass();
+}
 
 // The empty payload is how the last chunk is encoded.
 TEST(HttpStreamParser, EncodeChunk_EmptyPayload) {
@@ -136,11 +155,8 @@ TEST(HttpStreamParser, ShouldMergeRequestHeadersAndBody_FileBody) {
                                                &temp_file_path));
 
     element_readers.push_back(
-        new UploadFileElementReader(base::MessageLoopProxy::current().get(),
-                                    temp_file_path,
-                                    0,
-                                    0,
-                                    base::Time()));
+        new UploadFileElementReader(base::ThreadTaskRunnerHandle::Get().get(),
+                                    temp_file_path, 0, 0, base::Time()));
 
     scoped_ptr<UploadDataStream> body(
         new ElementsUploadDataStream(element_readers.Pass(), 0));
@@ -184,11 +200,150 @@ TEST(HttpStreamParser, ShouldMergeRequestHeadersAndBody_LargeBodyInMemory) {
 }
 
 // Test to ensure the HttpStreamParser state machine does not get confused
+// when sending a request with a chunked body with only one chunk that becomes
+// available asynchronously.
+TEST(HttpStreamParser, AsyncSingleChunkAndAsyncSocket) {
+  static const char kChunk[] = "Chunk";
+
+  MockWrite writes[] = {
+      MockWrite(ASYNC, 0,
+                "GET /one.html HTTP/1.1\r\n"
+                "Transfer-Encoding: chunked\r\n\r\n"),
+      MockWrite(ASYNC, 1, "5\r\nChunk\r\n"),
+      MockWrite(ASYNC, 2, "0\r\n\r\n"),
+  };
+
+  // The size of the response body, as reflected in the Content-Length of the
+  // MockRead below.
+  static const int kBodySize = 8;
+
+  MockRead reads[] = {
+      MockRead(ASYNC, 3, "HTTP/1.1 200 OK\r\n"),
+      MockRead(ASYNC, 4, "Content-Length: 8\r\n\r\n"),
+      MockRead(ASYNC, 5, "one.html"),
+      MockRead(SYNCHRONOUS, 0, 6),  // EOF
+  };
+
+  ChunkedUploadDataStream upload_stream(0);
+  ASSERT_EQ(OK, upload_stream.Init(TestCompletionCallback().callback()));
+
+  SequencedSocketData data(reads, arraysize(reads), writes, arraysize(writes));
+  scoped_ptr<ClientSocketHandle> socket_handle =
+      CreateConnectedSocketHandle(&data);
+
+  HttpRequestInfo request_info;
+  request_info.method = "GET";
+  request_info.url = GURL("http://localhost");
+  request_info.upload_data_stream = &upload_stream;
+
+  scoped_refptr<GrowableIOBuffer> read_buffer(new GrowableIOBuffer);
+  HttpStreamParser parser(socket_handle.get(), &request_info, read_buffer.get(),
+                          BoundNetLog());
+
+  HttpRequestHeaders request_headers;
+  request_headers.SetHeader("Transfer-Encoding", "chunked");
+
+  HttpResponseInfo response_info;
+  TestCompletionCallback callback;
+  // This will attempt to Write() the initial request and headers, which will
+  // complete asynchronously.
+  ASSERT_EQ(ERR_IO_PENDING,
+            parser.SendRequest("GET /one.html HTTP/1.1\r\n", request_headers,
+                               &response_info, callback.callback()));
+
+  // Complete the initial request write.  Callback should not have been invoked.
+  base::RunLoop().RunUntilIdle();
+  ASSERT_FALSE(callback.have_result());
+
+  // Now append the only chunk and wait for the callback.
+  upload_stream.AppendData(kChunk, arraysize(kChunk) - 1, true);
+  ASSERT_EQ(OK, callback.WaitForResult());
+
+  // Attempt to read the response status and the response headers.
+  ASSERT_EQ(ERR_IO_PENDING, parser.ReadResponseHeaders(callback.callback()));
+  ASSERT_GT(callback.WaitForResult(), 0);
+
+  // Finally, attempt to read the response body.
+  scoped_refptr<IOBuffer> body_buffer(new IOBuffer(kBodySize));
+  ASSERT_EQ(ERR_IO_PENDING,
+            parser.ReadResponseBody(body_buffer.get(), kBodySize,
+                                    callback.callback()));
+  ASSERT_EQ(kBodySize, callback.WaitForResult());
+}
+
+// Test to ensure the HttpStreamParser state machine does not get confused
+// when sending a request with a chunked body with only one chunk that is
+// available synchronously.
+TEST(HttpStreamParser, SyncSingleChunkAndAsyncSocket) {
+  static const char kChunk[] = "Chunk";
+
+  MockWrite writes[] = {
+      MockWrite(ASYNC, 0,
+                "GET /one.html HTTP/1.1\r\n"
+                "Transfer-Encoding: chunked\r\n\r\n"),
+      MockWrite(ASYNC, 1, "5\r\nChunk\r\n"),
+      MockWrite(ASYNC, 2, "0\r\n\r\n"),
+  };
+
+  // The size of the response body, as reflected in the Content-Length of the
+  // MockRead below.
+  static const int kBodySize = 8;
+
+  MockRead reads[] = {
+      MockRead(ASYNC, 3, "HTTP/1.1 200 OK\r\n"),
+      MockRead(ASYNC, 4, "Content-Length: 8\r\n\r\n"),
+      MockRead(ASYNC, 5, "one.html"),
+      MockRead(SYNCHRONOUS, 0, 6),  // EOF
+  };
+
+  ChunkedUploadDataStream upload_stream(0);
+  ASSERT_EQ(OK, upload_stream.Init(TestCompletionCallback().callback()));
+  // Append the only chunk.
+  upload_stream.AppendData(kChunk, arraysize(kChunk) - 1, true);
+
+  SequencedSocketData data(reads, arraysize(reads), writes, arraysize(writes));
+  scoped_ptr<ClientSocketHandle> socket_handle =
+      CreateConnectedSocketHandle(&data);
+
+  HttpRequestInfo request_info;
+  request_info.method = "GET";
+  request_info.url = GURL("http://localhost");
+  request_info.upload_data_stream = &upload_stream;
+
+  scoped_refptr<GrowableIOBuffer> read_buffer(new GrowableIOBuffer);
+  HttpStreamParser parser(socket_handle.get(), &request_info, read_buffer.get(),
+                          BoundNetLog());
+
+  HttpRequestHeaders request_headers;
+  request_headers.SetHeader("Transfer-Encoding", "chunked");
+
+  HttpResponseInfo response_info;
+  TestCompletionCallback callback;
+  // This will attempt to Write() the initial request and headers, which will
+  // complete asynchronously.
+  ASSERT_EQ(ERR_IO_PENDING,
+            parser.SendRequest("GET /one.html HTTP/1.1\r\n", request_headers,
+                               &response_info, callback.callback()));
+  ASSERT_EQ(OK, callback.WaitForResult());
+
+  // Attempt to read the response status and the response headers.
+  ASSERT_EQ(ERR_IO_PENDING, parser.ReadResponseHeaders(callback.callback()));
+  ASSERT_GT(callback.WaitForResult(), 0);
+
+  // Finally, attempt to read the response body.
+  scoped_refptr<IOBuffer> body_buffer(new IOBuffer(kBodySize));
+  ASSERT_EQ(ERR_IO_PENDING,
+            parser.ReadResponseBody(body_buffer.get(), kBodySize,
+                                    callback.callback()));
+  ASSERT_EQ(kBodySize, callback.WaitForResult());
+}
+
+// Test to ensure the HttpStreamParser state machine does not get confused
 // when sending a request with a chunked body, where chunks become available
 // asynchronously, over a socket where writes may also complete
 // asynchronously.
 // This is a regression test for http://crbug.com/132243
-TEST(HttpStreamParser, AsyncChunkAndAsyncSocket) {
+TEST(HttpStreamParser, AsyncChunkAndAsyncSocketWithMultipleChunks) {
   // The chunks that will be written in the request, as reflected in the
   // MockWrites below.
   static const char kChunk1[] = "Chunk 1";
@@ -196,15 +351,13 @@ TEST(HttpStreamParser, AsyncChunkAndAsyncSocket) {
   static const char kChunk3[] = "Test 3";
 
   MockWrite writes[] = {
-    MockWrite(ASYNC, 0,
-              "GET /one.html HTTP/1.1\r\n"
-              "Host: localhost\r\n"
-              "Transfer-Encoding: chunked\r\n"
-              "Connection: keep-alive\r\n\r\n"),
-    MockWrite(ASYNC, 1, "7\r\nChunk 1\r\n"),
-    MockWrite(ASYNC, 2, "8\r\nChunky 2\r\n"),
-    MockWrite(ASYNC, 3, "6\r\nTest 3\r\n"),
-    MockWrite(ASYNC, 4, "0\r\n\r\n"),
+      MockWrite(ASYNC, 0,
+                "GET /one.html HTTP/1.1\r\n"
+                "Transfer-Encoding: chunked\r\n\r\n"),
+      MockWrite(ASYNC, 1, "7\r\nChunk 1\r\n"),
+      MockWrite(ASYNC, 2, "8\r\nChunky 2\r\n"),
+      MockWrite(ASYNC, 3, "6\r\nTest 3\r\n"),
+      MockWrite(ASYNC, 4, "0\r\n\r\n"),
   };
 
   // The size of the response body, as reflected in the Content-Length of the
@@ -222,26 +375,13 @@ TEST(HttpStreamParser, AsyncChunkAndAsyncSocket) {
   upload_stream.AppendData(kChunk1, arraysize(kChunk1) - 1, false);
   ASSERT_EQ(OK, upload_stream.Init(TestCompletionCallback().callback()));
 
-  DeterministicSocketData data(reads, arraysize(reads),
-                               writes, arraysize(writes));
-  data.set_connect_data(MockConnect(SYNCHRONOUS, OK));
-
-  scoped_ptr<DeterministicMockTCPClientSocket> transport(
-      new DeterministicMockTCPClientSocket(NULL, &data));
-  data.set_delegate(transport->AsWeakPtr());
-
-  TestCompletionCallback callback;
-  int rv = transport->Connect(callback.callback());
-  rv = callback.GetResult(rv);
-  ASSERT_EQ(OK, rv);
-
-  scoped_ptr<ClientSocketHandle> socket_handle(new ClientSocketHandle);
-  socket_handle->SetSocket(transport.Pass());
+  SequencedSocketData data(reads, arraysize(reads), writes, arraysize(writes));
+  scoped_ptr<ClientSocketHandle> socket_handle =
+      CreateConnectedSocketHandle(&data);
 
   HttpRequestInfo request_info;
   request_info.method = "GET";
   request_info.url = GURL("http://localhost");
-  request_info.load_flags = LOAD_NORMAL;
   request_info.upload_data_stream = &upload_stream;
 
   scoped_refptr<GrowableIOBuffer> read_buffer(new GrowableIOBuffer);
@@ -249,77 +389,176 @@ TEST(HttpStreamParser, AsyncChunkAndAsyncSocket) {
       socket_handle.get(), &request_info, read_buffer.get(), BoundNetLog());
 
   HttpRequestHeaders request_headers;
-  request_headers.SetHeader("Host", "localhost");
   request_headers.SetHeader("Transfer-Encoding", "chunked");
-  request_headers.SetHeader("Connection", "keep-alive");
 
   HttpResponseInfo response_info;
+  TestCompletionCallback callback;
   // This will attempt to Write() the initial request and headers, which will
   // complete asynchronously.
-  rv = parser.SendRequest("GET /one.html HTTP/1.1\r\n", request_headers,
-                          &response_info, callback.callback());
-  ASSERT_EQ(ERR_IO_PENDING, rv);
-
-  // Complete the initial request write. Additionally, this should enqueue the
-  // first chunk.
-  data.RunFor(1);
+  ASSERT_EQ(ERR_IO_PENDING,
+            parser.SendRequest("GET /one.html HTTP/1.1\r\n", request_headers,
+                               &response_info, callback.callback()));
   ASSERT_FALSE(callback.have_result());
 
-  // Now append another chunk (while the first write is still pending), which
-  // should not confuse the state machine.
+  // Sending the request and the first chunk completes.
+  base::RunLoop().RunUntilIdle();
+  ASSERT_FALSE(callback.have_result());
+
+  // Now append another chunk.
   upload_stream.AppendData(kChunk2, arraysize(kChunk2) - 1, false);
   ASSERT_FALSE(callback.have_result());
 
-  // Complete writing the first chunk, which should then enqueue the second
-  // chunk for writing and return, because it is set to complete
-  // asynchronously.
-  data.RunFor(1);
-  ASSERT_FALSE(callback.have_result());
-
-  // Complete writing the second chunk. However, because no chunks are
-  // available yet, no further writes should be called until a new chunk is
-  // added.
-  data.RunFor(1);
-  ASSERT_FALSE(callback.have_result());
-
-  // Add the final chunk. This will enqueue another write, but it will not
-  // complete due to the async nature.
+  // Add the final chunk, while the write for the second is still pending,
+  // which should not confuse the state machine.
   upload_stream.AppendData(kChunk3, arraysize(kChunk3) - 1, true);
   ASSERT_FALSE(callback.have_result());
 
-  // Finalize writing the last chunk, which will enqueue the trailer.
-  data.RunFor(1);
-  ASSERT_FALSE(callback.have_result());
-
-  // Finalize writing the trailer.
-  data.RunFor(1);
-  ASSERT_TRUE(callback.have_result());
-
-  // Warning: This will hang if the callback doesn't already have a result,
-  // due to the deterministic socket provider. Do not remove the above
-  // ASSERT_TRUE, which will avoid this hang.
-  rv = callback.WaitForResult();
-  ASSERT_EQ(OK, rv);
+  // Wait for writes to complete.
+  ASSERT_EQ(OK, callback.WaitForResult());
 
   // Attempt to read the response status and the response headers.
-  rv = parser.ReadResponseHeaders(callback.callback());
-  ASSERT_EQ(ERR_IO_PENDING, rv);
-  data.RunFor(2);
-
-  ASSERT_TRUE(callback.have_result());
-  rv = callback.WaitForResult();
-  ASSERT_GT(rv, 0);
+  ASSERT_EQ(ERR_IO_PENDING, parser.ReadResponseHeaders(callback.callback()));
+  ASSERT_GT(callback.WaitForResult(), 0);
 
   // Finally, attempt to read the response body.
   scoped_refptr<IOBuffer> body_buffer(new IOBuffer(kBodySize));
-  rv = parser.ReadResponseBody(
-      body_buffer.get(), kBodySize, callback.callback());
-  ASSERT_EQ(ERR_IO_PENDING, rv);
-  data.RunFor(1);
+  ASSERT_EQ(ERR_IO_PENDING,
+            parser.ReadResponseBody(body_buffer.get(), kBodySize,
+                                    callback.callback()));
+  ASSERT_EQ(kBodySize, callback.WaitForResult());
+}
 
-  ASSERT_TRUE(callback.have_result());
-  rv = callback.WaitForResult();
-  ASSERT_EQ(kBodySize, rv);
+// Test to ensure the HttpStreamParser state machine does not get confused
+// when there's only one "chunk" with 0 bytes, and is received from the
+// UploadStream only after sending the request headers successfully.
+TEST(HttpStreamParser, AsyncEmptyChunkedUpload) {
+  MockWrite writes[] = {
+      MockWrite(ASYNC, 0,
+                "GET /one.html HTTP/1.1\r\n"
+                "Transfer-Encoding: chunked\r\n\r\n"),
+      MockWrite(ASYNC, 1, "0\r\n\r\n"),
+  };
+
+  // The size of the response body, as reflected in the Content-Length of the
+  // MockRead below.
+  const int kBodySize = 8;
+
+  MockRead reads[] = {
+      MockRead(ASYNC, 2, "HTTP/1.1 200 OK\r\n"),
+      MockRead(ASYNC, 3, "Content-Length: 8\r\n\r\n"),
+      MockRead(ASYNC, 4, "one.html"),
+      MockRead(SYNCHRONOUS, 0, 5),  // EOF
+  };
+
+  ChunkedUploadDataStream upload_stream(0);
+  ASSERT_EQ(OK, upload_stream.Init(TestCompletionCallback().callback()));
+
+  SequencedSocketData data(reads, arraysize(reads), writes, arraysize(writes));
+  scoped_ptr<ClientSocketHandle> socket_handle =
+      CreateConnectedSocketHandle(&data);
+
+  HttpRequestInfo request_info;
+  request_info.method = "GET";
+  request_info.url = GURL("http://localhost");
+  request_info.upload_data_stream = &upload_stream;
+
+  scoped_refptr<GrowableIOBuffer> read_buffer(new GrowableIOBuffer);
+  HttpStreamParser parser(socket_handle.get(), &request_info, read_buffer.get(),
+                          BoundNetLog());
+
+  HttpRequestHeaders request_headers;
+  request_headers.SetHeader("Transfer-Encoding", "chunked");
+
+  HttpResponseInfo response_info;
+  TestCompletionCallback callback;
+  // This will attempt to Write() the initial request and headers, which will
+  // complete asynchronously.
+  ASSERT_EQ(ERR_IO_PENDING,
+            parser.SendRequest("GET /one.html HTTP/1.1\r\n", request_headers,
+                               &response_info, callback.callback()));
+
+  // Now append the terminal 0-byte "chunk".
+  upload_stream.AppendData(nullptr, 0, true);
+  ASSERT_FALSE(callback.have_result());
+
+  ASSERT_EQ(OK, callback.WaitForResult());
+
+  // Attempt to read the response status and the response headers.
+  ASSERT_EQ(ERR_IO_PENDING, parser.ReadResponseHeaders(callback.callback()));
+  ASSERT_GT(callback.WaitForResult(), 0);
+
+  // Finally, attempt to read the response body.
+  scoped_refptr<IOBuffer> body_buffer(new IOBuffer(kBodySize));
+  ASSERT_EQ(ERR_IO_PENDING,
+            parser.ReadResponseBody(body_buffer.get(), kBodySize,
+                                    callback.callback()));
+  ASSERT_EQ(kBodySize, callback.WaitForResult());
+}
+
+// Test to ensure the HttpStreamParser state machine does not get confused
+// when there's only one "chunk" with 0 bytes, which was already appended before
+// the request was started.
+TEST(HttpStreamParser, SyncEmptyChunkedUpload) {
+  MockWrite writes[] = {
+      MockWrite(ASYNC, 0,
+                "GET /one.html HTTP/1.1\r\n"
+                "Transfer-Encoding: chunked\r\n\r\n"),
+      MockWrite(ASYNC, 1, "0\r\n\r\n"),
+  };
+
+  // The size of the response body, as reflected in the Content-Length of the
+  // MockRead below.
+  const int kBodySize = 8;
+
+  MockRead reads[] = {
+      MockRead(ASYNC, 2, "HTTP/1.1 200 OK\r\n"),
+      MockRead(ASYNC, 3, "Content-Length: 8\r\n\r\n"),
+      MockRead(ASYNC, 4, "one.html"),
+      MockRead(SYNCHRONOUS, 0, 5),  // EOF
+  };
+
+  ChunkedUploadDataStream upload_stream(0);
+  ASSERT_EQ(OK, upload_stream.Init(TestCompletionCallback().callback()));
+  // Append final empty chunk.
+  upload_stream.AppendData(nullptr, 0, true);
+
+  SequencedSocketData data(reads, arraysize(reads), writes, arraysize(writes));
+  scoped_ptr<ClientSocketHandle> socket_handle =
+      CreateConnectedSocketHandle(&data);
+
+  HttpRequestInfo request_info;
+  request_info.method = "GET";
+  request_info.url = GURL("http://localhost");
+  request_info.upload_data_stream = &upload_stream;
+
+  scoped_refptr<GrowableIOBuffer> read_buffer(new GrowableIOBuffer);
+  HttpStreamParser parser(socket_handle.get(), &request_info, read_buffer.get(),
+                          BoundNetLog());
+
+  HttpRequestHeaders request_headers;
+  request_headers.SetHeader("Transfer-Encoding", "chunked");
+
+  HttpResponseInfo response_info;
+  TestCompletionCallback callback;
+  // This will attempt to Write() the initial request and headers, which will
+  // complete asynchronously.
+  ASSERT_EQ(ERR_IO_PENDING,
+            parser.SendRequest("GET /one.html HTTP/1.1\r\n", request_headers,
+                               &response_info, callback.callback()));
+
+  // Complete writing the request headers and body.
+  ASSERT_EQ(OK, callback.WaitForResult());
+
+  // Attempt to read the response status and the response headers.
+  ASSERT_EQ(ERR_IO_PENDING, parser.ReadResponseHeaders(callback.callback()));
+  ASSERT_GT(callback.WaitForResult(), 0);
+
+  // Finally, attempt to read the response body.
+  scoped_refptr<IOBuffer> body_buffer(new IOBuffer(kBodySize));
+  ASSERT_EQ(ERR_IO_PENDING,
+            parser.ReadResponseBody(body_buffer.get(), kBodySize,
+                                    callback.callback()));
+  ASSERT_EQ(kBodySize, callback.WaitForResult());
 }
 
 TEST(HttpStreamParser, TruncatedHeaders) {
@@ -377,21 +616,9 @@ TEST(HttpStreamParser, TruncatedHeaders) {
 
     for (size_t i = 0; i < arraysize(reads); i++) {
       SCOPED_TRACE(i);
-      DeterministicSocketData data(reads[i], 2, writes, arraysize(writes));
-      data.set_connect_data(MockConnect(SYNCHRONOUS, OK));
-      data.SetStop(3);
-
-      scoped_ptr<DeterministicMockTCPClientSocket> transport(
-          new DeterministicMockTCPClientSocket(NULL, &data));
-      data.set_delegate(transport->AsWeakPtr());
-
-      TestCompletionCallback callback;
-      int rv = transport->Connect(callback.callback());
-      rv = callback.GetResult(rv);
-      ASSERT_EQ(OK, rv);
-
-      scoped_ptr<ClientSocketHandle> socket_handle(new ClientSocketHandle);
-      socket_handle->SetSocket(transport.Pass());
+      SequencedSocketData data(reads[i], 2, writes, arraysize(writes));
+      scoped_ptr<ClientSocketHandle> socket_handle(
+          CreateConnectedSocketHandle(&data));
 
       HttpRequestInfo request_info;
       request_info.method = "GET";
@@ -408,11 +635,11 @@ TEST(HttpStreamParser, TruncatedHeaders) {
 
       HttpRequestHeaders request_headers;
       HttpResponseInfo response_info;
-      rv = parser.SendRequest("GET / HTTP/1.1\r\n", request_headers,
-                              &response_info, callback.callback());
-      ASSERT_EQ(OK, rv);
+      TestCompletionCallback callback;
+      ASSERT_EQ(OK, parser.SendRequest("GET / HTTP/1.1\r\n", request_headers,
+                                       &response_info, callback.callback()));
 
-      rv = parser.ReadResponseHeaders(callback.callback());
+      int rv = parser.ReadResponseHeaders(callback.callback());
       if (i == arraysize(reads) - 1) {
         EXPECT_EQ(OK, rv);
         EXPECT_TRUE(response_info.headers.get());
@@ -445,22 +672,9 @@ TEST(HttpStreamParser, Websocket101Response) {
     MockWrite(SYNCHRONOUS, 0, "GET / HTTP/1.1\r\n\r\n"),
   };
 
-  DeterministicSocketData data(reads, arraysize(reads),
-                               writes, arraysize(writes));
-  data.set_connect_data(MockConnect(SYNCHRONOUS, OK));
-  data.SetStop(2);
-
-  scoped_ptr<DeterministicMockTCPClientSocket> transport(
-      new DeterministicMockTCPClientSocket(NULL, &data));
-  data.set_delegate(transport->AsWeakPtr());
-
-  TestCompletionCallback callback;
-  int rv = transport->Connect(callback.callback());
-  rv = callback.GetResult(rv);
-  ASSERT_EQ(OK, rv);
-
-  scoped_ptr<ClientSocketHandle> socket_handle(new ClientSocketHandle);
-  socket_handle->SetSocket(transport.Pass());
+  SequencedSocketData data(reads, arraysize(reads), writes, arraysize(writes));
+  scoped_ptr<ClientSocketHandle> socket_handle =
+      CreateConnectedSocketHandle(&data);
 
   HttpRequestInfo request_info;
   request_info.method = "GET";
@@ -473,12 +687,11 @@ TEST(HttpStreamParser, Websocket101Response) {
 
   HttpRequestHeaders request_headers;
   HttpResponseInfo response_info;
-  rv = parser.SendRequest("GET / HTTP/1.1\r\n", request_headers,
-                          &response_info, callback.callback());
-  ASSERT_EQ(OK, rv);
+  TestCompletionCallback callback;
+  ASSERT_EQ(OK, parser.SendRequest("GET / HTTP/1.1\r\n", request_headers,
+                                   &response_info, callback.callback()));
 
-  rv = parser.ReadResponseHeaders(callback.callback());
-  EXPECT_EQ(OK, rv);
+  EXPECT_EQ(OK, parser.ReadResponseHeaders(callback.callback()));
   ASSERT_TRUE(response_info.headers.get());
   EXPECT_EQ(101, response_info.headers->response_code());
   EXPECT_TRUE(response_info.headers->HasHeaderValue("Connection", "Upgrade"));
@@ -516,21 +729,9 @@ class SimpleGetRunner {
   void SetupParserAndSendRequest() {
     reads_.push_back(MockRead(SYNCHRONOUS, 0, sequence_number_++));  // EOF
 
-    socket_handle_.reset(new ClientSocketHandle);
-    data_.reset(new DeterministicSocketData(
-        &reads_.front(), reads_.size(), &writes_.front(), writes_.size()));
-    data_->set_connect_data(MockConnect(SYNCHRONOUS, OK));
-    data_->SetStop(reads_.size() + writes_.size());
-
-    transport_.reset(new DeterministicMockTCPClientSocket(NULL, data_.get()));
-    data_->set_delegate(transport_->AsWeakPtr());
-
-    TestCompletionCallback callback;
-    int rv = transport_->Connect(callback.callback());
-    rv = callback.GetResult(rv);
-    ASSERT_EQ(OK, rv);
-
-    socket_handle_->SetSocket(transport_.Pass());
+    data_.reset(new SequencedSocketData(&reads_.front(), reads_.size(),
+                                        &writes_.front(), writes_.size()));
+    socket_handle_ = CreateConnectedSocketHandle(data_.get());
 
     request_info_.method = "GET";
     request_info_.url = GURL("http://localhost");
@@ -539,9 +740,9 @@ class SimpleGetRunner {
     parser_.reset(new HttpStreamParser(
         socket_handle_.get(), &request_info_, read_buffer(), BoundNetLog()));
 
-    rv = parser_->SendRequest("GET / HTTP/1.1\r\n", request_headers_,
-                              &response_info_, callback.callback());
-    ASSERT_EQ(OK, rv);
+    TestCompletionCallback callback;
+    ASSERT_EQ(OK, parser_->SendRequest("GET / HTTP/1.1\r\n", request_headers_,
+                                       &response_info_, callback.callback()));
   }
 
   void ReadHeaders() {
@@ -572,8 +773,7 @@ class SimpleGetRunner {
   std::vector<MockRead> reads_;
   std::vector<MockWrite> writes_;
   scoped_ptr<ClientSocketHandle> socket_handle_;
-  scoped_ptr<DeterministicSocketData> data_;
-  scoped_ptr<DeterministicMockTCPClientSocket> transport_;
+  scoped_ptr<SequencedSocketData> data_;
   scoped_ptr<HttpStreamParser> parser_;
   int sequence_number_;
 };
@@ -812,30 +1012,20 @@ TEST(HttpStreamParser, ReadAfterUnownedObjectsDestroyed) {
   MockWrite writes[] = {
     MockWrite(SYNCHRONOUS, 0,
               "GET /foo.html HTTP/1.1\r\n\r\n"),
-    MockWrite(SYNCHRONOUS, 1, "1"),
   };
 
   const int kBodySize = 1;
   MockRead reads[] = {
-    MockRead(SYNCHRONOUS, 5, "HTTP/1.1 200 OK\r\n"),
-    MockRead(SYNCHRONOUS, 6, "Content-Length: 1\r\n\r\n"),
-    MockRead(SYNCHRONOUS, 6, "Connection: Keep-Alive\r\n\r\n"),
-    MockRead(SYNCHRONOUS, 7, "1"),
-    MockRead(SYNCHRONOUS, 0, 8),  // EOF
+      MockRead(SYNCHRONOUS, 1, "HTTP/1.1 200 OK\r\n"),
+      MockRead(SYNCHRONOUS, 2, "Content-Length: 1\r\n\r\n"),
+      MockRead(SYNCHRONOUS, 3, "Connection: Keep-Alive\r\n\r\n"),
+      MockRead(SYNCHRONOUS, 4, "1"),
+      MockRead(SYNCHRONOUS, 0, 5),  // EOF
   };
 
-  StaticSocketDataProvider data(reads, arraysize(reads), writes,
-                                arraysize(writes));
-  data.set_connect_data(MockConnect(SYNCHRONOUS, OK));
-
-  scoped_ptr<MockTCPClientSocket> transport(
-      new MockTCPClientSocket(AddressList(), NULL, &data));
-
-  TestCompletionCallback callback;
-  ASSERT_EQ(OK, transport->Connect(callback.callback()));
-
-  scoped_ptr<ClientSocketHandle> socket_handle(new ClientSocketHandle);
-  socket_handle->SetSocket(transport.Pass());
+  SequencedSocketData data(reads, arraysize(reads), writes, arraysize(writes));
+  scoped_ptr<ClientSocketHandle> socket_handle =
+      CreateConnectedSocketHandle(&data);
 
   scoped_ptr<HttpRequestInfo> request_info(new HttpRequestInfo());
   request_info->method = "GET";
@@ -847,6 +1037,7 @@ TEST(HttpStreamParser, ReadAfterUnownedObjectsDestroyed) {
 
   scoped_ptr<HttpRequestHeaders> request_headers(new HttpRequestHeaders());
   scoped_ptr<HttpResponseInfo> response_info(new HttpResponseInfo());
+  TestCompletionCallback callback;
   ASSERT_EQ(OK, parser.SendRequest("GET /foo.html HTTP/1.1\r\n",
             *request_headers, response_info.get(), callback.callback()));
   ASSERT_EQ(OK, parser.ReadResponseHeaders(callback.callback()));

@@ -17,6 +17,7 @@
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_iterator.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
@@ -36,6 +37,13 @@
 #include "ui/gfx/screen.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
+
+#if defined(USE_AURA)
+#include "ui/aura/client/aura_constants.h"
+#include "ui/aura/test/test_window_delegate.h"
+#include "ui/aura/test/test_windows.h"
+#include "ui/aura/window_targeter.h"
+#endif
 
 #if defined(USE_AURA) && !defined(OS_CHROMEOS)
 #include "chrome/browser/ui/views/frame/desktop_browser_frame_aura.h"
@@ -560,6 +568,69 @@ IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTest, DragInSameWindow) {
   EXPECT_FALSE(tab_strip->GetWidget()->HasCapture());
 }
 
+#if defined(USE_AURA)
+namespace {
+
+// We need both MaskedWindowTargeter and MaskedWindowDelegate as they
+// are used in two different pathes. crbug.com/493354.
+class MaskedWindowTargeter : public aura::WindowTargeter {
+ public:
+  MaskedWindowTargeter() {}
+  ~MaskedWindowTargeter() override {}
+
+  // aura::WindowTargeter:
+  bool EventLocationInsideBounds(aura::Window* target,
+                                 const ui::LocatedEvent& event) const override {
+    aura::Window* window = static_cast<aura::Window*>(target);
+    gfx::Point local_point = event.location();
+    if (window->parent())
+      aura::Window::ConvertPointToTarget(window->parent(), window,
+                                         &local_point);
+    return window->GetEventHandlerForPoint(local_point);
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(MaskedWindowTargeter);
+};
+
+}  // namespace
+
+// The logic to find the target tabstrip should take the window mask into
+// account. This test hangs without the fix. crbug.com/473080.
+IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTest,
+                       DragWithMaskedWindows) {
+  AddTabAndResetBrowser(browser());
+
+  aura::Window* browser_window = browser()->window()->GetNativeWindow();
+  const gfx::Rect bounds = browser_window->GetBoundsInScreen();
+  aura::test::MaskedWindowDelegate masked_window_delegate(
+      gfx::Rect(bounds.width() - 10, 0, 10, bounds.height()));
+  gfx::Rect test(bounds);
+  masked_window_delegate.set_can_focus(false);
+  scoped_ptr<aura::Window> masked_window(
+      aura::test::CreateTestWindowWithDelegate(&masked_window_delegate, 10,
+                                               test, browser_window->parent()));
+  masked_window->SetEventTargeter(
+      scoped_ptr<ui::EventTargeter>(new MaskedWindowTargeter()));
+
+  ASSERT_FALSE(masked_window->GetEventHandlerForPoint(
+      gfx::Point(bounds.width() - 11, 0)));
+  ASSERT_TRUE(masked_window->GetEventHandlerForPoint(
+      gfx::Point(bounds.width() - 9, 0)));
+  TabStrip* tab_strip = GetTabStripForBrowser(browser());
+  TabStripModel* model = browser()->tab_strip_model();
+
+  gfx::Point tab_1_center(GetCenterInScreenCoordinates(tab_strip->tab_at(1)));
+  ASSERT_TRUE(PressInput(tab_1_center));
+  gfx::Point tab_0_center(GetCenterInScreenCoordinates(tab_strip->tab_at(0)));
+  ASSERT_TRUE(DragInputTo(tab_0_center));
+  ASSERT_TRUE(ReleaseInput());
+  EXPECT_EQ("1 0", IDString(model));
+  EXPECT_FALSE(TabDragController::IsActive());
+  EXPECT_FALSE(tab_strip->IsDragSessionActive());
+}
+#endif  // USE_AURA
+
 namespace {
 
 // Invoked from the nested message loop.
@@ -714,6 +785,74 @@ IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTest,
   // Both windows should not be maximized
   EXPECT_FALSE(browser()->window()->IsMaximized());
   EXPECT_FALSE(new_browser->window()->IsMaximized());
+
+  // The tab strip should no longer have capture because the drag was ended and
+  // mouse/touch was released.
+  EXPECT_FALSE(tab_strip->GetWidget()->HasCapture());
+  EXPECT_FALSE(tab_strip2->GetWidget()->HasCapture());
+}
+
+#if defined(OS_CHROMEOS) || defined(OS_LINUX)
+// TODO(sky,sad): Disabled as it fails due to resize locks with a real
+// compositor. crbug.com/331924
+#define MAYBE_DetachFromFullsizeWindow DISABLED_DetachFromFullsizeWindow
+#else
+#define MAYBE_DetachFromFullsizeWindow DetachFromFullsizeWindow
+#endif
+// Tests that a tab can be dragged from a browser window that is resized to full
+// screen.
+IN_PROC_BROWSER_TEST_P(DetachToBrowserTabDragControllerTest,
+                       MAYBE_DetachFromFullsizeWindow) {
+  // Resize the browser window so that it is as big as the work area.
+  gfx::Rect work_area =
+      gfx::Screen::GetNativeScreen()
+          ->GetDisplayNearestWindow(browser()->window()->GetNativeWindow())
+          .work_area();
+  browser()->window()->SetBounds(work_area);
+  const gfx::Rect initial_bounds(browser()->window()->GetBounds());
+  // Add another tab.
+  AddTabAndResetBrowser(browser());
+  TabStrip* tab_strip = GetTabStripForBrowser(browser());
+
+  // Move to the first tab and drag it enough so that it detaches.
+  gfx::Point tab_0_center(GetCenterInScreenCoordinates(tab_strip->tab_at(0)));
+  ASSERT_TRUE(PressInput(tab_0_center));
+  ASSERT_TRUE(DragInputToNotifyWhenDone(
+      tab_0_center.x(), tab_0_center.y() + GetDetachY(tab_strip),
+      base::Bind(&DetachToOwnWindowStep2, this)));
+  if (input_source() == INPUT_SOURCE_MOUSE) {
+    ASSERT_TRUE(ReleaseMouseAsync());
+    QuitWhenNotDragging();
+  }
+
+  // Should no longer be dragging.
+  ASSERT_FALSE(tab_strip->IsDragSessionActive());
+  ASSERT_FALSE(TabDragController::IsActive());
+
+  // There should now be another browser.
+  ASSERT_EQ(2u, native_browser_list->size());
+  Browser* new_browser = native_browser_list->get(1);
+  ASSERT_TRUE(new_browser->window()->IsActive());
+  TabStrip* tab_strip2 = GetTabStripForBrowser(new_browser);
+  ASSERT_FALSE(tab_strip2->IsDragSessionActive());
+
+  EXPECT_EQ("0", IDString(new_browser->tab_strip_model()));
+  EXPECT_EQ("1", IDString(browser()->tab_strip_model()));
+
+  // The bounds of the initial window should not have changed.
+  EXPECT_EQ(initial_bounds.ToString(),
+            browser()->window()->GetBounds().ToString());
+
+  EXPECT_FALSE(GetIsDragged(browser()));
+  EXPECT_FALSE(GetIsDragged(new_browser));
+  // After this both windows should still be manageable.
+  EXPECT_TRUE(IsWindowPositionManaged(browser()->window()->GetNativeWindow()));
+  EXPECT_TRUE(
+      IsWindowPositionManaged(new_browser->window()->GetNativeWindow()));
+
+  // Only second window should be maximized.
+  EXPECT_FALSE(browser()->window()->IsMaximized());
+  EXPECT_TRUE(new_browser->window()->IsMaximized());
 
   // The tab strip should no longer have capture because the drag was ended and
   // mouse/touch was released.
@@ -1325,8 +1464,14 @@ void CancelOnNewTabWhenDraggingStep2(
   ASSERT_TRUE(TabDragController::IsActive());
   ASSERT_EQ(2u, browser_list->size());
 
-  // Add another tab. This should trigger exiting the nested loop.
-  test->AddBlankTabAndShow(browser_list->GetLastActive());
+  // Add another tab. This should trigger exiting the nested loop. Add at the
+  // to exercise past crash when model/tabstrip got out of sync (474082).
+  content::WindowedNotificationObserver observer(
+      content::NOTIFICATION_LOAD_STOP,
+      content::NotificationService::AllSources());
+  chrome::AddTabAt(browser_list->GetLastActive(), GURL(url::kAboutBlankURL),
+                   0, false);
+  observer.Wait();
 }
 
 }  // namespace
@@ -1440,7 +1585,7 @@ class DetachToBrowserInSeparateDisplayTabDragControllerTest
   DetachToBrowserInSeparateDisplayTabDragControllerTest() {}
   virtual ~DetachToBrowserInSeparateDisplayTabDragControllerTest() {}
 
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     DetachToBrowserTabDragControllerTest::SetUpCommandLine(command_line);
     // Make screens sufficiently wide to host 2 browsers side by side.
     command_line->AppendSwitchASCII("ash-host-window-bounds",
@@ -1818,7 +1963,7 @@ class DifferentDeviceScaleFactorDisplayTabDragControllerTest
   DifferentDeviceScaleFactorDisplayTabDragControllerTest() {}
   virtual ~DifferentDeviceScaleFactorDisplayTabDragControllerTest() {}
 
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     DetachToBrowserTabDragControllerTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII("ash-host-window-bounds",
                                     "400x400,0+400-800x800*2");
@@ -1859,9 +2004,10 @@ const float kDeviceScaleFactorExpectations[] = {
   1.0f,
 };
 
-COMPILE_ASSERT(
+static_assert(
     arraysize(kDragPoints) == arraysize(kDeviceScaleFactorExpectations),
-    kDragPoints_and_kDeviceScaleFactorExpectations_must_have_same_size);
+    "kDragPoints and kDeviceScaleFactorExpectations must have the same "
+    "number of elements");
 
 // Drags tab to |kDragPoints[index]|, then calls the next step function.
 void CursorDeviceScaleFactorStep(
@@ -1917,7 +2063,7 @@ class DetachToBrowserInSeparateDisplayAndCancelTabDragControllerTest
  public:
   DetachToBrowserInSeparateDisplayAndCancelTabDragControllerTest() {}
 
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     TabDragControllerTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII("ash-host-window-bounds",
                                     "0+0-250x250,251+0-250x250");

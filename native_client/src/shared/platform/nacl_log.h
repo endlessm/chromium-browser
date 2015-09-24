@@ -82,6 +82,7 @@
 
 #include <stdarg.h>
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/nacl_base.h"
 
 #ifdef __native_client__
@@ -368,6 +369,11 @@ void NaClLogTagNext_mu(void);
  * low-level routines or system calls directly.
  */
 void NaClLogSetAbortBehavior(void (*fn)(void));
+
+/*
+ * Run the current abort behavior hook.
+ */
+void NaClLogRunAbortBehavior(void);
 
 EXTERN_C_END
 

@@ -43,9 +43,9 @@ const char* kUserSelectableDataTypeNames[] = {
   "tabs",
 };
 
-COMPILE_ASSERT(
-    33 == MODEL_TYPE_COUNT,
-    update_kUserSelectableDataTypeNames_to_match_UserSelectableTypes);
+static_assert(
+    36 == MODEL_TYPE_COUNT,
+    "update kUserSelectableDataTypeName to match UserSelectableTypes");
 
 void AddDefaultFieldValue(ModelType datatype,
                           sync_pb::EntitySpecifics* specifics) {
@@ -68,6 +68,12 @@ void AddDefaultFieldValue(ModelType datatype,
       break;
     case AUTOFILL_PROFILE:
       specifics->mutable_autofill_profile();
+      break;
+    case AUTOFILL_WALLET_DATA:
+      specifics->mutable_autofill_wallet();
+      break;
+    case AUTOFILL_WALLET_METADATA:
+      specifics->mutable_wallet_metadata();
       break;
     case THEMES:
       specifics->mutable_theme();
@@ -138,6 +144,9 @@ void AddDefaultFieldValue(ModelType datatype,
     case SUPERVISED_USER_SHARED_SETTINGS:
       specifics->mutable_managed_user_shared_setting();
       break;
+    case SUPERVISED_USER_WHITELISTS:
+      specifics->mutable_managed_user_whitelist();
+      break;
     case ARTICLES:
       specifics->mutable_article();
       break;
@@ -173,6 +182,10 @@ int GetSpecificsFieldNumberFromModelType(ModelType model_type) {
       return sync_pb::EntitySpecifics::kAutofillFieldNumber;
     case AUTOFILL_PROFILE:
       return sync_pb::EntitySpecifics::kAutofillProfileFieldNumber;
+    case AUTOFILL_WALLET_DATA:
+      return sync_pb::EntitySpecifics::kAutofillWalletFieldNumber;
+    case AUTOFILL_WALLET_METADATA:
+      return sync_pb::EntitySpecifics::kWalletMetadataFieldNumber;
     case THEMES:
       return sync_pb::EntitySpecifics::kThemeFieldNumber;
     case TYPED_URLS:
@@ -219,6 +232,8 @@ int GetSpecificsFieldNumberFromModelType(ModelType model_type) {
       return sync_pb::EntitySpecifics::kManagedUserFieldNumber;
     case SUPERVISED_USER_SHARED_SETTINGS:
       return sync_pb::EntitySpecifics::kManagedUserSharedSettingFieldNumber;
+    case SUPERVISED_USER_WHITELISTS:
+      return sync_pb::EntitySpecifics::kManagedUserWhitelistFieldNumber;
     case ARTICLES:
       return sync_pb::EntitySpecifics::kArticleFieldNumber;
     case WIFI_CREDENTIALS:
@@ -278,6 +293,12 @@ ModelType GetModelTypeFromSpecifics(const sync_pb::EntitySpecifics& specifics) {
 
   if (specifics.has_autofill_profile())
     return AUTOFILL_PROFILE;
+
+  if (specifics.has_autofill_wallet())
+    return AUTOFILL_WALLET_DATA;
+
+  if (specifics.has_wallet_metadata())
+    return AUTOFILL_WALLET_METADATA;
 
   if (specifics.has_theme())
     return THEMES;
@@ -347,6 +368,9 @@ ModelType GetModelTypeFromSpecifics(const sync_pb::EntitySpecifics& specifics) {
 
   if (specifics.has_managed_user_shared_setting())
     return SUPERVISED_USER_SHARED_SETTINGS;
+
+  if (specifics.has_managed_user_whitelist())
+    return SUPERVISED_USER_WHITELISTS;
 
   if (specifics.has_article())
     return ARTICLES;
@@ -429,10 +453,15 @@ ModelTypeSet EncryptableUserTypes() {
   // Supervised user shared settings are not encrypted since they are managed
   // server-side and shared between manager and supervised user.
   encryptable_user_types.Remove(SUPERVISED_USER_SHARED_SETTINGS);
+  // Supervised user whitelists are not encrypted since they are managed
+  // server-side.
+  encryptable_user_types.Remove(SUPERVISED_USER_WHITELISTS);
   // Proxy types have no sync representation and are therefore not encrypted.
   // Note however that proxy types map to one or more protocol types, which
   // may or may not be encrypted themselves.
   encryptable_user_types.RemoveAll(ProxyTypes());
+  // Wallet data is not encrypted since it actually originates on the server.
+  encryptable_user_types.Remove(AUTOFILL_WALLET_DATA);
   return encryptable_user_types;
 }
 
@@ -470,6 +499,7 @@ ModelTypeSet CoreTypes() {
   result.Put(SYNCED_NOTIFICATIONS);
   result.Put(SYNCED_NOTIFICATION_APP_INFO);
   result.Put(SUPERVISED_USER_SHARED_SETTINGS);
+  result.Put(SUPERVISED_USER_WHITELISTS);
 
   return result;
 }
@@ -565,12 +595,18 @@ const char* ModelTypeToString(ModelType model_type) {
       return "Managed Users";
     case SUPERVISED_USER_SHARED_SETTINGS:
       return "Managed User Shared Settings";
+    case SUPERVISED_USER_WHITELISTS:
+      return "Managed User Whitelists";
     case ARTICLES:
       return "Articles";
     case WIFI_CREDENTIALS:
       return "WiFi Credentials";
     case PROXY_TABS:
       return "Tabs";
+    case AUTOFILL_WALLET_DATA:
+      return "Autofill Wallet";
+    case AUTOFILL_WALLET_METADATA:
+      return "Autofill Wallet Metadata";
     default:
       break;
   }
@@ -580,8 +616,10 @@ const char* ModelTypeToString(ModelType model_type) {
 
 // The normal rules about histograms apply here.  Always append to the bottom of
 // the list, and be careful to not reuse integer values that have already been
-// assigned.  Don't forget to update histograms.xml when you make changes to
-// this list.
+// assigned.
+//
+// Don't forget to update the "SyncModelTypes" enum in histograms.xml when you
+// make changes to this list.
 int ModelTypeToHistogramInt(ModelType model_type) {
   switch (model_type) {
     case UNSPECIFIED:
@@ -650,6 +688,12 @@ int ModelTypeToHistogramInt(ModelType model_type) {
       return 31;
     case WIFI_CREDENTIALS:
       return 32;
+    case SUPERVISED_USER_WHITELISTS:
+      return 33;
+    case AUTOFILL_WALLET_DATA:
+      return 34;
+    case AUTOFILL_WALLET_METADATA:
+      return 35;
     // Silence a compiler warning.
     case MODEL_TYPE_COUNT:
       return 0;
@@ -695,6 +739,10 @@ ModelType ModelTypeFromString(const std::string& model_type_string) {
     return AUTOFILL;
   else if (model_type_string == "Autofill Profiles")
     return AUTOFILL_PROFILE;
+  else if (model_type_string == "Autofill Wallet")
+    return AUTOFILL_WALLET_DATA;
+  else if (model_type_string == "Autofill Wallet Metadata")
+    return AUTOFILL_WALLET_METADATA;
   else if (model_type_string == "Themes")
     return THEMES;
   else if (model_type_string == "Typed URLs")
@@ -741,6 +789,8 @@ ModelType ModelTypeFromString(const std::string& model_type_string) {
     return SUPERVISED_USERS;
   else if (model_type_string == "Managed User Shared Settings")
     return SUPERVISED_USER_SHARED_SETTINGS;
+  else if (model_type_string == "Managed User Whitelists")
+    return SUPERVISED_USER_WHITELISTS;
   else if (model_type_string == "Articles")
     return ARTICLES;
   else if (model_type_string == "WiFi Credentials")
@@ -788,10 +838,10 @@ ModelTypeSet ModelTypeSetFromString(const std::string& model_types_string) {
   return model_types;
 }
 
-base::ListValue* ModelTypeSetToValue(ModelTypeSet model_types) {
-  base::ListValue* value = new base::ListValue();
+scoped_ptr<base::ListValue> ModelTypeSetToValue(ModelTypeSet model_types) {
+  scoped_ptr<base::ListValue> value(new base::ListValue());
   for (ModelTypeSet::Iterator it = model_types.First(); it.Good(); it.Inc()) {
-    value->Append(new base::StringValue(ModelTypeToString(it.Get())));
+    value->AppendString(ModelTypeToString(it.Get()));
   }
   return value;
 }
@@ -837,6 +887,10 @@ std::string ModelTypeToRootTag(ModelType type) {
       return "google_chrome_app_list";
     case AUTOFILL_PROFILE:
       return "google_chrome_autofill_profiles";
+    case AUTOFILL_WALLET_DATA:
+      return "google_chrome_autofill_wallet";
+    case AUTOFILL_WALLET_METADATA:
+      return "google_chrome_autofill_wallet_metadata";
     case APP_SETTINGS:
       return "google_chrome_app_settings";
     case EXTENSION_SETTINGS:
@@ -867,6 +921,8 @@ std::string ModelTypeToRootTag(ModelType type) {
       return "google_chrome_managed_users";
     case SUPERVISED_USER_SHARED_SETTINGS:
       return "google_chrome_managed_user_shared_settings";
+    case SUPERVISED_USER_WHITELISTS:
+      return "google_chrome_managed_user_whitelists";
     case ARTICLES:
       return "google_chrome_articles";
     case WIFI_CREDENTIALS:
@@ -899,6 +955,9 @@ const char kAppListNotificationType[] = "APP_LIST";
 const char kSearchEngineNotificationType[] = "SEARCH_ENGINE";
 const char kSessionNotificationType[] = "SESSION";
 const char kAutofillProfileNotificationType[] = "AUTOFILL_PROFILE";
+const char kAutofillWalletMetadataNotificationType[] =
+    "AUTOFILL_WALLET_METADATA";
+const char kAutofillWalletNotificationType[] = "AUTOFILL_WALLET";
 const char kAppNotificationNotificationType[] = "APP_NOTIFICATION";
 const char kHistoryDeleteDirectiveNotificationType[] =
     "HISTORY_DELETE_DIRECTIVE";
@@ -914,7 +973,10 @@ const char kSupervisedUserSettingNotificationType[] = "MANAGED_USER_SETTING";
 const char kSupervisedUserNotificationType[] = "MANAGED_USER";
 const char kSupervisedUserSharedSettingNotificationType[] =
     "MANAGED_USER_SHARED_SETTING";
+const char kSupervisedUserWhitelistNotificationType[] =
+    "MANAGED_USER_WHITELIST";
 const char kArticleNotificationType[] = "ARTICLE";
+const char kWifiCredentialNotificationType[] = "WIFI_CREDENTIAL";
 }  // namespace
 
 bool RealModelTypeToNotificationType(ModelType model_type,
@@ -962,6 +1024,12 @@ bool RealModelTypeToNotificationType(ModelType model_type,
     case AUTOFILL_PROFILE:
       *notification_type = kAutofillProfileNotificationType;
       return true;
+    case AUTOFILL_WALLET_DATA:
+      *notification_type = kAutofillWalletNotificationType;
+      return true;
+    case AUTOFILL_WALLET_METADATA:
+      *notification_type = kAutofillWalletMetadataNotificationType;
+      return true;
     case EXTENSION_SETTINGS:
       *notification_type = kExtensionSettingNotificationType;
       return true;
@@ -1004,8 +1072,14 @@ bool RealModelTypeToNotificationType(ModelType model_type,
     case SUPERVISED_USER_SHARED_SETTINGS:
       *notification_type = kSupervisedUserSharedSettingNotificationType;
       return true;
+    case SUPERVISED_USER_WHITELISTS:
+      *notification_type = kSupervisedUserWhitelistNotificationType;
+      return true;
     case ARTICLES:
       *notification_type = kArticleNotificationType;
+      return true;
+    case WIFI_CREDENTIALS:
+      *notification_type = kWifiCredentialNotificationType;
       return true;
     default:
       break;
@@ -1055,6 +1129,12 @@ bool NotificationTypeToRealModelType(const std::string& notification_type,
   } else if (notification_type == kAutofillProfileNotificationType) {
     *model_type = AUTOFILL_PROFILE;
     return true;
+  } else if (notification_type == kAutofillWalletNotificationType) {
+    *model_type = AUTOFILL_WALLET_DATA;
+    return true;
+  } else if (notification_type == kAutofillWalletMetadataNotificationType) {
+    *model_type = AUTOFILL_WALLET_METADATA;
+    return true;
   } else if (notification_type == kAppSettingNotificationType) {
     *model_type = APP_SETTINGS;
     return true;
@@ -1101,8 +1181,14 @@ bool NotificationTypeToRealModelType(const std::string& notification_type,
       kSupervisedUserSharedSettingNotificationType) {
     *model_type = SUPERVISED_USER_SHARED_SETTINGS;
     return true;
+  } else if (notification_type == kSupervisedUserWhitelistNotificationType) {
+    *model_type = SUPERVISED_USER_WHITELISTS;
+    return true;
   } else if (notification_type == kArticleNotificationType) {
     *model_type = ARTICLES;
+    return true;
+  } else if (notification_type == kWifiCredentialNotificationType) {
+    *model_type = WIFI_CREDENTIALS;
     return true;
   }
   *model_type = UNSPECIFIED;
@@ -1119,6 +1205,24 @@ bool IsProxyType(ModelType model_type) {
 
 bool IsActOnceDataType(ModelType model_type) {
   return model_type == HISTORY_DELETE_DIRECTIVES;
+}
+
+bool IsTypeWithServerGeneratedRoot(ModelType model_type) {
+  return model_type == BOOKMARKS || model_type == NIGORI;
+}
+
+bool IsTypeWithClientGeneratedRoot(ModelType model_type) {
+  return IsRealDataType(model_type) &&
+         !IsTypeWithServerGeneratedRoot(model_type);
+}
+
+bool TypeSupportsHierarchy(ModelType model_type) {
+  // TODO(stanisc): crbug/438313: Should this also include TOP_LEVEL_FOLDER?
+  return model_type == BOOKMARKS;
+}
+
+bool TypeSupportsOrdering(ModelType model_type) {
+  return model_type == BOOKMARKS;
 }
 
 }  // namespace syncer

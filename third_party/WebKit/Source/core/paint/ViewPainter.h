@@ -9,20 +9,18 @@ namespace blink {
 
 class LayoutPoint;
 struct PaintInfo;
-class RenderBox;
-class RenderView;
+class LayoutBox;
+class LayoutView;
 
 class ViewPainter {
 public:
-    ViewPainter(RenderView& renderView) : m_renderView(renderView) { }
+    ViewPainter(LayoutView& layoutView) : m_layoutView(layoutView) { }
 
-    void paint(PaintInfo&, const LayoutPoint& paintOffset);
-    void paintBoxDecorationBackground(PaintInfo&);
+    void paint(const PaintInfo&, const LayoutPoint& paintOffset);
+    void paintBoxDecorationBackground(const PaintInfo&);
 
 private:
-    bool rootFillsViewportBackground(RenderBox* rootBox) const;
-
-    RenderView& m_renderView;
+    LayoutView& m_layoutView;
 };
 
 } // namespace blink

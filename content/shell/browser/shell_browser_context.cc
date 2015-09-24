@@ -15,6 +15,7 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_switches.h"
 #include "content/shell/browser/shell_download_manager_delegate.h"
+#include "content/shell/browser/shell_permission_manager.h"
 #include "content/shell/common/shell_switches.h"
 
 #if defined(OS_WIN)
@@ -64,7 +65,7 @@ ShellBrowserContext::~ShellBrowserContext() {
 }
 
 void ShellBrowserContext::InitWhileIOAllowed() {
-  CommandLine* cmd_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
   if (cmd_line->HasSwitch(switches::kIgnoreCertificateErrors))
     ignore_certificate_errors_ = true;
   if (cmd_line->HasSwitch(switches::kContentShellDataPath)) {
@@ -93,6 +94,11 @@ void ShellBrowserContext::InitWhileIOAllowed() {
 
   if (!base::PathExists(path_))
     base::CreateDirectory(path_);
+}
+
+scoped_ptr<ZoomLevelDelegate> ShellBrowserContext::CreateZoomLevelDelegate(
+    const base::FilePath&) {
+  return scoped_ptr<ZoomLevelDelegate>();
 }
 
 base::FilePath ShellBrowserContext::GetPath() const {
@@ -192,6 +198,12 @@ PushMessagingService* ShellBrowserContext::GetPushMessagingService() {
 
 SSLHostStateDelegate* ShellBrowserContext::GetSSLHostStateDelegate() {
   return NULL;
+}
+
+PermissionManager* ShellBrowserContext::GetPermissionManager() {
+  if (!permission_manager_.get())
+    permission_manager_.reset(new ShellPermissionManager());
+  return permission_manager_.get();
 }
 
 }  // namespace content

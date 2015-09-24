@@ -23,15 +23,16 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://html.spec.whatwg.org/#the-source-element
+
 [
     RuntimeEnabled=Media
 ] interface HTMLSourceElement : HTMLElement {
     [Reflect, URL] attribute DOMString src;
     attribute DOMString type;
 
-    [Reflect, RuntimeEnabled=Picture] attribute DOMString srcset;
-    [Reflect, RuntimeEnabled=Picture] attribute DOMString sizes;
-    [Reflect, RuntimeEnabled=Picture] attribute DOMString media;
-
-    [Reflect, RuntimeEnabled=SubresourceIntegrity] attribute DOMString integrity;
+    // https://html.spec.whatwg.org/#the-source-element-when-used-with-the-picture-element
+    [Reflect] attribute DOMString srcset;
+    [Reflect] attribute DOMString sizes;
+    [Reflect] attribute DOMString media;
 };

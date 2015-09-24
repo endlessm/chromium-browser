@@ -22,7 +22,7 @@ import textwrap
 from chromite.cbuildbot import constants
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
-from chromite.lib import git
+from chromite.lib import cros_logging as logging
 from chromite.lib import gs
 from chromite.lib import osutils
 from chromite.lib import signing
@@ -146,7 +146,7 @@ class InputInsns(object):
     config.write(output)
     data = output.getvalue()
     osutils.WriteFile(output_file, data)
-    cros_build_lib.Debug('generated insns file for %s:\n%s', image_type, data)
+    logging.debug('generated insns file for %s:\n%s', image_type, data)
 
 
 def MarkImageToBeSigned(ctx, tbs_base, insns_path, priority):
@@ -173,18 +173,8 @@ def MarkImageToBeSigned(ctx, tbs_base, insns_path, priority):
   tbs_path = '%s/tobesigned/%02i,%s' % (tbs_base, priority,
                                         insns_path.replace('/', ','))
 
-  with tempfile.NamedTemporaryFile(
-      bufsize=0, prefix='pushimage.tbs.') as temp_tbs_file:
-    lines = [
-        'PROG=%s' % __file__,
-        'USER=%s' % getpass.getuser(),
-        'HOSTNAME=%s' % cros_build_lib.GetHostName(fully_qualified=True),
-        'GIT_REV=%s' % git.RunGit(constants.CHROMITE_DIR,
-                                  ['rev-parse', 'HEAD']).output.rstrip(),
-    ]
-    osutils.WriteFile(temp_tbs_file.name, '\n'.join(lines) + '\n')
-    # The caller will catch gs.GSContextException for us.
-    ctx.Copy(temp_tbs_file.name, tbs_path)
+  # The caller will catch gs.GSContextException for us.
+  ctx.Copy('-', tbs_path, input=cros_build_lib.MachineDetails())
 
   return tbs_path
 
@@ -240,9 +230,8 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
   try:
     input_insns = InputInsns(board)
   except MissingBoardInstructions as e:
-    cros_build_lib.Warning('board "%s" is missing base instruction file: %s',
-                           board, e)
-    cros_build_lib.Warning('not uploading anything for signing')
+    logging.warning('board "%s" is missing base instruction file: %s', board, e)
+    logging.warning('not uploading anything for signing')
     return
   channels = input_insns.GetChannels()
 
@@ -251,16 +240,16 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
   keysets = list(force_keysets) if force_keysets else input_insns.GetKeysets()
 
   if mock:
-    cros_build_lib.Info('Upload mode: mock; signers will not process anything')
+    logging.info('Upload mode: mock; signers will not process anything')
     tbs_base = gs_base = os.path.join(constants.TRASH_BUCKET, 'pushimage-tests',
                                       getpass.getuser())
   elif TEST_KEYSETS & force_keysets:
-    cros_build_lib.Info('Upload mode: test; signers will process test keys')
+    logging.info('Upload mode: test; signers will process test keys')
     # We need the tbs_base to be in the place the signer will actually scan.
     tbs_base = TEST_SIGN_BUCKET_BASE
     gs_base = os.path.join(tbs_base, getpass.getuser())
   else:
-    cros_build_lib.Info('Upload mode: normal; signers will process the images')
+    logging.info('Upload mode: normal; signers will process the images')
     tbs_base = gs_base = constants.RELEASE_BUCKET
 
   sect_general = {
@@ -273,9 +262,9 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
   sect_insns = {}
 
   if dry_run:
-    cros_build_lib.Info('DRY RUN MODE ACTIVE: NOTHING WILL BE UPLOADED')
-  cros_build_lib.Info('Signing for channels: %s', ' '.join(channels))
-  cros_build_lib.Info('Signing for keysets : %s', ' '.join(keysets))
+    logging.info('DRY RUN MODE ACTIVE: NOTHING WILL BE UPLOADED')
+  logging.info('Signing for channels: %s', ' '.join(channels))
+  logging.info('Signing for keysets : %s', ' '.join(keysets))
 
   instruction_urls = {}
 
@@ -284,11 +273,11 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
     return 'ChromeOS-%s%s-%s' % (lmid, versionrev, boardpath)
 
   for channel in channels:
-    cros_build_lib.Debug('\n\n#### CHANNEL: %s ####\n', channel)
+    logging.debug('\n\n#### CHANNEL: %s ####\n', channel)
     sect_insns['channel'] = channel
     sub_path = '%s-channel/%s/%s' % (channel, boardpath, version)
     dst_path = '%s/%s' % (gs_base, sub_path)
-    cros_build_lib.Info('Copying images to %s', dst_path)
+    logging.info('Copying images to %s', dst_path)
 
     recovery_base = _ImageNameBase('recovery')
     factory_base = _ImageNameBase('factory')
@@ -298,6 +287,7 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
 
     # Upload all the files first before flagging them for signing.
     files_to_copy = (
+        # pylint: disable=bad-whitespace
         # <src>                          <dst>
         # <signing type>                 <sfx>
         ('recovery_image.tar.xz',        recovery_base,          'tar.xz',
@@ -324,12 +314,11 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
       try:
         ctx.Copy(os.path.join(src_path, src), os.path.join(dst_path, dst))
       except gs.GSNoSuchKey:
-        cros_build_lib.Warning('Skipping %s as it does not exist', src)
+        logging.warning('Skipping %s as it does not exist', src)
         continue
       except gs.GSContextException:
         unknown_error = True
-        cros_build_lib.Error('Skipping %s due to unknown GS error', src,
-                             exc_info=True)
+        logging.error('Skipping %s due to unknown GS error', src, exc_info=True)
         continue
 
       if image_type:
@@ -339,7 +328,7 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
 
     # Now go through the subset for signing.
     for keyset in keysets:
-      cros_build_lib.Debug('\n\n#### KEYSET: %s ####\n', keyset)
+      logging.debug('\n\n#### KEYSET: %s ####\n', keyset)
       sect_insns['keyset'] = keyset
       for image_type, dst_name, suffix in files_to_sign:
         dst_archive = '%s%s' % (dst_name, suffix)
@@ -349,8 +338,8 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
         # See if the caller has requested we only sign certain types.
         if sign_types:
           if not image_type in sign_types:
-            cros_build_lib.Info('Skipping %s signing as it was not requested',
-                                image_type)
+            logging.info('Skipping %s signing as it was not requested',
+                         image_type)
             continue
         else:
           # In the default/automatic mode, only flag files for signing if the
@@ -361,17 +350,16 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
           except gs.GSContextException:
             unknown_error = True
             exists = False
-            cros_build_lib.Error('Unknown error while checking %s',
-                                 gs_artifact_path, exc_info=True)
+            logging.error('Unknown error while checking %s', gs_artifact_path,
+                          exc_info=True)
           if not exists:
-            cros_build_lib.Info('%s does not exist.  Nothing to sign.',
-                                gs_artifact_path)
+            logging.info('%s does not exist.  Nothing to sign.',
+                         gs_artifact_path)
             continue
 
         input_insn_path = input_insns.GetInsnFile(image_type)
         if not os.path.exists(input_insn_path):
-          cros_build_lib.Info('%s does not exist.  Nothing to sign.',
-                              input_insn_path)
+          logging.info('%s does not exist.  Nothing to sign.', input_insn_path)
           continue
 
         # Generate the insn file for this artifact that the signer will use,
@@ -390,18 +378,18 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
             ctx.Copy(insns_path.name, gs_insns_path)
           except gs.GSContextException:
             unknown_error = True
-            cros_build_lib.Error('Unknown error while uploading insns %s',
-                                 gs_insns_path, exc_info=True)
+            logging.error('Unknown error while uploading insns %s',
+                          gs_insns_path, exc_info=True)
             continue
 
           try:
             MarkImageToBeSigned(ctx, tbs_base, gs_insns_path, priority)
           except gs.GSContextException:
             unknown_error = True
-            cros_build_lib.Error('Unknown error while marking for signing %s',
-                                 gs_insns_path, exc_info=True)
+            logging.error('Unknown error while marking for signing %s',
+                          gs_insns_path, exc_info=True)
             continue
-          cros_build_lib.Info('Signing %s image %s', image_type, gs_insns_path)
+          logging.info('Signing %s image %s', image_type, gs_insns_path)
           instruction_urls.setdefault(channel, []).append(gs_insns_path)
 
   if unknown_error:

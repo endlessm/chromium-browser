@@ -28,6 +28,8 @@
 #include "net/url_request/url_fetcher.h"
 #include "url/gurl.h"
 
+class NetworkingConfigTest;
+
 namespace net {
 class URLRequestContextGetter;
 }
@@ -65,28 +67,29 @@ class NetworkPortalDetectorImpl
 
   explicit NetworkPortalDetectorImpl(
       const scoped_refptr<net::URLRequestContextGetter>& request_context);
-  virtual ~NetworkPortalDetectorImpl();
+  ~NetworkPortalDetectorImpl() override;
 
   // NetworkPortalDetector implementation:
-  virtual void AddObserver(Observer* observer) override;
-  virtual void AddAndFireObserver(Observer* observer) override;
-  virtual void RemoveObserver(Observer* observer) override;
-  virtual CaptivePortalState GetCaptivePortalState(
-      const std::string& guid) override;
-  virtual bool IsEnabled() override;
-  virtual void Enable(bool start_detection) override;
-  virtual bool StartDetectionIfIdle() override;
-  virtual void SetStrategy(PortalDetectorStrategy::StrategyId id) override;
+  void AddObserver(Observer* observer) override;
+  void AddAndFireObserver(Observer* observer) override;
+  void RemoveObserver(Observer* observer) override;
+  CaptivePortalState GetCaptivePortalState(const std::string& guid) override;
+  bool IsEnabled() override;
+  void Enable(bool start_detection) override;
+  bool StartDetectionIfIdle() override;
+  void SetStrategy(PortalDetectorStrategy::StrategyId id) override;
+  void OnLockScreenRequest() override;
 
   // NetworkStateHandlerObserver implementation:
-  virtual void DefaultNetworkChanged(const NetworkState* network) override;
+  void DefaultNetworkChanged(const NetworkState* network) override;
 
   // PortalDetectorStrategy::Delegate implementation:
-  virtual int NoResponseResultCount() override;
-  virtual base::TimeTicks AttemptStartTime() override;
-  virtual base::TimeTicks GetCurrentTimeTicks() override;
+  int NoResponseResultCount() override;
+  base::TimeTicks AttemptStartTime() override;
+  base::TimeTicks NowTicks() override;
 
  private:
+  friend class ::NetworkingConfigTest;
   friend class NetworkPortalDetectorImplTest;
   friend class NetworkPortalDetectorImplBrowserTest;
 
@@ -126,6 +129,9 @@ class NetworkPortalDetectorImpl
   // Stops whole detection process.
   void StopDetection();
 
+  // Stops and restarts the detection process.
+  void RetryDetection();
+
   // Initiates Captive Portal detection attempt after |delay|.
   void ScheduleAttempt(const base::TimeDelta& delay);
 
@@ -141,9 +147,9 @@ class NetworkPortalDetectorImpl
       const captive_portal::CaptivePortalDetector::Results& results);
 
   // content::NotificationObserver implementation:
-  virtual void Observe(int type,
-                       const content::NotificationSource& source,
-                       const content::NotificationDetails& details) override;
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override;
 
   // Stores captive portal state for a |network| and notifies observers.
   void OnDetectionCompleted(const NetworkState* network,
@@ -216,7 +222,7 @@ class NetworkPortalDetectorImpl
 
   State state_;
   CaptivePortalStateMap portal_state_map_;
-  ObserverList<Observer> observers_;
+  base::ObserverList<Observer> observers_;
 
   base::CancelableClosure attempt_task_;
   base::CancelableClosure attempt_timeout_;

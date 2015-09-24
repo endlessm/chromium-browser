@@ -37,8 +37,7 @@ class DummyEntryptionHandler : public syncer::SyncEncryptionHandler {
 namespace syncer {
 
 SyncRollbackManagerBase::SyncRollbackManagerBase()
-    : report_unrecoverable_error_function_(NULL),
-      dummy_handler_(new DummyEntryptionHandler),
+    : dummy_handler_(new DummyEntryptionHandler),
       initialized_(false),
       weak_ptr_factory_(this) {
 }
@@ -51,7 +50,7 @@ bool SyncRollbackManagerBase::InitInternal(
     InternalComponentsFactory* internal_components_factory,
     InternalComponentsFactory::StorageOption storage,
     scoped_ptr<UnrecoverableErrorHandler> unrecoverable_error_handler,
-    ReportUnrecoverableErrorFunction report_unrecoverable_error_function) {
+    const base::Closure& report_unrecoverable_error_function) {
   unrecoverable_error_handler_ = unrecoverable_error_handler.Pass();
   report_unrecoverable_error_function_ = report_unrecoverable_error_function;
 
@@ -86,7 +85,7 @@ void SyncRollbackManagerBase::UpdateCredentials(
 }
 
 void SyncRollbackManagerBase::StartSyncingNormally(
-    const ModelSafeRoutingInfo& routing_info){
+    const ModelSafeRoutingInfo& routing_info, base::Time last_poll_time){
 }
 
 void SyncRollbackManagerBase::ConfigureSyncer(
@@ -137,7 +136,6 @@ void SyncRollbackManagerBase::SaveChanges() {
 
 void SyncRollbackManagerBase::ShutdownOnSyncThread(ShutdownReason reason) {
   if (initialized_) {
-    share_.directory->Close();
     share_.directory.reset();
     initialized_ = false;
   }
@@ -270,7 +268,7 @@ bool SyncRollbackManagerBase::InitTypeRootNode(ModelType type) {
   if (!entry.good())
     return false;
 
-  entry.PutParentId(syncable::Id());
+  entry.PutParentId(syncable::Id::GetRoot());
   entry.PutBaseVersion(1);
   entry.PutUniqueServerTag(ModelTypeToRootTag(type));
   entry.PutNonUniqueName(ModelTypeToString(type));
@@ -310,7 +308,8 @@ void SyncRollbackManagerBase::InitBookmarkFolder(const std::string& folder) {
   entry.PutSpecifics(specifics);
 }
 
-ObserverList<SyncManager::Observer>* SyncRollbackManagerBase::GetObservers() {
+base::ObserverList<SyncManager::Observer>*
+SyncRollbackManagerBase::GetObservers() {
   return &observers_;
 }
 

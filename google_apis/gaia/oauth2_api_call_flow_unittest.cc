@@ -61,12 +61,19 @@ class MockUrlFetcherFactory : public ScopedURLFetcherFactory,
   }
   virtual ~MockUrlFetcherFactory() {}
 
-  MOCK_METHOD4(
-      CreateURLFetcher,
-      URLFetcher* (int id,
-                   const GURL& url,
-                   URLFetcher::RequestType request_type,
-                   URLFetcherDelegate* d));
+  MOCK_METHOD4(CreateURLFetcherMock,
+               URLFetcher*(int id,
+                           const GURL& url,
+                           URLFetcher::RequestType request_type,
+                           URLFetcherDelegate* d));
+
+  scoped_ptr<URLFetcher> CreateURLFetcher(int id,
+                                          const GURL& url,
+                                          URLFetcher::RequestType request_type,
+                                          URLFetcherDelegate* d) override {
+    return scoped_ptr<URLFetcher>(
+        CreateURLFetcherMock(id, url, request_type, d));
+  }
 };
 
 class MockApiCallFlow : public OAuth2ApiCallFlow {
@@ -92,7 +99,7 @@ class OAuth2ApiCallFlowTest : public testing::Test {
  protected:
   OAuth2ApiCallFlowTest()
       : request_context_getter_(new net::TestURLRequestContextGetter(
-            message_loop_.message_loop_proxy())) {}
+            message_loop_.task_runner())) {}
 
   TestURLFetcher* CreateURLFetcher(
       const GURL& url, bool fetch_succeeds,
@@ -118,7 +125,7 @@ class OAuth2ApiCallFlowTest : public testing::Test {
     EXPECT_CALL(flow_, CreateApiCallUrl()).WillOnce(Return(url));
     TestURLFetcher* url_fetcher =
         CreateURLFetcher(url, succeeds, status, std::string());
-    EXPECT_CALL(factory_, CreateURLFetcher(_, url, _, _))
+    EXPECT_CALL(factory_, CreateURLFetcherMock(_, url, _, _))
         .WillOnce(Return(url_fetcher));
     return url_fetcher;
   }

@@ -10,7 +10,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include "base/basictypes.h"
 #include "base/logging.h"
 #include "base/posix/eintr_wrapper.h"
 
@@ -25,6 +24,18 @@ bool TestUtils::CurrentProcessHasChildren() {
     return false;
   } else {
     return true;
+  }
+}
+
+void TestUtils::HandlePostForkReturn(pid_t pid) {
+  const int kChildExitCode = 1;
+  if (pid > 0) {
+    int status = 0;
+    PCHECK(pid == HANDLE_EINTR(waitpid(pid, &status, 0)));
+    CHECK(WIFEXITED(status));
+    CHECK_EQ(kChildExitCode, WEXITSTATUS(status));
+  } else if (pid == 0) {
+    _exit(kChildExitCode);
   }
 }
 

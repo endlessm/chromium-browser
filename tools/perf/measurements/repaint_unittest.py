@@ -2,12 +2,14 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-from measurements import repaint
-from telemetry.core import wpr_modes
+from telemetry import decorators
 from telemetry.page import page as page_module
-from telemetry.unittest import options_for_unittests
-from telemetry.unittest import page_test_test_case
-from telemetry.unittest import test
+from telemetry.testing import options_for_unittests
+from telemetry.testing import page_test_test_case
+from telemetry.util import wpr_modes
+
+from measurements import smoothness
+from page_sets import repaint_helpers
 
 
 class TestRepaintPage(page_module.Page):
@@ -15,8 +17,8 @@ class TestRepaintPage(page_module.Page):
     super(TestRepaintPage, self).__init__('file://blank.html',
                                           page_set, base_dir)
 
-  def RunRepaint(self, action_runner):
-    action_runner.RepaintContinuously(seconds=2)
+  def RunPageInteractions(self, action_runner):
+    repaint_helpers.Repaint(action_runner)
 
 
 class RepaintUnitTest(page_test_test_case.PageTestTestCase):
@@ -31,10 +33,11 @@ class RepaintUnitTest(page_test_test_case.PageTestTestCase):
     self._options = options_for_unittests.GetCopy()
     self._options.browser_options.wpr_mode = wpr_modes.WPR_OFF
 
+  @decorators.Disabled('chromeos')  # crbug.com/483212
   def testRepaint(self):
     ps = self.CreateEmptyPageSet()
-    ps.AddPage(TestRepaintPage(ps, ps.base_dir))
-    measurement = repaint.Repaint()
+    ps.AddStory(TestRepaintPage(ps, ps.base_dir))
+    measurement = smoothness.Repaint()
     results = self.RunMeasurement(measurement, ps, options=self._options)
     self.assertEquals(0, len(results.failures))
 
@@ -56,6 +59,6 @@ class RepaintUnitTest(page_test_test_case.PageTestTestCase):
     self.assertEquals(len(percentage_smooth), 1)
     self.assertGreaterEqual(percentage_smooth[0].GetRepresentativeNumber(), 0)
 
-  @test.Disabled('android')
+  @decorators.Disabled('android')
   def testCleanUpTrace(self):
-    self.TestTracingCleanedUp(repaint.Repaint, self._options)
+    self.TestTracingCleanedUp(smoothness.Repaint, self._options)

@@ -56,13 +56,18 @@
 
 #include <stdio.h>
 
+#include <string.h>
+
 #include <openssl/buf.h>
 #include <openssl/err.h>
 #include <openssl/digest.h>
 #include <openssl/mem.h>
 #include <openssl/obj.h>
+#include <openssl/thread.h>
 #include <openssl/x509_vfy.h>
 #include <openssl/x509v3.h>
+
+#include "../internal.h"
 
 
 static void x509v3_cache_extensions(X509 *x);
@@ -111,9 +116,7 @@ int X509_check_purpose(X509 *x, int id, int ca)
 	int idx;
 	const X509_PURPOSE *pt;
 	if(!(x->ex_flags & EXFLAG_SET)) {
-		CRYPTO_w_lock(CRYPTO_LOCK_X509);
 		x509v3_cache_extensions(x);
-		CRYPTO_w_unlock(CRYPTO_LOCK_X509);
 	}
 	if(id == -1) return 1;
 	idx = X509_PURPOSE_get_by_id(id);
@@ -177,6 +180,8 @@ int X509_PURPOSE_add(int id, int trust, int flags,
 {
 	int idx;
 	X509_PURPOSE *ptmp;
+	char *name_dup, *sname_dup;
+
 	/* This is set according to what we change: application can't set it */
 	flags &= ~X509_PURPOSE_DYNAMIC;
 	/* This will always be set for application modified trust entries */
@@ -192,18 +197,28 @@ int X509_PURPOSE_add(int id, int trust, int flags,
 		ptmp->flags = X509_PURPOSE_DYNAMIC;
 	} else ptmp = X509_PURPOSE_get0(idx);
 
+	/* Duplicate the supplied names. */
+	name_dup = BUF_strdup(name);
+	sname_dup = BUF_strdup(sname);
+	if (name_dup == NULL || sname_dup == NULL) {
+		OPENSSL_PUT_ERROR(X509V3, X509_PURPOSE_add, ERR_R_MALLOC_FAILURE);
+		if (name_dup != NULL)
+			OPENSSL_free(name_dup);
+		if (sname_dup != NULL)
+			OPENSSL_free(sname_dup);
+		if (idx == -1)
+			OPENSSL_free(ptmp);
+		return 0;
+	}
+
 	/* OPENSSL_free existing name if dynamic */
 	if(ptmp->flags & X509_PURPOSE_DYNAMIC_NAME) {
 		OPENSSL_free(ptmp->name);
 		OPENSSL_free(ptmp->sname);
 	}
 	/* dup supplied name */
-	ptmp->name = BUF_strdup(name);
-	ptmp->sname = BUF_strdup(sname);
-	if(!ptmp->name || !ptmp->sname) {
-		OPENSSL_PUT_ERROR(X509V3, X509_PURPOSE_add, ERR_R_MALLOC_FAILURE);
-		return 0;
-	}
+	ptmp->name = name_dup;
+	ptmp->sname = sname_dup;
 	/* Keep the dynamic flag of existing entry */
 	ptmp->flags &= X509_PURPOSE_DYNAMIC;
 	/* Set all other flags */
@@ -218,10 +233,12 @@ int X509_PURPOSE_add(int id, int trust, int flags,
 	if(idx == -1) {
 		if(!xptable && !(xptable = sk_X509_PURPOSE_new(xp_cmp))) {
 			OPENSSL_PUT_ERROR(X509V3, X509_PURPOSE_add, ERR_R_MALLOC_FAILURE);
+			xptable_free(ptmp);
 			return 0;
 		}
 		if (!sk_X509_PURPOSE_push(xptable, ptmp)) {
 			OPENSSL_PUT_ERROR(X509V3, X509_PURPOSE_add, ERR_R_MALLOC_FAILURE);
+			xptable_free(ptmp);
 			return 0;
 		}
 	}
@@ -350,6 +367,15 @@ static void setup_crldp(X509 *x)
 		setup_dp(x, sk_DIST_POINT_value(x->crldp, i));
 	}
 
+/* g_x509_cache_extensions_lock is used to protect against concurrent calls to
+ * |x509v3_cache_extensions|. Ideally this would be done with a |CRYPTO_once_t|
+ * in the |X509| structure, but |CRYPTO_once_t| isn't public.
+ *
+ * Note: it's not entirely clear whether this lock is needed. Not all paths to
+ * this function took a lock in OpenSSL. */
+static struct CRYPTO_STATIC_MUTEX g_x509_cache_extensions_lock =
+    CRYPTO_STATIC_MUTEX_INIT;
+
 static void x509v3_cache_extensions(X509 *x)
 {
 	BASIC_CONSTRAINTS *bs;
@@ -360,7 +386,15 @@ static void x509v3_cache_extensions(X509 *x)
 	X509_EXTENSION *ex;
 	size_t i;
 	int j;
-	if(x->ex_flags & EXFLAG_SET) return;
+
+	CRYPTO_STATIC_MUTEX_lock_write(&g_x509_cache_extensions_lock);
+
+	if(x->ex_flags & EXFLAG_SET)
+		{
+		CRYPTO_STATIC_MUTEX_unlock(&g_x509_cache_extensions_lock);
+		return;
+		}
+
 	X509_digest(x, EVP_sha1(), x->sha1_hash, NULL);
 	/* V1 should mean no extensions ... */
 	if(!X509_get_version(x)) x->ex_flags |= EXFLAG_V1;
@@ -484,6 +518,8 @@ static void x509v3_cache_extensions(X509 *x)
 			}
 		}
 	x->ex_flags |= EXFLAG_SET;
+
+	CRYPTO_STATIC_MUTEX_unlock(&g_x509_cache_extensions_lock);
 }
 
 /* CA checks common to all purposes
@@ -527,9 +563,7 @@ static int check_ca(const X509 *x)
 int X509_check_ca(X509 *x)
 {
 	if(!(x->ex_flags & EXFLAG_SET)) {
-		CRYPTO_w_lock(CRYPTO_LOCK_X509);
 		x509v3_cache_extensions(x);
-		CRYPTO_w_unlock(CRYPTO_LOCK_X509);
 	}
 
 	return check_ca(x);

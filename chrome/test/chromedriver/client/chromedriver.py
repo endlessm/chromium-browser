@@ -217,6 +217,9 @@ class ChromeDriver(object):
   def SwitchToParentFrame(self):
     self.ExecuteCommand(Command.SWITCH_TO_PARENT_FRAME)
 
+  def GetSessions(self):
+    return self.ExecuteCommand(Command.GET_SESSIONS)
+
   def GetTitle(self):
     return self.ExecuteCommand(Command.GET_TITLE)
 
@@ -278,6 +281,10 @@ class ChromeDriver(object):
   def TouchMove(self, x, y):
     self.ExecuteCommand(Command.TOUCH_MOVE, {'x': x, 'y': y})
 
+  def TouchScroll(self, element, xoffset, yoffset):
+    params = {'element': element._id, 'xoffset': xoffset, 'yoffset': yoffset}
+    self.ExecuteCommand(Command.TOUCH_SCROLL, params)
+
   def TouchFlick(self, element, xoffset, yoffset, speed):
     params = {
         'element': element._id,
@@ -286,6 +293,10 @@ class ChromeDriver(object):
         'speed': speed
     }
     self.ExecuteCommand(Command.TOUCH_FLICK, params)
+
+  def TouchPinch(self, x, y, scale):
+    params = {'x': x, 'y': y, 'scale': scale}
+    self.ExecuteCommand(Command.TOUCH_PINCH, params)
 
   def GetCookies(self):
     return self.ExecuteCommand(Command.GET_COOKIES)
@@ -354,3 +365,33 @@ class ChromeDriver(object):
 
   def SetAutoReporting(self, enabled):
     self.ExecuteCommand(Command.SET_AUTO_REPORTING, {'enabled': enabled})
+
+  def SetNetworkConditions(self, latency, download_throughput,
+                           upload_throughput, offline=False):
+    # Until http://crbug.com/456324 is resolved, we'll always set 'offline' to
+    # False, as going "offline" will sever Chromedriver's connection to Chrome.
+    params = {
+        'network_conditions': {
+            'offline': offline,
+            'latency': latency,
+            'download_throughput': download_throughput,
+            'upload_throughput': upload_throughput
+        }
+    }
+    self.ExecuteCommand(Command.SET_NETWORK_CONDITIONS, params)
+
+  def SetNetworkConditionsName(self, network_name):
+    self.ExecuteCommand(
+        Command.SET_NETWORK_CONDITIONS, {'network_name': network_name})
+
+  def GetNetworkConditions(self):
+    conditions = self.ExecuteCommand(Command.GET_NETWORK_CONDITIONS)
+    return {
+        'latency': conditions['latency'],
+        'download_throughput': conditions['download_throughput'],
+        'upload_throughput': conditions['upload_throughput'],
+        'offline': conditions['offline']
+    }
+
+  def DeleteNetworkConditions(self):
+    self.ExecuteCommand(Command.DELETE_NETWORK_CONDITIONS)

@@ -6,6 +6,7 @@
 
 #include "FrameTestHelpers.h"
 #include "bindings/core/v8/ScriptController.h"
+#include "bindings/core/v8/ScriptSourceCode.h"
 #include "bindings/core/v8/V8Binding.h"
 #include "bindings/core/v8/V8DOMActivityLogger.h"
 #include "web/WebLocalFrameImpl.h"
@@ -14,27 +15,26 @@
 #include <gtest/gtest.h>
 #include <v8.h>
 
-namespace {
+namespace blink {
 
 using blink::FrameTestHelpers::WebViewHelper;
 using blink::FrameTestHelpers::pumpPendingRequestsDoNotUse;
-using namespace blink;
 
 class TestActivityLogger : public V8DOMActivityLogger {
 public:
-    virtual ~TestActivityLogger() { }
+    ~TestActivityLogger() override { }
 
     void logGetter(const String& apiName) override
     {
         m_loggedActivities.append(apiName);
     }
 
-    void logSetter(const String& apiName, const v8::Handle<v8::Value>& newValue) override
+    void logSetter(const String& apiName, const v8::Local<v8::Value>& newValue) override
     {
         m_loggedActivities.append(apiName + " | " + toCoreStringWithUndefinedOrNullCheck(newValue));
     }
 
-    void logMethod(const String& apiName, int argc, const v8::Handle<v8::Value>* argv) override
+    void logMethod(const String& apiName, int argc, const v8::Local<v8::Value>* argv) override
     {
         String activityString = apiName;
         for (int i = 0; i  < argc; i++)
@@ -66,6 +66,7 @@ protected:
         V8DOMActivityLogger::setActivityLogger(isolatedWorldId, String(), adoptPtr(m_activityLogger));
         m_webViewHelper.initialize(true);
         m_scriptController = &m_webViewHelper.webViewImpl()->mainFrameImpl()->frame()->script();
+        FrameTestHelpers::loadFrame(m_webViewHelper.webViewImpl()->mainFrame(), "about:blank");
     }
 
     void executeScriptInMainWorld(const String& script) const
@@ -78,9 +79,9 @@ protected:
     void executeScriptInIsolatedWorld(const String& script) const
     {
         v8::HandleScope scope(v8::Isolate::GetCurrent());
-        Vector<ScriptSourceCode> sources;
+        WillBeHeapVector<ScriptSourceCode> sources;
         sources.append(ScriptSourceCode(script));
-        Vector<v8::Local<v8::Value> > results;
+        Vector<v8::Local<v8::Value>> results;
         m_scriptController->executeScriptInIsolatedWorld(isolatedWorldId, sources, extensionGroup, 0);
         pumpPendingRequestsDoNotUse(m_webViewHelper.webViewImpl()->mainFrame());
     }
@@ -114,7 +115,7 @@ TEST_F(ActivityLoggerTest, EventHandler)
         "blinkAddEventListener | A | click\n"
         "blinkAddElement | a | \n"
         "blinkAddEventListener | BODY | change\n"
-        "blinkAddEventListener | LocalDOMWindow | focus\n"
+        "blinkAddEventListener | DOMWindow | focus\n"
         "blinkAddEventListener | BODY | onload";
     executeScriptInMainWorld(code);
     ASSERT_TRUE(verifyActivities(""));
@@ -523,4 +524,4 @@ TEST_F(ActivityLoggerTest, RequestResource)
     ASSERT_TRUE(verifyActivities(expectedActivities));
 }
 
-} // namespace
+} // namespace blink

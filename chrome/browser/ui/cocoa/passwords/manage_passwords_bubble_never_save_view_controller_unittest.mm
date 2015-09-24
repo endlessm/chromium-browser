@@ -44,11 +44,14 @@ class ManagePasswordsBubbleNeverSaveViewControllerTest
  public:
   ManagePasswordsBubbleNeverSaveViewControllerTest() : controller_(nil) {}
 
-  virtual void SetUp() override {
+  void SetUp() override {
     ManagePasswordsControllerTest::SetUp();
     delegate_.reset(
         [[ManagePasswordsBubbleNeverSaveViewTestDelegate alloc] init]);
-    ui_controller()->SetState(password_manager::ui::PENDING_PASSWORD_STATE);
+    ScopedVector<autofill::PasswordForm> forms;
+    forms.push_back(new autofill::PasswordForm);
+    forms.back()->origin = GURL("http://example.com");
+    ui_controller()->PretendSubmittedPassword(forms.Pass());
   }
 
   ManagePasswordsBubbleNeverSaveViewTestDelegate* delegate() {

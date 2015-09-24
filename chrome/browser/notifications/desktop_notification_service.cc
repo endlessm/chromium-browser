@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/prefs/scoped_user_pref_update.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
@@ -16,11 +17,8 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/pref_names.h"
-#include "components/content_settings/core/common/permission_request_id.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/desktop_notification_delegate.h"
-#include "content/public/common/show_desktop_notification_params.h"
 #include "ui/base/webui/web_ui_util.h"
 #include "ui/message_center/notifier_settings.h"
 
@@ -41,54 +39,17 @@
 using content::BrowserThread;
 using message_center::NotifierId;
 
-namespace {
-
-void CancelNotification(const std::string& id, ProfileID profile_id) {
-  g_browser_process->notification_ui_manager()->CancelById(id, profile_id);
-}
-
-}  // namespace
-
 // DesktopNotificationService -------------------------------------------------
 
 // static
 void DesktopNotificationService::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterListPref(
-      prefs::kMessageCenterDisabledExtensionIds,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterListPref(
-      prefs::kMessageCenterDisabledSystemComponentIds,
-      user_prefs::PrefRegistrySyncable::UNSYNCABLE_PREF);
-}
-
-// static
-std::string DesktopNotificationService::AddIconNotification(
-    const GURL& origin_url,
-    const base::string16& title,
-    const base::string16& message,
-    const gfx::Image& icon,
-    const base::string16& replace_id,
-    NotificationDelegate* delegate,
-    Profile* profile) {
-  Notification notification(message_center::NOTIFICATION_TYPE_SIMPLE,
-                            origin_url,
-                            title,
-                            message,
-                            icon,
-                            blink::WebTextDirectionDefault,
-                            NotifierId(origin_url),
-                            base::string16(),
-                            replace_id,
-                            message_center::RichNotificationData(),
-                            delegate);
-  g_browser_process->notification_ui_manager()->Add(notification, profile);
-  return notification.delegate_id();
+  registry->RegisterListPref(prefs::kMessageCenterDisabledExtensionIds);
+  registry->RegisterListPref(prefs::kMessageCenterDisabledSystemComponentIds);
 }
 
 DesktopNotificationService::DesktopNotificationService(Profile* profile)
-    : PermissionContextBase(profile, CONTENT_SETTINGS_TYPE_NOTIFICATIONS),
-      profile_(profile)
+    : profile_(profile)
 #if defined(ENABLE_EXTENSIONS)
       ,
       extension_registry_observer_(this)
@@ -124,112 +85,8 @@ DesktopNotificationService::DesktopNotificationService(Profile* profile)
 DesktopNotificationService::~DesktopNotificationService() {
 }
 
-void DesktopNotificationService::RequestNotificationPermission(
-    content::WebContents* web_contents,
-    const PermissionRequestID& request_id,
-    const GURL& requesting_origin,
-    bool user_gesture,
-    const base::Callback<void(bool)>& result_callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-
-#if defined(ENABLE_EXTENSIONS)
-  extensions::InfoMap* extension_info_map =
-      extensions::ExtensionSystem::Get(profile_)->info_map();
-  const extensions::Extension* extension = NULL;
-  if (extension_info_map) {
-    extensions::ExtensionSet extensions;
-    extension_info_map->GetExtensionsWithAPIPermissionForSecurityOrigin(
-        requesting_origin,
-        request_id.render_process_id(),
-        extensions::APIPermission::kNotifications,
-        &extensions);
-    for (extensions::ExtensionSet::const_iterator iter = extensions.begin();
-         iter != extensions.end(); ++iter) {
-      if (IsNotifierEnabled(NotifierId(
-              NotifierId::APPLICATION, (*iter)->id()))) {
-        extension = iter->get();
-        break;
-      }
-    }
-  }
-  if (IsExtensionWithPermissionOrSuggestInConsole(
-          extensions::APIPermission::kNotifications,
-          extension,
-          web_contents->GetRenderViewHost())) {
-    result_callback.Run(true);
-    return;
-  }
-#endif
-
-  RequestPermission(web_contents,
-                    request_id,
-                    requesting_origin,
-                    user_gesture,
-                    result_callback);
-}
-
-void DesktopNotificationService::ShowDesktopNotification(
-    const content::ShowDesktopNotificationHostMsgParams& params,
-    int render_process_id,
-    scoped_ptr<content::DesktopNotificationDelegate> delegate,
-    base::Closure* cancel_callback) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  const GURL& origin = params.origin;
-  NotificationObjectProxy* proxy = new NotificationObjectProxy(delegate.Pass());
-
-  base::string16 display_source = DisplayNameForOriginInProcessId(
-      origin, render_process_id);
-
-  // TODO(peter): Icons for Web Notifications are currently always requested for
-  // 1x scale, whereas the displays on which they can be displayed can have a
-  // different pixel density. Be smarter about this when the API gets updated
-  // with a way for developers to specify images of different resolutions.
-  Notification notification(origin, params.title, params.body,
-      gfx::Image::CreateFrom1xBitmap(params.icon),
-      display_source, params.replace_id, proxy);
-
-  // The webkit notification doesn't timeout.
-  notification.set_never_timeout(true);
-
-  g_browser_process->notification_ui_manager()->Add(notification, profile_);
-  if (cancel_callback)
-    *cancel_callback =
-        base::Bind(&CancelNotification,
-                   proxy->id(),
-                   NotificationUIManager::GetProfileID(profile_));
-
-  DesktopNotificationProfileUtil::UsePermission(profile_, origin);
-}
-
-base::string16 DesktopNotificationService::DisplayNameForOriginInProcessId(
-    const GURL& origin, int process_id) {
-#if defined(ENABLE_EXTENSIONS)
-  // If the source is an extension, lookup the display name.
-  if (origin.SchemeIs(extensions::kExtensionScheme)) {
-    extensions::InfoMap* extension_info_map =
-        extensions::ExtensionSystem::Get(profile_)->info_map();
-    if (extension_info_map) {
-      extensions::ExtensionSet extensions;
-      extension_info_map->GetExtensionsWithAPIPermissionForSecurityOrigin(
-          origin,
-          process_id,
-          extensions::APIPermission::kNotifications,
-          &extensions);
-      for (extensions::ExtensionSet::const_iterator iter = extensions.begin();
-           iter != extensions.end(); ++iter) {
-        NotifierId notifier_id(NotifierId::APPLICATION, (*iter)->id());
-        if (IsNotifierEnabled(notifier_id))
-          return base::UTF8ToUTF16((*iter)->name());
-      }
-    }
-  }
-#endif
-
-  return base::UTF8ToUTF16(origin.host());
-}
-
 bool DesktopNotificationService::IsNotifierEnabled(
-    const NotifierId& notifier_id) {
+    const NotifierId& notifier_id) const {
   switch (notifier_id.type) {
     case NotifierId::APPLICATION:
       return disabled_extension_ids_.find(notifier_id.id) ==
@@ -324,23 +181,6 @@ void DesktopNotificationService::OnExtensionUninstalled(
 }
 #endif
 
-// Unlike other permission types, granting a notification for a given origin
-// will not take into account the |embedder_origin|, it will only be based
-// on the requesting iframe origin.
-// TODO(mukai) Consider why notifications behave differently than
-// other permissions. crbug.com/416894
-void DesktopNotificationService::UpdateContentSetting(
-    const GURL& requesting_origin,
-    const GURL& embedder_origin,
-    bool allowed) {
-  if (allowed) {
-    DesktopNotificationProfileUtil::GrantPermission(
-        profile_, requesting_origin);
-  } else {
-    DesktopNotificationProfileUtil::DenyPermission(profile_, requesting_origin);
-  }
-}
-
 void DesktopNotificationService::FirePermissionLevelChangedEvent(
     const NotifierId& notifier_id, bool enabled) {
 #if defined(ENABLE_EXTENSIONS)
@@ -352,6 +192,7 @@ void DesktopNotificationService::FirePermissionLevelChangedEvent(
   args->Append(new base::StringValue(
       extensions::api::notifications::ToString(permission)));
   scoped_ptr<extensions::Event> event(new extensions::Event(
+      extensions::events::NOTIFICATIONS_ON_PERMISSION_LEVEL_CHANGED,
       extensions::api::notifications::OnPermissionLevelChanged::kEventName,
       args.Pass()));
   extensions::EventRouter::Get(profile_)

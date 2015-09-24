@@ -31,6 +31,7 @@
 #ifndef DeprecatedStorageQuotaCallbacksImpl_h
 #define DeprecatedStorageQuotaCallbacksImpl_h
 
+#include "modules/ModulesExport.h"
 #include "modules/quota/StorageErrorCallback.h"
 #include "modules/quota/StorageQuotaCallback.h"
 #include "modules/quota/StorageUsageCallback.h"
@@ -41,7 +42,7 @@
 
 namespace blink {
 
-class DeprecatedStorageQuotaCallbacksImpl final : public StorageQuotaCallbacks {
+class MODULES_EXPORT DeprecatedStorageQuotaCallbacksImpl final : public StorageQuotaCallbacks {
 public:
     static DeprecatedStorageQuotaCallbacksImpl* create(StorageUsageCallback* success, StorageErrorCallback* error)
     {
@@ -53,12 +54,12 @@ public:
         return new DeprecatedStorageQuotaCallbacksImpl(success, error);
     }
 
-    virtual ~DeprecatedStorageQuotaCallbacksImpl();
-    virtual void trace(Visitor*) override;
+    ~DeprecatedStorageQuotaCallbacksImpl() override;
+    DECLARE_VIRTUAL_TRACE();
 
-    virtual void didQueryStorageUsageAndQuota(unsigned long long usageInBytes, unsigned long long quotaInBytes) override;
-    virtual void didGrantStorageQuota(unsigned long long usageInBytes, unsigned long long grantedQuotaInBytes) override;
-    virtual void didFail(WebStorageQuotaError) override;
+    void didQueryStorageUsageAndQuota(unsigned long long usageInBytes, unsigned long long quotaInBytes) override;
+    void didGrantStorageQuota(unsigned long long usageInBytes, unsigned long long grantedQuotaInBytes) override;
+    void didFail(WebStorageQuotaError) override;
 
 private:
     DeprecatedStorageQuotaCallbacksImpl(StorageUsageCallback*, StorageErrorCallback*);

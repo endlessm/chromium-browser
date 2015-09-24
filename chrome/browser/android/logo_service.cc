@@ -5,11 +5,11 @@
 #include "chrome/browser/android/logo_service.h"
 
 #include "base/memory/weak_ptr.h"
-#include "chrome/browser/google/google_profile_helper.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/image_decoder.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
-#include "components/google/core/browser/google_util.h"
+#include "chrome/browser/search_engines/ui_thread_search_terms_data.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/search_provider_logos/google_logo_api.h"
@@ -23,7 +23,6 @@ using search_provider_logos::LogoTracker;
 
 namespace {
 
-const char kGoogleDoodleURLPath[] = "async/newtab_mobile";
 const char kCachedLogoDirectory[] = "Search Logo";
 const int kDecodeLogoTimeoutSeconds = 30;
 
@@ -31,55 +30,42 @@ const int kDecodeLogoTimeoutSeconds = 30;
 // https://www.google.com/async/newtab_mobile. This depends on the user's
 // Google domain.
 GURL GetGoogleDoodleURL(Profile* profile) {
-  // SetPathStr() requires its argument to stay in scope as long as
-  // |replacements| is, so a std::string is needed, instead of a char*.
-  std::string path = kGoogleDoodleURLPath;
+  GURL google_base_url(UIThreadSearchTermsData(profile).GoogleBaseURLValue());
+  const char kGoogleDoodleURLPath[] = "async/newtab_mobile";
   GURL::Replacements replacements;
-  replacements.SetPathStr(path);
-
-  GURL base_url(google_util::CommandLineGoogleBaseURL());
-  if (!base_url.is_valid())
-    base_url = google_profile_helper::GetGoogleHomePageURL(profile);
-  return base_url.ReplaceComponents(replacements);
+  replacements.SetPathStr(kGoogleDoodleURLPath);
+  return google_base_url.ReplaceComponents(replacements);
 }
 
-class LogoDecoderDelegate : public ImageDecoder::Delegate {
+class LogoDecoderDelegate : public ImageDecoder::ImageRequest {
  public:
   LogoDecoderDelegate(
-      const scoped_refptr<ImageDecoder>& image_decoder,
       const base::Callback<void(const SkBitmap&)>& image_decoded_callback)
-      : image_decoder_(image_decoder),
-        image_decoded_callback_(image_decoded_callback),
+      : image_decoded_callback_(image_decoded_callback),
         weak_ptr_factory_(this) {
     // If the ImageDecoder crashes or otherwise never completes, call
     // OnImageDecodeTimedOut() eventually to ensure that image_decoded_callback_
     // is run.
-    base::MessageLoopProxy::current()->PostDelayedTask(
-        FROM_HERE,
-        base::Bind(&LogoDecoderDelegate::OnDecodeImageFailed,
-                   weak_ptr_factory_.GetWeakPtr(),
-                   (const ImageDecoder*) NULL),
+    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE, base::Bind(&LogoDecoderDelegate::OnDecodeImageFailed,
+                              weak_ptr_factory_.GetWeakPtr()),
         base::TimeDelta::FromSeconds(kDecodeLogoTimeoutSeconds));
   }
 
-  virtual ~LogoDecoderDelegate() {
-    image_decoder_->set_delegate(NULL);
-  }
+  ~LogoDecoderDelegate() override {}
 
-  // ImageDecoder::Delegate:
-  virtual void OnImageDecoded(const ImageDecoder* decoder,
-                              const SkBitmap& decoded_image) override {
+  // ImageDecoder::ImageRequest:
+  void OnImageDecoded(const SkBitmap& decoded_image) override {
     image_decoded_callback_.Run(decoded_image);
     delete this;
   }
 
-  virtual void OnDecodeImageFailed(const ImageDecoder* decoder) override {
+  void OnDecodeImageFailed() override {
     image_decoded_callback_.Run(SkBitmap());
     delete this;
   }
 
  private:
-  scoped_refptr<ImageDecoder> image_decoder_;
   base::Callback<void(const SkBitmap&)> image_decoded_callback_;
   base::WeakPtrFactory<LogoDecoderDelegate> weak_ptr_factory_;
 
@@ -89,20 +75,15 @@ class LogoDecoderDelegate : public ImageDecoder::Delegate {
 class ChromeLogoDelegate : public search_provider_logos::LogoDelegate {
  public:
   ChromeLogoDelegate() {}
-  virtual ~ChromeLogoDelegate() {}
+  ~ChromeLogoDelegate() override {}
 
   // search_provider_logos::LogoDelegate:
-  virtual void DecodeUntrustedImage(
+  void DecodeUntrustedImage(
       const scoped_refptr<base::RefCountedString>& encoded_image,
       base::Callback<void(const SkBitmap&)> image_decoded_callback) override {
-    scoped_refptr<ImageDecoder> image_decoder = new ImageDecoder(
-        NULL,
-        encoded_image->data(),
-        ImageDecoder::DEFAULT_CODEC);
     LogoDecoderDelegate* delegate =
-        new LogoDecoderDelegate(image_decoder, image_decoded_callback);
-    image_decoder->set_delegate(delegate);
-    image_decoder->Start(base::MessageLoopProxy::current());
+        new LogoDecoderDelegate(image_decoded_callback);
+    ImageDecoder::Start(delegate, encoded_image->data());
   }
 
  private:
@@ -143,7 +124,8 @@ void LogoService::GetLogo(search_provider_logos::LogoObserver* observer) {
   logo_tracker_->SetServerAPI(
       GetGoogleDoodleURL(profile_),
       base::Bind(&search_provider_logos::GoogleParseLogoResponse),
-      base::Bind(&search_provider_logos::GoogleAppendFingerprintToLogoURL));
+      base::Bind(&search_provider_logos::GoogleAppendQueryparamsToLogoURL),
+      false);
   logo_tracker_->GetLogo(observer);
 }
 

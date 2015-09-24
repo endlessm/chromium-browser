@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/extensions/./extension_prefs_unittest.h"
+#include "chrome/browser/extensions/extension_prefs_unittest.h"
 
 #include "base/basictypes.h"
 #include "base/files/scoped_temp_dir.h"
@@ -13,6 +13,7 @@
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
+#include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/browser/prefs/pref_service_syncable.h"
 #include "chrome/common/chrome_paths.h"
@@ -24,6 +25,7 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/install_flag.h"
 #include "extensions/common/extension.h"
+#include "extensions/common/extension_builder.h"
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/permissions/permission_set.h"
 #include "extensions/common/permissions/permissions_info.h"
@@ -42,7 +44,8 @@ static void AddPattern(URLPatternSet* extent, const std::string& pattern) {
 
 ExtensionPrefsTest::ExtensionPrefsTest()
     : ui_thread_(BrowserThread::UI, &message_loop_),
-      prefs_(message_loop_.message_loop_proxy().get()) {}
+      prefs_(message_loop_.task_runner().get()) {
+}
 
 ExtensionPrefsTest::~ExtensionPrefsTest() {
 }
@@ -140,7 +143,8 @@ class ExtensionPrefsEscalatePermissions : public ExtensionPrefsTest {
  public:
   void Initialize() override {
     extension = prefs_.AddExtension("test");
-    prefs()->SetDidExtensionEscalatePermissions(extension.get(), true);
+    prefs()->AddDisableReason(extension->id(),
+                              Extension::DISABLE_PERMISSIONS_INCREASE);
   }
 
   void Verify() override {
@@ -876,5 +880,119 @@ class ExtensionPrefsBlacklistState : public ExtensionPrefsTest {
   scoped_refptr<const Extension> extension_a_;
 };
 TEST_F(ExtensionPrefsBlacklistState, ExtensionPrefsBlacklistState) {}
+
+// Tests clearing the last launched preference.
+class ExtensionPrefsClearLastLaunched : public ExtensionPrefsTest {
+ public:
+  ~ExtensionPrefsClearLastLaunched() override {}
+
+  void Initialize() override {
+    extension_a_ = prefs_.AddExtension("a");
+    extension_b_ = prefs_.AddExtension("b");
+  }
+
+  void Verify() override {
+    // Set last launched times for each extension.
+    prefs()->SetLastLaunchTime(extension_a_->id(), base::Time::Now());
+    prefs()->SetLastLaunchTime(extension_b_->id(), base::Time::Now());
+
+    // Also set some other preference for one of the extensions.
+    prefs()->SetAllowFileAccess(extension_a_->id(), true);
+
+    // Now clear the launch times.
+    prefs()->ClearLastLaunchTimes();
+
+    // All launch times should be gone.
+    EXPECT_EQ(base::Time(), prefs()->GetLastLaunchTime(extension_a_->id()));
+    EXPECT_EQ(base::Time(), prefs()->GetLastLaunchTime(extension_b_->id()));
+
+    // Other preferences should be untouched.
+    EXPECT_TRUE(prefs()->AllowFileAccess(extension_a_->id()));
+  }
+
+ private:
+  scoped_refptr<const Extension> extension_a_;
+  scoped_refptr<const Extension> extension_b_;
+};
+TEST_F(ExtensionPrefsClearLastLaunched, ExtensionPrefsClearLastLaunched) {}
+
+class ExtensionPrefsComponentExtension : public ExtensionPrefsTest {
+ public:
+  ~ExtensionPrefsComponentExtension() override {}
+  void Initialize() override {
+    // Adding a component extension.
+    component_extension_ =
+        ExtensionBuilder()
+            .SetManifest(DictionaryBuilder()
+                             .Set(manifest_keys::kName, "a")
+                             .Set(manifest_keys::kVersion, "0.1"))
+            .SetLocation(Manifest::COMPONENT)
+            .SetPath(prefs_.extensions_dir().AppendASCII("a"))
+            .Build();
+    prefs_.AddExtension(component_extension_.get());
+
+    // Adding a non component extension.
+    no_component_extension_ =
+        ExtensionBuilder()
+            .SetManifest(DictionaryBuilder()
+                             .Set(manifest_keys::kName, "b")
+                             .Set(manifest_keys::kVersion, "0.1"))
+            .SetLocation(Manifest::INTERNAL)
+            .SetPath(prefs_.extensions_dir().AppendASCII("b"))
+            .Build();
+    prefs_.AddExtension(no_component_extension_.get());
+
+    APIPermissionSet api_perms;
+    api_perms.insert(APIPermission::kTab);
+    api_perms.insert(APIPermission::kBookmark);
+    api_perms.insert(APIPermission::kHistory);
+
+    ManifestPermissionSet empty_manifest_permissions;
+
+    URLPatternSet ehosts, shosts;
+    AddPattern(&shosts, "chrome://print/*");
+
+    active_perms_ = new PermissionSet(api_perms, empty_manifest_permissions,
+                                      ehosts, shosts);
+    // Set the active permissions.
+    prefs()->SetActivePermissions(component_extension_->id(),
+                                  active_perms_.get());
+    prefs()->SetActivePermissions(no_component_extension_->id(),
+                                  active_perms_.get());
+  }
+
+  void Verify() override {
+    // Component extension can access chrome://print/*.
+    scoped_refptr<PermissionSet> component_permissions(
+        prefs()->GetActivePermissions(component_extension_->id()));
+    EXPECT_EQ(1u, component_permissions->scriptable_hosts().size());
+
+    // Non Component extension can not access chrome://print/*.
+    scoped_refptr<PermissionSet> no_component_permissions(
+        prefs()->GetActivePermissions(no_component_extension_->id()));
+    EXPECT_EQ(0u, no_component_permissions->scriptable_hosts().size());
+
+    // |URLPattern::SCHEME_CHROMEUI| scheme will be added in valid_schemes for
+    // component extensions.
+    URLPatternSet scriptable_hosts;
+    std::string pref_key = "active_permissions.scriptable_host";
+    int valid_schemes = URLPattern::SCHEME_ALL & ~URLPattern::SCHEME_CHROMEUI;
+
+    EXPECT_TRUE(prefs()->ReadPrefAsURLPatternSet(component_extension_->id(),
+                                                 pref_key, &scriptable_hosts,
+                                                 valid_schemes));
+
+    EXPECT_FALSE(prefs()->ReadPrefAsURLPatternSet(no_component_extension_->id(),
+                                                  pref_key, &scriptable_hosts,
+                                                  valid_schemes));
+  }
+
+ private:
+  scoped_refptr<PermissionSet> active_perms_;
+  scoped_refptr<Extension> component_extension_;
+  scoped_refptr<Extension> no_component_extension_;
+};
+TEST_F(ExtensionPrefsComponentExtension, ExtensionPrefsComponentExtension) {
+}
 
 }  // namespace extensions

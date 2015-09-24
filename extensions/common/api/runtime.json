@@ -36,10 +36,31 @@
         "description": "An object containing information about the script context that sent a message or request.",
         "properties": {
           "tab": {"$ref": "tabs.Tab", "optional": true, "description": "The $(ref:tabs.Tab) which opened the connection, if any. This property will <strong>only</strong> be present when the connection was opened from a tab (including content scripts), and <strong>only</strong> if the receiver is an extension, not an app.", "extension_types": ["extension", "legacy_packaged_app"]},
+          "frameId": {"type": "integer", "optional": true, "description": "The <a href='webNavigation#frame_ids'>frame</a> that opened the connection. 0 for top-level frames, positive for child frames. This will only be set when <code>tab</code> is set.", "extension_types": ["extension", "legacy_packaged_app"]},
+          "guestProcessId": {"type": "integer", "optional": true, "nodoc": true, "description": "The guest process id of the requesting webview, if available. Only available for component extensions.", "extension_types": ["extension"]},
+          "guestRenderFrameRoutingId": {"type": "integer", "optional": true, "nodoc": true, "description": "The guest render frame routing id of the requesting webview, if available. Only available for component extensions.", "extension_types": ["extension"]},
           "id": {"type": "string", "optional": true, "description": "The ID of the extension or app that opened the connection, if any."},
-          "url": {"type": "string", "optional": true, "description": "The URL of the page or frame that opened the connection. If the sender is in an iframe or webview, it will be iframe's or webview's URL, not the URL of the page which hosts them."},
+          "url": {"type": "string", "optional": true, "description": "The URL of the page or frame that opened the connection. If the sender is in an iframe, it will be iframe's URL not the URL of the page which hosts it."},
           "tlsChannelId": {"type": "string", "optional": true, "description": "The TLS channel ID of the page or frame that opened the connection, if requested by the extension or app, and if available."}
         }
+      },
+      {
+        "id": "PlatformOs",
+        "type": "string",
+        "description": "The operating system chrome is running on.",
+        "enum": ["mac", "win", "android", "cros", "linux", "openbsd"]
+      },
+      {
+        "id": "PlatformArch",
+        "type": "string",
+        "enum": ["arm", "x86-32", "x86-64"],
+        "description": "The machine's processor architecture."
+      },
+      {
+        "id": "PlatformNaclArch",
+        "description": "The native client architecture. This may be different from arch on some platforms.",
+        "type": "string",
+        "enum": ["arm", "x86-32", "x86-64"]
       },
       {
         "id": "PlatformInfo",
@@ -47,21 +68,36 @@
         "description": "An object containing information about the current platform.",
         "properties": {
           "os": {
-            "type": "string",
-            "description": "The operating system chrome is running on.",
-            "enum": ["mac", "win", "android", "cros", "linux", "openbsd"]
+            "$ref": "PlatformOs",
+            "description": "The operating system chrome is running on."
           },
           "arch": {
-            "type": "string",
-            "enum": ["arm", "x86-32", "x86-64"],
+            "$ref": "PlatformArch",
             "description": "The machine's processor architecture."
           },
           "nacl_arch" : {
             "description": "The native client architecture. This may be different from arch on some platforms.",
-            "type": "string",
-            "enum": ["arm", "x86-32", "x86-64"]
+            "$ref": "PlatformNaclArch"
           }
         }
+      },
+      {
+        "id": "RequestUpdateCheckStatus",
+        "type": "string",
+        "enum": ["throttled", "no_update", "update_available"],
+        "description": "Result of the update check."
+      },
+      {
+        "id": "OnInstalledReason",
+        "type": "string",
+        "enum": ["install", "update", "chrome_update", "shared_module_update"],
+        "description": "The reason that this event is being dispatched."
+      },
+      {
+        "id": "OnRestartRequiredReason",
+        "type": "string",
+        "description": "The reason that the event is being dispatched. 'app_update' is used when the restart is needed because the application is updated to a newer version. 'os_update' is used when the restart is needed because the browser/OS is updated to a newer version. 'periodic' is used when the system runs for more than the permitted uptime set in the enterprise policy.",
+        "enum": ["app_update", "os_update", "periodic"]
       }
     ],
     "properties": {
@@ -107,6 +143,17 @@
         ]
       },
       {
+        "name": "openOptionsPage",
+        "type": "function",
+        "description": "<p>Open your Extension's options page, if possible.</p><p>The precise behavior may depend on your manifest's <code><a href=\"optionsV2\">options_ui</a></code> or <code><a href=\"options\">options_page</a></code> key, or what Chrome happens to support at the time. For example, the page may be opened in a new tab, within chrome://extensions, within an App, or it may just focus an open options page. It will never cause the caller page to reload.</p><p>If your Extension does not declare an options page, or Chrome failed to create one for some other reason, the callback will set $(ref:lastError).</p>",
+        "parameters": [{
+          "type": "function",
+          "name": "callback",
+          "parameters": [],
+          "optional": true
+        }]
+      },
+      {
         "name": "getManifest",
         "description": "Returns details about the app or extension from the manifest. The object returned is a serialization of the full <a href=\"manifest.html\">manifest file</a>.",
         "type": "function",
@@ -144,7 +191,15 @@
           {
             "type": "string",
             "name": "url",
-            "maxLength": 255
+            "maxLength": 255,
+            "description": "URL to be opened after the extension is uninstalled. This URL must have an http: or https: scheme. Set an empty string to not open a new tab upon uninstallation."
+          },
+          {
+            "type": "function",
+            "name": "callback",
+            "optional": true,
+            "description": "Called when the uninstall URL is set. If the given URL is invalid, $(ref:runtime.lastError) will be set.",
+            "parameters": []
           }
         ]
       },
@@ -165,8 +220,7 @@
             "parameters": [
               {
                 "name": "status",
-                "type": "string",
-                "enum": ["throttled", "no_update", "update_available"],
+                "$ref": "RequestUpdateCheckStatus",
                 "description": "Result of the update check."
               },
               {
@@ -351,8 +405,7 @@
             "name": "details",
             "properties": {
               "reason": {
-                "type": "string",
-                "enum": ["install", "update", "chrome_update", "shared_module_update"],
+                "$ref": "OnInstalledReason",
                 "description": "The reason that this event is being dispatched."
               },
               "previousVersion": {
@@ -423,9 +476,6 @@
         "name": "onConnectExternal",
         "type": "function",
         "nocompile": true,
-        "options": {
-          "unmanaged": true
-        },
         "description": "Fired when a connection is made from another extension.",
         "parameters": [
           {"$ref": "Port", "name": "port"}
@@ -434,10 +484,10 @@
       {
         "name": "onMessage",
         "type": "function",
+        "nocompile": true,
         "options": {
           "unmanaged": true
         },
-        "nocompile": true,
         "description": "Fired when a message is sent from either an extension process or a content script.",
         "parameters": [
           {"name": "message", "type": "any", "optional": true, "description": "The message sent by the calling script."},
@@ -453,9 +503,6 @@
       {
         "name": "onMessageExternal",
         "type": "function",
-        "options": {
-          "unmanaged": true
-        },
         "nocompile": true,
         "description": "Fired when a message is sent from another extension/app. Cannot be used in a content script.",
         "parameters": [
@@ -475,10 +522,9 @@
         "description": "Fired when an app or the device that it runs on needs to be restarted. The app should close all its windows at its earliest convenient time to let the restart to happen. If the app does nothing, a restart will be enforced after a 24-hour grace period has passed. Currently, this event is only fired for Chrome OS kiosk apps.",
         "parameters": [
           {
-            "type": "string",
+            "$ref": "OnRestartRequiredReason",
             "name": "reason",
-            "description": "The reason that the event is being dispatched. 'app_update' is used when the restart is needed because the application is updated to a newer version. 'os_update' is used when the restart is needed because the browser/OS is updated to a newer version. 'periodic' is used when the system runs for more than the permitted uptime set in the enterprise policy.",
-            "enum": ["app_update", "os_update", "periodic"]
+            "description": "The reason that the event is being dispatched."
           }
         ]
       }

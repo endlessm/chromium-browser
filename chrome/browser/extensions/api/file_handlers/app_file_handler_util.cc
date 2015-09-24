@@ -9,7 +9,6 @@
 #include "base/files/file_util.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_security_policy.h"
-#include "content/public/browser/render_process_host.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/granted_file_entry.h"
 #include "extensions/common/permissions/permissions_data.h"
@@ -40,9 +39,15 @@ bool FileHandlerCanHandleFileWithExtension(
     if (*extension == "*")
       return true;
 
-    if (path.MatchesExtension(
+    // Accept files whose extension or combined extension (e.g. ".tar.gz")
+    // match the supported extensions of file handler.
+    base::FilePath::StringType handler_extention(
         base::FilePath::kExtensionSeparator +
-        base::FilePath::FromUTF8Unsafe(*extension).value())) {
+        base::FilePath::FromUTF8Unsafe(*extension).value());
+    if (base::FilePath::CompareEqualIgnoreCase(
+            handler_extention, path.Extension()) ||
+        base::FilePath::CompareEqualIgnoreCase(
+            handler_extention, path.FinalExtension())) {
       return true;
     }
 
@@ -67,7 +72,10 @@ bool FileHandlerCanHandleFileWithMimeType(
   return false;
 }
 
-bool DoCheckWritableFile(const base::FilePath& path, bool is_directory) {
+bool PrepareNativeLocalFileForWritableApp(const base::FilePath& path,
+                                          bool is_directory) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
+
   // Don't allow links.
   if (base::PathExists(path) && base::IsLink(path))
     return false;
@@ -78,6 +86,7 @@ bool DoCheckWritableFile(const base::FilePath& path, bool is_directory) {
   // Create the file if it doesn't already exist.
   int creation_flags = base::File::FLAG_OPEN_ALWAYS | base::File::FLAG_READ;
   base::File file(path, creation_flags);
+
   return file.IsValid();
 }
 
@@ -111,9 +120,9 @@ class WritableFileChecker
 
   void CheckLocalWritableFiles();
 
-#if defined(OS_CHROMEOS)
-  void NonNativeLocalPathCheckDone(const base::FilePath& path, bool success);
-#endif
+  // Called when processing a file is completed with either a success or an
+  // error.
+  void OnPrepareFileDone(const base::FilePath& path, bool success);
 
   const std::vector<base::FilePath> paths_;
   Profile* profile_;
@@ -138,33 +147,28 @@ WritableFileChecker::WritableFileChecker(
       on_failure_(on_failure) {}
 
 void WritableFileChecker::Check() {
-#if defined(OS_CHROMEOS)
-  if (file_manager::util::IsUnderNonNativeLocalPath(profile_, paths_[0])) {
     outstanding_tasks_ = paths_.size();
-    for (std::vector<base::FilePath>::const_iterator it = paths_.begin();
-         it != paths_.end();
-         ++it) {
-      if (is_directory_) {
-        file_manager::util::IsNonNativeLocalPathDirectory(
-            profile_,
-            *it,
-            base::Bind(&WritableFileChecker::NonNativeLocalPathCheckDone,
-                       this, *it));
-      } else {
-        file_manager::util::PrepareNonNativeLocalFileForWritableApp(
-            profile_,
-            *it,
-            base::Bind(&WritableFileChecker::NonNativeLocalPathCheckDone,
-                       this, *it));
+    for (const auto& path : paths_) {
+#if defined(OS_CHROMEOS)
+      if (file_manager::util::IsUnderNonNativeLocalPath(profile_, path)) {
+        if (is_directory_) {
+          file_manager::util::IsNonNativeLocalPathDirectory(
+              profile_, path,
+              base::Bind(&WritableFileChecker::OnPrepareFileDone, this, path));
+        } else {
+          file_manager::util::PrepareNonNativeLocalFileForWritableApp(
+              profile_, path,
+              base::Bind(&WritableFileChecker::OnPrepareFileDone, this, path));
+        }
+        continue;
       }
-    }
-    return;
-  }
 #endif
-  content::BrowserThread::PostTask(
-      content::BrowserThread::FILE,
-      FROM_HERE,
-      base::Bind(&WritableFileChecker::CheckLocalWritableFiles, this));
+      content::BrowserThread::PostTaskAndReplyWithResult(
+          content::BrowserThread::FILE, FROM_HERE,
+          base::Bind(&PrepareNativeLocalFileForWritableApp, path,
+                     is_directory_),
+          base::Bind(&WritableFileChecker::OnPrepareFileDone, this, path));
+    }
 }
 
 WritableFileChecker::~WritableFileChecker() {}
@@ -187,36 +191,13 @@ void WritableFileChecker::Error(const base::FilePath& error_path) {
   TaskDone();
 }
 
-void WritableFileChecker::CheckLocalWritableFiles() {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
-  std::string error;
-  for (std::vector<base::FilePath>::const_iterator it = paths_.begin();
-       it != paths_.end();
-       ++it) {
-    if (!DoCheckWritableFile(*it, is_directory_)) {
-      content::BrowserThread::PostTask(
-          content::BrowserThread::UI,
-          FROM_HERE,
-          base::Bind(&WritableFileChecker::Error, this, *it));
-      return;
-    }
-  }
-  content::BrowserThread::PostTask(
-      content::BrowserThread::UI,
-      FROM_HERE,
-      base::Bind(&WritableFileChecker::TaskDone, this));
-}
-
-#if defined(OS_CHROMEOS)
-void WritableFileChecker::NonNativeLocalPathCheckDone(
-    const base::FilePath& path,
-    bool success) {
+void WritableFileChecker::OnPrepareFileDone(const base::FilePath& path,
+                                            bool success) {
   if (success)
     TaskDone();
   else
     Error(path);
 }
-#endif
 
 }  // namespace
 
@@ -334,12 +315,11 @@ bool HasFileSystemWritePermission(const Extension* extension) {
       APIPermission::kFileSystemWrite);
 }
 
-bool ValidateFileEntryAndGetPath(
-    const std::string& filesystem_name,
-    const std::string& filesystem_path,
-    const content::RenderViewHost* render_view_host,
-    base::FilePath* file_path,
-    std::string* error) {
+bool ValidateFileEntryAndGetPath(const std::string& filesystem_name,
+                                 const std::string& filesystem_path,
+                                 int render_process_id,
+                                 base::FilePath* file_path,
+                                 std::string* error) {
   if (filesystem_path.empty()) {
     *error = kInvalidParameters;
     return false;
@@ -355,8 +335,7 @@ bool ValidateFileEntryAndGetPath(
   // filesystem.
   content::ChildProcessSecurityPolicy* policy =
       content::ChildProcessSecurityPolicy::GetInstance();
-  if (!policy->CanReadFileSystem(render_view_host->GetProcess()->GetID(),
-                                 filesystem_id)) {
+  if (!policy->CanReadFileSystem(render_process_id, filesystem_id)) {
     *error = kSecurityError;
     return false;
   }

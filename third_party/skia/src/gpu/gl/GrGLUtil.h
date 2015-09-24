@@ -18,14 +18,18 @@ class SkMatrix;
 
 typedef uint32_t GrGLVersion;
 typedef uint32_t GrGLSLVersion;
+typedef uint32_t GrGLDriverVersion;
 
 #define GR_GL_VER(major, minor) ((static_cast<int>(major) << 16) | \
                                  static_cast<int>(minor))
 #define GR_GLSL_VER(major, minor) ((static_cast<int>(major) << 16) | \
                                    static_cast<int>(minor))
+#define GR_GL_DRIVER_VER(major, minor) ((static_cast<int>(major) << 16) | \
+                                        static_cast<int>(minor))
 
 #define GR_GL_INVALID_VER GR_GL_VER(0, 0)
-#define GR_GLSL_INVALID_VER GR_GL_VER(0, 0)
+#define GR_GLSL_INVALID_VER GR_GLSL_VER(0, 0)
+#define GR_GL_DRIVER_UNKNOWN_VER GR_GL_DRIVER_VER(0, 0)
 
 /**
  * The Vendor and Renderer enum values are lazily updated as required.
@@ -45,7 +49,17 @@ enum GrGLRenderer {
     kTegra3_GrGLRenderer,
     kPowerVR54x_GrGLRenderer,
     kPowerVRRogue_GrGLRenderer,
+    kAdreno3xx_GrGLRenderer,
+    kAdreno4xx_GrGLRenderer,
     kOther_GrGLRenderer
+};
+
+enum GrGLDriver {
+    kMesa_GrGLDriver,
+    kChromium_GrGLDriver,
+    kNVIDIA_GrGLDriver,
+    kIntel_GrGLDriver,
+    kUnknown_GrGLDriver
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -71,10 +85,19 @@ enum GrGLRenderer {
         *(p) = GR_GL_INIT_ZERO;                                                \
         GR_GL_CALL(gl, GetRenderbufferParameteriv(t, pname, p));               \
     } while (0)
+
 #define GR_GL_GetTexLevelParameteriv(gl, t, l, pname, p)                       \
     do {                                                                       \
         *(p) = GR_GL_INIT_ZERO;                                                \
         GR_GL_CALL(gl, GetTexLevelParameteriv(t, l, pname, p));                \
+    } while (0)
+
+#define GR_GL_GetShaderPrecisionFormat(gl, st, pt, range, precision)           \
+    do {                                                                       \
+        (range)[0] = GR_GL_INIT_ZERO;                                          \
+        (range)[1] = GR_GL_INIT_ZERO;                                          \
+        (*precision) = GR_GL_INIT_ZERO;                                        \
+        GR_GL_CALL(gl, GetShaderPrecisionFormat(st, pt, range, precision));    \
     } while (0)
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -87,10 +110,15 @@ enum GrGLRenderer {
 GrGLVersion GrGLGetVersionFromString(const char* versionString);
 GrGLStandard GrGLGetStandardInUseFromString(const char* versionString);
 GrGLSLVersion GrGLGetGLSLVersionFromString(const char* versionString);
-bool GrGLIsMesaFromVersionString(const char* versionString);
 GrGLVendor GrGLGetVendorFromString(const char* vendorString);
 GrGLRenderer GrGLGetRendererFromString(const char* rendererString);
-bool GrGLIsChromiumFromRendererString(const char* rendererString);
+
+void GrGLGetDriverInfo(GrGLStandard standard,
+                       GrGLVendor vendor,
+                       const char* rendererString,
+                       const char* versionString,
+                       GrGLDriver* outDriver,
+                       GrGLDriverVersion* outVersion);
 
 // these variants call glGetString()
 GrGLVersion GrGLGetVersion(const GrGLInterface*);

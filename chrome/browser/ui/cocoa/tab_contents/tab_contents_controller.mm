@@ -17,7 +17,9 @@
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "skia/ext/skia_utils_mac.h"
 #include "ui/base/cocoa/animation_utils.h"
+#import "ui/base/cocoa/nscolor_additions.h"
 #include "ui/gfx/geometry/rect.h"
 
 using content::WebContents;
@@ -78,6 +80,7 @@ class FullscreenObserver : public WebContentsObserver {
 }
 
 - (NSColor*)computeBackgroundColor;
+- (void)updateBackgroundColor;
 @end
 
 @implementation TabContentsContainerView
@@ -87,9 +90,9 @@ class FullscreenObserver : public WebContentsObserver {
     delegate_ = delegate;
     ScopedCAActionDisabler disabler;
     base::scoped_nsobject<CALayer> layer([[CALayer alloc] init]);
-    [layer setBackgroundColor:CGColorGetConstantColor(kCGColorWhite)];
     [self setLayer:layer];
     [self setWantsLayer:YES];
+    [self updateBackgroundColor];
   }
   return self;
 }
@@ -102,36 +105,25 @@ class FullscreenObserver : public WebContentsObserver {
 
 - (NSColor*)computeBackgroundColor {
   // This view is sometimes flashed into visibility (e.g, when closing
-  // windows), so ensure that the flash be white in those cases.
-  if (![delegate_ contentsInFullscreenCaptureMode])
-    return [NSColor whiteColor];
-
-  // Fill with a dark tint of the new tab page's background color.  This is
-  // only seen when the subview is sized specially for fullscreen tab capture.
-  NSColor* bgColor = nil;
+  // windows or opening new tabs), so ensure that the flash be the theme
+  // background color in those cases.
+  NSColor* backgroundColor = nil;
   ThemeService* const theme =
       static_cast<ThemeService*>([[self window] themeProvider]);
   if (theme)
-    bgColor = theme->GetNSColor(ThemeProperties::COLOR_NTP_BACKGROUND);
-  if (!bgColor)
-    bgColor = [NSColor whiteColor];
-  const float kDarknessFraction = 0.80f;
-  return [bgColor blendedColorWithFraction:kDarknessFraction
-                                   ofColor:[NSColor blackColor]];
-}
+    backgroundColor = theme->GetNSColor(ThemeProperties::COLOR_NTP_BACKGROUND);
+  if (!backgroundColor)
+    backgroundColor = [NSColor whiteColor];
 
-// Override -drawRect to fill the view with a solid color outside of the
-// subview's frame.
-//
-// Note: This method is never called when CoreAnimation is enabled.
-- (void)drawRect:(NSRect)dirtyRect {
-  NSView* const contentsView =
-      [[self subviews] count] > 0 ? [[self subviews] objectAtIndex:0] : nil;
-  if (!contentsView || !NSContainsRect([contentsView frame], dirtyRect)) {
-    [[self computeBackgroundColor] setFill];
-    NSRectFill(dirtyRect);
+  // If the page is in fullscreen tab capture mode, change the background color
+  // to be a dark tint of the new tab page's background color.
+  if ([delegate_ contentsInFullscreenCaptureMode]) {
+    const float kDarknessFraction = 0.80f;
+    return [backgroundColor blendedColorWithFraction:kDarknessFraction
+                                             ofColor:[NSColor blackColor]];
+  } else {
+    return backgroundColor;
   }
-  [super drawRect:dirtyRect];
 }
 
 // Override auto-resizing logic to query the delegate for the exact frame to
@@ -151,19 +143,12 @@ class FullscreenObserver : public WebContentsObserver {
 // Update the background layer's color whenever the view needs to repaint.
 - (void)setNeedsDisplayInRect:(NSRect)rect {
   [super setNeedsDisplayInRect:rect];
+  [self updateBackgroundColor];
+}
 
-  // Convert from an NSColor to a CGColorRef.
-  NSColor* nsBackgroundColor = [self computeBackgroundColor];
-  NSColorSpace* nsColorSpace = [nsBackgroundColor colorSpace];
-  CGColorSpaceRef cgColorSpace = [nsColorSpace CGColorSpace];
-  const NSInteger numberOfComponents = [nsBackgroundColor numberOfComponents];
-  CGFloat components[numberOfComponents];
-  [nsBackgroundColor getComponents:components];
-  base::ScopedCFTypeRef<CGColorRef> cgBackgroundColor(
-      CGColorCreate(cgColorSpace, components));
-
+- (void)updateBackgroundColor {
   ScopedCAActionDisabler disabler;
-  [[self layer] setBackgroundColor:cgBackgroundColor];
+  [[self layer] setBackgroundColor:[[self computeBackgroundColor] cr_CGColor]];
 }
 
 - (ViewID)viewID {

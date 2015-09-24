@@ -22,9 +22,10 @@ class Extension;
 
 namespace extensions {
 
+typedef std::set<SocketPermissionEntry> SocketPermissionEntrySet;
+
 class SocketsManifestPermission : public ManifestPermission {
  public:
-  typedef std::set<SocketPermissionEntry> SocketPermissionEntrySet;
   SocketsManifestPermission();
   ~SocketsManifestPermission() override;
 
@@ -42,6 +43,7 @@ class SocketsManifestPermission : public ManifestPermission {
   // extensions::ManifestPermission overrides.
   std::string name() const override;
   std::string id() const override;
+  PermissionIDSet GetPermissions() const override;
   bool HasMessages() const override;
   PermissionMessages GetMessages() const override;
   bool FromValue(const base::Value* value) override;
@@ -52,11 +54,11 @@ class SocketsManifestPermission : public ManifestPermission {
 
   const SocketPermissionEntrySet& entries() const { return permissions_; }
 
- private:
-  bool AddAnyHostMessage(PermissionMessages& messages) const;
-  void AddSubdomainHostMessage(PermissionMessages& messages) const;
-  void AddSpecificHostMessage(PermissionMessages& messages) const;
-  void AddNetworkListMessage(PermissionMessages& messages) const;
+  // Adds the permissions from |sockets| into the permission lists |ids| and
+  // |messages|. If either is NULL, that list is ignored.
+  static void AddSocketHostPermissions(const SocketPermissionEntrySet& sockets,
+                                       PermissionIDSet* ids,
+                                       PermissionMessages* messages);
 
   SocketPermissionEntrySet permissions_;
 };

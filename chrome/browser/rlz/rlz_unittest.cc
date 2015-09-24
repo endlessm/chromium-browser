@@ -7,26 +7,31 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
-#include "chrome/browser/autocomplete/autocomplete_controller.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/google/google_brand.h"
-#include "chrome/browser/omnibox/omnibox_log.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/installer/util/browser_distribution.h"
 #include "chrome/installer/util/google_update_constants.h"
+#include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "components/metrics/proto/omnibox_event.pb.h"
+#include "components/omnibox/browser/autocomplete_controller.h"
+#include "components/omnibox/browser/omnibox_log.h"
+#include "content/public/browser/navigation_details.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
+#include "content/public/test/test_renderer_host.h"
 #include "rlz/test/rlz_test_helpers.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "url/gurl.h"
 
 #if defined(OS_WIN)
 #include "base/win/registry.h"
 #endif
 
 using content::NavigationEntry;
+using content::LoadCommittedDetails;
 using testing::AssertionResult;
 using testing::AssertionSuccess;
 using testing::AssertionFailure;
@@ -93,7 +98,7 @@ class TestRLZTracker : public RLZTracker {
     set_tracker(this);
   }
 
-  virtual ~TestRLZTracker() {
+  ~TestRLZTracker() override {
     set_tracker(NULL);
   }
 
@@ -106,38 +111,38 @@ class TestRLZTracker : public RLZTracker {
   }
 
  private:
-  virtual void ScheduleDelayedInit(base::TimeDelta delay) override {
+  void ScheduleDelayedInit(base::TimeDelta delay) override {
     // If the delay is 0, invoke the delayed init now. Otherwise,
     // don't schedule anything, it will be manually called during tests.
     if (delay == base::TimeDelta())
       DelayedInit();
   }
 
-  virtual void ScheduleFinancialPing() override {
+  void ScheduleFinancialPing() override {
     PingNowImpl();
   }
 
-  virtual bool ScheduleRecordProductEvent(rlz_lib::Product product,
+  bool ScheduleRecordProductEvent(rlz_lib::Product product,
                                           rlz_lib::AccessPoint point,
                                           rlz_lib::Event event_id) override {
     return !assume_not_ui_thread_;
   }
 
-  virtual bool ScheduleGetAccessPointRlz(rlz_lib::AccessPoint point) override {
+  bool ScheduleGetAccessPointRlz(rlz_lib::AccessPoint point) override {
     return !assume_not_ui_thread_;
   }
 
-  virtual bool ScheduleRecordFirstSearch(rlz_lib::AccessPoint point) override {
+  bool ScheduleRecordFirstSearch(rlz_lib::AccessPoint point) override {
     return !assume_not_ui_thread_;
   }
 
 #if defined(OS_CHROMEOS)
-  virtual bool ScheduleClearRlzState() override {
+  bool ScheduleClearRlzState() override {
     return !assume_not_ui_thread_;
   }
 #endif
 
-  virtual bool SendFinancialPing(const std::string& brand,
+  bool SendFinancialPing(const std::string& brand,
                                  const base::string16& lang,
                                  const base::string16& referral) override {
     // Don't ping the server during tests, just pretend as if we did.
@@ -161,9 +166,10 @@ class TestRLZTracker : public RLZTracker {
   DISALLOW_COPY_AND_ASSIGN(TestRLZTracker);
 };
 
-class RlzLibTest : public RlzLibTestNoMachineState {
+class RlzLibTest : public ChromeRenderViewHostTestHarness {
  protected:
-  virtual void SetUp() override;
+  void SetUp() override;
+  void TearDown() override;
 
   void SetMainBrand(const char* brand);
   void SetReactivationBrand(const char* brand);
@@ -180,19 +186,28 @@ class RlzLibTest : public RlzLibTestNoMachineState {
   void ExpectRlzPingSent(bool expected);
   void ExpectReactivationRlzPingSent(bool expected);
 
-  TestRLZTracker tracker_;
+  scoped_ptr<TestRLZTracker> tracker_;
+  RlzLibTestNoMachineStateHelper m_rlz_test_helper_;
 #if defined(OS_POSIX)
   scoped_ptr<google_brand::BrandForTesting> brand_override_;
 #endif
 };
 
 void RlzLibTest::SetUp() {
-  RlzLibTestNoMachineState::SetUp();
+  ChromeRenderViewHostTestHarness::SetUp();
+  m_rlz_test_helper_.SetUp();
+  tracker_.reset(new TestRLZTracker());
 
   // Make sure a non-organic brand code is set in the registry or the RLZTracker
   // is pretty much a no-op.
   SetMainBrand("TEST");
   SetReactivationBrand("");
+}
+
+void RlzLibTest::TearDown() {
+  tracker_.reset();
+  ChromeRenderViewHostTestHarness::TearDown();
+  m_rlz_test_helper_.TearDown();
 }
 
 void RlzLibTest::SetMainBrand(const char* brand) {
@@ -244,18 +259,28 @@ void RlzLibTest::SimulateOmniboxUsage() {
                    base::TimeDelta::FromSeconds(0),
                    AutocompleteResult());
 
-  tracker_.Observe(chrome::NOTIFICATION_OMNIBOX_OPENED_URL,
-                   content::NotificationService::AllSources(),
-                   content::Details<OmniboxLog>(&dummy));
+  tracker_->Observe(chrome::NOTIFICATION_OMNIBOX_OPENED_URL,
+                    content::NotificationService::AllSources(),
+                    content::Details<OmniboxLog>(&dummy));
 }
 
 void RlzLibTest::SimulateHomepageUsage() {
-  scoped_ptr<NavigationEntry> entry(NavigationEntry::Create());
-  entry->SetPageID(0);
-  entry->SetTransitionType(ui::PAGE_TRANSITION_HOME_PAGE);
-  tracker_.Observe(content::NOTIFICATION_NAV_ENTRY_PENDING,
-                   content::NotificationService::AllSources(),
-                   content::Details<NavigationEntry>(entry.get()));
+  GURL home_url = GURL("https://www.google.com/");
+  GURL search_url = GURL("https://www.google.com/#q=search");
+
+  content::RenderFrameHostTester* rfht =
+      content::RenderFrameHostTester::For(main_rfh());
+
+  // Ensure the RenderFrame is initialized before simulating events coming from
+  // it.
+  rfht->InitializeRenderFrameIfNeeded();
+
+  // Simulate a navigation to homepage first.
+  rfht->SendNavigateWithTransition(
+      0, 0, true, home_url, ui::PAGE_TRANSITION_HOME_PAGE);
+  // Then simulate a search from homepage.
+  rfht->SendNavigateWithTransition(
+      1, 0, true, search_url, ui::PAGE_TRANSITION_LINK);
 }
 
 void RlzLibTest::SimulateAppListUsage() {
@@ -263,7 +288,7 @@ void RlzLibTest::SimulateAppListUsage() {
 }
 
 void RlzLibTest::InvokeDelayedInit() {
-  tracker_.DelayedInit();
+  tracker_->DelayedInit();
 }
 
 void RlzLibTest::ExpectEventRecorded(const char* event_name, bool expected) {
@@ -279,13 +304,13 @@ void RlzLibTest::ExpectEventRecorded(const char* event_name, bool expected) {
 void RlzLibTest::ExpectRlzPingSent(bool expected) {
   std::string brand;
   google_brand::GetBrand(&brand);
-  EXPECT_EQ(expected, tracker_.was_ping_sent_for_brand(brand.c_str()));
+  EXPECT_EQ(expected, tracker_->was_ping_sent_for_brand(brand.c_str()));
 }
 
 void RlzLibTest::ExpectReactivationRlzPingSent(bool expected) {
   std::string brand;
   google_brand::GetReactivationBrand(&brand);
-  EXPECT_EQ(expected, tracker_.was_ping_sent_for_brand(brand.c_str()));
+  EXPECT_EQ(expected, tracker_->was_ping_sent_for_brand(brand.c_str()));
 }
 
 // The events that affect the different RLZ scenarios are the following:
@@ -741,7 +766,7 @@ TEST_F(RlzLibTest, GetAccessPointRlzOnIoThread) {
 
   base::string16 rlz;
 
-  tracker_.set_assume_not_ui_thread(true);
+  tracker_->set_assume_not_ui_thread(true);
   EXPECT_TRUE(RLZTracker::GetAccessPointRlz(RLZTracker::ChromeOmnibox(), &rlz));
   EXPECT_STREQ(kOmniboxRlzString, base::UTF16ToUTF8(rlz).c_str());
 }
@@ -752,7 +777,7 @@ TEST_F(RlzLibTest, GetAccessPointRlzNotOnIoThread) {
 
   base::string16 rlz;
 
-  tracker_.set_assume_not_ui_thread(false);
+  tracker_->set_assume_not_ui_thread(false);
   EXPECT_FALSE(
       RLZTracker::GetAccessPointRlz(RLZTracker::ChromeOmnibox(), &rlz));
 }
@@ -763,15 +788,15 @@ TEST_F(RlzLibTest, GetAccessPointRlzIsCached) {
 
   base::string16 rlz;
 
-  tracker_.set_assume_not_ui_thread(false);
+  tracker_->set_assume_not_ui_thread(false);
   EXPECT_FALSE(
       RLZTracker::GetAccessPointRlz(RLZTracker::ChromeOmnibox(), &rlz));
 
-  tracker_.set_assume_not_ui_thread(true);
+  tracker_->set_assume_not_ui_thread(true);
   EXPECT_TRUE(RLZTracker::GetAccessPointRlz(RLZTracker::ChromeOmnibox(), &rlz));
   EXPECT_STREQ(kOmniboxRlzString, base::UTF16ToUTF8(rlz).c_str());
 
-  tracker_.set_assume_not_ui_thread(false);
+  tracker_->set_assume_not_ui_thread(false);
   EXPECT_TRUE(RLZTracker::GetAccessPointRlz(RLZTracker::ChromeOmnibox(), &rlz));
   EXPECT_STREQ(kOmniboxRlzString, base::UTF16ToUTF8(rlz).c_str());
 }
@@ -785,7 +810,7 @@ TEST_F(RlzLibTest, PingUpdatesRlzCache) {
   base::string16 rlz;
 
   // Prime the cache.
-  tracker_.set_assume_not_ui_thread(true);
+  tracker_->set_assume_not_ui_thread(true);
 
   EXPECT_TRUE(RLZTracker::GetAccessPointRlz(RLZTracker::ChromeOmnibox(), &rlz));
   EXPECT_STREQ(kOmniboxRlzString, base::UTF16ToUTF8(rlz).c_str());
@@ -796,7 +821,7 @@ TEST_F(RlzLibTest, PingUpdatesRlzCache) {
   EXPECT_STREQ(kAppListRlzString, base::UTF16ToUTF8(rlz).c_str());
 
   // Make sure cache is valid.
-  tracker_.set_assume_not_ui_thread(false);
+  tracker_->set_assume_not_ui_thread(false);
 
   EXPECT_TRUE(RLZTracker::GetAccessPointRlz(RLZTracker::ChromeOmnibox(), &rlz));
   EXPECT_STREQ(kOmniboxRlzString, base::UTF16ToUTF8(rlz).c_str());
@@ -807,13 +832,13 @@ TEST_F(RlzLibTest, PingUpdatesRlzCache) {
   EXPECT_STREQ(kAppListRlzString, base::UTF16ToUTF8(rlz).c_str());
 
   // Perform ping.
-  tracker_.set_assume_not_ui_thread(true);
+  tracker_->set_assume_not_ui_thread(true);
   TestRLZTracker::InitRlzDelayed(true, false, kDelay, true, true, false);
   InvokeDelayedInit();
   ExpectRlzPingSent(true);
 
   // Make sure cache is now updated.
-  tracker_.set_assume_not_ui_thread(false);
+  tracker_->set_assume_not_ui_thread(false);
 
   EXPECT_TRUE(RLZTracker::GetAccessPointRlz(RLZTracker::ChromeOmnibox(), &rlz));
   EXPECT_STREQ(kNewOmniboxRlzString, base::UTF16ToUTF8(rlz).c_str());
@@ -825,15 +850,19 @@ TEST_F(RlzLibTest, PingUpdatesRlzCache) {
 }
 
 TEST_F(RlzLibTest, ObserveHandlesBadArgs) {
-  scoped_ptr<NavigationEntry> entry(NavigationEntry::Create());
-  entry->SetPageID(0);
-  entry->SetTransitionType(ui::PAGE_TRANSITION_LINK);
-  tracker_.Observe(content::NOTIFICATION_NAV_ENTRY_PENDING,
-                   content::NotificationService::AllSources(),
-                   content::Details<NavigationEntry>(NULL));
-  tracker_.Observe(content::NOTIFICATION_NAV_ENTRY_PENDING,
-                   content::NotificationService::AllSources(),
-                   content::Details<NavigationEntry>(entry.get()));
+  scoped_ptr<LoadCommittedDetails> details(new LoadCommittedDetails());
+  scoped_ptr<content::NavigationEntry> entry(
+      content::NavigationEntry::Create());
+  details->entry = entry.get();
+  details->entry->SetPageID(0);
+  details->entry->SetTransitionType(ui::PAGE_TRANSITION_LINK);
+
+  tracker_->Observe(content::NOTIFICATION_NAV_ENTRY_COMMITTED,
+                    content::NotificationService::AllSources(),
+                    content::Details<NavigationEntry>(NULL));
+  tracker_->Observe(content::NOTIFICATION_NAV_ENTRY_COMMITTED,
+                    content::NotificationService::AllSources(),
+                    content::Details<LoadCommittedDetails>(details.get()));
 }
 
 // TODO(thakis): Reactivation doesn't exist on Mac yet.

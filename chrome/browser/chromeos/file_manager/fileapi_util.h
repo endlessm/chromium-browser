@@ -19,7 +19,7 @@ class Profile;
 
 namespace content {
 struct FileChooserFileInfo;
-class RenderViewHost;
+class RenderFrameHost;
 }
 
 namespace storage {
@@ -84,9 +84,9 @@ storage::FileSystemContext* GetFileSystemContextForExtensionId(
 
 // Returns a file system context associated with the given profile and the
 // render view host.
-storage::FileSystemContext* GetFileSystemContextForRenderViewHost(
+storage::FileSystemContext* GetFileSystemContextForRenderFrameHost(
     Profile* profile,
-    content::RenderViewHost* render_view_host);
+    content::RenderFrameHost* render_frame_host);
 
 // Converts DrivePath (e.g., "drive/root", which always starts with the fixed
 // "drive" directory) to a RelativeFileSystemPathrelative (e.g.,
@@ -145,11 +145,17 @@ void ConvertSelectedFileInfoListToFileChooserFileInfoList(
     const SelectedFileInfoList& selected_info_list,
     const FileChooserFileInfoListCallback& callback);
 
-// Checks if a directory exists at |url|.
+// Checks if a directory exists at |directory_path| absolute path.
 void CheckIfDirectoryExists(
     scoped_refptr<storage::FileSystemContext> file_system_context,
-    const GURL& url,
+    const base::FilePath& directory_path,
     const storage::FileSystemOperationRunner::StatusCallback& callback);
+
+// Get metadata for an entry at |entry_path| absolute path.
+void GetMetadataForPath(
+    scoped_refptr<storage::FileSystemContext> file_system_context,
+    const base::FilePath& entry_path,
+    const storage::FileSystemOperationRunner::GetMetadataCallback& callback);
 
 // Obtains isolated file system URL from |virtual_path| pointing a file in the
 // external file system.

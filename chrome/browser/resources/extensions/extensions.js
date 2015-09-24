@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+<include src="../../../../ui/webui/resources/js/cr/ui/focus_row.js">
+<include src="../../../../ui/webui/resources/js/cr/ui/focus_grid.js">
 <include src="../uber/uber_utils.js">
 <include src="extension_code.js">
 <include src="extension_commands_overlay.js">
@@ -16,30 +18,22 @@
 <include src="chromeos/kiosk_apps.js">
 </if>
 
-/**
- * The type of the extension data object. The definition is based on
- * chrome/browser/ui/webui/extensions/extension_settings_handler.cc:
- *     ExtensionSettingsHandler::HandleRequestExtensionsData()
- * @typedef {{developerMode: boolean,
- *            extensions: Array,
- *            incognitoAvailable: boolean,
- *            loadUnpackedDisabled: boolean,
- *            profileIsSupervised: boolean,
- *            promoteAppsDevTools: boolean}}
- */
-var ExtensionDataResponse;
-
 // Used for observing function of the backend datasource for this page by
 // tests.
 var webuiResponded = false;
 
 cr.define('extensions', function() {
-  var ExtensionsList = options.ExtensionsList;
+  var ExtensionList = extensions.ExtensionList;
 
   // Implements the DragWrapper handler interface.
   var dragWrapperHandler = {
     /** @override */
     shouldAcceptDrag: function(e) {
+      // External Extension installation can be disabled globally, e.g. while a
+      // different overlay is already showing.
+      if (!ExtensionSettings.getInstance().dragEnabled_)
+        return false;
+
       // We can't access filenames during the 'dragenter' event, so we have to
       // wait until 'drop' to decide whether to do something with the file or
       // not.
@@ -50,7 +44,6 @@ cr.define('extensions', function() {
     /** @override */
     doDragEnter: function() {
       chrome.send('startDrag');
-      ExtensionSettings.showOverlay(null);
       ExtensionSettings.showOverlay($('drop-target-overlay'));
     },
     /** @override */
@@ -105,6 +98,8 @@ cr.define('extensions', function() {
   /**
    * ExtensionSettings class
    * @class
+   * @constructor
+   * @implements {extensions.ExtensionListDelegate}
    */
   function ExtensionSettings() {}
 
@@ -114,16 +109,26 @@ cr.define('extensions', function() {
     __proto__: HTMLDivElement.prototype,
 
     /**
-     * Whether or not to try to display the Apps Developer Tools promotion.
+     * The drag-drop wrapper for installing external Extensions, if available.
+     * null if external Extension installation is not available.
+     * @type {cr.ui.DragWrapper}
+     * @private
+     */
+    dragWrapper_: null,
+
+    /**
+     * True if drag-drop is both available and currently enabled - it can be
+     * temporarily disabled while overlays are showing.
      * @type {boolean}
      * @private
      */
-    displayPromo_: false,
+    dragEnabled_: false,
 
     /**
      * Perform initial setup.
      */
     initialize: function() {
+      this.setLoading_(true);
       uber.onContentFrameLoaded();
       cr.ui.FocusOutlineManager.forDocument(document);
       measureCheckboxStrings();
@@ -131,37 +136,49 @@ cr.define('extensions', function() {
       // Set the title.
       uber.setTitle(loadTimeData.getString('extensionSettings'));
 
-      // This will request the data to show on the page and will get a response
-      // back in returnExtensionsData.
-      chrome.send('extensionSettingsRequestExtensionsData');
+      var extensionList = new ExtensionList(this);
+      extensionList.id = 'extension-settings-list';
+      var wrapper = $('extension-list-wrapper');
+      wrapper.insertBefore(extensionList, wrapper.firstChild);
+
+      // Get the initial profile state, and register to be notified of any
+      // future changes.
+      chrome.developerPrivate.getProfileConfiguration(
+          this.update_.bind(this));
+      chrome.developerPrivate.onProfileStateChanged.addListener(
+          this.update_.bind(this));
 
       var extensionLoader = extensions.ExtensionLoader.getInstance();
 
-      $('toggle-dev-on').addEventListener('change',
-          this.handleToggleDevMode_.bind(this));
-      $('dev-controls').addEventListener('webkitTransitionEnd',
-          this.handleDevControlsTransitionEnd_.bind(this));
+      $('toggle-dev-on').addEventListener('change', function(e) {
+        this.updateDevControlsVisibility_(true);
+        extensionList.updateFocusableElements();
+        chrome.developerPrivate.updateProfileConfiguration(
+            {inDeveloperMode: e.target.checked});
+        var suffix = $('toggle-dev-on').checked ? 'Enabled' : 'Disabled';
+        chrome.send('metricsHandler:recordAction',
+                    ['Options_ToggleDeveloperMode_' + suffix]);
+      }.bind(this));
+
+      window.addEventListener('resize', function() {
+        this.updateDevControlsVisibility_(false);
+      }.bind(this));
 
       // Set up the three dev mode buttons (load unpacked, pack and update).
       $('load-unpacked').addEventListener('click', function(e) {
-          extensionLoader.loadUnpacked();
+        chrome.send('metricsHandler:recordAction',
+                    ['Options_LoadUnpackedExtension']);
+        extensionLoader.loadUnpacked();
       });
       $('pack-extension').addEventListener('click',
           this.handlePackExtension_.bind(this));
       $('update-extensions-now').addEventListener('click',
           this.handleUpdateExtensionNow_.bind(this));
 
-      // Set up the close dialog for the apps developer tools promo.
-      $('apps-developer-tools-promo').querySelector('.close-button').
-          addEventListener('click', function(e) {
-        this.displayPromo_ = false;
-        this.updatePromoVisibility_();
-        chrome.send('extensionSettingsDismissADTPromo');
-      }.bind(this));
-
       if (!loadTimeData.getBoolean('offStoreInstallEnabled')) {
         this.dragWrapper_ = new cr.ui.DragWrapper(document.documentElement,
                                                   dragWrapperHandler);
+        this.dragEnabled_ = true;
       }
 
       extensions.PackExtensionOverlay.getInstance().initializePage();
@@ -179,6 +196,16 @@ cr.define('extensions', function() {
 
       extensions.ExtensionOptionsOverlay.getInstance().initializePage(
           extensions.ExtensionSettings.showOverlay);
+
+      // Add user action logging for bottom links.
+      var moreExtensionLink =
+          document.getElementsByClassName('more-extensions-link');
+      for (var i = 0; i < moreExtensionLink.length; i++) {
+        moreExtensionLink[i].addEventListener('click', function(e) {
+          chrome.send('metricsHandler:recordAction',
+                      ['Options_GetMoreExtensions']);
+        });
+      }
 
       // Initialize the kiosk overlay.
       if (cr.isChromeOS) {
@@ -208,23 +235,50 @@ cr.define('extensions', function() {
     },
 
     /**
-     * Updates the Chrome Apps and Extensions Developer Tools promotion's
-     * visibility.
+     * [Re]-Populates the page with data representing the current state of
+     * installed extensions.
+     * @param {ProfileInfo} profileInfo
      * @private
      */
-    updatePromoVisibility_: function() {
-      var extensionSettings = $('extension-settings');
-      var visible = extensionSettings.classList.contains('dev-mode') &&
-                    this.displayPromo_;
+    update_: function(profileInfo) {
+      this.setLoading_(true);
+      webuiResponded = true;
 
-      var adtPromo = $('apps-developer-tools-promo');
-      var controls = adtPromo.querySelectorAll('a, button');
-      Array.prototype.forEach.call(controls, function(control) {
-        control[visible ? 'removeAttribute' : 'setAttribute']('tabindex', '-1');
-      });
+      /** @const */
+      var supervised = profileInfo.isSupervised;
 
-      adtPromo.setAttribute('aria-hidden', !visible);
-      extensionSettings.classList.toggle('adt-promo', visible);
+      var pageDiv = $('extension-settings');
+      pageDiv.classList.toggle('profile-is-supervised', supervised);
+      pageDiv.classList.toggle('showing-banner', supervised);
+
+      var devControlsCheckbox = $('toggle-dev-on');
+      devControlsCheckbox.checked = profileInfo.inDeveloperMode;
+      devControlsCheckbox.disabled = supervised;
+
+      $('load-unpacked').disabled = !profileInfo.canLoadUnpacked;
+      var extensionList = $('extension-settings-list');
+      extensionList.updateExtensionsData(
+          profileInfo.isIncognitoAvailable,
+          profileInfo.appInfoDialogEnabled).then(function() {
+        this.setLoading_(false);
+        this.onExtensionCountChanged();
+      }.bind(this));
+    },
+
+    /**
+     * Shows the loading spinner and hides elements that shouldn't be visible
+     * while loading.
+     * @param {boolean} isLoading
+     * @private
+     */
+    setLoading_: function(isLoading) {
+      document.documentElement.classList.toggle('loading', isLoading);
+      $('loading-spinner').hidden = !isLoading;
+      $('dev-controls').hidden = isLoading;
+      this.updateDevControlsVisibility_(false);
+
+      // The extension list is already hidden/shown elsewhere and shouldn't be
+      // updated here because it can be hidden if there are no extensions.
     },
 
     /**
@@ -239,10 +293,9 @@ cr.define('extensions', function() {
 
     /**
      * Shows the Extension Commands configuration UI.
-     * @param {Event} e Change event.
      * @private
      */
-    showExtensionCommandsConfigUi_: function(e) {
+    showExtensionCommandsConfigUi_: function() {
       ExtensionSettings.showOverlay($('extension-commands-overlay'));
       chrome.send('metricsHandler:recordAction',
                   ['Options_ExtensionCommands']);
@@ -263,130 +316,46 @@ cr.define('extensions', function() {
      * @private
      */
     handleUpdateExtensionNow_: function(e) {
-      chrome.send('extensionSettingsAutoupdate');
+      chrome.developerPrivate.autoUpdate();
+      chrome.send('metricsHandler:recordAction',
+                  ['Options_UpdateExtensions']);
     },
 
     /**
-     * Handles the Toggle Dev Mode button.
-     * @param {Event} e Change event.
+     * Updates the visibility of the developer controls based on whether the
+     * [x] Developer mode checkbox is checked.
+     * @param {boolean} animated Whether to animate any updates.
      * @private
      */
-    handleToggleDevMode_: function(e) {
-      if ($('toggle-dev-on').checked) {
-        $('dev-controls').hidden = false;
-        window.setTimeout(function() {
-          $('extension-settings').classList.add('dev-mode');
-        }, 0);
-      } else {
-        $('extension-settings').classList.remove('dev-mode');
-      }
-      window.setTimeout(this.updatePromoVisibility_.bind(this), 0);
+    updateDevControlsVisibility_: function(animated) {
+      var showDevControls = $('toggle-dev-on').checked;
+      $('extension-settings').classList.toggle('dev-mode', showDevControls);
 
-      chrome.send('extensionSettingsToggleDeveloperMode');
-    },
+      var devControls = $('dev-controls');
+      devControls.classList.toggle('animated', animated);
 
-    /**
-     * Called when a transition has ended for #dev-controls.
-     * @param {Event} e webkitTransitionEnd event.
-     * @private
-     */
-    handleDevControlsTransitionEnd_: function(e) {
-      if (e.propertyName == 'height' &&
-          !$('extension-settings').classList.contains('dev-mode')) {
-        $('dev-controls').hidden = true;
-      }
-    },
-  };
-
-  /**
-   * Called by the dom_ui_ to re-populate the page with data representing
-   * the current state of installed extensions.
-   * @param {ExtensionDataResponse} extensionsData
-   */
-  ExtensionSettings.returnExtensionsData = function(extensionsData) {
-    // We can get called many times in short order, thus we need to
-    // be careful to remove the 'finished loading' timeout.
-    if (this.loadingTimeout_)
-      window.clearTimeout(this.loadingTimeout_);
-    document.documentElement.classList.add('loading');
-    this.loadingTimeout_ = window.setTimeout(function() {
-      document.documentElement.classList.remove('loading');
-    }, 0);
-
-    webuiResponded = true;
-
-    if (extensionsData.extensions.length > 0) {
-      // Enforce order specified in the data or (if equal) then sort by
-      // extension name (case-insensitive) followed by their ID (in the case
-      // where extensions have the same name).
-      extensionsData.extensions.sort(function(a, b) {
-        function compare(x, y) {
-          return x < y ? -1 : (x > y ? 1 : 0);
-        }
-        return compare(a.order, b.order) ||
-               compare(a.name.toLowerCase(), b.name.toLowerCase()) ||
-               compare(a.id, b.id);
+      var buttons = devControls.querySelector('.button-container');
+      Array.prototype.forEach.call(buttons.querySelectorAll('a, button'),
+                                   function(control) {
+        control.tabIndex = showDevControls ? 0 : -1;
       });
-    }
+      buttons.setAttribute('aria-hidden', !showDevControls);
 
-    var pageDiv = $('extension-settings');
-    var marginTop = 0;
-    if (extensionsData.profileIsSupervised) {
-      pageDiv.classList.add('profile-is-supervised');
-    } else {
-      pageDiv.classList.remove('profile-is-supervised');
-    }
-    if (extensionsData.profileIsSupervised) {
-      pageDiv.classList.add('showing-banner');
-      $('toggle-dev-on').disabled = true;
-      marginTop += 45;
-    } else {
-      pageDiv.classList.remove('showing-banner');
-      $('toggle-dev-on').disabled = false;
-    }
+      window.requestAnimationFrame(function() {
+        devControls.style.height = !showDevControls ? '' :
+            buttons.offsetHeight + 'px';
 
-    pageDiv.style.marginTop = marginTop + 'px';
+        document.dispatchEvent(new Event('devControlsVisibilityUpdated'));
+      }.bind(this));
+    },
 
-    if (extensionsData.developerMode) {
-      pageDiv.classList.add('dev-mode');
-      $('toggle-dev-on').checked = true;
-      $('dev-controls').hidden = false;
-    } else {
-      pageDiv.classList.remove('dev-mode');
-      $('toggle-dev-on').checked = false;
-    }
-
-    ExtensionSettings.getInstance().displayPromo_ =
-        extensionsData.promoteAppsDevTools;
-    ExtensionSettings.getInstance().updatePromoVisibility_();
-
-    $('load-unpacked').disabled = extensionsData.loadUnpackedDisabled;
-
-    ExtensionsList.prototype.data_ = extensionsData;
-    var extensionList = $('extension-settings-list');
-    ExtensionsList.decorate(extensionList);
-  };
-
-  // Indicate that warning |message| has occured for pack of |crx_path| and
-  // |pem_path| files.  Ask if user wants override the warning.  Send
-  // |overrideFlags| to repeated 'pack' call to accomplish the override.
-  ExtensionSettings.askToOverrideWarning =
-      function(message, crx_path, pem_path, overrideFlags) {
-    var closeAlert = function() {
-      ExtensionSettings.showOverlay(null);
-    };
-
-    alertOverlay.setValues(
-        loadTimeData.getString('packExtensionWarningTitle'),
-        message,
-        loadTimeData.getString('packExtensionProceedAnyway'),
-        loadTimeData.getString('cancel'),
-        function() {
-          chrome.send('pack', [crx_path, pem_path, overrideFlags]);
-          closeAlert();
-        },
-        closeAlert);
-    ExtensionSettings.showOverlay($('alertOverlay'));
+    /** @override */
+    onExtensionCountChanged: function() {
+      /** @const */
+      var hasExtensions = $('extension-settings-list').getNumExtensions() != 0;
+      $('no-extensions').hidden = hasExtensions;
+      $('extension-list-wrapper').hidden = !hasExtensions;
+    },
   };
 
   /**
@@ -398,27 +367,41 @@ cr.define('extensions', function() {
   };
 
   /**
-   * Sets the given overlay to show. This hides whatever overlay is currently
-   * showing, if any.
-   * @param {HTMLElement} node The overlay page to show. If falsey, all overlays
+   * Sets the given overlay to show. If the overlay is already showing, this is
+   * a no-op; otherwise, hides any currently-showing overlay.
+   * @param {HTMLElement} node The overlay page to show. If null, all overlays
    *     are hidden.
    */
   ExtensionSettings.showOverlay = function(node) {
     var pageDiv = $('extension-settings');
-    if (node) {
-      pageDiv.style.width = window.getComputedStyle(pageDiv).width;
-      document.body.classList.add('no-scroll');
-    } else {
-      document.body.classList.remove('no-scroll');
-      pageDiv.style.width = '';
-    }
+    pageDiv.style.width = node ? window.getComputedStyle(pageDiv).width : '';
+    document.body.classList.toggle('no-scroll', !!node);
 
     var currentlyShowingOverlay = ExtensionSettings.getCurrentOverlay();
-    if (currentlyShowingOverlay)
+    if (currentlyShowingOverlay) {
+      if (currentlyShowingOverlay == node)  // Already displayed.
+        return;
       currentlyShowingOverlay.classList.remove('showing');
+    }
 
-    if (node)
+    if (node) {
+      var lastFocused;
+
+      var focusOutlineManager = cr.ui.FocusOutlineManager.forDocument(document);
+      if (focusOutlineManager.visible)
+        lastFocused = document.activeElement;
+
+      $('overlay').addEventListener('cancelOverlay', function f() {
+        console.log('cancelOverlay');
+        console.log('lastFocused', lastFocused);
+        console.log('focusOutlineManager.visible', focusOutlineManager.visible);
+        if (lastFocused && focusOutlineManager.visible)
+          lastFocused.focus();
+
+        $('overlay').removeEventListener('cancelOverlay', f);
+      });
       node.classList.add('showing');
+    }
 
     var pages = document.querySelectorAll('.page');
     for (var i = 0; i < pages.length; i++) {
@@ -426,8 +409,32 @@ cr.define('extensions', function() {
     }
 
     $('overlay').hidden = !node;
+
+    if (node)
+      ExtensionSettings.focusOverlay();
+
+    // If drag-drop for external Extension installation is available, enable
+    // drag-drop when there is any overlay showing other than the usual overlay
+    // shown when drag-drop is started.
+    var settings = ExtensionSettings.getInstance();
+    if (settings.dragWrapper_)
+      settings.dragEnabled_ = !node || node == $('drop-target-overlay');
+
     uber.invokeMethodOnParent(node ? 'beginInterceptingEvents' :
                                      'stopInterceptingEvents');
+  };
+
+  ExtensionSettings.focusOverlay = function() {
+    var currentlyShowingOverlay = ExtensionSettings.getCurrentOverlay();
+    assert(currentlyShowingOverlay);
+
+    if (cr.ui.FocusOutlineManager.forDocument(document).visible)
+      cr.ui.setInitialFocus(currentlyShowingOverlay);
+
+    if (!currentlyShowingOverlay.contains(document.activeElement)) {
+      // Make sure focus isn't stuck behind the overlay.
+      document.activeElement.blur();
+    }
   };
 
   /**

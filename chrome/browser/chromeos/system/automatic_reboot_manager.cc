@@ -20,6 +20,7 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
+#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/prefs/pref_registry_simple.h"
@@ -41,7 +42,7 @@
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
-#include "ui/wm/core/user_activity_detector.h"
+#include "ui/base/user_activity/user_activity_detector.h"
 
 namespace chromeos {
 namespace system {
@@ -52,6 +53,8 @@ const int kMinRebootUptimeMs = 60 * 60 * 1000;     // 1 hour.
 const int kLoginManagerIdleTimeoutMs = 60 * 1000;  // 60 seconds.
 const int kGracePeriodMs = 24 * 60 * 60 * 1000;    // 24 hours.
 const int kOneKilobyte = 1 << 10;                  // 1 kB in bytes.
+
+const char kSequenceToken[] = "automatic-reboot-manager";
 
 base::TimeDelta ReadTimeDeltaFromFile(const base::FilePath& path) {
   base::ThreadRestrictions::AssertIOAllowed();
@@ -171,8 +174,8 @@ AutomaticRebootManager::AutomaticRebootManager(
   // idle. Start listening for user activity to determine whether the user is
   // idle or not.
   if (!user_manager::UserManager::Get()->IsUserLoggedIn()) {
-    if (wm::UserActivityDetector::Get())
-      wm::UserActivityDetector::Get()->AddObserver(this);
+    if (ui::UserActivityDetector::Get())
+      ui::UserActivityDetector::Get()->AddObserver(this);
     notification_registrar_.Add(this, chrome::NOTIFICATION_LOGIN_USER_CHANGED,
         content::NotificationService::AllSources());
     login_screen_idle_timer_.reset(
@@ -181,10 +184,13 @@ AutomaticRebootManager::AutomaticRebootManager(
   }
 
   // In a regular browser, base::ThreadTaskRunnerHandle::Get() and
-  // base::MessageLoopProxy::current() return pointers to the same object.
+  // base::ThreadTaskRunnerHandle::Get() return pointers to the same object.
   // In unit tests, using base::ThreadTaskRunnerHandle::Get() has the advantage
   // that it allows a custom base::SingleThreadTaskRunner to be injected.
-  content::BrowserThread::GetBlockingPool()->PostWorkerTaskWithShutdownBehavior(
+  base::SequencedWorkerPool* worker_pool =
+      content::BrowserThread::GetBlockingPool();
+  worker_pool->PostSequencedWorkerTaskWithShutdownBehavior(
+      worker_pool->GetNamedSequenceToken(kSequenceToken),
       FROM_HERE,
       base::Bind(&GetSystemEventTimes,
                  base::ThreadTaskRunnerHandle::Get(),
@@ -201,8 +207,8 @@ AutomaticRebootManager::~AutomaticRebootManager() {
   DBusThreadManager* dbus_thread_manager = DBusThreadManager::Get();
   dbus_thread_manager->GetPowerManagerClient()->RemoveObserver(this);
   dbus_thread_manager->GetUpdateEngineClient()->RemoveObserver(this);
-  if (wm::UserActivityDetector::Get())
-    wm::UserActivityDetector::Get()->RemoveObserver(this);
+  if (ui::UserActivityDetector::Get())
+    ui::UserActivityDetector::Get()->RemoveObserver(this);
 }
 
 void AutomaticRebootManager::AddObserver(
@@ -226,7 +232,7 @@ void AutomaticRebootManager::UpdateStatusChanged(
   // so that only the time of the first notification is taken into account and
   // repeated notifications do not postpone the reboot request and grace period.
   if (status.status != UpdateEngineClient::UPDATE_STATUS_UPDATED_NEED_REBOOT ||
-      have_update_reboot_needed_time_) {
+      !have_boot_time_ || have_update_reboot_needed_time_) {
     return;
   }
 
@@ -269,8 +275,8 @@ void AutomaticRebootManager::Observe(
   } else if (type == chrome::NOTIFICATION_LOGIN_USER_CHANGED) {
     // A session is starting. Stop listening for user activity as it no longer
     // is a relevant criterion.
-    if (wm::UserActivityDetector::Get())
-      wm::UserActivityDetector::Get()->RemoveObserver(this);
+    if (ui::UserActivityDetector::Get())
+      ui::UserActivityDetector::Get()->RemoveObserver(this);
     notification_registrar_.Remove(
         this, chrome::NOTIFICATION_LOGIN_USER_CHANGED,
         content::NotificationService::AllSources());
@@ -353,6 +359,7 @@ void AutomaticRebootManager::Reschedule() {
   const base::TimeTicks now = clock_->NowTicks();
   const base::TimeTicks grace_start_time = std::max(reboot_request_time,
       boot_time_ + base::TimeDelta::FromMilliseconds(kMinRebootUptimeMs));
+
   // Set up a timer for the start of the grace period. If the grace period
   // started in the past, the timer is still used with its delay set to zero.
   if (!grace_start_timer_)
@@ -372,7 +379,6 @@ void AutomaticRebootManager::Reschedule() {
                           std::max(grace_end_time - now, kZeroTimeDelta),
                           base::Bind(&AutomaticRebootManager::Reboot,
                                      base::Unretained(this)));
-
 }
 
 void AutomaticRebootManager::RequestReboot() {

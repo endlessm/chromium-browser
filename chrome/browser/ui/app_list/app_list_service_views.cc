@@ -6,7 +6,10 @@
 
 #include "chrome/browser/apps/scoped_keep_alive.h"
 #include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
+#include "ui/app_list/app_list_switches.h"
+#include "ui/app_list/views/app_list_main_view.h"
 #include "ui/app_list/views/app_list_view.h"
+#include "ui/app_list/views/contents_view.h"
 
 AppListServiceViews::AppListServiceViews(
     scoped_ptr<AppListControllerDelegate> controller_delegate)
@@ -27,13 +30,42 @@ void AppListServiceViews::Init(Profile* initial_profile) {
 }
 
 void AppListServiceViews::ShowForProfile(Profile* requested_profile) {
-  DCHECK(requested_profile);
+  // App list profiles should not be off-the-record. It is currently possible to
+  // get here in an off-the-record profile via the Web Store
+  // (http://crbug.com/416380).
+  // TODO(mgiuca): DCHECK that requested_profile->IsOffTheRecord() and
+  // requested_profile->IsGuestSession() are false, once that is resolved.
 
-  ScopedKeepAlive keep_alive;
+  ShowForProfileInternal(requested_profile,
+                         app_list::AppListModel::INVALID_STATE);
+}
 
-  CreateForProfile(requested_profile);
-  shower_.ShowForCurrentProfile();
-  RecordAppListLaunch();
+void AppListServiceViews::ShowForAppInstall(Profile* profile,
+                                            const std::string& extension_id,
+                                            bool start_discovery_tracking) {
+  if (app_list::switches::IsExperimentalAppListEnabled())
+    ShowForProfileInternal(profile, app_list::AppListModel::STATE_APPS);
+
+  AppListServiceImpl::ShowForAppInstall(profile, extension_id,
+                                        start_discovery_tracking);
+}
+
+void AppListServiceViews::ShowForCustomLauncherPage(Profile* profile) {
+  ShowForProfileInternal(profile,
+                         app_list::AppListModel::STATE_CUSTOM_LAUNCHER_PAGE);
+}
+
+void AppListServiceViews::HideCustomLauncherPage() {
+  if (!shower_.IsAppListVisible())
+    return;
+
+  app_list::ContentsView* contents_view =
+      shower_.app_list()->app_list_main_view()->contents_view();
+
+  if (contents_view->IsStateActive(
+          app_list::AppListModel::STATE_CUSTOM_LAUNCHER_PAGE)) {
+    contents_view->SetActiveState(app_list::AppListModel::STATE_START, true);
+  }
 }
 
 void AppListServiceViews::DismissAppList() {
@@ -78,4 +110,24 @@ void AppListServiceViews::DestroyAppList() {
 
 AppListViewDelegate* AppListServiceViews::GetViewDelegateForCreate() {
   return GetViewDelegate(shower_.profile());
+}
+
+void AppListServiceViews::ShowForProfileInternal(
+    Profile* profile,
+    app_list::AppListModel::State state) {
+  DCHECK(profile);
+
+  ScopedKeepAlive keep_alive;
+
+  CreateForProfile(profile);
+
+  if (state != app_list::AppListModel::INVALID_STATE) {
+    app_list::ContentsView* contents_view =
+        shower_.app_list()->app_list_main_view()->contents_view();
+    contents_view->SetActiveState(state,
+                                 shower_.IsAppListVisible() /* animate */);
+  }
+
+  shower_.ShowForCurrentProfile();
+  RecordAppListLaunch();
 }

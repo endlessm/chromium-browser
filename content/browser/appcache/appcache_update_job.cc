@@ -7,12 +7,12 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/compiler_specific.h"
-#include "base/message_loop/message_loop.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/browser/appcache/appcache_group.h"
 #include "content/browser/appcache/appcache_histograms.h"
-#include "net/base/host_port_pair.h"
+#include "content/public/browser/browser_thread.h"
 #include "net/base/io_buffer.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
@@ -21,22 +21,15 @@
 #include "net/http/http_response_headers.h"
 #include "net/url_request/url_request_context.h"
 
-namespace {
-bool IsDataReductionProxy(const net::HostPortPair& proxy_server) {
-  return (
-      proxy_server.Equals(net::HostPortPair("proxy.googlezip.net", 443)) ||
-      proxy_server.Equals(net::HostPortPair("compress.googlezip.net", 80)) ||
-      proxy_server.Equals(net::HostPortPair("proxy-dev.googlezip.net", 80)));
-}
-}  // namspace
-
 namespace content {
 
-static const int kBufferSize = 32768;
-static const size_t kMaxConcurrentUrlFetches = 2;
-static const int kMax503Retries = 3;
+namespace {
 
-static std::string FormatUrlErrorMessage(
+const int kBufferSize = 32768;
+const size_t kMaxConcurrentUrlFetches = 2;
+const int kMax503Retries = 3;
+
+std::string FormatUrlErrorMessage(
       const char* format, const GURL& url,
       AppCacheUpdateJob::ResultType error,
       int response_code) {
@@ -46,6 +39,34 @@ static std::string FormatUrlErrorMessage(
       code = static_cast<int>(error);
     return base::StringPrintf(format, code, url.spec().c_str());
 }
+
+bool IsEvictableError(AppCacheUpdateJob::ResultType result,
+                      const AppCacheErrorDetails& details) {
+  switch (result) {
+    case AppCacheUpdateJob::DB_ERROR:
+    case AppCacheUpdateJob::DISKCACHE_ERROR:
+    case AppCacheUpdateJob::QUOTA_ERROR:
+    case AppCacheUpdateJob::NETWORK_ERROR:
+    case AppCacheUpdateJob::CANCELLED_ERROR:
+      return false;
+
+    case AppCacheUpdateJob::REDIRECT_ERROR:
+    case AppCacheUpdateJob::SERVER_ERROR:
+    case AppCacheUpdateJob::SECURITY_ERROR:
+      return true;
+
+    case AppCacheUpdateJob::MANIFEST_ERROR:
+      return details.reason == APPCACHE_SIGNATURE_ERROR;
+
+    default:
+      NOTREACHED();
+      return true;
+  }
+}
+
+void EmptyCompletionCallback(int result) {}
+
+}  // namespace
 
 // Helper class for collecting hosts per frontend when sending notifications
 // so that only one notification is sent for all hosts using the same frontend.
@@ -133,7 +154,7 @@ AppCacheUpdateJob::URLFetcher::URLFetcher(const GURL& url,
       retry_503_attempts_(0),
       buffer_(new net::IOBuffer(kBufferSize)),
       request_(job->service_->request_context()
-                   ->CreateRequest(url, net::DEFAULT_PRIORITY, this, NULL)),
+                   ->CreateRequest(url, net::DEFAULT_PRIORITY, this)),
       result_(UPDATE_OK),
       redirect_response_code_(-1) {}
 
@@ -142,9 +163,9 @@ AppCacheUpdateJob::URLFetcher::~URLFetcher() {
 
 void AppCacheUpdateJob::URLFetcher::Start() {
   request_->set_first_party_for_cookies(job_->manifest_url_);
-  request_->SetLoadFlags(request_->load_flags() |
-                         net::LOAD_DISABLE_INTERCEPT);
-  if (existing_response_headers_.get())
+  if (fetch_type_ == MANIFEST_FETCH && job_->doing_full_update_check_)
+    request_->SetLoadFlags(request_->load_flags() | net::LOAD_BYPASS_CACHE);
+  else if (existing_response_headers_.get())
     AddConditionalHeaders(existing_response_headers_.get());
   request_->Start();
 }
@@ -154,16 +175,6 @@ void AppCacheUpdateJob::URLFetcher::OnReceivedRedirect(
     const net::RedirectInfo& redirect_info,
     bool* defer_redirect) {
   DCHECK(request_ == request);
-  // TODO(bengr): Remove this special case logic when crbug.com/429505 is
-  // resolved. Until then, the data reduction proxy client logic uses the
-  // redirect mechanism to resend requests over a direct connection when
-  // the proxy instructs it to do so. The redirect is to the same location
-  // as the original URL.
-  if ((request->load_flags() & net::LOAD_BYPASS_PROXY) &&
-      IsDataReductionProxy(request->proxy_server())) {
-    DCHECK_EQ(request->original_url(), request->url());
-    return;
-  }
   // Redirect is not allowed by the update process.
   job_->MadeProgress();
   redirect_response_code_ = request->GetResponseCode();
@@ -190,7 +201,7 @@ void AppCacheUpdateJob::URLFetcher::OnResponseStarted(
     return;
   }
 
-  if (url_.SchemeIsSecure()) {
+  if (url_.SchemeIsCryptographic()) {
     // Do not cache content with cert errors.
     // Also, we willfully violate the HTML5 spec at this point in order
     // to support the appcaching of cross-origin HTTPS resources.
@@ -199,7 +210,12 @@ void AppCacheUpdateJob::URLFetcher::OnResponseStarted(
     // requested on the whatwg list.
     // See http://code.google.com/p/chromium/issues/detail?id=69594
     // TODO(michaeln): Consider doing this for cross-origin HTTP too.
-    if (net::IsCertStatusError(request->ssl_info().cert_status) ||
+    const net::HttpNetworkSession::Params* session_params =
+        request->context()->GetNetworkSessionParams();
+    bool ignore_cert_errors = session_params &&
+                              session_params->ignore_certificate_errors;
+    if ((net::IsCertStatusError(request->ssl_info().cert_status) &&
+            !ignore_cert_errors) ||
         (url_.GetOrigin() != job_->manifest_url_.GetOrigin() &&
             request->response_headers()->
                 HasHeaderValue("cache-control", "no-store"))) {
@@ -360,7 +376,7 @@ bool AppCacheUpdateJob::URLFetcher::MaybeRetryRequest() {
   ++retry_503_attempts_;
   result_ = UPDATE_OK;
   request_ = job_->service_->request_context()->CreateRequest(
-      url_, net::DEFAULT_PRIORITY, this, NULL);
+      url_, net::DEFAULT_PRIORITY, this);
   Start();
   return true;
 }
@@ -372,12 +388,14 @@ AppCacheUpdateJob::AppCacheUpdateJob(AppCacheServiceImpl* service,
       group_(group),
       update_type_(UNKNOWN_TYPE),
       internal_state_(FETCH_MANIFEST),
+      doing_full_update_check_(false),
       master_entries_completed_(0),
       url_fetches_completed_(0),
       manifest_fetcher_(NULL),
       manifest_has_valid_mime_type_(false),
       stored_state_(UNSTORED),
-      storage_(service->storage()) {
+      storage_(service->storage()),
+      weak_factory_(this) {
     service_->AddObserver(this);
 }
 
@@ -444,10 +462,15 @@ void AppCacheUpdateJob::StartUpdate(AppCacheHost* host,
   MadeProgress();
   group_->SetUpdateAppCacheStatus(AppCacheGroup::CHECKING);
   if (group_->HasCache()) {
+    base::TimeDelta kFullUpdateInterval = base::TimeDelta::FromHours(24);
     update_type_ = UPGRADE_ATTEMPT;
+    base::TimeDelta time_since_last_check =
+        base::Time::Now() - group_->last_full_update_check_time();
+    doing_full_update_check_ = time_since_last_check > kFullUpdateInterval;
     NotifyAllAssociatedHosts(APPCACHE_CHECKING_EVENT);
   } else {
     update_type_ = CACHE_ATTEMPT;
+    doing_full_update_check_ = true;
     DCHECK(host);
     NotifySingleHost(host, APPCACHE_CHECKING_EVENT);
   }
@@ -457,7 +480,10 @@ void AppCacheUpdateJob::StartUpdate(AppCacheHost* host,
                               is_new_pending_master_entry);
   }
 
-  FetchManifest(true);
+  BrowserThread::PostAfterStartupTask(
+      FROM_HERE, base::ThreadTaskRunnerHandle::Get(),
+      base::Bind(&AppCacheUpdateJob::FetchManifest, weak_factory_.GetWeakPtr(),
+                 true));
 }
 
 AppCacheResponseWriter* AppCacheUpdateJob::CreateResponseWriter() {
@@ -483,6 +509,34 @@ void AppCacheUpdateJob::HandleCacheFailure(
   NotifyAllError(error_details);
   DiscardInprogressCache();
   internal_state_ = COMPLETED;
+
+  if (update_type_ == CACHE_ATTEMPT ||
+      !IsEvictableError(result, error_details) ||
+      service_->storage() != storage_) {
+    DeleteSoon();
+    return;
+  }
+
+  if (group_->first_evictable_error_time().is_null()) {
+    group_->set_first_evictable_error_time(base::Time::Now());
+    storage_->StoreEvictionTimes(group_);
+    DeleteSoon();
+    return;
+  }
+
+  base::TimeDelta kMaxEvictableErrorDuration = base::TimeDelta::FromDays(14);
+  base::TimeDelta error_duration =
+      base::Time::Now() - group_->first_evictable_error_time();
+  if (error_duration > kMaxEvictableErrorDuration) {
+    // Break the connection with the group prior to calling
+    // DeleteAppCacheGroup, otherwise that method would delete |this|
+    // and we need the stack to unwind prior to deletion.
+    group_->SetUpdateAppCacheStatus(AppCacheGroup::IDLE);
+    group_ = NULL;
+    service_->DeleteAppCacheGroup(manifest_url_,
+                                  base::Bind(EmptyCompletionCallback));
+  }
+
   DeleteSoon();  // To unwind the stack prior to deletion.
 }
 
@@ -494,24 +548,25 @@ void AppCacheUpdateJob::FetchManifest(bool is_first_fetch) {
                       URLFetcher::MANIFEST_REFETCH,
      this);
 
-  // Add any necessary Http headers before sending fetch request.
   if (is_first_fetch) {
+    // Maybe load the cached headers to make a condiditional request.
     AppCacheEntry* entry = (update_type_ == UPGRADE_ATTEMPT) ?
         group_->newest_complete_cache()->GetEntry(manifest_url_) : NULL;
-    if (entry) {
+    if (entry && !doing_full_update_check_) {
       // Asynchronously load response info for manifest from newest cache.
       storage_->LoadResponseInfo(manifest_url_, group_->group_id(),
                                  entry->response_id(), this);
-    } else {
-      manifest_fetcher_->Start();
+      return;
     }
-  } else {
-    DCHECK(internal_state_ == REFETCH_MANIFEST);
-    DCHECK(manifest_response_info_.get());
-    manifest_fetcher_->set_existing_response_headers(
-        manifest_response_info_->headers.get());
     manifest_fetcher_->Start();
+    return;
   }
+
+  DCHECK(internal_state_ == REFETCH_MANIFEST);
+  DCHECK(manifest_response_info_.get());
+  manifest_fetcher_->set_existing_response_headers(
+      manifest_response_info_->headers.get());
+  manifest_fetcher_->Start();
 }
 
 
@@ -579,11 +634,9 @@ void AppCacheUpdateJob::OnGroupMadeObsolete(AppCacheGroup* group,
   } else {
     // Treat failure to mark group obsolete as a cache failure.
     HandleCacheFailure(AppCacheErrorDetails(
-        "Failed to mark the cache as obsolete",
-        APPCACHE_UNKNOWN_ERROR,
-        GURL(),
-        0,
-        false /*is_cross_origin*/),
+                           "Failed to mark the cache as obsolete",
+                           APPCACHE_UNKNOWN_ERROR, GURL(),  0,
+                           false /*is_cross_origin*/),
                        DB_ERROR,
                        GURL());
   }
@@ -943,6 +996,7 @@ void AppCacheUpdateJob::OnManifestDataWriteComplete(int result) {
 void AppCacheUpdateJob::StoreGroupAndCache() {
   DCHECK(stored_state_ == UNSTORED);
   stored_state_ = STORING;
+
   scoped_refptr<AppCache> newest_cache;
   if (inprogress_cache_.get())
     newest_cache.swap(inprogress_cache_);
@@ -950,8 +1004,10 @@ void AppCacheUpdateJob::StoreGroupAndCache() {
     newest_cache = group_->newest_complete_cache();
   newest_cache->set_update_time(base::Time::Now());
 
-  // TODO(michaeln): dcheck is fishing for clues to crbug/95101
-  DCHECK_EQ(manifest_url_, group_->manifest_url());
+  group_->set_first_evictable_error_time(base::Time());
+  if (doing_full_update_check_)
+    group_->set_last_full_update_check_time(base::Time::Now());
+
   storage_->StoreGroupAndNewestCache(group_, newest_cache.get(), this);
 }
 
@@ -963,28 +1019,29 @@ void AppCacheUpdateJob::OnGroupAndNewestCacheStored(AppCacheGroup* group,
   if (success) {
     stored_state_ = STORED;
     MaybeCompleteUpdate();  // will definitely complete
-  } else {
-    stored_state_ = UNSTORED;
-
-    // Restore inprogress_cache_ to get the proper events delivered
-    // and the proper cleanup to occur.
-    if (newest_cache != group->newest_complete_cache())
-      inprogress_cache_ = newest_cache;
-
-    ResultType result = DB_ERROR;
-    AppCacheErrorReason reason = APPCACHE_UNKNOWN_ERROR;
-    std::string message("Failed to commit new cache to storage");
-    if (would_exceed_quota) {
-      message.append(", would exceed quota");
-      result = QUOTA_ERROR;
-      reason = APPCACHE_QUOTA_ERROR;
-    }
-    HandleCacheFailure(
-        AppCacheErrorDetails(message, reason, GURL(), 0,
-            false /*is_cross_origin*/),
-        result,
-        GURL());
+    return;
   }
+
+  stored_state_ = UNSTORED;
+
+  // Restore inprogress_cache_ to get the proper events delivered
+  // and the proper cleanup to occur.
+  if (newest_cache != group->newest_complete_cache())
+    inprogress_cache_ = newest_cache;
+
+  ResultType result = DB_ERROR;
+  AppCacheErrorReason reason = APPCACHE_UNKNOWN_ERROR;
+  std::string message("Failed to commit new cache to storage");
+  if (would_exceed_quota) {
+    message.append(", would exceed quota");
+    result = QUOTA_ERROR;
+    reason = APPCACHE_QUOTA_ERROR;
+  }
+  HandleCacheFailure(
+      AppCacheErrorDetails(message, reason, GURL(), 0,
+          false /*is_cross_origin*/),
+      result,
+      GURL());
 }
 
 void AppCacheUpdateJob::NotifySingleHost(AppCacheHost* host,
@@ -1466,6 +1523,18 @@ void AppCacheUpdateJob::MaybeCompleteUpdate() {
           case STORED:
             break;
         }
+      } else {
+        bool times_changed = false;
+        if (!group_->first_evictable_error_time().is_null()) {
+          group_->set_first_evictable_error_time(base::Time());
+          times_changed = true;
+        }
+        if (doing_full_update_check_) {
+          group_->set_last_full_update_check_time(base::Time::Now());
+          times_changed = true;
+        }
+        if (times_changed)
+          storage_->StoreEvictionTimes(group_);
       }
       // 6.9.4 steps 7.3-7.7.
       NotifyAllAssociatedHosts(APPCACHE_NO_UPDATE_EVENT);
@@ -1627,8 +1696,10 @@ void AppCacheUpdateJob::DeleteSoon() {
 
   // Break the connection with the group so the group cannot call delete
   // on this object after we've posted a task to delete ourselves.
-  group_->SetUpdateAppCacheStatus(AppCacheGroup::IDLE);
-  group_ = NULL;
+  if (group_) {
+    group_->SetUpdateAppCacheStatus(AppCacheGroup::IDLE);
+    group_ = NULL;
+  }
 
   base::MessageLoop::current()->DeleteSoon(FROM_HERE, this);
 }

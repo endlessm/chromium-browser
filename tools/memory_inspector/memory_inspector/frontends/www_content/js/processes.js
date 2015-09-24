@@ -39,13 +39,15 @@ this.onDomReady_ = function() {
   // Set-up the tracer dialog.
   $('#ps-tracer-dialog').dialog({autoOpen: false, modal: true, width: 400,
       buttons: {'Start': this.startTracingSelectedProcess_.bind(this)}});
-  $('#ps-tracer-period').spinner({min: 0, step: 20});
+  $('#ps-tracer-period').spinner({min: 0, step: 10});
   $('#ps-tracer-snapshots').spinner({min: 1, max: 100});
 
   // Create the process table.
   this.psTable_ = new google.visualization.Table($('#ps-table')[0]);
   google.visualization.events.addListener(
       this.psTable_, 'select', this.onPsTableRowSelect_.bind(this));
+  google.visualization.events.addListener(
+      this.psTable_, 'ready', this.onPsTableRedrawn_.bind(this));
   $('#ps-table').on('dblclick', this.snapshotSelectedProcess_.bind(this));
 
   // Create the device stats charts.
@@ -65,14 +67,14 @@ this.getSelectedProcessURI = function() {
 
 this.snapshotSelectedProcess_ = function() {
   if (!this.selProcUri_)
-    return alert('Must select a process!');
+    return rootUi.showDialog('Must select a process!');
   mmap.dumpMmaps(this.selProcUri_, true);
   rootUi.showTab('prof');
 };
 
 this.dumpSelectedProcessMmaps_ = function() {
   if (!this.selProcUri_)
-    return alert('Must select a process!');
+    return rootUi.showDialog('Must select a process!');
   mmap.dumpMmaps(this.selProcUri_, false);
   rootUi.showTab('mm');
 };
@@ -99,14 +101,18 @@ this.showAndroidProvisionDialog_ = function() {
 
 this.showTracingDialog_ = function() {
   if (!this.selProcUri_)
-    return alert('Must select a process!');
+    return rootUi.showDialog('Must select a process!');
   $('#ps-tracer-process').val(this.selProcName_);
+  if (window.DISABLE_NATIVE_TRACING) {
+    $('#ps-tracer-bt').hide();
+    $('label[for="ps-tracer-bt"]').hide();
+  }
   $('#ps-tracer-dialog').dialog('open');
 };
 
 this.startTracingSelectedProcess_ = function() {
   if (!this.selProcUri_)
-    return alert('The process ' + this.selProcUri_ + ' died.');
+    return rootUi.showDialog('The process ' + this.selProcUri_ + ' died.');
   var traceNativeHeap = $('#ps-tracer-bt').prop('checked');
 
   $('#ps-tracer-dialog').dialog('close');
@@ -195,6 +201,10 @@ this.onPsTableRowSelect_ = function() {
   this.startSelectedProcessStats();
 };
 
+this.onPsTableRedrawn_ = function() {
+  rootUi.restoreScrollPosition();
+};
+
 this.onPsAjaxResponse_ = function(data) {
   this.psTableData_ = new google.visualization.DataTable(data);
   this.redrawPsTable_();
@@ -206,6 +216,7 @@ this.redrawPsTable_ = function(data) {
 
   // Redraw table preserving sorting info.
   var sort = this.psTable_.getSortInfo() || {column: -1, ascending: false};
+  rootUi.saveScrollPosition();
   this.psTable_.draw(this.psTableData_, {sortColumn: sort.column,
                                          sortAscending: sort.ascending});
 };

@@ -10,6 +10,7 @@
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "components/sync_driver/data_type_controller.h"
 #include "components/sync_driver/data_type_error_handler.h"
+#include "sync/internal_api/public/base/model_type.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 namespace sync_driver {
@@ -25,7 +26,7 @@ class ProfileSyncComponentsFactoryMock : public ProfileSyncComponentsFactory {
   ProfileSyncComponentsFactoryMock(
       sync_driver::AssociatorInterface* model_associator,
       sync_driver::ChangeProcessor* change_processor);
-  virtual ~ProfileSyncComponentsFactoryMock();
+  ~ProfileSyncComponentsFactoryMock() override;
 
   MOCK_METHOD1(RegisterDataTypes, void(ProfileSyncService*));
   MOCK_METHOD5(CreateDataTypeManager,
@@ -43,16 +44,18 @@ class ProfileSyncComponentsFactoryMock : public ProfileSyncComponentsFactory {
                    const base::WeakPtr<sync_driver::SyncPrefs>& sync_prefs,
                    const base::FilePath& sync_folder));
 
-  virtual scoped_ptr<sync_driver::LocalDeviceInfoProvider>
+  scoped_ptr<sync_driver::LocalDeviceInfoProvider>
       CreateLocalDeviceInfoProvider() override;
   void SetLocalDeviceInfoProvider(
       scoped_ptr<sync_driver::LocalDeviceInfoProvider> local_device);
 
   MOCK_METHOD1(GetSyncableServiceForType,
                base::WeakPtr<syncer::SyncableService>(syncer::ModelType));
-  virtual scoped_ptr<syncer::AttachmentService> CreateAttachmentService(
-      const scoped_refptr<syncer::AttachmentStore>& attachment_store,
+  scoped_ptr<syncer::AttachmentService> CreateAttachmentService(
+      scoped_ptr<syncer::AttachmentStoreForSync> attachment_store,
       const syncer::UserShare& user_share,
+      const std::string& store_birthday,
+      syncer::ModelType model_type,
       syncer::AttachmentService::Delegate* delegate) override;
   MOCK_METHOD2(CreateBookmarkSyncComponents,
       SyncComponents(ProfileSyncService* profile_sync_service,

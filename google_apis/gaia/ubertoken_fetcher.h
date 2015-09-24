@@ -26,6 +26,11 @@ namespace net {
 class URLRequestContextGetter;
 }
 
+typedef base::Callback<GaiaAuthFetcher*(GaiaAuthConsumer*,
+                                        const std::string&,
+                                        net::URLRequestContextGetter*)>
+    GaiaAuthFetcherFactory;
+
 // Callback for the |UbertokenFetcher| class.
 class UbertokenConsumer {
  public:
@@ -46,10 +51,17 @@ class UbertokenFetcher : public GaiaAuthConsumer,
                    UbertokenConsumer* consumer,
                    const std::string& source,
                    net::URLRequestContextGetter* request_context);
+  UbertokenFetcher(OAuth2TokenService* token_service,
+                   UbertokenConsumer* consumer,
+                   const std::string& source,
+                   net::URLRequestContextGetter* request_context,
+                   GaiaAuthFetcherFactory factory);
   ~UbertokenFetcher() override;
 
   // Start fetching the token for |account_id|.
   virtual void StartFetchingToken(const std::string& account_id);
+  virtual void StartFetchingTokenWithAccessToken(const std::string& account_id,
+      const std::string& access_token);
 
   // Overriden from GaiaAuthConsumer
   void OnUberAuthTokenSuccess(const std::string& token) override;
@@ -73,6 +85,7 @@ class UbertokenFetcher : public GaiaAuthConsumer,
   UbertokenConsumer* consumer_;
   std::string source_;
   net::URLRequestContextGetter* request_context_;
+  GaiaAuthFetcherFactory gaia_auth_fetcher_factory_;
   scoped_ptr<GaiaAuthFetcher> gaia_auth_fetcher_;
   scoped_ptr<OAuth2TokenService::Request> access_token_request_;
   std::string account_id_;

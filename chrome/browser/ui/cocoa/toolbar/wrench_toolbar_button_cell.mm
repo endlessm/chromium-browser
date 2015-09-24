@@ -6,7 +6,7 @@
 
 #import "chrome/browser/ui/cocoa/themed_window.h"
 #include "ui/gfx/canvas_skia_paint.h"
-#include "ui/gfx/rect.h"
+#include "ui/gfx/geometry/rect.h"
 
 class WrenchIconPainterDelegateMac : public WrenchIconPainter::Delegate {
  public:
@@ -66,7 +66,13 @@ class WrenchIconPainterDelegateMac : public WrenchIconPainter::Delegate {
   wrenchIconPainter_->SetSeverity(severity, shouldAnimate);
 }
 
+- (void)setOverflowedToolbarActionWantsToRun:(BOOL)overflowedActionWantsToRun {
+  overflowedToolbarActionWantsToRun_ = overflowedActionWantsToRun;
+  [[self controlView] setNeedsDisplay:YES];
+}
+
 - (void)commonInit {
+  overflowedToolbarActionWantsToRun_ = NO;
   delegate_.reset(new WrenchIconPainterDelegateMac(self));
   wrenchIconPainter_.reset(new WrenchIconPainter(delegate_.get()));
 }
@@ -77,6 +83,13 @@ class WrenchIconPainterDelegateMac : public WrenchIconPainter::Delegate {
   if ([self isMouseInside])
     return WrenchIconPainter::BEZEL_HOVER;
   return WrenchIconPainter::BEZEL_NONE;
+}
+
+#pragma mark -
+#pragma mark Testing Methods
+
+- (BOOL)overflowedToolbarActionWantsToRun {
+  return overflowedToolbarActionWantsToRun_;
 }
 
 @end

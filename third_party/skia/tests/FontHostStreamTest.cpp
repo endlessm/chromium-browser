@@ -9,7 +9,6 @@
 #include "SkCanvas.h"
 #include "SkColor.h"
 #include "SkFontDescriptor.h"
-#include "SkFontHost.h"
 #include "SkGraphics.h"
 #include "SkPaint.h"
 #include "SkPoint.h"
@@ -97,8 +96,8 @@ DEF_TEST(FontHostStream, reporter) {
         }
 
         int ttcIndex;
-        SkAutoTUnref<SkStream> fontData(origTypeface->openStream(&ttcIndex));
-        SkTypeface* streamTypeface = SkTypeface::CreateFromStream(fontData);
+        SkAutoTDelete<SkStreamAsset> fontData(origTypeface->openStream(&ttcIndex));
+        SkTypeface* streamTypeface = SkTypeface::CreateFromStream(fontData.detach());
 
         SkFontDescriptor desc;
         bool isLocalStream = false;

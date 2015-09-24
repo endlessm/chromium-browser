@@ -38,12 +38,22 @@
 class ExtensionApiNewTabTest : public ExtensionApiTest {
  public:
   ExtensionApiNewTabTest() {}
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionApiTest::SetUpCommandLine(command_line);
     // Override the default which InProcessBrowserTest adds if it doesn't see a
     // homepage.
     command_line->AppendSwitchASCII(
         switches::kHomePage, chrome::kChromeUINewTabURL);
+  }
+};
+
+class ExtensionApiTabAudioMutingTest : public ExtensionApiTest {
+ public:
+  ExtensionApiTabAudioMutingTest() {}
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    ExtensionApiTest::SetUpCommandLine(command_line);
+
+    command_line->AppendSwitch(switches::kEnableTabAudioMuting);
   }
 };
 
@@ -55,6 +65,14 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiNewTabTest, Tabs) {
       prefs::kHomePageIsNewTabPage, true);
 
   ASSERT_TRUE(RunExtensionSubtest("tabs/basics", "crud.html")) << message_;
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionApiTabAudioMutingTest, TabAudible) {
+  ASSERT_TRUE(RunExtensionSubtest("tabs/basics", "audible.html")) << message_;
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionApiTabAudioMutingTest, TabMuted) {
+  ASSERT_TRUE(RunExtensionSubtest("tabs/basics", "muted.html")) << message_;
 }
 
 // Flaky on windows: http://crbug.com/238667
@@ -165,7 +183,7 @@ class ExtensionApiCaptureTest : public ExtensionApiTest {
     ExtensionApiTest::SetUp();
   }
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionApiTest::SetUpCommandLine(command_line);
   }
 };
@@ -254,6 +272,6 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest, DISABLED_GetViewsOfCreatedWindow) {
       << message_;
 }
 
-// Adding a new test? Awesome. But API tests are the old hotness. The
-// new hotness is extension_test_utils. See tabs_test.cc for an example.
+// Adding a new test? Awesome. But API tests are the old hotness. The new
+// hotness is extension_function_test_utils. See tabs_test.cc for an example.
 // We are trying to phase out many uses of API tests as they tend to be flaky.

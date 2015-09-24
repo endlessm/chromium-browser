@@ -13,7 +13,6 @@
 #include "base/threading/thread_restrictions.h"
 #include "net/base/escape.h"
 #include "net/base/filename_util_internal.h"
-#include "net/base/mime_util.h"
 #include "net/base/net_string_util.h"
 #include "net/http/http_content_disposition.h"
 #include "url/gurl.h"
@@ -29,12 +28,6 @@ GURL FilePathToFileURL(const base::FilePath& path) {
   // "file://///server/path" for UNC. The URL canonicalizer will fix up the
   // latter case to be the canonical UNC form: "file://server/path"
   base::FilePath::StringType url_string(kFileURLPrefix);
-  if (!path.IsAbsolute()) {
-    base::FilePath current_dir;
-    PathService::Get(base::DIR_CURRENT, &current_dir);
-    url_string.append(current_dir.value());
-    url_string.push_back(base::FilePath::kSeparators[0]);
-  }
   url_string.append(path.value());
 
   // Now do replacement of some characters. Since we assume the input is a
@@ -43,21 +36,21 @@ GURL FilePathToFileURL(const base::FilePath& path) {
 
   // must be the first substitution since others will introduce percents as the
   // escape character
-  ReplaceSubstringsAfterOffset(
+  base::ReplaceSubstringsAfterOffset(
       &url_string, 0, FILE_PATH_LITERAL("%"), FILE_PATH_LITERAL("%25"));
 
   // semicolon is supposed to be some kind of separator according to RFC 2396
-  ReplaceSubstringsAfterOffset(
+  base::ReplaceSubstringsAfterOffset(
       &url_string, 0, FILE_PATH_LITERAL(";"), FILE_PATH_LITERAL("%3B"));
 
-  ReplaceSubstringsAfterOffset(
+  base::ReplaceSubstringsAfterOffset(
       &url_string, 0, FILE_PATH_LITERAL("#"), FILE_PATH_LITERAL("%23"));
 
-  ReplaceSubstringsAfterOffset(
+  base::ReplaceSubstringsAfterOffset(
       &url_string, 0, FILE_PATH_LITERAL("?"), FILE_PATH_LITERAL("%3F"));
 
 #if defined(OS_POSIX)
-  ReplaceSubstringsAfterOffset(
+  base::ReplaceSubstringsAfterOffset(
       &url_string, 0, FILE_PATH_LITERAL("\\"), FILE_PATH_LITERAL("%5C"));
 #endif
 
@@ -128,7 +121,7 @@ bool FileURLToFilePath(const GURL& url, base::FilePath* file_path) {
   std::string new_path;
   do {
     new_path = path;
-    ReplaceSubstringsAfterOffset(&new_path, 0, "//", "/");
+    base::ReplaceSubstringsAfterOffset(&new_path, 0, "//", "/");
     path.swap(new_path);
   } while (new_path != path);
 
@@ -148,7 +141,7 @@ void GenerateSafeFileName(const std::string& mime_type,
   // Prepend "_" to the file name if it's a reserved name
   base::FilePath::StringType leaf_name = file_path->BaseName().value();
   DCHECK(!leaf_name.empty());
-  if (IsReservedName(leaf_name)) {
+  if (IsReservedNameOnWindows(leaf_name)) {
     leaf_name = base::FilePath::StringType(FILE_PATH_LITERAL("_")) + leaf_name;
     *file_path = file_path->DirName();
     if (file_path->value() == base::FilePath::kCurrentDirectory) {
@@ -158,6 +151,46 @@ void GenerateSafeFileName(const std::string& mime_type,
     }
   }
 #endif
+}
+
+bool IsReservedNameOnWindows(const base::FilePath::StringType& filename) {
+  // This list is taken from the MSDN article "Naming a file"
+  // http://msdn2.microsoft.com/en-us/library/aa365247(VS.85).aspx
+  // I also added clock$ because GetSaveFileName seems to consider it as a
+  // reserved name too.
+  static const char* const known_devices[] = {
+      "con",  "prn",  "aux",  "nul",  "com1", "com2", "com3",  "com4",
+      "com5", "com6", "com7", "com8", "com9", "lpt1", "lpt2",  "lpt3",
+      "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9", "clock$"};
+#if defined(OS_WIN)
+  std::string filename_lower =
+      base::StringToLowerASCII(base::WideToUTF8(filename));
+#elif defined(OS_POSIX)
+  std::string filename_lower = base::StringToLowerASCII(filename);
+#endif
+
+  for (size_t i = 0; i < arraysize(known_devices); ++i) {
+    // Exact match.
+    if (filename_lower == known_devices[i])
+      return true;
+    // Starts with "DEVICE.".
+    if (filename_lower.find(std::string(known_devices[i]) + ".") == 0)
+      return true;
+  }
+
+  static const char* const magic_names[] = {
+      // These file names are used by the "Customize folder" feature of the
+      // shell.
+      "desktop.ini",
+      "thumbs.db",
+  };
+
+  for (size_t i = 0; i < arraysize(magic_names); ++i) {
+    if (filename_lower == magic_names[i])
+      return true;
+  }
+
+  return false;
 }
 
 }  // namespace net

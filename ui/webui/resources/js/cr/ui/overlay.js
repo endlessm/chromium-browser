@@ -97,6 +97,8 @@ cr.define('cr.ui.overlay', function() {
     var closeButtons = overlay.querySelectorAll('.page > .close-button');
     for (var i = 0; i < closeButtons.length; i++) {
       closeButtons[i].addEventListener('click', function(e) {
+        if (cr.ui.FocusOutlineManager)
+          cr.ui.FocusOutlineManager.forDocument(document).updateVisibility();
         cr.dispatchSimpleEvent(overlay, 'cancelOverlay');
       });
     }
@@ -130,6 +132,7 @@ cr.define('cr.ui.overlay', function() {
   }
 
   return {
+    getDefaultButton: getDefaultButton,
     globalInitialization: globalInitialization,
     setupOverlay: setupOverlay,
   };

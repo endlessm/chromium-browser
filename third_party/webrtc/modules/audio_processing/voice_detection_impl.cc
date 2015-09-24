@@ -59,7 +59,7 @@ int VoiceDetectionImpl::ProcessCaptureAudio(AudioBuffer* audio) {
     using_external_vad_ = false;
     return apm_->kNoError;
   }
-  assert(audio->samples_per_split_channel() <= 160);
+  assert(audio->num_frames_per_band() <= 160);
 
   // TODO(ajm): concatenate data in frame buffer here.
 
@@ -148,14 +148,7 @@ int VoiceDetectionImpl::Initialize() {
 }
 
 void* VoiceDetectionImpl::CreateHandle() const {
-  Handle* handle = NULL;
-  if (WebRtcVad_Create(&handle) != apm_->kNoError) {
-    handle = NULL;
-  } else {
-    assert(handle != NULL);
-  }
-
-  return handle;
+  return WebRtcVad_Create();
 }
 
 void VoiceDetectionImpl::DestroyHandle(void* handle) const {

@@ -65,7 +65,7 @@ XPathResult::XPathResult(EvaluationContext& context, const Value& value)
     ASSERT_NOT_REACHED();
 }
 
-void XPathResult::trace(Visitor* visitor)
+DEFINE_TRACE(XPathResult)
 {
     visitor->trace(m_value);
     visitor->trace(m_nodeSet);
@@ -155,7 +155,7 @@ Node* XPathResult::singleNodeValue(ExceptionState& exceptionState) const
 {
     if (resultType() != ANY_UNORDERED_NODE_TYPE && resultType() != FIRST_ORDERED_NODE_TYPE) {
         exceptionState.throwTypeError("The result type is not a single node.");
-        return 0;
+        return nullptr;
     }
 
     const NodeSet& nodes = m_value.toNodeSet(0);
@@ -173,7 +173,7 @@ bool XPathResult::invalidIteratorState() const
     return m_document->domTreeVersion() != m_domTreeVersion;
 }
 
-unsigned long XPathResult::snapshotLength(ExceptionState& exceptionState) const
+unsigned XPathResult::snapshotLength(ExceptionState& exceptionState) const
 {
     if (resultType() != UNORDERED_NODE_SNAPSHOT_TYPE && resultType() != ORDERED_NODE_SNAPSHOT_TYPE) {
         exceptionState.throwTypeError("The result type is not a snapshot.");
@@ -187,16 +187,16 @@ Node* XPathResult::iterateNext(ExceptionState& exceptionState)
 {
     if (resultType() != UNORDERED_NODE_ITERATOR_TYPE && resultType() != ORDERED_NODE_ITERATOR_TYPE) {
         exceptionState.throwTypeError("The result type is not an iterator.");
-        return 0;
+        return nullptr;
     }
 
     if (invalidIteratorState()) {
         exceptionState.throwDOMException(InvalidStateError, "The document has mutated since the result was returned.");
-        return 0;
+        return nullptr;
     }
 
     if (m_nodeSetPosition + 1 > nodeSet().size())
-        return 0;
+        return nullptr;
 
     Node* node = nodeSet()[m_nodeSetPosition];
 
@@ -205,16 +205,16 @@ Node* XPathResult::iterateNext(ExceptionState& exceptionState)
     return node;
 }
 
-Node* XPathResult::snapshotItem(unsigned long index, ExceptionState& exceptionState)
+Node* XPathResult::snapshotItem(unsigned index, ExceptionState& exceptionState)
 {
     if (resultType() != UNORDERED_NODE_SNAPSHOT_TYPE && resultType() != ORDERED_NODE_SNAPSHOT_TYPE) {
         exceptionState.throwTypeError("The result type is not a snapshot.");
-        return 0;
+        return nullptr;
     }
 
     const NodeSet& nodes = m_value.toNodeSet(0);
     if (index >= nodes.size())
-        return 0;
+        return nullptr;
 
     return nodes[index];
 }

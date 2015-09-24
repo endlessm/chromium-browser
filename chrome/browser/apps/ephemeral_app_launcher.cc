@@ -11,8 +11,10 @@
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/extensions/extension_enable_flow.h"
+#include "chrome/browser/ui/native_window_tracker.h"
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
@@ -21,7 +23,9 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/management_policy.h"
+#include "extensions/common/constants.h"
 #include "extensions/common/permissions/permissions_data.h"
+#include "ui/app_list/app_list_switches.h"
 
 using content::WebContents;
 using extensions::Extension;
@@ -89,8 +93,8 @@ bool CheckCommonLaunchCriteria(Profile* profile,
 
 // static
 bool EphemeralAppLauncher::IsFeatureEnabled() {
-  return CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableEphemeralApps);
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+             switches::kEnableEphemeralAppsInWebstore);
 }
 
 // static
@@ -163,6 +167,8 @@ EphemeralAppLauncher::EphemeralAppLauncher(const std::string& webstore_item_id,
       parent_window_(parent_window),
       dummy_web_contents_(
           WebContents::Create(WebContents::CreateParams(profile))) {
+   if (parent_window_)
+     parent_window_tracker_ = NativeWindowTracker::Create(parent_window);
 }
 
 EphemeralAppLauncher::EphemeralAppLauncher(const std::string& webstore_item_id,
@@ -276,7 +282,8 @@ void EphemeralAppLauncher::LaunchApp(const Extension* extension) const {
          ExtensionRegistry::Get(profile())
              ->GetExtensionById(extension->id(), ExtensionRegistry::ENABLED));
 
-  AppLaunchParams params(profile(), extension, NEW_FOREGROUND_TAB);
+  AppLaunchParams params(profile(), extension, NEW_FOREGROUND_TAB,
+                         extensions::SOURCE_EPHEMERAL_APP);
   params.desktop_type =
       chrome::GetHostDesktopTypeForNativeWindow(parent_window_);
   OpenApplication(params);
@@ -353,7 +360,14 @@ void EphemeralAppLauncher::InitInstallData(
 }
 
 bool EphemeralAppLauncher::CheckRequestorAlive() const {
-  return dummy_web_contents_.get() != NULL || web_contents() != NULL;
+  if (!parent_window_) {
+    // Assume the requestor is always alive if |parent_window_| is null.
+    return true;
+  }
+
+  return (web_contents() != nullptr ||
+          (parent_window_tracker_ &&
+              !parent_window_tracker_->WasNativeWindowClosed()));
 }
 
 const GURL& EphemeralAppLauncher::GetRequestorURL() const {
@@ -379,9 +393,7 @@ EphemeralAppLauncher::CreateInstallPrompt() const {
 
   // Skip the prompt by returning null if the app does not need to display
   // permission warnings.
-  extensions::PermissionMessages permissions =
-      extension->permissions_data()->GetPermissionMessages();
-  if (permissions.empty())
+  if (extension->permissions_data()->GetPermissionMessageStrings().empty())
     return NULL;
 
   return make_scoped_refptr(new ExtensionInstallPrompt::Prompt(

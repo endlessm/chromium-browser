@@ -6,11 +6,11 @@ package org.chromium.example.jni_generator;
 
 import android.graphics.Rect;
 
-import org.chromium.base.AccessedByNative;
 import org.chromium.base.CalledByNative;
-import org.chromium.base.CalledByNativeUnchecked;
 import org.chromium.base.JNINamespace;
 import org.chromium.base.NativeClassQualifiedName;
+import org.chromium.base.annotations.AccessedByNative;
+import org.chromium.base.annotations.CalledByNativeUnchecked;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -92,7 +92,7 @@ import java.util.List;
 @JNINamespace("base::android")
 class SampleForTests {
     // Classes can store their C++ pointer counter part as an int that is normally initialized by
-    // calling out a nativeInit() function.
+    // calling out a nativeInit() function. Replace "CPPClass" with your particular class name!
     long mNativeCPPObject;
 
     // You can define methods and attributes on the java class just like any other.
@@ -101,7 +101,7 @@ class SampleForTests {
     }
 
     public void startExample() {
-        // Calls native code and holds a pointer to the C++ class.
+        // Calls C++ Init(...) method and holds a pointer to the C++ class.
         mNativeCPPObject = nativeInit("myParam");
     }
 
@@ -125,7 +125,7 @@ class SampleForTests {
     // This is triggered by the @CalledByNative annotation; the methods may be named as you wish.
 
     // Exported to C++ as:
-    // Java_Example_javaMethod(JNIEnv* env, jobject obj, jint foo, jint bar)
+    // Java_Example_javaMethod(JNIEnv* env, jobject caller, jint foo, jint bar)
     // Typically the C++ code would have obtained the jobject via the Init() call described above.
     @CalledByNative
     public int javaMethod(int foo, int bar) {
@@ -177,7 +177,7 @@ class SampleForTests {
     // signatures. Besides these constraints the methods can be freely named.
 
     // This declares a C++ function which the application code must implement:
-    // static jint Init(JNIEnv* env, jobject obj);
+    // static jint Init(JNIEnv* env, jobject caller);
     // The jobject parameter refers back to this java side object instance.
     // The implementation must return the pointer to the C++ object cast to jint.
     // The caller of this method should store it, and supply it as a the nativeCPPClass param to
@@ -187,14 +187,15 @@ class SampleForTests {
 
     // This defines a function binding to the associated C++ class member function. The name is
     // derived from |nativeDestroy| and |nativeCPPClass| to arrive at CPPClass::Destroy() (i.e.
-    // native
-    // prefixes stripped).
-    // The |nativeCPPClass| is automatically cast to type CPPClass* in order to obtain the object on
-    // which to invoke the member function.
+    // native prefixes stripped).
+    //
+    // The |nativeCPPClass| is automatically cast to type CPPClass*, in order to obtain the object
+    // on
+    // which to invoke the member function. Replace "CPPClass" with your particular class name!
     private native void nativeDestroy(long nativeCPPClass);
 
     // This declares a C++ function which the application code must implement:
-    // static jdouble GetDoubleFunction(JNIEnv* env, jobject obj);
+    // static jdouble GetDoubleFunction(JNIEnv* env, jobject caller);
     // The jobject parameter refers back to this java side object instance.
     private native double nativeGetDoubleFunction();
 
@@ -203,21 +204,19 @@ class SampleForTests {
     private static native float nativeGetFloatFunction();
 
     // This function takes a non-POD datatype. We have a list mapping them to their full classpath
-    // in
-    // jni_generator.py JavaParamToJni. If you require a new datatype, make sure you add to that
+    // in jni_generator.py JavaParamToJni. If you require a new datatype, make sure you add to that
     // function.
     private native void nativeSetNonPODDatatype(Rect rect);
 
     // This declares a C++ function which the application code must implement:
-    // static ScopedJavaLocalRef<jobject> GetNonPODDatatype(JNIEnv* env, jobject obj);
+    // static ScopedJavaLocalRef<jobject> GetNonPODDatatype(JNIEnv* env, jobject caller);
     // The jobject parameter refers back to this java side object instance.
     // Note that it returns a ScopedJavaLocalRef<jobject> so that you don' have to worry about
     // deleting the JNI local reference. This is similar with Strings and arrays.
     private native Object nativeGetNonPODDatatype();
 
     // Similar to nativeDestroy above, this will cast nativeCPPClass into pointer of CPPClass type
-    // and
-    // call its Method member function.
+    // and call its Method member function. Replace "CPPClass" with your particular class name!
     private native int nativeMethod(long nativeCPPClass);
 
     // Similar to nativeMethod above, but here the C++ fully qualified class name is taken from the

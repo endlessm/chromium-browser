@@ -38,20 +38,13 @@
 
 #include "native_client/src/include/nacl_base.h"
 #include "native_client/src/public/imc_types.h"  /* NaClImcMsgIoVec */
+#include "native_client/src/public/nacl_desc_custom.h"
 #include "native_client/src/trusted/service_runtime/include/machine/_types.h"
 
 EXTERN_C_BEGIN
 
 struct NaClDescEffector;
-struct NaClDescQuotaInterface;
-
-struct NaClImcTypedMsgHdr {
-  struct NaClImcMsgIoVec  *iov;
-  nacl_abi_size_t         iov_length;
-  struct NaClDesc         **ndescv;     /* ptr to array of ptrs */
-  nacl_abi_size_t         ndesc_length;
-  int32_t                 flags;
-};
+struct NaClImcTypedMsgHdr;
 
 
 /**
@@ -71,8 +64,7 @@ ssize_t NaClImcSendTypedMessage(struct NaClDesc                 *channel,
  */
 ssize_t NaClImcRecvTypedMessage(struct NaClDesc               *channel,
                                 struct NaClImcTypedMsgHdr     *nitmhp,
-                                int32_t                       flags,
-                                struct NaClDescQuotaInterface *quota_interface);
+                                int32_t                       flags);
 
 /**
  * Create a bound socket and corresponding socket address as a pair.

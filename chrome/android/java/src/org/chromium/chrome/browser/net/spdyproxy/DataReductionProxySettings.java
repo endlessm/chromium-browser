@@ -4,6 +4,9 @@
 
 package org.chromium.chrome.browser.net.spdyproxy;
 
+import android.content.Context;
+import android.preference.PreferenceManager;
+
 import org.chromium.base.CalledByNative;
 import org.chromium.base.ThreadUtils;
 
@@ -44,8 +47,53 @@ public class DataReductionProxySettings {
 
     private static DataReductionProxySettings sSettings;
 
+    private static final String ENABLED_PREFERENCE_TAG = "BANDWIDTH_REDUCTION_PROXY_ENABLED";
+
+    /**
+     * Returns whether the data reduction proxy is enabled.
+     *
+     * The knowledge of the data reduction proxy status is needed before the
+     * native library is loaded.
+     *
+     * Note that the returned value can be out-of-date if the Data Reduction
+     * Proxy is enabled/disabled from the native side without going through the
+     * UI. The discrepancy will however be fixed at the next launch, so the
+     * value returned here can be wrong (both false-positive and false-negative)
+     * right after such a change.
+     *
+     * @param context The application context.
+     * @return Whether the data reduction proxy is enabled.
+     */
+    public static boolean isEnabledBeforeNativeLoad(Context context) {
+        // TODO(lizeb): Add a listener for the native preference change to keep
+        // both in sync and avoid the false-positives and false-negatives.
+        return PreferenceManager.getDefaultSharedPreferences(context).getBoolean(
+            ENABLED_PREFERENCE_TAG, false);
+    }
+
+    /**
+     * Reconciles the Java-side data reduction proxy state with the native one.
+     *
+     * The data reduction proxy state needs to be accessible before the native
+     * library has been loaded, from Java. This is possible through
+     * isEnabledBeforeNativeLoad(). Once the native library has been loaded, the
+     * Java preference has to be updated.
+     * This method must be called early at startup, but once the native library
+     * has been loaded.
+     *
+     * @param context The application context.
+     */
+    public static void reconcileDataReductionProxyEnabledState(Context context) {
+        ThreadUtils.assertOnUiThread();
+        boolean enabled = getInstance().isDataReductionProxyEnabled();
+        PreferenceManager.getDefaultSharedPreferences(context).edit()
+                .putBoolean(ENABLED_PREFERENCE_TAG, enabled).apply();
+    }
+
     /**
      * Returns a singleton instance of the settings object.
+     *
+     * Needs the native library to be loaded, otherwise it will crash.
      */
     public static DataReductionProxySettings getInstance() {
         ThreadUtils.assertOnUiThread();
@@ -80,23 +128,59 @@ public class DataReductionProxySettings {
     }
 
     /**
-     * Returns the current data reduction proxy origin.
-     */
-    public String getDataReductionProxyOrigin() {
-        return nativeGetDataReductionProxyOrigin(mNativeDataReductionProxySettings);
-    }
-
-    /**
      * Sets the preference on whether to enable/disable the SPDY proxy. This will zero out the
      * data reduction statistics if this is the first time the SPDY proxy has been enabled.
      */
-    public void setDataReductionProxyEnabled(boolean enabled) {
+    public void setDataReductionProxyEnabled(Context context, boolean enabled) {
+        PreferenceManager.getDefaultSharedPreferences(context).edit()
+                .putBoolean(ENABLED_PREFERENCE_TAG, enabled).apply();
         nativeSetDataReductionProxyEnabled(mNativeDataReductionProxySettings, enabled);
     }
 
-    /** Returns true if the SPDY proxy is enabled. */
+    /** Returns true if the Data Reduction Proxy proxy is enabled. */
     public boolean isDataReductionProxyEnabled() {
         return nativeIsDataReductionProxyEnabled(mNativeDataReductionProxySettings);
+    }
+
+    /**
+     * Returns true if the Data Reduction Proxy proxy can be used for the given url. This method
+     * does not take into account the proxy config or proxy retry list, so it can return true even
+     * when the proxy will not be used.
+     */
+    public boolean canUseDataReductionProxy(String url) {
+        return nativeCanUseDataReductionProxy(mNativeDataReductionProxySettings, url);
+    }
+
+    /**
+     * Returns true if the Data Reduction Proxy's Lo-Fi mode was enabled on the last main frame
+     * request.
+     */
+    public boolean wasLoFiModeActiveOnMainFrame() {
+        return nativeWasLoFiModeActiveOnMainFrame(mNativeDataReductionProxySettings);
+    }
+
+    /**
+     * Returns true if a "Load image" context menu request has not been made since the last main
+     * frame request.
+     */
+    public boolean wasLoFiLoadImageRequestedBefore() {
+        return nativeWasLoFiLoadImageRequestedBefore(mNativeDataReductionProxySettings);
+    }
+
+    /**
+     * Records that a "Load image" context menu request has been made.
+     */
+    public void setLoFiLoadImageRequested() {
+        nativeSetLoFiLoadImageRequested(mNativeDataReductionProxySettings);
+    }
+
+    /**
+     * Counts the number of requests to reload the page with images from the Lo-Fi snackbar. If the
+     * user requests the page with images a certain number of times, then Lo-Fi is disabled for the
+     * session.
+     *  */
+    public void incrementLoFiUserRequestsForImages() {
+        nativeIncrementLoFiUserRequestsForImages(mNativeDataReductionProxySettings);
     }
 
     /** Returns true if the SPDY proxy is managed by an administrator's policy. */
@@ -167,9 +251,17 @@ public class DataReductionProxySettings {
             long nativeDataReductionProxySettingsAndroid);
     private native boolean nativeIsIncludedInAltFieldTrial(
             long nativeDataReductionProxySettingsAndroid);
-    private native String nativeGetDataReductionProxyOrigin(
-            long nativeDataReductionProxySettingsAndroid);
     private native boolean nativeIsDataReductionProxyEnabled(
+            long nativeDataReductionProxySettingsAndroid);
+    private native boolean nativeCanUseDataReductionProxy(
+            long nativeDataReductionProxySettingsAndroid, String url);
+    private native boolean nativeWasLoFiModeActiveOnMainFrame(
+            long nativeDataReductionProxySettingsAndroid);
+    private native boolean nativeWasLoFiLoadImageRequestedBefore(
+            long nativeDataReductionProxySettingsAndroid);
+    private native void nativeSetLoFiLoadImageRequested(
+            long nativeDataReductionProxySettingsAndroid);
+    private native void nativeIncrementLoFiUserRequestsForImages(
             long nativeDataReductionProxySettingsAndroid);
     private native boolean nativeIsDataReductionProxyManaged(
             long nativeDataReductionProxySettingsAndroid);

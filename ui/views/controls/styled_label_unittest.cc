@@ -124,6 +124,32 @@ TEST_F(StyledLabelTest, BasicWrapping) {
   EXPECT_EQ(styled()->height() - 3, styled()->child_at(1)->bounds().bottom());
 }
 
+TEST_F(StyledLabelTest, WrapLongWords) {
+  const std::string text("ThisIsTextAsASingleWord");
+  InitStyledLabel(text);
+  Label label(ASCIIToUTF16(text.substr(0, text.size() * 2 / 3)));
+  gfx::Size label_preferred_size = label.GetPreferredSize();
+  EXPECT_EQ(label_preferred_size.height() * 2,
+            StyledLabelContentHeightForWidth(label_preferred_size.width()));
+
+  styled()->SetBounds(
+      0, 0, styled()->GetInsets().width() + label_preferred_size.width(),
+      styled()->GetInsets().height() + 2 * label_preferred_size.height());
+  styled()->Layout();
+
+  ASSERT_EQ(2, styled()->child_count());
+  ASSERT_EQ(gfx::Point(), styled()->bounds().origin());
+  EXPECT_EQ(gfx::Point(), styled()->child_at(0)->bounds().origin());
+  EXPECT_EQ(gfx::Point(0, styled()->height() / 2),
+            styled()->child_at(1)->bounds().origin());
+
+  EXPECT_FALSE(static_cast<Label*>(styled()->child_at(0))->text().empty());
+  EXPECT_FALSE(static_cast<Label*>(styled()->child_at(1))->text().empty());
+  EXPECT_EQ(ASCIIToUTF16(text),
+            static_cast<Label*>(styled()->child_at(0))->text() +
+                static_cast<Label*>(styled()->child_at(1))->text());
+}
+
 TEST_F(StyledLabelTest, CreateLinks) {
   const std::string text("This is a test block of text.");
   InitStyledLabel(text);
@@ -420,6 +446,50 @@ TEST_F(StyledLabelTest, HandleEmptyLayout) {
   InitStyledLabel(text);
   styled()->Layout();
   EXPECT_EQ(0, styled()->child_count());
+}
+
+TEST_F(StyledLabelTest, CacheSize) {
+  const int preferred_height = 50;
+  const int preferred_width = 100;
+  const std::string text("This is a test block of text.");
+  const base::string16 another_text(base::ASCIIToUTF16(
+      "This is a test block of text. This text is much longer than previous"));
+
+  InitStyledLabel(text);
+
+  // we should be able to calculate height without any problem
+  // no controls should be created
+  int precalculated_height = styled()->GetHeightForWidth(preferred_width);
+  EXPECT_LT(0, precalculated_height);
+  EXPECT_EQ(0, styled()->child_count());
+
+  styled()->SetBounds(0, 0, preferred_width, preferred_height);
+  styled()->Layout();
+
+  // controls should be created after layout
+  // height should be the same as precalculated
+  int real_height = styled()->GetHeightForWidth(styled()->width());
+  View* first_child_after_layout = styled()->has_children() ?
+      styled()->child_at(0) : nullptr;
+  EXPECT_LT(0, styled()->child_count());
+  EXPECT_LT(0, real_height);
+  EXPECT_EQ(real_height, precalculated_height);
+
+  // another call to Layout should not kill and recreate all controls
+  styled()->Layout();
+  View* first_child_after_second_layout = styled()->has_children() ?
+      styled()->child_at(0) : nullptr;
+  EXPECT_EQ(first_child_after_layout, first_child_after_second_layout);
+
+  // if text is changed:
+  // layout should be recalculated
+  // all controls should be recreated
+  styled()->SetText(another_text);
+  int updated_height = styled()->GetHeightForWidth(styled()->width());
+  EXPECT_NE(updated_height, real_height);
+  View* first_child_after_text_update = styled()->has_children() ?
+      styled()->child_at(0) : nullptr;
+  EXPECT_NE(first_child_after_text_update, first_child_after_layout);
 }
 
 }  // namespace views

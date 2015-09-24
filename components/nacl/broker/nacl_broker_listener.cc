@@ -8,8 +8,10 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/path_service.h"
+#include "base/process/process.h"
+#include "base/process/process_handle.h"
+#include "base/thread_task_runner_handle.h"
 #include "components/nacl/common/nacl_cmd_line.h"
 #include "components/nacl/common/nacl_debug_exception_handler_win.h"
 #include "components/nacl/common/nacl_messages.h"
@@ -28,17 +30,15 @@ void SendReply(IPC::Channel* channel, int32 pid, bool result) {
 
 }  // namespace
 
-NaClBrokerListener::NaClBrokerListener()
-    : browser_handle_(base::kNullProcessHandle) {
+NaClBrokerListener::NaClBrokerListener() {
 }
 
 NaClBrokerListener::~NaClBrokerListener() {
-  base::CloseProcessHandle(browser_handle_);
 }
 
 void NaClBrokerListener::Listen() {
   std::string channel_name =
-      CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
           switches::kProcessChannelID);
   channel_ = IPC::Channel::CreateClient(channel_name, this);
   CHECK(channel_->Connect());
@@ -61,8 +61,8 @@ void NaClBrokerListener::PreSpawnTarget(sandbox::TargetPolicy* policy,
 }
 
 void NaClBrokerListener::OnChannelConnected(int32 peer_pid) {
-  bool res = base::OpenPrivilegedProcessHandle(peer_pid, &browser_handle_);
-  CHECK(res);
+  browser_process_ = base::Process::OpenWithExtraPrivileges(peer_pid);
+  CHECK(browser_process_.IsValid());
 }
 
 bool NaClBrokerListener::OnMessageReceived(const IPC::Message& msg) {
@@ -85,7 +85,6 @@ void NaClBrokerListener::OnChannelError() {
 
 void NaClBrokerListener::OnLaunchLoaderThroughBroker(
     const std::string& loader_channel_id) {
-  base::ProcessHandle loader_process = 0;
   base::ProcessHandle loader_handle_in_browser = 0;
 
   // Create the path to the nacl broker/loader executable - it's the executable
@@ -93,7 +92,7 @@ void NaClBrokerListener::OnLaunchLoaderThroughBroker(
   base::FilePath exe_path;
   PathService::Get(base::FILE_EXE, &exe_path);
   if (!exe_path.empty()) {
-    CommandLine* cmd_line = new CommandLine(exe_path);
+    base::CommandLine* cmd_line = new base::CommandLine(exe_path);
     nacl::CopyNaClCommandLineArguments(cmd_line);
 
     cmd_line->AppendSwitchASCII(switches::kProcessType,
@@ -102,8 +101,9 @@ void NaClBrokerListener::OnLaunchLoaderThroughBroker(
     cmd_line->AppendSwitchASCII(switches::kProcessChannelID,
                                 loader_channel_id);
 
-    loader_process = content::StartSandboxedProcess(this, cmd_line);
-    if (loader_process) {
+    base::Process loader_process = content::StartSandboxedProcess(this,
+                                                                  cmd_line);
+    if (loader_process.IsValid()) {
       // Note: PROCESS_DUP_HANDLE is necessary here, because:
       // 1) The current process is the broker, which is the loader's parent.
       // 2) The browser is not the loader's parent, and so only gets the
@@ -112,11 +112,11 @@ void NaClBrokerListener::OnLaunchLoaderThroughBroker(
       //    the loader.
       // 4) The target process handle to DuplicateHandle needs to have
       //    PROCESS_DUP_HANDLE access rights.
-      DuplicateHandle(::GetCurrentProcess(), loader_process,
-          browser_handle_, &loader_handle_in_browser,
+      DuplicateHandle(
+          ::GetCurrentProcess(), loader_process.Handle(),
+          browser_process_.Handle(), &loader_handle_in_browser,
           PROCESS_DUP_HANDLE | PROCESS_QUERY_INFORMATION | PROCESS_TERMINATE,
           FALSE, 0);
-      base::CloseProcessHandle(loader_process);
     }
   }
   channel_->Send(new NaClProcessMsg_LoaderLaunched(loader_channel_id,
@@ -127,8 +127,8 @@ void NaClBrokerListener::OnLaunchDebugExceptionHandler(
     int32 pid, base::ProcessHandle process_handle,
     const std::string& startup_info) {
   NaClStartDebugExceptionHandlerThread(
-      process_handle, startup_info,
-      base::MessageLoopProxy::current(),
+      base::Process(process_handle), startup_info,
+      base::ThreadTaskRunnerHandle::Get(),
       base::Bind(SendReply, channel_.get(), pid));
 }
 

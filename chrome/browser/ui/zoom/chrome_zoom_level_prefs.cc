@@ -4,8 +4,6 @@
 
 #include "chrome/browser/ui/zoom/chrome_zoom_level_prefs.h"
 
-#include <sstream>
-
 #include "base/bind.h"
 #include "base/prefs/json_pref_store.h"
 #include "base/prefs/pref_filter.h"
@@ -16,6 +14,7 @@
 #include "base/values.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/pref_names.h"
+#include "components/ui/zoom/zoom_event_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/host_zoom_map.h"
 #include "content/public/common/page_zoom.h"
@@ -33,52 +32,28 @@ std::string GetHash(
 
 namespace chrome {
 
-ChromeZoomLevelPrefs::ChromeZoomLevelPrefs(PrefService* pref_service,
-                                           const base::FilePath& profile_path)
+ChromeZoomLevelPrefs::ChromeZoomLevelPrefs(
+    PrefService* pref_service,
+    const base::FilePath& profile_path,
+    const base::FilePath& partition_path,
+    base::WeakPtr<ui_zoom::ZoomEventManager> zoom_event_manager)
     : pref_service_(pref_service),
-      profile_path_(profile_path),
+      zoom_event_manager_(zoom_event_manager),
       host_zoom_map_(nullptr) {
   DCHECK(pref_service_);
-}
 
-ChromeZoomLevelPrefs::~ChromeZoomLevelPrefs() {
-}
-
-void ChromeZoomLevelPrefs::InitPrefsAndCopyToHostZoomMap(
-    const base::FilePath& partition_path,
-    content::HostZoomMap* host_zoom_map) {
   DCHECK(!partition_path.empty());
-  DCHECK((partition_path == profile_path_) ||
-         profile_path_.IsParent(partition_path));
-  // This init function must be called only once.
-  DCHECK(!host_zoom_map_);
-  DCHECK(host_zoom_map);
-  host_zoom_map_ = host_zoom_map;
-
+  DCHECK((partition_path == profile_path) ||
+         profile_path.IsParent(partition_path));
   // Create a partition_key string with no '.'s in it. For the default
   // StoragePartition, this string will always be "0".
   base::FilePath partition_relative_path;
-  profile_path_.AppendRelativePath(partition_path, &partition_relative_path);
+  profile_path.AppendRelativePath(partition_path, &partition_relative_path);
   partition_key_ = GetHash(partition_relative_path);
 
-  // Initialize the default zoom level.
-  host_zoom_map_->SetDefaultZoomLevel(GetDefaultZoomLevelPref());
+}
 
-  // Initialize the HostZoomMap with per-host zoom levels from the persisted
-  // zoom-level preference values.
-  const base::DictionaryValue* host_zoom_dictionaries =
-      pref_service_->GetDictionary(prefs::kPartitionPerHostZoomLevels);
-  const base::DictionaryValue* host_zoom_dictionary = nullptr;
-  if (host_zoom_dictionaries->GetDictionary(partition_key_,
-                                            &host_zoom_dictionary)) {
-    // Since we're calling this before setting up zoom_subscription_ below we
-    // don't need to worry that host_zoom_dictionary is indirectly affected
-    // by calls to HostZoomMap::SetZoomLevelForHost().
-    ExtractPerHostZoomLevels(host_zoom_dictionary,
-                             true /* sanitize_partition_host_zoom_levels */);
-  }
-  zoom_subscription_ = host_zoom_map_->AddZoomLevelChangedCallback(base::Bind(
-      &ChromeZoomLevelPrefs::OnZoomLevelChanged, base::Unretained(this)));
+ChromeZoomLevelPrefs::~ChromeZoomLevelPrefs() {
 }
 
 std::string ChromeZoomLevelPrefs::GetHashForTesting(
@@ -96,6 +71,8 @@ void ChromeZoomLevelPrefs::SetDefaultZoomLevelPref(double level) {
   // set this manually.
   host_zoom_map_->SetDefaultZoomLevel(level);
   default_zoom_changed_callbacks_.Notify();
+  if (zoom_event_manager_)
+    zoom_event_manager_->OnDefaultZoomLevelChanged();
 }
 
 double ChromeZoomLevelPrefs::GetDefaultZoomLevelPref() const {
@@ -117,6 +94,12 @@ ChromeZoomLevelPrefs::RegisterDefaultZoomLevelCallback(
 
 void ChromeZoomLevelPrefs::OnZoomLevelChanged(
     const content::HostZoomMap::ZoomLevelChange& change) {
+  // If there's a manager to aggregate ZoomLevelChanged events, pass this event
+  // along. Since we already hold a subscription to our associated HostZoomMap,
+  // we don't need to create a separate subscription for this.
+  if (zoom_event_manager_)
+    zoom_event_manager_->OnZoomLevelChanged(change);
+
   if (change.mode != content::HostZoomMap::ZOOM_CHANGED_FOR_HOST)
     return;
   double level = change.zoom_level;
@@ -147,8 +130,8 @@ void ChromeZoomLevelPrefs::ExtractPerHostZoomLevels(
     const base::DictionaryValue* host_zoom_dictionary,
     bool sanitize_partition_host_zoom_levels) {
   std::vector<std::string> keys_to_remove;
-  scoped_ptr<base::DictionaryValue> host_zoom_dictionary_copy(
-      host_zoom_dictionary->DeepCopyWithoutEmptyChildren());
+  scoped_ptr<base::DictionaryValue> host_zoom_dictionary_copy =
+      host_zoom_dictionary->DeepCopyWithoutEmptyChildren();
   for (base::DictionaryValue::Iterator i(*host_zoom_dictionary_copy);
        !i.IsAtEnd();
        i.Advance()) {
@@ -194,6 +177,33 @@ void ChromeZoomLevelPrefs::ExtractPerHostZoomLevels(
     for (const std::string& s : keys_to_remove)
       host_zoom_dictionary->RemoveWithoutPathExpansion(s, nullptr);
   }
+}
+
+void ChromeZoomLevelPrefs::InitHostZoomMap(
+    content::HostZoomMap* host_zoom_map) {
+  // This init function must be called only once.
+  DCHECK(!host_zoom_map_);
+  DCHECK(host_zoom_map);
+  host_zoom_map_ = host_zoom_map;
+
+  // Initialize the default zoom level.
+  host_zoom_map_->SetDefaultZoomLevel(GetDefaultZoomLevelPref());
+
+  // Initialize the HostZoomMap with per-host zoom levels from the persisted
+  // zoom-level preference values.
+  const base::DictionaryValue* host_zoom_dictionaries =
+      pref_service_->GetDictionary(prefs::kPartitionPerHostZoomLevels);
+  const base::DictionaryValue* host_zoom_dictionary = nullptr;
+  if (host_zoom_dictionaries->GetDictionary(partition_key_,
+                                            &host_zoom_dictionary)) {
+    // Since we're calling this before setting up zoom_subscription_ below we
+    // don't need to worry that host_zoom_dictionary is indirectly affected
+    // by calls to HostZoomMap::SetZoomLevelForHost().
+    ExtractPerHostZoomLevels(host_zoom_dictionary,
+                             true /* sanitize_partition_host_zoom_levels */);
+  }
+  zoom_subscription_ = host_zoom_map_->AddZoomLevelChangedCallback(base::Bind(
+      &ChromeZoomLevelPrefs::OnZoomLevelChanged, base::Unretained(this)));
 }
 
 }  // namespace chrome

@@ -5,14 +5,18 @@
 #import <Cocoa/Cocoa.h>
 #include <vector>
 #import "chrome/browser/ui/cocoa/draggable_button.h"
+#import "chrome/browser/ui/cocoa/themed_window.h"
 #include "ui/base/window_open_disposition.h"
 
 @class BookmarkBarFolderController;
 @class BookmarkButton;
-class BookmarkModel;
-class BookmarkNode;
 @class BrowserWindowController;
 class ThemeService;
+
+namespace bookmarks {
+class BookmarkModel;
+class BookmarkNode;
+}
 
 // Protocol for a BookmarkButton's delegate, responsible for doing
 // things on behalf of a bookmark button.
@@ -72,7 +76,7 @@ class ThemeService;
 - (void)closeBookmarkFolder:(id)sender;
 
 // Return the bookmark model for this controller.
-- (BookmarkModel*)bookmarkModel;
+- (bookmarks::BookmarkModel*)bookmarkModel;
 
 // Perform drag enter/exit operations, such as hover-open and hover-close.
 - (BOOL)draggingAllowed:(id<NSDraggingInfo>)info;
@@ -103,7 +107,7 @@ class ThemeService;
 // Determine if the drag pasteboard has any drag data of type
 // kBookmarkDictionaryListPboardType and, if so, return those elements
 // otherwise return an empty vector.
-- (std::vector<const BookmarkNode*>)retrieveBookmarkNodeData;
+- (std::vector<const bookmarks::BookmarkNode*>)retrieveBookmarkNodeData;
 
 // Return YES if we should show the drop indicator, else NO.  In some
 // cases (e.g. hover open) we don't want to show the drop indicator.
@@ -143,7 +147,7 @@ class ThemeService;
 - (void)addNewFolderControllerWithParentButton:(BookmarkButton*)parentButton;
 
 // Open all of the nodes for the given node with disposition.
-- (void)openAll:(const BookmarkNode*)node
+- (void)openAll:(const bookmarks::BookmarkNode*)node
     disposition:(WindowOpenDisposition)disposition;
 
 // There are several operations which may affect the contents of a bookmark
@@ -159,7 +163,7 @@ class ThemeService;
 // Add a button for the given node to the bar or folder menu. This is safe
 // to call when a folder menu window is open as that window will be updated.
 // And index of -1 means to append to the end (bottom).
-- (void)addButtonForNode:(const BookmarkNode*)node
+- (void)addButtonForNode:(const bookmarks::BookmarkNode*)node
                  atIndex:(NSInteger)buttonIndex;
 
 // Given a list or |urls| and |titles|, create new bookmark nodes and add
@@ -180,13 +184,13 @@ class ThemeService;
 
 // Determine the controller containing the button representing |node|, if any.
 - (id<BookmarkButtonControllerProtocol>)controllerForNode:
-      (const BookmarkNode*)node;
+        (const bookmarks::BookmarkNode*)node;
 
 @end  // @protocol BookmarkButtonControllerProtocol
 
 
 // Class for bookmark bar buttons that can be drag sources.
-@interface BookmarkButton : DraggableButton {
+@interface BookmarkButton : DraggableButton<ThemedWindowDrawing> {
  @private
   IBOutlet NSObject<BookmarkButtonDelegate>* delegate_;  // Weak.
 
@@ -209,7 +213,7 @@ class ThemeService;
 @property(assign, nonatomic) BOOL acceptsTrackIn;
 
 // Return the bookmark node associated with this button, or NULL.
-- (const BookmarkNode*)bookmarkNode;
+- (const bookmarks::BookmarkNode*)bookmarkNode;
 
 // Return YES if this is a folder button (the node has subnodes).
 - (BOOL)isFolder;

@@ -13,7 +13,8 @@
 #include "chrome/browser/ui/views/tabs/tab_renderer_data.h"
 #include "ui/base/layout.h"
 #include "ui/gfx/animation/animation_delegate.h"
-#include "ui/gfx/point.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/gfx/paint_throbber.h"
 #include "ui/views/context_menu_controller.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/glow_hover_controller.h"
@@ -73,6 +74,10 @@ class Tab : public gfx::AnimationDelegate,
   // Returns true if this tab is the active tab.
   bool IsActive() const;
 
+  // Notifies the MediaIndicatorButton that the active state of this tab has
+  // changed.
+  void ActiveStateChanged();
+
   // Returns true if the tab is selected.
   bool IsSelected() const;
 
@@ -88,9 +93,9 @@ class Tab : public gfx::AnimationDelegate,
   void StartPulse();
   void StopPulse();
 
-  // Start/stop the mini-tab title animation.
-  void StartMiniTabTitleAnimation();
-  void StopMiniTabTitleAnimation();
+  // Start/stop the pinned tab title animation.
+  void StartPinnedTabTitleAnimation();
+  void StopPinnedTabTitleAnimation();
 
   // Set the background offset used to match the image in the inactive tab
   // to the frame image.
@@ -109,6 +114,10 @@ class Tab : public gfx::AnimationDelegate,
   views::GlowHoverController* hover_controller() {
     return &hover_controller_;
   }
+
+  // Returns the width of the largest part of the tab that is available for the
+  // user to click to select/activate the tab.
+  int GetWidthOfLargestSelectableRegion() const;
 
   // Returns the inset within the first dragged tab to use when calculating the
   // "drag insertion point".  If we simply used the x-coordinate of the tab,
@@ -134,8 +143,8 @@ class Tab : public gfx::AnimationDelegate,
   // Returns the width for touch tabs.
   static int GetTouchWidth();
 
-  // Returns the width for mini-tabs. Mini-tabs always have this width.
-  static int GetMiniWidth();
+  // Returns the width for pinned tabs. Pinned tabs always have this width.
+  static int GetPinnedWidth();
 
   // Returns the height for immersive mode tabs.
   static int GetImmersiveHeight();
@@ -146,7 +155,7 @@ class Tab : public gfx::AnimationDelegate,
 
   friend class TabStripTest;
   FRIEND_TEST_ALL_PREFIXES(TabStripTest, TabHitTestMaskWhenStacked);
-  FRIEND_TEST_ALL_PREFIXES(TabStripTest, ClippedTabCloseButton);
+  FRIEND_TEST_ALL_PREFIXES(TabStripTest, TabCloseButtonVisibilityWhenStacked);
 
   // The animation object used to swap the favicon with the sad tab icon.
   class FaviconCrashAnimation;
@@ -207,8 +216,8 @@ class Tab : public gfx::AnimationDelegate,
   void OnGestureEvent(ui::GestureEvent* event) override;
 
   // Invoked from Layout to adjust the position of the favicon or media
-  // indicator for mini tabs.
-  void MaybeAdjustLeftForMiniTab(gfx::Rect* bounds) const;
+  // indicator for pinned tabs.
+  void MaybeAdjustLeftForPinnedTab(gfx::Rect* bounds) const;
 
   // Invoked from SetData after |data_| has been updated to the new data.
   void DataChanged(const TabRendererData& old);
@@ -318,9 +327,14 @@ class Tab : public gfx::AnimationDelegate,
   // crashes.
   int favicon_hiding_offset_;
 
-  // The current index of the loading animation. The range varies depending on
-  // whether the tab is loading or waiting, see AdvanceLoadingAnimation().
-  int loading_animation_frame_;
+  // The point in time when the tab icon was first painted in the waiting state.
+  base::TimeTicks waiting_start_time_;
+
+  // The point in time when the tab icon was first painted in the loading state.
+  base::TimeTicks loading_start_time_;
+
+  // Paint state for the throbber after the most recent waiting paint.
+  gfx::ThrobberWaitingState waiting_state_;
 
   // Step in the immersive loading progress indicator.
   int immersive_loading_step_;
@@ -330,7 +344,7 @@ class Tab : public gfx::AnimationDelegate,
   // Whole-tab throbbing "pulse" animation.
   scoped_ptr<gfx::ThrobAnimation> pulse_animation_;
 
-  scoped_ptr<gfx::MultiAnimation> mini_title_change_animation_;
+  scoped_ptr<gfx::MultiAnimation> pinned_title_change_animation_;
 
   // Crash icon animation (in place of favicon).
   scoped_ptr<gfx::LinearAnimation> crash_icon_animation_;

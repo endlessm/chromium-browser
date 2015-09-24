@@ -2,23 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// MSVC++ requires this to be set before any other includes to get M_PI.
+#define _USE_MATH_DEFINES
+
 #include "ui/events/gesture_detection/motion_event_generic.h"
 
+#include <cmath>
+
 #include "base/logging.h"
+#include "ui/events/base_event_utils.h"
 
 namespace ui {
 
 PointerProperties::PointerProperties()
-    : id(0),
-      tool_type(MotionEvent::TOOL_TYPE_UNKNOWN),
-      x(0),
-      y(0),
-      raw_x(0),
-      raw_y(0),
-      pressure(0),
-      touch_major(0),
-      touch_minor(0),
-      orientation(0) {
+    : PointerProperties(0, 0, 0) {
 }
 
 PointerProperties::PointerProperties(float x, float y, float touch_major)
@@ -31,7 +28,8 @@ PointerProperties::PointerProperties(float x, float y, float touch_major)
       pressure(0),
       touch_major(touch_major),
       touch_minor(0),
-      orientation(0) {
+      orientation(0),
+      source_device_id(0) {
 }
 
 PointerProperties::PointerProperties(const MotionEvent& event,
@@ -45,7 +43,39 @@ PointerProperties::PointerProperties(const MotionEvent& event,
       pressure(event.GetPressure(pointer_index)),
       touch_major(event.GetTouchMajor(pointer_index)),
       touch_minor(event.GetTouchMinor(pointer_index)),
-      orientation(event.GetOrientation(pointer_index)) {
+      orientation(event.GetOrientation(pointer_index)),
+      source_device_id(0) {
+}
+
+void PointerProperties::SetAxesAndOrientation(float radius_x,
+                                              float radius_y,
+                                              float rotation_angle_degree) {
+  DCHECK(!touch_major && !touch_minor && !orientation);
+  float rotation_angle_rad = rotation_angle_degree * M_PI / 180.f;
+  DCHECK_GE(radius_x, 0) << "Unexpected x-radius < 0 (" << radius_x << ")";
+  DCHECK_GE(radius_y, 0) << "Unexpected y-radius < 0 (" << radius_y << ")";
+  DCHECK(0 <= rotation_angle_rad && rotation_angle_rad < M_PI)
+      << "Unexpected touch rotation angle " << rotation_angle_rad << " rad";
+
+  // Make the angle acute to ease subsequent logic. The angle range effectively
+  // changes from [0, pi) to [0, pi/2).
+  if (rotation_angle_rad >= M_PI_2) {
+    rotation_angle_rad -= static_cast<float>(M_PI_2);
+    std::swap(radius_x, radius_y);
+  }
+
+  if (radius_x > radius_y) {
+    // The case radius_x == radius_y is omitted from here on purpose: for
+    // circles, we want to pass the angle (which could be any value in such
+    // cases but always seem to be set to zero) unchanged.
+    touch_major = 2.f * radius_x;
+    touch_minor = 2.f * radius_y;
+    orientation = rotation_angle_rad - M_PI_2;
+  } else {
+    touch_major = 2.f * radius_y;
+    touch_minor = 2.f * radius_x;
+    orientation = rotation_angle_rad;
+  }
 }
 
 MotionEventGeneric::MotionEventGeneric(Action action,
@@ -53,7 +83,7 @@ MotionEventGeneric::MotionEventGeneric(Action action,
                                        const PointerProperties& pointer)
     : action_(action),
       event_time_(event_time),
-      id_(0),
+      unique_event_id_(ui::GetNextTouchEventId()),
       action_index_(0),
       button_state_(0),
       flags_(0) {
@@ -63,7 +93,7 @@ MotionEventGeneric::MotionEventGeneric(Action action,
 MotionEventGeneric::MotionEventGeneric(const MotionEventGeneric& other)
     : action_(other.action_),
       event_time_(other.event_time_),
-      id_(other.id_),
+      unique_event_id_(other.unique_event_id_),
       action_index_(other.action_index_),
       button_state_(other.button_state_),
       flags_(other.flags_),
@@ -76,8 +106,8 @@ MotionEventGeneric::MotionEventGeneric(const MotionEventGeneric& other)
 MotionEventGeneric::~MotionEventGeneric() {
 }
 
-int MotionEventGeneric::GetId() const {
-  return id_;
+uint32 MotionEventGeneric::GetUniqueEventId() const {
+  return unique_event_id_;
 }
 
 MotionEvent::Action MotionEventGeneric::GetAction() const {
@@ -85,6 +115,9 @@ MotionEvent::Action MotionEventGeneric::GetAction() const {
 }
 
 int MotionEventGeneric::GetActionIndex() const {
+  DCHECK(action_ == ACTION_POINTER_DOWN || action_ == ACTION_POINTER_UP);
+  DCHECK_GE(action_index_, 0);
+  DCHECK_LT(action_index_, static_cast<int>(pointers_->size()));
   return action_index_;
 }
 
@@ -198,12 +231,19 @@ scoped_ptr<MotionEventGeneric> MotionEventGeneric::CancelEvent(
   scoped_ptr<MotionEventGeneric> cancel_event(
       new MotionEventGeneric(event, with_history));
   cancel_event->set_action(ACTION_CANCEL);
+  cancel_event->set_unique_event_id(ui::GetNextTouchEventId());
   return cancel_event.Pass();
 }
 
-void MotionEventGeneric::PushPointer(const PointerProperties& pointer) {
+size_t MotionEventGeneric::PushPointer(const PointerProperties& pointer) {
   DCHECK_EQ(0U, GetHistorySize());
   pointers_->push_back(pointer);
+  return pointers_->size() - 1;
+}
+
+void MotionEventGeneric::RemovePointerAt(size_t index) {
+  DCHECK_LT(index, pointers_->size());
+  pointers_->erase(pointers_->begin() + index);
 }
 
 void MotionEventGeneric::PushHistoricalEvent(scoped_ptr<MotionEvent> event) {
@@ -213,18 +253,21 @@ void MotionEventGeneric::PushHistoricalEvent(scoped_ptr<MotionEvent> event) {
   DCHECK_EQ(event->GetAction(), GetAction());
   DCHECK_LE(event->GetEventTime().ToInternalValue(),
             GetEventTime().ToInternalValue());
-  historical_events_.push_back(event.release());
+  historical_events_.push_back(event.Pass());
 }
 
 MotionEventGeneric::MotionEventGeneric()
-    : action_(ACTION_CANCEL), id_(0), action_index_(0), button_state_(0) {
+    : action_(ACTION_CANCEL),
+      unique_event_id_(ui::GetNextTouchEventId()),
+      action_index_(0),
+      button_state_(0) {
 }
 
 MotionEventGeneric::MotionEventGeneric(const MotionEvent& event,
                                        bool with_history)
     : action_(event.GetAction()),
       event_time_(event.GetEventTime()),
-      id_(event.GetId()),
+      unique_event_id_(event.GetUniqueEventId()),
       action_index_(
           (action_ == ACTION_POINTER_UP || action_ == ACTION_POINTER_DOWN)
               ? event.GetActionIndex()
@@ -257,7 +300,7 @@ MotionEventGeneric& MotionEventGeneric::operator=(
     const MotionEventGeneric& other) {
   action_ = other.action_;
   event_time_ = other.event_time_;
-  id_ = other.id_;
+  unique_event_id_ = other.unique_event_id_;
   action_index_ = other.action_index_;
   button_state_ = other.button_state_;
   flags_ = other.flags_;

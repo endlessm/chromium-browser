@@ -10,6 +10,7 @@
 #include "base/basictypes.h"
 #include "base/callback_forward.h"
 #include "base/compiler_specific.h"
+#include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/observer_list.h"
@@ -18,6 +19,8 @@
 #include "chrome/browser/search/hotword_client.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/ui/app_list/start_page_observer.h"
+#include "components/search_engines/template_url_service.h"
+#include "components/search_engines/template_url_service_observer.h"
 #include "components/signin/core/browser/signin_manager_base.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -31,6 +34,7 @@ class CustomLauncherPageContents;
 }
 
 namespace app_list {
+class LauncherPageEventDispatcher;
 class SearchController;
 class SearchResourceManager;
 class SpeechUIModel;
@@ -38,6 +42,10 @@ class SpeechUIModel;
 
 namespace base {
 class FilePath;
+}
+
+namespace content {
+struct SpeechRecognitionSessionPreamble;
 }
 
 namespace gfx {
@@ -54,7 +62,8 @@ class AppListViewDelegate : public app_list::AppListViewDelegate,
                             public ProfileInfoCacheObserver,
                             public SigninManagerBase::Observer,
                             public SigninManagerFactory::Observer,
-                            public content::NotificationObserver {
+                            public content::NotificationObserver,
+                            public TemplateURLServiceObserver {
  public:
   // Constructs Chrome's AppListViewDelegate with a NULL Profile.
   // Does not take ownership of |controller|. TODO(tapted): It should.
@@ -64,6 +73,11 @@ class AppListViewDelegate : public app_list::AppListViewDelegate,
   // Configure the AppList for the given |profile|.
   void SetProfile(Profile* profile);
   Profile* profile() { return profile_; }
+
+  // Invoked to toggle the status of speech recognition based on a hotword
+  // trigger.
+  void ToggleSpeechRecognitionForHotword(
+      const scoped_refptr<content::SpeechRecognitionSessionPreamble>& preamble);
 
   // Overridden from app_list::AppListViewDelegate:
   bool ForceNativeDesktop() const override;
@@ -96,12 +110,17 @@ class AppListViewDelegate : public app_list::AppListViewDelegate,
   views::View* CreateStartPageWebView(const gfx::Size& size) override;
   std::vector<views::View*> CreateCustomPageWebViews(
       const gfx::Size& size) override;
+  void CustomLauncherPageAnimationChanged(double progress) override;
+  void CustomLauncherPagePopSubpage() override;
 #endif
   bool IsSpeechRecognitionEnabled() override;
   const Users& GetUsers() const override;
   bool ShouldCenterWindow() const override;
   void AddObserver(app_list::AppListViewDelegateObserver* observer) override;
   void RemoveObserver(app_list::AppListViewDelegateObserver* observer) override;
+
+  // Overridden from TemplateURLServiceObserver:
+  void OnTemplateURLServiceChanged() override;
 
  private:
   // Updates the speech webview and start page for the current |profile_|.
@@ -121,7 +140,9 @@ class AppListViewDelegate : public app_list::AppListViewDelegate,
 
   // Overridden from HotwordClient:
   void OnHotwordStateChanged(bool started) override;
-  void OnHotwordRecognized() override;
+  void OnHotwordRecognized(
+      const scoped_refptr<content::SpeechRecognitionSessionPreamble>& preamble)
+      override;
 
   // Overridden from SigninManagerFactory::Observer:
   void SigninManagerCreated(SigninManagerBase* manager) override;
@@ -162,7 +183,12 @@ class AppListViewDelegate : public app_list::AppListViewDelegate,
   scoped_ptr<app_list::SearchResourceManager> search_resource_manager_;
   scoped_ptr<app_list::SearchController> search_controller_;
 
+  scoped_ptr<app_list::LauncherPageEventDispatcher>
+      launcher_page_event_dispatcher_;
+
   base::TimeDelta auto_launch_timeout_;
+  // Determines whether the current search was initiated by speech.
+  bool is_voice_query_;
 
   Users users_;
 
@@ -170,7 +196,10 @@ class AppListViewDelegate : public app_list::AppListViewDelegate,
   scoped_ptr<AppSyncUIStateWatcher> app_sync_ui_state_watcher_;
 #endif
 
-  ObserverList<app_list::AppListViewDelegateObserver> observers_;
+  base::ObserverList<app_list::AppListViewDelegateObserver> observers_;
+
+  ScopedObserver<TemplateURLService, AppListViewDelegate>
+      template_url_service_observer_;
 
   // Used to track the SigninManagers that this instance is observing so that
   // this instance can be removed as an observer on its destruction.

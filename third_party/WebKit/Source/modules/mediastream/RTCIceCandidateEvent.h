@@ -34,16 +34,16 @@ class RTCIceCandidate;
 class RTCIceCandidateEvent final : public Event {
     DEFINE_WRAPPERTYPEINFO();
 public:
-    virtual ~RTCIceCandidateEvent();
+    ~RTCIceCandidateEvent() override;
 
     static PassRefPtrWillBeRawPtr<RTCIceCandidateEvent> create();
     static PassRefPtrWillBeRawPtr<RTCIceCandidateEvent> create(bool canBubble, bool cancelable, RTCIceCandidate*);
 
     RTCIceCandidate* candidate() const;
 
-    virtual const AtomicString& interfaceName() const override;
+    const AtomicString& interfaceName() const override;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     RTCIceCandidateEvent();

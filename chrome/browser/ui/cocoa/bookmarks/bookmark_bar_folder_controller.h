@@ -136,9 +136,6 @@ class Profile;
   // incomplete animations do not cause valgrind complaints.
   BOOL ignoreAnimations_;
 
-  // The screen to which the menu should be restricted.
-  NSScreen* screen_;
-
   int selectedIndex_;
   NSString* typedPrefix_;
 
@@ -164,7 +161,7 @@ class Profile;
 
 // Gets notified when a fav icon asynchronously loads, so we can now use the
 // real icon instead of a generic placeholder.
-- (void)faviconLoadedForNode:(const BookmarkNode*)node;
+- (void)faviconLoadedForNode:(const bookmarks::BookmarkNode*)node;
 
 - (void)setSelectedButtonByIndex:(int)index;
 
@@ -194,7 +191,8 @@ class Profile;
 - (BookmarkBarFolderController*)folderController;
 - (id)folderTarget;
 - (void)configureWindowLevel;
-- (void)performOneScroll:(CGFloat)delta;
+- (void)performOneScroll:(CGFloat)delta
+    updateMouseSelection:(BOOL)updateMouseSelection;
 - (BookmarkButton*)buttonThatMouseIsIn;
 // Set to YES in order to prevent animations.
 - (void)setIgnoreAnimations:(BOOL)ignore;

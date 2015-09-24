@@ -22,6 +22,7 @@
 struct ViewMsg_Resize_Params;
 
 namespace blink {
+class WebInputElement;
 class WebWidget;
 }
 
@@ -29,15 +30,19 @@ namespace gfx {
 class Rect;
 }
 
+namespace scheduler {
+class RendererScheduler;
+}
+
 namespace content {
 class ContentBrowserClient;
 class ContentClient;
 class ContentRendererClient;
+class FakeCompositorDependencies;
 class MockRenderProcess;
 class PageState;
 class RendererMainPlatformDelegate;
 class RendererBlinkPlatformImplNoSandboxImpl;
-class RendererScheduler;
 class RenderView;
 
 class RenderViewTest : public testing::Test {
@@ -48,10 +53,11 @@ class RenderViewTest : public testing::Test {
    public:
     RendererBlinkPlatformImplNoSandbox();
     ~RendererBlinkPlatformImplNoSandbox();
-    blink::Platform* Get();
+    blink::Platform* Get() const;
+    scheduler::RendererScheduler* Scheduler() const;
 
    private:
-    scoped_ptr<RendererScheduler> renderer_scheduler_;
+    scoped_ptr<scheduler::RendererScheduler> renderer_scheduler_;
     scoped_ptr<RendererBlinkPlatformImplNoSandboxImpl> blink_platform_impl_;
   };
 
@@ -95,7 +101,7 @@ class RenderViewTest : public testing::Test {
   void SendWebKeyboardEvent(const blink::WebKeyboardEvent& key_event);
 
   // Send a raw mouse event to the renderer.
-  void SendWebMouseEvent(const blink::WebMouseEvent& key_event);
+  void SendWebMouseEvent(const blink::WebMouseEvent& mouse_event);
 
   // Returns the bounds (coordinates and size) of the element with id
   // |element_id|.  Returns an empty rect if such an element was not found.
@@ -106,11 +112,22 @@ class RenderViewTest : public testing::Test {
   // the element was not found).
   bool SimulateElementClick(const std::string& element_id);
 
+  // Sends a left mouse click at the |point|.
+  void SimulatePointClick(const gfx::Point& point);
+
+  // Sends a right mouse click in the middle of the element with id
+  // |element_id|. Returns true if the event was sent, false otherwise
+  // (typically because the element was not found).
+  bool SimulateElementRightClick(const std::string& element_id);
+
+  // Sends a right mouse click at the |point|.
+  void SimulatePointRightClick(const gfx::Point& point);
+
+  // Sends a tap at the |rect|.
+  void SimulateRectTap(const gfx::Rect& rect);
+
   // Simulates |node| being focused.
   void SetFocused(const blink::WebNode& node);
-
-  // Clears anything associated with the browsing history.
-  void ClearHistory();
 
   // Simulates a navigation with a type of reload to the given url.
   void Reload(const GURL& url);
@@ -122,6 +139,18 @@ class RenderViewTest : public testing::Test {
   void Resize(gfx::Size new_size,
               gfx::Rect resizer_rect,
               bool is_fullscreen);
+
+  // Simulates typing the |ascii_character| into this render view. Also accepts
+  // ui::VKEY_BACK for backspace. Will flush the message loop if
+  // |flush_message_loop| is true.
+  void SimulateUserTypingASCIICharacter(char ascii_character,
+                                        bool flush_message_loop);
+
+  // Simulates user focusing |input|, erasing all text, and typing the
+  // |new_value| instead. Will process input events for autofill. This is a user
+  // gesture.
+  void SimulateUserInputChangeForElement(blink::WebInputElement* input,
+                                         const std::string& new_value);
 
   // These are all methods from RenderViewImpl that we expose to testing code.
   bool OnMessageReceived(const IPC::Message& msg);
@@ -144,6 +173,7 @@ class RenderViewTest : public testing::Test {
   void TearDown() override;
 
   base::MessageLoop msg_loop_;
+  scoped_ptr<FakeCompositorDependencies> compositor_deps_;
   scoped_ptr<MockRenderProcess> mock_process_;
   // We use a naked pointer because we don't want to expose RenderViewImpl in
   // the embedder's namespace.

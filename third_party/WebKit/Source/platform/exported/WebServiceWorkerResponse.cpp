@@ -16,7 +16,8 @@ class WebServiceWorkerResponsePrivate : public RefCounted<WebServiceWorkerRespon
 public:
     WebServiceWorkerResponsePrivate()
         : status(0)
-        , responseType(WebServiceWorkerResponseTypeOpaque)
+        , responseType(WebServiceWorkerResponseTypeDefault)
+        , error(WebServiceWorkerResponseErrorUnknown)
     {
     }
     WebURL url;
@@ -25,6 +26,8 @@ public:
     WebServiceWorkerResponseType responseType;
     HTTPHeaderMap headers;
     RefPtr<BlobDataHandle> blobDataHandle;
+    WebURL streamURL;
+    WebServiceWorkerResponseError error;
 };
 
 WebServiceWorkerResponse::WebServiceWorkerResponse()
@@ -146,6 +149,26 @@ void WebServiceWorkerResponse::setBlobDataHandle(PassRefPtr<BlobDataHandle> blob
 PassRefPtr<BlobDataHandle> WebServiceWorkerResponse::blobDataHandle() const
 {
     return m_private->blobDataHandle;
+}
+
+void WebServiceWorkerResponse::setStreamURL(const WebURL& url)
+{
+    m_private->streamURL = url;
+}
+
+WebURL WebServiceWorkerResponse::streamURL() const
+{
+    return m_private->streamURL;
+}
+
+void WebServiceWorkerResponse::setError(WebServiceWorkerResponseError error)
+{
+    m_private->error = error;
+}
+
+WebServiceWorkerResponseError WebServiceWorkerResponse::error() const
+{
+    return m_private->error;
 }
 
 } // namespace blink

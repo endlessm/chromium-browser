@@ -290,23 +290,10 @@ Feature::Availability ExtensionAPI::IsAvailable(const std::string& full_name,
                                                 const GURL& url) {
   Feature* feature = GetFeatureDependency(full_name);
   if (!feature) {
-    return Feature::CreateAvailability(Feature::NOT_PRESENT,
-        std::string("Unknown feature: ") + full_name);
+    return Feature::Availability(Feature::NOT_PRESENT,
+                                 std::string("Unknown feature: ") + full_name);
   }
   return feature->IsAvailableToContext(extension, context, url);
-}
-
-bool ExtensionAPI::IsAvailableInUntrustedContext(const std::string& name,
-                                                 const Extension* extension) {
-  return IsAvailable(name, extension, Feature::CONTENT_SCRIPT_CONTEXT, GURL())
-             .is_available() ||
-         IsAvailable(
-             name, extension, Feature::UNBLESSED_EXTENSION_CONTEXT, GURL())
-             .is_available() ||
-         IsAvailable(name, extension, Feature::BLESSED_WEB_PAGE_CONTEXT, GURL())
-             .is_available() ||
-         IsAvailable(name, extension, Feature::WEB_PAGE_CONTEXT, GURL())
-             .is_available();
 }
 
 bool ExtensionAPI::IsAvailableToWebUI(const std::string& name,

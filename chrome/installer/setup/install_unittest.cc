@@ -21,6 +21,7 @@
 #include "chrome/installer/setup/install_worker.h"
 #include "chrome/installer/setup/setup_constants.h"
 #include "chrome/installer/util/browser_distribution.h"
+#include "chrome/installer/util/install_util.h"
 #include "chrome/installer/util/installer_state.h"
 #include "chrome/installer/util/master_preferences.h"
 #include "chrome/installer/util/master_preferences_constants.h"
@@ -33,7 +34,7 @@ namespace {
 
 class CreateVisualElementsManifestTest : public testing::Test {
  protected:
-  virtual void SetUp() override {
+  void SetUp() override {
     // Create a temp directory for testing.
     ASSERT_TRUE(test_dir_.CreateUniqueTempDir());
 
@@ -46,7 +47,7 @@ class CreateVisualElementsManifestTest : public testing::Test {
         test_dir_.path().Append(installer::kVisualElementsManifest);
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     // Clean up test directory manually so we can fail if it leaks.
     ASSERT_TRUE(test_dir_.Delete());
   }
@@ -66,7 +67,7 @@ class CreateVisualElementsManifestTest : public testing::Test {
 
 class InstallShortcutTest : public testing::Test {
  protected:
-  virtual void SetUp() override {
+  void SetUp() override {
     EXPECT_EQ(S_OK, CoInitialize(NULL));
 
     dist_ = BrowserDistribution::GetDistribution();
@@ -87,7 +88,8 @@ class InstallShortcutTest : public testing::Test {
     expected_properties_.set_description(chrome_properties.description);
     expected_properties_.set_dual_mode(false);
     expected_start_menu_properties_ = expected_properties_;
-    expected_start_menu_properties_.set_dual_mode(true);
+    expected_start_menu_properties_.set_dual_mode(
+        InstallUtil::ShouldInstallMetroProperties());
 
     prefs_.reset(GetFakeMasterPrefs(false, false, false));
 
@@ -139,13 +141,11 @@ class InstallShortcutTest : public testing::Test {
         fake_user_desktop_.path().Append(alternate_shortcut_name);
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     // Try to unpin potentially pinned shortcuts (although pinning isn't tested,
     // the call itself might still have pinned the Start Menu shortcuts).
-    base::win::TaskbarUnpinShortcutLink(
-        user_start_menu_shortcut_.value().c_str());
-    base::win::TaskbarUnpinShortcutLink(
-        system_start_menu_shortcut_.value().c_str());
+    base::win::TaskbarUnpinShortcutLink(user_start_menu_shortcut_);
+    base::win::TaskbarUnpinShortcutLink(system_start_menu_shortcut_);
     CoUninitialize();
   }
 

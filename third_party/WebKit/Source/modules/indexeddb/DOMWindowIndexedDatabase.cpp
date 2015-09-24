@@ -41,7 +41,7 @@ DOMWindowIndexedDatabase::DOMWindowIndexedDatabase(LocalDOMWindow& window)
 
 DEFINE_EMPTY_DESTRUCTOR_WILL_BE_REMOVED(DOMWindowIndexedDatabase);
 
-void DOMWindowIndexedDatabase::trace(Visitor* visitor)
+DEFINE_TRACE(DOMWindowIndexedDatabase)
 {
     visitor->trace(m_idbFactory);
     WillBeHeapSupplement<LocalDOMWindow>::trace(visitor);
@@ -75,23 +75,23 @@ void DOMWindowIndexedDatabase::willDetachGlobalObjectFromFrame()
     DOMWindowProperty::willDetachGlobalObjectFromFrame();
 }
 
-IDBFactory* DOMWindowIndexedDatabase::indexedDB(LocalDOMWindow& window)
+IDBFactory* DOMWindowIndexedDatabase::indexedDB(DOMWindow& window)
 {
-    return from(window).indexedDB();
+    return from(toLocalDOMWindow(window)).indexedDB();
 }
 
 IDBFactory* DOMWindowIndexedDatabase::indexedDB()
 {
     Document* document = m_window.document();
     if (!document)
-        return 0;
+        return nullptr;
 
     Page* page = document->page();
     if (!page)
-        return 0;
+        return nullptr;
 
     if (!m_window.isCurrentlyDisplayedInFrame())
-        return 0;
+        return nullptr;
 
     if (!m_idbFactory)
         m_idbFactory = IDBFactory::create(IndexedDBClient::create());

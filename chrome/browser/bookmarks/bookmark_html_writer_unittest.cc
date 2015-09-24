@@ -12,22 +12,26 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
-#include "chrome/browser/favicon/favicon_service.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
-#include "chrome/browser/history/history_service.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/common/importer/imported_bookmark_entry.h"
-#include "chrome/common/importer/imported_favicon_usage.h"
+#include "chrome/common/importer/importer_data_types.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/utility/importer/bookmark_html_reader.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/test/bookmark_test_helpers.h"
+#include "components/favicon/core/favicon_service.h"
+#include "components/favicon_base/favicon_usage_data.h"
+#include "components/history/core/browser/history_service.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "grit/components_strings.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/codec/png_codec.h"
+
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
 
 namespace {
 
@@ -196,12 +200,12 @@ TEST_F(BookmarkHTMLWriterTest, Test) {
   const BookmarkNode* f1 = model->AddFolder(
       model->bookmark_bar_node(), 0, f1_title);
   model->AddURLWithCreationTimeAndMetaInfo(f1, 0, url1_title, url1, t1, NULL);
-  HistoryServiceFactory::GetForProfile(&profile, Profile::EXPLICIT_ACCESS)->
-      AddPage(url1, base::Time::Now(), history::SOURCE_BROWSED);
-  FaviconServiceFactory::GetForProfile(&profile, Profile::EXPLICIT_ACCESS)
-      ->SetFavicons(url1,
-                    url1_favicon,
-                    favicon_base::FAVICON,
+  HistoryServiceFactory::GetForProfile(&profile,
+                                       ServiceAccessType::EXPLICIT_ACCESS)
+      ->AddPage(url1, base::Time::Now(), history::SOURCE_BROWSED);
+  FaviconServiceFactory::GetForProfile(&profile,
+                                       ServiceAccessType::EXPLICIT_ACCESS)
+      ->SetFavicons(url1, url1_favicon, favicon_base::FAVICON,
                     gfx::Image::CreateFrom1xBitmap(bitmap));
   const BookmarkNode* f2 = model->AddFolder(f1, 1, f2_title);
   model->AddURLWithCreationTimeAndMetaInfo(f2, 0, url2_title, url2, t2, NULL);
@@ -234,16 +238,19 @@ TEST_F(BookmarkHTMLWriterTest, Test) {
   run_loop.Run();
 
   // Clear favicon so that it would be read from file.
-  FaviconServiceFactory::GetForProfile(&profile, Profile::EXPLICIT_ACCESS)
+  FaviconServiceFactory::GetForProfile(&profile,
+                                       ServiceAccessType::EXPLICIT_ACCESS)
       ->SetFavicons(url1, url1_favicon, favicon_base::FAVICON, gfx::Image());
 
   // Read the bookmarks back in.
   std::vector<ImportedBookmarkEntry> parsed_bookmarks;
-  std::vector<ImportedFaviconUsage> favicons;
+  std::vector<importer::SearchEngineInfo> parsed_search_engines;
+  favicon_base::FaviconUsageDataList favicons;
   bookmark_html_reader::ImportBookmarksFile(base::Callback<bool(void)>(),
                                             base::Callback<bool(const GURL&)>(),
                                             path_,
                                             &parsed_bookmarks,
+                                            &parsed_search_engines,
                                             &favicons);
 
   // Check loaded favicon (url1 is represented by 4 separate bookmarks).
@@ -257,6 +264,10 @@ TEST_F(BookmarkHTMLWriterTest, Test) {
       ASSERT_TRUE(favicons[i].png_data == icon_data);
     }
   }
+
+  // Since we did not populate the BookmarkModel with any entry which can be
+  // imported as search engine, verify that we got back no search engines.
+  ASSERT_EQ(0U, parsed_search_engines.size());
 
   // Verify we got back what we wrote.
   ASSERT_EQ(9U, parsed_bookmarks.size());

@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,17 +6,14 @@
 
 from __future__ import print_function
 
-import os
-import sys
+import mock
 
-sys.path.insert(0, os.path.abspath('%s/../../..' % os.path.dirname(__file__)))
-from chromite.cbuildbot.cbuildbot_unittest import BuilderRunMock
+from chromite.cbuildbot import cbuildbot_unittest
 from chromite.cbuildbot.stages import artifact_stages
 from chromite.cbuildbot.stages import generic_stages_unittest
 from chromite.cbuildbot.stages import release_stages
 from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot import results_lib
-from chromite.lib import cros_test_lib
 from chromite.lib import timeout_util
 
 from chromite.cbuildbot.stages.generic_stages_unittest import patch
@@ -25,13 +21,14 @@ from chromite.cbuildbot.stages.generic_stages_unittest import patch
 from chromite.lib.paygen import gspaths
 from chromite.lib.paygen import paygen_build_lib
 
-# TODO(build): Finish test wrapper (http://crosbug.com/37517).
-# Until then, this has to be after the chromite imports.
-import mock
 
-# pylint: disable=R0901, W0212
-class PaygenStageTest(generic_stages_unittest.AbstractStageTest):
+# pylint: disable=protected-access
+
+
+class PaygenStageTest(generic_stages_unittest.AbstractStageTestCase,
+                      cbuildbot_unittest.SimpleBuilderTestCase):
   """Test the PaygenStageStage."""
+
   BOT_ID = 'x86-mario-release'
   RELEASE_TAG = '0.0.1'
 
@@ -46,7 +43,6 @@ class PaygenStageTest(generic_stages_unittest.AbstractStageTest):
   }
 
   def setUp(self):
-    self.StartPatcher(BuilderRunMock())
     self._Prepare()
 
   def ConstructStage(self):
@@ -115,27 +111,12 @@ class PaygenStageTest(generic_stages_unittest.AbstractStageTest):
 
       stage = self.ConstructStage()
 
-      self.assertRaises(release_stages.SignerFailure,
-                        stage._WaitForSigningResults,
-                        {'chan1': ['chan1_uri1']}, notifier)
+      self.assertRaisesStringifyable(
+          release_stages.SignerFailure,
+          stage._WaitForSigningResults,
+          {'chan1': ['chan1_uri1']}, notifier)
 
-      self.assertEqual(notifier.mock_calls, [])
-      self.assertEqual(mock_gs_ctx.Cat.mock_calls,
-                       [mock.call('chan1_uri1.json')])
-
-  def testWaitForSigningResultsMalformedJson(self):
-    """Test _WaitForSigningResults when invalid Json is received.."""
-    with patch(release_stages.gs, 'GSContext') as mock_gs_ctx_init:
-      mock_gs_ctx = mock_gs_ctx_init.return_value
-      mock_gs_ctx.Cat.return_value = "{"
-      notifier = mock.Mock()
-
-      stage = self.ConstructStage()
-
-      self.assertRaises(release_stages.MalformedResultsException,
-                        stage._WaitForSigningResults,
-                        self.INSNS_URLS_PER_CHANNEL, notifier)
-
+      # Ensure we didn't notify anyone of success.
       self.assertEqual(notifier.mock_calls, [])
       self.assertEqual(mock_gs_ctx.Cat.mock_calls,
                        [mock.call('chan1_uri1.json')])
@@ -220,7 +201,24 @@ class PaygenStageTest(generic_stages_unittest.AbstractStageTest):
     """Verify _CheckForResults handles unexpected Json values."""
     with patch(release_stages.gs, 'GSContext') as mock_gs_ctx_init:
       mock_gs_ctx = mock_gs_ctx_init.return_value
-      mock_gs_ctx.Cat.return_value = "{}"
+      mock_gs_ctx.Cat.return_value = '{}'
+      notifier = mock.Mock()
+
+      stage = self.ConstructStage()
+      self.assertFalse(
+          stage._CheckForResults(mock_gs_ctx,
+                                 self.INSNS_URLS_PER_CHANNEL,
+                                 notifier))
+      self.assertEqual(stage.signing_results, {
+          'chan1': {}, 'chan2': {}
+      })
+      self.assertEqual(notifier.mock_calls, [])
+
+  def testCheckForResultsMalformedJson(self):
+    """Verify _CheckForResults handles unexpected Json values."""
+    with patch(release_stages.gs, 'GSContext') as mock_gs_ctx_init:
+      mock_gs_ctx = mock_gs_ctx_init.return_value
+      mock_gs_ctx.Cat.return_value = '{'
       notifier = mock.Mock()
 
       stage = self.ConstructStage()
@@ -374,8 +372,9 @@ class PaygenStageTest(generic_stages_unittest.AbstractStageTest):
       with patch(paygen_build_lib, 'ValidateBoardConfig'):
         # The stage is constructed differently for trybots, so don't use
         # ConstructStage.
-        stage = release_stages.PaygenStage(self._run, self._current_board,
-                                   archive_stage=None, channels=['foo', 'bar'])
+        stage = release_stages.PaygenStage(
+            self._run, self._current_board, archive_stage=None,
+            channels=['foo', 'bar'])
         with patch(stage, '_WaitForPushImage') as wait_push:
           with patch(stage, '_WaitForSigningResults') as wait_signing:
             stage.PerformStage()
@@ -418,8 +417,9 @@ class PaygenStageTest(generic_stages_unittest.AbstractStageTest):
       create_payloads.assert_called_with(gspaths.Build(version='foo-version',
                                                        board='foo-board',
                                                        channel='foo-channel'),
-                                         dry_run=False,
                                          work_dir=mock.ANY,
+                                         site_config=stage._run.site_config,
+                                         dry_run=False,
                                          run_parallel=True,
                                          run_on_builder=True,
                                          skip_delta_payloads=False,
@@ -441,10 +441,8 @@ class PaygenStageTest(generic_stages_unittest.AbstractStageTest):
                         channel='foo-channel'),
           dry_run=True,
           work_dir=mock.ANY,
+          site_config=stage._run.site_config,
           run_parallel=True,
           run_on_builder=True,
           skip_delta_payloads=True,
           disable_tests=True)
-
-if __name__ == '__main__':
-  cros_test_lib.main()

@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_COCOA_APPS_APP_SHIM_MENU_CONTROLLER_MAC_H_
 
 #import <Cocoa/Cocoa.h>
+#include <string>
 
 #include "base/mac/scoped_nsobject.h"
 
@@ -20,19 +21,23 @@
 @interface AppShimMenuController : NSObject {
  @private
   // The extension id of the currently focused packaged app.
-  base::scoped_nsobject<NSString> appId_;
+  std::string appId_;
   // Items that need a doppelganger.
   base::scoped_nsobject<DoppelgangerMenuItem> aboutDoppelganger_;
   base::scoped_nsobject<DoppelgangerMenuItem> hideDoppelganger_;
   base::scoped_nsobject<DoppelgangerMenuItem> quitDoppelganger_;
   base::scoped_nsobject<DoppelgangerMenuItem> newDoppelganger_;
   base::scoped_nsobject<DoppelgangerMenuItem> openDoppelganger_;
+  base::scoped_nsobject<DoppelgangerMenuItem> closeWindowDoppelganger_;
   base::scoped_nsobject<DoppelgangerMenuItem> allToFrontDoppelganger_;
   // Menu items for the currently focused packaged app.
   base::scoped_nsobject<NSMenuItem> appMenuItem_;
   base::scoped_nsobject<NSMenuItem> fileMenuItem_;
   base::scoped_nsobject<NSMenuItem> editMenuItem_;
   base::scoped_nsobject<NSMenuItem> windowMenuItem_;
+  // Additional menu items for hosted apps.
+  base::scoped_nsobject<NSMenuItem> viewMenuItem_;
+  base::scoped_nsobject<NSMenuItem> historyMenuItem_;
 }
 
 @end

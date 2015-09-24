@@ -32,6 +32,7 @@ enum UserManagerProfileSelected {
   USER_MANAGER_SELECT_PROFILE_ABOUT_CHROME,
   USER_MANAGER_SELECT_PROFILE_CHROME_SETTINGS,
   USER_MANAGER_SELECT_PROFILE_CHROME_MEMORY,
+  USER_MANAGER_SELECT_PROFILE_APP_LAUNCHER,
 };
 
 extern const char kUserManagerDisplayTutorial[];
@@ -39,6 +40,7 @@ extern const char kUserManagerSelectProfileTaskManager[];
 extern const char kUserManagerSelectProfileAboutChrome[];
 extern const char kUserManagerSelectProfileChromeSettings[];
 extern const char kUserManagerSelectProfileChromeMemory[];
+extern const char kUserManagerSelectProfileAppLauncher[];
 
 // Activates a window for |profile| on the desktop specified by
 // |desktop_type|. If no such window yet exists, or if |always_create| is
@@ -68,6 +70,12 @@ void SwitchToProfile(const base::FilePath& path,
 void SwitchToGuestProfile(chrome::HostDesktopType desktop_type,
                           ProfileManager::CreateCallback callback);
 
+// Returns true if |profile| has potential profile switch targets, ie there's at
+// least one other profile available to switch to, not counting guest. This is
+// the case when there are more than 1 profiles available or when there's only
+// one and the current window is a guest window.
+bool HasProfileSwitchTargets(Profile* profile);
+
 // Creates a new profile from the next available profile directory, and
 // opens a new browser window for the profile once it is ready. When the browser
 // is opened, |callback| will be run if it isn't null.
@@ -84,14 +92,14 @@ void LockProfile(Profile* profile);
 // Returns whether lock is available to this profile.
 bool IsLockAvailable(Profile* profile);
 
-// Creates or reuses the guest profile needed by the user manager. Based on
+// Creates or reuses the system profile needed by the user manager. Based on
 // the value of |tutorial_mode|, the user manager can show a specific
 // tutorial, or no tutorial at all. If a tutorial is not shown, then
 // |profile_path_to_focus| could be used to specify which user should be
 // focused. After a profile is opened from the user manager, perform
 // |profile_open_action|. |callback| is run with the custom url to be displayed,
 // as well as a pointer to the guest profile.
-void CreateGuestProfileForUserManager(
+void CreateSystemProfileForUserManager(
     const base::FilePath& profile_path_to_focus,
     profiles::UserManagerTutorialMode tutorial_mode,
     profiles::UserManagerProfileSelected profile_open_action,
@@ -114,6 +122,15 @@ void BubbleViewModeFromAvatarBubbleMode(
     BrowserWindow::AvatarBubbleMode mode,
     BubbleViewMode* bubble_view_mode,
     TutorialMode* tutorial_mode);
+
+// Returns true if the Welcome/Upgrade tutorial bubble should be shown to the
+// user, false otherwise.
+bool ShouldShowWelcomeUpgradeTutorial(
+    Profile* profile, TutorialMode tutorial_mode);
+
+// Returns true if the tutorial informing the user about right-click user
+// switching should be shown, false otherwise.
+bool ShouldShowRightClickTutorial(Profile* profile);
 
 }  // namespace profiles
 

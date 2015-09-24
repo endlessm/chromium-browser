@@ -5,74 +5,54 @@
 #ifndef V8_COMPILER_TYPER_H_
 #define V8_COMPILER_TYPER_H_
 
-#include "src/v8.h"
-
 #include "src/compiler/graph.h"
-#include "src/compiler/opcodes.h"
 #include "src/types.h"
 
 namespace v8 {
 namespace internal {
 namespace compiler {
 
+// Forward declarations.
+class TyperCache;
+
+
 class Typer {
  public:
-  explicit Typer(Graph* graph, MaybeHandle<Context> context);
+  Typer(Isolate* isolate, Graph* graph,
+        Type::FunctionType* function_type = nullptr);
   ~Typer();
 
   void Run();
-
-  Graph* graph() { return graph_; }
-  MaybeHandle<Context> context() { return context_; }
-  Zone* zone() { return graph_->zone(); }
-  Isolate* isolate() { return zone()->isolate(); }
+  // TODO(bmeurer,jarin): Remove this once we have a notion of "roots" on Graph.
+  void Run(const ZoneVector<Node*>& roots);
 
  private:
   class Visitor;
-  class RunVisitor;
-  class WidenVisitor;
   class Decorator;
 
-  Graph* graph_;
-  MaybeHandle<Context> context_;
+  Graph* graph() const { return graph_; }
+  Zone* zone() const { return graph()->zone(); }
+  Isolate* isolate() const { return isolate_; }
+  Type::FunctionType* function_type() const { return function_type_; }
+
+  Isolate* const isolate_;
+  Graph* const graph_;
+  Type::FunctionType* function_type_;
   Decorator* decorator_;
+  TyperCache const& cache_;
 
-  Zone* zone_;
-  Type* negative_signed32;
-  Type* non_negative_signed32;
-  Type* undefined_or_null;
-  Type* singleton_false;
-  Type* singleton_true;
-  Type* singleton_zero;
-  Type* singleton_one;
-  Type* zero_or_one;
-  Type* zeroish;
-  Type* falsish;
-  Type* integer;
-  Type* weakint;
-  Type* number_fun0_;
-  Type* number_fun1_;
-  Type* number_fun2_;
-  Type* weakint_fun1_;
-  Type* imul_fun_;
-  Type* clz32_fun_;
-  Type* random_fun_;
-  Type* array_buffer_fun_;
-  Type* int8_array_fun_;
-  Type* int16_array_fun_;
-  Type* int32_array_fun_;
-  Type* uint8_array_fun_;
-  Type* uint16_array_fun_;
-  Type* uint32_array_fun_;
-  Type* float32_array_fun_;
-  Type* float64_array_fun_;
+  Type* singleton_false_;
+  Type* singleton_true_;
+  Type* signed32ish_;
+  Type* unsigned32ish_;
+  Type* falsish_;
+  Type* truish_;
 
-  ZoneVector<Handle<Object> > weaken_min_limits_;
-  ZoneVector<Handle<Object> > weaken_max_limits_;
   DISALLOW_COPY_AND_ASSIGN(Typer);
 };
-}
-}
-}  // namespace v8::internal::compiler
+
+}  // namespace compiler
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_COMPILER_TYPER_H_

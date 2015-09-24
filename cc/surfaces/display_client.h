@@ -14,9 +14,6 @@ struct ManagedMemoryPolicy;
 
 class DisplayClient {
  public:
-  virtual void DisplayDamaged() = 0;
-  virtual void DidSwapBuffers() = 0;
-  virtual void DidSwapBuffersComplete() = 0;
   virtual void CommitVSyncParameters(base::TimeTicks timebase,
                                      base::TimeDelta interval) = 0;
   virtual void OutputSurfaceLost() = 0;
@@ -25,6 +22,7 @@ class DisplayClient {
  protected:
   virtual ~DisplayClient() {}
 };
-}
+
+}  // namespace cc
 
 #endif  // CC_SURFACES_DISPLAY_CLIENT_H_

@@ -5,16 +5,19 @@
 #include "content/browser/indexed_db/indexed_db_transaction.h"
 
 #include "base/bind.h"
+#include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/browser/indexed_db/indexed_db_backing_store.h"
 #include "content/browser/indexed_db/indexed_db_cursor.h"
 #include "content/browser/indexed_db/indexed_db_database.h"
 #include "content/browser/indexed_db/indexed_db_database_callbacks.h"
 #include "content/browser/indexed_db/indexed_db_tracing.h"
 #include "content/browser/indexed_db/indexed_db_transaction_coordinator.h"
-#include "third_party/WebKit/public/platform/WebIDBDatabaseException.h"
+#include "third_party/WebKit/public/platform/modules/indexeddb/WebIDBDatabaseException.h"
+#include "third_party/leveldatabase/env_chromium.h"
 
 namespace content {
 
@@ -121,7 +124,7 @@ void IndexedDBTransaction::RunTasksIfStarted() {
     return;
 
   should_process_queue_ = true;
-  base::MessageLoop::current()->PostTask(
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::Bind(&IndexedDBTransaction::ProcessTaskQueue, this));
 }
 
@@ -318,10 +321,17 @@ leveldb::Status IndexedDBTransaction::CommitPhaseTwo() {
     while (!abort_task_stack_.empty())
       abort_task_stack_.pop().Run(NULL);
 
-    callbacks_->OnAbort(
-        id_,
-        IndexedDBDatabaseError(blink::WebIDBDatabaseExceptionUnknownError,
-                               "Internal error committing transaction."));
+    IndexedDBDatabaseError error;
+    if (leveldb_env::IndicatesDiskFull(s)) {
+      error = IndexedDBDatabaseError(
+          blink::WebIDBDatabaseExceptionQuotaError,
+          "Encountered disk full while committing transaction.");
+    } else {
+      error = IndexedDBDatabaseError(blink::WebIDBDatabaseExceptionUnknownError,
+                                     "Internal error committing transaction.");
+    }
+    callbacks_->OnAbort(id_, error);
+
     database_->TransactionFinished(this, false);
     database_->TransactionCommitFailed(s);
   }

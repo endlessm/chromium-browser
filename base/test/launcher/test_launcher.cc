@@ -18,21 +18,26 @@
 #include "base/format_macros.h"
 #include "base/hash.h"
 #include "base/lazy_instance.h"
+#include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/process/kill.h"
 #include "base/process/launch.h"
+#include "base/single_thread_task_runner.h"
+#include "base/strings/pattern.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringize_macros.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/gtest_util.h"
 #include "base/test/launcher/test_results_tracker.h"
 #include "base/test/sequenced_worker_pool_owner.h"
 #include "base/test/test_switches.h"
 #include "base/test/test_timeouts.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -149,7 +154,7 @@ class SignalFDWatcher : public MessageLoopForIO::Watcher {
     KillSpawnedTestProcesses();
 
     // The signal would normally kill the process, so exit now.
-    exit(1);
+    _exit(1);
   }
 
   void OnFileCanWriteWithoutBlocking(int fd) override { NOTREACHED(); }
@@ -227,7 +232,7 @@ CommandLine PrepareCommandLineForGTest(const CommandLine& command_line,
   // on a CommandLine with a wrapper is known to break.
   // TODO(phajdan.jr): Give it a try to support CommandLine removing switches.
 #if defined(OS_WIN)
-  new_command_line.PrependWrapper(ASCIIToWide(wrapper));
+  new_command_line.PrependWrapper(ASCIIToUTF16(wrapper));
 #elif defined(OS_POSIX)
   new_command_line.PrependWrapper(wrapper);
 #endif
@@ -241,7 +246,7 @@ CommandLine PrepareCommandLineForGTest(const CommandLine& command_line,
 int LaunchChildTestProcessWithOptions(const CommandLine& command_line,
                                       const LaunchOptions& options,
                                       int flags,
-                                      base::TimeDelta timeout,
+                                      TimeDelta timeout,
                                       bool* was_timeout) {
 #if defined(OS_POSIX)
   // Make sure an option we rely on is present - see LaunchChildGTestProcess.
@@ -286,7 +291,7 @@ int LaunchChildTestProcessWithOptions(const CommandLine& command_line,
   new_options.allow_new_privs = true;
 #endif
 
-  base::ProcessHandle process_handle;
+  Process process;
 
   {
     // Note how we grab the lock before the process possibly gets created.
@@ -294,21 +299,22 @@ int LaunchChildTestProcessWithOptions(const CommandLine& command_line,
     // in the set.
     AutoLock lock(g_live_processes_lock.Get());
 
-    if (!base::LaunchProcess(command_line, new_options, &process_handle))
+    process = LaunchProcess(command_line, new_options);
+    if (!process.IsValid())
       return -1;
 
-    g_live_processes.Get().insert(std::make_pair(process_handle, command_line));
+    // TODO(rvargas) crbug.com/417532: Don't store process handles.
+    g_live_processes.Get().insert(std::make_pair(process.Handle(),
+                                                 command_line));
   }
 
   int exit_code = 0;
-  if (!base::WaitForExitCodeWithTimeout(process_handle,
-                                        &exit_code,
-                                        timeout)) {
+  if (!process.WaitForExitWithTimeout(timeout, &exit_code)) {
     *was_timeout = true;
     exit_code = -1;  // Set a non-zero exit code to signal a failure.
 
     // Ensure that the process terminates.
-    base::KillProcess(process_handle, -1, true);
+    process.Terminate(-1, true);
   }
 
   {
@@ -323,14 +329,12 @@ int LaunchChildTestProcessWithOptions(const CommandLine& command_line,
       // or due to it timing out, we need to clean up any child processes that
       // it might have created. On Windows, child processes are automatically
       // cleaned up using JobObjects.
-      base::KillProcessGroup(process_handle);
+      KillProcessGroup(process.Handle());
     }
 #endif
 
-    g_live_processes.Get().erase(process_handle);
+    g_live_processes.Get().erase(process.Handle());
   }
-
-  base::CloseProcessHandle(process_handle);
 
   return exit_code;
 }
@@ -346,16 +350,16 @@ void RunCallback(
 
 void DoLaunchChildTestProcess(
     const CommandLine& command_line,
-    base::TimeDelta timeout,
+    TimeDelta timeout,
     int flags,
     bool redirect_stdio,
-    scoped_refptr<MessageLoopProxy> message_loop_proxy,
+    SingleThreadTaskRunner* task_runner,
     const TestLauncher::LaunchChildGTestProcessCallback& callback) {
   TimeTicks start_time = TimeTicks::Now();
 
   // Redirect child process output to a file.
-  base::FilePath output_file;
-  CHECK(base::CreateTemporaryFile(&output_file));
+  FilePath output_file;
+  CHECK(CreateTemporaryFile(&output_file));
 
   LaunchOptions options;
 #if defined(OS_WIN)
@@ -383,9 +387,12 @@ void DoLaunchChildTestProcess(
   }
 #elif defined(OS_POSIX)
   options.new_process_group = true;
+#if defined(OS_LINUX)
+  options.kill_on_parent_death = true;
+#endif  // defined(OS_LINUX)
 
-  base::FileHandleMappingVector fds_mapping;
-  base::ScopedFD output_file_fd;
+  FileHandleMappingVector fds_mapping;
+  ScopedFD output_file_fd;
 
   if (redirect_stdio) {
     output_file_fd.reset(open(output_file.value().c_str(), O_RDWR));
@@ -411,23 +418,18 @@ void DoLaunchChildTestProcess(
   }
 
   std::string output_file_contents;
-  CHECK(base::ReadFileToString(output_file, &output_file_contents));
+  CHECK(ReadFileToString(output_file, &output_file_contents));
 
-  if (!base::DeleteFile(output_file, false)) {
+  if (!DeleteFile(output_file, false)) {
     // This needs to be non-fatal at least for Windows.
     LOG(WARNING) << "Failed to delete " << output_file.AsUTF8Unsafe();
   }
 
   // Run target callback on the thread it was originating from, not on
   // a worker pool thread.
-  message_loop_proxy->PostTask(
-      FROM_HERE,
-      Bind(&RunCallback,
-           callback,
-           exit_code,
-           TimeTicks::Now() - start_time,
-           was_timeout,
-           output_file_contents));
+  task_runner->PostTask(FROM_HERE, Bind(&RunCallback, callback, exit_code,
+                                        TimeTicks::Now() - start_time,
+                                        was_timeout, output_file_contents));
 }
 
 }  // namespace
@@ -501,9 +503,8 @@ bool TestLauncher::Run() {
   // Start the watchdog timer.
   watchdog_timer_.Reset();
 
-  MessageLoop::current()->PostTask(
-      FROM_HERE,
-      Bind(&TestLauncher::RunTestIteration, Unretained(this)));
+  ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, Bind(&TestLauncher::RunTestIteration, Unretained(this)));
 
   MessageLoop::current()->Run();
 
@@ -518,7 +519,7 @@ bool TestLauncher::Run() {
 void TestLauncher::LaunchChildGTestProcess(
     const CommandLine& command_line,
     const std::string& wrapper,
-    base::TimeDelta timeout,
+    TimeDelta timeout,
     int flags,
     const LaunchChildGTestProcessCallback& callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
@@ -533,16 +534,10 @@ void TestLauncher::LaunchChildGTestProcess(
   bool redirect_stdio = (parallel_jobs_ > 1) || BotModeEnabled();
 
   worker_pool_owner_->pool()->PostWorkerTask(
-      FROM_HERE,
-      Bind(&DoLaunchChildTestProcess,
-           new_command_line,
-           timeout,
-           flags,
-           redirect_stdio,
-           MessageLoopProxy::current(),
-           Bind(&TestLauncher::OnLaunchTestProcessFinished,
-                Unretained(this),
-                callback)));
+      FROM_HERE, Bind(&DoLaunchChildTestProcess, new_command_line, timeout,
+                      flags, redirect_stdio, ThreadTaskRunnerHandle::Get(),
+                      Bind(&TestLauncher::OnLaunchTestProcessFinished,
+                           Unretained(this), callback)));
 }
 
 void TestLauncher::OnTestFinished(const TestResult& result) {
@@ -567,7 +562,7 @@ void TestLauncher::OnTestFinished(const TestResult& result) {
   }
   if (print_snippet) {
     std::vector<std::string> snippet_lines;
-    SplitString(result.output_snippet, '\n', &snippet_lines);
+    SplitStringDontTrim(result.output_snippet, '\n', &snippet_lines);
     if (snippet_lines.size() > kOutputSnippetLinesLimit) {
       size_t truncated_size = snippet_lines.size() - kOutputSnippetLinesLimit;
       snippet_lines.erase(
@@ -684,12 +679,6 @@ void TestLauncher::OnTestFinished(const TestResult& result) {
   fflush(stdout);
 
   test_started_count_ += retry_started_count;
-}
-
-// static
-std::string TestLauncher::FormatFullTestName(const std::string& test_case_name,
-                                             const std::string& test_name) {
-  return test_case_name + "." + test_name;
 }
 
 bool TestLauncher::Init() {
@@ -829,6 +818,11 @@ bool TestLauncher::Init() {
     }
   }
 
+  if (!launcher_delegate_->GetTests(&tests_)) {
+    LOG(ERROR) << "Failed to get list of tests.";
+    return false;
+  }
+
   if (!results_tracker_.Init(*command_line)) {
     LOG(ERROR) << "Failed to initialize test results tracker.";
     return 1;
@@ -900,61 +894,52 @@ bool TestLauncher::Init() {
 }
 
 void TestLauncher::RunTests() {
-  testing::UnitTest* const unit_test = testing::UnitTest::GetInstance();
-
   std::vector<std::string> test_names;
+  for (size_t i = 0; i < tests_.size(); i++) {
+    std::string test_name = FormatFullTestName(
+        tests_[i].first, tests_[i].second);
 
-  for (int i = 0; i < unit_test->total_test_case_count(); ++i) {
-    const testing::TestCase* test_case = unit_test->GetTestCase(i);
-    for (int j = 0; j < test_case->total_test_count(); ++j) {
-      const testing::TestInfo* test_info = test_case->GetTestInfo(j);
-      std::string test_name = FormatFullTestName(
-          test_info->test_case_name(), test_info->name());
+    results_tracker_.AddTest(test_name);
 
-      results_tracker_.AddTest(test_name);
+    const CommandLine* command_line = CommandLine::ForCurrentProcess();
+    if (test_name.find("DISABLED") != std::string::npos) {
+      results_tracker_.AddDisabledTest(test_name);
 
-      const CommandLine* command_line = CommandLine::ForCurrentProcess();
-      if (test_name.find("DISABLED") != std::string::npos) {
-        results_tracker_.AddDisabledTest(test_name);
-
-        // Skip disabled tests unless explicitly requested.
-        if (!command_line->HasSwitch(kGTestRunDisabledTestsFlag))
-          continue;
-      }
-
-      if (!launcher_delegate_->ShouldRunTest(test_case, test_info))
+      // Skip disabled tests unless explicitly requested.
+      if (!command_line->HasSwitch(kGTestRunDisabledTestsFlag))
         continue;
+    }
 
-      // Skip the test that doesn't match the filter (if given).
-      if (!positive_test_filter_.empty()) {
-        bool found = false;
-        for (size_t k = 0; k < positive_test_filter_.size(); ++k) {
-          if (MatchPattern(test_name, positive_test_filter_[k])) {
-            found = true;
-            break;
-          }
-        }
+    if (!launcher_delegate_->ShouldRunTest(tests_[i].first, tests_[i].second))
+      continue;
 
-        if (!found)
-          continue;
-      }
-      bool excluded = false;
-      for (size_t k = 0; k < negative_test_filter_.size(); ++k) {
-        if (MatchPattern(test_name, negative_test_filter_[k])) {
-          excluded = true;
+    // Skip the test that doesn't match the filter (if given).
+    if (!positive_test_filter_.empty()) {
+      bool found = false;
+      for (size_t k = 0; k < positive_test_filter_.size(); ++k) {
+        if (MatchPattern(test_name, positive_test_filter_[k])) {
+          found = true;
           break;
         }
       }
-      if (excluded)
-        continue;
 
-      if (base::Hash(test_name) % total_shards_ !=
-          static_cast<uint32>(shard_index_)) {
+      if (!found)
         continue;
-      }
-
-      test_names.push_back(test_name);
     }
+    bool excluded = false;
+    for (size_t k = 0; k < negative_test_filter_.size(); ++k) {
+      if (MatchPattern(test_name, negative_test_filter_[k])) {
+        excluded = true;
+        break;
+      }
+    }
+    if (excluded)
+      continue;
+
+    if (Hash(test_name) % total_shards_ != static_cast<uint32>(shard_index_))
+      continue;
+
+    test_names.push_back(test_name);
   }
 
   test_started_count_ = launcher_delegate_->RunTests(this, test_names);
@@ -964,9 +949,8 @@ void TestLauncher::RunTests() {
     fflush(stdout);
 
     // No tests have actually been started, so kick off the next iteration.
-    MessageLoop::current()->PostTask(
-        FROM_HERE,
-        Bind(&TestLauncher::RunTestIteration, Unretained(this)));
+    ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, Bind(&TestLauncher::RunTestIteration, Unretained(this)));
   }
 }
 
@@ -987,7 +971,7 @@ void TestLauncher::RunTestIteration() {
   tests_to_retry_.clear();
   results_tracker_.OnTestIterationStarting();
 
-  MessageLoop::current()->PostTask(
+  ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, Bind(&TestLauncher::RunTests, Unretained(this)));
 }
 
@@ -1034,9 +1018,8 @@ void TestLauncher::OnTestIterationFinished() {
   results_tracker_.PrintSummaryOfCurrentIteration();
 
   // Kick off the next iteration.
-  MessageLoop::current()->PostTask(
-      FROM_HERE,
-      Bind(&TestLauncher::RunTestIteration, Unretained(this)));
+  ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, Bind(&TestLauncher::RunTestIteration, Unretained(this)));
 }
 
 void TestLauncher::OnOutputTimeout() {

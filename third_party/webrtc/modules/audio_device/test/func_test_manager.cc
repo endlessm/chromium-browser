@@ -13,6 +13,12 @@
 #include <stdio.h>
 #include <string.h>
 
+#if defined(_WIN32)
+#include <conio.h>
+#elif defined(WEBRTC_LINUX) || defined(WEBRTC_MAC)
+#include <termios.h>    // tcgetattr
+#endif
+
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webrtc/modules/audio_device/test/func_test_manager.h"
 #include "webrtc/system_wrappers/interface/sleep.h"
@@ -37,6 +43,21 @@ const char* RecordedMicrophoneBoostFile =
 const char* RecordedMicrophoneAGCFile = "recorded_microphone_AGC_mono_48.pcm";
 const char* RecordedSpeakerFile = "recorded_speaker_48.pcm";
 
+#if defined(WEBRTC_IOS) || defined(ANDROID)
+#define USE_SLEEP_AS_PAUSE
+#else
+//#define USE_SLEEP_AS_PAUSE
+#endif
+
+// Sets the default pause time if using sleep as pause
+#define DEFAULT_PAUSE_TIME 5000
+
+#if defined(USE_SLEEP_AS_PAUSE)
+#define PAUSE(a) SleepMs(a);
+#else
+#define PAUSE(a) WaitForKey();
+#endif
+
 // Helper functions
 #if !defined(WEBRTC_IOS)
 char* GetFilename(char* filename)
@@ -56,6 +77,35 @@ const char* GetResource(const char* resource)
     return resource;
 }
 #endif
+
+#if !defined(USE_SLEEP_AS_PAUSE)
+static void WaitForKey() {
+#if defined(_WIN32)
+    _getch();
+#elif defined(WEBRTC_LINUX) || defined(WEBRTC_MAC)
+    struct termios oldt, newt;
+
+    tcgetattr( STDIN_FILENO, &oldt );
+
+    // we don't want getchar to echo!
+
+    newt = oldt;
+    newt.c_lflag &= ~( ICANON | ECHO );
+    tcsetattr( STDIN_FILENO, TCSANOW, &newt );
+
+    // catch any newline that's hanging around...
+    // you'll have to hit enter twice if you
+    // choose enter out of all available keys
+
+    if (getc(stdin) == '\n')
+    {
+        getc(stdin);
+    }
+
+    tcsetattr( STDIN_FILENO, TCSANOW, &oldt );
+#endif  // defined(_WIN32)
+}
+#endif  // !defined(USE_SLEEP_AS_PAUSE)
 
 namespace webrtc
 {
@@ -96,7 +146,7 @@ AudioTransportImpl::AudioTransportImpl(AudioDeviceModule* audioDevice) :
     _recCount(0),
     _playCount(0)
 {
-    _resampler.Reset(48000, 48000, kResamplerSynchronousStereo);
+    _resampler.Reset(48000, 48000, 2);
 }
 
 AudioTransportImpl::~AudioTransportImpl()
@@ -317,8 +367,7 @@ int32_t AudioTransportImpl::NeedMorePlayData(
                 const uint16_t nSamplesIn = packet->nSamples;
                 const uint8_t nChannelsIn = packet->nChannels;
                 const uint32_t samplesPerSecIn = packet->samplesPerSec;
-                const uint16_t nBytesPerSampleIn =
-                    packet->nBytesPerSample;
+                const uint16_t nBytesPerSampleIn = packet->nBytesPerSample;
 
                 int32_t fsInHz(samplesPerSecIn);
                 int32_t fsOutHz(samplesPerSec);
@@ -332,23 +381,21 @@ int32_t AudioTransportImpl::NeedMorePlayData(
                 if (nChannelsIn == 2 && nBytesPerSampleIn == 4)
                 {
                     // input is stereo => we will resample in stereo
-                    ret = _resampler.ResetIfNeeded(fsInHz, fsOutHz,
-                                                   kResamplerSynchronousStereo);
+                    ret = _resampler.ResetIfNeeded(fsInHz, fsOutHz, 2);
                     if (ret == 0)
                     {
                         if (nChannels == 2)
                         {
                             _resampler.Push(
                                 (const int16_t*) packet->dataBuffer,
-                                2 * nSamplesIn,
-                                (int16_t*) audioSamples, 2
-                                * nSamples, lenOut);
+                                2 * nSamplesIn, (int16_t*) audioSamples,
+                                2 * nSamples, lenOut);
                         } else
                         {
                             _resampler.Push(
                                 (const int16_t*) packet->dataBuffer,
-                                2 * nSamplesIn, tmpBuf_96kHz, 2
-                                * nSamples, lenOut);
+                                2 * nSamplesIn, tmpBuf_96kHz, 2 * nSamples,
+                                lenOut);
 
                             ptr16In = &tmpBuf_96kHz[0];
                             ptr16Out = (int16_t*) audioSamples;
@@ -374,23 +421,19 @@ int32_t AudioTransportImpl::NeedMorePlayData(
                 {
                     // input is mono (can be "reduced from stereo" as well) =>
                     // we will resample in mono
-                    ret = _resampler.ResetIfNeeded(fsInHz, fsOutHz,
-                                                   kResamplerSynchronous);
+                    ret = _resampler.ResetIfNeeded(fsInHz, fsOutHz, 1);
                     if (ret == 0)
                     {
                         if (nChannels == 1)
                         {
                             _resampler.Push(
-                                (const int16_t*) packet->dataBuffer,
-                                nSamplesIn,
-                                (int16_t*) audioSamples,
-                                nSamples, lenOut);
+                                (const int16_t*) packet->dataBuffer, nSamplesIn,
+                                (int16_t*) audioSamples, nSamples, lenOut);
                         } else
                         {
                             _resampler.Push(
-                                (const int16_t*) packet->dataBuffer,
-                                nSamplesIn, tmpBuf_96kHz, nSamples,
-                                lenOut);
+                                (const int16_t*) packet->dataBuffer, nSamplesIn,
+                                tmpBuf_96kHz, nSamples, lenOut);
 
                             ptr16In = &tmpBuf_96kHz[0];
                             ptr16Out = (int16_t*) audioSamples;
@@ -424,8 +467,7 @@ int32_t AudioTransportImpl::NeedMorePlayData(
         int16_t fileBuf[480];
 
         // read mono-file
-        int32_t len = _playFile.Read((int8_t*) fileBuf, 2
-            * nSamples);
+        int32_t len = _playFile.Read((int8_t*) fileBuf, 2 * nSamples);
         if (len != 2 * (int32_t) nSamples)
         {
             _playFile.Rewind();
@@ -558,7 +600,6 @@ void AudioTransportImpl::PullRenderData(int bits_per_sample, int sample_rate,
                                         int64_t* ntp_time_ms) {}
 
 FuncTestManager::FuncTestManager() :
-    _processThread(NULL),
     _audioDevice(NULL),
     _audioEventObserver(NULL),
     _audioTransport(NULL)
@@ -579,7 +620,7 @@ FuncTestManager::~FuncTestManager()
 
 int32_t FuncTestManager::Init()
 {
-    EXPECT_TRUE((_processThread = ProcessThread::CreateProcessThread()) != NULL);
+    EXPECT_TRUE((_processThread = ProcessThread::Create()) != NULL);
     if (_processThread == NULL)
     {
         return -1;
@@ -620,7 +661,7 @@ int32_t FuncTestManager::Close()
     {
         _processThread->DeRegisterModule(_audioDevice);
         _processThread->Stop();
-        ProcessThread::DestroyProcessThread(_processThread);
+        _processThread.reset();
     }
 
     // delete the audio observer
@@ -664,6 +705,7 @@ int32_t FuncTestManager::DoTest(const TestType testType)
             TestSpeakerVolume();
             TestMicrophoneVolume();
             TestLoopback();
+            FALLTHROUGH();
         case TTAudioLayerSelection:
             TestAudioLayerSelection();
             break;
@@ -702,6 +744,7 @@ int32_t FuncTestManager::DoTest(const TestType testType)
             break;
         case TTMobileAPI:
             TestAdvancedMBAPI();
+            FALLTHROUGH();
         case TTTest:
             TestExtra();
             break;
@@ -787,7 +830,7 @@ int32_t FuncTestManager::TestAudioLayerSelection()
         {
             _processThread->DeRegisterModule(_audioDevice);
             _processThread->Stop();
-            ProcessThread::DestroyProcessThread(_processThread);
+            _processThread.reset();
         }
 
         // delete the audio observer
@@ -814,7 +857,7 @@ int32_t FuncTestManager::TestAudioLayerSelection()
         // ==================================================
         // Next, try to make fresh start with new audio layer
 
-        EXPECT_TRUE((_processThread = ProcessThread::CreateProcessThread()) != NULL);
+        EXPECT_TRUE((_processThread = ProcessThread::Create()) != NULL);
         if (_processThread == NULL)
         {
             return -1;

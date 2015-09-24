@@ -40,15 +40,15 @@ public:
     static PassRefPtrWillBeRawPtr<AudioProcessingEvent> create();
     static PassRefPtrWillBeRawPtr<AudioProcessingEvent> create(AudioBuffer* inputBuffer, AudioBuffer* outputBuffer, double playbackTime);
 
-    virtual ~AudioProcessingEvent();
+    ~AudioProcessingEvent() override;
 
     AudioBuffer* inputBuffer() { return m_inputBuffer.get(); }
     AudioBuffer* outputBuffer() { return m_outputBuffer.get(); }
     double playbackTime() const { return m_playbackTime; }
 
-    virtual const AtomicString& interfaceName() const override;
+    const AtomicString& interfaceName() const override;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     AudioProcessingEvent();

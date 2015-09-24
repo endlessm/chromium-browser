@@ -4,6 +4,7 @@
 
 #include "ui/views/test/test_views_delegate.h"
 
+#include "ui/aura/env.h"
 #include "ui/wm/core/wm_state.h"
 
 #if !defined(OS_CHROMEOS)
@@ -14,19 +15,22 @@
 namespace views {
 
 TestViewsDelegate::TestViewsDelegate()
-    : use_desktop_native_widgets_(false),
+    : context_factory_(nullptr),
+      use_desktop_native_widgets_(false),
       use_transparent_windows_(false) {
-  DCHECK(!ViewsDelegate::views_delegate);
-  ViewsDelegate::views_delegate = this;
 #if defined(USE_AURA)
   wm_state_.reset(new wm::WMState);
 #endif
 }
 
 TestViewsDelegate::~TestViewsDelegate() {
-  if (ViewsDelegate::views_delegate == this)
-    ViewsDelegate::views_delegate = NULL;
 }
+
+#if defined(OS_WIN)
+HICON TestViewsDelegate::GetSmallWindowIcon() const {
+  return nullptr;
+}
+#endif
 
 void TestViewsDelegate::OnBeforeWidgetInit(
     Widget::InitParams* params,
@@ -40,6 +44,14 @@ void TestViewsDelegate::OnBeforeWidgetInit(
   if (!params->native_widget && use_desktop_native_widgets_)
     params->native_widget = new DesktopNativeWidgetAura(delegate);
 #endif  // !defined(OS_CHROMEOS)
+}
+
+ui::ContextFactory* TestViewsDelegate::GetContextFactory() {
+  if (context_factory_)
+    return context_factory_;
+  if (aura::Env::GetInstance())
+    return aura::Env::GetInstance()->context_factory();
+  return nullptr;
 }
 
 }  // namespace views

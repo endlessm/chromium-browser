@@ -29,7 +29,7 @@
 
 class MetricsServiceBrowserTest : public InProcessBrowserTest {
  public:
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     // Enable the metrics service for testing (in recording-only mode).
     command_line->AppendSwitch(switches::kMetricsRecordingOnly);
   }
@@ -74,7 +74,9 @@ IN_PROC_BROWSER_TEST_F(MetricsServiceBrowserTest, CloseRenderersNormally) {
 }
 
 // Flaky on Linux. See http://crbug.com/131094
-#if defined(OS_LINUX)
+// Child crashes fail the process on ASan (see crbug.com/411251,
+// crbug.com/368525).
+#if defined(OS_LINUX) || defined(ADDRESS_SANITIZER)
 #define MAYBE_CrashRenderers DISABLED_CrashRenderers
 #else
 #define MAYBE_CrashRenderers CrashRenderers

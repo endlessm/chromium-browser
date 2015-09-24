@@ -10,8 +10,11 @@
 namespace ash {
 
 const int kSwitchableWindowContainerIds[] = {
-    kShellWindowId_DefaultContainer, kShellWindowId_AlwaysOnTopContainer,
-    kShellWindowId_PanelContainer};
+    kShellWindowId_DefaultContainer,
+    kShellWindowId_AlwaysOnTopContainer,
+    kShellWindowId_DockedContainer,
+    kShellWindowId_PanelContainer,
+    kShellWindowId_AppListContainer};
 
 const size_t kSwitchableWindowContainerIdsLength =
     arraysize(kSwitchableWindowContainerIds);

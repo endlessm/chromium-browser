@@ -6,12 +6,12 @@
 
 #include "base/bind.h"
 #include "chrome/common/importer/imported_bookmark_entry.h"
-#include "chrome/common/importer/imported_favicon_usage.h"
 #include "chrome/common/importer/importer_bridge.h"
 #include "chrome/common/importer/importer_data_types.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/utility/importer/bookmark_html_reader.h"
+#include "components/favicon_base/favicon_usage_data.h"
 #include "components/url_fixer/url_fixer.h"
 #include "content/public/common/url_constants.h"
 
@@ -90,13 +90,15 @@ void BookmarksFileImporter::StartImport(
   bridge->NotifyItemStarted(importer::FAVORITES);
 
   std::vector<ImportedBookmarkEntry> bookmarks;
-  std::vector<ImportedFaviconUsage> favicons;
+  std::vector<importer::SearchEngineInfo> search_engines;
+  favicon_base::FaviconUsageDataList favicons;
 
   bookmark_html_reader::ImportBookmarksFile(
       base::Bind(IsImporterCancelled, base::Unretained(this)),
       base::Bind(internal::CanImportURL),
       source_profile.source_path,
       &bookmarks,
+      &search_engines,
       &favicons);
 
   if (!bookmarks.empty() && !cancelled()) {
@@ -104,6 +106,8 @@ void BookmarksFileImporter::StartImport(
         bridge->GetLocalizedString(IDS_BOOKMARK_GROUP);
     bridge->AddBookmarks(bookmarks, first_folder_name);
   }
+  if (!search_engines.empty())
+    bridge->SetKeywords(search_engines, false);
   if (!favicons.empty())
     bridge->SetFavicons(favicons);
 

@@ -14,9 +14,9 @@
 #include "base/version.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/chromeos/ui/kiosk_external_update_notification.h"
-#include "chrome/browser/extensions/sandboxed_unpacker.h"
 #include "chrome/common/chrome_version_info.h"
 #include "content/public/browser/browser_thread.h"
+#include "extensions/browser/sandboxed_unpacker.h"
 #include "extensions/common/extension.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -42,9 +42,9 @@ void ParseExternalUpdateManifest(
     return;
   }
 
-  JSONFileValueSerializer serializer(manifest);
+  JSONFileValueDeserializer deserializer(manifest);
   std::string error_msg;
-  base::Value* extensions = serializer.Deserialize(NULL, &error_msg);
+  base::Value* extensions = deserializer.Deserialize(NULL, &error_msg);
   if (!extensions) {
     *error_code = KioskExternalUpdater::ERROR_INVALID_MANIFEST;
     return;
@@ -91,6 +91,9 @@ bool ShouldUpdateForHigherVersion(const std::string& version_1,
 }  // namespace
 
 KioskExternalUpdater::ExternalUpdate::ExternalUpdate() {
+}
+
+KioskExternalUpdater::ExternalUpdate::~ExternalUpdate() {
 }
 
 KioskExternalUpdater::KioskExternalUpdater(
@@ -196,7 +199,8 @@ void KioskExternalUpdater::OnExtenalUpdateUnpackSuccess(
   if (CheckExternalUpdateInterrupted())
     return;
 
-  base::FilePath external_crx_path = external_updates_[app_id].external_crx;
+  base::FilePath external_crx_path =
+      external_updates_[app_id].external_crx.path;
   base::FilePath temp_crx_path =
       crx_unpack_dir_.Append(external_crx_path.BaseName());
   bool* success = new bool;
@@ -291,7 +295,8 @@ void KioskExternalUpdater::ProcessParsedManifest(
     } else {
       NOTREACHED();
     }
-    update.external_crx = external_update_path_.AppendASCII(external_crx_str);
+    update.external_crx = extensions::CRXFileInfo(
+        app_id, external_update_path_.AppendASCII(external_crx_str));
     update.update_status = PENDING;
     external_updates_[app_id] = update;
   }
@@ -326,7 +331,6 @@ void KioskExternalUpdater::ValidateExternalUpdates() {
     if (it->second.update_status == PENDING) {
       scoped_refptr<KioskExternalUpdateValidator> crx_validator =
           new KioskExternalUpdateValidator(backend_task_runner_,
-                                           it->first,
                                            it->second.external_crx,
                                            crx_unpack_dir_,
                                            weak_factory_.GetWeakPtr());
@@ -371,9 +375,9 @@ bool KioskExternalUpdater::ShouldDoExternalUpdate(
   DCHECK(cached);
 
   // Compare app version.
-  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
+  ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
   if (!ShouldUpdateForHigherVersion(existing_version_str, version, false)) {
-    external_updates_[app_id].error = rb.GetLocalizedString(
+    external_updates_[app_id].error = rb->GetLocalizedString(
         IDS_KIOSK_EXTERNAL_UPDATE_SAME_OR_LOWER_APP_VERSION);
     return false;
   }
@@ -429,7 +433,7 @@ void KioskExternalUpdater::OnPutValidatedExtension(const std::string& app_id,
     external_updates_[app_id].update_status = FAILED;
     external_updates_[app_id].error = l10n_util::GetStringFUTF16(
         IDS_KIOSK_EXTERNAL_UPDATE_CANNOT_INSTALL_IN_LOCAL_CACHE,
-        base::UTF8ToUTF16(external_updates_[app_id].external_crx.value()));
+        base::UTF8ToUTF16(external_updates_[app_id].external_crx.path.value()));
   } else {
     external_updates_[app_id].update_status = SUCCESS;
   }

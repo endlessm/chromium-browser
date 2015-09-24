@@ -14,15 +14,15 @@
 #include "base/time/time.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/history/android/android_history_provider_service.h"
-#include "chrome/browser/history/android/android_time.h"
-#include "chrome/browser/history/history_service.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
 #include "components/bookmarks/test/bookmark_test_helpers.h"
-#include "components/history/core/android/android_history_types.h"
+#include "components/history/core/browser/android/android_history_types.h"
+#include "components/history/core/browser/android/android_time.h"
+#include "components/history/core/browser/history_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_browser_thread.h"
 #include "content/public/test/test_utils.h"
@@ -48,11 +48,10 @@ class SQLiteCursorTest : public testing::Test,
         ui_thread_(BrowserThread::UI, &message_loop_),
         file_thread_(BrowserThread::FILE, &message_loop_) {
   }
-  virtual ~SQLiteCursorTest() {
-  }
+  ~SQLiteCursorTest() override {}
 
  protected:
-  virtual void SetUp() override {
+  void SetUp() override {
     // Setup the testing profile, so the bookmark_model_sql_handler could
     // get the bookmark model from it.
     ASSERT_TRUE(profile_manager_.SetUp());
@@ -68,32 +67,24 @@ class SQLiteCursorTest : public testing::Test,
     testing_profile_->CreateFaviconService();
     ASSERT_TRUE(testing_profile_->CreateHistoryService(true, false));
     service_.reset(new AndroidHistoryProviderService(testing_profile_));
-    hs_ = HistoryServiceFactory::GetForProfile(testing_profile_,
-                                               Profile::EXPLICIT_ACCESS);
+    hs_ = HistoryServiceFactory::GetForProfile(
+        testing_profile_, ServiceAccessType::EXPLICIT_ACCESS);
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     testing_profile_->DestroyHistoryService();
     profile_manager_.DeleteTestingProfile(chrome::kInitialProfile);
     testing_profile_ = NULL;
   }
 
   // Override SQLiteCursor::TestObserver.
-  virtual void OnPostMoveToTask() override {
-    base::MessageLoop::current()->Run();
-  }
+  void OnPostMoveToTask() override { base::MessageLoop::current()->Run(); }
 
-  virtual void OnGetMoveToResult() override {
-    base::MessageLoop::current()->Quit();
-  }
+  void OnGetMoveToResult() override { base::MessageLoop::current()->Quit(); }
 
-  virtual void OnPostGetFaviconTask() override {
-    base::MessageLoop::current()->Run();
-  }
+  void OnPostGetFaviconTask() override { base::MessageLoop::current()->Run(); }
 
-  virtual void OnGetFaviconResult() override {
-    base::MessageLoop::current()->Quit();
-  }
+  void OnGetFaviconResult() override { base::MessageLoop::current()->Quit(); }
 
  protected:
   TestingProfileManager profile_manager_;
@@ -103,8 +94,7 @@ class SQLiteCursorTest : public testing::Test,
   scoped_ptr<AndroidHistoryProviderService> service_;
   base::CancelableTaskTracker cancelable_tracker_;
   TestingProfile* testing_profile_;
-  HistoryService* hs_;
-
+  history::HistoryService* hs_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(SQLiteCursorTest);

@@ -97,8 +97,8 @@ void ChromiumPortAllocatorSession::SendSessionRequest(
     int port) {
   GURL url("https://" + host + ":" + base::IntToString(port) +
            GetSessionRequestUrl() + "&sn=1");
-  scoped_ptr<net::URLFetcher> url_fetcher(
-      net::URLFetcher::Create(url, net::URLFetcher::GET, this));
+  scoped_ptr<net::URLFetcher> url_fetcher =
+      net::URLFetcher::Create(url, net::URLFetcher::GET, this);
   url_fetcher->SetRequestContext(url_context_.get());
   url_fetcher->AddExtraRequestHeader("X-Talk-Google-Relay-Auth: " +
                                      relay_token());
@@ -156,8 +156,8 @@ scoped_ptr<ChromiumPortAllocator> ChromiumPortAllocator::Create(
     flags |= cricket::PORTALLOCATOR_DISABLE_RELAY;
 
   result->set_flags(flags);
-  result->SetPortRange(network_settings.min_port,
-                       network_settings.max_port);
+  result->SetPortRange(network_settings.port_range.min_port,
+                       network_settings.port_range.max_port);
 
   return result.Pass();
 }

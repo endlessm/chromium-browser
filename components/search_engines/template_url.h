@@ -18,7 +18,7 @@
 #include "components/search_engines/template_url_id.h"
 #include "ui/gfx/geometry/size.h"
 #include "url/gurl.h"
-#include "url/url_parse.h"
+#include "url/third_party/mozilla/url_parse.h"
 
 class SearchTermsData;
 class TemplateURL;
@@ -201,8 +201,8 @@ class TemplateURLRef {
     ContextualSearchParams contextual_search_params;
   };
 
-  TemplateURLRef(TemplateURL* owner, Type type);
-  TemplateURLRef(TemplateURL* owner, size_t index_in_owner);
+  TemplateURLRef(const TemplateURL* owner, Type type);
+  TemplateURLRef(const TemplateURL* owner, size_t index_in_owner);
   ~TemplateURLRef();
 
   // Returns the raw URL. None of the parameters will have been replaced.
@@ -253,9 +253,22 @@ class TemplateURLRef {
   const std::string& GetHost(const SearchTermsData& search_terms_data) const;
   const std::string& GetPath(const SearchTermsData& search_terms_data) const;
 
-  // If this TemplateURLRef is valid and contains one search term, this returns
-  // the key of the search term, otherwise this returns an empty string.
+  // If this TemplateURLRef is valid and contains one search term
+  // in its query or ref, this returns the key of the search term,
+  // otherwise this returns an empty string.
   const std::string& GetSearchTermKey(
+      const SearchTermsData& search_terms_data) const;
+
+  // If this TemplateURLRef is valid and contains one search term
+  // in its path, this returns the length of the subpath before the search term,
+  // otherwise this returns std::string::npos.
+  size_t GetSearchTermPositionInPath(
+      const SearchTermsData& search_terms_data) const;
+
+  // If this TemplateURLRef is valid and contains one search term,
+  // this returns the location of the search term,
+  // otherwise this returns url::Parsed::QUERY.
+  url::Parsed::ComponentType GetSearchTermKeyLocation(
       const SearchTermsData& search_terms_data) const;
 
   // Converts the specified term in our owner's encoding to a base::string16.
@@ -285,6 +298,7 @@ class TemplateURLRef {
 
  private:
   friend class TemplateURL;
+  friend class TemplateURLTest;
   FRIEND_TEST_ALL_PREFIXES(TemplateURLTest, SetPrepopulatedAndParse);
   FRIEND_TEST_ALL_PREFIXES(TemplateURLTest, ParseParameterKnown);
   FRIEND_TEST_ALL_PREFIXES(TemplateURLTest, ParseParameterUnknown);
@@ -344,10 +358,15 @@ class TemplateURLRef {
     bool is_post_param;
   };
 
+  // Stores a single parameter for a POST.
+  struct PostParam {
+    std::string name;
+    std::string value;
+    std::string content_type;
+  };
+
   // The list of elements to replace.
   typedef std::vector<struct Replacement> Replacements;
-  // Type to store <key, value> pairs for POST URLs.
-  typedef std::pair<std::string, std::string> PostParam;
   typedef std::vector<PostParam> PostParams;
 
   // TemplateURLRef internally caches values to make replacement quick. This
@@ -414,7 +433,7 @@ class TemplateURLRef {
       PostContent* post_content) const;
 
   // The TemplateURL that contains us.  This should outlive us.
-  TemplateURL* const owner_;
+  const TemplateURL* const owner_;
 
   // What kind of URL we are.
   const Type type_;
@@ -445,6 +464,7 @@ class TemplateURLRef {
   mutable std::string host_;
   mutable std::string path_;
   mutable std::string search_term_key_;
+  mutable size_t search_term_position_in_path_;
   mutable url::Parsed::ComponentType search_term_key_location_;
 
   mutable PostParams post_params_;
@@ -516,7 +536,7 @@ class TemplateURL {
 
   const TemplateURLData& data() const { return data_; }
 
-  const base::string16& short_name() const { return data_.short_name; }
+  const base::string16& short_name() const { return data_.short_name(); }
   // An accessor for the short_name, but adjusted so it can be appropriately
   // displayed even if it is LTR and the UI is RTL.
   base::string16 AdjustedShortNameForLocaleDirection() const;
@@ -643,12 +663,13 @@ class TemplateURL {
   // search term will be "b".
   bool ExtractSearchTermsFromURL(const GURL& url,
                                  const SearchTermsData& search_terms_data,
-                                 base::string16* search_terms);
+                                 base::string16* search_terms) const;
 
   // Returns true if non-empty search terms could be extracted from |url| using
   // ExtractSearchTermsFromURL(). In other words, this returns whether |url|
   // could be the result of performing a search with |this|.
-  bool IsSearchURL(const GURL& url, const SearchTermsData& search_terms_data);
+  bool IsSearchURL(const GURL& url,
+                   const SearchTermsData& search_terms_data) const;
 
   // Returns true if the specified |url| contains the search terms replacement
   // key in either the query or the ref. This method does not verify anything
@@ -709,7 +730,7 @@ class TemplateURL {
                             const SearchTermsData& search_terms_data,
                             base::string16* search_terms,
                             url::Parsed::ComponentType* search_terms_component,
-                            url::Component* search_terms_position);
+                            url::Component* search_terms_position) const;
 
   TemplateURLData data_;
   TemplateURLRef url_ref_;

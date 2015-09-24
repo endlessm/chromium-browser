@@ -56,6 +56,11 @@ void FakeSignalStrategy::ConnectTo(FakeSignalStrategy* peer) {
   }
 }
 
+void FakeSignalStrategy::SetLocalJid(const std::string& jid) {
+  DCHECK(CalledOnValidThread());
+  jid_ = jid;
+}
+
 void FakeSignalStrategy::Connect() {
   DCHECK(CalledOnValidThread());
   FOR_EACH_OBSERVER(Listener, listeners_,
@@ -97,7 +102,13 @@ bool FakeSignalStrategy::SendStanza(scoped_ptr<buzz::XmlElement> stanza) {
   stanza->SetAttr(buzz::QN_FROM, jid_);
 
   if (!peer_callback_.is_null()) {
-    peer_callback_.Run(stanza.Pass());
+    if (send_delay_ != base::TimeDelta()) {
+      base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+          FROM_HERE, base::Bind(peer_callback_, base::Passed(&stanza)),
+          send_delay_);
+    } else {
+      peer_callback_.Run(stanza.Pass());
+    }
     return true;
   } else {
     return false;
@@ -134,9 +145,9 @@ void FakeSignalStrategy::OnIncomingMessage(
     return;
   }
 
-  ObserverListBase<Listener>::Iterator it(listeners_);
+  base::ObserverListBase<Listener>::Iterator it(&listeners_);
   Listener* listener;
-  while ((listener = it.GetNext()) != NULL) {
+  while ((listener = it.GetNext()) != nullptr) {
     if (listener->OnSignalStrategyIncomingStanza(stanza_ptr))
       break;
   }

@@ -34,9 +34,11 @@ namespace buzz {
 class XmlElement;
 }
 
-namespace autofill {
+namespace rappor {
+class RapporService;
+}
 
-class AutofillMetrics;
+namespace autofill {
 
 struct FormData;
 struct FormDataPredictions;
@@ -45,12 +47,12 @@ struct FormDataPredictions;
 // in the fields along with additional information needed by Autofill.
 class FormStructure {
  public:
-  FormStructure(const FormData& form);
+  explicit FormStructure(const FormData& form);
   virtual ~FormStructure();
 
   // Runs several heuristics against the form fields to determine their possible
   // types.
-  void DetermineHeuristicTypes(const AutofillMetrics& metric_logger);
+  void DetermineHeuristicTypes();
 
   // Encodes the XML upload request from this FormStructure.
   bool EncodeUploadRequest(const ServerFieldTypeSet& available_field_types,
@@ -75,16 +77,15 @@ class FormStructure {
 
   // Parses the field types from the server query response. |forms| must be the
   // same as the one passed to EncodeQueryRequest when constructing the query.
-  static void ParseQueryResponse(
-      const std::string& response_xml,
-      const std::vector<FormStructure*>& forms,
-      const AutofillMetrics& metric_logger);
+  // |rappor_service| may be null.
+  static void ParseQueryResponse(const std::string& response_xml,
+                                 const std::vector<FormStructure*>& forms,
+                                 rappor::RapporService* rappor_service);
 
-  // Fills |forms| with the details from the given |form_structures| and their
-  // fields' predicted types.
-  static void GetFieldTypePredictions(
-      const std::vector<FormStructure*>& form_structures,
-      std::vector<FormDataPredictions>* forms);
+  // Returns predictions using the details from the given |form_structures| and
+  // their fields' predicted types.
+  static std::vector<FormDataPredictions> GetFieldTypePredictions(
+      const std::vector<FormStructure*>& form_structures);
 
   // The unique signature for this form, composed of the target url domain,
   // the form name, and the form field names in a 64-bit hash.
@@ -120,10 +121,10 @@ class FormStructure {
   // set for each field.  |interaction_time| should be a timestamp corresponding
   // to the user's first interaction with the form.  |submission_time| should be
   // a timestamp corresponding to the form's submission.
-  void LogQualityMetrics(const AutofillMetrics& metric_logger,
-                         const base::TimeTicks& load_time,
+  void LogQualityMetrics(const base::TimeTicks& load_time,
                          const base::TimeTicks& interaction_time,
-                         const base::TimeTicks& submission_time) const;
+                         const base::TimeTicks& submission_time,
+                         rappor::RapporService* rappor_service) const;
 
   // Classifies each field in |fields_| based upon its |autocomplete| attribute,
   // if the attribute is available.  The association is stored into the field's
@@ -178,7 +179,11 @@ class FormStructure {
     return fields_.end();
   }
 
+  const base::string16& form_name() const { return form_name_; }
+
   const GURL& source_url() const { return source_url_; }
+
+  bool has_password_field() const { return has_password_field_; }
 
   void set_upload_required(UploadRequired required) {
     upload_required_ = required;
@@ -258,6 +263,9 @@ class FormStructure {
 
   // True if the form contains at least one password field.
   bool has_password_field_;
+
+  // True if the form is a <form>.
+  bool is_form_tag_;
 
   DISALLOW_COPY_AND_ASSIGN(FormStructure);
 };

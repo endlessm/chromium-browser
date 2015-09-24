@@ -45,15 +45,18 @@ class AppListServiceImpl : public AppListService,
 
   void RecordAppListLaunch();
   static void RecordAppListAppLaunch();
+  static void RecordAppListLastLaunch();
 
   // AppListService overrides:
   void SetAppListNextPaintCallback(void (*callback)()) override;
-  void HandleFirstRun() override;
   void Init(Profile* initial_profile) override;
   base::FilePath GetProfilePath(const base::FilePath& user_data_dir) override;
   void SetProfilePath(const base::FilePath& profile_path) override;
   void Show() override;
-  void ShowForVoiceSearch(Profile* profile) override;
+  void ShowForVoiceSearch(
+      Profile* profile,
+      const scoped_refptr<content::SpeechRecognitionSessionPreamble>& preamble)
+      override;
   void ShowForAppInstall(Profile* profile,
                          const std::string& extension_id,
                          bool start_discovery_tracking) override;
@@ -84,13 +87,7 @@ class AppListServiceImpl : public AppListService,
   friend class test::AppListServiceImplTestApi;
   static void SendAppListStats();
 
-  // Loads a profile asynchronously and calls OnProfileLoaded() when done.
-  void LoadProfileAsync(const base::FilePath& profile_file_path);
-
-  // Callback for asynchronous profile load.
-  void OnProfileLoaded(int profile_load_sequence_id,
-                       Profile* profile,
-                       Profile::CreateStatus status);
+  std::string GetProfileName();
 
   // ProfileInfoCacheObserver overrides:
   void OnProfileWillBeRemoved(const base::FilePath& profile_path) override;

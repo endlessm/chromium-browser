@@ -21,6 +21,7 @@ class SingleThreadTaskRunner;
 namespace media {
 
 class DecoderBuffer;
+class MediaLog;
 
 // Decryptor-based DemuxerStream implementation that converts a potentially
 // encrypted demuxer stream to a clear demuxer stream.
@@ -30,7 +31,9 @@ class MEDIA_EXPORT DecryptingDemuxerStream : public DemuxerStream {
  public:
   DecryptingDemuxerStream(
       const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
-      const SetDecryptorReadyCB& set_decryptor_ready_cb);
+      const scoped_refptr<MediaLog>& media_log,
+      const SetDecryptorReadyCB& set_decryptor_ready_cb,
+      const base::Closure& waiting_for_decryption_key_cb);
 
   // Cancels all pending operations immediately and fires all pending callbacks.
   ~DecryptingDemuxerStream() override;
@@ -44,11 +47,15 @@ class MEDIA_EXPORT DecryptingDemuxerStream : public DemuxerStream {
   // kUninitialized if |this| hasn't been initialized, or to kIdle otherwise.
   void Reset(const base::Closure& closure);
 
+  // Returns the name of this class for logging purpose.
+  std::string GetDisplayName() const;
+
   // DemuxerStream implementation.
   void Read(const ReadCB& read_cb) override;
   AudioDecoderConfig audio_decoder_config() override;
   VideoDecoderConfig video_decoder_config() override;
-  Type type() override;
+  Type type() const override;
+  Liveness liveness() const override;
   void EnableBitstreamConverter() override;
   bool SupportsConfigChanges() override;
   VideoRotation video_rotation() override;
@@ -98,11 +105,14 @@ class MEDIA_EXPORT DecryptingDemuxerStream : public DemuxerStream {
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
+  scoped_refptr<MediaLog> media_log_;
+
   State state_;
 
   PipelineStatusCB init_cb_;
   ReadCB read_cb_;
   base::Closure reset_cb_;
+  base::Closure waiting_for_decryption_key_cb_;
 
   // Pointer to the input demuxer stream that will feed us encrypted buffers.
   DemuxerStream* demuxer_stream_;
@@ -124,9 +134,8 @@ class MEDIA_EXPORT DecryptingDemuxerStream : public DemuxerStream {
   // decrypting again in case the newly added key is the correct decryption key.
   bool key_added_while_decrypt_pending_;
 
-  // NOTE: Weak pointers must be invalidated before all other member variables.
-  base::WeakPtrFactory<DecryptingDemuxerStream> weak_factory_;
   base::WeakPtr<DecryptingDemuxerStream> weak_this_;
+  base::WeakPtrFactory<DecryptingDemuxerStream> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(DecryptingDemuxerStream);
 };

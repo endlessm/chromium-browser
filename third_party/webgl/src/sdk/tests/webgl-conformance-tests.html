@@ -160,7 +160,7 @@
 <script type="text/javascript" src="resources/webgl-test-harness.js"></script>
 <script>
 "use strict";
-var DEFAULT_CONFORMANCE_TEST_VERSION = "1.0.3 (beta)";
+var DEFAULT_CONFORMANCE_TEST_VERSION = "1.0.4 (beta)";
 
 var OPTIONS = {
   version: DEFAULT_CONFORMANCE_TEST_VERSION,
@@ -169,7 +169,7 @@ var OPTIONS = {
 };
 
 var testVersions = [
-  "1.0.3 (beta)",
+  "1.0.4 (beta)",
   "2.0.0 (beta)"
 ];
 
@@ -179,6 +179,13 @@ function start() {
     if (window.console && window.console.log) {
       window.console.log(msg);
     }
+  }
+
+  function createStylesheet() {
+    var style = document.createElement("style");
+    style.appendChild(document.createTextNode(""));
+    document.head.appendChild(style);
+    return style.sheet;
   }
 
   function create3DContext(canvas, attrs, version) {
@@ -927,6 +934,19 @@ function start() {
     autoScrollEnabled = autoScrollCheckbox.checked;
     autoScroll = autoScrollEnabled;
   };
+
+  var hidePassedSheet = createStylesheet();
+  var hidePassedCheckbox = document.getElementById("hidePassedCheckbox");
+  hidePassedCheckbox.checked = false;
+  hidePassedCheckbox.onclick = function() {
+    var hidePassedTests = hidePassedCheckbox.checked;
+    if (hidePassedTests) {
+        hidePassedSheet.insertRule(".testpagesuccess { display: none; }", 0);
+    } else {
+        hidePassedSheet.deleteRule(0);
+    }
+  };
+
   var textbutton = document.getElementById("showTextSummary");
   textbutton.onclick = function() {
     log("click");
@@ -992,6 +1012,9 @@ function start() {
               <br/>
               <input type="checkbox" id="autoScrollCheckbox"/>
               <label for="autoScrollCheckbox">auto scroll</label>
+              <br/>
+              <input type="checkbox" id="hidePassedCheckbox"/>
+              <label for="hidePassedCheckbox">hide passed tests</label>
               <br/>
               <input type="button" style="visibility: hidden;" value="display text summary" id="showTextSummary"/>
               <div id="nowebgl" class="nowebgl" style="display: none;">

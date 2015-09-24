@@ -14,8 +14,6 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/net/proxy_config_handler.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/prefs/proxy_config_dictionary.h"
-#include "chrome/browser/prefs/proxy_prefs.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/network/network_profile.h"
 #include "chromeos/network/network_profile_handler.h"
@@ -23,6 +21,8 @@
 #include "chromeos/network/network_state_handler.h"
 #include "chromeos/network/onc/onc_utils.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
+#include "components/proxy_config/proxy_config_dictionary.h"
+#include "components/proxy_config/proxy_prefs.h"
 #include "components/user_manager/user_manager.h"
 
 namespace chromeos {
@@ -138,6 +138,13 @@ bool ProxyConfigServiceImpl::IgnoreProxy(const PrefService* profile_prefs,
   }
   if (profile->type() == NetworkProfile::TYPE_USER) {
     VLOG(1) << "Respect proxy of not-shared networks.";
+    return false;
+  }
+  if (onc_source == ::onc::ONC_SOURCE_USER_POLICY) {
+    // Note that this case can occur if the network is shared (e.g. ethernet)
+    // but the proxy is determined by user policy.
+    // See https://crbug.com/454966 .
+    VLOG(1) << "Respect proxy from user policy although network is shared.";
     return false;
   }
   if (onc_source == ::onc::ONC_SOURCE_DEVICE_POLICY) {

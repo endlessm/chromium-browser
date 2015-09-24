@@ -38,10 +38,20 @@ class HotwordPrivateEventService : public BrowserContextKeyedAPI {
 
   void OnFinalizeSpeakerModel();
 
+  void OnSpeakerModelSaved();
+
+  void OnDeleteSpeakerModel();
+
+  void OnSpeakerModelExists();
+
+  void OnMicrophoneStateChanged(bool enabled);
+
  private:
   friend class BrowserContextKeyedAPIFactory<HotwordPrivateEventService>;
 
   void SignalEvent(const std::string& event_name);
+  void SignalEvent(const std::string& event_name,
+                   scoped_ptr<base::ListValue> args);
 
   Profile* profile_;
   PrefChangeRegistrar pref_change_registrar_;
@@ -163,6 +173,19 @@ class HotwordPrivateFinalizeSpeakerModelFunction :
   bool RunSync() override;
 };
 
+class HotwordPrivateNotifySpeakerModelSavedFunction :
+    public ChromeSyncExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("hotwordPrivate.notifySpeakerModelSaved",
+                             HOTWORDPRIVATE_NOTIFYSPEAKERMODELSAVED)
+
+ protected:
+  ~HotwordPrivateNotifySpeakerModelSavedFunction() override {}
+
+  // ExtensionFunction:
+  bool RunSync() override;
+};
+
 class HotwordPrivateStopTrainingFunction :
     public ChromeSyncExtensionFunction {
  public:
@@ -171,6 +194,62 @@ class HotwordPrivateStopTrainingFunction :
 
  protected:
   ~HotwordPrivateStopTrainingFunction() override {}
+
+  // ExtensionFunction:
+  bool RunSync() override;
+};
+
+class HotwordPrivateGetLocalizedStringsFunction
+    : public ChromeSyncExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("hotwordPrivate.getLocalizedStrings",
+                             HOTWORDPRIVATE_GETLOCALIZEDSTRINGS)
+
+ protected:
+  ~HotwordPrivateGetLocalizedStringsFunction() override {}
+
+  // ExtensionFunction:
+  bool RunSync() override;
+};
+
+class HotwordPrivateSetAudioHistoryEnabledFunction
+    : public ChromeAsyncExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("hotwordPrivate.setAudioHistoryEnabled",
+                             HOTWORDPRIVATE_SETAUDIOHISTORYENABLED)
+
+ protected:
+  ~HotwordPrivateSetAudioHistoryEnabledFunction() override {}
+
+  // ExtensionFunction:
+  bool RunAsync() override;
+
+  void SetResultAndSendResponse(bool success, bool new_enabled_value);
+};
+
+class HotwordPrivateGetAudioHistoryEnabledFunction
+    : public ChromeAsyncExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("hotwordPrivate.getAudioHistoryEnabled",
+                             HOTWORDPRIVATE_GETAUDIOHISTORYENABLED)
+
+ protected:
+  ~HotwordPrivateGetAudioHistoryEnabledFunction() override {}
+
+  // ExtensionFunction:
+  bool RunAsync() override;
+
+  void SetResultAndSendResponse(bool success, bool new_enabled_value);
+};
+
+class HotwordPrivateSpeakerModelExistsResultFunction :
+    public ChromeSyncExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("hotwordPrivate.speakerModelExistsResult",
+                             HOTWORDPRIVATE_SPEAKERMODELEXISTSRESULT)
+
+ protected:
+  ~HotwordPrivateSpeakerModelExistsResultFunction() override {}
 
   // ExtensionFunction:
   bool RunSync() override;

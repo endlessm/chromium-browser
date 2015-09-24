@@ -85,12 +85,12 @@ int GetTrackedPrefHistogramCount(const char* histogram_name,
 
 scoped_ptr<base::DictionaryValue> ReadPrefsDictionary(
     const base::FilePath& pref_file) {
-  JSONFileValueSerializer serializer(pref_file);
-  int error_code = JSONFileValueSerializer::JSON_NO_ERROR;
+  JSONFileValueDeserializer deserializer(pref_file);
+  int error_code = JSONFileValueDeserializer::JSON_NO_ERROR;
   std::string error_str;
   scoped_ptr<base::Value> prefs(
-      serializer.Deserialize(&error_code, &error_str));
-  if (!prefs || error_code != JSONFileValueSerializer::JSON_NO_ERROR) {
+      deserializer.Deserialize(&error_code, &error_str));
+  if (!prefs || error_code != JSONFileValueDeserializer::JSON_NO_ERROR) {
     ADD_FAILURE() << "Error #" << error_code << ": " << error_str;
     return scoped_ptr<base::DictionaryValue>();
   }
@@ -147,7 +147,7 @@ class PrefHashBrowserTestBase
       : protection_level_(GetProtectionLevelFromTrialGroup(GetParam())) {
   }
 
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionBrowserTest::SetUpCommandLine(command_line);
     EXPECT_FALSE(command_line->HasSwitch(switches::kForceFieldTrials));
     command_line->AppendSwitchASCII(
@@ -228,6 +228,14 @@ class PrefHashBrowserTestBase
     return true;
   }
 
+  void SetUpInProcessBrowserTestFixture() override {
+    ExtensionBrowserTest::SetUpInProcessBrowserTestFixture();
+
+    // Bots are on a domain, turn off the domain check for settings hardening in
+    // order to be able to test all SettingsEnforcement groups.
+    chrome_prefs::DisableDomainCheckForTesting();
+  }
+
   // In the PRE_ test, find the number of tracked preferences that were
   // initialized and save it to a file to be read back in the main test and used
   // as the total number of tracked preferences.
@@ -301,10 +309,9 @@ class PrefHashBrowserTestBase
  private:
   // Returns true if this is the PRE_ phase of the test.
   bool IsPRETest() {
-    return StartsWithASCII(
-        testing::UnitTest::GetInstance()->current_test_info()->name(),
-        "PRE_",
-        true /* case_sensitive */);
+    return base::StartsWith(
+        testing::UnitTest::GetInstance()->current_test_info()->name(), "PRE_",
+        base::CompareCase::SENSITIVE);
   }
 
   SettingsProtectionLevel GetProtectionLevelFromTrialGroup(

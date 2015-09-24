@@ -14,23 +14,22 @@
 #include "base/memory/weak_ptr.h"
 #include "base/synchronization/lock.h"
 #include "base/task/cancelable_task_tracker.h"
-#include "chrome/browser/history/history_service.h"
+#include "base/timer/timer.h"
 #include "chrome/browser/jumplist_updater_win.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
 #include "chrome/browser/sessions/tab_restore_service_observer.h"
+#include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_types.h"
+#include "components/history/core/browser/top_sites_observer.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/notification_observer.h"
+#include "content/public/browser/notification_registrar.h"
 
 namespace chrome {
 struct FaviconImageResult;
 }
 
-namespace content {
-class NotificationRegistrar;
-}
-
-class PageUsageData;
 class PrefChangeRegistrar;
 class Profile;
 
@@ -39,7 +38,6 @@ class Profile;
 // JumpList:
 // * Retrieving "Most Visited" pages from HistoryService;
 // * Retrieving strings from the application resource;
-// * Creating COM objects used by JumpList from PageUsageData objects;
 // * Adding COM objects to JumpList, etc.
 //
 // This class observes the tabs and policies of the given Profile and updates
@@ -53,23 +51,25 @@ class Profile;
 // always delete JumpList on UI thread (the same thread it got constructed on).
 class JumpList : public TabRestoreServiceObserver,
                  public content::NotificationObserver,
+                 public history::TopSitesObserver,
                  public base::RefCountedThreadSafe<
-                     JumpList, content::BrowserThread::DeleteOnUIThread> {
+                     JumpList,
+                     content::BrowserThread::DeleteOnUIThread> {
  public:
   explicit JumpList(Profile* profile);
 
   // NotificationObserver implementation.
-  virtual void Observe(int type,
-                       const content::NotificationSource& source,
-                       const content::NotificationDetails& details);
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override;
 
   // Observer callback for TabRestoreService::Observer to notify when a tab is
   // added or removed.
-  virtual void TabRestoreServiceChanged(TabRestoreService* service);
+  void TabRestoreServiceChanged(TabRestoreService* service) override;
 
   // Observer callback to notice when our associated TabRestoreService
   // is destroyed.
-  virtual void TabRestoreServiceDestroyed(TabRestoreService* service);
+  void TabRestoreServiceDestroyed(TabRestoreService* service) override;
 
   // Cancel a pending jumplist update.
   void CancelPendingUpdate();
@@ -87,7 +87,7 @@ class JumpList : public TabRestoreServiceObserver,
   friend struct content::BrowserThread::DeleteOnThread<
       content::BrowserThread::UI>;
   friend class base::DeleteHelper<JumpList>;
-  virtual ~JumpList();
+  ~JumpList() override;
 
   // Creates a ShellLinkItem object from a tab (or a window) and add it to the
   // given list.
@@ -126,13 +126,23 @@ class JumpList : public TabRestoreServiceObserver,
   // Helper for RunUpdate() that determines its parameters.
   void PostRunUpdate();
 
+  // Called on a timer to invoke RunUpdateOnFileThread() after requests storms
+  // have subsided.
+  void DeferredRunUpdate();
+
   // Runnable method that updates the jumplist, once all the data
   // has been fetched.
-  void RunUpdate(IncognitoModePrefs::Availability incognito_availability);
+  void RunUpdateOnFileThread(
+      IncognitoModePrefs::Availability incognito_availability);
 
   // Helper method for RunUpdate to create icon files for the asynchrounously
   // loaded icons.
   void CreateIconFiles(const ShellLinkItemList& item_list);
+
+  // history::TopSitesObserver implementation.
+  void TopSitesLoaded(history::TopSites* top_sites) override;
+  void TopSitesChanged(history::TopSites* top_sites,
+                       ChangeReason change_reason) override;
 
   // Tracks FaviconService tasks.
   base::CancelableTaskTracker cancelable_task_tracker_;
@@ -157,6 +167,9 @@ class JumpList : public TabRestoreServiceObserver,
   // Items in the "Recently Closed" category of the application JumpList,
   // protected by the list_lock_.
   ShellLinkItemList recently_closed_pages_;
+
+  // Timer for requesting delayed updates of the jumplist.
+  base::OneShotTimer<JumpList> timer_;
 
   // A list of URLs we need to retrieve their favicons,
   // protected by the list_lock_.

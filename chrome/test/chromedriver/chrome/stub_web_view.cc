@@ -36,6 +36,10 @@ Status StubWebView::Reload() {
   return Status(kOk);
 }
 
+Status StubWebView::TraverseHistory(int delta) {
+  return Status(kOk);
+}
+
 Status StubWebView::EvaluateScript(const std::string& frame,
                                    const std::string& function,
                                    scoped_ptr<base::Value>* result) {
@@ -117,6 +121,11 @@ Status StubWebView::OverrideGeolocation(const Geoposition& geoposition) {
   return Status(kOk);
 }
 
+Status StubWebView::OverrideNetworkConditions(
+    const NetworkConditions& network_conditions) {
+  return Status(kOk);
+}
+
 Status StubWebView::CaptureScreenshot(std::string* screenshot) {
   return Status(kOk);
 }
@@ -137,5 +146,23 @@ Status StubWebView::StartProfile() {
 }
 
 Status StubWebView::EndProfile(scoped_ptr<base::Value>* profile_data) {
+  return Status(kOk);
+}
+
+Status StubWebView::SynthesizeTapGesture(int x,
+                                         int y,
+                                         int tap_count,
+                                         bool is_long_press) {
+  return Status(kOk);
+}
+
+Status StubWebView::SynthesizeScrollGesture(int x,
+                                            int y,
+                                            int xoffset,
+                                            int yoffset) {
+  return Status(kOk);
+}
+
+Status StubWebView::SynthesizePinchGesture(int x, int y, double scale_factor) {
   return Status(kOk);
 }

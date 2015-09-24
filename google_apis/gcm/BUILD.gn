@@ -2,10 +2,13 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//testing/test.gni")
 import("//third_party/protobuf/proto_library.gni")
 
 component("gcm") {
   sources = [
+    "base/gcm_util.cc",
+    "base/gcm_util.h",
     "base/mcs_message.cc",
     "base/mcs_message.h",
     "base/mcs_util.cc",
@@ -24,18 +27,26 @@ component("gcm") {
     "engine/connection_handler.h",
     "engine/connection_handler_impl.cc",
     "engine/connection_handler_impl.h",
+    "engine/gcm_registration_request_handler.cc",
+    "engine/gcm_registration_request_handler.h",
     "engine/gcm_store.cc",
     "engine/gcm_store.h",
     "engine/gcm_store_impl.cc",
     "engine/gcm_store_impl.h",
+    "engine/gcm_unregistration_request_handler.cc",
+    "engine/gcm_unregistration_request_handler.h",
     "engine/gservices_settings.cc",
     "engine/gservices_settings.h",
+    "engine/gservices_switches.cc",
+    "engine/gservices_switches.h",
     "engine/heartbeat_manager.cc",
     "engine/heartbeat_manager.h",
+    "engine/instance_id_delete_token_request_handler.cc",
+    "engine/instance_id_delete_token_request_handler.h",
+    "engine/instance_id_get_token_request_handler.cc",
+    "engine/instance_id_get_token_request_handler.h",
     "engine/mcs_client.cc",
     "engine/mcs_client.h",
-    "engine/registration_info.cc",
-    "engine/registration_info.h",
     "engine/registration_request.cc",
     "engine/registration_request.h",
     "engine/unregistration_request.cc",
@@ -58,7 +69,8 @@ component("gcm") {
 }
 
 proto_library("proto") {
-  visibility = [ ":*" ]
+  # This is part of the gcm component.
+  visibility = [ ":gcm" ]
   sources = [
     "protocol/android_checkin.proto",
     "protocol/checkin.proto",
@@ -70,7 +82,7 @@ proto_library("proto") {
   defines = [ "GCM_IMPLEMENTATION" ]
 }
 
-static_library("test_support") {
+source_set("test_support") {
   testonly = true
   sources = [
     "base/fake_encryptor.cc",
@@ -88,6 +100,7 @@ static_library("test_support") {
   ]
   deps = [
     "//base",
+    "//net",
     "//testing/gtest",
   ]
 }
@@ -101,11 +114,11 @@ executable("mcs_probe") {
 
   deps = [
     ":gcm",
-    ":proto",
     ":test_support",
     "//base",
     "//net",
     "//net:test_support",
+    "//third_party/protobuf:protobuf_lite",
   ]
 }
 
@@ -127,12 +140,13 @@ test("gcm_unit_tests") {
   ]
 
   deps = [
-    ":proto",
+    ":gcm",
     ":test_support",
     "//base",
     "//base/test:run_all_unittests",
     "//net",
     "//net:test_support",
     "//testing/gtest",
+    "//third_party/protobuf:protobuf_lite",
   ]
 }

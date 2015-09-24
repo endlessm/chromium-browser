@@ -39,37 +39,40 @@ struct CreateDetails;
 
 // Observes BookmarkModel and then routes the notifications as events to
 // the extension system.
-class BookmarkEventRouter : public BookmarkModelObserver {
+class BookmarkEventRouter : public bookmarks::BookmarkModelObserver {
  public:
   explicit BookmarkEventRouter(Profile* profile);
   ~BookmarkEventRouter() override;
 
-  // BookmarkModelObserver:
-  void BookmarkModelLoaded(BookmarkModel* model, bool ids_reassigned) override;
-  void BookmarkModelBeingDeleted(BookmarkModel* model) override;
-  void BookmarkNodeMoved(BookmarkModel* model,
-                         const BookmarkNode* old_parent,
+  // bookmarks::BookmarkModelObserver:
+  void BookmarkModelLoaded(bookmarks::BookmarkModel* model,
+                           bool ids_reassigned) override;
+  void BookmarkModelBeingDeleted(bookmarks::BookmarkModel* model) override;
+  void BookmarkNodeMoved(bookmarks::BookmarkModel* model,
+                         const bookmarks::BookmarkNode* old_parent,
                          int old_index,
-                         const BookmarkNode* new_parent,
+                         const bookmarks::BookmarkNode* new_parent,
                          int new_index) override;
-  void BookmarkNodeAdded(BookmarkModel* model,
-                         const BookmarkNode* parent,
+  void BookmarkNodeAdded(bookmarks::BookmarkModel* model,
+                         const bookmarks::BookmarkNode* parent,
                          int index) override;
-  void BookmarkNodeRemoved(BookmarkModel* model,
-                           const BookmarkNode* parent,
+  void BookmarkNodeRemoved(bookmarks::BookmarkModel* model,
+                           const bookmarks::BookmarkNode* parent,
                            int old_index,
-                           const BookmarkNode* node,
+                           const bookmarks::BookmarkNode* node,
                            const std::set<GURL>& removed_urls) override;
-  void BookmarkAllUserNodesRemoved(BookmarkModel* model,
+  void BookmarkAllUserNodesRemoved(bookmarks::BookmarkModel* model,
                                    const std::set<GURL>& removed_urls) override;
-  void BookmarkNodeChanged(BookmarkModel* model,
-                           const BookmarkNode* node) override;
-  void BookmarkNodeFaviconChanged(BookmarkModel* model,
-                                  const BookmarkNode* node) override;
-  void BookmarkNodeChildrenReordered(BookmarkModel* model,
-                                     const BookmarkNode* node) override;
-  void ExtensiveBookmarkChangesBeginning(BookmarkModel* model) override;
-  void ExtensiveBookmarkChangesEnded(BookmarkModel* model) override;
+  void BookmarkNodeChanged(bookmarks::BookmarkModel* model,
+                           const bookmarks::BookmarkNode* node) override;
+  void BookmarkNodeFaviconChanged(bookmarks::BookmarkModel* model,
+                                  const bookmarks::BookmarkNode* node) override;
+  void BookmarkNodeChildrenReordered(
+      bookmarks::BookmarkModel* model,
+      const bookmarks::BookmarkNode* node) override;
+  void ExtensiveBookmarkChangesBeginning(
+      bookmarks::BookmarkModel* model) override;
+  void ExtensiveBookmarkChangesEnded(bookmarks::BookmarkModel* model) override;
 
  private:
   // Helper to actually dispatch an event to extension listeners.
@@ -77,7 +80,7 @@ class BookmarkEventRouter : public BookmarkModelObserver {
                      scoped_ptr<base::ListValue> event_args);
 
   content::BrowserContext* browser_context_;
-  BookmarkModel* model_;
+  bookmarks::BookmarkModel* model_;
   ChromeBookmarkClient* client_;
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkEventRouter);
@@ -114,7 +117,7 @@ class BookmarksAPI : public BrowserContextKeyedAPI,
 };
 
 class BookmarksFunction : public ChromeAsyncExtensionFunction,
-                          public BaseBookmarkModelObserver {
+                          public bookmarks::BaseBookmarkModelObserver {
  public:
   // AsyncExtensionFunction:
   bool RunAsync() override;
@@ -126,7 +129,7 @@ class BookmarksFunction : public ChromeAsyncExtensionFunction,
   virtual bool RunOnReady() = 0;
 
   // Helper to get the BookmarkModel.
-  BookmarkModel* GetBookmarkModel();
+  bookmarks::BookmarkModel* GetBookmarkModel();
 
   // Helper to get the ChromeBookmarkClient.
   ChromeBookmarkClient* GetChromeBookmarkClient();
@@ -139,14 +142,15 @@ class BookmarksFunction : public ChromeAsyncExtensionFunction,
   // Helper to get the bookmark node from a given string id.
   // If the given id can't be parsed or doesn't refer to a valid node, sets
   // error_ and returns NULL.
-  const BookmarkNode* GetBookmarkNodeFromId(const std::string& id_string);
+  const bookmarks::BookmarkNode* GetBookmarkNodeFromId(
+      const std::string& id_string);
 
   // Helper to create a bookmark node from a CreateDetails object. If a node
   // can't be created based on the given details, sets error_ and returns NULL.
-  const BookmarkNode* CreateBookmarkNode(
-      BookmarkModel* model,
+  const bookmarks::BookmarkNode* CreateBookmarkNode(
+      bookmarks::BookmarkModel* model,
       const api::bookmarks::CreateDetails& details,
-      const BookmarkNode::MetaInfoMap* meta_info);
+      const bookmarks::BookmarkNode::MetaInfoMap* meta_info);
 
   // Helper that checks if bookmark editing is enabled. If it's not, this sets
   // error_ to the appropriate error string.
@@ -156,12 +160,13 @@ class BookmarksFunction : public ChromeAsyncExtensionFunction,
   // is NULL, or a managed node, or the root node. In these cases the node
   // can't be edited, can't have new child nodes appended, and its direct
   // children can't be moved or reordered.
-  bool CanBeModified(const BookmarkNode* node);
+  bool CanBeModified(const bookmarks::BookmarkNode* node);
 
  private:
-  // BaseBookmarkModelObserver:
+  // bookmarks::BaseBookmarkModelObserver:
   void BookmarkModelChanged() override;
-  void BookmarkModelLoaded(BookmarkModel* model, bool ids_reassigned) override;
+  void BookmarkModelLoaded(bookmarks::BookmarkModel* model,
+                           bool ids_reassigned) override;
 
   void RunAndSendResponse();
 };
@@ -303,7 +308,9 @@ class BookmarksIOFunction : public BookmarksFunction,
  public:
   BookmarksIOFunction();
 
-  virtual void FileSelected(const base::FilePath& path, int index, void* params) = 0;
+  void FileSelected(const base::FilePath& path,
+                    int index,
+                    void* params) override = 0;
 
   // ui::SelectFileDialog::Listener:
   void MultiFilesSelected(const std::vector<base::FilePath>& files,

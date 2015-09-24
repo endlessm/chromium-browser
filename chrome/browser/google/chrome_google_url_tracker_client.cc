@@ -16,7 +16,7 @@ ChromeGoogleURLTrackerClient::~ChromeGoogleURLTrackerClient() {
 }
 
 bool ChromeGoogleURLTrackerClient::IsBackgroundNetworkingEnabled() {
-  return !CommandLine::ForCurrentProcess()->HasSwitch(
+  return !base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kDisableBackgroundNetworking);
 }
 

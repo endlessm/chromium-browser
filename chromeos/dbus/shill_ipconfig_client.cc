@@ -5,8 +5,9 @@
 #include "chromeos/dbus/shill_ipconfig_client.h"
 
 #include "base/bind.h"
+#include "base/containers/scoped_ptr_map.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
-#include "base/stl_util.h"
 #include "base/values.h"
 #include "chromeos/dbus/shill_property_changed_observer.h"
 #include "dbus/bus.h"
@@ -27,65 +28,62 @@ class ShillIPConfigClientImpl : public ShillIPConfigClient {
 
   ////////////////////////////////////
   // ShillIPConfigClient overrides.
-  virtual void AddPropertyChangedObserver(
+  void AddPropertyChangedObserver(
       const dbus::ObjectPath& ipconfig_path,
       ShillPropertyChangedObserver* observer) override {
     GetHelper(ipconfig_path)->AddPropertyChangedObserver(observer);
   }
 
-  virtual void RemovePropertyChangedObserver(
+  void RemovePropertyChangedObserver(
       const dbus::ObjectPath& ipconfig_path,
       ShillPropertyChangedObserver* observer) override {
     GetHelper(ipconfig_path)->RemovePropertyChangedObserver(observer);
   }
-  virtual void Refresh(const dbus::ObjectPath& ipconfig_path,
-                       const VoidDBusMethodCallback& callback) override;
-  virtual void GetProperties(const dbus::ObjectPath& ipconfig_path,
-                             const DictionaryValueCallback& callback) override;
-  virtual void SetProperty(const dbus::ObjectPath& ipconfig_path,
-                           const std::string& name,
-                           const base::Value& value,
-                           const VoidDBusMethodCallback& callback) override;
-  virtual void ClearProperty(const dbus::ObjectPath& ipconfig_path,
-                             const std::string& name,
-                             const VoidDBusMethodCallback& callback) override;
-  virtual void Remove(const dbus::ObjectPath& ipconfig_path,
-                      const VoidDBusMethodCallback& callback) override;
-  virtual ShillIPConfigClient::TestInterface* GetTestInterface() override;
+  void Refresh(const dbus::ObjectPath& ipconfig_path,
+               const VoidDBusMethodCallback& callback) override;
+  void GetProperties(const dbus::ObjectPath& ipconfig_path,
+                     const DictionaryValueCallback& callback) override;
+  void SetProperty(const dbus::ObjectPath& ipconfig_path,
+                   const std::string& name,
+                   const base::Value& value,
+                   const VoidDBusMethodCallback& callback) override;
+  void ClearProperty(const dbus::ObjectPath& ipconfig_path,
+                     const std::string& name,
+                     const VoidDBusMethodCallback& callback) override;
+  void Remove(const dbus::ObjectPath& ipconfig_path,
+              const VoidDBusMethodCallback& callback) override;
+  ShillIPConfigClient::TestInterface* GetTestInterface() override;
 
  protected:
-  virtual void Init(dbus::Bus* bus) override {
-    bus_ = bus;
-  }
+  void Init(dbus::Bus* bus) override { bus_ = bus; }
 
  private:
-  typedef std::map<std::string, ShillClientHelper*> HelperMap;
+  typedef base::ScopedPtrMap<std::string, scoped_ptr<ShillClientHelper>>
+      HelperMap;
 
   // Returns the corresponding ShillClientHelper for the profile.
   ShillClientHelper* GetHelper(const dbus::ObjectPath& ipconfig_path) {
-    HelperMap::iterator it = helpers_.find(ipconfig_path.value());
+    HelperMap::const_iterator it = helpers_.find(ipconfig_path.value());
     if (it != helpers_.end())
       return it->second;
 
     // There is no helper for the profile, create it.
     dbus::ObjectProxy* object_proxy =
         bus_->GetObjectProxy(shill::kFlimflamServiceName, ipconfig_path);
-    ShillClientHelper* helper = new ShillClientHelper(object_proxy);
+    scoped_ptr<ShillClientHelper> helper(new ShillClientHelper(object_proxy));
     helper->MonitorPropertyChanged(shill::kFlimflamIPConfigInterface);
-    helpers_.insert(HelperMap::value_type(ipconfig_path.value(), helper));
-    return helper;
+    ShillClientHelper* helper_ptr = helper.get();
+    helpers_.insert(ipconfig_path.value(), helper.Pass());
+    return helper_ptr;
   }
 
   dbus::Bus* bus_;
   HelperMap helpers_;
-  STLValueDeleter<HelperMap> helpers_deleter_;
 
   DISALLOW_COPY_AND_ASSIGN(ShillIPConfigClientImpl);
 };
 
-ShillIPConfigClientImpl::ShillIPConfigClientImpl()
-    : bus_(NULL),
-      helpers_deleter_(&helpers_) {
+ShillIPConfigClientImpl::ShillIPConfigClientImpl() : bus_(NULL) {
 }
 
 void ShillIPConfigClientImpl::GetProperties(

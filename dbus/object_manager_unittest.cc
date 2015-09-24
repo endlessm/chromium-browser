@@ -48,10 +48,9 @@ class ObjectManagerTest
     }
   };
 
-  virtual PropertySet* CreateProperties(
-      ObjectProxy* object_proxy,
-      const ObjectPath& object_path,
-      const std::string& interface_name) override {
+  PropertySet* CreateProperties(ObjectProxy* object_proxy,
+                                const ObjectPath& object_path,
+                                const std::string& interface_name) override {
     Properties* properties = new Properties(
         object_proxy, interface_name,
         base::Bind(&ObjectManagerTest::OnPropertyChanged,
@@ -59,7 +58,7 @@ class ObjectManagerTest
     return static_cast<PropertySet*>(properties);
   }
 
-  virtual void SetUp() {
+  void SetUp() override {
     // Make the main thread not to allow IO.
     base::ThreadRestrictions::SetIOAllowed(false);
 
@@ -71,7 +70,7 @@ class ObjectManagerTest
 
     // Start the test service, using the D-Bus thread.
     TestService::Options options;
-    options.dbus_task_runner = dbus_thread_->message_loop_proxy();
+    options.dbus_task_runner = dbus_thread_->task_runner();
     test_service_.reset(new TestService(options));
     ASSERT_TRUE(test_service_->StartService());
     ASSERT_TRUE(test_service_->WaitUntilServiceIsStarted());
@@ -81,7 +80,7 @@ class ObjectManagerTest
     Bus::Options bus_options;
     bus_options.bus_type = Bus::SESSION;
     bus_options.connection_type = Bus::PRIVATE;
-    bus_options.dbus_task_runner = dbus_thread_->message_loop_proxy();
+    bus_options.dbus_task_runner = dbus_thread_->task_runner();
     bus_ = new Bus(bus_options);
     ASSERT_TRUE(bus_->HasDBusThread());
 
@@ -93,7 +92,7 @@ class ObjectManagerTest
     WaitForObject();
   }
 
-  virtual void TearDown() {
+  void TearDown() override {
     bus_->ShutdownOnDBusThreadAndBlock();
 
     // Shut down the service.
@@ -126,15 +125,15 @@ class ObjectManagerTest
 
  protected:
   // Called when an object is added.
-  virtual void ObjectAdded(const ObjectPath& object_path,
-                           const std::string& interface_name) override {
+  void ObjectAdded(const ObjectPath& object_path,
+                   const std::string& interface_name) override {
     added_objects_.push_back(std::make_pair(object_path, interface_name));
     run_loop_->Quit();
   }
 
   // Called when an object is removed.
-  virtual void ObjectRemoved(const ObjectPath& object_path,
-                             const std::string& interface_name) override {
+  void ObjectRemoved(const ObjectPath& object_path,
+                     const std::string& interface_name) override {
     removed_objects_.push_back(std::make_pair(object_path, interface_name));
     run_loop_->Quit();
   }

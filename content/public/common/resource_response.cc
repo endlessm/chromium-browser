@@ -31,7 +31,7 @@ scoped_refptr<ResourceResponse> ResourceResponse::DeepCopy() const {
   new_response->head.was_fetched_via_spdy = head.was_fetched_via_spdy;
   new_response->head.was_npn_negotiated = head.was_npn_negotiated;
   new_response->head.was_alternate_protocol_available =
-      new_response->head.was_alternate_protocol_available;
+      head.was_alternate_protocol_available;
   new_response->head.connection_info = head.connection_info;
   new_response->head.was_fetched_via_proxy = head.was_fetched_via_proxy;
   new_response->head.proxy_server = head.proxy_server;
@@ -45,11 +45,10 @@ scoped_refptr<ResourceResponse> ResourceResponse::DeepCopy() const {
       head.original_url_via_service_worker;
   new_response->head.response_type_via_service_worker =
       head.response_type_via_service_worker;
-  new_response->head.service_worker_fetch_start =
-      head.service_worker_fetch_start;
-  new_response->head.service_worker_fetch_ready =
-      head.service_worker_fetch_ready;
-  new_response->head.service_worker_fetch_end = head.service_worker_fetch_end;
+  new_response->head.service_worker_start_time =
+      head.service_worker_start_time;
+  new_response->head.service_worker_ready_time =
+      head.service_worker_ready_time;
   return new_response;
 }
 

@@ -7,7 +7,8 @@
 #include <limits>
 #include <string>
 
-#include "base/debug/trace_event.h"
+#include "base/stl_util.h"
+#include "base/trace_event/trace_event.h"
 #include "chrome/common/extensions/api/file_system_provider.h"
 #include "chrome/common/extensions/api/file_system_provider_internal.h"
 
@@ -29,13 +30,14 @@ int CopyRequestValueToBuffer(scoped_ptr<RequestValue> value,
   if (!params)
     return -1;
 
-  const size_t chunk_size = params->data.length();
+  const size_t chunk_size = params->data.size();
 
   // Check for overflows.
   if (chunk_size > static_cast<size_t>(buffer_length) - buffer_offset)
     return -1;
 
-  memcpy(buffer->data() + buffer_offset, params->data.c_str(), chunk_size);
+  memcpy(buffer->data() + buffer_offset, vector_as_array(&params->data),
+         chunk_size);
 
   return chunk_size;
 }
@@ -75,6 +77,7 @@ bool ReadFile::Execute(int request_id) {
 
   return SendEvent(
       request_id,
+      extensions::events::FILE_SYSTEM_PROVIDER_ON_READ_FILE_REQUESTED,
       extensions::api::file_system_provider::OnReadFileRequested::kEventName,
       extensions::api::file_system_provider::OnReadFileRequested::Create(
           options));

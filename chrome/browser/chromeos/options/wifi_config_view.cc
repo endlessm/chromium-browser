@@ -51,8 +51,8 @@ class ComboboxWithWidth : public views::Combobox {
       : Combobox(model),
         width_(width) {
   }
-  virtual ~ComboboxWithWidth() {}
-  virtual gfx::Size GetPreferredSize() const override {
+  ~ComboboxWithWidth() override {}
+  gfx::Size GetPreferredSize() const override {
     gfx::Size size = Combobox::GetPreferredSize();
     size.set_width(width_);
     return size;
@@ -102,11 +102,11 @@ namespace internal {
 class SecurityComboboxModel : public ui::ComboboxModel {
  public:
   SecurityComboboxModel();
-  virtual ~SecurityComboboxModel();
+  ~SecurityComboboxModel() override;
 
   // Overridden from ui::ComboboxModel:
-  virtual int GetItemCount() const override;
-  virtual base::string16 GetItemAt(int index) override;
+  int GetItemCount() const override;
+  base::string16 GetItemAt(int index) override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(SecurityComboboxModel);
@@ -115,11 +115,11 @@ class SecurityComboboxModel : public ui::ComboboxModel {
 class EAPMethodComboboxModel : public ui::ComboboxModel {
  public:
   EAPMethodComboboxModel();
-  virtual ~EAPMethodComboboxModel();
+  ~EAPMethodComboboxModel() override;
 
   // Overridden from ui::ComboboxModel:
-  virtual int GetItemCount() const override;
-  virtual base::string16 GetItemAt(int index) override;
+  int GetItemCount() const override;
+  base::string16 GetItemAt(int index) override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(EAPMethodComboboxModel);
@@ -128,11 +128,11 @@ class EAPMethodComboboxModel : public ui::ComboboxModel {
 class Phase2AuthComboboxModel : public ui::ComboboxModel {
  public:
   explicit Phase2AuthComboboxModel(views::Combobox* eap_method_combobox);
-  virtual ~Phase2AuthComboboxModel();
+  ~Phase2AuthComboboxModel() override;
 
   // Overridden from ui::ComboboxModel:
-  virtual int GetItemCount() const override;
-  virtual base::string16 GetItemAt(int index) override;
+  int GetItemCount() const override;
+  base::string16 GetItemAt(int index) override;
 
  private:
   views::Combobox* eap_method_combobox_;
@@ -143,11 +143,11 @@ class Phase2AuthComboboxModel : public ui::ComboboxModel {
 class ServerCACertComboboxModel : public ui::ComboboxModel {
  public:
   ServerCACertComboboxModel();
-  virtual ~ServerCACertComboboxModel();
+  ~ServerCACertComboboxModel() override;
 
   // Overridden from ui::ComboboxModel:
-  virtual int GetItemCount() const override;
-  virtual base::string16 GetItemAt(int index) override;
+  int GetItemCount() const override;
+  base::string16 GetItemAt(int index) override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ServerCACertComboboxModel);
@@ -156,11 +156,11 @@ class ServerCACertComboboxModel : public ui::ComboboxModel {
 class UserCertComboboxModel : public ui::ComboboxModel {
  public:
   explicit UserCertComboboxModel(WifiConfigView* owner);
-  virtual ~UserCertComboboxModel();
+  ~UserCertComboboxModel() override;
 
   // Overridden from ui::ComboboxModel:
-  virtual int GetItemCount() const override;
-  virtual base::string16 GetItemAt(int index) override;
+  int GetItemCount() const override;
+  base::string16 GetItemAt(int index) override;
 
  private:
   WifiConfigView* owner_;
@@ -401,17 +401,18 @@ views::View* WifiConfigView::GetInitiallyFocusedView() {
 }
 
 bool WifiConfigView::CanLogin() {
-  static const size_t kMinWirelessPasswordLen = 5;
+  static const size_t kMinPSKPasswordLen = 5;
 
   // We either have an existing network or the user entered an SSID.
   if (service_path_.empty() && GetSsid().empty())
     return false;
 
-  // If the network requires a passphrase, make sure it is the right length.
+  // If a non-EAP network requires a passphrase, ensure it is the right length.
   if (passphrase_textfield_ != NULL &&
       passphrase_textfield_->enabled() &&
       !passphrase_textfield_->show_fake() &&
-      passphrase_textfield_->text().length() < kMinWirelessPasswordLen)
+      !eap_method_combobox_ &&
+      passphrase_textfield_->text().length() < kMinPSKPasswordLen)
     return false;
 
   // If we're using EAP, we must have a method.
@@ -588,7 +589,7 @@ void WifiConfigView::UpdateErrorLabel() {
   if (error_msg.empty() && !service_path_.empty()) {
     const NetworkState* network = GetNetworkState();
     if (network && network->connection_state() == shill::kStateFailure) {
-      error_msg = ui::NetworkConnect::Get()->GetErrorString(
+      error_msg = ui::NetworkConnect::Get()->GetShillErrorString(
           network->last_error(), network->path());
     }
   }
@@ -679,17 +680,17 @@ bool WifiConfigView::Login() {
         shill::kModeProperty, shill::kModeManaged);
     properties.SetBooleanWithoutPathExpansion(
         shill::kSaveCredentialsProperty, GetSaveCredentials());
-    std::string security = shill::kSecurityNone;
+    std::string security_class = shill::kSecurityNone;
     if (!eap_method_combobox_) {
       switch (security_combobox_->selected_index()) {
         case SECURITY_INDEX_NONE:
-          security = shill::kSecurityNone;
+          security_class = shill::kSecurityNone;
           break;
         case SECURITY_INDEX_WEP:
-          security = shill::kSecurityWep;
+          security_class = shill::kSecurityWep;
           break;
         case SECURITY_INDEX_PSK:
-          security = shill::kSecurityPsk;
+          security_class = shill::kSecurityPsk;
           break;
       }
       std::string passphrase = GetPassphrase();
@@ -698,11 +699,11 @@ bool WifiConfigView::Login() {
             shill::kPassphraseProperty, GetPassphrase());
       }
     } else {
-      security = shill::kSecurity8021x;
+      security_class = shill::kSecurity8021x;
       SetEapProperties(&properties, false /* not configured */);
     }
     properties.SetStringWithoutPathExpansion(
-        shill::kSecurityProperty, security);
+        shill::kSecurityClassProperty, security_class);
 
     // Configure and connect to network.
     ui::NetworkConnect::Get()->CreateConfigurationAndConnect(&properties,
@@ -899,7 +900,7 @@ void WifiConfigView::Init(bool show_8021x) {
   const NetworkState* network = GetNetworkState();
   if (network) {
     if (network->type() == shill::kTypeWifi) {
-      if (network->security() == shill::kSecurity8021x)
+      if (network->security_class() == shill::kSecurity8021x)
         show_8021x = true;
     } else if (network->type() == shill::kTypeEthernet) {
       show_8021x = true;
@@ -1194,11 +1195,9 @@ void WifiConfigView::Init(bool show_8021x) {
   UpdateErrorLabel();
 
   if (network) {
-    NetworkHandler::Get()->network_configuration_handler()->GetProperties(
-        service_path_,
-        base::Bind(&WifiConfigView::InitFromProperties,
-                   weak_ptr_factory_.GetWeakPtr(),
-                   show_8021x),
+    NetworkHandler::Get()->network_configuration_handler()->GetShillProperties(
+        service_path_, base::Bind(&WifiConfigView::InitFromProperties,
+                                  weak_ptr_factory_.GetWeakPtr(), show_8021x),
         base::Bind(&ShillError, "GetProperties"));
   }
 }

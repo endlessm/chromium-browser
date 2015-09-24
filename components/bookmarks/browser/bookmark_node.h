@@ -13,6 +13,8 @@
 #include "ui/gfx/image/image.h"
 #include "url/gurl.h"
 
+namespace bookmarks {
+
 class BookmarkModel;
 
 // BookmarkNode ---------------------------------------------------------------
@@ -208,5 +210,7 @@ class BookmarkPermanentNode : public BookmarkNode {
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkPermanentNode);
 };
+
+}  // namespace bookmarks
 
 #endif  // COMPONENTS_BOOKMARKS_BROWSER_BOOKMARK_NODE_H_

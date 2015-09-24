@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "sandbox/linux/services/scoped_process.h"
+
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -9,8 +11,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include "base/basictypes.h"
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
@@ -18,7 +20,6 @@
 #include "base/posix/eintr_wrapper.h"
 #include "base/threading/platform_thread.h"
 #include "base/time/time.h"
-#include "sandbox/linux/services/scoped_process.h"
 #include "sandbox/linux/tests/unit_tests.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -34,8 +35,6 @@ void RaiseAndExit(int signal) {
   PCHECK(0 == raise(signal));
   _exit(0);
 }
-
-void DoNothing() {}
 
 TEST(ScopedProcess, ScopedProcessNormalExit) {
   const int kCustomExitCode = 12;
@@ -64,7 +63,7 @@ TEST(ScopedProcess, DISABLE_ON_ANDROID(ScopedProcessAbort)) {
 }
 
 TEST(ScopedProcess, ScopedProcessSignaled) {
-  ScopedProcess process(base::Bind(&DoNothing));
+  ScopedProcess process(base::Bind(&base::DoNothing));
   bool got_signaled = false;
   ASSERT_EQ(0, kill(process.GetPid(), SIGKILL));
   int exit_code = process.WaitForExit(&got_signaled);
@@ -92,7 +91,7 @@ TEST(ScopedProcess, DiesForReal) {
 }
 
 TEST(ScopedProcess, SynchronizationBasic) {
-  ScopedProcess process1(base::Bind(&DoNothing));
+  ScopedProcess process1(base::Bind(&base::DoNothing));
   EXPECT_TRUE(process1.WaitForClosureToRun());
 
   ScopedProcess process2(base::Bind(&DoExit));

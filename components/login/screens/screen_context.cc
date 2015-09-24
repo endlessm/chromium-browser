@@ -122,6 +122,13 @@ String16List ScreenContext::GetString16List(
   return Get(key, default_value);
 }
 
+void ScreenContext::CopyFrom(ScreenContext& context) {
+  scoped_ptr<base::DictionaryValue> storage(context.storage_.DeepCopy());
+  scoped_ptr<base::DictionaryValue> changes(context.changes_.DeepCopy());
+  storage_.Swap(storage.get());
+  changes_.Swap(changes.get());
+}
+
 bool ScreenContext::HasKey(const KeyType& key) const {
   DCHECK(CalledOnValidThread());
   return storage_.HasKey(key);
@@ -147,12 +154,11 @@ void ScreenContext::ApplyChanges(const base::DictionaryValue& diff,
     keys->clear();
     keys->reserve(diff.size());
   }
-  base::DictionaryValue::Iterator it(diff);
-  while (!it.IsAtEnd()) {
+
+  for (base::DictionaryValue::Iterator it(diff); !it.IsAtEnd(); it.Advance()) {
     Set(it.key(), it.value().DeepCopy());
     if (keys)
       keys->push_back(it.key());
-    it.Advance();
   }
   changes_.Clear();
 }

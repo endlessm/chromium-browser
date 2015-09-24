@@ -9,6 +9,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -21,6 +22,7 @@
 #include "remoting/host/config_file_watcher.h"
 #include "remoting/host/desktop_session.h"
 #include "remoting/host/host_event_logger.h"
+#include "remoting/host/host_exit_codes.h"
 #include "remoting/host/host_status_observer.h"
 #include "remoting/host/screen_resolution.h"
 #include "remoting/protocol/transport.h"
@@ -132,6 +134,9 @@ bool DaemonProcess::OnMessageReceived(const IPC::Message& message) {
 
 void DaemonProcess::OnPermanentError(int exit_code) {
   DCHECK(caller_task_runner()->BelongsToCurrentThread());
+  DCHECK(kMinPermanentErrorExitCode <= exit_code &&
+         exit_code <= kMaxPermanentErrorExitCode);
+
   Stop();
 }
 
@@ -281,9 +286,7 @@ void DaemonProcess::Stop() {
   DCHECK(caller_task_runner()->BelongsToCurrentThread());
 
   if (!stopped_callback_.is_null()) {
-    base::Closure stopped_callback = stopped_callback_;
-    stopped_callback_.Reset();
-    stopped_callback.Run();
+    base::ResetAndReturn(&stopped_callback_).Run();
   }
 }
 

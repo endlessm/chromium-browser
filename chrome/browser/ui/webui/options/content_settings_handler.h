@@ -78,10 +78,11 @@ class ContentSettingsHandler : public OptionsPageUIHandler,
     bool show_flash_exceptions_link;
 
     // Cached Chrome media settings.
-    ContentSetting default_setting;
+    ContentSetting default_audio_setting;
+    ContentSetting default_video_setting;
     bool policy_disable_audio;
     bool policy_disable_video;
-    bool default_setting_initialized;
+    bool default_settings_initialized;
     MediaExceptions exceptions;
     bool exceptions_initialized;
   };
@@ -125,6 +126,12 @@ class ContentSettingsHandler : public OptionsPageUIHandler,
 
   // Clobbers and rebuilds just the MIDI SysEx exception table.
   void UpdateMIDISysExExceptionsView();
+
+  // Modifies the zoom level exceptions list to display correct chrome
+  // signin page entry. When the legacy (non-WebView-based) signin page
+  // goes away, this function can be removed.
+  void AdjustZoomLevelsListForSigninPageIfNecessary(
+      content::HostZoomMap::ZoomLevelVector* zoom_levels);
 
   // Clobbers and rebuilds just the zoom levels exception table.
   void UpdateZoomLevelsExceptionsView();
@@ -195,11 +202,6 @@ class ContentSettingsHandler : public OptionsPageUIHandler,
   // is no active incognito session.
   HostContentSettingsMap* GetOTRContentSettingsMap();
 
-  // Gets the default setting in string form. If |provider_id| is not NULL, the
-  // id of the provider which provided the default setting is assigned to it.
-  std::string GetSettingDefaultFromModel(ContentSettingsType type,
-                                         std::string* provider_id);
-
   // Gets the ProtocolHandlerRegistry for the normal profile.
   ProtocolHandlerRegistry* GetProtocolHandlerRegistry();
 
@@ -229,6 +231,8 @@ class ContentSettingsHandler : public OptionsPageUIHandler,
   scoped_ptr<PepperFlashSettingsManager> flash_settings_manager_;
   MediaSettingsInfo media_settings_;
   scoped_ptr<content::HostZoomMap::Subscription> host_zoom_map_subscription_;
+  scoped_ptr<content::HostZoomMap::Subscription>
+      signin_host_zoom_map_subscription_;
   ScopedObserver<HostContentSettingsMap, content_settings::Observer> observer_;
 
   DISALLOW_COPY_AND_ASSIGN(ContentSettingsHandler);

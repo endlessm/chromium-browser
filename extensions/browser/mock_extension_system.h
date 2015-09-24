@@ -34,17 +34,11 @@ class MockExtensionSystem : public ExtensionSystem {
   StateStore* state_store() override;
   StateStore* rules_store() override;
   InfoMap* info_map() override;
-  LazyBackgroundTaskQueue* lazy_background_task_queue() override;
-  EventRouter* event_router() override;
-  ErrorConsole* error_console() override;
-  InstallVerifier* install_verifier() override;
   QuotaService* quota_service() override;
   const OneShotEvent& ready() const override;
   ContentVerifier* content_verifier() override;
   scoped_ptr<ExtensionSet> GetDependentExtensions(
       const Extension* extension) override;
-  DeclarativeUserScriptMaster* GetDeclarativeUserScriptMasterByExtension(
-      const ExtensionId& extension_id) override;
 
  private:
   content::BrowserContext* browser_context_;
@@ -67,16 +61,16 @@ class MockExtensionSystemFactory : public ExtensionSystemProvider {
     DependsOn(ExtensionRegistryFactory::GetInstance());
   }
 
-  virtual ~MockExtensionSystemFactory() {}
+  ~MockExtensionSystemFactory() override {}
 
   // BrowserContextKeyedServiceFactory overrides:
-  virtual KeyedService* BuildServiceInstanceFor(
+  KeyedService* BuildServiceInstanceFor(
       content::BrowserContext* context) const override {
     return new T(context);
   }
 
   // ExtensionSystemProvider overrides:
-  virtual ExtensionSystem* GetForBrowserContext(
+  ExtensionSystem* GetForBrowserContext(
       content::BrowserContext* context) override {
     return static_cast<ExtensionSystem*>(
         GetServiceForBrowserContext(context, true));

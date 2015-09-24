@@ -52,13 +52,13 @@ public:
     UserActionElementSet();
     ~UserActionElementSet();
 
-    void didDetach(Node*);
+    void didDetach(Element&);
 
 #if !ENABLE(OILPAN)
     void documentDidRemoveLastRef();
 #endif
 
-    void trace(Visitor*);
+    DECLARE_TRACE();
 
 private:
     enum ElementFlags {

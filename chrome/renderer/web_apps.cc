@@ -24,7 +24,7 @@
 #include "third_party/WebKit/public/web/WebFrame.h"
 #include "third_party/WebKit/public/web/WebNode.h"
 #include "third_party/WebKit/public/web/WebNodeList.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "url/gurl.h"
 
 using blink::WebDocument;
@@ -102,7 +102,7 @@ bool ParseIconSizes(const base::string16& text,
   std::vector<base::string16> size_strings;
   base::SplitStringAlongWhitespace(text, &size_strings);
   for (size_t i = 0; i < size_strings.size(); ++i) {
-    if (EqualsASCII(size_strings[i], "any")) {
+    if (base::EqualsASCII(size_strings[i], "any")) {
       *is_any = true;
     } else {
       gfx::Size size = ParseIconSize(size_strings[i]);
@@ -143,14 +143,20 @@ void ParseWebAppFromWebDocument(WebFrame* frame,
       //   <http://en.wikipedia.org/wiki/Favicon>
       //   <http://dev.w3.org/html5/spec/Overview.html#rel-icon>
       //
-      // Streamlined Hosted Apps also support "apple-touch-icon" and
+      // Bookmark apps also support "apple-touch-icon" and
       // "apple-touch-icon-precomposed".
-      if (LowerCaseEqualsASCII(rel, "icon") ||
-          LowerCaseEqualsASCII(rel, "shortcut icon") ||
-          (CommandLine::ForCurrentProcess()->
-              HasSwitch(switches::kEnableStreamlinedHostedApps) &&
-            (LowerCaseEqualsASCII(rel, "apple-touch-icon") ||
-             LowerCaseEqualsASCII(rel, "apple-touch-icon-precomposed")))) {
+#if defined(OS_MACOSX)
+      bool bookmark_apps_enabled = base::CommandLine::ForCurrentProcess()->
+          HasSwitch(switches::kEnableNewBookmarkApps);
+#else
+      bool bookmark_apps_enabled = !base::CommandLine::ForCurrentProcess()->
+          HasSwitch(switches::kDisableNewBookmarkApps);
+#endif
+      if (base::LowerCaseEqualsASCII(rel, "icon") ||
+          base::LowerCaseEqualsASCII(rel, "shortcut icon") ||
+          (bookmark_apps_enabled &&
+           (base::LowerCaseEqualsASCII(rel, "apple-touch-icon") ||
+            base::LowerCaseEqualsASCII(rel, "apple-touch-icon-precomposed")))) {
         AddInstallIcon(elem, &app_info->icons);
       }
     } else if (elem.hasHTMLTagName("meta") && elem.hasAttribute("name")) {
@@ -167,10 +173,10 @@ void ParseWebAppFromWebDocument(WebFrame* frame,
         if (!app_info->app_url.is_valid())
           app_info->app_url = GURL();
       } else if (name == "mobile-web-app-capable" &&
-                 LowerCaseEqualsASCII(content, "yes")) {
+                 base::LowerCaseEqualsASCII(content, "yes")) {
         app_info->mobile_capable = WebApplicationInfo::MOBILE_CAPABLE;
       } else if (name == "apple-mobile-web-app-capable" &&
-                 LowerCaseEqualsASCII(content, "yes") &&
+                 base::LowerCaseEqualsASCII(content, "yes") &&
                  app_info->mobile_capable ==
                      WebApplicationInfo::MOBILE_CAPABLE_UNSPECIFIED) {
         app_info->mobile_capable = WebApplicationInfo::MOBILE_CAPABLE_APPLE;

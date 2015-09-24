@@ -8,14 +8,14 @@
 #include "content/public/common/url_constants.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/error_utils.h"
+#include "extensions/common/extension.h"
 #include "extensions/common/extensions_client.h"
 #include "extensions/common/manifest.h"
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/manifest_handlers/permissions_parser.h"
-#include "extensions/common/permissions/permission_message_provider.h"
+#include "extensions/common/permissions/permission_message_util.h"
 #include "extensions/common/switches.h"
 #include "extensions/common/url_pattern_set.h"
-#include "extensions/common/user_script.h"
 #include "url/gurl.h"
 #include "url/url_constants.h"
 
@@ -49,12 +49,6 @@ void PermissionsData::SetPolicyDelegate(PolicyDelegate* delegate) {
 }
 
 // static
-bool PermissionsData::CanSilentlyIncreasePermissions(
-    const Extension* extension) {
-  return extension->location() != Manifest::INTERNAL;
-}
-
-// static
 bool PermissionsData::CanExecuteScriptEverywhere(const Extension* extension) {
   if (extension->location() == Manifest::COMPONENT)
     return true;
@@ -66,6 +60,21 @@ bool PermissionsData::CanExecuteScriptEverywhere(const Extension* extension) {
          whitelist.end();
 }
 
+// static
+bool PermissionsData::ScriptsMayRequireActionForExtension(
+    const Extension* extension,
+    const PermissionSet* permissions) {
+  // An extension may require user action to execute scripts iff the extension
+  // shows up in chrome:extensions (so the user can grant withheld permissions),
+  // is not part of chrome or corporate policy, not on the scripting whitelist,
+  // and requires enough permissions that we should withhold them.
+  return extension->ShouldDisplayInExtensionSettings() &&
+      !Manifest::IsPolicyLocation(extension->location()) &&
+      !Manifest::IsComponentLocation(extension->location()) &&
+      !CanExecuteScriptEverywhere(extension) &&
+      permissions->ShouldWarnAllHosts();
+}
+
 bool PermissionsData::ShouldSkipPermissionWarnings(
     const std::string& extension_id) {
   // See http://b/4946060 for more details.
@@ -74,7 +83,6 @@ bool PermissionsData::ShouldSkipPermissionWarnings(
 
 // static
 bool PermissionsData::IsRestrictedUrl(const GURL& document_url,
-                                      const GURL& top_frame_url,
                                       const Extension* extension,
                                       std::string* error) {
   if (extension && CanExecuteScriptEverywhere(extension))
@@ -103,8 +111,8 @@ bool PermissionsData::IsRestrictedUrl(const GURL& document_url,
     return true;
   }
 
-  if (extension && top_frame_url.SchemeIs(kExtensionScheme) &&
-      top_frame_url.host() != extension->id() && !allow_on_chrome_urls) {
+  if (extension && document_url.SchemeIs(kExtensionScheme) &&
+      document_url.host() != extension->id() && !allow_on_chrome_urls) {
     if (error)
       *error = manifest_errors::kCannotAccessExtensionUrl;
     return true;
@@ -170,8 +178,12 @@ bool PermissionsData::CheckAPIPermissionWithParam(
   return active_permissions()->CheckAPIPermissionWithParam(permission, param);
 }
 
-const URLPatternSet& PermissionsData::GetEffectiveHostPermissions() const {
-  return active_permissions()->effective_hosts();
+URLPatternSet PermissionsData::GetEffectiveHostPermissions() const {
+  base::AutoLock auto_lock(runtime_lock_);
+  URLPatternSet effective_hosts = active_permissions_unsafe_->effective_hosts();
+  for (const auto& val : tab_specific_permissions_)
+    effective_hosts.AddPatterns(val.second->effective_hosts());
+  return effective_hosts;
 }
 
 bool PermissionsData::HasHostPermission(const GURL& url) const {
@@ -182,29 +194,27 @@ bool PermissionsData::HasEffectiveAccessToAllHosts() const {
   return active_permissions()->HasEffectiveAccessToAllHosts();
 }
 
-PermissionMessages PermissionsData::GetPermissionMessages() const {
+PermissionMessageIDs PermissionsData::GetLegacyPermissionMessageIDs() const {
   if (ShouldSkipPermissionWarnings(extension_id_)) {
-    return PermissionMessages();
+    return PermissionMessageIDs();
   } else {
-    return PermissionMessageProvider::Get()->GetPermissionMessages(
+    return PermissionMessageProvider::Get()->GetLegacyPermissionMessageIDs(
         active_permissions().get(), manifest_type_);
   }
 }
 
-std::vector<base::string16> PermissionsData::GetPermissionMessageStrings()
-    const {
+PermissionMessageStrings PermissionsData::GetPermissionMessageStrings() const {
   if (ShouldSkipPermissionWarnings(extension_id_))
-    return std::vector<base::string16>();
-  return PermissionMessageProvider::Get()->GetWarningMessages(
+    return PermissionMessageStrings();
+  return PermissionMessageProvider::Get()->GetPermissionMessageStrings(
       active_permissions().get(), manifest_type_);
 }
 
-std::vector<base::string16>
-PermissionsData::GetPermissionMessageDetailsStrings() const {
-  if (ShouldSkipPermissionWarnings(extension_id_))
-    return std::vector<base::string16>();
-  return PermissionMessageProvider::Get()->GetWarningMessagesDetails(
-      active_permissions().get(), manifest_type_);
+CoalescedPermissionMessages PermissionsData::GetCoalescedPermissionMessages()
+    const {
+  return PermissionMessageProvider::Get()->GetCoalescedPermissionMessages(
+      PermissionMessageProvider::Get()->GetAllPermissionIDs(
+          active_permissions().get(), manifest_type_));
 }
 
 bool PermissionsData::HasWithheldImpliedAllHosts() const {
@@ -216,13 +226,11 @@ bool PermissionsData::HasWithheldImpliedAllHosts() const {
 
 bool PermissionsData::CanAccessPage(const Extension* extension,
                                     const GURL& document_url,
-                                    const GURL& top_frame_url,
                                     int tab_id,
                                     int process_id,
                                     std::string* error) const {
   AccessType result = CanRunOnPage(extension,
                                    document_url,
-                                   top_frame_url,
                                    tab_id,
                                    process_id,
                                    active_permissions()->explicit_hosts(),
@@ -235,13 +243,11 @@ bool PermissionsData::CanAccessPage(const Extension* extension,
 PermissionsData::AccessType PermissionsData::GetPageAccess(
     const Extension* extension,
     const GURL& document_url,
-    const GURL& top_frame_url,
     int tab_id,
     int process_id,
     std::string* error) const {
   return CanRunOnPage(extension,
                       document_url,
-                      top_frame_url,
                       tab_id,
                       process_id,
                       active_permissions()->explicit_hosts(),
@@ -251,13 +257,11 @@ PermissionsData::AccessType PermissionsData::GetPageAccess(
 
 bool PermissionsData::CanRunContentScriptOnPage(const Extension* extension,
                                                 const GURL& document_url,
-                                                const GURL& top_frame_url,
                                                 int tab_id,
                                                 int process_id,
                                                 std::string* error) const {
   AccessType result = CanRunOnPage(extension,
                                    document_url,
-                                   top_frame_url,
                                    tab_id,
                                    process_id,
                                    active_permissions()->scriptable_hosts(),
@@ -270,13 +274,11 @@ bool PermissionsData::CanRunContentScriptOnPage(const Extension* extension,
 PermissionsData::AccessType PermissionsData::GetContentScriptAccess(
     const Extension* extension,
     const GURL& document_url,
-    const GURL& top_frame_url,
     int tab_id,
     int process_id,
     std::string* error) const {
   return CanRunOnPage(extension,
                       document_url,
-                      top_frame_url,
                       tab_id,
                       process_id,
                       active_permissions()->scriptable_hosts(),
@@ -309,6 +311,12 @@ bool PermissionsData::CanCaptureVisiblePage(int tab_id,
   return false;
 }
 
+PermissionsData::TabPermissionsMap
+PermissionsData::CopyTabSpecificPermissionsMap() const {
+  base::AutoLock auto_lock(runtime_lock_);
+  return tab_specific_permissions_;
+}
+
 scoped_refptr<const PermissionSet> PermissionsData::GetTabSpecificPermissions(
     int tab_id) const {
   base::AutoLock auto_lock(runtime_lock_);
@@ -335,7 +343,6 @@ bool PermissionsData::HasTabSpecificPermissionToExecuteScript(
 PermissionsData::AccessType PermissionsData::CanRunOnPage(
     const Extension* extension,
     const GURL& document_url,
-    const GURL& top_frame_url,
     int tab_id,
     int process_id,
     const URLPatternSet& permitted_url_patterns,
@@ -343,14 +350,14 @@ PermissionsData::AccessType PermissionsData::CanRunOnPage(
     std::string* error) const {
   if (g_policy_delegate &&
       !g_policy_delegate->CanExecuteScriptOnPage(
-          extension, document_url, top_frame_url, tab_id, process_id, error)) {
+          extension, document_url, tab_id, process_id, error)) {
     return ACCESS_DENIED;
   }
 
-  if (IsRestrictedUrl(document_url, top_frame_url, extension, error))
+  if (IsRestrictedUrl(document_url, extension, error))
     return ACCESS_DENIED;
 
-  if (HasTabSpecificPermissionToExecuteScript(tab_id, top_frame_url))
+  if (HasTabSpecificPermissionToExecuteScript(tab_id, document_url))
     return ACCESS_ALLOWED;
 
   if (permitted_url_patterns.MatchesURL(document_url))

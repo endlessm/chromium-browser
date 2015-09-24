@@ -6,11 +6,9 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/futex.h>
 #include <linux/net.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
-#include <sys/ptrace.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
 #include <sys/time.h>
@@ -23,12 +21,21 @@
 #include "sandbox/linux/bpf_dsl/bpf_dsl.h"
 #include "sandbox/linux/seccomp-bpf-helpers/sigsys_handlers.h"
 #include "sandbox/linux/seccomp-bpf-helpers/syscall_parameters_restrictions.h"
-#include "sandbox/linux/services/linux_syscalls.h"
+#include "sandbox/linux/system_headers/linux_futex.h"
+#include "sandbox/linux/system_headers/linux_syscalls.h"
 
-#if defined(__arm__) && !defined(MAP_STACK)
-// Chrome OS Daisy (ARM) build environment has old headers.
-#define MAP_STACK 0x20000
-#endif
+// Chrome OS Daisy (ARM) build environment and PNaCl toolchain do not define
+// MAP_STACK.
+#if !defined(MAP_STACK)
+# if defined(ARCH_CPU_X86_FAMILY) || defined(ARCH_CPU_ARM_FAMILY)
+#  define MAP_STACK 0x20000
+# else
+// Note that, on other architecture, MAP_STACK has different value (e.g. mips'
+// MAP_STACK is 0x40000), though Non-SFI is not supported on such
+// architectures.
+#  error "Unknown platform."
+# endif
+#endif  // !defined(MAP_STACK)
 
 #define CASES SANDBOX_BPF_DSL_CASES
 
@@ -69,11 +76,14 @@ ResultExpr RestrictFcntlCommands() {
 
 ResultExpr RestrictClone() {
   // We allow clone only for new thread creation.
+  int clone_flags =
+      CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND |
+      CLONE_THREAD | CLONE_SYSVSEM | CLONE_SETTLS;
+#if !defined(OS_NACL_NONSFI)
+  clone_flags |= CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID;
+#endif
   const Arg<int> flags(0);
-  return If(flags == (CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND |
-                      CLONE_THREAD | CLONE_SYSVSEM | CLONE_SETTLS |
-                      CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID),
-            Allow()).Else(CrashSIGSYSClone());
+  return If(flags == clone_flags, Allow()).Else(CrashSIGSYSClone());
 }
 
 ResultExpr RestrictFutexOperation() {
@@ -103,9 +113,16 @@ ResultExpr RestrictPrctl() {
 ResultExpr RestrictSocketcall() {
   // We only allow socketpair, sendmsg, and recvmsg.
   const Arg<int> call(0);
-  return If(call == SYS_SOCKETPAIR || call == SYS_SHUTDOWN ||
-                call == SYS_SENDMSG || call == SYS_RECVMSG,
-            Allow()).Else(CrashSIGSYS());
+  return If(
+#if !defined(OS_NACL_NONSFI)
+      // nacl_helper in Non-SFI mode still uses socketpair() internally
+      // via libevent.
+      // TODO(hidehiko): Remove this when the switching to nacl_helper_nonsfi
+      // is completed.
+      call == SYS_SOCKETPAIR ||
+#endif
+      call == SYS_SHUTDOWN || call == SYS_SENDMSG || call == SYS_RECVMSG,
+      Allow()).Else(CrashSIGSYS());
 }
 #endif
 
@@ -129,10 +146,10 @@ ResultExpr RestrictMmap() {
             Allow()).Else(CrashSIGSYS());
 }
 
-#if defined(__x86_64__) || defined(__arm__)
+#if !defined(OS_NACL_NONSFI) && (defined(__x86_64__) || defined(__arm__))
 ResultExpr RestrictSocketpair() {
   // Only allow AF_UNIX, PF_UNIX. Crash if anything else is seen.
-  COMPILE_ASSERT(AF_UNIX == PF_UNIX, af_unix_pf_unix_different);
+  static_assert(AF_UNIX == PF_UNIX, "AF_UNIX must equal PF_UNIX.");
   const Arg<int> domain(0);
   return If(domain == AF_UNIX, Allow()).Else(CrashSIGSYS());
 }
@@ -185,7 +202,8 @@ bool IsGracefullyDenied(int sysno) {
 void RunSandboxSanityChecks() {
   errno = 0;
   // Make a ptrace request with an invalid PID.
-  long ptrace_ret = ptrace(PTRACE_PEEKUSER, -1 /* pid */, NULL, NULL);
+  long ptrace_ret = syscall(
+      __NR_ptrace, 3 /* = PTRACE_PEEKUSER */, -1 /* pid */, NULL, NULL);
   CHECK_EQ(-1, ptrace_ret);
   // Without the sandbox on, this ptrace call would ESRCH instead.
   CHECK_EQ(EPERM, errno);
@@ -276,8 +294,14 @@ ResultExpr NaClNonSfiBPFSandboxPolicy::EvaluateSyscall(int sysno) const {
     case __NR_sendmsg:
     case __NR_shutdown:
       return Allow();
+#if !defined(OS_NACL_NONSFI)
+    // nacl_helper in Non-SFI mode still uses socketpair() internally
+    // via libevent.
+    // TODO(hidehiko): Remove this when the switching to nacl_helper_nonsfi
+    // is completed.
     case __NR_socketpair:
       return RestrictSocketpair();
+#endif
 #endif
 
     case __NR_brk:
@@ -300,10 +324,11 @@ ResultExpr NaClNonSfiBPFSandboxPolicy::InvalidSyscall() const {
   return CrashSIGSYS();
 }
 
-bool InitializeBPFSandbox() {
-  bool sandbox_is_initialized =
-      content::InitializeSandbox(scoped_ptr<sandbox::bpf_dsl::Policy>(
-          new nacl::nonsfi::NaClNonSfiBPFSandboxPolicy()));
+bool InitializeBPFSandbox(base::ScopedFD proc_fd) {
+  bool sandbox_is_initialized = content::InitializeSandbox(
+      scoped_ptr<sandbox::bpf_dsl::Policy>(
+          new nacl::nonsfi::NaClNonSfiBPFSandboxPolicy()),
+      proc_fd.Pass());
   if (!sandbox_is_initialized)
     return false;
   RunSandboxSanityChecks();

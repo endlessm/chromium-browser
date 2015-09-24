@@ -96,7 +96,7 @@ class AppsGridControllerTest : public AppsGridControllerTestHelper {
     return [attributes objectForKey:NSForegroundColorAttributeName];
   }
 
-  virtual void SetUp() override {
+  void SetUp() override {
     owned_apps_grid_controller_.reset([[AppsGridController alloc] init]);
     owned_delegate_.reset(new AppListTestViewDelegate);
     [owned_apps_grid_controller_ setDelegate:owned_delegate_.get()];
@@ -108,7 +108,7 @@ class AppsGridControllerTest : public AppsGridControllerTestHelper {
         [apps_grid_controller_ collectionViewAtPageIndex:0]];
   }
 
-  virtual void TearDown() override {
+  void TearDown() override {
     [owned_apps_grid_controller_ setDelegate:NULL];
     owned_apps_grid_controller_.reset();
     AppsGridControllerTestHelper::TearDown();
@@ -288,22 +288,6 @@ TEST_F(AppsGridControllerTest, Pagination) {
   EXPECT_EQ(1u, [[GetPageAt(0) content] count]);
 }
 
-// Tests that selecting an item changes the text color correctly.
-TEST_F(AppsGridControllerTest, SelectionChangesTextColor) {
-  model()->PopulateApps(2);
-  [apps_grid_controller_ selectItemAtIndex:0];
-  EXPECT_NSEQ(ButtonTitleColorAt(0),
-              gfx::SkColorToSRGBNSColor(app_list::kGridTitleHoverColor));
-  EXPECT_NSEQ(ButtonTitleColorAt(1),
-              gfx::SkColorToSRGBNSColor(app_list::kGridTitleColor));
-
-  [apps_grid_controller_ selectItemAtIndex:1];
-  EXPECT_NSEQ(ButtonTitleColorAt(0),
-              gfx::SkColorToSRGBNSColor(app_list::kGridTitleColor));
-  EXPECT_NSEQ(ButtonTitleColorAt(1),
-              gfx::SkColorToSRGBNSColor(app_list::kGridTitleHoverColor));
-}
-
 // Tests basic keyboard navigation on the first page.
 TEST_F(AppsGridControllerTest, FirstPageKeyboardNavigation) {
   model()->PopulateApps(kItemsPerPage - 2);
@@ -454,7 +438,7 @@ TEST_F(AppsGridControllerTest, ModelUpdate) {
   EXPECT_NSEQ(@"UpdatedItem", [button title]);
 
   // Test icon updates through the model observer by ensuring the icon changes.
-  item_model->SetIcon(gfx::ImageSkia(), false);
+  item_model->SetIcon(gfx::ImageSkia());
   NSSize icon_size = [[button image] size];
   EXPECT_EQ(0, icon_size.width);
   EXPECT_EQ(0, icon_size.height);
@@ -463,7 +447,7 @@ TEST_F(AppsGridControllerTest, ModelUpdate) {
   const int kTestImageSize = 10;
   const int kTargetImageSize = 48;
   bitmap.setInfo(SkImageInfo::MakeN32Premul(kTestImageSize, kTestImageSize));
-  item_model->SetIcon(gfx::ImageSkia::CreateFrom1xBitmap(bitmap), false);
+  item_model->SetIcon(gfx::ImageSkia::CreateFrom1xBitmap(bitmap));
   icon_size = [[button image] size];
   // Icon should always be resized to 48x48.
   EXPECT_EQ(kTargetImageSize, icon_size.width);

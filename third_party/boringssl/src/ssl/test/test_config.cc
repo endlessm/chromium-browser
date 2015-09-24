@@ -15,6 +15,7 @@
 #include "test_config.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <memory>
@@ -23,20 +24,26 @@
 
 namespace {
 
-typedef bool TestConfig::*BoolMember;
-typedef std::string TestConfig::*StringMember;
-
-struct BoolFlag {
+template <typename T>
+struct Flag {
   const char *flag;
-  BoolMember member;
+  T TestConfig::*member;
 };
 
-struct StringFlag {
-  const char *flag;
-  StringMember member;
-};
+// FindField looks for the flag in |flags| that matches |flag|. If one is found,
+// it returns a pointer to the corresponding field in |config|. Otherwise, it
+// returns NULL.
+template<typename T, size_t N>
+T *FindField(TestConfig *config, const Flag<T> (&flags)[N], const char *flag) {
+  for (size_t i = 0; i < N; i++) {
+    if (strcmp(flag, flags[i].flag) == 0) {
+      return &(config->*(flags[i].member));
+    }
+  }
+  return NULL;
+}
 
-const BoolFlag kBoolFlags[] = {
+const Flag<bool> kBoolFlags[] = {
   { "-server", &TestConfig::is_server },
   { "-dtls", &TestConfig::is_dtls },
   { "-resume", &TestConfig::resume },
@@ -53,18 +60,36 @@ const BoolFlag kBoolFlags[] = {
   { "-no-tls11", &TestConfig::no_tls11 },
   { "-no-tls1", &TestConfig::no_tls1 },
   { "-no-ssl3", &TestConfig::no_ssl3 },
-  { "-cookie-exchange", &TestConfig::cookie_exchange },
   { "-shim-writes-first", &TestConfig::shim_writes_first },
   { "-tls-d5-bug", &TestConfig::tls_d5_bug },
   { "-expect-session-miss", &TestConfig::expect_session_miss },
   { "-expect-extended-master-secret",
     &TestConfig::expect_extended_master_secret },
-  { "-renegotiate", &TestConfig::renegotiate },
+  { "-allow-unsafe-legacy-renegotiation",
+    &TestConfig::allow_unsafe_legacy_renegotiation },
+  { "-enable-ocsp-stapling", &TestConfig::enable_ocsp_stapling },
+  { "-enable-signed-cert-timestamps",
+    &TestConfig::enable_signed_cert_timestamps },
+  { "-fastradio-padding", &TestConfig::fastradio_padding },
+  { "-implicit-handshake", &TestConfig::implicit_handshake },
+  { "-use-early-callback", &TestConfig::use_early_callback },
+  { "-fail-early-callback", &TestConfig::fail_early_callback },
+  { "-install-ddos-callback", &TestConfig::install_ddos_callback },
+  { "-fail-ddos-callback", &TestConfig::fail_ddos_callback },
+  { "-fail-second-ddos-callback", &TestConfig::fail_second_ddos_callback },
+  { "-handshake-never-done", &TestConfig::handshake_never_done },
+  { "-use-export-context", &TestConfig::use_export_context },
+  { "-reject-peer-renegotiations", &TestConfig::reject_peer_renegotiations },
+  { "-no-legacy-server-connect", &TestConfig::no_legacy_server_connect },
+  { "-tls-unique", &TestConfig::tls_unique },
+  { "-use-async-private-key", &TestConfig::use_async_private_key },
+  { "-expect-ticket-renewal", &TestConfig::expect_ticket_renewal },
+  { "-expect-no-session", &TestConfig::expect_no_session },
+  { "-use-ticket-callback", &TestConfig::use_ticket_callback },
+  { "-renew-ticket", &TestConfig::renew_ticket },
 };
 
-const size_t kNumBoolFlags = sizeof(kBoolFlags) / sizeof(kBoolFlags[0]);
-
-const StringFlag kStringFlags[] = {
+const Flag<std::string> kStringFlags[] = {
   { "-key-file", &TestConfig::key_file },
   { "-cert-file", &TestConfig::cert_file },
   { "-expect-server-name", &TestConfig::expected_server_name },
@@ -79,76 +104,51 @@ const StringFlag kStringFlags[] = {
   { "-select-alpn", &TestConfig::select_alpn },
   { "-psk", &TestConfig::psk },
   { "-psk-identity", &TestConfig::psk_identity },
+  { "-srtp-profiles", &TestConfig::srtp_profiles },
+  { "-cipher", &TestConfig::cipher },
+  { "-export-label", &TestConfig::export_label },
+  { "-export-context", &TestConfig::export_context },
 };
 
-const size_t kNumStringFlags = sizeof(kStringFlags) / sizeof(kStringFlags[0]);
-
-const StringFlag kBase64Flags[] = {
+const Flag<std::string> kBase64Flags[] = {
   { "-expect-certificate-types", &TestConfig::expected_certificate_types },
   { "-expect-channel-id", &TestConfig::expected_channel_id },
+  { "-expect-ocsp-response", &TestConfig::expected_ocsp_response },
+  { "-expect-signed-cert-timestamps",
+    &TestConfig::expected_signed_cert_timestamps },
 };
 
-const size_t kNumBase64Flags = sizeof(kBase64Flags) / sizeof(kBase64Flags[0]);
+const Flag<int> kIntFlags[] = {
+  { "-port", &TestConfig::port },
+  { "-min-version", &TestConfig::min_version },
+  { "-max-version", &TestConfig::max_version },
+  { "-mtu", &TestConfig::mtu },
+  { "-export-keying-material", &TestConfig::export_keying_material },
+};
 
 }  // namespace
 
-TestConfig::TestConfig()
-    : is_server(false),
-      is_dtls(false),
-      resume(false),
-      fallback_scsv(false),
-      require_any_client_certificate(false),
-      false_start(false),
-      async(false),
-      write_different_record_sizes(false),
-      cbc_record_splitting(false),
-      partial_write(false),
-      no_tls12(false),
-      no_tls11(false),
-      no_tls1(false),
-      no_ssl3(false),
-      cookie_exchange(false),
-      shim_writes_first(false),
-      tls_d5_bug(false),
-      expect_session_miss(false),
-      expect_extended_master_secret(false),
-      renegotiate(false) {
-}
-
 bool ParseConfig(int argc, char **argv, TestConfig *out_config) {
   for (int i = 0; i < argc; i++) {
-    size_t j;
-    for (j = 0; j < kNumBoolFlags; j++) {
-      if (strcmp(argv[i], kBoolFlags[j].flag) == 0) {
-        break;
-      }
-    }
-    if (j < kNumBoolFlags) {
-      out_config->*(kBoolFlags[j].member) = true;
+    bool *bool_field = FindField(out_config, kBoolFlags, argv[i]);
+    if (bool_field != NULL) {
+      *bool_field = true;
       continue;
     }
 
-    for (j = 0; j < kNumStringFlags; j++) {
-      if (strcmp(argv[i], kStringFlags[j].flag) == 0) {
-        break;
-      }
-    }
-    if (j < kNumStringFlags) {
+    std::string *string_field = FindField(out_config, kStringFlags, argv[i]);
+    if (string_field != NULL) {
       i++;
       if (i >= argc) {
         fprintf(stderr, "Missing parameter\n");
         return false;
       }
-      out_config->*(kStringFlags[j].member) = argv[i];
+      string_field->assign(argv[i]);
       continue;
     }
 
-    for (j = 0; j < kNumBase64Flags; j++) {
-      if (strcmp(argv[i], kBase64Flags[j].flag) == 0) {
-        break;
-      }
-    }
-    if (j < kNumBase64Flags) {
+    std::string *base64_field = FindField(out_config, kBase64Flags, argv[i]);
+    if (base64_field != NULL) {
       i++;
       if (i >= argc) {
         fprintf(stderr, "Missing parameter\n");
@@ -164,8 +164,18 @@ bool ParseConfig(int argc, char **argv, TestConfig *out_config) {
                             strlen(argv[i]))) {
         fprintf(stderr, "Invalid base64: %s\n", argv[i]);
       }
-      out_config->*(kBase64Flags[j].member) = std::string(
-          reinterpret_cast<const char *>(decoded.get()), len);
+      base64_field->assign(reinterpret_cast<const char *>(decoded.get()), len);
+      continue;
+    }
+
+    int *int_field = FindField(out_config, kIntFlags, argv[i]);
+    if (int_field) {
+      i++;
+      if (i >= argc) {
+        fprintf(stderr, "Missing parameter\n");
+        return false;
+      }
+      *int_field = atoi(argv[i]);
       continue;
     }
 

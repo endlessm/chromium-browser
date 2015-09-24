@@ -81,10 +81,10 @@ class CONTENT_EXPORT BrowserMessageFilter
   base::ProcessHandle PeerHandle();
 
   // Can be called on any thread, after OnChannelConnected is called.
-  base::ProcessId peer_pid() const { return peer_pid_; }
+  base::ProcessId peer_pid() const { return peer_process_.Pid(); }
 
-  void set_peer_pid_for_testing(base::ProcessId peer_pid) {
-    peer_pid_ = peer_pid;
+  void set_peer_process_for_testing(base::Process peer_process) {
+    peer_process_ = peer_process.Pass();
   }
 
   // Checks that the given message can be dispatched on the UI thread, depending
@@ -92,9 +92,10 @@ class CONTENT_EXPORT BrowserMessageFilter
   static bool CheckCanDispatchOnUI(const IPC::Message& message,
                                    IPC::Sender* sender);
 
-  // Call this if a message couldn't be deserialized.  This kills the renderer.
-  // Can be called on any thread.
-  virtual void BadMessageReceived();
+  // Called by bad_message.h helpers if a message couldn't be deserialized. This
+  // kills the renderer.  Can be called on any thread.  This doesn't log the
+  // error details to UMA, so use the bad_message.h for your module instead.
+  virtual void ShutdownForBadMessage();
 
   const std::vector<uint32>& message_classes_to_filter() const {
     return message_classes_to_filter_;
@@ -124,14 +125,9 @@ class CONTENT_EXPORT BrowserMessageFilter
   Internal* internal_;
 
   IPC::Sender* sender_;
-  base::ProcessId peer_pid_;
+  base::Process peer_process_;
 
   std::vector<uint32> message_classes_to_filter_;
-
-#if defined(OS_WIN)
-  base::Lock peer_handle_lock_;
-  base::ProcessHandle peer_handle_;
-#endif
 };
 
 struct BrowserMessageFilterTraits {

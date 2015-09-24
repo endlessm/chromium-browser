@@ -130,7 +130,7 @@ bool LocalTestServer::LaunchPython(const base::FilePath& testserver_path) {
 
   // Try to kill any orphaned testserver processes that may be running.
   OrphanedTestServerFilter filter(testserver_path.value(),
-                                  base::IntToString(GetPort()));
+                                  base::UintToString(GetPort()));
   if (!base::KillProcesses("python", -1, &filter)) {
     LOG(WARNING) << "Failed to clean up older orphaned testserver instances.";
   }
@@ -139,7 +139,8 @@ bool LocalTestServer::LaunchPython(const base::FilePath& testserver_path) {
   base::LaunchOptions options;
 
   options.fds_to_remap = &map_write_fd;
-  if (!base::LaunchProcess(python_command, options, &process_handle_)) {
+  process_ = base::LaunchProcess(python_command, options);
+  if (!process_.IsValid()) {
     LOG(ERROR) << "Failed to launch " << python_command.GetCommandLineString();
     return false;
   }

@@ -26,6 +26,7 @@
 #include "core/svg/SVGAnimatedLength.h"
 #include "core/svg/SVGGraphicsElement.h"
 #include "core/svg/SVGPointTearOff.h"
+#include "platform/heap/Handle.h"
 
 namespace blink {
 
@@ -51,36 +52,36 @@ public:
     unsigned getNumberOfChars();
     float getComputedTextLength();
     float getSubStringLength(unsigned charnum, unsigned nchars, ExceptionState&);
-    PassRefPtr<SVGPointTearOff> getStartPositionOfChar(unsigned charnum, ExceptionState&);
-    PassRefPtr<SVGPointTearOff> getEndPositionOfChar(unsigned charnum, ExceptionState&);
-    PassRefPtr<SVGRectTearOff> getExtentOfChar(unsigned charnum, ExceptionState&);
+    PassRefPtrWillBeRawPtr<SVGPointTearOff> getStartPositionOfChar(unsigned charnum, ExceptionState&);
+    PassRefPtrWillBeRawPtr<SVGPointTearOff> getEndPositionOfChar(unsigned charnum, ExceptionState&);
+    PassRefPtrWillBeRawPtr<SVGRectTearOff> getExtentOfChar(unsigned charnum, ExceptionState&);
     float getRotationOfChar(unsigned charnum, ExceptionState&);
-    int getCharNumAtPosition(PassRefPtr<SVGPointTearOff>, ExceptionState&);
+    int getCharNumAtPosition(PassRefPtrWillBeRawPtr<SVGPointTearOff>, ExceptionState&);
     void selectSubString(unsigned charnum, unsigned nchars, ExceptionState&);
 
-    static SVGTextContentElement* elementFromRenderer(RenderObject*);
+    static SVGTextContentElement* elementFromLayoutObject(LayoutObject*);
 
     SVGAnimatedLength* textLength() { return m_textLength.get(); }
     bool textLengthIsSpecifiedByUser() { return m_textLengthIsSpecifiedByUser; }
     SVGAnimatedEnumeration<SVGLengthAdjustType>* lengthAdjust() { return m_lengthAdjust.get(); }
 
+    DECLARE_VIRTUAL_TRACE();
+
 protected:
     SVGTextContentElement(const QualifiedName&, Document&);
 
-    bool isSupportedAttribute(const QualifiedName&);
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual bool isPresentationAttribute(const QualifiedName&) const override final;
-    virtual void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStylePropertySet*) override final;
-    virtual void svgAttributeChanged(const QualifiedName&) override;
+    bool isPresentationAttribute(const QualifiedName&) const final;
+    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStylePropertySet*) final;
+    void svgAttributeChanged(const QualifiedName&) override;
 
-    virtual bool selfHasRelativeLengths() const override;
+    bool selfHasRelativeLengths() const override;
 
 private:
-    virtual bool isTextContent() const override final { return true; }
+    bool isTextContent() const final { return true; }
 
-    RefPtr<SVGAnimatedLength> m_textLength;
+    RefPtrWillBeMember<SVGAnimatedLength> m_textLength;
     bool m_textLengthIsSpecifiedByUser;
-    RefPtr<SVGAnimatedEnumeration<SVGLengthAdjustType> > m_lengthAdjust;
+    RefPtrWillBeMember<SVGAnimatedEnumeration<SVGLengthAdjustType>> m_lengthAdjust;
 };
 
 inline bool isSVGTextContentElement(const SVGElement& element)

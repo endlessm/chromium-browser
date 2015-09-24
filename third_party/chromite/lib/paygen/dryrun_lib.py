@@ -6,17 +6,19 @@
 
 from __future__ import print_function
 
-import logging
+from chromite.lib import cros_logging as logging
 
 
 class DryRunMgr(object):
-  """Manage the calling of functions that make real changes, disabling them
-  when in dry_run mode.
+  """Manage the calling of functions that make real changes.
+
+  We'll automatically disable things when in dry_run mode.
   """
 
-  __slots__ = ('dry_run',   # Boolean.  See __init__ docstring.
-               'quiet',     # Boolean.  See __init__ docstring.
-               )
+  __slots__ = (
+      'dry_run',   # Boolean.  See __init__ docstring.
+      'quiet',     # Boolean.  See __init__ docstring.
+  )
 
   def __init__(self, dry_run, quiet=False):
     """Create a DryRunMgr object.
@@ -61,7 +63,7 @@ class DryRunMgr(object):
       func_name = '%s.%s' % (func.__module__, func.__name__)
     except AttributeError:
       # This happens in unittests where func is a mocked function.
-      # pylint: disable-msg=W0212
+      # pylint: disable=W0212
       func_name = func._name
 
     if self.dry_run:

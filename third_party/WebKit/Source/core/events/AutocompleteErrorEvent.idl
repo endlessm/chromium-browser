@@ -22,9 +22,12 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-[
-    EventConstructor,
-] interface AutocompleteErrorEvent : Event {
-    [InitializedByEventConstructor] readonly attribute DOMString reason;
-};
+// https://html.spec.whatwg.org/multipage/forms.html#the-autocompleteerrorevent-interface
 
+enum AutocompleteErrorReason { "" /* empty string */, "cancel", "disabled", "invalid" };
+
+[
+    Constructor(DOMString type, optional AutocompleteErrorEventInit eventInitDict),
+] interface AutocompleteErrorEvent : Event {
+    readonly attribute AutocompleteErrorReason reason;
+};

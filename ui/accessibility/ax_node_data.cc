@@ -8,6 +8,7 @@
 
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 
 using base::DoubleToString;
@@ -27,7 +28,30 @@ std::string IntVectorToString(const std::vector<int>& items) {
   return str;
 }
 
-}  // Anonymous namespace
+// Predicate that returns true if the first value of a pair is |first|.
+template<typename FirstType, typename SecondType>
+struct FirstIs {
+  FirstIs(FirstType first)
+      : first_(first) {}
+  bool operator()(std::pair<FirstType, SecondType> const& p) {
+    return p.first == first_;
+  }
+  FirstType first_;
+};
+
+// Helper function that finds a key in a vector of pairs by matching on the
+// first value, and returns an iterator.
+template<typename FirstType, typename SecondType>
+typename std::vector<std::pair<FirstType, SecondType>>::const_iterator
+    FindInVectorOfPairs(
+        FirstType first,
+        const std::vector<std::pair<FirstType, SecondType>>& vector) {
+  return std::find_if(vector.begin(),
+                      vector.end(),
+                      FirstIs<FirstType, SecondType>(first));
+}
+
+}  // namespace
 
 AXNodeData::AXNodeData()
     : id(-1),
@@ -36,6 +60,163 @@ AXNodeData::AXNodeData()
 }
 
 AXNodeData::~AXNodeData() {
+}
+
+bool AXNodeData::HasBoolAttribute(AXBoolAttribute attribute) const {
+  auto iter = FindInVectorOfPairs(attribute, bool_attributes);
+  return iter != bool_attributes.end();
+}
+
+bool AXNodeData::GetBoolAttribute(AXBoolAttribute attribute) const {
+  bool result;
+  if (GetBoolAttribute(attribute, &result))
+    return result;
+  return false;
+}
+
+bool AXNodeData::GetBoolAttribute(
+    AXBoolAttribute attribute, bool* value) const {
+  auto iter = FindInVectorOfPairs(attribute, bool_attributes);
+  if (iter != bool_attributes.end()) {
+    *value = iter->second;
+    return true;
+  }
+
+  return false;
+}
+
+bool AXNodeData::HasFloatAttribute(AXFloatAttribute attribute) const {
+  auto iter = FindInVectorOfPairs(attribute, float_attributes);
+  return iter != float_attributes.end();
+}
+
+float AXNodeData::GetFloatAttribute(AXFloatAttribute attribute) const {
+  float result;
+  if (GetFloatAttribute(attribute, &result))
+    return result;
+  return 0.0;
+}
+
+bool AXNodeData::GetFloatAttribute(
+    AXFloatAttribute attribute, float* value) const {
+  auto iter = FindInVectorOfPairs(attribute, float_attributes);
+  if (iter != float_attributes.end()) {
+    *value = iter->second;
+    return true;
+  }
+
+  return false;
+}
+
+bool AXNodeData::HasIntAttribute(AXIntAttribute attribute) const {
+  auto iter = FindInVectorOfPairs(attribute, int_attributes);
+  return iter != int_attributes.end();
+}
+
+int AXNodeData::GetIntAttribute(AXIntAttribute attribute) const {
+  int result;
+  if (GetIntAttribute(attribute, &result))
+    return result;
+  return 0;
+}
+
+bool AXNodeData::GetIntAttribute(
+    AXIntAttribute attribute, int* value) const {
+  auto iter = FindInVectorOfPairs(attribute, int_attributes);
+  if (iter != int_attributes.end()) {
+    *value = iter->second;
+    return true;
+  }
+
+  return false;
+}
+
+bool AXNodeData::HasStringAttribute(AXStringAttribute attribute) const {
+  auto iter = FindInVectorOfPairs(attribute, string_attributes);
+  return iter != string_attributes.end();
+}
+
+const std::string& AXNodeData::GetStringAttribute(
+    AXStringAttribute attribute) const {
+  CR_DEFINE_STATIC_LOCAL(std::string, empty_string, ());
+  auto iter = FindInVectorOfPairs(attribute, string_attributes);
+  return iter != string_attributes.end() ? iter->second : empty_string;
+}
+
+bool AXNodeData::GetStringAttribute(
+    AXStringAttribute attribute, std::string* value) const {
+  auto iter = FindInVectorOfPairs(attribute, string_attributes);
+  if (iter != string_attributes.end()) {
+    *value = iter->second;
+    return true;
+  }
+
+  return false;
+}
+
+base::string16 AXNodeData::GetString16Attribute(
+    AXStringAttribute attribute) const {
+  std::string value_utf8;
+  if (!GetStringAttribute(attribute, &value_utf8))
+    return base::string16();
+  return base::UTF8ToUTF16(value_utf8);
+}
+
+bool AXNodeData::GetString16Attribute(
+    AXStringAttribute attribute,
+    base::string16* value) const {
+  std::string value_utf8;
+  if (!GetStringAttribute(attribute, &value_utf8))
+    return false;
+  *value = base::UTF8ToUTF16(value_utf8);
+  return true;
+}
+
+bool AXNodeData::HasIntListAttribute(AXIntListAttribute attribute) const {
+  auto iter = FindInVectorOfPairs(attribute, intlist_attributes);
+  return iter != intlist_attributes.end();
+}
+
+const std::vector<int32>& AXNodeData::GetIntListAttribute(
+    AXIntListAttribute attribute) const {
+  CR_DEFINE_STATIC_LOCAL(std::vector<int32>, empty_vector, ());
+  auto iter = FindInVectorOfPairs(attribute, intlist_attributes);
+  if (iter != intlist_attributes.end())
+    return iter->second;
+  return empty_vector;
+}
+
+bool AXNodeData::GetIntListAttribute(
+    AXIntListAttribute attribute, std::vector<int32>* value) const {
+  auto iter = FindInVectorOfPairs(attribute, intlist_attributes);
+  if (iter != intlist_attributes.end()) {
+    *value = iter->second;
+    return true;
+  }
+
+  return false;
+}
+
+bool AXNodeData::GetHtmlAttribute(
+    const char* html_attr, std::string* value) const {
+  for (size_t i = 0; i < html_attributes.size(); ++i) {
+    const std::string& attr = html_attributes[i].first;
+    if (base::LowerCaseEqualsASCII(attr, html_attr)) {
+      *value = html_attributes[i].second;
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool AXNodeData::GetHtmlAttribute(
+    const char* html_attr, base::string16* value) const {
+  std::string value_utf8;
+  if (!GetHtmlAttribute(html_attr, &value_utf8))
+    return false;
+  *value = base::UTF8ToUTF16(value_utf8);
+  return true;
 }
 
 void AXNodeData::AddStringAttribute(
@@ -77,47 +258,47 @@ std::string AXNodeData::ToString() const {
   result += "id=" + IntToString(id);
   result += " " + ui::ToString(role);
 
-  if (state & (1 << ui::AX_STATE_BUSY))
+  if (state & (1 << AX_STATE_BUSY))
     result += " BUSY";
-  if (state & (1 << ui::AX_STATE_CHECKED))
+  if (state & (1 << AX_STATE_CHECKED))
     result += " CHECKED";
-  if (state & (1 << ui::AX_STATE_COLLAPSED))
+  if (state & (1 << AX_STATE_COLLAPSED))
     result += " COLLAPSED";
-  if (state & (1 << ui::AX_STATE_EXPANDED))
+  if (state & (1 << AX_STATE_EXPANDED))
     result += " EXPANDED";
-  if (state & (1 << ui::AX_STATE_FOCUSABLE))
+  if (state & (1 << AX_STATE_FOCUSABLE))
     result += " FOCUSABLE";
-  if (state & (1 << ui::AX_STATE_FOCUSED))
+  if (state & (1 << AX_STATE_FOCUSED))
     result += " FOCUSED";
-  if (state & (1 << ui::AX_STATE_HASPOPUP))
+  if (state & (1 << AX_STATE_HASPOPUP))
     result += " HASPOPUP";
-  if (state & (1 << ui::AX_STATE_HOVERED))
+  if (state & (1 << AX_STATE_HOVERED))
     result += " HOVERED";
-  if (state & (1 << ui::AX_STATE_INDETERMINATE))
+  if (state & (1 << AX_STATE_INDETERMINATE))
     result += " INDETERMINATE";
-  if (state & (1 << ui::AX_STATE_INVISIBLE))
+  if (state & (1 << AX_STATE_INVISIBLE))
     result += " INVISIBLE";
-  if (state & (1 << ui::AX_STATE_LINKED))
+  if (state & (1 << AX_STATE_LINKED))
     result += " LINKED";
-  if (state & (1 << ui::AX_STATE_MULTISELECTABLE))
+  if (state & (1 << AX_STATE_MULTISELECTABLE))
     result += " MULTISELECTABLE";
-  if (state & (1 << ui::AX_STATE_OFFSCREEN))
+  if (state & (1 << AX_STATE_OFFSCREEN))
     result += " OFFSCREEN";
-  if (state & (1 << ui::AX_STATE_PRESSED))
+  if (state & (1 << AX_STATE_PRESSED))
     result += " PRESSED";
-  if (state & (1 << ui::AX_STATE_PROTECTED))
+  if (state & (1 << AX_STATE_PROTECTED))
     result += " PROTECTED";
-  if (state & (1 << ui::AX_STATE_READ_ONLY))
+  if (state & (1 << AX_STATE_READ_ONLY))
     result += " READONLY";
-  if (state & (1 << ui::AX_STATE_REQUIRED))
+  if (state & (1 << AX_STATE_REQUIRED))
     result += " REQUIRED";
-  if (state & (1 << ui::AX_STATE_SELECTABLE))
+  if (state & (1 << AX_STATE_SELECTABLE))
     result += " SELECTABLE";
-  if (state & (1 << ui::AX_STATE_SELECTED))
+  if (state & (1 << AX_STATE_SELECTED))
     result += " SELECTED";
-  if (state & (1 << ui::AX_STATE_VERTICAL))
+  if (state & (1 << AX_STATE_VERTICAL))
     result += " VERTICAL";
-  if (state & (1 << ui::AX_STATE_VISITED))
+  if (state & (1 << AX_STATE_VISITED))
     result += " VISITED";
 
   result += " (" + IntToString(location.x()) + ", " +
@@ -188,20 +369,27 @@ std::string AXNodeData::ToString() const {
       case AX_ATTR_TABLE_ROW_INDEX:
         result += " row_index=" + value;
         break;
+      case AX_ATTR_SORT_DIRECTION:
+        switch (int_attributes[i].second) {
+          case AX_SORT_DIRECTION_UNSORTED:
+            result += " sort_direction=none";
+            break;
+          case AX_SORT_DIRECTION_ASCENDING:
+            result += " sort_direction=ascending";
+            break;
+          case AX_SORT_DIRECTION_DESCENDING:
+            result += " sort_direction=descending";
+            break;
+          case AX_SORT_DIRECTION_OTHER:
+            result += " sort_direction=other";
+            break;
+        }
+        break;
       case AX_ATTR_TITLE_UI_ELEMENT:
         result += " title_elem=" + value;
         break;
       case AX_ATTR_ACTIVEDESCENDANT_ID:
         result += " activedescendant=" + value;
-        break;
-      case AX_ATTR_COLOR_VALUE_RED:
-        result += " color_value_red=" + value;
-        break;
-      case AX_ATTR_COLOR_VALUE_GREEN:
-        result += " color_value_green=" + value;
-        break;
-      case AX_ATTR_COLOR_VALUE_BLUE:
-        result += " color_value_blue=" + value;
         break;
       case AX_ATTR_TREE_ID:
         result += " tree_id=" + value;
@@ -209,20 +397,70 @@ std::string AXNodeData::ToString() const {
       case AX_ATTR_CHILD_TREE_ID:
         result += " child_tree_id=" + value;
         break;
+      case AX_ATTR_COLOR_VALUE:
+        result += base::StringPrintf(" color_value=&%X",
+                                     int_attributes[i].second);
+        break;
+      case AX_ATTR_BACKGROUND_COLOR:
+        result += base::StringPrintf(" background_color=&%X",
+                                     int_attributes[i].second);
+        break;
+      case AX_ATTR_COLOR:
+        result += base::StringPrintf(" color=&%X", int_attributes[i].second);
+        break;
       case AX_ATTR_TEXT_DIRECTION:
         switch (int_attributes[i].second) {
-          case AX_TEXT_DIRECTION_LR:
-          default:
-            result += " text_direction=lr";
+          case AX_TEXT_DIRECTION_LTR:
+            result += " text_direction=ltr";
             break;
-          case AX_TEXT_DIRECTION_RL:
-            result += " text_direction=rl";
+          case AX_TEXT_DIRECTION_RTL:
+            result += " text_direction=rtl";
             break;
-          case AX_TEXT_DIRECTION_TB:
-            result += " text_direction=tb";
+          case AX_TEXT_DIRECTION_TTB:
+            result += " text_direction=ttb";
             break;
-          case AX_TEXT_DIRECTION_BT:
-            result += " text_direction=bt";
+          case AX_TEXT_DIRECTION_BTT:
+            result += " text_direction=btt";
+            break;
+        }
+        case AX_ATTR_TEXT_STYLE: {
+          unsigned int text_style = int_attributes[i].second;
+          if (text_style == AX_TEXT_STYLE_NONE)
+            break;
+          std::string text_style_value(" text_style=");
+          if (text_style & AX_TEXT_STYLE_BOLD)
+            text_style_value += "bold,";
+          if (text_style & AX_TEXT_STYLE_ITALIC)
+            text_style_value += "italic,";
+          if (text_style & AX_TEXT_STYLE_UNDERLINE)
+            text_style_value += "underline,";
+          if (text_style & AX_TEXT_STYLE_LINE_THROUGH)
+            text_style_value += "line-through,";
+          result += text_style_value.substr(0, text_style_value.size() - 1);;
+        }
+        break;
+      case AX_ATTR_SET_SIZE:
+        result += " setsize=" + value;
+        break;
+      case AX_ATTR_POS_IN_SET:
+        result += " posinset=" + value;
+        break;
+      case AX_ATTR_INVALID_STATE:
+        switch (int_attributes[i].second) {
+          case AX_INVALID_STATE_FALSE:
+            result += " invalid_state=false";
+            break;
+          case AX_INVALID_STATE_TRUE:
+            result += " invalid_state=true";
+            break;
+          case AX_INVALID_STATE_SPELLING:
+            result += " invalid_state=spelling";
+            break;
+          case AX_INVALID_STATE_GRAMMAR:
+            result += " invalid_state=grammar";
+            break;
+          case AX_INVALID_STATE_OTHER:
+            result += " invalid_state=other";
             break;
         }
         break;
@@ -252,6 +490,9 @@ std::string AXNodeData::ToString() const {
       case AX_ATTR_ACTION:
         result += " action=" + value;
         break;
+      case AX_ATTR_AUTO_COMPLETE:
+        result += " autocomplete=" + value;
+        break;
       case AX_ATTR_DESCRIPTION:
         result += " description=" + value;
         break;
@@ -263,6 +504,9 @@ std::string AXNodeData::ToString() const {
         break;
       case AX_ATTR_HTML_TAG:
         result += " html_tag=" + value;
+        break;
+      case AX_ATTR_ARIA_INVALID_VALUE:
+        result += " aria_invalid_value=" + value;
         break;
       case AX_ATTR_LIVE_RELEVANT:
         result += " relevant=" + value;
@@ -276,14 +520,14 @@ std::string AXNodeData::ToString() const {
       case AX_ATTR_CONTAINER_LIVE_STATUS:
         result += " container_live=" + value;
         break;
+      case AX_ATTR_PLACEHOLDER:
+        result += "placeholder" + value;
+        break;
       case AX_ATTR_ROLE:
         result += " role=" + value;
         break;
       case AX_ATTR_SHORTCUT:
         result += " shortcut=" + value;
-        break;
-     case AX_ATTR_TEXT_INPUT_TYPE:
-        result += " text_input_type=" + value;
         break;
       case AX_ATTR_URL:
         result += " url=" + value;
@@ -313,6 +557,9 @@ std::string AXNodeData::ToString() const {
         break;
       case AX_ATTR_MIN_VALUE_FOR_RANGE:
         result += " min_value=" + value;
+        break;
+      case AX_ATTR_FONT_SIZE:
+        result += " font_size=" + value;
         break;
       case AX_FLOAT_ATTRIBUTE_NONE:
         break;

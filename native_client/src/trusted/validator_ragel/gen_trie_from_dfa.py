@@ -144,6 +144,7 @@ class WorkerState(object):
     self.num_valid = 0
     self.validator = validator
     self.sub_trie = trie.Node()
+    self.node_cache = trie.NodeCache()
 
   def ReceiveInstruction(self, byte_list):
     """Update trie if sequence passes validator and sandboxing checks."""
@@ -175,6 +176,9 @@ def Worker((dfa_prefix, dfa_state_index)):
   except Exception:
     traceback.print_exc()  # because multiprocessing imap swallows traceback
     raise
+
+  worker_state.sub_trie = worker_state.node_cache.Merge(
+      worker_state.node_cache.empty_node, worker_state.sub_trie)
 
   return (
       worker_state.total_instructions,
@@ -236,7 +240,7 @@ def main():
   sys.stderr.write('%d tasks\n' % len(tasks))
 
   pool = multiprocessing.Pool()
-  results = pool.imap(Worker, tasks)
+  results = pool.imap_unordered(Worker, tasks)
 
   total = 0
   num_valid = 0

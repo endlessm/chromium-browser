@@ -10,6 +10,7 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/run_loop.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -63,9 +64,7 @@ class FileWriteWatcherTest : public testing::Test {
       : thread_bundle_(content::TestBrowserThreadBundle::IO_MAINLOOP) {
   }
 
-  virtual void SetUp() override {
-    ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
-  }
+  void SetUp() override { ASSERT_TRUE(temp_dir_.CreateUniqueTempDir()); }
 
   base::FilePath GetTempPath(const std::string& name) {
     return temp_dir_.path().Append(name);
@@ -88,7 +87,10 @@ TEST_F(FileWriteWatcherTest, WatchThreeFiles) {
   TestObserver observer(expected, loop.QuitClosure());
 
   // Set up the watcher.
-  FileWriteWatcher watcher;
+  scoped_refptr<base::SingleThreadTaskRunner> file_task_runner =
+      content::BrowserThread::GetMessageLoopProxyForThread(
+          content::BrowserThread::FILE);
+  FileWriteWatcher watcher(file_task_runner.get());
   watcher.DisableDelayForTesting();
 
   // Start watching and running.

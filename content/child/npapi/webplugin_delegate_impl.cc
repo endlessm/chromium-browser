@@ -70,7 +70,7 @@ bool WebPluginDelegateImpl::Initialize(
   scoped_ptr<char*[]> argv(new char*[arg_names.size()]);
   for (size_t i = 0; i < arg_names.size(); ++i) {
     if (quirks_ & PLUGIN_QUIRK_NO_WINDOWLESS &&
-        LowerCaseEqualsASCII(arg_names[i], "windowlessvideo")) {
+        base::LowerCaseEqualsASCII(arg_names[i], "windowlessvideo")) {
       continue;
     }
     argn[argc] = const_cast<char*>(arg_names[i].c_str());
@@ -81,14 +81,14 @@ bool WebPluginDelegateImpl::Initialize(
   creation_succeeded_ = instance_->Start(
       url, argn.get(), argv.get(), argc, load_manually);
   if (!creation_succeeded_) {
-    VLOG(1) << "Couldn't start plug-in instance";
+    VLOG(1) << "Couldn't start plugin instance";
     return false;
   }
 
   windowless_ = instance_->windowless();
   if (!windowless_) {
     if (!WindowedCreatePlugin()) {
-      VLOG(1) << "Couldn't create windowed plug-in";
+      VLOG(1) << "Couldn't create windowed plugin";
       return false;
     }
   }
@@ -311,7 +311,7 @@ void WebPluginDelegateImpl::FetchURL(unsigned long resource_id,
                                      const std::string& method,
                                      const char* buf,
                                      unsigned int len,
-                                     const GURL& referrer,
+                                     const Referrer& referrer,
                                      bool notify_redirects,
                                      bool is_plugin_src_load,
                                      int origin_pid,

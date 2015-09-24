@@ -93,7 +93,7 @@ class TokenValidatorFactoryImplTest : public testing::Test {
     scoped_ptr<net::TestURLRequestContext> context(
         new SetResponseURLRequestContext());
     request_context_getter_ = new net::TestURLRequestContextGetter(
-        message_loop_.message_loop_proxy(), context.Pass());
+        message_loop_.task_runner(), context.Pass());
     ThirdPartyAuthConfig config;
     config.token_url = GURL(kTokenUrl);
     config.token_validation_url = GURL(kTokenValidationUrl);
@@ -108,7 +108,7 @@ class TokenValidatorFactoryImplTest : public testing::Test {
     response_dict.SetString("token_type", "shared_secret");
     response_dict.SetString("scope", scope);
     std::string response;
-    base::JSONWriter::Write(&response_dict, &response);
+    base::JSONWriter::Write(response_dict, &response);
     return response;
   }
 
@@ -116,7 +116,7 @@ class TokenValidatorFactoryImplTest : public testing::Test {
     base::DictionaryValue response_dict;
     response_dict.SetString("error", error);
     std::string response;
-    base::JSONWriter::Write(&response_dict, &response);
+    base::JSONWriter::Write(response_dict, &response);
     return response;
   }
 

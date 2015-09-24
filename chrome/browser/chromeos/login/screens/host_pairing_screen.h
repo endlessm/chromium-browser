@@ -21,18 +21,25 @@ class HostPairingScreen
   class Delegate {
    public:
     virtual ~Delegate() {}
-    virtual void ConfigureHost(bool accepted_eula,
-                               const std::string& lang,
-                               const std::string& timezone,
-                               bool send_reports,
-                               const std::string& keyboard_layout) = 0;
+
+    // Called when a configuration has been received, and should be applied to
+    // this device.
+    virtual void ConfigureHostRequested(bool accepted_eula,
+                                        const std::string& lang,
+                                        const std::string& timezone,
+                                        bool send_reports,
+                                        const std::string& keyboard_layout) = 0;
+
+    // Called when a network configuration has been received, and should be
+    // used on this device.
+    virtual void AddNetworkRequested(const std::string& onc_spec) = 0;
   };
 
   HostPairingScreen(BaseScreenDelegate* base_screen_delegate,
                     Delegate* delegate,
                     HostPairingScreenActor* actor,
                     pairing_chromeos::HostPairingController* remora_controller);
-  virtual ~HostPairingScreen();
+  ~HostPairingScreen() override;
 
  private:
   typedef pairing_chromeos::HostPairingController::Stage Stage;
@@ -40,26 +47,23 @@ class HostPairingScreen
   void CommitContextChanges();
 
   // Overridden from BaseScreen:
-  virtual void PrepareToShow() override;
-  virtual void Show() override;
-  virtual void Hide() override;
-  virtual std::string GetName() const override;
+  void PrepareToShow() override;
+  void Show() override;
+  void Hide() override;
+  std::string GetName() const override;
 
   // pairing_chromeos::HostPairingController::Observer:
-  virtual void PairingStageChanged(Stage new_stage) override;
-  virtual void ConfigureHost(bool accepted_eula,
-                             const std::string& lang,
-                             const std::string& timezone,
-                             bool send_reports,
-                             const std::string& keyboard_layout) override;
-  virtual void EnrollHost(const std::string& auth_token) override;
+  void PairingStageChanged(Stage new_stage) override;
+  void ConfigureHostRequested(bool accepted_eula,
+                              const std::string& lang,
+                              const std::string& timezone,
+                              bool send_reports,
+                              const std::string& keyboard_layout) override;
+  void AddNetworkRequested(const std::string& onc_spec) override;
+  void EnrollHostRequested(const std::string& auth_token) override;
 
   // Overridden from ControllerPairingView::Delegate:
-  virtual void OnActorDestroyed(HostPairingScreenActor* actor) override;
-
-  // Context for sharing data between C++ and JS.
-  // TODO(dzhioev): move to BaseScreen when possible.
-  ::login::ScreenContext context_;
+  void OnActorDestroyed(HostPairingScreenActor* actor) override;
 
   Delegate* delegate_;
 

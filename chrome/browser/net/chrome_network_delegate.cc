@@ -9,60 +9,58 @@
 #include <vector>
 
 #include "base/base_paths.h"
+#include "base/command_line.h"
+#include "base/debug/alias.h"
 #include "base/debug/dump_without_crashing.h"
-#include "base/debug/trace_event.h"
+#include "base/debug/stack_trace.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
+#include "base/metrics/sparse_histogram.h"
 #include "base/metrics/user_metrics.h"
 #include "base/path_service.h"
 #include "base/prefs/pref_member.h"
 #include "base/prefs/pref_service.h"
+#include "base/profiler/scoped_tracker.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_util.h"
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/content_settings/cookie_settings.h"
+#include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "chrome/browser/net/chrome_extensions_network_delegate.h"
-#include "chrome/browser/net/client_hints.h"
 #include "chrome/browser/net/connect_interceptor.h"
+#include "chrome/browser/net/request_source_bandwidth_histograms.h"
 #include "chrome/browser/net/safe_search_util.h"
-#include "chrome/browser/prerender/prerender_tracker.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/task_manager/task_manager.h"
 #include "chrome/common/pref_names.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_auth_request_handler.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_metrics.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_statistics_prefs.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_usage_stats.h"
-#include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
+#include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/domain_reliability/monitor.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/resource_request_info.h"
+#include "content/public/common/content_switches.h"
+#include "content/public/common/process_type.h"
 #include "net/base/host_port_pair.h"
+#include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_log.h"
 #include "net/cookies/canonical_cookie.h"
 #include "net/cookies/cookie_options.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_response_headers.h"
-#include "net/proxy/proxy_config.h"
-#include "net/proxy/proxy_info.h"
-#include "net/proxy/proxy_retry_info.h"
-#include "net/proxy/proxy_server.h"
+#include "net/http/http_status_code.h"
+#include "net/log/net_log.h"
 #include "net/url_request/url_request.h"
-#include "net/url_request/url_request_context.h"
 
 #if defined(OS_ANDROID)
 #include "chrome/browser/io_thread.h"
+#include "chrome/browser/precache/precache_manager_factory.h"
 #include "components/precache/content/precache_manager.h"
-#include "components/precache/content/precache_manager_factory.h"
 #endif
 
 #if defined(OS_CHROMEOS)
-#include "base/command_line.h"
 #include "base/sys_info.h"
 #include "chrome/common/chrome_switches.h"
 #endif
@@ -88,12 +86,6 @@ bool ChromeNetworkDelegate::g_allow_file_access_ = false;
 bool ChromeNetworkDelegate::g_allow_file_access_ = true;
 #endif
 
-#if defined(ENABLE_EXTENSIONS)
-// This remains false unless the --disable-extensions-http-throttling
-// flag is passed to the browser.
-bool ChromeNetworkDelegate::g_never_throttle_requests_ = false;
-#endif
-
 namespace {
 
 const char kDNTHeader[] = "DNT";
@@ -112,95 +104,11 @@ void ForceGoogleSafeSearchCallbackWrapper(
   callback.Run(rv);
 }
 
-void UpdateContentLengthPrefs(
-    int received_content_length,
-    int original_content_length,
-    data_reduction_proxy::DataReductionProxyRequestType request_type,
-    Profile* profile,
-    data_reduction_proxy::DataReductionProxyStatisticsPrefs* statistics_prefs) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  DCHECK_GE(received_content_length, 0);
-  DCHECK_GE(original_content_length, 0);
-
-  // Can be NULL in a unit test.
-  if (!g_browser_process)
-    return;
-
-  // Ignore off-the-record data.
-  if (!g_browser_process->profile_manager()->IsValidProfile(profile) ||
-      profile->IsOffTheRecord()) {
-    return;
-  }
-  data_reduction_proxy::UpdateContentLengthPrefs(
-      received_content_length,
-      original_content_length,
-      profile->GetPrefs(),
-      request_type, statistics_prefs);
-}
-
-void StoreAccumulatedContentLength(
-    int received_content_length,
-    int original_content_length,
-    data_reduction_proxy::DataReductionProxyRequestType request_type,
-    Profile* profile,
-    data_reduction_proxy::DataReductionProxyStatisticsPrefs* statistics_prefs) {
-  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
-      base::Bind(&UpdateContentLengthPrefs,
-                 received_content_length,
-                 original_content_length,
-                 request_type,
-                 profile,
-                 statistics_prefs));
-}
-
-void RecordContentLengthHistograms(
-    int64 received_content_length,
-    int64 original_content_length,
-    const base::TimeDelta& freshness_lifetime) {
-  // Add the current resource to these histograms only when a valid
-  // X-Original-Content-Length header is present.
-  if (original_content_length >= 0) {
-    UMA_HISTOGRAM_COUNTS("Net.HttpContentLengthWithValidOCL",
-                         received_content_length);
-    UMA_HISTOGRAM_COUNTS("Net.HttpOriginalContentLengthWithValidOCL",
-                         original_content_length);
-    UMA_HISTOGRAM_COUNTS("Net.HttpContentLengthDifferenceWithValidOCL",
-                         original_content_length - received_content_length);
-  } else {
-    // Presume the original content length is the same as the received content
-    // length if the X-Original-Content-Header is not present.
-    original_content_length = received_content_length;
-  }
-  UMA_HISTOGRAM_COUNTS("Net.HttpContentLength", received_content_length);
-  UMA_HISTOGRAM_COUNTS("Net.HttpOriginalContentLength",
-                       original_content_length);
-  UMA_HISTOGRAM_COUNTS("Net.HttpContentLengthDifference",
-                       original_content_length - received_content_length);
-  UMA_HISTOGRAM_CUSTOM_COUNTS("Net.HttpContentFreshnessLifetime",
-                              freshness_lifetime.InSeconds(),
-                              base::TimeDelta::FromHours(1).InSeconds(),
-                              base::TimeDelta::FromDays(30).InSeconds(),
-                              100);
-  if (freshness_lifetime.InSeconds() <= 0)
-    return;
-  UMA_HISTOGRAM_COUNTS("Net.HttpContentLengthCacheable",
-                       received_content_length);
-  if (freshness_lifetime.InHours() < 4)
-    return;
-  UMA_HISTOGRAM_COUNTS("Net.HttpContentLengthCacheable4Hours",
-                       received_content_length);
-
-  if (freshness_lifetime.InHours() < 24)
-    return;
-  UMA_HISTOGRAM_COUNTS("Net.HttpContentLengthCacheable24Hours",
-                       received_content_length);
-}
-
 #if defined(OS_ANDROID)
 void RecordPrecacheStatsOnUIThread(const GURL& url,
                                    const base::Time& fetch_time, int64 size,
                                    bool was_cached, void* profile_id) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   Profile* profile = reinterpret_cast<Profile*>(profile_id);
   if (!g_browser_process->profile_manager()->IsValidProfile(profile)) {
@@ -216,22 +124,155 @@ void RecordPrecacheStatsOnUIThread(const GURL& url,
 
   precache_manager->RecordStatsForFetch(url, fetch_time, size, was_cached);
 }
-
-void RecordIOThreadToRequestStartOnUIThread(
-    const base::TimeTicks& request_start) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  base::TimeDelta request_lag = request_start -
-      g_browser_process->io_thread()->creation_time();
-  UMA_HISTOGRAM_TIMES("Net.IOThreadCreationToHTTPRequestStart", request_lag);
-}
 #endif  // defined(OS_ANDROID)
+
+void ReportInvalidReferrerSendOnUI() {
+  base::RecordAction(
+      base::UserMetricsAction("Net.URLRequest_StartJob_InvalidReferrer"));
+}
 
 void ReportInvalidReferrerSend(const GURL& target_url,
                                const GURL& referrer_url) {
-  base::RecordAction(
-      base::UserMetricsAction("Net.URLRequest_StartJob_InvalidReferrer"));
+  LOG(ERROR) << "Cancelling request to " << target_url
+             << " with invalid referrer " << referrer_url;
+  // Record information to help debug http://crbug.com/422871
+  if (!target_url.SchemeIsHTTPOrHTTPS())
+    return;
+  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
+                          base::Bind(&ReportInvalidReferrerSendOnUI));
   base::debug::DumpWithoutCrashing();
   NOTREACHED();
+}
+
+// Record network errors that HTTP requests complete with, including OK and
+// ABORTED.
+void RecordNetworkErrorHistograms(const net::URLRequest* request) {
+  if (request->url().SchemeIs("http")) {
+    UMA_HISTOGRAM_SPARSE_SLOWLY("Net.HttpRequestCompletionErrorCodes",
+                                std::abs(request->status().error()));
+
+    if (request->load_flags() & net::LOAD_MAIN_FRAME) {
+      UMA_HISTOGRAM_SPARSE_SLOWLY(
+          "Net.HttpRequestCompletionErrorCodes.MainFrame",
+          std::abs(request->status().error()));
+    }
+  }
+}
+
+// Returns whether |request| is likely to be eligible for delta-encoding.
+// This is only a rough approximation right now, based on MIME type.
+bool CanRequestBeDeltaEncoded(const net::URLRequest* request) {
+  struct {
+    const char *prefix;
+    const char *suffix;
+  } kEligibleMasks[] = {
+    // All text/ types are eligible, even if not displayable.
+    { "text/", NULL },
+    // JSON (application/json and application/*+json) is eligible.
+    { "application/", "json" },
+    // Javascript is eligible.
+    { "application/", "javascript" },
+    // XML (application/xml and application/*+xml) is eligible.
+    { "application/", "xml" },
+  };
+
+  std::string mime_type;
+  request->GetMimeType(&mime_type);
+
+  for (size_t i = 0; i < arraysize(kEligibleMasks); i++) {
+    const char *prefix = kEligibleMasks[i].prefix;
+    const char *suffix = kEligibleMasks[i].suffix;
+    if (prefix &&
+        !base::StartsWith(mime_type, prefix, base::CompareCase::SENSITIVE))
+      continue;
+    if (suffix &&
+        !base::EndsWith(mime_type, suffix, base::CompareCase::SENSITIVE))
+      continue;
+    return true;
+  }
+  return false;
+}
+
+// Returns whether |request| was issued by a renderer process, as opposed to
+// the browser process or a plugin process.
+bool IsRendererInitiatedRequest(const net::URLRequest* request) {
+  const ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(request);
+  return info && info->GetProcessType() == content::PROCESS_TYPE_RENDERER;
+}
+
+// Uploads UMA histograms for delta encoding eligibility. This method can only
+// be safely called after the network stack has called both OnStarted and
+// OnCompleted, since it needs the received response content length and the
+// response headers.
+void RecordCacheStateStats(const net::URLRequest* request) {
+  net::HttpRequestHeaders request_headers;
+  if (!request->GetFullRequestHeaders(&request_headers)) {
+    // GetFullRequestHeaders is guaranteed to succeed if OnResponseStarted() has
+    // been called on |request|, so if GetFullRequestHeaders() fails,
+    // RecordCacheStateStats must have been called before
+    // OnResponseStarted().
+    return;
+  }
+
+  if (!IsRendererInitiatedRequest(request)) {
+    // Ignore browser-initiated requests. These are internal requests like safe
+    // browsing and sync, and so on. Some of these could be eligible for
+    // delta-encoding, but to be conservative this function ignores all of them.
+    return;
+  }
+
+  const int kCacheAffectingFlags = net::LOAD_BYPASS_CACHE |
+                                   net::LOAD_DISABLE_CACHE |
+                                   net::LOAD_PREFERRING_CACHE;
+
+  if (request->load_flags() & kCacheAffectingFlags) {
+    // Ignore requests with cache-affecting flags, which would otherwise mess up
+    // these stats.
+    return;
+  }
+
+  enum {
+    CACHE_STATE_FROM_CACHE,
+    CACHE_STATE_STILL_VALID,
+    CACHE_STATE_NO_LONGER_VALID,
+    CACHE_STATE_NO_ENTRY,
+    CACHE_STATE_MAX,
+  } state = CACHE_STATE_NO_ENTRY;
+  bool had_cache_headers =
+      request_headers.HasHeader(net::HttpRequestHeaders::kIfModifiedSince) ||
+      request_headers.HasHeader(net::HttpRequestHeaders::kIfNoneMatch) ||
+      request_headers.HasHeader(net::HttpRequestHeaders::kIfRange);
+  if (request->was_cached() && !had_cache_headers) {
+    // Entry was served directly from cache.
+    state = CACHE_STATE_FROM_CACHE;
+  } else if (request->was_cached() && had_cache_headers) {
+    // Expired entry was present in cache, and server responded with NOT
+    // MODIFIED, indicating the expired entry is still valid.
+    state = CACHE_STATE_STILL_VALID;
+  } else if (!request->was_cached() && had_cache_headers) {
+    // Expired entry was present in cache, and server responded with something
+    // other than NOT MODIFIED, indicating the entry is no longer valid.
+    state = CACHE_STATE_NO_LONGER_VALID;
+  } else if (!request->was_cached() && !had_cache_headers) {
+    // Neither |was_cached| nor |had_cache_headers|, so there's no local cache
+    // entry for this content at all.
+    state = CACHE_STATE_NO_ENTRY;
+  }
+
+  UMA_HISTOGRAM_ENUMERATION("Net.CacheState.AllRequests", state,
+                            CACHE_STATE_MAX);
+  if (CanRequestBeDeltaEncoded(request)) {
+    UMA_HISTOGRAM_ENUMERATION("Net.CacheState.EncodeableRequests", state,
+                              CACHE_STATE_MAX);
+  }
+
+  int64 size = request->received_response_content_length();
+  if (size >= 0 && state == CACHE_STATE_NO_LONGER_VALID) {
+    UMA_HISTOGRAM_COUNTS("Net.CacheState.AllBytes", size);
+    if (CanRequestBeDeltaEncoded(request)) {
+      UMA_HISTOGRAM_COUNTS("Net.CacheState.EncodeableBytes", size);
+    }
+  }
 }
 
 }  // namespace
@@ -243,19 +284,14 @@ ChromeNetworkDelegate::ChromeNetworkDelegate(
       enable_referrers_(enable_referrers),
       enable_do_not_track_(NULL),
       force_google_safe_search_(NULL),
-      data_reduction_proxy_enabled_(NULL),
+      force_youtube_safety_mode_(NULL),
 #if defined(ENABLE_CONFIGURATION_POLICY)
       url_blacklist_manager_(NULL),
 #endif
       domain_reliability_monitor_(NULL),
-      received_content_length_(0),
-      original_content_length_(0),
-      first_request_(true),
-      prerender_tracker_(NULL),
-      data_reduction_proxy_params_(NULL),
-      data_reduction_proxy_usage_stats_(NULL),
-      data_reduction_proxy_auth_request_handler_(NULL),
-      data_reduction_proxy_statistics_prefs_(NULL) {
+      experimental_web_platform_features_enabled_(
+          base::CommandLine::ForCurrentProcess()->HasSwitch(
+              switches::kEnableExperimentalWebPlatformFeatures)) {
   DCHECK(enable_referrers);
   extensions_delegate_.reset(
       ChromeExtensionsNetworkDelegate::Create(event_router));
@@ -274,7 +310,7 @@ void ChromeNetworkDelegate::set_profile(void* profile) {
 }
 
 void ChromeNetworkDelegate::set_cookie_settings(
-    CookieSettings* cookie_settings) {
+    content_settings::CookieSettings* cookie_settings) {
   cookie_settings_ = cookie_settings;
 }
 
@@ -284,25 +320,14 @@ void ChromeNetworkDelegate::set_predictor(
       new chrome_browser_net::ConnectInterceptor(predictor));
 }
 
-void ChromeNetworkDelegate::SetEnableClientHints() {
-  client_hints_.reset(new ClientHints());
-  client_hints_->Init();
-}
-
-// static
-#if defined(ENABLE_EXTENSIONS)
-void ChromeNetworkDelegate::NeverThrottleRequests() {
-  g_never_throttle_requests_ = true;
-}
-#endif
-
 // static
 void ChromeNetworkDelegate::InitializePrefsOnUIThread(
     BooleanPrefMember* enable_referrers,
     BooleanPrefMember* enable_do_not_track,
     BooleanPrefMember* force_google_safe_search,
+    BooleanPrefMember* force_youtube_safety_mode,
     PrefService* pref_service) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   enable_referrers->Init(prefs::kEnableReferrers, pref_service);
   enable_referrers->MoveToThread(
       BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO));
@@ -312,8 +337,14 @@ void ChromeNetworkDelegate::InitializePrefsOnUIThread(
         BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO));
   }
   if (force_google_safe_search) {
-    force_google_safe_search->Init(prefs::kForceSafeSearch, pref_service);
+    force_google_safe_search->Init(prefs::kForceGoogleSafeSearch, pref_service);
     force_google_safe_search->MoveToThread(
+        BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO));
+  }
+  if (force_youtube_safety_mode) {
+    force_youtube_safety_mode->Init(prefs::kForceYouTubeSafetyMode,
+                                    pref_service);
+    force_youtube_safety_mode->MoveToThread(
         BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO));
   }
 }
@@ -323,69 +354,26 @@ void ChromeNetworkDelegate::AllowAccessToAllFiles() {
   g_allow_file_access_ = true;
 }
 
-// static
-// TODO(megjablon): Use data_reduction_proxy_delayed_pref_service to read prefs.
-// Until updated the pref values may be up to an hour behind on desktop.
-base::Value* ChromeNetworkDelegate::HistoricNetworkStatsInfoToValue(
-    PrefService* prefs) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  int64 total_received = prefs->GetInt64(
-      data_reduction_proxy::prefs::kHttpReceivedContentLength);
-  int64 total_original = prefs->GetInt64(
-      data_reduction_proxy::prefs::kHttpOriginalContentLength);
-
-  base::DictionaryValue* dict = new base::DictionaryValue();
-  // Use strings to avoid overflow.  base::Value only supports 32-bit integers.
-  dict->SetString("historic_received_content_length",
-                  base::Int64ToString(total_received));
-  dict->SetString("historic_original_content_length",
-                  base::Int64ToString(total_original));
-  return dict;
-}
-
-base::Value* ChromeNetworkDelegate::SessionNetworkStatsInfoToValue() const {
-  base::DictionaryValue* dict = new base::DictionaryValue();
-  // Use strings to avoid overflow.  base::Value only supports 32-bit integers.
-  dict->SetString("session_received_content_length",
-                  base::Int64ToString(received_content_length_));
-  dict->SetString("session_original_content_length",
-                  base::Int64ToString(original_content_length_));
-  return dict;
-}
-
 int ChromeNetworkDelegate::OnBeforeURLRequest(
     net::URLRequest* request,
     const net::CompletionCallback& callback,
     GURL* new_url) {
-#if defined(OS_ANDROID)
-  // This UMA tracks the time to the first user-initiated request start, so
-  // only non-null profiles are considered.
-  if (first_request_ && profile_) {
-    bool record_timing = true;
-    if (data_reduction_proxy_params_) {
-      record_timing =
-          (request->url() != data_reduction_proxy_params_->probe_url()) &&
-          (request->url() != data_reduction_proxy_params_->warmup_url());
-    }
-    if (record_timing) {
-      first_request_ = false;
-      net::LoadTimingInfo timing_info;
-      request->GetLoadTimingInfo(&timing_info);
-      BrowserThread::PostTask(
-          BrowserThread::UI, FROM_HERE,
-          base::Bind(&RecordIOThreadToRequestStartOnUIThread,
-                     timing_info.request_start));
-    }
-  }
-#endif  // defined(OS_ANDROID)
+  // TODO(mmenke): Remove ScopedTracker below once crbug.com/456327 is fixed.
+  tracked_objects::ScopedTracker tracking_profile1(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "456327 URLRequest::ChromeNetworkDelegate::OnBeforeURLRequest"));
 
 #if defined(ENABLE_CONFIGURATION_POLICY)
   // TODO(joaodasilva): This prevents extensions from seeing URLs that are
   // blocked. However, an extension might redirect the request to another URL,
   // which is not blocked.
+
+  const ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(request);
   int error = net::ERR_BLOCKED_BY_ADMINISTRATOR;
-  if (url_blacklist_manager_ &&
-      url_blacklist_manager_->IsRequestBlocked(*request, &error)) {
+  if (info && content::IsResourceTypeFrame(info->GetResourceType()) &&
+      url_blacklist_manager_ &&
+      url_blacklist_manager_->ShouldBlockRequestForFrame(
+          request->url(), &error)) {
     // URL access blocked by policy.
     request->net_log().AddEvent(
         net::NetLog::TYPE_CHROME_POLICY_ABORTED_REQUEST,
@@ -395,6 +383,11 @@ int ChromeNetworkDelegate::OnBeforeURLRequest(
   }
 #endif
 
+  // TODO(mmenke): Remove ScopedTracker below once crbug.com/456327 is fixed.
+  tracked_objects::ScopedTracker tracking_profile2(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "456327 URLRequest::ChromeNetworkDelegate::OnBeforeURLRequest 2"));
+
   extensions_delegate_->ForwardStartRequestStatus(request);
 
   if (!enable_referrers_->GetValue())
@@ -402,14 +395,13 @@ int ChromeNetworkDelegate::OnBeforeURLRequest(
   if (enable_do_not_track_ && enable_do_not_track_->GetValue())
     request->SetExtraRequestHeaderByName(kDNTHeader, "1", true /* override */);
 
-  if (client_hints_) {
-    request->SetExtraRequestHeaderByName(
-        ClientHints::kDevicePixelRatioHeader,
-        client_hints_->GetDevicePixelRatioHeader(), true);
-  }
+  // TODO(mmenke): Remove ScopedTracker below once crbug.com/456327 is fixed.
+  tracked_objects::ScopedTracker tracking_profile3(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "456327 URLRequest::ChromeNetworkDelegate::OnBeforeURLRequest 3"));
 
-  bool force_safe_search = force_google_safe_search_ &&
-                           force_google_safe_search_->GetValue();
+  bool force_safe_search =
+      (force_google_safe_search_ && force_google_safe_search_->GetValue());
 
   net::CompletionCallback wrapped_callback = callback;
   if (force_safe_search) {
@@ -422,8 +414,18 @@ int ChromeNetworkDelegate::OnBeforeURLRequest(
   int rv = extensions_delegate_->OnBeforeURLRequest(
       request, wrapped_callback, new_url);
 
+  // TODO(mmenke): Remove ScopedTracker below once crbug.com/456327 is fixed.
+  tracked_objects::ScopedTracker tracking_profile4(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "456327 URLRequest::ChromeNetworkDelegate::OnBeforeURLRequest 4"));
+
   if (force_safe_search && rv == net::OK && new_url->is_empty())
     safe_search_util::ForceGoogleSafeSearch(request, new_url);
+
+  // TODO(mmenke): Remove ScopedTracker below once crbug.com/456327 is fixed.
+  tracked_objects::ScopedTracker tracking_profile5(
+      FROM_HERE_WITH_EXPLICIT_FUNCTION(
+          "456327 URLRequest::ChromeNetworkDelegate::OnBeforeURLRequest 5"));
 
   if (connect_interceptor_)
     connect_interceptor_->WitnessURLRequest(request);
@@ -431,50 +433,14 @@ int ChromeNetworkDelegate::OnBeforeURLRequest(
   return rv;
 }
 
-void ChromeNetworkDelegate::OnResolveProxy(
-    const GURL& url,
-    int load_flags,
-    const net::ProxyService& proxy_service,
-    net::ProxyInfo* result) {
-  if (!on_resolve_proxy_handler_.is_null() &&
-      !proxy_config_getter_.is_null()) {
-    on_resolve_proxy_handler_.Run(url, load_flags,
-                                  proxy_config_getter_.Run(),
-                                  proxy_service.config(),
-                                  proxy_service.proxy_retry_info(),
-                                  data_reduction_proxy_params_, result);
-  }
-}
-
-void ChromeNetworkDelegate::OnProxyFallback(const net::ProxyServer& bad_proxy,
-                                            int net_error) {
-  if (data_reduction_proxy_usage_stats_) {
-    data_reduction_proxy_usage_stats_->OnProxyFallback(
-        bad_proxy, net_error);
-  }
-}
-
 int ChromeNetworkDelegate::OnBeforeSendHeaders(
     net::URLRequest* request,
     const net::CompletionCallback& callback,
     net::HttpRequestHeaders* headers) {
-  bool force_safe_search = force_google_safe_search_ &&
-                           force_google_safe_search_->GetValue();
-  if (force_safe_search)
+  if (force_youtube_safety_mode_ && force_youtube_safety_mode_->GetValue())
     safe_search_util::ForceYouTubeSafetyMode(request, headers);
 
-  TRACE_EVENT_ASYNC_STEP_PAST0("net", "URLRequest", request, "SendRequest");
   return extensions_delegate_->OnBeforeSendHeaders(request, callback, headers);
-}
-
-void ChromeNetworkDelegate::OnBeforeSendProxyHeaders(
-    net::URLRequest* request,
-    const net::ProxyInfo& proxy_info,
-    net::HttpRequestHeaders* headers) {
-  if (data_reduction_proxy_auth_request_handler_) {
-    data_reduction_proxy_auth_request_handler_->MaybeAddRequestHeader(
-        request, proxy_info.proxy_server(), headers);
-  }
 }
 
 void ChromeNetworkDelegate::OnSendHeaders(
@@ -506,14 +472,11 @@ void ChromeNetworkDelegate::OnBeforeRedirect(net::URLRequest* request,
 
 
 void ChromeNetworkDelegate::OnResponseStarted(net::URLRequest* request) {
-  TRACE_EVENT_ASYNC_STEP_PAST0("net", "URLRequest", request, "ResponseStarted");
   extensions_delegate_->OnResponseStarted(request);
 }
 
 void ChromeNetworkDelegate::OnRawBytesRead(const net::URLRequest& request,
                                            int bytes_read) {
-  TRACE_EVENT_ASYNC_STEP_PAST1("net", "URLRequest", &request, "DidRead",
-                               "bytes_read", bytes_read);
 #if defined(ENABLE_TASK_MANAGER)
   // This is not completely accurate, but as a first approximation ignore
   // requests that are served from the cache. See bug 330931 for more info.
@@ -524,17 +487,21 @@ void ChromeNetworkDelegate::OnRawBytesRead(const net::URLRequest& request,
 
 void ChromeNetworkDelegate::OnCompleted(net::URLRequest* request,
                                         bool started) {
-  if (data_reduction_proxy_usage_stats_)
-    data_reduction_proxy_usage_stats_->OnUrlRequestCompleted(request, started);
+  RecordNetworkErrorHistograms(request);
+  if (started) {
+    // Only call in for requests that were started, to obey the precondition
+    // that RecordCacheStateStats can only be called on requests for which
+    // OnResponseStarted was called.
+    RecordCacheStateStats(request);
+  }
 
-  TRACE_EVENT_ASYNC_END0("net", "URLRequest", request);
   if (request->status().status() == net::URLRequestStatus::SUCCESS) {
+#if defined(OS_ANDROID)
     // For better accuracy, we use the actual bytes read instead of the length
     // specified with the Content-Length header, which may be inaccurate,
     // or missing, as is the case with chunked encoding.
     int64 received_content_length = request->received_response_content_length();
 
-#if defined(OS_ANDROID)
     if (precache::PrecacheManager::IsPrecachingEnabled()) {
       // Record precache metrics when a fetch is completed successfully, if
       // precaching is enabled.
@@ -545,48 +512,6 @@ void ChromeNetworkDelegate::OnCompleted(net::URLRequest* request,
                      request->was_cached(), profile_));
     }
 #endif  // defined(OS_ANDROID)
-
-    // Only record for http or https urls.
-    bool is_http = request->url().SchemeIs("http");
-    bool is_https = request->url().SchemeIs("https");
-
-    if (!request->was_cached() &&         // Don't record cached content
-        received_content_length &&        // Zero-byte responses aren't useful.
-        (is_http || is_https)) {          // Only record for HTTP or HTTPS urls.
-      int64 original_content_length =
-          request->response_info().headers->GetInt64HeaderValue(
-              "x-original-content-length");
-      data_reduction_proxy::DataReductionProxyRequestType request_type =
-          data_reduction_proxy::GetDataReductionProxyRequestType(request);
-
-      base::TimeDelta freshness_lifetime =
-          request->response_info().headers->GetFreshnessLifetimes(
-              request->response_info().response_time).freshness;
-      int64 adjusted_original_content_length =
-          data_reduction_proxy::GetAdjustedOriginalContentLength(
-              request_type, original_content_length,
-              received_content_length);
-      AccumulateContentLength(received_content_length,
-                              adjusted_original_content_length,
-                              request_type);
-      RecordContentLengthHistograms(received_content_length,
-                                    original_content_length,
-                                    freshness_lifetime);
-
-      if (data_reduction_proxy_enabled_ &&
-          data_reduction_proxy_usage_stats_ &&
-          !proxy_config_getter_.is_null()) {
-        data_reduction_proxy_usage_stats_->RecordBytesHistograms(
-            request,
-            *data_reduction_proxy_enabled_,
-            proxy_config_getter_.Run());
-      }
-      DVLOG(2) << __FUNCTION__
-          << " received content length: " << received_content_length
-          << " original content length: " << original_content_length
-          << " url: " << request->url();
-    }
-
     extensions_delegate_->OnCompleted(request, started);
   } else if (request->status().status() == net::URLRequestStatus::FAILED ||
              request->status().status() == net::URLRequestStatus::CANCELED) {
@@ -596,6 +521,7 @@ void ChromeNetworkDelegate::OnCompleted(net::URLRequest* request,
   }
   if (domain_reliability_monitor_)
     domain_reliability_monitor_->OnCompleted(request, started);
+  RecordRequestSourceBandwidth(request, started);
   extensions_delegate_->ForwardProxyErrors(request);
   extensions_delegate_->ForwardDoneRequestStatus(request);
 }
@@ -631,19 +557,6 @@ bool ChromeNetworkDelegate::OnCanGetCookies(
 
   int render_process_id = -1;
   int render_frame_id = -1;
-
-  // |is_for_blocking_resource| indicates whether the cookies read were for a
-  // blocking resource (eg script, css). It is only temporarily added for
-  // diagnostic purposes, per bug 353678. Will be removed again once data
-  // collection is finished.
-  bool is_for_blocking_resource = false;
-  const ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(&request);
-  if (info && ((!info->IsAsync()) ||
-               info->GetResourceType() == content::RESOURCE_TYPE_STYLESHEET ||
-               info->GetResourceType() == content::RESOURCE_TYPE_SCRIPT)) {
-    is_for_blocking_resource = true;
-  }
-
   if (content::ResourceRequestInfo::GetRenderFrameForRequest(
           &request, &render_process_id, &render_frame_id)) {
     BrowserThread::PostTask(
@@ -651,7 +564,7 @@ bool ChromeNetworkDelegate::OnCanGetCookies(
         base::Bind(&TabSpecificContentSettings::CookiesRead,
                    render_process_id, render_frame_id,
                    request.url(), request.first_party_for_cookies(),
-                   cookie_list, !allow, is_for_blocking_resource));
+                   cookie_list, !allow));
   }
 
   return allow;
@@ -679,13 +592,6 @@ bool ChromeNetworkDelegate::OnCanSetCookie(const net::URLRequest& request,
                    cookie_line, *options, !allow));
   }
 
-  if (prerender_tracker_) {
-    prerender_tracker_->OnCookieChangedForURL(
-        render_process_id,
-        request.context()->cookie_store()->GetCookieMonster(),
-        request.url());
-  }
-
   return allow;
 }
 
@@ -701,7 +607,7 @@ bool ChromeNetworkDelegate::OnCanAccessFile(const net::URLRequest& request,
   // If we're running Chrome for ChromeOS on Linux, we want to allow file
   // access.
   if (!base::SysInfo::IsRunningOnChromeOS() ||
-      CommandLine::ForCurrentProcess()->HasSwitch(switches::kTestType)) {
+      base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kTestType)) {
     return true;
   }
 
@@ -761,18 +667,6 @@ bool ChromeNetworkDelegate::OnCanAccessFile(const net::URLRequest& request,
 #endif  // !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
 }
 
-bool ChromeNetworkDelegate::OnCanThrottleRequest(
-    const net::URLRequest& request) const {
-#if defined(ENABLE_EXTENSIONS)
-  if (g_never_throttle_requests_)
-    return false;
-  return request.first_party_for_cookies().scheme() ==
-      extensions::kExtensionScheme;
-#else
-  return false;
-#endif
-}
-
 bool ChromeNetworkDelegate::OnCanEnablePrivacyMode(
     const GURL& url,
     const GURL& first_party_for_cookies) const {
@@ -788,28 +682,14 @@ bool ChromeNetworkDelegate::OnCanEnablePrivacyMode(
   return privacy_mode;
 }
 
+bool ChromeNetworkDelegate::OnFirstPartyOnlyCookieExperimentEnabled() const {
+  return experimental_web_platform_features_enabled_;
+}
+
 bool ChromeNetworkDelegate::OnCancelURLRequestWithPolicyViolatingReferrerHeader(
     const net::URLRequest& request,
     const GURL& target_url,
     const GURL& referrer_url) const {
-  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
-      base::Bind(&ReportInvalidReferrerSend, target_url, referrer_url));
+  ReportInvalidReferrerSend(target_url, referrer_url);
   return true;
-}
-
-void ChromeNetworkDelegate::AccumulateContentLength(
-    int64 received_content_length,
-    int64 original_content_length,
-    data_reduction_proxy::DataReductionProxyRequestType request_type) {
-  DCHECK_GE(received_content_length, 0);
-  DCHECK_GE(original_content_length, 0);
-  if (data_reduction_proxy_statistics_prefs_) {
-    StoreAccumulatedContentLength(received_content_length,
-                                  original_content_length,
-                                  request_type,
-                                  reinterpret_cast<Profile*>(profile_),
-                                  data_reduction_proxy_statistics_prefs_);
-  }
-  received_content_length_ += received_content_length;
-  original_content_length_ += original_content_length;
 }

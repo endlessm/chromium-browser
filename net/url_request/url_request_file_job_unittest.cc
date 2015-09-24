@@ -9,6 +9,7 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "net/base/filename_util.h"
 #include "net/base/net_util.h"
@@ -74,24 +75,20 @@ class CallbacksJobFactory : public URLRequestJobFactory {
       URLRequest* request,
       NetworkDelegate* network_delegate) const override {
     URLRequestFileJobWithCallbacks* job = new URLRequestFileJobWithCallbacks(
-        request,
-        network_delegate,
-        path_,
-        base::MessageLoop::current()->message_loop_proxy());
+        request, network_delegate, path_, base::ThreadTaskRunnerHandle::Get());
     observer_->OnJobCreated(job);
     return job;
   }
 
-  net::URLRequestJob* MaybeInterceptRedirect(
-      net::URLRequest* request,
-      net::NetworkDelegate* network_delegate,
-      const GURL& location) const override {
+  URLRequestJob* MaybeInterceptRedirect(URLRequest* request,
+                                        NetworkDelegate* network_delegate,
+                                        const GURL& location) const override {
     return nullptr;
   }
 
-  net::URLRequestJob* MaybeInterceptResponse(
-      net::URLRequest* request,
-      net::NetworkDelegate* network_delegate) const override {
+  URLRequestJob* MaybeInterceptResponse(
+      URLRequest* request,
+      NetworkDelegate* network_delegate) const override {
     return nullptr;
   }
 
@@ -189,7 +186,7 @@ void URLRequestFileJobEventsTest::RunRequest(const std::string& content,
   context_.set_job_factory(&factory);
 
   scoped_ptr<URLRequest> request(context_.CreateRequest(
-      FilePathToFileURL(path), DEFAULT_PRIORITY, &delegate_, NULL));
+      FilePathToFileURL(path), DEFAULT_PRIORITY, &delegate_));
   if (range) {
     ASSERT_GE(range->start, 0);
     ASSERT_GE(range->end, 0);

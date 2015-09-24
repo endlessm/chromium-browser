@@ -242,9 +242,9 @@ bool ResourceMetadataStorage::Iterator::HasError() const {
 bool ResourceMetadataStorage::UpgradeOldDB(
     const base::FilePath& directory_path) {
   base::ThreadRestrictions::AssertIOAllowed();
-  COMPILE_ASSERT(
+  static_assert(
       kDBVersion == 13,
-      db_version_and_this_function_should_be_updated_at_the_same_time);
+      "database version and this function must be updated at the same time");
 
   const base::FilePath resource_map_path =
       directory_path.Append(kResourceMapDBName);
@@ -267,6 +267,7 @@ bool ResourceMetadataStorage::UpgradeOldDB(
   leveldb::Options options;
   options.max_open_files = 0;  // Use minimum.
   options.create_if_missing = false;
+  options.reuse_logs = leveldb_env::kDefaultLogReuseOptionValue;
   if (!leveldb::DB::Open(options, resource_map_path.AsUTF8Unsafe(), &db).ok())
     return false;
   scoped_ptr<leveldb::DB> resource_map(db);
@@ -549,6 +550,7 @@ bool ResourceMetadataStorage::Initialize() {
   leveldb::Options options;
   options.max_open_files = 0;  // Use minimum.
   options.create_if_missing = false;
+  options.reuse_logs = leveldb_env::kDefaultLogReuseOptionValue;
 
   DBInitStatus open_existing_result = DB_INIT_NOT_FOUND;
   leveldb::Status status;
@@ -600,6 +602,7 @@ bool ResourceMetadataStorage::Initialize() {
     options.max_open_files = 0;  // Use minimum.
     options.create_if_missing = true;
     options.error_if_exists = true;
+    options.reuse_logs = leveldb_env::kDefaultLogReuseOptionValue;
 
     status = leveldb::DB::Open(options, resource_map_path.AsUTF8Unsafe(), &db);
     if (status.ok()) {
@@ -638,6 +641,7 @@ void ResourceMetadataStorage::RecoverCacheInfoFromTrashedResourceMap(
   leveldb::Options options;
   options.max_open_files = 0;  // Use minimum.
   options.create_if_missing = false;
+  options.reuse_logs = leveldb_env::kDefaultLogReuseOptionValue;
 
   // Trashed DB may be broken, repair it first.
   leveldb::Status status;
@@ -972,16 +976,15 @@ bool ResourceMetadataStorage::CheckValidity() {
     }
 
     if (IsIdEntryKey(it->key())) {
-      const auto mapping_it =
-          local_id_to_resource_id_map.find(it->key().ToString());
+      const auto result = local_id_to_resource_id_map.insert(std::make_pair(
+          it->value().ToString(),
+          GetResourceIdFromIdEntryKey(it->key().ToString())));
       // Check that no local ID is associated with more than one resource ID.
-      if (mapping_it != local_id_to_resource_id_map.end()) {
+      if (!result.second) {
         DLOG(ERROR) << "Broken ID entry.";
         RecordCheckValidityFailure(CHECK_VALIDITY_FAILURE_BROKEN_ID_ENTRY);
         return false;
       }
-      local_id_to_resource_id_map[it->value().ToString()] =
-          GetResourceIdFromIdEntryKey(it->key());
       continue;
     }
 

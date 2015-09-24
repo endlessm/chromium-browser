@@ -85,16 +85,17 @@ const uint32 kCombinedStatusMaskMaximumValue =
 
 // Returns whether or not a dry-run shall be performed.
 bool ShouldPerformDryRun() {
-  return StartsWithASCII(
+  return base::StartsWith(
       base::FieldTrialList::FindFullName(kAutomaticProfileResetStudyName),
-      kAutomaticProfileResetStudyDryRunGroupName, true);
+      kAutomaticProfileResetStudyDryRunGroupName, base::CompareCase::SENSITIVE);
 }
 
 // Returns whether or not a live-run shall be performed.
 bool ShouldPerformLiveRun() {
-  return StartsWithASCII(
+  return base::StartsWith(
       base::FieldTrialList::FindFullName(kAutomaticProfileResetStudyName),
-      kAutomaticProfileResetStudyEnabledGroupName, true);
+      kAutomaticProfileResetStudyEnabledGroupName,
+      base::CompareCase::SENSITIVE);
 }
 
 // If the currently active experiment group prescribes a |program| and
@@ -218,7 +219,7 @@ class AutomaticProfileResetter::InputBuilder
 
   // Called back by |memento_in_file_| once the |memento_value| has been read.
   void IncludeFileBasedMementoCallback(const std::string& memento_value) {
-    DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+    DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
     data_->SetString(kMementoValueInFileKey, memento_value);
     // As an asynchronous task, we need to take care of posting the next task.
     PostNextTask();
@@ -382,7 +383,7 @@ AutomaticProfileResetter::AutomaticProfileResetter(Profile* profile)
 AutomaticProfileResetter::~AutomaticProfileResetter() {}
 
 void AutomaticProfileResetter::Initialize() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK_EQ(state_, STATE_UNINITIALIZED);
 
   if (!ShouldPerformDryRun() && !ShouldPerformLiveRun()) {
@@ -415,7 +416,7 @@ void AutomaticProfileResetter::Initialize() {
 }
 
 void AutomaticProfileResetter::Activate() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(state_ == STATE_INITIALIZED || state_ == STATE_DISABLED);
 
   if (state_ == STATE_INITIALIZED) {
@@ -435,7 +436,7 @@ void AutomaticProfileResetter::Activate() {
 }
 
 void AutomaticProfileResetter::TriggerProfileReset(bool send_feedback) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK_EQ(state_, STATE_HAS_SHOWN_BUBBLE);
 
   state_ = STATE_PERFORMING_RESET;
@@ -449,7 +450,7 @@ void AutomaticProfileResetter::TriggerProfileReset(bool send_feedback) {
 }
 
 void AutomaticProfileResetter::SkipProfileReset() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK_EQ(state_, STATE_HAS_SHOWN_BUBBLE);
 
   should_show_reset_banner_ = false;
@@ -465,12 +466,12 @@ bool AutomaticProfileResetter::IsResetPromptFlowActive() const {
 }
 
 bool AutomaticProfileResetter::ShouldShowResetBanner() const {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   return should_show_reset_banner_ && ShouldPerformLiveRun();
 }
 
 void AutomaticProfileResetter::NotifyDidShowResetBubble() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK_EQ(state_, STATE_HAS_TRIGGERED_PROMPT);
 
   state_ = STATE_HAS_SHOWN_BUBBLE;
@@ -480,7 +481,7 @@ void AutomaticProfileResetter::NotifyDidShowResetBubble() {
 }
 
 void AutomaticProfileResetter::NotifyDidOpenWebUIResetDialog() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   // This notification is invoked unconditionally by the WebUI, only care about
   // it when the prompt flow is currently active (and not yet resetting).
@@ -493,7 +494,7 @@ void AutomaticProfileResetter::NotifyDidOpenWebUIResetDialog() {
 
 void AutomaticProfileResetter::NotifyDidCloseWebUIResetDialog(
     bool performed_reset) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   // This notification is invoked unconditionally by the WebUI, only care about
   // it when the prompt flow is currently active (and not yet resetting).
@@ -516,7 +517,7 @@ void AutomaticProfileResetter::NotifyDidCloseWebUIResetDialog(
 }
 
 void AutomaticProfileResetter::NotifyDidCloseWebUIResetBanner() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   should_show_reset_banner_ = false;
 }
 
@@ -541,7 +542,7 @@ void AutomaticProfileResetter::SetTaskRunnerForWaitingForTesting(
 }
 
 void AutomaticProfileResetter::Shutdown() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   // We better not do anything substantial at this point. The metrics service
   // has already been shut down; and local state has already been commited to
@@ -554,7 +555,7 @@ void AutomaticProfileResetter::Shutdown() {
 }
 
 void AutomaticProfileResetter::PrepareEvaluationFlow() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK_EQ(state_, STATE_INITIALIZED);
 
   state_ = STATE_WAITING_ON_DEPENDENCIES;
@@ -580,7 +581,7 @@ void AutomaticProfileResetter::OnLoadedModulesAreEnumerated() {
 }
 
 void AutomaticProfileResetter::OnDependencyIsReady() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK_EQ(state_, STATE_WAITING_ON_DEPENDENCIES);
 
   if (template_url_service_ready_ && enumeration_of_loaded_modules_ready_) {
@@ -594,7 +595,7 @@ void AutomaticProfileResetter::OnDependencyIsReady() {
 }
 
 void AutomaticProfileResetter::BeginEvaluationFlow() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK_EQ(state_, STATE_READY);
   DCHECK(!program_.empty());
   DCHECK(!input_builder_);
@@ -609,7 +610,7 @@ void AutomaticProfileResetter::BeginEvaluationFlow() {
 
 void AutomaticProfileResetter::ContinueWithEvaluationFlow(
     scoped_ptr<base::DictionaryValue> program_input) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK_EQ(state_, STATE_EVALUATING_CONDITIONS);
 
   input_builder_.reset();
@@ -686,7 +687,7 @@ void AutomaticProfileResetter::ReportStatistics(uint32 satisfied_criteria_mask,
 
 void AutomaticProfileResetter::FinishEvaluationFlow(
     scoped_ptr<EvaluationResults> results) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK_EQ(state_, STATE_EVALUATING_CONDITIONS);
 
   ReportStatistics(results->satisfied_criteria_mask,
@@ -704,7 +705,7 @@ void AutomaticProfileResetter::FinishEvaluationFlow(
 }
 
 void AutomaticProfileResetter::BeginResetPromptFlow() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK_EQ(state_, STATE_EVALUATING_CONDITIONS);
 
   state_ = STATE_HAS_TRIGGERED_PROMPT;
@@ -722,7 +723,7 @@ void AutomaticProfileResetter::BeginResetPromptFlow() {
 }
 
 void AutomaticProfileResetter::OnProfileSettingsResetCompleted() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK_EQ(state_, STATE_PERFORMING_RESET);
 
   delegate_->DismissPrompt();
@@ -735,7 +736,7 @@ void AutomaticProfileResetter::ReportPromptResult(PromptResult result) {
 }
 
 void AutomaticProfileResetter::PersistMementos() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(state_ == STATE_HAS_TRIGGERED_PROMPT ||
          state_ == STATE_HAS_SHOWN_BUBBLE);
   DCHECK(evaluation_results_);
@@ -753,7 +754,7 @@ void AutomaticProfileResetter::PersistMementos() {
 }
 
 void AutomaticProfileResetter::FinishResetPromptFlow() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(state_ == STATE_HAS_TRIGGERED_PROMPT ||
          state_ == STATE_HAS_SHOWN_BUBBLE ||
          state_ == STATE_PERFORMING_RESET);

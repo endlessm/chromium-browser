@@ -26,10 +26,19 @@ class AutofillPopupDelegate {
 
   // Inform the delegate that a row in the popup has been chosen.
   virtual void DidAcceptSuggestion(const base::string16& value,
-                                   int identifier) = 0;
+                                   int identifier,
+                                   int position) = 0;
 
-  // Delete the described suggestion.
-  virtual void RemoveSuggestion(const base::string16& value,
+  // Returns whether the given value can be deleted, and if true,
+  // fills out |title| and |body|.
+  virtual bool GetDeletionConfirmationText(const base::string16& value,
+                                           int identifier,
+                                           base::string16* title,
+                                           base::string16* body) = 0;
+
+  // Delete the described suggestion. Returns true if something was deleted,
+  // or false if deletion is not allowed.
+  virtual bool RemoveSuggestion(const base::string16& value,
                                 int identifier) = 0;
 
   // Informs the delegate that the Autofill previewed form should be cleared.

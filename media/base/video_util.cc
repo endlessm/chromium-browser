@@ -7,6 +7,8 @@
 #include <cmath>
 
 #include "base/logging.h"
+#include "base/numerics/safe_conversions.h"
+#include "base/numerics/safe_math.h"
 #include "media/base/video_frame.h"
 #include "media/base/yuv_convert.h"
 
@@ -158,7 +160,6 @@ void LetterboxYUV(VideoFrame* frame, const gfx::Rect& view_area) {
   DCHECK(!(view_area.width() & 1));
   DCHECK(!(view_area.height() & 1));
   DCHECK(frame->format() == VideoFrame::YV12 ||
-         frame->format() == VideoFrame::YV12J ||
          frame->format() == VideoFrame::I420);
   LetterboxPlane(frame, VideoFrame::kYPlane, view_area, 0x00);
   gfx::Rect half_view_area(view_area.x() / 2,
@@ -270,6 +271,33 @@ void RotatePlaneByPixels(
   }
 }
 
+// Helper function to return |a| divided by |b|, rounded to the nearest integer.
+static int RoundedDivision(int64 a, int b) {
+  DCHECK_GE(a, 0);
+  DCHECK_GT(b, 0);
+  base::CheckedNumeric<uint64> result(a);
+  result += b / 2;
+  result /= b;
+  return base::checked_cast<int>(result.ValueOrDie());
+}
+
+// Common logic for the letterboxing and scale-within/scale-encompassing
+// functions.  Scales |size| to either fit within or encompass |target|,
+// depending on whether |fit_within_target| is true.
+static gfx::Size ScaleSizeToTarget(const gfx::Size& size,
+                                   const gfx::Size& target,
+                                   bool fit_within_target) {
+  if (size.IsEmpty())
+    return gfx::Size();  // Corner case: Aspect ratio is undefined.
+
+  const int64 x = static_cast<int64>(size.width()) * target.height();
+  const int64 y = static_cast<int64>(size.height()) * target.width();
+  const bool use_target_width = fit_within_target ? (y < x) : (x < y);
+  return use_target_width ?
+      gfx::Size(target.width(), RoundedDivision(y, size.width())) :
+      gfx::Size(RoundedDivision(x, size.height()), target.height());
+}
+
 gfx::Rect ComputeLetterboxRegion(const gfx::Rect& bounds,
                                  const gfx::Size& content) {
   // If |content| has an undefined aspect ratio, let's not try to divide by
@@ -277,17 +305,31 @@ gfx::Rect ComputeLetterboxRegion(const gfx::Rect& bounds,
   if (content.IsEmpty())
     return gfx::Rect();
 
-  int64 x = static_cast<int64>(content.width()) * bounds.height();
-  int64 y = static_cast<int64>(content.height()) * bounds.width();
-
-  gfx::Size letterbox(bounds.width(), bounds.height());
-  if (y < x)
-    letterbox.set_height(static_cast<int>(y / content.width()));
-  else
-    letterbox.set_width(static_cast<int>(x / content.height()));
   gfx::Rect result = bounds;
-  result.ClampToCenteredSize(letterbox);
+  result.ClampToCenteredSize(ScaleSizeToTarget(content, bounds.size(), true));
   return result;
+}
+
+gfx::Size ScaleSizeToFitWithinTarget(const gfx::Size& size,
+                                     const gfx::Size& target) {
+  return ScaleSizeToTarget(size, target, true);
+}
+
+gfx::Size ScaleSizeToEncompassTarget(const gfx::Size& size,
+                                     const gfx::Size& target) {
+  return ScaleSizeToTarget(size, target, false);
+}
+
+gfx::Size PadToMatchAspectRatio(const gfx::Size& size,
+                                const gfx::Size& target) {
+  if (target.IsEmpty())
+    return gfx::Size();  // Aspect ratio is undefined.
+
+  const int64 x = static_cast<int64>(size.width()) * target.height();
+  const int64 y = static_cast<int64>(size.height()) * target.width();
+  if (x < y)
+    return gfx::Size(RoundedDivision(y, target.height()), size.height());
+  return gfx::Size(size.width(), RoundedDivision(x, target.width()));
 }
 
 void CopyRGBToVideoFrame(const uint8* source,

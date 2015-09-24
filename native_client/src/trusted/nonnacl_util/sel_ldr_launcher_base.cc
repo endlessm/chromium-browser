@@ -61,7 +61,7 @@ bool SelLdrLauncherBase::RetrieveSockAddr() {
   header.ndescv_length = NACL_ARRAY_SIZE(descs);
   header.flags = 0;
   // Receive the message.
-  ssize_t received = bootstrap_socket_->RecvMsg(&header, 0, NULL);
+  ssize_t received = bootstrap_socket_->RecvMsg(&header, 0);
   if (0 != received) {
     NaClLog(LOG_ERROR, "SelLdrLauncherBase::RetrieveSockAddr: "
             "RecvMsg() returned %d\n", static_cast<int>(received));
@@ -127,19 +127,6 @@ bool SelLdrLauncherBase::LoadModule(NaClSrpcChannel* command,
   return true;
 }
 
-bool SelLdrLauncherBase::SetupCommandAndLoad(NaClSrpcChannel* command,
-                                             DescWrapper* nexe) {
-  if (!SetupCommand(command)) {
-    return false;
-  }
-  if (nexe != NULL) {
-    if (!LoadModule(command, nexe)) {
-      return false;
-    }
-  }
-  return true;
-}
-
 bool SelLdrLauncherBase::StartModule(NaClSrpcChannel* command) {
   // Start untrusted code module.
   int start_result;
@@ -147,7 +134,7 @@ bool SelLdrLauncherBase::StartModule(NaClSrpcChannel* command) {
       command,
       NACL_SECURE_SERVICE_START_MODULE,
       &start_result);
-  NaClLog(4, "SelLdrLauncher::StartModule rpc result %d\n",
+  NaClLog(4, "SelLdrLauncherBase::StartModule rpc result %d\n",
           static_cast<int>(rpc_result));
   if (NACL_SRPC_RESULT_OK != rpc_result || LOAD_OK != start_result) {
     NaClSrpcDtor(command);
@@ -164,7 +151,7 @@ bool SelLdrLauncherBase::SetupAppChannel(NaClSrpcChannel* out_app_chan) {
   // Connect to the untrusted service itself.
   scoped_ptr<DescWrapper> untrusted_desc(socket_addr_->Connect());
   if (untrusted_desc == NULL) {
-    NaClLog(LOG_ERROR, "SelLdrLauncher::StartModuleAndSetupAppChannel: "
+    NaClLog(LOG_ERROR, "SelLdrLauncherBase::SetupAppChannel: "
             "Connect failed\n");
     return false;
   }
@@ -176,52 +163,6 @@ bool SelLdrLauncherBase::SetupAppChannel(NaClSrpcChannel* out_app_chan) {
     return false;
   }
   return true;
-}
-
-// Sends the SRPC to start the nexe over |command| and sets up the application
-// SRPC chanel |out_app_chan|.
-bool SelLdrLauncherBase::StartModuleAndSetupAppChannel(
-    NaClSrpcChannel* command,
-    NaClSrpcChannel* out_app_chan) {
-  if (!StartModule(command)) {
-    return false;
-  }
-  if (!SetupAppChannel(out_app_chan)) {
-    return false;
-  }
-  return true;
-}
-
-DescWrapper* SelLdrLauncherBase::Wrap(NaClDesc* raw_desc) {
-  CHECK(factory_ != NULL);
-  return factory_->MakeGeneric(raw_desc);
-}
-
-DescWrapper* SelLdrLauncherBase::WrapCleanup(NaClDesc* raw_desc) {
-  CHECK(factory_ != NULL);
-  return factory_->MakeGenericCleanup(raw_desc);
-}
-
-nacl::string SelLdrLauncherBase::GetCrashLogOutput() {
-  DescWrapper::MsgHeader hdr;
-  DescWrapper::MsgIoVec iov;
-  char msg_buf[1024];
-  ssize_t nbytes = 0;
-
-  iov.base = msg_buf;
-  iov.length = sizeof msg_buf;
-  hdr.iov = &iov;
-  hdr.iov_length = 1;
-  hdr.ndescv = NULL;
-  hdr.ndescv_length = 0;
-  hdr.flags = 0;
-  if (NULL != bootstrap_socket_.get()) {
-    nbytes = bootstrap_socket_->RecvMsg(&hdr, 0, NULL);
-  }
-  if (nbytes > 0) {
-    return nacl::string(msg_buf, nbytes);
-  }
-  return "";
 }
 
 }  // namespace nacl

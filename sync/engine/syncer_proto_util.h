@@ -13,7 +13,6 @@
 #include "sync/internal_api/public/base/model_type.h"
 #include "sync/internal_api/public/util/syncer_error.h"
 #include "sync/sessions/sync_session.h"
-#include "sync/syncable/blob.h"
 
 namespace sync_pb {
 class ClientToServerMessage;
@@ -56,18 +55,10 @@ class SYNC_EXPORT_PRIVATE SyncerProtoUtil {
   static SyncerError PostClientToServerMessage(
       sync_pb::ClientToServerMessage* msg,
       sync_pb::ClientToServerResponse* response,
-      sessions::SyncSession* session);
+      sessions::SyncSession* session,
+      ModelTypeSet* partial_failure_data_types);
 
   static bool ShouldMaintainPosition(const sync_pb::SyncEntity& sync_entity);
-
-  // Utility methods for converting between syncable::Blobs and protobuf byte
-  // fields.
-  static void CopyProtoBytesIntoBlob(const std::string& proto_bytes,
-                                     syncable::Blob* blob);
-  static bool ProtoBytesEqualsBlob(const std::string& proto_bytes,
-                                   const syncable::Blob& blob);
-  static void CopyBlobIntoProtoBytes(const syncable::Blob& blob,
-                                     std::string* proto_bytes);
 
   // Extract the name field from a sync entity.
   static const std::string& NameFromSyncEntity(

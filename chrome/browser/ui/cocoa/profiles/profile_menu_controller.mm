@@ -5,6 +5,7 @@
 #import "chrome/browser/ui/cocoa/profiles/profile_menu_controller.h"
 
 #include "base/mac/scoped_nsobject.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/avatar_menu.h"
@@ -15,6 +16,7 @@
 #include "chrome/browser/profiles/profile_info_interface.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_metrics.h"
+#include "chrome/browser/profiles/profile_window.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_list_observer.h"
@@ -23,6 +25,20 @@
 #include "components/signin/core/common/profile_management_switches.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 #include "ui/gfx/image/image.h"
+
+namespace {
+
+// Used in UMA histogram macros, shouldn't be reordered or renumbered
+enum ValidateMenuItemSelector {
+  UNKNOWN_SELECTOR = 0,
+  NEW_PROFILE,
+  EDIT_PROFILE,
+  SWITCH_PROFILE_MENU,
+  SWITCH_PROFILE_DOCK,
+  MAX_VALIDATE_MENU_SELECTOR,
+};
+
+}  // namespace
 
 @interface ProfileMenuController (Private)
 - (void)initializeMenu;
@@ -98,7 +114,9 @@ class Observer : public chrome::BrowserListObserver,
 }
 
 - (IBAction)newProfile:(id)sender {
-  avatarMenu_->AddNewProfile(ProfileMetrics::ADD_NEW_USER_MENU);
+  profiles::CreateAndSwitchToNewProfile(chrome::HOST_DESKTOP_TYPE_NATIVE,
+                                        ProfileManager::CreateCallback(),
+                                        ProfileMetrics::ADD_NEW_USER_MENU);
 }
 
 - (BOOL)insertItemsIntoMenu:(NSMenu*)menu
@@ -133,7 +151,13 @@ class Observer : public chrome::BrowserListObserver,
     if (dock) {
       [item setIndentationLevel:1];
     } else {
-      gfx::Image itemIcon = itemData.icon;
+      gfx::Image itemIcon;
+      bool isRectangle;
+      // Always use the low-res, small default avatars in the menu.
+      AvatarMenu::GetImageForMenuButton(itemData.profile_path,
+                                        &itemIcon,
+                                        &isRectangle);
+
       // The image might be too large and need to be resized (i.e. if this is
       // a signed-in user using the GAIA profile photo).
       if (itemIcon.Width() > profiles::kAvatarIconWidth ||
@@ -160,18 +184,41 @@ class Observer : public chrome::BrowserListObserver,
            [menuItem action] != @selector(editProfile:);
   }
 
-  const AvatarMenu::Item& itemData = avatarMenu_->GetItemAt(
-      avatarMenu_->GetActiveProfileIndex());
+  size_t index = avatarMenu_->GetActiveProfileIndex();
+  if (avatarMenu_->GetNumberOfItems() <= index) {
+    ValidateMenuItemSelector currentSelector = UNKNOWN_SELECTOR;
+    if ([menuItem action] == @selector(newProfile:))
+      currentSelector = NEW_PROFILE;
+    else if ([menuItem action] == @selector(editProfile:))
+      currentSelector = EDIT_PROFILE;
+    else if ([menuItem action] == @selector(switchToProfileFromMenu:))
+      currentSelector = SWITCH_PROFILE_MENU;
+    else if ([menuItem action] == @selector(switchToProfileFromDock:))
+      currentSelector = SWITCH_PROFILE_DOCK;
+    UMA_HISTOGRAM_BOOLEAN("Profile.ValidateMenuItemInvalidIndex.IsGuest",
+                          activeProfile->IsGuestSession());
+    UMA_HISTOGRAM_CUSTOM_COUNTS(
+        "Profile.ValidateMenuItemInvalidIndex.ProfileCount",
+        avatarMenu_->GetNumberOfItems(),
+        1, 20, 20);
+    UMA_HISTOGRAM_ENUMERATION("Profile.ValidateMenuItemInvalidIndex.Selector",
+                              currentSelector,
+                              MAX_VALIDATE_MENU_SELECTOR);
+
+    return NO;
+  }
+
+  const AvatarMenu::Item& itemData = avatarMenu_->GetItemAt(index);
   if ([menuItem action] == @selector(switchToProfileFromDock:) ||
       [menuItem action] == @selector(switchToProfileFromMenu:)) {
-    if (!itemData.supervised)
+    if (!itemData.legacy_supervised)
       return YES;
 
     return [menuItem tag] == static_cast<NSInteger>(itemData.menu_index);
   }
 
   if ([menuItem action] == @selector(newProfile:))
-    return !itemData.supervised;
+    return !itemData.legacy_supervised;
 
   return YES;
 }

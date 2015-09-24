@@ -23,24 +23,28 @@ namespace extensions {
 // to allow RulesRegistryService to be moved to //extensions.
 // TODO(wjmaclean): Remove this once ContentRulesRegistry moves to
 // //extensions.
+//
+// Note: when dealing with WebContents associated with OffTheRecord contexts,
+// functions on this interface must be invoked for BOTH the Original and
+// OffTheRecord ContentRulesRegistry instances. This is necessary because the
+// Original ContentRulesRegistry instance handles spanning-mode incognito
+// extensions.
 class ContentRulesRegistry : public RulesRegistry {
  public:
   ContentRulesRegistry(content::BrowserContext* browser_context,
                        const std::string& event_name,
                        content::BrowserThread::ID owner_thread,
                        RulesCacheDelegate* cache_delegate,
-                       const WebViewKey& webview_key)
+                       int rules_registry_id)
       : RulesRegistry(browser_context,
                       event_name,
                       owner_thread,
                       cache_delegate,
-                      webview_key) {}
+                      rules_registry_id) {}
 
-  // Applies all content rules given an update (CSS match change or
-  // page navigation, for now) from the renderer.
-  virtual void Apply(
-      content::WebContents* contents,
-      const std::vector<std::string>& matching_css_selectors) = 0;
+  // Notifies the registry that it should evaluate rules for |contents|.
+  virtual void MonitorWebContentsForRuleEvaluation(
+      content::WebContents* contents) = 0;
 
   // Applies all content rules given that a tab was just navigated.
   virtual void DidNavigateMainFrame(

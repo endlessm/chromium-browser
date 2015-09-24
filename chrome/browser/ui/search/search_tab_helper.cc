@@ -26,6 +26,7 @@
 #include "chrome/browser/ui/omnibox/omnibox_popup_model.h"
 #include "chrome/browser/ui/omnibox/omnibox_view.h"
 #include "chrome/browser/ui/search/instant_search_prerenderer.h"
+#include "chrome/browser/ui/search/instant_tab.h"
 #include "chrome/browser/ui/search/search_ipc_router_policy_impl.h"
 #include "chrome/browser/ui/search/search_tab_helper_delegate.h"
 #include "chrome/browser/ui/tab_contents/core_tab_helper.h"
@@ -46,6 +47,7 @@
 #include "content/public/browser/user_metrics.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/referrer.h"
+#include "google_apis/gaia/gaia_auth_util.h"
 #include "net/base/net_errors.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/page_transition_types.h"
@@ -54,20 +56,6 @@
 DEFINE_WEB_CONTENTS_USER_DATA_KEY(SearchTabHelper);
 
 namespace {
-
-// For reporting Cacheable NTP navigations.
-enum CacheableNTPLoad {
-  CACHEABLE_NTP_LOAD_FAILED = 0,
-  CACHEABLE_NTP_LOAD_SUCCEEDED = 1,
-  CACHEABLE_NTP_LOAD_MAX = 2
-};
-
-void RecordCacheableNTPLoadHistogram(bool succeeded) {
-  UMA_HISTOGRAM_ENUMERATION("InstantExtended.CacheableNTPLoad",
-                            succeeded ? CACHEABLE_NTP_LOAD_SUCCEEDED :
-                                CACHEABLE_NTP_LOAD_FAILED,
-                            CACHEABLE_NTP_LOAD_MAX);
-}
 
 bool IsCacheableNTP(const content::WebContents* contents) {
   const content::NavigationEntry* entry =
@@ -136,14 +124,15 @@ void RecordNewTabLoadTime(content::WebContents* contents) {
   core_tab_helper->set_new_tab_start_time(base::TimeTicks());
 }
 
-// Returns true if the user is signed in and full history sync is enabled,
-// and false otherwise.
+// Returns true if the user wants to sync history. This function returning true
+// is not a guarantee that history is being synced, but it can be used to
+// disable a feature that should not be shown to users who prefer not to sync
+// their history.
 bool IsHistorySyncEnabled(Profile* profile) {
   ProfileSyncService* sync =
       ProfileSyncServiceFactory::GetInstance()->GetForProfile(profile);
   return sync &&
-      sync->SyncActive() &&
-      sync->GetActiveDataTypes().Has(syncer::HISTORY_DELETE_DIRECTIVES);
+      sync->GetPreferredDataTypes().Has(syncer::HISTORY_DELETE_DIRECTIVES);
 }
 
 bool OmniboxHasFocus(OmniboxView* omnibox) {
@@ -215,7 +204,7 @@ void SearchTabHelper::OmniboxFocusChanged(OmniboxFocusState state,
 
     if (!IsSearchResultsPage()) {
       prerenderer->Init(
-          web_contents_->GetController().GetSessionStorageNamespaceMap(),
+          web_contents_->GetController().GetDefaultSessionStorageNamespace(),
           web_contents_->GetContainerBounds().size());
     }
   }
@@ -270,7 +259,7 @@ void SearchTabHelper::OnTabActivated() {
         InstantSearchPrerenderer::GetForProfile(profile());
     if (prerenderer && !IsSearchResultsPage()) {
       prerenderer->Init(
-          web_contents_->GetController().GetSessionStorageNamespaceMap(),
+          web_contents_->GetController().GetDefaultSessionStorageNamespace(),
           web_contents_->GetContainerBounds().size());
     }
   }
@@ -310,12 +299,9 @@ void SearchTabHelper::DidNavigateMainFrame(
     const content::LoadCommittedDetails& details,
     const content::FrameNavigateParams& params) {
   if (IsCacheableNTP(web_contents_)) {
-    if (details.http_status_code == 204 || details.http_status_code >= 400) {
-      RedirectToLocalNTP();
-      RecordCacheableNTPLoadHistogram(false);
-      return;
-    }
-    RecordCacheableNTPLoadHistogram(true);
+    UMA_HISTOGRAM_ENUMERATION("InstantExtended.CacheableNTPLoad",
+                              chrome::CACHEABLE_NTP_LOAD_SUCCEEDED,
+                              chrome::CACHEABLE_NTP_LOAD_MAX);
   }
 
   // Always set the title on the new tab page to be the one from our UI
@@ -334,21 +320,6 @@ void SearchTabHelper::DidNavigateMainFrame(
       (entry->GetVirtualURL() == GURL(chrome::kChromeUINewTabURL) ||
        chrome::NavEntryIsInstantNTP(web_contents_, entry))) {
     entry->SetTitle(l10n_util::GetStringUTF16(IDS_NEW_TAB_TITLE));
-  }
-}
-
-void SearchTabHelper::DidFailProvisionalLoad(
-    content::RenderFrameHost* render_frame_host,
-    const GURL& validated_url,
-    int error_code,
-    const base::string16& /* error_description */) {
-  // If error_code is ERR_ABORTED means that the user has canceled this
-  // navigation so it shouldn't be redirected.
-  if (!render_frame_host->GetParent() && error_code != net::ERR_ABORTED &&
-      validated_url != GURL(chrome::kChromeSearchLocalNtpUrl) &&
-      chrome::IsNTPURL(validated_url, profile())) {
-    RedirectToLocalNTP();
-    RecordCacheableNTPLoadHistogram(false);
   }
 }
 
@@ -386,16 +357,7 @@ void SearchTabHelper::NavigationEntryCommitted(
 
   // Already determined the instant support state for this page, do not reset
   // the instant support state.
-  //
-  // When we get a navigation entry committed event, there seem to be two ways
-  // to tell whether the navigation was "in-page". Ideally, when
-  // LoadCommittedDetails::is_in_page is true, we should have
-  // LoadCommittedDetails::type to be NAVIGATION_TYPE_IN_PAGE. Unfortunately,
-  // they are different in some cases. To workaround this bug, we are checking
-  // (is_in_page || type == NAVIGATION_TYPE_IN_PAGE). Please refer to
-  // crbug.com/251330 for more details.
-  if (load_details.is_in_page ||
-      load_details.type == content::NAVIGATION_TYPE_IN_PAGE) {
+  if (load_details.is_in_page) {
     // When an "in-page" navigation happens, we will not receive a
     // DidFinishLoad() event. Therefore, we will not determine the Instant
     // support for the navigated page. So, copy over the Instant support from
@@ -431,6 +393,9 @@ void SearchTabHelper::ThemeInfoChanged(const ThemeBackgroundInfo& theme_info) {
 
 void SearchTabHelper::MostVisitedItemsChanged(
     const std::vector<InstantMostVisitedItem>& items) {
+  // When most visited change, the NTP usually reloads the tiles. This means
+  // our metrics get inconsistent. So we'd rather emit stats now.
+  InstantTab::EmitNtpStatistics(web_contents_);
   ipc_router_.SendMostVisitedItems(items);
 }
 
@@ -508,11 +473,12 @@ void SearchTabHelper::OnUndoAllMostVisitedDeletions() {
     instant_service_->UndoAllMostVisitedDeletions();
 }
 
-void SearchTabHelper::OnLogEvent(NTPLoggingEventType event) {
+void SearchTabHelper::OnLogEvent(NTPLoggingEventType event,
+                                 base::TimeDelta time) {
 // TODO(kmadhusu): Move platform specific code from here and get rid of #ifdef.
 #if !defined(OS_ANDROID)
-  NTPUserDataLogger::GetOrCreateFromWebContents(
-      web_contents())->LogEvent(event);
+  NTPUserDataLogger::GetOrCreateFromWebContents(web_contents())
+      ->LogEvent(event, time);
 #endif
 }
 
@@ -563,14 +529,16 @@ void SearchTabHelper::PasteIntoOmnibox(const base::string16& text) {
 void SearchTabHelper::OnChromeIdentityCheck(const base::string16& identity) {
   SigninManagerBase* manager = SigninManagerFactory::GetForProfile(profile());
   if (manager) {
-    const base::string16 username =
-        base::UTF8ToUTF16(manager->GetAuthenticatedUsername());
-    // The identity check only passes if the user is syncing their history.
-    // TODO(beaudoin): Change this function name and related APIs now that it's
-    // checking both the identity and the user's sync state.
-    bool matches = IsHistorySyncEnabled(profile()) && identity == username;
-    ipc_router_.SendChromeIdentityCheckResult(identity, matches);
+    ipc_router_.SendChromeIdentityCheckResult(
+        identity, gaia::AreEmailsSame(base::UTF16ToUTF8(identity),
+                                      manager->GetAuthenticatedUsername()));
+  } else {
+    ipc_router_.SendChromeIdentityCheckResult(identity, false);
   }
+}
+
+void SearchTabHelper::OnHistorySyncCheck() {
+  ipc_router_.SendHistorySyncCheckResult(IsHistorySyncEnabled(profile()));
 }
 
 void SearchTabHelper::UpdateMode(bool update_origin, bool is_preloaded_ntp) {
@@ -614,17 +582,6 @@ void SearchTabHelper::DetermineIfPageSupportsInstant() {
 
 Profile* SearchTabHelper::profile() const {
   return Profile::FromBrowserContext(web_contents_->GetBrowserContext());
-}
-
-void SearchTabHelper::RedirectToLocalNTP() {
-  // Extra parentheses to declare a variable.
-  content::NavigationController::LoadURLParams load_params(
-      (GURL(chrome::kChromeSearchLocalNtpUrl)));
-  load_params.referrer = content::Referrer();
-  load_params.transition_type = ui::PAGE_TRANSITION_SERVER_REDIRECT;
-  // Don't push a history entry.
-  load_params.should_replace_current_entry = true;
-  web_contents_->GetController().LoadURLWithParams(load_params);
 }
 
 bool SearchTabHelper::IsInputInProgress() const {

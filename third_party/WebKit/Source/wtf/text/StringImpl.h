@@ -23,14 +23,14 @@
 #ifndef StringImpl_h
 #define StringImpl_h
 
-#include <limits.h>
 #include "wtf/ASCIICType.h"
 #include "wtf/Forward.h"
 #include "wtf/HashMap.h"
 #include "wtf/StringHasher.h"
 #include "wtf/Vector.h"
 #include "wtf/WTFExport.h"
-#include "wtf/unicode/Unicode.h"
+#include "wtf/text/Unicode.h"
+#include <limits.h>
 
 #if USE(CF)
 typedef const struct __CFString * CFStringRef;
@@ -119,7 +119,7 @@ class WTF_EXPORT StringImpl {
 private:
     // StringImpls are allocated out of the WTF buffer partition.
     void* operator new(size_t);
-    void* operator new(size_t, void* ptr) { return ptr; };
+    void* operator new(size_t, void* ptr) { return ptr; }
     void operator delete(void*);
 
     // Used to construct static strings, which have an special refCount that can never hit zero.
@@ -390,17 +390,17 @@ public:
 
     size_t count(LChar) const;
 
-    bool startsWith(StringImpl* str, bool caseSensitive = true) { return (caseSensitive ? reverseFind(str, 0) : reverseFindIgnoringCase(str, 0)) == 0; }
+    bool startsWith(StringImpl* str, TextCaseSensitivity caseSensitivity = TextCaseSensitive) { return ((caseSensitivity == TextCaseSensitive) ? reverseFind(str, 0) : reverseFindIgnoringCase(str, 0)) == 0; }
     bool startsWith(UChar) const;
-    bool startsWith(const char*, unsigned matchLength, bool caseSensitive) const;
+    bool startsWith(const char*, unsigned matchLength, TextCaseSensitivity) const;
     template<unsigned matchLength>
-    bool startsWith(const char (&prefix)[matchLength], bool caseSensitive = true) const { return startsWith(prefix, matchLength - 1, caseSensitive); }
+    bool startsWith(const char (&prefix)[matchLength], TextCaseSensitivity caseSensitivity = TextCaseSensitive) const { return startsWith(prefix, matchLength - 1, caseSensitivity); }
 
-    bool endsWith(StringImpl*, bool caseSensitive = true);
+    bool endsWith(StringImpl*, TextCaseSensitivity = TextCaseSensitive);
     bool endsWith(UChar) const;
-    bool endsWith(const char*, unsigned matchLength, bool caseSensitive) const;
+    bool endsWith(const char*, unsigned matchLength, TextCaseSensitivity) const;
     template<unsigned matchLength>
-    bool endsWith(const char (&prefix)[matchLength], bool caseSensitive = true) const { return endsWith(prefix, matchLength - 1, caseSensitive); }
+    bool endsWith(const char (&prefix)[matchLength], TextCaseSensitivity caseSensitivity = TextCaseSensitive) const { return endsWith(prefix, matchLength - 1, caseSensitivity); }
 
     PassRefPtr<StringImpl> replace(UChar, UChar);
     PassRefPtr<StringImpl> replace(UChar, StringImpl*);
@@ -421,6 +421,7 @@ public:
 #ifdef STRING_STATS
     ALWAYS_INLINE static StringStats& stringStats() { return m_stringStats; }
 #endif
+    static const UChar latin1CaseFoldTable[256];
 
 private:
     template<typename CharType> static size_t allocationSize(unsigned length)
@@ -503,6 +504,33 @@ inline bool equalIgnoringCase(const UChar* a, const UChar* b, int length)
 WTF_EXPORT bool equalIgnoringCaseNonNull(const StringImpl*, const StringImpl*);
 
 WTF_EXPORT bool equalIgnoringNullity(StringImpl*, StringImpl*);
+
+template<typename CharacterTypeA, typename CharacterTypeB>
+inline bool equalIgnoringASCIICase(const CharacterTypeA* a, const CharacterTypeB* b, unsigned length)
+{
+    for (unsigned i = 0; i < length; ++i) {
+        if (toASCIILower(a[i]) != toASCIILower(b[i]))
+            return false;
+    }
+    return true;
+}
+
+template<typename CharacterTypeA, typename CharacterTypeB>
+bool startsWithIgnoringASCIICase(const CharacterTypeA& reference, const CharacterTypeB& prefix)
+{
+    unsigned prefixLength = prefix.length();
+    if (prefixLength > reference.length())
+        return false;
+
+    if (reference.is8Bit()) {
+        if (prefix.is8Bit())
+            return equalIgnoringASCIICase(reference.characters8(), prefix.characters8(), prefixLength);
+        return equalIgnoringASCIICase(reference.characters8(), prefix.characters16(), prefixLength);
+    }
+    if (prefix.is8Bit())
+        return equalIgnoringASCIICase(reference.characters16(), prefix.characters8(), prefixLength);
+    return equalIgnoringASCIICase(reference.characters16(), prefix.characters16(), prefixLength);
+}
 
 template<typename CharacterType>
 inline size_t find(const CharacterType* characters, unsigned length, CharacterType matchCharacter, unsigned index = 0)
@@ -729,6 +757,10 @@ inline PassRefPtr<StringImpl> StringImpl::isolatedCopy() const
     return create(characters16(), m_length);
 }
 
+// TODO(rob.buis) possibly find a better place for this method.
+// Turns a UChar32 to uppercase based on localeIdentifier.
+WTF_EXPORT UChar32 toUpper(UChar32, const AtomicString& localeIdentifier);
+
 struct StringHash;
 
 // StringHash is the default hash for StringImpl* and RefPtr<StringImpl>
@@ -736,7 +768,7 @@ template<typename T> struct DefaultHash;
 template<> struct DefaultHash<StringImpl*> {
     typedef StringHash Hash;
 };
-template<> struct DefaultHash<RefPtr<StringImpl> > {
+template<> struct DefaultHash<RefPtr<StringImpl>> {
     typedef StringHash Hash;
 };
 

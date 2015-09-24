@@ -27,15 +27,16 @@
 #define HTMLTrackElement_h
 
 #include "core/html/HTMLElement.h"
-#include "core/html/track/LoadableTextTrack.h"
 #include "core/html/track/TextTrack.h"
+#include "core/loader/TextTrackLoader.h"
 #include "platform/heap/Handle.h"
 
 namespace blink {
 
 class HTMLMediaElement;
+class LoadableTextTrack;
 
-class HTMLTrackElement final : public HTMLElement {
+class HTMLTrackElement final : public HTMLElement, private TextTrackLoaderClient {
     DEFINE_WRAPPERTYPEINFO();
 public:
     DECLARE_NODE_FACTORY(HTMLTrackElement);
@@ -43,41 +44,55 @@ public:
     const AtomicString& kind();
     void setKind(const AtomicString&);
 
-    enum ReadyState { NONE = 0, LOADING = 1, LOADED = 2, TRACK_ERROR = 3 };
+    enum ReadyState {
+        NONE = 0,
+        LOADING = 1,
+        LOADED = 2,
+        TRACK_ERROR = 3
+    };
     ReadyState readyState();
-    void setReadyState(ReadyState);
+    void scheduleLoad();
 
     TextTrack* track();
 
-    void scheduleLoad();
-
-    enum LoadStatus { Failure, Success };
-    void didCompleteLoad(LoadStatus);
-
-    const AtomicString& mediaElementCrossOriginAttribute() const;
-
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     explicit HTMLTrackElement(Document&);
-    virtual ~HTMLTrackElement();
+    ~HTMLTrackElement() override;
 
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) override;
 
-    virtual InsertionNotificationRequest insertedInto(ContainerNode*) override;
+    InsertionNotificationRequest insertedInto(ContainerNode*) override;
 
-    virtual void removedFrom(ContainerNode*) override;
-    virtual bool isURLAttribute(const Attribute&) const override;
+    void removedFrom(ContainerNode*) override;
+    bool isURLAttribute(const Attribute&) const override;
 
+    // TextTrackLoaderClient
+    void newCuesAvailable(TextTrackLoader*) override;
+    void cueLoadingCompleted(TextTrackLoader*, bool loadingFailed) override;
+    void newRegionsAvailable(TextTrackLoader*) override;
+
+    void setReadyState(ReadyState);
+
+    const AtomicString& mediaElementCrossOriginAttribute() const;
+    bool canLoadUrl(const KURL&);
     void loadTimerFired(Timer<HTMLTrackElement>*);
+
+    enum LoadStatus {
+        Failure,
+        Success
+    };
+    void didCompleteLoad(LoadStatus);
 
     HTMLMediaElement* mediaElement() const;
 
     LoadableTextTrack* ensureTrack();
-    bool canLoadUrl(const KURL&);
 
     RefPtrWillBeMember<LoadableTextTrack> m_track;
+    OwnPtrWillBeMember<TextTrackLoader> m_loader;
     Timer<HTMLTrackElement> m_loadTimer;
+    KURL m_url;
 };
 
 } // namespace blink

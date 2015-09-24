@@ -10,8 +10,8 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
-import android.util.Log;
 
+import org.chromium.base.Log;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.VisibleForTesting;
 
@@ -58,7 +58,7 @@ public class LocationProviderFactory {
             implements LocationListener, LocationProviderFactory.LocationProvider {
 
         // Log tag
-        private static final String TAG = "LocationProvider";
+        private static final String TAG = "cr.LocationProvider";
 
         private Context mContext;
         private LocationManager mLocationManager;
@@ -153,10 +153,18 @@ public class LocationProviderFactory {
                 mLocationManager.requestLocationUpdates(0, 0, criteria, this,
                         ThreadUtils.getUiThreadLooper());
             } catch (SecurityException e) {
-                Log.e(TAG, "Caught security exception registering for location updates from " +
-                        "system. This should only happen in DumpRenderTree.");
+                Log.e(TAG, "Caught security exception while registering for location updates "
+                        + "from the system. The application does not have sufficient geolocation "
+                        + "permissions.");
+                unregisterFromLocationUpdates();
+                // Propagate an error to JavaScript, this can happen in case of WebView
+                // when the embedding app does not have sufficient permissions.
+                LocationProviderAdapter.newErrorAvailable("application does not have sufficient "
+                        + "geolocation permissions.");
             } catch (IllegalArgumentException e) {
                 Log.e(TAG, "Caught IllegalArgumentException registering for location updates.");
+                unregisterFromLocationUpdates();
+                assert false;
             }
         }
 

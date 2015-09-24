@@ -9,6 +9,7 @@
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/app_list/app_list_switches.h"
 #include "ui/app_list/test/app_list_test_model.h"
 #include "ui/app_list/test/app_list_test_view_delegate.h"
 #include "ui/app_list/views/app_list_folder_view.h"
@@ -18,6 +19,8 @@
 #include "ui/app_list/views/contents_view.h"
 #include "ui/app_list/views/search_box_view.h"
 #include "ui/app_list/views/test/apps_grid_view_test_api.h"
+#include "ui/events/event_utils.h"
+#include "ui/events/test/event_generator.h"
 #include "ui/views/test/views_test_base.h"
 #include "ui/views/view_model.h"
 #include "ui/views/widget/widget.h"
@@ -64,8 +67,10 @@ class GridViewVisibleWaiter {
 class AppListMainViewTest : public views::ViewsTestBase {
  public:
   AppListMainViewTest()
-      : widget_(NULL),
-        main_view_(NULL) {}
+      : main_widget_(nullptr),
+        main_view_(nullptr),
+        search_box_widget_(nullptr),
+        search_box_view_(nullptr) {}
 
   ~AppListMainViewTest() override {}
 
@@ -80,22 +85,29 @@ class AppListMainViewTest : public views::ViewsTestBase {
     main_view_ = new AppListMainView(delegate_.get());
     main_view_->SetPaintToLayer(true);
     main_view_->model()->SetFoldersEnabled(true);
-    search_box_view_.reset(new SearchBoxView(main_view_, delegate_.get()));
-    main_view_->Init(NULL, 0, search_box_view_.get());
+    search_box_view_ = new SearchBoxView(main_view_, delegate_.get());
+    main_view_->Init(nullptr, 0, search_box_view_);
 
-    widget_ = new views::Widget;
-    views::Widget::InitParams params =
+    main_widget_ = new views::Widget;
+    views::Widget::InitParams main_widget_params =
         CreateParams(views::Widget::InitParams::TYPE_POPUP);
-    params.bounds.set_size(main_view_->GetPreferredSize());
-    widget_->Init(params);
+    main_widget_params.bounds.set_size(main_view_->GetPreferredSize());
+    main_widget_->Init(main_widget_params);
+    main_widget_->SetContentsView(main_view_);
 
-    widget_->SetContentsView(main_view_);
+    search_box_widget_ = new views::Widget;
+    views::Widget::InitParams search_box_widget_params =
+        CreateParams(views::Widget::InitParams::TYPE_CONTROL);
+    search_box_widget_params.parent = main_widget_->GetNativeView();
+    search_box_widget_params.opacity =
+        views::Widget::InitParams::TRANSLUCENT_WINDOW;
+    search_box_widget_->Init(search_box_widget_params);
+    search_box_widget_->SetContentsView(search_box_view_);
   }
 
   void TearDown() override {
-    widget_->Close();
+    main_widget_->Close();
     views::ViewsTestBase::TearDown();
-    search_box_view_.reset();
     delegate_.reset();
   }
 
@@ -116,16 +128,12 @@ class AppListMainViewTest : public views::ViewsTestBase {
 
   void SimulateClick(views::View* view) {
     gfx::Point center = view->GetLocalBounds().CenterPoint();
-    view->OnMousePressed(ui::MouseEvent(ui::ET_MOUSE_PRESSED,
-                                        center,
-                                        center,
-                                        ui::EF_LEFT_MOUSE_BUTTON,
-                                        ui::EF_LEFT_MOUSE_BUTTON));
-    view->OnMouseReleased(ui::MouseEvent(ui::ET_MOUSE_RELEASED,
-                                         center,
-                                         center,
-                                         ui::EF_LEFT_MOUSE_BUTTON,
-                                         ui::EF_LEFT_MOUSE_BUTTON));
+    view->OnMousePressed(ui::MouseEvent(
+        ui::ET_MOUSE_PRESSED, center, center, ui::EventTimeForNow(),
+        ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON));
+    view->OnMouseReleased(ui::MouseEvent(
+        ui::ET_MOUSE_RELEASED, center, center, ui::EventTimeForNow(),
+        ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON));
   }
 
   // |point| is in |grid_view|'s coordinates.
@@ -137,7 +145,8 @@ class AppListMainViewTest : public views::ViewsTestBase {
 
     gfx::Point translated =
         gfx::PointAtOffsetFromOrigin(point - view->bounds().origin());
-    ui::MouseEvent pressed_event(ui::ET_MOUSE_PRESSED, translated, point, 0, 0);
+    ui::MouseEvent pressed_event(ui::ET_MOUSE_PRESSED, translated, point,
+                                 ui::EventTimeForNow(), 0, 0);
     grid_view->InitiateDrag(view, pointer, pressed_event);
     return view;
   }
@@ -150,18 +159,19 @@ class AppListMainViewTest : public views::ViewsTestBase {
     DCHECK(drag_view);
     gfx::Point translated =
         gfx::PointAtOffsetFromOrigin(point - drag_view->bounds().origin());
-    ui::MouseEvent drag_event(ui::ET_MOUSE_DRAGGED, translated, point, 0, 0);
+    ui::MouseEvent drag_event(ui::ET_MOUSE_DRAGGED, translated, point,
+                              ui::EventTimeForNow(), 0, 0);
     grid_view->UpdateDragFromItem(pointer, drag_event);
   }
 
+  ContentsView* GetContentsView() { return main_view_->contents_view(); }
+
   AppsGridView* RootGridView() {
-    return main_view_->contents_view()->apps_container_view()->apps_grid_view();
+    return GetContentsView()->apps_container_view()->apps_grid_view();
   }
 
   AppListFolderView* FolderView() {
-    return main_view_->contents_view()
-        ->apps_container_view()
-        ->app_list_folder_view();
+    return GetContentsView()->apps_container_view()->app_list_folder_view();
   }
 
   AppsGridView* FolderGridView() { return FolderView()->items_grid_view(); }
@@ -229,10 +239,11 @@ class AppListMainViewTest : public views::ViewsTestBase {
   }
 
  protected:
-  views::Widget* widget_;  // Owned by native window.
-  AppListMainView* main_view_;  // Owned by |widget_|.
+  views::Widget* main_widget_;  // Owned by native window.
+  AppListMainView* main_view_;  // Owned by |main_widget_|.
   scoped_ptr<AppListTestViewDelegate> delegate_;
-  scoped_ptr<SearchBoxView> search_box_view_;
+  views::Widget* search_box_widget_;  // Owned by |main_widget_|.
+  SearchBoxView* search_box_view_;    // Owned by |search_box_widget_|.
 
  private:
   DISALLOW_COPY_AND_ASSIGN(AppListMainViewTest);
@@ -253,6 +264,65 @@ TEST_F(AppListMainViewTest, ModelChanged) {
   delegate_->ReplaceTestModel(kReplacementItems);
   main_view_->ModelChanged();
   EXPECT_EQ(kReplacementItems, RootViewModel()->view_size());
+}
+
+// Tests that mouse hovering over an app item highlights it
+TEST_F(AppListMainViewTest, MouseHoverToHighlight) {
+  delegate_->GetTestModel()->PopulateApps(2);
+  main_widget_->Show();
+
+  ui::test::EventGenerator generator(GetContext(),
+                                     main_widget_->GetNativeWindow());
+  AppListItemView* item0 = RootViewModel()->view_at(0);
+  AppListItemView* item1 = RootViewModel()->view_at(1);
+
+  // If experimental launcher, switch to All Apps page
+  if (app_list::switches::IsExperimentalAppListEnabled()) {
+    GetContentsView()->SetActiveState(AppListModel::STATE_APPS);
+    GetContentsView()->Layout();
+  }
+
+  generator.MoveMouseTo(item0->GetBoundsInScreen().CenterPoint());
+  EXPECT_TRUE(item0->is_highlighted());
+  EXPECT_FALSE(item1->is_highlighted());
+
+  generator.MoveMouseTo(item1->GetBoundsInScreen().CenterPoint());
+  EXPECT_FALSE(item0->is_highlighted());
+  EXPECT_TRUE(item1->is_highlighted());
+
+  generator.MoveMouseTo(gfx::Point(-1, -1));
+  EXPECT_FALSE(item0->is_highlighted());
+  EXPECT_FALSE(item1->is_highlighted());
+}
+
+// No touch on desktop Mac. Tracked in http://crbug.com/445520.
+#if defined(OS_MACOSX) && !defined(USE_AURA)
+#define MAYBE_TapGestureToHighlight DISABLED_TapGestureToHighlight
+#else
+#define MAYBE_TapGestureToHighlight TapGestureToHighlight
+#endif
+
+// Tests that tap gesture on app item highlights it
+TEST_F(AppListMainViewTest, MAYBE_TapGestureToHighlight) {
+  delegate_->GetTestModel()->PopulateApps(1);
+  main_widget_->Show();
+
+  ui::test::EventGenerator generator(GetContext(),
+                                     main_widget_->GetNativeWindow());
+  AppListItemView* item = RootViewModel()->view_at(0);
+
+  // If experimental launcher, switch to All Apps page
+  if (app_list::switches::IsExperimentalAppListEnabled()) {
+    GetContentsView()->SetActiveState(AppListModel::STATE_APPS);
+    GetContentsView()->Layout();
+  }
+
+  generator.set_current_location(item->GetBoundsInScreen().CenterPoint());
+  generator.PressTouch();
+  EXPECT_TRUE(item->is_highlighted());
+
+  generator.ReleaseTouch();
+  EXPECT_FALSE(item->is_highlighted());
 }
 
 // Tests dragging an item out of a single item folder and drop it at the last
@@ -288,33 +358,50 @@ TEST_F(AppListMainViewTest, DragLastItemFromFolderAndDropAtLastSlot) {
   // Single item folder should be auto removed.
   EXPECT_EQ(NULL,
             delegate_->GetTestModel()->FindFolderItem("single_item_folder"));
+
+  // Ensure keyboard selection works on the root grid view after a reparent.
+  // This is a regression test for https://crbug.com/466058.
+  ui::KeyEvent key_event(ui::ET_KEY_PRESSED, ui::VKEY_RIGHT, ui::EF_NONE);
+  GetContentsView()->apps_container_view()->OnKeyPressed(key_event);
+
+  EXPECT_TRUE(RootGridView()->has_selected_view());
+  EXPECT_FALSE(FolderGridView()->has_selected_view());
 }
 
 // Tests dragging an item out of a single item folder and dropping it onto the
 // page switcher. Regression test for http://crbug.com/415530/.
 TEST_F(AppListMainViewTest, DragReparentItemOntoPageSwitcher) {
+  // Number of apps to populate. Should provide more than 1 page of apps (6*4 =
+  // 24).
+  const int kNumApps = 30;
+
+  // Ensure we are on the apps grid view page.
+  app_list::ContentsView* contents_view = GetContentsView();
+  contents_view->SetActiveState(AppListModel::STATE_APPS);
+  contents_view->Layout();
+
   AppListItemView* folder_item_view = CreateAndOpenSingleItemFolder();
   const gfx::Rect first_slot_tile = folder_item_view->bounds();
 
-  delegate_->GetTestModel()->PopulateApps(20);
+  delegate_->GetTestModel()->PopulateApps(kNumApps);
 
   EXPECT_EQ(1, FolderViewModel()->view_size());
-  EXPECT_EQ(21, RootViewModel()->view_size());
+  EXPECT_EQ(kNumApps + 1, RootViewModel()->view_size());
 
   AppListItemView* dragged = StartDragForReparent(0);
 
-  gfx::Rect main_view_bounds = main_view_->bounds();
+  gfx::Rect grid_view_bounds = RootGridView()->bounds();
   // Drag the reparent item to the page switcher.
   gfx::Point point =
-      gfx::Point(main_view_bounds.width() / 2,
-                 main_view_bounds.bottom() - first_slot_tile.height());
+      gfx::Point(grid_view_bounds.width() / 2,
+                 grid_view_bounds.bottom() - first_slot_tile.height());
   SimulateUpdateDrag(FolderGridView(), AppsGridView::MOUSE, dragged, point);
 
   // Drop it.
   FolderGridView()->EndDrag(false);
 
   // The folder should be destroyed.
-  EXPECT_EQ(21, RootViewModel()->view_size());
+  EXPECT_EQ(kNumApps + 1, RootViewModel()->view_size());
   EXPECT_EQ(NULL,
             delegate_->GetTestModel()->FindFolderItem("single_item_folder"));
 }
@@ -340,6 +427,36 @@ TEST_F(AppListMainViewTest, MouseDragItemOutOfFolderWithCancel) {
   SimulateUpdateDrag(FolderGridView(), AppsGridView::MOUSE, dragged, point);
   EXPECT_FALSE(RootGridView()->has_dragged_view());
   EXPECT_FALSE(FolderGridView()->has_dragged_view());
+}
+
+// Test that dragging an app out of a single item folder and reparenting it
+// back into its original folder results in a cancelled reparent. This is a
+// regression test for http://crbug.com/429083.
+TEST_F(AppListMainViewTest, ReparentSingleItemOntoSelf) {
+  // Add a folder with 1 item.
+  AppListItemView* folder_item_view = CreateAndOpenSingleItemFolder();
+  std::string folder_id = folder_item_view->item()->id();
+
+  // Add another top level app.
+  delegate_->GetTestModel()->PopulateApps(1);
+  gfx::Point drag_point = folder_item_view->bounds().CenterPoint();
+
+  views::View::ConvertPointToTarget(RootGridView(), FolderGridView(),
+                                    &drag_point);
+
+  AppListItemView* dragged = StartDragForReparent(0);
+
+  // Drag the reparent item back into its folder.
+  SimulateUpdateDrag(FolderGridView(), AppsGridView::MOUSE, dragged,
+                     drag_point);
+  FolderGridView()->EndDrag(false);
+
+  // The app list model should remain unchanged.
+  EXPECT_EQ(1, FolderViewModel()->view_size());
+  EXPECT_EQ(2, RootViewModel()->view_size());
+  EXPECT_EQ(folder_id, RootGridView()->GetItemViewAt(0)->item()->id());
+  EXPECT_NE(nullptr,
+            delegate_->GetTestModel()->FindFolderItem("single_item_folder"));
 }
 
 }  // namespace test

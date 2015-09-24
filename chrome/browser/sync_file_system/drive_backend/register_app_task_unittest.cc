@@ -60,9 +60,10 @@ class RegisterAppTaskTest : public testing::Test {
 
     context_.reset(new SyncEngineContext(fake_drive_service.Pass(),
                                          drive_uploader.Pass(),
-                                         nullptr,
+                                         nullptr /* task_logger */,
                                          base::ThreadTaskRunnerHandle::Get(),
-                                         base::ThreadTaskRunnerHandle::Get()));
+                                         base::ThreadTaskRunnerHandle::Get(),
+                                         nullptr /* worker_pool */));
 
     ASSERT_EQ(google_apis::HTTP_CREATED,
               fake_drive_service_helper_->AddOrphanedFolder(
@@ -200,7 +201,7 @@ class RegisterAppTaskTest : public testing::Test {
   }
 
   size_t CountRemoteFileInSyncRoot() {
-    ScopedVector<google_apis::ResourceEntry> files;
+    ScopedVector<google_apis::FileResource> files;
     EXPECT_EQ(google_apis::HTTP_SUCCESS,
               fake_drive_service_helper_->ListFilesInFolder(
                   sync_root_folder_id_, &files));

@@ -12,7 +12,6 @@ This heart beat lets the devices know that they are connected to a host.
 import sys
 import time
 
-from pylib import android_commands
 from pylib.device import device_utils
 
 PULSE_PERIOD = 20
@@ -20,10 +19,10 @@ PULSE_PERIOD = 20
 def main():
   while True:
     try:
-      devices = android_commands.GetAttachedDevices()
-      for device_serial in devices:
-        device_utils.DeviceUtils(device_serial).RunShellCommand(
-            'touch /sdcard/host_heartbeat')
+      devices = device_utils.DeviceUtils.HealthyDevices()
+      for d in devices:
+        d.RunShellCommand(['touch', '/sdcard/host_heartbeat'],
+                          check_return=True)
     except:
       # Keep the heatbeat running bypassing all errors.
       pass

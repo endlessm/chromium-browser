@@ -4,6 +4,7 @@
 
 #include "ash/shell.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/chromeos/input_method/textinput_test_helper.h"
@@ -12,16 +13,15 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
-#include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window_event_dispatcher.h"
+#include "ui/aura/window_tree_host.h"
 #include "ui/base/ime/input_method_factory.h"
 
 namespace chromeos {
 namespace {
 ui::MockInputMethod* GetInputMethod() {
   ui::MockInputMethod* input_method = static_cast<ui::MockInputMethod*>(
-      ash::Shell::GetPrimaryRootWindow()->GetProperty(
-          aura::client::kRootWindowInputMethodKey));
+      ash::Shell::GetPrimaryRootWindow()->GetHost()->GetInputMethod());
   CHECK(input_method);
   return input_method;
 }
@@ -165,8 +165,9 @@ void TextInputTestHelper::WaitForSurroundingTextChanged(
 bool TextInputTestHelper::ConvertRectFromString(const std::string& str,
                                                 gfx::Rect* rect) {
   DCHECK(rect);
-  std::vector<std::string> rect_piece;
-  if (Tokenize(str, ",", &rect_piece) != 4UL)
+  std::vector<base::StringPiece> rect_piece = base::SplitStringPiece(
+      str, ",", base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+  if (rect_piece.size() != 4UL)
     return false;
   int x, y, width, height;
   if (!base::StringToInt(rect_piece[0], &x))

@@ -29,6 +29,7 @@ import xml.dom.minidom
 
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_logging as logging
 from chromite.lib import gs
 from chromite.lib import osutils
 
@@ -38,20 +39,20 @@ UPLOAD_URL_BASE = 'gs://chromeos-localmirror-private/distfiles'
 
 def DownloadCrx(ext, extension, crxdir):
   """Download .crx file from WebStore and update entry."""
-  cros_build_lib.Info('Extension "%s"(%s)...', extension['name'], ext)
+  logging.info('Extension "%s"(%s)...', extension['name'], ext)
 
   update_url = ('%s?x=prodversion%%3D35.1.1.1%%26id%%3D%s%%26uc' %
-      (extension['external_update_url'], ext))
+                (extension['external_update_url'], ext))
   response = urllib.urlopen(update_url)
   if response.getcode() != 200:
-    cros_build_lib.Error('Cannot get update response, URL: %s, error: %d',
-                         update_url, response.getcode())
+    logging.error('Cannot get update response, URL: %s, error: %d', update_url,
+                  response.getcode())
     return False
 
   dom = xml.dom.minidom.parse(response)
   status = dom.getElementsByTagName('app')[0].getAttribute('status')
   if status != 'ok':
-    cros_build_lib.Error('Cannot fetch extension, status: %s', status)
+    logging.error('Cannot fetch extension, status: %s', status)
     return False
 
   node = dom.getElementsByTagName('updatecheck')[0]
@@ -60,8 +61,8 @@ def DownloadCrx(ext, extension, crxdir):
   filename = '%s-%s.crx' % (ext, version)
   response = urllib.urlopen(url)
   if response.getcode() != 200:
-    cros_build_lib.Error('Cannot download extension, URL: %s, error: %d',
-                         url, response.getcode())
+    logging.error('Cannot download extension, URL: %s, error: %d', url,
+                  response.getcode())
     return False
 
   osutils.WriteFile(os.path.join(crxdir, 'extensions', filename),
@@ -70,7 +71,7 @@ def DownloadCrx(ext, extension, crxdir):
   # Keep external_update_url in json file, ExternalCache will take care about
   # replacing it with proper external_crx path and version.
 
-  cros_build_lib.Info('Downloaded, current version %s', version)
+  logging.info('Downloaded, current version %s', version)
   return True
 
 
@@ -84,7 +85,7 @@ def CreateValidationFiles(validationdir, crxdir, identifier):
 
     # Make directory relative to output dir by removing crxdir and /.
     for filename in filenames:
-      verified_files.append(os.path.join(directory[len(crxdir)+1:],
+      verified_files.append(os.path.join(directory[len(crxdir) + 1:],
                                          filename))
 
   validation_file = os.path.join(validationdir, '%s.validation' % identifier)
@@ -93,7 +94,7 @@ def CreateValidationFiles(validationdir, crxdir, identifier):
   cros_build_lib.RunCommand(['sha256sum'] + verified_files,
                             log_stdout_to_file=validation_file,
                             cwd=crxdir, print_cmd=False)
-  cros_build_lib.Info('Hashes created.')
+  logging.info('Hashes created.')
 
 
 def CreateCacheTarball(extensions, outputdir, identifier, tarball):
@@ -125,7 +126,7 @@ def CreateCacheTarball(extensions, outputdir, identifier, tarball):
 
     if managed_users == 'yes':
       json_file = os.path.join(jsondir,
-          'extensions/managed_users/%s.json' % ext)
+                               'extensions/managed_users/%s.json' % ext)
       json.dump(extensions[ext],
                 open(json_file, 'w'),
                 sort_keys=True,
@@ -145,7 +146,7 @@ def CreateCacheTarball(extensions, outputdir, identifier, tarball):
 
   CreateValidationFiles(validationdir, crxdir, identifier)
   cros_build_lib.CreateTarball(tarball, outputdir)
-  cros_build_lib.Info('Tarball created %s', tarball)
+  logging.info('Tarball created %s', tarball)
 
 
 def main(argv):
@@ -186,5 +187,5 @@ def main(argv):
                          'NEVER REWRITE EXISTING FILE. IT WILL BREAK CHROME OS '
                          'BUILD!!!', url)
     ctx.Copy(os.path.abspath(tarball), url, acl='project-private')
-    cros_build_lib.Info('Tarball uploaded %s', url)
+    logging.info('Tarball uploaded %s', url)
     osutils.SafeUnlink(os.path.abspath(tarball))

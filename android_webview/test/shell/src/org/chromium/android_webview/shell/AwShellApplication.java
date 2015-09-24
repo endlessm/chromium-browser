@@ -8,11 +8,12 @@ import android.os.Debug;
 import android.util.Log;
 
 import org.chromium.android_webview.AwBrowserProcess;
+import org.chromium.android_webview.R;
 import org.chromium.base.BaseSwitches;
 import org.chromium.base.CommandLine;
-import org.chromium.base.ResourceExtractor;
 import org.chromium.base.TraceEvent;
 import org.chromium.content.app.ContentApplication;
+import org.chromium.ui.base.ResourceBundle;
 
 /**
  * The android_webview shell Application subclass.
@@ -20,10 +21,6 @@ import org.chromium.content.app.ContentApplication;
 public class AwShellApplication extends ContentApplication {
 
     private static final String TAG = "AwShellApplication";
-    /** The minimum set of .pak files the test runner needs. */
-    private static final String[] MANDATORY_PAKS = { "icudtl.dat",
-                                                     "natives_blob.bin",
-                                                     "snapshot_blob.bin" };
 
     @Override
     public void onCreate() {
@@ -39,14 +36,17 @@ public class AwShellApplication extends ContentApplication {
             Log.e(TAG, "Java debugger connected. Resuming execution.");
         }
 
-        ResourceExtractor.setMandatoryPaksToExtract(MANDATORY_PAKS);
-        ResourceExtractor.setExtractImplicitLocaleForTesting(false);
-        AwBrowserProcess.loadLibrary();
+        AwBrowserProcess.loadLibrary(this);
 
         if (CommandLine.getInstance().hasSwitch(AwShellSwitches.ENABLE_ATRACE)) {
             Log.e(TAG, "Enabling Android trace.");
             TraceEvent.setATraceEnabled(true);
         }
+    }
+
+    @Override
+    protected void initializeLibraryDependencies() {
+        ResourceBundle.initializeLocalePaks(this, R.array.locale_paks);
     }
 
     @Override

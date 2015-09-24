@@ -5,11 +5,12 @@
 #include "chrome/browser/extensions/installed_loader.h"
 
 #include "base/files/file_path.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
+#include "base/trace_event/trace_event.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/extension_action_manager.h"
@@ -18,11 +19,12 @@
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/extensions/api/supervised_user_private/supervised_user_handler.h"
 #include "chrome/common/extensions/chrome_manifest_url_handlers.h"
+#include "components/crx_file/id_util.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/user_metrics.h"
+#include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
@@ -167,6 +169,12 @@ InstalledLoader::~InstalledLoader() {
 }
 
 void InstalledLoader::Load(const ExtensionInfo& info, bool write_to_prefs) {
+  // TODO(asargent): add a test to confirm that we can't load extensions if
+  // their ID in preferences does not match the extension's actual ID.
+  if (invalid_extensions_.find(info.extension_path) !=
+      invalid_extensions_.end())
+    return;
+
   std::string error;
   scoped_refptr<const Extension> extension(NULL);
   if (info.extension_manifest) {
@@ -228,8 +236,9 @@ void InstalledLoader::Load(const ExtensionInfo& info, bool write_to_prefs) {
 }
 
 void InstalledLoader::LoadAllExtensions() {
-  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  TRACE_EVENT0("browser,startup", "InstalledLoader::LoadAllExtensions");
+  SCOPED_UMA_HISTOGRAM_TIMER("Extensions.LoadAllTime2");
   base::TimeTicks start_time = base::TimeTicks::Now();
 
   Profile* profile = extension_service_->profile();
@@ -266,7 +275,8 @@ void InstalledLoader::LoadAllExtensions() {
                                    GetCreationFlags(info),
                                    &error));
 
-      if (!extension.get()) {
+      if (!extension.get() || extension->id() != info->extension_id) {
+        invalid_extensions_.insert(info->extension_path);
         ExtensionErrorReporter::GetInstance()->ReportLoadError(
             info->extension_path,
             error,
@@ -303,8 +313,14 @@ void InstalledLoader::LoadAllExtensions() {
   UMA_HISTOGRAM_COUNTS_100("Extensions.Disabled",
                            extension_registry_->disabled_extensions().size());
 
+  // TODO(rkaplow): Obsolete this when verified similar to LoadAllTime2.
   UMA_HISTOGRAM_TIMES("Extensions.LoadAllTime",
                       base::TimeTicks::Now() - start_time);
+  RecordExtensionsMetrics();
+}
+
+void InstalledLoader::RecordExtensionsMetrics() {
+  Profile* profile = extension_service_->profile();
 
   int app_user_count = 0;
   int app_external_count = 0;
@@ -312,7 +328,6 @@ void InstalledLoader::LoadAllExtensions() {
   int legacy_packaged_app_count = 0;
   int platform_app_count = 0;
   int user_script_count = 0;
-  int content_pack_count = 0;
   int extension_user_count = 0;
   int extension_external_count = 0;
   int theme_count = 0;
@@ -324,6 +339,7 @@ void InstalledLoader::LoadAllExtensions() {
   int incognito_not_allowed_count = 0;
   int file_access_allowed_count = 0;
   int file_access_not_allowed_count = 0;
+  int eventless_event_pages_count = 0;
 
   const ExtensionSet& extensions = extension_registry_->enabled_extensions();
   ExtensionActionManager* extension_action_manager =
@@ -380,7 +396,7 @@ void InstalledLoader::LoadAllExtensions() {
     // From now on, don't count component extensions, since they are only
     // extensions as an implementation detail. Continue to count unpacked
     // extensions for a few metrics.
-    if (location == Manifest::COMPONENT)
+    if (Manifest::IsComponentLocation(location))
       continue;
 
     // Histogram for non-webstore extensions overriding new tab page should
@@ -405,6 +421,34 @@ void InstalledLoader::LoadAllExtensions() {
       UMA_HISTOGRAM_ENUMERATION("Extensions.BackgroundPageType",
                                 GetBackgroundPageType(extension),
                                 NUM_BACKGROUND_PAGE_TYPES);
+
+      if (GetBackgroundPageType(extension) == EVENT_PAGE) {
+        size_t num_registered_events =
+            EventRouter::Get(extension_service_->profile())
+                ->GetRegisteredEvents(extension->id())
+                .size();
+        // Count extension event pages with no registered events. Either the
+        // event page is badly designed, or there may be a bug where the event
+        // page failed to start after an update (crbug.com/469361).
+        if (num_registered_events == 0u) {
+          ++eventless_event_pages_count;
+          VLOG(1) << "Event page without registered event listeners: "
+                  << extension->id() << " " << extension->name();
+        }
+        // Count the number of event listeners the Enhanced Bookmarks Manager
+        // has for crbug.com/469361, but only if it's using an event page (not
+        // necessarily the case). This should always be > 0, because that's how
+        // the bookmarks extension works, but Chrome may have a bug - it has in
+        // the past. In fact, this metric may generally be useful for tracking
+        // the frequency of event page bugs.
+        std::string hashed_id =
+            crx_file::id_util::HashedIdInHex(extension->id());
+        if (hashed_id == "D5736E4B5CF695CB93A2FB57E4FDC6E5AFAB6FE2") {
+          UMA_HISTOGRAM_CUSTOM_COUNTS(
+              "Extensions.EnhancedBookmarksManagerNumEventListeners",
+              num_registered_events, 1, 10, 10);
+        }
+      }
     }
 
     // Using an enumeration shows us the total installed ratio across all users.
@@ -459,13 +503,9 @@ void InstalledLoader::LoadAllExtensions() {
     if (extension_action_manager->GetBrowserAction(*extension))
       ++browser_action_count;
 
-    if (SupervisedUserInfo::IsContentPack(extension))
-      ++content_pack_count;
-
     RecordCreationFlags(extension);
 
-    ExtensionService::RecordPermissionMessagesHistogram(
-        extension, "Extensions.Permissions_Load2");
+    ExtensionService::RecordPermissionMessagesHistogram(extension, "Load");
 
     // For incognito and file access, skip anything that doesn't appear in
     // settings. Also, policy-installed (and unpacked of course, checked above)
@@ -551,7 +591,6 @@ void InstalledLoader::LoadAllExtensions() {
                            page_action_count);
   UMA_HISTOGRAM_COUNTS_100("Extensions.LoadBrowserAction",
                            browser_action_count);
-  UMA_HISTOGRAM_COUNTS_100("Extensions.LoadContentPack", content_pack_count);
   UMA_HISTOGRAM_COUNTS_100("Extensions.DisabledForPermissions",
                            disabled_for_permissions_count);
   UMA_HISTOGRAM_COUNTS_100("Extensions.NonWebStoreNewTabPageOverrides",
@@ -570,6 +609,8 @@ void InstalledLoader::LoadAllExtensions() {
   }
   UMA_HISTOGRAM_COUNTS_100("Extensions.CorruptExtensionTotalDisables",
                            extension_prefs_->GetCorruptedDisableCount());
+  UMA_HISTOGRAM_COUNTS_100("Extensions.EventlessEventPages",
+                           eventless_event_pages_count);
 }
 
 int InstalledLoader::GetCreationFlags(const ExtensionInfo* info) {

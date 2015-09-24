@@ -5,9 +5,12 @@
 #include "content/public/test/fake_speech_recognition_manager.h"
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "content/public/browser/speech_recognition_event_listener.h"
+#include "content/public/browser/speech_recognition_manager_delegate.h"
 #include "content/public/common/speech_recognition_result.h"
 #include "content/public/test/test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -27,14 +30,23 @@ FakeSpeechRecognitionManager::FakeSpeechRecognitionManager()
       listener_(NULL),
       fake_result_(kTestResult),
       did_cancel_all_(false),
-      should_send_fake_response_(true) {
+      should_send_fake_response_(true),
+      delegate_(NULL) {
+}
+
+void FakeSpeechRecognitionManager::SetDelegate(
+    SpeechRecognitionManagerDelegate* delegate) {
+  delegate_ = delegate;
 }
 
 FakeSpeechRecognitionManager::~FakeSpeechRecognitionManager() {
+  // Expect the owner of |delegate_| to cleanup our reference before we shut
+  // down, just to be safe as we do not own |delegate_|.
+  DCHECK(!delegate_);
 }
 
 void FakeSpeechRecognitionManager::WaitForRecognitionStarted() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   scoped_refptr<MessageLoopRunner> runner = new MessageLoopRunner;
   recognition_started_closure_ = runner->QuitClosure();
   runner->Run();
@@ -64,9 +76,12 @@ void FakeSpeechRecognitionManager::StartSession(int session_id) {
   EXPECT_EQ(session_id, session_id_);
   EXPECT_TRUE(listener_ != NULL);
 
+  if (delegate_)
+    delegate_->GetEventListener()->OnRecognitionStart(session_id_);
+
   if (should_send_fake_response_) {
     // Give the fake result in a short while.
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(
             &FakeSpeechRecognitionManager::SetFakeRecognitionResult,
@@ -108,7 +123,7 @@ void FakeSpeechRecognitionManager::AbortAllSessionsForRenderProcess(
 
 void FakeSpeechRecognitionManager::AbortAllSessionsForRenderView(
     int render_process_id, int render_view_id) {
-  NOTREACHED();
+  DCHECK(delegate_);  // We only expect this to be called via |delegate_|.
 }
 
 bool FakeSpeechRecognitionManager::HasAudioInputDevices() { return true; }

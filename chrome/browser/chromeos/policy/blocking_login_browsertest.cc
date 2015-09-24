@@ -12,6 +12,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/login/existing_user_controller.h"
+#include "chrome/browser/chromeos/login/test/oobe_base_test.h"
 #include "chrome/browser/chromeos/login/ui/webui_login_display.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
@@ -27,7 +28,6 @@
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/test/test_utils.h"
-#include "google_apis/gaia/fake_gaia.h"
 #include "google_apis/gaia/gaia_switches.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "net/http/http_status_code.h"
@@ -78,60 +78,44 @@ struct BlockingLoginTestParam {
   const int steps;
   const char* username;
   const bool enroll_device;
+  const bool use_webview;
 };
 
 class BlockingLoginTest
-    : public InProcessBrowserTest,
+    : public OobeBaseTest,
       public content::NotificationObserver,
       public testing::WithParamInterface<BlockingLoginTestParam> {
  public:
-  BlockingLoginTest() : profile_added_(NULL) {}
+  BlockingLoginTest() : profile_added_(NULL) {
+    set_use_webview(GetParam().use_webview);
+  }
 
-  virtual void SetUpCommandLine(CommandLine* command_line) override {
-    // Initialize the test server early, so that we can use its base url for
-    // the command line flags.
-    ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    OobeBaseTest::SetUpCommandLine(command_line);
 
-    // Use the login manager screens and the gaia auth extension.
-    command_line->AppendSwitch(switches::kLoginManager);
-    command_line->AppendSwitch(switches::kForceLoginManagerInTests);
-    command_line->AppendSwitchASCII(switches::kLoginProfile, "user");
-    command_line->AppendSwitchASCII(::switches::kAuthExtensionPath,
-                                    "gaia_auth");
-
-    // Redirect requests to gaia and the policy server to the test server.
-    command_line->AppendSwitchASCII(::switches::kGaiaUrl,
-                                    embedded_test_server()->base_url().spec());
-    command_line->AppendSwitchASCII(::switches::kLsoUrl,
-                                    embedded_test_server()->base_url().spec());
     command_line->AppendSwitchASCII(
         policy::switches::kDeviceManagementUrl,
         embedded_test_server()->GetURL("/device_management").spec());
   }
 
-  virtual void SetUpOnMainThread() override {
-    fake_gaia_.Initialize();
-
-    embedded_test_server()->RegisterRequestHandler(
-        base::Bind(&BlockingLoginTest::HandleRequest, base::Unretained(this)));
-    embedded_test_server()->RegisterRequestHandler(
-        base::Bind(&FakeGaia::HandleRequest, base::Unretained(&fake_gaia_)));
-
+  void SetUpOnMainThread() override {
     registrar_.Add(this,
                    chrome::NOTIFICATION_PROFILE_ADDED,
                    content::NotificationService::AllSources());
+
+    OobeBaseTest::SetUpOnMainThread();
   }
 
-  virtual void TearDownOnMainThread() override {
+  void TearDownOnMainThread() override {
     RunUntilIdle();
     EXPECT_TRUE(responses_.empty());
     STLDeleteElements(&responses_);
-    EXPECT_TRUE(embedded_test_server()->ShutdownAndWaitUntilComplete());
+    OobeBaseTest::TearDownOnMainThread();
   }
 
-  virtual void Observe(int type,
-                       const content::NotificationSource& source,
-                       const content::NotificationDetails& details) override {
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override {
     ASSERT_EQ(chrome::NOTIFICATION_PROFILE_ADDED, type);
     ASSERT_FALSE(profile_added_);
     profile_added_ = content::Source<Profile>(source).ptr();
@@ -144,19 +128,6 @@ class BlockingLoginTest
   policy::BrowserPolicyConnectorChromeOS* browser_policy_connector() {
     return g_browser_process->platform_part()
         ->browser_policy_connector_chromeos();
-  }
-
-  void SkipToSigninScreen() {
-    WizardController::SkipPostLoginScreensForTesting();
-    WizardController* wizard_controller =
-        WizardController::default_controller();
-    ASSERT_TRUE(wizard_controller);
-    wizard_controller->SkipToLoginForTesting(LoginScreenContext());
-
-    content::WindowedNotificationObserver(
-        chrome::NOTIFICATION_LOGIN_OR_LOCK_WEBUI_VISIBLE,
-        content::NotificationService::AllSources()).Wait();
-    RunUntilIdle();
   }
 
   void EnrollDevice(const std::string& username) {
@@ -245,17 +216,27 @@ class BlockingLoginTest
   }
 
  protected:
+  void RegisterAdditionalRequestHandlers() override {
+    embedded_test_server()->RegisterRequestHandler(
+        base::Bind(&BlockingLoginTest::HandleRequest, base::Unretained(this)));
+  }
+
   Profile* profile_added_;
 
  private:
-  FakeGaia fake_gaia_;
   std::vector<net::test_server::HttpResponse*> responses_;
   content::NotificationRegistrar registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(BlockingLoginTest);
 };
 
-IN_PROC_BROWSER_TEST_P(BlockingLoginTest, LoginBlocksForUser) {
+// http://crbug.com/452523
+#if defined(MEMORY_SANITIZER)
+#define MAYBE_LoginBlocksForUser DISABLED_LoginBlocksForUser
+#else
+#define MAYBE_LoginBlocksForUser LoginBlocksForUser
+#endif
+IN_PROC_BROWSER_TEST_P(BlockingLoginTest, MAYBE_LoginBlocksForUser) {
   // Verify that there isn't a logged in user when the test starts.
   user_manager::UserManager* user_manager = user_manager::UserManager::Get();
   EXPECT_FALSE(user_manager->IsUserLoggedIn());
@@ -278,7 +259,7 @@ IN_PROC_BROWSER_TEST_P(BlockingLoginTest, LoginBlocksForUser) {
 
   // Skip the OOBE, go to the sign-in screen, and wait for the login screen to
   // become visible.
-  SkipToSigninScreen();
+  WaitForSigninScreen();
   EXPECT_FALSE(profile_added_);
 
   // Prepare the fake HTTP responses.
@@ -329,24 +310,43 @@ IN_PROC_BROWSER_TEST_P(BlockingLoginTest, LoginBlocksForUser) {
 }
 
 const BlockingLoginTestParam kBlockinLoginTestCases[] = {
-    { 0, kUsername, true },
-    { 1, kUsername, true },
-    { 2, kUsername, true },
-    { 3, kUsername, true },
-    { 4, kUsername, true },
-    { 5, kUsername, true },
-    { 0, kUsername, false },
-    { 1, kUsername, false },
-    { 2, kUsername, false },
-    { 3, kUsername, false },
-    { 4, kUsername, false },
-    { 5, kUsername, false },
-    { 0, kUsernameOtherDomain, true },
-    { 1, kUsernameOtherDomain, true },
-    { 2, kUsernameOtherDomain, true },
-    { 3, kUsernameOtherDomain, true },
-    { 4, kUsernameOtherDomain, true },
-    { 5, kUsernameOtherDomain, true },
+    {0, kUsername, true, false},
+    {1, kUsername, true, false},
+    {2, kUsername, true, false},
+    {3, kUsername, true, false},
+    {4, kUsername, true, false},
+    {5, kUsername, true, false},
+    {0, kUsername, false, false},
+    {1, kUsername, false, false},
+    {2, kUsername, false, false},
+    {3, kUsername, false, false},
+    {4, kUsername, false, false},
+    {5, kUsername, false, false},
+    {0, kUsernameOtherDomain, true, false},
+    {1, kUsernameOtherDomain, true, false},
+    {2, kUsernameOtherDomain, true, false},
+    {3, kUsernameOtherDomain, true, false},
+    {4, kUsernameOtherDomain, true, false},
+    {5, kUsernameOtherDomain, true, false},
+
+    {0, kUsername, true, true},
+    {1, kUsername, true, true},
+    {2, kUsername, true, true},
+    {3, kUsername, true, true},
+    {4, kUsername, true, true},
+    {5, kUsername, true, true},
+    {0, kUsername, false, true},
+    {1, kUsername, false, true},
+    {2, kUsername, false, true},
+    {3, kUsername, false, true},
+    {4, kUsername, false, true},
+    {5, kUsername, false, true},
+    {0, kUsernameOtherDomain, true, true},
+    {1, kUsernameOtherDomain, true, true},
+    {2, kUsernameOtherDomain, true, true},
+    {3, kUsernameOtherDomain, true, true},
+    {4, kUsernameOtherDomain, true, true},
+    {5, kUsernameOtherDomain, true, true},
 };
 
 INSTANTIATE_TEST_CASE_P(BlockingLoginTestInstance,

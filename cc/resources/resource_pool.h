@@ -5,7 +5,7 @@
 #ifndef CC_RESOURCES_RESOURCE_POOL_H_
 #define CC_RESOURCES_RESOURCE_POOL_H_
 
-#include <list>
+#include <deque>
 
 #include "base/memory/scoped_ptr.h"
 #include "cc/base/cc_export.h"
@@ -19,15 +19,17 @@ class ScopedResource;
 class CC_EXPORT ResourcePool {
  public:
   static scoped_ptr<ResourcePool> Create(ResourceProvider* resource_provider,
-                                         GLenum target,
-                                         ResourceFormat format) {
-    return make_scoped_ptr(new ResourcePool(resource_provider, target, format));
+                                         GLenum target) {
+    return make_scoped_ptr(new ResourcePool(resource_provider, target));
   }
 
   virtual ~ResourcePool();
 
-  scoped_ptr<ScopedResource> AcquireResource(const gfx::Size& size);
-  void ReleaseResource(scoped_ptr<ScopedResource>);
+  scoped_ptr<ScopedResource> AcquireResource(const gfx::Size& size,
+                                             ResourceFormat format);
+  scoped_ptr<ScopedResource> TryAcquireResourceWithContentId(uint64 content_id);
+  void ReleaseResource(scoped_ptr<ScopedResource> resource,
+                       uint64_t content_id);
 
   void SetResourceUsageLimits(size_t max_memory_usage_bytes,
                               size_t max_unused_memory_usage_bytes,
@@ -49,21 +51,17 @@ class CC_EXPORT ResourcePool {
   }
   size_t busy_resource_count() const { return busy_resources_.size(); }
 
-  ResourceFormat resource_format() const { return format_; }
-
  protected:
-  ResourcePool(ResourceProvider* resource_provider,
-               GLenum target,
-               ResourceFormat format);
+  ResourcePool(ResourceProvider* resource_provider, GLenum target);
 
   bool ResourceUsageTooHigh();
 
  private:
-  void DidFinishUsingResource(ScopedResource* resource);
+  void DidFinishUsingResource(ScopedResource* resource, uint64_t content_id);
+  void DeleteResource(ScopedResource* resource);
 
   ResourceProvider* resource_provider_;
   const GLenum target_;
-  const ResourceFormat format_;
   size_t max_memory_usage_bytes_;
   size_t max_unused_memory_usage_bytes_;
   size_t max_resource_count_;
@@ -71,7 +69,13 @@ class CC_EXPORT ResourcePool {
   size_t unused_memory_usage_bytes_;
   size_t resource_count_;
 
-  typedef std::list<ScopedResource*> ResourceList;
+  struct PoolResource {
+    PoolResource(ScopedResource* resource, uint64_t content_id)
+        : resource(resource), content_id(content_id) {}
+    ScopedResource* resource;
+    uint64_t content_id;
+  };
+  typedef std::deque<PoolResource> ResourceList;
   ResourceList unused_resources_;
   ResourceList busy_resources_;
 

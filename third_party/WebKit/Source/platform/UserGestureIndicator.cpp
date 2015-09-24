@@ -44,8 +44,8 @@ class GestureToken : public UserGestureToken {
 public:
     static PassRefPtr<UserGestureToken> create() { return adoptRef(new GestureToken); }
 
-    virtual ~GestureToken() { }
-    virtual bool hasGestures() const override
+    ~GestureToken() override {}
+    bool hasGestures() const override
     {
         // Do not enforce timeouts for gestures which spawned javascript prompts.
         if (m_consumableGestures < 1 || (WTF::currentTime() - m_timestamp > (m_outOfProcess ? userGestureOutOfProcessTimeout : userGestureTimeout) && !m_javascriptPrompt))
@@ -72,7 +72,7 @@ public:
         return true;
     }
 
-    virtual void setOutOfProcess() override
+    void setOutOfProcess() override
     {
         if (WTF::currentTime() - m_timestamp > userGestureTimeout)
             return;
@@ -80,7 +80,7 @@ public:
             m_outOfProcess = true;
     }
 
-    virtual void setJavascriptPrompt() override
+    void setJavascriptPrompt() override
     {
         if (WTF::currentTime() - m_timestamp > userGestureTimeout)
             return;
@@ -115,11 +115,13 @@ UserGestureIndicator* UserGestureIndicator::s_topmostIndicator = 0;
 bool UserGestureIndicator::s_processedUserGestureSinceLoad = false;
 
 UserGestureIndicator::UserGestureIndicator(ProcessingUserGestureState state)
-    : m_previousState(s_state)
+    : m_previousState(DefinitelyNotProcessingUserGesture)
 {
     // Silently ignore UserGestureIndicators on non-main threads.
     if (!isMainThread())
         return;
+
+    m_previousState = s_state;
 
     // We overwrite s_state only if the caller is definite about the gesture state.
     if (isDefinite(state)) {
@@ -143,11 +145,13 @@ UserGestureIndicator::UserGestureIndicator(ProcessingUserGestureState state)
 }
 
 UserGestureIndicator::UserGestureIndicator(PassRefPtr<UserGestureToken> token)
-    : m_previousState(s_state)
+    : m_previousState(DefinitelyNotProcessingUserGesture)
 {
     // Silently ignore UserGestureIndicators on non-main threads.
     if (!isMainThread())
         return;
+
+    m_previousState = s_state;
 
     if (token) {
         static_cast<GestureToken*>(token.get())->resetTimestamp();
@@ -209,22 +213,6 @@ bool UserGestureIndicator::processedUserGestureSinceLoad()
     if (!isMainThread())
         return false;
     return s_processedUserGestureSinceLoad;
-}
-
-UserGestureIndicatorDisabler::UserGestureIndicatorDisabler()
-    : m_savedState(UserGestureIndicator::s_state)
-    , m_savedIndicator(UserGestureIndicator::s_topmostIndicator)
-{
-    RELEASE_ASSERT(isMainThread());
-    UserGestureIndicator::s_state = DefinitelyNotProcessingUserGesture;
-    UserGestureIndicator::s_topmostIndicator = 0;
-}
-
-UserGestureIndicatorDisabler::~UserGestureIndicatorDisabler()
-{
-    RELEASE_ASSERT(isMainThread());
-    UserGestureIndicator::s_state = m_savedState;
-    UserGestureIndicator::s_topmostIndicator = m_savedIndicator;
 }
 
 }

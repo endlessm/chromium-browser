@@ -31,14 +31,10 @@ class SupervisedUserAsyncURLChecker : net::URLFetcherDelegate {
                               bool /* uncertain */)>
       CheckCallback;
 
+  SupervisedUserAsyncURLChecker(net::URLRequestContextGetter* context);
   SupervisedUserAsyncURLChecker(net::URLRequestContextGetter* context,
-                                const std::string& cx,
-                                const std::string& api_key);
-  SupervisedUserAsyncURLChecker(net::URLRequestContextGetter* context,
-                                const std::string& cx,
-                                const std::string& api_key,
                                 size_t cache_size);
-  virtual ~SupervisedUserAsyncURLChecker();
+  ~SupervisedUserAsyncURLChecker() override;
 
   // Returns whether |callback| was run synchronously.
   bool CheckURL(const GURL& url, const CheckCallback& callback);
@@ -52,14 +48,10 @@ class SupervisedUserAsyncURLChecker : net::URLFetcherDelegate {
     bool uncertain;
   };
 
-  void SetApiKey(const std::string& api_key);
-
   // net::URLFetcherDelegate implementation.
-  virtual void OnURLFetchComplete(const net::URLFetcher* source) override;
+  void OnURLFetchComplete(const net::URLFetcher* source) override;
 
   net::URLRequestContextGetter* context_;
-  std::string cx_;
-  std::string api_key_;
 
   ScopedVector<Check> checks_in_progress_;
 

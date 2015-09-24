@@ -23,12 +23,13 @@
 namespace policy {
 
 CloudPolicyManager::CloudPolicyManager(
-    const PolicyNamespaceKey& policy_ns_key,
+    const std::string& policy_type,
+    const std::string& settings_entity_id,
     CloudPolicyStore* cloud_policy_store,
     const scoped_refptr<base::SequencedTaskRunner>& task_runner,
     const scoped_refptr<base::SequencedTaskRunner>& file_task_runner,
     const scoped_refptr<base::SequencedTaskRunner>& io_task_runner)
-    : core_(policy_ns_key, cloud_policy_store, task_runner),
+    : core_(policy_type, settings_entity_id, cloud_policy_store, task_runner),
       waiting_for_policy_refresh_(false),
       file_task_runner_(file_task_runner),
       io_task_runner_(io_task_runner) {
@@ -107,14 +108,18 @@ void CloudPolicyManager::GetChromePolicy(PolicyMap* policy_map) {
 
 void CloudPolicyManager::CreateComponentCloudPolicyService(
     const base::FilePath& policy_cache_path,
-    const scoped_refptr<net::URLRequestContextGetter>& request_context) {
+    const scoped_refptr<net::URLRequestContextGetter>& request_context,
+    CloudPolicyClient* client) {
 #if !defined(OS_ANDROID) && !defined(OS_IOS)
   // Init() must have been called.
-  DCHECK(schema_registry());
+  CHECK(schema_registry());
   // Called at most once.
-  DCHECK(!component_policy_service_);
+  CHECK(!component_policy_service_);
+  // The core can't be connected yet.
+  // See the comments on ComponentCloudPolicyService for the details.
+  CHECK(!core()->client());
 
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kDisableComponentCloudPolicy) ||
       policy_cache_path.empty()) {
     return;
@@ -129,6 +134,7 @@ void CloudPolicyManager::CreateComponentCloudPolicyService(
       this,
       schema_registry(),
       core(),
+      client,
       resource_cache.Pass(),
       request_context,
       file_task_runner_,

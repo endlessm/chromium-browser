@@ -4,14 +4,17 @@
 
 #include "components/autofill/core/browser/autofill_external_delegate.h"
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/message_loop/message_loop.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/browser/autocomplete_history_manager.h"
 #include "components/autofill/core/browser/autofill_driver.h"
 #include "components/autofill/core/browser/autofill_manager.h"
+#include "components/autofill/core/browser/autofill_metrics.h"
 #include "components/autofill/core/browser/popup_item_ids.h"
 #include "components/autofill/core/common/autofill_switches.h"
 #include "grit/components_strings.h"
@@ -44,24 +47,14 @@ void EmitHistogram(AccessAddressBookEventType type) {
 
 namespace autofill {
 
-namespace {
-
-bool ShouldAutofill(const FormFieldData& form_field) {
-  return form_field.should_autocomplete ||
-         base::CommandLine::ForCurrentProcess()->HasSwitch(
-             switches::kIgnoreAutocompleteOffForAutofill);
-}
-
-}  // namespace
-
 AutofillExternalDelegate::AutofillExternalDelegate(AutofillManager* manager,
                                                    AutofillDriver* driver)
     : manager_(manager),
       driver_(driver),
       query_id_(0),
-      display_warning_if_disabled_(false),
       has_suggestion_(false),
       has_shown_popup_for_current_edit_(false),
+      should_show_scan_credit_card_(false),
       has_shown_address_book_prompt(false),
       weak_ptr_factory_(this) {
   DCHECK(manager);
@@ -72,77 +65,81 @@ AutofillExternalDelegate::~AutofillExternalDelegate() {}
 void AutofillExternalDelegate::OnQuery(int query_id,
                                        const FormData& form,
                                        const FormFieldData& field,
-                                       const gfx::RectF& element_bounds,
-                                       bool display_warning_if_disabled) {
-  if (query_form_ != form)
+                                       const gfx::RectF& element_bounds) {
+  if (!query_form_.SameFormAs(form))
     has_shown_address_book_prompt = false;
 
   query_form_ = form;
   query_field_ = field;
-  display_warning_if_disabled_ = display_warning_if_disabled;
   query_id_ = query_id;
   element_bounds_ = element_bounds;
+  should_show_scan_credit_card_ =
+      manager_->ShouldShowScanCreditCard(query_form_, query_field_);
 }
 
 void AutofillExternalDelegate::OnSuggestionsReturned(
     int query_id,
-    const std::vector<base::string16>& suggested_values,
-    const std::vector<base::string16>& suggested_labels,
-    const std::vector<base::string16>& suggested_icons,
-    const std::vector<int>& suggested_unique_ids) {
+    const std::vector<Suggestion>& input_suggestions) {
   if (query_id != query_id_)
     return;
 
-  std::vector<base::string16> values(suggested_values);
-  std::vector<base::string16> labels(suggested_labels);
-  std::vector<base::string16> icons(suggested_icons);
-  std::vector<int> ids(suggested_unique_ids);
+  std::vector<Suggestion> suggestions(input_suggestions);
 
   // Add or hide warnings as appropriate.
-  ApplyAutofillWarnings(&values, &labels, &icons, &ids);
+  ApplyAutofillWarnings(&suggestions);
 
+#if !defined(OS_ANDROID)
   // Add a separator to go between the values and menu items.
-  values.push_back(base::string16());
-  labels.push_back(base::string16());
-  icons.push_back(base::string16());
-  ids.push_back(POPUP_ITEM_ID_SEPARATOR);
+  suggestions.push_back(Suggestion());
+  suggestions.back().frontend_id = POPUP_ITEM_ID_SEPARATOR;
+#endif
+
+  if (should_show_scan_credit_card_) {
+    Suggestion scan_credit_card(
+        l10n_util::GetStringUTF16(IDS_AUTOFILL_SCAN_CREDIT_CARD));
+    scan_credit_card.frontend_id = POPUP_ITEM_ID_SCAN_CREDIT_CARD;
+    scan_credit_card.icon = base::ASCIIToUTF16("scanCreditCardIcon");
+    suggestions.push_back(scan_credit_card);
+
+    if (!has_shown_popup_for_current_edit_) {
+      AutofillMetrics::LogScanCreditCardPromptMetric(
+          AutofillMetrics::SCAN_CARD_ITEM_SHOWN);
+    }
+  }
 
   // Only include "Autofill Options" special menu item if we have Autofill
   // suggestions.
   has_suggestion_ = false;
-  for (size_t i = 0; i < ids.size(); ++i) {
-    if (ids[i] > 0) {
+  for (size_t i = 0; i < suggestions.size(); ++i) {
+    if (suggestions[i].frontend_id > 0) {
       has_suggestion_ = true;
       break;
     }
   }
 
   if (has_suggestion_)
-    ApplyAutofillOptions(&values, &labels, &icons, &ids);
+    ApplyAutofillOptions(&suggestions);
 
+#if !defined(OS_ANDROID)
   // Remove the separator if it is the last element.
-  DCHECK_GT(ids.size(), 0U);
-  if (ids.back() == POPUP_ITEM_ID_SEPARATOR) {
-    values.pop_back();
-    labels.pop_back();
-    icons.pop_back();
-    ids.pop_back();
-  }
+  DCHECK_GT(suggestions.size(), 0U);
+  if (suggestions.back().frontend_id == POPUP_ITEM_ID_SEPARATOR)
+    suggestions.pop_back();
+#endif
 
   // If anything else is added to modify the values after inserting the data
   // list, AutofillPopupControllerImpl::UpdateDataListValues will need to be
   // updated to match.
-  InsertDataListValues(&values, &labels, &icons, &ids);
+  InsertDataListValues(&suggestions);
 
 #if defined(OS_MACOSX) && !defined(OS_IOS)
-  if (values.empty() &&
+  if (suggestions.empty() &&
       manager_->ShouldShowAccessAddressBookSuggestion(query_form_,
                                                       query_field_)) {
-    values.push_back(
+    Suggestion mac_contacts(
         l10n_util::GetStringUTF16(IDS_AUTOFILL_ACCESS_MAC_CONTACTS));
-    labels.push_back(base::string16());
-    icons.push_back(base::ASCIIToUTF16("macContactsIcon"));
-    ids.push_back(POPUP_ITEM_ID_MAC_ACCESS_CONTACTS);
+    mac_contacts.icon = base::ASCIIToUTF16("macContactsIcon");
+    mac_contacts.frontend_id = POPUP_ITEM_ID_MAC_ACCESS_CONTACTS;
 
     if (!has_shown_address_book_prompt) {
       has_shown_address_book_prompt = true;
@@ -152,7 +149,7 @@ void AutofillExternalDelegate::OnSuggestionsReturned(
   }
 #endif  // defined(OS_MACOSX) && !defined(OS_IOS)
 
-  if (values.empty()) {
+  if (suggestions.empty()) {
     // No suggestions, any popup currently showing is obsolete.
     manager_->client()->HideAutofillPopup();
     return;
@@ -162,10 +159,7 @@ void AutofillExternalDelegate::OnSuggestionsReturned(
   if (query_field_.is_focusable) {
     manager_->client()->ShowAutofillPopup(element_bounds_,
                                           query_field_.text_direction,
-                                          values,
-                                          labels,
-                                          icons,
-                                          ids,
+                                          suggestions,
                                           GetWeakPtr());
   }
 }
@@ -182,11 +176,14 @@ void AutofillExternalDelegate::SetCurrentDataListValues(
 
 void AutofillExternalDelegate::OnPopupShown() {
   manager_->DidShowSuggestions(
-      has_suggestion_ && !has_shown_popup_for_current_edit_);
+      has_suggestion_ && !has_shown_popup_for_current_edit_,
+      query_form_,
+      query_field_);
   has_shown_popup_for_current_edit_ |= has_suggestion_;
 }
 
 void AutofillExternalDelegate::OnPopupHidden() {
+  driver_->PopupHidden();
 }
 
 void AutofillExternalDelegate::DidSelectSuggestion(
@@ -202,7 +199,8 @@ void AutofillExternalDelegate::DidSelectSuggestion(
 }
 
 void AutofillExternalDelegate::DidAcceptSuggestion(const base::string16& value,
-                                                   int identifier) {
+                                                   int identifier,
+                                                   int position) {
   if (identifier == POPUP_ITEM_ID_AUTOFILL_OPTIONS) {
     // User selected 'Autofill Options'.
     manager_->ShowAutofillSettings();
@@ -253,19 +251,45 @@ void AutofillExternalDelegate::DidAcceptSuggestion(const base::string16& value,
 #else
     NOTREACHED();
 #endif  // defined(OS_MACOSX) && !defined(OS_IOS)
+  } else if (identifier == POPUP_ITEM_ID_SCAN_CREDIT_CARD) {
+    manager_->client()->ScanCreditCard(base::Bind(
+        &AutofillExternalDelegate::OnCreditCardScanned, GetWeakPtr()));
   } else {
+    if (identifier > 0)  // Denotes an Autofill suggestion.
+      AutofillMetrics::LogSuggestionAcceptedIndex(position);
+
     FillAutofillFormData(identifier, false);
+  }
+
+  if (should_show_scan_credit_card_) {
+    AutofillMetrics::LogScanCreditCardPromptMetric(
+        identifier == POPUP_ITEM_ID_SCAN_CREDIT_CARD
+            ? AutofillMetrics::SCAN_CARD_ITEM_SELECTED
+            : AutofillMetrics::SCAN_CARD_OTHER_ITEM_SELECTED);
   }
 
   manager_->client()->HideAutofillPopup();
 }
 
-void AutofillExternalDelegate::RemoveSuggestion(const base::string16& value,
+bool AutofillExternalDelegate::GetDeletionConfirmationText(
+    const base::string16& value,
+    int identifier,
+    base::string16* title,
+    base::string16* body) {
+  return manager_->GetDeletionConfirmationText(value, identifier, title, body);
+}
+
+bool AutofillExternalDelegate::RemoveSuggestion(const base::string16& value,
                                                 int identifier) {
   if (identifier > 0)
-    manager_->RemoveAutofillProfileOrCreditCard(identifier);
-  else
+    return manager_->RemoveAutofillProfileOrCreditCard(identifier);
+
+  if (identifier == POPUP_ITEM_ID_AUTOCOMPLETE_ENTRY) {
     manager_->RemoveAutocompleteEntry(query_field_.name, value);
+    return true;
+  }
+
+  return false;
 }
 
 void AutofillExternalDelegate::DidEndTextFieldEditing() {
@@ -284,15 +308,21 @@ void AutofillExternalDelegate::Reset() {
 
 void AutofillExternalDelegate::OnPingAck() {
   // Reissue the most recent query, which will reopen the Autofill popup.
-  manager_->OnQueryFormFieldAutofill(query_id_,
-                                     query_form_,
-                                     query_field_,
-                                     element_bounds_,
-                                     display_warning_if_disabled_);
+  manager_->OnQueryFormFieldAutofill(query_id_, query_form_, query_field_,
+                                     element_bounds_);
 }
 
 base::WeakPtr<AutofillExternalDelegate> AutofillExternalDelegate::GetWeakPtr() {
   return weak_ptr_factory_.GetWeakPtr();
+}
+
+void AutofillExternalDelegate::OnCreditCardScanned(
+    const base::string16& card_number,
+    int expiration_month,
+    int expiration_year) {
+  manager_->FillCreditCardForm(
+      query_id_, query_form_, query_field_,
+      CreditCard(card_number, expiration_month, expiration_year));
 }
 
 void AutofillExternalDelegate::FillAutofillFormData(int unique_id,
@@ -315,102 +345,53 @@ void AutofillExternalDelegate::FillAutofillFormData(int unique_id,
 }
 
 void AutofillExternalDelegate::ApplyAutofillWarnings(
-    std::vector<base::string16>* values,
-    std::vector<base::string16>* labels,
-    std::vector<base::string16>* icons,
-    std::vector<int>* unique_ids) {
-  if (!ShouldAutofill(query_field_)) {
-    // Autofill is disabled.  If there were some profile or credit card
-    // suggestions to show, show a warning instead.  Otherwise, clear out the
-    // list of suggestions.
-    if (!unique_ids->empty() && (*unique_ids)[0] > 0) {
-      // If Autofill is disabled and we had suggestions, show a warning instead.
-      values->assign(
-          1, l10n_util::GetStringUTF16(IDS_AUTOFILL_WARNING_FORM_DISABLED));
-      labels->assign(1, base::string16());
-      icons->assign(1, base::string16());
-      unique_ids->assign(1, POPUP_ITEM_ID_WARNING_MESSAGE);
-    } else {
-      values->clear();
-      labels->clear();
-      icons->clear();
-      unique_ids->clear();
-    }
-  } else if (unique_ids->size() > 1 &&
-             (*unique_ids)[0] == POPUP_ITEM_ID_WARNING_MESSAGE) {
+    std::vector<Suggestion>* suggestions) {
+  if (suggestions->size() > 1 &&
+      (*suggestions)[0].frontend_id == POPUP_ITEM_ID_WARNING_MESSAGE) {
     // If we received a warning instead of suggestions from Autofill but regular
     // suggestions from autocomplete, don't show the Autofill warning.
-    values->erase(values->begin());
-    labels->erase(labels->begin());
-    icons->erase(icons->begin());
-    unique_ids->erase(unique_ids->begin());
-  }
-
-  // If we were about to show a warning and we shouldn't, don't.
-  if (!unique_ids->empty() &&
-      (*unique_ids)[0] == POPUP_ITEM_ID_WARNING_MESSAGE &&
-      !display_warning_if_disabled_) {
-    values->clear();
-    labels->clear();
-    icons->clear();
-    unique_ids->clear();
+    suggestions->erase(suggestions->begin());
   }
 }
 
 void AutofillExternalDelegate::ApplyAutofillOptions(
-    std::vector<base::string16>* values,
-    std::vector<base::string16>* labels,
-    std::vector<base::string16>* icons,
-    std::vector<int>* unique_ids) {
+    std::vector<Suggestion>* suggestions) {
   // The form has been auto-filled, so give the user the chance to clear the
   // form.  Append the 'Clear form' menu item.
   if (query_field_.is_autofilled) {
-    values->push_back(
-        l10n_util::GetStringUTF16(IDS_AUTOFILL_CLEAR_FORM_MENU_ITEM));
-    labels->push_back(base::string16());
-    icons->push_back(base::string16());
-    unique_ids->push_back(POPUP_ITEM_ID_CLEAR_FORM);
+    suggestions->push_back(Suggestion(
+        l10n_util::GetStringUTF16(IDS_AUTOFILL_CLEAR_FORM_MENU_ITEM)));
+    suggestions->back().frontend_id = POPUP_ITEM_ID_CLEAR_FORM;
   }
 
   // Append the 'Chrome Autofill options' menu item;
-  values->push_back(l10n_util::GetStringUTF16(IDS_AUTOFILL_OPTIONS_POPUP));
-  labels->push_back(base::string16());
-  icons->push_back(base::string16());
-  unique_ids->push_back(POPUP_ITEM_ID_AUTOFILL_OPTIONS);
+  suggestions->push_back(Suggestion(
+      l10n_util::GetStringUTF16(IDS_AUTOFILL_OPTIONS_POPUP)));
+  suggestions->back().frontend_id = POPUP_ITEM_ID_AUTOFILL_OPTIONS;
 }
 
 void AutofillExternalDelegate::InsertDataListValues(
-    std::vector<base::string16>* values,
-    std::vector<base::string16>* labels,
-    std::vector<base::string16>* icons,
-    std::vector<int>* unique_ids) {
+    std::vector<Suggestion>* suggestions) {
   if (data_list_values_.empty())
     return;
 
+#if !defined(OS_ANDROID)
   // Insert the separator between the datalist and Autofill values (if there
   // are any).
-  if (!values->empty()) {
-    values->insert(values->begin(), base::string16());
-    labels->insert(labels->begin(), base::string16());
-    icons->insert(icons->begin(), base::string16());
-    unique_ids->insert(unique_ids->begin(), POPUP_ITEM_ID_SEPARATOR);
+  if (!suggestions->empty()) {
+    suggestions->insert(suggestions->begin(), Suggestion());
+    (*suggestions)[0].frontend_id = POPUP_ITEM_ID_SEPARATOR;
   }
+#endif
 
-  // Insert the datalist elements.
-  values->insert(values->begin(),
-                 data_list_values_.begin(),
-                 data_list_values_.end());
-  labels->insert(labels->begin(),
-                 data_list_labels_.begin(),
-                 data_list_labels_.end());
-
-  // Set the values that all datalist elements share.
-  icons->insert(icons->begin(),
-                data_list_values_.size(),
-                base::string16());
-  unique_ids->insert(unique_ids->begin(),
-                     data_list_values_.size(),
-                     POPUP_ITEM_ID_DATALIST_ENTRY);
+  // Insert the datalist elements at the beginning.
+  suggestions->insert(suggestions->begin(), data_list_values_.size(),
+                      Suggestion());
+  for (size_t i = 0; i < data_list_values_.size(); i++) {
+    (*suggestions)[i].value = data_list_values_[i];
+    (*suggestions)[i].label = data_list_labels_[i];
+    (*suggestions)[i].frontend_id = POPUP_ITEM_ID_DATALIST_ENTRY;
+  }
 }
 
 #if defined(OS_MACOSX) && !defined(OS_IOS)

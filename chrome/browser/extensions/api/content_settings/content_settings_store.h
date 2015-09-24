@@ -13,7 +13,6 @@
 #include "base/synchronization/lock.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
-#include "base/tuple.h"
 #include "components/content_settings/core/browser/content_settings_provider.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
@@ -134,7 +133,7 @@ class ContentSettingsStore
 
   ExtensionEntryMap entries_;
 
-  ObserverList<Observer, false> observers_;
+  base::ObserverList<Observer, false> observers_;
 
   mutable base::Lock lock_;
 

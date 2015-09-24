@@ -1,12 +1,14 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
+#include "../../../../third_party/base/nonstd_unique_ptr.h"
 #include "../../../include/fxge/fx_ge.h"
 #include "../../../include/fxge/fx_freetype.h"
 #include "ttgsubtable.h"
+
 CFX_GlyphMap::CFX_GlyphMap()
 {
 }
@@ -20,8 +22,8 @@ extern "C" {
     }
 };
 struct _IntPair {
-    FX_INT32 key;
-    FX_INT32 value;
+    int32_t key;
+    int32_t value;
 };
 void CFX_GlyphMap::SetAt(int key, int value)
 {
@@ -48,7 +50,7 @@ void CFX_GlyphMap::SetAt(int key, int value)
 }
 FX_BOOL CFX_GlyphMap::Lookup(int key, int &value)
 {
-    FX_LPVOID pResult = FXSYS_bsearch(&key, m_Buffer.GetBuffer(), m_Buffer.GetSize() / sizeof(_IntPair),
+    void* pResult = FXSYS_bsearch(&key, m_Buffer.GetBuffer(), m_Buffer.GetSize() / sizeof(_IntPair),
                                       sizeof(_IntPair), _CompareInt);
     if (pResult == NULL) {
         return FALSE;
@@ -254,7 +256,7 @@ void CFX_CTTGSUBTable::ParseLangSys(FT_Bytes raw, struct TLangSys *rec)
         return;
     }
     rec->FeatureIndex = new TT_uint16_t[rec->FeatureCount];
-    FXSYS_memset32(rec->FeatureIndex, 0, sizeof(TT_uint16_t) * rec->FeatureCount);
+    FXSYS_memset(rec->FeatureIndex, 0, sizeof(TT_uint16_t) * rec->FeatureCount);
     for (int i = 0; i < rec->FeatureCount; ++i) {
         rec->FeatureIndex[i] = GetUInt16(sp);
     }
@@ -422,7 +424,8 @@ FX_BOOL CFX_GSUBTable::GetVerticalGlyph(FX_DWORD glyphnum, FX_DWORD* vglyphnum)
 {
     return m_GsubImp.GetVerticalGlyph(glyphnum, vglyphnum);
 }
-IFX_GSUBTable* FXGE_CreateGSUBTable(CFX_Font* pFont)
+// static
+IFX_GSUBTable* IFX_GSUBTable::Create(CFX_Font* pFont)
 {
     if (!pFont) {
         return NULL;
@@ -431,7 +434,7 @@ IFX_GSUBTable* FXGE_CreateGSUBTable(CFX_Font* pFont)
         unsigned long length = 0;
         int error = FXFT_Load_Sfnt_Table(pFont->m_Face, FT_MAKE_TAG('G', 'S', 'U', 'B'), 0, NULL, &length);
         if (!error) {
-            pFont->m_pGsubData = (unsigned char*)FX_Alloc(FX_BYTE, length);
+            pFont->m_pGsubData = (unsigned char*)FX_Alloc(uint8_t, length);
         }
         if (!pFont->m_pGsubData) {
             return NULL;
@@ -439,14 +442,10 @@ IFX_GSUBTable* FXGE_CreateGSUBTable(CFX_Font* pFont)
     }
     int error = FXFT_Load_Sfnt_Table(pFont->m_Face, FT_MAKE_TAG('G', 'S', 'U', 'B'), 0, pFont->m_pGsubData, NULL);
     if (!error && pFont->m_pGsubData) {
-        CFX_GSUBTable* pGsubTable = FX_NEW CFX_GSUBTable;
-        if (!pGsubTable) {
-            return NULL;
-        }
+        nonstd::unique_ptr<CFX_GSUBTable> pGsubTable(new CFX_GSUBTable);
         if (pGsubTable->m_GsubImp.LoadGSUBTable((FT_Bytes)pFont->m_pGsubData)) {
-            return pGsubTable;
+            return pGsubTable.release();
         }
-        delete pGsubTable;
     }
     return NULL;
 }

@@ -1,11 +1,12 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../include/fsdk_define.h"
-#include "../include/fpdftext.h"
+#include "../../core/include/fpdfdoc/fpdf_doc.h"
+#include "../../core/include/fpdftext/fpdf_text.h"
+#include "../../public/fpdf_text.h"
 
 #ifdef _WIN32
 #include <tchar.h>
@@ -65,7 +66,7 @@ DLLEXPORT void STDCALL FPDFText_GetCharBox(FPDF_TEXTPAGE text_page, int index,do
 {
 	if (!text_page) return;
 	IPDF_TextPage* textpage=(IPDF_TextPage*)text_page;
-	
+
 	if (index<0 || index>=textpage->CountChars()) return ;
 	FPDF_CHAR_INFO	charinfo;
 	textpage->GetCharInfo(index,charinfo);
@@ -87,7 +88,7 @@ DLLEXPORT int STDCALL FPDFText_GetText(FPDF_TEXTPAGE text_page,int start,int cou
 {
 	if (!text_page) return 0;
 	IPDF_TextPage* textpage=(IPDF_TextPage*)text_page;
-	
+
 	if (start>=textpage->CountChars()) return 0;
 
 	CFX_WideString str=textpage->GetPageText(start,count);
@@ -121,7 +122,7 @@ DLLEXPORT void STDCALL FPDFText_GetRect(FPDF_TEXTPAGE text_page,int rect_index, 
 	*bottom=rect.bottom;
 }
 
-DLLEXPORT int STDCALL FPDFText_GetBoundedText(FPDF_TEXTPAGE text_page,double left, double top, 
+DLLEXPORT int STDCALL FPDFText_GetBoundedText(FPDF_TEXTPAGE text_page,double left, double top,
 											  double right, double bottom,unsigned short* buffer,int buflen)
 {
 	if (!text_page) return 0;
@@ -141,7 +142,7 @@ DLLEXPORT int STDCALL FPDFText_GetBoundedText(FPDF_TEXTPAGE text_page,double lef
 	cbUTF16Str.ReleaseBuffer(size*sizeof(unsigned short));
 
 	return size;
-		
+
 }
 
 //Search
@@ -235,12 +236,13 @@ DLLEXPORT void STDCALL FPDFLink_GetRect(FPDF_PAGELINK link_page,int link_index, 
 	IPDF_LinkExtract* pageLink=(IPDF_LinkExtract*)link_page;
 	CFX_RectArray rectArray;
 	pageLink->GetRects(link_index,rectArray);
-	CFX_FloatRect rect;
-	rect=rectArray.GetAt(rect_index);
-	*left=rect.left;
-	*right=rect.right;
-	*top=rect.top;
-	*bottom=rect.bottom;
+	if (rect_index >= 0 && rect_index < rectArray.GetSize()) {
+		CFX_FloatRect rect=rectArray.GetAt(rect_index);
+		*left=rect.left;
+		*right=rect.right;
+		*top=rect.top;
+		*bottom=rect.bottom;
+	}
 }
 DLLEXPORT void	STDCALL	FPDFLink_CloseWebLinks(FPDF_PAGELINK link_page)
 {

@@ -47,15 +47,22 @@ bool AeadBaseDecrypter::SetNoncePrefix(StringPiece nonce_prefix) {
   return true;
 }
 
-bool AeadBaseDecrypter::Decrypt(StringPiece nonce,
-                                StringPiece associated_data,
-                                StringPiece ciphertext,
-                                uint8* output,
-                                size_t* output_length) {
-  if (ciphertext.length() < auth_tag_size_ ||
-      nonce.size() != nonce_prefix_size_ + sizeof(QuicPacketSequenceNumber)) {
+bool AeadBaseDecrypter::DecryptPacket(QuicPacketSequenceNumber sequence_number,
+                                      const StringPiece& associated_data,
+                                      const StringPiece& ciphertext,
+                                      char* output,
+                                      size_t* output_length,
+                                      size_t max_output_length) {
+  if (ciphertext.length() < auth_tag_size_) {
     return false;
   }
+
+  uint8 nonce[sizeof(nonce_prefix_) + sizeof(sequence_number)];
+  const size_t nonce_size = nonce_prefix_size_ + sizeof(sequence_number);
+  DCHECK_LE(nonce_size, sizeof(nonce));
+  memcpy(nonce, nonce_prefix_, nonce_prefix_size_);
+  memcpy(nonce + nonce_prefix_size_, &sequence_number, sizeof(sequence_number));
+
   // NSS 3.14.x incorrectly requires an output buffer at least as long as
   // the ciphertext (NSS bug
   // https://bugzilla.mozilla.org/show_bug.cgi?id= 853674). Fortunately
@@ -92,7 +99,8 @@ bool AeadBaseDecrypter::Decrypt(StringPiece nonce,
   }
 
   AeadParams aead_params = {0};
-  FillAeadParams(nonce, associated_data, auth_tag_size_, &aead_params);
+  FillAeadParams(StringPiece(reinterpret_cast<char*>(nonce), nonce_size),
+                 associated_data, auth_tag_size_, &aead_params);
 
   SECItem param;
   param.type = siBuffer;
@@ -101,7 +109,8 @@ bool AeadBaseDecrypter::Decrypt(StringPiece nonce,
 
   unsigned int output_len;
   if (pk11_decrypt_(aead_key.get(), aead_mechanism_, &param,
-                    output, &output_len, ciphertext.length(),
+                    reinterpret_cast<uint8*>(output), &output_len,
+                    max_output_length,
                     reinterpret_cast<const unsigned char*>(ciphertext.data()),
                     ciphertext.length()) != SECSuccess) {
     return false;
@@ -113,30 +122,6 @@ bool AeadBaseDecrypter::Decrypt(StringPiece nonce,
   }
   *output_length = output_len;
   return true;
-}
-
-QuicData* AeadBaseDecrypter::DecryptPacket(
-    QuicPacketSequenceNumber sequence_number,
-    StringPiece associated_data,
-    StringPiece ciphertext) {
-  if (ciphertext.length() < auth_tag_size_) {
-    return nullptr;
-  }
-  size_t plaintext_size;
-  scoped_ptr<char[]> plaintext(new char[ciphertext.length()]);
-
-  uint8 nonce[sizeof(nonce_prefix_) + sizeof(sequence_number)];
-  const size_t nonce_size = nonce_prefix_size_ + sizeof(sequence_number);
-  DCHECK_LE(nonce_size, sizeof(nonce));
-  memcpy(nonce, nonce_prefix_, nonce_prefix_size_);
-  memcpy(nonce + nonce_prefix_size_, &sequence_number, sizeof(sequence_number));
-  if (!Decrypt(StringPiece(reinterpret_cast<char*>(nonce), nonce_size),
-               associated_data, ciphertext,
-               reinterpret_cast<uint8*>(plaintext.get()),
-               &plaintext_size)) {
-    return nullptr;
-  }
-  return new QuicData(plaintext.release(), plaintext_size, true);
 }
 
 StringPiece AeadBaseDecrypter::GetKey() const {

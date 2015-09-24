@@ -7,6 +7,7 @@ package org.chromium.android_webview.test;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
@@ -16,6 +17,7 @@ import android.test.suitebuilder.annotation.SmallTest;
 import android.util.Pair;
 import android.view.KeyEvent;
 import android.view.View;
+import android.webkit.JavascriptInterface;
 
 import org.apache.http.Header;
 import org.apache.http.HttpRequest;
@@ -23,8 +25,12 @@ import org.chromium.android_webview.AwContents;
 import org.chromium.android_webview.AwSettings;
 import org.chromium.android_webview.test.TestAwContentsClient.OnDownloadStartHelper;
 import org.chromium.android_webview.test.util.CommonResources;
+import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.content.browser.test.util.CallbackHelper;
+import org.chromium.content_public.browser.AccessibilitySnapshotCallback;
+import org.chromium.content_public.browser.AccessibilitySnapshotNode;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.net.test.util.TestWebServer;
 
@@ -42,6 +48,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * AwContents tests.
  */
+@MinAndroidSdkLevel(Build.VERSION_CODES.KITKAT)
 public class AwContentsTest extends AwTestBase {
 
     private TestAwContentsClient mContentsClient = new TestAwContentsClient();
@@ -113,7 +120,6 @@ public class AwContentsTest extends AwTestBase {
         awContents.loadUrl(new LoadUrlParams("http://www.google.com"));
         awContents.findAllAsync("search");
         assertNull(awContents.getUrl());
-        assertNull(awContents.getContentSettings());
         assertFalse(awContents.canGoBack());
         awContents.disableJavascriptInterfacesInspection();
         awContents.invokeZoomPicker();
@@ -133,49 +139,6 @@ public class AwContentsTest extends AwTestBase {
         assertEquals(0, awContents.getContentWidthCss());
         awContents.onKeyUp(KeyEvent.KEYCODE_BACK,
                 new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MENU));
-    }
-
-    @DisableHardwareAccelerationForTest
-    @LargeTest
-    @Feature({"AndroidWebView"})
-    public void testCreateAndGcManyTimes() throws Throwable {
-        final int concurrentInstances = 4;
-        final int repetitions = 16;
-        // The system retains a strong ref to the last focused view (in InputMethodManager)
-        // so allow for 1 'leaked' instance.
-        final int maxIdleInstances = 1;
-
-        System.gc();
-
-        pollOnUiThread(new Callable<Boolean>() {
-            @Override
-            public Boolean call() {
-                return AwContents.getNativeInstanceCount() <= maxIdleInstances;
-            }
-        });
-        for (int i = 0; i < repetitions; ++i) {
-            for (int j = 0; j < concurrentInstances; ++j) {
-                AwTestContainerView view = createAwTestContainerViewOnMainSync(mContentsClient);
-                loadUrlAsync(view.getAwContents(), "about:blank");
-            }
-            assertTrue(AwContents.getNativeInstanceCount() >= concurrentInstances);
-            assertTrue(AwContents.getNativeInstanceCount() <= (i + 1) * concurrentInstances);
-            runTestOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    getActivity().removeAllViews();
-                }
-            });
-        }
-
-        System.gc();
-
-        pollOnUiThread(new Callable<Boolean>() {
-            @Override
-            public Boolean call() {
-                return AwContents.getNativeInstanceCount() <= maxIdleInstances;
-            }
-        });
     }
 
     @SmallTest
@@ -421,12 +384,13 @@ public class AwContentsTest extends AwTestBase {
             mCallbackHelper = callbackHelper;
         }
 
+        @JavascriptInterface
         public void run() {
             mCallbackHelper.notifyCalled();
         }
     }
 
-    @Feature({"AndroidWebView", "JavaBridge"})
+    @Feature({"AndroidWebView", "Android-JavaBridge"})
     @SmallTest
     public void testJavaBridge() throws Throwable {
         final AwTestContainerView testView = createAwTestContainerViewOnMainSync(mContentsClient);
@@ -438,9 +402,8 @@ public class AwContentsTest extends AwTestBase {
                 AwContents awContents = testView.getAwContents();
                 AwSettings awSettings = awContents.getSettings();
                 awSettings.setJavaScriptEnabled(true);
-                awContents.addPossiblyUnsafeJavascriptInterface(
-                        new JavaScriptObject(callback), "bridge", null);
-                awContents.evaluateJavaScript("javascript:window.bridge.run();", null);
+                awContents.addJavascriptInterface(new JavaScriptObject(callback), "bridge");
+                awContents.evaluateJavaScript("window.bridge.run();", null);
             }
         });
         callback.waitForCallback(0, 1, WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS);
@@ -465,6 +428,7 @@ public class AwContentsTest extends AwTestBase {
                 script));
     }
 
+    @SuppressFBWarnings("DLS_DEAD_LOCAL_STORE")
     @Feature({"AndroidWebView"})
     @SmallTest
     public void testCanInjectHeaders() throws Throwable {
@@ -561,5 +525,198 @@ public class AwContentsTest extends AwTestBase {
         onSslErrorCallCount = onReceivedSslErrorHelper.getCallCount();
         loadUrlSync(awContents, mContentsClient.getOnPageFinishedHelper(), pageUrl);
         assertEquals(onSslErrorCallCount + 1, onReceivedSslErrorHelper.getCallCount());
+    }
+
+    /**
+     * Verifies that Web Notifications and the Push API are not exposed in WebView.
+     */
+    @Feature({"AndroidWebView"})
+    @SmallTest
+    public void testPushAndNotificationsDisabled() throws Throwable {
+        AwTestContainerView testView = createAwTestContainerViewOnMainSync(mContentsClient);
+        AwContents awContents = testView.getAwContents();
+
+        String script = "window.Notification || window.PushManager";
+
+        enableJavaScriptOnUiThread(awContents);
+        loadUrlSync(awContents, mContentsClient.getOnPageFinishedHelper(), "about:blank");
+        assertEquals("null", executeJavaScriptAndWaitForResult(awContents, mContentsClient,
+                script));
+    }
+
+    private static class AccessibilityCallbackHelper extends CallbackHelper {
+
+        private AccessibilitySnapshotNode mRoot;
+
+        public void notifyCalled(AccessibilitySnapshotNode root) {
+            mRoot = root;
+            super.notifyCalled();
+        }
+
+        public AccessibilitySnapshotNode getValue() {
+            return mRoot;
+        }
+    }
+
+    private float mPageScale;
+
+    private AccessibilitySnapshotNode receiveAccessibilitySnapshot(String data) throws Throwable {
+        final AwTestContainerView testView = createAwTestContainerViewOnMainSync(mContentsClient);
+        final AwContents awContents = testView.getAwContents();
+        final CallbackHelper loadHelper = mContentsClient.getOnPageFinishedHelper();
+        if (data != null) {
+            loadDataSync(awContents, loadHelper, data, "text/html", false);
+        }
+
+        final AccessibilityCallbackHelper callbackHelper = new AccessibilityCallbackHelper();
+        final AccessibilitySnapshotCallback callback = new AccessibilitySnapshotCallback() {
+            @Override
+            public void onAccessibilitySnapshot(AccessibilitySnapshotNode root) {
+                callbackHelper.notifyCalled(root);
+            }
+        };
+        // read the callbackcount before executing the call on UI thread, since it may
+        // synchronously complete.
+        final int callbackCount = callbackHelper.getCallCount();
+        runTestOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                awContents.requestAccessibilitySnapshot(callback);
+                mPageScale = awContents.getScale();
+            }
+        });
+        callbackHelper.waitForCallback(callbackCount);
+        return callbackHelper.getValue();
+    }
+
+    /**
+     * Verifies that AX tree is returned.
+     */
+    @Feature({"AndroidWebView"})
+    @SmallTest
+    public void testRequestAccessibilitySnapshot() throws Throwable {
+        final String data = "<button>Click</button>";
+        AccessibilitySnapshotNode root = receiveAccessibilitySnapshot(data);
+        assertEquals(1, root.children.size());
+        assertEquals("", root.text);
+        AccessibilitySnapshotNode child = root.children.get(0);
+        assertEquals(1, child.children.size());
+        assertEquals("", child.text);
+        AccessibilitySnapshotNode grandChild = child.children.get(0);
+        assertEquals(0, grandChild.children.size());
+        assertEquals("Click", grandChild.text);
+    }
+
+    @Feature({"AndroidWebView"})
+    @SmallTest
+    public void testRequestAccessibilitySnapshotColors() throws Throwable {
+        final String data = "<p style=\"color:#123456;background:#abcdef\">color</p>";
+        AccessibilitySnapshotNode root = receiveAccessibilitySnapshot(data);
+        assertEquals(1, root.children.size());
+        assertEquals("", root.text);
+        AccessibilitySnapshotNode child = root.children.get(0);
+        assertEquals("color", child.text);
+        assertTrue(child.hasStyle);
+        assertEquals("ff123456", Integer.toHexString(child.color));
+        assertEquals("ffabcdef", Integer.toHexString(child.bgcolor));
+    }
+
+    @Feature({"AndroidWebView"})
+    @SmallTest
+    public void testRequestAccessibilitySnapshotFontSize() throws Throwable {
+        final String data =
+                "<html><head><style> "
+                + "    body { font-size:11px; }"
+                + "    </style></head><body><p>foo</p></body></html>";
+        AccessibilitySnapshotNode root = receiveAccessibilitySnapshot(data);
+        assertEquals(1, root.children.size());
+        assertEquals("", root.text);
+        AccessibilitySnapshotNode child = root.children.get(0);
+        assertTrue(child.hasStyle);
+        assertEquals("foo", child.text);
+        assertEquals(11.0 * mPageScale, child.textSize, 0.01);
+    }
+
+    @Feature({"AndroidWebView"})
+    @SmallTest
+    public void testRequestAccessibilitySnapshotStyles() throws Throwable {
+        final String data =
+                "<html><head><style> "
+                + "    body { font: italic bold 12px Courier; }"
+                + "    </style></head><body><p>foo</p></body></html>";
+        AccessibilitySnapshotNode root = receiveAccessibilitySnapshot(data);
+        assertEquals(1, root.children.size());
+        assertEquals("", root.text);
+        AccessibilitySnapshotNode child = root.children.get(0);
+        assertEquals("foo", child.text);
+        assertTrue(child.hasStyle);
+        assertTrue(child.bold);
+        assertTrue(child.italic);
+        assertFalse(child.lineThrough);
+        assertFalse(child.underline);
+    }
+
+    @Feature({"AndroidWebView"})
+    @SmallTest
+    public void testRequestAccessibilitySnapshotStrongStyle() throws Throwable {
+        final String data = "<html><body><p>foo</p><p><strong>bar</strong></p></body></html>";
+        AccessibilitySnapshotNode root = receiveAccessibilitySnapshot(data);
+        assertEquals(2, root.children.size());
+        assertEquals("", root.text);
+        AccessibilitySnapshotNode child1 = root.children.get(0);
+        assertEquals("foo", child1.text);
+        assertTrue(child1.hasStyle);
+        assertFalse(child1.bold);
+        AccessibilitySnapshotNode child2 = root.children.get(1);
+        AccessibilitySnapshotNode child2child = child2.children.get(0);
+        assertEquals("bar", child2child.text);
+        assertEquals(child1.textSize, child2child.textSize);
+        assertTrue(child2child.bold);
+    }
+
+    @Feature({"AndroidWebView"})
+    @SmallTest
+    public void testRequestAccessibilitySnapshotItalicStyle() throws Throwable {
+        final String data = "<html><body><i>foo</i></body></html>";
+        AccessibilitySnapshotNode root = receiveAccessibilitySnapshot(data);
+        assertEquals(1, root.children.size());
+        assertEquals("", root.text);
+        AccessibilitySnapshotNode child = root.children.get(0);
+        AccessibilitySnapshotNode grandchild = child.children.get(0);
+        assertEquals("foo", grandchild.text);
+        assertTrue(grandchild.hasStyle);
+        assertTrue(grandchild.italic);
+    }
+
+    @Feature({"AndroidWebView"})
+    @SmallTest
+    public void testRequestAccessibilitySnapshotBoldStyle() throws Throwable {
+        final String data = "<html><body><b>foo</b></body></html>";
+        AccessibilitySnapshotNode root = receiveAccessibilitySnapshot(data);
+        assertEquals(1, root.children.size());
+        assertEquals("", root.text);
+        AccessibilitySnapshotNode child = root.children.get(0);
+        AccessibilitySnapshotNode grandchild = child.children.get(0);
+        assertEquals("foo", grandchild.text);
+        assertTrue(grandchild.hasStyle);
+        assertTrue(grandchild.bold);
+    }
+
+    @Feature({"AndroidWebView"})
+    @SmallTest
+    public void testRequestAccessibilitySnapshotNoStyle() throws Throwable {
+        final String data = "<table><thead></thead></table>";
+        AccessibilitySnapshotNode root = receiveAccessibilitySnapshot(data);
+        assertEquals(1, root.children.size());
+        assertEquals("", root.text);
+        AccessibilitySnapshotNode grandChild = root.children.get(0).children.get(0);
+        assertFalse(grandChild.hasStyle);
+    }
+
+    @Feature({"AndroidWebView"})
+    @SmallTest
+    public void testRequestAccessibilitySnapshotAboutBlank() throws Throwable {
+        AccessibilitySnapshotNode root = receiveAccessibilitySnapshot(null);
+        assertEquals(null, root);
     }
 }

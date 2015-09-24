@@ -8,14 +8,17 @@
 
 #include "base/bind.h"
 #include "base/compiler_specific.h"
+#include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
+#include "base/thread_task_runner_handle.h"
+#include "base/values.h"
 #include "net/base/load_timing_info.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_log.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_util.h"
+#include "net/log/net_log.h"
 #include "net/url_request/url_request.h"
 
 namespace net {
@@ -57,10 +60,9 @@ void URLRequestRedirectJob::Start() {
   request()->net_log().AddEvent(
       NetLog::TYPE_URL_REQUEST_REDIRECT_JOB,
       NetLog::StringCallback("reason", &redirect_reason_));
-  base::MessageLoop::current()->PostTask(
-      FROM_HERE,
-      base::Bind(&URLRequestRedirectJob::StartAsync,
-                 weak_factory_.GetWeakPtr()));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&URLRequestRedirectJob::StartAsync,
+                            weak_factory_.GetWeakPtr()));
 }
 
 bool URLRequestRedirectJob::CopyFragmentOnRedirect(const GURL& location) const {
@@ -91,8 +93,7 @@ void URLRequestRedirectJob::StartAsync() {
                          redirect_reason_.c_str());
 
   std::string http_origin;
-  const net::HttpRequestHeaders& request_headers =
-      request_->extra_request_headers();
+  const HttpRequestHeaders& request_headers = request_->extra_request_headers();
   if (request_headers.GetHeader("Origin", &http_origin)) {
     // If this redirect is used in a cross-origin request, add CORS headers to
     // make sure that the redirect gets through. Note that the destination URL

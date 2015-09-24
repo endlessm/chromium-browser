@@ -17,13 +17,13 @@
 #include "base/memory/ref_counted_delete_on_message_loop.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/observer_list.h"
+#include "base/single_thread_task_runner.h"
 #include "components/webdata/common/web_data_service_base.h"
 #include "components/webdata/common/web_database.h"
 #include "components/webdata/common/webdata_export.h"
 
-class WebDataServiceBackend;
+class WebDatabaseBackend;
 class WebDataRequestManager;
 
 namespace content {
@@ -59,8 +59,8 @@ class WEBDATA_EXPORT WebDatabaseService
   // Takes the path to the WebDatabase file.
   // WebDatabaseService lives on |ui_thread| and posts tasks to |db_thread|.
   WebDatabaseService(const base::FilePath& path,
-                     const scoped_refptr<base::MessageLoopProxy>& ui_thread,
-                     const scoped_refptr<base::MessageLoopProxy>& db_thread);
+                     scoped_refptr<base::SingleThreadTaskRunner> ui_thread,
+                     scoped_refptr<base::SingleThreadTaskRunner> db_thread);
 
   // Adds |table| as a WebDatabaseTable that will participate in
   // managing the database, transferring ownership. All calls to this
@@ -77,8 +77,8 @@ class WEBDATA_EXPORT WebDatabaseService
   // TODO(caitkp): remove this method once SyncServices no longer depend on it.
   virtual WebDatabase* GetDatabaseOnDB() const;
 
-  // Returns a pointer to the WebDataServiceBackend.
-  scoped_refptr<WebDataServiceBackend> GetBackend() const;
+  // Returns a pointer to the WebDatabaseBackend.
+  scoped_refptr<WebDatabaseBackend> GetBackend() const;
 
   // Schedule an update/write task on the DB thread.
   virtual void ScheduleDBTask(
@@ -129,7 +129,7 @@ class WEBDATA_EXPORT WebDatabaseService
 
   // The primary owner is |WebDatabaseService| but is refcounted because
   // PostTask on DB thread may outlive us.
-  scoped_refptr<WebDataServiceBackend> wds_backend_;
+  scoped_refptr<WebDatabaseBackend> web_db_backend_;
 
   // Callbacks to be called once the DB has loaded.
   LoadedCallbacks loaded_callbacks_;
@@ -140,7 +140,7 @@ class WEBDATA_EXPORT WebDatabaseService
   // True if the WebDatabase has loaded.
   bool db_loaded_;
 
-  scoped_refptr<base::MessageLoopProxy> db_thread_;
+  scoped_refptr<base::SingleThreadTaskRunner> db_thread_;
 
   // All vended weak pointers are invalidated in ShutdownDatabase().
   base::WeakPtrFactory<WebDatabaseService> weak_ptr_factory_;

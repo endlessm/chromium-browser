@@ -9,7 +9,6 @@ static_library("net") {
   sources = [
     "net_resource_provider.cc",
     "net_resource_provider.h",
-    "predictor_common.h",
     "url_util.cc",
     "url_util.h",
     "x509_certificate_model.cc",
@@ -23,41 +22,35 @@ static_library("net") {
     "//chrome:resources",
     "//chrome:strings",
     "//components/error_page/common",
+    "//components/network_hints/common",
     "//crypto",
     "//net",
     "//net:net_resources",
     "//third_party/icu",
+    "//ui/base/",
   ]
 
   if (is_ios) {
-    sources -= [
-      "net_resource_provider.cc",
-      "x509_certificate_model.cc",
-    ]
+    sources -= [ "net_resource_provider.cc" ]
   } else {
     deps += [ "//gpu/ipc" ]
   }
 
-  if (is_win || is_mac || is_ios) {
-    sources -= [
-      "x509_certificate_model_nss.cc",
-      "x509_certificate_model_openssl.cc",
-    ]
-  } else if (use_openssl) {
-    sources -= [ "x509_certificate_model_nss.cc" ]
+  if (is_android || is_ios) {
+    sources -= [ "x509_certificate_model.cc" ]
+  }
+
+  if (use_openssl_certs && !is_android) {
+    deps += [ "//third_party/boringssl" ]
   } else {
     sources -= [ "x509_certificate_model_openssl.cc" ]
   }
 
-  if (is_android) {
-    sources -= [
-      "x509_certificate_model.cc",
-      "x509_certificate_model_openssl.cc",
-    ]
-    deps += [ "//third_party/boringssl" ]
+  if (use_nss_certs) {
+    deps += [ "//crypto:platform" ]
+  } else {
+    sources -= [ "x509_certificate_model_nss.cc" ]
   }
 
-  if (is_win) {
-    cflags = [ "/wd4267" ]
-  }
+  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 }

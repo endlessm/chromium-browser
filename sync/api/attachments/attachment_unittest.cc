@@ -8,6 +8,7 @@
 
 #include "base/memory/ref_counted.h"
 #include "base/memory/ref_counted_memory.h"
+#include "sync/internal_api/public/attachments/attachment_util.h"
 #include "sync/protocol/sync.pb.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -36,11 +37,12 @@ TEST_F(AttachmentTest, Create_WithEmptyData) {
   EXPECT_EQ(empty_data, a.GetData());
 }
 
-TEST_F(AttachmentTest, CreateWithId_HappyCase) {
-  AttachmentId id = AttachmentId::Create();
+TEST_F(AttachmentTest, CreateFromParts_HappyCase) {
   scoped_refptr<base::RefCountedString> some_data(new base::RefCountedString);
   some_data->data() = kAttachmentData;
-  Attachment a = Attachment::CreateWithId(id, some_data);
+  uint32_t crc32c = ComputeCrc32c(some_data);
+  AttachmentId id = AttachmentId::Create(some_data->size(), crc32c);
+  Attachment a = Attachment::CreateFromParts(id, some_data);
   EXPECT_EQ(id, a.GetId());
   EXPECT_EQ(some_data, a.GetData());
 }

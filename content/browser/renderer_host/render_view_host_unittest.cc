@@ -9,6 +9,7 @@
 #include "content/browser/renderer_host/render_message_filter.h"
 #include "content/browser/renderer_host/render_view_host_delegate_view.h"
 #include "content/browser/renderer_host/render_widget_helper.h"
+#include "content/common/frame_messages.h"
 #include "content/common/input_messages.h"
 #include "content/common/view_messages.h"
 #include "content/public/browser/browser_context.h"
@@ -64,7 +65,8 @@ class RenderViewHostTest : public RenderViewHostImplTestHarness {
 // All about URLs reported by the renderer should get rewritten to about:blank.
 // See RenderViewHost::OnNavigate for a discussion.
 TEST_F(RenderViewHostTest, FilterAbout) {
-  contents()->GetMainFrame()->SendNavigate(1, GURL("about:cache"));
+  main_test_rfh()->NavigateAndCommitRendererInitiated(
+      1, true, GURL("about:cache"));
   ASSERT_TRUE(controller().GetVisibleEntry());
   EXPECT_EQ(GURL(url::kAboutBlankURL),
             controller().GetVisibleEntry()->GetURL());
@@ -98,7 +100,7 @@ TEST_F(RenderViewHostTest, ResetUnloadOnReload) {
   controller().LoadURL(
       url2, Referrer(), ui::PAGE_TRANSITION_LINK, std::string());
   // Simulate the ClosePage call which is normally sent by the net::URLRequest.
-  rvh()->ClosePage();
+  test_rvh()->ClosePage();
   // Needed so that navigations are not suspended on the RFH.
   main_test_rfh()->SendBeforeUnloadACK(true);
   contents()->Stop();
@@ -226,19 +228,35 @@ TEST_F(RenderViewHostTest, MessageWithBadHistoryItemFiles) {
   EXPECT_EQ(1, process()->bad_msg_count());
 }
 
+namespace {
+void SetBadFilePath(const GURL& url,
+                    const base::FilePath& file_path,
+                    FrameHostMsg_DidCommitProvisionalLoad_Params* params) {
+  params->page_state =
+      PageState::CreateForTesting(url, false, "data", &file_path);
+}
+}
+
 TEST_F(RenderViewHostTest, NavigationWithBadHistoryItemFiles) {
   GURL url("http://www.google.com");
   base::FilePath file_path;
   EXPECT_TRUE(PathService::Get(base::DIR_TEMP, &file_path));
   file_path = file_path.AppendASCII("bar");
+  auto set_bad_file_path_callback = base::Bind(SetBadFilePath, url, file_path);
+
   EXPECT_EQ(0, process()->bad_msg_count());
-  contents()->GetMainFrame()->SendNavigateWithFile(1, url, file_path);
+  main_test_rfh()->SendRendererInitiatedNavigationRequest(url, false);
+  main_test_rfh()->PrepareForCommit();
+  contents()->GetMainFrame()->SendNavigateWithModificationCallback(
+      1, 1, true, url, set_bad_file_path_callback);
   EXPECT_EQ(1, process()->bad_msg_count());
 
   ChildProcessSecurityPolicyImpl::GetInstance()->GrantReadFile(
       process()->GetID(), file_path);
-  contents()->GetMainFrame()->SendNavigateWithFile(process()->GetID(), url,
-                                                   file_path);
+  main_test_rfh()->SendRendererInitiatedNavigationRequest(url, false);
+  main_test_rfh()->PrepareForCommit();
+  contents()->GetMainFrame()->SendNavigateWithModificationCallback(
+      2, 2, true, url, set_bad_file_path_callback);
   EXPECT_EQ(1, process()->bad_msg_count());
 }
 

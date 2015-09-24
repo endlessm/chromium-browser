@@ -15,7 +15,7 @@
 class ChromeDeviceClient : device::DeviceClient {
  public:
   ChromeDeviceClient();
-  virtual ~ChromeDeviceClient();
+  ~ChromeDeviceClient() override;
 
   // device::DeviceClient implementation
   device::UsbService* GetUsbService() override;

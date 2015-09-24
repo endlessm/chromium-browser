@@ -82,7 +82,7 @@ bool VideoFrameRecorderHostExtensionSession::OnExtensionMessage(
     return true;
   }
 
-  scoped_ptr<base::Value> value(base::JSONReader::Read(message.data()));
+  scoped_ptr<base::Value> value = base::JSONReader::Read(message.data());
   base::DictionaryValue* client_message;
   if (!value || !value->GetAsDictionary(&client_message)) {
     return true;
@@ -159,7 +159,7 @@ void VideoFrameRecorderHostExtensionSession::OnNextFrame(
   // Note that JSONWriter::Write() can only fail due to invalid inputs, and will
   // DCHECK in Debug builds in that case.
   std::string reply_json;
-  if (!base::JSONWriter::Write(&reply_message, &reply_json)) {
+  if (!base::JSONWriter::Write(reply_message, &reply_json)) {
     return;
   }
 

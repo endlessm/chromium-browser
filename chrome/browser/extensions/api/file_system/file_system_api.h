@@ -8,13 +8,26 @@
 #include <string>
 #include <vector>
 
+#include "base/files/file.h"
 #include "base/files/file_path.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "chrome/browser/extensions/chrome_extension_function.h"
+#include "chrome/browser/extensions/chrome_extension_function_details.h"
 #include "chrome/common/extensions/api/file_system.h"
+#include "extensions/browser/extension_function.h"
+#include "ui/base/ui_base_types.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
+
+#if defined(OS_CHROMEOS)
+namespace file_manager {
+class Volume;
+}  // namespace file_manager
+#endif
 
 namespace extensions {
 class ExtensionPrefs;
+class ScopedSkipRequestFileSystemDialog;
 
 namespace file_system_api {
 
@@ -31,6 +44,102 @@ void SetLastChooseEntryDirectory(ExtensionPrefs* prefs,
                                  const base::FilePath& path);
 
 std::vector<base::FilePath> GetGrayListedDirectories();
+
+#if defined(OS_CHROMEOS)
+// Dispatches an event about a mounted on unmounted volume in the system to
+// each extension which can request it.
+void DispatchVolumeListChangeEvent(Profile* profile);
+
+// Requests consent for the chrome.fileSystem.requestFileSystem() method.
+// Interaction with UI and environmental checks (kiosk mode, whitelist) are
+// provided by a delegate: ConsentProviderDelegate. For testing, it is
+// TestingConsentProviderDelegate.
+class ConsentProvider {
+ public:
+  enum Consent { CONSENT_GRANTED, CONSENT_REJECTED, CONSENT_IMPOSSIBLE };
+  typedef base::Callback<void(Consent)> ConsentCallback;
+  typedef base::Callback<void(ui::DialogButton)> ShowDialogCallback;
+
+  // Interface for delegating user interaction for granting permissions.
+  class DelegateInterface {
+   public:
+    // Shows a dialog for granting permissions.
+    virtual void ShowDialog(const extensions::Extension& extension,
+                            const base::WeakPtr<file_manager::Volume>& volume,
+                            bool writable,
+                            const ShowDialogCallback& callback) = 0;
+
+    // Shows a notification about permissions automatically granted access.
+    virtual void ShowNotification(
+        const extensions::Extension& extension,
+        const base::WeakPtr<file_manager::Volume>& volume,
+        bool writable) = 0;
+
+    // Checks if the extension was launched in auto-launch kiosk mode.
+    virtual bool IsAutoLaunched(const extensions::Extension& extension) = 0;
+
+    // Checks if the extension is a whitelisted component extension or app.
+    virtual bool IsWhitelistedComponent(
+        const extensions::Extension& extension) = 0;
+  };
+
+  explicit ConsentProvider(DelegateInterface* delegate);
+  ~ConsentProvider();
+
+  // Requests consent for granting |writable| permissions to the |volume|
+  // volume by the |extension|. Must be called only if the extension is
+  // grantable, which can be checked with IsGrantable().
+  void RequestConsent(const extensions::Extension& extension,
+                      const base::WeakPtr<file_manager::Volume>& volume,
+                      bool writable,
+                      const ConsentCallback& callback);
+
+  // Checks whether the |extension| can be granted access.
+  bool IsGrantable(const extensions::Extension& extension);
+
+ private:
+  DelegateInterface* const delegate_;
+
+  // Converts the clicked button to a consent result and passes it via the
+  // |callback|.
+  void DialogResultToConsent(const ConsentCallback& callback,
+                             ui::DialogButton button);
+
+  DISALLOW_COPY_AND_ASSIGN(ConsentProvider);
+};
+
+// Handles interaction with user as well as environment checks (whitelists,
+// context of running extensions) for ConsentProvider.
+class ConsentProviderDelegate : public ConsentProvider::DelegateInterface {
+ public:
+  ConsentProviderDelegate(Profile* profile, content::RenderFrameHost* host);
+  ~ConsentProviderDelegate();
+
+ private:
+  friend ScopedSkipRequestFileSystemDialog;
+
+  // Sets a fake result for the user consent dialog. If ui::DIALOG_BUTTON_NONE
+  // then disabled.
+  static void SetAutoDialogButtonForTest(ui::DialogButton button);
+
+  // ConsentProvider::DelegateInterface overrides:
+  void ShowDialog(const extensions::Extension& extension,
+                  const base::WeakPtr<file_manager::Volume>& volume,
+                  bool writable,
+                  const file_system_api::ConsentProvider::ShowDialogCallback&
+                      callback) override;
+  void ShowNotification(const extensions::Extension& extension,
+                        const base::WeakPtr<file_manager::Volume>& volume,
+                        bool writable) override;
+  bool IsAutoLaunched(const extensions::Extension& extension) override;
+  bool IsWhitelistedComponent(const extensions::Extension& extension) override;
+
+  Profile* const profile_;
+  content::RenderFrameHost* const host_;
+
+  DISALLOW_COPY_AND_ASSIGN(ConsentProviderDelegate);
+};
+#endif
 
 }  // namespace file_system_api
 
@@ -127,7 +236,6 @@ class FileSystemChooseEntryFunction : public FileSystemEntryFunction {
   // Drive support.
   static void RegisterTempExternalFileSystemForTest(const std::string& name,
                                                     const base::FilePath& path);
-
   DECLARE_EXTENSION_FUNCTION("fileSystem.chooseEntry", FILESYSTEM_CHOOSEENTRY)
 
   typedef std::vector<linked_ptr<extensions::api::file_system::AcceptOption> >
@@ -158,13 +266,13 @@ class FileSystemChooseEntryFunction : public FileSystemEntryFunction {
   void FilesSelected(const std::vector<base::FilePath>& path);
   void FileSelectionCanceled();
 
-  // Check if |check_path|, the canonicalized form of the chosen directory
-  // |paths|, is or is an ancestor of a sensitive directory. If so, show a
-  // dialog to confirm that the user wants to open the directory.
-  // Calls OnDirectoryAccessConfirmed if the directory isn't sensitive or the
-  // user chooses to open it. Otherwise, calls FileSelectionCanceled.
+  // Check if the chosen directory is or is an ancestor of a sensitive
+  // directory. If so, show a dialog to confirm that the user wants to open the
+  // directory. Calls OnDirectoryAccessConfirmed if the directory isn't
+  // sensitive or the user chooses to open it. Otherwise, calls
+  // FileSelectionCanceled.
   void ConfirmDirectoryAccessOnFileThread(
-      const base::FilePath& check_path,
+      bool non_native_path,
       const std::vector<base::FilePath>& paths,
       content::WebContents* web_contents);
   void OnDirectoryAccessConfirmed(const std::vector<base::FilePath>& paths);
@@ -238,6 +346,75 @@ class FileSystemGetObservedEntriesFunction
   ~FileSystemGetObservedEntriesFunction() override {}
   bool RunSync() override;
 };
+
+#if !defined(OS_CHROMEOS)
+// Stub for non Chrome OS operating systems.
+class FileSystemRequestFileSystemFunction : public UIThreadExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("fileSystem.requestFileSystem",
+                             FILESYSTEM_REQUESTFILESYSTEM);
+
+ protected:
+  ~FileSystemRequestFileSystemFunction() override {}
+
+  // UIThreadExtensionFunction overrides.
+  ExtensionFunction::ResponseAction Run() override;
+};
+
+// Stub for non Chrome OS operating systems.
+class FileSystemGetVolumeListFunction : public UIThreadExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("fileSystem.getVolumeList",
+                             FILESYSTEM_GETVOLUMELIST);
+
+ protected:
+  ~FileSystemGetVolumeListFunction() override {}
+
+  // UIThreadExtensionFunction overrides.
+  ExtensionFunction::ResponseAction Run() override;
+};
+
+#else
+// Requests a file system for the specified volume id.
+class FileSystemRequestFileSystemFunction : public UIThreadExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("fileSystem.requestFileSystem",
+                             FILESYSTEM_REQUESTFILESYSTEM)
+  FileSystemRequestFileSystemFunction();
+
+ protected:
+  ~FileSystemRequestFileSystemFunction() override;
+
+  // UIThreadExtensionFunction overrides.
+  ExtensionFunction::ResponseAction Run() override;
+
+ private:
+  // Called when a user grants or rejects permissions for the file system
+  // access.
+  void OnConsentReceived(const base::WeakPtr<file_manager::Volume>& volume,
+                         bool writable,
+                         file_system_api::ConsentProvider::Consent result);
+
+  ChromeExtensionFunctionDetails chrome_details_;
+};
+
+// Requests a list of available volumes.
+class FileSystemGetVolumeListFunction : public UIThreadExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("fileSystem.getVolumeList",
+                             FILESYSTEM_GETVOLUMELIST);
+  FileSystemGetVolumeListFunction();
+
+ protected:
+  ~FileSystemGetVolumeListFunction() override;
+
+  // UIThreadExtensionFunction overrides.
+  ExtensionFunction::ResponseAction Run() override;
+
+ private:
+  ChromeExtensionFunctionDetails chrome_details_;
+};
+#endif
 
 }  // namespace extensions
 

@@ -150,10 +150,11 @@ class ExtensionIconImageTest : public ExtensionsTest,
     test_file = test_file.AppendASCII(name);
     int error_code = 0;
     std::string error;
-    JSONFileValueSerializer serializer(test_file.AppendASCII("manifest.json"));
+    JSONFileValueDeserializer deserializer(
+        test_file.AppendASCII("manifest.json"));
     scoped_ptr<base::DictionaryValue> valid_value(
-        static_cast<base::DictionaryValue*>(serializer.Deserialize(&error_code,
-                                                                   &error)));
+        static_cast<base::DictionaryValue*>(
+            deserializer.Deserialize(&error_code, &error)));
     EXPECT_EQ(0, error_code) << error;
     if (error_code != 0)
       return NULL;
@@ -560,6 +561,46 @@ TEST_F(ExtensionIconImageTest, IconImageDestruction) {
   EXPECT_EQ(16, representation.GetWidth());
   EXPECT_EQ(16, representation.GetHeight());
   EXPECT_EQ(2.0f, representation.scale());
+}
+
+// Test that new representations added to the image of an IconImage are cached
+// for future use.
+TEST_F(ExtensionIconImageTest, ImageCachesNewRepresentations) {
+  // Load up an extension and create an icon image.
+  scoped_refptr<Extension> extension(
+      CreateExtension("extension_icon_image", Manifest::INVALID_LOCATION));
+  ASSERT_TRUE(extension.get() != NULL);
+  gfx::ImageSkia default_icon = GetDefaultIcon();
+  scoped_ptr<IconImage> icon_image(
+      new IconImage(browser_context(),
+                    extension.get(),
+                    IconsInfo::GetIcons(extension.get()),
+                    16,
+                    default_icon,
+                    this));
+
+  // Load an image representation.
+  gfx::ImageSkiaRep representation =
+      icon_image->image_skia().GetRepresentation(1.0f);
+  WaitForImageLoad();
+
+  // Cache for later use.
+  gfx::Image prior_image = icon_image->image();
+
+  // Now the fun part: access the image from the IconImage, and create a png
+  // representation of it.
+  gfx::Image image = icon_image->image();
+  scoped_refptr<base::RefCountedMemory> image_as_png = image.As1xPNGBytes();
+
+  // Access the image from the IconImage again, and get a png representation.
+  // The two png representations should be exactly equal (the same object),
+  // because image storage is shared, so when we created one from the first
+  // image, all other images should also have that representation...
+  gfx::Image image2 = icon_image->image();
+  EXPECT_EQ(image_as_png.get(), image2.As1xPNGBytes().get());
+
+  // ...even images that were copied before the representation was constructed.
+  EXPECT_EQ(image_as_png.get(), prior_image.As1xPNGBytes().get());
 }
 
 }  // namespace extensions

@@ -6,11 +6,11 @@
 
 namespace skia {
 
-bool ReadSkString(const Pickle& pickle, PickleIterator* iter, SkString* str) {
-  int         reply_length;
+bool ReadSkString(base::PickleIterator* iter, SkString* str) {
+  int reply_length;
   const char* reply_text;
 
-  if (!pickle.ReadData(iter, &reply_text, &reply_length))
+  if (!iter->ReadData(&reply_text, &reply_length))
     return false;
 
   if (str)
@@ -18,16 +18,16 @@ bool ReadSkString(const Pickle& pickle, PickleIterator* iter, SkString* str) {
   return true;
 }
 
-bool ReadSkFontIdentity(const Pickle& pickle, PickleIterator* iter,
+bool ReadSkFontIdentity(base::PickleIterator* iter,
                         SkFontConfigInterface::FontIdentity* identity) {
-  uint32_t    reply_id;
-  uint32_t    reply_ttcIndex;
-  int         reply_length;
+  uint32_t reply_id;
+  uint32_t reply_ttcIndex;
+  int reply_length;
   const char* reply_text;
 
-  if (!pickle.ReadUInt32(iter, &reply_id) ||
-      !pickle.ReadUInt32(iter, &reply_ttcIndex) ||
-      !pickle.ReadData(iter, &reply_text, &reply_length))
+  if (!iter->ReadUInt32(&reply_id) ||
+      !iter->ReadUInt32(&reply_ttcIndex) ||
+      !iter->ReadData(&reply_text, &reply_length))
     return false;
 
   if (identity) {
@@ -38,15 +38,39 @@ bool ReadSkFontIdentity(const Pickle& pickle, PickleIterator* iter,
   return true;
 }
 
-bool WriteSkString(Pickle* pickle, const SkString& str) {
+bool WriteSkString(base::Pickle* pickle, const SkString& str) {
   return pickle->WriteData(str.c_str(), str.size());
 }
 
-bool WriteSkFontIdentity(Pickle* pickle,
+bool WriteSkFontIdentity(base::Pickle* pickle,
                          const SkFontConfigInterface::FontIdentity& identity) {
   return pickle->WriteUInt32(identity.fID) &&
          pickle->WriteUInt32(identity.fTTCIndex) &&
          WriteSkString(pickle, identity.fString);
+}
+
+SkPixelGeometry ComputeDefaultPixelGeometry() {
+    SkFontHost::LCDOrder order = SkFontHost::GetSubpixelOrder();
+    if (SkFontHost::kNONE_LCDOrder == order) {
+        return kUnknown_SkPixelGeometry;
+    } else {
+        // Bit0 is RGB(0), BGR(1)
+        // Bit1 is H(0), V(1)
+        const SkPixelGeometry gGeo[] = {
+            kRGB_H_SkPixelGeometry,
+            kBGR_H_SkPixelGeometry,
+            kRGB_V_SkPixelGeometry,
+            kBGR_V_SkPixelGeometry,
+        };
+        int index = 0;
+        if (SkFontHost::kBGR_LCDOrder == order) {
+            index |= 1;
+        }
+        if (SkFontHost::kVertical_LCDOrientation == SkFontHost::GetSubpixelOrientation()){
+            index |= 2;
+        }
+        return gGeo[index];
+    }
 }
 
 }  // namespace skia

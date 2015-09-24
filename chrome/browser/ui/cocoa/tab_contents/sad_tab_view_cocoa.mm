@@ -6,46 +6,55 @@
 
 #include "base/logging.h"
 #include "base/strings/sys_string_conversions.h"
-#include "chrome/browser/ui/cocoa/tab_contents/sad_tab_controller.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #import "third_party/google_toolbox_for_mac/src/AppKit/GTMUILocalizerAndLayoutTweaker.h"
+#import "ui/base/cocoa/controls/blue_label_button.h"
 #import "ui/base/cocoa/controls/hyperlink_text_view.h"
+#import "ui/base/cocoa/nscolor_additions.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/image/image.h"
 
-// Offset above vertical middle of page where contents of page start.
-static const CGFloat kSadTabOffset = -64;
+// Maximum width used by page contents.
+static const CGFloat kMaxContainerWidth = 600;
 // Padding between icon and title.
-static const CGFloat kIconTitleSpacing = 20;
+static const CGFloat kIconTitleSpacing = 40;
 // Padding between title and message.
-static const CGFloat kTitleMessageSpacing = 15;
+static const CGFloat kTitleMessageSpacing = 18;
 // Padding between message and link.
-static const CGFloat kMessageLinkSpacing = 15;
-// Paddings on left and right of page.
-static const CGFloat kTabHorzMargin = 13;
+static const CGFloat kMessageLinkSpacing = 21;
+// Padding between link and button.
+static const CGFloat kLinkButtonSpacing = 55;
+// Minimum margins on all sides.
+static const CGFloat kTabMargin = 13;
+// Maximum margin on top.
+static const CGFloat kMaxTopMargin = 130;
 
 @interface SadTabTextView : NSTextField
 
-- (id)initWithView:(SadTabView*)view withText:(int)textIds;
+- (id)initWithStringResourceID:(int)stringResourceID;
 
 @end
 
 @implementation SadTabTextView
 
-- (id)initWithView:(SadTabView*)view withText:(int)textIds {
+- (id)initWithStringResourceID:(int)stringResourceID {
   if (self = [super init]) {
-    [self setTextColor:[NSColor whiteColor]];
-    [self setAlignment:NSCenterTextAlignment];
-    [self setStringValue:l10n_util::GetNSString(textIds)];
+    base::scoped_nsobject<NSMutableParagraphStyle> style(
+        [[NSMutableParagraphStyle alloc] init]);
+    [style setLineSpacing:6];
+    base::scoped_nsobject<NSAttributedString> title([[NSAttributedString alloc]
+        initWithString:l10n_util::GetNSString(stringResourceID)
+            attributes:@{ NSParagraphStyleAttributeName : style }]);
+    [self setAttributedStringValue:title];
+
+    [self setAlignment:NSLeftTextAlignment];
     [self setEditable:NO];
     [self setBezeled:NO];
-    [self setAutoresizingMask:
-        NSViewMinXMargin|NSViewWidthSizable|NSViewMaxXMargin|NSViewMinYMargin];
-    [view addSubview:self];
+    [self setAutoresizingMask:NSViewWidthSizable|NSViewMaxYMargin];
   }
   return self;
 }
@@ -56,146 +65,185 @@ static const CGFloat kTabHorzMargin = 13;
 
 @end
 
-@implementation SadTabView
-
-- (void)awakeFromNib {
-  // Load resource for image and set it.
-  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-  NSImage* image = rb.GetNativeImageNamed(IDR_SAD_TAB).ToNSImage();
-  [image_ setImage:image];
-
-
-  // Initialize background color.
-  NSColor* backgroundColor = [[NSColor colorWithCalibratedRed:(35.0f/255.0f)
-                                                        green:(48.0f/255.0f)
-                                                         blue:(64.0f/255.0f)
-                                                        alpha:1.0] retain];
-  backgroundColor_.reset(backgroundColor);
-
-  // Set up the title.
-  title_.reset([[SadTabTextView alloc]
-      initWithView:self withText:IDS_SAD_TAB_TITLE]);
-  [title_ setFont:[NSFont boldSystemFontOfSize:[NSFont systemFontSize]]];
-  [title_ setBackgroundColor:backgroundColor];
-
-  // Set up the message.
-  message_.reset([[SadTabTextView alloc]
-      initWithView:self withText:IDS_SAD_TAB_MESSAGE]);
-  [message_ setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
-  [message_ setBackgroundColor:backgroundColor];
-
-  DCHECK(controller_);
-  [self initializeHelpText];
+@interface SadTabContainerView : NSView<NSTextViewDelegate> {
+ @private
+  base::scoped_nsobject<NSImageView> image_;
+  base::scoped_nsobject<NSTextField> title_;
+  base::scoped_nsobject<NSTextField> message_;
+  base::scoped_nsobject<HyperlinkTextView> help_;
+  base::scoped_nsobject<NSButton> button_;
 }
 
-- (void)drawRect:(NSRect)dirtyRect {
-  // Paint background.
-  [backgroundColor_ set];
-  NSRectFill(dirtyRect);
+- (instancetype)initWithBackgroundColor:(NSColor*)backgroundColor;
+
+@property(readonly,nonatomic) NSButton* reloadButton;
+
+// The height to fit the content elements within the current width.
+@property(readonly,nonatomic) CGFloat contentHeight;
+
+@end
+
+@implementation SadTabContainerView
+
+- (instancetype)initWithBackgroundColor:(NSColor*)backgroundColor {
+  if ((self = [super initWithFrame:NSZeroRect])) {
+    // Load resource for image and set it.
+    ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+    NSImage* iconImage = rb.GetNativeImageNamed(IDR_SAD_TAB).ToNSImage();
+    NSRect imageFrame = NSZeroRect;
+    imageFrame.size = [iconImage size];
+    image_.reset([[NSImageView alloc] initWithFrame:imageFrame]);
+    [image_ setImage:iconImage];
+    [image_ setAutoresizingMask:NSViewMaxXMargin|NSViewMaxYMargin];
+    [self addSubview:image_];
+
+    // Set up the title.
+    title_.reset(
+        [[SadTabTextView alloc] initWithStringResourceID:IDS_SAD_TAB_TITLE]);
+    [title_ setFont:[NSFont systemFontOfSize:24]];
+    [title_ setBackgroundColor:backgroundColor];
+    [title_ setTextColor:[NSColor colorWithCalibratedWhite:38.0f/255.0f
+                                                     alpha:1.0]];
+    [title_ sizeToFit];
+    [title_ setFrameOrigin:
+        NSMakePoint(0, NSMaxY(imageFrame) + kIconTitleSpacing)];
+    [self addSubview:title_];
+
+    // Set up the message.
+    message_.reset(
+        [[SadTabTextView alloc] initWithStringResourceID:IDS_SAD_TAB_MESSAGE]);
+    [message_ setFont:[NSFont systemFontOfSize:14]];
+    [message_ setBackgroundColor:backgroundColor];
+    [message_ setTextColor:[NSColor colorWithCalibratedWhite:81.0f/255.0f
+                                                       alpha:1.0]];
+    [message_ setFrameOrigin:
+        NSMakePoint(0, NSMaxY([title_ frame]) + kTitleMessageSpacing)];
+    [self addSubview:message_];
+
+    [self initializeHelpText];
+
+    button_.reset([[BlueLabelButton alloc] init]);
+    [button_ setTitle:l10n_util::GetNSString(IDS_SAD_TAB_RELOAD_LABEL)];
+    [button_ sizeToFit];
+    [button_ setTarget:self];
+    [button_ setAction:@selector(reloadPage:)];
+    [self addSubview:button_];
+  }
+  return self;
+}
+
+- (BOOL)isFlipped {
+  return YES;
+}
+
+- (NSButton*)reloadButton {
+  return button_;
+}
+
+- (CGFloat)contentHeight {
+  return NSMaxY([button_ frame]);
 }
 
 - (void)resizeSubviewsWithOldSize:(NSSize)oldSize {
-  NSRect newBounds = [self bounds];
-  CGFloat maxWidth = NSWidth(newBounds) - (kTabHorzMargin * 2);
-  BOOL callSizeToFit = (messageSize_.width == 0);
+  [super resizeSubviewsWithOldSize:oldSize];
 
-  // Set new frame origin for image.
-  NSRect iconFrame = [image_ frame];
-  CGFloat iconX = floorf((maxWidth - NSWidth(iconFrame)) / 2);
-  CGFloat iconY =
-      MIN(floorf((NSHeight(newBounds) - NSHeight(iconFrame)) / 2) -
-              kSadTabOffset,
-          NSHeight(newBounds) - NSHeight(iconFrame));
-  iconX = floorf(iconX);
-  iconY = floorf(iconY);
-  [image_ setFrameOrigin:NSMakePoint(iconX, iconY)];
+  // |message_| can wrap to variable number of lines.
+  [GTMUILocalizerAndLayoutTweaker sizeToFitFixedWidthTextField:message_];
 
-  // Set new frame origin for title.
-  if (callSizeToFit)
-    [title_ sizeToFit];
-  NSRect titleFrame = [title_ frame];
-  CGFloat titleX = floorf((maxWidth - NSWidth(titleFrame)) / 2);
-  CGFloat titleY = iconY - kIconTitleSpacing - NSHeight(titleFrame);
-  [title_ setFrameOrigin:NSMakePoint(titleX, titleY)];
+  [help_ setFrameOrigin:
+      NSMakePoint(0, NSMaxY([message_ frame]) + kMessageLinkSpacing)];
 
-  // Set new frame for message, wrapping or unwrapping the text if necessary.
-  if (callSizeToFit) {
-    [message_ sizeToFit];
-    messageSize_ = [message_ frame].size;
-  }
-  NSRect messageFrame = [message_ frame];
-  if (messageSize_.width > maxWidth) {  // Need to wrap message.
-    [message_ setFrameSize:NSMakeSize(maxWidth, messageSize_.height)];
-    CGFloat heightChange =
-        [GTMUILocalizerAndLayoutTweaker sizeToFitFixedWidthTextField:message_];
-    messageFrame.size.width = maxWidth;
-    messageFrame.size.height = messageSize_.height + heightChange;
-    messageFrame.origin.x = kTabHorzMargin;
-  } else {
-    if (!callSizeToFit) {
-      [message_ sizeToFit];
-      messageFrame = [message_ frame];
-    }
-    messageFrame.origin.x = floorf((maxWidth - NSWidth(messageFrame)) / 2);
-  }
-  messageFrame.origin.y =
-      titleY - kTitleMessageSpacing - NSHeight(messageFrame);
-  [message_ setFrame:messageFrame];
-
-  // Set new frame for help text and link.
-  if (help_) {
-    if (callSizeToFit)
-      [help_ sizeToFit];
-    CGFloat helpHeight = [help_ frame].size.height;
-    [help_ setFrameSize:NSMakeSize(maxWidth, helpHeight)];
-    // Set new frame origin for link.
-    NSRect helpFrame = [help_ frame];
-    CGFloat helpX = floorf((maxWidth - NSWidth(helpFrame)) / 2);
-    CGFloat helpY =
-        NSMinY(messageFrame) - kMessageLinkSpacing - NSHeight(helpFrame);
-    [help_ setFrameOrigin:NSMakePoint(helpX, helpY)];
-  }
-}
-
-- (void)removeHelpText {
-  if (help_) {
-    [help_ removeFromSuperview];
-    help_.reset(nil);
-  }
+  [button_ setFrameOrigin:
+      NSMakePoint(NSMaxX([self bounds]) - NSWidth([button_ frame]),
+                  NSMaxY([help_ frame]) + kLinkButtonSpacing)];
 }
 
 - (void)initializeHelpText {
   // Programmatically create the help link. Note that the frame's initial
   // height must be set for the programmatic resizing to work.
-  help_.reset(
-      [[HyperlinkTextView alloc] initWithFrame:NSMakeRect(0, 0, 1, 17)]);
-  [help_ setAutoresizingMask:
-      NSViewMinXMargin|NSViewWidthSizable|NSViewMaxXMargin|NSViewMinYMargin];
+  NSFont* helpFont = [message_ font];
+  NSRect helpFrame = NSMakeRect(0, 0, 1, [helpFont pointSize] + 4);
+  help_.reset([[HyperlinkTextView alloc] initWithFrame:helpFrame]);
+  [help_ setAutoresizingMask:NSViewWidthSizable|NSViewMaxYMargin];
+  [help_ setDrawsBackground:YES];
+  [help_ setBackgroundColor:[message_ backgroundColor]];
+  [[help_ textContainer] setLineFragmentPadding:2];  // To align with message_.
   [self addSubview:help_];
   [help_ setDelegate:self];
 
   // Get the help text and link.
   size_t linkOffset = 0;
+  const base::string16 helpLink =
+      l10n_util::GetStringUTF16(IDS_SAD_TAB_HELP_LINK);
   NSString* helpMessage(base::SysUTF16ToNSString(l10n_util::GetStringFUTF16(
-      IDS_SAD_TAB_HELP_MESSAGE, base::string16(), &linkOffset)));
-  NSString* helpLink = l10n_util::GetNSString(IDS_SAD_TAB_HELP_LINK);
-  NSFont* font = [NSFont systemFontOfSize:[NSFont smallSystemFontSize]];
-  [help_ setMessageAndLink:helpMessage
-                  withLink:helpLink
-                  atOffset:linkOffset
-                      font:font
-              messageColor:[NSColor whiteColor]
-                 linkColor:[NSColor whiteColor]];
-  [help_ setAlignment:NSCenterTextAlignment];
+      IDS_SAD_TAB_HELP_MESSAGE, helpLink, &linkOffset)));
+  [help_ setMessage:helpMessage
+           withFont:helpFont
+       messageColor:[message_ textColor]];
+  [help_ addLinkRange:NSMakeRange(linkOffset, helpLink.length())
+             withName:@(chrome::kCrashReasonURL)
+            linkColor:[message_ textColor]];
+  [help_ setAlignment:NSLeftTextAlignment];
+  [help_ sizeToFit];
 }
 
 // Called when someone clicks on the embedded link.
 - (BOOL)textView:(NSTextView*)textView
    clickedOnLink:(id)link
          atIndex:(NSUInteger)charIndex {
-  if (controller_)
-    [controller_ openLearnMoreAboutCrashLink:nil];
+  [NSApp sendAction:@selector(openLearnMoreAboutCrashLink:) to:nil from:self];
   return YES;
+}
+
+@end
+
+@implementation SadTabView
+
++ (NSColor*)backgroundColor {
+  return [NSColor colorWithCalibratedWhite:245.0f/255.0f alpha:1.0];
+}
+
+- (instancetype)initWithFrame:(NSRect)frame {
+  if ((self = [super initWithFrame:frame])) {
+    [self setWantsLayer:YES];
+
+    container_.reset([[SadTabContainerView alloc]
+        initWithBackgroundColor:[SadTabView backgroundColor]]);
+    [self addSubview:container_];
+  }
+  return self;
+}
+
+- (CALayer*)makeBackingLayer {
+  CALayer* layer = [super makeBackingLayer];
+  [layer setBackgroundColor:[[SadTabView backgroundColor] cr_CGColor]];
+  return layer;
+}
+
+- (BOOL)isFlipped {
+  return YES;
+}
+
+- (void)resizeSubviewsWithOldSize:(NSSize)oldSize {
+  NSRect bounds = [self bounds];
+
+  // Set the container size first because its contentHeight will depend on its
+  // width.
+  NSSize frameSize = NSMakeSize(
+      std::min(NSWidth(bounds) - 2 * kTabMargin, kMaxContainerWidth),
+      NSHeight(bounds));
+  [container_ setFrameSize:frameSize];
+
+  // Center horizontally.
+  // Top margin is at least kTabMargin and at most kMaxTopMargin.
+  [container_ setFrameOrigin:NSMakePoint(
+      floor((NSWidth(bounds) - frameSize.width) / 2),
+      std::min(kMaxTopMargin, std::max(kTabMargin,
+          NSHeight(bounds) - [container_ contentHeight] - kTabMargin)))];
+}
+
+- (NSButton*)reloadButton {
+  return [container_ reloadButton];
 }
 
 @end

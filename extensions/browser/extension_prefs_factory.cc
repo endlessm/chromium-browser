@@ -28,8 +28,9 @@ ExtensionPrefsFactory* ExtensionPrefsFactory::GetInstance() {
 }
 
 void ExtensionPrefsFactory::SetInstanceForTesting(
-    content::BrowserContext* context, ExtensionPrefs* prefs) {
-  Associate(context, prefs);
+    content::BrowserContext* context,
+    scoped_ptr<ExtensionPrefs> prefs) {
+  Associate(context, prefs.Pass());
 }
 
 ExtensionPrefsFactory::ExtensionPrefsFactory()
@@ -51,7 +52,8 @@ KeyedService* ExtensionPrefsFactory::BuildServiceInstanceFor(
       context->GetPath().AppendASCII(extensions::kInstallDirectoryName),
       ExtensionPrefValueMapFactory::GetForBrowserContext(context),
       client->CreateAppSorting().Pass(),
-      client->AreExtensionsDisabled(*CommandLine::ForCurrentProcess(), context),
+      client->AreExtensionsDisabled(*base::CommandLine::ForCurrentProcess(),
+                                    context),
       prefs_observers);
 }
 

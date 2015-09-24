@@ -5,11 +5,12 @@
 #include "chrome/browser/net/net_log_temp_file.h"
 
 #include "base/files/file_util.h"
+#include "base/files/scoped_file.h"
 #include "base/values.h"
 #include "chrome/browser/net/chrome_net_log.h"
 #include "chrome/browser/ui/webui/net_internals/net_internals_ui.h"
 #include "content/public/browser/browser_thread.h"
-#include "net/base/net_log_logger.h"
+#include "net/log/write_to_file_net_log_observer.h"
 
 using content::BrowserThread;
 
@@ -21,21 +22,24 @@ NetLogTempFile::NetLogTempFile(ChromeNetLog* chrome_net_log)
 }
 
 NetLogTempFile::~NetLogTempFile() {
-  if (net_log_logger_)
-    net_log_logger_->StopObserving();
+  if (write_to_file_observer_)
+    write_to_file_observer_->StopObserving(nullptr);
 }
 
 void NetLogTempFile::ProcessCommand(Command command) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE_USER_BLOCKING));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE_USER_BLOCKING);
   if (!EnsureInit())
     return;
 
   switch (command) {
+    case DO_START_LOG_BYTES:
+      StartNetLog(LOG_TYPE_LOG_BYTES);
+      break;
     case DO_START:
-      StartNetLog(false);
+      StartNetLog(LOG_TYPE_NORMAL);
       break;
     case DO_START_STRIP_PRIVATE_DATA:
-      StartNetLog(true);
+      StartNetLog(LOG_TYPE_STRIP_PRIVATE_DATA);
       break;
     case DO_STOP:
       StopNetLog();
@@ -47,7 +51,7 @@ void NetLogTempFile::ProcessCommand(Command command) {
 }
 
 base::DictionaryValue* NetLogTempFile::GetState() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE_USER_BLOCKING));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE_USER_BLOCKING);
   base::DictionaryValue* dict = new base::DictionaryValue;
 
   EnsureInit();
@@ -75,6 +79,9 @@ base::DictionaryValue* NetLogTempFile::GetState() {
     case LOG_TYPE_UNKNOWN:
       dict->SetString("logType", "UNKNOWN");
       break;
+    case LOG_TYPE_LOG_BYTES:
+      dict->SetString("logType", "LOG_BYTES");
+      break;
     case LOG_TYPE_NORMAL:
       dict->SetString("logType", "NORMAL");
       break;
@@ -86,8 +93,24 @@ base::DictionaryValue* NetLogTempFile::GetState() {
   return dict;
 }
 
+net::NetLogCaptureMode NetLogTempFile::GetCaptureModeForLogType(
+    LogType log_type) {
+  switch (log_type) {
+  case LOG_TYPE_LOG_BYTES:
+    return net::NetLogCaptureMode::IncludeSocketBytes();
+  case LOG_TYPE_NORMAL:
+    return net::NetLogCaptureMode::IncludeCookiesAndCredentials();
+  case LOG_TYPE_STRIP_PRIVATE_DATA:
+    return net::NetLogCaptureMode::Default();
+  case LOG_TYPE_NONE:
+  case LOG_TYPE_UNKNOWN:
+    NOTREACHED();
+  }
+  return net::NetLogCaptureMode::Default();
+}
+
 bool NetLogTempFile::EnsureInit() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE_USER_BLOCKING));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE_USER_BLOCKING);
   if (state_ != STATE_UNINITIALIZED)
     return true;
 
@@ -103,8 +126,8 @@ bool NetLogTempFile::EnsureInit() {
   return true;
 }
 
-void NetLogTempFile::StartNetLog(bool strip_private_data) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE_USER_BLOCKING));
+void NetLogTempFile::StartNetLog(LogType log_type) {
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE_USER_BLOCKING);
   if (state_ == STATE_LOGGING)
     return;
 
@@ -114,35 +137,32 @@ void NetLogTempFile::StartNetLog(bool strip_private_data) {
   // Try to make sure we can create the file.
   // TODO(rtenneti): Find a better for doing the following. Surface some error
   // to the user if we couldn't create the file.
-  FILE* file = base::OpenFile(log_path_, "w");
-  if (file == NULL)
+  base::ScopedFILE file(base::OpenFile(log_path_, "w"));
+  if (!file)
     return;
 
-  scoped_ptr<base::Value> constants(NetInternalsUI::GetConstants());
-  net_log_logger_.reset(new net::NetLogLogger(file, *constants));
-  if (strip_private_data) {
-    net_log_logger_->set_log_level(net::NetLog::LOG_STRIP_PRIVATE_DATA);
-    log_type_ = LOG_TYPE_STRIP_PRIVATE_DATA;
-  } else {
-    net_log_logger_->set_log_level(net::NetLog::LOG_ALL_BUT_BYTES);
-    log_type_ = LOG_TYPE_NORMAL;
-  }
-  net_log_logger_->StartObserving(chrome_net_log_);
+  log_type_ = log_type;
   state_ = STATE_LOGGING;
+
+  scoped_ptr<base::Value> constants(NetInternalsUI::GetConstants());
+  write_to_file_observer_.reset(new net::WriteToFileNetLogObserver());
+  write_to_file_observer_->set_capture_mode(GetCaptureModeForLogType(log_type));
+  write_to_file_observer_->StartObserving(chrome_net_log_, file.Pass(),
+                                  constants.get(), nullptr);
 }
 
 void NetLogTempFile::StopNetLog() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE_USER_BLOCKING));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE_USER_BLOCKING);
   if (state_ != STATE_LOGGING)
     return;
 
-  net_log_logger_->StopObserving();
-  net_log_logger_.reset();
+  write_to_file_observer_->StopObserving(nullptr);
+  write_to_file_observer_.reset();
   state_ = STATE_NOT_LOGGING;
 }
 
 bool NetLogTempFile::GetFilePath(base::FilePath* path) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE_USER_BLOCKING));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE_USER_BLOCKING);
   if (log_type_ == LOG_TYPE_NONE || state_ == STATE_LOGGING)
     return false;
 
@@ -161,7 +181,7 @@ bool NetLogTempFile::GetFilePath(base::FilePath* path) {
 }
 
 bool NetLogTempFile::GetNetExportLog() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE_USER_BLOCKING));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE_USER_BLOCKING);
   base::FilePath temp_dir;
   if (!GetNetExportLogDirectory(&temp_dir))
     return false;
@@ -171,12 +191,12 @@ bool NetLogTempFile::GetNetExportLog() {
 }
 
 bool NetLogTempFile::GetNetExportLogDirectory(base::FilePath* path) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE_USER_BLOCKING));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE_USER_BLOCKING);
   return base::GetTempDir(path);
 }
 
 bool NetLogTempFile::NetExportLogExists() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE_USER_BLOCKING));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE_USER_BLOCKING);
   DCHECK(!log_path_.empty());
   return base::PathExists(log_path_);
 }

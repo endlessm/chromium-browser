@@ -94,9 +94,11 @@ const wchar_t kSystemPrincipalSid[] =L"S-1-5-18";
 google_breakpad::ExceptionHandler* g_breakpad = NULL;
 google_breakpad::ExceptionHandler* g_dumphandler_no_crash = NULL;
 
+#if !defined(_WIN64)
 EXCEPTION_POINTERS g_surrogate_exception_pointers = {0};
 EXCEPTION_RECORD g_surrogate_exception_record = {0};
 CONTEXT g_surrogate_context = {0};
+#endif  // !defined(_WIN64)
 
 typedef NTSTATUS (WINAPI* NtTerminateProcessPtr)(HANDLE ProcessHandle,
                                                  NTSTATUS ExitStatus);
@@ -196,7 +198,9 @@ namespace {
 // process.
 bool DumpDoneCallbackWhenNoCrash(const wchar_t*, const wchar_t*, void*,
                                  EXCEPTION_POINTERS* ex_info,
-                                 MDRawAssertionInfo*, bool) {
+                                 MDRawAssertionInfo*, bool succeeded) {
+  GetCrashReporterClient()->RecordCrashDumpAttemptResult(
+      false /* is_real_crash */, succeeded);
   return true;
 }
 
@@ -208,7 +212,9 @@ bool DumpDoneCallbackWhenNoCrash(const wchar_t*, const wchar_t*, void*,
 // facilities such as the i18n helpers.
 bool DumpDoneCallback(const wchar_t*, const wchar_t*, void*,
                       EXCEPTION_POINTERS* ex_info,
-                      MDRawAssertionInfo*, bool) {
+                      MDRawAssertionInfo*, bool succeeded) {
+  GetCrashReporterClient()->RecordCrashDumpAttemptResult(
+      true /* is_real_crash */, succeeded);
   // Check if the exception is one of the kind which would not be solved
   // by simply restarting chrome. In this case we show a message box with
   // and exit silently. Remember that chrome is in a crashed state so we
@@ -281,6 +287,20 @@ long WINAPI ServiceExceptionFilter(EXCEPTION_POINTERS* info) {
   return EXCEPTION_EXECUTE_HANDLER;
 }
 
+// Installed via base::debug::SetCrashKeyReportingFunctions.
+void SetCrashKeyValueForBaseDebug(const base::StringPiece& key,
+                                  const base::StringPiece& value) {
+  DCHECK(CrashKeysWin::keeper());
+  CrashKeysWin::keeper()->SetCrashKeyValue(base::UTF8ToUTF16(key),
+                                           base::UTF8ToUTF16(value));
+}
+
+// Installed via base::debug::SetCrashKeyReportingFunctions.
+void ClearCrashKeyForBaseDebug(const base::StringPiece& key) {
+  DCHECK(CrashKeysWin::keeper());
+  CrashKeysWin::keeper()->ClearCrashKeyValue(base::UTF8ToUTF16(key));
+}
+
 }  // namespace
 
 // NOTE: This function is used by SyzyASAN to annotate crash reports. If you
@@ -350,6 +370,20 @@ bool ShowRestartDialogIfCrashed(bool* exit_now) {
   return WrapMessageBoxWithSEH(message.c_str(), title.c_str(), flags, exit_now);
 }
 
+extern "C" void __declspec(dllexport) TerminateProcessWithoutDump() {
+  // Patched stub exists based on conditions (See InitCrashReporter).
+  // As a side note this function also gets called from
+  // WindowProcExceptionFilter.
+  if (g_real_terminate_process_stub == NULL) {
+    ::TerminateProcess(::GetCurrentProcess(), content::RESULT_CODE_KILLED);
+  } else {
+    NtTerminateProcessPtr real_terminate_proc =
+        reinterpret_cast<NtTerminateProcessPtr>(
+            static_cast<char*>(g_real_terminate_process_stub));
+    real_terminate_proc(::GetCurrentProcess(), content::RESULT_CODE_KILLED);
+  }
+}
+
 // Crashes the process after generating a dump for the provided exception. Note
 // that the crash reporter should be initialized before calling this function
 // for it to do anything.
@@ -360,17 +394,7 @@ extern "C" int __declspec(dllexport) CrashForException(
     EXCEPTION_POINTERS* info) {
   if (g_breakpad) {
     g_breakpad->WriteMinidumpForException(info);
-    // Patched stub exists based on conditions (See InitCrashReporter).
-    // As a side note this function also gets called from
-    // WindowProcExceptionFilter.
-    if (g_real_terminate_process_stub == NULL) {
-      ::TerminateProcess(::GetCurrentProcess(), content::RESULT_CODE_KILLED);
-    } else {
-      NtTerminateProcessPtr real_terminate_proc =
-          reinterpret_cast<NtTerminateProcessPtr>(
-              static_cast<char*>(g_real_terminate_process_stub));
-      real_terminate_proc(::GetCurrentProcess(), content::RESULT_CODE_KILLED);
-    }
+    TerminateProcessWithoutDump();
   }
   return EXCEPTION_CONTINUE_SEARCH;
 }
@@ -456,7 +480,7 @@ static void InitPipeNameEnvVar(bool is_per_user_install) {
       GetCrashReporterClient()->ReportingIsEnforcedByPolicy(
           &crash_reporting_enabled);
 
-  const CommandLine& command = *CommandLine::ForCurrentProcess();
+  const base::CommandLine& command = *base::CommandLine::ForCurrentProcess();
   bool use_crash_service = !controlled_by_policy &&
                            (command.HasSwitch(switches::kNoErrorDialogs) ||
                             GetCrashReporterClient()->IsRunningUnattended());
@@ -501,7 +525,7 @@ void InitDefaultCrashCallback(LPTOP_LEVEL_EXCEPTION_FILTER filter) {
 }
 
 void InitCrashReporter(const std::string& process_type_switch) {
-  const CommandLine& command = *CommandLine::ForCurrentProcess();
+  const base::CommandLine& command = *base::CommandLine::ForCurrentProcess();
   if (command.HasSwitch(switches::kDisableBreakpad))
     return;
 
@@ -523,9 +547,20 @@ void InitCrashReporter(const std::string& process_type_switch) {
   CrashKeysWin* keeper = new CrashKeysWin();
 
   google_breakpad::CustomClientInfo* custom_info =
-      keeper->GetCustomInfo(exe_path, process_type,
-                            GetProfileType(), CommandLine::ForCurrentProcess(),
+      keeper->GetCustomInfo(exe_path, process_type, GetProfileType(),
+                            base::CommandLine::ForCurrentProcess(),
                             GetCrashReporterClient());
+
+#if !defined(COMPONENT_BUILD)
+  // chrome/common/child_process_logging_win.cc registers crash keys for
+  // chrome.dll. In a component build, that is sufficient as chrome.dll and
+  // chrome.exe share a copy of base (in base.dll).
+  // In a static build, the EXE must separately initialize the crash keys
+  // configuration as it has its own statically linked copy of base.
+  base::debug::SetCrashKeyReportingFunctions(&SetCrashKeyValueForBaseDebug,
+                                             &ClearCrashKeyForBaseDebug);
+  GetCrashReporterClient()->RegisterCrashKeys();
+#endif
 
   google_breakpad::ExceptionHandler::MinidumpCallback callback = NULL;
   LPTOP_LEVEL_EXCEPTION_FILTER default_filter = NULL;
@@ -613,6 +648,15 @@ void InitCrashReporter(const std::string& process_type_switch) {
       InitTerminateProcessHooks();
     }
 #endif
+  }
+}
+
+void ConsumeInvalidHandleExceptions() {
+  if (g_breakpad) {
+    g_breakpad->set_consume_invalid_handle_exceptions(true);
+  }
+  if (g_dumphandler_no_crash) {
+    g_dumphandler_no_crash->set_consume_invalid_handle_exceptions(true);
   }
 }
 

@@ -7,13 +7,13 @@
 
 #include <set>
 #include <string>
-#include <vector>
 
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "chrome/browser/extensions/active_tab_permission_granter.h"
+#include "chrome/browser/extensions/extension_reenabler.h"
 #include "chrome/common/extensions/webstore_install_result.h"
 #include "chrome/common/web_application_info.h"
 #include "content/public/browser/notification_observer.h"
@@ -65,8 +65,6 @@ class TabHelper : public content::WebContentsObserver,
   // ScriptExecutionObserver::Delegate
   virtual void AddScriptExecutionObserver(ScriptExecutionObserver* observer);
   virtual void RemoveScriptExecutionObserver(ScriptExecutionObserver* observer);
-
-  // App extensions ------------------------------------------------------------
 
   // Sets the extension denoting this as an app. If |extension| is non-null this
   // tab becomes an app-tab. WebContents does not listen for unload events for
@@ -124,6 +122,11 @@ class TabHelper : public content::WebContentsObserver,
       WebstoreInlineInstallerFactory* factory);
 
  private:
+  // Utility function to invoke member functions on all relevant
+  // ContentRulesRegistries.
+  template <class Func>
+  void InvokeForContentRulesRegistries(const Func& func);
+
   // Different types of action when web app info is available.
   // OnDidGetApplicationInfo uses this to dispatch calls.
   enum WebAppAction {
@@ -141,7 +144,7 @@ class TabHelper : public content::WebContentsObserver,
                                const WebApplicationInfo& web_app_info);
 
   // content::WebContentsObserver overrides.
-  void RenderViewCreated(content::RenderViewHost* render_view_host) override;
+  void RenderFrameCreated(content::RenderFrameHost* host) override;
   void DidNavigateMainFrame(
       const content::LoadCommittedDetails& details,
       const content::FrameNavigateParams& params) override;
@@ -158,23 +161,20 @@ class TabHelper : public content::WebContentsObserver,
 
   // Message handlers.
   void OnDidGetWebApplicationInfo(const WebApplicationInfo& info);
-  void OnInlineWebstoreInstall(int install_id,
+  void OnInlineWebstoreInstall(content::RenderFrameHost* host,
+                               int install_id,
                                int return_route_id,
                                const std::string& webstore_item_id,
                                const GURL& requestor_url,
                                int listeners_mask);
-  void OnGetAppInstallState(const GURL& requestor_url,
+  void OnGetAppInstallState(content::RenderFrameHost* host,
+                            const GURL& requestor_url,
                             int return_route_id,
                             int callback_id);
-  void OnRequest(const ExtensionHostMsg_Request_Params& params);
   void OnContentScriptsExecuting(
+      content::RenderFrameHost* host,
       const ScriptExecutionObserver::ExecutingScriptsMap& extension_ids,
       const GURL& on_url);
-  void OnWatchedPageChange(const std::vector<std::string>& css_selectors);
-  void OnDetailedConsoleMessageAdded(const base::string16& message,
-                                     const base::string16& source,
-                                     const StackTrace& stack_trace,
-                                     int32 severity_level);
 
   // App extensions related methods:
 
@@ -187,11 +187,16 @@ class TabHelper : public content::WebContentsObserver,
   void OnImageLoaded(const gfx::Image& image);
 
   // WebstoreStandaloneInstaller::Callback.
-  virtual void OnInlineInstallComplete(int install_id,
-                                       int return_route_id,
-                                       bool success,
-                                       const std::string& error,
-                                       webstore_install::Result result);
+  void OnInlineInstallComplete(int install_id,
+                               int return_route_id,
+                               bool success,
+                               const std::string& error,
+                               webstore_install::Result result);
+
+  // ExtensionReenabler::Callback.
+  void OnReenableComplete(int install_id,
+                          int return_route_id,
+                          ExtensionReenabler::ReenableResult result);
 
   // content::NotificationObserver.
   void Observe(int type,
@@ -203,14 +208,14 @@ class TabHelper : public content::WebContentsObserver,
   // the data is available.
   void GetApplicationInfo(WebAppAction action);
 
-  // Sends our tab ID to |render_view_host|.
-  void SetTabId(content::RenderViewHost* render_view_host);
+  // Sends our tab ID to |render_frame_host|.
+  void SetTabId(content::RenderFrameHost* render_frame_host);
 
-  // Data for app extensions ---------------------------------------------------
+  Profile* profile_;
 
   // Our content script observers. Declare at top so that it will outlive all
   // other members, since they might add themselves as observers.
-  ObserverList<ScriptExecutionObserver> script_execution_observers_;
+  base::ObserverList<ScriptExecutionObserver> script_execution_observers_;
 
   // If non-null this tab is an app tab and this is the extension the tab was
   // created for.
@@ -220,9 +225,6 @@ class TabHelper : public content::WebContentsObserver,
   // non-extension apps.
   SkBitmap extension_app_icon_;
 
-  // Process any extension messages coming from the tab.
-  extensions::ExtensionFunctionDispatcher extension_function_dispatcher_;
-
   // Cached web app info data.
   WebApplicationInfo web_app_info_;
 
@@ -230,9 +232,9 @@ class TabHelper : public content::WebContentsObserver,
   // from a WebContents.
   WebAppAction pending_web_app_action_;
 
-  // Which page id was active when the GetApplicationInfo request was sent, for
-  // verification when the reply returns.
-  int32 last_committed_page_id_;
+  // Which navigation entry was active when the GetApplicationInfo request was
+  // sent, for verification when the reply returns.
+  int last_committed_nav_entry_unique_id_;
 
   // Whether to trigger an update when the page load completes.
   bool update_shortcut_on_load_complete_;
@@ -249,13 +251,17 @@ class TabHelper : public content::WebContentsObserver,
 
   scoped_ptr<BookmarkAppHelper> bookmark_app_helper_;
 
-  Profile* profile_;
-
   // Creates WebstoreInlineInstaller instances for inline install triggers.
   scoped_ptr<WebstoreInlineInstallerFactory> webstore_inline_installer_factory_;
 
+  // The reenable prompt for disabled extensions, if any.
+  scoped_ptr<ExtensionReenabler> extension_reenabler_;
+
   // Vend weak pointers that can be invalidated to stop in-progress loads.
   base::WeakPtrFactory<TabHelper> image_loader_ptr_factory_;
+
+  // Generic weak ptr factory for posting callbacks.
+  base::WeakPtrFactory<TabHelper> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(TabHelper);
 };

@@ -372,7 +372,7 @@ std::string JSONSchemaValidator::GetJSONSchemaType(const base::Value* value) {
 std::string JSONSchemaValidator::FormatErrorMessage(const std::string& format,
                                                     const std::string& s1) {
   std::string ret_val = format;
-  ReplaceFirstSubstringAfterOffset(&ret_val, 0, "*", s1);
+  base::ReplaceFirstSubstringAfterOffset(&ret_val, 0, "*", s1);
   return ret_val;
 }
 
@@ -381,8 +381,8 @@ std::string JSONSchemaValidator::FormatErrorMessage(const std::string& format,
                                                     const std::string& s1,
                                                     const std::string& s2) {
   std::string ret_val = format;
-  ReplaceFirstSubstringAfterOffset(&ret_val, 0, "*", s1);
-  ReplaceFirstSubstringAfterOffset(&ret_val, 0, "*", s2);
+  base::ReplaceFirstSubstringAfterOffset(&ret_val, 0, "*", s1);
+  base::ReplaceFirstSubstringAfterOffset(&ret_val, 0, "*", s2);
   return ret_val;
 }
 
@@ -399,8 +399,8 @@ scoped_ptr<base::DictionaryValue> JSONSchemaValidator::IsValidSchema(
     int validator_options,
     std::string* error) {
   base::JSONParserOptions json_options = base::JSON_PARSE_RFC;
-  scoped_ptr<base::Value> json(
-      base::JSONReader::ReadAndReturnError(schema, json_options, NULL, error));
+  scoped_ptr<base::Value> json(base::JSONReader::DeprecatedReadAndReturnError(
+      schema, json_options, NULL, error));
   if (!json)
     return scoped_ptr<base::DictionaryValue>();
   base::DictionaryValue* dict = NULL;

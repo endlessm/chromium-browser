@@ -54,7 +54,7 @@ bool HasOrdinalNumber(const base::FilePath::StringType& filename) {
 
   for (base::FilePath::StringType::size_type i = l_paren_index + 1;
        i != r_paren_index; ++i) {
-    if (!IsAsciiDigit(filename[i]))
+    if (!base::IsAsciiDigit(filename[i]))
       return false;
   }
 
@@ -382,7 +382,7 @@ static const struct SuggestedSaveNameTestCase {
   // A URL-like title that does not match the title is respected in full.
   { "http://foo.com",
     base::ASCIIToUTF16("http://www.foo.com/path/title.txt"),
-    FPL("http   www.foo.com path title.txt"),
+    FPL("http___www.foo.com_path_title.txt"),
     false
   },
 };

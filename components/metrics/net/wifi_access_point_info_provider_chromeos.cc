@@ -51,10 +51,9 @@ void WifiAccessPointInfoProviderChromeos::DefaultNetworkChanged(
     return;
 
   // Retrieve access point info for wifi connection.
-  NetworkHandler::Get()->network_configuration_handler()->GetProperties(
+  NetworkHandler::Get()->network_configuration_handler()->GetShillProperties(
       default_network->path(),
-      base::Bind(&WifiAccessPointInfoProviderChromeos::ParseInfo,
-                 AsWeakPtr()),
+      base::Bind(&WifiAccessPointInfoProviderChromeos::ParseInfo, AsWeakPtr()),
       chromeos::network_handler::ErrorCallback());
 }
 
@@ -62,8 +61,8 @@ void WifiAccessPointInfoProviderChromeos::ParseInfo(
     const std::string &service_path,
     const base::DictionaryValue& properties) {
   // Skip services that contain "_nomap" in the SSID.
-  std::string ssid =
-      chromeos::shill_property_util::GetSSIDFromProperties(properties, NULL);
+  std::string ssid = chromeos::shill_property_util::GetSSIDFromProperties(
+      properties, false /* verbose_logging */, nullptr);
   if (ssid.find("_nomap", 0) != std::string::npos)
     return;
 

@@ -116,11 +116,11 @@ std::string WidgetDelegate::GetWindowName() const {
 void WidgetDelegate::SaveWindowPlacement(const gfx::Rect& bounds,
                                          ui::WindowShowState show_state) {
   std::string window_name = GetWindowName();
-  if (!ViewsDelegate::views_delegate || window_name.empty())
+  if (!ViewsDelegate::GetInstance() || window_name.empty())
     return;
 
-  ViewsDelegate::views_delegate->SaveWindowPlacement(
-      GetWidget(), window_name, bounds, show_state);
+  ViewsDelegate::GetInstance()->SaveWindowPlacement(GetWidget(), window_name,
+                                                    bounds, show_state);
 }
 
 bool WidgetDelegate::GetSavedWindowPlacement(
@@ -128,10 +128,10 @@ bool WidgetDelegate::GetSavedWindowPlacement(
     gfx::Rect* bounds,
     ui::WindowShowState* show_state) const {
   std::string window_name = GetWindowName();
-  if (!ViewsDelegate::views_delegate || window_name.empty())
+  if (!ViewsDelegate::GetInstance() || window_name.empty())
     return false;
 
-  return ViewsDelegate::views_delegate->GetSavedWindowPlacement(
+  return ViewsDelegate::GetInstance()->GetSavedWindowPlacement(
       widget, window_name, bounds, show_state);
 }
 
@@ -182,6 +182,9 @@ bool WidgetDelegate::ShouldDescendIntoChildForEventHandling(
 ////////////////////////////////////////////////////////////////////////////////
 // WidgetDelegateView:
 
+// static
+const char WidgetDelegateView::kViewClassName[] = "WidgetDelegateView";
+
 WidgetDelegateView::WidgetDelegateView() {
   // A WidgetDelegate should be deleted on DeleteDelegate.
   set_owned_by_client();
@@ -200,6 +203,10 @@ Widget* WidgetDelegateView::GetWidget() {
 
 const Widget* WidgetDelegateView::GetWidget() const {
   return View::GetWidget();
+}
+
+const char* WidgetDelegateView::GetClassName() const {
+  return kViewClassName;
 }
 
 }  // namespace views

@@ -31,27 +31,28 @@
 #include "config.h"
 #include "public/web/WebScopedWindowFocusAllowedIndicator.h"
 
-#include "core/page/WindowFocusAllowedIndicator.h"
+#include "core/dom/Document.h"
+#include "public/web/WebDocument.h"
 #include <gtest/gtest.h>
 
-
-using namespace blink;
-
-namespace {
+namespace blink {
 
 TEST(WebScopedWindowFocusAllowedIndicatorTest, Basic)
 {
-    EXPECT_FALSE(WindowFocusAllowedIndicator::windowFocusAllowed());
+    RefPtrWillBePersistent<Document> document = Document::create();
+    WebDocument webDocument(document);
+
+    EXPECT_FALSE(document->isWindowInteractionAllowed());
     {
-        WebScopedWindowFocusAllowedIndicator indicator1;
-        EXPECT_TRUE(WindowFocusAllowedIndicator::windowFocusAllowed());
+        WebScopedWindowFocusAllowedIndicator indicator1(&webDocument);
+        EXPECT_TRUE(document->isWindowInteractionAllowed());
         {
-            WebScopedWindowFocusAllowedIndicator indicator2;
-            EXPECT_TRUE(WindowFocusAllowedIndicator::windowFocusAllowed());
+            WebScopedWindowFocusAllowedIndicator indicator2(&webDocument);
+            EXPECT_TRUE(document->isWindowInteractionAllowed());
         }
-        EXPECT_TRUE(WindowFocusAllowedIndicator::windowFocusAllowed());
+        EXPECT_TRUE(document->isWindowInteractionAllowed());
     }
-    EXPECT_FALSE(WindowFocusAllowedIndicator::windowFocusAllowed());
+    EXPECT_FALSE(document->isWindowInteractionAllowed());
 }
 
-}
+} // namespace blink

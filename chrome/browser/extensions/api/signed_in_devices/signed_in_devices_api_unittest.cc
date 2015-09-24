@@ -7,8 +7,9 @@
 #include <vector>
 
 #include "base/guid.h"
-#include "base/message_loop/message_loop.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/prefs/pref_service.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/api/signed_in_devices/signed_in_devices_api.h"
 #include "chrome/browser/extensions/extension_api_unittest.h"
@@ -17,6 +18,7 @@
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync/profile_sync_service_mock.h"
 #include "components/sync_driver/device_info.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "extensions/common/extension.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -30,6 +32,8 @@ namespace extensions {
 class MockDeviceInfoTracker : public DeviceInfoTracker {
  public:
   ~MockDeviceInfoTracker() override {}
+
+  bool IsSyncing() const override { return !devices_.empty(); }
 
   scoped_ptr<DeviceInfo> GetDeviceInfo(
       const std::string& client_id) const override {
@@ -70,11 +74,10 @@ class MockDeviceInfoTracker : public DeviceInfoTracker {
 };
 
 TEST(SignedInDevicesAPITest, GetSignedInDevices) {
+  content::TestBrowserThreadBundle thread_bundle;
   TestingProfile profile;
   MockDeviceInfoTracker device_tracker;
-  base::MessageLoop message_loop_;
-  TestExtensionPrefs extension_prefs(
-      message_loop_.message_loop_proxy().get());
+  TestExtensionPrefs extension_prefs(base::ThreadTaskRunnerHandle::Get().get());
 
   // Add a couple of devices and make sure we get back public ids for them.
   std::string extension_name = "test";
@@ -142,9 +145,10 @@ class ProfileSyncServiceMockForExtensionTests:
   MOCK_CONST_METHOD0(GetDeviceInfoTracker, DeviceInfoTracker*());
 };
 
-KeyedService* CreateProfileSyncServiceMock(content::BrowserContext* profile) {
-  return new ProfileSyncServiceMockForExtensionTests(
-      Profile::FromBrowserContext(profile));
+scoped_ptr<KeyedService> CreateProfileSyncServiceMock(
+    content::BrowserContext* context) {
+  return make_scoped_ptr(new ProfileSyncServiceMockForExtensionTests(
+      Profile::FromBrowserContext(context)));
 }
 
 class ExtensionSignedInDevicesTest : public ExtensionApiUnittest {
@@ -236,8 +240,10 @@ TEST_F(ExtensionSignedInDevicesTest, DeviceInfoTrackerNotInitialized) {
       static_cast<ProfileSyncServiceMockForExtensionTests*>(
           ProfileSyncServiceFactory::GetForProfile(profile()));
 
+  MockDeviceInfoTracker device_tracker;
+
   EXPECT_CALL(*pss_mock, GetDeviceInfoTracker())
-    .WillOnce(Return((DeviceInfoTracker*)NULL));
+      .WillOnce(Return(&device_tracker));
   EXPECT_CALL(*pss_mock, Shutdown());
 
   ScopedVector<DeviceInfo> output = GetAllSignedInDevices(

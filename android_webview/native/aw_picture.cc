@@ -23,29 +23,23 @@ void AwPicture::Destroy(JNIEnv* env, jobject obj) {
 }
 
 jint AwPicture::GetWidth(JNIEnv* env, jobject obj) {
-  return picture_->width();
+  return picture_->cullRect().roundOut().width();
 }
 
 jint AwPicture::GetHeight(JNIEnv* env, jobject obj) {
-  return picture_->height();
-}
-
-namespace {
-bool RenderPictureToCanvas(SkPicture* picture, SkCanvas* canvas) {
-  picture->draw(canvas);
-  return true;
-}
+  return picture_->cullRect().roundOut().height();
 }
 
 void AwPicture::Draw(JNIEnv* env, jobject obj, jobject canvas) {
-  bool ok = JavaBrowserViewRendererHelper::GetInstance()
-                ->RenderViaAuxilaryBitmapIfNeeded(
-                    canvas,
-                    gfx::Vector2d(),
-                    gfx::Size(picture_->width(), picture_->height()),
-                    base::Bind(&RenderPictureToCanvas,
-                               base::Unretained(picture_.get())));
-  LOG_IF(ERROR, !ok) << "Couldn't draw picture";
+  const SkIRect bounds = picture_->cullRect().roundOut();
+  scoped_ptr<SoftwareCanvasHolder> canvas_holder = SoftwareCanvasHolder::Create(
+      canvas, gfx::Vector2d(), gfx::Size(bounds.width(), bounds.height()),
+      false);
+  if (!canvas_holder || !canvas_holder->GetCanvas()) {
+    LOG(ERROR) << "Couldn't draw picture";
+    return;
+  }
+  picture_->playback(canvas_holder->GetCanvas());
 }
 
 bool RegisterAwPicture(JNIEnv* env) {

@@ -19,15 +19,18 @@
 #include "ui/gfx/screen.h"
 #include "ui/views/widget/native_widget_aura.h"
 
-#if defined(USE_X11) && !defined(OS_CHROMEOS)
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
 #include "base/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/libgtk2ui/gtk2_ui.h"
 #include "chrome/common/pref_names.h"
 #include "ui/aura/window.h"
 #include "ui/base/ime/input_method_initializer.h"
 #include "ui/native_theme/native_theme_aura.h"
 #include "ui/views/linux_ui/linux_ui.h"
+#endif
+
+#if defined(USE_X11) && !defined(OS_CHROMEOS)
+#include "chrome/browser/ui/libgtk2ui/gtk2_ui.h"
 #endif
 
 #if defined(USE_ASH)
@@ -63,13 +66,15 @@ ui::NativeTheme* GetNativeThemeForWindow(aura::Window* window) {
 // Returns the desktop this process was initially launched in.
 chrome::HostDesktopType GetInitialDesktop() {
 #if defined(OS_WIN) && defined(USE_ASH)
-  const CommandLine* command_line = CommandLine::ForCurrentProcess();
+  const base::CommandLine* command_line =
+      base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kViewerConnect) ||
       command_line->HasSwitch(switches::kViewerLaunchViaAppId)) {
     return chrome::HOST_DESKTOP_TYPE_ASH;
   }
 #elif defined(OS_LINUX)
-  const CommandLine* command_line = CommandLine::ForCurrentProcess();
+  const base::CommandLine* command_line =
+      base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kOpenAsh))
     return chrome::HOST_DESKTOP_TYPE_ASH;
 #endif
@@ -121,8 +126,12 @@ void ChromeBrowserMainExtraPartsAura::PreCreateThreads() {
   if (!chrome::ShouldOpenAshOnStartup())
 #endif
   {
-    gfx::Screen::SetScreenInstance(gfx::SCREEN_TYPE_NATIVE,
-                                   views::CreateDesktopScreen());
+    gfx::Screen* screen = views::CreateDesktopScreen();
+    gfx::Screen::SetScreenInstance(gfx::SCREEN_TYPE_NATIVE, screen);
+#if defined(USE_X11)
+    views::LinuxUI::instance()->UpdateDeviceScaleFactor(
+        screen->GetPrimaryDisplay().device_scale_factor());
+#endif
   }
 #endif
 }
@@ -145,7 +154,8 @@ void ChromeBrowserMainExtraPartsAura::PostMainMessageLoopRun() {
 #if defined(OS_LINUX) && !defined(OS_CHROMEOS)
 void ChromeBrowserMainExtraPartsAura::DetectRunningAsRoot() {
   if (getuid() == 0) {
-    const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+    const base::CommandLine& command_line =
+        *base::CommandLine::ForCurrentProcess();
     if (command_line.HasSwitch(switches::kUserDataDir))
       return;
 

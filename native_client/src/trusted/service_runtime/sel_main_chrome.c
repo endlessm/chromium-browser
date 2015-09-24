@@ -6,6 +6,7 @@
 
 #include "native_client/src/public/chrome_main.h"
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/portability.h"
 #include "native_client/src/include/portability_io.h"
 #include "native_client/src/include/portability_sockets.h"
@@ -27,7 +28,6 @@
 #include "native_client/src/trusted/service_runtime/include/sys/fcntl.h"
 #include "native_client/src/trusted/service_runtime/nacl_all_modules.h"
 #include "native_client/src/trusted/service_runtime/nacl_app.h"
-#include "native_client/src/trusted/service_runtime/nacl_bootstrap_channel_error_reporter.h"
 #include "native_client/src/trusted/service_runtime/nacl_error_log_hook.h"
 #include "native_client/src/trusted/service_runtime/nacl_globals.h"
 #include "native_client/src/trusted/service_runtime/nacl_debug_init.h"
@@ -107,6 +107,7 @@ struct NaClChromeMainArgs *NaClChromeMainArgsCreate(void) {
   args->broker_duplicate_handle_func = NULL;
   args->attach_debug_exception_handler_func = NULL;
 #endif
+  args->load_status_handler_func = NULL;
 #if NACL_LINUX || NACL_OSX
   args->number_of_cores = -1;  /* unknown */
 #endif
@@ -179,14 +180,6 @@ static int LoadApp(struct NaClApp *nap, struct NaClChromeMainArgs *args) {
   int has_bootstrap_channel = args->imc_bootstrap_handle != NACL_INVALID_HANDLE;
 
   CHECK(g_initialized);
-
-  /*
-   * TODO(teravest): Remove this once Chromium uses NaClSetFatalErrorCallback.
-   */
-  if (has_bootstrap_channel && g_fatal_error_handler == NULL) {
-    NaClBootstrapChannelErrorReporterInit();
-    NaClErrorLogHookInit(NaClBootstrapChannelErrorReporter, nap);
-  }
 
   /* Allow or disallow dyncode API based on args. */
   nap->enable_dyncode_syscalls = args->enable_dyncode_syscalls;
@@ -300,11 +293,10 @@ static int LoadApp(struct NaClApp *nap, struct NaClChromeMainArgs *args) {
     NaClSetUpBootstrapChannel(nap, args->imc_bootstrap_handle);
   }
 
-  if (args->nexe_desc) {
-    NaClAppLoadModule(nap, args->nexe_desc, NULL, NULL);
-    NaClDescUnref(args->nexe_desc);
-    args->nexe_desc = NULL;
-  }
+  CHECK(args->nexe_desc != NULL);
+  NaClAppLoadModule(nap, args->nexe_desc, NULL, NULL);
+  NaClDescUnref(args->nexe_desc);
+  args->nexe_desc = NULL;
 
   if (has_bootstrap_channel) {
     NACL_FI_FATAL("BeforeSecureCommandChannel");
@@ -318,18 +310,7 @@ static int LoadApp(struct NaClApp *nap, struct NaClChromeMainArgs *args) {
 
     NaClLog(4, "secure service = %"NACL_PRIxPTR"\n",
             (uintptr_t) nap->secure_service);
-    NACL_FI_FATAL("BeforeWaitForStartModule");
 
-    if (NULL != nap->secure_service) {
-      NaClErrorCode start_result;
-      /*
-       * wait for start_module RPC call on secure channel thread.
-       */
-      start_result = NaClWaitForStartModuleCommand(nap);
-      if (LOAD_OK == errcode) {
-        errcode = start_result;
-      }
-    }
   }
 
   NACL_FI_FATAL("BeforeLoadIrt");
@@ -337,6 +318,9 @@ static int LoadApp(struct NaClApp *nap, struct NaClChromeMainArgs *args) {
   /*
    * error reporting done; can quit now if there was an error earlier.
    */
+  if (LOAD_OK == errcode) {
+    errcode = NaClGetLoadStatus(nap);
+  }
   if (LOAD_OK != errcode) {
     goto done;
   }
@@ -364,13 +348,6 @@ static int LoadApp(struct NaClApp *nap, struct NaClChromeMainArgs *args) {
     }
   }
 
-  if (has_bootstrap_channel) {
-    if (NACL_FI_ERROR_COND("LaunchServiceThreads",
-                           !NaClAppLaunchServiceThreads(nap))) {
-      NaClLog(LOG_FATAL, "Launch service threads failed\n");
-    }
-  }
-
   if (args->enable_debug_stub) {
 #if NACL_LINUX || NACL_OSX
     if (args->debug_stub_server_bound_socket_fd != NACL_INVALID_SOCKET) {
@@ -387,11 +364,40 @@ static int LoadApp(struct NaClApp *nap, struct NaClChromeMainArgs *args) {
 #endif
   }
 
+  if (args->load_status_handler_func != NULL) {
+    args->load_status_handler_func(LOAD_OK);
+  }
   return LOAD_OK;
 
 done:
   fflush(stdout);
 
+  /*
+   * If there is a load status callback, call that now and transfer logs
+   * in preparation for process exit.
+   */
+  if (args->load_status_handler_func != NULL) {
+    /* Don't return LOAD_OK if we had some failure loading. */
+    if (LOAD_OK == errcode) {
+      errcode = LOAD_INTERNAL;
+    }
+    args->load_status_handler_func(errcode);
+    NaClLog(LOG_ERROR, "NaCl LoadApp failed. Transferring logs before exit.\n");
+    NaClLogRunAbortBehavior();
+    /*
+     * Fall through and run NaClBlockIfCommandChannelExists.
+     * TODO(jvoung): remove NaClBlockIfCommandChannelExists() and use the
+     * callback to indicate the load_status after Chromium no longer calls
+     * start_module. We also need to change Chromium so that it does not
+     * attempt to set up the command channel if there is a known load error.
+     * Otherwise there is a race between this process's exit / load error
+     * reporting, and the command channel setup on the Chromium side (plus
+     * the associated reporting). Thus this could end up with two different
+     * load errors being reported (1) the real load error from here, and
+     * (2) the command channel setup failure because the process exited in
+     * the middle of setting up the command channel.
+     */
+  }
   /*
    * If there is a secure command channel, we sent an RPC reply with
    * the reason that the nexe was rejected.  If we exit now, that
@@ -418,7 +424,7 @@ static int StartApp(struct NaClApp *nap, struct NaClChromeMainArgs *args) {
 
   NACL_FI_FATAL("BeforeEnvCleanserCtor");
 
-  NaClEnvCleanserCtor(&env_cleanser, 1);
+  NaClEnvCleanserCtor(&env_cleanser, 1, 0);
   if (!NaClEnvCleanserInit(&env_cleanser, NaClGetEnviron(), NULL)) {
     NaClLog(LOG_FATAL, "Failed to initialise env cleanser\n");
   }
@@ -449,18 +455,6 @@ static int StartApp(struct NaClApp *nap, struct NaClChromeMainArgs *args) {
     NaClLog(LOG_INFO, "NaCl untrusted code called _exit(0x%x)\n", ret_code);
   }
   return ret_code;
-}
-
-void NaClChromeMainStartApp(struct NaClApp *nap,
-                            struct NaClChromeMainArgs *args) {
-  int status = 1;
-  NaClChromeMainStart(nap, args, &status);
-  /*
-   * exit_group or equiv kills any still running threads while module
-   * addr space is still valid.  otherwise we'd have to kill threads
-   * before we clean up the address space.
-   */
-  NaClExit(status);
 }
 
 int NaClChromeMainStart(struct NaClApp *nap,

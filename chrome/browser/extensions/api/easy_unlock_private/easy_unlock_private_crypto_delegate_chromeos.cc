@@ -9,7 +9,8 @@
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
 namespace extensions {
-namespace api {
+
+namespace easy_unlock_private = api::easy_unlock_private;
 
 namespace {
 
@@ -39,62 +40,78 @@ std::string SignatureTypeToString(easy_unlock_private::SignatureType type) {
 
 // ChromeOS specific EasyUnlockPrivateCryptoDelegate implementation.
 class EasyUnlockPrivateCryptoDelegateChromeOS
-    : public extensions::api::EasyUnlockPrivateCryptoDelegate {
+    : public extensions::EasyUnlockPrivateCryptoDelegate {
  public:
   EasyUnlockPrivateCryptoDelegateChromeOS()
       : dbus_client_(
             chromeos::DBusThreadManager::Get()->GetEasyUnlockClient()) {
   }
 
-  virtual ~EasyUnlockPrivateCryptoDelegateChromeOS() {}
+  ~EasyUnlockPrivateCryptoDelegateChromeOS() override {}
 
-  virtual void GenerateEcP256KeyPair(const KeyPairCallback& callback) override {
+  void GenerateEcP256KeyPair(const KeyPairCallback& callback) override {
     dbus_client_->GenerateEcP256KeyPair(callback);
   }
 
-  virtual void PerformECDHKeyAgreement(
+  void PerformECDHKeyAgreement(
       const easy_unlock_private::PerformECDHKeyAgreement::Params& params,
       const DataCallback& callback) override {
     dbus_client_->PerformECDHKeyAgreement(
-        params.private_key,
-        params.public_key,
+        std::string(params.private_key.begin(), params.private_key.end()),
+        std::string(params.public_key.begin(), params.public_key.end()),
         callback);
   }
 
-  virtual void CreateSecureMessage(
+  void CreateSecureMessage(
       const easy_unlock_private::CreateSecureMessage::Params& params,
       const DataCallback& callback) override {
     chromeos::EasyUnlockClient::CreateSecureMessageOptions options;
-    options.key = params.key;
-    if (params.options.associated_data)
-      options.associated_data = *params.options.associated_data;
-    if (params.options.public_metadata)
-      options.public_metadata = *params.options.public_metadata;
-    if (params.options.verification_key_id)
-      options.verification_key_id = *params.options.verification_key_id;
-    if (params.options.decryption_key_id)
-      options.decryption_key_id = *params.options.decryption_key_id;
+    options.key.assign(params.key.begin(), params.key.end());
+    if (params.options.associated_data) {
+      options.associated_data.assign(params.options.associated_data->begin(),
+                                     params.options.associated_data->end());
+    }
+    if (params.options.public_metadata) {
+      options.public_metadata.assign(params.options.public_metadata->begin(),
+                                     params.options.public_metadata->end());
+    }
+    if (params.options.verification_key_id) {
+      options.verification_key_id.assign(
+          params.options.verification_key_id->begin(),
+          params.options.verification_key_id->end());
+    }
+    if (params.options.decryption_key_id) {
+      options.decryption_key_id.assign(
+          params.options.decryption_key_id->begin(),
+          params.options.decryption_key_id->end());
+    }
     options.encryption_type =
         EncryptionTypeToString(params.options.encrypt_type);
     options.signature_type =
         SignatureTypeToString(params.options.sign_type);
 
-    dbus_client_->CreateSecureMessage(params.payload, options, callback);
+    dbus_client_->CreateSecureMessage(
+        std::string(params.payload.begin(), params.payload.end()), options,
+        callback);
   }
 
-  virtual void UnwrapSecureMessage(
+  void UnwrapSecureMessage(
       const easy_unlock_private::UnwrapSecureMessage::Params& params,
       const DataCallback& callback) override {
     chromeos::EasyUnlockClient::UnwrapSecureMessageOptions options;
-    options.key = params.key;
-    if (params.options.associated_data)
-      options.associated_data = *params.options.associated_data;
+    options.key.assign(params.key.begin(), params.key.end());
+    if (params.options.associated_data) {
+      options.associated_data.assign(params.options.associated_data->begin(),
+                                     params.options.associated_data->end());
+    }
     options.encryption_type =
         EncryptionTypeToString(params.options.encrypt_type);
     options.signature_type =
         SignatureTypeToString(params.options.sign_type);
 
-    dbus_client_->UnwrapSecureMessage(params.secure_message, options, callback);
+    dbus_client_->UnwrapSecureMessage(
+        std::string(params.secure_message.begin(), params.secure_message.end()),
+        options, callback);
   }
 
  private:
@@ -112,5 +129,4 @@ scoped_ptr<EasyUnlockPrivateCryptoDelegate>
       new EasyUnlockPrivateCryptoDelegateChromeOS());
 }
 
-}  // namespace api
 }  // namespace extensions

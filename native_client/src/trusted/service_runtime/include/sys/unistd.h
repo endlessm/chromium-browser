@@ -131,7 +131,8 @@ int     _EXFUN(pause, (void ));
 #ifdef __CYGWIN__
 int _EXFUN(pthread_atfork, (void (*)(void), void (*)(void), void (*)(void)));
 #endif
-int     _EXFUN(pipe, (int __fildes[2] ));
+int     _EXFUN(pipe, (int __fildes[2]));
+int     _EXFUN(pipe2, (int __fildes[2], int __flags));
 ssize_t _EXFUN(pread, (int __fd, void *__buf, size_t __nbytes, off_t __offset));
 ssize_t _EXFUN(pwrite, (int __fd, const void *__buf, size_t __nbytes, off_t __offset));
 _READ_WRITE_RETURN_TYPE _EXFUN(read, (int __fd, void *__buf, size_t __nbyte ));
@@ -281,11 +282,14 @@ enum {
 #define NACL_ABI__SC_NPROCESSORS_ONLN NACL_ABI__SC_NPROCESSORS_ONLN
   NACL_ABI__SC_PAGESIZE = 2,
 #define NACL_ABI__SC_PAGESIZE NACL_ABI__SC_PAGESIZE
+  NACL_ABI__SC_NACL_CPU_FEATURE_X86 = 1 << 16,
+#define NACL_ABI__SC_NACL_CPU_FEATURE_X86 \
+    NACL_ABI__SC_NACL_CPU_FEATURE_X86
 
   /*
    * The sysconf values below are not part of the stable ABI.
    */
-  NACL_ABI__SC_NACL_FILE_ACCESS_ENABLED = 1000,
+  NACL_ABI__SC_NACL_FILE_ACCESS_ENABLED = 1 << 24,
 #define NACL_ABI__SC_NACL_FILE_ACCESS_ENABLED \
     NACL_ABI__SC_NACL_FILE_ACCESS_ENABLED
   NACL_ABI__SC_NACL_LIST_MAPPINGS_ENABLED,

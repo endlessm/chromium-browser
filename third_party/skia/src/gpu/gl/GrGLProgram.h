@@ -10,11 +10,8 @@
 #define GrGLProgram_DEFINED
 
 #include "builders/GrGLProgramBuilder.h"
-#include "builders/GrGLNvprProgramBuilder.h"
-#include "GrDrawState.h"
 #include "GrGLContext.h"
 #include "GrGLProgramDesc.h"
-#include "GrGLSL.h"
 #include "GrGLTexture.h"
 #include "GrGLProgramDataManager.h"
 
@@ -24,6 +21,7 @@
 class GrGLProcessor;
 class GrGLInstalledProcessors;
 class GrGLProgramBuilder;
+class GrPipeline;
 
 /**
  * This class manages a GPU program and records per-program information.
@@ -36,7 +34,7 @@ class GrGLProgramBuilder;
  */
 class GrGLProgram : public SkRefCnt {
 public:
-    SK_DECLARE_INST_COUNT(GrGLProgram)
+    
 
     typedef GrGLProgramBuilder::BuiltinUniformHandles BuiltinUniformHandles;
 
@@ -54,53 +52,20 @@ public:
      */
     GrGLuint programID() const { return fProgramID; }
 
-    /*
-     * The base class always has a vertex shader, only the NVPR variants may omit a vertex shader
-     */
-    virtual bool hasVertexShader() const { return true; }
-
     /**
-     * The GrDrawState's view matrix along with the aspects of the render target determine the
-     * matrix sent to GL. The size of the render target affects the GL matrix because we must
-     * convert from Skia device coords to GL's normalized coords. Also the origin of the render
-     * target may require us to perform a mirror-flip.
+     * We use the RT's size and origin to adjust from Skia device space to OpenGL normalized device
+     * space and to make device space positions have the correct origin for processors that require
+     * them.
      */
-    struct MatrixState {
-        SkMatrix        fViewMatrix;
+    struct RenderTargetState {
         SkISize         fRenderTargetSize;
         GrSurfaceOrigin fRenderTargetOrigin;
 
-        MatrixState() { this->invalidate(); }
+        RenderTargetState() { this->invalidate(); }
         void invalidate() {
-            fViewMatrix = SkMatrix::InvalidMatrix();
             fRenderTargetSize.fWidth = -1;
             fRenderTargetSize.fHeight = -1;
             fRenderTargetOrigin = (GrSurfaceOrigin) -1;
-        }
-
-        /**
-         * Gets a matrix that goes from local coords to Skia's device coordinates.
-         */
-        template<int Size> void getGLMatrix(GrGLfloat* destMatrix) {
-            GrGLGetMatrix<Size>(destMatrix, fViewMatrix);
-        }
-
-        /**
-         * Gets a matrix that goes from local coordinates to GL normalized device coords.
-         */
-        template<int Size> void getRTAdjustedGLMatrix(GrGLfloat* destMatrix) {
-            SkMatrix combined;
-            if (kBottomLeft_GrSurfaceOrigin == fRenderTargetOrigin) {
-                combined.setAll(SkIntToScalar(2) / fRenderTargetSize.fWidth, 0, -SK_Scalar1,
-                                0, -SkIntToScalar(2) / fRenderTargetSize.fHeight, SK_Scalar1,
-                                0, 0, 1);
-            } else {
-                combined.setAll(SkIntToScalar(2) / fRenderTargetSize.fWidth, 0, -SK_Scalar1,
-                                0, SkIntToScalar(2) / fRenderTargetSize.fHeight, -SK_Scalar1,
-                                0, 0, 1);
-            }
-            combined.preConcat(fViewMatrix);
-            GrGLGetMatrix<Size>(destMatrix, combined);
         }
 
         /**
@@ -124,145 +89,67 @@ public:
     };
 
     /**
-     * This function uploads uniforms and calls each GrGLProcessor's setData. It is called before a
-     * draw occurs using the program after the program has already been bound. It also uses the
-     * GrGpuGL object to bind the textures required by the GrGLProcessors. The color and coverage
-     * stages come from GrGLProgramDesc::Build().
+     * This function uploads uniforms, calls each GrGLProcessor's setData, and retrieves the
+     * textures that need to be bound on each unit. It is the caller's responsibility to ensure
+     * the program is bound before calling, and to bind the outgoing textures to their respective
+     * units upon return. (Each index in the array corresponds to its matching GL texture unit.)
      */
-    void setData(const GrOptDrawState&,
-                 GrGpu::DrawType,
-                 const GrDeviceCoordTexture* dstCopy /* can be NULL*/);
+    void setData(const GrPrimitiveProcessor&, const GrPipeline&, const GrBatchTracker&,
+                 SkTArray<const GrTextureAccess*>* textureBindings);
 
 protected:
     typedef GrGLProgramDataManager::UniformHandle UniformHandle;
     typedef GrGLProgramDataManager::UniformInfoArray UniformInfoArray;
 
-    GrGLProgram(GrGpuGL*,
+    GrGLProgram(GrGLGpu*,
                 const GrProgramDesc&,
                 const BuiltinUniformHandles&,
                 GrGLuint programID,
                 const UniformInfoArray&,
                 GrGLInstalledGeoProc* geometryProcessor,
-                GrGLInstalledFragProcs* fragmentProcessors);
-
-    // Sets the texture units for samplers.
-    void initSamplerUniforms();
-    void initSamplers(GrGLInstalledProc*, int* texUnitIdx);
-
-    // Helper for setData(). Makes GL calls to specify the initial color when there is not
-    // per-vertex colors.
-    void setColor(const GrOptDrawState&, GrColor color);
-
-    // Helper for setData(). Makes GL calls to specify the initial coverage when there is not
-    // per-vertex coverages.
-    void setCoverage(const GrOptDrawState&, uint8_t coverage);
+                GrGLInstalledXferProc* xferProcessor,
+                GrGLInstalledFragProcs* fragmentProcessors,
+                SkTArray<UniformHandle>* passSamplerUniforms);
 
     // A templated helper to loop over effects, set the transforms(via subclass) and bind textures
-    void setFragmentData(const GrOptDrawState&);
-    virtual void setTransformData(const GrFragmentStage& effectStage, GrGLInstalledFragProc* pe);
-    void bindTextures(const GrGLInstalledProc*, const GrProcessor&);
+    void setFragmentData(const GrPrimitiveProcessor&, const GrPipeline&,
+                         SkTArray<const GrTextureAccess*>* textureBindings);
+    virtual void setTransformData(const GrPrimitiveProcessor&,
+                                  const GrPendingFragmentStage&,
+                                  int index,
+                                  GrGLInstalledFragProc*);
 
     /*
      * Legacy NVPR needs a hook here to flush path tex gen settings.
      * TODO when legacy nvpr is removed, remove this call.
      */
-    virtual void didSetData(GrGpu::DrawType);
+    virtual void didSetData() {}
 
     // Helper for setData() that sets the view matrix and loads the render target height uniform
-    void setMatrixAndRenderTargetHeight(GrGpu::DrawType, const GrOptDrawState&);
-    virtual void onSetMatrixAndRenderTargetHeight(GrGpu::DrawType, const GrOptDrawState&);
+    void setRenderTargetState(const GrPrimitiveProcessor&, const GrPipeline&);
+    virtual void onSetRenderTargetState(const GrPrimitiveProcessor&, const GrPipeline&);
 
     // these reflect the current values of uniforms (GL uniform values travel with program)
-    MatrixState fMatrixState;
+    RenderTargetState fRenderTargetState;
     GrColor fColor;
     uint8_t fCoverage;
-    int fDstCopyTexUnit;
+    int fDstTextureUnit;
     BuiltinUniformHandles fBuiltinUniformHandles;
     GrGLuint fProgramID;
 
     // the installed effects
     SkAutoTDelete<GrGLInstalledGeoProc> fGeometryProcessor;
+    SkAutoTDelete<GrGLInstalledXferProc> fXferProcessor;
     SkAutoTUnref<GrGLInstalledFragProcs> fFragmentProcessors;
 
     GrProgramDesc fDesc;
-    GrGpuGL* fGpu;
+    GrGLGpu* fGpu;
     GrGLProgramDataManager fProgramDataManager;
+    SkTArray<UniformHandle> fSamplerUniforms;
 
     friend class GrGLProgramBuilder;
 
     typedef SkRefCnt INHERITED;
-};
-
-/*
- * Below are slight specializations of the program object for the different types of programs
- * The default GrGL programs consist of at the very least a vertex and fragment shader.
- * Legacy Nvpr only has a fragment shader, 1.3+ Nvpr ignores the vertex shader, but both require
- * specialized methods for setting transform data. Both types of NVPR also require setting the
- * projection matrix through a special function call
- */
-class GrGLNvprProgramBase : public GrGLProgram {
-protected:
-    GrGLNvprProgramBase(GrGpuGL*,
-                        const GrProgramDesc&,
-                        const BuiltinUniformHandles&,
-                        GrGLuint programID,
-                        const UniformInfoArray&,
-                        GrGLInstalledFragProcs* fragmentProcessors);
-    virtual void onSetMatrixAndRenderTargetHeight(GrGpu::DrawType, const GrOptDrawState&);
-
-    typedef GrGLProgram INHERITED;
-};
-
-class GrGLNvprProgram : public GrGLNvprProgramBase {
-public:
-      virtual bool hasVertexShader() const SK_OVERRIDE { return true; }
-
-private:
-    typedef GrGLNvprProgramBuilder::SeparableVaryingInfo SeparableVaryingInfo;
-    typedef GrGLNvprProgramBuilder::SeparableVaryingInfoArray SeparableVaryingInfoArray;
-    GrGLNvprProgram(GrGpuGL*,
-                    const GrProgramDesc&,
-                    const BuiltinUniformHandles&,
-                    GrGLuint programID,
-                    const UniformInfoArray&,
-                    GrGLInstalledFragProcs* fragmentProcessors,
-                    const SeparableVaryingInfoArray& separableVaryings);
-    virtual void didSetData(GrGpu::DrawType) SK_OVERRIDE;
-    virtual void setTransformData(const GrFragmentStage&, GrGLInstalledFragProc*) SK_OVERRIDE;
-
-    struct Varying {
-        GrGLint     fLocation;
-        SkDEBUGCODE(
-            GrSLType    fType;
-        );
-    };
-    SkTArray<Varying, true> fVaryings;
-
-    friend class GrGLNvprProgramBuilder;
-
-    typedef GrGLNvprProgramBase INHERITED;
-};
-
-class GrGLLegacyNvprProgram : public GrGLNvprProgramBase {
-public:
-    virtual bool hasVertexShader() const SK_OVERRIDE { return false; }
-
-private:
-    GrGLLegacyNvprProgram(GrGpuGL* gpu,
-                          const GrProgramDesc& desc,
-                          const BuiltinUniformHandles&,
-                          GrGLuint programID,
-                          const UniformInfoArray&,
-                          GrGLInstalledFragProcs* fragmentProcessors,
-                          int texCoordSetCnt);
-    virtual void didSetData(GrGpu::DrawType) SK_OVERRIDE;
-    virtual void setTransformData(const GrFragmentStage&, GrGLInstalledFragProc*) SK_OVERRIDE;
-
-    int fTexCoordSetCnt;
-
-    friend class GrGLLegacyNvprProgramBuilder;
-
-    typedef GrGLNvprProgramBase INHERITED;
 };
 
 #endif

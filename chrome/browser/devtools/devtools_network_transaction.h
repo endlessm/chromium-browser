@@ -106,6 +106,7 @@ class DevToolsNetworkTransaction : public net::HttpTransaction {
   void SetBeforeProxyHeadersSentCallback(
       const BeforeProxyHeadersSentCallback& callback) override;
   int ResumeNetworkStart() override;
+  void GetConnectionAttempts(net::ConnectionAttempts* out) const override;
 
  protected:
   friend class test::DevToolsNetworkControllerHelper;
@@ -124,9 +125,6 @@ class DevToolsNetworkTransaction : public net::HttpTransaction {
   scoped_ptr<net::HttpTransaction> network_transaction_;
 
   const net::HttpRequestInfo* request_;
-
-  // True if Start was already invoked.
-  bool started_;
 
   // True if Fail was already invoked.
   bool failed_;

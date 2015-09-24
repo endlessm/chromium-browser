@@ -38,8 +38,6 @@
 #include "sync/protocol/search_engine_specifics.pb.h"
 #include "sync/protocol/session_specifics.pb.h"
 #include "sync/protocol/sync.pb.h"
-#include "sync/protocol/synced_notification_app_info_specifics.pb.h"
-#include "sync/protocol/synced_notification_specifics.pb.h"
 #include "sync/protocol/theme_specifics.pb.h"
 #include "sync/protocol/typed_url_specifics.pb.h"
 #include "sync/protocol/unique_position.pb.h"
@@ -51,33 +49,28 @@ namespace {
 
 // Basic Type -> Value functions.
 
-base::StringValue* MakeInt64Value(int64 x) {
-  return new base::StringValue(base::Int64ToString(x));
+scoped_ptr<base::StringValue> MakeInt64Value(int64 x) {
+  return make_scoped_ptr(new base::StringValue(base::Int64ToString(x)));
 }
 
 // TODO(akalin): Perhaps make JSONWriter support BinaryValue and use
 // that instead of a StringValue.
-base::StringValue* MakeBytesValue(const std::string& bytes) {
+std::string Base64EncodeString(const std::string& bytes) {
   std::string bytes_base64;
   base::Base64Encode(bytes, &bytes_base64);
-  return new base::StringValue(bytes_base64);
+  return bytes_base64;
 }
 
-base::StringValue* MakeStringValue(const std::string& str) {
-  return new base::StringValue(str);
-}
-
-// T is the enum type.
-template <class T>
-base::StringValue* MakeEnumValue(T t, const char* (*converter_fn)(T)) {
-  return new base::StringValue(converter_fn(t));
+scoped_ptr<base::StringValue> MakeStringValue(const std::string& str) {
+  return make_scoped_ptr(new base::StringValue(str));
 }
 
 // T is the field type, F is either RepeatedField or RepeatedPtrField,
 // and V is a subclass of Value.
 template <class T, class F, class V>
-base::ListValue* MakeRepeatedValue(const F& fields, V* (*converter_fn)(T)) {
-  base::ListValue* list = new base::ListValue();
+scoped_ptr<base::ListValue> MakeRepeatedValue(const F& fields,
+                                              V (*converter_fn)(T)) {
+  scoped_ptr<base::ListValue> list(new base::ListValue());
   for (typename F::const_iterator it = fields.begin(); it != fields.end();
        ++it) {
     list->Append(converter_fn(*it));
@@ -85,39 +78,38 @@ base::ListValue* MakeRepeatedValue(const F& fields, V* (*converter_fn)(T)) {
   return list;
 }
 
-base::StringValue* MakeTimestampValue(int64 tm) {
-  return new base::StringValue(
-      base::TimeFormatShortDateAndTime(syncer::ProtoTimeToTime(tm)));
+base::string16 TimestampToString(int64 tm) {
+  return base::TimeFormatShortDateAndTime(syncer::ProtoTimeToTime(tm));
 }
 
 }  // namespace
 
 // Helper macros to reduce the amount of boilerplate.
 
-#define SET(field, fn) \
-  if (proto.has_##field()) { \
-    value->Set(#field, fn(proto.field())); \
+#define SET_TYPE(field, set_fn, transform)           \
+  if (proto.has_##field()) {                         \
+    value->set_fn(#field, transform(proto.field())); \
   }
+#define SET(field, fn) SET_TYPE(field, Set, fn)
 #define SET_REP(field, fn) \
   value->Set(#field, MakeRepeatedValue(proto.field(), fn))
-#define SET_ENUM(field, fn) \
-  value->Set(#field, MakeEnumValue(proto.field(), fn))
+#define SET_ENUM(field, fn) SET_TYPE(field, SetString, fn)
 
-#define SET_BOOL(field) SET(field, new base::FundamentalValue)
-#define SET_BYTES(field) SET(field, MakeBytesValue)
-#define SET_INT32(field) SET(field, MakeInt64Value)
+#define SET_BOOL(field) SET_TYPE(field, SetBoolean, )
+#define SET_BYTES(field) SET_TYPE(field, SetString, Base64EncodeString)
+#define SET_INT32(field) SET_TYPE(field, SetString, base::Int64ToString)
 #define SET_INT32_REP(field) SET_REP(field, MakeInt64Value)
-#define SET_INT64(field) SET(field, MakeInt64Value)
+#define SET_INT64(field) SET_TYPE(field, SetString, base::Int64ToString)
 #define SET_INT64_REP(field) SET_REP(field, MakeInt64Value)
-#define SET_STR(field) SET(field, new base::StringValue)
-#define SET_TIME_STR(field) SET(field, MakeTimestampValue)
-#define SET_STR_REP(field) \
-  value->Set(#field, \
-             MakeRepeatedValue<const std::string&, \
-                               google::protobuf::RepeatedPtrField< \
-                                   std::string >, \
-                               base::StringValue>(proto.field(), \
-                                            MakeStringValue))
+#define SET_STR(field) SET_TYPE(field, SetString, )
+#define SET_TIME_STR(field) SET_TYPE(field, SetString, TimestampToString)
+#define SET_STR_REP(field)                                               \
+  value->Set(                                                            \
+      #field,                                                            \
+      MakeRepeatedValue<const std::string&,                              \
+                        google::protobuf::RepeatedPtrField<std::string>, \
+                        scoped_ptr<base::StringValue>>(proto.field(),    \
+                                                       MakeStringValue))
 #define SET_EXPERIMENT_ENABLED_FIELD(field)          \
   do {                                               \
     if (proto.has_##field() &&                       \
@@ -138,35 +130,36 @@ base::StringValue* MakeTimestampValue(int64 tm) {
 // If you add another macro, don't forget to add an #undef at the end
 // of this file, too.
 
-base::DictionaryValue* EncryptedDataToValue(
+scoped_ptr<base::DictionaryValue> EncryptedDataToValue(
     const sync_pb::EncryptedData& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(key_name);
   // TODO(akalin): Shouldn't blob be of type bytes instead of string?
   SET_BYTES(blob);
   return value;
 }
 
-base::DictionaryValue* AppSettingsToValue(
+scoped_ptr<base::DictionaryValue> AppSettingsToValue(
     const sync_pb::AppNotificationSettings& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_BOOL(initial_setup_done);
   SET_BOOL(disabled);
   SET_STR(oauth_client_id);
   return value;
 }
 
-base::DictionaryValue* SessionHeaderToValue(
+scoped_ptr<base::DictionaryValue> SessionHeaderToValue(
     const sync_pb::SessionHeader& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_REP(window, SessionWindowToValue);
   SET_STR(client_name);
   SET_ENUM(device_type, GetDeviceTypeString);
   return value;
 }
 
-base::DictionaryValue* SessionTabToValue(const sync_pb::SessionTab& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+scoped_ptr<base::DictionaryValue> SessionTabToValue(
+    const sync_pb::SessionTab& proto) {
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_INT32(tab_id);
   SET_INT32(window_id);
   SET_INT32(tab_visual_index);
@@ -177,12 +170,13 @@ base::DictionaryValue* SessionTabToValue(const sync_pb::SessionTab& proto) {
   SET_BYTES(favicon);
   SET_ENUM(favicon_type, GetFaviconTypeString);
   SET_STR(favicon_source);
+  SET_REP(variation_id, MakeInt64Value);
   return value;
 }
 
-base::DictionaryValue* SessionWindowToValue(
+scoped_ptr<base::DictionaryValue> SessionWindowToValue(
     const sync_pb::SessionWindow& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_INT32(window_id);
   SET_INT32(selected_tab_index);
   SET_INT32_REP(tab);
@@ -190,9 +184,9 @@ base::DictionaryValue* SessionWindowToValue(
   return value;
 }
 
-base::DictionaryValue* TabNavigationToValue(
+scoped_ptr<base::DictionaryValue> TabNavigationToValue(
     const sync_pb::TabNavigation& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(virtual_url);
   SET_STR(referrer);
   SET_STR(title);
@@ -212,23 +206,24 @@ base::DictionaryValue* TabNavigationToValue(
   SET_ENUM(blocked_state, GetBlockedStateString);
   SET_STR_REP(content_pack_categories);
   SET_INT32(http_status_code);
-  SET_INT32(referrer_policy);
+  SET_INT32(obsolete_referrer_policy);
   SET_BOOL(is_restored);
   SET_REP(navigation_redirect, NavigationRedirectToValue);
   SET_STR(last_navigation_redirect_url);
+  SET_INT32(correct_referrer_policy);
   return value;
 }
 
-base::DictionaryValue* NavigationRedirectToValue(
+scoped_ptr<base::DictionaryValue> NavigationRedirectToValue(
     const sync_pb::NavigationRedirect& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(url);
   return value;
 }
 
-base::DictionaryValue* PasswordSpecificsDataToValue(
+scoped_ptr<base::DictionaryValue> PasswordSpecificsDataToValue(
     const sync_pb::PasswordSpecificsData& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_INT32(scheme);
   SET_STR(signon_realm);
   SET_STR(origin);
@@ -249,147 +244,26 @@ base::DictionaryValue* PasswordSpecificsDataToValue(
   return value;
 }
 
-base::DictionaryValue* GlobalIdDirectiveToValue(
+scoped_ptr<base::DictionaryValue> GlobalIdDirectiveToValue(
     const sync_pb::GlobalIdDirective& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_INT64_REP(global_id);
   SET_INT64(start_time_usec);
   SET_INT64(end_time_usec);
   return value;
 }
 
-base::DictionaryValue* TimeRangeDirectiveToValue(
+scoped_ptr<base::DictionaryValue> TimeRangeDirectiveToValue(
     const sync_pb::TimeRangeDirective& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_INT64(start_time_usec);
   SET_INT64(end_time_usec);
   return value;
 }
 
-base::DictionaryValue* SyncedNotificationAppInfoToValue(
-    const sync_pb::SyncedNotificationAppInfo& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
-  SET_STR_REP(app_id);
-  SET_STR(settings_display_name);
-  SET_STR(app_name);
-  SET_STR(settings_url);
-  SET_STR(info_url);
-  SET(icon, SyncedNotificationImageToValue);
-  // TODO(petewil): Add fields for the monochrome icon when it is available.
-  return value;
-}
-
-base::DictionaryValue* SyncedNotificationImageToValue(
-    const sync_pb::SyncedNotificationImage& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
-  SET_STR(url);
-  SET_STR(alt_text);
-  SET_INT32(preferred_width);
-  SET_INT32(preferred_height);
-  return value;
-}
-
-base::DictionaryValue* SyncedNotificationProfileImageToValue(
-    const sync_pb::SyncedNotificationProfileImage& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
-  SET_STR(image_url);
-  SET_STR(oid);
-  SET_STR(display_name);
-  return value;
-}
-
-base::DictionaryValue* MediaToValue(
-    const sync_pb::Media& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
-  SET(image, SyncedNotificationImageToValue);
-  return value;
-}
-
-base::DictionaryValue* SyncedNotificationActionToValue(
-    const sync_pb::SyncedNotificationAction& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
-  SET_STR(text);
-  SET(icon, SyncedNotificationImageToValue);
-  SET_STR(url);
-  SET_STR(request_data);
-  SET_STR(accessibility_label);
-  return value;
-}
-
-base::DictionaryValue* SyncedNotificationDestiationToValue(
-    const sync_pb::SyncedNotificationDestination& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
-  SET_STR(text);
-  SET(icon, SyncedNotificationImageToValue);
-  SET_STR(url);
-  SET_STR(accessibility_label);
-  return value;
-}
-
-base::DictionaryValue* TargetToValue(
-    const sync_pb::Target& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
-  SET(destination, SyncedNotificationDestiationToValue);
-  SET(action, SyncedNotificationActionToValue);
-  SET_STR(target_key);
-  return value;
-}
-
-base::DictionaryValue* SimpleCollapsedLayoutToValue(
-    const sync_pb::SimpleCollapsedLayout& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
-  SET(app_icon, SyncedNotificationImageToValue);
-  SET_REP(profile_image, SyncedNotificationProfileImageToValue);
-  SET_STR(heading);
-  SET_STR(description);
-  SET_STR(annotation);
-  SET_REP(media, MediaToValue);
-  return value;
-}
-
-base::DictionaryValue* CollapsedInfoToValue(
-    const sync_pb::CollapsedInfo& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
-  SET(simple_collapsed_layout, SimpleCollapsedLayoutToValue);
-  SET_INT64(creation_timestamp_usec);
-  SET(default_destination, SyncedNotificationDestiationToValue);
-  SET_REP(target, TargetToValue);
-  return value;
-}
-
-base::DictionaryValue* SyncedNotificationToValue(
-    const sync_pb::SyncedNotification& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
-  SET_STR(type);
-  SET_STR(external_id);
-  // TODO(petewil) Add SyncedNotificationCreator here if we ever need it.
-  return value;
-}
-
-base::DictionaryValue* RenderInfoToValue(
-    const sync_pb::SyncedNotificationRenderInfo& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
-  // TODO(petewil): Add the expanded info values once we start using them.
-  SET(collapsed_info, CollapsedInfoToValue);
-  return value;
-}
-
-base::DictionaryValue* CoalescedNotificationToValue(
-    const sync_pb::CoalescedSyncedNotification& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
-  SET_STR(key);
-  SET_STR(app_id);
-  SET_REP(notification, SyncedNotificationToValue);
-  SET(render_info, RenderInfoToValue);
-  SET_INT32(read_state);
-  SET_INT64(creation_time_msec);
-  SET_INT32(priority);
-  return value;
-}
-
-base::DictionaryValue* AppListSpecificsToValue(
+scoped_ptr<base::DictionaryValue> AppListSpecificsToValue(
     const sync_pb::AppListSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(item_id);
   SET_ENUM(item_type, GetAppListItemTypeString);
   SET_STR(item_name);
@@ -399,9 +273,9 @@ base::DictionaryValue* AppListSpecificsToValue(
   return value;
 }
 
-base::DictionaryValue* AppNotificationToValue(
+scoped_ptr<base::DictionaryValue> AppNotificationToValue(
     const sync_pb::AppNotification& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(guid);
   SET_STR(app_id);
   SET_INT64(creation_timestamp_ms);
@@ -412,16 +286,24 @@ base::DictionaryValue* AppNotificationToValue(
   return value;
 }
 
-base::DictionaryValue* AppSettingSpecificsToValue(
+scoped_ptr<base::DictionaryValue> AppSettingSpecificsToValue(
     const sync_pb::AppSettingSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET(extension_setting, ExtensionSettingSpecificsToValue);
   return value;
 }
 
-base::DictionaryValue* AppSpecificsToValue(
+scoped_ptr<base::DictionaryValue> LinkedAppIconInfoToValue(
+    const sync_pb::LinkedAppIconInfo& proto) {
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
+  SET_STR(url);
+  SET_INT32(size);
+  return value;
+}
+
+scoped_ptr<base::DictionaryValue> AppSpecificsToValue(
     const sync_pb::AppSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET(extension, ExtensionSpecificsToValue);
   SET(notification_settings, AppSettingsToValue);
   SET_STR(app_launch_ordinal);
@@ -429,13 +311,15 @@ base::DictionaryValue* AppSpecificsToValue(
   SET_ENUM(launch_type, GetLaunchTypeString);
   SET_STR(bookmark_app_url);
   SET_STR(bookmark_app_description);
+  SET_STR(bookmark_app_icon_color);
+  SET_REP(linked_app_icons, LinkedAppIconInfoToValue);
 
   return value;
 }
 
-base::DictionaryValue* AutofillSpecificsToValue(
+scoped_ptr<base::DictionaryValue> AutofillSpecificsToValue(
     const sync_pb::AutofillSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(name);
   SET_STR(value);
   SET_INT64_REP(usage_timestamp);
@@ -443,11 +327,13 @@ base::DictionaryValue* AutofillSpecificsToValue(
   return value;
 }
 
-base::DictionaryValue* AutofillProfileSpecificsToValue(
+scoped_ptr<base::DictionaryValue> AutofillProfileSpecificsToValue(
     const sync_pb::AutofillProfileSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(guid);
   SET_STR(origin);
+  SET_INT64(use_count);
+  SET_INT64(use_date);
 
   SET_STR_REP(name_first);
   SET_STR_REP(name_middle);
@@ -472,17 +358,42 @@ base::DictionaryValue* AutofillProfileSpecificsToValue(
   return value;
 }
 
-base::DictionaryValue* MetaInfoToValue(
+scoped_ptr<base::DictionaryValue> WalletMetadataSpecificsToValue(
+    const sync_pb::WalletMetadataSpecifics& proto) {
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
+  SET_ENUM(type, GetWalletMetadataTypeString);
+  SET_STR(id);
+  SET_INT64(use_count);
+  SET_INT64(use_date);
+  return value;
+}
+
+scoped_ptr<base::DictionaryValue> AutofillWalletSpecificsToValue(
+    const sync_pb::AutofillWalletSpecifics& proto) {
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
+
+  SET_ENUM(type, GetWalletInfoTypeString);
+  if (proto.type() == sync_pb::AutofillWalletSpecifics::MASKED_CREDIT_CARD) {
+    value->Set("masked_card",
+               WalletMaskedCreditCardToValue(proto.masked_card()));
+  } else if (proto.type() == sync_pb::AutofillWalletSpecifics::POSTAL_ADDRESS) {
+    value->Set("address",
+               WalletPostalAddressToValue(proto.address()));
+  }
+  return value;
+}
+
+scoped_ptr<base::DictionaryValue> MetaInfoToValue(
     const sync_pb::MetaInfo& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(key);
   SET_STR(value);
   return value;
 }
 
-base::DictionaryValue* BookmarkSpecificsToValue(
+scoped_ptr<base::DictionaryValue> BookmarkSpecificsToValue(
     const sync_pb::BookmarkSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(url);
   SET_BYTES(favicon);
   SET_STR(title);
@@ -492,9 +403,9 @@ base::DictionaryValue* BookmarkSpecificsToValue(
   return value;
 }
 
-base::DictionaryValue* DeviceInfoSpecificsToValue(
+scoped_ptr<base::DictionaryValue> DeviceInfoSpecificsToValue(
     const sync_pb::DeviceInfoSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(cache_guid);
   SET_STR(client_name);
   SET_ENUM(device_type, GetDeviceTypeString);
@@ -505,74 +416,68 @@ base::DictionaryValue* DeviceInfoSpecificsToValue(
   return value;
 }
 
-base::DictionaryValue* DictionarySpecificsToValue(
+scoped_ptr<base::DictionaryValue> DictionarySpecificsToValue(
     const sync_pb::DictionarySpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(word);
   return value;
 }
 
 namespace {
 
-base::DictionaryValue* FaviconSyncFlagsToValue(
+scoped_ptr<base::DictionaryValue> FaviconSyncFlagsToValue(
     const sync_pb::FaviconSyncFlags& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_BOOL(enabled);
   SET_INT32(favicon_sync_limit);
   return value;
 }
 
-base::DictionaryValue* EnhancedBookmarksFlagsToValue(
-    const sync_pb::EnhancedBookmarksFlags& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
-  SET_BOOL(enabled);
-  SET_STR(extension_id);
-  return value;
-}
-
 }  // namespace
 
-base::DictionaryValue* ExperimentsSpecificsToValue(
+scoped_ptr<base::DictionaryValue> ExperimentsSpecificsToValue(
     const sync_pb::ExperimentsSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_EXPERIMENT_ENABLED_FIELD(keystore_encryption);
   SET_EXPERIMENT_ENABLED_FIELD(history_delete_directives);
   SET_EXPERIMENT_ENABLED_FIELD(autofill_culling);
   SET_EXPERIMENT_ENABLED_FIELD(pre_commit_update_avoidance);
   SET(favicon_sync, FaviconSyncFlagsToValue);
   SET_EXPERIMENT_ENABLED_FIELD(gcm_channel);
-  SET(enhanced_bookmarks, EnhancedBookmarksFlagsToValue);
   SET_EXPERIMENT_ENABLED_FIELD(gcm_invalidations);
+  SET_EXPERIMENT_ENABLED_FIELD(wallet_sync);
   return value;
 }
 
-base::DictionaryValue* ExtensionSettingSpecificsToValue(
+scoped_ptr<base::DictionaryValue> ExtensionSettingSpecificsToValue(
     const sync_pb::ExtensionSettingSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(extension_id);
   SET_STR(key);
   SET_STR(value);
   return value;
 }
 
-base::DictionaryValue* ExtensionSpecificsToValue(
+scoped_ptr<base::DictionaryValue> ExtensionSpecificsToValue(
     const sync_pb::ExtensionSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(id);
   SET_STR(version);
   SET_STR(update_url);
   SET_BOOL(enabled);
   SET_BOOL(incognito_enabled);
+  SET_STR(name);
   SET_BOOL(remote_install);
   SET_BOOL(installed_by_custodian);
-  SET_STR(name);
+  SET_BOOL(all_urls_enabled);
+  SET_INT32(disable_reasons);
   return value;
 }
 
 namespace {
-base::DictionaryValue* FaviconDataToValue(
+scoped_ptr<base::DictionaryValue> FaviconDataToValue(
     const sync_pb::FaviconData& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_BYTES(favicon);
   SET_INT32(width);
   SET_INT32(height);
@@ -580,9 +485,9 @@ base::DictionaryValue* FaviconDataToValue(
 }
 }  // namespace
 
-base::DictionaryValue* FaviconImageSpecificsToValue(
+scoped_ptr<base::DictionaryValue> FaviconImageSpecificsToValue(
     const sync_pb::FaviconImageSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(favicon_url);
   SET(favicon_web, FaviconDataToValue);
   SET(favicon_web_32, FaviconDataToValue);
@@ -591,34 +496,34 @@ base::DictionaryValue* FaviconImageSpecificsToValue(
   return value;
 }
 
-base::DictionaryValue* FaviconTrackingSpecificsToValue(
+scoped_ptr<base::DictionaryValue> FaviconTrackingSpecificsToValue(
     const sync_pb::FaviconTrackingSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(favicon_url);
   SET_INT64(last_visit_time_ms)
   SET_BOOL(is_bookmarked);
   return value;
 }
 
-base::DictionaryValue* HistoryDeleteDirectiveSpecificsToValue(
+scoped_ptr<base::DictionaryValue> HistoryDeleteDirectiveSpecificsToValue(
     const sync_pb::HistoryDeleteDirectiveSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET(global_id_directive, GlobalIdDirectiveToValue);
   SET(time_range_directive, TimeRangeDirectiveToValue);
   return value;
 }
 
-base::DictionaryValue* ManagedUserSettingSpecificsToValue(
+scoped_ptr<base::DictionaryValue> ManagedUserSettingSpecificsToValue(
     const sync_pb::ManagedUserSettingSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(name);
   SET_STR(value);
   return value;
 }
 
-base::DictionaryValue* ManagedUserSpecificsToValue(
+scoped_ptr<base::DictionaryValue> ManagedUserSpecificsToValue(
     const sync_pb::ManagedUserSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(id);
   SET_STR(name);
   SET_BOOL(acknowledged);
@@ -628,9 +533,9 @@ base::DictionaryValue* ManagedUserSpecificsToValue(
   return value;
 }
 
-base::DictionaryValue* ManagedUserSharedSettingSpecificsToValue(
+scoped_ptr<base::DictionaryValue> ManagedUserSharedSettingSpecificsToValue(
     const sync_pb::ManagedUserSharedSettingSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(mu_id);
   SET_STR(key);
   SET_STR(value);
@@ -638,9 +543,17 @@ base::DictionaryValue* ManagedUserSharedSettingSpecificsToValue(
   return value;
 }
 
-base::DictionaryValue* NigoriSpecificsToValue(
+scoped_ptr<base::DictionaryValue> ManagedUserWhitelistSpecificsToValue(
+    const sync_pb::ManagedUserWhitelistSpecifics& proto) {
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
+  SET_STR(id);
+  SET_STR(name);
+  return value;
+}
+
+scoped_ptr<base::DictionaryValue> NigoriSpecificsToValue(
     const sync_pb::NigoriSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET(encryption_keybag, EncryptedDataToValue);
   SET_BOOL(keybag_is_frozen);
   SET_BOOL(encrypt_bookmarks);
@@ -667,64 +580,57 @@ base::DictionaryValue* NigoriSpecificsToValue(
   return value;
 }
 
-base::DictionaryValue* ArticlePageToValue(
+scoped_ptr<base::DictionaryValue> ArticlePageToValue(
     const sync_pb::ArticlePage& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(url);
   return value;
 }
 
-base::DictionaryValue* ArticleSpecificsToValue(
+scoped_ptr<base::DictionaryValue> ArticleSpecificsToValue(
     const sync_pb::ArticleSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(entry_id);
   SET_STR(title);
   SET_REP(pages, ArticlePageToValue);
   return value;
 }
 
-base::DictionaryValue* PasswordSpecificsToValue(
+scoped_ptr<base::DictionaryValue> PasswordSpecificsToValue(
     const sync_pb::PasswordSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET(encrypted, EncryptedDataToValue);
   return value;
 }
 
-base::DictionaryValue* PreferenceSpecificsToValue(
+scoped_ptr<base::DictionaryValue> PreferenceSpecificsToValue(
     const sync_pb::PreferenceSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(name);
   SET_STR(value);
   return value;
 }
 
-base::DictionaryValue* PriorityPreferenceSpecificsToValue(
+scoped_ptr<base::DictionaryValue> PriorityPreferenceSpecificsToValue(
     const sync_pb::PriorityPreferenceSpecifics& specifics) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_FIELD(preference, PreferenceSpecificsToValue);
   return value;
 }
 
-base::DictionaryValue* SyncedNotificationAppInfoSpecificsToValue(
+scoped_ptr<base::DictionaryValue> SyncedNotificationAppInfoSpecificsToValue(
     const sync_pb::SyncedNotificationAppInfoSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
-  SET_REP(synced_notification_app_info, SyncedNotificationAppInfoToValue);
-  return value;
+  return make_scoped_ptr(new base::DictionaryValue());
 }
 
-base::DictionaryValue* SyncedNotificationSpecificsToValue(
+scoped_ptr<base::DictionaryValue> SyncedNotificationSpecificsToValue(
     const sync_pb::SyncedNotificationSpecifics& proto) {
-  // There is a lot of data, for now just use heading, description, key, and
-  // the read state.
-  // TODO(petewil): Eventually add more data here.
-  base::DictionaryValue* value = new base::DictionaryValue();
-  SET(coalesced_notification, CoalescedNotificationToValue);
-  return value;
+  return make_scoped_ptr(new base::DictionaryValue());
 }
 
-base::DictionaryValue* SearchEngineSpecificsToValue(
+scoped_ptr<base::DictionaryValue> SearchEngineSpecificsToValue(
     const sync_pb::SearchEngineSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(short_name);
   SET_STR(keyword);
   SET_STR(favicon_url);
@@ -751,9 +657,9 @@ base::DictionaryValue* SearchEngineSpecificsToValue(
   return value;
 }
 
-base::DictionaryValue* SessionSpecificsToValue(
+scoped_ptr<base::DictionaryValue> SessionSpecificsToValue(
     const sync_pb::SessionSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(session_tag);
   SET(header, SessionHeaderToValue);
   SET(tab, SessionTabToValue);
@@ -761,9 +667,9 @@ base::DictionaryValue* SessionSpecificsToValue(
   return value;
 }
 
-base::DictionaryValue* ThemeSpecificsToValue(
+scoped_ptr<base::DictionaryValue> ThemeSpecificsToValue(
     const sync_pb::ThemeSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_BOOL(use_custom_theme);
   SET_BOOL(use_system_theme_by_default);
   SET_STR(custom_theme_name);
@@ -772,9 +678,9 @@ base::DictionaryValue* ThemeSpecificsToValue(
   return value;
 }
 
-base::DictionaryValue* TypedUrlSpecificsToValue(
+scoped_ptr<base::DictionaryValue> TypedUrlSpecificsToValue(
     const sync_pb::TypedUrlSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(url);
   SET_STR(title);
   SET_BOOL(hidden);
@@ -783,18 +689,49 @@ base::DictionaryValue* TypedUrlSpecificsToValue(
   return value;
 }
 
-base::DictionaryValue* WifiCredentialSpecificsToValue(
+scoped_ptr<base::DictionaryValue> WalletMaskedCreditCardToValue(
+    const sync_pb::WalletMaskedCreditCard& proto) {
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
+  SET_STR(id);
+  SET_ENUM(status, GetWalletCardStatusString);
+  SET_STR(name_on_card);
+  SET_ENUM(type, GetWalletCardTypeString);
+  SET_STR(last_four);
+  SET_INT32(exp_month);
+  SET_INT32(exp_year);
+  return value;
+}
+
+scoped_ptr<base::DictionaryValue> WalletPostalAddressToValue(
+    const sync_pb::WalletPostalAddress& proto) {
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
+  SET_STR(recipient_name);
+  SET_STR(company_name);
+  SET_STR_REP(street_address);
+  SET_STR(address_1);
+  SET_STR(address_2);
+  SET_STR(address_3);
+  SET_STR(address_4);
+  SET_STR(postal_code);
+  SET_STR(sorting_code);
+  SET_STR(country_code);
+  SET_STR(phone_number);
+  SET_STR(language_code);
+  return value;
+}
+
+scoped_ptr<base::DictionaryValue> WifiCredentialSpecificsToValue(
     const sync_pb::WifiCredentialSpecifics& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_BYTES(ssid);
   SET_ENUM(security_class, GetWifiCredentialSecurityClassString);
   SET_BYTES(passphrase);
   return value;
 }
 
-base::DictionaryValue* EntitySpecificsToValue(
+scoped_ptr<base::DictionaryValue> EntitySpecificsToValue(
     const sync_pb::EntitySpecifics& specifics) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_FIELD(app, AppSpecificsToValue);
   SET_FIELD(app_list, AppListSpecificsToValue);
   SET_FIELD(app_notification, AppNotificationToValue);
@@ -802,6 +739,8 @@ base::DictionaryValue* EntitySpecificsToValue(
   SET_FIELD(article, ArticleSpecificsToValue);
   SET_FIELD(autofill, AutofillSpecificsToValue);
   SET_FIELD(autofill_profile, AutofillProfileSpecificsToValue);
+  SET_FIELD(autofill_wallet, AutofillWalletSpecificsToValue);
+  SET_FIELD(wallet_metadata, WalletMetadataSpecificsToValue);
   SET_FIELD(bookmark, BookmarkSpecificsToValue);
   SET_FIELD(device_info, DeviceInfoSpecificsToValue);
   SET_FIELD(dictionary, DictionarySpecificsToValue);
@@ -815,6 +754,7 @@ base::DictionaryValue* EntitySpecificsToValue(
   SET_FIELD(managed_user_shared_setting,
             ManagedUserSharedSettingSpecificsToValue);
   SET_FIELD(managed_user, ManagedUserSpecificsToValue);
+  SET_FIELD(managed_user_whitelist, ManagedUserWhitelistSpecificsToValue);
   SET_FIELD(nigori, NigoriSpecificsToValue);
   SET_FIELD(password, PasswordSpecificsToValue);
   SET_FIELD(preference, PreferenceSpecificsToValue);
@@ -840,9 +780,10 @@ base::StringValue* UniquePositionToStringValue(
 
 }  // namespace
 
-base::DictionaryValue* SyncEntityToValue(const sync_pb::SyncEntity& proto,
-                                         bool include_specifics) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+scoped_ptr<base::DictionaryValue> SyncEntityToValue(
+    const sync_pb::SyncEntity& proto,
+    bool include_specifics) {
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(id_string);
   SET_STR(parent_id_string);
   SET_STR(old_parent_id);
@@ -881,18 +822,18 @@ base::ListValue* SyncEntitiesToValue(
   return list;
 }
 
-base::DictionaryValue* ChromiumExtensionActivityToValue(
+scoped_ptr<base::DictionaryValue> ChromiumExtensionActivityToValue(
     const sync_pb::ChromiumExtensionsActivity& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(extension_id);
   SET_INT32(bookmark_writes_since_last_commit);
   return value;
 }
 
-base::DictionaryValue* CommitMessageToValue(
+scoped_ptr<base::DictionaryValue> CommitMessageToValue(
     const sync_pb::CommitMessage& proto,
     bool include_specifics) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   value->Set("entries",
              SyncEntitiesToValue(proto.entries(), include_specifics));
   SET_STR(cache_guid);
@@ -901,9 +842,9 @@ base::DictionaryValue* CommitMessageToValue(
   return value;
 }
 
-base::DictionaryValue* GetUpdateTriggersToValue(
+scoped_ptr<base::DictionaryValue> GetUpdateTriggersToValue(
     const sync_pb::GetUpdateTriggers& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR_REP(notification_hint);
   SET_BOOL(client_dropped_hints);
   SET_BOOL(invalidations_out_of_sync);
@@ -912,9 +853,9 @@ base::DictionaryValue* GetUpdateTriggersToValue(
   return value;
 }
 
-base::DictionaryValue* DataTypeProgressMarkerToValue(
+scoped_ptr<base::DictionaryValue> DataTypeProgressMarkerToValue(
     const sync_pb::DataTypeProgressMarker& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_INT32(data_type_id);
   SET_BYTES(token);
   SET_INT64(timestamp_token_for_migration);
@@ -923,26 +864,26 @@ base::DictionaryValue* DataTypeProgressMarkerToValue(
   return value;
 }
 
-base::DictionaryValue* DataTypeContextToValue(
+scoped_ptr<base::DictionaryValue> DataTypeContextToValue(
     const sync_pb::DataTypeContext& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_INT32(data_type_id);
   SET_STR(context);
   SET_INT64(version);
   return value;
 }
 
-base::DictionaryValue* GetUpdatesCallerInfoToValue(
+scoped_ptr<base::DictionaryValue> GetUpdatesCallerInfoToValue(
     const sync_pb::GetUpdatesCallerInfo& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_ENUM(source, GetUpdatesSourceString);
   SET_BOOL(notifications_enabled);
   return value;
 }
 
-base::DictionaryValue* GetUpdatesMessageToValue(
+scoped_ptr<base::DictionaryValue> GetUpdatesMessageToValue(
     const sync_pb::GetUpdatesMessage& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET(caller_info, GetUpdatesCallerInfoToValue);
   SET_BOOL(fetch_folders);
   SET_INT32(batch_size);
@@ -955,15 +896,16 @@ base::DictionaryValue* GetUpdatesMessageToValue(
   return value;
 }
 
-base::DictionaryValue* ClientStatusToValue(const sync_pb::ClientStatus& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+scoped_ptr<base::DictionaryValue> ClientStatusToValue(
+    const sync_pb::ClientStatus& proto) {
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_BOOL(hierarchy_conflict_detected);
   return value;
 }
 
-base::DictionaryValue* EntryResponseToValue(
+scoped_ptr<base::DictionaryValue> EntryResponseToValue(
     const sync_pb::CommitResponse::EntryResponse& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_ENUM(response_type, GetResponseTypeString);
   SET_STR(id_string);
   SET_STR(parent_id_string);
@@ -975,17 +917,17 @@ base::DictionaryValue* EntryResponseToValue(
   return value;
 }
 
-base::DictionaryValue* CommitResponseToValue(
+scoped_ptr<base::DictionaryValue> CommitResponseToValue(
     const sync_pb::CommitResponse& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_REP(entryresponse, EntryResponseToValue);
   return value;
 }
 
-base::DictionaryValue* GetUpdatesResponseToValue(
+scoped_ptr<base::DictionaryValue> GetUpdatesResponseToValue(
     const sync_pb::GetUpdatesResponse& proto,
     bool include_specifics) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   value->Set("entries",
              SyncEntitiesToValue(proto.entries(), include_specifics));
   SET_INT64(changes_remaining);
@@ -994,9 +936,9 @@ base::DictionaryValue* GetUpdatesResponseToValue(
   return value;
 }
 
-base::DictionaryValue* ClientCommandToValue(
+scoped_ptr<base::DictionaryValue> ClientCommandToValue(
     const sync_pb::ClientCommand& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_INT32(set_sync_poll_interval);
   SET_INT32(set_sync_long_poll_interval);
   SET_INT32(max_commit_batch_size);
@@ -1006,9 +948,9 @@ base::DictionaryValue* ClientCommandToValue(
   return value;
 }
 
-base::DictionaryValue* ErrorToValue(
+scoped_ptr<base::DictionaryValue> ErrorToValue(
     const sync_pb::ClientToServerResponse::Error& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_ENUM(error_type, GetErrorTypeString);
   SET_STR(error_description);
   SET_STR(url);
@@ -1018,10 +960,10 @@ base::DictionaryValue* ErrorToValue(
 
 }  // namespace
 
-base::DictionaryValue* ClientToServerResponseToValue(
+scoped_ptr<base::DictionaryValue> ClientToServerResponseToValue(
     const sync_pb::ClientToServerResponse& proto,
     bool include_specifics) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET(commit, CommitResponseToValue);
   if (proto.has_get_updates()) {
     value->Set("get_updates", GetUpdatesResponseToValue(proto.get_updates(),
@@ -1037,10 +979,10 @@ base::DictionaryValue* ClientToServerResponseToValue(
   return value;
 }
 
-base::DictionaryValue* ClientToServerMessageToValue(
+scoped_ptr<base::DictionaryValue> ClientToServerMessageToValue(
     const sync_pb::ClientToServerMessage& proto,
     bool include_specifics) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(share);
   SET_INT32(protocol_version);
   if (proto.has_commit()) {
@@ -1056,9 +998,9 @@ base::DictionaryValue* ClientToServerMessageToValue(
   return value;
 }
 
-base::DictionaryValue* DatatypeAssociationStatsToValue(
+scoped_ptr<base::DictionaryValue> DatatypeAssociationStatsToValue(
     const sync_pb::DatatypeAssociationStats& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_INT32(data_type_id);
   SET_INT32(num_local_items_before_association);
   SET_INT32(num_sync_items_before_association);
@@ -1080,9 +1022,9 @@ base::DictionaryValue* DatatypeAssociationStatsToValue(
   return value;
 }
 
-base::DictionaryValue* DebugEventInfoToValue(
+scoped_ptr<base::DictionaryValue> DebugEventInfoToValue(
     const sync_pb::DebugEventInfo& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_ENUM(singleton_event, SingletonDebugEventTypeString);
   SET(sync_cycle_completed_event_info, SyncCycleCompletedEventInfoToValue);
   SET_INT32(nudging_datatype);
@@ -1091,8 +1033,9 @@ base::DictionaryValue* DebugEventInfoToValue(
   return value;
 }
 
-base::DictionaryValue* DebugInfoToValue(const sync_pb::DebugInfo& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+scoped_ptr<base::DictionaryValue> DebugInfoToValue(
+    const sync_pb::DebugInfo& proto) {
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_REP(events, DebugEventInfoToValue);
   SET_BOOL(cryptographer_ready);
   SET_BOOL(cryptographer_has_pending_keys);
@@ -1100,9 +1043,9 @@ base::DictionaryValue* DebugInfoToValue(const sync_pb::DebugInfo& proto) {
   return value;
 }
 
-base::DictionaryValue* SyncCycleCompletedEventInfoToValue(
+scoped_ptr<base::DictionaryValue> SyncCycleCompletedEventInfoToValue(
     const sync_pb::SyncCycleCompletedEventInfo& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_INT32(num_encryption_conflicts);
   SET_INT32(num_hierarchy_conflicts);
   SET_INT32(num_server_conflicts);
@@ -1112,21 +1055,22 @@ base::DictionaryValue* SyncCycleCompletedEventInfoToValue(
   return value;
 }
 
-base::DictionaryValue* ClientConfigParamsToValue(
+scoped_ptr<base::DictionaryValue> ClientConfigParamsToValue(
     const sync_pb::ClientConfigParams& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_INT32_REP(enabled_type_ids);
   SET_BOOL(tabs_datatype_enabled);
   return value;
 }
 
-base::DictionaryValue* AttachmentIdProtoToValue(
+scoped_ptr<base::DictionaryValue> AttachmentIdProtoToValue(
     const sync_pb::AttachmentIdProto& proto) {
-  base::DictionaryValue* value = new base::DictionaryValue();
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   SET_STR(unique_id);
   return value;
 }
 
+#undef SET_TYPE
 #undef SET
 #undef SET_REP
 

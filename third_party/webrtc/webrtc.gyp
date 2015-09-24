@@ -28,12 +28,10 @@
       'common.gyp:*',
       'common_audio/common_audio.gyp:*',
       'common_video/common_video.gyp:*',
-      'libjingle/xmllite/xmllite.gyp:*',
-      'libjingle/xmpp/xmpp.gyp:*',
       'modules/modules.gyp:*',
       'p2p/p2p.gyp:*',
-      'system_wrappers/source/system_wrappers.gyp:*',
-      'video_engine/video_engine.gyp:*',
+      'system_wrappers/system_wrappers.gyp:*',
+      'tools/tools.gyp:*',
       'voice_engine/voice_engine.gyp:*',
       '<(webrtc_vp8_dir)/vp8.gyp:*',
       '<(webrtc_vp9_dir)/vp9.gyp:*',
@@ -51,13 +49,13 @@
         ['include_tests==1', {
           'dependencies': [
             'common_video/common_video_unittests.gyp:*',
-            'system_wrappers/source/system_wrappers_tests.gyp:*',
+            'rtc_unittests',
+            'system_wrappers/system_wrappers_tests.gyp:*',
             'test/metrics.gyp:*',
             'test/test.gyp:*',
             'test/webrtc_test_common.gyp:webrtc_test_common_unittests',
-            'tools/tools.gyp:*',
+            'video_engine/video_engine_core_unittests.gyp:video_engine_core_unittests',
             'webrtc_tests',
-            'rtc_unittests',
           ],
         }],
       ],
@@ -85,13 +83,13 @@
       ],
       'conditions': [
         # TODO(andresp): Chromium libpeerconnection should link directly with
-	# this and no if conditions should be needed on webrtc build files.
+        # this and no if conditions should be needed on webrtc build files.
         ['build_with_chromium==1', {
-	  'dependencies': [
-	    '<(webrtc_root)/modules/modules.gyp:video_capture_module_impl',
-	    '<(webrtc_root)/modules/modules.gyp:video_render_module_impl',
-	  ],
-	}],
+          'dependencies': [
+            '<(webrtc_root)/modules/modules.gyp:video_capture',
+            '<(webrtc_root)/modules/modules.gyp:video_render',
+          ],
+        }],
       ],
     },
   ],

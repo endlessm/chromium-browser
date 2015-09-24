@@ -14,6 +14,8 @@
 #include "chrome/browser/chromeos/drive/file_errors.h"
 #include "chrome/browser/chromeos/drive/file_system/operation_test_base.h"
 #include "chrome/browser/chromeos/drive/file_write_watcher.h"
+#include "chrome/browser/chromeos/drive/job_scheduler.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_utils.h"
 #include "google_apis/drive/test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -36,7 +38,8 @@ class TestDelegate : public OperationDelegate {
   }
 
   // OperationDelegate overrides.
-  virtual void OnEntryUpdatedByOperation(const std::string& local_id) override {
+  void OnEntryUpdatedByOperation(const ClientContext& /* context */,
+                                 const std::string& local_id) override {
     updated_local_id_ = local_id;
     if (!quit_closure_.is_null())
       quit_closure_.Run();
@@ -56,17 +59,21 @@ class GetFileForSavingOperationTest : public OperationTestBase {
       : OperationTestBase(content::TestBrowserThreadBundle::IO_MAINLOOP) {
   }
 
-  virtual void SetUp() override {
+  void SetUp() override {
     OperationTestBase::SetUp();
 
+    file_task_runner_ = content::BrowserThread::GetMessageLoopProxyForThread(
+        content::BrowserThread::FILE);
+
     operation_.reset(new GetFileForSavingOperation(
-        logger(), blocking_task_runner(), &delegate_, scheduler(), metadata(),
-        cache(), temp_dir()));
+        logger(), blocking_task_runner(), file_task_runner_.get(), &delegate_,
+        scheduler(), metadata(), cache(), temp_dir()));
     operation_->file_write_watcher_for_testing()->DisableDelayForTesting();
   }
 
   TestDelegate delegate_;
   scoped_ptr<GetFileForSavingOperation> operation_;
+  scoped_refptr<base::SingleThreadTaskRunner> file_task_runner_;
 };
 
 TEST_F(GetFileForSavingOperationTest, GetFileForSaving_Exist) {

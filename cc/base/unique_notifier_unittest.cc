@@ -4,9 +4,9 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/message_loop/message_loop_proxy.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "cc/base/unique_notifier.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -17,7 +17,7 @@ class UniqueNotifierTest : public testing::Test {
  public:
   UniqueNotifierTest() : notification_count_(0) {}
 
-  virtual void SetUp() override { ResetNotificationCount(); }
+  void SetUp() override { ResetNotificationCount(); }
 
   void Notify() { ++notification_count_; }
 
@@ -32,7 +32,7 @@ class UniqueNotifierTest : public testing::Test {
 TEST_F(UniqueNotifierTest, Schedule) {
   {
     UniqueNotifier notifier(
-        base::MessageLoopProxy::current().get(),
+        base::ThreadTaskRunnerHandle::Get().get(),
         base::Bind(&UniqueNotifierTest::Notify, base::Unretained(this)));
 
     EXPECT_EQ(0, NotificationCount());
@@ -50,12 +50,26 @@ TEST_F(UniqueNotifierTest, Schedule) {
     base::RunLoop().RunUntilIdle();
     EXPECT_EQ(2, NotificationCount());
 
+    // Schedule and cancel.
+    notifier.Schedule();
+    notifier.Cancel();
+
+    base::RunLoop().RunUntilIdle();
+    EXPECT_EQ(2, NotificationCount());
+
+    notifier.Schedule();
+    notifier.Cancel();
+    notifier.Schedule();
+
+    base::RunLoop().RunUntilIdle();
+    EXPECT_EQ(3, NotificationCount());
+
     notifier.Schedule();
   }
 
   // Notifier went out of scope, so we don't expect to get a notification.
   base::RunLoop().RunUntilIdle();
-  EXPECT_EQ(2, NotificationCount());
+  EXPECT_EQ(3, NotificationCount());
 }
 
 }  // namespace

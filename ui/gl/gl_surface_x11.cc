@@ -4,10 +4,10 @@
 
 #include "ui/gl/gl_surface.h"
 
-#include "base/debug/trace_event.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
+#include "base/trace_event/trace_event.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/x/x11_types.h"
 #include "ui/gl/gl_bindings.h"
@@ -32,9 +32,9 @@ class NativeViewGLSurfaceOSMesa : public GLSurfaceOSMesa {
   void Destroy() override;
   bool Resize(const gfx::Size& new_size) override;
   bool IsOffscreen() override;
-  bool SwapBuffers() override;
+  gfx::SwapResult SwapBuffers() override;
   bool SupportsPostSubBuffer() override;
-  bool PostSubBuffer(int x, int y, int width, int height) override;
+  gfx::SwapResult PostSubBuffer(int x, int y, int width, int height) override;
 
  protected:
   ~NativeViewGLSurfaceOSMesa() override;
@@ -181,7 +181,7 @@ bool NativeViewGLSurfaceOSMesa::IsOffscreen() {
   return false;
 }
 
-bool NativeViewGLSurfaceOSMesa::SwapBuffers() {
+gfx::SwapResult NativeViewGLSurfaceOSMesa::SwapBuffers() {
   TRACE_EVENT2("gpu", "NativeViewGLSurfaceOSMesa:RealSwapBuffers",
       "width", GetSize().width(),
       "height", GetSize().height());
@@ -191,7 +191,7 @@ bool NativeViewGLSurfaceOSMesa::SwapBuffers() {
   XWindowAttributes attributes;
   if (!XGetWindowAttributes(xdisplay_, window_, &attributes)) {
     LOG(ERROR) << "XGetWindowAttributes failed for window " << window_ << ".";
-    return false;
+    return gfx::SwapResult::SWAP_FAILED;
   }
 
   // Copy the frame into the pixmap.
@@ -216,15 +216,17 @@ bool NativeViewGLSurfaceOSMesa::SwapBuffers() {
             0,
             0);
 
-  return true;
+  return gfx::SwapResult::SWAP_ACK;
 }
 
 bool NativeViewGLSurfaceOSMesa::SupportsPostSubBuffer() {
   return true;
 }
 
-bool NativeViewGLSurfaceOSMesa::PostSubBuffer(
-    int x, int y, int width, int height) {
+gfx::SwapResult NativeViewGLSurfaceOSMesa::PostSubBuffer(int x,
+                                                         int y,
+                                                         int width,
+                                                         int height) {
   gfx::Size size = GetSize();
 
   // Move (0,0) from lower-left to upper-left
@@ -233,7 +235,7 @@ bool NativeViewGLSurfaceOSMesa::PostSubBuffer(
   XWindowAttributes attributes;
   if (!XGetWindowAttributes(xdisplay_, window_, &attributes)) {
     LOG(ERROR) << "XGetWindowAttributes failed for window " << window_ << ".";
-    return false;
+    return gfx::SwapResult::SWAP_FAILED;
   }
 
   // Copy the frame into the pixmap.
@@ -264,7 +266,7 @@ bool NativeViewGLSurfaceOSMesa::PostSubBuffer(
             x,
             y);
 
-  return true;
+  return gfx::SwapResult::SWAP_ACK;
 }
 
 NativeViewGLSurfaceOSMesa::~NativeViewGLSurfaceOSMesa() {
@@ -319,7 +321,8 @@ scoped_refptr<GLSurface> GLSurface::CreateOffscreenGLSurface(
       return surface;
     }
     case kGLImplementationDesktopGL: {
-      scoped_refptr<GLSurface> surface(new PbufferGLSurfaceGLX(size));
+      scoped_refptr<GLSurface> surface(
+          new UnmappedNativeViewGLSurfaceGLX(size));
       if (!surface->Initialize())
         return NULL;
 

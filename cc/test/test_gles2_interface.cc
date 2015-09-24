@@ -6,6 +6,7 @@
 
 #include "base/logging.h"
 #include "cc/test/test_web_graphics_context_3d.h"
+#include "gpu/GLES2/gl2extchromium.h"
 
 namespace cc {
 
@@ -158,6 +159,10 @@ void TestGLES2Interface::Flush() { test_context_->flush(); }
 
 void TestGLES2Interface::Finish() { test_context_->finish(); }
 
+void TestGLES2Interface::ShallowFinishCHROMIUM() {
+  test_context_->shallowFinishCHROMIUM();
+}
+
 void TestGLES2Interface::ShallowFlushCHROMIUM() {
   test_context_->shallowFlushCHROMIUM();
 }
@@ -176,6 +181,10 @@ void TestGLES2Interface::BindFramebuffer(GLenum target, GLuint buffer) {
 
 void TestGLES2Interface::BindBuffer(GLenum target, GLuint buffer) {
   test_context_->bindBuffer(target, buffer);
+}
+
+void TestGLES2Interface::PixelStorei(GLenum pname, GLint param) {
+  test_context_->pixelStorei(pname, param);
 }
 
 void TestGLES2Interface::TexImage2D(GLenum target,
@@ -413,6 +422,12 @@ void TestGLES2Interface::ResizeCHROMIUM(GLuint width,
 
 void TestGLES2Interface::LoseContextCHROMIUM(GLenum current, GLenum other) {
   test_context_->loseContextCHROMIUM(current, other);
+}
+
+GLenum TestGLES2Interface::GetGraphicsResetStatusKHR() {
+  if (test_context_->isContextLost())
+    return GL_UNKNOWN_CONTEXT_RESET_KHR;
+  return GL_NO_ERROR;
 }
 
 }  // namespace cc

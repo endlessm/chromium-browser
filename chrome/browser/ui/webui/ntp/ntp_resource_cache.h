@@ -10,6 +10,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/prefs/pref_change_registrar.h"
 #include "base/strings/string16.h"
+#include "chrome/browser/web_resource/promo_resource_service.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -44,15 +45,8 @@ class NTPResourceCache : public content::NotificationObserver,
   void set_should_show_apps_page(bool should_show_apps_page) {
     should_show_apps_page_ = should_show_apps_page;
   }
-  void set_should_show_most_visited_page(bool should_show_most_visited_page) {
-    should_show_most_visited_page_ = should_show_most_visited_page;
-  }
   void set_should_show_other_devices_menu(bool should_show_other_devices_menu) {
     should_show_other_devices_menu_ = should_show_other_devices_menu;
-  }
-  void set_should_show_recently_closed_menu(
-      bool should_show_recently_closed_menu) {
-    should_show_recently_closed_menu_ = should_show_recently_closed_menu;
   }
   // content::NotificationObserver interface.
   void Observe(int type,
@@ -66,6 +60,9 @@ class NTPResourceCache : public content::NotificationObserver,
   void OnPreferenceChanged();
 
   void CreateNewTabHTML();
+
+  // Invalidates the NTPResourceCache.
+  void Invalidate();
 
   // Helper to determine if the resource cache should be invalidated.
   // This is called on every page load, and can be used to check values that
@@ -96,16 +93,14 @@ class NTPResourceCache : public content::NotificationObserver,
   content::NotificationRegistrar registrar_;
   PrefChangeRegistrar profile_pref_change_registrar_;
   PrefChangeRegistrar local_state_pref_change_registrar_;
+  scoped_ptr<PromoResourceService::StateChangedSubscription>
+      promo_resource_subscription_;
 
   // Set based on platform_util::IsSwipeTrackingFromScrollEventsEnabled.
   bool is_swipe_tracking_from_scroll_events_enabled_;
   // Set based on NewTabUI::ShouldShowApps.
   bool should_show_apps_page_;
-  // The next three all default to true and can be manually set, e.g., by the
-  // chrome://apps page.
-  bool should_show_most_visited_page_;
   bool should_show_other_devices_menu_;
-  bool should_show_recently_closed_menu_;
 
   DISALLOW_COPY_AND_ASSIGN(NTPResourceCache);
 };

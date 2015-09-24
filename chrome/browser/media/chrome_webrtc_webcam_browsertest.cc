@@ -39,7 +39,7 @@ static const char* kTestConfigFlags[] = {
 class WebRtcWebcamBrowserTest : public WebRtcTestBase,
     public testing::WithParamInterface<const char*> {
  public:
-  void SetUpCommandLine(CommandLine* command_line) override {
+  void SetUpCommandLine(base::CommandLine* command_line) override {
     EXPECT_FALSE(command_line->HasSwitch(
         switches::kUseFakeDeviceForMediaStream));
     EXPECT_FALSE(command_line->HasSwitch(
@@ -55,12 +55,13 @@ class WebRtcWebcamBrowserTest : public WebRtcTestBase,
 
   std::string GetUserMediaAndGetStreamSize(content::WebContents* tab,
                                            const std::string& constraints) {
-    GetUserMediaWithSpecificConstraintsAndAccept(tab, constraints);
-
-    StartDetectingVideo(tab, "local-view");
-    WaitForVideoToPlay(tab);
-    std::string actual_stream_size = GetStreamSize(tab, "local-view");
-    CloseLastLocalStream(tab);
+    std::string actual_stream_size;
+    if (GetUserMediaWithSpecificConstraintsAndAccept(tab, constraints)) {
+      StartDetectingVideo(tab, "local-view");
+      if (WaitForVideoToPlay(tab))
+        actual_stream_size = GetStreamSize(tab, "local-view");
+      CloseLastLocalStream(tab);
+    }
     return actual_stream_size;
   }
 
@@ -87,24 +88,25 @@ IN_PROC_BROWSER_TEST_P(WebRtcWebcamBrowserTest,
   }
 
   if (!IsOnQtKit()) {
-    // Temporarily disabled on QtKit due to http://crbug.com/375185.
+    // "Temporarily" disabled on QtKit due to http://crbug.com/375185.
     EXPECT_EQ("320x240",
               GetUserMediaAndGetStreamSize(tab,
-                                           kAudioVideoCallConstraintsQVGA));
+                                           kVideoCallConstraintsQVGA));
   }
 
   EXPECT_EQ("640x480",
-            GetUserMediaAndGetStreamSize(tab, kAudioVideoCallConstraintsVGA));
+            GetUserMediaAndGetStreamSize(tab, kVideoCallConstraintsVGA));
   EXPECT_EQ("640x360",
-            GetUserMediaAndGetStreamSize(tab, kAudioVideoCallConstraints360p));
-  EXPECT_EQ("1280x720",
-            GetUserMediaAndGetStreamSize(tab, kAudioVideoCallConstraints720p));
+            GetUserMediaAndGetStreamSize(tab, kVideoCallConstraints360p));
 
+  // QTKit supports up to 480p (used to support 720p until crbug.com/440762).
   if (IsOnQtKit())
-    return;  // QTKit only supports up to 720p.
+    return;
 
+  EXPECT_EQ("1280x720",
+            GetUserMediaAndGetStreamSize(tab, kVideoCallConstraints720p));
   EXPECT_EQ("1920x1080",
-            GetUserMediaAndGetStreamSize(tab, kAudioVideoCallConstraints1080p));
+            GetUserMediaAndGetStreamSize(tab, kVideoCallConstraints1080p));
 }
 
 INSTANTIATE_TEST_CASE_P(WebRtcWebcamBrowserTests,

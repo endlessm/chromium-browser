@@ -5,11 +5,13 @@
 #include "gpu/command_buffer/service/context_group.h"
 
 #include "base/memory/scoped_ptr.h"
+#include "gpu/command_buffer/common/value_state.h"
 #include "gpu/command_buffer/service/gles2_cmd_decoder_mock.h"
 #include "gpu/command_buffer/service/gpu_service_test.h"
 #include "gpu/command_buffer/service/mailbox_manager.h"
 #include "gpu/command_buffer/service/test_helper.h"
 #include "gpu/command_buffer/service/texture_manager.h"
+#include "gpu/command_buffer/service/valuebuffer_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gl/gl_mock.h"
 
@@ -38,8 +40,8 @@ class ContextGroupTest : public GpuServiceTest {
   void SetUp() override {
     GpuServiceTest::SetUp();
     decoder_.reset(new MockGLES2Decoder());
-    group_ = scoped_refptr<ContextGroup>(
-        new ContextGroup(NULL, NULL, NULL, NULL, kBindGeneratesResource));
+    group_ = scoped_refptr<ContextGroup>(new ContextGroup(
+        NULL, NULL, NULL, NULL, NULL, NULL, kBindGeneratesResource));
   }
 
   scoped_ptr<MockGLES2Decoder> decoder_;
@@ -66,7 +68,8 @@ TEST_F(ContextGroupTest, Basic) {
 TEST_F(ContextGroupTest, InitializeNoExtensions) {
   TestHelper::SetupContextGroupInitExpectations(
       gl_.get(), DisallowedFeatures(), "", "", kBindGeneratesResource);
-  group_->Initialize(decoder_.get(), DisallowedFeatures());
+  group_->Initialize(
+      decoder_.get(), ContextGroup::CONTEXT_TYPE_OTHER, DisallowedFeatures());
   EXPECT_EQ(static_cast<uint32>(TestHelper::kNumVertexAttribs),
             group_->max_vertex_attribs());
   EXPECT_EQ(static_cast<uint32>(TestHelper::kNumTextureUnits),
@@ -101,8 +104,19 @@ TEST_F(ContextGroupTest, MultipleContexts) {
   scoped_ptr<MockGLES2Decoder> decoder2_(new MockGLES2Decoder());
   TestHelper::SetupContextGroupInitExpectations(
       gl_.get(), DisallowedFeatures(), "", "", kBindGeneratesResource);
-  group_->Initialize(decoder_.get(), DisallowedFeatures());
-  group_->Initialize(decoder2_.get(), DisallowedFeatures());
+  EXPECT_TRUE(group_->Initialize(
+      decoder_.get(), ContextGroup::CONTEXT_TYPE_OTHER, DisallowedFeatures()));
+  EXPECT_FALSE(group_->Initialize(
+      decoder2_.get(), ContextGroup::CONTEXT_TYPE_WEBGL1,
+      DisallowedFeatures()));
+  EXPECT_FALSE(group_->Initialize(
+      decoder2_.get(), ContextGroup::CONTEXT_TYPE_WEBGL2,
+      DisallowedFeatures()));
+  EXPECT_FALSE(group_->Initialize(
+      decoder2_.get(), ContextGroup::CONTEXT_TYPE_UNDEFINED,
+      DisallowedFeatures()));
+  EXPECT_TRUE(group_->Initialize(
+      decoder2_.get(), ContextGroup::CONTEXT_TYPE_OTHER, DisallowedFeatures()));
 
   EXPECT_TRUE(group_->buffer_manager() != NULL);
   EXPECT_TRUE(group_->framebuffer_manager() != NULL);

@@ -7,18 +7,19 @@
 #include <fcntl.h>
 #include <cstring>
 
+#include "native_client/src/include/build_config.h"
+
 #if NACL_WINDOWS
 # include <io.h>
 #endif
 
 #include "native_client/src/public/chrome_main.h"
 #include "native_client/src/public/nacl_app.h"
-#include "native_client/src/public/nacl_file_info.h"
+#include "native_client/src/public/nacl_desc.h"
 #include "native_client/src/shared/platform/nacl_check.h"
 #include "native_client/src/shared/platform/nacl_threads.h"
 #include "native_client/src/shared/srpc/nacl_srpc.h"
 #include "native_client/src/trusted/desc/nacl_desc_custom.h"
-#include "native_client/src/trusted/desc/nacl_desc_file_info.h"
 #include "native_client/src/trusted/nonnacl_util/sel_ldr_launcher.h"
 #include "native_client/src/trusted/service_runtime/include/sys/fcntl.h"
 #include "native_client/src/trusted/service_runtime/nacl_all_modules.h"
@@ -27,11 +28,6 @@
 #include "native_client/src/trusted/service_runtime/sel_addrspace.h"
 #include "native_client/src/trusted/service_runtime/sel_ldr.h"
 #include "native_client/src/trusted/validator/validation_cache.h"
-
-// A global variable that specifies whether the module should be loaded via
-// SRPC. Its value is controlled by a command line flag kNoSrpcLoadModule.
-bool g_load_module_srpc = true;
-const char kNoSrpcLoadModule[] = "--no_srpc_load_module";
 
 // A global variable that specifies whether or not the test should set
 // the irt_load_optional flag in NaClChromeMainArgs.
@@ -51,17 +47,15 @@ int OpenFileReadOnly(const char *filename) {
 #endif
 }
 
-int32_t OpenFileHandleReadExec(const char *filename) {
+NaClHandle OpenFileHandleReadExec(const char *filename) {
 #if NACL_WINDOWS
-  HANDLE h = CreateFileA(filename,
-                         GENERIC_READ | GENERIC_EXECUTE,
-                         FILE_SHARE_READ,
-                         NULL,
-                         OPEN_EXISTING,
-                         FILE_ATTRIBUTE_NORMAL,
-                         NULL);
-  // On Windows, valid handles are 32 bit unsigned integers so this is safe.
-  return reinterpret_cast<int32_t>(h);
+  return CreateFileA(filename,
+                     GENERIC_READ | GENERIC_EXECUTE,
+                     FILE_SHARE_READ,
+                     NULL,
+                     OPEN_EXISTING,
+                     FILE_ATTRIBUTE_NORMAL,
+                     NULL);
 #else
   return open(filename, O_RDONLY);
 #endif
@@ -79,14 +73,6 @@ class DummyLauncher : public nacl::SelLdrLauncherBase {
     UNREFERENCED_PARAMETER(url);
     return true;
   }
-};
-
-// Fake validation cache methods for testing.
-struct TestValidationHandle {
-  uint64_t expected_token_lo;
-  uint64_t expected_token_hi;
-  int32_t expected_file_handle;
-  char *expected_file_path;
 };
 
 struct TestValidationQuery {
@@ -124,43 +110,19 @@ static int TestCachingIsInexpensive(const struct NaClValidationMetadata *m) {
   return 1;
 }
 
-static int TestResolveFileToken(void *handle, struct NaClFileToken *file_token,
-                                int32_t *fd, char **file_path,
-                                uint32_t *file_path_length) {
-  TestValidationHandle *h = static_cast<TestValidationHandle *>(handle);
-  CHECK(h->expected_token_lo == file_token->lo);
-  CHECK(h->expected_token_hi == file_token->hi);
-  *fd = h->expected_file_handle;
-  *file_path = h->expected_file_path;
-  *file_path_length = static_cast<uint32_t>(strlen(h->expected_file_path));
-  return 1;
-}
-
 struct ThreadArgs {
   NaClHandle channel;
-  NaClFileInfo file_info;
 };
 
 void WINAPI DummyRendererThread(void *thread_arg) {
   struct ThreadArgs *args = (struct ThreadArgs *) thread_arg;
 
-  nacl::DescWrapperFactory desc_wrapper_factory;
   DummyLauncher launcher(args->channel);
   NaClSrpcChannel trusted_channel;
   NaClSrpcChannel untrusted_channel;
-  if (g_load_module_srpc) {
-    struct NaClDesc *desc = NaClDescIoFromFileInfo(args->file_info,
-                                                   NACL_ABI_O_RDONLY);
-    CHECK(desc != NULL);
-    nacl::DescWrapper *nexe_desc =
-        desc_wrapper_factory.MakeGenericCleanup(desc);
-    CHECK(nexe_desc != NULL);
-    CHECK(launcher.SetupCommandAndLoad(&trusted_channel, nexe_desc));
-  } else {
-    CHECK(launcher.SetupCommand(&trusted_channel));
-  }
-  CHECK(launcher.StartModuleAndSetupAppChannel(&trusted_channel,
-                                               &untrusted_channel));
+  CHECK(launcher.SetupCommand(&trusted_channel));
+  CHECK(launcher.StartModule(&trusted_channel));
+  CHECK(launcher.SetupAppChannel(&untrusted_channel));
 }
 
 void ExampleDescDestroy(void *handle) {
@@ -205,7 +167,6 @@ int NaClHandleArguments(int argc, char **argv) {
     bool *flag_reference;
     bool value_to_set;
   } long_opts[] = {
-    {kNoSrpcLoadModule, &g_load_module_srpc, false},
     {kIrtLoadOptional, &g_irt_load_optional, true},
     {kTestValidationCache, &g_test_validation_cache, true},
     {NULL, NULL, false}
@@ -255,18 +216,14 @@ int main(int argc, char **argv) {
 
   NaClLog(LOG_INFO,
           "SelMainChromeTest configuration:\n"
-          "g_load_module_srpc: %d\n"
           "g_irt_load_optional: %d\n"
           "g_test_validation_cache: %d\n",
-           g_load_module_srpc, g_irt_load_optional, g_test_validation_cache);
+          g_irt_load_optional, g_test_validation_cache);
 
   args->irt_fd = OpenFileReadOnly(irt_filename);
   args->irt_load_optional = g_irt_load_optional;
   CHECK(args->irt_fd >= 0);
 
-  memset(&thread_args.file_info, 0, sizeof thread_args.file_info);
-  thread_args.file_info.desc = OpenFileReadOnly(nexe_filename);
-  CHECK(thread_args.file_info.desc >= 0);
   NaClFileNameForValgrind(nexe_filename);
 
   NaClHandle socketpair[2];
@@ -278,46 +235,27 @@ int main(int argc, char **argv) {
   NaClAppSetDesc(nap, NACL_CHROME_DESC_BASE, MakeExampleDesc());
 
   // Set up mock validation cache.
-  struct TestValidationHandle test_handle;
   struct NaClValidationCache test_cache;
   if (g_test_validation_cache) {
-    test_handle.expected_token_lo = 0xabcdef123456789LL;
-    test_handle.expected_token_hi = 0x101010101010101LL;
-    test_handle.expected_file_handle = OpenFileHandleReadExec(nexe_filename);
-    test_handle.expected_file_path = strdup(nexe_filename);
-    test_cache.handle = &test_handle;
+    test_cache.handle = NULL;
     test_cache.CreateQuery = &TestCreateQuery;
     test_cache.AddData = &TestAddData;
     test_cache.QueryKnownToValidate = &TestQueryKnownToValidate;
     test_cache.SetKnownToValidate = &TestSetKnownToValidate;
     test_cache.DestroyQuery = &TestDestroyQuery;
     test_cache.CachingIsInexpensive = &TestCachingIsInexpensive;
-    test_cache.ResolveFileToken = &TestResolveFileToken;
     args->validation_cache = &test_cache;
-    thread_args.file_info.file_token.lo = test_handle.expected_token_lo;
-    thread_args.file_info.file_token.hi = test_handle.expected_token_hi;
   }
-  if (!g_load_module_srpc) {
-    NaClFileInfo info;
-    info.desc = OpenFileHandleReadExec(nexe_filename);
-#if NACL_WINDOWS
-    info.desc = _open_osfhandle(info.desc, _O_RDONLY | _O_BINARY);
-#endif
-    if (g_test_validation_cache) {
-      info.file_token.lo = test_handle.expected_token_lo;
-      info.file_token.hi = test_handle.expected_token_hi;
-    } else {
-      info.file_token.lo = 0;
-      info.file_token.hi = 0;
-    }
-    args->nexe_desc = NaClDescIoFromFileInfo(info, NACL_ABI_O_RDONLY);
-  }
+  NaClHandle nexe_handle = OpenFileHandleReadExec(nexe_filename);
+  args->nexe_desc = NaClDescCreateWithFilePathMetadata(nexe_handle,
+                                                       "dummy_pathname");
 
   NaClThread thread;
   CHECK(NaClThreadCtor(&thread, DummyRendererThread, &thread_args,
                        NACL_KERN_STACK_SIZE));
 
-  NaClChromeMainStartApp(nap, args);
-  NaClLog(LOG_FATAL, "NaClChromeMainStartApp() should never return\n");
+  int status = 1;
+  NaClChromeMainStart(nap, args, &status);
+  NaClExit(status);
   return 1;
 }

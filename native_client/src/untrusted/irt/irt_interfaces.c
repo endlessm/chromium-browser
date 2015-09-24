@@ -106,17 +106,6 @@ static const struct nacl_irt_interface irt_interfaces[] = {
    */
   { NACL_IRT_BLOCKHOOK_v0_1, &nacl_irt_blockhook, sizeof(nacl_irt_blockhook),
     non_pnacl_filter },
-  /*
-   * "irt-resource-open" is primarily provided for use by nacl-glibc's
-   * dynamic linker, which is not supported under PNaCl.
-   * open_resource() returns a file descriptor, but it is the only
-   * interface in NaCl to do so inside Chromium.  This is inconsistent
-   * with PPAPI, which does not expose file descriptors (except in
-   * private/dev interfaces).  See:
-   * https://code.google.com/p/nativeclient/issues/detail?id=3574
-   */
-  { NACL_IRT_RESOURCE_OPEN_v0_1, &nacl_irt_resource_open,
-    sizeof(nacl_irt_resource_open), non_pnacl_filter },
   { NACL_IRT_RANDOM_v0_1, &nacl_irt_random, sizeof(nacl_irt_random), NULL },
   { NACL_IRT_CLOCK_v0_1, &nacl_irt_clock, sizeof(nacl_irt_clock), NULL },
   { NACL_IRT_DEV_GETPID_v0_1, &nacl_irt_dev_getpid,
@@ -135,6 +124,24 @@ static const struct nacl_irt_interface irt_interfaces[] = {
    */
   { NACL_IRT_CODE_DATA_ALLOC_v0_1, &nacl_irt_code_data_alloc,
     sizeof(nacl_irt_code_data_alloc), non_pnacl_filter },
+  /*
+   * TODO(mseaborn): Ideally this interface should be hidden in processes
+   * that aren't PNaCl sandboxed translator processes.  However, we haven't
+   * yet plumbed though a flag to indicate when a NaCl process is a PNaCl
+   * translator process.  The risk of an app accidentally depending on the
+   * presence of this interface is much lower than for other non-stable IRT
+   * interfaces, because this interface is not useful to apps.
+   */
+  { NACL_IRT_PRIVATE_PNACL_TRANSLATOR_LINK_v0_1,
+    &nacl_irt_private_pnacl_translator_link,
+    sizeof(nacl_irt_private_pnacl_translator_link), NULL },
+  /*
+   * TODO(jvoung): Similar to NACL_IRT_PRIVATE_PNACL_TRANSLATOR_LINK_v0_1
+   * ideally this should be hidden from non-translator apps.
+   */
+  { NACL_IRT_PRIVATE_PNACL_TRANSLATOR_COMPILE_v0_1,
+    &nacl_irt_private_pnacl_translator_compile,
+    sizeof(nacl_irt_private_pnacl_translator_compile), NULL },
 };
 
 size_t nacl_irt_query_core(const char *interface_ident,

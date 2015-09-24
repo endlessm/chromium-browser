@@ -17,7 +17,8 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/scoped_vector.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/metrics/sparse_histogram.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
@@ -31,10 +32,26 @@
 #include "third_party/WebKit/public/platform/WebURLError.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
+#include "url/url_constants.h"
 
 namespace error_page {
 
 namespace {
+
+// Recorded when a user interacts with an error page, part of investigation into
+// http://crbug.com/500556.  Note that these are flags that can be or-ed
+// together.
+// TODO(mmenke): Remove when http://crbug.com/500556 is fixed.
+enum ErrorPageUnexpectedStateFlags {
+  // According to blink, the page reporting a button press is not an error page.
+  ERROR_PAGE_BUTTON_PRESS_FOR_NON_ERROR_PAGE_URL = 0x1,
+  // NetErrorHelperCore's state machine things the current page is not an error
+  // page.
+  ERROR_PAGE_BUTTON_PRESS_WITH_NO_ERROR_INFO     = 0x2,
+
+  // Must be strictly greater than a value with all flags set.
+  ERROR_PAGE_BUTTON_PRESS_MAX                    = 0x4,
+};
 
 struct CorrectionTypeToResourceTable {
   int resource_id;
@@ -149,11 +166,11 @@ bool ShouldUseFixUrlServiceForError(const blink::WebURLError& error,
 
   // Don't use the correction service for HTTPS (for privacy reasons).
   GURL unreachable_url(error.unreachableURL);
-  if (GURL(unreachable_url).SchemeIsSecure())
+  if (GURL(unreachable_url).SchemeIsCryptographic())
     return false;
 
   std::string domain = error.domain.utf8();
-  if (domain == "http" && error.reason == 404) {
+  if (domain == url::kHttpScheme && error.reason == 404) {
     *error_param = "http404";
     return true;
   }
@@ -197,7 +214,7 @@ std::string CreateRequestBody(
   request_dict.Set("params", params_dict.release());
 
   std::string request_body;
-  bool success = base::JSONWriter::Write(&request_dict, &request_body);
+  bool success = base::JSONWriter::Write(request_dict, &request_body);
   DCHECK(success);
   return request_body;
 }
@@ -260,7 +277,7 @@ base::string16 FormatURLForDisplay(const GURL& url, bool is_rtl,
 scoped_ptr<NavigationCorrectionResponse> ParseNavigationCorrectionResponse(
     const std::string raw_response) {
   // TODO(mmenke):  Open source related protocol buffers and use them directly.
-  scoped_ptr<base::Value> parsed(base::JSONReader::Read(raw_response));
+  scoped_ptr<base::Value> parsed = base::JSONReader::Read(raw_response);
   scoped_ptr<NavigationCorrectionResponse> response(
       new NavigationCorrectionResponse());
   base::JSONValueConverter<NavigationCorrectionResponse> converter;
@@ -332,6 +349,8 @@ scoped_ptr<ErrorPageParams> CreateErrorPageParams(
                               accept_languages));
       suggest->SetString("originalUrlForDisplay", original_url_for_display);
       suggest->SetInteger("trackingId", tracking_id);
+      suggest->SetInteger("type", static_cast<int>(correction_index));
+
       params->override_suggestions->Append(suggest);
       break;
     }
@@ -345,24 +364,19 @@ scoped_ptr<ErrorPageParams> CreateErrorPageParams(
 void ReportAutoReloadSuccess(const blink::WebURLError& error, size_t count) {
   if (error.domain.utf8() != net::kErrorDomain)
     return;
-  UMA_HISTOGRAM_CUSTOM_ENUMERATION("Net.AutoReload.ErrorAtSuccess",
-                                   -error.reason,
-                                   net::GetAllErrorCodesForUma());
+  UMA_HISTOGRAM_SPARSE_SLOWLY("Net.AutoReload.ErrorAtSuccess", -error.reason);
   UMA_HISTOGRAM_COUNTS("Net.AutoReload.CountAtSuccess",
                        static_cast<base::HistogramBase::Sample>(count));
   if (count == 1) {
-    UMA_HISTOGRAM_CUSTOM_ENUMERATION("Net.AutoReload.ErrorAtFirstSuccess",
-                                     -error.reason,
-                                     net::GetAllErrorCodesForUma());
+    UMA_HISTOGRAM_SPARSE_SLOWLY("Net.AutoReload.ErrorAtFirstSuccess",
+                                -error.reason);
   }
 }
 
 void ReportAutoReloadFailure(const blink::WebURLError& error, size_t count) {
   if (error.domain.utf8() != net::kErrorDomain)
     return;
-  UMA_HISTOGRAM_CUSTOM_ENUMERATION("Net.AutoReload.ErrorAtStop",
-                                   -error.reason,
-                                   net::GetAllErrorCodesForUma());
+  UMA_HISTOGRAM_SPARSE_SLOWLY("Net.AutoReload.ErrorAtStop", -error.reason);
   UMA_HISTOGRAM_COUNTS("Net.AutoReload.CountAtStop",
                        static_cast<base::HistogramBase::Sample>(count));
 }
@@ -376,7 +390,9 @@ struct NetErrorHelperCore::ErrorPageInfo {
         needs_dns_updates(false),
         needs_load_navigation_corrections(false),
         reload_button_in_page(false),
-        load_stale_button_in_page(false),
+        show_saved_copy_button_in_page(false),
+        show_cached_page_button_in_page(false),
+        show_cached_copy_button_in_page(false),
         is_finished_loading(false),
         auto_reload_triggered(false) {
   }
@@ -409,7 +425,9 @@ struct NetErrorHelperCore::ErrorPageInfo {
 
   // Track if specific buttons are included in an error page, for statistics.
   bool reload_button_in_page;
-  bool load_stale_button_in_page;
+  bool show_saved_copy_button_in_page;
+  bool show_cached_page_button_in_page;
+  bool show_cached_copy_button_in_page;
 
   // True if a page has completed loading, at which point it can receive
   // updates.
@@ -428,6 +446,7 @@ NetErrorHelperCore::NavigationCorrectionParams::~NavigationCorrectionParams() {
 
 bool NetErrorHelperCore::IsReloadableError(
     const NetErrorHelperCore::ErrorPageInfo& info) {
+  GURL url = info.error.unreachableURL;
   return info.error.domain.utf8() == net::kErrorDomain &&
          info.error.reason != net::ERR_ABORTED &&
          // For now, net::ERR_UNKNOWN_URL_SCHEME is only being displayed on
@@ -440,7 +459,10 @@ bool NetErrorHelperCore::IsReloadableError(
          // handshake_failure alert.
          // https://crbug.com/431387
          info.error.reason != net::ERR_SSL_PROTOCOL_ERROR &&
-         !info.was_failed_post;
+         !info.was_failed_post &&
+         // Don't auto-reload non-http/https schemas.
+         // https://crbug.com/471713
+         url.SchemeIsHTTPOrHTTPS();
 }
 
 NetErrorHelperCore::NetErrorHelperCore(Delegate* delegate,
@@ -453,6 +475,7 @@ NetErrorHelperCore::NetErrorHelperCore(Delegate* delegate,
       auto_reload_visible_only_(auto_reload_visible_only),
       auto_reload_timer_(new base::Timer(false, false)),
       auto_reload_paused_(false),
+      auto_reload_in_flight_(false),
       uncommitted_load_started_(false),
       // TODO(ellyjones): Make online_ accurate at object creation.
       online_(true),
@@ -491,6 +514,7 @@ void NetErrorHelperCore::OnStop() {
   CancelPendingFetches();
   uncommitted_load_started_ = false;
   auto_reload_count_ = 0;
+  auto_reload_in_flight_ = false;
 }
 
 void NetErrorHelperCore::OnWasShown() {
@@ -524,6 +548,11 @@ void NetErrorHelperCore::OnCommitLoad(FrameType frame_type, const GURL& url) {
   if (frame_type != MAIN_FRAME)
     return;
 
+  // If a page is committing, either it's an error page and autoreload will be
+  // started again below, or it's a success page and we need to clear autoreload
+  // state.
+  auto_reload_in_flight_ = false;
+
   // uncommitted_load_started_ could already be false, since RenderFrameImpl
   // calls OnCommitLoad once for each in-page navigation (like a fragment
   // change) with no corresponding OnStartLoad.
@@ -539,11 +568,11 @@ void NetErrorHelperCore::OnCommitLoad(FrameType frame_type, const GURL& url) {
       committed_error_page_info_->error.unreachableURL ==
           pending_error_page_info_->error.unreachableURL) {
     DCHECK(navigation_from_button_ == RELOAD_BUTTON ||
-           navigation_from_button_ == LOAD_STALE_BUTTON);
+           navigation_from_button_ == SHOW_SAVED_COPY_BUTTON);
     chrome_common_net::RecordEvent(
         navigation_from_button_ == RELOAD_BUTTON ?
             chrome_common_net::NETWORK_ERROR_PAGE_RELOAD_BUTTON_ERROR :
-            chrome_common_net::NETWORK_ERROR_PAGE_LOAD_STALE_BUTTON_ERROR);
+            chrome_common_net::NETWORK_ERROR_PAGE_SHOW_SAVED_COPY_BUTTON_ERROR);
   }
   navigation_from_button_ = NO_BUTTON;
 
@@ -576,9 +605,21 @@ void NetErrorHelperCore::OnFinishLoad(FrameType frame_type) {
     chrome_common_net::RecordEvent(
         chrome_common_net::NETWORK_ERROR_PAGE_RELOAD_BUTTON_SHOWN);
   }
-  if (committed_error_page_info_->load_stale_button_in_page) {
+  if (committed_error_page_info_->show_saved_copy_button_in_page) {
     chrome_common_net::RecordEvent(
-        chrome_common_net::NETWORK_ERROR_PAGE_LOAD_STALE_BUTTON_SHOWN);
+        chrome_common_net::NETWORK_ERROR_PAGE_SHOW_SAVED_COPY_BUTTON_SHOWN);
+  }
+  if (committed_error_page_info_->reload_button_in_page &&
+      committed_error_page_info_->show_saved_copy_button_in_page) {
+    chrome_common_net::RecordEvent(
+        chrome_common_net::NETWORK_ERROR_PAGE_BOTH_BUTTONS_SHOWN);
+  }
+  if (committed_error_page_info_->show_cached_copy_button_in_page) {
+    chrome_common_net::RecordEvent(
+        chrome_common_net::NETWORK_ERROR_PAGE_CACHED_COPY_BUTTON_SHOWN);
+  } else if (committed_error_page_info_->show_cached_page_button_in_page) {
+    chrome_common_net::RecordEvent(
+        chrome_common_net::NETWORK_ERROR_PAGE_CACHED_PAGE_BUTTON_SHOWN);
   }
 
   delegate_->EnablePageHelperFunctions();
@@ -624,11 +665,14 @@ void NetErrorHelperCore::GetErrorHTML(
   } else {
     // These values do not matter, as error pages in iframes hide the buttons.
     bool reload_button_in_page;
-    bool load_stale_button_in_page;
+    bool show_saved_copy_button_in_page;
+    bool show_cached_copy_button_in_page;
+    bool show_cached_page_button_in_page;
 
     delegate_->GenerateLocalizedErrorPage(
         error, is_failed_post, scoped_ptr<ErrorPageParams>(),
-        &reload_button_in_page, &load_stale_button_in_page,
+        &reload_button_in_page, &show_saved_copy_button_in_page,
+        &show_cached_copy_button_in_page, &show_cached_page_button_in_page,
         error_html);
   }
 }
@@ -689,7 +733,9 @@ void NetErrorHelperCore::GetErrorHtmlForMainFrame(
       error, pending_error_page_info->was_failed_post,
       scoped_ptr<ErrorPageParams>(),
       &pending_error_page_info->reload_button_in_page,
-      &pending_error_page_info->load_stale_button_in_page,
+      &pending_error_page_info->show_saved_copy_button_in_page,
+      &pending_error_page_info->show_cached_copy_button_in_page,
+      &pending_error_page_info->show_cached_page_button_in_page,
       error_html);
 }
 
@@ -708,7 +754,7 @@ void NetErrorHelperCore::UpdateErrorPage() {
     committed_error_page_info_->needs_dns_updates = false;
 
   // There is no need to worry about the button display statistics here because
-  // the presentation of the reload and load stale buttons can't be changed
+  // the presentation of the reload and show saved copy buttons can't be changed
   // by a DNS error update.
   delegate_->UpdateErrorPage(
       GetUpdatedError(committed_error_page_info_->error),
@@ -750,7 +796,9 @@ void NetErrorHelperCore::OnNavigationCorrectionsFetched(
         pending_error_page_info_->was_failed_post,
         params.Pass(),
         &pending_error_page_info_->reload_button_in_page,
-        &pending_error_page_info_->load_stale_button_in_page,
+        &pending_error_page_info_->show_saved_copy_button_in_page,
+        &pending_error_page_info_->show_cached_copy_button_in_page,
+        &pending_error_page_info_->show_cached_page_button_in_page,
         &error_html);
   } else {
     // Since |navigation_correction_params| in |pending_error_page_info_| is
@@ -824,7 +872,15 @@ void NetErrorHelperCore::StartAutoReloadTimer() {
 }
 
 void NetErrorHelperCore::AutoReloadTimerFired() {
+  // AutoReloadTimerFired only runs if:
+  // 1. StartAutoReloadTimer was previously called, which requires that
+  //    committed_error_page_info_ is populated;
+  // 2. No other page load has started since (1), since OnStartLoad stops the
+  //    auto-reload timer.
+  DCHECK(committed_error_page_info_);
+
   auto_reload_count_++;
+  auto_reload_in_flight_ = true;
   Reload();
 }
 
@@ -859,56 +915,61 @@ bool NetErrorHelperCore::ShouldSuppressErrorPage(FrameType frame_type,
   if (frame_type != MAIN_FRAME)
     return false;
 
-  if (!auto_reload_enabled_)
+  // If there's no auto reload attempt in flight, this error page didn't come
+  // from auto reload, so don't suppress it.
+  if (!auto_reload_in_flight_)
     return false;
 
-  // If there's no committed error page, this error page wasn't from an auto
-  // reload.
-  if (!committed_error_page_info_)
-    return false;
-
-  // If the error page wasn't reloadable, display it.
-  if (!IsReloadableError(*committed_error_page_info_))
-    return false;
-
-  // If |auto_reload_timer_| is still running or is paused, this error page
-  // isn't from an auto reload.
-  if (auto_reload_timer_->IsRunning() || auto_reload_paused_)
-    return false;
-
-  // If the error page was reloadable, and the timer isn't running or paused, an
-  // auto-reload has already been triggered.
-  DCHECK(committed_error_page_info_->auto_reload_triggered);
-
-  GURL error_url = committed_error_page_info_->error.unreachableURL;
-  // TODO(ellyjones): also plumb the error code down to CCRC and check that
-  if (error_url != url)
-    return false;
-
-  // Suppressed an error-page load; the previous uncommitted load was the error
-  // page load starting, so forget about it.
   uncommitted_load_started_ = false;
-
-  // The first iteration of the timer is started by OnFinishLoad calling
-  // MaybeStartAutoReloadTimer, but since error pages for subsequent loads are
-  // suppressed in this function, subsequent iterations of the timer have to be
-  // started here.
+  // This serves to terminate the auto-reload in flight attempt. If
+  // ShouldSuppressErrorPage is called, the auto-reload yielded an error, which
+  // means the request was already sent.
+  auto_reload_in_flight_ = false;
   MaybeStartAutoReloadTimer();
   return true;
 }
 
-void NetErrorHelperCore::ExecuteButtonPress(Button button) {
+void NetErrorHelperCore::ExecuteButtonPress(bool is_error_page, Button button) {
+  // UMA to investigate http://crbug.com/500556.
+  // TODO(mmenke): Remove when the issue is fixed.
+  int button_press_info = 0;
+  if (!is_error_page)
+    button_press_info |= ERROR_PAGE_BUTTON_PRESS_FOR_NON_ERROR_PAGE_URL;
+  if (!committed_error_page_info_)
+    button_press_info |= ERROR_PAGE_BUTTON_PRESS_WITH_NO_ERROR_INFO;
+  UMA_HISTOGRAM_ENUMERATION("Net.ErrorPageButtonPressUnexpectedStates",
+                            button_press_info,
+                            ERROR_PAGE_BUTTON_PRESS_MAX);
+  if (button_press_info != 0) {
+    UMA_HISTOGRAM_ENUMERATION(
+        "Net.ErrorPageButtonPressedWhileInUnexpectedState",
+        button, BUTTON_MAX);
+  }
+
+  // Unclear why this happens.
+  // TODO(mmenke): Remove when http://crbug.com/500556 is fixed.
+  if (!committed_error_page_info_)
+    return;
+
   switch (button) {
     case RELOAD_BUTTON:
       chrome_common_net::RecordEvent(
           chrome_common_net::NETWORK_ERROR_PAGE_RELOAD_BUTTON_CLICKED);
+      if (committed_error_page_info_->show_saved_copy_button_in_page) {
+        chrome_common_net::RecordEvent(
+            chrome_common_net::NETWORK_ERROR_PAGE_BOTH_BUTTONS_RELOAD_CLICKED);
+      }
       navigation_from_button_ = RELOAD_BUTTON;
       Reload();
       return;
-    case LOAD_STALE_BUTTON:
+    case SHOW_SAVED_COPY_BUTTON:
       chrome_common_net::RecordEvent(
-          chrome_common_net::NETWORK_ERROR_PAGE_LOAD_STALE_BUTTON_CLICKED);
-      navigation_from_button_ = LOAD_STALE_BUTTON;
+          chrome_common_net::NETWORK_ERROR_PAGE_SHOW_SAVED_COPY_BUTTON_CLICKED);
+      navigation_from_button_ = SHOW_SAVED_COPY_BUTTON;
+      if (committed_error_page_info_->reload_button_in_page) {
+        chrome_common_net::RecordEvent(chrome_common_net::
+            NETWORK_ERROR_PAGE_BOTH_BUTTONS_SHOWN_SAVED_COPY_CLICKED);
+      }
       delegate_->LoadPageFromCache(
           committed_error_page_info_->error.unreachableURL);
       return;
@@ -917,6 +978,19 @@ void NetErrorHelperCore::ExecuteButtonPress(Button button) {
       chrome_common_net::RecordEvent(
           chrome_common_net::NETWORK_ERROR_PAGE_MORE_BUTTON_CLICKED);
       return;
+    case EASTER_EGG:
+      chrome_common_net::RecordEvent(
+          chrome_common_net::NETWORK_ERROR_EASTER_EGG_ACTIVATED);
+      return;
+    case SHOW_CACHED_COPY_BUTTON:
+      chrome_common_net::RecordEvent(
+          chrome_common_net::NETWORK_ERROR_PAGE_CACHED_COPY_BUTTON_CLICKED);
+      return;
+    case SHOW_CACHED_PAGE_BUTTON:
+      chrome_common_net::RecordEvent(
+          chrome_common_net::NETWORK_ERROR_PAGE_CACHED_PAGE_BUTTON_CLICKED);
+      return;
+    case BUTTON_MAX:
     case NO_BUTTON:
       NOTREACHED();
       return;

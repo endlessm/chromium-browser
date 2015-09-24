@@ -6,10 +6,9 @@
 
 #include <set>
 
-#include "base/containers/scoped_ptr_hash_map.h"
-#include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "components/nacl/common/nacl_types.h"
 #include "components/nacl/renderer/nexe_load_manager.h"
 #include "third_party/jsoncpp/source/include/json/reader.h"
 #include "third_party/jsoncpp/source/include/json/value.h"
@@ -380,21 +379,6 @@ void GrabUrlAndPnaclOptions(const Json::Value& url_spec,
 
 }  // namespace
 
-typedef base::ScopedPtrHashMap<PP_Instance, nacl::JsonManifest> JsonManifestMap;
-base::LazyInstance<JsonManifestMap> g_manifest_map = LAZY_INSTANCE_INITIALIZER;
-
-void AddJsonManifest(PP_Instance instance, scoped_ptr<JsonManifest> manifest) {
-  g_manifest_map.Get().add(instance, manifest.Pass());
-}
-
-JsonManifest* GetJsonManifest(PP_Instance instance) {
-  return g_manifest_map.Get().get(instance);
-}
-
-void DeleteJsonManifest(PP_Instance instance) {
-  g_manifest_map.Get().erase(instance);
-}
-
 JsonManifest::JsonManifest(const std::string& manifest_base_url,
                            const std::string& sandbox_isa,
                            bool nonsfi_enabled,
@@ -459,28 +443,29 @@ bool JsonManifest::GetProgramURL(std::string* full_url,
   return true;
 }
 
+void JsonManifest::GetPrefetchableFiles(
+    std::vector<NaClResourcePrefetchRequest>* out_files) const {
+  const Json::Value& files = dictionary_[kFilesKey];
+  if (!files.isObject())
+    return;
+
+  Json::Value::Members keys = files.getMemberNames();
+  for (size_t i = 0; i < keys.size(); ++i) {
+    std::string full_url;
+    PP_PNaClOptions unused_pnacl_options;  // pnacl does not support "files".
+    // We skip invalid entries in "files".
+    if (GetKeyUrl(files, keys[i], &full_url, &unused_pnacl_options)) {
+      if (GURL(full_url).SchemeIs("chrome-extension"))
+        out_files->push_back(NaClResourcePrefetchRequest(keys[i], full_url));
+    }
+  }
+}
+
 bool JsonManifest::ResolveKey(const std::string& key,
                               std::string* full_url,
                               PP_PNaClOptions* pnacl_options) const {
-  // key must be one of kProgramKey or kFileKey '/' file-section-key
   if (full_url == NULL || pnacl_options == NULL)
     return false;
-
-  if (key == kProgramKey)
-    return GetKeyUrl(dictionary_, key, full_url, pnacl_options);
-
-  std::string::const_iterator p = std::find(key.begin(), key.end(), '/');
-  if (p == key.end()) {
-    VLOG(1) << "ResolveKey failed: invalid key, no slash: " << key;
-    return false;
-  }
-
-  // generalize to permit other sections?
-  std::string prefix(key.begin(), p);
-  if (prefix != kFilesKey) {
-    VLOG(1) << "ResolveKey failed: invalid key, no \"files\" prefix: " << key;
-    return false;
-  }
 
   const Json::Value& files = dictionary_[kFilesKey];
   if (!files.isObject()) {
@@ -488,12 +473,11 @@ bool JsonManifest::ResolveKey(const std::string& key,
     return false;
   }
 
-  std::string rest(p + 1, key.end());
-  if (!files.isMember(rest)) {
+  if (!files.isMember(key)) {
     VLOG(1) << "ResolveKey failed: no such \"files\" entry: " << key;
     return false;
   }
-  return GetKeyUrl(files, rest, full_url, pnacl_options);
+  return GetKeyUrl(files, key, full_url, pnacl_options);
 }
 
 bool JsonManifest::MatchesSchema(ErrorInfo* error_info) {

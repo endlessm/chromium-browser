@@ -8,6 +8,7 @@
 #include "base/prefs/testing_pref_store.h"
 #include "base/strings/string_util.h"
 #include "chrome/browser/supervised_user/supervised_user_settings_service.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "sync/api/fake_sync_change_processor.h"
 #include "sync/api/sync_change.h"
 #include "sync/api/sync_change_processor_wrapper_for_test.h"
@@ -98,16 +99,16 @@ class SupervisedUserSettingsServiceTest : public ::testing::Test {
     if (supervised_user_setting.name() == kAtomicItemName) {
       expected_value = atomic_setting_value_.get();
     } else {
-      EXPECT_TRUE(StartsWithASCII(supervised_user_setting.name(),
-                                  std::string(kSplitItemName) + ':',
-                                  true));
+      EXPECT_TRUE(base::StartsWith(supervised_user_setting.name(),
+                                   std::string(kSplitItemName) + ':',
+                                   base::CompareCase::SENSITIVE));
       std::string key =
           supervised_user_setting.name().substr(strlen(kSplitItemName) + 1);
       EXPECT_TRUE(split_items_.GetWithoutPathExpansion(key, &expected_value));
     }
 
     scoped_ptr<base::Value> value(
-        base::JSONReader::Read(supervised_user_setting.value()));
+        base::JSONReader::DeprecatedRead(supervised_user_setting.value()));
     EXPECT_TRUE(expected_value->Equals(value.get()));
   }
 
@@ -133,6 +134,7 @@ class SupervisedUserSettingsServiceTest : public ::testing::Test {
 
   void TearDown() override { settings_service_.Shutdown(); }
 
+  content::TestBrowserThreadBundle thread_bundle_;
   base::DictionaryValue split_items_;
   scoped_ptr<base::Value> atomic_setting_value_;
   SupervisedUserSettingsService settings_service_;
@@ -201,7 +203,7 @@ TEST_F(SupervisedUserSettingsServiceTest, SetLocalSetting) {
   EXPECT_FALSE(settings_->GetWithoutPathExpansion(kSettingsName, &value));
 
   settings_.reset();
-  settings_service_.SetLocalSettingForTesting(
+  settings_service_.SetLocalSetting(
       kSettingsName,
       scoped_ptr<base::Value>(new base::StringValue(kSettingsValue)));
   ASSERT_TRUE(settings_);

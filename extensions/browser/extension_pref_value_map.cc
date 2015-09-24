@@ -39,7 +39,6 @@ ExtensionPrefValueMap::~ExtensionPrefValueMap() {
     destroyed_ = true;
   }
   STLDeleteValues(&entries_);
-  entries_.clear();
 }
 
 void ExtensionPrefValueMap::Shutdown() {
@@ -53,7 +52,7 @@ void ExtensionPrefValueMap::SetExtensionPref(const std::string& ext_id,
                                              base::Value* value) {
   PrefValueMap* prefs = GetExtensionPrefValueMap(ext_id, scope);
 
-  if (prefs->SetValue(key, value))
+  if (prefs->SetValue(key, make_scoped_ptr(value)))
     NotifyPrefValueChanged(key);
 }
 
@@ -72,7 +71,10 @@ bool ExtensionPrefValueMap::CanExtensionControlPref(
     bool incognito) const {
   ExtensionEntryMap::const_iterator ext = entries_.find(extension_id);
   if (ext == entries_.end()) {
-    NOTREACHED();
+    NOTREACHED() << "Extension " << extension_id
+                 << " is not registered but accesses pref " << pref_key
+                 << " (incognito: " << incognito << ")."
+                 << " http://crbug.com/454513";
     return false;
   }
 

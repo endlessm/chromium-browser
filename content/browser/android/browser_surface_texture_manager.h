@@ -7,34 +7,39 @@
 
 #include "content/common/android/surface_texture_manager.h"
 
+#include "base/memory/singleton.h"
 #include "content/common/android/surface_texture_peer.h"
+#include "content/common/content_export.h"
 
 namespace content {
 
-class BrowserSurfaceTextureManager : public SurfaceTextureManager,
-                                     public SurfaceTexturePeer {
+class CONTENT_EXPORT BrowserSurfaceTextureManager
+    : public SurfaceTextureManager,
+      public SurfaceTexturePeer {
  public:
-  BrowserSurfaceTextureManager();
-  virtual ~BrowserSurfaceTextureManager();
+  static BrowserSurfaceTextureManager* GetInstance();
 
   // Overridden from SurfaceTextureManager:
-  virtual void RegisterSurfaceTexture(
-      int surface_texture_id,
-      int client_id,
-      gfx::SurfaceTexture* surface_texture) override;
-  virtual void UnregisterSurfaceTexture(int surface_texture_id,
-                                        int client_id) override;
-  virtual gfx::AcceleratedWidget AcquireNativeWidgetForSurfaceTexture(
+  void RegisterSurfaceTexture(int surface_texture_id,
+                              int client_id,
+                              gfx::SurfaceTexture* surface_texture) override;
+  void UnregisterSurfaceTexture(int surface_texture_id, int client_id) override;
+  gfx::AcceleratedWidget AcquireNativeWidgetForSurfaceTexture(
       int surface_texture_id) override;
 
   // Overridden from SurfaceTexturePeer:
-  virtual void EstablishSurfaceTexturePeer(
+  void EstablishSurfaceTexturePeer(
       base::ProcessHandle render_process_handle,
       scoped_refptr<gfx::SurfaceTexture> surface_texture,
       int render_frame_id,
       int player_id) override;
 
  private:
+  friend struct DefaultSingletonTraits<BrowserSurfaceTextureManager>;
+
+  BrowserSurfaceTextureManager();
+  ~BrowserSurfaceTextureManager() override;
+
   DISALLOW_COPY_AND_ASSIGN(BrowserSurfaceTextureManager);
 };
 

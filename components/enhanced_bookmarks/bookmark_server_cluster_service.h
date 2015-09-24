@@ -12,18 +12,24 @@
 #include "components/enhanced_bookmarks/bookmark_server_service.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 #include "components/signin/core/browser/signin_manager_base.h"
+#include "components/sync_driver/sync_service_observer.h"
 #include "net/url_request/url_fetcher.h"
 
 class PrefService;
+
+namespace sync_driver {
+class SyncService;
+}
 
 namespace enhanced_bookmarks {
 
 // Manages requests to the bookmark server to retrieve the current clustering
 // state for the bookmarks. A cluster is simply a named set of bookmarks related
-// to each others.
+// to each others. Invalidates its data when a sync operation finishes.
 class BookmarkServerClusterService : public KeyedService,
                                      public BookmarkServerService,
-                                     public SigninManagerBase::Observer {
+                                     public SigninManagerBase::Observer,
+                                     public sync_driver::SyncServiceObserver {
  public:
   // Maps a cluster name to the stars.id of the bookmarks.
   typedef std::map<std::string, std::vector<std::string>> ClusterMap;
@@ -37,21 +43,28 @@ class BookmarkServerClusterService : public KeyedService,
       ProfileOAuth2TokenService* token_service,
       SigninManagerBase* signin_manager,
       EnhancedBookmarkModel* enhanced_bookmark_model,
+      sync_driver::SyncService* sync_service,
       PrefService* pref_service);
   ~BookmarkServerClusterService() override;
+
+  // KeyedService methods.
+  void Shutdown() override;
 
   // Retrieves all the bookmarks associated with a cluster. The returned
   // BookmarkNodes are owned by the bookmark model, and one must listen to the
   // model observer notification to clear them.
-  const std::vector<const BookmarkNode*> BookmarksForClusterNamed(
+  const std::vector<const bookmarks::BookmarkNode*> BookmarksForClusterNamed(
       const std::string& cluster_name) const;
 
   // Returns the clusters in which the passed bookmark is in, if any.
   const std::vector<std::string> ClustersForBookmark(
-      const BookmarkNode* bookmark) const;
+      const bookmarks::BookmarkNode* bookmark) const;
 
   // Dynamically generates a vector of all clusters names.
   const std::vector<std::string> GetClusters() const;
+
+  // BookmarkServerService methods.
+  void AddObserver(BookmarkServerServiceObserver* observer) override;
 
   // Registers server cluster service prefs.
   static void RegisterPrefs(user_prefs::PrefRegistrySyncable* registry);
@@ -65,11 +78,12 @@ class BookmarkServerClusterService : public KeyedService,
 
   // EnhancedBookmarkModelObserver methods.
   void EnhancedBookmarkModelLoaded() override;
-  void EnhancedBookmarkAdded(const BookmarkNode* node) override;
-  void EnhancedBookmarkRemoved(const BookmarkNode* node) override;
-  void EnhancedBookmarkNodeChanged(const BookmarkNode* node) override;
+  void EnhancedBookmarkAdded(const bookmarks::BookmarkNode* node) override;
+  void EnhancedBookmarkRemoved(const bookmarks::BookmarkNode* node) override;
+  void EnhancedBookmarkNodeChanged(
+      const bookmarks::BookmarkNode* node) override;
   void EnhancedBookmarkAllUserNodesRemoved() override;
-  void EnhancedBookmarkRemoteIdChanged(const BookmarkNode* node,
+  void EnhancedBookmarkRemoteIdChanged(const bookmarks::BookmarkNode* node,
                                        const std::string& old_remote_id,
                                        const std::string& remote_id) override;
 
@@ -97,6 +111,13 @@ class BookmarkServerClusterService : public KeyedService,
   // Updates |cluster_data_| from profile prefs.
   void LoadModel();
 
+  // sync_driver::SyncServiceObserver methods.
+  void OnStateChanged() override;
+  void OnSyncCycleCompleted() override;
+
+  // This sets an internal flag to fetch new clusters.
+  void InvalidateCache();
+
   // Serialize the |cluster_map| into the returned dictionary value.. The
   // |auth_id| uniquely identify the signed in user, to avoid deserializing data
   // for a different one.
@@ -112,10 +133,15 @@ class BookmarkServerClusterService : public KeyedService,
 
   // The ISO 639-1 code of the language used by the application.
   const std::string application_language_code_;
+  // This class observes the sync service for changes.
+  sync_driver::SyncService* sync_service_;
   // The preferences services associated with the relevant profile.
   PrefService* pref_service_;
   // The cluster data, a map from cluster name to a vector of stars.id.
   ClusterMap cluster_data_;
+  bool sync_refresh_skipped_;
+  // This holds the number of cluster refreshes needed.
+  int refreshes_needed_;
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkServerClusterService);
 };

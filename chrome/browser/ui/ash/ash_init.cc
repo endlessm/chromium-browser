@@ -5,7 +5,6 @@
 #include "chrome/browser/ui/ash/ash_init.h"
 
 #include "ash/accelerators/accelerator_controller.h"
-#include "ash/accelerometer/accelerometer_controller.h"
 #include "ash/ash_switches.h"
 #include "ash/high_contrast/high_contrast_controller.h"
 #include "ash/magnifier/magnification_controller.h"
@@ -15,8 +14,8 @@
 #include "base/command_line.h"
 #include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/ui/ash/chrome_screenshot_grabber.h"
 #include "chrome/browser/ui/ash/chrome_shell_delegate.h"
-#include "chrome/browser/ui/ash/screenshot_taker.h"
 #include "chrome/common/chrome_switches.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/context_factory.h"
@@ -29,6 +28,7 @@
 #include "chrome/browser/chromeos/accessibility/magnification_manager.h"
 #include "chrome/browser/ui/ash/ime_controller_chromeos.h"
 #include "chrome/browser/ui/ash/volume_controller_chromeos.h"
+#include "chromeos/accelerometer/accelerometer_reader.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/login/login_state.h"
 #include "ui/base/x/x11_util.h"
@@ -62,13 +62,14 @@ void OpenAsh(gfx::AcceleratedWidget remote_window) {
 
   ash::Shell* shell = ash::Shell::CreateInstance(shell_init_params);
   shell->accelerator_controller()->SetScreenshotDelegate(
-      scoped_ptr<ash::ScreenshotDelegate>(new ScreenshotTaker).Pass());
-  // TODO(flackr): Investigate exposing a blocking pool task runner to chromeos.
-  shell->accelerometer_controller()->Initialize(
-      content::BrowserThread::GetBlockingPool()->
-          GetTaskRunnerWithShutdownBehavior(
-              base::SequencedWorkerPool::SKIP_ON_SHUTDOWN));
+      scoped_ptr<ash::ScreenshotDelegate>(new ChromeScreenshotGrabber).Pass());
 #if defined(OS_CHROMEOS)
+  // TODO(flackr): Investigate exposing a blocking pool task runner to chromeos.
+  chromeos::AccelerometerReader::GetInstance()->Initialize(
+      content::BrowserThread::GetBlockingPool()
+          ->GetSequencedTaskRunnerWithShutdownBehavior(
+              content::BrowserThread::GetBlockingPool()->GetSequenceToken(),
+              base::SequencedWorkerPool::SKIP_ON_SHUTDOWN));
   shell->accelerator_controller()->SetImeControlDelegate(
       scoped_ptr<ash::ImeControlDelegate>(new ImeController).Pass());
   shell->high_contrast_controller()->SetEnabled(
@@ -84,8 +85,8 @@ void OpenAsh(gfx::AcceleratedWidget remote_window) {
   shell->partial_magnification_controller()->
       SetEnabled(magnifier_enabled && magnifier_type == ui::MAGNIFIER_PARTIAL);
 
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kDisableZeroBrowsersOpenForTests)) {
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kDisableZeroBrowsersOpenForTests)) {
     chrome::IncrementKeepAliveCount();
   }
 #endif

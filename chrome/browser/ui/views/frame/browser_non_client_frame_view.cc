@@ -11,20 +11,25 @@
 #include "chrome/browser/profiles/profile_info_cache.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profiles_state.h"
+#include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/taskbar_decorator.h"
 #include "chrome/browser/ui/views/profiles/avatar_menu_button.h"
 #include "chrome/browser/ui/views/profiles/new_avatar_button.h"
+#include "chrome/browser/ui/views/tabs/tab_strip.h"
+#include "chrome/browser/ui/views/theme_image_mapper.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/theme_provider.h"
 #include "ui/gfx/image/image.h"
+#include "ui/resources/grit/ui_resources.h"
 #include "ui/views/background.h"
+#include "ui/views/resources/grit/views_resources.h"
 
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
 #include "chrome/browser/ui/views/profiles/supervised_user_avatar_label.h"
 #endif
 
@@ -32,12 +37,12 @@ BrowserNonClientFrameView::BrowserNonClientFrameView(BrowserFrame* frame,
                                                      BrowserView* browser_view)
     : frame_(frame),
       browser_view_(browser_view),
-      avatar_button_(NULL),
-#if defined(ENABLE_MANAGED_USERS)
-      supervised_user_avatar_label_(NULL),
+      avatar_button_(nullptr),
+#if defined(ENABLE_SUPERVISED_USERS)
+      supervised_user_avatar_label_(nullptr),
 #endif
-      new_avatar_button_(NULL) {
-  // The profile manager may by NULL in tests.
+      new_avatar_button_(nullptr) {
+  // The profile manager may by null in tests.
   if (g_browser_process->profile_manager()) {
     ProfileInfoCache& cache =
         g_browser_process->profile_manager()->GetProfileInfoCache();
@@ -46,7 +51,7 @@ BrowserNonClientFrameView::BrowserNonClientFrameView(BrowserFrame* frame,
 }
 
 BrowserNonClientFrameView::~BrowserNonClientFrameView() {
-  // The profile manager may by NULL in tests.
+  // The profile manager may by null in tests.
   if (g_browser_process->profile_manager()) {
     ProfileInfoCache& cache =
         g_browser_process->profile_manager()->GetProfileInfoCache();
@@ -54,17 +59,24 @@ BrowserNonClientFrameView::~BrowserNonClientFrameView() {
   }
 }
 
+void BrowserNonClientFrameView::UpdateToolbar() {
+}
+
+views::View* BrowserNonClientFrameView::GetLocationIconView() const {
+  return nullptr;
+}
+
 void BrowserNonClientFrameView::VisibilityChanged(views::View* starting_from,
                                                   bool is_visible) {
   if (!is_visible)
     return;
 
-  // The first time UpdateAvatarInfo() is called the window is not visible so
-  // DrawTaskBarDecoration() has no effect. Therefore we need to call it again
-  // once the window is visible.
+  // The first time UpdateOldAvatarButton() is called the window is not visible
+  // so DrawTaskBarDecoration() has no effect. Therefore we need to call it
+  // again once the window is visible.
   if (!browser_view_->IsRegularOrGuestSession() ||
       !switches::IsNewAvatarMenu()) {
-    UpdateAvatarInfo();
+    UpdateOldAvatarButton();
   }
 
   // Make sure the task bar icon is correctly updated call
@@ -73,17 +85,106 @@ void BrowserNonClientFrameView::VisibilityChanged(views::View* starting_from,
     OnProfileAvatarChanged(base::FilePath());
 }
 
-#if defined(ENABLE_MANAGED_USERS)
+void BrowserNonClientFrameView::ChildPreferredSizeChanged(View* child) {
+  // Only perform a re-layout if the avatar button has changed, since that
+  // can affect the size of the tabs.
+  if (child == new_avatar_button_) {
+    InvalidateLayout();
+    frame_->GetRootView()->Layout();
+  }
+}
+
+#if defined(ENABLE_SUPERVISED_USERS)
 void BrowserNonClientFrameView::OnThemeChanged() {
   if (supervised_user_avatar_label_)
     supervised_user_avatar_label_->UpdateLabelStyle();
 }
 #endif
 
-void BrowserNonClientFrameView::UpdateAvatarInfo() {
+bool BrowserNonClientFrameView::ShouldPaintAsThemed() const {
+  return browser_view_->IsBrowserTypeNormal();
+}
+
+SkColor BrowserNonClientFrameView::GetFrameColor() const {
+  const bool incognito = browser_view_->IsOffTheRecord();
+  ThemeProperties::OverwritableByUserThemeProperty color_id;
+  if (ShouldPaintAsActive()) {
+    color_id = incognito ? ThemeProperties::COLOR_FRAME_INCOGNITO
+                         : ThemeProperties::COLOR_FRAME;
+  } else {
+    color_id = incognito ? ThemeProperties::COLOR_FRAME_INCOGNITO_INACTIVE
+                         : ThemeProperties::COLOR_FRAME_INACTIVE;
+  }
+  return ShouldPaintAsThemed() ? GetThemeProvider()->GetColor(color_id)
+                               : ThemeProperties::GetDefaultColor(color_id);
+}
+
+gfx::ImageSkia* BrowserNonClientFrameView::GetFrameImage() const {
+  const bool incognito = browser_view_->IsOffTheRecord();
+  int resource_id;
+  if (browser_view_->IsBrowserTypeNormal()) {
+    if (ShouldPaintAsActive()) {
+      resource_id = incognito ? IDR_THEME_FRAME_INCOGNITO : IDR_THEME_FRAME;
+    } else {
+      resource_id = incognito ? IDR_THEME_FRAME_INCOGNITO_INACTIVE
+                              : IDR_THEME_FRAME_INACTIVE;
+    }
+    return GetThemeProvider()->GetImageSkiaNamed(resource_id);
+  }
+
+  if (ShouldPaintAsActive()) {
+    resource_id = incognito ? IDR_THEME_FRAME_INCOGNITO : IDR_FRAME;
+  } else {
+    resource_id = incognito ? IDR_THEME_FRAME_INCOGNITO_INACTIVE
+                            : IDR_THEME_FRAME_INACTIVE;
+  }
+
+  if (ShouldPaintAsThemed()) {
+    // On Linux, we want to use theme images provided by the system theme when
+    // enabled, even if we are an app or popup window.
+    return GetThemeProvider()->GetImageSkiaNamed(resource_id);
+  }
+
+  // Otherwise, never theme app and popup windows.
+  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
+  return rb.GetImageSkiaNamed(
+      chrome::MapThemeImage(chrome::GetHostDesktopTypeForNativeWindow(
+                                browser_view_->GetNativeWindow()),
+                            resource_id));
+}
+
+gfx::ImageSkia* BrowserNonClientFrameView::GetFrameOverlayImage() const {
+  ui::ThemeProvider* tp = GetThemeProvider();
+  if (tp->HasCustomImage(IDR_THEME_FRAME_OVERLAY) &&
+      browser_view_->IsBrowserTypeNormal() &&
+      !browser_view_->IsOffTheRecord()) {
+    return tp->GetImageSkiaNamed(ShouldPaintAsActive() ?
+        IDR_THEME_FRAME_OVERLAY : IDR_THEME_FRAME_OVERLAY_INACTIVE);
+  }
+  return nullptr;
+}
+
+int BrowserNonClientFrameView::GetTopAreaHeight() const {
+  gfx::ImageSkia* frame_image = GetFrameImage();
+  int top_area_height = frame_image->height();
+  if (browser_view_->IsTabStripVisible()) {
+    top_area_height = std::max(top_area_height,
+      GetBoundsForTabStrip(browser_view_->tabstrip()).bottom());
+  }
+  return top_area_height;
+}
+
+void BrowserNonClientFrameView::UpdateAvatar() {
+  if (browser_view()->IsRegularOrGuestSession() && switches::IsNewAvatarMenu())
+    UpdateNewAvatarButtonImpl();
+  else
+    UpdateOldAvatarButton();
+}
+
+void BrowserNonClientFrameView::UpdateOldAvatarButton() {
   if (browser_view_->ShouldShowAvatar()) {
     if (!avatar_button_) {
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
       Profile* profile = browser_view_->browser()->profile();
       if (profile->IsSupervised() && !supervised_user_avatar_label_) {
         supervised_user_avatar_label_ =
@@ -102,17 +203,17 @@ void BrowserNonClientFrameView::UpdateAvatarInfo() {
       frame_->GetRootView()->Layout();
     }
   } else if (avatar_button_) {
-#if defined(ENABLE_MANAGED_USERS)
+#if defined(ENABLE_SUPERVISED_USERS)
     // The avatar label can just be there if there is also an avatar button.
     if (supervised_user_avatar_label_) {
       RemoveChildView(supervised_user_avatar_label_);
       delete supervised_user_avatar_label_;
-      supervised_user_avatar_label_ = NULL;
+      supervised_user_avatar_label_ = nullptr;
     }
 #endif
     RemoveChildView(avatar_button_);
     delete avatar_button_;
-    avatar_button_ = NULL;
+    avatar_button_ = nullptr;
     frame_->GetRootView()->Layout();
   }
 
@@ -137,7 +238,7 @@ void BrowserNonClientFrameView::UpdateAvatarInfo() {
     avatar_button_->SetAvatarIcon(avatar, is_rectangle);
 }
 
-void BrowserNonClientFrameView::UpdateNewStyleAvatarInfo(
+void BrowserNonClientFrameView::UpdateNewAvatarButton(
     views::ButtonListener* listener,
     const NewAvatarButton::AvatarButtonStyle style) {
   DCHECK(switches::IsNewAvatarMenu());
@@ -154,56 +255,66 @@ void BrowserNonClientFrameView::UpdateNewStyleAvatarInfo(
     }
   } else if (new_avatar_button_) {
     delete new_avatar_button_;
-    new_avatar_button_ = NULL;
+    new_avatar_button_ = nullptr;
     frame_->GetRootView()->Layout();
   }
 }
 
-void BrowserNonClientFrameView::DrawTaskbarDecoration(
-    const gfx::Image& avatar,
-    const gfx::Image& taskbar_badge_avatar) {
-  // For popups and panels which don't have the avatar button, we still
-  // need to draw the taskbar decoration. Even though we have an icon on the
-  // window's relaunch details, we draw over it because the user may have pinned
-  // the badge-less Chrome shortcut which will cause windows to ignore the
-  // relaunch details.
-  // TODO(calamity): ideally this should not be necessary but due to issues with
-  // the default shortcut being pinned, we add the runtime badge for safety.
-  // See crbug.com/313800.
-  bool show_decoration = AvatarMenu::ShouldShowAvatarMenu() &&
-      !browser_view_->browser()->profile()->IsGuestSession();
-  // In tests, make sure that the browser process and profile manager are valid
-  // before using.
-  if (g_browser_process && g_browser_process->profile_manager()) {
-    const ProfileInfoCache& cache =
-        g_browser_process->profile_manager()->GetProfileInfoCache();
-    show_decoration = show_decoration && cache.GetNumberOfProfiles() > 1;
-  }
-  chrome::DrawTaskbarDecoration(frame_->GetNativeWindow(),
-      show_decoration
-          ? (taskbar_badge_avatar.IsEmpty() ? &avatar : &taskbar_badge_avatar)
-          : NULL);
-}
-
 void BrowserNonClientFrameView::OnProfileAdded(
     const base::FilePath& profile_path) {
-  OnProfileAvatarChanged(profile_path);
+  UpdateTaskbarDecoration();
+  UpdateAvatar();
 }
 
 void BrowserNonClientFrameView::OnProfileWasRemoved(
     const base::FilePath& profile_path,
     const base::string16& profile_name) {
-  OnProfileAvatarChanged(profile_path);
+  UpdateTaskbarDecoration();
+  UpdateAvatar();
 }
 
 void BrowserNonClientFrameView::OnProfileAvatarChanged(
     const base::FilePath& profile_path) {
+  UpdateTaskbarDecoration();
+  // Profile avatars are only displayed in the old UI or incognito.
+  if ((!browser_view()->IsGuestSession() && browser_view()->IsOffTheRecord()) ||
+      !switches::IsNewAvatarMenu()) {
+    UpdateOldAvatarButton();
+  }
+}
+
+void BrowserNonClientFrameView::UpdateTaskbarDecoration() {
   gfx::Image avatar;
   gfx::Image taskbar_badge_avatar;
   bool is_rectangle;
-  // Only need to update the taskbar overlay here.
-  AvatarMenuButton::GetAvatarImages(browser_view_->browser()->profile(),
-                                    AvatarMenu::ShouldShowAvatarMenu(), &avatar,
-                                    &taskbar_badge_avatar, &is_rectangle);
-  DrawTaskbarDecoration(avatar, taskbar_badge_avatar);
+  // Only need to update the taskbar overlay here.  If GetAvatarImages()
+  // returns false, don't bother trying to update the taskbar decoration since
+  // the returned images are not initialized.  This can happen if the user
+  // deletes the current profile.
+  if (AvatarMenuButton::GetAvatarImages(browser_view_->browser()->profile(),
+                                        AvatarMenu::ShouldShowAvatarMenu(),
+                                        &avatar, &taskbar_badge_avatar,
+                                        &is_rectangle)) {
+    // For popups and panels which don't have the avatar button, we still
+    // need to draw the taskbar decoration. Even though we have an icon on the
+    // window's relaunch details, we draw over it because the user may have
+    // pinned the badge-less Chrome shortcut which will cause windows to ignore
+    // the relaunch details.
+    // TODO(calamity): ideally this should not be necessary but due to issues
+    // with the default shortcut being pinned, we add the runtime badge for
+    // safety. See crbug.com/313800.
+    bool show_decoration = AvatarMenu::ShouldShowAvatarMenu() &&
+        !browser_view_->browser()->profile()->IsGuestSession();
+    // In tests, make sure that the browser process and profile manager are
+    // valid before using.
+    if (g_browser_process && g_browser_process->profile_manager()) {
+      const ProfileInfoCache& cache =
+          g_browser_process->profile_manager()->GetProfileInfoCache();
+      show_decoration = show_decoration && cache.GetNumberOfProfiles() > 1;
+    }
+    chrome::DrawTaskbarDecoration(frame_->GetNativeWindow(),
+        show_decoration
+            ? (taskbar_badge_avatar.IsEmpty() ? &avatar : &taskbar_badge_avatar)
+            : nullptr);
+  }
 }

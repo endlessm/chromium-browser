@@ -31,8 +31,8 @@
 #include "modules/indexeddb/IDBKey.h"
 #include "modules/indexeddb/IDBRequest.h"
 #include "modules/indexeddb/IndexedDB.h"
-#include "public/platform/WebIDBCursor.h"
-#include "public/platform/WebIDBTypes.h"
+#include "public/platform/modules/indexeddb/WebIDBCursor.h"
+#include "public/platform/modules/indexeddb/WebIDBTypes.h"
 #include "wtf/PassRefPtr.h"
 #include "wtf/RefPtr.h"
 
@@ -41,17 +41,17 @@ namespace blink {
 class ExceptionState;
 class IDBAny;
 class IDBTransaction;
+class IDBValue;
 class ScriptState;
-class SharedBuffer;
 
 class IDBCursor : public GarbageCollectedFinalized<IDBCursor>, public ScriptWrappable {
     DEFINE_WRAPPERTYPEINFO();
 public:
-    static WebIDBCursorDirection stringToDirection(const String& modeString, ExceptionState&);
+    static WebIDBCursorDirection stringToDirection(const String& modeString);
 
     static IDBCursor* create(PassOwnPtr<WebIDBCursor>, WebIDBCursorDirection, IDBRequest*, IDBAny* source, IDBTransaction*);
     virtual ~IDBCursor();
-    void trace(Visitor*);
+    DECLARE_TRACE();
     void contextWillBeDestroyed() { m_backend.clear(); }
 
     // Implement the IDL
@@ -62,7 +62,7 @@ public:
     ScriptValue source(ScriptState*) const;
 
     IDBRequest* update(ScriptState*, const ScriptValue&, ExceptionState&);
-    void advance(unsigned long, ExceptionState&);
+    void advance(unsigned, ExceptionState&);
     void continueFunction(ScriptState*, const ScriptValue& key, ExceptionState&);
     void continuePrimaryKey(ScriptState*, const ScriptValue& key, const ScriptValue& primaryKey, ExceptionState&);
     IDBRequest* deleteFunction(ScriptState*, ExceptionState&);
@@ -75,7 +75,7 @@ public:
     void postSuccessHandlerCallback();
     bool isDeleted() const;
     void close();
-    void setValueReady(IDBKey*, IDBKey* primaryKey, PassRefPtr<SharedBuffer> value, PassOwnPtr<IDBRequest::IDBBlobHolder>);
+    void setValueReady(IDBKey*, IDBKey* primaryKey, PassRefPtr<IDBValue>);
     IDBKey* idbPrimaryKey() const { return m_primaryKey; }
     IDBRequest* request() const { return m_request.get(); }
     virtual bool isKeyCursor() const { return true; }
@@ -98,8 +98,7 @@ private:
     bool m_valueDirty;
     Member<IDBKey> m_key;
     Member<IDBKey> m_primaryKey;
-    RefPtr<SharedBuffer> m_value;
-    OwnPtr<IDBRequest::IDBBlobHolder> m_blobs;
+    RefPtr<IDBValue> m_value;
 };
 
 } // namespace blink

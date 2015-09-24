@@ -42,7 +42,7 @@ struct DataPackEntry {
 };
 #pragma pack(pop)
 
-COMPILE_ASSERT(sizeof(DataPackEntry) == 6, size_of_entry_must_be_six);
+static_assert(sizeof(DataPackEntry) == 6, "size of entry must be six");
 
 // We're crashing when trying to load a pak file on Windows.  Add some error
 // codes for logging.
@@ -66,7 +66,8 @@ namespace ui {
 DataPack::DataPack(ui::ScaleFactor scale_factor)
     : resource_count_(0),
       text_encoding_type_(BINARY),
-      scale_factor_(scale_factor) {
+      scale_factor_(scale_factor),
+      has_only_material_design_assets_(false) {
 }
 
 DataPack::~DataPack() {
@@ -181,8 +182,8 @@ bool DataPack::GetStringPiece(uint16 resource_id,
   // bothering to do right now.
 #if defined(__BYTE_ORDER)
   // Linux check
-  COMPILE_ASSERT(__BYTE_ORDER == __LITTLE_ENDIAN,
-                 datapack_assumes_little_endian);
+  static_assert(__BYTE_ORDER == __LITTLE_ENDIAN,
+                "datapack assumes little endian");
 #elif defined(__BIG_ENDIAN__)
   // Mac check
   #error DataPack assumes little endian
@@ -230,6 +231,33 @@ ResourceHandle::TextEncodingType DataPack::GetTextEncodingType() const {
 ui::ScaleFactor DataPack::GetScaleFactor() const {
   return scale_factor_;
 }
+
+bool DataPack::HasOnlyMaterialDesignAssets() const {
+  return has_only_material_design_assets_;
+}
+
+#if DCHECK_IS_ON()
+void DataPack::CheckForDuplicateResources(
+    const ScopedVector<ResourceHandle>& packs) {
+  for (size_t i = 0; i < resource_count_ + 1; ++i) {
+    const DataPackEntry* entry = reinterpret_cast<const DataPackEntry*>(
+        mmap_->data() + kHeaderLength + (i * sizeof(DataPackEntry)));
+    const uint16 resource_id = entry->resource_id;
+    const float resource_scale = GetScaleForScaleFactor(scale_factor_);
+    for (const ResourceHandle* handle : packs) {
+      if (HasOnlyMaterialDesignAssets() !=
+          handle->HasOnlyMaterialDesignAssets()) {
+        continue;
+      }
+      if (GetScaleForScaleFactor(handle->GetScaleFactor()) != resource_scale)
+        continue;
+      DCHECK(!handle->HasResource(resource_id)) << "Duplicate resource "
+                                                << resource_id << " with scale "
+                                                << resource_scale;
+    }
+  }
+}
+#endif  // DCHECK_IS_ON()
 
 // static
 bool DataPack::WritePack(const base::FilePath& path,

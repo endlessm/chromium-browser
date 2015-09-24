@@ -18,21 +18,21 @@ class BatteryDispatcher final : public GarbageCollectedFinalized<BatteryDispatch
     USING_GARBAGE_COLLECTED_MIXIN(BatteryDispatcher);
 public:
     static BatteryDispatcher& instance();
-    virtual ~BatteryDispatcher();
+    ~BatteryDispatcher() override;
 
     BatteryStatus* latestData();
 
     // Inherited from WebBatteryStatusListener.
-    virtual void updateBatteryStatus(const WebBatteryStatus&) override;
+    void updateBatteryStatus(const WebBatteryStatus&) override;
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 private:
     BatteryDispatcher();
 
     // Inherited from PlatformEventDispatcher.
-    virtual void startListening() override;
-    virtual void stopListening() override;
+    void startListening() override;
+    void stopListening() override;
 
     Member<BatteryStatus> m_batteryStatus;
 };

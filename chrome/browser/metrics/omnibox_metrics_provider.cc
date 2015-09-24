@@ -8,16 +8,17 @@
 
 #include "base/logging.h"
 #include "base/strings/string16.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/omnibox/omnibox_log.h"
 #include "chrome/browser/ui/browser_otr_state.h"
 #include "components/metrics/metrics_log.h"
 #include "components/metrics/proto/omnibox_event.pb.h"
 #include "components/metrics/proto/omnibox_input_type.pb.h"
-#include "components/omnibox/autocomplete_match.h"
-#include "components/omnibox/autocomplete_provider.h"
-#include "components/omnibox/autocomplete_result.h"
+#include "components/omnibox/browser/autocomplete_match.h"
+#include "components/omnibox/browser/autocomplete_provider.h"
+#include "components/omnibox/browser/autocomplete_result.h"
+#include "components/omnibox/browser/omnibox_log.h"
 #include "content/public/browser/notification_service.h"
 
 using metrics::OmniboxEventProto;
@@ -47,14 +48,14 @@ OmniboxEventProto::Suggestion::ResultType AsOmniboxEventResultType(
       return OmniboxEventProto::Suggestion::SEARCH_SUGGEST;
     case AutocompleteMatchType::SEARCH_SUGGEST_ENTITY:
       return OmniboxEventProto::Suggestion::SEARCH_SUGGEST_ENTITY;
-    case AutocompleteMatchType::SEARCH_SUGGEST_INFINITE:
-      return OmniboxEventProto::Suggestion::SEARCH_SUGGEST_INFINITE;
+    case AutocompleteMatchType::SEARCH_SUGGEST_TAIL:
+      return OmniboxEventProto::Suggestion::SEARCH_SUGGEST_TAIL;
     case AutocompleteMatchType::SEARCH_SUGGEST_PERSONALIZED:
       return OmniboxEventProto::Suggestion::SEARCH_SUGGEST_PERSONALIZED;
     case AutocompleteMatchType::SEARCH_SUGGEST_PROFILE:
       return OmniboxEventProto::Suggestion::SEARCH_SUGGEST_PROFILE;
-    case AutocompleteMatchType::SEARCH_SUGGEST_ANSWER:
-      return OmniboxEventProto::Suggestion::SEARCH_SUGGEST_ANSWER;
+    case AutocompleteMatchType::CALCULATOR:
+      return OmniboxEventProto::Suggestion::CALCULATOR;
     case AutocompleteMatchType::SEARCH_OTHER_ENGINE:
       return OmniboxEventProto::Suggestion::SEARCH_OTHER_ENGINE;
     case AutocompleteMatchType::EXTENSION_APP:
@@ -108,9 +109,9 @@ void OmniboxMetricsProvider::Observe(
 }
 
 void OmniboxMetricsProvider::RecordOmniboxOpenedURL(const OmniboxLog& log) {
-  std::vector<base::string16> terms;
-  const int num_terms =
-      static_cast<int>(Tokenize(log.text, base::kWhitespaceUTF16, &terms));
+  std::vector<base::StringPiece16> terms = base::SplitStringPiece(
+      log.text, base::kWhitespaceUTF16,
+      base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
 
   OmniboxEventProto* omnibox_event = omnibox_events_cache.add_omnibox_event();
   omnibox_event->set_time(metrics::MetricsLog::GetCurrentTime());
@@ -120,7 +121,7 @@ void OmniboxMetricsProvider::RecordOmniboxOpenedURL(const OmniboxLog& log) {
   }
   omnibox_event->set_typed_length(log.text.length());
   omnibox_event->set_just_deleted_text(log.just_deleted_text);
-  omnibox_event->set_num_typed_terms(num_terms);
+  omnibox_event->set_num_typed_terms(static_cast<int>(terms.size()));
   omnibox_event->set_selected_index(log.selected_index);
   if (log.completed_length != base::string16::npos)
     omnibox_event->set_completed_length(log.completed_length);
@@ -144,13 +145,8 @@ void OmniboxMetricsProvider::RecordOmniboxOpenedURL(const OmniboxLog& log) {
   // (as explained in omnibox_event.proto) even if it was not, because such
   // actions ignore the contents of the popup so it doesn't matter that it was
   // open.
-  const bool consider_popup_open = log.is_popup_open && !log.is_paste_and_go;
-  omnibox_event->set_is_popup_open(consider_popup_open);
+  omnibox_event->set_is_popup_open(log.is_popup_open && !log.is_paste_and_go);
   omnibox_event->set_is_paste_and_go(log.is_paste_and_go);
-  if (consider_popup_open) {
-    omnibox_event->set_is_top_result_hidden_in_dropdown(
-        log.result.ShouldHideTopMatch());
-  }
 
   for (AutocompleteResult::const_iterator i(log.result.begin());
        i != log.result.end(); ++i) {

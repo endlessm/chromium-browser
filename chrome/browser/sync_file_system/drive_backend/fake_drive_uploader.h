@@ -13,7 +13,7 @@
 #include "chrome/browser/drive/drive_uploader.h"
 #include "chrome/browser/drive/fake_drive_service.h"
 #include "chrome/browser/sync_file_system/drive_backend/fake_drive_service_helper.h"
-#include "google_apis/drive/gdata_errorcode.h"
+#include "google_apis/drive/drive_api_error_codes.h"
 #include "google_apis/drive/test_util.h"
 #include "net/base/escape.h"
 
@@ -29,7 +29,7 @@ class FakeDriveServiceWrapper : public drive::FakeDriveService {
   google_apis::CancelCallback AddNewDirectory(
       const std::string& parent_resource_id,
       const std::string& directory_name,
-      const AddNewDirectoryOptions& options,
+      const drive::AddNewDirectoryOptions& options,
       const google_apis::FileResourceCallback& callback) override;
 
   void set_make_directory_conflict(bool enable) {
@@ -50,19 +50,21 @@ class FakeDriveUploader : public drive::DriveUploaderInterface {
   ~FakeDriveUploader() override;
 
   // DriveUploaderInterface overrides.
+  void StartBatchProcessing() override;
+  void StopBatchProcessing() override;
   google_apis::CancelCallback UploadNewFile(
       const std::string& parent_resource_id,
       const base::FilePath& local_file_path,
       const std::string& title,
       const std::string& content_type,
-      const UploadNewFileOptions& options,
+      const drive::UploadNewFileOptions& options,
       const drive::UploadCompletionCallback& callback,
       const google_apis::ProgressCallback& progress_callback) override;
   google_apis::CancelCallback UploadExistingFile(
       const std::string& resource_id,
       const base::FilePath& local_file_path,
       const std::string& content_type,
-      const UploadExistingFileOptions& options,
+      const drive::UploadExistingFileOptions& options,
       const drive::UploadCompletionCallback& callback,
       const google_apis::ProgressCallback& progress_callback) override;
   google_apis::CancelCallback ResumeUploadFile(

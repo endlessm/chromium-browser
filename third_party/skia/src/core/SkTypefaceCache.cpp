@@ -9,7 +9,8 @@
 
 
 #include "SkTypefaceCache.h"
-#include "SkThread.h"
+#include "SkAtomics.h"
+#include "SkMutex.h"
 
 #define TYPEFACE_CACHE_LIMIT    1024
 
@@ -32,18 +33,6 @@ void SkTypefaceCache::add(SkTypeface* face, const SkFontStyle& requestedStyle) {
     Rec* rec = fArray.append();
     rec->fFace = SkRef(face);
     rec->fRequestedStyle = requestedStyle;
-}
-
-SkTypeface* SkTypefaceCache::findByID(SkFontID fontID) const {
-    const Rec* curr = fArray.begin();
-    const Rec* stop = fArray.end();
-    while (curr < stop) {
-        if (curr->fFace->uniqueID() == fontID) {
-            return curr->fFace;
-        }
-        curr += 1;
-    }
-    return NULL;
 }
 
 SkTypeface* SkTypefaceCache::findByProcAndRef(FindProc proc, void* ctx) const {
@@ -98,11 +87,6 @@ SK_DECLARE_STATIC_MUTEX(gMutex);
 void SkTypefaceCache::Add(SkTypeface* face, const SkFontStyle& requestedStyle) {
     SkAutoMutexAcquire ama(gMutex);
     Get().add(face, requestedStyle);
-}
-
-SkTypeface* SkTypefaceCache::FindByID(SkFontID fontID) {
-    SkAutoMutexAcquire ama(gMutex);
-    return Get().findByID(fontID);
 }
 
 SkTypeface* SkTypefaceCache::FindByProcAndRef(FindProc proc, void* ctx) {

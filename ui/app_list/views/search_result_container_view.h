@@ -11,21 +11,59 @@
 
 namespace app_list {
 
-// SearchResultContainerView is a base class that batches updates from a
-// ListModelObserver.
+// SearchResultContainerView is a base class for views that contain multiple
+// search results. SearchPageView holds these in a list and manages which one is
+// selected. There can be one result within one SearchResultContainerView
+// selected at a time; moving off the end of one container view selects the
+// first element of the next container view, and vice versa
 class APP_LIST_EXPORT SearchResultContainerView : public views::View,
                                                   public ui::ListModelObserver {
  public:
+  class Delegate {
+   public:
+    virtual void OnSearchResultContainerResultsChanged() = 0;
+  };
   SearchResultContainerView();
   ~SearchResultContainerView() override;
 
-  void SetResults(AppListModel::SearchResults* results);
+  void set_delegate(Delegate* delegate) { delegate_ = delegate; }
 
+  // Sets the search results to listen to.
+  void SetResults(AppListModel::SearchResults* results);
   AppListModel::SearchResults* results() { return results_; }
+
+  // Sets the index of the selected search result within this container. This
+  // must be a valid index.
+  void SetSelectedIndex(int selected_index);
+
+  void ClearSelectedIndex();
+
+  // The currently selected index. Returns -1 on no selection.
+  int selected_index() const { return selected_index_; }
+
+  // Returns whether |index| is a valid index for selection.
+  bool IsValidSelectionIndex(int index) const;
+
+  int num_results() const { return num_results_; }
+
+  void set_container_score(double score) { container_score_ = score; }
+  double container_score() const { return container_score_; }
+
+  // Updates the distance_from_origin() properties of the results in this
+  // container. |y_index| is the absolute y-index of the first result of this
+  // container (counting from the top of the app list).
+  virtual void NotifyFirstResultYIndex(int y_index) = 0;
+
+  // Gets the number of down keystrokes from the beginning to the end of this
+  // container.
+  virtual int GetYSize() = 0;
 
   // Schedules an Update call using |update_factory_|. Do nothing if there is a
   // pending call.
   void ScheduleUpdate();
+
+  // Returns whether an update is currently scheduled for this container.
+  bool UpdateScheduled();
 
   // Overridden from ui::ListModelObserver:
   void ListItemsAdded(size_t start, size_t count) override;
@@ -33,11 +71,30 @@ class APP_LIST_EXPORT SearchResultContainerView : public views::View,
   void ListItemMoved(size_t index, size_t target_index) override;
   void ListItemsChanged(size_t start, size_t count) override;
 
-  // Updates UI with model.
-  virtual void Update() = 0;
+  // Updates the container for being selected. |from_bottom| is true if the view
+  // was entered into from a selected view below it; false if entered into from
+  // above. |directional_movement| is true if the navigation was caused by
+  // directional controls (eg, arrow keys), as opposed to linear controls (eg,
+  // Tab).
+  virtual void OnContainerSelected(bool from_bottom,
+                                   bool directional_movement) = 0;
 
  private:
+  // Updates UI with model. Returns the number of visible results.
+  virtual int Update() = 0;
+
+  // Updates UI for a change in the selected index.
+  virtual void UpdateSelectedIndex(int old_selected, int new_selected) = 0;
+
+  // Batching method that actually performs the update and updates layout.
   void DoUpdate();
+
+  Delegate* delegate_;
+
+  int selected_index_;
+  int num_results_;
+
+  double container_score_;
 
   AppListModel::SearchResults* results_;  // Owned by AppListModel.
 

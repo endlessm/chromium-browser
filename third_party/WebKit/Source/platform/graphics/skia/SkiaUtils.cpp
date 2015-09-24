@@ -54,7 +54,6 @@ static const struct CompositOpToXfermodeMode {
     { CompositeDestinationOut,  SkXfermode::kDstOut_Mode },
     { CompositeDestinationAtop, SkXfermode::kDstATop_Mode },
     { CompositeXOR,             SkXfermode::kXor_Mode },
-    { CompositePlusDarker,      SkXfermode::kDarken_Mode },
     { CompositePlusLighter,     SkXfermode::kPlus_Mode }
 };
 
@@ -80,6 +79,7 @@ static const SkXfermode::Mode gMapBlendOpsToXfermodeModes[] = {
 
 SkXfermode::Mode WebCoreCompositeToSkiaComposite(CompositeOperator op, WebBlendMode blendMode)
 {
+    ASSERT(op == CompositeSourceOver || blendMode == WebBlendModeNormal);
     if (blendMode != WebBlendModeNormal) {
         if (static_cast<uint8_t>(blendMode) >= SK_ARRAY_COUNT(gMapBlendOpsToXfermodeModes)) {
             SkDEBUGF(("GraphicsContext::setPlatformCompositeOperation unknown WebBlendMode %d\n", blendMode));
@@ -97,32 +97,78 @@ SkXfermode::Mode WebCoreCompositeToSkiaComposite(CompositeOperator op, WebBlendM
     return table[static_cast<uint8_t>(op)].m_xfermodeMode;
 }
 
-static U8CPU InvScaleByte(U8CPU component, uint32_t scale)
+CompositeOperator compositeOperatorFromSkia(SkXfermode::Mode xferMode)
 {
-    SkASSERT(component == (uint8_t)component);
-    return (component * scale + 0x8000) >> 16;
+    switch (xferMode) {
+    case SkXfermode::kClear_Mode:
+        return CompositeClear;
+    case SkXfermode::kSrc_Mode:
+        return CompositeCopy;
+    case SkXfermode::kSrcOver_Mode:
+        return CompositeSourceOver;
+    case SkXfermode::kSrcIn_Mode:
+        return CompositeSourceIn;
+    case SkXfermode::kSrcOut_Mode:
+        return CompositeSourceOut;
+    case SkXfermode::kSrcATop_Mode:
+        return CompositeSourceAtop;
+    case SkXfermode::kDstOver_Mode:
+        return CompositeDestinationOver;
+    case SkXfermode::kDstIn_Mode:
+        return CompositeDestinationIn;
+    case SkXfermode::kDstOut_Mode:
+        return CompositeDestinationOut;
+    case SkXfermode::kDstATop_Mode:
+        return CompositeDestinationAtop;
+    case SkXfermode::kXor_Mode:
+        return CompositeXOR;
+    case SkXfermode::kPlus_Mode:
+        return CompositePlusLighter;
+    default:
+        break;
+    }
+    return CompositeSourceOver;
 }
 
-SkColor SkPMColorToColor(SkPMColor pm)
+WebBlendMode blendModeFromSkia(SkXfermode::Mode xferMode)
 {
-    if (!pm)
-        return 0;
-    unsigned a = SkGetPackedA32(pm);
-    if (!a) {
-        // A zero alpha value when there are non-zero R, G, or B channels is an
-        // invalid premultiplied color (since all channels should have been
-        // multiplied by 0 if a=0).
-        SkASSERT(false);
-        // In production, return 0 to protect against division by zero.
-        return 0;
+    switch (xferMode) {
+    case SkXfermode::kSrcOver_Mode:
+        return WebBlendModeNormal;
+    case SkXfermode::kMultiply_Mode:
+        return WebBlendModeMultiply;
+    case SkXfermode::kScreen_Mode:
+        return WebBlendModeScreen;
+    case SkXfermode::kOverlay_Mode:
+        return WebBlendModeOverlay;
+    case SkXfermode::kDarken_Mode:
+        return WebBlendModeDarken;
+    case SkXfermode::kLighten_Mode:
+        return WebBlendModeLighten;
+    case SkXfermode::kColorDodge_Mode:
+        return WebBlendModeColorDodge;
+    case SkXfermode::kColorBurn_Mode:
+        return WebBlendModeColorBurn;
+    case SkXfermode::kHardLight_Mode:
+        return WebBlendModeHardLight;
+    case SkXfermode::kSoftLight_Mode:
+        return WebBlendModeSoftLight;
+    case SkXfermode::kDifference_Mode:
+        return WebBlendModeDifference;
+    case SkXfermode::kExclusion_Mode:
+        return WebBlendModeExclusion;
+    case SkXfermode::kHue_Mode:
+        return WebBlendModeHue;
+    case SkXfermode::kSaturation_Mode:
+        return WebBlendModeSaturation;
+    case SkXfermode::kColor_Mode:
+        return WebBlendModeColor;
+    case SkXfermode::kLuminosity_Mode:
+        return WebBlendModeLuminosity;
+    default:
+        break;
     }
-
-    uint32_t scale = (255 << 16) / a;
-
-    return SkColorSetARGB(a,
-                          InvScaleByte(SkGetPackedR32(pm), scale),
-                          InvScaleByte(SkGetPackedG32(pm), scale),
-                          InvScaleByte(SkGetPackedB32(pm), scale));
+    return WebBlendModeNormal;
 }
 
 bool SkPathContainsPoint(const SkPath& originalPath, const FloatPoint& point, SkPath::FillType ft)
@@ -148,7 +194,7 @@ bool SkPathContainsPoint(const SkPath& originalPath, const FloatPoint& point, Sk
     biggestCoord = std::max(std::max(biggestCoord, fX + 1), fY + 1);
 
     const SkScalar kMaxCoordinate = SkIntToScalar(1 << 15);
-    SkScalar scale = SkScalarDiv(kMaxCoordinate, biggestCoord);
+    SkScalar scale = kMaxCoordinate / biggestCoord;
 
     SkRegion rgn;
     SkRegion clip;
@@ -197,7 +243,6 @@ InterpolationQuality limitInterpolationQuality(const GraphicsContext* context, I
 }
 
 InterpolationQuality computeInterpolationQuality(
-    const SkMatrix& matrix,
     float srcWidth,
     float srcHeight,
     float destWidth,
@@ -276,42 +321,81 @@ InterpolationQuality computeInterpolationQuality(
     if (!isDataComplete)
         return InterpolationLow;
 
-    // Everything else gets resampled.
-    // High quality interpolation only enabled for scaling and translation.
-    if (!(matrix.getType() & (SkMatrix::kAffine_Mask | SkMatrix::kPerspective_Mask)))
-        return InterpolationHigh;
-
-    return InterpolationLow;
+    // Everything else gets resampled at high quality.
+    return InterpolationHigh;
 }
 
-
-bool shouldDrawAntiAliased(const GraphicsContext* context, const SkRect& destRect)
+int clampedAlphaForBlending(float alpha)
 {
-    if (!context->shouldAntialias())
-        return false;
-    const SkMatrix totalMatrix = context->getTotalMatrix();
-    // Don't disable anti-aliasing if we're rotated or skewed.
-    if (!totalMatrix.rectStaysRect())
-        return true;
-    // Disable anti-aliasing for scales or n*90 degree rotations.
-    // Allow to opt out of the optimization though for "hairline" geometry
-    // images - using the shouldAntialiasHairlineImages() GraphicsContext flag.
-    if (!context->shouldAntialiasHairlineImages())
-        return false;
-    // Check if the dimensions of the destination are "small" (less than one
-    // device pixel). To prevent sudden drop-outs. Since we know that
-    // kRectStaysRect_Mask is set, the matrix either has scale and no skew or
-    // vice versa. We can query the kAffine_Mask flag to determine which case
-    // it is.
-    // FIXME: This queries the CTM while drawing, which is generally
-    // discouraged. Always drawing with AA can negatively impact performance
-    // though - that's why it's not always on.
-    SkScalar widthExpansion, heightExpansion;
-    if (totalMatrix.getType() & SkMatrix::kAffine_Mask)
-        widthExpansion = totalMatrix[SkMatrix::kMSkewY], heightExpansion = totalMatrix[SkMatrix::kMSkewX];
-    else
-        widthExpansion = totalMatrix[SkMatrix::kMScaleX], heightExpansion = totalMatrix[SkMatrix::kMScaleY];
-    return destRect.width() * fabs(widthExpansion) < 1 || destRect.height() * fabs(heightExpansion) < 1;
+    if (alpha < 0)
+        return 0;
+    int roundedAlpha = roundf(alpha * 256);
+    if (roundedAlpha > 256)
+        roundedAlpha = 256;
+    return roundedAlpha;
 }
+
+SkColor scaleAlpha(SkColor color, float alpha)
+{
+    return scaleAlpha(color, clampedAlphaForBlending(alpha));
+}
+
+SkColor scaleAlpha(SkColor color, int alpha)
+{
+    int a = (SkColorGetA(color) * alpha) >> 8;
+    return (color & 0x00FFFFFF) | (a << 24);
+}
+
+template<typename PrimitiveType>
+void drawFocusRingPrimitive(const PrimitiveType&, SkCanvas*, const SkPaint&, float cornerRadius)
+{
+    ASSERT_NOT_REACHED(); // Missing an explicit specialization?
+}
+
+template<>
+void drawFocusRingPrimitive<SkRect>(const SkRect& rect, SkCanvas* canvas, const SkPaint& paint, float cornerRadius)
+{
+    SkRRect rrect;
+    rrect.setRectXY(rect, SkFloatToScalar(cornerRadius), SkFloatToScalar(cornerRadius));
+    canvas->drawRRect(rrect, paint);
+}
+
+template<>
+void drawFocusRingPrimitive<SkPath>(const SkPath& path, SkCanvas* canvas, const SkPaint& paint, float cornerRadius)
+{
+    SkPaint pathPaint = paint;
+    pathPaint.setPathEffect(SkCornerPathEffect::Create(SkFloatToScalar(cornerRadius)))->unref();
+    canvas->drawPath(path, pathPaint);
+}
+
+template<typename PrimitiveType>
+void drawPlatformFocusRing(const PrimitiveType& primitive, SkCanvas* canvas, SkColor color, int width)
+{
+    SkPaint paint;
+    paint.setAntiAlias(true);
+    paint.setStyle(SkPaint::kStroke_Style);
+    paint.setColor(color);
+
+#if OS(MACOSX)
+    paint.setStrokeWidth(width);
+    paint.setAlpha(64);
+    float cornerRadius = (width - 1) * 0.5f;
+#else
+    paint.setStrokeWidth(1);
+    const float cornerRadius = 1;
+#endif
+
+    drawFocusRingPrimitive(primitive, canvas, paint, cornerRadius);
+
+#if OS(MACOSX)
+    // Inner part
+    paint.setAlpha(128);
+    paint.setStrokeWidth(paint.getStrokeWidth() * 0.5f);
+    drawFocusRingPrimitive(primitive, canvas, paint, cornerRadius);
+#endif
+}
+
+template void PLATFORM_EXPORT drawPlatformFocusRing<SkRect>(const SkRect&, SkCanvas*, SkColor, int width);
+template void PLATFORM_EXPORT drawPlatformFocusRing<SkPath>(const SkPath&, SkCanvas*, SkColor, int width);
 
 }  // namespace blink

@@ -8,6 +8,7 @@
 
 #include "base/win/windows_version.h"
 #include "sandbox/win/src/nt_internals.h"
+#include "sandbox/win/src/restricted_token_utils.h"
 #include "sandbox/win/src/win_utils.h"
 
 namespace {
@@ -57,6 +58,13 @@ bool ApplyProcessMitigationsToCurrentProcess(MitigationFlags flags) {
         ERROR_ACCESS_DENIED != ::GetLastError()) {
       return false;
     }
+  }
+
+  if (version >= base::win::VERSION_WIN7 &&
+      (flags & MITIGATION_HARDEN_TOKEN_IL_POLICY)) {
+      DWORD error = HardenProcessIntegrityLevelPolicy();
+      if ((error != ERROR_SUCCESS) && (error != ERROR_ACCESS_DENIED))
+        return false;
   }
 
 #if !defined(_WIN64)  // DEP is always enabled on 64-bit.
@@ -114,7 +122,7 @@ bool ApplyProcessMitigationsToCurrentProcess(MitigationFlags flags) {
 
   // Enable ASLR policies.
   if (flags & MITIGATION_RELOCATE_IMAGE) {
-    PROCESS_MITIGATION_ASLR_POLICY policy = { 0 };
+    PROCESS_MITIGATION_ASLR_POLICY policy = {};
     policy.EnableForceRelocateImages = true;
     policy.DisallowStrippedImages = (flags &
         MITIGATION_RELOCATE_IMAGE_REQUIRED) ==
@@ -129,7 +137,7 @@ bool ApplyProcessMitigationsToCurrentProcess(MitigationFlags flags) {
 
   // Enable strict handle policies.
   if (flags & MITIGATION_STRICT_HANDLE_CHECKS) {
-    PROCESS_MITIGATION_STRICT_HANDLE_CHECK_POLICY policy = { 0 };
+    PROCESS_MITIGATION_STRICT_HANDLE_CHECK_POLICY policy = {};
     policy.HandleExceptionsPermanentlyEnabled =
         policy.RaiseExceptionOnInvalidHandleReference = true;
 
@@ -142,7 +150,7 @@ bool ApplyProcessMitigationsToCurrentProcess(MitigationFlags flags) {
 
   // Enable system call policies.
   if (flags & MITIGATION_WIN32K_DISABLE) {
-    PROCESS_MITIGATION_SYSTEM_CALL_DISABLE_POLICY policy = { 0 };
+    PROCESS_MITIGATION_SYSTEM_CALL_DISABLE_POLICY policy = {};
     policy.DisallowWin32kSystemCalls = true;
 
     if (!set_process_mitigation_policy(ProcessSystemCallDisablePolicy, &policy,
@@ -154,7 +162,7 @@ bool ApplyProcessMitigationsToCurrentProcess(MitigationFlags flags) {
 
   // Enable system call policies.
   if (flags & MITIGATION_EXTENSION_DLL_DISABLE) {
-    PROCESS_MITIGATION_EXTENSION_POINT_DISABLE_POLICY policy = { 0 };
+    PROCESS_MITIGATION_EXTENSION_POINT_DISABLE_POLICY policy = {};
     policy.DisableExtensionPoints = true;
 
     if (!set_process_mitigation_policy(ProcessExtensionPointDisablePolicy,
@@ -309,7 +317,8 @@ bool CanSetProcessMitigationsPostStartup(MitigationFlags flags) {
                      MITIGATION_BOTTOM_UP_ASLR |
                      MITIGATION_STRICT_HANDLE_CHECKS |
                      MITIGATION_EXTENSION_DLL_DISABLE |
-                     MITIGATION_DLL_SEARCH_ORDER));
+                     MITIGATION_DLL_SEARCH_ORDER |
+                     MITIGATION_HARDEN_TOKEN_IL_POLICY));
 }
 
 bool CanSetProcessMitigationsPreStartup(MitigationFlags flags) {

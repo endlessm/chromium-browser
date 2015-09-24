@@ -108,6 +108,9 @@ class ASH_EXPORT WindowState : public aura::WindowObserver {
   bool IsActive() const;
   bool IsDocked() const;
 
+  // Returns true if the window's location can be controlled by the user.
+  bool IsUserPositionable() const;
+
   // Checks if the window can change its state accordingly.
   bool CanMaximize() const;
   bool CanMinimize() const;
@@ -131,6 +134,13 @@ class ASH_EXPORT WindowState : public aura::WindowObserver {
   // Set the window state to normal.
   // TODO(oshima): Change to use RESTORE event.
   void Restore();
+
+  // Caches, then disables always on top state and then stacks |window_| below
+  // |window_on_top| if a |window_| is currently in always on top state.
+  void DisableAlwaysOnTop(aura::Window* window_on_top);
+
+  // Restores always on top state that a window might have cached.
+  void RestoreAlwaysOnTop();
 
   // Invoked when a WMevent occurs, which drives the internal
   // state machine.
@@ -315,6 +325,9 @@ class ASH_EXPORT WindowState : public aura::WindowObserver {
 
   WindowStateDelegate* delegate() { return delegate_.get(); }
 
+  // Returns the window's current always_on_top state.
+  bool GetAlwaysOnTop() const;
+
   // Returns the window's current show state.
   ui::WindowShowState GetShowState() const;
 
@@ -364,13 +377,14 @@ class ASH_EXPORT WindowState : public aura::WindowObserver {
   bool hide_shelf_when_fullscreen_;
   bool minimum_visibility_;
   bool can_be_dragged_;
+  bool cached_always_on_top_;
 
   // A property to remember the window position which was set before the
   // auto window position manager changed the window bounds, so that it can get
   // restored when only this one window gets shown.
   scoped_ptr<gfx::Rect> pre_auto_manage_window_bounds_;
 
-  ObserverList<WindowStateObserver> observer_list_;
+  base::ObserverList<WindowStateObserver> observer_list_;
 
   // True to ignore a property change event to avoid reentrance in
   // UpdateWindowStateType()

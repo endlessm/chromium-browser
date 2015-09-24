@@ -1,7 +1,7 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../../include/fpdfapi/fpdf_page.h"
@@ -9,6 +9,9 @@
 #include "../../../include/fxcodec/fx_codec.h"
 #include "pageint.h"
 #include <limits.h>
+
+namespace {
+
 void sRGB_to_AdobeCMYK(FX_FLOAT R, FX_FLOAT G, FX_FLOAT B, FX_FLOAT& c, FX_FLOAT& m, FX_FLOAT& y, FX_FLOAT& k)
 {
     c = 1.0f - R;
@@ -22,17 +25,21 @@ void sRGB_to_AdobeCMYK(FX_FLOAT R, FX_FLOAT G, FX_FLOAT B, FX_FLOAT& c, FX_FLOAT
         k = y;
     }
 }
-CPDF_DeviceCS::CPDF_DeviceCS(int family)
-{
-    m_Family = family;
-    if (m_Family == PDFCS_DEVICERGB) {
-        m_nComponents = 3;
-    } else if (m_Family == PDFCS_DEVICEGRAY) {
-        m_nComponents = 1;
-    } else {
-        m_nComponents = 4;
-    }
+
+int ComponentsForFamily(int family) {
+    if (family == PDFCS_DEVICERGB)
+        return 3;
+    if (family == PDFCS_DEVICEGRAY)
+        return 1;
+    return 4;
 }
+
+}  // namespace
+
+CPDF_DeviceCS::CPDF_DeviceCS(CPDF_Document* pDoc, int family)
+        : CPDF_ColorSpace(pDoc, family, ComponentsForFamily(family)) {
+}
+
 FX_BOOL CPDF_DeviceCS::GetRGB(FX_FLOAT* pBuf, FX_FLOAT& R, FX_FLOAT& G, FX_FLOAT& B) const
 {
     if (m_Family == PDFCS_DEVICERGB) {
@@ -125,11 +132,11 @@ FX_BOOL CPDF_DeviceCS::v_SetCMYK(FX_FLOAT* pBuf, FX_FLOAT c, FX_FLOAT m, FX_FLOA
     }
     return FALSE;
 }
-static void ReverseRGB(FX_LPBYTE pDestBuf, FX_LPCBYTE pSrcBuf, int pixels)
+static void ReverseRGB(uint8_t* pDestBuf, const uint8_t* pSrcBuf, int pixels)
 {
     if (pDestBuf == pSrcBuf)
         for (int i = 0; i < pixels; i ++) {
-            FX_BYTE temp = pDestBuf[2];
+            uint8_t temp = pDestBuf[2];
             pDestBuf[2] = pDestBuf[0];
             pDestBuf[0] = temp;
             pDestBuf += 3;
@@ -142,7 +149,7 @@ static void ReverseRGB(FX_LPBYTE pDestBuf, FX_LPCBYTE pSrcBuf, int pixels)
             pSrcBuf += 3;
         }
 }
-void CPDF_DeviceCS::TranslateImageLine(FX_LPBYTE pDestBuf, FX_LPCBYTE pSrcBuf, int pixels, int image_width, int image_height, FX_BOOL bTransMask) const
+void CPDF_DeviceCS::TranslateImageLine(uint8_t* pDestBuf, const uint8_t* pSrcBuf, int pixels, int image_width, int image_height, FX_BOOL bTransMask) const
 {
     if (bTransMask && m_Family == PDFCS_DEVICECMYK) {
         for (int i = 0; i < pixels; i ++) {
@@ -168,7 +175,7 @@ void CPDF_DeviceCS::TranslateImageLine(FX_LPBYTE pDestBuf, FX_LPCBYTE pSrcBuf, i
             if (!m_dwStdConversion) {
                 AdobeCMYK_to_sRGB1(pSrcBuf[0], pSrcBuf[1], pSrcBuf[2], pSrcBuf[3], pDestBuf[2], pDestBuf[1], pDestBuf[0]);
             } else {
-                FX_BYTE k = pSrcBuf[3];
+                uint8_t k = pSrcBuf[3];
                 pDestBuf[2] = 255 - FX_MIN(255, pSrcBuf[0] + k);
                 pDestBuf[1] = 255 - FX_MIN(255, pSrcBuf[1] + k);
                 pDestBuf[0] = 255 - FX_MIN(255, pSrcBuf[2] + k);
@@ -178,7 +185,7 @@ void CPDF_DeviceCS::TranslateImageLine(FX_LPBYTE pDestBuf, FX_LPCBYTE pSrcBuf, i
         }
     }
 }
-const FX_BYTE g_sRGBSamples1[] = {
+const uint8_t g_sRGBSamples1[] = {
     0,   3,   6,  10,  13,  15,  18,  20,  22,  23,  25,  27,  28,  30,  31,  32,
     34,  35,  36,  37,  38,  39,  40,  41,  42,  43,  44,  45,  46,  47,  48,  49,
     49,  50,  51,  52,  53,  53,  54,  55,  56,  56,  57,  58,  58,  59,  60,  61,
@@ -192,7 +199,7 @@ const FX_BYTE g_sRGBSamples1[] = {
     110, 110, 111, 111, 111, 112, 112, 112, 113, 113, 113, 114, 114, 114, 115, 115,
     115, 115, 116, 116, 116, 117, 117, 117, 118, 118, 118, 118, 119, 119, 119, 120,
 };
-const FX_BYTE g_sRGBSamples2[] = {
+const uint8_t g_sRGBSamples2[] = {
     120, 121, 122, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136,
     137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 148, 149, 150, 151,
     152, 153, 154, 155, 155, 156, 157, 158, 159, 159, 160, 161, 162, 163, 163, 164,
@@ -264,20 +271,21 @@ static void XYZ_to_sRGB_WhitePoint(FX_FLOAT X, FX_FLOAT Y, FX_FLOAT Z, FX_FLOAT&
 class CPDF_CalGray : public CPDF_ColorSpace
 {
 public:
-    CPDF_CalGray();
-    virtual FX_BOOL		v_Load(CPDF_Document* pDoc, CPDF_Array* pArray);
-    virtual FX_BOOL		GetRGB(FX_FLOAT* pBuf, FX_FLOAT& R, FX_FLOAT& G, FX_FLOAT& B) const;
-    virtual void		TranslateImageLine(FX_LPBYTE pDestBuf, FX_LPCBYTE pSrcBuf, int pixels, int image_width, int image_height, FX_BOOL bTransMask = FALSE) const;
-    FX_BOOL				SetRGB(FX_FLOAT* pBuf, FX_FLOAT R, FX_FLOAT G, FX_FLOAT B) const;
-    FX_FLOAT			m_WhitePoint[3];
-    FX_FLOAT			m_BlackPoint[3];
-    FX_FLOAT			m_Gamma;
+    explicit CPDF_CalGray(CPDF_Document* pDoc)
+        : CPDF_ColorSpace(pDoc, PDFCS_CALGRAY, 1) {
+    }
+    FX_BOOL v_Load(CPDF_Document* pDoc, CPDF_Array* pArray) override;
+    FX_BOOL GetRGB(FX_FLOAT* pBuf, FX_FLOAT& R, FX_FLOAT& G, FX_FLOAT& B) const override;
+    FX_BOOL	SetRGB(FX_FLOAT* pBuf, FX_FLOAT R, FX_FLOAT G, FX_FLOAT B) const override;
+    void TranslateImageLine(uint8_t* pDestBuf, const uint8_t* pSrcBuf, int pixels, int image_width,
+                            int image_height, FX_BOOL bTransMask = FALSE) const override;
+
+private:
+    FX_FLOAT m_WhitePoint[3];
+    FX_FLOAT m_BlackPoint[3];
+    FX_FLOAT m_Gamma;
 };
-CPDF_CalGray::CPDF_CalGray()
-{
-    m_Family = PDFCS_CALGRAY;
-    m_nComponents = 1;
-}
+
 FX_BOOL CPDF_CalGray::v_Load(CPDF_Document* pDoc, CPDF_Array* pArray)
 {
     CPDF_Dictionary* pDict = pArray->GetDict(1);
@@ -310,7 +318,7 @@ FX_BOOL CPDF_CalGray::SetRGB(FX_FLOAT* pBuf, FX_FLOAT R, FX_FLOAT G, FX_FLOAT B)
         return FALSE;
     }
 }
-void CPDF_CalGray::TranslateImageLine(FX_LPBYTE pDestBuf, FX_LPCBYTE pSrcBuf, int pixels, int image_width, int image_height, FX_BOOL bTransMask) const
+void CPDF_CalGray::TranslateImageLine(uint8_t* pDestBuf, const uint8_t* pSrcBuf, int pixels, int image_width, int image_height, FX_BOOL bTransMask) const
 {
     for (int i = 0; i < pixels; i ++) {
         *pDestBuf ++ = pSrcBuf[i];
@@ -321,25 +329,28 @@ void CPDF_CalGray::TranslateImageLine(FX_LPBYTE pDestBuf, FX_LPCBYTE pSrcBuf, in
 class CPDF_CalRGB : public CPDF_ColorSpace
 {
 public:
-    CPDF_CalRGB();
-    virtual FX_BOOL		v_Load(CPDF_Document* pDoc, CPDF_Array* pArray);
-    virtual FX_BOOL		GetRGB(FX_FLOAT* pBuf, FX_FLOAT& R, FX_FLOAT& G, FX_FLOAT& B) const;
-    virtual void		TranslateImageLine(FX_LPBYTE pDestBuf, FX_LPCBYTE pSrcBuf, int pixels, int image_width, int image_height, FX_BOOL bTransMask = FALSE) const;
-    FX_BOOL				SetRGB(FX_FLOAT* pBuf, FX_FLOAT R, FX_FLOAT G, FX_FLOAT B) const;
-    FX_FLOAT			m_WhitePoint[3];
-    FX_FLOAT			m_BlackPoint[3];
-    FX_FLOAT			m_Gamma[3];
-    FX_FLOAT			m_Matrix[9];
-    FX_BOOL				m_bGamma, m_bMatrix;
+    explicit CPDF_CalRGB(CPDF_Document* pDoc)
+        : CPDF_ColorSpace(pDoc, PDFCS_CALRGB, 3) {
+    }
+    FX_BOOL v_Load(CPDF_Document* pDoc, CPDF_Array* pArray) override;
+    FX_BOOL GetRGB(FX_FLOAT* pBuf, FX_FLOAT& R, FX_FLOAT& G, FX_FLOAT& B) const override;
+    FX_BOOL SetRGB(FX_FLOAT* pBuf, FX_FLOAT R, FX_FLOAT G, FX_FLOAT B) const override;
+    void TranslateImageLine(uint8_t* pDestBuf, const uint8_t* pSrcBuf, int pixels, int image_width,
+                            int image_height, FX_BOOL bTransMask = FALSE) const override;
+
+    FX_FLOAT m_WhitePoint[3];
+    FX_FLOAT m_BlackPoint[3];
+    FX_FLOAT m_Gamma[3];
+    FX_FLOAT m_Matrix[9];
+    FX_BOOL m_bGamma;
+    FX_BOOL m_bMatrix;
 };
-CPDF_CalRGB::CPDF_CalRGB()
-{
-    m_Family = PDFCS_CALRGB;
-    m_nComponents = 3;
-}
 FX_BOOL CPDF_CalRGB::v_Load(CPDF_Document* pDoc, CPDF_Array* pArray)
 {
     CPDF_Dictionary* pDict = pArray->GetDict(1);
+    if (!pDict)
+        return FALSE;
+
     CPDF_Array* pParam = pDict->GetArray(FX_BSTRC("WhitePoint"));
     int i;
     for (i = 0; i < 3; i ++) {
@@ -399,7 +410,7 @@ FX_BOOL CPDF_CalRGB::SetRGB(FX_FLOAT* pBuf, FX_FLOAT R, FX_FLOAT G, FX_FLOAT B) 
     pBuf[2] = B;
     return TRUE;
 }
-void CPDF_CalRGB::TranslateImageLine(FX_LPBYTE pDestBuf, FX_LPCBYTE pSrcBuf, int pixels, int image_width, int image_height, FX_BOOL bTransMask) const
+void CPDF_CalRGB::TranslateImageLine(uint8_t* pDestBuf, const uint8_t* pSrcBuf, int pixels, int image_width, int image_height, FX_BOOL bTransMask) const
 {
     if (bTransMask) {
         FX_FLOAT Cal[3];
@@ -421,23 +432,26 @@ void CPDF_CalRGB::TranslateImageLine(FX_LPBYTE pDestBuf, FX_LPCBYTE pSrcBuf, int
 class CPDF_LabCS : public CPDF_ColorSpace
 {
 public:
-    CPDF_LabCS()
-    {
-        m_Family = PDFCS_LAB;
-        m_nComponents = 3;
+    explicit CPDF_LabCS(CPDF_Document* pDoc)
+        : CPDF_ColorSpace(pDoc, PDFCS_LAB, 3) {
     }
-    virtual FX_BOOL		v_Load(CPDF_Document* pDoc, CPDF_Array* pArray);
-    virtual void		GetDefaultValue(int iComponent, FX_FLOAT& value, FX_FLOAT& min, FX_FLOAT& max) const;
-    virtual FX_BOOL		GetRGB(FX_FLOAT* pBuf, FX_FLOAT& R, FX_FLOAT& G, FX_FLOAT& B) const;
-    FX_BOOL		SetRGB(FX_FLOAT* pBuf, FX_FLOAT R, FX_FLOAT G, FX_FLOAT B) const;
-    virtual void		TranslateImageLine(FX_LPBYTE pDestBuf, FX_LPCBYTE pSrcBuf, int pixels, int image_width, int image_height, FX_BOOL bTransMask = FALSE) const;
-    FX_FLOAT	m_WhitePoint[3];
-    FX_FLOAT	m_BlackPoint[3];
-    FX_FLOAT	m_Ranges[4];
+    void GetDefaultValue(int iComponent, FX_FLOAT& value, FX_FLOAT& min, FX_FLOAT& max) const override;
+    FX_BOOL v_Load(CPDF_Document* pDoc, CPDF_Array* pArray) override;
+    FX_BOOL	GetRGB(FX_FLOAT* pBuf, FX_FLOAT& R, FX_FLOAT& G, FX_FLOAT& B) const override;
+    FX_BOOL	SetRGB(FX_FLOAT* pBuf, FX_FLOAT R, FX_FLOAT G, FX_FLOAT B) const override;
+    void TranslateImageLine(uint8_t* pDestBuf, const uint8_t* pSrcBuf, int pixels, int image_width,
+                            int image_height, FX_BOOL bTransMask = FALSE) const;
+
+    FX_FLOAT m_WhitePoint[3];
+    FX_FLOAT m_BlackPoint[3];
+    FX_FLOAT m_Ranges[4];
 };
 FX_BOOL CPDF_LabCS::v_Load(CPDF_Document* pDoc, CPDF_Array* pArray)
 {
     CPDF_Dictionary* pDict = pArray->GetDict(1);
+    if (!pDict) {
+        return FALSE;
+    }
     CPDF_Array* pParam = pDict->GetArray(FX_BSTRC("WhitePoint"));
     int i;
     for (i = 0; i < 3; i ++) {
@@ -502,7 +516,7 @@ FX_BOOL CPDF_LabCS::SetRGB(FX_FLOAT* pBuf, FX_FLOAT R, FX_FLOAT G, FX_FLOAT B) c
 {
     return FALSE;
 }
-void CPDF_LabCS::TranslateImageLine(FX_LPBYTE pDestBuf, FX_LPCBYTE pSrcBuf, int pixels, int image_width, int image_height, FX_BOOL bTransMask) const
+void CPDF_LabCS::TranslateImageLine(uint8_t* pDestBuf, const uint8_t* pSrcBuf, int pixels, int image_width, int image_height, FX_BOOL bTransMask) const
 {
     for (int i = 0; i < pixels; i ++) {
         FX_FLOAT lab[3];
@@ -511,19 +525,19 @@ void CPDF_LabCS::TranslateImageLine(FX_LPBYTE pDestBuf, FX_LPCBYTE pSrcBuf, int 
         lab[1] = (FX_FLOAT)(pSrcBuf[1] - 128);
         lab[2] = (FX_FLOAT)(pSrcBuf[2] - 128);
         GetRGB(lab, R, G, B);
-        pDestBuf[0] = (FX_INT32)(B * 255);
-        pDestBuf[1] = (FX_INT32)(G * 255);
-        pDestBuf[2] = (FX_INT32)(R * 255);
+        pDestBuf[0] = (int32_t)(B * 255);
+        pDestBuf[1] = (int32_t)(G * 255);
+        pDestBuf[2] = (int32_t)(R * 255);
         pDestBuf += 3;
         pSrcBuf += 3;
     }
 }
-CPDF_IccProfile::CPDF_IccProfile(FX_LPCBYTE pData, FX_DWORD dwSize):
+CPDF_IccProfile::CPDF_IccProfile(const uint8_t* pData, FX_DWORD dwSize):
     m_bsRGB(FALSE),
     m_pTransform(NULL),
     m_nSrcComponents(0)
 {
-    if (dwSize == 3144 && FXSYS_memcmp32(pData + 0x190, "sRGB IEC61966-2.1", 17) == 0) {
+    if (dwSize == 3144 && FXSYS_memcmp(pData + 0x190, "sRGB IEC61966-2.1", 17) == 0) {
         m_bsRGB = TRUE;
         m_nSrcComponents = 3;
     }
@@ -540,34 +554,31 @@ CPDF_IccProfile::~CPDF_IccProfile()
 class CPDF_ICCBasedCS : public CPDF_ColorSpace
 {
 public:
-    CPDF_ICCBasedCS();
-    virtual ~CPDF_ICCBasedCS();
-    virtual FX_BOOL		v_Load(CPDF_Document* pDoc, CPDF_Array* pArray);
-    void				GetDefaultValue(int i, FX_FLOAT& min, FX_FLOAT& max) const
-    {
-        min = m_pRanges[i * 2];
-        max = m_pRanges[i * 2 + 1];
+    explicit CPDF_ICCBasedCS(CPDF_Document* pDoc)
+        : CPDF_ColorSpace(pDoc, PDFCS_ICCBASED, 0),
+          m_pAlterCS(nullptr),
+          m_pProfile(nullptr),
+          m_pCache(nullptr),
+          m_pRanges(nullptr),
+          m_bOwn(FALSE) {
     }
-    virtual FX_BOOL		GetRGB(FX_FLOAT* pBuf, FX_FLOAT& R, FX_FLOAT& G, FX_FLOAT& B) const;
-    FX_BOOL				v_GetCMYK(FX_FLOAT* pBuf, FX_FLOAT& c, FX_FLOAT& m, FX_FLOAT& y, FX_FLOAT& k) const;
-    FX_BOOL				SetRGB(FX_FLOAT* pBuf, FX_FLOAT R, FX_FLOAT G, FX_FLOAT B) const;
-    virtual void		EnableStdConversion(FX_BOOL bEnabled);
-    virtual void		TranslateImageLine(FX_LPBYTE pDestBuf, FX_LPCBYTE pSrcBuf, int pixels, int image_width, int image_height, FX_BOOL bTransMask = FALSE) const;
-    FX_FLOAT*		m_pRanges;
-    CPDF_IccProfile*	m_pProfile;
-    CPDF_ColorSpace*	m_pAlterCS;
-    FX_LPBYTE			m_pCache;
-    FX_BOOL				m_bOwn;
+    ~CPDF_ICCBasedCS() override;
+
+    FX_BOOL	v_Load(CPDF_Document* pDoc, CPDF_Array* pArray) override;
+    FX_BOOL GetRGB(FX_FLOAT* pBuf, FX_FLOAT& R, FX_FLOAT& G, FX_FLOAT& B) const override;
+    FX_BOOL	SetRGB(FX_FLOAT* pBuf, FX_FLOAT R, FX_FLOAT G, FX_FLOAT B) const override;
+    FX_BOOL	v_GetCMYK(FX_FLOAT* pBuf, FX_FLOAT& c, FX_FLOAT& m, FX_FLOAT& y, FX_FLOAT& k) const override;
+    void EnableStdConversion(FX_BOOL bEnabled) override;
+    void TranslateImageLine(uint8_t* pDestBuf, const uint8_t* pSrcBuf, int pixels, int image_width,
+                            int image_height, FX_BOOL bTransMask = FALSE) const override;
+
+    CPDF_ColorSpace* m_pAlterCS;
+    CPDF_IccProfile* m_pProfile;
+    uint8_t* m_pCache;
+    FX_FLOAT* m_pRanges;
+    FX_BOOL	m_bOwn;
 };
-CPDF_ICCBasedCS::CPDF_ICCBasedCS()
-{
-    m_pAlterCS = NULL;
-    m_pProfile = NULL;
-    m_Family = PDFCS_ICCBASED;
-    m_pCache = NULL;
-    m_pRanges = NULL;
-    m_bOwn = FALSE;
-}
+
 CPDF_ICCBasedCS::~CPDF_ICCBasedCS()
 {
     if (m_pCache) {
@@ -580,9 +591,10 @@ CPDF_ICCBasedCS::~CPDF_ICCBasedCS()
         m_pAlterCS->ReleaseCS();
     }
     if (m_pProfile && m_pDocument) {
-        m_pDocument->GetPageData()->ReleaseIccProfile(NULL, m_pProfile);
+        m_pDocument->GetPageData()->ReleaseIccProfile(m_pProfile);
     }
 }
+
 FX_BOOL CPDF_ICCBasedCS::v_Load(CPDF_Document* pDoc, CPDF_Array* pArray)
 {
     CPDF_Stream* pStream = pArray->GetStream(1);
@@ -608,7 +620,7 @@ FX_BOOL CPDF_ICCBasedCS::v_Load(CPDF_Document* pDoc, CPDF_Array* pArray)
                     }
                     else { // No valid alternative colorspace
                         pAlterCS->ReleaseCS();
-                        FX_INT32 nDictComponents = pDict ? pDict->GetInteger(FX_BSTRC("N")) : 0;
+                        int32_t nDictComponents = pDict ? pDict->GetInteger(FX_BSTRC("N")) : 0;
                         if (nDictComponents != 1 && nDictComponents != 3 && nDictComponents != 4) {
                             return FALSE;
                         }
@@ -640,7 +652,7 @@ FX_BOOL CPDF_ICCBasedCS::v_Load(CPDF_Document* pDoc, CPDF_Array* pArray)
         }
     }
     CPDF_Array* pRanges = pDict->GetArray(FX_BSTRC("Range"));
-    m_pRanges = FX_Alloc(FX_FLOAT, m_nComponents * 2);
+    m_pRanges = FX_Alloc2D(FX_FLOAT, m_nComponents, 2);
     for (int i = 0; i < m_nComponents * 2; i ++) {
         if (pRanges) {
             m_pRanges[i] = pRanges->GetNumber(i);
@@ -699,7 +711,7 @@ void CPDF_ICCBasedCS::EnableStdConversion(FX_BOOL bEnabled)
         m_pAlterCS->EnableStdConversion(bEnabled);
     }
 }
-void CPDF_ICCBasedCS::TranslateImageLine(FX_LPBYTE pDestBuf, FX_LPCBYTE pSrcBuf, int pixels, int image_width, int image_height, FX_BOOL bTransMask) const
+void CPDF_ICCBasedCS::TranslateImageLine(uint8_t* pDestBuf, const uint8_t* pSrcBuf, int pixels, int image_width, int image_height, FX_BOOL bTransMask) const
 {
     if (m_pProfile->m_bsRGB) {
         ReverseRGB(pDestBuf, pSrcBuf, pixels);
@@ -712,14 +724,14 @@ void CPDF_ICCBasedCS::TranslateImageLine(FX_LPBYTE pDestBuf, FX_LPCBYTE pSrcBuf,
             CPDF_ModuleMgr::Get()->GetIccModule()->TranslateScanline(m_pProfile->m_pTransform, pDestBuf, pSrcBuf, pixels);
         } else {
             if (m_pCache == NULL) {
-                ((CPDF_ICCBasedCS*)this)->m_pCache = FX_Alloc(FX_BYTE, nMaxColors * 3);
-                FX_LPBYTE temp_src = FX_Alloc(FX_BYTE, nMaxColors * m_nComponents);
-                FX_LPBYTE pSrc = temp_src;
+                ((CPDF_ICCBasedCS*)this)->m_pCache = FX_Alloc2D(uint8_t, nMaxColors, 3);
+                uint8_t* temp_src = FX_Alloc2D(uint8_t, nMaxColors, m_nComponents);
+                uint8_t* pSrc = temp_src;
                 for (int i = 0; i < nMaxColors; i ++) {
                     FX_DWORD color = i;
                     FX_DWORD order = nMaxColors / 52;
                     for (int c = 0; c < m_nComponents; c ++) {
-                        *pSrc++ = (FX_BYTE)(color / order * 5);
+                        *pSrc++ = (uint8_t)(color / order * 5);
                         color %= order;
                         order /= 52;
                     }
@@ -746,41 +758,32 @@ void CPDF_ICCBasedCS::TranslateImageLine(FX_LPBYTE pDestBuf, FX_LPCBYTE pSrcBuf,
 class CPDF_IndexedCS : public CPDF_ColorSpace
 {
 public:
-    CPDF_IndexedCS();
-    virtual ~CPDF_IndexedCS();
-    virtual FX_BOOL		v_Load(CPDF_Document* pDoc, CPDF_Array* pArray);
-    void				GetDefaultValue(int iComponent, FX_FLOAT& min, FX_FLOAT& max) const
-    {
-        min = 0;
-        max = (FX_FLOAT)m_MaxIndex;
+    explicit CPDF_IndexedCS(CPDF_Document* pDoc)
+        : CPDF_ColorSpace(pDoc, PDFCS_INDEXED, 1),
+          m_pBaseCS(nullptr),
+          m_pCountedBaseCS(nullptr),
+          m_pCompMinMax(nullptr) {
     }
-    virtual FX_BOOL		GetRGB(FX_FLOAT* pBuf, FX_FLOAT& R, FX_FLOAT& G, FX_FLOAT& B) const;
-    virtual CPDF_ColorSpace*	GetBaseCS() const
-    {
-        return m_pBaseCS;
-    }
-    virtual void		EnableStdConversion(FX_BOOL bEnabled);
-    CPDF_ColorSpace*	m_pBaseCS;
-    CPDF_CountedColorSpace*     m_pCountedBaseCS;
-    int					m_nBaseComponents;
-    int					m_MaxIndex;
-    CFX_ByteString		m_Table;
-    FX_FLOAT*		m_pCompMinMax;
+    ~CPDF_IndexedCS() override;
+
+    FX_BOOL v_Load(CPDF_Document* pDoc, CPDF_Array* pArray) override;
+    FX_BOOL	GetRGB(FX_FLOAT* pBuf, FX_FLOAT& R, FX_FLOAT& G, FX_FLOAT& B) const override;
+    CPDF_ColorSpace* GetBaseCS() const override;
+    void EnableStdConversion(FX_BOOL bEnabled) override;
+
+    CPDF_ColorSpace* m_pBaseCS;
+    CPDF_CountedColorSpace* m_pCountedBaseCS;
+    int m_nBaseComponents;
+    int	m_MaxIndex;
+    CFX_ByteString m_Table;
+    FX_FLOAT* m_pCompMinMax;
 };
-CPDF_IndexedCS::CPDF_IndexedCS()
-{
-    m_pBaseCS = NULL;
-    m_pCountedBaseCS = NULL;
-    m_Family = PDFCS_INDEXED;
-    m_nComponents = 1;
-    m_pCompMinMax = NULL;
-}
 CPDF_IndexedCS::~CPDF_IndexedCS()
 {
     if (m_pCompMinMax) {
         FX_Free(m_pCompMinMax);
     }
-    CPDF_ColorSpace* pCS = m_pCountedBaseCS ? m_pCountedBaseCS->m_Obj : NULL;
+    CPDF_ColorSpace* pCS = m_pCountedBaseCS ? m_pCountedBaseCS->get() : NULL;
     if (pCS && m_pDocument) {
         m_pDocument->GetPageData()->ReleaseColorSpace(pCS->GetArray());
     }
@@ -801,7 +804,7 @@ FX_BOOL CPDF_IndexedCS::v_Load(CPDF_Document* pDoc, CPDF_Array* pArray)
     }
     m_pCountedBaseCS = pDocPageData->FindColorSpacePtr(m_pBaseCS->GetArray());
     m_nBaseComponents = m_pBaseCS->CountComponents();
-    m_pCompMinMax = FX_Alloc(FX_FLOAT, m_nBaseComponents * 2);
+    m_pCompMinMax = FX_Alloc2D(FX_FLOAT, m_nBaseComponents, 2);
     FX_FLOAT defvalue;
     for (int i = 0; i < m_nBaseComponents; i ++) {
         m_pBaseCS->GetDefaultValue(i, defvalue, m_pCompMinMax[i * 2], m_pCompMinMax[i * 2 + 1]);
@@ -821,9 +824,10 @@ FX_BOOL CPDF_IndexedCS::v_Load(CPDF_Document* pDoc, CPDF_Array* pArray)
     }
     return TRUE;
 }
+
 FX_BOOL CPDF_IndexedCS::GetRGB(FX_FLOAT* pBuf, FX_FLOAT& R, FX_FLOAT& G, FX_FLOAT& B) const
 {
-    int index = (FX_INT32)(*pBuf);
+    int index = (int32_t)(*pBuf);
     if (index < 0 || index > m_MaxIndex) {
         return FALSE;
     }
@@ -836,12 +840,16 @@ FX_BOOL CPDF_IndexedCS::GetRGB(FX_FLOAT* pBuf, FX_FLOAT& R, FX_FLOAT& G, FX_FLOA
     }
     CFX_FixedBufGrow<FX_FLOAT, 16> Comps(m_nBaseComponents);
     FX_FLOAT* comps = Comps;
-    FX_LPCBYTE pTable = m_Table;
+    const uint8_t* pTable = m_Table;
     for (int i = 0; i < m_nBaseComponents; i ++) {
         comps[i] = m_pCompMinMax[i * 2] + m_pCompMinMax[i * 2 + 1] * pTable[index * m_nBaseComponents + i] / 255;
     }
     m_pBaseCS->GetRGB(comps, R, G, B);
     return TRUE;
+}
+CPDF_ColorSpace*CPDF_IndexedCS::GetBaseCS() const
+{
+    return m_pBaseCS;
 }
 void CPDF_IndexedCS::EnableStdConversion(FX_BOOL bEnabled)
 {
@@ -857,16 +865,9 @@ typedef struct _PatternValue {
     int				m_nComps;
     FX_FLOAT		m_Comps[MAX_PATTERN_COLORCOMPS];
 } PatternValue;
-CPDF_PatternCS::CPDF_PatternCS()
-{
-    m_Family = PDFCS_PATTERN;
-    m_pBaseCS = NULL;
-    m_nComponents = 1;
-    m_pCountedBaseCS = NULL;
-}
 CPDF_PatternCS::~CPDF_PatternCS()
 {
-    CPDF_ColorSpace* pCS = m_pCountedBaseCS ? m_pCountedBaseCS->m_Obj : NULL;
+    CPDF_ColorSpace* pCS = m_pCountedBaseCS ? m_pCountedBaseCS->get() : NULL;
     if (pCS && m_pDocument) {
 	    m_pDocument->GetPageData()->ReleaseColorSpace(pCS->GetArray());
     }
@@ -905,39 +906,40 @@ FX_BOOL CPDF_PatternCS::GetRGB(FX_FLOAT* pBuf, FX_FLOAT& R, FX_FLOAT& G, FX_FLOA
     R = G = B = 0.75f;
     return FALSE;
 }
+CPDF_ColorSpace* CPDF_PatternCS::GetBaseCS() const
+{
+    return m_pBaseCS;
+}
 class CPDF_SeparationCS : public CPDF_ColorSpace
 {
 public:
-    CPDF_SeparationCS();
-    virtual ~CPDF_SeparationCS();
-    virtual void		GetDefaultValue(int iComponent, FX_FLOAT& value, FX_FLOAT& min, FX_FLOAT& max) const
-    {
-        value = 1.0f;
-        min = 0;
-        max = 1.0f;
+    CPDF_SeparationCS(CPDF_Document* pDoc)
+            : CPDF_ColorSpace(pDoc, PDFCS_SEPARATION, 1),
+              m_pAltCS(nullptr),
+              m_pFunc(nullptr) {
     }
-    virtual FX_BOOL		v_Load(CPDF_Document* pDoc, CPDF_Array* pArray);
-    virtual FX_BOOL		GetRGB(FX_FLOAT* pBuf, FX_FLOAT& R, FX_FLOAT& G, FX_FLOAT& B) const;
-    virtual void		EnableStdConversion(FX_BOOL bEnabled);
-    CPDF_ColorSpace*	m_pAltCS;
-    CPDF_Function*		m_pFunc;
-    enum {None, All, Colorant}	m_Type;
+    ~CPDF_SeparationCS() override;
+    void GetDefaultValue(int iComponent, FX_FLOAT& value, FX_FLOAT& min, FX_FLOAT& max) const override;
+    FX_BOOL v_Load(CPDF_Document* pDoc, CPDF_Array* pArray) override;
+    FX_BOOL GetRGB(FX_FLOAT* pBuf, FX_FLOAT& R, FX_FLOAT& G, FX_FLOAT& B) const override;
+    void EnableStdConversion(FX_BOOL bEnabled) override;
+
+    CPDF_ColorSpace* m_pAltCS;
+    CPDF_Function* m_pFunc;
+    enum { None, All, Colorant } m_Type;
 };
-CPDF_SeparationCS::CPDF_SeparationCS()
-{
-    m_Family = PDFCS_SEPARATION;
-    m_pAltCS = NULL;
-    m_pFunc = NULL;
-    m_nComponents = 1;
-}
 CPDF_SeparationCS::~CPDF_SeparationCS()
 {
     if (m_pAltCS) {
         m_pAltCS->ReleaseCS();
     }
-    if (m_pFunc) {
-        delete m_pFunc;
-    }
+    delete m_pFunc;
+}
+void CPDF_SeparationCS::GetDefaultValue(int iComponent, FX_FLOAT& value, FX_FLOAT& min, FX_FLOAT& max) const
+{
+    value = 1.0f;
+    min = 0;
+    max = 1.0f;
 }
 FX_BOOL CPDF_SeparationCS::v_Load(CPDF_Document* pDoc, CPDF_Array* pArray)
 {
@@ -951,11 +953,14 @@ FX_BOOL CPDF_SeparationCS::v_Load(CPDF_Document* pDoc, CPDF_Array* pArray)
             return FALSE;
         }
         m_pAltCS = Load(pDoc, pAltCS);
+        if (!m_pAltCS) {
+            return FALSE;
+        }
         CPDF_Object* pFuncObj = pArray->GetElementValue(3);
         if (pFuncObj && pFuncObj->GetType() != PDFOBJ_NAME) {
             m_pFunc = CPDF_Function::Load(pFuncObj);
         }
-        if (m_pFunc && m_pAltCS && m_pFunc->CountOutputs() < m_pAltCS->CountComponents()) {
+        if (m_pFunc && m_pFunc->CountOutputs() < m_pAltCS->CountComponents()) {
             delete m_pFunc;
             m_pFunc = NULL;
         }
@@ -1003,34 +1008,32 @@ void CPDF_SeparationCS::EnableStdConversion(FX_BOOL bEnabled)
 class CPDF_DeviceNCS : public CPDF_ColorSpace
 {
 public:
-    CPDF_DeviceNCS();
-    virtual ~CPDF_DeviceNCS();
-    virtual void		GetDefaultValue(int iComponent, FX_FLOAT& value, FX_FLOAT& min, FX_FLOAT& max) const
-    {
-        value = 1.0f;
-        min = 0;
-        max = 1.0f;
+    CPDF_DeviceNCS(CPDF_Document* pDoc)
+            : CPDF_ColorSpace(pDoc, PDFCS_DEVICEN, 0),
+              m_pAltCS(nullptr),
+              m_pFunc(nullptr) {
     }
-    virtual FX_BOOL	v_Load(CPDF_Document* pDoc, CPDF_Array* pArray);
-    virtual FX_BOOL	GetRGB(FX_FLOAT* pBuf, FX_FLOAT& R, FX_FLOAT& G, FX_FLOAT& B) const;
-    virtual void	EnableStdConversion(FX_BOOL bEnabled);
-    CPDF_ColorSpace*	m_pAltCS;
-    CPDF_Function*		m_pFunc;
+    ~CPDF_DeviceNCS() override;
+    void GetDefaultValue(int iComponent, FX_FLOAT& value, FX_FLOAT& min, FX_FLOAT& max) const override;
+    FX_BOOL v_Load(CPDF_Document* pDoc, CPDF_Array* pArray) override;
+    FX_BOOL GetRGB(FX_FLOAT* pBuf, FX_FLOAT& R, FX_FLOAT& G, FX_FLOAT& B) const override;
+    void EnableStdConversion(FX_BOOL bEnabled) override;
+
+    CPDF_ColorSpace* m_pAltCS;
+    CPDF_Function* m_pFunc;
 };
-CPDF_DeviceNCS::CPDF_DeviceNCS()
-{
-    m_Family = PDFCS_DEVICEN;
-    m_pAltCS = NULL;
-    m_pFunc = NULL;
-}
 CPDF_DeviceNCS::~CPDF_DeviceNCS()
 {
-    if (m_pFunc) {
-        delete m_pFunc;
-    }
+    delete m_pFunc;
     if (m_pAltCS) {
         m_pAltCS->ReleaseCS();
     }
+}
+void CPDF_DeviceNCS::GetDefaultValue(int iComponent, FX_FLOAT& value, FX_FLOAT& min, FX_FLOAT& max) const
+{
+    value = 1.0f;
+    min = 0;
+    max = 1.0f;
 }
 FX_BOOL CPDF_DeviceNCS::v_Load(CPDF_Document* pDoc, CPDF_Array* pArray)
 {
@@ -1142,38 +1145,30 @@ CPDF_ColorSpace* CPDF_ColorSpace::Load(CPDF_Document* pDoc, CPDF_Object* pObj)
     CPDF_ColorSpace* pCS = NULL;
     FX_DWORD id = familyname.GetID();
     if (id == FXBSTR_ID('C', 'a', 'l', 'G')) {
-        pCS = FX_NEW CPDF_CalGray();
+        pCS = new CPDF_CalGray(pDoc);
     } else if (id == FXBSTR_ID('C', 'a', 'l', 'R')) {
-        pCS = FX_NEW CPDF_CalRGB();
+        pCS = new CPDF_CalRGB(pDoc);
     } else if (id == FXBSTR_ID('L', 'a', 'b', 0)) {
-        pCS = FX_NEW CPDF_LabCS();
+        pCS = new CPDF_LabCS(pDoc);
     } else if (id == FXBSTR_ID('I', 'C', 'C', 'B')) {
-        pCS = FX_NEW CPDF_ICCBasedCS();
+        pCS = new CPDF_ICCBasedCS(pDoc);
     } else if (id == FXBSTR_ID('I', 'n', 'd', 'e') || id == FXBSTR_ID('I', 0, 0, 0)) {
-        pCS = FX_NEW CPDF_IndexedCS();
+        pCS = new CPDF_IndexedCS(pDoc);
     } else if (id == FXBSTR_ID('S', 'e', 'p', 'a')) {
-        pCS = FX_NEW CPDF_SeparationCS();
+        pCS = new CPDF_SeparationCS(pDoc);
     } else if (id == FXBSTR_ID('D', 'e', 'v', 'i')) {
-        pCS = FX_NEW CPDF_DeviceNCS();
+        pCS = new CPDF_DeviceNCS(pDoc);
     } else if (id == FXBSTR_ID('P', 'a', 't', 't')) {
-        pCS = FX_NEW CPDF_PatternCS();
+        pCS = new CPDF_PatternCS(pDoc);
     } else {
         return NULL;
     }
-    pCS->m_pDocument = pDoc;
     pCS->m_pArray = pArray;
     if (!pCS->v_Load(pDoc, pArray)) {
         pCS->ReleaseCS();
         return NULL;
     }
     return pCS;
-}
-CPDF_ColorSpace::CPDF_ColorSpace()
-{
-    m_Family = 0;
-    m_pArray = NULL;
-    m_dwStdConversion = 0;
-    m_pDocument = NULL;
 }
 void CPDF_ColorSpace::ReleaseCS()
 {
@@ -1201,7 +1196,7 @@ int CPDF_ColorSpace::GetBufSize() const
 FX_FLOAT* CPDF_ColorSpace::CreateBuf()
 {
     int size = GetBufSize();
-    FX_BYTE* pBuf = FX_Alloc(FX_BYTE, size);
+    uint8_t* pBuf = FX_Alloc(uint8_t, size);
     return (FX_FLOAT*)pBuf;
 }
 FX_BOOL CPDF_ColorSpace::sRGB() const
@@ -1254,7 +1249,7 @@ int CPDF_ColorSpace::GetMaxIndex() const
     CPDF_IndexedCS* pCS = (CPDF_IndexedCS*)this;
     return pCS->m_MaxIndex;
 }
-void CPDF_ColorSpace::TranslateImageLine(FX_LPBYTE dest_buf, FX_LPCBYTE src_buf, int pixels, int image_width, int image_height, FX_BOOL bTransMask) const
+void CPDF_ColorSpace::TranslateImageLine(uint8_t* dest_buf, const uint8_t* src_buf, int pixels, int image_width, int image_height, FX_BOOL bTransMask) const
 {
     CFX_FixedBufGrow<FX_FLOAT, 16> srcbuf(m_nComponents);
     FX_FLOAT* src = srcbuf;
@@ -1267,9 +1262,9 @@ void CPDF_ColorSpace::TranslateImageLine(FX_LPBYTE dest_buf, FX_LPCBYTE src_buf,
                 src[j] = (FX_FLOAT)(*src_buf ++) / 255;
             }
         GetRGB(src, R, G, B);
-        *dest_buf ++ = (FX_INT32)(B * 255);
-        *dest_buf ++ = (FX_INT32)(G * 255);
-        *dest_buf ++ = (FX_INT32)(R * 255);
+        *dest_buf ++ = (int32_t)(B * 255);
+        *dest_buf ++ = (int32_t)(G * 255);
+        *dest_buf ++ = (int32_t)(R * 255);
     }
 }
 void CPDF_ColorSpace::EnableStdConversion(FX_BOOL bEnabled)
@@ -1306,7 +1301,7 @@ void CPDF_Color::ReleaseBuffer()
     }
     if (m_pCS->GetFamily() == PDFCS_PATTERN) {
         PatternValue* pvalue = (PatternValue*)m_pBuffer;
-        CPDF_Pattern* pPattern = pvalue->m_pCountedPattern ? pvalue->m_pCountedPattern->m_Obj : NULL;
+        CPDF_Pattern* pPattern = pvalue->m_pCountedPattern ? pvalue->m_pCountedPattern->get() : NULL;
         if (pPattern && pPattern->m_pDocument) {
             CPDF_DocPageData *pPageData = pPattern->m_pDocument->GetPageData();
             if (pPageData) {
@@ -1348,7 +1343,7 @@ void CPDF_Color::SetValue(FX_FLOAT* comps)
         return;
     }
     if (m_pCS->GetFamily() != PDFCS_PATTERN) {
-        FXSYS_memcpy32(m_pBuffer, comps, m_pCS->CountComponents() * sizeof(FX_FLOAT));
+        FXSYS_memcpy(m_pBuffer, comps, m_pCS->CountComponents() * sizeof(FX_FLOAT));
     }
 }
 void CPDF_Color::SetValue(CPDF_Pattern* pPattern, FX_FLOAT* comps, int ncomps)
@@ -1374,7 +1369,7 @@ void CPDF_Color::SetValue(CPDF_Pattern* pPattern, FX_FLOAT* comps, int ncomps)
     pvalue->m_nComps = ncomps;
     pvalue->m_pPattern = pPattern;
     if (ncomps) {
-        FXSYS_memcpy32(pvalue->m_Comps, comps, ncomps * sizeof(FX_FLOAT));
+        FXSYS_memcpy(pvalue->m_Comps, comps, ncomps * sizeof(FX_FLOAT));
     }
     pvalue->m_pCountedPattern = NULL;
     if (pPattern && pPattern->m_pDocument)
@@ -1400,7 +1395,7 @@ void CPDF_Color::Copy(const CPDF_Color* pSrc)
         return;
     }
     m_pBuffer = m_pCS->CreateBuf();
-    FXSYS_memcpy32(m_pBuffer, pSrc->m_pBuffer, m_pCS->GetBufSize());
+    FXSYS_memcpy(m_pBuffer, pSrc->m_pBuffer, m_pCS->GetBufSize());
     if (m_pCS->GetFamily() == PDFCS_PATTERN) {
         PatternValue* pvalue = (PatternValue*)m_pBuffer;
         if (pvalue->m_pPattern && pvalue->m_pPattern->m_pDocument) {
@@ -1417,9 +1412,9 @@ FX_BOOL CPDF_Color::GetRGB(int& R, int& G, int& B) const
     if (!m_pCS->GetRGB(m_pBuffer, r, g, b)) {
         return FALSE;
     }
-    R = (FX_INT32)(r * 255 + 0.5f);
-    G = (FX_INT32)(g * 255 + 0.5f);
-    B = (FX_INT32)(b * 255 + 0.5f);
+    R = (int32_t)(r * 255 + 0.5f);
+    G = (int32_t)(g * 255 + 0.5f);
+    B = (int32_t)(b * 255 + 0.5f);
     return TRUE;
 }
 CPDF_Pattern* CPDF_Color::GetPattern() const
@@ -1450,5 +1445,5 @@ FX_BOOL CPDF_Color::IsEqual(const CPDF_Color& other) const
     if (m_pCS != other.m_pCS || m_pCS == NULL) {
         return FALSE;
     }
-    return FXSYS_memcmp32(m_pBuffer, other.m_pBuffer, m_pCS->GetBufSize()) == 0;
+    return FXSYS_memcmp(m_pBuffer, other.m_pBuffer, m_pCS->GetBufSize()) == 0;
 }

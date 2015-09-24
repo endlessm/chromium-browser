@@ -67,10 +67,6 @@ struct CastRtpPayloadParams {
   // The maximum frame rate.
   double max_frame_rate;
 
-  // Width and height of the video content.
-  int width;
-  int height;
-
   // Name of the codec used.
   std::string codec_name;
 

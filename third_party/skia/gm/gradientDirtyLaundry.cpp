@@ -66,14 +66,14 @@ static const GradMaker gGradMakers[] = {
 class GradientsGM : public GM {
 public:
     GradientsGM() {
-        this->setBGColor(0xFFDDDDDD);
+        this->setBGColor(sk_tool_utils::color_to_565(0xFFDDDDDD));
     }
 
 protected:
-    SkString onShortName() SK_OVERRIDE { return SkString("gradient_dirty_laundry"); }
-    virtual SkISize onISize() SK_OVERRIDE { return SkISize::Make(640, 615); }
+    SkString onShortName() override { return SkString("gradient_dirty_laundry"); }
+    SkISize onISize() override { return SkISize::Make(640, 615); }
 
-    virtual void onDraw(SkCanvas* canvas) SK_OVERRIDE {
+    void onDraw(SkCanvas* canvas) override {
         SkPoint pts[2] = { { 0, 0 },
                            { SkIntToScalar(100), SkIntToScalar(100) }
         };

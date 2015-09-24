@@ -4,9 +4,14 @@
 
 #include "chrome/common/spellcheck_common.h"
 
+#include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/macros.h"
+#include "chrome/common/chrome_switches.h"
 #include "third_party/icu/source/common/unicode/uloc.h"
+#include "third_party/icu/source/common/unicode/urename.h"
+#include "third_party/icu/source/common/unicode/utypes.h"
 
 namespace chrome {
 namespace spellcheck_common {
@@ -105,6 +110,14 @@ base::FilePath GetVersionedFileName(const std::string& input_language,
     {"tr-TR", "-4-0"},  // Jan 9, 2013: Add "FLAG num" to aff to avoid heapcheck
                         // crash.
     {"tg-TG", "-5-0"},  // Mar 4, 2014: Add Tajik dictionary.
+
+    // Oct 28, 2014: Update from upstream, add new words.
+    {"en-AU", "-4-0"},
+    {"en-GB", "-4-0"},
+
+    // March 10, 2015: Update from upstream, enable typographical apostrophe.
+    {"en-CA", "-6-1"},
+    {"en-US", "-6-1"},
   };
 
   // Generate the bdict file name using default version string or special
@@ -168,6 +181,11 @@ void GetISOLanguageCountryCodeFromLocale(const std::string& locale,
   }
   *language_code = std::string(language);
   *country_code = std::string(country);
+}
+
+bool IsMultilingualSpellcheckEnabled() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kEnableMultilingualSpellChecker);
 }
 
 }  // namespace spellcheck_common

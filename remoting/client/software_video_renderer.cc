@@ -83,7 +83,7 @@ class SoftwareVideoRenderer::Core {
        scoped_refptr<FrameConsumerProxy> consumer);
   ~Core();
 
-  void Initialize(const protocol::SessionConfig& config);
+  void OnSessionConfig(const protocol::SessionConfig& config);
   void DrawBuffer(webrtc::DesktopFrame* buffer);
   void InvalidateRegion(const webrtc::DesktopRegion& region);
   void RequestReturnBuffers(const base::Closure& done);
@@ -140,7 +140,7 @@ SoftwareVideoRenderer::Core::Core(
 SoftwareVideoRenderer::Core::~Core() {
 }
 
-void SoftwareVideoRenderer::Core::Initialize(const SessionConfig& config) {
+void SoftwareVideoRenderer::Core::OnSessionConfig(const SessionConfig& config) {
   DCHECK(decode_task_runner_->BelongsToCurrentThread());
 
   // Initialize decoder based on the selected codec.
@@ -318,27 +318,32 @@ SoftwareVideoRenderer::SoftwareVideoRenderer(
     scoped_refptr<FrameConsumerProxy> consumer)
     : decode_task_runner_(decode_task_runner),
       core_(new Core(main_task_runner, decode_task_runner, consumer)),
-      latest_sequence_number_(0),
+      latest_event_timestamp_(0),
       weak_factory_(this) {
   DCHECK(CalledOnValidThread());
 }
 
 SoftwareVideoRenderer::~SoftwareVideoRenderer() {
   DCHECK(CalledOnValidThread());
-  decode_task_runner_->DeleteSoon(FROM_HERE, core_.release());
+  bool result = decode_task_runner_->DeleteSoon(FROM_HERE, core_.release());
+  DCHECK(result);
 }
 
-void SoftwareVideoRenderer::Initialize(
+void SoftwareVideoRenderer::OnSessionConfig(
     const protocol::SessionConfig& config) {
   DCHECK(CalledOnValidThread());
   decode_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&SoftwareVideoRenderer::Core::Initialize,
+      FROM_HERE, base::Bind(&SoftwareVideoRenderer::Core::OnSessionConfig,
                             base::Unretained(core_.get()), config));
 }
 
 ChromotingStats* SoftwareVideoRenderer::GetStats() {
   DCHECK(CalledOnValidThread());
   return &stats_;
+}
+
+protocol::VideoStub* SoftwareVideoRenderer::GetVideoStub() {
+  return this;
 }
 
 void SoftwareVideoRenderer::ProcessVideoPacket(scoped_ptr<VideoPacket> packet,
@@ -361,12 +366,12 @@ void SoftwareVideoRenderer::ProcessVideoPacket(scoped_ptr<VideoPacket> packet,
     stats_.video_capture_ms()->Record(packet->capture_time_ms());
   if (packet->has_encode_time_ms())
     stats_.video_encode_ms()->Record(packet->encode_time_ms());
-  if (packet->has_client_sequence_number() &&
-      packet->client_sequence_number() > latest_sequence_number_) {
-    latest_sequence_number_ = packet->client_sequence_number();
+  if (packet->has_latest_event_timestamp() &&
+      packet->latest_event_timestamp() > latest_event_timestamp_) {
+    latest_event_timestamp_ = packet->latest_event_timestamp();
     base::TimeDelta round_trip_latency =
         base::Time::Now() -
-        base::Time::FromInternalValue(packet->client_sequence_number());
+        base::Time::FromInternalValue(packet->latest_event_timestamp());
     stats_.round_trip_ms()->Record(round_trip_latency.InMilliseconds());
   }
 

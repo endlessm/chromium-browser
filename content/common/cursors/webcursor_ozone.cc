@@ -9,6 +9,11 @@
 #include "ui/base/cursor/cursor_util.h"
 #include "ui/ozone/public/cursor_factory_ozone.h"
 
+namespace {
+const float kMaxCursorWidth = 64.f;
+const float kMaxCursorHeight = 64.f;
+}
+
 namespace content {
 
 ui::PlatformCursor WebCursor::GetPlatformCursor() {
@@ -18,11 +23,18 @@ ui::PlatformCursor WebCursor::GetPlatformCursor() {
   SkBitmap bitmap;
   ImageFromCustomData(&bitmap);
   gfx::Point hotspot = hotspot_;
-  ui::ScaleAndRotateCursorBitmapAndHotpoint(
-      device_scale_factor_, rotation_, &bitmap, &hotspot);
 
-  return ui::CursorFactoryOzone::GetInstance()->CreateImageCursor(bitmap,
-                                                                  hotspot);
+  // TODO(spang): Consider allowing larger cursors if the hardware supports it.
+  float scale = device_scale_factor_ / custom_scale_;
+  scale = std::min(scale, kMaxCursorWidth / bitmap.width());
+  scale = std::min(scale, kMaxCursorHeight / bitmap.height());
+
+  ui::ScaleAndRotateCursorBitmapAndHotpoint(scale, rotation_, &bitmap,
+                                            &hotspot);
+
+  platform_cursor_ =
+      ui::CursorFactoryOzone::GetInstance()->CreateImageCursor(bitmap, hotspot);
+  return platform_cursor_;
 }
 
 void WebCursor::SetDisplayInfo(const gfx::Display& display) {
@@ -45,11 +57,11 @@ void WebCursor::InitPlatformData() {
   rotation_ = gfx::Display::ROTATE_0;
 }
 
-bool WebCursor::SerializePlatformData(Pickle* pickle) const {
+bool WebCursor::SerializePlatformData(base::Pickle* pickle) const {
   return true;
 }
 
-bool WebCursor::DeserializePlatformData(PickleIterator* iter) {
+bool WebCursor::DeserializePlatformData(base::PickleIterator* iter) {
   return true;
 }
 

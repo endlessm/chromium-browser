@@ -10,6 +10,59 @@
 #include "JBig2_HuffmanDecoder.h"
 #include "JBig2_HuffmanTable.h"
 #include "JBig2_PatternDict.h"
+
+extern const JBig2ArithQe QeTable[] = {
+    { 0x5601,  1,  1, 1 },
+    { 0x3401,  2,  6, 0 },
+    { 0x1801,  3,  9, 0 },
+    { 0x0AC1,  4, 12, 0 },
+    { 0x0521,  5, 29, 0 },
+    { 0x0221, 38, 33, 0 },
+    { 0x5601,  7,  6, 1 },
+    { 0x5401,  8, 14, 0 },
+    { 0x4801,  9, 14, 0 },
+    { 0x3801, 10, 14, 0 },
+    { 0x3001, 11, 17, 0 },
+    { 0x2401, 12, 18, 0 },
+    { 0x1C01, 13, 20, 0 },
+    { 0x1601, 29, 21, 0 },
+    { 0x5601, 15, 14, 1 },
+    { 0x5401, 16, 14, 0 },
+    { 0x5101, 17, 15, 0 },
+    { 0x4801, 18, 16, 0 },
+    { 0x3801, 19, 17, 0 },
+    { 0x3401, 20, 18, 0 },
+    { 0x3001, 21, 19, 0 },
+    { 0x2801, 22, 19, 0 },
+    { 0x2401, 23, 20, 0 },
+    { 0x2201, 24, 21, 0 },
+    { 0x1C01, 25, 22, 0 },
+    { 0x1801, 26, 23, 0 },
+    { 0x1601, 27, 24, 0 },
+    { 0x1401, 28, 25, 0 },
+    { 0x1201, 29, 26, 0 },
+    { 0x1101, 30, 27, 0 },
+    { 0x0AC1, 31, 28, 0 },
+    { 0x09C1, 32, 29, 0 },
+    { 0x08A1, 33, 30, 0 },
+    { 0x0521, 34, 31, 0 },
+    { 0x0441, 35, 32, 0 },
+    { 0x02A1, 36, 33, 0 },
+    { 0x0221, 37, 34, 0 },
+    { 0x0141, 38, 35, 0 },
+    { 0x0111, 39, 36, 0 },
+    { 0x0085, 40, 37, 0 },
+    { 0x0049, 41, 38, 0 },
+    { 0x0025, 42, 39, 0 },
+    { 0x0015, 43, 40, 0 },
+    { 0x0009, 44, 41, 0 },
+    { 0x0005, 45, 42, 0 },
+    { 0x0001, 45, 43, 0 },
+    { 0x5601, 46, 46, 0 }
+};
+
+extern const unsigned int JBIG2_QE_NUM = sizeof(QeTable) / sizeof(JBig2ArithQe);
+
 CJBig2_Image *CJBig2_GRDProc::decode_Arith(CJBig2_ArithDecoder *pArithDecoder, JBig2ArithCtx *gbContext)
 {
     if (GBW == 0 || GBH == 0) {
@@ -97,9 +150,9 @@ CJBig2_Image *CJBig2_GRDProc::decode_Arith_Template0_opt2(CJBig2_ArithDecoder *p
     FX_DWORD CONTEXT;
     CJBig2_Image *GBREG;
     FX_DWORD line1, line2;
-    FX_BYTE *pLine, cVal;
-    FX_INTPTR nStride, nStride2;
-    FX_INT32 nBits, k;
+    uint8_t *pLine, cVal;
+    intptr_t nStride, nStride2;
+    int32_t nBits, k;
     LTP = 0;
     JBIG2_ALLOC(GBREG, CJBig2_Image(GBW, GBH));
     if (GBREG->m_pData == NULL) {
@@ -164,9 +217,9 @@ CJBig2_Image *CJBig2_GRDProc::decode_Arith_Template0_opt3(CJBig2_ArithDecoder *p
     FX_DWORD CONTEXT;
     CJBig2_Image *GBREG;
     FX_DWORD line1, line2;
-    FX_BYTE *pLine, *pLine1, *pLine2, cVal;
-    FX_INT32 nStride, nStride2, k;
-    FX_INT32 nLineBytes, nBitsLeft, cc;
+    uint8_t *pLine, *pLine1, *pLine2, cVal;
+    int32_t nStride, nStride2, k;
+    int32_t nLineBytes, nBitsLeft, cc;
     LTP = 0;
     JBIG2_ALLOC(GBREG, CJBig2_Image(GBW, GBH));
     if (GBREG->m_pData == NULL) {
@@ -348,9 +401,9 @@ CJBig2_Image *CJBig2_GRDProc::decode_Arith_Template1_opt2(CJBig2_ArithDecoder *p
     FX_DWORD CONTEXT;
     CJBig2_Image *GBREG;
     FX_DWORD line1, line2;
-    FX_BYTE *pLine, cVal;
-    FX_INTPTR nStride, nStride2;
-    FX_INT32 nBits, k;
+    uint8_t *pLine, cVal;
+    intptr_t nStride, nStride2;
+    int32_t nBits, k;
     LTP = 0;
     JBIG2_ALLOC(GBREG, CJBig2_Image(GBW, GBH));
     if (GBREG->m_pData == NULL) {
@@ -415,9 +468,9 @@ CJBig2_Image *CJBig2_GRDProc::decode_Arith_Template1_opt3(CJBig2_ArithDecoder *p
     FX_DWORD CONTEXT;
     CJBig2_Image *GBREG;
     FX_DWORD line1, line2;
-    FX_BYTE *pLine, *pLine1, *pLine2, cVal;
-    FX_INT32 nStride, nStride2, k;
-    FX_INT32 nLineBytes, nBitsLeft, cc;
+    uint8_t *pLine, *pLine1, *pLine2, cVal;
+    int32_t nStride, nStride2, k;
+    int32_t nLineBytes, nBitsLeft, cc;
     LTP = 0;
     JBIG2_ALLOC(GBREG, CJBig2_Image(GBW, GBH));
     if (GBREG->m_pData == NULL) {
@@ -594,9 +647,9 @@ CJBig2_Image *CJBig2_GRDProc::decode_Arith_Template2_opt2(CJBig2_ArithDecoder *p
     FX_DWORD CONTEXT;
     CJBig2_Image *GBREG;
     FX_DWORD line1, line2;
-    FX_BYTE *pLine, cVal;
-    FX_INTPTR nStride, nStride2;
-    FX_INT32 nBits, k;
+    uint8_t *pLine, cVal;
+    intptr_t nStride, nStride2;
+    int32_t nBits, k;
     LTP = 0;
     JBIG2_ALLOC(GBREG, CJBig2_Image(GBW, GBH));
     if (GBREG->m_pData == NULL) {
@@ -661,9 +714,9 @@ CJBig2_Image *CJBig2_GRDProc::decode_Arith_Template2_opt3(CJBig2_ArithDecoder *p
     FX_DWORD CONTEXT;
     CJBig2_Image *GBREG;
     FX_DWORD line1, line2;
-    FX_BYTE *pLine, *pLine1, *pLine2, cVal;
-    FX_INT32 nStride, nStride2, k;
-    FX_INT32 nLineBytes, nBitsLeft, cc;
+    uint8_t *pLine, *pLine1, *pLine2, cVal;
+    int32_t nStride, nStride2, k;
+    int32_t nLineBytes, nBitsLeft, cc;
     LTP = 0;
     JBIG2_ALLOC(GBREG, CJBig2_Image(GBW, GBH));
     if (GBREG->m_pData == NULL) {
@@ -834,9 +887,9 @@ CJBig2_Image *CJBig2_GRDProc::decode_Arith_Template3_opt2(CJBig2_ArithDecoder *p
     FX_DWORD CONTEXT;
     CJBig2_Image *GBREG;
     FX_DWORD line1;
-    FX_BYTE *pLine, cVal;
-    FX_INTPTR nStride, nStride2;
-    FX_INT32 nBits, k;
+    uint8_t *pLine, cVal;
+    intptr_t nStride;
+    int32_t nBits, k;
     LTP = 0;
     JBIG2_ALLOC(GBREG, CJBig2_Image(GBW, GBH));
     if (GBREG->m_pData == NULL) {
@@ -846,7 +899,6 @@ CJBig2_Image *CJBig2_GRDProc::decode_Arith_Template3_opt2(CJBig2_ArithDecoder *p
     }
     pLine = GBREG->m_pData;
     nStride = GBREG->m_nStride;
-    nStride2 = nStride << 1;
     for(FX_DWORD h = 0; h < GBH; h++) {
         if(TPGDON) {
             SLTP = pArithDecoder->DECODE(&gbContext[0x0195]);
@@ -893,9 +945,9 @@ CJBig2_Image *CJBig2_GRDProc::decode_Arith_Template3_opt3(CJBig2_ArithDecoder *p
     FX_DWORD CONTEXT;
     CJBig2_Image *GBREG;
     FX_DWORD line1;
-    FX_BYTE *pLine, *pLine1, cVal;
-    FX_INT32 nStride, k;
-    FX_INT32 nLineBytes, nBitsLeft, cc;
+    uint8_t *pLine, *pLine1, cVal;
+    int32_t nStride, k;
+    int32_t nLineBytes, nBitsLeft, cc;
     LTP = 0;
     JBIG2_ALLOC(GBREG, CJBig2_Image(GBW, GBH));
     if (GBREG->m_pData == NULL) {
@@ -1376,13 +1428,13 @@ CJBig2_Image *CJBig2_GRRDProc::decode_Template0_opt(CJBig2_ArithDecoder *pArithD
     FX_DWORD CONTEXT;
     CJBig2_Image *GRREG;
     FX_DWORD line1, line1_r, line2_r, line3_r;
-    FX_BYTE *pLine, *pLineR, cVal;
-    FX_INTPTR nStride, nStrideR, nOffset;
-    FX_INT32 k, nBits;
-    FX_INT32 GRWR, GRHR;
-    FX_INT32 GRW, GRH;
-    GRW = (FX_INT32)CJBig2_GRRDProc::GRW;
-    GRH = (FX_INT32)CJBig2_GRRDProc::GRH;
+    uint8_t *pLine, *pLineR, cVal;
+    intptr_t nStride, nStrideR, nOffset;
+    int32_t k, nBits;
+    int32_t GRWR, GRHR;
+    int32_t GRW, GRH;
+    GRW = (int32_t)CJBig2_GRRDProc::GRW;
+    GRH = (int32_t)CJBig2_GRRDProc::GRH;
     LTP = 0;
     JBIG2_ALLOC(GRREG, CJBig2_Image(GRW, GRH));
     if (GRREG->m_pData == NULL) {
@@ -1394,19 +1446,19 @@ CJBig2_Image *CJBig2_GRRDProc::decode_Template0_opt(CJBig2_ArithDecoder *pArithD
     pLineR = GRREFERENCE->m_pData;
     nStride = GRREG->m_nStride;
     nStrideR = GRREFERENCE->m_nStride;
-    GRWR = (FX_INT32)GRREFERENCE->m_nWidth;
-    GRHR = (FX_INT32)GRREFERENCE->m_nHeight;
+    GRWR = (int32_t)GRREFERENCE->m_nWidth;
+    GRHR = (int32_t)GRREFERENCE->m_nHeight;
     if (GRREFERENCEDY < -GRHR + 1 || GRREFERENCEDY > GRHR - 1) {
         GRREFERENCEDY = 0;
     }
     nOffset = -GRREFERENCEDY * nStrideR;
-    for (FX_INT32 h = 0; h < GRH; h++) {
+    for (int32_t h = 0; h < GRH; h++) {
         if(TPGRON) {
             SLTP = pArithDecoder->DECODE(&grContext[0x0010]);
             LTP = LTP ^ SLTP;
         }
         line1 = (h > 0) ? pLine[-nStride] << 4 : 0;
-        FX_INT32 reference_h = h - GRREFERENCEDY;
+        int32_t reference_h = h - GRREFERENCEDY;
         FX_BOOL line1_r_ok = (reference_h > 0 && reference_h < GRHR + 1);
         FX_BOOL line2_r_ok = (reference_h > -1 && reference_h < GRHR);
         FX_BOOL line3_r_ok = (reference_h > -2 && reference_h < GRHR - 1);
@@ -1416,7 +1468,7 @@ CJBig2_Image *CJBig2_GRRDProc::decode_Template0_opt(CJBig2_ArithDecoder *pArithD
         if(LTP == 0) {
             CONTEXT = (line1 & 0x1c00) | (line1_r & 0x01c0)
                       | ((line2_r >> 3) & 0x0038) | ((line3_r >> 6) & 0x0007);
-            for (FX_INT32 w = 0; w < GRW; w += 8) {
+            for (int32_t w = 0; w < GRW; w += 8) {
                 nBits = GRW - w > 8 ? 8 : GRW - w;
                 if (h > 0)
                     line1 = (line1 << 8) |
@@ -1454,7 +1506,7 @@ CJBig2_Image *CJBig2_GRRDProc::decode_Template0_opt(CJBig2_ArithDecoder *pArithD
         } else {
             CONTEXT = (line1 & 0x1c00) | (line1_r & 0x01c0)
                       | ((line2_r >> 3) & 0x0038) | ((line3_r >> 6) & 0x0007);
-            for (FX_INT32 w = 0; w < GRW; w += 8) {
+            for (int32_t w = 0; w < GRW; w += 8) {
                 nBits = GRW - w > 8 ? 8 : GRW - w;
                 if (h > 0)
                     line1 = (line1 << 8) |
@@ -1585,13 +1637,13 @@ CJBig2_Image *CJBig2_GRRDProc::decode_Template1_opt(CJBig2_ArithDecoder *pArithD
     FX_DWORD CONTEXT;
     CJBig2_Image *GRREG;
     FX_DWORD line1, line1_r, line2_r, line3_r;
-    FX_BYTE *pLine, *pLineR, cVal;
-    FX_INTPTR nStride, nStrideR, nOffset;
-    FX_INT32 k, nBits;
-    FX_INT32 GRWR, GRHR;
-    FX_INT32 GRW, GRH;
-    GRW = (FX_INT32)CJBig2_GRRDProc::GRW;
-    GRH = (FX_INT32)CJBig2_GRRDProc::GRH;
+    uint8_t *pLine, *pLineR, cVal;
+    intptr_t nStride, nStrideR, nOffset;
+    int32_t k, nBits;
+    int32_t GRWR, GRHR;
+    int32_t GRW, GRH;
+    GRW = (int32_t)CJBig2_GRRDProc::GRW;
+    GRH = (int32_t)CJBig2_GRRDProc::GRH;
     LTP = 0;
     JBIG2_ALLOC(GRREG, CJBig2_Image(GRW, GRH));
     if (GRREG->m_pData == NULL) {
@@ -1603,19 +1655,19 @@ CJBig2_Image *CJBig2_GRRDProc::decode_Template1_opt(CJBig2_ArithDecoder *pArithD
     pLineR = GRREFERENCE->m_pData;
     nStride = GRREG->m_nStride;
     nStrideR = GRREFERENCE->m_nStride;
-    GRWR = (FX_INT32)GRREFERENCE->m_nWidth;
-    GRHR = (FX_INT32)GRREFERENCE->m_nHeight;
+    GRWR = (int32_t)GRREFERENCE->m_nWidth;
+    GRHR = (int32_t)GRREFERENCE->m_nHeight;
     if (GRREFERENCEDY < -GRHR + 1 || GRREFERENCEDY > GRHR - 1) {
         GRREFERENCEDY = 0;
     }
     nOffset = -GRREFERENCEDY * nStrideR;
-    for (FX_INT32 h = 0; h < GRH; h++) {
+    for (int32_t h = 0; h < GRH; h++) {
         if(TPGRON) {
             SLTP = pArithDecoder->DECODE(&grContext[0x0008]);
             LTP = LTP ^ SLTP;
         }
         line1 = (h > 0) ? pLine[-nStride] << 1 : 0;
-        FX_INT32 reference_h = h - GRREFERENCEDY;
+        int32_t reference_h = h - GRREFERENCEDY;
         FX_BOOL line1_r_ok = (reference_h > 0 && reference_h < GRHR + 1);
         FX_BOOL line2_r_ok = (reference_h > -1 && reference_h < GRHR);
         FX_BOOL line3_r_ok = (reference_h > -2 && reference_h < GRHR - 1);
@@ -1625,7 +1677,7 @@ CJBig2_Image *CJBig2_GRRDProc::decode_Template1_opt(CJBig2_ArithDecoder *pArithD
         if(LTP == 0) {
             CONTEXT = (line1 & 0x0380) | ((line1_r >> 2) & 0x0020)
                       | ((line2_r >> 4) & 0x001c) | ((line3_r >> 6) & 0x0003);
-            for (FX_INT32 w = 0; w < GRW; w += 8) {
+            for (int32_t w = 0; w < GRW; w += 8) {
                 nBits = GRW - w > 8 ? 8 : GRW - w;
                 if (h > 0)
                     line1 = (line1 << 8) |
@@ -1657,7 +1709,7 @@ CJBig2_Image *CJBig2_GRRDProc::decode_Template1_opt(CJBig2_ArithDecoder *pArithD
         } else {
             CONTEXT = (line1 & 0x0380) | ((line1_r >> 2) & 0x0020)
                       | ((line2_r >> 4) & 0x001c) | ((line3_r >> 6) & 0x0003);
-            for (FX_INT32 w = 0; w < GRW; w += 8) {
+            for (int32_t w = 0; w < GRW; w += 8) {
                 nBits = GRW - w > 8 ? 8 : GRW - w;
                 if (h > 0)
                     line1 = (line1 << 8) |
@@ -1820,23 +1872,23 @@ CJBig2_Image *CJBig2_GRRDProc::decode_V1(CJBig2_ArithDecoder *pArithDecoder, JBi
 }
 CJBig2_Image *CJBig2_TRDProc::decode_Huffman(CJBig2_BitStream *pStream, JBig2ArithCtx *grContext)
 {
-    FX_INT32 STRIPT, FIRSTS;
+    int32_t STRIPT, FIRSTS;
     FX_DWORD NINSTANCES;
-    FX_INT32 DT, DFS, CURS;
-    FX_BYTE CURT;
-    FX_INT32 SI, TI;
+    int32_t DT, DFS, CURS;
+    uint8_t CURT;
+    int32_t SI, TI;
     FX_DWORD IDI;
     CJBig2_Image *IBI;
     FX_DWORD WI, HI;
-    FX_INT32 IDS;
+    int32_t IDS;
     FX_BOOL RI;
-    FX_INT32 RDWI, RDHI, RDXI, RDYI;
+    int32_t RDWI, RDHI, RDXI, RDYI;
     CJBig2_Image *IBOI;
     FX_DWORD WOI, HOI;
     CJBig2_Image *SBREG;
     FX_BOOL bFirst;
     FX_DWORD nTmp;
-    FX_INT32 nVal, nBits;
+    int32_t nVal, nBits;
     CJBig2_HuffmanDecoder *pHuffmanDecoder;
     CJBig2_GRRDProc *pGRRD;
     CJBig2_ArithDecoder *pArithDecoder;
@@ -2040,23 +2092,23 @@ failed:
 CJBig2_Image *CJBig2_TRDProc::decode_Arith(CJBig2_ArithDecoder *pArithDecoder, JBig2ArithCtx *grContext,
         JBig2IntDecoderState *pIDS)
 {
-    FX_INT32 STRIPT, FIRSTS;
+    int32_t STRIPT, FIRSTS;
     FX_DWORD NINSTANCES;
-    FX_INT32 DT, DFS, CURS;
-    FX_INT32 CURT;
-    FX_INT32 SI, TI;
+    int32_t DT, DFS, CURS;
+    int32_t CURT;
+    int32_t SI, TI;
     FX_DWORD IDI;
     CJBig2_Image *IBI;
     FX_DWORD WI, HI;
-    FX_INT32 IDS;
+    int32_t IDS;
     FX_BOOL RI;
-    FX_INT32 RDWI, RDHI, RDXI, RDYI;
+    int32_t RDWI, RDHI, RDXI, RDYI;
     CJBig2_Image *IBOI;
     FX_DWORD WOI, HOI;
     CJBig2_Image *SBREG;
     FX_BOOL bFirst;
-    FX_INT32 nRet, nVal;
-    FX_INT32 bRetained;
+    int32_t nRet, nVal;
+    int32_t bRetained;
     CJBig2_ArithIntDecoder *IADT, *IAFS, *IADS, *IAIT, *IARI, *IARDW, *IARDH, *IARDX, *IARDY;
     CJBig2_ArithIaidDecoder *IAID;
     CJBig2_GRRDProc *pGRRD;
@@ -2281,22 +2333,21 @@ CJBig2_SymbolDict *CJBig2_SDDProc::decode_Arith(CJBig2_ArithDecoder *pArithDecod
 {
     CJBig2_Image **SDNEWSYMS;
     FX_DWORD HCHEIGHT, NSYMSDECODED;
-    FX_INT32 HCDH;
-    FX_DWORD SYMWIDTH, TOTWIDTH, HCFIRSTSYM;
-    FX_INT32 DW;
+    int32_t HCDH;
+    FX_DWORD SYMWIDTH, TOTWIDTH;
+    int32_t DW;
     CJBig2_Image *BS;
     FX_DWORD I, J, REFAGGNINST;
     FX_BOOL *EXFLAGS;
     FX_DWORD EXINDEX;
     FX_BOOL CUREXFLAG;
     FX_DWORD EXRUNLENGTH;
-    FX_INT32 nVal;
+    int32_t nVal;
     FX_DWORD nTmp;
-    FX_BOOL SBHUFF;
     FX_DWORD SBNUMSYMS;
-    FX_BYTE SBSYMCODELEN;
+    uint8_t SBSYMCODELEN;
     FX_DWORD IDI;
-    FX_INT32 RDXI, RDYI;
+    int32_t RDXI, RDYI;
     CJBig2_Image **SBSYMS;
     CJBig2_HuffmanTable *SBHUFFFS, *SBHUFFDS, *SBHUFFDT, *SBHUFFRDW, *SBHUFFRDH, *SBHUFFRDX, *SBHUFFRDY,
                         *SBHUFFRSIZE;
@@ -2323,9 +2374,9 @@ CJBig2_SymbolDict *CJBig2_SDDProc::decode_Arith(CJBig2_ArithDecoder *pArithDecod
     while((FX_DWORD)(1 << nTmp) < (SDNUMINSYMS + SDNUMNEWSYMS)) {
         nTmp ++;
     }
-    JBIG2_ALLOC(IAID, CJBig2_ArithIaidDecoder((FX_BYTE)nTmp));
+    JBIG2_ALLOC(IAID, CJBig2_ArithIaidDecoder((uint8_t)nTmp));
     SDNEWSYMS = (CJBig2_Image**)m_pModule->JBig2_Malloc2(SDNUMNEWSYMS, sizeof(CJBig2_Image*));
-    FXSYS_memset32(SDNEWSYMS, 0 , SDNUMNEWSYMS * sizeof(CJBig2_Image*));
+    FXSYS_memset(SDNEWSYMS, 0 , SDNUMNEWSYMS * sizeof(CJBig2_Image*));
     HCHEIGHT = 0;
     NSYMSDECODED = 0;
     while(NSYMSDECODED < SDNUMNEWSYMS) {
@@ -2341,7 +2392,6 @@ CJBig2_SymbolDict *CJBig2_SDDProc::decode_Arith(CJBig2_ArithDecoder *pArithDecod
         }
         SYMWIDTH = 0;
         TOTWIDTH = 0;
-        HCFIRSTSYM = NSYMSDECODED;
         for(;;) {
             nVal = IADW->decode(pArithDecoder, &DW);
             if(nVal == JBIG2_OOB) {
@@ -2408,7 +2458,7 @@ CJBig2_SymbolDict *CJBig2_SDDProc::decode_Arith(CJBig2_ArithDecoder *pArithDecod
                     while((FX_DWORD)(1 << nTmp) < SBNUMSYMS) {
                         nTmp ++;
                     }
-                    SBSYMCODELEN = (FX_BYTE)nTmp;
+                    SBSYMCODELEN = (uint8_t)nTmp;
                     pDecoder->SBSYMCODELEN = SBSYMCODELEN;
                     SBSYMS = (CJBig2_Image**)m_pModule->JBig2_Malloc2(SBNUMSYMS, sizeof(CJBig2_Image*));
                     JBIG2_memcpy(SBSYMS, SDINSYMS, SDNUMINSYMS * sizeof(CJBig2_Image*));
@@ -2484,7 +2534,6 @@ CJBig2_SymbolDict *CJBig2_SDDProc::decode_Arith(CJBig2_ArithDecoder *pArithDecod
                     delete SBHUFFRSIZE;
                     delete pDecoder;
                 } else if(REFAGGNINST == 1) {
-                    SBHUFF = SDHUFF;
                     SBNUMSYMS = SDNUMINSYMS + NSYMSDECODED;
                     if(IAID->decode(pArithDecoder, (int*)&IDI) == -1) {
                         m_pModule->JBig2_Error("symbol dictionary decoding procedure (arith): too short.");
@@ -2622,23 +2671,22 @@ CJBig2_SymbolDict *CJBig2_SDDProc::decode_Huffman(CJBig2_BitStream *pStream,
     CJBig2_Image **SDNEWSYMS;
     FX_DWORD *SDNEWSYMWIDTHS;
     FX_DWORD HCHEIGHT, NSYMSDECODED;
-    FX_INT32 HCDH;
+    int32_t HCDH;
     FX_DWORD SYMWIDTH, TOTWIDTH, HCFIRSTSYM;
-    FX_INT32 DW;
+    int32_t DW;
     CJBig2_Image *BS, *BHC;
     FX_DWORD I, J, REFAGGNINST;
     FX_BOOL *EXFLAGS;
     FX_DWORD EXINDEX;
     FX_BOOL CUREXFLAG;
     FX_DWORD EXRUNLENGTH;
-    FX_INT32 nVal, nBits;
+    int32_t nVal, nBits;
     FX_DWORD nTmp;
-    FX_BOOL SBHUFF;
     FX_DWORD SBNUMSYMS;
-    FX_BYTE SBSYMCODELEN;
+    uint8_t SBSYMCODELEN;
     JBig2HuffmanCode *SBSYMCODES;
     FX_DWORD IDI;
-    FX_INT32 RDXI, RDYI;
+    int32_t RDXI, RDYI;
     FX_DWORD BMSIZE;
     FX_DWORD stride;
     CJBig2_Image **SBSYMS;
@@ -2651,12 +2699,12 @@ CJBig2_SymbolDict *CJBig2_SDDProc::decode_Huffman(CJBig2_BitStream *pStream,
     CJBig2_SymbolDict *pDict;
     JBIG2_ALLOC(pHuffmanDecoder, CJBig2_HuffmanDecoder(pStream));
     SDNEWSYMS = (CJBig2_Image**)m_pModule->JBig2_Malloc2(SDNUMNEWSYMS, sizeof(CJBig2_Image*));
-    FXSYS_memset32(SDNEWSYMS, 0 , SDNUMNEWSYMS * sizeof(CJBig2_Image*));
+    FXSYS_memset(SDNEWSYMS, 0 , SDNUMNEWSYMS * sizeof(CJBig2_Image*));
     SDNEWSYMWIDTHS = NULL;
     BHC = NULL;
     if(SDREFAGG == 0) {
         SDNEWSYMWIDTHS = (FX_DWORD *)m_pModule->JBig2_Malloc2(SDNUMNEWSYMS, sizeof(FX_DWORD));
-        FXSYS_memset32(SDNEWSYMWIDTHS, 0 , SDNUMNEWSYMS * sizeof(FX_DWORD));
+        FXSYS_memset(SDNEWSYMWIDTHS, 0 , SDNUMNEWSYMS * sizeof(FX_DWORD));
     }
     HCHEIGHT = 0;
     NSYMSDECODED = 0;
@@ -2790,13 +2838,12 @@ CJBig2_SymbolDict *CJBig2_SDDProc::decode_Huffman(CJBig2_BitStream *pStream,
                     delete SBHUFFRSIZE;
                     delete pDecoder;
                 } else if(REFAGGNINST == 1) {
-                    SBHUFF = SDHUFF;
                     SBNUMSYMS = SDNUMINSYMS + SDNUMNEWSYMS;
                     nTmp = 1;
                     while((FX_DWORD)(1 << nTmp) < SBNUMSYMS) {
                         nTmp ++;
                     }
-                    SBSYMCODELEN = (FX_BYTE)nTmp;
+                    SBSYMCODELEN = (uint8_t)nTmp;
                     SBSYMCODES = (JBig2HuffmanCode*)m_pModule->JBig2_Malloc2(SBNUMSYMS, sizeof(JBig2HuffmanCode));
                     for(I = 0; I < SBNUMSYMS; I++) {
                         SBSYMCODES[I].codelen = SBSYMCODELEN;
@@ -2884,7 +2931,7 @@ CJBig2_SymbolDict *CJBig2_SDDProc::decode_Huffman(CJBig2_BitStream *pStream,
             NSYMSDECODED = NSYMSDECODED + 1;
         }
         if(SDREFAGG == 0) {
-            if(pHuffmanDecoder->decodeAValue(SDHUFFBMSIZE, (FX_INT32*)&BMSIZE) != 0) {
+            if(pHuffmanDecoder->decodeAValue(SDHUFFBMSIZE, (int32_t*)&BMSIZE) != 0) {
                 m_pModule->JBig2_Error("symbol dictionary decoding procedure (huffman): too short.");
                 goto failed;
             }
@@ -2995,7 +3042,7 @@ CJBig2_Image *CJBig2_HTRDProc::decode_Arith(CJBig2_ArithDecoder *pArithDecoder,
         JBig2ArithCtx *gbContext, IFX_Pause* pPause)
 {
     FX_DWORD ng, mg;
-    FX_INT32 x, y;
+    int32_t x, y;
     CJBig2_Image *HSKIP;
     FX_DWORD HBPP;
     FX_DWORD *GI;
@@ -3010,8 +3057,8 @@ CJBig2_Image *CJBig2_HTRDProc::decode_Arith(CJBig2_ArithDecoder *pArithDecoder,
             for(ng = 0; ng < HGW; ng++) {
                 x = (HGX + mg * HRY + ng * HRX) >> 8;
                 y = (HGY + mg * HRX - ng * HRY) >> 8;
-                if((x + HPW <= 0) | (x >= (FX_INT32)HBW)
-                        | (y + HPH <= 0) | (y >= (FX_INT32)HPH)) {
+                if((x + HPW <= 0) | (x >= (int32_t)HBW)
+                        | (y + HPH <= 0) | (y >= (int32_t)HPH)) {
                     HSKIP->setPixel(ng, mg, 1);
                 } else {
                     HSKIP->setPixel(ng, mg, 0);
@@ -3027,7 +3074,7 @@ CJBig2_Image *CJBig2_HTRDProc::decode_Arith(CJBig2_ArithDecoder *pArithDecoder,
     pGID->GSMMR = HMMR;
     pGID->GSW = HGW;
     pGID->GSH = HGH;
-    pGID->GSBPP = (FX_BYTE)HBPP;
+    pGID->GSBPP = (uint8_t)HBPP;
     pGID->GSUSESKIP = HENABLESKIP;
     pGID->GSKIP = HSKIP;
     pGID->GSTEMPLATE = HTEMPLATE;
@@ -3063,7 +3110,7 @@ failed:
 CJBig2_Image *CJBig2_HTRDProc::decode_MMR(CJBig2_BitStream *pStream, IFX_Pause* pPause)
 {
     FX_DWORD ng, mg;
-    FX_INT32 x, y;
+    int32_t x, y;
     FX_DWORD HBPP;
     FX_DWORD *GI;
     CJBig2_Image *HTREG;
@@ -3078,7 +3125,7 @@ CJBig2_Image *CJBig2_HTRDProc::decode_MMR(CJBig2_BitStream *pStream, IFX_Pause* 
     pGID->GSMMR = HMMR;
     pGID->GSW = HGW;
     pGID->GSH = HGH;
-    pGID->GSBPP = (FX_BYTE)HBPP;
+    pGID->GSBPP = (uint8_t)HBPP;
     pGID->GSUSESKIP = 0;
     GI = pGID->decode_MMR(pStream, pPause);
     if(GI == NULL) {
@@ -3121,7 +3168,7 @@ CJBig2_PatternDict *CJBig2_PDDProc::decode_Arith(CJBig2_ArithDecoder *pArithDeco
     pGRD->GBTEMPLATE = HDTEMPLATE;
     pGRD->TPGDON = 0;
     pGRD->USESKIP = 0;
-    pGRD->GBAT[0] = -(FX_INT32)HDPW;
+    pGRD->GBAT[0] = -(int32_t)HDPW;
     pGRD->GBAT[1] = 0;
     if(pGRD->GBTEMPLATE == 0) {
         pGRD->GBAT[2] = -3;
@@ -3190,7 +3237,7 @@ FX_DWORD *CJBig2_GSIDProc::decode_Arith(CJBig2_ArithDecoder *pArithDecoder,
                                         JBig2ArithCtx *gbContext, IFX_Pause* pPause)
 {
     CJBig2_Image **GSPLANES;
-    FX_INT32 J, K;
+    int32_t J, K;
     FX_DWORD x, y;
     FX_DWORD *GSVALS;
     CJBig2_GRDProc *pGRD;
@@ -3271,7 +3318,7 @@ failed:
 FX_DWORD *CJBig2_GSIDProc::decode_MMR(CJBig2_BitStream *pStream, IFX_Pause* pPause)
 {
     CJBig2_Image **GSPLANES;
-    FX_INT32 J, K;
+    int32_t J, K;
     FX_DWORD x, y;
     FX_DWORD *GSVALS;
     CJBig2_GRDProc *pGRD;
@@ -3761,9 +3808,9 @@ FXCODEC_STATUS CJBig2_GRDProc::decode_Arith_Template0_opt3(CJBig2_Image *pImage,
     FX_BOOL SLTP, bVal;
     FX_DWORD CONTEXT;
     FX_DWORD line1, line2;
-    FX_BYTE *pLine1, *pLine2, cVal;
-    FX_INT32 nStride, nStride2, k;
-    FX_INT32 nLineBytes, nBitsLeft, cc;
+    uint8_t *pLine1, *pLine2, cVal;
+    int32_t nStride, nStride2, k;
+    int32_t nLineBytes, nBitsLeft, cc;
     if(m_pLine == NULL) {
         m_pLine = pImage->m_pData;
     }
@@ -3902,9 +3949,9 @@ FXCODEC_STATUS CJBig2_GRDProc::decode_Arith_Template1_opt3(CJBig2_Image *pImage,
     FX_BOOL SLTP, bVal;
     FX_DWORD CONTEXT;
     FX_DWORD line1, line2;
-    FX_BYTE *pLine1, *pLine2, cVal;
-    FX_INT32 nStride, nStride2, k;
-    FX_INT32 nLineBytes, nBitsLeft, cc;
+    uint8_t *pLine1, *pLine2, cVal;
+    int32_t nStride, nStride2, k;
+    int32_t nLineBytes, nBitsLeft, cc;
     if (!m_pLine) {
         m_pLine = pImage->m_pData;
     }
@@ -4040,9 +4087,9 @@ FXCODEC_STATUS CJBig2_GRDProc::decode_Arith_Template2_opt3(CJBig2_Image *pImage,
     FX_BOOL SLTP, bVal;
     FX_DWORD CONTEXT;
     FX_DWORD line1, line2;
-    FX_BYTE *pLine1, *pLine2, cVal;
-    FX_INT32 nStride, nStride2, k;
-    FX_INT32 nLineBytes, nBitsLeft, cc;
+    uint8_t *pLine1, *pLine2, cVal;
+    int32_t nStride, nStride2, k;
+    int32_t nLineBytes, nBitsLeft, cc;
     if(!m_pLine) {
         m_pLine = pImage->m_pData;
     }
@@ -4176,9 +4223,9 @@ FXCODEC_STATUS CJBig2_GRDProc::decode_Arith_Template3_opt3(CJBig2_Image *pImage,
     FX_BOOL SLTP, bVal;
     FX_DWORD CONTEXT;
     FX_DWORD line1;
-    FX_BYTE *pLine1, cVal;
-    FX_INT32 nStride, k;
-    FX_INT32 nLineBytes, nBitsLeft, cc;
+    uint8_t *pLine1, cVal;
+    int32_t nStride, k;
+    int32_t nLineBytes, nBitsLeft, cc;
     if (!m_pLine) {
         m_pLine = pImage->m_pData;
     }

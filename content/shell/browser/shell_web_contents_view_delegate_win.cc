@@ -72,7 +72,8 @@ ShellWebContentsViewDelegate::~ShellWebContentsViewDelegate() {
 void ShellWebContentsViewDelegate::ShowContextMenu(
     RenderFrameHost* render_frame_host,
     const ContextMenuParams& params) {
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kDumpRenderTree))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kRunLayoutTest))
     return;
 
   params_ = params;
@@ -169,23 +170,7 @@ void ShellWebContentsViewDelegate::ShowContextMenu(
                       L"Inspect...",
                       ShellContextMenuItemInspectId,
                       true);
-#if defined(USE_AURA)
   NOTIMPLEMENTED();
-#else
-  gfx::Point screen_point(params.x, params.y);
-  POINT point = screen_point.ToPOINT();
-  ClientToScreen(web_contents_->GetNativeView(), &point);
-
-  int selection =
-      TrackPopupMenu(sub_menu,
-                     TPM_LEFTALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD,
-                     point.x, point.y,
-                     0,
-                     web_contents_->GetContentNativeView(),
-                     NULL);
-
-  MenuItemSelected(selection);
-#endif
   DestroyMenu(menu);
 }
 
@@ -209,7 +194,6 @@ void ShellWebContentsViewDelegate::MenuItemSelected(int selection) {
       Shell::CreateNewWindow(browser_context,
                              params_.link_url,
                              NULL,
-                             MSG_ROUTING_NONE,
                              gfx::Size());
       break;
     }

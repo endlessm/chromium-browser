@@ -6,6 +6,7 @@
 #define UI_VIEWS_TEST_TEST_VIEWS_H_
 
 #include "base/memory/scoped_ptr.h"
+#include "ui/events/event_constants.h"
 #include "ui/views/view.h"
 
 namespace views {
@@ -16,10 +17,23 @@ class StaticSizedView : public View {
   explicit StaticSizedView(const gfx::Size& size);
   ~StaticSizedView() override;
 
+  void set_minimum_size(const gfx::Size& minimum_size) {
+    minimum_size_ = minimum_size;
+  }
+
+  void set_maximum_size(const gfx::Size& maximum_size) {
+    maximum_size_ = maximum_size;
+  }
+
+  // View overrides:
   gfx::Size GetPreferredSize() const override;
+  gfx::Size GetMinimumSize() const override;
+  gfx::Size GetMaximumSize() const override;
 
  private:
   gfx::Size size_;
+  gfx::Size minimum_size_;
+  gfx::Size maximum_size_;
 
   DISALLOW_COPY_AND_ASSIGN(StaticSizedView);
 };
@@ -44,6 +58,21 @@ class ProportionallySizedView : public View {
   int preferred_width_;
 
   DISALLOW_COPY_AND_ASSIGN(ProportionallySizedView);
+};
+
+// Class that closes the widget (which ends up deleting it immediately) when the
+// appropriate event is received.
+class CloseWidgetView : public View {
+ public:
+  explicit CloseWidgetView(ui::EventType event_type);
+
+  // ui::EventHandler override:
+  void OnEvent(ui::Event* event) override;
+
+ private:
+  const ui::EventType event_type_;
+
+  DISALLOW_COPY_AND_ASSIGN(CloseWidgetView);
 };
 
 }  // namespace views

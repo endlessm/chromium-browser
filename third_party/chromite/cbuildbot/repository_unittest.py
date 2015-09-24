@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,53 +6,45 @@
 
 from __future__ import print_function
 
-import functools
 import os
-import sys
 
-import constants
-sys.path.insert(0, constants.SOURCE_ROOT)
+from chromite.cbuildbot import constants
 from chromite.cbuildbot import repository
-from chromite.lib import cros_build_lib
+from chromite.lib import cros_build_lib_unittest
 from chromite.lib import cros_test_lib
+from chromite.lib import git
+from chromite.lib import osutils
 
-# pylint: disable=W0212,R0904,E1101,W0613
-class RepositoryTests(cros_test_lib.MoxTestCase):
+
+class RepositoryTests(cros_build_lib_unittest.RunCommandTestCase):
   """Test cases related to repository checkout methods."""
-
-  def RunCommand_Mock(self, result, *args, **kwargs):
-    output = self.mox.CreateMockAnything()
-    output.output = result
-    return output
 
   def testExternalRepoCheckout(self):
     """Test we detect external checkouts properly."""
-    self.mox.StubOutWithMock(cros_build_lib, 'RunCommand')
     tests = [
         'https://chromium.googlesource.com/chromiumos/manifest.git',
         'test@abcdef.bla.com:39291/bla/manifest.git',
         'test@abcdef.bla.com:39291/bla/manifest',
         'test@abcdef.bla.com:39291/bla/Manifest-internal',
-     ]
+    ]
 
     for test in tests:
-      cros_build_lib.RunCommand = functools.partial(self.RunCommand_Mock, test)
+      self.rc.SetDefaultCmdResult(output=test)
       self.assertFalse(repository.IsInternalRepoCheckout('.'))
 
   def testInternalRepoCheckout(self):
     """Test we detect internal checkouts properly."""
-    self.mox.StubOutWithMock(cros_build_lib, 'RunCommand')
     tests = [
         'https://chrome-internal.googlesource.com/chromeos/manifest-internal',
         'test@abcdef.bla.com:39291/bla/manifest-internal.git',
     ]
 
     for test in tests:
-      cros_build_lib.RunCommand = functools.partial(self.RunCommand_Mock, test)
+      self.rc.SetDefaultCmdResult(output=test)
       self.assertTrue(repository.IsInternalRepoCheckout('.'))
 
 
-class RepoInitTests(cros_test_lib.MoxTempDirTestCase):
+class RepoInitTests(cros_test_lib.TempDirTestCase):
   """Test cases related to repository initialization."""
 
   def _Initialize(self, branch='master'):
@@ -61,6 +52,7 @@ class RepoInitTests(cros_test_lib.MoxTempDirTestCase):
                                      branch=branch)
     repo.Initialize()
 
+  @cros_test_lib.NetworkTest()
   def testReInitialization(self):
     """Test ability to switch between branches."""
     self._Initialize('release-R19-2046.B')
@@ -85,5 +77,47 @@ class RepoInitChromeBotTests(RepoInitTests):
     os.putenv('GIT_AUTHOR_EMAIL', 'chrome-bot@chromium.org')
 
 
-if __name__ == '__main__':
-  cros_test_lib.main()
+class PrepManifestForRepoTests(cros_test_lib.TempDirTestCase):
+  """Tests for our ability to init from a local repository."""
+
+  def testCreateManifestRepo(self):
+    """Test we can create a local git repository with a local manifest."""
+    CONTENTS = 'manifest contents'
+
+    src_manifest = os.path.join(self.tempdir, 'src_manifest')
+    git_repo = os.path.join(self.tempdir, 'git_repo')
+    dst_manifest = os.path.join(git_repo, 'default.xml')
+
+    osutils.WriteFile(src_manifest, CONTENTS)
+    repository.PrepManifestForRepo(git_repo, src_manifest)
+
+    self.assertEqual(CONTENTS, osutils.ReadFile(dst_manifest))
+
+    # This should fail if we don't have a valid Git repo. Not a perfect test.
+    git.GetGitRepoRevision(git_repo)
+
+  def testUpdatingManifestRepo(self):
+    """Test we can update manifest in a local git repository."""
+    CONTENTS = 'manifest contents'
+    CONTENTS2 = 'manifest contents - PART 2'
+
+    src_manifest = os.path.join(self.tempdir, 'src_manifest')
+    git_repo = os.path.join(self.tempdir, 'git_repo')
+    dst_manifest = os.path.join(git_repo, 'default.xml')
+
+    # Do/verify initial repo setup.
+    osutils.WriteFile(src_manifest, CONTENTS)
+    repository.PrepManifestForRepo(git_repo, src_manifest)
+
+    self.assertEqual(CONTENTS, osutils.ReadFile(dst_manifest))
+
+    # Update it.
+    osutils.WriteFile(src_manifest, CONTENTS2)
+    repository.PrepManifestForRepo(git_repo, src_manifest)
+
+    self.assertEqual(CONTENTS2, osutils.ReadFile(dst_manifest))
+
+    # Update it again with same manifest.
+    repository.PrepManifestForRepo(git_repo, src_manifest)
+
+    self.assertEqual(CONTENTS2, osutils.ReadFile(dst_manifest))

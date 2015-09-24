@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/message_loop/message_loop_proxy.h"
+#include "base/thread_task_runner_handle.h"
 #include "chrome/browser/apps/ephemeral_app_launcher.h"
 #include "chrome/browser/apps/ephemeral_app_service.h"
 #include "chrome/browser/extensions/extension_install_checker.h"
@@ -21,7 +21,7 @@
 #include "extensions/browser/extension_util.h"
 #include "extensions/browser/management_policy.h"
 #include "extensions/browser/process_manager.h"
-#include "extensions/common/switches.h"
+#include "extensions/browser/test_extension_registry_observer.h"
 #include "extensions/test/extension_test_message_listener.h"
 
 using extensions::Extension;
@@ -63,11 +63,10 @@ class ExtensionInstallCheckerMock : public extensions::ExtensionInstallChecker {
  private:
   void CheckRequirements() override {
     // Simulate an asynchronous operation.
-    base::MessageLoopProxy::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(&ExtensionInstallCheckerMock::RequirementsErrorCheckDone,
-                   base::Unretained(this),
-                   current_sequence_number()));
+                   base::Unretained(this), current_sequence_number()));
   }
 
   void RequirementsErrorCheckDone(int sequence_number) {
@@ -203,7 +202,7 @@ class EphemeralAppLauncherTest : public WebstoreInstallerTest {
     extensions::ProcessManager::SetEventPageSuspendingTimeForTesting(1);
 
     // Enable ephemeral apps flag.
-    command_line->AppendSwitch(switches::kEnableEphemeralApps);
+    command_line->AppendSwitch(switches::kEnableEphemeralAppsInWebstore);
   }
 
   void SetUpOnMainThread() override {
@@ -288,13 +287,6 @@ class EphemeralAppLauncherTest : public WebstoreInstallerTest {
         ExtensionSystem::Get(profile())->extension_service();
     service->DisableExtension(app->id(), disable_reason);
 
-    if (disable_reason == Extension::DISABLE_PERMISSIONS_INCREASE) {
-      // When an extension is disabled due to a permissions increase, this
-      // flag needs to be set too, for some reason.
-      ExtensionPrefs::Get(profile())
-          ->SetDidExtensionEscalatePermissions(app, true);
-    }
-
     EXPECT_TRUE(
         ExtensionRegistry::Get(profile())->disabled_extensions().Contains(
             app->id()));
@@ -322,9 +314,8 @@ IN_PROC_BROWSER_TEST_F(EphemeralAppLauncherTestDisabled, FeatureDisabled) {
 // ephemerally and launched without prompting the user.
 IN_PROC_BROWSER_TEST_F(EphemeralAppLauncherTest,
                        LaunchAppWithNoPermissionWarnings) {
-  content::WindowedNotificationObserver unloaded_signal(
-      extensions::NOTIFICATION_EXTENSION_UNLOADED_DEPRECATED,
-      content::Source<Profile>(profile()));
+  extensions::TestExtensionRegistryObserver observer(
+      ExtensionRegistry::Get(profile()));
 
   scoped_refptr<EphemeralAppLauncherForTest> launcher(
       new EphemeralAppLauncherForTest(kDefaultAppId, profile()));
@@ -335,7 +326,7 @@ IN_PROC_BROWSER_TEST_F(EphemeralAppLauncherTest,
   EXPECT_FALSE(launcher->install_prompt_created());
 
   // Ephemeral apps are unloaded after they stop running.
-  unloaded_signal.Wait();
+  observer.WaitForExtensionUnloaded();
 
   // After an app has been installed ephemerally, it can be launched again
   // without installing from the web store.
@@ -451,6 +442,8 @@ IN_PROC_BROWSER_TEST_F(EphemeralAppLauncherTest, BlockedByPolicy) {
   EXPECT_FALSE(GetInstalledExtension(kDefaultAppId));
 }
 
+// The blacklist relies on safe-browsing database infrastructure.
+#if defined(SAFE_BROWSING_DB_LOCAL)
 // Verifies that an app blacklisted for malware is not installed ephemerally.
 IN_PROC_BROWSER_TEST_F(EphemeralAppLauncherTest, BlacklistedForMalware) {
   // Mock a BLACKLISTED_MALWARE return status.
@@ -475,6 +468,7 @@ IN_PROC_BROWSER_TEST_F(EphemeralAppLauncherTest, BlacklistStateUnknown) {
   RunLaunchTest(kDefaultAppId, webstore_install::SUCCESS, true);
   ValidateAppInstalledEphemerally(kDefaultAppId);
 }
+#endif
 
 // Verifies that an app with unsupported requirements is not installed
 // ephemerally.

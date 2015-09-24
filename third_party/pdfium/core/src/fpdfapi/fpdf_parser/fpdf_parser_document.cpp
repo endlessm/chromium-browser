@@ -1,14 +1,13 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../../include/fpdfapi/fpdf_parser.h"
 #include "../../../include/fpdfapi/fpdf_module.h"
-extern FX_LPVOID PDFPreviewInitCache(CPDF_Document* pDoc);
-extern void PDFPreviewClearCache(FX_LPVOID pCache);
-CPDF_Document::CPDF_Document(IPDF_DocParser* pParser) : CPDF_IndirectObjects(pParser)
+
+CPDF_Document::CPDF_Document(CPDF_Parser* pParser) : CPDF_IndirectObjects(pParser)
 {
     ASSERT(pParser != NULL);
     m_pRootDict = NULL;
@@ -298,39 +297,6 @@ int CPDF_Document::_GetPageCount() const
     }
     return _CountPages(pPages, 0);
 }
-static FX_BOOL _EnumPages(CPDF_Dictionary* pPages, IPDF_EnumPageHandler* pHandler)
-{
-    CPDF_Array* pKidList = pPages->GetArray(FX_BSTRC("Kids"));
-    if (pKidList == NULL) {
-        return pHandler->EnumPage(pPages);
-    }
-    for (FX_DWORD i = 0; i < pKidList->GetCount(); i ++) {
-        CPDF_Dictionary* pKid = pKidList->GetDict(i);
-        if (pKid == NULL) {
-            continue;
-        }
-        if (!pKid->KeyExist(FX_BSTRC("Kids"))) {
-            if (!pHandler->EnumPage(pKid)) {
-                return FALSE;
-            }
-        } else {
-            return _EnumPages(pKid, pHandler);
-        }
-    }
-    return TRUE;
-}
-void CPDF_Document::EnumPages(IPDF_EnumPageHandler* pHandler)
-{
-    CPDF_Dictionary* pRoot = GetRoot();
-    if (pRoot == NULL) {
-        return;
-    }
-    CPDF_Dictionary* pPages = pRoot->GetDict(FX_BSTRC("Pages"));
-    if (pPages == NULL) {
-        return;
-    }
-    _EnumPages(pPages, pHandler);
-}
 FX_BOOL CPDF_Document::IsContentUsedElsewhere(FX_DWORD objnum, CPDF_Dictionary* pThisPageDict)
 {
     for (int i = 0; i < m_PageList.GetSize(); i ++) {
@@ -377,7 +343,7 @@ FX_BOOL CPDF_Document::IsFormStream(FX_DWORD objnum, FX_BOOL& bForm) const
 {
     {
         CPDF_Object* pObj;
-        if (m_IndirectObjs.Lookup((FX_LPVOID)(FX_UINTPTR)objnum, (FX_LPVOID&)pObj)) {
+        if (m_IndirectObjs.Lookup((void*)(uintptr_t)objnum, (void*&)pObj)) {
             bForm = pObj->GetType() == PDFOBJ_STREAM &&
                     ((CPDF_Stream*)pObj)->GetDict()->GetString(FX_BSTRC("Subtype")) == FX_BSTRC("Form");
             return TRUE;

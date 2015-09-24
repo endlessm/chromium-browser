@@ -37,23 +37,6 @@ AppListStartPageWebUITest.prototype = {
   browsePreload: 'chrome://app-list/',
 
   /**
-   * Recommend apps data.
-   * @private
-   */
-  recommendedApps_: [
-    {
-      'appId': 'app_id_1',
-      'textTitle': 'app 1',
-      'iconUrl': 'icon_url_1'
-    },
-    {
-      'appId': 'app_id_2',
-      'textTitle': 'app 2',
-      'iconUrl': 'icon_url_2'
-    }
-  ],
-
-  /**
    * Placeholder for mock speech recognizer.
    */
   speechRecognizer: null,
@@ -126,9 +109,7 @@ AppListStartPageWebUITest.prototype = {
                                      'launchApp',
                                      'setSpeechRecognitionState',
                                      'speechResult']);
-    this.mockHandler.stubs().initialize().will(callFunction(function() {
-      appList.startPage.setRecommendedApps(this.recommendedApps_);
-    }.bind(this)));
+    this.mockHandler.stubs().initialize();
     this.mockHandler.stubs().launchApp(ANYTHING);
 
     this.registerMockSpeechRecognition_();
@@ -140,75 +121,41 @@ AppListStartPageWebUITest.prototype = {
 
 TEST_F('AppListStartPageWebUITest', 'Basic', function() {
   assertEquals(this.browsePreload, document.location.href);
-
-  var recommendedApp = $('start-page').querySelector('.recommended-apps');
-  assertEquals(this.recommendedApps_.length, recommendedApp.childElementCount);
-  for (var i = 0; i < recommendedApp.childElementCount; ++i) {
-    assertEquals(this.recommendedApps_[i].appId,
-                 recommendedApp.children[i].appId);
-  }
 });
 
-TEST_F('AppListStartPageWebUITest', 'ClickToLaunch', function() {
-  var recommendedApp = $('start-page').querySelector('.recommended-apps');
-  for (var i = 0; i < recommendedApp.childElementCount; ++i) {
-    this.mockHandler.expects(once()).launchApp(
-        [this.recommendedApps_[i].appId]);
-    cr.dispatchSimpleEvent(recommendedApp.children[i], 'click');
-  }
-});
+TEST_F('AppListStartPageWebUITest', 'LoadDoodle', function() {
+  var doodleData = {
+    'ddljson': {
+      'transparent_large_image': {
+        'url': 'doodle.png'
+      },
+      'alt_text': 'Doodle alt text',
+      'target_url': '/target.html'
+    }
+  };
 
-TEST_F('AppListStartPageWebUITest', 'SpeechRecognitionState', function() {
-  this.mockHandler.expects(once()).setSpeechRecognitionState('READY');
-  appList.startPage.onAppListShown();
-  this.mockHandler.expects(once()).setSpeechRecognitionState('RECOGNIZING');
-  appList.startPage.toggleSpeechRecognition();
-  Mock4JS.verifyAllMocks();
-  Mock4JS.clearMocksToVerify();
+  assertEquals(null, $('doodle'));
 
-  this.mockHandler.expects(once()).setSpeechRecognitionState('READY');
-  for (var i = 0; i < this.audioTrackMocks.length; ++i) {
-    this.audioTrackMocks[i].expects(once()).stop();
-  }
-  appList.startPage.toggleSpeechRecognition();
-  Mock4JS.verifyAllMocks();
-  Mock4JS.clearMocksToVerify();
+  // Load the doodle with a target url and alt text.
+  appList.startPage.onAppListDoodleUpdated(doodleData,
+                                           'http://example.com/x/');
+  assertNotEquals(null, $('doodle'));
+  assertEquals('http://example.com/x/doodle.png', $('doodle_image').src);
+  assertEquals(doodleData.ddljson.alt_text, $('doodle_image').title);
+  assertEquals('http://example.com/target.html', $('doodle_link').href);
 
-  this.mockHandler.expects(once()).setSpeechRecognitionState('RECOGNIZING');
-  appList.startPage.toggleSpeechRecognition();
-  Mock4JS.verifyAllMocks();
-  Mock4JS.clearMocksToVerify();
+  // Reload the doodle without a target url and alt text.
+  doodleData.ddljson.alt_text = undefined;
+  doodleData.ddljson.target_url = undefined;
+  appList.startPage.onAppListDoodleUpdated(doodleData,
+                                           'http://example.com/x/');
+  assertNotEquals(null, $('doodle'));
+  assertEquals('http://example.com/x/doodle.png', $('doodle_image').src);
+  assertEquals('', $('doodle_image').title);
+  assertEquals(null, $('doodle_link'));
 
-  this.mockHandler.expects(once()).setSpeechRecognitionState('STOPPING');
-  this.mockHandler.expects(once()).setSpeechRecognitionState('READY');
-  for (var i = 0; i < this.audioTrackMocks.length; ++i) {
-    this.audioTrackMocks[i].expects(once()).stop();
-  }
-  appList.startPage.onAppListHidden();
-});
 
-TEST_F('AppListStartPageWebUITest', 'SpeechRecognition', function() {
-  this.mockHandler.expects(once()).setSpeechRecognitionState('READY');
-  appList.startPage.onAppListShown();
-  this.mockHandler.expects(once()).setSpeechRecognitionState('RECOGNIZING');
-  appList.startPage.toggleSpeechRecognition();
-  Mock4JS.verifyAllMocks();
-  Mock4JS.clearMocksToVerify();
-
-  this.mockHandler.expects(once()).setSpeechRecognitionState('IN_SPEECH');
-  this.speechRecognizer.onspeechstart();
-  Mock4JS.verifyAllMocks();
-  Mock4JS.clearMocksToVerify();
-
-  this.mockHandler.expects(once()).speechResult('test,false');
-  this.sendSpeechResult('test', false);
-  Mock4JS.verifyAllMocks();
-  Mock4JS.clearMocksToVerify();
-
-  this.mockHandler.expects(once()).speechResult('test,true');
-  this.mockHandler.expects(once()).setSpeechRecognitionState('READY');
-  for (var i = 0; i < this.audioTrackMocks.length; ++i) {
-    this.audioTrackMocks[i].expects(once()).stop();
-  }
-  this.sendSpeechResult('test', true);
+  appList.startPage.onAppListDoodleUpdated({},
+                                           'http://example.com/');
+  assertEquals(null, $('doodle'));
 });

@@ -7,8 +7,6 @@ package org.chromium.net;
 import android.content.Context;
 import android.text.TextUtils;
 
-import org.apache.http.HttpStatus;
-
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -30,7 +28,9 @@ import java.util.zip.GZIPInputStream;
 
 /**
  * Network request using the HttpUrlConnection implementation.
+ * @deprecated Use {@link UrlRequest} instead.
  */
+@Deprecated
 class HttpUrlConnectionUrlRequest implements HttpUrlRequest {
 
     private static final int MAX_CHUNK_SIZE = 8192;
@@ -40,6 +40,8 @@ class HttpUrlConnectionUrlRequest implements HttpUrlRequest {
     private static final int READ_TIMEOUT = 90000;
 
     private final Context mContext;
+
+    private final String mDefaultUserAgent;
 
     private final String mUrl;
 
@@ -95,15 +97,15 @@ class HttpUrlConnectionUrlRequest implements HttpUrlRequest {
 
     private static final Object sExecutorServiceLock = new Object();
 
-    HttpUrlConnectionUrlRequest(Context context, String url,
-            int requestPriority, Map<String, String> headers,
+    HttpUrlConnectionUrlRequest(Context context, String defaultUserAgent,
+            String url, int requestPriority, Map<String, String> headers,
             HttpUrlRequestListener listener) {
-        this(context, url, requestPriority, headers,
+        this(context, defaultUserAgent, url, requestPriority, headers,
                 new ChunkedWritableByteChannel(), listener);
     }
 
-    HttpUrlConnectionUrlRequest(Context context, String url,
-            int requestPriority, Map<String, String> headers,
+    HttpUrlConnectionUrlRequest(Context context, String defaultUserAgent,
+            String url, int requestPriority, Map<String, String> headers,
             WritableByteChannel sink, HttpUrlRequestListener listener) {
         if (context == null) {
             throw new NullPointerException("Context is required");
@@ -112,6 +114,7 @@ class HttpUrlConnectionUrlRequest implements HttpUrlRequest {
             throw new NullPointerException("URL is required");
         }
         mContext = context;
+        mDefaultUserAgent = defaultUserAgent;
         mUrl = url;
         mHeaders = headers;
         mSink = sink;
@@ -190,7 +193,7 @@ class HttpUrlConnectionUrlRequest implements HttpUrlRequest {
     @Override
     public void disableRedirects() {
         validateNotStarted();
-        mConnection.setFollowRedirects(false);
+        HttpURLConnection.setFollowRedirects(false);
     }
 
     @Override
@@ -240,8 +243,7 @@ class HttpUrlConnectionUrlRequest implements HttpUrlRequest {
             }
 
             if (mConnection.getRequestProperty("User-Agent") == null) {
-                mConnection.setRequestProperty("User-Agent",
-                        UserAgent.from(mContext));
+                mConnection.setRequestProperty("User-Agent", mDefaultUserAgent);
             }
 
             if (mPostData != null || mPostDataChannel != null) {
@@ -281,7 +283,7 @@ class HttpUrlConnectionUrlRequest implements HttpUrlRequest {
 
             if (mOffset != 0) {
                 // The server may ignore the request for a byte range.
-                if (mHttpStatusCode == HttpStatus.SC_OK) {
+                if (mHttpStatusCode == HttpURLConnection.HTTP_OK) {
                     if (mContentLength != -1) {
                         mContentLength -= mOffset;
                     }
@@ -432,6 +434,11 @@ class HttpUrlConnectionUrlRequest implements HttpUrlRequest {
     }
 
     @Override
+    public boolean wasCached() {
+        return false;
+    }
+
+    @Override
     public int getHttpStatusCode() {
         int httpStatusCode = mHttpStatusCode;
 
@@ -440,8 +447,8 @@ class HttpUrlConnectionUrlRequest implements HttpUrlRequest {
         // the status code will be 206, not 200. Since the rest of the
         // application is
         // expecting 200 to indicate success, we need to fake it.
-        if (httpStatusCode == HttpStatus.SC_PARTIAL_CONTENT) {
-            httpStatusCode = HttpStatus.SC_OK;
+        if (httpStatusCode == HttpURLConnection.HTTP_PARTIAL) {
+            httpStatusCode = HttpURLConnection.HTTP_OK;
         }
         return httpStatusCode;
     }

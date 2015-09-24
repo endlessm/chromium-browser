@@ -6,11 +6,10 @@
 
 #include "android_webview/browser/aw_browser_context.h"
 #include "android_webview/browser/aw_browser_main_parts.h"
-#include "android_webview/browser/aw_browser_permission_request_delegate.h"
 #include "android_webview/browser/aw_contents_client_bridge_base.h"
 #include "android_webview/browser/aw_contents_io_thread_client.h"
 #include "android_webview/browser/aw_cookie_access_policy.h"
-#include "android_webview/browser/aw_dev_tools_manager_delegate.h"
+#include "android_webview/browser/aw_printing_message_filter.h"
 #include "android_webview/browser/aw_quota_permission_context.h"
 #include "android_webview/browser/aw_web_preferences_populater.h"
 #include "android_webview/browser/jni_dependency_factory.h"
@@ -27,7 +26,8 @@
 #include "content/public/browser/browser_message_filter.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_security_policy.h"
-#include "content/public/browser/permission_type.h"
+#include "content/public/browser/client_certificate_delegate.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
@@ -53,19 +53,19 @@ public:
   explicit AwContentsMessageFilter(int process_id);
 
   // BrowserMessageFilter methods.
-  virtual void OverrideThreadForMessage(
-      const IPC::Message& message,
-      BrowserThread::ID* thread) override;
-  virtual bool OnMessageReceived(
-      const IPC::Message& message) override;
+  void OverrideThreadForMessage(const IPC::Message& message,
+                                BrowserThread::ID* thread) override;
+  bool OnMessageReceived(const IPC::Message& message) override;
 
   void OnShouldOverrideUrlLoading(int routing_id,
                                   const base::string16& url,
+                                  bool has_user_gesture,
+                                  bool is_redirect,
                                   bool* ignore_navigation);
   void OnSubFrameCreated(int parent_render_frame_id, int child_render_frame_id);
 
 private:
-  virtual ~AwContentsMessageFilter();
+ ~AwContentsMessageFilter() override;
 
   int process_id_;
 
@@ -101,13 +101,16 @@ bool AwContentsMessageFilter::OnMessageReceived(const IPC::Message& message) {
 void AwContentsMessageFilter::OnShouldOverrideUrlLoading(
     int render_frame_id,
     const base::string16& url,
+    bool has_user_gesture,
+    bool is_redirect,
     bool* ignore_navigation) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   *ignore_navigation = false;
   AwContentsClientBridgeBase* client =
       AwContentsClientBridgeBase::FromID(process_id_, render_frame_id);
   if (client) {
-    *ignore_navigation = client->ShouldOverrideUrlLoading(url);
+    *ignore_navigation =
+        client->ShouldOverrideUrlLoading(url, has_user_gesture, is_redirect);
   } else {
     LOG(WARNING) << "Failed to find the associated render view host for url: "
                  << url;
@@ -125,23 +128,22 @@ class AwAccessTokenStore : public content::AccessTokenStore {
   AwAccessTokenStore() { }
 
   // content::AccessTokenStore implementation
-  virtual void LoadAccessTokens(
-      const LoadAccessTokensCallbackType& request) override {
+  void LoadAccessTokens(const LoadAccessTokensCallbackType& request) override {
     AccessTokenStore::AccessTokenSet access_token_set;
     // AccessTokenSet and net::URLRequestContextGetter not used on Android,
     // but Run needs to be called to finish the geolocation setup.
     request.Run(access_token_set, NULL);
   }
-  virtual void SaveAccessToken(const GURL& server_url,
-                               const base::string16& access_token) override { }
+  void SaveAccessToken(const GURL& server_url,
+                       const base::string16& access_token) override {}
 
  private:
-  virtual ~AwAccessTokenStore() { }
+  ~AwAccessTokenStore() override {}
 
   DISALLOW_COPY_AND_ASSIGN(AwAccessTokenStore);
 };
 
-}  // namespace
+}  // anonymous namespace
 
 std::string AwContentBrowserClient::GetAcceptLangsImpl() {
   // Start with the currnet locale.
@@ -211,6 +213,7 @@ void AwContentBrowserClient::RenderProcessWillLaunch(
 
   host->AddFilter(new AwContentsMessageFilter(host->GetID()));
   host->AddFilter(new cdm::CdmMessageFilterAndroid());
+  host->AddFilter(new AwPrintingMessageFilter(host->GetID()));
 }
 
 net::URLRequestContextGetter* AwContentBrowserClient::CreateRequestContext(
@@ -362,109 +365,13 @@ void AwContentBrowserClient::AllowCertificateError(
 }
 
 void AwContentBrowserClient::SelectClientCertificate(
-      int render_process_id,
-      int render_frame_id,
-      const net::HttpNetworkSession* network_session,
-      net::SSLCertRequestInfo* cert_request_info,
-      const base::Callback<void(net::X509Certificate*)>& callback) {
+    content::WebContents* web_contents,
+    net::SSLCertRequestInfo* cert_request_info,
+    scoped_ptr<content::ClientCertificateDelegate> delegate) {
   AwContentsClientBridgeBase* client =
-      AwContentsClientBridgeBase::FromID(render_process_id, render_frame_id);
-  if (client) {
-    client->SelectClientCertificate(cert_request_info, callback);
-  } else {
-    callback.Run(NULL);
-  }
-}
-
-blink::WebNotificationPermission
-    AwContentBrowserClient::CheckDesktopNotificationPermission(
-        const GURL& source_url,
-        content::ResourceContext* context,
-        int render_process_id) {
-  // Android WebView does not support notifications, so return Denied here.
-  return blink::WebNotificationPermissionDenied;
-}
-
-void AwContentBrowserClient::ShowDesktopNotification(
-    const content::ShowDesktopNotificationHostMsgParams& params,
-    content::BrowserContext* browser_context,
-    int render_process_id,
-    scoped_ptr<content::DesktopNotificationDelegate> delegate,
-    base::Closure* cancel_callback) {
-  NOTREACHED() << "Android WebView does not support desktop notifications.";
-}
-
-void AwContentBrowserClient::RequestPermission(
-    content::PermissionType permission,
-    content::WebContents* web_contents,
-    int bridge_id,
-    const GURL& requesting_frame,
-    bool user_gesture,
-    const base::Callback<void(bool)>& result_callback) {
-  int render_process_id = web_contents->GetRenderProcessHost()->GetID();
-  int render_view_id = web_contents->GetRenderViewHost()->GetRoutingID();
-  GURL origin = requesting_frame.GetOrigin();
-  AwBrowserPermissionRequestDelegate* delegate =
-      AwBrowserPermissionRequestDelegate::FromID(render_process_id,
-                                                 render_view_id);
-  switch (permission) {
-    case content::PERMISSION_GEOLOCATION:
-      if (!delegate) {
-        DVLOG(0) << "Dropping GeolocationPermission request";
-        result_callback.Run(false);
-        return;
-      }
-      delegate->RequestGeolocationPermission(origin, result_callback);
-      break;
-    case content::PERMISSION_PROTECTED_MEDIA:
-      if (!delegate) {
-        DVLOG(0) << "Dropping ProtectedMediaIdentifierPermission request";
-        result_callback.Run(false);
-        return;
-      }
-      delegate->RequestProtectedMediaIdentifierPermission(origin,
-                                                          result_callback);
-      break;
-    case content::PERMISSION_MIDI_SYSEX:
-    case content::PERMISSION_NOTIFICATIONS:
-    case content::PERMISSION_PUSH_MESSAGING:
-      NOTIMPLEMENTED() << "RequestPermission not implemented for "
-                       << permission;
-      break;
-    case content::PERMISSION_NUM:
-      NOTREACHED() << "Invalid RequestPermission for " << permission;
-      break;
-  }
-}
-
-void AwContentBrowserClient::CancelPermissionRequest(
-    content::PermissionType permission,
-    content::WebContents* web_contents,
-    int bridge_id,
-    const GURL& origin) {
-  int render_process_id = web_contents->GetRenderProcessHost()->GetID();
-  int render_view_id = web_contents->GetRenderViewHost()->GetRoutingID();
-  AwBrowserPermissionRequestDelegate* delegate =
-      AwBrowserPermissionRequestDelegate::FromID(render_process_id,
-                                                 render_view_id);
-  if (!delegate)
-    return;
-  switch (permission) {
-    case content::PERMISSION_GEOLOCATION:
-      delegate->CancelGeolocationPermissionRequests(origin);
-      break;
-    case content::PERMISSION_PROTECTED_MEDIA:
-      delegate->CancelProtectedMediaIdentifierPermissionRequests(origin);
-      break;
-    case content::PERMISSION_MIDI_SYSEX:
-    case content::PERMISSION_NOTIFICATIONS:
-    case content::PERMISSION_PUSH_MESSAGING:
-      NOTIMPLEMENTED() << "CancelPermission not implemented for " << permission;
-      break;
-    case content::PERMISSION_NUM:
-      NOTREACHED() << "Invalid CancelPermission for " << permission;
-      break;
-  }
+      AwContentsClientBridgeBase::FromWebContents(web_contents);
+  if (client)
+    client->SelectClientCertificate(cert_request_info, delegate.Pass());
 }
 
 bool AwContentBrowserClient::CanCreateWindow(
@@ -480,7 +387,8 @@ bool AwContentBrowserClient::CanCreateWindow(
     bool opener_suppressed,
     content::ResourceContext* context,
     int render_process_id,
-    int opener_id,
+    int opener_render_view_id,
+    int opener_render_frame_id,
     bool* no_javascript_access) {
   // We unconditionally allow popup windows at this stage and will give
   // the embedder the opporunity to handle displaying of the popup in
@@ -513,12 +421,12 @@ bool AwContentBrowserClient::IsFastShutdownPossible() {
   return false;
 }
 
-void AwContentBrowserClient::ClearCache(content::RenderViewHost* rvh) {
-  RemoveHttpDiskCache(rvh->GetProcess()->GetBrowserContext(),
-                      rvh->GetProcess()->GetID());
+void AwContentBrowserClient::ClearCache(content::RenderFrameHost* rfh) {
+  RemoveHttpDiskCache(rfh->GetProcess()->GetBrowserContext(),
+                      rfh->GetProcess()->GetID());
 }
 
-void AwContentBrowserClient::ClearCookies(content::RenderViewHost* rvh) {
+void AwContentBrowserClient::ClearCookies(content::RenderFrameHost* rfh) {
   // TODO(boliu): Implement.
   NOTIMPLEMENTED();
 }
@@ -553,7 +461,6 @@ bool AwContentBrowserClient::AllowPepperSocketAPI(
 
 void AwContentBrowserClient::OverrideWebkitPrefs(
     content::RenderViewHost* rvh,
-    const GURL& url,
     content::WebPreferences* web_prefs) {
   if (!preferences_populater_.get()) {
     preferences_populater_ = make_scoped_ptr(native_factory_->
@@ -570,10 +477,5 @@ AwContentBrowserClient::OverrideCreateExternalVideoSurfaceContainer(
   return native_factory_->CreateExternalVideoSurfaceContainer(web_contents);
 }
 #endif
-
-content::DevToolsManagerDelegate*
-AwContentBrowserClient::GetDevToolsManagerDelegate() {
-  return new AwDevToolsManagerDelegate();
-}
 
 }  // namespace android_webview

@@ -26,13 +26,11 @@
 #ifndef HTMLMediaElement_h
 #define HTMLMediaElement_h
 
+#include "core/CoreExport.h"
 #include "core/dom/ActiveDOMObject.h"
 #include "core/events/GenericEventQueue.h"
 #include "core/html/HTMLElement.h"
 #include "core/html/track/TextTrack.h"
-#include "core/html/track/TextTrackCue.h"
-#include "core/html/track/vtt/VTTCue.h"
-#include "platform/PODIntervalTree.h"
 #include "platform/Supplementable.h"
 #include "platform/graphics/media/MediaPlayer.h"
 #include "public/platform/WebMediaPlayerClient.h"
@@ -51,6 +49,7 @@ class AudioSourceProviderClient;
 #endif
 class AudioTrackList;
 class ContentType;
+class CueTimeline;
 class Event;
 class ExceptionState;
 class HTMLSourceElement;
@@ -60,40 +59,38 @@ class MediaController;
 class MediaControls;
 class MediaError;
 class HTMLMediaSource;
+class TextTrackContainer;
 class TextTrackList;
 class TimeRanges;
 class URLRegistry;
 class VideoTrackList;
 
-typedef PODIntervalTree<double, TextTrackCue*> CueIntervalTree;
-typedef CueIntervalTree::IntervalType CueInterval;
-typedef Vector<CueInterval> CueList;
-
 // FIXME: The inheritance from MediaPlayerClient here should be private inheritance.
 // But it can't be until the Chromium WebMediaPlayerClientImpl class is fixed so it
 // no longer depends on typecasting a MediaPlayerClient to an HTMLMediaElement.
 
-class HTMLMediaElement : public HTMLElement, public WillBeHeapSupplementable<HTMLMediaElement>, public MediaPlayerClient, public ActiveDOMObject {
+class CORE_EXPORT HTMLMediaElement : public HTMLElement, public WillBeHeapSupplementable<HTMLMediaElement>, public MediaPlayerClient, public ActiveDOMObject {
     DEFINE_WRAPPERTYPEINFO();
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(HTMLMediaElement);
+    WILL_BE_USING_PRE_FINALIZER(HTMLMediaElement, dispose);
 public:
-    static blink::WebMimeRegistry::SupportsType supportsType(const ContentType&, const String& keySystem = String());
+    static WebMimeRegistry::SupportsType supportsType(const ContentType&, const String& keySystem = String());
 
     static void setMediaStreamRegistry(URLRegistry*);
     static bool isMediaStreamURL(const String& url);
 
-    virtual void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 #if ENABLE(WEB_AUDIO)
     void clearWeakMembers(Visitor*);
 #endif
-    blink::WebMediaPlayer* webMediaPlayer() const { return m_player ? m_player->webMediaPlayer() : 0; }
+    WebMediaPlayer* webMediaPlayer() const { return m_player ? m_player->webMediaPlayer() : 0; }
 
     virtual bool hasVideo() const { return false; }
     bool hasAudio() const;
 
     bool supportsSave() const;
 
-    blink::WebLayer* platformLayer() const;
+    WebLayer* platformLayer() const;
 
     enum DelayedActionType {
         LoadMediaResource = 1 << 0,
@@ -101,8 +98,6 @@ public:
         TextTrackChangesNotification = 1 << 2
     };
     void scheduleDelayedAction(DelayedActionType);
-
-    bool isActive() const { return m_active; }
 
     bool hasRemoteRoutes() const { return m_remoteRoutesAvailable; }
     bool isPlayingRemotely() const { return m_playingRemotely; }
@@ -118,6 +113,7 @@ public:
     NetworkState networkState() const;
 
     String preload() const;
+    MediaPlayer::Preload effectivePreloadType() const;
     void setPreload(const AtomicString&);
 
     PassRefPtrWillBeRawPtr<TimeRanges> buffered() const;
@@ -174,14 +170,12 @@ public:
     void audioTrackChanged();
 
     VideoTrackList& videoTracks();
-    void selectedVideoTrackChanged(blink::WebMediaPlayer::TrackId*);
+    void selectedVideoTrackChanged(WebMediaPlayer::TrackId*);
 
     PassRefPtrWillBeRawPtr<TextTrack> addTextTrack(const AtomicString& kind, const AtomicString& label, const AtomicString& language, ExceptionState&);
-    PassRefPtrWillBeRawPtr<TextTrack> addTextTrack(const AtomicString& kind, const AtomicString& label, ExceptionState& exceptionState) { return addTextTrack(kind, label, emptyAtom, exceptionState); }
-    PassRefPtrWillBeRawPtr<TextTrack> addTextTrack(const AtomicString& kind, ExceptionState& exceptionState) { return addTextTrack(kind, emptyAtom, emptyAtom, exceptionState); }
 
     TextTrackList* textTracks();
-    CueList currentlyActiveCues() const { return m_currentlyActiveCues; }
+    CueTimeline& cueTimeline();
 
     void addTextTrack(TextTrack*);
     void removeTextTrack(TextTrack*);
@@ -194,55 +188,25 @@ public:
     void didAddTrackElement(HTMLTrackElement*);
     void didRemoveTrackElement(HTMLTrackElement*);
 
-    blink::WebMediaPlayer::TrackId addAudioTrack(const String& id, blink::WebMediaPlayerClient::AudioTrackKind, const AtomicString& label, const AtomicString& language, bool enabled);
-    void removeAudioTrack(blink::WebMediaPlayer::TrackId);
-    blink::WebMediaPlayer::TrackId addVideoTrack(const String& id, blink::WebMediaPlayerClient::VideoTrackKind, const AtomicString& label, const AtomicString& language, bool selected);
-    void removeVideoTrack(blink::WebMediaPlayer::TrackId);
+    WebMediaPlayer::TrackId addAudioTrack(const String& id, WebMediaPlayerClient::AudioTrackKind, const AtomicString& label, const AtomicString& language, bool enabled);
+    void removeAudioTrack(WebMediaPlayer::TrackId);
+    WebMediaPlayer::TrackId addVideoTrack(const String& id, WebMediaPlayerClient::VideoTrackKind, const AtomicString& label, const AtomicString& language, bool selected);
+    void removeVideoTrack(WebMediaPlayer::TrackId);
 
-    virtual void mediaPlayerDidAddTextTrack(blink::WebInbandTextTrack*) override final;
-    virtual void mediaPlayerDidRemoveTextTrack(blink::WebInbandTextTrack*) override final;
+    void mediaPlayerDidAddTextTrack(WebInbandTextTrack*) final;
+    void mediaPlayerDidRemoveTextTrack(WebInbandTextTrack*) final;
     // FIXME: Remove this when WebMediaPlayerClientImpl::loadInternal does not depend on it.
-    virtual KURL mediaPlayerPosterURL() override { return KURL(); }
+    KURL mediaPlayerPosterURL() override { return KURL(); }
 
-    class TrackGroup {
-        STACK_ALLOCATED();
-    public:
-        enum GroupKind { CaptionsAndSubtitles, Description, Chapter, Metadata, Other };
-
-        explicit TrackGroup(GroupKind kind)
-            : visibleTrack(nullptr)
-            , defaultTrack(nullptr)
-            , kind(kind)
-            , hasSrcLang(false)
-        {
-        }
-
-        WillBeHeapVector<RefPtrWillBeMember<TextTrack>> tracks;
-        RefPtrWillBeMember<TextTrack> visibleTrack;
-        RefPtrWillBeMember<TextTrack> defaultTrack;
-        GroupKind kind;
-        bool hasSrcLang;
-    };
-
-    void configureTextTrackGroupForLanguage(const TrackGroup&) const;
-    void configureTextTracks();
-    void configureTextTrackGroup(const TrackGroup&);
+    void honorUserPreferencesForAutomaticTextTrackSelection();
 
     bool textTracksAreReady() const;
-    enum VisibilityChangeAssumption {
-        AssumeNoVisibleChange,
-        AssumeVisibleChange
-    };
-    void configureTextTrackDisplay(VisibilityChangeAssumption);
+    void configureTextTrackDisplay();
     void updateTextTrackDisplay();
+    double lastSeekTime() const { return m_lastSeekTime; }
     void textTrackReadyStateChanged(TextTrack*);
 
-    void textTrackKindChanged(TextTrack*);
     void textTrackModeChanged(TextTrack*);
-    void textTrackAddCues(TextTrack*, const TextTrackCueList*);
-    void textTrackRemoveCues(TextTrack*, const TextTrackCueList*);
-    void textTrackAddCue(TextTrack*, PassRefPtrWillBeRawPtr<TextTrackCue>);
-    void textTrackRemoveCue(TextTrack*, PassRefPtrWillBeRawPtr<TextTrackCue>);
 
     // EventTarget function.
     // Both Node (via HTMLElement) and ActiveDOMObject define this method, which
@@ -261,18 +225,27 @@ public:
     bool closedCaptionsVisible() const;
     void setClosedCaptionsVisible(bool);
 
+    static void setTextTrackKindUserPreferenceForAllMediaElements(Document*);
+    void automaticTrackSelectionForUpdatedUserPreference();
+
     void remoteRouteAvailabilityChanged(bool);
     void connectedToRemoteDevice();
     void disconnectedFromRemoteDevice();
 
+    // Returns the MediaControls, or null if they have not been added yet.
+    // Note that this can be non-null even if there is no controls attribute.
     MediaControls* mediaControls() const;
+
+    // Notifies the media element that the media controls became visible, so
+    // that text track layout may be updated to avoid overlapping them.
+    void mediaControlsDidBecomeVisible();
 
     void sourceWasRemoved(HTMLSourceElement*);
     void sourceWasAdded(HTMLSourceElement*);
 
     // ActiveDOMObject functions.
-    virtual bool hasPendingActivity() const override final;
-    virtual void contextDestroyed() override final;
+    bool hasPendingActivity() const final;
+    void contextDestroyed() final;
 
 #if ENABLE(WEB_AUDIO)
     AudioSourceProviderClient* audioSourceNode() { return m_audioSourceNode; }
@@ -284,26 +257,18 @@ public:
     enum InvalidURLAction { DoNothing, Complain };
     bool isSafeToLoadURL(const KURL&, InvalidURLAction);
 
+    // Checks to see if current media data is CORS-same-origin as the
+    // specified origin.
+    bool isMediaDataCORSSameOrigin(SecurityOrigin*) const;
+
     MediaController* controller() const;
     void setController(PassRefPtrWillBeRawPtr<MediaController>); // Resets the MediaGroup and sets the MediaController.
 
     void scheduleEvent(PassRefPtrWillBeRawPtr<Event>);
+    void scheduleTimeupdateEvent(bool periodicEvent);
 
     // Returns the "effective media volume" value as specified in the HTML5 spec.
     double effectiveMediaVolume() const;
-
-#if ENABLE(OILPAN)
-    bool isFinalizing() const { return m_isFinalizing; }
-
-    // Oilpan: finalization of the media element is observable from its
-    // attached MediaSource; it entering a closed state.
-    //
-    // Express that by having the MediaSource keep a weak reference
-    // to the media element and signal that it wants to be notified
-    // of destruction if it survives a GC, but the media element
-    // doesn't.
-    void setCloseMediaSourceWhenFinalizing();
-#endif
 
     // Predicates also used when dispatching wrapper creation (cf. [SpecialWrapFor] IDL attribute usage.)
     virtual bool isHTMLAudioElement() const { return false; }
@@ -311,64 +276,64 @@ public:
 
 protected:
     HTMLMediaElement(const QualifiedName&, Document&);
-    virtual ~HTMLMediaElement();
+    ~HTMLMediaElement() override;
+#if ENABLE(OILPAN)
+    void dispose();
+#endif
 
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void finishParsingChildren() override final;
-    virtual bool isURLAttribute(const Attribute&) const override;
-    virtual void attach(const AttachContext& = AttachContext()) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void finishParsingChildren() final;
+    bool isURLAttribute(const Attribute&) const override;
+    void attach(const AttachContext& = AttachContext()) override;
 
-    virtual void didMoveToNewDocument(Document& oldDocument) override;
+    void didMoveToNewDocument(Document& oldDocument) override;
 
-    enum DisplayMode { Unknown, Poster, PosterWaitingForVideo, Video };
+    enum DisplayMode { Unknown, Poster, Video };
     DisplayMode displayMode() const { return m_displayMode; }
     virtual void setDisplayMode(DisplayMode mode) { m_displayMode = mode; }
 
     void setControllerInternal(PassRefPtrWillBeRawPtr<MediaController>);
 
-    bool ignoreTrackDisplayUpdateRequests() const { return m_ignoreTrackDisplayUpdate > 0; }
-    void beginIgnoringTrackDisplayUpdateRequests();
-    void endIgnoringTrackDisplayUpdateRequests();
-
 private:
     void createMediaPlayer();
 
-    virtual bool alwaysCreateUserAgentShadowRoot() const override final { return true; }
-    virtual bool areAuthorShadowsAllowed() const override final { return false; }
+    bool alwaysCreateUserAgentShadowRoot() const final { return true; }
+    bool areAuthorShadowsAllowed() const final { return false; }
 
-    virtual bool supportsFocus() const override final;
-    virtual bool isMouseFocusable() const override final;
-    virtual bool rendererIsNeeded(const RenderStyle&) override;
-    virtual RenderObject* createRenderer(RenderStyle*) override;
-    virtual InsertionNotificationRequest insertedInto(ContainerNode*) override final;
-    virtual void didNotifySubtreeInsertionsToDocument() override;
-    virtual void removedFrom(ContainerNode*) override final;
-    virtual void didRecalcStyle(StyleRecalcChange) override final;
+    bool supportsFocus() const final;
+    bool isMouseFocusable() const final;
+    bool layoutObjectIsNeeded(const ComputedStyle&) override;
+    LayoutObject* createLayoutObject(const ComputedStyle&) override;
+    InsertionNotificationRequest insertedInto(ContainerNode*) final;
+    void didNotifySubtreeInsertionsToDocument() override;
+    void removedFrom(ContainerNode*) final;
+    void didRecalcStyle(StyleRecalcChange) final;
 
-    virtual void didBecomeFullscreenElement() override final;
-    virtual void willStopBeingFullscreenElement() override final;
-    virtual bool isInteractiveContent() const override final;
-    virtual void defaultEventHandler(Event*) override final;
+    bool canStartSelection() const override { return false; }
+
+    void didBecomeFullscreenElement() final;
+    void willStopBeingFullscreenElement() final;
+    bool isInteractiveContent() const final;
+    void defaultEventHandler(Event*) final;
 
     // ActiveDOMObject functions.
-    virtual void stop() override final;
+    void stop() final;
 
     virtual void updateDisplayState() { }
 
     void setReadyState(ReadyState);
-    void setNetworkState(blink::WebMediaPlayer::NetworkState);
+    void setNetworkState(WebMediaPlayer::NetworkState);
 
-    virtual void mediaPlayerNetworkStateChanged() override final;
-    virtual void mediaPlayerReadyStateChanged() override final;
-    virtual void mediaPlayerTimeChanged() override final;
-    virtual void mediaPlayerDurationChanged() override final;
-    virtual void mediaPlayerPlaybackStateChanged() override final;
-    virtual void mediaPlayerRequestFullscreen() override final;
-    virtual void mediaPlayerRequestSeek(double) override final;
-    virtual void mediaPlayerRepaint() override final;
-    virtual void mediaPlayerSizeChanged() override final;
-    virtual void mediaPlayerSetWebLayer(blink::WebLayer*) override final;
-    virtual void mediaPlayerMediaSourceOpened(blink::WebMediaSource*) override final;
+    void mediaPlayerNetworkStateChanged() final;
+    void mediaPlayerReadyStateChanged() final;
+    void mediaPlayerTimeChanged() final;
+    void mediaPlayerDurationChanged() final;
+    void mediaPlayerPlaybackStateChanged() final;
+    void mediaPlayerRequestSeek(double) final;
+    void mediaPlayerRepaint() final;
+    void mediaPlayerSizeChanged() final;
+    void mediaPlayerSetWebLayer(WebLayer*) final;
+    void mediaPlayerMediaSourceOpened(WebMediaSource*) final;
 
     void loadTimerFired(Timer<HTMLMediaElement>*);
     void progressEventTimerFired(Timer<HTMLMediaElement>*);
@@ -382,7 +347,6 @@ private:
     void checkIfSeekNeeded();
     void addPlayedRange(double start, double end);
 
-    void scheduleTimeupdateEvent(bool periodicEvent);
     void scheduleEvent(const AtomicString& eventName); // FIXME: Rename to scheduleNamedEvent for clarity.
 
     // loading
@@ -392,7 +356,7 @@ private:
     void loadResource(const KURL&, ContentType&, const String& keySystem);
     void startPlayerLoad();
     void setPlayerPreload();
-    blink::WebMediaPlayer::LoadType loadType() const;
+    WebMediaPlayer::LoadType loadType() const;
     void scheduleNextSourceChild();
     void loadNextSourceChild();
     void userCancelledLoad();
@@ -407,7 +371,7 @@ private:
 
     KURL selectNextSourceChild(ContentType*, String* keySystem, InvalidURLAction);
 
-    void mediaLoadingFailed(blink::WebMediaPlayer::NetworkState);
+    void mediaLoadingFailed(WebMediaPlayer::NetworkState);
 
     // deferred loading (preload=none)
     bool loadIsDeferred() const;
@@ -417,7 +381,6 @@ private:
     void executeDeferredLoad();
     void deferredLoadTimerFired(Timer<HTMLMediaElement>*);
 
-    void updateActiveTextTrackCues(double);
     HTMLTrackElement* showingTrackWithSameKind(HTMLTrackElement*) const;
 
     void markCaptionAndSubtitleTracksAsUnconfigured();
@@ -432,19 +395,25 @@ private:
     void updateVolume();
     void updatePlayState();
     bool potentiallyPlaying() const;
-    bool endedPlayback() const;
     bool stoppedDueToErrors() const;
     bool couldPlayIfEnoughData() const;
+
+    // Generally the presence of the loop attribute should be considered to mean playback
+    // has not "ended", as "ended" and "looping" are mutually exclusive. See
+    // https://html.spec.whatwg.org/multipage/embedded-content.html#ended-playback
+    enum class LoopCondition { Included, Ignored };
+    bool endedPlayback(LoopCondition = LoopCondition::Included) const;
 
     void setShouldDelayLoadEvent(bool);
     void invalidateCachedTime();
     void refreshCachedTime() const;
 
-    bool hasMediaControls() const;
-    bool createMediaControls();
+    void ensureMediaControls();
     void configureMediaControls();
 
-    virtual void* preDispatchEventHandler(Event*) override final;
+    TextTrackContainer& ensureTextTrackContainer();
+
+    void* preDispatchEventHandler(Event*) final;
 
     void changeNetworkStateFromLoadingToIdle();
 
@@ -455,7 +424,7 @@ private:
     bool isBlockedOnMediaController() const;
     bool isAutoplaying() const { return m_autoplaying; }
 
-    blink::WebMediaPlayer::CORSMode corsMode() const;
+    WebMediaPlayer::CORSMode corsMode() const;
 
     // Returns the "direction of playback" value as specified in the HTML5 spec.
     enum DirectionOfPlayback { Backward, Forward };
@@ -532,7 +501,7 @@ private:
     Timer<HTMLMediaElement> m_deferredLoadTimer;
 
     OwnPtr<MediaPlayer> m_player;
-    blink::WebLayer* m_webLayer;
+    WebLayer* m_webLayer;
 
     MediaPlayer::Preload m_preload;
 
@@ -554,7 +523,6 @@ private:
     bool m_playing : 1;
     bool m_shouldDelayLoadEvent : 1;
     bool m_haveFiredLoadedData : 1;
-    bool m_active : 1;
     bool m_autoplaying : 1;
     bool m_muted : 1;
     bool m_paused : 1;
@@ -577,11 +545,7 @@ private:
     bool m_processingPreferenceChange : 1;
     bool m_remoteRoutesAvailable : 1;
     bool m_playingRemotely : 1;
-#if ENABLE(OILPAN)
     bool m_isFinalizing : 1;
-    bool m_closeMediaSourceWhenFinalizing : 1;
-#endif
-    double m_lastTextTrackUpdateTime;
     bool m_initialPlayWithoutUserGestures : 1;
     bool m_autoplayMediaCounted : 1;
 
@@ -590,10 +554,7 @@ private:
     RefPtrWillBeMember<TextTrackList> m_textTracks;
     WillBeHeapVector<RefPtrWillBeMember<TextTrack>> m_textTracksWhenResourceSelectionBegan;
 
-    CueIntervalTree m_cueTree;
-
-    CueList m_currentlyActiveCues;
-    int m_ignoreTrackDisplayUpdate;
+    OwnPtrWillBeMember<CueTimeline> m_cueTimeline;
 
 #if ENABLE(WEB_AUDIO)
     // This is a weak reference, since m_audioSourceNode holds a reference to us.
@@ -610,25 +571,6 @@ private:
 
     static URLRegistry* s_mediaStreamRegistry;
 };
-
-#ifndef NDEBUG
-// Template specializations required by PodIntervalTree in debug mode.
-template <>
-struct ValueToString<double> {
-    static String string(const double value)
-    {
-        return String::number(value);
-    }
-};
-
-template <>
-struct ValueToString<TextTrackCue*> {
-    static String string(TextTrackCue* const& cue)
-    {
-        return cue->toString();
-    }
-};
-#endif
 
 inline bool isHTMLMediaElement(const HTMLElement& element)
 {

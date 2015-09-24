@@ -4,7 +4,6 @@
 
 #include "chrome/browser/ui/views/frame/browser_root_view.h"
 
-#include "chrome/browser/autocomplete/autocomplete_classifier.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier_factory.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/profiles/profile.h"
@@ -15,7 +14,8 @@
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/browser/ui/views/touch_uma/touch_uma.h"
 #include "components/metrics/proto/omnibox_event.pb.h"
-#include "components/omnibox/autocomplete_match.h"
+#include "components/omnibox/browser/autocomplete_classifier.h"
+#include "components/omnibox/browser/autocomplete_match.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "ui/base/hit_test.h"
@@ -53,7 +53,7 @@ bool BrowserRootView::CanDrop(const ui::OSExchangeData& data) {
     return true;
 
   // If there isn't a URL, see if we can 'paste and go'.
-  return GetPasteAndGoURL(data, NULL);
+  return GetPasteAndGoURL(data, nullptr);
 }
 
 void BrowserRootView::OnDragEntered(const ui::DropTargetEvent& event) {
@@ -131,7 +131,7 @@ bool BrowserRootView::OnMouseWheel(const ui::MouseWheelEvent& event) {
         hittest == HTCAPTION ||
         hittest == HTTOP) {
       int scroll_offset = abs(event.y_offset()) > abs(event.x_offset()) ?
-          event.y_offset() : -event.x_offset();
+          event.y_offset() : event.x_offset();
       Browser* browser = browser_view_->browser();
       TabStripModel* model = browser->tab_strip_model();
       // Switch to the next tab only if not at the end of the tab-strip.
@@ -203,7 +203,7 @@ bool BrowserRootView::GetPasteAndGoURL(const ui::OSExchangeData& data,
   AutocompleteClassifierFactory::GetForProfile(
       browser_view_->browser()->profile())->Classify(
           text, false, false, metrics::OmniboxEventProto::INVALID_SPEC, &match,
-          NULL);
+          nullptr);
   if (!match.destination_url.is_valid())
     return false;
 

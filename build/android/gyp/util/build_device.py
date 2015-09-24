@@ -40,7 +40,10 @@ class BuildDevice(object):
     return self.id
 
   def Install(self, *args, **kwargs):
-    return self.device.old_interface.Install(*args, **kwargs)
+    return self.device.Install(*args, **kwargs)
+
+  def InstallSplitApk(self, *args, **kwargs):
+    return self.device.InstallSplitApk(*args, **kwargs)
 
   def GetInstallMetadata(self, apk_package):
     """Gets the metadata on the device for the apk_package apk."""

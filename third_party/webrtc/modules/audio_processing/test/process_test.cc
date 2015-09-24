@@ -17,12 +17,13 @@
 
 #include <algorithm>
 
+#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/common.h"
 #include "webrtc/modules/audio_processing/include/audio_processing.h"
+#include "webrtc/modules/audio_processing/test/protobuf_utils.h"
 #include "webrtc/modules/audio_processing/test/test_utils.h"
 #include "webrtc/modules/interface/module_common_types.h"
 #include "webrtc/system_wrappers/interface/cpu_features_wrapper.h"
-#include "webrtc/system_wrappers/interface/scoped_ptr.h"
 #include "webrtc/system_wrappers/interface/tick_util.h"
 #include "webrtc/test/testsupport/fileutils.h"
 #include "webrtc/test/testsupport/perf_test.h"
@@ -144,7 +145,7 @@ void void_main(int argc, char* argv[]) {
     printf("Try `process_test --help' for more information.\n\n");
   }
 
-  scoped_ptr<AudioProcessing> apm(AudioProcessing::Create());
+  rtc::scoped_ptr<AudioProcessing> apm(AudioProcessing::Create());
   ASSERT_TRUE(apm.get() != NULL);
 
   const char* pb_filename = NULL;
@@ -171,6 +172,7 @@ void void_main(int argc, char* argv[]) {
   bool raw_output = false;
   int extra_delay_ms = 0;
   int override_delay_ms = 0;
+  Config config;
 
   ASSERT_EQ(apm->kNoError, apm->level_estimator()->Enable(true));
   for (int i = 1; i < argc; i++) {
@@ -256,14 +258,13 @@ void void_main(int argc, char* argv[]) {
                         suppression_level)));
 
     } else if (strcmp(argv[i], "--extended_filter") == 0) {
-      Config config;
-      config.Set<DelayCorrection>(new DelayCorrection(true));
-      apm->SetExtraOptions(config);
+      config.Set<ExtendedFilter>(new ExtendedFilter(true));
 
     } else if (strcmp(argv[i], "--no_reported_delay") == 0) {
-      Config config;
-      config.Set<ReportedDelay>(new ReportedDelay(false));
-      apm->SetExtraOptions(config);
+      config.Set<DelayAgnostic>(new DelayAgnostic(true));
+
+    } else if (strcmp(argv[i], "--delay_agnostic") == 0) {
+      config.Set<DelayAgnostic>(new DelayAgnostic(true));
 
     } else if (strcmp(argv[i], "-aecm") == 0) {
       ASSERT_EQ(apm->kNoError, apm->echo_control_mobile()->Enable(true));
@@ -402,9 +403,7 @@ void void_main(int argc, char* argv[]) {
       vad_out_filename = argv[i];
 
     } else if (strcmp(argv[i], "-expns") == 0) {
-      Config config;
       config.Set<ExperimentalNs>(new ExperimentalNs(true));
-      apm->SetExtraOptions(config);
 
     } else if (strcmp(argv[i], "--noasm") == 0) {
       WebRtc_GetCPUInfo = WebRtc_GetCPUInfoNoASM;
@@ -440,6 +439,8 @@ void void_main(int argc, char* argv[]) {
       FAIL() << "Unrecognized argument " << argv[i];
     }
   }
+  apm->SetExtraOptions(config);
+
   // If we're reading a protobuf file, ensure a simulation hasn't also
   // been requested (which makes no sense...)
   ASSERT_FALSE(pb_filename && simulating);
@@ -489,8 +490,8 @@ void void_main(int argc, char* argv[]) {
   FILE* aecm_echo_path_in_file = NULL;
   FILE* aecm_echo_path_out_file = NULL;
 
-  scoped_ptr<WavWriter> output_wav_file;
-  scoped_ptr<RawFile> output_raw_file;
+  rtc::scoped_ptr<WavWriter> output_wav_file;
+  rtc::scoped_ptr<RawFile> output_raw_file;
 
   if (pb_filename) {
     pb_file = OpenFile(pb_filename, "rb");
@@ -532,7 +533,7 @@ void void_main(int argc, char* argv[]) {
 
     const size_t path_size =
         apm->echo_control_mobile()->echo_path_size_bytes();
-    scoped_ptr<char[]> echo_path(new char[path_size]);
+    rtc::scoped_ptr<char[]> echo_path(new char[path_size]);
     ASSERT_EQ(path_size, fread(echo_path.get(),
                                sizeof(char),
                                path_size,
@@ -574,8 +575,8 @@ void void_main(int argc, char* argv[]) {
   //            but for now we want to share the variables.
   if (pb_file) {
     Event event_msg;
-    scoped_ptr<ChannelBuffer<float> > reverse_cb;
-    scoped_ptr<ChannelBuffer<float> > primary_cb;
+    rtc::scoped_ptr<ChannelBuffer<float> > reverse_cb;
+    rtc::scoped_ptr<ChannelBuffer<float> > primary_cb;
     int output_sample_rate = 32000;
     AudioProcessing::ChannelLayout output_layout = AudioProcessing::kMono;
     while (ReadMessageFromFile(pb_file, &event_msg)) {
@@ -610,7 +611,7 @@ void void_main(int argc, char* argv[]) {
                               LayoutFromChannels(msg.num_reverse_channels())));
 
         samples_per_channel = msg.sample_rate() / 100;
-        far_frame.sample_rate_hz_ = msg.sample_rate();
+        far_frame.sample_rate_hz_ = reverse_sample_rate;
         far_frame.samples_per_channel_ = reverse_sample_rate / 100;
         far_frame.num_channels_ = msg.num_reverse_channels();
         near_frame.sample_rate_hz_ = msg.sample_rate();
@@ -654,7 +655,10 @@ void void_main(int argc, char* argv[]) {
           memcpy(far_frame.data_, msg.data().data(), msg.data().size());
         } else {
           for (int i = 0; i < msg.channel_size(); ++i) {
-            reverse_cb->CopyFrom(msg.channel(i).data(), i);
+            memcpy(reverse_cb->channels()[i],
+                   msg.channel(i).data(),
+                   reverse_cb->num_frames() *
+                       sizeof(reverse_cb->channels()[i][0]));
           }
         }
 
@@ -704,7 +708,10 @@ void void_main(int argc, char* argv[]) {
           near_read_bytes += msg.input_data().size();
         } else {
           for (int i = 0; i < msg.input_channel_size(); ++i) {
-            primary_cb->CopyFrom(msg.input_channel(i).data(), i);
+            memcpy(primary_cb->channels()[i],
+                   msg.input_channel(i).data(),
+                   primary_cb->num_frames() *
+                       sizeof(primary_cb->channels()[i][0]));
             near_read_bytes += msg.input_channel(i).size();
           }
         }
@@ -902,7 +909,7 @@ void void_main(int argc, char* argv[]) {
             // not reaching end-of-file.
             EXPECT_EQ(0, fseek(near_file, read_count * sizeof(int16_t),
                       SEEK_CUR));
-            break; // This is expected.
+            break;  // This is expected.
           }
         } else {
           ASSERT_EQ(size, read_count);
@@ -945,7 +952,7 @@ void void_main(int argc, char* argv[]) {
         }
         if (simulating) {
           if (read_count != size) {
-            break; // This is expected.
+            break;  // This is expected.
           }
 
           delay_ms = 0;
@@ -1037,8 +1044,7 @@ void void_main(int argc, char* argv[]) {
                      size,
                      output_wav_file.get(),
                      output_raw_file.get());
-      }
-      else {
+      } else {
         FAIL() << "Event " << event << " is unrecognized";
       }
     }
@@ -1048,7 +1054,7 @@ void void_main(int argc, char* argv[]) {
   if (aecm_echo_path_out_file != NULL) {
     const size_t path_size =
         apm->echo_control_mobile()->echo_path_size_bytes();
-    scoped_ptr<char[]> echo_path(new char[path_size]);
+    rtc::scoped_ptr<char[]> echo_path(new char[path_size]);
     apm->echo_control_mobile()->GetEchoPath(echo_path.get(), path_size);
     ASSERT_EQ(path_size, fwrite(echo_path.get(),
                                 sizeof(char),
@@ -1081,10 +1087,13 @@ void void_main(int argc, char* argv[]) {
     if (apm->echo_cancellation()->is_delay_logging_enabled()) {
       int median = 0;
       int std = 0;
-      apm->echo_cancellation()->GetDelayMetrics(&median, &std);
+      float fraction_poor_delays = 0;
+      apm->echo_cancellation()->GetDelayMetrics(&median, &std,
+                                                &fraction_poor_delays);
       printf("\n--Delay metrics--\n");
       printf("Median:             %3d\n", median);
       printf("Standard deviation: %3d\n", std);
+      printf("Poor delay values:  %3.1f%%\n", fraction_poor_delays * 100);
     }
   }
 
@@ -1130,8 +1139,7 @@ void void_main(int argc, char* argv[]) {
 }  // namespace
 }  // namespace webrtc
 
-int main(int argc, char* argv[])
-{
+int main(int argc, char* argv[]) {
   webrtc::void_main(argc, argv);
 
   // Optional, but removes memory leak noise from Valgrind.

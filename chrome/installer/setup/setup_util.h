@@ -17,6 +17,8 @@
 #include "chrome/installer/util/browser_distribution.h"
 #include "chrome/installer/util/util_constants.h"
 
+class AppRegistrationData;
+
 namespace base {
 class CommandLine;
 class FilePath;
@@ -28,6 +30,13 @@ namespace installer {
 class InstallationState;
 class InstallerState;
 class ProductState;
+
+// Sets a bit in the registry to note that the latest OS upgrade notification
+// has been handled by this user. Returns true if the previous bit was
+// different or absent (i.e., the latest OS update wasn't handled yet), in
+// which case subsequent calls to this method will return false until the next
+// OS upgrade. This call is only valid on system-level installs.
+bool UpdateLastOSUpgradeHandledByActiveSetup(BrowserDistribution* dist);
 
 // Applies a patch file to source file using Courgette. Returns 0 in case of
 // success. In case of errors, it returns kCourgetteErrorOffset + a Courgette
@@ -50,9 +59,11 @@ int BsdiffPatchFiles(const base::FilePath& src,
 Version* GetMaxVersionFromArchiveDir(const base::FilePath& chrome_path);
 
 // Returns the uncompressed archive of the installed version that serves as the
-// source for patching.
+// source for patching.  If |desired_version| is valid, only the path to that
+// version will be returned, or empty if it doesn't exist.
 base::FilePath FindArchiveToPatch(const InstallationState& original_state,
-                                  const InstallerState& installer_state);
+                                  const InstallerState& installer_state,
+                                  const base::Version& desired_version);
 
 // Spawns a new process that waits for a specified amount of time before
 // attempting to delete |path|.  This is useful for setup to delete the
@@ -114,6 +125,11 @@ bool ContainsUnsupportedSwitch(const base::CommandLine& cmd_line);
 
 // Returns true if the processor is supported by chrome.
 bool IsProcessorSupported();
+
+// Returns the "...\\Commands\\|name|" registry key for a product's |reg_data|.
+base::string16 GetRegistrationDataCommandKey(
+    const AppRegistrationData& reg_data,
+    const wchar_t* name);
 
 // This class will enable the privilege defined by |privilege_name| on the
 // current process' token. The privilege will be disabled upon the

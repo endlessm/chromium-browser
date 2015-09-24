@@ -8,6 +8,7 @@
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/threading/worker_pool.h"
+#include "chromecast/base/chromecast_switches.h"
 #include "chromecast/browser/cast_http_user_agent_settings.h"
 #include "chromecast/browser/cast_network_delegate.h"
 #include "content/public/browser/browser_context.h"
@@ -16,14 +17,13 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
 #include "net/cert/cert_verifier.h"
+#include "net/cert_net/nss_ocsp.h"
 #include "net/cookies/cookie_store.h"
 #include "net/dns/host_resolver.h"
 #include "net/http/http_auth_handler_factory.h"
-#include "net/http/http_cache.h"
 #include "net/http/http_network_layer.h"
 #include "net/http/http_server_properties_impl.h"
 #include "net/http/http_stream_factory.h"
-#include "net/ocsp/nss_ocsp.h"
 #include "net/proxy/proxy_service.h"
 #include "net/socket/next_proto.h"
 #include "net/ssl/channel_id_service.h"
@@ -58,29 +58,29 @@ class URLRequestContextFactory::URLRequestContextGetter
         factory_(factory) {
   }
 
-  virtual net::URLRequestContext* GetURLRequestContext() override {
+  net::URLRequestContext* GetURLRequestContext() override {
     if (!request_context_) {
       if (is_media_) {
         request_context_.reset(factory_->CreateMediaRequestContext());
       } else {
         request_context_.reset(factory_->CreateSystemRequestContext());
-#if defined(USE_NSS)
+#if defined(USE_NSS_CERTS)
         // Set request context used by NSS for Crl requests.
         net::SetURLRequestContextForNSSHttpIO(request_context_.get());
-#endif  // defined(USE_NSS)
+#endif  // defined(USE_NSS_CERTS)
       }
     }
     return request_context_.get();
   }
 
-  virtual scoped_refptr<base::SingleThreadTaskRunner>
+  scoped_refptr<base::SingleThreadTaskRunner>
       GetNetworkTaskRunner() const override {
     return content::BrowserThread::GetMessageLoopProxyForThread(
         content::BrowserThread::IO);
   }
 
  private:
-  virtual ~URLRequestContextGetter() {}
+  ~URLRequestContextGetter() override {}
 
   const bool is_media_;
   URLRequestContextFactory* const factory_;
@@ -105,7 +105,7 @@ class URLRequestContextFactory::MainURLRequestContextGetter
     std::swap(protocol_handlers_, *protocol_handlers);
   }
 
-  virtual net::URLRequestContext* GetURLRequestContext() override {
+  net::URLRequestContext* GetURLRequestContext() override {
     if (!request_context_) {
       request_context_.reset(factory_->CreateMainRequestContext(
           browser_context_, &protocol_handlers_, request_interceptors_.Pass()));
@@ -114,14 +114,14 @@ class URLRequestContextFactory::MainURLRequestContextGetter
     return request_context_.get();
   }
 
-  virtual scoped_refptr<base::SingleThreadTaskRunner>
+  scoped_refptr<base::SingleThreadTaskRunner>
       GetNetworkTaskRunner() const override {
     return content::BrowserThread::GetMessageLoopProxyForThread(
         content::BrowserThread::IO);
   }
 
  private:
-  virtual ~MainURLRequestContextGetter() {}
+  ~MainURLRequestContextGetter() override {}
 
   content::BrowserContext* const browser_context_;
   URLRequestContextFactory* const factory_;
@@ -143,8 +143,8 @@ URLRequestContextFactory::URLRequestContextFactory()
 URLRequestContextFactory::~URLRequestContextFactory() {
 }
 
-void URLRequestContextFactory::InitializeOnUIThread() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+void URLRequestContextFactory::InitializeOnUIThread(net::NetLog* net_log) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   // Cast http user agent settings must be initialized in UI thread
   // because it registers itself to pref notification observer which is not
   // thread safe.
@@ -157,6 +157,8 @@ void URLRequestContextFactory::InitializeOnUIThread() {
           content::BrowserThread::IO),
       content::BrowserThread::GetMessageLoopProxyForThread(
           content::BrowserThread::FILE)));
+
+  net_log_ = net_log;
 }
 
 net::URLRequestContextGetter* URLRequestContextFactory::CreateMainGetter(
@@ -243,15 +245,17 @@ void URLRequestContextFactory::InitializeMainContextDependencies(
       url::kDataScheme,
       new net::DataProtocolHandler);
   DCHECK(set_protocol);
-#if defined(OS_ANDROID)
-  set_protocol = job_factory->SetProtocolHandler(
-      url::kFileScheme,
-      new net::FileProtocolHandler(
-          content::BrowserThread::GetBlockingPool()->
-              GetTaskRunnerWithShutdownBehavior(
-                  base::SequencedWorkerPool::SKIP_ON_SHUTDOWN)));
-  DCHECK(set_protocol);
-#endif  // defined(OS_ANDROID)
+
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kEnableLocalFileAccesses)) {
+    set_protocol = job_factory->SetProtocolHandler(
+        url::kFileScheme,
+        new net::FileProtocolHandler(
+            content::BrowserThread::GetBlockingPool()->
+                GetTaskRunnerWithShutdownBehavior(
+                    base::SequencedWorkerPool::SKIP_ON_SHUTDOWN)));
+    DCHECK(set_protocol);
+  }
 
   // Set up interceptors in the reverse order.
   scoped_ptr<net::URLRequestJobFactory> top_job_factory = job_factory.Pass();
@@ -298,7 +302,7 @@ void URLRequestContextFactory::PopulateNetworkSessionParams(
 }
 
 net::URLRequestContext* URLRequestContextFactory::CreateSystemRequestContext() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   InitializeSystemContextDependencies();
   net::HttpNetworkSession::Params system_params;
   PopulateNetworkSessionParams(false, &system_params);
@@ -326,11 +330,12 @@ net::URLRequestContext* URLRequestContextFactory::CreateSystemRequestContext() {
   system_context->set_cookie_store(
       content::CreateCookieStore(content::CookieStoreConfig()));
   system_context->set_network_delegate(system_network_delegate_.get());
+  system_context->set_net_log(net_log_);
   return system_context;
 }
 
 net::URLRequestContext* URLRequestContextFactory::CreateMediaRequestContext() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   DCHECK(main_getter_.get())
       << "Getting MediaRequestContext before MainRequestContext";
   net::URLRequestContext* main_context = main_getter_->GetURLRequestContext();
@@ -345,6 +350,7 @@ net::URLRequestContext* URLRequestContextFactory::CreateMediaRequestContext() {
   media_context->CopyFrom(main_context);
   media_context->set_http_transaction_factory(
       media_transaction_factory_.get());
+  media_context->set_net_log(net_log_);
   return media_context;
 }
 
@@ -352,14 +358,11 @@ net::URLRequestContext* URLRequestContextFactory::CreateMainRequestContext(
     content::BrowserContext* browser_context,
     content::ProtocolHandlerMap* protocol_handlers,
     content::URLRequestInterceptorScopedVector request_interceptors) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   InitializeSystemContextDependencies();
 
-  net::HttpCache::BackendFactory* main_backend =
-      net::HttpCache::DefaultBackend::InMemory(16 * 1024 * 1024);
-
   bool ignore_certificate_errors = false;
-  CommandLine* cmd_line = CommandLine::ForCurrentProcess();
+  base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
   if (cmd_line->HasSwitch(switches::kIgnoreCertificateErrors)) {
     ignore_certificate_errors = true;
   }
@@ -367,7 +370,8 @@ net::URLRequestContext* URLRequestContextFactory::CreateMainRequestContext(
   PopulateNetworkSessionParams(ignore_certificate_errors,
                                &network_session_params);
   InitializeMainContextDependencies(
-      new net::HttpCache(network_session_params, main_backend),
+      new net::HttpNetworkLayer(
+          new net::HttpNetworkSession(network_session_params)),
       protocol_handlers,
       request_interceptors.Pass());
 
@@ -399,6 +403,7 @@ net::URLRequestContext* URLRequestContextFactory::CreateMainRequestContext(
       main_transaction_factory_.get());
   main_context->set_job_factory(main_job_factory_.get());
   main_context->set_network_delegate(app_network_delegate_.get());
+  main_context->set_net_log(net_log_);
   return main_context;
 }
 

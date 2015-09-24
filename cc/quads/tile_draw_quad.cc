@@ -4,15 +4,13 @@
 
 #include "cc/quads/tile_draw_quad.h"
 
-#include "base/debug/trace_event_argument.h"
 #include "base/logging.h"
+#include "base/trace_event/trace_event_argument.h"
 #include "base/values.h"
-#include "third_party/khronos/GLES2/gl2.h"
 
 namespace cc {
 
-TileDrawQuad::TileDrawQuad()
-    : resource_id(0) {
+TileDrawQuad::TileDrawQuad() {
 }
 
 TileDrawQuad::~TileDrawQuad() {
@@ -25,7 +23,8 @@ void TileDrawQuad::SetNew(const SharedQuadState* shared_quad_state,
                           unsigned resource_id,
                           const gfx::RectF& tex_coord_rect,
                           const gfx::Size& texture_size,
-                          bool swizzle_contents) {
+                          bool swizzle_contents,
+                          bool nearest_neighbor) {
   ContentDrawQuadBase::SetNew(shared_quad_state,
                               DrawQuad::TILED_CONTENT,
                               rect,
@@ -33,8 +32,10 @@ void TileDrawQuad::SetNew(const SharedQuadState* shared_quad_state,
                               visible_rect,
                               tex_coord_rect,
                               texture_size,
-                              swizzle_contents);
-  this->resource_id = resource_id;
+                              swizzle_contents,
+                              nearest_neighbor);
+  resources.ids[kResourceIdIndex] = resource_id;
+  resources.count = 1;
 }
 
 void TileDrawQuad::SetAll(const SharedQuadState* shared_quad_state,
@@ -45,16 +46,14 @@ void TileDrawQuad::SetAll(const SharedQuadState* shared_quad_state,
                           unsigned resource_id,
                           const gfx::RectF& tex_coord_rect,
                           const gfx::Size& texture_size,
-                          bool swizzle_contents) {
+                          bool swizzle_contents,
+                          bool nearest_neighbor) {
   ContentDrawQuadBase::SetAll(shared_quad_state, DrawQuad::TILED_CONTENT, rect,
                               opaque_rect, visible_rect, needs_blending,
-                              tex_coord_rect, texture_size, swizzle_contents);
-  this->resource_id = resource_id;
-}
-
-void TileDrawQuad::IterateResources(
-    const ResourceIteratorCallback& callback) {
-  resource_id = callback.Run(resource_id);
+                              tex_coord_rect, texture_size, swizzle_contents,
+                              nearest_neighbor);
+  resources.ids[kResourceIdIndex] = resource_id;
+  resources.count = 1;
 }
 
 const TileDrawQuad* TileDrawQuad::MaterialCast(const DrawQuad* quad) {
@@ -62,9 +61,9 @@ const TileDrawQuad* TileDrawQuad::MaterialCast(const DrawQuad* quad) {
   return static_cast<const TileDrawQuad*>(quad);
 }
 
-void TileDrawQuad::ExtendValue(base::debug::TracedValue* value) const {
+void TileDrawQuad::ExtendValue(base::trace_event::TracedValue* value) const {
   ContentDrawQuadBase::ExtendValue(value);
-  value->SetInteger("resource_id", resource_id);
+  value->SetInteger("resource_id", resources.ids[kResourceIdIndex]);
 }
 
 }  // namespace cc

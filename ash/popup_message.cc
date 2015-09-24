@@ -7,7 +7,7 @@
 #include "ash/wm/window_animations.h"
 #include "grit/ash_resources.h"
 #include "ui/base/resource/resource_bundle.h"
-#include "ui/gfx/insets.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/views/bubble/bubble_delegate.h"
 #include "ui/views/bubble/bubble_frame_view.h"
 #include "ui/views/controls/image_view.h"
@@ -63,6 +63,10 @@ class PopupMessage::MessageBubble : public views::BubbleDelegateView {
   DISALLOW_COPY_AND_ASSIGN(MessageBubble);
 };
 
+// static
+const int PopupMessage::kCaptionLabelID = 1000;
+const int PopupMessage::kMessageLabelID = 1001;
+
 PopupMessage::MessageBubble::MessageBubble(const base::string16& caption,
                                            const base::string16& message,
                                            IconType message_type,
@@ -108,7 +112,7 @@ PopupMessage::MessageBubble::MessageBubble(const base::string16& caption,
   //       |                                                 |-
   //       +-------------------------------------------------+
   //             |------------details container--------------|
-  // Note that the icon, caption and massage are optional.
+  // Note that the icon, caption and message are optional.
 
   // Add the icon to the first column (if there is one).
   if (message_type != ICON_NONE) {
@@ -128,6 +132,7 @@ PopupMessage::MessageBubble::MessageBubble(const base::string16& caption,
   // The caption label.
   if (!caption.empty()) {
     views::Label* caption_label = new views::Label(caption);
+    caption_label->set_id(kCaptionLabelID);
     caption_label->SetMultiLine(true);
     caption_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
     caption_label->SetFontList(
@@ -139,6 +144,7 @@ PopupMessage::MessageBubble::MessageBubble(const base::string16& caption,
   // The message label.
   if (!message.empty()) {
     views::Label* message_label = new views::Label(message);
+    message_label->set_id(kMessageLabelID);
     message_label->SetMultiLine(true);
     message_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
     message_label->SetEnabledColor(kMessageTextColor);

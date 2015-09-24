@@ -153,6 +153,9 @@ TEST_F(BookmarkIndexTest, GetBookmarksMatching) {
     // Trivial test case of only one term, exact match.
     { "a;b",                        "A",        "a" },
 
+    // Two terms, exact matches.
+    { "a b;b",                      "a b",      "a b" },
+
     // Prefix match, one term.
     { "abcd;abc;b",                 "abc",      "abcd;abc" },
 
@@ -176,13 +179,17 @@ TEST_F(BookmarkIndexTest, GetBookmarksMatching) {
     // Prefix matches against multiple candidates.
     { "abc1 abc2 abc3 abc4",        "abc",      "abc1 abc2 abc3 abc4"},
 
+    // Multiple prefix matches (with a lot of redundancy) against multiple
+    // candidates.
+    { "abc1 abc2 abc3 abc4 def1 def2 def3 def4",
+      "abc def abc def abc def abc def abc def",
+      "abc1 abc2 abc3 abc4 def1 def2 def3 def4"},
+
     // Prefix match on the first term.
     { "abc",                        "a",        "" },
 
     // Prefix match on subsequent terms.
     { "abc def",                    "abc d",    "" },
-
-
   };
   for (size_t i = 0; i < arraysize(data); ++i) {
     std::vector<std::string> titles;
@@ -445,7 +452,7 @@ TEST_F(BookmarkIndexTest, Remove) {
   AddBookmarks(titles, urls, arraysize(titles));
 
   // Remove the node and make sure we don't get back any results.
-  model_->Remove(model_->other_node(), 0);
+  model_->Remove(model_->other_node()->GetChild(0));
   ExpectMatches("A", NULL, 0U);
 }
 
@@ -531,7 +538,7 @@ TEST_F(BookmarkIndexTest, GetResultsSortedByTypedCount) {
   // 2. Google Reader (google.com/reader) 80
   // 3. Google Docs (docs.google.com) 50
   // 4. Google Maps (maps.google.com) 40
-  ASSERT_EQ(4, static_cast<int>(matches.size()));
+  ASSERT_EQ(4U, matches.size());
   EXPECT_EQ(data[0].url, matches[0].node->url());
   EXPECT_EQ(data[3].url, matches[1].node->url());
   EXPECT_EQ(data[2].url, matches[2].node->url());
@@ -541,7 +548,7 @@ TEST_F(BookmarkIndexTest, GetResultsSortedByTypedCount) {
   // Select top two matches.
   model->GetBookmarksMatching(ASCIIToUTF16("google"), 2, &matches);
 
-  ASSERT_EQ(2, static_cast<int>(matches.size()));
+  ASSERT_EQ(2U, matches.size());
   EXPECT_EQ(data[0].url, matches[0].node->url());
   EXPECT_EQ(data[3].url, matches[1].node->url());
 }

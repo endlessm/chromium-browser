@@ -301,8 +301,7 @@ UI_BASE_EXPORT bool WmSupportsHint(XAtom atom);
 // X11 allocator when done.
 class UI_BASE_EXPORT XRefcountedMemory : public base::RefCountedMemory {
  public:
-  XRefcountedMemory(unsigned char* x11_data, size_t length)
-      : x11_data_(length ? x11_data : NULL), length_(length) {}
+  XRefcountedMemory(unsigned char* x11_data, size_t length);
 
   // Overridden from RefCountedMemory:
   const unsigned char* front() const override;
@@ -311,44 +310,10 @@ class UI_BASE_EXPORT XRefcountedMemory : public base::RefCountedMemory {
  private:
   ~XRefcountedMemory() override;
 
-  unsigned char* x11_data_;
+  gfx::XScopedPtr<unsigned char> x11_data_;
   size_t length_;
 
   DISALLOW_COPY_AND_ASSIGN(XRefcountedMemory);
-};
-
-// Keeps track of a string returned by an X function (e.g. XGetAtomName) and
-// makes sure it's XFree'd.
-class UI_BASE_EXPORT XScopedString {
- public:
-  explicit XScopedString(char* str) : string_(str) {}
-  ~XScopedString();
-
-  const char* string() const { return string_; }
-
- private:
-  char* string_;
-
-  DISALLOW_COPY_AND_ASSIGN(XScopedString);
-};
-
-// Keeps track of an image returned by an X function (e.g. XGetImage) and
-// makes sure it's XDestroyImage'd.
-class UI_BASE_EXPORT XScopedImage {
- public:
-  explicit XScopedImage(XImage* image) : image_(image) {}
-  ~XScopedImage();
-
-  XImage* get() const { return image_; }
-
-  XImage* operator->() const { return image_; }
-
-  void reset(XImage* image);
-
- private:
-  XImage* image_;
-
-  DISALLOW_COPY_AND_ASSIGN(XScopedImage);
 };
 
 // Keeps track of a cursor returned by an X function and makes sure it's

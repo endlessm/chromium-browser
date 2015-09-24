@@ -4,7 +4,7 @@
 
 #include "sync/syncable/syncable_base_transaction.h"
 
-#include "base/debug/trace_event.h"
+#include "base/trace_event/trace_event.h"
 #include "sync/syncable/directory.h"
 
 namespace syncer {
@@ -12,7 +12,7 @@ namespace syncable {
 
 // static
 Id BaseTransaction::root_id() {
-  return Id();
+  return Id::GetRoot();
 }
 
 Directory* BaseTransaction::directory() const {
@@ -24,11 +24,11 @@ void BaseTransaction::Lock() {
                "src_file", from_here_.file_name(),
                "src_func", from_here_.function_name());
 
-  directory_->kernel_->transaction_mutex.Acquire();
+  directory_->kernel()->transaction_mutex.Acquire();
 }
 
 void BaseTransaction::Unlock() {
-  directory_->kernel_->transaction_mutex.Release();
+  directory_->kernel()->transaction_mutex.Release();
 }
 
 void BaseTransaction::OnUnrecoverableError(

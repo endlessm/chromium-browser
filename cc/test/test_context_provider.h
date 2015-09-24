@@ -13,6 +13,7 @@
 #include "cc/output/context_provider.h"
 #include "cc/test/test_context_support.h"
 #include "gpu/command_buffer/client/gles2_interface_stub.h"
+#include "skia/ext/refptr.h"
 
 namespace cc {
 class TestWebGraphicsContext3D;
@@ -28,11 +29,14 @@ class TestContextProvider : public ContextProvider {
       scoped_ptr<TestWebGraphicsContext3D> context);
 
   bool BindToCurrentThread() override;
+  void DetachFromThread() override;
   Capabilities ContextCapabilities() override;
   gpu::gles2::GLES2Interface* ContextGL() override;
   gpu::ContextSupport* ContextSupport() override;
   class GrContext* GrContext() override;
-  bool IsContextLost() override;
+  void InvalidateGrContext(uint32_t state) override;
+  void SetupLock() override;
+  base::Lock* GetLock() override;
   void VerifyContexts() override;
   void DeleteCachedResources() override;
   bool DestroyedOnMainThread() override;
@@ -73,8 +77,11 @@ class TestContextProvider : public ContextProvider {
   base::Lock destroyed_lock_;
   bool destroyed_;
 
+  base::Lock context_lock_;
+
   LostContextCallback lost_context_callback_;
   MemoryPolicyChangedCallback memory_policy_changed_callback_;
+  skia::RefPtr<class GrContext> gr_context_;
 
   base::WeakPtrFactory<TestContextProvider> weak_ptr_factory_;
 

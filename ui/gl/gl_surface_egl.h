@@ -11,9 +11,10 @@
 
 #include <string>
 
+#include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/time/time.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/vsync_provider.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_surface.h"
@@ -23,16 +24,33 @@ namespace gfx {
 // Get default EGL display for GLSurfaceEGL (differs by platform).
 EGLNativeDisplayType GetPlatformDefaultEGLNativeDisplay();
 
+enum DisplayType {
+  DEFAULT,
+  SWIFT_SHADER,
+  ANGLE_WARP,
+  ANGLE_D3D9,
+  ANGLE_D3D11,
+  ANGLE_OPENGL,
+  ANGLE_OPENGLES,
+};
+
+GL_EXPORT void GetEGLInitDisplays(bool supports_angle_d3d,
+                                  bool supports_angle_opengl,
+                                  const base::CommandLine* command_line,
+                                  std::vector<DisplayType>* init_displays);
+
 // Interface for EGL surface.
 class GL_EXPORT GLSurfaceEGL : public GLSurface {
  public:
   GLSurfaceEGL();
 
   // Implement GLSurface.
+  void DestroyAndTerminateDisplay() override;
   EGLDisplay GetDisplay() override;
 
   static bool InitializeOneOff();
   static EGLDisplay GetHardwareDisplay();
+  static EGLDisplay InitializeDisplay();
   static EGLNativeDisplayType GetNativeDisplay();
 
   // These aren't particularly tied to surfaces, but since we already
@@ -47,10 +65,6 @@ class GL_EXPORT GLSurfaceEGL : public GLSurface {
   ~GLSurfaceEGL() override;
 
  private:
-#if defined(OS_WIN)
-  static EGLDisplay GetPlatformDisplay(EGLNativeDisplayType native_display);
-#endif
-
   DISALLOW_COPY_AND_ASSIGN(GLSurfaceEGL);
 };
 
@@ -66,11 +80,11 @@ class GL_EXPORT NativeViewGLSurfaceEGL : public GLSurfaceEGL {
   bool Resize(const gfx::Size& size) override;
   bool Recreate() override;
   bool IsOffscreen() override;
-  bool SwapBuffers() override;
+  gfx::SwapResult SwapBuffers() override;
   gfx::Size GetSize() override;
   EGLSurface GetHandle() override;
   bool SupportsPostSubBuffer() override;
-  bool PostSubBuffer(int x, int y, int width, int height) override;
+  gfx::SwapResult PostSubBuffer(int x, int y, int width, int height) override;
   VSyncProvider* GetVSyncProvider() override;
 
   // Create a NativeViewGLSurfaceEGL with an externally provided VSyncProvider.
@@ -82,7 +96,7 @@ class GL_EXPORT NativeViewGLSurfaceEGL : public GLSurfaceEGL {
 
   EGLNativeWindowType window_;
 
-  virtual void SetSwapInterval(int interval) override;
+  void OnSetSwapInterval(int interval) override;
 
  private:
   EGLSurface surface_;
@@ -93,8 +107,15 @@ class GL_EXPORT NativeViewGLSurfaceEGL : public GLSurfaceEGL {
   scoped_ptr<VSyncProvider> vsync_provider_;
 
   int swap_interval_;
+
+#if defined(OS_WIN)
+  bool vsync_override_;
+
   unsigned int swap_generation_;
   static unsigned int current_swap_generation_;
+  static unsigned int swaps_this_generation_;
+  static unsigned int last_multiswap_generation_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(NativeViewGLSurfaceEGL);
 };
@@ -109,7 +130,7 @@ class GL_EXPORT PbufferGLSurfaceEGL : public GLSurfaceEGL {
   bool Initialize() override;
   void Destroy() override;
   bool IsOffscreen() override;
-  bool SwapBuffers() override;
+  gfx::SwapResult SwapBuffers() override;
   gfx::Size GetSize() override;
   bool Resize(const gfx::Size& size) override;
   EGLSurface GetHandle() override;
@@ -138,7 +159,7 @@ class GL_EXPORT SurfacelessEGL : public GLSurfaceEGL {
   void Destroy() override;
   bool IsOffscreen() override;
   bool IsSurfaceless() const override;
-  bool SwapBuffers() override;
+  gfx::SwapResult SwapBuffers() override;
   gfx::Size GetSize() override;
   bool Resize(const gfx::Size& size) override;
   EGLSurface GetHandle() override;

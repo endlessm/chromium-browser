@@ -16,7 +16,6 @@
 #include "content/browser/loader/resource_dispatcher_host_impl.h"
 #include "content/browser/loader/resource_request_info_impl.h"
 #include "content/browser/site_instance_impl.h"
-#include "content/browser/transition_request_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/global_request_id.h"
@@ -68,6 +67,13 @@ void OnCrossSiteResponseHelper(const CrossSiteResponseParams& params) {
       RenderFrameHostImpl::FromID(params.global_request_id.child_id,
                                   params.render_frame_id);
   if (rfh) {
+    if (rfh->GetParent()) {
+      // We should only swap processes for subframes in --site-per-process mode.
+      // CrossSiteResourceHandler is not installed on subframe requests in
+      // default Chrome.
+      CHECK(base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kSitePerProcess));
+    }
     rfh->OnCrossSiteResponse(
         params.global_request_id, cross_site_transferring_request.Pass(),
         params.transfer_url_chain, params.referrer,
@@ -79,19 +85,10 @@ void OnCrossSiteResponseHelper(const CrossSiteResponseParams& params) {
   }
 }
 
-void OnDeferredAfterResponseStartedHelper(
-    const GlobalRequestID& global_request_id,
-    int render_frame_id,
-    const TransitionLayerData& transition_data) {
-  RenderFrameHostImpl* rfh =
-      RenderFrameHostImpl::FromID(global_request_id.child_id, render_frame_id);
-  if (rfh)
-    rfh->OnDeferredAfterResponseStarted(global_request_id, transition_data);
-}
-
 // Returns whether a transfer is needed by doing a check on the UI thread.
 bool CheckNavigationPolicyOnUI(GURL url, int process_id, int render_frame_id) {
-  CHECK(CommandLine::ForCurrentProcess()->HasSwitch(switches::kSitePerProcess));
+  CHECK(base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kSitePerProcess));
   RenderFrameHostImpl* rfh =
       RenderFrameHostImpl::FromID(process_id, render_frame_id);
   if (!rfh)
@@ -148,22 +145,7 @@ bool CrossSiteResourceHandler::OnResponseStarted(
   ResourceRequestInfoImpl* info = GetRequestInfo();
   info->set_cross_site_handler(this);
 
-  TransitionLayerData transition_data;
-  bool is_navigation_transition =
-      TransitionRequestManager::GetInstance()->GetPendingTransitionRequest(
-          info->GetChildID(), info->GetRenderFrameID(), request()->url(),
-          &transition_data);
-
-  if (is_navigation_transition) {
-    if (response_.get())
-      transition_data.response_headers = response_->head.headers;
-    transition_data.request_url = request()->url();
-
-    return OnNavigationTransitionResponseStarted(response, defer,
-                                                 transition_data);
-  } else {
-    return OnNormalResponseStarted(response, defer);
-  }
+  return OnNormalResponseStarted(response, defer);
 }
 
 bool CrossSiteResourceHandler::OnNormalResponseStarted(
@@ -231,37 +213,6 @@ bool CrossSiteResourceHandler::OnNormalResponseStarted(
   *defer = true;
   OnDidDefer();
   return true;
-}
-
-bool CrossSiteResourceHandler::OnNavigationTransitionResponseStarted(
-    ResourceResponse* response,
-    bool* defer,
-    const TransitionLayerData& transition_data) {
-  ResourceRequestInfoImpl* info = GetRequestInfo();
-
-  GlobalRequestID global_id(info->GetChildID(), info->GetRequestID());
-  int render_frame_id = info->GetRenderFrameID();
-  BrowserThread::PostTask(
-      BrowserThread::UI,
-      FROM_HERE,
-      base::Bind(
-          &OnDeferredAfterResponseStartedHelper,
-          global_id,
-          render_frame_id,
-          transition_data));
-
-  *defer = true;
-  OnDidDefer();
-  return true;
-}
-
-void CrossSiteResourceHandler::ResumeResponseDeferredAtStart(int request_id) {
-  bool defer = false;
-  if (!OnNormalResponseStarted(response_.get(), &defer)) {
-    controller()->Cancel();
-  } else if (!defer) {
-    ResumeIfDeferred();
-  }
 }
 
 void CrossSiteResourceHandler::ResumeOrTransfer(bool is_transfer) {
@@ -367,9 +318,6 @@ void CrossSiteResourceHandler::StartCrossSiteTransition(
   int render_frame_id = info->GetRenderFrameID();
   transfer_url_chain = request()->url_chain();
   referrer = Referrer(GURL(request()->referrer()), info->GetReferrerPolicy());
-
-  AppCacheInterceptor::PrepareForCrossSiteTransfer(
-      request(), global_id.child_id);
   ResourceDispatcherHostImpl::Get()->MarkAsTransferredNavigation(global_id);
 
   BrowserThread::PostTask(

@@ -5,16 +5,85 @@
 /**
  * Scrollable thumbnail ribbon at the bottom of the Gallery in the Slide mode.
  *
- * @param {Document} document Document.
- * @param {cr.ui.ArrayDataModel} dataModel Data model.
- * @param {cr.ui.ListSelectionModel} selectionModel Selection model.
- * @return {Element} Ribbon element.
+ * @param {!Document} document Document.
+ * @param {!cr.ui.ArrayDataModel} dataModel Data model.
+ * @param {!cr.ui.ListSelectionModel} selectionModel Selection model.
+ * @param {!ThumbnailModel} thumbnailModel
+ * @extends {HTMLDivElement}
  * @constructor
+ * @suppress {checkStructDictInheritance}
+ * @struct
  */
-function Ribbon(document, dataModel, selectionModel) {
-  var self = document.createElement('div');
-  Ribbon.decorate(self, dataModel, selectionModel);
-  return self;
+function Ribbon(document, dataModel, selectionModel, thumbnailModel) {
+  if (this instanceof Ribbon) {
+    return Ribbon.call(/** @type {Ribbon} */ (document.createElement('div')),
+        document, dataModel, selectionModel, thumbnailModel);
+  }
+
+  this.__proto__ = Ribbon.prototype;
+  this.className = 'ribbon';
+
+  /**
+   * @private {!cr.ui.ArrayDataModel}
+   * @const
+   */
+  this.dataModel_ = dataModel;
+
+  /**
+   * @private {!cr.ui.ListSelectionModel}
+   * @const
+   */
+  this.selectionModel_ = selectionModel;
+
+  /**
+   * @private {!ThumbnailModel}
+   * @const
+   */
+  this.thumbnailModel_ = thumbnailModel;
+
+  /**
+   * @type {!Object}
+   * @private
+   */
+  this.renderCache_ = {};
+
+  /**
+   * @type {number}
+   * @private
+   */
+  this.firstVisibleIndex_ = 0;
+
+  /**
+   * @type {number}
+   * @private
+   */
+  this.lastVisibleIndex_ = -1;
+
+  /**
+   * @type {?function(!Event)}
+   * @private
+   */
+  this.onContentBound_ = null;
+
+  /**
+   * @type {?function(!Event)}
+   * @private
+   */
+  this.onSpliceBound_ = null;
+
+  /**
+   * @type {?function(!Event)}
+   * @private
+   */
+  this.onSelectionBound_ = null;
+
+  /**
+   * @type {?number}
+   * @private
+   */
+  this.removeTimeout_ = null;
+
+  return this;
 }
 
 /**
@@ -23,23 +92,9 @@ function Ribbon(document, dataModel, selectionModel) {
 Ribbon.prototype.__proto__ = HTMLDivElement.prototype;
 
 /**
- * Decorate a Ribbon instance.
- *
- * @param {Ribbon} self Self pointer.
- * @param {cr.ui.ArrayDataModel} dataModel Data model.
- * @param {cr.ui.ListSelectionModel} selectionModel Selection model.
- */
-Ribbon.decorate = function(self, dataModel, selectionModel) {
-  self.__proto__ = Ribbon.prototype;
-  self.dataModel_ = dataModel;
-  self.selectionModel_ = selectionModel;
-
-  self.className = 'ribbon';
-};
-
-/**
  * Max number of thumbnails in the ribbon.
  * @type {number}
+ * @const
  */
 Ribbon.ITEMS_COUNT = 5;
 
@@ -90,14 +145,12 @@ Ribbon.prototype.disable = function() {
 
 /**
  * Data model splice handler.
- * @param {Event} event Event.
+ * @param {!Event} event Event.
  * @private
  */
 Ribbon.prototype.onSplice_ = function(event) {
-  if (event.removed.length > 1) {
-    console.error('Cannot remove multiple items.');
+  if (event.removed.length === 0 && event.added.length === 0)
     return;
-  }
 
   if (event.removed.length > 0 && event.added.length > 0) {
     console.error('Replacing is not implemented.');
@@ -115,12 +168,6 @@ Ribbon.prototype.onSplice_ = function(event) {
           nextItem && this.renderCache_[nextItem.getEntry().toURL()];
       this.insertBefore(element, nextElement);
     }
-    return;
-  }
-
-  var removed = this.renderCache_[event.removed[0].getEntry().toURL()];
-  if (!removed || !removed.parentNode || !removed.hasAttribute('selected')) {
-    console.error('Can only remove the selected item');
     return;
   }
 
@@ -145,19 +192,32 @@ Ribbon.prototype.onSplice_ = function(event) {
         firstNode.previousSibling.removeAttribute('vanishing');
       } else {
         // Push a new item at the left end.
-        var newThumbnail = this.renderThumbnail_(this.firstVisibleIndex_);
-        newThumbnail.style.marginLeft = -(this.clientHeight - 2) + 'px';
-        this.insertBefore(newThumbnail, this.firstChild);
-        setTimeout(function() {
-          newThumbnail.style.marginLeft = '0';
-        }, 0);
+        if (this.firstVisibleIndex_ < this.dataModel_.length) {
+          var newThumbnail = this.renderThumbnail_(this.firstVisibleIndex_);
+          newThumbnail.style.marginLeft = -(this.clientHeight - 2) + 'px';
+          this.insertBefore(newThumbnail, this.firstChild);
+          setTimeout(function() {
+            newThumbnail.style.marginLeft = '0';
+          }, 0);
+        }
       }
     }
   }
 
-  removed.removeAttribute('selected');
-  removed.setAttribute('vanishing', 'smooth');
-  this.scheduleRemove_();
+  var removed = false;
+  for (var i = 0; i < event.removed.length; i++) {
+    var removedDom = this.renderCache_[event.removed[i].getEntry().toURL()];
+    if (removedDom) {
+      removedDom.removeAttribute('selected');
+      removedDom.setAttribute('vanishing', 'smooth');
+      removed = true;
+    }
+  }
+
+  if (removed)
+    this.scheduleRemove_();
+
+  this.onSelection_();
 };
 
 /**
@@ -298,11 +358,11 @@ Ribbon.prototype.removeVanishing_ = function() {
  * Create a DOM element for a thumbnail.
  *
  * @param {number} index Item index.
- * @return {Element} Newly created element.
+ * @return {!Element} Newly created element.
  * @private
  */
 Ribbon.prototype.renderThumbnail_ = function(index) {
-  var item = this.dataModel_.item(index);
+  var item = assertInstanceof(this.dataModel_.item(index), Gallery.Item);
   var url = item.getEntry().toURL();
 
   var cached = this.renderCache_[url];
@@ -313,7 +373,8 @@ Ribbon.prototype.renderThumbnail_ = function(index) {
     return cached;
   }
 
-  var thumbnail = this.ownerDocument.createElement('div');
+  var thumbnail = assertInstanceof(this.ownerDocument.createElement('div'),
+      HTMLDivElement);
   thumbnail.className = 'ribbon-image';
   thumbnail.addEventListener('click', function() {
     var index = this.dataModel_.indexOf(item);
@@ -335,25 +396,29 @@ Ribbon.prototype.renderThumbnail_ = function(index) {
 /**
  * Set the thumbnail image.
  *
- * @param {Element} thumbnail Thumbnail element.
- * @param {Gallery.Item} item Gallery item.
+ * @param {!Element} thumbnail Thumbnail element.
+ * @param {!Gallery.Item} item Gallery item.
  * @private
  */
 Ribbon.prototype.setThumbnailImage_ = function(thumbnail, item) {
-  var loader = new ThumbnailLoader(
-      item.getEntry(),
-      ThumbnailLoader.LoaderType.IMAGE,
-      item.getMetadata());
-  loader.load(
-      thumbnail.querySelector('.image-wrapper'),
-      ThumbnailLoader.FillMode.FILL /* fill */,
-      ThumbnailLoader.OptimizationMode.NEVER_DISCARD);
+  if (!item.getThumbnailMetadataItem())
+    return;
+  this.thumbnailModel_.get([item.getEntry()]).then(function(metadataList) {
+    var loader = new ThumbnailLoader(
+        item.getEntry(),
+        ThumbnailLoader.LoaderType.IMAGE,
+        metadataList[0]);
+    loader.load(
+        thumbnail.querySelector('.image-wrapper'),
+        ThumbnailLoader.FillMode.FILL /* fill */,
+        ThumbnailLoader.OptimizationMode.NEVER_DISCARD);
+  });
 };
 
 /**
  * Content change handler.
  *
- * @param {Event} event Event.
+ * @param {!Event} event Event.
  * @private
  */
 Ribbon.prototype.onContentChange_ = function(event) {

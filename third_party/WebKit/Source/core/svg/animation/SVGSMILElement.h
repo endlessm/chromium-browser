@@ -26,6 +26,7 @@
 #ifndef SVGSMILElement_h
 #define SVGSMILElement_h
 
+#include "core/CoreExport.h"
 #include "core/SVGNames.h"
 #include "core/svg/SVGElement.h"
 #include "core/svg/SVGTests.h"
@@ -43,16 +44,16 @@ template<typename T> class EventSender;
 typedef EventSender<SVGSMILElement> SMILEventSender;
 
 // This class implements SMIL interval timing model as needed for SVG animation.
-class SVGSMILElement : public SVGElement, public SVGTests {
+class CORE_EXPORT SVGSMILElement : public SVGElement, public SVGTests {
+    WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(SVGSMILElement);
 public:
     SVGSMILElement(const QualifiedName&, Document&);
-    virtual ~SVGSMILElement();
+    ~SVGSMILElement() override;
 
-    bool isSupportedAttribute(const QualifiedName&);
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void svgAttributeChanged(const QualifiedName&) override;
-    virtual InsertionNotificationRequest insertedInto(ContainerNode*) override;
-    virtual void removedFrom(ContainerNode*) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void svgAttributeChanged(const QualifiedName&) override;
+    InsertionNotificationRequest insertedInto(ContainerNode*) override;
+    void removedFrom(ContainerNode*) override;
 
     virtual bool hasValidAttributeType() = 0;
     virtual bool hasValidAttributeName();
@@ -108,7 +109,7 @@ public:
     void setDocumentOrderIndex(unsigned index) { m_documentOrderIndex = index; }
 
     virtual void resetAnimatedType() = 0;
-    virtual void clearAnimatedType(SVGElement* targetElement) = 0;
+    virtual void clearAnimatedType() = 0;
     virtual void applyResultsToTarget() = 0;
 
     void connectSyncBaseConditions();
@@ -119,7 +120,7 @@ public:
 
     virtual bool isSVGDiscardElement() const { return false; }
 
-    void trace(Visitor*) override;
+    DECLARE_VIRTUAL_TRACE();
 
 protected:
     void addBeginTime(SMILTime eventTime, SMILTime endTime, SMILTimeWithOrigin::Origin = SMILTimeWithOrigin::ParserOrigin);
@@ -131,8 +132,11 @@ protected:
     virtual void setTargetElement(SVGElement*);
     virtual void setAttributeName(const QualifiedName&);
 
+    void schedule();
+    void unscheduleIfScheduled();
+
 private:
-    virtual void buildPendingResource() override;
+    void buildPendingResource() override;
     void clearResourceAndEventBaseReferences();
     void clearConditions();
 
@@ -140,7 +144,7 @@ private:
     void endedActiveInterval();
     virtual void updateAnimation(float percent, unsigned repeat, SVGSMILElement* resultElement) = 0;
 
-    virtual bool rendererIsNeeded(const RenderStyle&) override { return false; }
+    bool layoutObjectIsNeeded(const ComputedStyle&) override { return false; }
 
     enum BeginOrEnd {
         Begin,
@@ -185,7 +189,7 @@ private:
             return adoptPtrWillBeNoop(new Condition(type, beginOrEnd, baseID, name, offset, repeat));
         }
         ~Condition();
-        void trace(Visitor*);
+        DECLARE_TRACE();
 
         Type type() const { return m_type; }
         BeginOrEnd beginOrEnd() const { return m_beginOrEnd; }
@@ -237,13 +241,14 @@ private:
 
     RawPtrWillBeMember<SVGElement> m_targetElement;
 
-    WillBeHeapVector<OwnPtrWillBeMember<Condition> > m_conditions;
+    WillBeHeapVector<OwnPtrWillBeMember<Condition>> m_conditions;
     bool m_syncBaseConditionsConnected;
     bool m_hasEndEventConditions;
 
     bool m_isWaitingForFirstInterval;
+    bool m_isScheduled;
 
-    typedef WillBeHeapHashSet<RawPtrWillBeMember<SVGSMILElement> > TimeDependentSet;
+    using TimeDependentSet = WillBeHeapHashSet<RawPtrWillBeMember<SVGSMILElement>>;
     TimeDependentSet m_syncBaseDependents;
 
     // Instance time lists

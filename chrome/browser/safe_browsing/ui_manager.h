@@ -24,7 +24,11 @@ class SafeBrowsingService;
 
 namespace base {
 class Thread;
-}
+}  // namespace base
+
+namespace net {
+class SSLInfo;
+}  // namespace net
 
 // Construction needs to happen on the main thread.
 class SafeBrowsingUIManager
@@ -124,6 +128,11 @@ class SafeBrowsingUIManager
                                      SBThreatType threat_type,
                                      const std::string& post_data);
 
+  // Report an invalid TLS/SSL certificate chain to the server. Can only
+  // be called on UI thread.
+  void ReportInvalidCertificateChain(const std::string& serialized_report,
+                                     const base::Closure& callback);
+
   // Add and remove observers.  These methods must be invoked on the UI thread.
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* remove);
@@ -133,6 +142,7 @@ class SafeBrowsingUIManager
 
  private:
   friend class base::RefCountedThreadSafe<SafeBrowsingUIManager>;
+  friend class SafeBrowsingUIManagerTest;
 
   // Used for whitelisting a render view when the user ignores our warning.
   struct WhiteListedEntry;
@@ -145,6 +155,10 @@ class SafeBrowsingUIManager
                                        SBThreatType threat_type,
                                        const std::string& post_data);
 
+  // Sends an invalid certificate chain report over the network.
+  void ReportInvalidCertificateChainOnIOThread(
+      const std::string& serialized_report);
+
   // Adds the given entry to the whitelist.  Called on the UI thread.
   void UpdateWhitelist(const UnsafeResource& resource);
 
@@ -154,7 +168,7 @@ class SafeBrowsingUIManager
   // Only access this whitelist from the UI thread.
   std::vector<WhiteListedEntry> white_listed_entries_;
 
-  ObserverList<Observer> observer_list_;
+  base::ObserverList<Observer> observer_list_;
 
   DISALLOW_COPY_AND_ASSIGN(SafeBrowsingUIManager);
 };

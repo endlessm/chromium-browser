@@ -64,12 +64,11 @@ namespace test {
 
 scoped_ptr<Value> ParseJson(base::StringPiece json) {
   std::string error_msg;
-  scoped_ptr<Value> result(base::JSONReader::ReadAndReturnError(
-      json, base::JSON_ALLOW_TRAILING_COMMAS,
-      NULL, &error_msg));
+  scoped_ptr<Value> result = base::JSONReader::ReadAndReturnError(
+      json, base::JSON_ALLOW_TRAILING_COMMAS, NULL, &error_msg);
   if (!result) {
     ADD_FAILURE() << "Failed to parse \"" << json << "\": " << error_msg;
-    result.reset(Value::CreateNullValue());
+    result = Value::CreateNullValue();
   }
   return result.Pass();
 }

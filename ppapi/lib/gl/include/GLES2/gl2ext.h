@@ -1811,27 +1811,13 @@ typedef void (GL_APIENTRYP PFNGLRATELIMITOFFSCREENCONTEXTCHROMIUM) ();
 #ifndef GL_CHROMIUM_get_multiple
 #define GL_CHROMIUM_get_multiple 1
 #ifdef GL_GLEXT_PROTOTYPES
-#define glGetMultipleIntegervCHROMIUM  GLES2_GET_FUN(GetMultipleIntegervCHROMIUM)
 #define glGetProgramInfoCHROMIUM  GLES2_GET_FUN(GetProgramInfovCHROMIUM)
 #if !defined(GLES2_USE_CPP_BINDINGS)
-GL_APICALL void GL_APIENTRY glGetMultipleIntegervCHROMIUM (const GLenum* pnames, GLuint count, GLint* results, GLsizeiptr size);
 GL_APICALL void GL_APIENTRY glGetProgramInfoCHROMIUM (GLuint program, GLsizei bufsize, GLsizei* size, void* info);
 #endif
 #else
-typedef void (GL_APIENTRYP PFNGLGETMULTIPLEINTEGERVCHROMIUM) ();
 typedef void (GL_APIENTRYP PFNGLGETPROGRAMINFOCHROMIUM) ();
 #endif
-#endif
-
-/* GL_CHROMIUM_flipy */
-/*
- * This extension provides GL_UNPACK_FLIP_Y_CHROMIUM as a parameter to
- * glPixelStorei. When true images submitted to glTexImage2D and glTexSubImage2D
- * are flipped vertically.
- */
-#ifndef GL_CHROMIUM_flipy
-#define GL_CHROMIUM_flipy 1
-#define GL_UNPACK_FLIP_Y_CHROMIUM 0x9240
 #endif
 
 /* GL_CHROMIUM_texture_compression_dxt3 */
@@ -1956,11 +1942,54 @@ typedef void (GL_APIENTRYP PFNGLTEXIMAGEIOSURFACE2DCHROMIUM) (GLenum target, GLs
 #endif
 #ifdef GL_GLEXT_PROTOTYPES
 #define glCopyTextureCHROMIUM GLES2_GET_FUN(CopyTextureCHROMIUM)
+#define glCopySubTextureCHROMIUM GLES2_GET_FUN(CopySubTextureCHROMIUM)
 #if !defined(GLES2_USE_CPP_BINDINGS)
-GL_APICALL void GL_APIENTRY glCopyTextureCHROMIUM (GLenum target, GLenum source_id, GLenum dest_id, GLint level);
+GL_APICALL void GL_APIENTRY glCopyTextureCHROMIUM(
+    GLenum target,
+    GLenum source_id,
+    GLenum dest_id,
+    GLint internalformat,
+    GLenum dest_type,
+    GLboolean unpack_flip_y,
+    GLboolean unpack_premultiply_alpha,
+    GLboolean unpack_unmultiply_alpha);
+GL_APICALL void GL_APIENTRY glCopySubTextureCHROMIUM(
+    GLenum target,
+    GLenum source_id,
+    GLenum dest_id,
+    GLint xoffset,
+    GLint yoffset,
+    GLint x,
+    GLint y,
+    GLsizei width,
+    GLsizei height,
+    GLboolean unpack_flip_y,
+    GLboolean unpack_premultiply_alpha,
+    GLboolean unpack_unmultiply_alpha);
 #endif
 #else
-typedef void (GL_APIENTRYP PFNGLCOPYTEXTURECHROMIUM) (GLenum target, GLenum source_id, GLenum dest_id, GLint level);
+typedef void(GL_APIENTRYP PFNGLCOPYTEXTURECHROMIUM)(
+    GLenum target,
+    GLenum source_id,
+    GLenum dest_id,
+    GLint internalformat,
+    GLenum dest_type,
+    GLboolean unpack_flip_y,
+    GLboolean unpack_premultiply_alpha,
+    GLboolean unpack_unmultiply_alpha);
+typedef void(GL_APIENTRYP PFNGLCOPYSUBTEXTURECHROMIUM)(
+    GLenum target,
+    GLenum source_id,
+    GLenum dest_id,
+    GLint xoffset,
+    GLint yoffset,
+    GLint x,
+    GLint y,
+    GLsizei width,
+    GLsizei height,
+    GLboolean unpack_flip_y,
+    GLboolean unpack_premultiply_alpha,
+    GLboolean unpack_unmultiply_alpha);
 #endif
 #endif
 

@@ -21,6 +21,7 @@
 #include "ui/views/widget/widget.h"
 
 using base::UserMetricsAction;
+using bookmarks::BookmarkNode;
 using content::PageNavigator;
 using views::MenuItemView;
 
@@ -30,9 +31,7 @@ BookmarkMenuController::BookmarkMenuController(Browser* browser,
                                                const BookmarkNode* node,
                                                int start_child_index,
                                                bool for_drop)
-    : menu_delegate_(
-        new BookmarkMenuDelegate(browser, page_navigator, parent, 1,
-                                 kint32max)),
+    : menu_delegate_(new BookmarkMenuDelegate(browser, page_navigator, parent)),
       node_(node),
       observer_(NULL),
       for_drop_(for_drop),
@@ -183,6 +182,10 @@ views::MenuItemView* BookmarkMenuController::GetSiblingMenu(
 
 int BookmarkMenuController::GetMaxWidthForMenu(MenuItemView* view) {
   return menu_delegate_->GetMaxWidthForMenu(view);
+}
+
+void BookmarkMenuController::WillShowMenu(MenuItemView* menu) {
+  menu_delegate_->WillShowMenu(menu);
 }
 
 void BookmarkMenuController::BookmarkModelChanged() {

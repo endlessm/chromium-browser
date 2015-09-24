@@ -16,6 +16,9 @@
 #include "ui/gfx/image/image.h"
 #include "ui/resources/grit/ui_resources.h"
 
+using bookmarks::BookmarkModel;
+using bookmarks::BookmarkNode;
+
 // Simple class to remember how many mouseEntered: and mouseExited:
 // calls it gets.  Only used by BookmarkMouseForwarding but placed
 // at the top of the file to keep it outside the anon namespace.

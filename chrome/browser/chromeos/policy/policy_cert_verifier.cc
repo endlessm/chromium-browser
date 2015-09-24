@@ -18,7 +18,7 @@ namespace {
 void MaybeSignalAnchorUse(int error,
                           const base::Closure& anchor_used_callback,
                           const net::CertVerifyResult& verify_result) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   if (error != net::OK || !verify_result.is_issued_by_additional_trust_anchor ||
       anchor_used_callback.is_null()) {
     return;
@@ -31,7 +31,7 @@ void CompleteAndSignalAnchorUse(
     const net::CompletionCallback& completion_callback,
     const net::CertVerifyResult* verify_result,
     int error) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   MaybeSignalAnchorUse(error, anchor_used_callback, *verify_result);
   if (!completion_callback.is_null())
     completion_callback.Run(error);
@@ -42,7 +42,7 @@ void CompleteAndSignalAnchorUse(
 PolicyCertVerifier::PolicyCertVerifier(
     const base::Closure& anchor_used_callback)
     : anchor_used_callback_(anchor_used_callback) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 }
 
 PolicyCertVerifier::~PolicyCertVerifier() {
@@ -71,11 +71,12 @@ void PolicyCertVerifier::SetTrustAnchors(
 int PolicyCertVerifier::Verify(
     net::X509Certificate* cert,
     const std::string& hostname,
+    const std::string& ocsp_response,
     int flags,
     net::CRLSet* crl_set,
     net::CertVerifyResult* verify_result,
     const net::CompletionCallback& completion_callback,
-    RequestHandle* out_req,
+    scoped_ptr<Request>* out_req,
     const net::BoundNetLog& net_log) {
   DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
   DCHECK(delegate_);
@@ -84,15 +85,16 @@ int PolicyCertVerifier::Verify(
                  anchor_used_callback_,
                  completion_callback,
                  verify_result);
-  int error = delegate_->Verify(cert, hostname, flags, crl_set, verify_result,
-                                wrapped_callback, out_req, net_log);
+  int error =
+      delegate_->Verify(cert, hostname, ocsp_response, flags, crl_set,
+                        verify_result, wrapped_callback, out_req, net_log);
   MaybeSignalAnchorUse(error, anchor_used_callback_, *verify_result);
   return error;
 }
 
-void PolicyCertVerifier::CancelRequest(RequestHandle req) {
+bool PolicyCertVerifier::SupportsOCSPStapling() {
   DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
-  delegate_->CancelRequest(req);
+  return delegate_->SupportsOCSPStapling();
 }
 
 const net::CertificateList& PolicyCertVerifier::GetAdditionalTrustAnchors() {

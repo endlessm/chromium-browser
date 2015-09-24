@@ -25,20 +25,30 @@ namespace gin {
 class GIN_EXPORT Dictionary {
  public:
   explicit Dictionary(v8::Isolate* isolate);
-  Dictionary(v8::Isolate* isolate, v8::Handle<v8::Object> object);
+  Dictionary(v8::Isolate* isolate, v8::Local<v8::Object> object);
   ~Dictionary();
 
   static Dictionary CreateEmpty(v8::Isolate* isolate);
 
   template<typename T>
   bool Get(const std::string& key, T* out) {
-    v8::Handle<v8::Value> val = object_->Get(StringToV8(isolate_, key));
+    v8::Local<v8::Value> val;
+    if (!object_->Get(isolate_->GetCurrentContext(), StringToV8(isolate_, key))
+             .ToLocal(&val)) {
+      return false;
+    }
     return ConvertFromV8(isolate_, val, out);
   }
 
   template<typename T>
   bool Set(const std::string& key, T val) {
-    return object_->Set(StringToV8(isolate_, key), ConvertToV8(isolate_, val));
+    v8::Local<v8::Value> v8_value;
+    if (!TryConvertToV8(isolate_, val, &v8_value))
+      return false;
+    v8::Maybe<bool> result =
+        object_->Set(isolate_->GetCurrentContext(), StringToV8(isolate_, key),
+                    v8_value);
+    return !result.IsNothing() && result.FromJust();
   }
 
   v8::Isolate* isolate() const { return isolate_; }
@@ -48,15 +58,15 @@ class GIN_EXPORT Dictionary {
 
   // TODO(aa): Remove this. Instead, get via FromV8(), Set(), and Get().
   v8::Isolate* isolate_;
-  v8::Handle<v8::Object> object_;
+  v8::Local<v8::Object> object_;
 };
 
 template<>
 struct GIN_EXPORT Converter<Dictionary> {
-  static v8::Handle<v8::Value> ToV8(v8::Isolate* isolate,
+  static v8::Local<v8::Value> ToV8(v8::Isolate* isolate,
                                     Dictionary val);
   static bool FromV8(v8::Isolate* isolate,
-                     v8::Handle<v8::Value> val,
+                     v8::Local<v8::Value> val,
                      Dictionary* out);
 };
 

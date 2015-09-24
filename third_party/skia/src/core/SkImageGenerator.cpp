@@ -7,14 +7,6 @@
 
 #include "SkImageGenerator.h"
 
-bool SkImageGenerator::getInfo(SkImageInfo* info) {
-    SkImageInfo dummy;
-    if (NULL == info) {
-        info = &dummy;
-    }
-    return this->onGetInfo(info);
-}
-
 bool SkImageGenerator::getPixels(const SkImageInfo& info, void* pixels, size_t rowBytes,
                                  SkPMColor ctable[], int* ctableCount) {
     if (kUnknown_SkColorType == info.colorType()) {
@@ -39,12 +31,25 @@ bool SkImageGenerator::getPixels(const SkImageInfo& info, void* pixels, size_t r
         ctable = NULL;
     }
 
-    bool success = this->onGetPixels(info, pixels, rowBytes, ctable, ctableCount);
+#ifdef SK_LEGACY_IMAGE_GENERATOR_ENUMS_AND_OPTIONS
+    // Default options.
+    Options options;
+    const Result result = this->onGetPixels(info, pixels, rowBytes, options, ctable, ctableCount);
 
+    if (kIncompleteInput != result && kSuccess != result) {
+        return false;
+    }
+    if (ctableCount) {
+        SkASSERT(*ctableCount >= 0 && *ctableCount <= 256);
+    }
+        return true;
+#else
+    const bool success = this->onGetPixels(info, pixels, rowBytes, ctable, ctableCount);
     if (success && ctableCount) {
         SkASSERT(*ctableCount >= 0 && *ctableCount <= 256);
     }
     return success;
+#endif
 }
 
 bool SkImageGenerator::getPixels(const SkImageInfo& info, void* pixels, size_t rowBytes) {
@@ -113,10 +118,41 @@ SkData* SkImageGenerator::onRefEncodedData() {
     return NULL;
 }
 
-bool SkImageGenerator::onGetInfo(SkImageInfo*) {
+#ifdef SK_LEGACY_IMAGE_GENERATOR_ENUMS_AND_OPTIONS
+SkImageGenerator::Result SkImageGenerator::onGetPixels(const SkImageInfo& info, void* dst,
+                                                       size_t rb, const Options& options,
+                                                       SkPMColor* colors, int* colorCount) {
+    return kUnimplemented;
+}
+#else
+bool SkImageGenerator::onGetPixels(const SkImageInfo& info, void* dst, size_t rb,
+                                   SkPMColor* colors, int* colorCount) {
     return false;
 }
+#endif
 
-bool SkImageGenerator::onGetPixels(const SkImageInfo&, void*, size_t, SkPMColor*, int*) {
-    return false;
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+#include "SkGraphics.h"
+
+static SkGraphics::ImageGeneratorFromEncodedFactory gFactory;
+
+SkGraphics::ImageGeneratorFromEncodedFactory
+SkGraphics::SetImageGeneratorFromEncodedFactory(ImageGeneratorFromEncodedFactory factory)
+{
+    ImageGeneratorFromEncodedFactory prev = gFactory;
+    gFactory = factory;
+    return prev;
+}
+
+SkImageGenerator* SkImageGenerator::NewFromEncoded(SkData* data) {
+    if (NULL == data) {
+        return NULL;
+    }
+    if (gFactory) {
+        if (SkImageGenerator* generator = gFactory(data)) {
+            return generator;
+        }
+    }
+    return SkImageGenerator::NewFromEncodedImpl(data);
 }

@@ -13,20 +13,17 @@ component("wifi") {
     "wifi_service_win.cc",
   ]
 
-  defines = [
-    "WIFI_IMPLEMENTATION",
-  ]
+  defines = [ "WIFI_IMPLEMENTATION" ]
 
   deps = [
     "//base",
     "//components/onc",
+    "//crypto",
     "//third_party/libxml",
   ]
 
   if (is_win) {
-    libs = [
-      "iphlpapi.lib",
-    ]
+    libs = [ "iphlpapi.lib" ]
   }
 
   if (is_mac) {

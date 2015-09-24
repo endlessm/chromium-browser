@@ -20,35 +20,37 @@ namespace sandbox {
 FilesystemDispatcher::FilesystemDispatcher(PolicyBase* policy_base)
     : policy_base_(policy_base) {
   static const IPCCall create_params = {
-    {IPC_NTCREATEFILE_TAG, WCHAR_TYPE, UINT32_TYPE, UINT32_TYPE, UINT32_TYPE,
-     UINT32_TYPE, UINT32_TYPE, UINT32_TYPE},
-    reinterpret_cast<CallbackGeneric>(&FilesystemDispatcher::NtCreateFile)
-  };
+      {IPC_NTCREATEFILE_TAG,
+       {WCHAR_TYPE,
+        UINT32_TYPE,
+        UINT32_TYPE,
+        UINT32_TYPE,
+        UINT32_TYPE,
+        UINT32_TYPE,
+        UINT32_TYPE}},
+      reinterpret_cast<CallbackGeneric>(&FilesystemDispatcher::NtCreateFile)};
 
   static const IPCCall open_file = {
-    {IPC_NTOPENFILE_TAG, WCHAR_TYPE, UINT32_TYPE, UINT32_TYPE, UINT32_TYPE,
-     UINT32_TYPE},
-    reinterpret_cast<CallbackGeneric>(&FilesystemDispatcher::NtOpenFile)
-  };
+      {IPC_NTOPENFILE_TAG,
+       {WCHAR_TYPE, UINT32_TYPE, UINT32_TYPE, UINT32_TYPE, UINT32_TYPE}},
+      reinterpret_cast<CallbackGeneric>(&FilesystemDispatcher::NtOpenFile)};
 
   static const IPCCall attribs = {
-    {IPC_NTQUERYATTRIBUTESFILE_TAG, WCHAR_TYPE, UINT32_TYPE, INOUTPTR_TYPE},
-    reinterpret_cast<CallbackGeneric>(
-        &FilesystemDispatcher::NtQueryAttributesFile)
-  };
+      {IPC_NTQUERYATTRIBUTESFILE_TAG, {WCHAR_TYPE, UINT32_TYPE, INOUTPTR_TYPE}},
+      reinterpret_cast<CallbackGeneric>(
+          &FilesystemDispatcher::NtQueryAttributesFile)};
 
   static const IPCCall full_attribs = {
-    {IPC_NTQUERYFULLATTRIBUTESFILE_TAG, WCHAR_TYPE, UINT32_TYPE, INOUTPTR_TYPE},
-    reinterpret_cast<CallbackGeneric>(
-          &FilesystemDispatcher::NtQueryFullAttributesFile)
-  };
+      {IPC_NTQUERYFULLATTRIBUTESFILE_TAG,
+       {WCHAR_TYPE, UINT32_TYPE, INOUTPTR_TYPE}},
+      reinterpret_cast<CallbackGeneric>(
+          &FilesystemDispatcher::NtQueryFullAttributesFile)};
 
   static const IPCCall set_info = {
-    {IPC_NTSETINFO_RENAME_TAG, VOIDPTR_TYPE, INOUTPTR_TYPE, INOUTPTR_TYPE,
-     UINT32_TYPE, UINT32_TYPE},
-    reinterpret_cast<CallbackGeneric>(
-        &FilesystemDispatcher::NtSetInformationFile)
-  };
+      {IPC_NTSETINFO_RENAME_TAG,
+       {VOIDPTR_TYPE, INOUTPTR_TYPE, INOUTPTR_TYPE, UINT32_TYPE, UINT32_TYPE}},
+      reinterpret_cast<CallbackGeneric>(
+          &FilesystemDispatcher::NtSetInformationFile)};
 
   ipc_calls_.push_back(create_params);
   ipc_calls_.push_back(open_file);
@@ -102,6 +104,7 @@ bool FilesystemDispatcher::NtCreateFile(IPCInfo* ipc,
   CountedParameterSet<OpenFile> params;
   params[OpenFile::NAME] = ParamPickerMake(filename);
   params[OpenFile::ACCESS] = ParamPickerMake(desired_access);
+  params[OpenFile::DISPOSITION] = ParamPickerMake(create_disposition);
   params[OpenFile::OPTIONS] = ParamPickerMake(create_options);
   params[OpenFile::BROKER] = ParamPickerMake(broker);
 
@@ -144,9 +147,11 @@ bool FilesystemDispatcher::NtOpenFile(IPCInfo* ipc,
   const wchar_t* filename = name->c_str();
 
   uint32 broker = TRUE;
+  uint32 create_disposition = FILE_OPEN;
   CountedParameterSet<OpenFile> params;
   params[OpenFile::NAME] = ParamPickerMake(filename);
   params[OpenFile::ACCESS] = ParamPickerMake(desired_access);
+  params[OpenFile::DISPOSITION] = ParamPickerMake(create_disposition);
   params[OpenFile::OPTIONS] = ParamPickerMake(open_options);
   params[OpenFile::BROKER] = ParamPickerMake(broker);
 

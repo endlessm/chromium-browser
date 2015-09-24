@@ -2,16 +2,48 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chrome/app/android/chrome_jni_onload.h"
 
-#include "base/android/jni_android.h"
+#include "base/android/library_loader/library_loader_hooks.h"
+#include "base/bind.h"
 #include "chrome/app/android/chrome_android_initializer.h"
-#include "chrome/app/android/chrome_main_delegate_android.h"
+#include "chrome/browser/android/chrome_jni_registrar.h"
+#include "content/public/app/content_jni_onload.h"
 
-// This is called by the VM when the shared library is first loaded.
-// Note that this file must be included in the final shared_library build step
-// and not in a static library or the JNI_OnLoad symbol won't be included
-// because the Android build is compiled with exclude-libs=ALL to reduce symbol
-// size.
-JNI_EXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
-  return RunChrome(vm, ChromeMainDelegateAndroid::Create());
+namespace chrome {
+namespace android {
+
+namespace {
+
+bool RegisterJNI(JNIEnv* env) {
+  if (base::android::GetLibraryProcessType(env) ==
+      base::android::PROCESS_BROWSER) {
+    return RegisterBrowserJNI(env);
+  }
+  return true;
 }
+
+bool Init() {
+  return RunChrome();
+}
+
+}  // namespace
+
+bool OnJNIOnLoadRegisterJNI(
+    JavaVM* vm,
+    base::android::RegisterCallback callback) {
+  std::vector<base::android::RegisterCallback> register_callbacks;
+  register_callbacks.push_back(callback);
+  register_callbacks.push_back(base::Bind(&RegisterJNI));
+  return content::android::OnJNIOnLoadRegisterJNI(vm, register_callbacks);
+}
+
+bool OnJNIOnLoadInit(base::android::InitCallback callback) {
+  std::vector<base::android::InitCallback> init_callbacks;
+  init_callbacks.push_back(callback);
+  init_callbacks.push_back(base::Bind(&Init));
+  return content::android::OnJNIOnLoadInit(init_callbacks);
+}
+
+}  // namespace android
+}  // namespace chrome

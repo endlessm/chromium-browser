@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_LOCATION_BAR_PAGE_ACTION_WITH_BADGE_VIEW_H_
 
 #include "base/compiler_specific.h"
-#include "ui/gfx/size.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/views/view.h"
 
 class PageActionImageView;
@@ -29,7 +29,9 @@ class PageActionWithBadgeView : public views::View {
   void UpdateVisibility(content::WebContents* contents);
 
  private:
+  // views::View:
   void Layout() override;
+  const char* GetClassName() const override;
 
   // The button this view contains.
   PageActionImageView* image_view_;

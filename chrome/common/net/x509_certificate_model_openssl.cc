@@ -4,6 +4,7 @@
 
 #include "chrome/common/net/x509_certificate_model.h"
 
+#include <openssl/mem.h>
 #include <openssl/obj_mac.h>
 #include <openssl/sha.h>
 #include <openssl/stack.h>
@@ -465,7 +466,7 @@ std::string ProcessNSCertTypeExtension(X509_EXTENSION* ex) {
       {NS_OBJSIGN_CA, IDS_CERT_USAGE_OBJECT_SIGNER},
   };
 
-  crypto::ScopedOpenSSL<ASN1_BIT_STRING, ASN1_BIT_STRING_free>::Type value(
+  crypto::ScopedOpenSSL<ASN1_BIT_STRING, ASN1_BIT_STRING_free> value(
       reinterpret_cast<ASN1_BIT_STRING*>(X509V3_EXT_d2i(ex)));
   if (!value.get())
     return l10n_util::GetStringUTF8(IDS_CERT_EXTENSION_DUMP_ERROR);
@@ -488,7 +489,7 @@ std::string ProcessKeyUsageExtension(X509_EXTENSION* ex) {
       {KU_DECIPHER_ONLY, IDS_CERT_X509_KEY_USAGE_DECIPHER_ONLY},
   };
 
-  crypto::ScopedOpenSSL<ASN1_BIT_STRING, ASN1_BIT_STRING_free>::Type value(
+  crypto::ScopedOpenSSL<ASN1_BIT_STRING, ASN1_BIT_STRING_free> value(
       reinterpret_cast<ASN1_BIT_STRING*>(X509V3_EXT_d2i(ex)));
   if (!value.get())
     return l10n_util::GetStringUTF8(IDS_CERT_EXTENSION_DUMP_ERROR);
@@ -500,7 +501,7 @@ std::string ProcessKeyUsageExtension(X509_EXTENSION* ex) {
 
 std::string ProcessBasicConstraints(X509_EXTENSION* ex) {
   std::string rv;
-  crypto::ScopedOpenSSL<BASIC_CONSTRAINTS, BASIC_CONSTRAINTS_free>::Type value(
+  crypto::ScopedOpenSSL<BASIC_CONSTRAINTS, BASIC_CONSTRAINTS_free> value(
       reinterpret_cast<BASIC_CONSTRAINTS*>(X509V3_EXT_d2i(ex)));
   if (!value.get())
     return l10n_util::GetStringUTF8(IDS_CERT_EXTENSION_DUMP_ERROR);
@@ -525,8 +526,8 @@ std::string ProcessBasicConstraints(X509_EXTENSION* ex) {
 
 std::string ProcessExtKeyUsage(X509_EXTENSION* ex) {
   std::string rv;
-  crypto::ScopedOpenSSL<EXTENDED_KEY_USAGE, EXTENDED_KEY_USAGE_free>::Type
-      value(reinterpret_cast<EXTENDED_KEY_USAGE*>(X509V3_EXT_d2i(ex)));
+  crypto::ScopedOpenSSL<EXTENDED_KEY_USAGE, EXTENDED_KEY_USAGE_free> value(
+      reinterpret_cast<EXTENDED_KEY_USAGE*>(X509V3_EXT_d2i(ex)));
   if (!value.get())
     return l10n_util::GetStringUTF8(IDS_CERT_EXTENSION_DUMP_ERROR);
   for (size_t i = 0; i < sk_ASN1_OBJECT_num(value.get()); i++) {
@@ -674,7 +675,7 @@ std::string ProcessGeneralNames(GENERAL_NAMES* names) {
 }
 
 std::string ProcessAltName(X509_EXTENSION* ex) {
-  crypto::ScopedOpenSSL<GENERAL_NAMES, GENERAL_NAMES_free>::Type alt_names(
+  crypto::ScopedOpenSSL<GENERAL_NAMES, GENERAL_NAMES_free> alt_names(
       reinterpret_cast<GENERAL_NAMES*>(X509V3_EXT_d2i(ex)));
   if (!alt_names.get())
     return l10n_util::GetStringUTF8(IDS_CERT_EXTENSION_DUMP_ERROR);
@@ -683,7 +684,7 @@ std::string ProcessAltName(X509_EXTENSION* ex) {
 }
 
 std::string ProcessSubjectKeyId(X509_EXTENSION* ex) {
-  crypto::ScopedOpenSSL<ASN1_OCTET_STRING, ASN1_OCTET_STRING_free>::Type value(
+  crypto::ScopedOpenSSL<ASN1_OCTET_STRING, ASN1_OCTET_STRING_free> value(
       reinterpret_cast<ASN1_OCTET_STRING*>(X509V3_EXT_d2i(ex)));
   if (!value.get())
     return l10n_util::GetStringUTF8(IDS_CERT_EXTENSION_DUMP_ERROR);
@@ -695,7 +696,7 @@ std::string ProcessSubjectKeyId(X509_EXTENSION* ex) {
 
 std::string ProcessAuthKeyId(X509_EXTENSION* ex) {
   std::string rv;
-  crypto::ScopedOpenSSL<AUTHORITY_KEYID, AUTHORITY_KEYID_free>::Type value(
+  crypto::ScopedOpenSSL<AUTHORITY_KEYID, AUTHORITY_KEYID_free> value(
       reinterpret_cast<AUTHORITY_KEYID*>(X509V3_EXT_d2i(ex)));
   if (!value.get())
     return l10n_util::GetStringUTF8(IDS_CERT_EXTENSION_DUMP_ERROR);
@@ -751,8 +752,8 @@ std::string ProcessUserNotice(USERNOTICE* notice) {
 
 std::string ProcessCertificatePolicies(X509_EXTENSION* ex) {
   std::string rv;
-  crypto::ScopedOpenSSL<CERTIFICATEPOLICIES, CERTIFICATEPOLICIES_free>::Type
-      policies(reinterpret_cast<CERTIFICATEPOLICIES*>(X509V3_EXT_d2i(ex)));
+  crypto::ScopedOpenSSL<CERTIFICATEPOLICIES, CERTIFICATEPOLICIES_free> policies(
+      reinterpret_cast<CERTIFICATEPOLICIES*>(X509V3_EXT_d2i(ex)));
 
   if (!policies.get())
     return l10n_util::GetStringUTF8(IDS_CERT_EXTENSION_DUMP_ERROR);
@@ -822,8 +823,8 @@ std::string ProcessCrlDistPoints(X509_EXTENSION* ex) {
   const int kDistPointRelativeName = 1;
 
   std::string rv;
-  crypto::ScopedOpenSSL<CRL_DIST_POINTS, CRL_DIST_POINTS_free>::Type
-      dist_points(reinterpret_cast<CRL_DIST_POINTS*>(X509V3_EXT_d2i(ex)));
+  crypto::ScopedOpenSSL<CRL_DIST_POINTS, CRL_DIST_POINTS_free> dist_points(
+      reinterpret_cast<CRL_DIST_POINTS*>(X509V3_EXT_d2i(ex)));
 
   if (!dist_points.get())
     return l10n_util::GetStringUTF8(IDS_CERT_EXTENSION_DUMP_ERROR);
@@ -863,8 +864,8 @@ std::string ProcessCrlDistPoints(X509_EXTENSION* ex) {
 
 std::string ProcessAuthInfoAccess(X509_EXTENSION* ex) {
   std::string rv;
-  crypto::ScopedOpenSSL<AUTHORITY_INFO_ACCESS, AUTHORITY_INFO_ACCESS_free>::Type
-      aia(reinterpret_cast<AUTHORITY_INFO_ACCESS*>(X509V3_EXT_d2i(ex)));
+  crypto::ScopedOpenSSL<AUTHORITY_INFO_ACCESS, AUTHORITY_INFO_ACCESS_free> aia(
+      reinterpret_cast<AUTHORITY_INFO_ACCESS*>(X509V3_EXT_d2i(ex)));
 
   if (!aia.get())
     return l10n_util::GetStringUTF8(IDS_CERT_EXTENSION_DUMP_ERROR);
@@ -896,7 +897,7 @@ std::string ProcessAuthInfoAccess(X509_EXTENSION* ex) {
 
 std::string ProcessIA5StringData(ASN1_OCTET_STRING* asn1_string) {
   const unsigned char* data = ASN1_STRING_data(asn1_string);
-  crypto::ScopedOpenSSL<ASN1_IA5STRING, ASN1_IA5STRING_free>::Type ia5_string(
+  crypto::ScopedOpenSSL<ASN1_IA5STRING, ASN1_IA5STRING_free> ia5_string(
       d2i_ASN1_IA5STRING(NULL, &data, ASN1_STRING_length(asn1_string)));
 
   if (!ia5_string.get())
@@ -909,7 +910,7 @@ std::string ProcessIA5StringData(ASN1_OCTET_STRING* asn1_string) {
 
 std::string ProcessBMPStringData(ASN1_OCTET_STRING* asn1_string) {
   const unsigned char* data = ASN1_STRING_data(asn1_string);
-  crypto::ScopedOpenSSL<ASN1_BMPSTRING, ASN1_BMPSTRING_free>::Type bmp_string(
+  crypto::ScopedOpenSSL<ASN1_BMPSTRING, ASN1_BMPSTRING_free> bmp_string(
       d2i_ASN1_BMPSTRING(NULL, &data, ASN1_STRING_length(asn1_string)));
 
   if (!bmp_string.get())
@@ -1182,15 +1183,13 @@ std::string ProcessSecAlgorithmSignatureWrap(
 std::string ProcessSubjectPublicKeyInfo(
     net::X509Certificate::OSCertHandle cert_handle) {
   std::string rv;
-  crypto::ScopedOpenSSL<EVP_PKEY, EVP_PKEY_free>::Type public_key(
-      X509_get_pubkey(cert_handle));
+  crypto::ScopedEVP_PKEY public_key(X509_get_pubkey(cert_handle));
   if (!public_key.get())
     return rv;
   switch (EVP_PKEY_type(public_key.get()->type)) {
     case EVP_PKEY_RSA: {
-      crypto::ScopedOpenSSL<RSA, RSA_free>::Type rsa_key(
-          EVP_PKEY_get1_RSA(public_key.get()));
-      if (!rsa_key.get())
+      crypto::ScopedRSA rsa_key(EVP_PKEY_get1_RSA(public_key.get()));
+      if (!rsa_key)
         return rv;
       rv = l10n_util::GetStringFUTF8(
           IDS_CERT_RSA_PUBLIC_KEY_DUMP_FORMAT,

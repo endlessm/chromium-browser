@@ -7,11 +7,11 @@
 
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/user_metrics_action.h"
+#include "components/guest_view/common/guest_view_constants.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/media_stream_request.h"
 #include "extensions/browser/guest_view/web_view/web_view_permission_types.h"
-#include "extensions/common/guest_view/guest_view_constants.h"
 
 using base::UserMetricsAction;
 
@@ -63,8 +63,7 @@ class WebViewPermissionHelper
   bool CheckMediaAccessPermission(content::WebContents* source,
                                   const GURL& security_origin,
                                   content::MediaStreamType type);
-  void CanDownload(content::RenderViewHost* render_view_host,
-                   const GURL& url,
+  void CanDownload(const GURL& url,
                    const std::string& request_method,
                    const base::Callback<void(bool)>& callback);
   void RequestPointerLockPermission(bool user_gesture,

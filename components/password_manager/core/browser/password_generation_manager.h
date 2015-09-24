@@ -33,7 +33,8 @@ class PasswordManagerDriver;
 // generate a password.
 class PasswordGenerationManager {
  public:
-  explicit PasswordGenerationManager(PasswordManagerClient* client);
+  PasswordGenerationManager(PasswordManagerClient* client,
+                            PasswordManagerDriver* driver);
   virtual ~PasswordGenerationManager();
 
   // Detect account creation forms from forms with autofill type annotated.
@@ -42,11 +43,11 @@ class PasswordGenerationManager {
   void DetectAccountCreationForms(
       const std::vector<autofill::FormStructure*>& forms);
 
- private:
-  friend class PasswordGenerationManagerTest;
-
   // Determines current state of password generation
   bool IsGenerationEnabled() const;
+
+ private:
+  friend class PasswordGenerationManagerTest;
 
   // The PasswordManagerClient instance associated with this instance. Must
   // outlive this instance.

@@ -3,8 +3,7 @@
 // found in the LICENSE file.
 
 // Include test fixture.
-GEN_INCLUDE(['chrome/browser/resources/chromeos/chromevox/testing/' +
-    'chromevox_e2e_test_base.js']);
+GEN_INCLUDE(['chromevox_e2e_test_base.js']);
 
 /**
  * Base test fixture for ChromeVox Next end to end tests.
@@ -14,32 +13,33 @@ GEN_INCLUDE(['chrome/browser/resources/chromeos/chromevox/testing/' +
  * @constructor
  * @extends {ChromeVoxE2ETest}
  */
-function ChromeVoxNextE2ETest() {}
+function ChromeVoxNextE2ETest() {
+  ChromeVoxE2ETest.call(this);
+}
 
 ChromeVoxNextE2ETest.prototype = {
   __proto__: ChromeVoxE2ETest.prototype,
 
   /**
-   * This method is called without |this| bound to an instance of
-   * ChromeVoxNextE2ETest.
-   * @override
+   * Launches a new tab with the given document, and runs callback when a load
+   * complete fires.
+   * @param {function() : void} doc Snippet wrapped inside of a function.
+   * @param {function()} opt_callback Called once the document is ready.
    */
-  testGenCppIncludes: function() {
-    ChromeVoxE2ETest.prototype.testGenCppIncludes.call(this);
-    GEN('#include "base/command_line.h"');
-    GEN('#include "chromeos/chromeos_switches.h"');
-  },
+  runWithLoadedTree: function(doc, callback) {
+    callback = this.newCallback(callback);
+    chrome.automation.getDesktop(function(r) {
+      var listener = function(evt) {
+        if (!evt.target.docUrl ||
+            evt.target.docUrl.indexOf('test') == -1)
+          return;
 
-  /**
-   * This method is called without |this| bound to an instance of
-   * ChromeVoxNextE2ETest.
-   * @override
-   */
-  testGenPreamble: function() {
-    GEN_BLOCK(function() {/*!
-      CommandLine* command_line = CommandLine::ForCurrentProcess();
-      command_line->AppendSwitch(chromeos::switches::kEnableChromeVoxNext);
-    */});
-    ChromeVoxE2ETest.prototype.testGenPreamble.call(this);
+        r.removeEventListener(listener);
+        callback && callback(evt.target);
+        callback = null;
+      };
+      r.addEventListener('loadComplete', listener, true);
+      this.runWithTab(doc);
+    }.bind(this));
   }
 };

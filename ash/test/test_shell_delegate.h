@@ -9,6 +9,7 @@
 
 #include "ash/media_delegate.h"
 #include "ash/shell_delegate.h"
+#include "ash/test/test_session_state_delegate.h"
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
@@ -19,8 +20,6 @@ class KeyboardControllerProxy;
 
 namespace ash {
 namespace test {
-
-class TestSessionStateDelegate;
 
 class TestShellDelegate : public ShellDelegate {
  public:
@@ -37,6 +36,7 @@ class TestShellDelegate : public ShellDelegate {
   bool IsMultiProfilesEnabled() const override;
   bool IsRunningInForcedAppMode() const override;
   bool IsMultiAccountEnabled() const override;
+  bool IsForceMaximizeOnFirstRun() const override;
   void PreInit() override;
   void PreShutdown() override;
   void Exit() override;
@@ -51,7 +51,7 @@ class TestShellDelegate : public ShellDelegate {
   ShelfDelegate* CreateShelfDelegate(ShelfModel* model) override;
   SystemTrayDelegate* CreateSystemTrayDelegate() override;
   UserWallpaperDelegate* CreateUserWallpaperDelegate() override;
-  SessionStateDelegate* CreateSessionStateDelegate() override;
+  TestSessionStateDelegate* CreateSessionStateDelegate() override;
   AccessibilityDelegate* CreateAccessibilityDelegate() override;
   NewWindowDelegate* CreateNewWindowDelegate() override;
   MediaDelegate* CreateMediaDelegate() override;
@@ -63,20 +63,21 @@ class TestShellDelegate : public ShellDelegate {
 
   int num_exit_requests() const { return num_exit_requests_; }
 
-  TestSessionStateDelegate* test_session_state_delegate() {
-    return test_session_state_delegate_;
-  }
-
   void SetMediaCaptureState(MediaCaptureState state);
+  void SetForceMaximizeOnFirstRun(bool maximize) {
+    force_maximize_on_first_run_ = maximize;
+  };
 
  private:
   int num_exit_requests_;
   bool multi_profiles_enabled_;
+  bool force_maximize_on_first_run_;
 
   scoped_ptr<content::BrowserContext> active_browser_context_;
   scoped_ptr<app_list::AppListViewDelegate> app_list_view_delegate_;
 
-  ObserverList<ash::VirtualKeyboardStateObserver> keyboard_state_observer_list_;
+  base::ObserverList<ash::VirtualKeyboardStateObserver>
+      keyboard_state_observer_list_;
 
   TestSessionStateDelegate* test_session_state_delegate_;  // Not owned.
 

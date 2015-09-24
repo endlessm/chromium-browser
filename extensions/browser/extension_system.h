@@ -30,14 +30,9 @@ class BrowserContext;
 namespace extensions {
 
 class ContentVerifier;
-class DeclarativeUserScriptMaster;
-class ErrorConsole;
-class EventRouter;
 class Extension;
 class ExtensionSet;
 class InfoMap;
-class InstallVerifier;
-class LazyBackgroundTaskQueue;
 class ManagementPolicy;
 class OneShotEvent;
 class QuotaService;
@@ -86,18 +81,6 @@ class ExtensionSystem : public KeyedService {
   // Returns the IO-thread-accessible extension data.
   virtual InfoMap* info_map() = 0;
 
-  // The LazyBackgroundTaskQueue is created at startup.
-  virtual LazyBackgroundTaskQueue* lazy_background_task_queue() = 0;
-
-  // The EventRouter is created at startup.
-  virtual EventRouter* event_router() = 0;
-
-  // The ErrorConsole is created at startup.
-  virtual ErrorConsole* error_console() = 0;
-
-  // The InstallVerifier is created at startup.
-  virtual InstallVerifier* install_verifier() = 0;
-
   // Returns the QuotaService that limits calls to certain extension functions.
   // Lives on the UI thread. Created at startup.
   virtual QuotaService* quota_service() = 0;
@@ -128,11 +111,6 @@ class ExtensionSystem : public KeyedService {
   // so it can be retrieved from ExtensionSystem directly.
   virtual scoped_ptr<ExtensionSet> GetDependentExtensions(
       const Extension* extension) = 0;
-
-  // Get the user script master for declarative scripts, if any.
-  virtual DeclarativeUserScriptMaster*
-      GetDeclarativeUserScriptMasterByExtension(
-          const ExtensionId& extension_id) = 0;
 };
 
 }  // namespace extensions

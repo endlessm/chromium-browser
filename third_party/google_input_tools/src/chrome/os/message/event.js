@@ -21,7 +21,7 @@ goog.require('goog.events.Event');
  * The message event.
  *
  * @param {i18n.input.chrome.message.Type} type .
- * @param {Object} msg .
+ * @param {*} msg .
  * @param {Function=} opt_sendResponse .
  * @constructor
  * @extends {goog.events.Event}
@@ -29,7 +29,7 @@ goog.require('goog.events.Event');
 i18n.input.chrome.message.Event = function(type, msg, opt_sendResponse) {
   goog.base(this, type);
 
-  /** @type {Object} */
+  /** @type {*} */
   this.msg = msg;
 
   /** @type {Function} */
